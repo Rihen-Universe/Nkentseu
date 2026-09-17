@@ -344,6 +344,119 @@ static int32 g_lumX0 = 0, g_lumX1 = 0;
 /// Garder une copie des pixels du prochain montage (pour comparer deux images).
 static bool g_garderPixels = false;
 
+// ── LA ZONE HOTE : le remplisseur de l'application d'essai (m5) ──────────────
+// ⚠️ LA SIGNATURE EST UNE COULEUR QUE RIEN D'AUTRE NE PEINT. Un remplisseur qui
+//    peindrait dans les tons du theme serait indistinguable du marqueur de zone
+//    vide, et le banc mesurerait « des pixels » au lieu de mesurer SON contenu.
+static const uint32 kSignatureHote = 0xFF00FFFFu; // magenta opaque, R<<24|G<<16|B<<8|A
+
+static bool NomEgal(const char *a, const char *b) {
+	if (!a || !b)
+		return false;
+	while (*a && *b && *a == *b) {
+		++a;
+		++b;
+	}
+	return *a == '\0' && *b == '\0';
+}
+
+struct RemplisseurHote : nkentseu::nkgui::NkGuiMonteHooks {
+		const char *cible = nullptr; ///< le seul nom que cet hote sait remplir
+		NkRect derniere{};
+		uint32 remplis = 0;
+		bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept override {
+			// UN HOTE QUI NE CONNAIT PAS LE NOM REPOND NON. C'est le contrat : repondre
+			// oui sans peindre ferait disparaitre la zone en silence.
+			if (!NomEgal(nom, cible))
+				return false;
+			ctx.DL().AddRectFilled(zone, NkColor{255, 0, 255, 255});
+			derniere = zone;
+			++remplis;
+			return true;
+		}
+};
+/// Pose juste avant un montage, comme les autres options de ce banc.
+static nkentseu::nkgui::NkGuiMonteHooks *g_hooks = nullptr;
+
+/// LE TEMOIN D'UNE ZONE NON REMPLIE : il note le rectangle et repond NON.
+///
+/// ⚠️ IL EXISTE PARCE QU'UN COMPTEUR SATURE NE DISTINGUE RIEN. Le premier critere
+///    du marqueur etait « l'image peint des pixels » : le Panel en peint 239 980 a
+///    lui seul, et le compte etait IDENTIQUE avec et sans marqueur. Un critere qui
+///    rend le meme nombre dans les deux cas ne teste rien. On compte donc DANS LE
+///    RECTANGLE DE LA ZONE, et on garde le rectangle par ce temoin.
+struct TemoinHote : nkentseu::nkgui::NkGuiMonteHooks {
+		const char *cible = nullptr;
+		NkRect zone{};
+		bool vu = false;
+		bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &r) noexcept override {
+			(void)ctx;
+			if (NomEgal(nom, cible)) {
+				zone = r;
+				vu = true;
+			}
+			return false; // il REGARDE, il ne remplit pas
+		}
+};
+
+/// Combien de pixels, DANS ce rectangle, S'ECARTENT EN LUMINANCE de la dominante du
+/// rectangle lui-meme. Sur une zone vide, la dominante est l'aplat du panneau :
+/// tout ce qui compte ici est donc ce que le marqueur a trace.
+static uint32 ComptePixelsDansRect(const NkVector<uint8> &px, int32 W, int32 H, const NkRect &r) {
+	if (px.Size() == 0u || r.w < 1.f || r.h < 1.f)
+		return 0u;
+	const int32 x0 = (int32)(r.x + 1.f), y0 = (int32)(r.y + 1.f);
+	const int32 x1 = (int32)(r.x + r.w - 1.f), y1 = (int32)(r.y + r.h - 1.f);
+	// La dominante du rectangle, comptee sur lui et non sur l'image entiere.
+	uint32 couleurs[64] = {};
+	uint32 comptes[64] = {};
+	uint32 n = 0;
+	for (int32 y = y0; y < y1; ++y)
+		for (int32 x = x0; x < x1; ++x) {
+			const usize i = ((usize)y * (usize)W + (usize)x) * 4u;
+			if (i + 3u >= px.Size())
+				continue;
+			const uint32 c = ((uint32)px[(uint32)i] << 24) | ((uint32)px[(uint32)i + 1u] << 16)
+							 | ((uint32)px[(uint32)i + 2u] << 8) | (uint32)px[(uint32)i + 3u];
+			uint32 k = 0;
+			for (; k < n; ++k)
+				if (couleurs[k] == c) {
+					++comptes[k];
+					break;
+				}
+			if (k == n && n < 64u) {
+				couleurs[n] = c;
+				comptes[n] = 1u;
+				++n;
+			}
+		}
+	uint32 best = 0u, bestN = 0u;
+	for (uint32 k = 0; k < n; ++k)
+		if (comptes[k] > bestN) {
+			bestN = comptes[k];
+			best = couleurs[k];
+		}
+	uint32 autres = 0u;
+	for (int32 y = y0; y < y1; ++y)
+		for (int32 x = x0; x < x1; ++x) {
+			const usize i = ((usize)y * (usize)W + (usize)x) * 4u;
+			if (i + 3u >= px.Size())
+				continue;
+			const uint32 c = ((uint32)px[(uint32)i] << 24) | ((uint32)px[(uint32)i + 1u] << 16)
+							 | ((uint32)px[(uint32)i + 2u] << 8) | (uint32)px[(uint32)i + 3u];
+			// ⚠️ « DIFFERENT » NE VEUT PAS DIRE « VISIBLE ». La premiere version comptait
+			//    toute couleur autre que la dominante : le marqueur trace en `theme.border`
+			//    rendait 3 778 pixels, le critere passait au vert, et l'image ne montrait
+			//    RIEN -- la bordure est a 9 de luminance de l'aplat. On exige donc un ecart
+			//    de luminance qu'un oeil distingue.
+			const float32 dl = Luminance(c) - Luminance(best);
+			if (dl > 20.f || dl < -20.f)
+				++autres;
+		}
+	(void)H;
+	return autres;
+}
+
 // ── LA POLICE, et pourquoi ce banc en charge une ──────────────────────────────
 // Sans police, `Text()` place son rectangle mais ne peint AUCUN glyphe : le
 // premier releve de ce banc rendait 0 pixel pour `04_echappements_utf8` et
@@ -422,7 +535,7 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 
 	NkGuiMonteEtat etat;
 	NkGuiMonteur::Preparer(doc, etat);
-	NkGuiMonteur::Monter(ctx, doc, etat, m.rap);
+	NkGuiMonteur::Monter(ctx, doc, etat, m.rap, g_hooks);
 
 	NkGuiDrawListRaster ras;
 	if (ras.Init(w, h)) {
@@ -1190,6 +1303,80 @@ int main(int argc, char **argv) {
 		const Montage c = MonterTexte(aucun, n3, 400, 200);
 		CheckEq(b.empreinte, c.empreinte,
 				"   NEGATIF : `title` vide == pas de `title`, AU BIT");
+	}
+
+	printf("\n-- (m5) LA ZONE HOTE : l'application remplit, et ce que personne ne remplit SE VOIT\n");
+	{
+		// ⚠️ LA FRONTIERE DU FORMAT, ET ELLE SE MESURE. Un `Host` est un rectangle que
+		//    l'APPLICATION peint. Trois choses doivent etre vraies a la fois :
+		//      1. ce que l'hote peint est LA, a la place que le document lui a donnee ;
+		//      2. ce que personne ne remplit NE PEINT PAS de faux contenu -- zero pixel
+		//         de la signature -- et NE DISPARAIT PAS : un marqueur, et un compteur ;
+		//      3. la zone se compte dans les deux cas.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "12_zone_hote.nkgui");
+
+		// ── (a) L'HOTE REMPLIT « viseur3d », personne ne remplit « apercu_materiau »
+		RemplisseurHote hote;
+		hote.cible = "viseur3d";
+		g_hooks = &hote;
+		g_couleurCible = kSignatureHote;
+		const Montage r = MonterFichier(chemin, 400, 600, "12_zone_hote_rempli");
+		g_hooks = nullptr;
+		g_couleurCible = 0u;
+		Check(r.lu, "   le document se lit");
+		CheckEq(r.rap.rolesInconnus, 0u, "   `Host` est du vocabulaire (0 role inconnu)");
+		CheckEq(r.rap.hotes, 2u, "   DEUX zones hotes comptees");
+		CheckEq(r.rap.hotesNonRemplis, 1u, "   UNE seule est restee non remplie");
+		CheckEq(hote.remplis, 1u, "   l'hote n'a rempli QUE le nom qu'il connait");
+		// Ce que l'hote a peint est a la place que le DOCUMENT lui a donnee, et sa
+		// surface est celle du rectangle -- pas « des pixels quelque part ».
+		const uint32 aire = (uint32)(hote.derniere.w * hote.derniere.h + 0.5f);
+		printf("        zone rendue a l'hote : %.0fx%.0f a (%.0f, %.0f) -> %u px attendus ; %u peints\n",
+			   (double)hote.derniere.w, (double)hote.derniere.h, (double)hote.derniere.x,
+			   (double)hote.derniere.y, aire, r.poigneeN);
+		Check(hote.derniere.w > 1.f && hote.derniere.h > 1.f, "   la zone rendue a une surface");
+		Check(r.poigneeN > 0u, "   la signature de l'hote EST dans l'image");
+		// Tolerance : le rasteriseur peut perdre une bordure de pixels sur les bords,
+		// et le texte du Panel peut recouvrir une partie de l'aplat.
+		Check(r.poigneeN <= aire + 4u, "   et elle ne DEBORDE pas du rectangle du document");
+		Check(r.poigneeN * 10u >= aire * 9u, "   elle en couvre au moins les neuf dixiemes");
+
+		// ── (b) LE NEGATIF : personne ne remplit rien
+		g_couleurCible = kSignatureHote;
+		const Montage v = MonterFichier(chemin, 400, 600, "12_zone_hote_vide");
+		g_couleurCible = 0u;
+		Check(v.lu, "   le meme document, sans aucun hote, se lit");
+		CheckEq(v.rap.hotes, 2u, "   les DEUX zones se comptent quand meme");
+		CheckEq(v.rap.hotesNonRemplis, 2u, "   et les DEUX sont declarees non remplies");
+		CheckEq(v.poigneeN, 0u, "   ZERO pixel de la signature : aucun faux contenu");
+		// Et elles ne disparaissent pas : le marqueur peint, donc l'image change.
+		printf("        pixels peints : avec hote %u ; sans hote %u\n", r.pixels, v.pixels);
+		Check(v.pixels > 0u, "   la zone vide PEINT quelque chose (son marqueur)");
+		Check(v.empreinte != r.empreinte, "   et les deux images different");
+
+		// ── (c) LE MARQUEUR SE MESURE DANS SA ZONE, PAS SUR L'IMAGE ENTIERE
+		// Le temoin note le rectangle de la zone que personne ne remplit, puis on
+		// recompte DANS ce rectangle. Le compteur d'image entiere, lui, rendait
+		// 239 980 dans les deux cas : sature par l'aplat du Panel.
+		TemoinHote temoin;
+		temoin.cible = "apercu_materiau";
+		g_hooks = &temoin;
+		g_garderPixels = true;
+		const Montage t = MonterFichier(chemin, 400, 600);
+		g_hooks = nullptr;
+		g_garderPixels = false;
+		Check(temoin.vu, "   le temoin a bien vu passer la zone non remplie");
+		const uint32 marque = ComptePixelsDansRect(t.px, 400, 600, temoin.zone);
+		printf("        zone non remplie : %.0fx%.0f a (%.0f, %.0f) -> %u px de marqueur\n",
+			   (double)temoin.zone.w, (double)temoin.zone.h, (double)temoin.zone.x,
+			   (double)temoin.zone.y, marque);
+		// ⚠️ CE CRITERE EST CELUI QUE LA MUTATION DOIT FAIRE ROUGIR.
+		//    `NK_HOTE_MUTATION=sansmarqueur` retire le trace du marqueur : ce compte
+		//    doit alors tomber a zero, et cette ligne doit ECHOUER. Une mutation qui
+		//    survit dirait que le critere ne teste rien.
+		Check(marque > 0u, "   le marqueur TRACE dans la zone (mutation : sansmarqueur)");
+		Check(temoin.zone.w > 1.f && temoin.zone.h > 1.f, "   et la zone a une surface");
 	}
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);

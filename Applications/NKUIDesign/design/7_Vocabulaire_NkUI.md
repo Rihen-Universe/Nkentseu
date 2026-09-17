@@ -146,6 +146,35 @@ moteur.** Un `RadioGroup` exporté vers un moteur qui n'a pas l'exclusivité doi
 | `Scroll` | *(drapeaux de `BeginChild`)* | `axis`, `always` |
 | `Splitter` | `Splitter` | `bind`, `min`, `max`, `orientation` |
 
+### 3.7 La zone hôte
+
+| vocabulaire | remplace | propriétés |
+|---|---|---|
+| `Host` | *(rien : le concept manquait)* | `hint` |
+
+⚠️ **`Host` n'est pas un widget, et c'est tout son intérêt.** Il déclare un **rectangle
+que l'application remplit** : le viseur 3D de NK3DModeler, la toile de NKUIDesign,
+l'éditeur de texte de NKCode. C'est la **frontière du format**, et elle se dit en une
+phrase : *le document décrit OÙ et QUOI ; l'application garde QUAND et COMMENT.*
+
+Sans ce rôle, un document ne peut décrire qu'un **écran de démonstration**, jamais une
+application réelle — c'est ce que l'inventaire du 17/09 a mesuré.
+
+⚠️ **Ce n'est PAS `Callback`.** Ce mot appartient déjà deux fois au format : `callback`
+est l'une des huit sections (document 9), et `Callback "nom"(...)` est un **appel de
+comportement** — `valides/05_animation_comportement.nkgui:29` l'emploie ainsi et valide à
+0 erreur. Le monteur avait inscrit, de son côté, un rôle de widget du même nom : aucun
+document ne l'employait, le validateur le refusait, et il a été **retiré** plutôt que
+légalisé. *Un rôle qui porte le nom d'une section n'est pas un rôle, c'est un homonyme.*
+
+⚠️ **Le NOM est revisable, et c'est le seul point de ce lot qui demande ton arbitrage.**
+`Host` a été choisi parce que le dépôt dit déjà « l'application hôte », « les panneaux
+hôtes ». Le renommer coûtera un alias (§5), jamais une réécriture.
+
+**Une zone que personne ne remplit ne disparaît pas en silence** : le monteur y peint des
+hachures et le nom de la zone, et la compte (`hotesNonRemplis`). Un manque muet se fait
+prendre pour un fond ; un manque qui se voit se répare.
+
 ⚠️ **`modal` est une propriété de `Window`, pas un rôle** (§14ter.4). Et `Scroll`
 devient un conteneur explicite au lieu d'un drapeau : *une zone défilante est un
 objet dans une maquette, pas une option cachée d'un autre.*

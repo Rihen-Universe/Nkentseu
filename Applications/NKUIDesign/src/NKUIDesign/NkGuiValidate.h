@@ -299,6 +299,18 @@ namespace nkuidesign {
 			static const NkGSchemaProp pScroll[] = {{"axis", 'e'}, {"always", 'b'}};
 			static const NkGSchemaProp pSplitter[] = {
 				{"bind", 'r'}, {"min", 'n'}, {"max", 'n'}, {"orientation", 'e'}};
+			// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────────
+			// ⚠️ ELLE N'EST PAS UN WIDGET, ET C'EST TOUT L'INTERET. `Host` declare un
+			//    RECTANGLE que l'application remplit : un viseur 3D, une toile, un
+			//    editeur de texte. Sans ce role, aucun document ne peut decrire une
+			//    application reelle -- seulement un ecran de demonstration.
+			// ⚠️ ET CE N'EST PAS `Callback`. Ce mot appartient deja au format DEUX fois :
+			//    `callback` est l'une des huit sections, et `Callback "nom"(...)` est un
+			//    appel de comportement (`valides/05_animation_comportement.nkgui:29`,
+			//    qui valide a 0 erreur). Le monteur avait inscrit un role de widget du
+			//    meme nom ; il a ete RETIRE, pas legalise.
+			// `hint` : le texte du marqueur quand personne ne remplit. Par defaut, le nom.
+			static const NkGSchemaProp pHost[] = {{"hint", 's'}};
 			static const NkGSchemaProp pNone[] = {{"", 'a'}};
 
 			static const NkGSchemaRole kTable[] = {
@@ -342,6 +354,7 @@ namespace nkuidesign {
 				{"Table", pTable, 2},
 				{"Scroll", pScroll, 2},
 				{"Splitter", pSplitter, 4},
+				{"Host", pHost, 1},
 			};
 			count = sizeof(kTable) / sizeof(NkGSchemaRole);
 			return kTable;
