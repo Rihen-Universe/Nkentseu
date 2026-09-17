@@ -44,6 +44,11 @@
 //  MONTE  :  l'ETAT AU REPOS du document. Les conteneurs (Window, Panel, VBox,
 //            HBox, Group), leur `gap`, leur `align`/`justify`, les `Spacer`, et
 //            les quatorze roles qui dessinent.
+//            Depuis le 2026-09-17, il monte aussi la ZONE HOTE (`Host`) : un
+//            rectangle que l'APPLICATION remplit par le crochet `RemplirHote`.
+//            C'est la frontiere du format -- le document dit OU et QUOI, l'hote
+//            garde QUAND et COMMENT -- et une zone que personne ne remplit se
+//            SIGNALE (hachures + nom) au lieu de disparaitre.
 //
 //  NE MONTE PAS, et ce n'est pas un oubli :
 //   - le COMPORTEMENT qui s'execute (`set r = n1.value * 100`, `if`) : la section
@@ -77,6 +82,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
+#include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
 
 namespace nkentseu {
 	namespace nkgui {
@@ -103,7 +109,17 @@ namespace nkentseu {
 			Spacer,
 			Image,
 			Chart,
-			Callback
+			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
+			//    FOIS au format : `callback` est l'une des huit sections, et
+			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
+			//    l'ecrit (`NkGuiInteraction.h:66`) et le corpus l'emploie ainsi
+			//    (`valides/05_animation_comportement.nkgui:29`, qui valide a 0 erreur).
+			//    Le role de widget du meme nom n'etait dans AUCUN document et le
+			//    validateur le refusait (`E-ROLE-INCONNU`, mesure) : du code que seul un
+			//    document invalide pouvait atteindre. On ne le legalise pas, on le retire.
+			/// LA ZONE QUE L'APPLICATION REMPLIT -- viseur 3D, toile, editeur de texte.
+			/// Le document dit OU et QUOI ; l'hote garde QUAND et COMMENT.
+			Host
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -134,7 +150,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
 			if (NkGMotEgal(n, "Chart")) return NkGuiRole::Chart;
-			if (NkGMotEgal(n, "Callback")) return NkGuiRole::Callback;
+			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
 
@@ -195,6 +211,14 @@ namespace nkentseu {
 				///    pas par `NextItemRect` le laisserait ARME pour le suivant. On
 				///    le desarme et on le COMPTE, plutot que de contaminer le voisin.
 				uint32 posesNonConsommes = 0;
+				// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────
+				/// Les `Host` rencontres : une zone se compte, remplie ou non.
+				uint32 hotes = 0;
+				/// ⚠️ CELLES QUE PERSONNE N'A REMPLIES. Ce compteur est la raison d'etre
+				///    du marqueur : une zone vide qui ne se compte pas se fait prendre
+				///    pour un fond, et le document a l'air monte alors qu'il manque sa
+				///    partie la plus importante.
+				uint32 hotesNonRemplis = 0;
 				uint32 modales = 0;			 ///< `Window { modal = true }` rencontres
 				/// Les drapeaux d'INTERACTION (`NoMove`, `NoResize`, `NoClose`,
 				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
@@ -578,6 +602,20 @@ namespace nkentseu {
 					(void)w;
 					(void)role;
 					(void)e;
+				}
+
+				/// LA ZONE HOTE : l'hote peint `zone`, et rend VRAI s'il l'a fait.
+				///
+				/// ⚠️ LE DEFAUT EST `false`, ET C'EST VOULU. Un hote qui ne connait pas ce
+				///    nom ne doit pas repondre oui : le monteur peindra alors son marqueur
+				///    et comptera la zone comme non remplie. Repondre vrai sans peindre
+				///    ferait disparaitre la zone en silence -- exactement ce que ce role
+				///    existe pour empecher.
+				virtual bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept {
+					(void)ctx;
+					(void)nom;
+					(void)zone;
+					return false;
 				}
 		};
 
@@ -1183,10 +1221,73 @@ namespace nkentseu {
 							}
 							break;
 						}
-						case NkGuiRole::Callback: {
-							// Ce n'est pas une chose qui se voit : c'est un point
-							// d'entree. Compte comme widget du document, jamais monte.
-							aDessine = false;
+						// ═══════════════════════════════════════════════════════════
+						//  LA ZONE HOTE -- le document dit OU, l'application peint QUOI
+						// ═══════════════════════════════════════════════════════════
+						//  C'est la frontiere du format, et elle est ici. Un viseur 3D, une
+						//  toile, un editeur de texte ne sont pas des widgets : ce sont des
+						//  RECTANGLES que l'hote remplit. Sans ce role, aucun document ne
+						//  pourra jamais decrire une application reelle.
+						//
+						//  ⚠️ UNE ZONE QUE PERSONNE NE REMPLIT NE DISPARAIT PAS EN SILENCE,
+						//     ET NE PEINT PAS DE FAUX CONTENU. Elle se signale : des hachures
+						//     et son nom -- ce qu'aucun contenu plausible ne ressemble -- et
+						//     elle se COMPTE (`hotesNonRemplis`). Un manque muet se fait
+						//     prendre pour un fond ; un manque qui se voit se repare.
+						case NkGuiRole::Host: {
+							++rap.hotes;
+							// Un `pos`/`size` pose a deja arme `SetNextItemRect` avant le switch :
+							// `NextItemRect` le rend tel quel. Sans pose, la zone prend la largeur
+							// disponible et quatre hauteurs d'item -- assez pour se voir.
+							const NkRect zone = ctx.NextItemRect(-1.f, ctx.ItemHeight() * 4.f);
+							const bool rempli = hooks && hooks->RemplirHote(ctx, id.CStr(), zone);
+							if (!rempli) {
+								++rap.hotesNonRemplis;
+								// MUTATION DE BANC, NK_HOTE_MUTATION=sansmarqueur : la zone vide ne
+								// trace plus rien. Elle sert a prouver que le critere du marqueur
+								// teste quelque chose ; sans la variable, rien ne change.
+								static const bool kSansMarqueur = []() {
+									const char *v = getenv("NK_HOTE_MUTATION");
+									return v && v[0] == 's';
+								}();
+								if (kSansMarqueur)
+									break;
+								NkGuiDrawList &dl = ctx.DL();
+								// 🔴 LA COULEUR DU MARQUEUR EST CELLE DU TEXTE SECONDAIRE, PAS CELLE
+								//    DE LA BORDURE. Premiere version : `theme.border`. Le banc
+								//    comptait 3 778 pixels traces et passait au VERT -- et l'image
+								//    ne montrait RIEN : la bordure est a 9 de luminance de l'aplat du
+								//    panneau. Un marqueur qu'aucun oeil ne voit ne signale rien, et
+								//    c'est exactement le defaut muet que ce role existe pour empecher.
+								//    Le critere du banc compte desormais les pixels dont la LUMINANCE
+								//    s'ecarte de l'aplat : la bordure y rougirait.
+								const NkColor trait = ctx.theme.textMuted;
+								dl.AddRect(zone, trait, 1.f);
+								// LES HACHURES : elles disent « rien n'est monte ici », et aucun
+								// contenu d'application ne leur ressemble.
+								const float32 pas = 12.f;
+								for (float32 d = 0.f; d < zone.w + zone.h; d += pas) {
+									float32 x0 = zone.x + d, y0 = zone.y;
+									float32 x1 = zone.x, y1 = zone.y + d;
+									if (x0 > zone.x + zone.w) {
+										y0 += x0 - (zone.x + zone.w);
+										x0 = zone.x + zone.w;
+									}
+									if (y1 > zone.y + zone.h) {
+										x1 += y1 - (zone.y + zone.h);
+										y1 = zone.y + zone.h;
+									}
+									if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
+										dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+								}
+								// ET SON NOM : « zone non remplie » sans dire LAQUELLE renverrait
+								// l'hote a chercher. Le nom du noeud est la cle qu'il doit servir.
+								if (ctx.font && ctx.font->Valid()) {
+									const NkString h = NkGTexte(w, "hint", id.CStr());
+									dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+											   {zone.x + 6.f, zone.y + 4.f}, h.CStr(), ctx.theme.textMuted);
+								}
+							}
 							break;
 						}
 						default:
