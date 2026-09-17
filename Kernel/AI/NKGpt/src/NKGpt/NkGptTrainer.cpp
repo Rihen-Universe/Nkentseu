@@ -1,10 +1,12 @@
 // =============================================================================
 // NKGpt/NkGptTrainer.cpp — implémentation de l'entraîneur GPT réutilisable
-// AUTEUR : Rihen — LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// LICENCE : Propriétaire - usage régi par le fichier LICENSE à la racine du dépôt
 // =============================================================================
 #include "NKGpt/NkGptTrainer.h"
 #include "NKData/NkBpeTrainer.h" // tokenizer pré-entraîné (LoadBpe) + encodeur à mémo
 #include "NKOptim/NkOptim.h"
+#include "NKPlatform/NkEnv.h" // SONDE DE MESURE : interrupteur NK_ILYANA_SONDE (voir plus bas)
 #include "NKTensor/NkTensorGpu.h"
 #include "NKTime/NkChrono.h"
 #include "NKMath/NkFunctions.h" // NkExp, NkCos (au lieu de <math.h>)
@@ -408,6 +410,60 @@ namespace nkentseu {
 					return false;
 				fclose(f);
 				return true;
+			}
+
+			// =================================================================
+			// SONDE DE MESURE — le négatif et la mutation DANS LE MÊME BINAIRE
+			// =================================================================
+			// Les deux gardes de sécurité ci-dessous (« perte impossible » et
+			// « rafale de défauts GPU ») protègent contre des événements qu'on ne
+			// sait pas provoquer à volonté : un calcul GPU qui cesse d'avoir lieu.
+			// Sans moyen de les déclencher, on ne peut ni les éprouver ni MUTER
+			// ce qu'elles protègent — et une garde qu'on n'a jamais vue mordre
+			// est une décoration. Le 2026-09-07, celle de la perte impossible a
+			// crié puis laissé écrire le modèle dégénéré par-dessus le point
+			// sain : personne ne l'avait jamais fait mordre pour de vrai.
+			//
+			// Deux constructions différentes ne prouveraient rien (elles peuvent
+			// différer par autre chose) : l'interrupteur vit donc DANS le binaire.
+			//
+			//   NK_ILYANA_SONDE=perte-impossible  -> force la perte à 0 au pas 1,
+			//                                        ce qui arme le FILET 1.
+			//   NK_ILYANA_SONDE=garde-muette      -> idem, PLUS la MUTATION : la
+			//                                        sauvegarde de fin de course
+			//                                        redevient inconditionnelle
+			//                                        (le comportement du 07/09).
+			//                                        Le critère DOIT rougir.
+			//   NK_ILYANA_SONDE=seuil-defauts-1   -> ramène le seuil du filet des
+			//                                        30 pas à 1 défaut, c'est-à-dire
+			//                                        au comportement qui a tué 19
+			//                                        reprises légitimes. MUTATION
+			//                                        du correctif du seuil.
+			//   NK_ILYANA_SONDE=etat-horizon      -> MUTATION : `.etat.txt` reçoit de
+			//                                        nouveau l'HORIZON au lieu du pas
+			//                                        réel du checkpoint.
+			//   NK_ILYANA_SONDE=garde-muette-horizon -> les DEUX mutations à la fois :
+			//                                        c'est la seule façon d'observer
+			//                                        celle de l'état, qui n'est visible
+			//                                        que sur un `break` QUI SAUVE —
+			//                                        c'est-à-dire le 07/09 exactement.
+			//
+			// ⚠️ CONDITION DE RETRAIT : ces trois valeurs disparaissent le jour où
+			// la cause de la rafale `ce_idx_fwd` est trouvée ET où un banc sait la
+			// reproduire sans tricher. Tant que ce n'est pas le cas, elles sont le
+			// seul moyen d'éprouver les gardes. Toute valeur inconnue = sonde
+			// inactive, et l'activation est ANNONCÉE dans le journal.
+			static bool Sonde(const char *valeur) {
+				const char *v = nkentseu::env::GetEnvVar("NK_ILYANA_SONDE");
+				if (!v || !*v || !valeur)
+					return false;
+				const char *a = v;
+				const char *b = valeur;
+				while (*a && *b && *a == *b) {
+					++a;
+					++b;
+				}
+				return *a == '\0' && *b == '\0';
 			}
 
 			void NkGptTrainer::EcrireEtat(int64 pasGlobal, int64 horizon, double perte, double lr, double sParPas,
@@ -1131,6 +1187,11 @@ namespace nkentseu {
 										"position. La perte affichee serait divisee d'autant sans que rien "
 										"ne le signale. ***",
 										(long long)s, microVides, ACCUM);
+							// Ce `break` ne posait AUCUN motif : il retombait donc sur la
+							// sauvegarde de fin de course, exactement comme celui du 07/09.
+							// Trouvé le 17/09 en cherchant « quel chemin de sortie voit
+							// encore l'ancien défaut ».
+							mArretFatal = "des micro-lots n'ont somme aucune position : la perte affichee est fausse";
 							break;
 						}
 					}
@@ -1171,12 +1232,14 @@ namespace nkentseu {
 										"non entraine ne peut PAS faire mieux que l'uniforme : le lot est mal "
 										"rempli, ou des lignes n'ont pas ete calculees. ***",
 										lv, attendue);
+							mArretFatal = "perte du pas 1 inferieure a ln(V) : lot mal rempli ou lignes non calculees";
 							break;
 						}
 						if (lv > attendue + margeHaute) {
 							logger.Info("*** ARRET au pas 1 : perte = {0}, trop au-dessus de ln(V) = {1} "
 										"(marge {2}). Initialisation hors norme. ***",
 										lv, attendue, margeHaute);
+							mArretFatal = "perte du pas 1 trop au-dessus de ln(V) : initialisation hors norme";
 							break;
 						}
 						logger.Info("   [init] perte au pas 1 = {0}, ln(V) = {1}, exces {2} : conforme.", lv,
@@ -1205,6 +1268,13 @@ namespace nkentseu {
 					// et le run a paru 2,5 fois plus rapide que la normale. Un garde-fou
 					// qui rassure à tort est pire que pas de garde-fou du tout : il fait
 					// tourner des heures dans le vide en affichant que tout va bien.
+					// SONDE : fabrique l'impossibilité qu'on ne sait pas provoquer.
+					// Elle s'annonce, et elle ne s'applique qu'au pas 1.
+					if (s == 1 && (Sonde("perte-impossible") || Sonde("garde-muette") || Sonde("garde-muette-horizon"))) {
+						logger.Info("*** SONDE DE MESURE *** NK_ILYANA_SONDE actif : la perte du pas 1 est forcee "
+									"a 0 pour armer le FILET 1. Ce n'est PAS une mesure du modele.");
+						lv = 0.0;
+					}
 					if (!(lv > 0.0) || lv != lv || lv > 1e30) {
 						logger.Info("*** ARRET au pas {0} : perte = {1}, ce qui est IMPOSSIBLE. ***", (long long)s,
 									lv);
@@ -1212,6 +1282,11 @@ namespace nkentseu {
 									"signifie que le calcul GPU ne produit plus rien. Defauts GPU signales : "
 									"{0}. Reduire --B (et augmenter --accum a lot effectif egal). ***",
 									(long long)NkTensorGpu::DefautCount());
+						// ⚠️ CE MOT EST CE QUI EMPECHE LA SAUVEGARDE DE FIN DE COURSE.
+						// Sans lui (etat du code jusqu'au 2026-09-17), le `break` retombait
+						// sur `sauver(totalHorizon, "fin de course")` et ecrivait le modele
+						// dégénéré par-dessus le checkpoint sain.
+						mArretFatal = "perte impossible (zero, negative ou NaN) : le calcul GPU ne produit plus rien";
 						break;
 					}
 
@@ -1241,22 +1316,67 @@ namespace nkentseu {
 						const double ecart = (mPerteInitiale - lv) / mPerteInitiale;
 						const double bouge = (ecart < 0.0) ? -ecart : ecart;
 						const int64 defauts = NkTensorGpu::DefautCount();
+						// Un modele NEUF part de l'uniforme : chez lui seul, « la perte n'a
+						// pas bouge en 30 pas » est un symptome. En reprise, non — d'ou la
+						// distinction ci-dessous, et d'ou cette variable.
+						const bool modeleNeuf = mCfg.loadPath.Empty();
 						// EN REPRISE (poids charges), « n'a pas bouge » ne prouve rien : un
 						// modele deja entraine, au plancher du pas d'apprentissage, rend deux
 						// pertes de lots differents qui peuvent coincider a 0,1 % pres par
 						// hasard — et un modele charge n'est plus uniforme, donc le symptome
 						// « colle a ln(V) » n'existe plus. Seul un defaut GPU declare arrete
 						// une reprise. (Vu en preparant le temoin de reprise du 2026-08-17.)
-						const bool modeleNeuf = mCfg.loadPath.Empty();
-						if ((modeleNeuf && bouge < 0.001) || defauts > 0) {
-							logger.Info("*** ARRET : apres 30 pas la perte n'a pas bouge ({0} -> {1}, soit {2}%). "
-										"Defauts GPU signales : {3}. ***",
-										mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
-							logger.Info("*** Le calcul n'a tres probablement PAS lieu. Causes connues : lot trop "
-										"grand pour la carte (essayer --B plus petit avec --accum plus grand a lot "
-										"effectif egal), ou memoire video insuffisante. ***");
+						// ⚠️ LE SEUIL DE DEFAUTS SE DERIVE, IL NE SE DEVINE PAS.
+						//
+						// Jusqu'au 2026-09-17 la condition etait `defauts > 0` : UN SEUL
+						// defaut sporadique tuait une reprise legitime. Mesure : du 08/09 au
+						// 17/09, DIX-NEUF sessions de suite sont mortes ici sur « Defauts GPU
+						// signales : 1 », 30 pas chacune — et le 07/09 la meme course avait
+						// SURVECU a un defaut d'une ligne a 17:52 puis tourne une heure de
+						// plus, au seul motif qu'il etait tombe apres le pas 30. Ce n'etait
+						// pas une garde, c'etait une loterie sur la position du defaut.
+						//
+						// Ce filet existe pour un cas precis : LE CALCUL N'A PAS LIEU. Si le
+						// calcul n'a pas lieu, CHAQUE pas produit un defaut — la rafale du
+						// 07/09 en a compte onze en deux secondes, quand un pas normal dure
+						// quatorze secondes. Le seuil est donc « au moins un defaut par pas »
+						// sur la fenetre de controle, soit 30. En dessous, on ALERTE et on
+						// continue : le FILET 1 ci-dessus, lui, teste chaque pas et arrete
+						// pour de bon des que la perte devient impossible — c'est exactement
+						// lui qui a crie le 07/09.
+						// MUTATION disponible dans le même binaire : `seuil-defauts-1`
+						// remet le seuil à 1, c'est-à-dire au code qui a tué dix-neuf
+						// reprises légitimes. Le critère du correctif DOIT rougir sous
+						// cette valeur, sinon il ne teste rien.
+						const int64 seuilDefauts = Sonde("seuil-defauts-1") ? 1 : 30;
+						if (seuilDefauts != 30)
+							logger.Info("*** SONDE DE MESURE *** seuil du filet des 30 pas ramene a {0} defaut(s) "
+										"(comportement d'avant le 2026-09-17).",
+										(long long)seuilDefauts);
+						const bool calculAbsent = (modeleNeuf && bouge < 0.001) || (defauts >= seuilDefauts);
+						if (calculAbsent) {
+							// Nommer LE VRAI declencheur. L'ancien message titrait « la perte
+							// n'a pas bouge » meme quand c'etait le compteur de defauts qui
+							// avait parle — en reprise, la clause de perte ne peut meme pas
+							// se declencher. Dix-neuf rapports ont accuse la mauvaise cause.
+							if (defauts >= seuilDefauts)
+								logger.Info("*** ARRET : {0} defauts GPU en 30 pas (seuil {1}) — le calcul "
+											"n'a PAS lieu. Perte {2} -> {3}. ***",
+											(long long)defauts, (long long)seuilDefauts, mPerteInitiale, lv);
+							else
+								logger.Info("*** ARRET : modele NEUF et perte figee apres 30 pas ({0} -> {1}, soit "
+											"{2}%). Defauts GPU signales : {3}. ***",
+											mPerteInitiale, lv, bouge * 100.0, (long long)defauts);
+							logger.Info("*** Causes connues : lot trop grand pour la carte (essayer --B plus petit "
+										"avec --accum plus grand a lot effectif egal), ou memoire video "
+										"insuffisante. ***");
+							mArretFatal = "le calcul GPU n'a pas lieu (filet des 30 pas)";
 							break;
 						}
+						if (defauts > 0)
+							logger.Info("  [alerte] {0} defaut(s) GPU pendant les 30 premiers pas, sous le seuil de "
+										"{1} : la course CONTINUE et le filet par pas reste arme. A surveiller.",
+										(long long)defauts, (long long)seuilDefauts);
 						if (V)
 							logger.Info("  [controle] la perte a BOUGE de {0}% en 30 pas ({1} -> {2}) — "
 										"l'entrainement calcule reellement.",
@@ -1367,8 +1487,51 @@ namespace nkentseu {
 									vl, mEma);
 				}
 
-				if (hasSave) {
-					const bool sv = sauver(totalHorizon, "fin de course");
+				// ================================================================
+				// LA GARDE QUI A MANQUÉ LE 2026-09-07 À 18:58:56
+				// ================================================================
+				// Trois secondes après avoir crié « perte = 0, ce qui est
+				// IMPOSSIBLE », Fit() est arrivé ICI et a écrit le modèle dégénéré
+				// par-dessus le dernier point sain. La rotation .prev/.prev2 l'a
+				// consommé dès la session suivante : 83 500 pas perdus, ≈ 14 jours
+				// de GPU. La garde criait, elle n'arrêtait rien.
+				//
+				// ⚠️ UNE GARDE SANS POUVOIR D'ARRÊT EST UNE DÉCORATION. Le `break`
+				// d'un filet fatal ne doit PAS retomber sur la sauvegarde de fin de
+				// course : le contenu de la mémoire, à ce moment-là, est justement
+				// ce dont on sait qu'il ne vaut rien.
+				//
+				// Ce qu'on NE fait pas non plus : effacer ou tronquer quoi que ce
+				// soit. On n'écrit pas, c'est tout. Le checkpoint précédent reste
+				// intact sur le disque, et `.etat.txt` garde la dernière écriture
+				// honnête — un état non réécrit vaut mieux qu'un état qui ment.
+				const bool muterLaGarde = Sonde("garde-muette") || Sonde("garde-muette-horizon");
+				if (muterLaGarde)
+					logger.Info("*** SONDE DE MESURE *** MUTATION `garde-muette` : la sauvegarde de fin de course "
+								"redevient inconditionnelle. Le critere DOIT rougir.");
+				if (hasSave && mArretFatal && !muterLaGarde) {
+					logger.Info("*** SAUVEGARDE REFUSEE : la course s'est arretee sur une impossibilite — {0}. ***",
+								mArretFatal);
+					logger.Info("*** {0} n'a PAS ete reecrit, et .prev/.prev2 n'ont PAS tourne. Le dernier point "
+								"connu est conserve tel quel. Diagnostiquer AVANT de relancer. ***",
+								mCfg.savePath.CStr());
+				} else if (hasSave) {
+					// ⚠️ ET LE PAS ÉCRIT EST LE VRAI PAS.
+					// `sauver(totalHorizon, …)` écrivait l'HORIZON dans le champ
+					// « pas global » de `.etat.txt`. La campagne 20p1, arrêtée au pas
+					// 89 917 sur 240 000, y a donc lu « pas global : 240000 / 240000 »
+					// — c'est-à-dire « terminé ». Le script de relance l'a recopié
+					// tel quel dans son propre journal, et le code de sortie valait 0 :
+					// trois instruments d'affilée annonçaient la fin d'une campagne
+					// morte. `adam.StepCount()` est le pas que le checkpoint porte
+					// réellement ; c'est déjà lui qu'on imprime deux lignes plus bas.
+					// MUTATION disponible dans le même binaire : `etat-horizon` remet
+					// l'ancien argument. Le seul montage où les deux diffèrent est
+					// `--nouvelle-phase` (base remis à 0 alors qu'Adam garde son
+					// compteur) : là, l'ancien code écrit « 1 / 1 » pour un checkpoint
+					// qui porte le pas 89 918.
+					const bool muterLEtat = Sonde("etat-horizon") || Sonde("garde-muette-horizon");
+					const bool sv = sauver(muterLEtat ? totalHorizon : adam.StepCount(), "fin de course");
 					if (sv) {
 						if (V)
 							logger.Info("Modèle sauvegardé (avec état optimiseur, pas global {0}) : {1}",
