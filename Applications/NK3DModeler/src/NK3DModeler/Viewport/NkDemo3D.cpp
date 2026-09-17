@@ -83,6 +83,24 @@ namespace nkentseu {
 		// Argument attendu : la position visee en pixels FENETRE (origine de la
 		// vue deja ajoutee).
 		static bool (*nkvpCursorWarp)(float32, float32) = nullptr;
+
+		// ── (b5) LE CONFINEMENT DU CURSEUR PENDANT UNE MODALE ───────────────────
+		// POURQUOI IL FAUT LE FAIRE. Quand une modale est lancee au CLAVIER (G, R,
+		// S), aucun bouton n'est tenu : des que le curseur sort de la fenetre,
+		// Windows cesse d'envoyer des `WM_MOUSEMOVE`. La position hors bornes n'est
+		// alors JAMAIS vue, et le rebouclage ne se declenche pas -- il ne marcherait
+		// donc jamais sur un bord qui est aussi le bord de la fenetre. Blender
+		// confine exactement de la meme facon.
+		//
+		// LE SERVICE REND L'ETAT REELLEMENT OBTENU, et pas ce qu'on a demande :
+		// c'est lui qui connait la fenetre ET le focus. `veut = true` sans focus
+		// doit RELACHER et rendre faux -- un curseur prisonnier d'une fenetre qui
+		// n'a plus le focus serait pire que le defaut qu'on repare.
+		//
+		// ⚠ CONDITION DE RETRAIT, ecrite avec le contournement : le jour ou le
+		//   rebouclage saura voir les positions hors fenetre sans confiner (souris
+		//   BRUTE, `WM_INPUT`), ce service et tout ce bloc disparaissent.
+		static bool (*nkvpCursorClip)(bool) = nullptr;
 		// ── LE JETON DE PICK DU GLISSER-DEPOSER ─────────────────────────────
 		// L'interface DEMANDE, la boucle EXECUTE -- meme motif que
 		// `capturePending` du shell. Le pick a besoin de la CAMERA et de la
@@ -1395,6 +1413,12 @@ namespace nkentseu {
 				// duplique serait le motif « un etat duplique n'a qu'une seule
 				// autorite », et celui qu'on ecrit ne serait pas celui qu'on lit.
 				NkCursorWrapState curWrap;
+				// (b5) CONFINEMENT : l'etat REEL, et de quoi prouver le ZERO.
+				// `clipPrises` compte les fois ou le confinement a ete pris. Une course
+				// SANS aucune modale doit le laisser a 0 -- sans ce compteur, « il ne
+				// s'active jamais a tort » ne serait qu'une affirmation.
+				bool clipActif = false;
+				int32 clipPrises = 0, clipRelaches = 0;
 				// Indices des cibles : 16 sphères, 1 cube, 2 colonnes, 64 instanciés,
 				// puis 3 éléments de décor longtemps NON sélectionnables — le sol (83),
 				// le panneau feuillage alpha-testé (84) et le mur rouge du GI (85).
@@ -7094,6 +7118,38 @@ namespace nkentseu {
 			}
 		}
 
+		// ── UNE SEULE FONCTION POSE ET RETIRE LE CONFINEMENT ────────────────────
+		// Et elle le SYNCHRONISE a chaque image, au lieu de « prendre » ici et
+		// « relacher » la. Ce n'est pas un detail de style : la modale a QUATRE
+		// chemins de sortie (validation, annulation, changement de mode, fin
+		// d'edition), et un relachement reparti sur quatre sites a quatre chances
+		// d'etre oublie. La question posee chaque image est la seule qui compte --
+		// « une modale tourne-t-elle ? » -- et la reponse pilote l'etat.
+		// C'est aussi ce qui traite la PERTE DE FOCUS sans une ligne de plus : le
+		// service, qui seul connait la fenetre, refuse et relache.
+		static void Demo3D_SyncCursorClip(Demo3DState *st, bool modaleVivante) {
+			// `NK_CLIP_OFF=1` retire tout le mecanisme. MUTATION : le compteur de
+			// prises doit alors rester a 0 meme pendant une modale.
+			static int clipOff = -1;
+			if (clipOff == -1) {
+				const char *v = getenv("NK_CLIP_OFF");
+				clipOff = (v && v[0] && v[0] != '0') ? 1 : 0;
+			}
+			const bool veut = (!clipOff && modaleVivante && nkvpCursorClip != nullptr);
+			if (!veut && !st->clipActif)
+				return; // rien a faire, et surtout AUCUN appel : c'est le zero
+			const bool obtenu = nkvpCursorClip ? nkvpCursorClip(veut) : false;
+			if (obtenu != st->clipActif) {
+				if (obtenu)
+					++st->clipPrises;
+				else
+					++st->clipRelaches;
+				logger.Info("[Demo3D] (b5) confinement du curseur : {0} (prises={1} relaches={2})\n",
+							obtenu ? "PRIS" : "relache", st->clipPrises, st->clipRelaches);
+				st->clipActif = obtenu;
+			}
+		}
+
 		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
 			auto *st = (Demo3DState *)ctx.userData;
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
@@ -7978,6 +8034,10 @@ namespace nkentseu {
 			// A la sortie (confirmation OU annulation), modalOp repasse a 0 : rien n'est
 			// memorise, tout redevient strictement normal des la frame suivante.
 			const bool modalLock = (st->modalOp != 0);
+			// LE CONFINEMENT SUIT LA MODALE, ET RIEN D'AUTRE. Appele a CHAQUE image,
+			// modale ou non : c'est ce qui garantit qu'il est relache des que
+			// `modalOp` retombe a 0, par n'importe lequel de ses quatre chemins.
+			Demo3D_SyncCursorClip(st, modalLock);
 			// ── (b5) LE CURSEUR REBOUCLE AUX BORDS DE LA VUE ────────────────
 			// Blender : pendant G/R/S, le curseur qui sort d'un bord reapparait
 			// au bord oppose et la transformation CONTINUE. Le geste cesse donc
@@ -14820,6 +14880,7 @@ namespace nkentseu {
 		// (b5) L'hote POSE son service de replacement du curseur. Nul par defaut :
 		// le rebouclage est alors arithmetique seulement.
 		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32)) { nkvpCursorWarp = fn; }
+		void Demo3DHostSetCursorClip(bool (*fn)(bool)) { nkvpCursorClip = fn; }
 
 		void Demo3DHostFrame(void *cmd) {
 			if (!HostInit() || !cmd)
@@ -16868,6 +16929,18 @@ namespace nkentseu {
 		// Le meme compte, pour un sous-mode DEMANDE. Sert aux temoins qui doivent
 		// dire « 0 dans les TROIS sous-modes » sans changer le sous-mode courant --
 		// changer le sous-mode pour mesurer modifierait ce qu'on mesure.
+		// L'etat du confinement et ses compteurs, pour prouver le ZERO : une course
+		// sans modale doit laisser `prises` a 0.
+		bool Demo3DHostCursorClipStats(int32 *prises, int32 *relaches) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			if (prises)
+				*prises = st->clipPrises;
+			if (relaches)
+				*relaches = st->clipRelaches;
+			return st->clipActif;
+		}
 		int32 Demo3DHostEditSelCountFor(int32 mask) {
 			auto *st = HostSt();
 			if (!st || !st->editMode)

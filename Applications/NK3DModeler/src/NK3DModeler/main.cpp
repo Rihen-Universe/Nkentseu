@@ -63,6 +63,7 @@
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
 // photographie de la fenetre entiere.
@@ -845,6 +846,28 @@ int nkmain(const NkEntryState &entry) {
 	{
 		static NkWindow *sFenetreDuWarp = nullptr;
 		sFenetreDuWarp = &window;
+		static bool sFocusFenetre = true;
+		// LE FOCUS VIENT DES EVENEMENTS, pas d'une API de fenetre : NkWindow n'en
+		// expose aucune, et les deux evenements existent deja. C'est aussi le chemin
+		// du PRODUIT, donc ce qu'on mesure est ce qui se passera.
+		{
+			auto &evf = NkEvents();
+			evf.AddEventCallback<NkWindowFocusLostEvent>(
+				[](NkWindowFocusLostEvent *) { sFocusFenetre = false; });
+			evf.AddEventCallback<NkWindowFocusGainedEvent>(
+				[](NkWindowFocusGainedEvent *) { sFocusFenetre = true; });
+		}
+		// (b5) LE CONFINEMENT : il RELACHE des que la fenetre perd le focus, meme si
+		// la modale tourne encore -- un curseur prisonnier d'une fenetre qui n'est
+		// plus au premier plan serait pire que le defaut qu'on repare. Il rend l'etat
+		// REELLEMENT obtenu, jamais ce qu'on lui a demande.
+		demo::Demo3DHostSetCursorClip([](bool veut) -> bool {
+			if (!sFenetreDuWarp)
+				return false;
+			const bool prend = veut && sFocusFenetre;
+			sFenetreDuWarp->ClipMouseToClient(prend);
+			return prend;
+		});
 		demo::Demo3DHostSetCursorWarp([](float32 x, float32 y) -> bool {
 			if (!sFenetreDuWarp)
 				return false;
@@ -2770,6 +2793,24 @@ int nkmain(const NkEntryState &entry) {
 						sRepFait[i] = true;
 						ecrire(agentFrame);
 					}
+			}
+		}
+
+		// NK_CLIP_REPORT=<image> : l'etat du confinement du curseur et ses compteurs.
+		// C'est ce qui permet de prouver le ZERO -- une course SANS aucune modale doit
+		// laisser `prises` a 0 -- et l'EQUILIBRE : ce qui est pris finit relache.
+		{
+			static bool sClipRepDone = false;
+			if (const char *cr = std::getenv("NK_CLIP_REPORT")) {
+				const int32 fr = (int32)std::atoi(cr);
+				if (!sClipRepDone && fr > 0 && agentFrame >= fr) {
+					sClipRepDone = true;
+					int32 pr = 0, rl = 0;
+					const bool actif = demo::Demo3DHostCursorClipStats(&pr, &rl);
+					std::printf("[nk3d] CLIP ETAT frame=%d : actif=%d prises=%d relaches=%d\n",
+							(int)agentFrame, actif ? 1 : 0, (int)pr, (int)rl);
+					std::fflush(stdout);
+				}
 			}
 		}
 
