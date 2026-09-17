@@ -2646,8 +2646,14 @@ int nkmain(const NkEntryState &entry) {
 			// oublie un critere on ne le voit pas.
 			const char *pfF = std::getenv("NK_EDIT_PICK_FACE");
 			const char *pfV = std::getenv("NK_EDIT_PICK_VERT");
+			const char *pfE = std::getenv("NK_EDIT_PICK_EDGE");
 			const bool parSommet = (pfF == nullptr && pfV != nullptr);
-			if (const char *pf = (pfF ? pfF : pfV)) {
+			// NK_EDIT_PICK_EDGE="e1[,e2][,maj][,frame]" : le pendant pour l'ARETE.
+			// Sans lui, le sous-mode ARETE etait inatteignable par une course scriptee
+			// -- le clic de sommet y est filtre (a juste titre : en mode arete, un clic
+			// designe une arete) et viser en pixels n'est pas deterministe.
+			const bool parArete = (pfF == nullptr && pfV == nullptr && pfE != nullptr);
+			if (const char *pf = (pfF ? pfF : (pfV ? pfV : pfE))) {
 				int32 v[4] = {0, -1, 0, 40};
 				{
 					int32 k = 0;
@@ -2678,8 +2684,9 @@ int nkmain(const NkEntryState &entry) {
 											f, nv, (double)cx, (double)cy, (double)cz);
 						}
 					}
-					const bool a1 = parSommet ? demo::Demo3DHostEditPickVert(v[0], false)
-										: demo::Demo3DHostEditPickFace(v[0], false);
+					const bool a1 = parArete    ? demo::Demo3DHostEditPickEdge(v[0], false)
+									: parSommet ? demo::Demo3DHostEditPickVert(v[0], false)
+									: demo::Demo3DHostEditPickFace(v[0], false);
 					std::printf("[nk3d-pickf] frame=%d clic 1 %s=%d maj=0 -> arme=%d (total=%u)\n",
 									(int)agentFrame, parSommet ? "sommet" : "face", (int)v[0], a1 ? 1 : 0, nf);
 					std::fflush(stdout);
@@ -2687,8 +2694,9 @@ int nkmain(const NkEntryState &entry) {
 				if (sPf1 && !sPf2 && agentFrame >= fr + 3) {
 					sPf2 = true;
 					if (v[1] >= 0) {
-						const bool a2 = parSommet ? demo::Demo3DHostEditPickVert(v[1], v[2] != 0)
-											: demo::Demo3DHostEditPickFace(v[1], v[2] != 0);
+						const bool a2 = parArete    ? demo::Demo3DHostEditPickEdge(v[1], v[2] != 0)
+										: parSommet ? demo::Demo3DHostEditPickVert(v[1], v[2] != 0)
+										: demo::Demo3DHostEditPickFace(v[1], v[2] != 0);
 						std::printf("[nk3d-pickf] frame=%d clic 2 %s=%d maj=%d -> arme=%d\n",
 										(int)agentFrame, parSommet ? "sommet" : "face", (int)v[1], (int)v[2],
 										a2 ? 1 : 0);
