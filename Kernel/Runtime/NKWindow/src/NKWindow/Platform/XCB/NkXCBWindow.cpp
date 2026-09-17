@@ -17,6 +17,7 @@
 #include "NKWindow/Platform/XCB/NkXCBWindow.h"
 #include "NKWindow/Platform/XCB/NkXCBDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKWindow/Platform/Common/NkSystemMemory.h" // NkXcbFree (wrappe le free() libc des replies libxcb)
@@ -1243,6 +1244,20 @@ namespace nkentseu {
 	// =============================================================================
 	// Mouse
 	// =============================================================================
+
+	// COORDONNEES CLIENT : ici le warp est DEJA relatif a la fenetre, donc le
+	// contrat demande coincide avec l'appel natif. C'est Win32 qui differe, pas
+	// X11 -- et c'est pour cela que la nouvelle methode existe : le contrat
+	// commun se choisit, il ne se devine pas au cas par cas.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		if (!mData.mConnection || !mData.mWindow) {
+			NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient refuse : aucune fenetre XCB.");
+			return false;
+		}
+		xcb_warp_pointer(mData.mConnection, XCB_NONE, mData.mWindow, 0, 0, 0, 0, (int16_t)x, (int16_t)y);
+		xcb_flush(mData.mConnection);
+		return true;
+	}
 
 	void NkWindow::SetMousePosition(uint32 x, uint32 y) {
 		if (mData.mConnection && mData.mWindow)

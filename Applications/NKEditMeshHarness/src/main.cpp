@@ -9443,6 +9443,415 @@ static int32 IntentionBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// -- APRES UNE SUPPRESSION, LA SELECTION EST VIDE (--suppression) -------------
+// COMPORTEMENT BLENDER, confirme par Rodolf (14/09) : « dans Blender, la
+// selection est VIDE apres une suppression ». Chez nous elle SURVIVAIT : les
+// quatre faces restantes d'un cube se retrouvaient selectionnees et un SECOND X
+// vidait le cube -- 6, puis 4, puis 0. Une frappe de trop detruisait le travail.
+//
+// POURQUOI AU NIVEAU DU MOTEUR, ET EN CONSOLE. La regle vit dans
+// `NkEditMesh::DeleteSelectedFaces`, donc elle vaut pour TOUS les hotes ; posee
+// dans un seul appelant, elle aurait ete vraie a un seul endroit. Et elle se
+// mesure ici sans fenetre, sans device et SANS AUCUNE INJECTION D'ENTREE.
+//
+// LE ZERO SE PROUVE EN PREMIER : avant la suppression, les trois compteurs
+// rendent AUTRE CHOSE que 0. Sans ce releve, les 0 d'apres pourraient vouloir
+// dire que les compteurs ne comptent rien.
+//
+// LE NEGATIF EST DANS LE MEME BINAIRE : `NK_DEL_KEEPSEL=1` remet l'ancien
+// comportement et ne touche a rien d'autre. Les criteres DOIVENT alors rougir ;
+// s'ils restent verts, le banc sort 2 et le dit -- ils ne testent rien.
+static int32 SupSommetsSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		if (m.verts[i].sel)
+			++n;
+	return n;
+}
+// Une arete est « selectionnee » quand ses DEUX extremites le sont : c'est la
+// regle du sous-mode ARETE du modeleur. On la refait ici plutot que d'appeler le
+// modeleur, qui exige un device.
+static int32 SupAretesSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+		const NkEditMesh::Edge &ed = m.edges[e];
+		if (!ed.alive)
+			continue;
+		if ((uint32)ed.v0 < m.VertCount() && (uint32)ed.v1 < m.VertCount() && m.verts[ed.v0].sel &&
+			m.verts[ed.v1].sel)
+			++n;
+	}
+	return n;
+}
+static int32 SupFacesSel(const NkEditMesh &m) {
+	int32 n = 0;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f)
+		if (m.faces[f].alive && m.faces[f].sel)
+			++n;
+	return n;
+}
+static int32 SuppressionBattery() {
+	const bool garde = (getenv("NK_DEL_KEEPSEL") != nullptr);
+	printf("[suppr] MUTATION NK_DEL_KEEPSEL : %s\n",
+		   garde ? "ACTIVE -- les criteres (1) et (2) DOIVENT rougir" : "inactive");
+	const NkVec3f PZ{0.f, 0.f, 0.5f}, MZ{0.f, 0.f, -0.5f};
+	const NkVec3f opposees[2] = {PZ, MZ};
+	const NkVec3f PX3{0.5f, 0.f, 0.f};
+	const NkVec3f seulePZ3[1] = {PZ};
+
+	NkEditMesh m;
+	IntPrepare(m, opposees, 2, true);
+
+	// (0) LE ZERO D'ABORD : les trois compteurs savent rendre autre chose que 0.
+	const int32 v0 = SupSommetsSel(m), e0 = SupAretesSel(m), f0 = SupFacesSel(m);
+	printf("[suppr] AVANT : faces vivantes=%d  selV=%d selE=%d selF=%d\n", IntFacesVivantes(m), v0,
+		   e0, f0);
+	IntDifferent("(0) ZERO : sommets selectionnes AVANT", 0, v0);
+	IntDifferent("(0) ZERO : aretes selectionnees AVANT", 0, e0);
+	IntDifferent("(0) ZERO : faces selectionnees AVANT", 0, f0);
+
+	// (1) LE PREMIER X : deux faces partent (6 - 2 = 4) et la selection est VIDE
+	//     dans les trois sous-modes.
+	const bool ok1 = m.DeleteSelectedFaces();
+	const int32 fv1 = IntFacesVivantes(m);
+	const int32 v1 = SupSommetsSel(m), e1 = SupAretesSel(m), f1 = SupFacesSel(m);
+	printf("[suppr] APRES 1er X (rendu=%d) : faces vivantes=%d  selV=%d selE=%d selF=%d\n",
+		   ok1 ? 1 : 0, fv1, v1, e1, f1);
+	IntVerdict("(1a) le 1er X supprime les deux faces opposees", 4, fv1);
+	IntVerdict("(1b) apres le 1er X : sommets selectionnes", 0, v1);
+	IntVerdict("(1c) apres le 1er X : aretes selectionnees", 0, e1);
+	IntVerdict("(1d) apres le 1er X : faces selectionnees", 0, f1);
+
+	// (2) LE SECOND X NE SUPPRIME PLUS RIEN. C'est LE critere qui porte le defaut
+	//     signale par Rodolf : un temoin qui se serait arrete au premier X serait
+	//     reste vert. `DeleteSelectedFaces` rend faux quand aucune face n'est prise.
+	const bool ok2 = m.DeleteSelectedFaces();
+	const int32 fv2 = IntFacesVivantes(m);
+	printf("[suppr] APRES 2e X (rendu=%d) : faces vivantes=%d\n", ok2 ? 1 : 0, fv2);
+	IntVerdict("(2a) le 2e X ne supprime rien : faces inchangees", fv1, fv2);
+	IntVerdict("(2b) le 2e X rend FAUX (rien de selectionne)", 0, ok2 ? 1 : 0);
+
+
+	// (3) L'INTENTION DE FACE PERIMEE NE DOIT PAS SURVIVRE NON PLUS.
+	//     POURQUOI CE CAS EXISTE : sans lui, la ligne qui remet `FaceAttrib::sel` a
+	//     zero ne deplacerait AUCUNE mesure -- dans le cas (1), toute face survivante
+	//     a deja `sel = 0` par construction, puisque les faces retenues sont
+	//     justement celles qu'on supprime. Un correctif qui ne deplace aucune mesure
+	//     est indiscernable d'un placebo, et il FERME LE DOSSIER. Il fallait donc le
+	//     cas ou une intention PERIMEE survit.
+	//     LE MONTAGE : on pose l'intention sur +Z, puis on change la selection de
+	//     SOMMETS pour +X SANS reposer l'intention. `RefreshFaceSel` ne fait que
+	//     VALIDER (elle ne rededuit rien) : `faceSelOk` passe a faux, la suppression
+	//     part sur la deduction et retire +X -- pendant que +Z garde un `sel = 1`
+	//     perime, qu'une operation ulterieure relirait.
+	{
+		NkEditMesh m3;
+		IntPrepare(m3, seulePZ3, 1, true);
+		const int32 fx = IntFaceParCentre(m3, PX3);
+		NkVector<uint8> vs;
+		vs.Resize(m3.VertCount());
+		for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+			vs[i] = 0;
+		if (fx >= 0) {
+			NkVector<NkEmId> loop;
+			m3.GetFaceVerts((NkEmId)fx, loop);
+			for (uint32 k = 0; k < (uint32)loop.Size(); ++k)
+				vs[loop[k]] = 1;
+		}
+		m3.SetVertSelection(vs.Data(), (uint32)vs.Size());
+		const int32 avant = SupFacesSel(m3);
+		const bool ok3 = m3.DeleteSelectedFaces();
+		const int32 fv3 = IntFacesVivantes(m3), f3 = SupFacesSel(m3);
+		printf("[suppr] INTENTION PERIMEE : avant selF=%d, apres (rendu=%d) vivantes=%d selF=%d\n",
+			   avant, ok3 ? 1 : 0, fv3, f3);
+		IntVerdict("(3a) ZERO : l'intention perimee est bien la AVANT", 1, avant);
+		IntVerdict("(3b) la deduction retire la seule face +X", 5, fv3);
+		IntVerdict("(3c) l'intention de face perimee ne survit pas", 0, f3);
+	}
+
+	printf("[suppr] %d echec(s)\n", gIntEchecs);
+	if (garde)
+		return gIntEchecs > 0 ? 1 : 2;
+	return gIntEchecs ? 1 : 0;
+}
+
+// -- L'ANNULATION REND L'INTENTION, PAS UNE DEDUCTION (--annulation) ---------
+// Mesure du 17/09 : apres un Ctrl+Z, le modeleur rendait SIX faces selectionnees
+// la ou l'utilisateur en avait choisi DEUX. Avant de corriger le lecteur, il faut
+// prouver que la VALEUR est dans le cliche -- sinon on corrige le mauvais etage.
+//
+// Le cliche d'annulation est une COPIE COMPLETE de `NkEditMesh`
+// (`Demo3D_ApplyCmd` : snapshot = st->editHE). Cette structure porte `faces[].sel`,
+// `faceSelSnap`, `faceSelPorte` et `faceSelOk`. Ce banc le VERIFIE, et montre au
+// passage que les deux lectures possibles du meme maillage restaure ne donnent pas
+// le meme nombre : 2 par l'intention, 6 par la deduction. C'est le choix du
+// LECTEUR qui decide, et c'est donc lui qu'il faut corriger.
+//
+// Les faces sont reperees par leur CENTRE, jamais par un indice : l'ordre des
+// faces apres reconstruction est un detail du moteur, pas un contrat.
+static bool AnnCentreSel(const NkEditMesh &m, const NkVec3f &c) {
+	const int32 f = IntFaceParCentre(m, c);
+	return f >= 0 && m.faces[(uint32)f].sel != 0;
+}
+// LA DEDUCTION, celle que le modeleur appliquait apres l'annulation : une face est
+// dite selectionnee quand TOUS ses sommets le sont. On la refait ici pour montrer
+// qu'elle ne rend pas la meme chose -- sans elle, « 2 » ne prouverait pas que le
+// defaut venait du lecteur.
+static int32 AnnFacesParDeduction(const NkEditMesh &m) {
+	int32 n = 0;
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		if (loop.Empty())
+			continue;
+		bool tous = true;
+		for (uint32 k = 0; k < (uint32)loop.Size() && tous; ++k)
+			if (!m.verts[loop[k]].sel)
+				tous = false;
+		if (tous)
+			++n;
+	}
+	return n;
+}
+static int32 AnnulationBattery() {
+	const NkVec3f PZ{0.f, 0.f, 0.5f}, MZ{0.f, 0.f, -0.5f};
+	const NkVec3f opposees[2] = {PZ, MZ};
+
+	// (z0) LE ZERO : une copie puis une restauration ne FABRIQUENT aucune
+	//      selection. Sans ce cas, le « 2 » plus bas pourrait venir de n'importe ou.
+	{
+		NkEditMesh m;
+		IntPrepare(m, opposees, 2, false); // AUCUNE intention posee
+		const NkEditMesh cliche = m;
+		NkEditMesh restaure = cliche;
+		restaure.RefreshFaceSel();
+		printf("[annul] ZERO : sans intention -> selF=%d intentionAJour=%d\n", SupFacesSel(restaure),
+			   restaure.FaceSelAJour() ? 1 : 0);
+		IntVerdict("(z0) sans intention posee, la restauration n'en fabrique pas", 0,
+				   SupFacesSel(restaure));
+		IntVerdict("(z0) ... et l'intention n'est pas declaree a jour", 0,
+				   restaure.FaceSelAJour() ? 1 : 0);
+	}
+
+	// (a) L'INTENTION EST POSEE, ET ELLE DESIGNE LES DEUX BONNES FACES.
+	NkEditMesh m;
+	IntPrepare(m, opposees, 2, true);
+	printf("[annul] AVANT : faces=%d selF=%d intentionAJour=%d +Z=%d -Z=%d\n", IntFacesVivantes(m),
+		   SupFacesSel(m), m.FaceSelAJour() ? 1 : 0, AnnCentreSel(m, PZ) ? 1 : 0,
+		   AnnCentreSel(m, MZ) ? 1 : 0);
+	IntVerdict("(a) 2 faces portent l'intention", 2, SupFacesSel(m));
+	IntVerdict("(a) ... et ce sont +Z et -Z", 1,
+			   (AnnCentreSel(m, PZ) && AnnCentreSel(m, MZ)) ? 1 : 0);
+
+	// (b) LE CLICHE LA PORTE. Copie, suppression, restauration.
+	const NkEditMesh cliche = m;
+	const bool sup = m.DeleteSelectedFaces();
+	const int32 apresSup = IntFacesVivantes(m);
+	NkEditMesh restaure = cliche;
+	restaure.RefreshFaceSel();
+	const int32 parIntention = SupFacesSel(restaure);
+	const int32 parDeduction = AnnFacesParDeduction(restaure);
+	printf("[annul] APRES suppression : faces=%d (rendu=%d) ; APRES restauration : faces=%d "
+		   "selF(intention)=%d selF(deduction)=%d intentionAJour=%d +Z=%d -Z=%d\n",
+		   apresSup, sup ? 1 : 0, IntFacesVivantes(restaure), parIntention, parDeduction,
+		   restaure.FaceSelAJour() ? 1 : 0, AnnCentreSel(restaure, PZ) ? 1 : 0,
+		   AnnCentreSel(restaure, MZ) ? 1 : 0);
+	IntVerdict("(b) la restauration rend les 6 faces vivantes", 6, IntFacesVivantes(restaure));
+	IntVerdict("(b) le cliche PORTE l'intention : 2 faces", 2, parIntention);
+	IntVerdict("(b) ... et ce sont les MEMES : +Z et -Z", 1,
+			   (AnnCentreSel(restaure, PZ) && AnnCentreSel(restaure, MZ)) ? 1 : 0);
+	IntVerdict("(b) l'intention est declaree A JOUR apres restauration", 1,
+			   restaure.FaceSelAJour() ? 1 : 0);
+
+	// (c) LE NEGATIF QUI DESIGNE LE COUPABLE : sur le MEME maillage restaure, la
+	//     DEDUCTION rend 6. Les deux lectures different, donc ce n'est pas le
+	//     cliche qui perd l'information -- c'est le lecteur qui n'en veut pas.
+	IntVerdict("(c) la DEDUCTION sur le meme maillage rend 6 (le defaut)", 6, parDeduction);
+
+	printf("[annul] %d echec(s)\n", gIntEchecs);
+	return gIntEchecs ? 1 : 0;
+}
+
+// -- X NE SUPPRIME PAS LA MEME CHOSE SELON LE SOUS-MODE (--suppr-xe) ---------
+// Blender supprime les SOMMETS en mode sommet et les ARETES en mode arete, avec
+// tout ce qui s'appuie dessus. Chez nous X passait TOUJOURS par la regle des
+// faces (« toutes ses aretes retenues »), donc deux sommets ou deux aretes ne
+// supprimaient RIEN -- mesure du 17/09, et c'est ce qui rendait la course de
+// bout en bout impossible dans deux sous-modes sur trois.
+//
+// LES ATTENDUS SONT DERIVES, et ecrits dans le canal (R20) avant ce code :
+//   * un cube de la maison a 6 quads, 24 sommets (notre Vert EST un coin) et
+//     12 aretes de CAGE, soudee par POSITION ;
+//   * un COIN est porte par 3 faces -> supprimer un sommet en laisse 3 ;
+//   * une ARETE est portee par 2 faces -> supprimer une arete en laisse 4.
+// Les comptes d'ARETES restants ne sont PAS ecrits a la main : un attendu en dur
+// se perimerait au premier changement de quadrangulation. Ils sont compares a un
+// RECOMPTE INDEPENDANT -- les aretes uniques des faces survivantes -- qui ne
+// partage aucune ligne avec `RebuildEdges`.
+static int32 XeAretesUniquesDesFaces(const NkEditMesh &m) {
+	// Deux instruments sans code commun : celui-ci recompte les paires de sommets
+	// CONSECUTIFS des faces vivantes, dedupliquees par POSITION (la cage est
+	// soudee par position, pas par indice de sommet).
+	struct Paire {
+			float32 ax, ay, az, bx, by, bz;
+	};
+	NkVector<Paire> vues;
+	NkVector<NkEmId> loop;
+	auto proche = [](float32 a, float32 b) { return (a - b) < 1e-4f && (b - a) < 1e-4f; };
+	for (uint32 f = 0; f < (uint32)m.faces.Size(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		for (uint32 k = 0; k < n; ++k) {
+			NkVec3f A = m.verts[loop[k]].pos, B = m.verts[loop[(k + 1u) % n]].pos;
+			// ordre canonique, sinon (A,B) et (B,A) compteraient deux fois
+			if (B.x < A.x || (proche(B.x, A.x) && (B.y < A.y || (proche(B.y, A.y) && B.z < A.z)))) {
+				const NkVec3f t = A;
+				A = B;
+				B = t;
+			}
+			bool deja = false;
+			for (uint32 u = 0; u < (uint32)vues.Size() && !deja; ++u)
+				deja = proche(vues[u].ax, A.x) && proche(vues[u].ay, A.y) && proche(vues[u].az, A.z) &&
+					   proche(vues[u].bx, B.x) && proche(vues[u].by, B.y) && proche(vues[u].bz, B.z);
+			if (!deja) {
+				Paire p{A.x, A.y, A.z, B.x, B.y, B.z};
+				vues.PushBack(p);
+			}
+		}
+	}
+	return (int32)vues.Size();
+}
+// Selectionne les sommets d'une face donnee par son centre, puis propage aux
+// coincidents -- exactement ce que fait l'editeur au clic. On peut ensuite
+// restreindre a un COIN ou a une ARETE de cette face.
+static void XePrepare(NkEditMesh &m) {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	m.SelectNone();
+}
+// Allume tous les sommets dont la POSITION est l'une de celles donnees (la
+// propagation aux coincidents, faite a la main : un coin a trois copies).
+static void XeSelPositions(NkEditMesh &m, const NkVec3f *pos, uint32 n) {
+	NkVector<uint8> vs;
+	vs.Resize(m.VertCount());
+	for (uint32 i = 0; i < (uint32)vs.Size(); ++i)
+		vs[i] = 0;
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		for (uint32 k = 0; k < n; ++k)
+			if ((m.verts[i].pos - pos[k]).Len() < 1e-4f)
+				vs[i] = 1;
+	m.SetVertSelection(vs.Data(), (uint32)vs.Size());
+}
+static int32 SupprXeBattery() {
+	const bool garde = (getenv("NK_DEL_KEEPSEL") != nullptr);
+	printf("[xe] MUTATION NK_DEL_KEEPSEL : %s\n", garde ? "ACTIVE" : "inactive");
+	// Le cube de MakeCube va de -0.5 a +0.5 : un COIN et une ARETE s'ecrivent donc
+	// en clair, et ne sont pas des indices devines.
+	const NkVec3f coin{0.5f, 0.5f, 0.5f};
+	const NkVec3f areteA{0.5f, 0.5f, 0.5f}, areteB{-0.5f, 0.5f, 0.5f};
+
+	// (z) LE ZERO : rien de selectionne -> les trois modes ne suppriment RIEN et
+	//     rendent FAUX. Sans ce cas, « 3 » et « 4 » plus bas pourraient venir d'une
+	//     suppression qui part toute seule.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		const bool a = m.DeleteSelectedVerts();
+		const bool b = m.DeleteSelectedEdges();
+		const bool c = m.DeleteSelectedFaces();
+		printf("[xe] ZERO : rien de selectionne -> sommets=%d aretes=%d faces=%d, vivantes=%d\n",
+			   a ? 1 : 0, b ? 1 : 0, c ? 1 : 0, IntFacesVivantes(m));
+		IntVerdict("(z) sans selection, les 3 modes ne suppriment rien", 0,
+				   (a || b || c) ? 1 : 0);
+		IntVerdict("(z) ... et le cube est intact", 6, IntFacesVivantes(m));
+	}
+
+	// (1) SOMMET : un coin est porte par 3 faces -> il en reste 3.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		XeSelPositions(m, &coin, 1);
+		const int32 selAvant = SupSommetsSel(m);
+		const bool ok = m.DeleteSelectedVerts();
+		const int32 fv = IntFacesVivantes(m);
+		const int32 ar = (int32)m.EdgeCount(), arRec = XeAretesUniquesDesFaces(m);
+		printf("[xe] SOMMET : %d sommets retenus -> rendu=%d vivantes=%d aretes=%d "
+			   "(recompte independant %d) selV=%d selE=%d selF=%d\n",
+			   selAvant, ok ? 1 : 0, fv, ar, arRec, SupSommetsSel(m), SupAretesSel(m), SupFacesSel(m));
+		IntDifferent("(1) ZERO : le coin etait bien selectionne AVANT", 0, selAvant);
+		IntVerdict("(1a) supprimer un SOMMET retire ses 3 faces", 3, fv);
+		IntVerdict("(1b) ... et l'operation rend VRAI", 1, ok ? 1 : 0);
+		IntVerdict("(1c) les aretes de la cage = le recompte independant", arRec, ar);
+		if (!garde) {
+			IntVerdict("(1d) la selection est VIDE apres (sommets)", 0, SupSommetsSel(m));
+			IntVerdict("(1e) la selection est VIDE apres (aretes)", 0, SupAretesSel(m));
+			IntVerdict("(1f) la selection est VIDE apres (faces)", 0, SupFacesSel(m));
+		}
+	}
+
+	// (2) ARETE : une arete est portee par 2 faces -> il en reste 4.
+	{
+		NkEditMesh m;
+		XePrepare(m);
+		const NkVec3f deux[2] = {areteA, areteB};
+		XeSelPositions(m, deux, 2);
+		const int32 selAvant = SupAretesSel(m);
+		const bool ok = m.DeleteSelectedEdges();
+		const int32 fv = IntFacesVivantes(m);
+		const int32 ar = (int32)m.EdgeCount(), arRec = XeAretesUniquesDesFaces(m);
+		printf("[xe] ARETE : %d aretes retenues -> rendu=%d vivantes=%d aretes=%d "
+			   "(recompte independant %d) selV=%d selE=%d selF=%d\n",
+			   selAvant, ok ? 1 : 0, fv, ar, arRec, SupSommetsSel(m), SupAretesSel(m), SupFacesSel(m));
+		IntDifferent("(2) ZERO : l'arete etait bien selectionnee AVANT", 0, selAvant);
+		IntVerdict("(2a) supprimer une ARETE retire ses 2 faces", 4, fv);
+		IntVerdict("(2b) ... et l'operation rend VRAI", 1, ok ? 1 : 0);
+		IntVerdict("(2c) les aretes de la cage = le recompte independant", arRec, ar);
+		if (!garde) {
+			IntVerdict("(2d) la selection est VIDE apres (sommets)", 0, SupSommetsSel(m));
+			IntVerdict("(2e) la selection est VIDE apres (aretes)", 0, SupAretesSel(m));
+			IntVerdict("(2f) la selection est VIDE apres (faces)", 0, SupFacesSel(m));
+		}
+	}
+
+	// (3) LE NEGATIF QUI MONTRE QUE LES TROIS MODES SONT BIEN DISTINCTS.
+	//     Sur la MEME selection -- les deux coins d'une arete -- les trois portes
+	//     doivent rendre trois resultats DIFFERENTS : le mode FACE ne trouve aucune
+	//     face entierement retenue (c'est le defaut d'origine, et il est ici le
+	//     comportement correct), le mode ARETE en retire 2, le mode SOMMET en
+	//     retire 4 (les 4 faces qui touchent l'un des deux coins).
+	//     Sans ce cas, les trois portes pourraient etre trois noms de la meme chose.
+	{
+		const NkVec3f deux[2] = {areteA, areteB};
+		NkEditMesh mf, me, mv;
+		XePrepare(mf);
+		XeSelPositions(mf, deux, 2);
+		const bool okF = mf.DeleteSelectedFaces();
+		XePrepare(me);
+		XeSelPositions(me, deux, 2);
+		(void)me.DeleteSelectedEdges();
+		XePrepare(mv);
+		XeSelPositions(mv, deux, 2);
+		(void)mv.DeleteSelectedVerts();
+		printf("[xe] MEME SELECTION, 3 portes : face -> %d (rendu=%d) · arete -> %d · sommet -> %d\n",
+			   IntFacesVivantes(mf), okF ? 1 : 0, IntFacesVivantes(me), IntFacesVivantes(mv));
+		IntVerdict("(3a) mode FACE : rien a supprimer, cube intact", 6, IntFacesVivantes(mf));
+		IntVerdict("(3b) mode ARETE : 2 faces de moins", 4, IntFacesVivantes(me));
+		IntVerdict("(3c) mode SOMMET : les 4 faces qui touchent un des 2 coins", 2,
+				   IntFacesVivantes(mv));
+	}
+
+	printf("[xe] %d echec(s)\n", gIntEchecs);
+	return gIntEchecs ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9457,6 +9866,9 @@ int main(int argc, char **argv) {
 	}
 
 	bool baseline = false, check = false, perf = false, intention = false;
+	bool suppression = false;
+	bool annulation = false;
+	bool supprXe = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
@@ -9466,11 +9878,25 @@ int main(int argc, char **argv) {
 			perf = true;
 		else if (strcmp(argv[i], "--intention") == 0)
 			intention = true;
+		else if (strcmp(argv[i], "--suppression") == 0)
+			suppression = true;
+		else if (strcmp(argv[i], "--annulation") == 0)
+			annulation = true;
+		else if (strcmp(argv[i], "--suppr-xe") == 0)
+			supprXe = true;
 	}
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
 		return IntentionBattery();
+	// MEME RAISON QUE --intention : cette batterie n'ecrit aucune ligne dans
+	// `gLines`, donc elle ne peut ni perimer ni masquer la reference de --check.
+	if (suppression)
+		return SuppressionBattery();
+	if (annulation)
+		return AnnulationBattery();
+	if (supprXe)
+		return SupprXeBattery();
 
 	Battery();
 	WireBattery();

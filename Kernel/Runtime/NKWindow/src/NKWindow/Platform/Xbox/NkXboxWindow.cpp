@@ -10,6 +10,7 @@
 #include "NKWindow/Platform/Xbox/NkXboxWindow.h"
 #include "NKWindow/Core/NkEntry.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkWindowEvent.h"
@@ -427,6 +428,18 @@ namespace nkentseu {
 				ShowWindow(reinterpret_cast<HWND>(mData.mNativeWindow), SW_RESTORE);
 			}
 		}
+	}
+
+	// COORDONNEES CLIENT : NON IMPLEMENTE sur Xbox. On le DIT et on rend
+	// FAUX -- un repli silencieux ferait croire a l'appelant que le curseur a
+	// bouge, et le rebouclage de la vue 3D corrigerait alors un deplacement qui
+	// n'a jamais eu lieu. Une absence annoncee se repare ; une absence muette se
+	// decouvre par un defaut incomprehensible, des mois plus tard.
+	bool NkWindow::SetMousePositionClient(int32 x, int32 y) {
+		(void)x;
+		(void)y;
+		NkLog::Instance().Warnf("[NkWindow] SetMousePositionClient : NON IMPLEMENTE sur Xbox.");
+		return false;
 	}
 
 	void NkWindow::SetMousePosition(uint32, uint32) {
