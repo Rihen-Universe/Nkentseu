@@ -1339,10 +1339,52 @@ namespace nkentseu {
 							// compris), exposees par NkRender3D : les recalculer ici
 							// dupliquerait ces corrections et deriverait de la
 							// profondeur echantillonnee.
-							const NkMat4f cur = mRender3D->GetRenderViewProj();
+							// ── LA REPROJECTION SE COMPOSE SANS LE JITTER (17/09/2026) ──
+							// Elle le portait, et c'est ce qui empechait le TAA de
+							// converger. `pp_taa.frag.nksl` ecrivait pourtant la regle en
+							// tete de fichier depuis le debut : « les deux matrices sont
+							// DE-JITTREES : le jitter ne doit pas entrer dans la
+							// correspondance geometrique, seulement dans
+							// l'echantillonnage ». Le C++ lui envoyait les matrices
+							// jittees ; les deux ne pouvaient pas avoir raison.
+							//
+							// POURQUOI C'EST FAUX. `TAA_Store` range l'historique a la
+							// position PIXEL, pas sur la grille jittee : le relire demande
+							// donc des UV NON jittes. Avec le jitter dedans, meme camera
+							// parfaitement immobile, `reproj` ne vaut pas l'identite mais
+							// l'ECART ENTRE LE JITTER DE L'IMAGE -1 ET CELUI DE LA
+							// COURANTE. On lisait l'historique decale d'un sous-pixel,
+							// dans une direction qui change a chaque image (Halton,
+							// periode 8) : l'accumulation devenait un flou mobile qui ne
+							// convergeait jamais.
+							//
+							// CE QUE LE CORRECTIF DEPLACE, mesure par NkTemporelProbe sur
+							// DX11 hors ecran, meme binaire, scene et camera immobiles :
+							// la somme des ecarts entre deux images consecutives passe de
+							// 33273 a 4589, soit un rapport a l'image non accumulee de
+							// 0,915 -> 0,1262. L'attendu, derive AVANT la course par la
+							// recurrence D(n) = 0,1 E(n) + 0,9 D(n-1), valait 0,136 pour
+							// la frequence dominante du cycle de Halton. Et la sonde
+							// NK_TAA_DEBUG=3, qui mesure |prevUV - vUV|, tombe de 6,33 a
+							// 0,00 : la reprojection redevient l'identite quand rien ne
+							// bouge, ce qu'elle aurait toujours du etre.
+							// Camera MOBILE (1,5 deg/image) : aucune trainee introduite,
+							// 6307 pixels de silhouette contre 6307 avant et 6317 sans
+							// TAA du tout.
+							//
+							// NK_TAA_DEJITTER=0 restitue l'ancien comportement, pour
+							// pouvoir refuter ce correctif sans recompiler.
+							static int sDejitter = -1;
+							if (sDejitter < 0) {
+								const char *v = getenv("NK_TAA_DEJITTER");
+								sDejitter = (v && v[0] && v[0] == '0') ? 0 : 1;
+							}
+							const NkMat4f cur =
+								sDejitter ? mRender3D->GetRenderViewProjNoJitter() : mRender3D->GetRenderViewProj();
 							NkMat4f reproj = NkMat4f::Identity();
 							if (mTAAHasPrev)
-								reproj = mTAAPrevViewProj * mRender3D->GetRenderInvViewProj();
+								reproj = mTAAPrevViewProj * (sDejitter ? mRender3D->GetRenderInvViewProjNoJitter()
+																	   : mRender3D->GetRenderInvViewProj());
 							mPostProcess->RunTAAInPass(cmd, ldr, hist, depth, reproj, mTAAHasPrev,
 													   mRenderGraph->GetPassRenderPass("TAA"));
 							// NK_TAA_PREVLAG=N : n'actualiser la matrice de la frame

@@ -2495,6 +2495,11 @@ namespace nkentseu {
 			// frame par frame ; c'est l'accumulation du TAA qui le transforme en
 			// super-echantillonnage. APRES la correction clip-Z pour que le jitter
 			// s'exprime bien en NDC de la projection finale.
+			// La viewProj AVANT jitter : c'est celle sur laquelle l'historique du TAA
+			// est reellement stocke, TAA_Store l'ecrivant a la position PIXEL et non
+			// sur la grille jittee. Elle sert a composer la reprojection du TAA.
+			const NkMat4f viewProjSansJitter = cb.viewProj;
+			bool jitterApplique = false;
 			if (mTAAJitter && mW > 0 && mH > 0) {
 				const uint32 n = (mTAAJitterIdx % 8u) + 1u;
 				float32 hx = 0.f;
@@ -2520,6 +2525,7 @@ namespace nkentseu {
 				jit[3][1] = jy;
 				cb.proj = jit * cb.proj;
 				cb.viewProj = jit * cb.viewProj;
+				jitterApplique = true;
 			}
 
 			cb.invViewProj = cb.viewProj.Inverse();
@@ -2528,6 +2534,18 @@ namespace nkentseu {
 			// du deferred lit une profondeur produite par cette meme projection.
 			mRenderViewProj = cb.viewProj;
 			mRenderInvViewProj = cb.invViewProj;
+			// ── LE MEME COUPLE, SANS LE JITTER (17/09/2026) ──────────────────────
+			// C'est avec CELUI-LA que la reprojection du TAA se compose, parce que
+			// l'historique est range a la position PIXEL et non sur la grille jittee
+			// (cf. GetRenderViewProjNoJitter, et la regle ecrite en tete de
+			// `pp_taa.frag.nksl`). Avec le jitter dedans, meme camera immobile, la
+			// reprojection valait l'ecart entre deux jitters et l'accumulation ne
+			// convergeait jamais.
+			// ⚠️ L'inversion, qui coute, n'est refaite QUE si le jitter a bouge la
+			// matrice : sans jitter les deux couples sont le meme, et recalculer
+			// serait payer une inversion de matrice par image pour rien.
+			mRenderViewProjNoJitter = viewProjSansJitter;
+			mRenderInvViewProjNoJitter = jitterApplique ? viewProjSansJitter.Inverse() : cb.invViewProj;
 			NkVec3f pos = mCtx.camera.GetPosition();
 			NkVec3f fwd = mCtx.camera.GetForward();
 			cb.camPos = {pos.x, pos.y, pos.z, mCtx.camera.GetNear()};
