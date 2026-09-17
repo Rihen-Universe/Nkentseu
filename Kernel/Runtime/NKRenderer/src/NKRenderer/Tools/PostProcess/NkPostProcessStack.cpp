@@ -1061,7 +1061,7 @@ void main() {
 			cmd->Draw(3, 1, 0, 0);
 		}
 
-		void NkPostProcessStack::ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src) {
+		void NkPostProcessStack::ExecuteBlit(NkICommandBuffer *cmd, NkTextureHandle src, NkBlitCible cible) {
 			if (!cmd || !mPipeBlit.IsValid() || !src.IsValid())
 				return;
 
@@ -1080,7 +1080,28 @@ void main() {
 			// VK, l'affichage direct vers le swapchain est inverse -> flip.
 			// Sur GL (origine bas-gauche partout) l'UV directe est correcte.
 			// (Confirme a l'ecran par Rihen : DX11 inverse sans ce flip.)
-			const bool isVK = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
+			// ── LA REGLE DES DEUX DESTINATIONS, ECRITE ICI ET NULLE PART AILLEURS ─
+			// VERS L'ECRAN : la swapchain est inversee sur tout ce qui n'est pas
+			//   OpenGL, il faut donc retourner l'UV. (La variable s'appelait `isVK`
+			//   et valait en realite `api != OPENGL` -- un nom qui mentait, et qui a
+			//   failli faire accuser quatre sites corrects lors du recensement du
+			//   17/09.)
+			// VERS UNE CIBLE HORS ECRAN : il n'y a AUCUNE inversion a compenser, et
+			//   compenser quand meme RETOURNE l'image. C'est le defaut qui frappait
+			//   cinq dorsaux des qu'une application redirigeait sa sortie, donc dans
+			//   tout viseur d'editeur. Le signe est alors celui d'`ExecuteBlitToRT`,
+			//   dont le commentaire porte deja la mesure : `isVulkan ? -1 : +1`.
+			//
+			// ⚠️ J'AI D'ABORD ECRIT ICI `NkOffscreenStoredIsBottomUp`, EN CROYANT
+			// REUTILISER « la regle ecrite une fois ». C'EST UNE TROISIEME REGLE,
+			// distincte des deux autres, et elle donne -1 sur OpenGL la ou il faut
+			// +1. Mon propre attendu l'a attrape : j'avais ecrit avant la course que
+			// les deux branches doivent coincider sur OpenGL, et l'image GL a change.
+			// Sans cet attendu, le correctif serait parti en cassant OpenGL pour
+			// reparer DX11.
+			const bool versEcran = (cible == NkBlitCible::NK_VERS_ECRAN);
+			const bool pasOpenGL = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
+			const bool estVulkan = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
 
 			struct PC {
 					float invResW, invResH, yFlipUV, _pad;
@@ -1088,7 +1109,21 @@ void main() {
 
 			pc.invResW = 1.0f / (float)(mW > 0 ? mW : 1);
 			pc.invResH = 1.0f / (float)(mH > 0 ? mH : 1);
-			pc.yFlipUV = isVK ? -1.f : +1.f;
+			pc.yFlipUV = versEcran ? (pasOpenGL ? -1.f : +1.f) : (estVulkan ? -1.f : +1.f);
+			// Mutation de mesure : force la mauvaise branche. Lue UNE FOIS, inerte
+			// sans la variable. Elle doit RETOURNER l'image -- sinon le parametre
+			// n'est pas lu, et la parade ne serait qu'un commentaire.
+			{
+				static int sMutInit = 0;
+				static int sMut = 0;
+				if (!sMutInit) {
+					sMutInit = 1;
+					const char *v = std::getenv("NK_BLIT_CIBLE_INVERSE");
+					sMut = (v && v[0] && v[0] != '0') ? 1 : 0;
+				}
+				if (sMut)
+					pc.yFlipUV = versEcran ? (estVulkan ? -1.f : +1.f) : (pasOpenGL ? -1.f : +1.f);
+			}
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
