@@ -1401,6 +1401,13 @@ namespace nkentseu {
 						taa.Reads(histId); // resultat de la frame -1 (ecrit par TAA_Store)
 						if (taaDepthId != NK_INVALID_RES_ID)
 							taa.Reads(taaDepthId);
+						// Les vecteurs de mouvement, quand la passe qui les produit
+						// existe. Le DECLARER importe autant que le lire : c'est ce
+						// `Reads` qui ordonne MotionVectors avant TAA et qui pose la
+						// barriere de transition de la cible. Le lire sans le declarer
+						// marcherait sur un dorsal et pas sur l'autre.
+						if (motionId != NK_INVALID_RES_ID)
+							taa.Reads(motionId);
 						taa.SetColor(0, taaOutId, NkLoadOp::NK_CLEAR, {0, 0, 0, 1});
 						taa.Execute([this, taaToneId, histId, taaDepthId](NkICommandBuffer *cmd) {
 							if (!mPostProcess || !mRender3D)
@@ -1464,8 +1471,18 @@ namespace nkentseu {
 							if (mTAAHasPrev)
 								reproj = mTAAPrevViewProj * (sDejitter ? mRender3D->GetRenderInvViewProjNoJitter()
 																	   : mRender3D->GetRenderInvViewProj());
+							// La cible des vecteurs de mouvement, si la passe qui la
+							// produit existe dans CE graphe. `FindByName` plutot qu'une
+							// variable capturee : la passe TAA est declaree avant que
+							// l'on sache si la passe Motion a pu creer sa cible.
+							NkTextureHandle mvTex{};
+							{
+								const NkGraphResId mvId = mRenderGraph->FindByName("MotionVec");
+								if (mvId != NK_INVALID_RES_ID)
+									mvTex = mRenderGraph->GetResourceTexture(mvId);
+							}
 							mPostProcess->RunTAAInPass(cmd, ldr, hist, depth, reproj, mTAAHasPrev,
-													   mRenderGraph->GetPassRenderPass("TAA"));
+													   mRenderGraph->GetPassRenderPass("TAA"), mvTex);
 							// NK_TAA_PREVLAG=N : n'actualiser la matrice de la frame
 							// precedente qu'une frame sur N. Outil de MESURE, pas une
 							// option de rendu : quand la camera bouge lentement, reproj
