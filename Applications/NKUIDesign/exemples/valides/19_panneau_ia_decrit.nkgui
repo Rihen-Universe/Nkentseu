@@ -1,0 +1,134 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+// LE PANNEAU IA, VERSION « TOUT DECRIT ». Ecrit pour REPONDRE PAR LA MESURE a la
+// question du coordinateur du 18/09 : « ton format sait-il deja decrire ce
+// panneau ? ». On n'y repond pas par une lecture de table : on ecrit le panneau,
+// on le monte, et le verdict du monteur tranche.
+//
+// La forme est celle de PANNEAU_IA_SPEC.md : bande d'onglets par fournisseur,
+// ligne de titre avec historique et nouvelle conversation, la demande dans un
+// cadre, un fil de blocs replies, un composeur multi-lignes, une ligne d'etat.
+//
+// ⚠️ LE FIL EST ICI UNE LISTE **ECRITE** : trois blocs en dur. C'est le cas
+//    d'ecole, pas le produit -- un vrai fil GRANDIT a l'execution. Le second
+//    document (20_panneau_ia_hote.nkgui) pose la meme forme avec une zone HOTE et
+//    une liste LIEE. Les deux se mesurent, et l'ecart dit ce qui manque.
+widgets {
+
+  Panel "panneau_ia" {
+    title = "Assistant"
+    sizeRel = (0.28, 1.0)
+    minSize = (320, 0)
+
+    // 1. UN ONGLET PAR FOURNISSEUR. Le local est le premier et le defaut.
+    TabBar "fournisseurs" {
+      tabs = [Local, Claude, Codex]
+      bind = ia.fournisseur
+    }
+
+    // 2. LA LIGNE DE TITRE : le sujet tronque, puis deux boutons discrets.
+    HBox "ligne_titre" {
+      gap = 4
+
+      Text "sujet" {
+        text = "Un ecran de connexion"
+        maxLines = 1
+      }
+      Button "historique" { label = "Historique" }
+      Button "nouvelle" { label = "Nouvelle" }
+    }
+
+    // 3. LA DEMANDE DE L'UTILISATEUR, DANS UN CADRE distinct du reste.
+    Panel "demande" {
+      title = "Demande"
+
+      Text "demande_texte" {
+        text = "Fais-moi un ecran de connexion avec deux champs et un bouton."
+        wrap = true
+      }
+    }
+
+    // 4. LE FIL. Chaque bloc est un pliable, replie par defaut.
+    Expander "bloc_reflexion" {
+      label = "Reflexion"
+      expanded = false
+
+      Text "reflexion_contenu" {
+        text = "Le catalogue porte dix composants ; l'ecran demande un titre, deux champs et un bouton."
+        wrap = true
+      }
+    }
+
+    Expander "bloc_outil" {
+      label = "ecrire_nkgui  --  ecrit le document"
+      expanded = false
+
+      Text "outil_entree" {
+        text = "IN  : { demande: ecran de connexion }"
+        wrap = false
+      }
+      Text "outil_sortie" {
+        text = "OUT : 7 noeuds poses, 0 divergence au rejeu"
+        wrap = false
+      }
+    }
+
+    // LE DIFF. Deux couleurs par ligne : chaque ligne est un Text qui porte sa
+    // propre apparence. C'est ce que le format sait dire aujourd'hui.
+    Expander "bloc_diff" {
+      label = "Diff  --  cliquer pour deplier"
+      expanded = false
+
+      Text "diff_plus" {
+        text = "+ Button \"valider\" { label = \"Se connecter\" }"
+        appearance {
+          fill { color = #1B5E20 }
+        }
+      }
+      Text "diff_moins" {
+        text = "- Group \"valider\" { }"
+        appearance {
+          fill { color = #5E1B1B }
+        }
+      }
+    }
+
+    // 5. LE REFUS NOMME -- un bloc a part entiere, pas une panne (ajout 2 de la
+    //    specification). Et L'ECHEC, marque sur la ligne elle-meme.
+    Expander "bloc_refus" {
+      label = "Refus  --  verbe inconnu : \"arrondir\""
+      expanded = false
+
+      Text "refus_motif" {
+        text = "Le pont n'a pas ce verbe. Les verbes connus sont poses dans le registre."
+        wrap = true
+      }
+    }
+
+    // 6. LE COMPOSEUR, multi-lignes.
+    TextField "composeur" {
+      multiline = true
+      wrap = true
+      placeholder = "Decris l'interface que tu veux..."
+      bind = ia.saisie
+    }
+
+    // 7. LA LIGNE D'ETAT : le dorsal, sa memoire video, la duree, l'envoi.
+    HBox "ligne_etat" {
+      gap = 8
+
+      Text "etat_dorsal" {
+        text = "local NKDesignLLM  --  4444 Mo / 8192"
+        maxLines = 1
+      }
+      Text "etat_duree" {
+        text = "12,3 s"
+        maxLines = 1
+      }
+      Spacer "etat_ressort" { }
+      Button "envoyer" { label = "Envoyer" }
+    }
+  }
+}
