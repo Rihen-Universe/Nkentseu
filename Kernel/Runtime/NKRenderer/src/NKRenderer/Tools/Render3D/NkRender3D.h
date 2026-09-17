@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkRender3D.h  — NKRenderer v4.0  (Tools/Render3D/)
 // =============================================================================
 #include "NKRenderer/Core/NkRendererTypes.h"
@@ -221,6 +222,26 @@ namespace nkentseu {
 
 				const NkMat4f &GetRenderInvViewProj() const noexcept {
 					return mRenderInvViewProj;
+				}
+
+				// ── Le meme couple SANS le jitter (17/09/2026) ───────────────────
+				// L'historique du TAA est ecrit par TAA_Store a la position PIXEL, pas
+				// sur la grille jittee : le lire demande donc des UV NON jittes.
+				// `pp_taa.frag.nksl` le dit en tete de fichier (« les deux matrices
+				// sont DE-JITTREES : le jitter ne doit pas entrer dans la
+				// correspondance geometrique, seulement dans l'echantillonnage »), et
+				// le C++ lui envoyait les matrices JITTEES. Ces accesseurs existent
+				// pour trancher par la MESURE plutot que par le raisonnement ; ils ne
+				// sont consommes que sous NK_TAA_DEJITTER=1, donc inertes par defaut.
+				// ⚠️ Ils ne conviennent PAS a la reconstruction de position monde du
+				// rendu differe, qui lit une profondeur produite par la projection
+				// JITTEE : celle-la doit continuer d'utiliser les accesseurs du dessus.
+				const NkMat4f &GetRenderViewProjNoJitter() const noexcept {
+					return mRenderViewProjNoJitter;
+				}
+
+				const NkMat4f &GetRenderInvViewProjNoJitter() const noexcept {
+					return mRenderInvViewProjNoJitter;
 				}
 
 				// Accesseurs pour NkVirtualShadowMaps (ring UBO multi-frame).
@@ -605,6 +626,9 @@ namespace nkentseu {
 				uint32 mTAAJitterIdx = 0;
 				NkMat4f mRenderViewProj = NkMat4f::Identity();
 				NkMat4f mRenderInvViewProj = NkMat4f::Identity();
+				// Le meme couple sans le jitter (cf. GetRenderViewProjNoJitter).
+				NkMat4f mRenderViewProjNoJitter = NkMat4f::Identity();
+				NkMat4f mRenderInvViewProjNoJitter = NkMat4f::Identity();
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)
