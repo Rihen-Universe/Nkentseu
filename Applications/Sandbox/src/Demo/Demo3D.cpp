@@ -5250,6 +5250,15 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						if (m)
 							st->editSelMask = m;
 					}
+					// ── CROCHET DE MESURE DU RAYON X, IDENTIQUE A CELUI DU MODELEUR ────
+					// Il est ici pour que la comparaison avec le modeleur porte sur LE MEME
+					// montage. Sans lui, on comparerait deux etats qu'on ne sait pas egaux --
+					// et c'est exactement l'erreur qui a rendu un negatif inutilisable le
+					// 17/09 : bascule du rayon X non verifiee, conclusion tiree quand meme.
+					if (const char *xr = getenv("NK_EDIT_XRAY")) {
+						st->editXray = (xr[0] && xr[0] != '0');
+						logger.Info("[MARQ] crochet NK_EDIT_XRAY : editXray = {0}\n", st->editXray ? 1 : 0);
+					}
 					if (const char *sh = getenv("NK_SHADING")) {
 						st->shadingMode = atoi(sh) % 6;
 						const int32 vm[6] = {0, 1, 1, 2, 3, 4};
@@ -9111,6 +9120,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// rendu identique OpenGL / DX12). Non sél. = sombre, sél. = orange, actif = blanc ;
 				// PLEIN dans tous les cas (fin liseré sombre dessous pour la lisibilité). Rendu
 				// chaque frame (suit la caméra pour rester écran-constant).
+				// ── CROCHET : LES MEMES COMPTEURS QUE DANS LE MODELEUR ────────────
+				// ⚠️ ILS EXISTENT POUR UNE COMPARAISON, PAS POUR UN DIAGNOSTIC LOCAL.
+				//    Rodolf a valide CE dessin-ci et refuse celui du modeleur. Or les deux
+				//    sites sont le meme code porte : tant que la meme mesure n'a pas couru
+				//    des deux cotes, on ne peut designer aucun des deux comme fautif.
+				//    `NK_MARQ_PROBE=1`.
+				static const bool nkMarqProbe = []() {
+					const char *v = getenv("NK_MARQ_PROBE");
+					return v && v[0] && v[0] != '0';
+				}();
+				static uint32 nkMarqFrame = 0u;
+				uint32 nkMarqTri = 0u, nkMarqCull = 0u, nkMarqPts = 0u, nkGizmoTri = 0u;
 				{
 					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					// Les marqueurs sont tracés SANS depth-test (fiabilité DX12) : sans filtre,
@@ -9139,6 +9160,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						// lui-même). X-ray ON -> no-depth : on voit à travers (façon Blender).
 						// Le GIZMO, lui, reste no-depth dans TOUS les cas (dessiné plus bas).
 						diagTri("marker", c00, c10, c11, col);
+						nkMarqTri += 2u;
 						r3d->DrawDebugTriangle(c00, c10, c11, col, 0.f, st->editXray);
 						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, st->editXray);
 					};
@@ -9154,8 +9176,11 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					if (st->editSelMask & 1) {
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = liveWv(i);
-							if (!facingCam(w, st->editLive[i].normal))
+							if (!facingCam(w, st->editLive[i].normal)) {
+								++nkMarqCull;
 								continue; // sommet du dos -> caché (sauf X-ray), façon Blender
+							}
+							++nkMarqPts;
 							if (i == st->editActiveVert)
 								dot(w, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f}); // actif = BLANC
 							else if (i < (int32)st->vertSel.Size() && st->vertSel[i])
@@ -9217,8 +9242,18 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
 						diagTri("gizmo", a, b, c, col);
+						++nkGizmoTri;
 						r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
 					});
+				if (nkMarqProbe && nkMarqFrame < 40u) {
+					logger.Info("[MARQ] n={0} selMask={1} xray={2} sommets(traces)={3} sommets(rejetes "
+								"par l'orientation)={4} triangles(marqueurs)={5} triangles(gizmo)={6} "
+								"overlay(marqueurs)={7}\n",
+								(int32)nkMarqFrame, (int32)st->editSelMask, st->editXray ? 1 : 0,
+								(int32)nkMarqPts, (int32)nkMarqCull, (int32)nkMarqTri, (int32)nkGizmoTri,
+								st->editXray ? 1 : 0);
+					++nkMarqFrame;
+				}
 			}
 
 			// ── Gizmo éditeur (composant réutilisable NkGizmo3D) ────────────────────
