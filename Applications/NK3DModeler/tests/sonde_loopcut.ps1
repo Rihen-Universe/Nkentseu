@@ -67,8 +67,22 @@ function Courir([string]$nom, [hashtable]$vars) {
 	$env:NK_AGENT_EXIT = "260"
 	if ($Mutation) { $env:NK_LOOP_UNEPHASE = "1" } else { Remove-Item Env:\NK_LOOP_UNEPHASE -ErrorAction SilentlyContinue }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k] }
+	# ⚠ LE VERDICT N'EST PAS TOUJOURS LA OU L'ON REGARDE, ET CETTE SONDE L'A PAYE
+	#   LE 17/09. Elle ne lisait que la console. Or le produit ecrit par DEUX
+	#   canaux : `printf` va sur la console, `logger.Info` va dans logs/app.log --
+	#   et en Release il N'ECHO PAS sur la console, alors qu'en Debug il le fait.
+	#   Resultat : sept criteres VERTS en Debug et ROUGES en Release, sur le MEME
+	#   code. Le banc ne mesurait pas le produit, il mesurait la configuration.
+	#   Le journal est reecrit a chaque lancement : on le releve donc APRES la
+	#   course, et on verifie qu'il lui est POSTERIEUR -- sinon on heriterait du
+	#   journal de la course precedente, ce qui rendrait des verts empruntes.
+	$journal = Join-Path $Arbre "logs\app.log"
+	$avant = Get-Date
 	$p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
 		-RedirectStandardOutput $sortie
+	if ((Test-Path $journal) -and ((Get-Item $journal).LastWriteTime -ge $avant)) {
+		Add-Content -Path $sortie -Value (Get-Content $journal -Raw)
+	}
 	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
 			"NK_EDIT_SELMASK", "NK_EDIT_PICK_EDGE", "NK_EDIT_REPORT", "NK_AGENT_EXIT",
 			"NK_LOOP_UNEPHASE", "NK_MODAL_OP", "NK_MODAL_CONFIRM", "NK_MODAL_CANCEL",
@@ -183,6 +197,63 @@ Dire "(k) la saisie de phase 1 est bornee COMME LA SOURIS" (([Math]::Abs($r1[0] 
 	"NUM=3,50 -> $($r1[0]) et NUM=3,-50 -> $($r4[0]) (exige +1 et -1 : la souris ne depasse jamais 1)"
 Dire "(l) MUTATION des bornes : 50 passe tel quel" ([Math]::Abs($r2[0] - 50.0) -lt 0.001) `
 	"NUM=3,50 sans borne -> $($r2[0]) (exige 50 : c'est exactement ce que la borne empeche)"
+
+# ── (m) (n) (o) : LE VERBE, POUR QU'UN MODELE PUISSE DEMANDER UNE BOUCLE ───
+# ⚠ AJOUTES LE 17/09, ET POUR UNE RAISON PRECISE : le contrat d'outils a montre
+#   que `loopcut` n'y figurait pas. L'outil existait, prouve en deux phases par
+#   les criteres (d) a (l) ci-dessus, et AUCUN modele ne pouvait le demander.
+#   Mais un verbe simplement ACCEPTE ne prouve rien : ce chantier a deja vu des
+#   verbes accueillis qui ne faisaient rien, et c'est pire qu'un verbe absent,
+#   parce que l'appelant croit avoir agi.
+# ⚠ L'ATTENDU DE (m) NE PORTE AUCUN NOMBRE ABSOLU. Il compare DEUX courses :
+#   l'effet de deux boucles doit valoir exactement le double de l'effet d'une.
+#   Un attendu en dur (« 14 faces ») se perimerait au premier changement de
+#   maillage de depart ; celui-ci se derive de la course elle-meme.
+$fm1 = Courir "verbe_1" @{ "NK_VP_ACTION" = "loopcut:1:0" }
+$fm2 = Courir "verbe_2" @{ "NK_VP_ACTION" = "loopcut:2:0.4" }
+function Faces([string]$f, [int]$i) { return (Lire (Rap $f $i) "f") }
+$av1 = Faces $fm1 0; $ap1 = Faces $fm1 1
+$av2 = Faces $fm2 0; $ap2 = Faces $fm2 1
+$dl1 = $ap1 - $av1
+$dl2 = $ap2 - $av2
+Dire "(m) LE VERBE AGIT, et son effet suit le nombre demande" (($dl1 -gt 0) -and ($dl2 -eq (2 * $dl1))) `
+	"une boucle : +$dl1 faces · deux boucles : +$dl2 (exige exactement le double, derive et non dicte)"
+
+# Le glissement est LU dans le rapport, pas suppose : un parametre qu'aucune
+# mesure ne voit est un parametre qu'on croit sur parole.
+$glisL = Rap $fm2 1
+$glis = -99.0
+if ($null -ne $glisL) {
+	$mg = [regex]::Match($glisL, "glis=(-?[\d.]+)")
+	if ($mg.Success) { $glis = [double]$mg.Groups[1].Value }
+}
+Dire "(n) le GLISSEMENT demande par le verbe est reellement POSE" ([Math]::Abs($glis - 0.4) -lt 0.001) `
+	"loopcut:2:0.4 -> glis=$glis (exige 0,4 : sinon le verbe accepterait un parametre qu'il jette)"
+
+# ⚠ ET LE REFUS EST NOMME. Deux etats qui ne se confondent pas : hors mode
+#   Edition, l'outil n'a pas de maillage ouvert ; dans l'edition, l'anneau peut
+#   ne pas se fermer. Un seul message pour les deux ne permettrait a personne de
+#   se corriger.
+# ⚠ CETTE COURSE N'ENTRE PAS DANS LA GARDE COMMUNE, ET C'EST LA GARDE QUI ME
+#   L'A APPRIS : elle exige « EDIT MODE (utilisateur » dans chaque fichier, or
+#   celle-ci est VOLONTAIREMENT hors du mode Edition -- c'est tout son sujet.
+#   L'y inscrire faisait declarer « je n'ai pas pu mesurer » a un banc qui
+#   venait justement de mesurer. Elle porte donc SA condition : l'application
+#   doit avoir tourne et parle, sinon (o) serait rouge pour la mauvaise raison.
+$sortieObj = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_loop_refus.txt"
+$env:NK_SONDE = "1"; $env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
+$env:NK_AGENT_SCENE = "30"; $env:NK_VP_ACTION = "loopcut"; $env:NK_AGENT_EXIT = "160"
+Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $sortieObj | Out-Null
+foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_AGENT_SCENE", "NK_VP_ACTION", "NK_AGENT_EXIT")) {
+	Remove-Item "Env:\$v" -ErrorAction SilentlyContinue
+}
+if (@(Select-String -Path $sortieObj -Pattern "\[nk3d\]").Count -eq 0) {
+	Write-Host "CONDITION NON REUNIE pour (o) : l'application n'a rien dit -- elle n'a pas tourne."
+	exit 3
+}
+$refus = @(Select-String -Path $sortieObj -Pattern "loopcut REFUS : .*mode Edition")
+Dire "(o) hors du mode Edition, loopcut REFUSE en se NOMMANT" ($refus.Count -ge 1) `
+	"lignes de refus nomme = $($refus.Count) (exige au moins 1 : un echec muet ferait croire au succes)"
 
 Write-Host "-----------------------------------------------------------------------"
 if ($Mutation) {
