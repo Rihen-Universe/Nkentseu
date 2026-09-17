@@ -6587,12 +6587,19 @@ namespace nkentseu {
 							PaintGroupBlock(p, rowR, gSelTop, yy);
 						}
 						yy += NkPropGroupGap();
-						// ── (b9) L'ASSISTANT ────────────────────────────────────────────
-						// Il vit dans la pastille du MODE, juste sous « Selection », parce
-						// que c'est l'ordre du geste : on selectionne, PUIS on demande.
-						// C'est aussi ce que fait Blender, et c'est la limite qu'on assume :
-						// l'assistant agit sur ce qui est deja selectionne, il ne designe pas.
-						// Replie par defaut, comme tous les groupes de ce panneau.
+						// ── (b9) L'ASSISTANT : UNE PORTE, PAS LE PANNEAU ────────────────
+						// Le panneau ne vit PLUS ici. Il est peint dans l'OVERLAY, ancre a
+						// droite sur toute la hauteur -- la forme que Rodolf a tranchee le
+						// 17/09 (echanges/PANNEAU_IA_SPEC.md), et la correction d'un
+						// defaut : un panneau dessine DANS un panneau hote laisse passer
+						// les clics une image sur deux.
+						// Ce qui reste ici est le BOUTON qui l'ouvre, a l'endroit ou on
+						// l'avait mis -- sous « Selection », parce que c'est l'ordre du
+						// geste : on selectionne, PUIS on demande.
+						// ⚠️ ET C'EST UNE PORTE, PAS UN SECOND CHEMIN : il pose
+						//    `st.aiOuvert` et rien d'autre. Aucune partie du panneau n'est
+						//    redessinee ici, sinon les deux divergeraient a la premiere
+						//    correction portee d'un seul cote.
 						{
 							const bool gAi = PaintPropGroup(p, hit, st, rowR, yy, "prop.g.edai",
 								"Assistant", 0x4000u);
@@ -6600,7 +6607,23 @@ namespace nkentseu {
 							if (gAi) {
 								yy += NkGroupPad();
 								const NkRect iA = NkGroupInner(rowR);
-								PaintAiPanel(p, hit, st, ws, guiCtx, iA, yy);
+								const NkRect bt{iA.x, yy, iA.w, S(22.f)};
+								const bool ovA = hit.Add("prop.ai.ouvrir", bt);
+								p.Outline(bt, ovA ? NkRole::AccentUi : NkRole::Border,
+										  NkRole::PanelHeader, 3.f);
+								const char *lbl = st.aiOuvert ? "Fermer l'assistant"
+															  : "Ouvrir l'assistant";
+								p.TextV(bt.x + (bt.w - p.TextW(lbl)) * 0.5f, bt.y, bt.h, lbl,
+										NkRole::Text);
+								if (hit.Clicked("prop.ai.ouvrir"))
+									st.aiOuvert = !st.aiOuvert;
+								yy += S(22.f);
+								// CE QUE L'ASSISTANT SAIT FAIRE, DIT ICI AUSSI : le panneau
+								// peut etre ferme, et la question « a quoi ca sert » se pose
+								// AVANT de l'ouvrir.
+								p.TextV(iA.x, yy, S(20.f), "Agit sur la selection du maillage.",
+										NkRole::TextMuted);
+								yy += S(20.f);
 								yy += NkGroupPad();
 								PaintGroupBlock(p, rowR, gAiTop, yy);
 							}

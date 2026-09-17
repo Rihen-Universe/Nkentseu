@@ -1050,10 +1050,65 @@ namespace nkentseu {
 				char aiPending[256] = {0}; ///< la demande soumise (vide = rien a faire)
 				char aiMotif[192] = {0};   ///< le dernier refus, AFFICHE et pas seulement journalise
 				bool aiMotifEstRefus = false; ///< distingue « refuse » de « fait »
-				static const int32 kAiHist = 12;
-				char aiHist[kAiHist][160] = {};
-				uint8 aiHistOk[kAiHist] = {};
-				int32 aiHistN = 0;
+				// ── LE FIL, ET POURQUOI IL REMPLACE LA LISTE DE CHAINES ────────────────
+				// La premiere version gardait `aiHist[]` : douze phrases et un drapeau
+				// « ok ». C'etait assez pour une liste, et pas assez pour la forme que
+				// Rodolf a tranchee le 17/09 (cf. echanges/PANNEAU_IA_SPEC.md) : un fil
+				// de BLOCS TYPES, chacun replie, dont certains portent une entree, une
+				// sortie, et L'EFFET MESURE de l'operation.
+				//
+				// ⚠ L'EFFET EST MESURE, JAMAIS RECOPIE DE LA DEMANDE. Les compteurs sont
+				//   lus dans l'hote AVANT (`vA/eA/fA`) et APRES (`vB/eB/fB`) l'execution.
+				//   Afficher « faces 6 -> 384 » en relisant le parametre de la demande
+				//   donnerait le meme texte quand l'operation ECHOUE : ce serait un
+				//   compteur dont le zero n'est pas zero.
+				//   `mesure` distingue les trois etats : pas encore lu, lu, et l'operation
+				//   n'a rien change. Sans lui, « 0 -> 0 » se lit comme un echec alors que
+				//   c'est le cas normal d'un changement de sous-mode.
+				enum class AiType : uint8 {
+					Demande = 0,   ///< ce que l'utilisateur a ecrit -- encadre, jamais replie
+					Operation = 1, ///< un verbe execute : entree, sortie, effet, annulation
+					Refus = 2,     ///< un verbe inconnu, AVEC son motif. Une reponse, pas une panne.
+					Note = 3       ///< un fait de la chaine (dorsal absent, onglet muet)
+				};
+				struct AiBloc {
+						uint8 type = 0;
+						uint8 replie = 1; ///< replie PAR DEFAUT : c'est la forme de la capture
+						uint8 mesure = 0; ///< 0 pas encore lu · 1 lu · 2 lu et rien n'a change
+						int32 vA = 0, eA = 0, fA = 0;
+						int32 vB = 0, eB = 0, fB = 0;
+						char ligne[96] = {0};	///< la ligne visible quand le bloc est replie
+						char detail[192] = {0}; ///< ce qui apparait quand on le deplie
+						char in[96] = {0};		///< l'entree, telle qu'elle est partie
+						char out[128] = {0};	///< la sortie, telle qu'elle a ete LUE
+						/// ⚠️ LES RECTANGLES SONT ECRITS PAR LA PEINTURE ET LUS PAR LA
+						///    SONDE. Une sonde qui calculerait les coordonnees de son
+						///    cote mesurerait SA formule de disposition, pas celle du
+						///    panneau : le jour ou la mise en page bouge, elle
+						///    cliquerait a cote en restant verte.
+						float32 rl[4] = {0.f, 0.f, 0.f, 0.f}; ///< la ligne repliable
+						float32 ru[4] = {0.f, 0.f, 0.f, 0.f}; ///< « Annuler » (w=0 : absent)
+				};
+				static const int32 kAiFil = 16;
+				AiBloc aiFil[kAiFil];
+				int32 aiFilN = 0;
+				/// Le bloc dont l'effet reste a mesurer, et l'image ou il a ete pose.
+				/// La mesure se prend a l'image SUIVANTE : l'operation s'execute plus bas
+				/// dans la meme boucle, donc lire les compteurs tout de suite rendrait
+				/// l'etat d'AVANT en le presentant comme celui d'apres.
+				int32 aiEnCours = -1;
+				int32 aiEnCoursFrame = -1;
+				bool aiOuvert = false; ///< le panneau est-il deploye ? (ferme au demarrage)
+				/// L'onglet de fournisseur. 0 = LOCAL, et c'est le defaut : le seul qui
+				/// soit branche a quelque chose aujourd'hui.
+				int32 aiOnglet = 0;
+				char aiSujet[80] = {0}; ///< le sujet de la conversation (la premiere demande)
+				/// LA LIGNE D'ETAT, ECRITE PAR LA PEINTURE. Elle vit ici pour qu'une
+				/// sonde puisse la LIRE : la recomposer de son cote ferait deux textes
+				/// qui finiraient par ne plus dire la meme chose -- et c'est justement
+				/// celui qui doit dire « modele NON CHARGE ».
+				char aiEtat[128] = {0};
+				float32 aiDefile = 0.f;
 				NkVpAction pendingAction = NkVpAction::None;
 				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
 				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes
