@@ -1,0 +1,11 @@
+nkgui 0.3
+
+// LA BANDE D'ONGLETS. Le format dit `tabs`, pas `items` -- un document qui ecrit
+// `items` se fait refuser, et c'est le negatif de ce lot.
+widgets {
+  Panel "fenetre" {
+    TabBar "onglets" {
+      tabs = [Scene, Materiaux, Rendu]
+    }
+  }
+}

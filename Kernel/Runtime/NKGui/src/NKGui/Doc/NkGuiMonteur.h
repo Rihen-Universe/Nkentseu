@@ -109,6 +109,8 @@ namespace nkentseu {
 			Spacer,
 			Image,
 			Chart,
+			TabBar,
+			Expander,
 			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
 			//    FOIS au format : `callback` est l'une des huit sections, et
 			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
@@ -150,6 +152,8 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
 			if (NkGMotEgal(n, "Chart")) return NkGuiRole::Chart;
+			if (NkGMotEgal(n, "TabBar")) return NkGuiRole::TabBar;
+			if (NkGMotEgal(n, "Expander")) return NkGuiRole::Expander;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
@@ -429,6 +433,91 @@ namespace nkentseu {
 			if (contenu == 0)
 				return 0u;
 			return virgules + 1u;
+		}
+
+		/// Retire les espaces de bord d'un element de liste (`[ Scene , Rendu ]`).
+		inline NkString NkGCouper(const NkString &s) noexcept {
+			uint32 a = 0, b = (uint32)s.Size();
+			while (a < b && (s.Data()[a] == ' ' || s.Data()[a] == '\t'))
+				++a;
+			while (b > a && (s.Data()[b - 1u] == ' ' || s.Data()[b - 1u] == '\t'))
+				--b;
+			NkString r;
+			for (uint32 i = a; i < b; ++i)
+				r += s.Data()[i];
+			return r;
+		}
+
+		/// LES LIBELLES d'une liste en jeton nu : `tabs = [Scene, "Materiaux", Rendu]`.
+		///
+		/// ⚠️ DU COTE DU CONSOMMATEUR, ET C'EST LA REGLE DE CE FICHIER. Le lecteur le dit
+		///    lui-meme : « un outil qui veut iterer dessus doit encore l'analyser lui-meme ».
+		///    `NkGListeCompte` rend un NOMBRE -- ce dont `Dropdown` se contente. Pour appeler
+		///    `TabBar(ctx, id, labels, count)` il faut les CHAINES. **Le format n'est pas
+		///    touche** : ses listes restent des jetons nus, c'est ici qu'on les lit.
+		///
+		/// Accepte les elements nus (`Scene`) et les chaines (`"Materiaux"`). Les
+		/// espaces de bord sont retires ; une liste vide rend zero element.
+		inline uint32 NkGListeChaines(const NkArchive &b, const char *cle, NkVector<NkString> &out) noexcept {
+			out.Clear();
+			const NkArchiveNode *n = b.FindNode(NkStringView(cle));
+			if (!n)
+				return 0u;
+			const NkString lex(n->Lexeme());
+			const char *p = lex.Data();
+			const uint32 len = (uint32)lex.Size();
+			uint32 profondeur = 0;
+			bool chaine = false;
+			NkString courant;
+			bool aDuContenu = false;
+			for (uint32 i = 0; i < len; ++i) {
+				const char c = p[i];
+				if (chaine) {
+					if (c == '\\' && i + 1u < len) {
+						++i;
+						courant += p[i];
+						continue;
+					}
+					if (c == '"') {
+						chaine = false;
+						continue;
+					}
+					courant += c;
+					aDuContenu = true;
+					continue;
+				}
+				if (c == '"') {
+					chaine = true;
+					aDuContenu = true;
+					continue;
+				}
+				if (c == '[' || c == '(' || c == '{') {
+					++profondeur;
+					continue;
+				}
+				if (c == ']' || c == ')' || c == '}') {
+					if (profondeur > 0)
+						--profondeur;
+					if (profondeur == 0 && aDuContenu) {
+						out.PushBack(NkGCouper(courant));
+						courant = NkString();
+						aDuContenu = false;
+					}
+					continue;
+				}
+				if (c == ',' && profondeur == 1) {
+					out.PushBack(NkGCouper(courant));
+					courant = NkString();
+					aDuContenu = false;
+					continue;
+				}
+				if (profondeur >= 1) {
+					courant += c;
+					if (c != ' ' && c != '\t')
+						aDuContenu = true;
+				}
+			}
+			return (uint32)out.Size();
 		}
 
 		// =====================================================================
@@ -1297,6 +1386,62 @@ namespace nkentseu {
 							} else {
 								aDessine = false;
 							}
+							break;
+						}
+						// ── L'EN-TETE REPLIABLE (l'inspecteur du modeleur) ───
+						// ⚠️ CE QUI FAIT UN PLIABLE N'EST PAS SON TRIANGLE, C'EST CE QU'IL
+						//    CACHE. Un bloc replie ne monte PAS ses enfants : c'est le seul
+						//    critere qui distingue un pliable d'un simple titre, et c'est
+						//    celui que le banc mesure (l'enfant absent du releve).
+						// ⚠️ `expanded` VIENT DU DOCUMENT, et il faut le poser AVANT d'appeler
+						//    `CollapsingHeader` : le widget garde son etat par identifiant, et
+						//    sans cette ligne le document ne commanderait rien -- la propriete
+						//    serait un decor, exactement ce que ce fichier reproche ailleurs.
+						case NkGuiRole::Expander: {
+							// MUTATION DE BANC, NK_PLIABLE_MUTATION=toujours : tout est ouvert.
+							// Elle prouve que le critere de l'enfant cache teste quelque chose.
+							static const bool kToujours = []() {
+								const char *v = getenv("NK_PLIABLE_MUTATION");
+								return v && v[0] == 't';
+							}();
+							const NkString titre = NkGTexte(w, "label", id.CStr());
+							const bool voulu = kToujours || NkGBooleen(w, "expanded", false);
+							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), voulu);
+							if (CollapsingHeader(ctx, titre.CStr()))
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+							break;
+						}
+						// ── LA BANDE D'ONGLETS ───────────────────────────────
+						// ⚠️ LE FORMAT DIT `tabs`, PAS `items`. Le schema du role
+						//    (`NkGuiValidate.h`) porte `tabs, bind, editable, closable` :
+						//    un document qui ecrirait `items` se fait refuser, et c'est le
+						//    negatif de ce lot.
+						// ⚠️ ET ON N'ECRIT PAS DE WIDGET : `TabBar` existe dans NKGui depuis
+						//    toujours. Le monteur appelle ce qui est la, comme pour les
+						//    quatorze autres roles.
+						case NkGuiRole::TabBar: {
+							// MUTATION DE BANC, NK_ONGLETS_MUTATION=vide : la liste est
+							// ignoree. Elle prouve que le critere de l'image teste quelque
+							// chose ; sans la variable, rien ne change.
+							static const bool kVide = []() {
+								const char *v = getenv("NK_ONGLETS_MUTATION");
+								return v && v[0] == 'v';
+							}();
+							NkVector<NkString> libelles;
+							const uint32 n = kVide ? 0u : NkGListeChaines(w, "tabs", libelles);
+							if (n == 0u) {
+								// Une bande sans onglet ne peint rien : il n'y a rien a
+								// selectionner, donc rien a souligner. On le COMPTE.
+								aDessine = false;
+								break;
+							}
+							// `TabBar` attend un tableau de `const char *` : on le construit
+							// ici, sur la pile, borne par le plafond du kit.
+							const char *ptr[32];
+							uint32 m = n > 32u ? 32u : n;
+							for (uint32 k = 0; k < m; ++k)
+								ptr[k] = libelles[k].CStr();
+							(void)TabBar(ctx, lbl, ptr, (int32)m);
 							break;
 						}
 						// ═══════════════════════════════════════════════════════════
