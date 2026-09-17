@@ -4484,6 +4484,29 @@ namespace nkentseu {
 						emitT(mDebugTris[i]);
 				const uint32 tcount = (uint32)tv.Size();
 				const uint32 tOverlay = tcount - tNormal;
+				// ── CROCHET : LES DEUX FILES, SEPAREMENT ────────────────────
+				// ⚠️ C'EST LA SEULE MESURE QUI SEPARE DEUX CAUSES OPPOSEES. Le gizmo de
+				//    l'editeur et les marqueurs de sommets partent par le MEME appel
+				//    (`DrawDebugTriangle`) et atterrissent dans le MEME tampon ; leur seule
+				//    difference est `overlay`. Le gizmo se voit, les marqueurs non. Si
+				//    le compte depth-teste est non nul et que son pipeline est valide, alors
+				//    on TRACE et ca ne PEINT pas -- le dessin est disculpe, et le suspect
+				//    devient l'etat de profondeur de la passe. `NK_DEBUGTRI_PROBE=1`.
+				static const bool dbgTriProbe = []() {
+					const char *v = getenv("NK_DEBUGTRI_PROBE");
+					return v && v[0] && v[0] != '0';
+				}();
+				if (dbgTriProbe) {
+					static uint32 nT = 0u;
+					if (nT < 40u) {
+						logger.Info("[DebugTri] n={0} triangles={1} dont depth-teste={2} overlay={3} "
+									"pipeline(depth)={4} pipeline(overlay)={5} passe-changee={6}\n",
+									(int32)nT, (int32)(tcount / 3u), (int32)(tNormal / 3u), (int32)(tOverlay / 3u),
+									mTriPipeline.IsValid() ? 1 : 0, mTriPipelineNoDepth.IsValid() ? 1 : 0,
+									(mTriPipelineRP == currentRP) ? 0 : 1);
+						++nT;
+					}
+				}
 				if (tcount > 0) {
 					// Ring par frame en vol (ce contenu est reecrit CHAQUE frame).
 					const NkBufferHandle tb =
