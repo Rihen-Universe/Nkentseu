@@ -43,6 +43,14 @@ namespace nkentseu {
 		// lui, le viewer corrigerait un deplacement qui n'a pas eu lieu, et
 		// fabriquerait le saut qu'il cherche a supprimer.
 		void Demo3DHostSetCursorWarp(bool (*fn)(float32, float32));
+		// (b5) CONFINEMENT PENDANT UNE MODALE. Le service rend l'etat REELLEMENT
+		// obtenu, pas ce qu'on a demande : lui seul connait la fenetre ET le focus,
+		// et `veut = true` sans focus doit RELACHER et rendre faux -- un curseur
+		// prisonnier d'une fenetre qui n'a plus le focus serait pire que le defaut.
+		void Demo3DHostSetCursorClip(bool (*fn)(bool));
+		// Rend l'etat courant ; remplit les compteurs de prises et de relachements.
+		// Ils servent a prouver le ZERO : une course sans modale laisse prises a 0.
+		bool Demo3DHostCursorClipStats(int32 *prises, int32 *relaches);
 
 		// Rend la frame de la demo dans la cible hors ecran, sur le command
 		// buffer de l'editeur (crochet preUI). Calcule son dt lui-meme.
