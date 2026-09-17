@@ -90,6 +90,23 @@ namespace nkentseu {
 				bool IsOverlayAfterPost() const {
 					return mOverlayAfterPost;
 				}
+				// ── VECTEURS DE MOUVEMENT PAR PIXEL (17/09/2026) ────────────────
+				// Redessine les OPAQUES dans une cible RG16F en n'ecrivant que le
+				// deplacement a l'ecran de chaque pixel entre l'image -1 et l'image
+				// courante, en fraction d'ecran (UV).
+				//
+				// UNE PASSE DEDIEE, ET NON UNE CIBLE DE PLUS SUR `Geometry`. Le
+				// choix se paie d'un dessin supplementaire de la geometrie opaque,
+				// et il s'achete trois choses : aucun nuanceur d'objet existant
+				// n'est touche (donc aucune des applications n'est mise en jeu, ni
+				// le palier du cache NkSL), la passe se mesure SEULE, et elle
+				// s'eteint seule. Le cout est mesure, pas suppose.
+				//
+				// ⚠️ Ne fait RIEN a la premiere image : sans image -1, un vecteur
+				// calcule contre une matrice identite serait une aberration plein
+				// ecran, et le consommateur n'aurait aucun moyen de le savoir.
+				void FlushMotionVectors(NkICommandBuffer *cmd, NkRenderPassHandle rp);
+
 				// Emet les overlays 3D. A appeler UNIQUEMENT depuis la passe dediee.
 				void FlushOverlay3D(NkICommandBuffer *cmd);
 
@@ -629,6 +646,20 @@ namespace nkentseu {
 				// Le meme couple sans le jitter (cf. GetRenderViewProjNoJitter).
 				NkMat4f mRenderViewProjNoJitter = NkMat4f::Identity();
 				NkMat4f mRenderInvViewProjNoJitter = NkMat4f::Identity();
+				// ── Vecteurs de mouvement (17/09/2026) ───────────────────────────
+				// La vue-projection de l'image PRECEDENTE, de-jittree, archivee UNE
+				// FOIS PAR IMAGE dans BeginScene (cf. le commentaire qui s'y trouve).
+				// `mHasPrevRenderViewProj` est faux a la toute premiere image : il
+				// n'y a alors pas d'image -1, et calculer un vecteur contre une
+				// matrice identite produirait une aberration plein ecran que le TAA
+				// avalerait sans broncher.
+				NkMat4f mPrevRenderViewProjNoJitter = NkMat4f::Identity();
+				bool mHasPrevRenderViewProj = false;
+				uint64 mFrameCountSeen = 0;
+				// Passe des vecteurs de mouvement : nuanceur et pipeline, crees
+				// paresseusement (le RP de la passe n'existe qu'au premier Execute).
+				::nkentseu::NkShaderHandle mMotionShader;
+				NkPipelineHandle mMotionPipeline;
 				bool mInScene = false;
 				bool mWireframe = false;
 				int32 mViewMode = 0;   // 0=rendered(lit) 1=solid(unlit)

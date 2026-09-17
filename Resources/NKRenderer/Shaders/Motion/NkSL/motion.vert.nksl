@@ -1,0 +1,50 @@
+// motion.vert.nksl — NKRenderer — vecteurs de mouvement par pixel (VS)
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// CE QUE CETTE PASSE PRODUIT. Pour chaque pixel couvert par de la géométrie, le
+// déplacement à l'écran entre l'image précédente et l'image courante. Le TAA s'en
+// sert pour savoir OÙ aller chercher l'historique d'un pixel — ce que la seule
+// profondeur ne sait pas faire dès qu'un OBJET bouge (la profondeur ne renseigne
+// que sur le mouvement de la CAMÉRA).
+//
+// DEUX POSITIONS, DEUX MATRICES DÉJÀ COMPOSÉES. Le C++ envoie `mvpCur` et
+// `mvpPrev`, chacune étant viewProj(image) × model(image). Composer côté CPU
+// plutôt que d'envoyer viewProj et model séparément n'est pas un détail : trois
+// mat4 feraient 192 octets, au-dessus de la garantie Vulkan de 128 et au-dessus
+// des root constants DX12 (32 DWORDs). Deux font exactement 128.
+//
+// ⚠️ LES MATRICES SONT DÉ-JITTRÉES, et c'est la même règle que le TAA. Un vecteur
+// de mouvement décrit le déplacement de la GÉOMÉTRIE, pas le déplacement de la
+// grille d'échantillonnage. Y laisser le jitter ajouterait à chaque vecteur
+// l'écart entre deux phases de Halton, c'est-à-dire exactement le défaut qui
+// empêchait l'accumulation du TAA de converger (mesuré le 17/09 : rapport
+// d'atténuation 0,915 au lieu de 0,126).
+//
+// ⚠️ AUCUN ObjectUBO n'est lu ici, VOLONTAIREMENT. Le ring d'UBO objets est
+// avancé par les passes qui dessinent la scène ; s'y brancher ferait dépendre
+// cette passe de l'ordre dans lequel les autres consomment leurs slots. Tout
+// arrive par push-constant, donc cette passe ne partage d'état avec personne.
+
+@location(0) in vec3 aPos;
+
+@location(0) out vec4 vClipCur;
+@location(1) out vec4 vClipPrev;
+
+layout(push_constant) uniform PC {
+    mat4 mvpCur;   // viewProj(courante, dé-jittrée) × model(courant)
+    mat4 mvpPrev;  // viewProj(précédente, dé-jittrée) × model(précédent)
+} pc;
+
+@stage(vertex)
+@entry
+void main() {
+    vec4 cur  = pc.mvpCur  * vec4(aPos, 1.0);
+    vec4 prev = pc.mvpPrev * vec4(aPos, 1.0);
+    // Les deux positions de clip voyagent vers le FS SANS division : la division
+    // perspective ne commute pas avec l'interpolation. Diviser ici donnerait le
+    // déplacement du SOMMET interpolé linéairement, pas le déplacement du PIXEL —
+    // faux dès qu'une face est vue en biais, c'est-à-dire presque toujours.
+    vClipCur  = cur;
+    vClipPrev = prev;
+    gl_Position = cur;
+}

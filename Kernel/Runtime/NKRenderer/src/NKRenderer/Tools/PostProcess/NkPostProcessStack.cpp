@@ -299,6 +299,14 @@ void main() {
 				mTAASets[i] = mDevice->AllocateDescriptorSet(mTAALayout);
 			mTAASetCursor = 0;
 
+			// ── Sonde des vecteurs de mouvement : UN sampler (la cible RG16F) ────
+			NkDescriptorSetLayoutDesc mdlay;
+			mdlay.Add(0, NkDescriptorType::NK_COMBINED_IMAGE_SAMPLER, ::nkentseu::NkShaderStage::NK_ALL_GRAPHICS);
+			mMotionDbgLayout = mDevice->CreateDescriptorSetLayout(mdlay);
+			for (int i = 0; i < kMotionDbgDescSets; i++)
+				mMotionDbgSets[i] = mDevice->AllocateDescriptorSet(mMotionDbgLayout);
+			mMotionDbgSetCursor = 0;
+
 			// Phase L : create identity LUT 16^3 par defaut (no color change).
 			// User upload son LUT custom via SetColorGradingLUT (accessible par
 			// renderer->GetPostProcess()). Format : RGBA8 UNORM, trilinear.
@@ -513,6 +521,17 @@ void main() {
 			// des sa construction s'il declare les passes TAA), mais le PIPELINE est
 			// cree en lazy dans EnsureTAAPipeline : il doit etre RP-compatible avec le
 			// framebuffer que le graph cree pour la passe, lequel n'existe pas encore.
+			// Sonde des vecteurs de mouvement : chargee ici, pipeline en lazy (le
+			// RP de la passe n'existe qu'au premier Execute). Le chargement ne coute
+			// que si les fichiers existent ; la passe, elle, ne s'ajoute au graphe
+			// que sous NK_MOTION_DEBUG.
+			if (mShaderLib) {
+				auto progMD = mShaderLib->LoadOrCompileVF("MotionDbg", "", "");
+				if (progMD.IsValid())
+					mShaderMotionDbg = mShaderLib->GetRHIHandle(progMD);
+				logger.Info("[NkPostProcessStack] MotionDbg shader : valid={0}\n", mShaderMotionDbg.IsValid() ? 1 : 0);
+			}
+
 			if (mShaderLib) {
 				auto progTAA = mShaderLib->LoadOrCompileVF("PP_TAA", "", "");
 				if (progTAA.IsValid())
@@ -1714,6 +1733,52 @@ void main() {
 			mPipeTAA = mDevice->CreateGraphicsPipeline(pd);
 			logger.Info("[NkPostProcessStack] TAA pipeline (lazy) : valid={0}\n", mPipeTAA.IsValid() ? 1 : 0);
 			return mPipeTAA.IsValid();
+		}
+
+		void NkPostProcessStack::RunMotionDebugInPass(NkICommandBuffer *cmd, NkTextureHandle motion,
+													 float32 amplification, NkRenderPassHandle rp) {
+			if (!cmd || !motion.IsValid() || !mShaderMotionDbg.IsValid() || !mDevice)
+				return;
+			if (!mPipeMotionDbg.IsValid()) {
+				NkGraphicsPipelineDesc pd;
+				pd.shader = mShaderMotionDbg;
+				pd.depthStencil = NkDepthStencilDesc::NoDepth();
+				pd.rasterizer = NkRasterizerDesc::NoCull();
+				pd.blend = NkBlendDesc::Opaque();
+				pd.debugName = "MotionDbg";
+				pd.renderPass = rp;
+				pd.AddPushConstant(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, 16);
+				if (mMotionDbgLayout.IsValid())
+					pd.descriptorSetLayouts.PushBack(mMotionDbgLayout);
+				mPipeMotionDbg = mDevice->CreateGraphicsPipeline(pd);
+				logger.Info("[NkPostProcessStack] MotionDbg pipeline (lazy) : valid={0}\n",
+							mPipeMotionDbg.IsValid() ? 1 : 0);
+			}
+			if (!mPipeMotionDbg.IsValid())
+				return;
+			NkSamplerHandle samp = mResources ? mResources->GetSamplerLinearClamp() : NkSamplerHandle{};
+			if (!samp.IsValid())
+				return;
+			NkDescSetHandle set = mMotionDbgSets[mMotionDbgSetCursor % kMotionDbgDescSets];
+			mMotionDbgSetCursor++;
+			if (!set.IsValid())
+				return;
+			mDevice->BindTextureSampler(set, 0, motion, samp);
+			cmd->BindGraphicsPipeline(mPipeMotionDbg);
+			cmd->BindDescriptorSet(set, 0);
+			struct PC {
+					float32 amp, yFlipUV, pad0, pad1;
+			} pc;
+			pc.amp = amplification;
+			// Meme convention que le TAA et que le FXAA : ce qui compte est
+			// l'orientation de la TEXTURE LUE, et c'est un transient du graphe,
+			// exactement comme ToneLDR. VK retourne, les autres non.
+			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
+			pc.yFlipUV = (api == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : 1.f;
+			pc.pad0 = 0.f;
+			pc.pad1 = 0.f;
+			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
+			cmd->Draw(3, 1, 0, 0);
 		}
 
 		void NkPostProcessStack::RunTAAInPass(NkICommandBuffer *cmd, NkTextureHandle ldrIn, NkTextureHandle histIn,
