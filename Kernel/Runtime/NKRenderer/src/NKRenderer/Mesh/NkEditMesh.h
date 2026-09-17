@@ -1409,6 +1409,22 @@ namespace nkentseu {
 		struct NkMeshEditCommand {
 				NkMeshEditOp op = NkMeshEditOp::None;
 				NkVector<uint32> selection;			  // sommets sélectionnés à l'application
+				// ── L'INTENTION DE FACE, ENREGISTREE AVEC LA COMMANDE (v10) ──────────
+				// ⚠️ SANS ELLE, DEUX GESTES HUMAINS DIFFERENTS S'ECRIVAIENT PAREIL.
+				//    Mesure du 14/09 : sur un cube, « deux faces opposees » et « tout
+				//    selectionner » allument LES MEMES SOMMETS -- 370 octets identiques,
+				//    et un fichier parfaitement valide. Pire que l'egalite des octets :
+				//    au rejeu, `ExtrudeSelectedFaces` re-deduisait les faces depuis les
+				//    sommets et en extrudait SIX la ou la main en avait extrude DEUX.
+				//    Le journal ne se contentait pas d'oublier l'intention, il en
+				//    rejouait une AUTRE.
+				//
+				//    Un octet par face, tel que l'editeur l'a pose au clic (c'est le
+				//    meme tableau que `SetFaceSelection` consomme). VIDE = aucune
+				//    intention enregistree : le rejeu retombe alors sur la deduction
+				//    historique, qui est exactement la semantique des sessions v9 et
+				//    anterieures. Un fichier d'hier garde donc le sens qu'il avait.
+				NkVector<uint8> faceSel;
 				NkExtrudeParams extrude;			  // (op == Extrude / ExtrudeVerts / ExtrudeEdges)
 				NkMergeParams merge;				  // (op == Merge)
 				NkSubdivideParams subdiv;			  // (op == Subdivide)
@@ -1449,6 +1465,14 @@ namespace nkentseu {
 					return mCommands[i];
 				}
 
+				// LA VERSION DU FICHIER RELU (0 = rien n'a ete relu ; l'ecriture est
+				// toujours a la version courante). Elle existe pour qu'un affichage
+				// puisse DIRE « cette session est anterieure a l'intention de face »
+				// plutot que de rejouer une semantique ancienne en silence.
+				uint32 Version() const {
+					return mVersion;
+				}
+
 				// Rejoue toutes les commandes (dans l'ordre) sur `mesh`. Renvoie le nb appliquées.
 				uint32 ReplayOnto(NkEditMesh &mesh) const;
 				// Sérialisation binaire autonome (magic "NMEC", versionnée) — persiste une
@@ -1458,6 +1482,7 @@ namespace nkentseu {
 
 			private:
 				NkVector<NkMeshEditCommand> mCommands;
+				uint32 mVersion = 0u;
 		};
 
 		// ── STACK DE MODIFICATEURS (non-destructif, façon Blender) ──────────────────
