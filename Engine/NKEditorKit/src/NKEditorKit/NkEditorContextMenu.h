@@ -12,6 +12,7 @@
 #include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorScrollbar.h" // scrollbar standard
 #include "NKEditorKit/NkEditorTextField.h" // NkOverlayTextField (barre de recherche)
+#include <cstdlib> // getenv : la mutation de banc `ctxnon` plus bas
 
 namespace nkentseu {
 	namespace editorkit {
@@ -310,7 +311,14 @@ namespace nkentseu {
 			//    independants dont un seul manquait : la porte les rend indivisibles.
 			// ⚠️ CE MENU PREND LE CLAVIER, et c'est une decision : il a une bande de
 			//    recherche, un filtre, la molette et Echap.
-			NkSurfaceFlottante _surface(ctx, box, NkCouche::Menu, NkPriseClavier::Oui);
+			// (R19) MUTATION DE BANC, NK_PORTES_MUTATION=ctxnon : le menu ne reserve PAS la saisie.
+			// Sert a prouver une cause, jamais a corriger : sans la variable, rien ne change.
+			static const bool kSansClavier = []() {
+				const char *v = getenv("NK_PORTES_MUTATION");
+				return v && v[0] == 'c';
+			}();
+			NkSurfaceFlottante _surface(ctx, box, NkCouche::Menu,
+										kSansClavier ? NkPriseClavier::Non : NkPriseClavier::Oui);
 			// Couleurs du THÈME (dark ET light) — plus de valeurs en dur qui juraient
 			// en thème clair (fond sombre + texte clair sur UI claire).
 			dl.AddRectFilled(box, ctx.theme.panel, 6.f);
