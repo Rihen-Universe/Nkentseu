@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKDesignIABanc — le JEU D'EPREUVE de l'IA de design.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Il lit les douze demandes ecrites A L'AVANCE dans
+`Applications/NKUIDesign/exemples/ia/demandes.txt`, envoie chacune au dorsal
+(le processus externe NKDesignLLM, ou le dorsal TEMOIN qui est le zero du banc),
+et publie TROIS taux separes : le modele rend quelque chose / le document se lit
+/ le document s'ouvre.
+
+APPLICATION A PART ET NON UN DRAPEAU DE NKUIDesign : `main.cpp` et `Panels.h` de
+NKUIDesign sont tenus par un autre chantier (extraction du module de conversation
+IA). Un banc dans un binaire a part ne prend aucun fichier a personne, et il
+n'ouvre AUCUNE fenetre -- ni GPU, ni entree, ni capture.
+
+LE MONTAGE N'EST PAS ICI : le `.nkgui` produit est donne a
+`NKGuiMonteTest --monter=<fichier>`. Deux instruments sans code commun.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKDesignIABanc"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # Le document, la mise en page, le pont `.nkgui` et le registre des
+    # composants. Rien de graphique : pas de NKWindow, pas de NKRHI.
+    nkentseudependson(
+        ["NKEditorKit", "NKGui", "NKSerialization", "NKReflection", "NKFileSystem",
+         "NKFont", "NKImage", "NKStream", "NKEvent", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "../NKUIDesign/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows"):
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
