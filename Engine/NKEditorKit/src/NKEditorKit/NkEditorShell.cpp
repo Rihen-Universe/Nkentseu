@@ -92,14 +92,165 @@ namespace nkentseu {
 				snprintf(buf, (size_t)taille, "aucune");
 			return buf;
 		}
-		static void NkNoterPortes(int32 portes, int32 popupDepth, bool actifPose, bool focus, bool dragTitre) noexcept {
+		// ═══════════════════════════════════════════════════════════════════════
+		//  LE DETECTEUR DE GEL -- ACTIF DANS LE BINAIRE LIVRE, SANS RIEN A ARMER
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Rodolf voit des gels que nous ne reproduisons pas. Interroge sur les trois
+		//  sources trouvees, il repond « souvent oui souvent non » : il reste au moins une
+		//  cause inconnue. Ce detecteur la NOMME chez lui, et dit explicitement quand aucune
+		//  porte connue n'est responsable -- c'est CE message-la qui apprendra la cause.
+		//
+		//  ⚠️ POURQUOI LA DUREE SEULE NE PEUT PAS SERVIR DE CRITERE. Une modale ouverte
+		//     masque le corps LEGITIMEMENT, aussi longtemps qu'on la laisse ouverte. Un
+		//     detecteur « masque depuis plus d'une seconde » crierait a chaque dialogue : il
+		//     serait faux la plupart du temps, donc ignore -- et un detecteur ignore ne
+		//     detecte rien. Ce qui distingue un gel d'une modale ouverte, c'est que
+		//     L'UTILISATEUR ESSAIE ET QUE RIEN NE BOUGE. D'ou les trois conditions, qui
+		//     doivent toutes tenir :
+		//       1. l'etat ne bouge pas : memes portes, meme popupDepth, meme activeId, meme
+		//          focus texte, meme armement du drag de titre (la cle `cle`) ;
+		//       2. l'utilisateur agit : au moins 3 gestes (clic, caractere, molette, Echap,
+		//          Entree) pendant cette meme periode ;
+		//       3. ca dure : plus de 1 000 ms.
+		//     Derivation du seuil : la boucle tourne a ~140 images/s mesurees et une reaction
+		//     a un clic se voit en moins de 100 ms. Le cout d'un faux positif est une ligne
+		//     de journal ; celui d'un faux negatif est une soiree perdue.
+		//
+		//  ⚠️ L'ETAT QU'IL FAUT ARMER EST L'EXTINCTION (`NK_GEL=0`), jamais l'allumage : un
+		//     detecteur qu'il faut penser a armer se fait oublier le jour ou il servirait.
+		//  La pire duree de masquage de la session est gardee SANS SEUIL (un seuil aurait
+		//  decide a l'avance ce qui est long) et imprimee a la fermeture.
+		struct NkDetecteurGel {
+				bool decide = false, actif = true;
+				int64 image = 0;
+				int32 cle = -1;			///< l'etat observe ; il change = quelque chose a repondu
+				int64 debutCle = 0;		///< premiere image de la periode a `cle` constante
+				nkentseu::NkChrono horlogeCle;
+				int32 gestes = 0;		///< gestes de l'utilisateur DANS cette periode
+				bool dit = false;		///< une seule ligne par episode
+				bool masque = false;
+				int64 debutMasque = 0;
+				nkentseu::NkChrono horlogeMasque;
+				int64 pireImages = 0;	///< pire masquage continu de la session, SANS seuil
+				float64 pireMs = 0.0;
+				int32 pirePortes = 0;
+				int32 portesMasque = 0; ///< toutes les portes vues PENDANT le masquage en cours
+				int32 episodes = 0;
+		};
+		static NkDetecteurGel &DetecteurGel() noexcept {
+			static NkDetecteurGel d;
+			if (!d.decide) {
+				d.decide = true;
+				const char *v = getenv("NK_GEL");
+				d.actif = !(v && v[0] == '0'); // SEULE `NK_GEL=0` l'eteint (mesure du cout)
+			}
+			return d;
+		}
+		static constexpr int32 kGelGestesMini = 3;
+		static constexpr float64 kGelSeuilMs = 1000.0;
+
+		/// Rend le bilan de session (appele a la fermeture de la coquille).
+		static void NkGelBilanSession(const char *appli) noexcept {
+			NkDetecteurGel &d = DetecteurGel();
+			if (!d.actif || d.image == 0)
+				return;
+			// ⚠️ UN MASQUAGE ENCORE OUVERT A LA FERMETURE COMPTE. Sans cette ligne, une session
+			//    qui se termine PENDANT le masquage rendait « pire : 0 image » -- un compteur
+			//    dont le zero ne veut pas dire zero, et c'est exactement le cas qui nous
+			//    interesse (l'utilisateur ferme l'application parce qu'elle ne repond plus).
+			if (d.masque) {
+				const int64 im = d.image - d.debutMasque;
+				if (im > d.pireImages) {
+					d.pireImages = im;
+					d.pireMs = d.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+					d.pirePortes = d.portesMasque;
+				}
+			}
+			char noms[160];
+			logger.Info("[gel] {0} : {1} episode(s) signale(s) ; pire masquage continu de la session {2} "
+						"image(s) ({3} ms), porte(s) {4}",
+						appli ? appli : "application", d.episodes, (long long)d.pireImages, d.pireMs,
+						NkNomsPortes(d.pirePortes, noms, (int32)sizeof(noms)));
+		}
+
+		/// UNE image du detecteur. `gestes` = ce que l'utilisateur vient de faire (compte par
+		/// l'appelant sur l'entree REELLE, avant tout masquage) ; `sources` nomme les sources
+		/// ouvertes du cote de l'APPLICATION -- le kit ne peut pas les connaitre.
+		static void NkDetecterGel(int32 portes, int32 cle, int32 popupDepth, bool actifPose, bool focus,
+								  bool dragTitre, int32 gestes, NkEditorSourcesFn sourcesFn, void *sourcesUser) noexcept {
+			NkDetecteurGel &d = DetecteurGel();
+			if (!d.actif)
+				return;
+			++d.image;
+			const bool masque = (portes & 31) != 0;
+			// ── la pire duree de masquage de la session, gardee SANS SEUIL ──
+			if (masque && !d.masque) {
+				d.debutMasque = d.image;
+				d.horlogeMasque = nkentseu::NkChrono();
+				d.portesMasque = 0;
+			} else if (!masque && d.masque) {
+				const int64 im = d.image - d.debutMasque;
+				if (im > d.pireImages) {
+					d.pireImages = im;
+					d.pireMs = d.horlogeMasque.Elapsed().ToSeconds() * 1000.0;
+					// ⚠️ TOUTES les portes vues pendant le pire episode, pas seulement celle de sa
+					//    derniere image : un masquage change souvent de porte en cours de route.
+					d.pirePortes = d.portesMasque;
+				}
+			}
+			if (masque)
+				d.portesMasque |= (portes & 31);
+			d.masque = masque;
+			// ── l'episode : une periode a `cle` constante ──
+			if (cle != d.cle) {
+				d.cle = cle;
+				d.debutCle = d.image;
+				d.horlogeCle = nkentseu::NkChrono();
+				d.gestes = 0;
+				d.dit = false;
+				return;
+			}
+			d.gestes += gestes;
+			if (d.dit || d.gestes < kGelGestesMini)
+				return;
+			const float64 ms = d.horlogeCle.Elapsed().ToSeconds() * 1000.0;
+			if (ms < kGelSeuilMs)
+				return;
+			d.dit = true; // UNE ligne par episode, jamais un flot par image
+			++d.episodes;
+			char noms[160];
+			// ⚠️ L'APPLICATION N'EST INTERROGEE QU'ICI : une fois par episode, jamais par image.
+			const char *sources = sourcesFn ? sourcesFn(sourcesUser) : nullptr;
+			if (masque)
+				logger.Warn("[gel] LE CORPS NE REPOND PLUS : {0} image(s) ({1} ms) sans que rien bouge, "
+							"{2} geste(s) ignore(s) -- porte(s) : {3} ; popupDepth {4} ; activeId {5} ; "
+							"focus texte {6} ; drag titre {7} ; sources ouvertes : {8}",
+							(long long)(d.image - d.debutCle), ms, d.gestes,
+							NkNomsPortes(portes & 31, noms, (int32)sizeof(noms)), popupDepth,
+							actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+							sources ? sources : "(l'application n'en publie pas)");
+			else
+				logger.Warn("[gel] LE CORPS NE REPOND PLUS ET AUCUNE PORTE CONNUE N'EST RESPONSABLE : "
+							"{0} image(s) ({1} ms) sans que rien bouge, {2} geste(s) ignore(s) ; "
+							"popupDepth {3} ; activeId {4} ; focus texte {5} ; drag titre {6} ; "
+							"sources ouvertes : {7}",
+							(long long)(d.image - d.debutCle), ms, d.gestes, popupDepth,
+							actifPose ? "pose" : "libre", focus ? "oui" : "non", dragTitre ? "arme" : "non",
+							sources ? sources : "(l'application n'en publie pas)");
+		}
+
+		static void NkNoterPortes(int32 portes, int32 popupDepth, bool actifPose, bool focus, bool dragTitre,
+								  int32 gestes, NkEditorSourcesFn sourcesFn, void *sourcesUser) noexcept {
 			NkJournalPortes &j = JournalPortes();
 			++j.image;
-			if (!j.actif)
-				return;
 			const bool masque = (portes & 31) != 0;
+			// LA CLE DE L'ETAT : une seule definition, lue par le journal de banc ET par le
+			// detecteur de gel -- deux lectures d'un meme etat, jamais deux definitions.
 			const int32 cle = portes | ((popupDepth > 7 ? 7 : popupDepth) << 8) | ((actifPose ? 1 : 0) << 12) |
 							  ((focus ? 1 : 0) << 13) | ((dragTitre ? 1 : 0) << 14);
+			NkDetecterGel(portes, cle, popupDepth, actifPose, focus, dragTitre, gestes, sourcesFn, sourcesUser);
+			if (!j.actif)
+				return;
 			if (cle == j.cle)
 				return;
 			const int64 tenu = j.image - j.debutEtat;
@@ -132,6 +283,26 @@ namespace nkentseu {
 			j.horlogeEtat = nkentseu::NkChrono();
 			j.masque = masque;
 		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		//  (R19) POURQUOI LA RECOPIE BRUTE DE `mUI.input` EST LEGITIME ICI
+		// ═══════════════════════════════════════════════════════════════════════
+		//  Le shell masque l'entree des panneaux en COPIANT `mUI.input`, puis la RECOPIE
+		//  apres (deux sites : le masquage global et le masquage par panneau). Cette recopie
+		//  EFFACE ce qu'une source aurait declare PENDANT le dessin des panneaux --
+		//  `ReserverSaisie`, `ReserverMolette` vivent dans ce meme objet.
+		//  ⚠️ C'est volontaire, et c'est le contrat : UNE SOURCE FLOTTANTE QUI PREND L'ENTREE
+		//     SE DESSINE APRES LES PANNEAUX (crochet d'overlay), jamais dedans. Dessinee
+		//     dedans, elle vit SOUS le masque qu'elle cause elle-meme : ni clic ni Echap ne
+		//     lui parviennent, et le corps reste masque POUR TOUJOURS.
+		//  Mesure du 17/09 (R19c, sonde des portes de NKUIDesign, 20 courses) : garder les
+		//  declarations a travers la recopie ne deplace AUCUNE mesure une fois les sources
+		//  sorties des panneaux (17 courses vertes avec et sans) -- et, si une source reste
+		//  dessinee dans un panneau, cela transforme « le corps repond une image sur deux »
+		//  en « le corps ne repond plus du tout ». La regle a donc ete ECRITE, MESUREE, et
+		//  RETIREE. ⚠️ Deux applications sont encore dans ce cas par LECTURE, non mesurees :
+		//  NKCode (NkCodeEditor.h:4829 et 4856) et NK3DModeler (NkModelerViewport.h:1917 et
+		//  1983) dessinent un menu contextuel DANS un panneau.
 
 		void NkEditorShell::JournalPortesBilan(const char *etiquette) const noexcept {
 			NkJournalPortes &j = JournalPortes();
@@ -593,19 +764,9 @@ namespace nkentseu {
 					mPaletteSel = 0;
 					return;
 				}
-				if (mPaletteOpen) {
-					if (k == NkKey::NK_ESCAPE)
-						mPaletteOpen = false;
-					else if (k == NkKey::NK_DOWN && mNumCommands > 0)
-						mPaletteSel = (mPaletteSel + 1) % mNumCommands;
-					else if (k == NkKey::NK_UP && mNumCommands > 0)
-						mPaletteSel = (mPaletteSel - 1 + mNumCommands) % mNumCommands;
-					else if (k == NkKey::NK_ENTER) {
-						ExecuteCommand(mPaletteSel);
-						mPaletteOpen = false;
-					}
+				// (R19) le clavier de la palette vit dans PaletteTouche : meme chemin pour une sonde.
+				if (PaletteTouche(k))
 					return;
-				}
 				// Raccourcis Ctrl+<lettre> (ex. Ctrl+S, Ctrl+B) meme pendant la frappe.
 				if (e->GetModifiers().ctrl)
 					TryRunShortcut(k, e->GetModifiers().shift);
@@ -889,6 +1050,9 @@ namespace nkentseu {
 					mWindow.BeginResize(e);
 				}
 			}
+			// LE BILAN DU DETECTEUR DE GEL : la pire duree de masquage de la session, gardee
+			// SANS SEUIL, et le nombre d'episodes signales. Au journal, pas a la console.
+			NkGelBilanSession(mTitle);
 			return 0;
 		}
 
@@ -1259,8 +1423,22 @@ namespace nkentseu {
 				if (!mUI.PointReachable(mUI.input.mousePos))
 					portes |= kPorteSurface;
 				mPortesCorps = portes;
+				// ── LES GESTES DE L'UTILISATEUR, COMPTES SUR L'ENTREE REELLE ──
+				// C'est le seul point du code qui voit a la fois les portes ET ce que
+				// l'utilisateur fait : le masquage vient juste apres. Cout : six comparaisons.
+				// On ne balaie PAS les 350 touches (ce serait un cout par image pour rien) :
+				// Echap et Entree sont les deux que l'on frappe quand on se croit bloque.
+				int32 gestes = 0;
+				for (int32 b = 0; b < 3; ++b)
+					if (mUI.input.mouseClicked[b])
+						++gestes;
+				if (mUI.input.wheel != 0.f || mUI.input.wheelH != 0.f || mUI.input.wheelReserve != 0.f)
+					++gestes;
+				gestes += mUI.input.charCount;
+				if (mUI.input.keyInit[(int32)nkgui::NkGuiKey::Escape] || mUI.input.keyInit[(int32)nkgui::NkGuiKey::Enter])
+					++gestes;
 				NkNoterPortes(portes, mUI.popupDepth, mUI.activeId != NKGUI_ID_NONE, mUI.inputId != NKGUI_ID_NONE,
-							  mTitleDragArmed);
+							  mTitleDragArmed, gestes, mSourcesFn, mSourcesUser);
 			}
 			nkgui::NkGuiInput savedInput;
 			if (modal) {
@@ -1365,7 +1543,7 @@ namespace nkentseu {
 			phase("bords de fenetre");
 
 			if (modal)
-				mUI.input = savedInput; // restaure pour le popup
+				mUI.input = savedInput; // restaure pour le popup (cf. le pave « recopie brute » plus haut)
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
 			phase("menu contextuel");
@@ -1789,7 +1967,19 @@ namespace nkentseu {
 				//    attend.
 				// ⚠️ PAS DE CLAVIER : le tiroir accueille un PANNEAU de l'hote, qui a
 				//    ses propres champs ; lui prendre le clavier ici les couperait.
-				NkSurfaceFlottante _tiroir(mUI, corps, NkCouche::Menu, NkPriseClavier::Non);
+				// (R20) PENDANT UN GLISSER, LE TIROIR NE RECLAME QUE LUI-MEME. Il reclamait `corps`
+				// entier, glisser compris : la toile, dessous, recevait une souris hors ecran et sa
+				// zone de depot n'etait jamais atteinte -- la Bibliotheque, dans son tiroir, posait
+				// une charge que personne ne pouvait lire (mesure : souris MASQUEE, cible jamais
+				// ouverte, 0 composant pose). Un glisser parti du tiroir VISE ce qui est dessous.
+				// Hors glisser, rien ne change : tout le corps attend, comme le voile le dit.
+				// Mutation de banc NK_PORTES_MUTATION=tiroir : le tiroir reclame le corps meme en glisser.
+				static const bool kMutationTiroir = []() {
+					const char *v = getenv("NK_PORTES_MUTATION");
+					return v && v[0] == 't';
+				}();
+				const NkRect reclame = (mUI.dragActive && !kMutationTiroir) ? d : corps;
+				NkSurfaceFlottante _tiroir(mUI, reclame, NkCouche::Menu, NkPriseClavier::Non);
 				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
 				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
 				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
@@ -3510,7 +3700,7 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					} else
 						p->OnUI(ec);
 					if (shielded)
-						mUI.input = saved;
+						mUI.input = saved; // cf. le pave « recopie brute » plus haut
 					EndWindow(mUI);
 				}
 			}
@@ -3546,6 +3736,22 @@ void NkEditorShell::MaximizeWindow() noexcept {
 		}
 
 		// ── Palette de commandes (overlay, Ctrl+P) ───────────────────────────────
+		bool NkEditorShell::PaletteTouche(NkKey k) noexcept {
+			if (!mPaletteOpen)
+				return false;
+			if (k == NkKey::NK_ESCAPE)
+				mPaletteOpen = false;
+			else if (k == NkKey::NK_DOWN && mNumCommands > 0)
+				mPaletteSel = (mPaletteSel + 1) % mNumCommands;
+			else if (k == NkKey::NK_UP && mNumCommands > 0)
+				mPaletteSel = (mPaletteSel - 1 + mNumCommands) % mNumCommands;
+			else if (k == NkKey::NK_ENTER) {
+				ExecuteCommand(mPaletteSel);
+				mPaletteOpen = false;
+			}
+			return true;
+		}
+
 		void NkEditorShell::DrawCommandPalette(NkEditorFrameContext &) noexcept {
 			if (!mPaletteOpen || !mFontOk)
 				return;
