@@ -36,24 +36,23 @@
 #   A RIEN D'AUTRE. Les criteres (1) et (2) DOIVENT alors rougir. S'ils restent
 #   verts, ils ne testent rien et la sonde le dit (elle sort 2).
 #
-# ⚠️ ETAT AU 17/09 : CETTE SONDE NE PEUT PAS ENCORE ATTEINDRE SON SUJET.
-#   Le pilote d'edition par objet de DEMO n'arrive plus en mode Edition : la trace
-#   « [Demo3D] PILOTE edition : demande objet 16 ... -> ActiveIndex=16 » prouve que
-#   `st->gizmo.Select(16)` s'execute et PREND, et deux images plus tard
-#   « TRACE edition : selDemo=-1 » -- quelque chose efface la selection de demo
-#   entre les deux, et la vue repond « Selectionne un objet (clic) avant TAB ».
-#   La sonde le DIT au lieu de mentir : son critere (0) rougit avec `faces=0`,
-#   parce qu'un compteur a 0 sur une course qui n'a pas eu lieu se lit comme un
-#   compteur a 0 sur une course reussie. C'est exactement pourquoi le zero se
-#   prouve en premier.
-#   EN ATTENDANT, la regle est mesuree UN ETAGE PLUS BAS, la ou elle vit :
-#       NKEditMeshHarness.exe --suppression        (et NK_DEL_KEEPSEL=1 pour la
-#       mutation). Console, sans fenetre, sans device.
+# ── POURQUOI LA CIBLE EST UN OBJET **UTILISATEUR**, ET PAS L'OBJET DE DEMO ──
+#   Mesure du 17/09. `NK_EDIT_MODE` visait par defaut l'objet 16 de la DEMO ; dans
+#   NK3DModeler cet objet est marque SUPPRIME, et la garde du cadenas de
+#   `HostHierarchyFrame` le desselectionne a l'image suivante -- a juste titre. Le
+#   pilote « prenait » donc toujours (ActiveIndex=16) et le mode Edition ne
+#   s'ouvrait JAMAIS. Ce n'etait pas un defaut du produit : c'etait l'instrument
+#   qui visait une cible condamnee, et qui ne le disait pas.
+#   La cible correcte se fabrique : `NK_ADD_NODE="2,0,<img>"` cree un cube
+#   UTILISATEUR (noeud 96 + emplacement) et `NK_EDIT_USER` le vise. Verifie :
+#   v=24 e=12 f=6 t=12, le cube de la maison (notre Vert EST un coin).
 #
+# USAGE
 # USAGE
 #   pwsh -File sonde_suppression.ps1 [-Config Debug] [-SousMode face|arete|sommet]
 #                                    [-Mutation] [-Arbre <chemin>]
 # SORTIE : 0 tout vert · 1 un critere rouge · 2 la mutation a survecu
+#          3 la COURSE n'a pas pu avoir lieu (a ne surtout pas lire comme un rouge)
 
 param(
 	[string]$Config = "Debug",
@@ -66,19 +65,33 @@ $ErrorActionPreference = "Stop"
 $exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
-$masque = switch ($SousMode) { "face" { 4 } "arete" { 2 } "sommet" { 1 } }
+# ⚠ LE MASQUE EST COMBINE (FACE + le sous-mode teste), ET CE N'EST PAS UN
+#   ARRANGEMENT. Mesure du 17/09 : en sous-mode ARETE ou SOMMET seul, le clic de
+#   FACE est filtre par le sous-mode et la selection reste VIDE -- la course
+#   n'avait pas lieu, et le critere (0) l'a dit. Or la suppression passe par
+#   `DeleteSelectedFaces`, qui exige des faces ENTIEREMENT selectionnees : deux
+#   sommets ou deux aretes ne suppriment donc RIEN aujourd'hui (difference avec
+#   Blender, a remonter, hors de ce lot). Ce que ce parametre eprouve est donc :
+#   « la selection est-elle videe AUSSI du point de vue de ce sous-mode-la »,
+#   apres une suppression declenchee par une selection de faces.
+$masque = switch ($SousMode) { "face" { 4 } "arete" { 6 } "sommet" { 5 } }
 $sortie = Join-Path ([System.IO.Path]::GetTempPath()) ("nk_sonde_suppression_" + $SousMode + $(if ($Mutation) { "_MUTE" } else { "" }) + ".txt")
 
 # Les images sont choisies pour que chaque geste soit CONSOMME avant le releve
 # suivant : le pick est consomme dans la vue, pas dans la boucle du shell.
-#   40/43 : les deux clics de face   110 : releve 1 (avant tout)
+#   20 : le cube utilisateur   40 : mode Edition   70/73 : les deux clics de face
 #   140 : X n.1   150 : releve 2     170 : X n.2   180 : releve 3
 #   200 : Ctrl+Z  210 : releve 4     240 : sortie
 $env:NK_SONDE = "1"
-$env:NK_EDIT_MODE = "1,10"
+# LA CIBLE SE FABRIQUE : un cube UTILISATEUR, parce que les objets de demo sont
+# marques supprimes dans ce projet (voir l'en-tete). NK_EDIT_USER accepte le
+# NUMERO DE NOEUD que NK_ADD_NODE imprime.
+$env:NK_ADD_NODE = "2,0,20"
+$env:NK_EDIT_USER = "99"
+$env:NK_EDIT_MODE = "1,40"
 $env:NK_EDIT_SEL = "n"
 $env:NK_EDIT_SELMASK = "$masque"
-$env:NK_EDIT_PICK_FACE = "0,2,1,40"
+$env:NK_EDIT_PICK_FACE = "0,2,1,70"
 $env:NK_EDIT_REPORT = "110,150,180,210"
 $env:NK_VP_ACTION = "delete,140"
 $env:NK_VP_ACTION2 = "delete,170"
@@ -88,7 +101,8 @@ if ($Mutation) { $env:NK_DEL_KEEPSEL = "1" } else { Remove-Item Env:\NK_DEL_KEEP
 
 $p = Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -PassThru -Wait `
 	-RedirectStandardOutput $sortie
-foreach ($v in @("NK_SONDE", "NK_EDIT_MODE", "NK_EDIT_SEL", "NK_EDIT_SELMASK", "NK_EDIT_PICK_FACE",
+foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE", "NK_EDIT_SEL",
+		"NK_EDIT_SELMASK", "NK_EDIT_PICK_FACE",
 		"NK_EDIT_REPORT", "NK_VP_ACTION", "NK_VP_ACTION2", "NK_VP_ACTION3", "NK_AGENT_EXIT",
 		"NK_DEL_KEEPSEL")) {
 	Remove-Item "Env:\$v" -ErrorAction SilentlyContinue
@@ -123,6 +137,19 @@ function Dire([string]$nom, [bool]$vert, [string]$detail) {
 	if ($vert) { Write-Host "VERT   $nom  $detail" } else { Write-Host "ROUGE  $nom  $detail"; $script:rouges++ }
 }
 
+# ⚠ « COURSE IMPOSSIBLE » N'EST PAS « CRITERE ROUGE », ET LES CONFONDRE FERAIT
+#   ACCUSER LE CORRECTIF. Si rien n'est selectionne au releve 1 alors que le
+#   maillage est bien la, c'est que le geste de selection n'a pas pu avoir lieu --
+#   mesure du 17/09 : en sous-mode ARETE ou SOMMET, le clic de FACE est filtre par
+#   le sous-mode (a juste titre), et le shell REECRIT le masque a un seul bit, donc
+#   un masque combine ne tient pas. La sonde le NOMME et sort 3.
+if (($s1 -eq 0) -and ($f1 -gt 0)) {
+	Write-Host "COURSE IMPOSSIBLE  le maillage est la (faces=$f1) mais RIEN n'est selectionne au releve 1."
+	Write-Host "                   En sous-mode '$SousMode', le clic de FACE ne designe rien et le masque"
+	Write-Host "                   est reecrit par le shell. Aucun critere n'est juge : ce n'est pas un rouge."
+	Write-Host "                   La regle est prouvee un etage plus bas : NKEditMeshHarness --suppression."
+	exit 3
+}
 Dire "(0) LE ZERO D'ABORD : le compteur sait rendre autre chose que 0" ($s1 -gt 0) `
 	"releve 1 : faces=$f1 selection=$s1 (exige > 0 ; sinon les 0 d'en bas ne prouvent rien)"
 Dire "(1) apres le 1er X : selection VIDE dans les TROIS sous-modes" (($v2 -eq 0) -and ($e2 -eq 0) -and ($c2 -eq 0)) `
