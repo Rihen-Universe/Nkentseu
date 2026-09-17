@@ -348,6 +348,8 @@ int main(int argc, char **argv) {
 	const char *envMove = getenv("NK_TEMPOREL_MOVE");
 	const float32 deplacementParImage = (envMove && envMove[0]) ? (float32)atof(envMove) : 0.f;
 	const float32 kDistCam = 4.28f;
+	const char *envAxe = getenv("NK_TEMPOREL_MOVE_AXIS");
+	const bool axeVertical = (envAxe && (envAxe[0] == 'y' || envAxe[0] == 'Y'));
 
 	// Camera sur l'axe Z quand l'objet doit glisser : voir NK_TEMPOREL_MOVE.
 	if (deplacementParImage != 0.f)
@@ -365,6 +367,14 @@ int main(int argc, char **argv) {
 	soleil.color = {1.f, 1.f, 1.f};
 	soleil.intensity = 3.f;
 	ctx.lights.PushBack(soleil);
+
+	// Le plan de fond : un quad mis a l'echelle, place DERRIERE l'objet et
+	// perpendiculaire a l'axe de vue quand la camera est sur l'axe Z.
+	NkMeshHandle planFond = meshes->GetQuad();
+	NkMat4f planXform = NkMat4f::Identity();
+	planXform[0][0] = 24.f;
+	planXform[1][1] = 24.f;
+	planXform[3][2] = -2.5f;
 
 	NkDrawCall3D dc;
 	dc.mesh = cube;
@@ -436,7 +446,16 @@ int main(int argc, char **argv) {
 		if (deplacementParImage != 0.f) {
 			NkMat4f mPrec = dc.transform;
 			NkMat4f mCour = NkMat4f::Identity();
-			mCour[3][0] = (float32)i * deplacementParImage;
+			// Depart a gauche : l'objet doit TRAVERSER, pas sortir. Le champ a z=0
+			// fait 2 x d x tan(fovY/2) x aspect = 4,73 unites, soit +/- 2,36.
+			// L'AXE compte, et c'est tout l'objet de (v2). Un mouvement HORIZONTAL
+			// est independant de la convention Y -- c'est pourquoi (m1) l'employait.
+			// Au branchement du TAA, c'est justement l'axe Y qui trompe : il faut
+			// donc pouvoir le mesurer. NK_TEMPOREL_MOVE_AXIS=y.
+			if (axeVertical)
+				mCour[3][1] = -1.0f + (float32)i * deplacementParImage;
+			else
+				mCour[3][0] = -1.0f + (float32)i * deplacementParImage;
 			dc.transform = mCour;
 			// La pose PRECEDENTE est fournie explicitement. Sans elle, le moteur
 			// traiterait l'objet comme statique -- ce qui est son defaut, et c'est
@@ -445,10 +464,28 @@ int main(int argc, char **argv) {
 			dc.hasPrevTransform = true;
 			// L'AABB suit l'objet, sinon le culling le rejette des qu'il sort de la
 			// boite d'origine -- un rejet SILENCIEUX, deja paye une fois sur ce banc.
-			const float32 cx = mCour[3][0];
-			dc.aabb = {{cx - 1.5f, -1.5f, -1.5f}, {cx + 1.5f, 1.5f, 1.5f}};
+			const float32 cx = mCour[3][0], cy = mCour[3][1];
+			dc.aabb = {{cx - 1.5f, cy - 1.5f, -1.5f}, {cx + 1.5f, cy + 1.5f, 1.5f}};
 		}
 		r3d->BeginScene(ctx);
+		// ── LE PLAN DE FOND, ET IL EST INDISPENSABLE ─────────────────────────
+		// Sans lui, le « fond » est le ciel : la porte `depth >= 0.9999` du
+		// nuanceur TAA l'ecarte AVANT toute lecture d'historique, donc il
+		// n'accumule RIEN. Un critere de trainee mesure alors zero avec ET sans
+		// vecteurs, et on lirait ce double zero comme une reussite.
+		// Il faut de la VRAIE geometrie derriere l'objet pour que le fond ait un
+		// historique, donc pour qu'il puisse se degrader -- et donc pour qu'on
+		// puisse verifier qu'il ne se degrade pas.
+		if (planFond.IsValid()) {
+			NkDrawCall3D bg;
+			bg.mesh = planFond;
+			bg.transform = planXform;
+			bg.aabb = {{-20.f, -20.f, -2.6f}, {20.f, 20.f, -2.4f}};
+			bg.tint = {0.12f, 0.22f, 0.45f};
+			bg.roughness = 0.9f;
+			bg.castShadow = false;
+			r3d->Submit(bg);
+		}
 		r3d->Submit(dc);
 		r->Present();
 		r->EndFrame();
@@ -652,6 +689,95 @@ int main(int argc, char **argv) {
 					}
 				}
 			}
+		}
+	}
+
+	// -- (v1) L'ERREUR SUR L'OBJET MOBILE, CONTRE UNE REFERENCE --------------
+	// NK_TEMPOREL_REF=<fichier> : absent du disque, le banc l'ECRIT (c'est la
+	// course de reference) ; present, il le LIT et mesure l'ecart.
+	//
+	// LA REFERENCE EST LA COURSE SANS TAA, et c'est le seul choix defendable :
+	// elle n'accumule rien, donc elle ne peut ni trainer ni delaver. Comparer deux
+	// courses TAA entre elles ne dirait que « elles different », pas laquelle est
+	// juste.
+	//
+	// Le classement objet / fond vient de la REFERENCE, pas de la course mesuree :
+	// un pixel est « objet » si la reference l'y voit. Le deduire de la course
+	// mesuree serait circulaire -- une course qui delave l'objet retrecirait la
+	// silhouette sur laquelle on mesure son delavage.
+	if (const char *refPath = getenv("NK_TEMPOREL_REF")) {
+		if (refPath[0]) {
+			FILE *f = fopen(refPath, "rb");
+			if (!f) {
+				FILE *w = fopen(refPath, "wb");
+				if (w) {
+					fwrite(imgB.Data(), 1, nPix * 4, w);
+					fclose(w);
+					printf("---- (v1) REFERENCE ECRITE : %s ----\n", refPath);
+				} else {
+					printf("---- (v1) [ECHEC] impossible d'ecrire la reference %s ----\n", refPath);
+				}
+			} else {
+				NkVector<uint8> ref;
+				ref.Resize(nPix * 4);
+				const size_t lus = fread(ref.Data(), 1, nPix * 4, f);
+				fclose(f);
+				if (lus != (size_t)nPix * 4) {
+					printf("---- (v1) [ECHEC] reference tronquee (%u octets sur %u) ----\n", (uint32)lus, nPix * 4);
+				} else {
+					const uint8 rr = ref[0], rg = ref[1], rb = ref[2];
+					uint64 errObjet = 0, errFond = 0;
+					uint32 nObjet = 0, nFond = 0;
+					for (uint32 k = 0; k < nPix; ++k) {
+						const uint8 *pr = ref.Data() + k * 4;
+						const uint8 *pm = imgB.Data() + k * 4;
+						uint32 d = 0;
+						for (int c = 0; c < 3; ++c)
+							d += (uint32)(pr[c] > pm[c] ? pr[c] - pm[c] : pm[c] - pr[c]);
+						const bool estObjet = (pr[0] != rr || pr[1] != rg || pr[2] != rb);
+						if (estObjet) {
+							errObjet += d;
+							nObjet++;
+						} else {
+							errFond += d;
+							nFond++;
+						}
+					}
+					printf("---- (v1) ERREUR CONTRE LA REFERENCE ----\n");
+					printf("     ERR_OBJET              : %llu   sur %u pixels\n", (unsigned long long)errObjet,
+						   nObjet);
+					printf("     ERR_FOND               : %llu   sur %u pixels\n", (unsigned long long)errFond,
+						   nFond);
+				}
+			}
+		}
+	}
+
+	// -- (v3) LE COMPTE DES REJETS DU TAA (NK_TAA_DEBUG=5) -------------------
+	// Un repli qu'on ne peut pas compter est un repli qu'on ne saura jamais trop
+	// frequent. La sonde 5 peint une couleur par cas ; ce bloc les compte.
+	//   rouge  = VECTEUR    : le deplacement a servi
+	//   vert   = PROFONDEUR : repli geometrique (fond, ou objet statique)
+	//   autre  = SORTI TOT  : ciel, derriere la camera, hors ecran, sans histoire
+	if (const char *dbg = getenv("NK_TAA_DEBUG")) {
+		if (dbg[0] == '5') {
+			uint32 nVecteur = 0, nProfondeur = 0, nSortiTot = 0;
+			for (uint32 k = 0; k < nPix; ++k) {
+				const uint8 *p = imgB.Data() + k * 4;
+				if (p[0] > 200 && p[1] < 60)
+					nVecteur++;
+				else if (p[1] > 200 && p[0] < 60)
+					nProfondeur++;
+				else
+					nSortiTot++;
+			}
+			printf("---- (v3) COMPTE DES REJETS ----\n");
+			printf("     VECTEUR    : %6u  (%.1f %%)\n", nVecteur, 100.0 * nVecteur / (double)nPix);
+			printf("     PROFONDEUR : %6u  (%.1f %%)\n", nProfondeur, 100.0 * nProfondeur / (double)nPix);
+			printf("     SORTI TOT  : %6u  (%.1f %%)\n", nSortiTot, 100.0 * nSortiTot / (double)nPix);
+			printf("     total      : %6u  (doit valoir %u : une decomposition qui ne se\n",
+				   nVecteur + nProfondeur + nSortiTot, nPix);
+			printf("                          referme pas sur son total mesure autre chose)\n");
 		}
 	}
 
