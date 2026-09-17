@@ -1771,6 +1771,13 @@ namespace nkentseu {
 				NkVec3f editPivotW{0.f, 0.f, 0.f};
 				float32 vueThY = 0.5773502692f; // tan(30 deg), le demi-angle vertical
 				float32 vueH = 1.f;             // hauteur de la vue, en pixels
+				float32 vueW = 1.f;             // ... et sa largeur
+				// (b8) LE PIVOT A L'ECRAN, photographie au lancement de la modale. Le `S`
+				// de Blender est un RAPPORT DE DISTANCES AU PIVOT : sans sa position en
+				// pixels, on ne peut mesurer qu'un deplacement, et c'est ce que nous
+				// faisions -- d'ou un geste vertical qui ne faisait RIEN.
+				float32 modalPivotPxX = 0.f, modalPivotPxY = 0.f;
+				bool modalPivotPxOk = false;
 				// Photographies au lancement de la modale, comme le repere.
 				float32 modalPxParUnite = 1.f;  // pixels d'ecran par unite du monde, au pivot
 				float32 modalDragPx = 0.f;      // course souris TOTALE du geste, en pixels
@@ -5125,8 +5132,54 @@ namespace nkentseu {
 				// (b8) LE SECOND AXE, pour le geste LIBRE. Il n'est lu que la ou il a un
 				// sens -- translation sans axe -- et il ne touche a rien d'autre.
 				st->modalValY = (st->modalCurY - st->modalStartY) * ech;
-				const float32 nvv = Demo3D_ModalClampVal(
-					st->modalOp, st->modalBase + (st->modalCurX - st->modalStartX) * ech);
+				// ── (b8) `S` LIBRE : LE RAPPORT DES DISTANCES AU PIVOT (Blender) ────
+				// Notre `S` lisait `(curX - startX)` : une composante HORIZONTALE. Mesure
+				// du 17/09, meme longueur de geste, trois directions :
+				//     horizontal 120 px -> 0,4   ·   VERTICAL 120 px -> 0   (rien !)
+				//     diagonal (85, 85) -> 0,283 = 85/300 : seul l'horizontal comptait
+				// Chez Blender, eloigner le curseur du pivot agrandit, QUELLE QUE SOIT la
+				// direction, et le facteur est le rapport des distances avant/apres.
+				// `modalVal` etant un DELTA (l'echelle appliquee vaut 1 + val), le rapport
+				// se traduit en `d1/d0 - 1`.
+				// ⚠ SEULEMENT SANS AXE : sur un axe explicite, Blender garde le geste
+				//   lineaire -- et c'est le negatif de ce lot.
+				// MUTATION : `NK_SLIBRE_HORIZ=1` remet la lecture horizontale.
+				static int sHoriz = -1;
+				if (sHoriz == -1) {
+					const char *vh = getenv("NK_SLIBRE_HORIZ");
+					sHoriz = (vh && vh[0] && vh[0] != '0') ? 1 : 0;
+				}
+				const bool sLibre = (st->modalOp == 11) && !sHoriz && st->modalPivotPxOk &&
+					!(st->modalAxis >= 0 && st->modalAxis < 3) && !st->modalPlane;
+				float32 brut = st->modalBase + (st->modalCurX - st->modalStartX) * ech;
+				if (sLibre) {
+					const float32 ax0 = st->modalStartX - st->modalPivotPxX;
+					const float32 ay0 = st->modalStartY - st->modalPivotPxY;
+					const float32 ax1 = st->modalCurX - st->modalPivotPxX;
+					const float32 ay1 = st->modalCurY - st->modalPivotPxY;
+					const float32 d0 = sqrtf(ax0 * ax0 + ay0 * ay0);
+					const float32 d1 = sqrtf(ax1 * ax1 + ay1 * ay1);
+					// Curseur POSE sur le pivot au lancement : le rapport n'a pas de sens.
+					// On garde alors la lecture lineaire plutot que de diviser par zero --
+					// et c'est nomme, pas silencieux.
+					if (d0 > 1e-3f)
+						brut = d1 / d0 - 1.f;
+					// ⚠ ON IMPRIME d0 ET d1, ET C'EST INDISPENSABLE : `d0` depend de la
+					//   position REELLE de la souris au lancement, donc du bureau de
+					//   l'utilisateur. Un critere ecrit sur la seule valeur finale ne serait
+					//   pas reproductible -- il varierait avec la main de celui qui mesure.
+					//   Avec d0 et d1, le critere devient INTERNE : la valeur DOIT valoir
+					//   d1/d0 - 1, et cela se verifie quelle que soit la souris.
+					static int trS = -1;
+					if (trS == -1) {
+						const char *v2 = getenv("NK_MODAL_OBS");
+						trS = (v2 && v2[0] && v2[0] != '0') ? 1 : 0;
+					}
+					if (trS)
+						logger.Info("[Demo3D] (b8) S LIBRE : pivot ecran ({0}, {1}) · d0={2} d1={3} -> val={4}\n",
+								(int32)st->modalPivotPxX, (int32)st->modalPivotPxY, d0, d1, brut);
+				}
+				const float32 nvv = Demo3D_ModalClampVal(st->modalOp, brut);
 				if (fabsf(nvv - st->modalVal) > 1e-6f) {
 					st->modalVal = nvv;
 					st->modalDirty = true;
@@ -5254,6 +5307,24 @@ namespace nkentseu {
 			st->modalVueUp = st->vueUp;
 			st->modalVueFwd = st->vueFwd;
 			st->modalDragPx = 0.f;
+			// ── (b8) LE PIVOT A L'ECRAN, PHOTOGRAPHIE ───────────────────────────
+			// Photographie, comme le repere : le relire a chaque image le ferait
+			// deriver pendant que l'objet grossit, et le rapport de distances se
+			// mordrait la queue -- la meme boucle que les axes de l'objet relus
+			// depuis une matrice qui porte deja l'echelle en cours.
+			{
+				const NkVec3f piv = st->editMode ? st->editPivotW
+					: Demo3D_ModalGizmoActif(st).GetPivot();
+				const NkVec3f v3 = piv - st->vueCamPos;
+				const float32 zc = v3.Dot(st->vueFwd);
+				st->modalPivotPxOk = (zc > 1e-4f) && (st->vueH > 1.f) && (st->vueW > 1.f);
+				if (st->modalPivotPxOk) {
+					const float32 thX = st->vueThY * (st->vueW / st->vueH);
+					const float32 xa = v3.Dot(st->vueRight), ya = v3.Dot(st->vueUp);
+					st->modalPivotPxX = (xa / (zc * thX)) * (st->vueW * 0.5f) + st->vueW * 0.5f;
+					st->modalPivotPxY = -(ya / (zc * st->vueThY)) * (st->vueH * 0.5f) + st->vueH * 0.5f;
+				}
+			}
 			// CURSEUR VIRTUEL : point de depart = position reelle de la souris. Les deltas
 			// (reels OU injectes par NK_MODAL_DRAG) s'y accumulent tant que l'op tourne.
 			st->modalCurX = st->modalStartX;
@@ -10065,6 +10136,7 @@ namespace nkentseu {
 				const float32 thY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
 				st->vueThY = thY;
 				st->vueH = (float32)ctx.height;
+				st->vueW = (float32)ctx.width;
 				const float32 thX = thY * ((float32)ctx.width / (float32)ctx.height);
 				const float32 VW = (float32)ctx.width, VH = (float32)ctx.height;
 				auto project = [&](NkVec3f P, float32 &px, float32 &py) -> bool {
