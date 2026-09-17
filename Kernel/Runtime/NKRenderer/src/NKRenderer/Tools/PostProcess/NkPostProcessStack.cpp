@@ -1832,7 +1832,7 @@ void main() {
 					float32 reproj[16];
 					float32 blend, yFlipUV, invResW, invResH;	  // p0
 					float32 ndcYSign, clampOn, debugMode, motionOn; // p1
-					float32 motionYSign, _pad0, _pad1, _pad2;	  // p2
+					float32 motionYSign, motionUVFlip, _pad1, _pad2; // p2
 			} pc;
 
 			memcpy(pc.reproj, &reproj, sizeof(pc.reproj));
@@ -1855,8 +1855,34 @@ void main() {
 			// 97,8 au lieu de 89,2 sur DX11 (image retournee), contre 88,7 avec +1.
 			// Verifie sur trois backends : GL +1 / VK -1 / DX +1.
 			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
 			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
+			// ── CE SITE PORTE L'ANCIENNE FORME, ET SA VALEUR EST POURTANT JUSTE ──
+			// (17/09/2026). Il ressemble aux quatre autres `isVK ? -1 : +1` du
+			// fichier, calibres au temps ou le generateur HLSL niait Y en sortie du
+			// nuanceur de sommets. Y appliquer la regle ecrite une fois
+			// (`NkOffscreenStoredIsBottomUp`, donc -1 sur DX) a ete ESSAYE, et
+			// MESURE : l'accumulation du TAA s'effondre.
+			//
+			//   rapport d'attenuation, DX11, scene immobile :
+			//       yFlipUV = +1 (ici)          -> 0,0567   convergence excellente
+			//       yFlipUV = -1 (la regle)     -> 0,744    ne converge plus
+			//       OpenGL : 0,0563 dans les deux cas (les deux regles y coincident)
+			//
+			// POURQUOI. Ce `vUV` ne sert pas a UNE texture mais a TROIS -- `uCurrent`
+			// (ToneLDR, ecrit par une passe plein ecran), `uHistory` (ecrit par
+			// `ExecuteBlitToRT`, donc avec `isVulkan ? -1 : +1`, soit +1 sur DX) et
+			// `uDepth`. Un seul signe pour trois orientations est un COMPROMIS : a
+			// +1 la correspondance courant/historique est exacte -- c'est elle qui
+			// fait converger -- au prix d'une orientation absolue retournee, que le
+			// blit de presentation rattrape.
+			//
+			// ⚠️ NE PAS « HARMONISER » CE SITE AVEC LES AUTRES SANS DEMELER LE
+			// TRIPLET. La bonne correction n'est pas une ligne : c'est d'aligner
+			// d'abord les orientations de `uCurrent` et `uHistory`, puis de reprendre
+			// ce signe. Une correction en bloc des cinq sites casserait le TAA sur
+			// DX11, et la mesure ci-dessus est la pour le prouver a qui essaiera.
+			// NK_TAA_YFLIP permet de la refaire en une commande.
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
 			pc.yFlipUV = isVK ? -1.f : 1.f;
 			pc.ndcYSign = isDX ? 1.f : -1.f;
 			// Overrides de diagnostic : ces deux signes ne se VOIENT pas separement a
@@ -1910,11 +1936,16 @@ void main() {
 			// est meme legerement degrade. Le benefice vertical des vecteurs y
 			// depend donc du reglement du retournement, qui est un autre chantier.
 			// NK_TAA_MOTION_YSIGN reste le levier pour refuter tout ceci.
-			pc.motionYSign = pc.yFlipUV;
+			// La regle mesuree est celle du BLIT VERS L'ECRAN -- `+1 sur OpenGL, -1
+			// partout ailleurs` -- et non `yFlipUV` ni `ndcYSign`. Elle se derive :
+			// la cible de mouvement est ecrite par une passe GEOMETRIQUE, donc elle
+			// porte l'orientation du framebuffer de rendu, celle-la meme que le blit
+			// vers l'ecran doit compenser sur DX.
+			pc.motionYSign = (api == NkGraphicsApi::NK_GFX_API_OPENGL) ? 1.f : -1.f;
 			if (const char *v = getenv("NK_TAA_MOTION_YSIGN"))
 				if (v[0])
 					pc.motionYSign = (float32)atof(v);
-			pc._pad0 = 0.f;
+			pc.motionUVFlip = 1.f; // libre : cf. la note du nuanceur (hypothese refutee)
 			pc._pad1 = 0.f;
 			pc._pad2 = 0.f;
 			pc.invResW = mW > 0 ? 1.f / (float32)mW : 0.f;
