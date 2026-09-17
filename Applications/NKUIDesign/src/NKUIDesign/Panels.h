@@ -3089,7 +3089,14 @@ namespace nkuidesign {
 	class PalettePanel : public NkEditorPanel {
 		public:
 			explicit PalettePanel(DesignState *st)
-				: NkEditorPanel("Palette", NkEditorDockSide::NK_LEFT), mSt(st) {}
+				// ⚠️ L'IDENTIFIANT D'ABORD, LE LIBELLE ENSUITE (2026-09-17). L'identifiant est
+				//    ce par quoi la DISPOSITION connait ce panneau : il est sans accent, sans
+				//    espace, et il ne se traduit pas. Le libelle, lui, est destine a l'oeil et
+				//    changera -- mesure : avant ce lot, renommer « Propriétés » en
+				//    « Proprietes » PERDAIT la disposition, en silence.
+				//    Les quatre autres applications n'ont pas migre, et elles marchent : sans
+				//    identifiant declare, il vaut le titre.
+				: NkEditorPanel("palette", "Palette", NkEditorDockSide::NK_LEFT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -3231,7 +3238,7 @@ namespace nkuidesign {
 	class CompositionPanel : public NkEditorPanel {
 		public:
 			explicit CompositionPanel(DesignState *st)
-				: NkEditorPanel("Composition", NkEditorDockSide::NK_LEFT), mSt(st) {}
+				: NkEditorPanel("composition", "Composition", NkEditorDockSide::NK_LEFT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -3617,7 +3624,7 @@ namespace nkuidesign {
 
 		public:
 			explicit PreviewPanel(DesignState *st)
-				: NkEditorPanel("Aperçu", NkEditorDockSide::NK_CENTER), mSt(st) {}
+				: NkEditorPanel("apercu", "Aperçu", NkEditorDockSide::NK_CENTER), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -8798,7 +8805,7 @@ namespace nkuidesign {
 	class PropertiesPanel : public NkEditorPanel {
 		public:
 			explicit PropertiesPanel(DesignState *st)
-				: NkEditorPanel("Propriétés", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("proprietes", "Propriétés", NkEditorDockSide::NK_RIGHT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -9042,7 +9049,7 @@ namespace nkuidesign {
 	class PreferencesPanel : public NkEditorPanel {
 		public:
 			explicit PreferencesPanel(DesignState *st)
-				: NkEditorPanel("Préférences", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("preferences", "Préférences", NkEditorDockSide::NK_RIGHT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -9123,7 +9130,7 @@ namespace nkuidesign {
 	class ConsolePanel : public NkEditorPanel {
 		public:
 			explicit ConsolePanel(DesignState *st)
-				: NkEditorPanel("Console", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				: NkEditorPanel("console", "Console", NkEditorDockSide::NK_BOTTOM), mSt(st) {
 				SetOpen(false);
 			}
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -9146,7 +9153,7 @@ namespace nkuidesign {
 	class SimulationPanel : public NkEditorPanel {
 		public:
 			explicit SimulationPanel(DesignState *st)
-				: NkEditorPanel("Simulation", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				: NkEditorPanel("simulation", "Simulation", NkEditorDockSide::NK_BOTTOM), mSt(st) {
 				SetOpen(false);
 			}
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -9174,7 +9181,7 @@ namespace nkuidesign {
 	class AmbiancesPanel : public NkEditorPanel {
 		public:
 			explicit AmbiancesPanel(DesignState *st)
-				: NkEditorPanel("Ambiances", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				: NkEditorPanel("ambiances", "Ambiances", NkEditorDockSide::NK_RIGHT), mSt(st) {
 				SetOpen(false);
 			}
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -9214,7 +9221,7 @@ namespace nkuidesign {
 	class GreffonsPanel : public NkEditorPanel {
 		public:
 			explicit GreffonsPanel(DesignState *st)
-				: NkEditorPanel("Greffons", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				: NkEditorPanel("greffons", "Greffons", NkEditorDockSide::NK_RIGHT), mSt(st) {
 				SetOpen(false);
 			}
 			void OnUI(NkEditorFrameContext &ec) override {
@@ -9269,7 +9276,7 @@ namespace nkuidesign {
 	class AIPanel : public NkEditorPanel {
 		public:
 			explicit AIPanel(DesignState *st)
-				: NkEditorPanel("IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				: NkEditorPanel("ia", "IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
 				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
 				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
 				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
@@ -9872,7 +9879,7 @@ namespace nkuidesign {
 	class BibliothequePanel : public NkEditorPanel {
 		public:
 			explicit BibliothequePanel(DesignState *st)
-				: NkEditorPanel("Bibliothèque", NkEditorDockSide::NK_RIGHT), mSt(st) {}
+				: NkEditorPanel("bibliotheque", "Bibliothèque", NkEditorDockSide::NK_RIGHT), mSt(st) {}
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
@@ -10031,7 +10038,7 @@ namespace nkuidesign {
 	class HierarchyPanel : public NkEditorPanel {
 		public:
 			explicit HierarchyPanel(DesignState *st)
-				: NkEditorPanel("Hiérarchie", NkEditorDockSide::NK_LEFT), mSt(st) {
+				: NkEditorPanel("hierarchie", "Hiérarchie", NkEditorDockSide::NK_LEFT), mSt(st) {
 				// ⚠️ LES DEUX INSTANCES SONT LIÉES À LA MÊME DÉCLARATION. Les
 				//    nombres (hauteur de ligne, indentation, largeur du chevron)
 				//    viennent donc de `NkTreeViewDecl()`, pas d'un littéral écrit
@@ -12937,7 +12944,7 @@ namespace nkuidesign {
 	class StylesPanel : public NkEditorPanel {
 		public:
 			explicit StylesPanel(DesignState *st)
-				: NkEditorPanel("Styles", NkEditorDockSide::NK_LEFT), mSt(st) {}
+				: NkEditorPanel("styles", "Styles", NkEditorDockSide::NK_LEFT), mSt(st) {}
 			int32 EnRenommage() const {
 				return mRenomme;
 			}
@@ -13071,7 +13078,7 @@ namespace nkuidesign {
 	class VariablesPanel : public NkEditorPanel {
 		public:
 			explicit VariablesPanel(DesignState *st)
-				: NkEditorPanel("Variables", NkEditorDockSide::NK_LEFT), mSt(st) {}
+				: NkEditorPanel("variables", "Variables", NkEditorDockSide::NK_LEFT), mSt(st) {}
 
 			/// La variable en cours de renommage (indice), -1 sinon -- lu par la sonde.
 			int32 EnRenommage() const {
@@ -13232,7 +13239,7 @@ namespace nkuidesign {
 
 		public:
 			explicit InspectorPanel(DesignState *st)
-				: NkEditorPanel("Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				: NkEditorPanel("inspecteur", "Inspecteur", NkEditorDockSide::NK_RIGHT), mSt(st) {
 				// le pont : le crochet d'overlay appellera CE panneau pour le popover
 				if (mSt) {
 					mSt->popoverRemplissage = &InspectorPanel::PopoverRemplissageC;

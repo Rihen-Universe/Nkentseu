@@ -7238,6 +7238,37 @@ static int RecetteIdentite() {
 				 "UN ANCIEN FICHIER (titres seuls) se relit encore -- le repli par titre");
 	}
 
+	// ── 5. LE MELANGE, et c'est l'etat dans lequel le depot va vivre plusieurs jours :
+	//    NKUIDesign migree, les quatre autres non. Les deux sortes de panneaux doivent
+	//    cohabiter dans la MEME disposition.
+	{
+		const char *cheminMix = "Build/sondes-nkuidesign/disposition_melange.cfg";
+		struct PanneauSansIdent2 : public NkEditorPanel {
+				explicit PanneauSansIdent2(const char *t) : NkEditorPanel(t) {}
+				void OnUI(NkEditorFrameContext &) override {}
+		};
+		{
+			PanneauSonde migre("proprietes", "Propriétés");
+			PanneauSansIdent2 ancien("Console");
+			NkEditorShell sh;
+			sh.AddPanel(&migre);
+			sh.AddPanel(&ancien);
+			migre.SetOpen(true);
+			ancien.SetOpen(true);
+			sh.SaveUiState(cheminMix);
+		}
+		PanneauSonde migre2("proprietes", "Proprietes"); // RENOMME
+		PanneauSansIdent2 ancien2("Console");			 // inchange
+		NkEditorShell sh2;
+		sh2.AddPanel(&migre2);
+		sh2.AddPanel(&ancien2);
+		migre2.SetOpen(false);
+		ancien2.SetOpen(false);
+		sh2.LoadUiState(cheminMix);
+		verifier(migre2.IsOpen(), "LE MELANGE : le panneau MIGRE et renomme est retrouve");
+		verifier(ancien2.IsOpen(), "LE MELANGE : le panneau NON MIGRE, lui, marche comme avant");
+	}
+
 	printf("=== %d echec(s) ===\n", echecs);
 	return echecs > 0 ? 1 : 0;
 }
@@ -7774,6 +7805,11 @@ static char gSondePortes[256] = {};
 /// (R20) --sauver-document=<image>:<chemin> : a l'image donnee, ECRIRE le document, le RELIRE
 /// dans un document neuf, et comparer les composants poses dans les deux.
 static nkentseu::int32 gSauverImage = -1;
+/// (identite) --sauver-disposition=<image>:<chemin> : ecrire la DISPOSITION REELLE de
+/// l'application a cette image, puis fermer. Sert a verifier, sur les quinze vrais
+/// panneaux, que le fichier porte des IDENTIFIANTS et non des libelles affiches.
+static nkentseu::int32 gDispoImage = -1;
+static char gDispoChemin[512] = {};
 static char gSauverChemin[512] = {};
 static void SauverEtRelire() {
 	using namespace nkuidesign;
@@ -8186,6 +8222,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
 	if (gSauverImage >= 0 && gImagesReelles == gSauverImage)
 		SauverEtRelire(); // (R20)
+	if (gDispoImage >= 0 && gImagesReelles == gDispoImage) {
+		gShell->SaveUiState(gDispoChemin);
+		printf("[disposition] ecrite : %s\n", gDispoChemin);
+		fflush(stdout);
+		gShell->RequestClose();
+	}
 	gDesign.RangerCompteDessins(); // (k2) idem : une fois par image, avant les panneaux
 	auto &ctx = ec.Ui();
 	using namespace nkentseu::nkgui;
@@ -9252,6 +9294,14 @@ int nkmain(const NkEntryState &state) {
 				continue;
 			}
 			// (R16) --sonde-portes=preferences,menu-ctx,export,... : voir PortesTick.
+			if (arg.StartsWith("--sauver-disposition=")) {
+				gDispoImage = (int32)atof(a + 21);
+				const char *q = a + 21;
+				while (*q && *q != ':')
+					++q;
+				snprintf(gDispoChemin, sizeof(gDispoChemin), "%s", *q == ':' ? q + 1 : "disposition.cfg");
+				continue;
+			}
 			if (arg.StartsWith("--sauver-document=")) {
 				gSauverImage = (int32)atof(a + 18);
 				const char *q = a + 18;
