@@ -135,14 +135,27 @@ Dire "(e) NEGATIF : sans demande, rien ne s'execute" `
 
 if ($Image) {
 	Write-Host "-----------------------------------------------------------------------"
-	Write-Host "  IMAGE : une capture est prise a la frame 150, apres une demande acceptee."
-	$img = Lancer "panneau" "subdivide:3" $false $true
-	$derniere = Get-ChildItem (Join-Path $Arbre "captures") -Filter "*.png" -ErrorAction SilentlyContinue |
-		Sort-Object LastWriteTime -Descending | Select-Object -First 1
-	if ($derniere) { Write-Host "  -> $($derniere.FullName)" }
-	else { Write-Host "  -> AUCUNE IMAGE PRODUITE (le crochet n'a pas ecrit)" }
+	Write-Host "  IMAGES : deux, et la SECONDE est celle qui manquait."
+	Write-Host "  (c) dit « un refus porte son motif », mais il le LIT DANS LE JOURNAL."
+	Write-Host "  Or Rodolf n'a pas de console : la moitie « a l'ecran » du critere n'est"
+	Write-Host "  prouvee que par la relecture du code tant qu'aucune image ne la montre."
+	function Capturer([string]$texte, [string]$quoi) {
+		$avant = @(Get-ChildItem (Join-Path $Arbre "captures") -Filter "*.png" -ErrorAction SilentlyContinue |
+			ForEach-Object { $_.FullName })
+		$null = Lancer "panneau" $texte $false $true
+		$apres = @(Get-ChildItem (Join-Path $Arbre "captures") -Filter "*.png" -ErrorAction SilentlyContinue |
+			ForEach-Object { $_.FullName })
+		# LE FICHIER NEUF, pas « le plus recent » : si le crochet n'ecrit rien, le
+		# plus recent est l'image d'AVANT et on annoncerait une capture qui n'a
+		# pas eu lieu -- un temoin non remis a zero repond a la question d'hier.
+		$neuf = @($apres | Where-Object { $avant -notcontains $_ })
+		if ($neuf.Count -eq 1) { Write-Host ("  {0,-22} -> {1}" -f $quoi, $neuf[0]) }
+		elseif ($neuf.Count -eq 0) { Write-Host ("  {0,-22} -> AUCUNE IMAGE PRODUITE (le crochet n'a pas ecrit)" -f $quoi) }
+		else { Write-Host ("  {0,-22} -> {1} fichiers neufs, ambigu" -f $quoi, $neuf.Count) }
+	}
+	Capturer "subdivide:3" "demande ACCEPTEE"
+	Capturer "rends ce modele plus beau" "demande REFUSEE"
 }
-
 Write-Host "-----------------------------------------------------------------------"
 if ($script:rouges -eq 0) { Write-Host "TOUT VERT (0 rouge)"; exit 0 }
 Write-Host "$($script:rouges) ROUGE(S)"
