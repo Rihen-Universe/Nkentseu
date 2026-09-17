@@ -1711,6 +1711,67 @@ int main(int argc, char **argv) {
 			Liberer(f2);
 		}
 	}
+	printf("\n-- (m11) LA HIERARCHIE : une liste ECRITE est un widget, une liste LIEE est une donnee\n");
+	{
+		// ⚠️ LA FRONTIERE, ET ELLE EST LA MEME QUE CELLE DE LA ZONE HOTE. Le format sait
+		//    ECRIRE une liste (`items`, ou des enfants `Item`/`TreeItem`) : c'est statique,
+		//    donc un widget. Il sait aussi NOMMER une source (`bind`), et la rien ne peut la
+		//    fournir -- l'etat du montage ne porte qu'un booleen, un flottant et un texte.
+		//    Une liste liee que personne ne remplit doit donc SE SIGNALER, comme la zone
+		//    hachuree : sinon un arbre vide se fait prendre pour un arbre sans elements.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "17_hierarchie.nkgui");
+		const Montage h = MonterFichier(chemin, 400, 500, "17_hierarchie");
+		Check(h.lu, "   le document se lit");
+		CheckEq(h.rap.rolesInconnus, 0u, "   `ListBox`, `TreeItem` et `Item` sont du vocabulaire");
+
+		bool listeEcrite = false, listeLiee = false, arbre = false, cube = false, lumiere = false;
+		NkRect rectLiee{};
+		for (uint32 i = 0; i < (uint32)h.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = h.rap.items[i];
+			if (it.id.Compare("ecrite") == 0) listeEcrite = true;
+			if (it.id.Compare("liee") == 0) { listeLiee = true; rectLiee = it.rect; }
+			if (it.id.Compare("racine") == 0) arbre = true;
+			if (it.id.Compare("cube") == 0) cube = true;
+			if (it.id.Compare("lumiere") == 0) lumiere = true;
+		}
+		printf("        releve : liste ecrite %s ; arbre %s ; cube %s ; lumiere %s ; liste liee %s\n",
+			   listeEcrite ? "oui" : "NON", arbre ? "oui" : "NON", cube ? "oui" : "NON",
+			   lumiere ? "oui" : "NON", listeLiee ? "oui" : "NON");
+		Check(listeEcrite && listeLiee, "   les DEUX listes sont montees");
+		Check(arbre && cube && lumiere, "   la liste ECRITE monte son arbre et ses deux elements");
+		printf("        listes liees et jamais remplies : %u (attendu 1)\n", h.rap.listesNonRemplies);
+		CheckEq(h.rap.listesNonRemplies, 1u, "   UNE SEULE liste est declaree non remplie");
+
+		// ── (c) LE MARQUEUR EST VISIBLE, et on le mesure DANS son rectangle
+		g_garderPixels = true;
+		const Montage h2 = MonterFichier(chemin, 400, 500);
+		g_garderPixels = false;
+		const uint32 marqueL = ComptePixelsDansRect(h2.px, 400, 500, rectLiee);
+		printf("        zone de la liste liee : %.0fx%.0f a (%.0f,%.0f) -> %u px de marqueur\n",
+			   (double)rectLiee.w, (double)rectLiee.h, (double)rectLiee.x, (double)rectLiee.y, marqueL);
+		// 🔴 LE SEUIL EST DERIVE DU TRACE, ET PAS « PLUS DE ZERO ». Premiere version :
+		//    `marque > 0`. La MUTATION A SURVECU -- elle rendait 12 pixels (le cadre de la
+		//    `ListBox` elle-meme) au lieu de 4 249, et le critere passait quand meme. Un
+		//    critere qu'une mutation traverse ne teste rien.
+		//    Les hachures posent un segment tous les 12 px sur (largeur + hauteur) : meme a
+		//    dix pixels de long en moyenne, cela fait (w + h) / 12 * 10. Le seuil vient donc
+		//    de la geometrie du trace, pas d'un nombre choisi.
+		const uint32 seuilHachures = (uint32)((rectLiee.w + rectLiee.h) / 12.f * 10.f);
+		printf("        seuil derive des hachures : %u px\n", seuilHachures);
+		Check(marqueL > seuilHachures, "   le marqueur de la liste liee est VISIBLE (mutation : muette)");
+
+		// ── (d) NEGATIF : une liste ECRITE ne compte pas comme non remplie
+		const char *ecrite =
+			"nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    ListBox \"l\" { bind = ui.scene\n"
+			"      Item \"a\" { label = \"A\" }\n    }\n  }\n}\n";
+		uint32 ne = 0;
+		while (ecrite[ne]) ++ne;
+		const Montage he = MonterTexte(ecrite, ne, 400, 500);
+		printf("        liste LIEE mais REMPLIE : %u non remplie(s)\n", he.rap.listesNonRemplies);
+		CheckEq(he.rap.listesNonRemplies, 0u,
+				"   NEGATIF : une liste liee ET remplie n'est PAS signalee");
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);

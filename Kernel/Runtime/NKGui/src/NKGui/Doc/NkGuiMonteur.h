@@ -112,6 +112,9 @@ namespace nkentseu {
 			TabBar,
 			Expander,
 			Splitter,
+			ListBox,
+			Item,
+			TreeItem,
 			// 🔴 `Callback` ETAIT ICI, ET C'ETAIT UN HOMONYME. Le mot appartient deja DEUX
 			//    FOIS au format : `callback` est l'une des huit sections, et
 			//    `Callback "alerte"(...)` est un APPEL DE COMPORTEMENT -- la grammaire
@@ -156,6 +159,9 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TabBar")) return NkGuiRole::TabBar;
 			if (NkGMotEgal(n, "Expander")) return NkGuiRole::Expander;
 			if (NkGMotEgal(n, "Splitter")) return NkGuiRole::Splitter;
+			if (NkGMotEgal(n, "ListBox")) return NkGuiRole::ListBox;
+			if (NkGMotEgal(n, "Item")) return NkGuiRole::Item;
+			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			return NkGuiRole::Inconnu;
 		}
@@ -225,6 +231,10 @@ namespace nkentseu {
 				///    pour un fond, et le document a l'air monte alors qu'il manque sa
 				///    partie la plus importante.
 				uint32 hotesNonRemplis = 0;
+				/// Les listes qui NOMMENT une source (`bind`) et que personne n'a remplie.
+				/// Meme raison que `hotesNonRemplis` : un arbre vide se fait prendre pour un
+				/// arbre sans elements, et le document a l'air monte alors qu'il manque sa moitie.
+				uint32 listesNonRemplies = 0;
 				uint32 modales = 0;			 ///< `Window { modal = true }` rencontres
 				/// Les drapeaux d'INTERACTION (`NoMove`, `NoResize`, `NoClose`,
 				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
@@ -1414,6 +1424,86 @@ namespace nkentseu {
 											  NkGNombre(w, "max", 0.f), NkGNombre(w, "height", 0.f));
 							} else {
 								aDessine = false;
+							}
+							break;
+						}
+						// ── LA HIERARCHIE : liste, arbre, element ────────────
+						// ⚠️ LA QUESTION DU CONTENU, TRANCHEE ICI. Le format sait dire les
+						//    elements de DEUX facons, et elles ne sont pas de meme nature :
+						//      1. en les ECRIVANT (`items = [...]`, ou des enfants `Item` /
+						//         `TreeItem`) -- c'est une liste STATIQUE, donc un widget,
+						//         et le document la dit entierement ;
+						//      2. en NOMMANT une source (`bind = ui.scene`) -- et la, RIEN
+						//         ne peut la fournir : `NkGuiMonteEtat::Entree` ne porte
+						//         qu'un booleen, un flottant et un texte. **Il n'existe
+						//         aucun type liste dans l'etat du montage.**
+						//    C'est EXACTEMENT la frontiere de la zone hote : la hierarchie
+						//    d'une scene est une DONNEE de l'application, pas une
+						//    disposition. On ne l'invente pas dans le document -- on la
+						//    nomme, et une liste liee que personne ne remplit SE SIGNALE.
+						case NkGuiRole::ListBox: {
+							static const bool kMuette = []() {
+								const char *v = getenv("NK_LISTE_MUTATION"); // =muette : pas de marqueur
+								return v && v[0] == 'm';
+							}();
+							const NkGuiTailleRel relL = NkGuiLireTailleRelative(w, ctx.layout.region);
+							const NkRect zone = ctx.NextItemRect(relL.aW ? relL.w : -1.f,
+																 relL.aH ? relL.h : ctx.ItemHeight() * 5.f);
+							NkVector<NkString> ecrits;
+							const uint32 nEcrits = NkGListeChaines(w, "items", ecrits);
+							const uint32 montesAvant = rap.montes;
+							if (BeginListBox(ctx, lbl, zone)) {
+								for (uint32 k = 0; k < nEcrits; ++k)
+									(void)SelectItem(ctx, ecrits[k].CStr());
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndListBox(ctx);
+							}
+							const bool rempli = (nEcrits > 0u) || (rap.montes > montesAvant);
+							const NkString cle = NkGTexte(w, "bind", "");
+							if (!rempli && cle.Size() > 0u) {
+								// LIEE, ET JAMAIS REMPLIE. Sans ce marqueur, un arbre vide se
+								// fait prendre pour un arbre sans elements, et le document a
+								// l'air monte alors qu'il manque sa moitie.
+								++rap.listesNonRemplies;
+								if (!kMuette) {
+									NkGuiDrawList &dl = ctx.DL();
+									const NkColor trait = ctx.theme.textMuted;
+									const float32 pas = 12.f;
+									for (float32 dd = 0.f; dd < zone.w + zone.h; dd += pas) {
+										float32 x0 = zone.x + dd, y0 = zone.y;
+										float32 x1 = zone.x, y1 = zone.y + dd;
+										if (x0 > zone.x + zone.w) {
+											y0 += x0 - (zone.x + zone.w);
+											x0 = zone.x + zone.w;
+										}
+										if (y1 > zone.y + zone.h) {
+											x1 += y1 - (zone.y + zone.h);
+											y1 = zone.y + zone.h;
+										}
+										if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
+											dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+									}
+									// LE CHEMIN DE LA CLE, et pas « liste vide » : l'hote doit
+									// savoir QUOI servir, pas seulement qu'il manque quelque chose.
+									if (ctx.font && ctx.font->Valid())
+										dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+												   {zone.x + 6.f, zone.y + 4.f}, cle.CStr(), trait);
+								}
+							}
+							Noter(rap, id, t, zone, prof, true, horizontal);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Item: {
+							(void)SelectItem(ctx, NkGTexte(w, "label", lbl).CStr());
+							break;
+						}
+						case NkGuiRole::TreeItem: {
+							const NkString titre = NkGTexte(w, "label", id.CStr());
+							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), NkGBooleen(w, "expanded", false));
+							if (TreeNode(ctx, titre.CStr())) {
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								TreePop(ctx);
 							}
 							break;
 						}
