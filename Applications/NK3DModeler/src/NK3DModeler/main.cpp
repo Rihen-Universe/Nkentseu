@@ -702,8 +702,17 @@ namespace {
 			st.pendingAction = NkVpAction::ToggleEdit;
 		else {
 			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
+			// (b9) LE MEME REFUS, MAIS VISIBLE. Le journal sert aux sondes ; Rodolf,
+			// lui, n'a pas de console. Le motif est donc aussi pose dans l'etat, ou
+			// le panneau le lit. Une seule formulation, deux destinations -- pas deux
+			// textes qui finiraient par ne plus dire la meme chose.
+			snprintf(st.aiMotif, sizeof(st.aiMotif),
+				"Je ne connais pas « %s ». Aucune action n'a ete posee.", nomAct);
+			st.aiMotifEstRefus = true;
 			return; // rien a parametrer : il n'y a pas de commande
 		}
+		st.aiMotifEstRefus = false;
+		st.aiMotif[0] = 0;
 		// (b9) LES PARAMETRES, UNE FOIS LE VERBE RECONNU. On les pose AVANT que
 		// l'action ne s'execute : l'operation lit `st->bevelOffset` & co. au moment
 		// ou elle construit sa commande, exactement comme apres un tour de molette.
@@ -1192,6 +1201,31 @@ int nkmain(const NkEntryState &entry) {
 			agentSceneFrame = (int32)std::atoi(v);
 		if (const char *v = std::getenv("NK_AGENT_SHOT"))
 			agentShotFrame = (int32)std::atoi(v);
+		// NK_DEPLIER="cle1,cle2" : deplie des groupes du panneau de proprietes.
+		// ⚠ IL EXISTE PARCE QU'UNE IMAGE QUI NE MONTRE PAS CE QU'ELLE PROUVE NE
+		//   PROUVE RIEN. Le groupe « Assistant » est replie par defaut, comme tous
+		//   les autres : une capture le laissait donc invisible, et j'ai failli
+		//   livrer une image de l'ecran d'accueil comme preuve d'un panneau. C'est
+		//   la deuxieme fois dans ce chantier qu'une capture montre autre chose que
+		//   son sujet.
+		// Il ne CREE aucun etat : il appelle `Poser`, la meme porte que le clic sur
+		// le chevron.
+		if (const char *v = std::getenv("NK_DEPLIER")) {
+			char cle[64];
+			uint32 n = 0;
+			for (const char *c = v;; ++c) {
+				if (*c && *c != ',' && n + 1u < sizeof(cle)) {
+					cle[n++] = *c;
+					continue;
+				}
+				cle[n] = 0;
+				if (n)
+					st.grpFold.Poser(cle, false);
+				n = 0;
+				if (!*c)
+					break;
+			}
+		}
 		// NK_SNAP_STEP / NK_SNAP_ROT / NK_SNAP_SCALE : les pas d'aimantation, dans
 		// L'ETAT DU SHELL -- qui en est l'autorite depuis que la boucle ne passe plus
 		// de constantes. Les poser sur le GIZMO (ce que faisait le viseur a son init)
@@ -3314,6 +3348,58 @@ int nkmain(const NkEntryState &entry) {
 					NkVpPoserAction(st, vpa, "NK_VP_ACTION3");
 				}
 			}
+		}
+		// ── (b9) LA DEMANDE DE L'ASSISTANT, CONSOMMEE ICI ET NULLE PART AILLEURS ─
+		// Le panneau ECRIT `aiPending`, cette boucle l'EXECUTE -- exactement comme
+		// `pendingAction` juste en dessous, et par la MEME porte : `NkVpPoserAction`.
+		// Le panneau n'a donc aucun pouvoir que le verbe n'ait deja, et rien a
+		// verifier de son cote : ce qui borne, refuse et annule est le pont.
+		//
+		// ⚠ LE CROCHET DE MESURE ENTRE AU MEME POINT QUE LE BOUTON. `NK_AI_DEMANDE`
+		//   appelle `NkAiSoumettre`, celle que « Envoyer » appelle. Il ne court-
+		//   circuite rien : une sonde qui entrerait plus loin mesurerait un chemin
+		//   que Rodolf n'emprunte jamais.
+		//   ⚠ CE QU'IL NE MESURE PAS, ET JE LE DIS : la FRAPPE elle-meme. Aucune
+		//     injection clavier n'est permise sur la machine de Rodolf. Ce qui est
+		//     mesure va du texte soumis a l'operation appliquee.
+		{
+			static bool sAiFait = false;
+			if (!sAiFait) {
+				if (const char *ad = std::getenv("NK_AI_DEMANDE")) {
+					// « <texte>,<frame> » : la frame est apres la DERNIERE virgule, pour
+					// qu'un texte puisse en contenir.
+					const char *virg = nullptr;
+					for (const char *c = ad; *c; ++c)
+						if (*c == ',')
+							virg = c;
+					const int32 quand = virg ? (int32)std::atoi(virg + 1) : 1;
+					if (agentFrame >= quand) {
+						char tmp[256];
+						uint32 n = 0;
+						for (const char *c = ad; *c && (!virg || c < virg) && n + 1u < sizeof(tmp); ++c)
+							tmp[n++] = *c;
+						tmp[n] = 0;
+						sAiFait = true;
+						const bool pris = nk3d::NkAiSoumettre(st, tmp);
+						std::printf("[nk3d] AI DEMANDE frame=%d : « %s » -> %s\n", (int)agentFrame,
+							tmp, pris ? "soumise" : "refusee (vide)");
+						std::fflush(stdout);
+					}
+				}
+			}
+		}
+		if (st.aiPending[0]) {
+			char dem[256];
+			nk3d::NkAiCopie(dem, sizeof(dem), st.aiPending);
+			st.aiPending[0] = 0; // consommee : une demande ne se rejoue pas toute seule
+			NkVpPoserAction(st, dem, "assistant");
+			// Le tour est note APRES le passage par la table : c'est elle qui sait si
+			// le verbe existe, et `aiMotifEstRefus` porte deja sa reponse.
+			nk3d::NkAiNoter(st, dem, !st.aiMotifEstRefus);
+			std::printf("[nk3d] AI RESULTAT : « %s » -> %s%s%s\n", dem,
+				st.aiMotifEstRefus ? "REFUS : " : "acceptee",
+				st.aiMotifEstRefus ? st.aiMotif : "", "");
+			std::fflush(stdout);
 		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;

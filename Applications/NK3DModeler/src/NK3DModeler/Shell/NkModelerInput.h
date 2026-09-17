@@ -1034,6 +1034,26 @@ namespace nkentseu {
 				/// inclut cet en-tete, il ne peut donc pas y figurer) ; ce drapeau
 				/// dit seulement QUI l a ouvert.
 				bool matNewPending = false;
+				// ── (b9) L'ASSISTANT : CE QU'IL A DEMANDE, ET CE QU'ON LUI A REPONDU ────
+				// `aiPending` est la demande SOUMISE, en attente d'execution. Elle suit le
+				// meme trajet que `pendingAction` juste au-dessus : le panneau ECRIT, la
+				// boucle EXECUTE. Un panneau qui appellerait le pont lui-meme serait un
+				// second chemin vers le meme etat, et le depot a deja paye ce motif deux
+				// fois cette semaine (TAB, puis les sous-modes qui ecrivaient un miroir).
+				//
+				// ⚠ `aiMotif` EXISTE PARCE QU'UN REFUS AU JOURNAL N'EST PAS UN REFUS. La
+				//   table de verbes imprimait « nom inconnu, aucune action posee » sur la
+				//   sortie standard : parfait pour une sonde, INVISIBLE pour Rodolf, qui
+				//   n'a pas de console. Un outil qui refuse sans le dire a l'ecran se lit
+				//   comme un outil qui ne marche pas.
+				char aiSaisie[256] = {0};  ///< ce qui est en train d'etre tape
+				char aiPending[256] = {0}; ///< la demande soumise (vide = rien a faire)
+				char aiMotif[192] = {0};   ///< le dernier refus, AFFICHE et pas seulement journalise
+				bool aiMotifEstRefus = false; ///< distingue « refuse » de « fait »
+				static const int32 kAiHist = 12;
+				char aiHist[kAiHist][160] = {};
+				uint8 aiHistOk[kAiHist] = {};
+				int32 aiHistN = 0;
 				NkVpAction pendingAction = NkVpAction::None;
 				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
 				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes
