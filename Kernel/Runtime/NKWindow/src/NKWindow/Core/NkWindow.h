@@ -257,6 +257,23 @@ namespace nkentseu {
 			// --- Souris ---
 			void SetMousePosition(uint32 x, uint32 y);
 
+			// ── LA POSITION EN COORDONNEES **CLIENT** ────────────────────────────
+			// POURQUOI ELLE EXISTE A COTE DE `SetMousePosition`, ET NE LA REMPLACE
+			// PAS : `SetMousePosition` N'A PAS LE MEME CONTRAT SELON LA PLATEFORME.
+			// Win32 appelle `SetCursorPos`, donc des coordonnees ECRAN ; XCB et XLib
+			// font un warp RELATIF A LA FENETRE, donc des coordonnees fenetre. Le
+			// meme appel avec les memes nombres ne designe pas le meme pixel. Aucun
+			// appelant n'existait dans le depot, donc rien ne l'avait revele.
+			// On N'Y TOUCHE PAS -- un appelant peut naitre ailleurs et compter sur
+			// le contrat actuel. On AJOUTE celui qui a le meme sens partout.
+			//
+			// (x, y) est en pixels de la ZONE CLIENT, origine en haut a gauche.
+			// Rend VRAI si le curseur a ete replace. Rend FAUX -- et le DIT dans le
+			// journal -- si la plateforme ne sait pas le faire ou si l'appel systeme
+			// echoue : jamais un repli muet, l'appelant doit pouvoir constater que
+			// rien n'a bouge plutot que de croire que tout va bien.
+			bool SetMousePositionClient(int32 x, int32 y);
+
 			void SetMousePosition(const math::NkVec2u &pos) {
 				SetMousePosition(pos.x, pos.y);
 			}
