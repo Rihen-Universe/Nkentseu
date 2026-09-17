@@ -1647,6 +1647,70 @@ int main(int argc, char **argv) {
 		const Montage s2 = MonterFichier(chemin, 1000, 600);
 		CheckEq(s1.empreinte, s2.empreinte, "   NEGATIF : sans geste, deux montages sont identiques AU BIT");
 	}
+	printf("\n-- (m10) UNE SENTINELLE N'EST PAS UNE POSITION : un geste ne suit pas une souris « nulle part »\n");
+	{
+		// ⚠️ LE DEFAUT, TROUVE EN ME TROMPANT LE 17/09 : un separateur tire a 398 px puis
+		//    relache pendant que la souris est repoussee hors ecran voyait sa colonne tomber
+		//    a 98 px -- la valeur minimale. La coquille repousse la souris a (-100000,
+		//    -100000) quand elle masque l'entree des panneaux ; quinze endroits de NKGui
+		//    derivent une valeur de la position ABSOLUE, aucun n'avait de garde.
+		// ⚠️ LE ZERO D'ABORD : la regle ne doit RIEN changer quand la souris reste dedans.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "16_separateur.nkgui");
+		Fichier f2 = Lire(chemin);
+		Check(f2.ok, "   le document se lit");
+		if (f2.ok) {
+			NkArchive doc;
+			NkGuiDiag err;
+			if (NkGuiArchive::Read(f2.data, f2.taille, doc, err)) {
+				// Un glisser identique a celui de (m9), mais relache AVEC LA SENTINELLE.
+				NkGuiContext ctx;
+				ctx.viewW = 1000;
+				ctx.viewH = 600;
+				if (g_fontOk)
+					ctx.font = &g_font;
+				const NkRect region{0.f, 0.f, 1000.f, 600.f};
+				NkGuiMonteEtat etat;
+				NkGuiMonteur::Preparer(doc, etat);
+				NkGuiMonteRapport rz;
+				// survol, appui, deplacement -- l'ordre qu'impose `hotIdPrev`
+				for (int32 img = 0; img < 3; ++img) {
+					ctx.BeginFrame(0.016f);
+					ctx.input.mousePos = (img < 2) ? NkVec2{160.f, 300.f} : NkVec2{400.f, 300.f};
+					ctx.input.mouseDown[0] = (img >= 1);
+					ctx.input.mouseClicked[0] = (img == 1);
+					ctx.BeginLayout(region);
+					ctx.DL().Reset();
+					NkGuiMonteRapport tmp;
+					NkGuiMonteur::Monter(ctx, doc, etat, tmp);
+					ctx.EndFrame();
+				}
+				// LA SENTINELLE : la souris part « nulle part » alors que le geste est vif.
+				ctx.BeginFrame(0.016f);
+				ctx.input.mousePos = NkVec2{-100000.f, -100000.f};
+				ctx.input.mouseDown[0] = true;
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, rz);
+				ctx.EndFrame();
+				// puis on relache, souris toujours nulle part, et on relit
+				NkGuiMonteRapport rf;
+				ctx.BeginFrame(0.016f);
+				ctx.input.mouseDown[0] = false;
+				ctx.BeginLayout(region);
+				ctx.DL().Reset();
+				NkGuiMonteur::Monter(ctx, doc, etat, rf);
+				ctx.EndFrame();
+				float32 gf = -1.f;
+				for (uint32 i = 0; i < (uint32)rf.items.Size(); ++i)
+					if (rf.items[i].id.Compare("gauche") == 0)
+						gf = rf.items[i].rect.w;
+				printf("        apres la SENTINELLE : gauche %.0f px (attendu ~398, et non 98)\n", (double)gf);
+				Check(gf > 390.f, "   la colonne NE S'EFFONDRE PAS (mutation : NK_SOURIS_MUTATION=libre)");
+			}
+			Liberer(f2);
+		}
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);

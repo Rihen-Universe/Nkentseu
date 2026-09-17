@@ -12,6 +12,7 @@
 #include "NKGui/Core/NkGuiInput.h"
 #include "NKGui/Core/NkGuiDrawList.h"
 #include "NKGui/Core/NkGuiIntrospect.h"
+#include <cstdlib> // getenv : la mutation de banc de la garde des sentinelles
 
 namespace nkentseu {
 	namespace nkgui {
@@ -402,6 +403,9 @@ namespace nkentseu {
 				NkGuiId hotId = NKGUI_ID_NONE;	   ///< widget survolé (greedy : dernier soumis = au-dessus)
 				NkGuiId hotIdPrev = NKGUI_ID_NONE; ///< hotId de la frame précédente (résout le z-ordre)
 				NkGuiId activeId = NKGUI_ID_NONE;  ///< widget en interaction (persistant)
+				/// LA DERNIERE POSITION DE SOURIS VALIDE, gardee pendant qu'un widget tient le
+				/// pointeur. Cf. la regle « une sentinelle n'est pas une position », BeginFrame.
+				NkVec2 mouseValide{0.f, 0.f};
 				NkGuiInteract interact = NkGuiInteract::None;
 				bool lastItemHovered = false; ///< le DERNIER widget interactif est-il survolé ? (tooltips)
 
@@ -586,6 +590,52 @@ namespace nkentseu {
 				float32 AvailHeight() const noexcept;				///< hauteur restante sous le curseur (région)
 				float32 ItemHeight() const noexcept;				///< hauteur standard d'un widget
 
+				// ═══════════════════════════════════════════════════════════════
+				//  UNE SENTINELLE N'EST PAS UNE POSITION -- la regle, ecrite UNE FOIS
+				// ═══════════════════════════════════════════════════════════════
+				//  Le depot emploie des positions SENTINELLES pour dire « nulle part » :
+				//  la coquille repousse la souris a (-100000, -100000) quand elle masque
+				//  l'entree des panneaux, les sondes de capture a (-10000, -10000).
+				//  Une sentinelle rapportee a une zone donne une fraction absurde, bornee
+				//  au minimum : mesure le 17/09, un separateur tire a 398 px puis relache
+				//  pendant que la souris etait « nulle part » voyait sa colonne tomber a
+				//  98 px. **La colonne s'effondre, et rien ne le dit.**
+				//
+				//  ⚠️ LA REGLE EST ECRITE ICI, ET NULLE PART AILLEURS : tout geste qui
+				//     derive une valeur de la position ABSOLUE appelle `PositionGeste()`
+				//     au lieu de lire `input.mousePos`. Quinze gardes ecrites quinze fois
+				//     auraient quinze occasions d'etre oubliees.
+				//
+				//  ⚠️ ET LA REGLE NE PEUT PAS VIVRE DANS `BeginFrame` : l'application pose
+				//     son entree APRES (le tick de la coquille, les injecteurs des sondes),
+				//     et la coquille masque en plein milieu de l'image. Une garde posee
+				//     trop tot juge la position de l'image precedente. Mesure : la premiere
+				//     version, placee dans `BeginFrame`, ne mordait jamais -- et sa mutation
+				//     rendait le MEME resultat, ce qui l'a trahie.
+				//
+				//  La borne n'est pas un nombre invente : une fenetre entiere de marge de
+				//  chaque cote. Une souris qui sort VRAIMENT de la fenetre reste valide --
+				//  le geste la suit jusqu'au bord, ce qu'un utilisateur attend.
+				bool SentinelleSouris(const NkVec2 &p) const noexcept {
+					const float32 W = (float32)viewW, H = (float32)viewH;
+					if (W <= 0.f || H <= 0.f)
+						return false; // sans fenetre mesurable, on ne juge pas
+					return p.x < -W || p.x > W * 2.f || p.y < -H || p.y > H * 2.f;
+				}
+
+				/// La position a employer PENDANT un geste. Rend la derniere position
+				/// valide quand la courante est une sentinelle.
+				NkVec2 PositionGeste() noexcept {
+					static const bool kSansGarde = []() {
+						const char *v = getenv("NK_SOURIS_MUTATION"); // =libre : garde retiree
+						return v && v[0] == 'l';
+					}();
+					if (kSansGarde || !SentinelleSouris(input.mousePos)) {
+						mouseValide = input.mousePos;
+						return input.mousePos;
+					}
+					return mouseValide;
+				}
 				float32 S(float32 px) const noexcept {
 					return px * scale;
 				} ///< px logiques → px écran (DPI)

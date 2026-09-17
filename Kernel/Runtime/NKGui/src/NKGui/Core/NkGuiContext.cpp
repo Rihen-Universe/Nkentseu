@@ -5,6 +5,7 @@
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKPlatform/NkEnv.h" // NK_GUI_INTROSPECT : activation sans recompiler
 #include <cstddef> // offsetof — table de description des jetons
+#include <cstdlib> // getenv : la mutation de banc de la garde des sentinelles
 
 namespace nkentseu {
 	namespace nkgui {
@@ -53,6 +54,7 @@ namespace nkentseu {
 			// atteint) ne doit pas s'appliquer a la frame suivante.
 			nextItemRectSet = false;
 			input.NewFrame();	   // transitions clic/relâche
+
 
 			// ── Glisser-deposer : cycle de vie (2026-08-17) ───────────────────
 			// Le relachement laisse `dragActive` vrai PENDANT la frame du
