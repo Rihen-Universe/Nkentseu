@@ -77,6 +77,7 @@
 #include "ExportDialogue.h" // ④ le dialogue d'export : un seul, deux portes
 #include "Probe.h"
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
+#include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
 #include "RecetteProprietes.h" // --recette-proprietes : les listes de proprietes, par le geste
 #include "TemoinRendu.h"	 // --temoin-rendu : le flux de commandes du peintre, diffable
@@ -9077,6 +9078,19 @@ int nkmain(const NkEntryState &state) {
 		// d'integration.
 		if (NkComponentDecl::StrEq(a, "--recette-ia"))
 			return nkuidesign::RunRecetteIA();
+		// LA CHAINE COMPLETE, sans fenetre : taper -> envoyer -> poser -> annuler.
+		// Elle emprunte le MEME chemin que le bouton du panneau.
+		{
+			const NkString arg2(a);
+			if (arg2.StartsWith("--ia-bout-en-bout")) {
+				const char *d = a + 17;
+				if (*d == '=')
+					++d;
+				else
+					d = "Un ecran de connexion : un titre, deux champs avec libelles, un bouton.";
+				return nkuidesign::RunIABoutEnBout(d);
+			}
+		}
 		// Levier de MISE EN SCENE (captures, bancs) — pas un reglage :
 		// --selection=N selectionne le noeud N au premier affichage. Meme
 		// patron que --theme= : l'option force, l'interface decide ensuite.

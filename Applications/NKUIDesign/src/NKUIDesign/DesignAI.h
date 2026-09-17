@@ -276,6 +276,50 @@ namespace nkuidesign {
 				out.Append(">\n");
 				out.Append("  reglage param <nom> = <valeur>   (facultatif)\n");
 				out.Append("  reglage variante <nom>           (facultatif)\n\n");
+				// ⚠️ LA REGLE QUI MANQUAIT, ET ELLE VALAIT NEUF ECHECS SUR DOUZE.
+				//    Mesure du 17/09 sur qwen2.5:7b-instruct : N2 = 3/12. En lisant les
+				//    reponses BRUTES, les echecs ont tous `enfants =` VIDE sur le noeud 0
+				//    pendant que les noeuds 1, 2, 3 existent ; le seul succes lu a
+				//    `enfants = 1 2`. Le modele ecrivait les noeuds et ne les RATTACHAIT
+				//    pas.
+				//
+				//    L'invite ne l'avait jamais demande : elle decrivait le CHAMP
+				//    (« numeros separes par des espaces ») sans dire la CONTRAINTE. *Ce
+				//    n'est pas le modele qui inventait mal, c'est nous qui n'avions pas
+				//    dit la regle.* C'est le sens du cap : le modele est un reglage, et
+				//    l'outillage -- cette invite en fait partie -- est le produit.
+				out.Append("REGLE ABSOLUE : tout noeud autre que 0 doit apparaitre dans le champ\n");
+				out.Append("`enfants` d'exactement UN autre noeud. Un noeud que personne ne cite\n");
+				out.Append("n'existe pas : le document est alors refuse pour structure incoherente.\n");
+				out.Append("Le noeud 0 est la racine ; c'est lui qui cite les premiers.\n");
+				out.Append("\n");
+				// ⚠️ UN EXEMPLE PLUTOT QUE TROIS PHRASES DE PLUS. Une contrainte de
+				//    structure se montre mieux qu'elle ne se decrit -- et celui-ci est
+				//    minuscule a dessein : assez pour montrer le rattachement, trop
+				//    petit pour etre recopie tel quel a la place d'une vraie reponse.
+				out.Append("Exemple complet et minimal :\n");
+				out.Append("nkuidoc 1\n");
+				out.Append("titre = Exemple\n");
+				out.Append("noeud 0\n");
+				out.Append("  libelle = Racine\n");
+				out.Append("  composant = \n");
+				out.Append("  enfants = 1 2\n");
+				out.Append("  largeur = expand 1 0 0\n");
+				out.Append("  hauteur = expand 1 0 0\n");
+				out.Append("  agencement = colonne\n");
+				out.Append("noeud 1\n");
+				out.Append("  libelle = Titre\n");
+				out.Append("  composant = etiquette\n");
+				out.Append("  enfants =\n");
+				out.Append("  largeur = expand 1 0 0\n");
+				out.Append("  hauteur = content 24 0 0\n");
+				out.Append("noeud 2\n");
+				out.Append("  libelle = Valider\n");
+				out.Append("  composant = bouton\n");
+				out.Append("  enfants =\n");
+				out.Append("  largeur = content 0 0 0\n");
+				out.Append("  hauteur = content 32 0 0\n");
+				out.Append("\n");
 				out.Append("N'emploie que des composants du catalogue ci-dessous.\n");
 			}
 
