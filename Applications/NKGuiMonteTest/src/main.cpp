@@ -1434,6 +1434,93 @@ int main(int argc, char **argv) {
 		Check(f1 > 199.f && f1 < 201.f, "   NEGATIF : un `size` absolu vaut 200 px");
 		Check(f1 == f2, "   NEGATIF : et il vaut le MEME dans une autre fenetre");
 	}
+	printf("\n-- (m7) LA BANDE D'ONGLETS : montee, et c'est le SOULIGNEMENT de l'onglet actif qui le prouve\n");
+	{
+		// ⚠️ LE CRITERE EST UNE COULEUR QUE SEULE LA SELECTION PEINT. `TabBar` souligne
+		//    l'onglet actif sur 3 px en `theme.accent` (NkGuiWidgets.cpp:2249). Compter
+		//    « des pixels » ne dirait rien -- le Panel en peint des dizaines de milliers.
+		//    Compter l'ACCENT dit qu'un onglet est monte ET selectionne.
+		const uint32 kAccent = 0x60A5FAFFu; // theme.accent par defaut : (96, 165, 250, 255)
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "14_onglets.nkgui");
+
+		g_couleurCible = kAccent;
+		const Montage t3 = MonterFichier(chemin, 400, 300, "14_onglets");
+		g_couleurCible = 0u;
+		Check(t3.lu, "   le document se lit");
+		CheckEq(t3.rap.rolesInconnus, 0u, "   `TabBar` est du vocabulaire (0 role inconnu)");
+		float32 largeur = -1.f;
+		for (uint32 i = 0; i < (uint32)t3.rap.items.Size(); ++i)
+			if (t3.rap.items[i].id.Compare("onglets") == 0)
+				largeur = t3.rap.items[i].rect.w;
+		printf("        bande montee : largeur %.0f px ; pixels d'accent %u ; texte %u px\n",
+			   (double)largeur, t3.poigneeN, t3.contenu);
+		Check(largeur > 0.f, "   la bande est MONTEE (un rectangle non vide au releve)");
+		Check(t3.poigneeN > 100u, "   l'onglet actif est SOULIGNE (accent peint)");
+
+		// ── (c) TROIS onglets et non un : moins de texte avec un seul
+		const char *un = "nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    TabBar \"onglets\" { tabs = [Scene] }\n  }\n}\n";
+		uint32 nu = 0;
+		while (un[nu]) ++nu;
+		g_couleurCible = kAccent;
+		const Montage t1 = MonterTexte(un, nu, 400, 300);
+		g_couleurCible = 0u;
+		printf("        un seul onglet : texte %u px ; accent %u px\n", t1.contenu, t1.poigneeN);
+		Check(t1.contenu < t3.contenu, "   TROIS onglets peignent plus de texte qu'UN");
+		Check(t1.empreinte != t3.empreinte, "   et les deux images different");
+		Check(t1.poigneeN > 100u, "   un seul onglet reste souligne (il est actif)");
+
+		// ── (d) NEGATIF : une liste VIDE ne souligne rien
+		const char *vide = "nkgui 0.3\nwidgets {\n  Panel \"f\" {\n    TabBar \"onglets\" { tabs = [] }\n  }\n}\n";
+		uint32 nv = 0;
+		while (vide[nv]) ++nv;
+		g_couleurCible = kAccent;
+		const Montage t0 = MonterTexte(vide, nv, 400, 300);
+		g_couleurCible = 0u;
+		printf("        liste vide : accent %u px\n", t0.poigneeN);
+		CheckEq(t0.poigneeN, 0u, "   NEGATIF : `tabs = []` ne souligne RIEN");
+	}
+	printf("\n-- (m8) L'INSPECTEUR A BLOCS PLIABLES : ce qui compte n'est pas le triangle, c'est ce qu'il CACHE\n");
+	{
+		// ⚠️ LE CRITERE EST L'ABSENCE D'UN ENFANT DANS LE RELEVE. Un bloc replie qui
+		//    monterait quand meme ses enfants « en les cachant » serait un titre, pas un
+		//    pliable -- et un compteur de pixels ne verrait pas la difference si le contenu
+		//    tombait hors clip. On lit donc le RELEVE, qui nomme chaque bloc monte.
+		Joindre(dossier, sizeof(dossier), racine, "/valides/");
+		Joindre(chemin, sizeof(chemin), dossier, "15_inspecteur.nkgui");
+		const Montage m = MonterFichier(chemin, 400, 300, "15_inspecteur");
+		Check(m.lu, "   le document se lit");
+		CheckEq(m.rap.rolesInconnus, 0u, "   `Expander` est du vocabulaire (0 role inconnu)");
+
+		bool blocOuvert = false, blocFerme = false, enfantVisible = false, enfantCache = false;
+		for (uint32 i = 0; i < (uint32)m.rap.items.Size(); ++i) {
+			const NkGuiMonteItem &it = m.rap.items[i];
+			if (it.id.Compare("transformation") == 0) blocOuvert = true;
+			if (it.id.Compare("materiau") == 0) blocFerme = true;
+			if (it.id.Compare("position_visible") == 0) enfantVisible = true;
+			if (it.id.Compare("couleur_cachee") == 0) enfantCache = true;
+		}
+		printf("        releve : bloc ouvert %s ; bloc ferme %s ; enfant du ouvert %s ; enfant du ferme %s\n",
+			   blocOuvert ? "oui" : "NON", blocFerme ? "oui" : "NON",
+			   enfantVisible ? "oui" : "NON", enfantCache ? "OUI" : "non");
+		Check(blocOuvert && blocFerme, "   les DEUX blocs sont montes");
+		Check(enfantVisible, "   l'enfant du bloc OUVERT est monte");
+		Check(!enfantCache, "   NEGATIF : l'enfant du bloc FERME n'est PAS monte (mutation : toujours)");
+
+		// ── (d) L'IMAGE : deux blocs fermes peignent MOINS que un ouvert + un ferme
+		const char *deuxFermes =
+			"nkgui 0.3\nwidgets {\n  Panel \"inspecteur\" { title = \"Proprietes\"\n"
+			"    Expander \"transformation\" { label = \"Transformation\", expanded = false\n"
+			"      Text \"position_visible\" { text = \"Position X Y Z\" }\n    }\n"
+			"    Expander \"materiau\" { label = \"Materiau\", expanded = false\n"
+			"      Text \"couleur_cachee\" { text = \"Couleur de base\" }\n    }\n  }\n}\n";
+		uint32 nd = 0;
+		while (deuxFermes[nd]) ++nd;
+		const Montage f = MonterTexte(deuxFermes, nd, 400, 300);
+		printf("        contenu peint : un ouvert %u px ; deux fermes %u px\n", m.contenu, f.contenu);
+		Check(f.contenu < m.contenu, "   deux blocs fermes peignent MOINS de contenu");
+		Check(f.empreinte != m.empreinte, "   et les deux images different");
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
