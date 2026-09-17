@@ -61,6 +61,10 @@ def main():
     ap.add_argument("--device", default="cuda:0",
                     help="cuda:0 (defaut) ; cpu doit etre DEMANDE, jamais un repli silencieux")
     ap.add_argument("--chunk-size", type=int, default=8192)
+    ap.add_argument("--axe-up", choices=("y", "brut"), default="y",
+                    help="y (defaut) : convertit le Z-up de TripoSR vers le Y-up de "
+                         "Nkentseu. brut : aucune conversion -- c'est la MUTATION, et "
+                         "elle vit dans le meme programme, pas dans une seconde copie.")
     a = ap.parse_args()
 
     if not os.path.isfile(a.image):
@@ -103,6 +107,25 @@ def main():
         print("MESURE genia : gpu='%s' vram_totale_mio=%d vram_libre_au_depart_mio=%d"
               % (p.name, total // (1024 * 1024), libre // (1024 * 1024)))
         torch.cuda.reset_peak_memory_stats()
+
+    # ── LE REFUS NOMME, ET AVANT LA DEPENSE (mesure du 2026-09-17) ───────────
+    # Un fichier texte renomme « .png » traversait TOUT ce chemin sans refus
+    # nomme : PIL levait `UnidentifiedImageError`, le script sortait avec le
+    # code 1 et AUCUNE ligne « REFUS : ». Le contrat ecrit en tete de ce fichier
+    # etait donc viole pour ce cas precis -- et cote modeleur c'est pire :
+    # `NkGenerateurProcessus::Generer` ne lit PAS stderr (CREATE_NO_WINDOW), il
+    # ne regarde que l'existence du fichier de sortie. L'ecran affichait donc un
+    # echec SANS CAUSE, et « un refus nomme sa cause ».
+    # Deuxieme raison de le poser ICI et non plus bas : le refus coutait 11,2 s
+    # de chargement de modele pour un fichier que PIL rejette en millisecondes.
+    try:
+        _sonde = Image.open(a.image)
+        _sonde.load()  # `open` est PARESSEUX : sans `load`, un fichier tronque passerait.
+        _mode, _w, _h = _sonde.mode, _sonde.size[0], _sonde.size[1]
+        _sonde.close()
+    except Exception as e:
+        _refus("image illisible : %s (%s: %s)" % (a.image, type(e).__name__, e))
+    print("MESURE genia : image lisible, mode=%s taille=%dx%d" % (_mode, _w, _h))
 
     t1 = time.time()
     model = TSR.from_pretrained(pdir, config_name="config.yaml", weight_name="model.ckpt")
@@ -147,6 +170,37 @@ def main():
     if mesh.is_watertight and vol < 0.0:
         mesh.invert()
         print("MESURE genia : faces retournees (volume negatif) -> volume_signe=%.5f" % float(mesh.volume))
+
+    # ── L'AXE VERTICAL, ET CE N'EST PAS UNE PREFERENCE ──────────────────────
+    # MESURE du 2026-09-18 (Tools/Genia/mesure_orientation.py, deux instruments
+    # sans code commun) : sur la chaise, le profil du nombre de composantes
+    # connexes par tranche vaut, le long de Z,
+    #     2 4 4 4 4 4 4 1 1 1 1 1 1 3 1 1 1 2 3 1 1 1 1 1
+    # -- QUATRE amas sur six tranches consecutives du cote -Z (les quatre
+    # pieds), puis un seul (l'assise et le dossier). L'aire des sections le
+    # confirme (rapport 2,23, meme axe, meme sens). TripoSR ecrit donc du
+    # Z-up, dans un conteneur glTF dont la specification dit Y-up.
+    #
+    # POURQUOI ICI ET PAS DANS LE CHARGEUR. NkGLTFLoader lit des glTF
+    # CONFORMES, qui sont deja Y-up : y poser cette rotation serait juste pour
+    # TripoSR et faux pour tout le reste -- la famille de defauts « juste dans
+    # son contexte d'origine, faux dans le nouveau ». Le producteur est le seul
+    # endroit qui sait que SON contenu est Z-up.
+    #
+    # LA FORMULE N'EST PAS INVENTEE : c'est celle que le depot applique deja au
+    # meme probleme cote FBX, NkFBXLoader.cpp:1717 -- {x, z, -y}. Son
+    # determinant vaut +1, donc c'est une ROTATION PROPRE : ni le sens des
+    # faces, ni le volume signe, ni le nombre de sommets ne peuvent bouger.
+    # C'est l'attendu « sur ce qui NE DOIT PAS bouger », et il est derive, pas
+    # espere. Ce qui DOIT bouger, c'est le condensat du fichier.
+    if a.axe_up == "y":
+        import numpy as _np
+        _V = _np.asarray(mesh.vertices, dtype=_np.float64)
+        mesh.vertices = _np.stack((_V[:, 0], _V[:, 2], -_V[:, 1]), axis=1)
+        print("MESURE genia : axes Z-up -> Y-up appliques (NkFBXLoader.cpp:1717) "
+              "volume_signe=%.5f" % (float(mesh.volume) if mesh.is_watertight else float("nan")))
+    else:
+        print("MESURE genia : MUTATION --axe-up=brut, aucune conversion d'axe")
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
     mesh.export(a.out)

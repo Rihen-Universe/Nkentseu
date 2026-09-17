@@ -31,8 +31,17 @@ with project("NKDesignIABanc"):
 
     # Le document, la mise en page, le pont `.nkgui` et le registre des
     # composants. Rien de graphique : pas de NKWindow, pas de NKRHI.
+    # ── RESOLUTION DE FUSION (17/09) ────────────────────────────────────────
+    # NKConverse est AJOUTE ICI, et ce n'est pas un ajustement cosmetique : ce
+    # banc arrive de transit, ou `DesignAI.h` etait encore autonome. Dans
+    # l'arbre du modeleur, ce fichier est devenu un RELAIS vers le module
+    # `Kernel/System/NKConverse` (extraction du 17/09). Les deux cotes etaient
+    # justes SEPAREMENT, et git n'avait rien a signaler : aucun des deux n'a
+    # touche le fichier de l'autre. C'est la CONSTRUCTION qui l'a dit --
+    # « 'NKConverse/NkConverse.h' file not found », 148/244.
+    # Une fusion sans conflit n'est pas une fusion sure.
     nkentseudependson(
-        ["NKEditorKit", "NKGui", "NKSerialization", "NKReflection", "NKFileSystem",
+        ["NKConverse", "NKEditorKit", "NKGui", "NKSerialization", "NKReflection", "NKFileSystem",
          "NKFont", "NKImage", "NKStream", "NKEvent", "NKMath", "NKTime", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
         extra_includes=["src", "../NKUIDesign/src"],

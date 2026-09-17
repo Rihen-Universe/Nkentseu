@@ -63,6 +63,8 @@
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
 #include "NK3DModeler/Shell/NkModelerWelcome.h"
+#include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
+#include "NK3DModeler/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -561,6 +563,69 @@ namespace {
 	// « maj+<nom> » : l'action porte Maj, exactement comme une touche enfoncee
 	// avec Maj -- le seul moyen de faire passer un modificateur par le chemin du
 	// bouton sans injecter d'evenement clavier.
+	// ── (b9) LES PARAMETRES D'UNE OPERATION, DONNES AVEC LE VERBE ───────────
+	// « bevel:0.2 » ou « bevel:0.2:4 » : apres le nom, les parametres de CETTE
+	// commande, DANS L'ORDRE DE LA TABLE `HostOpParams`. L'ordre n'est pas une
+	// convention inventee ici : c'est celui que le panneau de proprietes affiche
+	// deja, et deux ordres pour la meme liste finiraient par diverger.
+	//
+	// ⚠ ON NE BORNE PAS ICI. `Demo3DHostOpParamSet` porte le clamp, et son
+	//   commentaire dit pourquoi : « LE CLAMP EST ICI ET NULLE PART AILLEURS. Un
+	//   champ regle par deux chemins avec deux bornes differentes laisse entrer
+	//   par l'un ce que l'autre refuse. » Un second borneur ecrit ici serait
+	//   exactement ce defaut. Une valeur hors bornes est donc RAMENEE, pas
+	//   refusee : c'est ce que fait deja la molette, et une IA qui demande un
+	//   biseau de 99 doit obtenir le plus large possible, pas un echec muet.
+	//
+	// MUTATION : `NK_PARAM_IGNORE=1` lit les valeurs puis les jette.
+	int32 NkVpPoserParams(const char *apresNom, int32 cmd, const char *quiSuisJe) {
+		if (!apresNom || *apresNom != ':' || cmd < 0)
+			return 0;
+		static int sIgnore = -1;
+		if (sIgnore == -1) {
+			const char *v = std::getenv("NK_PARAM_IGNORE");
+			sIgnore = (v && v[0] && v[0] != '0') ? 1 : 0;
+		}
+		const int32 nPar = demo::Demo3DHostOpParamCount();
+		int32 poses = 0;
+		const char *c = apresNom;
+		for (int32 q = 0; q < nPar && *c == ':'; ++q) {
+			int32 pc = -1;
+			if (!demo::Demo3DHostOpParamInfo(q, &pc, nullptr, nullptr, nullptr, nullptr))
+				continue;
+			if (pc != cmd)
+				continue; // ce parametre appartient a une autre commande
+			++c; // passe le ':'
+			const float32 v = (float32)std::atof(c);
+			while (*c && *c != ':' && *c != ',')
+				++c;
+			if (sIgnore)
+				continue; // MUTATION : lu, puis jete
+			if (demo::Demo3DHostOpParamSet(q, v))
+				++poses;
+		}
+		// ⚠ UN PARAMETRE QUI N'A PAS TROUVE DE PLACE SE DIT. Sans cela, « bevel:1:2:3 »
+		//   poserait deux valeurs, jetterait la troisieme, et rapporterait un succes --
+		//   le quatrieme etat d'une commande, celui qu'on vient de corriger en (b6).
+		if (*c == ':')
+			std::printf("[nk3d] %s : parametre en trop, ignore (la commande n'en a pas autant)\n", quiSuisJe);
+		return poses;
+	}
+	
+	// Le verbe -> l'indice de commande de `NkMeshMenuTable`, qui est celui que la
+	// table des parametres porte dans son champ `cmd`. -1 = cette commande n'a
+	// aucun parametre reglable, et ce n'est pas une erreur.
+	int32 NkVpCmdDuVerbe(NkVpAction a) {
+		switch (a) {
+			case NkVpAction::Extrude: return 0;
+			case NkVpAction::Inset: return 1;
+			case NkVpAction::BevelEdge: return 2;
+			case NkVpAction::Subdivide: return 3;
+			case NkVpAction::LoopCut: return 4;
+			default: return -1;
+		}
+	}
+	
 	void NkVpPoserAction(NkModelerState &st, const char *vpa, const char *quiSuisJe) {
 		const bool majHook = (vpa[0] == 'm' || vpa[0] == 'M') && (vpa[1] == 'a' || vpa[1] == 'A') &&
 				(vpa[2] == 'j' || vpa[2] == 'J') && vpa[3] == '+';
@@ -578,58 +643,55 @@ namespace {
 				if (x != y)
 					return false;
 			}
-			return (*a == 0 || *a == ',');
+			// (b9) LE VERBE S'ARRETE AUSSI SUR ':'. « bevel:0.2:4 » nomme la commande
+			// PUIS ses parametres. Sans ce terminateur, « bevel:0.2 » ne serait pas
+			// reconnu comme `bevel` et tomberait dans le refus nomme -- ce qui aurait
+			// ete honnete, mais inutile.
+			return (*a == 0 || *a == ',' || *a == ':');
 		};
-		if (est("togglexray"))
-			st.pendingAction = NkVpAction::ToggleXray;
-		else if (est("frameall"))
-			st.pendingAction = NkVpAction::FrameAll;
-		else if (est("viewfront"))
-			st.pendingAction = NkVpAction::ViewFront;
-		else if (est("viewtop"))
-			st.pendingAction = NkVpAction::ViewTop;
-		else if (est("viewright"))
-			st.pendingAction = NkVpAction::ViewRight;
-		else if (est("selectall"))
-			st.pendingAction = NkVpAction::SelectAll;
-		else if (est("selectnone"))
-			st.pendingAction = NkVpAction::SelectNone;
-		else if (est("submodeedge"))
-			st.pendingAction = NkVpAction::SubModeEdge;
-		else if (est("submodeface"))
-			st.pendingAction = NkVpAction::SubModeFace;
-		else if (est("undo"))
-			st.pendingAction = NkVpAction::Undo;
-		else if (est("redo"))
-			st.pendingAction = NkVpAction::Redo;
-		else if (est("subdivide"))
-			st.pendingAction = NkVpAction::Subdivide;
-		else if (est("extrude"))
-			st.pendingAction = NkVpAction::Extrude;
-		else if (est("inset"))
-			st.pendingAction = NkVpAction::Inset;
-		else if (est("bevel"))
-			st.pendingAction = NkVpAction::BevelEdge;
-		else if (est("delete"))
-			st.pendingAction = NkVpAction::Delete;
-		else if (est("modalaxisx"))
-			st.pendingAction = NkVpAction::ModalAxisX;
-		else if (est("modalaxisy"))
-			st.pendingAction = NkVpAction::ModalAxisY;
-		else if (est("modalaxisz"))
-			st.pendingAction = NkVpAction::ModalAxisZ;
-		else if (est("modalmove"))
-			st.pendingAction = NkVpAction::ModalMove;
-		else if (est("modalconfirm"))
-			st.pendingAction = NkVpAction::ModalConfirm;
-		else if (est("modalcancel"))
-			st.pendingAction = NkVpAction::ModalCancel;
-		else if (est("dissolve"))
-			st.pendingAction = NkVpAction::Dissolve;
-		else if (est("toggleedit"))
-			st.pendingAction = NkVpAction::ToggleEdit;
-		else
+		// ── LE PONT LIT LA TABLE, IL NE LA REECRIT PAS ──────────────────────────
+		// La chaine de `else if (est("..."))` qui vivait ici etait la SEULE
+		// definition du vocabulaire, et elle etait illisible hors du C++ : on ne
+		// pouvait ni l'imprimer, ni la donner a un modele, sans la RECOPIER -- et
+		// une chaine recopiee peut mentir sans que rien ne le signale.
+		// Elle est maintenant une donnee (`NkModelerContrat.h`), lue ici ET par
+		// l'imprimeur du contrat. Une seule autorite, deux lecteurs : un verbe
+		// ajoute est reconnu ET documente du meme geste.
+		{
+			int32 nv = 0;
+			const NkVerbe *V = NkVerbes(nv);
+			bool trouve = false;
+			for (int32 i = 0; i < nv; ++i) {
+				if (!est(V[i].nom))
+					continue;
+				st.pendingAction = V[i].act;
+				trouve = true;
+				break;
+			}
+			if (!trouve) {
 			printf("[nk3d] %s : nom inconnu, aucune action posee\n", quiSuisJe);
+			// (b9) LE MEME REFUS, MAIS VISIBLE. Le journal sert aux sondes ; Rodolf,
+			// lui, n'a pas de console. Le motif est donc aussi pose dans l'etat, ou
+			// le panneau le lit. Une seule formulation, deux destinations -- pas deux
+			// textes qui finiraient par ne plus dire la meme chose.
+			snprintf(st.aiMotif, sizeof(st.aiMotif),
+				"Je ne connais pas « %s ». Aucune action n'a ete posee.", nomAct);
+				st.aiMotifEstRefus = true;
+				return; // rien a parametrer : il n'y a pas de commande
+			}
+		}
+		st.aiMotifEstRefus = false;
+		st.aiMotif[0] = 0;
+		// (b9) LES PARAMETRES, UNE FOIS LE VERBE RECONNU. On les pose AVANT que
+		// l'action ne s'execute : l'operation lit `st->bevelOffset` & co. au moment
+		// ou elle construit sa commande, exactement comme apres un tour de molette.
+		{
+			const char *c = nomAct;
+			while (*c && *c != ':' && *c != ',')
+				++c;
+			if (*c == ':')
+				(void)NkVpPoserParams(c, NkVpCmdDuVerbe(st.pendingAction), quiSuisJe);
+		}
 	}
 
 } // namespace
@@ -642,6 +704,37 @@ int nkmain(const NkEntryState &entry) {
 	// sans un seul clic. Le verdict part dans `sonde_geo.txt` du dossier donne
 	// (defaut : le dossier courant), parce qu'une application fenetree n'a pas
 	// de console ou ecrire.
+	// ── LE CONTRAT D'OUTILS, ECRIT PAR L'APPLICATION ────────────────────────
+	// `NK3DModeler.exe --contrat-outils [fichier]` ecrit le contrat et SORT :
+	// aucune fenetre, aucun device. C'est le document qu'on donnera a un modele
+	// distant, a Ilyana, ou a un modele de Rodolf -- arbitrage du 17/09 : « le
+	// plus important est la performance des OUTILS associes au modele ».
+	// ⚠ IL N'EST PAS ECRIT A LA MAIN : il parcourt la table des verbes et la
+	//   table des parametres. Un contrat recopie decrirait, tot ou tard, un outil
+	//   qui n'existe plus.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--contrat-outils")))
+			continue;
+		const NkString out = (a + 1u < entry.args.Size()) ? entry.args[a + 1u]
+														  : NkString("CONTRAT_OUTILS.md");
+		const bool ok = nk3d::NkEcrireContrat(out.CStr(), &NkVpCmdDuVerbe);
+		std::printf("[nk3d] contrat d'outils : %s -> %s\n", ok ? "ecrit" : "ECHEC", out.CStr());
+		std::fflush(stdout);
+		return ok ? 0 : 1;
+	}
+
+	// ── SONDE DE LA PORTE DU GENERATEUR, SANS FENETRE NI CARTE ──────────────
+	// `NK3DModeler.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
+	// sous-processus (le defaut nomme par la navette « texte vers 3D ») et la
+	// porte `GenererDepuisTexte`. Aucun device, aucun GPU : elle se lance
+	// pendant que la carte est prise -- et elle l'est.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-genia")))
+			continue;
+		const NkString dir = (a + 1u < entry.args.Size()) ? entry.args[a + 1u] : NkString(".");
+		return (int)nk3d::NkGeniaSonde(dir);
+	}
+
 	for (usize a = 0; a < entry.args.Size(); ++a) {
 		if (!(entry.args[a] == NkString("--sonde-geo")))
 			continue;
@@ -1108,6 +1201,53 @@ int nkmain(const NkEntryState &entry) {
 			agentSceneFrame = (int32)std::atoi(v);
 		if (const char *v = std::getenv("NK_AGENT_SHOT"))
 			agentShotFrame = (int32)std::atoi(v);
+		// NK_DEPLIER="cle1,cle2" : deplie des groupes du panneau de proprietes.
+		// ⚠ IL EXISTE PARCE QU'UNE IMAGE QUI NE MONTRE PAS CE QU'ELLE PROUVE NE
+		//   PROUVE RIEN. Le groupe « Assistant » est replie par defaut, comme tous
+		//   les autres : une capture le laissait donc invisible, et j'ai failli
+		//   livrer une image de l'ecran d'accueil comme preuve d'un panneau. C'est
+		//   la deuxieme fois dans ce chantier qu'une capture montre autre chose que
+		//   son sujet.
+		// Il ne CREE aucun etat : il appelle `Poser`, la meme porte que le clic sur
+		// le chevron.
+		if (const char *v = std::getenv("NK_DEPLIER")) {
+			char cle[64];
+			uint32 n = 0;
+			for (const char *c = v;; ++c) {
+				if (*c && *c != ',' && n + 1u < sizeof(cle)) {
+					cle[n++] = *c;
+					continue;
+				}
+				cle[n] = 0;
+				if (n)
+					st.grpFold.Poser(cle, false);
+				n = 0;
+				if (!*c)
+					break;
+			}
+		}
+		// NK_SNAP_STEP / NK_SNAP_ROT / NK_SNAP_SCALE : les pas d'aimantation, dans
+		// L'ETAT DU SHELL -- qui en est l'autorite depuis que la boucle ne passe plus
+		// de constantes. Les poser sur le GIZMO (ce que faisait le viseur a son init)
+		// ne servait a rien : la boucle les ecrasait a l'image suivante. C'est ce qui
+		// rendait mon propre critere aveugle -- trois pas differents, un seul
+		// resultat, et rien pour distinguer « le pas est lu » de « le pas vaut
+		// toujours 0,5 ».
+		if (const char *v = std::getenv("NK_SNAP_STEP")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepT = f;
+		}
+		if (const char *v = std::getenv("NK_SNAP_ROT")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepR = f;
+		}
+		if (const char *v = std::getenv("NK_SNAP_SCALE")) {
+			const float32 f = (float32)std::atof(v);
+			if (f > 0.f)
+				st.snapStepS = f;
+		}
 		if (const char *v = std::getenv("NK_AGENT_EXIT"))
 			agentExitFrame = (int32)std::atoi(v);
 	}
@@ -1987,7 +2127,15 @@ int nkmain(const NkEntryState &entry) {
 				else if (opNow == 2)
 					cur = &st.snapScale;
 				if (!sy.first && changed)
-					demo::Demo3DHostSetSnap(*cur, 0.5f, 15.f, 0.1f);
+					// ⚠ LE JUMEAU DU DEFAUT D'EN BAS, ET IL ETAIT ARME. Recensement du 17/09 :
+					//   sur les 39 poseurs de la boucle, DEUX passaient des constantes au lieu
+					//   de l'etat -- celui-ci et celui du reglage permanent. L'autre reposait a
+					//   chaque image ; celui-ci n'agit qu'au CHANGEMENT de bascule, donc il ne
+					//   se voyait pas -- jusqu'au premier Shift+Tab, qui aurait remis le pas de
+					//   l'utilisateur a 0,5 sans rien dire.
+					//   Un reglage qu'on peut changer et qui redevient ce qu'il etait est PIRE
+					//   qu'un reglage absent : l'utilisateur croit avoir mal fait.
+					demo::Demo3DHostSetSnap(*cur, st.snapStepT, st.snapStepR, st.snapStepS);
 				else
 					*cur = demo::Demo3DHostSnapEnabled(); // Shift+TAB dans la vue
 				sy.snapGrid = st.snapGrid;
@@ -2202,7 +2350,15 @@ int nkmain(const NkEntryState &entry) {
 				snapOn = st.snapAngle;
 			else if (st.tool == NkTool::Scale)
 				snapOn = st.snapScale;
-			demo::Demo3DHostSetSnap(snapOn, 0.5f, 15.f, 0.1f);
+			// ⚠ LES PAS VIENNENT DE L'ETAT, PAS DE CONSTANTES. Cette ligne passait
+			//   0,5 / 15 / 0,1 EN DUR, a CHAQUE IMAGE -- pendant que le panneau de
+			//   proprietes, lui, passait `st.snapStepT/R/S`. Deux appelants pour le
+			//   meme reglage, et c'est celui de la boucle qui ecrivait en dernier : le
+			//   pas choisi par l'utilisateur etait ECRASE a l'image suivante.
+			//   Mesure du 17/09 : un pas demande de 0,3 aimantait 1,04211 sur 1,0 (le
+			//   0,5 en dur) au lieu de 0,9. Meme famille que les deux autorites sur la
+			//   selection : celle qu'on ecrit est recopiee depuis l'autre a chaque tour.
+			demo::Demo3DHostSetSnap(snapOn, st.snapStepT, st.snapStepR, st.snapStepS);
 		}
 		// PROJECTION : entierement geree par la SYNC de la demo portee, plus haut.
 		// L'ancien bloc RELISAIT l'etat de la vue DORMANTE (Viewport3DIsOrtho,
@@ -2778,15 +2934,27 @@ int nkmain(const NkEntryState &entry) {
 				auto ecrire = [&](int32 q) {
 					uint32 vv = 0, ve = 0, vf = 0, vt = 0;
 					const bool ok = demo::Demo3DHostStats(&vv, &ve, &vf, &vt);
+					// (b9) LES PARAMETRES D'OPERATION SONT DANS LA MEME LIGNE QUE LES COMPTES,
+					// et c'est le meme motif que `annuler`/`refaire` plus haut : un parametre se
+					// juge par l'effet qu'il a eu sur le maillage AU MEME INSTANT. Les lire dans
+					// deux relevés distincts, c'est se demander ensuite s'ils parlaient du meme
+					// moment.
+					float32 pBevO = -1.f, pBevS = -1.f, pSubd = -1.f, pLoop = -1.f;
+					(void)demo::Demo3DHostOpParamGet(3, &pBevO);
+					(void)demo::Demo3DHostOpParamGet(4, &pBevS);
+					(void)demo::Demo3DHostOpParamGet(5, &pSubd);
+					(void)demo::Demo3DHostOpParamGet(6, &pLoop);
 					std::printf("[nk3d] EDIT RAPPORT frame=%d : v=%u e=%u f=%u t=%u | selection=%d "
-								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)\n",
+								"| selV=%d selE=%d selF=%d | masque=%d | annuler=%d refaire=%d (lu=%d)"
+								" | bevOff=%.3f bevSeg=%.0f subdiv=%.0f loop=%.0f\n",
 								(int)q, vv, ve, vf, vt, (int)demo::Demo3DHostEditSelCount(),
 								(int)demo::Demo3DHostEditSelCountFor(1),
 								(int)demo::Demo3DHostEditSelCountFor(2),
 								(int)demo::Demo3DHostEditSelCountFor(4),
 								(int)demo::Demo3DHostEditSelMask(),
 								demo::Demo3DHostEditCanUndo() ? 1 : 0,
-								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0);
+								demo::Demo3DHostEditCanRedo() ? 1 : 0, ok ? 1 : 0,
+						(double)pBevO, (double)pBevS, (double)pSubd, (double)pLoop);
 					std::fflush(stdout);
 				};
 				for (int32 i = 0; i < nq; ++i)
@@ -2794,6 +2962,25 @@ int nkmain(const NkEntryState &entry) {
 						sRepFait[i] = true;
 						ecrire(agentFrame);
 					}
+			}
+		}
+
+		// NK_PIVOT_REPORT=<image> : le PIVOT d'edition reellement utilise, et le mode
+		// qui l'a produit. Il existe parce que « le reglage existe » et « le reglage
+		// AGIT » sont deux choses differentes, et qu'une seule des deux se lit.
+		{
+			static bool sPvRepFait = false;
+			if (const char *pr = std::getenv("NK_PIVOT_REPORT")) {
+				const int32 fr = (int32)std::atoi(pr);
+				if (!sPvRepFait && fr > 0 && agentFrame >= fr) {
+					sPvRepFait = true;
+					float32 px = 0.f, py = 0.f, pz = 0.f;
+					int32 md = -1;
+					const bool ok = demo::Demo3DHostEditPivot(&px, &py, &pz, &md);
+					std::printf("[nk3d] PIVOT frame=%d : mode=%d -> (%.4f, %.4f, %.4f) (lu=%d)\n",
+							(int)agentFrame, (int)md, (double)px, (double)py, (double)pz, ok ? 1 : 0);
+					std::fflush(stdout);
+				}
 			}
 		}
 
@@ -3162,6 +3349,82 @@ int nkmain(const NkEntryState &entry) {
 				}
 			}
 		}
+		// ── (b9) LA DEMANDE DE L'ASSISTANT, CONSOMMEE ICI ET NULLE PART AILLEURS ─
+		// Le panneau ECRIT `aiPending`, cette boucle l'EXECUTE -- exactement comme
+		// `pendingAction` juste en dessous, et par la MEME porte : `NkVpPoserAction`.
+		// Le panneau n'a donc aucun pouvoir que le verbe n'ait deja, et rien a
+		// verifier de son cote : ce qui borne, refuse et annule est le pont.
+		//
+		// ⚠ LE CROCHET DE MESURE ENTRE AU MEME POINT QUE LE BOUTON. `NK_AI_DEMANDE`
+		//   appelle `NkAiSoumettre`, celle que « Envoyer » appelle. Il ne court-
+		//   circuite rien : une sonde qui entrerait plus loin mesurerait un chemin
+		//   que Rodolf n'emprunte jamais.
+		//   ⚠ CE QU'IL NE MESURE PAS, ET JE LE DIS : la FRAPPE elle-meme. Aucune
+		//     injection clavier n'est permise sur la machine de Rodolf. Ce qui est
+		//     mesure va du texte soumis a l'operation appliquee.
+		{
+			static bool sAiFait = false;
+			if (!sAiFait) {
+				if (const char *ad = std::getenv("NK_AI_DEMANDE")) {
+					// « <texte>,<frame> » : la frame est apres la DERNIERE virgule, pour
+					// qu'un texte puisse en contenir.
+					const char *virg = nullptr;
+					for (const char *c = ad; *c; ++c)
+						if (*c == ',')
+							virg = c;
+					const int32 quand = virg ? (int32)std::atoi(virg + 1) : 1;
+					if (agentFrame >= quand) {
+						char tmp[256];
+						uint32 n = 0;
+						for (const char *c = ad; *c && (!virg || c < virg) && n + 1u < sizeof(tmp); ++c)
+							tmp[n++] = *c;
+						tmp[n] = 0;
+						sAiFait = true;
+						const bool pris = nk3d::NkAiSoumettre(st, tmp);
+						// ⚠ LE MOTIF, ET PAS UN MOT DE CODE. Cette ligne disait
+						//   « refusee (vide) » QUELLE QUE SOIT la raison : le jour ou
+						//   un second refus est apparu -- « aucun projet ouvert » --
+						//   elle a annonce un champ vide sur une demande pleine. Un
+						//   journal qui nomme la mauvaise cause envoie chercher au
+						//   mauvais endroit, exactement comme un ecran qui se tait.
+						//   Le motif imprime est CELUI QUE LE PANNEAU AFFICHE : une
+						//   seule formulation, deux destinations.
+						std::printf("[nk3d] AI DEMANDE frame=%d : « %s » -> %s%s\n", (int)agentFrame,
+							tmp, pris ? "soumise" : "refusee : ", pris ? "" : st.aiMotif);
+						std::fflush(stdout);
+					}
+				}
+			}
+		}
+		// ── L'EFFET DE LA DEMANDE PRECEDENTE, MESURE UNE IMAGE PLUS TARD ────────
+		// ⚠ PAS DANS LA MEME IMAGE. L'operation s'execute quelques lignes plus bas
+		//   (`pendingAction`) : lire les compteurs ici rendrait l'etat d'AVANT en le
+		//   presentant comme celui d'apres -- un chiffre juste sur la mauvaise ligne.
+		if (st.aiEnCours >= 0 && agentFrame > st.aiEnCoursFrame) {
+			uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
+			if (demo::Demo3DHostStats(&v1, &e1, &f1, &t1))
+				nk3d::NkAiEffet(st, (int32)v1, (int32)e1, (int32)f1);
+			// Si l'hote n'a rien a lire, on NE POSE RIEN : le bloc reste « effet en
+			// cours de mesure », ce qui est vrai, au lieu d'afficher un zero invente.
+		}
+		if (st.aiPending[0]) {
+			char dem[256];
+			nk3d::NkAiCopie(dem, sizeof(dem), st.aiPending);
+			st.aiPending[0] = 0; // consommee : une demande ne se rejoue pas toute seule
+			// LES COMPTEURS D'AVANT, LUS AVANT. C'est ce qui rend l'effet MESURE et
+			// non recopie de la demande : « faces 6 -> 384 » doit venir de l'hote,
+			// sinon il afficherait le meme texte quand l'operation echoue.
+			uint32 v0 = 0, e0 = 0, f0 = 0, t0 = 0;
+			(void)demo::Demo3DHostStats(&v0, &e0, &f0, &t0);
+			NkVpPoserAction(st, dem, "assistant");
+			// Le tour est note APRES le passage par la table : c'est elle qui sait si
+			// le verbe existe, et `aiMotifEstRefus` porte deja sa reponse.
+			nk3d::NkAiTour(st, dem, (int32)v0, (int32)e0, (int32)f0, agentFrame);
+			std::printf("[nk3d] AI RESULTAT : « %s » -> %s%s%s\n", dem,
+				st.aiMotifEstRefus ? "REFUS : " : "acceptee",
+				st.aiMotifEstRefus ? st.aiMotif : "", "");
+			std::fflush(stdout);
+		}
 		if (st.pendingAction != NkVpAction::None) {
 			const NkVpAction a = st.pendingAction;
 			// LES MODIFICATEURS SONT LUS AVEC L'ACTION, et remis a zero avec elle : un
@@ -3241,9 +3504,45 @@ int nkmain(const NkEntryState &entry) {
 				// son XOR et ce cas-ci ecraserait par le bit seul -- la combinaison
 				// serait perdue, et le defaut n'apparaitrait QUE modificateur enfonce.
 				// On retire le doublon, on ne le repare pas.
+				// ── (b6) ET POURTANT ILS DOIVENT AGIR -- PAR LA PORTE, PAS PAR LE MIROIR.
+				// Tout ce qui precede reste vrai pour le CLAVIER : le viseur tient 1/2/3,
+				// et lui seul sait faire Maj+1/2/3 = COMBINER. Mais ces actions ont un
+				// SECOND appelant que le clavier : les crochets d'agent (`NK_VP_ACTION`),
+				// les boutons de la pastille, et demain la pastille IA. Mesure du 17/09 :
+				//     NK_VP_ACTION=submodeface -> masque=1   (inchange)
+				//     NK_VP_ACTION=submodeedge -> masque=1   (inchange)
+				// Le verbe etait ACCEPTE et ne faisait RIEN : le quatrieme etat d'une
+				// commande, le seul qui rapporte un succes. `submodevert`, lui, n'existait
+				// pas dans la table et se REFUSAIT avec son motif -- l'absent se comportait
+				// mieux que les presents, parce qu'il le disait.
+				//
+				// On appelle donc `Demo3DHostSetEditSelMask`, qui est LA porte (le viseur
+				// lui-meme passe par elle, NkModelerViewport.h). Ce n'est pas le second
+				// chemin d'hier : celui-la ecrivait dans `st.subMode`, un MIROIR reecrit a
+				// chaque image. Ecrire dans la porte et ecrire dans le miroir ne sont pas
+				// le meme geste.
+				//
+				// ⚠ LA GARDE `!pendingShift` EST LE COEUR DU CORRECTIF, et c'est le danger
+				//   que le commentaire ci-dessus nommait. Sans Maj, le viseur a deja pose le
+				//   bit seul : reposer le MEME bit est idempotent, donc inoffensif. Avec Maj,
+				//   le viseur COMBINE par XOR, et ecraser par le bit seul perdrait la
+				//   combinaison -- un defaut qui n'apparaitrait QUE modificateur enfonce.
+				//   Le negatif se mesure sans injecter de clavier : la table accepte
+				//   « maj+submodeface », qui doit COMBINER et non remplacer.
 				case NkVpAction::SubModeVertex:
 				case NkVpAction::SubModeEdge:
 				case NkVpAction::SubModeFace:
+					// ⚠ `majAct`, ET SURTOUT PAS `st.pendingShift` : dix lignes plus haut, les
+					//   modificateurs sont CONSOMMES avec l'action (remis a zero pour ne pas se
+					//   preter a la suivante). Ecrite avec `st.pendingShift`, la garde etait donc
+					//   TOUJOURS vraie, et j'ecrasais le masque y compris sur Maj+1/2/3 au
+					//   clavier -- exactement la regression que le commentaire ci-dessus
+					//   interdisait. C'est le NEGATIF qui l'a vu (maj+submodeface rendait 4 au
+					//   lieu de laisser 1), pas la relecture.
+					if (!majAct && demo::Demo3DHostInEditMode())
+						demo::Demo3DHostSetEditSelMask(a == NkVpAction::SubModeVertex ? 1
+							: a == NkVpAction::SubModeEdge ? 2
+								: 4);
 					break;
 				case NkVpAction::SelectAll:
 					demo::Demo3DHostSelectAll(true);
@@ -3562,6 +3861,21 @@ int nkmain(const NkEntryState &entry) {
 			else
 				PaintBrowser(p, lay.browser, st, hit, ws, ui.input, &ui, &combo);
 		}
+		// LE ZERO SE DIT. Une trace muette ne distingue pas « le panneau n'est pas
+		// peint » de « la trace n'a pas tourne » : elle affirme donc l'absence.
+		{
+			static int32 sTraceZ = -2;
+			if (sTraceZ == -2) {
+				const char *v = std::getenv("NK_AI_TRACE");
+				sTraceZ = v ? (int32)std::atoi(v) : -1;
+			}
+			if (sTraceZ >= 0 && agentFrame == sTraceZ && !(st.aiOuvert && !st.welcome)) {
+				std::printf("[nk3d] AI PANNEAU absent=1 ouvert=%d accueil=%d motif=%s\n",
+							st.aiOuvert ? 1 : 0, st.welcome ? 1 : 0,
+							st.welcome ? "ecran-d-accueil" : "panneau-ferme");
+				std::fflush(stdout);
+			}
+		}
 		PaintStatus(p, hit, lay.status, st);
 		// LE JOURNAL S'ANCRE SUR LA FENETRE ENTIERE, pas sur une zone de la mise
 		// en page : il recouvre ce qui se trouve dessous, comme un tiroir. Peint
@@ -3597,6 +3911,103 @@ int nkmain(const NkEntryState &entry) {
 		if (modalOpen || menuDeroule || sourisSurJournal) {
 			ui.input = inputReel;
 			hit.Rearm(ui.input);
+		}
+		// ⚠️ LE PANNEAU DE L'ASSISTANT EST UNE SURCOUCHE, PAS UN PANNEAU -- et il
+		//    est peint ICI pour cette seule raison. Mesure du 17/09 : place avec
+		//    les panneaux, il recevait un `enfonce=0` A L'IMAGE MEME ou le crochet
+		//    avait ecrit `enfonce=1`. Vingt lignes plus haut, l'application VIDE
+		//    l'entree des panneaux des qu'une modale, un menu ou le journal tient
+		//    la souris, et ne la rend qu'ici. Son survol etait donc juste
+		//    (`survole=ai.undo1`, `bloque=0`) et son clic ne prenait jamais : le
+		//    genre de defaut qu'on impute a la position du curseur pendant une
+		//    heure.
+		//    ⚠️ COUCHE 40, ET PAS 90 : au-dessus des panneaux (0), mais SOUS les
+		//       menus (50). Un menu deroule depuis la barre de titre doit passer
+		//       PAR-DESSUS lui ; a 90, le panneau aurait avale les clics d'un menu
+		//       ouvert au-dessus de lui.
+		// ── (b9) LE PANNEAU DE L'ASSISTANT, ANCRE A DROITE, DANS L'OVERLAY ──
+		// ⚠ PEINT AVEC `pOverlay`, PAS AVEC `p`, ET C'EST LE FOND DU SUJET. Sa
+		//   premiere version vivait DANS la pastille de proprietes -- un panneau
+		//   dessine a l'interieur d'un panneau hote, ce que la specification
+		//   interdit depuis que deux menus de NKUIDesign ont laissé passer les
+		//   clics une image sur deux. Ici il couvre la pastille, et c'est visible :
+		//   une image le montre par-dessus.
+		// Sa couche de registre est haute (90) : sous son emprise, les panneaux
+		// du dessous deviennent aveugles sans avoir a s'en garder eux-memes.
+		// ⚠️ `!st.welcome` EST UNE CONDITION DE LA REGLE, PAS UNE OPTIMISATION :
+		//    sur l'ecran d'accueil, il ne doit y avoir NI pastille, NI onglet, NI
+		//    panneau -- pas un panneau vide, pas un panneau grise : RIEN.
+		//    ⚠️ ET LA COQUILLE A TROIS ETATS, PAS DEUX. `st.welcome` dit
+		//       « ecran d'accueil » ; `proj.open` dit « un projet est ouvert sur le
+		//       disque ». Entre les deux vit une session de travail SANS projet
+		//       enregistre (c'est celle ou nos bancs mesurent, et celle d'un
+		//       « Nouveau » jamais sauve). La garde porte sur l'ACCUEIL, qui est ce
+		//       que Rodolf a nomme -- et parce que c'est la, et seulement la, qu'il
+		//       n'y a rien a modifier. Fermer aussi la porte a la session sans
+		//       projet retirerait l'assistant a un maillage bien reel.
+		if (st.aiOuvert && !st.welcome) {
+			const float32 aiW = S(400.f);
+			const float32 aiY = (lay.right.h > 1.f) ? lay.right.y : lay.view.y;
+			const float32 aiH = (lay.right.h > 1.f) ? lay.right.h : lay.view.h;
+			NkHitRegistry::LayerScope aiLayer(hit, 40);
+			// `peutAnnuler` vient de l'HOTE et pas du panneau : c'est lui qui tient
+			// la pile, et un bouton qui devinerait son etat mentirait un jour.
+			nk3d::PaintAiOverlay(pOverlay, hit, st, &ui,
+								 {(float32)W - aiW, aiY, aiW, aiH},
+								 demo::Demo3DHostEditCanUndo());
+			// ── NK_AI_TRACE=<image> : CE QUE LE PANNEAU A DESSINE, EN CHIFFRES ──
+			// Il n'ouvre aucun chemin : il LIT l'etat apres la peinture. Les
+			// rectangles qu'il imprime sont ceux que la peinture vient d'ecrire,
+			// donc ceux qu'un doigt toucherait -- une sonde qui recalculerait la
+			// disposition de son cote mesurerait sa propre formule.
+			static int32 sTrace = -2;
+			if (sTrace == -2) {
+				const char *v = std::getenv("NK_AI_TRACE");
+				sTrace = v ? (int32)std::atoi(v) : -1;
+			}
+			// ⚠ LA FENETRE DE TRACE COUVRE LES QUATRE DERNIERES IMAGES, pas
+			//   seulement la derniere : un clic de mesure dure trois images
+			//   (survol, appui, relachement) et se juge LA, pas vingt images plus
+			//   tard. Ma premiere version ne montrait que l'etat final -- elle
+			//   disait « la zone est survolee » sans rien dire de l'instant ou le
+			//   clic aurait du prendre.
+			if (sTrace >= 0 && agentFrame >= sTrace - 3 && agentFrame <= sTrace) {
+				std::printf("[nk3d] AI CLIC image=%d souris=(%.0f,%.0f) enfonce=%d"
+							" survole=%s clic=%d bloque=%d\n",
+							(int)agentFrame, (double)ui.input.mousePos.x,
+							(double)ui.input.mousePos.y, ui.input.mouseDown[0] ? 1 : 0,
+							hit.Hovered(), hit.Clicked(hit.Hovered()) ? 1 : 0,
+							hit.BlockedAtMouse() ? 1 : 0);
+				std::fflush(stdout);
+			}
+			if (sTrace >= 0 && agentFrame == sTrace) {
+				std::printf("[nk3d] AI PANNEAU rect=(%.0f,%.0f,%.0f,%.0f) fenetre=(%d,%d)"
+							" props=(%.0f,%.0f,%.0f,%.0f) onglet=%d fournisseur=%s blocs=%d\n",
+							(double)((float32)W - aiW), (double)aiY, (double)aiW, (double)aiH,
+							(int)W, (int)H, (double)lay.propsR.x, (double)lay.propsR.y,
+							(double)lay.propsR.w, (double)lay.propsR.h, (int)st.aiOnglet,
+							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFilN);
+				for (int32 i = 0; i < st.aiFilN; ++i) {
+					const NkModelerState::AiBloc &bl = st.aiFil[i];
+					std::printf("[nk3d] AI BLOC %d type=%d replie=%d mesure=%d"
+								" ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
+								" v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
+								(int)i, (int)bl.type, (int)bl.replie, (int)bl.mesure,
+								(double)bl.rl[0], (double)bl.rl[1], (double)bl.rl[2],
+								(double)bl.rl[3], (double)bl.ru[0], (double)bl.ru[1],
+								(double)bl.ru[2], (double)bl.ru[3], (int)bl.vA, (int)bl.vB,
+								(int)bl.fA, (int)bl.fB, bl.ligne, bl.out, bl.detail);
+				}
+				// ⚠ LE SURVOL ET LE BLOCAGE, AU MOMENT MEME. Sans eux, un clic qui
+				//   ne prend pas laisse trois explications possibles (mauvaise
+				//   position, zone volee par une couche, clic refuse par une
+				//   surcouche bloquante) et aucune facon de trancher.
+				std::printf("[nk3d] AI SURVOL souris=(%.0f,%.0f) survole=\"%s\" bloque=%d"
+							" etat=\"%s\"\n",
+							(double)ui.input.mousePos.x, (double)ui.input.mousePos.y,
+							hit.Hovered(), hit.BlockedAtMouse() ? 1 : 0, st.aiEtat);
+				std::fflush(stdout);
+			}
 		}
 		{
 			NkHitRegistry::LayerScope menuLayer(hit, 50);

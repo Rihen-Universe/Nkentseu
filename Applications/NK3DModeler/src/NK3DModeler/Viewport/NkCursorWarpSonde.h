@@ -8,7 +8,10 @@
 //
 // NkCursorWarpSonde.h — SONDE DE `NkWindow::SetMousePositionClient` (b5, etape 3).
 //
-//   NK3DModeler.exe --sonde-warp     -> ecrit sonde_warp.txt et SORT. Code 0 = vert.
+//   NK3DModeler.exe --sonde-warp     -> ecrit sonde_warp.txt et SORT.
+//     0 = tout vert · 1 = un critere rouge · 2 = la mutation a survecu
+//     3 = COURSE IMPOSSIBLE : la souris de l'utilisateur BOUGE, aucun critere
+//         n'est juge. A ne surtout pas lire comme un rouge.
 //
 // ══ CE QUE CETTE SONDE NE FERA JAMAIS, ET C'EST LA CONTRAINTE QUI LA DESSINE ══
 //   ELLE NE DEPLACE PAS LE CURSEUR. Deplacer le curseur sur la machine de Rodolf
@@ -98,12 +101,27 @@ namespace nkentseu {
 				h = ::FindWindowA(nullptr, wc.title.CStr());
 
 				// ── (z) LE ZERO : la position du curseur est-elle STABLE ? ─────
-				POINT c0{}, c1{};
+				// ⚠ TROIS RELEVES, ET UN CODE DE SORTIE A PART -- REPARATION DU 17/09.
+				// Ce critere a rendu VERT cinq fois puis ROUGE une fois, sur un code
+				// INCHANGE : Rodolf avait bouge sa souris pendant la course. Un
+				// instrument non deterministe est pire qu'un instrument faux -- il
+				// recompense celui qui s'arrete au premier essai qui l'arrange.
+				// La parade n'est pas de relancer : c'est de DISTINGUER « la souris
+				// bouge, la course est impossible » de « le code a bouge le curseur ».
+				POINT c0{}, c1{}, cz{};
 				const bool lu0 = (::GetCursorPos(&c0) != 0);
 				const bool lu1 = (::GetCursorPos(&c1) != 0);
-				const bool stable = lu0 && lu1 && c0.x == c1.x && c0.y == c1.y;
-				snprintf(d, sizeof(d), "deux releves : (%d, %d) et (%d, %d)", (int)c0.x, (int)c0.y,
-						 (int)c1.x, (int)c1.y);
+				const bool luz = (::GetCursorPos(&cz) != 0);
+				const bool stable = lu0 && lu1 && luz && c0.x == c1.x && c0.y == c1.y &&
+					c1.x == cz.x && c1.y == cz.y;
+				snprintf(d, sizeof(d), "trois releves : (%d, %d) (%d, %d) (%d, %d)", (int)c0.x,
+						(int)c0.y, (int)c1.x, (int)c1.y, (int)cz.x, (int)cz.y);
+				if (!stable) {
+					std::printf("COURSE IMPOSSIBLE  la souris BOUGE pendant l'essai -- %s.\n"
+							"                   Aucun critere n'est juge : ce n'est pas un rouge.\n", d);
+					f.Close();
+					return 3;
+				}
 				dire("(z) ZERO : le curseur est immobile avant l'essai", stable, d);
 
 				if (!h) {
@@ -146,8 +164,19 @@ namespace nkentseu {
 					// Deux instruments : le booleen rendu par la methode, et une
 					// lecture INDEPENDANTE de la position. Un refus qui rendrait
 					// faux tout en ayant bouge le curseur passerait le (3).
-					POINT c2{};
+					// TROIS RELEVES APRES, pour la meme raison qu'au zero : si deux
+					// relevés consecutifs different, la souris est EN MOUVEMENT et ce
+					// critere ne peut rien dire. On sort alors en 3, jamais en rouge.
+					POINT c2{}, c3{};
 					const bool lu2 = (::GetCursorPos(&c2) != 0);
+					const bool lu3 = (::GetCursorPos(&c3) != 0);
+					if (lu2 && lu3 && (c2.x != c3.x || c2.y != c3.y)) {
+						std::printf("COURSE IMPOSSIBLE  la souris BOUGE apres les refus : (%d, %d) puis "
+								"(%d, %d). Aucun critere n'est juge.\n",
+							(int)c2.x, (int)c2.y, (int)c3.x, (int)c3.y);
+						f.Close();
+						return 3;
+					}
 					const bool immobile = lu2 && c2.x == c1.x && c2.y == c1.y;
 					snprintf(d, sizeof(d), "avant (%d, %d) · apres (%d, %d)", (int)c1.x, (int)c1.y,
 							 (int)c2.x, (int)c2.y);
