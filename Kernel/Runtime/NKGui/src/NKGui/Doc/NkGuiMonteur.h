@@ -195,6 +195,11 @@ namespace nkentseu {
 				/// partagent leur `y` : sans cette information, tout releve
 				/// d'empilement vertical les compte comme un chevauchement.
 				bool axeHorizontal = false;
+				/// ⚠️ CE WIDGET SORT-IL DE LA REGION DE SON CONTENEUR ? Un COMPTE ne dit
+				///    pas QUI : le premier releve a rendu 4 debordements sur la sonde du
+				///    `Spacer` et 3 sur le temoin SANS `Spacer`. Sans le nom, on aurait
+				///    attribue les quatre au `Spacer`.
+				bool deborde = false;
 				/// ⚠️ LA VALEUR REELLEMENT MONTEE, et elle existe parce qu'un
 				///    releve de POSITIONS ne suffit pas. Le curseur de
 				///    `01_panneau_reglages` a affiche 0.00 pour un fichier qui
@@ -231,6 +236,18 @@ namespace nkentseu {
 				///    MUET ferait passer un document a moitie honore pour un document
 				///    honore : celui-ci se compte.
 				uint32 apparencesNonPeintes = 0;
+				// ── LE DEBORDEMENT (2026-09-17) ──────────────────────────────
+				/// ⚠️ PERSONNE NE REGARDAIT SI UN WIDGET SORT DE SA REGION. Le montage
+				///    restait VERT pendant que l'image montrait un bouton a cheval sur le
+				///    bord du panneau (mesure du 17/09 : un `Spacer` sans taille vaut 120 px
+				///    en dur dans un flux horizontal, et pousse son voisin dehors). C'est la
+				///    famille du texte coupe : *la mesure qui manquait*, pas le pixel.
+				uint32 debordements = 0;
+				/// ⚠️ UN `Spacer` SANS `size` VEUT DIRE « PRENDS LA PLACE QUI RESTE », et
+				///    ce monteur ne sait pas l'honorer : pousser le voisin jusqu'au bord
+				///    demanderait de connaitre SA largeur avant de le monter, donc deux
+				///    passes. Il ne lui invente plus 120 px pour autant. Compte, et nomme.
+				uint32 espacesFlexibles = 0;
 				uint32 etatsNonAppliques = 0;  ///< `appearance(Hover)` et consorts
 				// ── LE PLACEMENT PAR WIDGET (2026-09-14) ─────────────────────
 				// `pos` est l'interrupteur : un widget qui l'ecrit est POSE.
@@ -1318,7 +1335,7 @@ namespace nkentseu {
 								const NkVec2 coin{r.x + ctx.layout.padding, r.y + ctx.layout.padding * 0.5f};
 								(void)TextAt(ctx, coin, titre.CStr());
 							}
-							Noter(rap, id, t, r, prof, true, horizontal);
+							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 							// ── OUVRIR UNE REGION, OU NON ─────────────────────────
 							// ⚠️ STRICTEMENT ADDITIF, ET C'EST CETTE CONDITION QUI LE GARANTIT. Un
 							//    conteneur qui n'est ni POSE ni ABSOLU se comporte EXACTEMENT comme
@@ -1382,7 +1399,7 @@ namespace nkentseu {
 							} else {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
 							}
-							Noter(rap, id, t, r, prof, true, horizontal);
+							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1404,7 +1421,7 @@ namespace nkentseu {
 								ctx.BeginLayout(r);
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, enfantsAbsolus, hooks);
 								ctx.layout = sauve;
-								Noter(rap, id, t, r, prof, true, horizontal);
+								Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1412,7 +1429,7 @@ namespace nkentseu {
 							BeginGroup(ctx);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 							EndGroup(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1430,7 +1447,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								EndVBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1438,7 +1455,7 @@ namespace nkentseu {
 							BeginVBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 							EndVBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1456,7 +1473,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 								EndHBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal);
+								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -1464,7 +1481,7 @@ namespace nkentseu {
 							BeginHBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 							EndHBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal);
+							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1623,6 +1640,28 @@ namespace nkentseu {
 							// `size = 12` est UN nombre : c'est l'axe du conteneur qui
 							// dit lequel des deux cotes il mesure.
 							const float32 s = NkGNombre(w, "size", 0.f);
+							// 🔴 SANS `size`, EN FLUX HORIZONTAL, NKGUI INVENTAIT 120 PIXELS.
+							//    `NextItemRect` porte, pour le flux horizontal, un `if (w <= 0.f)
+							//    w = 120.f; // pas de "remplir" en HBox`. Le monteur passait 0 pour
+							//    un `Spacer` sans taille ecrite : un bloc INVISIBLE de 120 px
+							//    poussait le widget suivant HORS de son panneau (mesure du 17/09 :
+							//    un panneau de 280 px, un bouton a (268, 66 de large) -- 44 px
+							//    dehors), et le montage restait vert.
+							//
+							// ⚠️ ON NE TOUCHE PAS AU 120 DE `NextItemRect` : cette valeur sert a
+							//    TOUS les appelants de NKGui dans cinq applications, et la changer
+							//    deplacerait des interfaces que personne n'a demande de bouger. Le
+							//    monteur, lui, SAIT que `Spacer` sans taille veut dire « le reste » :
+							//    c'est a lui de le dire.
+							//
+							// ⚠️ ET IL NE FAIT PAS SEMBLANT DE L'HONORER. Pousser le voisin jusqu'au
+							//    bord demanderait de connaitre SA largeur avant de le monter, donc
+							//    deux passes. On rend zero -- le voisin reste DEDANS -- et on COMPTE
+							//    la demande non tenue, plutot que de la taire ou de l'inventer.
+							if (horizontal && !NkGA(w, "size")) {
+								++rap.espacesFlexibles;
+								break;
+							}
 							Spacer(ctx, horizontal ? s : 0.f, horizontal ? 0.f : s);
 							break;
 						}
@@ -1770,7 +1809,7 @@ namespace nkentseu {
 									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1837,7 +1876,7 @@ namespace nkentseu {
 												   {zone.x + 6.f, zone.y + 4.f}, cle.CStr(), trait);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -1915,7 +1954,7 @@ namespace nkentseu {
 								b.h = (zone.y + zone.h) - b.y;
 							}
 							MonterCorpsBorne(ctx, w, etat, rap, prof + 1u, hooks, a, b);
-							Noter(rap, id, t, zone, prof, true, horizontal);
+							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -2071,7 +2110,7 @@ namespace nkentseu {
 					}
 					if (aDessine)
 						++rap.montes;
-					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal);
+					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal, &ctx.layout.region);
 					if (rap.items.Size() > 0) {
 						NkGuiMonteItem &dernier = rap.items[(uint32)rap.items.Size() - 1u];
 						dernier.valeur = valeurMontee;
@@ -2161,9 +2200,14 @@ namespace nkentseu {
 				/// « 4 chevauchements » sur un empilement parfaitement correct.
 				/// `layout.prevItem`, lui, est pose par CHAQUE `NextItemRect` -- tous les
 				/// widgets auto-places y passent, interactifs ou non.
+				/// ⚠️ ELLE PREND LA REGION, ET CE N'EST PAS UN PARAMETRE DE CONFORT :
+				///    c'est le seul endroit du fichier par ou passent TOUS les widgets
+				///    montes, avec le rectangle qu'ils ont REELLEMENT pris. Compter le
+				///    debordement ailleurs aurait voulu dire le compter dans chaque `case`,
+				///    c'est-a-dire en oublier.
 				static void Noter(NkGuiMonteRapport &rap, const NkString &id, NkStringView role,
 								  const NkRect &r, uint32 prof, bool conteneur,
-								  bool axeHorizontal) noexcept {
+								  bool axeHorizontal, const NkRect *region = nullptr) noexcept {
 					NkGuiMonteItem it;
 					it.id = id;
 					it.role = NkString(role);
@@ -2171,6 +2215,13 @@ namespace nkentseu {
 					it.profondeur = prof;
 					it.conteneur = conteneur;
 					it.axeHorizontal = axeHorizontal;
+					// Un demi-pixel de tolerance : les rectangles sont en flottants et un
+					// bord qui touche exactement n'est pas un debordement.
+					if (region && (r.x + r.w > region->x + region->w + 0.5f
+						   || r.y + r.h > region->y + region->h + 0.5f)) {
+						++rap.debordements;
+						it.deborde = true;
+					}
 					rap.items.PushBack(it);
 				}
 
