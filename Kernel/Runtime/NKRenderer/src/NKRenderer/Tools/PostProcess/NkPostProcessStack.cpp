@@ -1801,15 +1801,27 @@ void main() {
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
 
-			// Trace one-shot : de quoi verifier d'un coup d'oeil, sur un nouveau
+			// Trace de demarrage : de quoi verifier d'un coup d'oeil, sur un nouveau
 			// backend, que l'historique est bien branche et quelles conventions Y
 			// s'appliquent. Les handles distincts confirment que les trois entrees
 			// ne pointent pas sur la meme cible.
+			//
+			// ⚠️ LES CINQ PREMIERES IMAGES, ET NON LA PREMIERE SEULE (17/09/2026).
+			// En one-shot, cette trace ne pouvait imprimer QUE `useHistory=0
+			// blend=0` : a la premiere image `mTAAHasPrev` est faux PAR
+			// CONSTRUCTION, l'accumulation n'ayant pas encore d'image -1. Elle
+			// disait donc toujours la meme chose, quel que soit l'etat du moteur,
+			// et ne pouvait PAS repondre a la seule question qui compte — « le
+			// melange demarre-t-il a l'image suivante ? ». Un instrument qui ne
+			// peut rendre qu'une valeur ne distingue rien.
 			static int sDiag = 0;
-			if (sDiag++ == 0)
-				logger.Info("[TAA] useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} depth={6}\n",
+			if (sDiag < 5) {
+				sDiag++;
+				logger.Info("[TAA] image={7} useHistory={0} blend={1} yFlip={2} ndcY={3} | ids ldr={4} hist={5} "
+							"depth={6}\n",
 							histOk ? 1 : 0, pc.blend, pc.yFlipUV, pc.ndcYSign, (uint32)ldrIn.id, (uint32)histIn.id,
-							(uint32)depth.id);
+							(uint32)depth.id, sDiag);
+			}
 		}
 
 	} // namespace renderer
