@@ -6,6 +6,34 @@
 
 ---
 
+## 0bis. LES TROIS CHANTIERS, DANS L'ORDRE VALIDE PAR RODOLF (18/09 au soir)
+
+**① LE DOCUMENT DE SCENE DEPUIS L'IMAGE — ACTIF.**
+Ma moitie est PROUVEE : un document declarant sept parties NOMMEES rend
+**12 tranches consecutives a 3 regions** (torse + deux bras) la ou TripoSR n'en montre qu'une,
+et **3 composantes** contre 1. *C'est le seul des trois chemins qui donne les bras SANS RIEN
+COUPER.* Il manque le modele qui voit, pour l'etape image -> document.
+⚠️ Verifier sa presence par `ollama list`, JAMAIS par le code de sortie : `ollama pull` rend 0
+sans installer, et `ollama run` relance un telechargement au lieu d'echouer.
+
+**② LA FUSION MULTI-VUES — en attente, PAS abandonnee.**
+`right.png` montre le bras **de profil, detache** : l'information existe dans les images de
+Rodolf. TripoSR est mono-vue (`Nv=1` en dur). Les trois vues ne sont pas alignees (tailles et
+cadrages differents, alpha plein) — il faut les refaire avec meme echelle et meme centre.
+
+**③ LE SQUELETTE — en attente, PAS abandonnee.**
+Etat des lieux au R26 : **la repose est deja resolue** (LBS GPU, 4 appelants) ; quatre briques
+manquent (ajuster un gabarit, poids, couper, boucher) ; criteres et **cas defavorables** ecrits.
+
+**④ LE DECOUPAGE GEOMETRIQUE — GELE derriere ①, sur ma recommandation.**
+Rodolf : « le decoupage actuel est mal fait ». Analyse au R28. Mes criteres etaient invariants
+par le defaut. L'outil de qualite (`qualite_decoupe.py`) est livre avec **son zero ROUGE** : il
+mesure un contour rasterise, pas une aire de section (106 contre 52 sur un cylindre uniforme).
+
+⚠️ **CE QUI FAIT QUE ① ET ③ SE REJOIGNENT** : un document qui NOMME les parties peut aussi
+PORTER leur squelette, et il fournit l'a priori anatomique qui manque au decoupage. Un document
+qui dit « bras_gauche, capsule, attachee au torse a telle hauteur » dit OU L'OS DOIT ALLER.
+
 ## 0. LE PREMIER GESTE DE LA PROCHAINE SESSION
 
 ```
