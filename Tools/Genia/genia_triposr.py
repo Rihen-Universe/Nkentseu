@@ -58,8 +58,34 @@ def _controler_detourage(image, autorise):
     import os as _os
     if image.mode in ("RGBA", "LA") and image.getchannel("A").getextrema()[0] < 255:
         return None  # canal alpha reel : aucun detourage, aucun modele requis
+    # ⚠️ LE CHEMIN DURABLE D'ABORD. `~/.rembg/models` est un CACHE : propre a la
+    # machine, efface par un nettoyage de disque, et invisible pour qui reprend
+    # le projet. Le modele a ete telecharge une fois vers les livraisons, et
+    # c'est LUI qu'on cite -- un chemin qu'on peut sauvegarder et retrouver.
+    # `REMBG_HOME` est la variable que rembg lit pour en changer.
+    DURABLE = "D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx"
+    TAILLE_ATTENDUE = 1024331469  # octets, mesures sur le fichier telecharge le 18/09
+    if _os.path.isfile(DURABLE):
+        taille = _os.path.getsize(DURABLE)
+        if taille < TAILLE_ATTENDUE:
+            # ⚠️ EXISTER N'EST PAS ETRE COMPLET. Un telechargement en cours passe
+            # `isfile`. Le laisser passer ferait lire un fichier tronque par
+            # rembg, et l'erreur remonterait sous une forme qui n'aurait plus
+            # rien a voir avec la cause.
+            _refus("le modele de detourage est INCOMPLET : %d octets sur %d attendus\n"
+                   "        %s\n"
+                   "        (un telechargement est peut-etre en cours : attends qu'il finisse)"
+                   % (taille, TAILLE_ATTENDUE, DURABLE))
+        # ⚠️ REMBG_HOME DESIGNE LE PARENT DE « models », PAS « models ».
+        # rembg y ajoute lui-meme « models/ ». Poser un niveau de trop l'envoie
+        # dans models/models/, ou il ne trouve rien -- et il RETELECHARGE. C'est
+        # arrive, 149 Mo, a cause de cette ligne.
+        _os.environ["REMBG_HOME"] = _os.path.dirname(_os.path.dirname(_os.path.dirname(DURABLE)))
+        return [DURABLE]
     trouves = []
-    for base in (_os.path.join(_os.path.expanduser("~"), ".rembg", "models"),
+    for base in (_os.path.dirname(_os.path.dirname(DURABLE)),
+                 _os.environ.get("REMBG_HOME", ""),
+                 _os.path.join(_os.path.expanduser("~"), ".rembg", "models"),
                  _os.path.join(_os.path.expanduser("~"), ".u2net"),
                  _os.environ.get("U2NET_HOME", "")):
         if base and _os.path.isdir(base):
@@ -67,9 +93,11 @@ def _controler_detourage(image, autorise):
                 trouves += [_os.path.join(r, x) for x in f if x.endswith(".onnx")]
     if not trouves and not autorise:
         _refus("cette image n'a PAS de canal alpha, il faut donc la detourer, et le modele"
-               " de detourage est ABSENT de la machine.\n"
-               "        a telecharger : bria-rmbg-2.0.onnx, environ 1,02 Go, depuis\n"
-               "        github.com/danielgatis/rembg/releases, vers ~/.rembg/models/\n"
+               " de detourage est INTROUVABLE.\n"
+               "        ou il devrait etre :\n"
+               "          D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx\n"
+               "        ou bien sous le dossier que designe la variable REMBG_HOME.\n"
+               "        (bria-rmbg-2.0.onnx, environ 1,02 Go, depuis github.com/danielgatis/rembg/releases)\n"
                "        DEUX FACONS DE CONTINUER SANS RIEN TELECHARGER :\n"
                "          - donner une image DEJA detouree (fond transparent, canal alpha) ;\n"
                "          - detourer l'image dans un editeur, puis la repasser ici.\n"
