@@ -183,9 +183,9 @@ en sous-mode Face — et il ne devrait pas exister du tout.
 | 9 | Limited Dissolve | `Dissolution limitee` | ✅ |
 | | *— séparateur —* | | |
 | 10 | Collapse Edges & Faces | `Effondrer les aretes` | ✅ |
-| 11 | **Edge Loops** | **— ABSENT —** | ❌ |
+| 11 | Edge Loops | `Boucles d'aretes` — **présent, grisé, avec son motif** | ✅ *(voir §11)* |
 
-**10 sur 11.** Il manque **`Edge Loops`** — la suppression d'une boucle d'arêtes entière.
+⚠️ **CE QUI ÉTAIT ÉCRIT ICI — « 10 sur 11, il manque Edge Loops » — ÉTAIT FAUX. Voir le §11.**
 
 ⚠️ **Et deux écarts de FORME, pas de contenu** :
 - **nos entrées n'ont pas de séparateurs** : les quatre groupes de Blender sont aplatis en une
@@ -354,3 +354,46 @@ l'image. **La réponse était visible à l'œil depuis le début.**
 | **(B2)** | le nombre d'adresses tracées reste **7**, pas 8 ✅ |
 | **(B3)** | rayon X allumé : **7 sur 7** ✅ |
 | **(B4)** | les adresses ne bougent pas de plus d'1 px ✅ |
+
+---
+
+## 11. ⚠️ SECONDE CORRECTION — « Edge Loops absent » ÉTAIT FAUX, ET POUR LA MÊME RAISON
+
+J'avais écrit **« 10 entrées sur 11, il manque `Edge Loops` »**. **C'est faux.**
+
+`NkModelerDeleteMenu.h` porte **les onze**, et `Edge Loops` s'y appelle **« Boucles d'aretes »**.
+Mieux : les deux dernières sont **présentes, grisées, avec un motif nommé** —
+*« pas encore ecrit : retirer une boucle d'aretes en recousant les faces »*. C'est **meilleur** que
+ce que j'avais rapporté : l'entrée existe et **dit pourquoi** elle n'agit pas.
+
+### D'où venait l'erreur
+
+D'un `grep ... | head -25`. **La liste était tronquée à la vingt-cinquième ligne**, et les deux
+dernières entrées tombaient juste après. **J'ai lu une troncature et j'en ai conclu une absence.**
+
+> **C'est la DEUXIÈME fois en une soirée** : j'avais conclu « Blender ne dessine pas de centre de
+> face » de deux captures (§9), et « `Edge Loops` n'existe pas » d'un `head -25`. **Deux absences
+> déduites d'une vue partielle.**
+>
+> **Une absence ne se lit jamais dans un extrait.** Elle se prouve en **comptant** (`grep -c`, la
+> taille du tableau) ou en **lisant la source entière**. Et quand elle porte sur du travail à faire,
+> elle coûte double : on ajoute ce qui existe déjà, ou on retire ce qui est juste.
+
+### Ce qui restait VRAI, et qui est maintenant LIVRÉ
+
+**Les séparateurs manquaient bel et bien.** Le kit sait les dessiner — `NkCtxMenuDraw` a un
+paramètre **`sepAfter`** — et nous lui passions `nullptr`. Les onze entrées s'affichaient en une
+liste plate.
+
+**Livré** : chaque entrée porte son **numéro de groupe**, et le trait s'en **dérive**.
+
+⚠️ **Le groupe, pas le trait.** Stocker un booléen « trait après » aurait paru plus simple ; mais
+insérer une entrée au milieu d'un groupe aurait alors **déplacé le trait d'une ligne sans que
+personne le remarque**. Le groupe est l'information ; le trait en est la conséquence.
+Et jamais de trait après la dernière : **un trait en bas de menu sépare le menu de rien**.
+
+### Et le libellé tronqué, lui, était bien un défaut
+
+`Collapse Edges & **Faces**` était traduit **« Effondrer les aretes »** — les faces disparaissaient
+du nom. Corrigé en **« Effondrer les aretes et les faces »**. *(L'opération est de toute façon
+« pas encore ecrit », mais un nom qui ment survit à son implémentation.)*

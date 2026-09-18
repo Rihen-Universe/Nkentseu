@@ -2089,15 +2089,20 @@ namespace nkentseu {
 					const char *motifs[kDelMenuCap];
 					bool enabled[kDelMenuCap];
 					NkDelCmd ids[kDelMenuCap];
+					// LES TRAITS DE GROUPE : le kit sait les dessiner (`sepAfter`), et
+					// nous lui passions `nullptr`. Blender range ses onze commandes en
+					// QUATRE groupes ; sans les traits, il faut lire onze libelles a la
+					// suite pour en trouver un.
+					bool sepAfter[kDelMenuCap];
 					const int32 selMask = demo::Demo3DHostEditSelMask();
 					const int32 selCount = demo::Demo3DHostEditSelCount();
-					const int32 n = NkDelMenuBuild(selMask, selCount, labels, enabled, ids, motifs);
+					const int32 n = NkDelMenuBuild(selMask, selCount, labels, enabled, ids, motifs, sepAfter);
 					// LE MOTIF EST AFFICHE A LA PLACE DU RACCOURCI, sur la ligne meme.
 					// Une entree grisee sans raison est un mur sans panneau : on ne sait
 					// pas s'il manque une selection, un sous-mode, ou la fonctionnalite.
 					const int32 choisi = editorkit::NkCtxMenuDraw(*guiCtx, st.deleteMenu, labels, enabled,
 									n, nullptr, nullptr, nullptr, nullptr, 0,
-									nullptr, motifs);
+									nullptr, motifs, sepAfter);
 					static const bool trMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
 					if (trMenu && st.deleteMenuTrace) {
 						st.deleteMenuTrace = false;
