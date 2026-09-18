@@ -1,0 +1,33 @@
+# Ecrit A LA MAIN le 18/09/2026, AVANT que le modele qui voit n'existe.
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# POURQUOI CE DOCUMENT EXISTE, ET POURQUOI MAINTENANT.
+# Mesure du 18/09 : la chaine image -> 3D rend un personnage dont les BRAS SONT
+# FONDUS dans le torse, et l'ecart ne sort ni a 256 ni a 512 alors qu'il dispose
+# de SEPT CELLULES. Aucun decoupage a posteriori ne recupere cette matiere.
+#
+# Ici, les bras sont DECLARES. Ils existent AVANT qu'on essaie de les retrouver,
+# et leur separation est acquise PAR CONSTRUCTION, pas reconquise. C'est la seule
+# des trois voies qui donne les bras SANS RIEN COUPER.
+#
+# ET LES PARTIES SONT NOMMEES, PAS NUMEROTEES. Le decoupage geometrique rend
+# « partie_01, partie_02 » -- il ne sait pas ce qu'il decoupe. Un document, lui,
+# le sait : « bras_gauche » est utilisable pour animer, « partie_07 » ne l'est pas.
+#
+# ⚠️ CE DOCUMENT A ETE FAUX, ET C'EST LE CRITERE QUI L'A DIT, pas un coup d'oeil.
+# Premiere version : jambes decalees de 0,13 en X. Or le torse a un rayon REEL de
+# 0,45 x 0,28 = 0,126 -- les jambes tombaient DEHORS et ne touchaient rien. Le
+# critere des composantes connexes a rougi : « 3 attendues, 5 mesurees ». Ramenees
+# a 0,06, elles sont bien dans le rayon du torse.
+#   > C'est le cycle que le document rend possible : on LIT l'ecart, on CORRIGE
+#     une ligne, on regenere. Sans document, il aurait fallu tout relancer.
+scene personnage
+demande un personnage a tete spherique, bras le long du corps
+
+partie torse        forme capsule  taille 0.28 0.42 0.20
+partie tete         forme sphere   taille 0.26 0.26 0.26 pose_sur  torse
+partie antenne      forme cylindre taille 0.02 0.16 0.02 pose_sur  tete
+partie bras_gauche  forme capsule  taille 0.07 0.34 0.07 aligne_sur torse decale -0.34 -0.02 0
+partie bras_droit   forme capsule  taille 0.07 0.34 0.07 aligne_sur torse decale  0.34 -0.02 0
+partie jambe_gauche forme capsule  taille 0.09 0.36 0.09 pose_sous torse decale -0.06 0 0
+partie jambe_droite forme capsule  taille 0.09 0.36 0.09 pose_sous torse decale  0.06 0 0

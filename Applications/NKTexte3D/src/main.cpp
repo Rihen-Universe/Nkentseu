@@ -853,6 +853,15 @@ static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t ca
 struct Sortie {
 		uint32 sommets = 0, triangles = 0;
 		float cell = 0.f;
+		// ⚠️ L'ORIGINE DE LA GRILLE, ET ELLE MANQUAIT. Le maillage produit part du
+		// coin de la grille, PAS du repere du document : sur le personnage, le
+		// document place le torse en (0,0,0) et le maillage sort entre
+		// (0,343 ; 0,037 ; 0,194) et (1,085 ; 2,25 ; 0,714). Mon critere de
+		// presence comparait donc DEUX REPERES INCOMPATIBLES et rendait « 7
+		// parties absentes sur 7 » -- un faux rouge total, sur un maillage juste.
+		// On remonte la valeur que `Mailler` possede deja, au lieu de la
+		// redériver : une valeur redérivée peut diverger de l'originale.
+		float ox = 0.f, oy = 0.f, oz = 0.f;
 		uint32 nx = 0, ny = 0, nz = 0;
 		float volume = 0.f;	  // signe : > 0 = faces tournees vers l'exterieur
 		bool redresse = false; // vrai si le sens des faces a du etre inverse
@@ -894,6 +903,9 @@ static bool Mailler(const Scene &sc, uint32 res, const char *outPath, Sortie &so
 		mn[k] -= pad;
 		mx[k] += pad;
 	}
+	so.ox = mn[0];
+	so.oy = mn[1];
+	so.oz = mn[2];
 	const uint32 nx = (uint32)((mx[0] - mn[0]) / cell) + 1;
 	const uint32 ny = (uint32)((mx[1] - mn[1]) / cell) + 1;
 	const uint32 nz = (uint32)((mx[2] - mn[2]) / cell) + 1;
@@ -1565,7 +1577,8 @@ static uint32 CompterRenflements(const NkVector<NkVertex3D> &verts, uint32 tranc
 }
 
 // Rend le nombre de lignes ROUGES. 0 = la geometrie est fidele au document.
-static int VerifierContreDocument(const Scene &sc, const char *cheminObj) {
+static int VerifierContreDocument(const Scene &sc, const char *cheminObj, float soCell, float soOx,
+								  float soOy, float soOz) {
 	printf("\n[D] LA GEOMETRIE EST-ELLE FIDELE AU DOCUMENT ? (fidelite MECANIQUE)\n");
 	printf("    ⚠ la fidelite HUMAINE -- « ce document decrit-il bien la demande » -- n'est PAS\n");
 	printf("      mesuree ici, et ne le sera jamais : elle se lit, elle ne se compte pas.\n");
@@ -1765,6 +1778,61 @@ static int VerifierContreDocument(const Scene &sc, const char *cheminObj) {
 		}
 	}
 
+	// ── CHAQUE PARTIE DECLAREE A-T-ELLE DE LA MATIERE ? ─────────────────────
+	// ⚠️ CE CRITERE MANQUAIT, ET C'EST L'IMAGE QUI L'A DIT. Le document declarait
+	// une « antenne » de rayon reel 0,009 alors que le pas de grille valait
+	// 0,0203 : plus fine que la moitie d'une cellule, elle n'a pas ete maillee
+	// DU TOUT -- et aucun critere n'a rougi. Le compte de composantes ne la
+	// voyait pas (elle n'est pas une racine), le compte de parties ne juge que le
+	// document. Une partie DECLAREE pouvait donc disparaitre en silence.
+	//
+	// Le rayon de recherche est DERIVE de la piece : son rayon englobant plus une
+	// cellule de tolerance. Il n'est pas choisi.
+	{
+		uint32 absentes = 0;
+		char nomsAbsents[256];
+		nomsAbsents[0] = 0;
+		for (uint32 i = 0; i < sc.nPieces; ++i) {
+			const Piece &q = sc.pieces[i];
+			if (q.op == OP_DIFF)
+				continue; // une piece soustraite ne DOIT pas laisser de matiere
+			// ⚠️ ON EVALUE LE SDF DE LA PIECE, PAS UNE SPHERE ENGLOBANTE.
+			// Premiere version : « un sommet existe-t-il a moins de r + 2 cellules
+			// du centre ? ». Elle rendait VERT pour l'antenne -- parce que des
+			// sommets de la TETE, voisine, tombaient dans ce rayon genereux. Le
+			// critere ne distinguait pas la piece de ce qui l'entoure, donc il ne
+			// pouvait pas echouer : « un critere qui ne peut pas distinguer ce
+			// qu'il pretend distinguer » ne mesure rien.
+			//
+			// Le test juste : un sommet qui appartient a la piece P est sur la
+			// SURFACE de P, donc son SDF y vaut ~0. Un sommet de la tete, lui, est
+			// loin de la surface de l'antenne. La tolerance est UNE CELLULE, et
+			// elle est derivee : c'est la precision avec laquelle le mailleur peut
+			// placer un sommet.
+			bool trouve = false;
+			for (uint32 k = 0; k < (uint32)V.Size() && !trouve; ++k) {
+				const NkVec3f w{V[k].pos.x + soOx, V[k].pos.y + soOy, V[k].pos.z + soOz};
+				const float d = SdfPiece(q, w.x, w.y, w.z);
+				if (d <= soCell && d >= -soCell)
+					trouve = true;
+			}
+			if (!trouve) {
+				++absentes;
+				if (q.nom[0]) {
+					const size_t l = strlen(nomsAbsents);
+					snprintf(nomsAbsents + l, sizeof(nomsAbsents) - l, "%s%s", l ? ", " : "", q.nom);
+				}
+			}
+		}
+		const bool ok = (absentes == 0);
+		printf("  [%s] chaque partie declaree a de la MATIERE dans le maillage : %u absente(s)%s%s\n",
+			   ok ? "VERT " : "ROUGE", absentes, absentes ? " -> " : "", absentes ? nomsAbsents : "");
+		if (!ok) {
+			++rouge;
+			printf("          -> UNE PARTIE DECLAREE N'EXISTE PAS DANS LA GEOMETRIE (trop fine pour la grille ?).\n");
+		}
+	}
+
 	// Le compte de parties, lui, se verifie toujours -- contre le DOCUMENT, pas
 	// contre la phrase.
 	const bool okN = (sc.nPieces > 0);
@@ -1853,7 +1921,7 @@ int main(int argc, char **argv) {
 			return r;
 		int rougeDoc = 0;
 		if (verifier)
-			rougeDoc = VerifierContreDocument(sc, out);
+			rougeDoc = VerifierContreDocument(sc, out, so.cell, so.ox, so.oy, so.oz);
 		Relecture rl;
 		if (!Relire(out, rl)) {
 			fprintf(stderr, "REFUS : le .obj a ete ecrit mais LoadOBJ ne le relit pas : %s\n", out);
