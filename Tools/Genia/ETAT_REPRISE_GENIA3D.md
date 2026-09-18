@@ -40,6 +40,33 @@ Puis lire, dans cet ordre : `Tools/Genia/FORMAT_SCENE.md`, puis `echanges/genia-
 
 ---
 
+## 1bis. ⚠️ TRANCHÉ LE 18/09 AU SOIR — LA RÉSOLUTION EST EXCLUE
+
+Mesuré sur **l'image de Rodolf** (`D:/Rodolf/Livre/front.png`), pas sur un substitut :
+
+    l'ecart bras/corps mesure 14 a 18 px sur l'image SOURCE (8 lignes sur 8)
+    le personnage fait 570 px de haut -> 1 cellule a 256 = 2,23 px
+    l'ecart dispose donc de 7,2 CELLULES a 256, et 14,4 a 512
+
+    256 : 20 tranches sur 30 a UNE region, maximum 4 a 22 % de la hauteur
+    512 : 20 tranches sur 30 a UNE region, maximum 4 a 22 % -- MEME VALEUR, MEME ENDROIT
+
+**Sept cellules suffisent largement a marching cubes.** L'ecart ne sort ni a 256 ni a 512 :
+**l'echantillonnage est EXCLU**, le modele n'a pas mis l'ecart dans son champ. Monter a 1024
+offrirait 29 cellules la ou 7 ne suffisent deja pas -- **ce n'est pas une question de finesse.**
+
+**Ce qui marche, livre et mesure** : la segmentation (`Tools/Genia/segmenter_parties.py`) rend
+**6 parties** sur ce personnage -- tete+antenne, torse, **les deux jambes separees**, deux
+bottes -- somme de faces exacte, et les cinq criteres du R22.5 tenus.
+**Ce qu'elle ne peut pas** : separer les BRAS, fondus dans le volume. Aucun decoupage a
+posteriori ne recupere ce que la reconstruction a rempli.
+
+**Les trois vues de Rodolf** (`D:/Rodolf/Livre/`) : `right.png` montre le bras **de profil,
+detache**. L'information existe dans ses images ; elle n'atteint pas le modele, qui n'en lit
+qu'une (`Nv=1` code en dur, `tsr/system.py`). ⚠️ Elles ne sont **pas detourees** (alpha plein),
+le fond est une **grille**, et elles n'ont **ni la meme taille ni le meme cadrage** : une
+fusion multi-vues demande qu'elles partagent echelle et centre.
+
 ## 2. LES TROIS PROBLÈMES QUE RODOLF A VUS DANS BLENDER — ET ILS SONT DISTINCTS
 
 Références : `D:/Rihen/Livraisons/Reference_Blender/`.
