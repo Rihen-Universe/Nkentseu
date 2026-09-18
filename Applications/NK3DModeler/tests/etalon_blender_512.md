@@ -302,3 +302,55 @@ remplacerai pas cette mesure par une supposition.
 > **Une absence ne se conclut jamais d'un échantillon.** Pour affirmer « X n'existe pas », il faut
 > soit **épuiser les conditions**, soit **trouver dans le produit la ligne qui ne le dessine
 > jamais**. Une image montre ce qui est ; elle ne montre pas ce qui n'aurait pas pu être.
+
+---
+
+## 10. ⚠️ LE « SEPTIÈME MARQUEUR » N'ÉTAIT PAS UN DÉFAUT — et mon attendu (B1) était FAUX
+
+J'avais écrit : *rayon X éteint, 6 marqueurs entiers sur 7 ; le septième reste à 0 px, cause
+inconnue.* Et j'en avais fait l'attendu **(B1) : 7 entiers sur 7**.
+
+**J'ai regardé ce qu'il y a À CETTE ADRESSE, au lieu de supposer.**
+
+```
+adresse (636,404) : couleur alentour (124, 121, 112)   -- gris CLAIR
+les six autres    : (46,43,39) (65,62,54) (58,52,33) (53,51,70) (71,68,64) (54,112,59)
+```
+
+**Le cube de renderdemo est un olive sombre (~55). La couleur à cette adresse est un gris clair à
+124.** L'agrandissement le confirme sans ambiguïté : **une sphère de la scène se trouve DEVANT le
+coin bas du cube.**
+
+> **Le marqueur est donc caché par UN AUTRE OBJET, et c'est le comportement JUSTE.** Blender le
+> cacherait aussi. Il n'y avait rien à corriger.
+
+### Ce que ça change
+
+**Mon attendu (B1) était mal formé** : il exigeait *« 7 entiers sur 7 »* en supposant que **le seul
+occulteur possible était le cube lui-même**. La scène de renderdemo est peuplée — sphères, sol,
+colonnes — et **une occultation par un tiers est un succès, pas un échec**.
+
+**(B1) se réécrit** :
+
+> **tout marqueur qui n'est occulté par aucune géométrie est dessiné ENTIER.**
+
+Et avec cette formulation, **le correctif est complet** : les 6 marqueurs non occultés sont entiers
+(14 à 42 px de cœur), et le septième est légitimement caché.
+
+⚠️ **CE QUI M'A PRESQUE FAIT CONTINUER À CHERCHER.** J'avais déjà mesuré que **tripler le décalage
+ne changeait rien**, et j'en avais tiré — correctement — que *« ce n'est pas un problème de
+profondeur »*. Mais j'ai laissé la conclusion à *« cause inconnue »* au lieu d'aller regarder
+l'image. **La réponse était visible à l'œil depuis le début.**
+
+> **Quand un compteur dit « absent », la question suivante n'est pas « pourquoi le code ne le
+> dessine-t-il pas » mais « qu'y a-t-il à cet endroit ». Une adresse, c'est fait pour aller voir.**
+
+### L'attendu corrigé, pour la sonde
+
+| | attendu |
+|---|---|
+| **(B1)** | tout marqueur **non occulté** est entier — **6 sur 6 aujourd'hui** ✅ |
+| **(B1bis)** | ⚠️ **un marqueur occulté par un tiers reste caché** — c'est un **succès**. Une sonde qui exigerait 7/7 dans cette scène **rougirait sur du juste** |
+| **(B2)** | le nombre d'adresses tracées reste **7**, pas 8 ✅ |
+| **(B3)** | rayon X allumé : **7 sur 7** ✅ |
+| **(B4)** | les adresses ne bougent pas de plus d'1 px ✅ |
