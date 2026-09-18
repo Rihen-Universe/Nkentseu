@@ -11634,6 +11634,32 @@ namespace nkentseu {
 						if (d < 1e-3f)
 							d = 1e-3f;
 						const float32 h = halfPx * pxToWorld * d;
+						// ── LE DECALAGE VERS LA CAMERA ─────────────────────────────────
+						// ⚠️ MESURE AVANT CORRECTIF, adresse par adresse : rayon X eteint,
+						//    5 marqueurs ENTIERS sur 7 -- un rogne a 7 px sur ~13, un ABSENT
+						//    a 0 px, avale par la surface. Un quad face-camera centre
+						//    EXACTEMENT sur le sommet plonge pour moitie dans le volume, et
+						//    cette moitie perd le test de profondeur. Le biais de
+						//    rasterisation (-1,5) n'y peut rien : il decale la profondeur DU
+						//    FRAGMENT, pas la POSITION du quad.
+						// Deux proprietes font que c'est un correctif et non une triche :
+						//   - le decalage est une FRACTION de la demi-taille MONDE `h`, donc
+						//     il grandit avec la distance exactement comme le quad : pas de
+						//     flottement de loin, pas d'enfoncement de pres ;
+						//   - il suit le RAYON DE VUE, donc la projection ecran ne bouge pas
+						//     et le marqueur reste centre sur son sommet.
+						// ⚠️ ET IL RESTE PETIT. Un decalage large ferait surgir le coin
+						//    OCCULTE : ce ne serait plus un decalage mais une desactivation du
+						//    test de profondeur, et l'utilisateur selectionnerait un sommet
+						//    qu'il ne voit pas. Blender ne le montre pas (capture 053421 :
+						//    7 coins sur 8). Le banc exige les DEUX : 7 entiers sur 7, ET
+						//    toujours 7 adresses tracees, pas 8.
+						{
+							const NkVec3f vers = camPos - w;
+							const float32 l2 = vers.Dot(vers);
+							if (l2 > 1e-12f)
+								w = w + vers * ((nkentseu::renderer::NkEditOverlayStyle::kDecalVersCamera * h) / sqrtf(l2));
+						}
 						const NkVec3f rx = rgt * h, uy = upv * h;
 						const NkVec3f c00 = w - rx - uy, c10 = w + rx - uy, c11 = w + rx + uy, c01 = w - rx + uy;
 						// ⚠ OVERLAY vs DEPTH : les marqueurs suivent le X-RAY, exactement comme
