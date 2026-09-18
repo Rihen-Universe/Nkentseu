@@ -90,6 +90,18 @@ namespace nkentseu {
 				//    profondeur, et l'utilisateur selectionnerait des sommets
 				//    qu'il ne voit pas. C'est le negatif obligatoire de la
 				//    mesure.
+				// ⚠️ 2,2 ET PAS PLUS, ET C'EST MESURE. Rayon X eteint, adresse par
+				//    adresse (18/09) :
+				//        decalage 0,0  ->  5 ENTIERS sur 7
+				//        decalage 2,2  ->  6 ENTIERS sur 7
+				//        decalage 6,0  ->  6 ENTIERS sur 7   (le triple : RIEN de plus)
+				//    Au-dela de 2,2 le decalage n'apporte plus rien, et il ne fait
+				//    qu'augmenter le risque de faire surgir un coin occulte. La valeur
+				//    retenue est donc la PLUS PETITE qui atteint le plafond, pas une
+				//    marge prise a l'aveugle.
+				//    ⚠️ LE SEPTIEME MARQUEUR N'EST PAS UN PROBLEME DE PROFONDEUR : tripler
+				//       le decalage ne le fait pas apparaitre. Sa cause est ailleurs, et
+				//       elle n'est pas encore trouvee.
 				static constexpr float32 kDecalVersCamera = 2.2f;
 
 				// ── COULEURS ───────────────────────────────────────────────────
