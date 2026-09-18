@@ -447,3 +447,35 @@ changement de teinte, au lieu d'être recalibrée à chaque fois.
 
 ⚠️ **Je ne publie donc AUCUN chiffre de l'étalon issu de cette course.** Les chiffres du modeleur,
 eux, tiennent : ils viennent d'un cadrage où les comptes restent à 30-36 px, au-dessus du plancher.
+
+---
+
+## 13. LE `X` DU MODE OBJET : mesuré, et il ne fait RIEN
+
+**Point 4 du lot. Vérifié dans la source, pas supposé.**
+
+| | Blender (054016) | nous |
+|---|---|---|
+| `X` en mode Objet | une **confirmation** : *« Delete selected objects? »*, **Delete** (bleu, mis en avant) et **Cancel** | **rien ne se passe** |
+
+**Ce que la lecture montre, avec les adresses** :
+
+- `NkDemo3D.cpp:6889` — la touche `X` est traitée **à l'intérieur de `if (st->editMode)`**
+  (ligne 6629). En mode Objet, **elle n'est jamais lue** ;
+- `NkModelerViewport.h:2081` — le menu ne s'affiche que sous `editMode` ;
+- `main.cpp:289` — **`objet.supprimer` EST pourtant lié à `X`** dans la table des raccourcis, et
+  `NkModelerBrowser.h:1183` l'offre dans un menu contextuel ;
+- **aucun site ne le dispatche depuis la touche.**
+
+> **« Supprimer » est DÉCLARÉ dans la table des raccourcis du mode Objet et n'est LIVRÉ nulle
+> part.** C'est la famille que ce dépôt nomme *déclarer n'est pas livrer* — et ici elle est
+> visible par l'utilisateur : il lit le raccourci dans la table, il appuie, **rien**.
+
+⚠️ **Ce qu'il ne faut PAS faire**, et c'est pour ça que je m'arrête là : **brancher `X` sur une
+suppression directe**. Blender **demande confirmation** en mode Objet, et pour une raison qui se
+comprend — en mode Édition on supprime une poignée de sommets qu'on peut annuler sans y penser ; en
+mode Objet on supprime **un objet entier**. **Les deux comportements diffèrent volontairement.**
+
+**Le lot, s'il est décidé** : une **confirmation** en mode Objet, pas une liste, avec le bouton de
+suppression **mis en avant** et une annulation. **C'est un constat à rapporter à Rodolf**, pas une
+décision que je prends seul.
