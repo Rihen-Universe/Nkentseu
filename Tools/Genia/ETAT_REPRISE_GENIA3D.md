@@ -67,6 +67,33 @@ qu'une (`Nv=1` code en dur, `tsr/system.py`). ⚠️ Elles ne sont **pas detoure
 le fond est une **grille**, et elles n'ont **ni la meme taille ni le meme cadrage** : une
 fusion multi-vues demande qu'elles partagent echelle et centre.
 
+## 1ter. SQUELETTE ET PEAU — ETAT DES LIEUX DU 18/09 AU SOIR (R26 du canal)
+
+**CE QUI EXISTE ET TOURNE, avec appelants de production** (la colonne qui compte) :
+lire un squelette (glTF/FBX, JOINTS_0/WEIGHTS_0), la structure `NkSkeletonDef` (238 l.,
+**6 appelants**), evaluer une pose `EvaluateGLTFPose` (**4 appelants**), deformer la peau en
+**LBS sur GPU** (`Resources/.../Shaders/Skin/`, via `SubmitSkinned`, **4 appelants**), l'IK
+(`NkIKSolver.cpp`, 240 l., 2 appelants), et `NkVertexSkinned`.
+
+> **« Poser un maillage en T ou incline » EST DEJA RESOLU.** Aucune brique neuve : il faut
+> seulement que le maillage AIT un squelette et des poids.
+
+⚠️ **Orphelin trouve** : `NkAnimationSystem::ApplySkinnedMesh` n'a AUCUN appelant.
+
+**CE QUI MANQUE — zero occurrence dans tout le depot** : `AutoRig`, `FitSkeleton`,
+`ComputeSkinWeights`, `BoneHeat`, `FillHole`. Soit quatre briques :
+  1. ajuster un squelette GABARIT humanoide (tractable : on n'extrait pas, on ajuste) ;
+  2. calculer les poids (le plus proche os suffit pour couper) ;
+  3. couper suivant la frontiere des poids ;
+  4. BOUCHER les deux ouvertures -- `MakeFaceFromSelected` existe, son aptitude a fermer une
+     grande boucle non plane N'EST PAS MESUREE.
+
+⚠️ **L'ORDRE EST CONTRAINT** : ajuster, calculer, couper, boucher, reposer. Reposer avant de
+couper produit une PALMURE ; couper sans boucher ouvre le maillage. **Les deux fautes sont
+silencieuses** -- le compte de faces ne les voit pas.
+
+**Les criteres et leurs CAS DEFAVORABLES sont ecrits au R26.4 du canal**, avant tout code.
+
 ## 2. LES TROIS PROBLÈMES QUE RODOLF A VUS DANS BLENDER — ET ILS SONT DISTINCTS
 
 Références : `D:/Rihen/Livraisons/Reference_Blender/`.
