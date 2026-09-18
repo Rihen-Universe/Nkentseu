@@ -48,19 +48,42 @@ namespace nkentseu {
 				// Blender distingue non selectionne / selectionne / ACTIF, et il
 				// les distingue par la taille AUTANT que par la couleur : sur un
 				// fond charge, la couleur seule ne suffit pas.
-				static constexpr float32 kSommetDemi = 1.5f;		///< non selectionne
-				static constexpr float32 kSommetDemiSel = 1.8f;		///< selectionne
-				static constexpr float32 kSommetDemiActif = 2.0f;	///< actif (le dernier clique)
+				// ⚠️ 2,0 EST MESURE DANS BLENDER, PAS CHOISI. Les amas de sommets de la
+				//    capture 053421 (non selectionnes) et de 054024 (selectionnes) font
+				//    tous deux environ 4 x 4 px, soit un demi-cote de 2,0.
+				//    ⚠️ ET LES DEUX ETATS ONT LA MEME TAILLE : mon commentaire precedent
+				//       affirmait que Blender distingue les trois etats par la taille
+				//       AUTANT que par la couleur. Rien dans les captures ne le soutient.
+				//       Il les distingue par la COULEUR. Je retire l'affirmation.
+				static constexpr float32 kSommetDemi = 2.0f;		///< non selectionne (mesure)
+				static constexpr float32 kSommetDemiSel = 2.0f;		///< selectionne (mesure)
+				/// ⚠️ NON MESURE dans Blender : aucune capture ne montre un sommet ACTIF
+				///    isole dont on puisse prendre la taille. On le garde un cran plus
+				///    gros pour qu'il se distingue meme quand tout est selectionne, et
+				///    c'est un CHOIX assume, pas un releve.
+				static constexpr float32 kSommetDemiActif = 2.4f;	///< actif (NON MESURE)
 
 				// ── CENTRES DE FACE : memes etats, un cran plus discret au repos
 				static constexpr float32 kFaceDemi = 1.4f;
 				static constexpr float32 kFaceDemiSel = 1.8f;
 				static constexpr float32 kFaceDemiActif = 2.0f;
 
-				/// Le lisere sombre, dessine DESSOUS et donc plus grand du meme
-				/// montant quel que soit l'etat. Il existe pour que le marqueur
-				/// reste lisible sur une surface claire comme sur une sombre.
-				static constexpr float32 kLisereSupp = 0.7f;
+				/// ⚠️ ZERO : BLENDER N'EN DESSINE PAS. Mesure du 18/09 sur 053421 et
+				///    054024 -- le sommet est un carre PLEIN, noir ou orange, et rien
+				///    autour. Notre lisere sombre (alpha 0,9, 0,7 px de plus de chaque
+				///    cote) etait une invention maison. Elle avait sa raison -- rester
+				///    lisible sur fond clair ET sombre -- mais le critere est Blender.
+				///    ⚠️ CE QUE CA PEUT COUTER, ET JE L'ECRIS PLUTOT QUE DE L'IGNORER :
+				///       un sommet NOIR sur une surface sombre devient difficile a voir.
+				///       Blender s'en tire parce que son fond de viseur est un gris
+				///       moyen (63,63,63) et son cube un gris clair. Si notre viseur
+				///       est plus sombre, le probleme reapparaitra -- et c'est a
+				///       Rodolf de trancher SUR L'IMAGE, pas a moi de le prevenir en
+				///       gardant un ornement qu'il n'a pas demande.
+				/// Zero = aucun lisere n'est trace (le trace est saute, pas dessine
+				/// a taille nulle : un quad de taille nulle coute quand meme deux
+				/// triangles).
+				static constexpr float32 kLisereSupp = 0.0f;
 
 				// ── LE BIAIS DE PROFONDEUR ─────────────────────────────────────
 				// ⚠️ IL REPOND A UN DEFAUT MESURE, PAS A UN GOUT. Un marqueur est
@@ -107,13 +130,45 @@ namespace nkentseu {
 				// ── COULEURS ───────────────────────────────────────────────────
 				// Palette Blender Edit Mode : cage quasi NOIRE, selection ORANGE
 				// VIF, actif BLANC.
-				static NkVec4f Sommet() { return NkVec4f{0.02f, 0.02f, 0.03f, 1.f}; }
-				static NkVec4f SommetSel() { return NkVec4f{1.f, 0.55f, 0.05f, 1.f}; }
+				/// NOIR PUR, mesure : (0,0,0) dans 053421. Nous avions (5,5,8).
+				static NkVec4f Sommet() { return NkVec4f{0.f, 0.f, 0.f, 1.f}; }
+
+				/// ⚠️ CE NOMBRE EST UNE CALIBRATION MESUREE, PAS LA COULEUR DE BLENDER.
+				///    La cible relevee dans Blender est (255, 121, 0) A L'ECRAN. On ne
+				///    peut PAS la poser telle quelle : ce qu'on ecrit ici traverse
+				///    l'encodage et le post-traitement, et ne sort pas tel quel.
+				///    Deux mesures, sur renderdemo a camera figee (18/09) :
+				///        vert pose 0,4745  ->  202 a l'ecran
+				///        vert pose 0,1550  ->  119-129 a l'ecran, dont (227,121,1) pile
+				///    Aucune formule ne les relie proprement -- ni gamma 2,2, ni sRGB pur :
+				///    le marqueur passe par le meme post-traitement que la scene. La
+				///    valeur a donc ete trouvee PAR ITERATION MESUREE, en deux passes.
+				///
+				/// ⚠️ ET LE ROUGE PLAFONNE. Pose a 1,0, il sort a ~231, jamais 255 : la
+				///    cible (255, ...) est HORS D'ATTEINTE avec ce post-traitement. Ce
+				///    n'est pas une approximation acceptee a la legere, c'est une limite
+				///    MESUREE de notre chaine, et elle se dit plutot que de laisser
+				///    croire a une correspondance exacte.
+				///    Resultat obtenu : (227, 121, 1) contre (255, 121, 0) vise.
+				///
+				/// ⚠️ LA MEME REGLE VAUT POUR LE REMPLISSAGE DE FACE, et pour la meme
+				///    raison : on ne recopie pas un nombre lu dans une capture d'un
+				///    autre moteur. On pose, on rend, on mesure, on corrige.
+				static NkVec4f SommetSel() { return NkVec4f{1.f, 0.155f, 0.f, 1.f}; }
 				static NkVec4f Actif() { return NkVec4f{1.f, 1.f, 1.f, 1.f}; }
 				static NkVec4f Lisere() { return NkVec4f{0.f, 0.f, 0.f, 0.9f}; }
 
-				static NkVec4f Arete() { return NkVec4f{0.015f, 0.015f, 0.02f, 1.f}; }
-				static NkVec4f AreteSel() { return NkVec4f{1.f, 0.70f, 0.13f, 1.f}; }
+				static NkVec4f Arete() { return NkVec4f{0.f, 0.f, 0.f, 1.f}; }
+
+				/// ⚠️ EXACTEMENT LA MEME QUE `SommetSel()`, ET C'EST LE POINT.
+				///    Blender emploie UNE SEULE couleur de selection pour le sommet et
+				///    pour l'arete. Nous en avions DEUX -- (255,140,13) et (255,178,33) --
+				///    sans qu'aucune ligne n'explique pourquoi. Deux teintes proches et
+				///    non identiques se lisent comme un defaut de rendu, pas comme une
+				///    intention.
+				///    Elle DELEGUE au lieu de recopier : deux literals egaux aujourd'hui
+				///    divergeraient au premier reglage.
+				static NkVec4f AreteSel() { return SommetSel(); }
 
 				/// Le remplissage d'une face selectionnee : TRANSLUCIDE, pour que
 				/// la surface reste lisible dessous. C'est son alpha qui le
