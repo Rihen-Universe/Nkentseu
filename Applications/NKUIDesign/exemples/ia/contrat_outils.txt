@@ -35,6 +35,34 @@ noeud <numero, en partant de 0 pour la racine>
   reglage param <nom> = <valeur>   (facultatif)
   reglage variante <nom>           (facultatif)
 
+REGLE ABSOLUE : tout noeud autre que 0 doit apparaitre dans le champ
+`enfants` d'exactement UN autre noeud. Un noeud que personne ne cite
+n'existe pas : le document est alors refuse pour structure incoherente.
+Le noeud 0 est la racine ; c'est lui qui cite les premiers.
+
+Exemple complet et minimal :
+nkuidoc 1
+titre = Exemple
+noeud 0
+  libelle = Racine
+  composant = 
+  enfants = 1 2
+  largeur = expand 1 0 0
+  hauteur = expand 1 0 0
+  agencement = colonne
+noeud 1
+  libelle = Titre
+  composant = etiquette
+  enfants =
+  largeur = expand 1 0 0
+  hauteur = content 24 0 0
+noeud 2
+  libelle = Valider
+  composant = bouton
+  enfants =
+  largeur = content 0 0 0
+  hauteur = content 32 0 0
+
 N'emploie que des composants du catalogue ci-dessous.
 
 ## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants
