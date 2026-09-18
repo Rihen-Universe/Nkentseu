@@ -77,7 +77,7 @@ def amas(masque):
     return n
 
 
-def profil_regions(maillage, tranches, grille=96):
+def profil_regions(maillage, tranches, grille=96, graine=12345):
     """Pour chaque tranche en Y, le nombre de regions distinctes de la coupe.
     Rend (hauteurs, comptes, aires en fraction de la grille)."""
     import numpy as np
@@ -94,7 +94,10 @@ def profil_regions(maillage, tranches, grille=96):
     #      ecart, entierement artificiel, se serait lu « l'ecart s'est ouvert ».
     #      L'instrument aurait confirme l'hypothese par sa propre construction.
     # Un echantillonnage uniforme de la SURFACE a densite FIXE supprime les deux.
-    V = np.asarray(trimesh.sample.sample_surface(maillage, 200000)[0], dtype=np.float64)
+    # La GRAINE rend la mesure rejouable. Sans elle, deux mesures du meme
+    # fichier different -- constate, et cela a failli me faire lire du bruit
+    # comme un resultat.
+    V = np.asarray(trimesh.sample.sample_surface(maillage, 200000, seed=graine)[0], dtype=np.float64)
     mn, mx = V.min(axis=0), V.max(axis=0)
     ext = mx - mn
     if ext[1] <= 0:
@@ -122,6 +125,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("maillage")
     ap.add_argument("--tranches", type=int, default=40)
+    ap.add_argument("--tirages", type=int, default=5,
+                    help="nombre de tirages avec des graines DIFFERENTES : l'instrument publie "
+                         "ainsi sa propre variabilite, sans laquelle aucune comparaison n'a de sens")
     ap.add_argument("--zero", action="store_true",
                     help="prouve d'abord que l'instrument rend 1 sur une sphere")
     a = ap.parse_args()
@@ -159,7 +165,15 @@ def main():
     if not hasattr(m, "vertices") or len(m.vertices) == 0:
         _refus("aucun sommet lu dans %s" % a.maillage)
 
-    h, c, ar = profil_regions(m, a.tranches)
+    # ── PLUSIEURS TIRAGES : L'INSTRUMENT PUBLIE SA PROPRE DISPERSION ────────
+    profils = []
+    for k in range(max(1, a.tirages)):
+        h, c, ar = profil_regions(m, a.tranches, graine=12345 + 1000 * k)
+        profils.append(c)
+    import numpy as _np
+    P = _np.array(profils)
+    c = list(P.min(axis=0))          # le profil PRUDENT : ce que TOUS les tirages voient
+    cmax = list(P.max(axis=0))
     bon = [x for x in c if x >= 0]
     mn, mx = m.bounds
     hauteur = float(mx[1] - mn[1])
@@ -167,8 +181,17 @@ def main():
     print("MAILLAGE : %s" % os.path.basename(a.maillage))
     print("  %d sommets · %d faces · hauteur %.4f · %d composante(s) connexe(s)"
           % (len(m.vertices), len(m.faces), hauteur, len(m.split(only_watertight=False))))
-    print("  profil des regions par coupe (du BAS vers le HAUT, %d tranches) :" % a.tranches)
-    print("    " + " ".join("%d" % x if x >= 0 else "?" for x in c))
+    print("  %d tirage(s) de 200 000 points, graines 12345+1000k" % max(1, a.tirages))
+    print("  profil MINIMAL (ce que TOUS les tirages voient), du BAS vers le HAUT :")
+    print("    " + " ".join("%d" % x for x in c))
+    print("  profil MAXIMAL (ce qu'AU MOINS un tirage voit) :")
+    print("    " + " ".join("%d" % x for x in cmax))
+    ecarts = [int(cmax[i] - c[i]) for i in range(len(c))]
+    print("  DISPERSION de l'instrument : ecart max entre tirages = %d region(s) sur une tranche,"
+          % (max(ecarts) if ecarts else 0))
+    print("    et %d tranche(s) sur %d varient. ⚠ UN ECART ENTRE DEUX MAILLAGES NE SE LIT QUE"
+          % (sum(1 for e in ecarts if e > 0), len(ecarts)))
+    print("    S'IL DEPASSE CETTE DISPERSION. Sinon c'est du bruit d'echantillonnage.")
     if bon:
         imax = c.index(max(bon))
         print("  MAXIMUM : %d region(s) a la hauteur %.4f (soit %.0f %% de la hauteur totale)"
