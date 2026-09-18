@@ -132,7 +132,7 @@ sélectionnerait des sommets qu'il ne voit pas.
 
 ## 4. CE QUI RESTE À VÉRIFIER DANS CES CAPTURES
 
-- **le centre de face** : CONFIRMÉ au §5 sur deux captures — Blender n'en dessine aucun.
+- **le centre de face** : ⚠️ **ma conclusion était FAUSSE, voir le §9.**
 - **la taille exacte en px** dépend du facteur d'échelle de l'interface de Rodolf ; les 4 px mesurés
   valent **pour cette capture**, et c'est un ordre de grandeur, pas une constante à graver.
 
@@ -143,15 +143,15 @@ sélectionnerait des sommets qu'il ne voit pas.
 | capture | mode | sous-mode | sélection | ce qu'on voit |
 |---|---|---|---|---|
 | **053447** | Édition | **Arête** | une arête | l'arête du dessus est **blanche/jaune vif** sur toute sa longueur. **AUCUN point de sommet** n'est dessiné |
-| **053454** | Édition | **Face** | **une face** | la face avant est **teintée orange translucide**, son **contour est BLANC** (face active). **AUCUN point au barycentre** |
+| **053454** | Édition | **Face** | **une face** | la face avant est **teintée orange translucide**, son **contour est BLANC** (face active). *(Aucun point au barycentre **dans cette condition** — voir le §9, ce n'est PAS une absence générale)* |
 | **054016** | Objet | — | l'objet | **X n'ouvre PAS une liste** : une petite boîte **« Delete selected objects? »**, deux boutons côte à côte, **Delete** (bleu, mis en avant) et **Cancel** |
 
 ### ⚠️ DEUX ÉCARTS FERMES, ET ILS SONT STRUCTURELS
 
-**(a) Blender ne dessine AUCUN point au centre des faces.** Ni en 053416 (toutes sélectionnées),
-ni en 053454 (une seule). Une face se signale par **sa teinte** et, si elle est active, par **son
-contour blanc** — jamais par un point. **Nous dessinons un carré au barycentre de chaque face**
-(`kFaceDemi`, `kFaceDemiSel`, `kFaceDemiActif`). C'est une invention maison.
+**(a)** ⚠️ **CE QUI ETAIT ECRIT ICI ETAIT FAUX. Voir le §9.** J'y affirmais que Blender ne dessine
+aucun point au centre des faces, et j'en tirais qu'il fallait retirer le nôtre. **Rodolf :
+« Blender le fait aussi. »** Mon absence était **déduite de deux captures**, donc d'**une seule
+condition d'affichage**.
 
 **(b) Blender ne dessine les marqueurs de sommet QUE dans le sous-mode Sommet.** En sous-mode
 Arête (053447) comme en sous-mode Face (053416, 053454), **aucun point**. Notre masque
@@ -261,3 +261,44 @@ rayon X ÉTEINT   5 ENTIERS sur 7      (0, 7, 30, 42, 14, 22, 41 px)
 
 ⚠️ **(B1) et (B2) s'opposent, et c'est tout le sujet.** Obtenir l'un en perdant l'autre n'est pas un
 correctif. **Les deux se mesurent dans la même course**, ce qui interdit de n'en regarder qu'un.
+
+---
+
+## 9. ⚠️ CORRECTION — « Blender ne dessine aucun point au centre des faces » ÉTAIT FAUX
+
+**Rodolf : « Blender le fait aussi. »**
+
+### Ce que j'avais fait, et pourquoi c'est une faute nommée
+
+J'ai observé **deux captures** en sous-mode Face — l'une tout sélectionné (053416), l'autre une
+seule face (053454) — je n'y ai vu **aucun point au barycentre**, et j'ai conclu **« Blender n'en
+dessine aucun »**. J'ai même listé **« retrait du point de centre de face »** dans le travail
+restant.
+
+> **Deux captures ne montrent qu'UNE condition d'affichage.** Chez Blender, ces points dépendent du
+> **sous-mode**, du **rayon X**, et de l'option de surimpression **« centres de face »** — qui peut
+> être décochée. Une absence observée dans une condition n'est pas une absence.
+
+**C'est exactement la faute que ce dépôt a déjà nommée** : *déduire une absence de l'absence d'un
+appel*. Je l'ai refaite sur une image au lieu d'un appel.
+
+⚠️ **ET ELLE ALLAIT COÛTER UNE FONCTION JUSTE.** Le lot que j'avais écrit était « retirer le
+point ». **NE RIEN RETIRER.** Notre centre de face est **correct** ; ce qui manque, c'est de savoir
+**dans quelles conditions** il doit paraître.
+
+### Ce qu'il faut faire à la place
+
+1. **relever les CONDITIONS** dans lesquelles Blender affiche les centres de face — sous-mode,
+   rayon X, option de surimpression ;
+2. **prélever leur taille et leur couleur** dans une capture où ils sont visibles ;
+3. **reproduire les conditions**, pas seulement l'apparence.
+
+**Capture manquante, et je la demande** : *sous-mode Face, avec et sans rayon X*, sur le cube par
+défaut. Sans elle, je ne peux ni mesurer la couleur, ni la taille, ni la condition — et je ne
+remplacerai pas cette mesure par une supposition.
+
+### La leçon, pour la prochaine fois
+
+> **Une absence ne se conclut jamais d'un échantillon.** Pour affirmer « X n'existe pas », il faut
+> soit **épuiser les conditions**, soit **trouver dans le produit la ligne qui ne le dessine
+> jamais**. Une image montre ce qui est ; elle ne montre pas ce qui n'aurait pas pu être.
