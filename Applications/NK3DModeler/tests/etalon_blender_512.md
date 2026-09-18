@@ -479,3 +479,62 @@ mode Objet on supprime **un objet entier**. **Les deux comportements diffèrent 
 **Le lot, s'il est décidé** : une **confirmation** en mode Objet, pas une liste, avec le bouton de
 suppression **mis en avant** et une annulation. **C'est un constat à rapporter à Rodolf**, pas une
 décision que je prends seul.
+
+---
+
+## 14. LE CORRECTIF SUR LES QUATRE DORSAUX DE WINDOWS
+
+Question de Rodolf : *« et sur Vulkan, DX12 et Metal ? »* — le chiffre publié valait pour **deux**
+dorsaux sur cinq. `sonde_marqueurs_dorsaux.ps1`, même scène, même critère, caméra figée.
+
+```
+dorsal     retenu          allume   eteint   survie
+opengl     OpenGL              36       30    83,3 %
+vulkan     Vulkan              36       30    83,3 %
+dx11       DirectX 11          34       27    79,4 %
+dx12       DirectX 12          34       27    79,4 %
+```
+
+⚠️ **Le dorsal retenu est LU DANS LE JOURNAL, pas supposé.** Demander `vulkan` et obtenir DX11 par
+un repli silencieux rendrait deux colonnes identiques et « prouverait » un accord qui n'existe pas.
+Les quatre lignes confirment que c'est bien le dorsal demandé qui a tourné.
+
+### L'écart de 3,9 points N'EST PAS une différence de rendu
+
+Il était tentant de conclure « les API DirectX rognent un peu plus ». **C'est faux, et deux mesures
+le montrent.**
+
+**(a) La couleur du marqueur est IDENTIQUE sur les quatre** : **(231, 129, 0)**. L'hypothèse de
+l'encodage — celle qui a déjà servi ici — est donc **écartée**.
+
+**(b) Sur les GRANDS comptes, les quatre s'accordent à 0,2 point près.** En retirant la condition
+de voisinage, le critère compte ~1 000 pixels au lieu de 30 :
+
+```
+             couleur seule        rapport
+opengl       243 / 978            24,8 %
+vulkan       251 / 1019           24,6 %
+dx11         245 / 987            24,8 %
+dx12         245 / 987            24,8 %
+```
+
+> **Le critère « avec voisinage » compte 27 à 36 éléments. Sur un compteur à 30, UN pixel vaut 3,3
+> points.** Annoncer une différence de 3,9 points entre dorsaux sur ce compteur, c'est **prétendre
+> voir un pixel** — et les 3,9 points disparaissent dès qu'on mesure sur mille.
+
+**Issue retenue : (i), les quatre s'accordent.** C'est ce qu'on attend d'un décalage **calculé
+avant l'envoi au dorsal** — une position monde, pas un état de pipeline. ⚠️ **Et l'accord ne prouve
+pas le correctif** : il prouve que rien ne le contredit selon l'API. Ce qui le prouve, c'est le
+passage de **33 % à ~80 %**.
+
+### ⚠️ METAL : NON MESURABLE ICI, et déclaré comme tel
+
+Metal n'existe que sur les plateformes Apple. Le kit le **refuse** sur Windows **avec son motif**
+plutôt que de lancer autre chose en silence (`NkEditorGfxApiSupported` :
+*« lancer une autre API a sa place serait un repli silencieux »*).
+
+**Condition de réouverture** : une course sur **macOS**, par les **Actions GitHub** — le chemin que
+le dépôt a déjà retenu pour cette plateforme.
+
+**Le chiffre couvre donc QUATRE dorsaux sur cinq, et la sonde l'écrit à l'écran** pour qu'aucun
+lecteur ne croie qu'il en couvre cinq.
