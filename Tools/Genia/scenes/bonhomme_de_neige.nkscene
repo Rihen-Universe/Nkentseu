@@ -1,0 +1,14 @@
+# Ecrit A LA MAIN le 18/09/2026, AVANT toute generation par un modele.
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# C'EST LE CAS QUE RODOLF A REFUSE : le 17/09, la chaine a rendu « un tore sur un
+# petit cylindre » avec T1, T2 et T3 verts. Ce document est la reference contre
+# laquelle la geometrie se verifie desormais -- trois renflements empiles, de
+# rayons decroissants. Un tore sur un cylindre en donne deux : le critere rougit.
+scene bonhomme_de_neige
+demande un bonhomme de neige
+
+partie base   forme sphere taille 1.00 1.00 1.00
+partie tronc  forme sphere taille 0.70 0.70 0.70 pose_sur base
+partie tete   forme sphere taille 0.45 0.45 0.45 pose_sur tronc
+lissage 0.06
