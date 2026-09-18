@@ -202,6 +202,18 @@ function CourirEta([string]$nom, [string]$xray) {
 	$png = Join-Path $Sortie "cause_eta_$nom.png"
 	$out = Join-Path $Sortie "cause_eta_$nom.txt"
 	if (Test-Path $png) { Remove-Item $png -Force }
+	# ⚠️ L'ETALON EST FIGE LUI AUSSI, ET C'EST LE PREALABLE DE TOUT LE RESTE.
+	#    Sans cela, deux de ses courses rendaient 44 px puis 70 px. La cause est
+	#    lisible dans son code : `st->angle += dt * 0.45f` -- l'angle d'orbite
+	#    avance avec le TEMPS REEL, donc avec la charge de la machine. A la
+	#    frame 120, deux lancements ne regardent pas le meme cube.
+	#    `NK_FIX_CAM` pose `st->angle = 0.6f` et, du meme geste, arrete
+	#    l'animation du spot (`&& !fixcam`, Demo3D.cpp:7066). `NK_LIGHT_ANIM=0`
+	#    est pose EN PLUS, explicitement : une garde implicite se fait retirer
+	#    par qui ne la voit pas.
+	#    ⚠️ ET ON NE LE CROIT PAS SUR PAROLE : le critere (F) rejoue la meme
+	#       course et exige les MEMES nombres.
+	$env:NK_FIX_CAM = "1"; $env:NK_LIGHT_ANIM = "0"
 	$env:NK_MARQ_PROBE = "1"; $env:NK_EDIT_MODE = "1"; $env:NK_EDIT_SEL = "all"
 	$env:NK_EDIT_SELMASK = "1"; $env:NK_MAXFRAMES = "140"
 	$env:NK_CAPTURE = "120"; $env:NK_CAPTURE_PATH = $png
@@ -209,7 +221,8 @@ function CourirEta([string]$nom, [string]$xray) {
 	Start-Process -FilePath $exeEta -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-ArgumentList "--demo=3D" -RedirectStandardOutput $out -ErrorAction Stop | Out-Null
 	foreach ($v in @("NK_MARQ_PROBE", "NK_EDIT_MODE", "NK_EDIT_SEL", "NK_EDIT_SELMASK",
-			"NK_MAXFRAMES", "NK_CAPTURE", "NK_CAPTURE_PATH", "NK_EDIT_XRAY")) {
+			"NK_MAXFRAMES", "NK_CAPTURE", "NK_CAPTURE_PATH", "NK_EDIT_XRAY",
+			"NK_FIX_CAM", "NK_LIGHT_ANIM")) {
 		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
 	}
 	if (-not (Test-Path $png)) { Write-Host "ROUGE  aucune image de l'etalon pour '$nom'"; exit 2 }
@@ -315,8 +328,20 @@ if (-not (Plausible $eta_on.n)) {
 	Write-Host "La sonde REFUSE de conclure : le filtre ne compte pas des marqueurs."
 	exit 2
 }
+# ⚠️ (F) L'ETALON EST-IL VRAIMENT FIGE ? On rejoue la MEME course et on exige
+#    les memes nombres. Sans ce critere, « j'ai pose NK_FIX_CAM » serait une
+#    intention, pas une mesure -- et ce chantier a deja paye un levier inerte.
+$eta_on2 = CourirEta "on2" "1"
+# ⚠️ ET SURTOUT LE CAS ETEINT, car c'est LUI qui dansait : 44 px puis 70 px.
+#    Le cas allume ne prouve que la scene ; le cas eteint met en jeu le TEST DE
+#    PROFONDEUR sur des marqueurs poses exactement sur la surface. Si, scene
+#    figee, il continue de varier, alors l'instabilite n'est pas un defaut de
+#    la sonde : c'est le z-fighting lui-meme, et c'est un RESULTAT.
+$eta_off2 = CourirEta "off2" $null
 $rEta = Rapport $eta_off.n $eta_on.n
 Write-Host ("       etalon : eteint {0} px / allume {1} px  ->  {2} %" -f $eta_off.n, $eta_on.n, $rEta)
+Dire "(F) L'ETALON EST FIGE : deux courses identiques rendent les MEMES nombres" (($eta_on2.n -eq $eta_on.n) -and ($eta_off2.n -eq $eta_off.n)) `
+	("allume : {0} puis {1} px  ·  ETEINT : {2} puis {3} px (exige l'EGALITE des DEUX ; l'eteint est celui qui dansait, 44 puis 70, et c'est lui qui met en jeu le test de profondeur)" -f $eta_on.n, $eta_on2.n, $eta_off.n, $eta_off2.n)
 Write-Host "       ⚠ CE CHIFFRE EST FRAGILE, et il faut le dire a cote de lui : dans"
 Write-Host "       l'etalon les aretes sont CLAIRES, et le filtre de forme en ramasse des"
 Write-Host "       fragments. En retirant les amas fusionnes avec une arete, ce meme"
