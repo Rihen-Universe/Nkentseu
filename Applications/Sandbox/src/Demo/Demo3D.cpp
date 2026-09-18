@@ -43,6 +43,7 @@
 #include "NKImage/NKImage.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
+#include "NKRenderer/Mesh/NkEditOverlayStyle.h" // L'APPARENCE : une seule autorite
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
@@ -8962,9 +8963,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						A.PushBack(c.w);
 					};
 					// Palette Blender Edit Mode : cage NOIRE fine, sélection JAUNE-ORANGE VIF.
-					const NkVec4f cageCol{0.015f, 0.015f, 0.02f, 1.f}; // arête non sélectionnée
-					const NkVec4f selEdgeCol{1.f, 0.70f, 0.13f, 1.f};  // arête sélectionnée (vif)
-					const NkVec4f actVertCol{1.f, 1.f, 1.f, 1.f};	   // extrémité = sommet ACTIF
+					const NkVec4f cageCol = nkentseu::renderer::NkEditOverlayStyle::Arete();	   // arête non sélectionnée
+					const NkVec4f selEdgeCol = nkentseu::renderer::NkEditOverlayStyle::AreteSel(); // arête sélectionnée (vif)
+					const NkVec4f actVertCol = nkentseu::renderer::NkEditOverlayStyle::Actif();	   // extrémité = sommet ACTIF
 					// ── P0 — CAGE = ARÊTES RÉELLES DU N-GON ──────────────────────────────
 					// st->editEdges vient de NkEditMesh::GetUniqueEdges (topologie demi-arête,
 					// chaque arête UNE SEULE FOIS, arêtes internes dissoutes par Quadify
@@ -9086,7 +9087,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				// le fill apparaît donc aussi en mode VERTEX/EDGE, comme dans Blender.
 				{
 					auto liveWf = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
-					const NkVec4f faceFill{1.f, 0.55f, 0.06f, 0.36f};
+					const NkVec4f faceFill = nkentseu::renderer::NkEditOverlayStyle::FaceRemplissage();
 					const uint32 fcntF = (uint32)st->editHE.faces.Size();
 					NkVector<renderer::NkEmId> fvf;
 					for (uint32 f = 0; f < fcntF; f++) {
@@ -9134,6 +9135,33 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 				uint32 nkMarqTri = 0u, nkMarqCull = 0u, nkMarqPts = 0u, nkGizmoTri = 0u;
 				{
 					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
+					// ── L'ADRESSE ECRAN DE CHAQUE MARQUEUR TRACE ────────────────────
+					// ⚠️ C'EST LA MESURE QUI MANQUAIT, ET ELLE REMPLACE UN RAPPORT DE
+					//    PIXELS BRUITE. Compter des pixels de marqueur dans une boite
+					//    confond deux effets : les sommets ECARTES par le filtre
+					//    d'orientation (legitime, ~la moitie d'un cube) et les
+					//    marqueurs ROGNES par la surface (le defaut). Le rapport
+					//    62/123 de l'etalon vaut 50 % -- exactement ce que la seule
+					//    moitie face-camera donnerait : le chiffre ne dit RIEN du
+					//    rognage. En publiant les ADRESSES des marqueurs reellement
+					//    traces, on va voir a chacune si elle est entiere : le verdict
+					//    devient discret, « 8 entiers sur 12 traces ».
+					// ⚠️ CECI N'EST VALIDE QUE PARCE QUE LA CAMERA EST FIGEE
+					//    (NK_FIX_CAM). Sans cela, les adresses imprimees a une image
+					//    ne vaudraient pas pour l'image capturee. C'etait le
+					//    prealable, et c'est pour ca qu'il etait non negociable.
+					auto marqTrace = [&](int32 i, int32 etat, NkVec3f wp, float32 demiPx) {
+						if (!nkMarqProbe || nkMarqFrame != 1u)
+							return;
+						const NkVec3f vv = wp - camPos;
+						const float32 zc = vv.Dot(fwd);
+						if (zc <= 1e-3f)
+							return;
+						const float32 sx = (0.5f + (vv.Dot(rgt) / (zc * thX)) * 0.5f) * VW + (0.f);
+						const float32 sy = (0.5f - (vv.Dot(upv) / (zc * thY)) * 0.5f) * VH + (0.f);
+						logger.Info("[MARQPOS] i={0} etat={1} x={2} y={3} demi={4}\n", i, etat,
+									(int32)(sx + 0.5f), (int32)(sy + 0.5f), demiPx);
+					};
 					// Les marqueurs sont tracés SANS depth-test (fiabilité DX12) : sans filtre,
 					// on verrait aussi ceux du DOS du modèle « à travers ». Blender ne les montre
 					// qu'en X-ray. Filtre d'orientation : un marqueur dont la normale tourne le
@@ -9165,9 +9193,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 						r3d->DrawDebugTriangle(c00, c11, c01, col, 0.f, st->editXray);
 					};
 					// Carré PLEIN + fin liseré sombre dessous (les 2 sont PLEINS -> jamais creux).
-					const NkVec4f rim{0.f, 0.f, 0.f, 0.9f};
+					const NkVec4f rim = nkentseu::renderer::NkEditOverlayStyle::Lisere();
 					auto dot = [&](NkVec3f w, float32 core, NkVec4f col) {
-						fillQuad(w, core + 0.7f, rim); // liseré sombre (dessous)
+						fillQuad(w, core + nkentseu::renderer::NkEditOverlayStyle::kLisereSupp, rim); // liseré sombre (dessous)
 						fillQuad(w, core, col);		   // coeur PLEIN (dessus)
 					};
 					// VERTICES (mode VERTEX) : ~3 px de côté (half ~1.5), discret.
@@ -9181,12 +9209,21 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								continue; // sommet du dos -> caché (sauf X-ray), façon Blender
 							}
 							++nkMarqPts;
-							if (i == st->editActiveVert)
-								dot(w, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f}); // actif = BLANC
-							else if (i < (int32)st->vertSel.Size() && st->vertSel[i])
-								dot(w, 1.8f, NkVec4f{1.f, 0.55f, 0.05f, 1.f}); // sél. = ORANGE
-							else
-								dot(w, 1.5f, NkVec4f{0.02f, 0.02f, 0.03f, 1.f}); // non sél. = NOIR
+							// ⚠️ ACCOLADES OBLIGATOIRES. Cette chaine if/else n'en avait pas : elle
+							//    tenait tant que chaque branche portait UNE instruction. Le jour ou
+							//    une seconde y entre -- ici la trace d'adresse -- la chaine se casse,
+							//    et le compilateur ne dit pas « il manque des accolades » mais
+							//    « expected expression », deux lignes plus bas.
+							if (i == st->editActiveVert) {
+								marqTrace(i, 2, w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemiActif);
+								dot(w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemiActif, nkentseu::renderer::NkEditOverlayStyle::Actif()); // actif = BLANC
+							} else if (i < (int32)st->vertSel.Size() && st->vertSel[i]) {
+								marqTrace(i, 1, w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemiSel);
+								dot(w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemiSel, nkentseu::renderer::NkEditOverlayStyle::SommetSel()); // sél. = ORANGE
+							} else {
+								marqTrace(i, 0, w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemi);
+								dot(w, nkentseu::renderer::NkEditOverlayStyle::kSommetDemi, nkentseu::renderer::NkEditOverlayStyle::Sommet()); // non sél. = NOIR
+							}
 						}
 					}
 					// CENTRES DE FACE (mode FACE) : petit carré plein au barycentre de chaque face.
@@ -9218,7 +9255,7 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 								// central ne suffisait pas — sur un n-gon large, un point de
 								// 4 px au barycentre ne dit pas QUELLE face est active quand
 								// plusieurs se touchent. Le contour lève l'ambiguïté.
-								dot(cW, 2.0f, NkVec4f{1.f, 1.f, 1.f, 1.f});
+								dot(cW, nkentseu::renderer::NkEditOverlayStyle::kFaceDemiActif, nkentseu::renderer::NkEditOverlayStyle::Actif());
 								for (uint32 k = 0; k < fn; k++) {
 									const uint32 v0 = fvd[k], v1 = fvd[(k + 1) % fn];
 									if (v0 >= (uint32)st->editLive.Size() || v1 >= (uint32)st->editLive.Size())
@@ -9227,9 +9264,9 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 													   NkVec4f{1.f, 1.f, 1.f, 1.f}, 0.f, st->editXray);
 								}
 							} else if (allSel)
-								dot(cW, 1.8f, NkVec4f{1.f, 0.55f, 0.05f, 1.f}); // face sél. = ORANGE
+								dot(cW, nkentseu::renderer::NkEditOverlayStyle::kFaceDemiSel, nkentseu::renderer::NkEditOverlayStyle::SommetSel()); // face sél. = ORANGE
 							else
-								dot(cW, 1.4f, NkVec4f{0.02f, 0.02f, 0.03f, 1.f}); // face = point NOIR
+								dot(cW, nkentseu::renderer::NkEditOverlayStyle::kFaceDemi, nkentseu::renderer::NkEditOverlayStyle::Sommet()); // face = point NOIR
 						}
 					}
 				}

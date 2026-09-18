@@ -28,7 +28,7 @@ Vérifié une par une, pas supposé.
 | **053440** | Édition | **Arête** | **une arête** | l'arête du dessus est **jaune/orange vif** sur toute sa longueur ; aucun point de sommet visible |
 | **054024** | Édition | Sommet | tout | **faces orange translucide + arêtes orange vif + sommets orange**, et le menu `X` par-dessus |
 
-*(053447 et 053454 restent à lire ; 054016 est le menu `X` du mode Objet.)*
+*(053447, 053454 et 054016 sont détaillées au §5 — elles ont été lues depuis.)*
 
 ---
 
@@ -132,9 +132,7 @@ sélectionnerait des sommets qu'il ne voit pas.
 
 ## 4. CE QUI RESTE À VÉRIFIER DANS CES CAPTURES
 
-- **053447** et **053454** : pas encore lues.
-- **le centre de face** : en sous-mode Face (053416), je ne distingue **aucun point au barycentre**.
-  Nous en dessinons un. À confirmer sur une capture non sélectionnée en sous-mode Face.
+- **le centre de face** : CONFIRMÉ au §5 sur deux captures — Blender n'en dessine aucun.
 - **la taille exacte en px** dépend du facteur d'échelle de l'interface de Rodolf ; les 4 px mesurés
   valent **pour cette capture**, et c'est un ordre de grandeur, pas une constante à graver.
 
