@@ -9221,7 +9221,13 @@ static NkTexHandle CreateLanternCubeCookie(NkTextureLibrary *texLib, NkIDevice *
 					// Carré PLEIN + fin liseré sombre dessous (les 2 sont PLEINS -> jamais creux).
 					const NkVec4f rim = nkentseu::renderer::NkEditOverlayStyle::Lisere();
 					auto dot = [&](NkVec3f w, float32 core, NkVec4f col) {
-						fillQuad(w, core + nkentseu::renderer::NkEditOverlayStyle::kLisereSupp, rim); // liseré sombre (dessous)
+						// ⚠️ LE LISERE EST SAUTE QUAND IL VAUT ZERO, PAS TRACE A TAILLE NULLE.
+						//    Un quad de cote nul coute quand meme deux triangles, un envoi et
+						//    une place dans le tampon de debogage -- et il fausserait le
+						//    compteur `triangles(marqueurs)` sur lequel la sonde s'appuie.
+						//    Blender n'en dessine pas (mesure du 18/09) : on n'en dessine plus.
+						if (nkentseu::renderer::NkEditOverlayStyle::kLisereSupp > 0.f)
+							fillQuad(w, core + nkentseu::renderer::NkEditOverlayStyle::kLisereSupp, rim); // liseré sombre (dessous)
 						fillQuad(w, core, col);		   // coeur PLEIN (dessus)
 					};
 					// VERTICES (mode VERTEX) : ~3 px de côté (half ~1.5), discret.
