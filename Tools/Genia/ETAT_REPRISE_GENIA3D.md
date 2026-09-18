@@ -60,7 +60,19 @@ est plus fin que la maille. Ce n'est pas une opinion, c'est une borne.
 **(b) la connaissance du modèle.** Depuis une seule vue, s'il n'a jamais « vu » l'écart,
 aucune résolution ne l'inventera.
 
-> **PROTOCOLE ÉCRIT AVANT LA COURSE — À LANCER TEL QUEL À LA PROCHAINE SESSION.**
+> **CETTE EXPERIENCE A ETE LANCEE LE 18/09 AU SOIR. REPONSE : LA RESOLUTION N'EST PAS LA
+> CAUSE.** Sur `horse.png`, 512 n'ouvre AUCUNE separation que 256 ne montrait deja -- maximum
+> de regions IDENTIQUE (6, meme hauteur), ecarts sous la dispersion de l'instrument -- pour un
+> cout de **x6,4 en temps** (76 s -> 486 s) et 4 composantes parasites de plus.
+> **Limite dite** : sur ce sujet les pattes etaient DEJA separees a 256 ; le cas « parties
+> franchement collees » demande **l'image de Rodolf**, toujours introuvable.
+> ⚠️ Et le critere « composantes connexes » du protocole ci-dessous **ne pouvait pas voir le
+> defaut** : un bras decolle reste attache a l'epaule. Le critere qui distingue est le nombre
+> de **regions par coupe horizontale** (`Tools/Genia/mesure_separation.py`).
+> ⚠️ Cet instrument **publie sa propre dispersion** (5 tirages) : un ecart entre deux maillages
+> ne se lit que s'il la depasse.
+
+> **PROTOCOLE ÉCRIT AVANT LA COURSE — conserve pour memoire.**
 
 ```
 # La MEME image, la MEME graine, seule la resolution change.
