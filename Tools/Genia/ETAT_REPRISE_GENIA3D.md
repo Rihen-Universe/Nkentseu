@@ -135,7 +135,24 @@ les recalcule à sa façon et l'objet ne s'affiche pas pareil d'un outil à l'au
 
 ## 4. CE QUI RATE, NOMMÉ, AVEC SA CONDITION DE RÉOUVERTURE
 
-1. **`op difference` produit un maillage non-manifold.** Cas minimal (sphère moins sphère) :
+1. **`op difference` produit un maillage non-manifold — MAIS L'OPERATEUR EST DISCULPE (18/09 soir).**
+   Trois cas, dont un **temoin de controle connu sain** :
+   | cas | ce qu'il isole | non-manifold | chi |
+   |---|---|---|---|
+   | sphere moins sphere **interieure** | soustraction **sans arete vive** | **0** | 4 (derive : 2 surfaces imbriquees) |
+   | sphere moins sphere **qui la coupe** | entaille, **avec** arete vive | **8** | 38 |
+   | « un cube perce » (grammaire) | trou **traversant**, vert depuis le 17/09 | **0** | 0 |
+
+   Le troisieme utilise **la meme operation** `max(d, -dq)` et il est sain : mon soupcon
+   « le champ n'est plus 1-Lipschitz » est donc **refute par un temoin qui existait deja**.
+   **Nature du defaut, mesuree** : 45 composantes = 1 objet (36 820 sommets) + **44 eclats**
+   de 12 a 32 sommets. Des ilots parasites le long de l'entaille, pas une topologie ruinee.
+   → *Le domaine de recherche est reduit : la surface soustraite qui COUPE la surface
+   d'accueil, ni traversante ni interieure.*
+   ⚠️ **Piege nomme** : supprimer les petites composantes rendrait l'objet utilisable et
+   MASQUERAIT le defaut — « un correctif qui eteint l'alarme ». Ne pas le faire.
+
+1bis. **(ancienne formulation, conservee)** `op difference` produit un maillage non-manifold. Cas minimal (sphère moins sphère) :
    8 arêtes non-manifold, χ = 38. **La résolution n'y change rien** (128, 192, 256 testés) —
    l'hypothèse « parties trop fines » est **réfutée**. Mon second test (le lissage) **ne
    prouvait rien** : le lissage ne s'applique qu'aux unions dans mon code, donc la
