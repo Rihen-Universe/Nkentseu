@@ -265,7 +265,25 @@ def main():
         print("MESURE genia : MUTATION --axe-up=brut, aucune conversion d'axe")
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
-    mesh.export(a.out)
+    # ── LES NORMALES, ET POURQUOI LEUR ABSENCE EST UN DEFAUT A PART ─────────
+    # MESURE du 18/09, par deux instruments independants, sur le fichier produit :
+    #     attributs declares : POSITION, COLOR_0
+    #     PAS de NORMAL   PAS de TEXCOORD_0   0 image   0 materiau
+    # Sans NORMAL, chaque logiciel recalcule les normales a SA facon -- lissage,
+    # seuil d'angle, ponderation par l'aire -- et le meme objet ne s'affiche pas
+    # pareil d'un outil a l'autre. Ce n'est pas une question de gout : c'est un
+    # fichier qui ne dit pas ce qu'il montre.
+    #
+    # ⚠️ CE QUE CE CORRECTIF NE FAIT PAS : il n'ajoute NI UV NI TEXTURE. Il n'y a
+    # pas d'UV approximatives a corriger -- il n'y en a AUCUNE, et le dépliage
+    # vient APRES la topologie (cf. ETAT_REPRISE_GENIA3D.md §3).
+    #
+    # ATTENDU, DERIVE AVANT LA COURSE : trois flottants de plus par sommet, soit
+    # +12 octets par sommet. Le condensat du fichier CHANGE -- c'est la grandeur
+    # qui DOIT differer, et elle perime les condensats du R2.4 et du R3.4, qui
+    # se referaient a un fichier SANS normales. Ce qui ne doit PAS bouger : le
+    # nombre de sommets, les positions, le volume, l'etancheite.
+    mesh.export(a.out, include_normals=True)
     if not (os.path.isfile(a.out) and os.path.getsize(a.out) > 0):
         _refus("le fichier de sortie n'a pas ete ecrit : %s" % a.out, 3)
 
