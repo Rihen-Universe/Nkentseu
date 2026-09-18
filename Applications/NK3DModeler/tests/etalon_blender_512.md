@@ -137,3 +137,90 @@ sélectionnerait des sommets qu'il ne voit pas.
   Nous en dessinons un. À confirmer sur une capture non sélectionnée en sous-mode Face.
 - **la taille exacte en px** dépend du facteur d'échelle de l'interface de Rodolf ; les 4 px mesurés
   valent **pour cette capture**, et c'est un ordre de grandeur, pas une constante à graver.
+
+---
+
+## 5. LES DEUX DERNIÈRES CAPTURES — et elles ferment deux questions
+
+| capture | mode | sous-mode | sélection | ce qu'on voit |
+|---|---|---|---|---|
+| **053447** | Édition | **Arête** | une arête | l'arête du dessus est **blanche/jaune vif** sur toute sa longueur. **AUCUN point de sommet** n'est dessiné |
+| **053454** | Édition | **Face** | **une face** | la face avant est **teintée orange translucide**, son **contour est BLANC** (face active). **AUCUN point au barycentre** |
+| **054016** | Objet | — | l'objet | **X n'ouvre PAS une liste** : une petite boîte **« Delete selected objects? »**, deux boutons côte à côte, **Delete** (bleu, mis en avant) et **Cancel** |
+
+### ⚠️ DEUX ÉCARTS FERMES, ET ILS SONT STRUCTURELS
+
+**(a) Blender ne dessine AUCUN point au centre des faces.** Ni en 053416 (toutes sélectionnées),
+ni en 053454 (une seule). Une face se signale par **sa teinte** et, si elle est active, par **son
+contour blanc** — jamais par un point. **Nous dessinons un carré au barycentre de chaque face**
+(`kFaceDemi`, `kFaceDemiSel`, `kFaceDemiActif`). C'est une invention maison.
+
+**(b) Blender ne dessine les marqueurs de sommet QUE dans le sous-mode Sommet.** En sous-mode
+Arête (053447) comme en sous-mode Face (053416, 053454), **aucun point**. Notre masque
+`editSelMask` fait déjà ça pour les sommets ; mais notre **point de centre de face** apparaît, lui,
+en sous-mode Face — et il ne devrait pas exister du tout.
+
+> **La face active se distingue par un CONTOUR BLANC, pas par un point.** C'est la règle que
+> Blender applique, et c'est ce qu'il faudrait reproduire. Nous avons déjà un contour blanc pour la
+> face active **en plus** du point : il suffirait de **retirer le point**.
+
+---
+
+## 6. LE MENU `X`, ENTRÉE PAR ENTRÉE
+
+### Mode ÉDITION (054024) — Blender : **11 entrées, 4 groupes**
+
+| # | Blender | chez nous (`NkModelerDeleteMenu.h`) | |
+|---|---|---|---|
+| 1 | Vertices | `Sommets` | ✅ |
+| 2 | Edges | `Aretes` | ✅ |
+| 3 | Faces | `Faces` | ✅ |
+| 4 | Only Edges & Faces | `Seulement aretes et faces` | ✅ |
+| 5 | Only Faces | `Seulement les faces` | ✅ |
+| | *— séparateur —* | | |
+| 6 | Dissolve Vertices | `Dissoudre les sommets` | ✅ |
+| 7 | Dissolve Edges | `Dissoudre les aretes` | ✅ |
+| 8 | Dissolve Faces | `Dissoudre les faces` | ✅ |
+| | *— séparateur —* | | |
+| 9 | Limited Dissolve | `Dissolution limitee` | ✅ |
+| | *— séparateur —* | | |
+| 10 | Collapse Edges & Faces | `Effondrer les aretes` | ✅ |
+| 11 | **Edge Loops** | **— ABSENT —** | ❌ |
+
+**10 sur 11.** Il manque **`Edge Loops`** — la suppression d'une boucle d'arêtes entière.
+
+⚠️ **Et deux écarts de FORME, pas de contenu** :
+- **nos entrées n'ont pas de séparateurs** : les quatre groupes de Blender sont aplatis en une
+  liste unique de dix. Un menu sans groupe demande de lire les dix libellés pour en trouver un ;
+- `Effondrer les aretes` traduit `Collapse Edges & **Faces**` : **le libellé perd les faces**. Soit
+  l'opération ne les traite pas — et c'est un écart de comportement —, soit le nom ment.
+
+### Mode OBJET (054016) — **ce n'est pas un menu**
+
+**X en mode Objet ouvre une CONFIRMATION**, pas une liste : *« Delete selected objects? »*, avec
+**Delete** mis en avant et **Cancel**. Deux comportements distincts pour la même touche, selon le
+mode.
+
+⚠️ **À VÉRIFIER CHEZ NOUS, ET JE N'AI PAS PU LE FAIRE** (pas de fenêtre dans le temps restant) :
+notre `X` en mode Objet ouvre-t-il une confirmation, la même liste, ou rien ? **C'est un constat à
+rapporter à Rodolf**, pas un lot décidé d'office.
+
+---
+
+## 7. LA BARRE D'OUTILS DE GAUCHE CHANGE AVEC LE MODE
+
+Relevé par Rodolf, et confirmé sur les captures — **compté sur l'image, pas supposé** :
+
+| mode | outils visibles dans la colonne de gauche |
+|---|---|
+| **Objet** (053400, 053409) | **9** icônes |
+| **Édition** (053421, 053447…) | **21** icônes |
+
+La colonne du mode Édition ajoute tout le bloc de modélisation (extruder, insérer, biseauter,
+couteau, poly build, spin, lisser, aimanter…) sous les outils communs de transformation.
+
+> **Ce n'est pas un lot pour maintenant.** C'est un constat à ne pas perdre : **la barre d'outils
+> est une propriété DU MODE**, comme le sont déjà chez nous les sous-modes et les espaces. Le jour
+> où on l'implémente, la question n'est pas « quels outils mettre » mais « de quel mode cette
+> liste dépend-elle », et la réponse est déjà écrite dans notre mémoire : *les espaces sont les
+> modes*.
