@@ -127,10 +127,27 @@ static float DemiHauteurY(Forme f, float s) {
 // Les deux facons d'empiler, et elles sont DISTINCTES a la mesure.
 enum Liaison { L_AUCUNE = 0, L_CONTACT, L_JOUR };
 
+// L'OPERATEUR : ce qu'une piece fait a ce qui la precede.
+enum Op { OP_UNION = 0, OP_DIFF, OP_INTER };
+
 struct Piece {
 		Forme f = F_AUCUNE;
 		float cx = 0.f, cy = 0.f, cz = 0.f; // centre
 		float s = 1.f;						// echelle (rayon englobant = s)
+		// ── CE QUI MANQUAIT, ET C'ETAIT LE VERROU (mesure du 17/09) ─────────
+		// « un bonhomme de neige » rendait « un tore sur un petit cylindre »
+		// avec tous les compteurs verts. Le defaut n'etait pas le vocabulaire
+		// des formes -- six suffisent pour une chaise -- c'est que la grammaire
+		// NE SAVAIT PAS PLACER : un seul axe d'empilement, une echelle isotrope,
+		// aucune rotation, un seul trou vertical par forme.
+		//
+		// Les valeurs par defaut sont NEUTRES : sx=sy=sz=1, rotation nulle,
+		// union. Le chemin de la grammaire de mots ne voit donc AUCUN
+		// changement, et les neuf cas du banc doivent rendre les memes comptes.
+		float sx = 1.f, sy = 1.f, sz = 1.f; // echelle PAR AXE (un cylindre plat = un disque)
+		float rx = 0.f, ry = 0.f, rz = 0.f; // rotation en degres
+		Op op = OP_UNION;
+		char nom[32] = {0}; // le nom de la partie dans le document (pour les refus et le critere)
 };
 
 struct Trou {
@@ -138,10 +155,18 @@ struct Trou {
 };
 
 struct Scene {
-		Piece pieces[16];
+		Piece pieces[64]; // 16 ne suffit plus : une chaise fait 6 parties, et le
+						  // format prevoit des scenes plus riches
 		uint32 nPieces = 0;
 		Trou trous[8];
 		uint32 nTrous = 0;
+		float lissage = 0.f; // union LISSE : les jonctions se fondent sur ce rayon
+		// La relation « pose_sur » declaree dans le document, conservee APRES le
+		// placement : c'est elle que le critere document -> geometrie relit.
+		// -1 = aucune. Sans elle, on ne pourrait verifier que le calcul contre
+		// lui-meme -- ce qui ne prouve rien.
+		int32 poseSur[64];
+		uint32 nRelations = 0;
 };
 
 // ── Normalisation : minuscules ASCII, accents rabattus, ponctuation en espace ─
@@ -407,13 +432,60 @@ static uint32 Analyser(const char *phrase, Scene &sc, char *motInconnu, size_t c
 // 2. LE CHAMP. Distances signees ; l'occupation vaut -distance (SurfaceNets
 //    definit « dedans » par champ > iso, avec iso = 0).
 // ─────────────────────────────────────────────────────────────────────────────
+static float SdfFormeLocale(Forme f, float px, float py, float pz, float s);
 static float Mx(float a, float b) { return a > b ? a : b; }
 static float Mn(float a, float b) { return a < b ? a : b; }
 
+// LE SDF D'UNE PIECE PLACEE. Trois transformations, dans cet ordre et pas un
+// autre : on ramene le point dans le repere LOCAL de la piece (translation,
+// puis rotation INVERSE, puis division par l'echelle), on evalue la forme, puis
+// on remultiplie.
+//
+// ⚠️ POURQUOI LA MULTIPLICATION FINALE PAR min(sx,sy,sz) ET PAS PAR AUTRE CHOSE.
+// Diviser les coordonnees par une echelle ANISOTROPE casse la propriete de
+// distance : le champ obtenu n'est plus 1-Lipschitz, et un mailleur qui
+// interpole entre deux echantillons se tromperait de position de surface. Le
+// multiplier par le PLUS PETIT facteur rend une borne INFERIEURE de la vraie
+// distance -- ce qui est exactement ce qu'il faut : le signe est juste partout,
+// et pres de la surface l'erreur tend vers zero. Une borne superieure, elle,
+// ferait rater des traversees de cellule.
 static float SdfPiece(const Piece &p, float x, float y, float z) {
-	const float px = x - p.cx, py = y - p.cy, pz = z - p.cz;
+	float px = x - p.cx, py = y - p.cy, pz = z - p.cz;
+	// Rotation INVERSE (angles en degres, ordre X puis Y puis Z a l'aller, donc
+	// Z puis Y puis X au retour).
+	if (p.rx != 0.f || p.ry != 0.f || p.rz != 0.f) {
+		const float k = 3.14159265358979f / 180.f;
+		const float a = -p.rz * k, b = -p.ry * k, c = -p.rx * k;
+		float t;
+		t = px * cosf(a) - py * sinf(a);
+		py = px * sinf(a) + py * cosf(a);
+		px = t;
+		t = px * cosf(b) + pz * sinf(b);
+		pz = -px * sinf(b) + pz * cosf(b);
+		px = t;
+		t = py * cosf(c) - pz * sinf(c);
+		pz = py * sinf(c) + pz * cosf(c);
+		py = t;
+	}
+	float kmin = 1.f;
+	if (p.sx != 1.f || p.sy != 1.f || p.sz != 1.f) {
+		px /= (p.sx != 0.f ? p.sx : 1e-6f);
+		py /= (p.sy != 0.f ? p.sy : 1e-6f);
+		pz /= (p.sz != 0.f ? p.sz : 1e-6f);
+		kmin = Mn(p.sx, Mn(p.sy, p.sz));
+		if (kmin <= 0.f)
+			kmin = 1e-6f;
+	}
 	const float s = p.s;
-	switch (p.f) {
+	const float dLocal = SdfFormeLocale(p.f, px, py, pz, s);
+	return dLocal * kmin;
+}
+
+// La forme NUE, dans son repere local. Separee de `SdfPiece` pour que le
+// placement et la forme soient deux questions distinctes -- c'est ce qui permet
+// d'ajouter une transformation sans relire six formules.
+static float SdfFormeLocale(Forme f, float px, float py, float pz, float s) {
+	switch (f) {
 		case F_SPHERE:
 			return sqrtf(px * px + py * py + pz * pz) - s;
 		case F_CUBE: {
@@ -450,6 +522,331 @@ static float SdfPiece(const Piece &p, float x, float y, float z) {
 	}
 }
 
+
+// =============================================================================
+// LE DOCUMENT DE SCENE (.nkscene) -- LA PIECE QUI MANQUAIT ENTRE LA PHRASE ET
+// LA GEOMETRIE.
+//
+// POURQUOI IL EXISTE. Le 17/09, « un bonhomme de neige » a rendu « un tore sur
+// un petit cylindre » avec TOUS les compteurs verts, et Rodolf a refuse le
+// resultat : « ce n'est pas admissible ». La cause n'etait pas le modele -- il
+// avait repondu 18 fois sur 18 -- c'est qu'il n'y avait RIEN entre la phrase et
+// le maillage. Sans reference intermediaire, « le maillage est ferme » ne dit
+// rien de « c'est un bonhomme de neige », et aucun critere ne pouvait le dire.
+//
+// ⚠️ DEUX FIDELITES, ET ON NE LES CONFOND JAMAIS :
+//   - document -> geometrie : MECANIQUE, verifiable, c'est ce que ce format
+//     debloque et ce que `--verifier` mesure ;
+//   - phrase -> document : HUMAINE. Que « trois spheres empilees » soit une
+//     bonne description d'un bonhomme de neige, c'est RODOLF qui le dit en
+//     lisant le document. On ne fabrique aucun critere qui pretendrait la
+//     mesurer : ce serait un vert de plus et rien de vrai.
+//
+// Le format est specifie dans `Tools/Genia/FORMAT_SCENE.md`, et trois documents
+// ecrits A LA MAIN vivent dans `Tools/Genia/scenes/` -- ils ont ete ecrits AVANT
+// que le modele n'en produise un seul.
+// =============================================================================
+
+static bool NkScMot(const char *&c, char *out, size_t cap) {
+	while (*c == ' ' || *c == '\t' || *c == '\r')
+		++c;
+	if (!*c || *c == '\n')
+		return false;
+	size_t j = 0;
+	while (*c && *c != ' ' && *c != '\t' && *c != '\r' && *c != '\n') {
+		if (j + 1 < cap)
+			out[j++] = *c;
+		++c;
+	}
+	out[j] = 0;
+	return j > 0;
+}
+
+static float NkScFlottant(const char *&c, bool &ok) {
+	char m[64];
+	if (!NkScMot(c, m, sizeof(m))) {
+		ok = false;
+		return 0.f;
+	}
+	ok = true;
+	return (float)atof(m);
+}
+
+// Retrouve une partie par son nom. -1 si inconnue -- et l'appelant REFUSE en
+// nommant le nom introuvable, il n'invente jamais une relation par defaut.
+static int32 NkScPartie(const Scene &sc, const char *nom) {
+	for (uint32 i = 0; i < sc.nPieces; ++i)
+		if (strcmp(sc.pieces[i].nom, nom) == 0)
+			return (int32)i;
+	return -1;
+}
+
+// La demi-hauteur REELLE d'une piece placee, echelle par axe comprise. C'est
+// elle qui fait le contact de `pose_sur`, et elle se lit dans `DemiHauteurY`,
+// qui recopie deja les constantes de `SdfFormeLocale` (dette nommee au R5.4).
+static float NkScDemiHauteur(const Piece &p) {
+	return DemiHauteurY(p.f, p.s) * p.sy;
+}
+
+// Lit le document. Rend le nombre de parties, ou 0 avec un motif NOMME. Un
+// document mal forme ne produit JAMAIS un objet par defaut.
+static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t capPourquoi) {
+	pourquoi[0] = 0;
+	FILE *f = fopen(chemin, "rb");
+	if (!f) {
+		snprintf(pourquoi, capPourquoi, "document introuvable : %s", chemin);
+		return 0;
+	}
+	fseek(f, 0, SEEK_END);
+	long n = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	if (n <= 0 || n > 1 << 20) {
+		fclose(f);
+		snprintf(pourquoi, capPourquoi, "document vide ou demesure (%ld octets) : %s", n, chemin);
+		return 0;
+	}
+	char *buf = (char *)malloc((size_t)n + 1);
+	if (!buf) {
+		fclose(f);
+		snprintf(pourquoi, capPourquoi, "memoire insuffisante pour lire %s", chemin);
+		return 0;
+	}
+	size_t lu = fread(buf, 1, (size_t)n, f);
+	buf[lu] = 0;
+	fclose(f);
+
+	for (uint32 i = 0; i < 64; ++i)
+		sc.poseSur[i] = -1;
+
+	uint32 ligne = 0;
+	const char *c = buf;
+	while (*c) {
+		++ligne;
+		const char *finLigne = c;
+		while (*finLigne && *finLigne != '\n')
+			++finLigne;
+		char mot[64];
+		const char *q = c;
+		bool aMot = NkScMot(q, mot, sizeof(mot));
+		// Une ligne vide ou un commentaire : on avance, sans rien dire.
+		if (aMot && mot[0] != '#') {
+			if (strcmp(mot, "scene") == 0 || strcmp(mot, "demande") == 0) {
+				// Metadonnees : conservees pour la lecture humaine, sans effet
+				// geometrique. Les avaler EXPLICITEMENT, sinon elles
+				// remonteraient comme directives inconnues.
+			} else if (strcmp(mot, "lissage") == 0) {
+				bool ok = false;
+				const float v = NkScFlottant(q, ok);
+				if (!ok || v < 0.f) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : « lissage » attend un nombre >= 0", ligne);
+					free(buf);
+					return 0;
+				}
+				sc.lissage = v;
+			} else if (strcmp(mot, "partie") == 0) {
+				if (sc.nPieces >= 64) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : plus de 64 parties", ligne);
+					free(buf);
+					return 0;
+				}
+				Piece &pc = sc.pieces[sc.nPieces];
+				pc = Piece();
+				char nom[64];
+				if (!NkScMot(q, nom, sizeof(nom))) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : « partie » attend un nom", ligne);
+					free(buf);
+					return 0;
+				}
+				if (NkScPartie(sc, nom) >= 0) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : deux parties portent le nom « %s »", ligne, nom);
+					free(buf);
+					return 0;
+				}
+				snprintf(pc.nom, sizeof(pc.nom), "%s", nom);
+				int32 relation = -1;
+				bool sousDessous = false;
+				float dx = 0.f, dy = 0.f, dz = 0.f;
+				bool aForme = false, aCentre = false;
+				char clef[64];
+				while (NkScMot(q, clef, sizeof(clef))) {
+					if (clef[0] == '#')
+						break;
+					bool ok = false;
+					if (strcmp(clef, "forme") == 0) {
+						char nf[64];
+						if (!NkScMot(q, nf, sizeof(nf))) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « forme » attend un nom", ligne);
+							free(buf);
+							return 0;
+						}
+						char norm[64];
+						Normaliser(nf, norm, sizeof(norm));
+						pc.f = FormeDuMot(norm);
+						if (pc.f == F_AUCUNE) {
+							snprintf(pourquoi, capPourquoi,
+									 "ligne %u : forme inconnue « %s ». Les six : sphere, cube, cylindre, cone, tore, capsule",
+									 ligne, nf);
+							free(buf);
+							return 0;
+						}
+						aForme = true;
+					} else if (strcmp(clef, "taille") == 0) {
+						pc.sx = NkScFlottant(q, ok);
+						if (ok) pc.sy = NkScFlottant(q, ok);
+						if (ok) pc.sz = NkScFlottant(q, ok);
+						if (!ok || pc.sx <= 0.f || pc.sy <= 0.f || pc.sz <= 0.f) {
+							snprintf(pourquoi, capPourquoi,
+									 "ligne %u : « taille » attend trois nombres STRICTEMENT positifs", ligne);
+							free(buf);
+							return 0;
+						}
+					} else if (strcmp(clef, "rotation") == 0) {
+						pc.rx = NkScFlottant(q, ok);
+						if (ok) pc.ry = NkScFlottant(q, ok);
+						if (ok) pc.rz = NkScFlottant(q, ok);
+						if (!ok) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « rotation » attend trois angles", ligne);
+							free(buf);
+							return 0;
+						}
+					} else if (strcmp(clef, "centre") == 0) {
+						pc.cx = NkScFlottant(q, ok);
+						if (ok) pc.cy = NkScFlottant(q, ok);
+						if (ok) pc.cz = NkScFlottant(q, ok);
+						if (!ok) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « centre » attend trois nombres", ligne);
+							free(buf);
+							return 0;
+						}
+						aCentre = true;
+					} else if (strcmp(clef, "decale") == 0) {
+						dx = NkScFlottant(q, ok);
+						if (ok) dy = NkScFlottant(q, ok);
+						if (ok) dz = NkScFlottant(q, ok);
+						if (!ok) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « decale » attend trois nombres", ligne);
+							free(buf);
+							return 0;
+						}
+					} else if (strcmp(clef, "pose_sur") == 0 || strcmp(clef, "pose_sous") == 0 ||
+							   strcmp(clef, "aligne_sur") == 0) {
+						char autre[64];
+						if (!NkScMot(q, autre, sizeof(autre))) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « %s » attend un nom de partie", ligne, clef);
+							free(buf);
+							return 0;
+						}
+						const int32 k = NkScPartie(sc, autre);
+						if (k < 0) {
+							// ⚠️ On REFUSE au lieu de placer a l'origine. Une
+							// relation vers une partie inconnue placerait
+							// silencieusement la piece au centre du monde, et le
+							// document dirait une chose que la geometrie ne fait
+							// pas -- exactement ce qu'on repare.
+							snprintf(pourquoi, capPourquoi,
+									 "ligne %u : « %s %s » -- aucune partie de ce nom n'est declaree AVANT celle-ci",
+									 ligne, clef, autre);
+							free(buf);
+							return 0;
+						}
+						relation = k;
+						if (strcmp(clef, "aligne_sur") == 0)
+							relation = -2 - k; // aligne : x/z seulement
+						sousDessous = (strcmp(clef, "pose_sous") == 0);
+					} else if (strcmp(clef, "op") == 0) {
+						char o[64];
+						if (!NkScMot(q, o, sizeof(o))) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « op » attend union, difference ou intersection", ligne);
+							free(buf);
+							return 0;
+						}
+						if (strcmp(o, "union") == 0) pc.op = OP_UNION;
+						else if (strcmp(o, "difference") == 0) pc.op = OP_DIFF;
+						else if (strcmp(o, "intersection") == 0) pc.op = OP_INTER;
+						else {
+							snprintf(pourquoi, capPourquoi,
+									 "ligne %u : operateur inconnu « %s » (union, difference, intersection)", ligne, o);
+							free(buf);
+							return 0;
+						}
+					} else {
+						snprintf(pourquoi, capPourquoi,
+								 "ligne %u : directive inconnue « %s » (forme, taille, rotation, centre, decale, "
+								 "pose_sur, pose_sous, aligne_sur, op)",
+								 ligne, clef);
+						free(buf);
+						return 0;
+					}
+				}
+				if (!aForme) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : la partie « %s » n'a pas de forme", ligne, pc.nom);
+					free(buf);
+					return 0;
+				}
+				// ── LE PLACEMENT, ET C'EST ICI QUE « pose_sur » PREND SON SENS ──
+				// Le dessous de cette piece touche le dessus de l'autre : la
+				// distance entre centres vaut la somme des demi-hauteurs REELLES
+				// (echelle par axe comprise), moins une penetration.
+				//
+				// ⚠️ LA PENETRATION N'EST PAS UN CONFORT. A tangence exacte le
+				// champ vaut 0 sur tout le plan de contact, et SurfaceNets peut
+				// rendre UNE composante ou DEUX selon le hasard de la grille --
+				// un banc non deterministe, « pire qu'un instrument faux ».
+				// C'est la meme derivation qu'au R4.3, appliquee au document.
+				if (relation >= 0) {
+					const Piece &a = sc.pieces[relation];
+					const float hA = NkScDemiHauteur(a), hB = NkScDemiHauteur(pc);
+					const float pen = 0.20f * Mn(hA, hB);
+					pc.cx = a.cx;
+					pc.cz = a.cz;
+					// « pose_sous » est le SYMETRIQUE exact, pas un decalage
+					// bricole : le dessus de cette piece touche le dessous de
+					// l'autre. Sans lui, poser quatre pieds sous une assise
+					// obligeait a decaler apres coup -- et le pied TRAVERSAIT
+					// l'assise, ce que l'apercu a montre et qu'aucun chiffre
+					// n'avait vu.
+					pc.cy = sousDessous ? (a.cy - hA - hB + pen) : (a.cy + hA + hB - pen);
+					sc.poseSur[sc.nPieces] = relation;
+					++sc.nRelations;
+				} else if (relation <= -2) {
+					const Piece &a = sc.pieces[-2 - relation];
+					pc.cx = a.cx;
+					pc.cz = a.cz;
+				} else if (!aCentre) {
+					// Ni relation ni centre : la piece reste a l'origine, et
+					// c'est LEGITIME pour la premiere partie d'une scene.
+				}
+				pc.cx += dx;
+				pc.cy += dy;
+				pc.cz += dz;
+				++sc.nPieces;
+			} else {
+				snprintf(pourquoi, capPourquoi,
+						 "ligne %u : directive inconnue « %s » (scene, demande, partie, lissage)", ligne, mot);
+				free(buf);
+				return 0;
+			}
+		}
+		c = (*finLigne == '\n') ? finLigne + 1 : finLigne;
+	}
+	free(buf);
+	if (sc.nPieces == 0) {
+		snprintf(pourquoi, capPourquoi, "le document ne declare AUCUNE partie : %s", chemin);
+		return 0;
+	}
+	// Une scene faite UNIQUEMENT de soustractions ne produit rien : on le dit,
+	// plutot que de rendre un maillage vide avec un motif vague en aval.
+	bool auMoinsUnAdditif = false;
+	for (uint32 i = 0; i < sc.nPieces; ++i)
+		if (sc.pieces[i].op != OP_DIFF)
+			auMoinsUnAdditif = true;
+	if (!auMoinsUnAdditif) {
+		snprintf(pourquoi, capPourquoi, "le document ne contient que des soustractions : rien a mailler");
+		return 0;
+	}
+	return sc.nPieces;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. LE MAILLAGE. Champ -> SurfaceNets -> normales -> .OBJ.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,10 +866,19 @@ static bool Mailler(const Scene &sc, uint32 res, const char *outPath, Sortie &so
 	float mn[3] = {1e30f, 1e30f, 1e30f}, mx[3] = {-1e30f, -1e30f, -1e30f};
 	for (uint32 i = 0; i < sc.nPieces; ++i) {
 		const Piece &p = sc.pieces[i];
+		// ⚠️ Une piece SOUSTRAITE n'agrandit pas la scene : compter sa boite
+		// ferait grossir la grille sans raison, donc baisser la resolution
+		// effective la ou il y a de la matiere. C'est le genre de detail qui
+		// degrade un resultat sans qu'aucun critere ne bouge.
+		if (p.op == OP_DIFF)
+			continue;
+		// Le rayon englobant apres echelle par axe ET rotation : la rotation ne
+		// change pas un rayon, l'echelle si. On prend le plus grand facteur.
+		const float r = p.s * Mx(p.sx, Mx(p.sy, p.sz));
 		const float c[3] = {p.cx, p.cy, p.cz};
 		for (int k = 0; k < 3; ++k) {
-			if (c[k] - p.s < mn[k]) mn[k] = c[k] - p.s;
-			if (c[k] + p.s > mx[k]) mx[k] = c[k] + p.s;
+			if (c[k] - r < mn[k]) mn[k] = c[k] - r;
+			if (c[k] + r > mx[k]) mx[k] = c[k] + r;
 		}
 	}
 	float ext = 0.f;
@@ -503,8 +909,35 @@ static bool Mailler(const Scene &sc, uint32 res, const char *outPath, Sortie &so
 			for (uint32 i = 0; i < nx; ++i) {
 				const float x = mn[0] + (float)i * cell, y = mn[1] + (float)j * cell, z = mn[2] + (float)k * cell;
 				float d = 1e30f;
-				for (uint32 q = 0; q < sc.nPieces; ++q)
-					d = Mn(d, SdfPiece(sc.pieces[q], x, y, z));
+				for (uint32 q = 0; q < sc.nPieces; ++q) {
+					const float dq = SdfPiece(sc.pieces[q], x, y, z);
+					switch (sc.pieces[q].op) {
+						case OP_DIFF:
+							// Retirer : max(d, -dq). C'est ce qui creuse un verre
+							// ou entaille -- la grammaire de mots ne savait poser
+							// qu'un trou VERTICAL par forme.
+							d = Mx(d, -dq);
+							break;
+						case OP_INTER:
+							d = Mx(d, dq);
+							break;
+						default:
+							// UNION LISSE (polynomiale) quand un rayon est demande.
+							// A rayon nul, elle vaut EXACTEMENT min(a,b) : le
+							// chemin existant ne bouge donc pas d'un bit, et c'est
+							// verifiable -- les neuf cas du banc doivent rendre les
+							// memes comptes.
+							if (sc.lissage > 0.f && d < 1e29f) {
+								const float k = sc.lissage;
+								float h = 0.5f + 0.5f * (dq - d) / k;
+								h = h < 0.f ? 0.f : (h > 1.f ? 1.f : h);
+								d = (dq * (1.f - h) + d * h) - k * h * (1.f - h);
+							} else {
+								d = Mn(d, dq);
+							}
+							break;
+					}
+				}
 				// Les trous : difference booleenne, max(d, -dTrou). Le cylindre
 				// est INFINI en Y (pas de borne) -- un trou borne laisserait une
 				// cavite fermee, qui n'est pas une anse et ne changerait pas la
@@ -642,6 +1075,8 @@ static bool SortieEstObj(const char *out) {
 }
 
 // Le geste complet, partage par le mode « une phrase » et par le banc.
+static int Emettre(const Scene &sc, const char *out, uint32 res, Sortie &so);
+
 static int Produire(const char *texte, const char *out, uint32 res, Sortie &so, Scene &sc) {
 	if (!texte || !texte[0])
 		return Refus("demande vide : aucun texte. Vocabulaire :\n        %s", VOCABULAIRE);
@@ -686,11 +1121,30 @@ static int Produire(const char *texte, const char *out, uint32 res, Sortie &so, 
 		}
 	}
 
-	printf("  ANALYSE : %u forme(s)", n);
-	for (uint32 i = 0; i < sc.nPieces; ++i)
-		printf(" · %s(s=%.2f en %.2f,%.2f,%.2f)", NomForme(sc.pieces[i].f), sc.pieces[i].s, sc.pieces[i].cx,
-			   sc.pieces[i].cy, sc.pieces[i].cz);
-	printf(" · %u trou(s)\n", sc.nTrous);
+	return Emettre(sc, out, res, so);
+}
+
+// L'EMISSION : une scene devient un maillage. Elle est SEPAREE de l'analyse
+// parce que deux entrees y arrivent desormais -- la phrase (grammaire de mots)
+// et le DOCUMENT (.nkscene). Les faire passer par le meme producteur est ce qui
+// garantit qu'on ne compare pas deux chemins differents : une seule autorite sur
+// « comment une scene devient un maillage ».
+static int Emettre(const Scene &sc, const char *out, uint32 res, Sortie &so) {
+	printf("  ANALYSE : %u forme(s)", sc.nPieces);
+	for (uint32 i = 0; i < sc.nPieces; ++i) {
+		const Piece &q = sc.pieces[i];
+		printf(" · %s%s%s(s=%.2f", q.nom[0] ? q.nom : "", q.nom[0] ? "=" : "", NomForme(q.f), q.s);
+		if (q.sx != 1.f || q.sy != 1.f || q.sz != 1.f)
+			printf(" ech %.2f,%.2f,%.2f", q.sx, q.sy, q.sz);
+		if (q.rx != 0.f || q.ry != 0.f || q.rz != 0.f)
+			printf(" rot %.0f,%.0f,%.0f", q.rx, q.ry, q.rz);
+		printf(" en %.2f,%.2f,%.2f%s)", q.cx, q.cy, q.cz,
+			   q.op == OP_DIFF ? " SOUSTRAITE" : (q.op == OP_INTER ? " INTERSECTEE" : ""));
+	}
+	printf(" · %u trou(s)", sc.nTrous);
+	if (sc.lissage > 0.f)
+		printf(" · lissage %.3f", sc.lissage);
+	printf("\n");
 
 	const char *pourquoi = "raison inconnue";
 	if (!Mailler(sc, res, out, so, &pourquoi))
@@ -1011,8 +1465,321 @@ static int Banc(uint32 res, const char *dossier) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// =============================================================================
+// LE CRITERE DOCUMENT -> GEOMETRIE. C'est lui que le document rend possible, et
+// c'est la reponse a « un bonhomme de neige qui rend un tore sur un cylindre
+// avec tous les compteurs verts ».
+//
+// LE 17/09 J'AI ECRIT : « je n'ajoute pas un T5, il n'existe pas de critere
+// automatique honnete pour ça ». C'etait vrai TANT QUE LA SEULE REFERENCE ETAIT
+// LA PHRASE. Avec un document, il en existe un, et il est DERIVE : un document
+// qui declare trois parties empilees affirme une chose VERIFIABLE sur la
+// geometrie -- trois renflements le long de l'axe vertical, dans cet ordre.
+//
+// ⚠️ CE QU'IL MESURE, ET CE QU'IL NE MESURE PAS. Il juge la fidelite MECANIQUE
+// (document -> geometrie). Il ne dit RIEN de la fidelite HUMAINE (la phrase
+// est-elle bien decrite par ce document) -- c'est Rodolf qui en juge, en lisant
+// le document, et aucun chiffre ne le remplacera.
+//
+// ⚠️ ET IL NE LIT PAS LES POSITIONS CALCULEES. Verifier le placement contre les
+// centres que le placement vient d'ecrire, ce serait comparer un nombre a
+// lui-meme -- « un critere qui compare un nombre a lui-meme ne peut pas
+// echouer ». Il mesure donc le MAILLAGE RELU depuis le disque, par un chemin
+// qui ne partage rien avec le calcul de placement.
+// =============================================================================
+
+// Le profil du rayon le long de l'axe vertical : pour chaque tranche en Y, le
+// rayon maximal de la matiere. Trois spheres empilees font TROIS bosses ; un
+// tore sur un cylindre en fait DEUX.
+static uint32 CompterRenflements(const NkVector<NkVertex3D> &verts, uint32 tranches, float *hauteurs,
+								 float *rayons, uint32 capHauteurs) {
+	if (verts.Size() == 0 || tranches < 4)
+		return 0;
+	float ymin = 1e30f, ymax = -1e30f, cx = 0.f, cz = 0.f;
+	for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+		const NkVec3f &q = verts[i].pos;
+		ymin = q.y < ymin ? q.y : ymin;
+		ymax = q.y > ymax ? q.y : ymax;
+		cx += q.x;
+		cz += q.z;
+	}
+	cx /= (float)verts.Size();
+	cz /= (float)verts.Size();
+	if (ymax <= ymin)
+		return 0;
+	NkVector<float> rayon;
+	rayon.Resize(tranches);
+	for (uint32 t = 0; t < tranches; ++t)
+		rayon[t] = 0.f;
+	for (uint32 i = 0; i < (uint32)verts.Size(); ++i) {
+		const NkVec3f &q = verts[i].pos;
+		int32 t = (int32)(((q.y - ymin) / (ymax - ymin)) * (float)(tranches - 1) + 0.5f);
+		t = t < 0 ? 0 : (t >= (int32)tranches ? (int32)tranches - 1 : t);
+		const float dx = q.x - cx, dz = q.z - cz;
+		const float r = sqrtf(dx * dx + dz * dz);
+		if (r > rayon[t])
+			rayon[t] = r;
+	}
+	// Un maximum local est un renflement. On exige une PROEMINENCE : sans elle,
+	// le bruit de la grille creerait des bosses la ou il n'y a qu'une paroi
+	// droite -- « un critere qui accepte une difference imperceptible ne mesure
+	// pas ce qu'il annonce ».
+	float rMax = 0.f;
+	for (uint32 t = 0; t < tranches; ++t)
+		if (rayon[t] > rMax)
+			rMax = rayon[t];
+	const float proeminence = 0.06f * rMax;
+	uint32 n = 0;
+	for (uint32 t = 1; t + 1 < tranches; ++t) {
+		if (rayon[t] < rayon[t - 1] || rayon[t] < rayon[t + 1])
+			continue;
+		// Descendre a gauche et a droite jusqu'a retrouver une vallee assez
+		// profonde : c'est ce qui distingue une vraie bosse d'une ondulation.
+		float creuxG = rayon[t], creuxD = rayon[t];
+		for (int32 k = (int32)t - 1; k >= 0; --k) {
+			if (rayon[k] > rayon[t])
+				break;
+			if (rayon[k] < creuxG)
+				creuxG = rayon[k];
+		}
+		for (uint32 k = t + 1; k < tranches; ++k) {
+			if (rayon[k] > rayon[t])
+				break;
+			if (rayon[k] < creuxD)
+				creuxD = rayon[k];
+		}
+		const float creux = creuxG > creuxD ? creuxG : creuxD;
+		if (rayon[t] - creux >= proeminence) {
+			if (n < capHauteurs) {
+				hauteurs[n] = ymin + ((float)t / (float)(tranches - 1)) * (ymax - ymin);
+				rayons[n] = rayon[t];
+			}
+			++n;
+			// Ne pas recompter la meme bosse sur plusieurs tranches voisines.
+			while (t + 1 < tranches && rayon[t + 1] >= rayon[t] - 1e-6f)
+				++t;
+		}
+	}
+	return n;
+}
+
+// Rend le nombre de lignes ROUGES. 0 = la geometrie est fidele au document.
+static int VerifierContreDocument(const Scene &sc, const char *cheminObj) {
+	printf("\n[D] LA GEOMETRIE EST-ELLE FIDELE AU DOCUMENT ? (fidelite MECANIQUE)\n");
+	printf("    ⚠ la fidelite HUMAINE -- « ce document decrit-il bien la demande » -- n'est PAS\n");
+	printf("      mesuree ici, et ne le sera jamais : elle se lit, elle ne se compte pas.\n");
+	NkGLTFMeshData data;
+	if (!LoadOBJ(NkString(cheminObj), data) || !data.IsValid()) {
+		printf("  [ROUGE] le maillage ecrit n'est pas relisible : rien ne peut se verifier\n");
+		return 1;
+	}
+	int rouge = 0;
+
+	// ── L'ATTENDU, DERIVE DU DOCUMENT ET DE RIEN D'AUTRE ────────────────────
+	// Les parties ADDITIVES reliees par « pose_sur » forment une pile. Le
+	// document en declare le nombre ; la geometrie doit le montrer.
+	uint32 additives = 0;
+	for (uint32 i = 0; i < sc.nPieces; ++i)
+		if (sc.pieces[i].op != OP_DIFF)
+			++additives;
+	uint32 empilees = 0;
+	for (uint32 i = 0; i < sc.nPieces; ++i)
+		if (sc.poseSur[i] >= 0 && sc.pieces[i].op != OP_DIFF)
+			++empilees;
+	// Une pile de N relations touche N+1 parties -- mais seulement si les
+	// parties empilees le sont toutes SUR LE MEME AXE. Une chaise empile quatre
+	// pieds sur la meme assise, decales en x et z : ce n'est pas une pile.
+	uint32 surMemeAxe = 0;
+	for (uint32 i = 0; i < sc.nPieces; ++i) {
+		if (sc.poseSur[i] < 0 || sc.pieces[i].op == OP_DIFF)
+			continue;
+		const Piece &a = sc.pieces[sc.poseSur[i]], &b = sc.pieces[i];
+		const float dx = b.cx - a.cx, dz = b.cz - a.cz;
+		const float dy = b.cy - a.cy;
+		if (fabsf(dy) > fabsf(dx) && fabsf(dy) > fabsf(dz))
+			++surMemeAxe;
+	}
+
+	NkVector<NkVertex3D> &V = data.vertices;
+	float hauteurs[64], rayons[64];
+	const uint32 renflements = CompterRenflements(V, 48, hauteurs, rayons, 64);
+	printf("  DOCUMENT : %u partie(s) additive(s), %u relation(s) « pose_sur », dont %u sur le meme axe vertical\n",
+		   additives, empilees, surMemeAxe);
+	printf("  GEOMETRIE : %u renflement(s) mesure(s) le long de l'axe vertical (%u sommets relus)\n", renflements,
+		   (uint32)V.Size());
+
+	// ⚠️ LE CRITERE NE SE PRONONCE QUE LA OU IL A UN SENS. Une pile verticale
+	// de N+1 parties doit montrer N+1 renflements. Hors de ce cas -- parties
+	// decalees, soustractions, piece unique -- il se TAIT : « un temoin qui se
+	// prononce hors de sa condition de validite fabrique du bruit qu'on apprend
+	// a ignorer ».
+	// ── LA CONDITION DU CRITERE, ET ELLE EST DERIVEE DE LA GEOMETRIE ────────
+	// Un renflement est un MAXIMUM LOCAL du rayon le long de l'axe. Seules les
+	// formes dont le rayon culmine en produisent un : sphere, capsule, tore. Un
+	// cone s'elargit jusqu'a sa base et s'arrete ; un cylindre est constant ; un
+	// cube aussi. Compter des renflements sur eux, c'est mesurer autre chose.
+	bool toutesCulminent = true;
+	for (uint32 i = 0; i < sc.nPieces; ++i) {
+		if (sc.pieces[i].op == OP_DIFF)
+			continue;
+		const Forme f = sc.pieces[i].f;
+		if (f != F_SPHERE && f != F_CAPSULE && f != F_TORE)
+			toutesCulminent = false;
+	}
+	if (surMemeAxe >= 1 && surMemeAxe == empilees && additives == surMemeAxe + 1 && toutesCulminent) {
+		const uint32 attendu = additives;
+		const bool ok = (renflements == attendu);
+		printf("  [%s] pile verticale : %u renflement(s) attendu(s), %u mesure(s)\n", ok ? "VERT " : "ROUGE", attendu,
+			   renflements);
+		if (!ok) {
+			++rouge;
+			printf("          -> LE DOCUMENT DECRIT UN OBJET QUE LA GEOMETRIE NE MONTRE PAS.\n");
+		}
+		// ── L'ORDRE DES LARGEURS, ET POURQUOI CE CRITERE-CI ET PAS L'AUTRE ──
+		// Mon premier critere disait « les renflements sont ordonnes de bas en
+		// haut ». Il ne pouvait PAS echouer : `CompterRenflements` parcourt les
+		// tranches du bas vers le haut, donc ses hauteurs sont croissantes PAR
+		// CONSTRUCTION. C'est la mutation NK_SCENE_MUTE=2 -- empiler vers le bas
+		// -- qui l'a revele en restant VERTE. « La mutation n'a pas valide le
+		// temoin, elle a revele que je n'en avais pas. »
+		//
+		// Celui-ci compare deux grandeurs REELLEMENT distinctes : l'ordre des
+		// RAYONS mesures sur le maillage, et l'ordre des LARGEURS declarees dans
+		// le document. Un bonhomme de neige declare 1,00 / 0,70 / 0,45 ; sorti a
+		// l'envers, son plus gros renflement est en haut, et le critere rougit.
+		if (renflements == additives && renflements >= 2 && renflements <= 64) {
+			// Les largeurs declarees, du bas vers le haut : on suit la chaine
+			// des relations depuis la partie qui n'en a aucune.
+			float largeur[64];
+			uint32 nl = 0;
+			int32 courant = -1;
+			for (uint32 i = 0; i < sc.nPieces && nl == 0; ++i)
+				if (sc.poseSur[i] < 0 && sc.pieces[i].op != OP_DIFF)
+					courant = (int32)i;
+			while (courant >= 0 && nl < 64) {
+				const Piece &q = sc.pieces[courant];
+				largeur[nl++] = q.s * Mx(q.sx, q.sz);
+				int32 suivant = -1;
+				for (uint32 i = 0; i < sc.nPieces && suivant < 0; ++i)
+					if (sc.poseSur[i] == courant && sc.pieces[i].op != OP_DIFF)
+						suivant = (int32)i;
+				courant = suivant;
+			}
+			if (nl == renflements) {
+				uint32 accords = 0, paires = 0;
+				for (uint32 k = 1; k < nl; ++k) {
+					const bool decDoc = (largeur[k] < largeur[k - 1]);
+					const bool decGeo = (rayons[k] < rayons[k - 1]);
+					++paires;
+					if (decDoc == decGeo)
+						++accords;
+				}
+				const bool ok = (accords == paires);
+				printf("  [%s] l'ordre des largeurs suit le document (%u paire(s) sur %u)\n", ok ? "VERT " : "ROUGE",
+					   accords, paires);
+				printf("          document :");
+				for (uint32 k = 0; k < nl; ++k)
+					printf(" %.2f", largeur[k]);
+				printf("   |   geometrie :");
+				for (uint32 k = 0; k < renflements && k < 64; ++k)
+					printf(" %.2f", rayons[k]);
+				printf("\n");
+				if (!ok) {
+					++rouge;
+					printf("          -> L'OBJET N'EST PAS ORIENTE COMME LE DOCUMENT LE DIT.\n");
+				}
+			} else {
+				printf("  [ -- ] ordre des largeurs NON APPLICABLE (la chaine de relations n'est pas lineaire)\n");
+			}
+		}
+	} else {
+		printf("  [ -- ] critere de pile NON APPLICABLE ici : %s -- il se TAIT\n",
+			   !toutesCulminent ? "au moins une partie n'a pas de rayon qui CULMINE (cone, cylindre, cube)"
+								: "parties decalees, soustraites, ou pile non lineaire");
+	}
+
+	// ── LES COMPOSANTES CONNEXES : LE CRITERE QUI ATTRAPE UNE PARTIE DETACHEE ─
+	// DERIVE du document et de rien d'autre : si toutes les parties additives
+	// sont reliees entre elles par des relations, l'objet est d'un seul tenant,
+	// donc la geometrie doit montrer UNE composante. Si K parties n'ont aucune
+	// relation, elles peuvent former jusqu'a K groupes.
+	//
+	// ⚠️ C'EST L'IMAGE QUI A COMMANDE CE CRITERE. La chaise etait verte, et son
+	// dossier FLOTTAIT. chi = 4 le disait -- chi = 2(C - G) donne C = 2 -- et je
+	// ne l'avais pas lu. Un chiffre juste qu'on ne lit pas ne vaut pas mieux
+	// qu'un chiffre absent.
+	{
+		// Union-find sur les sommets, par les aretes des triangles du maillage
+		// RELU : aucun code commun avec le placement.
+		NkVector<uint32> parent;
+		const uint32 nv = (uint32)V.Size();
+		parent.Resize(nv);
+		for (uint32 i = 0; i < nv; ++i)
+			parent[i] = i;
+		// Les sommets coincidents doivent etre soudes AVANT, sinon deux faces
+		// qui se touchent passeraient pour disjointes.
+		// (LoadOBJ rend deja des indices partages : on relie par les triangles.)
+		struct F {
+				static uint32 Trouver(NkVector<uint32> &p, uint32 a) {
+					while (p[a] != a) {
+						p[a] = p[p[a]];
+						a = p[a];
+					}
+					return a;
+				}
+		};
+		for (uint32 sm = 0; sm < (uint32)data.subMeshes.Size(); ++sm) {
+			const NkSubMesh &S = data.subMeshes[sm];
+			for (uint32 i = 0; i + 2 < S.indexCount; i += 3) {
+				const uint32 a = data.indices[S.firstIndex + i] + S.baseVertex;
+				const uint32 b = data.indices[S.firstIndex + i + 1] + S.baseVertex;
+				const uint32 c = data.indices[S.firstIndex + i + 2] + S.baseVertex;
+				if (a >= nv || b >= nv || c >= nv)
+					continue;
+				const uint32 ra = F::Trouver(parent, a), rb = F::Trouver(parent, b), rc = F::Trouver(parent, c);
+				if (ra != rb)
+					parent[rb] = ra;
+				const uint32 ra2 = F::Trouver(parent, a), rc2 = F::Trouver(parent, c);
+				if (ra2 != rc2)
+					parent[rc2] = ra2;
+			}
+		}
+		uint32 composantes = 0;
+		for (uint32 i = 0; i < nv; ++i)
+			if (F::Trouver(parent, i) == i)
+				++composantes;
+		// L'attendu : le nombre de GROUPES de parties additives reliees.
+		uint32 racines = 0;
+		for (uint32 i = 0; i < sc.nPieces; ++i)
+			if (sc.pieces[i].op != OP_DIFF && sc.poseSur[i] < 0)
+				++racines;
+		const uint32 attenduC = racines == 0 ? 1 : racines;
+		const bool okC = (composantes == attenduC);
+		printf("  [%s] composantes connexes : %u attendue(s) (le document relie %u partie(s) en %u groupe(s)), "
+			   "%u mesuree(s)\n",
+			   okC ? "VERT " : "ROUGE", attenduC, additives, attenduC, composantes);
+		if (!okC) {
+			++rouge;
+			printf("          -> UNE PARTIE EST DETACHEE, ou deux qui devaient l'etre se touchent.\n");
+		}
+	}
+
+	// Le compte de parties, lui, se verifie toujours -- contre le DOCUMENT, pas
+	// contre la phrase.
+	const bool okN = (sc.nPieces > 0);
+	printf("  [%s] le document declare au moins une partie\n", okN ? "VERT " : "ROUGE");
+	if (!okN)
+		++rouge;
+
+	printf("  VERDICT DOCUMENT : %s (%d rouge)\n", rouge == 0 ? "VERT" : "ROUGE", rouge);
+	return rouge;
+}
+
 int main(int argc, char **argv) {
 	const char *texte = nullptr;
+	const char *scene = nullptr;
+	bool verifier = false;
 	const char *out = nullptr;
 	const char *dossier = ".";
 	uint32 res = 64;
@@ -1025,8 +1792,11 @@ int main(int argc, char **argv) {
 		else if (strcmp(argv[i], "--dossier") == 0 && i + 1 < argc) dossier = argv[++i];
 		else if (strcmp(argv[i], "--banc") == 0) banc = true;
 		else if (strcmp(argv[i], "--banc-variete") == 0) bancVariete = true;
+		else if (strcmp(argv[i], "--scene") == 0 && i + 1 < argc) scene = argv[++i];
+		else if (strcmp(argv[i], "--verifier") == 0) verifier = true;
 		else
 			return Refus("argument inconnu : %s\nusage : NKTexte3D --texte \"<phrase>\" --out <f.obj> [--res N]\n"
+						 "        NKTexte3D --scene <doc.nkscene> --out <f.obj> [--verifier] [--res N]\n"
 						 "        NKTexte3D --banc [--res N] [--dossier <d>]",
 						 argv[i]);
 	}
@@ -1034,6 +1804,73 @@ int main(int argc, char **argv) {
 		return BancVariete(dossier);
 	if (banc)
 		return Banc(res, dossier);
+	// ── LE DOCUMENT DE SCENE : le chemin qui REPARE le defaut du 17/09 ──────
+	if (scene) {
+		if (texte)
+			return Refus("--texte et --scene ensemble : deux sources pour une meme scene. Choisis-en une.");
+		if (!out || !SortieEstObj(out))
+			return Refus("la sortie doit finir par .obj : %s", out ? out : "(null)");
+		if (res < 8 || res > 512)
+			return Refus("resolution hors bornes : %u (attendu entre 8 et 512)", res);
+		printf("== NKTexte3D : document « %s » -> %s ==\n", scene, out);
+		Scene sc;
+		char pourquoi[512];
+		if (LireScene(scene, sc, pourquoi, sizeof(pourquoi)) == 0)
+			return Refus("%s", pourquoi);
+		// ── LES MUTATIONS DU DOCUMENT, DANS LE MEME BINAIRE ─────────────────
+		// Sans elles, le vert du critere ne prouve rien : « une mutation qui
+		// survit dit : ce critere ne teste rien ». Deux constructions separees
+		// pourraient differer par autre chose ; une variable d'environnement
+		// isole la seule cause testee.
+		if (const char *mu = getenv("NK_SCENE_MUTE")) {
+			if (mu[0] == '1') {
+				// Noyer les jonctions : les parties se fondent, les renflements
+				// disparaissent. Le COMPTE doit tomber, donc le critere rougir.
+				sc.lissage = 0.60f;
+				printf("  MUTATION NK_SCENE_MUTE=1 : lissage force a 0,60 (les jonctions se noient)\n");
+			}
+			if (mu[0] == '2') {
+				// Empiler VERS LE BAS : le compte de renflements reste juste, mais
+				// l'ordre s'inverse. Une mutation CIBLEE -- elle doit rougir UN
+				// critere et laisser l'autre vert, sinon elle ne prouve pas sa cible.
+				for (uint32 i = 0; i < sc.nPieces; ++i)
+					if (sc.poseSur[i] >= 0)
+						sc.pieces[i].cy = sc.pieces[sc.poseSur[i]].cy - (sc.pieces[i].cy - sc.pieces[sc.poseSur[i]].cy);
+				printf("  MUTATION NK_SCENE_MUTE=2 : « pose_sur » empile VERS LE BAS\n");
+			}
+			if (mu[0] == '3') {
+				// Ignorer l'echelle par axe : tout redevient isotrope. C'est
+				// exactement l'etat d'AVANT ce lot -- le pied plat redevient un
+				// cylindre, la tige fine un gros tube.
+				for (uint32 i = 0; i < sc.nPieces; ++i)
+					sc.pieces[i].sx = sc.pieces[i].sy = sc.pieces[i].sz = 1.f;
+				printf("  MUTATION NK_SCENE_MUTE=3 : echelle par axe ignoree (etat d'avant le lot A)\n");
+			}
+		}
+		Sortie so;
+		const int r = Emettre(sc, out, res, so);
+		if (r != 0)
+			return r;
+		int rougeDoc = 0;
+		if (verifier)
+			rougeDoc = VerifierContreDocument(sc, out);
+		Relecture rl;
+		if (!Relire(out, rl)) {
+			fprintf(stderr, "REFUS : le .obj a ete ecrit mais LoadOBJ ne le relit pas : %s\n", out);
+			return 1;
+		}
+		printf("  MESURE relecture : V(soude)=%u E=%u F=%u  bords=%u nonManifold=%u  chi=%d volume_signe=%+.5f\n",
+			   rl.st.verts, rl.st.edges, rl.st.faces, rl.st.boundaryEdges, rl.st.nonManifoldEdges, rl.st.euler,
+			   rl.volume);
+		if (rl.st.nonManifoldEdges > 0 || (rl.st.euler % 2) != 0) {
+			fprintf(stderr, "REFUS : le maillage produit n'est pas une surface saine "
+							"(nonManifold=%u, chi=%d) -- le garde-fou refuse de l'ecrire comme valide\n",
+					rl.st.nonManifoldEdges, rl.st.euler);
+			return 1;
+		}
+		return rougeDoc == 0 ? 0 : 1;
+	}
+
 	if (!texte && !out)
 		return Refus("rien a faire.\nusage : NKTexte3D --texte \"<phrase>\" --out <f.obj> [--res N]\n"
 					 "        NKTexte3D --banc [--res N] [--dossier <d>]\n        %s",
