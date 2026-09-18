@@ -552,10 +552,34 @@ namespace nkuidesign {
 			NkUIDocument doc;
 			NkLayoutResult layout;
 			NkDocumentHost host;
-			NkTheme theme;
+			/// ⚠️ IL NAIT CHARGE, ET C'EST LA PORTE UNIQUE D'UNE FAMILLE DE FAUX
+			///    VERTS. Un `NkTheme` neuf porte la sentinelle magenta sur TOUS ses
+			///    roles -- c'est voulu : un role oublie doit sauter aux yeux. Mais un
+			///    `DesignState` qui naissait ainsi rendait la MEME valeur pour 43 roles,
+			///    et tout critere qui identifie la geometrie PAR SA COULEUR retenait
+			///    alors 78 % des sommets de la scene (mesure du 17/09 : 3 688 sur 4 754).
+			///    La sonde 74 accusait le produit depuis des SEMAINES a cause de ca.
+			///
+			///    35 des 36 etats de mesure du banc etaient dans ce cas. On ne corrige
+			///    pas 35 sites a la main : on ferme la porte par ou ils passent tous.
+			///
+			/// ⚠️ ET LA SENTINELLE SURVIT LA OU ELLE SERT : `Dark()` pose les roles
+			///    qu'il connait ; un role NEUF que personne n'a pose garde le magenta.
+			///    On ne desarme pas le detecteur de « role oublie » -- on retire le cas
+			///    « theme jamais charge », qui n'est pas la meme chose.
+			///
+			/// ⚠️ L'APPLICATION NE CHANGE PAS D'UN PIXEL : elle POUSSE son theme
+			///    par-dessus (`gDesign.theme = gThemes.Current()` au demarrage et a
+			///    chaque bascule). Cette valeur par defaut ne vaut que pour les etats
+			///    que personne n'alimente -- c'est-a-dire les bancs.
+			NkTheme theme = NkTheme::Dark();
 
 			NkDesignAI ai;
 			NkFileBackend fileBackend;
+			/// ⚠️ MEMBRE, PAS LOCALE. `ai` garde un POINTEUR vers son dorsal : une
+			///    variable de pile aurait donne un segfault mouvant, la faute que ce
+			///    depot a deja payee avec le registre de composants.
+			NkOllamaBackend ollamaBackend;
 
 			// -- DISCUTER AVANT DE DESSINER -----------------------------------
 			// Rodolf : « on doit pouvoir discuter avec lui AVANT de commencer a
@@ -631,6 +655,76 @@ namespace nkuidesign {
 			/// ⚠️ APRES UNE ANNULATION, CETTE FONCTION NE VOIT RIEN : la poignee a
 			///    lache sa part de la tache et l'a oubliee. La reponse annulee ne
 			///    sera pas « ignoree plus tard » -- elle ne sera JAMAIS posee.
+			/// ── LE GESTE « ENVOYER », ET IL N'EXISTE QU'ICI ──────────────────
+			/// ⚠️ IL A QUITTE LE PANNEAU LE 17/09, ET CE N'EST PAS DU RANGEMENT.
+			///    Le banc doit pouvoir eprouver la chaine complete SANS FENETRE ;
+			///    recopier le corps de `Discuter` dans une sonde aurait fait DEUX
+			///    CHEMINS POUR UN GESTE -- faute deja nommee dans ce depot, dont le
+			///    cout est qu'on eprouve l'un pendant que l'autre casse. Le panneau
+			///    appelle CETTE fonction, et la sonde aussi.
+			///
+			/// Rend faux ET NOMME la raison dans `pourquoi` : jamais un silence.
+			/// ⚠️ DEUX GESTES, PAS UN, ET LA RECOLTE DOIT SAVOIR LEQUEL ELLE RECOLTE.
+			///    « Discuter » demande au modele de NE PRODUIRE AUCUN document --
+			///    l'invite de conversation le dit en toutes lettres. « Generer »
+			///    demande un `nkuidoc`. Poser le resultat d'une DISCUSSION dans le
+			///    document serait absurde ; ne pas poser celui d'une GENERATION est
+			///    le defaut que Rodolf a constate (« le document n'a pas bouge »).
+			bool envoiVeutDocument = false;
+
+			/// ── GENERER UN DOCUMENT ─────────────────────────────────────────
+			/// L'invite du CATALOGUE et du FORMAT, celle que le banc mesure -- pas
+			/// celle de la conversation.
+			///
+			/// ⚠️ LE CATALOGUE EST REPLIE DANS L'INVITE, et ce n'est pas un detail :
+			///    le chemin asynchrone ne transporte qu'UNE chaine, la ou `Ask`
+			///    remplit trois champs. Sans ce repli, le modele recevrait le format
+			///    sans la liste des composants, et inventerait des noms -- un rejet
+			///    « composant inconnu » qu'on aurait mis sur le compte du modele.
+			bool LancerGenerationIA(const char *texte, NkString &pourquoi) {
+				if (envoi.EnCours()) {
+					pourquoi = NkString("une generation est deja en cours ; Annuler la jette");
+					return false;
+				}
+				if (!texte || !texte[0]) {
+					pourquoi = NkString("rien a envoyer : la description est vide");
+					return false;
+				}
+				conversation.Ajouter(NkQui::Moi, texte);
+				NkString invite;
+				ai.BatirInviteComplete(texte, invite);
+				NkString cat;
+				NkDesignAI::BuildCatalog(cat);
+				if (cat.Length() > 0) {
+					invite.Append("\n");
+					invite.Append(cat);
+					invite.Append("\n");
+				}
+				envoiVeutDocument = true;
+				if (envoi.Lancer(ai.Backend(), invite, pourquoi))
+					return true;
+				envoiVeutDocument = false; // rien n'est parti : on ne laisse pas le drapeau arme
+				return false;
+			}
+
+			bool LancerDemandeIA(const char *texte, NkString &pourquoi) {
+				if (envoi.EnCours()) {
+					pourquoi = NkString("une generation est deja en cours ; Annuler la jette");
+					return false;
+				}
+				// LE ZERO DU GESTE : un champ vide ne part pas. Sans cette garde, un
+				// clic distrait consommerait une generation pour rien.
+				if (!texte || !texte[0]) {
+					pourquoi = NkString("rien a envoyer : l'invite est vide");
+					return false;
+				}
+				conversation.Ajouter(NkQui::Moi, texte);
+				NkString invite;
+				conversation.BatirInvite(invite);
+				envoiVeutDocument = false; // une DISCUSSION ne pose rien dans le document
+				return envoi.Lancer(ai.Backend(), invite, pourquoi);
+			}
+
 			bool RecolterIA() {
 				NkString texte, erreur;
 				bool reussi = false;
@@ -638,11 +732,58 @@ namespace nkuidesign {
 					return false;
 				if (reussi) {
 					conversation.Ajouter(NkQui::IA, texte.Data());
-					char b[192];
-					snprintf(b, sizeof(b),
-							 "Reponse recue en %.1f s (%u images pendant l'attente). "
-							 "Le document n'a pas bouge.",
-							 envoi.Secondes(), envoi.Images());
+					// ⚠️ ET ON POSE LE DOCUMENT. Jusqu'au 17/09 cette fonction ecrivait
+					//    « Le document n'a pas bouge » -- c'etait vrai, et c'etait le
+					//    chainon manquant : la reponse arrivait dans la conversation et
+					//    l'editeur restait vide. Rodolf demande qu'il TAPE et que le
+					//    document APPARAISSE.
+					//
+					// ⚠️ `Apply` VALIDE AVANT DE GREFFER, dans un document de cote : un
+					//    texte non conforme ne touche jamais le document ouvert. C'est
+					//    pour ca qu'on peut poser sans filet de securite ici.
+					if (!envoiVeutDocument) {
+						// C'ETAIT UNE DISCUSSION. Le modele a repondu en francais, pas en
+						// `nkuidoc` -- son invite le lui INTERDIT explicitement. Chercher un
+						// document ici rendrait un refus « pas de ligne nkuidoc » a chaque
+						// tour de conversation, et on croirait le modele en panne.
+						char bd[192];
+						snprintf(bd, sizeof(bd),
+								 "Reponse recue en %.1f s (%u images pendant l'attente). "
+								 "C'etait une discussion : le document n'a pas bouge.",
+								 envoi.Secondes(), envoi.Images());
+						messageIA = NkString(bd);
+						return true;
+					}
+					envoiVeutDocument = false;
+					const int32 cible = doc.IsValidIndex(selected) ? selected : 0;
+					const NkAIResult r = ai.Apply(texte.Data(), doc, cible, "panneau IA");
+					char b[320];
+					if (r.Accepted()) {
+						// ⚠️ IL FAUT ARMER L'ACTIVITE, SINON L'ANNULATION NE VOIT RIEN.
+						//    L'observateur d'historique ne tourne que dans la traine
+						//    d'activite, et une pose de l'IA n'est precedee d'AUCUN geste :
+						//    ni clic, ni touche. Sans cette ligne, Ctrl+Z ne defait pas ce
+						//    que l'IA vient de poser -- un geste qu'on ne peut pas defaire
+						//    est pire qu'un geste qu'on ne peut pas faire.
+						++editionGeneration;
+						// ⚠️ PAS DE `Recompute` ICI : la toile en fait un A CHAQUE IMAGE avec SA
+						//    surface (`mSt->Recompute(docSurface)`). En lancer un second, depuis
+						//    la barre de menus et avec une AUTRE surface, aurait pose une
+						//    disposition calculee pour un rectangle qui n'est pas celui de
+						//    l'ecran -- deux verites sur la meme chose.
+						snprintf(b, sizeof(b),
+								 "Document pose en %.1f s (%u images pendant l'attente). "
+								 "Ctrl+Z le defait.",
+								 envoi.Secondes(), envoi.Images());
+					} else {
+						// Le verdict est NOMME : « le modele a repondu » et « ce qu'il a
+						// repondu n'est pas un document » sont deux choses differentes, et
+						// elles se reparent a deux endroits (le service, ou l'invite).
+						snprintf(b, sizeof(b), "REPONSE RECUE mais NON POSEE — %s%s%s",
+								 NkAIVerdictName(r.verdict),
+								 r.detail.Length() > 0 ? " : " : "",
+								 r.detail.Length() > 0 ? r.detail.Data() : "");
+					}
 					messageIA = NkString(b);
 				} else {
 					// Aucun tour IA vide : un tour vide ferait croire que la machine
@@ -1312,8 +1453,21 @@ namespace nkuidesign {
 				//    demandee pour les DEUX generateurs, et c'est deja celle du
 				//    pont GENIA du modeleur.
 				{
+					// ⚠️ TROIS DORSAUX, DU PLUS AUTONOME AU PLUS MANUEL, et le premier qui
+					//    REPOND gagne. Ollama d'abord parce qu'il ne demande rien a
+					//    l'utilisateur : ni gabarit a poser, ni fichier a coller a la main.
+					//
+					// ⚠️ OLLAMA EST UN ECHAFAUDAGE, PAS LA DESTINATION. `Kernel/AI/NKInfer`
+					//    lit deja les poids GGUF REELS et `NkOllamaLocate.h` sait traduire
+					//    « qwen2.5:7b-instruct » en chemin de blob : notre moteur consomme les
+					//    MEMES poids. Le jour ou il aura un chemin processeur, il prend cette
+					//    place SANS qu'une ligne d'interface bouge -- parce que ce qui sort
+					//    d'ici est NOTRE requete et NOTRE reponse, jamais le protocole d'un
+					//    service. C'est un REGLAGE, pas une reecriture.
 					NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
-					if (proc.IsAvailable())
+					if (ollamaBackend.IsAvailable())
+						ai.SetBackend(&ollamaBackend);
+					else if (proc.IsAvailable())
 						ai.SetBackend(&proc);
 					else
 						ai.SetBackend(&fileBackend);
@@ -9479,8 +9633,18 @@ namespace nkuidesign {
 						mLast = NkString("Generation annulee — sa reponse ne sera "
 										 "jamais posee dans la discussion.");
 					}
-				} else if (ec.Button("Envoyer"))
-					Discuter();
+				} else {
+					// ⚠️ DEUX BOUTONS PARCE QU'IL Y A DEUX GESTES, et les confondre a
+					//    coute la plainte de Rodolf. « Envoyer » DISCUTE : son invite
+					//    interdit au modele de produire un document, et le document ne
+					//    bouge pas -- c'est voulu, on definit avant de dessiner.
+					//    « Generer le document » DEMANDE un `nkuidoc` et le POSE.
+					//    Un bouton unique aurait du deviner lequel des deux on veut.
+					if (ec.Button("Envoyer"))
+						Discuter();
+					if (ec.Button("Generer le document"))
+						GenererDocument();
+				}
 				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
 					mSt->conversation.Effacer();
 					mLast = NkString("Discussion effacee — le document n'a pas bouge.");
@@ -9641,22 +9805,33 @@ namespace nkuidesign {
 			//     conversation, qui appartient a l'interface ; la batir dans le
 			//     travailleur aurait mis la conversation a portee du second fil —
 			//     c'est-a-dire exactement ce que la regle de partage interdit.
-			void Discuter() {
-				if (mSt->envoi.EnCours()) {
-					mLast = NkString("Une generation est deja en cours. « Annuler » "
-									 "la jette ; deux modeles n'entrent pas dans "
-									 "cette carte de toute facon.");
-					return;
-				}
-				if (!mSt->chatBuf[0]) {
-					mLast = NkString("REFUS — rien a envoyer : l'invite est vide.");
-					return;
-				}
-				mSt->conversation.Ajouter(NkQui::Moi, mSt->chatBuf);
-				NkString invite;
-				mSt->conversation.BatirInvite(invite);
+			/// ⚠️ LE GESTE QUE RODOLF DEMANDE : il tape une phrase, et le document
+			///    APPARAIT. Il ne passe PAS par `Discuter` : l'invite de
+			///    conversation dit au modele « tu ne produis AUCUN document », donc
+			///    la reponse ne contiendrait jamais de `nkuidoc`. Mesure du 17/09 :
+			///    « pas de ligne nkuidoc dans la reponse », a chaque fois.
+			void GenererDocument() {
 				NkString pourquoi;
-				if (mSt->envoi.Lancer(mSt->ai.Backend(), invite, pourquoi)) {
+				if (mSt->LancerGenerationIA(mSt->chatBuf, pourquoi)) {
+					mSt->chatBuf[0] = 0;
+					mLast = NkString("Generation du document lancee — la fenetre reste vivante.");
+				} else {
+					// Le refus est NOMME a l'ECRAN, pas seulement au journal : un
+					// bouton qui ne fait rien sans rien dire est le pire des deux.
+					char b[320];
+					snprintf(b, sizeof(b), "REFUS — %s",
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
+					mLast = NkString(b);
+				}
+			}
+
+			void Discuter() {
+				// ⚠️ LE GESTE VIT DANS L'ETAT (`LancerDemandeIA`), PAS ICI. Le bouton
+				//    ne fait que l'appeler et traduire son refus en phrase. Un second
+				//    exemplaire du geste dans une sonde aurait laisse eprouver un chemin
+				//    pendant que l'autre cassait -- « deux chemins pour un geste ».
+				NkString pourquoi;
+				if (mSt->LancerDemandeIA(mSt->chatBuf, pourquoi)) {
 					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
 					mLast = NkString("Generation lancee — la fenetre reste vivante.");
 				} else {

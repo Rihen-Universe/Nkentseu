@@ -33,6 +33,11 @@
 #include "pch.h"
 #include "NKCore/Text/NkSnprintf.h"
 #include "NkHTTPClient.h"
+// ⚠️ IL INCLUT CE QU'IL UTILISE. `NkSocket` est le proprietaire de la
+//    connaissance « comment demarre-t-on la pile sur cette plateforme ». Appeler
+//    `WSAStartup` directement ici aurait fait DEUX endroits qui savent la meme
+//    chose, et ils auraient fini par ne plus etre d'accord.
+#include "NKNetwork/Transport/NkSocket.h"
 
 // Opérations bas-niveau, chaînes, temps et fichiers via les modules Nkentseu (zero-STL)
 #include "NKMemory/NkFunction.h"
@@ -249,6 +254,32 @@ namespace {
 #endif
 
 	NkNativeSocket CreateTcpSocket(const char *host, uint16 port, uint32 timeoutMs) noexcept {
+		// ⚠️ LA PILE DE SOCKETS N'ETAIT JAMAIS DEMARREE, ET LE MESSAGE D'ERREUR
+		//    ACCUSAIT LE SERVEUR. Sous Windows, `socket()` echoue tant que
+		//    `WSAStartup` n'a pas ete appele. Ce fichier ne l'appelait nulle part
+		//    (mesure du 17/09 : 0 occurrence de PlatformInit / WSAStartup), donc
+		//    CHAQUE requete rendait `kInvalidSocket`, et `SendOverTCP` ecrivait
+		//    « Connection failed » -- c'est-a-dire « le serveur n'est pas la ».
+		//
+		//    Mesure qui l'a trouve : meme URL, meme instant, `curl` rend 200 en
+		//    7,5 ms pendant que ce client rend 0 en **0 ms**. Le zero est le fait
+		//    decisif : il n'a pas expire, il n'est jamais parti.
+		//
+		// ⚠️ PARESSEUSE ET UNE SEULE FOIS. `NkSocket.h` dit « appeler exactement une
+		//    fois au demarrage de l'application » -- mais une bibliotheque ne peut
+		//    pas exiger de chacun de ses appelants qu'il se souvienne d'un rituel :
+		//    c'est exactement « un etat qu'il faut armer se fera oublier par la
+		//    porte que les appelants prennent ». Un `static` local est initialise
+		//    une fois, et de facon sure entre fils, depuis C++11.
+		//
+		//    On ne libere PAS (`WSACleanup`) : la pile vit aussi longtemps que le
+		//    processus, et un compteur de liberation partage entre appelants
+		//    couperait le reseau du premier qui finit sous les pieds des autres.
+		static const bool pileDemarree =
+			(nkentseu::net::NkSocket::PlatformInit() == nkentseu::net::NkNetResult::NK_NET_OK);
+		if (!pileDemarree)
+			return kInvalidSocket; // le message du dessus dira lequel des deux
+		
 		// Résolution DNS
 		addrinfo hints = {};
 		hints.ai_family = AF_UNSPEC;
