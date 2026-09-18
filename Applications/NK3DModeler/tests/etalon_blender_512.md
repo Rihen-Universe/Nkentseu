@@ -450,13 +450,13 @@ eux, tiennent : ils viennent d'un cadrage où les comptes restent à 30-36 px, a
 
 ---
 
-## 13. LE `X` DU MODE OBJET : mesuré, et il ne fait RIEN
+## 13. ⚠️ LE `X` DU MODE OBJET — **CE QUI SUIT ÉTAIT FAUX. Voir le §15.**
 
 **Point 4 du lot. Vérifié dans la source, pas supposé.**
 
 | | Blender (054016) | nous |
 |---|---|---|
-| `X` en mode Objet | une **confirmation** : *« Delete selected objects? »*, **Delete** (bleu, mis en avant) et **Cancel** | **rien ne se passe** |
+| `X` en mode Objet | une **confirmation** : *« Delete selected objects? »*, **Delete** (bleu, mis en avant) et **Cancel** | ⚠️ **une confirmation AUSSI** — mon « rien ne se passe » était faux, voir §15 |
 
 **Ce que la lecture montre, avec les adresses** :
 
@@ -538,3 +538,68 @@ le dépôt a déjà retenu pour cette plateforme.
 
 **Le chiffre couvre donc QUATRE dorsaux sur cinq, et la sonde l'écrit à l'écran** pour qu'aucun
 lecteur ne croie qu'il en couvre cinq.
+
+---
+
+## 15. ⚠️ TROISIÈME CORRECTION — « le `X` du mode Objet ne fait rien » ÉTAIT FAUX, et il est MESURÉ
+
+Le §13 annonçait que `X` en mode Objet **ne faisait rien** et que « Supprimer » était *déclaré et
+non livré*. **Les deux affirmations sont fausses**, et cette fois c'est une **mesure** qui le dit.
+
+### La mesure, par un crochet qui emprunte le chemin de la touche
+
+`NK_OBJ_SUPPR=<image>` pose le **même** `delK` que la touche — aucune injection clavier.
+
+```
+[nk3d] OBJ SUPPR : touche lue, cibles=1, confirmation=1
+```
+
+**Et la confirmation est PEINTE**, vérifiée sur la capture de la fenêtre de sonde :
+
+> **« Supprimer "Cube.003" ? »** — bouton **Supprimer** (bleu, mis en avant) et **Annuler (Echap)**.
+
+⚠️ **Elle NOMME l'objet.** Blender écrit *« Delete selected objects? »* ; nous écrivons le nom.
+**C'est mieux, et il faut le garder.**
+
+### Ce que le §13 avait manqué, et pourquoi
+
+J'avais lu **`NkDemo3D.cpp`**, vu la touche `X` traitée à l'intérieur de `if (st->editMode)`, et
+conclu qu'elle n'existait pas ailleurs. **Le raccourci vit dans un AUTRE fichier** —
+`NkModelerHierarchy.h`, fonction `PaintSceneMenus` — et son commentaire dit même :
+*« valables aussi la souris sur la vue 3D »*.
+
+> **TROISIÈME absence conclue d'une vue partielle dans la même journée**, après le centre de face
+> (deux captures) et `Edge Loops` (un `head -25`). **Celle-ci aurait coûté le plus cher** : on
+> allait écrire une seconde porte pour une fonction qui en avait déjà une — exactement ce que le
+> dépôt appelle *deux chemins pour un geste*.
+
+### Ce qui est DÉJÀ conforme, point par point
+
+| demandé | état |
+|---|---|
+| `X` branché en mode Objet | ✅ **mesuré** |
+| une **confirmation**, pas une liste | ✅ **peinte**, et elle nomme l'objet |
+| l'action **mise en avant** | ✅ fond d'accent sur « Supprimer » |
+| **le zéro** : sans sélection, rien ne s'ouvre | ✅ **dans le code** (`if (st.delNodeCount > 0)`) — ⚠️ **non mesuré** : je n'ai pas de crochet pour vider la sélection, et je ne l'annonce donc pas comme prouvé |
+| une **porte, pas un état armé** | ✅ le dialogue est **redéclaré à chaque image** dans `PaintSceneMenus` ; il ne peut pas rester armé sans être rendu |
+| Échap annule | ✅ |
+
+### ⚠️ CE QUI MANQUE VRAIMENT : L'ANNULATION
+
+```cpp
+void Demo3DHostDeleteNode(int32 node, bool withChildren) {
+    nkvpDeleted[node] = true;
+    if (node >= kNkvpFirstUser)
+        nkvpUserKind[node - kNkvpFirstUser] = 0; // slot recyclable
+    ...
+}
+```
+
+**Aucune pile d'annulation n'est touchée. Supprimer un objet ne se défait pas.**
+
+⚠️ **Et ce n'est pas un simple `Ctrl+Z` à brancher** : le slot est **immédiatement marqué
+recyclable**. Une création ultérieure peut le reprendre — donc restaurer l'objet demande de
+**retenir son contenu** (nature, transformation, maillage, parent, enfants), pas seulement de
+lever un drapeau. **C'est le vrai lot**, et il est plus gros que « brancher la touche ».
+
+**C'est le seul des cinq points demandés qui reste à faire.**
