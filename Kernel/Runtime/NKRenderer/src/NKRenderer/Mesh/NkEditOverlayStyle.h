@@ -170,13 +170,51 @@ namespace nkentseu {
 				///    divergeraient au premier reglage.
 				static NkVec4f AreteSel() { return SommetSel(); }
 
-				/// Le remplissage d'une face selectionnee : TRANSLUCIDE, pour que
-				/// la surface reste lisible dessous. C'est son alpha qui le
-				/// distingue d'un marqueur a l'ecran -- et c'est pour ca qu'un
-				/// test de couleur ne se transporte pas d'un dorsal a l'autre :
-				/// un melange translucide ne donne pas les memes pixels en
-				/// OpenGL et en DirectX. Mesure du 18/09.
-				static NkVec4f FaceRemplissage() { return NkVec4f{1.f, 0.55f, 0.06f, 0.36f}; }
+				/// L'ALPHA DU REMPLISSAGE DE FACE.
+				/// ⚠️ IL REPOND A UN ECART MESURE, ET L'ECART ETAIT ENORME. Sur la
+				///    surface, l'ecart entre le gris nu et le gris teinte vaut :
+				///        Blender  (+35, +7, -12)      -- un rechauffement DISCRET
+				///        nous     (+151, +123, +23)   -- quatre fois plus fort
+				///    Et le signe du bleu s'oppose : Blender l'ABAISSE, nous le
+				///    MONTIONS. Notre teinte ne rechauffait pas la surface, elle la
+				///    RECOUVRAIT -- le gris ne transparaissait plus.
+				///
+				/// ⚠️ ET L'ALPHA DE BLENDER NE SE DEDUIT PAS, c'est etabli : en
+				///    resolvant `teinte = a*C + (1-a)*gris` sur ses captures, on
+				///    obtient trois alphas par canal incompatibles -- en sRGB (0,29 /
+				///    1,71 / 0,10) comme en lineaire (0,19 / 1,85 / ...). Son melange
+				///    n'est donc un alpha simple dans AUCUN des deux espaces. Recopier
+				///    un nombre lu dans sa capture ne reproduira jamais sa teinte.
+				///    La valeur ci-dessous est donc CALIBREE SUR NOTRE RENDU, par
+				///    iteration mesuree, pour approcher l'ecart que Blender produit.
+				///    LA CALIBRATION, mesuree sur renderdemo a camera figee (ecart
+				///    median entre le gris nu et le gris teinte, 6 400 pixels) :
+				///        alpha 0,36  ->  (+151, +123,  +23)   la surface est RECOUVERTE
+				///        alpha 0,10  ->  ( +89,  +19,   -2)
+				///        alpha 0,05  ->  ( +57,  +11,   -1)
+				///        alpha 0,03  ->  ( +39,  +10,   -1)   <- retenu
+				///        Blender     ->  ( +35,   +7,  -12)
+				///    Le rouge et le vert tombent sur Blender. Le BLEU, non : il ne
+				///    descend pas chez nous.
+				/// ⚠️ ET CETTE LIMITE S'EXPLIQUE, elle ne s'excuse pas : notre gris de
+				///    surface est MOINS CLAIR que celui de Blender (85 contre 114-139).
+				///    Un melange par-dessus un fond sombre ne peut que RELEVER les
+				///    canaux ; pour faire descendre le bleu comme Blender, il faudrait
+				///    un melange soustractif ou multiplicatif, pas un alpha. C'est un
+				///    choix de mode de melange, et il n'est pas pris ici.
+				static constexpr float32 kFaceAlpha = 0.03f;
+
+				/// Le remplissage DELEGUE sa teinte a la couleur de selection, et ne
+				/// porte que son alpha.
+				/// ⚠️ C'EST LA MEME RAISON QUE POUR L'ARETE : deux literals egaux
+				///    aujourd'hui divergeraient au premier reglage. Blender teinte la
+				///    face avec SA couleur de selection ; nous faisons pareil, et il
+				///    n'y a qu'un endroit ou la changer.
+				static NkVec4f FaceRemplissage() {
+					NkVec4f c = SommetSel();
+					c.w = kFaceAlpha;
+					return c;
+				}
 
 				/// La demi-taille MONDE d'un marqueur, a la profondeur `d`, pour
 				/// une demi-taille ECRAN `demiPx`. `thY` est la demi-tangente du
