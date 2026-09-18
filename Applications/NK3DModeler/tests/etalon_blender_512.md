@@ -397,3 +397,53 @@ Et jamais de trait après la dernière : **un trait en bas de menu sépare le me
 `Collapse Edges & **Faces**` était traduit **« Effondrer les aretes »** — les faces disparaissaient
 du nom. Corrigé en **« Effondrer les aretes et les faces »**. *(L'opération est de toute façon
 « pas encore ecrit », mais un nom qui ment survit à son implémentation.)*
+
+---
+
+## 12. LE RÉSULTAT DU CORRECTIF, MESURÉ APRÈS L'ALIGNEMENT DES COULEURS
+
+```
+survie des marqueurs, rayon X éteint, dans le MODELEUR
+   avant le décalage : 10 / 30  =  33 %
+   après             : 27 / 34  =  79 %  (DirectX 11)
+                       30 / 36  =  83 %  (OpenGL)
+```
+
+### Le plafond, dérivé — et il n'est pas 100 %
+
+Rayon X **allumé**, les **24** sommets du cube sont dessinés, à **8** positions distinctes (notre
+sommet EST un coin : trois se superposent à chaque coin). Rayon X **éteint**, le filtre
+d'orientation n'en garde que **12**, à **7** positions.
+
+**Le compte de pixels suit les POSITIONS, pas les sommets** : le plafond est donc **7/8 ≈ 87 %**,
+pas 100 %.
+
+> **Avant, nous étions à 38 % du plafond. Nous sommes à 93 %.**
+
+⚠️ **Et je corrige ici mon propre raisonnement** : j'avais écrit que le plafond était **50 %**, en
+comptant les **sommets** (12 sur 24) au lieu des **positions** (7 sur 8). Trois marqueurs
+superposés ne couvrent pas trois fois plus de pixels qu'un seul. **Le plafond de 50 % était faux, et
+il aurait fait passer 79 % pour un dépassement inexplicable.**
+
+### ⚠️ ET L'INSTRUMENT EST REDESCENDU SOUS SON PLANCHER DE BRUIT, CÔTÉ ÉTALON
+
+```
+étalon : éteint 59 px / allumé 21 px  ->  281 %     (impossible)
+(F) deux courses : allumé 21 puis 21  ·  ÉTEINT 59 puis 52   -> ROUGE
+```
+
+**281 % est impossible**, et (F) n'est plus vert. La cause est identifiable : la teinte de face
+étant passée de α 0,36 à **0,03**, les comptes de l'étalon sont tombés de ~123 px à ~21 px —
+**à quelques dizaines de pixels, une différence d'anticrénelage suffit à faire bouger le total**.
+
+> **L'instrument n'est pas faux : il est devenu trop grossier pour ce qu'il mesure maintenant.**
+> Ce n'est pas une régression du produit — le produit a rendu la teinte plus discrète, ce qui était
+> l'objectif.
+
+**Ce qui le réparerait, et c'est déjà écrit dans le banc** : la sonde doit **se calibrer sur
+l'image** — prendre la couleur **aux adresses publiées par `[MARQPOS]`** dans la course rayon X
+allumé, et s'en servir pour juger la course éteinte. Elle serait alors immunisée contre **tout**
+changement de teinte, au lieu d'être recalibrée à chaque fois.
+
+⚠️ **Je ne publie donc AUCUN chiffre de l'étalon issu de cette course.** Les chiffres du modeleur,
+eux, tiennent : ils viennent d'un cadrage où les comptes restent à 30-36 px, au-dessus du plancher.

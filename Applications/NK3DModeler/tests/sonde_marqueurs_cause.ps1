@@ -105,7 +105,23 @@ function Coeurs([string]$png, [int[]]$boite) {
 		for ($x = $xA; $x -lt $xB; $x++) {
 			$i = $y * $st + $x * 4
 			$b = $oct[$i]; $g = $oct[$i + 1]; $rr = $oct[$i + 2]
-			if (-not (($rr -gt 170) -and ($g -gt 140) -and (($g - $b) -gt 80))) { continue }
+			# ⚠️ « CHAUD », PAS « VERT ELEVE ». Ce test exigeait g > 140 : il etait
+			#    cale sur l'ANCIENNE couleur du marqueur, dont le vert sortait a 202.
+			#    Le jour ou la couleur s'est alignee sur Blender -- vert 121 --, la
+			#    sonde a rendu -1 px partout et accuse le levier de camera d'etre
+			#    INERTE. Un attendu en dur se perime, et celui-la a accuse le CODE
+			#    d'un changement qui etait le sien.
+			#    Le critere est maintenant la CHALEUR de la teinte -- rouge tres
+			#    superieur au bleu -- qui ne depend pas de la valeur exacte du vert.
+			#    Il retient l'ancienne couleur (231,202,0) comme la nouvelle
+			#    (227,121,1), et rejette le gris de surface (140,142,143), dont le
+			#    rouge et le bleu sont egaux.
+			#    ⚠️ CE QUI SERAIT MIEUX, et n'est pas fait : que la sonde se
+			#       CALIBRE sur l'image -- prendre la couleur AUX ADRESSES publiees
+			#       par [MARQPOS] dans la course rayon X allume, et s'en servir pour
+			#       juger la course eteinte. Elle serait alors immunisee contre tout
+			#       changement de teinte a venir.
+			if (-not (($rr -gt 170) -and (($rr - $b) -gt 80) -and ($g -gt 60))) { continue }
 			$v = 0
 			for ($k = 0; $k -lt 8; $k++) {
 				$j = ($y + $dy[$k]) * $st + ($x + $dx[$k]) * 4
@@ -235,61 +251,29 @@ function Rapport([double]$eteint, [double]$allume) {
 }
 
 Write-Host ""
-Write-Host "PARTIE A — LE LEVIER DE CAMERA, DANS LE MODELEUR SEUL"
+Write-Host "PARTIE A — RETIREE, et voici pourquoi"
 Write-Host "-----------------------------------------------------------------------"
-# ⚠️ LES DEUX DISTANCES SONT 4 ET 7, ET CE N'EST PAS UN ARRONDI DE CONFORT.
-#    Premiere course a d=11 : le garde-fou d'ordre de grandeur a ARRETE la sonde
-#    -- 8 px pour huit marqueurs. A cette distance le cube ne fait plus que 62 px
-#    a l'ecran, tandis que le marqueur reste de taille ECRAN-constante : son
-#    lisere se confond avec les aretes, et le filtre de forme ne compte plus des
-#    marqueurs. On ne baisse donc PAS le garde-fou pour faire passer la mesure :
-#    on choisit une condition ou la mesure existe. Un seuil qu'on abaisse pour
-#    obtenir un resultat ne mesure plus que notre envie d'un resultat.
-$proche_on = CourirMod "proche_on" "1" "4" $null
-$loin_on = CourirMod "loin_on" "1" "7" $null
+# ⚠️ ELLE MESURAIT UNE QUESTION DEJA TRANCHEE, AVEC UN LEVIER DEVENU INERTE.
+#    (A1) demandait si le rognage s'attenue quand la camera s'approche. La
+#    reponse est NON, etablie deux fois : 22,6 % a d=4 contre 18 % a d=7, un
+#    ecart trop faible ; puis le decalage vers la camera, qui a corrige le
+#    rognage sans toucher a la distance.
+#    Et depuis que (F) exige `NK_FIX_CAM` -- sans quoi RIEN n'est reproductible
+#    -- le levier `NK_CAM_DIST` est INERTE : le code le documente lui-meme
+#    (NkDemo3D.cpp:7214), la pose figee etant appliquee plus tard et ecrasant le
+#    rayon. Les deux exigences sont donc INCOMPATIBLES, et c'est la
+#    reproductibilite qui gagne.
+# ⚠️ ON LA RETIRE AU LIEU DE LA LAISSER ROUGIR. Un critere qui ne peut plus
+#    etre mesure dans les conditions qu'on exige n'accuse plus le code : il
+#    accuse le montage, et il finirait par etre ignore -- ou pire, par faire
+#    ignorer les autres, puisqu'il arretait la sonde avant les parties B, C et F.
+# CONDITION DE REOUVERTURE : le jour ou l'on saura figer la pose SANS rendre
+#    `NK_CAM_DIST` inerte, (A1) redevient mesurable telle qu'elle est ecrite.
+Write-Host "       (A) retiree : le levier NK_CAM_DIST est inerte sous NK_FIX_CAM, que (F)"
+Write-Host "       exige. La question -- l'echelle de camera explique-t-elle le rognage ? --"
+Write-Host "       a ete tranchee NON, deux fois. Condition de reouverture ecrite dans le banc."
+$rProche = -1.0; $rLoin = -1.0; $rDX = -1.0
 
-# (A0) LE LEVIER AGIT-IL ? Sans ce critere, tout le reste est ininterpretable :
-# deux courses identiques « prouveraient » l'absence d'effet de la distance.
-Dire "(A0) le levier NK_CAM_DIST AGIT dans le modeleur" (($proche_on.largeur -gt 0) -and ($loin_on.largeur -gt 0) -and ($proche_on.largeur -gt ($loin_on.largeur * 1.3))) `
-	("etendue ecran du cube : {0} px a d=4 contre {1} px a d=7 (exige nettement plus pres = plus large ; sinon le levier est INERTE et la partie A ne veut rien dire)" -f $proche_on.largeur, $loin_on.largeur)
-if ($script:rouges -gt 0) {
-	Write-Host "ARRET : un instrument inerte confirme le defaut qu'on lui soumet, quel qu'il soit."
-	exit 2
-}
-
-$proche_off = CourirMod "proche_off" $null "4" $null
-$loin_off = CourirMod "loin_off" $null "7" $null
-# ⚠️ LE GARDE-FOU INVALIDE UNE COMPARAISON, PAS TOUTE LA COURSE. Premiere
-#    version : il faisait `exit 2` et emportait les parties B et C avec lui --
-#    alors qu'elles ne dependent pas du tout de la distance. Un garde-fou qui
-#    arrete plus que ce qu'il protege finit par etre retire ; celui-ci dit
-#    seulement « (A1) n'est pas mesurable dans cette condition ».
-#    ⚠️ ET « NON MESURABLE » N'EST NI VERT NI ROUGE : le verdict n'est pas rendu.
-#       Le compter comme vert dirait que le code va bien, le compter comme rouge
-#       accuserait le code de ce que la mesure n'a pas pu voir.
-$aMesurable = (Plausible $proche_on.n) -and (Plausible $loin_on.n)
-if (-not $aMesurable) {
-	Write-Host ("       (A1) NON MESURABLE : {0} px a d=4 et {1} px a d=7, hors de l'ordre de" -f $proche_on.n, $loin_on.n)
-	Write-Host "       grandeur de huit marqueurs (20 a 400). A cette distance le cube est trop"
-	Write-Host "       petit : le lisere du marqueur se confond avec les aretes. Ce n'est PAS un"
-	Write-Host "       verdict sur le code."
-}
-$rProche = Rapport $proche_off.n $proche_on.n
-$rLoin = Rapport $loin_off.n $loin_on.n
-Write-Host ("       d=4  : eteint {0} px / allume {1} px  ->  {2} %" -f $proche_off.n, $proche_on.n, $rProche)
-Write-Host ("       d=7 : eteint {0} px / allume {1} px  ->  {2} %" -f $loin_off.n, $loin_on.n, $rLoin)
-
-# ⚠ PREDICTION ECRITE AVANT LA COURSE (canal, R65). Le marqueur est de taille
-#   ECRAN-constante : sa demi-taille MONDE vaut halfPx*(2*thY/VH)*d, donc elle
-#   CROIT avec la distance. Il plonge donc plus profond dans le volume quand on
-#   s'eloigne, alors que le biais reste fixe. Si l'echelle explique le rognage,
-#   le rapport doit MONTER nettement quand on s'approche.
-if ($aMesurable) {
-Dire "(A1) PREDICTION : le rognage s'attenue quand la camera s'APPROCHE" ($rProche -gt ($rLoin + 15)) `
-	("{0} % a d=4 contre {1} % a d=7 (prediction ecrite avant la course ; si elle est dementie, mon mecanisme est faux, si coherent soit-il)" -f $rProche, $rLoin)
-}
-
-Write-Host ""
 Write-Host "PARTIE C — LE TEMOIN DE DORSAL : le modeleur, en OpenGL comme l'etalon"
 Write-Host "-----------------------------------------------------------------------"
 # ⚠️ LE TEMOIN COURT A LA DISTANCE PAR DEFAUT, ET PAS A d=4. Premiere
