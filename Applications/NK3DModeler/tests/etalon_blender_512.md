@@ -222,3 +222,42 @@ couteau, poly build, spin, lisser, aimanter…) sous les outils communs de trans
 > où on l'implémente, la question n'est pas « quels outils mettre » mais « de quel mode cette
 > liste dépend-elle », et la réponse est déjà écrite dans notre mémoire : *les espaces sont les
 > modes*.
+
+---
+
+## 8. ⚠️ LE DÉFAUT EST ENFIN CHIFFRÉ — et par un verdict DISCRET
+
+Le code publie l'adresse écran de chaque marqueur tracé (`[MARQPOS]`). On ne cherche donc plus un
+marqueur dans une image : **on va voir à une adresse connue**. Les adresses viennent **du code**,
+pas d'une recherche dans l'image — aucune circularité.
+
+Course sur `renderdemo`, sous-mode Sommet, tout sélectionné, caméra figée. **12 marqueurs tracés,
+à 7 positions distinctes à l'écran** — exactement **les 7 coins visibles d'un cube**, le huitième
+étant occulté. *(12 et non 7 parce que notre sommet EST un coin : un cube en a 24, et trois coins
+se superposent à chaque position.)*
+
+**Attendu dérivé** : un cœur de `2 × 1,8 = 3,6 px` de côté vaut environ **13 px**. On exige donc
+**≥ 9 px** pour dire « entier ».
+
+```
+rayon X ALLUMÉ   7 ENTIERS sur 7      (27, 15, 35, 44, 20, 19, 31 px)
+rayon X ÉTEINT   5 ENTIERS sur 7      (0, 7, 30, 42, 14, 22, 41 px)
+                                       ^  ^
+                                       |  +-- ROGNÉ  (7 px sur ~13)
+                                       +----- ABSENT (0 px : avalé entier)
+```
+
+> **Deux marqueurs sur sept sont abîmés quand le rayon X est éteint : un rogné, un entièrement
+> avalé par la surface.** C'est ça, « pas la même forme ».
+
+### L'ATTENDU DU CORRECTIF, ÉCRIT AVANT DE L'ÉCRIRE
+
+| | attendu | d'où il vient |
+|---|---|---|
+| **(B1)** | rayon X éteint : **7 ENTIERS sur 7** | Blender montre ses 7 coins visibles **entiers** (053421). Aujourd'hui : **5** |
+| **(B2)** | **le nombre d'adresses tracées reste 7, pas 8** | le coin occulté ne doit **pas** apparaître. Un biais qui le ferait surgir aurait désactivé le test de profondeur au lieu de décaler — et l'utilisateur sélectionnerait un sommet qu'il ne voit pas |
+| **(B3)** | rayon X allumé : **toujours 7 sur 7** | le correctif ne doit rien casser de ce qui marchait |
+| **(B4)** | les adresses **ne bougent pas** de plus de **1 px** | on décale le long du **rayon de vue** : la projection écran ne doit pas changer. Si elle change, le décalage est dans la mauvaise direction |
+
+⚠️ **(B1) et (B2) s'opposent, et c'est tout le sujet.** Obtenir l'un en perdant l'autre n'est pas un
+correctif. **Les deux se mesurent dans la même course**, ce qui interdit de n'en regarder qu'un.
