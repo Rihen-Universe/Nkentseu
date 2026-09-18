@@ -1,0 +1,14 @@
+# Ecrit A LA MAIN le 18/09/2026, AVANT toute generation par un modele.
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# L'AUTRE CAS OU QUATRE COMPTEURS ETAIENT VERTS POUR UNE BOUTEILLE. Trois choses
+# ici etaient INEXPRIMABLES dans la grammaire de mots : un pied large et PLAT
+# (echelle par axe), une tige FINE et LONGUE (idem), et un creux SOUSTRAIT de la
+# coupe -- un verre est creux, et « difference » est le seul moyen de le dire.
+scene verre_a_pied
+demande un verre a pied
+
+partie pied    forme cylindre taille 0.50 0.04 0.50
+partie tige    forme cylindre taille 0.07 0.50 0.07 pose_sur pied
+partie coupe   forme cone     taille 0.45 0.40 0.45 pose_sur tige
+partie creux   forme cone     taille 0.38 0.36 0.38 pose_sur tige decale 0 0.06 0 op difference
