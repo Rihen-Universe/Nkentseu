@@ -147,6 +147,29 @@ namespace nkentseu {
 				const int32 actN = st.activeEmpty >= 0
 									   ? st.activeEmpty
 									   : (selLight >= 0 ? kFirstLight + selLight : activeObj);
+				// ── CROCHET DE MESURE : X EN MODE OBJET ────────────────────────
+				// ⚠️ IL EXISTE PARCE QUE J'AI ANNONCE CE CHEMIN MORT SUR UNE LECTURE
+				//    PARTIELLE. J'avais lu `NkDemo3D.cpp`, vu la touche X traitee a
+				//    l'interieur de `if (editMode)`, et conclu « X ne fait RIEN en mode
+				//    Objet ». C'etait faux : le raccourci vit ICI, hors du viseur, et
+				//    son commentaire dit meme « valables aussi la souris sur la vue 3D ».
+				//    Le correctif qu'on allait ecrire aurait fabrique une SECONDE porte.
+				// `NK_OBJ_SUPPR=<image>` emprunte le MEME chemin que la touche -- il pose
+				// `delK`, rien d'autre. Aucune injection clavier : c'est le crochet
+				// d'API que ce depot emploie partout.
+				{
+					static int32 sObjSupprFrame = -2;
+					static int32 sObjSupprVu = 0;
+					if (sObjSupprFrame == -2) {
+						const char *v = std::getenv("NK_OBJ_SUPPR");
+						sObjSupprFrame = (v && v[0]) ? atoi(v) : -1;
+					}
+					if (sObjSupprFrame >= 0) {
+						++sObjSupprVu;
+						if (sObjSupprVu == sObjSupprFrame)
+							delK = true;
+					}
+				}
 				if (delK && !st.delAskOpen) {
 					// CONFIRMATION D'ABORD (Rihen) : on memorise les cibles, le
 					// dialogue tranche -- y compris le sort des enfants.
@@ -164,6 +187,16 @@ namespace nkentseu {
 							if (NkHierHasLiveKids(st.delNodes[di]))
 								st.delHasKids = true;
 						st.delAskOpen = true;
+					}
+					// ⚠️ LE ZERO SE DIT, IL NE SE DEVINE PAS. Sans selection,
+					//    `delNodeCount` vaut 0 et RIEN ne s'ouvre -- c'est le
+					//    comportement voulu, mais un banc ne peut pas distinguer
+					//    « rien ne s'est ouvert parce qu'il n'y avait rien a
+					//    supprimer » de « la touche n'a pas ete lue ». La trace le dit.
+					if (std::getenv("NK_OBJ_SUPPR")) {
+						std::printf("[nk3d] OBJ SUPPR : touche lue, cibles=%d, confirmation=%d\n",
+									(int)st.delNodeCount, st.delAskOpen ? 1 : 0);
+						std::fflush(stdout);
 					}
 				} else if (dupK && actN >= 0) {
 					const int32 nn = demo::Demo3DHostDuplicateNodeEx(actN, dupIndep);
