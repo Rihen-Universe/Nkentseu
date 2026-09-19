@@ -3,6 +3,7 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkEditMesh.h"
+#include "NKRenderer/Tools/MeshSculpt/NkMeshSculpt.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKTime/NkChrono.h" // sonde de phases de l'entonnoir (NK_BFP_PHASES)
 #include <cstdlib>			  // getenv
@@ -6179,6 +6180,38 @@ namespace nkentseu {
 			if (!faceSel.Empty())
 				m.SetFaceSelection(faceSel.Data(), (uint32)faceSel.Size());
 			switch (op) {
+				case NkMeshEditOp::Sculpt: {
+					// UN COUP DE BROSSE. La commande porte TOUT ce dont le geste depend
+					// (cf. NkSculptCmdParams) : rien n'est relu depuis un fichier de
+					// brosse a l'execution, donc rejouer la session reproduit le geste
+					// qui a ete fait, et non celui que la brosse est devenue depuis.
+					if (sculptPoints.Empty())
+						return false;
+					NkBrushDesc d;
+					d.radius = sculpt.radius;
+					d.strength = sculpt.strength;
+					d.hardness = sculpt.hardness;
+					d.dir = sculpt.dir;
+					d.falloff = (NkSculptFalloffKind)sculpt.falloff;
+					d.op = (NkSculptOp)sculpt.primitive;
+					d.valid = true;
+					NkVector<NkSculptPoint> pts;
+					pts.Resize((uint32)sculptPoints.Size());
+					for (uint32 k = 0; k < (uint32)sculptPoints.Size(); ++k) {
+						pts[k].pos = sculptPoints[k];
+						pts[k].normal = (k < (uint32)sculptNormals.Size()) ? sculptNormals[k]
+											  : NkVec3f{0.f, 1.f, 0.f};
+						pts[k].radius = sculpt.radius;
+						pts[k].pressure = 1.f;
+					}
+					const NkSculptApply r =
+						NkSculptApplyStroke(m, d, pts.Data(), (uint32)pts.Size());
+					// ⚠️ `applied` EST FAUX QUAND RIEN N'A BOUGE, et c'est ce que
+					//    Demo3D_ApplyCmd attend pour ne pas commiter un undo vide : un
+					//    trait hors du maillage ne doit pas laisser une etape d'annulation
+					//    qui ne defait rien.
+					return r.applied;
+				}
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
 				case NkMeshEditOp::ExtrudeVerts:
@@ -6330,7 +6363,8 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(10u); // v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
+			w.U32(11u); // v11 : + LE COUP DE BROSSE (params + polyligne)
+			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
 						//       s'ecrivaient a l'identique -- 370 octets pour « deux faces
 						//       opposees » comme pour « tout selectionner »)
 						// v9 : + loopcut.slide (v8 : ToSphere/ShrinkFatten · v7 : dissolve · v6 : spin
@@ -6395,6 +6429,29 @@ namespace nkentseu {
 				w.U32((uint32)c.faceSel.Size());
 				for (uint32 k = 0; k < (uint32)c.faceSel.Size(); ++k)
 					w.U8(c.faceSel[k]);
+				// v11 : LE COUP DE BROSSE. Ecrit EN FIN, comme les dix paliers
+				// precedents : un lecteur v10 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.F32(c.sculpt.radius);
+				w.F32(c.sculpt.strength);
+				w.F32(c.sculpt.hardness);
+				w.F32(c.sculpt.dir);
+				w.U8(c.sculpt.falloff);
+				w.U8(c.sculpt.primitive);
+				for (uint32 k = 0; k < 48; ++k)
+					w.U8((uint8)c.sculpt.brushName[k]);
+				w.U32((uint32)c.sculptPoints.Size());
+				for (uint32 k = 0; k < (uint32)c.sculptPoints.Size(); ++k) {
+					w.F32(c.sculptPoints[k].x);
+					w.F32(c.sculptPoints[k].y);
+					w.F32(c.sculptPoints[k].z);
+				}
+				w.U32((uint32)c.sculptNormals.Size());
+				for (uint32 k = 0; k < (uint32)c.sculptNormals.Size(); ++k) {
+					w.F32(c.sculptNormals[k].x);
+					w.F32(c.sculptNormals[k].y);
+					w.F32(c.sculptNormals[k].z);
+				}
 			}
 		}
 
@@ -7463,6 +7520,32 @@ namespace nkentseu {
 					const uint32 fc = r.U32();
 					for (uint32 k = 0; k < fc && r.ok; ++k)
 						c.faceSel.PushBack(r.U8());
+				}
+				// v11 : LE COUP DE BROSSE. Meme regle que les dix paliers precedents :
+				// on ne lit que si le fichier l'annonce. Un fichier v10 laisse la
+				// commande avec ses valeurs par defaut et AUCUN point de trait -- donc
+				// `Apply` rend false sur une op Sculpt vide, au lieu de sculpter avec
+				// des parametres inventes.
+				if (ver >= 11) {
+					c.sculpt.radius = r.F32();
+					c.sculpt.strength = r.F32();
+					c.sculpt.hardness = r.F32();
+					c.sculpt.dir = r.F32();
+					c.sculpt.falloff = r.U8();
+					c.sculpt.primitive = r.U8();
+					for (uint32 k = 0; k < 48; ++k)
+						c.sculpt.brushName[k] = (char)r.U8();
+					c.sculpt.brushName[47] = 0; // le nom relu reste TOUJOURS termine
+					const uint32 pc = r.U32();
+					for (uint32 k = 0; k < pc && r.ok; ++k) {
+						const float32 x = r.F32(), y = r.F32(), z = r.F32();
+						c.sculptPoints.PushBack(NkVec3f{x, y, z});
+					}
+					const uint32 nc = r.U32();
+					for (uint32 k = 0; k < nc && r.ok; ++k) {
+						const float32 x = r.F32(), y = r.F32(), z = r.F32();
+						c.sculptNormals.PushBack(NkVec3f{x, y, z});
+					}
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en
