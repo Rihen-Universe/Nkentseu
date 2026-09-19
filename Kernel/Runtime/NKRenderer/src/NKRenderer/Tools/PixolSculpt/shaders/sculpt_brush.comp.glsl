@@ -81,6 +81,3 @@ void main() {
     // TODO: SMOOTH (moyenne du voisinage), PINCH, INFLATE (le long normale),
     //       FLATTEN (vers plan moyen), MASK (canal masque dedie).
 }
-
-
-// aussi tu pense comment je peux aussi integrer un system comme ca pour les voxel dans nkrenderer? mais avant je veux que tu fasse une analyse complete et approfondis de nksl donc du dossier sl dans nkrhi et tu me dis si le system est complet et robuste, dis moi ce qui manque ce quon peut complete et ajouter etc.
