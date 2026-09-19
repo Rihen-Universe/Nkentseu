@@ -66,6 +66,7 @@ using namespace nkentseu;
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTime/NkChrono.h"
+#include "Recolte.h" // la RECOLTE : garder chaque paire, surtout les echecs
 #include "NKUIDesign/ComposantsBase.h"
 #include "NKUIDesign/DesignAI.h"
 #include "NKUIDesign/Document.h"
@@ -484,6 +485,14 @@ int main(int argc, char **argv) {
 
 	std::printf("=== JEU D'EPREUVE DE L'IA DE DESIGN ===\n");
 	std::printf("dorsal        : %s\n", ia.Backend()->Name());
+	// ⚠️ LA CONDITION DE LA COURSE, CAPTUREE UNE FOIS. Une paire de recolte qui
+	//    ne porte pas son modele est un chiffre sans sa condition -- faute payee
+	//    trois fois par ce depot. On la fixe ici, pas dans la boucle.
+	// Un dorsal sans modele le dit en un mot : le nom du fichier doit rester
+	// triable, et `[condition]` porte deja le dorsal.
+	NkString modeleCourant = NkString("aucun");
+	if (std::strcmp(dorsal, "ollama") == 0)
+		modeleCourant = ollama.modele;
 	std::printf("demandes      : %u (lues dans %s)\n", nbD, fDemandes);
 	std::printf("catalogue     : %u composant(s) declares au registre\n", nbComposants);
 	std::printf("sortie        : %s\n\n", dSortie);
@@ -536,6 +545,11 @@ int main(int argc, char **argv) {
 		// ── N3 : le document s'ouvre-t-il ? ──────────────────────────────────
 		// Greffe faite (Ask pose deja), mise en page, puis `.nkgui` sur le
 		// disque. Le MONTAGE est l'affaire de l'autre binaire.
+		// ⚠️ DECLARE A LA PORTEE DE LA PAIRE, pas dans le `if (n2)` : la RECOLTE
+		//    en a besoin apres, et une variable enfermee dans la branche du succes
+		//    aurait force a recalculer le chemin ailleurs -- deux verites sur le
+		//    meme fichier.
+		char cheminG[512] = {0};
 		bool n3 = false;
 		uint32 lignesNkgui = 0;
 		uint32 rolesDuComposant = 0;
@@ -544,7 +558,7 @@ int main(int argc, char **argv) {
 			NkPaintRect sfc = {0.f, 0.f, 1200.f, 800.f};
 			NkLayoutResult lay;
 			NkComputeLayout(doc, sfc, lay);
-			char cheminG[512], nomG[80];
+			char nomG[80];
 			Joindre(nomG, sizeof(nomG), nomInv, ".nkgui");
 			Joindre(cheminG, sizeof(cheminG), dSortie, nomG);
 			guifmt::NkEcritRapport rap;
@@ -578,6 +592,38 @@ int main(int argc, char **argv) {
 		}
 		if (!n2 && res.detail.Size() > 0)
 			std::printf("  [%s]", res.detail.CStr());
+
+		// ── LA RECOLTE ───────────────────────────────────────────────────────
+		// ⚠️ ICI, ET PAS AILLEURS : c'est le seul endroit ou les trois verdicts
+		//    existent en meme temps que la reponse brute et le document. Les
+		//    recalculer plus loin aurait fait deux verites sur la meme paire.
+		//
+		// ⚠️ AUCUNE CONDITION SUR n2 NI n3. On ecrit la paire QUOI QU'IL ARRIVE :
+		//    un corpus qui ne contient que des reussites n'apprend pas a refuser.
+		{
+			NkString docProduit;
+			if (n3)
+				docProduit = NkFile::ReadAllText(NkPath(cheminG));
+			nkrecolte::NkPaire paire;
+			paire.id = d.id;
+			paire.demande = d.texte;
+			paire.dorsal = ia.Backend()->Name();
+			paire.modele = modeleCourant.CStr();
+			paire.verdictNom = NkAIVerdictName(res.verdict);
+			paire.motif = res.detail.Size() > 0 ? res.detail.CStr() : "";
+			paire.n1 = n1;
+			paire.n2 = n2;
+			paire.n3 = n3;
+			paire.ms = msEcoule;
+			paire.brut = &brut;
+			paire.document = &docProduit;
+			char dRecolte[512];
+			Joindre(dRecolte, sizeof(dRecolte), dSortie, "/recolte");
+			// Une recolte qui echoue en SILENCE se decouvre le jour ou on veut s'en
+			// servir : on le dit tout de suite, sur la meme ligne que le verdict.
+			if (!nkrecolte::Ecrire(dRecolte, paire))
+				std::printf("  [RECOLTE NON ECRITE]");
+		}
 		std::printf("\n");
 		std::fflush(stdout);
 	}
