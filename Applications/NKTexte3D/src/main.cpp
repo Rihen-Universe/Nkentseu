@@ -2143,6 +2143,230 @@ static void NkPrimAjouter(NkQuadMesh &m, const Piece &p, NkVec3f q, NkVec3f n, f
 	m.uv.PushBack(NkVec2f{u, v});
 }
 
+// Aire d'un triangle en 3D, et son equivalent dans le plan UV.
+static float NkTriAire(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c) {
+	const NkVec3f u{b.x - a.x, b.y - a.y, b.z - a.z};
+	const NkVec3f v{c.x - a.x, c.y - a.y, c.z - a.z};
+	const NkVec3f w{u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x};
+	return 0.5f * sqrtf(w.x * w.x + w.y * w.y + w.z * w.z);
+}
+
+static float NkTriAireUV(const NkVec2f &a, const NkVec2f &b, const NkVec2f &c) {
+	const float ux = b.x - a.x, uy = b.y - a.y;
+	const float vx = c.x - a.x, vy = c.y - a.y;
+	const float d = ux * vy - uy * vx;
+	return 0.5f * (d < 0.f ? -d : d);
+}
+
+// ---------------------------------------------------------------------------
+// LES UV EN UNITES METRIQUES -- pourquoi, et ce que ca corrige
+//
+// Mesure du 19/09 sur `personnage_quads.obj` : ecart de densite entre ilots
+// x111 (antenne 0,008 contre tete 0,897) et distorsion d'aire p99 = 16,5.
+// DEUX causes distinctes, et la premiere dominait :
+//   (a) chaque primitive occupait [0,1] x [0,1] QUELLE QUE SOIT sa taille 3D,
+//       donc une antenne minuscule recevait autant de place UV qu'une tete ;
+//   (b) v etait proportionnel a l'ANGLE (v = 1 - a/A) alors que l'aire d'une
+//       bande de sphere varie en sin(theta) : les bandes polaires, minuscules
+//       en 3D, occupaient autant de v que celles de l'equateur.
+//
+// ⚠️ ON NE PEUT PAS CORRIGER PAR UNE FORMULE PAR FORME : `NkPrimAjouter`
+// applique l'echelle ANISOTROPE (sx, sy, sz) et le GALBE **apres** le calcul
+// des UV. L'aire reelle d'un quad n'est donc pas celle de la forme canonique.
+// On mesure donc les aires REELLEMENT PRODUITES, et on en deduit les UV.
+//
+// ⚠️ ET CE QUE CA NE CORRIGE PAS, PARCE QUE C'EST STRUCTUREL : une sphere
+// entiere posee sur un rectangle SANS COUTURE garde une distorsion d'ANGLE
+// irreductible aux poles (Gauss : pas de carte a la fois equi-aire et
+// conforme d'une sphere). Nos 0 % de couture ne sont donc pas un exploit --
+// ils sont la CAUSE de la distorsion angulaire residuelle.
+static void NkUVGrilleEquiAire(NkQuadMesh &m, uint32 base, uint32 A, uint32 S) {
+	if (A == 0 || S == 0)
+		return;
+	// ⚠️ NK_UV_MUTE=3 : RESTAURE le comportement d'avant le correctif (UV
+	// parametriques sur [0,1]). Il ne sert pas a refuter un critere mais a
+	// rendre la comparaison AVANT/APRES possible SUR LE MEME MAILLAGE : sans
+	// lui, on comparerait deux densites de grille differentes et le gain
+	// melangerait deux changements. Un avant/apres mesure sur deux objets
+	// distincts ne prouve rien.
+	{
+		const char *mu = getenv("NK_UV_MUTE");
+		if (mu && mu[0] == '3') {
+			for (uint32 a = 0; a <= A; ++a)
+				for (uint32 j = 0; j <= S; ++j)
+					m.uv[base + a * (S + 1) + j] =
+						NkVec2f{(float)j / (float)S, 1.f - (float)a / (float)A};
+			return;
+		}
+	}
+	// Aire 3D de chaque bande d'anneaux, et longueur 3D de chaque rangee.
+	NkVector<float> aireBande, longRangee;
+	for (uint32 a = 0; a < A; ++a) {
+		float ab = 0.f;
+		for (uint32 s = 0; s < S; ++s) {
+			const uint32 i0 = base + a * (S + 1) + s;
+			const NkVec3f &p0 = m.pos[i0], &p1 = m.pos[i0 + 1];
+			const NkVec3f &p2 = m.pos[i0 + (S + 1) + 1], &p3 = m.pos[i0 + (S + 1)];
+			ab += NkTriAire(p0, p1, p2) + NkTriAire(p0, p2, p3);
+		}
+		aireBande.PushBack(ab);
+	}
+	for (uint32 a = 0; a <= A; ++a) {
+		float lr = 0.f;
+		for (uint32 s = 0; s < S; ++s) {
+			const uint32 i0 = base + a * (S + 1) + s;
+			const NkVec3f d{m.pos[i0 + 1].x - m.pos[i0].x, m.pos[i0 + 1].y - m.pos[i0].y,
+							m.pos[i0 + 1].z - m.pos[i0].z};
+			lr += sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+		}
+		longRangee.PushBack(lr);
+	}
+	// La largeur commune : la moyenne des rangees. Un seul u pour toute la
+	// grille -- faire dependre u de la rangee introduirait du CISAILLEMENT.
+	float L = 0.f;
+	for (uint32 a = 0; a <= A; ++a)
+		L += longRangee[a];
+	L /= (float)(A + 1);
+	if (L < 1e-9f)
+		return;
+	// ⚠️ NEGATIF DANS LE MEME BINAIRE : NK_UV_MUTE=2 laisse v proportionnel a
+	// l'ANGLE (le defaut d'origine) tout en gardant l'echelle. Si un critere
+	// d'equi-aire ne rougit pas sous cette mutation, il ne mesure pas l'equi-aire.
+	const char *mute = getenv("NK_UV_MUTE");
+	const bool vAngle = mute && mute[0] == '2';
+	float cumul = 0.f, total = 0.f;
+	for (uint32 a = 0; a < A; ++a)
+		total += aireBande[a];
+	if (total < 1e-12f)
+		return;
+	// ⚠️ LE COMPROMIS DE GAUSS, ET POURQUOI IL EST REGLABLE.
+	// Aucune carte d'une sphere n'est a la fois equi-aire et conforme. Mesure
+	// du 19/09, sur la MEME scene :
+	//     v par l'AIRE  -> distorsion d'aire 2,0  mais d'ANGLE 27,9
+	//     v par l'ANGLE -> distorsion d'aire 20,0 mais d'ANGLE  4,5
+	// Les deux extremes sont mauvais. `alpha` melange les deux et permet de
+	// CHOISIR le point de fonctionnement au lieu de le subir.
+	//   alpha = 1 : equi-aire pur · alpha = 0 : angulaire pur.
+	// ⚠️ LU EN ENTIER (pourcentage), JAMAIS en flottant : sous une machine en
+	// fr-FR, `atof("0.75")` rend 0,0 parce que le separateur attendu est la
+	// VIRGULE. Le piege a deja ete paye ailleurs dans ce depot.
+	// Defaut = 1 (equi-aire pur), CHOISI SUR LA COURBE MESUREE du 19/09 et non
+	// par gout. Sur `personnage.nkscene`, alpha de 0 a 1 :
+	//     alpha   aire p99   aire >1,732   conforme med   conforme p99
+	//       0      20,242      46,8 %         1,241          4,512
+	//      0,50    10,167      19,4 %         1,470          6,911
+	//      0,75     5,285      12,1 %         1,683          9,415
+	//      1,00     2,001       3,7 %         1,878         27,927
+	// A 1,00 la distorsion d'aire tient le critere (racine(2,001) = 1,41 < 1,5)
+	// et la conformite s'AMELIORE en mediane (3,835 -> 1,878) et en p90
+	// (5,053 -> 4,782) ; elle ne se degrade QU'AUX POLES, ou aucune carte sans
+	// couture ne peut faire mieux. ⚠️ Ce reglage est un CHOIX, pas une verite :
+	// si un jour la texture montre les poles, baisser alpha ou poser une couture.
+	float alpha = 1.0f;
+	if (const char *a_ = getenv("NK_UV_ALPHA")) {
+		const int pc = atoi(a_);
+		alpha = (float)(pc < 0 ? 0 : (pc > 100 ? 100 : pc)) / 100.f;
+	}
+	if (vAngle)
+		alpha = 0.f;
+	for (uint32 a = 0; a <= A; ++a) {
+		const float vAire = cumul / L;
+		const float vAng = (total / L) * ((float)a / (float)A);
+		const float v = alpha * vAire + (1.f - alpha) * vAng;
+		if (a < A)
+			cumul += aireBande[a];
+		for (uint32 j = 0; j <= S; ++j)
+			m.uv[base + a * (S + 1) + j] = NkVec2f{L * (float)j / (float)S, v};
+	}
+}
+
+// Egalise la DENSITE (aire3D / aireUV) d'une piece entiere. Elle rattrape ce
+// que la passe de grille ne voit pas : disques en eventail, faces de cube.
+static void NkUVDensitePiece(NkQuadMesh &m) {
+	{
+		const char *mu = getenv("NK_UV_MUTE");
+		if (mu && mu[0] == '3')
+			return; // cf. NkUVGrilleEquiAire : comparaison avant/apres
+	}
+	float a3 = 0.f, a2 = 0.f;
+	for (uint32 k = 0; k + 3 < (uint32)m.quads.Size(); k += 4) {
+		const uint32 i0 = m.quads[k], i1 = m.quads[k + 1], i2 = m.quads[k + 2], i3 = m.quads[k + 3];
+		a3 += NkTriAire(m.pos[i0], m.pos[i1], m.pos[i2]) + NkTriAire(m.pos[i0], m.pos[i2], m.pos[i3]);
+		a2 += NkTriAireUV(m.uv[i0], m.uv[i1], m.uv[i2]) + NkTriAireUV(m.uv[i0], m.uv[i2], m.uv[i3]);
+	}
+	for (uint32 k = 0; k + 2 < (uint32)m.tris.Size(); k += 3) {
+		const uint32 i0 = m.tris[k], i1 = m.tris[k + 1], i2 = m.tris[k + 2];
+		a3 += NkTriAire(m.pos[i0], m.pos[i1], m.pos[i2]);
+		a2 += NkTriAireUV(m.uv[i0], m.uv[i1], m.uv[i2]);
+	}
+	if (a2 < 1e-12f || a3 < 1e-12f)
+		return;
+	// ⚠️ NEGATIF : NK_UV_MUTE=1 sabote la densite piece par piece (facteur
+	// pseudo-aleatoire stable). Un critere de densite qui ne rougit pas sous
+	// cette mutation est aveugle a ce qu'il pretend mesurer.
+	const char *mute = getenv("NK_UV_MUTE");
+	float k = sqrtf(a3 / a2);
+	if (mute && mute[0] == '1') {
+		uint32 h = 2166136261u;
+		for (const char *c = m.nom; *c; ++c)
+			h = (h ^ (uint32)(unsigned char)*c) * 16777619u;
+		k *= 0.1f + 3.0f * (float)(h % 1000u) / 1000.f;
+	}
+	for (uint32 i = 0; i < (uint32)m.uv.Size(); ++i)
+		m.uv[i] = NkVec2f{m.uv[i].x * k, m.uv[i].y * k};
+}
+
+// Pose les UV d'un EVENTAIL (un disque : un centre + S+1 sommets de bord) a
+// partir des POSITIONS REELLES, et non du rayon canonique.
+//
+// ⚠️ LA FAUTE QUE CETTE FONCTION REPARE, ET JE L'AVAIS ECRITE EN COMMENTAIRE
+// DIX LIGNES PLUS HAUT AVANT DE LA COMMETTRE : `NkPrimAjouter` applique
+// l'echelle ANISOTROPE apres le calcul des UV. Poser un rayon UV `r = 0,55 s`
+// ignore `sx` : sur l'antenne (sx = 0,02) le disque UV valait 0,55 pour un
+// disque 3D de 0,011 -- la distorsion d'aire interne est passee de 2 065 a
+// 2 503, c'est-a-dire que mon « correctif » l'avait AGGRAVEE.
+//
+// Un disque est PLAN : projete sur son propre plan, il se deplie EXACTEMENT
+// (distorsion 1 par construction), quelle que soit l'echelle ou la rotation.
+static void NkUVDisqueMetrique(NkQuadMesh &m, uint32 c, uint32 S) {
+	if ((uint32)m.pos.Size() < c + S + 2)
+		return;
+	const char *mu3 = getenv("NK_UV_MUTE");
+	const bool avant = mu3 && mu3[0] == '3'; // cf. NkUVGrilleEquiAire
+	const NkVec3f &o = m.pos[c];
+	// Deux axes orthonormes DU PLAN REEL du disque, tires de deux rayons.
+	NkVec3f e1{m.pos[c + 1].x - o.x, m.pos[c + 1].y - o.y, m.pos[c + 1].z - o.z};
+	float n1 = sqrtf(e1.x * e1.x + e1.y * e1.y + e1.z * e1.z);
+	if (n1 < 1e-9f)
+		return;
+	e1 = NkVec3f{e1.x / n1, e1.y / n1, e1.z / n1};
+	const uint32 q = c + 1 + (S / 4 > 0 ? S / 4 : 1); // un rayon a ~90 degres
+	NkVec3f t{m.pos[q].x - o.x, m.pos[q].y - o.y, m.pos[q].z - o.z};
+	const float d = t.x * e1.x + t.y * e1.y + t.z * e1.z;
+	NkVec3f e2{t.x - d * e1.x, t.y - d * e1.y, t.z - d * e1.z};
+	const float n2 = sqrtf(e2.x * e2.x + e2.y * e2.y + e2.z * e2.z);
+	if (n2 < 1e-9f)
+		return;
+	e2 = NkVec3f{e2.x / n2, e2.y / n2, e2.z / n2};
+	float R = 0.f;
+	if (avant) { // le disque d'origine : un cercle UV de rayon 0,5, quel que soit le rayon REEL
+		for (uint32 i = c + 1; i <= c + S + 1; ++i) {
+			const NkVec3f w{m.pos[i].x - o.x, m.pos[i].y - o.y, m.pos[i].z - o.z};
+			const float d2 = sqrtf(w.x * w.x + w.y * w.y + w.z * w.z);
+			if (d2 > R)
+				R = d2;
+		}
+		if (R < 1e-9f)
+			return;
+	}
+	for (uint32 i = c; i <= c + S + 1; ++i) {
+		const NkVec3f w{m.pos[i].x - o.x, m.pos[i].y - o.y, m.pos[i].z - o.z};
+		const float x = w.x * e1.x + w.y * e1.y + w.z * e1.z;
+		const float y = w.x * e2.x + w.y * e2.y + w.z * e2.z;
+		m.uv[i] = avant ? NkVec2f{0.5f + 0.5f * x / R, 0.5f + 0.5f * y / R} : NkVec2f{x, y};
+	}
+}
+
 // Une grille (A+1) x (S+1) de sommets -> A x S quads. La couture est DEDOUBLEE
 // (S+1 colonnes au lieu de S) : sans cela, les UV sauteraient de 1 a 0 sur la
 // derniere colonne et la texture se replierait sur toute la largeur.
@@ -2174,6 +2398,10 @@ static void NkPrimGrille(NkQuadMesh &m, uint32 base, uint32 A, uint32 S, bool po
 			}
 		}
 	}
+	// Les UV posees par `NkPrimAjouter` etaient PARAMETRIQUES (u = angle,
+	// v = angle). On les REECRIT en unites metriques, maintenant que les
+	// positions finales -- echelle anisotrope et galbe compris -- existent.
+	NkUVGrilleEquiAire(m, base, A, S);
 }
 
 // Construit la primitive d'une piece. `A` anneaux, `S` segments.
@@ -2252,12 +2480,18 @@ static bool NkPrimConstruire(const Piece &p, uint32 A, uint32 S, NkQuadMesh &m) 
 				const float y = k == 0 ? h : -h;
 				const NkVec3f n{0.f, k == 0 ? 1.f : -1.f, 0.f};
 				const uint32 c = (uint32)m.pos.Size();
-				NkPrimAjouter(m, p, NkVec3f{0.f, y, 0.f}, n, 0.5f, 0.5f);
+				// ⚠️ LE DISQUE EN UNITES METRIQUES, comme la paroi. En [0,1] (rayon UV
+				// 0,5) il recevait la MEME place UV quel que soit son rayon reel :
+				// mesure du 19/09, l'antenne (r = 0,01) atteignait une distorsion
+				// d'aire interne de 2 065 a elle seule, et faisait exploser le p99
+				// de toute la scene. Un disque est PLAN : il se deplie exactement.
+				NkPrimAjouter(m, p, NkVec3f{0.f, y, 0.f}, n, 0.f, 0.f);
 				for (uint32 j = 0; j <= S; ++j) {
 					const float ph = 2.f * PI * (float)j / (float)S;
-					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), y, r * sinf(ph)}, n, 0.5f + 0.5f * cosf(ph),
-								  0.5f + 0.5f * sinf(ph));
+					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), y, r * sinf(ph)}, n, r * cosf(ph),
+								  r * sinf(ph));
 				}
+				NkUVDisqueMetrique(m, c, S);
 				for (uint32 j = 0; j < S; ++j) {
 					m.tris.PushBack(c);
 					m.tris.PushBack(k == 0 ? c + 1 + j : c + 2 + j);
@@ -2323,12 +2557,13 @@ static bool NkPrimConstruire(const Piece &p, uint32 A, uint32 S, NkQuadMesh &m) 
 			{
 				const NkVec3f n{0.f, -1.f, 0.f};
 				const uint32 c = (uint32)m.pos.Size();
-				NkPrimAjouter(m, p, NkVec3f{0.f, -h, 0.f}, n, 0.5f, 0.5f);
+				NkPrimAjouter(m, p, NkVec3f{0.f, -h, 0.f}, n, 0.f, 0.f); // metrique : cf. le disque du cylindre
 				for (uint32 j = 0; j <= S; ++j) {
 					const float ph = 2.f * PI * (float)j / (float)S;
-					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), -h, r * sinf(ph)}, n, 0.5f + 0.5f * cosf(ph),
-								  0.5f + 0.5f * sinf(ph));
+					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), -h, r * sinf(ph)}, n, r * cosf(ph),
+								  r * sinf(ph));
 				}
+				NkUVDisqueMetrique(m, c, S);
 				for (uint32 j = 0; j < S; ++j) {
 					m.tris.PushBack(c);
 					m.tris.PushBack(c + 2 + j);
@@ -2454,6 +2689,7 @@ static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) 
 			printf("  REFUS : forme non constructible analytiquement : %s\n", NomForme(p.f));
 			return 1;
 		}
+		NkUVDensitePiece(m);
 		parties.PushBack(m);
 	}
 	if (parties.Size() == 0) {
