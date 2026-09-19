@@ -11038,11 +11038,36 @@ namespace nkentseu {
 				{
 					static const bool sDiag = (getenv("NK_SCULPT_DIAG") != nullptr);
 					static int32 sN = 0;
+					// OU LE MAILLAGE SE PROJETTE-T-IL ? Sans ce chiffre, viser avec
+					// NK_SCULPT_AT est un tir dans le noir : « touche=0 » ne distingue pas
+					// « le rayon est faux » de « je vise a cote ».
+					if (sDiag && (sN % 60) == 0 && st->editHE.VertCount() > 0) {
+						NkVec3f c{0.f, 0.f, 0.f};
+						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+							c = c + st->editHE.verts[i].pos;
+						c = c * (1.f / (float32)st->editHE.VertCount());
+						const NkVec3f w = st->editAnchor * c;
+						const NkVec3f d = w - camPos;
+						const float32 z = d.x * fwd.x + d.y * fwd.y + d.z * fwd.z;
+						const float32 rx = d.x * rgt.x + d.y * rgt.y + d.z * rgt.z;
+						const float32 ry = d.x * upv.x + d.y * upv.y + d.z * upv.z;
+						const float32 ndcx = (z > 1e-6f) ? (rx / (z * thX)) : 0.f;
+						const float32 ndcy = (z > 1e-6f) ? (ry / (z * thY)) : 0.f;
+						logger.Info("[Demo3D] SCULPT cible : centre monde=({0},{1},{2}) z={3} "
+							  "-> ecran=({4},{5}) vue={6}x{7}\n",
+							  w.x, w.y, w.z, z, (ndcx * 0.5f + 0.5f) * VW,
+							  (1.f - (ndcy * 0.5f + 0.5f)) * VH, VW, VH);
+					}
 					if (sDiag && (sN++ % 60) == 0)
-						logger.Info("[Demo3D] SCULPT garde : uiMode={0} editMode={1} nv={2}\n",
-							st->uiMode, st->editMode ? 1 : 0, nv);
+						logger.Info("[Demo3D] SCULPT garde : uiMode={0} editMode={1} nv={2} heV={3} heF={4}\n",
+							st->uiMode, st->editMode ? 1 : 0, nv, st->editHE.VertCount(),
+							st->editHE.FaceCount());
 				}
 				if (st->uiMode == 3 && nv > 0) {
+					// Le catalogue doit etre la AVANT qu'on lise la brosse active :
+					// sinon le journal dit « brosse='(aucune)' » alors que le geste a
+					// bien agi, et le lecteur cherche un defaut qui n'existe pas.
+					Demo3D_LoadBrushes(st);
 					// NK_SCULPT_AT="x:y[:images[:frame0]]" -- un trait POSE A DES
 					// COORDONNEES ECRITES, en pixels de la VUE. Separateur ':' : la
 					// virgule est le separateur decimal en fr-FR.
@@ -11137,11 +11162,21 @@ namespace nkentseu {
 							loop.Clear();
 							st->editHE.GetFaceVerts((renderer::NkEmId)f, loop);
 							for (uint32 k = 1; k + 1 < (uint32)loop.Size(); ++k) {
-								const NkVec3f &v0 = st->editHE.verts[loop[0]].pos;
-								const NkVec3f &v1 = st->editHE.verts[loop[k]].pos;
-								const NkVec3f &v2 = st->editHE.verts[loop[k + 1]].pos;
+								// ⚠️ LE MAILLAGE D'EDITION EST EN REPERE LOCAL, LE RAYON EN MONDE.
+								//    `editRest` le dit : « vertices LOCAUX de repos », et le pick
+								//    d'element passe par `worldV = editAnchor * pos`. Sans cette
+								//    transformation le rayon cherchait la surface la ou elle n'est
+								//    pas : mesure du 20/09, `touche=0` sur toutes les coordonnees
+								//    essayees, avec pourtant 561 sommets et 960 faces sous le
+								//    curseur.
+								const NkVec3f l0 = st->editHE.verts[loop[0]].pos;
+								const NkVec3f l1 = st->editHE.verts[loop[k]].pos;
+								const NkVec3f l2 = st->editHE.verts[loop[k + 1]].pos;
+								const NkVec3f v0 = st->editAnchor * l0;
+								const NkVec3f v1 = st->editAnchor * l1;
+								const NkVec3f v2 = st->editAnchor * l2;
 								// Moller-Trumbore.
-								const NkVec3f e1 = v1 - v0, e2 = v2 - v0;
+								const NkVec3f e1 = v1 - v0, e2 = v2 - v0; // MONDE, pour le test
 								const NkVec3f pv = sDir.Cross(e2);
 								const float32 det = e1.x * pv.x + e1.y * pv.y + e1.z * pv.z;
 								if (det > -1e-8f && det < 1e-8f)
@@ -11158,8 +11193,14 @@ namespace nkentseu {
 								const float32 tt = (e2.x * qv.x + e2.y * qv.y + e2.z * qv.z) * inv;
 								if (tt > 1e-5f && tt < best) {
 									best = tt;
-									hitP = camPos + sDir * tt;
-									NkVec3f n = e1.Cross(e2);
+									// ⚠️ LE POINT EST RECONSTRUIT EN LOCAL PAR SES BARYCENTRIQUES,
+									//    et non converti depuis le monde. Moller-Trumbore rend deja u
+									//    et v : la meme combinaison appliquee aux sommets LOCAUX donne
+									//    le point dans le repere de l'objet, exactement, sans inverser
+									//    la matrice. Et le contrat du trait exige le repere OBJET : un
+									//    point en monde ne survivrait pas au deplacement de l'objet.
+									hitP = l0 + (l1 - l0) * u + (l2 - l0) * vv;
+									NkVec3f n = (l1 - l0).Cross(l2 - l0);
 									const float32 nl = n.Len();
 									hitN = (nl > 1e-8f) ? n * (1.f / nl) : NkVec3f{0.f, 1.f, 0.f};
 									hit = true;
@@ -16880,16 +16921,22 @@ namespace nkentseu {
 			if (!st || mode < 0)
 				return;
 			st->uiMode = mode;
-			const bool veutEdition = (mode == 1); // NkMode::Edit
-			if (veutEdition != st->editMode)
+			// ⚠️ L'ENSEMBLE, ET NON L'EGALITE A 1. `veutEdition = (mode == 1)`
+			//    identifiait un ETAT DE DONNEE (le maillage est-il ouvert) a un AXE
+			//    D'INTERACTION (dans quel mode suis-je). Consequence mesuree le
+			//    20/09 : passer en Sculpture ARMAIT la sortie du maillage que la
+			//    sculpture reclame. Cf. NkModeNeedsEditMesh pour le raisonnement
+			//    complet et la liste des modes a venir.
+			const bool veutMaillage = NkModeNeedsEditMesh(mode);
+			if (veutMaillage != st->editMode)
 				st->editTogglePending = true;
 			// ⚠ C'EST ICI QUE L'ECHEC DEVIENT MESURABLE, et nulle part ailleurs.
 			// Le shell appelle cette fonction UNE FOIS PAR IMAGE avec son propre
 			// mode : c'est le seul point qui voit, chaque image, si les deux cotes
 			// sont d'accord. Tant qu'ils ne le sont pas, on compte.
-			// On ne compte QUE l'entree refusee (veutEdition && !editMode) : la
+			// On ne compte QUE l'entree refusee (veutMaillage && !editMode) : la
 			// SORTIE d'edition, elle, ne peut pas echouer.
-			if (veutEdition && !st->editMode) {
+			if (veutMaillage && !st->editMode) {
 				if (st->editRefusedFrames < 1000000)
 					++st->editRefusedFrames;
 			} else {
