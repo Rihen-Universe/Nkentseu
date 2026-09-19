@@ -2143,6 +2143,154 @@ static void NkPrimAjouter(NkQuadMesh &m, const Piece &p, NkVec3f q, NkVec3f n, f
 	m.uv.PushBack(NkVec2f{u, v});
 }
 
+// ---------------------------------------------------------------------------
+// L'EMPAQUETAGE DE L'ATLAS -- le defaut qu'AUCUN critere de distorsion ne voit.
+//
+// `mesurer_uv_obj.py` juge chaque face ISOLEMENT : sa forme UV contre sa forme
+// 3D. Il ne regarde jamais deux faces ENSEMBLE. Donc les 9 ilots pouvaient
+// occuper exactement le meme carre -- distorsion 1,41, zero couture, tous les
+// compteurs verts -- et le maillage etait inutilisable : peindre l'oeil aurait
+// peint le genou. Mesure du 19/09 par `mesurer_atlas.py` : 93 376 texels
+// partages, soit 44,7 % des texels occupes.
+//
+// ⚠️ ET L'OCCUPATION SEULE EST UN CRITERE TROMPEUR : l'atlas superpose
+// affichait 79,7 % d'occupation contre 38,2 % pour l'atlas etale. Le taux
+// MONTE quand les ilots s'empilent. Le critere qui compte est le RECOUVREMENT.
+//
+// ⚠️ CE QUI NE DOIT PAS BOUGER : la densite (aire3D / aireUV) est la MEME pour
+// tous les ilots depuis `NkUVDensitePiece` -- x1,00. Un empaquetage qui
+// redimensionnerait chaque ilot pour remplir sa case la DETRUIRAIT. On ne
+// translate donc les ilots que d'un bloc, et on applique UN SEUL facteur
+// d'echelle COMMUN a la fin.
+//
+// Rangement par etageres : les ilots tries par hauteur decroissante, poses en
+// rangees. Simple, sans dependance, et il suffit a passer le recouvrement a 0.
+struct NkUVIlot {
+		uint32 piece = 0;
+		uint32 racine = 0;
+		float x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f;
+};
+
+static uint32 NkUVFind(NkVector<uint32> &r, uint32 b, uint32 a) {
+	while (r[b + a] != a) {
+		r[b + a] = r[b + r[b + a]];
+		a = r[b + a];
+	}
+	return a;
+}
+
+static void NkUVUnion(NkVector<uint32> &r, uint32 b, uint32 a, uint32 c) {
+	const uint32 ra = NkUVFind(r, b, a), rc = NkUVFind(r, b, c);
+	if (ra != rc)
+		r[b + ra] = rc;
+}
+
+static void NkUVEmpaqueter(NkVector<NkQuadMesh> &parties) {
+	{
+		const char *mu = getenv("NK_UV_MUTE");
+		// 3 = comportement d'avant le correctif - 4 = le negatif de CETTE passe
+		if (mu && (mu[0] == '3' || mu[0] == '4'))
+			return;
+	}
+	NkVector<NkUVIlot> ilots;
+	NkVector<uint32> racineDe;
+	NkVector<uint32> debutPiece;
+	for (uint32 k = 0; k < (uint32)parties.Size(); ++k) {
+		NkQuadMesh &m = parties[k];
+		const uint32 n = (uint32)m.uv.Size();
+		debutPiece.PushBack((uint32)racineDe.Size());
+		for (uint32 i = 0; i < n; ++i)
+			racineDe.PushBack(i);
+		const uint32 b = debutPiece[k];
+		// union-find : deux sommets d'une meme face sont dans le meme ilot.
+		// ⚠️ La couture est DEDOUBLEE (des sommets distincts a la meme position
+		// 3D), donc les composantes des SOMMETS sont bien les ilots UV.
+		for (uint32 q = 0; q + 3 < (uint32)m.quads.Size(); q += 4)
+			for (uint32 j = 1; j < 4; ++j)
+				NkUVUnion(racineDe, b, m.quads[q], m.quads[q + j]);
+		for (uint32 t = 0; t + 2 < (uint32)m.tris.Size(); t += 3)
+			for (uint32 j = 1; j < 3; ++j)
+				NkUVUnion(racineDe, b, m.tris[t], m.tris[t + j]);
+		for (uint32 i = 0; i < n; ++i) {
+			const uint32 r = NkUVFind(racineDe, b, i);
+			bool vu = false;
+			for (uint32 z = 0; z < (uint32)ilots.Size(); ++z)
+				if (ilots[z].piece == k && ilots[z].racine == r) {
+					NkUVIlot &it = ilots[z];
+					if (m.uv[i].x < it.x0) it.x0 = m.uv[i].x;
+					if (m.uv[i].y < it.y0) it.y0 = m.uv[i].y;
+					if (m.uv[i].x > it.x1) it.x1 = m.uv[i].x;
+					if (m.uv[i].y > it.y1) it.y1 = m.uv[i].y;
+					vu = true;
+					break;
+				}
+			if (!vu) {
+				NkUVIlot it;
+				it.piece = k;
+				it.racine = r;
+				it.x0 = it.x1 = m.uv[i].x;
+				it.y0 = it.y1 = m.uv[i].y;
+				ilots.PushBack(it);
+			}
+		}
+	}
+	const uint32 N = (uint32)ilots.Size();
+	if (N == 0)
+		return;
+	// tri par hauteur decroissante (insertion : N est petit)
+	for (uint32 i = 1; i < N; ++i) {
+		NkUVIlot cle = ilots[i];
+		uint32 j = i;
+		while (j > 0 && (ilots[j - 1].y1 - ilots[j - 1].y0) < (cle.y1 - cle.y0)) {
+			ilots[j] = ilots[j - 1];
+			--j;
+		}
+		ilots[j] = cle;
+	}
+	float aire = 0.f;
+	for (uint32 i = 0; i < N; ++i)
+		aire += (ilots[i].x1 - ilots[i].x0) * (ilots[i].y1 - ilots[i].y0);
+	const float marge = 0.02f * sqrtf(aire > 0.f ? aire / (float)N : 1.f);
+	float largeur = 1.15f * sqrtf(aire > 0.f ? aire : 1.f);
+	for (uint32 i = 0; i < N; ++i) {
+		const float w = ilots[i].x1 - ilots[i].x0 + 2.f * marge;
+		if (w > largeur)
+			largeur = w;
+	}
+	NkVector<float> tx, ty;
+	float cx = marge, cy = marge, hauteurRangee = 0.f, hautTotal = 0.f;
+	for (uint32 i = 0; i < N; ++i) {
+		const float w = ilots[i].x1 - ilots[i].x0;
+		const float h = ilots[i].y1 - ilots[i].y0;
+		if (cx + w + marge > largeur && cx > marge) {
+			cx = marge;
+			cy += hauteurRangee + marge;
+			hauteurRangee = 0.f;
+		}
+		tx.PushBack(cx - ilots[i].x0);
+		ty.PushBack(cy - ilots[i].y0);
+		cx += w + marge;
+		if (h > hauteurRangee)
+			hauteurRangee = h;
+		if (cy + h + marge > hautTotal)
+			hautTotal = cy + h + marge;
+	}
+	// ⚠️ UN SEUL facteur, COMMUN a tous les ilots : c'est lui qui preserve la
+	// densite uniforme acquise. Un facteur par ilot la detruirait.
+	const float cote = largeur > hautTotal ? largeur : hautTotal;
+	const float kk = cote > 1e-9f ? 1.f / cote : 1.f;
+	for (uint32 i = 0; i < N; ++i) {
+		NkQuadMesh &m = parties[ilots[i].piece];
+		const uint32 b = debutPiece[ilots[i].piece];
+		const uint32 n = (uint32)m.uv.Size();
+		for (uint32 v = 0; v < n; ++v) {
+			if (NkUVFind(racineDe, b, v) != ilots[i].racine)
+				continue;
+			m.uv[v] = NkVec2f{(m.uv[v].x + tx[i]) * kk, (m.uv[v].y + ty[i]) * kk};
+		}
+	}
+}
+
 // Aire d'un triangle en 3D, et son equivalent dans le plan UV.
 static float NkTriAire(const NkVec3f &a, const NkVec3f &b, const NkVec3f &c) {
 	const NkVec3f u{b.x - a.x, b.y - a.y, b.z - a.z};
@@ -2696,6 +2844,10 @@ static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) 
 		printf("  REFUS : aucune partie en union simple (les booleens exigent le chemin du champ)\n");
 		return 1;
 	}
+
+	// Les ilots se superposaient tous : 44,7 % des texels partages. Aucun
+	// critere de distorsion ne pouvait le dire -- cf. NkUVEmpaqueter.
+	NkUVEmpaqueter(parties);
 
 	uint32 nq = 0, nt = 0, nv = 0;
 	if (!NkPrimEcrireObj(out, parties, sc.solidaire, sc.nomScene, nq, nt, nv)) {
