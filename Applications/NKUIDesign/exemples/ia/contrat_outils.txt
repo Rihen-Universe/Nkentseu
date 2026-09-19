@@ -23,7 +23,9 @@ nkuidoc 1
 titre = <texte>
 noeud <numero, en partant de 0 pour la racine>
   libelle = <texte>
-  composant = <nom du catalogue, ou vide pour un cadre>
+  composant = <un nom de la liste ci-dessous ; LAISSE VIDE si ce
+              noeud ne porte aucun composant, comme le noeud 0
+              de l'exemple>
   enfants = <numeros de noeuds, separes par des espaces>
   largeur = <fixed | content | fraction | weight | expand> <valeur> <min> <max>
   hauteur = <idem>
