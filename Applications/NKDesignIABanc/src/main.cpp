@@ -313,6 +313,7 @@ int main(int argc, char **argv) {
 	const char *dSortie = "Build/ia-jeu";
 	const char *dorsal = "processus";
 	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
+	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -323,6 +324,8 @@ int main(int argc, char **argv) {
 			dSortie = argv[a] + 9;
 		else if (std::strcmp(argv[a], "--sonde-http") == 0)
 			sondeHttp = true;
+		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
+			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
 			dorsal = argv[a] + 9;
 		else if (CommencePar(argv[a], "--seule="))
@@ -448,6 +451,11 @@ int main(int argc, char **argv) {
 			ollama.modele = NkString(m);
 		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
 			ollama.hote = NkString(h);
+		// ⚠️ TEMPERATURE 0 = MESURE REPRODUCTIBLE. Sans elle, deux courses
+		//    identiques rendent des taux differents et l'ecart entre deux invites
+		//    se noie dans le tirage au sort.
+		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
+			ollama.temperature = (float32)atof(tp);
 		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
 		//    service eteint rendrait douze refus identiques et on lirait « le
 		//    modele echoue » la ou il faut lire « personne n'ecoute ».
@@ -473,8 +481,11 @@ int main(int argc, char **argv) {
 		ia.SetBackend(&proc);
 	}
 
+	// L'etiquette voyage avec chaque paire : voir Recolte.h.
+	NkString etiquetteCatalogue;
+	ia.catalogueBref = catalogueBref;
 	NkString catalogue;
-	NkDesignAI::BuildCatalog(catalogue);
+	NkDesignAI::BuildCatalog(catalogue, catalogueBref);
 	uint32 nbComposants = 0;
 	for (uint32 i = 0; i < (uint32)catalogue.Size(); ++i)
 		if (catalogue.Data()[i] == '\n' && i + 10 < (uint32)catalogue.Size()
@@ -494,6 +505,18 @@ int main(int argc, char **argv) {
 	if (std::strcmp(dorsal, "ollama") == 0)
 		modeleCourant = ollama.modele;
 	std::printf("demandes      : %u (lues dans %s)\n", nbD, fDemandes);
+	// ⚠️ LE NIVEAU DU CATALOGUE EST UNE CONDITION DE LA MESURE : il s'imprime
+	//    et il entre dans la recolte. Un taux qui ne dit pas avec quel
+	//    catalogue il a ete obtenu est un chiffre sans sa condition.
+	std::printf("catalogue     : %s, %u octets\n",
+		   catalogueBref ? "BREF (sans param/variante)" : "COMPLET",
+		   (uint32)catalogue.Size());
+	{
+		char eb[64];
+		snprintf(eb, sizeof(eb), "%s, %u octets", catalogueBref ? "bref" : "complet",
+				 (unsigned)catalogue.Size());
+		etiquetteCatalogue = NkString(eb);
+	}
 	std::printf("catalogue     : %u composant(s) declares au registre\n", nbComposants);
 	std::printf("sortie        : %s\n\n", dSortie);
 
@@ -615,6 +638,10 @@ int main(int argc, char **argv) {
 			paire.n2 = n2;
 			paire.n3 = n3;
 			paire.ms = msEcoule;
+			paire.catalogue = etiquetteCatalogue.CStr();
+			// La provenance du JEU DE DEMANDES, pas de la reponse : le fichier des
+			// demandes est a nous, ecrit avant la premiere course et jamais modifie.
+			paire.provenance = fDemandes;
 			paire.brut = &brut;
 			paire.document = &docProduit;
 			char dRecolte[512];
