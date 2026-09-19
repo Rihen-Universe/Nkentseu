@@ -5,8 +5,10 @@
 // Kernel de brosse : mute le canvas pixol (depth/normal/color) dans la tuile
 // dispatchee. Borne par le dirty rect cote CPU -> cout constant en resolution.
 //
-// ⚠️ SQUELETTE. NkSL non fonctionnel => on ecrit en GLSL, compile en SPIR-V
-//    via glslang (NkShaderConverter::GlslToSpirv).
+// ⚠️ SQUELETTE. On ecrit en GLSL parce que NkSL n'est pas branche dans le
+//    LOADER du renderer -- et NON parce que NkSL serait non fonctionnel : il
+//    l'est sur 5 dorsaux sur 6 depuis 06/2026 (corrige le 19/09/2026).
+//    Compile en SPIR-V via glslang (NkShaderConverter::GlslToSpirv).
 // ⚠️ Le push_constant DOIT matcher renderer::NkSculptBrushGPU (NkSculptBrush.h).
 // =============================================================================
 
