@@ -12,7 +12,7 @@
 // =============================================================================
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKMath/NKMath.h"
-#include "NKRenderer/Tools/PixolSculpt/NkSculptBrush.h"
+#include "NKRenderer/Tools/PixolSculpt/NkPixolBrush.h"
 #include "NKRenderer/Tools/PixolSculpt/NkSculptTypes.h"
 
 namespace nkentseu {
@@ -26,7 +26,7 @@ namespace nkentseu {
 				~NkSculptStroke() noexcept = default;
 
 				// Demarre un trace avec la brosse courante.
-				void Begin(const NkSculptBrush &brush) noexcept;
+				void Begin(const NkPixolBrush &brush) noexcept;
 
 				// Ajoute un echantillon (position souris/stylet). Interpole et
 				// genere les dabs espaces de brush.dabSpacing * radius.
@@ -40,7 +40,7 @@ namespace nkentseu {
 				}
 
 				// Dabs en attente de dispatch (consommes par le systeme chaque frame).
-				[[nodiscard]] const NkVector<NkSculptDab> &PendingDabs() const noexcept {
+				[[nodiscard]] const NkVector<NkPixolDab> &PendingDabs() const noexcept {
 					return mPending;
 				}
 
@@ -49,7 +49,7 @@ namespace nkentseu {
 					return mDirty;
 				}
 
-				[[nodiscard]] const NkSculptBrush &Brush() const noexcept {
+				[[nodiscard]] const NkPixolBrush &Brush() const noexcept {
 					return mBrush;
 				}
 
@@ -61,10 +61,10 @@ namespace nkentseu {
 			private:
 				// Etend le dirty rect pour englober la zone touchee par un dab,
 				// en l'alignant sur la grille de tuiles (kNkSculptTileSize).
-				void ExpandDirty(const NkSculptDab &dab) noexcept;
+				void ExpandDirty(const NkPixolDab &dab) noexcept;
 
-				NkSculptBrush mBrush;
-				NkVector<NkSculptDab> mPending;
+				NkPixolBrush mBrush;
+				NkVector<NkPixolDab> mPending;
 				NkSculptRect mDirty;
 				NkVec2f mLastSample = {0, 0};
 				bool mActive = false;

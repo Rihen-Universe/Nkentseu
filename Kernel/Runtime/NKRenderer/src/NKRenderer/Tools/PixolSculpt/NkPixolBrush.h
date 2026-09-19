@@ -1,9 +1,28 @@
 #pragma once
 // =============================================================================
-// NkSculptBrush.h  — NKRenderer v5.0  (Tools/PixolSculpt/)
+// @File    Kernel/Runtime/NKRenderer/src/NKRenderer/Tools/PixolSculpt/NkPixolBrush.h
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// NkPixolBrush.h  — NKRenderer v5.0  (Tools/PixolSculpt/)
+//
+// ⚠️ RENOMME LE 19/09/2026, ET LA RAISON EST UNE COLLISION DANGEREUSE.
+//    Ce type s'appelait `NkSculptBrush`. Un AUTRE type portait exactement le
+//    meme nom dans un autre espace de noms -- `nkentseu::NkSculptBrush`, dans
+//    Engine/Noge/src/Noge/Sculpt/NkSculpting.h -- et les deux n'avaient PAS LES
+//    MEMES UNITES :
+//
+//        renderer::NkSculptBrush   rayon en PIXELS ECRAN   (sculpt 2.5D)
+//        nkentseu::NkSculptBrush   rayon en UNITES MONDE   (sculpt volumique)
+//
+//    Meme nom, semantique opposee. Toute recherche par nom melangeait les deux,
+//    et surtout : UNE CONFUSION D'UNITES N'APPARAIT DANS AUCUN COMPTEUR. Un
+//    rayon de 48 reste un nombre plausible qu'il vaille 48 pixels ou 48 metres ;
+//    rien ne rougit, et le seul symptome est une forme fausse.
+//    Le nouveau nom DIT l'unite : un pixol est un pixel, donc `NkPixolBrush`
+//    est en pixels. Son cousin volumique vit ailleurs et ne peut plus etre
+//    confondu avec lui.
 //
 // Description d'une brosse de sculpt et d'un "dab" (un tampon unique le long
-// d'un trace). NkSculptBrushGPU est le bloc compact pousse au kernel compute
+// d'un trace). NkPixolBrushGPU est le bloc compact pousse au kernel compute
 // via push constants : son layout DOIT matcher le bloc std430 declare dans
 // shaders/sculpt_brush.comp.glsl.
 //
@@ -18,7 +37,7 @@ namespace nkentseu {
 		using namespace math;
 
 		// Parametres d'une brosse, cote CPU / outil.
-		struct NkSculptBrush {
+		struct NkPixolBrush {
 				NkSculptBrushMode mode = NkSculptBrushMode::NK_RAISE;
 				NkSculptFalloff falloff = NkSculptFalloff::NK_SMOOTH;
 				float32 radiusPx = 48.f;	  ///< Rayon en pixels ecran.
@@ -30,7 +49,7 @@ namespace nkentseu {
 		};
 
 		// Un tampon unique. Un trace = une suite de dabs interpolee et espacee.
-		struct NkSculptDab {
+		struct NkPixolDab {
 				NkVec2f screenPos = {0, 0}; ///< Centre en pixels ecran.
 				float32 radiusPx = 48.f;
 				float32 pressure = 1.f; ///< Pression stylet [0..1] (module strength/radius).
@@ -40,7 +59,7 @@ namespace nkentseu {
 		// Bloc GPU (push constants). Aligne 16 octets, layout std430.
 		// ⚠️ Toute modif ici doit etre repercutee dans sculpt_brush.comp.glsl.
 		// ─────────────────────────────────────────────────────────────────────
-		struct NkSculptBrushGPU {
+		struct NkPixolBrushGPU {
 				NkVec2f center;	   // offset 0   — centre en pixels
 				float32 radius;	   // offset 8
 				float32 strength;  // offset 12
@@ -57,9 +76,9 @@ namespace nkentseu {
 
 		// Remplit le bloc push-constant a partir de la brosse + du dab + de
 		// l'origine de la tuile dispatchee. La pression module l'intensite.
-		inline NkSculptBrushGPU MakeBrushGPU(const NkSculptBrush &b, const NkSculptDab &dab, int32 tileOffX,
+		inline NkPixolBrushGPU MakeBrushGPU(const NkPixolBrush &b, const NkPixolDab &dab, int32 tileOffX,
 											 int32 tileOffY) noexcept {
-			NkSculptBrushGPU g{};
+			NkPixolBrushGPU g{};
 			g.center = dab.screenPos;
 			g.radius = dab.radiusPx;
 			g.strength = b.strength * dab.pressure;

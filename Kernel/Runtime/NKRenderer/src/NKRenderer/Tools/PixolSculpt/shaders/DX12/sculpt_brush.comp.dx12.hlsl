@@ -5,7 +5,7 @@
 // register SPACES pour mapper les descriptor sets Vulkan (space0 == set 0).
 // push_constant -> root constants (cbuffer b0, space0).
 //
-// ⚠️ SQUELETTE. (NB: DX12 = HLSL, pas GLSL.) Layout = renderer::NkSculptBrushGPU.
+// ⚠️ SQUELETTE. (NB: DX12 = HLSL, pas GLSL.) Layout = renderer::NkPixolBrushGPU.
 // =============================================================================
 
 RWTexture2D<float>  uPixolDepth  : register(u0, space0);

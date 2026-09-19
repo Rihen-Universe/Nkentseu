@@ -49,7 +49,7 @@ dispatchs compute bornés à la tuile sous la brosse**.
 ```
 Tools/PixolSculpt/
 ├── NkSculptTypes.h         Enums (modes, falloff), config, formats, stats, dirty rect
-├── NkSculptBrush.h         NkSculptBrush / NkSculptDab / NkSculptBrushGPU (push consts)
+├── NkPixolBrush.h          NkPixolBrush / NkPixolDab / NkPixolBrushGPU (push consts)
 ├── NkPixolBuffer.{h,cpp}   Le canvas pixol : storage images écran + import graph
 ├── NkSculptStroke.{h,cpp}  Trace : dabs interpolés + dirty rect (working set borné)
 ├── NkSculptPipelines.{h,cpp} Registre des pipelines compute (1/mode + resolve)

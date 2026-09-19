@@ -9,7 +9,7 @@
 //    LOADER du renderer -- et NON parce que NkSL serait non fonctionnel : il
 //    l'est sur 5 dorsaux sur 6 depuis 06/2026 (corrige le 19/09/2026).
 //    Compile en SPIR-V via glslang (NkShaderConverter::GlslToSpirv).
-// ⚠️ Le push_constant DOIT matcher renderer::NkSculptBrushGPU (NkSculptBrush.h).
+// ⚠️ Le push_constant DOIT matcher renderer::NkPixolBrushGPU (NkPixolBrush.h).
 // =============================================================================
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;

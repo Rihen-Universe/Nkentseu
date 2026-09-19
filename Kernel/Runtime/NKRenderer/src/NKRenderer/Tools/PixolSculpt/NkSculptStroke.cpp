@@ -12,7 +12,7 @@ namespace nkentseu {
 
 		static constexpr uint32 kMaxStrokeDabs = 256;
 
-		void NkSculptStroke::Begin(const NkSculptBrush &brush) noexcept {
+		void NkSculptStroke::Begin(const NkPixolBrush &brush) noexcept {
 			mBrush = brush;
 			mActive = true;
 			mHasLast = false;
@@ -30,7 +30,7 @@ namespace nkentseu {
 			auto emit = [this](float32 x, float32 y, float32 pr) {
 				if (mPending.Size() >= kMaxStrokeDabs)
 					return;
-				NkSculptDab d;
+				NkPixolDab d;
 				d.screenPos = NkVec2f{x, y};
 				d.radiusPx = mBrush.radiusPx;
 				d.pressure = pr;
@@ -74,7 +74,7 @@ namespace nkentseu {
 			mHasLast = false;
 		}
 
-		void NkSculptStroke::ExpandDirty(const NkSculptDab &dab) noexcept {
+		void NkSculptStroke::ExpandDirty(const NkPixolDab &dab) noexcept {
 			const int32 ts = (int32)kNkSculptTileSize;
 
 			int32 minx = (int32)std::floor(dab.screenPos.x - dab.radiusPx);
