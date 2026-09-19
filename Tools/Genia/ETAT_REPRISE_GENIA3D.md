@@ -86,6 +86,38 @@ mesure un contour rasterise, pas une aire de section (106 contre 52 sur un cylin
 PORTER leur squelette, et il fournit l'a priori anatomique qui manque au decoupage. Un document
 qui dit « bras_gauche, capsule, attachee au torse a telle hauteur » dit OU L'OS DOIT ALLER.
 
+## 0aa. NOMENCLATURE : ILYANA-3DG (nomme par Rodolf le 19/09)
+
+**Ilyana-3DG** = ce qui APPREND : la generation de geometrie (TripoSR est son **dorsal
+d'aujourd'hui**, remplacable), la generation des vues manquantes, tout ce qui produit de la 3D
+par apprentissage.
+⚠️ **Ne porte PAS ce nom** : le format de scene, la grammaire de primitives, les deformations,
+la segmentation, la retopologie, le depliage UV. **Ce sont du calcul deterministe.** La
+frontiere dit d'un coup d'oeil ce qui est remplacable par un meilleur modele et ce qui ne l'est
+pas.
+⚠️ **Trois Ilyana coexistent** : **Ilyana** (texte, poids detruits le 07/09) · **Ilyana
+Collect** (14B envisage, distillation de poids OUVERTS seulement) · **Ilyana-3DG** (celui-ci).
+
+## 0ab. LES UV : LE DEPLIAGE EXISTE, ET J'AVAIS ANNONCE SON ABSENCE (19/09)
+
+`NkUVUnwrap` : **1 045 lignes**, banc dedie **19 tests / 0 echec**, refus NOMMES, et
+`NkUVMeasureDistortion` calcule DEJA deux de mes quatre criteres (aire et angle).
+
+**Sur un maillage reel il REFUSE, et les deux refus sont EXACTS :**
+  - p512 allege -> `AreteNonManifold` : il reste **1 arete** (la dette du R14.9, dont la
+    condition de reouverture disait « le jour ou un depliage sera demande ». Ce jour est arrive) ;
+  - corps analytique -> `IlotNonDisque, euler=2` : une surface FERMEE ne se deplie pas sans
+    coutures.
+
+**CE QUI MANQUE, ET C'EST PETIT** : aucun calcul automatique de COUTURES (`MarkSeam`,
+`ComputeSeams` : zero occurrence).
+
+**ET POUR LE DOCUMENT LA QUESTION NE SE POSE PAS** : les primitives analytiques portent deja
+**3 027 UV dans [0,1]**. La parametrisation EST le depliage.
+
+**Prochain geste** : (a) reparer la derniere arete non-manifold ; (b) poser les coutures --
+deux sources existent deja (parties nommees + aretes vives de NkMeshRetopo), **non mesurees**.
+
 ## 0. LE PREMIER GESTE DE LA PROCHAINE SESSION
 
 ```
