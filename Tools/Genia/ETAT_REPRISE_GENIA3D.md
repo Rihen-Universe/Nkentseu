@@ -6,6 +6,45 @@
 
 ---
 
+## 0A. ⚠️ L'ETALON MESHY A DEPLACE LE PROBLEME (19/09) — A LIRE EN PREMIER
+
+**Le probleme des coutures UV n'etait pas le bon probleme.** Mesure sur l'etalon commercial
+`D:/L'Enfant des Bois/Ressources Externes/Perso Remesh/Meshy_AI_...fbx` :
+
+| | topologie (valence 4) | ilots | coutures | distorsion p99 |
+|---|---|---|---|---|
+| **Meshy (etalon)** | **98,3 %** | 174 | **4,5 %** | **1,213** |
+| notre grammaire quads (`personnage_quads.obj`) | **99,5 %** | **9** | **0,0 %** | 4,064 ❌ |
+| `p512_allege_repare.obj` (TripoSR + marching cubes) | **7,5 %** ❌ | 272 ❌ | 34,3 % ❌ | (bornee 1,707) |
+| notre retopologie `p512_rho1.obj` | **26,9 %** ❌ | — | — | — |
+
+**Ce que ca commande, et c'est le cap de la reprise :**
+
+1. **Meshy ne pose pas mieux ses coutures : il RETOPOLOGIE D'ABORD.** 98,3 % de valence 4.
+   Quatre methodes de coutures ont ete refutees sur une etape qui, dans le bon ordre,
+   **ne se presente jamais**.
+2. **Notre chemin grammaire bat deja l'etalon en topologie (99,5 %) et est a ZERO couture.**
+   Son seul defaut est nomme : **UV parametriques et non equi-aires** (u = angle, v = hauteur)
+   -> 46,4 % des faces au-dela de 1,732. **Correctif local, non fait** : ponderer par l'aire
+   reelle. **Condition de reouverture : p99 sous 1,5 sur `personnage_quads.obj`.**
+3. **Le maillon faible est la RETOPOLOGIE : 26,9 % contre 98,3 %.** C'est le chiffre a faire
+   monter, et il a desormais un etalon et un instrument.
+4. **Il n'y a PAS de compromis distorsion / coutures** — je le croyais, Meshy le refute :
+   il est meilleur sur les deux a la fois.
+
+**Instruments (reutilisables sur n'importe quelle source, y compris pour juger la retopologie) :**
+`mesurer_uv_fbx.py` (lecteur FBX binaire 7400 ecrit ici : rien dans le venv ne lit le FBX),
+`mesurer_uv_obj.py`, `mesurer_valence.py`. Chacun porte **son attendu en tete** et
+`mesurer_uv_fbx.py` porte **son negatif** — dont la premiere version, une PERMUTATION, etait
+**incapable de refuter** (une bijection preserve l'incidence) ; le negatif correct tire chaque
+indice **independamment**.
+
+**Corpus `D:/Projets/2026/NKGenCorpus/`** : lu, rien ecrit. `brut/` (mes-assets, kenney,
+quaternius **CC0**), `normalise/` (« ne rien y mettre a la main »), `outils/recolte.ps1`
+(reprend sans retelecharger). **Licences verifiees par `LICENCE.txt` + `MANIFESTE.csv` par
+createur -> utilisable pour l'entrainement d'Ilyana-3DG sans reprise juridique.**
+**Regle du lieu : « Pas de commit ici : ce sont des donnees. »**
+
 ## 0ter. LE LOT ① A LIVRE (19/09, nuit) : PRIMITIVES EN QUADS, NOMMEES, AVEC UV
 
     NKTexte3D --scene <doc.nkscene> --out <f.obj> --primitives [--anneaux 16] [--segments 24]
