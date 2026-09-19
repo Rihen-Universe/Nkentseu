@@ -839,6 +839,39 @@ static int NkUVMode(const char *chemin) {
 	return 1;
 }
 
+
+// ── MESURER LES UV D'UN MAILLAGE QUI EN PORTE DEJA ──────────────────────────
+// La projection planaire est calculee ailleurs (un script, car c'est une mesure
+// et non un produit). Ici on LIT le resultat et on le juge avec l'outil du
+// depot -- `NkUVMeasureDistortion`, 1 045 lignes deja eprouvees, que je n'ai
+// pas a reecrire.
+static int NkUVMesurerMode(const char *chemin) {
+	printf("== NKGeniaTemoin --mesurer-uv : %s ==\n", chemin);
+	NkGLTFMeshData data;
+	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
+		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
+		return 2;
+	}
+	NkVector<uint32> gi;
+	IndicesGlobaux(data, gi);
+	NkEditMesh m;
+	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(), (uint32)gi.Size(), false);
+	// Les UV lues par NkOBJLoader vivent dans les sommets : on les transporte.
+	for (uint32 i = 0; i < m.VertCount() && i < (uint32)data.vertices.Size(); ++i)
+		m.verts[i].uv = data.vertices[i].uv;
+	NkUVDistortion d;
+	if (!NkUVMeasureDistortion(m, d)) {
+		printf("  [ROUGE] NkUVMeasureDistortion rend faux\n");
+		return 1;
+	}
+	printf("  V=%u F=%u | %u triangles juges\n", m.VertCount(), m.FaceCount(), d.triCount);
+	printf("  ANGLE : min %.3f  moyenne %.3f  MAX %.3f  (degres)\n", (double)d.angleMin, (double)d.angleMean,
+		   (double)d.angleMax);
+	printf("  AIRE  : min %.4f  moyenne %.4f  MAX %.4f  (rapport 3D/UV, 1 = isometrie)\n", (double)d.areaMin,
+		   (double)d.areaMean, (double)d.areaMax);
+	return 0;
+}
+
 // Le point d'entree du mode. Rend le code de sortie (0 = VERT).
 static int NkRedMode(int argc, char **argv) {
 	const char *in = nullptr;
@@ -988,6 +1021,9 @@ int main(int argc, char **argv) {
 	// LE DEPLIAGE UV sur un maillage REEL d'Ilyana-3DG.
 	if (strcmp(argv[1], "--deplier") == 0 && argc > 2)
 		return NkUVMode(argv[2]);
+
+	if (strcmp(argv[1], "--mesurer-uv") == 0 && argc > 2)
+		return NkUVMesurerMode(argv[2]);
 
 	const char *path = argv[1];
 	printf("== NKGeniaTemoin : %s ==\n", path);
