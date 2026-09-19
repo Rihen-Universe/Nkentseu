@@ -661,6 +661,24 @@ int main(int argc, char **argv) {
 	//    ne corrige rien du tout.
 	uint32 realTried = 0, realLoaded = 0;
 	{
+		// ⚠️ CE QU'ON COMPTE, ET IL FAUT L'ECRIRE : trois chantiers mesurent
+		//    maintenant les memes fichiers, et deux conventions derriere le meme
+		//    mot se contredisent pour toujours sans qu'aucune soit fausse.
+		//      tri=    TRIANGLES, pas faces telles qu'ecrites. LoadOBJ triangule,
+		//              et BuildFromIndexed(quadify=true) ne refusionne PAS les
+		//              quads d'origine. p512_rho1.obj ecrit 1985 faces (1310
+		//              triangles + 675 quads) = 2660 triangles : c'est 2660 qu'on
+		//              affiche.
+		//      nm(tri) ARETES portees par plus de deux faces, comptees SUR LA
+		//              VERSION TRIANGULEE. ⚠️ Mesure du 19/09 : le meme fichier
+		//              donne non-manifold=1 sur ses faces ecrites et =2 apres
+		//              triangulation. LA TRIANGULATION EN FABRIQUE : couper un
+		//              quad ABCD en ABC+ACD cree la diagonale AC, et une de ces
+		//              diagonales tombe sur une arete deja portee par deux faces.
+		//              Le non-manifold n'est donc PAS une propriete du maillage
+		//              seul : il depend d'un choix de diagonale arbitraire.
+		//    Le critere de NON-AGGRAVATION reste valide quelle que soit la
+		//    convention : il compare avant et apres avec LE MEME instrument.
 		static const char *const kSubjects[] = {
 			"p512_rho1.obj",     // sortie de notre chaine, porte du non-manifold
 			"cylindre_rho2.obj", // tres grossier : le positif defavorable
@@ -685,7 +703,7 @@ int main(int argc, char **argv) {
 			m.BuildFromIndexed(md.vertices.Data(), (uint32)md.vertices.Size(), md.indices.Data(),
 							   (uint32)md.indices.Size(), true);
 			const float32 diag = BBoxDiag(m);
-			printf("-- %s : V=%u F=%u bords=%u non-manifold=%u diag=%.4f\n", kSubjects[k],
+			printf("-- %s : V=%u tri=%u bords=%u nm(tri)=%u diag=%.4f\n", kSubjects[k],
 						   m.VertCount(), m.FaceCount(), CountBoundary(m), CountNonManifold(m), (double)diag);
 			++realLoaded;
 			// Rayon = 15 % de la diagonale : assez grand pour toucher, assez petit
