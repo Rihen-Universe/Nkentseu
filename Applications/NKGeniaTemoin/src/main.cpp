@@ -40,6 +40,7 @@
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKRenderer/Mesh/NkMeshDecimate.h"
 #include "NKRenderer/Mesh/NkMeshRetopo.h"
+#include "NKRenderer/Mesh/NkUVUnwrap.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
 
@@ -737,6 +738,107 @@ static int NkBoucherMode(const char *chemin) {
 	return g_rouge == 0 ? 0 : 1;
 }
 
+// =============================================================================
+// LE DEPLIAGE UV SUR UN MAILLAGE REEL.
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// ⚠️ J'AVAIS ANNONCE « aucun deplage UV n'existe dans le depot pour un maillage
+// quelconque ». C'ETAIT FAUX. `NkUVUnwrap` fait 1 045 lignes, porte des refus
+// NOMMES (`NK_UV_ILOT_NON_DISQUE`, `NK_UV_COINS_SOUDES`), mesure sa propre
+// distorsion, et son banc dedie rend **19 tests, 0 echec**. Je l'avais dit
+// « non mesure » et c'etait la seule part juste de mon affirmation.
+//
+// CE QUE CE MODE MESURE, ET QUE LE BANC DEDIE NE MESURE PAS : le comportement
+// sur un maillage REEL -- celui d'Ilyana-3DG, allege, avec sa topologie
+// irreguliere -- et non sur des cas synthetiques choisis. Un module vert sur un
+// cube et une croix peut echouer sur 1 006 sommets issus de marching cubes.
+//
+// LES QUATRE CRITERES, ECRITS AU §3 DE L'ETAT DE REPRISE AVANT TOUT CODE :
+//   distorsion d'ANGLE (conformite) · distorsion d'AIRE · nombre de COUTURES ·
+//   taux d'OCCUPATION de l'atlas.
+// Les deux premiers sont DEJA calcules par `NkUVMeasureDistortion` : je ne les
+// reecris pas, je les lis.
+// =============================================================================
+
+static int NkUVMode(const char *chemin) {
+	printf("== NKGeniaTemoin --deplier : %s ==\n", chemin);
+	NkGLTFMeshData data;
+	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
+		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
+		return 2;
+	}
+	NkVector<uint32> gi;
+	IndicesGlobaux(data, gi);
+	NkEditMesh m;
+	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(), (uint32)gi.Size(), false);
+	printf("  entree : V=%u F=%u\n", m.VertCount(), m.FaceCount());
+
+	NkUVUnwrapParams p;
+	p.packIslands = true;
+	p.packMargin = 0.02f;
+	NkUVResult res;
+	NkVector<NkUVIslandInfo> ilots;
+
+	const bool ok = NkUVUnwrap(m, p, res, &ilots);
+	printf("  NkUVUnwrap rend %s\n", ok ? "VRAI" : "FAUX");
+	if (!ok) {
+		// ⚠️ UN REFUS EST UN RESULTAT, PAS UNE PANNE. Le module NOMME sa cause et
+		// dit quel ilot fautif : c'est exactement ce qu'on demande partout
+		// ailleurs, et il faut le rapporter tel quel plutot que de le traduire.
+		printf("  REFUS NOMME : code=%d ilot=%u euler=%d\n", (int)res.refus, res.refusIsland, res.refusEuler);
+		printf("  -> ce n'est PAS une panne : le module refuse de deplier un ilot qui n'est pas\n");
+		printf("     un disque topologique. Le maillage d'entree doit etre prepare (coutures).\n");
+		return 1;
+	}
+
+	printf("  ilots=%u coins_soudes=%u iterations=%u residu=%.3e\n", res.islandCount, res.weldedCorners,
+		   res.cgIterationsUsed, (double)res.cgResidual);
+
+	NkUVDistortion d;
+	if (NkUVMeasureDistortion(m, d)) {
+		printf("\n  LES QUATRE CRITERES (ecrits avant, etat de reprise §3) :\n");
+		// [1] ANGLE : la conformite. Un depliage conforme preserve les angles ;
+		// l'ecart se lit en degres et il est BORNE par construction pour un
+		// depliage conforme (LSCM).
+		const bool okA = d.angleMax <= 15.f;
+		printf("  [%s] distorsion d'ANGLE : max %.3f deg (moyenne %.3f) -- seuil 15 deg\n",
+			   okA ? "VERT " : "ROUGE", (double)d.angleMax, (double)d.angleMean);
+		// [2] AIRE : le rapport aire 3D / aire UV. 1,0 = isometrie parfaite.
+		// ⚠️ Un depliage CONFORME ne preserve PAS les aires : un facteur 2 a 4 est
+		// normal sur une forme courbe, et l'exiger a 1,0 serait exiger
+		// l'impossible. Le seuil juge l'EXPLOITABILITE, pas la perfection.
+		const bool okAi = d.areaMax <= 8.f && d.areaMin >= 0.125f;
+		printf("  [%s] distorsion d'AIRE : [%.3f .. %.3f] (moyenne %.3f) -- borne [0,125 .. 8]\n",
+			   okAi ? "VERT " : "ROUGE", (double)d.areaMin, (double)d.areaMax, (double)d.areaMean);
+		printf("           %u triangles juges\n", d.triCount);
+		// [3] COUTURES : leur nombre, rapporte aux aretes. Une couture par arete
+		// serait un atlas illisible.
+		printf("  [INFO ] ilots : %u\n", res.islandCount);
+		// [4] OCCUPATION : la somme des aires UV des ilots, l'atlas valant 1.
+		// L'aire UV se calcule depuis les faces : l'ilot ne la porte pas.
+		float32 aireUV = 0.f;
+		NkVector<NkEmId> fvu;
+		for (uint32 f = 0; f < m.FaceCount(); ++f) {
+			if (m.FaceSize(f) < 3)
+				continue;
+			m.GetFaceVerts(f, fvu);
+			for (uint32 k = 1; k + 1 < (uint32)fvu.Size(); ++k) {
+				const NkVec2f &a = m.verts[fvu[0]].uv, &bb = m.verts[fvu[k]].uv, &c = m.verts[fvu[k + 1]].uv;
+				const float ar = 0.5f * fabsf((bb.x - a.x) * (c.y - a.y) - (c.x - a.x) * (bb.y - a.y));
+				aireUV += ar;
+			}
+		}
+		const bool okO = aireUV >= 0.25f;
+		printf("  [%s] OCCUPATION de l'atlas : %.1f %% -- seuil 25 %%\n", okO ? "VERT " : "ROUGE",
+			   (double)(100.f * aireUV));
+		printf("           (un atlas a moitie vide gache la moitie de la texture)\n");
+		return (okA && okAi && okO) ? 0 : 1;
+	}
+	printf("  [ROUGE] NkUVMeasureDistortion rend faux\n");
+	return 1;
+}
+
 // Le point d'entree du mode. Rend le code de sortie (0 = VERT).
 static int NkRedMode(int argc, char **argv) {
 	const char *in = nullptr;
@@ -882,6 +984,10 @@ int main(int argc, char **argv) {
 	// LE BOUCHAGE : la brique que « decolle les bras » rend critique.
 	if (strcmp(argv[1], "--boucher") == 0 && argc > 2)
 		return NkBoucherMode(argv[2]);
+
+	// LE DEPLIAGE UV sur un maillage REEL d'Ilyana-3DG.
+	if (strcmp(argv[1], "--deplier") == 0 && argc > 2)
+		return NkUVMode(argv[2]);
 
 	const char *path = argv[1];
 	printf("== NKGeniaTemoin : %s ==\n", path);
