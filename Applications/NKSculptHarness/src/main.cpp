@@ -42,6 +42,7 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Tools/MeshSculpt/NkBrushRegistry.h"
 #include "NKRenderer/Tools/MeshSculpt/NkMeshSculpt.h"
 
@@ -130,6 +131,35 @@ static uint32 CountMovedOutside(const NkEditMesh &m, const Snapshot &s, const Nk
 	return n;
 }
 
+// ── DIRECTION LOCALE : LE SEUL CRITERE VALABLE SUR UN SUJET REEL ──────
+// ⚠️ LE VOLUME SIGNE A UNE CONDITION, ET UN SUJET REEL NE LA REMPLIT PAS.
+//    Il ne dit « la matiere est sortie » que si la surface est FERMEE et
+//    orientee vers l'exterieur. Mesure du 19/09 sur nos propres sorties :
+//      cylindre_rho2.obj  → 22 aretes de BORD : surface OUVERTE ;
+//      tore_rho1.obj      → V0 = -63,9 : winding INVERSE dans le fichier.
+//    Sur ces deux-la, le critere de volume rougissait sur une brosse JUSTE --
+//    il mesurait la topologie du sujet, pas le geste. C'est la faute
+//    « l'attendu s'ecrit avec la condition qu'il suppose ».
+//
+//    Celui-ci n'a aucune condition : chaque sommet deplace doit l'etre dans
+//    le sens de SA PROPRE normale (sens=+1) ou a son oppose (sens=-1). Vrai
+//    sur une surface ouverte, sur un maillage inverse, sur du non-manifold.
+//    Et il est mesure depuis les POSITIONS d'avant et d'apres, pas en
+//    relisant l'intention du module -- sinon il serait tautologique.
+static uint32 CountAgainstNormal(const NkEditMesh &m, const Snapshot &s, float32 sign) {
+	uint32 wrong = 0;
+	for (uint32 i = 0; i < m.VertCount() && i < s.pos.Size(); ++i) {
+		const NkVec3f d = m.verts[i].pos - s.pos[i];
+		if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
+			continue; // pas deplace : rien a dire
+		const NkVec3f &n = s.nrm[i]; // la normale D'AVANT
+		const float32 dot = d.x * n.x + d.y * n.y + d.z * n.z;
+		if (dot * sign <= 0.f)
+			++wrong;
+	}
+	return wrong;
+}
+
 // Compte les aretes de BORD, apres soudure des sommets coincidents. Un cube
 // ferme en a zero ; s'il se dechire, ce compte explose.
 static uint32 CountBoundary(const NkEditMesh &m) {
@@ -162,6 +192,64 @@ static uint32 CountBoundary(const NkEditMesh &m) {
 		if (it->Second == 1)
 			++n;
 	return n;
+}
+
+// Aretes portant PLUS DE DEUX faces : la signature du non-manifold. Une brosse
+// ne doit jamais en CREER -- et si le sujet en porte deja, elle ne doit pas en
+// ajouter.
+static uint32 CountNonManifold(const NkEditMesh &m) {
+	NkVector<uint32> canon;
+	m.BuildVertexMerge(canon);
+	NkHashMap<uint64, uint32> edges;
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < m.FaceCount(); ++f) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		if (loop.Size() < 3)
+			continue;
+		for (uint32 k = 0; k < (uint32)loop.Size(); ++k) {
+			const uint32 a = loop[k], b = loop[(k + 1) % (uint32)loop.Size()];
+			const uint32 ca = (a < canon.Size()) ? canon[a] : a;
+			const uint32 cb = (b < canon.Size()) ? canon[b] : b;
+			const uint64 lo = ca < cb ? ca : cb, hi = ca < cb ? cb : ca;
+			const uint64 key = (lo << 32) | hi;
+			uint32 *e = edges.Find(key);
+			if (e)
+				(*e)++;
+			else
+				edges.InsertOrAssign(key, 1u);
+		}
+	}
+	uint32 n = 0;
+	for (auto it = edges.Begin(); it != edges.End(); ++it)
+		if (it->Second > 2)
+			++n;
+	return n;
+}
+
+// Diagonale de la boite englobante.
+// ⚠️ INDISPENSABLE POUR LES SUJETS REELS. Le rayon d'une brosse est en UNITES
+//    MONDE, et un modele sorti de notre chaine peut mesurer 0,01 comme 100.
+//    Un rayon fixe de 0,25 ne toucherait RIEN sur l'un et TOUT sur l'autre :
+//    le banc deviendrait vide ou absurde selon le fichier, sans rien dire.
+//    On exprime donc le rayon en fraction de la taille du sujet.
+static float32 BBoxDiag(const NkEditMesh &m) {
+	if (m.VertCount() == 0)
+		return 0.f;
+	NkVec3f lo = m.verts[0].pos, hi = m.verts[0].pos;
+	for (uint32 i = 1; i < m.VertCount(); ++i) {
+		const NkVec3f &p = m.verts[i].pos;
+		if (p.x < lo.x) lo.x = p.x;
+		if (p.y < lo.y) lo.y = p.y;
+		if (p.z < lo.z) lo.z = p.z;
+		if (p.x > hi.x) hi.x = p.x;
+		if (p.y > hi.y) hi.y = p.y;
+		if (p.z > hi.z) hi.z = p.z;
+	}
+	const NkVec3f d = hi - lo;
+	return sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
 }
 
 // ── PRIMITIVES ───────────────────────────────────────────────────────────────
@@ -273,10 +361,15 @@ static uint32 LoadBrushes(NkBrushRegistry &reg, const char *dir) {
 //    d'entree sur la machine de Rodolf -- ni souris, ni clavier. Effet de bord
 //    qui vaut la contrainte : un trait pose ainsi est REJOUABLE, donc mesurable
 //    deux fois de suite a l'identique.
-static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b) {
+static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b,
+					   float32 radiusOverride = 0.f) {
 	char label[128];
 	Snapshot before;
 	Capture(m, before);
+	const uint32 bnd0 = CountBoundary(m);
+	const uint32 nm0 = CountNonManifold(m);
+	// La CONDITION du critere de volume, mesuree sur le sujet lui-meme.
+	const bool closedAndOutward = (bnd0 == 0) && (NkSculptSignedVolume(m) > 0.f);
 
 	// ── L'INSTRUMENT AVANT LA MESURE ────────────────────────────────────────
 	// ⚠️ LE CRITERE DE DIRECTION SUPPOSE UNE ORIENTATION. « Le volume signe
@@ -291,10 +384,18 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 	//    fait corriger le mauvais fichier.
 	{
 		const float32 v0 = NkSculptSignedVolume(m);
+		(void)v0;
 		char det[96];
-		snprintf(det, sizeof(det), "V0=%+.6f (doit etre > 0 : faces sortantes)", (double)v0);
-		snprintf(label, sizeof(label), "%s [instrument] orientation coherente", primName);
-		Check(v0 > 0.f, label, det);
+		snprintf(det, sizeof(det), "V0=%+.6f bords=%u -> volume %s", (double)v0, bnd0,
+			     closedAndOutward ? "APPLICABLE" : "non applicable");
+		snprintf(label, sizeof(label), "%s [sujet] fermeture et orientation", primName);
+		// ⚠️ CE N'EST PLUS UN CRITERE, C'EST UNE MESURE DU SUJET. Exiger V0>0
+		//    etait juste pour MES primitives, dont je choisis le winding ; c'est
+		//    faux pour un fichier dont je ne controle pas la provenance. Un tore
+		//    sorti de notre chaine arrive inverse : ce n'est pas un echec de la
+		//    brosse, c'est un fait sur le fichier -- et il decide quels criteres
+		//    s'appliquent ensuite.
+		printf("  [info ] %-46s %s\n", label, det);
 	}
 
 	// Le sommet du maillage le plus haut : on vise une zone qui existe.
@@ -306,7 +407,9 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 			center = m.verts[i].pos;
 		}
 
-	const float32 radius = b.radius;
+	// Le rayon du descripteur est en unites monde ; sur un sujet reel on le
+	// remplace par une fraction de la taille du modele (cf. BBoxDiag).
+	const float32 radius = (radiusOverride > 0.f) ? radiusOverride : b.radius;
 	NkSculptPoint pt;
 	pt.pos = center;
 	pt.normal = NkVec3f{0.f, 1.f, 0.f};
@@ -339,7 +442,7 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 	// ── [direction] LES DEUX SENS ───────────────────────────────────────────
 	// Exiger les DEUX est ce qui distingue une vraie brosse d'un tirage a pile
 	// ou face : un defaut qui pousse toujours dans le meme sens en echoue un.
-	const uint32 bnd0 = CountBoundary(m);
+
 	float32 volPlus = 0.f, volMinus = 0.f;
 	{
 		NkBrushDesc up = b;
@@ -347,9 +450,21 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const NkSculptApply r = NkSculptApplyStroke(m, up, &pt, 1);
 		volPlus = r.volumeAfter - r.volumeBefore;
 		char det[96];
+		// DIRECTION LOCALE -- sans condition, donc toujours exigee.
+		const uint32 wrongUp = CountAgainstNormal(m, before, +1.f);
+		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongUp, r.vertsMoved);
+		snprintf(label, sizeof(label), "%s/%s sens=+1 suit la normale", primName, b.name);
+		Check(r.applied && wrongUp == 0, label, det);
+
+		// VOLUME SIGNE -- CONDITIONNEL. Il ne veut dire "la matiere est sortie"
+		// que sur une surface fermee et orientee sortante. On l'annonce comme
+		// non applicable plutot que de le faire passer pour vert.
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volPlus, r.vertsMoved);
-		snprintf(label, sizeof(label), "%s/%s direction sens=+1 gonfle", primName, b.name);
-		Check(r.applied && volPlus > 0.f, label, det);
+		snprintf(label, sizeof(label), "%s/%s volume sens=+1 gonfle", primName, b.name);
+		if (closedAndOutward)
+			Check(r.applied && volPlus > 0.f, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 
 		// ── [zone] LE NEGATIF OBLIGATOIRE ───────────────────────────────────
 		const uint32 outside = CountMovedOutside(m, before, center, radius);
@@ -363,6 +478,17 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		snprintf(label, sizeof(label), "%s/%s topologie sans dechirure", primName, b.name);
 		Check(bnd1 == bnd0, label, det);
 
+		// ⚠️ NE JAMAIS AGGRAVER LE NON-MANIFOLD. Un sujet sorti de notre chaine
+		//    peut en porter deja ; la question n'est donc pas « y en a-t-il ? »
+		//    mais « la brosse en AJOUTE-t-elle ? ». Exiger zero refuserait des
+		//    maillages reels que l'outil doit justement servir a corriger ; ne
+		//    rien exiger laisserait la brosse fabriquer de la geometrie invalide
+		//    en silence. Le critere est donc une NON-AGGRAVATION.
+		const uint32 nm1 = CountNonManifold(m);
+		snprintf(det, sizeof(det), "non-manifold avant=%u apres=%u", nm0, nm1);
+		snprintf(label, sizeof(label), "%s/%s non-manifold non aggrave", primName, b.name);
+		Check(nm1 <= nm0, label, det);
+
 		// ── [annulation] RETOUR AU BIT ──────────────────────────────────────
 		Restore(m, before);
 		const uint32 moved = CountMoved(m, before);
@@ -375,16 +501,27 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const NkSculptApply r = NkSculptApplyStroke(m, dn, &pt, 1);
 		volMinus = r.volumeAfter - r.volumeBefore;
 		char det[96];
+		const uint32 wrongDn = CountAgainstNormal(m, before, -1.f);
+		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongDn, r.vertsMoved);
+		snprintf(label, sizeof(label), "%s/%s sens=-1 suit la normale", primName, b.name);
+		Check(r.applied && wrongDn == 0, label, det);
+
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volMinus, r.vertsMoved);
-		snprintf(label, sizeof(label), "%s/%s direction sens=-1 creuse", primName, b.name);
-		Check(r.applied && volMinus < 0.f, label, det);
+		snprintf(label, sizeof(label), "%s/%s volume sens=-1 creuse", primName, b.name);
+		if (closedAndOutward)
+			Check(r.applied && volMinus < 0.f, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 		Restore(m, before);
 	}
 
 	// ── [direction] LES DEUX SENS NE SE CONFONDENT PAS ──────────────────────
 	{
 		snprintf(label, sizeof(label), "%s/%s les deux sens different", primName, b.name);
-		Check(volPlus > 0.f && volMinus < 0.f, label, "sinon : un seul sens agit");
+		if (closedAndOutward)
+			Check(volPlus > 0.f && volMinus < 0.f, label, "sinon : un seul sens agit");
+		else
+			printf("  [ n/a ] %-46s (surface ouverte ou inversee)\n", label);
 	}
 
 	// ── [donnee] LA BROSSE TELLE QU'ELLE EST DECLAREE ───────────────────────
@@ -400,10 +537,25 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 	//    ajoutee en donnees fait ce que son fichier dit.
 	{
 		const NkSculptApply r = NkSculptApplyStroke(m, b, &pt, 1);
-		const float32 dv = r.volumeAfter - r.volumeBefore;
-		const bool coherent = (b.dir > 0.f) ? (dv > 0.f) : (dv < 0.f);
 		char det[128];
-		snprintf(det, sizeof(det), "fichier sens=%+.0f -> dV=%+.6f", (double)b.dir, (double)dv);
+		// ⚠️ LE MEME CRITERE, MAIS AVEC L'INSTRUMENT QUE LE SUJET PERMET.
+		//    Sur une surface fermee et orientee, le volume signe est le juge le
+		//    plus independant (il ne sait rien de la facon dont on deplace). Sur
+		//    une surface OUVERTE ou INVERSEE il ne juge plus rien -- mesure du
+		//    19/09 : cylindre_rho2.obj (22 bords) faisait rougir une brosse juste.
+		//    On retombe alors sur la direction LOCALE, qui n'a pas de condition.
+		//    Ce qui est mesure ne change pas : LA DONNEE PILOTE-T-ELLE LE GESTE ?
+		bool coherent;
+		if (closedAndOutward) {
+			const float32 dv = r.volumeAfter - r.volumeBefore;
+			coherent = (b.dir > 0.f) ? (dv > 0.f) : (dv < 0.f);
+			snprintf(det, sizeof(det), "fichier sens=%+.0f -> dV=%+.6f", (double)b.dir, (double)dv);
+		} else {
+			const uint32 wrong = CountAgainstNormal(m, before, b.dir);
+			coherent = (wrong == 0);
+			snprintf(det, sizeof(det), "fichier sens=%+.0f -> a contre-sens=%u/%u", (double)b.dir,
+				 wrong, r.vertsMoved);
+		}
 		snprintf(label, sizeof(label), "%s/%s DONNEE pilote le sens", primName, b.name);
 		Check(r.applied && coherent, label, det);
 		Restore(m, before);
@@ -412,9 +564,14 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 
 int main(int argc, char **argv) {
 	const char *brushDir = "Applications/NK3DModeler/data/brushes";
-	for (int i = 1; i < argc; ++i)
+	// Les sujets reels vivent HORS du depot (sorties de la chaine 3D).
+	const char *subjectDir = "D:/Rihen/Livraisons/Resultats_3D/retopologie";
+	for (int i = 1; i < argc; ++i) {
 		if (strncmp(argv[i], "--brosses=", 10) == 0)
 			brushDir = argv[i] + 10;
+		else if (strncmp(argv[i], "--sujets=", 9) == 0)
+			subjectDir = argv[i] + 9;
+	}
 
 	printf("=== BANC SCULPTURE VOLUMIQUE ===\n");
 	printf("dossier de brosses : %s\n\n", brushDir);
@@ -493,6 +650,60 @@ int main(int argc, char **argv) {
 		}
 		printf("\n");
 	}
+
+	// ──────────────────────────────────────────────────────────────────
+	// LES SUJETS REELS.
+	// ⚠️ POURQUOI ILS SONT INDISPENSABLES. Le cube et la sphere eprouvent
+	//    l'ALGORITHME ; ils ne disent rien de ce qui arrive sur une sortie de
+	//    notre propre chaine 3D. Exigence de Rodolf (19/09) : apres generation,
+	//    on doit pouvoir corriger a la main -- par brosse, par modelisation ou
+	//    par phrase. Une brosse qui ne marche que sur des primitives parfaites
+	//    ne corrige rien du tout.
+	uint32 realTried = 0, realLoaded = 0;
+	{
+		static const char *const kSubjects[] = {
+			"p512_rho1.obj",     // sortie de notre chaine, porte du non-manifold
+			"cylindre_rho2.obj", // tres grossier : le positif defavorable
+			"tore_rho1.obj",     // genre 1 : un trou, donc pas une sphere deguisee
+		};
+		for (uint32 k = 0; k < sizeof(kSubjects) / sizeof(kSubjects[0]); ++k) {
+			char path[512];
+			snprintf(path, sizeof(path), "%s/%s", subjectDir, kSubjects[k]);
+			++realTried;
+			if (!NkFile::Exists(path)) {
+				// ⚠️ REFUS NOMME. Ces fichiers vivent HORS du depot : leur absence
+				//    est normale sur une autre machine, mais elle doit se VOIR.
+				printf("-- sujet reel ABSENT : %s\n", path);
+				continue;
+			}
+			renderer::NkGLTFMeshData md;
+			if (!renderer::LoadOBJ(NkString(path), md) || md.vertices.Size() == 0) {
+				printf("-- sujet reel ILLISIBLE : %s\n", path);
+				continue;
+			}
+			NkEditMesh m;
+			m.BuildFromIndexed(md.vertices.Data(), (uint32)md.vertices.Size(), md.indices.Data(),
+							   (uint32)md.indices.Size(), true);
+			const float32 diag = BBoxDiag(m);
+			printf("-- %s : V=%u F=%u bords=%u non-manifold=%u diag=%.4f\n", kSubjects[k],
+						   m.VertCount(), m.FaceCount(), CountBoundary(m), CountNonManifold(m), (double)diag);
+			++realLoaded;
+			// Rayon = 15 % de la diagonale : assez grand pour toucher, assez petit
+			// pour laisser des sommets DEHORS -- sinon le negatif de zone serait
+			// vide, donc vrai par construction, donc sans valeur.
+			const float32 r = diag * 0.15f;
+			for (uint16 bi = 0; bi < reg.Count(); ++bi) {
+				NkBrushDesc b;
+				if (reg.At(bi, b))
+					RunBrushOn(kSubjects[k], m, b, r);
+			}
+		}
+	}
+	// ⚠️ « 0 echec » ne veut rien dire sans le nombre de cas : on dit combien
+	//    de sujets reels ont REELLEMENT ete eprouves, pas seulement tentes.
+	printf("\nsujets reels : %u eprouve(s) sur %u tente(s)\n", realLoaded, realTried);
+	if (realLoaded == 0)
+		printf("!! AUCUN SUJET REEL EPROUVE : le banc ne couvre que ses primitives.\n");
 
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
 	return (gFail == 0) ? 0 : 1;
