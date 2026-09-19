@@ -23,6 +23,41 @@ L'ANTENNE est la (le chemin du champ la perdait : rayon 0,009 contre un pas de 0
 ⚠️ PIEGE PAYE : sous echelle anisotrope, une normale se DIVISE par l'echelle, elle ne s'y
 multiplie pas. Faux sur toute forme aplatie, et invisible dans un compteur.
 
+## 0quater. LES QUATRE IDEES DE RODOLF (19/09) ET LE CAP REVISE
+
+**CAP** : ① document + deformation **FAIT** · **② rendre p512 exploitable = LOT ACTIF** ·
+③ « decolle les bras » comme OPERATION · ④ gabarit ajuste aux silhouettes.
+
+**③ « DECOLLE LES BRAS » EST UNE OPERATION, PAS UNE CHAINE.** Le panneau IA du modeleur
+fonctionne (24 verbes, annulation prouvee) : `decoller:bras` est un verbe de plus. Une
+operation LOCALE suffit -- couper, reboucher. Pas besoin de rigger tout le personnage.
+⚠️ **Le BOUCHAGE est PROUVE** (19/09) : coupe par plan INCLINE (boucle NON PLANE), zero arete
+de bord apres, chi retrouve sa valeur. Reserve : n-gon non plane de 26 sommets, triangulation
+en eventail a ameliorer un jour.
+
+**④ LE GABARIT AJUSTE AUX SILHOUETTES** -- valide par Rodolf (« ca marche »). On garde le
+modele structure comme GABARIT et on le DEFORME jusqu'a ce que ses silhouettes coincident avec
+ses dessins. Il reutilise l'etage de deformation deja ecrit, pilote non plus par des valeurs du
+document mais par un ecart mesure aux silhouettes.
+⚠️ **LE PIEGE DE LA CIRCULARITE** : rendre notre propre modele puis le reconstruire donne des
+vues parfaitement alignees, mais on reconstruirait NOTRE forme, pas son dessin. **La
+ressemblance ne peut pas augmenter toute seule.** Elle n'augmente que si de l'information
+NOUVELLE entre -- les dessins de Rodolf, ou ses corrections.
+
+**LA SPIRALE : DEUX COUCHES, ET C'EST LA CONCEPTION DU R32.**
+    document -> BASE regeneree + PILE D'OPERATIONS rejouee par-dessus
+⚠️ **MON FORMAT NE SAIT PAS decrire un maillage corrige a la main** : regenerer ECRASE
+aujourd'hui toute correction. Et il ne faut PAS chercher a remonter la geometrie dans la
+grammaire -- impossible en general. Les corrections sont des GESTES REJOUABLES, pas des sommets.
+⚠️ **CONDITION QUI DECIDE DE TOUT : designer par NOM ou par CRITERE, JAMAIS par indice.**
+« biseaute l'arete 417 » biseautera n'importe quoi des que la base bouge. Les parties nommees
+sont la moitie de la reponse ; la SELECTION PAR CRITERE manque et c'est l'autre moitie.
+⚠️ Criteres ecrits (R32.7) : pile vide = base AU BIT · determinisme · cible introuvable = REFUS
+NOMME (appliquer ailleurs est PIRE que ne rien faire) · une orpheline n'annule pas les autres.
+
+⚠️ **LA SCULPTURE N'EXISTE PAS** : `PixolSculpt` et `Noge/NkSculpting` sont deux squelettes,
+ZERO appelant, brosses reduites a des enumerations. Ne rien construire qui la suppose.
+
 ## 0bis. LES TROIS CHANTIERS, DANS L'ORDRE VALIDE PAR RODOLF (18/09 au soir)
 
 **① LE DOCUMENT DE SCENE DEPUIS L'IMAGE — ACTIF.**
