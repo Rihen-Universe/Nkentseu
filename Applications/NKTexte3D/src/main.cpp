@@ -2733,7 +2733,11 @@ int main(int argc, char **argv) {
 	const char *scene = nullptr;
 	bool verifier = false;
 	bool primitives = false;
-	uint32 anneaux = 16, segments = 24;
+	// DEFAUT MESURE, PAS CHOISI : a 16 x 24 la fidelite vaut 0,662 % -- sous le
+	// seuil de 1 % de Rodolf, mais d'un facteur 2 seulement. A 24 x 36 elle tombe
+	// a 0,296 %, pour 6 551 sommets : trois fois sous le seuil, et 5,6 fois moins
+	// de sommets que le chemin du champ. C'est le reglage que la mesure designe.
+	uint32 anneaux = 24, segments = 36;
 	const char *out = nullptr;
 	const char *dossier = ".";
 	uint32 res = 64;

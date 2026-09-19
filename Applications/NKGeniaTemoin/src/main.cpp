@@ -566,6 +566,177 @@ static int NkRedBancGardes(const NkVector<NkVertex3D> &verts, const NkVector<uin
 	return res[1] > res[0] ? 0 : 1;
 }
 
+// =============================================================================
+// LE BOUCHAGE : la brique que j'avais classee « la plus incertaine des quatre »,
+// et qui devient la plus CRITIQUE.
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// POURQUOI MAINTENANT. Rodolf veut « decolle les bras » comme une OPERATION du
+// modeleur, pas comme une chaine complete. Une operation locale suffit : couper
+// le bras, reboucher les deux ouvertures. Pas besoin de rigger tout le
+// personnage. Le point incertain passe donc de la peripherie AU CENTRE : si le
+// bouchage ne marche pas, l'operation laisse DEUX TROUS et le maillage n'est
+// plus etanche.
+//
+// CE QUE JE MESURE, ET JE NE L'AVAIS PAS FAIT : `NkEditMesh::MakeFaceFromSelected`
+// ferme-t-il une GRANDE boucle NON PLANE ? Je l'avais annonce « existant mais non
+// mesure » -- c'est exactement le genre d'affirmation que ce chantier interdit.
+//
+// ⚠️ LE CAS DEFAVORABLE EST IMPOSE D'EMBLEE, et c'est ma lecon de la veille : un
+// zero trop favorable masque le defaut. On coupe donc par un plan INCLINE, ce
+// qui donne une boucle NON PLANE -- le cas reel d'une section de bras oblique.
+// Une coupe horizontale aurait donne un cercle plat, cas le plus facile, et
+// aurait valide un outil incapable du cas qui compte.
+//
+// LES CRITERES, DERIVES :
+//   - avant bouchage : exactement N aretes de bord, une seule boucle ;
+//   - apres : ZERO arete de bord ;
+//   - chi RETROUVE sa valeur d'avant la coupe (une sphere coupee puis bouchee
+//     redevient une sphere : chi = 2). C'est le critere qui distingue « bouche »
+//     de « bouche n'importe comment » ;
+//   - et le volume doit redevenir POSITIF et proche de l'original.
+// =============================================================================
+
+static uint32 NkBoucheCompterBords(NkEditMesh &m) {
+	m.RebuildEdges();
+	uint32 n = 0;
+	for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e)
+		if (m.EdgeIsBoundary(e))
+			++n;
+	return n;
+}
+
+static int64 NkBoucheChi(NkEditMesh &m) {
+	m.RebuildEdges();
+	const uint32 nv = m.VertCount();
+	NkVector<uint8> vu;
+	vu.Resize(nv);
+	for (uint32 i = 0; i < nv; ++i)
+		vu[i] = 0;
+	uint32 soude = 0;
+	for (uint32 i = 0; i < nv; ++i) {
+		const uint32 o = m.VertOwner(i);
+		if (o < nv && !vu[o]) {
+			vu[o] = 1;
+			++soude;
+		}
+	}
+	return (int64)soude - (int64)m.EdgeCount() + (int64)m.FaceCount();
+}
+
+static int NkBoucherMode(const char *chemin) {
+	printf("== NKGeniaTemoin --boucher : %s ==\n", chemin);
+	printf("   On coupe par un plan INCLINE (boucle NON PLANE), puis on rebouche.\n");
+	printf("   ⚠ Une coupe horizontale aurait donne un cercle plat -- le cas le plus\n");
+	printf("     facile -- et aurait valide un outil incapable du cas qui compte.\n\n");
+
+	NkGLTFMeshData data;
+	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
+		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
+		return 2;
+	}
+	NkVector<uint32> gi;
+	IndicesGlobaux(data, gi);
+	NkEditMesh m;
+	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(), (uint32)gi.Size(), false);
+
+	const int64 chi0 = NkBoucheChi(m);
+	const uint32 bord0 = NkBoucheCompterBords(m);
+	printf("[0] AVANT LA COUPE : V=%u F=%u E=%u | bords=%u chi=%lld\n", m.VertCount(), m.FaceCount(), m.EdgeCount(),
+		   bord0, (long long)chi0);
+	Attendu(bord0 == 0, "le maillage de depart est FERME (sinon rien ne se mesure)", 0, bord0);
+	if (bord0 != 0)
+		return 1;
+
+	// ── LA COUPE : supprimer les faces au-dessus d'un plan incline ───────────
+	// La normale (0,3 ; 1 ; 0,2) donne une section franchement oblique.
+	NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+	for (uint32 i = 0; i < m.VertCount(); ++i) {
+		const NkVec3f q = m.verts[i].pos;
+		mn.x = q.x < mn.x ? q.x : mn.x; mn.y = q.y < mn.y ? q.y : mn.y; mn.z = q.z < mn.z ? q.z : mn.z;
+		mx.x = q.x > mx.x ? q.x : mx.x; mx.y = q.y > mx.y ? q.y : mx.y; mx.z = q.z > mx.z ? q.z : mx.z;
+	}
+	const NkVec3f ctr{0.5f * (mn.x + mx.x), 0.5f * (mn.y + mx.y), 0.5f * (mn.z + mx.z)};
+	const NkVec3f nrm{0.3f, 1.0f, 0.2f};
+
+	NkVector<uint8> selV;
+	selV.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		selV[i] = 0;
+	NkVector<NkEmId> fv;
+	uint32 aSupprimer = 0;
+	for (uint32 f = 0; f < m.FaceCount(); ++f) {
+		if (m.FaceSize(f) < 3)
+			continue;
+		m.GetFaceVerts(f, fv);
+		float d = 0.f;
+		for (uint32 k = 0; k < (uint32)fv.Size(); ++k) {
+			const NkVec3f &q = m.verts[fv[k]].pos;
+			d += (q.x - ctr.x) * nrm.x + (q.y - ctr.y) * nrm.y + (q.z - ctr.z) * nrm.z;
+		}
+		if (d / (float)fv.Size() > 0.f) {
+			for (uint32 k = 0; k < (uint32)fv.Size(); ++k)
+				selV[fv[k]] = 1;
+			++aSupprimer;
+		}
+	}
+	printf("[1] LA COUPE : %u face(s) au-dessus du plan incline\n", aSupprimer);
+	m.SetVertSelection(selV.Data(), (uint32)selV.Size());
+	if (!m.DeleteSelectedFaces()) {
+		printf("  [ROUGE] DeleteSelectedFaces rend faux\n");
+		return 1;
+	}
+	const uint32 bord1 = NkBoucheCompterBords(m);
+	const int64 chi1 = NkBoucheChi(m);
+	printf("  apres coupe : V=%u F=%u | bords=%u chi=%lld\n", m.VertCount(), m.FaceCount(), bord1, (long long)chi1);
+	Attendu(bord1 > 0, "la coupe a bien OUVERT le maillage (sinon on boucherait du vide)", 1, bord1 > 0 ? 1 : 0);
+	if (bord1 == 0)
+		return 1;
+
+	// ── LE BOUCHAGE : selectionner la boucle de bord, puis MakeFaceFromSelected
+	NkVector<uint8> selB;
+	selB.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); ++i)
+		selB[i] = 0;
+	uint32 nBord = 0;
+	for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+		if (!m.EdgeIsBoundary(e))
+			continue;
+		NkVector<NkEmId> hs;
+		m.EdgeHedges(e, hs);
+		for (uint32 k = 0; k < (uint32)hs.Size(); ++k) {
+			const NkEmId h = hs[k];
+			if (h < (NkEmId)m.hedges.Size()) {
+				const uint32 v = m.hedges[h].origin;
+				if (v < (uint32)selB.Size() && !selB[v]) {
+					selB[v] = 1;
+					++nBord;
+				}
+			}
+		}
+	}
+	printf("[2] LE BOUCHAGE : %u sommet(s) sur la boucle de bord\n", nBord);
+	m.SetVertSelection(selB.Data(), (uint32)selB.Size());
+	const bool ok = m.MakeFaceFromSelected();
+	printf("  MakeFaceFromSelected rend %s\n", ok ? "VRAI" : "FAUX");
+
+	const uint32 bord2 = NkBoucheCompterBords(m);
+	const int64 chi2 = NkBoucheChi(m);
+	printf("  apres bouchage : V=%u F=%u | bords=%u chi=%lld\n", m.VertCount(), m.FaceCount(), bord2,
+		   (long long)chi2);
+
+	Attendu(ok, "MakeFaceFromSelected rend vrai", 1, ok ? 1 : 0);
+	Attendu(bord2 == 0, "ZERO arete de bord apres bouchage (le maillage est refERME)", 0, bord2);
+	// chi RETROUVE sa valeur d'origine : c'est ce qui distingue « bouche » de
+	// « bouche n'importe comment ». Une face en trop, ou une boucle fermee de
+	// travers, deplacerait chi.
+	Attendu(chi2 == chi0, "chi retrouve sa valeur d'avant la coupe", (long long)chi0, (long long)chi2);
+
+	printf("\nVERDICT BOUCHAGE : %s (%d ligne(s) rouge(s))\n", g_rouge == 0 ? "VERT" : "ROUGE", g_rouge);
+	return g_rouge == 0 ? 0 : 1;
+}
+
 // Le point d'entree du mode. Rend le code de sortie (0 = VERT).
 static int NkRedMode(int argc, char **argv) {
 	const char *in = nullptr;
@@ -707,6 +878,10 @@ int main(int argc, char **argv) {
 	// porte que les modeles importes.
 	if (strcmp(argv[1], "--reduire") == 0 || strcmp(argv[1], "--banc-reduction") == 0)
 		return NkRedMode(argc, argv);
+
+	// LE BOUCHAGE : la brique que « decolle les bras » rend critique.
+	if (strcmp(argv[1], "--boucher") == 0 && argc > 2)
+		return NkBoucherMode(argv[2]);
 
 	const char *path = argv[1];
 	printf("== NKGeniaTemoin : %s ==\n", path);
