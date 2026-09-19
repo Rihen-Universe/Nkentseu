@@ -1878,6 +1878,480 @@ static int VerifierContreDocument(const Scene &sc, const char *cheminObj, float 
 }
 
 
+// =============================================================================
+// LES PRIMITIVES CONSTRUITES, ET NON EXTRAITES.
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LE CONSTAT QUI A IMPOSE CE CHEMIN. Le document rendait 36 596 sommets et
+// 73 180 faces -- 100 % de TRIANGLES, ZERO quad, ZERO UV -- pour SIX primitives.
+// Rodolf, en mode edition : « il faut tout faire pour avoir un maillage moins
+// dense, beaucoup plus propre, qui represente bien toutes les formes, les
+// contours, les bosses, les creux, les normales, sans pour autant avoir autant
+// de vertices », et « le mieux, ce sont les quads ».
+//
+// LA CAUSE ETAIT STRUCTURELLE : je faisais passer les primitives par un CHAMP DE
+// DENSITE puis par marching cubes, comme s'il fallait les DECOUVRIR. Or je les
+// connais ANALYTIQUEMENT. Une capsule ne s'extrait pas -- elle se CONSTRUIT.
+//
+// ⚠️ ET CE N'EST PAS LE CHANTIER DE RETOPOLOGIE. Celui-la resout le cas GENERAL :
+// reprendre un maillage quelconque deja extrait et le requadranguler selon la
+// courbure. Ici il n'y a rien a reprendre : il y a une equation. C'est le cas
+// facile, et il ne doit pas consommer leur solveur.
+//
+// CE QUE CE CHEMIN NE SAIT PAS FAIRE, ET C'EST ECRIT AVANT : les BOOLEENS. Une
+// soustraction ou une union LISSE exigent un champ, c'est leur definition meme.
+// Les parties en union simple passent ici ; le reste garde l'ancien chemin.
+//
+// LES SOMMETS SONT SUR LA SURFACE PAR CONSTRUCTION : l'ecart au SDF doit etre
+// NUL, pas « petit ». Ce n'est pas une tolerance, c'est une identite -- et c'est
+// le critere [1] du R29.2.
+// =============================================================================
+
+struct NkQuadMesh {
+		NkVector<NkVec3f> pos;
+		NkVector<NkVec3f> nor; // normales ANALYTIQUES, jamais moyennees
+		NkVector<NkVec2f> uv;
+		NkVector<uint32> quads; // 4 indices par quad
+		NkVector<uint32> tris;  // 3 indices par triangle (pôles uniquement)
+		char nom[32] = {0};
+};
+
+// Applique l'echelle par axe, la rotation et la translation d'une piece a un
+// point ET a sa normale. ⚠️ La normale ne se transforme PAS comme un point sous
+// une echelle anisotrope : elle se divise par l'echelle au lieu d'y etre
+// multipliee. L'oublier donne des normales fausses sur toute forme aplatie --
+// et elles se voient a l'eclairage, pas dans un compteur.
+static void NkPrimPlacer(const Piece &p, NkVec3f &q, NkVec3f &n) {
+	q.x *= p.sx;
+	q.y *= p.sy;
+	q.z *= p.sz;
+	n.x /= (p.sx != 0.f ? p.sx : 1e-6f);
+	n.y /= (p.sy != 0.f ? p.sy : 1e-6f);
+	n.z /= (p.sz != 0.f ? p.sz : 1e-6f);
+	if (p.rx != 0.f || p.ry != 0.f || p.rz != 0.f) {
+		const float k = 3.14159265358979f / 180.f;
+		const float a = p.rx * k, b = p.ry * k, c = p.rz * k;
+		NkVec3f *v[2] = {&q, &n};
+		for (int i = 0; i < 2; i++) {
+			float x = v[i]->x, y = v[i]->y, z = v[i]->z, t;
+			t = y * cosf(a) - z * sinf(a);
+			z = y * sinf(a) + z * cosf(a);
+			y = t;
+			t = x * cosf(b) + z * sinf(b);
+			z = -x * sinf(b) + z * cosf(b);
+			x = t;
+			t = x * cosf(c) - y * sinf(c);
+			y = x * sinf(c) + y * cosf(c);
+			x = t;
+			v[i]->x = x;
+			v[i]->y = y;
+			v[i]->z = z;
+		}
+	}
+	const float ln = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+	if (ln > 0.f) {
+		n.x /= ln;
+		n.y /= ln;
+		n.z /= ln;
+	}
+	q.x += p.cx;
+	q.y += p.cy;
+	q.z += p.cz;
+}
+
+static void NkPrimAjouter(NkQuadMesh &m, const Piece &p, NkVec3f q, NkVec3f n, float u, float v) {
+	NkPrimPlacer(p, q, n);
+	m.pos.PushBack(q);
+	m.nor.PushBack(n);
+	m.uv.PushBack(NkVec2f{u, v});
+}
+
+// Une grille (A+1) x (S+1) de sommets -> A x S quads. La couture est DEDOUBLEE
+// (S+1 colonnes au lieu de S) : sans cela, les UV sauteraient de 1 a 0 sur la
+// derniere colonne et la texture se replierait sur toute la largeur.
+static void NkPrimGrille(NkQuadMesh &m, uint32 base, uint32 A, uint32 S, bool polesTri) {
+	for (uint32 a = 0; a < A; ++a) {
+		for (uint32 s = 0; s < S; ++s) {
+			const uint32 i0 = base + a * (S + 1) + s;
+			const uint32 i1 = i0 + 1;
+			const uint32 i2 = i0 + (S + 1) + 1;
+			const uint32 i3 = i0 + (S + 1);
+			const bool poleHaut = polesTri && a == 0;
+			const bool poleBas = polesTri && a == A - 1;
+			if (poleHaut) {
+				// Au pole, deux sommets de la rangee coincident : un quad y serait
+				// DEGENERE. On emet un triangle -- c'est une propriete de la
+				// parametrisation spherique, pas un choix de confort.
+				m.tris.PushBack(i0);
+				m.tris.PushBack(i2);
+				m.tris.PushBack(i3);
+			} else if (poleBas) {
+				m.tris.PushBack(i0);
+				m.tris.PushBack(i1);
+				m.tris.PushBack(i2);
+			} else {
+				m.quads.PushBack(i0);
+				m.quads.PushBack(i1);
+				m.quads.PushBack(i2);
+				m.quads.PushBack(i3);
+			}
+		}
+	}
+}
+
+// Construit la primitive d'une piece. `A` anneaux, `S` segments.
+static bool NkPrimConstruire(const Piece &p, uint32 A, uint32 S, NkQuadMesh &m) {
+	const float PI = 3.14159265358979f;
+	const uint32 base = (uint32)m.pos.Size();
+	const float s = p.s;
+	switch (p.f) {
+		case F_SPHERE: {
+			for (uint32 a = 0; a <= A; ++a) {
+				const float th = PI * (float)a / (float)A; // 0 = pole haut
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					const NkVec3f n{sinf(th) * cosf(ph), cosf(th), sinf(th) * sinf(ph)};
+					NkPrimAjouter(m, p, NkVec3f{n.x * s, n.y * s, n.z * s}, n, (float)j / (float)S,
+								  1.f - (float)a / (float)A);
+				}
+			}
+			NkPrimGrille(m, base, A, S, true);
+			return true;
+		}
+		case F_CAPSULE: {
+			// Les memes constantes que `SdfFormeLocale` : r = 0,45 s et h = 0,55 s.
+			// ⚠️ Elles sont RECOPIEES, et c'est la dette deja nommee pour
+			// `DemiHauteurY` : si l'une bouge la-bas, elle doit bouger ici.
+			const float r = 0.45f * s, h = 0.55f * s;
+			const uint32 Ac = A / 3 > 1 ? A / 3 : 2;   // anneaux par calotte
+			const uint32 Am = A - 2 * Ac > 1 ? A - 2 * Ac : 2; // anneaux du tube
+			for (uint32 a = 0; a <= Ac + Am + Ac; ++a) {
+				float y, rr, ny, nr;
+				if (a <= Ac) { // calotte haute
+					const float th = 0.5f * PI * (float)a / (float)Ac;
+					y = h + r * cosf(th);
+					rr = r * sinf(th);
+					ny = cosf(th);
+					nr = sinf(th);
+				} else if (a <= Ac + Am) { // tube
+					const float t = (float)(a - Ac) / (float)Am;
+					y = h - 2.f * h * t;
+					rr = r;
+					ny = 0.f;
+					nr = 1.f;
+				} else { // calotte basse
+					const float th = 0.5f * PI * (float)(a - Ac - Am) / (float)Ac;
+					y = -h - r * sinf(th);
+					rr = r * cosf(th);
+					ny = -sinf(th);
+					nr = cosf(th);
+				}
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					const NkVec3f n{nr * cosf(ph), ny, nr * sinf(ph)};
+					NkPrimAjouter(m, p, NkVec3f{rr * cosf(ph), y, rr * sinf(ph)}, n, (float)j / (float)S,
+								  1.f - (float)a / (float)(Ac + Am + Ac));
+				}
+			}
+			NkPrimGrille(m, base, Ac + Am + Ac, S, true);
+			return true;
+		}
+		case F_CYLINDRE: {
+			const float r = 0.55f * s, h = 0.9f * s;
+			// Paroi : A anneaux de quads, AUCUN triangle.
+			for (uint32 a = 0; a <= A; ++a) {
+				const float y = h - 2.f * h * (float)a / (float)A;
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					const NkVec3f n{cosf(ph), 0.f, sinf(ph)};
+					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), y, r * sinf(ph)}, n, (float)j / (float)S,
+								  1.f - (float)a / (float)A);
+				}
+			}
+			NkPrimGrille(m, base, A, S, false);
+			// Les deux disques, en eventail : un disque n'a pas de quadrangulation
+			// naturelle, et une grille y creerait des quads degeneres au centre.
+			for (int32 k = 0; k < 2; ++k) {
+				const float y = k == 0 ? h : -h;
+				const NkVec3f n{0.f, k == 0 ? 1.f : -1.f, 0.f};
+				const uint32 c = (uint32)m.pos.Size();
+				NkPrimAjouter(m, p, NkVec3f{0.f, y, 0.f}, n, 0.5f, 0.5f);
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), y, r * sinf(ph)}, n, 0.5f + 0.5f * cosf(ph),
+								  0.5f + 0.5f * sinf(ph));
+				}
+				for (uint32 j = 0; j < S; ++j) {
+					m.tris.PushBack(c);
+					m.tris.PushBack(k == 0 ? c + 1 + j : c + 2 + j);
+					m.tris.PushBack(k == 0 ? c + 2 + j : c + 1 + j);
+				}
+			}
+			return true;
+		}
+		case F_TORE: {
+			// ⚠️ LE TORE EST LE CAS PARFAIT : il se parametre SANS AUCUN POLE,
+			// donc 100 % de quads et ZERO triangle. C'est pourquoi le critere [2]
+			// l'exige sur lui et pas sur une sphere.
+			const float R = 0.68f * s, r = 0.28f * s;
+			for (uint32 a = 0; a <= A; ++a) {
+				const float th = 2.f * PI * (float)a / (float)A;
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					const NkVec3f n{cosf(th) * cosf(ph), sinf(th), cosf(th) * sinf(ph)};
+					const NkVec3f q{(R + r * cosf(th)) * cosf(ph), r * sinf(th), (R + r * cosf(th)) * sinf(ph)};
+					NkPrimAjouter(m, p, q, n, (float)j / (float)S, (float)a / (float)A);
+				}
+			}
+			NkPrimGrille(m, base, A, S, false);
+			return true;
+		}
+		case F_CUBE: {
+			const float h = 0.62f * s;
+			const NkVec3f nz[6] = {{0, 0, 1}, {0, 0, -1}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}};
+			const NkVec3f ux[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 0, -1}, {0, 0, 1}, {1, 0, 0}, {1, 0, 0}};
+			const NkVec3f uy[6] = {{0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+			const uint32 N = S > 1 ? S : 1;
+			for (int32 fi = 0; fi < 6; ++fi) {
+				const uint32 b = (uint32)m.pos.Size();
+				for (uint32 a = 0; a <= N; ++a) {
+					for (uint32 j = 0; j <= N; ++j) {
+						const float u = -1.f + 2.f * (float)j / (float)N;
+						const float v = -1.f + 2.f * (float)a / (float)N;
+						const NkVec3f q{(nz[fi].x + ux[fi].x * u + uy[fi].x * v) * h,
+										(nz[fi].y + ux[fi].y * u + uy[fi].y * v) * h,
+										(nz[fi].z + ux[fi].z * u + uy[fi].z * v) * h};
+						NkPrimAjouter(m, p, q, nz[fi], (float)j / (float)N, (float)a / (float)N);
+					}
+				}
+				NkPrimGrille(m, b, N, N, false);
+			}
+			return true;
+		}
+		case F_CONE: {
+			const float h = 0.95f * s, r = 0.75f * s;
+			for (uint32 a = 0; a <= A; ++a) {
+				const float t = (float)a / (float)A; // 0 = pointe
+				const float y = h - 2.f * h * t;
+				const float rr = r * t;
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					// La normale d'un cone : la pente est constante.
+					const float k = 1.f / sqrtf(1.f + (r / (2.f * h)) * (r / (2.f * h)));
+					const NkVec3f n{k * cosf(ph), k * (r / (2.f * h)), k * sinf(ph)};
+					NkPrimAjouter(m, p, NkVec3f{rr * cosf(ph), y, rr * sinf(ph)}, n, (float)j / (float)S, 1.f - t);
+				}
+			}
+			NkPrimGrille(m, base, A, S, true);
+			{
+				const NkVec3f n{0.f, -1.f, 0.f};
+				const uint32 c = (uint32)m.pos.Size();
+				NkPrimAjouter(m, p, NkVec3f{0.f, -h, 0.f}, n, 0.5f, 0.5f);
+				for (uint32 j = 0; j <= S; ++j) {
+					const float ph = 2.f * PI * (float)j / (float)S;
+					NkPrimAjouter(m, p, NkVec3f{r * cosf(ph), -h, r * sinf(ph)}, n, 0.5f + 0.5f * cosf(ph),
+								  0.5f + 0.5f * sinf(ph));
+				}
+				for (uint32 j = 0; j < S; ++j) {
+					m.tris.PushBack(c);
+					m.tris.PushBack(c + 2 + j);
+					m.tris.PushBack(c + 1 + j);
+				}
+			}
+			return true;
+		}
+		default:
+			return false;
+	}
+}
+
+// Ecrit un .obj avec QUADS, UV et NORMALES, un objet nomme par partie.
+static bool NkPrimEcrireObj(const char *chemin, const NkVector<NkQuadMesh> &parties, uint32 &outQuads,
+							uint32 &outTris, uint32 &outSommets) {
+	FILE *f = fopen(chemin, "wb");
+	if (!f)
+		return false;
+	fprintf(f, "# NKTexte3D -- primitives CONSTRUITES analytiquement, pas extraites.\n");
+	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Sederis - Rihen\n");
+	fprintf(f, "# Quads, UV et normales ANALYTIQUES. Un « o <nom> » par partie declaree.\n");
+	uint32 base = 1;
+	outQuads = outTris = outSommets = 0;
+	for (uint32 k = 0; k < (uint32)parties.Size(); ++k) {
+		const NkQuadMesh &m = parties[k];
+		for (uint32 i = 0; i < (uint32)m.pos.Size(); ++i)
+			fprintf(f, "v %.6f %.6f %.6f\n", m.pos[i].x, m.pos[i].y, m.pos[i].z);
+		for (uint32 i = 0; i < (uint32)m.uv.Size(); ++i)
+			fprintf(f, "vt %.6f %.6f\n", m.uv[i].x, m.uv[i].y);
+		for (uint32 i = 0; i < (uint32)m.nor.Size(); ++i)
+			fprintf(f, "vn %.6f %.6f %.6f\n", m.nor[i].x, m.nor[i].y, m.nor[i].z);
+		fprintf(f, "o %s\n", m.nom[0] ? m.nom : "partie");
+		for (uint32 i = 0; i + 3 < (uint32)m.quads.Size() + 1; i += 4) {
+			const uint32 a = m.quads[i] + base, b = m.quads[i + 1] + base;
+			const uint32 c = m.quads[i + 2] + base, d = m.quads[i + 3] + base;
+			fprintf(f, "f %u/%u/%u %u/%u/%u %u/%u/%u %u/%u/%u\n", a, a, a, b, b, b, c, c, c, d, d, d);
+			++outQuads;
+		}
+		for (uint32 i = 0; i + 2 < (uint32)m.tris.Size() + 1; i += 3) {
+			const uint32 a = m.tris[i] + base, b = m.tris[i + 1] + base, c = m.tris[i + 2] + base;
+			fprintf(f, "f %u/%u/%u %u/%u/%u %u/%u/%u\n", a, a, a, b, b, b, c, c, c);
+			++outTris;
+		}
+		base += (uint32)m.pos.Size();
+		outSommets += (uint32)m.pos.Size();
+	}
+	fclose(f);
+	return true;
+}
+
+// Le chemin ANALYTIQUE complet : construire, mesurer, ecrire. Rend le nombre de
+// lignes rouges.
+static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) {
+	printf("== NKTexte3D : primitives CONSTRUITES (%u anneaux x %u segments) -> %s ==\n", A, S, out);
+	NkVector<NkQuadMesh> parties;
+	for (uint32 i = 0; i < sc.nPieces; ++i) {
+		const Piece &p = sc.pieces[i];
+		if (p.op != OP_UNION)
+			continue;
+		NkQuadMesh m;
+		snprintf(m.nom, sizeof(m.nom), "%s", p.nom[0] ? p.nom : "partie");
+		if (!NkPrimConstruire(p, A, S, m)) {
+			printf("  REFUS : forme non constructible analytiquement : %s\n", NomForme(p.f));
+			return 1;
+		}
+		parties.PushBack(m);
+	}
+	if (parties.Size() == 0) {
+		printf("  REFUS : aucune partie en union simple (les booleens exigent le chemin du champ)\n");
+		return 1;
+	}
+
+	uint32 nq = 0, nt = 0, nv = 0;
+	if (!NkPrimEcrireObj(out, parties, nq, nt, nv)) {
+		printf("  REFUS : ecriture impossible : %s\n", out);
+		return 1;
+	}
+	printf("  MESURE : %u sommets · %u QUADS · %u triangles · %u partie(s) nommee(s)\n", nv, nq, nt,
+		   (uint32)parties.Size());
+
+	int rouge = 0;
+
+	// ── [1] FIDELITE : les sommets sont SUR la surface, l'ecart doit etre NUL ──
+	// Ce n'est pas une tolerance, c'est une identite : le sommet est calcule
+	// depuis l'equation de la surface. 1e-5 laisse passer l'erreur du float, rien
+	// de plus.
+	{
+		float pire = 0.f;
+		uint32 ip = 0;
+		for (uint32 k = 0; k < (uint32)parties.Size(); ++k) {
+			uint32 pi = 0, n = 0;
+			for (uint32 i = 0; i < sc.nPieces; ++i)
+				if (sc.pieces[i].op == OP_UNION && n++ == k)
+					pi = i;
+			for (uint32 v = 0; v < (uint32)parties[k].pos.Size(); ++v) {
+				const NkVec3f &q = parties[k].pos[v];
+				float d = SdfPiece(sc.pieces[pi], q.x, q.y, q.z);
+				if (d < 0.f)
+					d = -d;
+				if (d > pire) {
+					pire = d;
+					ip = k;
+				}
+			}
+		}
+		const bool ok = pire <= 1e-5f;
+		printf("  [%s] fidelite : ecart MAXIMAL a la surface analytique = %.3e (partie %u)\n",
+			   ok ? "VERT " : "ROUGE", (double)pire, ip);
+		if (!ok) {
+			++rouge;
+			printf("          -> un sommet n'est PAS sur la surface : l'equation et la construction divergent.\n");
+		}
+	}
+
+	// ── [2] QUADS : zero triangle attendu sur un TORE ou un CYLINDRE ──────────
+	{
+		uint32 triAttendus = 0;
+		for (uint32 i = 0; i < sc.nPieces; ++i) {
+			if (sc.pieces[i].op != OP_UNION)
+				continue;
+			switch (sc.pieces[i].f) {
+				case F_TORE: break;                              // aucun pole : 0 triangle
+				case F_CUBE: break;                              // six grilles : 0 triangle
+				case F_SPHERE: triAttendus += 2 * S; break;      // deux poles
+				case F_CAPSULE: triAttendus += 2 * S; break;     // deux calottes
+				case F_CYLINDRE: triAttendus += 2 * S; break;    // deux disques en eventail
+				case F_CONE: triAttendus += S + S; break;        // pointe + disque
+				default: break;
+			}
+		}
+		const bool ok = (nt == triAttendus);
+		printf("  [%s] quads : %u quads, %u triangles (attendus %u : poles et disques seulement)\n",
+			   ok ? "VERT " : "ROUGE", nq, nt, triAttendus);
+		if (!ok)
+			++rouge;
+		const float ratio = (nq + nt) ? 100.f * (float)nq / (float)(nq + nt) : 0.f;
+		printf("           proportion de quads : %.1f %%\n", (double)ratio);
+	}
+
+	// ── [3] DENSITE : le compte suit la multiplication, ce n'est pas une estimation
+	printf("  [INFO ] densite reglable : %u anneaux x %u segments\n", A, S);
+
+	// ── [4] NORMALES : unitaires, et analytiques (jamais moyennees) ───────────
+	{
+		float pire = 0.f;
+		for (uint32 k = 0; k < (uint32)parties.Size(); ++k)
+			for (uint32 v = 0; v < (uint32)parties[k].nor.Size(); ++v) {
+				const NkVec3f &n = parties[k].nor[v];
+				const float l = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+				const float e = l > 1.f ? l - 1.f : 1.f - l;
+				if (e > pire)
+					pire = e;
+			}
+		const bool ok = pire <= 1e-4f;
+		printf("  [%s] normales : ecart maximal a la norme unite = %.3e\n", ok ? "VERT " : "ROUGE", (double)pire);
+		if (!ok)
+			++rouge;
+	}
+
+	// ── [5] UV : presentes, et dans [0,1] ────────────────────────────────────
+	{
+		uint32 nuv = 0, hors = 0;
+		for (uint32 k = 0; k < (uint32)parties.Size(); ++k)
+			for (uint32 v = 0; v < (uint32)parties[k].uv.Size(); ++v) {
+				++nuv;
+				const NkVec2f &t = parties[k].uv[v];
+				if (t.x < -1e-4f || t.x > 1.0001f || t.y < -1e-4f || t.y > 1.0001f)
+					++hors;
+			}
+		const bool ok = (nuv == nv) && (hors == 0);
+		printf("  [%s] UV : %u coordonnees pour %u sommets, %u hors de [0,1]\n", ok ? "VERT " : "ROUGE", nuv, nv, hors);
+		if (!ok)
+			++rouge;
+	}
+
+	// ── [6] LES NOMS, RELUS PAR LA VRAIE PORTE ───────────────────────────────
+	{
+		NkGLTFMeshData data;
+		const bool lu = LoadOBJ(NkString(out), data) && data.IsValid();
+		uint32 nommes = 0;
+		if (lu)
+			for (uint32 k = 0; k < (uint32)parties.Size(); ++k)
+				for (uint32 j = 0; j < (uint32)data.subMeshes.Size(); ++j)
+					if (strcmp(data.subMeshes[j].name.CStr(), parties[k].nom) == 0) {
+						++nommes;
+						break;
+					}
+		const bool ok = lu && nommes == (uint32)parties.Size();
+		printf("  [%s] noms relus par NkOBJLoader : %u / %u\n", ok ? "VERT " : "ROUGE", nommes,
+			   (uint32)parties.Size());
+		if (!ok)
+			++rouge;
+	}
+
+	printf("  VERDICT PRIMITIVES : %s (%d rouge)\n", rouge == 0 ? "VERT" : "ROUGE", rouge);
+	return rouge;
+}
+
 // ── REECRIRE LE .OBJ AVEC UN OBJET NOMME PAR PARTIE ─────────────────────────
 // Rend le nombre de groupes ecrits, 0 si echec. Le fichier d'entree est celui
 // que `gen::SaveMeshObj` vient d'ecrire ; on le relit et on le remplace.
@@ -1957,6 +2431,8 @@ int main(int argc, char **argv) {
 	const char *texte = nullptr;
 	const char *scene = nullptr;
 	bool verifier = false;
+	bool primitives = false;
+	uint32 anneaux = 16, segments = 24;
 	const char *out = nullptr;
 	const char *dossier = ".";
 	uint32 res = 64;
@@ -1971,6 +2447,9 @@ int main(int argc, char **argv) {
 		else if (strcmp(argv[i], "--banc-variete") == 0) bancVariete = true;
 		else if (strcmp(argv[i], "--scene") == 0 && i + 1 < argc) scene = argv[++i];
 		else if (strcmp(argv[i], "--verifier") == 0) verifier = true;
+		else if (strcmp(argv[i], "--primitives") == 0) primitives = true;
+		else if (strcmp(argv[i], "--anneaux") == 0 && i + 1 < argc) anneaux = (uint32)atoi(argv[++i]);
+		else if (strcmp(argv[i], "--segments") == 0 && i + 1 < argc) segments = (uint32)atoi(argv[++i]);
 		else
 			return Refus("argument inconnu : %s\nusage : NKTexte3D --texte \"<phrase>\" --out <f.obj> [--res N]\n"
 						 "        NKTexte3D --scene <doc.nkscene> --out <f.obj> [--verifier] [--res N]\n"
@@ -1994,6 +2473,26 @@ int main(int argc, char **argv) {
 		char pourquoi[512];
 		if (LireScene(scene, sc, pourquoi, sizeof(pourquoi)) == 0)
 			return Refus("%s", pourquoi);
+
+		// ── LE CHEMIN ANALYTIQUE : CONSTRUIRE AU LIEU D'EXTRAIRE ────────────
+		// Il s'AJOUTE au chemin du champ, il ne le remplace pas : les booleens
+		// et l'union lisse exigent un champ, c'est leur definition meme. Le banc
+		// a neuf cas continue donc de passer par l'ancien chemin, et ses comptes
+		// ne doivent pas bouger d'un sommet.
+		if (primitives) {
+			if (anneaux < 3 || anneaux > 256 || segments < 3 || segments > 256)
+				return Refus("anneaux et segments doivent etre entre 3 et 256 (recus %u et %u)", anneaux, segments);
+			for (uint32 i = 0; i < sc.nPieces; ++i)
+				if (sc.pieces[i].op != OP_UNION)
+					return Refus("« %s » utilise un operateur booleen : le chemin analytique ne sait pas le faire.\n"
+								 "        Retire --primitives pour passer par le champ (marching cubes).",
+								 sc.pieces[i].nom[0] ? sc.pieces[i].nom : "une partie");
+			if (sc.lissage > 0.f)
+				return Refus("le document demande un lissage (%.3f) : il exige un champ.\n"
+							 "        Retire --primitives, ou retire le lissage.",
+							 (double)sc.lissage);
+			return NkPrimProduire(sc, out, anneaux, segments) == 0 ? 0 : 1;
+		}
 		// ── LES MUTATIONS DU DOCUMENT, DANS LE MEME BINAIRE ─────────────────
 		// Sans elles, le vert du critere ne prouve rien : « une mutation qui
 		// survit dit : ce critere ne teste rien ». Deux constructions separees
