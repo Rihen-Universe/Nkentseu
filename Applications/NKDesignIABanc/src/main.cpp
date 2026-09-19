@@ -314,6 +314,7 @@ int main(int argc, char **argv) {
 	const char *dorsal = "processus";
 	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
 	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
+	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -324,6 +325,8 @@ int main(int argc, char **argv) {
 			dSortie = argv[a] + 9;
 		else if (std::strcmp(argv[a], "--sonde-http") == 0)
 			sondeHttp = true;
+		else if (CommencePar(argv[a], "--rejouer="))
+			rejouer = argv[a] + 10;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
 			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
@@ -400,6 +403,35 @@ int main(int argc, char **argv) {
 	//    1 582 lignes d'en-tete, un `.cpp`, et des exemples en commentaire. Rien
 	//    de tout ca ne prouve qu'un POST aboutit. Avant d'accuser un modele ou
 	//    une invite, on demande au TRANSPORT ce qu'il rend, et on l'imprime.
+	// ── REJOUER UN TEXTE SANS RAPPELER UN MODELE ─────────────────────────────
+	// ⚠️ `DesignAI.h` PROMET DEJA CETTE CAPACITE : « `Apply` est separee de
+	//    `Ask` pour une raison pratique : c'est ce qui permet de rejouer un
+	//    texte suspect autant de fois qu'on veut, sans rappeler un modele et
+	//    sans payer un jeton. » Elle n'avait aucune porte en ligne de commande.
+	//
+	//    Elle repond a une question qu'aucune course ne tranche : quand un
+	//    document est rejete, EST-CE POUR LA RAISON QU'ON CROIT ? Une reponse
+	//    peut echouer sur la STRUCTURE avant meme que le nom des composants
+	//    soit regarde -- et on attribuerait alors le rejet au mauvais gardien.
+	if (rejouer) {
+		const NkString txt = NkFile::ReadAllText(NkPath(rejouer));
+		if (txt.Size() == 0) {
+			std::printf("REJEU : %s est vide ou illisible. Rien n'a ete mesure.\n", rejouer);
+			return 2;
+		}
+		NkDesignAI iaR;
+		PeuplerCatalogue();
+		NkUIDocument docR;
+		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
+		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
+		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
+		std::printf("  detail  : %s\n", rr.detail.Size() > 0 ? rr.detail.CStr() : "(aucun)");
+		std::printf("  noeuds ajoutes : %u ; composants inconnus : %u\n",
+				 rr.nodesAdded, rr.unknownComponents);
+		return rr.Accepted() ? 0 : 1;
+	}
+
 	if (sondeHttp) {
 		static NkOllamaBackend o;
 		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
