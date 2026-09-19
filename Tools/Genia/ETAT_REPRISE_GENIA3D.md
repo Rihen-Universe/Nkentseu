@@ -6,6 +6,23 @@
 
 ---
 
+## 0ter. LE LOT ① A LIVRE (19/09, nuit) : PRIMITIVES EN QUADS, NOMMEES, AVEC UV
+
+    NKTexte3D --scene <doc.nkscene> --out <f.obj> --primitives [--anneaux 16] [--segments 24]
+
+                    sommets   faces                 quads    UV    normales
+  champ (avant)      36 596   73 180 triangles          0     0    moyennees
+  analytique          3 027   2 400 quads + 336 tri  87,7 %  3027  exactes (1,2e-07)
+
+Fidelite : ecart maximal a la surface analytique **4,6e-08** -- l'erreur du flottant. Un TORE
+rend **384 quads, ZERO triangle**. Les 7 parties sortent NOMMEES et relues par NkOBJLoader.
+L'ANTENNE est la (le chemin du champ la perdait : rayon 0,009 contre un pas de 0,0203).
+
+⚠️ LIMITE : les BOOLEENS et le LISSAGE exigent un champ -- refus nomme, garder l'ancien chemin.
+⚠️ NON REGRESSION : le banc a 9 cas passe toujours par le champ, comptes INCHANGES.
+⚠️ PIEGE PAYE : sous echelle anisotrope, une normale se DIVISE par l'echelle, elle ne s'y
+multiplie pas. Faux sur toute forme aplatie, et invisible dans un compteur.
+
 ## 0bis. LES TROIS CHANTIERS, DANS L'ORDRE VALIDE PAR RODOLF (18/09 au soir)
 
 **① LE DOCUMENT DE SCENE DEPUIS L'IMAGE — ACTIF.**
