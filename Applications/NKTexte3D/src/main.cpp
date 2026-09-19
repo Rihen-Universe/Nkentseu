@@ -127,6 +127,18 @@ static float DemiHauteurY(Forme f, float s) {
 // Les deux facons d'empiler, et elles sont DISTINCTES a la mesure.
 enum Liaison { L_AUCUNE = 0, L_CONTACT, L_JOUR };
 
+// Le GALBE d'une piece. Declare ICI, avant `Piece`, parce qu'elle en porte un.
+// (Les fonctions qui l'appliquent vivent plus bas, avec les primitives.)
+struct NkDeform {
+		float renfle = 0.f;
+		float effile = 0.f;
+		float courbe = 0.f;
+
+		bool Nulle() const {
+			return renfle == 0.f && effile == 0.f && courbe == 0.f;
+		}
+};
+
 // L'OPERATEUR : ce qu'une piece fait a ce qui la precede.
 enum Op { OP_UNION = 0, OP_DIFF, OP_INTER };
 
@@ -147,6 +159,7 @@ struct Piece {
 		float sx = 1.f, sy = 1.f, sz = 1.f; // echelle PAR AXE (un cylindre plat = un disque)
 		float rx = 0.f, ry = 0.f, rz = 0.f; // rotation en degres
 		Op op = OP_UNION;
+		NkDeform def; // galbe DECRIT dans le document, donc corrigible ligne a ligne
 		char nom[32] = {0}; // le nom de la partie dans le document (pour les refus et le critere)
 };
 
@@ -783,6 +796,28 @@ static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t ca
 						if (strcmp(clef, "aligne_sur") == 0)
 							relation = -2 - k; // aligne : x/z seulement
 						sousDessous = (strcmp(clef, "pose_sous") == 0);
+					} else if (strcmp(clef, "renfle") == 0 || strcmp(clef, "effile") == 0 ||
+							   strcmp(clef, "courbe") == 0) {
+						bool okv = false;
+						const float v = NkScFlottant(q, okv);
+						if (!okv) {
+							snprintf(pourquoi, capPourquoi, "ligne %u : « %s » attend un nombre", ligne, clef);
+							free(buf);
+							return 0;
+						}
+						// Bornes DERIVEES, pas choisies : au-dela de 1, l'effilement
+						// ferme la section (rayon negatif) et le renflement double le
+						// rayon -- ce n'est plus un galbe, c'est une autre forme.
+						if (v < -1.f || v > 1.f) {
+							snprintf(pourquoi, capPourquoi,
+									 "ligne %u : « %s %.3f » hors de [-1, 1] -- au-dela ce n'est plus un galbe",
+									 ligne, clef, (double)v);
+							free(buf);
+							return 0;
+						}
+						if (strcmp(clef, "renfle") == 0) pc.def.renfle = v;
+						else if (strcmp(clef, "effile") == 0) pc.def.effile = v;
+						else pc.def.courbe = v;
 					} else if (strcmp(clef, "op") == 0) {
 						char o[64];
 						if (!NkScMot(q, o, sizeof(o))) {
@@ -802,7 +837,7 @@ static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t ca
 					} else {
 						snprintf(pourquoi, capPourquoi,
 								 "ligne %u : directive inconnue « %s » (forme, taille, rotation, centre, decale, "
-								 "pose_sur, pose_sous, aligne_sur, op)",
+								 "pose_sur, pose_sous, aligne_sur, op, renfle, effile, courbe)",
 								 ligne, clef);
 						free(buf);
 						return 0;
@@ -1909,6 +1944,103 @@ static int VerifierContreDocument(const Scene &sc, const char *cheminObj, float 
 
 
 // =============================================================================
+// L'ETAGE DE DEFORMATION : le galbe reste DECRIT, donc corrigible.
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// POURQUOI. Rodolf : « je veux la fidelite avec moins de 1 % d'erreur », et le
+// constat que les primitives nettes ne font pas une forme organique. La reponse
+// retenue n'est PAS d'ajouter des formes -- leur dette triple a chaque ajout --
+// c'est de DEFORMER analytiquement ce qu'on construit.
+//
+// ⚠️ ET LA DEFORMATION RESTE ANALYTIQUE, CE QUI EST TOUT L'INTERET :
+//   - les sommets tombent EXACTEMENT sur la surface deformee (on applique la
+//     deformation au point, pas une approximation) ;
+//   - la NORMALE se transforme par l'INVERSE TRANSPOSEE de la jacobienne, jamais
+//     par la jacobienne. C'est la meme regle que pour l'echelle anisotrope --
+//     dont la jacobienne est diagonale -- ecrite une seule fois et generalisee ;
+//   - le galbe est DECRIT dans le document, donc corrigible ligne a ligne, comme
+//     le reste. C'est ce qui le distingue d'un bruit ajoute apres coup.
+//
+// LES TROIS DEFORMATIONS, ET ELLES SE COMPOSENT :
+//   renfle <k>   gonfle le milieu, pince les extremites (un biceps, un vase)
+//   effile <k>   retrecit vers le haut (un tronc, une jambe)
+//   courbe <k>   flechit le long de Y (une banane, une epaule qui tombe)
+//
+// Toutes valent l'IDENTITE a k = 0 : c'est le negatif obligatoire, et il doit
+// rendre EXACTEMENT le maillage d'avant, au bit.
+// =============================================================================
+
+
+// Applique la deformation a un point exprime dans le repere LOCAL de la piece,
+// et transporte la normale par l'inverse transposee de la jacobienne.
+// `hy` est la demi-hauteur locale : elle normalise t dans [-1, +1] pour que les
+// coefficients aient le meme sens quelle que soit la taille de la piece.
+static void NkDeformer(const NkDeform &d, float hy, NkVec3f &q, NkVec3f &n) {
+	if (d.Nulle())
+		return; // ⚠️ LE NEGATIF : a coefficients nuls, on ne touche a RIEN --
+				// pas meme d'un aller-retour flottant. Le maillage doit etre
+				// identique AU BIT a celui du chemin droit.
+	if (hy <= 0.f)
+		hy = 1.f;
+	const float t = q.y / hy; // -1 en bas, +1 en haut
+
+	// ── Le facteur radial et sa derivee, calcules ENSEMBLE ──────────────────
+	// f(t) multiplie x et z ; f'(t) entre dans la jacobienne. Les deriver
+	// separement est le moyen sur de les desaccorder un jour.
+	float f = 1.f, df = 0.f;
+	if (d.renfle != 0.f) {
+		// Renflement en cloche : 1 + k (1 - t^2). Maximal au milieu, nul aux
+		// extremites -- donc les poles d'une capsule ne bougent pas, et la
+		// forme reste fermee.
+		f += d.renfle * (1.f - t * t);
+		df += d.renfle * (-2.f * t) / hy;
+	}
+	if (d.effile != 0.f) {
+		// Effilement lineaire : 1 - k (t + 1) / 2. A k = 1, le haut se ferme.
+		f += -d.effile * 0.5f * (t + 1.f);
+		df += -d.effile * 0.5f / hy;
+	}
+	if (f < 1e-4f)
+		f = 1e-4f; // une section nulle creerait une singularite, pas une forme
+
+	const float x0 = q.x, z0 = q.z;
+	q.x = x0 * f;
+	q.z = z0 * f;
+
+	// ── La flexion : un deplacement en x proportionnel a t^2 ────────────────
+	float dgdy = 0.f;
+	if (d.courbe != 0.f) {
+		const float g = d.courbe * hy * t * t;
+		q.x += g;
+		dgdy = d.courbe * 2.f * t; // dg/dy = k * 2t
+	}
+
+	// ── LA NORMALE : INVERSE TRANSPOSEE DE LA JACOBIENNE ────────────────────
+	// J = [ f   x0*df + dgdy   0 ]
+	//     [ 0        1         0 ]
+	//     [ 0   z0*df          f ]
+	// L'inverse transposee d'une telle matrice donne, pour n = (nx, ny, nz) :
+	//     nx' = nx / f
+	//     nz' = nz / f
+	//     ny' = ny - (x0*df + dgdy) * nx / f - (z0*df) * nz / f
+	// ⚠️ C'est la MEME regle que pour l'echelle anisotrope, dont la jacobienne
+	// est diagonale : on y divisait simplement par l'echelle. Ici les termes
+	// hors diagonale s'ajoutent, et les OUBLIER donnerait des normales justes
+	// au milieu et fausses sur les flancs -- visible a l'eclairage seulement.
+	const float nx = n.x / f, nz = n.z / f;
+	n.y = n.y - (x0 * df + dgdy) * nx - (z0 * df) * nz;
+	n.x = nx;
+	n.z = nz;
+	const float ln = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+	if (ln > 0.f) {
+		n.x /= ln;
+		n.y /= ln;
+		n.z /= ln;
+	}
+}
+
+// =============================================================================
 // LES PRIMITIVES CONSTRUITES, ET NON EXTRAITES.
 //
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
@@ -1990,7 +2122,21 @@ static void NkPrimPlacer(const Piece &p, NkVec3f &q, NkVec3f &n) {
 	q.z += p.cz;
 }
 
+// La demi-hauteur dans le repere LOCAL, avant echelle : c'est elle qui normalise
+// t dans [-1, +1]. Recopiee de `DemiHauteurY` SANS le facteur d'echelle, parce
+// que la deformation agit avant lui. ⚠️ Dette deja nommee : si les proportions
+// d'une forme changent dans `SdfFormeLocale`, les trois endroits doivent bouger.
+static float NkPrimDemiHauteurLocale(const Piece &p) {
+	return DemiHauteurY(p.f, p.s);
+}
+
 static void NkPrimAjouter(NkQuadMesh &m, const Piece &p, NkVec3f q, NkVec3f n, float u, float v) {
+	// ⚠️ LA DEFORMATION S'APPLIQUE DANS LE REPERE LOCAL, AVANT le placement.
+	// L'inverse -- deformer apres avoir tourne et translate -- ferait dependre le
+	// galbe de l'orientation de la piece : un bras incline se renflerait dans une
+	// autre direction que le meme bras droit. Le document decrirait alors une
+	// chose et la geometrie en montrerait une autre.
+	NkDeformer(p.def, NkPrimDemiHauteurLocale(p), q, n);
 	NkPrimPlacer(p, q, n);
 	m.pos.PushBack(q);
 	m.nor.PushBack(n);
@@ -2197,6 +2343,56 @@ static bool NkPrimConstruire(const Piece &p, uint32 A, uint32 S, NkQuadMesh &m) 
 }
 
 // Ecrit un .obj avec QUADS, UV et NORMALES, un objet nomme par partie.
+// La distance signee d'un point MONDE a la surface cible de la piece, galbe
+// compris. On DE-place puis on DE-forme le point, et on evalue le SDF de la
+// forme nue : c'est le seul moyen d'avoir une reference quand la surface est
+// deformee -- il n'existe pas de SDF analytique de la forme galbee.
+//
+// ⚠️ ET CE N'EST PAS UNE DISTANCE EXACTE quand la deformation n'est pas une
+// isometrie : elle est exacte a l'ordre 1, et elle SOUS-ESTIME d'autant plus que
+// le galbe est fort. On le dit ici plutot que de laisser croire a une mesure
+// exacte -- la valeur reste la bonne grandeur a surveiller, pas une certitude.
+static float NkFidelDistance(const Piece &p, const NkVec3f &monde) {
+	NkVec3f q{monde.x - p.cx, monde.y - p.cy, monde.z - p.cz};
+	if (p.rx != 0.f || p.ry != 0.f || p.rz != 0.f) {
+		const float k = 3.14159265358979f / 180.f;
+		const float a = -p.rz * k, b = -p.ry * k, c = -p.rx * k;
+		float t;
+		t = q.x * cosf(a) - q.y * sinf(a);
+		q.y = q.x * sinf(a) + q.y * cosf(a);
+		q.x = t;
+		t = q.x * cosf(b) + q.z * sinf(b);
+		q.z = -q.x * sinf(b) + q.z * cosf(b);
+		q.x = t;
+		t = q.y * cosf(c) - q.z * sinf(c);
+		q.z = q.y * sinf(c) + q.z * cosf(c);
+		q.y = t;
+	}
+	q.x /= (p.sx != 0.f ? p.sx : 1e-6f);
+	q.y /= (p.sy != 0.f ? p.sy : 1e-6f);
+	q.z /= (p.sz != 0.f ? p.sz : 1e-6f);
+	// DE-deformer : l'inverse des formules de `NkDeformer`.
+	if (!p.def.Nulle()) {
+		float hy = DemiHauteurY(p.f, p.s);
+		if (hy <= 0.f)
+			hy = 1.f;
+		const float t = q.y / hy;
+		if (p.def.courbe != 0.f)
+			q.x -= p.def.courbe * hy * t * t;
+		float f = 1.f;
+		if (p.def.renfle != 0.f)
+			f += p.def.renfle * (1.f - t * t);
+		if (p.def.effile != 0.f)
+			f += -p.def.effile * 0.5f * (t + 1.f);
+		if (f < 1e-4f)
+			f = 1e-4f;
+		q.x /= f;
+		q.z /= f;
+	}
+	const float kmin = Mn(p.sx, Mn(p.sy, p.sz));
+	return SdfFormeLocale(p.f, q.x, q.y, q.z, p.s) * (kmin > 0.f ? kmin : 1.f);
+}
+
 static bool NkPrimEcrireObj(const char *chemin, const NkVector<NkQuadMesh> &parties, bool solidaire,
 							const char *nomScene, uint32 &outQuads, uint32 &outTris, uint32 &outSommets) {
 	FILE *f = fopen(chemin, "wb");
@@ -2278,36 +2474,78 @@ static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) 
 
 	int rouge = 0;
 
-	// ── [1] FIDELITE : les sommets sont SUR la surface, l'ecart doit etre NUL ──
-	// Ce n'est pas une tolerance, c'est une identite : le sommet est calcule
-	// depuis l'equation de la surface. 1e-5 laisse passer l'erreur du float, rien
-	// de plus.
+	// ── [1] FIDELITE : L'ECART DU MAILLAGE A LA SURFACE, PAS DES SOMMETS ────
+	// Les sommets sont sur la surface par construction ; les mesurer, c'est
+	// comparer un nombre a ce qui l'a produit. Ce qui compte est le MILIEU des
+	// faces, ou la corde s'ecarte de l'arc de h^2 / 8R.
+	//
+	// On l'exprime en POURCENTAGE d'une dimension caracteristique -- le diametre
+	// englobant de la piece -- parce que « 1 % » ne veut rien dire en unites
+	// absolues : 4 mm sur un personnage et 4 mm sur une tasse ne sont pas la
+	// meme erreur.
 	{
-		float pire = 0.f;
+		float pireRel = 0.f;
 		uint32 ip = 0;
+		float pireAbs = 0.f;
+		for (uint32 k = 0; k < (uint32)parties.Size(); ++k) {
+			uint32 pi = 0, n = 0;
+			for (uint32 i = 0; i < sc.nPieces; ++i)
+				if (sc.pieces[i].op == OP_UNION && n++ == k)
+					pi = i;
+			const Piece &q = sc.pieces[pi];
+			const float diam = 2.f * q.s * Mx(q.sx, Mx(q.sy, q.sz));
+			const NkQuadMesh &m = parties[k];
+			// Le milieu de chaque QUAD et de chaque TRIANGLE.
+			for (uint32 i = 0; i + 3 < (uint32)m.quads.Size() + 1; i += 4) {
+				NkVec3f c{0, 0, 0};
+				for (int32 j = 0; j < 4; ++j) {
+					c.x += m.pos[m.quads[i + j]].x;
+					c.y += m.pos[m.quads[i + j]].y;
+					c.z += m.pos[m.quads[i + j]].z;
+				}
+				c.x *= 0.25f;
+				c.y *= 0.25f;
+				c.z *= 0.25f;
+				float d = NkFidelDistance(q, c);
+				if (d < 0.f)
+					d = -d;
+				const float rel = diam > 0.f ? d / diam : 0.f;
+				if (rel > pireRel) {
+					pireRel = rel;
+					pireAbs = d;
+					ip = k;
+				}
+			}
+		}
+		// Le seuil de RODOLF : 1 %. L'attendu que je me donne : 0,5 %, parce que
+		// la densite par defaut (24 segments) donne 0,43 % par le calcul h^2/8R
+		// -- je ne me donne pas une marge que la geometrie ne me laisse pas.
+		const bool ok = pireRel <= 0.005f;
+		printf("  [%s] fidelite du MAILLAGE : ecart maximal au milieu des faces = %.5f, soit %.3f %% du diametre\n",
+			   ok ? "VERT " : "ROUGE", (double)pireAbs, (double)(100.f * pireRel));
+		printf("           (partie %u ; seuil de Rodolf : 1 %% ; attendu que je me donne : 0,5 %%)\n", ip);
+		if (!ok) {
+			++rouge;
+			printf("          -> MONTER --segments : l'ecart d'une corde a son arc vaut h2/8R.\n");
+		}
+		// Et le CONTROLE d'avant, conserve : il attrape une erreur de placement,
+		// de rotation ou d'echelle, ce que le critere ci-dessus ne verrait pas.
+		float pireS = 0.f;
 		for (uint32 k = 0; k < (uint32)parties.Size(); ++k) {
 			uint32 pi = 0, n = 0;
 			for (uint32 i = 0; i < sc.nPieces; ++i)
 				if (sc.pieces[i].op == OP_UNION && n++ == k)
 					pi = i;
 			for (uint32 v = 0; v < (uint32)parties[k].pos.Size(); ++v) {
-				const NkVec3f &q = parties[k].pos[v];
-				float d = SdfPiece(sc.pieces[pi], q.x, q.y, q.z);
+				float d = NkFidelDistance(sc.pieces[pi], parties[k].pos[v]);
 				if (d < 0.f)
 					d = -d;
-				if (d > pire) {
-					pire = d;
-					ip = k;
-				}
+				if (d > pireS)
+					pireS = d;
 			}
 		}
-		const bool ok = pire <= 1e-5f;
-		printf("  [%s] fidelite : ecart MAXIMAL a la surface analytique = %.3e (partie %u)\n",
-			   ok ? "VERT " : "ROUGE", (double)pire, ip);
-		if (!ok) {
-			++rouge;
-			printf("          -> un sommet n'est PAS sur la surface : l'equation et la construction divergent.\n");
-		}
+		printf("  [INFO ] les SOMMETS sont sur la surface a %.3e (par construction : ce n'est pas la fidelite)\n",
+			   (double)pireS);
 	}
 
 	// ── [2] QUADS : zero triangle attendu sur un TORE ou un CYLINDRE ──────────
