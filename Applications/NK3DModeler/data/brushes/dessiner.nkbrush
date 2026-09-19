@@ -1,0 +1,47 @@
+# =============================================================================
+# Dessiner -- la brosse de base, et la demonstration du mecanisme.
+#
+# UNE BROSSE EST UNE DONNEE. Ce fichier n'est pas une configuration de quelque
+# chose qui existe deja dans le code : il EST la brosse. Le code ne connait que
+# des PRIMITIVES (des gestes elementaires) ; les brosses sont des combinaisons
+# de primitives et de coefficients, et elles vivent ici.
+#
+# Pour faire la votre : copiez ce fichier sous un autre nom, ici ou dans
+#   %APPDATA%\NK3DModeler\brushes\
+# changez la ligne « nom », et relancez. AUCUNE RECOMPILATION.
+# Un fichier de votre dossier personnel qui reprend le nom d'une brosse livree
+# la REMPLACE dans la liste -- comme pour les themes.
+#
+# CE QUI N'EST PAS POSSIBLE EN DONNEES, ET IL FAUT LE SAVOIR : une brosse qui
+# change la TOPOLOGIE (remaillage, matiere neuve, insertion d'aretes) ou qui
+# garde un ETAT entre deux tampons demande du code neuf. Les donnees couvrent
+# les combinaisons de primitives, pas les gestes inedits.
+# =============================================================================
+
+nkbrush 1
+
+nom = dessiner
+libelle = Dessiner
+icone = brush
+
+# La primitive. « normale » = deplacer le long de la normale de la surface.
+operation = normale
+
+# Le profil d'attenuation du centre vers le bord.
+profil = doux
+
+rayon = 0.25
+force = 0.5
+durete = 0.5
+
+# +1 fait sortir la matiere, -1 la fait rentrer.
+sens = 1
+
+espacement = 0.25
+
+# Bornes des glissieres de l'interface. Elles sont ICI parce qu'une brosse de
+# detail et une brosse de blocage n'ont pas la meme plage utile.
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0

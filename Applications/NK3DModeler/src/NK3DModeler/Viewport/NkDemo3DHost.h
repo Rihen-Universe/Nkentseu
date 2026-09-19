@@ -221,6 +221,16 @@ namespace nkentseu {
 		bool Demo3DHostEditMerge();
 		bool Demo3DHostEditMakeFace();
 		bool Demo3DHostEditSubdivide();
+		// ── SCULPTURE ──────────────────────────────────────────
+		// Le catalogue vient des FICHIERS de data/brushes, pas d'une enumeration :
+		// une brosse s'ajoute sans recompiler (demande de Rodolf, 19/09).
+		int32 Demo3DHostBrushCount();
+		const char *Demo3DHostBrushName(int32 i);
+		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
+		// = garder ceux de la brosse. Rend true si le maillage a change (et si une
+		// etape d'annulation a donc ete posee).
+		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
+					  const char *brushName, float32 radius, float32 strength);
 		bool Demo3DHostEditLoopCut();
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();
