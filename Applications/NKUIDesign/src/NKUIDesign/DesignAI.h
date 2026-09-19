@@ -284,7 +284,21 @@ namespace nkuidesign {
 				out.Append("titre = <texte>\n");
 				out.Append("noeud <numero, en partant de 0 pour la racine>\n");
 				out.Append("  libelle = <texte>\n");
-				out.Append("  composant = <nom du catalogue, ou vide pour un cadre>\n");
+				// ⚠️ CETTE LIGNE FABRIQUAIT UN DE NOS PROPRES REJETS. Elle disait
+				//    « ou vide pour un cadre » : le modele lisait un NOM apres « pour un »
+				//    et ecrivait `composant = cadre`. Mesure du 19/09 : les DEUX paires
+				//    qui le font sont rejetees, dont une pour « nomme un composant que le
+				//    registre ignore ».
+				//
+				//    *Le modele n'inventait pas ; c'est l'invite qui nommait.* Meme famille
+				//    que la regle `enfants` manquante, et trouvee par la meme methode :
+				//    LIRE les reponses brutes au lieu de lire le compteur.
+				//
+				//    La nouvelle formulation ne met AUCUN nom la ou une valeur est
+				//    attendue, et renvoie a l'exemple, qui montre deja le champ vide.
+				out.Append("  composant = <un nom de la liste ci-dessous ; LAISSE VIDE si ce\n");
+				out.Append("              noeud ne porte aucun composant, comme le noeud 0\n");
+				out.Append("              de l'exemple>\n");
 				out.Append("  enfants = <numeros de noeuds, separes par des espaces>\n");
 				out.Append("  largeur = <");
 				AppendModes(out);
