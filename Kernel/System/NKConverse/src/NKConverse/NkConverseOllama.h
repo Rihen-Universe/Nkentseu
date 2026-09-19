@@ -52,6 +52,15 @@ namespace nkentseu::converse {
 			///    aurait fait echouer TOUTES les premieres courses, et on aurait
 			///    conclu « Ollama ne marche pas » en mesurant notre propre delai.
 			nkentseu::uint32 delaiMs = 300000u;
+			/// ⚠️ LA TEMPERATURE EST UN REGLAGE, ET ELLE DECIDE SI UNE MESURE EST UNE
+			///    MESURE. Mesure du 19/09 : deux courses du MEME modele, de la MEME
+			///    invite et des MEMES douze demandes ont rendu 7/12 puis 5/12. *Une
+			///    course n'est pas une mesure quand le dorsal tire au sort.*
+			///
+			///    A -1, on ne pose rien et le modele garde son reglage (c'est le
+			///    comportement d'usage). A 0, la generation devient reproductible et
+			///    deux invites peuvent enfin se comparer -- c'est le reglage de BANC.
+			float32 temperature = -1.f;
 			/// Publies pour que l'appelant puisse les IMPRIMER : un temps de
 			/// reponse sans sa condition ne vaut rien.
 			mutable nkentseu::uint32 dernierCode = 0u;
@@ -164,7 +173,13 @@ namespace nkentseu::converse {
 				Echapper(modele, out);
 				out.Append("\",\"prompt\":\"");
 				Echapper(invite, out);
-				out.Append("\",\"stream\":false}");
+				out.Append("\",\"stream\":false");
+				if (temperature >= 0.f) {
+					char t[64];
+					snprintf(t, sizeof(t), ",\"options\":{\"temperature\":%.3f}", (double)temperature);
+					out.Append(t);
+				}
+				out.Append("}");
 			}
 
 			/// ⚠️ L'ECHAPPEMENT N'EST PAS COSMETIQUE. L'invite CONTIENT du
