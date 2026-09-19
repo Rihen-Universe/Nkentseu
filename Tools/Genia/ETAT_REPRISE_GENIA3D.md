@@ -23,14 +23,24 @@
 1. **Meshy ne pose pas mieux ses coutures : il RETOPOLOGIE D'ABORD.** 98,3 % de valence 4.
    Quatre methodes de coutures ont ete refutees sur une etape qui, dans le bon ordre,
    **ne se presente jamais**.
-2. **Notre chemin grammaire bat deja l'etalon en topologie (99,5 %) et est a ZERO couture.**
-   Son seul defaut est nomme : **UV parametriques et non equi-aires** (u = angle, v = hauteur)
-   -> 46,4 % des faces au-dela de 1,732. **Correctif local, non fait** : ponderer par l'aire
-   reelle. **Condition de reouverture : p99 sous 1,5 sur `personnage_quads.obj`.**
+2. ✅ **FAIT le 19/09 (commit `3298d9739`) : les UV equi-aires.** p99 **4,064 -> 1,414**,
+   >1,732 **46,4 % -> 0,0 %**, ecart de densite entre ilots **x111,12 -> x1,00**, et **1,000
+   exactement** sur la chaise (faces planes). Mesure avant/apres **sur le meme maillage** grace
+   a `NK_UV_MUTE=3`, qui restaure le comportement d'origine au chiffre pres. 9 ilots, 0 couture
+   et la valence 99,8 % **n'ont pas bouge**.
+   ⚠️ **LE COMPROMIS DE GAUSS EST MESURE, PAS DEVINE** : `NK_UV_ALPHA` (pourcentage ENTIER --
+   `atof` + virgule decimale en fr-FR) donne alpha 0 -> aire 20,242 / conforme 4,512 ;
+   alpha 1 -> aire 2,001 / conforme 27,927. Defaut 1,00 choisi sur la courbe. La conformite
+   **s'ameliore** en mediane (3,835 -> 1,878) et p90, et ne se degrade **qu'aux poles**.
+   ⚠️ **RESTE OUVERT, NOMME** : les 9 ilots **se superposent** dans le plan UV (aucun packing).
+   Le critere de distorsion ne voit pas le chevauchement. **Reouverture : des qu'une texture
+   reelle sera appliquee.**
 3. **Le maillon faible est la RETOPOLOGIE : 26,9 % contre 98,3 %.** C'est le chiffre a faire
    monter, et il a desormais un etalon et un instrument.
-4. **Il n'y a PAS de compromis distorsion / coutures** — je le croyais, Meshy le refute :
-   il est meilleur sur les deux a la fois.
+4. **Il n'y a pas de compromis distorsion / coutures CHEZ MESHY** — parce qu'il paie 4,5 %
+   de coutures. ⚠️ **Nuance mesuree le 19/09 (R42)** : SANS couture, le compromis aire/angle
+   **existe** et il est chiffre. **Nos 0 % de couture ne sont pas un exploit : c'est ce qui
+   nous enferme.** Les coutures sont la monnaie qui achete l'aire ET l'angle.
 
 **Instruments (reutilisables sur n'importe quelle source, y compris pour juger la retopologie) :**
 `mesurer_uv_fbx.py` (lecteur FBX binaire 7400 ecrit ici : rien dans le venv ne lit le FBX),
