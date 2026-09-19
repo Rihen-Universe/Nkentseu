@@ -156,3 +156,48 @@ de la coupe — un verre est creux, et `difference` est le seul moyen de le dire
 4. **`pose_sur` est vertical.** « Contre », « à côté de », « à l'intérieur de » ne sont pas
    dans le format. → *Se rouvre au premier document qui en aurait besoin ; `centre` et
    `decale` les couvrent en attendant, au prix de la vérifiabilité.*
+
+
+---
+
+## 8. LA DEUXIÈME COUCHE : LES OPÉRATIONS REJOUABLES (conception, 19/09)
+
+Le document décrit une **base régénérée**. Les corrections de l'auteur vivent dans une
+**seconde couche**, rejouée par-dessus :
+
+    document -> BASE regeneree + PILE D'OPERATIONS rejouee dans l'ordre
+
+⚠️ **Sans cette couche, régénérer ÉCRASE toute correction manuelle**, et la spirale
+redevient un cercle. Le format actuel ne sait **pas** décrire un maillage corrigé à la main,
+et il ne faut **pas** chercher à y remonter la géométrie : un sommet déplacé ne se ré-exprime
+pas en « renfle 0,35 ».
+
+### 8.1 Les quatre désignations, et ce que chacune garantit
+
+| forme | stockage | survit à une régénération ? |
+|---|---|---|
+| **nom de partie** | `partie:bras_gauche` | **oui** — redéclarée par le document |
+| **critère** | `faces:normale>+Y@partie:X` | **oui** — réévalué |
+| **tracé** | **deux formes** : barycentrique (exacte) + coordonnées d'objet (durable) | **oui** — reprojeté |
+| **sélection manuelle libre** | liste de sommets | **NON** — geste à usage unique, à déclarer tel quel |
+
+**Canonique en consommation** : le **groupe nommé** — tout verbe, et le squelette, ne
+connaissent que ça. **Canonique en persistance** : la **règle** qui le produit. Un groupe
+persisté seul est un indice avec un beau nom.
+
+### 8.2 Parties structurelles et zones de travail sont deux natures
+
+| | parties | zones |
+|---|---|---|
+| se chevauchent | **jamais** | **librement** |
+| couvrent tout | **oui** (critère de somme) | non |
+
+Les confondre ferait rougir à tort le critère « la somme des parties rend le tout ». Dans le
+document : `partie` et `zone`. Dans le `.obj`, les deux s'écrivent `g` — la distinction est une
+**décision d'auteur**, comme `assemblage`.
+
+### 8.3 Le refus est nommé, toujours
+
+Cible introuvable, mauvais côté, courbe rompue : **refus**, jamais une application
+approximative. *Creuser au mauvais endroit est pire que ne rien faire — le premier défaut est
+silencieux, le second crie.*
