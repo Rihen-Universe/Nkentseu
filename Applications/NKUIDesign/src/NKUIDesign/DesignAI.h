@@ -214,7 +214,28 @@ namespace nkuidesign {
 			//    catalogue ecrit a la main proposerait a l'IA des composants
 			//    inexistants (ou lui cacherait les nouveaux), et l'outil
 			//    « marcherait » en produisant des documents impossibles a poser.
-			static void BuildCatalog(NkString &out) {
+			/// ⚠️ DEUX NIVEAUX DE DETAIL, ET LE CHOIX EST UNE MESURE, PAS UN GOUT.
+			///    Le catalogue COMPLET enumere, pour chaque composant, ses variantes,
+			///    ses parametres et ses metriques. Mesure du 19/09 : il pese 2 370
+			///    octets sur les 4 142 de l'invite (57 %), et **deux composites a eux
+			///    seuls en font 1 659 -- soit 40 % de l'invite ENTIERE**.
+			///
+			///    Ce poids n'est pas gratuit : un modele de vision voit son contexte
+			///    mange par l'IMAGE (mesure : ~1 054 jetons sur les 2 048 de
+			///    `moondream`). Chaque octet d'invite economise est un octet rendu a
+			///    la maquette.
+			///
+			/// ⚠️ LE BREF RESUME, IL N'AMPUTE PAS. Chaque composant garde son NOM et
+			///    sa description ; seules tombent les lignes `variante`, `param` et
+			///    `metrique`. *Un composant ABSENT ne peut pas etre choisi ; un
+			///    composant RESUME, si.* Retirer des noms ferait inventer les
+			///    manquants, et le rejet « composant inconnu » serait de NOTRE fait.
+			/// Le niveau de detail du catalogue envoye au modele. REGLAGE, jamais
+			/// une constante : c'est une mesure qui doit trancher, et une mesure a
+			/// besoin des deux branches dans le MEME binaire.
+			bool catalogueBref = false;
+
+			static void BuildCatalog(NkString &out, bool bref = false) {
 				out = NkString("");
 				const uint16 n = NkComponentRegistry::Count();
 				for (uint16 i = 0; i < n; ++i) {
@@ -226,6 +247,8 @@ namespace nkuidesign {
 					out.Append(" : ");
 					out.Append(d->summary ? d->summary : "");
 					out.Append('\n');
+					if (bref)
+						continue; // le nom et la description suffisent a CHOISIR
 					for (uint16 v = 0; v < d->variantCount; ++v) {
 						out.Append("    variante ");
 						out.Append(d->variants[v].name);
@@ -354,7 +377,7 @@ namespace nkuidesign {
 				}
 				NkDesignRequest req;
 				BatirInviteComplete(userAsk, req.prompt);
-				BuildCatalog(req.catalog);
+				BuildCatalog(req.catalog, catalogueBref);
 				doc.Save(req.currentDoc);
 
 				NkDesignReply reply;
@@ -410,7 +433,7 @@ namespace nkuidesign {
 				}
 				NkDesignRequest req;
 				BatirInviteComplete(userAsk, req.prompt);
-				BuildCatalog(req.catalog);
+				BuildCatalog(req.catalog, catalogueBref);
 				doc.Save(req.currentDoc);
 
 				NkDesignReply reply;

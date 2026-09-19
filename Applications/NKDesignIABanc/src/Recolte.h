@@ -86,6 +86,19 @@ namespace nkrecolte {
 			bool n2 = false;			 ///< le validateur a LU le document
 			bool n3 = false;			 ///< le document S'OUVRE en .nkgui
 			double ms = 0.0;			 ///< duree de la generation
+			/// ⚠️ LE NIVEAU DU CATALOGUE EST UNE CONDITION, PAS UN DETAIL. Deux
+			///    courses du meme modele avec un catalogue COMPLET et un catalogue
+			///    BREF ne se comparent qu'a condition de savoir laquelle est
+			///    laquelle. Sans cette ligne, le corpus melangerait deux invites.
+			const char *catalogue = ""; ///< "complet" | "bref", et sa taille
+			/// ⚠️ LA PROVENANCE DE LA DEMANDE, PARCE QU'UN JOUR ON ENTRAINERA DESSUS.
+			///    `NKGenCorpus` porte deja la regle : « aucun maillage n'entre a
+			///    l'entrainement sans licence verifiee », un `LICENCE.txt` par source.
+			///    Une paire sans provenance obligerait, ce jour-la, a jeter tout le
+			///    corpus ou a faire confiance -- et on ne fait pas confiance a un
+			///    fichier. Nos demandes viennent de nos propres bancs et de Rodolf,
+			///    donc elles sont saines ; ca se NOTE, ca ne se suppose pas.
+			const char *provenance = "";
 			const NkString *brut = nullptr;	   ///< la reponse BRUTE, jamais nettoyee
 			const NkString *document = nullptr; ///< le .nkgui produit, vide si aucun
 	};
@@ -132,7 +145,13 @@ namespace nkrecolte {
 		out.Append(b);
 		snprintf(b, sizeof(b), "modele     = %s\n", p.modele ? p.modele : "(inconnu)");
 		out.Append(b);
-		snprintf(b, sizeof(b), "duree_ms   = %.0f\n\n", p.ms);
+		snprintf(b, sizeof(b), "duree_ms   = %.0f\n", p.ms);
+		out.Append(b);
+		snprintf(b, sizeof(b), "catalogue  = %s\n",
+				 p.catalogue && *p.catalogue ? p.catalogue : "(non dit)");
+		out.Append(b);
+		snprintf(b, sizeof(b), "provenance = %s\n\n",
+				 p.provenance && *p.provenance ? p.provenance : "(non dite)");
 		out.Append(b);
 
 		// ⚠️ LE VERDICT AVANT LE CONTENU, et c'est voulu : celui qui trie le
