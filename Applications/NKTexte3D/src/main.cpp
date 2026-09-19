@@ -1833,6 +1833,39 @@ static int VerifierContreDocument(const Scene &sc, const char *cheminObj, float 
 		}
 	}
 
+	// ── LE CRITERE QUI PORTE SUR LA SORTIE, ET NON SUR LE DOCUMENT ──────────
+	// ⚠️ Le critere des composantes connexes est VRAI et INSUFFISANT : trois
+	// composantes ANONYMES et trois composantes NOMMEES donnent le meme chiffre.
+	// Il est donc invariant par le defaut que Rodolf a vu dans Blender -- un seul
+	// objet « nkgen_shape », impossible a selectionner partie par partie.
+	// Celui-ci relit le fichier PAR LA VRAIE PORTE et compte les sous-maillages
+	// NOMMES, puis verifie que leurs noms sont ceux du document.
+	{
+		uint32 attendus = 0;
+		for (uint32 i = 0; i < sc.nPieces; ++i)
+			if (sc.pieces[i].op != OP_DIFF)
+				++attendus;
+		const uint32 lus = (uint32)data.subMeshes.Size();
+		printf("  SORTIE   : %u sous-maillage(s) relu(s) par NkOBJLoader, %u partie(s) additive(s) declaree(s)\n",
+			   lus, attendus);
+		// Les noms du document se retrouvent-ils dans la sortie ?
+		uint32 nommes = 0;
+		for (uint32 i = 0; i < sc.nPieces; ++i) {
+			if (sc.pieces[i].op == OP_DIFF || !sc.pieces[i].nom[0])
+				continue;
+			for (uint32 k = 0; k < (uint32)data.subMeshes.Size(); ++k) {
+				if (strcmp(data.subMeshes[k].name.CStr(), sc.pieces[i].nom) == 0) {
+					++nommes;
+					break;
+				}
+			}
+		}
+		const bool ok = (lus >= attendus) && (nommes == attendus);
+		Attendu(ok, "chaque partie declaree est un objet NOMME dans le fichier produit", attendus, nommes);
+		if (!ok)
+			printf("          -> LE FICHIER N'EST PAS UTILISABLE PARTIE PAR PARTIE (un seul objet ?).\n");
+	}
+
 	// Le compte de parties, lui, se verifie toujours -- contre le DOCUMENT, pas
 	// contre la phrase.
 	const bool okN = (sc.nPieces > 0);
@@ -1842,6 +1875,82 @@ static int VerifierContreDocument(const Scene &sc, const char *cheminObj, float 
 
 	printf("  VERDICT DOCUMENT : %s (%d rouge)\n", rouge == 0 ? "VERT" : "ROUGE", rouge);
 	return rouge;
+}
+
+
+// ── REECRIRE LE .OBJ AVEC UN OBJET NOMME PAR PARTIE ─────────────────────────
+// Rend le nombre de groupes ecrits, 0 si echec. Le fichier d'entree est celui
+// que `gen::SaveMeshObj` vient d'ecrire ; on le relit et on le remplace.
+//
+// ⚠️ LES SOMMETS NE BOUGENT PAS D'UN BIT. On ne fait que REGROUPER des faces :
+// une sortie qui deplacerait un sommet ne serait plus la meme geometrie, et le
+// critere des composantes connexes deviendrait un mensonge.
+static uint32 ReecrireAvecNoms(const char *chemin, const Scene &sc, float ox, float oy, float oz) {
+	NkGLTFMeshData data;
+	if (!LoadOBJ(NkString(chemin), data) || !data.IsValid())
+		return 0;
+	// Les pieces ADDITIVES seulement : une piece soustraite ne laisse pas de
+	// surface qui lui appartienne.
+	NkVector<uint32> idxAdd;
+	for (uint32 i = 0; i < sc.nPieces; ++i)
+		if (sc.pieces[i].op != OP_DIFF)
+			idxAdd.PushBack(i);
+	if (idxAdd.Size() == 0)
+		return 0;
+
+	const uint32 nTri = (uint32)data.indices.Size() / 3;
+	NkVector<uint32> partieDe;
+	partieDe.Resize(nTri);
+	for (uint32 t = 0; t < nTri; ++t) {
+		const NkVec3f &a = data.vertices[data.indices[t * 3 + 0]].pos;
+		const NkVec3f &b = data.vertices[data.indices[t * 3 + 1]].pos;
+		const NkVec3f &c = data.vertices[data.indices[t * 3 + 2]].pos;
+		const float cx = (a.x + b.x + c.x) / 3.f + ox;
+		const float cy = (a.y + b.y + c.y) / 3.f + oy;
+		const float cz = (a.z + b.z + c.z) / 3.f + oz;
+		uint32 best = idxAdd[0];
+		float bestD = 1e30f;
+		for (uint32 k = 0; k < (uint32)idxAdd.Size(); ++k) {
+			float d = SdfPiece(sc.pieces[idxAdd[k]], cx, cy, cz);
+			if (d < 0.f)
+				d = -d;
+			if (d < bestD) {
+				bestD = d;
+				best = idxAdd[k];
+			}
+		}
+		partieDe[t] = best;
+	}
+
+	FILE *f = fopen(chemin, "wb");
+	if (!f)
+		return 0;
+	fprintf(f, "# NKTexte3D -- maillage genere depuis un DOCUMENT DE SCENE.\n");
+	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Sederis - Rihen\n");
+	fprintf(f, "# Un « o <nom> » par PARTIE DECLAREE : c'est ce qui rend chaque partie\n");
+	fprintf(f, "# selectionnable et animable dans Blender ou dans le modeleur.\n");
+	for (uint32 i = 0; i < (uint32)data.vertices.Size(); ++i)
+		fprintf(f, "v %.6f %.6f %.6f\n", data.vertices[i].pos.x, data.vertices[i].pos.y, data.vertices[i].pos.z);
+	uint32 groupes = 0;
+	for (uint32 k = 0; k < (uint32)idxAdd.Size(); ++k) {
+		const uint32 pi = idxAdd[k];
+		uint32 n = 0;
+		for (uint32 t = 0; t < nTri; ++t)
+			if (partieDe[t] == pi)
+				++n;
+		if (n == 0)
+			continue; // une partie sans aucune face ne produit pas de groupe VIDE
+		fprintf(f, "o %s\n", sc.pieces[pi].nom[0] ? sc.pieces[pi].nom : "partie");
+		++groupes;
+		for (uint32 t = 0; t < nTri; ++t) {
+			if (partieDe[t] != pi)
+				continue;
+			fprintf(f, "f %u %u %u\n", data.indices[t * 3 + 0] + 1, data.indices[t * 3 + 1] + 1,
+					data.indices[t * 3 + 2] + 1);
+		}
+	}
+	fclose(f);
+	return groupes;
 }
 
 int main(int argc, char **argv) {
@@ -1919,6 +2028,10 @@ int main(int argc, char **argv) {
 		const int r = Emettre(sc, out, res, so);
 		if (r != 0)
 			return r;
+		// ── LES NOMS, ET C'EST TOUT L'INTERET DU DOCUMENT ───────────────────
+		const uint32 groupes = ReecrireAvecNoms(out, sc, so.ox, so.oy, so.oz);
+		printf("  NOMS     : %u objet(s) nomme(s) ecrit(s) dans le .obj\n", groupes);
+
 		int rougeDoc = 0;
 		if (verifier)
 			rougeDoc = VerifierContreDocument(sc, out, so.cell, so.ox, so.oy, so.oz);
