@@ -52,9 +52,9 @@ namespace nkentseu {
 				void RegisterToRenderGraph() noexcept;
 
 				// ── API de trace (appelee par l'app / l'outil d'edition) ─────
-				void SetBrush(const NkSculptBrush &brush) noexcept;
+				void SetBrush(const NkPixolBrush &brush) noexcept;
 
-				[[nodiscard]] const NkSculptBrush &GetBrush() const noexcept {
+				[[nodiscard]] const NkPixolBrush &GetBrush() const noexcept {
 					return mBrush;
 				}
 
@@ -92,10 +92,10 @@ namespace nkentseu {
 				NkPixolBuffer mPixol;
 				NkSculptStroke mStroke;
 				NkSculptPipelines mPipelines;
-				NkSculptBrush mBrush;
+				NkPixolBrush mBrush;
 				NkSculptStats mStats;
 
-				// SSBO contenant les NkSculptBrushGPU des dabs en attente (mode
+				// SSBO contenant les NkPixolBrushGPU des dabs en attente (mode
 				// batch) — alternative aux push constants si beaucoup de dabs.
 				NkBufferHandle mDabBuffer;
 		};

@@ -44,11 +44,13 @@
 #include "NKImage/NKImage.h"
 #include "NKContainers/String/Encoding/NkBase64.h"					// Phase H : test ecriture PNG procedural
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
-#include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
+#include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Tools/MeshSculpt/NkBrushRegistry.h"			// structure demi-arête n-gon
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
 #include "NKLogger/NkLog.h"			  // diagnostic par le journal (methode de travail)
+#include "NKFileSystem/NkPath.h"
 #include "NKFileSystem/NkDirectory.h" // dossier de sortie cree a la volee
 #include "NkOutCompose.h"			  // formes et composition des incrustations
 #include "NKMedia/Video/NkVideoWriter.h"			// enregistrement video de la session
@@ -1646,6 +1648,24 @@ namespace nkentseu {
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
 				bool editDeletePending = false;
+				// ── SCULPTURE : LE TRAIT EN ATTENTE ─────────────────────────
+				// Le trait vit ICI avant d'etre applique, et non dans l'appel qui le
+				// pose : c'est ce qui permet a une brosse ET a une designation « creuse
+				// ici » de consommer LE MEME objet. Un trait applique directement
+				// serait un effet, pas une donnee -- et rien d'autre ne pourrait s'en
+				// servir.
+				// ⚠️ EN REPERE OBJET, jamais en pixels : un trait en pixels ne survit
+				//    pas a une rotation de camera, et un trait par indices ne survit pas
+				//    au remaillage -- or sculpter EST remailler.
+				NkVector<NkVec3f> sculptPts;
+				NkVector<NkVec3f> sculptNrm;
+				renderer::NkSculptCmdParams sculptParams;
+				bool sculptPending = false;
+				// Le catalogue des brosses, charge depuis data/brushes au premier usage.
+				// ⚠️ PAS DE LISTE EN DUR : l'interface doit passer par la donnee, sinon
+				//    elle afficherait les bons noms sans qu'aucun fichier soit lu.
+				renderer::NkBrushRegistry brushes;
+				bool brushesLoaded = false;
 				// LE MENU X (Blender) : la touche DEMANDE l'ouverture, le shell l'ouvre.
 				// La vue 3D ne dessine pas de menu -- c'est le shell qui tient NKGui --,
 				// donc un JETON, exactement comme `capturePending` : l'un demande,
@@ -4353,6 +4373,74 @@ namespace nkentseu {
 
 		// SUBDIVIDE (W) : Catmull-Clark, faces sélectionnées ou TOUT. subdivCuts passes en UNE
 		// commande (donc UN seul undo) — cf. NkEditMesh.
+		// ──────────────────────────────────────────────────────────────────────
+		// SCULPTURE : LE CHARGEMENT DES BROSSES, ET UN COUP DE BROSSE.
+		// ──────────────────────────────────────────────────────────────────────
+		// OU SONT LES BROSSES -- meme convention que les themes et les icones,
+		// le premier trouve gagne :
+		//   1. <utilisateur>/NK3DModeler/brushes/<nom>.nkbrush  (surcharge)
+		//   2. <app>/data/brushes/<nom>.nkbrush                 (livre)
+		// ⚠️ LE NOYAU N'OUVRE AUCUN FICHIER : `NkBrushRegistry::AddFromText`
+		//    prend une CHAINE. C'est l'application qui sait ou sont ses dossiers,
+		//    exactement comme NkThemeLibrary -- qui n'ouvre rien non plus pour
+		//    rester eprouvable sans lier NKFileSystem.
+		static void Demo3D_LoadBrushes(Demo3DState *st) {
+			if (!st || st->brushesLoaded)
+				return;
+			st->brushesLoaded = true; // une seule tentative, meme si elle echoue
+			// DEUX EMPLACEMENTS, et il en faut deux.
+			//   1. "data/brushes" relatif au REPERTOIRE COURANT -- la convention deja
+			//      suivie par les themes (LoadThemes(..., "data/themes", ...)).
+			//   2. <dossier de l'executable>/data/brushes -- parce qu'en developpement
+			//      l'executable vit dans Build/Bin/... et le repertoire courant n'est
+			//      pas celui de l'application. Mesure du 20/09 : lance depuis la
+			//      racine de l'arbre, le modeleur chargeait ZERO brosse, et le seul
+			//      symptome aurait ete « la sculpture ne fait rien » si le refus
+			//      n'avait pas ete NOMME.
+			const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
+			NkString exeBrushes = exeDir;
+			exeBrushes += "/data/brushes";
+			const char *dirs[2] = {"data/brushes", exeBrushes.CStr()};
+			for (uint32 d = 0; d < 2; ++d) {
+				if (!dirs[d] || !NkDirectory::Exists(dirs[d]))
+					continue;
+				NkVector<NkString> files = NkDirectory::GetFiles(dirs[d], "*.nkbrush");
+				for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
+					NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(files[i].CStr());
+					if (bytes.Size() == 0)
+						continue;
+					char err[128] = {};
+					const renderer::NkBrushParse r = st->brushes.AddFromText(
+						(const char *)bytes.Data(), (uint32)bytes.Size(), err, 128);
+					// ⚠️ UN REFUS EST NOMME. Une brosse qui disparaitrait en silence
+					//    serait cherchee dans le code, ou elle n'est pas.
+					if (r != renderer::NkBrushParse::NK_BRUSH_OK)
+						logger.Warn("[Demo3D] brosse REFUSEE : {0} -- {1} [{2}]\n", files[i].CStr(),
+							  renderer::NkBrushParseText(r), err);
+				}
+			}
+			logger.Info("[Demo3D] brosses chargees depuis le disque : {0}\n",
+				(uint32)st->brushes.Count());
+		}
+
+		// UN COUP DE BROSSE. Il passe par la COUCHE DE COMMANDES, et non a cote :
+		// Demo3D_ApplyCmd fait deja le snapshot d'annulation, le Push dans
+		// l'editRecorder et la synchronisation du rendu. Une sculpture ecrite a
+		// cote aurait eu a refaire les trois -- et serait restee HORS du rejeu,
+		// donc perdue a chaque regeneration. C'est la spirale que Rodolf a
+		// demandee le 19/09 : on regenere la base, puis on rejoue la pile.
+		static void Demo3D_SculptHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			if (!st || !st->sculptPending || st->sculptPts.Empty())
+				return;
+			st->sculptPending = false; // consomme, quoi qu'il arrive ensuite
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Sculpt;
+			c.sculpt = st->sculptParams;
+			c.sculptPoints = st->sculptPts;
+			c.sculptNormals = st->sculptNrm;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
 		static void Demo3D_SubdivideHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::Subdivide;
@@ -10149,6 +10237,106 @@ namespace nkentseu {
 						st->editMakeFacePending = false;
 						Demo3D_MakeFaceHE(st, meshSysT);
 						logger.Info("[Demo3D] Create face -> {0} faces\n", (int32)st->editHE.FaceCount());
+					}
+					// ──────────────────────────────────────────────────────────────────
+					// NK_SCULPT_STROKE="<brosse>[:rayon[:force[:frame]]]"
+					// ──────────────────────────────────────────────────────────────────
+					// POSE UN TRAIT DE SCULPTURE, exactement celui qu'une main poserait.
+					//
+					// ⚠️ AUCUNE INJECTION DE SOURIS NI DE CLAVIER. Le trait est ecrit
+					//    dans l'etat de CETTE image, puis consomme par la meme porte que
+					//    le geste humain -- Demo3DHostEditSculptStroke, qui passe par
+					//    HostEditRun puis Demo3D_ApplyCmd. Un crochet qui appellerait
+					//    NkSculptApplyStroke directement prouverait que l'ALGORITHME sait
+					//    deformer, et non que la CHAINE de l'application fonctionne : il
+					//    sauterait l'annulation, le journal et la synchronisation du rendu.
+					//
+					// ⚠️ LE SEPARATEUR EST ':' ET NON ',' -- parce qu'une virgule EST le
+					//    separateur decimal en fr-FR, et qu'un reglage ecrit « 0,25 » se
+					//    serait coupe en deux champs. Le depot a deja paye cette confusion
+					//    avec atof et la locale.
+					//
+					// Le trait vise le sommet le PLUS HAUT du maillage : un choix
+					//    DETERMINISTE, donc rejouable a l'identique d'une execution a
+					//    l'autre -- ce qu'un clic de souris ne serait jamais.
+					{
+						static bool sLu = false;
+						static bool sArme = false;
+						static char sBrosse[48] = {};
+						static float32 sRayon = 0.f, sForce = 0.f;
+						static int32 sFrame = 0;
+						static int32 sVu = 0;
+						if (!sLu) {
+							sLu = true;
+							if (const char *e = getenv("NK_SCULPT_STROKE")) {
+								uint32 n = 0;
+								while (e[n] && e[n] != ':' && n < 47) {
+									sBrosse[n] = e[n];
+									++n;
+								}
+								sBrosse[n] = 0;
+								const char *q = e + n;
+								float32 *cible[3] = {&sRayon, &sForce, nullptr};
+								int32 champ = 0;
+								while (*q == ':' && champ < 3) {
+									++q;
+									// Lecture INDEPENDANTE DE LA LOCALE : le point est le seul
+									// separateur decimal accepte (atof rendrait 0.0 en fr-FR).
+									float32 v = 0.f;
+									bool neg = false;
+									if (*q == '-') {
+										neg = true;
+										++q;
+									}
+									while (*q >= '0' && *q <= '9')
+										v = v * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											v += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									if (neg)
+										v = -v;
+									if (champ < 2)
+										*cible[champ] = v;
+									else
+										sFrame = (int32)v;
+									++champ;
+								}
+								sArme = true;
+								logger.Info("[Demo3D] NK_SCULPT_STROKE arme : brosse='{0}' rayon={1} "
+									  "force={2} frame={3}\n",
+									  sBrosse, sRayon, sForce, sFrame);
+							}
+						}
+						if (sArme && st->editHE.VertCount() > 0) {
+							if (sVu++ >= sFrame) {
+								sArme = false; // UNE SEULE FOIS : un trait par image remplirait
+								               // l'historique et rendrait toute mesure illisible.
+								uint32 hi = 0;
+								for (uint32 i = 1; i < st->editHE.VertCount(); ++i)
+									if (st->editHE.verts[i].pos.y > st->editHE.verts[hi].pos.y)
+										hi = i;
+								const NkVec3f p = st->editHE.verts[hi].pos;
+								const NkVec3f n = st->editHE.verts[hi].normal;
+								const float32 pts[3] = {p.x, p.y, p.z};
+								const float32 nrm[3] = {n.x, n.y, n.z};
+								const uint32 vAvant = st->editHE.VertCount();
+								const uint32 undoAvant = st->editHistory.UndoCount();
+								const bool ok = Demo3DHostEditSculptStroke(pts, nrm, 1, sBrosse, sRayon, sForce);
+								// CE QUE CE JOURNAL DOIT PERMETTRE DE DISTINGUER : « la brosse n'a
+								// pas agi » de « elle a agi sans rien changer ». Le compte
+								// d'annulation tranche : une operation qui n'a rien change ne pose
+								// PAS d'etape.
+								logger.Info("[Demo3D] SCULPT trait pose : ok={0} sommets={1} "
+									  "undo {2} -> {3} (au sommet {4})\n",
+									  ok ? 1 : 0, vAvant, undoAvant,
+									  st->editHistory.UndoCount(), hi);
+							}
+						}
 					}
 					if (st->editSubdivPending) {
 						st->editSubdivPending = false;
@@ -17101,6 +17289,78 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditSubdivide() {
 			return HostEditRun(&Demo3D_SubdivideHE);
+		}
+		// ──────────────────────────────────────────────────────────────────────
+		// POSER UN TRAIT DE SCULPTURE.
+		// Les points sont en REPERE OBJET (x,y,z consecutifs), les normales de
+		// meme. `brushName` choisit la brosse DANS LE REGISTRE -- donc dans les
+		// fichiers de donnees, jamais dans une enumeration.
+		// ⚠️ Les reglages passes ici (rayon, force) SURCHARGENT ceux de la
+		//    brosse, et ce sont EUX qui partent dans la commande : ce qui est
+		//    enregistre est le geste REELLEMENT fait, pas le reglage du fichier
+		//    au moment du rejeu. Une valeur <= 0 signifie « garde celle de la
+		//    brosse ».
+		int32 Demo3DHostBrushCount() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			Demo3D_LoadBrushes(st);
+			return (int32)st->brushes.Count();
+		}
+		const char *Demo3DHostBrushName(int32 i) {
+			auto *st = HostSt();
+			if (!st || i < 0)
+				return nullptr;
+			Demo3D_LoadBrushes(st);
+			// ⚠️ STATIQUE ET RECOPIE : le registre rend une COPIE du descripteur,
+			//    qui meurt a la fin de cette fonction. Rendre un pointeur dedans
+			//    serait un pointeur pendant -- la faute que le registre de composants
+			//    a deja coutee au depot, sous une autre forme.
+			static char sName[48];
+			renderer::NkBrushDesc d;
+			if (!st->brushes.At((uint16)i, d))
+				return nullptr;
+			for (uint32 k = 0; k < 48; ++k)
+				sName[k] = d.name[k];
+			sName[47] = 0;
+			return sName;
+		}
+		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
+					  const char *brushName, float32 radius, float32 strength) {
+			auto *st = HostSt();
+			if (!st || !pts || count <= 0)
+				return false;
+			Demo3D_LoadBrushes(st);
+			const int32 bi = st->brushes.IndexOf(brushName ? brushName : "dessiner");
+			if (bi < 0) {
+				// ⚠️ REFUS NOMME, jamais un repli sur « la premiere brosse venue » :
+				//    sculpter avec une autre brosse que celle demandee produirait une
+				//    forme plausible et fausse, que rien ne signalerait.
+				logger.Warn("[Demo3D] sculpture REFUSEE : brosse inconnue '{0}' ({1} chargee(s))\n",
+					brushName ? brushName : "(null)", (uint32)st->brushes.Count());
+				return false;
+			}
+			renderer::NkBrushDesc d;
+			if (!st->brushes.At((uint16)bi, d))
+				return false;
+			st->sculptParams = renderer::NkSculptCmdParams{};
+			st->sculptParams.radius = (radius > 0.f) ? radius : d.radius;
+			st->sculptParams.strength = (strength > 0.f) ? strength : d.strength;
+			st->sculptParams.hardness = d.hardness;
+			st->sculptParams.dir = d.dir;
+			st->sculptParams.falloff = (uint8)d.falloff;
+			st->sculptParams.primitive = (uint8)d.op;
+			for (uint32 k = 0; k < 47 && d.name[k]; ++k)
+				st->sculptParams.brushName[k] = d.name[k];
+			st->sculptPts.Clear();
+			st->sculptNrm.Clear();
+			for (int32 k = 0; k < count; ++k) {
+				st->sculptPts.PushBack(NkVec3f{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]});
+				if (nrms)
+					st->sculptNrm.PushBack(NkVec3f{nrms[k * 3 + 0], nrms[k * 3 + 1], nrms[k * 3 + 2]});
+			}
+			st->sculptPending = true;
+			return HostEditRun(&Demo3D_SculptHE);
 		}
 		bool Demo3DHostEditLoopCut() {
 			return HostEditRun(&Demo3D_LoopCutHE);

@@ -4,7 +4,7 @@
 // Variante Metal (MSL, override optionnel). Les image2D deviennent des
 // texture2d<..., access::read_write> ; push_constant -> constant buffer.
 //
-// ⚠️ SQUELETTE. Le struct PushConsts doit matcher renderer::NkSculptBrushGPU.
+// ⚠️ SQUELETTE. Le struct PushConsts doit matcher renderer::NkPixolBrushGPU.
 // =============================================================================
 #include <metal_stdlib>
 using namespace metal;
