@@ -1,0 +1,35 @@
+# =============================================================================
+# Creuser -- LA PREUVE DE LA DEMANDE DE RODOLF.
+#
+# Ce fichier a ete depose APRES la compilation du banc. Le binaire ne l'a jamais
+# vu, aucune enumeration ne le mentionne, aucune ligne de C++ ne le nomme. S'il
+# apparait dans la liste et qu'il CREUSE, alors une brosse s'ajoute en donnees
+# seules -- c'etait la demande.
+#
+# Et voici tout ce qui le separe de « Dessiner » : sens = -1.
+# Pas une primitive de plus, pas une ligne de code. C'est ce que veut dire
+# « une brosse est une donnee, pas un cas d'enumeration ».
+# =============================================================================
+
+nkbrush 1
+
+nom = creuser
+libelle = Creuser
+icone = brush-minus
+
+operation = normale
+profil = doux
+
+rayon = 0.25
+force = 0.5
+durete = 0.5
+
+# LE SEUL CHANGEMENT.
+sens = -1
+
+espacement = 0.25
+
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0
