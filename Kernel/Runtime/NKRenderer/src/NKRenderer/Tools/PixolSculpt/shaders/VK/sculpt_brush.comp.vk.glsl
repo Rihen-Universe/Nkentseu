@@ -6,7 +6,7 @@
 // transpile vers GL/DX11/DX12/MSL (cf. NkShaderLibrary). Les variantes ecrites
 // a la main dans GL/, DX11/, DX12/, MSL/ sont des overrides optionnels.
 //
-// ⚠️ SQUELETTE. push_constant DOIT matcher renderer::NkSculptBrushGPU.
+// ⚠️ SQUELETTE. push_constant DOIT matcher renderer::NkPixolBrushGPU.
 // =============================================================================
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
