@@ -32,15 +32,16 @@
    `atof` + virgule decimale en fr-FR) donne alpha 0 -> aire 20,242 / conforme 4,512 ;
    alpha 1 -> aire 2,001 / conforme 27,927. Defaut 1,00 choisi sur la courbe. La conformite
    **s'ameliore** en mediane (3,835 -> 1,878) et p90, et ne se degrade **qu'aux poles**.
-   ⚠️ **RESTE OUVERT, NOMME** : les 9 ilots **se superposent** dans le plan UV (aucun packing).
-   Le critere de distorsion ne voit pas le chevauchement. **Reouverture : des qu'une texture
-   reelle sera appliquee.**
-3. **Le maillon faible est la RETOPOLOGIE : 26,9 % contre 98,3 %.** C'est le chiffre a faire
-   monter, et il a desormais un etalon et un instrument.
-4. **Il n'y a pas de compromis distorsion / coutures CHEZ MESHY** — parce qu'il paie 4,5 %
-   de coutures. ⚠️ **Nuance mesuree le 19/09 (R42)** : SANS couture, le compromis aire/angle
-   **existe** et il est chiffre. **Nos 0 % de couture ne sont pas un exploit : c'est ce qui
-   nous enferme.** Les coutures sont la monnaie qui achete l'aire ET l'angle.
+   ✅ **ET LE RECOUVREMENT EST FERME le 19/09 (commit `16af61a88`)** : 93 376 texels
+   partages (44,7 %) -> **0**. Le critere `mesurer_atlas.py` a ete ecrit **AVANT** le code,
+   et il prouve son zero (atlas etale -> 0) et son refus (deux ilots superposes -> rouge).
+   Densite, distorsion, ilots et coutures **n'ont pas bouge** : on translate les ilots d'un
+   bloc et on applique UN SEUL facteur commun -- un facteur par ilot detruirait le x1,00.
+   ⚠️ **L'OCCUPATION SEULE EST UN CRITERE QUI SE RETOURNE** : l'atlas superpose affichait
+   79,7 % contre 38,2 % pour l'atlas etale. L'optimiser aurait AGGRAVE le defaut.
+   ⚠️ **RESTE OUVERT** : `mesurer_atlas.py` ne voit pas le REPLI d'un ilot sur lui-meme
+   (les faces voisines partagent legitimement les texels de leur arete). Un ilot replie
+   passerait. **Reouverture : des qu'une texture reelle sera appliquee.**
 
 **Instruments (reutilisables sur n'importe quelle source, y compris pour juger la retopologie) :**
 `mesurer_uv_fbx.py` (lecteur FBX binaire 7400 ecrit ici : rien dans le venv ne lit le FBX),
