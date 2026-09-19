@@ -1,0 +1,22 @@
+# Ecrit A LA MAIN le 18/09/2026, AVANT toute generation par un modele.
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# CE DOCUMENT A ETE FAUX, ET C'EST L'IMAGE QUI L'A DIT. Premiere version :
+# « pose_sur assise decale 0 -0.55 0 » pour les pieds -- le calcul les placait
+# AU-DESSUS, puis le decalage les faisait TRAVERSER l'assise, et le dossier
+# FLOTTAIT. Le banc etait VERT : chi = 4 le disait pourtant (chi = 2(C-G), donc
+# DEUX composantes), et je ne l'avais pas lu.
+#
+# Deux choses en sont sorties : la directive « pose_sous », qui manquait au
+# format, et le critere des COMPOSANTES CONNEXES, qui attrape desormais toute
+# partie detachee. Ecrire ce document A LA MAIN avant de lancer un modele est ce
+# qui a rendu les deux visibles.
+scene chaise
+demande une chaise
+
+partie assise    forme cube     taille 0.90 0.10 0.90
+partie pied_ag   forme cylindre taille 0.07 0.50 0.07 pose_sous assise decale -0.33 0 -0.33
+partie pied_ad   forme cylindre taille 0.07 0.50 0.07 pose_sous assise decale  0.33 0 -0.33
+partie pied_rg   forme cylindre taille 0.07 0.50 0.07 pose_sous assise decale -0.33 0  0.33
+partie pied_rd   forme cylindre taille 0.07 0.50 0.07 pose_sous assise decale  0.33 0  0.33
+partie dossier   forme cube     taille 0.90 0.70 0.08 pose_sur  assise decale  0.00 0 -0.38

@@ -58,8 +58,34 @@ def _controler_detourage(image, autorise):
     import os as _os
     if image.mode in ("RGBA", "LA") and image.getchannel("A").getextrema()[0] < 255:
         return None  # canal alpha reel : aucun detourage, aucun modele requis
+    # ⚠️ LE CHEMIN DURABLE D'ABORD. `~/.rembg/models` est un CACHE : propre a la
+    # machine, efface par un nettoyage de disque, et invisible pour qui reprend
+    # le projet. Le modele a ete telecharge une fois vers les livraisons, et
+    # c'est LUI qu'on cite -- un chemin qu'on peut sauvegarder et retrouver.
+    # `REMBG_HOME` est la variable que rembg lit pour en changer.
+    DURABLE = "D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx"
+    TAILLE_ATTENDUE = 1024331469  # octets, mesures sur le fichier telecharge le 18/09
+    if _os.path.isfile(DURABLE):
+        taille = _os.path.getsize(DURABLE)
+        if taille < TAILLE_ATTENDUE:
+            # ⚠️ EXISTER N'EST PAS ETRE COMPLET. Un telechargement en cours passe
+            # `isfile`. Le laisser passer ferait lire un fichier tronque par
+            # rembg, et l'erreur remonterait sous une forme qui n'aurait plus
+            # rien a voir avec la cause.
+            _refus("le modele de detourage est INCOMPLET : %d octets sur %d attendus\n"
+                   "        %s\n"
+                   "        (un telechargement est peut-etre en cours : attends qu'il finisse)"
+                   % (taille, TAILLE_ATTENDUE, DURABLE))
+        # ⚠️ REMBG_HOME DESIGNE LE PARENT DE « models », PAS « models ».
+        # rembg y ajoute lui-meme « models/ ». Poser un niveau de trop l'envoie
+        # dans models/models/, ou il ne trouve rien -- et il RETELECHARGE. C'est
+        # arrive, 149 Mo, a cause de cette ligne.
+        _os.environ["REMBG_HOME"] = _os.path.dirname(_os.path.dirname(_os.path.dirname(DURABLE)))
+        return [DURABLE]
     trouves = []
-    for base in (_os.path.join(_os.path.expanduser("~"), ".rembg", "models"),
+    for base in (_os.path.dirname(_os.path.dirname(DURABLE)),
+                 _os.environ.get("REMBG_HOME", ""),
+                 _os.path.join(_os.path.expanduser("~"), ".rembg", "models"),
                  _os.path.join(_os.path.expanduser("~"), ".u2net"),
                  _os.environ.get("U2NET_HOME", "")):
         if base and _os.path.isdir(base):
@@ -67,9 +93,11 @@ def _controler_detourage(image, autorise):
                 trouves += [_os.path.join(r, x) for x in f if x.endswith(".onnx")]
     if not trouves and not autorise:
         _refus("cette image n'a PAS de canal alpha, il faut donc la detourer, et le modele"
-               " de detourage est ABSENT de la machine.\n"
-               "        a telecharger : bria-rmbg-2.0.onnx, environ 1,02 Go, depuis\n"
-               "        github.com/danielgatis/rembg/releases, vers ~/.rembg/models/\n"
+               " de detourage est INTROUVABLE.\n"
+               "        ou il devrait etre :\n"
+               "          D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx\n"
+               "        ou bien sous le dossier que designe la variable REMBG_HOME.\n"
+               "        (bria-rmbg-2.0.onnx, environ 1,02 Go, depuis github.com/danielgatis/rembg/releases)\n"
                "        DEUX FACONS DE CONTINUER SANS RIEN TELECHARGER :\n"
                "          - donner une image DEJA detouree (fond transparent, canal alpha) ;\n"
                "          - detourer l'image dans un editeur, puis la repasser ici.\n"
@@ -237,7 +265,25 @@ def main():
         print("MESURE genia : MUTATION --axe-up=brut, aucune conversion d'axe")
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
-    mesh.export(a.out)
+    # ── LES NORMALES, ET POURQUOI LEUR ABSENCE EST UN DEFAUT A PART ─────────
+    # MESURE du 18/09, par deux instruments independants, sur le fichier produit :
+    #     attributs declares : POSITION, COLOR_0
+    #     PAS de NORMAL   PAS de TEXCOORD_0   0 image   0 materiau
+    # Sans NORMAL, chaque logiciel recalcule les normales a SA facon -- lissage,
+    # seuil d'angle, ponderation par l'aire -- et le meme objet ne s'affiche pas
+    # pareil d'un outil a l'autre. Ce n'est pas une question de gout : c'est un
+    # fichier qui ne dit pas ce qu'il montre.
+    #
+    # ⚠️ CE QUE CE CORRECTIF NE FAIT PAS : il n'ajoute NI UV NI TEXTURE. Il n'y a
+    # pas d'UV approximatives a corriger -- il n'y en a AUCUNE, et le dépliage
+    # vient APRES la topologie (cf. ETAT_REPRISE_GENIA3D.md §3).
+    #
+    # ATTENDU, DERIVE AVANT LA COURSE : trois flottants de plus par sommet, soit
+    # +12 octets par sommet. Le condensat du fichier CHANGE -- c'est la grandeur
+    # qui DOIT differer, et elle perime les condensats du R2.4 et du R3.4, qui
+    # se referaient a un fichier SANS normales. Ce qui ne doit PAS bouger : le
+    # nombre de sommets, les positions, le volume, l'etancheite.
+    mesh.export(a.out, include_normals=True)
     if not (os.path.isfile(a.out) and os.path.getsize(a.out) > 0):
         _refus("le fichier de sortie n'a pas ete ecrit : %s" % a.out, 3)
 
