@@ -1403,7 +1403,35 @@ namespace nkentseu {
 			// AJOUTEES EN FIN (l'op est serialisee en uint8) : X ne supprime pas la
 			// meme chose selon le sous-mode, exactement comme Blender.
 			DeleteEdges,
-			DeleteVerts
+			DeleteVerts,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : un COUP DE BROSSE.
+			// Il entre dans la couche de commandes -- et non a cote -- pour une
+			// raison que Rodolf a posee le 19/09 : les corrections a la main
+			// doivent SURVIVRE a une regeneration. On regenere la base depuis le
+			// document, puis on REJOUE la pile. Une sculpture qui ne serait pas
+			// une commande serait perdue au premier tour de la spirale.
+			Sculpt
+		};
+
+		// ── PARAMETRES D'UN COUP DE BROSSE ─────────────────────────────
+		// ⚠️ AUTO-SUFFISANTS, ET C'EST LE POINT. On enregistre les VALEURS
+		//    EFFECTIVES du geste, jamais le NOM de la brosse qui l'a produit.
+		//    Une brosse est une donnee, donc un fichier, donc quelque chose que
+		//    l'utilisateur peut modifier demain. Si la commande renvoyait a
+		//    « dessiner », rejouer la session apres un reglage de « dessiner »
+		//    reproduirait un AUTRE geste que celui qui a ete fait -- et sans rien
+		//    dire. C'est « un chiffre voyage sans sa condition » applique a un
+		//    geste : ce qui est rejoue doit porter tout ce dont il depend.
+		//    Le nom reste, mais pour le JOURNAL et l'affichage, jamais pour
+		//    retrouver des reglages a l'execution.
+		struct NkSculptCmdParams {
+			float32 radius = 0.25f;   ///< unites monde
+			float32 strength = 0.5f;
+			float32 hardness = 0.5f;
+			float32 dir = 1.f;        ///< +1 sort de la surface, -1 y entre
+			uint8 falloff = 0;        ///< NkSculptFalloffKind
+			uint8 primitive = 0;      ///< NkSculptOp
+			char brushName[48] = {};  ///< pour le journal et l'affichage UNIQUEMENT
 		};
 
 		struct NkMeshEditCommand {
@@ -1441,6 +1469,18 @@ namespace nkentseu {
 				NkVec3f planeNormal = {0.f, 1.f, 0.f};
 				NkMat4f bisectXform = NkMat4f::Identity();
 				NkVector<NkVec3f> moveDeltas; // (op == Move) delta par sommet (aligné sur selection)
+
+				// (op == Sculpt) LE TRAIT, DANS LE REPERE DE L'OBJET.
+				// ⚠️ JAMAIS EN PIXELS ECRAN : un trait en pixels ne survit pas a une
+				//    rotation de camera. Jamais par indices d'elements non plus : ils
+				//    sont reconstruits a chaque changement de topologie, donc ils
+				//    deviennent SILENCIEUSEMENT faux -- et la sculpture EST du
+				//    remaillage. Une polyligne de points ne reference AUCUN element du
+				//    maillage : elle survit a la camera comme au remaillage, et c'est
+				//    ce qui la rend rejouable.
+				NkSculptCmdParams sculpt;
+				NkVector<NkVec3f> sculptPoints;  // centres des tampons
+				NkVector<NkVec3f> sculptNormals; // normale au point de pose (meme taille)
 
 				// Pose la sélection sur `m` puis exécute l'op. true si la géométrie a changé.
 				bool Apply(NkEditMesh &m) const;

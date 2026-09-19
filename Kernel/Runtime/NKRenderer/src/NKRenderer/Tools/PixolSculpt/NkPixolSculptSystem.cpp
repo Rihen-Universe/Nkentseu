@@ -77,7 +77,7 @@ namespace nkentseu {
 			}
 		}
 
-		void NkPixolSculptSystem::SetBrush(const NkSculptBrush &brush) noexcept {
+		void NkPixolSculptSystem::SetBrush(const NkPixolBrush &brush) noexcept {
 			mBrush = brush;
 		}
 
@@ -134,7 +134,7 @@ namespace nkentseu {
 
 			const auto &dabs = mStroke.PendingDabs();
 			for (uint32 i = 0; i < (uint32)dabs.Size(); ++i) {
-				NkSculptBrushGPU pc = MakeBrushGPU(mStroke.Brush(), dabs[i], dirty.x, dirty.y);
+				NkPixolBrushGPU pc = MakeBrushGPU(mStroke.Brush(), dabs[i], dirty.x, dirty.y);
 				mCompute.PushConstants(pc);
 				mCompute.Dispatch(gx, gy, 1); // borne au dirty rect
 				mStats.tilesDispatched += gx * gy;
