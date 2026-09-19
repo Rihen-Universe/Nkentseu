@@ -562,6 +562,113 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 	}
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// LE TRAIT SURVIT-IL A UN ALLER-RETOUR SUR DISQUE, ET SE REJOUE-T-IL ?
+//
+// ⚠️ C'EST LE CRITERE QUI DECIDE DE LA SPIRALE. Rodolf (19/09) veut que les
+//    corrections a la main SURVIVENT a une regeneration : on regenere la base
+//    depuis le document, puis on REJOUE la pile d'operations. Un coup de
+//    brosse qui ne se rejoue pas est perdu au premier tour.
+//
+//    Le test part du maillage d'origine DEUX FOIS :
+//      A = maillage + commande appliquee directement ;
+//      B = maillage + commande SERIALISEE, RELUE dans un recorder neuf, puis
+//          rejouee par ReplayOnto.
+//    On exige A == B AU BIT. Une egalite approchee laisserait passer une
+//    perte de precision a l'ecriture, qui est exactement ce qu'un aller-retour
+//    binaire doit interdire.
+//
+// ⚠️ ET ON COMPARE CONTRE L'ORIGINAL AUSSI : si la commande ne faisait RIEN,
+//    A et B seraient egaux tous les deux a l'original, et le test passerait
+//    en ne prouvant rien. Un critere que l'inaction satisfait ne mesure pas.
+static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrushDesc &brush) {
+	char label[128], det[128];
+
+	// La commande : le geste, AVEC toutes ses valeurs (rien n'est relu d'un
+	// fichier de brosse au rejeu).
+	NkMeshEditCommand cmd;
+	cmd.op = NkMeshEditOp::Sculpt;
+	cmd.sculpt.radius = brush.radius;
+	cmd.sculpt.strength = brush.strength;
+	cmd.sculpt.hardness = brush.hardness;
+	cmd.sculpt.dir = brush.dir;
+	cmd.sculpt.falloff = (uint8)brush.falloff;
+	cmd.sculpt.primitive = (uint8)brush.op;
+	for (uint32 i = 0; i < 47 && brush.name[i]; ++i)
+		cmd.sculpt.brushName[i] = brush.name[i];
+
+	// Le trait : trois points sur la surface, en REPERE OBJET.
+	uint32 hi = 0;
+	for (uint32 i = 1; i < src.VertCount(); ++i)
+		if (src.verts[i].pos.y > src.verts[hi].pos.y)
+			hi = i;
+	for (uint32 k = 0; k < 3; ++k) {
+		const uint32 vi = (hi + k * 7u) % src.VertCount();
+		cmd.sculptPoints.PushBack(src.verts[vi].pos);
+		cmd.sculptNormals.PushBack(src.verts[vi].normal);
+	}
+
+	// A : application directe.
+	NkEditMesh a = src;
+	const bool okA = cmd.Apply(a);
+	snprintf(label, sizeof(label), "%s/%s rejeu: la commande agit", primName, brush.name);
+	snprintf(det, sizeof(det), "points=%u", (uint32)cmd.sculptPoints.Size());
+	Check(okA, label, det);
+	if (!okA)
+		return;
+
+	// ⚠️ CONTROLE QUE L'INACTION NE PASSERAIT PAS : A doit differer de
+	//    l'original, sinon l'egalite A==B qui suit serait vraie pour rien.
+	Snapshot s0;
+	Capture(src, s0);
+	const uint32 movedA = CountMoved(a, s0);
+	snprintf(label, sizeof(label), "%s/%s rejeu: A differe de l'original", primName, brush.name);
+	snprintf(det, sizeof(det), "sommets deplaces=%u", movedA);
+	Check(movedA > 0, label, det);
+
+	// B : par le journal, apres un aller-retour BINAIRE.
+	NkMeshEditRecorder rec;
+	rec.Push(cmd);
+	NkVector<uint8> blob;
+	rec.Serialize(blob);
+	NkMeshEditRecorder relu; // recorder NEUF : rien ne survit de l'original
+	const bool okDe = relu.Deserialize(blob.Data(), (uint32)blob.Size());
+	snprintf(label, sizeof(label), "%s/%s rejeu: relecture du journal", primName, brush.name);
+	snprintf(det, sizeof(det), "octets=%u commandes=%u", (uint32)blob.Size(), relu.Count());
+	Check(okDe && relu.Count() == 1, label, det);
+	if (!okDe || relu.Count() != 1)
+		return;
+
+	NkEditMesh bmesh = src;
+	const uint32 applied = relu.ReplayOnto(bmesh);
+	snprintf(label, sizeof(label), "%s/%s rejeu: ReplayOnto applique", primName, brush.name);
+	snprintf(det, sizeof(det), "commandes appliquees=%u", applied);
+	Check(applied == 1, label, det);
+
+	// A == B AU BIT.
+	uint32 diff = 0;
+	if (a.VertCount() != bmesh.VertCount()) {
+		diff = 0xFFFFFFFFu;
+	} else {
+		for (uint32 i = 0; i < a.VertCount(); ++i)
+			if (!SameBits3(a.verts[i].pos, bmesh.verts[i].pos))
+				++diff;
+	}
+	snprintf(label, sizeof(label), "%s/%s rejeu: A == B AU BIT", primName, brush.name);
+	snprintf(det, sizeof(det), "sommets differents=%u / %u", diff, a.VertCount());
+	Check(diff == 0, label, det);
+
+	// Le nom de la brosse a traverse le disque (journal et affichage).
+	const NkMeshEditCommand &cr = relu.At(0);
+	bool nameOk = true;
+	for (uint32 i = 0; i < 48; ++i)
+		if (cr.sculpt.brushName[i] != cmd.sculpt.brushName[i]) {
+			nameOk = false;
+			break;
+		}
+	snprintf(label, sizeof(label), "%s/%s rejeu: nom conserve", primName, brush.name);
+	Check(nameOk && cr.sculpt.dir == cmd.sculpt.dir, label, cr.sculpt.brushName);
+}
 int main(int argc, char **argv) {
 	const char *brushDir = "Applications/NK3DModeler/data/brushes";
 	// Les sujets reels vivent HORS du depot (sorties de la chaine 3D).
@@ -640,6 +747,7 @@ int main(int argc, char **argv) {
 			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
 			printf("-- cube8 (positif DEFAVORABLE : 8 coins, 24 sommets) / brosse \"%s\"\n", b.name);
 			RunBrushOn("cube8", m, b);
+			RunReplay("cube8", m, b);
 		}
 		{
 			MakeSphere(16, 16, v, idx);
@@ -647,6 +755,7 @@ int main(int argc, char **argv) {
 			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
 			printf("-- sphere16 (cas dense) / brosse \"%s\"\n", b.name);
 			RunBrushOn("sphere16", m, b);
+			RunReplay("sphere16", m, b);
 		}
 		printf("\n");
 	}
@@ -712,8 +821,12 @@ int main(int argc, char **argv) {
 			const float32 r = diag * 0.15f;
 			for (uint16 bi = 0; bi < reg.Count(); ++bi) {
 				NkBrushDesc b;
-				if (reg.At(bi, b))
+				if (reg.At(bi, b)) {
 					RunBrushOn(kSubjects[k], m, b, r);
+					NkBrushDesc br = b;
+					br.radius = r;
+					RunReplay(kSubjects[k], m, br);
+				}
 			}
 		}
 	}
