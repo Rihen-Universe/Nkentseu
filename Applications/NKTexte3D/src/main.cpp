@@ -161,6 +161,14 @@ struct Scene {
 		Trou trous[8];
 		uint32 nTrous = 0;
 		float lissage = 0.f; // union LISSE : les jonctions se fondent sur ce rayon
+		// ── SOLIDAIRE OU INDEPENDANT : UNE DECISION D'AUTEUR ────────────────
+		// true  : UN objet, N groupes nommes  -> un CORPS (le bras bouge par les
+		//         poids des os, pas parce qu'il est un objet separe)
+		// false : N objets nommes             -> une VOITURE (roues et portes
+		//         bougent independamment)
+		// Defaut : false, pour ne rien changer aux documents existants.
+		bool solidaire = false;
+		char nomScene[64] = {0};
 		// La relation « pose_sur » declaree dans le document, conservee APRES le
 		// placement : c'est elle que le critere document -> geometrie relit.
 		// -1 = aucune. Sans elle, on ne pourrait verifier que le calcul contre
@@ -630,7 +638,29 @@ static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t ca
 		bool aMot = NkScMot(q, mot, sizeof(mot));
 		// Une ligne vide ou un commentaire : on avance, sans rien dire.
 		if (aMot && mot[0] != '#') {
-			if (strcmp(mot, "scene") == 0 || strcmp(mot, "demande") == 0) {
+			if (strcmp(mot, "assemblage") == 0) {
+				char v[64];
+				if (!NkScMot(q, v, sizeof(v))) {
+					snprintf(pourquoi, capPourquoi, "ligne %u : « assemblage » attend solidaire ou independant", ligne);
+					free(buf);
+					return 0;
+				}
+				if (strcmp(v, "solidaire") == 0)
+					sc.solidaire = true;
+				else if (strcmp(v, "independant") == 0)
+					sc.solidaire = false;
+				else {
+					snprintf(pourquoi, capPourquoi,
+							 "ligne %u : assemblage inconnu « %s » (solidaire pour un corps, independant pour un vehicule)",
+							 ligne, v);
+					free(buf);
+					return 0;
+				}
+			} else if (strcmp(mot, "scene") == 0) {
+				char v[64];
+				if (NkScMot(q, v, sizeof(v)))
+					snprintf(sc.nomScene, sizeof(sc.nomScene), "%s", v);
+			} else if (strcmp(mot, "demande") == 0) {
 				// Metadonnees : conservees pour la lecture humaine, sans effet
 				// geometrique. Les avaler EXPLICITEMENT, sinon elles
 				// remonteraient comme directives inconnues.
@@ -822,7 +852,7 @@ static uint32 LireScene(const char *chemin, Scene &sc, char *pourquoi, size_t ca
 				++sc.nPieces;
 			} else {
 				snprintf(pourquoi, capPourquoi,
-						 "ligne %u : directive inconnue « %s » (scene, demande, partie, lissage)", ligne, mot);
+						 "ligne %u : directive inconnue « %s » (scene, demande, partie, lissage, assemblage)", ligne, mot);
 				free(buf);
 				return 0;
 			}
@@ -2167,8 +2197,8 @@ static bool NkPrimConstruire(const Piece &p, uint32 A, uint32 S, NkQuadMesh &m) 
 }
 
 // Ecrit un .obj avec QUADS, UV et NORMALES, un objet nomme par partie.
-static bool NkPrimEcrireObj(const char *chemin, const NkVector<NkQuadMesh> &parties, uint32 &outQuads,
-							uint32 &outTris, uint32 &outSommets) {
+static bool NkPrimEcrireObj(const char *chemin, const NkVector<NkQuadMesh> &parties, bool solidaire,
+							const char *nomScene, uint32 &outQuads, uint32 &outTris, uint32 &outSommets) {
 	FILE *f = fopen(chemin, "wb");
 	if (!f)
 		return false;
@@ -2185,7 +2215,16 @@ static bool NkPrimEcrireObj(const char *chemin, const NkVector<NkQuadMesh> &part
 			fprintf(f, "vt %.6f %.6f\n", m.uv[i].x, m.uv[i].y);
 		for (uint32 i = 0; i < (uint32)m.nor.Size(); ++i)
 			fprintf(f, "vn %.6f %.6f %.6f\n", m.nor[i].x, m.nor[i].y, m.nor[i].z);
-		fprintf(f, "o %s\n", m.nom[0] ? m.nom : "partie");
+		// SOLIDAIRE : un seul « o », puis un « g » par partie. NkOBJLoader lit
+		// les deux (l. 339 et 347) et rend un NkSubMesh NOMME dans les deux cas :
+		// les parties restent donc identifiables A L'INTERIEUR du modele.
+		if (solidaire) {
+			if (k == 0)
+				fprintf(f, "o %s\n", nomScene && nomScene[0] ? nomScene : "modele");
+			fprintf(f, "g %s\n", m.nom[0] ? m.nom : "partie");
+		} else {
+			fprintf(f, "o %s\n", m.nom[0] ? m.nom : "partie");
+		}
 		for (uint32 i = 0; i + 3 < (uint32)m.quads.Size() + 1; i += 4) {
 			const uint32 a = m.quads[i] + base, b = m.quads[i + 1] + base;
 			const uint32 c = m.quads[i + 2] + base, d = m.quads[i + 3] + base;
@@ -2227,12 +2266,15 @@ static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) 
 	}
 
 	uint32 nq = 0, nt = 0, nv = 0;
-	if (!NkPrimEcrireObj(out, parties, nq, nt, nv)) {
+	if (!NkPrimEcrireObj(out, parties, sc.solidaire, sc.nomScene, nq, nt, nv)) {
 		printf("  REFUS : ecriture impossible : %s\n", out);
 		return 1;
 	}
 	printf("  MESURE : %u sommets · %u QUADS · %u triangles · %u partie(s) nommee(s)\n", nv, nq, nt,
 		   (uint32)parties.Size());
+	printf("  ASSEMBLAGE : %s\n", sc.solidaire
+									   ? "SOLIDAIRE -- un objet, un groupe « g » par partie (un CORPS : le bras bouge par les os)"
+									   : "INDEPENDANT -- un objet « o » par partie (un VEHICULE : les pieces bougent seules)");
 
 	int rouge = 0;
 
@@ -2341,11 +2383,32 @@ static int NkPrimProduire(const Scene &sc, const char *out, uint32 A, uint32 S) 
 						++nommes;
 						break;
 					}
-		const bool ok = lu && nommes == (uint32)parties.Size();
-		printf("  [%s] noms relus par NkOBJLoader : %u / %u\n", ok ? "VERT " : "ROUGE", nommes,
-			   (uint32)parties.Size());
-		if (!ok)
-			++rouge;
+		// ⚠️ LE CRITERE PORTE SUR CE QUI EST VRAI, ET IL DIFFERE SELON L'ASSEMBLAGE.
+		// MESURE du 19/09 : `NkOBJLoader` coupe le sous-mesh sur « o » mais PAS
+		// sur « g » -- et il le dit lui-meme en commentaire : « FRONTIERE DE
+		// MODEL. Ne coupe PAS le sous-mesh ici [...] la coupe sur o est un
+		// changement de comportement, elle vient a part ».
+		//
+		// Donc un corps SOLIDAIRE (un « o », N « g ») revient a UN sous-mesh chez
+		// nous. Ce n'est PAS un defaut du fichier : dans Blender un « g » devient
+		// un VERTEX GROUP -- exactement le mecanisme du skinning, donc la bonne
+		// forme pour un corps qu'on va rigger. C'est NOTRE lecteur qui ne sait pas
+		// encore les lire, et c'est une navette, pas un defaut a corriger ici.
+		if (sc.solidaire) {
+			const bool okS = lu && (uint32)data.subMeshes.Size() >= 1;
+			printf("  [%s] SOLIDAIRE : %u sous-mesh relu(s) (attendu 1) -- les parties vivent dans les « g »\n",
+				   okS ? "VERT " : "ROUGE", lu ? (uint32)data.subMeshes.Size() : 0);
+			printf("           ⚠ NkOBJLoader ne coupe pas sur « g » : navette pour l'agent du moteur.\n");
+			printf("             Dans Blender ces groupes deviennent des VERTEX GROUPS -- ce qu'il faut pour rigger.\n");
+			if (!okS)
+				++rouge;
+		} else {
+			const bool ok = lu && nommes == (uint32)parties.Size();
+			printf("  [%s] INDEPENDANT : noms relus par NkOBJLoader : %u / %u\n", ok ? "VERT " : "ROUGE", nommes,
+				   (uint32)parties.Size());
+			if (!ok)
+				++rouge;
+		}
 	}
 
 	printf("  VERDICT PRIMITIVES : %s (%d rouge)\n", rouge == 0 ? "VERT" : "ROUGE", rouge);

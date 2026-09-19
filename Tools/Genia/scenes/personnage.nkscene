@@ -22,6 +22,14 @@
 #   > C'est le cycle que le document rend possible : on LIT l'ecart, on CORRIGE
 #     une ligne, on regenere. Sans document, il aurait fallu tout relancer.
 scene personnage
+# ⚠️ UN CORPS EST SOLIDAIRE, et c'est une DECISION D'AUTEUR, pas une consequence
+# du maillage. Correction de Rodolf, 19/09 : « pour les elements qui font partie
+# du meme systeme, ca peut etre regroupe dans un seul modele ; par exemple toutes
+# les parties d'un corps, mais toutes les parties d'une voiture non ».
+# Un personnage est UN maillage plus un squelette : le bras bouge par les POIDS
+# DES OS, pas parce qu'il serait un objet separe. Les parties restent pourtant
+# identifiables -- « g bras_gauche » a l'interieur du modele.
+assemblage solidaire
 demande un personnage a tete spherique, bras le long du corps
 
 partie torse        forme capsule  taille 0.28 0.42 0.20
