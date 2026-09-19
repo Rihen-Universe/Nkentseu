@@ -66,6 +66,7 @@ using namespace nkentseu;
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTime/NkChrono.h"
+#include "Recolte.h" // la RECOLTE : garder chaque paire, surtout les echecs
 #include "NKUIDesign/ComposantsBase.h"
 #include "NKUIDesign/DesignAI.h"
 #include "NKUIDesign/Document.h"
@@ -312,6 +313,8 @@ int main(int argc, char **argv) {
 	const char *dSortie = "Build/ia-jeu";
 	const char *dorsal = "processus";
 	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
+	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
+	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -322,6 +325,10 @@ int main(int argc, char **argv) {
 			dSortie = argv[a] + 9;
 		else if (std::strcmp(argv[a], "--sonde-http") == 0)
 			sondeHttp = true;
+		else if (CommencePar(argv[a], "--rejouer="))
+			rejouer = argv[a] + 10;
+		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
+			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
 			dorsal = argv[a] + 9;
 		else if (CommencePar(argv[a], "--seule="))
@@ -396,6 +403,35 @@ int main(int argc, char **argv) {
 	//    1 582 lignes d'en-tete, un `.cpp`, et des exemples en commentaire. Rien
 	//    de tout ca ne prouve qu'un POST aboutit. Avant d'accuser un modele ou
 	//    une invite, on demande au TRANSPORT ce qu'il rend, et on l'imprime.
+	// ── REJOUER UN TEXTE SANS RAPPELER UN MODELE ─────────────────────────────
+	// ⚠️ `DesignAI.h` PROMET DEJA CETTE CAPACITE : « `Apply` est separee de
+	//    `Ask` pour une raison pratique : c'est ce qui permet de rejouer un
+	//    texte suspect autant de fois qu'on veut, sans rappeler un modele et
+	//    sans payer un jeton. » Elle n'avait aucune porte en ligne de commande.
+	//
+	//    Elle repond a une question qu'aucune course ne tranche : quand un
+	//    document est rejete, EST-CE POUR LA RAISON QU'ON CROIT ? Une reponse
+	//    peut echouer sur la STRUCTURE avant meme que le nom des composants
+	//    soit regarde -- et on attribuerait alors le rejet au mauvais gardien.
+	if (rejouer) {
+		const NkString txt = NkFile::ReadAllText(NkPath(rejouer));
+		if (txt.Size() == 0) {
+			std::printf("REJEU : %s est vide ou illisible. Rien n'a ete mesure.\n", rejouer);
+			return 2;
+		}
+		NkDesignAI iaR;
+		PeuplerCatalogue();
+		NkUIDocument docR;
+		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
+		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
+		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
+		std::printf("  detail  : %s\n", rr.detail.Size() > 0 ? rr.detail.CStr() : "(aucun)");
+		std::printf("  noeuds ajoutes : %u ; composants inconnus : %u\n",
+				 rr.nodesAdded, rr.unknownComponents);
+		return rr.Accepted() ? 0 : 1;
+	}
+
 	if (sondeHttp) {
 		static NkOllamaBackend o;
 		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
@@ -447,6 +483,11 @@ int main(int argc, char **argv) {
 			ollama.modele = NkString(m);
 		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
 			ollama.hote = NkString(h);
+		// ⚠️ TEMPERATURE 0 = MESURE REPRODUCTIBLE. Sans elle, deux courses
+		//    identiques rendent des taux differents et l'ecart entre deux invites
+		//    se noie dans le tirage au sort.
+		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
+			ollama.temperature = (float32)atof(tp);
 		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
 		//    service eteint rendrait douze refus identiques et on lirait « le
 		//    modele echoue » la ou il faut lire « personne n'ecoute ».
@@ -472,8 +513,11 @@ int main(int argc, char **argv) {
 		ia.SetBackend(&proc);
 	}
 
+	// L'etiquette voyage avec chaque paire : voir Recolte.h.
+	NkString etiquetteCatalogue;
+	ia.catalogueBref = catalogueBref;
 	NkString catalogue;
-	NkDesignAI::BuildCatalog(catalogue);
+	NkDesignAI::BuildCatalog(catalogue, catalogueBref);
 	uint32 nbComposants = 0;
 	for (uint32 i = 0; i < (uint32)catalogue.Size(); ++i)
 		if (catalogue.Data()[i] == '\n' && i + 10 < (uint32)catalogue.Size()
@@ -484,7 +528,27 @@ int main(int argc, char **argv) {
 
 	std::printf("=== JEU D'EPREUVE DE L'IA DE DESIGN ===\n");
 	std::printf("dorsal        : %s\n", ia.Backend()->Name());
+	// ⚠️ LA CONDITION DE LA COURSE, CAPTUREE UNE FOIS. Une paire de recolte qui
+	//    ne porte pas son modele est un chiffre sans sa condition -- faute payee
+	//    trois fois par ce depot. On la fixe ici, pas dans la boucle.
+	// Un dorsal sans modele le dit en un mot : le nom du fichier doit rester
+	// triable, et `[condition]` porte deja le dorsal.
+	NkString modeleCourant = NkString("aucun");
+	if (std::strcmp(dorsal, "ollama") == 0)
+		modeleCourant = ollama.modele;
 	std::printf("demandes      : %u (lues dans %s)\n", nbD, fDemandes);
+	// ⚠️ LE NIVEAU DU CATALOGUE EST UNE CONDITION DE LA MESURE : il s'imprime
+	//    et il entre dans la recolte. Un taux qui ne dit pas avec quel
+	//    catalogue il a ete obtenu est un chiffre sans sa condition.
+	std::printf("catalogue     : %s, %u octets\n",
+		   catalogueBref ? "BREF (sans param/variante)" : "COMPLET",
+		   (uint32)catalogue.Size());
+	{
+		char eb[64];
+		snprintf(eb, sizeof(eb), "%s, %u octets", catalogueBref ? "bref" : "complet",
+				 (unsigned)catalogue.Size());
+		etiquetteCatalogue = NkString(eb);
+	}
 	std::printf("catalogue     : %u composant(s) declares au registre\n", nbComposants);
 	std::printf("sortie        : %s\n\n", dSortie);
 
@@ -536,6 +600,11 @@ int main(int argc, char **argv) {
 		// ── N3 : le document s'ouvre-t-il ? ──────────────────────────────────
 		// Greffe faite (Ask pose deja), mise en page, puis `.nkgui` sur le
 		// disque. Le MONTAGE est l'affaire de l'autre binaire.
+		// ⚠️ DECLARE A LA PORTEE DE LA PAIRE, pas dans le `if (n2)` : la RECOLTE
+		//    en a besoin apres, et une variable enfermee dans la branche du succes
+		//    aurait force a recalculer le chemin ailleurs -- deux verites sur le
+		//    meme fichier.
+		char cheminG[512] = {0};
 		bool n3 = false;
 		uint32 lignesNkgui = 0;
 		uint32 rolesDuComposant = 0;
@@ -544,7 +613,7 @@ int main(int argc, char **argv) {
 			NkPaintRect sfc = {0.f, 0.f, 1200.f, 800.f};
 			NkLayoutResult lay;
 			NkComputeLayout(doc, sfc, lay);
-			char cheminG[512], nomG[80];
+			char nomG[80];
 			Joindre(nomG, sizeof(nomG), nomInv, ".nkgui");
 			Joindre(cheminG, sizeof(cheminG), dSortie, nomG);
 			guifmt::NkEcritRapport rap;
@@ -578,6 +647,42 @@ int main(int argc, char **argv) {
 		}
 		if (!n2 && res.detail.Size() > 0)
 			std::printf("  [%s]", res.detail.CStr());
+
+		// ── LA RECOLTE ───────────────────────────────────────────────────────
+		// ⚠️ ICI, ET PAS AILLEURS : c'est le seul endroit ou les trois verdicts
+		//    existent en meme temps que la reponse brute et le document. Les
+		//    recalculer plus loin aurait fait deux verites sur la meme paire.
+		//
+		// ⚠️ AUCUNE CONDITION SUR n2 NI n3. On ecrit la paire QUOI QU'IL ARRIVE :
+		//    un corpus qui ne contient que des reussites n'apprend pas a refuser.
+		{
+			NkString docProduit;
+			if (n3)
+				docProduit = NkFile::ReadAllText(NkPath(cheminG));
+			nkrecolte::NkPaire paire;
+			paire.id = d.id;
+			paire.demande = d.texte;
+			paire.dorsal = ia.Backend()->Name();
+			paire.modele = modeleCourant.CStr();
+			paire.verdictNom = NkAIVerdictName(res.verdict);
+			paire.motif = res.detail.Size() > 0 ? res.detail.CStr() : "";
+			paire.n1 = n1;
+			paire.n2 = n2;
+			paire.n3 = n3;
+			paire.ms = msEcoule;
+			paire.catalogue = etiquetteCatalogue.CStr();
+			// La provenance du JEU DE DEMANDES, pas de la reponse : le fichier des
+			// demandes est a nous, ecrit avant la premiere course et jamais modifie.
+			paire.provenance = fDemandes;
+			paire.brut = &brut;
+			paire.document = &docProduit;
+			char dRecolte[512];
+			Joindre(dRecolte, sizeof(dRecolte), dSortie, "/recolte");
+			// Une recolte qui echoue en SILENCE se decouvre le jour ou on veut s'en
+			// servir : on le dit tout de suite, sur la meme ligne que le verdict.
+			if (!nkrecolte::Ecrire(dRecolte, paire))
+				std::printf("  [RECOLTE NON ECRITE]");
+		}
 		std::printf("\n");
 		std::fflush(stdout);
 	}
