@@ -7804,7 +7804,59 @@ namespace nkentseu {
 			}
 		}
 
-		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
+			// ──────────────────────────────────────────────────────────────────
+		// SONDE : QUI PARCOURT TOUS LES SOMMETS, A CHAQUE IMAGE ?
+		// ──────────────────────────────────────────────────────────────────
+		// ⚠️ ON COMPTE, ON NE DEVINE PAS. Les deux chiffres du 20/09 (6,9 ms
+		//    sur 77 sommets, > 4 500 ms sur 72 464) donnent un rapport de 941
+		//    pour un rapport de tailles de 941 : l'echelle est LINEAIRE, donc il
+		//    existe AU MOINS un parcours complet par image. Elle ne dit pas
+		//    COMBIEN -- et s'il y en a trois, en supprimer un ne deplacerait
+		//    presque rien, ce qui ferait conclure a tort qu'on a vise a cote.
+		//
+		// Chaque site s'annonce avec le NOMBRE d'elements qu'il traverse. Le
+		// rang est fixe dans la liste de la sonde, pas le numero de ligne : un
+		// numero de ligne se perime au premier ajout ailleurs.
+		static uint64 gEdProfIter[16] = {};
+		static uint32 gEdProfHits[16] = {};
+		static bool gEdProfOn = (getenv("NK_EDIT_PROF") != nullptr);
+#define NKEDPROF(k, n)                                                         \
+	do {                                                                       \
+		if (gEdProfOn) {                                                       \
+			gEdProfIter[(k)] += (uint64)(n);                                   \
+			++gEdProfHits[(k)];                                                \
+		}                                                                      \
+	} while (0)
+
+		// Imprime le bilan de L'IMAGE et remet a zero. Appele une fois par image,
+		// a la fin du bloc d'edition.
+		static void Demo3D_EdProfDump(int32 nv) {
+			if (!gEdProfOn)
+				return;
+			uint64 tot = 0;
+			uint32 sites = 0;
+			char det[256];
+			det[0] = 0;
+			for (uint32 k = 0; k < 16; ++k) {
+				if (!gEdProfHits[k])
+					continue;
+				++sites;
+				tot += gEdProfIter[k];
+				char t[48];
+				snprintf(t, sizeof(t), "s%u=%llu ", k, (unsigned long long)gEdProfIter[k]);
+				if (strlen(det) + strlen(t) < sizeof(det) - 1)
+					strcat(det, t);
+			}
+			logger.Info("[Demo3D] EDPROF image : nv={0} sites={1} iterations={2} ({3}x nv) | {4}\n",
+						nv, sites, (uint32)tot, nv > 0 ? (float32)tot / (float32)nv : 0.f, det);
+			for (uint32 k = 0; k < 16; ++k) {
+				gEdProfIter[k] = 0;
+				gEdProfHits[k] = 0;
+			}
+		}
+
+	void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
+			const auto tFr0 = std::chrono::high_resolution_clock::now();
 			auto *st = (Demo3DState *)ctx.userData;
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
 			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
@@ -8158,6 +8210,7 @@ namespace nkentseu {
 					//    lu ensuite dans le journal est l'etat REEL, pas une intention.
 					if (const char *xr = getenv("NK_EDIT_XRAY")) {
 						st->editXray = (xr[0] && xr[0] != '0');
+						NKEDPROF(8, 1); // sonde : QUI arme la reconstruction
 						st->editOverlayDirty = true;
 						logger.Info("[MARQ] crochet NK_EDIT_XRAY : editXray = {0}\n", st->editXray ? 1 : 0);
 					}
@@ -8371,6 +8424,7 @@ namespace nkentseu {
 							}
 						}
 					}
+					NKEDPROF(9, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true;
 					logger.Info("[Demo3D] NK_EDIT_MODE: selection {0} -> {1} sommets (mask={2})\n",
 								selAll		 ? "all"
@@ -10520,6 +10574,7 @@ namespace nkentseu {
 					// de pick de 14 px), ce qui reproduit fidelement le geste reel.
 					const float32 kOffPx = 8.f;
 					const float32 offs[4][2] = {{kOffPx, 0.f}, {-kOffPx, 0.f}, {0.f, kOffPx}, {0.f, -kOffPx}};
+					NKEDPROF(0, nv); // sonde O(n) -- retirer avec NKEDPROF
 					for (int32 i = 0; i < nv; i++) {
 						const NkVec3f w = worldV(i);
 						float32 px, py;
@@ -10596,6 +10651,7 @@ namespace nkentseu {
 				NkVec3f cen = {0.f, 0.f, 0.f};
 				NkVec3f selMin{1e30f, 1e30f, 1e30f}, selMax{-1e30f, -1e30f, -1e30f};
 				int32 selCnt = 0;
+				NKEDPROF(1, nv); // sonde O(n) -- retirer avec NKEDPROF
 				for (int32 i = 0; i < nv; i++)
 					if (st->vertSel[i]) {
 						const NkVec3f w = worldV(i);
@@ -10677,6 +10733,7 @@ namespace nkentseu {
 				float32 meshPx = 1e30f;
 				if (clickNow && !st->editGizmo.IsDragging()) {
 					if (st->editSelMask & 1)
+						NKEDPROF(2, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++) {
 							float32 px, py;
 							if (project(worldV(i), px, py)) {
@@ -10895,6 +10952,7 @@ namespace nkentseu {
 					// Rodolf. On lit le premier sommet SELECTIONNE.
 					float32 dbg[3] = {0.f, 0.f, 0.f};
 					int32 vv = -1;
+					NKEDPROF(3, (int32)st->vertSel.Size()); // sonde O(n) -- retirer avec NKEDPROF
 					for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
 						if (st->vertSel[i]) { vv = (int32)i; break; }
 					if (vv >= 0 && (uint32)vv < (uint32)st->editLive.Size()) {
@@ -10934,6 +10992,7 @@ namespace nkentseu {
 						st->knifeArmed = false;
 						st->knifeHasP0 = false;
 					}
+					NKEDPROF(10, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true;
 				}
 				// ── OUTILS DE SÉLECTION PAR ZONE (rectangle / lasso / cercle) ─────────
@@ -11043,6 +11102,7 @@ namespace nkentseu {
 					// « le rayon est faux » de « je vise a cote ».
 					if (sDiag && (sN % 60) == 0 && st->editHE.VertCount() > 0) {
 						NkVec3f c{0.f, 0.f, 0.f};
+						NKEDPROF(4, (int32)st->editHE.VertCount()); // sonde O(n) -- retirer avec NKEDPROF
 						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
 							c = c + st->editHE.verts[i].pos;
 						c = c * (1.f / (float32)st->editHE.VertCount());
@@ -11272,6 +11332,7 @@ namespace nkentseu {
 					st->editPickEdge = -1;
 				}
 				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+					NKEDPROF(11, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
 					const float32 my = pickArme ? st->editPickY : gin.mouseY;
@@ -11288,6 +11349,7 @@ namespace nkentseu {
 					NkVector<uint8> prevSel = st->vertSel;
 					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
 					if (!shiftEff)
+						NKEDPROF(5, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++)
 							st->vertSel[i] = 0;
 					// Rayon curseur -> profondeurs d'ENTRÉE (near) et de SORTIE (far) dans le
@@ -11414,6 +11476,7 @@ namespace nkentseu {
 					int32 bestV = -1, bestVdummy = -1;
 					if (st->editSelMask & 1) {
 						nC = 0;
+						NKEDPROF(6, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = worldV(i);
 							float32 px, py;
@@ -11775,6 +11838,7 @@ namespace nkentseu {
 					// fin de drag. L'overlay (cage) suit toujours via editLive.
 					if (meshSysF && st->editDisplay1to1)
 						meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+					NKEDPROF(12, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true; // positions changées -> overlay suit le mesh
 				}
 				// Fin de drag -> ECRIRE la transformation dans l'autorite editHE, par la MEME
@@ -11827,7 +11891,9 @@ namespace nkentseu {
 				// L'orbite caméra ne reconstruit RIEN : le GPU redessine les buffers gardés
 				// -> fluide même sur mesh dense. Occlusion = depth-test (X-ray OFF) ; offset
 				// le long de la NORMALE (indépendant caméra) pour vaincre le z-fighting.
+				const auto tOv0 = std::chrono::high_resolution_clock::now();
 				if (st->editOverlayDirty) {
+					NKEDPROF(7, (int32)st->editHE.VertCount()); // sonde : overlay RECONSTRUIT
 					st->editOverlayDirty = false;
 					auto liveW = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					auto normW = [&](int32 i) -> NkVec3f {
@@ -11941,6 +12007,11 @@ namespace nkentseu {
 					// chemin que les marqueurs, validé DX12 + GL) — cf. bloc ci-dessous.
 					r3d->SetEditOverlayTris(nullptr, 0);
 					r3d->SetEditOverlayXray(st->editXray);
+				}
+				if (gEdProfOn) {
+					const auto tOv1 = std::chrono::high_resolution_clock::now();
+					logger.Info("[Demo3D] EDPROF overlay reconstruit : nv={0} en {1} ms\n",
+								nv, (float32)std::chrono::duration<double, std::milli>(tOv1 - tOv0).count());
 				}
 				// ── DIAG (NK_DIAG_BIGTRI=1) : détecte les triangles d'overlay qui EXPLOSENT
 				// à l'écran (« carrés blancs »). Projette les 3 sommets et loggue tout
@@ -14067,6 +14138,15 @@ namespace nkentseu {
 						prec = a;
 					}
 				}
+			}
+			// LE BILAN DE L'IMAGE. Pose en fin de FRAME et non en fin d'un bloc
+			// d'edition : les sites sont repartis dans PLUSIEURS blocs, et
+			// compter a la fin de l'un d'eux en manquerait d'autres.
+			Demo3D_EdProfDump((int32)st->editHE.VertCount());
+			if (gEdProfOn) {
+				const auto tFr1 = std::chrono::high_resolution_clock::now();
+				logger.Info("[Demo3D] EDPROF frame entiere : {0} ms\n",
+					(float32)std::chrono::duration<double, std::milli>(tFr1 - tFr0).count());
 			}
 		}
 
