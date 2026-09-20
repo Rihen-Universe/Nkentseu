@@ -38,7 +38,8 @@
 #include "NKEditorKit/NkAiThreadLayout.h" // et le PLAN qu'il publie
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NK3DModeler/Shell/NkModelerFold.h"#include "NKEditorKit/NkShortcutTable.h"
+#include "NK3DModeler/Shell/NkModelerFold.h"
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
