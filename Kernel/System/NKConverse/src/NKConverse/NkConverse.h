@@ -64,9 +64,26 @@ namespace nkentseu::converse {
 
 	// ── LA REQUETE ET LA REPONSE ────────────────────────────────────────────
 	struct NkConverseRequest {
-			NkString prompt;	 ///< ce que l'utilisateur demande, en francais
+			NkString prompt;	 ///< le format, les regles, l'exemple
 			NkString catalog;	 ///< les composants DECLARES, engendres depuis le registre
 			NkString currentDoc; ///< le document courant, pour qu'elle puisse le CONTINUER
+			/// ⚠️ LA DEMANDE, RAPPELEE EN DERNIER -- mesure du 20/09.
+			///
+			///    Elle vivait en tete de `prompt`. Sur un document de 42 noeuds, le
+			///    bloc `--- document courant ---` occupait 84 % de l'invite, et le
+			///    modele repondait au DOCUMENT au lieu de la demande : il en
+			///    publiait une analyse (« vous avez un noeud principal (28) qui est
+			///    un Graphique... »). La phrase de Rodolf, 3 courses sur 3 :
+			///    acceptee a document vide, REFUSEE sur son document.
+			///
+			///    Le pari, et il se mesure : *le modele repond a ce qui est le plus
+			///    pres du point de generation.* Elle est donc DEPLACEE, pas
+			///    dupliquee -- la repeter ferait deux endroits a tenir d'accord.
+			///
+			///    Vide -> rien n'est ajoute, et l'invite est exactement celle
+			///    d'avant : les appelants qui mettent tout dans `prompt` (la
+			///    conversation) ne changent pas de comportement.
+			NkString demande;
 	};
 
 	struct NkConverseReply {
@@ -147,6 +164,16 @@ namespace nkentseu::converse {
 				full.Append(req.catalog);
 				full.Append("\n--- document courant ---\n");
 				full.Append(req.currentDoc);
+				// ⚠️ ET LA DEMANDE, SANS QUOI CE DORSAL LA PERDAIT ENTIEREMENT.
+				//    Depuis le 20/09 elle ne vit plus en tete de `prompt` : ne pas
+				//    l'ajouter ici aurait envoye le format, le catalogue et le
+				//    document SANS jamais dire ce qu'on veut. *Un troisieme
+				//    ecrivain se paie au premier champ ajoute, et le voici.*
+				if (req.demande.Length() > 0) {
+					full.Append("\n\n--- ce que je te demande maintenant ---\n");
+					full.Append(req.demande);
+					full.Append("\n");
+				}
 				mDerniereInvite = full; // les octets envoyes, meme quand ils divergent
 				nkentseu::NkFile::WriteAllText(promptPath.Data(), full.Data());
 
@@ -279,6 +306,16 @@ namespace nkentseu::converse {
 				if (req.currentDoc.Length() > 0) {
 					full.Append("\n--- document courant ---\n");
 					full.Append(req.currentDoc);
+				}
+				// ⚠️ EN DERNIER, APRES LE DOCUMENT, ET C'EST TOUT L'OBJET.
+				//    Le modele repond a ce qui est le plus pres du point de
+				//    generation : quand le document occupait 84 % de l'invite et
+				//    que la demande etait en tete, il analysait le document.
+				if (req.demande.Length() > 0) {
+					full.Append("\n\n--- ce que je te demande maintenant ---\n");
+					full.Append(req.demande);
+					full.Append("\nReponds a CETTE demande, au format ci-dessus. "
+								"Ne decris pas le document courant.\n");
 				}
 			}
 
