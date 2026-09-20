@@ -36,6 +36,28 @@ import urllib.error
 import urllib.request
 
 
+def refuser(chemin_sortie: str, motif: str, code: int) -> int:
+    """Ecrit un motif LISIBLE dans le fichier de sortie, et rend le code vrai.
+
+    Le code de sortie reste celui de l'echec : on ne ment pas a la machine.
+    Mais le motif partait sur stderr, que personne ne lit, et l'hote ne voyait
+    qu'un entier -- il affichait « le generateur a rendu 2 et n'a pas ecrit
+    logs/... », ce qui envoie chercher la panne du cote du fichier alors
+    qu'Ollama etait simplement absent. *Crier dans un canal que personne
+    n'ecoute revient a se taire.*
+
+    Le prefixe REFUS: est la convention que NKConverse emploie deja pour ses
+    propres messages : l'hote le reconnait et n'y cherche pas un verbe.
+    """
+    sys.stderr.write(motif + chr(10))
+    try:
+        with open(chemin_sortie, 'w', encoding='utf-8') as f:
+            f.write('REFUS: ' + motif)
+    except OSError:
+        pass  # si meme ca echoue, le code de sortie reste le dernier mot
+    return code
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         sys.stderr.write("usage: ia_verbe.py <invite.txt> <sortie.txt>\n")
@@ -75,13 +97,18 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=delai) as r:
             rep = json.loads(r.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError) as e:
-        sys.stderr.write("le service n'a pas repondu (%s) : %s\n" % (base, e))
-        return 2
+        # Le CONSEIL passe devant le DETAIL : l hote borne le motif a 192
+        # caracteres, et une erreur systeme Windows en fait deja 150. Mis en
+        # queue, « Demarrez-le » se faisait couper -- il ne restait que la
+        # plainte, sans le geste qui repare.
+        return refuser(chemin_sortie,
+                       "Ollama n'est pas joignable sur %s. Demarrez-le, ou "
+                       "posez NK_IA_URL. Detail : %s" % (base, e), 2)
 
     texte = (rep.get("response") or "").strip()
     if not texte:
-        sys.stderr.write("le service a repondu, mais sans texte\n")
-        return 2
+        return refuser(chemin_sortie,
+                       "Ollama a repondu, mais sans texte (modele %s)." % modele, 2)
 
     # La mesure du cout, sur stderr : elle accompagne la reponse au lieu d'etre
     # racontee ailleurs. `eval_count` est le nombre de jetons produits.
