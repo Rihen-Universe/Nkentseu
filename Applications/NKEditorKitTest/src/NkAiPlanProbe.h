@@ -58,6 +58,14 @@ namespace aiplanprobe {
 		return (float32)n * pas;
 	}
 
+	/// Egalite a 0,01 px pres. ⚠️ Locale : `Pres` existe aussi dans la sonde
+	/// de peinture, et partager un nom entre deux sondes rendrait le jour ou
+	/// l une change son epsilon invisible dans l autre.
+	inline bool PresPlan(float32 a, float32 b) {
+		const float32 d = a - b;
+		return d < 0.01f && d > -0.01f;
+	}
+
 	inline Bilan Sonder() {
 		Bilan b;
 		const NkAiMetriques M;
@@ -469,6 +477,50 @@ namespace aiplanprobe {
 					++pieces;
 			Essai(b, "22v", pieces == 0,
 				"le composeur ne publie QUE cadre, filet et texte -- pas de micro");
+		}
+
+		{
+			// 22w — L ECHELLE D INTERFACE. NK3DModeler passe chacune de ses
+			//       longueurs par `S(px) = px * gUiScale`. Le kit est en pixels
+			//       bruts : sans `Echelle()`, le fil resterait a 100 % pendant que
+			//       le reste du panneau grandit.
+			// ⚠️ CET ESSAI N EXISTE QUE PARCE QUE LE DEFAUT EST INVISIBLE ICI :
+			//    `gUiScale` vaut 1 sur cette machine. Il ne se montrerait que chez
+			//    quelqu un qui travaille a 125 %. *Un defaut qui ne se montre que
+			//    chez un autre ne se trouve pas, il se subit.*
+			NkAiFil f;
+			NkAiCapacites cap = NkAiCapacites::Texte();
+			cap.produitOutil = true;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Outil;
+			o.titre = NkString("Bash");
+			o.texte = NkString("une etape");
+			(void)f.Pousser(o, p);
+			NkAiMetriques un, deux;
+			deux.Echelle(2.f);
+			NkAiPlan p1, p2;
+			NkAiFilMesurer(f, 695.f, un, Mesure, nullptr, p1);
+			NkAiFilMesurer(f, 695.f, deux, Mesure, nullptr, p2);
+			const uint32 id = f.At(0).id;
+			NkAiRectPublie a, c;
+			const bool ok = p1.Trouver(id, NkAiPiece::Titre, a) &&
+				  p2.Trouver(id, NkAiPiece::Titre, c);
+			Essai(b, "22w", ok && PresPlan(c.x, a.x * 2.f) && PresPlan(c.h, a.h * 2.f),
+				"a l echelle 2, les retraits et les hauteurs doublent");
+			printf("         titre : x=%.0f h=%.0f a 100%% | x=%.0f h=%.0f a 200%%\n",
+				   (double)a.x, (double)a.h, (double)c.x, (double)c.h);
+		}
+		{
+			// 22x — CONTROLE NEGATIF : `lignesMax` est un COMPTE, pas une longueur.
+			//       La mettre a l echelle afficherait DEUX FOIS PLUS de texte a
+			//       200 % au lieu de l afficher deux fois plus gros.
+			NkAiMetriques deux;
+			const uint32 avant = deux.lignesMax;
+			deux.Echelle(2.f);
+			Essai(b, "22x", deux.lignesMax == avant,
+				"controle negatif : le PLAFOND DE LIGNES ne suit pas l echelle");
 		}
 
 		return b;
