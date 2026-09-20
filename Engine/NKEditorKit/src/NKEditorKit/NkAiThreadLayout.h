@@ -84,6 +84,18 @@ namespace nkentseu {
 			FondOut,
 			/// Le contenu de sortie, a chasse fixe.
 			TexteOut,
+			/// L'EFFET MESURE, sur la MEME LIGNE que le texte du bloc.
+			/// ⚠️ AJOUTEE LE 20/09, ET C'EST L'INTEGRATION QUI L'A REVELEE. Le
+			///    panneau de NK3DModeler affiche « <demande>   .   faces 6 -> 384 » :
+			///    le texte ET l'effet, sur une seule ligne, parce que sa regle est
+			///    « L'EFFET EST SUR LA LIGNE, pas cache dans le repli ». Mon contrat
+			///    ne savait le rendre pour AUCUN type : `Outil` ignorait `effet`, et
+			///    un bloc `Effet` n'affiche QUE l'effet, sans le texte. Aucun des
+			///    deux ne reproduisait ce qui est a l'ecran aujourd'hui.
+			///    *Une integration faite tot paie en montrant ce qu'un contrat ne
+			///    sait pas dire* -- ici avant meme la premiere ligne de migration.
+			Effet,
+
 			/// La bande d'estompe en bas d'un compartiment TRONQUE. ⚠️ Elle n'est
 			/// publiee QUE s'il y a vraiment eu troncature : une estompe permanente
 			/// dirait « il y a la suite » sur un bloc complet.
@@ -104,6 +116,7 @@ namespace nkentseu {
 				case NkAiPiece::GouttiereOut: return "gouttiere_out";
 				case NkAiPiece::FondOut:	  return "fond_out";
 				case NkAiPiece::TexteOut:	  return "texte_out";
+				case NkAiPiece::Effet:				  return "effet";
 				case NkAiPiece::Estompe:	  return "estompe";
 				default:					  return "";
 			}
@@ -339,13 +352,35 @@ namespace nkentseu {
 				} else if (b.titre.Length() > 0) {
 					roleTexte = NkRole::TextMuted; // la phrase courte d'un outil
 				}
+				// ⚠️ L'EFFET RESERVE SA PLACE AVANT LE TEXTE, ET C'EST UNE REGLE.
+				//    Quand la place manque, c'est la PROSE qui se tronque, jamais la
+				//    mesure : « faces 6 -> 384 » est le fait, la phrase est le
+				//    commentaire. Le panneau du modeleur pose deja cette regle sous une
+				//    autre forme (« l'effet est sur la ligne, pas cache dans le repli ») ;
+				//    elle monte ici pour valoir dans les trois applications.
+				float32 wEffet = 0.f;
+				const bool aEffet = (b.type != NkAiBloc::Effet) && b.effet.Length() > 0;
+				if (aEffet)
+					wEffet = mes(ctx, NkAiPolice::Normale, b.effet.CStr()) + 12.f;
+				float32 wTexte = droite - xTexte - wEffet;
+				if (wTexte < 24.f) {
+					// Trop etroit pour les deux : la mesure passe, la prose non.
+					wTexte = 0.f;
+					wEffet = droite - xTexte;
+				}
 				bool tronque = false;
-				const uint32 nTexte =
-					aidetail::Lignes(surLaLigne, droite - xTexte, NkAiPolice::Normale, mes, ctx,
-									 b.replie ? 1u : m.lignesMax, tronque);
+				const uint32 nTexte = aidetail::Lignes(surLaLigne, wTexte, NkAiPolice::Normale, mes,
+							   ctx, b.replie ? 1u : m.lignesMax, tronque);
 				const float32 hTexte = (float32)(nTexte == 0 ? 1 : nTexte) * m.ligne;
-				Pousser(b.id, NkAiPiece::Texte, roleTexte, NkAiPolice::Normale, xTexte, y,
-						droite - xTexte, hTexte);
+				if (wTexte > 0.f)
+					Pousser(b.id, NkAiPiece::Texte, roleTexte, NkAiPolice::Normale, xTexte, y, wTexte,
+						  hTexte);
+				// L'effet, cale a DROITE de la premiere ligne. Role attenue : c'est un fait
+				// mesure, pas une alerte, et il ne doit pas voler la lecture de la phrase
+				// qu'il complete.
+				if (aEffet)
+					Pousser(b.id, NkAiPiece::Effet, NkRole::TextMuted, NkAiPolice::Normale,
+						  droite - wEffet, y, wEffet, m.ligne);
 				float32 yb = y + hTexte;
 
 				// ── LES COMPARTIMENTS : SEULEMENT DEPLIE ─────────────────────────
