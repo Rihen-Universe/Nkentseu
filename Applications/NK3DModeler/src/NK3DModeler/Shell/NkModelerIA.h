@@ -277,13 +277,37 @@ namespace nkentseu {
 		//         faces/sommets/aretes avant et apres a chaque n. Verifier que
 		//         l'ecart est lineaire en n ; s'il ne l'est pas, la loi depend
 		//         d'autre chose et il faut le dire plutot que d'ajuster.
-		//      3. `extrude[:individuelles]`  **NON MESURE**. Extruder s faces
-		//         selectionnees ajoute une couronne par face : l'ordre de
-		//         grandeur est additif en s, pas multiplicatif. Le drapeau
-		//         « faces individuelles » change le resultat (couronne par face
-		//         contre couronne du bord commun) : DEUX lois, pas une.
-		//         POUR LA MESURER : selection de s faces pour s = 1, 2, 6, 24,
-		//         chaque fois avec le drapeau a 0 PUIS a 1. Huit relevés.
+		//      3. `extrude[:individuelles]`  **MESURE A MOITIE le 20/09**, et la
+		//         moitie manquante est DITE, pas devinee. Le drapeau est bien un
+		//         interrupteur de TOPOLOGIE et non un confort (`NkEditMesh.h` :
+		//         « traite chaque face separement au lieu de la region ») :
+		//
+		//         `extrude:1` INDIVIDUEL -> **MESURE, exact sur trois maillages**
+		//             faces ajoutees = **2 x E**
+		//           Relevés : F=6/E=12 -> +24 ; F=24/E=48 -> +96 ;
+		//                     F=96/E=192 -> +384.
+		//           ⚠️ POURQUOI `2 x E` ET NON `4 x F`, QUI TOMBE AUSSI JUSTE ICI.
+		//              Les deux coincident SEULEMENT parce que ces maillages sont
+		//              tout-quads et FERMES (E = 2F). La forme vraie est « somme
+		//              des valences des faces selectionnees » -- une couronne par
+		//              COTE de face -- et cette somme vaut 2E quand toutes les
+		//              faces d'un maillage ferme sont prises. `4 x F` supposerait
+		//              des quads partout et SOUS-ESTIMERAIT sur des n-gones : pour
+		//              un plafond, sous-estimer est le mauvais sens. On garde 2E.
+		//           ⚠️ Sur une selection PARTIELLE, `2E` SURESTIME (les faces non
+		//              selectionnees ne produisent rien) -- bon sens pour une garde.
+		//
+		//         `extrude` / `extrude:0` REGION -> **NON ETABLI**, et le protocole
+		//           dit POURQUOI il ne pouvait pas l'etablir : le mode region ne
+		//           fabrique sa bande que sur les aretes de BORD de la selection,
+		//           or `SelectAll` sur un maillage ferme donne une region SANS
+		//           BORD. Les chiffres obtenus (F=6 -> +24 ; F=24 -> +48 ;
+		//           F=96 -> +96) ne sont proportionnels ni a F (rapport 4, 2, 1)
+		//           ni a E : ils mesurent le cas degenere, pas la loi.
+		//           POUR L'ETABLIR : faire varier le nombre d'aretes de BORD de la
+		//           region, donc selectionner PARTIELLEMENT -- ce que le harnais ne
+		//           sait pas encore faire. *Une mesure qui ne peut pas faire varier
+		//           le facteur decisif n'etablit pas sa loi.*
 		//      4. `inset[:individuel[:profondeur]]`  **NON MESURE**. Meme forme
 		//         qu'extrude (additif en s, deux lois selon `individuel`). La
 		//         profondeur ne devrait pas changer les COMPTES, seulement les
@@ -612,6 +636,22 @@ namespace nkentseu {
 					prevu *= 4; // LOI MESUREE le 17/09 : x4 par coupe
 				}
 				predit = true;
+			}
+			// ── `extrude:1` : LA MOITIE MESUREE, ET ELLE SEULE ────────────────
+			// ⚠️ UNIQUEMENT LE MODE INDIVIDUEL. `extrude` seul et `extrude:0` sont
+			//    le mode REGION, dont la loi n'est PAS etablie (voir la liste en
+			//    tete) : le predire reviendrait a inventer un chiffre. Ils tombent
+			//    donc dans la regle du quart, exactement comme avant.
+			if (!predit && aretes > 0) {
+				const char *me = "extrude:1";
+				const char *ce = p;
+				while (*me && *me == *ce) { ++me; ++ce; }
+				if (!*me && *ce == 0) {
+					// faces ajoutees = 2 x E (somme des valences des faces prises).
+					// SURESTIME sur une selection partielle -- bon sens pour une garde.
+					prevu = facesActuelles + 2 * aretes;
+					predit = true;
+				}
 			}
 			// ── `bevel` : DEUX REGIMES, MESURES le 20/09 ──────────────────────
 			// ⚠️ ELLE N'EST TENTEE QUE SI E ET V SONT FOURNIS. A zero, on ne

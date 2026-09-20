@@ -9972,13 +9972,50 @@ static uint32 LoiBevelFacesVivantes(NkEditMesh &m) {
 	return n;
 }
 
+// ⚠️ LES SOMMETS **SOUDES**, ET LA DISTINCTION N'EST PAS UN DETAIL.
+//    `m.VertCount()` rend les EMPLACEMENTS : 24 pour un cube (quatre coins par
+//    face), pas 8. Or la loi de bevel a segments=1 s'ecrit `E + V`, et le V qui
+//    la verifie est le V SOUDE -- c'est aussi celui que `Demo3DHostStats`
+//    publie au modeleur (`Demo3D_VertSoudeCount`), donc celui que `NkIaPasSur`
+//    recevra. Se tromper de V ici ferait une loi juste sur un compteur que
+//    personne n'utilise.
+//    ⚠️ ET J'AVAIS D'ABORD PRIS CE V DANS MA TETE. La loi `E + V` a ete
+//       verifiee le 20/09 contre 8 et 26, deux nombres que j'avais DERIVES au
+//       lieu de les LIRE. Ils etaient justes -- mais *une reference tiree de
+//       l'esprit de celui qui mesure n'est pas une reference*. Cette fonction
+//       les fait produire par l'instrument.
+static uint32 LoiVertsSoudes(NkEditMesh &m) {
+	NkVector<uint32> canon;
+	m.BuildVertexMerge(canon);
+	NkVector<uint8> vu;
+	vu.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); i++)
+		vu[i] = 0;
+	NkVector<NkEmId> loop;
+	uint32 n = 0;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		for (uint32 k = 0; k < (uint32)loop.Size(); k++) {
+			const uint32 c = canon[(uint32)loop[k]];
+			if (!vu[c]) {
+				vu[c] = 1;
+				++n;
+			}
+		}
+	}
+	return n;
+}
+
 static int32 LoiBevel() {
 	NkVector<NkVertex3D> v;
 	NkVector<uint32> idx;
 	MakeCube(v, idx);
 	printf("# loi de croissance de bevel -- faces VIVANTES avant/apres\n");
-	printf("# %-10s %-9s %-8s %-8s %-9s %s\n", "maillage", "segments", "aretes", "f_avant",
-		   "f_apres", "ajoutees/(aretes*segments)");
+	printf("# %-10s %-9s %-7s %-7s %-8s %-9s %-11s %s\n", "maillage", "segments", "E_av", "V_av",
+		   "f_avant", "f_apres", "ajoutees", "3*E*s | E+V");
 	const int32 segs[5] = {1, 2, 4, 8, 16};
 	for (int32 sub = 0; sub <= 1; ++sub) {
 		for (int32 si = 0; si < 5; ++si) {
@@ -9993,6 +10030,7 @@ static int32 LoiBevel() {
 			}
 			m.SelectAll();
 			const uint32 aretes = m.EdgeCount();
+			const uint32 soudes = LoiVertsSoudes(m); // LU, plus derive de tete
 			const uint32 f0 = LoiBevelFacesVivantes(m);
 			NkBevelParams p;
 			p.offset = 0.05f; // largeur FIXE : on ne fait varier que `segments`
@@ -10001,20 +10039,95 @@ static int32 LoiBevel() {
 			// ⚠️ ON N'IMPRIME PAS DE RATIO QUAND L'OPERATION A ECHOUE : ce serait
 			//    un chiffre juste sur une operation qui n'a pas eu lieu.
 			if (!ok) {
-				printf("  %-10s %-9d %-8u %-8u %-9s %s\n", sub ? "cube+sub" : "cube", segs[si],
-					   aretes, f0, "REFUS", "-");
+				printf("  %-10s %-9d %-7u %-7u %-8u %-9s %-11s %s\n", sub ? "cube+sub" : "cube",
+					   segs[si], aretes, soudes, f0, "REFUS", "-", "-");
 				continue;
 			}
 			const uint32 f1 = LoiBevelFacesVivantes(m);
-			const double denom = (double)aretes * (double)segs[si];
-			const double ratio = denom > 0.0 ? ((double)f1 - (double)f0) / denom : 0.0;
-			printf("  %-10s %-9d %-8u %-8u %-9u %.3f\n", sub ? "cube+sub" : "cube", segs[si], aretes,
-				   f0, f1, ratio);
+			const int32 ajout = (int32)f1 - (int32)f0;
+			// LES DEUX LOIS CANDIDATES SONT VERIFIEES PAR L'INSTRUMENT, pas par moi :
+			// chaque ligne dit elle-meme laquelle tombe juste.
+			const int32 loiArrondi = 3 * (int32)aretes * segs[si];
+			const int32 loiPlat = (int32)aretes + (int32)soudes;
+			char verdict[32];
+			snprintf(verdict, sizeof(verdict), "%s | %s", ajout == loiArrondi ? "OK" : "--",
+					 ajout == loiPlat ? "OK" : "--");
+			printf("  %-10s %-9d %-7u %-7u %-8u %-9u %-11d %s\n", sub ? "cube+sub" : "cube",
+				   segs[si], aretes, soudes, f0, f1, ajout, verdict);
 		}
 	}
 	printf("# Ratio STABLE sur les dix lignes  -> la loi est  aretes x segments.\n");
 	printf("# Ratio qui DERIVE                 -> la loi depend d'autre chose, et la regle\n");
 	printf("#   du quart doit RESTER dans NkIaPasSur jusqu'a ce qu'on sache de quoi.\n");
+	return 0;
+}
+
+// =============================================================================
+//  --loi-extrude : MESURER LES **DEUX** LOIS DE `extrude`
+// =============================================================================
+//  ⚠️ DEUX, PARCE QUE `NkExtrudeParams::individual` EST UN INTERRUPTEUR DE
+//     TOPOLOGIE, pas un reglage de confort. L'en-tete de `NkEditMesh.h` le dit
+//     lui-meme : `individual` « traite chaque face separement au lieu de la
+//     region ». Une loi unique mentirait donc au milieu tout en ayant l'air
+//     juste aux extremites -- le piege exact que `bevel` avait tendu avec ses
+//     deux regimes, et qu'une seule formule aurait manque.
+//
+//  MEME PROTOCOLE QUE `--loi-bevel`, et c'est voulu : trois maillages (6, 24 et
+//  96 faces, par subdivisions successives) x les deux valeurs du drapeau. Six
+//  relevés. Il rend AVANT les batteries comparees et n'ecrit RIEN dans la
+//  baseline.
+//
+//  ⚠️ CE QUE CE PROTOCOLE NE PEUT PAS ATTEINDRE, ET IL FAUT LE DIRE AVANT DE
+//     LIRE LES CHIFFRES. `SelectAll` sur un maillage FERME donne une region
+//     SANS BORD. Or le mode region ne fabrique sa bande que sur les aretes de
+//     BORD de la selection. Ce protocole ne mesure donc PAS la loi du mode
+//     region dans le cas qui compte -- une selection PARTIELLE, qui a un bord --
+//     il en mesure le cas degenere. *Une mesure qui ne peut pas faire varier le
+//     facteur decisif n'etablit pas la loi de ce facteur.*
+static int32 LoiExtrude() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# lois de croissance de extrude -- faces VIVANTES avant/apres\n");
+	printf("# %-10s %-11s %-7s %-7s %-7s %-8s %-9s %s\n", "maillage", "individual", "F_av", "E_av",
+		   "V_av", "F_apres", "ajoutees", "ajoutees/F_av");
+	for (int32 indiv = 0; indiv <= 1; ++indiv) {
+		for (int32 sub = 0; sub <= 2; ++sub) {
+			const char *nom = (sub == 0) ? "cube" : (sub == 1) ? "cube+sub" : "cube+sub2";
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			bool prealableOk = true;
+			for (int32 k = 0; k < sub && prealableOk; ++k) {
+				m.SelectAll();
+				prealableOk = m.SubdivideSelectedFaces();
+			}
+			if (!prealableOk) {
+				printf("  REFUS : la subdivision prealable a echoue (%s)\n", nom);
+				continue;
+			}
+			m.SelectAll();
+			// MEME COMPTEUR QUE bevel : une source, deux lecteurs.
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			const uint32 e0 = m.EdgeCount();
+			const uint32 v0 = m.VertCount();
+			NkExtrudeParams p;
+			p.individual = (indiv != 0);
+			const bool ok = m.ExtrudeSelectedFaces(p);
+			if (!ok) {
+				printf("  %-10s %-11d %-7u %-7u %-7u %-8s %-9s %s\n", nom, indiv, f0, e0, v0,
+					   "REFUS", "-", "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const double ratio = f0 > 0 ? ((double)f1 - (double)f0) / (double)f0 : 0.0;
+			printf("  %-10s %-11d %-7u %-7u %-7u %-8u %-9d %.3f\n", nom, indiv, f0, e0, v0, f1,
+				   (int)f1 - (int)f0, ratio);
+		}
+	}
+	printf("# Ratio STABLE dans une colonne `individual` -> loi proportionnelle a F.\n");
+	printf("# ⚠️ Le mode region (individual=0) est mesure ICI SANS BORD de selection :\n");
+	printf("#   ce n'est pas son cas d'usage, et le chiffre ne doit pas voyager sans\n");
+	printf("#   cette condition.\n");
 	return 0;
 }
 
@@ -10036,9 +10149,12 @@ int main(int argc, char **argv) {
 	bool annulation = false;
 	bool supprXe = false;
 	bool loiBevel = false;
+	bool loiExtrude = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--loi-bevel") == 0)
 			loiBevel = true;
+		else if (strcmp(argv[i], "--loi-extrude") == 0)
+			loiExtrude = true;
 		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
@@ -10059,6 +10175,8 @@ int main(int argc, char **argv) {
 	//    octet ce qu'il etait.
 	if (loiBevel)
 		return LoiBevel();
+	if (loiExtrude)
+		return LoiExtrude();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
