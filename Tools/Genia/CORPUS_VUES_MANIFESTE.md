@@ -180,3 +180,48 @@ est gris.
 **→ Je ne lance pas la production dans cet état, et j'attends l'arbitrage :** rendre en couleur
 d'abord (le coût de rendu ne change pas, seul le développement s'ajoute), ou assumer un premier
 corpus géométrique gris en sachant qu'il faudra le refaire.
+
+---
+
+## 8. KENNEY EXTRAIT — ET ⚠️ LE DÉSÉQUILIBRE A CHANGÉ DE CAMP, IL N'A PAS BAISSÉ
+
+**50 archives sur 50 extraites, aucun échec. +13 786 modèles pour 556 Mo** (espace libre :
+55 Go → 54 Go). Le corpus passe de **5 703 à 19 489 modèles**, et de **deux sources à trois**.
+
+| source | fichiers | part |
+|---|---|---|
+| **kenney** (CC0, manifeste présent) | **13 786** | **70,7 %** |
+| `mes-assets` (dont KayKit 3 922) | 4 393 | 22,5 % |
+| quaternius (CC0, manifeste présent) | 1 310 | 6,7 % |
+
+> ⚠️ **L'extraction n'a PAS corrigé le déséquilibre : elle l'a DÉPLACÉ.** KayKit dominait à
+> 68,8 % ; kenney domine maintenant à 70,7 %. **Annoncer « le déséquilibre est réglé » serait
+> faux**, et c'est exactement ce que la mesure était là pour empêcher.
+
+**Ce qu'elle a réellement apporté, et qui compte** : une **troisième** source, toutes trois
+documentées. Un tirage équilibré devient possible — **1 310 par source, soit 3 930 modèles à
+parts égales** — et il se fait **à l'entraînement**, par lecture de ce manifeste, sans rien
+re-rendre. C'est le même arbitrage que pour les vues, appliqué aux sources :
+**on rend tout, on équilibre au tirage.**
+
+**La neutralité de la chaîne l'exige** (Rodolf, 19/09) : *« un studio qui utilisera Nkentseu
+aura son propre style — rien dans le moteur, les formats ou les algorithmes ne doit
+l'orienter. »* Un modèle dont 70 % de l'apprentissage vient d'un seul créateur **impose un
+goût**. Le corpus porte donc la part de chaque source, pour que l'équilibrage soit **un réglage
+et non une reprise**.
+
+## 9. 🔴 LE PRIX A TRIPLÉ — LE CHIFFRE À ARBITRER
+
+Débit mesuré sur kenney : **0,086 s/vue** (23 modèles, 425 triangles en moyenne).
+
+| | vues/modèle | vues totales | durée |
+|---|---|---|---|
+| 16 az × 1 él. | 16 | 311 824 | **7,6 h** |
+| 12 az × 2 él. | 24 | 467 736 | **11,4 h** |
+| **16 az × 3 él.** | **48** | **935 472** | **22,9 h** |
+
+**Les 7,0 h validées portaient sur 5 703 modèles. Avec 19 489, le même choix coûte 22,9 h** —
+presque une journée entière, pas une nuit. **Le principe asymétrique ne change pas** (re-rendre
+coûterait ces 22,9 h), **mais l'engagement n'est plus du même ordre, et je ne le prends pas
+seul.** Disque en `.npz` : 13,3 Go × 3,4 ≈ **45 Go**, contre **54 Go libres** — ça passe, mais
+de justesse ; `C:` (409 Go libres) serait plus sûr.
