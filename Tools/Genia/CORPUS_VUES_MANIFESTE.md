@@ -225,3 +225,50 @@ presque une journée entière, pas une nuit. **Le principe asymétrique ne chang
 coûterait ces 22,9 h), **mais l'engagement n'est plus du même ordre, et je ne le prends pas
 seul.** Disque en `.npz` : 13,3 Go × 3,4 ≈ **45 Go**, contre **54 Go libres** — ça passe, mais
 de justesse ; `C:` (409 Go libres) serait plus sûr.
+
+---
+
+## 10. 🔴 LA CONTRAINTE D'ÉQUILIBRAGE À L'ENTRAÎNEMENT — SOURCE **ET** TEXTURE
+
+**Le corpus est produit : 3 927 modèles, 48 vues, 188 496 vues, 4,7 Go.**
+Tirage équilibré par source **tenu par construction** : mes-assets 1 309 ·
+kenney 1 308 · quaternius 1 310.
+
+⚠️ **MAIS ÉQUILIBRER PAR SOURCE NE SUFFIT PAS**, et c'est la mesure qui l'a dit
+après coup :
+
+| source | part texturée |
+|---|---|
+| kenney | **71,3 %** |
+| mes-assets | 47,8 % |
+| quaternius | **14,5 %** — gris à 85,5 % |
+
+**Un tirage équilibré par source seule donnerait un tiers de modèles gris à
+85 %**, et le modèle apprendrait que ce style-là est sans matière. **L'échantillonnage
+à l'entraînement doit donc porter sur DEUX champs : `source` ET `texture`.**
+
+**Et cette contrainte n'existerait pas sans le champ `texture` écrit par
+entrée** : il aurait fallu re-rendre les 188 496 vues pour la découvrir.
+*Une métadonnée qui ne se recalcule pas sans refaire le travail doit être écrite
+au moment où le travail se fait.*
+
+**Rappel de ce que « gris » signifie ici** : les FBX passent par `lire_fbx.py`,
+qui rend la géométrie mais **ni UV ni matériaux**. Ce n'est pas une propriété
+des modèles, c'est une limite de notre lecteur — **condition de réouverture :
+le jour où `lire_fbx.py` lira les UV, ces modèles pourront être re-rendus en
+couleur, et eux seuls.**
+
+### Les trois échecs restants, nommés
+
+    2 x « not enough values to unpack (expected 4, got 3) »
+    1 x « FBX sans Geometry »
+
+Sur 3 930 : **0,08 %**. Les 73 autres échecs de la première course étaient des
+**FBX ASCII**, récupérés par une seconde course de 5 minutes.
+
+### ⚠️ Et une reprise a failli détruire ce manifeste
+
+Il était ouvert en `'w'` : la seconde course l'a réécrit avec ses **76 seules
+entrées**, effaçant les métadonnées des 3 854 autres. **Réparé par fusion parce
+qu'une copie avait été prise avant de relancer — pas parce que le code était
+juste.** Corrigé depuis : ouverture en **ajout**.
