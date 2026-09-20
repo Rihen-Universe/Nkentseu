@@ -326,6 +326,58 @@ namespace aiplanprobe {
 				"controle negatif : en glisser, meme la MODALE lache le corps (R20)");
 		}
 
+		// 22o / 22p — L'EFFET MESURE EST SUR LA LIGNE, ET IL NE SE TRONQUE PAS.
+		//
+		// Revele par l'integration de NK3DModeler AVANT la premiere ligne de
+		// migration : son panneau affiche « <demande>   .   faces 6 -> 384 » -- le
+		// texte ET l'effet sur une seule ligne. Mon contrat ne savait le rendre
+		// pour AUCUN type : `Outil` ignorait `effet`, et un bloc `Effet` n'affiche
+		// QUE l'effet, sans le texte.
+		{
+			NkAiCapacites c = NkAiCapacites::Texte();
+			c.produitOutil = true;
+			NkAiFil f;
+			f.Declarer(c);
+			NkString p;
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Outil;
+			o.titre = NkString("subdivise");
+			o.texte = NkString("subdivise le cube deux fois");
+			o.effet = NkString("faces 6 -> 384");
+			(void)f.Pousser(o, p);
+			NkAiPlan pl;
+			NkAiFilMesurer(f, W, M, Mesure, nullptr, pl);
+			const uint32 id = f.At(0).id;
+			NkAiRectPublie te, ef;
+			const bool a = pl.Trouver(id, NkAiPiece::Texte, te);
+			const bool c2 = pl.Trouver(id, NkAiPiece::Effet, ef);
+			Essai(b, "22o", a && c2 && ef.y == te.y && ef.x > te.x,
+				"l'effet est publie sur la MEME ligne que le texte, a sa droite");
+		}
+		{
+			// ⚠️ QUAND LA PLACE MANQUE, C'EST LA PROSE QUI CEDE. « faces 6 -> 384 »
+			//    est le FAIT ; la phrase est le commentaire. Un panneau etroit doit
+			//    perdre le commentaire, jamais la mesure.
+			NkAiCapacites c = NkAiCapacites::Texte();
+			c.produitOutil = true;
+			NkAiFil f;
+			f.Declarer(c);
+			NkString p;
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Outil;
+			o.titre = NkString("x");
+			o.texte = NkString("une phrase de commentaire assez longue pour ne pas tenir");
+			o.effet = NkString("faces 6 -> 384");
+			(void)f.Pousser(o, p);
+			NkAiPlan pl;
+			NkAiFilMesurer(f, 200.f, M, Mesure, nullptr, pl);
+			const uint32 id = f.At(0).id;
+			NkAiRectPublie ef;
+			const bool aEffet = pl.Trouver(id, NkAiPiece::Effet, ef);
+			Essai(b, "22p", aEffet && ef.w > 0.f,
+				"panneau etroit : l'effet est publie quand meme -- la prose cede la premiere");
+		}
+
 		return b;
 	}
 

@@ -70,9 +70,21 @@
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NKEditorKit/NkEditorKit.h"
+#include "NKEditorKit/NkAiThreadLayout.h" // le PLAN du fil, commun aux applications
+#include "NKEditorKit/NkAiThreadPaint.h"  // sa transcription en commandes
+#include "NK3DModeler/Shell/NkModelerComponentPaint.h" // NkModelerPainter vu comme NkComponentPaint
 
 namespace nkentseu {
 	namespace nk3d {
+
+		/// La mesure de texte que le plan demande, servie par la police du peintre.
+		/// ⚠️ UNE SEULE POLICE ICI, et le plan demande quand meme la chasse fixe :
+		///    c'est le peintre qui se rabat, pas le plan qui ment. Dette nommee,
+		///    levee le jour ou la coquille chargera une seconde police.
+		inline float32 NkAiMesurerTexte(void *ctx, editorkit::NkAiPolice, const char *t) {
+			return ctx ? ((NkModelerPainter *)ctx)->TextW(t) : 0.f;
+		}
+
 
 		// Copie bornee, sans dependre de strncpy : le depot ecrit ses propres
 		// primitives de chaine (zero-STL), et une troncature doit etre VOULUE.
@@ -115,29 +127,68 @@ namespace nkentseu {
 		}
 		static const int32 kAiFournisseurs = 3;
 
-		// ── LE FIL : POSER UN BLOC ─────────────────────────────────────────────
-		// Fenetre glissante : on perd le plus ancien, jamais le plus recent.
-		inline int32 NkAiPousser(NkModelerState &st, NkModelerState::AiType t, const char *ligne) {
-			if (st.aiFilN >= NkModelerState::kAiFil) {
-				for (int32 i = 1; i < NkModelerState::kAiFil; ++i)
-					st.aiFil[i - 1] = st.aiFil[i];
-				st.aiFilN = NkModelerState::kAiFil - 1;
-				// ⚠️ LE BLOC EN COURS DE MESURE GLISSE AVEC LE FIL. Sans ce
-				//    decalage, l'effet mesure irait se poser sur le bloc du
-				//    voisin : un chiffre juste, ecrit sur la mauvaise ligne.
-				if (st.aiEnCours > 0)
-					--st.aiEnCours;
-				else if (st.aiEnCours == 0)
-					st.aiEnCours = -1; // celui qu'on attendait vient d'etre jete
+		// ── LE FIL : POSER UN BLOC ─────────────────────────────
+		// ⚠️ REND UN IDENTIFIANT, PLUS UN INDICE. C'est tout le lot : la
+		//    fenetre glisse, donc une position ne designe rien de stable.
+		//    0 = le bloc n'est PAS entre (le fil l'a refuse, avec son motif).
+		//
+		//    Les quatre lignes qui rattrapaient `st.aiEnCours` a la main ont
+		//    disparu d'ici : un identifiant ne glisse pas. On ne propage pas une
+		//    correction au site qui l'avait oubliee, on supprime sa raison d'etre.
+		inline uint32 NkAiPousser(NkModelerState &st, NkModelerState::AiType t,
+			   const char *ligne) {
+			// Les capacites sont posees ICI, a chaque appel : c'est idempotent et ca
+			// evite un second endroit ou l'on pourrait oublier de les declarer. Le
+			// fil refuse tout ce qui n'est pas declare, donc un oubli donnerait un
+			// fil vide -- visible en une seconde, mais autant ne pas l'ecrire.
+			editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
+			cap.produitOutil = true; // une operation porte une entree et une sortie
+			cap.produitRefus = true; // un verbe inconnu est une REPONSE, pas une panne
+			st.aiFil.Declarer(cap);
+			// ⚠️ LA FENETRE RESTE A 16, ET IL A FALLU LE DIRE. Le fil du kit a un
+			//    plafond par defaut de 200 ; la migration aurait donc fait passer ce
+			//    panneau de 16 a 200 blocs EN SILENCE. Le lot dit « tout ce qui n'est
+			//    pas le fil se comporte exactement comme avant » -- la capacite en
+			//    fait partie.
+			//    C'est le banc qui l'a montre : A3 verdissait sans que rien ne glisse
+			//    (« indice 10 avant, 10 apres »), donc sans rien eprouver. *Un essai
+			//    vert dont la condition n'est plus reunie ne mesure plus rien.*
+			st.aiFil.PoserPlafond(16);
+			
+			editorkit::NkAiBlocDonnees b;
+			switch (t) {
+				case NkModelerState::AiType::Demande:
+					b.type = editorkit::NkAiBloc::Demande;
+					b.texte = NkString(ligne);
+					break;
+				case NkModelerState::AiType::Operation:
+					// ⚠️ LE TITRE EST LE VERBE, et il est REEL : `NkAiTour` recoit
+					//    `dem`, qui porte deja la forme du contrat (`subdivide:2`) --
+					//    la traduction a eu lieu en amont. Aucun libelle invente.
+					b.type = editorkit::NkAiBloc::Outil;
+					b.titre = NkString(ligne);
+					b.entree = NkString(ligne);
+					// L'effet n'est pas encore mesure, et le dire est plus honnete qu'un
+					// blanc : c'est deja ce que le panneau affichait.
+					b.effet = NkString("effet en cours de mesure");
+					break;
+				case NkModelerState::AiType::Refus:
+					b.type = editorkit::NkAiBloc::Refus;
+					b.motif = NkString(ligne);
+					break;
+				default: // Note
+					b.type = editorkit::NkAiBloc::Prose;
+					b.texte = NkString(ligne);
+					break;
 			}
-			NkModelerState::AiBloc &b = st.aiFil[st.aiFilN];
-			b = NkModelerState::AiBloc{};
-			b.type = (uint8)t;
-			// La demande de l'utilisateur est ENCADREE EN TETE, jamais repliee :
-			// c'est la question, on doit toujours la voir.
-			b.replie = (t == NkModelerState::AiType::Demande) ? 0u : 1u;
-			NkAiCopie(b.ligne, sizeof(b.ligne), ligne);
-			return st.aiFilN++;
+			NkString pourquoi;
+			if (!st.aiFil.Pousser(b, pourquoi)) {
+				// Le fil refuse AVEC SON MOTIF. On ne l'avale pas : un bloc qui
+				// n'entre pas sans que personne ne le sache est un trou dans le fil.
+				NkAiCopie(st.aiMotif, sizeof(st.aiMotif), pourquoi.CStr());
+				return 0u;
+			}
+			return st.aiFil.At(st.aiFil.Taille() - 1).id;
 		}
 
 		// ── LA SOUMISSION, ET ELLE EST LA SEULE ────────────────────────────────
@@ -187,8 +238,8 @@ namespace nkentseu {
 			// une pastille ne s'ouvre pas toute seule. *Ouvrir de force repond au
 			// besoin de l'APPLICATION ; marquer repond a celui de l'UTILISATEUR.*
 			// 
-			// `NkAiPousser` vient d'incrementer `aiFilN` : la marque EXISTE DEJA, elle
-			// est `aiFilN > aiFilVu`, et la pastille la peint. Il n'y a donc rien a
+			// `NkAiPousser` vient de poser un bloc : la marque EXISTE DEJA, elle est
+			// `st.aiFil.NonVus() > 0`, et la pastille la peint. Il n'y a donc rien a
 			// poser ici, et surtout pas un second etat qui dirait la meme chose.
 			// 
 			// ⚠ ET LE BANC N'Y PERD RIEN, VERIFIE EN LISANT LES DEUX CROCHETS :
@@ -200,84 +251,125 @@ namespace nkentseu {
 			return true;
 		}
 
-		// ── LE TOUR, UNE FOIS QUE LA TABLE A REPONDU ───────────────────────────
-		// Appelee par la boucle APRES `NkVpPoserAction` : c'est la table qui sait
-		// si le verbe existe, et `aiMotifEstRefus` porte deja sa reponse. Les
-		// compteurs d'AVANT sont passes par la boucle, seule a voir l'hote -- le
-		// panneau ne connait pas le maillage et ne doit pas l'apprendre.
+		// ── LA TABLE DE MESURE : trouver, poser, retirer ─────────────
+		// ⚠️ TOUT PASSE PAR L'IDENTIFIANT. Une table annexe clee par la position
+		//    reintroduirait exactement le defaut que ce lot retire.
+		inline NkModelerState::AiMesure *NkAiMesureDe(NkModelerState &st, uint32 id) {
+			if (id == 0u) return nullptr;
+			for (int32 i = 0; i < NkModelerState::kAiMesures; ++i)
+				if (st.aiMesures[i].id == id) return &st.aiMesures[i];
+			return nullptr;
+		}
+		/// Pose une entree, en recyclant d'abord celles dont l'identifiant a QUITTE
+		/// la fenetre du fil.
+		/// ⚠️ UNE ENTREE ORPHELINE SE SUPPRIME, elle ne se replie pas sur un
+		///    voisin : mieux vaut perdre la mesure d'un bloc qu'on ne voit plus que
+		///    l'attribuer a un autre. C'est la meme regle que `BasculerParId`, qui ne
+		///    bascule rien quand l'identifiant a disparu.
+		inline NkModelerState::AiMesure *NkAiMesurePoser(NkModelerState &st, uint32 id) {
+			uint32 tmp = 0;
+			for (int32 i = 0; i < NkModelerState::kAiMesures; ++i) {
+				NkModelerState::AiMesure &m = st.aiMesures[i];
+				if (m.id != 0u && !st.aiFil.TrouverParId(m.id, tmp))
+					m = NkModelerState::AiMesure{}; // orpheline : elle s'efface
+			}
+			for (int32 i = 0; i < NkModelerState::kAiMesures; ++i)
+				if (st.aiMesures[i].id == 0u) {
+					st.aiMesures[i] = NkModelerState::AiMesure{};
+					st.aiMesures[i].id = id;
+					return &st.aiMesures[i];
+				}
+			return nullptr; // table pleine : on ne mesure pas plutot que d'ecraser
+		}
+
+		// ── LE TOUR, UNE FOIS QUE LA TABLE A REPONDU ────────────────
+		// Appelee par la boucle APRES `NkVpPoserAction` : c'est la table qui sait si
+		// le verbe existe, et `aiMotifEstRefus` porte deja sa reponse. Les compteurs
+		// d'AVANT sont passes par la boucle, seule a voir l'hote -- le panneau ne
+		// connait pas le maillage et ne doit pas l'apprendre.
 		inline void NkAiTour(NkModelerState &st, const char *demande, int32 v0, int32 e0, int32 f0,
-							 int32 frame) {
+				 int32 frame) {
 			if (st.aiMotifEstRefus) {
-				const int32 i = NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
-				NkAiCopie(st.aiFil[i].detail, sizeof(st.aiFil[i].detail), st.aiMotif);
-				NkAiCopie(st.aiFil[i].in, sizeof(st.aiFil[i].in), demande);
-				st.aiEnCours = -1; // rien a mesurer : rien n'a ete pose
+				// ⚠️ LE MOTIF PASSE MAINTENANT A LA POUSSEE. Le fil refuse un bloc
+				//    « refus » sans motif -- « ca n'a pas marche » envoie chercher au
+				//    hasard. Avant, il etait recopie APRES coup dans `detail`.
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus, st.aiMotif);
+				st.aiEnCoursId = 0u; // rien a mesurer : rien n'a ete pose
 				return;
 			}
-			const int32 i = NkAiPousser(st, NkModelerState::AiType::Operation, demande);
-			NkModelerState::AiBloc &b = st.aiFil[i];
-			NkAiCopie(b.in, sizeof(b.in), demande);
-			b.vA = v0;
-			b.eA = e0;
-			b.fA = f0;
-			b.mesure = 0;
-			st.aiEnCours = i;
+			const uint32 id = NkAiPousser(st, NkModelerState::AiType::Operation, demande);
+			if (id == 0u)
+				return; // le fil a refuse, et il a dit pourquoi
+			if (NkModelerState::AiMesure *m = NkAiMesurePoser(st, id)) {
+				m->vA = v0;
+				m->eA = e0;
+				m->fA = f0;
+				m->etat = 0;
+			}
+			st.aiEnCoursId = id;
 			st.aiEnCoursFrame = frame;
 		}
 
-		// ── L'EFFET, LU DANS LES COMPTEURS ET NULLE PART AILLEURS ──────────────
+		// ── L'EFFET, LU DANS LES COMPTEURS ET NULLE PART AILLEURS ──────
 		inline void NkAiEffet(NkModelerState &st, int32 v1, int32 e1, int32 f1) {
-			if (st.aiEnCours < 0 || st.aiEnCours >= st.aiFilN)
-				return;
-			NkModelerState::AiBloc &b = st.aiFil[st.aiEnCours];
-			b.vB = v1;
-			b.eB = e1;
-			b.fB = f1;
-			const bool bouge = (v1 != b.vA) || (e1 != b.eA) || (f1 != b.fA);
-			b.mesure = bouge ? 1u : 2u;
+			editorkit::NkAiBlocDonnees *b = st.aiFil.MutableParId(st.aiEnCoursId);
+			NkModelerState::AiMesure *m = NkAiMesureDe(st, st.aiEnCoursId);
+			if (!b || !m)
+				return; // le bloc a quitte la fenetre : on ne mesure rien plutot que le voisin
+			m->vB = v1;
+			m->eB = e1;
+			m->fB = f1;
+			const bool bouge = (v1 != m->vA) || (e1 != m->eA) || (f1 != m->fA);
+			m->etat = bouge ? 1u : 2u;
+			char out[128];
 			if (bouge)
-				snprintf(b.out, sizeof(b.out), "sommets %d -> %d   aretes %d -> %d   faces %d -> %d",
-						 b.vA, v1, b.eA, e1, b.fA, f1);
+				snprintf(out, sizeof(out), "sommets %d -> %d   aretes %d -> %d   faces %d -> %d",
+						 m->vA, v1, m->eA, e1, m->fA, f1);
 			else
-				// ⚠️ « RIEN N'A CHANGE » N'EST PAS UN ECHEC, et il ne faut pas
-				//    l'ecrire comme tel : changer de sous-mode, cadrer la vue ou
-				//    basculer le rayon X ne touche aucun compteur. Le dire est plus
-				//    honnete que d'afficher « 6 -> 6 » comme un resultat.
-				snprintf(b.out, sizeof(b.out), "les comptes n'ont pas bouge (%d/%d/%d)", b.vA, b.eA,
-						 b.fA);
+				// ⚠️ « RIEN N'A CHANGE » N'EST PAS UN ECHEC, et il ne faut pas l'ecrire
+				//    comme tel : changer de sous-mode, cadrer la vue ou basculer le rayon X
+				//    ne touche aucun compteur. Le dire est plus honnete que d'afficher
+				//    « 6 -> 6 » comme un resultat.
+				snprintf(out, sizeof(out), "les comptes n'ont pas bouge (%d/%d/%d)", m->vA, m->eA,
+						 m->fA);
+			b->sortie = NkString(out);
+			// L'EFFET COURT, celui qui tient sur la ligne a cote de la demande.
+			char eff[64];
+			if (bouge)
+				snprintf(eff, sizeof(eff), "faces %d -> %d", m->fA, f1);
+			else
+				snprintf(eff, sizeof(eff), "comptes inchanges");
+			b->effet = NkString(eff);
 			// -- L EFFET MESURE, LISIBLE PAR UN BANC (NK_AI_TRACE) --
 			// Il existait deja, mais seulement DANS le bloc du fil : pour le lire il
 			// fallait ouvrir le panneau et regarder. Un verdict qui n existe que la ou
 			// personne ne le cherche ne sert a personne.
 			//
 			// [!] CETTE LIGNE N A JAMAIS TEMOIGNE, ET JE L ECRIS PLUTOT QUE DE LA
-			//     LIVRER COMME ACQUISE. Son appelant (main.cpp, « l effet de la demande
-			//     precedente ») ne l atteint que si `Demo3DHostStats` rend true, et cette
-			//     fonction n est renseignee QU EN MODE EDITION. Quatre essais avec
-			//     `NK_EDIT_MODE=1` ont donne « AI RESULTAT : acceptee » et un fil a deux
-			//     blocs -- donc `aiEnCours` etait bien pose -- sans jamais une seule ligne
-			//     AI EFFET : le mode edition n etait pas actif.
-			//     Reste a etablir : POURQUOI le crochet ne met-il pas le mode ? Tant que
-			//     ce n est pas fait, ne pas lire l ABSENCE de cette ligne comme
-			//     « l operation n a rien change » -- c est une sonde muette, pas un zero.
+			//     LIVRER COMME ACQUISE. Son appelant (main.cpp) ne l atteint que si
+			//     `Demo3DHostStats` rend true, et cette fonction n est renseignee QU EN
+			//     MODE EDITION. Quatre essais avec `NK_EDIT_MODE=1` ont donne
+			//     « AI RESULTAT : acceptee » et un fil a deux blocs sans jamais une
+			//     ligne AI EFFET. Ne pas lire son ABSENCE comme « rien n a change » :
+			//     c est une sonde muette, pas un zero.
 			static const bool sEffetOn = (std::getenv("NK_AI_TRACE") != nullptr);
 			if (sEffetOn) {
-				std::printf("[nk3d] AI EFFET : %s -> %s\n", b.in, b.out);
+				std::printf("[nk3d] AI EFFET : %s -> %s\n", b->entree.CStr(), out);
 				std::fflush(stdout);
 			}
-			st.aiEnCours = -1;
+			st.aiEnCoursId = 0u;
 		}
 
-		/// L'index du DERNIER bloc d'operation du fil, ou -1.
+		/// L'IDENTIFIANT du DERNIER bloc d'operation du fil, ou 0.
 		/// ⚠️ SEUL CELUI-LA PEUT PORTER « Annuler cette action ». Notre pile
 		///    d'annulation a UN CRAN : un bouton actif sur une ligne ancienne
 		///    annulerait LA DERNIERE en affichant le texte D'UNE AUTRE, et
 		///    l'utilisateur verrait le mauvais effet disparaitre.
-		inline int32 NkAiDerniereOperation(const NkModelerState &st) {
-			for (int32 i = st.aiFilN - 1; i >= 0; --i)
-				if (st.aiFil[i].type == (uint8)NkModelerState::AiType::Operation)
-					return i;
-			return -1;
+		inline uint32 NkAiDerniereOperation(const NkModelerState &st) {
+			for (uint32 i = st.aiFil.Taille(); i > 0; --i)
+				if (st.aiFil.At(i - 1).type == editorkit::NkAiBloc::Outil)
+					return st.aiFil.At(i - 1).id;
+			return 0u;
 		}
 
 		// ── LE PANNEAU ─────────────────────────────────────────────────────────
@@ -292,7 +384,7 @@ namespace nkentseu {
 			// La marque se consomme ICI et nulle part ailleurs : au moment ou les blocs
 			// passent sous les yeux. La poser au CLIC de la pastille aurait marque
 			// « vu » un panneau que ce meme clic venait peut-etre de FERMER.
-			st.aiFilVu = st.aiFilN;
+			st.aiFil.MarquerVus();
 			const float32 kRowH = S(22.f);
 			const float32 pad = S(8.f);
 			// L'EMPRISE, DECLAREE D'ABORD. Sans elle, un clic dans le vide du
@@ -348,8 +440,8 @@ namespace nkentseu {
 					// NOUVELLE CONVERSATION : le fil se vide, le sujet aussi.
 					// ⚠️ Rien d'autre. Elle ne touche pas au maillage : une
 					//    conversation qu'on ferme ne defait pas ce qu'elle a fait.
-					st.aiFilN = 0;
-					st.aiEnCours = -1;
+					st.aiFil.Vider();
+					st.aiEnCoursId = 0u;
 					st.aiSujet[0] = 0;
 					st.aiDefile = 0.f;
 				}
@@ -367,121 +459,54 @@ namespace nkentseu {
 			const float32 yComposeur = r.y + r.h - pad - hEtat - S(6.f) - hComposeur;
 			const NkRect filR{r.x + pad, yy, r.w - pad * 2.f, yComposeur - yy - S(6.f)};
 
-			// ── 4. LE FIL DE BLOCS TYPES ───────────────────────────────────────
+			// ── 4. LE FIL DE BLOCS TYPES ── PEINT PAR LE KIT ───────────
+			// ⚠️ CE PANNEAU NE DESSINE PLUS SON FIL, ET C'EST TOUT LE LOT.
+			//    Rodolf, 20/09 : « que ce soit nk code ou nk3dmodeler ou nkuidesign
+			//    [...] je veux que le panneau soit exactement comme ceci ». Trois
+			//    panneaux conformes aujourd'hui divergent en un mois ; un composant
+			//    partage ne le peut pas.
+			//
+			//    La geometrie vient de `NkAiFilMesurer` (un PLAN de rectangles
+			//    nommes), la peinture de `NkAiFilPeindre`, qui ne calcule aucune
+			//    position. L'adaptateur `NkModelerComponentPaint` existait depuis le
+			//    18/08 : il n'y avait rien a ecrire pour brancher l'un sur l'autre.
+			//
+			// ⚠️ LA CHASSE FIXE MANQUE TOUJOURS -- ce peintre n'a qu'une police, et
+			//    le plan la demande quand meme. C'est le PEINTRE qui se rabat, pas le
+			//    plan qui ment : le jour ou la coquille charge une seconde police,
+			//    rien n'est a changer ici. Les blocs `IN`/`OUT` restent distingues
+			//    par leur FOND (`code_bg` / `code_out_bg`), comme aujourd'hui.
 			p.Clip(filR);
-			float32 fy = filR.y - st.aiDefile;
-			for (int32 i = 0; i < st.aiFilN; ++i) {
-				NkModelerState::AiBloc &b = st.aiFil[i];
-				const NkModelerState::AiType t = (NkModelerState::AiType)b.type;
-				char cle[24];
-				snprintf(cle, sizeof(cle), "ai.b%d", (int)i);
-
-				if (t == NkModelerState::AiType::Demande) {
-					// LA DEMANDE DE L'UTILISATEUR, DANS UN CADRE. C'est la question.
-					const float32 h = kRowH + S(6.f);
-					p.Outline({filR.x, fy, filR.w, h}, NkRole::Border, NkRole::InputBg, 3.f);
-					p.TextClipped(filR.x + S(6.f), fy + S(7.f), filR.w - S(12.f), b.ligne,
-								  NkRole::Text);
-					fy += h + S(4.f);
-					continue;
-				}
-
-				// LES AUTRES BLOCS : UNE LIGNE, REPLIEE PAR DEFAUT.
-				// Le rectangle est MEMORISE : c'est lui que la sonde cliquera.
-				b.rl[0] = filR.x;
-				b.rl[1] = fy;
-				b.rl[2] = filR.w;
-				b.rl[3] = kRowH;
-				const bool over = hit.Add(cle, {filR.x, fy, filR.w, kRowH});
-				const bool refus = (t == NkModelerState::AiType::Refus);
-				const NkRole teinte = refus ? NkRole::AxisX : NkRole::Text;
-				if (over)
-					p.Fill({filR.x, fy, filR.w, kRowH}, NkRole::InputBg, 3.f);
-				p.IconV(filR.x + S(2.f), fy, kRowH,
-						b.replie ? NkIcon::ChevronRight : NkIcon::ChevronDown, NkRole::TextMuted,
-						10.f);
-				// L'EFFET EST SUR LA LIGNE, pas cache dans le repli : on doit lire
-				// ce qui a change sans rien ouvrir.
-				char ligne[224];
-				if (t == NkModelerState::AiType::Operation && b.mesure == 1u)
-					snprintf(ligne, sizeof(ligne), "%s   ·   faces %d -> %d", b.ligne, b.fA, b.fB);
-				else if (t == NkModelerState::AiType::Operation && b.mesure == 2u)
-					snprintf(ligne, sizeof(ligne), "%s   ·   comptes inchanges", b.ligne);
-				else if (t == NkModelerState::AiType::Operation)
-					snprintf(ligne, sizeof(ligne), "%s   ·   effet en cours de mesure", b.ligne);
-				else
-					snprintf(ligne, sizeof(ligne), "%s", b.ligne);
-				p.TextClipped(filR.x + S(16.f), fy + S(4.f), filR.w - S(22.f), ligne, teinte);
-				if (hit.Clicked(cle))
-					b.replie = b.replie ? 0u : 1u; // ⚠️ DEPLIER N'EXECUTE RIEN
+			if (st.aiFil.Taille() == 0) {
+				float32 fy = filR.y;
+				p.TextV(filR.x, fy, kRowH, "Aucun echange pour l'instant.", NkRole::TextMuted);
 				fy += kRowH;
-
-				if (!b.replie) {
-					// L'ENTREE ET LA SORTIE, dans un bloc a fond distinct.
-					// ⚠️ La chasse fixe manque (une seule police dans ce peintre) :
-					//    le bloc est distingue par son FOND. Dette nommee en tete.
-					const float32 h = kRowH * 2.f;
-					p.Fill({filR.x + S(16.f), fy, filR.w - S(16.f), h}, NkRole::InputBg, 3.f);
-					char l1[160];
-					snprintf(l1, sizeof(l1), "IN    %s", b.in);
-					p.TextClipped(filR.x + S(22.f), fy + S(3.f), filR.w - S(28.f), l1,
-								  NkRole::TextMuted);
-					char l2[224];
-					snprintf(l2, sizeof(l2), "OUT   %s", b.out[0] ? b.out : b.detail);
-					p.TextClipped(filR.x + S(22.f), fy + S(3.f) + kRowH, filR.w - S(28.f), l2,
-								  refus ? NkRole::AxisX : NkRole::TextMuted);
-					fy += h + S(2.f);
-					if (refus && b.detail[0]) {
-						const float32 hw = p.TextWrapMeasure(filR.w - S(28.f), b.detail) + S(4.f);
-						p.TextWrap(filR.x + S(22.f), fy, filR.w - S(28.f), b.detail, NkRole::AxisX);
-						fy += hw;
-					}
-				}
-
-				// ── « ANNULER CETTE ACTION », et SEULEMENT sur la derniere ─────
-				if (t == NkModelerState::AiType::Operation && b.mesure != 0u) {
-					const bool derniere = (i == NkAiDerniereOperation(st));
-					const bool actif = derniere && peutAnnuler;
-					const float32 bw = S(132.f);
-					const NkRect ub{filR.x + filR.w - bw, fy, bw, kRowH - S(2.f)};
-					char ucle[24];
-					snprintf(ucle, sizeof(ucle), "ai.undo%d", (int)i);
-					const bool ovU = hit.Add(ucle, ub);
-					b.ru[0] = ub.x;
-					b.ru[1] = ub.y;
-					b.ru[2] = actif ? ub.w : 0.f; // w=0 quand il est ETEINT : la sonde
-					b.ru[3] = ub.h;				  // ne doit pas cliquer un bouton inerte
-					p.Fill(ub,
-						   actif ? (ovU ? NkRole::AccentUi : NkRole::PanelHeader) : NkRole::InputBg,
-						   3.f);
-					p.TextV(ub.x + S(6.f), ub.y, ub.h, "Annuler cette action",
-							actif ? NkRole::Text : NkRole::TextMuted);
-					if (!actif) {
-						// LE MOTIF, A COTE DU BOUTON ETEINT. Un bouton gris sans
-						// raison se lit comme une panne.
-						const char *pourquoi =
-							!derniere ? "seule la derniere action s'annule d'un cran"
-									  : "rien a annuler dans l'historique du maillage";
-						p.TextClipped(filR.x + S(16.f), ub.y + S(3.f), filR.w - bw - S(24.f),
-									  pourquoi, NkRole::TextMuted);
-					}
-					if (actif && hit.Clicked(ucle))
-						// PAR LA MEME PORTE QUE TOUT LE RESTE : « undo » est un verbe
-						// du pont. Le bouton n'a aucun pouvoir propre.
-						(void)NkAiSoumettre(st, "undo");
-					fy += kRowH + S(2.f);
-				}
-				fy += S(4.f);
-			}
-			if (st.aiFilN == 0) {
-				p.TextV(filR.x, fy, kRowH, "Selectionnez, puis demandez.", NkRole::TextMuted);
-				fy += kRowH;
-				// ⚠️ ON DIT CE QU'ON SAIT FAIRE. Un champ libre sans exemple se
-				//    repond par des phrases que rien ne comprend, et l'utilisateur
-				//    conclut que l'outil ne marche pas -- alors qu'il n'a jamais su
-				//    ce qu'on attendait de lui.
+				// ⚠️ ON DIT CE QU'ON SAIT FAIRE. Un champ libre sans exemple se repond
+				//    par des phrases que rien ne comprend, et l'utilisateur conclut que
+				//    l'outil ne marche pas -- alors qu'il n'a jamais su ce qu'on
+				//    attendait de lui.
 				p.TextV(filR.x, fy, kRowH, "Ex. : subdivide:3  ·  bevel:0.2:4  ·  undo",
-						NkRole::TextMuted);
+						 NkRole::TextMuted);
+			} else {
+				editorkit::NkAiMetriques metr;
+				editorkit::NkAiFilMesurer(st.aiFil, filR.w, metr, NkAiMesurerTexte, &p, st.aiPlan);
+				NkModelerComponentPaint pc(p);
+				editorkit::NkAiFilPeindre(pc, st.aiFil, st.aiPlan, filR.x, filR.y - st.aiDefile);
+				// ⚠️ LE CLIC PASSE PAR L'IDENTIFIANT, PLUS PAR UN INDICE. `ai.b%d`
+				//    avec la position etait faux des qu'un bloc entrait dans un fil
+				//    plein : mesure du 20/09, l'indice 10 designait « etape 11 ».
+				for (uint32 i = 0; i < st.aiFil.Taille(); ++i) {
+					const uint32 id = st.aiFil.At(i).id;
+					editorkit::NkAiRectPublie rc;
+					if (!st.aiPlan.Trouver(id, editorkit::NkAiPiece::Texte, rc) &&
+						 !st.aiPlan.Trouver(id, editorkit::NkAiPiece::Titre, rc))
+						continue;
+					char cle[24];
+					snprintf(cle, sizeof(cle), "ai.b%u", (unsigned)id);
+					(void)hit.Add(cle, {filR.x, rc.y + filR.y - st.aiDefile, filR.w, metr.ligne});
+					if (hit.Clicked(cle))
+						st.aiFil.BasculerParId(id); // ⚠️ DEPLIER N'EXECUTE RIEN
+				}
 			}
 			p.Unclip();
 
