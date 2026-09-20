@@ -486,24 +486,43 @@ namespace nkentseu {
 			p.Unclip();
 
 			// ── 5. LE COMPOSEUR ────────────────────────────────────────────────
-			const bool localActif = (st.aiOnglet == 0);
+			// ⚠️ CE N'EST PLUS « LOCAL OU RIEN ». Jusqu'au 20/09 le composeur
+			//    n'etait allume que sur l'onglet 0, parce qu'aucun autre n'etait
+			//    cable. Il l'est maintenant des que la BOUCLE dit que l'onglet a
+			//    un dorsal -- `st.aiOngletPret`, ecrit par `NkIaCanal::DorsalDe`.
+			//    Le panneau ne redecide pas : deux avis sur la meme question
+			//    finissent toujours par diverger, et l'utilisateur croit celui
+			//    qu'il voit.
+			const bool ongletActif = st.aiOngletPret;
 			{
 				const float32 bw = S(74.f);
 				const NkRect champ{r.x + pad, yComposeur, r.w - pad * 2.f - bw - S(6.f),
 								   hComposeur};
 				p.Outline(champ, NkRole::Border, NkRole::InputBg, 3.f);
-				if (guiCtx && localActif) {
+				if (guiCtx && ongletActif) {
 					editorkit::NkOverlayTextField(*guiCtx, guiCtx->dl, p.FontPtr(),
 												  {champ.x, champ.y, champ.w, kRowH}, st.aiSaisie,
 												  (int32)sizeof(st.aiSaisie) - 1, true);
-				} else if (!localActif) {
-					// L'ONGLET DISTANT LE DIT ET SE TAIT. Envoyer au pont depuis
-					// l'onglet « Claude » laisserait croire qu'un modele a repondu.
-					p.TextClipped(champ.x + S(4.f), champ.y + S(4.f), champ.w - S(8.f),
-								  "Aucun dorsal distant branche au modeleur.", NkRole::TextMuted);
-					p.TextClipped(champ.x + S(4.f), champ.y + S(4.f) + kRowH, champ.w - S(8.f),
-								  "Le transport existe (NKConverse) ; le cablage, non.",
-								  NkRole::TextMuted);
+					// ── CE QUI PART, DIT SOUS LE CHAMP, AVANT D'ENVOYER ───────
+					// ⚠️ L'AVERTISSEMENT VIT SOUS LE CURSEUR, PAS DANS UNE LIGNE
+					//    D'ETAT EN BAS DE PANNEAU. Rodolf doit pouvoir choisir en
+					//    connaissance de cause A CHAQUE USAGE, et le regard est
+					//    sur le champ qu'il remplit -- pas sur le bord inferieur.
+					if (st.aiOngletDistant)
+						p.TextClipped(champ.x + S(4.f), champ.y + S(4.f) + kRowH,
+									  champ.w - S(8.f),
+									  "⚠ SERVICE DISTANT : cette demande et le contrat des 26 "
+									  "verbes QUITTENT cette machine.",
+									  NkRole::AxisX);
+				} else if (!ongletActif) {
+					// LE ZERO, ET IL DIT LEQUEL. Le motif vient du canal, avec le
+					// GESTE QUI REPARE en tete : « Installez... », « Connectez-vous... ».
+					// ⚠️ Un refus muet a cote de deux onglets bavards se lit comme
+					//    un silence -- et on cherche le defaut dans sa demande.
+					p.TextWrap(champ.x + S(4.f), champ.y + S(4.f), champ.w - S(8.f),
+							   st.aiOngletMotif[0] ? st.aiOngletMotif
+												   : "Aucun dorsal pour cet onglet.",
+							   NkRole::TextMuted);
 				} else {
 					// Repli nomme (pas de contexte) : on AFFICHE, on n'edite pas. Un
 					// champ muet qui a l'air editable est pire qu'un champ eteint.
@@ -511,7 +530,7 @@ namespace nkentseu {
 				}
 				const NkRect bt{r.x + r.w - pad - bw, yComposeur, bw, kRowH};
 				const bool over = hit.Add("ai.envoyer", bt);
-				const bool actif = localActif && !NkAiVide(st.aiSaisie);
+				const bool actif = ongletActif && !NkAiVide(st.aiSaisie);
 				// Le bouton dit lui-meme s'il fera quelque chose : eteint quand le
 				// champ est vide. C'est le ZERO, rendu visible avant d'etre clique.
 				p.Fill(bt,
@@ -545,15 +564,23 @@ namespace nkentseu {
 			//    maintenant. Et la carte est DISPUTEE -- l'entrainement d'Ilyana y
 			//    tourne. Rodolf doit pouvoir comprendre un ralentissement sans le
 			//    deviner.
+			//
+			// ⚠️ CETTE LIGNE N'EST PLUS COMPOSEE ICI, ET C'EST LE CORRECTIF DU
+			//    20/09. Le panneau ecrivait le texte PUIS le recopiait dans
+			//    `st.aiEtat` « ce qui est AFFICHE, pas une copie » -- mais il le
+			//    composait a partir du SEUL `aiOnglet`, sans rien savoir du
+			//    dorsal. Avec trois onglets dont deux cables, il aurait fallu lui
+			//    apprendre l'etat des dorsaux : c'est-a-dire une SECONDE autorite
+			//    sur la meme question. `NkIaCanal::LigneEtat` l'ecrit, la boucle
+			//    la depose, le panneau la PEINT. Un seul auteur.
 			{
 				const NkRect er{r.x + pad, r.y + r.h - pad - hEtat, r.w - pad * 2.f, hEtat};
-				p.Fill(er, NkRole::PanelHeader, 3.f);
-				const char *etat =
-					localActif
-						? "local · NKDesignLLM · modele NON CHARGE (~4 444 Mo s'il l'etait, 14/09)"
-						: "distant · aucun cablage · le composeur est eteint";
-				p.TextClipped(er.x + S(6.f), er.y + S(3.f), er.w - S(12.f), etat, NkRole::TextMuted);
-				NkAiCopie(st.aiEtat, sizeof(st.aiEtat), etat); // ce qui est AFFICHE, pas une copie
+				// LE DISTANT SE VOIT : fond d'alerte, pas le fond d'en-tete ordinaire.
+				// Un avertissement de la meme couleur que tout le reste n'avertit pas.
+				p.Fill(er, st.aiOngletDistant ? NkRole::InputBg : NkRole::PanelHeader, 3.f);
+				p.TextClipped(er.x + S(6.f), er.y + S(3.f), er.w - S(12.f),
+							  st.aiEtat[0] ? st.aiEtat : "(etat non publie par la boucle)",
+							  st.aiOngletDistant ? NkRole::AxisX : NkRole::TextMuted);
 			}
 		}
 

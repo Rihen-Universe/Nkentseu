@@ -3537,6 +3537,30 @@ int nkmain(const NkEntryState &entry) {
 			sIaPret = true;
 			nk3d::NkIaCmdDuVerbe = &NkVpCmdDuVerbe;
 			sIa.Preparer(nullptr);
+			// ⚠ `NK_AI_ONGLET` — LE MEME ETAT QUE LE CLIC, PAS UN SECOND CHEMIN.
+			//   Aucune injection de souris n'est permise sur cette machine : sans
+			//   ce reglage, l'onglet Claude ne serait mesurable QUE par un humain,
+			//   et la preuve de non-gel du dorsal distant n'existerait pas. Il
+			//   ecrit `st.aiOnglet`, exactement l'entier que `hit.Clicked` ecrit --
+			//   il n'ouvre donc aucun comportement que le clic n'ouvre pas.
+			//   0 = Local, 1 = Claude, 2 = Ollama.
+			if (const char *o = std::getenv("NK_AI_ONGLET"))
+				if (*o >= '0' && *o <= '2')
+					st.aiOnglet = (int32)(*o - '0');
+		}
+		// ── L'ETAT DE L'ONGLET, PUBLIE A CHAQUE IMAGE ─────────────────────────
+		// ⚠️ A CHAQUE IMAGE, ET PAS UNE FOIS AU DEMARRAGE. Le CLI peut etre
+		//    installe, ou un compte connecte, PENDANT que le modeleur tourne :
+		//    un verdict fige au lancement dirait « installez Claude Code » a
+		//    quelqu'un qui vient de l'installer, et il chercherait le defaut
+		//    ailleurs. Le cout est une existence de fichier par image.
+		// ⚠️ ET C'EST LA SEULE AUTORITE : le panneau ne decide pas, il affiche.
+		{
+			converse::NkIConverseBackend *d = sIa.DorsalDe(st.aiOnglet);
+			st.aiOngletPret = (d != nullptr);
+			st.aiOngletDistant = (st.aiOnglet == 1);
+			sIa.MotifDe(st.aiOnglet, st.aiOngletMotif, sizeof(st.aiOngletMotif));
+			sIa.LigneEtat(st.aiOnglet, st.aiEtat, sizeof(st.aiEtat));
 		}
 		// (a) LA RECOLTE, A CHAQUE IMAGE. C'est ce qui empeche la fenetre de geler,
 		//     et `Images()` en est la PREUVE : si la boucle etait bloquee, ce
@@ -3617,8 +3641,20 @@ int nkmain(const NkEntryState &entry) {
 				nk3d::NkAiCopie(sIaPhrase, sizeof(sIaPhrase), dem);
 				char motif[192];
 				motif[0] = 0;
-				if (!sIa.pret) {
-					snprintf(motif, sizeof(motif), "%s", sIa.motif);
+				// ── LE DORSAL VIENT DE L'ONGLET, ET D'UN SEUL ENDROIT ─────────
+				// ⚠️ `sIa.pret` NE SUFFISAIT PLUS : il ne decrit que le dorsal
+				//    LOCAL. Le garder comme unique porte aurait envoye la demande
+				//    au local alors que l'onglet Claude etait choisi -- une
+				//    reponse juste, produite par le mauvais dorsal, et personne ne
+				//    l'aurait vu. C'est `DorsalDe` qui decide, et lui seul.
+				converse::NkIConverseBackend *dorsal = sIa.DorsalDe(st.aiOnglet);
+				if (!dorsal) {
+					// LE ZERO, ET IL DIT LEQUEL des trois onglets a echoue, avec le
+					// geste qui repare en tete de phrase.
+					sIa.MotifDe(st.aiOnglet, motif, sizeof(motif));
+					if (!motif[0])
+						snprintf(motif, sizeof(motif), "Aucun dorsal pour l'onglet %s.",
+								 nk3d::NkAiFournisseur(st.aiOnglet));
 				} else {
 					// ⚠️ LE CONTRAT PART AVEC LA DEMANDE. Un modele qui connait la
 					//    grammaire produit un verbe valide bien plus souvent qu'un
@@ -3634,15 +3670,23 @@ int nkmain(const NkEntryState &entry) {
 					const size_t lg = strlen(invite);
 					snprintf(invite + lg, sizeof(invite) - lg, "\nDemande : %s\nCommande :", dem);
 					NkString pourquoi;
-					if (!sIa.envoi.Lancer(&sIa.dorsal, NkString(invite), pourquoi))
+					// ⚠️ LA MEME INVITE, QUEL QUE SOIT LE DORSAL. Un cinquieme
+					//    constructeur d'invite pour le distant aurait fait mesurer
+					//    deux messages differents et attribuer l'ecart au modele.
+					//    On change le DORSAL, pas le message.
+					if (!sIa.envoi.Lancer(dorsal, NkString(invite), pourquoi))
 						snprintf(motif, sizeof(motif), "L'assistant n'a pas pu etre appele : %s",
 								 pourquoi.Data() ? pourquoi.Data() : "raison inconnue");
 					else {
 						const int32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
 															  "J'interroge l'assistant...");
 						nk3d::NkAiCopie(st.aiFil[inote].in, sizeof(st.aiFil[inote].in), dem);
-						std::printf("[nk3d] IA ENVOI : « %s » (contrat %s)\n", dem,
-									sSansContrat ? "ABSENT" : "donne");
+						// ⚠️ ON DIT QUE CA SORT, DANS LE JOURNAL AUSSI. Le panneau
+						//    l'annonce a l'ecran ; la trace doit permettre de le
+						//    RETROUVER apres coup, avec le nombre d'octets partis.
+						std::printf("[nk3d] IA ENVOI : « %s » (contrat %s, dorsal %s%s)\n", dem,
+									sSansContrat ? "ABSENT" : "donne", dorsal->Name(),
+									st.aiOnglet == 1 ? ", SORT DE LA MACHINE" : "");
 						std::fflush(stdout);
 					}
 				}

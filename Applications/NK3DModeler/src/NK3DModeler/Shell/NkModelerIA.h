@@ -39,6 +39,7 @@
 #include "NK3DModeler/Shell/NkModelerContrat.h"
 #include "NK3DModeler/Shell/NkModelerInput.h" // NkModelerState, NkVpAction
 #include "NKConverse/NkConverseChatAsync.h"
+#include "NKConverse/NkConverseClaude.h" // le dorsal DISTANT, choisi par l'onglet
 
 #include <cstdio>
 #include <cstdlib>
@@ -277,12 +278,107 @@ namespace nkentseu {
 		// par une variable le jour ou le dorsal du module arrive.
 		struct NkIaCanal {
 				converse::NkConverseBackendProcessus dorsal;
+				// ── LE DORSAL DISTANT, A COTE ET JAMAIS A LA PLACE ────────────────
+				// ⚠️ IL N'EST PAS CHOISI PAR DEFAUT, ET C'EST DELIBERE. Le local ne
+				//    fait rien sortir de la machine ; celui-ci envoie l'invite chez
+				//    Anthropic. Un dorsal distant qui s'imposerait « parce qu'il
+				//    repond » ferait partir la premiere demande avant que Rodolf ait
+				//    su qu'elle partait. C'est l'ONGLET qui le designe, donc un geste.
+				converse::NkConverseBackendClaude claude;
 				converse::NkEnvoiAsync envoi;
 				bool pret = false;
 				char motif[256] = {0};
 
+				/// L'ONGLET -> LE DORSAL. Une seule fonction, et elle est la seule
+				/// autorite : `main.cpp` lui demande au lieu de choisir de son cote.
+				/// Deux endroits qui decident du dorsal auraient fini par ne pas
+				/// designer le meme, et l'un des deux aurait eu raison en silence.
+				/// Rend `nullptr` pour un onglet sans cablage -- ce qui est un refus
+				/// nomme par `MotifDe`, pas une panne.
+				converse::NkIConverseBackend *DorsalDe(int32 onglet) {
+					if (onglet == 1)
+						return claude.IsAvailable() ? (converse::NkIConverseBackend *)&claude : nullptr;
+					if (onglet == 0)
+						return pret ? (converse::NkIConverseBackend *)&dorsal : nullptr;
+					return nullptr; // l'onglet Ollama n'a pas de cablage dans le modeleur
+				}
+
+				/// LE ZERO, ET IL DIT LEQUEL. Trois onglets, trois raisons possibles
+				/// de ne rien pouvoir faire, et elles se reparent a trois endroits
+				/// differents. ⚠️ Le conseil passe DEVANT le diagnostic : cette
+				/// chaine s'affiche dans une ligne qui tronque, et c'est le geste qui
+				/// repare qu'il ne faut pas perdre a la coupure.
+				void MotifDe(int32 onglet, char *dst, uint32 taille) const {
+					if (!dst || taille == 0)
+						return;
+					dst[0] = 0;
+					if (onglet == 1) {
+						NkString quoiFaire;
+						if (converse::NkClaudeDiagnostic(claude.compte, quoiFaire) !=
+							converse::NkClaudeEtat::Pret)
+							snprintf(dst, taille, "%s", quoiFaire.Data() ? quoiFaire.Data() : "");
+						return;
+					}
+					if (onglet == 0) {
+						if (!pret)
+							snprintf(dst, taille, "%s", motif);
+						return;
+					}
+					snprintf(dst, taille,
+							 "Choisissez Local ou Claude : l'onglet Ollama n'est pas cable au "
+							 "modeleur (le transport existe, le cablage non).");
+				}
+
+				/// LA LIGNE D'ETAT DE L'ONGLET. Elle dit le dorsal ET ce qu'il coute
+				/// -- et pour le distant, elle dit d'abord QUE CA SORT.
+				void LigneEtat(int32 onglet, char *dst, uint32 taille) const {
+					if (!dst || taille == 0)
+						return;
+					if (onglet == 1) {
+						NkString quoiFaire;
+						if (converse::NkClaudeDiagnostic(claude.compte, quoiFaire) !=
+							converse::NkClaudeEtat::Pret) {
+							snprintf(dst, taille, "claude · %s",
+									 quoiFaire.Data() ? quoiFaire.Data() : "");
+							return;
+						}
+						// ⚠️ LE CHIFFRE, PAS SEULEMENT L'AVERTISSEMENT. « des donnees
+						//    partent » se survole ; « 2 431 octets sont partis » se lit.
+						//    Il vaut 0 tant qu'aucune demande n'a ete envoyee, et c'est
+						//    vrai : rien n'est encore sorti.
+						snprintf(dst, taille, "claude · %s modele %s · %u octets envoyes",
+								 converse::NkClaudeAvertissement(),
+								 claude.modele.Data() ? claude.modele.Data() : "?",
+								 (unsigned)claude.DerniereInvite().Length());
+						return;
+					}
+					if (onglet == 0) {
+						snprintf(dst, taille,
+								 pret ? "local · rien ne quitte cette machine · %s"
+									  : "local · indisponible · %s",
+								 dorsal.Name() ? dorsal.Name() : "?");
+						return;
+					}
+					snprintf(dst, taille, "ollama · aucun cablage dans le modeleur");
+				}
+
 				void Preparer(const char *racine) {
 					dorsal.nom = NkString("assistant");
+					// ── LE DISTANT : SES FICHIERS DE TRAVAIL, ET SON COMPTE ───────
+					// Meme regle que le local : dans `logs/`, pas a la racine.
+					// ⚠️ LE COMPTE EST UN REGLAGE, ET IL EST VIDE PAR DEFAUT -- le
+					//    dossier de configuration ordinaire du CLI. `NK_CLAUDE_COMPTE`
+					//    vise un compte de NKCode (~/.nkcode/accounts/<nom>). Aucune
+					//    cle n'est lue nulle part : on ne pose qu'un CHEMIN.
+					claude.invitePath = NkString("logs/nkclaude_invite.txt");
+					claude.sortiePath = NkString("logs/nkclaude_reponse.txt");
+					claude.scriptPath = NkString("logs/nkclaude_lance.cmd");
+					if (const char *c = std::getenv("NK_CLAUDE_COMPTE"))
+						if (*c)
+							claude.compte = NkString(c);
+					if (const char *m = std::getenv("NK_CLAUDE_MODELE"))
+						if (*m)
+							claude.modele = NkString(m);
 					// ⚠️ DANS `logs/`, PAS A LA RACINE. Le dorsal ecrit deux fichiers de
 					//    travail a CHAQUE appel ; poses dans le repertoire courant, ils
 					//    salissent le dossier de projet de Rodolf et reapparaissent apres
