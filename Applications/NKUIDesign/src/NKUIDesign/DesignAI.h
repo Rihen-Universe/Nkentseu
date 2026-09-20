@@ -127,6 +127,15 @@ namespace nkuidesign {
 		ComposantInconnu, ///< nomme un composant que le registre ignore
 		RejeuDivergent,	  ///< se charge, mais ne survit pas a l'aller-retour
 		GreffeRefusee,	  ///< la cible n'accepte pas (index invalide, cycle)
+		/// ⚠️ UN AJOUT QUI NE PEUT PAS SE POSER -- et il lui fallait son propre
+		///    verdict. Les gardes de l'increment (numero deja pris, deux points
+		///    d'accrochage, parent inexistant) rendaient `TexteNonConforme`, dont
+		///    le nom AFFICHE est « aucun document lisible dans la reponse ».
+		///    **C'etait faux** : le modele avait ecrit un ajout parfaitement
+		///    lisible, et c'est NOUS qui ne savions pas le poser. Le detail disait
+		///    vrai pendant que le nom mentait -- *deux messages pour un refus, et
+		///    c'est le plus visible qui se trompait.*
+		AjoutRefuse,
 		Count
 	};
 
@@ -144,6 +153,8 @@ namespace nkuidesign {
 				return "ne se rejoue pas a l'identique";
 			case NkAIVerdict::GreffeRefusee:
 				return "cible de greffe invalide";
+			case NkAIVerdict::AjoutRefuse:
+				return "l'ajout ne peut pas se poser";
 			default:
 				return "?";
 		}
@@ -514,10 +525,93 @@ namespace nkuidesign {
 			///    qui rebatirait l'invite de son cote enverrait autre chose --
 			///    c'est exactement la faute que `dXX_invite.txt` a coutee cette
 			///    nuit : deux ecritures de la meme regle, et elles divergent.
+			/// ⚠️ LE SEUIL AU-DELA DUQUEL LE DOCUMENT PART EN RESUME. Il n'est pas
+			///    choisi au doigt : mesure du 20/09, meme demande, meme modele,
+			///    temperature 0 --
+			///      11 noeuds (3 704 o de document, 57 % de l'invite)  ACCEPTEE
+			///      27 noeuds (9 681 o, 78 %)                          REFUSEE
+			///      42 noeuds (14 957 o, 84 %)                         REFUSEE
+			///    Le basculement est entre 57 % et 78 %. 4 000 octets tient juste
+			///    au-dessus de la derniere valeur qui passe.
+			static const uint32 kSeuilDocumentEntier = 4000u;
+
+			/// Le noeud que l'utilisateur a sous la main. -1 = aucun. C'est
+			/// l'appelant qui le pose : lui seul sait ce qui est selectionne.
+			int32 selectionCourante = -1;
+
+			/// Le document POUR L'INVITE : entier s'il est court, sinon RESUME --
+			/// le squelette de tous les noeuds, et le noeud SELECTIONNE en entier.
+			///
+			/// ⚠️ IL EST DERIVE DE `Save`, PAS REECRIT. Composer un squelette ligne
+			///    a ligne serait une seconde ecriture du format, et elle divergerait
+			///    au premier champ ajoute -- la faute payee trois fois cette nuit
+			///    (`dXX_invite.txt`, le dorsal fichier, l'invite de l'interface).
+			///    On FILTRE la sortie du vrai ecrivain.
+			///
+			/// ⚠️ ET LA MUTITE EST DECLAREE DANS L'INVITE ELLE-MEME : un resume muet
+			///    ferait repondre le modele sur une geometrie qu'il n'a pas vue.
+			///    Mesure : squelette seul 30 % de l'invite, avec le noeud
+			///    selectionne entier 37 % -- **3 points pour sauver les demandes qui
+			///    visent ce qu'on a sous la main**, tres loin du seuil de 57 %.
+			static void DocumentPourInvite(const NkUIDocument &doc, int32 selection,
+										   NkString &out) {
+				NkString complet;
+				doc.Save(complet);
+				if (complet.Length() <= kSeuilDocumentEntier) {
+					out = complet;
+					return;
+				}
+				out = NkString("");
+				const char *p = complet.Data();
+				int32 courant = -1;	 // le numero du bloc qu'on traverse
+				bool resume = false; // a-t-on laisse tomber au moins une ligne ?
+				while (*p) {
+					const char *fin = p;
+					while (*fin && *fin != '\n')
+						++fin;
+					char ligne[512];
+					uint32 k = 0;
+					for (const char *q = p; q < fin && k + 1 < sizeof(ligne); ++q)
+						ligne[k++] = *q;
+					ligne[k] = 0;
+					const char *s = ligne;
+					while (*s == ' ' || *s == '\t')
+						++s;
+					bool garder = true;
+					if (CommencePar2(s, "noeud ")) {
+						courant = LireEntier(s + 6);
+					} else if (courant >= 0 && courant != selection) {
+						// Dans un bloc NON selectionne : de quoi DESIGNER le noeud
+						// -- libelle, composant, rattachement. Pas sa geometrie.
+						garder = CommencePar2(s, "libelle") || CommencePar2(s, "composant") ||
+								 CommencePar2(s, "parent");
+						if (!garder && *s)
+							resume = true;
+					}
+					if (garder) {
+						out.Append(ligne);
+						out.Append("\n");
+					}
+					p = *fin ? fin + 1 : fin;
+				}
+				if (resume) {
+					out.Append("\n(document RESUME : chaque noeud porte son numero, son libelle,\n"
+							   "son composant et son rattachement. Les tailles, positions et\n"
+							   "apparences ne sont PAS montrees");
+					if (doc.IsValidIndex(selection)) {
+						char b[96];
+						snprintf(b, sizeof(b), ", sauf pour le noeud %d, donne en entier",
+								 (int)selection);
+						out.Append(b);
+					}
+					out.Append(".)\n");
+				}
+			}
+
 			void BatirRequete(const char *userAsk, NkUIDocument &doc, NkDesignRequest &req) const {
 				BatirInviteComplete(userAsk, req.prompt);
 				BuildCatalog(req.catalog, catalogueBref);
-				doc.Save(req.currentDoc);
+				DocumentPourInvite(doc, selectionCourante, req.currentDoc);
 				// La demande part EN DERNIER : voir `NkConverseRequest::demande`.
 				req.demande = NkString(userAsk ? userAsk : "");
 			}
@@ -840,7 +934,7 @@ namespace nkuidesign {
 
 			bool ValiderIncrement(const char *texte, const NkUIDocument &courant,
 								  NkUIDocument &scratch, NkAIResult &res) {
-				res.verdict = NkAIVerdict::TexteNonConforme;
+				res.verdict = NkAIVerdict::AjoutRefuse;
 				const int32 nbCourant = (int32)courant.NodeCount();
 				if (nbCourant <= 0) {
 					res.detail = NkString("aucun document ouvert : il n'y a rien a completer");
@@ -850,6 +944,9 @@ namespace nkuidesign {
 				NkVector<int32> numeros, parents;
 				NkVector<NkString> corps;
 				if (!DecouperIncrement(texte, numeros, parents, corps) || numeros.Size() == 0) {
+					// Aucun ajout du tout : ce n'est pas « l'ajout ne se pose pas »,
+					// c'est « il n'y a pas d'ajout ». Deux choses differentes.
+					res.verdict = NkAIVerdict::TexteNonConforme;
 					res.detail = NkString(
 						"le modele a repondu en phrases au lieu de dessiner une "
 						"interface. Essayez de decrire les ZONES de l'ecran "
