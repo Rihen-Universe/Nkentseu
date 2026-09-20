@@ -29,7 +29,7 @@
 //   une CAPTURE de cette meme image, figee au moment ou le materiau est
 //   enregistre (choix de Rihen). Rendre soixante-quatre scenes pour des
 //   vignettes de quarante pixels couterait cher pour un gain invisible.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKRenderer/NkRenderer.h"
@@ -41,6 +41,8 @@
 #include "NKGui/NkGuiRHIBackend.h"
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
+// OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
+#include "NK3DModeler/NkModelerData.h"
 // Pour l'identifiant de texture, partage avec le panneau (qui, lui, ne connait
 // pas NKRenderer). Ce header n'apporte aucun type NKRenderer -- c'est sa regle.
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
@@ -115,10 +117,15 @@ namespace nkentseu {
 					(forme >= 0 && forme < (int32)NkPrevMesh::Count) ? kFichier[forme] : nullptr;
 				if (!nom)
 					return NkMeshHandle{};
-				const char *kDossiers[2] = {"Applications/NK3DModeler/data/previews/",
-											"data/previews/"};
-				for (int32 d = 0; d < 2; ++d) {
-					NkString chemin = NkString(kDossiers[d]) + nom + ".obj";
+				// OU SONT LES DONNEES : `NkModelerData.h`, et nulle part ailleurs.
+				// Ce chargeur-ci avait la BONNE moitie de la convention (il essayait
+				// la racine de l'arbre) ; les brosses et les themes avaient l'autre,
+				// et sont restes morts des mois. On retire la recopie MEME QUAND
+				// ELLE EST JUSTE : c'est la recopie qui se perime, pas le chemin.
+				NkString racines[3];
+				const uint32 nDos = nk3d::NkDataRoots("data/previews/", racines);
+				for (uint32 d = 0; d < nDos; ++d) {
+					NkString chemin = racines[d] + nom + ".obj";
 					if (!NkFile::Exists(chemin.CStr()))
 						continue;
 					// `Import` fait tout : lecture OBJ et montage GPU. SANS les

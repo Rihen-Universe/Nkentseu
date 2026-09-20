@@ -1,5 +1,6 @@
 ﻿#pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkModelerIcons.h â€” les icones de l'interface.
 //
 // SOURCE : les SVG de vscode-codicons, deposes dans data/icons/. Le SVG plutot
@@ -20,6 +21,8 @@
 
 #include "NKImage/NKImage.h"
 #include "NKEditorKit/NkIEditorRenderer.h"
+// OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
+#include "NK3DModeler/NkModelerData.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKContainers/String/NkFormat.h"
 
@@ -304,18 +307,27 @@ namespace nkentseu {
 						{NkIcon::Pin, "pin"},
 					};
 
-					const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
-					const NkString exeIcons = exeDir.Empty() ? NkString("data/icons/") : (exeDir + "/data/icons/");
-					const char *dirs[] = {"data/icons/", "Applications/NK3DModeler/data/icons/",
-										  exeIcons.CStr()};
+					// ⚠️ CES TROIS RACINES ETAIENT LA BONNE CONVENTION, et c'est ICI
+					//    qu'elle etait ecrite en premier -- mais elle etait ecrite ICI,
+					//    donc recopiee ailleurs, a moitie. Les brosses et les themes en
+					//    avaient pris la mauvaise moitie et sont restes morts des mois.
+					//    Elles vivent maintenant dans `NkModelerData.h` ; ce chargeur
+					//    n'est plus la reference implicite de personne.
+					//
+					// ⚠️ ON RESOUT PAR FICHIER, PAS UNE FOIS POUR TOUTES. Une icone
+					//    peut n'exister que dans une racine et pas dans une autre :
+					//    figer le dossier au premier trouve ferait disparaitre les
+					//    icones que seule une racine porte, en silence.
+					NkString racines[3];
+					const uint32 nDirs = nk3d::NkDataRoots("data/icons/", racines);
 
 					uint32 ok = 0;
 					const int32 n = (int32)(sizeof(kDefs) / sizeof(kDefs[0]));
 					for (int32 i = 0; i < n; ++i) {
 						const uint16 slot = (uint16)kDefs[i].id;
 						mTex[slot] = 0;
-						for (int32 d = 0; d < 3; ++d) {
-							const NkString path = NkPrintf("%s%s.svg", dirs[d], kDefs[i].file);
+						for (uint32 d = 0; d < nDirs; ++d) {
+							const NkString path = NkPrintf("%s%s.svg", racines[d].CStr(), kDefs[i].file);
 							if (!NkFile::Exists(path.CStr()))
 								continue;
 							// 2x puis reduction d'un cran -> trait net (cf. l'en-tete).

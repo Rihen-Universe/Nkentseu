@@ -1,5 +1,6 @@
 #pragma once
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkModelerTheme.h — themes de NK3DModeler : roles propres, chargement disque.
 //
 // CE QUE CE FICHIER FAIT, ET POURQUOI IL EST ICI ET NON DANS NKEditorKit
@@ -22,6 +23,8 @@
 // =============================================================================
 
 #include "NKEditorKit/NkTheme.h"
+// OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
+#include "NK3DModeler/NkModelerData.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -119,22 +122,30 @@ namespace nkentseu {
 			uint32 loaded = 0;
 			// Les livres d'abord, la surcharge utilisateur ENSUITE : a nom egal le
 			// second remplace le premier, donc l'ORDRE de ce tableau porte la priorite.
-			// ⚠️ TROIS RACINES, PAS UNE. `data/themes` seul n'existe NI depuis la
-			//    racine de l'arbre NI a cote de l'executable : le theme `bleu_nuit`
-			//    de Rodolf n'a donc JAMAIS ete charge, et le produit l'annoncait a
-			//    chaque lancement (« 2 themes (0 depuis le disque) ») sans que
-			//    personne lise la ligne. Meme defaut que le catalogue de brosses,
-			//    trouve le meme soir -- et la convention juste etait deja ecrite
-			//    dans NkModelerIcons.h, qui essaie trois racines.
-			//    La racine de l'arbre est DERIVEE du chemin recu, pas recopiee :
-			//    changer « data/themes » en autre chose suit tout seul.
-			NkString depuisLArbre;
-			if (appDataDir && *appDataDir) {
-				depuisLArbre = NkString("Applications/NK3DModeler/");
-				depuisLArbre.Append(appDataDir);
-			}
-			const char *dirs[3] = {appDataDir, depuisLArbre.CStr(), userDir};
-			for (int32 d = 0; d < 3; ++d) {
+			// ⚠️ PLUSIEURS RACINES, PAS UNE. `data/themes` seul n'existe NI depuis
+			//    la racine de l'arbre NI a cote de l'executable : le theme
+			//    `bleu_nuit` de Rodolf n'a donc JAMAIS ete charge, et le produit
+			//    l'annoncait a chaque lancement (« 2 themes (0 depuis le disque) »)
+			//    sans que personne lise la ligne. Meme defaut que le catalogue de
+			//    brosses, trouve le meme soir a quelques heures d'intervalle.
+			//
+			// ⚠️ ET LES RACINES NE SONT PLUS ECRITES ICI. Elles l'etaient a trois
+			//    endroits differents, et deux consommateurs sur cinq en avaient
+			//    recopie la mauvaise moitie : c'est la RECOPIE qui etait le defaut,
+			//    pas ce chargeur. Elles vivent desormais dans `NkModelerData.h`,
+			//    derivees du chemin recu -- changer « data/themes » en autre chose
+			//    suit tout seul.
+			//
+			// ⚠️ ON PARCOURT TOUT, on ne s'arrete PAS au premier trouve : le
+			//    dossier de l'utilisateur doit pouvoir REMPLACER un theme livre
+			//    (a nom egal, `AddOrReplace` garde le dernier). Il passe donc en
+			//    DERNIER, et l'ordre de ce tableau porte la priorite.
+			NkString racines[3];
+			const uint32 nRac = NkDataRoots(appDataDir, racines);
+			const char *dirs[4] = {nullptr, nullptr, nullptr, userDir};
+			for (uint32 r = 0; r < nRac; ++r)
+				dirs[r] = racines[r].CStr();
+			for (int32 d = 0; d < 4; ++d) {
 				if (!dirs[d] || !*dirs[d] || !NkDirectory::Exists(dirs[d]))
 					continue;
 				// Le filtrage par motif revient a NkDirectory : le refaire a la main

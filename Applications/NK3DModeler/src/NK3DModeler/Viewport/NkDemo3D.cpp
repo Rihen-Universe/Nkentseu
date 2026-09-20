@@ -26,6 +26,10 @@
 // APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
+// OU SONT LES DONNEES LIVREES (brosses, themes, icones, apercus, image de
+// version) : une seule convention, un seul fichier. Cf. son en-tete pour ce
+// que sa dispersion a coute le 20/09.
+#include "NK3DModeler/NkModelerData.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
 #include "NK3DModeler/Viewport/NkVpEditTarget.h"
 #include "NK3DModeler/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
@@ -4436,44 +4440,33 @@ namespace nkentseu {
 			if (!st || st->brushesLoaded)
 				return;
 			st->brushesLoaded = true; // une seule tentative, meme si elle echoue
-			// TROIS EMPLACEMENTS, et il en faut trois.
-			//   1. "data/brushes" relatif au REPERTOIRE COURANT.
-			//   2. "Applications/NK3DModeler/data/brushes" -- LE SEUL QUI EXISTE
-			//      REELLEMENT dans ce depot quand on lance depuis la racine de
-			//      l'arbre, c'est-a-dire DE LA FACON DONT L'APPLICATION SE LANCE
-			//      (Resources/ y est relatif en six endroits). C'est la convention
-			//      deja ecrite pour les icones (NkModelerIcons.h, memes trois
-			//      dossiers) et pour les apercus (NkMatPreview3D.h).
-			//   3. <dossier de l'executable>/data/brushes -- pour une livraison ou
-			//      les donnees sont posees a cote du binaire.
+			// OU SONT LES DONNEES : `NkModelerData.h`, et nulle part ailleurs.
 			//
-			// ⚠️ CE QUE LE 2 MANQUANT A COUTE, ET POURQUOI IL EST PERMANENT.
-			//    Les deux emplacements d'origine ne designent AUCUN dossier de ce
-			//    depot : les .nkbrush vivent sous `Applications/NK3DModeler/data/
-			//    brushes`, et ni la racine de l'arbre ni `Build/Bin/.../NK3DModeler`
-			//    n'ont de `data/`. Le catalogue etait donc VIDE A TOUS LES COUPS et
-			//    la sculpture refusait chaque trait. Journal de la session de Rodolf
-			//    du 20/09 a 20h08 : « brosses chargees depuis le disque : 0 », puis
-			//    « sculpture REFUSEE : brosse inconnue '(null)' (0 chargee(s)) »,
-			//    pour un trait dont le rayon avait pourtant TOUCHE le maillage. Le
-			//    refus etait nomme, le journal complet : il ne manquait qu'un dossier
-			//    qui existe. C'est la MEME cause que le « je ne vois meme pas les
-			//    brosses » du matin -- le selecteur peint ce que le catalogue
-			//    contient, et le correctif du panneau (20/09 11h50) ne pouvait donc
-			//    rien montrer.
+			// ⚠️ CE QUE CE CHARGEUR A COUTE, ET POURQUOI LA REPONSE EST AILLEURS.
+			//    Il cherchait dans « data/brushes » et « <exe>/data/brushes ».
+			//    AUCUN DES DEUX N'EXISTE : les .nkbrush vivent sous
+			//    `Applications/NK3DModeler/data/brushes`, et ni la racine de
+			//    l'arbre -- d'ou l'application DOIT se lancer -- ni
+			//    `Build/Bin/.../NK3DModeler` n'ont de dossier `data/`. Le catalogue
+			//    etait donc vide a tous les coups, et la sculpture refusait chaque
+			//    trait. Journal de la session de Rodolf du 20/09 a 20h08 :
+			//    « brosses chargees depuis le disque : 0 », puis « sculpture
+			//    REFUSEE : brosse inconnue '(null)' (0 chargee(s)) », pour un trait
+			//    dont le rayon avait pourtant TOUCHE le maillage.
+			//    C'est la MEME cause que le « je ne vois meme pas les brosses » du
+			//    matin : le selecteur peint ce que le catalogue contient, et le
+			//    correctif du panneau (20/09 11h50) ne pouvait donc rien montrer.
 			//
-			// ⚠️ ET ON NE DEDUIT PAS LE DOSSIER DU NOM DE L'APPLICATION. Un chemin
-			//    ecrit est verifiable a la lecture ; un chemin reconstruit se tait
-			//    quand il se trompe, ce qui est exactement le defaut repare ici.
-			const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
-			NkString exeBrushes = exeDir;
-			exeBrushes += "/data/brushes";
-			const char *dirs[3] = {"data/brushes", "Applications/NK3DModeler/data/brushes",
-								   exeBrushes.CStr()};
-			for (uint32 d = 0; d < 3; ++d) {
-				if (!dirs[d] || !NkDirectory::Exists(dirs[d]))
-					continue;
-				NkVector<NkString> files = NkDirectory::GetFiles(dirs[d], "*.nkbrush");
+			// ⚠️ ET LE CORRECTIF N'EST PAS « un dossier de plus ICI ». Le meme
+			//    defaut existait au meme moment chez les themes, et la convention
+			//    juste etait deja ecrite trois fois ailleurs : c'est la RECOPIE qui
+			//    etait le defaut. On passe donc par la porte commune, qui protege
+			//    aussi le prochain chargeur.
+			const NkString dossier = nk3d::NkDataDir("data/brushes");
+			if (dossier.Empty())
+				nk3d::NkDataRefus("catalogue de brosses", "data/brushes");
+			else {
+				NkVector<NkString> files = NkDirectory::GetFiles(dossier.CStr(), "*.nkbrush");
 				for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
 					NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(files[i].CStr());
 					if (bytes.Size() == 0)
@@ -4488,8 +4481,11 @@ namespace nkentseu {
 							  renderer::NkBrushParseText(r), err);
 				}
 			}
-			logger.Info("[Demo3D] brosses chargees depuis le disque : {0}\n",
-				(uint32)st->brushes.Count());
+			// LE DOSSIER RETENU EST DIT, pas seulement le compte. « 0 » sans le
+			// chemin envoie chercher un defaut dans le code ; « 0 depuis <chemin> »
+			// se tranche en ouvrant un dossier.
+			logger.Info("[Demo3D] brosses chargees depuis le disque : {0} (dossier : {1})\n",
+				(uint32)st->brushes.Count(), dossier.Empty() ? "AUCUN" : dossier.CStr());
 		}
 
 		// -- LE NOM -> LE DESCRIPTEUR : UNE SEULE PORTE ---------------------
