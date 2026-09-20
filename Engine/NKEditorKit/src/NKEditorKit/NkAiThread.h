@@ -324,6 +324,24 @@ namespace nkentseu {
 					// bascule RIEN plutot qu'un voisin -- un repli au hasard serait
 					// pire qu'un geste sans effet, l'utilisateur croirait avoir vu.
 				}
+				/// Le bloc portant cet identifiant, MODIFIABLE, ou `nullptr` s'il a
+				/// quitte la fenetre.
+				/// ⚠️ IL EXISTE POUR UNE RAISON PRECISE : une mesure qui arrive APRES
+				///    la pose du bloc. Le modeleur pousse son operation, puis lit les
+				///    compteurs a l'image suivante -- lire tout de suite rendrait l'etat
+				///    d'AVANT en le presentant comme celui d'apres.
+				/// ⚠️ ET IL REND `nullptr` PLUTOT QU'UN VOISIN. C'est la meme politique
+				///    que `BasculerParId` : perdre la mesure d'un bloc sorti de la
+				///    fenetre vaut mieux que l'ecrire sur un autre -- un chiffre juste
+				///    sur la mauvaise ligne est indetectable a l'oeil.
+				NkAiBlocDonnees *MutableParId(uint32 id) {
+					if (id == 0u)
+						return nullptr;
+					for (usize i = 0; i < mBlocs.Size(); ++i)
+						if (mBlocs[i].id == id)
+							return &mBlocs[i];
+					return nullptr;
+				}
 				/// Rend `false` si l'identifiant a quitte la fenetre glissante. Le
 				/// peintre s'en sert pour ne pas dessiner un survol sur un disparu.
 				bool TrouverParId(uint32 id, uint32 &indexOut) const {

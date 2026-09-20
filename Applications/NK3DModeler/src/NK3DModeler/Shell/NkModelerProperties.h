@@ -7946,7 +7946,7 @@ namespace nkentseu {
 				// perde pas pour autant, la pastille porte un point tant que le fil compte
 				// des blocs que personne n a vus. *Ouvrir de force repond au besoin de
 				// l application ; marquer repond a celui de l utilisateur.*
-					if (!on && st.aiFilN > st.aiFilVu) {
+					if (!on && st.aiFil.NonVus() > 0u) {
 						const float32 d = S(6.f);
 						p.Fill({tb.x + tb.w - d, tb.y + S(1.f), d, d}, NkRole::AccentUi, d * 0.5f);
 					}

@@ -3602,7 +3602,7 @@ int nkmain(const NkEntryState &entry) {
 		// ⚠ PAS DANS LA MEME IMAGE. L'operation s'execute quelques lignes plus bas
 		//   (`pendingAction`) : lire les compteurs ici rendrait l'etat d'AVANT en le
 		//   presentant comme celui d'apres -- un chiffre juste sur la mauvaise ligne.
-		if (st.aiEnCours >= 0 && agentFrame > st.aiEnCoursFrame) {
+		if (st.aiEnCoursId != 0u && agentFrame > st.aiEnCoursFrame) {
 			uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
 			if (demo::Demo3DHostStats(&v1, &e1, &f1, &t1))
 				nk3d::NkAiEffet(st, (int32)v1, (int32)e1, (int32)f1);
@@ -3706,9 +3706,11 @@ int nkmain(const NkEntryState &entry) {
 						snprintf(motif, sizeof(motif), "« %s » n'est pas un verbe du contrat.", verbe);
 					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
 					st.aiMotifEstRefus = true;
-					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
-					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
-					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+					// ⚠️ LE MOTIF PASSE A LA POUSSEE. Le fil refuse un bloc « refus »
+					//    sans motif : « ca n'a pas marche » envoie chercher au hasard.
+					const uint32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, motif);
+					if (editorkit::NkAiBlocDonnees *br = st.aiFil.MutableParId(ir))
+						br->entree = NkString(sIaPhrase);
 					std::printf("[nk3d] IA REFUS : %s (reponse brute : « %s »)\n", motif,
 								rep.Data() ? rep.Data() : "");
 					std::fflush(stdout);
@@ -3764,9 +3766,10 @@ int nkmain(const NkEntryState &entry) {
 						snprintf(motif, sizeof(motif), "L'assistant n'a pas pu etre appele : %s",
 								 pourquoi.Data() ? pourquoi.Data() : "raison inconnue");
 					else {
-						const int32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
+						const uint32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
 															  "J'interroge l'assistant...");
-						nk3d::NkAiCopie(st.aiFil[inote].in, sizeof(st.aiFil[inote].in), dem);
+						if (editorkit::NkAiBlocDonnees *bn = st.aiFil.MutableParId(inote))
+							bn->entree = NkString(dem);
 						// ⚠️ ON DIT QUE CA SORT, DANS LE JOURNAL AUSSI. Le panneau
 						//    l'annonce a l'ecran ; la trace doit permettre de le
 						//    RETROUVER apres coup, avec le nombre d'octets partis.
@@ -3779,9 +3782,11 @@ int nkmain(const NkEntryState &entry) {
 				if (motif[0]) {
 					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
 					st.aiMotifEstRefus = true;
-					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
-					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
-					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), dem);
+					// ⚠️ LE MOTIF PASSE A LA POUSSEE. Le fil refuse un bloc « refus »
+					//    sans motif : « ca n'a pas marche » envoie chercher au hasard.
+					const uint32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, motif);
+					if (editorkit::NkAiBlocDonnees *br = st.aiFil.MutableParId(ir))
+						br->entree = NkString(dem);
 					std::printf("[nk3d] IA REFUS : %s\n", motif);
 					std::fflush(stdout);
 				}
@@ -4373,11 +4378,12 @@ int nkmain(const NkEntryState &entry) {
 		// qu au CHANGEMENT : une ligne par image noierait le reste du journal.
 			static int32 sMarque = -1;
 			if (sMarqueOn) {
-				const int32 m = st.aiFilN - st.aiFilVu;
+				const int32 m = (int32)st.aiFil.NonVus();
 				if (m != sMarque) {
 					sMarque = m;
 					std::printf("[nk3d] AI MARQUE frame=%d : fil=%d vu=%d -> %s\n",
-							(int)agentFrame, (int)st.aiFilN, (int)st.aiFilVu,
+							(int)agentFrame, (int)st.aiFil.Taille(),
+							(int)(st.aiFil.Taille() - st.aiFil.NonVus()),
 							(m > 0) ? "pastille marquee" : "rien a signaler");
 					std::fflush(stdout);
 				}
@@ -4494,17 +4500,37 @@ int nkmain(const NkEntryState &entry) {
 							(double)((float32)W - aiW), (double)aiY, (double)aiW, (double)aiH,
 							(int)W, (int)H, (double)lay.propsR.x, (double)lay.propsR.y,
 							(double)lay.propsR.w, (double)lay.propsR.h, (int)st.aiOnglet,
-							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFilN);
-				for (int32 i = 0; i < st.aiFilN; ++i) {
-					const NkModelerState::AiBloc &bl = st.aiFil[i];
-					std::printf("[nk3d] AI BLOC %d type=%d replie=%d mesure=%d"
-								" ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
-								" v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
-								(int)i, (int)bl.type, (int)bl.replie, (int)bl.mesure,
-								(double)bl.rl[0], (double)bl.rl[1], (double)bl.rl[2],
-								(double)bl.rl[3], (double)bl.ru[0], (double)bl.ru[1],
-								(double)bl.ru[2], (double)bl.ru[3], (int)bl.vA, (int)bl.vB,
-								(int)bl.fA, (int)bl.fB, bl.ligne, bl.out, bl.detail);
+							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFil.Taille());
+				// ⚠️ LE CONTRAT `AI BLOC` EST REPUBLIE DEPUIS LE PLAN, PAS DEPUIS LA
+				//    DONNEE. Avant, `ligne=` et `annuler=` sortaient de `bl.rl`/`bl.ru`,
+				//    que LA PEINTURE ECRIVAIT DANS LE BLOC au milieu de sa boucle de
+				//    dessin. Deux sondes lisent cette ligne (`sonde_panneau_ia.ps1`,
+				//    `sonde_panneau_forme.ps1`) : c'est un contrat, pas du journal.
+				//    Desormais le peintre PUBLIE un plan et ne mute rien -- et ces
+				//    rectangles deviennent lisibles sans avoir peint la donnee.
+				//    Les compteurs (`v=`, `f=`) et l'etat de mesure viennent de la table
+				//    annexe du modeleur : ils n'appartiennent pas au fil commun.
+				for (uint32 i = 0; i < st.aiFil.Taille(); ++i) {
+					const editorkit::NkAiBlocDonnees &bl = st.aiFil.At(i);
+					editorkit::NkAiRectPublie rl, ru;
+					const bool aL = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Texte, rl) ||
+						   st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Titre, rl);
+					const bool aU = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Effet, ru);
+					const NkModelerState::AiMesure *me = nullptr;
+					for (int32 k = 0; k < NkModelerState::kAiMesures; ++k)
+						if (st.aiMesures[k].id == bl.id) { me = &st.aiMesures[k]; break; }
+					std::printf("[nk3d] AI BLOC %u type=%d replie=%d mesure=%d"
+						   " ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
+						   " v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
+						   (unsigned)bl.id, (int)bl.type, (int)(bl.replie ? 1 : 0),
+						   me ? (int)me->etat : 0,
+						   aL ? (double)rl.x : 0.0, aL ? (double)rl.y : 0.0,
+						   aL ? (double)rl.w : 0.0, aL ? (double)rl.h : 0.0,
+						   aU ? (double)ru.x : 0.0, aU ? (double)ru.y : 0.0,
+						   aU ? (double)ru.w : 0.0, aU ? (double)ru.h : 0.0,
+						   me ? me->vA : 0, me ? me->vB : 0, me ? me->fA : 0, me ? me->fB : 0,
+						   bl.titre.Length() ? bl.titre.CStr() : bl.texte.CStr(),
+						   bl.sortie.CStr(), bl.motif.CStr());
 				}
 				// ⚠ LE SURVOL ET LE BLOCAGE, AU MOMENT MEME. Sans eux, un clic qui
 				//   ne prend pas laisse trois explications possibles (mauvaise
