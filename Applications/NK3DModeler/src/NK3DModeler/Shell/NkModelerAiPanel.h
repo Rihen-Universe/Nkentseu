@@ -40,11 +40,21 @@
 //       occupait la carte serait faux aujourd'hui, et ce genre de chiffre finit
 //       par etre cru.
 //
-//  ⚠️ CE QUE CE PANNEAU N'EST TOUJOURS PAS : une conversation avec un modele.
-//     Le transport existe (`Kernel/System/NKConverse`) et le dorsal local aussi
-//     (`Applications/NKDesignLLM`), mais rien n'est branche : ce qu'on tape va
-//     DIRECTEMENT au pont. Le fil ne porte donc AUCUN bloc de « reflexion » --
-//     en fabriquer un serait du theatre : personne ne pense derriere.
+//  CE QUE CE PANNEAU EST DEPUIS LE 19/09 : une phrase francaise y entre, un
+//  verbe du contrat en sort. `NkModelerIA.h` parle a NKConverse en asynchrone
+//  et main.cpp recolte a chaque image. Mesure : « subdivise le cube deux fois »
+//  -> `subdivide:2`, 0,91 s a chaud et 10,35 s A FROID -- avec 1478 images
+//  passees pendant l attente, donc sans gel.
+//
+//  ⚠️ CE PARAGRAPHE DISAIT « rien n est branche » JUSQU AU 20/09, ET C ETAIT
+//     FAUX DEPUIS LA VEILLE. Un commentaire perime ne vieillit pas comme un
+//     chiffre : il se lit comme une CONSIGNE, et le lecteur suivant renonce a
+//     chercher ce qui existe. Il avait deja failli faire reecrire ce branchement.
+//
+//  ⚠️ CE QUE LE PANNEAU N EST TOUJOURS PAS : une CONVERSATION. Un tour, une
+//     demande, un verbe -- aucune memoire d un echange a l autre. Le fil ne
+//     porte donc AUCUN bloc de « reflexion » : en fabriquer un serait du
+//     theatre, personne ne pense derriere.
 //
 //  DEUX DETTES NOMMEES, AVEC LEUR CONDITION DE RETRAIT :
 //    - La specification demande l'entree et la sortie **a chasse fixe**. Ce
