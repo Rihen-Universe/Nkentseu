@@ -316,6 +316,9 @@ int main(int argc, char **argv) {
 	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
 	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
 	const char *migrer = nullptr;  // --migrer=<f> : `enfants` -> `parent`, en place
+	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
+	// et rien d autre. Defaut : `parent`, la forme livree.
+	bool structureEnfants = false;
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -334,6 +337,8 @@ int main(int argc, char **argv) {
 			rejouer = argv[a] + 10;
 		else if (CommencePar(argv[a], "--migrer="))
 			migrer = argv[a] + 9;
+		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
+			structureEnfants = true;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
 			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
@@ -366,6 +371,13 @@ int main(int argc, char **argv) {
 	}
 
 	PeuplerCatalogue();
+
+	// ⚠️ POSE ICI, ET PAS PLUS BAS. Le contrat est ENGENDRE depuis `BuildPrompt` :
+	//    si ce reglage arrivait apres le bloc du contrat, `--structure=enfants
+	//    --contrat=<f>` ecrirait le contrat de l'AUTRE forme sans rien dire.
+	//    *Un reglage pose apres son premier lecteur est un reglage sans effet,
+	//    et il n'en previent personne.*
+	NkDesignAI::structureParent = !structureEnfants;
 
 	// LE CONTRAT SE REND AVANT TOUTE COURSE, ET C'EST TOUT L'INTERET : il ne
 	// demande ni dorsal, ni modele, ni carte graphique. C'est le point du cap --
