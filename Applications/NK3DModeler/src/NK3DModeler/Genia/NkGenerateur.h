@@ -26,6 +26,7 @@
 // -----------------------------------------------------------------------------
 #include "NKContainers/String/NkString.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h"
 #include "NKLogger/NkLog.h"
 
 #include <cstdio>
@@ -77,10 +78,13 @@ namespace nkentseu {
 
 		/// LE GENERATEUR PAR PROCESSUS EXTERNE. Un GABARIT de ligne de commande
 		/// avec deux trous, `{image}` et `{out}` ; on le remplit, on lance, on
-		/// attend, on verifie le fichier. Le gabarit vient de NK_GENIA_CMD, ou
-		/// se compose par defaut de NK_GENIA_PYTHON (sinon `python`) et de
-		/// NK_GENIA_SCRIPT (sinon `Tools/Genia/genia_triposr.py`, relatif au
-		/// dossier courant -- les temoins se lancent depuis la racine).
+		/// attend, on verifie le fichier. Le gabarit vient de NK_GENIA_CMD, ou se
+		/// compose de NK_GENIA_PYTHON et NK_GENIA_SCRIPT, ou -- a defaut -- se
+		/// DEDUIT DE L'EMPLACEMENT DE L'EXECUTABLE (cf. NkGeniaArbreDepuisExe).
+		/// ⚠️ Plus jamais `python` nu ni de chemin relatif au dossier courant :
+		///    mesure du 20/09, les deux moities etaient fausses et le bouton ne
+		///    pouvait pas aboutir. Et si la deduction echoue, le gabarit reste
+		///    VIDE avec son motif -- on ne compose pas une commande qu'on sait fausse.
 		class NkGenerateurProcessus : public NkIGenerateur {
 			public:
 				NkString gabarit; // ex. "\"C:/.../python.exe\" \"Tools/Genia/genia_triposr.py\" --image \"{image}\" --out \"{out}\""
@@ -90,6 +94,16 @@ namespace nkentseu {
 				/// commande de l'image avec une invite a la place d'un fichier.
 				NkString gabaritTexte;
 				NkString nom = "TripoSR (processus externe)";
+				/// ── POURQUOI UN MOTIF D'ABSENCE, ET PAS UN GABARIT DE SECOURS ───
+				/// Quand le gabarit ne peut pas se composer, ce champ dit CE QU'ON A
+				/// CHERCHE ET OU. Sans lui, le refus se resumait a « NK_GENIA_CMD
+				/// vide », qui nomme une variable que l'utilisateur n'a jamais eu a
+				/// poser -- donc un refus qui envoie chercher au mauvais endroit.
+				/// ⚠️ ET SURTOUT : pas de repli sur un `python` nu. Un interpreteur
+				///    de secours qui n'a pas torch echouerait PLUS LOIN et PLUS
+				///    OBSCUREMENT ; le refus nomme est le seul bon cote de l'etat
+				///    d'avant, et il se garde.
+				NkString motifGabaritVide;
 
 				const char *Nom() const override {
 					return nom.CStr();
@@ -115,7 +129,9 @@ namespace nkentseu {
 						return false;
 					}
 					if (gabarit.Empty()) {
-						why = "aucune commande de generation (NK_GENIA_CMD vide)";
+						why = motifGabaritVide.Empty()
+								  ? NkString("aucune commande de generation (NK_GENIA_CMD vide)")
+								  : motifGabaritVide;
 						return false;
 					}
 					NkString cmd = gabarit;
@@ -320,6 +336,64 @@ namespace nkentseu {
 				}
 		};
 
+		/// ── L'ARBRE, DEDUIT DE L'EXECUTABLE, PAR UNE ANCRE NOMMEE ───────────────
+		///
+		/// 🔴 MESURE DU 20/09/2026 : le gabarit par defaut designait `python` nu et
+		///    `Tools/Genia/genia_triposr.py` RELATIF au dossier courant. Les deux
+		///    moities etaient fausses, et chacune suffisait a tout arreter :
+		///      depuis le dossier de l'exe -> can't open file '...\NK3DModeler\Tools\...'
+		///      depuis la racine de l'arbre -> REFUS : No module named 'torch'
+		///    (le `python` du PATH de cette machine est PyManager/pythoncore-3.14).
+		///    Et AUCUN lanceur du depot ne posait NK_GENIA_CMD : le bouton
+		///    « Generer » etait atteignable et ne pouvait pas aboutir.
+		///
+		/// ⚠️ CORRIGER UNE SEULE MOITIE LAISSE L'AUTRE VERTE LA OU L'ON REGARDE :
+		///    rendre le script absolu fait passer le lancement depuis le dossier de
+		///    l'exe... jusqu'a l'import de torch. Les deux se corrigent ensemble ou
+		///    le defaut se deplace.
+		///
+		/// L'ancre est STRUCTURELLE, pas un compte de `..` : l'executable vit
+		/// toujours sous `<arbre>/Build/...`. On remonte jusqu'au premier ancetre
+		/// nomme `Build` ; son parent est l'arbre, et le parent de l'arbre porte
+		/// `genia-tools/` -- exactement ce que `genia_triposr.py` calcule de son
+		/// cote (`OUTILS = dirname(RACINE)/genia-tools`). Rend faux si l'ancre
+		/// n'existe pas, et alors on ne devine rien.
+		inline bool NkGeniaArbreDepuisExe(NkString &arbre, NkString &parent) {
+			char exe[1024];
+			{
+				const NkString e = NkPath::GetExecutableDirectory().ToString();
+				snprintf(exe, sizeof(exe), "%s", e.CStr());
+				for (char *p = exe; *p; ++p)
+					if (*p == '\\')
+						*p = '/';
+			}
+			size_t fin = std::strlen(exe);
+			while (fin > 0) {
+				while (fin > 0 && exe[fin - 1] == '/')
+					--fin;
+				size_t deb = fin;
+				while (deb > 0 && exe[deb - 1] != '/')
+					--deb;
+				if (fin - deb == 5 && std::strncmp(exe + deb, "Build", 5) == 0) {
+					if (deb == 0)
+						return false;
+					char b[1024];
+					snprintf(b, sizeof(b), "%.*s", (int)(deb - 1), exe); // <arbre>
+					arbre = NkString(b);
+					size_t a = deb - 1;
+					while (a > 0 && exe[a - 1] != '/')
+						--a;
+					if (a == 0)
+						return false;
+					snprintf(b, sizeof(b), "%.*s", (int)(a - 1), exe); // parent de l'arbre
+					parent = NkString(b);
+					return true;
+				}
+				fin = deb;
+			}
+			return false;
+		}
+
 		/// LE GENERATEUR PAR DEFAUT, configure depuis l'environnement, une fois.
 		/// C'est le SEUL endroit qui sait quel generateur tourne ; le modeleur
 		/// ne voit que NkIGenerateur.
@@ -333,9 +407,56 @@ namespace nkentseu {
 				} else {
 					const char *py = std::getenv("NK_GENIA_PYTHON");
 					const char *sc = std::getenv("NK_GENIA_SCRIPT");
-					sGen.gabarit = NkString::Format("\"%s\" \"%s\" --image \"{image}\" --out \"{out}\"",
-													py && py[0] ? py : "python",
-													sc && sc[0] ? sc : "Tools/Genia/genia_triposr.py");
+					// Ce que l'environnement impose gagne ; ce qu'il ne dit pas se
+					// DEDUIT de l'executable, jamais du dossier courant.
+					NkString pyChoisi = (py && py[0]) ? NkString(py) : NkString();
+					NkString scChoisi = (sc && sc[0]) ? NkString(sc) : NkString();
+					NkString arbre, parent, cherche;
+					if ((pyChoisi.Empty() || scChoisi.Empty()) &&
+						NkGeniaArbreDepuisExe(arbre, parent)) {
+						if (scChoisi.Empty()) {
+							NkString s = arbre;
+							s.Append("/Tools/Genia/genia_triposr.py");
+							if (NkFile::Exists(s.CStr()))
+								scChoisi = s;
+							else
+								cherche = NkString::Format("script introuvable : '%s'", s.CStr());
+						}
+						if (pyChoisi.Empty()) {
+							// Le meme venv sous ses deux dispositions d'OS. Ce n'est pas
+							// un repli : c'est le MEME artefact a deux endroits selon le
+							// systeme. Un `python` du PATH, lui, serait un AUTRE
+							// interpreteur -- et c'est ce qui a echoue.
+							const char *sous[2] = {"/genia-tools/venv/Scripts/python.exe",
+												   "/genia-tools/venv/bin/python"};
+							for (int i = 0; i < 2 && pyChoisi.Empty(); ++i) {
+								NkString p = parent;
+								p.Append(sous[i]);
+								if (NkFile::Exists(p.CStr()))
+									pyChoisi = p;
+							}
+							if (pyChoisi.Empty())
+								cherche = NkString::Format(
+									"interpreteur introuvable : '%s%s' (ni .../bin/python)",
+									parent.CStr(), sous[0]);
+						}
+					}
+					if (!pyChoisi.Empty() && !scChoisi.Empty()) {
+						sGen.gabarit =
+							NkString::Format("\"%s\" \"%s\" --image \"{image}\" --out \"{out}\"",
+											 pyChoisi.CStr(), scChoisi.CStr());
+					} else {
+						// ⚠️ ON NE COMPOSE PAS UNE COMMANDE QU'ON SAIT FAUSSE. Mettre
+						//    `python` ici rendrait un echec PLUS LOIN (import torch) dont
+						//    le motif n'aiderait personne. Le refus nomme ce qu'on a
+						//    cherche et ou, et la variable qui le contourne.
+						sGen.gabarit.Clear();
+						sGen.motifGabaritVide = NkString::Format(
+							"aucun generateur utilisable -- %s. Posez NK_GENIA_CMD, ou "
+							"NK_GENIA_PYTHON et NK_GENIA_SCRIPT.",
+							cherche.Empty() ? "l'arbre n'a pas pu etre deduit de l'executable"
+											: cherche.CStr());
+					}
 				}
 				// LA PORTE TEXTE RESTE VIDE TANT QUE PERSONNE NE LA REMPLIT, et on
 				// le DIT au journal. Composer un gabarit par defaut a partir du
@@ -349,7 +470,11 @@ namespace nkentseu {
 					sGen.gabaritTexte = NkString::Format("\"%s\" \"%s\" --invite \"{invite}\" --out \"{out}\"",
 														 py && py[0] ? py : "python", st);
 				}
-				NkLog::Instance().Infof("[genia] generateur : %s ; gabarit : %s", sGen.Nom(), sGen.gabarit.CStr());
+				// Le journal dit le gabarit RETENU, ou le motif de son absence : un
+				// « gabarit : (vide) » enverrait chercher dans le code.
+				NkLog::Instance().Infof("[genia] generateur : %s ; gabarit : %s", sGen.Nom(),
+										sGen.gabarit.Empty() ? sGen.motifGabaritVide.CStr()
+															 : sGen.gabarit.CStr());
 				NkLog::Instance().Infof("[genia] porte texte : %s",
 										sGen.gabaritTexte.Empty()
 											? "AUCUNE (posez NK_GENIA_CMD_TEXTE ou NK_GENIA_SCRIPT_TEXTE)"
