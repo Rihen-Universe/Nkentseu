@@ -324,6 +324,55 @@ namespace nkentseu {
 			return nullptr; // table pleine : on ne mesure pas plutot que d'ecraser
 		}
 
+		// ── L HISTORIQUE : ARCHIVER, ROUVRIR, VIDER ───────────────
+		// ⚠️ FENETRE GLISSANTE, COMME LE FIL : on perd la plus ancienne, jamais
+		//    la plus recente. Et le sujet voyage AVEC l archive -- sans lui, la
+		//    liste afficherait huit lignes identiques.
+		inline void NkAiArchiver(NkModelerState &st) {
+			if (st.aiFil.Taille() == 0)
+				return; // rien a garder : on n archive pas du vide
+			if (st.aiArchivesN >= NkModelerState::kAiArchives) {
+				for (int32 i = 1; i < NkModelerState::kAiArchives; ++i) {
+					st.aiArchives[i - 1] = st.aiArchives[i];
+					NkAiCopie(st.aiArchivesSujet[i - 1], 80, st.aiArchivesSujet[i]);
+				}
+				st.aiArchivesN = NkModelerState::kAiArchives - 1;
+			}
+			st.aiArchives[st.aiArchivesN] = st.aiFil;
+			NkAiCopie(st.aiArchivesSujet[st.aiArchivesN], 80,
+					  st.aiSujet[0] ? st.aiSujet : "Sans sujet");
+			++st.aiArchivesN;
+		}
+		/// Rouvre une archive. ⚠️ LA CONVERSATION COURANTE EST ARCHIVEE D ABORD :
+		///    rouvrir ne doit jamais faire perdre ce qui etait a l ecran.
+		inline void NkAiRouvrir(NkModelerState &st, int32 i) {
+			if (i < 0 || i >= st.aiArchivesN)
+				return;
+			editorkit::NkAiFil garde = st.aiArchives[i];
+			char sujet[80];
+			NkAiCopie(sujet, sizeof(sujet), st.aiArchivesSujet[i]);
+			// On retire l archive rouverte, puis on archive la courante a sa place.
+			for (int32 k = i + 1; k < st.aiArchivesN; ++k) {
+				st.aiArchives[k - 1] = st.aiArchives[k];
+				NkAiCopie(st.aiArchivesSujet[k - 1], 80, st.aiArchivesSujet[k]);
+			}
+			--st.aiArchivesN;
+			NkAiArchiver(st);
+			st.aiFil = garde;
+			NkAiCopie(st.aiSujet, sizeof(st.aiSujet), sujet);
+			st.aiEnCoursId = 0u;
+			st.aiDefile = 0.f;
+		}
+		/// Vide l historique. ⚠️ IL DOIT ETRE ATTEIGNABLE : un historique qu on ne
+		///    peut pas vider est une dette de vie privee.
+		inline void NkAiViderHistorique(NkModelerState &st) {
+			for (int32 i = 0; i < NkModelerState::kAiArchives; ++i) {
+				st.aiArchives[i].Vider();
+				st.aiArchivesSujet[i][0] = 0;
+			}
+			st.aiArchivesN = 0;
+		}
+
 		// ── LE TOUR, UNE FOIS QUE LA TABLE A REPONDU ────────────────
 		// Appelee par la boucle APRES `NkVpPoserAction` : c'est la table qui sait si
 		// le verbe existe, et `aiMotifEstRefus` porte deja sa reponse. Les compteurs
@@ -473,6 +522,11 @@ namespace nkentseu {
 				p.TextClipped(r.x + pad, yy + S(4.f), hist.x - r.x - pad * 2.f,
 							  st.aiSujet[0] ? st.aiSujet : "Nouvelle conversation", NkRole::Text);
 				const bool ovH = hit.Add("ai.hist", hist);
+				// ⚠️ LE GESTE QUI MANQUAIT. Cette cle etait enregistree et son survol
+				//    LU (il colore l icone) sans que `Clicked` existe nulle part : une
+				//    icone qui s eclaire promet un geste. Elle le tient desormais.
+				if (hit.Clicked("ai.hist"))
+					st.aiHistOuvert = !st.aiHistOuvert;
 				const bool ovN = hit.Add("ai.nouv", nouv);
 				p.IconV(hist.x + S(4.f), yy, kRowH, NkIcon::Journal,
 						ovH ? NkRole::Text : NkRole::TextMuted, 12.f);
@@ -482,12 +536,64 @@ namespace nkentseu {
 					// NOUVELLE CONVERSATION : le fil se vide, le sujet aussi.
 					// ⚠️ Rien d'autre. Elle ne touche pas au maillage : une
 					//    conversation qu'on ferme ne defait pas ce qu'elle a fait.
+					// ⚠️ ON ARCHIVE AVANT DE VIDER. Avant, « nouvelle conversation »
+					//    JETAIT le fil : le travail disparaissait sans recours.
+					NkAiArchiver(st);
 					st.aiFil.Vider();
 					st.aiEnCoursId = 0u;
 					st.aiSujet[0] = 0;
 					st.aiDefile = 0.f;
 				}
 				yy += kRowH + S(4.f);
+				// ── LE POPOVER DE L HISTORIQUE ────────────────────────
+				// ⚠️ IL DIT QUE RIEN NE SURVIT A LA FERMETURE, et ce n est pas une note
+				//    de bas de page : un historique qui s evapore EN SILENCE fait perdre
+				//    du travail qu on croyait garde. La persistance demande un format ;
+				//    tant qu il n existe pas, la phrase remplace la promesse.
+				if (st.aiHistOuvert) {
+					const float32 lh = kRowH;
+					const int32 n = st.aiArchivesN;
+					const float32 hpop = lh * (float32)(n + 2) + S(8.f);
+					const NkRect pop{r.x + pad, yy, r.w - pad * 2.f, hpop};
+					(void)hit.Add("ai.pop", pop); // l emprise : les clics ne traversent pas
+					p.Outline(pop, NkRole::Border, NkRole::PanelHeader, S(4.f));
+					float32 py = pop.y + S(4.f);
+					for (int32 a = n - 1; a >= 0; --a) {
+						char cle[24];
+						snprintf(cle, sizeof(cle), "ai.arch%d", (int)a);
+						const NkRect lr{pop.x + S(2.f), py, pop.w - S(4.f), lh};
+						if (hit.Add(cle, lr))
+							p.Fill(lr, NkRole::InputBg, S(3.f));
+						char lib[120];
+						snprintf(lib, sizeof(lib), "%s   ·   %u bloc(s)", st.aiArchivesSujet[a],
+								 (unsigned)st.aiArchives[a].Taille());
+						p.TextClipped(lr.x + S(6.f), py + S(4.f), lr.w - S(12.f), lib, NkRole::Text);
+						if (hit.Clicked(cle)) {
+							NkAiRouvrir(st, a);
+							st.aiHistOuvert = false;
+						}
+						py += lh;
+					}
+					if (n == 0) {
+						p.TextClipped(pop.x + S(6.f), py + S(4.f), pop.w - S(12.f),
+								 "Aucune conversation archivee.", NkRole::TextMuted);
+						py += lh;
+					}
+					// ⚠️ VIDER DOIT ETRE ATTEIGNABLE. Un historique qu on ne peut pas
+					//    vider est une dette de vie privee.
+					const NkRect vr{pop.x + S(2.f), py, pop.w - S(4.f), lh};
+					if (hit.Add("ai.histvide", vr))
+						p.Fill(vr, NkRole::InputBg, S(3.f));
+					p.TextClipped(vr.x + S(6.f), py + S(4.f), vr.w - S(12.f),
+							 n > 0 ? "Vider l historique" : "Vider l historique (rien a vider)",
+							 n > 0 ? NkRole::AxisX : NkRole::TextMuted);
+					if (n > 0 && hit.Clicked("ai.histvide"))
+						NkAiViderHistorique(st);
+					py += lh;
+					p.TextClipped(pop.x + S(6.f), py + S(2.f), pop.w - S(12.f),
+							 "Les conversations ne survivent pas a la fermeture.", NkRole::TextMuted);
+					yy += hpop + S(4.f);
+				}
 			}
 			p.Fill({r.x + pad, yy, r.w - pad * 2.f, S(1.f)}, NkRole::Border, 0.f);
 			yy += S(6.f);
@@ -531,6 +637,12 @@ namespace nkentseu {
 						 NkRole::TextMuted);
 			} else {
 				editorkit::NkAiMetriques metr;
+				// ⚠️ L ECHELLE DE L HOTE, SANS QUOI LE PANNEAU IGNORE `gUiScale`.
+				//    Toute la mise en page du modeleur passe par `S(px)` ; le kit est en
+				//    pixels bruts. Sans cette ligne le fil resterait a 100 % pendant que
+				//    le reste du panneau grandit -- invisible ici (`gUiScale` = 1), et
+				//    seulement chez quelqu un qui travaille a 125 %.
+				metr.Echelle(S(1.f));
 				editorkit::NkAiFilMesurer(st.aiFil, filR.w, metr, NkAiMesurerTexte, &p, st.aiPlan);
 				NkModelerComponentPaint pc(p);
 				editorkit::NkAiFilPeindre(pc, st.aiFil, st.aiPlan, filR.x, filR.y - st.aiDefile);

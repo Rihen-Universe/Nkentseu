@@ -58,6 +58,14 @@ namespace aiplanprobe {
 		return (float32)n * pas;
 	}
 
+	/// Egalite a 0,01 px pres. ⚠️ Locale : `Pres` existe aussi dans la sonde
+	/// de peinture, et partager un nom entre deux sondes rendrait le jour ou
+	/// l une change son epsilon invisible dans l autre.
+	inline bool PresPlan(float32 a, float32 b) {
+		const float32 d = a - b;
+		return d < 0.01f && d > -0.01f;
+	}
+
 	inline Bilan Sonder() {
 		Bilan b;
 		const NkAiMetriques M;
@@ -376,6 +384,143 @@ namespace aiplanprobe {
 			const bool aEffet = pl.Trouver(id, NkAiPiece::Effet, ef);
 			Essai(b, "22p", aEffet && ef.w > 0.f,
 				"panneau etroit : l'effet est publie quand meme -- la prose cede la premiere");
+		}
+
+		// ════════════════════════════════════════════════════════════
+		// 22q..22v — L EN-TETE ET LE COMPOSEUR
+		// ════════════════════════════════════════════════════════════
+		{
+			// 22q — UNE ICONE NON DECLAREE N EST PAS PUBLIEE. Meme regle que les
+			//       blocs du fil : une horloge qui ouvrirait une liste vide est le
+			//       defaut des dix controles sans usage.
+			NkAiPlan pl;
+			NkAiEnteteDecl muet; // le porteur ne declare RIEN
+			const float32 h = NkAiEnteteMesurer("Revision documents RIHEN SARL", W, 0.f, muet, M, pl);
+			Essai(b, "22q",
+				h > 0.f && !pl.Possede(0u, NkAiPiece::IconeHistorique) &&
+					!pl.Possede(0u, NkAiPiece::IconeNouvelle) &&
+					pl.Possede(0u, NkAiPiece::TitreConversation),
+				"porteur muet : aucune icone publiee, le titre reste");
+		}
+		{
+			// 22r — CONTROLE NEGATIF : declarees, elles apparaissent. Sans lui, un
+			//       en-tete qui ne publierait JAMAIS d icone passerait 22q.
+			NkAiPlan pl;
+			NkAiEnteteDecl d;
+			d.porteHistorique = true;
+			d.porteNouvelle = true;
+			(void)NkAiEnteteMesurer("Sujet", W, 0.f, d, M, pl);
+			NkAiRectPublie ih, inv, ti;
+			const bool a = pl.Trouver(0u, NkAiPiece::IconeHistorique, ih);
+			const bool c = pl.Trouver(0u, NkAiPiece::IconeNouvelle, inv);
+			const bool e = pl.Trouver(0u, NkAiPiece::TitreConversation, ti);
+			Essai(b, "22r", a && c && e && inv.x > ih.x && ih.x > ti.x + ti.w - 1.f,
+				"declarees : historique puis nouvelle, a DROITE du titre");
+		}
+		{
+			// 22s — LE TITRE SE TRONQUE, IL NE REPOUSSE PAS LES ICONES. Un sujet
+			//       long ne doit pas faire disparaitre un geste.
+			NkAiPlan p1, p2;
+			NkAiEnteteDecl d;
+			d.porteHistorique = true;
+			d.porteNouvelle = true;
+			(void)NkAiEnteteMesurer("court", W, 0.f, d, M, p1);
+			(void)NkAiEnteteMesurer("un sujet beaucoup beaucoup beaucoup plus long que la place",
+					   W, 0.f, d, M, p2);
+			NkAiRectPublie a1, a2, t1, t2;
+			(void)p1.Trouver(0u, NkAiPiece::IconeHistorique, a1);
+			(void)p2.Trouver(0u, NkAiPiece::IconeHistorique, a2);
+			(void)p1.Trouver(0u, NkAiPiece::TitreConversation, t1);
+			(void)p2.Trouver(0u, NkAiPiece::TitreConversation, t2);
+			Essai(b, "22s", a1.x == a2.x && t1.w == t2.w,
+				"les icones ne bougent pas avec la longueur du titre");
+		}
+		{
+			// 22t — LA BARRE D ETAT EST RESERVEE ET VIDE. Sa hauteur est retiree de
+			//       la place, donc le fil ne descend pas dessous ; mais AUCUNE piece
+			//       n y est publiee tant que ses elements n ont pas de support.
+			NkAiPlan pl;
+			const float32 y = NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, pl);
+			NkAiRectPublie cad;
+			const bool a = pl.Trouver(0u, NkAiPiece::ComposeurCadre, cad);
+			Essai(b, "22t",
+				a && cad.h == M.composeur + M.barreEtat && y == 1292.f - cad.h - M.margeBas &&
+					y == 1115.f, // la capture, au pixel
+				"barre d etat reservee (37 px), et le sommet retombe sur 1115 -- la capture");
+			printf("         composeur : sommet a %.0f, hauteur %.0f (saisie %.0f + etat %.0f)\n",
+				   (double)y, (double)cad.h, (double)M.composeur, (double)M.barreEtat);
+		}
+		{
+			// 22u — L INVITE N EST PAS DU TEXTE. Un champ vide qui porterait le role
+			//       `Text` se lirait comme un champ rempli.
+			NkAiPlan vide, plein;
+			(void)NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, vide);
+			(void)NkAiComposeurMesurer("subdivise le cube", "Posez votre question", W, 1292.f, M, plein);
+			NkAiRectPublie a, c;
+			const bool x = vide.Trouver(0u, NkAiPiece::ComposeurTexte, a);
+			const bool y2 = plein.Trouver(0u, NkAiPiece::ComposeurTexte, c);
+			Essai(b, "22u", x && y2 && a.role == NkRole::TextMuted && c.role == NkRole::Text,
+				"l invite porte le role ATTENUE, le texte saisi le role plein");
+		}
+		{
+			// 22v — AUCUN MICRO. Il est dans la capture et il n a PAS de support :
+			//       capture audio oui, reconnaissance vocale nulle part. Cet essai
+			//       est ecrit pour TOMBER le jour ou on en dessinerait un sans que
+			//       Rodolf l ait tranche.
+			NkAiPlan pl;
+			(void)NkAiComposeurMesurer("x", "y", W, 1292.f, M, pl);
+			uint32 pieces = 0;
+			for (uint32 i = 0; i < pl.Pieces(); ++i)
+				if (pl.Piece(i).piece != NkAiPiece::ComposeurCadre &&
+					pl.Piece(i).piece != NkAiPiece::Filet &&
+					pl.Piece(i).piece != NkAiPiece::ComposeurTexte)
+					++pieces;
+			Essai(b, "22v", pieces == 0,
+				"le composeur ne publie QUE cadre, filet et texte -- pas de micro");
+		}
+
+		{
+			// 22w — L ECHELLE D INTERFACE. NK3DModeler passe chacune de ses
+			//       longueurs par `S(px) = px * gUiScale`. Le kit est en pixels
+			//       bruts : sans `Echelle()`, le fil resterait a 100 % pendant que
+			//       le reste du panneau grandit.
+			// ⚠️ CET ESSAI N EXISTE QUE PARCE QUE LE DEFAUT EST INVISIBLE ICI :
+			//    `gUiScale` vaut 1 sur cette machine. Il ne se montrerait que chez
+			//    quelqu un qui travaille a 125 %. *Un defaut qui ne se montre que
+			//    chez un autre ne se trouve pas, il se subit.*
+			NkAiFil f;
+			NkAiCapacites cap = NkAiCapacites::Texte();
+			cap.produitOutil = true;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Outil;
+			o.titre = NkString("Bash");
+			o.texte = NkString("une etape");
+			(void)f.Pousser(o, p);
+			NkAiMetriques un, deux;
+			deux.Echelle(2.f);
+			NkAiPlan p1, p2;
+			NkAiFilMesurer(f, 695.f, un, Mesure, nullptr, p1);
+			NkAiFilMesurer(f, 695.f, deux, Mesure, nullptr, p2);
+			const uint32 id = f.At(0).id;
+			NkAiRectPublie a, c;
+			const bool ok = p1.Trouver(id, NkAiPiece::Titre, a) &&
+				  p2.Trouver(id, NkAiPiece::Titre, c);
+			Essai(b, "22w", ok && PresPlan(c.x, a.x * 2.f) && PresPlan(c.h, a.h * 2.f),
+				"a l echelle 2, les retraits et les hauteurs doublent");
+			printf("         titre : x=%.0f h=%.0f a 100%% | x=%.0f h=%.0f a 200%%\n",
+				   (double)a.x, (double)a.h, (double)c.x, (double)c.h);
+		}
+		{
+			// 22x — CONTROLE NEGATIF : `lignesMax` est un COMPTE, pas une longueur.
+			//       La mettre a l echelle afficherait DEUX FOIS PLUS de texte a
+			//       200 % au lieu de l afficher deux fois plus gros.
+			NkAiMetriques deux;
+			const uint32 avant = deux.lignesMax;
+			deux.Echelle(2.f);
+			Essai(b, "22x", deux.lignesMax == avant,
+				"controle negatif : le PLAFOND DE LIGNES ne suit pas l echelle");
 		}
 
 		return b;
