@@ -6,6 +6,40 @@
 
 ---
 
+## 0AA. POUR CELUI QUI REPREND -- LES DEUX PARAGRAPHES A LIRE D'ABORD (20/09)
+
+**CE QUI EST ACQUIS, ET SUR QUOI ON N'A PLUS A REVENIR.** La **fusion de
+reconstructions mono-vue est MORTE et mesuree** : le meilleur accord entre deux
+reconstructions du meme sujet (IoU 0,299) egale le PIRE accord d'un volume avec
+lui-meme tourne au hasard (0,300), et le balayage complet des 360 degres ne
+trouve aucune orientation coherente. Seul reste vivant un modele qui prend
+plusieurs vues EN ENTREE -- chantier d'entrainement, pas d'assemblage. Le
+**corpus de vues existe** : 3 927 modeles, 48 vues (16 azimuts x 3 elevations),
+188 496 vues, 4,7 Go dans `logs_genia3d/corpus_vues`, avec son manifeste JSONL.
+Son **temoin de poses est vert sur toute la course** -- pire p99 = 0,0000 px sur
+une quarantaine de controles, chacun reprojetant par la pose RELUE DU DISQUE et
+reconstruite depuis ses angles, donc aucune pose ne ment. Le **chemin document**
+est clos (99,8 % de valence 4, 0 couture, distorsion p99 1,415, 0 texel de
+recouvrement, bilan ecrit pour Rodolf dans `Livraisons/Resultats_3D/`). Outils
+versés et reutilisables : `rendre_vues_corpus.py` (rasteriseur vectorise x26,4 a
+identite d'OCTETS), `lire_fbx.py` (binaire ET ascii, accorde au triangle pres
+avec un lecteur C++ independant), `mesurer_valence.py`, `mesurer_atlas.py`,
+`garde_plausibilite.py`, `grille_familles.py`.
+
+**CE QUI N'EST PAS FAIT, ET CE QU'IL NE FAUT PAS CROIRE.** La **grille de
+familles EXISTE et passe son epreuve** (information mutuelle 0,246 contre 0,162
+au pire des 20 tirages negatifs) mais elle n'a ete **eprouvee que sur 400
+modeles et n'est PAS appliquee au corpus complet ni inscrite au manifeste** --
+c'est le premier travail court a reprendre. ⚠️ **L'equilibrage a l'entrainement
+doit porter sur `source` ET `texture`**, jamais sur la source seule : quaternius
+est gris a 85,5 % quand kenney est texture a 71,3 %, et un tirage par source
+donnerait un tiers de modeles sans matiere (cf. manifeste §10). Le **gris n'est
+pas une propriete des modeles mais une limite de `lire_fbx.py`**, qui ne lit ni
+UV ni materiaux : le jour ou il les lira, ces modeles-la seront a re-rendre, eux
+seuls. Enfin, **la frontiere de licence de Rodolf (17/08) vit dans le manifeste
+et doit voyager avec les poids** : R&D interne autorisee, produit diffuse =
+rouvrir la question. Trois echecs de rendu restent, nommes, a 0,08 %.
+
 ## 0A. ⚠️ L'ETALON MESHY A DEPLACE LE PROBLEME (19/09) — A LIRE EN PREMIER
 
 **Le probleme des coutures UV n'etait pas le bon probleme.** Mesure sur l'etalon commercial
