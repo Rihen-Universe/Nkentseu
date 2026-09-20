@@ -642,6 +642,37 @@ namespace nkuidesign {
 					res.detail = NkString("document illisible ou structure incoherente");
 					return false;
 				}
+				// ⚠️ UN LECTEUR QUI ACCEPTE EN PERDANT EST PIRE QU'UN LECTEUR QUI
+				//    REFUSE : il eteint l'alarme en meme temps qu'il cause le
+				//    dommage. Mesure du 20/09 : le MEME document a trois noeuds,
+				//    avec `noeud 0` ecrit EN DERNIER, etait ACCEPTE et ne posait
+				//    qu'UN noeud sur trois. Sans un mot.
+				//
+				//    La cause est en amont, et elle est nette : le chargeur n'a
+				//    JAMAIS lu le numero ecrit apres `noeud` -- l'indice vient de
+				//    la POSITION dans le fichier. Un document dont les numeros ne
+				//    suivent pas leur position est donc relu comme un AUTRE
+				//    document, et la reconstruction des liens y fabrique un noeud
+				//    son propre parent.
+				//
+				//    Cette garde ne repare pas cette cause : elle rend impossible
+				//    qu'elle passe en silence. *Les deux comptes sont dans le
+				//    motif, parce qu'un refus qui ne dit pas de combien il manque
+				//    envoie chercher au mauvais endroit.*
+				const uint32 lus = scratch.NodeCount();
+				const uint32 atteignables = SubtreeCount(scratch, 0);
+				if (atteignables != lus) {
+					res.verdict = NkAIVerdict::TexteNonConforme;
+					char b[224];
+					snprintf(b, sizeof(b),
+							 "le document declare %u noeud(s), %u seulement sont relies a la "
+							 "racine : %u seraient PERDUS en silence. Refuse. (les numeros "
+							 "`noeud N` doivent suivre l'ordre d'ecriture)",
+							 (unsigned)lus, (unsigned)atteignables,
+							 (unsigned)(lus - atteignables));
+					res.detail = NkString(b);
+					return false;
+				}
 				res.unknownComponents = unknown;
 				if (unknown > 0 || !NkUIDocument::CanGraft(scratch, 0)) {
 					res.verdict = NkAIVerdict::ComposantInconnu;

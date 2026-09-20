@@ -315,6 +315,7 @@ int main(int argc, char **argv) {
 	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
 	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
 	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
+	const char *migrer = nullptr;  // --migrer=<f> : `enfants` -> `parent`, en place
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
@@ -331,6 +332,8 @@ int main(int argc, char **argv) {
 			sondeHttp = true;
 		else if (CommencePar(argv[a], "--rejouer="))
 			rejouer = argv[a] + 10;
+		else if (CommencePar(argv[a], "--migrer="))
+			migrer = argv[a] + 9;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
 			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
@@ -417,6 +420,58 @@ int main(int argc, char **argv) {
 	//    document est rejete, EST-CE POUR LA RAISON QU'ON CROIT ? Une reponse
 	//    peut echouer sur la STRUCTURE avant meme que le nom des composants
 	//    soit regarde -- et on attribuerait alors le rejet au mauvais gardien.
+	// ── LA MIGRATION `enfants` -> `parent` ───────────────────────────────────
+	// ⚠️ ELLE PASSE PAR LE VRAI LECTEUR ET LE VRAI ECRIVAIN. Un script qui
+	//    transformerait le texte a cote serait une SECONDE ECRITURE de la regle
+	//    de format : elle divergerait au premier champ ajoute, et c'est la faute
+	//    que ce depot a deja payee ailleurs.
+	//
+	// ⚠️ ET ELLE A UN POUVOIR D'ARRET. Elle relit ce qu'elle s'apprete a ecrire
+	//    et compare les comptes AVANT de toucher au fichier : un controle qui
+	//    vit dans la meme commande que l'action n'est une garde que s'il peut
+	//    empecher l'action. Sinon c'est de la decoration.
+	if (migrer) {
+		const NkString txt = NkFile::ReadAllText(NkPath(migrer));
+		if (txt.Size() == 0) {
+			std::printf("MIGRATION : %s est vide ou illisible. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		PeuplerCatalogue();
+		NkUIDocument avant;
+		if (!avant.Load(txt.CStr())) {
+			std::printf("MIGRATION : %s ne se charge pas AVANT migration. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		const uint32 nAvant = avant.NodeCount();
+		NkString apresTexte;
+		avant.Save(apresTexte);
+		NkUIDocument apres;
+		if (!apres.Load(apresTexte.CStr())) {
+			std::printf("MIGRATION : %s -- la relecture de ce qu'on allait ecrire ECHOUE. "
+						"RIEN ecrit.\n", migrer);
+			return 1;
+		}
+		const uint32 nApres = apres.NodeCount();
+		// Les comptes, ET la forme de l'arbre : un meme nombre de noeuds ranges
+		// autrement passerait un simple comptage. *Un compteur egal n'est pas un
+		// arbre identique.*
+		bool memeArbre = (nAvant == nApres);
+		for (uint32 i = 0; memeArbre && i < nAvant; ++i)
+			memeArbre = (avant.nodes[i].parent == apres.nodes[i].parent) &&
+						(avant.nodes[i].children.Size() == apres.nodes[i].children.Size());
+		if (!memeArbre) {
+			std::printf("MIGRATION : %s -- l'arbre CHANGE (%u noeuds avant, %u apres, ou des "
+						"liens differents). RIEN ecrit.\n", migrer, nAvant, nApres);
+			return 1;
+		}
+		if (!NkFile::WriteAllText(NkPath(migrer), apresTexte.CStr())) {
+			std::printf("MIGRATION : %s -- ecriture impossible. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		std::printf("MIGRATION OK : %-58s %u noeuds, arbre identique\n", migrer, nAvant);
+		return 0;
+	}
+
 	if (rejouer) {
 		const NkString txt = NkFile::ReadAllText(NkPath(rejouer));
 		if (txt.Size() == 0) {
