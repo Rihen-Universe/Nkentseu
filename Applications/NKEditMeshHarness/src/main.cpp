@@ -10122,6 +10122,89 @@ static uint32 LoiSelectionnerFaces(NkEditMesh &m, uint32 n, uint32 *outFacesPris
 	return valences;
 }
 
+// =============================================================================
+//  --loi-inset : `inset`, ET LA CONTRE-EPREUVE DE MA PROPRE LOI D'`extrude`
+// =============================================================================
+//  ⚠️ CE BANC COMMENCE PAR M'ACCUSER. J'ai livre la loi d'`extrude:1` --
+//     « faces ajoutees = somme des valences » -- « etablie sur 8 cas ». Or mes
+//     huit maillages etaient TOUT-QUADS, et sur des quads
+//         somme des valences == 4 x (nombre de faces selectionnees)
+//     Les deux formules sont donc INDISCERNABLES sur tout mon jeu d'epreuve :
+//     exactement le defaut que je venais de reprocher a `2 x E`. J'avais ecarte
+//     « 4 x F » par un RAISONNEMENT sur les n-gones, jamais par une mesure.
+//
+//     LE SEPARATEUR : `BuildFromIndexed(..., quadify=false)` rend le MEME cube
+//     en 12 TRIANGLES (valence 3). « Somme des valences » predit alors +3 par
+//     face, « 4 x F » predit +4. Elles divergent la, et nulle part ailleurs.
+//     Attendus ecrits AVANT la mesure : `clbr_INSET_ATTENDUS.md`.
+//
+//  TROIS AXES, pour que chaque paire de candidates se separe quelque part :
+//  topologie (quad / triangule), selection (1, 2, 3, toutes -- partielle
+//  D'EMBLEE, jamais `SelectAll` seul), drapeau `individual`. Plus `depth` sur un
+//  cas, parce que « la profondeur ne change pas les comptes » est une
+//  supposition que je refuse de garder sans l'eprouver.
+static void LoiInsetLigne(const char *op, bool triangule, int32 indiv, uint32 nDemande,
+						  const NkVector<NkVertex3D> &v, const NkVector<uint32> &idx,
+						  float32 depth) {
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), !triangule);
+	uint32 prises = 0;
+	const uint32 valences = LoiSelectionnerFaces(m, nDemande == 0u ? 0xFFFFFFFFu : nDemande, &prises);
+	const uint32 e0 = m.EdgeCount();
+	const uint32 f0 = LoiBevelFacesVivantes(m);
+	bool ok = false;
+	if (op[0] == 'i') {
+		NkInsetParams p;
+		p.individual = (indiv != 0);
+		p.depth = depth;
+		ok = m.InsetSelectedFaces(p);
+	} else {
+		NkExtrudeParams p;
+		p.individual = (indiv != 0);
+		ok = m.ExtrudeSelectedFaces(p);
+	}
+	if (!ok) {
+		printf("  %-8s %-10s %-6d %-7u %-9u %-7u %-8u %-9s %s\n", op,
+			   triangule ? "triangule" : "quad", indiv, prises, valences, e0, f0, "REFUS", "-");
+		return;
+	}
+	const uint32 f1 = LoiBevelFacesVivantes(m);
+	const int32 ajout = (int32)f1 - (int32)f0;
+	// LES TROIS CANDIDATES SONT JUGEES PAR L'INSTRUMENT, ligne par ligne : je ne
+	// veux pas etre celui qui decide laquelle tombe juste.
+	char verdict[48];
+	snprintf(verdict, sizeof(verdict), "A:%s C:%s B:%s", ajout == (int32)valences ? "OK" : "--",
+			 ajout == 4 * (int32)prises ? "OK" : "--", ajout == 2 * (int32)e0 ? "OK" : "--");
+	printf("  %-8s %-10s %-6d %-7u %-9u %-7u %-8u %-9d %s\n", op, triangule ? "triangule" : "quad",
+		   indiv, prises, valences, e0, f0, ajout, verdict);
+}
+
+static int32 LoiInset() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# inset, et la CONTRE-EPREUVE d'extrude sur maillage TRIANGULE\n");
+	printf("# A = somme des valences | C = 4 x nb faces | B = 2 x E\n");
+	printf("# %-8s %-10s %-6s %-7s %-9s %-7s %-8s %-9s %s\n", "op", "topo", "indiv", "n_faces",
+		   "valences", "E_av", "f_avant", "ajoutees", "verdicts");
+	const uint32 ns[4] = {1u, 2u, 3u, 0u}; // 0 = toutes les faces
+	for (int32 tri = 0; tri <= 1; ++tri)
+		for (int32 indiv = 1; indiv >= 0; --indiv)
+			for (int32 k = 0; k < 4; ++k)
+				LoiInsetLigne("inset", tri != 0, indiv, ns[k], v, idx, 0.f);
+	printf("# -- LA CONTRE-EPREUVE : extrude:1 sur les memes topologies --\n");
+	for (int32 tri = 0; tri <= 1; ++tri)
+		for (int32 k = 0; k < 4; ++k)
+			LoiInsetLigne("extrude", tri != 0, 1, ns[k], v, idx, 0.f);
+	printf("# -- `depth` change-t-il les COMPTES ? (supposition mise a l'epreuve) --\n");
+	LoiInsetLigne("inset", false, 1, 1u, v, idx, 0.f);
+	LoiInsetLigne("inset", false, 1, 1u, v, idx, 0.5f);
+	printf("# Si A est OK partout et C fausse sur `triangule` : la loi est la somme\n");
+	printf("#   des valences, et ma livraison d'extrude tient. Si C gagne sur\n");
+	printf("#   triangule : j'ai livre une conviction, et je dois la corriger.\n");
+	return 0;
+}
+
 static int32 LoiExtrude() {
 	NkVector<NkVertex3D> v;
 	NkVector<uint32> idx;
@@ -10240,11 +10323,14 @@ int main(int argc, char **argv) {
 	bool supprXe = false;
 	bool loiBevel = false;
 	bool loiExtrude = false;
+	bool loiInset = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--loi-bevel") == 0)
 			loiBevel = true;
 		else if (strcmp(argv[i], "--loi-extrude") == 0)
 			loiExtrude = true;
+		else if (strcmp(argv[i], "--loi-inset") == 0)
+			loiInset = true;
 		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
@@ -10267,6 +10353,8 @@ int main(int argc, char **argv) {
 		return LoiBevel();
 	if (loiExtrude)
 		return LoiExtrude();
+	if (loiInset)
+		return LoiInset();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)

@@ -285,6 +285,16 @@ namespace nkentseu {
 		//         `extrude:1` INDIVIDUEL -> **LOI ETABLIE, 8 cas sur 8** :
 		//             faces ajoutees = **somme des valences des faces selectionnees**
 		//           (une couronne par COTE de face).
+		//           ⚠️ ELLE A ETE LIVREE LE 20/09 SUR UNE CONVICTION, ET ELLE EST
+		//              DEPUIS **MESUREE**. Les huit premiers cas etaient tous
+		//              TOUT-QUADS, ou « somme des valences » == « 4 x nb faces » :
+		//              les deux formules y sont indiscernables, et j'avais ecarte
+		//              la seconde par un RAISONNEMENT sur les n-gones. Le
+		//              separateur etait a portee -- `BuildFromIndexed(quadify=false)`
+		//              rend le meme cube en 12 TRIANGLES. Verdict : 1/2/3/12
+		//              triangles -> **+3/+6/+9/+36**, soit la somme des valences,
+		//              et « 4 x nb faces » FAUSSE sur les quatre. La loi tient ;
+		//              c'est maintenant une mesure et non plus une opinion.
 		//           ⚠️ CETTE LOI A D'ABORD ETE CONFONDUE AVEC `2 x E`. Sur
 		//              `SelectAll` d'un maillage ferme les deux donnent le MEME
 		//              nombre : le jeu d'epreuve etait trop pauvre pour les
@@ -315,10 +325,34 @@ namespace nkentseu {
 		//               CONDITION DE RETRAIT : que l'hote publie la somme des
 		//               valences de la selection -- alors la garde devient EXACTE
 		//               pour `extrude:1`, sans rien changer d'autre.
-		//      4. `inset[:individuel[:profondeur]]`  **NON MESURE**. Meme forme
-		//         qu'extrude (additif en s, deux lois selon `individuel`). La
-		//         profondeur ne devrait pas changer les COMPTES, seulement les
-		//         positions -- **a verifier, c'est une supposition**.
+		//      4. `inset[:individuel[:profondeur]]`  **NON ETABLI, ET UNE
+		//         ANOMALIE MESUREE** (20/09, selection partielle + maillage
+		//         triangule). Ses chiffres ne se laissent ecrire par AUCUNE des
+		//         trois candidates :
+		//           quad, 1 face  -> +4   (= somme des valences)
+		//           quad, 2 faces -> +24  (la somme vaudrait 8)
+		//           quad, 3 faces -> +24  (la somme vaudrait 12)
+		//           quad, 6 faces -> +24  (= somme des valences)
+		//         et le mode region REFUSE sur 2, 3 et 6 faces.
+		//         ⚠️ +24 = 6 faces x 4 : `inset` a traite TOUT le cube quand on
+		//            lui en designait DEUX. Sur la MEME selection et le MEME
+		//            maillage, `extrude` n'en traite que deux (+8). **Les deux
+		//            operations ne designent pas le meme ensemble de faces a
+		//            partir de la meme selection.**
+		//         ⚠️ DEUX LECTURES, ET JE NE LES SEPARE PAS : soit `inset` resout
+		//            la selection sur l'identite SOUDEE la ou `extrude` la resout
+		//            sur les COINS, soit mon aide de mesure ne marque pas les
+		//            coins coincidents et `inset` les exige. Le FAIT est le meme
+		//            dans les deux cas ; la CAUSE demande une epreuve que je n'ai
+		//            pas faite. Aucune loi n'est donc retenue, et `inset` reste
+		//            sous la regle du quart -- lui inventer une formule alors que
+		//            ses chiffres se contredisent serait le pire des trois choix.
+		//         A EPROUVER ENSUITE : marquer les coins COINCIDENTS dans la
+		//         selection et rejouer les memes lignes. Si l'anomalie disparait,
+		//         c'etait l'instrument ; si elle reste, c'est `inset`.
+		//         ⚠️ `depth` ne change PAS les comptes (0 et 0,5 -> +4 tous les
+		//            deux). C'etait une supposition ; elle est desormais eprouvee,
+		//            sur UN cas.
 		//      5. `bevel[:largeur[:segments]]`  **MESURE le 20/09**, et il etait
 		//         bien le plus gros risque des quatre. DEUX regimes, EXACTS sur
 		//         les dix relevés, sans le moindre residu -- des lois LUES, pas
