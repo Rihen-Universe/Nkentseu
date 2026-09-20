@@ -266,17 +266,32 @@ namespace nkentseu {
 		//      1. `subdivide[:k]`  **MESURE** : faces x 4^k. Mesure du 17/09,
 		//         6 -> 24 pour k=1 et 6 -> 384 pour k=3. C'est la SEULE loi
 		//         etablie, et la seule que la garde predit.
-		//      2. `loopcut:n[:glissement]`  **NON MESURE**. Depend du nombre de
-		//         boucles n (1 a 5) ET de la topologie de la boucle d'aretes
-		//         traversee : un anneau de m quads coupe n fois ajoute ~n*m
-		//         faces. Ce n'est donc PAS un facteur, c'est un ADDITIF qui
-		//         depend de la geometrie -- une loi de la meme forme que
-		//         subdivide serait fausse.
-		//         POUR LA MESURER : partir d'un cube (6 faces), appliquer
-		//         `loopcut:n` pour n = 1..5 sur une selection connue, relever
-		//         faces/sommets/aretes avant et apres a chaque n. Verifier que
-		//         l'ecart est lineaire en n ; s'il ne l'est pas, la loi depend
-		//         d'autre chose et il faut le dire plutot que d'ajuster.
+		//      2. `loopcut:n[:glissement]`  **MESURE le 20/09, 8 relevés VALIDES** :
+		//             faces ajoutees = **n x (faces traversees par la BOUCLE)**
+		//           cube (boucle = 4 faces)      : n=1/2/3/5 -> +4/+8/+12/+20
+		//           cube+sub (boucle = 8 faces)  : n=1/2/3/5 -> +8/+16/+24/+40
+		//           « n x 4 » -- la valeur du cube -- est FAUSSE sur cube+sub : le
+		//           cube seul ne separait pas les deux, il a fallu subdiviser.
+		//           C'est la troisieme fois de la journee que le jeu d'epreuve
+		//           minimal faisait passer deux formules pour une.
+		//         ⚠️ BORNE DE VALIDITE TENUE. Antecedent connu : une arete
+		//            degeneree au glissement 0,999, avec V-E+F = -10 et 4 aretes
+		//            non-manifold. Mesure faite a `slide = 0` uniquement, et
+		//            CHAQUE relevé publie son Euler et son non-manifold :
+		//            **8/8 a Euler = 2 et non-manifold = 0**. Aucun relevé ecarte.
+		//            (Euler juge la topologie sans attendu dicte par nous.)
+		//         ⚠️ ET LA LOI EST INUTILISABLE TELLE QUELLE : « faces de la
+		//            boucle » n'est PAS une grandeur que l'hote publie. Une loi
+		//            juste ecrite avec une grandeur illisible ne garde rien.
+		//            CE QUI EST UTILISABLE : la boucle ne peut pas traverser plus
+		//            de faces qu'il n'en existe, donc
+		//                faces ajoutees <= **n x F**
+		//            -- jamais depassee sur les 8 relevés, et F est publie.
+		//            Lache (cube+sub, n=5 : reel +40, borne +120) mais du bon cote.
+		//         ⚠️ EPREUVE MESUREE : le REPLI (on marque les deux sommets d'une
+		//            arete sans poser d'intention). Ce que fait NK3DModeler pour
+		//            designer son arete n'a pas ete verifie : **rien ici ne porte
+		//            sur ce que voit Rodolf**.
 		//      3. `extrude[:individuelles]`  **MESURE le 20/09**, et il a bien DEUX
 		//         comportements -- le drapeau est un interrupteur de TOPOLOGIE
 		//         (`NkEditMesh.h` : « traite chaque face separement au lieu de la
@@ -677,6 +692,35 @@ namespace nkentseu {
 					prevu *= 4; // LOI MESUREE le 17/09 : x4 par coupe
 				}
 				predit = true;
+			}
+			// ── `loopcut:n` : UNE BORNE, PAS LA LOI ───────────────────────────
+			// ⚠️ LA LOI EST `n x (faces de la BOUCLE)`, mesuree 8/8 sur relevés
+			//    tous valides (Euler = 2, non-manifold = 0). Mais « faces de la
+			//    boucle » n'est PAS publie par l'hote : *une loi juste ecrite
+			//    avec une grandeur illisible ne garde rien.* La boucle ne pouvant
+			//    traverser plus de faces qu'il n'en existe, on borne par `n x F`
+			//    -- jamais depassee sur les 8 relevés, et F est publie. Lache
+			//    (cube+sub, n=5 : reel +40, borne +120), mais du bon cote.
+			if (!predit) {
+				const char *ml = "loopcut";
+				const char *cl = p;
+				while (*ml && *ml == *cl) { ++ml; ++cl; }
+				if (!*ml && (*cl == 0 || *cl == ':')) {
+					int32 n = 1;
+					if (*cl == ':') {
+						++cl;
+						int32 x = 0;
+						bool d = false;
+						for (; *cl >= '0' && *cl <= '9'; ++cl) {
+							x = x * 10 + (int32)(*cl - '0');
+							d = true;
+						}
+						if (d && x >= 1 && x <= 5) // borne du contrat du modeleur
+							n = x;
+					}
+					prevu = facesActuelles + n * facesActuelles;
+					predit = true;
+				}
 			}
 			// ── `extrude` : UNE BORNE HAUTE, ET ELLE COUVRE LES DEUX MODES ────
 			// ⚠️ CE N'EST PAS LA LOI, C'EST UNE BORNE, et la difference se dit.
