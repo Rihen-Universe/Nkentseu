@@ -3488,7 +3488,19 @@ int nkmain(const NkEntryState &entry) {
 				verbe[0] = 0;
 				const bool lisible = reussi && nk3d::NkIaExtraireVerbe(rep.Data(), verbe, sizeof(verbe));
 				const bool connu = lisible && (nk3d::NkVerbeTrouve(verbe) != nullptr);
+				const uint32 nCmd = nk3d::NkIaCompterCommandes(rep.Data());
 				if (connu) {
+					// UN PLAN DE PLUSIEURS COMMANDES : on en execute UNE et on le DIT.
+					// Le contrat autorise desormais un plan sur plusieurs lignes ; le pont,
+					// lui, ne prend qu une action a la fois. Taire les suivantes ferait
+					// executer un tiers de la demande sans que personne ne sache pourquoi.
+					if (nCmd > 1u) {
+						std::printf("[nk3d] IA PLAN : %u commandes proposees, la premiere est"
+								" executee, %s ignoree%s\n",
+								(unsigned)nCmd, (nCmd == 2u) ? "la suivante est" : "les suivantes sont",
+								(nCmd == 2u) ? "" : "s");
+						std::fflush(stdout);
+					}
 					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
 								(unsigned)sIa.envoi.Images(), (double)sIa.envoi.Secondes(), verbe);
 					std::fflush(stdout);
