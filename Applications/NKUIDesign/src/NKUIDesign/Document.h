@@ -2168,6 +2168,12 @@ namespace nkuidesign {
 				variables.Clear(); // 05/09 : aucun des deux ne les vidait -- un chargement gardait les variables du document d'avant
 				modeCourant = NkString();
 				styles.Clear();
+				// ⚠️ LES DEUX SITES, PAS UN. Sans cette remise a zero, un document
+				//    charge apres un autre heriterait de l'en-tete du precedent --
+				//    exactement la faute du `mLastReply` rassis corrigee cette nuit
+				//    dans `DesignAI.h`. *Un etat qu'on ne remet pas a zero se fait
+				//    passer pour une donnee du document suivant.*
+				enTeteCommentaire = NkString("");
 				prov.author = by;
 				// Les deux metriques que tout document possede. Elles existent des la
 				// creation parce qu'un agencement les DESIGNE par leur nom : un document
@@ -3385,12 +3391,34 @@ namespace nkuidesign {
 				WriteOverrides(out, n.instance);
 			}
 
+			/// ⚠️ LE BLOC DE COMMENTAIRES DU DOCUMENT, ET POURQUOI IL EST MEMORISE.
+			///
+			///    Jusqu'au 20/09, `Save` ecrivait TOUJOURS le meme en-tete de
+			///    quatre lignes, et `Load` jetait les lignes `#`. Consequence :
+			///    **chaque enregistrement effacait ce que Rodolf avait ecrit en
+			///    tete de ses documents** -- pas la structure, la RAISON D'ETRE.
+			///
+			///    Le temoin etait dans le depot depuis le 31/08 :
+			///    `demo_ancrage.nkuidoc` expliquait sur sept lignes quel bit du
+			///    widget d'ancrage il prouvait, et `demo_formes.nkuidoc` affirmait
+			///    de lui-meme « Ctrl+S le reenregistre tel quel » -- **ce qui
+			///    etait faux**. *Un document qui enonce un contrat que le code ne
+			///    tient pas est le meilleur temoin qu'on puisse trouver.*
+			///
+			///    Vide -> l'en-tete generique, comme avant, pour les documents
+			///    neufs. Non vide -> on rend ce qu'on a lu, a l'octet.
+			NkString enTeteCommentaire;
+
 			void Save(NkString &out) const {
 				out = NkString("nkuidoc 1\n");
-				out.Append("# Un document NkUIDesign : un ARBRE de composants declares.\n");
-				out.Append("# Aucune coordonnee n'est ecrite ici, et c'est le point : chaque\n");
-				out.Append("# noeud declare sa taille (fixe/extensible/poids, min, max) et\n");
-				out.Append("# l'agencement de ses enfants. La position se CALCULE.\n");
+				if (enTeteCommentaire.Length() > 0) {
+					out.Append(enTeteCommentaire);
+				} else {
+					out.Append("# Un document NkUIDesign : un ARBRE de composants declares.\n");
+					out.Append("# Aucune coordonnee n'est ecrite ici, et c'est le point : chaque\n");
+					out.Append("# noeud declare sa taille (fixe/extensible/poids, min, max) et\n");
+					out.Append("# l'agencement de ses enfants. La position se CALCULE.\n");
+				}
 				out.Append("titre = ");
 				out.Append(title);
 				out.Append('\n');
@@ -3564,6 +3592,12 @@ namespace nkuidesign {
 				variables.Clear(); // 05/09 : aucun des deux ne les vidait -- un chargement gardait les variables du document d'avant
 				modeCourant = NkString();
 				styles.Clear();
+				// ⚠️ LES DEUX SITES, PAS UN. Sans cette remise a zero, un document
+				//    charge apres un autre heriterait de l'en-tete du precedent --
+				//    exactement la faute du `mLastReply` rassis corrigee cette nuit
+				//    dans `DesignAI.h`. *Un etat qu'on ne remet pas a zero se fait
+				//    passer pour une donnee du document suivant.*
+				enTeteCommentaire = NkString("");
 
 				bool sawHeader = false;
 				bool inNode = false;
@@ -3610,6 +3644,23 @@ namespace nkuidesign {
 					while (*p == ' ' || *p == '\t')
 						++p;
 					if (*p == '#' || *p == '\n' || *p == '\r') {
+						// ⚠️ LE BLOC DE TETE EST GARDE, PAS JETE. On ne retient que
+						//    les `#` rencontres AVANT le premier noeud : ce sont
+						//    ceux qui disent a quoi sert le document. Un `#` pose
+						//    plus bas appartient a une ligne precise, et le rendre
+						//    en tete le deplacerait -- *preserver au mauvais
+						//    endroit est une autre facon de perdre*.
+						if (*p == '#' && nodes.Size() == 0 && !dansDecl) {
+							const char *deb = p;
+							SkipLine(p);
+							enTeteCommentaire.Append(deb, (uint32)(p - deb));
+							// `SkipLine` s'arrete APRES le saut de ligne s'il y en
+							// a un ; sinon on le pose, pour que le bloc rendu se
+							// termine toujours par une ligne complete.
+							if (p > deb && *(p - 1) != '\n')
+								enTeteCommentaire.Append("\n");
+							continue;
+						}
 						SkipLine(p);
 						continue;
 					}
