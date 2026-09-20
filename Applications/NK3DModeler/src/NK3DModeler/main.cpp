@@ -3516,6 +3516,59 @@ int nkmain(const NkEntryState &entry) {
 					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
 								(unsigned)sIa.envoi.Images(), (double)sIa.envoi.Secondes(), verbe);
 					std::fflush(stdout);
+					// ── LE PREDICAT, S'IL Y EN A UN : C'EST ICI QUE LA BOUCLE S'ARME ──
+					// ⚠️ ET C'EST LE **SEUL** APPEL AU MODELE. Ce qu'il laisse tient en
+					//    deux choses -- un verbe et une condition -- et il sort. Les
+					//    tours suivants lisent les compteurs de l'hote : ils ne
+					//    quittent pas la machine et ne coutent rien.
+					char jeton[64];
+					st.aiBoucleActive = false;
+					if (nk3d::NkIaTrouverPredicat(rep.Data(), jeton, sizeof(jeton))) {
+						const nk3d::NkIaPredicat pr = nk3d::NkIaLirePredicat(jeton);
+						if (!pr.valide) {
+							// Un `jusqua:` malforme n'est pas une absence de boucle :
+							// c'est une boucle qu'on a refusee. On le DIT, sinon
+							// l'action unique passerait pour ce qui etait demande.
+							char m[192];
+							snprintf(m, sizeof(m),
+									 "Une seule fois : la condition « %s » est illisible "
+									 "(attendu jusqua:quantite:plus|moins:seuil).", jeton);
+							const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus,
+															   "Boucle refusee");
+							nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), m);
+							nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+						} else if (!nk3d::NkIaVerbeBouclable(verbe)) {
+							// ⚠️ LA PORTE REFUSE NOMMEMENT, ET NE SE DEGUISE PAS.
+							//    Le verbe s'execute UNE fois -- l'utilisateur l'a bien
+							//    demande -- mais on ecrit que ce n'est PAS une boucle.
+							//    *Une boucle qui fait toujours exactement un tour est
+							//    une boucle qui ment sur ce qu'elle est.*
+							char m[192];
+							snprintf(m, sizeof(m),
+									 "Une seule fois : « %s » ne deplace aucune quantite "
+									 "mesurable, il ne peut pas boucler (7 verbes sur 26 le "
+									 "peuvent : subdivide, loopcut, extrude, inset, bevel, "
+									 "delete, dissolve).", verbe);
+							const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus,
+															   "Boucle refusee");
+							nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), m);
+							nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+							std::printf("[nk3d] IA BOUCLE REFUSEE : %s\n", m);
+							std::fflush(stdout);
+						} else {
+							st.aiBoucleActive = true;
+							nk3d::NkAiCopie(st.aiBoucleVerbe, sizeof(st.aiBoucleVerbe), verbe);
+							st.aiBoucleQuantite = (uint8)pr.quantite;
+							st.aiBouclePlus = pr.plus;
+							st.aiBoucleSeuil = pr.seuil;
+							st.aiBoucleTour = 0;
+							std::printf("[nk3d] IA BOUCLE ARMEE : « %s » jusqu'a %s %s %d "
+										"(1 seul appel au modele, les tours suivants sont locaux)\n",
+										verbe, nk3d::NkIaQuantiteNom(pr.quantite),
+										pr.plus ? ">" : "<", (int)pr.seuil);
+							std::fflush(stdout);
+						}
+					}
 					nk3d::NkAiCopie(st.aiPending, sizeof(st.aiPending), verbe);
 				} else {
 					// ⚠️ LE REFUS S'AFFICHE, AVEC SON MOTIF, ET LES TROIS CAS NE SE
@@ -3594,6 +3647,13 @@ int nkmain(const NkEntryState &entry) {
 					}();
 					static char invite[16384];
 					nk3d::NkIaEcrireContratDansInvite(invite, sizeof(invite), !sSansContrat);
+					// ⚠️ UN ADDENDUM, PAS UN CINQUIEME CONSTRUCTEUR. Le contrat
+					//    reste ecrit par la fonction ci-dessus, seule autorite ;
+					//    ces huit lignes s'y AJOUTENT. Elles sont le texte MESURE
+					//    par le banc P1/P2 du 20/09 (claude 12/12 et 8/8 ;
+					//    qwen 7/12 et 5/8, avec 3 predicats INVENTES).
+					if (!sSansContrat)
+						nk3d::NkIaEcrireAddendumBoucle(invite, sizeof(invite));
 					const size_t lg = strlen(invite);
 					snprintf(invite + lg, sizeof(invite) - lg, "\nDemande : %s\nCommande :", dem);
 					NkString pourquoi;
@@ -3640,6 +3700,88 @@ int nkmain(const NkEntryState &entry) {
 				st.aiMotifEstRefus ? "REFUS : " : "acceptee",
 				st.aiMotifEstRefus ? st.aiMotif : "", "");
 			std::fflush(stdout);
+			}
+		}
+		// ═════════════════════════════════════════════════════════════════════
+		//  LA BOUCLE — UN TOUR PAR IMAGE, ET LE MODELE N'Y EST PAS
+		// ═════════════════════════════════════════════════════════════════════
+		//  ⚠️ LA CONDITION D'ARRET APPARTIENT A LA BOUCLE, PAS AU MODELE. C'est
+		//     ce que la mesure U7 donnait a 10/10 la ou le modele seul echouait :
+		//     l'application CALCULE le predicat et decide. Le modele a traduit la
+		//     demande en (verbe, predicat) en UN appel, puis il est sorti.
+		//
+		//  ⚠️ LA VALEUR VIENT DES COMPTEURS DE L'HOTE, JAMAIS D'UNE PREDICTION.
+		//     Predire l'etat au lieu de le lire, c'est exactement le defaut que
+		//     le negatif M3-GEL a attrape chez le modele : compter ses tours au
+		//     lieu d'observer.
+		//
+		//  ⚠️ ET ON VERIFIE **AVANT** D'APPLIQUER. Apres coup, le maillage est
+		//     deja a 400 000 faces et la fenetre est deja partie.
+		if (st.aiBoucleActive && !st.aiPending[0] && !sIa.envoi.EnCours()) {
+			uint32 bv = 0, be = 0, bf = 0, bt = 0;
+			const bool lu = demo::Demo3DHostStats(&bv, &be, &bf, &bt);
+			int32 valeur = 0;
+			bool mesurable = lu;
+			switch ((nk3d::NkIaQuantite)st.aiBoucleQuantite) {
+				case nk3d::NkIaQuantite::Faces: valeur = (int32)bf; break;
+				case nk3d::NkIaQuantite::Sommets: valeur = (int32)bv; break;
+				case nk3d::NkIaQuantite::Aretes: valeur = (int32)be; break;
+				case nk3d::NkIaQuantite::Triangles: valeur = (int32)bt; break;
+				case nk3d::NkIaQuantite::Objets:
+					valeur = demo::Demo3DHostObjectCount();
+					mesurable = true; // ne depend pas de Demo3DHostStats
+					break;
+				case nk3d::NkIaQuantite::Selection:
+					valeur = demo::Demo3DHostEditSelCount();
+					mesurable = true;
+					break;
+				default: mesurable = false; break;
+			}
+			char motif[224];
+			motif[0] = 0;
+			nk3d::NkIaPredicat pr;
+			pr.quantite = (nk3d::NkIaQuantite)st.aiBoucleQuantite;
+			pr.plus = st.aiBouclePlus;
+			pr.seuil = st.aiBoucleSeuil;
+			pr.valide = true;
+
+			if (!mesurable) {
+				// ⚠️ NE PAS FABRIQUER UN FAUX SIGNAL. Si l'hote ne rend pas ses
+				//    compteurs (hors mode Edition, par exemple), on ne suppose pas
+				//    zero : on ARRETE en disant qu'on ne mesure pas. Un zero
+				//    invente aurait satisfait « moins de N » instantanement.
+				snprintf(motif, sizeof(motif),
+						 "Boucle arretee : les compteurs de %s ne sont pas lisibles ici "
+						 "(l'hote ne les renseigne qu'en mode Edition).",
+						 nk3d::NkIaQuantiteNom(pr.quantite));
+			} else if (nk3d::NkIaPredicatSatisfait(pr, valeur)) {
+				snprintf(motif, sizeof(motif),
+						 "Objectif atteint en %d tour(s) : %s = %d (%s %d). Aucun appel au "
+						 "modele apres le premier.",
+						 (int)st.aiBoucleTour, nk3d::NkIaQuantiteNom(pr.quantite), (int)valeur,
+						 pr.plus ? ">" : "<", (int)pr.seuil);
+			} else if (st.aiBoucleTour >= st.aiBoucleTourMax) {
+				// Le plafond de TOURS attrape la boucle qui N'AVANCE PAS ; celui
+				// des faces attrape celle qui avance trop. Deux pannes, deux gardes.
+				snprintf(motif, sizeof(motif),
+						 "Boucle arretee apres %d tours : %s = %d n'a pas atteint %d. Le verbe "
+						 "n'avance peut-etre pas sur cette selection.",
+						 (int)st.aiBoucleTour, nk3d::NkIaQuantiteNom(pr.quantite), (int)valeur,
+						 (int)pr.seuil);
+			} else if (!nk3d::NkIaPasSur(st.aiBoucleVerbe, (int32)bf, motif, sizeof(motif))) {
+				// `motif` est deja rempli par la garde : elle nomme le plafond.
+			}
+
+			if (motif[0]) {
+				st.aiBoucleActive = false;
+				const int32 ib = nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "Boucle terminee");
+				nk3d::NkAiCopie(st.aiFil[ib].detail, sizeof(st.aiFil[ib].detail), motif);
+				nk3d::NkAiCopie(st.aiFil[ib].in, sizeof(st.aiFil[ib].in), st.aiBoucleVerbe);
+				std::printf("[nk3d] IA BOUCLE : %s\n", motif);
+				std::fflush(stdout);
+			} else {
+				++st.aiBoucleTour;
+				nk3d::NkAiCopie(st.aiPending, sizeof(st.aiPending), st.aiBoucleVerbe);
 			}
 		}
 		if (st.pendingAction != NkVpAction::None) {

@@ -204,6 +204,303 @@ namespace nkentseu {
 			return false;
 		}
 
+		// =====================================================================
+		//  LA BOUCLE — « fais X jusqu'a ce que Y »
+		// =====================================================================
+		//  ⚠️ CE QUI EST MESURE, ET CE QUI NE L'EST PAS. L'addendum ci-dessous est
+		//     le texte EXACT du banc P1/P2 du 20/09 :
+		//       claude/sonnet : P1 12/12 sur les trois axes, P2 8/8, 0 predicat invente
+		//       qwen2.5:7b    : P1 7/12 (triplet), P2 5/8, 3 predicats INVENTES
+		//     Seuil ecrit d'avance : P1 >= 10 ET P2 >= 6. Claude passe, qwen non.
+		//     ⚠️ CE QUI N'EST PAS MESURE : la sortie A DEUX LIGNES (le verbe PUIS
+		//        le predicat) dans un MEME appel. P1 ne demandait que le predicat,
+		//        le verbe venant de M1 (10/10) dans un appel separe. Les deux
+		//        moities sont mesurees, **leur reunion ne l'est pas.** Elle se
+		//        mesure par 12 appels, et tant que ce n'est pas fait, ce chiffre
+		//        n'existe pas -- ne pas lire le 12/12 de P1 comme s'il couvrait
+		//        cette forme.
+		//
+		//  ⚠️ LE MODELE EST APPELE **UNE FOIS**, PAS UNE FOIS PAR TOUR. Il traduit
+		//     la demande en (verbe, predicat) et sort de la boucle. Ensuite
+		//     l'application applique, LIT ses compteurs, evalue, recommence. Les
+		//     tours suivants ne quittent pas la machine et ne coutent rien.
+		//     C'est la forme que la mesure U7 donnait deja a 10/10 : *la condition
+		//     d'arret appartient a la boucle, pas au modele.*
+
+		/// Les SIX quantites, et elles existent toutes deja dans l'hote.
+		/// Aucune API nouvelle : `Demo3DHostStats` en donne quatre,
+		/// `Demo3DHostObjectCount` et `Demo3DHostEditSelCount` les deux autres.
+		enum class NkIaQuantite : uint8 { Faces = 0, Sommets, Aretes, Triangles, Objets, Selection, Aucune };
+
+		inline NkIaQuantite NkIaQuantiteDuNom(const char *n) {
+			if (!n)
+				return NkIaQuantite::Aucune;
+			struct { const char *nom; NkIaQuantite q; } kT[] = {
+				{"faces", NkIaQuantite::Faces},		  {"sommets", NkIaQuantite::Sommets},
+				{"aretes", NkIaQuantite::Aretes},	  {"triangles", NkIaQuantite::Triangles},
+				{"objets", NkIaQuantite::Objets},	  {"selection", NkIaQuantite::Selection},
+			};
+			for (uint32 i = 0; i < 6u; ++i) {
+				const char *a = kT[i].nom;
+				const char *b = n;
+				while (*a && *a == *b) { ++a; ++b; }
+				if (!*a && !*b)
+					return kT[i].q;
+			}
+			return NkIaQuantite::Aucune;
+		}
+
+		inline const char *NkIaQuantiteNom(NkIaQuantite q) {
+			switch (q) {
+				case NkIaQuantite::Faces: return "faces";
+				case NkIaQuantite::Sommets: return "sommets";
+				case NkIaQuantite::Aretes: return "aretes";
+				case NkIaQuantite::Triangles: return "triangles";
+				case NkIaQuantite::Objets: return "objets";
+				case NkIaQuantite::Selection: return "elements selectionnes";
+				default: return "?";
+			}
+		}
+
+		// ── LES SEPT VERBES, ET C'EST UNE BORNE DU DESIGN ─────────────────────
+		// ⚠️ « fais X jusqu'a Y » n'a de sens que pour un verbe qui DEPLACE une
+		//    quantite mesurable. Sur les 26 du contrat, **7** le font : c'est leur
+		//    role. Les 19 autres basculent un etat (submode*, toggleedit,
+		//    togglexray), cadrent une vue (view*, frameall), pilotent une modale
+		//    (modal*, 6) ou rejouent l'historique (undo/redo -- ils bougent bien
+		//    les compteurs, mais par EFFET DE BORD, et boucler dessus n'a pas de
+		//    sens productif).
+		// ⚠️ LA PORTE REFUSE NOMMEMENT pour les 19 autres. Elle ne se rabat
+		//    SURTOUT PAS sur un tour unique : *une boucle qui fait toujours
+		//    exactement un tour est une boucle qui ment sur ce qu'elle est*, et
+		//    l'utilisateur croirait avoir boucle.
+		inline bool NkIaVerbeBouclable(const char *verbe) {
+			if (!verbe)
+				return false;
+			static const char *kSept[] = {"subdivide", "loopcut", "extrude",
+										  "inset",	   "bevel",	  "delete", "dissolve"};
+			for (uint32 i = 0; i < 7u; ++i) {
+				const char *a = kSept[i];
+				const char *b = verbe;
+				while (*a && *a == *b) { ++a; ++b; }
+				// le verbe peut porter ses parametres : « subdivide:2 » compte
+				if (!*a && (*b == 0 || *b == ':'))
+					return true;
+			}
+			return false;
+		}
+
+		/// Cherche le jeton `jusqua:...` N'IMPORTE OU dans la reponse.
+		/// ⚠️ ON NE COMPTE PAS LES LIGNES. Prendre « la seconde ligne » supposerait
+		///    que la premiere est le verbe et qu'il n'y a ni ligne vide ni ornement
+		///    -- une hypothese sur la mise en forme d'un modele, c'est-a-dire la
+		///    chose qui bouge le plus. On cherche le motif, qui, lui, est a nous.
+		inline bool NkIaTrouverPredicat(const char *reponse, char *dst, uint32 taille) {
+			if (!dst || taille == 0)
+				return false;
+			dst[0] = 0;
+			if (!reponse)
+				return false;
+			for (const char *c = reponse; *c; ++c) {
+				const char *m = "jusqua:";
+				const char *p = c;
+				while (*m && *m == *p) { ++m; ++p; }
+				if (*m)
+					continue;
+				uint32 n = 0;
+				for (const char *q = c; *q && n + 1u < taille; ++q) {
+					const char x = (*q >= 'A' && *q <= 'Z') ? (char)(*q - 'A' + 'a') : *q;
+					const bool ok = (x >= 'a' && x <= 'z') || (x >= '0' && x <= '9') || x == ':' ||
+									x == '.' || x == '-' || x == '_';
+					if (!ok)
+						break;
+					dst[n++] = x;
+				}
+				dst[n] = 0;
+				return n > 0;
+			}
+			return false;
+		}
+
+		struct NkIaPredicat {
+				NkIaQuantite quantite = NkIaQuantite::Aucune;
+				bool plus = true; ///< vrai = « depasser », faux = « descendre sous »
+				int32 seuil = 0;
+				bool valide = false;
+		};
+
+		/// Lit `jusqua:quantite:sens:seuil`. Rend `valide=false` pour `aucune`,
+		/// pour un jeton malforme et pour une quantite inconnue -- TROIS cas que
+		/// l'appelant distingue par ce qu'il a lu, pas par un booleen unique.
+		inline NkIaPredicat NkIaLirePredicat(const char *jeton) {
+			NkIaPredicat p;
+			if (!jeton)
+				return p;
+			// « jusqua: »
+			const char *c = jeton;
+			const char *m = "jusqua:";
+			while (*m && *m == *c) { ++m; ++c; }
+			if (*m)
+				return p; // pas un predicat (c'est `aucune`, ou autre chose)
+			char nom[16];
+			uint32 n = 0;
+			while (*c && *c != ':' && n + 1u < sizeof(nom))
+				nom[n++] = *c++;
+			nom[n] = 0;
+			if (*c != ':')
+				return p;
+			++c;
+			p.quantite = NkIaQuantiteDuNom(nom);
+			if (p.quantite == NkIaQuantite::Aucune)
+				return p;
+			if (*c == 'p')
+				p.plus = true;
+			else if (*c == 'm')
+				p.plus = false;
+			else
+				return p;
+			while (*c && *c != ':')
+				++c;
+			if (*c != ':')
+				return p;
+			++c;
+			// ⚠️ PAS D'atof ICI. En fr-FR, `atof("0.2")` rend 0.0 -- le depot l'a
+			//    deja paye. Un seuil est un ENTIER de comptage : on le lit chiffre
+			//    a chiffre, sans libc et sans locale.
+			int32 v = 0;
+			bool chiffre = false;
+			for (; *c >= '0' && *c <= '9'; ++c) {
+				v = v * 10 + (int32)(*c - '0');
+				chiffre = true;
+				if (v > 100000000)
+					break; // borne de lecture : au-dela, le seuil n'a plus de sens
+			}
+			if (!chiffre)
+				return p;
+			p.seuil = v;
+			p.valide = true;
+			return p;
+		}
+
+		/// Le predicat est-il DEJA satisfait par l'etat qu'on vient de LIRE ?
+		/// ⚠️ `valeur` vient des compteurs de l'hote, jamais d'une prediction.
+		inline bool NkIaPredicatSatisfait(const NkIaPredicat &p, int32 valeur) {
+			return p.plus ? (valeur > p.seuil) : (valeur < p.seuil);
+		}
+
+		// ── LE PLAFOND ABSOLU, ET IL SE VERIFIE **AVANT** LE PAS ──────────────
+		// ⚠️ J'AVAIS ECRIT QUE CE GARDE-FOU DEVENAIT INUTILE. C'ETAIT FAUX, et la
+		//    correction est du coordinateur : sortir le modele de la boucle borne
+		//    le depassement « a un pas » -- mais **un pas de `subdivide` est
+		//    MULTIPLICATIF**. Mesure du 17/09 : 6 -> 24 pour `subdivide`, 6 -> 384
+		//    pour `subdivide:3`, soit x4^k. « Borne par un pas » veut donc dire
+		//    « borne par 4x le seuil », pas « borne ». Et la loi n'est pas la meme
+		//    selon le verbe : `extrude` n'ajoute pas comme `subdivide` multiplie.
+		//    **Deux verbes, deux lois de croissance, une seule phrase « un pas ».**
+		//
+		// ⚠️ ET LA VERIFICATION EST DECALEE D'UN CRAN : AVANT d'appliquer, pas
+		//    apres. Apres coup le maillage est deja a 400 000 faces et la fenetre
+		//    est deja partie ; le constat arrive trop tard pour servir a quoi que
+		//    ce soit.
+		//
+		// ⚠️ LA MENACE A CHANGE DE CAMP, LE GARDE-FOU RESTE. Il ne protege plus du
+		//    MODELE qui choisissait `subdivide:10` -- le modele n'est plus dans la
+		//    boucle. Il protege du PAS LUI-MEME. Retirer un garde-fou parce que la
+		//    menace a change de camp est une faute que ce depot a deja payee.
+		//
+		// CONDITION DE RETRAIT : le jour ou chaque verbe bouclable publie sa loi
+		// de croissance MESUREE, cette borne peut devenir une prediction exacte
+		// par verbe. Tant que UNE SEULE loi est mesuree (subdivide), elle reste.
+		inline int32 NkIaPlafondFaces() {
+			static int32 sPlafond = -1;
+			if (sPlafond < 0) {
+				sPlafond = 2000000; // 2 M faces : au-dela, l'interactivite est perdue
+				if (const char *v = std::getenv("NK_AI_BOUCLE_PLAFOND")) {
+					int32 x = 0;
+					for (const char *c = v; *c >= '0' && *c <= '9'; ++c)
+						x = x * 10 + (int32)(*c - '0');
+					if (x > 0)
+						sPlafond = x;
+				}
+			}
+			return sPlafond;
+		}
+
+		/// Le pas est-il SUR a appliquer ? `motif` recoit la raison du refus.
+		/// ⚠️ UNE SEULE LOI DE CROISSANCE EST MESUREE, ET JE NE PREDIS QUE
+		///    CELLE-LA. Pour `subdivide:k`, le resultat est exactement
+		///    `faces * 4^k` (mesure du 17/09). Pour les six autres verbes
+		///    bouclables, **je n'ai aucune loi mesuree** : je refuse donc de
+		///    predire, et j'applique une regle conservatrice -- ne pas faire un
+		///    pas de plus quand on est deja au quart du plafond. C'est une
+		///    HYPOTHESE, elle est ecrite ici, et elle se remplace par une mesure.
+		inline bool NkIaPasSur(const char *verbe, int32 facesActuelles, char *motif, uint32 taille) {
+			const int32 plafond = NkIaPlafondFaces();
+			int32 prevu = facesActuelles;
+			bool predit = false;
+			const char *p = verbe ? verbe : "";
+			const char *m = "subdivide";
+			const char *c = p;
+			while (*m && *m == *c) { ++m; ++c; }
+			if (!*m && (*c == 0 || *c == ':')) {
+				int32 k = 1;
+				if (*c == ':') {
+					++c;
+					int32 x = 0;
+					bool d = false;
+					for (; *c >= '0' && *c <= '9'; ++c) { x = x * 10 + (int32)(*c - '0'); d = true; }
+					if (d && x >= 1 && x <= 10)
+						k = x;
+				}
+				prevu = facesActuelles;
+				for (int32 i = 0; i < k; ++i) {
+					if (prevu > plafond) break;
+					prevu *= 4; // LOI MESUREE le 17/09 : x4 par coupe
+				}
+				predit = true;
+			}
+			if (predit && prevu > plafond) {
+				snprintf(motif, taille,
+						 "Boucle arretee : le prochain pas porterait le maillage a environ %d faces, "
+						 "au-dela du plafond de %d (NK_AI_BOUCLE_PLAFOND).",
+						 prevu, plafond);
+				return false;
+			}
+			if (!predit && facesActuelles > plafond / 4) {
+				// L'HYPOTHESE, DITE A L'UTILISATEUR PLUTOT QUE CACHEE.
+				snprintf(motif, taille,
+						 "Boucle arretee a %d faces : la croissance de « %s » n'est pas mesuree, "
+						 "on ne franchit pas le quart du plafond de %d a l'aveugle.",
+						 facesActuelles, p, plafond);
+				return false;
+			}
+			return true;
+		}
+
+		/// L'ADDENDUM — les MEMES lignes que le banc P1/P2, plus la demande du
+		/// verbe. ⚠️ CE N'EST PAS UN CINQUIEME CONSTRUCTEUR D'INVITE : il
+		/// s'APPEND a `NkIaEcrireContratDansInvite`, qui reste l'autorite unique.
+		inline void NkIaEcrireAddendumBoucle(char *dst, uint32 taille) {
+			if (!dst)
+				return;
+			uint32 n = 0;
+			while (n < taille && dst[n])
+				++n;
+			auto ajout = [&](const char *s) {
+				while (*s && n + 1u < taille)
+					dst[n++] = *s++;
+				dst[n] = 0;
+			};
+			ajout("\nSi la demande dit de REPETER une operation JUSQU'A une condition CHIFFREE,\n");
+			ajout("reponds en DEUX LIGNES :\n");
+			ajout("ligne 1 : la commande a repeter (un verbe du tableau ci-dessus)\n");
+			ajout("ligne 2 : jusqua:quantite:sens:seuil\n");
+			ajout("quantite est l'un de : faces, sommets, aretes, triangles, objets, selection\n");
+			ajout("sens est  plus  (depasser le seuil) ou  moins  (descendre sous le seuil)\n");
+			ajout("Si la demande ne porte AUCUNE condition chiffree et mesurable, n'ecris pas\n");
+			ajout("de seconde ligne.\n");
+		}
+
 		// ── LE DORSAL, ET IL EST UN REGLAGE ────────────────────────────────────
 		// `NK_IA_CMD` porte le gabarit, deux trous `{invite}` et `{sortie}`.
 		// Absent, on compose un defaut a partir de `NK_IA_PYTHON` (sinon
