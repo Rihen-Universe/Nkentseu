@@ -190,6 +190,12 @@ namespace nkentseu {
 
 		// ── UN BLOC ─────────────────────────────────────────────────────────────
 		struct NkAiBlocDonnees {
+				/// IDENTIFIANT STABLE, pose par `Pousser` et jamais reutilise.
+				/// ⚠️ C'EST LUI QUI DESIGNE, JAMAIS LA POSITION. La fenetre
+				///    glissante decale les indices sans que personne n'insere rien :
+				///    un indice releve au clic peut designer un autre bloc a
+				///    l'image suivante. 0 = pas encore entre dans un fil.
+				uint32 id = 0;
 				NkAiBloc type = NkAiBloc::Prose;
 				/// Le nom de l'outil (`Bash`), ou vide. Court, il se lit en gras.
 				NkString titre;
@@ -245,6 +251,12 @@ namespace nkentseu {
 					if (!Complet(b, pourquoi))
 						return false;
 					NkAiBlocDonnees c = b;
+					// L'identifiant est pose ICI et nulle part ailleurs : un bloc
+					// construit par l'appelant n'en a pas, et c'est l'entree dans le
+					// fil qui le lui donne. `mProchainId` ne redescend jamais, meme
+					// apres `Vider` -- un identifiant reutilise apres une nouvelle
+					// conversation ferait basculer un bloc de l'ancienne.
+					c.id = ++mProchainId;
 					// La demande n'est JAMAIS repliee : c'est la question.
 					if (c.type == NkAiBloc::Demande)
 						c.replie = false;
@@ -278,9 +290,49 @@ namespace nkentseu {
 				const NkAiBlocDonnees &At(uint32 i) const {
 					return mBlocs[i];
 				}
-				void Basculer(uint32 i) {
-					if (i < (uint32)mBlocs.Size() && mBlocs[i].type != NkAiBloc::Demande)
-						mBlocs[i].replie = !mBlocs[i].replie;
+				// ⚠️ CORRECTIF DU 20/09 AU SOIR — J'AI LIVRE CETTE FAUTE LA VEILLE.
+				//    `Basculer(uint32 i)` designait un bloc PAR SA POSITION. Et la
+				//    fenetre glissante de ce meme fichier DECALE toutes les
+				//    positions : des qu'un bloc entre dans un fil plein, `Erase` sort
+				//    le plus ancien et l'indice 3 ne designe plus le meme bloc.
+				//
+				//    Le chemin exact du defaut : le peintre releve « l'utilisateur a
+				//    clique le bloc 3 », une reponse arrive dans le meme intervalle,
+				//    le fil glisse, et c'est un AUTRE bloc qui se deplie. Rien ne le
+				//    dit -- l'utilisateur croit avoir mal vise.
+				//
+				//    C'est la faute que le depot a payee TROIS FOIS le 20/09 sur le
+				//    chantier sculpture (pastille du rail, catalogue de brosses,
+				//    brosse active), et une de plus sur `--demo=2`. *Un indice est
+				//    vrai jusqu'a ce que quelqu'un insere quelque chose avant.* Ici
+				//    PERSONNE N'INSERE : le fil se vide par le haut tout seul. C'est
+				//    pire, parce qu'aucune relecture de code ne montre l'insertion
+				//    coupable -- il n'y en a pas.
+				//
+				//    Chaque bloc porte donc un IDENTIFIANT STABLE, pose a l'entree et
+				//    jamais reutilise. `At(i)` reste -- peindre PARCOURT le fil dans
+				//    l'ordre, c'est legitime -- mais tout ce qui DESIGNE passe par le
+				//    nom.
+				void BasculerParId(uint32 id) {
+					for (usize i = 0; i < mBlocs.Size(); ++i)
+						if (mBlocs[i].id == id) {
+							if (mBlocs[i].type != NkAiBloc::Demande)
+								mBlocs[i].replie = !mBlocs[i].replie;
+							return;
+						}
+					// Aucun bloc sous cet identifiant : il a quitte la fenetre. On ne
+					// bascule RIEN plutot qu'un voisin -- un repli au hasard serait
+					// pire qu'un geste sans effet, l'utilisateur croirait avoir vu.
+				}
+				/// Rend `false` si l'identifiant a quitte la fenetre glissante. Le
+				/// peintre s'en sert pour ne pas dessiner un survol sur un disparu.
+				bool TrouverParId(uint32 id, uint32 &indexOut) const {
+					for (usize i = 0; i < mBlocs.Size(); ++i)
+						if (mBlocs[i].id == id) {
+							indexOut = (uint32)i;
+							return true;
+						}
+					return false;
 				}
 				/// ⚠️ `Vider` NE REMET PAS `NonVus()` A ZERO EN LE MENTANT : il
 				///    aligne les deux compteurs. Une nouvelle conversation n'a rien
@@ -347,6 +399,7 @@ namespace nkentseu {
 				NkVector<NkAiBlocDonnees> mBlocs;
 				NkAiCapacites mCap;
 				uint32 mPlafond = kPlafondDefaut;
+				uint32 mProchainId = 0;
 				uint32 mPousses = 0;
 				uint32 mVus = 0;
 		};
