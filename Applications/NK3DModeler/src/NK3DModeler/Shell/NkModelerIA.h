@@ -277,37 +277,44 @@ namespace nkentseu {
 		//         faces/sommets/aretes avant et apres a chaque n. Verifier que
 		//         l'ecart est lineaire en n ; s'il ne l'est pas, la loi depend
 		//         d'autre chose et il faut le dire plutot que d'ajuster.
-		//      3. `extrude[:individuelles]`  **MESURE A MOITIE le 20/09**, et la
-		//         moitie manquante est DITE, pas devinee. Le drapeau est bien un
-		//         interrupteur de TOPOLOGIE et non un confort (`NkEditMesh.h` :
-		//         « traite chaque face separement au lieu de la region ») :
+		//      3. `extrude[:individuelles]`  **MESURE le 20/09**, et il a bien DEUX
+		//         comportements -- le drapeau est un interrupteur de TOPOLOGIE
+		//         (`NkEditMesh.h` : « traite chaque face separement au lieu de la
+		//         region »).
 		//
-		//         `extrude:1` INDIVIDUEL -> **MESURE, exact sur trois maillages**
-		//             faces ajoutees = **2 x E**
-		//           Relevés : F=6/E=12 -> +24 ; F=24/E=48 -> +96 ;
-		//                     F=96/E=192 -> +384.
-		//           ⚠️ POURQUOI `2 x E` ET NON `4 x F`, QUI TOMBE AUSSI JUSTE ICI.
-		//              Les deux coincident SEULEMENT parce que ces maillages sont
-		//              tout-quads et FERMES (E = 2F). La forme vraie est « somme
-		//              des valences des faces selectionnees » -- une couronne par
-		//              COTE de face -- et cette somme vaut 2E quand toutes les
-		//              faces d'un maillage ferme sont prises. `4 x F` supposerait
-		//              des quads partout et SOUS-ESTIMERAIT sur des n-gones : pour
-		//              un plafond, sous-estimer est le mauvais sens. On garde 2E.
-		//           ⚠️ Sur une selection PARTIELLE, `2E` SURESTIME (les faces non
-		//              selectionnees ne produisent rien) -- bon sens pour une garde.
+		//         `extrude:1` INDIVIDUEL -> **LOI ETABLIE, 8 cas sur 8** :
+		//             faces ajoutees = **somme des valences des faces selectionnees**
+		//           (une couronne par COTE de face).
+		//           ⚠️ CETTE LOI A D'ABORD ETE CONFONDUE AVEC `2 x E`. Sur
+		//              `SelectAll` d'un maillage ferme les deux donnent le MEME
+		//              nombre : le jeu d'epreuve etait trop pauvre pour les
+		//              separer. Il a fallu ecrire la SELECTION PARTIELLE pour les
+		//              departager -- la somme des valences suit le nombre de faces
+		//              prises, `2E` ne bouge pas. Relevés : 1/2/3/6 faces ->
+		//              +4/+8/+12/+24, sur deux maillages. *Deux formules qui
+		//              s'accordent sur tout le jeu ne sont pas la meme loi.*
 		//
-		//         `extrude` / `extrude:0` REGION -> **NON ETABLI**, et le protocole
-		//           dit POURQUOI il ne pouvait pas l'etablir : le mode region ne
-		//           fabrique sa bande que sur les aretes de BORD de la selection,
-		//           or `SelectAll` sur un maillage ferme donne une region SANS
-		//           BORD. Les chiffres obtenus (F=6 -> +24 ; F=24 -> +48 ;
-		//           F=96 -> +96) ne sont proportionnels ni a F (rapport 4, 2, 1)
-		//           ni a E : ils mesurent le cas degenere, pas la loi.
-		//           POUR L'ETABLIR : faire varier le nombre d'aretes de BORD de la
-		//           region, donc selectionner PARTIELLEMENT -- ce que le harnais ne
-		//           sait pas encore faire. *Une mesure qui ne peut pas faire varier
-		//           le facteur decisif n'etablit pas sa loi.*
+		//         `extrude` / `extrude:0` REGION -> **TOUJOURS PAS UNE LOI**, mais
+		//           ce n'est plus l'inconnu total. Mesure sur selection partielle :
+		//           il vaut la somme des valences quand les faces prises ne se
+		//           touchent pas, et MOINS des qu'elles se touchent (cube+sub,
+		//           2/3/6 faces -> +6/+8/+14 contre +8/+12/+24). La forme « aretes
+		//           de BORD de la region » colle a cube+sub et NON au cube -- je ne
+		//           la retiens donc pas : *ajuster une formule sur la moitie des
+		//           points qui l'arrange est exactement ce qu'on s'interdit.*
+		//
+		//         ⚠️ CE QUI EST ACQUIS POUR LA GARDE, ET QUI SUFFIT : sur les 22
+		//            relevés, **region <= individuel <= 2 x E**. La borne haute
+		//            couvre donc les DEUX modes, et elle s'ecrit avec une grandeur
+		//            que l'hote publie deja. C'est ce que `NkIaPasSur` utilise.
+		//            ⚠️ ET ELLE EST TRES LACHE sur une selection partielle :
+		//               cube+sub, une face -> reel +4, borne +96. Elle refusera
+		//               donc des boucles legitimes bien avant le danger. Le sens de
+		//               l'erreur est le bon (on surestime, on ne laisse pas
+		//               passer), mais le cout est reel.
+		//               CONDITION DE RETRAIT : que l'hote publie la somme des
+		//               valences de la selection -- alors la garde devient EXACTE
+		//               pour `extrude:1`, sans rien changer d'autre.
 		//      4. `inset[:individuel[:profondeur]]`  **NON MESURE**. Meme forme
 		//         qu'extrude (additif en s, deux lois selon `individuel`). La
 		//         profondeur ne devrait pas changer les COMPTES, seulement les
@@ -637,18 +644,27 @@ namespace nkentseu {
 				}
 				predit = true;
 			}
-			// ── `extrude:1` : LA MOITIE MESUREE, ET ELLE SEULE ────────────────
-			// ⚠️ UNIQUEMENT LE MODE INDIVIDUEL. `extrude` seul et `extrude:0` sont
-			//    le mode REGION, dont la loi n'est PAS etablie (voir la liste en
-			//    tete) : le predire reviendrait a inventer un chiffre. Ils tombent
-			//    donc dans la regle du quart, exactement comme avant.
+			// ── `extrude` : UNE BORNE HAUTE, ET ELLE COUVRE LES DEUX MODES ────
+			// ⚠️ CE N'EST PAS LA LOI, C'EST UNE BORNE, et la difference se dit.
+			//    La loi d'`extrude:1` est la somme des valences des faces
+			//    selectionnees (etablie sur 8 cas) ; celle du mode REGION n'est
+			//    PAS etablie. Mais les 22 relevés donnent
+			//        region <= individuel <= 2 x E
+			//    et `2 x E` s'ecrit avec une grandeur que l'hote publie, la ou la
+			//    somme des valences de la SELECTION ne l'est pas. Les deux modes
+			//    passent donc par la meme borne -- c'est le mode region qui y
+			//    gagne, lui qui tombait jusqu'ici dans la regle du quart, aveugle.
+			// ⚠️ ET ELLE EST LACHE : cube+sub, une seule face -> reel +4, borne
+			//    +96. Elle refusera des boucles legitimes bien avant le danger. On
+			//    l'accepte parce que le SENS de l'erreur est le bon -- surestimer
+			//    arrete trop tot, sous-estimer laisse passer l'explosion -- et
+			//    parce qu'elle se resserrera d'elle-meme le jour ou l'hote
+			//    publiera la somme des valences de la selection.
 			if (!predit && aretes > 0) {
-				const char *me = "extrude:1";
+				const char *me = "extrude";
 				const char *ce = p;
 				while (*me && *me == *ce) { ++me; ++ce; }
-				if (!*me && *ce == 0) {
-					// faces ajoutees = 2 x E (somme des valences des faces prises).
-					// SURESTIME sur une selection partielle -- bon sens pour une garde.
+				if (!*me && (*ce == 0 || *ce == ':')) {
 					prevu = facesActuelles + 2 * aretes;
 					predit = true;
 				}
