@@ -237,6 +237,16 @@ namespace {
 		NkString invite;
 		NkDesignAI::BuildPrompt("<la demande de l'utilisateur, en francais>", invite);
 		out.Append(invite);
+		// ⚠️ LE CONTRAT DOIT DIRE OU ARRIVE LA DEMANDE, sinon il ment par
+		//    omission. Depuis le 20/09 elle n'est plus en tete de l'invite : elle
+		//    est RAPPELEE EN DERNIER, apres le catalogue et le document courant
+		//    (mesure : sur un document de 42 noeuds, le document occupait 84 % de
+		//    l'invite et le modele y repondait au lieu de la demande).
+		//    Un modele distant qui ne voit QUE ce fichier doit le savoir.
+		out.Append("\nORDRE DE L'INVITE : ce format d'abord, puis le catalogue, puis le\n");
+		out.Append("document courant s'il y en a un, et EN DERNIER la demande, sous\n");
+		out.Append("`--- ce que je te demande maintenant ---`. C'est a CELLE-LA qu'on\n");
+		out.Append("repond ; le document courant est un contexte, pas une question.\n");
 
 		out.Append("\n## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants\n");
 		out.Append("# Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais\n");
@@ -506,6 +516,16 @@ int main(int argc, char **argv) {
 		PeuplerCatalogue();
 		NkUIDocument docR;
 		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		// ⚠️ LE REJEU PEUT DESORMAIS PARTIR D'UN DOCUMENT. Sans ca il ne pouvait
+		//    pas eprouver un INCREMENT : un delta n'a de sens que contre un
+		//    document existant, et le rejeu aurait mesure le mauvais chemin.
+		if (documentBase && *documentBase) {
+			const NkString dt = NkFile::ReadAllText(NkPath(documentBase));
+			if (dt.Size() == 0 || !docR.Load(dt.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
 		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
 		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
 		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
