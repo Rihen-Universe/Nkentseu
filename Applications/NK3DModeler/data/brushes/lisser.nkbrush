@@ -1,0 +1,48 @@
+# =============================================================================
+# Lisser -- la deuxieme PRIMITIVE, et pas seulement une troisieme brosse.
+#
+# `dessiner` et `creuser` ne different que par « sens » : meme geste, deux
+# directions. Celle-ci fait autre chose. Elle ne pousse la matiere dans aucune
+# direction imposee : elle rapproche chaque sommet de la MOYENNE DE SES VOISINS.
+# C'est pour ca qu'elle valait d'etre la deuxieme -- une brosse de plus qui
+# n'aurait fait que changer de direction n'aurait rien prouve du mecanisme.
+#
+# CE QUE « force » VEUT DIRE ICI, ET CE N'EST PAS LA MEME CHOSE QU'AILLEURS :
+# pour `dessiner`, c'est une DISTANCE (mise a l'echelle du rayon). Pour
+# `lisser`, c'est la FRACTION du chemin parcouru vers la moyenne, a chaque
+# tampon. 0.5 = on fait la moitie du chemin. Au-dela de 1, le sommet
+# DEPASSERAIT la moyenne et le lissage se mettrait a osciller : le code borne
+# donc le pas a 1. Ce n'est pas une precaution de confort, c'est la condition
+# de convergence du schema.
+#
+# ET « sens = -1 » NE DONNE PAS UN « ANTI-LISSAGE » ABSURDE : il ELOIGNE de la
+# moyenne, donc il accentue le relief au lieu de l'adoucir. La meme formule
+# prise a rebours. Faites-en une brosse « durcir » en copiant ce fichier.
+# =============================================================================
+
+nkbrush 1
+
+nom = lisser
+libelle = Lisser
+icone = brush
+
+# La primitive. « lisser » = tirer vers la moyenne des voisins.
+operation = lisser
+
+profil = doux
+
+rayon = 0.30
+force = 0.5
+durete = 0.5
+
+# +1 rapproche de la moyenne (adoucit), -1 en eloigne (durcit).
+sens = 1
+
+espacement = 0.25
+
+# Un lissage se travaille par petites touches repetees : la plage utile de la
+# force est donc plus BASSE que celle d'une brosse qui depose de la matiere.
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0

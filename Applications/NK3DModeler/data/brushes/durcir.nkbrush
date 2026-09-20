@@ -1,0 +1,38 @@
+# =============================================================================
+# Durcir -- LA PREUVE QUE LA REGLE DE RODOLF TIENT.
+#
+# « Une brosse ne peut pas etre une enumeration, car on sera amenes a en creer
+#  d'autres plus tard, ou a ajouter des brosses SANS AVOIR A RECOMPILER. »
+#
+# Ce fichier est depose APRES la construction du binaire. Aucune ligne de C++
+# n'a ete ecrite pour lui, aucune enumeration n'a ete etendue : il reutilise la
+# primitive `lisser` avec « sens = -1 », ce qui ELOIGNE chaque sommet de la
+# moyenne de ses voisins au lieu de l'en rapprocher. Le relief s'accentue.
+#
+# C'est la meme formule prise a rebours -- et c'est exactement ce qu'une brosse
+# en DONNEES doit permettre : une intention nouvelle sans code nouveau.
+# =============================================================================
+
+nkbrush 1
+
+nom = durcir
+libelle = Durcir
+icone = brush
+
+operation = lisser
+
+profil = doux
+
+rayon = 0.25
+force = 0.35
+durete = 0.6
+
+# -1 : on s'ECARTE de la moyenne. Le relief se marque au lieu de s'adoucir.
+sens = -1
+
+espacement = 0.25
+
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0

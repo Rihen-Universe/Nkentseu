@@ -439,9 +439,24 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		Check(!r.applied && moved == 0, label, "aucun bit ne doit changer");
 	}
 
-	// ── [direction] LES DEUX SENS ───────────────────────────────────────────
+	// -- [direction] LES DEUX SENS ----------------------------------------
 	// Exiger les DEUX est ce qui distingue une vraie brosse d'un tirage a pile
 	// ou face : un defaut qui pousse toujours dans le meme sens en echoue un.
+	//
+	// [!] MAIS CES CRITERES SUPPOSENT LA PRIMITIVE, ET LE BANC L'IGNORAIT.
+	//     « suit la normale » et « le volume gonfle » decrivent
+	//     NK_SCULPT_OP_NORMAL, pas une brosse quelconque. Le jour ou `lisser`
+	//     est entree dans le registre, ils ont rougi 24 fois -- sur une
+	//     primitive qui fonctionne : un lissage ne suit AUCUNE direction
+	//     imposee (il vise la moyenne des voisins) et il RETRECIT au lieu de
+	//     gonfler (dV = -0,111 sur le cube, ce qui est son comportement juste).
+	//
+	//     C'est la meme faute que le cylindre et le tore ont deja values a ce
+	//     banc : *un critere dont la condition n'est pas verifiee rougit sur du
+	//     code sain*. On ne les affaiblit pas et on ne les supprime pas -- on
+	//     ecrit la condition sous laquelle ils veulent dire quelque chose.
+	const bool dirImposee = (b.op == NkSculptOp::NK_SCULPT_OP_NORMAL);
+
 
 	float32 volPlus = 0.f, volMinus = 0.f;
 	{
@@ -454,15 +469,23 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const uint32 wrongUp = CountAgainstNormal(m, before, +1.f);
 		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongUp, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s sens=+1 suit la normale", primName, b.name);
-		Check(r.applied && wrongUp == 0, label, det);
+		if (dirImposee)
+			Check(r.applied && wrongUp == 0, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 
 		// VOLUME SIGNE -- CONDITIONNEL. Il ne veut dire "la matiere est sortie"
 		// que sur une surface fermee et orientee sortante. On l'annonce comme
 		// non applicable plutot que de le faire passer pour vert.
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volPlus, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s volume sens=+1 gonfle", primName, b.name);
-		if (closedAndOutward)
+		// [!] DEUX conditions, pas une : la surface doit s'y preter ET la
+		//     primitive doit deplacer le long d'une direction imposee. Un
+		//     lissage RETRECIT (dV<0) sans etre faux pour autant.
+		if (closedAndOutward && dirImposee)
 			Check(r.applied && volPlus > 0.f, label, det);
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 		else
 			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 
@@ -504,22 +527,36 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const uint32 wrongDn = CountAgainstNormal(m, before, -1.f);
 		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongDn, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s sens=-1 suit la normale", primName, b.name);
-		Check(r.applied && wrongDn == 0, label, det);
+		if (dirImposee)
+			Check(r.applied && wrongDn == 0, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volMinus, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s volume sens=-1 creuse", primName, b.name);
-		if (closedAndOutward)
+		if (closedAndOutward && dirImposee)
 			Check(r.applied && volMinus < 0.f, label, det);
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 		else
 			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 		Restore(m, before);
 	}
 
-	// ── [direction] LES DEUX SENS NE SE CONFONDENT PAS ──────────────────────
+	// -- [direction] LES DEUX SENS NE SE CONFONDENT PAS ---------------------
+	// [!] ENONCE EN VOLUME, donc reserve aux primitives qui en deplacent.
+	//     L'exigence elle-meme vaut pour TOUTE brosse -- deux sens qui
+	//     donnent le meme resultat, c'est un sens qui n'est pas lu -- mais
+	//     la QUANTITE qui la mesure change avec la primitive. Pour `lisser`
+	//     elle est portee, plus bas, par « sens=-1 fait MONTER la rugosite ».
+	//     Garder ce test-ci sur une primitive sans direction imposee, ce
+	//     serait exiger d'elle la signature d'une autre.
 	{
 		snprintf(label, sizeof(label), "%s/%s les deux sens different", primName, b.name);
-		if (closedAndOutward)
+		if (closedAndOutward && dirImposee)
 			Check(volPlus > 0.f && volMinus < 0.f, label, "sinon : un seul sens agit");
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s (primitive sans direction imposee)\n", label);
 		else
 			printf("  [ n/a ] %-46s (surface ouverte ou inversee)\n", label);
 	}
@@ -557,7 +594,14 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 				 wrong, r.vertsMoved);
 		}
 		snprintf(label, sizeof(label), "%s/%s DONNEE pilote le sens", primName, b.name);
-		Check(r.applied && coherent, label, det);
+		// [!] MEME RESERVE : « coherent » se lit en volume ou en direction, les
+		//     deux signatures de la primitive a direction imposee. Pour lisser,
+		//     la meme exigence est tenue par « sens=-1 fait MONTER la rugosite »,
+		//     qui est son equivalent exact dans la quantite qui la concerne.
+		if (dirImposee)
+			Check(r.applied && coherent, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (voir le bloc lisser)\n", label, det);
 		Restore(m, before);
 	}
 }
@@ -669,6 +713,109 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 	snprintf(label, sizeof(label), "%s/%s rejeu: nom conserve", primName, brush.name);
 	Check(nameOk && cr.sculpt.dir == cmd.sculpt.dir, label, cr.sculpt.brushName);
 }
+
+// == LA RUGOSITE : CE QUE `lisser` EST CENSE FAIRE DESCENDRE ==============
+//
+// Somme des || p_i - moyenne(voisins de i) ||^2, sur l'identite SOUDEE.
+// C'est exactement la quantite que le Laplacien uniforme minimise : si la
+// brosse lisse, ce nombre DOIT baisser, et s'il monte c'est qu'elle fait
+// autre chose. *Un critere qui se contente de « la commande a rendu ok » ne
+// distingue pas un lissage d'un deplacement au hasard.*
+//
+// [!] ELLE EST RECALCULEE ICI, ET C'EST VOULU. Si elle empruntait
+//     l'adjacence construite par NkMeshSculpt, une erreur dans cette
+//     adjacence rendrait le critere vrai ET le module faux -- le controle
+//     et le controle tire de la meme source. On la rebatit depuis les faces.
+// [!] ELLE EST LOCALE, ET CE N EST PAS UN RAFFINEMENT : mesuree sur TOUT le
+//     maillage, la baisse tombait a 0,01 % -- non parce que le lissage est
+//     faible, mais parce que 13 groupes touches sur 134 se noient dans 121
+//     groupes intacts. *On mesure la ou on agit, sinon on mesure surtout ce
+//     qui n a pas bouge.* rayon < 0 = tout le maillage.
+static float64 Rugosite(const NkEditMesh &mesh, const NkVec3f &centre, float32 rayon) {
+	NkVector<uint32> canon;
+	mesh.BuildVertexMerge(canon);
+	const uint32 vc = mesh.VertCount();
+	if (canon.Size() < vc || vc == 0)
+		return -1.0; // instrument incoherent : on refuse de rendre un chiffre
+	NkVector<NkVec3f> gPos;
+	NkVector<uint32> gCnt;
+	gPos.Resize(vc);
+	gCnt.Resize(vc);
+	for (uint32 i = 0; i < vc; ++i) {
+		gPos[i] = NkVec3f{0.f, 0.f, 0.f};
+		gCnt[i] = 0;
+	}
+	for (uint32 i = 0; i < vc; ++i) {
+		const uint32 c = canon[i];
+		if (c >= vc)
+			continue;
+		gPos[c] = gPos[c] + mesh.verts[i].pos;
+		gCnt[c]++;
+	}
+	for (uint32 i = 0; i < vc; ++i)
+		if (gCnt[i] > 1)
+			gPos[i] = gPos[i] * (1.f / (float32)gCnt[i]);
+	NkVector<NkVec3f> somme;
+	NkVector<uint32> deg;
+	somme.Resize(vc);
+	deg.Resize(vc);
+	for (uint32 i = 0; i < vc; ++i) {
+		somme[i] = NkVec3f{0.f, 0.f, 0.f};
+		deg[i] = 0;
+	}
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < mesh.FaceCount(); ++f) {
+		if (!mesh.faces[f].alive)
+			continue;
+		loop.Clear();
+		mesh.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		if (n < 3)
+			continue;
+		for (uint32 k = 0; k < n; ++k) {
+			const uint32 a = canon[(uint32)loop[k]];
+			const uint32 b2 = canon[(uint32)loop[(k + 1u) % n]];
+			if (a >= vc || b2 >= vc || a == b2)
+				continue;
+			somme[a] = somme[a] + gPos[b2];
+			deg[a]++;
+			somme[b2] = somme[b2] + gPos[a];
+			deg[b2]++;
+		}
+	}
+	float64 acc = 0.0;
+	for (uint32 i = 0; i < vc; ++i) {
+		if (gCnt[i] == 0 || deg[i] == 0)
+			continue;
+		if (rayon >= 0.f) {
+			const NkVec3f dc = gPos[i] - centre;
+			if (dc.x * dc.x + dc.y * dc.y + dc.z * dc.z > rayon * rayon)
+				continue;
+		}
+		const NkVec3f moy = somme[i] * (1.f / (float32)deg[i]);
+		const NkVec3f d = gPos[i] - moy;
+		acc += (float64)(d.x * d.x + d.y * d.y + d.z * d.z);
+	}
+	return acc;
+}
+
+// Combien de GROUPES soudes coincident encore deux a deux comme avant.
+// Si le lissage suit une adjacence NON canonisee, les 3 copies d'un coin de
+// cube partent chacune de son cote : ce compte chute, et le cube se dechire
+// sans qu'aucune autre mesure ne s'en apercoive.
+static uint32 GroupesIntacts(const NkEditMesh &mesh) {
+	NkVector<uint32> canon;
+	mesh.BuildVertexMerge(canon);
+	const uint32 vc = mesh.VertCount();
+	if (canon.Size() < vc)
+		return 0u;
+	uint32 n = 0;
+	for (uint32 i = 0; i < vc; ++i)
+		if (canon[i] == i)
+			++n;
+	return n;
+}
+
 int main(int argc, char **argv) {
 	const char *brushDir = "Applications/NK3DModeler/data/brushes";
 	// Les sujets reels vivent HORS du depot (sorties de la chaine 3D).
@@ -835,6 +982,146 @@ int main(int argc, char **argv) {
 	printf("\nsujets reels : %u eprouve(s) sur %u tente(s)\n", realLoaded, realTried);
 	if (realLoaded == 0)
 		printf("!! AUCUN SUJET REEL EPROUVE : le banc ne couvre que ses primitives.\n");
+
+
+	// == `lisser` : LA DEUXIEME PRIMITIVE, EPROUVEE SUR SA PROPRE PROMESSE ===
+	//
+	// Les criteres communs (zone, rejeu, sens pilote par la donnee) sont deja
+	// passes plus haut sur TOUTES les brosses du registre, celle-ci comprise.
+	// Ce bloc ne mesure que ce qui lui est PROPRE : est-ce que ca lisse ?
+	{
+		NkBrushDesc bl;
+		bool trouvee = false;
+		for (uint16 bi = 0; bi < reg.Count() && !trouvee; ++bi) {
+			NkBrushDesc b;
+			// [!] PAR LE NOM, PAS PAR LA PRIMITIVE. « la premiere brosse SMOOTH »
+			//     a cesse de designer `lisser` a la seconde ou `durcir` est arrivee
+			//     dans le dossier : l ordre est alphabetique, et le banc a exige
+			//     d une brosse qui DURCIT qu elle fasse baisser la rugosite.
+			//     Un critere designe son sujet par son NOM, sinon le sujet change
+			//     sous lui au premier fichier depose.
+			if (reg.At(bi, b) && strcmp(b.name, "lisser") == 0) {
+				bl = b;
+				trouvee = true;
+			}
+		}
+	//   [!] L'ABSENCE DE LA BROSSE EST UN ECHEC, PAS UN SAUT. Si aucune brosse
+	//       de lissage n'est chargee, sauter ce bloc rendrait un banc tout vert
+	//       qui n'a rien eprouve -- exactement le « 0 echec » sans nombre de cas
+	//       que ce fichier denonce plus bas.
+		Check(trouvee, "lisser : une brosse SMOOTH est chargee",
+			trouvee ? bl.name : "aucune brosse de primitive lisser dans le registre");
+		if (trouvee) {
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			MakeSphere(12, 12, v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			// [!] LE CENTRE DU TRAIT EST LU SUR LE SUJET, PAS SUPPOSE.
+			//     J'avais ecrit {0, 1, 0} en pensant « pole nord d'une sphere unite ».
+			//     La bosse n'atteignait alors AUCUN sommet : changer sa force de 0,35
+			//     a 1,0 laissait la rugosite rigoureusement identique (0,020709), ce
+			//     qui etait le seul signe visible que le trait tombait dans le vide.
+			//     On prend donc un sommet REEL : il est sur la surface par definition.
+			const NkVec3f centre = m.verts[0].pos;
+	//     On BOSSELLE d'abord avec `dessiner` : lisser une sphere deja lisse
+	//     ferait baisser un nombre deja minuscule, et le critere passerait pour
+	//     de mauvaises raisons. On fabrique le defaut qu'on veut voir disparaitre.
+			NkBrushDesc bosse;
+			bool okB = false;
+			for (uint16 bi = 0; bi < reg.Count() && !okB; ++bi) {
+				NkBrushDesc b;
+				// Meme raison : « la premiere NORMAL » designait `creuser`, qui
+				// creuse au lieu de bosseler -- le sujet du banc dependait de l ordre
+				// alphabetique du dossier de brosses.
+				if (reg.At(bi, b) && strcmp(b.name, "dessiner") == 0) {
+					bosse = b;
+					okB = true;
+				}
+			}
+			// [!] LA MEME REGLE QUE POUR LA BROSSE SMOOTH, ET JE NE L AVAIS ECRITE
+			//     QUE LA : sauter silencieusement quand la brosse de bosselage
+			//     manque donne une sphere LISSE a lisser, donc une rugosite qui ne
+			//     bouge pas -- et un critere qui rougit en accusant le module.
+			Check(okB, "lisser : une brosse NORMAL est la pour bosseler",
+				  okB ? bosse.name : "aucune : le sujet resterait lisse");
+			if (okB) {
+				bosse.radius = 0.25f;
+				bosse.strength = 1.0f;
+				NkSculptPoint p{};
+				p.pos = centre;
+				p.radius = bosse.radius;
+				p.pressure = 1.f;
+				(void)NkSculptApplyStroke(m, bosse, &p, 1u);
+			}
+			const float64 r0 = Rugosite(m, centre, 0.7f);
+			const uint32 g0 = GroupesIntacts(m);
+
+			NkEditMesh mLisse = m;
+			NkBrushDesc bl2 = bl;
+			bl2.radius = 0.6f;
+			// Force au maximum utile : on veut un effet FRANC, pas un effet
+			// detectable. Un critere qui se contente de « ca a baisse » verdit sur
+			// du bruit d arrondi -- premiere version mesuree a 0,003 % d ecart,
+			// soit indiscernable d un placebo.
+			bl2.strength = 1.f;
+			NkSculptPoint q{};
+			q.pos = centre;
+			q.radius = bl2.radius;
+			q.pressure = 1.f;
+			const NkSculptApply a1 = NkSculptApplyStroke(mLisse, bl2, &q, 1u);
+			const float64 r1 = Rugosite(mLisse, centre, 0.7f);
+			char d[192];
+			// LE SEUIL EST ECRIT, PAS DEDUIT DU RESULTAT : on exige 1 % de baisse
+			// relative. « r1 < r0 » etait vrai a 0,003 % pres -- un ecart que
+			// n importe quel arrondi produit. *Different ne veut pas dire visible.*
+			const float64 baisse = (r0 > 0.0) ? (r0 - r1) / r0 : 0.0;
+			snprintf(d, sizeof(d), "rugosite %.6f -> %.6f (-%.2f %%, %u groupes touches)",
+					 r0, r1, baisse * 100.0, (unsigned)a1.groupsInRadius);
+			Check(a1.applied && baisse > 0.01, "lisser : la rugosite DESCEND franchement", d);
+
+	//     LE NEGATIF, ET IL EST DANS LA DONNEE : `sens = -1` prend la meme
+	//     formule a rebours et doit faire MONTER la rugosite. S'il la faisait
+	//     baisser aussi, c'est que le sens n'est pas lu -- et le critere du
+	//     dessus serait vrai quoi qu'il arrive.
+			NkEditMesh mDur = m;
+			NkBrushDesc bd = bl2;
+			bd.dir = -1.f;
+			const NkSculptApply a2 = NkSculptApplyStroke(mDur, bd, &q, 1u);
+			const float64 r2 = Rugosite(mDur, centre, 0.7f);
+			snprintf(d, sizeof(d), "rugosite %.6f -> %.6f", r0, r2);
+			Check(a2.applied && r2 > r0, "lisser : sens=-1 la fait MONTER", d);
+
+	//     LA SOUDURE TIENT. C'est ce qui separe un lissage d'un dechirement :
+	//     les copies coincidentes d'un coin doivent rester coincidentes.
+			const uint32 g1 = GroupesIntacts(mLisse);
+			snprintf(d, sizeof(d), "%u groupes avant, %u apres", (unsigned)g0, (unsigned)g1);
+			Check(g1 == g0, "lisser : la soudure tient (aucun dechirement)", d);
+
+	//     CONVERGENCE : un second passage ne doit pas faire REMONTER la
+	//     rugosite. Un schema dont le pas depasse la moyenne oscille, et on
+	//     ne le verrait pas sur un seul tampon.
+			NkEditMesh mDeux = mLisse;
+			(void)NkSculptApplyStroke(mDeux, bl2, &q, 1u);
+			const float64 r3 = Rugosite(mDeux, centre, 0.7f);
+			snprintf(d, sizeof(d), "%.6f -> %.6f -> %.6f", r0, r1, r3);
+			Check(r3 <= r1, "lisser : deux passages ne remontent pas", d);
+
+	//     ET IL NE TOUCHE PAS CE QUI EST HORS DE SA ZONE : meme garde que les
+	//     autres primitives, mais elle se verifie ICI aussi, parce que le
+	//     lissage lit les VOISINS -- un voisin hors zone pourrait etre deplace
+	//     par inadvertance en ecrivant dans le mauvais tableau.
+			NkEditMesh mLoin = m;
+			NkSculptPoint z{};
+			z.pos = NkVec3f{50.f, 50.f, 50.f};
+			z.radius = 0.1f;
+			z.pressure = 1.f;
+			const NkSculptApply a3 = NkSculptApplyStroke(mLoin, bl2, &z, 1u);
+			const float64 r4 = Rugosite(mLoin, centre, 0.7f);
+			snprintf(d, sizeof(d), "applique=%d rugosite %.6f", a3.applied ? 1 : 0, r4);
+			Check(!a3.applied && r4 == r0, "lisser : hors zone, rien n'est ecrit", d);
+		}
+	}
 
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
 	return (gFail == 0) ? 0 : 1;

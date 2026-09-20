@@ -66,6 +66,14 @@ namespace nkentseu {
 		// ─────────────────────────────────────────────────────────────────────
 		enum class NkSculptOp : uint8 {
 			NK_SCULPT_OP_NORMAL = 0, ///< Deplace le long de la normale du sommet.
+			/// Rapproche chaque sommet de la MOYENNE DE SES VOISINS. D'une autre
+			/// nature que la precedente : elle ne suit aucune direction imposee, elle
+			/// REDUIT un ecart. C'est pour ca qu'elle valait d'etre la deuxieme --
+			/// une seconde primitive qui n'aurait fait que changer de direction
+			/// n'aurait rien prouve du mecanisme.
+			/// `sens = -1` l'inverse en ACCENTUANT l'ecart (le relief se durcit) :
+			/// ce n'est pas un effet de bord, c'est la meme formule prise a rebours.
+			NK_SCULPT_OP_SMOOTH = 1,
 			NK_SCULPT_OP_COUNT		 ///< ⚠️ Compte ce qui AGIT, pas ce qu'on projette.
 		};
 

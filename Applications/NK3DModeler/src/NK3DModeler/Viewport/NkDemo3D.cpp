@@ -1696,9 +1696,19 @@ namespace nkentseu {
 				// changent, exactement comme `pickArme ? st->editPickX : gin.mouseX`.
 				float32 sculptAtX = 0.f, sculptAtY = 0.f;
 				int32 sculptAtFrames = 0; // images restantes « bouton enfonce »
-				// La brosse choisie dans le catalogue -- un INDEX dans le registre, donc
-				// dans les fichiers. Pas un cas d'enumeration.
-				int32 activeBrush = 0;
+				// La brosse choisie dans le catalogue, DESIGNEE PAR SON NOM.
+				//
+				// [!] C'ETAIT UN INDEX, ET L'INDEX SE DECALE. Le catalogue est trie et
+				//     vient de fichiers : deposer `durcir.nkbrush` a insere une entree AVANT
+				//     `lisser`, et tout indice memorise a change de sujet en silence. Le
+				//     banc de sculpture l'a paye le meme jour -- il prenait « la premiere
+				//     brosse de lissage » et s'est mis a exiger d'une brosse qui DURCIT
+				//     qu'elle adoucisse. *Ce que l'utilisateur a choisi, c'est un nom.*
+				//
+				//     Vide = la premiere du catalogue, resolue a l'usage : au demarrage
+				//     aucun choix n'a encore ete fait, et ecrire un nom par defaut ici
+				//     inventerait un choix que personne n'a exprime.
+				char activeBrushName[48] = {0};
 				// Le catalogue des brosses, charge depuis data/brushes au premier usage.
 				// ⚠️ PAS DE LISTE EN DUR : l'interface doit passer par la donnee, sinon
 				//    elle afficherait les bons noms sans qu'aucun fichier soit lu.
@@ -4460,6 +4470,36 @@ namespace nkentseu {
 			logger.Info("[Demo3D] brosses chargees depuis le disque : {0}\n",
 				(uint32)st->brushes.Count());
 		}
+
+		// -- LE NOM -> LE DESCRIPTEUR : UNE SEULE PORTE ---------------------
+		// Les deux sites qui lisaient `activeBrush` par indice passent par ici, et
+		// les crochets aussi. Deux resolutions separees finiraient par differer
+		// sur le cas vide ou sur le nom absent, et c'est toujours le cas rare qui
+		// revele l'ecart -- trop tard.
+		//
+		// NOM ABSENT = ON NE DEVINE PAS. Une brosse retiree du dossier ne doit pas
+		// faire silencieusement sculpter avec sa voisine : on retombe sur la
+		// PREMIERE du catalogue, ce qui est un choix nomme et stable, et l'appelant
+		// peut le constater puisqu'on lui rend le descripteur retenu.
+		static bool Demo3D_BrosseCourante(Demo3DState *st, renderer::NkBrushDesc &out) {
+			if (!st)
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			if (n == 0u)
+				return false;
+			if (st->activeBrushName[0]) {
+				for (uint16 i = 0; i < n; ++i) {
+					renderer::NkBrushDesc d;
+					if (st->brushes.At(i, d) && std::strcmp(d.name, st->activeBrushName) == 0) {
+						out = d;
+						return true;
+					}
+				}
+			}
+			return st->brushes.At(0u, out);
+		}
+
 
 		// UN COUP DE BROSSE. Il passe par la COUCHE DE COMMANDES, et non a cote :
 		// Demo3D_ApplyCmd fait deja le snapshot d'annulation, le Push dans
@@ -11382,7 +11422,7 @@ namespace nkentseu {
 								const NkVec3f d = hitP - st->sculptDragPts[(uint32)st->sculptDragPts.Size() - 1];
 								renderer::NkBrushDesc bd;
 								float32 rr = 0.1f;
-								if (st->brushes.At((uint16)st->activeBrush, bd))
+								if (Demo3D_BrosseCourante(st, bd))
 									rr = bd.radius;
 								loin = (d.Len() > rr * 0.25f);
 							}
@@ -11398,7 +11438,7 @@ namespace nkentseu {
 						if (!st->sculptDragPts.Empty()) {
 							renderer::NkBrushDesc bd;
 							const char *nom = nullptr;
-							if (st->brushes.At((uint16)st->activeBrush, bd))
+							if (Demo3D_BrosseCourante(st, bd))
 								nom = bd.name;
 							NkVector<float32> fp, fn;
 							for (uint32 k = 0; k < (uint32)st->sculptDragPts.Size(); ++k) {
@@ -17749,6 +17789,7 @@ namespace nkentseu {
 		//    enregistre est le geste REELLEMENT fait, pas le reglage du fichier
 		//    au moment du rejeu. Une valeur <= 0 signifie « garde celle de la
 		//    brosse ».
+
 		int32 Demo3DHostBrushCount() {
 			auto *st = HostSt();
 			if (!st)
@@ -17773,6 +17814,48 @@ namespace nkentseu {
 				sName[k] = d.name[k];
 			sName[47] = 0;
 			return sName;
+		}
+
+		// Le NOM de la brosse en service. Vide impossible : s'il n'y a aucune
+		// brosse, on rend la chaine vide et l'interface n'affiche pas de selecteur
+		// -- plutot qu'un selecteur vide, qui se lit comme une panne.
+		const char *Demo3DHostBrushCurrent() {
+			auto *st = HostSt();
+			static char sCur[48];
+			sCur[0] = 0;
+			renderer::NkBrushDesc d;
+			if (st && Demo3D_BrosseCourante(st, d)) {
+				for (uint32 k = 0; k < 48u; ++k) {
+					sCur[k] = d.name[k];
+					if (!d.name[k])
+						break;
+				}
+				sCur[47] = 0;
+			}
+			return sCur;
+		}
+
+		// CHOISIR PAR LE NOM, ET REFUSER UN NOM INCONNU PLUTOT QUE DE LE POSER.
+		// Accepter `n'importe quoi` ferait sculpter avec la premiere brosse du
+		// catalogue en laissant croire que le choix a pris -- un echec muet. Le
+		// booleen rendu est ce que le crochet de mesure imprime.
+		bool Demo3DHostSetBrushByName(const char *nom) {
+			auto *st = HostSt();
+			if (!st || !nom || !nom[0])
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			for (uint16 i = 0; i < n; ++i) {
+				renderer::NkBrushDesc d;
+				if (st->brushes.At(i, d) && std::strcmp(d.name, nom) == 0) {
+					uint32 k = 0;
+					for (; k + 1u < 48u && d.name[k]; ++k)
+						st->activeBrushName[k] = d.name[k];
+					st->activeBrushName[k] = 0;
+					return true;
+				}
+			}
+			return false;
 		}
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
 					  const char *brushName, float32 radius, float32 strength) {

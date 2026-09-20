@@ -114,13 +114,17 @@ namespace nkentseu {
 					NkSculptOp op;
 			};
 
-			// ⚠️ CETTE TABLE NE CONTIENT QUE CE QUI AGIT. Y ajouter « lisser » avant
-			//    d'avoir ecrit le lissage ferait apparaitre dans l'interface une
+			// ⚠️ CETTE TABLE NE CONTIENT QUE CE QUI AGIT. Y ajouter un nom avant
+			//    d'avoir ecrit la primitive ferait apparaitre dans l'interface une
 			//    brosse qui ne deforme rien -- et « elle existe » se lirait comme
-			//    « elle marche ».
+			//    « elle marche ». « lisser » y entre AUJOURD'HUI parce que
+			//    `NkSculptApplyStroke` la traite, pas parce qu'on la prevoit.
 			const NamedOp kOps[] = {
 				{"normale", NkSculptOp::NK_SCULPT_OP_NORMAL},
 				{"normal", NkSculptOp::NK_SCULPT_OP_NORMAL},
+				{"lisser", NkSculptOp::NK_SCULPT_OP_SMOOTH},
+				{"lissage", NkSculptOp::NK_SCULPT_OP_SMOOTH},
+				{"smooth", NkSculptOp::NK_SCULPT_OP_SMOOTH},
 			};
 
 			struct NamedFalloff {
