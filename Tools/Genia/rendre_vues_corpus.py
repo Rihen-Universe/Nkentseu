@@ -174,7 +174,11 @@ def rendre(Vt, F, pose):
 #      (pixel, profondeur, indice de triangle) suivi d'une prise du premier.
 #   3. ORDRE DES OPERATIONS FLOTTANTES : les memes formules sur les memes
 #      valeurs, donc les memes bits. Aucune reassociation, aucun `float32`.
-def rendre_vectorise(Vt, F, pose, lot_max=4_000_000):
+def rendre_vectorise(Vt, F, pose, lot_max=4_000_000, avec_barycentriques=False):
+    """`avec_barycentriques=True` rend en plus (tri, L, prof) par pixel, ce qui
+    permet d'interpoler N'IMPORTE QUEL attribut par sommet -- les UV, en
+    particulier -- SANS rasteriser une seconde fois et sans dupliquer ce code.
+    Le defaut ne change rien : l'identite aux octets deja prouvee tient."""
     W, H = pose['W'], pose['H']
     x, y, w = projeter(Vt, pose)
     pos = np.zeros((H, W, 3))
@@ -271,7 +275,7 @@ def rendre_vectorise(Vt, F, pose, lot_max=4_000_000):
 
     vus = np.nonzero(meilleur_tri >= 0)[0]
     if len(vus) == 0:
-        return pos, msk, nor
+        return (pos, msk, nor, None) if avec_barycentriques else (pos, msk, nor)
     t = meilleur_tri[vus]
     L = meilleur_l[vus]
     P = (L[:, 0:1] * Vt[F[t, 0]] + L[:, 1:2] * Vt[F[t, 1]] + L[:, 2:3] * Vt[F[t, 2]]) \
@@ -281,7 +285,101 @@ def rendre_vectorise(Vt, F, pose, lot_max=4_000_000):
     pos[yy, xx] = P
     nor[yy, xx] = N[t]
     msk[yy, xx] = True
+    if avec_barycentriques:
+        return pos, msk, nor, (vus, t, L, meilleur_prof[vus])
     return pos, msk, nor
+
+
+# ---------------------------------------------------------------------------
+# LA COULEUR -- et pourquoi elle ne pouvait pas attendre.
+#
+# Mesure du 20/09 : sur 50 modeles tires au hasard, les 14 lisibles par trimesh
+# portent TOUS une texture image (100 %). Un rendu en lambert gris la jette.
+#
+# ⚠️ Et un corpus gris ne deviendra JAMAIS couleur sans tout re-rendre. C'est
+# le meme principe d'asymetrie qui a fixe 48 vues : ce qui se rattrape en
+# ajoutant peut attendre, ce qui exige de tout refaire ne le peut pas.
+#
+# On reutilise les barycentriques deja calculees par `rendre_vectorise` : les UV
+# s'interpolent comme les positions, en PERSPECTIVE-CORRECTE (c'est 1/w qui est
+# affine en ecran), et on echantillonne la texture au plus proche voisin --
+# deterministe, donc reproductible au bit.
+def rendre_couleur(Vt, F, pose, uv=None, tex=None, lot_max=4_000_000):
+    """-> (rgba uint8 HxWx4, profondeur float HxW, a_texture bool)
+
+    `uv` : (n,2) par sommet. `tex` : image (h,w,3|4) uint8. Si l'un manque, on
+    retombe sur un lambert gris, ET ON LE DIT par le booleen rendu -- jamais en
+    silence : une image grise indiscernable d'une image texturee apprendrait au
+    modele que le monde est gris."""
+    r = rendre_vectorise(Vt, F, pose, lot_max=lot_max, avec_barycentriques=True)
+    posb, msk, nor, extra = r
+    W, H = pose['W'], pose['H']
+    rgba = np.zeros((H, W, 4), dtype=np.uint8)
+    prof = np.zeros((H, W))
+    if extra is None:
+        return rgba, prof, False
+    vus, t, L, pr = extra
+    yy = vus // W
+    xx = vus % W
+
+    # eclairage : le meme quel que soit le chemin, pour que texture et gris
+    # soient comparables.
+    Lum = np.array([0.35, 0.55, 0.75])
+    Lum = Lum / np.linalg.norm(Lum)
+    lam = np.clip(nor[yy, xx] @ Lum, 0.0, 1.0)
+    ecl = (0.35 + 0.65 * lam)[:, None]
+
+    a_tex = uv is not None and tex is not None and len(uv) == len(Vt)
+    if a_tex:
+        # UV interpolees exactement comme les positions : L porte deja les
+        # poids divises par w, et pr remultiplie -- perspective-correcte.
+        U = (L[:, 0:1] * uv[F[t, 0]] + L[:, 1:2] * uv[F[t, 1]] + L[:, 2:3] * uv[F[t, 2]]) * pr[:, None]
+        th, tw = tex.shape[0], tex.shape[1]
+        # convention image : v=0 en bas -> ligne du bas
+        tx = np.clip((U[:, 0] % 1.0) * (tw - 1), 0, tw - 1).astype(np.int64)
+        ty = np.clip((1.0 - (U[:, 1] % 1.0)) * (th - 1), 0, th - 1).astype(np.int64)
+        base = tex[ty, tx, :3].astype(np.float64)
+    else:
+        base = np.full((len(vus), 3), 190.0)
+
+    rgba[yy, xx, :3] = np.clip(base * ecl, 0, 255).astype(np.uint8)
+    rgba[yy, xx, 3] = 255
+    prof[yy, xx] = pr
+    return rgba, prof, bool(a_tex)
+
+
+def charger_avec_texture(chemin):
+    """-> (Vt, F, uv|None, tex|None). Les FBX passent par notre lecteur, qui ne
+    rend ni UV ni materiaux : ils sont donc GRIS, et c'est declare par fichier
+    dans le manifeste -- jamais suppose."""
+    if chemin.lower().endswith('.fbx'):
+        Vt, F = charger(chemin)
+        return Vt, F, None, None
+    import trimesh
+    m = trimesh.load(chemin, force='mesh')
+    if hasattr(m, 'geometry'):
+        m = trimesh.util.concatenate([g for g in m.geometry.values()])
+    Vt = np.asarray(m.vertices, dtype=np.float64)
+    F = np.asarray(m.faces, dtype=np.int64)
+    c = 0.5 * (Vt.min(axis=0) + Vt.max(axis=0))
+    e = (Vt.max(axis=0) - Vt.min(axis=0)).max()
+    Vt = (Vt - c) / max(e, 1e-12)
+    uv = tex = None
+    vis = getattr(m, 'visual', None)
+    try:
+        if vis is not None and getattr(vis, 'uv', None) is not None:
+            u = np.asarray(vis.uv, dtype=np.float64)
+            mat = getattr(vis, 'material', None)
+            img = None
+            if mat is not None:
+                img = getattr(mat, 'image', None) or getattr(mat, 'baseColorTexture', None)
+            if img is not None and len(u) == len(Vt):
+                a = np.asarray(img.convert('RGB') if hasattr(img, 'convert') else img)
+                if a.ndim == 3 and a.shape[0] > 1 and a.shape[1] > 1:
+                    uv, tex = u, a
+    except Exception:
+        uv = tex = None
+    return Vt, F, uv, tex
 
 # ------------------------------------------------------------- le temoin
 def erreur_reprojection(pos, msk, pose):
