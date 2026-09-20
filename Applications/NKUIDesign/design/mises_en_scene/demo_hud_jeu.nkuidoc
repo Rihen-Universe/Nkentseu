@@ -10,10 +10,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -21,10 +24,14 @@ noeud 0
 
 noeud 1
   libelle = HUD
-  enfants = 2 3 4 5 6 7 8 9
+  composant = 
+  parent = 0
   largeur = fixed 480 0 0
   hauteur = fixed 270 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 80
   forme = frame
   cible = HD 1280 x 720
@@ -35,14 +42,16 @@ noeud 1
 
 noeud 2
   libelle = Fond de jeu
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 480 0 0
   hauteur = fixed 270 0 0
   agencement = none start start 0
-  position = 0 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   forme = rect
   fond = #0d1117
-  rayon = 0
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -50,10 +59,14 @@ noeud 2
 
 noeud 3
   libelle = Jauge vie fond
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 200 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 16 16
   forme = rect
   fond = #30363d
@@ -65,10 +78,14 @@ noeud 3
 
 noeud 4
   libelle = Jauge vie valeur
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 150 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 16 16
   forme = rect
   fond = #d1242f
@@ -80,10 +97,14 @@ noeud 4
 
 noeud 5
   libelle = Libelle vie
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 120 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 20 17
   forme = text
   texte = VIE 75/100
@@ -97,10 +118,14 @@ noeud 5
 
 noeud 6
   libelle = Jauge mana fond
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 200 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 16 40
   forme = rect
   fond = #30363d
@@ -112,10 +137,14 @@ noeud 6
 
 noeud 7
   libelle = Jauge mana valeur
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 90 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 16 40
   forme = rect
   fond = #0969da
@@ -127,10 +156,14 @@ noeud 7
 
 noeud 8
   libelle = Libelle mana
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 120 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 20 41
   forme = text
   texte = MANA 45/100
@@ -144,17 +177,21 @@ noeud 8
 
 noeud 9
   libelle = Score
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 110 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 352 16
   forme = text
   texte = SCORE 12480
   couleur_texte = #ffffff
+  texte_aligne = droite
   police_px = 12
   graisse = 700
-  texte_aligne = droite
   auteur = humain
   verifiee = 0
   corrigee = 0
