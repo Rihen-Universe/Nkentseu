@@ -1625,6 +1625,16 @@ namespace nkentseu {
 				// bascule est consommee a la frame suivante) : c'est la DUREE qui fait
 				// l'echec, pas l'ecart lui-meme.
 				int32 editRefusedFrames = 0;
+				// POURQUOI l'entree en edition est refusee -- 0 = pas de refus.
+				// ⚠️ LE JOURNAL DISTINGUAIT DEJA CINQ CAS ; L'ECRAN N'EN DISAIT QU'UN.
+				//    Le 17/09, une soiree a ete perdue sur la phrase « Selectionne un
+				//    objet (clic) avant TAB » -- le journal a alors ete corrige, pas
+				//    le bandeau. Le 20/09, Rodolf a re-clique son cube pour rien : il
+				//    lisait l'ecran, pas logs/app.log. Un verdict qui n'est pas la ou
+				//    l'on regarde n'existe pas.
+				//    1 rien de selectionne · 2 objet supprime · 3 pas de maillage a lui
+				//    4 nature non editable · 5 ne designe aucun maillage editable
+				int32 editRefusMotif = 0;
 				// ── GLISSEMENT SYNTHETIQUE D'ELEMENTS (NK_EDIT_DRAG) ────────────
 				// Le deplacement d'un sommet / arete / face n'etait exercable par
 				// AUCUN banc : il faut attraper une poignee a la souris. Consequence
@@ -8727,8 +8737,10 @@ namespace nkentseu {
 								(int32)cible.kind, cible.index);
 					if (cible.kind == NkVpEditKind::Demo)
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
-					else if (cible.kind == NkVpEditKind::Utilisateur)
+					else if (cible.kind == NkVpEditKind::Utilisateur) {
 						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
+						st->editRefusMotif = 0; // l'edition s'est ouverte
+					}
 					else {
 						// ── UN REFUS NOMME, PAS UN REPLI MUET ────────────────────────
 						// « Selectionne un objet (clic) avant TAB » ACCUSE L'UTILISATEUR
@@ -8741,27 +8753,42 @@ namespace nkentseu {
 						// Cinq refus DISTINCTS, et chacun dit quoi faire.
 						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
 						if (q.selDemo < 0 && q.selEmpty < 0)
+							{
+							st->editRefusMotif = 1;
 							logger.Info("[Demo3D] EDITION REFUSEE : rien n'est selectionne. "
 										"Selectionne un objet (clic) avant TAB.\n");
+						}
 						else if (uSlot >= 0 && q.userDeleted)
+							{
+							st->editRefusMotif = 2;
 							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
 										"noeud {1}) est SUPPRIME. Un noeud supprime est aussi "
 										"desselectionne d'office a l'image suivante par la garde du "
 										"cadenas.\n",
 										uSlot, kNkvpFirstUser + uSlot);
+						}
 						else if (uSlot >= 0 && !q.userMeshValid)
+							{
+							st->editRefusMotif = 3;
 							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
 										"nature {1}) n'a PAS DE MAILLAGE A LUI. Une primitive d'un "
 										"projet jamais enregistre est dans ce cas.\n",
 										uSlot, (int32)q.userKind);
+						}
 						else if (uSlot >= 0)
+							{
+							st->editRefusMotif = 4;
 							logger.Info("[Demo3D] EDITION REFUSEE : la nature {0} de l'objet designe "
 										"(emplacement {1}) n'est pas editable.\n",
 										(int32)q.userKind, uSlot);
+						}
 						else
+							{
+							st->editRefusMotif = 5;
 							logger.Info("[Demo3D] EDITION REFUSEE : la selection (demo {0}, empty {1}) "
 										"ne designe aucun maillage editable.\n",
 										q.selDemo, q.selEmpty);
+						}
 					}
 				}
 			}
@@ -17930,6 +17957,26 @@ namespace nkentseu {
 			if (segLabel) *segLabel = ls;
 			if (seg) *seg = st->modalSeg;
 			return true;
+		}
+		// LE MOTIF DU REFUS, pour que le BANDEAU dise ce que le JOURNAL dit.
+		// Les deux sont poses au meme endroit, dans la meme condition : ils ne
+		// peuvent pas diverger.
+		// CE NOEUD A-T-IL UN MAILLAGE A LUI ?
+		// ⚠️ C'EST LA MEME CONDITION QUE CELLE QUI REFUSE L'EDITION
+		//    (`q.userMeshValid` dans NkVpResolveEditTarget). Un second calcul
+		//    divergerait : la hierarchie marquerait des noeuds que l'edition
+		//    accepte, ou l'inverse -- et on ne saurait plus lequel croire.
+		bool Demo3DHostNodeHasOwnMesh(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return true; // hors des noeuds utilisateur : rien a signaler
+			const int32 u = node - kNkvpFirstUser;
+			if (nkvpUserKind[u] == 0)
+				return true; // emplacement libre
+			return nkvpUserMesh[u].IsValid();
+		}
+		int32 Demo3DHostEditRefusMotif() {
+			auto *st = HostSt();
+			return st ? st->editRefusMotif : 0;
 		}
 		int32 Demo3DHostEditRefusedFrames() {
 			auto *st = HostSt();
