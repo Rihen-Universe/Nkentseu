@@ -355,6 +355,9 @@ namespace nkentseu {
 		// false = le noeud se dessine avec une primitive PARTAGEE et ne peut
 		// pas entrer en edition. Meme condition que le refus d'edition.
 		bool Demo3DHostNodeHasOwnMesh(int32 node);
+		// true = sa geometrie a ete EDITEE : ses parametres de creation ne la
+		// decrivent plus, il faut donc l'ecrire a l'enregistrement.
+		bool Demo3DHostNodeMeshEdite(int32 node);
 		// REGLER un parametre de l'operation en cours -- la demande « pas de
 		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
 		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris

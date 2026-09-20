@@ -342,6 +342,17 @@ namespace nkentseu {
 		// Mesh PARAMETRIQUE du slot (regenere quand ses parametres changent)
 		// et ses parametres (segments / anneaux-subdivisions).
 		static NkMeshHandle nkvpUserMesh[kNkvpMaxUser];
+		// CE MAILLAGE NE SE REGENERE PLUS DEPUIS SES PARAMETRES.
+		// ⚠️ POURQUOI IL FAUT CE DRAPEAU. A l'enregistrement, un objet qui a des
+		//    parametres de creation n'ecrit QUE trois entiers -- et c'est le bon
+		//    choix : « des megaoctets par projet pour reproduire ce que trois
+		//    entiers disent deja ». Mais des qu'on EDITE sa geometrie, les trois
+		//    entiers ne la decrivent plus : enregistrer PERDAIT les modifications,
+		//    en silence, et la reouverture rendait la primitive d'origine.
+		//    Le drapeau n'ouvre la vanne QUE pour les primitives reellement
+		//    editees -- exactement le cas ou les trois entiers ont cesse de dire
+		//    la verite. Partout ailleurs, le compromis disque reste intact.
+		static bool nkvpUserMeshEdite[kNkvpMaxUser];
 		static int32 nkvpUserSeg[kNkvpMaxUser];
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
@@ -8699,6 +8710,12 @@ namespace nkentseu {
 							if (nkvpUserMesh[u].IsValid())
 								ms->Release(nkvpUserMesh[u]);
 							nkvpUserMesh[u] = st->editMesh; // transfert de propriete
+							// ⚠️ LE DRAPEAU SE POSE ICI, ET NULLE PART AILLEURS. C'est LE
+							//    site ou la geometrie editee devient celle du noeud. Le
+							//    poser a un second endroit -- a l'entree en edition, a un
+							//    geste d'outil -- ferait diverger les deux : on marquerait
+							//    des maillages jamais modifies, ou on en manquerait.
+							nkvpUserMeshEdite[u] = true;
 						}
 						st->editMesh = {};
 						// La TOPOLOGIE n-gon aussi : sinon la re-entree en edition
@@ -17966,6 +17983,13 @@ namespace nkentseu {
 		//    (`q.userMeshValid` dans NkVpResolveEditTarget). Un second calcul
 		//    divergerait : la hierarchie marquerait des noeuds que l'edition
 		//    accepte, ou l'inverse -- et on ne saurait plus lequel croire.
+		// CE MAILLAGE A-T-IL ETE EDITE ? L'enregistrement s'en sert pour decider
+		// s'il ecrit la geometrie ou seulement les parametres de creation.
+		bool Demo3DHostNodeMeshEdite(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			return nkvpUserMeshEdite[node - kNkvpFirstUser];
+		}
 		bool Demo3DHostNodeHasOwnMesh(int32 node) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
 				return true; // hors des noeuds utilisateur : rien a signaler
@@ -22369,6 +22393,10 @@ namespace nkentseu {
 			// s'editer separement, or `GetCube()` rend un handle MIS EN CACHE --
 			// le donner directement ferait editer tous les cubes a la fois. C'est
 			// tres probablement pour cela que la branche manquait.
+			// REGENERER une primitive la fait redecrire par ses parametres : le
+			// drapeau retombe, sinon on ecrirait la geometrie d'un objet que trois
+			// entiers suffisent a reproduire.
+			nkvpUserMeshEdite[u] = false;
 			if (!nkvpUserMesh[u].IsValid()) {
 				auto *stR = HostSt();
 				if (stR) {
@@ -23873,6 +23901,12 @@ namespace nkentseu {
 			if (!h.IsValid())
 				return false;
 			nkvpUserMesh[node - kNkvpFirstUser] = h;
+			// ⚠️ UNE GEOMETRIE RELUE RESTE MARQUEE. Sans cette ligne, le cycle
+			//    editer -> enregistrer -> rouvrir -> RE-enregistrer reperdrait tout
+			//    au DEUXIEME tour : le noeud relu retrouverait ses parametres de
+			//    creation, le drapeau serait faux, et on n'ecrirait plus sa
+			//    geometrie. La persistance doit survivre a plus d'un aller-retour.
+			nkvpUserMeshEdite[node - kNkvpFirstUser] = true;
 			// Le noeud rend desormais SA geometrie : le rendu donne la priorite
 			// a nkvpUserMesh, la primitive de la nature ne se dessine plus.
 			return true;
