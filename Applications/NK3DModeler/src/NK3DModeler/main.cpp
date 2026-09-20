@@ -5098,7 +5098,7 @@ int nkmain(const NkEntryState &entry) {
 				// et celui des PLAFONDS (point ④) : `NK_IMPORT_REPEAT=<n>`
 				// rejoue la meme liste n fois, jusqu'a ce que la chaine dise
 				// non -- et le journal dit alors OU elle a dit non.
-				if (const char *v = std::getenv("NK_IMPORT_FILE")) {
+		if (const char *v = std::getenv("NK_IMPORT_FILE")) {
 					char buf[NkModelerState::kMaxOsDrop * 512];
 					snprintf(buf, sizeof(buf), "%s", v);
 					const char *ptrs[NkModelerState::kMaxOsDrop];
@@ -5477,6 +5477,104 @@ int nkmain(const NkEntryState &entry) {
 		// repondu "enfant ou independant", la carte suivante attend. Sinon
 		// dix menus se superposeraient et il repondrait au dernier en croyant
 		// repondre au premier.
+				// ────────────────────────────────────────────────────────────────────
+		// NK_DROP_CARD="<carte>[:x:y[:frame]]" -- POSER UNE CARTE DANS LA SCENE
+		// ────────────────────────────────────────────────────────────────────
+		// Importer ne POSE pas : l'import ecrit les maillages dans le projet et
+		// les met dans le NAVIGATEUR. L'application le dit elle-meme -- « glissez
+		// une carte vers la scene pour la poser ». C'est un geste de plus, et
+		// sans lui la chaine generation -> sculpture s'arrete a la porte.
+		//
+		// ⚠️ IL EMPRUNTE LA PORTE DU GLISSER, il n'en ouvre pas une seconde.
+		//    `NkBrowserDropOnView` est la MEME fonction que le lacher a la souris
+		//    appelle : le jeton, la file des cartes choisies et la demande de
+		//    pick y vivent une seule fois. Un crochet qui poserait l'objet par
+		//    ses propres moyens mesurerait ses propres moyens.
+		//
+		// ⚠️ SEPARATEUR ':' -- la virgule EST le separateur decimal en fr-FR.
+		//    Coordonnees en pixels FENETRE (l'hote soustrait son origine de vue).
+		{
+			static bool sDropLu = false;
+			static int32 sCarte = 0, sFrame = 0;
+			static float32 sX = 0.f, sY = 0.f;
+			static bool sArme = false;
+			static int32 sVerif = -1; // image ou l'on COMPTE ce que la pose a fait
+			if (!sDropLu) {
+				sDropLu = true;
+				if (const char *dv = std::getenv("NK_DROP_CARD")) {
+					float32 v[4] = {0.f, 620.f, 420.f, 90.f};
+					int32 k = 0;
+					const char *q = dv;
+					while (k < 4 && *q) {
+						float32 val = 0.f;
+						bool neg = false;
+						if (*q == '-') { neg = true; ++q; }
+						while (*q >= '0' && *q <= '9')
+							val = val * 10.f + (float32)(*q++ - '0');
+						if (*q == '.') {
+							++q;
+							float32 sc = 0.1f;
+							while (*q >= '0' && *q <= '9') { val += (float32)(*q++ - '0') * sc; sc *= 0.1f; }
+						}
+						v[k++] = neg ? -val : val;
+						if (*q == ':') ++q; else break;
+					}
+					sCarte = (int32)v[0];
+					sX = v[1];
+					sY = v[2];
+					sFrame = (int32)v[3];
+					sArme = true;
+					std::printf("[nk3d] NK_DROP_CARD arme : carte=%d a (%.0f,%.0f) image %d\n",
+						  sCarte, (double)sX, (double)sY, sFrame);
+				}
+			}
+			// ⚠️ COMPTER CE QUE LA POSE A FAIT, AVANT de sculpter. Sans ce compte,
+			//    « la sculpture ne trouve pas d'objet » confond DEUX causes : la pose
+			//    n'a rien cree, ou elle a cree un objet qu'on vise mal. Le journal
+			//    donne donc le NUMERO des noeuds vivants -- parce qu'un indice n'est
+			//    pas un nom, et que `NK_EDIT_USER` en demande un precis.
+			if (sVerif >= 0 && agentFrame >= sVerif) {
+				sVerif = -1;
+				const int32 nTot = demo::Demo3DHostNodeCount();
+				int32 vivants = 0;
+				char liste[256];
+				liste[0] = 0;
+				for (int32 q = 0; q < nTot; ++q) {
+					if (demo::Demo3DHostUserKind(q) == 0 || demo::Demo3DHostNodeDeleted(q))
+						continue;
+					++vivants;
+					char tmp[24];
+					std::snprintf(tmp, sizeof(tmp), "%d ", q);
+					if (std::strlen(liste) + std::strlen(tmp) < sizeof(liste) - 1)
+						std::strcat(liste, tmp);
+				}
+				std::printf("[nk3d] NK_DROP_CARD apres pose : %d objet(s) utilisateur vivant(s) "
+					  "sur %d noeud(s) -- numeros: %s\n",
+					  vivants, nTot, liste[0] ? liste : "(aucun)");
+			}
+			if (sArme && agentFrame >= sFrame) {
+				sArme = false; // une seule fois
+				// CE QUE CE JOURNAL DOIT PERMETTRE DE DISTINGUER : « il n'y a pas de
+				// carte » de « la carte existe et la pose n'a rien fait ». Les deux
+				// laissent une scene vide.
+				const int32 n = st.BrowserCount();
+				if (sCarte >= 0 && sCarte < n) {
+					nk3d::NkBrowserDropOnView(st, sCarte, sX, sY);
+					sVerif = agentFrame + 40; // la pose est ASYNCHRONE : le pick
+					                          // repond a l'image suivante, et la
+					                          // creation suit. Compter tout de suite
+					                          // compterait AVANT que rien n'ait eu lieu.
+					std::printf("[nk3d] NK_DROP_CARD : carte %d/%d '%s' lachee a (%.0f,%.0f)\n",
+						  sCarte, n, st.Card(sCarte).name, (double)sX, (double)sY);
+				} else {
+					// REFUS NOMME : une carte absente ne doit pas se lire comme une
+					// pose sans effet.
+					std::printf("[nk3d] NK_DROP_CARD REFUSE : carte %d hors des %d du navigateur\n",
+						  sCarte, n);
+				}
+			}
+		}
+
 		if (st.dropIdx < 0 && st.dropMenuTarget < 0 && st.dropQueueCount > 0) {
 					const int32 carte = st.dropQueue[0];
 					for (int32 k = 1; k < st.dropQueueCount; ++k)

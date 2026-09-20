@@ -55,6 +55,52 @@ namespace nkentseu {
 		// `sortCombo` porte le deroulant de CLASSEMENT. Il est fourni par la boucle
 		// principale, comme pour les autres combos : un popup se peint APRES tout le
 		// reste, il ne peut donc pas se declarer ici.
+		// ──────────────────────────────────────────────────────────────────
+		// LACHER UNE CARTE SUR LA VUE 3D -- LA PORTE UNIQUE
+		// ──────────────────────────────────────────────────────────────────
+		// Fige le jeton du geste et demande le pick. Rien ne s'applique ici :
+		// la reponse du pick n'arrive qu'a l'image suivante, et c'est main.cpp
+		// qui pose l'objet quand elle arrive.
+		//
+		// ⚠️ POURQUOI UNE FONCTION, ET NON DU CODE EN LIGNE. Ce corps vivait
+		//    dans la boucle du navigateur. Un crochet de mesure aurait du le
+		//    RECOPIER -- et deux copies d'un meme geste divergent au premier
+		//    changement : on mesurerait alors le crochet, pas le geste de
+		//    Rodolf. Meme raison que `NK_SCULPT_AT`, qui emprunte le chemin de
+		//    la souris au lieu d'en ouvrir un second.
+		//
+		// `x`, `y` sont en COORDONNEES FENETRE, telles quelles : l'hote
+		// soustrait SON origine de vue. Passer `bm - st.viewRect` ferait de
+		// `viewRect` une seconde source pour la meme origine.
+		inline void NkBrowserDropOnView(NkModelerState &st, int32 carte, float32 x,
+			  float32 y) {
+		if (carte < 0 || carte >= st.BrowserCount())
+			return;
+		st.dropIdx = carte;
+		st.dropKind = st.Card(carte).kind;
+		st.dropSrcNode = st.Card(carte).srcNode;
+		st.dropMat = st.Card(carte).mat;
+		snprintf(st.dropName, sizeof(st.dropName), "%s", st.Card(carte).name);
+		st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+		// LES CARTES QUI PARTENT AVEC ELLE : si la carte saisie fait partie des
+		// cartes CHOISIES, tout le lot suit ; sinon elle part SEULE. C'est la
+		// regle de tous les gestionnaires de fichiers. La carte saisie n'entre
+		// PAS dans la file : elle est deja dans le jeton.
+		st.dropQueueCount = 0;
+		st.dropQueueX = x;
+		st.dropQueueY = y;
+		if (st.Card(carte).picked) {
+			for (int32 k = 0; k < st.BrowserCount() &&
+						 st.dropQueueCount < NkModelerState::kMaxDropQueue;
+						 ++k) {
+				if (k == carte || !st.Card(k).picked)
+					continue;
+				st.dropQueue[st.dropQueueCount++] = k;
+			}
+		}
+		demo::Demo3DHostPickRequest(x, y);
+		}
+
 		inline void PaintBrowser(NkModelerPainter &p, const NkRect &r, NkModelerState &st,
 								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
 								 nkgui::NkGuiContext *guiCtx = nullptr,
@@ -1067,13 +1113,11 @@ namespace nkentseu {
 					// Rien ne s'applique ICI : la reponse du pick n'existe qu'a
 					// la frame suivante. On fige donc TOUT ce dont le geste aura
 					// besoin, et main.cpp applique quand la reponse arrive.
-					st.dropIdx = pendingSrc;
-					st.dropKind = st.Card(pendingSrc).kind;
-					st.dropSrcNode = st.Card(pendingSrc).srcNode;
-					st.dropMat = st.Card(pendingSrc).mat;
-					snprintf(st.dropName, sizeof(st.dropName), "%s",
-							 st.Card(pendingSrc).name);
-					st.dropMenuTarget = -1; // un jeton neuf n'herite d'aucun menu
+					// LA PORTE, ET ELLE EST UNIQUE. Le corps de ce lacher vivait ici,
+					// inline : un crochet de mesure aurait du le recopier, et deux
+					// copies d'un geste divergent au premier changement. On appelle
+					// donc la meme fonction que le crochet -- « une porte, pas deux ».
+					NkBrowserDropOnView(st, pendingSrc, bm.x, bm.y);
 					// ---- LES CARTES QUI PARTENT AVEC ELLE ----
 					//
 					// On ne tire pas forcement une carte isolee : si celle qu'on saisit
@@ -1085,22 +1129,8 @@ namespace nkentseu {
 					//
 					// La carte saisie n'entre PAS dans la file : elle est deja dans le
 					// jeton. La file ne porte que celles qui attendent leur tour.
-					st.dropQueueCount = 0;
-					st.dropQueueX = bm.x;
-					st.dropQueueY = bm.y;
-					if (st.Card(pendingSrc).picked) {
-						for (int32 k = 0; k < st.BrowserCount() &&
-							 st.dropQueueCount < NkModelerState::kMaxDropQueue;
-							 ++k) {
-							if (k == pendingSrc || !st.Card(k).picked)
-								continue;
-							st.dropQueue[st.dropQueueCount++] = k;
-						}
-					}
-					// COORDONNEES FENETRE, telles quelles : l'hote soustrait
-					// SON origine de vue. Passer `bm - st.viewRect` ferait de
-					// `viewRect` une seconde source pour la meme origine.
-					demo::Demo3DHostPickRequest(bm.x, bm.y);
+
+
 				} else if (pendingDest != -999) {
 					// LACHER DANS LE NAVIGATEUR (racine, dossier, fond) : meme
 					// garde anti-cycle qu'avant la migration.
