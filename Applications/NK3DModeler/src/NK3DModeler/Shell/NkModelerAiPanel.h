@@ -245,6 +245,26 @@ namespace nkentseu {
 				//    honnete que d'afficher « 6 -> 6 » comme un resultat.
 				snprintf(b.out, sizeof(b.out), "les comptes n'ont pas bouge (%d/%d/%d)", b.vA, b.eA,
 						 b.fA);
+			// -- L EFFET MESURE, LISIBLE PAR UN BANC (NK_AI_TRACE) --
+			// Il existait deja, mais seulement DANS le bloc du fil : pour le lire il
+			// fallait ouvrir le panneau et regarder. Un verdict qui n existe que la ou
+			// personne ne le cherche ne sert a personne.
+			//
+			// [!] CETTE LIGNE N A JAMAIS TEMOIGNE, ET JE L ECRIS PLUTOT QUE DE LA
+			//     LIVRER COMME ACQUISE. Son appelant (main.cpp, « l effet de la demande
+			//     precedente ») ne l atteint que si `Demo3DHostStats` rend true, et cette
+			//     fonction n est renseignee QU EN MODE EDITION. Quatre essais avec
+			//     `NK_EDIT_MODE=1` ont donne « AI RESULTAT : acceptee » et un fil a deux
+			//     blocs -- donc `aiEnCours` etait bien pose -- sans jamais une seule ligne
+			//     AI EFFET : le mode edition n etait pas actif.
+			//     Reste a etablir : POURQUOI le crochet ne met-il pas le mode ? Tant que
+			//     ce n est pas fait, ne pas lire l ABSENCE de cette ligne comme
+			//     « l operation n a rien change » -- c est une sonde muette, pas un zero.
+			static const bool sEffetOn = (std::getenv("NK_AI_TRACE") != nullptr);
+			if (sEffetOn) {
+				std::printf("[nk3d] AI EFFET : %s -> %s\n", b.in, b.out);
+				std::fflush(stdout);
+			}
 			st.aiEnCours = -1;
 		}
 
