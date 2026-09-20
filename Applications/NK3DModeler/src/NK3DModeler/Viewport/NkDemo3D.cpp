@@ -12226,6 +12226,61 @@ namespace nkentseu {
 												   0.f, st->editXray);
 						}
 					}
+				// -- LE TRAIT : MEME CHEMIN QUE LE REMPLISSAGE DE SELECTION --------------
+				//
+				// Rodolf trace un trait sur la surface puis demande « creuse ici ». Il
+				// vivait jusqu'ici dans la topologie SANS SE VOIR -- et un trait qu'on ne
+				// voit pas est inutilisable, meme s'il survit parfaitement aux operations.
+				//
+				// [!] PAR `DrawDebugTriangle`, ET PAS PAR `SetEditOverlayTris`. J'ai failli
+				//     alimenter ce canal : il est appele UNE SEULE FOIS dans ce fichier,
+				//     avec `nullptr`, et son code moteur est bien vivant -- il ressemble
+				//     donc a une capacite oubliee. Le commentaire qui le precede dit
+				//     l'inverse : le remplissage est PASSE a DrawDebugTriangle parce que
+				//     l'overlay point-sprite rendait mal en DX12. *Un canal appele une fois
+				//     avec nullptr ressemble a du code mort et peut etre un choix mesure.*
+				//
+				// [!] ET C'EST CE QUI DISTINGUE LE TRAIT DE LA SELECTION A L'OEIL : la
+				//     selection se voit sur les ARETES (orange vif) et en remplissage
+				//     orange ; le trait se voit en remplissage CYAN. Deux teintes, mais
+				//     surtout deux intentions dont les durees different -- `sel` s'efface
+				//     au clic suivant, le trait survit aux gestes qui separent le trace de
+				//     la demande. S'ils se peignaient pareil, on ne saurait pas ce qu'on
+				//     regarde.
+				//   CINQUIEME COULEUR EN DUR DE CE FICHIER, ET C'EST DELIBERE.
+				//   `NkTheme` n'a aucune presence dans ce viewport : cageCol, selEdgeCol,
+				//   actVertCol et faceFill sont des litteraux. Passer la SEULE couleur du
+				//   trait par un role creerait deux verites sur la couleur dans le meme
+				//   fichier -- une conformite isolee coute plus qu'une exception coherente.
+				//   CONDITION DE DEMENAGEMENT : le jour ou la cage d'edition devient
+				//   theme-able, les CINQ partent ensemble. Le declencheur sera un theme
+				//   clair pour le viewport : la cage y est presque noire (0,015) et
+				//   deviendra illisible -- c'est ce jour-la qu'il faudra tout bouger.
+					const NkVec4f traitFill{0.10f, 0.62f, 1.f, 0.38f}; // cyan translucide
+					const uint32 fcntT = (uint32)st->editHE.faces.Size();
+					NkVector<renderer::NkEmId> fvt;
+					for (uint32 f = 0; f < fcntT; f++) {
+						if (!st->editHE.faces[f].alive || st->editHE.faces[f].trait == 0u)
+							continue;
+						fvt.Clear();
+						st->editHE.GetFaceVerts(f, fvt);
+						const uint32 fn = (uint32)fvt.Size();
+						if (fn < 3)
+							continue;
+				//     Les positions VIVANTES, comme le remplissage de selection : lire
+				//     `editHE.verts` peindrait le trait la ou le maillage etait avant la
+				//     modale en cours.
+						bool ok = true;
+						for (uint32 k = 0; k < fn && ok; k++)
+							if (fvt[k] >= (uint32)st->editLive.Size())
+								ok = false;
+						if (!ok)
+							continue;
+						const NkVec3f q0 = liveWf((int32)fvt[0]);
+						for (uint32 k = 1; k + 1 < fn; k++)
+							r3d->DrawDebugTriangle(q0, liveWf((int32)fvt[k]), liveWf((int32)fvt[k + 1]),
+										   traitFill, 0.f, st->editXray);
+					}
 				}
 				// ── Marqueurs VERTEX / centre-de-FACE façon Blender : petits QUADS PLEINS ──────
 				// Carré PLEIN (2 triangles) face-caméra, taille ÉCRAN-CONSTANTE (~3 px de côté),
@@ -17874,13 +17929,20 @@ namespace nkentseu {
 				return 0;
 			if (!st->editMode)
 				return 0; // pas de maillage edite : rien a tracer, et on ne devine pas
-			// [!] AUCUNE SYNCHRONISATION DE LA VUE ICI, ET C'EST DECLARE : le trait
-			//     n'est pas encore PEINT. Il vit dans la topologie, et c'est la que
-			//     le temoin le lit -- la seule verite pour l'instant.
-			//     CONDITION DE RETRAIT : le jour ou le trait se voit a l'ecran, ces
-			//     portes devront passer par la meme synchronisation que les
-			//     operations d'edition, sinon il existera sans se montrer -- l'ecart
-			//     qu'on impute a la souris pendant une heure.
+			// [!] TOUJOURS AUCUNE SYNCHRONISATION ICI, ET LA RAISON A CHANGE.
+			//     J'avais ecrit qu'elle manquait, avec sa condition de retrait : « le
+			//     jour ou le trait se peint, ces portes devront passer par la meme
+			//     synchronisation que les operations d'edition ». Le trait se peint
+			//     depuis aujourd'hui -- et la condition ne s'applique pas.
+			//
+			//     Il est trace chaque image par `DrawDebugTriangle`, dans la meme
+			//     boucle que le remplissage des faces selectionnees, et NON dans un
+			//     lot persistant : il n'y a donc rien a invalider. Une synchronisation
+			//     ajoutee « par securite » aurait reconstruit le fil de fer a chaque
+			//     tampon de trace, pour rien.
+			//
+			//     *Une condition de retrait qu'on laisse ecrite apres son echeance
+			//     fait faire le travail qu'elle annonçait, meme devenu inutile.*
 			int32 total = 0;
 			for (int32 k = 0; k < count; ++k) {
 				const NkVec3f p{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]};
