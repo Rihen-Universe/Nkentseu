@@ -9939,6 +9939,85 @@ static int32 SupprXeBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// =============================================================================
+//  --loi-bevel : MESURER LA LOI DE CROISSANCE DE `bevel`
+// =============================================================================
+//  ⚠️ POURQUOI ICI, ET PAS DANS LE MODELEUR. La boucle d'agent du 20/09 borne
+//     ses pas avec un PLAFOND DE FACES, et ce plafond ne sait predire qu'UNE
+//     loi : `subdivide`, x4^k (mesure du 17/09). Pour les quatre autres verbes
+//     croissants, `NkIaPasSur` applique une regle du quart AVEUGLE, declaree
+//     comme hypothese dans son en-tete. `bevel` a ete designe comme le plus
+//     gros risque des quatre : le contrat autorise `segments` jusqu'a 16.
+//     Or les compteurs du modeleur ne sont lisibles QUE si le VISEUR est en
+//     mode Edition, etat qu'aucun crochet n'amorce. Ici, `NkEditMesh` se
+//     manipule SANS viseur : la loi devient mesurable.
+//
+//  ⚠️ IL REND AVANT LES BATTERIES COMPAREES, comme `--intention`, et n'ecrit
+//     AUCUNE ligne dans `editmesh_baseline.txt`. Ajouter une ligne a la
+//     signature aurait fait rougir `--check` sur un maillage intact : *un banc
+//     deja rouge ne protege plus personne.*
+//
+//  PLAN A DEUX FACTEURS, ECRIT AVANT DE LIRE LES CHIFFRES :
+//    - le nombre d'aretes : cube, puis cube subdivise (davantage d'aretes) ;
+//    - `segments` : 1, 2, 4, 8, 16. La largeur reste FIXE -- faire varier deux
+//      choses a la fois ne rendrait aucune loi.
+//  HYPOTHESE A REFUTER : les faces ajoutees valent ~ aretes x segments. Si le
+//  rapport n'est pas STABLE sur les dix cas, la loi depend d'autre chose, et il
+//  faut le DIRE plutot qu'ajuster une formule sur ses propres points.
+static uint32 LoiBevelFacesVivantes(NkEditMesh &m) {
+	uint32 n = 0;
+	for (uint32 f = 0; f < m.FaceCount(); f++)
+		if (m.faces[f].alive)
+			++n;
+	return n;
+}
+
+static int32 LoiBevel() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# loi de croissance de bevel -- faces VIVANTES avant/apres\n");
+	printf("# %-10s %-9s %-8s %-8s %-9s %s\n", "maillage", "segments", "aretes", "f_avant",
+		   "f_apres", "ajoutees/(aretes*segments)");
+	const int32 segs[5] = {1, 2, 4, 8, 16};
+	for (int32 sub = 0; sub <= 1; ++sub) {
+		for (int32 si = 0; si < 5; ++si) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			if (sub) {
+				m.SelectAll();
+				if (!m.SubdivideSelectedFaces()) {
+					printf("  REFUS : la subdivision prealable a echoue\n");
+					continue;
+				}
+			}
+			m.SelectAll();
+			const uint32 aretes = m.EdgeCount();
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			NkBevelParams p;
+			p.offset = 0.05f; // largeur FIXE : on ne fait varier que `segments`
+			p.segments = segs[si];
+			const bool ok = m.BevelSelected(p);
+			// ⚠️ ON N'IMPRIME PAS DE RATIO QUAND L'OPERATION A ECHOUE : ce serait
+			//    un chiffre juste sur une operation qui n'a pas eu lieu.
+			if (!ok) {
+				printf("  %-10s %-9d %-8u %-8u %-9s %s\n", sub ? "cube+sub" : "cube", segs[si],
+					   aretes, f0, "REFUS", "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const double denom = (double)aretes * (double)segs[si];
+			const double ratio = denom > 0.0 ? ((double)f1 - (double)f0) / denom : 0.0;
+			printf("  %-10s %-9d %-8u %-8u %-9u %.3f\n", sub ? "cube+sub" : "cube", segs[si], aretes,
+				   f0, f1, ratio);
+		}
+	}
+	printf("# Ratio STABLE sur les dix lignes  -> la loi est  aretes x segments.\n");
+	printf("# Ratio qui DERIVE                 -> la loi depend d'autre chose, et la regle\n");
+	printf("#   du quart doit RESTER dans NkIaPasSur jusqu'a ce qu'on sache de quoi.\n");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9956,8 +10035,11 @@ int main(int argc, char **argv) {
 	bool suppression = false;
 	bool annulation = false;
 	bool supprXe = false;
+	bool loiBevel = false;
 	for (int32 i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "--baseline") == 0)
+		if (strcmp(argv[i], "--loi-bevel") == 0)
+			loiBevel = true;
+		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
 			check = true;
@@ -9972,6 +10054,11 @@ int main(int argc, char **argv) {
 		else if (strcmp(argv[i], "--suppr-xe") == 0)
 			supprXe = true;
 	}
+	// ⚠️ AVANT LES BATTERIES COMPAREES, comme `--intention` : cette mesure ne
+	//    pose AUCUNE ligne dans la signature, donc `--check` reste octet pour
+	//    octet ce qu'il etait.
+	if (loiBevel)
+		return LoiBevel();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
