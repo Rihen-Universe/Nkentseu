@@ -516,6 +516,16 @@ int main(int argc, char **argv) {
 		PeuplerCatalogue();
 		NkUIDocument docR;
 		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		// ⚠️ LE REJEU PEUT DESORMAIS PARTIR D'UN DOCUMENT. Sans ca il ne pouvait
+		//    pas eprouver un INCREMENT : un delta n'a de sens que contre un
+		//    document existant, et le rejeu aurait mesure le mauvais chemin.
+		if (documentBase && *documentBase) {
+			const NkString dt = NkFile::ReadAllText(NkPath(documentBase));
+			if (dt.Size() == 0 || !docR.Load(dt.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
 		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
 		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
 		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
