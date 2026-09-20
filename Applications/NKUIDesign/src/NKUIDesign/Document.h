@@ -3028,16 +3028,37 @@ namespace nkuidesign {
 				out.Append('\n');
 				Field(out, "libelle", n.label.Data());
 				Field(out, "composant", n.component.Data());
-				// `enfants` est la SEULE verite sur la structure : `parent` s'en
-				// deduit au chargement. Ecrire les deux ferait deux verites, et
-				// c'est le motif que cette tranche passe son temps a retirer
-				// d'ailleurs.
-				out.Append("  enfants =");
-				for (uint32 c = 0; c < (uint32)n.children.Size(); ++c) {
-					out.Append(' ');
-					WriteNum(out, (float32)n.children[c]);
+				// ── LA STRUCTURE : UNE SEULE VERITE, ET ELLE A CHANGE DE PORTEUR ─
+				// Etape 2 de la bascule du 20/09 : le DOCUMENT ecrit `parent`,
+				// porte par l'enfant. Un orphelin devient irrepresentable -- on ne
+				// peut pas oublier de s'attacher quand s'attacher est le geste de
+				// naitre. (Mesure qui l'a decide : 37 orphelins sur 80 reponses,
+				// et ils expliquaient 37 des 38 refus.)
+				//
+				// ⚠️ ON N'ECRIT TOUJOURS QU'UNE SEULE DES DEUX FORMES. Ecrire
+				//    `parent` ET `enfants` ferait deux verites sur la meme
+				//    structure, et c'est le motif que cette tranche passe son temps
+				//    a retirer d'ailleurs. La lecture, elle, accepte les deux --
+				//    lire large et ecrire etroit, jamais l'inverse.
+				//
+				// ⚠️ LES DECLARATIONS GARDENT `enfants` : leurs indices sont
+				//    INTERNES a l'arbre de la declaration, elles n'ont pas le
+				//    probleme de l'orphelin, et les toucher serait la refonte plus
+				//    large qui n'est pas autorisee.
+				if (motCle && motCle[0] == 'd') {
+					out.Append("  enfants =");
+					for (uint32 c = 0; c < (uint32)n.children.Size(); ++c) {
+						out.Append(' ');
+						WriteNum(out, (float32)n.children[c]);
+					}
+					out.Append('\n');
+				} else if (n.parent >= 0) {
+					out.Append("  parent = ");
+					WriteNum(out, (float32)n.parent);
+					out.Append('\n');
 				}
-				out.Append('\n');
+				// La racine n'ecrit rien : « pas de ligne `parent` » EST ce qui
+				// la designe, et il n'y en a qu'une.
 				WriteAxis(out, "largeur", n.width);
 				WriteAxis(out, "hauteur", n.height);
 				// Une seule ligne pour tout l'agencement, dans l'ordre des champs de
@@ -3558,6 +3579,29 @@ namespace nkuidesign {
 				/// `childLists` : `enfants` est la seule verite sur la structure,
 				/// `parent` s'en deduit.
 				NkVector<NkVector<int32>> declChildLists;
+				// ── LA FORME `parent`, ET POURQUOI ELLE EXISTE ──────────────────
+				// ⚠️ `enfants` laisse ECRIRE un orphelin : un noeud que personne ne
+				//    cite. Mesure du 20/09 sur sept courses du jeu d'epreuve :
+				//    37 reponses sur 80 en portaient un (46 %), et ces 37 sont
+				//    exactement 37 des 38 refus. `parent`, porte par l'ENFANT au
+				//    moment ou il nait, rend l'orphelin IRREPRESENTABLE -- on ne
+				//    peut pas oublier de s'attacher quand s'attacher est le geste
+				//    de naitre. *Interdire un defaut et le rendre irrepresentable
+				//    ne sont pas la meme chose : le second ne se reenonce pas.*
+				//
+				//    Il ferme aussi la dependance a l'ordre : un noeud qui NOMME
+				//    son parent n'a pas besoin que le parent soit ecrit avant.
+				//
+				//    Ce qu'il ne ferme PAS, et qu'on ne pretendra pas : un parent
+				//    inexistant, et un cycle. Les deux restent ecrivables.
+				//
+				// `numeroDeclare[i]` : le numero REELLEMENT ecrit apres `noeud`.
+				// Jusqu'au 20/09 il n'etait pas lu du tout, et l'indice venait de
+				// la position -- un document dont les numeros ne suivaient pas leur
+				// position etait relu comme un autre document, en silence.
+				NkVector<int32> numeroDeclare;
+				/// `parentDe[i]` : le NUMERO du parent, -1 si la ligne est absente.
+				NkVector<int32> parentDe;
 				NkString pendingOverrides;
 				const char *p = text;
 				char key[48], val[256];
@@ -3592,6 +3636,11 @@ namespace nkuidesign {
 						FlushOverrides(pendingOverrides, inNode && !dansStyle);
 						nodes.PushBack(NkUINode());
 						childLists.PushBack(NkVector<int32>());
+						// Le numero ECRIT, enfin lu. Absent ou illisible -> -1, et
+						// la position fait foi comme avant : aucun document existant
+						// ne change de sens.
+						numeroDeclare.PushBack(LireEntierOuMoinsUn(val));
+						parentDe.PushBack(-1);
 						inNode = true;
 						dansDecl = false;
 						dansStyle = false;
@@ -3793,10 +3842,33 @@ namespace nkuidesign {
 									(*outUnknown)++;
 							}
 						} else if (StrEq(key, "enfants"))
+							// ⚠️ CONDITION DE RETRAIT DE CETTE LECTURE, ECRITE ICI
+							//    PARCE QU'AILLEURS ELLE SERA OUBLIEE. Elle se
+							//    supprime le jour ou LES DEUX sont vrais :
+							//      (1) plus aucun fichier `.nkuidoc` versionne ne
+							//          porte `enfants` sur un `noeud` -- se verifie
+							//          par `grep -rl "  enfants =" --include=*.nkuidoc`
+							//          qui doit ne rendre QUE des blocs `dnoeud` ;
+							//      (2) les documents du dehors (ceux que Rodolf a pu
+							//          garder hors depot) ont ete relus une fois par
+							//          l'application, qui les reecrit en `parent`.
+							//    Tant que l'un des deux manque, la retirer perd des
+							//    documents. *Un contournement qui ne dit pas quand le
+							//    supprimer devient permanent par defaut.*
+							//    ⚠️ Les DECLARATIONS (`dnoeud`) gardent `enfants`
+							//    pour toujours : leurs indices sont INTERNES a
+							//    l'arbre de la declaration, ce n'est pas le meme
+							//    probleme et il n'a pas le defaut de l'orphelin.
 							ParseIntList(val, dansDecl
 											 ? declChildLists[(uint32)declChildLists.Size() - 1]
 											 : childLists[(uint32)childLists.Size() - 1]);
-						else if (StrEq(key, "largeur"))
+						else if (StrEq(key, "parent") && !dansDecl && !dansStyle) {
+							// La forme neuve : l'enfant NOMME son parent. Lue a cote
+							// d'`enfants`, jamais a la place -- l'etape 1 de la
+							// bascule est « lire les DEUX », et rien ne casse.
+							if (parentDe.Size() > 0)
+								parentDe[(uint32)parentDe.Size() - 1] = LireEntierOuMoinsUn(val);
+						} else if (StrEq(key, "largeur"))
 							ParseAxis(val, n.width);
 						else if (StrEq(key, "hauteur"))
 							ParseAxis(val, n.height);
@@ -4308,22 +4380,92 @@ namespace nkuidesign {
 
 				if (!sawHeader || nodes.Size() == 0)
 					return false;
-				// Reconstruction des liens : `enfants` fait foi, `parent` s'en deduit.
+				// ── RECONSTRUCTION DES LIENS : DEUX FORMES, UNE SEULE A LA FOIS ──
+				// Etape 1 de la bascule : on LIT les deux. `parent` l'emporte des
+				// qu'un seul noeud en porte un -- melanger les deux sur le meme
+				// document ferait deux verites sur la meme structure, et c'est le
+				// motif qu'on passe notre temps a retirer d'ailleurs.
 				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
 					nodes[i].children.Clear();
 					nodes[i].parent = -1;
 				}
-				for (uint32 i = 0; i < (uint32)childLists.Size(); ++i)
-					for (uint32 c = 0; c < (uint32)childLists[i].Size(); ++c) {
-						const int32 kid = childLists[i][c];
-						if (!IsValidIndex(kid) || kid == 0 || nodes[(uint32)kid].parent >= 0)
-							return false; // enfant inconnu, racine reparentee, ou deux parents
-						nodes[i].children.PushBack(kid);
-						nodes[(uint32)kid].parent = (int32)i;
+				bool formeParent = false;
+				for (uint32 i = 0; i < (uint32)parentDe.Size(); ++i)
+					if (parentDe[i] >= 0) {
+						formeParent = true;
+						break;
 					}
-				for (uint32 i = 1; i < (uint32)nodes.Size(); ++i)
-					if (nodes[i].parent < 0)
-						return false; // noeud orphelin : structure incoherente
+
+				if (formeParent) {
+					// ⚠️ ICI LE NUMERO ECRIT FAIT FOI, PAS LA POSITION. C'est ce
+					//    qui rend la forme independante de l'ordre : un enfant peut
+					//    nommer un parent ecrit plus bas.
+					//    Un numero en double rend le document ambigu -> refus.
+					for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+						for (uint32 j = i + 1; j < (uint32)nodes.Size(); ++j)
+							if (numeroDeclare[i] >= 0 && numeroDeclare[i] == numeroDeclare[j])
+								return false; // deux noeuds portent le meme numero
+					uint32 racines = 0;
+					for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
+						if (parentDe[i] < 0) {
+							++racines;
+							continue; // une seule racine sera toleree, voir plus bas
+						}
+						// Le numero -> l'indice. Sans correspondance, on REFUSE :
+						// rattacher au petit bonheur fabriquerait un arbre faux.
+						int32 pere = -1;
+						for (uint32 j = 0; j < (uint32)nodes.Size(); ++j)
+							if (numeroDeclare[j] == parentDe[i]) {
+								pere = (int32)j;
+								break;
+							}
+						if (pere < 0 || pere == (int32)i)
+							return false; // parent inexistant, ou noeud son propre pere
+						nodes[(uint32)pere].children.PushBack((int32)i);
+						nodes[i].parent = pere;
+					}
+					if (racines != 1 || parentDe[0] >= 0)
+						return false; // zero/plusieurs racines, ou racine hors indice 0
+					// ⚠️ UN CYCLE LAISSE `racines == 1` ET DES NOEUDS INJOIGNABLES.
+					//    `parent` retire l'orphelin, il ne retire PAS le cycle --
+					//    on l'a ecrit avant de livrer, on le garde ici. Sans cette
+					//    passe, le document serait accepte en perdant des noeuds :
+					//    exactement le defaut qu'on repare a cote.
+					{
+						NkVector<int32> pile;
+						NkVector<uint8> vu;
+						for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)
+							vu.PushBack(0u);
+						pile.PushBack(0);
+						vu[0] = 1u;
+						uint32 atteints = 0;
+						while (pile.Size() > 0) {
+							const int32 cur = pile[(uint32)pile.Size() - 1];
+							pile.PopBack();
+							++atteints;
+							const NkVector<int32> &ks = nodes[(uint32)cur].children;
+							for (uint32 k = 0; k < (uint32)ks.Size(); ++k)
+								if (!vu[(uint32)ks[k]]) {
+									vu[(uint32)ks[k]] = 1u;
+									pile.PushBack(ks[k]);
+								}
+						}
+						if (atteints != (uint32)nodes.Size())
+							return false; // cycle : des noeuds ne pendent a rien
+					}
+				} else {
+					for (uint32 i = 0; i < (uint32)childLists.Size(); ++i)
+						for (uint32 c = 0; c < (uint32)childLists[i].Size(); ++c) {
+							const int32 kid = childLists[i][c];
+							if (!IsValidIndex(kid) || kid == 0 || nodes[(uint32)kid].parent >= 0)
+								return false; // enfant inconnu, racine reparentee, ou deux parents
+							nodes[i].children.PushBack(kid);
+							nodes[(uint32)kid].parent = (int32)i;
+						}
+					for (uint32 i = 1; i < (uint32)nodes.Size(); ++i)
+						if (nodes[i].parent < 0)
+							return false; // noeud orphelin : structure incoherente
+				}
 				// ── LES ARBRES DES DECLARATIONS, MEME REGLE ─────────────────
 				// `declChildLists` court sur TOUTES les declarations dans l'ordre
 				// de lecture : on le reparcourt declaration par declaration, avec
@@ -4688,6 +4830,30 @@ namespace nkuidesign {
 					++s;
 				return s;
 			}
+			/// Un entier decimal positif, ou -1 si la chaine n'en porte pas un.
+			/// ⚠️ PAS `atoi` : `atoi("")` et `atoi("abc")` rendent tous deux 0, et
+			///    0 est l'indice de la RACINE ici. Une absence lue comme « racine »
+			///    reparenterait tout un document en silence. *Une sentinelle doit
+			///    etre impossible a confondre avec une valeur legitime.*
+			///    (Et `atof`/la virgule decimale fr-FR ne s'en melent pas : on lit
+			///    chiffre par chiffre, sans la locale.)
+			static int32 LireEntierOuMoinsUn(const char *s) {
+				if (!s)
+					return -1;
+				while (*s == ' ' || *s == '\t')
+					++s;
+				if (*s < '0' || *s > '9')
+					return -1;
+				int32 v = 0;
+				while (*s >= '0' && *s <= '9') {
+					v = v * 10 + (int32)(*s - '0');
+					++s;
+				}
+				while (*s == ' ' || *s == '\t')
+					++s;
+				return (*s == '\0') ? v : -1; // « 3 bis » n'est pas un numero
+			}
+
 			/// `<agencement> <alignement principal> <alignement transverse> <colonnes>`
 			static void ParseLayout(const char *s, NkLayoutDecl &L) {
 				char tok[4][32];
