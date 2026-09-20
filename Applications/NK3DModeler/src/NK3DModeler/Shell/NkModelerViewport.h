@@ -1959,7 +1959,28 @@ namespace nkentseu {
 			// ce message en est un -- et je laisse Rodolf trancher s'il faut un
 			// role a part.
 			if (editMode && demo::Demo3DHostEditRefusedFrames() > 10) {
+				// ⚠️ LE BANDEAU DIT CE QUE LE JOURNAL DIT. Il affichait un seul
+				//    texte pour CINQ causes, et celui qu'il affichait designait la
+				//    seule qui etait fausse : le 20/09, Rodolf a re-clique son cube
+				//    alors qu'il etait bien selectionne. Le journal le disait depuis
+				//    le 17/09 ; personne ne lit logs/app.log en sculptant.
 				const char *msg = "Selectionne un objet, puis TAB";
+				switch (demo::Demo3DHostEditRefusMotif()) {
+					case 2:
+						msg = "Cet objet est supprime : il ne peut pas etre edite";
+						break;
+					case 3:
+						msg = "Cet objet n'a pas de maillage a lui (projet jamais enregistre)";
+						break;
+					case 4:
+						msg = "Cette nature d'objet n'est pas editable";
+						break;
+					case 5:
+						msg = "La selection ne designe aucun maillage editable";
+						break;
+					default:
+						break; // 0 et 1 : le texte d'origine, qui est juste dans ce cas
+				}
 				const float32 tw = p.TextW(msg);
 				const float32 bw = tw + S(28.f), bh = kRowH + S(6.f);
 				const NkRect br{r.x + (r.w - bw) * 0.5f, r.y + r.h * 0.5f - bh * 0.5f, bw, bh};

@@ -350,6 +350,8 @@ namespace nkentseu {
 		// d'ecart sont NORMALES (la bascule est consommee a la frame suivante) :
 		// seul un ecart qui DURE est un echec.
 		int32 Demo3DHostEditRefusedFrames();
+		// 0 = pas de refus ; 1..5 = le motif, voir NkDemo3D.cpp.
+		int32 Demo3DHostEditRefusMotif();
 		// REGLER un parametre de l'operation en cours -- la demande « pas de
 		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
 		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris
