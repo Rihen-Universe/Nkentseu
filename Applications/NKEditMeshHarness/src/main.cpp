@@ -10084,6 +10084,44 @@ static int32 LoiBevel() {
 //     region dans le cas qui compte -- une selection PARTIELLE, qui a un bord --
 //     il en mesure le cas degenere. *Une mesure qui ne peut pas faire varier le
 //     facteur decisif n'etablit pas la loi de ce facteur.*
+
+// ── SELECTIONNER **UNE PARTIE** DES FACES ───────────────────────────────────
+//  ⚠️ L'INSTRUMENT QUI MANQUAIT, ET TROIS LOIS EN DEPENDENT. Mesurer sur
+//     `SelectAll` mesure un CAS PARTICULIER : celui ou la region n'a AUCUN bord
+//     (maillage ferme) et ou la somme des valences vaut exactement 2E. Or c'est
+//     le bord de la selection qui fait vivre `extrude:0`, et c'est la
+//     divergence entre « 2E » et « somme des valences » qui separe les deux
+//     lois candidates d'`extrude:1`. Sans selection partielle, les deux
+//     s'accordent sur tout le jeu d'epreuve -- et *deux formules qui s'accordent
+//     partout ne sont pas la meme loi : le jeu est trop pauvre pour les separer.*
+//
+//  COMMENT : une face est selectionnee quand TOUS ses sommets le sont
+//  (`NkEditMesh::PolyFaceSelected`). On selectionne donc les sommets des `n`
+//  premieres faces vivantes -- et comme un sommet est un COIN chez nous (24 pour
+//  un cube, pas 8), les emplacements d'une face ne sont partages par aucune
+//  autre : la selection est EXACTE, sans debordement sur les voisines.
+//
+//  Rend la somme des VALENCES des faces prises : c'est la grandeur que la loi
+//  candidate met en jeu, et la LIRE ici evite de la deduire apres coup.
+static uint32 LoiSelectionnerFaces(NkEditMesh &m, uint32 n, uint32 *outFacesPrises) {
+	m.SelectNone();
+	NkVector<NkEmId> loop;
+	uint32 prises = 0, valences = 0;
+	for (uint32 f = 0; f < m.FaceCount() && prises < n; f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		for (uint32 k = 0; k < (uint32)loop.Size(); k++)
+			m.verts[(uint32)loop[k]].sel = 1;
+		valences += (uint32)loop.Size();
+		++prises;
+	}
+	if (outFacesPrises)
+		*outFacesPrises = prises;
+	return valences;
+}
+
 static int32 LoiExtrude() {
 	NkVector<NkVertex3D> v;
 	NkVector<uint32> idx;
@@ -10128,6 +10166,58 @@ static int32 LoiExtrude() {
 	printf("# ⚠️ Le mode region (individual=0) est mesure ICI SANS BORD de selection :\n");
 	printf("#   ce n'est pas son cas d'usage, et le chiffre ne doit pas voyager sans\n");
 	printf("#   cette condition.\n");
+
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LE CAS QUI SEPARE : SELECTION **PARTIELLE**
+	// ═══════════════════════════════════════════════════════════════════════
+	//  ⚠️ C'EST LA SEULE EPREUVE QUI DISTINGUE LES DEUX LOIS CANDIDATES
+	//     d'`extrude:1`. Sur `SelectAll` d'un maillage ferme, `2 x E` et
+	//     « somme des valences » donnent le MEME nombre -- elles sont
+	//     indiscernables. Ici la selection ne prend que `n` faces : la somme des
+	//     valences suit `n`, `2E` ne bouge pas. **Le desaccord est le verdict.**
+	//     Jusqu'a present j'avais la bonne des deux PAR RAISONNEMENT ; cette
+	//     section la met a l'epreuve.
+	printf("\n# extrude sur selection PARTIELLE -- le cas qui SEPARE, et celui qui\n");
+	printf("# rend enfin le mode REGION mesurable (une region partielle A un bord).\n");
+	printf("# %-6s %-10s %-7s %-9s %-7s %-8s %-9s %-11s %s\n", "indiv", "maillage", "n_faces",
+		   "valences", "E_av", "f_avant", "f_apres", "ajoutees", "valences | 2*E");
+	for (int32 indiv = 1; indiv >= 0; --indiv) {
+		for (int32 sub = 0; sub <= 1; ++sub) {
+			const uint32 ns[4] = {1u, 2u, 3u, 6u};
+			for (int32 k = 0; k < 4; ++k) {
+				NkEditMesh m;
+				m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+				if (sub) {
+					m.SelectAll();
+					if (!m.SubdivideSelectedFaces())
+						continue;
+				}
+				uint32 prises = 0;
+				const uint32 valences = LoiSelectionnerFaces(m, ns[k], &prises);
+				const uint32 e0 = m.EdgeCount();
+				const uint32 f0 = LoiBevelFacesVivantes(m);
+				NkExtrudeParams p;
+				p.individual = (indiv != 0);
+				const bool ok = m.ExtrudeSelectedFaces(p);
+				if (!ok) {
+					printf("  %-6d %-10s %-7u %-9u %-7u %-8u %-9s %-11s %s\n", indiv,
+						   sub ? "cube+sub" : "cube", prises, valences, e0, f0, "REFUS", "-", "-");
+					continue;
+				}
+				const uint32 f1 = LoiBevelFacesVivantes(m);
+				const int32 ajout = (int32)f1 - (int32)f0;
+				char verdict[32];
+				snprintf(verdict, sizeof(verdict), "%s | %s", ajout == (int32)valences ? "OK" : "--",
+						 ajout == 2 * (int32)e0 ? "OK" : "--");
+				printf("  %-6d %-10s %-7u %-9u %-7u %-8u %-9u %-11d %s\n", indiv,
+					   sub ? "cube+sub" : "cube", prises, valences, e0, f0, f1, ajout, verdict);
+			}
+		}
+	}
+	printf("# Si « valences » gagne et « 2*E » perd : la loi est la somme des valences,\n");
+	printf("#   et `2E` n'en est que la valeur au cas TOUT-SELECTIONNE -- donc une\n");
+	printf("#   SURESTIMATION sur selection partielle, ce qui est le bon sens pour une\n");
+	printf("#   garde. Si les deux perdent, aucune des deux n'est la loi.\n");
 	return 0;
 }
 
