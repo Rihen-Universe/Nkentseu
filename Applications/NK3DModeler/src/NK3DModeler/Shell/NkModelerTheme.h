@@ -119,8 +119,22 @@ namespace nkentseu {
 			uint32 loaded = 0;
 			// Les livres d'abord, la surcharge utilisateur ENSUITE : a nom egal le
 			// second remplace le premier, donc l'ORDRE de ce tableau porte la priorite.
-			const char *dirs[2] = {appDataDir, userDir};
-			for (int32 d = 0; d < 2; ++d) {
+			// ⚠️ TROIS RACINES, PAS UNE. `data/themes` seul n'existe NI depuis la
+			//    racine de l'arbre NI a cote de l'executable : le theme `bleu_nuit`
+			//    de Rodolf n'a donc JAMAIS ete charge, et le produit l'annoncait a
+			//    chaque lancement (« 2 themes (0 depuis le disque) ») sans que
+			//    personne lise la ligne. Meme defaut que le catalogue de brosses,
+			//    trouve le meme soir -- et la convention juste etait deja ecrite
+			//    dans NkModelerIcons.h, qui essaie trois racines.
+			//    La racine de l'arbre est DERIVEE du chemin recu, pas recopiee :
+			//    changer « data/themes » en autre chose suit tout seul.
+			NkString depuisLArbre;
+			if (appDataDir && *appDataDir) {
+				depuisLArbre = NkString("Applications/NK3DModeler/");
+				depuisLArbre.Append(appDataDir);
+			}
+			const char *dirs[3] = {appDataDir, depuisLArbre.CStr(), userDir};
+			for (int32 d = 0; d < 3; ++d) {
 				if (!dirs[d] || !*dirs[d] || !NkDirectory::Exists(dirs[d]))
 					continue;
 				// Le filtrage par motif revient a NkDirectory : le refaire a la main
