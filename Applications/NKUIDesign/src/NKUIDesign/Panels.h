@@ -575,6 +575,26 @@ namespace nkuidesign {
 			NkTheme theme = NkTheme::Dark();
 
 			NkDesignAI ai;
+
+			/// 🔴 L'APPLICATION N'A JAMAIS TOURNE DANS LA CONFIGURATION MESUREE.
+			///    `catalogueBref` vaut `false` par defaut, et rien ici ne le
+			///    posait : l'interface envoyait donc le catalogue COMPLET.
+			///
+			///    Mesures du depot : catalogue complet 3/12, catalogue bref 7/12
+			///    (19/09, memes demandes, meme modele, temperature 0) -- le bref
+			///    DOUBLE le taux, en etant 2,76x plus petit. Et le 30/30 du
+			///    20/09 sur demandes aveugles a ete obtenu `--catalogue=bref`.
+			///
+			///    *On mesurait une configuration et on en livrait une autre.*
+			///    ⚠️ Pose ICI et pas dans le defaut de `NkDesignAI` : changer le
+			///    defaut de la bibliotheque rendrait irreproductibles toutes les
+			///    courses du banc qui reposent dessus.
+			struct PoseConfigIA {
+					explicit PoseConfigIA(NkDesignAI &a) {
+						a.catalogueBref = true;
+					}
+			} poseConfigIA{ai};
+
 			NkFileBackend fileBackend;
 			/// ⚠️ MEMBRE, PAS LOCALE. `ai` garde un POINTEUR vers son dorsal : une
 			///    variable de pile aurait donne un segfault mouvant, la faute que ce
@@ -670,7 +690,19 @@ namespace nkuidesign {
 			///    demande un `nkuidoc`. Poser le resultat d'une DISCUSSION dans le
 			///    document serait absurde ; ne pas poser celui d'une GENERATION est
 			///    le defaut que Rodolf a constate (« le document n'a pas bouge »).
-			bool envoiVeutDocument = false;
+			///
+			/// ⚠️ UN SEUL CHAMP POUR TROIS INTENTIONS, ET PAS DEUX BOOLEENS.
+			///    Depuis le 20/09 il existe un TROISIEME geste -- « Proposer
+			///    (apercu) », qui valide sans poser. Deux booleens pour trois
+			///    etats laisseraient ecrire l'etat impossible « document ET
+			///    apercu » ; personne ne l'ecrirait expres, et c'est exactement
+			///    ainsi qu'on le rencontre un jour.
+			enum class Intention : nkentseu::uint8 {
+				Discussion = 0, ///< le modele repond en francais, le document ne bouge pas
+				Document,		///< le modele rend un `nkuidoc`, et on le GREFFE
+				Proposition		///< le modele rend un `nkuidoc`, et on le garde DE COTE
+			};
+			Intention envoiIntention = Intention::Discussion;
 
 			/// ── GENERER UN DOCUMENT ─────────────────────────────────────────
 			/// L'invite du CATALOGUE et du FORMAT, celle que le banc mesure -- pas
@@ -691,19 +723,28 @@ namespace nkuidesign {
 					return false;
 				}
 				conversation.Ajouter(NkQui::Moi, texte);
-				NkString invite;
-				ai.BatirInviteComplete(texte, invite);
-				NkString cat;
-				NkDesignAI::BuildCatalog(cat);
-				if (cat.Length() > 0) {
-					invite.Append("\n");
-					invite.Append(cat);
-					invite.Append("\n");
-				}
-				envoiVeutDocument = true;
+				// 🔴 ICI VIVAIT UNE QUATRIEME ECRITURE DE L'INVITE, ET ELLE ETAIT
+				//    LA PIRE DES QUATRE. Elle faisait :
+				//        BatirInviteComplete + "\n" + BuildCatalog(cat) + "\n"
+				//    soit TROIS ecarts avec ce que le banc mesure :
+				//      1. AUCUN en-tete `--- composants declares ---` : le modele
+				//         recevait une liste sans savoir ce qu'elle est ;
+				//      2. `BuildCatalog(cat)` SANS le drapeau `bref` -- donc le
+				//         catalogue COMPLET, celui que la mesure du 19/09 donne a
+				//         3/12 la ou le bref donne 7/12 ;
+				//      3. aucun `--- document courant ---`.
+				//
+				//    **L'application envoyait donc une invite materiellement plus
+				//    mauvaise que celle mesuree a 30/30.** Rodolf a recu un refus,
+				//    et nous aurions cherche la cause du cote du modele.
+				//
+				//    `InviteAEnvoyer` est la SEULE construction : la meme que
+				//    `Propose` et `Ask`, assemblee par `EcrireRequete`.
+				NkString invite = ai.InviteAEnvoyer(texte, doc);
+				envoiIntention = Intention::Document;
 				if (envoi.Lancer(ai.Backend(), invite, pourquoi))
 					return true;
-				envoiVeutDocument = false; // rien n'est parti : on ne laisse pas le drapeau arme
+				envoiIntention = Intention::Discussion; // rien n'est parti : on desarme
 				return false;
 			}
 
@@ -721,8 +762,35 @@ namespace nkuidesign {
 				conversation.Ajouter(NkQui::Moi, texte);
 				NkString invite;
 				conversation.BatirInvite(invite);
-				envoiVeutDocument = false; // une DISCUSSION ne pose rien dans le document
+				envoiIntention = Intention::Discussion; // une DISCUSSION ne pose rien
 				return envoi.Lancer(ai.Backend(), invite, pourquoi);
+			}
+
+			/// ── PROPOSER UN APERCU, SANS FIGER LA FENETRE ───────────────────
+			/// 🔴 LE DEFAUT QUE RODOLF A VECU LE 20/09 : `Proposer()` appelait
+			///    `ai.Propose(...)`, qui appelle le dorsal DANS LE FIL DE DESSIN.
+			///    Avec un plafond de 300 s, la fenetre restait morte cinq minutes.
+			///    *Une attente sans temoin est indiscernable d'un plantage* -- et
+			///    c'est exactement ce qu'il a decrit.
+			///
+			///    La machinerie existait depuis le 17/09 (`NkEnvoiAsync`, son banc
+			///    et son compteur d'images) : elle n'etait branchee que sur la
+			///    conversation. Ce chemin-ci restait bloquant.
+			bool LancerPropositionIA(const char *texte, NkString &pourquoi) {
+				if (envoi.EnCours()) {
+					pourquoi = NkString("une generation est deja en cours ; Annuler la jette");
+					return false;
+				}
+				if (!texte || !texte[0]) {
+					pourquoi = NkString("rien a envoyer : la demande est vide");
+					return false;
+				}
+				NkString invite = ai.InviteAEnvoyer(texte, doc);
+				envoiIntention = Intention::Proposition;
+				if (envoi.Lancer(ai.Backend(), invite, pourquoi))
+					return true;
+				envoiIntention = Intention::Discussion; // rien n'est parti : on desarme
+				return false;
 			}
 
 			bool RecolterIA() {
@@ -741,7 +809,7 @@ namespace nkuidesign {
 					// ⚠️ `Apply` VALIDE AVANT DE GREFFER, dans un document de cote : un
 					//    texte non conforme ne touche jamais le document ouvert. C'est
 					//    pour ca qu'on peut poser sans filet de securite ici.
-					if (!envoiVeutDocument) {
+					if (envoiIntention == Intention::Discussion) {
 						// C'ETAIT UNE DISCUSSION. Le modele a repondu en francais, pas en
 						// `nkuidoc` -- son invite le lui INTERDIT explicitement. Chercher un
 						// document ici rendrait un refus « pas de ligne nkuidoc » a chaque
@@ -754,7 +822,26 @@ namespace nkuidesign {
 						messageIA = NkString(bd);
 						return true;
 					}
-					envoiVeutDocument = false;
+					if (envoiIntention == Intention::Proposition) {
+						// L'APERCU : on valide et on rejoue, on ne pose PAS. C'est la
+						// meme queue que `Propose`, empruntee au lieu d'etre reecrite.
+						envoiIntention = Intention::Discussion;
+						const NkAIResult rp = ai.PoserProposition(texte.Data());
+						char bp[320];
+						if (rp.Accepted())
+							snprintf(bp, sizeof(bp),
+									 "Proposition validee et rejouee en %.1f s (%u images). "
+									 "« Appliquer » la pose, « Rejeter » la jette.",
+									 envoi.Secondes(), envoi.Images());
+						else
+							snprintf(bp, sizeof(bp), "REPONSE RECUE mais NON RETENUE — %s%s%s",
+									 NkAIVerdictName(rp.verdict),
+									 rp.detail.Length() > 0 ? " : " : "",
+									 rp.detail.Length() > 0 ? rp.detail.Data() : "");
+						messageIA = NkString(bp);
+						return true;
+					}
+					envoiIntention = Intention::Discussion;
 					const int32 cible = doc.IsValidIndex(selected) ? selected : 0;
 					const NkAIResult r = ai.Apply(texte.Data(), doc, cible, "panneau IA");
 					char b[320];
@@ -9761,8 +9848,22 @@ namespace nkuidesign {
 				}
 				Libelle(ctx, "Demande — ce qu'on veut voir engendre");
 				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
-				if (ec.Button("Proposer (aperçu)"))
+				// ⚠️ PENDANT L'ATTENTE, ON MONTRE ET ON OFFRE D'ARRETER. Le bouton
+				//    « Proposer » disparait : le laisser actif inviterait a lancer
+				//    une seconde generation que la carte ne tient pas, et le griser
+				//    sans rien dire laisserait croire au gel qu'on vient de retirer.
+				if (mSt->envoi.EnCours()) {
+					char ba[160];
+					snprintf(ba, sizeof(ba), "J'interroge le modèle…  %.1f s  ·  %u images",
+							 mSt->envoi.Secondes(), mSt->envoi.Images());
+					ec.Text(ba);
+					if (ec.Button("Annuler la génération")) {
+						mSt->envoi.Annuler();
+						mLast = NkString("Génération annulée — sa réponse ne sera jamais posée.");
+					}
+				} else if (ec.Button("Proposer (aperçu)")) {
 					Proposer();
+				}
 				if (mDernierCommit.Accepted() && ec.Button("Retirer la greffe posée"))
 					Retirer();
 				if (ec.Button("Vérifier le document par rejeu"))
@@ -9853,6 +9954,23 @@ namespace nkuidesign {
 			/// Lance une generation de banc sur le DORSAL LENT. `sync` emprunte
 			/// l'ancien chemin BLOQUANT — c'est le NEGATIF du banc : il doit rendre
 			/// une seule image.
+			/// ⚠️ LE CHEMIN DE L'APERCU, MESURE PAR LA MEME PORTE. Le banc
+			///    eprouvait la POIGNEE ; il n'eprouvait pas le branchement de
+			///    « Proposer (apercu) » -- c'est-a-dire precisement le bouton sur
+			///    lequel Rodolf a vu la fenetre geler le 20/09. Un banc qui mesure
+			///    a cote du defaut signale n'est pas le banc de ce defaut.
+			///    Il pose un dorsal LENT sur l'IA le temps de la course, puis le
+			///    rend : sans ca, on mesurerait le vrai modele et la duree
+			///    dependrait de la VRAM libre.
+			void BancAsyncProposer(nkentseu::int64 ms) {
+				mSt->dorsalLent.millisecondes = ms;
+				NkIDesignBackend *avant = mSt->ai.Backend();
+				mSt->ai.SetBackend(&mSt->dorsalLent);
+				snprintf(mSt->promptBuf, sizeof(mSt->promptBuf), "banc apercu");
+				Proposer(); // LA MEME fonction que le bouton, pas une copie
+				mSt->ai.SetBackend(avant);
+			}
+
 			void BancAsyncLancer(nkentseu::int64 ms, bool sync) {
 				mSt->dorsalLent.millisecondes = ms;
 				mSt->conversation.Ajouter(NkQui::Moi, "banc");
@@ -9937,21 +10055,25 @@ namespace nkuidesign {
 				}
 			}
 
+			/// 🔴 ELLE APPELAIT `ai.Propose(...)` -- DONC LE DORSAL -- DANS LE FIL
+			///    DE DESSIN. Avec le plafond de 300 s, Rodolf est reste cinq
+			///    minutes devant une fenetre morte le 20/09. *Une attente sans
+			///    temoin est indiscernable d'un plantage.*
+			///
+			///    La poignee asynchrone existait depuis le 17/09, avec son banc et
+			///    son compteur d'images ; elle n'etait branchee que sur la
+			///    conversation. Ce chemin-ci est desormais le meme.
 			void Proposer() {
-				const NkAIResult r = mSt->ai.Propose(mSt->promptBuf, mSt->doc);
-				if (r.Accepted()) {
-					mLast = NkString("Proposition validée et rejouée — en attente. "
-									 "Appliquer la pose ; Rejeter la jette.");
-				} else {
-					char b[320];
-					snprintf(b, sizeof(b), "REFUSÉE — %s. Le document n'a pas bougé.",
-							 NkAIVerdictName(r.verdict));
-					mLast = NkString(b);
-					if (r.detail.Length() > 0) {
-						mLast.Append("  ");
-						mLast.Append(r.detail);
-					}
+				NkString pourquoi;
+				if (mSt->LancerPropositionIA(mSt->promptBuf, pourquoi)) {
+					mLast = NkString("J'interroge le modèle… la fenêtre reste vivante, "
+									 "et « Annuler » arrête l'attente.");
+					return;
 				}
+				char b[256];
+				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
+						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
+				mLast = NkString(b);
 			}
 			void Appliquer() {
 				const NkAIResult r = mSt->ai.CommitProposal(mSt->doc, mSt->selected);
@@ -9980,22 +10102,25 @@ namespace nkuidesign {
 				}
 				mDernierCommit = NkAIResult();
 			}
+			/// ⚠️ AUCUN BOUTON NE L'APPELLE AUJOURD'HUI -- et c'est precisement
+			///    pourquoi elle etait dangereuse. Elle tenait l'ANCIEN chemin
+			///    bloquant, pret a etre rebranche par quelqu'un qui ne saurait pas
+			///    ce qu'il rallume. *Un stub qui attend d'etre branche coute deux
+			///    fois : une fois quand on l'ecrit, une fois quand on l'utilise.*
+			///
+			///    Elle emprunte desormais le MEME depart asynchrone que le reste :
+			///    il n'existe plus une seule porte qui fige la fenetre.
 			void Ask() {
-				const NkAIResult r = mSt->ai.Ask(mSt->promptBuf, mSt->doc, mSt->selected);
-				char b[320];
-				if (r.Accepted()) {
-					snprintf(b, sizeof(b), "Acceptée : %u nœud(s) posés, rejeu conforme.", r.nodesAdded);
-					mSt->host.SyncTo(mSt->doc);
-					mSt->selected = r.graftedRoot;
-				} else {
-					snprintf(b, sizeof(b), "REFUSÉE — %s. Le document n'a pas bougé.",
-							 NkAIVerdictName(r.verdict));
+				NkString pourquoi;
+				if (mSt->LancerGenerationIA(mSt->promptBuf, pourquoi)) {
+					mLast = NkString("J'interroge le modèle… la fenêtre reste vivante, "
+									 "et « Annuler » arrête l'attente.");
+					return;
 				}
+				char b[256];
+				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
+						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
 				mLast = NkString(b);
-				if (r.detail.Length() > 0) {
-					mLast.Append("  ");
-					mLast.Append(r.detail);
-				}
 			}
 			void Replay() {
 				const uint32 diffs = NkDesignAI::ReplayDiffs(mSt->doc, mSt->ai.replaySurface);
