@@ -1204,6 +1204,60 @@ int main(int argc, char **argv) {
 		}
 	}
 
+
+	// == loopcut : UN PARAMETRE INVENTE PEUT-IL DENATURER ? ==================
+	//
+	// Mesure du 20/09 : le modele ajoute un parametre que la demande ne donne
+	// pas 4 fois sur 10, alors que le contrat l'interdit en toutes lettres.
+	// `loopcut : Boucles (1 a 5), Glissement (-1 a 1)` -- il ecrit loopcut:2:-1
+	// quand on n'a demande que deux boucles.
+	//
+	// [!] LE JUGE EST LA CARACTERISTIQUE D'EULER, et c'est ce qui rend ce
+	//     critere different d'un attendu dicte : V - E + F vaut 2 pour toute
+	//     surface fermee de genre 0, quelle que soit la subdivision. On ne dit
+	//     donc PAS combien de sommets loopcut doit produire -- on demande
+	//     seulement que le maillage reste un maillage. *Un critere qui juge la
+	//     coherence interne n'a pas besoin qu'on lui souffle la reponse.*
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kSlide[6] = {0.99f, 0.995f, 0.999f, 0.9999f, 1.f, -1.f};
+		const char *const kNom[6] = {"glissement 0.99", "glissement 0.995", "glissement 0.999",
+							"glissement 0.9999", "glissement 1.00 (borne)",
+							"glissement -1.00 (borne)"};
+		for (int32 si = 0; si < 6; ++si) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			m.SelectAll();
+			NkLoopCutParams lp;
+			lp.cuts = 2;
+			lp.slide = kSlide[si];
+			const bool ok = m.LoopCutFromSelectedEdge(lp);
+			NkVector<uint32> canon;
+			m.BuildVertexMerge(canon);
+			uint32 vs = 0;
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				if (canon[i] == i)
+					++vs;
+			uint32 fs = 0;
+			for (uint32 f = 0; f < m.FaceCount(); ++f)
+				if (m.faces[f].alive)
+					++fs;
+			NkVector<uint32> pairs;
+			m.GetUniqueEdges(pairs);
+			const uint32 es = (uint32)(pairs.Size() / 2u);
+			const int32 euler = (int32)vs - (int32)es + (int32)fs;
+			const uint32 nm = CountNonManifold(m);
+			char lab[96], det[192];
+			snprintf(lab, sizeof(lab), "loopcut 2 boucles, %s", kNom[si]);
+			snprintf(det, sizeof(det), "applique=%d  V=%u E=%u F=%u  V-E+F=%d  non-manifold=%u",
+					 ok ? 1 : 0, (unsigned)vs, (unsigned)es, (unsigned)fs, (int)euler,
+					 (unsigned)nm);
+			Check(ok && euler == 2 && nm == 0u, lab, det);
+		}
+	}
+
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
 	return (gFail == 0) ? 0 : 1;
 }
