@@ -1249,9 +1249,33 @@ namespace nkentseu {
 						p.IconV(tx, yy, kRowH, NkNodeIcon(node), fg, 13.f);
 						p.Clip({rowR.x, yy, colType - rowR.x - S(8.f), kRowH});
 						snprintf(key, sizeof(key), "hier.name.%d", node);
+						// ── UN NOEUD SANS MAILLAGE A LUI SE SIGNALE ─────────────
+						// ⚠️ REGLE DE RODOLF (06/09) : « un cube blanc qui ment est pire
+						//    qu'un objet qui se signale ». Elle etait appliquee au cas
+						//    « geometrie PERDUE » (noeud masque, nom prefixe d'un !) et
+						//    PAS a celui-ci : un noeud sans maillage propre se dessine
+						//    avec la primitive PARTAGEE de sa nature, donc il a
+						//    exactement l'apparence d'un objet valide -- et l'edition le
+						//    refuse. Rodolf a re-clique son cube le 20/09 sans comprendre.
+						//
+						// ⚠️ ON MARQUE, ON NE MASQUE PAS. Masquer se defend quand la
+						//    geometrie est PERDUE ; ici l'objet est legitimement la, il
+						//    lui manque seulement un maillage propre. Le masquer ferait
+						//    disparaitre sa scene sous ses yeux -- pire que le defaut.
+						//
+						// ⚠️ ET ON NE TOUCHE PAS AU TEXTE. Ce nom passe par
+						//    `EditableText` : il est RENOMMABLE EN PLACE, et le tampon
+						//    d'edition est `st.customNames[node]`. Un prefixe ajoute ici
+						//    entrerait dans le champ de renommage, et de la dans le
+						//    fichier. La marque est donc une TEINTE, pas un caractere.
+						//    Le theme n'ayant aucun role d'avertissement (ni Warning ni
+						//    Danger), on n'en invente pas : `TextMuted` dit « pas
+						//    pleinement actif », ce qui est exactement le cas.
+						const NkRole fgMesh =
+							demo::Demo3DHostNodeHasOwnMesh(node) ? fg : NkRole::TextMuted;
 						EditableText(p, hit, ws, in, key,
-									 {tx + S(18.f), yy, colType - tx - S(26.f), kRowH}, nameBuf, fg,
-									 st.customNames[node], 24u);
+									 {tx + S(18.f), yy, colType - tx - S(26.f), kRowH}, nameBuf,
+									 fgMesh, st.customNames[node], 24u);
 						p.Unclip();
 						// le TYPE affiche precise la nature de la lumiere (Rihen)
 						static const char *const kLTt[4] = {"Soleil", "Point light",
