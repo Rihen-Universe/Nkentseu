@@ -220,6 +220,61 @@ namespace nkentseu {
 			/// emprunteurs faisaient deja.
 			StatusWarn,
 
+			// ⚠️ TROIS ROLES AJOUTES LE 2026-09-20 — LES SURFACES DU PANNEAU IA.
+			//    Et TROIS, pas quatre : j'en avais annonce quatre au chiffrage, la
+			//    mesure en a refuse un. Le filet vertical du fil sort a #33363D
+			//    dans la capture, contre `Border` #35383D -- deux unites d'ecart
+			//    par canal. Un role neuf pour deux unites serait un doublon qui se
+			//    mettrait a diverger ; le rail prend `Border` et n'a pas de role.
+			//    *Un attendu qui n'a pas le pouvoir de dire non ne mesure rien* :
+			//    celui-la l'avait, et il a dit non.
+			//
+			//    D'OU VIENNENT LES VALEURS. Capture de reference du 20/09
+			//    (`Screenshot 2026-09-20 111040.png`, 695x1292), echantillonnee
+			//    par couleur DOMINANTE d'une zone, jamais par un pixel isole.
+			//    Elle est en GitHub Dark Pro -- c'est-a-dire NOTRE theme : son
+			//    fond #030409 est notre `WindowBg` #010409, sa surface #0F1117
+			//    notre `PanelBg` #0D1117, son filet #35383D notre `Border`
+			//    #30363D. Les valeurs ci-dessous ne sont donc pas importees d'un
+			//    autre produit : elles retombent dans la famille qu'on a deja.
+			//
+			//    ⚠️ POURQUOI CES TROIS-LA NE PEUVENT PAS ETRE DES REUTILISATIONS,
+			//       ET C'EST LE THEME CLAIR QUI TRANCHE, PAS LE SOMBRE. En sombre,
+			//       `CodeBg` vaut la meme chose que `PanelHeader` : on pourrait
+			//       croire au doublon. En clair, `PanelBg` est #FFFFFF -- un pave
+			//       de code pose dessus SANS role propre serait blanc sur blanc,
+			//       invisible. C'est exactement l'argument d'ouverture de ce
+			//       fichier (« le theme clair serait illisible »), applique a la
+			//       lettre.
+
+			/// Fond d'un pave de code a chasse fixe, et du compartiment d'ENTREE
+			/// (`IN`) d'une etape d'outil. Un cran AU-DESSUS du fond du panneau :
+			/// le pave se detache sans dependre de son filet. Repli : `LabelCol`
+			/// -- l'autre surface « un cran au-dessus » du theme, juste dans les
+			/// deux (et non `InputBg`, qui vaut #FFFFFF en clair et redonnerait
+			/// le blanc sur blanc).
+			CodeBg,
+			/// Fond du compartiment de SORTIE (`OUT`), distinctement plus clair
+			/// que l'entree : c'est ce qui separe ce que l'outil a RECU de ce
+			/// qu'il a RENDU, sans ajouter un titre ni un filet.
+			///
+			/// ⚠️ MESURE, PARCE QUE J'AI FAILLI ME TROMPER. Sur un seul bloc,
+			///    #373942 pouvait etre un SURLIGNAGE DE SELECTION -- et en faire
+			///    un role aurait grave dans le theme un accident de capture.
+			///    Attendu ecrit d'abord : une surface couvre la marge DROITE du
+			///    compartiment, la ou aucun glyphe ne se peint, et elle le fait
+			///    sur TOUS les blocs. Mesure sur les QUATRE blocs de la capture :
+			///    #373942 dans les quatre marges, #0F1117 dans les quatre `IN`
+			///    correspondants. Quatre blocs independants ne sont pas selectionnes
+			///    de la meme facon : c'est une surface. Repli : `CodeBg`.
+			CodeOutBg,
+			/// Fond d'une pastille de code EN LIGNE dans une phrase de prose
+			/// (`durcir`, `lisser` dans la capture) : une surface courte, posee sur
+			/// la ligne de texte, pas un pave. Repli : `Border` -- la valeur la
+			/// plus proche dans les deux themes, et un repli reste une
+			/// approximation nommee, pas un synonyme.
+			InlineCodeBg,
+
 			Count
 		};
 
