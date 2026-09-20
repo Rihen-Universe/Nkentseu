@@ -17961,6 +17961,19 @@ namespace nkentseu {
 		// LE MOTIF DU REFUS, pour que le BANDEAU dise ce que le JOURNAL dit.
 		// Les deux sont poses au meme endroit, dans la meme condition : ils ne
 		// peuvent pas diverger.
+		// CE NOEUD A-T-IL UN MAILLAGE A LUI ?
+		// ⚠️ C'EST LA MEME CONDITION QUE CELLE QUI REFUSE L'EDITION
+		//    (`q.userMeshValid` dans NkVpResolveEditTarget). Un second calcul
+		//    divergerait : la hierarchie marquerait des noeuds que l'edition
+		//    accepte, ou l'inverse -- et on ne saurait plus lequel croire.
+		bool Demo3DHostNodeHasOwnMesh(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return true; // hors des noeuds utilisateur : rien a signaler
+			const int32 u = node - kNkvpFirstUser;
+			if (nkvpUserKind[u] == 0)
+				return true; // emplacement libre
+			return nkvpUserMesh[u].IsValid();
+		}
 		int32 Demo3DHostEditRefusMotif() {
 			auto *st = HostSt();
 			return st ? st->editRefusMotif : 0;
