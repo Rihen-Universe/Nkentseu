@@ -1127,7 +1127,25 @@ namespace nkentseu {
 				bool aiOuvert = false; ///< le panneau est-il deploye ? (ferme au demarrage)
 				/// L'onglet de fournisseur. 0 = LOCAL, et c'est le defaut : le seul qui
 				/// soit branche a quelque chose aujourd'hui.
+				/// ⚠️ CE COMMENTAIRE A CESSE D'ETRE VRAI LE 20/09 : l'onglet Claude est
+				///    cable. Le defaut RESTE 0, et ce n'est pas un oubli -- le local ne
+				///    fait rien sortir de la machine. Un onglet distant par defaut ferait
+				///    partir la premiere demande avant que l'utilisateur l'ait su.
 				int32 aiOnglet = 0;
+				/// ── CE QUE LE CANAL SAIT, ET QUE LE PANNEAU NE PEUT PAS SAVOIR ─────
+				/// Le panneau n'inclut aucun dorsal : c'est la boucle qui interroge
+				/// `NkIaCanal` et depose son verdict ici, a chaque image.
+				/// ⚠️ UNE SEULE AUTORITE. Si le panneau recalculait « cet onglet est-il
+				///    utilisable ? » de son cote, il pourrait allumer le composeur d'un
+				///    dorsal que la boucle refuserait ensuite d'appeler -- deux avis, et
+				///    l'utilisateur croirait le premier.
+				bool aiOngletPret = false;
+				/// Le motif quand il ne l'est pas, LE GESTE QUI REPARE EN TETE (cette
+				/// ligne est tronquee a l'affichage : ce qui compte doit passer avant).
+				char aiOngletMotif[192] = {0};
+				/// Vrai pour un dorsal qui envoie HORS de la machine. Le panneau
+				/// l'annonce AVANT l'usage, pas apres.
+				bool aiOngletDistant = false;
 				char aiSujet[80] = {0}; ///< le sujet de la conversation (la premiere demande)
 				/// LA LIGNE D'ETAT, ECRITE PAR LA PEINTURE. Elle vit ici pour qu'une
 				/// sonde puisse la LIRE : la recomposer de son cote ferait deux textes
