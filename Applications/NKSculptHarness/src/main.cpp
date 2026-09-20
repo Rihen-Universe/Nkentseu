@@ -733,6 +733,32 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 //     qui n a pas bouge.* rayon < 0 = tout le maillage.
 // Boite englobante des sommets VIVANTS. Une longueur, la ou les compteurs
 // de sommets ne donnent qu'un cardinal.
+// Centre de masse des faces TRACEES, pondere par l'aire, et l'aire totale
+// tracee. Il est recalcule ICI : l'emprunter au module rendrait le critere
+// vrai en meme temps que le module faux.
+static void TraitCentre(const NkEditMesh &m, uint8 numero, NkVec3f &centre, float32 &aire) {
+	centre = NkVec3f{0.f, 0.f, 0.f};
+	aire = 0.f;
+	NkVector<NkEmId> lp;
+	for (uint32 f = 0; f < m.FaceCount(); ++f) {
+		if (!m.faces[f].alive || m.faces[f].trait != numero)
+			continue;
+		lp.Clear();
+		m.GetFaceVerts((NkEmId)f, lp);
+		if (lp.Size() == 0)
+			continue;
+		NkVec3f c{0.f, 0.f, 0.f};
+		for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+			c = c + m.verts[lp[k]].pos;
+		c = c * (1.f / (float32)lp.Size());
+		const float32 a = m.FaceArea((NkEmId)f);
+		centre = centre + c * a;
+		aire += a;
+	}
+	if (aire > 0.f)
+		centre = centre * (1.f / aire);
+}
+
 static void BBox(const NkEditMesh &mesh, NkVec3f &lo, NkVec3f &hi) {
 	lo = NkVec3f{1e30f, 1e30f, 1e30f};
 	hi = NkVec3f{-1e30f, -1e30f, -1e30f};
@@ -1377,6 +1403,107 @@ int main(int argc, char **argv) {
 					 ok ? 1 : 0, (unsigned)marquees, (unsigned)vivantes);
 			Check(ok && vivantes > 0u && marquees == vivantes, lab, det);
 		}
+	}
+
+
+	// == LE TRAIT EST-IL TOUJOURS AU MEME ENDROIT ? ==========================
+	//
+	// « L'attribut a survecu » ne suffit pas : un trait qui survivrait en se
+	// deplacant serait pire qu'un trait perdu, parce qu'on le croirait juste.
+	// On mesure donc le CENTRE DE MASSE des faces tracees, pondere par l'aire,
+	// avant et apres une operation qui cree beaucoup de faces filles.
+	//
+	// [!] BEVEL EST CHOISI PARCE QU'IL EST LE PIRE CAS MESURE : 6 faces en
+	//     donnent 78. Si la parente tient la, elle tient partout.
+	//
+	// [!] ET LE NEGATIF EST DANS LE MEME BLOC : un trait pose LOIN du maillage
+	//     ne doit marquer AUCUNE face. Sans lui, « 12 faces tracees » serait
+	//     vrai meme si TraceTrait marquait tout ce qu'il voit.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeSphere(20, 20, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+
+	//   Le trait est pose sur une face reelle du sujet, jamais a une position
+	//   supposee : j'ai deja mesure le vide en croyant viser un pole.
+		// [!] LE SUJET EST DENSE, ET C'EST MA PROPRE MESURE QUI L'IMPOSE. Sur un
+		//     cube a 6 faces, 3 faces tracees font 50 % de la surface : ce n'est
+		//     pas un trait, c'est une moitie d'objet, et mesurer le deplacement
+		//     de son centre n'a aucun sens -- le biseau le rogne de partout.
+		//     La mesure de granularite disait deja qu'un trait n'existe pas sur
+		//     un maillage plus grossier que le geste.
+		NkVec3f cible = m.verts[0].pos;
+		// LE RAYON EST CALCULE, PAS CHOISI AU JUGE. Sur le cube unite, le centre
+		// d'une face adjacente a un sommet est a sqrt(0,5) = 0,707 de lui ; les
+		// trois faces opposees sont a 1,22. Un rayon de 0,8 marque donc les trois
+		// faces du coin, et elles seules.
+		// [!] MA PREMIERE VALEUR ETAIT 0,6 : le trace tombait ENTIEREMENT dans le
+		//     vide et les quatre criteres rougissaient en accusant le module, qui
+		//     etait sain. Deuxieme fois que je vise un point sans verifier ce qui
+		//     s'y trouve.
+		const uint32 poses = m.TraceTrait(cible, 0.25f, 1u);
+		char d[192];
+		snprintf(d, sizeof(d), "%u face(s) marquee(s)", (unsigned)poses);
+		Check(poses > 4u && poses < 120u, "trait : le trace marque une zone LOCALE", d);
+
+		NkVec3f c0;
+		float32 a0 = 0.f;
+		TraitCentre(m, 1u, c0, a0);
+		const uint32 avant = m.CompteTrait(1u);
+
+	//   BEVEL SUR TOUT LE CUBE : l'operation ne sait rien du trait, et c'est
+	//   le but -- aucune operation n'a ete modifiee pour lui.
+		m.SelectAll();
+		NkBevelParams bp;
+		bp.offset = 0.15f;
+		bp.segments = 3;
+		const bool okb = m.BevelSelected(bp, nullptr);
+		NkVec3f c1;
+		float32 a1 = 0.f;
+		TraitCentre(m, 1u, c1, a1);
+		const uint32 apres = m.CompteTrait(1u);
+		const float32 dep = (c1 - c0).Len();
+		const float32 diagC = BBoxDiag(m);
+		snprintf(d, sizeof(d), "faces %u -> %u   centre deplace de %.4f (%.2f %% de la diag)",
+				 (unsigned)avant, (unsigned)apres, (double)dep,
+				 (double)(dep / diagC * 100.f));
+	//   LE SEUIL EST ECRIT : 5 % de la diagonale. Le centre BOUGE forcement un
+	//   peu -- le biseau rogne les bords des faces tracees -- mais un trait qui
+	//   aurait change de face se deplacerait de bien plus.
+		Check(okb && apres > 0u && dep < diagC * 0.05f,
+			  "trait : toujours au MEME ENDROIT apres bevel", d);
+
+	//   L'AIRE TRACEE SUIT LA SURFACE. Si le trait avait saute sur d'autres
+	//   faces, sa part de l'aire totale aurait change franchement.
+		float32 aTot = 0.f;
+		for (uint32 f = 0; f < m.FaceCount(); ++f)
+			if (m.faces[f].alive)
+				aTot += m.FaceArea((NkEmId)f);
+		const float32 part = (aTot > 0.f) ? (a1 / aTot) : 0.f;
+		snprintf(d, sizeof(d), "aire tracee %.4f sur %.4f = %.1f %% de la surface",
+				 (double)a1, (double)aTot, (double)(part * 100.f));
+		Check(part > 0.005f && part < 0.30f, "trait : sa part de surface reste plausible", d);
+
+	//   LE NEGATIF.
+		NkEditMesh m2;
+		MakeCube(v, idx);
+		m2.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 loin = m2.TraceTrait(NkVec3f{50.f, 50.f, 50.f}, 0.5f, 1u);
+		snprintf(d, sizeof(d), "%u face(s) marquee(s) a 50 unites du cube", (unsigned)loin);
+		Check(loin == 0u, "trait : un trace hors du maillage ne marque RIEN", d);
+
+	//   ET LA DESIGNATION : le trait devient la selection, donc les sept verbes
+	//   qui operent « sur la selection » s'y appliquent sans etre modifies.
+		const uint32 sel = m.SelectionnerTrait(1u);
+		uint32 selFaces = 0u;
+		for (uint32 f = 0; f < m.FaceCount(); ++f)
+			if (m.faces[f].alive && m.faces[f].sel)
+				++selFaces;
+		snprintf(d, sizeof(d), "%u face(s) tracee(s) -> %u selectionnee(s)",
+				 (unsigned)sel, (unsigned)selFaces);
+		Check(sel > 0u && selFaces == sel, "trait : la designation passe par sel", d);
 	}
 
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
