@@ -2782,6 +2782,73 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_TRAIT="x,y,z[,rayon][,frame]" : TRACER UN TRAIT SANS SOURIS.
+		//
+		// Il emprunte `Demo3DHostTraceTrait`, LA MEME PORTE que le geste. Un
+		// crochet qui recopierait le corps mesurerait un chemin que Rodolf
+		// n'emprunte jamais -- regle payee sur NkBrowserDropOnView et NK_SCULPT_AT.
+		//
+		// Le point est en coordonnees LOCALES du maillage edite : c'est ce que la
+		// porte attend, et le raycast (qui seul connait la camera) est le travail
+		// de l'appelant. Ici il n'y a pas de camera, donc pas de raycast -- on
+		// donne le point directement, ce qui est justement ce qui rend la mesure
+		// possible sans injection d'entree.
+		{
+			static bool sTraitDone = false;
+			if (const char *tv = std::getenv("NK_TRAIT")) {
+				float32 tx = 0.f, ty = 0.f, tz = 0.f, tr = 0.25f;
+				int32 tfr = 120;
+				{
+					const char *q = tv;
+					tx = (float32)std::atof(q);
+					for (int32 c = 0; c < 4; ++c) {
+						while (*q && *q != ',')
+							++q;
+						if (*q != ',')
+							break;
+						++q;
+						if (c == 0)
+							ty = (float32)std::atof(q);
+						else if (c == 1)
+							tz = (float32)std::atof(q);
+						else if (c == 2)
+							tr = (float32)std::atof(q);
+						else
+							tfr = (int32)std::atoi(q);
+					}
+				}
+				if (!sTraitDone && agentFrame >= tfr && demo::Demo3DHostReady()) {
+					sTraitDone = true;
+					const float32 p[3] = {tx, ty, tz};
+					const int32 pose = demo::Demo3DHostTraceTrait(p, 1, tr, 1);
+					const int32 cpt = demo::Demo3DHostCompteTrait(1);
+					std::printf("[nk3d] NK_TRAIT : (%.3f,%.3f,%.3f) r=%.3f -> %d face(s)"
+								" tracee(s), %d au total\n",
+								(double)tx, (double)ty, (double)tz, (double)tr, (int)pose, (int)cpt);
+					std::fflush(stdout);
+				}
+			} else {
+				sTraitDone = true;
+			}
+		}
+
+		// NK_TRAIT_SELECT=<frame> : « lisse ici » -- le trait devient la selection,
+		// et les sept verbes du contrat s'y appliquent sans qu'une ligne change.
+		{
+			static bool sTraitSelDone = false;
+			if (const char *sv = std::getenv("NK_TRAIT_SELECT")) {
+				const int32 fr = (int32)std::atoi(sv);
+				if (!sTraitSelDone && agentFrame >= fr && demo::Demo3DHostReady()) {
+					sTraitSelDone = true;
+					const int32 n = demo::Demo3DHostSelectionnerTrait(1);
+					std::printf("[nk3d] NK_TRAIT_SELECT : %d face(s) designee(s)\n", (int)n);
+					std::fflush(stdout);
+				}
+			} else {
+				sTraitSelDone = true;
+			}
+		}
+
 		// NK_SCULPT_BRUSH=<nom> : LA BROSSE SE CHOISIT SANS SOURIS.
 		// Il emprunte la MEME porte que le selecteur de l'interface
 		// (`Demo3DHostSetBrushByName`) : une sonde qui poserait le nom elle-meme
