@@ -333,6 +333,9 @@ int main(int argc, char **argv) {
 	// --document=<f> : le DOCUMENT COURANT sur lequel la demande arrive. Vide par
 	// defaut -- et c'est precisement la condition qu'on avait toujours mesuree.
 	const char *documentBase = nullptr;
+	// --selection=<n> : le noeud que l'utilisateur aurait sous la main. Au-dela du
+	// seuil, c'est le SEUL donne en entier dans l'invite ; -1 = aucun.
+	int32 selectionBanc = -1;
 	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
 	// et rien d autre. Defaut : `parent`, la forme livree.
 	bool structureEnfants = false;
@@ -358,6 +361,8 @@ int main(int argc, char **argv) {
 			specTexte = argv[a] + 7;
 		else if (CommencePar(argv[a], "--document="))
 			documentBase = argv[a] + 11;
+		else if (CommencePar(argv[a], "--selection="))
+			selectionBanc = (int32)std::atoi(argv[a] + 12);
 		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
 			structureEnfants = true;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
@@ -635,6 +640,7 @@ int main(int argc, char **argv) {
 	// L'etiquette voyage avec chaque paire : voir Recolte.h.
 	NkString etiquetteCatalogue;
 	ia.catalogueBref = catalogueBref;
+	ia.selectionCourante = selectionBanc;
 	// ⚠️ LA SPECIFICATION EST BATIE PAR SON PROPRE ECRIVAIN, pas recopiee ici.
 	//    `DepuisConversation` puis `PourLeGenerateur` sont exactement ce que le
 	//    panneau appelle apres « Ecrire la specification » : les exigences sont
