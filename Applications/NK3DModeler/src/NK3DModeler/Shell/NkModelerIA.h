@@ -395,6 +395,56 @@ namespace nkentseu {
 		//            collee a lui, et la prediction se DESACTIVE d'elle-meme quand
 		//            E et V ne sont pas fournis (voir `NkIaPasSur`).
 		//
+		//
+		//  ═══════════════════════════════════════════════════════════════════
+		//  ⚠️⚠️ LE REGIME REEL : CES LOIS ONT ETE MESUREES SUR `SelectAll`
+		//  ═══════════════════════════════════════════════════════════════════
+		//  L'application a rendu `subdivide : 6 -> 9` la ou la loi annoncait
+		//  6 -> 24 : elle avait UNE face selectionnee, pas six. Les lois
+		//  ci-dessus sont ecrites avec les grandeurs du MAILLAGE alors que les
+		//  operations portent sur la SELECTION -- et sur `SelectAll` les deux
+		//  coincident, ce qui est tout ce qui avait ete mesure.
+		//  Course du 20/09 en selection PARTIELLE (`--loi-regime`) :
+		//
+		//    `subdivide`  -> **la loi passe au sous-ensemble** : `3 x Fsel`,
+		//                    exact sur 1, 2 et 6 faces (3, 6, 18). Le `x4^k` du
+		//                    maillage n'en etait que le cas `Fsel = F`.
+		//    `extrude:1`  -> **INCHANGEE** : elle etait deja ecrite sur le
+		//                    sous-ensemble. Exacte sur les trois tailles.
+		//    `loopcut`    -> **INCHANGEE** : pilotee par UNE arete, elle ne
+		//                    depend pas de la taille de la selection (4 partout).
+		//    ⚠️ Ces deux-la sont le NEGATIF de la course, et il a tenu : la these
+		//       « les lois du maillage passent au sous-ensemble » ne s'applique
+		//       QU'A celles qui etaient ecrites sur le maillage. *Une course ou
+		//       tout bouge n'expliquerait rien.*
+		//
+		//    `bevel`      -> ⚠️ **SA FORME SOUS-ENSEMBLE N'EST PAS ETABLIE**, et
+		//                    c'est le resultat le plus important de la course --
+		//                    c'est la seule garde dont on ait une preuve de tir.
+		//                    DEUX causes distinctes, mesurees :
+		//                    (a) il resout la selection sur l'IDENTITE SOUDEE
+		//                        (meme famille qu'`inset`) : deux faces opposees
+		//                        d'un cube couvrent les 8 sommets soudes, donc
+		//                        les 12 aretes -- mesure 144 = 3 x 12 x 4 la ou
+		//                        le sous-ensemble (8 aretes) donnerait 96 ;
+		//                    (b) a `segments = 1`, le terme de COIN depend du
+		//                        nombre d'aretes SELECTIONNEES qui se rejoignent
+		//                        en chaque sommet, pas de `Vsel` : une face seule
+		//                        ajoute 4 et non `E+V = 8`.
+		//
+		//  ⚠️⚠️ ET C'EST POURQUOI ON NE RESSERRE PAS LA GARDE. Passer `bevel` a
+		//     la forme sous-ensemble aurait predit **96** la ou la mesure vaut
+		//     **144** : la garde aurait SOUS-ESTIME, c'est-a-dire laisse passer
+		//     le pas qu'elle existe pour arreter. La forme MAILLAGE ne
+		//     sous-estime sur aucun des six cas mesures (4/20/20 contre 20 ;
+		//     48/144/144 contre 144). *Une loi plus juste doit RESSERRER la
+		//     borne, jamais la relacher -- et ici la plus juste l'aurait
+		//     relachee.* On garde donc les grandeurs du maillage, EXPRES.
+		//
+		//  CONDITION DE RETRAIT : que l'hote publie le nombre de faces et
+		//  d'aretes SELECTIONNEES **en identite soudee**. Alors `subdivide`
+		//  devient exact (`3 x Fsel`), et `bevel` redevient mesurable proprement.
+		//
 		//  (B) CEUX QUI FONT DECROITRE -> le plafond de FACES n'est pas le
 		//      risque ; c'est le plafond de TOURS qui garde (une boucle qui
 		//      n'avance pas). Aucune loi de croissance n'est requise pour eux.

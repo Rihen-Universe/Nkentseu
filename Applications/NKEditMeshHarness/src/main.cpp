@@ -10342,6 +10342,145 @@ static int32 LoiInstrument() {
 //     rend « n x faces de la boucle », « n x 4 » et parfois « n x F »
 //     indiscernables. Le cube SUBDIVISE est au plan d'emblee -- le piege a deja
 //     ete paye deux fois aujourd'hui.
+
+// ── LES GRANDEURS DU **SOUS-ENSEMBLE** ──────────────────────────────────────
+//  ⚠️ TOUT L'ENJEU DE LA COURSE « REGIME REEL ». Mes cinq lois ont ete mesurees
+//     sur `SelectAll`, ou les grandeurs du MAILLAGE et celles de la SELECTION
+//     coincident. Elles cessent de coincider des que la selection est partielle
+//     -- et c'est le regime dans lequel la garde sert.
+//     Une ARETE est selectionnee quand ses DEUX sommets le sont (meme regle que
+//     `PolyFaceSelected` pour une face) ; un sommet SOUDE ne compte qu'une fois.
+static void LoiSousEnsemble(NkEditMesh &m, uint32 *outF, uint32 *outE, uint32 *outV) {
+	NkVector<uint32> canon;
+	m.BuildVertexMerge(canon);
+	NkVector<NkEmId> loop;
+	uint32 nf = 0;
+	NkVector<uint8> vvu;
+	vvu.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); i++)
+		vvu[i] = 0;
+	NkHashMap<uint64, uint32> aretes;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		bool toutes = n > 0;
+		for (uint32 k = 0; k < n && toutes; k++)
+			if (!m.verts[(uint32)loop[k]].sel)
+				toutes = false;
+		if (toutes)
+			++nf;
+		for (uint32 k = 0; k < n; k++) {
+			const uint32 a = (uint32)loop[k], b = (uint32)loop[(k + 1) % n];
+			if (!m.verts[a].sel || !m.verts[b].sel)
+				continue;
+			uint32 ca = canon[a], cb = canon[b];
+			if (ca > cb) {
+				const uint32 t = ca;
+				ca = cb;
+				cb = t;
+			}
+			aretes[((uint64)ca << 32) | (uint64)cb] = 1u;
+			vvu[ca] = 1;
+			vvu[cb] = 1;
+		}
+	}
+	uint32 nv = 0;
+	for (uint32 i = 0; i < (uint32)vvu.Size(); i++)
+		if (vvu[i])
+			++nv;
+	if (outF)
+		*outF = nf;
+	if (outE)
+		*outE = (uint32)aretes.Size();
+	if (outV)
+		*outV = nv;
+}
+
+// =============================================================================
+//  --loi-regime : LES CINQ LOIS DANS LE REGIME OU ELLES SERVENT
+// =============================================================================
+//  ⚠️ POURQUOI CETTE COURSE EXISTE. L'application a rendu `subdivide : 6 -> 9`
+//     la ou ma loi annoncait 6 -> 24. Elle avait `selection=4` en masque SOMMET,
+//     soit UNE face entiere d'un cube -- et 6 - 1 + 4 = 9. Mes lois ne sont pas
+//     fausses : elles sont ecrites avec les grandeurs du MAILLAGE alors qu'elles
+//     portent sur la SELECTION. Sur `SelectAll` les deux coincident, et c'est
+//     tout ce que j'avais mesure.
+//  ⚠️ LE NEGATIF DE LA COURSE : `extrude:1` (deja ecrite sur le sous-ensemble)
+//     et `loopcut` (pilotee par UNE arete) ne DOIVENT PAS bouger. S'ils se
+//     decalent aussi, la these est fausse et il faut chercher ailleurs.
+//     *Une course ou tout bouge n'explique rien.*
+static int32 LoiRegime() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# les cinq lois en selection PARTIELLE -- grandeurs du SOUS-ENSEMBLE\n");
+	printf("# %-12s %-6s %-6s %-6s %-6s %-8s %-9s %-9s %s\n", "verbe", "n_sel", "Fsel", "Esel",
+		   "Vsel", "f_avant", "ajoutees", "attendu", "verdict");
+	const uint32 ns[3] = {1u, 2u, 6u};
+	for (int32 k = 0; k < 3; ++k) {
+		for (int32 op = 0; op < 5; ++op) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			uint32 prises = 0;
+			(void)LoiSelectionnerFaces(m, ns[k], &prises);
+			uint32 fs = 0, es = 0, vs = 0;
+			LoiSousEnsemble(m, &fs, &es, &vs);
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			bool ok = false;
+			const char *nom = "?";
+			int32 attendu = 0;
+			if (op == 0) { // subdivide : 3 x Fsel (une face devient quatre)
+				nom = "subdivide";
+				attendu = 3 * (int32)fs;
+				ok = m.SubdivideSelectedFaces();
+			} else if (op == 1) { // bevel s=1 : Esel + Vsel
+				nom = "bevel:s1";
+				attendu = (int32)es + (int32)vs;
+				NkBevelParams p;
+				p.offset = 0.05f;
+				p.segments = 1;
+				ok = m.BevelSelected(p);
+			} else if (op == 2) { // bevel s=4 : 3 x Esel x s
+				nom = "bevel:s4";
+				attendu = 3 * (int32)es * 4;
+				NkBevelParams p;
+				p.offset = 0.05f;
+				p.segments = 4;
+				ok = m.BevelSelected(p);
+			} else if (op == 3) { // extrude:1 : valences des faces selectionnees
+				nom = "extrude:1";
+				attendu = 4 * (int32)fs; // quads : valence 4
+				NkExtrudeParams p;
+				p.individual = true;
+				ok = m.ExtrudeSelectedFaces(p);
+			} else { // loopcut : pilote par UNE arete, independant de n_sel
+				nom = "loopcut:1";
+				attendu = 4; // boucle du cube = 4 faces, n=1
+				NkLoopCutParams p;
+				p.cuts = 1;
+				p.slide = 0.f;
+				ok = m.LoopCutFromSelectedEdge(p);
+			}
+			if (!ok) {
+				printf("  %-12s %-6u %-6u %-6u %-6u %-8u %-9s %-9d %s\n", nom, prises, fs, es, vs,
+					   f0, "REFUS", attendu, "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const int32 ajout = (int32)f1 - (int32)f0;
+			printf("  %-12s %-6u %-6u %-6u %-6u %-8u %-9d %-9d %s\n", nom, prises, fs, es, vs, f0,
+				   ajout, attendu, ajout == attendu ? "OK" : "ECART");
+		}
+	}
+	printf("# ⚠️ `extrude:1` et `loopcut` sont le NEGATIF : ils ne doivent PAS se\n");
+	printf("#   decaler. S'ils se decalent aussi, la these « les lois du maillage\n");
+	printf("#   passent au sous-ensemble » est fausse et il faut chercher ailleurs.\n");
+	return 0;
+}
+
 static int32 LoiLoopcut() {
 	NkVector<NkVertex3D> v;
 	NkVector<uint32> idx;
@@ -10540,6 +10679,7 @@ int main(int argc, char **argv) {
 	bool loiInset = false;
 	bool loiInstr = false;
 	bool loiLoopcut = false;
+	bool loiRegime = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--loi-bevel") == 0)
 			loiBevel = true;
@@ -10551,6 +10691,8 @@ int main(int argc, char **argv) {
 			loiInstr = true;
 		else if (strcmp(argv[i], "--loi-loopcut") == 0)
 			loiLoopcut = true;
+		else if (strcmp(argv[i], "--loi-regime") == 0)
+			loiRegime = true;
 		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
@@ -10579,6 +10721,8 @@ int main(int argc, char **argv) {
 		return LoiInstrument();
 	if (loiLoopcut)
 		return LoiLoopcut();
+	if (loiRegime)
+		return LoiRegime();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
