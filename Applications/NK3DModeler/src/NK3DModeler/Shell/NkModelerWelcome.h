@@ -36,6 +36,8 @@
 #include "NKWindow/Core/NkLauncher.h" // ouvre le navigateur du systeme
 #include "NKWindow/Core/NkDialogs.h"  // selecteurs natifs DEJA presents dans le depot
 #include "NKEditorKit/NkIEditorRenderer.h"
+// OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
+#include "NK3DModeler/NkModelerData.h"
 #include "NKImage/NKImage.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -67,6 +69,16 @@ namespace nkentseu {
 		//   2. le nom de son auteur
 		// Sans image, la bande ne s'affiche PAS DU TOUT -- pas de cadre vide,
 		// pas d'image d'emprunt.
+		// ⚠️ CES DEUX CHEMINS SONT RELATIFS ET NE SE LISENT PAS TELS QUELS : ils
+		//    passent par `NkDataFile` (NkModelerData.h), qui essaie les trois
+		//    racines. Ecrits tels quels ils ne designaient AUCUN fichier possible
+		//    -- il n'existe pas de `data/` a la racine de l'arbre, d'ou
+		//    l'application se lance. C'etait donc un piege monte : le
+		//    `data/splash/LISEZMOI.md` dit a Rodolf de deposer `splash.png` dans
+		//    `Applications/NK3DModeler/data/splash/`, et le code regardait
+		//    ailleurs. L'image n'aurait jamais paru, et RIEN ne l'aurait dit --
+		//    l'absence d'image etant un etat normal, l'echec se confondait avec
+		//    le cas ou il n'y a simplement rien a montrer.
 		static const char *const kSplashImage = "data/splash/splash.png";
 		static const char *const kSplashCredits = "data/splash/splash.txt";
 		static const uint32 kSplashTexId = 4599u; ///< juste sous les couvertures
@@ -98,17 +110,47 @@ namespace nkentseu {
 			if (art.tried)
 				return;
 			art.tried = true;
-			NkImage img;
-			if (!img.Load(kSplashImage, 4) || !img.IsValid())
+			// LES TROIS RACINES, par la porte commune. Sans elle, ce chargeur
+			// cherchait un fichier a un endroit qui ne peut pas exister.
+			const NkString chemin = NkDataFile(kSplashImage);
+			if (chemin.Empty()) {
+				// ⚠️ ON LE DIT, MEME SI C'EST NORMAL. « Pas d'image livree » et
+				//    « image livree au bon endroit mais cherchee au mauvais » sont
+				//    le meme silence, et c'est precisement ce silence qui a laisse
+				//    ce chemin mort passer. La ligne nomme les racines essayees :
+				//    Rodolf depose son PNG, relit le journal, et sait tout de
+				//    suite si le produit est alle le chercher la ou il l'a mis.
+				NkDataRefus("image de version (ecran d'accueil)", kSplashImage);
 				return; // pas d'image livree : la bande n'existera pas
+			}
+			NkImage img;
+			if (!img.Load(chemin.CStr(), 4) || !img.IsValid()) {
+				NkLog::Instance().Warn(
+					"[nk3d-data] image de version TROUVEE mais illisible : {0}\n", chemin.CStr());
+				return;
+			}
 			art.w = (uint32)img.Width();
 			art.h = (uint32)img.Height();
 			renderer.UploadImageRGBA(kSplashTexId, (const uint8 *)img.Pixels(), (int32)art.w,
 									 (int32)art.h);
 			art.valid = true;
+			// ⚠️ LE SUCCES SE DIT AUSSI, et pas seulement le refus. Sans cette
+			//    ligne, « pas de ligne au journal » voudrait dire a la fois
+			//    « trouvee » et « jamais tentee » : on ne pourrait pas prouver
+			//    qu'une image deposee a ete PRISE, seulement qu'elle n'a pas ete
+			//    refusee -- et une absence ne prouve rien. Elle dit le chemin
+			//    RETENU, donc laquelle des trois racines a repondu.
+			NkLog::Instance().Info("[nk3d-data] image de version chargee : {0} ({1}x{2})\n",
+								   chemin.CStr(), art.w, art.h);
 			// Credits : deux lignes, facultatives. Une image sans credit
 			// s'affiche quand meme -- mais un credit vide ne s'invente pas.
-			const NkString txt = NkFile::ReadAllText(NkPath(kSplashCredits));
+			// Le credit suit la MEME resolution que l'image : il vit a cote
+			// d'elle, donc dans la meme racine. Le resoudre autrement ferait
+			// afficher une oeuvre avec le credit d'une autre.
+			const NkString cheminCredits = NkDataFile(kSplashCredits);
+			if (cheminCredits.Empty())
+				return; // image sans credit : elle s'affiche quand meme
+			const NkString txt = NkFile::ReadAllText(NkPath(cheminCredits.CStr()));
 			if (txt.Empty())
 				return;
 			const char *s = txt.CStr();
