@@ -120,7 +120,18 @@ def main():
     print('selection : %d modeles, %d vues chacun = %d vues'
           % (len(sel), len(poses), len(sel) * len(poses)))
 
-    fman = open(os.path.join(a.sortie, 'manifeste.jsonl'), 'w', encoding='utf-8')
+    # ⚠️ EN AJOUT, JAMAIS EN ECRASEMENT. Le producteur saute les .npz deja
+    # ecrits, donc une seconde course ne retente QUE les echecs -- mais avec un
+    # 'w' elle reecrivait le manifeste avec ces seules entrees et DETRUISAIT
+    # les metadonnees des milliers de modeles reussis. C'est arrive le 20/09 :
+    # 3 930 lignes remplacees par 76. Repare parce qu'une copie avait ete prise
+    # avant de relancer, pas parce que le code etait juste.
+    #
+    # Famille « une operation qui agit avant qu'on ait vu sur quoi elle agit » :
+    # le mode d'ouverture decide du sort de ce qui existe deja, sans jamais le
+    # nommer. Le meme piege a coute 1 417 lignes de criteres a un autre chantier
+    # la meme nuit.
+    fman = open(os.path.join(a.sortie, 'manifeste.jsonl'), 'a', encoding='utf-8')
     t0 = time.time()
     n_ok = n_ko = n_tex = 0
     pire_global = 0.0
