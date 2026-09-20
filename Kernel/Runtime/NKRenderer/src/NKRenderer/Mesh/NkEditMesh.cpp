@@ -316,29 +316,35 @@ namespace nkentseu {
 			return 0.5f * acc.Len();
 		}
 
-		// REGLE DE FUSION DU MATERIAU (arbitrage 2026-08-22), appliquee partout ou
-		// des faces fusionnent — Quadify et Dissolve aujourd'hui. Ecrite UNE fois :
-		// deux copies d'une meme regle divergent, on l'a deja paye sur les chemins
-		// de ressources des bancs.
-		//   • contributeur DOMINANT PAR L'AIRE ;
-		//   • a aire egale (tolerance RELATIVE, cf. l'en-tete), INDICE LE PLUS BAS.
-		// ⚠ « LA PLUS GRANDE AIRE » : DE QUOI ? L'arbitrage dit « la face qui
-		// apportait la plus grande aire », mais il le justifie par « la couleur qui
-		// couvrait le plus doit rester ». Sur DEUX contributeurs les deux lectures
-		// coincident ; sur une region de Dissolve a N faces, elles divergent :
-		// deux petites faces slot 1 (0,6 + 0,6) contre une grande slot 2 (1,0)
-		// donnent slot 2 par face, slot 1 par couleur.
-		// ON RETIENT LA COULEUR — c'est ce que la justification decrit, c'est ce que
-		// l'utilisateur voit, et c'est le sur-ensemble : sur deux faces le resultat
-		// est identique a l'autre lecture. Ecart signale a l'arbitre.
-		// ⚠ LE POIDS N'EST PAS TOUJOURS UNE AIRE, et c'est voulu. Aux sites de FUSION
-		// (Quadify, Dissolve) le contributeur est une face absorbee et son poids est son
-		// AIRE. Aux sites de CREATION (chanfrein, extrusion d'aretes) le contributeur
-		// est une face VOISINE, qui n'est pas absorbee du tout — son poids est la
-		// LONGUEUR DE CONTOUR qu'elle partage avec la face creee.
-		// Les deux cas sont la meme phrase : « dominance par une mesure, egalite par
-		// l'indice le plus bas ». Les separer en deux fonctions aurait fait diverger
-		// deux enonces identiques — la faute qu'on a deja payee trois fois ici.
+		// LE TRAIT D'UNE FACE SANS MERE : L'UNANIMITE, PAS LA DOMINANTE.
+		//
+		// [!] J'AI ECRIT LA DOMINANTE D'ABORD, PAR SYMETRIE AVEC LE MATERIAU, ET
+		//     LE TEMOIN L'A CONDAMNEE. Un biseau sur un cube dont 3 faces sont
+		//     tracees en marquait 54 sur 78 : chaque bande de biseau touchant une
+		//     face tracee heritait, puis servait de voisine a la suivante. Le
+		//     trait se propageait de proche en proche jusqu'a couvrir l'objet.
+		//     Signature de la dilatation : le centre du trait se deplacait de
+		//     13 % de la diagonale SANS DEPENDRE de la largeur du biseau
+		//     (13,32 / 13,07 / 12,87 % pour 0,05 / 0,10 / 0,15) -- un effet
+		//     geometrique aurait suivi la largeur, celui-ci est structurel.
+		//
+		// Le materiau peut se permettre la dominante : il PARTITIONNE la surface,
+		// toute face en a un. Un trait, lui, est une EXCEPTION sur la surface :
+		// en cas de doute il ne s'etend pas. Une face n'herite donc que si
+		// TOUTES ses voisines portent le meme trait -- une bande entre tracé et
+		// non-tracé reste dehors.
+		static uint8 EM_TraitUnanime(const uint8 *traits, uint32 n) {
+			if (n == 0 || !traits)
+				return 0u;
+			const uint8 t0 = traits[0];
+			if (t0 == 0u)
+				return 0u;
+			for (uint32 i = 1; i < n; ++i)
+				if (traits[i] != t0)
+					return 0u;
+			return t0;
+		}
+
 		static uint16 EM_MaterialDominant(const uint16 *mats, const float32 *poids, uint32 n) {
 			if (n == 0 || !mats || !poids)
 				return 0;
@@ -412,13 +418,23 @@ namespace nkentseu {
 		// Accumule dans `outLost` le nombre de voisines dont le materiau n'a pas ete
 		// retenu — la perte, comptee et non supposee. Le compteur est ACCUMULATIF :
 		// une operation cree plusieurs faces, et c'est leur total qui interesse.
-		static NkEditMesh::FaceAttrib EM_AttribFromNeighbours(const uint16 *mats, const uint8 *smooths,
+		static NkEditMesh::FaceAttrib EM_AttribFromNeighbours(const uint16 *mats, const uint8 *smooths, const uint8 *traits,
 															  const float32 *poids, uint32 n, uint32 *outLost) {
 			NkEditMesh::FaceAttrib a;
 			if (n == 0)
 				return a; // aucune voisine : slot 0 et FLAT, faute de mieux — et rien de perdu
 			a.material = EM_MaterialDominant(mats, poids, n);
 			a.smooth = EM_SmoothMerged(smooths, n);
+			// Unanimite : en cas de doute le trait ne s'etend pas (voir EM_TraitUnanime).
+			a.trait = EM_TraitUnanime(traits, n);
+			// UNE FACE SANS MERE NE PORTE PAS LE TRAIT, et c'est un choix, pas un
+			// oubli. Ces faces naissent ENTRE des voisines (la bande d'un biseau, le
+			// pont d'une coupe) : leur faire heriter du trait l'elargirait a chaque
+			// operation jusqu'a couvrir l'objet, et personne ne saurait quand ca a
+			// commence. Le trait ne grandit donc pas tout seul ; il ne retrecit pas
+			// non plus, puisque toute face AYANT une mere en herite.
+			// CONDITION DE RETRAIT : si la mesure montre un trait troue apres biseau,
+			// c'est ici que ca se corrige, avec EM_TraitDominant deja ecrite.
 			if (outLost)
 				*outLost += EM_MaterialLost(mats, n, a.material);
 			return a;
@@ -1306,6 +1322,7 @@ namespace nkentseu {
 					a.material = faces[f].material;
 					a.smooth = faces[f].smooth;
 					a.sel = faces[f].sel;
+					a.trait = faces[f].trait;
 					ofaceAttrib->PushBack(a);
 				}
 			}
@@ -1381,6 +1398,11 @@ namespace nkentseu {
 					// face neuve qui herite de sa mere herite donc aussi de son etat choisi :
 					// le capuchon d'une extrusion reste selectionne, comme dans Blender.
 					fc.sel = faceAttrib[f].sel;
+					// LE TRAIT SUIT LA MEME PARENTE. Sans cette ligne il serait un attribut
+					// « qui survit » seulement aux operations passant par un AUTRE chemin --
+					// la distinction que ce fichier a deja payee sur `smooth`, et qui ne se
+					// voit pas tant qu'on ne l'exerce pas.
+					fc.trait = faceAttrib[f].trait;
 				}
 				faces.PushBack(fc);
 			}
@@ -1450,6 +1472,99 @@ namespace nkentseu {
 		// (Vert::sel). Portées depuis Demo3D_*HE : logique topologique PURE (pas de
 		// dépendance UI/GPU). L'appelant régénère le rendu (Triangulate) ensuite.
 		// =====================================================================
+
+		// -- LE TRAIT : QUATRE PORTES, ET UNE SEULE FACON DE DIRE OU IL EST ----
+		// Le centre de la face est calcule ICI et nulle part ailleurs : deux
+		// definitions du « centre » (moyenne des sommets contre barycentre d'aire)
+		// donneraient deux traits differents pour le meme geste, et la difference
+		// ne se verrait que sur les n-gons irreguliers.
+		static NkVec3f EM_FaceCentre(const NkEditMesh &m, NkEmId f) {
+			NkVector<NkEmId> lp;
+			m.GetFaceVerts(f, lp);
+			NkVec3f c{0.f, 0.f, 0.f};
+			if (lp.Size() == 0)
+				return c;
+			for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+				c = c + m.verts[lp[k]].pos;
+			return c * (1.f / (float32)lp.Size());
+		}
+
+		uint32 NkEditMesh::TraceTrait(const NkVec3f &point, float32 rayon, uint8 numero) {
+		//   RAYON NUL OU NEGATIF = RIEN, ET ON LE DIT PAR LE RETOUR. Marquer la
+		//   face la plus proche « pour faire quelque chose » ferait apparaitre un
+		//   trait la ou le geste n'a rien touche.
+			if (rayon <= 0.f || numero == 0u)
+				return 0u;
+			const float32 r2 = rayon * rayon;
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				const NkVec3f c = EM_FaceCentre(*this, (NkEmId)f);
+				const NkVec3f d = c - point;
+				if (d.x * d.x + d.y * d.y + d.z * d.z > r2)
+					continue;
+		//     ADDITIF : on n'efface pas ce qu'un tampon precedent a pose. C'est ce
+		//     qui permet de DESSINER un trait en plusieurs touches.
+				faces[f].trait = numero;
+				++n;
+			}
+			return n;
+		}
+
+		uint32 NkEditMesh::EffaceTrait(uint8 numero) {
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait == 0u)
+					continue;
+				if (numero != 0u && faces[f].trait != numero)
+					continue;
+				faces[f].trait = 0u;
+				++n;
+			}
+			return n;
+		}
+
+		uint32 NkEditMesh::CompteTrait(uint8 numero) const {
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f)
+				if (faces[f].alive && faces[f].trait == numero)
+					++n;
+			return n;
+		}
+
+		uint32 NkEditMesh::SelectionnerTrait(uint8 numero) {
+		//   LA SELECTION PRECEDENTE EST REMPLACEE, PAS COMPLETEE. « Creuse ici »
+		//   designe le trait, pas le trait PLUS ce qui trainait d'avant -- un
+		//   verbe qui s'appliquerait en plus a une ancienne selection ferait des
+		//   degats loin du geste, et c'est le genre de surprise qu'on ne relie
+		//   jamais a sa cause.
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				const bool dedans = (faces[f].trait == numero);
+				faces[f].sel = dedans ? 1u : 0u;
+				if (dedans)
+					++n;
+			}
+		//   LES SOMMETS SUIVENT LES FACES : les operations lisent la selection de
+		//   sommets (`LoopCutFromSelectedEdge` cherche une arete dont les DEUX
+		//   extremites sont choisies). Poser `sel` sur les faces sans le propager
+		//   donnerait une selection visible qu'aucun verbe ne verrait.
+			for (uint32 v = 0; v < (uint32)verts.Size(); ++v)
+				verts[v].sel = 0u;
+			NkVector<NkEmId> lp;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait != numero)
+					continue;
+				lp.Clear();
+				GetFaceVerts((NkEmId)f, lp);
+				for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+					verts[lp[k]].sel = 1u;
+			}
+			return n;
+		}
 
 		void NkEditMesh::SelectAll() {
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
@@ -2157,6 +2272,7 @@ namespace nkentseu {
 				// a une reallocation, et le piege a deja ete paye ailleurs.
 				const uint16 mat = faces[f].material;
 				const uint8 sm = faces[f].smooth;
+				const uint8 tr = faces[f].trait; // LE TRAIT SUIT LA MERE, comme le reste
 				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
 				for (uint32 k = 0; k < n; ++k) {
 					const uint32 a = selVerts[b + k], c = selVerts[b + (k + 1u) % n];
@@ -2181,6 +2297,7 @@ namespace nkentseu {
 					fa.alive = 1;
 					fa.material = mat; // heritage de la face MERE, comme le chemin actuel
 					fa.smooth = sm;
+					fa.trait = tr;
 					faces.PushBack(fa);
 				}
 			}
@@ -2686,6 +2803,7 @@ namespace nkentseu {
 					uint64 *q = edgeFaces.Find(key);
 					uint16 mats[2];
 					uint8 sms[2];
+					uint8 trs[2];
 					float32 poids[2];
 					uint32 nn = 0;
 					const float32 lg = (pv[a].pos - pv[b].pos).Len();
@@ -2701,11 +2819,12 @@ namespace nkentseu {
 						if (f1 > 0u && (f1 - 1u) < (uint32)fa.Size()) {
 							mats[nn] = fa[f1 - 1u].material;
 							sms[nn] = fa[f1 - 1u].smooth;
+							trs[nn] = fa[f1 - 1u].trait;
 							poids[nn] = lg;
 							++nn;
 						}
 					}
-					fa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+					fa.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, nn, &perdus));
 				}
 			}
 			const uint32 nfc = (uint32)fs.Size() - 1u;
@@ -4784,9 +4903,10 @@ namespace nkentseu {
 											W.faces[W.hedges[tw].face].material};
 					const uint8 sms[2] = {W.faces[W.hedges[h].face].smooth,
 										  W.faces[W.hedges[tw].face].smooth};
+					const uint8 trs[2] = {W.faces[W.hedges[h].face].trait, W.faces[W.hedges[tw].face].trait};
 					const float32 poids[2] = {(np[A[0]].pos - np[B[(uint32)seg]].pos).Len(),
 											  (np[A[(uint32)seg]].pos - np[B[0]].pos).Len()};
-					atBande = EM_AttribFromNeighbours(mats, sms, poids, 2u, &perdus);
+					atBande = EM_AttribFromNeighbours(mats, sms, trs, poids, 2u, &perdus);
 				}
 				for (int32 j = 0; j < seg; ++j) {
 					const uint32 st = (uint32)nfv.Size();
@@ -4813,6 +4933,7 @@ namespace nkentseu {
 				// des faces qui ne sont pas celles de l'anneau retenu.
 				NkVector<uint16> cmats;
 				NkVector<uint8> csms;
+				NkVector<uint8> ctrs;
 				NkVector<float32> cpoids;
 				bool open = false;
 				const NkEmId h0 = W.verts[v].hedge;
@@ -4826,6 +4947,7 @@ namespace nkentseu {
 						if (fh != NK_EM_INVALID && fh < (NkEmId)W.faces.Size() && W.faces[fh].alive) {
 							cmats.PushBack(W.faces[fh].material);
 							csms.PushBack(W.faces[fh].smooth);
+							ctrs.PushBack(W.faces[fh].trait);
 							// ⚠ VAUT ZERO quand les deux aretes du coin sont chanfreinees
 							// (ptPrev == ptNext, le recul est un point unique). Toutes les
 							// ponderations sont alors nulles et l'indice le plus bas
@@ -4868,7 +4990,7 @@ namespace nkentseu {
 				// chanfrein est UNE surface, comme la bande. Les triangles de l'eventail
 				// ne sont qu'une triangulation, pas des faces distinctes pour l'oeil.
 				const NkEditMesh::FaceAttrib atCoin =
-					EM_AttribFromNeighbours(cmats.Data(), csms.Data(), cpoids.Data(), (uint32)cmats.Size(),
+					EM_AttribFromNeighbours(cmats.Data(), csms.Data(), ctrs.Data(), cpoids.Data(), (uint32)cmats.Size(),
 											&perdus);
 				if (rn <= 4u) {
 					const uint32 st = (uint32)nfv.Size();
@@ -5593,6 +5715,7 @@ namespace nkentseu {
 							uint64 *q = edgeFaces.Find(key);
 							uint16 mats[2];
 							uint8 sms[2];
+							uint8 trs[2];
 							float32 poids[2];
 							uint32 nn = 0;
 							// Les deux voisines partagent le MEME segment : longueurs
@@ -5612,11 +5735,12 @@ namespace nkentseu {
 								if (f1 > 0u && (f1 - 1u) < (uint32)fm.Size()) {
 									mats[nn] = fm[f1 - 1u].material;
 									sms[nn] = fm[f1 - 1u].smooth;
+									trs[nn] = fm[f1 - 1u].trait;
 									poids[nn] = lg;
 									++nn;
 								}
 							}
-							nfm.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+							nfm.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, nn, &perdus));
 						}
 					}
 				}
@@ -6597,9 +6721,10 @@ namespace nkentseu {
 							const NkEditMesh::FaceAttrib at = attrDe(f);
 							const uint16 mats[2] = {at.material, at.material};
 							const uint8 sms[2] = {at.smooth, at.smooth};
+							const uint8 trs[2] = {at.trait, at.trait};
 							const float32 lg = (ov[ia].pos - ov[ib].pos).Len();
 							const float32 poids[2] = {lg, lg};
-							nfa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, 2u, nullptr));
+							nfa.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, 2u, nullptr));
 						}
 					}
 				}
