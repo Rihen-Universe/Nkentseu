@@ -4436,20 +4436,41 @@ namespace nkentseu {
 			if (!st || st->brushesLoaded)
 				return;
 			st->brushesLoaded = true; // une seule tentative, meme si elle echoue
-			// DEUX EMPLACEMENTS, et il en faut deux.
-			//   1. "data/brushes" relatif au REPERTOIRE COURANT -- la convention deja
-			//      suivie par les themes (LoadThemes(..., "data/themes", ...)).
-			//   2. <dossier de l'executable>/data/brushes -- parce qu'en developpement
-			//      l'executable vit dans Build/Bin/... et le repertoire courant n'est
-			//      pas celui de l'application. Mesure du 20/09 : lance depuis la
-			//      racine de l'arbre, le modeleur chargeait ZERO brosse, et le seul
-			//      symptome aurait ete « la sculpture ne fait rien » si le refus
-			//      n'avait pas ete NOMME.
+			// TROIS EMPLACEMENTS, et il en faut trois.
+			//   1. "data/brushes" relatif au REPERTOIRE COURANT.
+			//   2. "Applications/NK3DModeler/data/brushes" -- LE SEUL QUI EXISTE
+			//      REELLEMENT dans ce depot quand on lance depuis la racine de
+			//      l'arbre, c'est-a-dire DE LA FACON DONT L'APPLICATION SE LANCE
+			//      (Resources/ y est relatif en six endroits). C'est la convention
+			//      deja ecrite pour les icones (NkModelerIcons.h, memes trois
+			//      dossiers) et pour les apercus (NkMatPreview3D.h).
+			//   3. <dossier de l'executable>/data/brushes -- pour une livraison ou
+			//      les donnees sont posees a cote du binaire.
+			//
+			// ⚠️ CE QUE LE 2 MANQUANT A COUTE, ET POURQUOI IL EST PERMANENT.
+			//    Les deux emplacements d'origine ne designent AUCUN dossier de ce
+			//    depot : les .nkbrush vivent sous `Applications/NK3DModeler/data/
+			//    brushes`, et ni la racine de l'arbre ni `Build/Bin/.../NK3DModeler`
+			//    n'ont de `data/`. Le catalogue etait donc VIDE A TOUS LES COUPS et
+			//    la sculpture refusait chaque trait. Journal de la session de Rodolf
+			//    du 20/09 a 20h08 : « brosses chargees depuis le disque : 0 », puis
+			//    « sculpture REFUSEE : brosse inconnue '(null)' (0 chargee(s)) »,
+			//    pour un trait dont le rayon avait pourtant TOUCHE le maillage. Le
+			//    refus etait nomme, le journal complet : il ne manquait qu'un dossier
+			//    qui existe. C'est la MEME cause que le « je ne vois meme pas les
+			//    brosses » du matin -- le selecteur peint ce que le catalogue
+			//    contient, et le correctif du panneau (20/09 11h50) ne pouvait donc
+			//    rien montrer.
+			//
+			// ⚠️ ET ON NE DEDUIT PAS LE DOSSIER DU NOM DE L'APPLICATION. Un chemin
+			//    ecrit est verifiable a la lecture ; un chemin reconstruit se tait
+			//    quand il se trompe, ce qui est exactement le defaut repare ici.
 			const NkString exeDir = NkPath::GetExecutableDirectory().ToString();
 			NkString exeBrushes = exeDir;
 			exeBrushes += "/data/brushes";
-			const char *dirs[2] = {"data/brushes", exeBrushes.CStr()};
-			for (uint32 d = 0; d < 2; ++d) {
+			const char *dirs[3] = {"data/brushes", "Applications/NK3DModeler/data/brushes",
+								   exeBrushes.CStr()};
+			for (uint32 d = 0; d < 3; ++d) {
 				if (!dirs[d] || !NkDirectory::Exists(dirs[d]))
 					continue;
 				NkVector<NkString> files = NkDirectory::GetFiles(dirs[d], "*.nkbrush");
