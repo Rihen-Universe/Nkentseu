@@ -33,7 +33,13 @@ from collections import defaultdict
 
 def analyser(Vt, F, nom=''):
     n = len(Vt)
-    diag = float(np.linalg.norm(Vt.max(axis=0) - Vt.min(axis=0))) if n else 1.0
+    # ⚠️ La diagonale se mesure sur les sommets REELLEMENT REFERENCES par une
+    # face. Un sommet orphelin lointain -- et les exports en produisent --
+    # gonflerait la boite et relacherait la tolerance PARTOUT AILLEURS.
+    util = np.unique(np.asarray(F).ravel()) if len(F) else np.arange(n)
+    util = util[(util >= 0) & (util < n)]
+    R = Vt[util] if len(util) else Vt
+    diag = float(np.linalg.norm(R.max(axis=0) - R.min(axis=0))) if len(R) else 1.0
     eps = max(diag * 1e-6, 1e-12)
 
     # soudure RELATIVE
@@ -129,3 +135,27 @@ if __name__ == '__main__':
     # negatif 2 : on duplique des faces -> aretes non-manifold
     F2 = np.vstack([F, F[:6]])
     print('NEGATIF 2 faces doublees  : %s' % analyser(V, F2)['motif'])
+
+    # ⚠️ NEGATIF 3 : LA TOLERANCE FUSIONNE-T-ELLE DES SURFACES DISTINCTES ?
+    # Ce negatif N'EXISTAIT PAS quand j'ai choisi 1e-6 : je l'avais pris pour
+    # « assez petit » et verifie seulement que mes verdicts ne bougeaient pas,
+    # ce qui est un attendu sur ce qui ne doit pas bouger et NON une
+    # justification du seuil. L'agent retopologie a demande la preuve ; la
+    # voici. Deux plaques separees de d ne doivent PAS fusionner tant que d
+    # depasse la tolerance.
+    print('NEGATIF 3 deux plaques separees de d :')
+    for d in (1e-7, 5e-7, 1e-6, 1e-5, 1e-3):
+        Vp, Fp = [], []
+        for z in (0.0, d):
+            b = len(Vp)
+            for i in range(2):
+                for j in range(2):
+                    Vp.append([i, j, z])
+            Fp += [[b, b + 1, b + 3], [b, b + 3, b + 2]]
+        Vp = np.array(Vp, dtype=float); Fp = np.array(Fp)
+        dg = float(np.linalg.norm(Vp.max(0) - Vp.min(0)))
+        c = analyser(Vp, Fp)['composantes']
+        print('    d/diagonale = %.1e -> %d composante(s)  %s'
+              % (d / dg, c, 'FUSIONNEES' if c < 2 else 'distinctes'))
+    print('    -> la fusion cesse vers 5e-7 de la diagonale : la tolerance vaut')
+    print('       diag*1e-6 et la grille de quantification en garde la moitie.')

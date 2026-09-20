@@ -17,7 +17,12 @@ for chemin in sys.argv[1:]:
     # diagonale sur un objet de 4 unites et 1e-8 sur un objet de 1000. Un seuil
     # absolu NE VOYAGE PAS d'un modele a l'autre -- il mesure l'echelle du
     # fichier autant que sa topologie.
-    diag = float(np.linalg.norm(V.max(axis=0) - V.min(axis=0))) if len(V) else 1.0
+    # diagonale sur les sommets REELLEMENT REFERENCES : un orphelin lointain
+    # relacherait la tolerance partout ailleurs.
+    _u = np.unique(np.concatenate([np.asarray(f) for f in F])) if F else np.arange(len(V))
+    _u = _u[(_u >= 0) & (_u < len(V))]
+    _R = V[_u] if len(_u) else V
+    diag = float(np.linalg.norm(_R.max(axis=0) - _R.min(axis=0))) if len(_R) else 1.0
     eps = max(diag * 1e-6, 1e-12)
     cle, rep = {}, np.empty(len(V), dtype=np.int64)
     for i, p in enumerate(V):
