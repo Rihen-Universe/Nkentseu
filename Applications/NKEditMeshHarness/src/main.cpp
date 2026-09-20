@@ -10103,20 +10103,45 @@ static int32 LoiBevel() {
 //
 //  Rend la somme des VALENCES des faces prises : c'est la grandeur que la loi
 //  candidate met en jeu, et la LIRE ici evite de la deduire apres coup.
-static uint32 LoiSelectionnerFaces(NkEditMesh &m, uint32 n, uint32 *outFacesPrises) {
+// ⚠️ `coincidents` — LA VARIANTE QUI MET L'INSTRUMENT A L'EPREUVE.
+//    A false (historique) : on marque les COINS des faces choisies, et eux
+//    seuls. A true : on marque aussi tous les coins a la MEME POSITION SOUDEE
+//    (`BuildVertexMerge`), c'est-a-dire qu'on designe en identite soudee.
+//    La difference n'est pas cosmetique : sur un cube, DEUX faces opposees
+//    couvrent les 8 sommets soudes -- donc en variante soudee, choisir deux
+//    faces opposees selectionne LES SIX. C'est exactement le +24 qu'`inset`
+//    rendait deja, et c'est ce que cette variante doit trancher.
+static uint32 LoiSelectionnerFaces(NkEditMesh &m, uint32 n, uint32 *outFacesPrises,
+								   bool coincidents = false) {
 	m.SelectNone();
 	NkVector<NkEmId> loop;
 	uint32 prises = 0, valences = 0;
+	NkVector<uint32> canon;
+	NkVector<uint8> marque;
+	if (coincidents) {
+		m.BuildVertexMerge(canon);
+		marque.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			marque[i] = 0;
+	}
 	for (uint32 f = 0; f < m.FaceCount() && prises < n; f++) {
 		if (!m.faces[f].alive)
 			continue;
 		loop.Clear();
 		m.GetFaceVerts((NkEmId)f, loop);
-		for (uint32 k = 0; k < (uint32)loop.Size(); k++)
-			m.verts[(uint32)loop[k]].sel = 1;
+		for (uint32 k = 0; k < (uint32)loop.Size(); k++) {
+			const uint32 vi = (uint32)loop[k];
+			m.verts[vi].sel = 1;
+			if (coincidents)
+				marque[canon[vi]] = 1;
+		}
 		valences += (uint32)loop.Size();
 		++prises;
 	}
+	if (coincidents)
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if (marque[canon[i]])
+				m.verts[i].sel = 1;
 	if (outFacesPrises)
 		*outFacesPrises = prises;
 	return valences;
@@ -10177,6 +10202,81 @@ static void LoiInsetLigne(const char *op, bool triangule, int32 indiv, uint32 nD
 			 ajout == 4 * (int32)prises ? "OK" : "--", ajout == 2 * (int32)e0 ? "OK" : "--");
 	printf("  %-8s %-10s %-6d %-7u %-9u %-7u %-8u %-9d %s\n", op, triangule ? "triangule" : "quad",
 		   indiv, prises, valences, e0, f0, ajout, verdict);
+}
+
+// =============================================================================
+//  --loi-instrument : EPROUVER L'AIDE DE SELECTION AVANT DE S'EN RESERVIR
+// =============================================================================
+//  ⚠️ UN DOUTE SUR L'INSTRUMENT RETROAGIT SUR SES MESURES PASSEES, pas
+//     seulement sur la prochaine. `inset` traite tout le cube quand on lui
+//     designe deux faces ; `extrude`, sur la MEME selection, n'en traite que
+//     deux. L'un des deux se trompe -- ou c'est mon aide qui sous-marque.
+//     Tant que ce n'est pas tranche, toute loi mesuree avec elle est suspecte,
+//     Y COMPRIS celles deja livrees.
+//  Attendus et prediction ecrits AVANT : `clbr_INSTRUMENT_ATTENDUS.md`.
+static void LoiInstrLigne(const char *op, bool soude, uint32 n, const NkVector<NkVertex3D> &v,
+						  const NkVector<uint32> &idx) {
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	uint32 prises = 0;
+	const uint32 val = LoiSelectionnerFaces(m, n, &prises, soude);
+	// COMBIEN DE FACES L'OPERATION VA-T-ELLE REELLEMENT VOIR ? On le compte nous
+	// memes, avec la meme regle que le moteur (`PolyFaceSelected` : toutes les
+	// aretes du tour selectionnees) -- sinon on lirait le resultat sans savoir
+	// sur quoi il a porte.
+	uint32 vues = 0;
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		bool toutes = loop.Size() > 0;
+		for (uint32 k = 0; k < (uint32)loop.Size() && toutes; k++)
+			if (!m.verts[(uint32)loop[k]].sel)
+				toutes = false;
+		if (toutes)
+			++vues;
+	}
+	const uint32 f0 = LoiBevelFacesVivantes(m);
+	bool ok = false;
+	if (op[0] == 'i') {
+		NkInsetParams p;
+		p.individual = true;
+		ok = m.InsetSelectedFaces(p);
+	} else {
+		NkExtrudeParams p;
+		p.individual = true;
+		ok = m.ExtrudeSelectedFaces(p);
+	}
+	const uint32 f1 = ok ? LoiBevelFacesVivantes(m) : f0;
+	char ajout[24];
+	if (ok)
+		snprintf(ajout, sizeof(ajout), "%+d", (int)f1 - (int)f0);
+	else
+		snprintf(ajout, sizeof(ajout), "REFUS");
+	printf("  %-8s %-9s %-9u %-9u %-9u %-8u %s\n", op, soude ? "SOUDE" : "coins", prises, vues, val,
+		   f0, ajout);
+}
+
+static int32 LoiInstrument() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# l'aide de selection, mise a l'epreuve\n");
+	printf("# `vues` = faces que le moteur verra selectionnees (regle PolyFaceSelected)\n");
+	printf("# %-8s %-9s %-9s %-9s %-9s %-8s %s\n", "op", "variante", "demandees", "vues",
+		   "valences", "f_avant", "ajoutees");
+	for (int32 soude = 0; soude <= 1; ++soude) {
+		for (uint32 n = 1; n <= 3; ++n) {
+			LoiInstrLigne("extrude", soude != 0, n, v, idx);
+			LoiInstrLigne("inset", soude != 0, n, v, idx);
+		}
+	}
+	printf("# ⚠️ POINT D'ANCRAGE : les lignes a `demandees=1` doivent rendre `vues=1`\n");
+	printf("#   et +4, dans LES DEUX variantes. Si elles bougent, le correctif a\n");
+	printf("#   casse autre chose et le reste de la course ne vaut rien.\n");
+	return 0;
 }
 
 static int32 LoiInset() {
@@ -10324,6 +10424,7 @@ int main(int argc, char **argv) {
 	bool loiBevel = false;
 	bool loiExtrude = false;
 	bool loiInset = false;
+	bool loiInstr = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--loi-bevel") == 0)
 			loiBevel = true;
@@ -10331,6 +10432,8 @@ int main(int argc, char **argv) {
 			loiExtrude = true;
 		else if (strcmp(argv[i], "--loi-inset") == 0)
 			loiInset = true;
+		else if (strcmp(argv[i], "--loi-instrument") == 0)
+			loiInstr = true;
 		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
@@ -10355,6 +10458,8 @@ int main(int argc, char **argv) {
 		return LoiExtrude();
 	if (loiInset)
 		return LoiInset();
+	if (loiInstr)
+		return LoiInstrument();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
