@@ -342,6 +342,17 @@ namespace nkentseu {
 		// Mesh PARAMETRIQUE du slot (regenere quand ses parametres changent)
 		// et ses parametres (segments / anneaux-subdivisions).
 		static NkMeshHandle nkvpUserMesh[kNkvpMaxUser];
+		// CE MAILLAGE NE SE REGENERE PLUS DEPUIS SES PARAMETRES.
+		// ⚠️ POURQUOI IL FAUT CE DRAPEAU. A l'enregistrement, un objet qui a des
+		//    parametres de creation n'ecrit QUE trois entiers -- et c'est le bon
+		//    choix : « des megaoctets par projet pour reproduire ce que trois
+		//    entiers disent deja ». Mais des qu'on EDITE sa geometrie, les trois
+		//    entiers ne la decrivent plus : enregistrer PERDAIT les modifications,
+		//    en silence, et la reouverture rendait la primitive d'origine.
+		//    Le drapeau n'ouvre la vanne QUE pour les primitives reellement
+		//    editees -- exactement le cas ou les trois entiers ont cesse de dire
+		//    la verite. Partout ailleurs, le compromis disque reste intact.
+		static bool nkvpUserMeshEdite[kNkvpMaxUser];
 		static int32 nkvpUserSeg[kNkvpMaxUser];
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
@@ -8699,6 +8710,12 @@ namespace nkentseu {
 							if (nkvpUserMesh[u].IsValid())
 								ms->Release(nkvpUserMesh[u]);
 							nkvpUserMesh[u] = st->editMesh; // transfert de propriete
+							// ⚠️ LE DRAPEAU SE POSE ICI, ET NULLE PART AILLEURS. C'est LE
+							//    site ou la geometrie editee devient celle du noeud. Le
+							//    poser a un second endroit -- a l'entree en edition, a un
+							//    geste d'outil -- ferait diverger les deux : on marquerait
+							//    des maillages jamais modifies, ou on en manquerait.
+							nkvpUserMeshEdite[u] = true;
 						}
 						st->editMesh = {};
 						// La TOPOLOGIE n-gon aussi : sinon la re-entree en edition
@@ -17966,6 +17983,13 @@ namespace nkentseu {
 		//    (`q.userMeshValid` dans NkVpResolveEditTarget). Un second calcul
 		//    divergerait : la hierarchie marquerait des noeuds que l'edition
 		//    accepte, ou l'inverse -- et on ne saurait plus lequel croire.
+		// CE MAILLAGE A-T-IL ETE EDITE ? L'enregistrement s'en sert pour decider
+		// s'il ecrit la geometrie ou seulement les parametres de creation.
+		bool Demo3DHostNodeMeshEdite(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			return nkvpUserMeshEdite[node - kNkvpFirstUser];
+		}
 		bool Demo3DHostNodeHasOwnMesh(int32 node) {
 			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
 				return true; // hors des noeuds utilisateur : rien a signaler
@@ -21126,9 +21150,38 @@ namespace nkentseu {
 				// LE TRIO DE DEPART (Rihen) : un cube, une lumiere ponctuelle et
 				// une camera -- comme n'importe quel ajout utilisateur.
 				{
-					const int32 nCube = HostAllocUser(2);
-					if (nCube >= 0)
-						nkvpEmptyPos[nCube - kNkvpFirstEmpty][1] = 0.5f;
+					// ⚠️ LE CUBE DE DEPART PASSE PAR LA PORTE DES AJOUTS, et le commentaire
+					//    ci-dessus devient enfin vrai. Il disait « comme n'importe quel ajout
+					//    utilisateur » -- c'etait exactement ce qu'il N'ETAIT PAS :
+					//    `HostAllocUser` alloue le slot, rien de plus. `Demo3DHostAddNode`
+					//    alloue PUIS appelle `HostRegenUserMesh`, qui pose `nkvpUserMesh` et,
+					//    pour le cube, applique le repli generique ecrit sous le titre
+					//    « REGLE DE RODOLF : tout mesh doit pouvoir etre editable ».
+					//
+					// ⚠️ LA REGLE EXISTAIT, SUR L'AUTRE CHEMIN SEULEMENT. Mesure du 20/09 :
+					//    cube de depart meshOk=0 (139 refus), cube ajoute meshOk=1 (0 refus),
+					//    deux essais chacun. Rodolf est tombe dessus au PREMIER geste -- le
+					//    cube du demarrage est celui que tout le monde voit.
+					//    Une regle appliquee a un seul des deux chemins n'est pas une regle,
+					//    c'est un correctif ; et le commentaire qui AFFIRMAIT l'equivalence
+					//    l'a masquee, en donnant la reponse avant qu'on pose la question.
+					//
+					// LA POSITION EST REPOSEE EN ENTIER, pas seulement Y : Demo3DHostAddNode
+					// fait naitre au CURSEUR 3D. Il vaut (0,0,0) a la premiere image, donc la
+					// scene de depart ne bouge pas -- mais l'ecrire ne coute rien et cesse de
+					// dependre d'une valeur qui pourrait changer.
+					// ⚠️ SEUL LE CUBE CHANGE DE CHEMIN. La lumiere et la camera gardent le
+					//    leur : le trio leur pose des valeurs PROPRES (1000 W, positions,
+					//    sous-types) que Demo3DHostAddNode traite autrement -- y toucher
+					//    deplacerait un defaut au lieu d'en retirer un. Et la regle ne les
+					//    vise pas : elles n'ont aucune geometrie a editer.
+					const int32 nCube = Demo3DHostAddNode(2, 0);
+					if (nCube >= 0) {
+						const int32 eC = nCube - kNkvpFirstEmpty;
+						nkvpEmptyPos[eC][0] = 0.f;
+						nkvpEmptyPos[eC][1] = 0.5f;
+						nkvpEmptyPos[eC][2] = 0.f;
+					}
 					const int32 nLit = HostAllocUser(5);
 					if (nLit >= 0) {
 						renderer::NkLightDesc L0 = Demo3D_LightEffective(st, 1);
@@ -22369,6 +22422,10 @@ namespace nkentseu {
 			// s'editer separement, or `GetCube()` rend un handle MIS EN CACHE --
 			// le donner directement ferait editer tous les cubes a la fois. C'est
 			// tres probablement pour cela que la branche manquait.
+			// REGENERER une primitive la fait redecrire par ses parametres : le
+			// drapeau retombe, sinon on ecrirait la geometrie d'un objet que trois
+			// entiers suffisent a reproduire.
+			nkvpUserMeshEdite[u] = false;
 			if (!nkvpUserMesh[u].IsValid()) {
 				auto *stR = HostSt();
 				if (stR) {
@@ -23873,6 +23930,12 @@ namespace nkentseu {
 			if (!h.IsValid())
 				return false;
 			nkvpUserMesh[node - kNkvpFirstUser] = h;
+			// ⚠️ UNE GEOMETRIE RELUE RESTE MARQUEE. Sans cette ligne, le cycle
+			//    editer -> enregistrer -> rouvrir -> RE-enregistrer reperdrait tout
+			//    au DEUXIEME tour : le noeud relu retrouverait ses parametres de
+			//    creation, le drapeau serait faux, et on n'ecrirait plus sa
+			//    geometrie. La persistance doit survivre a plus d'un aller-retour.
+			nkvpUserMeshEdite[node - kNkvpFirstUser] = true;
 			// Le noeud rend desormais SA geometrie : le rendu donne la priorite
 			// a nkvpUserMesh, la primitive de la nature ne se dessine plus.
 			return true;
