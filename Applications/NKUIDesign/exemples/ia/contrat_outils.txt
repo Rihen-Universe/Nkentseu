@@ -26,7 +26,8 @@ noeud <numero, en partant de 0 pour la racine>
   composant = <un nom de la liste ci-dessous ; LAISSE VIDE si ce
               noeud ne porte aucun composant, comme le noeud 0
               de l'exemple>
-  enfants = <numeros de noeuds, separes par des espaces>
+  parent = <le numero du noeud qui CONTIENT celui-ci ; le noeud 0
+           est la racine et n'ecrit PAS cette ligne>
   largeur = <fixed | content | fraction | weight | expand> <valeur> <min> <max>
   hauteur = <idem>
   agencement = <none | row | column | grid | anchor | free>
@@ -37,10 +38,10 @@ noeud <numero, en partant de 0 pour la racine>
   reglage param <nom> = <valeur>   (facultatif)
   reglage variante <nom>           (facultatif)
 
-REGLE ABSOLUE : tout noeud autre que 0 doit apparaitre dans le champ
-`enfants` d'exactement UN autre noeud. Un noeud que personne ne cite
-n'existe pas : le document est alors refuse pour structure incoherente.
-Le noeud 0 est la racine ; c'est lui qui cite les premiers.
+REGLE ABSOLUE : tout noeud autre que 0 porte une ligne `parent` qui
+nomme un noeud existant. Un noeud sans `parent` serait une SECONDE
+racine, et le document serait refuse pour structure incoherente.
+Le noeud 0 est la racine, et il est le SEUL sans ligne `parent`.
 
 Exemple complet et minimal :
 nkuidoc 1
@@ -48,20 +49,19 @@ titre = Exemple
 noeud 0
   libelle = Racine
   composant = 
-  enfants = 1 2
   largeur = expand 1 0 0
   hauteur = expand 1 0 0
   agencement = colonne
 noeud 1
   libelle = Titre
   composant = etiquette
-  enfants =
+  parent = 0
   largeur = expand 1 0 0
   hauteur = content 24 0 0
 noeud 2
   libelle = Valider
   composant = bouton
-  enfants =
+  parent = 0
   largeur = content 0 0 0
   hauteur = content 32 0 0
 

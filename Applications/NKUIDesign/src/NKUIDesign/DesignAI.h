@@ -271,6 +271,22 @@ namespace nkuidesign {
 			/// qui existe, et **le format exact attendu** — engendre depuis les
 			/// memes fonctions de nom que l'ecrivain, pour qu'il ne puisse pas
 			/// deriver du format reel.
+			/// ⚠️ LA FORME DE STRUCTURE ANNONCEE PAR L'INVITE, ET POURQUOI ELLE EST
+			///    UN REGLAGE PLUTOT QU'UN CHOIX GRAVE.
+			///
+			///    Les deux invites ne peuvent pas coexister dans un binaire si
+			///    l'une remplace l'autre dans le code : la course « avant » et la
+			///    course « apres » tourneraient alors sur DEUX binaires, donc sur
+			///    deux variables -- la forme ET tout ce qui a change entre les deux
+			///    constructions. *Une comparaison a deux variables ne vaut rien*, et
+			///    ce depot l'a deja paye.
+			///
+			///    `false` rend EXACTEMENT l'invite d'avant le 20/09, pour que
+			///    l'ecart mesure soit celui de la forme et de rien d'autre.
+			///    Le DEFAUT est `true` : c'est la forme livree, et c'est elle que
+			///    le contrat engendre.
+			static inline bool structureParent = true;
+
 			static void BuildPrompt(const char *userAsk, NkString &out) {
 				out = NkString("Tu produis une INTERFACE pour NkUIDesign.\n\n");
 				out.Append("Demande : ");
@@ -299,7 +315,20 @@ namespace nkuidesign {
 				out.Append("  composant = <un nom de la liste ci-dessous ; LAISSE VIDE si ce\n");
 				out.Append("              noeud ne porte aucun composant, comme le noeud 0\n");
 				out.Append("              de l'exemple>\n");
-				out.Append("  enfants = <numeros de noeuds, separes par des espaces>\n");
+				// ⚠️ `parent` A REMPLACE `enfants` LE 20/09, ET LE GAIN N'EST PAS
+				//    ACQUIS D'AVANCE. Un noeud qu'on oublie de rattacher n'ecrit
+				//    plus un orphelin : il ecrit une SECONDE RACINE, et deux
+				//    racines sont refusees -- le meme echec, sous un autre nom.
+				//    Le pari est de PROXIMITE : `parent = 0` s'ecrit a cote du
+				//    noeud, au moment ou on le cree, au lieu d'une liste a tenir
+				//    a distance chez le noeud 0. *C'est plausible, ce n'est pas
+				//    demontre, et c'est ce que la course mesure.*
+				if (structureParent) {
+					out.Append("  parent = <le numero du noeud qui CONTIENT celui-ci ; le noeud 0\n");
+					out.Append("           est la racine et n'ecrit PAS cette ligne>\n");
+				} else {
+					out.Append("  enfants = <numeros de noeuds, separes par des espaces>\n");
+				}
 				out.Append("  largeur = <");
 				AppendModes(out);
 				out.Append("> <valeur> <min> <max>\n");
@@ -325,10 +354,17 @@ namespace nkuidesign {
 				//    n'est pas le modele qui inventait mal, c'est nous qui n'avions pas
 				//    dit la regle.* C'est le sens du cap : le modele est un reglage, et
 				//    l'outillage -- cette invite en fait partie -- est le produit.
-				out.Append("REGLE ABSOLUE : tout noeud autre que 0 doit apparaitre dans le champ\n");
-				out.Append("`enfants` d'exactement UN autre noeud. Un noeud que personne ne cite\n");
-				out.Append("n'existe pas : le document est alors refuse pour structure incoherente.\n");
-				out.Append("Le noeud 0 est la racine ; c'est lui qui cite les premiers.\n");
+				if (structureParent) {
+					out.Append("REGLE ABSOLUE : tout noeud autre que 0 porte une ligne `parent` qui\n");
+					out.Append("nomme un noeud existant. Un noeud sans `parent` serait une SECONDE\n");
+					out.Append("racine, et le document serait refuse pour structure incoherente.\n");
+					out.Append("Le noeud 0 est la racine, et il est le SEUL sans ligne `parent`.\n");
+				} else {
+					out.Append("REGLE ABSOLUE : tout noeud autre que 0 doit apparaitre dans le champ\n");
+					out.Append("`enfants` d'exactement UN autre noeud. Un noeud que personne ne cite\n");
+					out.Append("n'existe pas : le document est alors refuse pour structure incoherente.\n");
+					out.Append("Le noeud 0 est la racine ; c'est lui qui cite les premiers.\n");
+				}
 				out.Append("\n");
 				// ⚠️ UN EXEMPLE PLUTOT QUE TROIS PHRASES DE PLUS. Une contrainte de
 				//    structure se montre mieux qu'elle ne se decrit -- et celui-ci est
@@ -340,20 +376,21 @@ namespace nkuidesign {
 				out.Append("noeud 0\n");
 				out.Append("  libelle = Racine\n");
 				out.Append("  composant = \n");
-				out.Append("  enfants = 1 2\n");
+				if (!structureParent)
+					out.Append("  enfants = 1 2\n");
 				out.Append("  largeur = expand 1 0 0\n");
 				out.Append("  hauteur = expand 1 0 0\n");
 				out.Append("  agencement = colonne\n");
 				out.Append("noeud 1\n");
 				out.Append("  libelle = Titre\n");
 				out.Append("  composant = etiquette\n");
-				out.Append("  enfants =\n");
+				out.Append(structureParent ? "  parent = 0\n" : "  enfants =\n");
 				out.Append("  largeur = expand 1 0 0\n");
 				out.Append("  hauteur = content 24 0 0\n");
 				out.Append("noeud 2\n");
 				out.Append("  libelle = Valider\n");
 				out.Append("  composant = bouton\n");
-				out.Append("  enfants =\n");
+				out.Append(structureParent ? "  parent = 0\n" : "  enfants =\n");
 				out.Append("  largeur = content 0 0 0\n");
 				out.Append("  hauteur = content 32 0 0\n");
 				out.Append("\n");
@@ -640,6 +677,37 @@ namespace nkuidesign {
 				if (!scratch.Load(body, &unknown) || scratch.NodeCount() == 0) {
 					res.verdict = NkAIVerdict::TexteNonConforme;
 					res.detail = NkString("document illisible ou structure incoherente");
+					return false;
+				}
+				// ⚠️ UN LECTEUR QUI ACCEPTE EN PERDANT EST PIRE QU'UN LECTEUR QUI
+				//    REFUSE : il eteint l'alarme en meme temps qu'il cause le
+				//    dommage. Mesure du 20/09 : le MEME document a trois noeuds,
+				//    avec `noeud 0` ecrit EN DERNIER, etait ACCEPTE et ne posait
+				//    qu'UN noeud sur trois. Sans un mot.
+				//
+				//    La cause est en amont, et elle est nette : le chargeur n'a
+				//    JAMAIS lu le numero ecrit apres `noeud` -- l'indice vient de
+				//    la POSITION dans le fichier. Un document dont les numeros ne
+				//    suivent pas leur position est donc relu comme un AUTRE
+				//    document, et la reconstruction des liens y fabrique un noeud
+				//    son propre parent.
+				//
+				//    Cette garde ne repare pas cette cause : elle rend impossible
+				//    qu'elle passe en silence. *Les deux comptes sont dans le
+				//    motif, parce qu'un refus qui ne dit pas de combien il manque
+				//    envoie chercher au mauvais endroit.*
+				const uint32 lus = scratch.NodeCount();
+				const uint32 atteignables = SubtreeCount(scratch, 0);
+				if (atteignables != lus) {
+					res.verdict = NkAIVerdict::TexteNonConforme;
+					char b[224];
+					snprintf(b, sizeof(b),
+							 "le document declare %u noeud(s), %u seulement sont relies a la "
+							 "racine : %u seraient PERDUS en silence. Refuse. (les numeros "
+							 "`noeud N` doivent suivre l'ordre d'ecriture)",
+							 (unsigned)lus, (unsigned)atteignables,
+							 (unsigned)(lus - atteignables));
+					res.detail = NkString(b);
 					return false;
 				}
 				res.unknownComponents = unknown;

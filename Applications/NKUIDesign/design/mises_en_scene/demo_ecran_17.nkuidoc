@@ -10,10 +10,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1 14 30 31 32 33 34
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -21,10 +24,14 @@ noeud 0
 
 noeud 1
   libelle = Paramètres
-  enfants = 2 3 5 6 10 11 16 17 20
+  composant = 
+  parent = 0
   largeur = fixed 500 0 0
   hauteur = fixed 640 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 240 60
   forme = frame
   cible = Bureau 1440 x 900
@@ -35,10 +42,14 @@ noeud 1
 
 noeud 2
   libelle = Libellé Nom du projet
-  enfants = 
+  composant = 
+  parent = 1
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 24
   forme = text
   texte = Nom du projet
@@ -52,16 +63,20 @@ noeud 2
 
 noeud 3
   libelle = Champ nom
-  enfants = 4
+  composant = 
+  parent = 1
   largeur = fixed 444 0 0
   hauteur = fixed 36 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 44
   forme = rect
   fond = #ffffff
   couleur_bord = #d1d5db
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -69,10 +84,14 @@ noeud 3
 
 noeud 4
   libelle = Valeur nom
-  enfants = 
+  composant = 
+  parent = 3
   largeur = fixed 200 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 10
   forme = text
   texte = Nkentseu
@@ -86,10 +105,14 @@ noeud 4
 
 noeud 5
   libelle = Libellé Identifiant
-  enfants = 
+  composant = 
+  parent = 1
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 100
   forme = text
   texte = Identifiant
@@ -103,16 +126,20 @@ noeud 5
 
 noeud 6
   libelle = Champ identifiant
-  enfants = 7 8
+  composant = 
+  parent = 1
   largeur = fixed 444 0 0
   hauteur = fixed 36 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 120
   forme = rect
   fond = #f9fafb
   couleur_bord = #d1d5db
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -120,10 +147,14 @@ noeud 6
 
 noeud 7
   libelle = Préfixe id
-  enfants = 
+  composant = 
+  parent = 6
   largeur = fixed 30 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 10 10
   forme = text
   texte = NK-
@@ -137,10 +168,14 @@ noeud 7
 
 noeud 8
   libelle = Sélection id
-  enfants = 9
+  composant = 
+  parent = 6
   largeur = fixed 76 0 0
   hauteur = fixed 18 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 36 9
   forme = rect
   fond = #bfdbfe
@@ -152,10 +187,14 @@ noeud 8
 
 noeud 9
   libelle = Valeur id
-  enfants = 
+  composant = 
+  parent = 8
   largeur = fixed 74 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 2 1
   forme = text
   texte = 2026-0084
@@ -169,10 +208,14 @@ noeud 9
 
 noeud 10
   libelle = Libellé Clé de licence
-  enfants = 
+  composant = 
+  parent = 1
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 176
   forme = text
   texte = Clé de licence
@@ -186,16 +229,20 @@ noeud 10
 
 noeud 11
   libelle = Région désactivée
-  enfants = 12
+  composant = 
+  parent = 1
   largeur = fixed 444 0 0
   hauteur = fixed 52 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 196
   forme = rect
   fond = #ffffff
   couleur_bord = #d1d5db
-  bordure = 1
   rayon = 8
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -203,16 +250,20 @@ noeud 11
 
 noeud 12
   libelle = Champ licence
-  enfants = 13
+  composant = 
+  parent = 11
   largeur = fixed 424 0 0
   hauteur = fixed 36 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 10 8
   forme = rect
   fond = #f3f4f6
   couleur_bord = #e5e7eb
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -220,10 +271,14 @@ noeud 12
 
 noeud 13
   libelle = Valeur licence
-  enfants = 
+  composant = 
+  parent = 12
   largeur = fixed 20 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 10
   forme = text
   texte = —
@@ -236,10 +291,14 @@ noeud 13
 
 noeud 14
   libelle = Infobulle raison
-  enfants = 15
+  composant = 
+  parent = 0
   largeur = fixed 236 0 0
   hauteur = fixed 28 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 756 268
   forme = rect
   fond = #1f2937
@@ -251,10 +310,14 @@ noeud 14
 
 noeud 15
   libelle = Texte infobulle
-  enfants = 
+  composant = 
+  parent = 14
   largeur = fixed 220 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 8
   forme = text
   texte = Disponible après activation du compte
@@ -267,10 +330,14 @@ noeud 15
 
 noeud 16
   libelle = Libellé Synchronisation
-  enfants = 
+  composant = 
+  parent = 1
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 268
   forme = text
   texte = Synchronisation
@@ -284,16 +351,20 @@ noeud 16
 
 noeud 17
   libelle = Champ occupé
-  enfants = 18 19
+  composant = 
+  parent = 1
   largeur = fixed 444 0 0
   hauteur = fixed 36 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 288
   forme = rect
   fond = #f9fafb
   couleur_bord = #e5e7eb
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -301,10 +372,14 @@ noeud 17
 
 noeud 18
   libelle = Rond occupé
-  enfants = 
+  composant = 
+  parent = 17
   largeur = fixed 12 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 12
   forme = rect
   fond = #93c5fd
@@ -316,10 +391,14 @@ noeud 18
 
 noeud 19
   libelle = Texte occupé
-  enfants = 
+  composant = 
+  parent = 17
   largeur = fixed 220 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 32 10
   forme = text
   texte = Vérification en cours…
@@ -332,16 +411,20 @@ noeud 19
 
 noeud 20
   libelle = Groupe avancé
-  enfants = 21 22 23 24 25 26 27 28
+  composant = 
+  parent = 1
   largeur = fixed 444 0 0
   hauteur = fixed 170 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 28 344
   forme = rect
   fond = #f5f6f8
   couleur_bord = #e5e7eb
-  bordure = 1
   rayon = 8
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -349,10 +432,14 @@ noeud 20
 
 noeud 21
   libelle = Titre avancé
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 200 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 12
   forme = text
   texte = Options avancées
@@ -366,16 +453,20 @@ noeud 21
 
 noeud 22
   libelle = Case 1
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 14 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 40
   forme = rect
   fond = #e5e7eb
   couleur_bord = #d1d5db
-  bordure = 1
   rayon = 3
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -383,10 +474,14 @@ noeud 22
 
 noeud 23
   libelle = Texte case 1
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 36 40
   forme = text
   texte = Activer les mises à jour automatiques
@@ -399,16 +494,20 @@ noeud 23
 
 noeud 24
   libelle = Case 2
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 14 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 66
   forme = rect
   fond = #e5e7eb
   couleur_bord = #d1d5db
-  bordure = 1
   rayon = 3
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -416,10 +515,14 @@ noeud 24
 
 noeud 25
   libelle = Texte case 2
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 36 66
   forme = text
   texte = Envoyer les journaux de diagnostic
@@ -432,10 +535,14 @@ noeud 25
 
 noeud 26
   libelle = Libellé niveau
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 140 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 96
   forme = text
   texte = Niveau de détail
@@ -448,16 +555,20 @@ noeud 26
 
 noeud 27
   libelle = Combo niveau
-  enfants = 
+  composant = 
+  parent = 20
   largeur = fixed 160 0 0
   hauteur = fixed 28 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 114
   forme = rect
   fond = #eceef1
   couleur_bord = #e5e7eb
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -465,16 +576,20 @@ noeud 27
 
 noeud 28
   libelle = Bouton réinitialiser
-  enfants = 29
+  composant = 
+  parent = 20
   largeur = fixed 110 0 0
   hauteur = fixed 28 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 320 114
   forme = rect
   fond = #eceef1
   couleur_bord = #e5e7eb
-  bordure = 1
   rayon = 6
+  bordure = 1
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -482,10 +597,14 @@ noeud 28
 
 noeud 29
   libelle = Texte réinitialiser
-  enfants = 
+  composant = 
+  parent = 28
   largeur = fixed 90 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 18 8
   forme = text
   texte = Réinitialiser
@@ -499,10 +618,14 @@ noeud 29
 
 noeud 30
   libelle = État 1
-  enfants = 
+  composant = 
+  parent = 0
   largeur = fixed 170 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 84
   forme = text
   texte = normal
@@ -516,10 +639,14 @@ noeud 30
 
 noeud 31
   libelle = État 2
-  enfants = 
+  composant = 
+  parent = 0
   largeur = fixed 170 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 160
   forme = text
   texte = lecture seule
@@ -533,10 +660,14 @@ noeud 31
 
 noeud 32
   libelle = État 3
-  enfants = 
+  composant = 
+  parent = 0
   largeur = fixed 170 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 240
   forme = text
   texte = désactivé — avec raison
@@ -550,10 +681,14 @@ noeud 32
 
 noeud 33
   libelle = État 4
-  enfants = 
+  composant = 
+  parent = 0
   largeur = fixed 170 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 330
   forme = text
   texte = occupé
@@ -567,10 +702,14 @@ noeud 33
 
 noeud 34
   libelle = État 5
-  enfants = 
+  composant = 
+  parent = 0
   largeur = fixed 170 0 0
   hauteur = fixed 13 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 420
   forme = text
   texte = groupe désactivé (voilé)

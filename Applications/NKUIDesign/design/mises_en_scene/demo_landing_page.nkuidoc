@@ -11,10 +11,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -22,10 +25,14 @@ noeud 0
 
 noeud 1
   libelle = Accueil
-  enfants = 2 3 4 5 7 8
+  composant = 
+  parent = 0
   largeur = fixed 556 0 0
   hauteur = fixed 340 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 100
   forme = frame
   cible = Bureau 1440 x 900
@@ -36,14 +43,16 @@ noeud 1
 
 noeud 2
   libelle = Bande heros
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 556 0 0
   hauteur = fixed 200 0 0
   agencement = none start start 0
-  position = 0 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   forme = rect
   fond = #dbeafe
-  rayon = 0
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -51,17 +60,21 @@ noeud 2
 
 noeud 3
   libelle = Titre heros
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 400 0 0
   hauteur = fixed 24 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 78 56
   forme = text
   texte = Construisez plus vite
   couleur_texte = #1f2328
+  texte_aligne = centre
   police_px = 16
   graisse = 700
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -69,17 +82,21 @@ noeud 3
 
 noeud 4
   libelle = Sous-titre
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 400 0 0
   hauteur = fixed 18 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 78 90
   forme = text
   texte = La plateforme qui assemble vos interfaces.
   couleur_texte = #656d76
+  texte_aligne = centre
   police_px = 12
   graisse = 400
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -87,10 +104,14 @@ noeud 4
 
 noeud 5
   libelle = Bouton_CTA
-  enfants = 6
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 36 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 208 128
   forme = rect
   role = Button
@@ -103,17 +124,21 @@ noeud 5
 
 noeud 6
   libelle = Texte CTA
-  enfants =
+  composant = 
+  parent = 5
   largeur = fixed 140 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 0 10
   forme = text
   texte = Commencer
   couleur_texte = #ffffff
+  texte_aligne = centre
   police_px = 12
   graisse = 600
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -121,14 +146,17 @@ noeud 6
 
 noeud 7
   libelle = Pied
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 556 0 0
   hauteur = fixed 40 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 0 300
   forme = rect
   fond = #f6f8fa
-  rayon = 0
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -136,17 +164,21 @@ noeud 7
 
 noeud 8
   libelle = Texte pied
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 300 0 0
   hauteur = fixed 14 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 128 312
   forme = text
   texte = (c) Rihen - Landing de demonstration
   couleur_texte = #656d76
+  texte_aligne = centre
   police_px = 10
   graisse = 400
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
