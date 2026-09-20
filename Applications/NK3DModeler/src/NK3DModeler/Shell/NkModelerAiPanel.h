@@ -489,6 +489,12 @@ namespace nkentseu {
 						 NkRole::TextMuted);
 			} else {
 				editorkit::NkAiMetriques metr;
+				// ⚠️ L ECHELLE DE L HOTE, SANS QUOI LE PANNEAU IGNORE `gUiScale`.
+				//    Toute la mise en page du modeleur passe par `S(px)` ; le kit est en
+				//    pixels bruts. Sans cette ligne le fil resterait a 100 % pendant que
+				//    le reste du panneau grandit -- invisible ici (`gUiScale` = 1), et
+				//    seulement chez quelqu un qui travaille a 125 %.
+				metr.Echelle(S(1.f));
 				editorkit::NkAiFilMesurer(st.aiFil, filR.w, metr, NkAiMesurerTexte, &p, st.aiPlan);
 				NkModelerComponentPaint pc(p);
 				editorkit::NkAiFilPeindre(pc, st.aiFil, st.aiPlan, filR.x, filR.y - st.aiDefile);

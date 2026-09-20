@@ -212,6 +212,30 @@ namespace nkentseu {
 				/// Verification : 1292 - 22 - (118 + 37) = 1115, exactement le sommet du
 				/// composeur dans la capture. Les trois mesures se recoupent.
 				float32 margeBas = 22.f;
+
+				// ── L ECHELLE D INTERFACE ───────────────────────────
+				// ⚠️ TROUVE EN APPLIQUANT LA CONSIGNE « LISTER LES REGLAGES AVANT
+				//    D ADOPTER ». NK3DModeler passe CHACUNE de ses longueurs par
+				//    `S(px) = px * gUiScale` -- toute sa mise en page suit une echelle
+				//    d interface. Mes metriques sont en pixels BRUTS.
+				//
+				//    J ai donc introduit cette regression dans la migration du fil, la
+				//    veille, sans la voir. Et elle est PIRE que le plafond 16 -> 200 :
+				//    `gUiScale` vaut 1 sur cette machine, donc elle est INVISIBLE ici et
+				//    partout tant que personne ne travaille a 125 %. Un defaut qui ne se
+				//    montre que chez quelqu un d autre ne se trouve pas, il se subit.
+				//
+				//    Le kit ne CONNAIT pas l echelle de l hote et ne doit pas la deviner :
+				//    c est l application qui la porte. Elle appelle donc `Echelle()`.
+				void Echelle(float32 k) {
+					retraitDemande *= k; margeDroite *= k; retraitFil *= k;
+					railX *= k; puceR *= k; gouttiere *= k; ligne *= k;
+					entreBlocs *= k; padding *= k; estompeH *= k;
+					entete *= k; icone *= k; composeur *= k; barreEtat *= k; margeBas *= k;
+					// ⚠️ `lignesMax` N EST PAS MISE A L ECHELLE : c est un COMPTE de
+					//    lignes, pas une longueur. La multiplier ferait afficher deux fois
+					//    plus de texte a 200 % au lieu de l afficher deux fois plus gros.
+				}
 				/// Hauteur de la bande d'estompe.
 				float32 estompeH = 10.f;
 		};
