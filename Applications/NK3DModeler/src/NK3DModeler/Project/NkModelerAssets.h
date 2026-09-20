@@ -591,7 +591,19 @@ namespace nkentseu {
 				// copie CPU. Il rend donc VRAI pour eux, et les ecrire couterait
 				// des megaoctets par projet pour reproduire ce que trois entiers
 				// disent deja. Seul le cube nu n'a pas de maillage a lui.
-				if (!regenerable) {
+				// ⚠️ OU L'EDITION ROUVRE LA VANNE, ET SEULEMENT LA.
+				//    Un objet regenerable n'ecrivait JAMAIS sa geometrie -- juste
+				//    ses trois entiers. C'est le bon choix tant que ces trois
+				//    entiers DISENT la forme. Des qu'on a edite ses sommets, ils ne
+				//    la disent plus : enregistrer perdait le travail EN SILENCE, et
+				//    la reouverture rendait la primitive d'origine.
+				//    On n'ecrit donc la geometrie que des primitives REELLEMENT
+				//    editees. Une primitive intacte continue de n'ecrire que ses
+				//    trois entiers -- le compromis disque est preserve, et c'est le
+				//    negatif a mesurer : si elle ecrit un .nkgeo, la vanne est
+				//    ouverte pour tout le monde.
+				const bool edite = demo::Demo3DHostNodeMeshEdite(n);
+				if (!regenerable || edite) {
 					const void *gv = nullptr;
 					const uint32 *gi = nullptr;
 					uint32 gvc = 0, gst = 0, gic = 0;
