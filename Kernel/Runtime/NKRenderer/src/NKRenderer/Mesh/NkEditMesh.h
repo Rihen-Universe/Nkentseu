@@ -866,6 +866,29 @@ namespace nkentseu {
 				uint32 EffaceTrait(uint8 numero = 0);
 				// Combien de faces vivantes portent ce trait.
 				uint32 CompteTrait(uint8 numero = 1) const;
+				// COMBIEN DE FACES DU TRAIT ONT TOUTES LEURS VOISINES TRACEES.
+				//
+				// [!] CE N'EST PAS LA CONDITION DE SURVIE DU TRAIT, ET JE L'AI CRU.
+				//     J'avais ecrit ici que c'en etait une : une operation ne donnant le
+				//     trait aux faces neuves qu'a l'unanimite, un trait sans interieur
+				//     n'aurait rien a transmettre. La mesure a refute la loi AVANT
+				//     qu'elle ne serve -- balayage sur une sphere 20x20, bevel 0,02 :
+				//
+				//         20 tracees,  0 interieure  ->   0 apres bevel
+				//         40 tracees,  0 interieure  ->  80 apres bevel
+				//         60 tracees,  0 interieure  -> 320 apres bevel
+				//         80 tracees, 20 interieures -> 560 apres bevel
+				//
+				//     A 40 et 60 faces il n'y a AUCUNE face interieure et le trait
+				//     survit ; a 20 non plus, et il meurt. L'interieur ne separe donc
+				//     pas les deux cas : des faces filles heritent par une PARENTE que
+				//     ce compte ignore.
+				//
+				//     Ce compte reste une mesure utile -- il dit la compacite du trait --
+				//     mais il ne doit fonder AUCUN refus tant que la vraie condition
+				//     n'est pas trouvee. *Une loi refutee qu'on laisse ecrite comme vraie
+				//     devient la consigne du lecteur suivant.*
+				uint32 CompteTraitInterieur(uint8 numero = 1) const;
 				//
 				// [!] LA DESIGNATION PASSE PAR `sel`, ET AUCUN VERBE N'EST A ECRIRE.
 				//     Sept verbes du contrat operent deja « sur la selection » (subdivide,
