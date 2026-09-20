@@ -952,6 +952,7 @@ int main(int argc, char **argv) {
 		//    Le critere de NON-AGGRAVATION reste valide quelle que soit la
 		//    convention : il compare avant et apres avec LE MEME instrument.
 		static const char *const kSubjects[] = {
+			"../p512_allege_repare.obj", // LE MAILLAGE DENSE : celui qui decide de la granularite
 			"p512_rho1.obj",     // sortie de notre chaine, porte du non-manifold
 			"cylindre_rho2.obj", // tres grossier : le positif defavorable
 			"tore_rho1.obj",     // genre 1 : un trou, donc pas une sphere deguisee
@@ -978,6 +979,57 @@ int main(int argc, char **argv) {
 			printf("-- %s : V=%u tri=%u bords=%u nm(tri)=%u diag=%.4f\n", kSubjects[k],
 						   m.VertCount(), m.FaceCount(), CountBoundary(m), CountNonManifold(m), (double)diag);
 			++realLoaded;
+			// -- GRANULARITE : COMBIEN DE FACES SOUS UN GESTE ? ------------------
+			// La designation par trait marquera des FACES. La question qui decide si
+			// une polyligne barycentrique vaut ses deux ou trois soirees est donc :
+			// sur un sujet REEL, la face est-elle deja plus fine que le geste ?
+			//
+			// [!] LE CHIFFRE N'A DE SENS QU'AVEC SON SUJET. Un cube a 6 faces et ce
+			//     maillage-ci ne repondent pas la meme chose, et c'est Rodolf qui
+			//     choisira ses modeles. On imprime donc le sujet avec le nombre.
+			//
+			// Le geste est pris a 2 % de la diagonale -- un trait humain sur un objet
+			// cadre a l'ecran. On compte les faces dont le CENTRE tombe dans ce disque.
+			{
+				float32 aireTot = 0.f;
+				uint32 nf = 0;
+				for (uint32 f = 0; f < m.FaceCount(); ++f)
+					if (m.faces[f].alive) {
+						aireTot += m.FaceArea((NkEmId)f);
+						++nf;
+					}
+				const float32 aireMoy = (nf > 0u) ? (aireTot / (float32)nf) : 0.f;
+				const float32 cote = (aireMoy > 0.f) ? sqrtf(aireMoy) : 0.f;
+				const float32 rGeste = diag * 0.02f;
+			//   Nombre attendu de faces sous le disque, par les aires : c'est une
+			//   estimation, et on la confronte au COMPTE REEL juste apres -- deux
+			//   chemins pour le meme nombre, comme pour les deux compteurs de zone.
+				const float32 estim = (aireMoy > 0.f)
+								  ? (3.14159265f * rGeste * rGeste / aireMoy) : 0.f;
+				NkVec3f c0 = m.verts[0].pos;
+				uint32 sousGeste = 0;
+				NkVector<NkEmId> lp2;
+				for (uint32 f = 0; f < m.FaceCount(); ++f) {
+					if (!m.faces[f].alive)
+						continue;
+					lp2.Clear();
+					m.GetFaceVerts((NkEmId)f, lp2);
+					if (lp2.Size() == 0)
+						continue;
+					NkVec3f ctr{0.f, 0.f, 0.f};
+					for (uint32 q = 0; q < (uint32)lp2.Size(); ++q)
+						ctr = ctr + m.verts[lp2[q]].pos;
+					ctr = ctr * (1.f / (float32)lp2.Size());
+					const NkVec3f d3 = ctr - c0;
+					if (d3.x * d3.x + d3.y * d3.y + d3.z * d3.z <= rGeste * rGeste)
+						++sousGeste;
+				}
+				printf("   granularite : %u faces, cote moyen %.5f, diag %.4f,"
+						  " geste(2%%)=%.5f -> %u faces reelles sous le geste"
+						  " (estimation par aires : %.1f)\n",
+						  (unsigned)nf, (double)cote, (double)diag, (double)rGeste,
+						  (unsigned)sousGeste, (double)estim);
+			}
 			// Rayon = 15 % de la diagonale : assez grand pour toucher, assez petit
 			// pour laisser des sommets DEHORS -- sinon le negatif de zone serait
 			// vide, donc vrai par construction, donc sans valeur.
@@ -1255,6 +1307,75 @@ int main(int argc, char **argv) {
 					 ok ? 1 : 0, (unsigned)vs, (unsigned)es, (unsigned)fs, (int)euler,
 					 (unsigned)nm);
 			Check(ok && euler == 2 && nm == 0u, lab, det);
+		}
+	}
+
+
+	// == (1) UN ATTRIBUT PAR FACE SURVIT-IL A CHAQUE OPERATION ? =============
+	//
+	// La designation par trait reposera sur `FaceAttrib` : une face fille herite
+	// de sa mere, donc un trait marque sur des faces suit les subdivisions sans
+	// qu'aucune operation ne soit modifiee. C'est ce que le code annonce depuis
+	// le 22/08 -- et NKEditMeshHarness le mesure, mais seulement a travers
+	// Subdivide et Extrude.
+	//
+	// [!] LOOPCUT ET BEVEL NE SONT PAS COUVERTS, et ce sont justement les deux
+	//     qui creent le plus de faces filles. LoopCut portait encore ce matin un
+	//     bord qui rendait le maillage non-manifold, que personne n'avait
+	//     eprouve. Batir la designation sur une survie non mesuree A TRAVERS
+	//     CETTE OPERATION-LA serait la faute qu'on evite.
+	//
+	// LE CRITERE EST IMPARABLE ET NE DICTE AUCUN ATTENDU : on marque TOUTES les
+	// faces (material = 1), on opere, et on exige que TOUTES les faces resultantes
+	// portent encore 1. Si la parente est rompue, elles retombent sur le slot 0 --
+	// c'est ce que le code annonce comme comportement en l'absence d'attributs.
+	// On ne dit donc pas combien de faces l'operation doit produire.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		for (int32 op = 0; op < 4; ++op) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			for (uint32 f = 0; f < m.FaceCount(); ++f)
+				if (m.faces[f].alive)
+					m.faces[f].material = 1;
+			m.SelectAll();
+			const char *nom = "?";
+			bool ok = false;
+			if (op == 0) {
+				NkSubdivideParams sp;
+				ok = m.SubdivideSelectedFaces(sp);
+				nom = "subdivide (temoin connu)";
+			} else if (op == 1) {
+				NkExtrudeParams ep;
+				ok = m.ExtrudeSelectedFaces(ep);
+				nom = "extrude (temoin connu)";
+			} else if (op == 2) {
+				NkLoopCutParams lp;
+				lp.cuts = 2;
+				ok = m.LoopCutFromSelectedEdge(lp);
+				nom = "loopcut (NON couvert jusqu'ici)";
+			} else {
+				NkBevelParams bp;
+				bp.offset = 0.2f;
+				bp.segments = 2;
+				ok = m.BevelSelected(bp, nullptr);
+				nom = "bevel (NON couvert jusqu'ici)";
+			}
+			uint32 vivantes = 0, marquees = 0;
+			for (uint32 f = 0; f < m.FaceCount(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				++vivantes;
+				if (m.faces[f].material == 1)
+					++marquees;
+			}
+			char lab[112], det[192];
+			snprintf(lab, sizeof(lab), "trait : l'attribut survit a %s", nom);
+			snprintf(det, sizeof(det), "applique=%d  %u/%u faces portent encore la marque",
+					 ok ? 1 : 0, (unsigned)marquees, (unsigned)vivantes);
+			Check(ok && vivantes > 0u && marquees == vivantes, lab, det);
 		}
 	}
 
