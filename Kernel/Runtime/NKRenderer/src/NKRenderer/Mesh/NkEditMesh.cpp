@@ -2480,6 +2480,27 @@ namespace nkentseu {
 				// Les arêtes FIL (2 sommets) ne sont pas des faces extrudables.
 				// L'INTENTION D'ABORD (transportee par `fm`, aligne sur `f` par
 				// construction dans ToPolygons), la deduction en repli.
+				//
+				// ⚠️ DIVERGENCE DECLAREE AVEC `InsetSelectedFaces` (constatee le
+				//    20/09, et DORMANTE tant qu'`inset` n'a pas d'appelant).
+				//    CE REPLI-CI lit les COINS : `PolyFaceSelected` sur les
+				//    polygones BRUTS de `ToPolygons`.
+				//    LE REPLI D'`inset` lit l'IDENTITE SOUDEE : `vsel[...]` sur
+				//    `EM_ToWeldedPolygons`. Les deux ne designent donc PAS le meme
+				//    ensemble a partir de la meme selection de sommets.
+				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
+				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose
+				//    -- c'est le sens du commentaire de `NkDemo3D.cpp`, « sans
+				//    cette ligne, l'ecran disait 2 et l'extrusion en prenait 6 » --
+				//    donc l'application ne rencontre pas la divergence.
+				//    MESURE : sur un cube, deux faces opposees couvrent les 8
+				//    sommets soudes ; le repli soude en designe SIX la ou celui-ci
+				//    en designe DEUX (`NKEditMeshHarness --loi-instrument`).
+				// ⚠️ ET LA QUESTION N'EST PAS TRANCHEE : `PolyFaceSelected` est le
+				//    predicat PUBLIC, mais rien n'etablit qu'il soit LA convention
+				//    du moteur -- les autres replis n'ont pas ete recenses. Si un
+				//    troisieme lit encore autrement, la question aura deja ete
+				//    posee ici.
 				const bool sel = (e - s >= 3) && (fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
 								: PolyFaceSelected(fv, s, e));
 				faceSel[f] = sel ? 1 : 0;
@@ -5121,6 +5142,28 @@ namespace nkentseu {
 				const uint32 s = fs[f], e = fs[f + 1];
 				// L'intention voyage dans `fm`, que le round-trip SOUDE transporte aussi
 				// (EM_ToWeldedPolygons relaie les attributs de ToPolygons, face par face).
+				//
+				// ⚠️ DIVERGENCE DECLAREE AVEC `ExtrudeSelectedFaces` (constatee le
+				//    20/09, et DORMANTE tant que cette fonction n'a pas d'appelant
+				//    hors banc -- recense le 20/09 : aucun).
+				//    CE REPLI-CI lit l'IDENTITE SOUDEE (`vsel` sur les polygones
+				//    de `EM_ToWeldedPolygons`).
+				//    LE REPLI D'`extrude` lit les COINS (`PolyFaceSelected` sur les
+				//    polygones bruts). Les deux ne designent donc PAS le meme
+				//    ensemble a partir de la meme selection de sommets.
+				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
+				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose,
+				//    donc l'application ne rencontre pas la divergence -- ne pas
+				//    lire ce paragraphe comme un defaut d'usage, c'en etait un dans
+				//    une premiere redaction et c'etait faux.
+				//    MESURE : sur un cube, deux faces opposees couvrent les 8
+				//    sommets soudes ; ce repli en designe SIX la ou celui d'extrude
+				//    en designe DEUX (`NKEditMeshHarness --loi-instrument`).
+				// ⚠️ LAQUELLE DES DEUX EST **LA** CONVENTION N'EST PAS TRANCHE.
+				//    `PolyFaceSelected` est le predicat PUBLIC, ce qui le rend
+				//    probable, mais les autres replis du fichier n'ont pas ete
+				//    recenses. Celui qui en trouvera un troisieme saura que la
+				//    question a ete posee et laissee ouverte, pas oubliee.
 				bool sel = (e - s) >= 3u;
 				if (sel && fsel)
 					sel = (f < (uint32)fm.Size()) && (fm[f].sel != 0);
