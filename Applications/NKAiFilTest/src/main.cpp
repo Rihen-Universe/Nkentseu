@@ -82,67 +82,72 @@ int main() {
 
 	// ─────────────────────────────────────────────────────────────────────────
 	//  A. LE FIL DE NK3DModeler, TEL QU'IL EST AUJOURD'HUI
-	// ─────────────────────────────────────────────────────────────────────────
-	printf("[A] le fil du modeleur, designe par la POSITION\n");
+	printf("[A] le fil du modeleur, MIGRE -- designe par l'IDENTIFIANT\n");
 	{
-		// ⚠️ SUR LE TAS. `NkModelerState` porte seize blocs de plusieurs centaines
-		//    d'octets chacun, plus tout le reste de l'etat du modeleur : le depot
-		//    a deja paye « NkWorld ne vit pas sur la pile, 791 640 octets ».
+		// ⚠️ CETTE FAMILLE A CHANGE AVEC LA MIGRATION, ET C'EST VOULU.
+		//    Sa version d'AVANT (commit 116cd79c5) interrogeait `st.aiFil[k]` et
+		//    sortait ROUGE : « indice 10 : avant etape 10 | apres etape 11 ».
+		//    Le stockage a change, donc le banc ne peut plus poser la meme
+		//    question dans les memes termes -- la preuve du defaut vit dans
+		//    l'histoire, pas dans un banc qu'on garderait rouge.
+		//
+		//    Ce qu'elle mesure MAINTENANT : les VRAIS producteurs du modeleur
+		//    (`NkAiPousser`, `NkAiTour`, `NkAiEffet`) sur un VRAI etat. La
+		//    famille B eprouve le kit seul ; celle-ci eprouve le chemin que
+		//    Rodolf emprunte.
 		NkModelerState *pst = new NkModelerState();
 		NkModelerState &st = *pst;
-
-		// On remplit la fenetre EXACTEMENT, par le vrai producteur.
-		for (int32 i = 0; i < NkModelerState::kAiFil; ++i) {
+		for (int32 i = 0; i < 16; ++i) {
 			char l[64];
 			snprintf(l, sizeof(l), "etape %d", (int)i);
 			(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, l);
 		}
-		Essai("A1", st.aiFilN == NkModelerState::kAiFil,
-			  "controle de depart : la fenetre est pleine (16 blocs)");
-
-		// L'utilisateur deplie le bloc de l'indice 10. C'est ce que fait le
-		// panneau : `if (hit.Clicked(cle)) b.replie = ...` sur `aiFil[i]`.
-		const int32 k = 10;
-		st.aiFil[k].replie = 0u;
-		char ligneVisee[96];
-		snprintf(ligneVisee, sizeof(ligneVisee), "%s", st.aiFil[k].ligne);
-		Essai("A2", MemeLigne(ligneVisee, "etape 10"),
-			  "controle de depart : l'indice 10 designe bien « etape 10 », et il est deplie");
-
-		// LA REPONSE ARRIVE. Un bloc entre dans un fil plein : tout glisse.
+		Essai("A1", st.aiFil.Taille() == 16, "controle de depart : 16 blocs dans le fil");
+		const uint32 idVise = st.aiFil.At(10).id;
+		st.aiFil.BasculerParId(idVise);
+		uint32 idx = 0;
+		Essai("A2", st.aiFil.TrouverParId(idVise, idx) && idx == 10 &&
+				  !st.aiFil.At(idx).replie,
+			  "controle de depart : l'identifiant vise l'indice 10, et il est deplie");
+		
+		// LA REPONSE ARRIVE : un bloc de plus dans un fil plein.
 		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "la reponse");
-
-		// ⚠️ LE CRITERE. Il ne regarde PAS la cle : il regarde ce que la cle
-		//    resout, c'est-a-dire le bloc a l'indice 10.
-		const bool memeBloc = MemeLigne(st.aiFil[k].ligne, ligneVisee);
-		Essai("A3", memeBloc,
-			  "apres un bloc de plus, l'indice 10 designe TOUJOURS « etape 10 »");
-		printf("         indice %d : avant « %s » | apres « %s »\n", (int)k, ligneVisee,
-			   st.aiFil[k].ligne);
-
-		// Et la consequence visible pour Rodolf : ce n'est plus SON bloc qui est
-		// deplie. Le sien l'est encore, mais ailleurs ; celui que sa souris
-		// designe, non.
-		const bool bonDeplie = (st.aiFil[k].replie == 0u);
-		Essai("A4", bonDeplie,
-			  "et le bloc que la souris designe est toujours celui qui est deplie");
-
-		// ⚠️ LE SITE QUI, LUI, A ETE CORRIGE. `NkAiPousser` decale `aiEnCours`
-		//    avec le fil, et son commentaire dit pourquoi. On le mesure pour
-		//    montrer que le defaut n'est pas « personne n'y avait pense » mais
-		//    « on y a pense A UN SEUL DES DEUX SITES ».
+		uint32 idx2 = 0;
+		const bool trouve = st.aiFil.TrouverParId(idVise, idx2);
+		Essai("A3", trouve && MemeLigne(st.aiFil.At(idx2).texte.CStr(), "etape 10"),
+			  "apres un bloc de plus, l'identifiant designe TOUJOURS « etape 10 »");
+		printf("         id %u : indice %u avant, %u apres -- meme bloc\n", idVise, idx, idx2);
+		Essai("A4", trouve && !st.aiFil.At(idx2).replie,
+			  "et c'est toujours CE bloc-la qui est deplie");
+		
+		// ⚠️ A5 A CHANGE DE SENS, ET C'EST LE MEILLEUR RESULTAT DU LOT.
+		//    Avant : « le bloc en cours de mesure suit le glissement » -- il
+		//    mesurait un RATTRAPAGE (`if (aiEnCours > 0) --aiEnCours;`) ecrit a
+		//    la main a un seul des deux sites qui en avaient besoin.
+		//    Ces quatre lignes N'EXISTENT PLUS : un identifiant ne glisse pas.
+		//    On ne propage pas une correction au site qui l'avait oubliee, on
+		//    supprime la RAISON d'en avoir une.
+		//    A5 mesure donc ce qui compte vraiment : l'effet atterrit-il sur LE
+		//    BON bloc quand le fil a glisse entre la pose et la mesure ?
 		{
 			NkModelerState *p2 = new NkModelerState();
 			NkModelerState &s2 = *p2;
-			for (int32 i = 0; i < NkModelerState::kAiFil; ++i)
-				(void)nk3d::NkAiPousser(s2, NkModelerState::AiType::Note, "x");
-			s2.aiEnCours = 10;
-			(void)nk3d::NkAiPousser(s2, NkModelerState::AiType::Note, "la reponse");
-			Essai("A5", s2.aiEnCours == 9,
-				  "le bloc EN COURS DE MESURE, lui, suit le glissement (deja corrige)");
+			for (int32 i = 0; i < 16; ++i)
+				(void)nk3d::NkAiPousser(s2, NkModelerState::AiType::Note, "remplissage");
+			s2.aiMotifEstRefus = false;
+			nk3d::NkAiTour(s2, "subdivide:2", 8, 12, 6, 1); // pose l'operation, compteurs d'avant
+			const uint32 idOp = s2.aiEnCoursId;
+			// Le fil GLISSE entre la pose et la mesure.
+			(void)nk3d::NkAiPousser(s2, NkModelerState::AiType::Note, "un bloc qui s'intercale");
+			nk3d::NkAiEffet(s2, 386, 768, 384);
+			const editorkit::NkAiBlocDonnees *b = s2.aiFil.MutableParId(idOp);
+			const bool surLeBon = b && MemeLigne(b->titre.CStr(), "subdivide:2") &&
+				  b->sortie.Length() > 0;
+			Essai("A5", surLeBon,
+				  "l'effet mesure atterrit sur LE BON bloc, meme si le fil a glisse entre-temps");
+			if (b) printf("         %s -> %s\n", b->titre.CStr(), b->sortie.CStr());
 			delete p2;
 		}
-
 		delete pst;
 	}
 
