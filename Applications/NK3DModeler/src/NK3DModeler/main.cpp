@@ -2895,65 +2895,6 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
-		// ── NK_AGENT_SELECT=<noeud>[,frame] : SELECTIONNER, PARCE QUE TAB EXIGE
-		//    UNE CIBLE ───────────────────────────────────────────────────────
-		// ⚠️ IL COMBLE LE SEUL MAILLON QUI MANQUAIT, ET CE N'ETAIT PAS CELUI QUE
-		//    J'AVAIS ANNONCE. J'avais ecrit que « aucun crochet ne peut amorcer
-		//    le mode Edition du viseur » et que le chainon shell/viseur etait
-		//    absent. C'EST FAUX : le chainon existe -- `Demo3DHostSetMode` arme
-		//    `editTogglePending`, la porte que TAB emprunte -- et il FONCTIONNE.
-		//    Il REFUSAIT, pour un motif que l'application publiait deja :
-		//        shell.mode=1(edit=1) viseur.edit=0 refus=390 selection=0 noeuds=3
-		//    `NK_EDIT_DIAG` le disait a chaque trentaine d'images, et son en-tete
-		//    l'annonce mot pour mot : « cette bascule ECHOUE quand aucun objet
-		//    n'est selectionne ». Il ne manquait pas un chainon, il manquait une
-		//    SELECTION -- et le diagnostic pour le voir etait deja livre.
-		//
-		// ⚠️ ET IL PASSE PAR LA PORTE DU PRODUIT. `Demo3DHostSelectObject` est
-		//    exactement ce qu'appelle le panneau de hierarchie quand on clique un
-		//    noeud (`NkModelerHierarchy.h`). On ne pose donc AUCUN etat a la
-		//    main : on fait ce que fait l'utilisateur, puis le mode s'arme tout
-		//    seul. Une sonde qui poserait `editMode` directement se ferait passer
-		//    pour le produit, et tout ce qu'on mesurerait derriere serait suspect.
-		//
-		// ⚠️ ET IL NE SUFFIT PAS ENCORE — MESURE DU 20/09, DITE PLUTOT QUE TUE.
-		//    Avec ce crochet, la bascule est bien armee et CONSOMMEE (718 passages
-		//    dans une course de 300 images), mais elle refuse toujours :
-		//        TRACE edition : selDemo=-1 selEmpty=-1 -> cible=0 index=-1
-		//    `Demo3DHostSelectObject(i)` appelle pourtant `gizmo.Select(i)`.
-		//    Essaye sur les noeuds 0, 1 et 2 : `ActiveIndex()` reste a -1.
-		//    TROIS CAUSES POSSIBLES, NON SEPAREES : (a) le noeud est cadenasse
-		//    (`HostLockedEff` sort avant la selection) ; (b) l'espace d'indices
-		//    du panneau de hierarchie n'est pas celui du gizmo de demo ; (c) le
-		//    shell reecrit la selection du gizmo a chaque image et ecrase la
-		//    notre. Il faudra les trancher avant d'aller plus loin -- pas les
-		//    deviner.
-		//    ⚠️ LE VERDICT N'EST PAS SUR LA CONSOLE : `logger.Info` ecrit dans
-		//       `logs/app.log`. J'ai d'abord conclu « aucune TRACE » en lisant la
-		//       sortie standard, alors qu'il y en avait 718 dans le journal.
-		{
-			static bool sSelDone = false;
-			if (const char *sv = std::getenv("NK_AGENT_SELECT")) {
-				// « <noeud>[,frame] » -- entiers uniquement : pas d'`atof` ici, et
-				// c'est deliberé. `NK_EDIT_PICK` lit ses coordonnees avec `atof`,
-				// donc en fr-FR `atof("0.5")` rend 0.0 et la fraction de vue tombe
-				// dans le COIN au lieu du centre. On ne prend pas ce chemin.
-				int32 noeud = 0, quand = 0;
-				const char *c = sv;
-				for (; *c >= '0' && *c <= '9'; ++c)
-					noeud = noeud * 10 + (int32)(*c - '0');
-				if (*c == ',')
-					for (++c; *c >= '0' && *c <= '9'; ++c)
-						quand = quand * 10 + (int32)(*c - '0');
-				if (!sSelDone && agentFrame >= quand) {
-					sSelDone = true;
-					demo::Demo3DHostSelectObject(noeud, false);
-					std::printf("[nk3d] NK_AGENT_SELECT : noeud %d (porte du panneau de hierarchie)\n",
-								(int)noeud);
-					std::fflush(stdout);
-				}
-			}
-		}
 		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
 		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
 		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le
@@ -5319,6 +5260,8 @@ int nkmain(const NkEntryState &entry) {
 			static int32 sSelFrame = -2;
 			static int32 sSelNodes[16];
 			static int32 sSelCount = 0;
+			static int32 sSelSonde = -1;	 // noeud suivi apres la pose
+			static int32 sSelSondeVues = 0;	 // borne : quatre images suffisent
 			if (sSelFrame == -2) {
 				sSelFrame = -1;
 				if (const char *v = std::getenv("NK_SEL_NODES")) {
@@ -5348,6 +5291,27 @@ int nkmain(const NkEntryState &entry) {
 				}
 				fflush(stdout);
 				sSelFrame = -1; // une seule fois
+				sSelSonde = sSelCount > 0 ? sSelNodes[0] : -1; // a suivre sur les images SUIVANTES
+			}
+			// ── LA SELECTION SURVIT-ELLE A L'IMAGE SUIVANTE ? ─────────────────
+			// ⚠️ LE CROCHET CI-DESSUS IMPRIME DEJA `selectionne=` -- MAIS A
+			//    L'INSTANT DE LA POSE, et c'est precisement ce qui ne suffit pas.
+			//    « La selection n'a jamais pris » et « elle a pris puis on l'a
+			//    ecrasee » rendent le MEME 0 quand on ne lit qu'une fois, trop
+			//    tard. Il faut relire AUX IMAGES SUIVANTES.
+			//    MESURE DU 20/09, sur un objet de demo : pose=1 a l'image N, puis
+			//    0 des N+1 et jamais plus. La selection PREND et se fait ECRASER.
+			//    -> la cause « le shell reecrit a chaque image » est etablie, et
+			//       les deux autres candidates tombent du meme coup : un noeud
+			//       CADENASSE n'aurait jamais ete selectionne, et un MAUVAIS
+			//       ESPACE D'INDICES n'aurait pas rendu 1 a l'image de la pose.
+			//    ⚠️ La sonde ecrit sur la SORTIE STANDARD. Le piege du jour etait
+			//       un verdict dans `logs/app.log` cherche sur la console.
+			if (sSelSonde >= 0 && sSelSondeVues < 4) {
+				++sSelSondeVues;
+				printf("[nk3d-sel] SURVIE f=%d noeud=%d selectionne=%d\n", (int)agentFrame,
+					   (int)sSelSonde, demo::Demo3DHostEmptyNodeSelected(sSelSonde) ? 1 : 0);
+				fflush(stdout);
 			}
 		}
 		// NK_AGENT_SCENE : on quitte l'accueil, rien de plus. Le viseur naît a son
