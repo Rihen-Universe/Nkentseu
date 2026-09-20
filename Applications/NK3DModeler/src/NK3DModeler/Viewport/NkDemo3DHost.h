@@ -259,9 +259,20 @@ namespace nkentseu {
 
 		int32 Demo3DHostBrushCount();
 		const char *Demo3DHostBrushName(int32 i);
+		// Le nom de la brosse en service, et le choix PAR CE NOM (jamais par un
+		// indice : le catalogue vient de fichiers, son ordre change quand on en
+		// depose un).
+		const char *Demo3DHostBrushCurrent();
+		bool Demo3DHostSetBrushByName(const char *nom);
 		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
 		// = garder ceux de la brosse. Rend true si le maillage a change (et si une
 		// etape d'annulation a donc ete posee).
+		// LE TRAIT sur la surface : une zone qui SURVIT aux operations (elle vit
+		// dans FaceAttrib, comme le materiau), puis qui se designe.
+		int32 Demo3DHostTraceTrait(const float32 *pts, int32 count, float32 rayon, int32 numero);
+		int32 Demo3DHostCompteTrait(int32 numero);
+		int32 Demo3DHostEffaceTrait(int32 numero);
+		int32 Demo3DHostSelectionnerTrait(int32 numero);
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
 					  const char *brushName, float32 radius, float32 strength);
 		bool Demo3DHostEditLoopCut();

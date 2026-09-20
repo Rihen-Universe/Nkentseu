@@ -149,6 +149,30 @@ namespace nkentseu {
 			}
 			ajout("\nUne valeur hors bornes est ramenee aux bornes ; un parametre en trop est\n");
 			ajout("refuse.\n");
+			//
+			// -- COMMENT SEPARER DEUX COMMANDES : LE TROU QUI NOUS FAISAIT ACCUSER --
+			// -- LE MODELE ---------------------------------------------------------
+			//
+			// Ce contrat decrivait les parametres d UNE commande et ne disait NULLE
+			// PART ou finit l une et ou commence l autre. Le modele enchainait donc
+			// avec des deux-points -- `toggleedit:selectall:subdivide` -- les trois bons
+			// verbes, dans le bon ordre, et l extracteur les rejetait.
+			//
+			// Mesure sur 378 appels : FORMAT exploitable 0/10 avec le contrat tel
+			// quel, 7/10 avec ces lignes. *On accusait le modele d un trou de notre
+			// contrat.*
+			//
+			// [!] C EST L EXEMPLE SUR DEUX LIGNES QUI A FAIT LA DIFFERENCE, pas la
+			//     regle enoncee seule : on garde donc les deux, et on ne resume pas.
+			// [!] ET LE CHIFFRE EST OPTIMISTE, la formulation ayant ete ecrite apres
+			//     lecture des echecs. Le 0/10 du contrat d avant, lui, est aveugle.
+			ajout("\nLa demande peut demander PLUSIEURS operations a la suite. Dans ce cas,\n");
+			ajout("ecris UNE commande PAR LIGNE, dans l\'ordre d\'execution.\n");
+			ajout("Les deux-points ne separent JAMAIS deux commandes : ils ne servent qu\'aux\n");
+			ajout("parametres d\'UNE SEULE commande.\n");
+			ajout("Exemple, pour « selectionne tout puis subdivise deux fois » :\n");
+			ajout("selectall\n");
+			ajout("subdivide:2\n");
 		}
 
 		// ── LA REPONSE -> UN VERBE ─────────────────────────────────────────────
@@ -700,6 +724,47 @@ namespace nkentseu {
 			ajout("Si la demande ne porte AUCUNE condition chiffree et mesurable, n'ecris pas\n");
 			ajout("de seconde ligne.\n");
 		}
+		// -- COMBIEN DE COMMANDES LA REPONSE CONTIENT-ELLE ? ------------------
+		//
+		// Depuis que le contrat autorise un plan sur plusieurs lignes, une reponse
+		// peut en porter trois. L extracteur, lui, prend la PREMIERE et s arrete.
+		// Sans ce compte, deux commandes sur trois disparaitraient EN SILENCE --
+		// et l utilisateur verrait un tiers de ce qu il a demande sans savoir
+		// pourquoi. *Un geste qu on n execute pas se dit ; il ne s oublie pas.*
+		//
+		// [!] CE N EST PAS L EXECUTION DU PLAN, ET C EST ASSUME. Le pont ne prend
+		//     qu une action a la fois ; enchainer demanderait une file et son
+		//     annulation par lot. CONDITION DE RETRAIT de ce compteur : le jour ou
+		//     l hote execute la suite, il remplace le message par l enchainement.
+
+		inline uint32 NkIaCompterCommandes(const char *reponse) {
+			if (!reponse)
+				return 0u;
+			uint32 n = 0u;
+			char tampon[192];
+			const char *c = reponse;
+			while (*c) {
+				const char *deb = c;
+				while (*c && *c != '\n' && *c != '\r')
+					++c;
+				const uint32 lg = (uint32)(c - deb);
+				if (lg > 0u && lg + 1u < sizeof(tampon)) {
+					for (uint32 k = 0; k < lg; ++k)
+						tampon[k] = deb[k];
+					tampon[lg] = 0;
+					char v[192];
+		//     On reutilise l extracteur LIGNE PAR LIGNE : compter avec une
+		//     seconde regle de plausibilite ferait deux juges pour une meme
+		//     question, et ils divergeraient au premier ornement nouveau.
+					if (NkIaExtraireVerbe(tampon, v, sizeof(v)))
+						++n;
+				}
+				while (*c == '\n' || *c == '\r')
+					++c;
+			}
+			return n;
+		}
+
 
 		// ── LE DORSAL, ET IL EST UN REGLAGE ────────────────────────────────────
 		// `NK_IA_CMD` porte le gabarit, deux trous `{invite}` et `{sortie}`.

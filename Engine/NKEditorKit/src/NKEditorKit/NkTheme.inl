@@ -45,6 +45,16 @@ namespace nkentseu {
 					// `status_ok` / `status_err` : c'est le troisieme membre de la
 					// meme triade, pas une invention a cote.
 					"status_warn",
+					// Ajout du 20/09 — les surfaces du panneau IA. Les cles disent
+					// la SURFACE, pas l'appelant : « code_bg », pas « ai_code_bg ».
+					// Un pave de code n'appartient pas a l'IA -- le journal, la
+					// console et la vue de diff le peindront aussi -- et une cle
+					// nommee d'apres son premier consommateur se lirait comme une
+					// reservation, puis ferait naitre un second role identique le
+					// jour ou un autre ecran en aurait besoin.
+					"code_bg",
+					"code_out_bg",
+					"inline_code_bg",
 				};
 				return kNames;
 			}
@@ -127,6 +137,37 @@ namespace nkentseu {
 					{NkRole::StatusOk, NkRole::PanelHeader, false},
 					{NkRole::StatusWarn, NkRole::PanelHeader, false},
 					{NkRole::StatusErr, NkRole::PanelHeader, false},
+					// ── LES SURFACES DU PANNEAU IA (ajout 20/09) ────────────────
+					// Chacune porte du TEXTE, donc seuil 4,5 -- ce ne sont pas des
+					// aplats decoratifs. Mesure des quatre, sombre puis clair :
+					//   Text / CodeBg          17,30   16,35
+					//   Text / CodeOutBg       11,50   14,51
+					//   Text / InlineCodeBg    12,93   15,38
+					//   TextMuted / CodeBg      5,62    4,66
+					// La derniere est la plus serree, et c'est la seule qui ait
+					// failli manquer : en clair, `TextMuted` est #0000008C, un NOIR
+					// TRANSLUCIDE. Calcule sans composition il vaut du noir pur et
+					// passerait toujours -- un controle qui ne peut pas echouer.
+					// `Validate()` composite (`themedetail::Composite`) : sur
+					// #F6F8FA ca donne #6F7071, et 4,66. La marge est de 0,16.
+					{NkRole::Text, NkRole::CodeBg, true},
+					{NkRole::Text, NkRole::CodeOutBg, true},
+					{NkRole::Text, NkRole::InlineCodeBg, true},
+					{NkRole::TextMuted, NkRole::CodeBg, true},
+					// PAS de paire {TextMuted, CodeOutBg}, et ce n'est pas un oubli :
+					// elle sortirait a 3,74 en sombre et sous 3 en clair, donc elle
+					// ferait echouer `Validate()`. Elle n'y est pas parce que
+					// `TextMuted` NE SE PEINT JAMAIS sur `CodeOutBg` -- mesure sur
+					// la capture : les gouttieres `IN`/`OUT` sont sur le fond du
+					// bloc (#0F1117 a x 84..90), pas sur la surface de sortie, et
+					// le contenu de `OUT` est en `Text` plein. *Une paire mesuree
+					// contre un fond ou la couleur ne se peint jamais est un
+					// controle qui ne controle rien* -- la regle est deja ecrite
+					// six lignes plus haut pour les trois statuts.
+					// ⚠️ CONDITION D'AJOUT : le jour ou un texte attenue se peint
+					//    sur `CodeOutBg` (une ligne « (tronque) », un numero de
+					//    ligne), cette paire devient obligatoire ET elle echouera.
+					//    Il faudra alors eclaircir le texte, pas retirer la paire.
 					// PAS de paire {ElemIdle, ViewportTop}, et c'est deliberé apres
 					// mesure : je l'avais ajoutee sans reflechir, elle sortait a 1,10.
 					// Un element NON selectionne doit RECULER par construction --
@@ -182,6 +223,11 @@ namespace nkentseu {
 				case NkRole::DocText:	  return NkRole::Text;
 				case NkRole::DocFieldBg:  return NkRole::InputBg;
 				case NkRole::DocMuted:	  return NkRole::DocText;  // chaine : -> Text
+				// Ajout du 20/09 — les surfaces du panneau IA, meme regime
+				// facultatif-avec-repli que les six roles Banani.
+				case NkRole::CodeBg:	  return NkRole::LabelCol;
+				case NkRole::CodeOutBg:	  return NkRole::CodeBg;   // chaine : -> LabelCol
+				case NkRole::InlineCodeBg: return NkRole::Border;
 				default:				  return NkRole::Count;	   // obligatoire
 			}
 		}
@@ -705,6 +751,26 @@ namespace nkentseu {
 			S(NkRole::StatusWarn, "#D29922"); // attention.fg -- 6,85
 			S(NkRole::StatusErr, "#F85149");  // danger.fg   -- 5,16
 
+			// ── LES SURFACES DE CODE, VERSION SOMBRE ────────────────────────────
+			// Capture du 20/09, echantillonnee par dominante de zone. Elle est en
+			// GitHub Dark Pro, donc ses valeurs retombent dans cette palette.
+			//   fond de page   #030409  ->  notre WindowBg #010409
+			//   pave / `IN`    #0F1117  ->  notre PanelBg  #0D1117
+			// Le pave est donc UN CRAN au-dessus de son fond. Notre panneau, lui,
+			// est deja pose sur `PanelBg` : le MEME cran depuis #0D1117 donne
+			// #161B22, c'est-a-dire `canvas.subtle` de GitHub. On reproduit
+			// l'ECART mesure, pas la valeur absolue -- une valeur absolue recopiee
+			// depuis une capture prise sur un autre fond serait juste par accident.
+			S(NkRole::CodeBg, "#161B22");
+			// La sortie, elle, est recopiee telle que mesuree : #373942 dans les
+			// QUATRE compartiments `OUT` de la capture. Elle ne correspond a aucun
+			// jeton nomme de GitHub Dark Pro -- elle tombe entre `neutral.muted` et
+			// `border.default` -- et je la garde quand meme, parce qu'elle est
+			// mesuree et que je le dis. Ecart avec `CodeBg` : 1,50.
+			S(NkRole::CodeOutBg, "#373942");
+			// La pastille en ligne, mesuree : #303139.
+			S(NkRole::InlineCodeBg, "#303139");
+
 			NkThemePoserRolesBanani(t);
 			// La toile SUIT LE THEME (Rodolf, 31/08) : en sombre, le meme fond
 			// que la vue Behavior (#0d1117) — pas la toile claire de l'ecran V2.
@@ -774,6 +840,32 @@ namespace nkentseu {
 			S(NkRole::StatusWarn, "#9A6700"); // attention.fg -- 4,05
 			S(NkRole::StatusErr, "#CF222E");  // danger.fg   -- 4,45 (etait 2,79)
 
+			// ── LES SURFACES DE CODE, VERSION CLAIRE (GitHub Light Pro) ─────────
+			// ⚠️ C'EST ICI QUE CES TROIS ROLES GAGNENT LEUR EXISTENCE. En sombre
+			//    `CodeBg` vaut `PanelHeader` et on pourrait croire au doublon ;
+			//    en clair `PanelBg` est #FFFFFF, et un pave de code sans role
+			//    propre serait blanc sur blanc. Ce n'est pas une precaution : le
+			//    fichier a deja paye deux fois la couleur posee une seule fois
+			//    pour les deux themes (CanvasBg le 31/08, StatusOk/Err le 14/09).
+			//
+			// Les valeurs ne sont pas des eclaircissements inventes : ce sont
+			// celles de Light Pro, et elles conservent l'ORDRE mesure en sombre
+			// (page < pave < sortie), qui est ce que la capture montre vraiment.
+			S(NkRole::CodeBg, "#F6F8FA");	  // canvas.subtle -- Text a 16,35
+			S(NkRole::CodeOutBg, "#E6EBF0");  // un cran sous canvas.subtle -- 14,51
+			S(NkRole::InlineCodeBg, "#EFF1F4"); // -- 15,38
+			// ⚠️ L'ECART ENTRE LES DEUX SURFACES SE RESSERRE EN CLAIR : 1,50 en
+			//    sombre, 1,13 en clair. C'est inevitable -- on ne peut pas
+			//    s'eloigner du blanc autant qu'on s'eloigne du noir sans virer au
+			//    gris sale -- et c'est DECLARE plutot que subi. Aucune paire ne le
+			//    mesure : `Validate()` juge la LISIBILITE D'UN TEXTE sur un fond,
+			//    pas la separation de deux aplats voisins, et lui faire porter les
+			//    deux en ferait un validateur qu'on apprend a ignorer.
+			//    CONDITION DE REVISION : si la separation `IN`/`OUT` ne se voit pas
+			//    en theme clair sur l'ecran de Rodolf, c'est `CodeOutBg` clair qui
+			//    descend -- pas un filet ajoute, qui rendrait les deux themes
+			//    differents en STRUCTURE et non plus seulement en couleur.
+
 			NkThemePoserRolesBanani(t);
 			// La toile claire de la maquette V2 appartient au THEME CLAIR
 			// (Rodolf, 31/08) : #f5f7fb, points #d4dce8 — les valeurs Banani.
@@ -810,6 +902,13 @@ namespace nkentseu {
 			// theme enregistre avant lui ne porte pas la ligne `status_warn`, et
 			// il doit alors tomber sur l'ambre -- annonce -- au lieu de disparaitre.
 			mColors[(uint16)NkRole::StatusWarn] = NkThemeNonDefini;
+			// Les trois surfaces du panneau IA (20/09), meme regime : un theme
+			// enregistre avant aujourd'hui ne porte aucune des trois lignes, et il
+			// doit alors tomber sur `LabelCol` / `Border` -- annonces -- plutot que
+			// de peindre trois pans du panneau en magenta.
+			mColors[(uint16)NkRole::CodeBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::CodeOutBg] = NkThemeNonDefini;
+			mColors[(uint16)NkRole::InlineCodeBg] = NkThemeNonDefini;
 			mName = NkString("Sombre");
 		}
 

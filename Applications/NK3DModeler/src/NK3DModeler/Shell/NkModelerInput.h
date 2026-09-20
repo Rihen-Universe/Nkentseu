@@ -34,9 +34,12 @@
 // ... et il est SPECIALISE pour la creation de materiau (choix du type avant
 // creation) : la classe derivee et le catalogue des types vivent a part.
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
+#include "NKEditorKit/NkAiThread.h" // LE FIL du panneau IA, commun au kit
+#include "NKEditorKit/NkAiThreadLayout.h" // et le PLAN qu'il publie
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NK3DModeler/Shell/NkModelerFold.h"#include "NKEditorKit/NkShortcutTable.h"
+#include "NK3DModeler/Shell/NkModelerFold.h"
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
@@ -1071,32 +1074,67 @@ namespace nkentseu {
 					Refus = 2,     ///< un verbe inconnu, AVEC son motif. Une reponse, pas une panne.
 					Note = 3       ///< un fait de la chaine (dorsal absent, onglet muet)
 				};
-				struct AiBloc {
-						uint8 type = 0;
-						uint8 replie = 1; ///< replie PAR DEFAUT : c'est la forme de la capture
-						uint8 mesure = 0; ///< 0 pas encore lu · 1 lu · 2 lu et rien n'a change
-						int32 vA = 0, eA = 0, fA = 0;
-						int32 vB = 0, eB = 0, fB = 0;
-						char ligne[96] = {0};	///< la ligne visible quand le bloc est replie
-						char detail[192] = {0}; ///< ce qui apparait quand on le deplie
-						char in[96] = {0};		///< l'entree, telle qu'elle est partie
-						char out[128] = {0};	///< la sortie, telle qu'elle a ete LUE
-						/// ⚠️ LES RECTANGLES SONT ECRITS PAR LA PEINTURE ET LUS PAR LA
-						///    SONDE. Une sonde qui calculerait les coordonnees de son
-						///    cote mesurerait SA formule de disposition, pas celle du
-						///    panneau : le jour ou la mise en page bouge, elle
-						///    cliquerait a cote en restant verte.
-						float32 rl[4] = {0.f, 0.f, 0.f, 0.f}; ///< la ligne repliable
-						float32 ru[4] = {0.f, 0.f, 0.f, 0.f}; ///< « Annuler » (w=0 : absent)
+				// ⚠️ `AiBloc` A ETE SUPPRIME, PAS LAISSE EN PLACE. Le fil est
+				//    desormais `editorkit::NkAiFil` ; une structure qui ne stocke plus
+				//    rien mais reste declaree se lit comme un inventaire, et quelqu'un
+				//    finit par y reecrire. Ses champs de MESURE (compteurs, etat) sont
+				//    partis dans `AiMesure` ; ses champs de TEXTE dans le fil du kit ;
+				//    ses rectangles `rl`/`ru` sont desormais PUBLIES PAR LE PLAN
+				//    (`NkAiPlan`) au lieu d'etre ecrits dans la donnee par la peinture.
+				// ── LE FIL VIT DESORMAIS DANS LE KIT ─────────────────────
+				// ⚠️ MIGRATION DU 20/09, ET ELLE CORRIGE UN DEFAUT MESURE.
+				//    Le fil etait `AiBloc aiFil[16]` que `NkAiPousser` faisait GLISSER
+				//    (`aiFil[i-1] = aiFil[i]`), et le panneau designait ses blocs PAR
+				//    LEUR POSITION : `snprintf(cle, "ai.b%d", i)`.
+				//    Mesure du 20/09 (`NKAiFilTest`, essais A3/A4, ROUGES avant ceci) :
+				//    apres un bloc de plus, l'indice 10 designait « etape 11 ».
+				//    Rodolf depliait un bloc, une reponse arrivait, un AUTRE se depliait.
+				//
+				//    `NkAiFil` pose un identifiant monotone en UN SEUL endroit et ne le
+				//    reutilise jamais -- meme apres `Vider`, sinon un identifiant recycle
+				//    ferait basculer un bloc de l'ancienne conversation.
+				editorkit::NkAiFil aiFil;
+				/// Le PLAN du fil, tel que la derniere passe de peinture l'a publie.
+				/// ⚠️ PUBLIE PAR LE PEINTRE, LU PAR LE TEMOIN -- jamais recalcule ailleurs.
+				///    Il remplace les `rl`/`ru` que la PEINTURE ECRIVAIT DANS LA DONNEE
+				///    (`b.rl[0] = filR.x` au milieu de la boucle de dessin) : desormais le
+				///    peintre publie et ne mute rien.
+				editorkit::NkAiPlan aiPlan;
+
+				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
+				// Les compteurs de maillage et l'etat d'une mesure en cours sont des
+				// preoccupations du MODELEUR, pas du fil. Les faire entrer dans
+				// `NkAiBlocDonnees` serait le commun qui absorbe la donnee d'une seule
+				// application -- et le prochain a integrer NKCode demanderait les
+				// siennes. *Un contrat qui accueille les besoins de chaque appelant
+				// cesse d'etre un contrat.* (Arbitrage du 20/09, option (a).)
+				//
+				// ⚠️ LA CLE EST L'IDENTIFIANT DU BLOC, JAMAIS SA POSITION -- sans quoi
+				//    cette table reintroduirait exactement le defaut qu'on retire.
+				// ⚠️ ET UNE ENTREE DONT L'IDENTIFIANT A QUITTE LA FENETRE SE SUPPRIME.
+				//    Jamais de repli sur la position : mieux vaut perdre la mesure d'un
+				//    bloc qu'on ne voit plus que l'attribuer a son voisin.
+				struct AiMesure {
+					uint32 id = 0; ///< 0 = entree libre
+					uint8 etat = 0; ///< 0 pas encore lu · 1 lu · 2 lu et rien n'a change
+					int32 vA = 0, eA = 0, fA = 0;
+					int32 vB = 0, eB = 0, fB = 0;
 				};
-				static const int32 kAiFil = 16;
-				AiBloc aiFil[kAiFil];
-				int32 aiFilN = 0;
+				static const int32 kAiMesures = 16;
+				AiMesure aiMesures[kAiMesures];
 				/// Le bloc dont l'effet reste a mesurer, et l'image ou il a ete pose.
 				/// La mesure se prend a l'image SUIVANTE : l'operation s'execute plus bas
 				/// dans la meme boucle, donc lire les compteurs tout de suite rendrait
 				/// l'etat d'AVANT en le presentant comme celui d'apres.
-				int32 aiEnCours = -1;
+				/// ⚠️ UN IDENTIFIANT, PLUS UN INDICE. 0 = aucun.
+				///    C'etait `int32 aiEnCours = -1`, un INDICE dans `aiFil` -- et le
+				///    fil GLISSAIT, donc `NkAiPousser` devait le rattraper a la main :
+				///        if (st.aiEnCours > 0) --st.aiEnCours;
+				///        else if (st.aiEnCours == 0) st.aiEnCours = -1;
+				///    Ces quatre lignes ont disparu. On ne PROPAGE pas la correction au
+				///    second site qui l'avait oubliee (la cle de clic) : on supprime la
+				///    RAISON d'avoir une correction. Un identifiant ne glisse pas.
+				uint32 aiEnCoursId = 0;
 				int32 aiEnCoursFrame = -1;
 				/// Le rectangle du PANNEAU de l'assistant, tel qu'il vient d'etre PEINT.
 				/// Meme raison que le suivant : le temoin compare deux rectangles PUBLIES
@@ -1123,7 +1161,9 @@ namespace nkentseu {
 				///    condition pour que la marque REMPLACE l'ouverture au lieu de s'y
 				///    ajouter : deux comportements pour un meme etat, c'est le motif
 				///    qu'on retire depuis hier.
-				int32 aiFilVu = 0;
+				// ⚠️ `aiFilVu` A DISPARU : la marque vit dans le fil du kit
+				//    (`NonVus()` / `MarquerVus()`), avec la meme regle -- elle se
+				//    consomme LA OU LES BLOCS SONT PEINTS, jamais au clic.
 				bool aiOuvert = false; ///< le panneau est-il deploye ? (ferme au demarrage)
 				/// L'onglet de fournisseur. 0 = LOCAL, et c'est le defaut : le seul qui
 				/// soit branche a quelque chose aujourd'hui.

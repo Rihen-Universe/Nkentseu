@@ -1583,6 +1583,12 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # NKAiFilTest (20/09) : un bloc du fil IA se designe-t-il par sa position
+    # ou par son nom. Pose a cote de NKFoldTest, meme famille de defaut.
+    with include("Applications/NKAiFilTest/NKAiFilTest.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
