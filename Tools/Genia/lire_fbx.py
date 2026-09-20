@@ -14,7 +14,7 @@
 #
 # CE QU'IL REND : positions, indices de coins, et les UV si elles existent.
 
-import struct, zlib
+import io, struct, zlib
 import numpy as np
 
 
@@ -81,8 +81,96 @@ def lire_fbx(chemin):
     return racine
 
 
+# ---------------------------------------------------------------------------
+# LE FBX ASCII -- 9,5 % DES FBX DU CORPUS, ET ILS ECHOUAIENT SANS LE DIRE.
+#
+# Mesure du 20/09 : sur 7 742 FBX de NKGenCorpus, 7 008 sont binaires et
+# **734 sont ASCII** (9,5 %). Le lecteur binaire les avalait et rendait
+# « type de propriete inconnu: 'r' » -- un message qui accuse un TYPE DE
+# PROPRIETE alors que le probleme est le FORMAT DU FICHIER. On cherchait un
+# defaut de parseur la ou il fallait lire l'en-tete.
+#
+# ⚠️ C'est la famille « l'instrument accuse la donnee » : neuf echecs dans ma
+# production pointaient un octet, et la cause tenait dans les 21 premiers.
+#
+# Le format ASCII est textuel et regulier :
+#     Vertices: *24 {
+#         a: 1,1,1,1,1,-1, ...
+#     }
+#     PolygonVertexIndex: *36 {
+#         a: 0,1,2,-4, ...
+#     }
+# Les indices negatifs y marquent la fin d'un polygone, exactement comme en
+# binaire : la suite du traitement est donc commune aux deux formats.
+
+def _ascii_tableau(txt, cle, depart=0):
+    """Retourne (valeurs, position apres le bloc) pour `cle: *N { a: ... }`."""
+    i = txt.find(cle + ':', depart)
+    if i < 0:
+        return None, depart
+    j = txt.find('{', i)
+    if j < 0:
+        return None, i + 1
+    prof, k = 1, j + 1
+    while k < len(txt) and prof:
+        if txt[k] == '{':
+            prof += 1
+        elif txt[k] == '}':
+            prof -= 1
+        k += 1
+    corps = txt[j + 1:k - 1]
+    a = corps.find('a:')
+    if a < 0:
+        return None, k
+    return corps[a + 2:], k
+
+
+def charger_fbx_ascii(chemin):
+    txt = io.open(chemin, encoding='utf-8', errors='replace').read()
+    V, F, decalage, pos = [], [], 0, 0
+    while True:
+        bv, pos2 = _ascii_tableau(txt, 'Vertices', pos)
+        if bv is None:
+            break
+        bi, pos3 = _ascii_tableau(txt, 'PolygonVertexIndex', pos2)
+        if bi is None:
+            break
+        pos = pos3
+        try:
+            verts = np.fromstring(bv.replace('\n', ' '), sep=',')
+        except Exception:
+            verts = np.array([float(x) for x in bv.replace('\n', ' ').split(',') if x.strip()])
+        verts = verts[:len(verts) - (len(verts) % 3)].reshape(-1, 3)
+        idx = [int(float(x)) for x in bi.replace('\n', ' ').split(',') if x.strip()]
+        cur = []
+        for v in idx:
+            if v < 0:
+                cur.append((~v) + decalage)
+                for j in range(1, len(cur) - 1):
+                    F.append([cur[0], cur[j], cur[j + 1]])
+                cur = []
+            else:
+                cur.append(v + decalage)
+        V.append(verts)
+        decalage += len(verts)
+    if not V or not F:
+        raise ValueError('FBX ASCII sans geometrie exploitable : ' + chemin)
+    return np.concatenate(V, axis=0), np.asarray(F, dtype=np.int64)
+
+
 def charger_fbx(chemin):
-    """-> (sommets (n,3), faces [[i,...]]) depuis la premiere Geometry."""
+    """-> (sommets (n,3), faces [[i,...]]).
+
+    Choisit le format sur l'EN-TETE, et refuse en le NOMMANT : un message qui
+    dit « type de propriete inconnu » pour un fichier ASCII envoie chercher le
+    defaut au mauvais endroit."""
+    with open(chemin, 'rb') as f:
+        entete = f.read(21)
+    if not entete.startswith(b'Kaydara FBX Binary'):
+        if entete.lstrip().startswith(b';') or b'FBX' in entete:
+            return charger_fbx_ascii(chemin)
+        raise ValueError('ni FBX binaire ni FBX ASCII (en-tete %r) : %s'
+                         % (entete[:16], chemin))
     racine = lire_fbx(chemin)
     objets = racine.trouver('Objects')
     if objets is None:
