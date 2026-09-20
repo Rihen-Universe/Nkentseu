@@ -25,6 +25,7 @@
 
 #include "NKEditorKit/NkAiThread.h"
 #include "NKEditorKit/NkAiThreadLayout.h"
+#include "NKEditorKit/NkEditorTiroirMode.h" // le mode du tiroir : voile ou pas
 #include <stdio.h>
 
 namespace aiplanprobe {
@@ -283,6 +284,46 @@ namespace aiplanprobe {
 			const bool c = plan.Trouver(idOutil, NkAiPiece::Titre, t);
 			Essai(b, "22k", a && c && t.y >= d.y + d.h,
 				  "le bloc suivant commence SOUS le precedent, sans recouvrement");
+		}
+
+		// ═══════════════════════════════════════════════════════════════════════
+		// 22l / 22m / 22n — LE TIROIR NE VOILE PLUS CE SUR QUOI ON TRAVAILLE.
+		//
+		// Rodolf, 20/09 : le tiroir de NKUIDesign assombrissait toute la toile
+		// pendant qu'il demandait de la modifier. Le voile dit « reponds a ceci
+		// avant de continuer » -- un panneau de conversation ne dit pas ca : on y
+		// tape EN REGARDANT ce qu'on modifie.
+		//
+		// ⚠️ CES TROIS ESSAIS N'EXISTENT QUE PARCE QUE LA DECISION A ETE SORTIE
+		//    DU PEINTRE. Tant qu'elle vivait dans `DrawRailDrawers`, il fallait
+		//    une fenetre pour l'atteindre -- donc elle n'etait jamais mesuree, et
+		//    c'est exactement pour ca qu'un voile sans usage modal a survecu si
+		//    longtemps a cote d'un panneau qu'il empechait d'utiliser.
+		// ═══════════════════════════════════════════════════════════════════════
+		{
+			typedef nkentseu::editorkit::NkEditorTiroirMode Mode;
+			Essai(b, "22l",
+				!NkEditorTiroirVoile(Mode::Travail) &&
+					NkEditorTiroirVoile(Mode::Modal),
+				"un tiroir de TRAVAIL ne voile pas ; une MODALE voile");
+		}
+		{
+			typedef nkentseu::editorkit::NkEditorTiroirMode Mode;
+			// Le voile se VOIT, la reclamation non -- et c'est elle qui empeche
+			// vraiment de travailler dessous. Corriger l'un sans l autre aurait
+			// rendu un panneau qui a l'air utilisable et ne l'est pas.
+			Essai(b, "22m",
+				!NkEditorTiroirReclameLeCorps(Mode::Travail, false) &&
+					NkEditorTiroirReclameLeCorps(Mode::Modal, false),
+				"un tiroir de TRAVAIL ne reclame que lui-meme ; une MODALE prend le corps");
+		}
+		{
+			typedef nkentseu::editorkit::NkEditorTiroirMode Mode;
+			// R20 : PENDANT UN GLISSER, meme une modale ne reclame que soi. Sans
+			// ca la cible du depot, dessous, ne recoit jamais la souris -- mesure
+			// du 06/09 : souris masquee, cible jamais ouverte, 0 composant pose.
+			Essai(b, "22n", !NkEditorTiroirReclameLeCorps(Mode::Modal, true),
+				"controle negatif : en glisser, meme la MODALE lache le corps (R20)");
 		}
 
 		return b;
