@@ -7820,6 +7820,48 @@ namespace nkentseu {
 		static uint64 gEdProfIter[16] = {};
 		static uint32 gEdProfHits[16] = {};
 		static bool gEdProfOn = (getenv("NK_EDIT_PROF") != nullptr);
+
+		// ── DICHOTOMIE DANS LA FRAME ──────────────────────────────────
+		// Des jalons au NIVEAU DU CORPS de Demo3D_Frame -- donc traverses a
+		// chaque image, sans garde. L'ecart entre deux jalons dit quelle PARTIE
+		// de la frame porte les 50 secondes.
+		// ⚠️ On ne cherche plus un COUPABLE PLAUSIBLE mais l'endroit ou le temps
+		//    passe REELLEMENT : la reconstruction des reperes etait plausible,
+		//    super-lineaire d'allure et presque toujours active -- elle valait
+		//    0,1 %.
+		static double gEdStepT[24];
+		static uint32 gEdStepN = 0;
+#define NKEDSTEP(k)                                                            \
+	do {                                                                       \
+		if (gEdProfOn && (k) < 24) {                                           \
+			gEdStepT[(k)] = std::chrono::duration<double, std::milli>(          \
+							   std::chrono::high_resolution_clock::now()          \
+								   .time_since_epoch())                            \
+							   .count();                                          \
+			if ((k) + 1 > gEdStepN)                                            \
+				gEdStepN = (k) + 1;                                            \
+		}                                                                      \
+	} while (0)
+
+		static void Demo3D_EdStepDump() {
+			if (!gEdProfOn || gEdStepN < 2)
+				return;
+			char det[512];
+			det[0] = 0;
+			double pire = 0.0;
+			uint32 kPire = 0;
+			for (uint32 k = 1; k < gEdStepN; ++k) {
+				const double d = gEdStepT[k] - gEdStepT[k - 1];
+				if (d > pire) { pire = d; kPire = k; }
+				char t[48];
+				snprintf(t, sizeof(t), "%u:%.0f ", k, d);
+				if (strlen(det) + strlen(t) < sizeof(det) - 1)
+					strcat(det, t);
+			}
+			logger.Info("[Demo3D] EDSTEP ms par segment : {0}| PIRE = segment {1} ({2} ms)\n",
+						det, kPire, (float32)pire);
+			gEdStepN = 0;
+		}
 #define NKEDPROF(k, n)                                                         \
 	do {                                                                       \
 		if (gEdProfOn) {                                                       \
@@ -7856,6 +7898,7 @@ namespace nkentseu {
 		}
 
 	void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
+			NKEDSTEP(0); // jalon de dichotomie
 			const auto tFr0 = std::chrono::high_resolution_clock::now();
 			auto *st = (Demo3DState *)ctx.userData;
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
@@ -7899,6 +7942,7 @@ namespace nkentseu {
 				frameMDX = curMouseX - st->lastMouseX;
 				frameMDY = curMouseY - st->lastMouseY;
 			}
+			NKEDSTEP(1); // jalon de dichotomie
 			st->lastMouseX = curMouseX;
 			st->lastMouseY = curMouseY;
 			st->mouseTracked = true;
@@ -7949,6 +7993,7 @@ namespace nkentseu {
 			auto *r3d = ctx.renderer->GetRender3D();
 			if (!r3d)
 				return;
+			NKEDSTEP(2); // jalon de dichotomie
 			ctx.renderer->FlushGraphRebuilds();
 			r3d->ResetFrame();
 			if (auto *mc = ctx.renderer->GetMaterialCollection())
@@ -8726,6 +8771,7 @@ namespace nkentseu {
 			//    Éditeur : orbit=clic MILIEU, pan=Shift+MILIEU, zoom=molette.
 			//    Simulation : regard=clic DROIT, déplacement=WASD + E/Q (Shift=rapide).
 			NkCamera3DData camData;
+			NKEDSTEP(3); // jalon de dichotomie
 			camData.up = {0.f, 1.f, 0.f};
 			camData.fovY = 60.f;
 			camData.aspect = (float32)ctx.width / (float32)ctx.height;
@@ -8763,6 +8809,7 @@ namespace nkentseu {
 			// la selection ou une poignee de gizmo.
 			// A la sortie (confirmation OU annulation), modalOp repasse a 0 : rien n'est
 			// memorise, tout redevient strictement normal des la frame suivante.
+			NKEDSTEP(4); // jalon de dichotomie
 			const bool modalLock = (st->modalOp != 0);
 			// LE CONFINEMENT SUIT LA MODALE, ET RIEN D'AUTRE. Appele a CHAQUE image,
 			// modale ou non : c'est ce qui garantit qu'il est relache des que
@@ -8856,6 +8903,7 @@ namespace nkentseu {
 			// La molette alimente le RAYON du cercle de selection dans LES DEUX modes :
 			// l'outil cercle existe desormais aussi en mode objet, et sans cette ligne son
 			// rayon y serait fige (la molette repartirait au zoom camera).
+			NKEDSTEP(5); // jalon de dichotomie
 			st->lastWheel = ((st->selTool == 3) || (st->editMode && modalLock)) ? modalWheelRaw : 0.f;
 			if (!fixcam) {
 				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
@@ -9320,6 +9368,7 @@ namespace nkentseu {
 			HostPushSkyToRenderer();
 			NkSceneContext sctx;
 			sctx.camera = cam;
+			NKEDSTEP(6); // jalon de dichotomie
 			sctx.time = ctx.totalTime;
 
 			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
@@ -9490,6 +9539,7 @@ namespace nkentseu {
 			// retombe sur la loi lineaire debut/fin.
 			sctx.fogDensity = nkvpFogMode == 1 ? nkvpFogDensity : 0.f;
 			sctx.fogStart = nkvpFogStart;
+			NKEDSTEP(7); // jalon de dichotomie
 			sctx.fogEnd = nkvpFogEnd;
 			// NAPPE AU SOL : hauteur, epaisseur, souffle. La VITESSE de derive
 			// suit celle des nuages quand on l'a demande -- c'est ce qui fait
@@ -9564,6 +9614,8 @@ namespace nkentseu {
 				st->giDirty = false;
 			}
 
+			NKEDSTEP(8); // jalon de dichotomie
+			NKEDSTEP(10); // jalon fin (segment 9)
 			r3d->BeginScene(sctx);
 
 			// Transform utilisateur (décalage gizmo) appliqué à un objet : délégué au
@@ -9576,8 +9628,11 @@ namespace nkentseu {
 			// pendant translate/scale/rotate (et, pour le cube central animé, la base figée
 			// Demo3D_ObjBase au lieu de sa matrice animée). Capturer la matrice dessinée garantit
 			// que l'objet ET le contour partagent EXACTEMENT la même transform.
+			NKEDSTEP(11); // jalon fin (segment 9)
 			const int32 selDrawIdx = st->gizmo.ActiveIndex();
+			NKEDSTEP(12); // jalon fin (segment 9)
 			NkMat4f selDrawXform = NkMat4f::Identity();
+			NKEDSTEP(13); // jalon fin (segment 9)
 			bool selDrawValid = false;
 			auto userXform = [&](int32 idx, const NkMat4f &base) {
 				const NkMat4f m = st->gizmo.Apply(idx, base);
@@ -9592,6 +9647,7 @@ namespace nkentseu {
 			// propriété du MODE D'AFFICHAGE SOLID/WIREFRAME UNIQUEMENT (façon Blender), PAS
 			// de l'edit mode. L'edit mode fonctionne dans N'IMPORTE QUEL mode d'affichage
 			// (RENDERED garde le matériau PBR, NORMAL/UV/AO gardent leur canal, etc.).
+			NKEDSTEP(14); // jalon fin (segment 9)
 			const bool grayActive = (st->unlitColorMode != 0) && (st->shadingMode == 1 || st->shadingMode == 2);
 			auto effTint = [st, grayActive](NkVec3f matTint) -> NkVec3f {
 				if (!grayActive)
@@ -13581,6 +13637,7 @@ namespace nkentseu {
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
 			// Dessines en OVERLAY (dernier argument true) : un widget masque par la
 			// geometrie ne sert a rien — on doit pouvoir attraper une lumiere placee
+			NKEDSTEP(15); // jalon fin (segment 9)
 			// derriere un objet. NK_LIGHT_GIZMOS=0 les masque pour une capture propre ;
 			// NK_LIGHT_SEL=<n> selectionne la n-ieme lumiere (teinte claire), ce qui
 			// rend la distinction actif/selectionne verifiable en capture.
@@ -14142,7 +14199,9 @@ namespace nkentseu {
 			// LE BILAN DE L'IMAGE. Pose en fin de FRAME et non en fin d'un bloc
 			// d'edition : les sites sont repartis dans PLUSIEURS blocs, et
 			// compter a la fin de l'un d'eux en manquerait d'autres.
+			NKEDSTEP(9); // jalon de dichotomie
 			Demo3D_EdProfDump((int32)st->editHE.VertCount());
+			Demo3D_EdStepDump();
 			if (gEdProfOn) {
 				const auto tFr1 = std::chrono::high_resolution_clock::now();
 				logger.Info("[Demo3D] EDPROF frame entiere : {0} ms\n",
