@@ -68,6 +68,13 @@ static void Essai(const char *id, bool cond, const char *quoi) {
 }
 
 /// Les deux fils portent-ils la meme ligne au meme endroit logique ?
+/// La mesure de texte du banc : deterministe, comme dans la sonde du kit.
+static float32 MesureBanc(void *, editorkit::NkAiPolice, const char *t) {
+	uint32 n = 0;
+	while (t && t[n]) ++n;
+	return (float32)n * 7.f;
+}
+
 static bool MemeLigne(const char *a, const char *b) {
 	if (!a || !b)
 		return a == b;
@@ -242,6 +249,74 @@ int main() {
 		nk3d::NkAiViderHistorique(st);
 		Essai("C5", st.aiArchivesN == 0 && st.aiFil.Taille() == 1,
 			  "vider l historique n efface QUE l historique, pas la conversation ouverte");
+		delete pst;
+	}
+
+	printf("\n[D] de la phrase tapee au bloc affiche -- sans fenetre\n");
+	{
+		// ⚠️ LE CRITERE DE LA NUIT : « une phrase tapee ressort en reponse
+		//    AFFICHEE ». Pas « ca compile », pas « le pont repond ». Ce banc suit
+		//    la chaine ENTIERE, par les vraies fonctions, et finit sur le PLAN --
+		//    c est-a-dire sur ce que le peintre publie, pas sur un etat interne.
+		//
+		//    Maillons, dans l ordre : NkAiSoumettre (le point d entree UNIQUE, la
+		//    ou `NK_AI_DEMANDE` entre) -> NkAiTour (la table a repondu) ->
+		//    NkAiEffet (les compteurs de l hote) -> NkAiFilMesurer (le plan).
+		NkModelerState *pst = new NkModelerState();
+		NkModelerState &st = *pst;
+		st.welcome = false; // en projet : sans ca l assistant REFUSE, et il a raison
+		
+		// 1. L utilisateur tape et soumet.
+		const bool soumis = nk3d::NkAiSoumettre(st, "subdivise le cube deux fois");
+		Essai("D1", soumis && st.aiFil.Taille() == 1 &&
+			  st.aiFil.At(0).type == editorkit::NkAiBloc::Demande,
+			  "la phrase soumise entre dans le fil comme DEMANDE");
+		
+		// 2. La boucle execute et note le tour. `dem` porte le verbe du contrat :
+		//    la traduction a eu lieu en amont, comme dans main.cpp.
+		st.aiMotifEstRefus = false;
+		nk3d::NkAiTour(st, "subdivide:2", 8, 12, 6, 1);
+		Essai("D2", st.aiFil.Taille() == 2 &&
+			  st.aiFil.At(1).type == editorkit::NkAiBloc::Outil &&
+			  st.aiEnCoursId != 0u,
+			  "le tour pose un bloc OUTIL et retient son identifiant a mesurer");
+		
+		// 3. L effet, lu dans les compteurs de l hote a l image suivante.
+		nk3d::NkAiEffet(st, 386, 768, 384);
+		const editorkit::NkAiBlocDonnees &b = st.aiFil.At(1);
+		Essai("D3", b.effet.Length() > 0 && b.sortie.Length() > 0 && st.aiEnCoursId == 0u,
+			  "l effet mesure atterrit dans le bloc, et la mesure est refermee");
+		printf("         effet : %s | sortie : %s\n", b.effet.CStr(), b.sortie.CStr());
+		
+		// 4. ⚠️ LE MAILLON QUI MANQUAIT : le bloc est-il PEINT ? On mesure le
+		//    PLAN -- ce que le peintre publie -- et pas un drapeau interne.
+		editorkit::NkAiMetriques metr;
+		editorkit::NkAiPlan plan;
+		editorkit::NkAiFilMesurer(st.aiFil, 380.f, metr, MesureBanc, nullptr, plan);
+		const uint32 idDem = st.aiFil.At(0).id;
+		const uint32 idOp = st.aiFil.At(1).id;
+		editorkit::NkAiRectPublie rd, rt, re;
+		const bool vuDem = plan.Trouver(idDem, editorkit::NkAiPiece::Texte, rd);
+		const bool vuOp = plan.Trouver(idOp, editorkit::NkAiPiece::Titre, rt);
+		const bool vuEff = plan.Trouver(idOp, editorkit::NkAiPiece::Effet, re);
+		Essai("D4", vuDem && vuOp && rd.w > 0.f && rt.w > 0.f,
+			  "la DEMANDE et la REPONSE sont toutes deux publiees par le peintre");
+		Essai("D5", vuEff && re.w > 0.f && re.y == rt.y,
+			  "et l effet mesure est publie SUR LA LIGNE de la reponse");
+		printf("         demande a y=%.0f | reponse a y=%.0f | effet a y=%.0f\n",
+			   (double)rd.y, (double)rt.y, (double)re.y);
+		
+		// 6. ⚠️ CONTROLE NEGATIF : un REFUS ne fabrique pas de reponse. Sans lui,
+		//    un banc qui verdirait sur n importe quelle soumission passerait D1-D5.
+		const uint32 avant = st.aiFil.Taille();
+		nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), "verbe inconnu du contrat");
+		st.aiMotifEstRefus = true;
+		nk3d::NkAiTour(st, "fais un cafe", 386, 768, 384, 2);
+		const editorkit::NkAiBlocDonnees &r2 = st.aiFil.At(st.aiFil.Taille() - 1);
+		Essai("D6", st.aiFil.Taille() == avant + 1 &&
+			  r2.type == editorkit::NkAiBloc::Refus && r2.motif.Length() > 0 &&
+			  st.aiEnCoursId == 0u,
+			  "controle negatif : un verbe inconnu donne un REFUS avec motif, rien a mesurer");
 		delete pst;
 	}
 
