@@ -152,6 +152,137 @@ def rendre(Vt, F, pose):
     return pos, msk, nor
 
 
+
+# ---------------------------------------------------------------------------
+# LE MEME RENDU, SANS BOUCLE SUR LES TRIANGLES.
+#
+# POURQUOI : le rasteriseur ci-dessus tourne a ~14 s la vue. A 3 096 modeles
+# et 8 vues, c'est 96 heures -- une nuit passee a jeter le resultat.
+#
+# ⚠️ ET POURQUOI IL DOIT ETRE IDENTIQUE AUX OCTETS, PAS « AUSSI BON » :
+# un gain d'un ordre de grandeur est exactement le genre de changement qui
+# deplace SILENCIEUSEMENT la qualite -- ordre de rasterisation, regle de
+# remplissage des bords, departage des profondeurs. On s'en apercevrait dans
+# six mois, dans les poids d'un modele, sans pouvoir remonter a la cause.
+#
+# LES TROIS POINTS OU L'IDENTITE SE JOUE, ET COMMENT ILS SONT TENUS :
+#   1. REGLE DE BORD : `l1 >= 0 & l2 >= 0 & l3 >= 0`, a l'identique. Un `>`
+#      au lieu d'un `>=` changerait une colonne de pixels sur chaque arete.
+#   2. DEPARTAGE DES PROFONDEURS : l'original parcourt les triangles dans
+#      l'ordre et teste `prof < sz`, donc a profondeur EGALE le triangle
+#      d'indice le PLUS PETIT gagne. On reproduit cela par un tri lexical
+#      (pixel, profondeur, indice de triangle) suivi d'une prise du premier.
+#   3. ORDRE DES OPERATIONS FLOTTANTES : les memes formules sur les memes
+#      valeurs, donc les memes bits. Aucune reassociation, aucun `float32`.
+def rendre_vectorise(Vt, F, pose, lot_max=4_000_000):
+    W, H = pose['W'], pose['H']
+    x, y, w = projeter(Vt, pose)
+    pos = np.zeros((H, W, 3))
+    nor = np.zeros((H, W, 3))
+    msk = np.zeros((H, W), dtype=bool)
+
+    N = np.cross(Vt[F[:, 1]] - Vt[F[:, 0]], Vt[F[:, 2]] - Vt[F[:, 0]])
+    N = N / np.maximum(np.linalg.norm(N, axis=1, keepdims=True), 1e-12)
+
+    a, b, c = F[:, 0], F[:, 1], F[:, 2]
+    # meme garde que l'original : un seul sommet derriere la camera ecarte le triangle
+    devant = (w[a] > 0) & (w[b] > 0) & (w[c] > 0)
+    xs = np.stack([x[a], x[b], x[c]], axis=1)
+    ys = np.stack([y[a], y[b], y[c]], axis=1)
+    x0 = np.maximum(0, np.floor(xs.min(axis=1)).astype(np.int64))
+    x1 = np.minimum(W - 1, np.ceil(xs.max(axis=1)).astype(np.int64))
+    y0 = np.maximum(0, np.floor(ys.min(axis=1)).astype(np.int64))
+    y1 = np.minimum(H - 1, np.ceil(ys.max(axis=1)).astype(np.int64))
+    d = (ys[:, 1] - ys[:, 2]) * (xs[:, 0] - xs[:, 2]) + (xs[:, 2] - xs[:, 1]) * (ys[:, 0] - ys[:, 2])
+    vivant = devant & (x1 >= x0) & (y1 >= y0) & (np.abs(d) >= 1e-12)
+    idx = np.nonzero(vivant)[0]
+    if len(idx) == 0:
+        return pos, msk, nor
+
+    lw = (x1[idx] - x0[idx] + 1)
+    lh = (y1[idx] - y0[idx] + 1)
+    n = lw * lh
+
+    # tampons du resultat final, un par pixel
+    meilleur_prof = np.full(H * W, np.inf)
+    meilleur_tri = np.full(H * W, -1, dtype=np.int64)
+    meilleur_l = np.zeros((H * W, 3))
+
+    # on traite par lots pour borner la memoire : le decoupage ne change RIEN
+    # au resultat puisque le departage final se fait sur les tampons globaux.
+    debut = 0
+    while debut < len(idx):
+        fin = debut
+        total = 0
+        while fin < len(idx) and (total + n[fin] <= lot_max or fin == debut):
+            total += int(n[fin]); fin += 1
+        sel = idx[debut:fin]
+        nn = n[debut:fin]
+        rep = np.repeat(np.arange(len(sel)), nn)          # quel triangle du lot
+        # position locale dans la bbox -> pixel, dans le MEME ordre que meshgrid
+        base = np.concatenate([[0], np.cumsum(nn)[:-1]])
+        local = np.arange(total) - np.repeat(base, nn)
+        lwr = np.repeat(lw[debut:fin], nn)
+        px = np.repeat(x0[sel], nn) + (local % lwr)
+        py = np.repeat(y0[sel], nn) + (local // lwr)
+        gx = px + 0.5
+        gy = py + 0.5
+
+        X0 = xs[sel][rep]; Y0 = ys[sel][rep]; D = d[sel][rep]
+        l1 = ((Y0[:, 1] - Y0[:, 2]) * (gx - X0[:, 2]) + (X0[:, 2] - X0[:, 1]) * (gy - Y0[:, 2])) / D
+        l2 = ((Y0[:, 2] - Y0[:, 0]) * (gx - X0[:, 2]) + (X0[:, 0] - X0[:, 2]) * (gy - Y0[:, 2])) / D
+        l3 = 1.0 - l1 - l2
+        dedans = (l1 >= 0) & (l2 >= 0) & (l3 >= 0)
+        if not dedans.any():
+            debut = fin
+            continue
+        wa = w[a[sel]][rep]; wb = w[b[sel]][rep]; wc = w[c[sel]][rep]
+        iw = l1 / wa + l2 / wb + l3 / wc
+        bon = dedans & (np.abs(iw) > 1e-15)
+        if not bon.any():
+            debut = fin
+            continue
+        prof = 1.0 / iw[bon]
+        pix = (py[bon] * W + px[bon])
+        tri = sel[rep[bon]]
+        L = np.stack([l1[bon] / wa[bon], l2[bon] / wb[bon], l3[bon] / wc[bon]], axis=1)
+
+        # DEPARTAGE : (pixel, profondeur, indice de triangle) -- le tri lexical
+        # met en tete, pour chaque pixel, la plus petite profondeur, et a
+        # profondeur egale le plus petit indice : exactement `prof < sz` parcouru
+        # dans l'ordre croissant des triangles.
+        ordre = np.lexsort((tri, prof, pix))
+        pix_o = pix[ordre]
+        premier = np.ones(len(pix_o), dtype=bool)
+        premier[1:] = pix_o[1:] != pix_o[:-1]
+        sp = pix_o[premier]
+        sprof = prof[ordre][premier]
+        stri = tri[ordre][premier]
+        sL = L[ordre][premier]
+        # confronter au meilleur deja connu (lots precedents)
+        mieux = sprof < meilleur_prof[sp]
+        egal = (sprof == meilleur_prof[sp]) & (stri < meilleur_tri[sp])
+        g = mieux | egal
+        if g.any():
+            meilleur_prof[sp[g]] = sprof[g]
+            meilleur_tri[sp[g]] = stri[g]
+            meilleur_l[sp[g]] = sL[g]
+        debut = fin
+
+    vus = np.nonzero(meilleur_tri >= 0)[0]
+    if len(vus) == 0:
+        return pos, msk, nor
+    t = meilleur_tri[vus]
+    L = meilleur_l[vus]
+    P = (L[:, 0:1] * Vt[F[t, 0]] + L[:, 1:2] * Vt[F[t, 1]] + L[:, 2:3] * Vt[F[t, 2]]) \
+        * meilleur_prof[vus][:, None]
+    yy = vus // W
+    xx = vus % W
+    pos[yy, xx] = P
+    nor[yy, xx] = N[t]
+    msk[yy, xx] = True
+    return pos, msk, nor
+
 # ------------------------------------------------------------- le temoin
 def erreur_reprojection(pos, msk, pose):
     """Les positions rendues, reprojetees, retombent-elles sur leur pixel ?"""
