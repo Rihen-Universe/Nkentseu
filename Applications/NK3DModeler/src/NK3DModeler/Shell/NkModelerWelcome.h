@@ -972,6 +972,53 @@ namespace nkentseu {
 						const NkString::SizeType s2 = dir.RFind('/');
 						const NkString grand =
 							(s2 == NkString::npos) ? NkString(".") : NkString(dir.CStr(), s2);
+
+						// ── LE CHEMIN DOIT DEJA ETRE CONFORME, SINON ON REFUSE ────────
+						// ⚠️ CE SILENCE A COUTE UNE NUIT DE FAUX DIAGNOSTIC (20/09).
+						//    `NkProjectCreate` prend un PARENT et un NOM, jamais un chemin de
+						//    fichier : un projet vit dans un dossier a son nom. La convention
+						//    est assumee, et remonter d'un cran la respecte.
+						//    Mais quand le chemin recu n'est PAS deja de cette forme, le
+						//    segment de dossier etait JETE et remplace par le nom du fichier :
+						//    on demandait `mesures/p512.nk3dm`, on obtenait `p512/p512.nk3dm`.
+						//    Le projet existait -- ailleurs. Rouvrir le chemin DEMANDE tombait
+						//    sur un dossier vide, et l'application attendait sans rien dire.
+						//    J'en ai conclu qu'un gros maillage bloquait le modeleur. C'etait
+						//    faux, et rien ne me contredisait.
+						//
+						// ⚠️ ON NE CORRIGE NI LA CONVENTION NI LA FORME DE L'ENTREE. Un chemin
+						//    deja conforme se comporte EXACTEMENT comme avant -- les scripts
+						//    existants ne changent pas d'un octet. Seul le cas qui etait
+						//    reecrit en silence devient un REFUS NOMME.
+						//    Des deux facons de manquer, crier ou effacer, celle qui efface est
+						//    la pire : un refus aurait coute trente secondes.
+						{
+							const NkString dossier =
+								(s2 == NkString::npos)
+									? dir
+									: NkString(dir.CStr() + s2 + 1,
+										   (NkString::SizeType)(dir.Size() - s2 - 1));
+							if (dossier != base) {
+								NkString m = "chemin de projet non conforme. Attendu "
+									  "<parent>/<nom>/<nom>.nk3dm (un projet vit dans un "
+									  "dossier a son nom) ; recu un dossier \"";
+								m += dossier;
+								m += "\" pour le projet \"";
+								m += base;
+								m += "\". Le projet aurait ete cree dans \"";
+								m += base;
+								m += "/\", pas dans le dossier demande.";
+							// ⚠️ LE REFUS DOIT SE LIRE. `fail` le pose dans l'etat de l'accueil,
+							//    donc a l'ECRAN -- invisible pour un script ou un agent, qui ne
+							//    verrait qu'un projet manquant. Les deux autres issues de ce
+							//    crochet s'impriment (« projet CREE », « projet OUVERT ») : un
+							//    refus muet a cote de deux succes bavards se lit comme un
+							//    silence, et c'est ce silence qu'on corrige ici.
+							std::printf("[nk3d] NK_PROJECT REFUSE : %s\n", m.CStr());
+							fail(m);
+							break;
+						}
+						}
 						if (!NkProjectCreate(grand.CStr(), base.CStr(), proj, &err)) {
 							fail(err);
 							break;
