@@ -13968,7 +13968,57 @@ namespace nkentseu {
 										   0.f, true);
 					}
 				}
-				if (esel >= 0 && !nkvpGizmoHidden)
+				// ⚠️ NK_GIZMO_DIAG=1 : QUI DESSINE, ET COMBIEN. Rodolf a photographie
+				//    DEUX gizmos de translation le 20/09 a 20:09. Avant de corriger,
+				//    on compte -- une hypothese structurelle (« emptyGizmo n'a pas de
+				//    garde editMode ») n'est pas une mesure.
+				// ⚠️ UNE SEULE SOURCE POUR LA CONDITION, ET C'EST UN CORRECTIF DE
+				//    SONDE. La premiere version RECALCULAIT `(esel >= 0 &&
+				//    !nkvpGizmoHidden)` de son cote : apres l'ajout de `!editMode`
+				//    au dessin, elle a continue d'annoncer « dessine=1 » alors que
+				//    plus rien ne se dessinait. *Un temoin qui recopie la condition
+				//    qu'il observe cesse de l'observer.* La condition est donc
+				//    calculee ICI, une fois, et le dessin comme la sonde la LISENT.
+				const bool dessineEmpty = (esel >= 0 && !nkvpGizmoHidden && !st->editMode);
+				{
+					static const bool sGzDiag = (getenv("NK_GIZMO_DIAG") != nullptr);
+					static int32 sGzVu = 0, sGzVuHors = 0;
+					// ⚠️ ON IMPRIME DANS LES **DEUX** REGIMES, et c'est le negatif du
+					//    correctif. Ne mesurer qu'en mode Edition dirait « il ne
+					//    dessine plus » sans distinguer « la garde a fait son travail »
+					//    de « je l'ai eteint partout ». Hors edition, il DOIT dessiner.
+					int32 *compteur = st->editMode ? &sGzVu : &sGzVuHors;
+					// ⚠️ ON N'IMPRIME QUE QUAND IL Y A QUELQUE CHOSE DE SELECTIONNE.
+					//    Les premieres images n'ont AUCUNE selection (`esel=-1`) : la
+					//    sonde y rendait « dessine=0 » et ce zero ne disait rien du
+					//    correctif -- il disait seulement qu'il n'y avait rien a
+					//    dessiner. *Un zero mesure hors des conditions ou la question
+					//    se pose se lit comme une reponse.*
+					if (sGzDiag && *compteur < 2 && esel >= 0) {
+						++*compteur;
+						logger.Info("[Demo3D] GIZMO-DIAG editMode={0} : emptyGizmo dessine={1} "
+									"(esel={2}) ; gizmo OBJET sous `!editMode` ; editGizmo actif "
+									"seulement en edition -> {3} gizmo(s) a l'ecran\n",
+									st->editMode ? 1 : 0, dessineEmpty ? 1 : 0, esel,
+									(dessineEmpty ? 1 : 0) + (st->editMode ? 1 : 0));
+					}
+				}
+				// ⚠️ `!st->editMode` AJOUTE LE 20/09 — LE SECOND GIZMO DE LA CAPTURE.
+				//    Le gizmo des objets de DEMO (`st->gizmo`) vit DEJA dans le bloc
+				//    `if (!st->editMode)` : en mode Edition il se tait. Celui des
+				//    noeuds importes, lui, n'avait aucune garde -- il continuait donc
+				//    a dessiner PENDANT l'edition, a cote des poignees d'`editGizmo`.
+				//    D'ou les DEUX gizmos de translation photographies a 20:09.
+				//    MESURE AVANT CORRECTIF (`NK_GIZMO_DIAG=1`) :
+				//      « emptyGizmo dessine=1 (esel=6) [...] -> 2 gizmo(s) a l'ecran »
+				//    La garde n'est donc pas ajoutee par symetrie d'apparence : elle
+				//    RETABLIT la regle que le gizmo voisin appliquait deja, et que
+				//    celui-ci etait seul a ne pas suivre.
+				// ⚠️ ON SUPPRIME EN MODE EDITION, PAS SEULEMENT POUR L'OBJET EDITE :
+				//    c'est ce que fait `st->gizmo`, et un objet non edite dont le
+				//    gizmo resterait actif offrirait une poignee qui deplace autre
+				//    chose que ce qu'on edite.
+				if (dessineEmpty)
 					st->emptyGizmo.Draw(
 						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
@@ -14167,10 +14217,31 @@ namespace nkentseu {
 					// effectivement posé ; « NORMAL » sans étoile = repli Local.
 					const int32 eo = st->editGizmo.Orientation() % 3;
 					const bool nf = (eo == 2) && st->editGizmo.HasNormalFrame();
+					// ⚠️ IL Y A **DEUX** ESPACES D'OBJETS, ET L'INCRUSTATION N'EN
+					//    NOMMAIT QU'UN. `editObjIdx` designe un objet de DEMO ;
+					//    `editUserIdx` designe un maillage de l'UTILISATEUR. Entrer
+					//    en edition sur un maillage utilisateur laisse donc
+					//    `editObjIdx` a -1 -- et l'ecran affichait « obj #-1 ».
+					//    Rodolf l'a photographie le 20/09 a 20:09.
+					// ⚠️ CE N'ETAIT PAS UNE CIBLE NON RESOLUE : la trace du meme
+					//    instant dit `cible=2 index=0`, donc la cible EST resolue.
+					//    C'etait l'incrustation qui lisait le mauvais champ, et qui
+					//    annoncait ainsi une panne qui n'existait pas. *Un affichage
+					//    qui dit -1 sur un etat valide envoie chercher un defaut
+					//    ailleurs.*
+					char cibleTxt[48];
+					if (st->editUserIdx >= 0)
+						snprintf(cibleTxt, sizeof(cibleTxt), "maillage #%d", st->editUserIdx);
+					else if (st->editObjIdx >= 0)
+						snprintf(cibleTxt, sizeof(cibleTxt), "obj #%d", st->editObjIdx);
+					else
+						// LE VRAI cas « aucune cible » garde un texte a lui : sinon on
+						// ne saurait plus distinguer l'anomalie de l'affichage.
+						snprintf(cibleTxt, sizeof(cibleTxt), "AUCUNE CIBLE");
 					overlay->DrawText({20.f, 100.f},
-									  "EDIT MODE (obj #%d)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
+									  "EDIT MODE (%s)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
 									  "Orient(,): %s%s  |  X-ray(Alt+Z): %s",
-									  st->editObjIdx, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
+									  cibleTxt, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
 									  nf ? "*" : "", st->editXray ? "ON" : "OFF");
 					overlay->DrawText({20.f, 118.f},
 									  "E=extrude %s(Sh:%s) X=suppr M=souder(Sh:%s) W=subdiv(Sh:x%d) "
