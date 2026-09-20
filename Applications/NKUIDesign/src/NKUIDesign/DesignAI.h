@@ -385,6 +385,22 @@ namespace nkuidesign {
 			//    jamais testee.
 			NkAIResult Ask(const char *userAsk, NkUIDocument &doc, int32 targetParent) {
 				NkAIResult res;
+				// ⚠️ LA REMISE A ZERO EST LA PREMIERE LIGNE, ET CE N'EST PAS DE
+				//    L'HYGIENE. Sans elle, `mLastReply` garde la reponse de la
+				//    demande PRECEDENTE quand celle-ci echoue -- et tout ce qui lit
+				//    `LastReply()` croit alors tenir une reponse.
+				//
+				//    Mesure du 20/09, courses `ia-A1` et `ia-A2` : `d10` (timeout
+				//    300 s) et `d11` (corps illisible) n'ont RIEN rendu, et le banc
+				//    a ecrit dans `d10_reponse.txt` et `d11_reponse.txt` le texte de
+				//    `d09` -- 1 526 octets, identiques au bit. Le compteur `n1`,
+				//    defini comme « LastReply non vide », a compte DEUX succes
+				//    inexistants par course, soit 4 sur 84 paires.
+				//
+				//    *Un etat qu'on ne remet pas a zero sur l'echec transforme tout
+				//    echec suivant en succes apparent, et il penche toujours du meme
+				//    cote : celui qui nous flatte.*
+				mLastReply = NkString("");
 				if (!mBackend) {
 					res.detail = NkString("aucun backend branche");
 					return res;
@@ -441,6 +457,11 @@ namespace nkuidesign {
 			NkAIResult Propose(const char *userAsk, NkUIDocument &doc) {
 				NkAIResult res;
 				DiscardProposal(); // une proposition chasse l'autre : jamais deux en attente
+				// Meme raison qu'en tete de `Ask`, et il FAUT les deux : corriger un
+				// seul des deux sites aurait laisse une porte ouverte sur l'autre.
+				// *Le meme calcul a deux sites, garde a un seul, est le defaut qu'on
+				// rouvre six mois plus tard.*
+				mLastReply = NkString("");
 				if (!mBackend) {
 					res.detail = NkString("aucun backend branche");
 					return res;
