@@ -69,6 +69,7 @@ using namespace nkentseu;
 #include "Recolte.h" // la RECOLTE : garder chaque paire, surtout les echecs
 #include "NKUIDesign/ComposantsBase.h"
 #include "NKUIDesign/DesignAI.h"
+#include "NKUIDesign/DesignChat.h" // la SPECIFICATION, batie par SON ecrivain
 #include "NKUIDesign/Document.h"
 #include "NKUIDesign/Layout.h"
 #include "NKUIDesign/NkGuiEcrire.h"
@@ -316,6 +317,9 @@ int main(int argc, char **argv) {
 	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
 	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
 	const char *migrer = nullptr;  // --migrer=<f> : `enfants` -> `parent`, en place
+	// --spec=<texte> : pose une SPECIFICATION dans l'invite, comme le panneau le
+	// fait apres « Ecrire la specification ». C'est la variable a eprouver.
+	const char *specTexte = nullptr;
 	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
 	// et rien d autre. Defaut : `parent`, la forme livree.
 	bool structureEnfants = false;
@@ -337,6 +341,8 @@ int main(int argc, char **argv) {
 			rejouer = argv[a] + 10;
 		else if (CommencePar(argv[a], "--migrer="))
 			migrer = argv[a] + 9;
+		else if (CommencePar(argv[a], "--spec="))
+			specTexte = argv[a] + 7;
 		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
 			structureEnfants = true;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
@@ -378,6 +384,7 @@ int main(int argc, char **argv) {
 	//    *Un reglage pose apres son premier lecteur est un reglage sans effet,
 	//    et il n'en previent personne.*
 	NkDesignAI::structureParent = !structureEnfants;
+
 
 	// LE CONTRAT SE REND AVANT TOUTE COURSE, ET C'EST TOUT L'INTERET : il ne
 	// demande ni dorsal, ni modele, ni carte graphique. C'est le point du cap --
@@ -603,6 +610,21 @@ int main(int argc, char **argv) {
 	// L'etiquette voyage avec chaque paire : voir Recolte.h.
 	NkString etiquetteCatalogue;
 	ia.catalogueBref = catalogueBref;
+	// ⚠️ LA SPECIFICATION EST BATIE PAR SON PROPRE ECRIVAIN, pas recopiee ici.
+	//    `DepuisConversation` puis `PourLeGenerateur` sont exactement ce que le
+	//    panneau appelle apres « Ecrire la specification » : les exigences sont
+	//    les TOURS DE L'HUMAIN. La reecrire a la main ici en ferait une seconde
+	//    version, et on mesurerait ma reconstitution au lieu de l'outil.
+	if (specTexte && *specTexte) {
+		nkuidesign::NkDesignConversation conv;
+		conv.sujet = NkString(specTexte);
+		conv.Ajouter(nkuidesign::NkQui::Moi, specTexte);
+		nkuidesign::NkSpecification sp;
+		nkuidesign::NkSpecification::DepuisConversation(conv, "spec", sp);
+		sp.PourLeGenerateur(ia.specTexte);
+		std::printf("specification  : %u exigence(s), %u octets dans l'invite\n",
+					sp.CountExigences(), (unsigned)ia.specTexte.Size());
+	}
 	NkString catalogue;
 	NkDesignAI::BuildCatalog(catalogue, catalogueBref);
 	uint32 nbComposants = 0;
