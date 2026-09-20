@@ -4412,18 +4412,30 @@ int nkmain(const NkEntryState &entry) {
 			//     le panneau courait jusqu a 1608. La colonne s arrete AVANT le bord, et
 			//     aucune lecture du code ne me l avait dit -- c est la mise en page qui
 			//     sait ou elle est, pas moi.
-			const float32 aiDroite = (st.showRight && lay.propsR.w > 1.f)
-											  ? (lay.propsR.x + lay.propsR.w - nk3d::NkPropTabColW())
-											  : (float32)W;
-			const float32 aiW = S(400.f);
-			const float32 aiY = (lay.right.h > 1.f) ? lay.right.y : lay.view.y;
-			const float32 aiH = (lay.right.h > 1.f) ? lay.right.h : lay.view.h;
+			// ⚠️ LES QUATRE LONGUEURS DU PANNEAU ONT DISPARU AVEC LUI.
+			//    `aiDroite`, `aiW`, `aiY`, `aiH` calculaient ou poser un panneau
+			//    qui ne se peint plus. `aiDroite` etait deja mort apres le
+			//    retrait de l appel ; les trois autres ne servaient plus qu a
+			//    la trace `AI PANNEAU`, et celle-la RECALCULAIT.
+			//
+			// ⚠️ ET ELLE MENTAIT DEJA AVANT CE LOT. Le panneau etait peint a
+			//    `aiDroite - aiW` ; la trace imprimait `W - aiW`. Deux formules pour
+			//    un seul rectangle, et elles different de toute la largeur de la
+			//    colonne de proprietes des que le panneau de droite est visible.
+			//    *Une sonde qui recalcule mesure sa propre formule.* Elle lit
+			//    desormais `st.aiPanRect`, PUBLIE PAR LE PEINTRE -- le seul rectangle
+			//    dont on puisse dire qu il a ete peint.
 			NkHitRegistry::LayerScope aiLayer(hit, 40);
 			// `peutAnnuler` vient de l'HOTE et pas du panneau : c'est lui qui tient
 			// la pile, et un bouton qui devinerait son etat mentirait un jour.
-			nk3d::PaintAiOverlay(pOverlay, hit, st, &ui,
-								 {aiDroite - aiW, aiY, aiW, aiH},
-								 demo::Demo3DHostEditCanUndo());
+			// ⚠️ L APPEL A DISPARU, ET C EST LE LOT. L assistant ne peint plus SON
+			//    panneau sur la couche overlay : il est desormais le CONTENU du
+			//    panneau de droite, peint par `PaintPropertiesUnified` dans le meme
+			//    clip et sur la meme couche que les sections de proprietes.
+			//    Rodolf, 20/09 au soir : « la pastille de IA doit s ouvrir sur le
+			//    panel de droite comme tout le monde, il ne doit pas avoir son
+			//    propre panel. »
+			//    `aiPanRect` reste publie -- par le nouveau site, dans l hote.
 			// [!] CE TEMOIN EST EN AVAL DE LA PEINTURE, ET IL L A APPRIS A SES DEPENS :
 			//     place AVANT `PaintAiOverlay`, il lisait `aiPanRect` a [0..0] et
 			//     concluait « atteignable » parce que 1571 >= 0. Un temoin pose avant
@@ -4497,7 +4509,8 @@ int nkmain(const NkEntryState &entry) {
 			if (sTrace >= 0 && agentFrame == sTrace) {
 				std::printf("[nk3d] AI PANNEAU rect=(%.0f,%.0f,%.0f,%.0f) fenetre=(%d,%d)"
 							" props=(%.0f,%.0f,%.0f,%.0f) onglet=%d fournisseur=%s blocs=%d\n",
-							(double)((float32)W - aiW), (double)aiY, (double)aiW, (double)aiH,
+							(double)st.aiPanRect[0], (double)st.aiPanRect[1],
+							(double)st.aiPanRect[2], (double)st.aiPanRect[3],
 							(int)W, (int)H, (double)lay.propsR.x, (double)lay.propsR.y,
 							(double)lay.propsR.w, (double)lay.propsR.h, (int)st.aiOnglet,
 							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFil.Taille());
