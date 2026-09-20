@@ -227,6 +227,75 @@ namespace nkentseu {
 		//     C'est la forme que la mesure U7 donnait deja a 10/10 : *la condition
 		//     d'arret appartient a la boucle, pas au modele.*
 
+		// =====================================================================
+		//  LES LOIS DE CROISSANCE : CE QUI EST MESURE, ET CE QUI NE L'EST PAS
+		// =====================================================================
+		//  ⚠️ CETTE LISTE EXISTE PARCE QUE `NkIaPasSur` NE PEUT PREDIRE QUE CE
+		//     QU'ON A MESURE. Elle est ecrite pour que la personne suivante
+		//     trouve le travail fait, et non pour qu'elle croie les chiffres :
+		//     il n'y en a qu'UN ici.
+		//
+		//  LES SEPT VERBES BOUCLABLES SE PARTAGENT EN DEUX FAMILLES, et la
+		//  distinction n'est pas cosmetique -- elle decide QUEL plafond garde :
+		//
+		//  (A) CEUX QUI FONT CROITRE  -> le plafond de FACES est le risque.
+		//      1. `subdivide[:k]`  **MESURE** : faces x 4^k. Mesure du 17/09,
+		//         6 -> 24 pour k=1 et 6 -> 384 pour k=3. C'est la SEULE loi
+		//         etablie, et la seule que la garde predit.
+		//      2. `loopcut:n[:glissement]`  **NON MESURE**. Depend du nombre de
+		//         boucles n (1 a 5) ET de la topologie de la boucle d'aretes
+		//         traversee : un anneau de m quads coupe n fois ajoute ~n*m
+		//         faces. Ce n'est donc PAS un facteur, c'est un ADDITIF qui
+		//         depend de la geometrie -- une loi de la meme forme que
+		//         subdivide serait fausse.
+		//         POUR LA MESURER : partir d'un cube (6 faces), appliquer
+		//         `loopcut:n` pour n = 1..5 sur une selection connue, relever
+		//         faces/sommets/aretes avant et apres a chaque n. Verifier que
+		//         l'ecart est lineaire en n ; s'il ne l'est pas, la loi depend
+		//         d'autre chose et il faut le dire plutot que d'ajuster.
+		//      3. `extrude[:individuelles]`  **NON MESURE**. Extruder s faces
+		//         selectionnees ajoute une couronne par face : l'ordre de
+		//         grandeur est additif en s, pas multiplicatif. Le drapeau
+		//         « faces individuelles » change le resultat (couronne par face
+		//         contre couronne du bord commun) : DEUX lois, pas une.
+		//         POUR LA MESURER : selection de s faces pour s = 1, 2, 6, 24,
+		//         chaque fois avec le drapeau a 0 PUIS a 1. Huit relevés.
+		//      4. `inset[:individuel[:profondeur]]`  **NON MESURE**. Meme forme
+		//         qu'extrude (additif en s, deux lois selon `individuel`). La
+		//         profondeur ne devrait pas changer les COMPTES, seulement les
+		//         positions -- **a verifier, c'est une supposition**.
+		//      5. `bevel[:largeur[:segments]]`  **NON MESURE, ET LE PLUS GROS
+		//         RISQUE DES CINQ**. Le contrat autorise `segments` jusqu'a 16 :
+		//         chaque segment multiplie le nombre de faces creees par arete
+		//         biseautee. Un `bevel:0.1:16` sur une selection large est le
+		//         candidat le plus credible a l'explosion, devant `subdivide:10`.
+		//         POUR LA MESURER : cube, selection de a aretes pour a = 1, 4,
+		//         12, avec segments = 1, 4, 16. Neuf relevés. On cherche si
+		//         l'ajout est proportionnel a `a * segments`.
+		//
+		//  (B) CEUX QUI FONT DECROITRE -> le plafond de FACES n'est pas le
+		//      risque ; c'est le plafond de TOURS qui garde (une boucle qui
+		//      n'avance pas). Aucune loi de croissance n'est requise pour eux.
+		//      6. `delete`   attendu decroissant, **NON MESURE**.
+		//      7. `dissolve` attendu decroissant, **NON MESURE**.
+		//      ⚠️ « Attendu » est le mot juste : je n'ai pas mesure que dissoudre
+		//         ne peut jamais AUGMENTER un compte. La garde ne repose donc pas
+		//         sur cette attente -- elle lit le SENS DU PREDICAT, qui est une
+		//         donnee, pas une supposition (cf. `NkIaPasSur`).
+		//
+		//  ⚠️ CE QUI RENDRAIT CES MESURES POSSIBLES N'EXISTE PAS ENCORE. Les
+		//     compteurs `Demo3DHostStats` ne sont renseignes QUE lorsque le
+		//     VISEUR est en mode Edition (`st->editMode`), et le crochet
+		//     `NK_EDIT_MODE` pose le mode du SHELL (`st.mode`) -- deux etats
+		//     distincts. `NK_EDIT_PICK` exige, lui, `Demo3DHostInEditMode()` deja
+		//     vrai : aucun crochet n'amorce donc l'etat. **Les six relevés
+		//     ci-dessus sont a la merci de ce chainon**, et c'est la meme absence
+		//     qui empeche `AI EFFET` de temoigner depuis le 19/09.
+		//
+		//  CONDITION DE RETRAIT DE CETTE LISTE : chaque ligne disparait le jour
+		//  ou sa loi est mesuree ET ecrite dans `NkIaPasSur`. La liste entiere
+		//  disparait quand les cinq croissants sont predits exactement.
+
 		/// Les SIX quantites, et elles existent toutes deja dans l'hote.
 		/// Aucune API nouvelle : `Demo3DHostStats` en donne quatre,
 		/// `Demo3DHostObjectCount` et `Demo3DHostEditSelCount` les deux autres.
@@ -288,6 +357,33 @@ namespace nkentseu {
 					return true;
 			}
 			return false;
+		}
+
+		/// DETACHE le predicat du verbe quand le modele les a COLLES.
+		/// ⚠️ DEFAUT OBSERVE, PAS PREVU. `qwen2.5:7b` a rendu, sur une seule
+		///    ligne, `delete:jusqua:objets:moins:2` -- la faute exacte que le banc
+		///    du 20/09 avait deja nommee chez lui (« les deux-points ne separent
+		///    JAMAIS deux commandes », il l'ignore). Sans cette coupe, le verbe
+		///    ARME de la boucle etait la chaine entiere : elle passait
+		///    `NkVerbeTrouve` (un verbe a le droit de porter des parametres), puis
+		///    partait au pont VINGT-CINQ FOIS avec quatre parametres parasites.
+		///    Claude, lui, rend deux lignes propres -- **et c'est precisement
+		///    pourquoi la garde doit exister : elle protege du modele qu'on n'a
+		///    pas choisi, pas de celui qu'on a mesure.**
+		inline void NkIaCouperPredicat(char *verbe) {
+			if (!verbe)
+				return;
+			for (char *c = verbe; *c; ++c) {
+				if (*c != ':')
+					continue;
+				const char *m = ":jusqua";
+				const char *p = c;
+				while (*m && *m == *p) { ++m; ++p; }
+				if (!*m) {
+					*c = 0; // le verbe s'arrete avant la condition
+					return;
+				}
+			}
 		}
 
 		/// Cherche le jeton `jusqua:...` N'IMPORTE OU dans la reponse.
@@ -434,7 +530,11 @@ namespace nkentseu {
 		///    predire, et j'applique une regle conservatrice -- ne pas faire un
 		///    pas de plus quand on est deja au quart du plafond. C'est une
 		///    HYPOTHESE, elle est ecrite ici, et elle se remplace par une mesure.
-		inline bool NkIaPasSur(const char *verbe, int32 facesActuelles, char *motif, uint32 taille) {
+		/// `versLeHaut` est le SENS DU PREDICAT (`plus` = vrai). Il n'est pas
+		/// decoratif : c'est la seule chose qu'on sache de la direction de la
+		/// boucle sans avoir mesure la loi du verbe. Voir le corps.
+		inline bool NkIaPasSur(const char *verbe, int32 facesActuelles, bool versLeHaut,
+							   char *motif, uint32 taille) {
 			const int32 plafond = NkIaPlafondFaces();
 			int32 prevu = facesActuelles;
 			bool predit = false;
@@ -466,13 +566,47 @@ namespace nkentseu {
 						 prevu, plafond);
 				return false;
 			}
-			if (!predit && facesActuelles > plafond / 4) {
-				// L'HYPOTHESE, DITE A L'UTILISATEUR PLUTOT QUE CACHEE.
-				snprintf(motif, taille,
-						 "Boucle arretee a %d faces : la croissance de « %s » n'est pas mesuree, "
-						 "on ne franchit pas le quart du plafond de %d a l'aveugle.",
-						 facesActuelles, p, plafond);
-				return false;
+			if (!predit) {
+				// ── LA DIRECTION VIENT DU PREDICAT, PAS D'UNE LOI DEVINEE ──────
+				// ⚠️ DEFAUT TROUVE EN DRESSANT LA LISTE DES LOIS NON MESUREES, ET
+				//    IL ETAIT DANS CE FICHIER. La regle du quart s'appliquait a
+				//    TOUS les verbes non predits -- donc aussi a `delete` et
+				//    `dissolve`. Une boucle « supprime jusqu'a moins de N faces »
+				//    lancee sur un maillage deja au-dessus du quart du plafond
+				//    etait REFUSEE, alors qu'elle ne pouvait que faire DESCENDRE le
+				//    compte. *Un garde-fou qui refuse le geste qui reduit le risque
+				//    protege contre lui-meme.*
+				//
+				// ⚠️ ET JE NE LE REPARE PAS EN DECRETANT « delete reduit ». Je ne
+				//    l'ai pas mesure, et remplacer une hypothese par une autre ne
+				//    m'avance pas. Je me sers de ce que je SAIS : la DIRECTION que
+				//    l'utilisateur a demandee, qui est dans le predicat.
+				//      `plus`  -> la boucle grossit par INTENTION : le plafond de
+				//                 faces est le risque qui mord, regle du quart.
+				//      `moins` -> la boucle reduit par INTENTION : le plafond de
+				//                 faces n'est pas le risque, et c'est le plafond de
+				//                 TOURS qui garde (il a d'ailleurs parle : « objets
+				//                 = 86 n'a pas atteint 2 » apres 24 tours). On ne
+				//                 refuse que si l'on est DEJA au-dela du plafond
+				//                 absolu.
+				//    ⚠️ Si le verbe ne va pas dans le sens demande, la boucle
+				//       n'avance pas -- et c'est exactement la panne que le plafond
+				//       de TOURS attrape, en la nommant.
+				if (versLeHaut && facesActuelles > plafond / 4) {
+					// L'HYPOTHESE, DITE A L'UTILISATEUR PLUTOT QUE CACHEE.
+					snprintf(motif, taille,
+							 "Boucle arretee a %d faces : la croissance de « %s » n'est pas "
+							 "mesuree, on ne franchit pas le quart du plafond de %d a l'aveugle.",
+							 facesActuelles, p, plafond);
+					return false;
+				}
+				if (!versLeHaut && facesActuelles > plafond) {
+					snprintf(motif, taille,
+							 "Boucle arretee : le maillage est deja a %d faces, au-dela du "
+							 "plafond de %d (NK_AI_BOUCLE_PLAFOND).",
+							 facesActuelles, plafond);
+					return false;
+				}
 			}
 			return true;
 		}

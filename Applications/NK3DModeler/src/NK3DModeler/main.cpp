@@ -3511,6 +3511,14 @@ int nkmain(const NkEntryState &entry) {
 				char verbe[192];
 				verbe[0] = 0;
 				const bool lisible = reussi && nk3d::NkIaExtraireVerbe(rep.Data(), verbe, sizeof(verbe));
+				// ⚠️ AVANT `NkVerbeTrouve`, ET C'EST L'ORDRE QUI COMPTE. Un modele
+				//    peut COLLER la condition au verbe sur une seule ligne
+				//    (`delete:jusqua:objets:moins:2`, observe sur qwen le 20/09) :
+				//    la chaine entiere passe alors la table -- un verbe a le droit
+				//    de porter des parametres -- et part au pont a chaque tour avec
+				//    quatre parametres parasites. On detache AVANT de valider.
+				if (lisible)
+					nk3d::NkIaCouperPredicat(verbe);
 				const bool connu = lisible && (nk3d::NkVerbeTrouve(verbe) != nullptr);
 				if (connu) {
 					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
@@ -3768,8 +3776,14 @@ int nkmain(const NkEntryState &entry) {
 						 "n'avance peut-etre pas sur cette selection.",
 						 (int)st.aiBoucleTour, nk3d::NkIaQuantiteNom(pr.quantite), (int)valeur,
 						 (int)pr.seuil);
-			} else if (!nk3d::NkIaPasSur(st.aiBoucleVerbe, (int32)bf, motif, sizeof(motif))) {
+			} else if (!nk3d::NkIaPasSur(st.aiBoucleVerbe, (int32)bf, st.aiBouclePlus, motif,
+										 sizeof(motif))) {
 				// `motif` est deja rempli par la garde : elle nomme le plafond.
+				// Le SENS du predicat lui est passe : c'est la seule chose qu'on
+				// sache de la direction de la boucle sans avoir mesure la loi du
+				// verbe, et sans lui la garde refusait « supprime jusqu'a moins
+				// de N » sur un maillage deja gros -- c'est-a-dire le geste qui
+				// REDUISAIT le risque.
 			}
 
 			if (motif[0]) {
