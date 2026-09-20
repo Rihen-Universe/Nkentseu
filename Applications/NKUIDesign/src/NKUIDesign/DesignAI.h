@@ -287,11 +287,18 @@ namespace nkuidesign {
 			///    le contrat engendre.
 			static inline bool structureParent = true;
 
+			/// ⚠️ `userAsk` N'ENTRE PLUS ICI — il est RAPPELE EN DERNIER, apres le
+			///    document courant, par `EcrireRequete` (champ `demande`).
+			///    Mesure du 20/09 : sur un document de 42 noeuds, le bloc
+			///    `--- document courant ---` occupait 84 % de l'invite et le
+			///    modele repondait au DOCUMENT. La demande est DEPLACEE, pas
+			///    dupliquee.
+			///    Le parametre reste dans la signature : `--contrat=` s'en sert
+			///    pour montrer la ligne au lecteur du contrat.
 			static void BuildPrompt(const char *userAsk, NkString &out) {
+				(void)userAsk;
 				out = NkString("Tu produis une INTERFACE pour NkUIDesign.\n\n");
-				out.Append("Demande : ");
-				out.Append(userAsk ? userAsk : "");
-				out.Append("\n\nReponds UNIQUEMENT par un document au format ci-dessous,\n");
+				out.Append("\nReponds UNIQUEMENT par un document au format ci-dessous,\n");
 				out.Append("sans explication, sans balise de code.\n\n");
 				out.Append("REGLE ABSOLUE : n'ecris JAMAIS de position ni de coordonnee.\n");
 				out.Append("La position se calcule ; tu declares des tailles et un agencement.\n\n");
@@ -498,6 +505,8 @@ namespace nkuidesign {
 				BatirInviteComplete(userAsk, req.prompt);
 				BuildCatalog(req.catalog, catalogueBref);
 				doc.Save(req.currentDoc);
+				// La demande part EN DERNIER : voir `NkConverseRequest::demande`.
+				req.demande = NkString(userAsk ? userAsk : "");
 			}
 
 			/// L'invite TELLE QU'ELLE PART SUR LE FIL, batie par le MEME
