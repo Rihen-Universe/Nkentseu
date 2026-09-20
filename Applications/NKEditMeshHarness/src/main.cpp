@@ -10214,6 +10214,36 @@ static void LoiInsetLigne(const char *op, bool triangule, int32 indiv, uint32 nD
 //     Tant que ce n'est pas tranche, toute loi mesuree avec elle est suspecte,
 //     Y COMPRIS celles deja livrees.
 //  Attendus et prediction ecrits AVANT : `clbr_INSTRUMENT_ATTENDUS.md`.
+//
+//  ═══════════════════════════════════════════════════════════════════════════
+//  ⚠️⚠️ CE BANC EXERCE LE CHEMIN DE REPLI, ET **PAS** CELUI DE L'APPLICATION.
+//  ═══════════════════════════════════════════════════════════════════════════
+//  Etabli le 20/09 en LISANT le code, apres avoir publie une conclusion trop
+//  large qu'il faut corriger ici meme.
+//
+//  Les deux operations choisissent leurs faces en DEUX temps :
+//    1. l'INTENTION DE FACE, si `RefreshFaceSel()` la declare a jour
+//       (`faceSelPorte` pose par `SetFaceSelection`, et selection de sommets
+//       inchangee depuis la photo). Les deux lisent alors `fm[f].sel` : elles
+//       sont D'ACCORD, et c'est le chemin de l'application.
+//    2. le REPLI sinon -- et c'est LA qu'elles divergent :
+//         `ExtrudeSelectedFaces` -> `PolyFaceSelected(fv, s, e)` sur les
+//            polygones bruts, donc sur les COINS ;
+//         `InsetSelectedFaces`   -> `vsel[fv[k]]` sur les polygones SOUDES
+//            (`EM_ToWeldedPolygons`), donc sur l'identite soudee.
+//       Sur un cube, deux faces opposees couvrent les 8 sommets soudes : le
+//       repli soude en designe donc SIX. D'ou le +24.
+//
+//  ⚠️ CE BANC NE POSE AUCUNE INTENTION DE FACE (il ecrit `verts[].sel` a la
+//     main) : il tombe TOUJOURS dans le repli. NK3DModeler, lui, appelle
+//     `SetFaceSelection` -- et le commentaire de `NkDemo3D.cpp` porte, mot pour
+//     mot, le defaut que je croyais decouvrir : « Sans cette ligne, l'ecran
+//     disait 2 et l'extrusion en prenait 6 ». **Il a deja ete trouve et corrige
+//     dans l'application, et ce banc ne l'atteint pas.**
+//
+//  CE QUI RESTE VRAI : les deux REPLIS se contredisent, et tout appelant qui ne
+//  pose pas d'intention de face en herite. CE QUI ETAIT FAUX : en conclure que
+//  l'utilisateur voit son cube entier traite. Il ne le voit pas.
 static void LoiInstrLigne(const char *op, bool soude, uint32 n, const NkVector<NkVertex3D> &v,
 						  const NkVector<uint32> &idx) {
 	NkEditMesh m;
