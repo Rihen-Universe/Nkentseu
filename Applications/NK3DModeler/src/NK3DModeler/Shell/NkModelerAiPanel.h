@@ -425,7 +425,28 @@ namespace nkentseu {
 		// `r` est le rectangle COMPLET du panneau (ancre a droite, pleine hauteur).
 		// `peutAnnuler` vient de l'hote (`Demo3DHostEditCanUndo`) : le panneau ne
 		// connait pas le maillage.
-		inline void PaintAiOverlay(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+		// ══════════════════════════════════════════════════════════════
+		//  L ASSISTANT EST LE CONTENU DU PANNEAU DE DROITE, PAS UN PANNEAU A LUI
+		// ══════════════════════════════════════════════════════════════
+		// Rodolf, 20/09 au soir : « la pastille de IA doit s ouvrir sur le panel de
+		// droite comme tout le monde, il ne doit pas avoir son propre panel. »
+		//
+		// La fonction ne PEINT PLUS DE PANNEAU : elle remplit le corps qu on lui
+		// donne -- celui du panneau de droite -- comme une section de proprietes.
+		// Partent donc le fond, le filet de gauche, et l emprise `ai.box`.
+		//
+		// ⚠️ CE N EST PAS LE « PANNEAU DANS UN PANNEAU HOTE » QUE LA SPECIFICATION
+		//    INTERDIT, et la distinction est celle qui compte : ce defaut-la -- les
+		//    clics une image sur deux, deux menus de NKUIDesign -- vient d un
+		//    panneau FLOTTANT dessine dans un hote, avec ses propres couches et sa
+		//    propre emprise. Ici il n y a plus de panneau du tout : c est le CONTENU
+		//    de l hote qui change, comme quand on passe de « Materiau » a
+		//    « Lumiere ». Une seule couche, une seule emprise.
+		//
+		// ⚠️ `aiPanRect` RESTE PUBLIE : deux sondes le lisent, et il dit desormais
+		//    le corps occupe DANS l hote. Le temoin garde son critere -- la pastille
+		//    et le contenu ne se recouvrent pas -- et il reste vrai.
+		inline void PaintAiDansPanneau(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
 								   nkgui::NkGuiContext *guiCtx, const NkRect &r, bool peutAnnuler) {
 			if (!st.aiOuvert)
 				return;
@@ -439,14 +460,17 @@ namespace nkentseu {
 			// L'EMPRISE, DECLAREE D'ABORD. Sans elle, un clic dans le vide du
 			// panneau traverserait jusqu'au viseur et deselectionnerait -- le
 			// defaut « les clics traversent » deja paye sur les surcouches de la vue.
-			(void)hit.Add("ai.box", r);
+			// ⚠️ PLUS D EMPRISE `ai.box`. On ne reclame pas le corps d un panneau
+			//    dont on EST le contenu : l hote a deja reclame. La garder aurait pose
+			//    une SECONDE reclamation sur la meme zone -- et c est ainsi qu on
+			//    fabrique un survol qui gagne une image sur deux.
 			// Le panneau PUBLIE le rectangle qu il vient de reclamer. Le temoin le
 			// compare a celui de la pastille : deux mesures, deux peintres, aucune
 			// formule recopiee dans la sonde.
 			st.aiPanRect[0] = r.x; st.aiPanRect[1] = r.y;
 			st.aiPanRect[2] = r.w; st.aiPanRect[3] = r.h;
-			p.Fill(r, NkRole::PanelBg, 0.f);
-			p.Fill({r.x, r.y, S(1.f), r.h}, NkRole::Border, 0.f);
+			// Ni fond ni filet : le panneau hote les peint. Un second fond par-dessus
+			// le sien serait invisible aujourd hui et faux le jour ou le theme change.
 
 			float32 yy = r.y;
 
