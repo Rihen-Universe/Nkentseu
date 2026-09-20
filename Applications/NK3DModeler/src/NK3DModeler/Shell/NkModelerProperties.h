@@ -7623,6 +7623,15 @@ namespace nkentseu {
 			// pilote (celles des sections sont inserees).
 			const float32 stackTop = y;
 			p.Clip({r.x, stackTop, r.w, (r.y + r.h) - stackTop});
+			// ── L ASSISTANT PREND LE CORPS DU PANNEAU ─────────────────
+			// Rodolf, 20/09 au soir : « la pastille de IA doit s ouvrir sur le panel
+			// de droite comme tout le monde, il ne doit pas avoir son propre panel. »
+			// Il occupe donc la MEME zone que les sections, dans le MEME clip, sur la
+			// MEME couche. Ce n est pas un panneau pose dessus : c est le contenu.
+			if (st.aiOuvert && !st.welcome)
+				PaintAiDansPanneau(p, hit, st, guiCtx,
+						   {r.x, stackTop, r.w, (r.y + r.h) - stackTop},
+						   demo::Demo3DHostEditCanUndo());
 			float32 secY = y - st.propScroll;
 
 			bool anyWheel = false;
@@ -7630,7 +7639,11 @@ namespace nkentseu {
 				// PASTILLE DECOCHEE = SECTION RETIREE de la liste (Rihen) : ni
 				// contenu NI en-tete -- la colonne de pastilles est le seul moyen
 				// de la faire revenir.
-				if (!st.propOpen[sec])
+				// ⚠️ L ASSISTANT REMPLACE LES SECTIONS, IL NE SE SUPERPOSE PAS. Sans
+				//    cette garde, les deux se peindraient dans le meme clip et les
+				//    proprietes transparaitraient dessous -- un panneau sur un panneau,
+				//    exactement ce que Rodolf refuse.
+				if (st.aiOuvert || !st.propOpen[sec])
 					continue;
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
 				// Le CHEVRON plie/deplie ; il ne retire jamais la section de la
