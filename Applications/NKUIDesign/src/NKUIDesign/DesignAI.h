@@ -86,6 +86,7 @@
 
 #include "NKConverse/NkConverse.h"
 #include "NKConverse/NkConverseOllama.h" // le transport : invite, reponse, dorsaux
+#include "NKConverse/NkConverseClaude.h" // le CINQUIEME dorsal, et le seul DISTANT
 #include "Layout.h"
 
 namespace nkuidesign {
@@ -119,6 +120,14 @@ namespace nkuidesign {
 	///    a tirer NKNetwork -- un consommateur qui ne veut que le dorsal fichier
 	///    n'a pas a payer la pile reseau.
 	using NkOllamaBackend = nkentseu::converse::NkConverseBackendOllama;
+	/// ⚠️ LE CINQUIEME DORSAL, ET LE SEUL QUI SORTE DE LA MACHINE. Les quatre
+	///    autres travaillent en local -- fichier, processus, conserve, Ollama.
+	///    Celui-ci envoie l'invite chez Anthropic, ET L'INVITE DU DESIGN PORTE
+	///    LE DOCUMENT COURANT (`NkConverseRequest::currentDoc`). Ce n'est donc
+	///    pas « une phrase qui part » : c'est la maquette entiere. L'interface
+	///    doit le dire AVANT l'usage, et c'est la seule raison pour laquelle ce
+	///    dorsal n'est jamais choisi automatiquement (voir `Init`).
+	using NkClaudeBackend = nkentseu::converse::NkConverseBackendClaude;
 
 	enum class NkAIVerdict : uint8 {
 		Acceptee = 0,

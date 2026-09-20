@@ -600,6 +600,13 @@ namespace nkuidesign {
 			///    variable de pile aurait donne un segfault mouvant, la faute que ce
 			///    depot a deja payee avec le registre de composants.
 			NkOllamaBackend ollamaBackend;
+			/// LE DORSAL DISTANT. Meme regle que ci-dessus : MEMBRE, pas locale.
+			NkClaudeBackend claudeBackend;
+			/// Le dorsal LOCAL en vigueur, retenu au moment ou l'on bascule vers
+			/// Claude. ⚠️ SANS LUI, « revenir au local » devrait REFAIRE le choix
+			///    de `Init` -- c'est-a-dire l'ecrire une seconde fois, et les deux
+			///    finiraient par ne plus designer le meme dorsal.
+			NkIDesignBackend *dorsalLocal = nullptr;
 
 			// -- DISCUTER AVANT DE DESSINER -----------------------------------
 			// Rodolf : « on doit pouvoir discuter avec lui AVANT de commencer a
@@ -1558,6 +1565,28 @@ namespace nkuidesign {
 						ai.SetBackend(&proc);
 					else
 						ai.SetBackend(&fileBackend);
+					// ⚠️ CLAUDE N'ENTRE PAS DANS CETTE CASCADE, ET C'EST LE POINT.
+					//    « Le premier qui REPOND gagne » est une bonne regle entre
+					//    dorsaux LOCAUX : le pire qui puisse arriver est un fichier a
+					//    coller a la main. Elle cesse d'en etre une des qu'un candidat
+					//    fait SORTIR le document de la machine -- il gagnerait en
+					//    silence, et la premiere maquette serait partie avant que
+					//    Rodolf ait su qu'elle partait.
+					//    Claude se choisit donc par un GESTE, dans le panneau. Ce que
+					//    la cascade vient de designer est retenu ici pour que ce geste
+					//    soit REVERSIBLE sans reecrire la cascade ailleurs.
+					dorsalLocal = ai.Backend();
+					claudeBackend.invitePath = NkString("logs/nkuidesign_claude_invite.txt");
+					claudeBackend.sortiePath = NkString("logs/nkuidesign_claude_reponse.txt");
+					claudeBackend.scriptPath = NkString("logs/nkuidesign_claude_lance.cmd");
+					// LE COMPTE ET LE MODELE SONT DES REGLAGES. Aucune cle nulle part :
+					// `NK_CLAUDE_COMPTE` nomme un DOSSIER de configuration du CLI.
+					if (const char *c = std::getenv("NK_CLAUDE_COMPTE"))
+						if (*c)
+							claudeBackend.compte = NkString(c);
+					if (const char *m = std::getenv("NK_CLAUDE_MODELE"))
+						if (*m)
+							claudeBackend.modele = NkString(m);
 				}
 
 				if (!LoadDoc()) {
@@ -9718,6 +9747,68 @@ namespace nkuidesign {
 						// plusieurs phrases, et `Text` seul la couperait au bord
 						// sans le dire.
 						nkgui::TextWrapped(ctx, t.texte.Data() ? t.texte.Data() : "");
+					}
+				}
+
+				// ═══════════════════════════════════════════════════════════
+				//  LE DORSAL : LE CHOIX EST UN GESTE, ET IL EST INFORME
+				// ═══════════════════════════════════════════════════════════
+				//  ⚠️ CE BLOC EXISTE PARCE QUE LE CINQUIEME DORSAL SORT DE LA
+				//     MACHINE. Les quatre autres se choisissent tout seuls dans la
+				//     cascade de `Init` et personne n'a besoin de le savoir. Celui-ci
+				//     envoie l'invite -- ET LE DOCUMENT COURANT -- chez Anthropic.
+				//     *Rodolf doit pouvoir choisir en connaissance de cause a chaque
+				//     usage, pas l'apprendre apres.*
+				//
+				//  ⚠️ ET LE ZERO DIT LEQUEL. « Claude indisponible » enverrait
+				//     chercher un defaut de reseau quand il manque une connexion.
+				//     `NkClaudeDiagnostic` separe les deux et rend le GESTE QUI
+				//     REPARE, en tete de phrase parce que la ligne peut etre coupee.
+				ec.Separator();
+				{
+					const bool surClaude = (mSt->ai.Backend() == &mSt->claudeBackend);
+					char b[320];
+					snprintf(b, sizeof(b), "Dorsal : %s", mSt->ai.Backend()
+															 ? mSt->ai.Backend()->Name()
+															 : "aucun");
+					ec.Text(b);
+					if (surClaude) {
+						// CE QUI PART, NOMME, ET LE CHIFFRE DE CE QUI EST DEJA PARTI.
+						// Un avertissement general se survole ; « 3 332 octets sont
+						// partis » se lit. Il vaut 0 avant le premier envoi, et c'est
+						// vrai : rien n'est encore sorti.
+						nkgui::TextWrapped(ctx, nkentseu::converse::NkClaudeAvertissement());
+						snprintf(b, sizeof(b),
+								 "Partent : votre message, le catalogue des composants, ET LE "
+								 "DOCUMENT COURANT. Deja envoye : %u octets.",
+								 (unsigned)mSt->claudeBackend.DerniereInvite().Length());
+						nkgui::TextWrapped(ctx, b);
+						if (ec.Button("Revenir au dorsal local")) {
+							mSt->ai.SetBackend(mSt->dorsalLocal ? mSt->dorsalLocal
+															   : (NkIDesignBackend *)&mSt->fileBackend);
+							mLast = NkString("Dorsal local — plus rien ne quitte cette machine.");
+						}
+					} else {
+						NkString quoiFaire;
+						const bool pret =
+							nkentseu::converse::NkClaudeDiagnostic(mSt->claudeBackend.compte,
+																   quoiFaire) ==
+							nkentseu::converse::NkClaudeEtat::Pret;
+						if (pret) {
+							if (ec.Button("Passer a Claude (SERVICE DISTANT)")) {
+								mSt->ai.SetBackend(&mSt->claudeBackend);
+								mLast = NkString("Dorsal Claude — a partir de maintenant, l'invite "
+												 "ET le document courant QUITTENT cette machine.");
+							}
+						} else {
+							// ⚠️ UN REFUS MUET A COTE DE DORSAUX QUI MARCHENT SE LIT
+							//    COMME UN SILENCE : on cherche alors le defaut dans sa
+							//    propre demande. On le DIT, avec le geste qui repare.
+							ctx.BeginDisabled();
+							ec.Text("Claude (distant) — indisponible");
+							ctx.EndDisabled();
+							nkgui::TextWrapped(ctx, quoiFaire.Data() ? quoiFaire.Data() : "");
+						}
 					}
 				}
 
