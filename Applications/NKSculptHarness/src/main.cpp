@@ -1506,6 +1506,63 @@ int main(int argc, char **argv) {
 		Check(sel > 0u && selFaces == sel, "trait : la designation passe par sel", d);
 	}
 
+
+	// == LE SEUIL DE FINESSE : QUAND LE MAILLAGE EST TROP GROSSIER ===========
+	//
+	// La regle d'heritage a deux branches, toutes deux mesurees, et la tension
+	// n'a pas de cote gratuit : la DOMINANTE dilate le trait jusqu'a couvrir
+	// l'objet, l'UNANIMITE efface les traits plus petits que le grain du
+	// maillage. Une troisieme regle traiterait le symptome et se reglerait par
+	// un seuil que rien ne dicte.
+	//
+	// La vraie question n'est donc pas « quelle regle », mais « ce trait
+	// existe-t-il sur ce maillage ». On CHERCHE le seuil au lieu de le choisir :
+	// a partir de combien de faces le trait traverse-t-il un bevel ?
+	//
+	// [!] LE BALAYAGE VA DU TROP PETIT AU CONFORTABLE. S'il ne rougissait
+	//     jamais, il ne mesurerait rien -- on inclut donc exprès des rayons dont
+	//     on attend qu'ils echouent.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kR[6] = {0.05f, 0.10f, 0.15f, 0.20f, 0.30f, 0.45f};
+		int32 seuilFaces = -1;
+		for (int32 ri = 0; ri < 6; ++ri) {
+			MakeSphere(20, 20, v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			const uint32 avant = m.TraceTrait(m.verts[0].pos, kR[ri], 1u);
+			// LA LOI, PREDITE AVANT LA MESURE : le trait ne traverse une operation
+			// que s'il a au moins une face INTERIEURE (toutes voisines tracees).
+			// Si la prediction et l'observation divergeaient, ce serait la loi qui
+			// serait fausse, pas le seuil qui serait mal choisi.
+			const uint32 dedans = m.CompteTraitInterieur(1u);
+			m.SelectAll();
+			NkBevelParams bp;
+			bp.offset = 0.02f;
+			bp.segments = 2;
+			const bool ok = m.BevelSelected(bp, nullptr);
+			const uint32 apres = m.CompteTrait(1u);
+			char lab[112], det[192];
+			snprintf(lab, sizeof(lab), "seuil : trait de rayon %.2f", (double)kR[ri]);
+			snprintf(det, sizeof(det), "%u tracee(s), %u interieure(s) -> %u apres bevel%s",
+					 (unsigned)avant, (unsigned)dedans, (unsigned)apres,
+					 (ok ? "" : "  (bevel REFUSE)"));
+			if (apres > 0u && seuilFaces < 0)
+				seuilFaces = (int32)avant;
+	//     Pas de Check ici : on MESURE une frontiere, on ne juge pas encore.
+	//     Le critere vient juste apres, une fois le seuil connu.
+			printf("  [mesure] %-46s %s\n", lab, det);
+		}
+		char d2[192];
+		snprintf(d2, sizeof(d2), "le trait traverse le bevel a partir de %d face(s)",
+				 (int)seuilFaces);
+	//   LE CRITERE : un seuil DOIT exister et rester modeste. S'il fallait des
+	//   centaines de faces, l'unanimite serait inutilisable et la troisieme
+	//   regle se justifierait -- avec une loi pour la trancher, pas un confort.
+		Check(seuilFaces > 0 && seuilFaces <= 60, "seuil : il existe et reste modeste", d2);
+	}
+
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
 	return (gFail == 0) ? 0 : 1;
 }
