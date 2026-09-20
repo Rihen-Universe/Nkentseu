@@ -1101,6 +1101,25 @@ namespace nkentseu {
 				///    peintre publie et ne mute rien.
 				editorkit::NkAiPlan aiPlan;
 
+				// ── L HISTORIQUE DES CONVERSATIONS (20/09) ────────────────
+				// ⚠️ IL EXISTE PARCE QU UN BOUTON MORT LE PROMETTAIT DEJA. `ai.hist`
+				//    etait dessine, s eclairait au survol -- donc promettait un geste --
+				//    et `Clicked("ai.hist")` n existait nulle part. Une icone qui
+				//    s eclaire promet un geste : c est le defaut dont Rodolf s est plaint
+				//    le matin du 20/09, dans le panneau cense le corriger.
+				//    Rodolf ayant autorise l historique, on l HONORE au lieu de le retirer.
+				//
+				// ⚠️ IL NE SURVIT PAS A LA FERMETURE, ET L INTERFACE LE DIT. La
+				//    persistance demande un format, et on en ouvre deja un ailleurs. Un
+				//    historique qui s evapore EN SILENCE est pire que pas d historique :
+				//    il fait perdre du travail qu on croyait garde.
+				static const int32 kAiArchives = 8;
+				editorkit::NkAiFil aiArchives[kAiArchives];
+				char aiArchivesSujet[kAiArchives][80] = {{0}};
+				int32 aiArchivesN = 0;
+				/// Le popover de l historique est-il deplie ?
+				bool aiHistOuvert = false;
+
 				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
 				// Les compteurs de maillage et l'etat d'une mesure en cours sont des
 				// preoccupations du MODELEUR, pas du fil. Les faire entrer dans

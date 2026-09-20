@@ -205,6 +205,46 @@ int main() {
 			  "controle negatif : deux identifiants distincts ne designent pas le meme bloc");
 	}
 
+	printf("\n[C] l historique des conversations\n");
+	{
+		// ⚠️ CETTE FAMILLE EXISTE PARCE QU UN BOUTON MORT LA PROMETTAIT.
+		//    `ai.hist` etait dessine, son survol LU pour colorer l icone, et
+		//    `Clicked("ai.hist")` n existait nulle part.
+		//    Critere qui distingue un survol qui MENT d une emprise honnete :
+		//    `ai.box` fait `(void)hit.Add(...)` -- il ne LIT pas son survol, donc
+		//    il ne promet rien. `ai.hist` lisait le sien.
+		NkModelerState *pst = new NkModelerState();
+		NkModelerState &st = *pst;
+		nk3d::NkAiCopie(st.aiSujet, sizeof(st.aiSujet), "premier sujet");
+		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "un echange");
+		nk3d::NkAiArchiver(st);
+		st.aiFil.Vider();
+		Essai("C1", st.aiArchivesN == 1 && st.aiFil.Taille() == 0,
+			  "archiver met la conversation de cote et laisse le fil vide");
+		
+		// ⚠️ ON N ARCHIVE PAS DU VIDE : sinon la liste se remplit de lignes
+		//    sans contenu des qu on clique deux fois sur « nouvelle ».
+		nk3d::NkAiArchiver(st);
+		Essai("C2", st.aiArchivesN == 1,
+			  "controle negatif : un fil vide ne cree PAS d archive");
+		
+		// Une seconde conversation, puis on rouvre la premiere.
+		nk3d::NkAiCopie(st.aiSujet, sizeof(st.aiSujet), "second sujet");
+		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "autre echange");
+		nk3d::NkAiRouvrir(st, 0);
+		Essai("C3", MemeLigne(st.aiSujet, "premier sujet") && st.aiFil.Taille() == 1,
+			  "rouvrir restaure le sujet ET le fil de l archive");
+		// ⚠️ ET LA COURANTE N EST PAS PERDUE : rouvrir ne doit jamais jeter ce
+		//    qui etait a l ecran.
+		Essai("C4", st.aiArchivesN == 1 && MemeLigne(st.aiArchivesSujet[0], "second sujet"),
+			  "la conversation courante est archivee a la place de celle qu on rouvre");
+		
+		nk3d::NkAiViderHistorique(st);
+		Essai("C5", st.aiArchivesN == 0 && st.aiFil.Taille() == 1,
+			  "vider l historique n efface QUE l historique, pas la conversation ouverte");
+		delete pst;
+	}
+
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gOk, gOk + (gTotal - gOk));
 	if (gOk != gTotal) {
