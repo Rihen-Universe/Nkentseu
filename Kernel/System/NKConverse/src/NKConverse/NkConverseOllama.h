@@ -82,6 +82,7 @@ namespace nkentseu::converse {
 				// main n'aurait plus correspondu a celle du service.
 				NkString full;
 				NkConverseBackendProcessus::EcrireRequete(req, full);
+				mDerniereInvite = full; // les octets envoyes, seule verite
 
 				NkString corps;
 				BatirCorps(full, corps);
