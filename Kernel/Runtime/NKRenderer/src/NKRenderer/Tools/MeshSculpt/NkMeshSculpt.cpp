@@ -100,7 +100,80 @@ namespace nkentseu {
 					gNrm[i] = gNrm[i] * inv;
 				}
 
-			// ── DEPLACEMENT PAR GROUPE ──────────────────────────────────────────
+			// -- LE VOISINAGE, ET POURQUOI IL EST CONSTRUIT ICI ET PAS PLUS HAUT --
+			// Seul le lissage en a besoin. Le batir pour tout le monde ferait payer a
+			// `dessiner` un parcours de toutes les faces a chaque tampon, pour rien.
+			//
+			// Il est bati sur l'IDENTITE SOUDEE (`canon`), comme le reste de cette
+			// fonction : sur un cube, les 3 copies d'un coin sont UN sommet, et leurs
+			// voisins doivent se rejoindre. Batir l'adjacence sur les indices bruts
+			// donnerait a chaque copie 2 voisins au lieu de 3, et le lissage tirerait
+			// chaque coin dans une direction differente -- le cube se dechirerait, la
+			// meme faute que la soudure vient d'empecher dix lignes plus haut.
+			//
+			// Doublons acceptes : une arete partagee par deux faces inscrit deux fois
+			// la meme paire. C'est SANS EFFET sur une moyenne ponderee uniformement --
+			// chaque voisin compte autant de fois des deux cotes de la somme.
+			NkVector<uint32> nbrStart, nbrList;
+			const bool needNbr = (brush.op == NkSculptOp::NK_SCULPT_OP_SMOOTH);
+			if (needNbr) {
+				NkVector<uint32> deg;
+				deg.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i)
+					deg[i] = 0;
+				NkVector<NkEmId> loop;
+				for (uint32 f = 0; f < mesh.FaceCount(); ++f) {
+					if (!mesh.faces[f].alive)
+						continue;
+					loop.Clear();
+					mesh.GetFaceVerts((NkEmId)f, loop);
+					const uint32 n = (uint32)loop.Size();
+					if (n < 3)
+						continue;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = canon[(uint32)loop[k]];
+						const uint32 b = canon[(uint32)loop[(k + 1u) % n]];
+						if (a >= vc || b >= vc || a == b)
+							continue;
+						deg[a]++;
+						deg[b]++;
+					}
+				}
+			// Somme prefixe, puis remplissage : une liste contigue plutot qu'un
+			// vecteur de vecteurs -- sur 72 000 sommets, la difference n'est pas
+			// une elegance.
+				nbrStart.Resize(vc + 1u);
+				uint32 acc2 = 0;
+				for (uint32 i = 0; i < vc; ++i) {
+					nbrStart[i] = acc2;
+					acc2 += deg[i];
+				}
+				nbrStart[vc] = acc2;
+				nbrList.Resize(acc2 > 0 ? acc2 : 1u);
+				NkVector<uint32> cur;
+				cur.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i)
+					cur[i] = nbrStart[i];
+				for (uint32 f = 0; f < mesh.FaceCount(); ++f) {
+					if (!mesh.faces[f].alive)
+						continue;
+					loop.Clear();
+					mesh.GetFaceVerts((NkEmId)f, loop);
+					const uint32 n = (uint32)loop.Size();
+					if (n < 3)
+						continue;
+					for (uint32 k = 0; k < n; ++k) {
+						const uint32 a = canon[(uint32)loop[k]];
+						const uint32 b = canon[(uint32)loop[(k + 1u) % n]];
+						if (a >= vc || b >= vc || a == b)
+							continue;
+						nbrList[cur[a]++] = b;
+						nbrList[cur[b]++] = a;
+					}
+				}
+			}
+			
+			// -- DEPLACEMENT PAR GROUPE --
 			NkVector<NkVec3f> disp;
 			disp.Resize(vc);
 			for (uint32 i = 0; i < vc; ++i)
@@ -131,10 +204,50 @@ namespace nkentseu {
 					const float32 w = NkBrushFalloff(dist / r, brush.falloff, brush.hardness) * amp * pr;
 					if (w == 0.f)
 						continue;
-					// Deplacement le long de la normale du GROUPE, mis a l'echelle
-					// par le rayon : la force reste ainsi sans unite, et une meme
-					// brosse se comporte pareil sur un objet de 1 cm et de 10 m.
-					acc = acc + gNrm[g] * (w * r);
+					// -- LES DEUX PRIMITIVES SE SEPARENT ICI, ET SEULEMENT ICI --
+					// Tout ce qui precede -- soudure, groupes, zone, attenuation, pression --
+					// leur est commun. Ce qui les distingue tient en une direction : l une
+					// IMPOSE la sienne (la normale), l autre la DEDUIT de l entourage.
+					if (brush.op == NkSculptOp::NK_SCULPT_OP_SMOOTH) {
+					//
+					//   LISSER : on vise la MOYENNE DES VOISINS (Laplacien uniforme).
+					//   Le deplacement est une FRACTION du chemin vers cette moyenne, et
+					//   non une longueur : c est ce qui rend l operation convergente et
+					//   bornee. Pousser d une distance fixe vers la moyenne ferait
+					//   osciller un sommet autour d elle au lieu de s y poser.
+					//
+					//   [!] PAS DE MISE A L ECHELLE PAR LE RAYON ICI, contrairement a
+					//       l autre branche. `w * r` a un sens pour un DEPLACEMENT (une
+					//       longueur) ; il n en a aucun pour une FRACTION deja sans unite,
+					//       et multiplier par r ferait qu une grosse brosse lisserait plus
+					//       fort au centre -- un effet que personne n a demande.
+						const uint32 b0 = nbrStart[g];
+						const uint32 b1 = nbrStart[g + 1u];
+						if (b1 <= b0)
+							continue; // sommet isole : rien a moyenner
+						NkVec3f moy{0.f, 0.f, 0.f};
+						for (uint32 k = b0; k < b1; ++k)
+							moy = moy + gPos[nbrList[k]];
+						const float32 invN = 1.f / (float32)(b1 - b0);
+						moy = moy * invN;
+					//   `w` porte deja force x sens x attenuation x pression. Un `sens`
+					//   negatif ELOIGNE de la moyenne : le relief se durcit au lieu de
+					//   s adoucir, et c est la meme formule prise a rebours.
+						float32 f = w;
+					//   Le pas est borne a 1 : au-dela, le sommet DEPASSE la moyenne et
+					//   le lissage se met a osciller. La borne n est pas une precaution
+					//   de confort, c est la condition de convergence du schema.
+						if (f > 1.f)
+							f = 1.f;
+						if (f < -1.f)
+							f = -1.f;
+						acc = acc + (moy - gPos[g]) * f;
+					} else {
+						// Deplacement le long de la normale du GROUPE, mis a l'echelle
+						// par le rayon : la force reste ainsi sans unite, et une meme
+						// brosse se comporte pareil sur un objet de 1 cm et de 10 m.
+						acc = acc + gNrm[g] * (w * r);
+					}
 					touched = true;
 				}
 
