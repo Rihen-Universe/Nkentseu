@@ -1098,6 +1098,32 @@ namespace nkentseu {
 				/// l'etat d'AVANT en le presentant comme celui d'apres.
 				int32 aiEnCours = -1;
 				int32 aiEnCoursFrame = -1;
+				/// Le rectangle du PANNEAU de l'assistant, tel qu'il vient d'etre PEINT.
+				/// Meme raison que le suivant : le temoin compare deux rectangles PUBLIES
+				/// par leurs peintres, jamais deux formules recopiees.
+				float32 aiPanRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// Le rectangle de la PASTILLE de l'assistant, tel qu'il vient d'etre
+				/// PEINT (x, y, w, h ; w = 0 : elle n'est pas a l'ecran). Il est publie par
+				/// la peinture et lu par le temoin, jamais recalcule ailleurs : une sonde
+				/// qui refait la formule de son cote mesure sa propre formule.
+				/// Il existe parce que le temoin ne PEUT PAS passer par la souris -- aucune
+				/// injection d'entree n'est permise sur cette machine -- et qu'il fallait
+				/// donc un critere GEOMETRIQUE : la pastille et le panneau ne se
+				/// recouvrent pas.
+				float32 aiTabRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// La MARQUE : combien de blocs du fil ont deja ete VUS, c'est-a-dire
+				/// peints alors que le panneau etait ouvert. `aiFilN > aiFilVu` dit donc
+				/// « il y a du neuf que personne n'a lu » -- et c'est ce que la pastille
+				/// affiche.
+				/// [?] ELLE REMPLACE UNE OUVERTURE DE FORCE. Jusqu'ici, soumettre une
+				///    demande posait `aiOuvert = true` : la reponse se voyait, mais en
+				///    prenant l'ecran sans qu'on l'ait demande. Ouvrir de force repond au
+				///    besoin de l'APPLICATION ; marquer repond a celui de l'UTILISATEUR.
+				/// [?] ET C'EST UN ETAT, DONC UN BANC SANS FENETRE PEUT LE LIRE. C'est la
+				///    condition pour que la marque REMPLACE l'ouverture au lieu de s'y
+				///    ajouter : deux comportements pour un meme etat, c'est le motif
+				///    qu'on retire depuis hier.
+				int32 aiFilVu = 0;
 				bool aiOuvert = false; ///< le panneau est-il deploye ? (ferme au demarrage)
 				/// L'onglet de fournisseur. 0 = LOCAL, et c'est le defaut : le seul qui
 				/// soit branche a quelque chose aujourd'hui.
