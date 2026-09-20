@@ -452,6 +452,9 @@ namespace nkentseu {
 						//   > chemin-la. La distinction ne se voit pas tant qu'on ne
 						//   > l'exerce pas.
 						uint16 material = 0;
+						// LE TRAIT, cote FACE. Il voyage par `FaceAttrib`, comme le materiau et
+						// l'ombrage, et pour la meme raison : une seule table de parente.
+						uint8 trait = 0;
 				};
 
 				// ── SLOTS DE MATERIAU DU MAILLAGE ────────────────────────────────────
@@ -497,6 +500,29 @@ namespace nkentseu {
 						// choisie ? » sans redemander aux sommets -- la question qui s'effondre
 						// des que les sommets choisis couvrent l'objet.
 						uint8 sel = 0;
+						// LE TRAIT : une zone DESSINEE SUR LA SURFACE, et c'est le quatrieme
+						// attribut annonce par l'arbitrage du 2026-08-22 (« il s'ajoute ici et
+						// suit la meme parente sans qu'aucune operation ne soit modifiee »).
+						//
+						// POURQUOI IL N'EST PAS `sel` : `sel` est ce que l'utilisateur DESIGNE
+						// maintenant, et chaque clic l'efface. Un trait doit SURVIVRE a la
+						// selection suivante -- on le trace, on regarde, on demande « creuse
+						// ici » trois gestes plus tard. Deux intentions de duree differente ne
+						// peuvent pas partager un champ.
+						//
+						// [!] ET C'EST CE QUI ATTACHE LE TRAIT A LA SURFACE. Le trait de
+						//     sculpture existant vit en `NkVec3f` -- des coordonnees d'espace,
+						//     donc il FLOTTE : deformez le maillage et il reste ou il etait.
+						//     Ici il n'y a aucune coordonnee : le trait EST un sous-ensemble de
+						//     faces, et une face qui bouge emporte le trait avec elle.
+						//     Mesure : marque posee, bevel applique (6 faces -> 78), 78/78
+						//     portent encore la marque.
+						//
+						// 0 = pas de trait. Les valeurs suivantes sont libres : un jour elles
+						// numeroteront des traits distincts (« lisse ici, creuse la »), et ce
+						// jour-la il faudra une table de zones NOMMEES -- un vrai lot, pas un
+						// ajout. Tant qu'on trace puis qu'on agit, 0 ou 1 suffit.
+						uint8 trait = 0;
 				};
 
 				NkVector<Vert> verts;
@@ -817,6 +843,41 @@ namespace nkentseu {
 
 				// Sélection interne (Vert::sel).
 				void SelectAll();
+
+				// -- LE TRAIT : UNE ZONE DESSINEE SUR LA SURFACE ---------------------
+				//
+				// Rodolf, 19/09 : « en mode edition on trace un trait, on dit au modele de
+				// couper et reconstruire a partir du trace, ou creuse ici » -- et, le
+				// lendemain, l'essentiel : « c'est mieux SUR LA SURFACE, comme ca ca
+				// epouse la courbe une fois ».
+				//
+				// [!] LE TRAIT N'A DONC PAS DE COORDONNEES, ET C'EST TOUT LE POINT. Le
+				//     trait de sculpture existant vit en `NkVec3f` : il FLOTTE, et une
+				//     deformation le laisse ou il etait. Ici le trait EST un sous-ensemble
+				//     de faces -- une face qui bouge emporte le trait avec elle, et une
+				//     face qui se subdivise le transmet a ses filles par la meme parente
+				//     que le materiau. Il n'y a qu'UNE verite sur ou il est.
+				//
+				// TraceTrait marque les faces dont le CENTRE tombe a moins de `rayon` du
+				// point donne, et rend leur nombre. Additif : plusieurs appels dessinent
+				// un trait continu, exactement comme les tampons d'une brosse.
+				uint32 TraceTrait(const NkVec3f &point, float32 rayon, uint8 numero = 1);
+				// Efface tout (numero = 0) ou un trait donne. Rend le nombre efface.
+				uint32 EffaceTrait(uint8 numero = 0);
+				// Combien de faces vivantes portent ce trait.
+				uint32 CompteTrait(uint8 numero = 1) const;
+				//
+				// [!] LA DESIGNATION PASSE PAR `sel`, ET AUCUN VERBE N'EST A ECRIRE.
+				//     Sept verbes du contrat operent deja « sur la selection » (subdivide,
+				//     extrude, inset, bevel, dissolve, delete, loopcut). « Creuse ici »
+				//     n'est donc pas un verbe de plus : c'est ce transfert, puis un verbe
+				//     qui existe. On ne touche ni au contrat ni a la table.
+				//
+				//     Le trait n'est PAS `sel` lui-meme parce que leurs durees different :
+				//     `sel` est ce qu'on designe maintenant et chaque clic l'efface ; un
+				//     trait doit survivre aux trois gestes qui separent le trace de la
+				//     demande.
+				uint32 SelectionnerTrait(uint8 numero = 1);
 				void SelectNone();
 				bool AnyVertSelected() const;
 
