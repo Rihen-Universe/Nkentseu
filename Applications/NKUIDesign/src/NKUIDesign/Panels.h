@@ -747,6 +747,11 @@ namespace nkuidesign {
 				//
 				//    `InviteAEnvoyer` est la SEULE construction : la meme que
 				//    `Propose` et `Ask`, assemblee par `EcrireRequete`.
+				// ⚠️ LA SELECTION PART AVEC LA REQUETE. Au-dela de 4 000 octets le
+				//    document est RESUME, et le noeud selectionne est le seul
+				//    donne en entier : sans cette ligne, « agrandis ce bouton »
+				//    perdrait la taille actuelle. Mesure : +3 points d'invite.
+				ai.selectionCourante = doc.IsValidIndex(selected) ? selected : -1;
 				NkString invite = ai.InviteAEnvoyer(texte, doc);
 				envoiIntention = Intention::Document;
 				if (envoi.Lancer(ai.Backend(), invite, pourquoi))
@@ -792,6 +797,11 @@ namespace nkuidesign {
 					pourquoi = NkString("rien a envoyer : la demande est vide");
 					return false;
 				}
+				// ⚠️ LA SELECTION PART AVEC LA REQUETE. Au-dela de 4 000 octets le
+				//    document est RESUME, et le noeud selectionne est le seul
+				//    donne en entier : sans cette ligne, « agrandis ce bouton »
+				//    perdrait la taille actuelle. Mesure : +3 points d'invite.
+				ai.selectionCourante = doc.IsValidIndex(selected) ? selected : -1;
 				NkString invite = ai.InviteAEnvoyer(texte, doc);
 				envoiIntention = Intention::Proposition;
 				if (envoi.Lancer(ai.Backend(), invite, pourquoi))

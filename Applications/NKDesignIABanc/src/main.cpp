@@ -237,6 +237,16 @@ namespace {
 		NkString invite;
 		NkDesignAI::BuildPrompt("<la demande de l'utilisateur, en francais>", invite);
 		out.Append(invite);
+		// ⚠️ LE CONTRAT DOIT DIRE OU ARRIVE LA DEMANDE, sinon il ment par
+		//    omission. Depuis le 20/09 elle n'est plus en tete de l'invite : elle
+		//    est RAPPELEE EN DERNIER, apres le catalogue et le document courant
+		//    (mesure : sur un document de 42 noeuds, le document occupait 84 % de
+		//    l'invite et le modele y repondait au lieu de la demande).
+		//    Un modele distant qui ne voit QUE ce fichier doit le savoir.
+		out.Append("\nORDRE DE L'INVITE : ce format d'abord, puis le catalogue, puis le\n");
+		out.Append("document courant s'il y en a un, et EN DERNIER la demande, sous\n");
+		out.Append("`--- ce que je te demande maintenant ---`. C'est a CELLE-LA qu'on\n");
+		out.Append("repond ; le document courant est un contexte, pas une question.\n");
 
 		out.Append("\n## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants\n");
 		out.Append("# Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais\n");
@@ -323,6 +333,9 @@ int main(int argc, char **argv) {
 	// --document=<f> : le DOCUMENT COURANT sur lequel la demande arrive. Vide par
 	// defaut -- et c'est precisement la condition qu'on avait toujours mesuree.
 	const char *documentBase = nullptr;
+	// --selection=<n> : le noeud que l'utilisateur aurait sous la main. Au-dela du
+	// seuil, c'est le SEUL donne en entier dans l'invite ; -1 = aucun.
+	int32 selectionBanc = -1;
 	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
 	// et rien d autre. Defaut : `parent`, la forme livree.
 	bool structureEnfants = false;
@@ -348,6 +361,8 @@ int main(int argc, char **argv) {
 			specTexte = argv[a] + 7;
 		else if (CommencePar(argv[a], "--document="))
 			documentBase = argv[a] + 11;
+		else if (CommencePar(argv[a], "--selection="))
+			selectionBanc = (int32)std::atoi(argv[a] + 12);
 		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
 			structureEnfants = true;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
@@ -506,6 +521,16 @@ int main(int argc, char **argv) {
 		PeuplerCatalogue();
 		NkUIDocument docR;
 		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		// ⚠️ LE REJEU PEUT DESORMAIS PARTIR D'UN DOCUMENT. Sans ca il ne pouvait
+		//    pas eprouver un INCREMENT : un delta n'a de sens que contre un
+		//    document existant, et le rejeu aurait mesure le mauvais chemin.
+		if (documentBase && *documentBase) {
+			const NkString dt = NkFile::ReadAllText(NkPath(documentBase));
+			if (dt.Size() == 0 || !docR.Load(dt.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
 		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
 		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
 		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
@@ -571,17 +596,12 @@ int main(int argc, char **argv) {
 		//    se noie dans le tirage au sort.
 		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
 			ollama.temperature = (float32)atof(tp);
-		// ⚠️ LE PLAFOND D'ATTENTE DEVIENT UN REGLAGE, ET IL EST IMPRIME.
-		//    Grave a 300 000 ms, il a tranche DEUX demandes des courses A du 19/09
-		//    (`d10`, `duree_ms = 300 041`) sans que rien ne le dise : on a lu « le
-		//    modele echoue » la ou il fallait lire « on a cesse d'attendre ».
-		//    ⚠️ `atof` et non `atoi` serait un piege fr-FR ; ici c'est un entier,
-		//    et la valeur lue est REIMPRIMEE pour qu'un reglage muet ne passe pas.
-		if (const char *dl = std::getenv("NK_OLLAMA_DELAI")) {
-			const int v = std::atoi(dl);
-			if (v > 0)
-				ollama.delaiMs = (uint32)v;
-		}
+		// ⚠️ LE BANC NE LIT PLUS `NK_OLLAMA_DELAI` : le DORSAL le lit, et lui
+		//    seul. Deux lecteurs du meme reglage, c'etaient deux valeurs
+		//    possibles -- et surtout **l'application n'en beneficiait pas**,
+		//    puisque seul le banc lisait. On prend ici ce que le dorsal a decide,
+		//    et on l'IMPRIME : un plafond muet fait lire « le modele echoue » la
+		//    ou il faut lire « on a cesse d'attendre ».
 		delaiDorsal = (unsigned)ollama.delaiMs;
 		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
 		//    service eteint rendrait douze refus identiques et on lirait « le
@@ -615,6 +635,7 @@ int main(int argc, char **argv) {
 	// L'etiquette voyage avec chaque paire : voir Recolte.h.
 	NkString etiquetteCatalogue;
 	ia.catalogueBref = catalogueBref;
+	ia.selectionCourante = selectionBanc;
 	// ⚠️ LA SPECIFICATION EST BATIE PAR SON PROPRE ECRIVAIN, pas recopiee ici.
 	//    `DepuisConversation` puis `PourLeGenerateur` sont exactement ce que le
 	//    panneau appelle apres « Ecrire la specification » : les exigences sont

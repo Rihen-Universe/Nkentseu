@@ -10,7 +10,6 @@
 
 Tu produis une INTERFACE pour NkUIDesign.
 
-Demande : <la demande de l'utilisateur, en francais>
 
 Reponds UNIQUEMENT par un document au format ci-dessous,
 sans explication, sans balise de code.
@@ -66,6 +65,11 @@ noeud 2
   hauteur = content 32 0 0
 
 N'emploie que des composants du catalogue ci-dessous.
+
+ORDRE DE L'INVITE : ce format d'abord, puis le catalogue, puis le
+document courant s'il y en a un, et EN DERNIER la demande, sous
+`--- ce que je te demande maintenant ---`. C'est a CELLE-LA qu'on
+repond ; le document courant est un contexte, pas une question.
 
 ## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants
 # Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais
@@ -157,6 +161,7 @@ refus aucun document lisible dans la reponse
 refus nomme un composant que le registre ignore
 refus ne se rejoue pas a l'identique
 refus cible de greffe invalide
+refus l'ajout ne peut pas se poser
 
 ## 4. CE QUE L'OUTIL GARANTIT
 

@@ -2756,6 +2756,145 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_PROP_TAB=<0..7> : OUVRIR UNE PASTILLE DU PANNEAU PROPRIETES.
+		// Sans elle, le contenu d'une pastille n'est peint par RIEN dans un banc :
+		// entrer dans un mode n'active sa pastille que si le panneau etait DEJA
+		// ouvert, et au demarrage il ne l'est pas. Le selecteur de brosses etait
+		// donc invisible a toute mesure -- et j'allais le livrer sur parole.
+		// 7 = la pastille du MODE courant, celle qui porte les brosses.
+		{
+			static bool sTabDone = false;
+			if (const char *tv = std::getenv("NK_PROP_TAB")) {
+				if (!sTabDone) {
+					sTabDone = true;
+					const int32 ti = (int32)std::atoi(tv);
+					if (ti >= 0 && ti < 8) {
+						for (int32 k = 0; k < 8; ++k)
+							st.propOpen[k] = false;
+						st.propOpen[ti] = true;
+						st.showRight = true;
+						std::printf("[nk3d] NK_PROP_TAB : pastille %d ouverte\n", (int)ti);
+						std::fflush(stdout);
+					}
+				}
+			} else {
+				sTabDone = true;
+			}
+		}
+
+		// NK_TRAIT="x,y,z[,rayon][,frame]" : TRACER UN TRAIT SANS SOURIS.
+		//
+		// Il emprunte `Demo3DHostTraceTrait`, LA MEME PORTE que le geste. Un
+		// crochet qui recopierait le corps mesurerait un chemin que Rodolf
+		// n'emprunte jamais -- regle payee sur NkBrowserDropOnView et NK_SCULPT_AT.
+		//
+		// Le point est en coordonnees LOCALES du maillage edite : c'est ce que la
+		// porte attend, et le raycast (qui seul connait la camera) est le travail
+		// de l'appelant. Ici il n'y a pas de camera, donc pas de raycast -- on
+		// donne le point directement, ce qui est justement ce qui rend la mesure
+		// possible sans injection d'entree.
+		{
+			static bool sTraitDone = false;
+			if (const char *tv = std::getenv("NK_TRAIT")) {
+				float32 tx = 0.f, ty = 0.f, tz = 0.f, tr = 0.25f;
+				int32 tfr = 120;
+				{
+					const char *q = tv;
+					tx = (float32)std::atof(q);
+					for (int32 c = 0; c < 4; ++c) {
+						while (*q && *q != ',')
+							++q;
+						if (*q != ',')
+							break;
+						++q;
+						if (c == 0)
+							ty = (float32)std::atof(q);
+						else if (c == 1)
+							tz = (float32)std::atof(q);
+						else if (c == 2)
+							tr = (float32)std::atof(q);
+						else
+							tfr = (int32)std::atoi(q);
+					}
+				}
+				if (!sTraitDone && agentFrame >= tfr && demo::Demo3DHostReady()) {
+					sTraitDone = true;
+					const float32 p[3] = {tx, ty, tz};
+					const int32 pose = demo::Demo3DHostTraceTrait(p, 1, tr, 1);
+					const int32 cpt = demo::Demo3DHostCompteTrait(1);
+					std::printf("[nk3d] NK_TRAIT : (%.3f,%.3f,%.3f) r=%.3f -> %d face(s)"
+								" tracee(s), %d au total\n",
+								(double)tx, (double)ty, (double)tz, (double)tr, (int)pose, (int)cpt);
+					std::fflush(stdout);
+				}
+			} else {
+				sTraitDone = true;
+			}
+		}
+
+		// NK_TRAIT_EFFACE=<frame> : LE NEGATIF DU TEMOIN DE VISIBILITE.
+		// Sans lui on mesure « quelque chose a change » ; avec lui on mesure que
+		// c'est BIEN LE TRAIT qui a change, puisque l'effacer doit rendre les
+		// pixels d'avant.
+		{
+			static bool sEffDone = false;
+			if (const char *ev = std::getenv("NK_TRAIT_EFFACE")) {
+				const int32 fr = (int32)std::atoi(ev);
+				if (!sEffDone && agentFrame >= fr && demo::Demo3DHostReady()) {
+					sEffDone = true;
+					const int32 n = demo::Demo3DHostEffaceTrait(0);
+					std::printf("[nk3d] NK_TRAIT_EFFACE : %d face(s) effacee(s)\n", (int)n);
+					std::fflush(stdout);
+				}
+			} else {
+				sEffDone = true;
+			}
+		}
+
+		// NK_TRAIT_SELECT=<frame> : « lisse ici » -- le trait devient la selection,
+		// et les sept verbes du contrat s'y appliquent sans qu'une ligne change.
+		{
+			static bool sTraitSelDone = false;
+			if (const char *sv = std::getenv("NK_TRAIT_SELECT")) {
+				const int32 fr = (int32)std::atoi(sv);
+				if (!sTraitSelDone && agentFrame >= fr && demo::Demo3DHostReady()) {
+					sTraitSelDone = true;
+					const int32 n = demo::Demo3DHostSelectionnerTrait(1);
+					std::printf("[nk3d] NK_TRAIT_SELECT : %d face(s) designee(s)\n", (int)n);
+					std::fflush(stdout);
+				}
+			} else {
+				sTraitSelDone = true;
+			}
+		}
+
+		// NK_SCULPT_BRUSH=<nom> : LA BROSSE SE CHOISIT SANS SOURIS.
+		// Il emprunte la MEME porte que le selecteur de l'interface
+		// (`Demo3DHostSetBrushByName`) : une sonde qui poserait le nom elle-meme
+		// mesurerait un chemin que Rodolf n'emprunte jamais.
+		//
+		// IL IMPRIME LE REFUS AUTANT QUE LE SUCCES. « brosse inconnue » et
+		// « brosse posee » sont deux issues qu'un banc doit distinguer : sans ca,
+		// un nom mal orthographie sculpterait avec la premiere du catalogue et la
+		// mesure porterait sur une autre brosse que celle qu'on croit eprouver.
+		{
+			static bool sBrushDone = false;
+			if (!sBrushDone) {
+				if (const char *bn = std::getenv("NK_SCULPT_BRUSH")) {
+					if (bn[0] && demo::Demo3DHostReady()) {
+						sBrushDone = true;
+						const bool ok = demo::Demo3DHostSetBrushByName(bn);
+						std::printf("[nk3d] NK_SCULPT_BRUSH : « %s » -> %s (courante : %s)\n", bn,
+								  ok ? "posee" : "INCONNUE, rien change",
+								  demo::Demo3DHostBrushCurrent());
+						std::fflush(stdout);
+					}
+				} else {
+					sBrushDone = true;
+				}
+			}
+		}
+
 		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
 		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
 		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le
@@ -2772,7 +2911,15 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(c + 1);
 				if (!sEditModeDone && agentFrame >= fr && em[0] && em[0] != '0') {
 					sEditModeDone = true;
-					st.mode = NkMode::Edit;
+					// LE NUMERO DU MODE, PAS SEULEMENT « edition ». Ce crochet posait
+					// NkMode::Edit EN DUR : les modes 2 a 6 n avaient AUCUNE porte sans
+					// souris, et le selecteur de brosses -- qui ne vit que dans Sculpture --
+					// ne pouvait etre eprouve par rien. 1 reste Edition, donc les bancs
+					// existants ne bougent pas.
+					const int32 mv = (int32)std::atoi(em);
+					st.mode = (mv > 0 && mv < (int32)NkMode::Count) ? (NkMode)mv : NkMode::Edit;
+					std::printf("[nk3d] NK_EDIT_MODE : mode %d\n", (int)st.mode);
+					std::fflush(stdout);
 				}
 			} else {
 				sEditModeDone = true;
@@ -3455,7 +3602,7 @@ int nkmain(const NkEntryState &entry) {
 		// ⚠ PAS DANS LA MEME IMAGE. L'operation s'execute quelques lignes plus bas
 		//   (`pendingAction`) : lire les compteurs ici rendrait l'etat d'AVANT en le
 		//   presentant comme celui d'apres -- un chiffre juste sur la mauvaise ligne.
-		if (st.aiEnCours >= 0 && agentFrame > st.aiEnCoursFrame) {
+		if (st.aiEnCoursId != 0u && agentFrame > st.aiEnCoursFrame) {
 			uint32 v1 = 0, e1 = 0, f1 = 0, t1 = 0;
 			if (demo::Demo3DHostStats(&v1, &e1, &f1, &t1))
 				nk3d::NkAiEffet(st, (int32)v1, (int32)e1, (int32)f1);
@@ -3520,7 +3667,19 @@ int nkmain(const NkEntryState &entry) {
 				if (lisible)
 					nk3d::NkIaCouperPredicat(verbe);
 				const bool connu = lisible && (nk3d::NkVerbeTrouve(verbe) != nullptr);
+				const uint32 nCmd = nk3d::NkIaCompterCommandes(rep.Data());
 				if (connu) {
+					// UN PLAN DE PLUSIEURS COMMANDES : on en execute UNE et on le DIT.
+					// Le contrat autorise desormais un plan sur plusieurs lignes ; le pont,
+					// lui, ne prend qu une action a la fois. Taire les suivantes ferait
+					// executer un tiers de la demande sans que personne ne sache pourquoi.
+					if (nCmd > 1u) {
+						std::printf("[nk3d] IA PLAN : %u commandes proposees, la premiere est"
+								" executee, %s ignoree%s\n",
+								(unsigned)nCmd, (nCmd == 2u) ? "la suivante est" : "les suivantes sont",
+								(nCmd == 2u) ? "" : "s");
+						std::fflush(stdout);
+					}
 					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
 								(unsigned)sIa.envoi.Images(), (double)sIa.envoi.Secondes(), verbe);
 					std::fflush(stdout);
@@ -3608,9 +3767,11 @@ int nkmain(const NkEntryState &entry) {
 						snprintf(motif, sizeof(motif), "« %s » n'est pas un verbe du contrat.", verbe);
 					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
 					st.aiMotifEstRefus = true;
-					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
-					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
-					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+					// ⚠️ LE MOTIF PASSE A LA POUSSEE. Le fil refuse un bloc « refus »
+					//    sans motif : « ca n'a pas marche » envoie chercher au hasard.
+					const uint32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, motif);
+					if (editorkit::NkAiBlocDonnees *br = st.aiFil.MutableParId(ir))
+						br->entree = NkString(sIaPhrase);
 					std::printf("[nk3d] IA REFUS : %s (reponse brute : « %s »)\n", motif,
 								rep.Data() ? rep.Data() : "");
 					std::fflush(stdout);
@@ -3673,9 +3834,10 @@ int nkmain(const NkEntryState &entry) {
 						snprintf(motif, sizeof(motif), "L'assistant n'a pas pu etre appele : %s",
 								 pourquoi.Data() ? pourquoi.Data() : "raison inconnue");
 					else {
-						const int32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
+						const uint32 inote = nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
 															  "J'interroge l'assistant...");
-						nk3d::NkAiCopie(st.aiFil[inote].in, sizeof(st.aiFil[inote].in), dem);
+						if (editorkit::NkAiBlocDonnees *bn = st.aiFil.MutableParId(inote))
+							bn->entree = NkString(dem);
 						// ⚠️ ON DIT QUE CA SORT, DANS LE JOURNAL AUSSI. Le panneau
 						//    l'annonce a l'ecran ; la trace doit permettre de le
 						//    RETROUVER apres coup, avec le nombre d'octets partis.
@@ -3688,9 +3850,11 @@ int nkmain(const NkEntryState &entry) {
 				if (motif[0]) {
 					nk3d::NkAiCopie(st.aiMotif, sizeof(st.aiMotif), motif);
 					st.aiMotifEstRefus = true;
-					const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, "Demande refusee");
-					nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), motif);
-					nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), dem);
+					// ⚠️ LE MOTIF PASSE A LA POUSSEE. Le fil refuse un bloc « refus »
+					//    sans motif : « ca n'a pas marche » envoie chercher au hasard.
+					const uint32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, motif);
+					if (editorkit::NkAiBlocDonnees *br = st.aiFil.MutableParId(ir))
+						br->entree = NkString(dem);
 					std::printf("[nk3d] IA REFUS : %s\n", motif);
 					std::fflush(stdout);
 				}
@@ -4370,11 +4534,12 @@ int nkmain(const NkEntryState &entry) {
 		// qu au CHANGEMENT : une ligne par image noierait le reste du journal.
 			static int32 sMarque = -1;
 			if (sMarqueOn) {
-				const int32 m = st.aiFilN - st.aiFilVu;
+				const int32 m = (int32)st.aiFil.NonVus();
 				if (m != sMarque) {
 					sMarque = m;
 					std::printf("[nk3d] AI MARQUE frame=%d : fil=%d vu=%d -> %s\n",
-							(int)agentFrame, (int)st.aiFilN, (int)st.aiFilVu,
+							(int)agentFrame, (int)st.aiFil.Taille(),
+							(int)(st.aiFil.Taille() - st.aiFil.NonVus()),
 							(m > 0) ? "pastille marquee" : "rien a signaler");
 					std::fflush(stdout);
 				}
@@ -4491,17 +4656,37 @@ int nkmain(const NkEntryState &entry) {
 							(double)((float32)W - aiW), (double)aiY, (double)aiW, (double)aiH,
 							(int)W, (int)H, (double)lay.propsR.x, (double)lay.propsR.y,
 							(double)lay.propsR.w, (double)lay.propsR.h, (int)st.aiOnglet,
-							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFilN);
-				for (int32 i = 0; i < st.aiFilN; ++i) {
-					const NkModelerState::AiBloc &bl = st.aiFil[i];
-					std::printf("[nk3d] AI BLOC %d type=%d replie=%d mesure=%d"
-								" ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
-								" v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
-								(int)i, (int)bl.type, (int)bl.replie, (int)bl.mesure,
-								(double)bl.rl[0], (double)bl.rl[1], (double)bl.rl[2],
-								(double)bl.rl[3], (double)bl.ru[0], (double)bl.ru[1],
-								(double)bl.ru[2], (double)bl.ru[3], (int)bl.vA, (int)bl.vB,
-								(int)bl.fA, (int)bl.fB, bl.ligne, bl.out, bl.detail);
+							nk3d::NkAiFournisseur(st.aiOnglet), (int)st.aiFil.Taille());
+				// ⚠️ LE CONTRAT `AI BLOC` EST REPUBLIE DEPUIS LE PLAN, PAS DEPUIS LA
+				//    DONNEE. Avant, `ligne=` et `annuler=` sortaient de `bl.rl`/`bl.ru`,
+				//    que LA PEINTURE ECRIVAIT DANS LE BLOC au milieu de sa boucle de
+				//    dessin. Deux sondes lisent cette ligne (`sonde_panneau_ia.ps1`,
+				//    `sonde_panneau_forme.ps1`) : c'est un contrat, pas du journal.
+				//    Desormais le peintre PUBLIE un plan et ne mute rien -- et ces
+				//    rectangles deviennent lisibles sans avoir peint la donnee.
+				//    Les compteurs (`v=`, `f=`) et l'etat de mesure viennent de la table
+				//    annexe du modeleur : ils n'appartiennent pas au fil commun.
+				for (uint32 i = 0; i < st.aiFil.Taille(); ++i) {
+					const editorkit::NkAiBlocDonnees &bl = st.aiFil.At(i);
+					editorkit::NkAiRectPublie rl, ru;
+					const bool aL = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Texte, rl) ||
+						   st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Titre, rl);
+					const bool aU = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Effet, ru);
+					const NkModelerState::AiMesure *me = nullptr;
+					for (int32 k = 0; k < NkModelerState::kAiMesures; ++k)
+						if (st.aiMesures[k].id == bl.id) { me = &st.aiMesures[k]; break; }
+					std::printf("[nk3d] AI BLOC %u type=%d replie=%d mesure=%d"
+						   " ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
+						   " v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
+						   (unsigned)bl.id, (int)bl.type, (int)(bl.replie ? 1 : 0),
+						   me ? (int)me->etat : 0,
+						   aL ? (double)rl.x : 0.0, aL ? (double)rl.y : 0.0,
+						   aL ? (double)rl.w : 0.0, aL ? (double)rl.h : 0.0,
+						   aU ? (double)ru.x : 0.0, aU ? (double)ru.y : 0.0,
+						   aU ? (double)ru.w : 0.0, aU ? (double)ru.h : 0.0,
+						   me ? me->vA : 0, me ? me->vB : 0, me ? me->fA : 0, me ? me->fB : 0,
+						   bl.titre.Length() ? bl.titre.CStr() : bl.texte.CStr(),
+						   bl.sortie.CStr(), bl.motif.CStr());
 				}
 				// ⚠ LE SURVOL ET LE BLOCAGE, AU MOMENT MEME. Sans eux, un clic qui
 				//   ne prend pas laisse trois explications possibles (mauvaise

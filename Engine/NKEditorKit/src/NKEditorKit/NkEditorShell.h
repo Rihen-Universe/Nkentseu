@@ -20,6 +20,7 @@
 #include "NKEditorKit/NkEditorExport.h"
 #include "NKEditorKit/NkEditorContext.h"
 #include "NKEditorKit/NkEditorPanel.h"
+#include "NKEditorKit/NkEditorTiroirMode.h" // voile ou pas : la decision, hors du peintre
 #include "NKEditorKit/NkEditorCommand.h"
 // ⚠️ La coquille porte LE point de synchronisation des deux objets theme
 //    (`ApplyTheme`) : elle a donc besoin des ROLES de l editeur, en plus du
@@ -412,6 +413,17 @@ namespace nkentseu {
 						/// Largeur de la pastille (rail bas : une PILULE « icône +
 						/// libellé » est plus large que 28). 0 = les 28 historiques.
 						float32 largeur = 0.f;
+						// ⚠️ AJOUTE A LA FIN, ET J'AI FAILLI LE POSER AU MILIEU.
+						//    Cette structure est initialisee PAR POSITION dans
+						//    `NKUIDesign/main.cpp` : {"IA", "Chat IA", "IA", ...}. Un champ
+						//    glisse avant `largeur` aurait decale tous les suivants --
+						//    c'est-a-dire, mot pour mot, la faute de position que ce depot a
+						//    payee cinq fois le 20/09, celle-la meme que je corrige ici. Une
+						//    structure a initialisation positionnelle est APPEND-ONLY, au
+						//    meme titre qu'une enumeration.
+						/// Ce que ce tiroir fait a ce qu'il y a dessous. Defaut : `Travail`
+						/// -- on y tape EN REGARDANT ce qu'on modifie.
+						NkEditorTiroirMode mode = NkEditorTiroirMode::Travail;
 				};
 				static const int32 kRailMax = 8;
 

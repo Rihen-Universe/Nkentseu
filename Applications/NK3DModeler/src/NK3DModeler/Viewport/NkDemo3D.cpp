@@ -1696,9 +1696,19 @@ namespace nkentseu {
 				// changent, exactement comme `pickArme ? st->editPickX : gin.mouseX`.
 				float32 sculptAtX = 0.f, sculptAtY = 0.f;
 				int32 sculptAtFrames = 0; // images restantes « bouton enfonce »
-				// La brosse choisie dans le catalogue -- un INDEX dans le registre, donc
-				// dans les fichiers. Pas un cas d'enumeration.
-				int32 activeBrush = 0;
+				// La brosse choisie dans le catalogue, DESIGNEE PAR SON NOM.
+				//
+				// [!] C'ETAIT UN INDEX, ET L'INDEX SE DECALE. Le catalogue est trie et
+				//     vient de fichiers : deposer `durcir.nkbrush` a insere une entree AVANT
+				//     `lisser`, et tout indice memorise a change de sujet en silence. Le
+				//     banc de sculpture l'a paye le meme jour -- il prenait « la premiere
+				//     brosse de lissage » et s'est mis a exiger d'une brosse qui DURCIT
+				//     qu'elle adoucisse. *Ce que l'utilisateur a choisi, c'est un nom.*
+				//
+				//     Vide = la premiere du catalogue, resolue a l'usage : au demarrage
+				//     aucun choix n'a encore ete fait, et ecrire un nom par defaut ici
+				//     inventerait un choix que personne n'a exprime.
+				char activeBrushName[48] = {0};
 				// Le catalogue des brosses, charge depuis data/brushes au premier usage.
 				// ⚠️ PAS DE LISTE EN DUR : l'interface doit passer par la donnee, sinon
 				//    elle afficherait les bons noms sans qu'aucun fichier soit lu.
@@ -4460,6 +4470,36 @@ namespace nkentseu {
 			logger.Info("[Demo3D] brosses chargees depuis le disque : {0}\n",
 				(uint32)st->brushes.Count());
 		}
+
+		// -- LE NOM -> LE DESCRIPTEUR : UNE SEULE PORTE ---------------------
+		// Les deux sites qui lisaient `activeBrush` par indice passent par ici, et
+		// les crochets aussi. Deux resolutions separees finiraient par differer
+		// sur le cas vide ou sur le nom absent, et c'est toujours le cas rare qui
+		// revele l'ecart -- trop tard.
+		//
+		// NOM ABSENT = ON NE DEVINE PAS. Une brosse retiree du dossier ne doit pas
+		// faire silencieusement sculpter avec sa voisine : on retombe sur la
+		// PREMIERE du catalogue, ce qui est un choix nomme et stable, et l'appelant
+		// peut le constater puisqu'on lui rend le descripteur retenu.
+		static bool Demo3D_BrosseCourante(Demo3DState *st, renderer::NkBrushDesc &out) {
+			if (!st)
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			if (n == 0u)
+				return false;
+			if (st->activeBrushName[0]) {
+				for (uint16 i = 0; i < n; ++i) {
+					renderer::NkBrushDesc d;
+					if (st->brushes.At(i, d) && std::strcmp(d.name, st->activeBrushName) == 0) {
+						out = d;
+						return true;
+					}
+				}
+			}
+			return st->brushes.At(0u, out);
+		}
+
 
 		// UN COUP DE BROSSE. Il passe par la COUCHE DE COMMANDES, et non a cote :
 		// Demo3D_ApplyCmd fait deja le snapshot d'annulation, le Push dans
@@ -11382,7 +11422,7 @@ namespace nkentseu {
 								const NkVec3f d = hitP - st->sculptDragPts[(uint32)st->sculptDragPts.Size() - 1];
 								renderer::NkBrushDesc bd;
 								float32 rr = 0.1f;
-								if (st->brushes.At((uint16)st->activeBrush, bd))
+								if (Demo3D_BrosseCourante(st, bd))
 									rr = bd.radius;
 								loin = (d.Len() > rr * 0.25f);
 							}
@@ -11398,7 +11438,7 @@ namespace nkentseu {
 						if (!st->sculptDragPts.Empty()) {
 							renderer::NkBrushDesc bd;
 							const char *nom = nullptr;
-							if (st->brushes.At((uint16)st->activeBrush, bd))
+							if (Demo3D_BrosseCourante(st, bd))
 								nom = bd.name;
 							NkVector<float32> fp, fn;
 							for (uint32 k = 0; k < (uint32)st->sculptDragPts.Size(); ++k) {
@@ -12185,6 +12225,61 @@ namespace nkentseu {
 							r3d->DrawDebugTriangle(p0, liveWf((int32)fvf[k]), liveWf((int32)fvf[k + 1]), faceFill,
 												   0.f, st->editXray);
 						}
+					}
+				// -- LE TRAIT : MEME CHEMIN QUE LE REMPLISSAGE DE SELECTION --------------
+				//
+				// Rodolf trace un trait sur la surface puis demande « creuse ici ». Il
+				// vivait jusqu'ici dans la topologie SANS SE VOIR -- et un trait qu'on ne
+				// voit pas est inutilisable, meme s'il survit parfaitement aux operations.
+				//
+				// [!] PAR `DrawDebugTriangle`, ET PAS PAR `SetEditOverlayTris`. J'ai failli
+				//     alimenter ce canal : il est appele UNE SEULE FOIS dans ce fichier,
+				//     avec `nullptr`, et son code moteur est bien vivant -- il ressemble
+				//     donc a une capacite oubliee. Le commentaire qui le precede dit
+				//     l'inverse : le remplissage est PASSE a DrawDebugTriangle parce que
+				//     l'overlay point-sprite rendait mal en DX12. *Un canal appele une fois
+				//     avec nullptr ressemble a du code mort et peut etre un choix mesure.*
+				//
+				// [!] ET C'EST CE QUI DISTINGUE LE TRAIT DE LA SELECTION A L'OEIL : la
+				//     selection se voit sur les ARETES (orange vif) et en remplissage
+				//     orange ; le trait se voit en remplissage CYAN. Deux teintes, mais
+				//     surtout deux intentions dont les durees different -- `sel` s'efface
+				//     au clic suivant, le trait survit aux gestes qui separent le trace de
+				//     la demande. S'ils se peignaient pareil, on ne saurait pas ce qu'on
+				//     regarde.
+				//   CINQUIEME COULEUR EN DUR DE CE FICHIER, ET C'EST DELIBERE.
+				//   `NkTheme` n'a aucune presence dans ce viewport : cageCol, selEdgeCol,
+				//   actVertCol et faceFill sont des litteraux. Passer la SEULE couleur du
+				//   trait par un role creerait deux verites sur la couleur dans le meme
+				//   fichier -- une conformite isolee coute plus qu'une exception coherente.
+				//   CONDITION DE DEMENAGEMENT : le jour ou la cage d'edition devient
+				//   theme-able, les CINQ partent ensemble. Le declencheur sera un theme
+				//   clair pour le viewport : la cage y est presque noire (0,015) et
+				//   deviendra illisible -- c'est ce jour-la qu'il faudra tout bouger.
+					const NkVec4f traitFill{0.10f, 0.62f, 1.f, 0.38f}; // cyan translucide
+					const uint32 fcntT = (uint32)st->editHE.faces.Size();
+					NkVector<renderer::NkEmId> fvt;
+					for (uint32 f = 0; f < fcntT; f++) {
+						if (!st->editHE.faces[f].alive || st->editHE.faces[f].trait == 0u)
+							continue;
+						fvt.Clear();
+						st->editHE.GetFaceVerts(f, fvt);
+						const uint32 fn = (uint32)fvt.Size();
+						if (fn < 3)
+							continue;
+				//     Les positions VIVANTES, comme le remplissage de selection : lire
+				//     `editHE.verts` peindrait le trait la ou le maillage etait avant la
+				//     modale en cours.
+						bool ok = true;
+						for (uint32 k = 0; k < fn && ok; k++)
+							if (fvt[k] >= (uint32)st->editLive.Size())
+								ok = false;
+						if (!ok)
+							continue;
+						const NkVec3f q0 = liveWf((int32)fvt[0]);
+						for (uint32 k = 1; k + 1 < fn; k++)
+							r3d->DrawDebugTriangle(q0, liveWf((int32)fvt[k]), liveWf((int32)fvt[k + 1]),
+										   traitFill, 0.f, st->editXray);
 					}
 				}
 				// ── Marqueurs VERTEX / centre-de-FACE façon Blender : petits QUADS PLEINS ──────
@@ -17749,6 +17844,7 @@ namespace nkentseu {
 		//    enregistre est le geste REELLEMENT fait, pas le reglage du fichier
 		//    au moment du rejeu. Une valeur <= 0 signifie « garde celle de la
 		//    brosse ».
+
 		int32 Demo3DHostBrushCount() {
 			auto *st = HostSt();
 			if (!st)
@@ -17774,6 +17870,113 @@ namespace nkentseu {
 			sName[47] = 0;
 			return sName;
 		}
+
+		// Le NOM de la brosse en service. Vide impossible : s'il n'y a aucune
+		// brosse, on rend la chaine vide et l'interface n'affiche pas de selecteur
+		// -- plutot qu'un selecteur vide, qui se lit comme une panne.
+		const char *Demo3DHostBrushCurrent() {
+			auto *st = HostSt();
+			static char sCur[48];
+			sCur[0] = 0;
+			renderer::NkBrushDesc d;
+			if (st && Demo3D_BrosseCourante(st, d)) {
+				for (uint32 k = 0; k < 48u; ++k) {
+					sCur[k] = d.name[k];
+					if (!d.name[k])
+						break;
+				}
+				sCur[47] = 0;
+			}
+			return sCur;
+		}
+
+		// CHOISIR PAR LE NOM, ET REFUSER UN NOM INCONNU PLUTOT QUE DE LE POSER.
+		// Accepter `n'importe quoi` ferait sculpter avec la premiere brosse du
+		// catalogue en laissant croire que le choix a pris -- un echec muet. Le
+		// booleen rendu est ce que le crochet de mesure imprime.
+		bool Demo3DHostSetBrushByName(const char *nom) {
+			auto *st = HostSt();
+			if (!st || !nom || !nom[0])
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			for (uint16 i = 0; i < n; ++i) {
+				renderer::NkBrushDesc d;
+				if (st->brushes.At(i, d) && std::strcmp(d.name, nom) == 0) {
+					uint32 k = 0;
+					for (; k + 1u < 48u && d.name[k]; ++k)
+						st->activeBrushName[k] = d.name[k];
+					st->activeBrushName[k] = 0;
+					return true;
+				}
+			}
+			return false;
+		}
+		// -- LE TRAIT : LA PORTE UNIQUE, cote hote -------------------------------
+		// Le geste souris et le crochet de mesure entrent ICI tous les deux. Un
+		// crochet qui recopierait le corps mesurerait un chemin que Rodolf
+		// n'emprunte jamais -- c'est la regle payee sur NkBrowserDropOnView et sur
+		// NK_SCULPT_AT, et elle vaut encore ici.
+		//
+		// Les points arrivent en coordonnees LOCALES du maillage edite, comme pour
+		// la sculpture : le raycast est fait par l'appelant, qui seul connait la
+		// camera. Chaque point pose un tampon ; le trait est la reunion.
+		int32 Demo3DHostTraceTrait(const float32 *pts, int32 count, float32 rayon, int32 numero) {
+			auto *st = HostSt();
+			if (!st || !pts || count <= 0 || rayon <= 0.f)
+				return 0;
+			if (numero <= 0 || numero > 255)
+				return 0;
+			if (!st->editMode)
+				return 0; // pas de maillage edite : rien a tracer, et on ne devine pas
+			// [!] TOUJOURS AUCUNE SYNCHRONISATION ICI, ET LA RAISON A CHANGE.
+			//     J'avais ecrit qu'elle manquait, avec sa condition de retrait : « le
+			//     jour ou le trait se peint, ces portes devront passer par la meme
+			//     synchronisation que les operations d'edition ». Le trait se peint
+			//     depuis aujourd'hui -- et la condition ne s'applique pas.
+			//
+			//     Il est trace chaque image par `DrawDebugTriangle`, dans la meme
+			//     boucle que le remplissage des faces selectionnees, et NON dans un
+			//     lot persistant : il n'y a donc rien a invalider. Une synchronisation
+			//     ajoutee « par securite » aurait reconstruit le fil de fer a chaque
+			//     tampon de trace, pour rien.
+			//
+			//     *Une condition de retrait qu'on laisse ecrite apres son echeance
+			//     fait faire le travail qu'elle annonçait, meme devenu inutile.*
+			int32 total = 0;
+			for (int32 k = 0; k < count; ++k) {
+				const NkVec3f p{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]};
+				total += (int32)st->editHE.TraceTrait(p, rayon, (uint8)numero);
+			}
+			return total;
+		}
+
+		int32 Demo3DHostCompteTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			return (int32)st->editHE.CompteTrait((uint8)numero);
+		}
+
+		int32 Demo3DHostEffaceTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.EffaceTrait((uint8)numero);
+			return n;
+		}
+
+		// LA DESIGNATION : le trait devient la selection, et les sept verbes du
+		// contrat qui operent « sur la selection » s'y appliquent sans qu'une ligne
+		// de la table change. C'est tout ce que « creuse ici » demandait.
+		int32 Demo3DHostSelectionnerTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero <= 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.SelectionnerTrait((uint8)numero);
+			return n;
+		}
+
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
 					  const char *brushName, float32 radius, float32 strength) {
 			auto *st = HostSt();

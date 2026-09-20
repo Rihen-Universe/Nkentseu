@@ -439,9 +439,24 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		Check(!r.applied && moved == 0, label, "aucun bit ne doit changer");
 	}
 
-	// ── [direction] LES DEUX SENS ───────────────────────────────────────────
+	// -- [direction] LES DEUX SENS ----------------------------------------
 	// Exiger les DEUX est ce qui distingue une vraie brosse d'un tirage a pile
 	// ou face : un defaut qui pousse toujours dans le meme sens en echoue un.
+	//
+	// [!] MAIS CES CRITERES SUPPOSENT LA PRIMITIVE, ET LE BANC L'IGNORAIT.
+	//     « suit la normale » et « le volume gonfle » decrivent
+	//     NK_SCULPT_OP_NORMAL, pas une brosse quelconque. Le jour ou `lisser`
+	//     est entree dans le registre, ils ont rougi 24 fois -- sur une
+	//     primitive qui fonctionne : un lissage ne suit AUCUNE direction
+	//     imposee (il vise la moyenne des voisins) et il RETRECIT au lieu de
+	//     gonfler (dV = -0,111 sur le cube, ce qui est son comportement juste).
+	//
+	//     C'est la meme faute que le cylindre et le tore ont deja values a ce
+	//     banc : *un critere dont la condition n'est pas verifiee rougit sur du
+	//     code sain*. On ne les affaiblit pas et on ne les supprime pas -- on
+	//     ecrit la condition sous laquelle ils veulent dire quelque chose.
+	const bool dirImposee = (b.op == NkSculptOp::NK_SCULPT_OP_NORMAL);
+
 
 	float32 volPlus = 0.f, volMinus = 0.f;
 	{
@@ -454,15 +469,23 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const uint32 wrongUp = CountAgainstNormal(m, before, +1.f);
 		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongUp, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s sens=+1 suit la normale", primName, b.name);
-		Check(r.applied && wrongUp == 0, label, det);
+		if (dirImposee)
+			Check(r.applied && wrongUp == 0, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 
 		// VOLUME SIGNE -- CONDITIONNEL. Il ne veut dire "la matiere est sortie"
 		// que sur une surface fermee et orientee sortante. On l'annonce comme
 		// non applicable plutot que de le faire passer pour vert.
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volPlus, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s volume sens=+1 gonfle", primName, b.name);
-		if (closedAndOutward)
+		// [!] DEUX conditions, pas une : la surface doit s'y preter ET la
+		//     primitive doit deplacer le long d'une direction imposee. Un
+		//     lissage RETRECIT (dV<0) sans etre faux pour autant.
+		if (closedAndOutward && dirImposee)
 			Check(r.applied && volPlus > 0.f, label, det);
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 		else
 			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 
@@ -504,22 +527,36 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 		const uint32 wrongDn = CountAgainstNormal(m, before, -1.f);
 		snprintf(det, sizeof(det), "a contre-sens=%u / deplaces=%u", wrongDn, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s sens=-1 suit la normale", primName, b.name);
-		Check(r.applied && wrongDn == 0, label, det);
+		if (dirImposee)
+			Check(r.applied && wrongDn == 0, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 
 		snprintf(det, sizeof(det), "dV=%+.6f  sommets=%u", (double)volMinus, r.vertsMoved);
 		snprintf(label, sizeof(label), "%s/%s volume sens=-1 creuse", primName, b.name);
-		if (closedAndOutward)
+		if (closedAndOutward && dirImposee)
 			Check(r.applied && volMinus < 0.f, label, det);
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s %s (primitive sans direction imposee)\n", label, det);
 		else
 			printf("  [ n/a ] %-46s %s (surface ouverte ou inversee)\n", label, det);
 		Restore(m, before);
 	}
 
-	// ── [direction] LES DEUX SENS NE SE CONFONDENT PAS ──────────────────────
+	// -- [direction] LES DEUX SENS NE SE CONFONDENT PAS ---------------------
+	// [!] ENONCE EN VOLUME, donc reserve aux primitives qui en deplacent.
+	//     L'exigence elle-meme vaut pour TOUTE brosse -- deux sens qui
+	//     donnent le meme resultat, c'est un sens qui n'est pas lu -- mais
+	//     la QUANTITE qui la mesure change avec la primitive. Pour `lisser`
+	//     elle est portee, plus bas, par « sens=-1 fait MONTER la rugosite ».
+	//     Garder ce test-ci sur une primitive sans direction imposee, ce
+	//     serait exiger d'elle la signature d'une autre.
 	{
 		snprintf(label, sizeof(label), "%s/%s les deux sens different", primName, b.name);
-		if (closedAndOutward)
+		if (closedAndOutward && dirImposee)
 			Check(volPlus > 0.f && volMinus < 0.f, label, "sinon : un seul sens agit");
+		else if (!dirImposee)
+			printf("  [ n/a ] %-46s (primitive sans direction imposee)\n", label);
 		else
 			printf("  [ n/a ] %-46s (surface ouverte ou inversee)\n", label);
 	}
@@ -557,7 +594,14 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 				 wrong, r.vertsMoved);
 		}
 		snprintf(label, sizeof(label), "%s/%s DONNEE pilote le sens", primName, b.name);
-		Check(r.applied && coherent, label, det);
+		// [!] MEME RESERVE : « coherent » se lit en volume ou en direction, les
+		//     deux signatures de la primitive a direction imposee. Pour lisser,
+		//     la meme exigence est tenue par « sens=-1 fait MONTER la rugosite »,
+		//     qui est son equivalent exact dans la quantite qui la concerne.
+		if (dirImposee)
+			Check(r.applied && coherent, label, det);
+		else
+			printf("  [ n/a ] %-46s %s (voir le bloc lisser)\n", label, det);
 		Restore(m, before);
 	}
 }
@@ -669,6 +713,151 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 	snprintf(label, sizeof(label), "%s/%s rejeu: nom conserve", primName, brush.name);
 	Check(nameOk && cr.sculpt.dir == cmd.sculpt.dir, label, cr.sculpt.brushName);
 }
+
+// == LA RUGOSITE : CE QUE `lisser` EST CENSE FAIRE DESCENDRE ==============
+//
+// Somme des || p_i - moyenne(voisins de i) ||^2, sur l'identite SOUDEE.
+// C'est exactement la quantite que le Laplacien uniforme minimise : si la
+// brosse lisse, ce nombre DOIT baisser, et s'il monte c'est qu'elle fait
+// autre chose. *Un critere qui se contente de « la commande a rendu ok » ne
+// distingue pas un lissage d'un deplacement au hasard.*
+//
+// [!] ELLE EST RECALCULEE ICI, ET C'EST VOULU. Si elle empruntait
+//     l'adjacence construite par NkMeshSculpt, une erreur dans cette
+//     adjacence rendrait le critere vrai ET le module faux -- le controle
+//     et le controle tire de la meme source. On la rebatit depuis les faces.
+// [!] ELLE EST LOCALE, ET CE N EST PAS UN RAFFINEMENT : mesuree sur TOUT le
+//     maillage, la baisse tombait a 0,01 % -- non parce que le lissage est
+//     faible, mais parce que 13 groupes touches sur 134 se noient dans 121
+//     groupes intacts. *On mesure la ou on agit, sinon on mesure surtout ce
+//     qui n a pas bouge.* rayon < 0 = tout le maillage.
+// Boite englobante des sommets VIVANTS. Une longueur, la ou les compteurs
+// de sommets ne donnent qu'un cardinal.
+// Centre de masse des faces TRACEES, pondere par l'aire, et l'aire totale
+// tracee. Il est recalcule ICI : l'emprunter au module rendrait le critere
+// vrai en meme temps que le module faux.
+static void TraitCentre(const NkEditMesh &m, uint8 numero, NkVec3f &centre, float32 &aire) {
+	centre = NkVec3f{0.f, 0.f, 0.f};
+	aire = 0.f;
+	NkVector<NkEmId> lp;
+	for (uint32 f = 0; f < m.FaceCount(); ++f) {
+		if (!m.faces[f].alive || m.faces[f].trait != numero)
+			continue;
+		lp.Clear();
+		m.GetFaceVerts((NkEmId)f, lp);
+		if (lp.Size() == 0)
+			continue;
+		NkVec3f c{0.f, 0.f, 0.f};
+		for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+			c = c + m.verts[lp[k]].pos;
+		c = c * (1.f / (float32)lp.Size());
+		const float32 a = m.FaceArea((NkEmId)f);
+		centre = centre + c * a;
+		aire += a;
+	}
+	if (aire > 0.f)
+		centre = centre * (1.f / aire);
+}
+
+static void BBox(const NkEditMesh &mesh, NkVec3f &lo, NkVec3f &hi) {
+	lo = NkVec3f{1e30f, 1e30f, 1e30f};
+	hi = NkVec3f{-1e30f, -1e30f, -1e30f};
+	for (uint32 i = 0; i < mesh.VertCount(); ++i) {
+		const NkVec3f &p = mesh.verts[i].pos;
+		if (p.x < lo.x) lo.x = p.x;
+		if (p.y < lo.y) lo.y = p.y;
+		if (p.z < lo.z) lo.z = p.z;
+		if (p.x > hi.x) hi.x = p.x;
+		if (p.y > hi.y) hi.y = p.y;
+		if (p.z > hi.z) hi.z = p.z;
+	}
+}
+
+static float64 Rugosite(const NkEditMesh &mesh, const NkVec3f &centre, float32 rayon) {
+	NkVector<uint32> canon;
+	mesh.BuildVertexMerge(canon);
+	const uint32 vc = mesh.VertCount();
+	if (canon.Size() < vc || vc == 0)
+		return -1.0; // instrument incoherent : on refuse de rendre un chiffre
+	NkVector<NkVec3f> gPos;
+	NkVector<uint32> gCnt;
+	gPos.Resize(vc);
+	gCnt.Resize(vc);
+	for (uint32 i = 0; i < vc; ++i) {
+		gPos[i] = NkVec3f{0.f, 0.f, 0.f};
+		gCnt[i] = 0;
+	}
+	for (uint32 i = 0; i < vc; ++i) {
+		const uint32 c = canon[i];
+		if (c >= vc)
+			continue;
+		gPos[c] = gPos[c] + mesh.verts[i].pos;
+		gCnt[c]++;
+	}
+	for (uint32 i = 0; i < vc; ++i)
+		if (gCnt[i] > 1)
+			gPos[i] = gPos[i] * (1.f / (float32)gCnt[i]);
+	NkVector<NkVec3f> somme;
+	NkVector<uint32> deg;
+	somme.Resize(vc);
+	deg.Resize(vc);
+	for (uint32 i = 0; i < vc; ++i) {
+		somme[i] = NkVec3f{0.f, 0.f, 0.f};
+		deg[i] = 0;
+	}
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < mesh.FaceCount(); ++f) {
+		if (!mesh.faces[f].alive)
+			continue;
+		loop.Clear();
+		mesh.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		if (n < 3)
+			continue;
+		for (uint32 k = 0; k < n; ++k) {
+			const uint32 a = canon[(uint32)loop[k]];
+			const uint32 b2 = canon[(uint32)loop[(k + 1u) % n]];
+			if (a >= vc || b2 >= vc || a == b2)
+				continue;
+			somme[a] = somme[a] + gPos[b2];
+			deg[a]++;
+			somme[b2] = somme[b2] + gPos[a];
+			deg[b2]++;
+		}
+	}
+	float64 acc = 0.0;
+	for (uint32 i = 0; i < vc; ++i) {
+		if (gCnt[i] == 0 || deg[i] == 0)
+			continue;
+		if (rayon >= 0.f) {
+			const NkVec3f dc = gPos[i] - centre;
+			if (dc.x * dc.x + dc.y * dc.y + dc.z * dc.z > rayon * rayon)
+				continue;
+		}
+		const NkVec3f moy = somme[i] * (1.f / (float32)deg[i]);
+		const NkVec3f d = gPos[i] - moy;
+		acc += (float64)(d.x * d.x + d.y * d.y + d.z * d.z);
+	}
+	return acc;
+}
+
+// Combien de GROUPES soudes coincident encore deux a deux comme avant.
+// Si le lissage suit une adjacence NON canonisee, les 3 copies d'un coin de
+// cube partent chacune de son cote : ce compte chute, et le cube se dechire
+// sans qu'aucune autre mesure ne s'en apercoive.
+static uint32 GroupesIntacts(const NkEditMesh &mesh) {
+	NkVector<uint32> canon;
+	mesh.BuildVertexMerge(canon);
+	const uint32 vc = mesh.VertCount();
+	if (canon.Size() < vc)
+		return 0u;
+	uint32 n = 0;
+	for (uint32 i = 0; i < vc; ++i)
+		if (canon[i] == i)
+			++n;
+	return n;
+}
+
 int main(int argc, char **argv) {
 	const char *brushDir = "Applications/NK3DModeler/data/brushes";
 	// Les sujets reels vivent HORS du depot (sorties de la chaine 3D).
@@ -789,6 +978,7 @@ int main(int argc, char **argv) {
 		//    Le critere de NON-AGGRAVATION reste valide quelle que soit la
 		//    convention : il compare avant et apres avec LE MEME instrument.
 		static const char *const kSubjects[] = {
+			"../p512_allege_repare.obj", // LE MAILLAGE DENSE : celui qui decide de la granularite
 			"p512_rho1.obj",     // sortie de notre chaine, porte du non-manifold
 			"cylindre_rho2.obj", // tres grossier : le positif defavorable
 			"tore_rho1.obj",     // genre 1 : un trou, donc pas une sphere deguisee
@@ -815,6 +1005,57 @@ int main(int argc, char **argv) {
 			printf("-- %s : V=%u tri=%u bords=%u nm(tri)=%u diag=%.4f\n", kSubjects[k],
 						   m.VertCount(), m.FaceCount(), CountBoundary(m), CountNonManifold(m), (double)diag);
 			++realLoaded;
+			// -- GRANULARITE : COMBIEN DE FACES SOUS UN GESTE ? ------------------
+			// La designation par trait marquera des FACES. La question qui decide si
+			// une polyligne barycentrique vaut ses deux ou trois soirees est donc :
+			// sur un sujet REEL, la face est-elle deja plus fine que le geste ?
+			//
+			// [!] LE CHIFFRE N'A DE SENS QU'AVEC SON SUJET. Un cube a 6 faces et ce
+			//     maillage-ci ne repondent pas la meme chose, et c'est Rodolf qui
+			//     choisira ses modeles. On imprime donc le sujet avec le nombre.
+			//
+			// Le geste est pris a 2 % de la diagonale -- un trait humain sur un objet
+			// cadre a l'ecran. On compte les faces dont le CENTRE tombe dans ce disque.
+			{
+				float32 aireTot = 0.f;
+				uint32 nf = 0;
+				for (uint32 f = 0; f < m.FaceCount(); ++f)
+					if (m.faces[f].alive) {
+						aireTot += m.FaceArea((NkEmId)f);
+						++nf;
+					}
+				const float32 aireMoy = (nf > 0u) ? (aireTot / (float32)nf) : 0.f;
+				const float32 cote = (aireMoy > 0.f) ? sqrtf(aireMoy) : 0.f;
+				const float32 rGeste = diag * 0.02f;
+			//   Nombre attendu de faces sous le disque, par les aires : c'est une
+			//   estimation, et on la confronte au COMPTE REEL juste apres -- deux
+			//   chemins pour le meme nombre, comme pour les deux compteurs de zone.
+				const float32 estim = (aireMoy > 0.f)
+								  ? (3.14159265f * rGeste * rGeste / aireMoy) : 0.f;
+				NkVec3f c0 = m.verts[0].pos;
+				uint32 sousGeste = 0;
+				NkVector<NkEmId> lp2;
+				for (uint32 f = 0; f < m.FaceCount(); ++f) {
+					if (!m.faces[f].alive)
+						continue;
+					lp2.Clear();
+					m.GetFaceVerts((NkEmId)f, lp2);
+					if (lp2.Size() == 0)
+						continue;
+					NkVec3f ctr{0.f, 0.f, 0.f};
+					for (uint32 q = 0; q < (uint32)lp2.Size(); ++q)
+						ctr = ctr + m.verts[lp2[q]].pos;
+					ctr = ctr * (1.f / (float32)lp2.Size());
+					const NkVec3f d3 = ctr - c0;
+					if (d3.x * d3.x + d3.y * d3.y + d3.z * d3.z <= rGeste * rGeste)
+						++sousGeste;
+				}
+				printf("   granularite : %u faces, cote moyen %.5f, diag %.4f,"
+						  " geste(2%%)=%.5f -> %u faces reelles sous le geste"
+						  " (estimation par aires : %.1f)\n",
+						  (unsigned)nf, (double)cote, (double)diag, (double)rGeste,
+						  (unsigned)sousGeste, (double)estim);
+			}
 			// Rayon = 15 % de la diagonale : assez grand pour toucher, assez petit
 			// pour laisser des sommets DEHORS -- sinon le negatif de zone serait
 			// vide, donc vrai par construction, donc sans valeur.
@@ -835,6 +1076,492 @@ int main(int argc, char **argv) {
 	printf("\nsujets reels : %u eprouve(s) sur %u tente(s)\n", realLoaded, realTried);
 	if (realLoaded == 0)
 		printf("!! AUCUN SUJET REEL EPROUVE : le banc ne couvre que ses primitives.\n");
+
+
+	// == `lisser` : LA DEUXIEME PRIMITIVE, EPROUVEE SUR SA PROPRE PROMESSE ===
+	//
+	// Les criteres communs (zone, rejeu, sens pilote par la donnee) sont deja
+	// passes plus haut sur TOUTES les brosses du registre, celle-ci comprise.
+	// Ce bloc ne mesure que ce qui lui est PROPRE : est-ce que ca lisse ?
+	{
+		NkBrushDesc bl;
+		bool trouvee = false;
+		for (uint16 bi = 0; bi < reg.Count() && !trouvee; ++bi) {
+			NkBrushDesc b;
+			// [!] PAR LE NOM, PAS PAR LA PRIMITIVE. « la premiere brosse SMOOTH »
+			//     a cesse de designer `lisser` a la seconde ou `durcir` est arrivee
+			//     dans le dossier : l ordre est alphabetique, et le banc a exige
+			//     d une brosse qui DURCIT qu elle fasse baisser la rugosite.
+			//     Un critere designe son sujet par son NOM, sinon le sujet change
+			//     sous lui au premier fichier depose.
+			if (reg.At(bi, b) && strcmp(b.name, "lisser") == 0) {
+				bl = b;
+				trouvee = true;
+			}
+		}
+	//   [!] L'ABSENCE DE LA BROSSE EST UN ECHEC, PAS UN SAUT. Si aucune brosse
+	//       de lissage n'est chargee, sauter ce bloc rendrait un banc tout vert
+	//       qui n'a rien eprouve -- exactement le « 0 echec » sans nombre de cas
+	//       que ce fichier denonce plus bas.
+		Check(trouvee, "lisser : une brosse SMOOTH est chargee",
+			trouvee ? bl.name : "aucune brosse de primitive lisser dans le registre");
+		if (trouvee) {
+			NkVector<NkVertex3D> v;
+			NkVector<uint32> idx;
+			MakeSphere(12, 12, v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			// [!] LE CENTRE DU TRAIT EST LU SUR LE SUJET, PAS SUPPOSE.
+			//     J'avais ecrit {0, 1, 0} en pensant « pole nord d'une sphere unite ».
+			//     La bosse n'atteignait alors AUCUN sommet : changer sa force de 0,35
+			//     a 1,0 laissait la rugosite rigoureusement identique (0,020709), ce
+			//     qui etait le seul signe visible que le trait tombait dans le vide.
+			//     On prend donc un sommet REEL : il est sur la surface par definition.
+			const NkVec3f centre = m.verts[0].pos;
+	//     On BOSSELLE d'abord avec `dessiner` : lisser une sphere deja lisse
+	//     ferait baisser un nombre deja minuscule, et le critere passerait pour
+	//     de mauvaises raisons. On fabrique le defaut qu'on veut voir disparaitre.
+			NkBrushDesc bosse;
+			bool okB = false;
+			for (uint16 bi = 0; bi < reg.Count() && !okB; ++bi) {
+				NkBrushDesc b;
+				// Meme raison : « la premiere NORMAL » designait `creuser`, qui
+				// creuse au lieu de bosseler -- le sujet du banc dependait de l ordre
+				// alphabetique du dossier de brosses.
+				if (reg.At(bi, b) && strcmp(b.name, "dessiner") == 0) {
+					bosse = b;
+					okB = true;
+				}
+			}
+			// [!] LA MEME REGLE QUE POUR LA BROSSE SMOOTH, ET JE NE L AVAIS ECRITE
+			//     QUE LA : sauter silencieusement quand la brosse de bosselage
+			//     manque donne une sphere LISSE a lisser, donc une rugosite qui ne
+			//     bouge pas -- et un critere qui rougit en accusant le module.
+			Check(okB, "lisser : une brosse NORMAL est la pour bosseler",
+				  okB ? bosse.name : "aucune : le sujet resterait lisse");
+			if (okB) {
+				bosse.radius = 0.25f;
+				bosse.strength = 1.0f;
+				NkSculptPoint p{};
+				p.pos = centre;
+				p.radius = bosse.radius;
+				p.pressure = 1.f;
+				(void)NkSculptApplyStroke(m, bosse, &p, 1u);
+			}
+			const float64 r0 = Rugosite(m, centre, 0.7f);
+			const uint32 g0 = GroupesIntacts(m);
+
+			NkEditMesh mLisse = m;
+			NkBrushDesc bl2 = bl;
+			bl2.radius = 0.6f;
+			// Force au maximum utile : on veut un effet FRANC, pas un effet
+			// detectable. Un critere qui se contente de « ca a baisse » verdit sur
+			// du bruit d arrondi -- premiere version mesuree a 0,003 % d ecart,
+			// soit indiscernable d un placebo.
+			bl2.strength = 1.f;
+			NkSculptPoint q{};
+			q.pos = centre;
+			q.radius = bl2.radius;
+			q.pressure = 1.f;
+			const NkSculptApply a1 = NkSculptApplyStroke(mLisse, bl2, &q, 1u);
+			const float64 r1 = Rugosite(mLisse, centre, 0.7f);
+			char d[192];
+			// LE SEUIL EST ECRIT, PAS DEDUIT DU RESULTAT : on exige 1 % de baisse
+			// relative. « r1 < r0 » etait vrai a 0,003 % pres -- un ecart que
+			// n importe quel arrondi produit. *Different ne veut pas dire visible.*
+			const float64 baisse = (r0 > 0.0) ? (r0 - r1) / r0 : 0.0;
+			snprintf(d, sizeof(d), "rugosite %.6f -> %.6f (-%.2f %%, %u groupes touches)",
+					 r0, r1, baisse * 100.0, (unsigned)a1.groupsInRadius);
+			Check(a1.applied && baisse > 0.01, "lisser : la rugosite DESCEND franchement", d);
+
+	//     LE NEGATIF, ET IL EST DANS LA DONNEE : `sens = -1` prend la meme
+	//     formule a rebours et doit faire MONTER la rugosite. S'il la faisait
+	//     baisser aussi, c'est que le sens n'est pas lu -- et le critere du
+	//     dessus serait vrai quoi qu'il arrive.
+			NkEditMesh mDur = m;
+			NkBrushDesc bd = bl2;
+			bd.dir = -1.f;
+			const NkSculptApply a2 = NkSculptApplyStroke(mDur, bd, &q, 1u);
+			const float64 r2 = Rugosite(mDur, centre, 0.7f);
+			snprintf(d, sizeof(d), "rugosite %.6f -> %.6f", r0, r2);
+			Check(a2.applied && r2 > r0, "lisser : sens=-1 la fait MONTER", d);
+
+	//     LA SOUDURE TIENT. C'est ce qui separe un lissage d'un dechirement :
+	//     les copies coincidentes d'un coin doivent rester coincidentes.
+			const uint32 g1 = GroupesIntacts(mLisse);
+			snprintf(d, sizeof(d), "%u groupes avant, %u apres", (unsigned)g0, (unsigned)g1);
+			Check(g1 == g0, "lisser : la soudure tient (aucun dechirement)", d);
+
+	//     CONVERGENCE : un second passage ne doit pas faire REMONTER la
+	//     rugosite. Un schema dont le pas depasse la moyenne oscille, et on
+	//     ne le verrait pas sur un seul tampon.
+			NkEditMesh mDeux = mLisse;
+			(void)NkSculptApplyStroke(mDeux, bl2, &q, 1u);
+			const float64 r3 = Rugosite(mDeux, centre, 0.7f);
+			snprintf(d, sizeof(d), "%.6f -> %.6f -> %.6f", r0, r1, r3);
+			Check(r3 <= r1, "lisser : deux passages ne remontent pas", d);
+
+	//     ET IL NE TOUCHE PAS CE QUI EST HORS DE SA ZONE : meme garde que les
+	//     autres primitives, mais elle se verifie ICI aussi, parce que le
+	//     lissage lit les VOISINS -- un voisin hors zone pourrait etre deplace
+	//     par inadvertance en ecrivant dans le mauvais tableau.
+			NkEditMesh mLoin = m;
+			NkSculptPoint z{};
+			z.pos = NkVec3f{50.f, 50.f, 50.f};
+			z.radius = 0.1f;
+			z.pressure = 1.f;
+			const NkSculptApply a3 = NkSculptApplyStroke(mLoin, bl2, &z, 1u);
+			const float64 r4 = Rugosite(mLoin, centre, 0.7f);
+			snprintf(d, sizeof(d), "applique=%d rugosite %.6f", a3.applied ? 1 : 0, r4);
+			Check(!a3.applied && r4 == r0, "lisser : hors zone, rien n'est ecrit", d);
+		}
+	}
+
+
+	// == bevel : CE QUE LA LARGEUR FAIT A LA GEOMETRIE =======================
+	//
+	// Mesure du 20/09 : sur 10 formulations de biseau, le modele met DEUX fois
+	// le nombre de SEGMENTS dans le champ LARGEUR (« sur 3 segments » ->
+	// bevel:3). La question restee ouverte etait : sur un cube de cote 1, une
+	// largeur de 3 mange-t-elle tout ?
+	//
+	// [!] LE COMPTE DE SOMMETS NE REPOND PAS, et c'est pour ca que la mesure
+	//     vient ici. Dans le modeleur, bevel:0.2:4 et bevel:0:4 rendent le MEME
+	//     triplet (28/64/54) : la topologie ne depend que du nombre de segments.
+	//     Un biseau de largeur nulle creerait 28 sommets CONFONDUS et le compteur
+	//     dirait la meme chose qu'un biseau juste. *Il faut une longueur, pas un
+	//     cardinal.* On prend la diagonale de la boite englobante et le volume.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kOffs[4] = {0.f, 0.2f, 1.f, 3.f};
+		float64 sVolBevel[4] = {0.0, 0.0, 0.0, 0.0};
+		for (int32 oi = 0; oi < 4; ++oi) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			const float64 vol0 = (float64)NkSculptSignedVolume(m);
+			NkVec3f lo0, hi0;
+			BBox(m, lo0, hi0);
+			m.SelectAll();
+			NkBevelParams bp;
+			bp.offset = kOffs[oi];
+			bp.segments = 4;
+			const bool ok = m.BevelSelected(bp, nullptr);
+			const float64 vol1 = (float64)NkSculptSignedVolume(m);
+			NkVec3f lo1, hi1;
+			BBox(m, lo1, hi1);
+			const float32 d0 = (hi0 - lo0).Len();
+			const float32 d1 = (hi1 - lo1).Len();
+			char lab[96], det[192];
+			snprintf(lab, sizeof(lab), "bevel largeur %.1f sur cube 1", (double)kOffs[oi]);
+			snprintf(det, sizeof(det), "applique=%d  diag %.3f -> %.3f  volume %.4f -> %.4f",
+					 ok ? 1 : 0, (double)d0, (double)d1, vol0, vol1);
+	//     LE CRITERE : un biseau ne GRANDIT PAS l'objet et ne le fait pas
+	//     disparaitre. La boite englobante doit rester celle du cube (a
+	//     l'arrondi pres) et le volume rester strictement positif. Une largeur
+	//     demesuree qui ferait l'un ou l'autre serait le defaut cherche.
+			const bool sain = ok && (d1 <= d0 * 1.02f) && (vol1 > 0.0);
+			Check(sain, lab, det);
+			sVolBevel[oi] = vol1;
+		}
+		// [!] LE FAIT QUI PROTEGE VRAIMENT, ET C'EST LUI QU'ON GARDE.
+		//     Largeur 1 et largeur 3 rendent EXACTEMENT le meme volume : le
+		//     moteur SATURE -- un biseau ne peut pas depasser ce que les aretes
+		//     incidentes permettent. C'est ce qui fait qu'un `bevel:3` lache par
+		//     le modele donne un biseau tres marque, PAS un objet mange.
+		//     Les quatre criteres du dessus ne peuvent pas rougir tant que cette
+		//     saturation existe ; celui-ci rougira le jour ou elle disparaitra,
+		//     et c'est exactement ce qu'on veut apprendre.
+		{
+			char d2[160];
+			snprintf(d2, sizeof(d2), "largeur 1.0 -> %.4f, largeur 3.0 -> %.4f",
+					 sVolBevel[2], sVolBevel[3]);
+			Check(sVolBevel[2] == sVolBevel[3] && sVolBevel[2] > 0.0,
+				  "bevel : une largeur demesuree SATURE", d2);
+		}
+	}
+
+
+	// == loopcut : UN PARAMETRE INVENTE PEUT-IL DENATURER ? ==================
+	//
+	// Mesure du 20/09 : le modele ajoute un parametre que la demande ne donne
+	// pas 4 fois sur 10, alors que le contrat l'interdit en toutes lettres.
+	// `loopcut : Boucles (1 a 5), Glissement (-1 a 1)` -- il ecrit loopcut:2:-1
+	// quand on n'a demande que deux boucles.
+	//
+	// [!] LE JUGE EST LA CARACTERISTIQUE D'EULER, et c'est ce qui rend ce
+	//     critere different d'un attendu dicte : V - E + F vaut 2 pour toute
+	//     surface fermee de genre 0, quelle que soit la subdivision. On ne dit
+	//     donc PAS combien de sommets loopcut doit produire -- on demande
+	//     seulement que le maillage reste un maillage. *Un critere qui juge la
+	//     coherence interne n'a pas besoin qu'on lui souffle la reponse.*
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kSlide[6] = {0.99f, 0.995f, 0.999f, 0.9999f, 1.f, -1.f};
+		const char *const kNom[6] = {"glissement 0.99", "glissement 0.995", "glissement 0.999",
+							"glissement 0.9999", "glissement 1.00 (borne)",
+							"glissement -1.00 (borne)"};
+		for (int32 si = 0; si < 6; ++si) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			m.SelectAll();
+			NkLoopCutParams lp;
+			lp.cuts = 2;
+			lp.slide = kSlide[si];
+			const bool ok = m.LoopCutFromSelectedEdge(lp);
+			NkVector<uint32> canon;
+			m.BuildVertexMerge(canon);
+			uint32 vs = 0;
+			for (uint32 i = 0; i < m.VertCount(); ++i)
+				if (canon[i] == i)
+					++vs;
+			uint32 fs = 0;
+			for (uint32 f = 0; f < m.FaceCount(); ++f)
+				if (m.faces[f].alive)
+					++fs;
+			NkVector<uint32> pairs;
+			m.GetUniqueEdges(pairs);
+			const uint32 es = (uint32)(pairs.Size() / 2u);
+			const int32 euler = (int32)vs - (int32)es + (int32)fs;
+			const uint32 nm = CountNonManifold(m);
+			char lab[96], det[192];
+			snprintf(lab, sizeof(lab), "loopcut 2 boucles, %s", kNom[si]);
+			snprintf(det, sizeof(det), "applique=%d  V=%u E=%u F=%u  V-E+F=%d  non-manifold=%u",
+					 ok ? 1 : 0, (unsigned)vs, (unsigned)es, (unsigned)fs, (int)euler,
+					 (unsigned)nm);
+			Check(ok && euler == 2 && nm == 0u, lab, det);
+		}
+	}
+
+
+	// == (1) UN ATTRIBUT PAR FACE SURVIT-IL A CHAQUE OPERATION ? =============
+	//
+	// La designation par trait reposera sur `FaceAttrib` : une face fille herite
+	// de sa mere, donc un trait marque sur des faces suit les subdivisions sans
+	// qu'aucune operation ne soit modifiee. C'est ce que le code annonce depuis
+	// le 22/08 -- et NKEditMeshHarness le mesure, mais seulement a travers
+	// Subdivide et Extrude.
+	//
+	// [!] LOOPCUT ET BEVEL NE SONT PAS COUVERTS, et ce sont justement les deux
+	//     qui creent le plus de faces filles. LoopCut portait encore ce matin un
+	//     bord qui rendait le maillage non-manifold, que personne n'avait
+	//     eprouve. Batir la designation sur une survie non mesuree A TRAVERS
+	//     CETTE OPERATION-LA serait la faute qu'on evite.
+	//
+	// LE CRITERE EST IMPARABLE ET NE DICTE AUCUN ATTENDU : on marque TOUTES les
+	// faces (material = 1), on opere, et on exige que TOUTES les faces resultantes
+	// portent encore 1. Si la parente est rompue, elles retombent sur le slot 0 --
+	// c'est ce que le code annonce comme comportement en l'absence d'attributs.
+	// On ne dit donc pas combien de faces l'operation doit produire.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		for (int32 op = 0; op < 4; ++op) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			for (uint32 f = 0; f < m.FaceCount(); ++f)
+				if (m.faces[f].alive)
+					m.faces[f].material = 1;
+			m.SelectAll();
+			const char *nom = "?";
+			bool ok = false;
+			if (op == 0) {
+				NkSubdivideParams sp;
+				ok = m.SubdivideSelectedFaces(sp);
+				nom = "subdivide (temoin connu)";
+			} else if (op == 1) {
+				NkExtrudeParams ep;
+				ok = m.ExtrudeSelectedFaces(ep);
+				nom = "extrude (temoin connu)";
+			} else if (op == 2) {
+				NkLoopCutParams lp;
+				lp.cuts = 2;
+				ok = m.LoopCutFromSelectedEdge(lp);
+				nom = "loopcut (NON couvert jusqu'ici)";
+			} else {
+				NkBevelParams bp;
+				bp.offset = 0.2f;
+				bp.segments = 2;
+				ok = m.BevelSelected(bp, nullptr);
+				nom = "bevel (NON couvert jusqu'ici)";
+			}
+			uint32 vivantes = 0, marquees = 0;
+			for (uint32 f = 0; f < m.FaceCount(); ++f) {
+				if (!m.faces[f].alive)
+					continue;
+				++vivantes;
+				if (m.faces[f].material == 1)
+					++marquees;
+			}
+			char lab[112], det[192];
+			snprintf(lab, sizeof(lab), "trait : l'attribut survit a %s", nom);
+			snprintf(det, sizeof(det), "applique=%d  %u/%u faces portent encore la marque",
+					 ok ? 1 : 0, (unsigned)marquees, (unsigned)vivantes);
+			Check(ok && vivantes > 0u && marquees == vivantes, lab, det);
+		}
+	}
+
+
+	// == LE TRAIT EST-IL TOUJOURS AU MEME ENDROIT ? ==========================
+	//
+	// « L'attribut a survecu » ne suffit pas : un trait qui survivrait en se
+	// deplacant serait pire qu'un trait perdu, parce qu'on le croirait juste.
+	// On mesure donc le CENTRE DE MASSE des faces tracees, pondere par l'aire,
+	// avant et apres une operation qui cree beaucoup de faces filles.
+	//
+	// [!] BEVEL EST CHOISI PARCE QU'IL EST LE PIRE CAS MESURE : 6 faces en
+	//     donnent 78. Si la parente tient la, elle tient partout.
+	//
+	// [!] ET LE NEGATIF EST DANS LE MEME BLOC : un trait pose LOIN du maillage
+	//     ne doit marquer AUCUNE face. Sans lui, « 12 faces tracees » serait
+	//     vrai meme si TraceTrait marquait tout ce qu'il voit.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		MakeSphere(20, 20, v, idx);
+		NkEditMesh m;
+		m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+
+	//   Le trait est pose sur une face reelle du sujet, jamais a une position
+	//   supposee : j'ai deja mesure le vide en croyant viser un pole.
+		// [!] LE SUJET EST DENSE, ET C'EST MA PROPRE MESURE QUI L'IMPOSE. Sur un
+		//     cube a 6 faces, 3 faces tracees font 50 % de la surface : ce n'est
+		//     pas un trait, c'est une moitie d'objet, et mesurer le deplacement
+		//     de son centre n'a aucun sens -- le biseau le rogne de partout.
+		//     La mesure de granularite disait deja qu'un trait n'existe pas sur
+		//     un maillage plus grossier que le geste.
+		NkVec3f cible = m.verts[0].pos;
+		// LE RAYON EST CALCULE, PAS CHOISI AU JUGE. Sur le cube unite, le centre
+		// d'une face adjacente a un sommet est a sqrt(0,5) = 0,707 de lui ; les
+		// trois faces opposees sont a 1,22. Un rayon de 0,8 marque donc les trois
+		// faces du coin, et elles seules.
+		// [!] MA PREMIERE VALEUR ETAIT 0,6 : le trace tombait ENTIEREMENT dans le
+		//     vide et les quatre criteres rougissaient en accusant le module, qui
+		//     etait sain. Deuxieme fois que je vise un point sans verifier ce qui
+		//     s'y trouve.
+		const uint32 poses = m.TraceTrait(cible, 0.25f, 1u);
+		char d[192];
+		snprintf(d, sizeof(d), "%u face(s) marquee(s)", (unsigned)poses);
+		Check(poses > 4u && poses < 120u, "trait : le trace marque une zone LOCALE", d);
+
+		NkVec3f c0;
+		float32 a0 = 0.f;
+		TraitCentre(m, 1u, c0, a0);
+		const uint32 avant = m.CompteTrait(1u);
+
+	//   BEVEL SUR TOUT LE CUBE : l'operation ne sait rien du trait, et c'est
+	//   le but -- aucune operation n'a ete modifiee pour lui.
+		m.SelectAll();
+		NkBevelParams bp;
+		bp.offset = 0.15f;
+		bp.segments = 3;
+		const bool okb = m.BevelSelected(bp, nullptr);
+		NkVec3f c1;
+		float32 a1 = 0.f;
+		TraitCentre(m, 1u, c1, a1);
+		const uint32 apres = m.CompteTrait(1u);
+		const float32 dep = (c1 - c0).Len();
+		const float32 diagC = BBoxDiag(m);
+		snprintf(d, sizeof(d), "faces %u -> %u   centre deplace de %.4f (%.2f %% de la diag)",
+				 (unsigned)avant, (unsigned)apres, (double)dep,
+				 (double)(dep / diagC * 100.f));
+	//   LE SEUIL EST ECRIT : 5 % de la diagonale. Le centre BOUGE forcement un
+	//   peu -- le biseau rogne les bords des faces tracees -- mais un trait qui
+	//   aurait change de face se deplacerait de bien plus.
+		Check(okb && apres > 0u && dep < diagC * 0.05f,
+			  "trait : toujours au MEME ENDROIT apres bevel", d);
+
+	//   L'AIRE TRACEE SUIT LA SURFACE. Si le trait avait saute sur d'autres
+	//   faces, sa part de l'aire totale aurait change franchement.
+		float32 aTot = 0.f;
+		for (uint32 f = 0; f < m.FaceCount(); ++f)
+			if (m.faces[f].alive)
+				aTot += m.FaceArea((NkEmId)f);
+		const float32 part = (aTot > 0.f) ? (a1 / aTot) : 0.f;
+		snprintf(d, sizeof(d), "aire tracee %.4f sur %.4f = %.1f %% de la surface",
+				 (double)a1, (double)aTot, (double)(part * 100.f));
+		Check(part > 0.005f && part < 0.30f, "trait : sa part de surface reste plausible", d);
+
+	//   LE NEGATIF.
+		NkEditMesh m2;
+		MakeCube(v, idx);
+		m2.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+		const uint32 loin = m2.TraceTrait(NkVec3f{50.f, 50.f, 50.f}, 0.5f, 1u);
+		snprintf(d, sizeof(d), "%u face(s) marquee(s) a 50 unites du cube", (unsigned)loin);
+		Check(loin == 0u, "trait : un trace hors du maillage ne marque RIEN", d);
+
+	//   ET LA DESIGNATION : le trait devient la selection, donc les sept verbes
+	//   qui operent « sur la selection » s'y appliquent sans etre modifies.
+		const uint32 sel = m.SelectionnerTrait(1u);
+		uint32 selFaces = 0u;
+		for (uint32 f = 0; f < m.FaceCount(); ++f)
+			if (m.faces[f].alive && m.faces[f].sel)
+				++selFaces;
+		snprintf(d, sizeof(d), "%u face(s) tracee(s) -> %u selectionnee(s)",
+				 (unsigned)sel, (unsigned)selFaces);
+		Check(sel > 0u && selFaces == sel, "trait : la designation passe par sel", d);
+	}
+
+
+	// == LE SEUIL DE FINESSE : QUAND LE MAILLAGE EST TROP GROSSIER ===========
+	//
+	// La regle d'heritage a deux branches, toutes deux mesurees, et la tension
+	// n'a pas de cote gratuit : la DOMINANTE dilate le trait jusqu'a couvrir
+	// l'objet, l'UNANIMITE efface les traits plus petits que le grain du
+	// maillage. Une troisieme regle traiterait le symptome et se reglerait par
+	// un seuil que rien ne dicte.
+	//
+	// La vraie question n'est donc pas « quelle regle », mais « ce trait
+	// existe-t-il sur ce maillage ». On CHERCHE le seuil au lieu de le choisir :
+	// a partir de combien de faces le trait traverse-t-il un bevel ?
+	//
+	// [!] LE BALAYAGE VA DU TROP PETIT AU CONFORTABLE. S'il ne rougissait
+	//     jamais, il ne mesurerait rien -- on inclut donc exprès des rayons dont
+	//     on attend qu'ils echouent.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kR[6] = {0.05f, 0.10f, 0.15f, 0.20f, 0.30f, 0.45f};
+		int32 seuilFaces = -1;
+		for (int32 ri = 0; ri < 6; ++ri) {
+			MakeSphere(20, 20, v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			const uint32 avant = m.TraceTrait(m.verts[0].pos, kR[ri], 1u);
+			// LA LOI, PREDITE AVANT LA MESURE : le trait ne traverse une operation
+			// que s'il a au moins une face INTERIEURE (toutes voisines tracees).
+			// Si la prediction et l'observation divergeaient, ce serait la loi qui
+			// serait fausse, pas le seuil qui serait mal choisi.
+			const uint32 dedans = m.CompteTraitInterieur(1u);
+			m.SelectAll();
+			NkBevelParams bp;
+			bp.offset = 0.02f;
+			bp.segments = 2;
+			const bool ok = m.BevelSelected(bp, nullptr);
+			const uint32 apres = m.CompteTrait(1u);
+			char lab[112], det[192];
+			snprintf(lab, sizeof(lab), "seuil : trait de rayon %.2f", (double)kR[ri]);
+			snprintf(det, sizeof(det), "%u tracee(s), %u interieure(s) -> %u apres bevel%s",
+					 (unsigned)avant, (unsigned)dedans, (unsigned)apres,
+					 (ok ? "" : "  (bevel REFUSE)"));
+			if (apres > 0u && seuilFaces < 0)
+				seuilFaces = (int32)avant;
+	//     Pas de Check ici : on MESURE une frontiere, on ne juge pas encore.
+	//     Le critere vient juste apres, une fois le seuil connu.
+			printf("  [mesure] %-46s %s\n", lab, det);
+		}
+		char d2[192];
+		snprintf(d2, sizeof(d2), "le trait traverse le bevel a partir de %d face(s)",
+				 (int)seuilFaces);
+	//   LE CRITERE : un seuil DOIT exister et rester modeste. S'il fallait des
+	//   centaines de faces, l'unanimite serait inutilisable et la troisieme
+	//   regle se justifierait -- avec une loi pour la trancher, pas un confort.
+		Check(seuilFaces > 0 && seuilFaces <= 60, "seuil : il existe et reste modeste", d2);
+	}
 
 	printf("=== %d ok, %d ROUGE ===\n", gPass, gFail);
 	return (gFail == 0) ? 0 : 1;

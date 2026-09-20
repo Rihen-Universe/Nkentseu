@@ -136,6 +136,15 @@ namespace nkuidesign {
 		ComposantInconnu, ///< nomme un composant que le registre ignore
 		RejeuDivergent,	  ///< se charge, mais ne survit pas a l'aller-retour
 		GreffeRefusee,	  ///< la cible n'accepte pas (index invalide, cycle)
+		/// ⚠️ UN AJOUT QUI NE PEUT PAS SE POSER -- et il lui fallait son propre
+		///    verdict. Les gardes de l'increment (numero deja pris, deux points
+		///    d'accrochage, parent inexistant) rendaient `TexteNonConforme`, dont
+		///    le nom AFFICHE est « aucun document lisible dans la reponse ».
+		///    **C'etait faux** : le modele avait ecrit un ajout parfaitement
+		///    lisible, et c'est NOUS qui ne savions pas le poser. Le detail disait
+		///    vrai pendant que le nom mentait -- *deux messages pour un refus, et
+		///    c'est le plus visible qui se trompait.*
+		AjoutRefuse,
 		Count
 	};
 
@@ -153,6 +162,8 @@ namespace nkuidesign {
 				return "ne se rejoue pas a l'identique";
 			case NkAIVerdict::GreffeRefusee:
 				return "cible de greffe invalide";
+			case NkAIVerdict::AjoutRefuse:
+				return "l'ajout ne peut pas se poser";
 			default:
 				return "?";
 		}
@@ -164,6 +175,11 @@ namespace nkuidesign {
 			uint32 nodesAdded = 0;
 			uint32 unknownComponents = 0;
 			uint32 replayDiffs = 0; ///< rectangles qui divergent apres aller-retour
+			/// ⚠️ LE POINT D'ACCROCHAGE D'UN INCREMENT, -1 si la reponse etait un
+			///    document autonome. Il vient de la REPONSE (`parent = 41`), pas de
+			///    la selection : le modele dit ou il veut poser, et c'est lui qui a
+			///    raison -- la selection peut etre ailleurs, ou nulle part.
+			int32 cibleIncrement = -1;
 			NkString detail;
 
 			bool Accepted() const {
@@ -296,11 +312,18 @@ namespace nkuidesign {
 			///    le contrat engendre.
 			static inline bool structureParent = true;
 
+			/// ⚠️ `userAsk` N'ENTRE PLUS ICI — il est RAPPELE EN DERNIER, apres le
+			///    document courant, par `EcrireRequete` (champ `demande`).
+			///    Mesure du 20/09 : sur un document de 42 noeuds, le bloc
+			///    `--- document courant ---` occupait 84 % de l'invite et le
+			///    modele repondait au DOCUMENT. La demande est DEPLACEE, pas
+			///    dupliquee.
+			///    Le parametre reste dans la signature : `--contrat=` s'en sert
+			///    pour montrer la ligne au lecteur du contrat.
 			static void BuildPrompt(const char *userAsk, NkString &out) {
+				(void)userAsk;
 				out = NkString("Tu produis une INTERFACE pour NkUIDesign.\n\n");
-				out.Append("Demande : ");
-				out.Append(userAsk ? userAsk : "");
-				out.Append("\n\nReponds UNIQUEMENT par un document au format ci-dessous,\n");
+				out.Append("\nReponds UNIQUEMENT par un document au format ci-dessous,\n");
 				out.Append("sans explication, sans balise de code.\n\n");
 				out.Append("REGLE ABSOLUE : n'ecris JAMAIS de position ni de coordonnee.\n");
 				out.Append("La position se calcule ; tu declares des tailles et un agencement.\n\n");
@@ -475,9 +498,17 @@ namespace nkuidesign {
 					return res;
 				}
 				NkUIDocument scratch;
-				if (!ValidateReply(replyText, scratch, res))
+				// `&doc` : c'est ce qui ouvre le chemin de l'INCREMENT. Sans lui,
+				// `ValidateReply` ne peut pas savoir quels noeuds existent.
+				if (!ValidateReply(replyText, scratch, res, &doc))
 					return res;
-				Graft(scratch, doc, targetParent, origin, res);
+				// ⚠️ LA CIBLE VIENT DE LA REPONSE, PAS DE LA SELECTION. Le modele a
+				//    dit `parent = 41` : poser ailleurs serait poser ou personne
+				//    n'a demande.
+				if (res.cibleIncrement >= 0)
+					GrefferIncrement(scratch, doc, res.cibleIncrement, origin, res);
+				else
+					Graft(scratch, doc, targetParent, origin, res);
 				return res;
 			}
 
@@ -503,10 +534,95 @@ namespace nkuidesign {
 			///    qui rebatirait l'invite de son cote enverrait autre chose --
 			///    c'est exactement la faute que `dXX_invite.txt` a coutee cette
 			///    nuit : deux ecritures de la meme regle, et elles divergent.
+			/// ⚠️ LE SEUIL AU-DELA DUQUEL LE DOCUMENT PART EN RESUME. Il n'est pas
+			///    choisi au doigt : mesure du 20/09, meme demande, meme modele,
+			///    temperature 0 --
+			///      11 noeuds (3 704 o de document, 57 % de l'invite)  ACCEPTEE
+			///      27 noeuds (9 681 o, 78 %)                          REFUSEE
+			///      42 noeuds (14 957 o, 84 %)                         REFUSEE
+			///    Le basculement est entre 57 % et 78 %. 4 000 octets tient juste
+			///    au-dessus de la derniere valeur qui passe.
+			static const uint32 kSeuilDocumentEntier = 4000u;
+
+			/// Le noeud que l'utilisateur a sous la main. -1 = aucun. C'est
+			/// l'appelant qui le pose : lui seul sait ce qui est selectionne.
+			int32 selectionCourante = -1;
+
+			/// Le document POUR L'INVITE : entier s'il est court, sinon RESUME --
+			/// le squelette de tous les noeuds, et le noeud SELECTIONNE en entier.
+			///
+			/// ⚠️ IL EST DERIVE DE `Save`, PAS REECRIT. Composer un squelette ligne
+			///    a ligne serait une seconde ecriture du format, et elle divergerait
+			///    au premier champ ajoute -- la faute payee trois fois cette nuit
+			///    (`dXX_invite.txt`, le dorsal fichier, l'invite de l'interface).
+			///    On FILTRE la sortie du vrai ecrivain.
+			///
+			/// ⚠️ ET LA MUTITE EST DECLAREE DANS L'INVITE ELLE-MEME : un resume muet
+			///    ferait repondre le modele sur une geometrie qu'il n'a pas vue.
+			///    Mesure : squelette seul 30 % de l'invite, avec le noeud
+			///    selectionne entier 37 % -- **3 points pour sauver les demandes qui
+			///    visent ce qu'on a sous la main**, tres loin du seuil de 57 %.
+			static void DocumentPourInvite(const NkUIDocument &doc, int32 selection,
+										   NkString &out) {
+				NkString complet;
+				doc.Save(complet);
+				if (complet.Length() <= kSeuilDocumentEntier) {
+					out = complet;
+					return;
+				}
+				out = NkString("");
+				const char *p = complet.Data();
+				int32 courant = -1;	 // le numero du bloc qu'on traverse
+				bool resume = false; // a-t-on laisse tomber au moins une ligne ?
+				while (*p) {
+					const char *fin = p;
+					while (*fin && *fin != '\n')
+						++fin;
+					char ligne[512];
+					uint32 k = 0;
+					for (const char *q = p; q < fin && k + 1 < sizeof(ligne); ++q)
+						ligne[k++] = *q;
+					ligne[k] = 0;
+					const char *s = ligne;
+					while (*s == ' ' || *s == '\t')
+						++s;
+					bool garder = true;
+					if (CommencePar2(s, "noeud ")) {
+						courant = LireEntier(s + 6);
+					} else if (courant >= 0 && courant != selection) {
+						// Dans un bloc NON selectionne : de quoi DESIGNER le noeud
+						// -- libelle, composant, rattachement. Pas sa geometrie.
+						garder = CommencePar2(s, "libelle") || CommencePar2(s, "composant") ||
+								 CommencePar2(s, "parent");
+						if (!garder && *s)
+							resume = true;
+					}
+					if (garder) {
+						out.Append(ligne);
+						out.Append("\n");
+					}
+					p = *fin ? fin + 1 : fin;
+				}
+				if (resume) {
+					out.Append("\n(document RESUME : chaque noeud porte son numero, son libelle,\n"
+							   "son composant et son rattachement. Les tailles, positions et\n"
+							   "apparences ne sont PAS montrees");
+					if (doc.IsValidIndex(selection)) {
+						char b[96];
+						snprintf(b, sizeof(b), ", sauf pour le noeud %d, donne en entier",
+								 (int)selection);
+						out.Append(b);
+					}
+					out.Append(".)\n");
+				}
+			}
+
 			void BatirRequete(const char *userAsk, NkUIDocument &doc, NkDesignRequest &req) const {
 				BatirInviteComplete(userAsk, req.prompt);
 				BuildCatalog(req.catalog, catalogueBref);
-				doc.Save(req.currentDoc);
+				DocumentPourInvite(doc, selectionCourante, req.currentDoc);
+				// La demande part EN DERNIER : voir `NkConverseRequest::demande`.
+				req.demande = NkString(userAsk ? userAsk : "");
 			}
 
 			/// L'invite TELLE QU'ELLE PART SUR LE FIL, batie par le MEME
@@ -532,7 +648,7 @@ namespace nkuidesign {
 			/// Poser une reponse DEJA OBTENUE comme proposition en attente.
 			/// C'est la queue de `Propose`, extraite pour que le chemin asynchrone
 			/// l'emprunte AU LIEU d'en ecrire une seconde.
-			NkAIResult PoserProposition(const char *replyText) {
+			NkAIResult PoserProposition(const char *replyText, const NkUIDocument *courant = nullptr) {
 				NkAIResult res;
 				DiscardProposal(); // une proposition chasse l'autre
 				mLastReply = NkString(replyText ? replyText : "");
@@ -541,8 +657,9 @@ namespace nkuidesign {
 					res.detail = NkString("le dorsal n'a rien rendu");
 					return res;
 				}
-				if (!ValidateReply(mLastReply.Data(), mPending, res))
+				if (!ValidateReply(mLastReply.Data(), mPending, res, courant))
 					return res;
+				mPendingCible = res.cibleIncrement; // -1 si document autonome
 				mHasPending = true;
 				mPendingOrigin = NkString(OrigineCourante());
 				res.verdict = NkAIVerdict::Acceptee;
@@ -590,7 +707,10 @@ namespace nkuidesign {
 					res.verdict = NkAIVerdict::GreffeRefusee;
 					return res;
 				}
-				Graft(mPending, doc, targetParent, mPendingOrigin.Data(), res);
+				if (mPendingCible >= 0)
+					GrefferIncrement(mPending, doc, mPendingCible, mPendingOrigin.Data(), res);
+				else
+					Graft(mPending, doc, targetParent, mPendingOrigin.Data(), res);
 				if (res.Accepted())
 					DiscardProposal();
 				return res;
@@ -600,6 +720,14 @@ namespace nkuidesign {
 			void DiscardProposal() {
 				mHasPending = false;
 				mPendingOrigin = NkString("");
+				// ⚠️ ET LA CIBLE AUSSI. Sans cette ligne, une proposition INCREMENT
+				//    jetee laisserait sa cible armee, et la proposition SUIVANTE --
+				//    un document autonome, qui doit aller sur la selection -- serait
+				//    posee sur le noeud de la precedente. C'est la troisieme fois de
+				//    la nuit que je croise cet etat rassis (`mLastReply`,
+				//    `enTeteCommentaire`, celui-ci) : *un etat qu'on ne remet pas a
+				//    zero se fait passer pour une donnee du geste suivant.*
+				mPendingCible = -1;
 			}
 
 			bool HasProposal() const {
@@ -712,12 +840,250 @@ namespace nkuidesign {
 			//
 			// Rend vrai si `scratch` porte un document charge, connu du registre
 			// et fidele au rejeu ; sinon remplit `res` avec la raison du refus.
-			bool ValidateReply(const char *replyText, NkUIDocument &scratch, NkAIResult &res) {
+			// ═══════════════════════════════════════════════════════════════════
+			//  L'INCREMENT — un DELTA sur le document ouvert
+			// ═══════════════════════════════════════════════════════════════════
+			//  ⚠️ LES QUATRE GARDES SONT CELLES DU DOCUMENT AUTONOME, APPLIQUEES A
+			//     UN DELTA. Mesurees sur les 16 increments du 20/09 :
+			//
+			//       (1) toute reference `parent` existe ou est creee ici   0/16 violent
+			//       (2) aucun orphelin, aucune seconde racine              0/16 violent
+			//       (3) aucun numero cree ne heurte un noeud existant      6/16 VIOLENT
+			//       (4) un seul point d'accrochage                        11/16 tiennent
+			//
+			//  🔴 (3) EST LA PLUS IMPORTANTE, ET CE N'EST PAS « deux fois le meme
+			//     numero ». 4 increments sur 16 CREENT un numero **et s'en servent
+			//     comme parent**, alors qu'il existe deja : « parent = 28 » designe
+			//     alors le noeud 28 du document, ou celui qu'on vient de creer --
+			//     **indecidable**. Trancher au jugé poserait le bouton sous le
+			//     mauvais parent une fois sur quatre, en silence, et ca ressemblerait
+			//     a un caprice du modele.
+			//
+			//     La regle qui rend le cas IRREPRESENTABLE (meme doctrine que
+			//     `parent` contre `enfants`) : *un increment ne numerote qu'AU-DESSUS
+			//     du plus grand noeud existant.* 10/16 le font deja naturellement ;
+			//     la regle ne contrarie presque personne, elle ferme une porte.
+			//
+			//  ⚠️ (4) N'EST PAS ELARGIE. 5/16 accrochent en PLUSIEURS points : c'est
+			//     une capacite reellement neuve, et elle est REFUSEE AVEC SON MOTIF.
+			//     *Un increment applique aux trois quarts serait pire que refuse.*
+			/// Decoupe un increment en blocs. Rend, pour chaque `noeud N` : son
+			/// numero, son `parent` (-1 s'il n'en a pas), et le RESTE du bloc
+			/// VERBATIM -- lignes `noeud` et `parent` retirees, tout le reste garde.
+			///
+			/// ⚠️ `[ \t]` ET JAMAIS `\s` DANS UN MOTIF DE LIGNE. Mon extracteur de
+			///    squelette a rendu « composant = largeur = expand 0 0 0 » ce matin
+			///    parce que `\s*` apres le `=` traverse le saut de ligne et avale la
+			///    ligne suivante. Ici on lit caractere par caractere, sans motif.
+			static bool DecouperIncrement(const char *texte, NkVector<int32> &numeros,
+										  NkVector<int32> &parents, NkVector<NkString> &corps) {
+				numeros.Clear();
+				parents.Clear();
+				corps.Clear();
+				if (!texte)
+					return false;
+				const char *p = texte;
+				bool dansBloc = false;
+				while (*p) {
+					const char *fin = p;
+					while (*fin && *fin != '\n')
+						++fin;
+					// la ligne, sans le retour chariot de Windows
+					char ligne[512];
+					uint32 k = 0;
+					for (const char *q = p; q < fin && k + 1 < sizeof(ligne); ++q)
+						if (*q != '\r')
+							ligne[k++] = *q;
+					ligne[k] = 0;
+					const char *s = ligne;
+					while (*s == ' ' || *s == '\t')
+						++s;
+					if (CommencePar2(s, "noeud ")) {
+						const int32 num = LireEntier(s + 6);
+						if (num < 0)
+							return false;
+						numeros.PushBack(num);
+						parents.PushBack(-1);
+						corps.PushBack(NkString(""));
+						dansBloc = true;
+					} else if (dansBloc && CommencePar2(s, "parent")) {
+						const char *v = s + 6;
+						while (*v == ' ' || *v == '\t' || *v == '=')
+							++v;
+						parents[(uint32)parents.Size() - 1] = LireEntier(v);
+					} else if (dansBloc && k > 0) {
+						NkString &c = corps[(uint32)corps.Size() - 1];
+						c.Append("  ");
+						c.Append(s);
+						c.Append("\n");
+					}
+					p = *fin ? fin + 1 : fin;
+				}
+				return numeros.Size() > 0;
+			}
+
+			static bool CommencePar2(const char *s, const char *p) {
+				for (uint32 i = 0; p[i]; ++i)
+					if (s[i] != p[i])
+						return false;
+				return true;
+			}
+			/// ⚠️ PAS `atoi` : il rend 0 sur « rien », et 0 est l'indice de la
+			///    RACINE. Une absence lue comme « racine » reparenterait tout.
+			static int32 LireEntier(const char *s) {
+				while (*s == ' ' || *s == '\t')
+					++s;
+				if (*s < '0' || *s > '9')
+					return -1;
+				int32 v = 0;
+				while (*s >= '0' && *s <= '9')
+					v = v * 10 + (int32)(*s++ - '0');
+				return v;
+			}
+
+			bool ValiderIncrement(const char *texte, const NkUIDocument &courant,
+								  NkUIDocument &scratch, NkAIResult &res) {
+				res.verdict = NkAIVerdict::AjoutRefuse;
+				const int32 nbCourant = (int32)courant.NodeCount();
+				if (nbCourant <= 0) {
+					res.detail = NkString("aucun document ouvert : il n'y a rien a completer");
+					return false;
+				}
+				// ── LIRE LES BLOCS `noeud N` ────────────────────────────────
+				NkVector<int32> numeros, parents;
+				NkVector<NkString> corps;
+				if (!DecouperIncrement(texte, numeros, parents, corps) || numeros.Size() == 0) {
+					// Aucun ajout du tout : ce n'est pas « l'ajout ne se pose pas »,
+					// c'est « il n'y a pas d'ajout ». Deux choses differentes.
+					res.verdict = NkAIVerdict::TexteNonConforme;
+					res.detail = NkString(
+						"le modele a repondu en phrases au lieu de dessiner une "
+						"interface. Essayez de decrire les ZONES de l'ecran "
+						"(« a gauche… au centre… en bas… »), ou decoupez la demande "
+						"en deux ecrans plus simples, puis reessayez.");
+					return false;
+				}
+				const uint32 n = (uint32)numeros.Size();
+
+				// ── (3) LA NUMEROTATION, ET C'EST ELLE QUI FERME L'INDECIDABLE ──
+				for (uint32 i = 0; i < n; ++i)
+					if (numeros[i] < nbCourant) {
+						char b[224];
+						snprintf(b, sizeof(b),
+								 "la reponse cree un noeud %d alors que le document en "
+								 "compte deja %d : impossible de savoir si elle veut le "
+								 "noeud existant ou un nouveau. Rien n'a ete pose.",
+								 (int)numeros[i], (int)nbCourant);
+						res.detail = NkString(b);
+						return false;
+					}
+				for (uint32 i = 0; i < n; ++i)
+					for (uint32 j = i + 1; j < n; ++j)
+						if (numeros[i] == numeros[j]) {
+							res.detail = NkString("la reponse cree deux fois le meme numero "
+												  "de noeud. Rien n'a ete pose.");
+							return false;
+						}
+
+				// ── (1) ET (4) : OU CA S'ACCROCHE ───────────────────────────
+				int32 cible = -1;
+				for (uint32 i = 0; i < n; ++i) {
+					const int32 p = parents[i];
+					if (p < 0) {
+						res.detail = NkString("un noeud de la reponse ne dit pas a quoi il "
+											  "se rattache. Rien n'a ete pose.");
+						return false;
+					}
+					if (p < nbCourant) { // un noeud du document ouvert
+						if (cible < 0)
+							cible = p;
+						else if (cible != p) {
+							char b[224];
+							snprintf(b, sizeof(b),
+									 "la reponse se rattache a DEUX endroits du document "
+									 "(noeuds %d et %d). L'outil ne sait poser qu'a un seul "
+									 "endroit a la fois : rien n'a ete pose.",
+									 (int)cible, (int)p);
+							res.detail = NkString(b);
+							return false;
+						}
+						continue;
+					}
+					bool creeIci = false; // sinon, ce doit etre un noeud de l'increment
+					for (uint32 k = 0; k < n && !creeIci; ++k)
+						creeIci = (numeros[k] == p);
+					if (!creeIci) {
+						char b[192];
+						snprintf(b, sizeof(b),
+								 "la reponse se rattache a un noeud %d qui n'existe nulle "
+								 "part. Rien n'a ete pose.", (int)p);
+						res.detail = NkString(b);
+						return false;
+					}
+				}
+				if (cible < 0) {
+					res.detail = NkString("la reponse ne se rattache a aucun noeud du document "
+										  "ouvert. Rien n'a ete pose.");
+					return false;
+				}
+
+				// ── RENUMEROTER VERS UN DOCUMENT DE COTE ────────────────────
+				// ⚠️ ON NE REECRIT QUE LES DEUX LIGNES QU'ON CONTROLE (`noeud` et
+				//    `parent`) : tout le reste du bloc part VERBATIM. Reserialiser
+				//    le noeud ici serait une seconde ecriture du format, et elle
+				//    divergerait au premier champ ajoute.
+				// Le noeud 0 du document de cote est une RACINE JETABLE : elle n'est
+				// jamais greffee, ce sont ses enfants qu'on pose (voir `GrefferIncrement`).
+				NkString t("nkuidoc 1\ntitre = Increment\nnoeud 0\n  libelle = Increment\n"
+						   "  composant = \n  largeur = expand 1 0 0\n  hauteur = expand 1 0 0\n");
+				for (uint32 i = 0; i < n; ++i) {
+					char e[48];
+					snprintf(e, sizeof(e), "noeud %u\n", (unsigned)(i + 1));
+					t.Append(e);
+					const int32 p = parents[i];
+					int32 pLocal = 0; // externe -> la racine jetable
+					if (p >= nbCourant)
+						for (uint32 k = 0; k < n; ++k)
+							if (numeros[k] == p)
+								pLocal = (int32)(k + 1);
+					snprintf(e, sizeof(e), "  parent = %d\n", (int)pLocal);
+					t.Append(e);
+					t.Append(corps[i]);
+				}
+
+				uint32 inconnus = 0;
+				if (!scratch.Load(t.CStr(), &inconnus) || scratch.NodeCount() == 0) {
+					res.detail = NkString("la reponse ne se relit pas comme un ajout coherent. "
+										  "Rien n'a ete pose.");
+					return false;
+				}
+				res.unknownComponents = inconnus;
+				if (inconnus > 0 || !NkUIDocument::CanGraft(scratch, 0)) {
+					res.verdict = NkAIVerdict::ComposantInconnu;
+					return false;
+				}
+				res.cibleIncrement = cible;
+				res.verdict = NkAIVerdict::Acceptee;
+				return true;
+			}
+
+			bool ValidateReply(const char *replyText, NkUIDocument &scratch, NkAIResult &res,
+							   const NkUIDocument *courant = nullptr) {
 				// 1. Extraire le document de la reponse. Un modele encadre
 				//    volontiers sa sortie de commentaires ou de balises : on part
 				//    de la premiere ligne `nkuidoc`. Si elle n'y est pas, c'est
 				//    non — on ne devine pas ce qu'il a voulu dire.
 				const char *body = FindHeader(replyText);
+				// ⚠️ L'INCREMENT : LE MODELE FAIT LA CHOSE JUSTE, ET ON LA REFUSAIT.
+				//    Mesure du 20/09, 30 demandes sur le document de 42 noeuds de
+				//    Rodolf : sur 16 reponses rendues, **16 sont des INCREMENTS** --
+				//    des lignes `noeud`, aucun en-tete `nkuidoc`. Zero prose.
+				//    Demander « ajoute un bouton » a un modele qui voit le document
+				//    produit un DELTA, pas un document autonome : c'est le bon
+				//    comportement, et notre validateur l'appelait « pas de document
+				//    lisible ».
+				if (!body && courant)
+					return ValiderIncrement(replyText, *courant, scratch, res);
 				if (!body) {
 					// ⚠️ LE MESSAGE PARLAIT DE NOTRE FORMAT, PAS DE CE QU'IL PEUT
 					//    FAIRE. « pas de ligne `nkuidoc` » nomme un detail interne
@@ -805,6 +1171,47 @@ namespace nkuidesign {
 			// La porte — la MEME que la main — puis le tampon « rejouee » : il
 			// est pose parce que le rejeu a EU LIEU dans `ValidateReply`, pas
 			// parce que ca vient de l'IA.
+			/// Poser un INCREMENT : ce ne sont PAS le sous-arbre de la racine
+			/// jetable qu'on greffe, ce sont SES ENFANTS, un par un, sur la cible
+			/// que la reponse a nommee.
+			///
+			/// ⚠️ TOUT OU RIEN, ET C'EST VERIFIE AVANT DE TOUCHER AU DOCUMENT.
+			///    `GraftFrom` verifie deja chaque sous-arbre, mais une boucle qui
+			///    verifierait au fil de l'eau poserait les deux premiers noeuds
+			///    puis refuserait le troisieme -- *« une greffe a moitie faite
+			///    laisserait un document que personne n'a voulu »*, et la promesse
+			///    « une seule operation annulable » de la carte deviendrait fausse
+			///    exactement quand elle compte.
+			void GrefferIncrement(const NkUIDocument &scratch, NkUIDocument &doc, int32 cible,
+								  const char *origin, NkAIResult &res) {
+				if (!scratch.IsValidIndex(0) || !doc.IsValidIndex(cible)) {
+					res.verdict = NkAIVerdict::GreffeRefusee;
+					return;
+				}
+				const NkVector<int32> &tetes = scratch.nodes[0].children;
+				for (uint32 i = 0; i < (uint32)tetes.Size(); ++i)
+					if (!NkUIDocument::CanGraft(scratch, tetes[i])) {
+						res.verdict = NkAIVerdict::ComposantInconnu;
+						return;
+					}
+				const uint32 before = doc.NodeCount();
+				int32 premier = -1;
+				for (uint32 i = 0; i < (uint32)tetes.Size(); ++i) {
+					const int32 r = doc.GraftFrom(scratch, tetes[i], cible, true, NkAuthor::IA,
+												  origin);
+					if (r < 0) { // ne doit pas arriver : tout a ete verifie au-dessus
+						res.verdict = NkAIVerdict::GreffeRefusee;
+						return;
+					}
+					doc.MarkVerified(r);
+					if (premier < 0)
+						premier = r;
+				}
+				res.verdict = NkAIVerdict::Acceptee;
+				res.graftedRoot = premier;
+				res.nodesAdded = doc.NodeCount() - before;
+			}
+
 			void Graft(const NkUIDocument &scratch, NkUIDocument &doc, int32 targetParent,
 					   const char *origin, NkAIResult &res) {
 				const uint32 before = doc.NodeCount();
@@ -878,6 +1285,10 @@ namespace nkuidesign {
 			NkUIDocument mPending;
 			NkString mPendingOrigin;
 			bool mHasPending = false;
+			/// Le point d'accrochage d'un increment en attente, -1 si la proposition
+			/// est un document autonome. Il voyage avec `mPending` : le perdre ferait
+			/// poser a la selection, c'est-a-dire ailleurs que ce que la reponse dit.
+			int32 mPendingCible = -1;
 	};
 
 } // namespace nkuidesign

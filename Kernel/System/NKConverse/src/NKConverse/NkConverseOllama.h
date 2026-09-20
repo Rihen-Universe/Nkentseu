@@ -51,7 +51,39 @@ namespace nkentseu::converse {
 			///    69,2 s au total. Le defaut de `NkHTTPClient` est 10 s -- il
 			///    aurait fait echouer TOUTES les premieres courses, et on aurait
 			///    conclu « Ollama ne marche pas » en mesurant notre propre delai.
-			nkentseu::uint32 delaiMs = 300000u;
+			///
+			/// ⚠️ ET IL EST REGLABLE PAR `NK_OLLAMA_DELAI`, LU ICI ET NULLE PART
+			///    AILLEURS. Le banc le lisait de son cote : deux lecteurs du meme
+			///    reglage, donc l'application n'en beneficiait pas. *Un reglage lu
+			///    a deux endroits finit par valoir deux choses.*
+			///
+			/// 🔴 POURQUOI IL DOIT ETRE REGLABLE, MESURE DU 20/09 : sur 30 demandes,
+			///    9 ont depasse 300 s. Rejouees, **8 rendent en 10 a 48 secondes**
+			///    -- cinq a trente fois sous le plafond. Le plafond refusait donc du
+			///    BRUIT DE MACHINE et l'inscrivait au passif de l'outil.
+			///    *Un plafond qui refuse du bruit est un plafond qui ment sur
+			///    l'outil.* Une seule demande (`e26`) resiste a 900 s.
+			///
+			/// ⚠️ LE DEFAUT NE BOUGE PAS. Le porter en silence a 900 s ferait
+			///    attendre l'utilisateur un quart d'heure devant une fenetre qu'il
+			///    croirait gelee -- le defaut ferme ce matin, rouvert par l'autre
+			///    bout. Qui veut attendre plus longtemps le DIT.
+			nkentseu::uint32 delaiMs = LireDelaiReglage();
+
+			static nkentseu::uint32 LireDelaiReglage() {
+				const char *v = std::getenv("NK_OLLAMA_DELAI");
+				if (!v || !*v)
+					return 300000u;
+				// Pas `atoi` : on veut distinguer « absent » de « zero », et un
+				// zero rendrait toute requete impossible sans le dire.
+				nkentseu::uint32 n = 0u;
+				for (const char *p = v; *p; ++p) {
+					if (*p < '0' || *p > '9')
+						return 300000u;
+					n = n * 10u + (nkentseu::uint32)(*p - '0');
+				}
+				return n > 0u ? n : 300000u;
+			}
 			/// ⚠️ LA TEMPERATURE EST UN REGLAGE, ET ELLE DECIDE SI UNE MESURE EST UNE
 			///    MESURE. Mesure du 19/09 : deux courses du MEME modele, de la MEME
 			///    invite et des MEMES douze demandes ont rendu 7/12 puis 5/12. *Une
@@ -103,13 +135,48 @@ namespace nkentseu::converse {
 				//     (erreur reseau) » -- a distinguer d'un code HTTP d'erreur,
 				//     qui prouve au contraire que quelqu'un a repondu.
 				if (r.statusCode == 0u) {
-					out.error = NkString("REFUS : le service ne repond pas a ");
+					// 🔴 DEUX SILENCES QUI N'ONT RIEN A VOIR, ET ON LES CONFONDAIT.
+					//    « personne n'ecoute » et « NOUS avons cesse d'attendre »
+					//    portaient le meme message -- « le service ne repond pas
+					//    (le service est-il lance ?) ». Le second est FAUX : le
+					//    service tourne, c'est notre plafond qui a tranche.
+					//    Mesure du 20/09 : 8 depassements sur 9 rendent en 10 a 48 s
+					//    quand on rejoue. *Le plafond est une decision de notre
+					//    part, pas un fait sur le modele.*
+					const bool plafond = r.error.Find("timeout", 0) != NkString::npos ||
+										 r.error.Find("Timeout", 0) != NkString::npos;
+					if (plafond) {
+						// ⚠️ LE GESTE QUI REPARE EN TETE. Un message se tronque a
+						//    l'affichage, et ce qui survit doit etre ce qu'on peut
+						//    FAIRE -- pas la plainte. Lecon payee par le modeleur
+						//    ce matin.
+						// ⚠️ « 1 secondes » : un message d'erreur qui ecorche la
+						//    langue se lit comme un message qu'on n'a pas relu.
+						//    Sous 10 s on donne une decimale, sinon l'entier, et
+						//    l'accord suit.
+						char duree[40];
+						if (delaiMs < 10000u)
+							snprintf(duree, sizeof(duree), "%.1f seconde%s",
+									 (double)delaiMs / 1000.0, delaiMs >= 2000u ? "s" : "");
+						else
+							snprintf(duree, sizeof(duree), "%u secondes",
+									 (unsigned)(delaiMs / 1000u));
+						char b[256];
+						snprintf(b, sizeof(b),
+								 "Reessayez : pas de reponse en %s. C'est NOTRE plafond "
+								 "d'attente, pas une panne du modele -- il repond souvent au "
+								 "second essai. (reglable par NK_OLLAMA_DELAI, en millisecondes)",
+								 duree);
+						out.error = NkString(b);
+						return false;
+					}
+					out.error = NkString("Verifiez que le service de modeles est lance : "
+										 "personne ne repond a ");
 					out.error.Append(url);
 					if (r.error.Length() > 0) {
 						out.error.Append(" -- ");
 						out.error.Append(r.error);
 					}
-					out.error.Append(" (le service est-il lance ?)");
 					return false;
 				}
 
