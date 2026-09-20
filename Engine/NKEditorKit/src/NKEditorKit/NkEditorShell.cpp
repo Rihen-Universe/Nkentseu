@@ -2012,11 +2012,24 @@ namespace nkentseu {
 					const char *v = getenv("NK_PORTES_MUTATION");
 					return v && v[0] == 't';
 				}();
-				const NkRect reclame = (mUI.dragActive && !kMutationTiroir) ? d : corps;
+				// (20/09) LES DEUX COMPORTEMENTS SUIVENT LE MODE DECLARE, ET LA
+				//   DECISION N'EST PLUS ICI. Elle vit dans `TiroirVoile` et
+				//   `TiroirReclameLeCorps`, qui sont des fonctions PURES : tant
+				//   qu'elle etait dans ce peintre, elle n'etait atteignable qu'avec
+				//   une fenetre, donc jamais mesuree -- et c'est pour ca qu un voile
+				//   sans usage modal a survecu si longtemps a cote d'un panneau
+				//   qu'il empechait d'utiliser.
+				const NkEditorTiroirMode mode = mRailItems[slot][i].mode;
+				const bool reclameCorps =
+					NkEditorTiroirReclameLeCorps(mode, mUI.dragActive) || kMutationTiroir;
+				const NkRect reclame = reclameCorps ? corps : d;
 				NkSurfaceFlottante _tiroir(mUI, reclame, NkCouche::Menu, NkPriseClavier::Non);
-				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
-				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
-				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
+				// Le voile dit « reponds a ceci avant de continuer ». Un panneau de
+				// CONVERSATION ne dit pas ca : on y tape en regardant ce qu'on
+				// modifie. Rodolf, 20/09 : le tiroir assombrissait toute sa toile
+				// pendant qu'il demandait de la modifier.
+				if (NkEditorTiroirVoile(mode))
+					mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
 				mUI.dlOverlay.AddRectFilled(d, mUI.theme.panel, 6.f);
 				mUI.dlOverlay.AddRect(d, mUI.theme.border, 1.f, 6.f);
 
