@@ -40,6 +40,8 @@
 
 #include "NKGui/Core/NkGuiDrawListRaster.h" // LE rasteriseur de la maison (la pipette le PILOTE)
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/NkAiThreadLayout.h" // le PLAN du fil, commun aux applications
+#include "NKEditorKit/NkAiThreadPaint.h"  // sa transcription en commandes
 #include "NKEditorKit/Components/NkComponentRole.h" // LE catalogue de roles du kit --
 // la seule table qui porte les EVENEMENTS exiges et le masque d'ETATS (mesure Q155)
 #include "NKEditorKit/NkFilePickerNav.h"
@@ -9568,6 +9570,18 @@ namespace nkuidesign {
 			//    defaut lui-meme, pas un desagrement.
 			explicit AIPanel(DesignState *st)
 				: NkEditorPanel("ia", "IA", NkEditorDockSide::NK_RIGHT), mSt(st) {
+				// ⚠️ LES REGLAGES DU FIL SONT DECLARES ICI, PAS HERITES.
+				//    Lecon payee le 20/09 sur NK3DModeler : sa fenetre de 16 blocs
+				//    serait passee a 200 EN SILENCE, parce que c'est le defaut du kit.
+				//    Ce panneau n'avait AUCUN fil, donc aucun plafond a preserver -- et
+				//    c'est precisement pour ca qu'il faut l'ecrire : un defaut hérité
+				//    sans decision est indiscernable d'un defaut choisi.
+				//    200 est le defaut du kit et il convient ici : ce panneau ne pousse
+				//    qu'une phrase par geste, pas une par etape d'outil.
+				editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
+				cap.produitRefus = true; // « RIEN N'EST PARTI — <motif> »
+				mFil.Declarer(cap);
+				mFil.PoserPlafond(200);
 				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
 				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
 				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
@@ -9618,7 +9632,7 @@ namespace nkuidesign {
 				//    a chaque image meme quand ce panneau n'est pas dessine. On ne
 				//    fait que RELEVER ce que la recolte a ecrit.
 				if (mSt->messageIA.Length() > 0) {
-					mLast = mSt->messageIA;
+					Dire(mSt->messageIA.Data() ? mSt->messageIA.Data() : "");
 					mSt->messageIA = NkString("");
 				}
 				if (mSt->proposerInitial) { // mise en scene : une proposition prete
@@ -9796,7 +9810,7 @@ namespace nkuidesign {
 						if (ec.Button("Revenir au dorsal local")) {
 							mSt->ai.SetBackend(mSt->dorsalLocal ? mSt->dorsalLocal
 															   : (NkIDesignBackend *)&mSt->fileBackend);
-							mLast = NkString("Dorsal local — plus rien ne quitte cette machine.");
+							Dire("Dorsal local — plus rien ne quitte cette machine.");
 						}
 					} else {
 						NkString quoiFaire;
@@ -9807,7 +9821,7 @@ namespace nkuidesign {
 						if (pret) {
 							if (ec.Button("Passer a Claude (SERVICE DISTANT)")) {
 								mSt->ai.SetBackend(&mSt->claudeBackend);
-								mLast = NkString("Dorsal Claude — a partir de maintenant, l'invite "
+								Dire("Dorsal Claude — a partir de maintenant, l'invite "
 												 "ET le document courant QUITTENT cette machine.");
 							}
 						} else {
@@ -9836,7 +9850,7 @@ namespace nkuidesign {
 					ec.Text(b);
 					if (ec.Button("Annuler la generation")) {
 						mSt->envoi.Annuler();
-						mLast = NkString("Generation annulee — sa reponse ne sera "
+						Dire("Generation annulee — sa reponse ne sera "
 										 "jamais posee dans la discussion.");
 					}
 				} else {
@@ -9869,13 +9883,13 @@ namespace nkuidesign {
 					mOutilsAvances = !mOutilsAvances;
 				if (!mOutilsAvances) {
 					ec.Separator();
-					ec.Text(mLast.Data() ? mLast.Data() : "");
+					PeindreFil(ec);
 					return;
 				}
 
 				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
 					mSt->conversation.Effacer();
-					mLast = NkString("Discussion effacee — le document n'a pas bouge.");
+					Dire("Discussion effacee — le document n'a pas bouge.");
 				}
 				// ⚠️ « Envoyer » VIT ICI DESORMAIS, et il garde son sens exact :
 				//    il DISCUTE, son invite interdit au modele de produire un
@@ -9916,7 +9930,7 @@ namespace nkuidesign {
 					if (ec.Button("Detacher la specification")) {
 						mSt->ai.specTexte = NkString("");
 						mSt->ai.specOrigine = NkString("");
-						mLast = NkString("Specification detachee — les prochaines greffes "
+						Dire("Specification detachee — les prochaines greffes "
 										 "porteront de nouveau le nom du dorsal.");
 					}
 				}
@@ -9977,7 +9991,7 @@ namespace nkuidesign {
 							Appliquer();
 						else if (NkGuiRectContains(rr, ctx.input.mousePos)) {
 							mSt->ai.DiscardProposal();
-							mLast = NkString("Proposition rejetée — rien n'a changé.");
+							Dire("Proposition rejetée — rien n'a changé.");
 						}
 					}
 				}
@@ -10006,7 +10020,7 @@ namespace nkuidesign {
 					ec.Text(ba);
 					if (ec.Button("Annuler la génération")) {
 						mSt->envoi.Annuler();
-						mLast = NkString("Génération annulée — sa réponse ne sera jamais posée.");
+						Dire("Génération annulée — sa réponse ne sera jamais posée.");
 					}
 				} else if (ec.Button("Proposer (aperçu)")) {
 					Proposer();
@@ -10016,7 +10030,54 @@ namespace nkuidesign {
 				if (ec.Button("Vérifier le document par rejeu"))
 					Replay();
 				ec.Separator();
-				ec.Text(mLast.Data() ? mLast.Data() : "");
+				PeindreFil(ec);
+			}
+
+			// ── LE FIL ────────────────────────────────────
+			/// Pose une phrase dans le fil. Remplace `mLast = ...`, a 24 sites.
+			/// ⚠️ Toutes en `Prose`, et c'est DELIBERE : ces phrases sont des etats
+			///    de la chaine (« Generation lancee », « Discussion effacee »), pas
+			///    des refus nommes. Les typer en `Refus` parce que certaines sonnent
+			///    negatif serait inventer une distinction que le code ne fait pas.
+			///    Le seul vrai refus de ce panneau -- « RIEN N'EST PARTI » -- porte
+			///    son motif et passe par `DireRefus`.
+			void Dire(const NkString &t) {
+				editorkit::NkAiBlocDonnees b;
+				b.type = editorkit::NkAiBloc::Prose;
+				b.texte = t;
+				NkString pourquoi;
+				(void)mFil.Pousser(b, pourquoi);
+			}
+			void Dire(const char *t) {
+				Dire(NkString(t ? t : ""));
+			}
+			/// Le refus NOMME, avec son motif -- une reponse, pas une panne.
+			void DireRefus(const char *motif) {
+				editorkit::NkAiBlocDonnees b;
+				b.type = editorkit::NkAiBloc::Refus;
+				b.motif = NkString(motif ? motif : "raison non nommee");
+				NkString pourquoi;
+				(void)mFil.Pousser(b, pourquoi);
+			}
+			/// La mesure de texte que le plan demande, servie par la fonte du costume.
+			static float32 MesurerTexte(void *, editorkit::NkAiPolice, const char *t) {
+				return costume::Largeur(costume::Fontes().px11, t ? t : "");
+			}
+			// ⚠️ CE PANNEAU NE DESSINE PLUS SON FIL. La geometrie vient de
+			//    `NkAiFilMesurer`, la peinture de `NkAiFilPeindre` -- les memes que
+			//    NK3DModeler. Trois panneaux conformes aujourd'hui divergent en un
+			//    mois ; un composant partage ne le peut pas.
+			void PeindreFil(NkEditorFrameContext &ec) {
+				auto &ctx = ec.Ui();
+				if (mFil.Taille() == 0)
+					return; // rien a dire : on ne reserve meme pas la place
+				editorkit::NkAiMetriques metr;
+				editorkit::NkAiFilMesurer(mFil, ctx.ContentWidth(), metr, MesurerTexte, nullptr, mPlan);
+				const NkRect r = ctx.NextItemRect(-1.f, mPlan.Hauteur());
+				editorkit::NkGuiComponentPaint pc(ctx, mSt->theme);
+				editorkit::NkAiFilPeindre(pc, mFil, mPlan, r.x, r.y);
+				// La marque se consomme LA OU LES BLOCS SONT PEINTS, jamais au clic.
+				mFil.MarquerVus();
 			}
 
 		private:
@@ -10062,14 +10123,14 @@ namespace nkuidesign {
 				NkString pourquoi;
 				if (mSt->LancerGenerationIA(mSt->chatBuf, pourquoi)) {
 					mSt->chatBuf[0] = 0;
-					mLast = NkString("Generation du document lancee — la fenetre reste vivante.");
+					Dire("Generation du document lancee — la fenetre reste vivante.");
 				} else {
 					// Le refus est NOMME a l'ECRAN, pas seulement au journal : un
 					// bouton qui ne fait rien sans rien dire est le pire des deux.
 					char b[320];
 					snprintf(b, sizeof(b), "REFUS — %s",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					mLast = NkString(b);
+					Dire(b);
 				}
 			}
 
@@ -10081,7 +10142,7 @@ namespace nkuidesign {
 				NkString pourquoi;
 				if (mSt->LancerDemandeIA(mSt->chatBuf, pourquoi)) {
 					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
-					mLast = NkString("Generation lancee — la fenetre reste vivante.");
+					Dire("Generation lancee — la fenetre reste vivante.");
 				} else {
 					// ATTENTION : LE TOUR HUMAIN RESTE. Retirer ce que
 					// l'utilisateur vient de taper parce que le modele n'a pas
@@ -10090,7 +10151,7 @@ namespace nkuidesign {
 					char b[320];
 					snprintf(b, sizeof(b), "REFUS — %s",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					mLast = NkString(b);
+					Dire(b);
 				}
 			}
 
@@ -10153,7 +10214,7 @@ namespace nkuidesign {
 			// -- ECRIRE LA SPECIFICATION. Mecanique, sans dorsal.
 			void EcrireSpec() {
 				if (mSt->conversation.Vide()) {
-					mLast = NkString("Aucune discussion : il n'y a rien a specifier — "
+					Dire("Aucune discussion : il n'y a rien a specifier — "
 									 "et aucun fichier n'est ecrit.");
 					return;
 				}
@@ -10180,7 +10241,7 @@ namespace nkuidesign {
 								 "posee quand meme en memoire.",
 						 chemin, mSt->spec.CountExigences(),
 						 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
-				mLast = NkString(b);
+				Dire(b);
 			}
 
 			// -- AFFINER. N'ecrase les exigences QUE si le dorsal en rend.
@@ -10192,13 +10253,13 @@ namespace nkuidesign {
 					char b[160];
 					snprintf(b, sizeof(b), "Exigences affinees : %u.",
 							 mSt->spec.CountExigences());
-					mLast = NkString(b);
+					Dire(b);
 				} else {
 					char b[320];
 					snprintf(b, sizeof(b),
 							 "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					mLast = NkString(b);
+					Dire(b);
 				}
 			}
 
@@ -10213,14 +10274,14 @@ namespace nkuidesign {
 			void Proposer() {
 				NkString pourquoi;
 				if (mSt->LancerPropositionIA(mSt->promptBuf, pourquoi)) {
-					mLast = NkString("J'interroge le modèle… la fenêtre reste vivante, "
+					Dire("J'interroge le modèle… la fenêtre reste vivante, "
 									 "et « Annuler » arrête l'attente.");
 					return;
 				}
 				char b[256];
 				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
 						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
-				mLast = NkString(b);
+				DireRefus(b);
 			}
 			void Appliquer() {
 				const NkAIResult r = mSt->ai.CommitProposal(mSt->doc, mSt->selected);
@@ -10237,15 +10298,15 @@ namespace nkuidesign {
 					snprintf(b, sizeof(b), "GREFFE REFUSÉE — %s. La proposition reste en attente.",
 							 NkAIVerdictName(r.verdict));
 				}
-				mLast = NkString(b);
+				Dire(b);
 			}
 			void Retirer() {
 				if (NkDesignAI::Retract(mSt->doc, mDernierCommit)) {
 					mSt->host.SyncTo(mSt->doc);
 					mSt->SelectSingle(0);
-					mLast = NkString("Greffe retirée — le document est revenu à l'état d'avant.");
+					Dire("Greffe retirée — le document est revenu à l'état d'avant.");
 				} else {
-					mLast = NkString("RETRAIT REFUSÉ — le document a changé depuis la pose.");
+					Dire("RETRAIT REFUSÉ — le document a changé depuis la pose.");
 				}
 				mDernierCommit = NkAIResult();
 			}
@@ -10260,21 +10321,21 @@ namespace nkuidesign {
 			void Ask() {
 				NkString pourquoi;
 				if (mSt->LancerGenerationIA(mSt->promptBuf, pourquoi)) {
-					mLast = NkString("J'interroge le modèle… la fenêtre reste vivante, "
+					Dire("J'interroge le modèle… la fenêtre reste vivante, "
 									 "et « Annuler » arrête l'attente.");
 					return;
 				}
 				char b[256];
 				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
 						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
-				mLast = NkString(b);
+				Dire(b);
 			}
 			void Replay() {
 				const uint32 diffs = NkDesignAI::ReplayDiffs(mSt->doc, mSt->ai.replaySurface);
 				char b[192];
 				snprintf(b, sizeof(b), "Rejeu du document : %u divergence(s)%s", diffs,
 						 diffs == 0 ? " — fidèle." : " — NON fidèle.");
-				mLast = NkString(b);
+				Dire(b);
 				if (diffs == 0)
 					mSt->doc.MarkVerified(0);
 			}
@@ -10282,7 +10343,13 @@ namespace nkuidesign {
 			/// Le depliage des outils avances. FERME par defaut : la surface
 			/// principale est un fil et une saisie, comme Rodolf l'a demande.
 			bool mOutilsAvances = false;
-			NkString mLast;
+			// ⚠️ `NkString mLast` A DISPARU. Ce panneau n'avait pas de fil : UNE
+			//    seule phrase, ecrasee a chaque tour. On ne voyait donc jamais ce
+			//    qui s'etait passe avant, et une reponse chassait la precedente
+			//    sans que rien ne le dise.
+			editorkit::NkAiFil mFil;
+			/// Le PLAN du fil, publie par la derniere passe de peinture.
+			editorkit::NkAiPlan mPlan;
 			NkAIResult mDernierCommit;
 			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
 			nkentseu::NkChrono mBancSyncHorloge;
