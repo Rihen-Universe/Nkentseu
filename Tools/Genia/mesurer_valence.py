@@ -11,9 +11,23 @@ for chemin in sys.argv[1:]:
         elif ligne.startswith('f '):
             F.append([int(t.split('/')[0]) - 1 for t in ligne.split()[1:]])
     V = np.array(V)
+    # ⚠️ TOLERANCE RELATIVE A LA DIAGONALE, et non absolue.
+    # Defaut trouve le 20/09 par l'agent retopologie dans SON code, et que cet
+    # instrument avait AUSSI : un seuil absolu de 1e-5 vaut 2,3e-6 de la
+    # diagonale sur un objet de 4 unites et 1e-8 sur un objet de 1000. Un seuil
+    # absolu NE VOYAGE PAS d'un modele a l'autre -- il mesure l'echelle du
+    # fichier autant que sa topologie.
+    # diagonale sur les sommets REELLEMENT REFERENCES : un orphelin lointain
+    # relacherait la tolerance partout ailleurs.
+    _u = np.unique(np.concatenate([np.asarray(f) for f in F])) if F else np.arange(len(V))
+    _u = _u[(_u >= 0) & (_u < len(V))]
+    _R = V[_u] if len(_u) else V
+    diag = float(np.linalg.norm(_R.max(axis=0) - _R.min(axis=0))) if len(_R) else 1.0
+    eps = max(diag * 1e-6, 1e-12)
     cle, rep = {}, np.empty(len(V), dtype=np.int64)
     for i, p in enumerate(V):
-        k = (round(float(p[0]),5), round(float(p[1]),5), round(float(p[2]),5))
+        k = (int(round(float(p[0]) / eps)), int(round(float(p[1]) / eps)),
+             int(round(float(p[2]) / eps)))
         if k not in cle: cle[k] = len(cle)
         rep[i] = cle[k]
     t = Counter(len(f) for f in F)
