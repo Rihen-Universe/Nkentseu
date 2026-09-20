@@ -21150,9 +21150,38 @@ namespace nkentseu {
 				// LE TRIO DE DEPART (Rihen) : un cube, une lumiere ponctuelle et
 				// une camera -- comme n'importe quel ajout utilisateur.
 				{
-					const int32 nCube = HostAllocUser(2);
-					if (nCube >= 0)
-						nkvpEmptyPos[nCube - kNkvpFirstEmpty][1] = 0.5f;
+					// ⚠️ LE CUBE DE DEPART PASSE PAR LA PORTE DES AJOUTS, et le commentaire
+					//    ci-dessus devient enfin vrai. Il disait « comme n'importe quel ajout
+					//    utilisateur » -- c'etait exactement ce qu'il N'ETAIT PAS :
+					//    `HostAllocUser` alloue le slot, rien de plus. `Demo3DHostAddNode`
+					//    alloue PUIS appelle `HostRegenUserMesh`, qui pose `nkvpUserMesh` et,
+					//    pour le cube, applique le repli generique ecrit sous le titre
+					//    « REGLE DE RODOLF : tout mesh doit pouvoir etre editable ».
+					//
+					// ⚠️ LA REGLE EXISTAIT, SUR L'AUTRE CHEMIN SEULEMENT. Mesure du 20/09 :
+					//    cube de depart meshOk=0 (139 refus), cube ajoute meshOk=1 (0 refus),
+					//    deux essais chacun. Rodolf est tombe dessus au PREMIER geste -- le
+					//    cube du demarrage est celui que tout le monde voit.
+					//    Une regle appliquee a un seul des deux chemins n'est pas une regle,
+					//    c'est un correctif ; et le commentaire qui AFFIRMAIT l'equivalence
+					//    l'a masquee, en donnant la reponse avant qu'on pose la question.
+					//
+					// LA POSITION EST REPOSEE EN ENTIER, pas seulement Y : Demo3DHostAddNode
+					// fait naitre au CURSEUR 3D. Il vaut (0,0,0) a la premiere image, donc la
+					// scene de depart ne bouge pas -- mais l'ecrire ne coute rien et cesse de
+					// dependre d'une valeur qui pourrait changer.
+					// ⚠️ SEUL LE CUBE CHANGE DE CHEMIN. La lumiere et la camera gardent le
+					//    leur : le trio leur pose des valeurs PROPRES (1000 W, positions,
+					//    sous-types) que Demo3DHostAddNode traite autrement -- y toucher
+					//    deplacerait un defaut au lieu d'en retirer un. Et la regle ne les
+					//    vise pas : elles n'ont aucune geometrie a editer.
+					const int32 nCube = Demo3DHostAddNode(2, 0);
+					if (nCube >= 0) {
+						const int32 eC = nCube - kNkvpFirstEmpty;
+						nkvpEmptyPos[eC][0] = 0.f;
+						nkvpEmptyPos[eC][1] = 0.5f;
+						nkvpEmptyPos[eC][2] = 0.f;
+					}
 					const int32 nLit = HostAllocUser(5);
 					if (nLit >= 0) {
 						renderer::NkLightDesc L0 = Demo3D_LightEffective(st, 1);
