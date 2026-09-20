@@ -224,6 +224,39 @@ namespace nkentseu {
 		// ── SCULPTURE ──────────────────────────────────────────
 		// Le catalogue vient des FICHIERS de data/brushes, pas d'une enumeration :
 		// une brosse s'ajoute sans recompiler (demande de Rodolf, 19/09).
+		// ──────────────────────────────────────────────────────────────────────
+		// LES MODES QUI EXIGENT LE MAILLAGE OUVERT
+		// ──────────────────────────────────────────────────────────────────────
+		// « LES ESPACES SONT LES MODES » (NkModelerViewport.h:647) : Rodolf a pose
+		// TROIS AXES INDEPENDANTS -- interaction, affichage, espace de travail.
+		//
+		// ⚠️ CE QUE CETTE FONCTION SEPARE, ET QUI ETAIT CONFONDU.
+		//    « Le maillage d'edition est-il ouvert ? » est un etat de DONNEE.
+		//    « Dans quel mode suis-je ? » est un axe d'INTERACTION.
+		//    `Demo3DHostSetMode` ecrivait `veutEdition = (mode == 1)`, ce qui
+		//    IDENTIFIE les deux : entrer en Sculpture (3) armait la SORTIE du
+		//    maillage dont la sculpture a precisement besoin. Ce n'etait pas un
+		//    conflit entre deux modes, c'etait un axe ECRASE SUR L'AUTRE.
+		//    Mesure du 20/09 : `uiMode=3 editMode=1 nv=561` a l'image 119, puis
+		//    plus une seule ligne -- le maillage se refermait a l'image 120.
+		//
+		// ⚠️ ECRIT COMME UN ENSEMBLE, PAS COMME UN CAS PARTICULIER DE LA
+		//    SCULPTURE. Texturing, Patron et Texture painting reclameront le meme
+		//    maillage : les ajouter ici sera UNE LIGNE. Un `mode == 1 || mode == 3`
+		//    aurait demande de retrouver ce site trois fois de plus, et le
+		//    troisieme l'aurait oublie.
+		//
+		// ⚠️ ET SCULPTURE NE DEVIENT PAS UN SOUS-MODE D'EDITION. Les imbriquer
+		//    rangerait aussi la 2.5D sous Edition, alors que Rodolf exige qu'elles
+		//    restent DISTINCTES -- et on retomberait sur le defaut deja paye :
+		//    sept modes replies en un booleen (cf. NkDemo3D.cpp, `uiMode`).
+		//
+		// Valeurs de NkMode : 0 Objet, 1 Edition, 2 Sculpture 2.5D, 3 Sculpture,
+		// 4 Texturing, 5 Patron, 6 Texture painting.
+		inline bool NkModeNeedsEditMesh(int32 mode) {
+			return mode == 1 || mode == 2 || mode == 3;
+		}
+
 		int32 Demo3DHostBrushCount();
 		const char *Demo3DHostBrushName(int32 i);
 		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
