@@ -161,6 +161,7 @@ refus aucun document lisible dans la reponse
 refus nomme un composant que le registre ignore
 refus ne se rejoue pas a l'identique
 refus cible de greffe invalide
+refus l'ajout ne peut pas se poser
 
 ## 4. CE QUE L'OUTIL GARANTIT
 
