@@ -43,6 +43,7 @@
 #include "NKFileSystem/NkFile.h"
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
 #include "NK3DModeler/NkModelerData.h"
+#include <cstdlib> // getenv : crochet de mesure NK_MATPREV_SHAPE
 // Pour l'identifiant de texture, partage avec le panneau (qui, lui, ne connait
 // pas NKRenderer). Ce header n'apporte aucun type NKRenderer -- c'est sa regle.
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
@@ -134,15 +135,25 @@ namespace nkentseu {
 					NkMeshHandle h = ms->Import(chemin, false);
 					if (h.IsValid()) {
 						const NkAABB &bb = ms->GetBounds(h);
-						NkLog::Instance().Info("[apercu] modele '{0}' charge, boite {1}x{2}x{3}",
-											   nom, bb.max.x - bb.min.x, bb.max.y - bb.min.y,
-											   bb.max.z - bb.min.z);
+						// ⚠️ LE CHEMIN RETENU, pas seulement le nom du modele. Trois
+						//    racines repondent au meme nom : sans le chemin, « charge »
+						//    ne dit pas LAQUELLE, et l'on ne peut pas distinguer une
+						//    donnee livree d'une donnee de developpement restee la.
+						//    Meme lecon que l'image de version, le meme soir.
+						NkLog::Instance().Info("[apercu] modele '{0}' charge depuis {1}, boite {2}x{3}x{4}",
+											   nom, chemin.CStr(), bb.max.x - bb.min.x,
+											   bb.max.y - bb.min.y, bb.max.z - bb.min.z);
 						return h;
 					}
-					NkLog::Instance().Info("[apercu] modele '{0}' : import refuse", nom);
+					NkLog::Instance().Info("[apercu] modele '{0}' : import refuse ({1})", nom,
+										   chemin.CStr());
 					return NkMeshHandle{};
 				}
-				NkLog::Instance().Info("[apercu] modele '{0}.obj' introuvable", nom);
+				// LE REFUS NOMME LES RACINES ESSAYEES, comme partout ailleurs
+				// depuis ce soir : « introuvable » sans le ou l'on a cherche
+				// envoie relire le code au lieu d'ouvrir un dossier.
+				NkString quoi = NkString("modele d'apercu '") + nom + ".obj'";
+				nk3d::NkDataRefus(quoi.CStr(), "data/previews/");
 				return NkMeshHandle{};
 			}
 
@@ -358,6 +369,29 @@ namespace nkentseu {
 				NkMatPreviewState &s = St();
 				if (!s.ok || !cmd || !s.rd)
 					return;
+				// NK_MATPREV_SHAPE=<0..6> : LA FORME D'APERCU, SANS LE PANNEAU.
+				//
+				// ⚠️ POURQUOI CE CROCHET EXISTE. La forme ne se choisit qu'a la
+				//    souris, dans le panneau de proprietes -- aucune facade, aucune
+				//    variable d'environnement (cherche avant d'ecrire). Les quatre
+				//    formes CHARGEES depuis un fichier (liquide, cheveux, tissu,
+				//    mascotte) etaient donc les seules du produit dont le chargeur
+				//    ne pouvait etre declenche par AUCUNE mesure : sa garde etait
+				//    ecrite et n'avait JAMAIS rougi. Une garde qu'aucune course ne
+				//    declenche ne vaut pas mieux qu'un negatif incapable de refuter.
+				//
+				// ⚠️ IL EST LU ICI, EN TETE, ET PAS AU SITE DE CHARGEMENT. Pose plus
+				//    bas, il laissait le journal dire « rendu forme=1 » pendant que le
+				//    chargeur cherchait la forme 3 : un instrument qui se contredit
+				//    lui-meme, et c'est moi qui venais de le fabriquer.
+				//
+				// ⚠️ IL NE CHANGE RIEN QUAND LA VARIABLE EST ABSENTE : `sForme` reste
+				//    a -1 et la forme arrive du panneau, a l'octet pres.
+				static const int32 sForme = []() -> int32 {
+					const char *v = std::getenv("NK_MATPREV_SHAPE");
+					return v ? (int32)std::atoi(v) : -1;
+				}();
+				const int32 shapeVoulue = (sForme >= 0) ? sForme : shape;
 				EnsureSize(w, h);
 				auto *r3d = s.rd->GetRender3D();
 				if (!r3d) {
@@ -370,9 +404,9 @@ namespace nkentseu {
 				}
 				{
 					static int32 sVu = -2;
-					if (sVu != shape) {
-						sVu = shape;
-						NkLog::Instance().Info("[apercu] rendu forme={0} taille={1}x{2}", shape,
+					if (sVu != shapeVoulue) {
+						sVu = shapeVoulue;
+						NkLog::Instance().Info("[apercu] rendu forme={0} taille={1}x{2}", shapeVoulue,
 											   s.w, s.h);
 					}
 				}
@@ -498,7 +532,8 @@ namespace nkentseu {
 				}
 
 				// ── L'OBJET ─────────────────────────────────────────────────────
-				const int32 si = (shape < 0 || shape >= (int32)NkPrevMesh::Count) ? 1 : shape;
+				const int32 si =
+					(shapeVoulue < 0 || shapeVoulue >= (int32)NkPrevMesh::Count) ? 1 : shapeVoulue;
 				// CHARGEMENT A LA DEMANDE, une seule tentative : un modele manquant
 				// ne doit pas etre recherche soixante fois par seconde. Le temoin est
 				// l'essai, pas le succes.
