@@ -2832,6 +2832,25 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_TRAIT_EFFACE=<frame> : LE NEGATIF DU TEMOIN DE VISIBILITE.
+		// Sans lui on mesure « quelque chose a change » ; avec lui on mesure que
+		// c'est BIEN LE TRAIT qui a change, puisque l'effacer doit rendre les
+		// pixels d'avant.
+		{
+			static bool sEffDone = false;
+			if (const char *ev = std::getenv("NK_TRAIT_EFFACE")) {
+				const int32 fr = (int32)std::atoi(ev);
+				if (!sEffDone && agentFrame >= fr && demo::Demo3DHostReady()) {
+					sEffDone = true;
+					const int32 n = demo::Demo3DHostEffaceTrait(0);
+					std::printf("[nk3d] NK_TRAIT_EFFACE : %d face(s) effacee(s)\n", (int)n);
+					std::fflush(stdout);
+				}
+			} else {
+				sEffDone = true;
+			}
+		}
+
 		// NK_TRAIT_SELECT=<frame> : « lisse ici » -- le trait devient la selection,
 		// et les sept verbes du contrat s'y appliquent sans qu'une ligne change.
 		{
