@@ -2756,6 +2756,59 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_PROP_TAB=<0..7> : OUVRIR UNE PASTILLE DU PANNEAU PROPRIETES.
+		// Sans elle, le contenu d'une pastille n'est peint par RIEN dans un banc :
+		// entrer dans un mode n'active sa pastille que si le panneau etait DEJA
+		// ouvert, et au demarrage il ne l'est pas. Le selecteur de brosses etait
+		// donc invisible a toute mesure -- et j'allais le livrer sur parole.
+		// 7 = la pastille du MODE courant, celle qui porte les brosses.
+		{
+			static bool sTabDone = false;
+			if (const char *tv = std::getenv("NK_PROP_TAB")) {
+				if (!sTabDone) {
+					sTabDone = true;
+					const int32 ti = (int32)std::atoi(tv);
+					if (ti >= 0 && ti < 8) {
+						for (int32 k = 0; k < 8; ++k)
+							st.propOpen[k] = false;
+						st.propOpen[ti] = true;
+						st.showRight = true;
+						std::printf("[nk3d] NK_PROP_TAB : pastille %d ouverte\n", (int)ti);
+						std::fflush(stdout);
+					}
+				}
+			} else {
+				sTabDone = true;
+			}
+		}
+
+		// NK_SCULPT_BRUSH=<nom> : LA BROSSE SE CHOISIT SANS SOURIS.
+		// Il emprunte la MEME porte que le selecteur de l'interface
+		// (`Demo3DHostSetBrushByName`) : une sonde qui poserait le nom elle-meme
+		// mesurerait un chemin que Rodolf n'emprunte jamais.
+		//
+		// IL IMPRIME LE REFUS AUTANT QUE LE SUCCES. « brosse inconnue » et
+		// « brosse posee » sont deux issues qu'un banc doit distinguer : sans ca,
+		// un nom mal orthographie sculpterait avec la premiere du catalogue et la
+		// mesure porterait sur une autre brosse que celle qu'on croit eprouver.
+		{
+			static bool sBrushDone = false;
+			if (!sBrushDone) {
+				if (const char *bn = std::getenv("NK_SCULPT_BRUSH")) {
+					if (bn[0] && demo::Demo3DHostReady()) {
+						sBrushDone = true;
+						const bool ok = demo::Demo3DHostSetBrushByName(bn);
+						std::printf("[nk3d] NK_SCULPT_BRUSH : « %s » -> %s (courante : %s)\n", bn,
+								  ok ? "posee" : "INCONNUE, rien change",
+								  demo::Demo3DHostBrushCurrent());
+						std::fflush(stdout);
+					}
+				} else {
+					sBrushDone = true;
+				}
+			}
+		}
+
 		// NK_EDIT_MODE=<1>[,frame] : le MODE vient du shell, la CIBLE du viseur.
 		// Le crochet cote viseur choisit l'objet a editer ; c'est ici que le mode
 		// est POSE, par la meme porte que l'onglet et que TAB. Sans cela, le
@@ -2772,7 +2825,15 @@ int nkmain(const NkEntryState &entry) {
 					fr = (int32)std::atoi(c + 1);
 				if (!sEditModeDone && agentFrame >= fr && em[0] && em[0] != '0') {
 					sEditModeDone = true;
-					st.mode = NkMode::Edit;
+					// LE NUMERO DU MODE, PAS SEULEMENT « edition ». Ce crochet posait
+					// NkMode::Edit EN DUR : les modes 2 a 6 n avaient AUCUNE porte sans
+					// souris, et le selecteur de brosses -- qui ne vit que dans Sculpture --
+					// ne pouvait etre eprouve par rien. 1 reste Edition, donc les bancs
+					// existants ne bougent pas.
+					const int32 mv = (int32)std::atoi(em);
+					st.mode = (mv > 0 && mv < (int32)NkMode::Count) ? (NkMode)mv : NkMode::Edit;
+					std::printf("[nk3d] NK_EDIT_MODE : mode %d\n", (int)st.mode);
+					std::fflush(stdout);
 				}
 			} else {
 				sEditModeDone = true;
@@ -3488,7 +3549,19 @@ int nkmain(const NkEntryState &entry) {
 				verbe[0] = 0;
 				const bool lisible = reussi && nk3d::NkIaExtraireVerbe(rep.Data(), verbe, sizeof(verbe));
 				const bool connu = lisible && (nk3d::NkVerbeTrouve(verbe) != nullptr);
+				const uint32 nCmd = nk3d::NkIaCompterCommandes(rep.Data());
 				if (connu) {
+					// UN PLAN DE PLUSIEURS COMMANDES : on en execute UNE et on le DIT.
+					// Le contrat autorise desormais un plan sur plusieurs lignes ; le pont,
+					// lui, ne prend qu une action a la fois. Taire les suivantes ferait
+					// executer un tiers de la demande sans que personne ne sache pourquoi.
+					if (nCmd > 1u) {
+						std::printf("[nk3d] IA PLAN : %u commandes proposees, la premiere est"
+								" executee, %s ignoree%s\n",
+								(unsigned)nCmd, (nCmd == 2u) ? "la suivante est" : "les suivantes sont",
+								(nCmd == 2u) ? "" : "s");
+						std::fflush(stdout);
+					}
 					std::printf("[nk3d] IA REPONSE : %u image(s) pendant l'attente, %.2f s -> « %s »\n",
 								(unsigned)sIa.envoi.Images(), (double)sIa.envoi.Secondes(), verbe);
 					std::fflush(stdout);

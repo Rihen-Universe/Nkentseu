@@ -6778,7 +6778,73 @@ namespace nkentseu {
 							"Texturing : peinture et calques -- a venir.",
 							"Patron : depliage UV (unwrapping) -- a venir.",
 							"Texture painting : peinture sur texture -- a venir."};
-						if (m5 >= 2 && m5 <= 6) {
+						if (m5 == 3) {
+						//   -- LES BROSSES, ENFIN VISIBLES ------------------------------------
+						//   Rodolf, 20/09 : « je ne vois meme pas les brosses ». Elles
+						//   chargeaient, elles sculptaient, et ce panneau annoncait « a venir » :
+						//   le seul endroit ou il aurait fallu les montrer disait qu'elles
+						//   n'existaient pas.
+						//
+						//   [!] LA LISTE VIENT DE LA DONNEE, PAS D'UNE TABLE EN DUR. Ecrire ici
+						//       les quatre noms connus aurait annule tout ce que le chargement
+						//       par fichier a coute : une brosse deposee n'apparaitrait pas, et
+						//       la regle de Rodolf (« sans recompiler ») serait fausse a
+						//       l'endroit meme ou elle se voit.
+						//
+						//   [!] ET LA CLE DE ZONE PORTE LE NOM, PAS L'INDICE. Le catalogue est
+						//       trie : deposer une brosse insere une entree et decale tout ce qui
+						//       suit. Une cle « brosse.2 » designerait alors une autre brosse que
+						//       celle qu'on vient de peindre. Le banc de sculpture a paye cette
+						//       faute le jour meme, sur son propre critere.
+							const int32 nb = demo::Demo3DHostBrushCount();
+							const char *cur = demo::Demo3DHostBrushCurrent();
+							// NK_BRUSH_PROBE=1 : COMBIEN DE BROSSES CE PANNEAU A-T-IL PEINTES.
+							// Sans elle, « le selecteur est la » resterait une affirmation : le
+							// panneau ne se lit qu'a l'ecran, et aucune capture n'est permise ici.
+							// Elle lit ce que la peinture vient de faire, elle ne le recalcule pas.
+							static const bool sBrProbe = (std::getenv("NK_BRUSH_PROBE") != nullptr);
+							static int32 sBrDit = -1;
+							if (sBrProbe && sBrDit != nb) {
+								sBrDit = nb;
+								std::printf("[nk3d] SELECTEUR BROSSES : %d peinte(s), active=%s\n", nb,
+										(cur && cur[0]) ? cur : "(aucune)");
+								std::fflush(stdout);
+							}
+							if (nb <= 0) {
+								yy += p.TextWrap(r.x + kPad, yy, rowR.w - 2.f * kPad,
+										 "Aucune brosse dans data/brushes.", NkRole::TextMuted);
+							} else {
+								yy += S(2.f);
+								for (int32 bi = 0; bi < nb; ++bi) {
+									const char *nm = demo::Demo3DHostBrushName(bi);
+									if (!nm || !nm[0])
+										continue;
+									char bk[72];
+									snprintf(bk, sizeof(bk), "brosse.%s", nm);
+									const NkRect br{r.x + kPad, yy + S(2.f), rowR.w - 2.f * kPad,
+												  kRowH - S(4.f)};
+									const bool actif = (cur && std::strcmp(cur, nm) == 0);
+									const bool surv = hit.Add(bk, br);
+									if (actif)
+										p.Fill(br, NkRole::AccentUi, 3.f);
+									else
+										HoverFill(p, br, surv, 3.f);
+									p.TextV(br.x + S(8.f), yy, kRowH, nm,
+											actif ? NkRole::TextOnAccent : NkRole::Text);
+									if (hit.Clicked(bk))
+										(void)demo::Demo3DHostSetBrushByName(nm);
+									yy += kRowH;
+								}
+						//     Le dossier est dit APRES la liste : c'est la reponse a « comment
+						//     j'en ajoute une », et elle doit se lire sans quitter le panneau.
+								yy += S(4.f);
+								yy += p.TextWrap(r.x + kPad, yy, rowR.w - 2.f * kPad,
+										 "Deposez un .nkbrush dans data/brushes pour en ajouter une.",
+										 NkRole::TextMuted);
+							}
+						}
+						// Le mode 3 (Sculpture) est traite ci-dessus : il a ses brosses.
+						if (m5 >= 2 && m5 <= 6 && m5 != 3) {
 							// Blocs qui vont a la ligne : ces phrases depassaient
 							// la largeur du panneau des qu'on le retrecissait.
 							yy += S(3.f);

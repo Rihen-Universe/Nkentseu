@@ -259,6 +259,11 @@ namespace nkentseu {
 
 		int32 Demo3DHostBrushCount();
 		const char *Demo3DHostBrushName(int32 i);
+		// Le nom de la brosse en service, et le choix PAR CE NOM (jamais par un
+		// indice : le catalogue vient de fichiers, son ordre change quand on en
+		// depose un).
+		const char *Demo3DHostBrushCurrent();
+		bool Demo3DHostSetBrushByName(const char *nom);
 		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
 		// = garder ceux de la brosse. Rend true si le maillage a change (et si une
 		// etape d'annulation a donc ete posee).
