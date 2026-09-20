@@ -264,14 +264,32 @@ namespace nkentseu {
 		//         qu'extrude (additif en s, deux lois selon `individuel`). La
 		//         profondeur ne devrait pas changer les COMPTES, seulement les
 		//         positions -- **a verifier, c'est une supposition**.
-		//      5. `bevel[:largeur[:segments]]`  **NON MESURE, ET LE PLUS GROS
-		//         RISQUE DES CINQ**. Le contrat autorise `segments` jusqu'a 16 :
-		//         chaque segment multiplie le nombre de faces creees par arete
-		//         biseautee. Un `bevel:0.1:16` sur une selection large est le
-		//         candidat le plus credible a l'explosion, devant `subdivide:10`.
-		//         POUR LA MESURER : cube, selection de a aretes pour a = 1, 4,
-		//         12, avec segments = 1, 4, 16. Neuf relevés. On cherche si
-		//         l'ajout est proportionnel a `a * segments`.
+		//      5. `bevel[:largeur[:segments]]`  **MESURE le 20/09**, et il etait
+		//         bien le plus gros risque des quatre. DEUX regimes, EXACTS sur
+		//         les dix relevés, sans le moindre residu -- des lois LUES, pas
+		//         une courbe ajustee sur ses propres points :
+		//             segments == 1  ->  faces ajoutees = **E + V**
+		//             segments >= 2  ->  faces ajoutees = **3 x E x segments**
+		//         (E = aretes, V = sommets, comptes AVANT l'operation.)
+		//         La rupture entre les deux regimes n'est pas une anomalie :
+		//         `NkEditMesh.h` la documente lui-meme -- 1 = chanfrein PLAT (une
+		//         bande de faces), N > 1 = ARRONDI (N bandes). Deux topologies,
+		//         deux lois, et c'est pourquoi une formule unique aurait menti.
+		//         ⚠️ LE RISQUE EST CONFIRME PAR LE CHIFFRE : sur 48 aretes,
+		//            `bevel:0.05:16` porte 24 faces a 2 328 -- **x97**. En theorie
+		//            `subdivide:10` fait pire, mais bevel y arrive avec des
+		//            parametres qu'un utilisateur tape sans y penser.
+		//         MESURE PAR : `NKEditMeshHarness --loi-bevel` -- le harnais sans
+		//         viseur, donc hors du verrou des deux modes Edition. Il rend
+		//         AVANT les batteries comparees et n'ecrit RIEN dans la baseline :
+		//         `--check` reste octet pour octet ce qu'il etait.
+		//         ⚠️ CONDITION DE VALIDITE, ETROITE ET ECRITE : les DEUX maillages
+		//            testes sont FERMES et tout-quads. Rien n'est mesure sur un
+		//            maillage a BORD -- une arete de bord ne porte qu'une face et
+		//            ne peut pas engendrer la meme bande -- ni sur des triangles.
+		//            *Un chiffre voyage sans sa condition* : celle-ci reste
+		//            collee a lui, et la prediction se DESACTIVE d'elle-meme quand
+		//            E et V ne sont pas fournis (voir `NkIaPasSur`).
 		//
 		//  (B) CEUX QUI FONT DECROITRE -> le plafond de FACES n'est pas le
 		//      risque ; c'est le plafond de TOURS qui garde (une boucle qui
@@ -533,8 +551,20 @@ namespace nkentseu {
 		/// `versLeHaut` est le SENS DU PREDICAT (`plus` = vrai). Il n'est pas
 		/// decoratif : c'est la seule chose qu'on sache de la direction de la
 		/// boucle sans avoir mesure la loi du verbe. Voir le corps.
+		///
+		/// `aretes` et `sommets` servent a PREDIRE `bevel`, dont la loi a ete
+		/// mesuree le 20/09 (voir la liste en tete). ⚠️ A ZERO -- leur defaut --
+		/// LA PREDICTION SE DESACTIVE et l'on retombe sur la regle du quart.
+		/// C'est voulu : un appelant qui ne fournit pas ces comptes n'obtient pas
+		/// une prediction batie sur des zeros, il obtient la garde prudente.
+		/// ⚠️ AUCUN APPELANT NE LES PASSE ENCORE : `main.cpp` lit pourtant E et V
+		///    a deux lignes du site (`bv`, `be`), mais ce fichier est en cours de
+		///    migration par un autre chantier et je n'y touche pas. **La branche
+		///    bevel de cette fonction n'est donc pas exercee aujourd'hui** -- ne
+		///    pas la lire comme eprouvee ; c'est un ajout d'une ligne au site
+		///    d'appel, le jour ou la migration est fusionnee.
 		inline bool NkIaPasSur(const char *verbe, int32 facesActuelles, bool versLeHaut,
-							   char *motif, uint32 taille) {
+							   char *motif, uint32 taille, int32 aretes = 0, int32 sommets = 0) {
 			const int32 plafond = NkIaPlafondFaces();
 			int32 prevu = facesActuelles;
 			bool predit = false;
@@ -558,6 +588,42 @@ namespace nkentseu {
 					prevu *= 4; // LOI MESUREE le 17/09 : x4 par coupe
 				}
 				predit = true;
+			}
+			// ── `bevel` : DEUX REGIMES, MESURES le 20/09 ──────────────────────
+			// ⚠️ ELLE N'EST TENTEE QUE SI E ET V SONT FOURNIS. A zero, on ne
+			//    predit pas avec des zeros : on laisse la regle du quart faire son
+			//    travail. *Une prediction batie sur une absence est pire que pas
+			//    de prediction : elle a l'air d'un chiffre.*
+			if (!predit && aretes > 0 && sommets > 0) {
+				const char *mb = "bevel";
+				const char *cb = p;
+				while (*mb && *mb == *cb) { ++mb; ++cb; }
+				if (!*mb && (*cb == 0 || *cb == ':')) {
+					// `bevel[:largeur[:segments]]` -- segments est le SECOND
+					// parametre. La largeur ne change pas les comptes (mesure).
+					int32 segments = 1;
+					if (*cb == ':') {
+						++cb;
+						while (*cb && *cb != ':') // on saute la largeur
+							++cb;
+						if (*cb == ':') {
+							++cb;
+							int32 x = 0;
+							bool d = false;
+							for (; *cb >= '0' && *cb <= '9'; ++cb) {
+								x = x * 10 + (int32)(*cb - '0');
+								d = true;
+							}
+							if (d && x >= 1 && x <= 16)
+								segments = x;
+						}
+					}
+					// segments == 1 -> E + V ; segments >= 2 -> 3 x E x segments.
+					const int32 ajout =
+						(segments == 1) ? (aretes + sommets) : (3 * aretes * segments);
+					prevu = facesActuelles + ajout;
+					predit = true;
+				}
 			}
 			if (predit && prevu > plafond) {
 				snprintf(motif, taille,
