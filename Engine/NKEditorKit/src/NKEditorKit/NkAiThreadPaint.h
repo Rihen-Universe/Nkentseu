@@ -84,6 +84,8 @@ namespace nkentseu {
 						return "OUT";
 					case NkAiPiece::TexteIn:
 						return b.entree.CStr();
+					case NkAiPiece::Effet:
+						return b.effet.CStr();
 					case NkAiPiece::TexteOut:
 						return b.sortie.CStr();
 					default:
