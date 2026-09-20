@@ -1186,6 +1186,29 @@ namespace nkentseu {
 				/// Vrai pour un dorsal qui envoie HORS de la machine. Le panneau
 				/// l'annonce AVANT l'usage, pas apres.
 				bool aiOngletDistant = false;
+
+				// ── LA BOUCLE « fais X jusqu'a Y » ─────────────────────────────
+				// ⚠️ ELLE VIT DANS L'ETAT, PAS DANS UNE STATIQUE DE `main`. Une
+				//    statique aurait survecu a la fermeture du projet : on aurait
+				//    rouvert une scene neuve avec une boucle encore armee sur les
+				//    compteurs de l'ancienne.
+				// ⚠️ ET LE MODELE N'Y EST PAS. Il a traduit la demande en (verbe,
+				//    predicat) en UN appel, puis il est sorti. Ces champs sont ce
+				//    qu'il a laisse derriere lui ; les tours suivants ne quittent
+				//    pas la machine et ne coutent rien.
+				bool aiBoucleActive = false;
+				char aiBoucleVerbe[64] = {0}; ///< le verbe a REPETER
+				uint8 aiBoucleQuantite = 0;	  ///< NkIaQuantite, stockee en brut (evite un cycle d'include)
+				bool aiBouclePlus = true;	  ///< « depasser » (vrai) ou « descendre sous »
+				int32 aiBoucleSeuil = 0;
+				int32 aiBoucleTour = 0;
+				/// ⚠️ UN PLAFOND DE TOURS **EN PLUS** DU PLAFOND DE FACES, parce
+				///    qu'ils attrapent deux pannes DIFFERENTES : celui-ci attrape la
+				///    boucle qui n'avance pas (un verbe qui ne deplace rien sur cette
+				///    selection), celui des faces attrape la boucle qui avance trop.
+				///    Un seul des deux laisserait passer l'autre.
+				int32 aiBoucleTourMax = 24;
+
 				char aiSujet[80] = {0}; ///< le sujet de la conversation (la premiere demande)
 				/// LA LIGNE D'ETAT, ECRITE PAR LA PEINTURE. Elle vit ici pour qu'une
 				/// sonde puisse la LIRE : la recomposer de son cote ferait deux textes

@@ -74,6 +74,13 @@
 #include "NKEditorKit/NkAiThreadPaint.h"  // sa transcription en commandes
 #include "NK3DModeler/Shell/NkModelerComponentPaint.h" // NkModelerPainter vu comme NkComponentPaint
 
+// ⚠️ IL INCLUT CE QU'IL UTILISE. `snprintf` arrivait ici PAR CHANCE, tire par un
+//    en-tete voisin ; la recolte ajoute `fopen`/`fputs`/`FILE`, et compter sur
+//    la meme chance serait la faute exacte qui a coute 20 erreurs a NKPA -- un
+//    en-tete qui compilait chez ses deux consommateurs d'alors, et cassait chez
+//    le premier qui ne tirait pas sa dependance.
+#include <cstdio>
+
 namespace nkentseu {
 	namespace nk3d {
 
@@ -96,6 +103,41 @@ namespace nkentseu {
 				for (; src[i] && i + 1u < cap; ++i)
 					dst[i] = src[i];
 			dst[i] = 0;
+		}
+
+		// ── LA RECOLTE DES DEMANDES REELLES ───────────────────────────────────
+		// ⚠️ POURQUOI ELLE EXISTE. On a voulu savoir combien des demandes de
+		//    Rodolf portent une condition CHIFFREE (« subdivise jusqu'a 1000
+		//    faces ») et combien n'en portent pas (« rends ca plus beau ») --
+		//    parce que la reponse decide s'il faut construire une boucle d'agent.
+		//    Il n'existait AUCUN corpus : les seules demandes qu'on ait trouvees
+		//    dans les journaux etaient celles des bancs de mesure. Fabriquer
+		//    vingt phrases plausibles aurait mesure NOTRE imagination de son
+		//    usage, pas son usage. On recolte donc les vraies.
+		//
+		// ⚠️ ELLE RECOLTE, ELLE NE JUGE PAS. Aucune classification, aucun
+		//    comptage, aucun verdict : la phrase BRUTE, une par ligne. Classer a
+		//    la volee figerait aujourd'hui les categories qu'on cherche
+		//    justement a decouvrir, et un corpus deja trie ne peut plus rien
+		//    refuter.
+		//
+		// ⚠️ ET RIEN NE QUITTE LA MACHINE. Ce fichier est un journal LOCAL, a
+		//    cote des autres, dans `logs/`. Il n'est envoye nulle part, ni au
+		//    dorsal local ni au dorsal distant. Ce sont les phrases de Rodolf :
+		//    elles lui appartiennent, et il doit pouvoir les lire et les effacer
+		//    d'un geste -- c'est un fichier texte.
+		//
+		// ⚠️ MODE « a » ET NON « w ». Ouvrir en ecriture TRONQUE des l'ouverture :
+		//    le premier lancement aurait efface la recolte de la veille.
+		inline void NkAiRecolter(const char *phrase) {
+			if (!phrase || !phrase[0])
+				return;
+			std::FILE *f = std::fopen("logs/nk3dmodeler_demandes.txt", "a");
+			if (!f)
+				return; // pas de `logs/` : on se tait, une recolte n'est pas critique
+			std::fputs(phrase, f);
+			std::fputc('\n', f);
+			std::fclose(f);
 		}
 
 		inline bool NkAiVide(const char *s) {
@@ -564,6 +606,17 @@ namespace nkentseu {
 				p.TextV(bt.x + (bw - p.TextW("Envoyer")) * 0.5f, bt.y, kRowH, "Envoyer",
 						actif ? NkRole::Text : NkRole::TextMuted);
 				if (actif && hit.Clicked("ai.envoyer")) {
+					// ── LA RECOLTE EST **ICI**, ET PAS DANS `NkAiSoumettre` ───────
+					// ⚠️ C'est le seul endroit ou une phrase TAPEE entre. Poser la
+					//    recolte dans `NkAiSoumettre` aurait paru plus sur -- « tout
+					//    passe par la » -- et aurait pollue le corpus : ses autres
+					//    appelants sont le bouton « Annuler cette action », qui
+					//    soumet le verbe `undo`, et le crochet de mesure
+					//    `NK_AI_DEMANDE`, qui soumet MES phrases de banc. Le corpus
+					//    aurait alors contenu ce que l'application se dit a
+					//    elle-meme, melange a ce que Rodolf demande -- et c'est
+					//    justement ce melange qu'on cherche a eviter.
+					NkAiRecolter(st.aiSaisie);
 					if (NkAiSoumettre(st, st.aiSaisie))
 						st.aiSaisie[0] = 0; // le champ se vide : la demande est PARTIE
 				}
