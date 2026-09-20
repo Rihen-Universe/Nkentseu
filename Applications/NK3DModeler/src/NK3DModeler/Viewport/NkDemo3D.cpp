@@ -1661,6 +1661,23 @@ namespace nkentseu {
 				NkVector<NkVec3f> sculptNrm;
 				renderer::NkSculptCmdParams sculptParams;
 				bool sculptPending = false;
+				// LE TRAIT EN COURS DE TRACE (souris enfoncee). Separe de `sculptPts`,
+				// qui est le trait DEJA remis a la commande : les melanger ferait
+				// repartir le geste suivant avec les points du precedent.
+				NkVector<NkVec3f> sculptDragPts;
+				NkVector<NkVec3f> sculptDragNrm;
+				bool sculptDragOn = false;
+				// LE GESTE A DES COORDONNEES ECRITES (NK_SCULPT_AT), sur le patron de
+				// Demo3DHostEditPickAt. Sans lui, le raycast du geste souris ne serait
+				// eprouve PAR RIEN : on ne peut pas injecter de souris, et le crochet
+				// NK_SCULPT_STROKE vise un SOMMET sans jamais lancer de rayon.
+				// Il emprunte le MEME code que la souris -- seules les coordonnees
+				// changent, exactement comme `pickArme ? st->editPickX : gin.mouseX`.
+				float32 sculptAtX = 0.f, sculptAtY = 0.f;
+				int32 sculptAtFrames = 0; // images restantes « bouton enfonce »
+				// La brosse choisie dans le catalogue -- un INDEX dans le registre, donc
+				// dans les fichiers. Pas un cas d'enumeration.
+				int32 activeBrush = 0;
 				// Le catalogue des brosses, charge depuis data/brushes au premier usage.
 				// ⚠️ PAS DE LISTE EN DUR : l'interface doit passer par la donnee, sinon
 				//    elle afficherait les bons noms sans qu'aucun fichier soit lu.
@@ -10999,6 +11016,249 @@ namespace nkentseu {
 				// UN PICK ARME (coordonnees ecrites) entre par LA MEME PORTE que le clic.
 				// Il n'y a pas de second chemin de selection : c'est la seule facon de
 				// pouvoir dire qu'une mesure prouve ce que fait le clic de Rodolf.
+				// ──────────────────────────────────────────────────────────────────
+				// SCULPTURE A LA SOURIS (mode 3 = Sculpture volumique)
+				// ──────────────────────────────────────────────────────────────────
+				// ⚠️ IL PRODUIT EXACTEMENT LE MEME OBJET QUE LE CROCHET : une
+				//    NkMeshEditOp::Sculpt avec ses valeurs effectives, posee par
+				//    Demo3DHostEditSculptStroke. S'il empruntait un autre chemin, on
+				//    aurait DEUX VERITES pour un meme geste et une seule serait
+				//    rejouable -- c'est « deux chemins pour un geste », que ce depot a
+				//    deja paye sur le loop cut.
+				//
+				// UN TRAIT = UNE ETAPE D'ANNULATION. Les points s'accumulent tant que le
+				// bouton est enfonce, et la commande part au RELACHEMENT. Appliquer a
+				// chaque image donnerait une pile d'annulation d'une centaine d'entrees
+				// pour un seul coup de brosse : Ctrl+Z ne rendrait plus le maillage
+				// d'avant le geste, mais un etat intermediaire que personne n'a voulu.
+				// DIAGNOSTIC DE LA GARDE, une ligne toutes les 60 images sous
+				// NK_SCULPT_DIAG=1. Sans lui, « le geste ne fait rien » confond TROIS
+				// causes qui rendent le meme silence : pas en mode Sculpture, pas en
+				// edition, ou maillage vide.
+				{
+					static const bool sDiag = (getenv("NK_SCULPT_DIAG") != nullptr);
+					static int32 sN = 0;
+					// OU LE MAILLAGE SE PROJETTE-T-IL ? Sans ce chiffre, viser avec
+					// NK_SCULPT_AT est un tir dans le noir : « touche=0 » ne distingue pas
+					// « le rayon est faux » de « je vise a cote ».
+					if (sDiag && (sN % 60) == 0 && st->editHE.VertCount() > 0) {
+						NkVec3f c{0.f, 0.f, 0.f};
+						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+							c = c + st->editHE.verts[i].pos;
+						c = c * (1.f / (float32)st->editHE.VertCount());
+						const NkVec3f w = st->editAnchor * c;
+						const NkVec3f d = w - camPos;
+						const float32 z = d.x * fwd.x + d.y * fwd.y + d.z * fwd.z;
+						const float32 rx = d.x * rgt.x + d.y * rgt.y + d.z * rgt.z;
+						const float32 ry = d.x * upv.x + d.y * upv.y + d.z * upv.z;
+						const float32 ndcx = (z > 1e-6f) ? (rx / (z * thX)) : 0.f;
+						const float32 ndcy = (z > 1e-6f) ? (ry / (z * thY)) : 0.f;
+						logger.Info("[Demo3D] SCULPT cible : centre monde=({0},{1},{2}) z={3} "
+							  "-> ecran=({4},{5}) vue={6}x{7}\n",
+							  w.x, w.y, w.z, z, (ndcx * 0.5f + 0.5f) * VW,
+							  (1.f - (ndcy * 0.5f + 0.5f)) * VH, VW, VH);
+					}
+					if (sDiag && (sN++ % 60) == 0)
+						logger.Info("[Demo3D] SCULPT garde : uiMode={0} editMode={1} nv={2} heV={3} heF={4}\n",
+							st->uiMode, st->editMode ? 1 : 0, nv, st->editHE.VertCount(),
+							st->editHE.FaceCount());
+				}
+				if (st->uiMode == 3 && nv > 0) {
+					// Le catalogue doit etre la AVANT qu'on lise la brosse active :
+					// sinon le journal dit « brosse='(aucune)' » alors que le geste a
+					// bien agi, et le lecteur cherche un defaut qui n'existe pas.
+					Demo3D_LoadBrushes(st);
+					// NK_SCULPT_AT="x:y[:images[:frame0]]" -- un trait POSE A DES
+					// COORDONNEES ECRITES, en pixels de la VUE. Separateur ':' : la
+					// virgule est le separateur decimal en fr-FR.
+					{
+						static bool sAtLu = false;
+						static float32 sAtX = 0.f, sAtY = 0.f;
+						static int32 sAtN = 0, sAtF0 = 0, sAtVu = 0;
+						static bool sAtArme = false;
+						if (!sAtLu) {
+							sAtLu = true;
+							if (const char *e = getenv("NK_SCULPT_AT")) {
+								float32 v[4] = {0.f, 0.f, 8.f, 0.f};
+								int32 k = 0;
+								const char *q = e;
+								while (k < 4 && *q) {
+									float32 val = 0.f;
+									bool neg = false;
+									if (*q == '-') {
+										neg = true;
+										++q;
+									}
+									while (*q >= '0' && *q <= '9')
+										val = val * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											val += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									v[k++] = neg ? -val : val;
+									if (*q == ':')
+										++q;
+									else
+										break;
+								}
+								sAtX = v[0];
+								sAtY = v[1];
+								sAtN = (int32)v[2] > 0 ? (int32)v[2] : 8;
+								sAtF0 = (int32)v[3];
+								sAtArme = true;
+								logger.Info("[Demo3D] NK_SCULPT_AT arme : ({0},{1}) px de vue, {2} "
+									  "image(s), a partir de {3}\n",
+									  sAtX, sAtY, sAtN, sAtF0);
+							}
+						}
+						if (sAtArme) {
+							if (sAtVu++ >= sAtF0) {
+								if (st->sculptAtFrames <= 0 && sAtN > 0) {
+									st->sculptAtFrames = sAtN;
+									st->sculptAtX = sAtX;
+									st->sculptAtY = sAtY;
+									sAtN = 0; // une seule fois
+								}
+							}
+						}
+					}
+					// ⚠️ LES DEUX CHEMINS PARTAGENT TOUT LE CODE QUI SUIT. Le geste ecrit
+					//    ne fait que fournir d'autres coordonnees et un autre « bouton
+					//    enfonce » : s'il avait son propre raycast, il mesurerait son
+					//    raycast et non celui de Rodolf.
+					const bool ecrit = (st->sculptAtFrames > 0);
+					if (ecrit)
+						--st->sculptAtFrames;
+					const bool down = ecrit || gin.leftDown;
+					const float32 curX = ecrit ? st->sculptAtX : gin.mouseX;
+					const float32 curY = ecrit ? st->sculptAtY : gin.mouseY;
+					if (down) {
+						// Rayon du curseur, par le MEME calcul que le pick d'element
+						// (dix lignes plus bas) : une seconde convention d'ecran ferait
+						// diverger la brosse et la selection sous le meme curseur.
+						const float32 sNdcX = curX / VW * 2.f - 1.f;
+						const float32 sNdcY = 1.f - curY / VH * 2.f;
+						NkVec3f sDir = fwd + rgt * (sNdcX * thX) + upv * (sNdcY * thY);
+						{
+							const float32 l = sDir.Len();
+							if (l > 1e-6f)
+								sDir = sDir * (1.f / l);
+						}
+						// Intersection avec le maillage en edition. Parcours direct des
+						// faces : sur les maillages du modeleur (quelques milliers de
+						// triangles) c'est bon marche, et une structure d'acceleration
+						// serait une optimisation a mesurer avant d'etre ecrite.
+						float32 best = 1e30f;
+						NkVec3f hitP{0.f, 0.f, 0.f}, hitN{0.f, 1.f, 0.f};
+						bool hit = false;
+						NkVector<renderer::NkEmId> loop;
+						for (uint32 f = 0; f < st->editHE.FaceCount(); ++f) {
+							if (!st->editHE.faces[f].alive)
+								continue;
+							loop.Clear();
+							st->editHE.GetFaceVerts((renderer::NkEmId)f, loop);
+							for (uint32 k = 1; k + 1 < (uint32)loop.Size(); ++k) {
+								// ⚠️ LE MAILLAGE D'EDITION EST EN REPERE LOCAL, LE RAYON EN MONDE.
+								//    `editRest` le dit : « vertices LOCAUX de repos », et le pick
+								//    d'element passe par `worldV = editAnchor * pos`. Sans cette
+								//    transformation le rayon cherchait la surface la ou elle n'est
+								//    pas : mesure du 20/09, `touche=0` sur toutes les coordonnees
+								//    essayees, avec pourtant 561 sommets et 960 faces sous le
+								//    curseur.
+								const NkVec3f l0 = st->editHE.verts[loop[0]].pos;
+								const NkVec3f l1 = st->editHE.verts[loop[k]].pos;
+								const NkVec3f l2 = st->editHE.verts[loop[k + 1]].pos;
+								const NkVec3f v0 = st->editAnchor * l0;
+								const NkVec3f v1 = st->editAnchor * l1;
+								const NkVec3f v2 = st->editAnchor * l2;
+								// Moller-Trumbore.
+								const NkVec3f e1 = v1 - v0, e2 = v2 - v0; // MONDE, pour le test
+								const NkVec3f pv = sDir.Cross(e2);
+								const float32 det = e1.x * pv.x + e1.y * pv.y + e1.z * pv.z;
+								if (det > -1e-8f && det < 1e-8f)
+									continue;
+								const float32 inv = 1.f / det;
+								const NkVec3f tv = camPos - v0;
+								const float32 u = (tv.x * pv.x + tv.y * pv.y + tv.z * pv.z) * inv;
+								if (u < 0.f || u > 1.f)
+									continue;
+								const NkVec3f qv = tv.Cross(e1);
+								const float32 vv = (sDir.x * qv.x + sDir.y * qv.y + sDir.z * qv.z) * inv;
+								if (vv < 0.f || u + vv > 1.f)
+									continue;
+								const float32 tt = (e2.x * qv.x + e2.y * qv.y + e2.z * qv.z) * inv;
+								if (tt > 1e-5f && tt < best) {
+									best = tt;
+									// ⚠️ LE POINT EST RECONSTRUIT EN LOCAL PAR SES BARYCENTRIQUES,
+									//    et non converti depuis le monde. Moller-Trumbore rend deja u
+									//    et v : la meme combinaison appliquee aux sommets LOCAUX donne
+									//    le point dans le repere de l'objet, exactement, sans inverser
+									//    la matrice. Et le contrat du trait exige le repere OBJET : un
+									//    point en monde ne survivrait pas au deplacement de l'objet.
+									hitP = l0 + (l1 - l0) * u + (l2 - l0) * vv;
+									NkVec3f n = (l1 - l0).Cross(l2 - l0);
+									const float32 nl = n.Len();
+									hitN = (nl > 1e-8f) ? n * (1.f / nl) : NkVec3f{0.f, 1.f, 0.f};
+									hit = true;
+								}
+							}
+						}
+						// CE QUE CE JOURNAL DISTINGUE : « le rayon n'a rien touche » de « il a
+						// touche et le trait n'a pas avance ». Les deux donnent un trait vide,
+						// et sans cette ligne ils seraient indiscernables.
+						if (ecrit)
+							logger.Info("[Demo3D] SCULPT rayon ({0},{1}) -> touche={2} t={3}\n", curX,
+								curY, hit ? 1 : 0, hit ? best : -1.f);
+						if (hit) {
+							// ESPACEMENT : un point par image remplirait le trait de
+							// doublons quasi confondus, et chacun couterait un tampon
+							// complet. On n'ajoute que si l'on a AVANCE.
+							bool loin = st->sculptDragPts.Empty();
+							if (!loin) {
+								const NkVec3f d = hitP - st->sculptDragPts[(uint32)st->sculptDragPts.Size() - 1];
+								renderer::NkBrushDesc bd;
+								float32 rr = 0.1f;
+								if (st->brushes.At((uint16)st->activeBrush, bd))
+									rr = bd.radius;
+								loin = (d.Len() > rr * 0.25f);
+							}
+							if (loin) {
+								st->sculptDragPts.PushBack(hitP);
+								st->sculptDragNrm.PushBack(hitN);
+							}
+							st->sculptDragOn = true;
+						}
+					} else if (st->sculptDragOn) {
+						// RELACHEMENT : le trait part, EN UNE SEULE COMMANDE.
+						st->sculptDragOn = false;
+						if (!st->sculptDragPts.Empty()) {
+							renderer::NkBrushDesc bd;
+							const char *nom = nullptr;
+							if (st->brushes.At((uint16)st->activeBrush, bd))
+								nom = bd.name;
+							NkVector<float32> fp, fn;
+							for (uint32 k = 0; k < (uint32)st->sculptDragPts.Size(); ++k) {
+								fp.PushBack(st->sculptDragPts[k].x);
+								fp.PushBack(st->sculptDragPts[k].y);
+								fp.PushBack(st->sculptDragPts[k].z);
+								fn.PushBack(st->sculptDragNrm[k].x);
+								fn.PushBack(st->sculptDragNrm[k].y);
+								fn.PushBack(st->sculptDragNrm[k].z);
+							}
+							const int32 n = (int32)st->sculptDragPts.Size();
+							st->sculptDragPts.Clear();
+							st->sculptDragNrm.Clear();
+							// LA MEME PORTE QUE LE CROCHET.
+							const bool ok = Demo3DHostEditSculptStroke(fp.Data(), fn.Data(), n, nom, 0.f, 0.f);
+							logger.Info("[Demo3D] SCULPT souris : {0} point(s) brosse='{1}' -> ok={2}\n", n,
+								nom ? nom : "(aucune)", ok ? 1 : 0);
+						}
+					}
+				}
 				const bool pickArme = st->editPickPending;
 				// L'index est lu ET remis a -1 au MEME instant que le drapeau : s'il
 				// survivait au pick, le clic SUIVANT de Rodolf viserait la face du banc.
@@ -16661,16 +16921,22 @@ namespace nkentseu {
 			if (!st || mode < 0)
 				return;
 			st->uiMode = mode;
-			const bool veutEdition = (mode == 1); // NkMode::Edit
-			if (veutEdition != st->editMode)
+			// ⚠️ L'ENSEMBLE, ET NON L'EGALITE A 1. `veutEdition = (mode == 1)`
+			//    identifiait un ETAT DE DONNEE (le maillage est-il ouvert) a un AXE
+			//    D'INTERACTION (dans quel mode suis-je). Consequence mesuree le
+			//    20/09 : passer en Sculpture ARMAIT la sortie du maillage que la
+			//    sculpture reclame. Cf. NkModeNeedsEditMesh pour le raisonnement
+			//    complet et la liste des modes a venir.
+			const bool veutMaillage = NkModeNeedsEditMesh(mode);
+			if (veutMaillage != st->editMode)
 				st->editTogglePending = true;
 			// ⚠ C'EST ICI QUE L'ECHEC DEVIENT MESURABLE, et nulle part ailleurs.
 			// Le shell appelle cette fonction UNE FOIS PAR IMAGE avec son propre
 			// mode : c'est le seul point qui voit, chaque image, si les deux cotes
 			// sont d'accord. Tant qu'ils ne le sont pas, on compte.
-			// On ne compte QUE l'entree refusee (veutEdition && !editMode) : la
+			// On ne compte QUE l'entree refusee (veutMaillage && !editMode) : la
 			// SORTIE d'edition, elle, ne peut pas echouer.
-			if (veutEdition && !st->editMode) {
+			if (veutMaillage && !st->editMode) {
 				if (st->editRefusedFrames < 1000000)
 					++st->editRefusedFrames;
 			} else {
