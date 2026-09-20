@@ -443,9 +443,7 @@ namespace nkuidesign {
 					return res;
 				}
 				NkDesignRequest req;
-				BatirInviteComplete(userAsk, req.prompt);
-				BuildCatalog(req.catalog, catalogueBref);
-				doc.Save(req.currentDoc);
+				BatirRequete(userAsk, doc, req); // la MEME requete que `Propose`
 
 				NkDesignReply reply;
 				if (!mBackend->Complete(req, reply) || reply.text.Length() == 0) {
@@ -491,6 +489,57 @@ namespace nkuidesign {
 			/// Demander au backend, valider, rejouer — et GARDER DE COTE.
 			/// Le document n'est pas touche ; `graftedRoot` reste -1 et
 			/// `nodesAdded` 0 tant que rien n'est pose.
+			/// La REQUETE exacte, celle que `Propose` et `Ask` envoient.
+			/// ⚠️ PUBLIQUE PARCE QUE L'APPEL ASYNCHRONE EN A BESOIN. Un appelant
+			///    qui rebatirait l'invite de son cote enverrait autre chose --
+			///    c'est exactement la faute que `dXX_invite.txt` a coutee cette
+			///    nuit : deux ecritures de la meme regle, et elles divergent.
+			void BatirRequete(const char *userAsk, NkUIDocument &doc, NkDesignRequest &req) const {
+				BatirInviteComplete(userAsk, req.prompt);
+				BuildCatalog(req.catalog, catalogueBref);
+				doc.Save(req.currentDoc);
+			}
+
+			/// L'invite TELLE QU'ELLE PART SUR LE FIL, batie par le MEME
+			/// constructeur que le dorsal (`EcrireRequete`).
+			///
+			/// ⚠️ ELLE EXISTE POUR LE CHEMIN ASYNCHRONE, ET VOICI POURQUOI ELLE
+			///    EST INDISPENSABLE : `NkTravailIA` pose `req.prompt = invite` et
+			///    laisse `catalog` et `currentDoc` VIDES. Lui passer la seule
+			///    `BatirInviteComplete` enverrait donc une invite SANS CATALOGUE
+			///    ni document courant -- le modele inventerait des noms de
+			///    composants, et le rejet « composant inconnu » serait de NOTRE
+			///    fait. En lui passant l'invite deja assemblee, `EcrireRequete`
+			///    cote dorsal la rend telle quelle : octet pour octet celle du
+			///    chemin synchrone.
+			NkString InviteAEnvoyer(const char *userAsk, NkUIDocument &doc) const {
+				NkDesignRequest req;
+				BatirRequete(userAsk, doc, req);
+				NkString full;
+				NkDesignBackendProcessus::EcrireRequete(req, full);
+				return full;
+			}
+
+			/// Poser une reponse DEJA OBTENUE comme proposition en attente.
+			/// C'est la queue de `Propose`, extraite pour que le chemin asynchrone
+			/// l'emprunte AU LIEU d'en ecrire une seconde.
+			NkAIResult PoserProposition(const char *replyText) {
+				NkAIResult res;
+				DiscardProposal(); // une proposition chasse l'autre
+				mLastReply = NkString(replyText ? replyText : "");
+				if (mLastReply.Length() == 0) {
+					res.verdict = NkAIVerdict::BackendMuet;
+					res.detail = NkString("le dorsal n'a rien rendu");
+					return res;
+				}
+				if (!ValidateReply(mLastReply.Data(), mPending, res))
+					return res;
+				mHasPending = true;
+				mPendingOrigin = NkString(OrigineCourante());
+				res.verdict = NkAIVerdict::Acceptee;
+				return res;
+			}
+
 			NkAIResult Propose(const char *userAsk, NkUIDocument &doc) {
 				NkAIResult res;
 				DiscardProposal(); // une proposition chasse l'autre : jamais deux en attente
@@ -504,9 +553,7 @@ namespace nkuidesign {
 					return res;
 				}
 				NkDesignRequest req;
-				BatirInviteComplete(userAsk, req.prompt);
-				BuildCatalog(req.catalog, catalogueBref);
-				doc.Save(req.currentDoc);
+				BatirRequete(userAsk, doc, req);
 
 				NkDesignReply reply;
 				if (!mBackend->Complete(req, reply) || reply.text.Length() == 0) {
@@ -514,13 +561,9 @@ namespace nkuidesign {
 					res.detail = reply.error;
 					return res;
 				}
-				mLastReply = reply.text;
-				if (!ValidateReply(reply.text.Data(), mPending, res))
-					return res;
-				mHasPending = true;
-				mPendingOrigin = NkString(OrigineCourante());
-				res.verdict = NkAIVerdict::Acceptee;
-				return res;
+				// La MEME queue que le chemin asynchrone : une seule ecriture de la
+				// regle « valider, rejouer, garder de cote ».
+				return PoserProposition(reply.text.Data());
 			}
 
 			/// Poser la proposition en attente. C'est ICI que le document change,
@@ -667,8 +710,33 @@ namespace nkuidesign {
 				//    non — on ne devine pas ce qu'il a voulu dire.
 				const char *body = FindHeader(replyText);
 				if (!body) {
+					// ⚠️ LE MESSAGE PARLAIT DE NOTRE FORMAT, PAS DE CE QU'IL PEUT
+					//    FAIRE. « pas de ligne `nkuidoc` » nomme un detail interne
+					//    que l'utilisateur n'a aucune raison de connaitre, et ne lui
+					//    dit rien de son prochain geste. Rodolf l'a recu le 20/09 et
+					//    n'a eu aucune piste. *Un refus qui n'ouvre aucune porte est
+					//    un refus qui n'aide pas.*
+					//
+					//    ⚠️ ET IL DISTINGUE DEUX CHOSES QUE L'ANCIEN CONFONDAIT :
+					//    « le modele a repondu en francais au lieu d'un document »
+					//    et « le modele n'a rien dit ». Elles se reparent a deux
+					//    endroits differents.
 					res.verdict = NkAIVerdict::TexteNonConforme;
-					res.detail = NkString("pas de ligne `nkuidoc` dans la reponse");
+					uint32 nonBlanc = 0;
+					for (const char *p = replyText; p && *p; ++p)
+						if (*p != ' ' && *p != '\n' && *p != '\r' && *p != '\t')
+							++nonBlanc;
+					if (nonBlanc == 0) {
+						res.detail = NkString(
+							"le modele n'a rien ecrit. Reessayez : la meme demande "
+							"aboutit souvent au second essai.");
+					} else {
+						res.detail = NkString(
+							"le modele a repondu en phrases au lieu de dessiner une "
+							"interface. Essayez de decrire les ZONES de l'ecran "
+							"(« a gauche… au centre… en bas… »), ou decoupez la demande "
+							"en deux ecrans plus simples, puis reessayez.");
+					}
 					return false;
 				}
 
