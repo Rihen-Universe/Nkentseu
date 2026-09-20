@@ -104,6 +104,8 @@
 // un en-tete que personne n'appelle. CONDITION D'ENTREE DANS LE PARAPLUIE : le
 // jour ou le peintre du fil est livre.
 #include "NKEditorKit/NkAiThread.h"
+#include "NKEditorKit/NkAiThreadLayout.h"
+#include "NkAiPlanProbe.h" // famille 22 : le plan du fil, eprouve sans fenetre
 // Famille 5 — le RAIL du selecteur de fichiers. Le banc vit DANS LE KIT
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
@@ -795,7 +797,7 @@ static void Famille21_ContratDuFil() {
 		(void)fil.Pousser(d, pourquoi);
 		Check("21f", fil.Taille() == 1 && !fil.At(0).replie,
 			  "la DEMANDE entre depliee, meme poussee repliee");
-		fil.Basculer(0);
+		fil.BasculerParId(fil.At(0).id); // par le NOM, jamais la position (corrige le 20/09 au soir)
 		Check("21g", !fil.At(0).replie,
 			  "et elle ne se replie pas non plus au clic : une question repliee n'en est plus une");
 	}
@@ -1274,6 +1276,17 @@ int main(int argc, char **argv) {
 		printf("  famille 19 : %u/%u\n", ok19, total19);
 		gPassed += ok19;
 		gFailed += (total19 - ok19);
+	}
+
+	// Famille 22 - le plan du fil du panneau IA. Meme forme que 5, 16 et 19 :
+	// elle tient son propre compte et rend un BILAN, quon ADDITIONNE -- sinon
+	// deux echecs vaudraient un.
+	{
+		printf("\n--- Famille 22 : le plan du fil (panneau IA) ---\n");
+		const aiplanprobe::Bilan b22 = aiplanprobe::Sonder();
+		printf("  famille 22 : %u/%u\n", b22.ok, b22.total);
+		gPassed += b22.ok;
+		gFailed += (b22.total - b22.ok);
 	}
 
 	printf("\n---------------------------------------------\n");
