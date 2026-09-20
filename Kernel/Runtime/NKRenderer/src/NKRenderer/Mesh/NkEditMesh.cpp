@@ -1533,6 +1533,39 @@ namespace nkentseu {
 			return n;
 		}
 
+		uint32 NkEditMesh::CompteTraitInterieur(uint8 numero) const {
+			if (numero == 0u)
+				return 0u;
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait != numero)
+					continue;
+				// Le tour de la face : chaque demi-arete a une jumelle, donc une voisine.
+				const NkEmId h0 = faces[f].hedge;
+				if (h0 == NK_EM_INVALID)
+					continue;
+				bool toutes = true;
+				NkEmId h = h0;
+				uint32 garde = 0u;
+				do {
+					const NkEmId t = hedges[h].twin;
+					// UN BORD COMPTE COMME UNE VOISINE ABSENTE : la face n'est pas
+					// interieure. C'est le cas d'une surface ouverte, et l'ignorer
+					// ferait passer un trait de bord pour un trait solide.
+					if (t == NK_EM_INVALID || hedges[t].face == NK_EM_INVALID ||
+						!faces[hedges[t].face].alive ||
+						faces[hedges[t].face].trait != numero) {
+						toutes = false;
+						break;
+					}
+					h = hedges[h].next;
+				} while (h != h0 && ++garde < 64u);
+				if (toutes)
+					++n;
+			}
+			return n;
+		}
+
 		uint32 NkEditMesh::SelectionnerTrait(uint8 numero) {
 		//   LA SELECTION PRECEDENTE EST REMPLACEE, PAS COMPLETEE. « Creuse ici »
 		//   designe le trait, pas le trait PLUS ce qui trainait d'avant -- un
