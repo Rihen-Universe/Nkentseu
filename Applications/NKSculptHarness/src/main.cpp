@@ -731,6 +731,22 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 //     faible, mais parce que 13 groupes touches sur 134 se noient dans 121
 //     groupes intacts. *On mesure la ou on agit, sinon on mesure surtout ce
 //     qui n a pas bouge.* rayon < 0 = tout le maillage.
+// Boite englobante des sommets VIVANTS. Une longueur, la ou les compteurs
+// de sommets ne donnent qu'un cardinal.
+static void BBox(const NkEditMesh &mesh, NkVec3f &lo, NkVec3f &hi) {
+	lo = NkVec3f{1e30f, 1e30f, 1e30f};
+	hi = NkVec3f{-1e30f, -1e30f, -1e30f};
+	for (uint32 i = 0; i < mesh.VertCount(); ++i) {
+		const NkVec3f &p = mesh.verts[i].pos;
+		if (p.x < lo.x) lo.x = p.x;
+		if (p.y < lo.y) lo.y = p.y;
+		if (p.z < lo.z) lo.z = p.z;
+		if (p.x > hi.x) hi.x = p.x;
+		if (p.y > hi.y) hi.y = p.y;
+		if (p.z > hi.z) hi.z = p.z;
+	}
+}
+
 static float64 Rugosite(const NkEditMesh &mesh, const NkVec3f &centre, float32 rayon) {
 	NkVector<uint32> canon;
 	mesh.BuildVertexMerge(canon);
@@ -1120,6 +1136,71 @@ int main(int argc, char **argv) {
 			const float64 r4 = Rugosite(mLoin, centre, 0.7f);
 			snprintf(d, sizeof(d), "applique=%d rugosite %.6f", a3.applied ? 1 : 0, r4);
 			Check(!a3.applied && r4 == r0, "lisser : hors zone, rien n'est ecrit", d);
+		}
+	}
+
+
+	// == bevel : CE QUE LA LARGEUR FAIT A LA GEOMETRIE =======================
+	//
+	// Mesure du 20/09 : sur 10 formulations de biseau, le modele met DEUX fois
+	// le nombre de SEGMENTS dans le champ LARGEUR (« sur 3 segments » ->
+	// bevel:3). La question restee ouverte etait : sur un cube de cote 1, une
+	// largeur de 3 mange-t-elle tout ?
+	//
+	// [!] LE COMPTE DE SOMMETS NE REPOND PAS, et c'est pour ca que la mesure
+	//     vient ici. Dans le modeleur, bevel:0.2:4 et bevel:0:4 rendent le MEME
+	//     triplet (28/64/54) : la topologie ne depend que du nombre de segments.
+	//     Un biseau de largeur nulle creerait 28 sommets CONFONDUS et le compteur
+	//     dirait la meme chose qu'un biseau juste. *Il faut une longueur, pas un
+	//     cardinal.* On prend la diagonale de la boite englobante et le volume.
+	{
+		NkVector<NkVertex3D> v;
+		NkVector<uint32> idx;
+		const float32 kOffs[4] = {0.f, 0.2f, 1.f, 3.f};
+		float64 sVolBevel[4] = {0.0, 0.0, 0.0, 0.0};
+		for (int32 oi = 0; oi < 4; ++oi) {
+			MakeCube(v, idx);
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			const float64 vol0 = (float64)NkSculptSignedVolume(m);
+			NkVec3f lo0, hi0;
+			BBox(m, lo0, hi0);
+			m.SelectAll();
+			NkBevelParams bp;
+			bp.offset = kOffs[oi];
+			bp.segments = 4;
+			const bool ok = m.BevelSelected(bp, nullptr);
+			const float64 vol1 = (float64)NkSculptSignedVolume(m);
+			NkVec3f lo1, hi1;
+			BBox(m, lo1, hi1);
+			const float32 d0 = (hi0 - lo0).Len();
+			const float32 d1 = (hi1 - lo1).Len();
+			char lab[96], det[192];
+			snprintf(lab, sizeof(lab), "bevel largeur %.1f sur cube 1", (double)kOffs[oi]);
+			snprintf(det, sizeof(det), "applique=%d  diag %.3f -> %.3f  volume %.4f -> %.4f",
+					 ok ? 1 : 0, (double)d0, (double)d1, vol0, vol1);
+	//     LE CRITERE : un biseau ne GRANDIT PAS l'objet et ne le fait pas
+	//     disparaitre. La boite englobante doit rester celle du cube (a
+	//     l'arrondi pres) et le volume rester strictement positif. Une largeur
+	//     demesuree qui ferait l'un ou l'autre serait le defaut cherche.
+			const bool sain = ok && (d1 <= d0 * 1.02f) && (vol1 > 0.0);
+			Check(sain, lab, det);
+			sVolBevel[oi] = vol1;
+		}
+		// [!] LE FAIT QUI PROTEGE VRAIMENT, ET C'EST LUI QU'ON GARDE.
+		//     Largeur 1 et largeur 3 rendent EXACTEMENT le meme volume : le
+		//     moteur SATURE -- un biseau ne peut pas depasser ce que les aretes
+		//     incidentes permettent. C'est ce qui fait qu'un `bevel:3` lache par
+		//     le modele donne un biseau tres marque, PAS un objet mange.
+		//     Les quatre criteres du dessus ne peuvent pas rougir tant que cette
+		//     saturation existe ; celui-ci rougira le jour ou elle disparaitra,
+		//     et c'est exactement ce qu'on veut apprendre.
+		{
+			char d2[160];
+			snprintf(d2, sizeof(d2), "largeur 1.0 -> %.4f, largeur 3.0 -> %.4f",
+					 sVolBevel[2], sVolBevel[3]);
+			Check(sVolBevel[2] == sVolBevel[3] && sVolBevel[2] > 0.0,
+				  "bevel : une largeur demesuree SATURE", d2);
 		}
 	}
 
