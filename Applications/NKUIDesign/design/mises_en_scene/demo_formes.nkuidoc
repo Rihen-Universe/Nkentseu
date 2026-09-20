@@ -13,10 +13,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -24,10 +27,14 @@ noeud 0
 
 noeud 1
   libelle = Formes
-  enfants = 2 3 4 5 6 7 8 9 10
+  composant = 
+  parent = 0
   largeur = fixed 640 0 0
   hauteur = fixed 420 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 40 60
   forme = frame
   auteur = humain
@@ -37,10 +44,14 @@ noeud 1
 
 noeud 2
   libelle = Rectangle
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 100 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 30 30
   forme = rect
   fond = #4c6fff
@@ -52,10 +63,14 @@ noeud 2
 
 noeud 3
   libelle = Ellipse
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 100 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 210 30
   forme = ellipse
   auteur = humain
@@ -65,10 +80,14 @@ noeud 3
 
 noeud 4
   libelle = Triangle
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 100 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 390 30
   forme = triangle
   fond = #3fb950
@@ -79,10 +98,14 @@ noeud 4
 
 noeud 5
   libelle = Pentagone
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 120 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 30 180
   forme = pentagone
   fond = #f79a28
@@ -93,10 +116,14 @@ noeud 5
 
 noeud 6
   libelle = Etoile
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 150 0 0
   hauteur = fixed 140 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 210 170
   forme = etoile
   fond = #d29922
@@ -107,10 +134,14 @@ noeud 6
 
 noeud 7
   libelle = Fleche
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 160 0 0
   hauteur = fixed 60 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 390 200
   forme = fleche
   auteur = humain
@@ -120,10 +151,14 @@ noeud 7
 
 noeud 8
   libelle = Ligne
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 160 0 0
   hauteur = fixed 60 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 390 300
   forme = line
   auteur = humain
@@ -133,10 +168,14 @@ noeud 8
 
 noeud 9
   libelle = Image
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 140 0 0
   hauteur = fixed 100 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 40 300
   forme = image
   auteur = humain
@@ -146,10 +185,14 @@ noeud 9
 
 noeud 10
   libelle = Avatar
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 72 0 0
   hauteur = fixed 72 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 220 310
   forme = avatar
   auteur = humain

@@ -12,10 +12,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1 12
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -23,10 +26,14 @@ noeud 0
 
 noeud 1
   libelle = Connexion
-  enfants = 2 3 4 5 6 7 8 9 11
+  composant = 
+  parent = 0
   largeur = fixed 280 0 0
   hauteur = fixed 600 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 144 158
   forme = frame
   cible = Mobile 390 x 844
@@ -37,17 +44,21 @@ noeud 1
 
 noeud 2
   libelle = Titre
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 24 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 164
   forme = text
   texte = Connexion
   couleur_texte = #1f2328
+  texte_aligne = centre
   police_px = 20
   graisse = 700
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -55,10 +66,14 @@ noeud 2
 
 noeud 3
   libelle = Libellé e-mail
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 208
   forme = text
   texte = Adresse e-mail
@@ -72,10 +87,14 @@ noeud 3
 
 noeud 4
   libelle = Champ e-mail
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 36 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 227
   forme = rect
   fond = #f3f4f6
@@ -88,10 +107,14 @@ noeud 4
 
 noeud 5
   libelle = Aide e-mail
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 214 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 35 238
   forme = text
   texte = admin@example.com
@@ -104,10 +127,14 @@ noeud 5
 
 noeud 6
   libelle = Libellé mot de passe
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 279
   forme = text
   texte = Mot de passe
@@ -121,10 +148,14 @@ noeud 6
 
 noeud 7
   libelle = Champ mot de passe
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 36 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 298
   forme = rect
   fond = #f3f4f6
@@ -137,10 +168,14 @@ noeud 7
 
 noeud 8
   libelle = Aide mot de passe
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 214 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 35 309
   forme = text
   texte = ••••••••
@@ -153,10 +188,14 @@ noeud 8
 
 noeud 9
   libelle = Bouton_Connexion
-  enfants = 10
+  composant = 
+  parent = 1
   largeur = fixed 230 120 320
   hauteur = fixed 42 36 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 362
   forme = rect
   role = Button
@@ -169,17 +208,21 @@ noeud 9
 
 noeud 10
   libelle = Texte du bouton
-  enfants =
+  composant = 
+  parent = 9
   largeur = fixed 230 0 0
   hauteur = fixed 16 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 0 13
   forme = text
   texte = Se connecter
   couleur_texte = #ffffff
+  texte_aligne = centre
   police_px = 13
   graisse = 600
-  texte_aligne = centre
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -187,16 +230,20 @@ noeud 10
 
 noeud 11
   libelle = Lien mot de passe
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 230 0 0
   hauteur = fixed 15 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 25 420
   forme = text
   texte = Mot de passe oublié ?
   couleur_texte = #0969da
-  police_px = 12
   texte_aligne = centre
+  police_px = 12
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -204,10 +251,14 @@ noeud 11
 
 noeud 12
   libelle = Dashboard
-  enfants = 13 21 24 27 30
+  composant = 
+  parent = 0
   largeur = fixed 660 0 0
   hauteur = fixed 415 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 504 250
   forme = frame
   cible = Bureau 1440 x 900
@@ -218,10 +269,14 @@ noeud 12
 
 noeud 13
   libelle = Panel_Nav
-  enfants = 14 15 17 18 19 20
+  composant = 
+  parent = 12
   largeur = fixed 70 0 0
   hauteur = fixed 375 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 20 20
   forme = rect
   fond = #e4e8ef
@@ -233,10 +288,14 @@ noeud 13
 
 noeud 14
   libelle = Nav titre
-  enfants =
+  composant = 
+  parent = 13
   largeur = fixed 54 0 0
   hauteur = fixed 11 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 8 12
   forme = text
   texte = NAV
@@ -250,10 +309,14 @@ noeud 14
 
 noeud 15
   libelle = Nav Home
-  enfants = 16
+  composant = 
+  parent = 13
   largeur = fixed 54 0 0
   hauteur = fixed 20 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 8 27
   forme = rect
   fond = #dbeafe
@@ -265,10 +328,14 @@ noeud 15
 
 noeud 16
   libelle = Texte Home
-  enfants =
+  composant = 
+  parent = 15
   largeur = fixed 42 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 6 4
   forme = text
   texte = Home
@@ -282,10 +349,14 @@ noeud 16
 
 noeud 17
   libelle = Nav Users
-  enfants =
+  composant = 
+  parent = 13
   largeur = fixed 40 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 60
   forme = text
   texte = Users
@@ -298,10 +369,14 @@ noeud 17
 
 noeud 18
   libelle = Nav Products
-  enfants =
+  composant = 
+  parent = 13
   largeur = fixed 48 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 88
   forme = text
   texte = Products
@@ -314,10 +389,14 @@ noeud 18
 
 noeud 19
   libelle = Nav Logs
-  enfants =
+  composant = 
+  parent = 13
   largeur = fixed 40 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 116
   forme = text
   texte = Logs
@@ -330,10 +409,14 @@ noeud 19
 
 noeud 20
   libelle = Nav Settings
-  enfants =
+  composant = 
+  parent = 13
   largeur = fixed 48 0 0
   hauteur = fixed 12 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 144
   forme = text
   texte = Settings
@@ -346,10 +429,14 @@ noeud 20
 
 noeud 21
   libelle = Carte_Actifs
-  enfants = 22 23
+  composant = 
+  parent = 12
   largeur = fixed 172 0 0
   hauteur = fixed 61 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 104 20
   forme = rect
   fond = #eff6ff
@@ -362,10 +449,14 @@ noeud 21
 
 noeud 22
   libelle = Libellé
-  enfants =
+  composant = 
+  parent = 21
   largeur = fixed 148 0 0
   hauteur = fixed 11 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 12
   forme = text
   texte = ACTIVE USERS
@@ -379,10 +470,14 @@ noeud 22
 
 noeud 23
   libelle = Valeur
-  enfants =
+  composant = 
+  parent = 21
   largeur = fixed 148 0 0
   hauteur = fixed 22 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 27
   forme = text
   texte = 2,847
@@ -396,10 +491,14 @@ noeud 23
 
 noeud 24
   libelle = Carte_Revenu
-  enfants = 25 26
+  composant = 
+  parent = 12
   largeur = fixed 172 0 0
   hauteur = fixed 61 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 286 20
   forme = rect
   fond = #f0fdf4
@@ -412,10 +511,14 @@ noeud 24
 
 noeud 25
   libelle = Libellé
-  enfants =
+  composant = 
+  parent = 24
   largeur = fixed 148 0 0
   hauteur = fixed 11 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 12
   forme = text
   texte = REVENUE
@@ -429,10 +532,14 @@ noeud 25
 
 noeud 26
   libelle = Valeur
-  enfants =
+  composant = 
+  parent = 24
   largeur = fixed 148 0 0
   hauteur = fixed 22 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 27
   forme = text
   texte = $54.2k
@@ -446,10 +553,14 @@ noeud 26
 
 noeud 27
   libelle = Carte_Attrition
-  enfants = 28 29
+  composant = 
+  parent = 12
   largeur = fixed 172 0 0
   hauteur = fixed 61 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 468 20
   forme = rect
   fond = #fff5f5
@@ -462,10 +573,14 @@ noeud 27
 
 noeud 28
   libelle = Libellé
-  enfants =
+  composant = 
+  parent = 27
   largeur = fixed 148 0 0
   hauteur = fixed 11 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 12
   forme = text
   texte = CHURN RATE
@@ -479,10 +594,14 @@ noeud 28
 
 noeud 29
   libelle = Valeur
-  enfants =
+  composant = 
+  parent = 27
   largeur = fixed 148 0 0
   hauteur = fixed 22 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 12 27
   forme = text
   texte = 3.2%
@@ -496,10 +615,14 @@ noeud 29
 
 noeud 30
   libelle = Graphique
-  enfants = 31 32 33 34 35 36 37 38 39 40 41 42
+  composant = 
+  parent = 12
   largeur = fixed 536 0 0
   hauteur = fixed 302 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 104 93
   forme = rect
   fond = #f8f9fa
@@ -512,10 +635,14 @@ noeud 30
 
 noeud 31
   libelle = Barre 1
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 104 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 14 184
   forme = rect
   fond = #d1d5db
@@ -527,10 +654,14 @@ noeud 31
 
 noeud 32
   libelle = Barre 2
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 148 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 56 140
   forme = rect
   fond = #d1d5db
@@ -542,10 +673,14 @@ noeud 32
 
 noeud 33
   libelle = Barre 3
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 126 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 98 162
   forme = rect
   fond = #d1d5db
@@ -557,10 +692,14 @@ noeud 33
 
 noeud 34
   libelle = Barre 4
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 192 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 140 96
   forme = rect
   fond = #d1d5db
@@ -572,10 +711,14 @@ noeud 34
 
 noeud 35
   libelle = Barre 5
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 159 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 182 129
   forme = rect
   fond = #d1d5db
@@ -587,10 +730,14 @@ noeud 35
 
 noeud 36
   libelle = Barre 6
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 225 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 224 63
   forme = rect
   fond = #d1d5db
@@ -602,10 +749,14 @@ noeud 36
 
 noeud 37
   libelle = Barre 7
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 137 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 266 151
   forme = rect
   fond = #d1d5db
@@ -617,10 +768,14 @@ noeud 37
 
 noeud 38
   libelle = Barre 8
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 186 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 308 102
   forme = rect
   fond = #93c5fd
@@ -632,10 +787,14 @@ noeud 38
 
 noeud 39
   libelle = Barre 9
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 170 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 350 118
   forme = rect
   fond = #d1d5db
@@ -647,10 +806,14 @@ noeud 39
 
 noeud 40
   libelle = Barre 10
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 233 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 392 55
   forme = rect
   fond = #d1d5db
@@ -662,10 +825,14 @@ noeud 40
 
 noeud 41
   libelle = Barre 11
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 151 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 434 137
   forme = rect
   fond = #d1d5db
@@ -677,10 +844,14 @@ noeud 41
 
 noeud 42
   libelle = Barre 12
-  enfants =
+  composant = 
+  parent = 30
   largeur = fixed 39 0 0
   hauteur = fixed 214 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 476 74
   forme = rect
   fond = #0969da
