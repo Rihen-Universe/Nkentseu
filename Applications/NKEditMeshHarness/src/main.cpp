@@ -10306,6 +10306,90 @@ static int32 LoiInstrument() {
 	printf("# ⚠️ POINT D'ANCRAGE : les lignes a `demandees=1` doivent rendre `vues=1`\n");
 	printf("#   et +4, dans LES DEUX variantes. Si elles bougent, le correctif a\n");
 	printf("#   casse autre chose et le reste de la course ne vaut rien.\n");
+	// ⚠️ NOMMER LA DIVERGENCE POUR QU'ELLE NE SE FASSE PAS « REPARER ».
+	//    La ligne `coins / 2 faces`, ou inset rend +24 et extrude +8, N'EST PAS
+	//    UN ECHEC DE CE BANC : c'est le constat qu'il est venu chercher, et il
+	//    est ATTENDU tel quel. Sans cette phrase, quelqu'un finira par
+	//    « corriger » le banc pour faire coincider les deux colonnes -- et
+	//    effacera le seul endroit qui garde la trace du desaccord.
+	printf("# ✔ DIVERGENCE DECLAREE, PAS UN ECHEC : en variante `coins`, inset lit\n");
+	printf("#   l'identite SOUDEE et extrude lit les COINS. +24 contre +8 sur deux\n");
+	printf("#   faces est le resultat ATTENDU de ce banc, pas un defaut a faire\n");
+	printf("#   disparaitre. Elle est DORMANTE : l'application pose une intention\n");
+	printf("#   de face (SetFaceSelection) et n'emprunte pas ce repli. Les deux\n");
+	printf("#   sites portent la meme note dans NkEditMesh.cpp.\n");
+	return 0;
+}
+
+// =============================================================================
+//  --loi-loopcut : LA LOI, SOUS UNE BORNE DE VALIDITE POSEE AVANT
+// =============================================================================
+//  ⚠️ QUELLE EPREUVE : `LoopCutFromSelectedEdge` part d'une ARETE selectionnee.
+//     On marque les deux sommets d'une arete A LA MAIN, sans poser d'intention :
+//     c'est le chemin de REPLI. **Aucune conclusion de ce banc ne porte sur ce
+//     que voit Rodolf** tant qu'on n'a pas verifie comment NK3DModeler designe
+//     son arete. C'est la faute commise sur `inset` -- un vrai desaccord attribue
+//     a un chemin que le produit n'emprunte pas.
+//
+//  ⚠️ BORNE DE VALIDITE (antecedent : arete degeneree au glissement 0,999, avec
+//     V-E+F = -10 et 4 aretes non-manifold). `slide = 0` UNIQUEMENT, et chaque
+//     relevé publie **V-E+F** et **NonManifoldEdgeCount()**. Un relevé dont
+//     Euler n'est pas 2 (cube ferme, genre 0) ou dont le non-manifold n'est pas
+//     0 est ECARTE ET DIT -- jamais moyenne, jamais utilise pour ajuster.
+//     Euler juge la topologie SANS attendu dicte par moi : c'est un theoreme.
+//
+//  ⚠️ ET LE CUBE SEUL NE SEPARE RIEN : une boucle y traverse 4 faces, ce qui
+//     rend « n x faces de la boucle », « n x 4 » et parfois « n x F »
+//     indiscernables. Le cube SUBDIVISE est au plan d'emblee -- le piege a deja
+//     ete paye deux fois aujourd'hui.
+static int32 LoiLoopcut() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# loi de loopcut -- slide=0, et chaque releve publie sa validite\n");
+	printf("# %-10s %-6s %-7s %-7s %-7s %-8s %-9s %-7s %-9s %s\n", "maillage", "cuts", "V_av",
+		   "E_av", "F_av", "F_apres", "ajoutees", "Euler", "nonmanif", "valide");
+	for (int32 sub = 0; sub <= 1; ++sub) {
+		const int32 cuts[4] = {1, 2, 3, 5};
+		for (int32 k = 0; k < 4; ++k) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			if (sub) {
+				m.SelectAll();
+				if (!m.SubdivideSelectedFaces())
+					continue;
+			}
+			// UNE SEULE ARETE : les deux sommets du premier tour de la face 0.
+			m.SelectNone();
+			NkVector<NkEmId> loop;
+			m.GetFaceVerts((NkEmId)0, loop);
+			if (loop.Size() < 2)
+				continue;
+			m.verts[(uint32)loop[0]].sel = 1;
+			m.verts[(uint32)loop[1]].sel = 1;
+			const uint32 v0 = LoiVertsSoudes(m), e0 = m.EdgeCount(), f0 = LoiBevelFacesVivantes(m);
+			NkLoopCutParams p;
+			p.cuts = cuts[k];
+			p.slide = 0.f; // BORNE DE VALIDITE : jamais autre chose ici
+			const bool ok = m.LoopCutFromSelectedEdge(p);
+			if (!ok) {
+				printf("  %-10s %-6d %-7u %-7u %-7u %-8s %-9s %-7s %-9s %s\n",
+					   sub ? "cube+sub" : "cube", cuts[k], v0, e0, f0, "REFUS", "-", "-", "-", "-");
+				continue;
+			}
+			const uint32 v1 = LoiVertsSoudes(m), e1 = m.EdgeCount(), f1 = LoiBevelFacesVivantes(m);
+			const int32 euler = (int32)v1 - (int32)e1 + (int32)f1;
+			const uint32 nm = m.NonManifoldEdgeCount();
+			const bool valide = (euler == 2) && (nm == 0u);
+			printf("  %-10s %-6d %-7u %-7u %-7u %-8u %-9d %-7d %-9u %s\n", sub ? "cube+sub" : "cube",
+				   cuts[k], v0, e0, f0, f1, (int)f1 - (int)f0, euler, nm,
+				   valide ? "oui" : "NON -> ECARTE");
+		}
+	}
+	printf("# ⚠️ Tout relevé marque ECARTE ne compte pas : il mesure une\n");
+	printf("#   degenerescence, pas la loi. Il est DIT, jamais moyenne.\n");
+	printf("# ⚠️ Et « faces de la boucle » n'est PAS une grandeur que l'hote publie :\n");
+	printf("#   une loi juste ecrite avec elle serait INUTILISABLE pour la garde.\n");
 	return 0;
 }
 
@@ -10455,6 +10539,7 @@ int main(int argc, char **argv) {
 	bool loiExtrude = false;
 	bool loiInset = false;
 	bool loiInstr = false;
+	bool loiLoopcut = false;
 	for (int32 i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--loi-bevel") == 0)
 			loiBevel = true;
@@ -10464,6 +10549,8 @@ int main(int argc, char **argv) {
 			loiInset = true;
 		else if (strcmp(argv[i], "--loi-instrument") == 0)
 			loiInstr = true;
+		else if (strcmp(argv[i], "--loi-loopcut") == 0)
+			loiLoopcut = true;
 		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
@@ -10490,6 +10577,8 @@ int main(int argc, char **argv) {
 		return LoiInset();
 	if (loiInstr)
 		return LoiInstrument();
+	if (loiLoopcut)
+		return LoiLoopcut();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
