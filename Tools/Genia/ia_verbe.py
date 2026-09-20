@@ -31,6 +31,7 @@
 
 import json
 import os
+import socket
 import sys
 import urllib.error
 import urllib.request
@@ -101,6 +102,22 @@ def main() -> int:
         # caracteres, et une erreur systeme Windows en fait deja 150. Mis en
         # queue, « Demarrez-le » se faisait couper -- il ne restait que la
         # plainte, sans le geste qui repare.
+        #
+        # [!] ABSENT ET LENT SONT DEUX PANNES DIFFERENTES, et ce message les
+        #     confondait. Mesure du 20/09 : la carte etant disputee, une
+        #     reponse a mis 182 s ; le delai par defaut etant de 120 s, le
+        #     panneau annoncait « Ollama n'est pas joignable » alors qu'il
+        #     repondait tres bien -- il envoyait chercher la panne du cote du
+        #     service arrete, et le geste propose (« Demarrez-le ») n'aurait
+        #     rien repare. *Un message qui nomme la mauvaise cause coute plus
+        #     cher qu'un message vague.*
+        lent = isinstance(e, socket.timeout) or isinstance(
+            getattr(e, 'reason', None), socket.timeout)
+        if lent:
+            return refuser(chemin_sortie,
+                           "Ollama a mis plus de %g s a repondre (la carte est"
+                           " peut-etre occupee). Reessayez, ou augmentez"
+                           " NK_IA_TIMEOUT." % delai, 2)
         return refuser(chemin_sortie,
                        "Ollama n'est pas joignable sur %s. Demarrez-le, ou "
                        "posez NK_IA_URL. Detail : %s" % (base, e), 2)
