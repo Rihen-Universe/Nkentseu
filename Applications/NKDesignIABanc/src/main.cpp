@@ -318,6 +318,10 @@ int main(int argc, char **argv) {
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
+	/// Le plafond d'attente du dorsal, en ms. 0 = « sans objet » (dorsal sans
+	/// reseau). Il voyage jusqu'a la paire de recolte : une duree egale au
+	/// plafond doit pouvoir se lire comme telle des annees plus tard.
+	unsigned delaiDorsal = 0u;
 	for (int a = 1; a < argc; ++a) {
 		if (CommencePar(argv[a], "--demandes="))
 			fDemandes = argv[a] + 11;
@@ -488,6 +492,18 @@ int main(int argc, char **argv) {
 		//    se noie dans le tirage au sort.
 		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
 			ollama.temperature = (float32)atof(tp);
+		// ⚠️ LE PLAFOND D'ATTENTE DEVIENT UN REGLAGE, ET IL EST IMPRIME.
+		//    Grave a 300 000 ms, il a tranche DEUX demandes des courses A du 19/09
+		//    (`d10`, `duree_ms = 300 041`) sans que rien ne le dise : on a lu « le
+		//    modele echoue » la ou il fallait lire « on a cesse d'attendre ».
+		//    ⚠️ `atof` et non `atoi` serait un piege fr-FR ; ici c'est un entier,
+		//    et la valeur lue est REIMPRIMEE pour qu'un reglage muet ne passe pas.
+		if (const char *dl = std::getenv("NK_OLLAMA_DELAI")) {
+			const int v = std::atoi(dl);
+			if (v > 0)
+				ollama.delaiMs = (uint32)v;
+		}
+		delaiDorsal = (unsigned)ollama.delaiMs;
 		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
 		//    service eteint rendrait douze refus identiques et on lirait « le
 		//    modele echoue » la ou il faut lire « personne n'ecoute ».
@@ -497,6 +513,10 @@ int main(int argc, char **argv) {
 			return 2;
 		}
 		std::printf("modele        : %s (reglage) sur %s\n", ollama.modele.Data(), ollama.hote.Data());
+		std::printf("delai max     : %u ms (reglage NK_OLLAMA_DELAI) -- une duree egale\n"
+					"                a ce plafond dit qu'ON A CESSE D'ATTENDRE, pas que le\n"
+					"                modele a echoue\n",
+					(unsigned)ollama.delaiMs);
 		ia.SetBackend(&ollama);
 	} else {
 		NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
@@ -670,6 +690,7 @@ int main(int argc, char **argv) {
 			paire.n2 = n2;
 			paire.n3 = n3;
 			paire.ms = msEcoule;
+			paire.delaiMs = delaiDorsal;
 			paire.catalogue = etiquetteCatalogue.CStr();
 			// La provenance du JEU DE DEMANDES, pas de la reponse : le fichier des
 			// demandes est a nous, ecrit avant la premiere course et jamais modifie.
