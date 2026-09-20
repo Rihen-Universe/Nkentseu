@@ -86,6 +86,10 @@ namespace nkrecolte {
 			bool n2 = false;			 ///< le validateur a LU le document
 			bool n3 = false;			 ///< le document S'OUVRE en .nkgui
 			double ms = 0.0;			 ///< duree de la generation
+			/// Le plafond du dorsal, en millisecondes. Ecrit DANS la paire : une
+			/// duree egale au plafond ne dit pas « le modele est lent », elle dit
+			/// « on a cesse d'attendre ».
+			unsigned delaiMs = 0u;
 			/// ⚠️ LE NIVEAU DU CATALOGUE EST UNE CONDITION, PAS UN DETAIL. Deux
 			///    courses du meme modele avec un catalogue COMPLET et un catalogue
 			///    BREF ne se comparent qu'a condition de savoir laquelle est
@@ -146,6 +150,14 @@ namespace nkrecolte {
 		snprintf(b, sizeof(b), "modele     = %s\n", p.modele ? p.modele : "(inconnu)");
 		out.Append(b);
 		snprintf(b, sizeof(b), "duree_ms   = %.0f\n", p.ms);
+		out.Append(b);
+		// ⚠️ LE PLAFOND EST UNE CONDITION DU RESULTAT, PAS UN REGLAGE INTERNE.
+		//    Les courses `ia-A1` et `ia-A2` du 19/09 portent `duree_ms = 300 041`
+		//    sur `d10` : ce n'est pas une lenteur du modele, c'est NOTRE plafond
+		//    atteint. Sans ce champ, l'echec s'impute au modele. *Un delai non
+		//    declare est un resultat attribue au mauvais responsable.*
+		snprintf(b, sizeof(b), "delai_max_ms = %u%s\n", (unsigned)p.delaiMs,
+				 (p.ms >= (double)p.delaiMs) ? "   <- ATTEINT : le plafond a tranche, pas le modele" : "");
 		out.Append(b);
 		snprintf(b, sizeof(b), "catalogue  = %s\n",
 				 p.catalogue && *p.catalogue ? p.catalogue : "(non dit)");

@@ -125,8 +125,34 @@ namespace nkentseu::converse {
 					return false;
 				}
 
+				// ⚠️ LE MOTIF DISAIT « champ `response` absent » POUR UN CHAMP
+				//    PRESENT. Mesure du 20/09 : le corps affiche a cote du refus
+				//    contenait `"response":"nkuidoc 1\ntitre = Jeu..."`. Le champ
+				//    etait la ; c'est sa chaine qui n'etait jamais FERMEE, parce que
+				//    le client HTTP s'arretait a la fin des en-tetes. *Un message
+				//    d'erreur qui nomme un coupable est une hypothese de
+				//    l'instrument, pas une mesure* -- et celui-ci accusait le modele
+				//    d'un defaut de notre pile reseau. Les trois cas sont desormais
+				//    distingues, et aucun ne designe le modele.
 				if (!ExtraireChamp(r.body, "response", out.text)) {
-					out.error = NkString("REFUS : 200 mais corps illisible (champ `response` absent) -- ");
+					const bool present = r.body.Find("\"response\":", 0) != NkString::npos;
+					if (r.body.Length() == 0u) {
+						out.error = NkString("REFUS : 200 avec un corps VIDE -- le service a repondu "
+											 "sans rien dire (cadrage de la reponse ?)");
+					} else if (present) {
+						char b[160];
+						snprintf(b, sizeof(b),
+								 "REFUS : 200, champ `response` PRESENT mais sa chaine n'est jamais "
+								 "fermee sur %u octets de corps -- corps TRONQUE, pas modele muet -- ",
+								 (unsigned)r.body.Length());
+						out.error = NkString(b);
+					} else {
+						char b[128];
+						snprintf(b, sizeof(b),
+								 "REFUS : 200, aucun champ `response` dans %u octets de corps -- ",
+								 (unsigned)r.body.Length());
+						out.error = NkString(b);
+					}
 					AppendBorne(out.error, r.body, 200u);
 					return false;
 				}
