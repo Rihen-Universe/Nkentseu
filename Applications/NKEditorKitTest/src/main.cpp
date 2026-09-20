@@ -106,6 +106,7 @@
 #include "NKEditorKit/NkAiThread.h"
 #include "NKEditorKit/NkAiThreadLayout.h"
 #include "NkAiPlanProbe.h" // famille 22 : le plan du fil, eprouve sans fenetre
+#include "NkAiPaintProbe.h" // famille 23 : la transcription du plan en commandes
 // Famille 5 — le RAIL du selecteur de fichiers. Le banc vit DANS LE KIT
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
@@ -1287,6 +1288,16 @@ int main(int argc, char **argv) {
 		printf("  famille 22 : %u/%u\n", b22.ok, b22.total);
 		gPassed += b22.ok;
 		gFailed += (b22.total - b22.ok);
+	}
+
+	// Famille 23 - la transcription du plan en commandes de dessin. Elle
+	// branche l'enregistreur headless que le kit portait deja.
+	{
+		printf("\n--- Famille 23 : la transcription du plan ---\n");
+		const aipaintprobe::Bilan b23 = aipaintprobe::Sonder();
+		printf("  famille 23 : %u/%u\n", b23.ok, b23.total);
+		gPassed += b23.ok;
+		gFailed += (b23.total - b23.ok);
 	}
 
 	printf("\n---------------------------------------------\n");
