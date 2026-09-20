@@ -3700,10 +3700,13 @@ int nkmain(const NkEntryState &entry) {
 							snprintf(m, sizeof(m),
 									 "Une seule fois : la condition « %s » est illisible "
 									 "(attendu jusqua:quantite:plus|moins:seuil).", jeton);
-							const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus,
-															   "Boucle refusee");
-							nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), m);
-							nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+							// ⚠️ LE MOTIF PART **DANS** L'APPEL. Le fil du kit refuse un
+							//    `Refus` sans motif -- et il a raison : « Boucle
+							//    refusee » seul n'apprend rien. L'ancien code posait un
+							//    titre puis ecrivait le motif dans la structure ; cette
+							//    structure n'existe plus, et tant mieux : elle
+							//    permettait d'entrer un refus vide.
+							(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, m);
 						} else if (!nk3d::NkIaVerbeBouclable(verbe)) {
 							// ⚠️ LA PORTE REFUSE NOMMEMENT, ET NE SE DEGUISE PAS.
 							//    Le verbe s'execute UNE fois -- l'utilisateur l'a bien
@@ -3716,10 +3719,7 @@ int nkmain(const NkEntryState &entry) {
 									 "mesurable, il ne peut pas boucler (7 verbes sur 26 le "
 									 "peuvent : subdivide, loopcut, extrude, inset, bevel, "
 									 "delete, dissolve).", verbe);
-							const int32 ir = nk3d::NkAiPousser(st, NkModelerState::AiType::Refus,
-															   "Boucle refusee");
-							nk3d::NkAiCopie(st.aiFil[ir].detail, sizeof(st.aiFil[ir].detail), m);
-							nk3d::NkAiCopie(st.aiFil[ir].in, sizeof(st.aiFil[ir].in), sIaPhrase);
+							(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Refus, m);
 							std::printf("[nk3d] IA BOUCLE REFUSEE : %s\n", m);
 							std::fflush(stdout);
 						} else {
@@ -3940,8 +3940,18 @@ int nkmain(const NkEntryState &entry) {
 						 "n'avance peut-etre pas sur cette selection.",
 						 (int)st.aiBoucleTour, nk3d::NkIaQuantiteNom(pr.quantite), (int)valeur,
 						 (int)pr.seuil);
+				// ⚠️ E ET V SONT PASSES ICI, ET C'EST CE QUI REND LA BRANCHE BEVEL
+				//    VIVANTE. Sa loi a ete mesuree le 20/09 -- `segments == 1` ->
+				//    E + V ; `segments >= 2` -> 3 x E x segments -- mais
+				//    `NkIaPasSur` la laissait dormir tant que personne ne lui
+				//    donnait les deux comptes. Ils etaient a DEUX LIGNES d'ici
+				//    (`bv`, `be`), lus par le meme appel que les faces.
+				//    A zero, la prediction se desactive et l'on retombe sur la
+				//    regle du quart : c'est pourquoi les passer n'ajoute aucun
+				//    risque, et les omettre coutait la seule loi qu'on ait mesuree
+				//    pour le verbe le plus dangereux des sept.
 			} else if (!nk3d::NkIaPasSur(st.aiBoucleVerbe, (int32)bf, st.aiBouclePlus, motif,
-										 sizeof(motif))) {
+										 sizeof(motif), (int32)be, (int32)bv)) {
 				// `motif` est deja rempli par la garde : elle nomme le plafond.
 				// Le SENS du predicat lui est passe : c'est la seule chose qu'on
 				// sache de la direction de la boucle sans avoir mesure la loi du
@@ -3952,9 +3962,11 @@ int nkmain(const NkEntryState &entry) {
 
 			if (motif[0]) {
 				st.aiBoucleActive = false;
-				const int32 ib = nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "Boucle terminee");
-				nk3d::NkAiCopie(st.aiFil[ib].detail, sizeof(st.aiFil[ib].detail), motif);
-				nk3d::NkAiCopie(st.aiFil[ib].in, sizeof(st.aiFil[ib].in), st.aiBoucleVerbe);
+				// ⚠️ LE TEXTE PART **DANS** L'APPEL, comme pour le refus. Un bloc de
+				//    prose dont le corps s'ecrivait apres coup dans la structure
+				//    pouvait entrer VIDE ; le contrat du kit l'interdit, et il a
+				//    raison. Le verbe qui bouclait est dans le motif, qui le nomme.
+				(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, motif);
 				std::printf("[nk3d] IA BOUCLE : %s\n", motif);
 				std::fflush(stdout);
 			} else {
