@@ -352,6 +352,9 @@ namespace nkentseu {
 		int32 Demo3DHostEditRefusedFrames();
 		// 0 = pas de refus ; 1..5 = le motif, voir NkDemo3D.cpp.
 		int32 Demo3DHostEditRefusMotif();
+		// false = le noeud se dessine avec une primitive PARTAGEE et ne peut
+		// pas entrer en edition. Meme condition que le refus d'edition.
+		bool Demo3DHostNodeHasOwnMesh(int32 node);
 		// REGLER un parametre de l'operation en cours -- la demande « pas de
 		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
 		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris
