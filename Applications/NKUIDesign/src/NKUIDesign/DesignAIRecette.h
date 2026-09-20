@@ -50,10 +50,20 @@
 // -----------------------------------------------------------------------------
 
 #include "DesignAI.h"
+#include "NKEditorKit/NkAiThreadLayout.h" // le fil du panneau, et son PLAN
 
 #include <cstdio>
 
 namespace nkuidesign {
+
+	/// La mesure de texte de la recette : deterministe, sans fonte.
+	inline nkentseu::float32 RcMesureTexte(void *, nkentseu::editorkit::NkAiPolice,
+				   const char *t) {
+		nkentseu::uint32 n = 0;
+		while (t && t[n]) ++n;
+		return (nkentseu::float32)n * 7.f;
+	}
+
 
 	// ── HELPERS LOCAUX ──────────────────────────────────────────────────────
 	// Prefixes `Rc` pour ne pas entrer en collision avec ceux de `Probe.h` si
@@ -413,6 +423,57 @@ namespace nkuidesign {
 			doc.Save(apresRetrait2);
 			check("7e. le Commit se retire d'un geste, document identique à l'avant-Propose",
 				  retrait2 && RcSameText(base.Data(), apresRetrait2.Data()), "");
+		}
+
+		// ── 8. LA REPONSE EST-ELLE AFFICHEE ? ─────────────────────
+		// ⚠️ CE QUI MANQUAIT A CETTE RECETTE, ET QUE PERSONNE N AVAIT REMARQUE :
+		//    elle prouvait que la GENERATION marche -- 7 noeuds poses, annulables,
+		//    document identique au bit -- et RIEN sur ce que l utilisateur VOIT.
+		//    Or le panneau n avait qu une phrase ecrasee a chaque tour ; depuis le
+		//    20/09 il a un fil. Un document juste dans un panneau muet se lit comme
+		//    un outil casse.
+		//
+		//    On mesure donc le PLAN -- ce que le peintre PUBLIE -- et pas un etat
+		//    interne du fil : c est la difference entre « le texte est range » et
+		//    « le texte sera peint ».
+		{
+			using namespace nkentseu::editorkit;
+			NkAiFil fil;
+			NkAiCapacites cap = NkAiCapacites::Texte();
+			cap.produitRefus = true;
+			fil.Declarer(cap);
+			fil.PoserPlafond(200);
+			NkString pourquoi;
+			
+			// Ce que le panneau pousse a chaque geste, par la meme porte que lui.
+			NkAiBlocDonnees d;
+			d.type = NkAiBloc::Prose;
+			d.texte = NkString("Generation du document lancee.");
+			const bool e1 = fil.Pousser(d, pourquoi);
+			check("8a. la reponse entre dans le fil du panneau", e1 && fil.Taille() == 1, "");
+			
+			// ⚠️ LE MAILLON QUI MANQUAIT : est-elle PUBLIEE par le peintre ?
+			NkAiMetriques metr;
+			NkAiPlan plan;
+			NkAiFilMesurer(fil, 320.f, metr, RcMesureTexte, nullptr, plan);
+			NkAiRectPublie rc;
+			const uint32 id = fil.Taille() ? fil.At(0).id : 0u;
+			const bool vu = plan.Trouver(id, NkAiPiece::Texte, rc);
+			snprintf(buf, sizeof(buf), "publiee a (%.0f,%.0f) sur %.0f px", (double)rc.x,
+				  (double)rc.y, (double)rc.w);
+			check("8b. et le peintre la PUBLIE -- ce n est pas qu un etat range",
+				  vu && rc.w > 0.f && rc.h > 0.f, buf);
+			
+			// 8c. ⚠️ CONTROLE NEGATIF : le fil REFUSE un bloc que le porteur ne
+			//     declare pas produire, et il le dit. Sans lui, un fil qui accepterait
+			//     tout passerait 8a et 8b sans rien prouver.
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Outil; // NKUIDesign ne produit pas d etapes d outil
+			o.titre = NkString("Bash");
+			NkString motif;
+			const bool refuse = !fil.Pousser(o, motif);
+			check("8c. controle negatif : un bloc non declare est refuse AVEC son motif",
+				  refuse && motif.Length() > 0 && fil.Taille() == 1, "");
 		}
 
 		// ── FIN : on ne laisse rien trainer ─────────────────────────────────
