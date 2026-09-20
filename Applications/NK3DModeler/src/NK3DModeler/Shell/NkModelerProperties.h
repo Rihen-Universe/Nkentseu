@@ -805,6 +805,22 @@ namespace nkentseu {
 		// Le bouton pleine largeur des panneaux de reglage. Fonction LIBRE : les
 		// pastilles extraites de PaintPropertiesUnified en ont besoin autant que
 		// le corps principal, et une lambda ne se partage pas.
+		// -- LA LARGEUR DE LA COLONNE DE PASTILLES : UNE SOURCE, DES LECTEURS --
+		// Elle etait ecrite DEUX FOIS, et pas avec le meme nombre : la mise en page
+		// reservait S(28.f) (main.cpp, le repli du panneau sur sa colonne) pendant
+		// que la peinture amputait S(26.f) + kSbW. Deux chiffres pour une meme
+		// colonne, c est un defaut qui dort ; en recopier un troisieme pour poser a
+		// cote le panneau de l assistant l aurait reveille.
+		//
+		// [!] LE 26 PASSE A 28, CHANGEMENT VISIBLE, MINUSCULE MAIS REEL : le contenu
+		//     du panneau deplie perd deux pixels de large. On garde le chiffre de la
+		//     MISE EN PAGE et non celui de la peinture, parce que c est lui qui decide
+		//     la place rendue a la vue 3D ; la peinture, elle, n avait qu a tenir
+		//     dedans, et elle y tient (pastille de 20 px posee a +3).
+		inline float32 NkPropTabColW() {
+			return S(28.f);
+		}
+		//
 		inline bool NkPropButton(NkModelerPainter &p, NkHitRegistry &hit, const char *key,
 								 float32 yB, const char *label, float32 x, float32 w) {
 			const NkRect br{x, yB + S(2.f), w, kRowH - S(4.f)};
@@ -7373,7 +7389,10 @@ namespace nkentseu {
 			// douter qu'il y ait quelque chose plus bas.
 			const float32 kSbW = editorkit::NkScrollbarWidth();
 			NkRect r = rFull;
-			r.w -= S(26.f) + kSbW;
+			// La colonne lit sa largeur A SA SOURCE (`NkPropTabColW`) : ce site et
+			// la mise en page en portaient chacun sa propre valeur, 26 ici et 28
+			// la-bas, pour la meme bande de pixels.
+			r.w -= NkPropTabColW() + kSbW;
 			char key[40], buf[96];
 
 			// Etait une lambda locale : elle ne capturait que le peintre et le
@@ -7803,6 +7822,70 @@ namespace nkentseu {
 							st.propScroll3[i2] = 0.f;
 						}
 					}
+					ty += S(28.f);
+				}
+				// -- SECONDE FAMILLE : LES PASTILLES D OUTIL, SOUS CELLES DES SECTIONS --
+				// Rodolf, 20/09 : « quand le panneau IA est ouvert on ne peut plus le fermer
+				// sur NK3DModeler, pourtant je voulais que ce dernier soit une pastille
+				// comme les autres. »
+				//
+				// [!] CE QUI EST UNE PASTILLE ICI, C EST LA POIGNEE -- PAS LA SECTION.
+				//     L assistant a DEJA vecu comme une section de ce panneau (17/09, 18h09)
+				//     et il en a ete SORTI : un panneau dessine dans un panneau hote, ce que
+				//     la specification interdit depuis que deux menus de NKUIDesign laissaient
+				//     passer les clics une image sur deux. Son contenu reste donc sur la
+				//     couche overlay. Seule sa POIGNEE rejoint la colonne -- c est exactement
+				//     le partage du rail de NKUIDesign : le rail porte la pastille, le tiroir
+				//     se deplie ailleurs.
+				//
+				// [!] ET C EST POURQUOI ELLE N ENTRE PAS DANS `kSecs` NI DANS `propOpen`.
+				//     Cette table-la porte deja quatre cas particuliers par INDICE (0 et 3
+				//     sans selection, 4 sans objet, 7 pour le mode) et ce fichier dit lui-meme
+				//     la faute payee : « la table etait restee a six, et l indice 6 -- Output
+				//     -- tombait dans la branche pastille du mode ». Une seconde famille ne
+				//     decale aucun indice, et la regle « en ajouter une = une entree dans la
+				//     table » reste vraie pour les sections.
+				//
+				// La cle est un NOM (`props.outil.ia`), jamais une position : c est la lecon
+				// que l autre chantier vient de payer sur `kRailDroite[1]`.
+				//
+				// [!] L ICONE EST `Terminal` FAUTE DE MIEUX, ET C EST A REVOIR : la
+				//     fonte du modeleur n a ni bulle de conversation ni etincelle. Terminal
+				//     dit au moins la bonne chose -- on tape une demande, ca repond. On la
+				//     remplace le jour ou une icone d assistant est tracee ; en fabriquer
+				//     une au juge ici aurait mis du dessin dans un fichier de panneau.
+				//
+				// [!] L ICONE EST  FAUTE DE MIEUX, ET C EST A REVOIR : la fonte du
+				//     modeleur n a ni bulle de conversation ni etincelle. Terminal dit au moins
+				//     la bonne chose -- on tape une demande, ca repond. On la remplace le jour
+				//     ou une icone d assistant est tracee ; en fabriquer une au jugé ici aurait
+				//     mis du dessin dans un fichier de panneau.
+				if (!st.welcome) {
+					const NkRect tb{tabX + S(3.f), ty + S(6.f), S(20.f), S(24.f)};
+					st.aiTabRect[0] = tb.x;
+					st.aiTabRect[1] = tb.y;
+					st.aiTabRect[2] = tb.w;
+					st.aiTabRect[3] = tb.h;
+					const bool on = st.aiOuvert;
+					const bool overT = hit.Add("props.outil.ia", tb);
+					if (on)
+						p.Fill(tb, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, tb, overT, 3.f);
+					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, NkIcon::Terminal,
+							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
+				//
+				// -- LA MARQUE : CE QUE LE PANNEAU FERME DIT QUAND MEME --
+				// Une demande n OUVRE plus le panneau de force. Pour que la reponse ne se
+				// perde pas pour autant, la pastille porte un point tant que le fil compte
+				// des blocs que personne n a vus. *Ouvrir de force repond au besoin de
+				// l application ; marquer repond a celui de l utilisateur.*
+					if (!on && st.aiFilN > st.aiFilVu) {
+						const float32 d = S(6.f);
+						p.Fill({tb.x + tb.w - d, tb.y + S(1.f), d, d}, NkRole::AccentUi, d * 0.5f);
+					}
+					if (hit.Clicked("props.outil.ia"))
+						st.aiOuvert = !st.aiOuvert;
 					ty += S(28.f);
 				}
 			}

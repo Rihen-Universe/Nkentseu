@@ -167,11 +167,26 @@ namespace nkentseu {
 			if (!st.aiSujet[0])
 				NkAiCopie(st.aiSujet, sizeof(st.aiSujet), texte);
 			(void)NkAiPousser(st, NkModelerState::AiType::Demande, texte);
-			// UNE DEMANDE OUVRE LE PANNEAU. Sans cela, une demande soumise par le
-			// crochet repondrait dans un panneau ferme : la reponse existerait et
-			// personne ne la verrait -- le defaut meme qu'on vient de corriger sur
-			// le motif de refus.
-			st.aiOuvert = true;
+			// ── UNE DEMANDE **MARQUE** LE PANNEAU, ELLE NE L'OUVRE PLUS ───────
+			// L'ancienne version posait ici `st.aiOuvert = true`, pour une raison qui
+			// reste vraie : une demande soumise dans un panneau ferme repondrait sans
+			// que personne ne voie la reponse.
+			// 
+			// Ce que cette raison ne justifiait pas, c'est de PRENDRE L'ECRAN. Rodolf
+			// a demande que l'assistant soit « une pastille comme les autres » -- et
+			// une pastille ne s'ouvre pas toute seule. *Ouvrir de force repond au
+			// besoin de l'APPLICATION ; marquer repond a celui de l'UTILISATEUR.*
+			// 
+			// `NkAiPousser` vient d'incrementer `aiFilN` : la marque EXISTE DEJA, elle
+			// est `aiFilN > aiFilVu`, et la pastille la peint. Il n'y a donc rien a
+			// poser ici, et surtout pas un second etat qui dirait la meme chose.
+			// 
+			// ⚠ ET LE BANC N'Y PERD RIEN, VERIFIE EN LISANT LES DEUX CROCHETS :
+			//   `NK_AI_DEMANDE` ne lit pas `aiOuvert` -- il lit le retour de cette
+			//   fonction et `st.aiMotif` ; `NK_AI_TRACE` imprime desormais la MARQUE
+			//   meme panneau ferme, et `NK_AI_PANNEAU` ouvre pour qui veut mesurer
+			//   les rectangles. C'est ce qui autorise a ne garder QU'UN comportement,
+			//   au lieu d'un pour l'humain et un pour l'instrument.
 			return true;
 		}
 
@@ -243,12 +258,22 @@ namespace nkentseu {
 								   nkgui::NkGuiContext *guiCtx, const NkRect &r, bool peutAnnuler) {
 			if (!st.aiOuvert)
 				return;
+			// ── VU, PARCE QU'IL EST PEINT ──────────────────────────────
+			// La marque se consomme ICI et nulle part ailleurs : au moment ou les blocs
+			// passent sous les yeux. La poser au CLIC de la pastille aurait marque
+			// « vu » un panneau que ce meme clic venait peut-etre de FERMER.
+			st.aiFilVu = st.aiFilN;
 			const float32 kRowH = S(22.f);
 			const float32 pad = S(8.f);
 			// L'EMPRISE, DECLAREE D'ABORD. Sans elle, un clic dans le vide du
 			// panneau traverserait jusqu'au viseur et deselectionnerait -- le
 			// defaut « les clics traversent » deja paye sur les surcouches de la vue.
 			(void)hit.Add("ai.box", r);
+			// Le panneau PUBLIE le rectangle qu il vient de reclamer. Le temoin le
+			// compare a celui de la pastille : deux mesures, deux peintres, aucune
+			// formule recopiee dans la sonde.
+			st.aiPanRect[0] = r.x; st.aiPanRect[1] = r.y;
+			st.aiPanRect[2] = r.w; st.aiPanRect[3] = r.h;
 			p.Fill(r, NkRole::PanelBg, 0.f);
 			p.Fill({r.x, r.y, S(1.f), r.h}, NkRole::Border, 0.f);
 
@@ -475,6 +500,11 @@ namespace nkentseu {
 				p.TextV(fb.x + (bw - p.TextW("Fermer")) * 0.5f, fb.y, kRowH, "Fermer",
 						NkRole::TextMuted);
 				if (hit.Clicked("ai.fermer"))
+					// ON RECULE UN GESTE, ON NE LE RETIRE PAS : ce bouton reste, mais
+					// il n'est plus la SEULE sortie -- la pastille du bord droit en
+					// est une, visible que le panneau soit ouvert ou ferme. Les deux
+					// ecrivent le MEME etat : aucune des deux portes ne peut produire
+					// un resultat que l'autre ne produirait pas.
 					st.aiOuvert = false;
 			}
 

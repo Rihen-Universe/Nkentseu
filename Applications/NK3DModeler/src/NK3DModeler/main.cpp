@@ -2023,7 +2023,7 @@ int nkmain(const NkEntryState &entry) {
 		// AUCUNE pastille de proprietes active : le panneau se REPLIE sur sa
 		// colonne de pastilles et la VUE recupere la place.
 		if (st.showRight && !st.AnyPropOpen()) {
-			const float32 tabW = S(28.f);
+			const float32 tabW = nk3d::NkPropTabColW();
 			const float32 give = lay.propsR.w - tabW;
 			if (give > 0.f) {
 				lay.view.w += give;
@@ -4126,7 +4126,73 @@ int nkmain(const NkEntryState &entry) {
 		//       que Rodolf a nomme -- et parce que c'est la, et seulement la, qu'il
 		//       n'y a rien a modifier. Fermer aussi la porte a la session sans
 		//       projet retirerait l'assistant a un maillage bien reel.
+		// Declaree ICI et pas dans le bloc ci-dessous parce qu elle a DEUX lecteurs :
+		// la trace de la marque et, plus bas, le temoin geometrique. Deux lectures
+		// separees de la meme variable d environnement, ce sont deux interrupteurs
+		// qu on croit lies jusqu au jour ou l un des deux change de nom.
+		static const bool sMarqueOn = (std::getenv("NK_AI_TRACE") != nullptr);
+		// -- LES DEUX CROCHETS DE L ASSISTANT, HORS DU BLOC << PANNEAU OUVERT >> --
+		// Ils sont ici, et pas dix lignes plus bas, parce qu un banc doit pouvoir
+		// les lire QUAND LE PANNEAU EST FERME -- c est precisement le cas qu on
+		// vient de rendre possible en retirant l ouverture de force.
+		//
+		// [!] POURQUOI IL A FALLU `NK_AI_PANNEAU` : jusqu ici, le seul moyen d ouvrir
+		//     le panneau sans souris etait de SOUMETTRE une demande, qui posait
+		//     `aiOuvert = true`. Autrement dit une regle de produit existait pour le
+		//     confort d un instrument. On rend a l instrument sa propre porte --
+		//     la famille `NK_DEPLIER` / `NK_MENU_OPEN` fait deja exactement cela --
+		//     et le produit garde UN seul comportement : marquer.
+		{
+			static bool sAiPan = false;
+			if (!sAiPan) {
+				if (const char *v = std::getenv("NK_AI_PANNEAU")) {
+					sAiPan = true;
+					st.aiOuvert = (std::atoi(v) != 0);
+				}
+			}
+		//
+		// LA MARQUE, IMPRIMEE MEME PANNEAU FERME. C est ce qui remplace, pour un
+		// banc, l ancienne ouverture de force : il n a pas besoin que le panneau
+		// s ouvre, il a besoin de SAVOIR QU UNE REPONSE EST ARRIVEE. On n imprime
+		// qu au CHANGEMENT : une ligne par image noierait le reste du journal.
+			static int32 sMarque = -1;
+			if (sMarqueOn) {
+				const int32 m = st.aiFilN - st.aiFilVu;
+				if (m != sMarque) {
+					sMarque = m;
+					std::printf("[nk3d] AI MARQUE frame=%d : fil=%d vu=%d -> %s\n",
+							(int)agentFrame, (int)st.aiFilN, (int)st.aiFilVu,
+							(m > 0) ? "pastille marquee" : "rien a signaler");
+					std::fflush(stdout);
+				}
+			}
+		}
 		if (st.aiOuvert && !st.welcome) {
+			// -- LE PANNEAU S ARRETE AVANT LA COLONNE DE PASTILLES --
+			// Il couvrait la colonne, et le code d a cote l assumait : « ici il couvre
+			// la pastille, et c est visible ». C etait le defaut de Rodolf, 20/09 : le
+			// panneau ouvert, la seule sortie restante etait un petit texte en sourdine
+			// sous « Envoyer » -- la bascule des Proprietes, elle, etait DESSOUS.
+			//
+			// [!] LES 28 PIXELS REGLENT DEUX CHOSES, PAS UNE. La pastille redevient
+			//     visible, ET elle sort de l emprise `ai.box` que ce panneau declare sur
+			//     la couche 40. Sans le decalage elle aurait ete visible et survolable
+			//     mais JAMAIS RECLAMEE -- le defaut le plus couteux a diagnostiquer,
+			//     parce que tout a l air juste a l ecran.
+			//
+			// La largeur vient de `NkPropTabColW()`, la meme source que la mise en page
+			// et que la peinture de la colonne. En recopier ici un troisieme exemplaire
+			// aurait garanti qu un jour l un des trois bouge seul.
+			// [!] ET SURTOUT : ON PART DE `lay.propsR`, PAS DE LA LARGEUR DE FENETRE.
+			//     Ma premiere version posait le panneau a `W - aiW - 28`, en supposant que
+			//     la colonne finissait au bord de l ecran. Le temoin l a refutee du
+			//     premier coup : la pastille peinte tombait a [1571..1594] pendant que
+			//     le panneau courait jusqu a 1608. La colonne s arrete AVANT le bord, et
+			//     aucune lecture du code ne me l avait dit -- c est la mise en page qui
+			//     sait ou elle est, pas moi.
+			const float32 aiDroite = (st.showRight && lay.propsR.w > 1.f)
+											  ? (lay.propsR.x + lay.propsR.w - nk3d::NkPropTabColW())
+											  : (float32)W;
 			const float32 aiW = S(400.f);
 			const float32 aiY = (lay.right.h > 1.f) ? lay.right.y : lay.view.y;
 			const float32 aiH = (lay.right.h > 1.f) ? lay.right.h : lay.view.h;
@@ -4134,8 +4200,53 @@ int nkmain(const NkEntryState &entry) {
 			// `peutAnnuler` vient de l'HOTE et pas du panneau : c'est lui qui tient
 			// la pile, et un bouton qui devinerait son etat mentirait un jour.
 			nk3d::PaintAiOverlay(pOverlay, hit, st, &ui,
-								 {(float32)W - aiW, aiY, aiW, aiH},
+								 {aiDroite - aiW, aiY, aiW, aiH},
 								 demo::Demo3DHostEditCanUndo());
+			// [!] CE TEMOIN EST EN AVAL DE LA PEINTURE, ET IL L A APPRIS A SES DEPENS :
+			//     place AVANT `PaintAiOverlay`, il lisait `aiPanRect` a [0..0] et
+			//     concluait « atteignable » parce que 1571 >= 0. Un temoin pose avant
+			//     la passe qu il observe ne mesure pas cette passe, et un zero qui
+			//     n est pas un zero rend le critere vrai pour la mauvaise raison.
+			//     La garde `aiPanRect[2] > 0` le dit maintenant a voix haute.
+			// -- LE TEMOIN GEOMETRIQUE : LA PASTILLE ET LE PANNEAU NE SE TOUCHENT PAS --
+			// Il ne passe PAS par la souris, et ce n est pas un detail de confort :
+			// aucune injection d entree n est permise sur cette machine, donc un temoin
+			// qui lirait `hit.Hovered()` ne pourrait jamais rien prouver ici -- c est le
+			// cas de `AI CLIC` juste en dessous, qui attend une vraie main.
+			//
+			// Le critere est donc une INEGALITE entre deux rectangles PEINTS, tous deux
+			// publies par leur peintre et non recalcules :
+			//    pastille.x + pastille.w  <=  panneau.x     =>  atteignable
+			//    sinon                                      =>  RECOUVERTE
+			//
+			// [!] SON NEGATIF EST OBLIGATOIRE, ET IL EST A UN CARACTERE : mettre
+			//     `aiTab = 0.f` plus bas doit faire passer cette ligne a RECOUVERTE. Si
+			//     elle reste verte sans le decalage, c est l instrument qui est faux et
+			//     non le correctif qui est bon.
+			if (sMarqueOn && st.aiOuvert && !st.welcome) {
+				static int32 sGeo = -1;
+				// [!] LE CRITERE SE LIT DANS LE BON SENS, ET J AI ECRIT L AUTRE D ABORD.
+				//     La colonne de pastilles est a l EXTREME DROITE ; c est le panneau qui
+				//     se decale vers la GAUCHE pour la laisser depasser. Le critere est donc
+				//     « la pastille commence apres la fin du panneau », et non l inverse.
+				//     Ma premiere version comparait `tx <= px` : elle aurait rougi sur une
+				//     mise en page juste, et c est ce qu elle a fait.
+				//     On lit les DEUX bords depuis leurs peintres respectifs -- aucun n est
+				//     recalcule ici.
+				const float32 pg = st.aiPanRect[0];
+				const float32 pd = st.aiPanRect[0] + st.aiPanRect[2];
+				const float32 tx = st.aiTabRect[0];
+				const int32 ok = (st.aiTabRect[2] > 0.f && tx >= pd) ? 1 : 0;
+				if (ok != sGeo) {
+					sGeo = ok;
+					std::printf("[nk3d] AI PASTILLE frame=%d : panneau=[%.0f..%.0f]"
+							" pastille.x=%.0f -> %s\n",
+							(int)agentFrame, (double)pg, (double)pd, (double)tx,
+							(st.aiTabRect[2] <= 0.f) ? "ABSENTE (colonne repliee)"
+											: (ok ? "atteignable" : "RECOUVERTE"));
+					std::fflush(stdout);
+				}
+			}
 			// ── NK_AI_TRACE=<image> : CE QUE LE PANNEAU A DESSINE, EN CHIFFRES ──
 			// Il n'ouvre aucun chemin : il LIT l'etat apres la peinture. Les
 			// rectangles qu'il imprime sont ceux que la peinture vient d'ecrire,
