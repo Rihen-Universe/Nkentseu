@@ -9516,8 +9516,19 @@ namespace nkuidesign {
 
 	class AIPanel : public NkEditorPanel {
 		public:
+			// 🔴 L'ANCRAGE ETAIT `NK_BOTTOM`, ET C'EST CE QUI DONNAIT DEUX PORTES
+			//    A UN SEUL PANNEAU. Par la pastille du rail il se deplie A
+			//    DROITE ; par `Affichage > Panneaux` ou `IA > Ouvrir le chat IA`
+			//    il s'ancrait EN BAS, sur toute la moitie basse. Rodolf a pris la
+			//    porte du menu le 20/09 et a conclu -- a juste titre -- qu'il
+			//    n'avait pas de pastille a droite : *il n'a jamais vu celle qui
+			//    marche.*
+			//
+			//    `NK_RIGHT` fait CONVERGER les deux portes. Ce n'est pas
+			//    cosmetique : deux portes qui donnent deux resultats sont le
+			//    defaut lui-meme, pas un desagrement.
 			explicit AIPanel(DesignState *st)
-				: NkEditorPanel("ia", "IA", NkEditorDockSide::NK_BOTTOM), mSt(st) {
+				: NkEditorPanel("ia", "IA", NkEditorDockSide::NK_RIGHT), mSt(st) {
 				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
 				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
 				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
@@ -9664,9 +9675,16 @@ namespace nkuidesign {
 									   costume::CentrerY(F.px11, r.y, 20.f), "Discussion",
 									   ctx.theme.text, 0.5f);
 				}
-				Libelle(ctx, "Sujet — ce qu'on veut concevoir");
-				InputText(ctx, "Sujet", mSt->specSujetBuf, (int32)sizeof(mSt->specSujetBuf));
-				mSt->conversation.sujet = NkString(mSt->specSujetBuf);
+				// ⚠️ « Sujet » PASSE DERRIERE LE DEPLIAGE. Il etait le PREMIER
+				//    champ du panneau : la premiere chose que Rodolf voyait etait
+				//    une question qu'il ne s'etait pas posee. Le sujet n'est pas
+				//    necessaire pour taper une demande -- il affine la
+				//    specification, ce qui est un autre geste.
+				if (mOutilsAvances) {
+					Libelle(ctx, "Sujet — ce qu'on veut concevoir");
+					InputText(ctx, "Sujet", mSt->specSujetBuf, (int32)sizeof(mSt->specSujetBuf));
+					mSt->conversation.sujet = NkString(mSt->specSujetBuf);
+				}
 
 				// LES TOURS DE PAROLE, bornes : un tiroir de 320 px ne montre pas
 				// trente tours, et laisser filer pousserait l'invite hors de
@@ -9721,21 +9739,49 @@ namespace nkuidesign {
 										 "jamais posee dans la discussion.");
 					}
 				} else {
-					// ⚠️ DEUX BOUTONS PARCE QU'IL Y A DEUX GESTES, et les confondre a
-					//    coute la plainte de Rodolf. « Envoyer » DISCUTE : son invite
-					//    interdit au modele de produire un document, et le document ne
-					//    bouge pas -- c'est voulu, on definit avant de dessiner.
-					//    « Generer le document » DEMANDE un `nkuidoc` et le POSE.
-					//    Un bouton unique aurait du deviner lequel des deux on veut.
-					if (ec.Button("Envoyer"))
-						Discuter();
-					if (ec.Button("Generer le document"))
+					// ⚠️ UNE SAISIE, UN GESTE PRINCIPAL -- ET ON NE DEVINE PAS.
+					//    Rodolf demande « un panneau a la Claude Code » : une zone
+					//    de saisie et un fil. Le geste principal est donc celui
+					//    qu'il reclame depuis le 17/09 -- il tape, et le document
+					//    APPARAIT.
+					//
+					//    ⚠️ ON N'A PAS FAIT CHOISIR L'OUTIL, ET C'EST DELIBERE.
+					//    « Discuter » et « Generer » sont des invites OPPOSEES :
+					//    celle de la discussion INTERDIT au modele de produire un
+					//    document. Une regle qui devinerait laquelle on veut serait
+					//    une devinette non mesuree, et elle demanderait son propre
+					//    jeu d'epreuve. *La saisie fait UN geste connu ; l'autre
+					//    reste atteignable, et on le dit.*
+					if (ec.Button("Générer l'interface"))
 						GenererDocument();
 				}
+				// ── LE DEPLIAGE ────────────────────────────────────────────
+				// ⚠️ DIX CONTROLES EN SURFACE POSAIENT A L'UTILISATEUR UNE
+				//    QUESTION QU'IL NE S'ETAIT JAMAIS POSEE. Sujet, Message,
+				//    Envoyer, Generer, Nom de la spec, Ecrire la spec, Selection,
+				//    Demande, Proposer, Verifier par rejeu : ce sont NOS verbes,
+				//    pas les siens. Ils restent atteignables -- *on ne retire pas
+				//    un geste parce qu'il encombre, on le recule* -- mais ils ne
+				//    sont plus la premiere chose qu'on voit.
+				ec.Separator();
+				if (ec.Button(mOutilsAvances ? "Outils avancés  ▾" : "Outils avancés  ▸"))
+					mOutilsAvances = !mOutilsAvances;
+				if (!mOutilsAvances) {
+					ec.Separator();
+					ec.Text(mLast.Data() ? mLast.Data() : "");
+					return;
+				}
+
 				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
 					mSt->conversation.Effacer();
 					mLast = NkString("Discussion effacee — le document n'a pas bouge.");
 				}
+				// ⚠️ « Envoyer » VIT ICI DESORMAIS, et il garde son sens exact :
+				//    il DISCUTE, son invite interdit au modele de produire un
+				//    document, et le document ne bouge pas. Le confondre avec
+				//    « Generer » avait deja coute une plainte de Rodolf.
+				if (ec.Button("Envoyer (discuter, sans toucher au document)"))
+					Discuter();
 
 				// ═══════════════════════════════════════════════════════════
 				//  LE DOCUMENT DE SPECIFICATION
@@ -10132,6 +10178,9 @@ namespace nkuidesign {
 					mSt->doc.MarkVerified(0);
 			}
 			DesignState *mSt;
+			/// Le depliage des outils avances. FERME par defaut : la surface
+			/// principale est un fil et une saisie, comme Rodolf l'a demande.
+			bool mOutilsAvances = false;
 			NkString mLast;
 			NkAIResult mDernierCommit;
 			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
