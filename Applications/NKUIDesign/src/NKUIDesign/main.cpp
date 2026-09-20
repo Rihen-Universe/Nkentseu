@@ -7541,6 +7541,33 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 //    La regle « chercher l'existant avant d'ecrire » m'a coute une heure ici :
 //    j'ai diagnostique un raccourci qui ne partait pas, alors que ma fonction
 //    n'aurait de toute facon pas ouvert un panneau ferme.
+/// L'indice de la pastille « Chat IA » sur le rail droit, RESOLU PAR LE NOM au
+/// moment ou le rail est pose -- voir `SetRail` plus bas.
+///
+/// ⚠️ PAR LE NOM, PAS PAR L'INDICE ECRIT EN DUR. `kRailDroite[1]` est vrai
+///    aujourd'hui et faux le jour ou quelqu'un insere une pastille avant : le
+///    tiroir s'ouvrirait sur la Bibliotheque sans que rien ne le dise. Ce depot
+///    a deja paye un indice qui se decale (`--demo=2`).
+/// ⚠️ -1 tant qu'il n'est pas resolu, et on REFUSE d'ouvrir : un tiroir ouvert
+///    au hasard serait pire qu'un refus, l'utilisateur croirait avoir vu le chat.
+static nkentseu::int32 gTiroirIA = -1;
+/// `--tiroir=ia` : ouvrir par la MEME porte que le menu, pour l'eprouver.
+static bool gTiroirParLeNom = false;
+
+static void OuvrirTiroirIA() {
+	if (!gShell) {
+		logger.Warn("[NKUIDesign] tiroir IA demande sans coquille");
+		return;
+	}
+	if (gTiroirIA < 0) {
+		logger.Warn("[NKUIDesign] aucune pastille « Chat IA » sur le rail droit : "
+					"rien n'est ouvert plutot qu'un tiroir au hasard");
+		return;
+	}
+	gShell->OuvrirTiroir(nkentseu::editorkit::NkEditorDockSide::NK_RIGHT, gTiroirIA);
+	logger.Info("[NKUIDesign] tiroir IA ouvert (pastille {0} du rail droit)", gTiroirIA);
+}
+
 static void FocusPanel(const char *titre) {
 	if (!gShell) {
 		logger.Warn("[NKUIDesign] vue '{0}' demandée sans coquille", titre);
@@ -8627,8 +8654,14 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 		//    comportement silencieux ne peut pas donner.
 		MenuItem(ctx, "Chercher dans la bibliothèque avant de générer", nullptr, false, true);
 		Separator(ctx);
+		// 🔴 CETTE PORTE MENAIT AILLEURS QUE LA PASTILLE. `FocusPanel("IA")`
+		//    ANCRAIT le panneau (en bas, avant le 20/09) ; la pastille du rail
+		//    droit le DEPLIE en tiroir. Deux portes, deux resultats -- et c'est
+		//    par celle-ci que Rodolf est passe, d'ou « je n'ai pas de pastille a
+		//    droite » : il n'a jamais vu celle qui marche.
+		//    Elles menent desormais au MEME endroit.
 		if (MenuItem(ctx, "Ouvrir le chat IA"))
-			FocusPanel("IA");
+			OuvrirTiroirIA();
 		MenuItem(ctx, "Réglages du modèle…", nullptr, false);
 		EndMenu(ctx);
 	}
@@ -9415,6 +9448,16 @@ int nkmain(const NkEntryState &state) {
 				gDesign.rapportTransposition = true;
 				continue;
 			}
+			// ⚠️ `--tiroir=ia` EMPRUNTE LA PORTE DU MENU, PAS UN INDICE. C'est
+			//    le crochet du meme chemin que le clic : il appelle
+			//    `OuvrirTiroirIA()`, donc il eprouve la RESOLUTION PAR LE NOM.
+			//    `--tiroir=d:1` reste, mais il court-circuite cette resolution --
+			//    *un banc qui passe a cote du chemin repare ne prouve pas la
+			//    reparation.*
+			if (NkComponentDecl::StrEq(a, "--tiroir=ia")) {
+				gTiroirParLeNom = true;
+				continue;
+			}
 			if (arg.StartsWith("--tiroir=")) {
 				gTiroirCote = a[9];
 				gTiroirIndex = (int32)atof(a + 11);
@@ -10150,8 +10193,24 @@ int nkmain(const NkEntryState &state) {
 	kRailBas[0].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Console");
 	kRailBas[1].largeur = 34.f + nkuidesign::costume::Largeur(Fontes().px11, "Aperçu");
 	shell->SetRail(NkEditorDockSide::NK_LEFT, nullptr, 0);
+	// On resout ICI, ou `kRailDroite` existe : le nom fait foi, jamais l'indice.
+	// ⚠️ ET SEULEMENT SI LE RAIL EST REELLEMENT POSE. Avec `--toile-seule`,
+	//    `SetRail` installe ZERO pastille : resoudre quand meme laissait
+	//    `OuvrirTiroir` ne rien faire (son garde `index < mRailCount` echoue)
+	//    pendant que le journal annoncait « tiroir IA ouvert ». *Un journal qui
+	//    annonce le resultat au lieu de le constater est un instrument qui ment*,
+	//    et je l'ai vu mentir avant de le corriger.
+	if (!gToileSeule)
+	for (int32 i = 0; i < (int32)(sizeof(kRailDroite) / sizeof(kRailDroite[0])); ++i)
+		if (kRailDroite[i].panel && NkComponentDecl::StrEq(kRailDroite[i].panel, "IA")) {
+			gTiroirIA = i;
+			break;
+		}
 	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, gToileSeule ? 0 : 3);
 	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, gToileSeule ? 0 : 2);
+	// Le crochet du chemin REPARE : il passe par la resolution par le nom.
+	if (gTiroirParLeNom)
+		OuvrirTiroirIA();
 	if (gTiroirCote == 'd')
 		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
 	else if (gTiroirCote == 'g')
