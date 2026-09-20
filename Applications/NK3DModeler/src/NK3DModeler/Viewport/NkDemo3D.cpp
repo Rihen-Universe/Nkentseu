@@ -17857,6 +17857,64 @@ namespace nkentseu {
 			}
 			return false;
 		}
+		// -- LE TRAIT : LA PORTE UNIQUE, cote hote -------------------------------
+		// Le geste souris et le crochet de mesure entrent ICI tous les deux. Un
+		// crochet qui recopierait le corps mesurerait un chemin que Rodolf
+		// n'emprunte jamais -- c'est la regle payee sur NkBrowserDropOnView et sur
+		// NK_SCULPT_AT, et elle vaut encore ici.
+		//
+		// Les points arrivent en coordonnees LOCALES du maillage edite, comme pour
+		// la sculpture : le raycast est fait par l'appelant, qui seul connait la
+		// camera. Chaque point pose un tampon ; le trait est la reunion.
+		int32 Demo3DHostTraceTrait(const float32 *pts, int32 count, float32 rayon, int32 numero) {
+			auto *st = HostSt();
+			if (!st || !pts || count <= 0 || rayon <= 0.f)
+				return 0;
+			if (numero <= 0 || numero > 255)
+				return 0;
+			if (!st->editMode)
+				return 0; // pas de maillage edite : rien a tracer, et on ne devine pas
+			// [!] AUCUNE SYNCHRONISATION DE LA VUE ICI, ET C'EST DECLARE : le trait
+			//     n'est pas encore PEINT. Il vit dans la topologie, et c'est la que
+			//     le temoin le lit -- la seule verite pour l'instant.
+			//     CONDITION DE RETRAIT : le jour ou le trait se voit a l'ecran, ces
+			//     portes devront passer par la meme synchronisation que les
+			//     operations d'edition, sinon il existera sans se montrer -- l'ecart
+			//     qu'on impute a la souris pendant une heure.
+			int32 total = 0;
+			for (int32 k = 0; k < count; ++k) {
+				const NkVec3f p{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]};
+				total += (int32)st->editHE.TraceTrait(p, rayon, (uint8)numero);
+			}
+			return total;
+		}
+
+		int32 Demo3DHostCompteTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			return (int32)st->editHE.CompteTrait((uint8)numero);
+		}
+
+		int32 Demo3DHostEffaceTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.EffaceTrait((uint8)numero);
+			return n;
+		}
+
+		// LA DESIGNATION : le trait devient la selection, et les sept verbes du
+		// contrat qui operent « sur la selection » s'y appliquent sans qu'une ligne
+		// de la table change. C'est tout ce que « creuse ici » demandait.
+		int32 Demo3DHostSelectionnerTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero <= 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.SelectionnerTrait((uint8)numero);
+			return n;
+		}
+
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
 					  const char *brushName, float32 radius, float32 strength) {
 			auto *st = HostSt();
