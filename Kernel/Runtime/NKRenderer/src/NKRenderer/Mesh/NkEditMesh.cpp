@@ -4120,7 +4120,25 @@ namespace nkentseu {
 			const int32 cuts = (p.cuts < 1) ? 1 : ((p.cuts > 32) ? 32 : p.cuts);
 			// SLIDE (edge slide de Blender) : glisse les boucles insérées le long de l'anneau.
 			// 0 = position médiane (comportement historique, strictement inchangé).
-			const float32 slide = (p.slide < -1.f) ? -1.f : ((p.slide > 1.f) ? 1.f : p.slide);
+			// [!] LES BORNES ELLES-MEMES SONT DEGENERES, ET C'EST MESURE.
+			//     A slide = +/-1 EXACTEMENT, les sommets inseres tombent SUR les
+			//     sommets existants : ils fusionnent, et le maillage cesse d'en
+			//     etre un. Sur un cube, 2 boucles donnent alors V=12 E=36 F=14,
+			//     soit V-E+F = -10 au lieu de 2, avec 4 aretes non-manifold.
+			//     SEUIL CHERCHE, PAS SUPPOSE : 0,990 et 0,995 sains ; 0,999 DEJA casse.
+			//     Ma premiere valeur d ecretage (0,999) tombait du MAUVAIS COTE et ne
+			//     corrigeait rien : le banc n a pas bouge d un chiffre. *Un correctif
+			//     qui ne deplace aucune mesure est indiscernable d un placebo.*
+			//
+			//     On ecarte donc d'un epsilon au lieu d'accepter une valeur que
+			//     notre propre documentation annonce comme valide et que le code ne
+			//     sait pas honorer. *Saturer a ce que la geometrie permet, comme le
+			//     bevel le fait deja pour sa largeur.*
+			//     Decouvert parce qu'un modele a invente ce parametre : il n'a rien
+			//     casse, il a REVELE un bord que personne n'avait eprouve.
+			const float32 kSlideMax = 0.99f; // 0,995 mesure sain ; marge sous le seuil
+			const float32 slide = (p.slide < -kSlideMax) ? -kSlideMax
+								 : ((p.slide > kSlideMax) ? kSlideMax : p.slide);
 			// Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
 			NkEmId h0 = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
