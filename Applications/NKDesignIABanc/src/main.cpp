@@ -320,6 +320,9 @@ int main(int argc, char **argv) {
 	// --spec=<texte> : pose une SPECIFICATION dans l'invite, comme le panneau le
 	// fait apres « Ecrire la specification ». C'est la variable a eprouver.
 	const char *specTexte = nullptr;
+	// --document=<f> : le DOCUMENT COURANT sur lequel la demande arrive. Vide par
+	// defaut -- et c'est precisement la condition qu'on avait toujours mesuree.
+	const char *documentBase = nullptr;
 	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
 	// et rien d autre. Defaut : `parent`, la forme livree.
 	bool structureEnfants = false;
@@ -343,6 +346,8 @@ int main(int argc, char **argv) {
 			migrer = argv[a] + 9;
 		else if (CommencePar(argv[a], "--spec="))
 			specTexte = argv[a] + 7;
+		else if (CommencePar(argv[a], "--document="))
+			documentBase = argv[a] + 11;
 		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
 			structureEnfants = true;
 		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
@@ -685,8 +690,24 @@ int main(int argc, char **argv) {
 		Joindre(cheminInv, sizeof(cheminInv), dSortie, nomInv2);
 
 		// ── N1 : le dorsal rend-il quelque chose ? ───────────────────────────
+		// ⚠️ LE DOCUMENT COURANT ENTRE DANS L'INVITE (`doc.Save(req.currentDoc)`),
+		//    et le banc a TOUJOURS mesure sur un document VIDE. On mesurait donc
+		//    la generation a vide et on la livrait sur un document plein : le
+		//    20/09, celui de Rodolf portait 42 noeuds, et le modele s'est mis a
+		//    DECRIRE ces noeuds au lieu de repondre a la demande.
+		//    `--document=<f>` met le banc dans la condition reelle.
 		NkUIDocument doc;
 		doc.NewDocument("Jeu", NkAuthor::Humain);
+		if (documentBase && *documentBase) {
+			const NkString t = NkFile::ReadAllText(NkPath(documentBase));
+			// ⚠️ ON REFUSE PLUTOT QUE DE MESURER A VIDE SANS LE DIRE. Un document
+			//    qui ne se charge pas laisserait la course tourner sur un document
+			//    NEUF, et le chiffre porterait l'autre condition sous le meme nom.
+			if (t.Size() == 0 || !doc.Load(t.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
 		NkChrono chrono;
 		chrono.Reset();
 		const NkAIResult res = ia.Ask(d.texte, doc, 0);
