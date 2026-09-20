@@ -122,3 +122,61 @@ seule hauteur d'œil n'apprend pas ce qu'est le dessus d'un objet — et c'est p
 la reconstruction mono-vue rate aujourd'hui.
 
 **7 heures, une seule fois, contre une reprise complète si le nombre est trop petit.**
+
+---
+
+## 6. 🔴 LE DISQUE — MESURÉ, ET IL INTERDIT LE FORMAT ÉVIDENT
+
+**Espace libre : 55 Go sur `D:` (déjà à 90 %), 409 Go sur `C:`.**
+
+| format | par modèle | corpus (5 703) | fichiers | verdict |
+|---|---|---|---|---|
+| tampons bruts (masque + positions + normales, float64) | 331 Mo | **1 842 Go** | 820 000 | 🔴 **IMPOSSIBLE — ×33 l'espace libre** |
+| **`.npz` compressé par modèle** (RGBA + profondeur 16 bits + poses) | **2,39 Mo** | **13,3 Go** | **5 703** | ✅ retenu |
+| PNG RGBA seuls, sans profondeur | 0,12 Mo | 0,7 Go | 273 744 | possible, mais jette la profondeur |
+
+**C'est ce que j'allais écrire sans mesurer : 1,8 To sur un disque qui en a 55 Go de libre.**
+
+**Deux décisions de format, et la seconde applique le principe asymétrique :**
+1. **On stocke la PROFONDEUR, pas les POSITIONS.** Les positions se reconstruisent exactement
+   depuis la profondeur et la pose : les garder, c'est payer trois canaux en float64 pour une
+   information qu'on possède déjà. Facteur 12 avant même la compression.
+2. **On garde la profondeur plutôt que les PNG seuls** (13,3 Go contre 0,7 Go) parce que
+   **la profondeur ne se recrée pas sans re-rendre** — le même argument qui impose 48 vues.
+   12,6 Go d'écart contre 7 heures de reprise : l'échange est bon.
+
+**Un fichier par modèle, pas un par vue** : 5 703 fichiers au lieu de 820 000.
+
+---
+
+## 7. 🔴 LA COULEUR — CE QUI BLOQUE LE LANCEMENT, ET C'EST MESURÉ
+
+**Mon rasteriseur rend un lambert GRIS. Il ne lit ni texture ni couleur.**
+
+Or, sur un échantillon de 50 modèles tirés au hasard :
+
+    modeles lisibles par trimesh (obj/glb/gltf) : 14
+      avec TEXTURE image      : 14   -> 100 %
+      avec couleur par sommet :  0
+      sans couleur du tout    :  0
+    non lus : 36, dont les FBX (mon lecteur ne lit ni UV ni materiaux)
+
+> **100 % des modèles lisibles portent une texture, et le rendu actuel la jette.**
+
+**Pourquoi c'est bloquant et pas une amélioration à faire plus tard** : c'est exactement le
+principe qui a fixé 48 vues. **Sous-échantillonner est gratuit, re-rendre coûte.** Un corpus
+rendu en gris ne deviendra jamais couleur sans refaire les 7 heures — et la couleur est
+précisément ce qui manquait au dos de `p512`, donc elle sera demandée.
+
+**Ce qu'il faut ajouter** : interpoler les UV comme on interpole déjà les positions (les
+coordonnées barycentriques sont là), puis échantillonner l'image du matériau. Le coût est
+faible ; le refaire après coup coûte tout.
+
+⚠️ **Et une asymétrie à assumer ou à corriger** : les **FBX (2 242 fichiers, 39 % du corpus)**
+resteraient **gris**, car `lire_fbx.py` ne lit ni UV ni matériaux. Le manifeste devra porter,
+par fichier, **s'il est texturé ou non** — sans quoi un modèle apprendrait que 39 % du monde
+est gris.
+
+**→ Je ne lance pas la production dans cet état, et j'attends l'arbitrage :** rendre en couleur
+d'abord (le coût de rendu ne change pas, seul le développement s'ajoute), ou assumer un premier
+corpus géométrique gris en sachant qu'il faudra le refaire.
