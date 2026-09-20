@@ -596,17 +596,12 @@ int main(int argc, char **argv) {
 		//    se noie dans le tirage au sort.
 		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
 			ollama.temperature = (float32)atof(tp);
-		// ⚠️ LE PLAFOND D'ATTENTE DEVIENT UN REGLAGE, ET IL EST IMPRIME.
-		//    Grave a 300 000 ms, il a tranche DEUX demandes des courses A du 19/09
-		//    (`d10`, `duree_ms = 300 041`) sans que rien ne le dise : on a lu « le
-		//    modele echoue » la ou il fallait lire « on a cesse d'attendre ».
-		//    ⚠️ `atof` et non `atoi` serait un piege fr-FR ; ici c'est un entier,
-		//    et la valeur lue est REIMPRIMEE pour qu'un reglage muet ne passe pas.
-		if (const char *dl = std::getenv("NK_OLLAMA_DELAI")) {
-			const int v = std::atoi(dl);
-			if (v > 0)
-				ollama.delaiMs = (uint32)v;
-		}
+		// ⚠️ LE BANC NE LIT PLUS `NK_OLLAMA_DELAI` : le DORSAL le lit, et lui
+		//    seul. Deux lecteurs du meme reglage, c'etaient deux valeurs
+		//    possibles -- et surtout **l'application n'en beneficiait pas**,
+		//    puisque seul le banc lisait. On prend ici ce que le dorsal a decide,
+		//    et on l'IMPRIME : un plafond muet fait lire « le modele echoue » la
+		//    ou il faut lire « on a cesse d'attendre ».
 		delaiDorsal = (unsigned)ollama.delaiMs;
 		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
 		//    service eteint rendrait douze refus identiques et on lirait « le
