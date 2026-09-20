@@ -3500,7 +3500,20 @@ int nkmain(const NkEntryState &entry) {
 					//    contrat. Un seul message pour les trois n'apprendrait a
 					//    personne quoi corriger.
 					char motif[192];
-					if (!reussi)
+					// -- LE DORSAL PEUT REFUSER EN TOUTES LETTRES, ET ALORS ON LE RELAIE --
+					// Le script rend un code d echec ET ecrit son motif prefixe REFUS:.
+					// Sans cette branche, ce motif redescendait dans la chaine des verbes
+					// et ressortait en « n est pas un verbe du contrat » -- une phrase qui
+					// accuse le modele quand c est Ollama qui est eteint. Le prefixe est
+					// celui que NKConverse emploie deja pour ses propres messages.
+					const char *brut = rep.Data();
+					const bool refusDorsal = brut && std::strncmp(brut, "REFUS:", 6) == 0;
+					if (refusDorsal) {
+						const char *m = brut + 6;
+						while (*m == 32)
+							++m;
+						snprintf(motif, sizeof(motif), "%s", m);
+					} else if (!reussi)
 						snprintf(motif, sizeof(motif), "L'assistant n'a pas repondu : %s",
 								 err.Data() ? err.Data() : "raison inconnue");
 					else if (!lisible)
