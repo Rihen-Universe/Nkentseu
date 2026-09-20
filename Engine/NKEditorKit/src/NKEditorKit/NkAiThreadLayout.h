@@ -101,6 +101,29 @@ namespace nkentseu {
 			/// dirait « il y a la suite » sur un bloc complet.
 			Estompe,
 
+
+			// ── L'EN-TETE ET LE COMPOSEUR (20/09) ──────────────────
+			// Releves sur la capture : en-tete de 43 px avec un filet a y=42 ;
+			// composeur de 155 px dont 37 de barre d'etat, separes par un filet.
+			// APPEND-ONLY, comme tout le reste.
+
+			/// Le titre de la conversation, en gras, tronque par la droite.
+			TitreConversation,
+			/// L'icone d'HISTORIQUE (une horloge, dans la capture).
+			/// ⚠️ LE PLAN PUBLIE SON RECTANGLE, LE PEINTRE TRACE DEDANS. Le kit n'a
+			///    AUCUN atlas -- « tout ce qui doit se voir se TRACE ». La regle de ce
+			///    fichier tient quand meme : le peintre ne DECIDE PAS ou va le
+			///    rectangle, il dessine a l'interieur de celui qu'on lui donne.
+			IconeHistorique,
+			/// L'icone NOUVELLE CONVERSATION (une bulle portant un +).
+			IconeNouvelle,
+			/// Un filet de separation (sous l'en-tete, au-dessus de la barre d'etat).
+			Filet,
+			/// Le cadre du composeur : fond, bordure, coins arrondis.
+			ComposeurCadre,
+			/// Le texte saisi, ou l'invite quand il n'y a rien.
+			ComposeurTexte,
+
 			Count
 		};
 
@@ -116,6 +139,12 @@ namespace nkentseu {
 				case NkAiPiece::GouttiereOut: return "gouttiere_out";
 				case NkAiPiece::FondOut:	  return "fond_out";
 				case NkAiPiece::TexteOut:	  return "texte_out";
+				case NkAiPiece::TitreConversation: return "titre_conversation";
+				case NkAiPiece::IconeHistorique:   return "icone_historique";
+				case NkAiPiece::IconeNouvelle:     return "icone_nouvelle";
+				case NkAiPiece::Filet:             return "filet";
+				case NkAiPiece::ComposeurCadre:    return "composeur_cadre";
+				case NkAiPiece::ComposeurTexte:    return "composeur_texte";
 				case NkAiPiece::Effet:				  return "effet";
 				case NkAiPiece::Estompe:	  return "estompe";
 				default:					  return "";
@@ -164,6 +193,25 @@ namespace nkentseu {
 				///    publie une estompe. La capture tronque : ses blocs `IN`
 				///    s'arretent net et le bas s'efface.
 				uint32 lignesMax = 4;
+				// ── EN-TETE ET COMPOSEUR, RELEVES SUR LA CAPTURE ──────────
+				/// Hauteur de l'en-tete. Capture : filet a y=42, donc 43 px.
+				float32 entete = 43.f;
+				/// Cote des deux icones de l'en-tete.
+				float32 icone = 18.f;
+				/// Hauteur de la ZONE DE SAISIE du composeur. Capture : 1115 -> 1233.
+				float32 composeur = 118.f;
+				/// Hauteur de la barre d'etat SOUS le composeur. Capture : 1233 -> 1270.
+				/// ⚠️ ELLE EST RESERVEE, PAS REMPLIE. Ce qu'elle porte depend d'un
+				///    arbitrage de Rodolf sur six elements sans support (compte d'agents,
+				///    chronometre, historique, reflexion, micro, selecteur de modele).
+				///    Reserver la place sans rien y dessiner est le seul etat honnete :
+				///    le fil ne descend pas dessous, et rien de faux ne s'affiche.
+				float32 barreEtat = 37.f;
+				/// Marge SOUS le composeur. Capture : son bord bas est a y=1270 dans une
+				/// image de 1292 -- 22 px de respiration, pas un composeur colle au bord.
+				/// Verification : 1292 - 22 - (118 + 37) = 1115, exactement le sommet du
+				/// composeur dans la capture. Les trois mesures se recoupent.
+				float32 margeBas = 22.f;
 				/// Hauteur de la bande d'estompe.
 				float32 estompeH = 10.f;
 		};
@@ -434,6 +482,125 @@ namespace nkentseu {
 				y = yb + m.entreBlocs;
 			}
 			plan.PoserHauteur(y);
+		}
+
+		// ══════════════════════════════════════════════════════════════════════
+		//  L EN-TETE - un titre, deux icones, un filet. Rien d autre.
+		// ══════════════════════════════════════════════════════════════════════
+		// La capture ne montre QUE ca : un titre en gras tronque par la droite, une
+		// horloge, une bulle portant un +, et un filet. Pas de fond distinct --
+		// l en-tete est sur le meme fond que la page.
+		//
+		// ⚠️ LES DEUX ICONES NE SONT PUBLIEES QUE SI LE PORTEUR LES DECLARE.
+		//    L historique n existe que chez NKCode (multi-session persistee) ; le
+		//    modeleur et NKUIDesign n ont rien a ouvrir. Une horloge qui ouvrirait
+		//    une liste vide est le defaut que Rodolf a vecu le matin du 20/09 --
+		//    dix controles dont il ne comprenait pas l usage. Meme regle que les
+		//    blocs du fil : *on ne montre pas un element qui ne peut rien dire.*
+		struct NkAiEnteteDecl {
+			/// Le porteur sait ouvrir un historique de conversations.
+			bool porteHistorique = false;
+			/// Le porteur sait repartir sur une conversation neuve.
+			bool porteNouvelle = false;
+		};
+
+		/// Mesure l en-tete dans `largeur`, a partir de `y0`. Rend sa hauteur.
+		inline float32 NkAiEnteteMesurer(const char *titre, float32 largeur, float32 y0,
+				  const NkAiEnteteDecl &decl, const NkAiMetriques &m,
+				  NkAiPlan &plan) {
+			if (largeur <= m.retraitDemande * 2.f)
+				return 0.f; // trop etroit : rien plutot qu un titre ecrase
+			// ⚠️ L EN-TETE N APPARTIENT A AUCUN BLOC. Son `blocId` est 0, valeur que
+			//    `Pousser` ne donne jamais : le chrome et le fil ne peuvent donc pas se
+			//    confondre dans une recherche par identifiant.
+			const float32 pad = 14.f;
+			float32 xDroite = largeur - pad;
+			NkAiRectPublie r;
+			r.blocId = 0u;
+			r.police = NkAiPolice::Normale;
+			if (decl.porteNouvelle) {
+				xDroite -= m.icone;
+				r.piece = NkAiPiece::IconeNouvelle;
+				r.role = NkRole::TextMuted;
+				r.x = xDroite; r.y = y0 + (m.entete - m.icone) * 0.5f;
+				r.w = m.icone; r.h = m.icone;
+				plan.Ajouter(r);
+				xDroite -= 10.f;
+			}
+			if (decl.porteHistorique) {
+				xDroite -= m.icone;
+				r.piece = NkAiPiece::IconeHistorique;
+				r.role = NkRole::TextMuted;
+				r.x = xDroite; r.y = y0 + (m.entete - m.icone) * 0.5f;
+				r.w = m.icone; r.h = m.icone;
+				plan.Ajouter(r);
+				xDroite -= 10.f;
+			}
+			// Le titre prend ce qui reste. Il se TRONQUE, il ne repousse pas les
+			// icones : un titre long ne doit pas faire disparaitre un geste.
+			r.piece = NkAiPiece::TitreConversation;
+			r.role = NkRole::Text;
+			r.police = NkAiPolice::Grasse;
+			r.x = pad; r.y = y0 + (m.entete - m.ligne) * 0.5f;
+			r.w = (xDroite - pad) > 0.f ? (xDroite - pad) : 0.f;
+			r.h = m.ligne;
+			if (r.w > 0.f && titre && titre[0])
+				plan.Ajouter(r);
+			r.piece = NkAiPiece::Filet;
+			r.role = NkRole::Border;
+			r.police = NkAiPolice::Normale;
+			r.x = 0.f; r.y = y0 + m.entete - 1.f; r.w = largeur; r.h = 1.f;
+			plan.Ajouter(r);
+			return m.entete;
+		}
+
+		// ══════════════════════════════════════════════════════════════════════
+		//  LE COMPOSEUR - un cadre, du texte, et une barre d etat RESERVEE
+		// ══════════════════════════════════════════════════════════════════════
+		// ⚠️ PAS DE MICRO, ET CE N EST PAS UN OUBLI. La capture en montre un, en
+		//    haut a droite du cadre. Nous avons la CAPTURE AUDIO (`NkAudioCapture.h`)
+		//    et AUCUNE reconnaissance vocale -- zero occurrence dans le depot. Un
+		//    micro qui capte et ne transcrit rien A L AIR DE MARCHER, ce qui est pire
+		//    que son absence. Il fait partie des six elements en attente d arbitrage.
+		//
+		// ⚠️ LA BARRE D ETAT EST RESERVEE ET VIDE. Sa hauteur est retiree de la
+		//    place disponible -- donc le fil ne descend pas dessous et la mise en
+		//    page est deja la bonne -- mais AUCUNE piece n y est publiee. C est le
+		//    seul etat honnete tant que ses elements n ont pas de support.
+		/// Mesure le composeur, cale EN BAS de `hauteur`. Rend l ordonnee de son
+		/// sommet : la limite basse que le fil ne doit pas franchir.
+		inline float32 NkAiComposeurMesurer(const char *texte, const char *invite, float32 largeur,
+				   float32 hauteur, const NkAiMetriques &m, NkAiPlan &plan) {
+			const float32 pad = 14.f;
+			const float32 total = m.composeur + m.barreEtat;
+			if (largeur <= pad * 2.f || hauteur <= total + m.margeBas + m.entete)
+				return hauteur; // trop petit : aucun composeur plutot qu un composeur faux
+			const float32 y0 = hauteur - total - m.margeBas;
+			NkAiRectPublie r;
+			r.blocId = 0u;
+			r.police = NkAiPolice::Normale;
+			// Le cadre englobe la saisie ET la barre d etat : c est ce que la capture
+			// montre -- un seul cadre, un filet interne entre les deux.
+			r.piece = NkAiPiece::ComposeurCadre;
+			r.role = NkRole::InputBg;
+			r.x = pad; r.y = y0; r.w = largeur - pad * 2.f; r.h = total;
+			plan.Ajouter(r);
+			r.piece = NkAiPiece::Filet;
+			r.role = NkRole::Border;
+			r.x = pad; r.y = y0 + m.composeur; r.w = largeur - pad * 2.f; r.h = 1.f;
+			plan.Ajouter(r);
+			// ⚠️ L INVITE N EST PAS DU TEXTE : elle porte le role attenue, sinon un
+			//    champ vide se lit comme un champ rempli.
+			const bool vide = !texte || texte[0] == 0;
+			const char *quoi = vide ? invite : texte;
+			if (quoi && quoi[0]) {
+				r.piece = NkAiPiece::ComposeurTexte;
+				r.role = vide ? NkRole::TextMuted : NkRole::Text;
+				r.x = pad + 10.f; r.y = y0 + 10.f;
+				r.w = largeur - pad * 2.f - 20.f; r.h = m.composeur - 20.f;
+				plan.Ajouter(r);
+			}
+			return y0;
 		}
 
 		/// Quel bloc se trouve sous `(px, py)` ? Rend son IDENTIFIANT, pas sa

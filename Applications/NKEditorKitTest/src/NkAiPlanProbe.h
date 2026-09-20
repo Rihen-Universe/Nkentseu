@@ -378,6 +378,99 @@ namespace aiplanprobe {
 				"panneau etroit : l'effet est publie quand meme -- la prose cede la premiere");
 		}
 
+		// ════════════════════════════════════════════════════════════
+		// 22q..22v — L EN-TETE ET LE COMPOSEUR
+		// ════════════════════════════════════════════════════════════
+		{
+			// 22q — UNE ICONE NON DECLAREE N EST PAS PUBLIEE. Meme regle que les
+			//       blocs du fil : une horloge qui ouvrirait une liste vide est le
+			//       defaut des dix controles sans usage.
+			NkAiPlan pl;
+			NkAiEnteteDecl muet; // le porteur ne declare RIEN
+			const float32 h = NkAiEnteteMesurer("Revision documents RIHEN SARL", W, 0.f, muet, M, pl);
+			Essai(b, "22q",
+				h > 0.f && !pl.Possede(0u, NkAiPiece::IconeHistorique) &&
+					!pl.Possede(0u, NkAiPiece::IconeNouvelle) &&
+					pl.Possede(0u, NkAiPiece::TitreConversation),
+				"porteur muet : aucune icone publiee, le titre reste");
+		}
+		{
+			// 22r — CONTROLE NEGATIF : declarees, elles apparaissent. Sans lui, un
+			//       en-tete qui ne publierait JAMAIS d icone passerait 22q.
+			NkAiPlan pl;
+			NkAiEnteteDecl d;
+			d.porteHistorique = true;
+			d.porteNouvelle = true;
+			(void)NkAiEnteteMesurer("Sujet", W, 0.f, d, M, pl);
+			NkAiRectPublie ih, inv, ti;
+			const bool a = pl.Trouver(0u, NkAiPiece::IconeHistorique, ih);
+			const bool c = pl.Trouver(0u, NkAiPiece::IconeNouvelle, inv);
+			const bool e = pl.Trouver(0u, NkAiPiece::TitreConversation, ti);
+			Essai(b, "22r", a && c && e && inv.x > ih.x && ih.x > ti.x + ti.w - 1.f,
+				"declarees : historique puis nouvelle, a DROITE du titre");
+		}
+		{
+			// 22s — LE TITRE SE TRONQUE, IL NE REPOUSSE PAS LES ICONES. Un sujet
+			//       long ne doit pas faire disparaitre un geste.
+			NkAiPlan p1, p2;
+			NkAiEnteteDecl d;
+			d.porteHistorique = true;
+			d.porteNouvelle = true;
+			(void)NkAiEnteteMesurer("court", W, 0.f, d, M, p1);
+			(void)NkAiEnteteMesurer("un sujet beaucoup beaucoup beaucoup plus long que la place",
+					   W, 0.f, d, M, p2);
+			NkAiRectPublie a1, a2, t1, t2;
+			(void)p1.Trouver(0u, NkAiPiece::IconeHistorique, a1);
+			(void)p2.Trouver(0u, NkAiPiece::IconeHistorique, a2);
+			(void)p1.Trouver(0u, NkAiPiece::TitreConversation, t1);
+			(void)p2.Trouver(0u, NkAiPiece::TitreConversation, t2);
+			Essai(b, "22s", a1.x == a2.x && t1.w == t2.w,
+				"les icones ne bougent pas avec la longueur du titre");
+		}
+		{
+			// 22t — LA BARRE D ETAT EST RESERVEE ET VIDE. Sa hauteur est retiree de
+			//       la place, donc le fil ne descend pas dessous ; mais AUCUNE piece
+			//       n y est publiee tant que ses elements n ont pas de support.
+			NkAiPlan pl;
+			const float32 y = NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, pl);
+			NkAiRectPublie cad;
+			const bool a = pl.Trouver(0u, NkAiPiece::ComposeurCadre, cad);
+			Essai(b, "22t",
+				a && cad.h == M.composeur + M.barreEtat && y == 1292.f - cad.h - M.margeBas &&
+					y == 1115.f, // la capture, au pixel
+				"barre d etat reservee (37 px), et le sommet retombe sur 1115 -- la capture");
+			printf("         composeur : sommet a %.0f, hauteur %.0f (saisie %.0f + etat %.0f)\n",
+				   (double)y, (double)cad.h, (double)M.composeur, (double)M.barreEtat);
+		}
+		{
+			// 22u — L INVITE N EST PAS DU TEXTE. Un champ vide qui porterait le role
+			//       `Text` se lirait comme un champ rempli.
+			NkAiPlan vide, plein;
+			(void)NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, vide);
+			(void)NkAiComposeurMesurer("subdivise le cube", "Posez votre question", W, 1292.f, M, plein);
+			NkAiRectPublie a, c;
+			const bool x = vide.Trouver(0u, NkAiPiece::ComposeurTexte, a);
+			const bool y2 = plein.Trouver(0u, NkAiPiece::ComposeurTexte, c);
+			Essai(b, "22u", x && y2 && a.role == NkRole::TextMuted && c.role == NkRole::Text,
+				"l invite porte le role ATTENUE, le texte saisi le role plein");
+		}
+		{
+			// 22v — AUCUN MICRO. Il est dans la capture et il n a PAS de support :
+			//       capture audio oui, reconnaissance vocale nulle part. Cet essai
+			//       est ecrit pour TOMBER le jour ou on en dessinerait un sans que
+			//       Rodolf l ait tranche.
+			NkAiPlan pl;
+			(void)NkAiComposeurMesurer("x", "y", W, 1292.f, M, pl);
+			uint32 pieces = 0;
+			for (uint32 i = 0; i < pl.Pieces(); ++i)
+				if (pl.Piece(i).piece != NkAiPiece::ComposeurCadre &&
+					pl.Piece(i).piece != NkAiPiece::Filet &&
+					pl.Piece(i).piece != NkAiPiece::ComposeurTexte)
+					++pieces;
+			Essai(b, "22v", pieces == 0,
+				"le composeur ne publie QUE cadre, filet et texte -- pas de micro");
+		}
+
 		return b;
 	}
 

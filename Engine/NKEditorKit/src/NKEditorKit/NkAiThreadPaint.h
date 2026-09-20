@@ -109,13 +109,44 @@ namespace nkentseu {
 
 		} // namespace aipaint
 
+		/// Ce que le CHROME affiche : il n appartient a aucun bloc du fil, donc
+		/// `TextePiece` ne peut pas le trouver. Passe a part, et facultatif.
+		struct NkAiChromeTextes {
+			const char *titre = nullptr;
+			const char *composeur = nullptr;
+		};
+
+		namespace aipaint {
+			/// L horloge de l historique, TRACEE : le kit n a aucun atlas.
+			/// ⚠️ LE PEINTRE DESSINE DANS UN RECTANGLE PUBLIE, il ne decide pas ou
+			///    ce rectangle se trouve. La regle du fichier tient : aucune position
+			///    n est calculee ici, seulement des proportions DU rectangle recu.
+			inline void Horloge(NkComponentPaint &p, const NkPaintRect &r, uint16 role) {
+				p.Ellipse(r, role);
+				const NkPaintRect creux = {r.x + 1.5f, r.y + 1.5f, r.w - 3.f, r.h - 3.f};
+				p.Fill(creux, (uint16)NkRole::PanelBg, creux.w * 0.5f);
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+				(void)p.Line(cx, cy, cx, cy - r.h * 0.28f, role, 1.f);
+				(void)p.Line(cx, cy, cx + r.w * 0.22f, cy, role, 1.f);
+			}
+			/// La bulle portant un +, pour la conversation neuve.
+			inline void BullePlus(NkComponentPaint &p, const NkPaintRect &r, uint16 role) {
+				p.Outline(r, role, (uint16)NkRole::PanelBg, r.w * 0.28f);
+				const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+				const float32 b = r.w * 0.22f;
+				(void)p.Line(cx - b, cy, cx + b, cy, role, 1.f);
+				(void)p.Line(cx, cy - b, cx, cy + b, role, 1.f);
+			}
+		} // namespace aipaint
+
 		/// Transcrit le plan. `ox`, `oy` : l'origine du panneau a l'ecran.
 		/// ⚠️ ELLE NE LIT NI LA SOURIS NI L'HORLOGE : deux appels avec les memes
 		///    entrees produisent le meme flux de commandes, ce que le banc verifie
 		///    (23h). Un peintre qui depend de l'etat du bureau rend des sondes qui
 		///    rougissent parce que quelqu'un a bouge sa souris.
 		inline void NkAiFilPeindre(NkComponentPaint &p, const NkAiFil &fil, const NkAiPlan &plan,
-								   float32 ox, float32 oy) {
+								   float32 ox, float32 oy,
+								   const NkAiChromeTextes &chrome = NkAiChromeTextes{}) {
 			for (uint32 i = 0; i < plan.Pieces(); ++i) {
 				const NkAiRectPublie &r = plan.Piece(i);
 				// ⚠️ LA SEULE ARITHMETIQUE DU FICHIER, et elle est uniforme.
@@ -138,6 +169,26 @@ namespace nkentseu {
 						break;
 					case NkAiPiece::Puce:
 						p.Ellipse(rect, role);
+						break;
+					case NkAiPiece::Filet:
+						p.Fill(rect, role, 0.f);
+						break;
+					case NkAiPiece::ComposeurCadre:
+						p.Outline(rect, (uint16)NkRole::Border, role, 6.f);
+						break;
+					case NkAiPiece::IconeHistorique:
+						aipaint::Horloge(p, rect, role);
+						break;
+					case NkAiPiece::IconeNouvelle:
+						aipaint::BullePlus(p, rect, role);
+						break;
+					case NkAiPiece::TitreConversation:
+						if (chrome.titre && chrome.titre[0])
+							p.Text(rect, chrome.titre, role, NkTextAlign::Left);
+						break;
+					case NkAiPiece::ComposeurTexte:
+						if (chrome.composeur && chrome.composeur[0])
+							p.Text(rect, chrome.composeur, role, NkTextAlign::Left);
 						break;
 					default: {
 						const char *s = aipaint::TextePiece(fil, r.blocId, r.piece);
