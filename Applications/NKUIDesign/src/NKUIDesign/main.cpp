@@ -233,6 +233,9 @@ static bool gSceneFusion = false;
 //     « N images » du chemin asynchrone ne prouverait rien.
 static nkentseu::int64 gMesureAsyncMs = -1;
 static bool gMesureAsyncSync = false;
+/// `--mesure-async=<ms>:prop` : la meme mesure, mais par le chemin de
+/// « Proposer (apercu) » -- le bouton ou Rodolf a vu le gel.
+static bool gMesureAsyncProp = false;
 static nkentseu::int64 gMesureFpsMs = -1;
 /// (k2) --mesure-double=<images> : combien de fois la toile est-elle dessinee
 /// dans UNE image ? Le seul chiffre acceptable est 1.
@@ -343,7 +346,10 @@ static void MesureTick(NkEditorShell *sh) {
 		gMesureLancee = true;
 		gImagesReelles = 0;
 		gMesureHorloge = nkentseu::NkChrono();
-		gPanneauIA->BancAsyncLancer(gMesureAsyncMs, gMesureAsyncSync);
+		if (gMesureAsyncProp)
+			gPanneauIA->BancAsyncProposer(gMesureAsyncMs);
+		else
+			gPanneauIA->BancAsyncLancer(gMesureAsyncMs, gMesureAsyncSync);
 		if (gMesureAsyncSync) {
 			// Le chemin bloquant a DEJA rendu la main : tout s'est passe dans
 			// cette seule image. C'est exactement ce que le negatif doit montrer.
@@ -9372,6 +9378,8 @@ int nkmain(const NkEntryState &state) {
 				while (*q && *q != ':')
 					++q;
 				gMesureAsyncSync = (*q == ':' && q[1] == 's');
+				// `:prop` emprunte le bouton « Proposer (apercu) » lui-meme.
+				gMesureAsyncProp = (*q == ':' && q[1] == 'p');
 				continue;
 			}
 			if (arg.StartsWith("--mesure-fps=")) {
