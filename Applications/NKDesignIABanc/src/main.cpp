@@ -646,22 +646,21 @@ int main(int argc, char **argv) {
 			continue;
 		++b.total;
 
-		// L'INVITE EXACTE, celle que l'application enverrait — batie par le meme
-		// code, jamais recopiee ici.
-		NkString invite;
-		ia.BatirInviteComplete(d.texte, invite);
+		// ⚠️ LE CHEMIN SEULEMENT : le FICHIER s'ecrit APRES l'appel, depuis les
+		//    octets que le dorsal a reellement envoyes.
+		//
+		//    Ce bloc REBATISSAIT l'invite de son cote. Deux ecritures de la meme
+		//    regle, donc deux verites -- et elles avaient DIVERGE : mesure du
+		//    20/09 sur `e10`, 3 332 caracteres envoyes contre 2 693 ecrits. Il
+		//    manquait un saut de ligne et **tout le bloc `document courant`**.
+		//    *Le fichier ne prouvait rien, et il piegeait quiconque le rejouait --
+		//    moi le premier, la meme nuit.*
 		char cheminInv[512];
 		char nomInv[64];
 		Joindre(nomInv, sizeof(nomInv), "/", d.id);
 		char nomInv2[80];
 		Joindre(nomInv2, sizeof(nomInv2), nomInv, "_invite.txt");
 		Joindre(cheminInv, sizeof(cheminInv), dSortie, nomInv2);
-		{
-			NkString pleine(invite);
-			pleine.Append("\n--- composants declares ---\n");
-			pleine.Append(catalogue);
-			NkFile::WriteAllText(NkPath(cheminInv), pleine);
-		}
 
 		// ── N1 : le dorsal rend-il quelque chose ? ───────────────────────────
 		NkUIDocument doc;
@@ -670,6 +669,25 @@ int main(int argc, char **argv) {
 		chrono.Reset();
 		const NkAIResult res = ia.Ask(d.texte, doc, 0);
 		const float64 msEcoule = chrono.Elapsed().ToMilliseconds();
+
+		// ── L'INVITE : LES OCTETS ENVOYES, OU RIEN ──────────────────────────
+		// ⚠️ `WriteAllBytes` ET NON `WriteAllText` : l'ecriture texte convertit
+		//    les sauts de ligne en CRLF, et le fichier cesserait d'etre identique
+		//    AU BIT a ce qui est parti sur le reseau. Le temoin de ce correctif
+		//    est precisement cette identite-la.
+		// ⚠️ ET SI LE DORSAL N'A RIEN BATI (le temoin), ON N'ECRIT RIEN. Un
+		//    fichier reconstitue serait la faute qu'on vient de retirer :
+		//    *un fichier absent est honnete, un fichier faux ne l'est pas.*
+		if (ia.Backend()) {
+			const NkString &envoye = ia.Backend()->DerniereInvite();
+			if (envoye.Length() > 0) {
+				NkVector<uint8> octets;
+				for (NkString::SizeType k = 0; k < envoye.Length(); ++k)
+					octets.PushBack((uint8)envoye.Data()[k]);
+				NkFile::WriteAllBytes(NkPath(cheminInv), octets);
+			}
+		}
+
 		const NkString &brut = ia.LastReply();
 		char cheminRep[512], nomRep[80];
 		Joindre(nomRep, sizeof(nomRep), nomInv, "_reponse.txt");
