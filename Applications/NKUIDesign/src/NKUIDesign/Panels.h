@@ -4153,7 +4153,18 @@ namespace nkuidesign {
 				//    rectangle qu'apres le calcul de cette image. Le drapeau reste
 				//    pose jusqu'a ce qu'un cadrage REUSSISSE (ou huit essais).
 				if (mSt->cadrerApresGreffe) {
-					const NkPaintRect b = EnglobantDoc(true);
+					NkPaintRect b = EnglobantDoc(true);
+					// ⚠️ UN NOEUD SANS TAILLE NE SE CADRE PAS : le modele pose parfois un
+					//    noeud « expand » dans une planche libre, qui n'occupe aucun pixel.
+					//    On cadre alors SA PLANCHE -- l'endroit ou il est, plutot qu'un
+					//    zoom a quatre chiffres sur rien.
+					if (!(b.w > 1.f && b.h > 1.f)) {
+						int32 k = mSt->selected;
+						while (mSt->doc.IsValidIndex(k) && k > 0 && mSt->doc.nodes[(uint32)k].parent > 0)
+							k = mSt->doc.nodes[(uint32)k].parent;
+						if (mSt->doc.IsValidIndex(k) && k > 0 && mSt->layout.Has(k))
+							b = mSt->layout.At(k);
+					}
 					if (b.w > 0.f && b.h > 0.f && mSt->view.AjusterSur(b, 0u, 1.f)) {
 						mSt->cadrerApresGreffe = false;
 						mEssaisCadrage = 0;
@@ -9704,6 +9715,14 @@ namespace nkuidesign {
 			const editorkit::NkAiPanneau &Panneau() const {
 				return mPanneau;
 			}
+			/// Les images ou le panneau a ete PEINT (le tiroir ouvert), pour la sonde.
+			uint32 ImagesPeintes() const {
+				return mImages;
+			}
+			/// Les reponses recoltees dans le fil (la sonde photographie APRES la N-ieme).
+			uint32 Recoltes() const {
+				return mRecoltes;
+			}
 			editorkit::NkAiPanneau &Panneau() {
 				return mPanneau;
 			}
@@ -9961,7 +9980,7 @@ namespace nkuidesign {
 					// UNE GENERATION : l'etape d'outil recoit sa sortie et son verdict.
 					b->sortie = ia ? ia->texte : NkString("(aucune reponse)");
 					b->texte = message;
-					b->replie = true; // la sortie se deplie a la demande, comme la capture
+					b->replie = false; // IN / OUT VISIBLES, tronques avec l'estompe : la capture
 					if (mGesteEnCours == 1 && mSt->ai.HasProposal())
 						mBlocProposition = mBlocEnCours;
 					if (mGesteEnCours == 0 && !refus)
@@ -9970,6 +9989,9 @@ namespace nkuidesign {
 					Dire(message.Data());
 				mBlocEnCours = 0u;
 				mGesteEnCours = -1;
+				++mRecoltes;
+				printf("[NKUIDesign] AI RECOLTE peinture=%u : %s\n", (unsigned)mImages, message.Data() ? message.Data() : "");
+				fflush(stdout);
 			}
 
 			void Gestes(const editorkit::NkAiSorties &out) {
@@ -10148,6 +10170,7 @@ namespace nkuidesign {
 			NkAIResult mDernierCommit;
 			nkentseu::NkChrono mHorloge;
 			uint32 mImages = 0; ///< les images ou le panneau a ete peint (NK_AI_DEMANDE)
+			uint32 mRecoltes = 0; ///< les reponses entrees dans le fil
 			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
 			nkentseu::NkChrono mBancSyncHorloge;
 			nkentseu::float64 mBancSyncSecondes = 0.0;
