@@ -148,7 +148,8 @@ int main() {
 			(void)nk3d::NkAiPousser(s2, NkModelerState::AiType::Note, "un bloc qui s'intercale");
 			nk3d::NkAiEffet(s2, 386, 768, 384);
 			const editorkit::NkAiBlocDonnees *b = s2.aiFil.MutableParId(idOp);
-			const bool surLeBon = b && MemeLigne(b->titre.CStr(), "subdivide:2") &&
+			// (Q8) le titre est la NATURE (« Subdiviser ») ; le verbe execute reste en ENTREE
+			const bool surLeBon = b && MemeLigne(b->entree.CStr(), "subdivide:2") && MemeLigne(b->titre.CStr(), "Subdiviser") &&
 				  b->sortie.Length() > 0;
 			Essai("A5", surLeBon,
 				  "l'effet mesure atterrit sur LE BON bloc, meme si le fil a glisse entre-temps");

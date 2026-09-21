@@ -3713,6 +3713,19 @@ int nkmain(const NkEntryState &entry) {
 				nk3d::NkPickerOuvrirImage(st);
 				st.pickerAction = 3; // le MEME geste que « Generer » du navigateur
 			}
+			// (Q8) « Joindre une image… » : le meme selecteur, action 4 = piece jointe
+			if (st.aiDemandeJointe) {
+				st.aiDemandeJointe = false;
+				nk3d::NkPickerOuvrirImage(st);
+				st.pickerAction = 4;
+			}
+			if (!st.aiImagesJointes.Empty()) {
+				std::printf("[nk3d] AI IMAGES FOURNIES %u : %s\n", (unsigned)st.aiImagesJointes.Size(),
+							st.aiImagesJointes[0].CStr());
+				std::fflush(stdout);
+				st.aiImagesJointesVues = st.aiImagesJointes; // relaye, lu par la modelisation
+				st.aiImagesJointes.Clear();
+			}
 			nk3d::NkAiCopie(st.aiClaudeModeleCourant, sizeof(st.aiClaudeModeleCourant),
 							sIa.claude.modele.Data() ? sIa.claude.modele.Data() : "");
 		}
@@ -5022,6 +5035,11 @@ int nkmain(const NkEntryState &entry) {
 			// (21/09, Q6) HORS DU FIL D'AFFICHAGE : la generation part dans un fil
 			// (NkGeniaLancer, NkModelerCreation.h) et l'import se fait a la
 			// recolte. L'appel synchrone figeait la fenetre 40 a 84 s.
+			if (st.pickerAction == 4 && st.picker.pickerResultPath[0]) {
+				NkString pq;
+				if (!st.aiPanneau.JoindreImage(st.picker.pickerResultPath, pq))
+					std::printf("[nk3d] AI JOINDRE refuse : %s\n", pq.CStr());
+			}
 			if (st.pickerAction == 3 && st.picker.pickerResultPath[0])
 				(void)nk3d::NkGeniaLancer(st, false, st.picker.pickerResultPath, "image");
 			st.pickerAction = 0;
@@ -5897,6 +5915,19 @@ int nkmain(const NkEntryState &entry) {
 		// on peut dire OU le fichier a ete lache. Vue 3D -> import + pick
 		// differe ; hierarchie -> import + instanciation aux coordonnees du
 		// fichier ; navigateur -> import seul ; ailleurs -> refus nomme.
+		// (Q8) UN FICHIER LACHE SUR LE PANNEAU IA s'y joint (image) au lieu d'etre importe.
+		if (st.osDropCount > 0 && st.aiOuvert && st.aiPanRect[2] > 0.f && st.osDropX >= st.aiPanRect[0] &&
+			st.osDropX < st.aiPanRect[0] + st.aiPanRect[2] && st.osDropY >= st.aiPanRect[1] &&
+			st.osDropY < st.aiPanRect[1] + st.aiPanRect[3]) {
+			const char *c[nk3d::NkModelerState::kMaxOsDrop];
+			for (int32 i = 0; i < st.osDropCount; ++i)
+				c[i] = st.osDropPaths[i];
+			NkString pq;
+			const uint32 n = st.aiPanneau.DeposerFichiers(c, (uint32)st.osDropCount, pq);
+			std::printf("[nk3d] AI DEPOT %d fichier(s) -> %u image(s) jointe(s) %s\n", st.osDropCount, (unsigned)n,
+						pq.CStr());
+			st.osDropCount = 0;
+		}
 		if (demo::Demo3DHostReady()) {
 			nk3d::NkOsDropRoute(st);
 			nk3d::NkOsDropPickTake(st);
