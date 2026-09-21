@@ -258,6 +258,39 @@ namespace nkentseu {
 			return mode == 1 || mode == 2 || mode == 3;
 		}
 
+		// ──────────────────────────────────────────────────────────────────────
+		// LES MODES QUI MANIPULENT DES ELEMENTS (sommets, aretes, faces)
+		// ──────────────────────────────────────────────────────────────────────
+		// « Tout comme Blender » (Rodolf, 21/09) : en Sculpt Mode il n'y a NI
+		// selection de sommets, NI gizmo de sommets, NI G/R/S sur des sommets. On
+		// deforme avec des brosses.
+		//
+		// ⚠️ LE MEME MELANGE QUE CI-DESSUS, SUR D'AUTRES SITES. `NkModeNeedsEditMesh`
+		//    a separe « le maillage est-il ouvert ? » de « dans quel mode suis-je ? »
+		//    pour l'OUVERTURE du maillage. Le gizmo, le clic de selection, G/R/S,
+		//    les marqueurs et les raccourcis d'edition, eux, decidaient encore sur
+		//    `editMode` -- l'etat de DONNEE. Mesure du 21/09 AVANT correctif, en
+		//    Sculpture (3) comme en Sculpture 2.5D (2) : gizmo de sommets trace
+		//    (54 triangles), un clic selectionne 12 sommets, G deplace les 24
+		//    sommets, E extrude (24 -> 48 sommets), X SUPPRIME le maillage entier.
+		//
+		// ⚠️ ECRIT COMME UN ENSEMBLE, ET PAR LA NEGATIVE. Un mode qui ouvre le
+		//    maillage SANS etre dans cet ensemble est un mode « a brosses » : pas
+		//    d'elements. Texturing, Patron et Texture painting HERITENT donc de la
+		//    regle le jour ou ils rejoignent `NkModeNeedsEditMesh`, sans une ligne
+		//    de plus ; si l'un d'eux doit un jour designer des faces (selection de
+		//    faces pour le patron, masque de faces en peinture), l'ajouter ICI est
+		//    UNE ligne, et tous les sites suivent.
+		inline bool NkModeManipuleElements(int32 mode) {
+			return mode == 1;
+		}
+		// Le maillage est ouvert, mais on n'y designe rien : Sculpture, Sculpture
+		// 2.5D. C'est CE predicat que lisent le shell et la vue -- jamais un
+		// `mode == 3` recopie a un site.
+		inline bool NkModeMaillageSansElements(int32 mode) {
+			return NkModeNeedsEditMesh(mode) && !NkModeManipuleElements(mode);
+		}
+
 		int32 Demo3DHostBrushCount();
 		const char *Demo3DHostBrushName(int32 i);
 		// Le nom de la brosse en service, et le choix PAR CE NOM (jamais par un
@@ -476,6 +509,10 @@ namespace nkentseu {
 		float32 Demo3DHostModGetParam(uint32 index, uint32 p);
 		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v);
 		bool Demo3DHostInEditMode();
+		// Le maillage est ouvert ET le mode y manipule des elements (cf.
+		// NkModeManipuleElements). Faux en Sculpture : c'est ce que doivent lire
+		// la pastille de sous-mode, les menus de maillage et tout ce qui designe.
+		bool Demo3DHostElementsActifs();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
 		// ── LE CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────

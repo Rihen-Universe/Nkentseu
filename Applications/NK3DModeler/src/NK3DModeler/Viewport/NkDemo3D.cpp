@@ -144,6 +144,9 @@ namespace nkentseu {
 			return nkvpInputOn && NkInput.IsKeyDown(k);
 		}
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
+		// SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) : aretes de cage envoyees au dernier
+		// overlay reconstruit. On COMPTE ce qui part au trace, on ne relit pas la condition.
+		static uint32 gModeSondeCage = 0u;
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
@@ -2047,7 +2050,32 @@ namespace nkentseu {
 				NkVector<renderer::NkVertex3D> editDispScratch; // tampon reutilise (zero alloc/frame)
 				NkVector<uint32> editDispScratchIdx;
 				NkVector<renderer::NkEmId> editDispScratchTF;
+				// Valeur de Demo3D_ElementsActifs a la derniere reconstruction de l'overlay :
+				// la cage et les marqueurs doivent disparaitre A L'ENTREE en Sculpture, et
+				// changer de mode ne touche aucune des causes habituelles de reconstruction.
+				bool elementsOverlay = true;
 		};
+
+		// ── LE MAILLAGE EST OUVERT, MAIS Y MANIPULE-T-ON DES ELEMENTS ? ─────────
+		// `editMode` dit que le maillage d'edition est OUVERT (etat de donnee) ; la
+		// Sculpture l'ouvre aussi. Le gizmo de sommets, le clic de selection, G/R/S,
+		// les outils de zone, les marqueurs et le clavier d'edition doivent lire
+		// CECI, qui ajoute l'axe d'INTERACTION (cf. NkModeManipuleElements).
+		// ⚠️ PAR LA NEGATIVE, et c'est voulu : `uiMode` vaut 0 pendant l'image ou
+		//    l'on RESSORT d'edition (le maillage est encore ouvert). « Pas un mode a
+		//    brosses » garde alors le comportement d'Edition pour cette image, au lieu
+		//    d'inventer un troisieme etat.
+		// MUTATION DANS LE MEME BINAIRE : NK_SCULPT_GIZMO_MUTE=1 rend l'ancienne regle
+		// (`editMode` seul). Le banc sonde_sculpt_gizmo.ps1 DOIT alors rougir.
+		static bool Demo3D_ElementsActifs(const Demo3DState *st) {
+			static const bool sMute = []() {
+				const char *v = getenv("NK_SCULPT_GIZMO_MUTE");
+				return v && v[0] && v[0] != '0';
+			}();
+			if (!st || !st->editMode)
+				return false;
+			return sMute || !NkModeMaillageSansElements(st->uiMode);
+		}
 
 		// Transform de BASE (repos, sans animation) d'un objet de la démo par son index
 		// gizmo — MÊME disposition que la boucle de soumission. Sert d'ancre à l'Edit Mode.
@@ -6808,7 +6836,11 @@ namespace nkentseu {
 					return;
 				}
 				// En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
-				if (st->editMode) {
+				// ⚠️ LE MODE, PAS LE MAILLAGE OUVERT (21/09). La Sculpture ouvre le
+				//    maillage : sous `editMode`, E extrudait et X supprimait la selection
+				//    EN SCULPTURE (mesure : 24 -> 48 sommets, puis 24 -> 0). Tout ce bloc
+				//    designe ou opere sur des elements ; il suit donc l'ENSEMBLE.
+				if (Demo3D_ElementsActifs(st)) {
 					// 1/2/3 = mode SEUL (vertex/arête/face) ; Shift+1/2/3 = COMBINER (toggle),
 					// façon Blender (on peut avoir plusieurs modes actifs à la fois).
 					{
@@ -7167,6 +7199,12 @@ namespace nkentseu {
 						}
 					}
 				}
+				// ⚠️ SCULPTURE : AUCUN GIZMO A QUI PARLER. Tout ce qui suit choisit un gizmo
+				//    (Alt+G/R/S, A, virgule, Espace) ; le choix `editMode ? editGizmo : …`
+				//    rendait le gizmo de SOMMETS en Sculpture. Maillage ouvert sans
+				//    elements = ni gizmo de sommets, ni gizmo d'objet (Blender).
+				if (st->editMode && !Demo3D_ElementsActifs(st))
+					return;
 				// Gizmo ACTIF selon le mode : objet, vertices, ou LUMIERE.
 				// Une lumiere selectionnee capte G/R/S exactement comme un objet — c'est
 				// le modele Blender, ou une lampe EST un objet de la scene. Mais toutes
@@ -10454,7 +10492,13 @@ namespace nkentseu {
 					if (st->modalStartPending != 0) {
 						const int32 mop = st->modalStartPending;
 						st->modalStartPending = 0;
-						Demo3D_ModalStart(st, mop, meshSysT);
+						// LA PORTE UNIQUE DE TOUTES LES MODALES (clavier, shell, facade,
+						// crochets) : en Sculpture, aucune ne nait -- ni G/R/S sur les
+						// sommets, ni extrusion, ni biseau.
+						if (Demo3D_ElementsActifs(st))
+							Demo3D_ModalStart(st, mop, meshSysT);
+						else
+							logger.Info("[Demo3D] modale {0} REFUSEE : mode {1} sans elements\n", mop, st->uiMode);
 					}
 					if (st->editExtrudePending) {
 						st->editExtrudePending = false;
@@ -10852,7 +10896,12 @@ namespace nkentseu {
 				// Cible unique du gizmo = le PIVOT courant.
 				renderer::NkGizmoTarget vt[1];
 				vt[0] = {NkMat4f::Translate(pivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
-				const int32 gcount = (selCnt > 0) ? 1 : 0;
+				// ⚠️ LE GIZMO DE SOMMETS N'A PAS DE CIBLE EN SCULPTURE (21/09). Sans cette
+				//    garde, une selection heritee de l'Edition -- ou un clic -- le faisait
+				//    reparaitre (54 triangles traces, mesure) et le glisser deplacait les
+				//    sommets. Zero cible = rien a attraper ni a dessiner.
+				const bool elems = Demo3D_ElementsActifs(st);
+				const int32 gcount = (elems && selCnt > 0) ? 1 : 0;
 
 				st->editGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
 				// P2 : repère « Normal » (Z = normale de l'élément sélectionné) recalculé
@@ -10886,6 +10935,14 @@ namespace nkentseu {
 					gin.mouseY = st->pickForceY;
 					clickNow = true;
 					logger.Info("[Demo3D] NK_PICK_AT -> clic force en ({0}, {1})\n", gin.mouseX, gin.mouseY);
+				}
+				// SCULPTURE : le clic appartient a la BROSSE, jamais a la selection. Les
+				// outils de zone et le couteau, armes en Edition, tombent avec lui.
+				if (!elems) {
+					clickNow = false;
+					st->selTool = 0;
+					st->selDragging = false;
+					st->knifeArmed = false;
 				}
 				float32 meshPx = 1e30f;
 				if (clickNow && !st->editGizmo.IsDragging()) {
@@ -11488,7 +11545,7 @@ namespace nkentseu {
 					st->editPickVert = -1;
 					st->editPickEdge = -1;
 				}
-				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+				if ((clickNow || pickArme) && elems && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
 					NKEDPROF(11, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
@@ -12049,6 +12106,16 @@ namespace nkentseu {
 				// -> fluide même sur mesh dense. Occlusion = depth-test (X-ray OFF) ; offset
 				// le long de la NORMALE (indépendant caméra) pour vaincre le z-fighting.
 				const auto tOv0 = std::chrono::high_resolution_clock::now();
+				// ⚠️ SCULPTURE : NI CAGE, NI MARQUEURS, NI REMPLISSAGE DE SELECTION, NI GIZMO
+				//    DE SOMMETS (Blender). Mesure avant : 12 aretes de cage, 12 marqueurs et
+				//    54 triangles de gizmo traces en Sculpture. UNE lecture pour tout le
+				//    trace de l'overlay ; changer de mode n'arme aucune des causes habituelles
+				//    de reconstruction, d'ou la bascule suivie ici.
+				const bool elemsTrace = Demo3D_ElementsActifs(st);
+				if (elemsTrace != st->elementsOverlay) {
+					st->elementsOverlay = elemsTrace;
+					st->editOverlayDirty = true;
+				}
 				if (st->editOverlayDirty) {
 					NKEDPROF(7, (int32)st->editHE.VertCount()); // sonde : overlay RECONSTRUIT
 					st->editOverlayDirty = false;
@@ -12112,7 +12179,7 @@ namespace nkentseu {
 					// Passe 0 = arêtes non sélectionnées, passe 1 = sélectionnées (tracées
 					// APRÈS -> elles gagnent le z-fight et restent franches).
 					for (int32 pass = 0; pass < 2; pass++) {
-						for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size(); e += 2) {
+						for (uint32 e = 0; elemsTrace && e + 1 < (uint32)st->editEdges.Size(); e += 2) {
 							const uint32 a = st->editEdges[e], b = st->editEdges[e + 1];
 							if (a >= (uint32)st->vertSel.Size() || b >= (uint32)st->vertSel.Size())
 								continue;
@@ -12148,6 +12215,7 @@ namespace nkentseu {
 						}
 					}
 					r3d->SetEditOverlayLines(L.Empty() ? nullptr : L.Data(), (uint32)(L.Size() / 7));
+					gModeSondeCage = (uint32)(L.Size() / 14); // SONDE NK_MODE_PROBE : aretes tracees
 					// POINTS : marqueurs de vertices en SPRITE ÉCRAN-CONSTANT (taille en pixels
 					// fixe quel que soit le zoom, façon Blender). Chaque point = un quad dont
 					// chaque sommet porte {centre monde, coin en PIXELS, couleur} (9 floats) ;
@@ -12220,7 +12288,7 @@ namespace nkentseu {
 				Demo3D_FaceSelSync(st);
 				auto liveWf = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					const NkVec4f faceFill{1.f, 0.55f, 0.06f, 0.36f};
-					const uint32 fcntF = (uint32)st->editHE.faces.Size();
+					const uint32 fcntF = elemsTrace ? (uint32)st->editHE.faces.Size() : 0u;
 					NkVector<renderer::NkEmId> fvf;
 					for (uint32 f = 0; f < fcntF; f++) {
 						if (!st->editHE.faces[f].alive)
@@ -12358,7 +12426,7 @@ namespace nkentseu {
 					// VERTICES (mode VERTEX) : ~3 px de côté (half ~1.5), discret.
 					// Code couleur Blender : NOIR = non sélectionné, ORANGE = sélectionné,
 					// BLANC = sommet ACTIF (dernier sélectionné).
-					if (st->editSelMask & 1) {
+					if (elemsTrace && (st->editSelMask & 1)) {
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = liveWv(i);
 							if (!facingCam(w, st->editLive[i].normal)) {
@@ -12375,7 +12443,7 @@ namespace nkentseu {
 						}
 					}
 					// CENTRES DE FACE (mode FACE) : petit carré plein au barycentre de chaque face.
-					if (st->editSelMask & 4) {
+					if (elemsTrace && (st->editSelMask & 4)) {
 						const uint32 fcnt = (uint32)st->editHE.faces.Size();
 						NkVector<renderer::NkEmId> fvd;
 						for (uint32 f = 0; f < fcnt; f++) {
@@ -12421,7 +12489,7 @@ namespace nkentseu {
 				// (drawLine pour tiges/liserés fins + drawTri pour formes PLEINES : cônes/cubes/
 				// rubans). Le 2e callback active la surcharge Draw(drawLine, drawTri) du gizmo —
 				// mêmes couleurs d'axe (X rouge, Y vert, Z bleu) et mêmes formes que l'objet.
-				if (!nkvpGizmoHidden)
+				if (!nkvpGizmoHidden && elemsTrace)
 					st->editGizmo.Draw(
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
@@ -12443,6 +12511,38 @@ namespace nkentseu {
 								(int32)nkMarqPts, (int32)nkMarqCull, (int32)nkMarqTri, (int32)nkGizmoTri,
 								st->editXray ? 1 : 0);
 					++nkMarqFrame;
+				}
+				// ── SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) ─────────────────
+				// CE QUI PART REELLEMENT AU TRACE dans chaque mode, et la somme des
+				// positions du maillage : un gizmo qui se DESSINE et un geste qui DEPLACE
+				// sont deux questions, et un seul compteur ne repond qu'a l'une.
+				// Les compteurs sont ceux du trace ci-dessus (triangles envoyes, marqueurs
+				// poses), jamais une copie de la condition qui les garde.
+				{
+					static const bool sModeProbe = []() {
+						const char *v = getenv("NK_MODE_PROBE");
+						return v && v[0] && v[0] != '0';
+					}();
+					static int32 sModeImg = 0;
+					if (sModeProbe && (sModeImg++ % 10) == 0) {
+						int32 selV = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							selV += st->vertSel[i] ? 1 : 0;
+						double sx = 0.0, sy = 0.0, sz = 0.0;
+						for (uint32 i = 0; i < (uint32)st->editLive.Size(); ++i) {
+							sx += st->editLive[i].pos.x;
+							sy += st->editLive[i].pos.y;
+							sz += st->editLive[i].pos.z;
+						}
+						logger.Info("[MODE-SONDE] img={0} uiMode={1} editMode={2} selV={3} gizmoSel={4} "
+									"gizmoTri={5} drag={6} marqPts={7} cage={8} nv={9} somme=({10}, {11}, {12}) "
+									"modale={13} selTool={14}\n",
+									sModeImg - 1, st->uiMode, st->editMode ? 1 : 0, selV,
+									st->editGizmo.HasSelection() ? 1 : 0, (int32)nkGizmoTri,
+									st->editGizmo.IsDragging() ? 1 : 0, (int32)nkMarqPts, (int32)gModeSondeCage,
+									(int32)st->editLive.Size(), (float32)sx, (float32)sy, (float32)sz, st->modalOp,
+									st->selTool);
+					}
 				}
 			}
 
@@ -14218,7 +14318,9 @@ namespace nkentseu {
 				const char *gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
 				const char *orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
 				const char *seName[3] = {"VERTEX", "EDGE", "FACE"};
-				if (st->editMode) {
+				// L'AIDE SUIT LE MODE, pas le maillage ouvert : en Sculpture elle annoncait
+				// « EDIT MODE », E=extrude, X=suppr -- des touches qui ne doivent plus agir.
+				if (Demo3D_ElementsActifs(st)) {
 					char modeStr[8];
 					int mi = 0;
 					if (st->editSelMask & 1)
@@ -14317,6 +14419,13 @@ namespace nkentseu {
 									  "Shift+clic droit (Alt+. = origine)",
 									  allSm ? "SMOOTH" : (anySm ? "MIXTE" : "FLAT"),
 									  st->editGizmo.PivotName());
+				} else if (st->editMode) {
+					// La 2.5D n'a PAS encore de brosse (seule la Sculpture en a une) : le dire
+					// plutot que promettre un clic qui ne fait rien.
+					overlay->DrawText({20.f, 100.f},
+									  "%s  |  ni selection, ni gizmo de sommets, ni G/R/S (comme Blender)",
+									  st->uiMode == 3 ? "SCULPTURE  |  clic gauche = brosse  |  Ctrl+Z = annuler le trait"
+													  : "SCULPTURE 2.5D  |  aucune brosse encore");
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
@@ -17100,6 +17209,24 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st && st->editMode;
 		}
+		bool Demo3DHostElementsActifs() {
+			return Demo3D_ElementsActifs(HostSt());
+		}
+		// LA PORTE DES OPERATIONS D'ELEMENTS, a cote de celle du maillage ouvert.
+		// En Sculpture le maillage EST ouvert : `HostEditRun` seul laissait donc
+		// extruder, supprimer, fusionner la selection par la facade (menus, verbes
+		// de l'IA). On REFUSE, et on le dit -- se taire ressemblerait a un bouton
+		// casse. Annuler, Refaire et le trait de sculpture, eux, restent sur
+		// `HostEditRun` : ils ne designent rien.
+		static bool HostRefuseSansElements(const char *quoi) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || Demo3D_ElementsActifs(st))
+				return false;
+			logger.Info("[Demo3D] {0} REFUSE : mode {1} sans elements (tout comme Blender en "
+						"Sculpture : ni selection, ni gizmo, ni operation de sommets)\n",
+						quoi, st->uiMode);
+			return true;
+		}
 		// OPERATIONS D EDITION : LA FORME PORTEE DEPUIS NkViewport3D
 		// Chaque entree appelle la fonction VIVANTE de ce fichier. Verifie
 		// nommement : Merge passe par Demo3D_MergeHE (qui pose merge.point, le
@@ -17149,7 +17276,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditExtrude(bool individual) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("Extrude"))
 				return false;
 			// L etat porte le mode region/individuel ; on le pose le temps de l appel
 			// et on le REND, sinon un bouton changerait un reglage que l utilisateur
@@ -17161,6 +17288,8 @@ namespace nkentseu {
 			return ok;
 		}
 		bool Demo3DHostEditDelete() {
+			if (HostRefuseSansElements("Delete"))
+				return false;
 			return HostEditRun(&Demo3D_DeleteHE);
 		}
 		// LE MENU X A DEMANDE UN ELEMENT PRECIS. Meme entonnoir que le bouton :
@@ -17169,7 +17298,7 @@ namespace nkentseu {
 		// faite sur l'un dise quelque chose de l'autre.
 		bool Demo3DHostEditDeleteMode(int32 element) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("DeleteMode"))
 				return false;
 			st->editDeleteMode = element;
 			const bool ok = HostEditRun(&Demo3D_DeleteHE);
@@ -17766,7 +17895,7 @@ namespace nkentseu {
 		void Demo3DHostSelectAll(bool on) {
 			auto *st = HostModSt();
 			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
-			if (!st || !ms)
+			if (!st || !ms || HostRefuseSansElements(on ? "SelectAll" : "SelectNone"))
 				return;
 			if (on)
 				st->editHE.SelectAll();
@@ -17933,12 +18062,18 @@ namespace nkentseu {
 			HostModTouch(st);
 		}
 		bool Demo3DHostEditMerge() {
+			if (HostRefuseSansElements("Merge"))
+				return false;
 			return HostEditRun(&Demo3D_MergeHE);
 		}
 		bool Demo3DHostEditMakeFace() {
+			if (HostRefuseSansElements("MakeFace"))
+				return false;
 			return HostEditRun(&Demo3D_MakeFaceHE);
 		}
 		bool Demo3DHostEditSubdivide() {
+			if (HostRefuseSansElements("Subdivide"))
+				return false;
 			return HostEditRun(&Demo3D_SubdivideHE);
 		}
 		// ──────────────────────────────────────────────────────────────────────
@@ -18122,19 +18257,25 @@ namespace nkentseu {
 			return HostEditRun(&Demo3D_SculptHE);
 		}
 		bool Demo3DHostEditLoopCut() {
+			if (HostRefuseSansElements("LoopCut"))
+				return false;
 			return HostEditRun(&Demo3D_LoopCutHE);
 		}
 		bool Demo3DHostEditInset() {
+			if (HostRefuseSansElements("Inset"))
+				return false;
 			return HostEditRun(&Demo3D_InsetHE);
 		}
 		bool Demo3DHostEditDissolve() {
+			if (HostRefuseSansElements("Dissolve"))
+				return false;
 			return HostEditRun(&Demo3D_DissolveHE);
 		}
 		bool Demo3DHostEditBevel(bool vertexMode) {
 			// Demo3D_BevelHE prend un troisieme parametre : pas de pointeur uniforme.
 			auto *st = HostSt();
 			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
-			if (!st || !ms || !st->editMode)
+			if (!st || !ms || !st->editMode || HostRefuseSansElements("Bevel"))
 				return false;
 			const uint32 avant = st->editHistory.UndoCount();
 			Demo3D_BevelHE(st, ms, vertexMode);
@@ -18146,16 +18287,20 @@ namespace nkentseu {
 		// demande un nouvel operateur, c'est la STRUCTURE qu'il aurait fallu
 		// corriger, pas ajouter le chemin.
 		bool Demo3DHostEditSpin() {
+			if (HostRefuseSansElements("Spin"))
+				return false;
 			return HostEditRun(&Demo3D_SpinHE);
 		}
 		bool Demo3DHostEditEdgeSplit() {
+			if (HostRefuseSansElements("EdgeSplit"))
+				return false;
 			return HostEditRun(&Demo3D_EdgeSplitHE);
 		}
 		bool Demo3DHostEditModal(int32 op) {
 			auto *st = HostSt();
 			// 9..11 = deplacer / tourner / redimensionner : la MEME porte que les touches
 			// G/R/S du viseur (modalStartPending), que Demo3D_ModalStart sait deja lancer.
-			if (!st || !st->editMode || op < 1 || op > 11)
+			if (!st || !st->editMode || op < 1 || op > 11 || HostRefuseSansElements("EditModal"))
 				return false;
 			// On POSE la demande, on ne lance pas : le cadre modal a besoin de la
 			// souris et du systeme de maillage, dont ce rappel d'interface ne
@@ -18166,7 +18311,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostArmKnife() {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("ArmKnife"))
 				return false;
 			st->knifeArmed = true;
 			st->knifeHasP0 = false;
@@ -18193,7 +18338,8 @@ namespace nkentseu {
 		// du shell, qui ne depend pas du survol de la vue.
 		bool Demo3DHostTransformModal(int32 op) {
 			auto *st = HostSt();
-			if (!st || op < 9 || op > 11)
+			// En Sculpture, G/R/S ne transforment ni les sommets NI l'objet (Blender).
+			if (!st || op < 9 || op > 11 || HostRefuseSansElements("G/R/S"))
 				return false;
 			st->modalStartPending = op;
 			return true;
@@ -18687,7 +18833,7 @@ namespace nkentseu {
 		// de sens et se taire serait pire que refuser.
 		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickAt"))
 				return false;
 			st->editPickX = x;
 			st->editPickY = y;
@@ -18708,7 +18854,7 @@ namespace nkentseu {
 		// element actif -- est le code du clic, et n'est pas duplique ici.
 		bool Demo3DHostEditPickFace(int32 face, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickFace"))
 				return false;
 			if (face < 0 || (uint32)face >= st->editHE.FaceCount())
 				return false;
@@ -18738,7 +18884,7 @@ namespace nkentseu {
 		// Le pendant pour l'ARETE. Meme porte, meme consommation, meme toggle.
 		bool Demo3DHostEditPickEdge(int32 edge, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickEdge"))
 				return false;
 			if (edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
 				return false;
@@ -18773,7 +18919,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditPickVert(int32 vert, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickVert"))
 				return false;
 			if (vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
 				return false;
@@ -19361,7 +19507,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostClearXform(int32 which) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("ClearXform"))
 				return;
 			// L'« Appliquer » de l'outil : remet la composante de la SELECTION,
 			// exactement Alt+G / Alt+R / Alt+S de la demo -- sur le gizmo ACTIF.
