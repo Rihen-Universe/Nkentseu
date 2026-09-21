@@ -425,6 +425,16 @@ namespace nkentseu {
 						/// Ce que ce tiroir fait a ce qu'il y a dessous. Defaut : `Travail`
 						/// -- on y tape EN REGARDANT ce qu'on modifie.
 						NkEditorTiroirMode mode = NkEditorTiroirMode::Travail;
+						// ── 21/09 (Q6, Q7), TOUJOURS A LA FIN ──
+						/// Le panneau porte SON en-tete (le panneau IA) : le tiroir ne
+						/// peint pas le sien -- deux en-tetes empiles, c'est ce que le
+						/// coordinateur a vu sur l'image de NKUIDesign.
+						bool titrePropre = false;
+						/// La pastille ne vaut que pour une SELECTION (proprietes d'un
+						/// noeud) : sans selection elle est RETIREE du rail (Rodolf,
+						/// 21/09). Si son tiroir etait ouvert, il RESTE ouvert et dit
+						/// « Aucun element selectionne » -- il ne saute pas ailleurs.
+						bool lieALaSelection = false;
 				};
 				static const int32 kRailMax = 8;
 
@@ -439,6 +449,46 @@ namespace nkentseu {
 				/// Ouvre (ou ferme, index -1) le TIROIR d'une pastille de rail par
 				/// programme — mise en scène et raccourcis. Additif (2026-08-31) :
 				/// même règle qu'un clic sur la pastille, une seule par rail.
+				// ── LA LARGEUR DU TIROIR (Q6, 21/09) ─────────────────────────────
+				/// Rodolf : « le panneau IA doit pouvoir etre agrandi et retreci
+				/// horizontalement ». Le bord interieur du tiroir est une poignee
+				/// (celle des separateurs, curseur ResizeEW) ; la largeur est bornee
+				/// (lisible au minimum, la vue garde sa place au maximum) et
+				/// MEMORISEE par `SaveUiState`/`LoadUiState` (ligne `tiroir=`).
+				void SetRailLargeur(NkEditorDockSide side, float32 px) noexcept {
+					const int32 slot = SlotDe(side);
+					if (slot >= 0 && px > 0.f)
+						mRailLargeur[slot] = px;
+				}
+				float32 RailLargeur(NkEditorDockSide side) const noexcept {
+					const int32 slot = SlotDe(side);
+					return slot >= 0 ? mRailLargeur[slot] : 0.f;
+				}
+				/// ANCRE (Q7) : le tiroir ouvert PREND sa place au lieu de passer
+				/// par-dessus -- le dock retranche sa largeur, comme le panneau de
+				/// droite du modeleur. ⚠️ Une DECISION de l'application : sans elle,
+				/// deplier une pastille ne redimensionne rien (etat 2 du §13).
+				void SetRailAncre(NkEditorDockSide side, bool ancre) noexcept {
+					const int32 slot = SlotDe(side);
+					if (slot >= 0)
+						mRailAncre[slot] = ancre;
+				}
+				/// Y a-t-il une selection ? Les pastilles `lieALaSelection` en dependent.
+				void SetRailSelection(bool aSelection) noexcept {
+					mRailSelection = aSelection;
+				}
+				/// La pastille ouverte d'un rail (-1 = aucune) : pour les sondes.
+				int32 RailOuvert(NkEditorDockSide side) const noexcept {
+					const int32 slot = SlotDe(side);
+					return slot >= 0 ? mRailOuvert[slot] : -1;
+				}
+				static int32 SlotDe(NkEditorDockSide side) noexcept {
+					return side == NkEditorDockSide::NK_LEFT	 ? 0
+						   : side == NkEditorDockSide::NK_RIGHT	 ? 1
+						   : side == NkEditorDockSide::NK_BOTTOM ? 2
+																 : -1;
+				}
+
 				void OuvrirTiroir(NkEditorDockSide side, int32 index) noexcept {
 					const int32 slot = side == NkEditorDockSide::NK_LEFT	? 0
 									   : side == NkEditorDockSide::NK_RIGHT ? 1
@@ -829,6 +879,15 @@ namespace nkentseu {
 				// ouverts. LoadUiState applique l'etat ; no-op si le fichier est absent.
 				void LoadUiState(const char *path) noexcept;
 				void SaveUiState(const char *path) noexcept;
+				/// (Q6, 21/09) `false` : `LoadUiState` ne touche PAS a la geometrie de la
+				/// fenetre (`win=`, `maximized=`). ⚠️ POURQUOI : `SetSize(GetSize())`
+				/// n'est pas l'identite -- la fenetre grossit de +16/+39 px a chaque
+				/// lancement (mesure du 13/09, memoire « setsize-getsize »). Une
+				/// application qui adopte la persistance pour la largeur d'un tiroir ne
+				/// doit pas importer ce defaut avec elle. Defaut `true` : NKCode inchange.
+				void SetUiStateGeometrie(bool oui) noexcept {
+					mUiStateGeometrie = oui;
+				}
 
 				// ── Barre d'etat (footer VSCode) : texte gauche/droite mis par l'app ─
 				void SetFooter(const char *left, const char *right = "") noexcept;
@@ -1054,6 +1113,13 @@ namespace nkentseu {
 				/// Index de la pastille DEPLIEE, -1 si aucune. Un entier, pas un
 				/// ensemble : c est ce qui rend « une seule par rail » structurel.
 				int32 mRailOuvert[3] = {-1, -1, -1};
+				/// La largeur (hauteur pour le rail bas) de chaque tiroir -- Q6.
+				float32 mRailLargeur[3] = {320.f, 320.f, 240.f};
+				bool mRailAncre[3] = {false, false, false};
+				bool mRailSelection = true;
+				bool mUiStateGeometrie = true;
+				/// Le rectangle du tiroir ouvert d'un rail dans `corps`, borne.
+				nkgui::NkRect RectTiroir(int32 slot, const nkgui::NkRect &corps) noexcept;
 				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
 				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
 				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;

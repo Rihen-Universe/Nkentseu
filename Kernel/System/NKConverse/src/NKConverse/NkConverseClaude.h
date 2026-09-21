@@ -278,6 +278,11 @@ namespace nkentseu::converse {
 			/// Le modele. UN REGLAGE, jamais une constante (voir l'en-tete).
 			NkString modele = NkString("sonnet");
 			NkString nom = NkString("claude");
+			/// L'EFFORT DU PANNEAU (21/09, Q5) : `--effort <niveau>` du CLI, dont
+			/// l'aide documente « low, medium, high, xhigh, max ». Vide = non ecrit,
+			/// le CLI garde son defaut. Il est ECRIT dans le script : c'est ce que
+			/// la preuve relit.
+			NkString effort;
 			/// Les trois fichiers de travail. L'appelant les pose dans `logs/` :
 			/// a la racine ils saliraient le dossier de projet de Rodolf et
 			/// reapparaitraient apres chaque nettoyage.
@@ -380,6 +385,10 @@ namespace nkentseu::converse {
 				s.Append(NkClaudeExe());
 				s.Append("\" -p --model \"");
 				s.Append(modele);
+				if (effort.Length() > 0) {
+					s.Append("\" --effort \"");
+					s.Append(effort);
+				}
 				s.Append("\" --safe-mode --tools \"\" --strict-mcp-config"
 						 " --no-session-persistence --output-format text"
 						 " < \"%~1\" > \"%~2\"\r\n");
@@ -394,6 +403,10 @@ namespace nkentseu::converse {
 				s.Append(NkClaudeExe());
 				s.Append("\" -p --model \"");
 				s.Append(modele);
+				if (effort.Length() > 0) {
+					s.Append("\" --effort \"");
+					s.Append(effort);
+				}
 				s.Append("\" --safe-mode --tools \"\" --strict-mcp-config"
 						 " --no-session-persistence --output-format text"
 						 " < \"$1\" > \"$2\"\n");

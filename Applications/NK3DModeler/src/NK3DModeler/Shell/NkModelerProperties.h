@@ -7556,6 +7556,14 @@ namespace nkentseu {
 				st.propOpen[7] = false;
 				st.propSecH[7] = 0.f;
 				st.propScroll3[7] = 0.f;
+				// (Q7) LE PANNEAU NE SE FERME PAS POUR AUTANT : la pastille du mode
+				// disparait, la main revient a « Modele » (meme regle que la sortie
+				// de mode, plus haut).
+				bool autre = false;
+				for (int32 j2 = 0; j2 < 7; ++j2)
+					autre = autre || st.propOpen[j2];
+				if (!autre)
+					st.propOpen[0] = true;
 			}
 			// LA PASTILLE MODELE N'EXISTE QUE POUR UNE SELECTION (regle de
 			// Rihen) : sans objet actif elle disparait de la colonne, et si
@@ -7588,25 +7596,30 @@ namespace nkentseu {
 			// section TOUJOURS disponible — jamais sur une autre orpheline.
 			// Ce n'est pas un automatisme d'ouverture (regle du 11 aout) : le
 			// panneau reste ouvert, seul son CONTENU change.
-			for (int32 i2 = 0; i2 < kNSec; ++i2) {
-				const bool orphelin = ((i2 == 0 || i2 == 3) && !hasSel5) ||
-									  (i2 == 4 && !hasObj5);
-				if (!orphelin || !st.propOpen[i2])
-					continue;
-				st.propOpen[i2] = false;
-				bool reste = false;
-				for (int32 k2 = 0; k2 < kNSec && !reste; ++k2)
-					reste = st.propOpen[k2];
-				if (reste)
-					continue; // une autre section tient deja l'affiche
-				for (int32 k2 = 0; k2 < kNSec; ++k2) {
-					const bool orph2 = ((k2 == 0 || k2 == 3) && !hasSel5) ||
-									   (k2 == 4 && !hasObj5);
-					if (!orph2) {
-						st.propOpen[k2] = true;
-						st.propFold[k2] = false;
-						break;
-					}
+			// 🔴 (Q7, Rodolf 21/09) PLUS DE BASCULE. La boucle qui suivait ici FERMAIT
+			//    la section orpheline et en OUVRAIT une autre : deselectionner faisait
+			//    sauter le panneau de « Modele » a « Rendu ». Rodolf : « la fermeture
+			//    de ce panneau doit etre volontaire », et si la pastille active est
+			//    masquee, le panneau reste ouvert sur son etat vide NOMME -- que la
+			//    section peint deja (« Aucun objet selectionne », plus bas). La
+			//    pastille, elle, reste retiree de la colonne (regle de selection).
+			//
+			// LA TRACE DE LA PREUVE : a chaque changement de selection, l'etat du
+			// panneau -- lu, pas suppose.
+			{
+				static int32 sSelAvant = -1;
+				const int32 selMaintenant = hasSel5 ? 1 : 0;
+				if (selMaintenant != sSelAvant) {
+					int32 actif = -1;
+					for (int32 k2 = 0; k2 < kNSec; ++k2)
+						if (st.propOpen[k2]) {
+							actif = k2;
+							break;
+						}
+					std::printf("[nk3d] PANNEAU selection=%d ouvert=%d section=%d assistant=%d\n", (int)selMaintenant,
+								st.AnyPropOpen() && st.showRight ? 1 : 0, (int)actif, st.aiOuvert ? 1 : 0);
+					std::fflush(stdout);
+					sSelAvant = selMaintenant;
 				}
 			}
 			int32 nOpen = 0, nUnfold = 0;
@@ -7755,7 +7768,7 @@ namespace nkentseu {
 				const bool secOrphelin =
 					((sec == 0 || sec == 3) && !hasSel5) || (sec == 4 && !hasObj5);
 				if (secOrphelin) {
-					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucune selection",
+					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucun objet sélectionné",
 							NkRole::TextMuted);
 					yy += kRowH;
 				} else if (sec == 0) {

@@ -264,9 +264,15 @@ namespace nkentseu {
 				/// ⚠️ ELLES SONT PRETEES, PAS DETENUES : l'hote les garde vivantes et
 				///    TELEVERSEES (leur atlas doit etre connu du dorsal, sinon le texte
 				///    sort en rectangles vides). `nullptr` = repli nomme ci-dessous.
-				void PoserPolices(const nkgui::NkGuiFont *grasse, const nkgui::NkGuiFont *chasseFixe) noexcept {
+				/// `normale` (21/09) : la police du TEXTE de ce peintre, au lieu de
+				/// `ctx.font`. Le panneau IA l'exige : la capture ecrit son fil ~15 %
+				/// plus grand que la police d'interface des applications (mesure :
+				/// 96 caracteres par ligne contre 110 a la meme largeur).
+				void PoserPolices(const nkgui::NkGuiFont *grasse, const nkgui::NkGuiFont *chasseFixe,
+								  const nkgui::NkGuiFont *normale = nullptr) noexcept {
 					mGrasse = grasse;
 					mChasseFixe = chasseFixe;
+					mNormale = (normale && normale->Valid()) ? normale : nullptr;
 				}
 				/// ⚠️ LE GRAS SANS POLICE GRASSE EST APPROXIME PAR DEUX PASSES, decalees
 				///    de 0,6 px -- la meme approximation que `costume::TexteGras` de
@@ -637,13 +643,14 @@ namespace nkentseu {
 						return mGrasse;
 					if (police == 2u && mChasseFixe)
 						return mChasseFixe;
-					return mCtx.font;
+					return mNormale ? mNormale : mCtx.font;
 				}
 
 				nkgui::NkGuiContext &mCtx;
 				const NkTheme &mTheme;
 				const nkgui::NkGuiFont *mGrasse = nullptr;
 				const nkgui::NkGuiFont *mChasseFixe = nullptr;
+				const nkgui::NkGuiFont *mNormale = nullptr;
 		};
 
 	} // namespace editorkit
