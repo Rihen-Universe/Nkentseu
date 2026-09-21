@@ -1,0 +1,10 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# Temoin de l'OUTIL de creation (NK3DModeler, NK_CREA_DOC) : ecrit a la main, en metres.
+# Pose le 21/09 : 6 parties, 0 flottante, boite 0,45 x 0,92 x 0,45 m, annule en un geste.
+scene chaise
+partie assise forme cube taille 0.45 0.04 0.45 matiere bambou
+partie pied_avant_gauche forme cylindre taille 0.04 0.43 0.04 pose_sous assise decale -0.19 0 0.19 matiere bambou
+partie pied_avant_droit forme cylindre taille 0.04 0.43 0.04 pose_sous assise decale 0.19 0 0.19 matiere bambou
+partie pied_arriere_gauche forme cylindre taille 0.04 0.43 0.04 pose_sous assise decale -0.19 0 -0.19 matiere bambou
+partie pied_arriere_droit forme cylindre taille 0.04 0.43 0.04 pose_sous assise decale 0.19 0 -0.19 matiere bambou
+partie dossier forme cube taille 0.45 0.45 0.03 pose_sur assise decale 0 0 -0.21 matiere bambou
