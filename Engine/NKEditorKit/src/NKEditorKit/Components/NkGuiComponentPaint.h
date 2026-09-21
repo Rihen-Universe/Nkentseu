@@ -4,6 +4,7 @@
 // @Brief   Implementation MINCE de `NkComponentPaint` sur la liste d'affichage
 //          de NKGui — le strict necessaire pour qu'un composant s'affiche.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -257,6 +258,47 @@ namespace nkentseu {
 
 				void Text(const NkPaintRect &r, const char *s, uint16 role, NkTextAlign align) override;
 				void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) override;
+
+				// ── LE TEXTE PAR POLICE (21/09, panneau IA) ──────────────────────
+				/// Les polices que ce peintre sait servir EN PLUS de `ctx.font`.
+				/// ⚠️ ELLES SONT PRETEES, PAS DETENUES : l'hote les garde vivantes et
+				///    TELEVERSEES (leur atlas doit etre connu du dorsal, sinon le texte
+				///    sort en rectangles vides). `nullptr` = repli nomme ci-dessous.
+				void PoserPolices(const nkgui::NkGuiFont *grasse, const nkgui::NkGuiFont *chasseFixe) noexcept {
+					mGrasse = grasse;
+					mChasseFixe = chasseFixe;
+				}
+				/// ⚠️ LE GRAS SANS POLICE GRASSE EST APPROXIME PAR DEUX PASSES, decalees
+				///    de 0,6 px -- la meme approximation que `costume::TexteGras` de
+				///    NkUIDesign. Aucune graisse n'est embarquee dans le depot ; le dire
+				///    vaut mieux qu'un gras qui n'en est pas un sans explication.
+				void TextePolice(const NkPaintRect &r, const char *s, const char *fin, uint16 role,
+								 uint8 police) override {
+					const nkgui::NkGuiFont *f = PoliceDe(police);
+					if (!s || !f || !f->Valid() || r.w <= 0.f)
+						return;
+					if (fin && fin <= s)
+						return;
+					const float32 lh = f->LineHeight();
+					const float32 baseY = r.y + (r.h - lh) * 0.5f + f->Ascent();
+					const nkgui::NkColor col = C(role);
+					mCtx.DL().AddText(f->Face(), f->TexId(), {Px(r.x), Px(baseY)}, s, col, -1.f, 0.f, fin);
+					if (police == 1u && !mGrasse)
+						mCtx.DL().AddText(f->Face(), f->TexId(), {Px(r.x) + 0.6f, Px(baseY)}, s, col, -1.f,
+										  0.f, fin);
+				}
+				float32 LargeurPolice(const char *s, const char *fin, uint8 police) const override {
+					const nkgui::NkGuiFont *f = PoliceDe(police);
+					if (!s || !f || !f->Valid())
+						return 0.f;
+					const float32 w = fin ? f->MeasureWidth(s, fin) : f->MeasureWidth(s);
+					// le second passage du faux gras elargit le mot de 0,6 px
+					return (police == 1u && !mGrasse && w > 0.f) ? w + 0.6f : w;
+				}
+				float32 HauteurPolice(uint8 police) const override {
+					const nkgui::NkGuiFont *f = PoliceDe(police);
+					return (f && f->Valid()) ? f->LineHeight() : LineHeight();
+				}
 
 				// Traductions pures (2026-08-30) — la regle « il ne doit pas
 				// grossir » tient : l'ellipse parametrique vit dans NKGui
@@ -590,8 +632,18 @@ namespace nkentseu {
 					return Unpack(mTheme.Get(role));
 				}
 
+				const nkgui::NkGuiFont *PoliceDe(uint8 police) const noexcept {
+					if (police == 1u && mGrasse)
+						return mGrasse;
+					if (police == 2u && mChasseFixe)
+						return mChasseFixe;
+					return mCtx.font;
+				}
+
 				nkgui::NkGuiContext &mCtx;
 				const NkTheme &mTheme;
+				const nkgui::NkGuiFont *mGrasse = nullptr;
+				const nkgui::NkGuiFont *mChasseFixe = nullptr;
 		};
 
 	} // namespace editorkit

@@ -2,7 +2,8 @@
 // -----------------------------------------------------------------------------
 // @File    DesignAIRecette.h
 // @Brief   LA PREUVE DE RECETTE du pipeline IA — chaque maillon MESURE.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -467,9 +468,14 @@ namespace nkuidesign {
 			// 8c. ⚠️ CONTROLE NEGATIF : le fil REFUSE un bloc que le porteur ne
 			//     declare pas produire, et il le dit. Sans lui, un fil qui accepterait
 			//     tout passerait 8a et 8b sans rien prouver.
+			// ⚠️ 21/09 : NKUIDesign DECLARE desormais l'outil (une generation : la
+			//    demande en entree, la reponse du modele en sortie). Le controle
+			//    negatif prend donc un type qu'il NE produit toujours pas : la
+			//    reflexion -- aucun de ses dorsaux n'en emet.
 			NkAiBlocDonnees o;
-			o.type = NkAiBloc::Outil; // NKUIDesign ne produit pas d etapes d outil
-			o.titre = NkString("Bash");
+			o.type = NkAiBloc::Reflexion;
+			o.titre = NkString("Thinking");
+			o.texte = NkString("...");
 			NkString motif;
 			const bool refuse = !fil.Pousser(o, motif);
 			check("8c. controle negatif : un bloc non declare est refuse AVEC son motif",

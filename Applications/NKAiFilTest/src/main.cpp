@@ -222,32 +222,36 @@ int main() {
 		//    il ne promet rien. `ai.hist` lisait le sien.
 		NkModelerState *pst = new NkModelerState();
 		NkModelerState &st = *pst;
-		nk3d::NkAiCopie(st.aiSujet, sizeof(st.aiSujet), "premier sujet");
+		// ⚠️ 21/09 : L'HISTORIQUE VIT DANS LE PANNEAU DU KIT (`NkAiPanneau`), PAR
+		//    ASSISTANT. Le banc le mesure la ou il vit, par le fil VIVANT du
+		//    modeleur (`st.aiFil`, lie au panneau) -- le chemin de l'application.
+		//    Le sujet n'est plus une copie : c'est la premiere DEMANDE du fil.
+		nk3d::NkAiDeclarerPanneau(st);
+		editorkit::NkAiPanneau &pan = st.aiPanneau;
+		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Demande, "premier sujet");
 		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "un echange");
-		nk3d::NkAiArchiver(st);
-		st.aiFil.Vider();
-		Essai("C1", st.aiArchivesN == 1 && st.aiFil.Taille() == 0,
+		pan.NouvelleConversation();
+		Essai("C1", pan.Archives() == 1 && st.aiFil.Taille() == 0,
 			  "archiver met la conversation de cote et laisse le fil vide");
-		
+
 		// ⚠️ ON N ARCHIVE PAS DU VIDE : sinon la liste se remplit de lignes
 		//    sans contenu des qu on clique deux fois sur « nouvelle ».
-		nk3d::NkAiArchiver(st);
-		Essai("C2", st.aiArchivesN == 1,
+		pan.NouvelleConversation();
+		Essai("C2", pan.Archives() == 1,
 			  "controle negatif : un fil vide ne cree PAS d archive");
-		
+
 		// Une seconde conversation, puis on rouvre la premiere.
-		nk3d::NkAiCopie(st.aiSujet, sizeof(st.aiSujet), "second sujet");
-		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note, "autre echange");
-		nk3d::NkAiRouvrir(st, 0);
-		Essai("C3", MemeLigne(st.aiSujet, "premier sujet") && st.aiFil.Taille() == 1,
+		(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Demande, "second sujet");
+		pan.Rouvrir(0);
+		Essai("C3", MemeLigne(pan.Sujet(), "premier sujet") && st.aiFil.Taille() == 2,
 			  "rouvrir restaure le sujet ET le fil de l archive");
 		// ⚠️ ET LA COURANTE N EST PAS PERDUE : rouvrir ne doit jamais jeter ce
 		//    qui etait a l ecran.
-		Essai("C4", st.aiArchivesN == 1 && MemeLigne(st.aiArchivesSujet[0], "second sujet"),
+		Essai("C4", pan.Archives() == 1 && MemeLigne(pan.SujetArchive(0), "second sujet"),
 			  "la conversation courante est archivee a la place de celle qu on rouvre");
-		
-		nk3d::NkAiViderHistorique(st);
-		Essai("C5", st.aiArchivesN == 0 && st.aiFil.Taille() == 1,
+
+		pan.ViderHistorique();
+		Essai("C5", pan.Archives() == 0 && st.aiFil.Taille() == 2,
 			  "vider l historique n efface QUE l historique, pas la conversation ouverte");
 		delete pst;
 	}

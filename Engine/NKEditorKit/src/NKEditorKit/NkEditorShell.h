@@ -3,6 +3,7 @@
 // @File    NkEditorShell.h
 // @Brief   Coquille d'application d'editeur : fenetre + docking + panneaux.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // NkEditorShell est la base reutilisable des editeurs Nkentseu (NKCode = IDE,
@@ -633,6 +634,27 @@ namespace nkentseu {
 					mOverlayUser = user;
 				}
 
+				/// APRES L'IMAGE (21/09) : appele une fois la liste d'affichage COMPLETE
+				/// -- fenetres fusionnees, surcouches posees -- et AVANT sa soumission
+				/// au dorsal. C'est le seul point ou `Ui().dl` + `Ui().dlOverlay`
+				/// sont exactement ce que le GPU va peindre.
+				/// ⚠️ L'OVERLAY NE SUFFISAIT PAS : il passe AVANT `EndFrame`, donc avant
+				///    la fusion des fenetres -- une image prise la aurait manque tout
+				///    panneau ancre dans une fenetre, et se serait lue comme un panneau
+				///    vide. Sert a `NK_AI_IMAGE` (l'image du panneau IA, preuve du 21/09).
+				using NkEditorApresImageFn = void (*)(nkgui::NkGuiContext &ui, int32 largeur, int32 hauteur,
+													 void *user);
+				void SetApresImage(NkEditorApresImageFn fn, void *user = nullptr) noexcept {
+					mApresImageFn = fn;
+					mApresImageUser = user;
+				}
+				/// Le theme du KIT (roles), celui que `ApplyTheme` a pose. Les composants
+				/// qui peignent par role (`NkGuiComponentPaint`) le lisent ici plutot que
+				/// d'en tenir une copie qui ne suivrait pas une bascule de theme.
+				const NkTheme &KitTheme() const noexcept {
+					return mKitTheme;
+				}
+
 				// Ecran de demarrage (launcher) : dessine TOUT le corps quand
 				// ctx.appFullScreen est leve (remplace barre d'outils + panneaux).
 				void SetStartScreen(NkEditorAppMenuFn fn, void *user = nullptr) noexcept {
@@ -990,6 +1012,8 @@ namespace nkentseu {
 				void *mToolbarUser = nullptr;
 				NkEditorAppMenuFn mOverlayFn = nullptr;
 				void *mOverlayUser = nullptr;
+				NkEditorApresImageFn mApresImageFn = nullptr;
+				void *mApresImageUser = nullptr;
 				NkEditorAppMenuFn mStartScreenFn = nullptr;
 				void *mStartScreenUser = nullptr;
 				// ── L'IDENTITE D'UN PANNEAU DANS LA DISPOSITION (2026-09-17) ──
