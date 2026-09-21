@@ -147,13 +147,17 @@ namespace aipanneauprobe {
 		const int32 W = 695, H = 1292;
 		static nkgui::NkGuiContext ctx;
 		static bool init = false;
-		static nkgui::NkGuiFont texte, mono;
+		static nkgui::NkGuiFont texte, mono, corps;
 		if (!init) {
 			init = true;
 			(void)ctx.Init(W, H);
 			(void)texte.LoadEmbedded(NkEmbeddedFontId::Inter, 13.f);
 			(void)mono.LoadEmbedded(NkEmbeddedFontId::Cousine, 12.f, false);
 			mono.texId = texte.TexId() + 3u;
+			// LE CORPS DU PANNEAU (21/09) : Inter 15, la taille que la capture ecrit
+			// (96 caracteres par ligne la ou Inter 13 en met 110).
+			(void)corps.LoadEmbedded(NkEmbeddedFontId::Inter, 15.f);
+			corps.texId = texte.TexId() + 4u;
 			ctx.font = &texte;
 		}
 		const NkTheme theme = NkTheme::Dark();
@@ -173,10 +177,16 @@ namespace aipanneauprobe {
 		auto image = [&](const char *chemin) {
 			ctx.BeginFrame(1.f / 60.f);
 			NkGuiComponentPaint pc(ctx, theme);
-			pc.PoserPolices(nullptr, &mono);
+			pc.PoserPolices(nullptr, &mono, &corps);
 			(void)pan.Dessiner(ctx, pc, {0.f, 0.f, (float32)W, (float32)H}, false);
-			const nkgui::NkGuiFont *pol[2] = {&texte, &mono};
-			const NkAiImageResultat r = NkAiEcrireImage(ctx.dl, W, H, 0.f, 0.f, (float32)W, (float32)H, pol, 2,
+			if (!chemin) { // une image pour PUBLIER le plan, sans fichier
+				ctx.EndFrame();
+				NkAiImageResultat vide;
+				vide.ok = true;
+				return vide;
+			}
+			const nkgui::NkGuiFont *pol[3] = {&texte, &mono, &corps};
+			const NkAiImageResultat r = NkAiEcrireImage(ctx.dl, W, H, 0.f, 0.f, (float32)W, (float32)H, pol, 3,
 														theme.Get(NkRole::PanelBg), chemin);
 			ctx.EndFrame();
 			printf("         %s\n", r.message);
@@ -251,6 +261,8 @@ namespace aipanneauprobe {
 			Essai(b, "24f", vide && ok, "le fil de l'HOTE suit l'assistant choisi ; l'autre est range, intact");
 		}
 		// 24g — LE MENU A DEUX NIVEAUX, avec « Ajouter une IA… » en bas.
+		//       (21/09, Q5 : un titre de section en tete ; les modeles portent
+		//       l'Effort en pied de liste, comme 065128.)
 		{
 			pan.occupe = false;
 			pan.OuvrirMenu(NkAiMenu::Fournisseurs);
@@ -259,15 +271,192 @@ namespace aipanneauprobe {
 			pan.OuvrirMenu(NkAiMenu::Modeles, 0);
 			(void)image("Build/panneau_ia/kit_695_modeles.png");
 			const uint32 lignes2 = pan.planChrome.Compter(NkAiPiece::MenuLigne);
+			const uint32 curseurs = pan.planChrome.Compter(NkAiPiece::Curseur);
 			pan.FermerMenus();
-			Essai(b, "24g", r2.ok && lignes == 4u && lignes2 == 3u,
-				  "fournisseurs : 3 + « Ajouter une IA… » ; modeles de Claude : retour + 2");
+			Essai(b, "24g", r2.ok && lignes == 5u && lignes2 == 5u && curseurs == 1u,
+				  "fournisseurs : titre + 3 + « Ajouter une IA… » ; modeles de Claude : retour + titre + 2 + Effort");
+		}
+
+		// ── Q5 : LES PROPRIETES DU MODELE ─────────────────────────────────────
+		// Un clic est ECRIT dans l'etat d'entree de NKGui (mousePos, mouseClicked) :
+		// aucune entree n'est injectee sur la machine.
+		auto clic = [&](float32 x, float32 y) {
+			ctx.BeginFrame(1.f / 60.f);
+			ctx.input.mousePos = {x, y};
+			ctx.input.mouseClicked[0] = true;
+			NkGuiComponentPaint pc(ctx, theme);
+			pc.PoserPolices(nullptr, &mono, &corps);
+			const NkAiSorties s = pan.Dessiner(ctx, pc, {0.f, 0.f, (float32)W, (float32)H}, true);
+			ctx.input.mouseClicked[0] = false;
+			ctx.EndFrame();
+			return s;
+		};
+		auto ligneDrapeaux = [&](NkAiPiece piece) -> uint8 {
+			NkAiRectPublie q;
+			return pan.planChrome.Trouver(0u, piece, q) ? q.drapeaux : (uint8)0xFFu;
+		};
+		// 24i — LE MENU « / » : filtre, sections, Effort en curseur, Thinking en interrupteur.
+		{
+			pan.OuvrirMenu(NkAiMenu::Commandes);
+			const NkAiImageResultat r = image("Build/panneau_ia/kit_695_slash.png");
+			uint32 sections = 0;
+			for (uint32 i = 0; i < pan.planChrome.Pieces(); ++i)
+				if (pan.planChrome.Piece(i).piece == NkAiPiece::MenuLigne &&
+					(pan.planChrome.Piece(i).drapeaux & kAiSection) != 0u)
+					++sections;
+			const bool ok = r.ok && sections >= 3u && pan.planChrome.Compter(NkAiPiece::MenuFiltre) == 1u &&
+							pan.planChrome.Compter(NkAiPiece::Curseur) == 1u &&
+							pan.planChrome.Compter(NkAiPiece::Interrupteur) == 1u;
+			printf("         « / » : %u section(s), %u ligne(s)\n", (unsigned)sections,
+				   (unsigned)pan.planChrome.Compter(NkAiPiece::MenuLigne));
+			Essai(b, "24i", ok, "« / » : filtre, sections titrees, Effort (curseur), Thinking (interrupteur)");
+		}
+		// 24j — LE FILTRE garde une section tant qu'une de ses lignes passe.
+		{
+			pan.PoserFiltre("think");
+			(void)image("Build/panneau_ia/kit_695_slash_filtre.png");
+			const uint32 n = pan.planChrome.Compter(NkAiPiece::MenuLigne);
+			pan.PoserFiltre("");
+			Essai(b, "24j", n == 2u, "filtre « think » : la section Modele et la seule ligne Thinking (2 lignes)");
+		}
+		// 24k — UNE PROPRIETE SANS OBJET EST GRISEE AVEC SON MOTIF, JAMAIS CACHEE,
+		//       et son clic ne change rien.
+		{
+			pan.fournisseurs[0].modeles[0].motifPensee = NkString("ce modele n'annonce pas « thinking »");
+			(void)image("Build/panneau_ia/kit_695_slash_grise.png");
+			const uint8 d = ligneDrapeaux(NkAiPiece::Interrupteur);
+			NkAiRectPublie q;
+			bool change = true;
+			if (pan.planChrome.Trouver(0u, NkAiPiece::Interrupteur, q)) {
+				const bool avant = pan.penser;
+				const NkAiSorties s = clic(q.x + q.w * 0.5f, q.y + q.h * 0.5f);
+				change = s.penserChange || pan.penser != avant;
+			}
+			bool motif = false;
+			for (uint32 i = 0; i < pan.planChrome.Pieces(); ++i)
+				if (pan.planChrome.Piece(i).source == NkAiSource::MenuDetail && pan.planChrome.Piece(i).w > 10.f)
+					motif = true;
+			pan.fournisseurs[0].modeles[0].motifPensee = NkString();
+			Essai(b, "24k", d != 0xFFu && (d & kAiEteint) != 0u && !change && motif,
+				  "Thinking sans objet : present, GRISE, motif ecrit, et le clic ne change rien");
+		}
+		// 24l — LES REGLAGES SE FONT A LA SOURIS ET LE DISENT : l'interrupteur
+		//       bascule, le curseur prend le cran sous la souris.
+		{
+			(void)image("Build/panneau_ia/kit_695_slash.png");
+			NkAiRectPublie q;
+			bool bascule = false, crans = false;
+			if (pan.planChrome.Trouver(0u, NkAiPiece::Interrupteur, q)) {
+				const bool avant = pan.penser;
+				const NkAiSorties s = clic(q.x + q.w * 0.5f, q.y + q.h * 0.5f);
+				bascule = s.penserChange && pan.penser != avant;
+			}
+			(void)image(nullptr);
+			if (pan.planChrome.Trouver(0u, NkAiPiece::Curseur, q)) {
+				const NkAiSorties s0 = clic(q.x + 1.f, q.y + q.h * 0.5f);
+				const int32 e0 = pan.effort;
+				(void)image(nullptr);
+				const NkAiSorties s1 = clic(q.x + q.w - 1.f, q.y + q.h * 0.5f);
+				crans = s0.effortChange && e0 == 0 && s1.effortChange && pan.effort == 3 &&
+						pan.MenuOuvert() == NkAiMenu::Commandes;
+			}
+			pan.penser = true;
+			Essai(b, "24l", bascule && crans,
+				  "Thinking bascule ; Effort : bord gauche = cran 0, bord droit = cran 3 ; le menu reste ouvert");
+			pan.FermerMenus();
+		}
+		// 24m — LE MENU « + » (065237) : ce que l'hote sait joindre, une entree grisee avec son motif.
+		{
+			NkAiEntreeDesc e1;
+			e1.nom = NkString("Envoyer depuis l'ordinateur");
+			e1.detail = NkString("un fichier joint a la demande");
+			e1.id = 7;
+			NkAiEntreeDesc e2;
+			e2.nom = NkString("Une image pour l'objet 3D");
+			e2.motif = NkString("la voie image -> 3D vit dans le modeleur");
+			e2.id = 8;
+			pan.entreesPlus.PushBack(e1);
+			pan.entreesPlus.PushBack(e2);
+			(void)image(nullptr);
+			NkAiRectPublie q;
+			bool ouvert = false, choisi = false;
+			if (pan.planChrome.Trouver(0u, NkAiPiece::BoutonPlus, q)) {
+				(void)clic(q.x + q.w * 0.5f, q.y + q.h * 0.5f);
+				ouvert = pan.MenuOuvert() == NkAiMenu::Plus;
+			}
+			(void)image("Build/panneau_ia/kit_695_plus.png");
+			const uint32 n = pan.planChrome.Compter(NkAiPiece::MenuLigne);
+			for (uint32 i = 0; i < pan.planChrome.Pieces(); ++i) {
+				const NkAiRectPublie &l = pan.planChrome.Piece(i);
+				if (l.piece == NkAiPiece::MenuLigne && l.debut == 0u) {
+					const NkAiSorties s = clic(l.x + 20.f, l.y + l.h * 0.5f);
+					choisi = s.entreePlus == 7;
+					break;
+				}
+			}
+			Essai(b, "24m", ouvert && n == 2u && choisi, "« + » : 2 entrees ; la premiere rend son id a l'hote");
+		}
+		// 24n — LES MODES (065246) : nom + description, coche, Effort en pied.
+		{
+			pan.modes.Clear();
+			const char *nm[4][2] = {{"Manuel", "demande avant chaque action"},
+									{"Edition automatique", "applique les modifications sans demander"},
+									{"Plan", "montre le plan en parties avant d'agir"},
+									{"Auto", "enchaine jusqu'au resultat"}};
+			for (int32 i = 0; i < 4; ++i) {
+				NkAiModeDesc md;
+				md.nom = NkString(nm[i][0]);
+				md.detail = NkString(nm[i][1]);
+				pan.modes.PushBack(md);
+			}
+			pan.mode = 2;
+			pan.OuvrirMenu(NkAiMenu::Modes);
+			const NkAiImageResultat r = image("Build/panneau_ia/kit_695_modes.png");
+			const uint32 n = pan.planChrome.Compter(NkAiPiece::MenuLigne);
+			const uint8 d = ligneDrapeaux(NkAiPiece::PastilleMode);
+			pan.FermerMenus();
+			Essai(b, "24n", r.ok && n == 6u && d != 0xFFu, "modes : titre + 4 + Effort, la pastille du mode dans la barre");
+		}
+		// 24o — LES FENETRES (065228, 065201) : Utilisation et Carte des agents.
+		{
+			pan.utilisation.Vider();
+			pan.utilisation.Section("Modele local");
+			pan.utilisation.Valeur("Modele", "qwen2.5:7b-instruct");
+			pan.utilisation.Valeur("Charge en memoire", "oui, 4.7 Go en memoire video");
+			pan.utilisation.Barre("Memoire video", "4.7 / 8.0 Go", 0.59f);
+			pan.utilisation.Section("Dernier tour");
+			pan.utilisation.Valeur("Jetons generes", "212");
+			pan.utilisation.Valeur("Vitesse", "38.4 jetons/s");
+			pan.utilisation.Valeur("Duree", "5.5 s");
+			pan.utilisation.Note("Rien n'a quitte cette machine.");
+			pan.OuvrirFenetre(1);
+			const NkAiImageResultat r = image("Build/panneau_ia/kit_695_utilisation.png");
+			const bool pieces =
+				pan.planChrome.Compter(NkAiPiece::Fenetre) == 1u && pan.planChrome.Compter(NkAiPiece::Barre) == 1u;
+			NkAiRectPublie q;
+			bool ferme = false;
+			if (pan.planChrome.Trouver(0u, NkAiPiece::FenetreFermer, q)) {
+				const NkAiSorties s = clic(q.x + q.w * 0.5f, q.y + q.h * 0.5f);
+				ferme = s.fenetreFermee && pan.FenetreOuverte() == 0u;
+			}
+			pan.carte.Vider();
+			pan.carte.Section("Tour en cours : « une chaise »");
+			pan.carte.Valeur("1. Planifier en parties", "fait · 1.2 s");
+			pan.carte.Valeur("2. Assise", "fait · 3 verbes");
+			pan.carte.Valeur("3. Pieds", "en cours");
+			pan.carte.Valeur("4. Dossier", "a venir");
+			pan.carte.Barre("Progression", "2 / 4", 0.5f, NkRole::StatusOk);
+			pan.OuvrirFenetre(2);
+			const NkAiImageResultat r2 = image("Build/panneau_ia/kit_695_carte.png");
+			pan.OuvrirFenetre(0);
+			Essai(b, "24o", r.ok && r2.ok && pieces && ferme,
+				  "Utilisation (barre de memoire) et Carte des agents : peintes, et la croix les ferme");
 		}
 		// 24h — LE PANNEAU ETROIT DU MODELEUR (276 px) : rien ne sort.
 		{
 			ctx.BeginFrame(1.f / 60.f);
 			NkGuiComponentPaint pc(ctx, theme);
-			pc.PoserPolices(nullptr, &mono);
+			pc.PoserPolices(nullptr, &mono, &corps);
 			(void)pan.Dessiner(ctx, pc, {0.f, 0.f, 276.f, (float32)H}, false);
 			bool dedans = true;
 			for (uint32 i = 0; i < pan.planChrome.Pieces(); ++i) {
@@ -275,9 +464,9 @@ namespace aipanneauprobe {
 				if (q.piece != NkAiPiece::Filet && (q.x < 0.f || q.x + q.w > 276.5f))
 					dedans = false;
 			}
-			const nkgui::NkGuiFont *pol[2] = {&texte, &mono};
+			const nkgui::NkGuiFont *pol[3] = {&texte, &mono, &corps};
 			const NkAiImageResultat r3 =
-				NkAiEcrireImage(ctx.dl, W, H, 0.f, 0.f, 276.f, (float32)H, pol, 2, theme.Get(NkRole::PanelBg),
+				NkAiEcrireImage(ctx.dl, W, H, 0.f, 0.f, 276.f, (float32)H, pol, 3, theme.Get(NkRole::PanelBg),
 								"Build/panneau_ia/kit_276.png");
 			ctx.EndFrame();
 			printf("         %s\n", r3.message);
