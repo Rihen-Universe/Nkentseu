@@ -67,6 +67,7 @@
 #include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
 #include "NK3DModeler/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
 #include "NK3DModeler/Shell/NkModelerIA.h"      // le panneau APPELLE : NKConverse, asynchrone
+#include "NK3DModeler/Shell/NkModelerCreation.h" // (crea) une phrase -> un objet en parties nommees
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -720,7 +721,8 @@ int nkmain(const NkEntryState &entry) {
 			continue;
 		const NkString out = (a + 1u < entry.args.Size()) ? entry.args[a + 1u]
 														  : NkString("CONTRAT_OUTILS.md");
-		const bool ok = nk3d::NkEcrireContrat(out.CStr(), &NkVpCmdDuVerbe);
+		const bool ok = nk3d::NkEcrireContrat(out.CStr(), &NkVpCmdDuVerbe) &&
+						nk3d::NkCreaAjouterAuContrat(out.CStr()); // (crea) la moitie qui creait
 		std::printf("[nk3d] contrat d'outils : %s -> %s\n", ok ? "ecrit" : "ECHEC", out.CStr());
 		std::fflush(stdout);
 		return ok ? 0 : 1;
@@ -3771,6 +3773,16 @@ int nkmain(const NkEntryState &entry) {
 						}
 					}
 					nk3d::NkAiCopie(st.aiPending, sizeof(st.aiPending), verbe);
+				} else if (lisible && std::strcmp(verbe, "aucune") == 0) {
+					// ── (crea) « AUCUNE » N'EST PLUS UN CUL-DE-SAC (21/09) ──────────
+					// C'est ici que Rodolf lisait « "aucune" n'est pas un verbe du
+					// contrat ». Le modele avait raison : aucun verbe d'EDITION ne
+					// fait une chaise. La demande part donc a la voie de CREATION
+					// (NkModelerCreation.h), et le fil dit quelle voie a servi.
+					std::printf("[nk3d] IA : aucun verbe d'edition ne convient a « %s » -> voie de creation\n",
+								sIaPhrase);
+					std::fflush(stdout);
+					(void)nk3d::NkCreaLancer(st, sIaPhrase, st.aiOnglet, sIa.DorsalDe(st.aiOnglet));
 				} else {
 					// ⚠️ LE REFUS S'AFFICHE, AVEC SON MOTIF, ET LES TROIS CAS NE SE
 					//    CONFONDENT PAS : le dorsal n'a pas repondu, il a repondu
@@ -3820,7 +3832,16 @@ int nkmain(const NkEntryState &entry) {
 			// ⚠️ ON N'INTERROGE PAS LE MODELE POUR RIEN. « subdivide:2 » est deja
 			//    un verbe : le faire traduire couterait une seconde et pourrait le
 			//    DEGRADER. Le test est celui du pont, pas un second.
-			if (!nk3d::NkVerbeTrouve(dem)) {
+			// (crea) DEUX ENTREES DE PLUS, AVANT LES VERBES : un DOCUMENT tape se pose
+			// sans modele ; une intention de CREER (« modelise », « construis »...)
+			// va droit a la voie de creation, sans passer par le contrat d'edition.
+			if (nk3d::NkCreaEstDocument(dem)) {
+				static nk3d::NkCreaDoc sDocTape;
+				nk3d::NkCreaLire(dem, sDocTape);
+				(void)nk3d::NkCreaPoserEtDire(st, sDocTape, dem, dem);
+			} else if (nk3d::NkCreaIntention(dem)) {
+				(void)nk3d::NkCreaLancer(st, dem, st.aiOnglet, sIa.DorsalDe(st.aiOnglet));
+			} else if (!nk3d::NkVerbeTrouve(dem)) {
 				nk3d::NkAiCopie(sIaPhrase, sizeof(sIaPhrase), dem);
 				char motif[192];
 				motif[0] = 0;
@@ -3908,6 +3929,12 @@ int nkmain(const NkEntryState &entry) {
 			std::fflush(stdout);
 			}
 		}
+		// (crea) LA VOIE DE CREATION, UNE FOIS PAR IMAGE : recolte du plan, boucle
+		// de correction, vues rendues, et les crochets de mesure NK_CREA_*.
+		// « annuler » y entre par la MEME porte que Ctrl+Z et le bouton.
+		nk3d::NkCreaTick(
+			st, st.aiOnglet, sIa.DorsalDe(st.aiOnglet),
+			[](NkModelerState &s) { NkVpPoserAction(s, "undo", "NK_CREA_ANNULE"); }, agentFrame);
 		// ═════════════════════════════════════════════════════════════════════
 		//  LA BOUCLE — UN TOUR PAR IMAGE, ET LE MODELE N'Y EST PAS
 		// ═════════════════════════════════════════════════════════════════════
@@ -4343,9 +4370,16 @@ int nkmain(const NkEntryState &entry) {
 					// modale possede le clavier et Ctrl+Z n'y annule rien.
 					if (edit && demo::Demo3DHostEditUndo()) // refus pendant une modale : la PORTE
 						NkMarkDirty(st);
+					// (crea) EN MODE OBJET, LA PILE PARLE ENFIN : elle retire le dernier
+					// LOT cree par l'IA (toutes ses parties d'un geste). Hors de ce cas
+					// elle reste muette, comme avant -- elle ne pretend rien annuler.
+					else if (!edit && nk3d::NkCreaAnnuler(st))
+						NkMarkDirty(st);
 					break;
 				case NkVpAction::Redo:
 					if (edit && demo::Demo3DHostEditRedo()) // refus pendant une modale : la PORTE
+						NkMarkDirty(st);
+					else if (!edit && nk3d::NkCreaRefaire(st))
 						NkMarkDirty(st);
 					break;
 				// ── Vues ────────────────────────────────────────────────────
