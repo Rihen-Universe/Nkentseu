@@ -54,6 +54,7 @@
 #include "NK3DModeler/Shell/NkModelerScreens.h" // NkMarkDirty
 #include "NK3DModeler/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NK3DModeler/Viewport/NkCreaFamilles.h" // (Q8) les constructeurs par famille
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -134,6 +135,12 @@ namespace nkentseu {
 			return kS;
 		}
 
+		/// `NK_CREA_SANS_FAMILLES=1` : la MUTATION du Q8 (l'« avant »).
+		inline bool NkCreaSansFamilles() {
+			const char *v = std::getenv("NK_CREA_SANS_FAMILLES");
+			return v && v[0] && v[0] != '0';
+		}
+
 		/// LES MATIERES. ⚠️ CE NE SONT PAS LES PREREGLAGES DE NKRENDERER, et il faut
 		/// le dire : `Materials/` porte 30 prereglages de MATCAP (un eclairage
 		/// d'apercu, pas un materiau physique), et `NkVpMatTypeDefaults.h` a etabli
@@ -183,6 +190,9 @@ namespace nkentseu {
 				{"vert", {0.20f, 0.55f, 0.25f}, 0.50f, 0.f},
 				{"jaune", {0.90f, 0.78f, 0.20f}, 0.50f, 0.f},
 				{"orange", {0.97f, 0.60f, 0.16f}, 0.50f, 0.f},
+				// (Q8) la laque des portes et pavillons chinois
+				{"laque_rouge", {0.62f, 0.08f, 0.06f}, 0.25f, 0.f},
+				{"laque_noire", {0.04f, 0.04f, 0.04f}, 0.20f, 0.f},
 			};
 			n = (int32)(sizeof(kM) / sizeof(kM[0]));
 			return kM;
@@ -223,6 +233,7 @@ namespace nkentseu {
 				bool tailleDonnee = false;
 				// ── COHERENCE D'ECHELLE (Q7) ──
 				bool exclue = false; ///< refusee avant la pose ; le motif est dans d.refus
+				bool detailRevolution = false; ///< (Q8) bord arrondi et fond epais
 		};
 
 		struct NkCreaDoc {
@@ -232,6 +243,10 @@ namespace nkentseu {
 				char refus[kCreaMaxRefus][176] = {};
 				int32 nRefus = 0;
 				bool impossible = false;
+				/// (Q8) UNE FAMILLE CONSTRUITE PAR NOTRE CODE : le modele n'a ecrit que
+				/// `famille <nom> <parametres>`. Vide = assemblage libre.
+				NkFamParams famille;
+				bool aFamille = false;
 		};
 
 		inline void NkCreaRefuser(NkCreaDoc &d, const char *fmt, const char *a, const char *b = "") {
@@ -420,6 +435,78 @@ namespace nkentseu {
 				}
 				if (strcmp(mot, "demande") == 0 || strcmp(mot, "lissage") == 0 || strcmp(mot, "assemblage") == 0)
 					continue; // metadonnees du format : sans effet ici, avalees EXPLICITEMENT
+				if (strcmp(mot, "famille") == 0 && !NkCreaSansFamilles()) {
+					// ── (Q8) LA FAMILLE : un nom et quelques parametres, rien d'autre ──
+					char nf[32] = {0}, cle[32], val[40];
+					NkCreaMot(q, nf, sizeof(nf));
+					for (char *m = nf; *m; ++m)
+						if (*m >= 'A' && *m <= 'Z')
+							*m = (char)(*m - 'A' + 'a');
+					NkFamParams fp;
+					snprintf(fp.famille, sizeof(fp.famille), "%s", nf);
+					bool detaille = true;
+					char silh[32] = {0};
+					float32 paroi = 0.f;
+					while (NkCreaMot(q, cle, sizeof(cle))) {
+						if (!NkCreaMot(q, val, sizeof(val)))
+							break;
+						float32 x = 0.f;
+						const bool num = NkCreaNombre(val, x);
+						if (strcmp(cle, "largeur") == 0 && num)
+							fp.largeur = x;
+						else if (strcmp(cle, "hauteur") == 0 && num)
+							fp.hauteur = x;
+						else if (strcmp(cle, "profondeur") == 0 && num)
+							fp.profondeur = x;
+						else if ((strcmp(cle, "battants") == 0 || strcmp(cle, "etages") == 0 || strcmp(cle, "nombre") == 0) && num)
+							fp.nombre = (int32)(x + 0.5f);
+						else if (strcmp(cle, "fenetres") == 0 && num)
+							fp.fenetres = (int32)(x + 0.5f);
+						else if (strcmp(cle, "style") == 0 || strcmp(cle, "toit") == 0)
+							snprintf(fp.style, sizeof(fp.style), "%s", val);
+						else if (strcmp(cle, "detail") == 0)
+							detaille = strcmp(val, "simple") != 0;
+						else if (strcmp(cle, "silhouette") == 0)
+							snprintf(silh, sizeof(silh), "%s", val);
+						else if (strcmp(cle, "paroi") == 0 && num)
+							paroi = x;
+						else if (strcmp(cle, "matiere") == 0)
+							; // la famille choisit ses matieres
+						else
+							NkCreaRefuser(d, "famille « %s » : parametre inconnu « %s », ignore", nf, cle);
+					}
+					if (const char *dv = std::getenv("NK_CREA_DETAIL"))
+						detaille = strcmp(dv, "simple") != 0; // la mesure « simple contre detaille »
+					fp.detaille = detaille;
+					if (strcmp(nf, "revolution") == 0 || strcmp(nf, "objet_de_revolution") == 0) {
+						// LA REVOLUTION reste une PARTIE : elle a deja son chemin (profil,
+						// silhouette, paroi) ; la famille ne fait que la declarer.
+						static char ligne[256];
+						snprintf(ligne, sizeof(ligne),
+								 "partie objet forme revolution silhouette %s largeur %g hauteur %g%s%g matiere %s",
+								 silh[0] ? silh : "evase", (double)(fp.largeur > 0.f ? fp.largeur : 0.08f),
+								 (double)(fp.hauteur > 0.f ? fp.hauteur : 0.12f), paroi > 0.f ? " paroi " : " paroi ",
+								 (double)(paroi > 0.f ? paroi : 0.f), "verre");
+						NkCreaDoc sous;
+						NkCreaLire(ligne, sous);
+						if (sous.n == 1 && d.n < kCreaMaxParties) {
+							d.p[d.n] = sous.p[0];
+							d.p[d.n].detailRevolution = detaille;
+							NkCreaCopieNom(d.p[d.n].nom, 24, d.scene[0] ? d.scene : "objet");
+							++d.n;
+						} else
+							for (int32 k = 0; k < sous.nRefus; ++k)
+								NkCreaRefuser(d, "famille revolution : %s%s", sous.refus[k]);
+						continue;
+					}
+					if (!NkFamConnue(nf)) {
+						NkCreaRefuser(d, "famille inconnue « %s » (porte, table, maison, revolution) : ecris des parties%s", nf);
+						continue;
+					}
+					d.famille = fp;
+					d.aFamille = true;
+					continue;
+				}
 				if (strcmp(mot, "partie") != 0)
 					continue; // une phrase du modele : ni une partie, ni une erreur de partie
 				char nom[64];
@@ -693,6 +780,25 @@ namespace nkentseu {
 			};
 			ajout("Tu construis un objet 3D en PARTIES NOMMEES, avec des formes simples. Tu n'ecris QUE\n");
 			ajout("les lignes du document, rien d'autre : pas d'explication, pas de texte avant ou apres.\n\n");
+			if (!NkCreaSansFamilles()) {
+				// (Q8) LES FAMILLES D'ABORD : pour elles, notre code construit ; le
+				// modele ne donne que des parametres. C'est la reponse a la porte en 22
+				// planches et a la villa en 21 boites.
+				ajout("FAMILLES. Si l'objet est l'une de ces familles, ecris seulement DEUX lignes :\n");
+				ajout("scene <nom_de_l_objet>\n");
+				ajout("famille <famille> <parametres>\n");
+				ajout("et rien d'autre : l'outil construit l'objet complet, avec ses details.\n");
+				ajout("- famille porte style simple|chinois largeur <m> hauteur <m> battants 1|2 detail simple|detaille\n");
+				ajout("  (porte, portail, porte d'entree, porte chinoise ou pagode)\n");
+				ajout("- famille table largeur <m> profondeur <m> hauteur <m> detail simple|detaille\n");
+				ajout("- famille maison style deux_pans|plat largeur <m> profondeur <m> etages <n> fenetres <n> detail simple|detaille\n");
+				ajout("  (maison, villa, pavillon ; fenetres = par facade et par etage)\n");
+				ajout("- famille revolution silhouette <forme> largeur <m> hauteur <m> paroi <m> detail simple|detaille\n");
+				ajout("  (verre, vase, bol, bouteille, tasse ; silhouettes plus bas)\n");
+				ajout("Exemple, pour « un grand portail de jardin » :\n");
+				ajout("scene portail\nfamille porte style simple largeur 3.0 hauteur 2.0 battants 2 detail detaille\n\n");
+				ajout("SINON, pour tout autre objet, decris-le en parties, comme suit.\n\n");
+			}
 			ajout("Premiere ligne : scene <nom_de_l_objet>\n");
 			ajout("Puis UNE ligne par partie :\n");
 			ajout("partie <nom> forme <forme> largeur <x> hauteur <y> profondeur <z> [placement] [rotation <rx> <ry> <rz>] [matiere <matiere>]\n\n");
@@ -937,6 +1043,9 @@ namespace nkentseu {
 				int32 ongletAttente = 0;
 				converse::NkIConverseBackend *dorsalAttente = nullptr;
 				bool tripoApresPose = false;
+				// ── (Q8) CE QUI EST REELLEMENT APPELE, dit dans le fil ──
+				char qui[200] = {0};
+				char modeleAppele[64] = {0};
 				// ── les vues (rendu par l'application) ──
 				int32 vuesEtape = -1;
 				int32 vuesAttente = 0;
@@ -1072,10 +1181,119 @@ namespace nkentseu {
 			}
 		}
 
+		/// Le materiau du projet portant ce nom de matiere, cree au besoin (table des
+		/// matieres), et range dans le lot pour l'annulation.
+		inline int32 NkCreaMatiereNommee(const char *nom, NkCreaLot &lot) {
+			const int32 idx = NkCreaMatiereDuNom(nom);
+			if (idx < 0)
+				return -1;
+			int32 nm = 0;
+			const NkCreaMatiere *M = NkCreaMatieres(nm);
+			int32 slot = NkCreaMatDuProjet(nom);
+			if (slot < 0) {
+				slot = demo::Demo3DHostProjMatCreate();
+				if (slot >= 0) {
+					demo::Demo3DHostProjMatSetName(slot, nom);
+					demo::Demo3DHostProjMatSetParams(slot, M[idx].albedo, M[idx].rugosite, M[idx].metal);
+					if (lot.nMats < 16)
+						lot.mats[lot.nMats++] = slot;
+				}
+			}
+			return slot;
+		}
+
+		/// (Q8) POSE UNE FAMILLE : notre code construit (NkFamConstruire), la creation
+		/// fait le reste comme pour un assemblage -- groupe nomme, curseur 3D, lot
+		/// annulable d'un geste, matieres, mesure, vues.
+		inline int32 NkCreaPoserFamille(NkModelerState &st, const NkCreaDoc &d, const char *docTexte,
+										const char *demande, NkCreaBilan &b) {
+			NkCreaEtat &E = NkCrea();
+			b = NkCreaBilan();
+			NkCreaLot lot;
+			lot.objetsAvant = NkCreaCompterObjets();
+			char nomScene[24];
+			NkCreaCopieNom(nomScene, sizeof(nomScene), d.scene[0] ? d.scene : d.famille.famille);
+			NkCreaCopieNom(lot.scene, sizeof(lot.scene), nomScene);
+			NkCreaCopieNom(lot.demande, sizeof(lot.demande), demande ? demande : "");
+			snprintf(lot.doc, sizeof(lot.doc), "%s", docTexte ? docTexte : "");
+			const int32 g = demo::Demo3DHostAddNode(4, 0);
+			if (g < 0) {
+				snprintf(b.motif, sizeof(b.motif), "Plus d'emplacement libre dans la scene : rien n'est pose.");
+				return -1;
+			}
+			float32 cible[3] = {0.f, 0.f, 0.f};
+			{
+				float32 cr[3], cs[3];
+				demo::Demo3DHostEmptyTransform(g, cible, cr, cs);
+			}
+			cible[1] = 0.f;
+			snprintf(st.customNames[g], 24, "%s", lot.scene);
+			lot.groupe = g;
+			lot.noeuds[lot.nNoeuds] = g;
+			NkCreaCopieNom(lot.noms[lot.nNoeuds], 24, lot.scene);
+			++lot.nNoeuds;
+			static NkFamPiece pieces[kCreaMaxParties];
+			char pourquoi[200] = {0};
+			const int32 np = NkFamConstruire(d.famille, pieces, kCreaMaxParties, pourquoi, sizeof(pourquoi));
+			if (np <= 0) {
+				demo::Demo3DHostDeleteNode(g, false);
+				st.customNames[g][0] = 0;
+				snprintf(b.motif, sizeof(b.motif), "Famille « %s » : %s", d.famille.famille, pourquoi);
+				return -1;
+			}
+			uint32 faces = 0;
+			for (int32 i = 0; i < np; ++i) {
+				const int32 n = pieces[i].noeud;
+				float32 pp[3], rr[3], ss[3];
+				demo::Demo3DHostEmptyTransform(n, pp, rr, ss);
+				const float32 p2[3] = {pp[0] + cible[0], pp[1], pp[2] + cible[2]};
+				demo::Demo3DHostSetEmptyTransform(n, p2, rr, ss);
+				snprintf(st.customNames[n], 24, "%s", pieces[i].nom);
+				if (lot.nNoeuds < kCreaMaxParties + 1) {
+					lot.noeuds[lot.nNoeuds] = n;
+					NkCreaCopieNom(lot.noms[lot.nNoeuds], 24, pieces[i].nom);
+					++lot.nNoeuds;
+				}
+				const int32 slot = NkCreaMatiereNommee(pieces[i].matiere, lot);
+				if (slot >= 0)
+					demo::Demo3DHostProjMatAssign(n, slot);
+				faces += pieces[i].faces;
+			}
+			const float32 gp[3] = {cible[0], 0.f, cible[2]}, r0[3] = {0.f, 0.f, 0.f}, s1[3] = {1.f, 1.f, 1.f};
+			demo::Demo3DHostSetEmptyTransform(g, gp, r0, s1);
+			for (int32 i = 0; i < np; ++i)
+				demo::Demo3DHostSetNodeParent(pieces[i].noeud, g);
+			demo::Demo3DHostHierarchyResync();
+			demo::Demo3DHostSelectEmptyNode(g);
+			NkMarkDirty(st);
+			if (E.nLots == kCreaMaxLots) {
+				for (int32 i = 1; i < kCreaMaxLots; ++i)
+					E.lots[i - 1] = E.lots[i];
+				--E.nLots;
+			}
+			E.lots[E.nLots++] = lot;
+			E.aRefaire = false;
+			const int32 numero = ++E.compteurLots;
+			E.dernierLot = numero;
+			NkCreaMesurer(lot, numero, d.nRefus, b);
+			if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
+				fprintf(f, "FAMILLE %d %s style=%s detail=%s pieces=%d faces=%u\n", numero, d.famille.famille,
+						d.famille.style, d.famille.detaille ? "detaille" : "simple", (int)np, (unsigned)faces);
+				fclose(f);
+			}
+			std::printf("[crea] FAMILLE %s (style %s, %s) : %d pieces, %u faces\n", d.famille.famille,
+						d.famille.style[0] ? d.famille.style : "-", d.famille.detaille ? "detaille" : "simple", (int)np,
+						(unsigned)faces);
+			std::fflush(stdout);
+			return numero;
+		}
+
 		/// POSE LE DOCUMENT. Rend le numero du lot, ou -1 (et `b.motif` dit pourquoi).
 		inline int32 NkCreaPoser(NkModelerState &st, const NkCreaDoc &d, const char *docTexte, const char *demande,
 								 NkCreaBilan &b) {
 			NkCreaEtat &E = NkCrea();
+			if (d.aFamille)
+				return NkCreaPoserFamille(st, d, docTexte, demande, b); // (Q8) notre code construit
 			b = NkCreaBilan();
 			if (d.n == 0) {
 				snprintf(b.motif, sizeof(b.motif), "Aucune partie valide : rien n'est pose.");
@@ -1143,13 +1361,25 @@ namespace nkentseu {
 					for (int32 k = 0; k < nc; ++k)
 						pt(pc.profil[2 * k], pc.profil[2 * k + 1]);
 					if (pc.paroi > 1e-5f) {
+						// (Q8) DETAILLE : le BORD est arrondi (un demi-cercle de diametre
+						// la paroi, par-dessus -- le chanfrein arrondi d'un vrai verre), et
+						// le FOND est trois fois plus epais que la paroi.
+						const float32 fond = pc.detailRevolution ? 3.f * pc.paroi : pc.paroi;
+						if (pc.detailRevolution && nc >= 1) {
+							const float32 rt = pc.profil[2 * (nc - 1)], ht = pc.profil[2 * (nc - 1) + 1];
+							const float32 rc = rt - pc.paroi * 0.5f, ra = pc.paroi * 0.5f;
+							for (int32 k = 1; k < 6; ++k) {
+								const float32 a = 3.14159265f * (float32)k / 6.f;
+								pt(rc + ra * cosf(a), ht + ra * sinf(a));
+							}
+						}
 						for (int32 k = nc - 1; k >= 0; --k) {
 							const float32 h = pc.profil[2 * k + 1];
-							if (h < h0 + pc.paroi)
+							if (h < h0 + fond)
 								break;
 							pt(pc.profil[2 * k] - pc.paroi, h);
 						}
-						pt(0.f, h0 + pc.paroi);
+						pt(0.f, h0 + fond);
 					} else if (pc.profil[2 * (nc - 1)] > 1e-4f)
 						pt(0.f, pc.profil[2 * (nc - 1) + 1]);
 					const float32 zero3[3] = {0.f, 0.f, 0.f};
@@ -1661,6 +1891,37 @@ namespace nkentseu {
 			NkCreaCopieNom(E.demande, sizeof(E.demande), demande);
 			E.tour = 0;
 			E.docPrecedent[0] = 0;
+			// ── (Q8) LA CREATION SUIT LE FOURNISSEUR, LE MODELE ET L'EFFORT DU CHAT ──
+			// Capture 173536 : la puce disait « opus Max », le fil « Je demande au
+			// modele LOCAL ». Deux defauts : (1) cote local, le gabarit de creation
+			// portait SON modele en 4e argument (qwen2.5-coder:7b), qui PRIME sur celui
+			// du chat -- le choix de la puce etait ignore ; (2) la note du fil etait un
+			// texte fixe, qui disait « local » meme quand l'onglet etait Claude.
+			// Desormais : le modele local est celui de la puce (`st.aiLocalModele`) ;
+			// Claude recoit le modele et l'Effort de la puce (poses par main.cpp sur
+			// le dorsal) ; et le fil nomme ce qui est REELLEMENT appele.
+			if (onglet == 0) {
+				const char *py = std::getenv("NK_IA_PYTHON");
+				const char *forceCrea = std::getenv("NK_IA_CREA_MODELE");
+				const char *mod = (forceCrea && *forceCrea) ? forceCrea
+								  : (st.aiLocalModele[0] ? st.aiLocalModele : "qwen2.5-coder:7b");
+				snprintf(E.modeleAppele, sizeof(E.modeleAppele), "%s", mod);
+				if (!std::getenv("NK_IA_CREA_CMD")) {
+					char buf[512];
+					snprintf(buf, sizeof(buf), "%s \"Tools/Genia/ia_verbe.py\" \"{invite}\" \"{sortie}\" 1200 \"%s\"",
+							 (py && *py) ? py : "python", mod);
+					E.dorsal.gabarit = NkString(buf);
+				}
+				snprintf(E.qui, sizeof(E.qui), "au modele local %s (rien ne quitte cette machine)", mod);
+			} else if (onglet == 1) {
+				// LU SUR LE DORSAL QUI PARTIRA, pas sur l'etat du panneau : c'est ce que
+				// le CLI recevra (`--model`, `--effort`), donc ce que le fil doit dire.
+				const converse::NkConverseBackendClaude *cl = static_cast<const converse::NkConverseBackendClaude *>(dorsal);
+				snprintf(E.modeleAppele, sizeof(E.modeleAppele), "%s", cl->modele.Data() ? cl->modele.Data() : "?");
+				snprintf(E.qui, sizeof(E.qui), "a Claude, modele %s, effort %s (l'invite QUITTE cette machine)",
+						 E.modeleAppele, cl->effort.Length() ? cl->effort.Data() : "(defaut du CLI)");
+			} else
+				snprintf(E.qui, sizeof(E.qui), "au dorsal %s", dorsal->Name());
 			if (NkCreaVoieImage()) {
 				// VOIE (c) : pas d'assemblage. Texte -> image -> TripoSR, hors du fil.
 				if (NkGeniaLancer(st, true, demande, "c"))
@@ -1730,10 +1991,12 @@ namespace nkentseu {
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
 				return false;
 			}
-			(void)NkAiPousser(st, NkModelerState::AiType::Note,
-							  "Voie : assemblage de parties nommees. Je demande au modele local un plan "
-							  "(quelles parties, quelle forme, qui repose sur qui)...");
-			std::printf("[crea] ENVOI : « %s » (dorsal %s)\n", demande, dorsal->Name());
+			{
+				char m[300];
+				snprintf(m, sizeof(m), "Je demande %s une famille ou un plan en parties nommees...", E.qui);
+				(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+			}
+			std::printf("[crea] ENVOI : « %s » -> %s\n", demande, E.qui);
 			std::fflush(stdout);
 			return true;
 		}
@@ -1920,7 +2183,7 @@ namespace nkentseu {
 			}
 			static NkCreaDoc d;
 			NkCreaLire(brut, d);
-			if (d.impossible && d.n == 0) {
+			if (d.impossible && d.n == 0 && !d.aFamille) {
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus,
 								  "Le modele juge la demande trop vague pour un objet precis : rien n'est cree. "
 								  "Nommez l'objet (« une chaise », « un arbre »).");
@@ -1984,7 +2247,7 @@ namespace nkentseu {
 					pm[k] = motifs[k];
 				nMot = nm2;
 			}
-			if (d.n == 0 && nMot == 0) {
+			if (d.n == 0 && !d.aFamille && nMot == 0) {
 				snprintf(motifs[0], sizeof(motifs[0]), "aucune ligne « partie » dans la reponse");
 				pm[0] = motifs[0];
 				nMot = 1;
@@ -2009,7 +2272,7 @@ namespace nkentseu {
 					return false;
 				}
 			}
-			if (d.n == 0) {
+			if (d.n == 0 && !d.aFamille) {
 				char m[192];
 				snprintf(m, sizeof(m), "Aucune partie lisible dans la reponse du modele : rien n'est cree.");
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
@@ -2193,7 +2456,46 @@ namespace nkentseu {
 							demo::Demo3DHostCaptureView(chemin) ? "ecrite" : "ECHEC");
 				std::fflush(stdout);
 			}
-			if (e == 6) {
+			// ── (Q8) LE GROS PLAN : « des gros plans, pas seulement des vues
+			//    d'ensemble ». `NK_CREA_GROSPLAN=x,y,z,taille` (fractions de la boite
+			//    de l'objet, 0..1) : apres la vue 3/4, la camera garde l'angle et
+			//    cadre une BOITE de cette taille centree sur ce point.
+			const char *gp = std::getenv("NK_CREA_GROSPLAN");
+			if (e == 6 && gp && *gp && boite) {
+				float32 f[4] = {0.5f, 0.6f, 1.f, 0.3f};
+				const char *c = gp;
+				for (int32 k = 0; k < 4 && *c; ++k) {
+					f[k] = (float32)std::atof(c);
+					while (*c && *c != ',')
+						++c;
+					if (*c == ',')
+						++c;
+				}
+				float32 cc[3], ext = 0.f;
+				for (int32 a = 0; a < 3; ++a) {
+					cc[a] = mn[a] + f[a] * (mx[a] - mn[a]);
+					if (mx[a] - mn[a] > ext)
+						ext = mx[a] - mn[a];
+				}
+				const float32 h = 0.5f * f[3] * ext;
+				const float32 bmn[3] = {cc[0] - h, cc[1] - h, cc[2] - h}, bmx[3] = {cc[0] + h, cc[1] + h, cc[2] + h};
+				demo::Demo3DHostFrameBox(bmn, bmx);
+				E.vuesAttente = 8;
+				E.vuesEtape = 7;
+				return true;
+			}
+			if (e == 7) {
+				E.vuesAttente = 2;
+				E.vuesEtape = 8;
+				return true;
+			}
+			if (e == 8) {
+				snprintf(chemin, sizeof(chemin), "%s_gros.png", E.vuesPrefixe);
+				std::printf("[crea] VUE gros plan -> %s : %s\n", chemin,
+							demo::Demo3DHostCaptureView(chemin) ? "ecrite" : "ECHEC");
+				std::fflush(stdout);
+			}
+			if (e == 6 || e == 8) {
 				NkCreaIsoler(false);
 				demo::Demo3DHostSetHud(sHudAvant);
 				demo::Demo3DHostSetCursorShown(sCurseurAvant);
