@@ -45,6 +45,8 @@
 #include "NKEditorKit/Components/NkComponentRole.h" // LE catalogue de roles du kit --
 // la seule table qui porte les EVENEMENTS exiges et le masque d'ETATS (mesure Q155)
 #include "NKEditorKit/NkFilePickerNav.h"
+#include "NKWindow/Core/NkDialogs.h" // le « + » : joindre un fichier (Q5)
+#include "NKConverse/NkConverseModeles.h" // les modeles REELS des fournisseurs (Q5)
 #include "NKWindow/Core/NkLauncher.h" // ⑤ LE lanceur systeme de la maison (un seul) // ② le selecteur a deux volets (vignettes)
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h"   // la LISTE DEROULANTE du kit (pas une neuvieme)
@@ -9698,11 +9700,16 @@ namespace nkuidesign {
 					mPanneau.actions.libelle[0] = "Appliquer";
 					mPanneau.actions.libelle[1] = "Rejeter";
 				}
+				Sondes();
+				Proprietes();
 				const nkgui::NkRect r = ctx.DL().CurrentClip();
 				mPanneau.maintenant = mHorloge.Elapsed().ToSeconds();
 				mPanneau.phase = (float32)(mPanneau.maintenant - (float64)(int64)mPanneau.maintenant);
 				editorkit::NkGuiComponentPaint pc(ctx, mSt->theme);
-				pc.PoserPolices(nullptr, costume::Fontes().mono.Valid() ? &costume::Fontes().mono : nullptr);
+				// LE CORPS DU PANNEAU : Inter 15 (px11 = CorpsMaquette(11) = 15 px), la
+				// taille que la capture ecrit -- la police d'interface est plus petite.
+				pc.PoserPolices(nullptr, costume::Fontes().mono.Valid() ? &costume::Fontes().mono : nullptr,
+								costume::Fontes().px11.Valid() ? &costume::Fontes().px11 : nullptr);
 				const bool libre = ctx.popupDepth == 0 && ctx.PointReachable(ctx.input.mousePos) &&
 								   NkGuiRectContains(r, ctx.input.mousePos);
 				const editorkit::NkAiSorties out = mPanneau.Dessiner(ctx, pc, {r.x, r.y, r.w, r.h}, libre);
@@ -9856,26 +9863,61 @@ namespace nkuidesign {
 				editorkit::NkAiFournisseurDesc loc;
 				loc.cle = NkString("local");
 				loc.nom = NkString("Local");
-				editorkit::NkAiModeleDesc ml;
-				// ⚠️ LE NOM DU DORSAL, JAMAIS CELUI D'UN MODELE ECRIT EN DUR : le panneau
-				//    n'affiche que `Name()` -- le jour ou un modele de Rihen prend la place,
-				//    pas une ligne ici ne bouge.
-				ml.nom = NkString(mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name() : "fichier");
-				loc.modeles.PushBack(ml);
+				// ⚠️ LES MODELES REELS (Q5, 21/09) : ce que le service rend, avec ses
+				//    capacites -- jamais une liste ecrite ici. Un dorsal qui n'est pas
+				//    Ollama (processus, fichier) n'a qu'un nom : le sien.
+				mOllama = mSt->dorsalLocal == (NkIDesignBackend *)&mSt->ollamaBackend;
+				mInfosLocales.Clear();
+				NkString motifLocal;
+				if (mOllama &&
+					nkentseu::converse::NkConverseOllamaModeles(mSt->ollamaBackend.hote.Data(), mInfosLocales, motifLocal)) {
+					for (usize i = 0; i < mInfosLocales.Size(); ++i) {
+						const nkentseu::converse::NkConverseModeleInfo &mi = mInfosLocales[i];
+						editorkit::NkAiModeleDesc m;
+						m.nom = mi.nom;
+						m.detail = nkentseu::converse::NkConverseDecrireModele(mi);
+						// UNE PROPRIETE SANS OBJET EST GRISEE AVEC SON MOTIF, JAMAIS CACHEE.
+						if (!mi.pensee) {
+							m.motifPensee = mi.nom;
+							m.motifPensee.Append(" n'annonce pas « thinking » (/api/show)");
+						}
+						loc.modeles.PushBack(m);
+						if (mi.nom == mSt->ollamaBackend.modele)
+							loc.modele = (int32)i;
+					}
+				} else {
+					editorkit::NkAiModeleDesc ml;
+					// ⚠️ LE NOM DU DORSAL, JAMAIS CELUI D'UN MODELE ECRIT EN DUR.
+					ml.nom = NkString(mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name() : "fichier");
+					ml.detail = NkString(mOllama ? motifLocal.Data() : "dorsal par processus ou par fichier");
+					ml.motifEffort = NkString("ce dorsal ne recoit aucun budget de reponse");
+					ml.motifPensee = NkString("ce dorsal ne recoit aucun reglage de raisonnement");
+					loc.modeles.PushBack(ml);
+				}
 				mPanneau.fournisseurs.PushBack(loc);
 				editorkit::NkAiFournisseurDesc cl;
 				cl.cle = NkString("claude");
 				cl.nom = NkString("Claude");
 				cl.distant = true; // l'invite ET LE DOCUMENT COURANT quittent la machine
-				static const char *const kModeles[3] = {"sonnet", "opus", "haiku"};
-				for (int32 i = 0; i < 3; ++i) {
-					editorkit::NkAiModeleDesc m;
-					m.nom = NkString(kModeles[i]);
-					cl.modeles.PushBack(m);
-					if (mSt->claudeBackend.modele == NkString(kModeles[i]))
-						cl.modele = i;
+				// LES MODELES QUE LE CLI DOCUMENTE (`claude --help`, local, non facture).
+				nkentseu::NkVector<nkentseu::converse::NkConverseModeleInfo> infosClaude;
+				NkString motifClaude;
+				if (nkentseu::converse::NkConverseClaudeModeles(infosClaude, motifClaude)) {
+					for (usize i = 0; i < infosClaude.Size(); ++i) {
+						editorkit::NkAiModeleDesc m;
+						m.nom = infosClaude[i].nom;
+						m.detail = nkentseu::converse::NkConverseDecrireModele(infosClaude[i], true);
+						m.motifPensee = NkString("le CLI decide seul de son raisonnement");
+						cl.modeles.PushBack(m);
+						if (mSt->claudeBackend.modele == infosClaude[i].nom)
+							cl.modele = (int32)i;
+					}
 				}
+				mMotifModelesClaude = motifClaude;
 				mPanneau.fournisseurs.PushBack(cl);
+				// LE CLI DOCUMENTE CINQ NIVEAUX (low, medium, high, xhigh, max) : le
+				// curseur en porte QUATRE, communs a tous les assistants ; `xhigh`
+				// n'est donc pas atteignable -- dit, pas cache.
 
 				editorkit::NkAiModeDesc g;
 				g.nom = NkString("Generer");
@@ -9897,21 +9939,36 @@ namespace nkuidesign {
 				mPanneau.modes.PushBack(di);
 				mPanneau.mode = 0; // le geste que Rodolf demande depuis le 17/09 : il tape, le document APPARAIT
 
-				static const char *const kCmd[8][2] = {
-					{"/appliquer", "pose la proposition en attente, en une operation annulable"},
-					{"/rejeter", "jette la proposition en attente"},
-					{"/retirer", "retire la derniere greffe posee"},
-					{"/rejeu", "verifie le document par rejeu"},
-					{"/specification", "ecrit la specification depuis la discussion"},
-					{"/affiner", "reformule les exigences par le dorsal"},
-					{"/detacher", "detache la specification des prochaines greffes"},
-					{"/effacer", "efface la discussion (le document ne bouge pas)"}};
+				// LES SECTIONS DU « / » (065041) : ce que NKUIDesign sait faire, range.
+				static const char *const kCmd[8][3] = {
+					{"/effacer", "efface la discussion (le document ne bouge pas)", "Contexte"},
+					{"/appliquer", "pose la proposition en attente, en une operation annulable", "Proposition"},
+					{"/rejeter", "jette la proposition en attente", "Proposition"},
+					{"/retirer", "retire la derniere greffe posee", "Proposition"},
+					{"/rejeu", "verifie le document par rejeu", "Document"},
+					{"/specification", "ecrit la specification depuis la discussion", "Specification"},
+					{"/affiner", "reformule les exigences par le dorsal", "Specification"},
+					{"/detacher", "detache la specification des prochaines greffes", "Specification"}};
 				for (int32 i = 0; i < 8; ++i) {
 					editorkit::NkAiCommandeDesc c;
 					c.nom = NkString(kCmd[i][0]);
 					c.detail = NkString(kCmd[i][1]);
 					c.insertion = NkString(kCmd[i][0]);
+					c.section = NkString(kCmd[i][2]);
 					mPanneau.commandes.PushBack(c);
+				}
+				// LE « + » (065237) : ce que NKUIDesign sait joindre a une demande.
+				{
+					editorkit::NkAiEntreeDesc e;
+					e.nom = NkString("Joindre un fichier texte…");
+					e.detail = NkString("son contenu part avec la demande (16 Ko au plus)");
+					e.id = 1;
+					mPanneau.entreesPlus.PushBack(e);
+					editorkit::NkAiEntreeDesc s2;
+					s2.nom = NkString("Mentionner la selection");
+					s2.detail = NkString("nomme le noeud selectionne dans la demande");
+					s2.id = 2;
+					mPanneau.entreesPlus.PushBack(s2);
 				}
 				editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
 				cap.produitOutil = true; // une generation : la demande en entree, la reponse en sortie
@@ -9937,6 +9994,10 @@ namespace nkuidesign {
 						  nkentseu::converse::NkClaudeEtat::Pret;
 				cl.motif = cl.pret ? NkString("") : quoiFaire;
 				mPanneau.occupe = mSt->envoi.EnCours();
+				if (mPanneau.entreesPlus.Size() > 1u)
+					mPanneau.entreesPlus[1].motif = (mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0)
+														? NkString()
+														: NkString("aucun noeud selectionne");
 				// L'ACTIF SUIT LE DORSAL REEL : un banc ou le menu IA ont pu le changer.
 				const int32 attendu = (mSt->ai.Backend() == &mSt->claudeBackend) ? 1 : 0;
 				if (attendu != mPanneau.Actif() && !mPanneau.occupe) {
@@ -9991,6 +10052,26 @@ namespace nkuidesign {
 				mGesteEnCours = -1;
 				++mRecoltes;
 				printf("[NKUIDesign] AI RECOLTE peinture=%u : %s\n", (unsigned)mImages, message.Data() ? message.Data() : "");
+				// ⚠️ LA REQUETE REELLEMENT ENVOYEE (Q5) : ses champs de reglage, relus
+				//    dans les OCTETS du corps -- la preuve que l'Effort et Thinking
+				//    agissent se lit ici, pas dans l'etat du panneau.
+				if (mSt->ai.Backend() == (NkIDesignBackend *)&mSt->ollamaBackend) {
+					const nkentseu::converse::NkConverseBackendOllama &o = mSt->ollamaBackend;
+					const char *c = o.dernierCorps.Data() ? o.dernierCorps.Data() : "";
+					const char *reglages = strstr(c, "\"stream\":false");
+					printf("[NKUIDesign] AI REQUETE modele=%s reglages=%s jetons=%llu gen_ns=%llu\n", o.modele.Data(),
+						   reglages ? reglages : "(aucun)", (unsigned long long)o.derniersJetons,
+						   (unsigned long long)o.derniereGenNs);
+					if (o.dernierRaisonnement.Length() > 0 && mPanneau.penser) {
+						editorkit::NkAiBlocDonnees rb;
+						rb.type = editorkit::NkAiBloc::Reflexion;
+						rb.titre = NkString("Thinking");
+						rb.texte = o.dernierRaisonnement;
+						NkString pq;
+						(void)mPanneau.Fil().Pousser(rb, pq);
+					}
+				}
+				Utilisation();
 				fflush(stdout);
 			}
 
@@ -10005,6 +10086,22 @@ namespace nkuidesign {
 					const editorkit::NkAiFournisseurDesc &f = mPanneau.fournisseurs[1];
 					if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())
 						mSt->claudeBackend.modele = f.modeles[(usize)f.modele].nom;
+				}
+				if (out.modeleChange && mPanneau.Actif() == 0 && mOllama) {
+					const editorkit::NkAiFournisseurDesc &f = mPanneau.fournisseurs[0];
+					if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())
+						mSt->ollamaBackend.modele = f.modeles[(usize)f.modele].nom;
+				}
+				if (out.fenetre == 1u || out.modeleChange || out.fournisseurChange)
+					Utilisation();
+				if (out.entreePlus == 1)
+					JoindreFichier();
+				else if (out.entreePlus == 2 && mSt->doc.IsValidIndex(mSt->selected)) {
+					NkString t(mPanneau.Saisie());
+					t.Append(" « ");
+					t.Append(mSt->doc.nodes[(uint32)mSt->selected].label.Data());
+					t.Append(" » ");
+					mPanneau.PoserSaisie(t.Data());
 				}
 				if (out.envoyer && Envoyer(out.texte.CStr(), out.mode))
 					mPanneau.ViderSaisie(); // parti : le champ se vide ; refuse : la phrase RESTE
@@ -10023,6 +10120,177 @@ namespace nkuidesign {
 					}
 					mBlocProposition = 0u;
 				}
+			}
+
+			/// LES PORTES DES SONDES (Q5) : elles ECRIVENT l'etat qu'un clic ecrirait
+			/// -- aucune entree n'est injectee sur la machine.
+			///   NK_AI_REGLAGES="effort=<cran>;penser=<0|1>;modele=<nom>" (une fois)
+			///   NK_AI_MENU="<fournisseurs|modeles|modes|commandes|plus>,<image>"
+			///   NK_AI_FILTRE="<texte>"   NK_AI_FENETRE="<1|2>,<image>"
+			void Sondes() {
+				static bool sReglages = false;
+				if (!sReglages) {
+					sReglages = true;
+					if (const char *v = std::getenv("NK_AI_REGLAGES")) {
+						char b[256];
+						snprintf(b, sizeof(b), "%s", v);
+						for (char *t = strtok(b, ";"); t; t = strtok(nullptr, ";")) {
+							if (strncmp(t, "effort=", 7) == 0)
+								mPanneau.effort = (int32)std::atoi(t + 7);
+							else if (strncmp(t, "penser=", 7) == 0)
+								mPanneau.penser = t[7] == '1';
+							else if (strncmp(t, "modele=", 7) == 0 && mOllama) {
+								editorkit::NkAiFournisseurDesc &f = mPanneau.fournisseurs[0];
+								for (usize i = 0; i < f.modeles.Size(); ++i)
+									if (f.modeles[i].nom == NkString(t + 7)) {
+										f.modele = (int32)i;
+										mSt->ollamaBackend.modele = f.modeles[i].nom;
+									}
+							}
+						}
+						printf("[NKUIDesign] AI REGLAGES effort=%d penser=%d modele=%s\n", (int)mPanneau.effort,
+							   mPanneau.penser ? 1 : 0, mSt->ollamaBackend.modele.Data());
+					}
+				}
+				auto quand = [](const char *v, char *nom, usize cap) -> int32 {
+					const char *virg = strchr(v, ',');
+					usize n = 0;
+					for (const char *c = v; *c && (!virg || c < virg) && n + 1u < cap; ++c)
+						nom[n++] = *c;
+					nom[n] = 0;
+					return virg ? (int32)std::atoi(virg + 1) : 30;
+				};
+				if (const char *v = std::getenv("NK_AI_MENU")) {
+					char nom[32];
+					if (quand(v, nom, sizeof(nom)) == (int32)mImages) {
+						const editorkit::NkAiMenu m = strcmp(nom, "modeles") == 0	  ? editorkit::NkAiMenu::Modeles
+													  : strcmp(nom, "modes") == 0	  ? editorkit::NkAiMenu::Modes
+													  : strcmp(nom, "commandes") == 0 ? editorkit::NkAiMenu::Commandes
+													  : strcmp(nom, "plus") == 0	  ? editorkit::NkAiMenu::Plus
+																					  : editorkit::NkAiMenu::Fournisseurs;
+						mPanneau.OuvrirMenu(m, mPanneau.Actif());
+						if (const char *f = std::getenv("NK_AI_FILTRE"))
+							mPanneau.PoserFiltre(f);
+					}
+				}
+				if (const char *v = std::getenv("NK_AI_FENETRE")) {
+					char nom[8];
+					if (quand(v, nom, sizeof(nom)) == (int32)mImages) {
+						mPanneau.OuvrirFenetre((uint8)std::atoi(nom));
+						if (nom[0] == '1')
+							Utilisation();
+					}
+				}
+			}
+
+			/// ⚠️ LES PROPRIETES AGISSENT SUR LE DORSAL, ET SEULEMENT HORS D'UN TOUR :
+			///    la requete en vol est construite sur un second fil, qui lit ces
+			///    champs. Les changer pendant qu'il lit serait une course.
+			void Proprietes() {
+				if (mSt->envoi.EnCours())
+					return;
+				const int32 crans = (int32)mPanneau.effortCrans.Size();
+				mSt->ollamaBackend.numPredict = nkentseu::converse::NkConverseBudgetEffort(mPanneau.effort, crans);
+				bool pensee = false;
+				for (usize i = 0; i < mInfosLocales.Size(); ++i)
+					if (mInfosLocales[i].nom == mSt->ollamaBackend.modele)
+						pensee = mInfosLocales[i].pensee;
+				// `think` n'est ECRIT que pour un modele qui l'annonce : pour les autres
+				// l'interrupteur est grise, et la requete ne porte pas le champ.
+				mSt->ollamaBackend.penser = pensee ? (mPanneau.penser ? 1 : 0) : -1;
+				static const char *const kCli[4] = {"low", "medium", "high", "max"};
+				mSt->claudeBackend.effort =
+					(mPanneau.effort >= 0 && mPanneau.effort < 4) ? NkString(kCli[mPanneau.effort]) : NkString();
+				if (mPanneau.FenetreOuverte() == 2u)
+					editorkit::NkAiCarteDepuisFil(mPanneau.Fil(), mPanneau.occupe, mPanneau.carte);
+			}
+
+			/// LA FENETRE « UTILISATION », remplie de ce qui est MESURE : le service
+			/// dit si le modele est en memoire et combien de memoire video il tient ;
+			/// le dernier tour dit ses jetons et sa duree.
+			void Utilisation() {
+				editorkit::NkAiFenetre &u = mPanneau.utilisation;
+				u.Vider();
+				u.titre = NkString("Utilisation");
+				char v[128];
+				if (mPanneau.Actif() == 1) {
+					u.Section("Assistant distant : Claude (CLI)");
+					u.Valeur("Modele", mSt->claudeBackend.modele.Data());
+					u.Valeur("Effort envoye", mSt->claudeBackend.effort.Length() ? mSt->claudeBackend.effort.Data()
+																				 : "(defaut du CLI)");
+					snprintf(v, sizeof(v), "%u octets", (unsigned)mSt->claudeBackend.DerniereInvite().Length());
+					u.Valeur("Envoye au dernier tour", v);
+					u.Note("L'invite et le document courant quittent cette machine.");
+					if (mMotifModelesClaude.Length() > 0)
+						u.Note(mMotifModelesClaude.Data());
+					return;
+				}
+				if (!mOllama) {
+					u.Section("Dorsal local");
+					u.Valeur("Dorsal", mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name() : "aucun");
+					u.Note("Ce dorsal ne publie ni memoire ni jetons.");
+					return;
+				}
+				const nkentseu::converse::NkConverseBackendOllama &o = mSt->ollamaBackend;
+				u.Section("Modele local");
+				u.Valeur("Modele", o.modele.Data());
+				nkentseu::uint64 octets = 0u, vram = 0u;
+				NkString motif;
+				const bool charge = nkentseu::converse::NkConverseOllamaCharge(o.hote.Data(), o.modele.Data(), octets, vram, motif);
+				if (motif.Length() > 0)
+					u.Valeur("En memoire", motif.Data());
+				else if (!charge)
+					u.Valeur("En memoire", "non : charge a la prochaine demande");
+				else {
+					snprintf(v, sizeof(v), "%.1f / %.1f Go", (double)vram / 1.0e9, (double)octets / 1.0e9);
+					u.Barre("Memoire video", v, octets ? (float32)((double)vram / (double)octets) : 0.f);
+				}
+				u.Section("Dernier tour");
+				if (o.derniersJetons == 0u)
+					u.Note("Aucun tour mesure dans cette session.");
+				else {
+					snprintf(v, sizeof(v), "%llu", (unsigned long long)o.derniersJetons);
+					u.Valeur("Jetons generes", v);
+					if (o.derniereGenNs > 0u) {
+						snprintf(v, sizeof(v), "%.1f jetons/s",
+								 (double)o.derniersJetons / ((double)o.derniereGenNs / 1.0e9));
+						u.Valeur("Vitesse", v);
+					}
+					snprintf(v, sizeof(v), "%.1f s", (double)o.dernierMs / 1000.0);
+					u.Valeur("Duree", v);
+					snprintf(v, sizeof(v), "%.1f s", (double)o.dernierChargeNs / 1.0e9);
+					u.Valeur("Dont chargement", v);
+				}
+				u.Section("Reglages de la prochaine requete");
+				snprintf(v, sizeof(v), "%d", (int)o.numPredict);
+				u.Valeur("num_predict", o.numPredict > 0 ? v : "(aucun plafond)");
+				u.Valeur("think", o.penser < 0 ? "(non ecrit : sans objet)" : (o.penser ? "true" : "false"));
+				u.Note("Rien n'a quitte cette machine.");
+			}
+
+			/// « Joindre un fichier texte… » : le contenu part AVEC la demande, dans
+			/// le composeur, ou on le voit avant d'envoyer.
+			void JoindreFichier() {
+				const nkentseu::NkDialogResult r =
+					nkentseu::NkDialogs::OpenFileDialog(NkString("*.*"), NkString("Joindre un fichier texte"));
+				if (!r.confirmed || r.path.Length() == 0)
+					return;
+				NkString contenu = nkentseu::NkFile::ReadAllText(r.path.Data());
+				if (contenu.Length() == 0) {
+					DireRefus("fichier vide ou illisible : rien n'est joint");
+					return;
+				}
+				if (contenu.Length() > 16384u)
+					contenu = NkString(contenu.Data(), 16384u);
+				const char nl[2] = {(char)10, 0};
+				NkString t(mPanneau.Saisie());
+				t.Append(nl);
+				t.Append("--- fichier joint : ");
+				t.Append(r.path.Data());
+				t.Append(" ---");
+				t.Append(nl);
+				t.Append(contenu.Data());
+				mPanneau.PoserSaisie(t.Data());
 			}
 
 			/// LES OUTILS DU « / » -- les gestes des anciens « Outils avances ».
@@ -10160,6 +10428,11 @@ namespace nkuidesign {
 
 			DesignState *mSt;
 			editorkit::NkAiPanneau mPanneau;
+			/// Les modeles du service local et leurs capacites (Q5) ; vide si le
+			/// dorsal local n'est pas Ollama.
+			nkentseu::NkVector<nkentseu::converse::NkConverseModeleInfo> mInfosLocales;
+			bool mOllama = false;
+			NkString mMotifModelesClaude;
 			/// La conversation que le modele lit, PAR ASSISTANT (0 local, 1 Claude).
 			NkDesignConversation mConversations[2];
 			/// Le bloc d'outil qui attend sa reponse, et le geste qui l'a lance.
