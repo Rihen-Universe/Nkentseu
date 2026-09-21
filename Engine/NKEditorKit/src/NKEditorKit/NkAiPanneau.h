@@ -226,7 +226,7 @@ namespace nkentseu {
 				bool clicPris = false;
 		};
 
-		enum class NkAiMenu : uint8 { Aucun = 0, Fournisseurs, Modeles, Modes, Commandes, Historique, AjouterIa, Plus };
+		enum class NkAiMenu : uint8 { Aucun = 0, Fournisseurs, Modeles, Modes, Commandes, Historique, AjouterIa, Plus, Contexte };
 
 		class NkAiPanneau {
 			private:
@@ -331,6 +331,30 @@ namespace nkentseu {
 				}
 				const NkVector<NkString> &ImagesJointes() const {
 					return mJointes;
+				}
+				/// (Q9) La selection du composeur [a, b), ou faux s'il n'y en a pas.
+				bool SelectionComposeur(int32 &a, int32 &b) const {
+					if (mSelComp < 0 || mSelComp == mCaret)
+						return false;
+					a = mSelComp < mCaret ? mSelComp : mCaret;
+					b = mSelComp < mCaret ? mCaret : mSelComp;
+					return true;
+				}
+				/// (Q9) UNE LIGNE D'ETAT pour les sondes : ce que le composeur contient,
+				/// ce qui y est selectionne, ce que le fil a de selectionne, le menu
+				/// ouvert, les images jointes -- et le presse-papiers RELU.
+				void TracerEtat(nkgui::NkGuiContext &ctx, const char *qui, int32 image) const {
+					int32 a = 0, b = 0;
+					const bool sel = SelectionComposeur(a, b);
+					const NkString cb = ctx.GetClipboard();
+					NkString selTxt;
+					if (sel)
+						selTxt = NkString(mSaisie + a, (NkString::SizeType)(b - a));
+					std::printf("[%s] AI ETAT image=%d saisie=\"%.60s\" selection_composeur=%s\"%.40s\" "
+								"selection_fil=%u octets menu=%d images=%u presse_papiers=\"%.60s\"\n",
+								qui, (int)image, mSaisie, sel ? "" : "(aucune) ", selTxt.CStr(),
+								(unsigned)mTexteSel.Length(), (int)mMenu, (unsigned)mJointes.Size(), cb.CStr());
+					std::fflush(stdout);
 				}
 				/// Le DEPOT de fichiers sur le panneau (glisser-deposer) : l'hote relaie
 				/// ce que la fenetre lui donne ; ce qui n'est pas une image est refuse
@@ -534,9 +558,16 @@ namespace nkentseu {
 							snprintf(b, sizeof(b), "bloc\t%s\t%d", NkAiBlocNom(d.type), d.replie ? 1 : 0);
 							o.Append(b);
 							const NkString enClair(d.sortieEnClair ? "1" : "0");
-							const NkString *champs[9] = {&d.titre, &d.texte,  &d.entree,		  &d.sortie,		 &d.motif,
-														 &d.effet, &enClair, &d.etiquetteEntree, &d.etiquetteSortie};
-							for (int32 j = 0; j < 9; ++j) {
+							// (Q9) LES IMAGES JOINTES, leurs chemins separes par « | »
+							NkString imgs;
+							for (usize q = 0; q < d.images.Size(); ++q) {
+								if (q)
+									imgs.Append("|");
+								imgs.Append(d.images[q].CStr());
+							}
+							const NkString *champs[10] = {&d.titre, &d.texte,  &d.entree,		   &d.sortie,		  &d.motif,
+														  &d.effet, &enClair, &d.etiquetteEntree, &d.etiquetteSortie, &imgs};
+							for (int32 j = 0; j < 10; ++j) {
 								o.Append("\t");
 								Echapper(*champs[j], o);
 							}
@@ -597,6 +628,16 @@ namespace nkentseu {
 								bd.sortieEnClair = ch[9] == NkString("1");
 								bd.etiquetteEntree = ch[10];
 								bd.etiquetteSortie = ch[11];
+							}
+							if (ch.Size() >= 13 && ch[12].Length() > 0) {
+								const char *q = ch[12].CStr();
+								while (*q) {
+									const char *f = q;
+									while (*f && *f != '|')
+										++f;
+									bd.images.PushBack(NkString(q, (NkString::SizeType)(f - q)));
+									q = *f ? f + 1 : f;
+								}
 							}
 							NkString pq;
 							NkAiFil &f = lus[lus.Size() - 1].fil;
@@ -668,6 +709,7 @@ namespace nkentseu {
 					// LE PEINTRE DE CETTE IMAGE mesure la selection -- jamais celui d'une
 					// image passee (il vivait sur la pile de l'hote : pointeur pendant).
 					mMesureur = &p;
+					mCtx = &ctx;
 					NkAiFil &fil = Fil();
 					fil.Declarer(capacites);
 					if (plafond > 0u)
@@ -687,8 +729,9 @@ namespace nkentseu {
 
 					NkAiMetriques m;
 					m.Echelle(echelle);
-					if (r.w < 560.f * echelle)
-						m.Compacter(echelle); // (Q8) toute la largeur, une petite marge
+					// (Q9) 8 PX DE MARGE A TOUTES LES LARGEURS : la regle « sous 560 px »
+					// laissait 30 a 55 px ailleurs, et Rodolf les a vus (capture 172651).
+					m.Compacter(echelle);
 					const bool focus = ComposeurActif(ctx);
 
 					// ── 1. LE CLAVIER, AVANT LA MESURE : on mesure ce qui est tape ──
@@ -901,6 +944,7 @@ namespace nkentseu {
 					fil.MarquerVus();
 					out.mode = mode;
 					mMesureur = nullptr;
+					mCtx = nullptr;
 					if (out.modeleChange)
 						RetenirReglages();
 					// (Q8) UNE BASCULE DE CHAT a pose SES reglages : l'hote les applique
@@ -1139,6 +1183,10 @@ namespace nkentseu {
 						if (b > len)
 							b = len;
 					};
+					// UNE ANCRE SANS ETENDUE N'EST PAS UNE SELECTION : laissee en place, la
+					// frappe qui suit « selectionnait » tout ce qu'on tapait (mesure Q9).
+					if (mSelComp == mCaret && !mCompGlisse) // pas pendant un glisser : l'ancre en EST le debut
+						mSelComp = -1;
 					auto aSelection = [&]() { return mSelComp >= 0 && mSelComp != mCaret; };
 					if (in.wantSelectAll) {
 						mSelComp = 0;
@@ -1221,6 +1269,8 @@ namespace nkentseu {
 						mCaret = 0;
 					if (in.KeyPressed(nkgui::NkGuiKey::End))
 						mCaret = len;
+					if (in.wantPaste && accepteImages && CollerImage(ctx))
+						in.wantPaste = false; // (Q9) un BITMAP copie devient une piece jointe
 					if (in.wantPaste && accepteImages) {
 						// (Q8) UN CHEMIN D'IMAGE COLLE se joint au lieu de s'ecrire. ⚠️ Le
 						//    presse-papiers IMAGE (un bitmap copie) n'est pas lisible : la
@@ -1319,7 +1369,15 @@ namespace nkentseu {
 					QPlus,
 					QArchive,
 					QViderHist,
-					QImage
+					QImage,
+					// (Q9) le menu contextuel
+					QCouper,
+					QCopierComp,
+					QColler,
+					QToutComp,
+					QCopierSel,
+					QToutFil,
+					QCopierBloc
 				};
 				/// genre : 0 action, 1 titre de section, 2 interrupteur, 3 curseur, 4 note
 				struct LigneMenu {
@@ -1626,6 +1684,28 @@ namespace nkentseu {
 								mLignes.PushBack(l);
 							}
 							break;
+						case NkAiMenu::Contexte: {
+							auto ligneCtx = [&](uint8 quoi, const char *t, const char *raccourci, bool eteint) {
+								LigneMenu l;
+								l.quoi = quoi;
+								l.texte = NkString(t);
+								l.droite = NkString(raccourci);
+								l.eteint = eteint;
+								mLignes.PushBack(l);
+							};
+							if (mCtxComposeur) {
+								const bool sel = mSelComp >= 0 && mSelComp != mCaret;
+								ligneCtx(QCouper, "Couper", "Ctrl+X", !sel);
+								ligneCtx(QCopierComp, "Copier", "Ctrl+C", !sel);
+								ligneCtx(QColler, "Coller", "Ctrl+V", false);
+								ligneCtx(QToutComp, "Tout selectionner", "Ctrl+A", mSaisie[0] == 0);
+							} else {
+								ligneCtx(QCopierSel, "Copier", "Ctrl+C", mTexteSel.Length() == 0);
+								ligneCtx(QToutFil, "Tout selectionner", "Ctrl+A", Fil().Taille() == 0);
+								ligneCtx(QCopierBloc, "Copier le bloc", "", mCtxBloc == 0u);
+							}
+							break;
+						}
 						case NkAiMenu::Historique: {
 							// LES AUTRES CHATS, le plus recent en tete : un clic y bascule,
 							// sans rien perdre de celui qu'on quitte.
@@ -1792,6 +1872,16 @@ namespace nkentseu {
 								mSelB = VersPoint(k, off);
 						} else
 							mSelEnCours = false;
+					}
+					// (Q9) LE GLISSER DANS LE COMPOSEUR : la fin suit la souris
+					if (mCompGlisse) {
+						if (in.mouseDown[0])
+							mCaret = OctetComposeurSous(in.mousePos.x - rect.x, in.mousePos.y - rect.y);
+						else {
+							mCompGlisse = false;
+							if (mSelComp == mCaret)
+								mSelComp = -1; // un clic sans glisser pose le curseur, rien de plus
+						}
 					}
 					// Ctrl+A / Ctrl+C DU FIL : quand le fil a la main (le composeur, lui,
 					// les traite dans `Clavier`).
@@ -2045,7 +2135,18 @@ namespace nkentseu {
 					if (h > hMax)
 						h = hMax;
 					float32 x = m.margeComposeur, y = yComposeur - 4.f - h;
-					if (mMenu == NkAiMenu::Historique) {
+					if (mMenu == NkAiMenu::Contexte) {
+						// SOUS LA SOURIS, sans sortir du panneau
+						w = 220.f * echelle;
+						x = mCtxX;
+						y = mCtxY;
+						if (x + w > r.w - 4.f)
+							x = r.w - 4.f - w;
+						if (y + h > r.h - 4.f)
+							y = mCtxY - h;
+						if (x < 4.f)
+							x = 4.f;
+					} else if (mMenu == NkAiMenu::Historique) {
 						x = r.w - w - 12.f;
 						y = hEntete + 4.f;
 					} else if (riche || mMenu == NkAiMenu::Plus) {
@@ -2433,6 +2534,33 @@ namespace nkentseu {
 								q.drapeaux |= kAiSurvol;
 						}
 					}
+					// (Q9) LE CLIC DROIT : un menu contextuel, dans le fil ou dans le composeur.
+					if (dedans && ctx.input.mouseClicked[1]) {
+						NkAiRectPublie cad;
+						const bool dansComposeur = planChrome.Trouver(0u, NkAiPiece::ComposeurCadre, cad) &&
+												   px >= cad.x && px < cad.x + cad.w && py >= cad.y && py < cad.y + cad.h;
+						mCtxComposeur = dansComposeur;
+						mCtxBloc = 0u;
+						if (!dansComposeur && vueFil.Contains(ctx.input.mousePos.x, ctx.input.mousePos.y)) {
+							const float32 fx = ctx.input.mousePos.x - filOx, fy = ctx.input.mousePos.y - filOy;
+							for (uint32 i = 0; i < planFil.Pieces() && mCtxBloc == 0u; ++i) {
+								const NkAiRectPublie &q = planFil.Piece(i);
+								if (q.blocId != 0u && q.piece != NkAiPiece::Surlignage && fx >= q.x && fx < q.x + q.w &&
+									fy >= q.y && fy < q.y + q.h)
+									mCtxBloc = q.blocId;
+							}
+						}
+						if (dansComposeur) {
+							ctx.inputId = IdComposeur(); // le menu agit sur le composeur
+							mFilFocus = false;
+						}
+						mCtxX = px;
+						mCtxY = py;
+						mMenu = NkAiMenu::Contexte;
+						ctx.input.mouseClicked[1] = false;
+						out.clicPris = true;
+						return;
+					}
 					if (!clic)
 						return;
 					// UN CLIC HORS DU MENU LE FERME, et ne fait rien d'autre : sinon le
@@ -2526,20 +2654,30 @@ namespace nkentseu {
 								else
 									Envoyer(out);
 								return;
-							case NkAiPiece::ComposeurCadre:
+							case NkAiPiece::ComposeurCadre: {
 								// LE FOCUS CLAVIER, et le clic est PRIS : sinon NKGui
 								// defocaliserait a la fin de cette meme image.
 								mFilFocus = false;
-								mSelComp = -1;
 								ctx.inputId = IdComposeur();
 								ctx.inputClickConsumed = true;
-								{
-									int32 n = 0;
-									while (mSaisie[n])
-										++n;
-									mCaret = n;
+								// 🔴 (Q9) LE CLIC POSAIT LE CURSEUR EN FIN DE TEXTE, TOUJOURS : on
+								//    ne pouvait donc ni selectionner a la souris, ni copier ce
+								//    qu'on ne pouvait pas selectionner (Rodolf, 172651). Le banc
+								//    passait par Ctrl+A, jamais par la souris.
+								const int32 pos = OctetComposeurSous(px, py);
+								if (ctx.input.mouseDoubleClicked[0]) {
+									SelectionnerMot(pos);
+									return;
 								}
+								if (ctx.input.shiftDown) {
+									if (mSelComp < 0)
+										mSelComp = mCaret;
+								} else
+									mSelComp = pos;
+								mCaret = pos;
+								mCompGlisse = true;
 								return;
+							}
 							default: return;
 						}
 					}
@@ -2733,6 +2871,63 @@ namespace nkentseu {
 								Rouvrir(l.arg);
 							FermerMenus();
 							return;
+						case QCouper:
+						case QCopierComp:
+							if (mCtx && mSelComp >= 0 && mSelComp != mCaret) {
+								const int32 a = mSelComp < mCaret ? mSelComp : mCaret;
+								const int32 b = mSelComp < mCaret ? mCaret : mSelComp;
+								NkString t(mSaisie + a, (NkString::SizeType)(b - a));
+								mCtx->SetClipboard(t.CStr());
+								out.copie = true;
+								out.copieTexte = t;
+								if (l.quoi == QCouper) {
+									int32 len = 0;
+									while (mSaisie[len])
+										++len;
+									for (int32 k = a; k + (b - a) <= len; ++k)
+										mSaisie[k] = mSaisie[k + (b - a)];
+									mCaret = a;
+									mSelComp = -1;
+								}
+							}
+							FermerMenus();
+							return;
+						case QColler:
+							// LE MEME CHEMIN que Ctrl+V : le drapeau, lu par `Clavier`
+							if (mCtx) {
+								mCtx->input.wantPaste = true;
+								mCtx->inputId = IdComposeur();
+							}
+							FermerMenus();
+							return;
+						case QToutComp: {
+							int32 len = 0;
+							while (mSaisie[len])
+								++len;
+							mSelComp = 0;
+							mCaret = len;
+							if (mCtx)
+								mCtx->inputId = IdComposeur();
+							FermerMenus();
+							return;
+						}
+						case QCopierSel:
+							if (mCtx && mTexteSel.Length() > 0) {
+								mCtx->SetClipboard(mTexteSel.CStr());
+								out.copie = true;
+								out.copieTexte = mTexteSel;
+							}
+							FermerMenus();
+							return;
+						case QToutFil:
+							ToutSelectionnerFil();
+							FermerMenus();
+							return;
+						case QCopierBloc:
+							if (mCtx && mCtxBloc != 0u)
+								CopierBloc(*mCtx, mCtxBloc, out);
+							FermerMenus();
+							return;
 						case QImage:
 							out.joindreImage = true; // l'hote ouvre SON selecteur
 							FermerMenus();
@@ -2792,6 +2987,102 @@ namespace nkentseu {
 				NkAiMenu mMenuPrecedent = NkAiMenu::Aucun;
 				NkPaintRect mMenuRect;
 				NkComponentPaint *mMesureur = nullptr;
+				nkgui::NkGuiContext *mCtx = nullptr;
+				bool mCompGlisse = false;
+				bool mCtxComposeur = false;
+				uint32 mCtxBloc = 0u;
+				float32 mCtxX = 0.f, mCtxY = 0.f;
+				uint32 mCollees = 0u;
+
+				/// (Q9) L'OCTET DU COMPOSEUR sous (px, py) -- coordonnees du panneau --,
+				/// lu sur les lignes PUBLIEES du composeur, mesure avec la police qui
+				/// les peint. Au-dessus : debut ; en dessous : fin.
+				int32 OctetComposeurSous(float32 px, float32 py) const {
+					int32 len = 0;
+					while (mSaisie[len])
+						++len;
+					int32 meilleure = -1;
+					float32 dMin = 1.0e30f;
+					for (uint32 i = 0; i < planChrome.Pieces(); ++i) {
+						const NkAiRectPublie &q = planChrome.Piece(i);
+						if (q.piece != NkAiPiece::ComposeurTexte || q.source != NkAiSource::Saisie)
+							continue;
+						const float32 cy = q.y + q.h * 0.5f;
+						const float32 d = py > cy ? py - cy : cy - py;
+						if (d < dMin) {
+							dMin = d;
+							meilleure = (int32)i;
+						}
+					}
+					if (meilleure < 0)
+						return len;
+					const NkAiRectPublie &q = planChrome.Piece((uint32)meilleure);
+					const char *a = mSaisie + q.debut, *b = mSaisie + q.debut + q.longueur;
+					if (py < q.y - q.h && meilleure >= 0 && q.debut == 0u)
+						return 0;
+					const float32 cible = px - q.x;
+					if (cible <= 0.f || !mMesureur)
+						return (int32)q.debut;
+					const char *c = a;
+					float32 avant = 0.f;
+					while (c < b) {
+						const char *n = c + aidetail::LongueurCp((unsigned char)*c);
+						if (n > b)
+							n = b;
+						const float32 w = mMesureur->LargeurPolice(a, n, 0u);
+						if (w >= cible)
+							return (int32)((cible - avant < w - cible) ? c - mSaisie : n - mSaisie);
+						avant = w;
+						c = n;
+					}
+					return (int32)(b - mSaisie);
+				}
+				void SelectionnerMot(int32 pos) {
+					int32 len = 0;
+					while (mSaisie[len])
+						++len;
+					auto lettre = [&](int32 i) {
+						const char ch = mSaisie[i];
+						return ch != ' ' && ch != '\n' && ch != '\t' && ch != 0;
+					};
+					int32 a = pos, b = pos;
+					while (a > 0 && lettre(a - 1))
+						--a;
+					while (b < len && lettre(b))
+						++b;
+					mSelComp = a;
+					mCaret = b;
+				}
+				/// (Q9) UN BITMAP COPIE devient une piece jointe : l'hote rend les
+				/// pixels (Win32 CF_DIB), le kit les ecrit en PNG avec NOTRE codec et
+				/// les joint par la MEME porte qu'un fichier.
+				bool CollerImage(nkgui::NkGuiContext &ctx) {
+					NkVector<uint8> rgba;
+					int32 w = 0, h = 0;
+					NkString motif;
+					if (!ctx.GetClipboardImage(rgba, w, h, motif) || w <= 0 || h <= 0)
+						return false;
+					NkImage img;
+					if (!img.Create((uint32)w, (uint32)h, math::NkColor(), 4) || !img.Pixels())
+						return false;
+					for (int32 y = 0; y < h; ++y)
+						for (int32 x = 0; x < w; ++x) {
+							uint8 *d = img.Pixels() + y * img.Stride() + x * 4;
+							const uint8 *s = rgba.Data() + ((usize)y * (usize)w + (usize)x) * 4u;
+							d[0] = s[0];
+							d[1] = s[1];
+							d[2] = s[2];
+							d[3] = s[3];
+						}
+					const char *tmp = std::getenv("TEMP");
+					char chemin[512];
+					snprintf(chemin, sizeof(chemin), "%s/nkai_presse_papiers_%u_%u.png", (tmp && *tmp) ? tmp : ".",
+							 (unsigned)(uintptr_t)this % 100000u, (unsigned)++mCollees);
+					if (!img.SavePNG(chemin))
+						return false;
+					NkString pq;
+					return JoindreImage(chemin, pq);
+				}
 				NkVector<NkString> mJointes, mImagesAAttacher;
 				NkVector<const char *> mJointesPtr;
 				NkString mTexteAAttacher;

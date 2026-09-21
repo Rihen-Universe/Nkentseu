@@ -23,6 +23,7 @@
 #include "NKCode/Shell/NkGitPanel.h"
 #include "NKCode/Shell/NkDebugPanel.h"
 #include "NKCode/Shell/NkAiPanel.h"
+#include "NKEditorKit/NkEditorScriptEvenements.h" // (Q9) NK_EVENEMENTS
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppFonts.h"
 #include "NKCode/Shell/NkAppIcons.h"
@@ -107,6 +108,24 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 		sSortie = c ? (int32)std::atoi(c) : -1;
 	}
 	++sImage;
+	{
+		// (Q9) NK_EVENEMENTS : rejoue par les rappels de la coquille
+		static editorkit::NkEditorScriptEvenements sScript;
+		sScript.Tick();
+	}
+	if (const char *v = std::getenv("NK_AI_ETAT"))
+		for (const char *c = v; *c;) {
+			if (std::atoi(c) == sImage)
+				for (int32 k = 0; k < 4; ++k)
+					if (gPanneauxIA[k] && gPanneauxIA[k]->IsOpen()) {
+						gPanneauxIA[k]->Kit().TracerEtat(ui, "nkcode", sImage);
+						break;
+					}
+			while (*c && *c != ',')
+				++c;
+			if (*c == ',')
+				++c;
+		}
 	if (sImage == sOuvre && sh) {
 		int32 gN = 0;
 		const char *const *g = nkcode::SideRightGroup(gN);

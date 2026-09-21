@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 
 // =============================================================================
@@ -155,6 +156,11 @@ namespace nkentseu {
 			// plateformes = fallback interne a l'application (copier/coller intra-app).
 			void SetClipboardText(const NkString &text);
 			NkString GetClipboardText() const;
+			/// (Q9, 21/09) L'IMAGE du presse-papiers -- un bitmap copie (capture,
+			/// navigateur). RGBA 8 bits, du haut vers le bas. Win32 lit CF_DIBV5 puis
+			/// CF_DIB (24 et 32 bits) ; les autres plateformes rendent faux AVEC leur
+			/// motif (pas de silence).
+			bool GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const;
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord

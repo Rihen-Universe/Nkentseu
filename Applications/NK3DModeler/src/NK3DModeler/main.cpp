@@ -71,6 +71,7 @@
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
+#include "NKEditorKit/NkEditorScriptEvenements.h" // (Q9) NK_EVENEMENTS : sondes par les vrais rappels
 // Captures (« Capturer la vue » / « Tutoriel ») : dossier + numerotation +
 // photographie de la fenetre entiere.
 #include "NKFileSystem/NkDirectory.h"
@@ -1106,6 +1107,10 @@ int nkmain(const NkEntryState &entry) {
 	ui.clipboardSetFn = [](void *u, const char *t) {
 		static_cast<NkWindow *>(u)->SetClipboardText(t);
 	};
+	// (Q9) l'image du presse-papiers : un bitmap copie se joint au panneau IA
+	ui.clipboardImageFn = [](void *u, NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) {
+		return static_cast<NkWindow *>(u)->GetClipboardImage(rgba, w, h, motif);
+	};
 
 	// ── ECHELLE D'INTERFACE ─────────────────────────────────────────────────
 	// Sans elle, sur un ecran a 125 % ou 150 %, Windows ETIRE l'image de la
@@ -1162,6 +1167,8 @@ int nkmain(const NkEntryState &entry) {
 		renderer.UploadFontGray8(sPoliceMono.TexId(), sPoliceMono.pixels, sPoliceMono.atlasW, sPoliceMono.atlasH);
 		nk3d::NkAiPoliceMono() = &sPoliceMono;
 	}
+	// (Q9) LA PORTE DE L'IMAGE JOINTE VERS LA CREATION, posee avant toute demande.
+	nk3d::NkAiRelaisImage() = &nk3d::NkCreaJoindreImage;
 	// (Q6, 21/09) LE CORPS DU PANNEAU IA : Inter 15 x echelle, la taille de la
 	// capture (l'interface est a 13). Identifiant +4, libre comme +3.
 	static nkgui::NkGuiFont sPoliceCorpsIA;
@@ -1672,6 +1679,12 @@ int nkmain(const NkEntryState &entry) {
 	while (st.running && window.IsOpen()) {
 		while (NkEvent *ev = NkEvents().PollEvent()) {
 			(void)ev;
+		}
+		// (Q9) NK_EVENEMENTS : la souris, le clavier et le depot REJOUES par les
+		// memes rappels que Windows -- la sonde passe par le chemin de Rodolf.
+		{
+			static editorkit::NkEditorScriptEvenements sScript;
+			sScript.Tick();
 		}
 
 		// ── FENETRE MINIMISEE : ON NE FAIT RIEN DU TOUT ─────────────────────
@@ -3729,7 +3742,9 @@ int nkmain(const NkEntryState &entry) {
 				// creation n'a qu'une porte, `NkCreaJoindreImage`, celle que prend
 				// deja NK_CREA_IMAGE : la premiere image y passe, la prochaine
 				// demande de creation la consomme.
-				nk3d::NkCreaJoindreImage(st.aiImagesJointes[0].CStr());
+				// (Q9) LA CREATION RECOIT L'IMAGE AVANT LA DEMANDE : le panneau appelle
+				// `NkAiRelaisImage` (= NkCreaJoindreImage) juste avant `NkAiSoumettre`.
+				// Ici, une image plus tard, la demande etait DEJA partie sans elle.
 				st.aiImagesJointes.Clear();
 			}
 			nk3d::NkAiCopie(st.aiClaudeModeleCourant, sizeof(st.aiClaudeModeleCourant),

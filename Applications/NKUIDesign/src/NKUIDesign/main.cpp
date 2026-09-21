@@ -58,6 +58,7 @@
 // l'inclure. Voir NkEditorShell::Init (2026-09-01).
 #include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
+#include "NKEditorKit/NkEditorScriptEvenements.h" // (Q9) NK_EVENEMENTS
 #include "NKEditorKit/NkEditorModal.h" // le cadre modal du kit (choix Nouveau projet)
 #include "NKEditorKit/NkThemeToGui.h"  // NkThemeUnpack : role de theme -> couleur de dessin
 #include "NKLogger/NkLog.h"
@@ -8350,6 +8351,12 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
 	gDesign.RecolterIA();
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
+	// (Q9) NK_EVENEMENTS : la souris, le clavier et le depot rejoues par les MEMES
+	// rappels que Windows (ceux de la coquille).
+	{
+		static editorkit::NkEditorScriptEvenements sScript;
+		sScript.Tick();
+	}
 	// (Q7) LES PASTILLES LIEES A LA SELECTION se retirent sans selection.
 	if (gShell)
 		gShell->SetRailSelection(gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0);
