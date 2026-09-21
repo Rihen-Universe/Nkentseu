@@ -25,6 +25,7 @@
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
 #include "NKCode/Shell/NkAiAccounts.h" // comptes multiples (CLAUDE_CONFIG_DIR par workspace)
 #include "NKCode/Shell/Panels.h" // SideRightGroup / OpenSideExclusive : la pastille amene le panneau de l'assistant choisi
+#include "NKWindow/Core/NkDialogs.h" // (Q8) « Joindre une image… »
 #include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKTime/NkChrono.h"
@@ -753,6 +754,7 @@ namespace nkentseu {
 						for (int32 i = 0; i < 5; ++i)
 							mKit.effortCrans.PushBack(NkString(kCli[i]));
 						mKit.fileAttente = true;	   // NKCode met en file ce qu'on tape pendant un tour
+						mKit.accepteImages = true;	   // (Q8) le CLI lit une image par son chemin
 						mKit.plafond = 400;
 						mKit.declaration = NkString(
 							"Claude Code : un COMPTE (dossier de configuration, NkAiAccounts) -- le CLI "
@@ -921,6 +923,36 @@ namespace nkentseu {
 				void DessinerKit(NkGuiContext &ctx, const NkRect &r, bool popOuvert) {
 					KitDeclarer();
 					KitSynchroniser();
+					// (Q8) CE QUE NKCODE DEPOSE DANS SON BROUILLON (un fichier lache, le
+					// menu IA de la barre, `@"chemin"`) PASSE AU COMPOSEUR DU KIT : le
+					// brouillon n'est plus affiche, et ce qui y tombait etait PERDU a
+					// l'envoi (la saisie du kit l'ecrasait). Une IMAGE devient une piece
+					// jointe ; le reste s'ajoute au texte.
+					if (mInput[0] && !mBusy) {
+						NkString reste;
+						const char *c = mInput;
+						while (*c) {
+							if (c[0] == '@' && c[1] == '"') {
+								const char *f = c + 2;
+								while (*f && *f != '"')
+									++f;
+								const NkString chemin(c + 2, (NkString::SizeType)(f - (c + 2)));
+								NkString pq;
+								if (*f == '"' && mKit.JoindreImage(chemin.CStr(), pq)) {
+									c = f + 1;
+									while (*c == ' ')
+										++c;
+									continue;
+								}
+							}
+							reste.Append(c, 1);
+							++c;
+						}
+						NkString t(mKit.Saisie());
+						t.Append(reste.CStr());
+						mKit.PoserSaisie(t.CStr());
+						mInput[0] = 0;
+					}
 					mKit.actions = editorkit::NkAiActionsFil{};
 					if (mPermPending && mKitPermBloc) {
 						mKit.actions.blocId = mKitPermBloc;
@@ -965,12 +997,27 @@ namespace nkentseu {
 						if (commandeLocale)
 							mKit.ViderSaisie();
 					}
+					if (out.joindreImage) {
+						const nkentseu::NkDialogResult dr = nkentseu::NkDialogs::OpenFileDialog(
+							NkString("*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp"), NkString("Joindre une image"));
+						NkString pq;
+						if (dr.confirmed && dr.path.Length() > 0 && !mKit.JoindreImage(dr.path.CStr(), pq))
+							Msgs().PushBack({2, pq});
+					}
 					if (out.envoyer && !commandeLocale) {
 						// LE MEME CHEMIN QUE L'ANCIENNE SAISIE : le brouillon de la
 						// conversation, puis SendOrQueue (qui met en file pendant un tour).
+						// (Q8) LES IMAGES JOINTES partent par leur chemin, la forme que le
+						// CLI de Claude Code lit (`@"chemin"`).
+						NkString tout = out.texte;
+						for (usize ii = 0; ii < out.images.Size(); ++ii) {
+							tout.Append(tout.Length() ? " @\"" : "@\"");
+							tout.Append(out.images[ii].CStr());
+							tout.Append("\"");
+						}
 						const usize cap = sizeof(mInput) - 1;
-						const usize n = out.texte.Size() < cap ? out.texte.Size() : cap;
-						::memcpy(mInput, out.texte.CStr(), n);
+						const usize n = tout.Size() < cap ? tout.Size() : cap;
+						::memcpy(mInput, tout.CStr(), n);
 						mInput[n] = 0;
 						SendOrQueue();
 						mKit.ViderSaisie();

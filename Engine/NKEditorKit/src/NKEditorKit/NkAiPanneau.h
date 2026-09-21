@@ -57,7 +57,9 @@
 #include "NKEditorKit/NkAiThreadLayout.h"
 #include "NKEditorKit/NkAiThreadPaint.h"
 #include "NKGui/NKGui.h"
+#include "NKFileSystem/NkFile.h" // (Q8) la persistance des chats
 #include <cstdio>
+#include <cstdlib>
 
 namespace nkentseu {
 	namespace editorkit {
@@ -166,18 +168,23 @@ namespace nkentseu {
 				}
 		};
 
-		struct NkAiArchive {
-				NkAiFil fil;
-				NkString sujet;
-		};
-
-		/// LA CONVERSATION D'UN FOURNISSEUR.
+		/// UN CHAT (21/09, Q8 -- Rodolf : « c'est la creation d'un nouveau chat qui
+		/// met une nouvelle page, et on doit pouvoir basculer entre plusieurs chats
+		/// sans rien perdre de chacun »).
+		/// ⚠️ UN CHAT N'APPARTIENT NI A UN MODELE NI A UN FOURNISSEUR : ce sont SES
+		///    REGLAGES, qu'on change en cours de route sans rien perdre. La regle
+		///    de Q2.3 (« changer de fournisseur ramene SA conversation ») rangeait
+		///    le fil dans la case de l'ancien fournisseur -- choisir un modele
+		///    d'un autre fournisseur montrait une page vide : le defaut vu par
+		///    Rodolf le 21/09 a 13h42. Elle est RETIREE.
 		struct NkAiConversation {
 				NkAiFil fil;
 				float32 defile = 0.f;
 				bool colle = true; ///< suit le bas tant qu'on n'a pas remonte
 				float64 debut = -1.0;
-				NkVector<NkAiArchive> archives;
+				NkString brouillon;		///< le composeur non envoye de CE chat
+				NkString fournisseur;	///< la cle du fournisseur choisi (stable)
+				NkString modele;		///< le nom du modele choisi
 		};
 
 		/// CE QUE LE PANNEAU DEMANDE A L'HOTE, cette image. Le panneau n'appelle
@@ -203,9 +210,17 @@ namespace nkentseu {
 				bool effortChange = false; ///< `effort` a change : la PROCHAINE requete le porte
 				bool penserChange = false; ///< `penser` a change
 				int32 commande = -1;	   ///< l'`id` d'une commande « / » que l'hote execute
+				/// (Q8) LES IMAGES qui partent avec `texte` (chemins). L'hote les lit.
+				NkVector<NkString> images;
+				/// « Joindre une image… » : l'hote ouvre SON selecteur de fichier et
+				/// rend le chemin par `JoindreImage`.
+				bool joindreImage = false;
 				int32 entreePlus = -1;	   ///< l'`id` d'une entree « + »
 				uint8 fenetre = 0;		   ///< 1 = Utilisation, 2 = Carte des agents : vient d'ouvrir
 				bool fenetreFermee = false;
+				// ── Q8 ──
+				bool copie = false; ///< quelque chose vient d'etre copie dans le presse-papiers
+				NkString copieTexte; ///< ce qui a ete copie (la sonde le compare au presse-papiers)
 				/// Le panneau a PRIS un clic de la souris cette image : l'hote ne doit
 				/// pas le relayer a ce qui est dessous.
 				bool clicPris = false;
@@ -214,6 +229,14 @@ namespace nkentseu {
 		enum class NkAiMenu : uint8 { Aucun = 0, Fournisseurs, Modeles, Modes, Commandes, Historique, AjouterIa, Plus };
 
 		class NkAiPanneau {
+			private:
+				/// (Q8) Un point de selection : (bloc, rang, octet), jamais un indice de plan.
+				struct PointSel {
+						uint32 bloc = 0u;	 ///< le bloc (stable d'une image a l'autre)
+						uint32 ordinal = 0u; ///< le rang du morceau de texte DANS ce bloc
+						uint32 off = 0u;	 ///< l'octet dans la tranche du morceau
+						bool valide = false;
+				};
 			public:
 				// ════════════ CE QUE L'HOTE DECLARE ════════════
 				NkVector<NkAiFournisseurDesc> fournisseurs;
@@ -243,6 +266,9 @@ namespace nkentseu {
 				//    le reglage et le SIGNALE (`effortChange`, `penserChange`) ; l'hote
 				//    le traduit dans SA requete (num_predict, think…). Un reglage qui
 				//    ne changerait pas les octets envoyes serait pire qu'absent.
+				/// (Q8) L'hote accepte des images jointes : le « + » porte « Joindre une
+				/// image… », Ctrl+V d'un chemin d'image et le depot d'un fichier joignent.
+				bool accepteImages = false;
 				int32 effort = 3;				 ///< le cran courant de `effortCrans`
 				NkVector<NkString> effortCrans; ///< vide ou 1 cran = pas de curseur
 				bool penser = true;				 ///< montrer le raisonnement (modele qui l'annonce)
@@ -263,12 +289,76 @@ namespace nkentseu {
 				NkPaintRect vueFil;	 ///< la fenetre du fil a l'ecran
 				float32 filOx = 0.f, filOy = 0.f; ///< l'origine du plan du fil a l'ecran
 
+				/// (Q8) LA PERSISTANCE DES CHATS : non vide = les chats sont relus au
+				/// premier affichage et reecrits a chaque changement (contenu, bascule,
+				/// reglage). Un fichier texte a lignes, dans le dossier de l'hote.
+				NkString cheminChats;
+
 				NkAiPanneau() {
 					mConv.Resize(1);
 					effortCrans.PushBack(NkString("Bas"));
 					effortCrans.PushBack(NkString("Moyen"));
 					effortCrans.PushBack(NkString("Haut"));
 					effortCrans.PushBack(NkString("Max"));
+				}
+				// ── LES IMAGES JOINTES (Q8) ─────────────────────────────────────
+				/// Joint une image au composeur. Rend faux ET NOMME la raison (fichier
+				/// illisible, pas une image) -- rien n'est joint en silence.
+				bool JoindreImage(const char *chemin, NkString &pourquoi) {
+					if (!accepteImages) {
+						pourquoi = NkString("cet assistant ne recoit pas d'image");
+						return false;
+					}
+					const NkAiVignetteImage &v = NkAiVignetteDe(chemin);
+					if (!v.ok) {
+						pourquoi = NkString("ce fichier ne se lit pas comme une image : ");
+						pourquoi.Append(chemin ? chemin : "");
+						return false;
+					}
+					for (usize i = 0; i < mJointes.Size(); ++i)
+						if (mJointes[i] == NkString(chemin))
+							return true; // deja jointe
+					if (mJointes.Size() >= 6u) {
+						pourquoi = NkString("six images au plus par demande");
+						return false;
+					}
+					mJointes.PushBack(NkString(chemin));
+					return true;
+				}
+				void RetirerImage(uint32 i) {
+					if (i < mJointes.Size())
+						mJointes.Erase(mJointes.Begin() + i);
+				}
+				const NkVector<NkString> &ImagesJointes() const {
+					return mJointes;
+				}
+				/// Le DEPOT de fichiers sur le panneau (glisser-deposer) : l'hote relaie
+				/// ce que la fenetre lui donne ; ce qui n'est pas une image est refuse
+				/// et le motif est rendu.
+				uint32 DeposerFichiers(const char *const *chemins, uint32 n, NkString &pourquoi) {
+					uint32 ok = 0;
+					for (uint32 i = 0; i < n; ++i)
+						if (JoindreImage(chemins[i], pourquoi))
+							++ok;
+					return ok;
+				}
+
+				// ── LA SELECTION DU FIL (Q8) ────────────────────────────────────
+				/// Tout le fil, comme Ctrl+A quand le fil a la main. Porte des sondes.
+				void ToutSelectionnerFil() {
+					mSelTout = true;
+					mFilFocus = true;
+				}
+				bool SelectionFil() const {
+					return mSelA.valide && mSelB.valide;
+				}
+				/// Le texte selectionne dans le fil, tel que Ctrl+C le copierait.
+				NkString TexteSelectionne() const {
+					return mTexteSel;
+				}
+				void EffacerSelection() {
+					mSelA = mSelB = PointSel{};
+					mSelTout = false;
 				}
 				/// La fenetre ouverte : 0 aucune, 1 Utilisation, 2 Carte des agents.
 				uint8 FenetreOuverte() const {
@@ -304,17 +394,17 @@ namespace nkentseu {
 				///    encore rien produire -- et le bloc serait perdu sans bruit.
 				NkAiFil &Fil() {
 					Assurer();
-					NkAiFil &f = mVivant ? *mVivant : mConv[(usize)mActif].fil;
+					NkAiFil &f = mVivant ? *mVivant : mConv[(usize)mChat].fil;
 					f.Declarer(capacites);
 					return f;
 				}
 				const NkAiFil &Fil() const {
-					return mVivant ? *mVivant : mConv[(usize)mActif].fil;
+					return mVivant ? *mVivant : mConv[(usize)mChat].fil;
 				}
-				/// Le fil du fournisseur `i` (le vivant si c'est l'actif).
+				/// Le fil du chat `i` (le vivant si c'est le chat ouvert).
 				NkAiFil &FilDe(int32 i) {
 					Assurer();
-					if (i == mActif || i < 0 || i >= (int32)mConv.Size())
+					if (i == mChat || i < 0 || i >= (int32)mConv.Size())
 						return Fil();
 					mConv[(usize)i].fil.Declarer(capacites);
 					return mConv[(usize)i].fil;
@@ -322,20 +412,30 @@ namespace nkentseu {
 				int32 Actif() const {
 					return mActif;
 				}
+				/// Le chat ouvert, et combien il y en a.
+				int32 ChatActif() const {
+					return mChat;
+				}
+				uint32 Chats() const {
+					return (uint32)mConv.Size();
+				}
 				const NkAiFournisseurDesc *FournisseurActif() const {
 					return (mActif >= 0 && mActif < (int32)fournisseurs.Size()) ? &fournisseurs[(usize)mActif] : nullptr;
 				}
 
 				/// LE SUJET : la premiere demande de la conversation, comme la capture.
 				const char *Sujet() const {
-					const NkAiFil &f = Fil();
+					return SujetDe(Fil());
+				}
+				static const char *SujetDe(const NkAiFil &f) {
 					for (uint32 i = 0; i < f.Taille(); ++i)
 						if (f.At(i).type == NkAiBloc::Demande)
 							return f.At(i).texte.CStr();
 					return "Nouvelle conversation";
 				}
 
-				/// Change d'assistant. Rend faux ET NOMME la raison.
+				/// Change de fournisseur. Rend faux ET NOMME la raison.
+				/// ⚠️ LE FIL NE BOUGE PAS (Q8) : c'est un reglage du chat ouvert.
 				bool Choisir(int32 i, NkString &pourquoi) {
 					Assurer();
 					if (i < 0 || i >= (int32)fournisseurs.Size()) {
@@ -345,65 +445,174 @@ namespace nkentseu {
 					if (i == mActif)
 						return true;
 					if (occupe) {
-						pourquoi = NkString("une reponse est attendue : elle arriverait dans la conversation de "
-											"l'autre assistant");
+						pourquoi = NkString("une reponse est attendue du fournisseur courant : changez apres elle");
 						return false;
 					}
-					if (mVivant) {
-						mConv[(usize)mActif].fil = *mVivant;
-						*mVivant = mConv[(usize)i].fil;
-					}
 					mActif = i;
+					RetenirReglages();
 					return true;
 				}
 
-				/// Une conversation NEUVE pour l'assistant courant. L'ancienne est
-				/// ARCHIVEE d'abord : rien ne disparait sans recours.
+				/// UN CHAT NEUF : une page blanche. L'ancien RESTE, intact, dans
+				/// l'historique (l'horloge de l'en-tete). Un chat deja vide n'en cree
+				/// pas un second -- deux pages blanches ne se distinguent pas.
 				void NouvelleConversation() {
 					Assurer();
-					NkAiFil &f = Fil();
-					NkAiConversation &c = mConv[(usize)mActif];
-					if (f.Taille() > 0) {
-						if (c.archives.Size() >= 8u)
-							c.archives.Erase(c.archives.Begin());
-						NkAiArchive a;
-						a.fil = f;
-						a.sujet = NkString(Sujet());
-						c.archives.PushBack(a);
-					}
-					f.Vider();
-					c.defile = 0.f;
-					c.colle = true;
-					c.debut = -1.0;
+					if (Fil().Taille() == 0 && Blanc(mSaisie))
+						return;
+					RangerChat();
+					NkAiConversation c;
+					c.fil.Declarer(capacites);
+					if (plafond > 0u)
+						c.fil.PoserPlafond(plafond);
+					mConv.PushBack(c);
+					mChat = (int32)mConv.Size() - 1;
+					PoserChat();
+					RetenirReglages();
 				}
-				/// Rouvre l'archive `k` de l'assistant courant (la courante est
-				/// archivee a sa place : rouvrir ne fait rien perdre).
+				/// Ouvre le chat `k` parmi les AUTRES (0 = le plus ancien). Le chat
+				/// courant reste ou il est : rien n'est perdu d'une bascule.
 				void Rouvrir(int32 k) {
 					Assurer();
-					NkAiConversation &c = mConv[(usize)mActif];
-					if (k < 0 || k >= (int32)c.archives.Size())
-						return;
-					NkAiArchive a = c.archives[(usize)k];
-					c.archives.Erase(c.archives.Begin() + k);
-					NouvelleConversation();
-					Fil() = a.fil;
-					c.colle = true;
+					const int32 i = AutreVersChat(k);
+					if (i >= 0)
+						BasculerChat(i);
 				}
-				/// Vide l'historique de l'assistant courant. ⚠️ ATTEIGNABLE : un historique
-				/// qu'on ne peut pas vider est une dette de vie privee. La conversation
-				/// OUVERTE n'est pas touchee.
+				/// Bascule sur le chat `i` : son fil, son brouillon, son modele.
+				void BasculerChat(int32 i) {
+					Assurer();
+					if (i < 0 || i >= (int32)mConv.Size() || i == mChat || occupe)
+						return;
+					RangerChat();
+					mChat = i;
+					PoserChat();
+				}
+				/// Supprime les AUTRES chats. ⚠️ ATTEIGNABLE : un historique qu'on ne
+				/// peut pas vider est une dette de vie privee. Le chat OUVERT reste.
 				void ViderHistorique() {
 					Assurer();
-					mConv[(usize)mActif].archives.Clear();
+					RangerChat();
+					NkAiConversation garde = mConv[(usize)mChat];
+					mConv.Clear();
+					mConv.PushBack(garde);
+					mChat = 0;
 				}
-				/// Le sujet de l'archive `k` (0 = la plus ancienne).
+				/// Le sujet de l'AUTRE chat `k` (0 = le plus ancien).
 				const char *SujetArchive(uint32 k) const {
-					if (mActif < 0 || mActif >= (int32)mConv.Size() || k >= mConv[(usize)mActif].archives.Size())
+					const int32 i = AutreVersChat((int32)k);
+					if (i < 0)
 						return "";
-					return mConv[(usize)mActif].archives[k].sujet.CStr();
+					return SujetDe(i == mChat ? Fil() : mConv[(usize)i].fil);
 				}
+				/// Combien d'AUTRES chats l'historique propose.
 				uint32 Archives() const {
-					return (mActif >= 0 && mActif < (int32)mConv.Size()) ? (uint32)mConv[(usize)mActif].archives.Size() : 0u;
+					return mConv.Size() > 0 ? (uint32)mConv.Size() - 1u : 0u;
+				}
+
+				// ── LA PERSISTANCE DES CHATS (Q8) ─────────────────────────────
+				/// Ecrit tous les chats. Rend faux si le fichier n'a pas pu l'etre.
+				bool EnregistrerChats(const char *chemin) {
+					if (!chemin || !chemin[0])
+						return false;
+					RangerChat();
+					NkString o("nkaichats 1\n");
+					char b[64];
+					snprintf(b, sizeof(b), "actif\t%d\n", (int)mChat);
+					o.Append(b);
+					for (usize i = 0; i < mConv.Size(); ++i) {
+						const NkAiConversation &c = mConv[i];
+						o.Append("chat\t");
+						Echapper(c.fournisseur, o);
+						o.Append("\t");
+						Echapper(c.modele, o);
+						o.Append("\t");
+						Echapper(c.brouillon, o);
+						o.Append("\n");
+						const NkAiFil &f = ((int32)i == mChat) ? Fil() : c.fil;
+						for (uint32 k = 0; k < f.Taille(); ++k) {
+							const NkAiBlocDonnees &d = f.At(k);
+							snprintf(b, sizeof(b), "bloc\t%s\t%d", NkAiBlocNom(d.type), d.replie ? 1 : 0);
+							o.Append(b);
+							const NkString enClair(d.sortieEnClair ? "1" : "0");
+							const NkString *champs[9] = {&d.titre, &d.texte,  &d.entree,		  &d.sortie,		 &d.motif,
+														 &d.effet, &enClair, &d.etiquetteEntree, &d.etiquetteSortie};
+							for (int32 j = 0; j < 9; ++j) {
+								o.Append("\t");
+								Echapper(*champs[j], o);
+							}
+							o.Append("\n");
+						}
+					}
+					mEmpreinteEcrite = Empreinte();
+					return NkFile::WriteAllText(chemin, o.CStr());
+				}
+				/// Relit les chats. Rend faux si le fichier est absent ou d'un autre
+				/// format -- rien n'est alors touche.
+				bool ChargerChats(const char *chemin) {
+					if (!chemin || !chemin[0] || !NkFile::Exists(chemin))
+						return false;
+					const NkString t = NkFile::ReadAllText(chemin);
+					if (t.Find("nkaichats 1", 0) != 0u)
+						return false;
+					NkVector<NkAiConversation> lus;
+					int32 actif = 0;
+					const char *c = t.CStr();
+					while (c && *c) {
+						const char *fin = c;
+						while (*fin && *fin != '\n')
+							++fin;
+						NkVector<NkString> ch;
+						const char *d = c;
+						for (const char *q = c;; ++q) {
+							if (q == fin || *q == '\t') {
+								NkString v;
+								Deschapper(d, q, v);
+								ch.PushBack(v);
+								d = q + 1;
+								if (q == fin)
+									break;
+							}
+						}
+						if (ch.Size() >= 2 && ch[0] == NkString("actif"))
+							actif = (int32)atoi(ch[1].CStr());
+						else if (ch.Size() >= 4 && ch[0] == NkString("chat")) {
+							NkAiConversation cv;
+							cv.fil.Declarer(capacites);
+							if (plafond > 0u)
+								cv.fil.PoserPlafond(plafond);
+							cv.fournisseur = ch[1];
+							cv.modele = ch[2];
+							cv.brouillon = ch[3];
+							lus.PushBack(cv);
+						} else if (ch.Size() >= 9 && ch[0] == NkString("bloc") && lus.Size() > 0) {
+							NkAiBlocDonnees bd;
+							bd.type = TypeDe(ch[1]);
+							bd.titre = ch[3];
+							bd.texte = ch[4];
+							bd.entree = ch[5];
+							bd.sortie = ch[6];
+							bd.motif = ch[7];
+							bd.effet = ch[8];
+							if (ch.Size() >= 12) {
+								bd.sortieEnClair = ch[9] == NkString("1");
+								bd.etiquetteEntree = ch[10];
+								bd.etiquetteSortie = ch[11];
+							}
+							NkString pq;
+							NkAiFil &f = lus[lus.Size() - 1].fil;
+							if (f.Pousser(bd, pq))
+								if (NkAiBlocDonnees *m = f.MutableParId(f.At(f.Taille() - 1).id))
+									m->replie = ch[2] == NkString("1");
+						}
+						c = *fin ? fin + 1 : fin;
+					}
+					if (lus.Size() == 0)
+						return false;
+					mConv = lus;
+					mChat = (actif >= 0 && actif < (int32)mConv.Size()) ? actif : 0;
+					PoserChat();
+					mEmpreinteEcrite = Empreinte();
+					return true;
 				}
 
 				// ── LE COMPOSEUR ────────────────────────────────────────────────
@@ -456,11 +665,21 @@ namespace nkentseu {
 					NkAiSorties out;
 					Assurer();
 					rect = r;
+					// LE PEINTRE DE CETTE IMAGE mesure la selection -- jamais celui d'une
+					// image passee (il vivait sur la pile de l'hote : pointeur pendant).
+					mMesureur = &p;
 					NkAiFil &fil = Fil();
 					fil.Declarer(capacites);
 					if (plafond > 0u)
 						fil.PoserPlafond(plafond);
-					NkAiConversation &conv = mConv[(usize)mActif];
+					// (Q8) LES CHATS PERSISTANTS : relus une fois, puis reecrits a chaque
+					// changement -- le contenu, une bascule, un reglage.
+					if (!mChatsLus) {
+						mChatsLus = true;
+						if (cheminChats.Length() > 0)
+							(void)ChargerChats(cheminChats.CStr());
+					}
+					NkAiConversation &conv = mConv[(usize)mChat];
 					if (fil.Taille() == 0)
 						conv.debut = -1.0;
 					else if (conv.debut < 0.0 && maintenant >= 0.0)
@@ -468,6 +687,8 @@ namespace nkentseu {
 
 					NkAiMetriques m;
 					m.Echelle(echelle);
+					if (r.w < 560.f * echelle)
+						m.Compacter(echelle); // (Q8) toute la largeur, une petite marge
 					const bool focus = ComposeurActif(ctx);
 
 					// ── 1. LE CLAVIER, AVANT LA MESURE : on mesure ce qui est tape ──
@@ -519,7 +740,54 @@ namespace nkentseu {
 					cd.mode = md ? md->nom.CStr() : nullptr;
 					cd.envoiActif = !Blanc(mSaisie) && (!fa || fa->pret);
 					cd.envoiProduit = md ? md->produit : true;
+					cd.reserveHaut = mJointes.Size() > 0 ? 64.f * echelle : 0.f;
+					cd.envoiActif = cd.envoiActif || (mJointes.Size() > 0 && (!fa || fa->pret));
 					const float32 yComposeur = NkAiComposeurMesurer(cd, r.w, r.h, m, &Mesure, &p, planChrome);
+
+					// (Q8) LES VIGNETTES DU COMPOSEUR, dans la place reservee en tete du cadre
+					mJointesPtr.Clear();
+					for (usize i = 0; i < mJointes.Size(); ++i)
+						mJointesPtr.PushBack(mJointes[i].CStr());
+					if (mJointes.Size() > 0) {
+						NkAiRectPublie cad;
+						if (planChrome.Trouver(0u, NkAiPiece::ComposeurCadre, cad)) {
+							const float32 t = 52.f * echelle;
+							for (usize i = 0; i < mJointes.Size(); ++i) {
+								NkAiRectPublie im;
+								im.piece = NkAiPiece::ImageJointe;
+								im.x = cad.x + 12.f + (float32)i * (t + 8.f);
+								im.y = cad.y + 8.f;
+								im.w = t;
+								im.h = t;
+								im.debut = (uint32)i;
+								planChrome.Ajouter(im);
+								NkAiRectPublie x;
+								x.piece = NkAiPiece::RetirerImage;
+								x.w = x.h = 16.f * echelle;
+								x.x = im.x + t - x.w * 0.6f;
+								x.y = im.y - x.h * 0.4f;
+								x.debut = (uint32)i;
+								planChrome.Ajouter(x);
+							}
+						}
+					}
+					if (mImagesAAttacher.Size() > 0) {
+						for (uint32 k = fil.Taille(); k > 0 && k + 4u > fil.Taille(); --k) {
+							const NkAiBlocDonnees &bd = fil.At(k - 1);
+							if (bd.type == NkAiBloc::Demande && bd.images.Size() == 0 &&
+								(mTexteAAttacher.Length() == 0 || bd.texte.Find(mTexteAAttacher.CStr(), 0) != NkString::npos ||
+								 mTexteAAttacher.Find(bd.texte.CStr(), 0) != NkString::npos)) {
+								if (NkAiBlocDonnees *mb = fil.MutableParId(bd.id))
+									mb->images = mImagesAAttacher;
+								mImagesAAttacher.Clear();
+								break;
+							}
+						}
+						if (++mAttacheAttente > 120u) { // la demande n'est jamais venue : on n'attache rien
+							mImagesAAttacher.Clear();
+							mAttacheAttente = 0u;
+						}
+					}
 
 					// ── LE FIL, DANS SA FENETRE ──
 					vueFil = {r.x, r.y + hEntete, r.w, yComposeur - hEntete - 6.f};
@@ -596,6 +864,10 @@ namespace nkentseu {
 					// ── 4. LA SOURIS ──
 					Souris(ctx, r, pointeurLibre, m, out);
 
+					// ── 4 bis. LA SELECTION (Q8) : le glisser, Ctrl+A / Ctrl+C du fil,
+					//    le surlignage et le bouton « copier » du bloc survole ──
+					Selection(ctx, focus, p, out);
+
 					// ── 5. LA PEINTURE ──
 					NkAiChromeTextes ch;
 					ch.titre = sujet;
@@ -615,6 +887,8 @@ namespace nkentseu {
 					ch.filtreInvite = "Filtrer les actions…";
 					ch.fenetreTextes = mFenPtr.Size() ? mFenPtr.Data() : nullptr;
 					ch.fenetreN = (uint32)(mFenPtr.Size() / 2u);
+					ch.images = mJointesPtr.Size() ? mJointesPtr.Data() : nullptr;
+					ch.imagesN = (uint32)mJointesPtr.Size();
 					ch.actions = &actions;
 					p.Fill(r, (uint16)NkRole::PanelBg, 0.f);
 					p.PushClip(vueFil);
@@ -626,6 +900,20 @@ namespace nkentseu {
 					// LA MARQUE « non vu » se consomme LA OU LES BLOCS SONT PEINTS.
 					fil.MarquerVus();
 					out.mode = mode;
+					mMesureur = nullptr;
+					if (out.modeleChange)
+						RetenirReglages();
+					// (Q8) UNE BASCULE DE CHAT a pose SES reglages : l'hote les applique
+					// (dorsal, modele) comme s'ils avaient ete choisis a la main.
+					if (mBasculeReglage) {
+						mBasculeReglage = false;
+						out.fournisseurChange = true;
+						out.ancien = -1;
+						out.nouveau = mActif;
+						out.modeleChange = true;
+					}
+					if (cheminChats.Length() > 0 && Empreinte() != mEmpreinteEcrite)
+						(void)EnregistrerChats(cheminChats.CStr());
 					return out;
 				}
 
@@ -641,11 +929,135 @@ namespace nkentseu {
 				}
 
 				void Assurer() {
-					usize n = fournisseurs.Size() > 0 ? fournisseurs.Size() : 1u;
-					if (mConv.Size() < n)
-						mConv.Resize(n);
+					const usize n = fournisseurs.Size() > 0 ? fournisseurs.Size() : 1u;
+					if (mConv.Size() == 0)
+						mConv.Resize(1);
+					if (mChat < 0 || mChat >= (int32)mConv.Size())
+						mChat = 0;
 					if (mActif >= (int32)n)
 						mActif = 0;
+				}
+
+				// ── LES CHATS (Q8) ──────────────────────────────────────────────
+				/// Le chat ouvert est RANGE : le fil vivant de l'hote, le brouillon.
+				void RangerChat() {
+					NkAiConversation &c = mConv[(usize)mChat];
+					if (mVivant)
+						c.fil = *mVivant;
+					c.brouillon = NkString(mSaisie);
+					RetenirReglages(); // le chat qu'on quitte garde SES reglages
+				}
+				/// Le chat `mChat` est POSE : son fil chez l'hote, son brouillon dans
+				/// le composeur, ses reglages dans la pastille.
+				void PoserChat() {
+					NkAiConversation &c = mConv[(usize)mChat];
+					if (mVivant)
+						*mVivant = c.fil;
+					PoserSaisie(c.brouillon.CStr());
+					for (usize i = 0; i < fournisseurs.Size(); ++i)
+						if (c.fournisseur.Length() > 0 && fournisseurs[i].cle == c.fournisseur) {
+							if ((int32)i != mActif) {
+								mActif = (int32)i;
+								mBasculeReglage = true;
+							}
+							NkAiFournisseurDesc &f = fournisseurs[i];
+							for (usize k = 0; k < f.modeles.Size(); ++k)
+								if (f.modeles[k].nom == c.modele && f.modele != (int32)k) {
+									f.modele = (int32)k;
+									mBasculeReglage = true;
+								}
+						}
+					c.colle = true;
+				}
+				/// Les reglages COURANTS sont ceux du chat ouvert.
+				void RetenirReglages() {
+					if (mConv.Size() == 0)
+						return;
+					NkAiConversation &c = mConv[(usize)mChat];
+					const NkAiFournisseurDesc *f = FournisseurActif();
+					if (!f)
+						return;
+					c.fournisseur = f->cle;
+					c.modele = (f->modele >= 0 && f->modele < (int32)f->modeles.Size())
+								   ? f->modeles[(usize)f->modele].nom
+								   : NkString();
+				}
+				/// L'AUTRE chat `k` (0 = le plus ancien, le chat ouvert exclu) -> indice.
+				int32 AutreVersChat(int32 k) const {
+					if (k < 0)
+						return -1;
+					int32 n = 0;
+					for (int32 i = 0; i < (int32)mConv.Size(); ++i) {
+						if (i == mChat)
+							continue;
+						if (n == k)
+							return i;
+						++n;
+					}
+					return -1;
+				}
+				/// Une empreinte BON MARCHE de tout ce qui se persiste : sans elle,
+				/// on ecrirait le fichier a chaque image.
+				uint64 Empreinte() const {
+					uint64 h = 1469598103934665603ull;
+					auto mix = [&](uint64 v) { h = (h ^ v) * 1099511628211ull; };
+					mix((uint64)mConv.Size());
+					mix((uint64)mChat);
+					for (usize i = 0; i < mConv.Size(); ++i) {
+						const NkAiConversation &c = mConv[i];
+						const NkAiFil &f = ((int32)i == mChat) ? Fil() : c.fil;
+						mix((uint64)f.Taille());
+						for (uint32 k = 0; k < f.Taille(); ++k) {
+							const NkAiBlocDonnees &d = f.At(k);
+							mix((uint64)d.id);
+							mix((uint64)(d.replie ? 1 : 0));
+							mix((uint64)(d.texte.Length() + d.sortie.Length() * 3u + d.effet.Length() * 7u +
+										 d.entree.Length() * 11u + d.motif.Length() * 13u + d.titre.Length() * 17u));
+						}
+						mix((uint64)(((int32)i == mChat) ? Longueur(mSaisie) : c.brouillon.Length()));
+						for (usize k = 0; k < c.modele.Length(); ++k)
+							mix((uint64)(unsigned char)c.modele.CStr()[k]);
+						for (usize k = 0; k < c.fournisseur.Length(); ++k)
+							mix((uint64)(unsigned char)c.fournisseur.CStr()[k]);
+					}
+					return h;
+				}
+				static uint32 Longueur(const char *s) {
+					uint32 n = 0;
+					while (s && s[n])
+						++n;
+					return n;
+				}
+				static void Echapper(const NkString &v, NkString &o) {
+					for (usize i = 0; i < v.Length(); ++i) {
+						const char c = v.CStr()[i];
+						if (c == '\\')
+							o.Append("\\\\");
+						else if (c == '\t')
+							o.Append("\\t");
+						else if (c == '\n')
+							o.Append("\\n");
+						else if (c == '\r')
+							o.Append("\\r");
+						else
+							o.Append(&c, 1);
+					}
+				}
+				static void Deschapper(const char *a, const char *b, NkString &o) {
+					for (const char *q = a; q < b; ++q) {
+						if (*q == '\\' && q + 1 < b) {
+							++q;
+							const char c = *q == 'n' ? '\n' : (*q == 't' ? '\t' : (*q == 'r' ? '\r' : *q));
+							o.Append(&c, 1);
+						} else if (*q != '\r')
+							o.Append(q, 1);
+					}
+				}
+				static NkAiBloc TypeDe(const NkString &nom) {
+					for (uint8 t = 0; t < 16; ++t)
+						if (nom == NkString(NkAiBlocNom((NkAiBloc)t)))
+							return (NkAiBloc)t;
+					return NkAiBloc::Prose;
 				}
 
 				static bool Blanc(const char *s) {
@@ -717,6 +1129,56 @@ namespace nkentseu {
 						len -= n;
 						mCaret = a;
 					};
+					// ── Q8 : LA SELECTION DU COMPOSEUR (Ctrl+A, Ctrl+C, Ctrl+X, et la frappe
+					//    ou le collage REMPLACENT ce qui est selectionne) ──
+					auto bornes = [&](int32 &a, int32 &b) {
+						a = mSelComp < mCaret ? mSelComp : mCaret;
+						b = mSelComp < mCaret ? mCaret : mSelComp;
+						if (a < 0)
+							a = 0;
+						if (b > len)
+							b = len;
+					};
+					auto aSelection = [&]() { return mSelComp >= 0 && mSelComp != mCaret; };
+					if (in.wantSelectAll) {
+						mSelComp = 0;
+						mCaret = len;
+						in.wantSelectAll = false;
+					}
+					if ((in.wantCopy || in.wantCut) && aSelection()) {
+						int32 a = 0, b = 0;
+						bornes(a, b);
+						NkString t(mSaisie + a, (NkString::SizeType)(b - a));
+						ctx.SetClipboard(t.CStr());
+						out.copie = true;
+						out.copieTexte = t;
+						if (in.wantCut) {
+							effacer(a, b);
+							mSelComp = -1;
+						}
+						in.wantCopy = in.wantCut = false;
+					}
+					const bool frappe = in.charCount > 0 || in.wantPaste ||
+										in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace) ||
+										in.KeyPressedRepeat(nkgui::NkGuiKey::Delete);
+					if (frappe && aSelection()) {
+						int32 a = 0, b = 0;
+						bornes(a, b);
+						effacer(a, b);
+						mSelComp = -1;
+						// la touche d'effacement a deja fait son office : on la consomme
+						if (in.charCount == 0 && !in.wantPaste) {
+							mEffaceDeja = true;
+						}
+					}
+					if (in.KeyPressed(nkgui::NkGuiKey::Left) || in.KeyPressed(nkgui::NkGuiKey::Right) ||
+						in.KeyPressed(nkgui::NkGuiKey::Home) || in.KeyPressed(nkgui::NkGuiKey::End)) {
+						if (in.shiftDown) {
+							if (mSelComp < 0)
+								mSelComp = mCaret;
+						} else
+							mSelComp = -1;
+					}
 					for (int32 i = 0; i < in.charCount; ++i) {
 						const uint32 cp = in.chars[i];
 						if (cp < 32u || cp == 127u)
@@ -746,10 +1208,11 @@ namespace nkentseu {
 						}
 						inserer(u, n);
 					}
-					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace))
+					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace) && !mEffaceDeja)
 						effacer(precedent(mCaret), mCaret);
-					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Delete))
+					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Delete) && !mEffaceDeja)
 						effacer(mCaret, suivant(mCaret));
+					mEffaceDeja = false;
 					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Left))
 						mCaret = precedent(mCaret);
 					if (in.KeyPressedRepeat(nkgui::NkGuiKey::Right))
@@ -758,6 +1221,18 @@ namespace nkentseu {
 						mCaret = 0;
 					if (in.KeyPressed(nkgui::NkGuiKey::End))
 						mCaret = len;
+					if (in.wantPaste && accepteImages) {
+						// (Q8) UN CHEMIN D'IMAGE COLLE se joint au lieu de s'ecrire. ⚠️ Le
+						//    presse-papiers IMAGE (un bitmap copie) n'est pas lisible : la
+						//    fenetre du depot ne rend que du texte (NkWindow::GetClipboardText).
+						NkString cb = ctx.GetClipboard();
+						cb.Trim();
+						if (cb.Length() > 4 && cb.Find("\n", 0) == NkString::npos && EstCheminImage(cb.CStr())) {
+							NkString pq;
+							if (JoindreImage(cb.CStr(), pq))
+								in.wantPaste = false;
+						}
+					}
 					if (in.wantPaste) {
 						const NkString cb = ctx.GetClipboard();
 						for (const char *s = cb.CStr(); s && *s; ++s)
@@ -804,7 +1279,7 @@ namespace nkentseu {
 				}
 
 				void Envoyer(NkAiSorties &out) {
-					if ((occupe && !fileAttente) || Blanc(mSaisie))
+					if ((occupe && !fileAttente) || (Blanc(mSaisie) && mJointes.Size() == 0))
 						return;
 					const NkAiFournisseurDesc *fa = FournisseurActif();
 					if (fa && !fa->pret)
@@ -812,6 +1287,15 @@ namespace nkentseu {
 					out.envoyer = true;
 					out.texte = NkString(mSaisie);
 					out.mode = mode;
+					// (Q8) LES IMAGES PARTENT AVEC, et se rattachent a la demande que
+					// l'hote posera dans le fil (dans les images qui suivent).
+					out.images = mJointes;
+					if (mJointes.Size() > 0) {
+						mImagesAAttacher = mJointes;
+						mTexteAAttacher = NkString(mSaisie);
+						mAttacheAttente = 0u;
+					}
+					mJointes.Clear();
 				}
 
 				// ── LES MENUS ───────────────────────────────────────────────────
@@ -834,7 +1318,8 @@ namespace nkentseu {
 					QFenetre,
 					QPlus,
 					QArchive,
-					QViderHist
+					QViderHist,
+					QImage
 				};
 				/// genre : 0 action, 1 titre de section, 2 interrupteur, 3 curseur, 4 note
 				struct LigneMenu {
@@ -1122,6 +1607,14 @@ namespace nkentseu {
 							break;
 						}
 						case NkAiMenu::Plus:
+							if (accepteImages) {
+								LigneMenu l;
+								l.quoi = QImage;
+								l.texte = NkString("Joindre une image…");
+								l.detail = NkString("aussi : Ctrl+V d'un chemin, ou deposer le fichier sur le panneau");
+								l.deuxLignes = true;
+								mLignes.PushBack(l);
+							}
 							for (usize i = 0; i < entreesPlus.Size(); ++i) {
 								LigneMenu l;
 								l.quoi = QPlus;
@@ -1134,26 +1627,35 @@ namespace nkentseu {
 							}
 							break;
 						case NkAiMenu::Historique: {
-							const NkAiConversation &c = mConv[(usize)mActif];
-							for (usize i = c.archives.Size(); i > 0; --i) {
+							// LES AUTRES CHATS, le plus recent en tete : un clic y bascule,
+							// sans rien perdre de celui qu'on quitte.
+							const uint32 n = Archives();
+							for (uint32 k = n; k > 0; --k) {
+								const int32 i = AutreVersChat((int32)(k - 1));
+								if (i < 0)
+									continue;
+								const NkAiConversation &cv = mConv[(usize)i];
 								LigneMenu l;
 								l.quoi = QArchive;
-								l.arg = (int32)(i - 1);
-								l.texte = c.archives[i - 1].sujet;
-								char d[32];
-								snprintf(d, sizeof(d), "%u bloc(s)", (unsigned)c.archives[i - 1].fil.Taille());
+								l.arg = (int32)(k - 1);
+								l.texte = NkString(SujetDe(cv.fil));
+								char d[128];
+								snprintf(d, sizeof(d), "%u bloc(s)%s%s", (unsigned)cv.fil.Taille(),
+										 cv.modele.Length() ? " · " : "", cv.modele.CStr());
 								l.detail = NkString(d);
+								l.deuxLignes = true;
 								mLignes.PushBack(l);
 							}
-							if (c.archives.Size() == 0)
-								Note("Aucune conversation archivee");
+							if (n == 0)
+								Note("Aucun autre chat : « + » en haut en ouvre un.");
 							else {
 								LigneMenu l;
 								l.quoi = QViderHist;
-								l.texte = NkString("Vider l'historique");
+								l.texte = NkString("Supprimer les autres chats");
 								mLignes.PushBack(l);
 							}
-							Note("Les conversations ne survivent pas a la fermeture.");
+							if (cheminChats.Length() == 0)
+								Note("Les chats ne survivent pas a la fermeture.");
 							break;
 						}
 						case NkAiMenu::AjouterIa:
@@ -1165,6 +1667,308 @@ namespace nkentseu {
 							break;
 						default: break;
 					}
+				}
+
+				// ══════════════ Q8 : SELECTIONNER ET COPIER ══════════════
+				// ⚠️ UN POINT DE SELECTION EST (bloc, rang, octet), JAMAIS un indice de
+				//    plan : le plan est reconstruit a chaque image, et un tour qui ecrit
+				//    decale les indices -- la selection glisserait sur un autre texte.
+				static bool Selectionnable(const NkAiRectPublie &q) {
+					return q.blocId != 0u && (q.piece == NkAiPiece::Fragment || q.piece == NkAiPiece::Titre ||
+											  q.piece == NkAiPiece::TexteIn || q.piece == NkAiPiece::TexteOut ||
+											  q.piece == NkAiPiece::Effet);
+				}
+				bool Tranche(const NkAiRectPublie &q, const char *&a, const char *&b) const {
+					NkAiChromeTextes vide;
+					vide.actions = &actions;
+					if (!aipaint::TextePiece(Fil(), q, vide, a, b) || !a)
+						return false;
+					if (!b) {
+						b = a;
+						while (*b)
+							++b;
+					}
+					return true;
+				}
+				bool PremiereLigneDuBloc(const NkAiRectPublie &q) const {
+					for (uint32 i = 0; i < planFil.Pieces(); ++i) {
+						const NkAiRectPublie &o = planFil.Piece(i);
+						if (o.blocId == q.blocId && Selectionnable(o))
+							return o.y >= q.y - 0.5f;
+					}
+					return true;
+				}
+				PointSel VersPoint(int32 k, uint32 off) const {
+					PointSel s;
+					const NkAiRectPublie &q = planFil.Piece((uint32)k);
+					uint32 ord = 0;
+					for (int32 i = 0; i < k; ++i)
+						if (planFil.Piece((uint32)i).blocId == q.blocId && Selectionnable(planFil.Piece((uint32)i)))
+							++ord;
+					s.bloc = q.blocId;
+					s.ordinal = ord;
+					s.off = off;
+					s.valide = true;
+					return s;
+				}
+				int32 IndiceDe(const PointSel &s) const {
+					if (!s.valide)
+						return -1;
+					uint32 ord = 0;
+					for (uint32 i = 0; i < planFil.Pieces(); ++i) {
+						const NkAiRectPublie &q = planFil.Piece(i);
+						if (q.blocId != s.bloc || !Selectionnable(q))
+							continue;
+						if (ord == s.ordinal)
+							return (int32)i;
+						++ord;
+					}
+					return -1;
+				}
+				/// L'octet sous `fx` dans le morceau `q` : on mesure les prefixes, par
+				/// point de code, avec la police qui PEINT ce morceau.
+				uint32 OctetSous(const NkAiRectPublie &q, float32 fx, NkComponentPaint &p) const {
+					const char *a = nullptr, *b = nullptr;
+					if (!Tranche(q, a, b))
+						return 0u;
+					const float32 cible = fx - q.x;
+					if (cible <= 0.f)
+						return 0u;
+					const char *c = a;
+					float32 avant = 0.f;
+					while (c < b) {
+						const char *n = c + aidetail::LongueurCp((unsigned char)*c);
+						if (n > b)
+							n = b;
+						const float32 w = p.LargeurPolice(a, n, (uint8)q.police);
+						if (w >= cible)
+							return (uint32)((cible - avant < w - cible) ? c - a : n - a);
+						avant = w;
+						c = n;
+					}
+					return (uint32)(b - a);
+				}
+				/// Le morceau de texte sous (fx, fy), ou le plus proche sur sa ligne.
+				bool PointSous(float32 fx, float32 fy, int32 &k, uint32 &off) {
+					k = -1;
+					float32 meilleur = 1.0e30f;
+					for (uint32 i = 0; i < planFil.Pieces(); ++i) {
+						const NkAiRectPublie &q = planFil.Piece(i);
+						if (!Selectionnable(q) || fy < q.y || fy >= q.y + q.h)
+							continue;
+						const float32 d = fx < q.x ? q.x - fx : (fx > q.x + q.w ? fx - q.x - q.w : 0.f);
+						if (d < meilleur) {
+							meilleur = d;
+							k = (int32)i;
+						}
+					}
+					if (k < 0 || meilleur > 40.f)
+						return false;
+					off = mMesureur ? OctetSous(planFil.Piece((uint32)k), fx, *mMesureur) : 0u;
+					return true;
+				}
+				void Ordonner(int32 &ia, uint32 &oa, int32 &ib, uint32 &ob) const {
+					if (ia > ib || (ia == ib && oa > ob)) {
+						const int32 ti = ia;
+						ia = ib;
+						ib = ti;
+						const uint32 to = oa;
+						oa = ob;
+						ob = to;
+					}
+				}
+
+				void Selection(nkgui::NkGuiContext &ctx, bool focusComposeur, NkComponentPaint &p, NkAiSorties &out) {
+					mMesureur = &p;
+					auto &in = ctx.input;
+					// LE GLISSER : tant que le bouton est tenu, la fin suit la souris --
+					// et au-dela du bord, elle suit la ligne la plus proche.
+					if (mSelEnCours) {
+						if (in.mouseDown[0]) {
+							const float32 fx = in.mousePos.x - filOx, fy = in.mousePos.y - filOy;
+							int32 k = -1;
+							uint32 off = 0;
+							if (PointSous(fx, fy, k, off))
+								mSelB = VersPoint(k, off);
+						} else
+							mSelEnCours = false;
+					}
+					// Ctrl+A / Ctrl+C DU FIL : quand le fil a la main (le composeur, lui,
+					// les traite dans `Clavier`).
+					if (mFilFocus && !focusComposeur) {
+						if (in.wantSelectAll) {
+							mSelTout = true;
+							in.wantSelectAll = false;
+						}
+						if (in.KeyPressed(nkgui::NkGuiKey::Escape))
+							EffacerSelection();
+					}
+					if (mSelTout) {
+						int32 premier = -1, dernier = -1;
+						for (uint32 i = 0; i < planFil.Pieces(); ++i)
+							if (Selectionnable(planFil.Piece(i))) {
+								if (premier < 0)
+									premier = (int32)i;
+								dernier = (int32)i;
+							}
+						if (premier >= 0) {
+							const char *a = nullptr, *b = nullptr;
+							mSelA = VersPoint(premier, 0u);
+							mSelB = VersPoint(dernier, Tranche(planFil.Piece((uint32)dernier), a, b) ? (uint32)(b - a) : 0u);
+						}
+					}
+					// LE TEXTE ET LE SURLIGNAGE
+					mTexteSel = NkString();
+					int32 ia = IndiceDe(mSelA), ib = IndiceDe(mSelB);
+					uint32 oa = mSelA.off, ob = mSelB.off;
+					if (ia >= 0 && ib >= 0 && !(ia == ib && oa == ob)) {
+						Ordonner(ia, oa, ib, ob);
+						const char *precB = nullptr;
+						uint32 precBloc = 0u;
+						float32 precY = -1.f;
+						NkAiPiece precPiece = NkAiPiece::Count;
+						for (int32 i = ia; i <= ib; ++i) {
+							const NkAiRectPublie &q = planFil.Piece((uint32)i);
+							if (!Selectionnable(q))
+								continue;
+							const char *a = nullptr, *b = nullptr;
+							if (!Tranche(q, a, b))
+								continue;
+							const uint32 lon = (uint32)(b - a);
+							const uint32 d0 = (i == ia) ? (oa < lon ? oa : lon) : 0u;
+							const uint32 d1 = (i == ib) ? (ob < lon ? ob : lon) : lon;
+							if (d1 <= d0 && i != ia)
+								continue;
+							// LA JOINTURE : le texte d'origine entre deux lignes d'un meme
+							// paragraphe (l'espace ou le saut que le repli a mange), sinon
+							// un saut de ligne entre deux lignes, rien sur une meme ligne.
+							if (precB) {
+								if (q.blocId == precBloc && q.piece == precPiece && a >= precB && a - precB <= 4)
+									mTexteSel.Append(precB, (NkString::SizeType)(a - precB));
+								else if (q.y > precY + 0.5f)
+									mTexteSel.Append("\n");
+							}
+							mTexteSel.Append(a + d0, (NkString::SizeType)(d1 - d0));
+							precB = a + d1;
+							precBloc = q.blocId;
+							precY = q.y;
+							precPiece = q.piece;
+							const float32 x0 = q.x + (d0 ? p.LargeurPolice(a, a + d0, (uint8)q.police) : 0.f);
+							float32 x1 = q.x + p.LargeurPolice(a, a + d1, (uint8)q.police);
+							if (x1 > q.x + q.w)
+								x1 = q.x + q.w; // le code rogne au bord : le surlignage aussi
+							NkAiRectPublie h;
+							h.blocId = q.blocId;
+							h.piece = NkAiPiece::Surlignage;
+							h.x = x0;
+							h.y = q.y;
+							h.w = (x1 - x0) > 2.f ? x1 - x0 : 2.f;
+							h.h = q.h;
+							planFil.Ajouter(h);
+						}
+					}
+					if (mFilFocus && !focusComposeur && (in.wantCopy || in.wantCut)) {
+						if (mTexteSel.Length() > 0) {
+							ctx.SetClipboard(mTexteSel.CStr());
+							out.copie = true;
+							out.copieTexte = mTexteSel;
+						}
+						in.wantCopy = in.wantCut = false;
+					}
+					// LE SURLIGNAGE DU COMPOSEUR
+					{
+						int32 len = 0;
+						while (mSaisie[len])
+							++len;
+						if (mSelComp > len)
+							mSelComp = len;
+						if (mSelComp >= 0 && mSelComp != mCaret && focusComposeur) {
+							const int32 a = mSelComp < mCaret ? mSelComp : mCaret;
+							const int32 b = mSelComp < mCaret ? mCaret : mSelComp;
+							for (uint32 i = 0; i < planChrome.Pieces(); ++i) {
+								const NkAiRectPublie &q = planChrome.Piece(i);
+								if (q.piece != NkAiPiece::ComposeurTexte || q.source != NkAiSource::Saisie)
+									continue;
+								const int32 d0 = (int32)q.debut, d1 = (int32)(q.debut + q.longueur);
+								const int32 s0 = a > d0 ? a : d0, s1 = b < d1 ? b : d1;
+								if (s1 <= s0)
+									continue;
+								NkAiRectPublie h;
+								h.piece = NkAiPiece::Surlignage;
+								h.x = q.x + p.LargeurPolice(mSaisie + d0, mSaisie + s0, 0u);
+								h.y = q.y;
+								h.w = p.LargeurPolice(mSaisie + s0, mSaisie + s1, 0u);
+								h.h = q.h;
+								planChrome.Ajouter(h);
+							}
+						}
+					}
+					// LE BOUTON « COPIER » : au survol d'un bloc, en haut a droite de lui.
+					mCopieBloc = 0u;
+					const float32 mx = in.mousePos.x, my = in.mousePos.y;
+					if (vueFil.Contains(mx, my) && mMenu == NkAiMenu::Aucun) {
+						const float32 fx = mx - filOx, fy = my - filOy;
+						uint32 bloc = 0u;
+						for (uint32 i = 0; i < planFil.Pieces() && bloc == 0u; ++i) {
+							const NkAiRectPublie &q = planFil.Piece(i);
+							if (q.blocId != 0u && q.piece != NkAiPiece::Surlignage && fx >= q.x - 4.f &&
+								fx < q.x + q.w + 30.f && fy >= q.y && fy < q.y + q.h)
+								bloc = q.blocId;
+						}
+						if (bloc != 0u) {
+							float32 x1 = -1.f, y0 = 1.0e30f;
+							for (uint32 i = 0; i < planFil.Pieces(); ++i) {
+								const NkAiRectPublie &q = planFil.Piece(i);
+								if (q.blocId != bloc || q.piece == NkAiPiece::Rail)
+									continue;
+								if (q.x + q.w > x1)
+									x1 = q.x + q.w;
+								if (q.y < y0)
+									y0 = q.y;
+							}
+							const float32 c = 20.f * echelle;
+							NkAiRectPublie bc;
+							bc.blocId = bloc;
+							bc.piece = NkAiPiece::BoutonCopier;
+							bc.x = x1 + 4.f;
+							if (bc.x + c > rect.w - 4.f)
+								bc.x = rect.w - 4.f - c;
+							bc.y = y0;
+							bc.w = c;
+							bc.h = c;
+							if (fx >= bc.x && fx < bc.x + c && fy >= bc.y && fy < bc.y + c)
+								bc.drapeaux |= kAiSurvol;
+							planFil.Ajouter(bc);
+							mCopieBloc = bloc;
+							mCopieRect = {bc.x, bc.y, bc.w, bc.h};
+						}
+					}
+				}
+
+				/// Tout le texte d'un bloc -- ce que le bouton « copier » met au
+				/// presse-papiers : la demande, la reponse, ou l'etape entiere.
+				void CopierBloc(nkgui::NkGuiContext &ctx, uint32 bloc, NkAiSorties &out) {
+					uint32 idx = 0;
+					if (!Fil().TrouverParId(bloc, idx))
+						return;
+					const NkAiBlocDonnees &b = Fil().At(idx);
+					NkString t;
+					auto ajoute = [&](const NkString &s) {
+						if (s.Length() == 0)
+							return;
+						if (t.Length() > 0)
+							t.Append("\n");
+						t.Append(s.CStr());
+					};
+					ajoute(b.titre);
+					ajoute(b.texte);
+					ajoute(b.entree);
+					ajoute(b.sortie);
+					ajoute(b.effet);
+					ajoute(b.motif);
+					ctx.SetClipboard(t.CStr());
+					out.copie = true;
+					out.copieTexte = t;
 				}
 
 				float32 HauteurLigne(const LigneMenu &l, const NkAiMetriques &m) const {
@@ -1565,6 +2369,7 @@ namespace nkentseu {
 					for (uint32 i = planChrome.Pieces(); i > 0; --i) {
 						const NkAiRectPublie &q = planChrome.Piece(i - 1);
 						switch (q.piece) {
+							case NkAiPiece::RetirerImage:
 							case NkAiPiece::Interrupteur:
 							case NkAiPiece::Curseur:
 							case NkAiPiece::MenuFiltre:
@@ -1642,8 +2447,10 @@ namespace nkentseu {
 							return;
 						}
 					}
-					if (!dedans)
+					if (!dedans) {
+						mFilFocus = false;
 						return;
+					}
 					out.clicPris = true;
 					if (k >= 0) {
 						const NkAiRectPublie &q = planChrome.Piece((uint32)k);
@@ -1672,6 +2479,9 @@ namespace nkentseu {
 								mFenetre = 0u;
 								out.fenetreFermee = true;
 								return;
+							case NkAiPiece::RetirerImage:
+								RetirerImage(q.debut);
+								return;
 							case NkAiPiece::IconeNouvelle:
 								if (occupe)
 									return; // la reponse attendue irait dans la conversation neuve
@@ -1685,7 +2495,7 @@ namespace nkentseu {
 									mMenu = NkAiMenu::Historique;
 								return;
 							case NkAiPiece::BoutonPlus:
-								if (entreesPlus.Size() > 0)
+								if (entreesPlus.Size() > 0 || accepteImages)
 									mMenu = NkAiMenu::Plus;
 								else
 									out.plus = true;
@@ -1719,6 +2529,8 @@ namespace nkentseu {
 							case NkAiPiece::ComposeurCadre:
 								// LE FOCUS CLAVIER, et le clic est PRIS : sinon NKGui
 								// defocaliserait a la fin de cette meme image.
+								mFilFocus = false;
+								mSelComp = -1;
 								ctx.inputId = IdComposeur();
 								ctx.inputClickConsumed = true;
 								{
@@ -1736,6 +2548,38 @@ namespace nkentseu {
 					// ── LE FIL : plier / deplier, et les boutons d'un bloc ──
 					if (vueFil.Contains(ctx.input.mousePos.x, ctx.input.mousePos.y)) {
 						const float32 fx = ctx.input.mousePos.x - filOx, fy = ctx.input.mousePos.y - filOy;
+						// (Q8) LE BOUTON « COPIER » du bloc survole passe AVANT tout le reste
+						if (mCopieBloc != 0u && fx >= mCopieRect.x && fx < mCopieRect.x + mCopieRect.w &&
+							fy >= mCopieRect.y && fy < mCopieRect.y + mCopieRect.h) {
+							CopierBloc(ctx, mCopieBloc, out);
+							return;
+						}
+						// (Q8) UNE SELECTION COMMENCE sur un texte du fil -- sauf sur la
+						// ligne-titre d'une etape, qui plie et deplie comme avant.
+						{
+							int32 k = -1;
+							uint32 off = 0;
+							if (PointSous(fx, fy, k, off)) {
+								const NkAiRectPublie &q = planFil.Piece((uint32)k);
+								uint32 idx = 0;
+								const bool etape = Fil().TrouverParId(q.blocId, idx) &&
+												   (Fil().At(idx).type == NkAiBloc::Outil ||
+													Fil().At(idx).type == NkAiBloc::Reflexion);
+								const bool ligneTitre =
+									q.piece == NkAiPiece::Titre || (q.piece == NkAiPiece::Fragment && etape && fy < q.y + m.ligne &&
+																	PremiereLigneDuBloc(q));
+								if (!ligneTitre) {
+									mSelA = mSelB = VersPoint(k, off);
+									mSelTout = false;
+									mSelEnCours = true;
+									mFilFocus = true;
+									if (ctx.inputId == IdComposeur())
+										ctx.inputId = nkgui::NKGUI_ID_NONE; // Ctrl+C va au fil
+									return;
+								}
+							}
+						}
+						EffacerSelection();
 						for (uint32 i = planFil.Pieces(); i > 0; --i) {
 							const NkAiRectPublie &q = planFil.Piece(i - 1);
 							if (q.blocId == 0u || !(fx >= q.x && fx < q.x + q.w && fy >= q.y && fy < q.y + q.h))
@@ -1889,8 +2733,12 @@ namespace nkentseu {
 								Rouvrir(l.arg);
 							FermerMenus();
 							return;
+						case QImage:
+							out.joindreImage = true; // l'hote ouvre SON selecteur
+							FermerMenus();
+							return;
 						case QViderHist:
-							mConv[(usize)mActif].archives.Clear(); // ATTEIGNABLE
+							ViderHistorique(); // ATTEIGNABLE
 							FermerMenus();
 							return;
 						default: FermerMenus(); return;
@@ -1919,6 +2767,10 @@ namespace nkentseu {
 				}
 
 				NkVector<NkAiConversation> mConv;
+				int32 mChat = 0;
+				bool mChatsLus = false;
+				bool mBasculeReglage = false;
+				uint64 mEmpreinteEcrite = 0u;
 				int32 mActif = 0;
 				NkAiFil *mVivant = nullptr;
 				char mSaisie[8192] = {0};
@@ -1928,9 +2780,41 @@ namespace nkentseu {
 				NkString mRefus;
 				int32 mRefusFournisseur = -1;
 				NkVector<LigneMenu> mLignes;
+				// ── Q8 : la selection ──
+				PointSel mSelA, mSelB;
+				bool mSelEnCours = false, mSelTout = false, mFilFocus = false;
+				NkString mTexteSel;
+				int32 mSelComp = -1; ///< l'ancre de la selection du composeur (-1 = aucune)
+				bool mEffaceDeja = false;
+				uint32 mCopieBloc = 0u;
+				NkPaintRect mCopieRect;
 				float32 mMenuDefile = 0.f;
 				NkAiMenu mMenuPrecedent = NkAiMenu::Aucun;
 				NkPaintRect mMenuRect;
+				NkComponentPaint *mMesureur = nullptr;
+				NkVector<NkString> mJointes, mImagesAAttacher;
+				NkVector<const char *> mJointesPtr;
+				NkString mTexteAAttacher;
+				uint32 mAttacheAttente = 0u;
+				static bool EstCheminImage(const char *c) {
+					const char *ext[] = {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".webp", ".PNG", ".JPG", ".JPEG"};
+					usize n = 0;
+					while (c[n])
+						++n;
+					for (usize e = 0; e < sizeof(ext) / sizeof(ext[0]); ++e) {
+						usize m = 0;
+						while (ext[e][m])
+							++m;
+						if (n > m) {
+							bool ok = true;
+							for (usize k = 0; k < m && ok; ++k)
+								ok = c[n - m + k] == ext[e][k];
+							if (ok)
+								return NkFile::Exists(c);
+						}
+					}
+					return false;
+				}
 				NkVector<const char *> mMenuPtr, mMenuDetPtr, mMenuDroitePtr;
 				char mFiltre[128] = {0};
 				bool mFiltreValider = false;

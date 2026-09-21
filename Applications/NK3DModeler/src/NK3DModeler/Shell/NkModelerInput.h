@@ -1160,6 +1160,15 @@ namespace nkentseu {
 				bool aiDemandeImage = false;
 				/// Ce que le dernier appel a Claude a envoye, en octets (Utilisation).
 				uint32 aiOctetsClaude = 0u;
+				// ── Q8 : l'image jointe ──
+				/// « Joindre une image… » : la boucle ouvre le selecteur (action 4).
+				bool aiDemandeJointe = false;
+				/// Les images parties avec la DERNIERE demande (chemins). ⚠️ LEUR USAGE
+				///    (image -> objet) appartient a l'agent de la modelisation : le
+				///    panneau ne fait que les FOURNIR.
+				NkVector<NkString> aiImagesJointes;
+				/// La derniere liste relayee (reste lisible par la modelisation).
+				NkVector<NkString> aiImagesJointesVues;
 
 				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
 				// Les compteurs de maillage et l'etat d'une mesure en cours sont des

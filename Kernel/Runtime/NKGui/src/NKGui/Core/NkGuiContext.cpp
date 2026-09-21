@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkGuiContext.cpp — contexte NKGui (Phase 2).
 // =============================================================================
@@ -118,6 +119,16 @@ namespace nkentseu {
 		}
 
 		void NkGuiContext::EndFrame() noexcept {
+			// (Q8) L'INFOBULLE, EN DERNIER : rien ne se peint plus apres elle.
+			if (tooltipPose && font && font->Valid()) {
+				tooltipPose = false;
+				dlOverlay.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
+				dlOverlay.AddRectFilled(tooltipRect, NkColor{24, 26, 32, 245}, theme.rounding);
+				dlOverlay.AddRect(tooltipRect, theme.border, 1.f, theme.rounding);
+				dlOverlay.AddText(font->Face(), font->TexId(), {tooltipRect.x + tooltipPadX, tooltipBase}, tooltipTexte,
+								  theme.text);
+				dlOverlay.PopClipRect();
+			}
 			// ── Fenêtres : fusionner leurs draw-lists dans `dl` TRIÉES par z-order
 			//    (recouvrement correct) + déterminer la fenêtre survolée (frame suivante).
 			if (winCount > 0) {

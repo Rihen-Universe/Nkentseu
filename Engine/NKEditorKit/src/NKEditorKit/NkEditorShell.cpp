@@ -1540,6 +1540,8 @@ namespace nkentseu {
 				//    pris, un separateur s'est SAISI du geste -- et ce n'est plus une
 				//    question de curseur. On ne l'imprime que sur un clic.
 				const nkgui::NkGuiId actifAvantDock = mUI.activeId;
+				// (Q8) LA POIGNEE DU TIROIR prend le geste AVANT le dock et les panneaux.
+				PoigneesTiroirs(corps);
 				DockSpace(mUI, "##EditorDock", corpsDock);
 			phase("DockSpace (separateurs)");
 				{
@@ -2019,6 +2021,61 @@ namespace nkentseu {
 			return {corps.x, corps.y + corps.h - cell - t, corps.w, t};
 		}
 
+		// ── (Q8) LA POIGNEE DU TIROIR, A LA SOURIS ────────────────────────────────
+		// 🔴 LA POIGNEE DE Q6 NE SE SAISISSAIT PAS (Rodolf, 21/09 13h42). Mesure :
+		//    `--glisser` depuis le bord du tiroir (1089, 1092, 1095 px) laissait la
+		//    largeur a 320. Cause : c'etait un `Splitter` NKGui appele DANS le tiroir,
+		//    donc APRES `DrawPanels` -- la toile avait deja consomme l'appui, et le
+		//    survol NKGui (z-ordre des fenetres) ne donnait pas la main a un widget
+		//    pose hors de toute fenetre. La poignee lit maintenant l'entree BRUTE,
+		//    avant le dock, et CONSOMME l'appui qu'elle prend.
+		void NkEditorShell::PoigneesTiroirs(const NkRect &corps) noexcept {
+			mRailPoigneeSurvol = -1;
+			const NkVec2 m = mUI.input.mousePos;
+			if (mRailGlisse >= 0) {
+				if (mUI.input.mouseDown[0]) {
+					const float32 d = m.x - mRailGlisseX0;
+					if (mRailGlisse == 0)
+						mRailLargeur[0] = mRailGlisseL0 + d;
+					else if (mRailGlisse == 1)
+						mRailLargeur[1] = mRailGlisseL0 - d;
+					else
+						mRailLargeur[2] = mRailGlisseL0 - (m.y - mRailGlisseX0);
+					(void)RectTiroir(mRailGlisse, corps); // borne tout de suite
+					mUI.wantCursor = mRailGlisse == 2 ? NkGuiCursor::ResizeNS : NkGuiCursor::ResizeEW;
+					mUI.input.mouseClicked[0] = false;
+					mRailPoigneeSurvol = mRailGlisse;
+					return;
+				}
+				mRailGlisse = -1;
+			}
+			for (int32 slot = 0; slot < 3; ++slot) {
+				const int32 i = mRailOuvert[slot];
+				if (i < 0 || i >= mRailCount[slot])
+					continue;
+				const NkRect d = RectTiroir(slot, corps);
+				const float32 g = 5.f; // la PRISE : 10 px autour d'un trait de 1
+				bool dessus;
+				if (slot == 0)
+					dessus = m.x >= d.x + d.w - g && m.x < d.x + d.w + g && m.y >= d.y && m.y < d.y + d.h;
+				else if (slot == 1)
+					dessus = m.x >= d.x - g && m.x < d.x + g && m.y >= d.y && m.y < d.y + d.h;
+				else
+					dessus = m.y >= d.y - g && m.y < d.y + g && m.x >= d.x && m.x < d.x + d.w;
+				if (!dessus)
+					continue;
+				mRailPoigneeSurvol = slot;
+				mUI.wantCursor = slot == 2 ? NkGuiCursor::ResizeNS : NkGuiCursor::ResizeEW;
+				if (mUI.input.mouseClicked[0]) {
+					mRailGlisse = slot;
+					mRailGlisseX0 = slot == 2 ? m.y : m.x;
+					mRailGlisseL0 = mRailLargeur[slot];
+					mUI.input.mouseClicked[0] = false; // l'appui est a la poignee, pas a la toile
+				}
+				return;
+			}
+		}
+
 		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
 			bool clicDansUnTiroir = false;
 			bool fermeAuClic = false;
@@ -2121,14 +2178,21 @@ namespace nkentseu {
 						poignee = {d.x - 1.f, d.y, 2.f, d.h};
 					else
 						poignee = {d.x, d.y - 1.f, d.w, 2.f};
-					float32 v = (slot == 0) ? mRailLargeur[slot] : -mRailLargeur[slot];
-					const char *ids[3] = {"##tiroir_poignee_g", "##tiroir_poignee_d", "##tiroir_poignee_b"};
-					if (Splitter(mUI, ids[slot], poignee, vertical, &v, -1.0e6f, 1.0e6f, 8.f))
-						mRailLargeur[slot] = (slot == 0) ? v : -v;
-					const NkVec2 mp = mUI.input.mousePos;
-					if (mp.x >= poignee.x - 4.f && mp.x < poignee.x + poignee.w + 4.f && mp.y >= poignee.y - 4.f &&
-						mp.y < poignee.y + poignee.h + 4.f)
+					(void)vertical;
+					// LA POIGNEE SE VOIT au survol et pendant le glisser : un trait
+					// d'accent de 3 px (le geste est traite par `PoigneesTiroirs`).
+					if (mRailPoigneeSurvol == slot) {
+						NkRect vis = poignee;
+						if (slot == 2) {
+							vis.y -= 1.f;
+							vis.h = 3.f;
+						} else {
+							vis.x -= 1.f;
+							vis.w = 3.f;
+						}
+						mUI.dlOverlay.AddRectFilled(vis, mUI.theme.accent, 0.f);
 						clicDansUnTiroir = true;
+					}
 				}
 
 				// (Q7) LA PASTILLE A ETE RETIREE PAR LA DESELECTION : le tiroir RESTE

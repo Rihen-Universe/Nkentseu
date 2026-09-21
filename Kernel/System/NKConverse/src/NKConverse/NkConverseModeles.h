@@ -331,6 +331,31 @@ namespace nkentseu::converse {
 		return true;
 	}
 
+	/// (Q8) LE CONTENU D'UN FICHIER EN BASE64 -- le champ `images` d'Ollama.
+	/// Rend faux si le fichier ne se lit pas.
+	inline bool NkConverseBase64Fichier(const char *chemin, NkString &out) {
+		out = NkString();
+		std::FILE *f = chemin ? std::fopen(chemin, "rb") : nullptr;
+		if (!f)
+			return false;
+		static const char kT[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		unsigned char b[3];
+		nkentseu::usize n;
+		char q[4];
+		while ((n = std::fread(b, 1, 3, f)) > 0) {
+			const unsigned v = ((unsigned)b[0] << 16) | ((n > 1 ? (unsigned)b[1] : 0u) << 8) | (n > 2 ? (unsigned)b[2] : 0u);
+			q[0] = kT[(v >> 18) & 63];
+			q[1] = kT[(v >> 12) & 63];
+			q[2] = n > 1 ? kT[(v >> 6) & 63] : '=';
+			q[3] = n > 2 ? kT[v & 63] : '=';
+			out.Append(q, 4);
+			if (n < 3)
+				break;
+		}
+		std::fclose(f);
+		return out.Length() > 0;
+	}
+
 	/// UNE LIGNE DE DESCRIPTION, comme « Select a model » : taille, lieu, et a
 	/// quoi il sert -- tire des capacites et de la famille, jamais invente.
 	inline NkString NkConverseDecrireModele(const NkConverseModeleInfo &m, bool distant = false) {

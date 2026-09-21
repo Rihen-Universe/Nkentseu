@@ -1,4 +1,5 @@
 #pragma once
+#include "NKFileSystem/NkFile.h"
 // -----------------------------------------------------------------------------
 // @File    Applications/NKEditorKitTest/src/NkAiPanneauProbe.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
@@ -212,24 +213,20 @@ namespace aipanneauprobe {
 			Essai(b, "24b", ok, "titre + 2 icones, 4 boites d'outil, rail, code en ligne, composeur, envoi, activite");
 		}
 
-		// 24d — UNE CONVERSATION PAR ASSISTANT. Changer ramene SA conversation.
+		// 24d — (Q8) CHANGER DE FOURNISSEUR OU DE MODELE NE VIDE JAMAIS LE FIL : c'est
+		//       un reglage du chat. (Remplace l'ancien 24d, qui ENCODAIT le defaut :
+		//       « Claude -> Local : fil vide ».)
 		{
 			NkString pq;
 			pan.occupe = false;
 			const uint32 avant = pan.Fil().Taille();
 			const bool c1 = pan.Choisir(1, pq);
-			const bool vide = pan.Fil().Taille() == 0;
-			NkAiBlocDonnees d;
-			d.type = NkAiBloc::Demande;
-			d.texte = NkString("subdivise le cube");
-			(void)pan.Fil().Pousser(d, pq);
+			const bool garde1 = pan.Fil().Taille() == avant;
+			pan.fournisseurs[1].modele = 1;
 			const bool c0 = pan.Choisir(0, pq);
-			const bool retrouve = pan.Fil().Taille() == avant;
-			const bool c1b = pan.Choisir(1, pq);
-			const bool sienne = pan.Fil().Taille() == 1 && pan.Fil().At(0).texte == NkString("subdivise le cube");
-			(void)pan.Choisir(0, pq);
-			Essai(b, "24d", c1 && vide && c0 && retrouve && c1b && sienne,
-				  "Claude -> Local : fil vide ; retour : les 10 blocs de Claude ; Local garde SA demande");
+			const bool garde0 = pan.Fil().Taille() == avant;
+			Essai(b, "24d", avant > 0u && c1 && garde1 && c0 && garde0,
+				  "Claude puis Local, et un autre modele : le fil reste le MEME, bloc pour bloc");
 		}
 		// 24e — ON NE CHANGE PAS PENDANT UN TOUR, et le refus est NOMME.
 		{
@@ -239,26 +236,61 @@ namespace aipanneauprobe {
 			pan.occupe = false;
 			Essai(b, "24e", refuse, "pendant un tour, changer d'assistant est REFUSE avec son motif");
 		}
-		// 24f — LE FIL VIVANT D'UN HOTE : `Lier` range et pose, sans copie perdue.
+		// 24f — (Q8) TROIS CHATS, UN CHANGEMENT DE MODELE AU MILIEU DE L'UN, DES
+		//       BASCULES, et un RELANCEMENT : chaque chat relu intact -- fil, brouillon,
+		//       modele. Le fil vivant appartient a l'HOTE (`Lier`, comme le modeleur).
 		{
-			NkAiPanneau p2;
-			Declarer(p2);
-			NkAiFil vivant;
-			vivant.Declarer(p2.capacites);
+			const char *kChemin = "Build/panneau_ia/kit_chats.txt";
+			NkFile::Delete(kChemin);
 			NkString pq;
-			NkAiBlocDonnees d;
-			d.type = NkAiBloc::Demande;
-			d.texte = NkString("chez claude");
-			(void)vivant.Pousser(d, pq);
-			p2.Lier(&vivant);
-			(void)p2.Choisir(1, pq);
-			const bool vide = vivant.Taille() == 0;
-			d.texte = NkString("chez local");
-			(void)vivant.Pousser(d, pq);
-			(void)p2.Choisir(0, pq);
-			const bool ok = vivant.Taille() == 1 && vivant.At(0).texte == NkString("chez claude") &&
-							p2.FilDe(1).Taille() == 1 && p2.FilDe(1).At(0).texte == NkString("chez local");
-			Essai(b, "24f", vide && ok, "le fil de l'HOTE suit l'assistant choisi ; l'autre est range, intact");
+			NkAiFil vivant;
+			bool ok = true;
+			{
+				NkAiPanneau p2;
+				Declarer(p2);
+				p2.Lier(&vivant);
+				p2.cheminChats = NkString(kChemin);
+				auto demande = [&](const char *t) {
+					NkAiBlocDonnees d;
+					d.type = NkAiBloc::Demande;
+					d.texte = NkString(t);
+					(void)p2.Fil().Pousser(d, pq);
+				};
+				(void)p2.Choisir(1, pq); // le chat un parle a Local
+				demande("chat un");
+				p2.PoserSaisie("brouillon un");
+				p2.NouvelleConversation();
+				ok = ok && vivant.Taille() == 0 && NkString(p2.Saisie()) == NkString("");
+				demande("chat deux");
+				(void)p2.Choisir(0, pq); // un changement de fournisseur ET de modele AU MILIEU du chat deux
+				p2.fournisseurs[0].modele = 1;
+				demande("chat deux, suite");
+				ok = ok && vivant.Taille() == 2;
+				p2.NouvelleConversation();
+				demande("chat trois");
+				p2.Rouvrir(0); // le plus ancien : chat un
+				ok = ok && vivant.Taille() == 1 && vivant.At(0).texte == NkString("chat un") &&
+					 NkString(p2.Saisie()) == NkString("brouillon un") && p2.Actif() == 1;
+				ok = ok && p2.EnregistrerChats(kChemin);
+			}
+			// LE RELANCEMENT : un panneau NEUF relit le fichier.
+			NkAiFil vivant2;
+			NkAiPanneau p3;
+			Declarer(p3);
+			p3.Lier(&vivant2);
+			const bool lu = p3.ChargerChats(kChemin);
+			bool relu = lu && p3.Chats() == 3u && vivant2.Taille() == 1 && vivant2.At(0).texte == NkString("chat un") &&
+						NkString(p3.Saisie()) == NkString("brouillon un");
+			// le chat deux : ses DEUX demandes, et le modele choisi en cours de route
+			p3.BasculerChat(1);
+			relu = relu && vivant2.Taille() == 2 && vivant2.At(1).texte == NkString("chat deux, suite") &&
+				   p3.Actif() == 0 && p3.fournisseurs[0].modele == 1;
+			p3.BasculerChat(2);
+			relu = relu && vivant2.Taille() == 1 && vivant2.At(0).texte == NkString("chat trois");
+			printf("         chats : ecrits=%d relus=%d (3 chats, bascules, modele change au milieu)\n", ok ? 1 : 0,
+				   relu ? 1 : 0);
+			Essai(b, "24f", ok && relu,
+				  "trois chats, un modele change en route, des bascules, un relancement : chacun relu INTACT");
 		}
 		// 24g — LE MENU A DEUX NIVEAUX, avec « Ajouter une IA… » en bas.
 		//       (21/09, Q5 : un titre de section en tete ; les modeles portent
@@ -452,6 +484,174 @@ namespace aipanneauprobe {
 			Essai(b, "24o", r.ok && r2.ok && pieces && ferme,
 				  "Utilisation (barre de memoire) et Carte des agents : peintes, et la croix les ferme");
 		}
+		// ── Q8 : SELECTIONNER ET COPIER ───────────────────────────────────────
+		// Le presse-papiers du banc : ce que le panneau ECRIT, relu tel quel.
+		static NkString sPressePapiers;
+		ctx.clipboardSetFn = [](void *, const char *t) { sPressePapiers = NkString(t ? t : ""); };
+		ctx.clipboardGetFn = [](void *, NkString &o) { o = sPressePapiers; };
+		auto trame = [&](float32 x, float32 y, bool appui, bool clicNeuf, bool copier, bool toutSel,
+						 const char *chemin) {
+			ctx.BeginFrame(1.f / 60.f);
+			ctx.input.mousePos = {x, y};
+			ctx.input.mouseDown[0] = appui;
+			ctx.input.mouseClicked[0] = clicNeuf;
+			ctx.input.wantCopy = copier;
+			ctx.input.wantSelectAll = toutSel;
+			NkGuiComponentPaint pc(ctx, theme);
+			pc.PoserPolices(nullptr, &mono, &corps);
+			const NkAiSorties s = pan.Dessiner(ctx, pc, {0.f, 0.f, (float32)W, (float32)H}, true);
+			if (chemin) {
+				const nkgui::NkGuiFont *pol[3] = {&texte, &mono, &corps};
+				const NkAiImageResultat r = NkAiEcrireImage(ctx.dl, W, H, 0.f, 0.f, (float32)W, (float32)H, pol, 3,
+															theme.Get(NkRole::PanelBg), chemin);
+				printf("         %s\n", r.message);
+			}
+			ctx.input.mouseClicked[0] = false;
+			ctx.input.mouseDown[0] = false;
+			ctx.EndFrame();
+			return s;
+		};
+		// deux morceaux de texte VISIBLES de deux blocs differents
+		(void)image(nullptr);
+		float32 ax = 0.f, ay = 0.f, bx = 0.f, by = 0.f;
+		uint32 blocA = 0u;
+		bool aOk = false, bOk = false;
+		for (uint32 i = 0; i < pan.planFil.Pieces(); ++i) {
+			const NkAiRectPublie &q = pan.planFil.Piece(i);
+			if (q.piece != NkAiPiece::Fragment)
+				continue;
+			const float32 sx = q.x + pan.filOx, sy = q.y + pan.filOy;
+			if (!pan.vueFil.Contains(sx + 2.f, sy + q.h * 0.5f) || !pan.vueFil.Contains(sx + 2.f, sy + q.h - 1.f))
+				continue;
+			if (!aOk) {
+				ax = sx + 2.f;
+				ay = sy + q.h * 0.5f;
+				blocA = q.blocId;
+				aOk = true;
+			} else if (q.blocId != blocA) {
+				bx = sx + q.w - 2.f;
+				by = sy + q.h * 0.5f;
+				bOk = true;
+			}
+		}
+		// 24p — LE GLISSER SELECTIONNE SUR PLUSIEURS BLOCS, et Ctrl+C le copie.
+		{
+			sPressePapiers = NkString();
+			(void)trame(ax, ay, true, true, false, false, nullptr);
+			(void)trame((ax + bx) * 0.5f, (ay + by) * 0.5f, true, false, false, false, nullptr);
+			(void)trame(bx, by, true, false, false, false, nullptr);
+			(void)trame(bx, by, false, false, false, false, "Build/panneau_ia/kit_695_selection.png");
+			const uint32 surl = pan.planFil.Compter(NkAiPiece::Surlignage);
+			const NkAiSorties s = trame(bx, by, false, false, true, false, nullptr);
+			printf("         selection : %u morceau(x) surligne(s), %u octet(s) copies\n", (unsigned)surl,
+				   (unsigned)sPressePapiers.Length());
+			Essai(b, "24p", aOk && bOk && surl >= 2u && s.copie && sPressePapiers.Length() > 10u &&
+								  sPressePapiers == pan.TexteSelectionne(),
+				  "glisser sur deux blocs : surlignage, et Ctrl+C met CE texte au presse-papiers");
+		}
+		// 24q — Ctrl+A SELECTIONNE TOUT LE FIL (le fil a la main apres le glisser).
+		{
+			sPressePapiers = NkString();
+			(void)trame(bx, by, false, false, false, true, nullptr);
+			(void)trame(bx, by, false, false, true, false, nullptr);
+			const bool tout = sPressePapiers.Find("durcir", 0) != NkString::npos &&
+							  sPressePapiers.Find("NK_SCULPT_OP_NORMAL", 0) != NkString::npos;
+			Essai(b, "24q", tout, "Ctrl+A puis Ctrl+C : le fil ENTIER, du premier bloc au dernier");
+		}
+		// 24r — LE BOUTON « COPIER » d'un bloc, au survol.
+		{
+			sPressePapiers = NkString();
+			pan.EffacerSelection();
+			(void)trame(ax, ay, false, false, false, false, "Build/panneau_ia/kit_695_copier.png");
+			NkAiRectPublie bc;
+			bool vu = pan.planFil.Trouver(blocA, NkAiPiece::BoutonCopier, bc);
+			NkAiSorties s;
+			if (vu)
+				s = trame(bc.x + pan.filOx + 5.f, bc.y + pan.filOy + 5.f, true, true, false, false, nullptr);
+			uint32 idx = 0;
+			const bool attendu = pan.Fil().TrouverParId(blocA, idx) &&
+								 sPressePapiers.Find(pan.Fil().At(idx).texte.Length() ? pan.Fil().At(idx).texte.CStr()
+																						: pan.Fil().At(idx).titre.CStr(),
+													 0) != NkString::npos;
+			Essai(b, "24r", vu && s.copie && attendu, "au survol, le bloc porte « copier », et il copie CE bloc");
+		}
+		// 24s — LE COMPOSEUR : Ctrl+A, Ctrl+C, et la frappe REMPLACE la selection.
+		{
+			sPressePapiers = NkString();
+			pan.PoserSaisie("une demande a copier");
+			ctx.inputId = pan.IdComposeur();
+			(void)trame(-10.f, -10.f, false, false, false, true, nullptr);
+			(void)trame(-10.f, -10.f, false, false, true, false, "Build/panneau_ia/kit_695_composeur_sel.png");
+			const bool copie = sPressePapiers == NkString("une demande a copier");
+			ctx.BeginFrame(1.f / 60.f);
+			ctx.input.PushChar((uint32)'x');
+			ctx.input.wantSelectAll = false;
+			{
+				NkGuiComponentPaint pc(ctx, theme);
+				pc.PoserPolices(nullptr, &mono, &corps);
+				(void)pan.Dessiner(ctx, pc, {0.f, 0.f, (float32)W, (float32)H}, true);
+			}
+			ctx.EndFrame();
+			const bool remplace = NkString(pan.Saisie()) == NkString("x");
+			ctx.inputId = nkgui::NKGUI_ID_NONE;
+			// la demande longue de la capture revient : 24c en a besoin (le composeur
+			// haut fait deborder le fil a 276 px -- la condition de l'epinglage).
+			pan.PoserSaisie("qu ce soit nk code ou nk3dmodeler ou nkuidesign ou nimprote quel de nos app qui utilise une "
+							"ia je veux que le panneau soit exactement comme ceci donc meme design meme emplacement dans "
+							"sa pastille meme comportement stp donc redesign totalement tut pour suivre ce panneau en "
+							"capture.");
+			Essai(b, "24s", copie && remplace, "composeur : Ctrl+A + Ctrl+C copie la demande ; une touche la REMPLACE");
+		}
+		// 24t — (Q8) UNE IMAGE JOINTE : refusee si ce n'est pas une image, vignette dans
+		//       le composeur, partie avec la demande, puis vignette DANS la demande.
+		{
+			const char *kImg = "Build/panneau_ia/kit_image_jointe.png";
+			{
+				NkImage img;
+				if (img.Create(64u, 40u, math::NkColor(), 4) && img.Pixels()) {
+					uint8 *px = img.Pixels();
+					for (int32 y = 0; y < 40; ++y)
+						for (int32 x = 0; x < 64; ++x) {
+							uint8 *p = px + y * img.Stride() + x * 4;
+							p[0] = (uint8)(x * 4);
+							p[1] = (uint8)(y * 6);
+							p[2] = (uint8)(x < 32 ? 220 : 40);
+							p[3] = 255;
+						}
+					(void)img.SavePNG(kImg);
+				}
+			}
+			NkString pq;
+			pan.accepteImages = true;
+			const bool refuse = !pan.JoindreImage("Build/panneau_ia/kit_chats.txt", pq) && pq.Length() > 0;
+			const bool joint = pan.JoindreImage(kImg, pq);
+			pan.PoserSaisie("fais un ecran comme cette image");
+			(void)trame(-10.f, -10.f, false, false, false, false, "Build/panneau_ia/kit_695_image_composeur.png");
+			const bool vignette = pan.planChrome.Compter(NkAiPiece::ImageJointe) == 1u &&
+								  pan.planChrome.Compter(NkAiPiece::RetirerImage) == 1u;
+			NkAiRectPublie env;
+			NkAiSorties s;
+			if (pan.planChrome.Trouver(0u, NkAiPiece::Envoi, env))
+				s = trame(env.x + env.w * 0.5f, env.y + env.h * 0.5f, true, true, false, false, nullptr);
+			const bool partie = s.envoyer && s.images.Size() == 1u && pan.ImagesJointes().Size() == 0u;
+			// l'HOTE pose la demande, comme les applications
+			NkAiBlocDonnees d;
+			d.type = NkAiBloc::Demande;
+			d.texte = s.texte;
+			(void)pan.Fil().Pousser(d, pq);
+			(void)trame(-10.f, -10.f, false, false, false, false, nullptr);
+			(void)trame(-10.f, -10.f, false, false, false, false, "Build/panneau_ia/kit_695_image_demande.png");
+			const NkAiBlocDonnees &der = pan.Fil().At(pan.Fil().Taille() - 1);
+			const bool dansDemande = der.images.Size() == 1u && pan.planFil.Compter(NkAiPiece::ImageJointe) >= 1u;
+			printf("         image : refus=%d jointe=%d vignette=%d partie=%d dans-la-demande=%d (%s)\n", refuse ? 1 : 0,
+				   joint ? 1 : 0, vignette ? 1 : 0, partie ? 1 : 0, dansDemande ? 1 : 0, pq.CStr());
+			Essai(b, "24t", refuse && joint && vignette && partie && dansDemande,
+				  "image : un non-image refuse avec motif ; vignette au composeur ; elle part et s'affiche dans la demande");
+			pan.PoserSaisie("qu ce soit nk code ou nk3dmodeler ou nkuidesign ou nimprote quel de nos app qui utilise une "
+							"ia je veux que le panneau soit exactement comme ceci donc meme design meme emplacement dans "
+							"sa pastille meme comportement stp donc redesign totalement tut pour suivre ce panneau en "
+							"capture.");
+		}
 		// 24h — LE PANNEAU ETROIT DU MODELEUR (276 px) : rien ne sort.
 		{
 			ctx.BeginFrame(1.f / 60.f);
@@ -473,6 +673,9 @@ namespace aipanneauprobe {
 			Essai(b, "24h", dedans && r3.ok, "276 px : aucune piece du chrome ne sort du panneau");
 			// 24c — LA DEMANDE EST EPINGLEE : a 276 px le fil deborde et a defile,
 			//       la question du tour reste en tete (la capture).
+			printf("         epingle=%u premier=%u (%s) hauteur=%.0f vue=%.0f\n", (unsigned)pan.Epingle(),
+				   (unsigned)pan.Fil().At(0).id, NkAiBlocNom(pan.Fil().At(0).type), (double)pan.planFil.Hauteur(),
+				   (double)pan.vueFil.h);
 			Essai(b, "24c", pan.Epingle() == pan.Fil().At(0).id,
 				  "276 px, fil defile : la demande du tour est epinglee en tete");
 		}

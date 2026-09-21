@@ -1120,6 +1120,12 @@ namespace nkentseu {
 				bool mUiStateGeometrie = true;
 				/// Le rectangle du tiroir ouvert d'un rail dans `corps`, borne.
 				nkgui::NkRect RectTiroir(int32 slot, const nkgui::NkRect &corps) noexcept;
+				/// (Q8) LA POIGNEE, traitee AVANT les panneaux : sinon la toile a deja
+				/// pris le clic quand le tiroir se dessine.
+				void PoigneesTiroirs(const nkgui::NkRect &corps) noexcept;
+				int32 mRailGlisse = -1;		///< le tiroir dont la poignee est tenue
+				float32 mRailGlisseX0 = 0.f, mRailGlisseL0 = 0.f;
+				int32 mRailPoigneeSurvol = -1; ///< la poignee survolee (pour la peindre)
 				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
 				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
 				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;
