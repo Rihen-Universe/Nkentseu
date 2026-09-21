@@ -7636,7 +7636,9 @@ namespace nkentseu {
 			if (st.aiOuvert && !st.welcome)
 				PaintAiDansPanneau(p, hit, st, guiCtx,
 						   {r.x, stackTop, r.w, (r.y + r.h) - stackTop},
-						   demo::Demo3DHostEditCanUndo());
+						   // LES DEUX PILES : l'edition (mode Edition) et le lot cree
+						   // par l'IA (mode Objet) -- le bouton dit ce que `undo` fera.
+						   demo::Demo3DHostEditCanUndo() || st.aiPeutAnnulerObjet);
 			float32 secY = y - st.propScroll;
 
 			bool anyWheel = false;
