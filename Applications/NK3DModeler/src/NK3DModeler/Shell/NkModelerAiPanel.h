@@ -76,6 +76,7 @@
 #include "NKEditorKit/Components/NkGuiComponentPaint.h" // le peintre NKGui : polices grasse et fixe
 #include "NK3DModeler/Shell/NkModelerContrat.h" // le vocabulaire des verbes (le « / »)
 #include "NKTime/NkChrono.h" // la duree de la conversation
+#include "NKConverse/NkConverseModeles.h" // Q5 : les modeles REELS des fournisseurs
 
 // ⚠️ IL INCLUT CE QU'IL UTILISE. `snprintf` arrivait ici PAR CHANCE, tire par un
 //    en-tete voisin ; la recolte ajoute `fopen`/`fputs`/`FILE`, et compter sur
@@ -446,6 +447,58 @@ namespace nkentseu {
 			static const nkgui::NkGuiFont *p = nullptr;
 			return p;
 		}
+		/// Le CORPS du panneau (Inter 15 x echelle), charge et TELEVERSE par
+		/// main.cpp : la capture ecrit son fil ~15 % plus grand que l'interface.
+		inline const nkgui::NkGuiFont *&NkAiPoliceCorps() {
+			static const nkgui::NkGuiFont *p = nullptr;
+			return p;
+		}
+		/// Les capacites des modeles locaux (Q5), lues au service une fois.
+		inline nkentseu::NkVector<converse::NkConverseModeleInfo> &NkAiInfosLocales() {
+			static nkentseu::NkVector<converse::NkConverseModeleInfo> v;
+			return v;
+		}
+
+		/// LA FENETRE « UTILISATION » DU MODELEUR : ce qui se MESURE d'ici. Le dorsal
+		/// local est un PROCESSUS (`ia_verbe.py`) : il ne rapporte pas ses jetons au
+		/// modeleur -- dit, pas invente.
+		inline void NkAiRemplirUtilisation(NkModelerState &st) {
+			editorkit::NkAiPanneau &pan = st.aiPanneau;
+			editorkit::NkAiFenetre &u = pan.utilisation;
+			u.Vider();
+			u.titre = NkString("Utilisation");
+			char v[128];
+			if (pan.Actif() == 1) {
+				u.Section("Assistant distant : Claude (CLI)");
+				u.Valeur("Modele", st.aiClaudeModeleCourant[0] ? st.aiClaudeModeleCourant : "(defaut du CLI)");
+				u.Valeur("Effort envoye", st.aiClaudeEffort[0] ? st.aiClaudeEffort : "(defaut du CLI)");
+				std::snprintf(v, sizeof(v), "%u octets", (unsigned)st.aiOctetsClaude);
+				u.Valeur("Envoye au dernier tour", v);
+				u.Note("L'invite quitte cette machine.");
+				return;
+			}
+			const char *url = std::getenv("NK_IA_URL");
+			const char *mod = st.aiLocalModele[0] ? st.aiLocalModele : std::getenv("NK_IA_MODELE");
+			if (!mod || !*mod)
+				mod = "qwen2.5:7b-instruct";
+			u.Section("Modele local (ia_verbe.py)");
+			u.Valeur("Modele", mod);
+			nkentseu::uint64 octets = 0u, vram = 0u;
+			NkString motif;
+			const bool charge =
+				converse::NkConverseOllamaCharge((url && *url) ? url : "http://127.0.0.1:11434", mod, octets, vram, motif);
+			if (motif.Length() > 0)
+				u.Valeur("En memoire", motif.Data());
+			else if (!charge)
+				u.Valeur("En memoire", "non : charge a la prochaine demande");
+			else {
+				std::snprintf(v, sizeof(v), "%.1f / %.1f Go", (double)vram / 1.0e9, (double)octets / 1.0e9);
+				u.Barre("Memoire video", v, octets ? (float32)((double)vram / (double)octets) : 0.f);
+			}
+			u.Section("Dernier tour");
+			u.Note("Le dorsal par processus ne rapporte ni jetons ni vitesse au modeleur.");
+			u.Note("Rien n'a quitte cette machine.");
+		}
 
 		/// Les trois fournisseurs du modeleur, DANS L'ORDRE DE `st.aiOnglet` (0 local,
 		/// 1 Claude, 2 Ollama). Declares une fois ; leur ETAT (pret, motif) est relu
@@ -456,34 +509,81 @@ namespace nkentseu {
 				editorkit::NkAiFournisseurDesc loc;
 				loc.cle = NkString("local");
 				loc.nom = NkString("Local");
-				editorkit::NkAiModeleDesc ml;
 				// LE MODELE QUE LE SCRIPT EMPLOIERA VRAIMENT : `ia_verbe.py` lit
 				// NK_IA_MODELE, qwen2.5:7b-instruct par defaut. Un gabarit NK_IA_CMD
 				// remplace le script entier : on ne pretend alors plus savoir.
 				const char *cmd = std::getenv("NK_IA_CMD");
 				const char *mod = std::getenv("NK_IA_MODELE");
-				if (cmd && *cmd) {
-					ml.nom = NkString("NK_IA_CMD");
-					ml.detail = NkString("commande posee");
+				const char *courant = (mod && *mod) ? mod : "qwen2.5:7b-instruct";
+				// ⚠️ LES PROPRIETES DU MODELEUR SONT GRISEES, AVEC LEUR MOTIF : la
+				//    boucle attend UNE ligne (un verbe) en 64 jetons -- c'est son
+				//    contrat, et il n'est pas a moi. Un Effort qui changerait ce
+				//    budget couperait le verbe ; un raisonnement le mangerait.
+				const char *kMotifEffort = "la boucle attend un verbe en 64 jetons : budget fixe";
+				nkentseu::NkVector<converse::NkConverseModeleInfo> &infos = NkAiInfosLocales();
+				NkString motifLocal;
+				const char *url = std::getenv("NK_IA_URL");
+				if (!(cmd && *cmd) &&
+					converse::NkConverseOllamaModeles((url && *url) ? url : "http://127.0.0.1:11434", infos, motifLocal)) {
+					// LES MODELES REELS du service (Q5) -- jamais une liste ecrite ici.
+					for (usize i = 0; i < infos.Size(); ++i) {
+						editorkit::NkAiModeleDesc m;
+						m.nom = infos[i].nom;
+						m.detail = converse::NkConverseDecrireModele(infos[i]);
+						m.motifEffort = NkString(kMotifEffort);
+						m.motifPensee = infos[i].pensee
+											? NkString("un raisonnement mangerait les 64 jetons du verbe")
+											: NkString(infos[i].nom.Data()) + NkString(" n'annonce pas « thinking »");
+						loc.modeles.PushBack(m);
+						if (infos[i].nom == NkString(courant))
+							loc.modele = (int32)i;
+					}
 				} else {
-					ml.nom = NkString((mod && *mod) ? mod : "qwen2.5:7b-instruct");
-					ml.detail = NkString("ia_verbe.py");
+					editorkit::NkAiModeleDesc ml;
+					ml.nom = NkString((cmd && *cmd) ? "NK_IA_CMD" : courant);
+					ml.detail = (cmd && *cmd) ? NkString("commande posee") : motifLocal;
+					ml.motifEffort = NkString(kMotifEffort);
+					ml.motifPensee = NkString("ce dorsal ne recoit aucun reglage de raisonnement");
+					loc.modeles.PushBack(ml);
 				}
-				loc.modeles.PushBack(ml);
 				pan.fournisseurs.PushBack(loc);
 				editorkit::NkAiFournisseurDesc cl;
 				cl.cle = NkString("claude");
 				cl.nom = NkString("Claude");
 				cl.distant = true;
-				// Les ALIAS que le CLI accepte (`--model`). Le choix est ecrit dans
-				// `st.aiClaudeModele`, que la boucle pose sur le dorsal.
-				static const char *const kModeles[3] = {"sonnet", "opus", "haiku"};
-				for (int32 i = 0; i < 3; ++i) {
-					editorkit::NkAiModeleDesc m;
-					m.nom = NkString(kModeles[i]);
-					cl.modeles.PushBack(m);
-				}
+				// LES MODELES QUE LE CLI DOCUMENTE (`claude --help`, local, non facture).
+				// Le choix est ecrit dans `st.aiClaudeModele`, que la boucle pose sur le
+				// dorsal ; l'Effort dans `st.aiClaudeEffort` (`--effort`).
+				nkentseu::NkVector<converse::NkConverseModeleInfo> infosClaude;
+				NkString motifClaude;
+				if (converse::NkConverseClaudeModeles(infosClaude, motifClaude))
+					for (usize i = 0; i < infosClaude.Size(); ++i) {
+						editorkit::NkAiModeleDesc m;
+						m.nom = infosClaude[i].nom;
+						m.detail = converse::NkConverseDecrireModele(infosClaude[i], true);
+						m.motifPensee = NkString("le CLI decide seul de son raisonnement");
+						cl.modeles.PushBack(m);
+					}
 				pan.fournisseurs.PushBack(cl);
+				// LE MODE (065246) : un seul est REEL ici -- la boucle enchaine les verbes
+				// jusqu'au resultat. Manuel, Edition automatique et Plan n'y ont pas de
+				// chemin : les ecrire serait promettre ce que la boucle ne fait pas.
+				{
+					editorkit::NkAiModeDesc md;
+					md.nom = NkString("Auto");
+					md.detail = NkString("la boucle enchaine les verbes jusqu'au resultat");
+					md.produit = true;
+					pan.modes.PushBack(md);
+					pan.mode = 0;
+				}
+				// LE « + » (065237) : la voie image -> 3D, par le bouton « Generer ».
+				{
+					editorkit::NkAiEntreeDesc e;
+					e.nom = NkString("Une image pour l'objet 3D…");
+					e.detail = NkString("GENIA : l'image devient un objet editable (bouton Generer)");
+					e.id = 1;
+					pan.entreesPlus.PushBack(e);
+				}
 				editorkit::NkAiFournisseurDesc ol;
 				ol.cle = NkString("ollama");
 				ol.nom = NkString("Ollama");
@@ -515,9 +615,10 @@ namespace nkentseu {
 					pan.commandes.PushBack(c);
 				}
 				// le modele de Claude deja pose (NK_CLAUDE_MODELE) est la valeur courante
-				for (int32 i = 0; i < 3; ++i)
-					if (st.aiClaudeModeleCourant[0] && NkString(kModeles[i]) == NkString(st.aiClaudeModeleCourant))
-						pan.fournisseurs[1].modele = i;
+				for (usize i = 0; i < pan.fournisseurs[1].modeles.Size(); ++i)
+					if (st.aiClaudeModeleCourant[0] &&
+						pan.fournisseurs[1].modeles[i].nom == NkString(st.aiClaudeModeleCourant))
+						pan.fournisseurs[1].modele = (int32)i;
 			}
 			for (int32 i = 0; i < 3 && i < (int32)pan.fournisseurs.Size(); ++i) {
 				pan.fournisseurs[(usize)i].pret = st.aiPretDe[i];
@@ -583,8 +684,29 @@ namespace nkentseu {
 												  : (std::strcmp(sMenu, "commandes") == 0)  ? editorkit::NkAiMenu::Commandes
 												  : (std::strcmp(sMenu, "historique") == 0) ? editorkit::NkAiMenu::Historique
 												  : (std::strcmp(sMenu, "ajouter") == 0)	? editorkit::NkAiMenu::AjouterIa
+												  : (std::strcmp(sMenu, "modes") == 0)		? editorkit::NkAiMenu::Modes
+												  : (std::strcmp(sMenu, "plus") == 0)		? editorkit::NkAiMenu::Plus
 																						: editorkit::NkAiMenu::Fournisseurs;
-					pan.OuvrirMenu(m, 1);
+					pan.OuvrirMenu(m, pan.Actif());
+					if (const char *f = std::getenv("NK_AI_FILTRE"))
+						pan.PoserFiltre(f);
+				}
+				// NK_AI_FENETRE=<1|2>,<peinture> : la fenetre Utilisation / Carte.
+				{
+					static int32 sFenQuand = -2, sFen = 0;
+					if (sFenQuand == -2) {
+						sFenQuand = -1;
+						if (const char *v = std::getenv("NK_AI_FENETRE")) {
+							sFen = (int32)std::atoi(v);
+							const char *virg = std::strchr(v, ',');
+							sFenQuand = virg ? (int32)std::atoi(virg + 1) : 30;
+						}
+					}
+					if (sPeint == sFenQuand) {
+						pan.OuvrirFenetre((uint8)sFen);
+						if (sFen == 1)
+							NkAiRemplirUtilisation(st);
+					}
 				}
 			}
 			// L'onglet a pu etre ecrit par la boucle ou une sonde : le panneau suit.
@@ -614,8 +736,20 @@ namespace nkentseu {
 			// L'EMPRISE : le panneau reclame SON rectangle. Le survol ne lui revient
 			// que s'il est la surface du dessus -- un menu deroule reste prioritaire.
 			const bool libre = hit.Add("ai.panneau", r);
+			// (Q5) LES PROPRIETES, relues a chaque image : le modele local choisi,
+			// l'effort de Claude -- hors d'un tour, la boucle les lit a l'envoi.
+			if (!st.aiEnvoiEnCours) {
+				const editorkit::NkAiFournisseurDesc &fl = pan.fournisseurs[0];
+				if (fl.modele >= 0 && fl.modele < (int32)fl.modeles.Size() && !std::getenv("NK_IA_CMD"))
+					NkAiCopie(st.aiLocalModele, sizeof(st.aiLocalModele), fl.modeles[(usize)fl.modele].nom.CStr());
+				static const char *const kCli[4] = {"low", "medium", "high", "max"};
+				NkAiCopie(st.aiClaudeEffort, sizeof(st.aiClaudeEffort),
+						  (pan.effort >= 0 && pan.effort < 4) ? kCli[pan.effort] : "");
+			}
+			if (pan.FenetreOuverte() == 2u)
+				editorkit::NkAiCarteDepuisFil(pan.Fil(), pan.occupe, pan.carte);
 			editorkit::NkGuiComponentPaint pc(*guiCtx, p.Theme());
-			pc.PoserPolices(nullptr, NkAiPoliceMono());
+			pc.PoserPolices(nullptr, NkAiPoliceMono(), NkAiPoliceCorps());
 			const editorkit::NkAiSorties out = pan.Dessiner(*guiCtx, pc, {r.x, r.y, r.w, r.h}, libre);
 			st.aiOnglet = pan.Actif();
 
@@ -654,6 +788,10 @@ namespace nkentseu {
 			if (out.actionBloc != 0u && out.actionBloc == derniere && out.actionIndice == 0)
 				// LA MEME PORTE QUE Ctrl+Z : le verbe `undo`, par le point d'entree unique.
 				(void)NkAiSoumettre(st, "undo");
+			if (out.fenetre == 1u || out.modeleChange || out.fournisseurChange)
+				NkAiRemplirUtilisation(st);
+			if (out.entreePlus == 1)
+				st.aiDemandeImage = true; // la boucle ouvre le selecteur d'image
 			if (out.modeleChange && pan.Actif() == 1) {
 				const editorkit::NkAiFournisseurDesc &f = pan.fournisseurs[1];
 				if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())

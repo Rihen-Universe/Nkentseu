@@ -1148,6 +1148,18 @@ namespace nkentseu {
 				/// Publie par la boucle ; sans lui le bouton « Annuler cette action »
 				/// restait eteint en mode Objet alors que le geste y marchait.
 				bool aiPeutAnnulerObjet = false;
+				// ── Q5 (21/09) : le modele et ses proprietes ──
+				/// Le modele LOCAL choisi dans la pastille : la boucle le pose dans
+				/// l'environnement (`NK_IA_MODELE`), que `ia_verbe.py` relit a CHAQUE
+				/// appel -- le choix agit sans toucher au gabarit ni a la boucle.
+				char aiLocalModele[96] = {0};
+				/// L'effort de Claude (`--effort` du CLI) ; vide = defaut du CLI.
+				char aiClaudeEffort[16] = {0};
+				/// « + » -> « Une image pour l'objet 3D… » : le MEME geste que le
+				/// bouton « Generer » du navigateur (selecteur d'image, puis GENIA).
+				bool aiDemandeImage = false;
+				/// Ce que le dernier appel a Claude a envoye, en octets (Utilisation).
+				uint32 aiOctetsClaude = 0u;
 
 				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
 				// Les compteurs de maillage et l'etat d'une mesure en cours sont des

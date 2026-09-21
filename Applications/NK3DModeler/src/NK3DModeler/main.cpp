@@ -1162,6 +1162,15 @@ int nkmain(const NkEntryState &entry) {
 		renderer.UploadFontGray8(sPoliceMono.TexId(), sPoliceMono.pixels, sPoliceMono.atlasW, sPoliceMono.atlasH);
 		nk3d::NkAiPoliceMono() = &sPoliceMono;
 	}
+	// (Q6, 21/09) LE CORPS DU PANNEAU IA : Inter 15 x echelle, la taille de la
+	// capture (l'interface est a 13). Identifiant +4, libre comme +3.
+	static nkgui::NkGuiFont sPoliceCorpsIA;
+	if (sPoliceCorpsIA.LoadEmbedded(NkEmbeddedFontId::Inter, (float32)(int32)(15.f * total + 0.5f))) {
+		sPoliceCorpsIA.texId = font.TexId() + 4u;
+		renderer.UploadFontGray8(sPoliceCorpsIA.TexId(), sPoliceCorpsIA.pixels, sPoliceCorpsIA.atlasW,
+								 sPoliceCorpsIA.atlasH);
+		nk3d::NkAiPoliceCorps() = &sPoliceCorpsIA;
+	}
 
 	// ── ICONES ──────────────────────────────────────────────────────────────
 	// Apres la police : leurs identifiants de texture partent APRES celui de
@@ -3682,6 +3691,28 @@ int nkmain(const NkEntryState &entry) {
 			}
 			if (st.aiClaudeModele[0])
 				sIa.claude.modele = NkString(st.aiClaudeModele);
+			// (Q5) LES PROPRIETES AGISSENT : l'effort part sur la ligne du CLI ; le
+			// modele local passe par l'environnement, que `ia_verbe.py` relit a
+			// CHAQUE appel. Hors d'un tour seulement.
+			if (!sIa.envoi.EnCours()) {
+				sIa.claude.effort = NkString(st.aiClaudeEffort);
+				static char sModelePose[96] = {0};
+				if (st.aiLocalModele[0] && std::strcmp(sModelePose, st.aiLocalModele) != 0) {
+					nk3d::NkAiCopie(sModelePose, sizeof(sModelePose), st.aiLocalModele);
+#if defined(_WIN32)
+					_putenv_s("NK_IA_MODELE", sModelePose);
+#else
+					setenv("NK_IA_MODELE", sModelePose, 1);
+#endif
+					std::printf("[nk3d] AI MODELE local = %s (NK_IA_MODELE, relu par ia_verbe.py)\n", sModelePose);
+				}
+			}
+			st.aiOctetsClaude = (uint32)sIa.claude.DerniereInvite().Length();
+			if (st.aiDemandeImage) {
+				st.aiDemandeImage = false;
+				nk3d::NkPickerOuvrirImage(st);
+				st.pickerAction = 3; // le MEME geste que « Generer » du navigateur
+			}
 			nk3d::NkAiCopie(st.aiClaudeModeleCourant, sizeof(st.aiClaudeModeleCourant),
 							sIa.claude.modele.Data() ? sIa.claude.modele.Data() : "");
 		}
@@ -5036,6 +5067,21 @@ int nkmain(const NkEntryState &entry) {
 				PaintSondePeintre(p, {0.f, lay.tool.y + lay.tool.h, (float32)W, (float32)H});
 		}
 
+		// ── NK_DESELECTIONNER=<image> (Q7, 21/09) : vide la selection d'OBJETS par la
+		// MEME fonction que la hierarchie (`Demo3DHostDeselectAll`) -- la porte de la
+		// preuve « le panneau reste ouvert apres deselection ». Aucune souris.
+		{
+			static int32 sDesel = -2;
+			if (sDesel == -2) {
+				const char *v = std::getenv("NK_DESELECTIONNER");
+				sDesel = (v && *v) ? (int32)std::atoi(v) : -1;
+			}
+			if (sDesel >= 0 && agentFrame == sDesel) {
+				demo::Demo3DHostDeselectAll();
+				std::printf("[nk3d] NK_DESELECTIONNER image=%d : selection videe\n", (int)agentFrame);
+				std::fflush(stdout);
+			}
+		}
 		// ── NK_AI_IMAGE=<chemin>,<image> : LE PANNEAU IA, RENDU PAR L'APPLICATION ──
 		// La preuve exigee le 21/09 : une IMAGE du panneau, rendue par le modeleur
 		// lui-meme -- la liste d'affichage de CETTE image, rasterisee sans GPU,
@@ -5061,15 +5107,15 @@ int nkmain(const NkEntryState &entry) {
 			}
 			if (sImgF >= 0 && agentFrame == sImgF) {
 				const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
-				const nkgui::NkGuiFont *polices[2] = {&font, nk3d::NkAiPoliceMono()};
+				const nkgui::NkGuiFont *polices[3] = {&font, nk3d::NkAiPoliceMono(), nk3d::NkAiPoliceCorps()};
 				char c1[300], c2[300];
 				snprintf(c1, sizeof(c1), "%s.png", sImgChemin);
 				snprintf(c2, sizeof(c2), "%s_fenetre.png", sImgChemin);
 				const editorkit::NkAiImageResultat r1 = editorkit::NkAiEcrireImageListes(
 					listes, 2, (int32)W, (int32)H, st.aiPanRect[0], st.aiPanRect[1], st.aiPanRect[2], st.aiPanRect[3],
-					polices, 2, theme.Get(NkRole::WindowBg), c1);
+					polices, 3, theme.Get(NkRole::WindowBg), c1);
 				const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
-					listes, 2, (int32)W, (int32)H, 0.f, 0.f, (float32)W, (float32)H, polices, 2,
+					listes, 2, (int32)W, (int32)H, 0.f, 0.f, (float32)W, (float32)H, polices, 3,
 					theme.Get(NkRole::WindowBg), c2);
 				std::printf("[nk3d] AI IMAGE frame=%d panneau=(%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)agentFrame,
 							(double)st.aiPanRect[0], (double)st.aiPanRect[1], (double)st.aiPanRect[2],
