@@ -785,7 +785,11 @@ namespace nkentseu {
 						l.debut = i;
 						l.drapeaux = (uint8)((mMenuActif[i] ? kAiActif : 0u) | (mMenuEteint[i] ? kAiEteint : 0u));
 						planChrome.Ajouter(l);
-						const float32 wd = mMenuDetPtr[i][0] ? Mesure(&p, NkAiPolice::Normale, mMenuDetPtr[i]) : 0.f;
+						// LE DETAIL CEDE : au plus 45 % de la ligne, rogne au-dela -- un motif
+						// long (« Choisissez Local ou Claude : … ») debordait a gauche du menu.
+						float32 wd = mMenuDetPtr[i][0] ? Mesure(&p, NkAiPolice::Normale, mMenuDetPtr[i]) : 0.f;
+						if (wd > (w - 8.f) * 0.45f)
+							wd = (w - 8.f) * 0.45f;
 						const float32 wtexte = w - 8.f - 20.f - (wd > 0.f ? wd + 12.f : 0.f) - 22.f;
 						NkAiRectPublie t;
 						t.piece = NkAiPiece::ChromeTexte;

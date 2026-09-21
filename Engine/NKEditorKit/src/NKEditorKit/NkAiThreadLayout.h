@@ -210,7 +210,8 @@ namespace nkentseu {
 			MenuTexte,	  ///< la ligne `debut` du menu ouvert
 			MenuDetail,	  ///< le detail attenue de la ligne `debut`
 			Indication,	  ///< l'indication d'un fil vide
-			Action		  ///< le libelle de l'action `debut` (le bloc est dans blocId)
+			Action,		  ///< le libelle de l'action `debut` (le bloc est dans blocId)
+			EffetBloc	  ///< une tranche de l'EFFET du bloc (l'effet deplie en entier)
 		};
 
 		/// Drapeaux d'une piece. Ils disent un ETAT que la geometrie ne dit pas.
@@ -250,7 +251,7 @@ namespace nkentseu {
 				float32 retraitFil = 55.f;	   ///< les blocs commencent la
 				float32 railX = 36.f;		   ///< le rail et ses puces
 				float32 puceR = 3.5f;
-				float32 gouttiere = 38.f;  ///< du bord de la boite au debut du code
+				float32 gouttiere = 42.f;  ///< du bord de la boite au debut du code (38 a la capture ; +4 : notre « OUT » est plus large)
 				float32 ligne = 20.f;	   ///< une ligne de texte courant
 				float32 ligneCode = 17.f;  ///< une ligne de code (IN / OUT)
 				float32 entreBlocs = 18.f; ///< l'air entre deux blocs
@@ -903,14 +904,27 @@ namespace nkentseu {
 				}
 				float32 wEffet = 0.f;
 				const bool aEffet = (b.type != NkAiBloc::Effet) && b.effet.Length() > 0;
-				if (aEffet)
+				bool effetCoupe = false;
+				if (aEffet) {
 					wEffet = (mes ? mes(ctx, NkAiPolice::Normale, b.effet.CStr()) : 0.f) + 12.f;
+					// ⚠️ UN EFFET LONG NE MANGE PAS LA LIGNE. La voie de creation du
+					//    modeleur ecrit une phrase entiere (« 12 parties posees au sol,
+					//    boite 0.45 x 0.90 x 0.45 m… ») : sur la ligne, il garde au plus
+					//    60 % et se coupe avec « ... » ; deplie, il se lit en entier.
+					const float32 plafond = (droite - xTexte) * 0.6f;
+					if (b.texte.Length() > 0 && wEffet > plafond) {
+						wEffet = plafond;
+						effetCoupe = true;
+					}
+				}
 				float32 wTexte = droite - xTexte - wEffet;
 				// ⚠️ QUAND LA PLACE MANQUE, C'EST LA PROSE QUI CEDE (22p) : l'effet
 				//    est le FAIT, la phrase est le commentaire.
 				if (wTexte < 24.f) {
 					wTexte = 0.f;
 					wEffet = droite - xTexte;
+					// coupe SEULEMENT si le fait ne tient pas dans toute la ligne restante
+					effetCoupe = aEffet && (mes ? mes(ctx, NkAiPolice::Normale, b.effet.CStr()) : 0.f) > wEffet;
 				}
 				uint32 nTexte = 0;
 				if (wTexte > 0.f && surLaLigne && surLaLigne[0]) {
@@ -929,19 +943,31 @@ namespace nkentseu {
 								(float32)nTexte * m.ligne);
 				}
 				if (aEffet) {
-					NkAiRectPublie r;
-					r.blocId = b.id;
-					r.piece = NkAiPiece::Effet;
-					r.role = NkRole::TextMuted;
-					r.x = droite - wEffet;
-					r.y = y;
-					r.w = wEffet;
-					r.h = m.ligne;
-					r.debut = 0;
-					r.longueur = (uint32)b.effet.Length();
-					plan.Ajouter(r);
+					const float32 wNat = mes ? mes(ctx, NkAiPolice::Normale, b.effet.CStr()) : 0.f;
+					if (!effetCoupe || wNat <= wEffet - 12.f) {
+						NkAiRectPublie r;
+						r.blocId = b.id;
+						r.piece = NkAiPiece::Effet;
+						r.role = NkRole::TextMuted;
+						r.x = droite - wEffet;
+						r.y = y;
+						r.w = wEffet;
+						r.h = m.ligne;
+						r.debut = 0;
+						r.longueur = (uint32)b.effet.Length();
+						plan.Ajouter(r);
+					} else
+						(void)NkAiPublierLigne(plan, b.id, NkAiPiece::Effet, NkAiSource::Aucune, b.effet.CStr(),
+											   droite - wEffet + 12.f, y, wEffet - 12.f, m.ligne, NkRole::TextMuted,
+											   NkAiPolice::Normale, mes, ctx);
 				}
 				float32 yb = y + (float32)(nTexte == 0 ? 1 : nTexte) * m.ligne;
+				// L'EFFET COUPE SE LIT EN ENTIER QUAND LE BLOC EST DEPLIE.
+				if (aEffet && effetCoupe && !b.replie) {
+					const uint32 n = NkAiPublierTexte(plan, b.id, b.effet.CStr(), false, x, yb + 2.f, droite - x, m.ligne,
+													  NkRole::TextMuted, 12u, m, mes, ctx, NkAiSource::EffetBloc);
+					yb += 2.f + (float32)n * m.ligne;
+				}
 
 				// ── LA REFLEXION DEPLIEE : son contenu, attenue, sous la ligne ──
 				if (!b.replie && b.type == NkAiBloc::Reflexion && b.texte.Length() > 0) {
