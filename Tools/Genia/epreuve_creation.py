@@ -144,7 +144,7 @@ def main():
     jeu = lire_jeu(a.jeu)
     tot = {k: 0 for k in CRIT}
     complets = complets6 = 0
-    print("%-11s | %-3s %-3s %-3s %-3s %-3s %-3s | detail" % ("cle",) + CRIT)
+    print("%-11s | %-3s %-3s %-3s %-3s %-3s %-3s | detail" % (("cle",) + CRIT))
     for item in jeu:
         chemin = os.path.join(a.resultats, item["cle"] + ".txt")
         if not os.path.isfile(chemin):
