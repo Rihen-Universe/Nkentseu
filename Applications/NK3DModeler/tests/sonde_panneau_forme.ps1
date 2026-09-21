@@ -21,8 +21,23 @@
 #
 # LES CRITERES, ECRITS AVANT LE CODE (canal R38)
 # ----------------------------------------------
-# (A) ancre a DROITE, pleine hauteur, et il COUVRE la pastille de proprietes --
-#     donc il est dans l'overlay. Derive de la mise en page, pas d'un seuil.
+# (A) RETOURNE LE 20/09 AU SOIR, ET LE RETOURNEMENT EST LE LOT LUI-MEME.
+#     Il disait : « ancre a DROITE, pleine hauteur, et il COUVRE la pastille de
+#     proprietes -- donc il est dans l'overlay. »
+#     Rodolf a tranche l'inverse : « la pastille de IA doit s'ouvrir sur le panel
+#     de droite comme tout le monde, il ne doit pas avoir son propre panel. »
+#     L'assistant n'est plus un flottant : il est le CONTENU du panneau de
+#     droite, dans le meme clip et sur la meme couche que les sections.
+#
+#     ⚠ CE CRITERE AURAIT DONC ROUGI EN DISANT LE CONTRAIRE DE LA VERITE : un
+#       rouge qui signifie « on a fait ce qui etait demande ». Une sonde dont la
+#       condition a change de camp ne mesure plus le produit, elle mesure son
+#       propre passe. Le lire sans le relire aurait coute une heure et une
+#       fausse alerte.
+#
+#     Ce qu'il mesure MAINTENANT, et c'est plus exigeant : le contenu NE COUVRE
+#     PAS la colonne de pastilles (il s'arrete avant), et il reste dans la
+#     hauteur du panneau hote. C'est ca, « comme tout le monde ».
 # (B) une barre d'onglets par fournisseur, LOCAL premier et actif par defaut.
 # (D) chaque operation porte son effet MESURE, et le meme chiffre se lit dans
 #     DEUX instruments sans code commun : le bloc du panneau et la ligne
@@ -70,6 +85,18 @@ function Lancer([string]$nom, [string]$demande, [string]$clic, [int]$trace, [swi
 	if (-not $Accueil) { $env:NK_AGENT_SCENE = "30" }
 	if ($null -ne $demande) { $env:NK_AI_DEMANDE = "$demande,90" }
 	if ($clic) { $env:NK_AGENT_CLICK = $clic }
+	# ⚠ OUVRIR LE PANNEAU POUR LE MESURER, ET C EST UN CORRECTIF DE LA SONDE.
+	#   Elle a ete ecrite quand une demande OUVRAIT le panneau. Depuis le 20/09
+	#   au matin, « une demande MARQUE au lieu d ouvrir » : ouvrir de force
+	#   repond au besoin de l application, marquer repond a celui de
+	#   l utilisateur. Le panneau restait donc FERME, la trace imprimait
+	#   « absent=1 ouvert=0 motif=panneau-ferme », et la sonde lisait -1
+	#   partout -- DIX ROUGES POUR UNE SEULE CAUSE, et aucun n etait un defaut
+	#   du produit.
+	#   `NK_AI_PANNEAU` existe exactement pour ca : c est la porte que le meme
+	#   commit a donnee a l instrument, pour qu il n ait pas besoin que le
+	#   produit se comporte autrement devant lui.
+	if (-not $Accueil) { $env:NK_AI_PANNEAU = "1" }
 	$env:NK_AI_TRACE = "$trace"
 	$env:NK_EDIT_REPORT = "80,200"
 	$env:NK_AGENT_EXIT = "230"
@@ -78,7 +105,7 @@ function Lancer([string]$nom, [string]$demande, [string]$clic, [int]$trace, [swi
 		-RedirectStandardOutput $out | Out-Null
 	foreach ($v in @("NK_SONDE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_EDIT_MODE",
 			"NK_EDIT_SELMASK", "NK_VP_ACTION", "NK_AI_DEMANDE", "NK_AGENT_CLICK",
-			"NK_AI_TRACE", "NK_EDIT_REPORT", "NK_AGENT_EXIT", "NK_AGENT_SHOT",
+			"NK_AI_TRACE", "NK_AI_PANNEAU", "NK_EDIT_REPORT", "NK_AGENT_EXIT", "NK_AGENT_SHOT",
 			"NK_AGENT_SCENE")) {
 		if (Test-Path "Env:\$v") { Remove-Item -Path "Env:\$v" }
 	}
@@ -101,10 +128,10 @@ function Lancer([string]$nom, [string]$demande, [string]$clic, [int]$trace, [swi
 		$r.onglet = [int]$g[11].Value; $r.fournisseur = $g[12].Value
 	}
 	$blocs = @()
-	foreach ($l in @(Select-String -Path $out -Pattern "AI BLOC (\d+) type=(\d+) replie=(\d+) mesure=(\d+) ligne=\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\) annuler=\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\) v=(-?\d+)->(-?\d+) f=(-?\d+)->(-?\d+) texte=""([^""]*)"" out=""([^""]*)"" motif=""([^""]*)""")) {
+	foreach ($l in @(Select-String -Path $out -Pattern "AI BLOC (\d+) type=(\w+) replie=(\d+) mesure=(\d+) ligne=\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\) annuler=\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\) v=(-?\d+)->(-?\d+) f=(-?\d+)->(-?\d+) texte=""([^""]*)"" out=""([^""]*)"" motif=""([^""]*)""")) {
 		$g = $l.Matches[0].Groups
 		$blocs += [pscustomobject]@{
-			i = [int]$g[1].Value; type = [int]$g[2].Value; replie = [int]$g[3].Value
+			i = [int]$g[1].Value; type = [string]$g[2].Value; replie = [int]$g[3].Value
 			mesure = [int]$g[4].Value
 			lx = [double]$g[5].Value; ly = [double]$g[6].Value
 			lw = [double]$g[7].Value; lh = [double]$g[8].Value
@@ -149,18 +176,22 @@ $a = Lancer "accepte" "subdivide:3" "" 120
 Write-Host ("       panneau=({0},{1},{2}x{3}) fenetre={4}x{5} pastille=({6},{7},{8}x{9})" -f `
 	$a.x, $a.y, $a.w, $a.h, $a.fenW, $a.fenH, $a.px, $a.py, $a.pw, $a.ph)
 
-Dire "(A) ancre a DROITE, pleine hauteur, et il COUVRE la pastille" `
-	(($a.x + $a.w -eq $a.fenW) -and ($a.x -lt $a.px) -and ($a.y -le $a.py) -and `
-	 (($a.y + $a.h) -ge ($a.py + $a.ph))) `
-	("bord droit $($a.x + $a.w) = fenetre $($a.fenW) · gauche $($a.x) < pastille $($a.px) · " +
-	 "haut $($a.y) <= $($a.py) · bas $($a.y + $a.h) >= $($a.py + $a.ph)")
+# ⚠ px/pw SONT LE RECTANGLE DES PROPRIETES, pas celui de la pastille : la
+#   trace imprime props=(...) et le libelle de la sonde disait « pastille ».
+#   Ma premiere assertion comparait donc le bord DROIT du contenu au bord
+#   GAUCHE de l hote -- toujours faux, et ca aurait passe pour un defaut du
+#   produit. Le critere juste est la CONTENANCE : le contenu commence dans
+#   l hote et s arrete AVANT son bord droit, ou vit la colonne de pastilles.
+Dire "(A) il est le CONTENU du panneau de droite : il NE COUVRE PAS la pastille" `
+	(($a.w -gt 0) -and ($a.x -ge $a.px) -and (($a.x + $a.w) -lt ($a.px + $a.pw))) `
+	("contenu $($a.x)..$($a.x + $a.w) DANS les proprietes $($a.px)..$($a.px + $a.pw) : " + "il reste $(($a.px + $a.pw) - ($a.x + $a.w)) px pour la colonne de pastilles")
 
 Dire "(B) le LOCAL est le premier onglet ET l'actif par defaut" `
 	(($a.onglet -eq 0) -and ($a.fournisseur -eq "Local")) `
 	"onglet=$($a.onglet) fournisseur=$($a.fournisseur)"
 
-$op = @($a.blocs | Where-Object { $_.type -eq 1 }) | Select-Object -Last 1
-$dem = @($a.blocs | Where-Object { $_.type -eq 0 })
+$op = @($a.blocs | Where-Object { $_.type -eq "outil" }) | Select-Object -Last 1
+$dem = @($a.blocs | Where-Object { $_.type -eq "demande" })
 Dire "(D) l'effet est MESURE, et DEUX instruments donnent le meme chiffre" `
 	(($null -ne $op) -and ($op.mesure -eq 1) -and ($op.fB -eq $a.f1) -and ($op.fA -eq $a.f0)) `
 	("bloc du panneau : faces $($op.fA) -> $($op.fB) · EDIT RAPPORT (qui ignore le panneau) : " +
@@ -178,7 +209,7 @@ Dire "(E-zero) la demande de l'utilisateur est un bloc VISIBLE, jamais replie" `
 if ($null -ne $op -and $op.uw -gt 0) {
 	$cx = [int]($op.ux + $op.uw / 2); $cy = [int]($op.uy + $op.uh / 2)
 	$b = Lancer "annule" "subdivide:3" "150,$cx,$cy" 170
-	$ops = @($b.blocs | Where-Object { $_.type -eq 1 })
+	$ops = @($b.blocs | Where-Object { $_.type -eq "outil" })
 	$anciens = @($ops | Select-Object -SkipLast 1)
 	$eteints = @($anciens | Where-Object { $_.uw -eq 0 }).Count
 	Dire "(E) le clic sur « Annuler cette action » RAMENE les comptes d'avant" `
@@ -197,7 +228,7 @@ if ($null -ne $op -and $op.uw -gt 0) {
 if ($null -ne $op) {
 	$cx = [int]($op.lx + $op.lw / 2); $cy = [int]($op.ly + $op.lh / 2)
 	$c = Lancer "deplie" "subdivide:3" "150,$cx,$cy" 170
-	$opc = @($c.blocs | Where-Object { $_.type -eq 1 }) | Select-Object -Last 1
+	$opc = @($c.blocs | Where-Object { $_.type -eq "outil" }) | Select-Object -Last 1
 	Dire "(F) DEPLIER ouvre le bloc et n'execute RIEN" `
 		(($null -ne $opc) -and ($opc.replie -eq 0) -and ($c.f1 -eq $opc.fB)) `
 		"replie=$($opc.replie) apres le clic (exige 0) · faces a la fin $($c.f1), inchangees depuis l'operation ($($opc.fB))"
@@ -205,7 +236,7 @@ if ($null -ne $op) {
 
 # ── TEMPS 4 : LE REFUS, ET LE ZERO ────────────────────────────────────────────
 $d = Lancer "refus" "rends ce modele plus beau" "" 120
-$ref = @($d.blocs | Where-Object { $_.type -eq 2 }) | Select-Object -Last 1
+$ref = @($d.blocs | Where-Object { $_.type -eq "refus" }) | Select-Object -Last 1
 Dire "(G) un REFUS est un bloc a part, avec son motif, maillage intact" `
 	(($null -ne $ref) -and ($ref.motif -ne "") -and ($d.f1 -eq $d.f0)) `
 	"bloc de refus, motif : « $($ref.motif) » · faces $($d.f0) -> $($d.f1)"

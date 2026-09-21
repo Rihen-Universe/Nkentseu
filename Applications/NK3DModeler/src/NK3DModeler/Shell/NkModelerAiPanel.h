@@ -627,6 +627,9 @@ namespace nkentseu {
 				metr.Echelle(S(1.f));
 				editorkit::NkAiFilMesurer(st.aiFil, filR.w, metr, NkAiMesurerTexte, &p, st.aiPlan);
 				NkModelerComponentPaint pc(p);
+				// L origine EST publiee : c est elle qui ramene le plan a l ecran.
+				st.aiPlanOrigine[0] = filR.x;
+				st.aiPlanOrigine[1] = filR.y - st.aiDefile;
 				editorkit::NkAiFilPeindre(pc, st.aiFil, st.aiPlan, filR.x, filR.y - st.aiDefile);
 				// ⚠️ LE CLIC PASSE PAR L'IDENTIFIANT, PLUS PAR UN INDICE. `ai.b%d`
 				//    avec la position etait faux des qu'un bloc entrait dans un fil
