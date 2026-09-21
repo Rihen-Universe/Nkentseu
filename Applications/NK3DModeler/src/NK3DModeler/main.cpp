@@ -3724,6 +3724,12 @@ int nkmain(const NkEntryState &entry) {
 							st.aiImagesJointes[0].CStr());
 				std::fflush(stdout);
 				st.aiImagesJointesVues = st.aiImagesJointes; // relaye, lu par la modelisation
+				// Le relais ne suffisait pas : `aiImagesJointesVues` n'avait AUCUN
+				// lecteur (deux agents, deux portes, personne entre les deux). La
+				// creation n'a qu'une porte, `NkCreaJoindreImage`, celle que prend
+				// deja NK_CREA_IMAGE : la premiere image y passe, la prochaine
+				// demande de creation la consomme.
+				nk3d::NkCreaJoindreImage(st.aiImagesJointes[0].CStr());
 				st.aiImagesJointes.Clear();
 			}
 			nk3d::NkAiCopie(st.aiClaudeModeleCourant, sizeof(st.aiClaudeModeleCourant),
