@@ -648,6 +648,12 @@ namespace nkentseu {
 					mApresImageFn = fn;
 					mApresImageUser = user;
 				}
+				/// Le theme du KIT (roles), celui que `ApplyTheme` a pose. Les composants
+				/// qui peignent par role (`NkGuiComponentPaint`) le lisent ici plutot que
+				/// d'en tenir une copie qui ne suivrait pas une bascule de theme.
+				const NkTheme &KitTheme() const noexcept {
+					return mKitTheme;
+				}
 
 				// Ecran de demarrage (launcher) : dessine TOUT le corps quand
 				// ctx.appFullScreen est leve (remplace barre d'outils + panneaux).

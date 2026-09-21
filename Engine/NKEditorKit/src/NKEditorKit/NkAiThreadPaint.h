@@ -90,7 +90,12 @@ namespace nkentseu {
 					fin = debut + 3;
 					return true;
 				}
-				if (r.source != NkAiSource::Aucune) {
+				if (r.source == NkAiSource::EffetBloc && r.blocId != 0u) {
+					uint32 i = 0;
+					if (!fil.TrouverParId(r.blocId, i))
+						return false;
+					src = fil.At(i).effet.CStr();
+				} else if (r.source != NkAiSource::Aucune) {
 					switch (r.source) {
 						case NkAiSource::Titre:		   src = c.titre; break;
 						case NkAiSource::Saisie:	   src = c.saisie ? c.saisie : c.composeur; break;
@@ -440,6 +445,14 @@ namespace nkentseu {
 						const char *a = nullptr, *b = nullptr;
 						if (!aipaint::TextePiece(fil, r, chrome, a, b))
 							break;
+						// LES LIGNES DE MENU SONT ROGNEES a leur rectangle : leur texte vient
+						// entier de l'hote (un motif peut etre long), le plan lui a donne sa place.
+						if (r.source == NkAiSource::MenuTexte || r.source == NkAiSource::MenuDetail) {
+							p.PushClip(rect);
+							p.TextePolice(rect, a, b, role, (uint8)r.police);
+							p.PopClip();
+							break;
+						}
 						// ⚠️ UNE PIECE DE TEXTE SANS TEXTE NE SE PEINT PAS (23d).
 						if (!a || a == b || !a[0])
 							break;
