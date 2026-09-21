@@ -1,0 +1,38 @@
+# JEU D'EPREUVE -- « une phrase -> un objet en parties nommees », dans NK3DModeler
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# ⚠️ ECRIT LE 21/09/2026 AVANT LA PREMIERE LIGNE DU LOT ET AVANT TOUT REGLAGE
+# D'INVITE. Il ne se retouche pas apres avoir vu les echecs : un jeu ajuste
+# apres coup mesure le reglage de celui qui l'ajuste. Le commit qui le verse
+# precede celui du code ; `git log` en fait foi.
+#
+# CE QUE LES CRITERES JUGENT, ET CE QU'ILS NE JUGENT PAS
+#   Aucun critere ne dicte l'objet attendu (ni le nombre exact de pieds, ni les
+#   noms). Ils jugent ce que la GEOMETRIE PRODUITE permet de contredire :
+#     C1 parties nommees : au moins <min_parties> parties, noms DISTINCTS et non
+#        generiques (ni « cube », « partie3 », « objet »...).
+#     C2 pose au sol     : le point le plus bas de l'objet est a |y| <= 5 mm.
+#     C3 rien ne flotte  : chaque partie rejoint le sol par une chaine de
+#        contacts (boites englobantes MONDE qui se touchent a 1 cm pres).
+#        ⚠️ Boites, pas surfaces : deux boites qui se touchent n'impliquent pas
+#        deux surfaces qui se touchent (une sphere ne remplit pas ses coins).
+#        Le critere est donc INDULGENT, et l'image doit le confirmer.
+#     C4 proportions     : hauteur H, plus grande etendue horizontale L, plus
+#        petite l, en METRES, dans les fourchettes ci-dessous (ecrites d'avance,
+#        tirees des dimensions usuelles d'un mobilier ou d'un batiment, pas des
+#        sorties du modele).
+#     C5 annulable       : UN geste « annuler » en mode OBJET ramene le nombre
+#        d'objets a celui d'avant et ne laisse AUCUNE des parties creees.
+#   Ce qu'aucun critere ne juge : que l'objet RESSEMBLE a ce qu'on a demande.
+#   C'est l'image qui le dit, ouverte et decrite une par une.
+#
+# FORMAT : <cle> | <famille> | <demande telle que Rodolf la taperait> | min_parties | H min-max | L min-max | l min-max
+
+chaise     | mobilier     | modelise une chaise en banbou            | 5 | 0.70-1.10 | 0.35-0.70 | 0.35-0.70
+table      | mobilier     | fais une table a manger en bois          | 5 | 0.65-0.85 | 0.80-2.40 | 0.50-1.20
+tabouret   | mobilier     | un tabouret de bar                       | 4 | 0.55-0.95 | 0.25-0.60 | 0.25-0.60
+etagere    | mobilier     | une etagere a livres                     | 5 | 0.80-2.20 | 0.50-1.60 | 0.20-0.50
+lampe      | mobilier     | une lampe de chevet                      | 3 | 0.25-0.75 | 0.12-0.55 | 0.12-0.55
+maison     | architecture | une maison simple avec un toit           | 4 | 2.50-10.0 | 3.00-15.0 | 3.00-15.0
+arbre      | decor        | un arbre                                 | 2 | 2.00-15.0 | 0.80-10.0 | 0.80-10.0
+personnage | personnage   | un personnage stylise fait de primitives | 6 | 1.00-2.20 | 0.30-1.20 | 0.15-0.70
