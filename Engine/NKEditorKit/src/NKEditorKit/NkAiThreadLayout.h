@@ -329,14 +329,18 @@ namespace nkentseu {
 				/// ETROIT (celui des applications : 276 a 520 px), les retraits de la
 				/// capture (24 / 55 / 41 px, pris sur 695) mangeaient un tiers de la
 				/// largeur. Le fil, la demande et le composeur y gardent 8 a 12 px.
+				/// (Q9) 8 PX, A TOUTES LES LARGEURS, et le TEXTE DU FIL ALIGNE SUR CELUI
+				/// DU COMPOSEUR : la demande et le cadre du composeur a 8 px du bord, le
+				/// rail et ses puces dans ces 8..16 px, les blocs et le texte saisi a 22.
 				void Compacter(float32 k) {
-					retraitDemande = 10.f * k;
-					margeDroite = 10.f * k;
-					railX = 16.f * k;
-					retraitFil = 30.f * k;
+					retraitDemande = 8.f * k;
+					margeDroite = 8.f * k;
+					railX = 12.f * k;
+					retraitFil = 22.f * k;
 					margeComposeur = 8.f * k;
-					margeBas = 10.f * k;
-					margeTitre = 12.f * k;
+					texteComposeur = 14.f * k;
+					margeBas = 8.f * k;
+					margeTitre = 10.f * k;
 				}
 				void Echelle(float32 k) {
 					retraitDemande *= k; margeDroite *= k; retraitFil *= k;

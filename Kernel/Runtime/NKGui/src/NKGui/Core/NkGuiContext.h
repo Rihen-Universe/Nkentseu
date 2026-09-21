@@ -366,6 +366,17 @@ namespace nkentseu {
 				void (*clipboardGetFn)(void *, NkString &) = nullptr;
 				void (*clipboardSetFn)(void *, const char *) = nullptr;
 
+				/// (Q9) L'IMAGE du presse-papiers (un bitmap copie), fournie par l'hote :
+				/// RGBA 8 bits, ligne par ligne, du haut vers le bas. Faux = pas
+				/// d'image, ou plateforme qui ne sait pas la lire (`motif` le dit).
+				bool (*clipboardImageFn)(void *, NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) = nullptr;
+				bool GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const {
+					if (!clipboardImageFn) {
+						motif = NkString("l'application ne relie pas le presse-papiers image");
+						return false;
+					}
+					return clipboardImageFn(clipboardUser, rgba, w, h, motif);
+				}
 				NkString GetClipboard() const {
 					NkString s;
 					if (clipboardGetFn)
