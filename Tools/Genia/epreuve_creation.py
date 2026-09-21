@@ -43,7 +43,7 @@ def lire_jeu(chemin):
         c = [x.strip() for x in ligne.split("|")]
         if len(c) < 7:
             continue
-        fourchette = lambda s: tuple(float(x) for x in s.split("-"))
+        fourchette = lambda s: tuple(float(x.rstrip(".")) for x in s.split("-"))
         jeu.append(dict(cle=c[0], famille=c[1], demande=c[2], min_parties=int(c[3]),
                         H=fourchette(c[4]), L=fourchette(c[5]), l=fourchette(c[6])))
     return jeu

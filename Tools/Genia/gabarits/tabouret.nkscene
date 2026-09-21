@@ -1,0 +1,9 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene tabouret
+partie assise forme cylindre largeur 0.38 hauteur 0.05 profondeur 0.38 matiere bois
+partie pied_1 forme cylindre largeur 0.035 hauteur 0.70 profondeur 0.035 pose_sous assise decale -0.13 0 -0.13 matiere metal
+partie pied_2 forme cylindre largeur 0.035 hauteur 0.70 profondeur 0.035 pose_sous assise decale 0.13 0 -0.13 matiere metal
+partie pied_3 forme cylindre largeur 0.035 hauteur 0.70 profondeur 0.035 pose_sous assise decale -0.13 0 0.13 matiere metal
+partie pied_4 forme cylindre largeur 0.035 hauteur 0.70 profondeur 0.035 pose_sous assise decale 0.13 0 0.13 matiere metal
