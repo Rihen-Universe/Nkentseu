@@ -1,4 +1,5 @@
-﻿// =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
 // NkWin32Window.cpp
 // Implémentation Win32 de NkWindow sans PIMPL.
 //
@@ -981,6 +982,79 @@ namespace nkentseu {
 		}
 		CloseClipboard();
 		return out;
+	}
+
+	// ── (Q9) L'IMAGE DU PRESSE-PAPIERS : CF_DIBV5 / CF_DIB -> RGBA ───────────────
+	// ⚠️ UN DIB EST RANGE DU BAS VERS LE HAUT quand biHeight > 0 ; en BGR(A) ;
+	//    avec des lignes alignees sur 4 octets ; et BI_BITFIELDS pose 3 masques
+	//    apres l'en-tete d'un BITMAPINFOHEADER (pas d'un V5, qui les porte). Chacun
+	//    de ces quatre details, oublie, donne une image a l'envers, bleue, cisaillee
+	//    ou decalee de 12 octets.
+	bool NkWindow::GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const {
+		w = h = 0;
+		rgba.Clear();
+		if (!IsClipboardFormatAvailable(CF_DIB) && !IsClipboardFormatAvailable(CF_DIBV5)) {
+			motif = NkString("le presse-papiers ne contient pas d'image");
+			return false;
+		}
+		if (!OpenClipboard(mData.mHwnd)) {
+			motif = NkString("presse-papiers occupe par une autre application");
+			return false;
+		}
+		HANDLE hd = GetClipboardData(IsClipboardFormatAvailable(CF_DIBV5) ? CF_DIBV5 : CF_DIB);
+		bool ok = false;
+		if (hd) {
+			const uint8 *p = static_cast<const uint8 *>(GlobalLock(hd));
+			const SIZE_T taille = GlobalSize(hd);
+			if (p && taille >= sizeof(BITMAPINFOHEADER)) {
+				const BITMAPINFOHEADER *bi = reinterpret_cast<const BITMAPINFOHEADER *>(p);
+				const int32 bw = (int32)bi->biWidth;
+				const int32 bh = bi->biHeight < 0 ? -(int32)bi->biHeight : (int32)bi->biHeight;
+				const bool basEnHaut = bi->biHeight > 0;
+				const int32 bpp = (int32)bi->biBitCount;
+				usize decal = bi->biSize;
+				if (bi->biCompression == BI_BITFIELDS && bi->biSize == sizeof(BITMAPINFOHEADER))
+					decal += 12u;
+				decal += (usize)bi->biClrUsed * 4u;
+				const usize ligne = (((usize)bw * (usize)bpp + 31u) / 32u) * 4u;
+				if (bw > 0 && bh > 0 && bw <= 16384 && bh <= 16384 && (bpp == 24 || bpp == 32) &&
+					(bi->biCompression == BI_RGB || bi->biCompression == BI_BITFIELDS) &&
+					decal + ligne * (usize)bh <= (usize)taille) {
+					rgba.Resize((usize)bw * (usize)bh * 4u);
+					// un 32 bits dont l'alpha vaut 0 partout : l'alpha n'est pas porte
+					bool alphaNul = bpp == 32;
+					for (int32 y = 0; y < bh && alphaNul; ++y) {
+						const uint8 *s = p + decal + (usize)y * ligne;
+						for (int32 x = 0; x < bw; ++x)
+							if (s[x * 4 + 3] != 0) {
+								alphaNul = false;
+								break;
+							}
+					}
+					for (int32 y = 0; y < bh; ++y) {
+						const int32 sy = basEnHaut ? (bh - 1 - y) : y;
+						const uint8 *s = p + decal + (usize)sy * ligne;
+						uint8 *d = rgba.Data() + (usize)y * (usize)bw * 4u;
+						for (int32 x = 0; x < bw; ++x) {
+							const uint8 *px = s + x * (bpp / 8);
+							d[x * 4 + 0] = px[2];
+							d[x * 4 + 1] = px[1];
+							d[x * 4 + 2] = px[0];
+							d[x * 4 + 3] = (bpp == 32 && !alphaNul) ? px[3] : 255u;
+						}
+					}
+					w = bw;
+					h = bh;
+					ok = true;
+				} else
+					motif = NkString("format d'image du presse-papiers non pris en charge (ni 24 ni 32 bits non compresses)");
+				GlobalUnlock(hd);
+			}
+		}
+		CloseClipboard();
+		if (!ok && motif.Length() == 0)
+			motif = NkString("image du presse-papiers illisible");
+		return ok;
 	}
 
 	// ── Fenêtre discrète : opacité / toujours-devant / click-through ─────────────
