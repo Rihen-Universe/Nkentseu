@@ -210,6 +210,34 @@ if (Condition "Objet" ($o1 -gt 0) "aucune ligne GIZMO-DIAG en mode Objet avec un
 	Dire "Objet : le gizmo d'OBJET, seul, et plus aucun trace d'edition" ($o1 -gt 0) "lignes « emptyGizmo dessine=1 -> 1 gizmo »=$o1"
 }
 
+# ── LES BOUTONS DEPLACER / TOURNER / ECHELLE DE LA BARRE (decision du 21/09) ──
+# En Sculpture et en 2.5D : GRISES, non cliquables, motif en infobulle ; actifs
+# d'eux-memes en Objet et en Edition. Le clic est ECRIT (NK_TOOL_CLIC) sur le
+# bouton Rotation (1) et passe par la MEME acceptation que la souris ; la barre
+# imprime son etat et l'outil obtenu. Rotation = outil 3 ; l'outil de depart est 2.
+function Barre($c) {
+	$g = @(Select-String -Path $c.out -Pattern "OUTILS-TRANSFORM clic ecrit bouton=1 mode=(\d+) grises=(\d) -> outil=(\d+)")
+	if ($g.Count -eq 0) { return $null }
+	$m = $g[0].Matches[0]
+	return [pscustomobject]@{ mode = [int]$m.Groups[1].Value; grises = [int]$m.Groups[2].Value; outil = [int]$m.Groups[3].Value }
+}
+foreach ($mode in @(3, 2)) {
+	$n = $noms[$mode]
+	$b = Barre (Courir "barre_$mode" @{ "NK_EDIT_MODE" = "$mode,40"; "NK_TOOL_CLIC" = "1,120"; "NK_AGENT_EXIT" = "160" })
+	if (Condition "$n (g)" (($null -ne $b) -and ($b.mode -eq $mode)) "le clic ecrit n'a pas eu lieu dans ce mode") {
+		Dire "$n (g) Deplacer/Tourner/Echelle GRISES et le clic n'y fait rien" (($b.grises -eq 1) -and ($b.outil -ne 3)) "grises=$($b.grises) outil apres clic sur Rotation=$($b.outil) (exige grises=1, outil different de 3)"
+	}
+}
+$b = Barre (Courir "barre_1" @{ "NK_EDIT_MODE" = "1,40"; "NK_TOOL_CLIC" = "1,120"; "NK_AGENT_EXIT" = "160" })
+if (Condition "Edition (g)" (($null -ne $b) -and ($b.mode -eq 1)) "le clic ecrit n'a pas eu lieu en Edition") {
+	Dire "Edition (g) les boutons sont ACTIFS : Rotation se choisit" (($b.grises -eq 0) -and ($b.outil -eq 3)) "grises=$($b.grises) outil=$($b.outil)"
+}
+# Retour en Objet DEPUIS la Sculpture (TAB) : ils redeviennent actifs seuls.
+$b = Barre (Courir "barre_0" @{ "NK_EDIT_MODE" = "3,40"; "NK_VP_ACTION" = "toggleedit,90"; "NK_TOOL_CLIC" = "1,140"; "NK_AGENT_EXIT" = "170" })
+if (Condition "Objet (g)" (($null -ne $b) -and ($b.mode -eq 0)) "le clic ecrit n'a pas eu lieu en Objet") {
+	Dire "Objet (g) sorti de Sculpture, les boutons redeviennent ACTIFS" (($b.grises -eq 0) -and ($b.outil -eq 3)) "grises=$($b.grises) outil=$($b.outil)"
+}
+
 Write-Host "-----------------------------------------------------------------------"
 if ($rouges -gt 0) { Write-Host "ECHEC ($rouges rouge(s), $conditions condition(s) non reunie(s))"; exit 1 }
 if ($conditions -gt 0) { Write-Host "CONDITION NON REUNIE ($conditions) -- ni vert ni rouge"; exit 3 }
