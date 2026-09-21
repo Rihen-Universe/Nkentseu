@@ -1,7 +1,7 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# GABARIT « objet de revolution » (21/09, Q7), en metres : une BOUTEILLE, creuse.
-# Profil exterieur du bas vers le haut (rayon hauteur) ; paroi = epaisseur.
-# Le bouchon est une seconde revolution, pleine, posee sur le goulot.
+# GABARIT « objet de revolution » (21/09, Q7), en metres : une BOUTEILLE, creuse,
+# decrite par une SILHOUETTE (forme normalisee) mise a l'echelle par largeur et
+# hauteur. Le bouchon est une seconde revolution, pleine, posee sur le goulot.
 scene bouteille
-partie bouteille forme revolution profil 0.040 0 0.040 0.200 0.030 0.230 0.015 0.260 0.013 0.300 paroi 0.004 matiere verre
-partie bouchon forme revolution profil 0.015 0 0.015 0.020 matiere bois_clair pose_sur bouteille
+partie bouteille forme revolution silhouette goulot largeur 0.080 hauteur 0.300 paroi 0.004 matiere verre
+partie bouchon forme revolution silhouette droit largeur 0.024 hauteur 0.020 pose_sur bouteille matiere bois_clair

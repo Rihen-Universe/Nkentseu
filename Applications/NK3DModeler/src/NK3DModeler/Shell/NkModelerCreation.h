@@ -102,6 +102,38 @@ namespace nkentseu {
 			const char *v = std::getenv("NK_CREA_SANS_REVOLUTION");
 			return v && v[0] && v[0] != '0';
 		}
+		/// LES SILHOUETTES DE REVOLUTION (21/09, Q7, seconde course). La premiere
+		/// course a montre le modele RECOPIER les nombres de l'exemple (la bouteille)
+		/// pour le verre, le vase ET le bol : trois objets, un seul profil. Un 7B
+		/// sait donner une largeur et une hauteur credibles -- il l'a fait pour
+		/// toutes les autres parties --, il ne sait pas dessiner un profil point par
+		/// point. L'outil lui offre donc des SILHOUETTES NORMALISEES (u = rayon / demi-
+		/// largeur, v = hauteur / hauteur totale, du bas vers le haut), mises a
+		/// l'echelle par largeur et hauteur.
+		/// ⚠️ NOMMEES PAR LEUR FORME, JAMAIS PAR UN OBJET : « evase », pas « verre ».
+		///    Des silhouettes nommees « verre » et « bol » donneraient la reponse du
+		///    jeu d'epreuve ; ici le modele doit encore CHOISIR la forme.
+		struct NkCreaSilhouette {
+				const char *nom;
+				const char *effet;
+				float32 uv[16]; // jusqu'a 8 couples (u, v)
+				int32 n;
+		};
+		inline const NkCreaSilhouette *NkCreaSilhouettes(int32 &n) {
+			static const NkCreaSilhouette kS[] = {
+				{"droit", "flancs verticaux", {1.f, 0.f, 1.f, 1.f}, 2},
+				{"evase", "s'elargit vers le haut", {0.72f, 0.f, 0.78f, 0.08f, 1.f, 1.f}, 3},
+				{"ventru", "renfle au milieu, col plus etroit", {0.6f, 0.f, 0.9f, 0.2f, 1.f, 0.45f, 0.85f, 0.72f, 0.5f, 0.9f, 0.58f, 1.f}, 6},
+				{"goulot", "corps droit puis long col etroit", {1.f, 0.f, 1.f, 0.62f, 0.75f, 0.73f, 0.35f, 0.83f, 0.3f, 1.f}, 5},
+				{"coupe", "petit pied puis flancs arrondis, large ouverture", {0.45f, 0.f, 0.72f, 0.15f, 0.9f, 0.45f, 1.f, 1.f}, 4},
+				{"dome", "arrondi, se referme en haut", {1.f, 0.f, 0.96f, 0.3f, 0.82f, 0.6f, 0.5f, 0.86f, 0.05f, 1.f}, 5},
+				{"conique", "se retrecit en pointe", {1.f, 0.f, 0.05f, 1.f}, 2},
+				{"colonne", "base et chapiteau plus larges qu'un fut droit", {1.f, 0.f, 1.f, 0.06f, 0.78f, 0.1f, 0.78f, 0.9f, 1.f, 0.94f, 1.f, 1.f}, 6},
+			};
+			n = (int32)(sizeof(kS) / sizeof(kS[0]));
+			return kS;
+		}
+
 		/// LES MATIERES. ⚠️ CE NE SONT PAS LES PREREGLAGES DE NKRENDERER, et il faut
 		/// le dire : `Materials/` porte 30 prereglages de MATCAP (un eclairage
 		/// d'apercu, pas un materiau physique), et `NkVpMatTypeDefaults.h` a etabli
@@ -187,6 +219,7 @@ namespace nkentseu {
 				float32 profil[64] = {}; ///< nombres lus : rayon, hauteur, rayon, hauteur...
 				int32 nNombres = 0;
 				float32 paroi = 0.f; ///< > 0 : objet CREUX (verre, bol) ; le fond a la meme epaisseur
+				int32 silhouette = -1; ///< indice dans NkCreaSilhouettes, ou -1 (profil explicite)
 				bool tailleDonnee = false;
 				// ── COHERENCE D'ECHELLE (Q7) ──
 				bool exclue = false; ///< refusee avant la pose ; le motif est dans d.refus
@@ -448,6 +481,33 @@ namespace nkentseu {
 							ok = false;
 						} else
 							aTaille = true; // la revolution tire sa taille de son profil
+					} else if (strcmp(clef, "silhouette") == 0) {
+						int32 ns = 0;
+						const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+						pc.silhouette = -1;
+						if (NkCreaMot(q, v, sizeof(v))) {
+							for (int32 k = 0; k < ns; ++k)
+								if (strcmp(S[k].nom, v) == 0)
+									pc.silhouette = k;
+							// UN PREFIXE UNIQUE D'AU MOINS 4 LETTRES SUFFIT : la seconde
+							// course a vu « coup » pour « coupe », repete trois tours de
+							// suite malgre le motif -- et le verre n'a jamais ete pose.
+							// Un prefixe AMBIGU reste refuse.
+							if (pc.silhouette < 0 && strlen(v) >= 4) {
+								int32 trouve = -1, nb = 0;
+								for (int32 k = 0; k < ns; ++k)
+									if (strncmp(S[k].nom, v, strlen(v)) == 0) {
+										trouve = k;
+										++nb;
+									}
+								if (nb == 1)
+									pc.silhouette = trouve;
+							}
+						}
+						if (pc.silhouette < 0) {
+							NkCreaRefuser(d, "partie « %s » : silhouette inconnue « %s » (droit, evase, ventru, goulot, coupe, dome, conique, colonne)", pc.nom, v);
+							ok = false;
+						}
 					} else if (strcmp(clef, "paroi") == 0) {
 						if (!NkCreaMot(q, v, sizeof(v)) || !NkCreaNombre(v, pc.paroi) || pc.paroi < 0.f) {
 							NkCreaRefuser(d, "partie « %s » : « paroi » attend une epaisseur en metres%s", pc.nom);
@@ -564,11 +624,29 @@ namespace nkentseu {
 					NkCreaRefuser(d, "partie « %s » : forme revolution desactivee (NK_CREA_SANS_REVOLUTION)%s", pc.nom);
 					ok = false;
 				}
+				if (ok && pc.silhouette >= 0) {
+					int32 ns = 0;
+					const NkCreaSilhouette &S = NkCreaSilhouettes(ns)[pc.silhouette];
+					if (!pc.aDim[0] || !pc.aDim[1]) {
+						NkCreaRefuser(d, "partie « %s » : une silhouette demande largeur et hauteur%s", pc.nom);
+						ok = false;
+					} else {
+						// Le profil EN METRES, tire de la silhouette : la suite de la
+						// chaine (pose, echelle, garde) ne voit qu'un profil ordinaire.
+						pc.nNombres = 0;
+						for (int32 k = 0; k < S.n; ++k) {
+							pc.profil[pc.nNombres++] = S.uv[2 * k] * 0.5f * pc.taille[0];
+							pc.profil[pc.nNombres++] = S.uv[2 * k + 1] * pc.taille[1];
+						}
+						pc.tailleDonnee = false;
+						aTaille = true;
+					}
+				}
 				if (ok && pc.forme >= 0 && strcmp(NkCreaFormes(nfTmp)[pc.forme].nom, "revolution") == 0 && pc.nNombres < 4) {
 					NkCreaRefuser(d, "partie « %s » : une revolution demande un « profil » (couples rayon hauteur)%s", pc.nom);
 					ok = false;
 				}
-				if (ok && !aTaille && (pc.aDim[0] || pc.aDim[1] || pc.aDim[2])) {
+				if (ok && !aTaille && pc.silhouette < 0 && (pc.aDim[0] || pc.aDim[1] || pc.aDim[2])) {
 					NkCreaRefuser(d, "partie « %s » : il faut les TROIS dimensions (largeur, hauteur, profondeur)%s", pc.nom);
 					ok = false;
 				}
@@ -652,12 +730,25 @@ namespace nkentseu {
 			ajout("sinon elle flotte. <autre> est le NOM d'une partie deja ecrite.\n\n");
 			if (!NkCreaSansRevolution()) {
 			ajout("LA REVOLUTION : un objet TOURNE (verre, bouteille, vase, bol, tasse, colonne) est UNE seule partie\n");
-			ajout("de forme revolution, decrite par son PROFIL exterieur : des couples rayon hauteur, en metres, du bas\n");
-			ajout("vers le haut. paroi <e> le rend CREUX (un verre, un bol) ; sans paroi il est PLEIN (une colonne).\n");
+			ajout("de forme revolution. Donne sa SILHOUETTE, sa largeur et sa hauteur REELLES en metres :\n");
+			{
+				int32 ns = 0;
+				const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+				char l[160];
+				for (int32 k = 0; k < ns; ++k) {
+					snprintf(l, sizeof(l), "- silhouette %s : %s\n", S[k].nom, S[k].effet);
+					ajout(l);
+				}
+			}
+			ajout("paroi <e> le rend CREUX (ce qui contient : un recipient) ; sans paroi il est PLEIN (une colonne).\n");
+			ajout("Pour un profil sur mesure : profil <rayon hauteur> <rayon hauteur>... au lieu de silhouette.\n");
 			// ⚠️ L'EXEMPLE EST UNE BOUTEILLE, PAS UN VERRE : le verre est dans le jeu
 			//    d'epreuve (epreuve_revolution.txt). Le montrer mesurerait la recopie.
-			ajout("Pas de largeur/hauteur/profondeur : le profil donne la taille. Exemple, une bouteille de 30 cm :\n");
-			ajout("partie bouteille forme revolution profil 0.040 0 0.040 0.200 0.015 0.250 0.013 0.300 paroi 0.004 matiere verre\n\n");
+			// ⚠️ LES EXEMPLES NE SONT AUCUN OBJET DU JEU D'EPREUVE (verre, vase, bol) :
+			//    la premiere course a montre que le modele recopie les nombres montres.
+			ajout("Exemples, un seau et une colonne :\n");
+			ajout("partie seau forme revolution silhouette evase largeur 0.30 hauteur 0.28 paroi 0.005 matiere metal\n");
+			ajout("partie colonne forme revolution silhouette colonne largeur 0.40 hauteur 2.20 matiere pierre\n\n");
 			}
 			ajout("L'ECHELLE : toutes les parties d'un objet ont des tailles du MEME ordre que l'objet. Une partie dix fois\n");
 			ajout("plus grande que les autres est refusee (un mur a cote d'un verre).\n\n");
@@ -1528,6 +1619,18 @@ namespace nkentseu {
 		/// l'onglet local prend le dorsal de creation (budget de jetons).
 		inline bool NkCreaLancerPlan(NkModelerState &st, converse::NkIConverseBackend *dorsal);
 
+		/// LA DESCRIPTION DE L'IMAGE GUIDE-T-ELLE LE PLAN ? NON PAR DEFAUT, et c'est
+		/// une MESURE (21/09, Q7) : moondream a vu une « urne » dans la chaise de
+		/// TripoSR et dans la theiere ; guide par lui, le plan a rendu une urne a la
+		/// place d'une chaise. La description reste AFFICHEE dans le fil (on voit ce
+		/// que la machine voit) ; l'image, elle, part a TripoSR, qui la reconstruit
+		/// bien. `NK_CREA_IMAGE_GUIDE=1` rebranche la description dans le plan, le
+		/// jour ou un modele de vision plus fort sera la (qwen2.5vl).
+		inline bool NkCreaImageGuidePlan() {
+			const char *v = std::getenv("NK_CREA_IMAGE_GUIDE");
+			return v && v[0] && v[0] != '0';
+		}
+
 		/// ── LA PIECE JOINTE, COTE MODELEUR (Q7) ──────────────────────────────────
 		/// LA porte que le panneau appelle quand l'utilisateur joint une image (`+`,
 		/// coller, glisser-deposer) : le panneau fournit le fichier, le modeleur le
@@ -1610,7 +1713,7 @@ namespace nkentseu {
 			NkCreaEtat &E = NkCrea();
 			const char *demande = E.demande;
 			static char avecImage[1100];
-			if (E.descriptionImage[0]) {
+			if (E.descriptionImage[0] && NkCreaImageGuidePlan()) {
 				snprintf(avecImage, sizeof(avecImage),
 						 "%s\n(L'utilisateur a joint une IMAGE de l'objet. Un modele de vision y voit : %s -- "
 						 "respecte les parties, les formes et les proportions de cette image.)",
