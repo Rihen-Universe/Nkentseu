@@ -1378,7 +1378,9 @@ namespace nkentseu {
 			// dans la barre -- regle de Rihen)
 
 			// Largeurs, calculees d'abord pour caler le tout a droite.
-			const bool editMode2 = demo::Demo3DHostInEditMode();
+			// La pastille V/E/F DESIGNE des elements : elle suit le MODE (Sculpture =
+			// maillage ouvert sans elements), pas le seul maillage ouvert (21/09).
+			const bool editMode2 = demo::Demo3DHostElementsActifs();
 			const float32 wSub = editMode2 ? (S(8.f) + 3.f * (btn + 2.f)) : 0.f;
 			// OUTILS EN DEUX BLOCS dans le meme cadre : [Selection | Curseur] puis
 			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
@@ -1991,7 +1993,11 @@ namespace nkentseu {
 			// Le raccourci de l'operation courante est LU dans la table via sa CLE DE
 			// COMMANDE, jamais recopie : rebinder la touche changera cet affichage tout
 			// seul. La cle est stable, l'index ne l'est pas.
-			{
+			// ⚠ SCULPTURE (21/09) : le maillage est ouvert mais on n'y designe rien --
+			// ni menu du maillage au clic droit, ni menu X, ni « Extruder E » annonce.
+			// Le critere est le MODE (NkModeMaillageSansElements), pas `editMode`.
+			const bool sansElements = demo::NkModeMaillageSansElements((int32)st.mode);
+			if (!sansElements) {
 				const char *cmd = editMode ? "edit.extruder" : "objet.deplacer";
 				char keys[32];
 				if (sc.FormatFor(cmd, keys, sizeof(keys))) {
@@ -2016,7 +2022,7 @@ namespace nkentseu {
 			// une operation modale, et Maj+clic droit place le curseur 3D. Ouvrir
 			// le menu sans le savoir aurait fait DEUX choses d'un seul clic. On ne
 			// s'ouvre donc que sur un clic droit NU, hors modale.
-			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+			if (guiCtx && editMode && !sansElements && demo::Demo3DHostReady()) {
 				const bool dansVue = st.viewRect.w > 0.f && in.mousePos.x >= st.viewRect.x &&
 									 in.mousePos.x < st.viewRect.x + st.viewRect.w &&
 									 in.mousePos.y >= st.viewRect.y &&
@@ -2099,7 +2105,7 @@ namespace nkentseu {
 			// 3D (elle ne dessine pas de menu, c'est le shell qui tient NKGui) ;
 			// on le consomme ici. Le contenu vit dans `NkModelerDeleteMenu.h`,
 			// qui est du CALCUL PUR et se mesure donc en console, sans fenetre.
-			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+			if (guiCtx && editMode && !sansElements && demo::Demo3DHostReady()) {
 				if (demo::Demo3DHostTakeDeleteMenuAsk() && !st.deleteMenu.open) {
 					st.deleteMenu.open = true;
 					st.deleteMenu.pos = in.mousePos;
