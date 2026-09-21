@@ -113,7 +113,27 @@ def juger(item, parties, annul):
                    and annul.get("restants") == "0")
         r["C5_detail"] = "geste=%s objets %s->%s restants=%s" % (annul.get("geste"), annul.get("objets_avant"),
                                                                annul.get("objets_apres"), annul.get("restants"))
+    # C6 (21/09, Q7) COHERENCE D'ECHELLE : aucune partie dont le plus grand cote
+    # depasse 10 fois la MEDIANE des plus grands cotes des autres parties -- le
+    # « mur geant » a cote d'un verre de 10 cm. Meme seuil que la garde de
+    # l'application ; ici il se recalcule sur les boites POSEES, jamais sur le
+    # verdict de l'application. Une seule partie : vrai par definition.
+    ext = [max(p[2][k] - p[1][k] for k in range(3)) for p in parties]
+    hors = []
+    for i, e in enumerate(ext):
+        autres = sorted(ext[:i] + ext[i + 1:])
+        if not autres:
+            continue
+        m = len(autres)
+        med = autres[m // 2] if m % 2 else 0.5 * (autres[m // 2 - 1] + autres[m // 2])
+        if med > 1e-5 and e > 10.0 * med * 1.001:
+            hors.append("%s (%.0fx)" % (parties[i][0], e / med))
+    r["C6"] = not hors
+    r["C6_detail"] = "hors d'echelle : " + (",".join(hors) if hors else "aucune")
     return r
+
+
+CRIT = ("C1", "C2", "C3", "C4", "C5", "C6")
 
 
 def main():
@@ -122,9 +142,9 @@ def main():
     ap.add_argument("--resultats", required=True)
     a = ap.parse_args()
     jeu = lire_jeu(a.jeu)
-    tot = {k: 0 for k in ("C1", "C2", "C3", "C4", "C5")}
-    complets = 0
-    print("%-11s | %-3s %-3s %-3s %-3s %-3s | detail" % ("cle", "C1", "C2", "C3", "C4", "C5"))
+    tot = {k: 0 for k in CRIT}
+    complets = complets6 = 0
+    print("%-11s | %-3s %-3s %-3s %-3s %-3s %-3s | detail" % ("cle",) + CRIT)
     for item in jeu:
         chemin = os.path.join(a.resultats, item["cle"] + ".txt")
         if not os.path.isfile(chemin):
@@ -135,18 +155,20 @@ def main():
             print("%-11s | AUCUN LOT POSE" % item["cle"])
             continue
         r = juger(item, parties, annul)
-        ok = [r[k] for k in ("C1", "C2", "C3", "C4", "C5")]
+        ok = [r[k] for k in CRIT]
         for k in tot:
             tot[k] += 1 if r[k] else 0
-        complets += 1 if all(ok) else 0
-        print("%-11s | %-3s %-3s %-3s %-3s %-3s | %s ; %s ; %s ; %s ; %s" % (
+        complets += 1 if all(ok[:5]) else 0
+        complets6 += 1 if all(ok) else 0
+        print("%-11s | %-3s %-3s %-3s %-3s %-3s %-3s | %s ; %s ; %s ; %s ; %s ; %s" % (
             item["cle"], *["oui" if x else "NON" for x in ok], r["C1_detail"], r["C2_detail"],
-            r["C3_detail"], r["C4_detail"], r["C5_detail"]))
+            r["C3_detail"], r["C4_detail"], r["C5_detail"], r["C6_detail"]))
     n = len(jeu)
     print()
-    for k in ("C1", "C2", "C3", "C4", "C5"):
+    for k in CRIT:
         print("  %s : %d / %d" % (k, tot[k], n))
     print("  les cinq a la fois : %d / %d" % (complets, n))
+    print("  les six a la fois (avec l'echelle, C6) : %d / %d" % (complets6, n))
     print("  ⚠ aucun critere ne juge la RESSEMBLANCE : ouvrir les images.")
     return 0
 

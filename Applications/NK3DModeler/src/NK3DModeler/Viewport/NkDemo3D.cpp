@@ -24268,6 +24268,102 @@ namespace nkentseu {
 			*vbase += vc;
 			return true;
 		}
+		// ── UN OBJET DE REVOLUTION, PAR LE SPIN DE NkEditMesh (21/09, Q7) ──────
+		// « Un verre de table » rendait un cylindre PLEIN : un verre, un vase, une
+		// bouteille, un bol sont des REVOLUTIONS de profil, pas des assemblages.
+		// ⚠️ ON NE RECODE PAS LA REVOLUTION : c'est `NkEditMesh::SpinSelected`, la
+		//    meme operation que le menu Maillage (touche J), eprouvee par le banc
+		//    NKEditMeshHarness (« ops/vis-revolution »). Ici on ne fait que lui
+		//    donner un PROFIL : un polygone ferme dans le demi-plan x >= 0 (x =
+		//    rayon, y = hauteur), qu'on fait tourner de 360 degres autour de Y.
+		// Rend le noeud cree (maillage PROPRE, editable), ou -1 avec `pourquoi`.
+		int32 Demo3DHostCreateRevolution(const float32 *profilRH, uint32 nPoints, int32 pas, const float32 *pos3,
+										 const char *nom, char *pourquoi, uint32 capPourquoi) {
+			auto dire = [&](const char *m) {
+				if (pourquoi && capPourquoi)
+					snprintf(pourquoi, capPourquoi, "%s", m);
+			};
+			if (!profilRH || nPoints < 3 || nPoints > 128) {
+				dire("profil de revolution : il faut entre 3 et 128 points");
+				return -1;
+			}
+			if (pas < 8)
+				pas = 8;
+			if (pas > 96)
+				pas = 96;
+			NkVector<renderer::NkVertex3D> v;
+			NkVector<uint32> fs, fv;
+			for (uint32 i = 0; i < nPoints; ++i) {
+				renderer::NkVertex3D q{};
+				q.pos = {profilRH[2 * i] < 0.f ? 0.f : profilRH[2 * i], profilRH[2 * i + 1], 0.f};
+				q.normal = {0.f, 0.f, 1.f};
+				q.color = 0xFFFFFFFFu;
+				v.PushBack(q);
+				fv.PushBack(i);
+			}
+			fs.PushBack(0);
+			fs.PushBack(nPoints);
+			renderer::NkEditMesh m;
+			m.BuildFromPolygons(v.Data(), (uint32)v.Size(), fs.Data(), 1u, fv.Data());
+			m.SelectAll();
+			renderer::NkSpinParams sp;
+			sp.center = {0.f, 0.f, 0.f};
+			sp.axis = {0.f, 1.f, 0.f};
+			sp.angle = 6.2831853f;
+			sp.steps = pas;
+			sp.duplicate = false;
+			const uint32 f0 = m.FaceCount();
+			if (!m.SpinSelected(sp, NkMat4f::Identity())) {
+				dire("la revolution (SpinSelected) a refuse ce profil");
+				return -1;
+			}
+			// ⚠️ LA FACE-PROFIL D'ORIGINE RESTE (le spin CONSERVE la source, comme
+			//    Blender). Couchee dans le plan x/y, elle serait une cloison interne
+			//    a la paroi du verre. On la retire : c'est la face 0, la seule qui
+			//    existait avant le spin.
+			{
+				NkVector<uint8> sel;
+				sel.Resize(m.VertCount());
+				for (uint32 i = 0; i < m.VertCount(); ++i)
+					sel[i] = 0;
+				m.SetVertSelection(sel.Data(), (uint32)sel.Size());
+			}
+			m.RebuildEdges();
+			NkVector<renderer::NkVertex3D> ov;
+			NkVector<uint32> oi;
+			NkVector<NkEmId> otf;
+			m.TriangulateShaded(ov, oi, otf);
+			// Retirer les triangles de la face-profil d'origine (id 0), sans toucher
+			// a la topologie : c'est le tampon de RENDU qui part au noeud.
+			NkVector<uint32> gard;
+			uint32 retires = 0;
+			for (uint32 t = 0; t + 2 < (uint32)oi.Size(); t += 3) {
+				if (f0 == 1u && otf[t / 3] == (NkEmId)0) {
+					++retires;
+					continue;
+				}
+				gard.PushBack(oi[t]);
+				gard.PushBack(oi[t + 1]);
+				gard.PushBack(oi[t + 2]);
+			}
+			if (gard.Size() < 3) {
+				dire("la revolution n'a produit aucune face");
+				return -1;
+			}
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			const int32 n = Demo3DHostCreateMeshNode(-1, ov.Data(), (uint32)ov.Size(), gard.Data(), (uint32)gard.Size(),
+													 pos3 ? pos3 : zero, nom);
+			if (n < 0) {
+				dire("plus d'emplacement libre, ou le maillage n'a pas pu etre cree");
+				return -1;
+			}
+			// Un maillage INTERNE de model ne se voit que dans son model : celui-ci
+			// est une partie d'objet ordinaire, visible dans la hierarchie.
+			nkvpIsMesh[n] = false;
+			logger.Info("[Demo3D] REVOLUTION : {0} points, {1} pas -> {2} sommets, {3} triangles ({4} de la face-profil retires)\n",
+						nPoints, pas, (uint32)ov.Size(), (uint32)gard.Size() / 3u, retires);
+			return n;
+		}
 		// ── LA GEOMETRIE PROPRE, LUE POUR L'ECRITURE DU PROJET (06/09) ─────
 		// Meme perimetre que HostMakeGeometryOwn, et pour la meme raison : un
 		// noeud qui rend une primitive PARTAGEE n'a pas de maillage a lui, il
