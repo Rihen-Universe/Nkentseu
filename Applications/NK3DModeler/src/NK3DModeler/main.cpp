@@ -3702,6 +3702,17 @@ int nkmain(const NkEntryState &entry) {
 											"Arrete : la reponse ne sera pas posee.");
 				}
 			}
+			// (Q8) NK_AI_EFFORT=<low|medium|high|max> : la porte de sonde de l'Effort --
+			// elle ecrit `st.aiClaudeEffort`, le champ que la puce du panneau ecrit.
+			{
+				static bool sEffortPose = false;
+				if (!sEffortPose) {
+					sEffortPose = true;
+					if (const char *ef = std::getenv("NK_AI_EFFORT"))
+						if (*ef)
+							nk3d::NkAiCopie(st.aiClaudeEffort, sizeof(st.aiClaudeEffort), ef);
+				}
+			}
 			if (st.aiClaudeModele[0])
 				sIa.claude.modele = NkString(st.aiClaudeModele);
 			// (Q5) LES PROPRIETES AGISSENT : l'effort part sur la ligne du CLI ; le
