@@ -275,6 +275,7 @@ static nkuidesign::PreviewPanel *gPanneauToile = nullptr;
 static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W, nkentseu::int32 H, void *) {
 	using namespace nkentseu;
 	static int32 sCible = -2;
+	static int32 sApres = 0;
 	static int32 sImage = 0;
 	static char sChemin[256] = {0};
 	if (sCible == -2) {
@@ -288,10 +289,19 @@ static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W,
 			for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sChemin); ++c)
 				sChemin[n++] = *c;
 			sChemin[n] = 0;
-			sCible = virg ? (int32)std::atoi(virg + 1) : 120;
+			// `apres:<n>` : n images APRES la premiere reponse recoltee -- la photo
+			// dit alors ce que la reponse a produit, quel que soit son temps.
+			if (virg && std::strncmp(virg + 1, "apres:", 6) == 0) {
+				sApres = (int32)std::atoi(virg + 7);
+				sCible = 0;
+			} else
+				sCible = virg ? (int32)std::atoi(virg + 1) : 120;
 		}
 	}
-	if (sCible < 0 || ++sImage != sCible)
+	++sImage;
+	if (sApres > 0 && sCible == 0 && gPanneauIA && gPanneauIA->Recoltes() > 0)
+		sCible = sImage + sApres;
+	if (sCible <= 0 || sImage != sCible)
 		return;
 	auto &F = nkuidesign::costume::Fontes();
 	const nkgui::NkGuiFont *polices[9] = {ui.font, &F.px9, &F.px10, &F.px11, &F.px12,
@@ -306,8 +316,12 @@ static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W,
 		editorkit::NkAiEcrireImageListes(listes, 2, W, H, r.x, r.y, r.w, r.h, polices, 9, fond, c1);
 	const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
 		listes, 2, W, H, 0.f, 0.f, (float32)W, (float32)H, polices, 9, fond, c2);
-	printf("[NKUIDesign] AI IMAGE image=%d panneau=(%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)sImage, (double)r.x,
-		   (double)r.y, (double)r.w, (double)r.h, r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
+	// ⚠️ LE PANNEAU A-T-IL ETE PEINT A CETTE IMAGE ? Son rectangle est celui de la
+	//    DERNIERE peinture : un tiroir referme laisserait un rectangle perime, et
+	//    l'image montrerait autre chose sous ce rectangle sans que rien ne le dise.
+	printf("[NKUIDesign] AI IMAGE image=%d panneau=(%.0f,%.0f,%.0f,%.0f) peint %u fois : %s | %s\n", (int)sImage,
+		   (double)r.x, (double)r.y, (double)r.w, (double)r.h, gPanneauIA ? (unsigned)gPanneauIA->ImagesPeintes() : 0u,
+		   r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
 	fflush(stdout);
 }
 
