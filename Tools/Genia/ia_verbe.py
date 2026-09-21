@@ -17,6 +17,7 @@
 #
 # CE QU'IL FAIT : lit l'invite, la soumet au service local, ecrit la reponse.
 #   argv[3]       budget de jetons de la reponse (defaut 64 : une ligne)
+#   argv[4]       modele, s'il est donne (prime sur NK_IA_MODELE)
 #   NK_IA_MODELE  (defaut qwen2.5:7b-instruct)
 #   NK_IA_URL     (defaut http://127.0.0.1:11434)
 #   NK_IA_TIMEOUT (defaut 120 s)
@@ -89,6 +90,12 @@ def main() -> int:
         except ValueError:
             sys.stderr.write("budget de jetons illisible : %s (defaut 64)" % sys.argv[3] + chr(10))
     modele = os.environ.get("NK_IA_MODELE", "qwen2.5:7b-instruct")
+    # LE MODELE EN QUATRIEME ARGUMENT (21/09), et il PRIME sur la variable :
+    # c'est le gabarit du dorsal de CREATION qui le pose, parce que la mesure
+    # du jeu d'epreuve a departage deux modeles locaux sur la creation (0/8
+    # contre 3/8) sans rien dire des verbes d'edition, mesures ailleurs.
+    if len(sys.argv) > 4 and sys.argv[4].strip():
+        modele = sys.argv[4].strip()
     base = os.environ.get("NK_IA_URL", "http://127.0.0.1:11434")
     delai = float(os.environ.get("NK_IA_TIMEOUT", "120"))
 
