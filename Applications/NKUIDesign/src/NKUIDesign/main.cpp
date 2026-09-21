@@ -57,6 +57,7 @@
 // rendent en NKRHI. C'est a l'application de choisir son backend et de
 // l'inclure. Voir NkEditorShell::Init (2026-09-01).
 #include "NKEditorKit/NkEditorCanvasRenderer.h"
+#include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkEditorModal.h" // le cadre modal du kit (choix Nouveau projet)
 #include "NKEditorKit/NkThemeToGui.h"  // NkThemeUnpack : role de theme -> couleur de dessin
 #include "NKLogger/NkLog.h"
@@ -264,6 +265,51 @@ static nkentseu::NkChrono gMesureHorloge;
 static nkuidesign::AIPanel *gPanneauIA = nullptr;
 /// (R19) La toile, pour que la sonde des portes ouvre ses menus du clic droit.
 static nkuidesign::PreviewPanel *gPanneauToile = nullptr;
+
+/// ── NK_AI_IMAGE=<chemin>,<image> : LE PANNEAU IA, RENDU PAR L'APPLICATION ──
+/// La preuve exigee le 21/09 : une IMAGE du panneau, rendue par NKUIDesign
+/// lui-meme -- la liste d'affichage COMPLETE de cette image (fenetres fusionnees,
+/// surcouches posees), rasterisee sans GPU, decoupee au rectangle que le panneau
+/// a PUBLIE. Jamais une capture de l'ecran. `<chemin>.png` = le panneau,
+/// `<chemin>_fenetre.png` = la fenetre entiere.
+static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W, nkentseu::int32 H, void *) {
+	using namespace nkentseu;
+	static int32 sCible = -2;
+	static int32 sImage = 0;
+	static char sChemin[256] = {0};
+	if (sCible == -2) {
+		sCible = -1;
+		if (const char *v = std::getenv("NK_AI_IMAGE")) {
+			const char *virg = nullptr;
+			for (const char *c = v; *c; ++c)
+				if (*c == ',')
+					virg = c;
+			uint32 n = 0;
+			for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sChemin); ++c)
+				sChemin[n++] = *c;
+			sChemin[n] = 0;
+			sCible = virg ? (int32)std::atoi(virg + 1) : 120;
+		}
+	}
+	if (sCible < 0 || ++sImage != sCible)
+		return;
+	auto &F = nkuidesign::costume::Fontes();
+	const nkgui::NkGuiFont *polices[9] = {ui.font, &F.px9, &F.px10, &F.px11, &F.px12,
+										  &F.px13, &F.px15, &F.px16, &F.mono};
+	const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
+	char c1[300], c2[300];
+	snprintf(c1, sizeof(c1), "%s.png", sChemin);
+	snprintf(c2, sizeof(c2), "%s_fenetre.png", sChemin);
+	const editorkit::NkPaintRect r = gPanneauIA ? gPanneauIA->Panneau().rect : editorkit::NkPaintRect{};
+	const uint32 fond = gDesign.theme.Get(editorkit::NkRole::WindowBg);
+	const editorkit::NkAiImageResultat r1 =
+		editorkit::NkAiEcrireImageListes(listes, 2, W, H, r.x, r.y, r.w, r.h, polices, 9, fond, c1);
+	const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
+		listes, 2, W, H, 0.f, 0.f, (float32)W, (float32)H, polices, 9, fond, c2);
+	printf("[NKUIDesign] AI IMAGE image=%d panneau=(%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)sImage, (double)r.x,
+		   (double)r.y, (double)r.w, (double)r.h, r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
+	fflush(stdout);
+}
 
 /// LE TICK DU BANC. Il vit dans le meme crochet par image que la capture -- la
 /// coquille n'en offre qu'un, et l'un exclut l'autre (on ne photographie pas une
@@ -9966,6 +10012,9 @@ int nkmain(const NkEntryState &state) {
 	if (gReleveDemande)
 		nkgui::NkGuiIntrospectActiver(shell->Ui(), true);
 	shell->SetOverlay(&EcrireReleveUI, nullptr);
+	// NK_AI_IMAGE : apres l'image complete, avant sa soumission (21/09).
+	if (std::getenv("NK_AI_IMAGE"))
+		shell->SetApresImage(&ImagePanneauIA, nullptr);
 
 	// ── LE THEME : UNE SEULE AUTORITE, POUSSEE VERS LE DESSIN ────────────
 	// ⚠️ SANS CET APPEL, LA MOITIE DE LA FENETRE NE SUIVRAIT PAS. La
