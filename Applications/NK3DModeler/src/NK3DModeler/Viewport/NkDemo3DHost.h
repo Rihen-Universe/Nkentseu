@@ -996,6 +996,11 @@ namespace nkentseu {
 		// dimensions des generateurs. `monde=true` : la boite MONDE, par la meme
 		// composition T*R*S que le pick. Faux pour un noeud sans maillage.
 		bool Demo3DHostNodeBounds(int32 node, bool monde, float32 *mn3, float32 *mx3);
+		// OBJET DE REVOLUTION : un profil ferme (x = rayon >= 0, y = hauteur, `nPoints`
+		// couples) tourne de 360 degres autour de Y par NkEditMesh::SpinSelected, en
+		// `pas` pas. Rend le noeud cree (maillage propre, editable) ou -1 et le motif.
+		int32 Demo3DHostCreateRevolution(const float32 *profilRH, uint32 nPoints, int32 pas, const float32 *pos3,
+										 const char *nom, char *pourquoi, uint32 capPourquoi);
 		// Ajoute les triangles MONDE du noeud a un .obj ouvert (`fichier` est un
 		// FILE*), sous le groupe `groupe`. `*vbase` = indice (base 1) du premier
 		// sommet, avance d'autant. Faux pour un noeud sans maillage.

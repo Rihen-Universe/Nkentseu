@@ -85,9 +85,53 @@ namespace nkentseu {
 				{"tore", 1, 2, "anneau couche : roue, bouee, anse"},
 				{"capsule", 1, 3, "cylindre aux bouts arrondis : bras, jambe, doigt"},
 				{"plan", 3, 0, "plan horizontal sans epaisseur : sol, tapis"},
+				// (21/09, Q7) kind -1 : pas une primitive du catalogue, un PROFIL
+				// tourne par NkEditMesh::SpinSelected (Demo3DHostCreateRevolution).
+				{"revolution", -1, 0,
+				 "objet TOURNE autour de l'axe vertical : verre, bouteille, vase, bol, tasse, colonne, pied "
+				 "tourne (profil + paroi, voir plus bas)"},
 			};
 			n = (int32)(sizeof(kF) / sizeof(kF[0]));
 			return kF;
+		}
+
+		/// `NK_CREA_SANS_REVOLUTION=1` : la MUTATION du Q7 -- la forme revolution
+		/// disparait de l'invite et le lecteur la refuse. C'est l'« avant » mesure
+		/// dans le meme binaire.
+		inline bool NkCreaSansRevolution() {
+			const char *v = std::getenv("NK_CREA_SANS_REVOLUTION");
+			return v && v[0] && v[0] != '0';
+		}
+		/// LES SILHOUETTES DE REVOLUTION (21/09, Q7, seconde course). La premiere
+		/// course a montre le modele RECOPIER les nombres de l'exemple (la bouteille)
+		/// pour le verre, le vase ET le bol : trois objets, un seul profil. Un 7B
+		/// sait donner une largeur et une hauteur credibles -- il l'a fait pour
+		/// toutes les autres parties --, il ne sait pas dessiner un profil point par
+		/// point. L'outil lui offre donc des SILHOUETTES NORMALISEES (u = rayon / demi-
+		/// largeur, v = hauteur / hauteur totale, du bas vers le haut), mises a
+		/// l'echelle par largeur et hauteur.
+		/// ⚠️ NOMMEES PAR LEUR FORME, JAMAIS PAR UN OBJET : « evase », pas « verre ».
+		///    Des silhouettes nommees « verre » et « bol » donneraient la reponse du
+		///    jeu d'epreuve ; ici le modele doit encore CHOISIR la forme.
+		struct NkCreaSilhouette {
+				const char *nom;
+				const char *effet;
+				float32 uv[16]; // jusqu'a 8 couples (u, v)
+				int32 n;
+		};
+		inline const NkCreaSilhouette *NkCreaSilhouettes(int32 &n) {
+			static const NkCreaSilhouette kS[] = {
+				{"droit", "flancs verticaux", {1.f, 0.f, 1.f, 1.f}, 2},
+				{"evase", "s'elargit vers le haut", {0.72f, 0.f, 0.78f, 0.08f, 1.f, 1.f}, 3},
+				{"ventru", "renfle au milieu, col plus etroit", {0.6f, 0.f, 0.9f, 0.2f, 1.f, 0.45f, 0.85f, 0.72f, 0.5f, 0.9f, 0.58f, 1.f}, 6},
+				{"goulot", "corps droit puis long col etroit", {1.f, 0.f, 1.f, 0.62f, 0.75f, 0.73f, 0.35f, 0.83f, 0.3f, 1.f}, 5},
+				{"coupe", "petit pied puis flancs arrondis, large ouverture", {0.45f, 0.f, 0.72f, 0.15f, 0.9f, 0.45f, 1.f, 1.f}, 4},
+				{"dome", "arrondi, se referme en haut", {1.f, 0.f, 0.96f, 0.3f, 0.82f, 0.6f, 0.5f, 0.86f, 0.05f, 1.f}, 5},
+				{"conique", "se retrecit en pointe", {1.f, 0.f, 0.05f, 1.f}, 2},
+				{"colonne", "base et chapiteau plus larges qu'un fut droit", {1.f, 0.f, 1.f, 0.06f, 0.78f, 0.1f, 0.78f, 0.9f, 1.f, 0.94f, 1.f, 1.f}, 6},
+			};
+			n = (int32)(sizeof(kS) / sizeof(kS[0]));
+			return kS;
 		}
 
 		/// LES MATIERES. ⚠️ CE NE SONT PAS LES PREREGLAGES DE NKRENDERER, et il faut
@@ -171,6 +215,14 @@ namespace nkentseu {
 				int32 matiere = -1;
 				bool aCouleur = false;
 				float32 couleur[3] = {0.f, 0.f, 0.f};
+				// ── REVOLUTION (Q7) ──
+				float32 profil[64] = {}; ///< nombres lus : rayon, hauteur, rayon, hauteur...
+				int32 nNombres = 0;
+				float32 paroi = 0.f; ///< > 0 : objet CREUX (verre, bol) ; le fond a la meme epaisseur
+				int32 silhouette = -1; ///< indice dans NkCreaSilhouettes, ou -1 (profil explicite)
+				bool tailleDonnee = false;
+				// ── COHERENCE D'ECHELLE (Q7) ──
+				bool exclue = false; ///< refusee avant la pose ; le motif est dans d.refus
 		};
 
 		struct NkCreaDoc {
@@ -388,6 +440,7 @@ namespace nkentseu {
 					continue;
 				}
 				bool ok = true, aTaille = false;
+				int32 nfTmp = 0;
 				char clef[64], v[64];
 				v[0] = 0;
 				while (ok && NkCreaMot(q, clef, sizeof(clef))) {
@@ -408,6 +461,58 @@ namespace nkentseu {
 							ok = false;
 						}
 						aTaille = true;
+					} else if (strcmp(clef, "profil") == 0) {
+						// Des NOMBRES jusqu'au premier mot qui n'en est pas un, relu ensuite
+						// comme la clef suivante.
+						pc.nNombres = 0;
+						for (;;) {
+							const char *avant = q;
+							char mv[32];
+							float32 x = 0.f;
+							if (!NkCreaMot(q, mv, sizeof(mv)) || !NkCreaNombre(mv, x)) {
+								q = avant;
+								break;
+							}
+							if (pc.nNombres < 64)
+								pc.profil[pc.nNombres++] = x;
+						}
+						if (pc.nNombres < 4 || (pc.nNombres & 1)) {
+							NkCreaRefuser(d, "partie « %s » : « profil » attend des couples rayon hauteur (au moins deux)%s", pc.nom);
+							ok = false;
+						} else
+							aTaille = true; // la revolution tire sa taille de son profil
+					} else if (strcmp(clef, "silhouette") == 0) {
+						int32 ns = 0;
+						const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+						pc.silhouette = -1;
+						if (NkCreaMot(q, v, sizeof(v))) {
+							for (int32 k = 0; k < ns; ++k)
+								if (strcmp(S[k].nom, v) == 0)
+									pc.silhouette = k;
+							// UN PREFIXE UNIQUE D'AU MOINS 4 LETTRES SUFFIT : la seconde
+							// course a vu « coup » pour « coupe », repete trois tours de
+							// suite malgre le motif -- et le verre n'a jamais ete pose.
+							// Un prefixe AMBIGU reste refuse.
+							if (pc.silhouette < 0 && strlen(v) >= 4) {
+								int32 trouve = -1, nb = 0;
+								for (int32 k = 0; k < ns; ++k)
+									if (strncmp(S[k].nom, v, strlen(v)) == 0) {
+										trouve = k;
+										++nb;
+									}
+								if (nb == 1)
+									pc.silhouette = trouve;
+							}
+						}
+						if (pc.silhouette < 0) {
+							NkCreaRefuser(d, "partie « %s » : silhouette inconnue « %s » (droit, evase, ventru, goulot, coupe, dome, conique, colonne)", pc.nom, v);
+							ok = false;
+						}
+					} else if (strcmp(clef, "paroi") == 0) {
+						if (!NkCreaMot(q, v, sizeof(v)) || !NkCreaNombre(v, pc.paroi) || pc.paroi < 0.f) {
+							NkCreaRefuser(d, "partie « %s » : « paroi » attend une epaisseur en metres%s", pc.nom);
+							ok = false;
+						}
 					} else if (strcmp(clef, "rotation") == 0) {
 						if (!NkCreaTrois(q, pc.rot)) {
 							NkCreaRefuser(d, "partie « %s » : « rotation » attend trois angles en degres%s", pc.nom);
@@ -439,8 +544,10 @@ namespace nkentseu {
 						} else {
 							pc.taille[ax] = val;
 							pc.aDim[ax] = true;
-							if (pc.aDim[0] && pc.aDim[1] && pc.aDim[2])
+							if (pc.aDim[0] && pc.aDim[1] && pc.aDim[2]) {
 								aTaille = true;
+								pc.tailleDonnee = true;
+							}
 						}
 					} else if (NkCreaRelationDuMot(clef) != 0) {
 						const int32 r = NkCreaRelationDuMot(clef);
@@ -513,7 +620,33 @@ namespace nkentseu {
 					NkCreaRefuser(d, "partie « %s » : pas de forme%s", pc.nom);
 					ok = false;
 				}
-				if (ok && !aTaille && (pc.aDim[0] || pc.aDim[1] || pc.aDim[2])) {
+				if (ok && pc.forme >= 0 && NkCreaFormes(nfTmp)[pc.forme].kind == -1 && NkCreaSansRevolution()) {
+					NkCreaRefuser(d, "partie « %s » : forme revolution desactivee (NK_CREA_SANS_REVOLUTION)%s", pc.nom);
+					ok = false;
+				}
+				if (ok && pc.silhouette >= 0) {
+					int32 ns = 0;
+					const NkCreaSilhouette &S = NkCreaSilhouettes(ns)[pc.silhouette];
+					if (!pc.aDim[0] || !pc.aDim[1]) {
+						NkCreaRefuser(d, "partie « %s » : une silhouette demande largeur et hauteur%s", pc.nom);
+						ok = false;
+					} else {
+						// Le profil EN METRES, tire de la silhouette : la suite de la
+						// chaine (pose, echelle, garde) ne voit qu'un profil ordinaire.
+						pc.nNombres = 0;
+						for (int32 k = 0; k < S.n; ++k) {
+							pc.profil[pc.nNombres++] = S.uv[2 * k] * 0.5f * pc.taille[0];
+							pc.profil[pc.nNombres++] = S.uv[2 * k + 1] * pc.taille[1];
+						}
+						pc.tailleDonnee = false;
+						aTaille = true;
+					}
+				}
+				if (ok && pc.forme >= 0 && strcmp(NkCreaFormes(nfTmp)[pc.forme].nom, "revolution") == 0 && pc.nNombres < 4) {
+					NkCreaRefuser(d, "partie « %s » : une revolution demande un « profil » (couples rayon hauteur)%s", pc.nom);
+					ok = false;
+				}
+				if (ok && !aTaille && pc.silhouette < 0 && (pc.aDim[0] || pc.aDim[1] || pc.aDim[2])) {
 					NkCreaRefuser(d, "partie « %s » : il faut les TROIS dimensions (largeur, hauteur, profondeur)%s", pc.nom);
 					ok = false;
 				}
@@ -539,7 +672,7 @@ namespace nkentseu {
 		/// `NK_CREA_GABARITS=0` les retire (la MUTATION de la mesure).
 		inline const char *const *NkCreaFamilles(int32 &n) {
 			static const char *const kF[] = {"chaise", "table",	   "tabouret", "etagere",  "lampe",
-											 "maison", "arbre",	   "personnage", "vehicule", "creature"};
+											 "maison", "arbre",	   "personnage", "vehicule", "creature", "revolution"};
 			n = (int32)(sizeof(kF) / sizeof(kF[0]));
 			return kF;
 		}
@@ -571,6 +704,8 @@ namespace nkentseu {
 				const NkCreaForme *F = NkCreaFormes(nf);
 				char l[160];
 				for (int32 i = 0; i < nf; ++i) {
+					if (F[i].kind == -1 && NkCreaSansRevolution())
+						continue;
 					snprintf(l, sizeof(l), "- %s : %s\n", F[i].nom, F[i].effet);
 					ajout(l);
 				}
@@ -593,6 +728,30 @@ namespace nkentseu {
 			ajout("- centre <x> <y> <z> : position absolue du centre, seulement si aucune relation ne convient\n");
 			ajout("La premiere partie n'a pas de placement. Chaque autre partie DOIT avoir une relation,\n");
 			ajout("sinon elle flotte. <autre> est le NOM d'une partie deja ecrite.\n\n");
+			if (!NkCreaSansRevolution()) {
+			ajout("LA REVOLUTION : un objet TOURNE (verre, bouteille, vase, bol, tasse, colonne) est UNE seule partie\n");
+			ajout("de forme revolution. Donne sa SILHOUETTE, sa largeur et sa hauteur REELLES en metres :\n");
+			{
+				int32 ns = 0;
+				const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+				char l[160];
+				for (int32 k = 0; k < ns; ++k) {
+					snprintf(l, sizeof(l), "- silhouette %s : %s\n", S[k].nom, S[k].effet);
+					ajout(l);
+				}
+			}
+			ajout("paroi <e> le rend CREUX (ce qui contient : un recipient) ; sans paroi il est PLEIN (une colonne).\n");
+			ajout("Pour un profil sur mesure : profil <rayon hauteur> <rayon hauteur>... au lieu de silhouette.\n");
+			// ⚠️ L'EXEMPLE EST UNE BOUTEILLE, PAS UN VERRE : le verre est dans le jeu
+			//    d'epreuve (epreuve_revolution.txt). Le montrer mesurerait la recopie.
+			// ⚠️ LES EXEMPLES NE SONT AUCUN OBJET DU JEU D'EPREUVE (verre, vase, bol) :
+			//    la premiere course a montre que le modele recopie les nombres montres.
+			ajout("Exemples, un seau et une colonne :\n");
+			ajout("partie seau forme revolution silhouette evase largeur 0.30 hauteur 0.28 paroi 0.005 matiere metal\n");
+			ajout("partie colonne forme revolution silhouette colonne largeur 0.40 hauteur 2.20 matiere pierre\n\n");
+			}
+			ajout("L'ECHELLE : toutes les parties d'un objet ont des tailles du MEME ordre que l'objet. Une partie dix fois\n");
+			ajout("plus grande que les autres est refusee (un mur a cote d'un verre).\n\n");
 			ajout("LA ROTATION, en degres, tourne la partie autour de son centre (rotation 0 0 30 l'incline de 30 degres).\n\n");
 			ajout("LA MATIERE, facultative, parmi :");
 			{
@@ -624,6 +783,8 @@ namespace nkentseu {
 				ajout("memes relations, memes ordres de grandeur, une partie nommee par piece reelle.\n\n");
 				for (int32 i = 0; i < nf; ++i) {
 					char chemin[160];
+					if (NkCreaSansRevolution() && strcmp(F[i], "revolution") == 0)
+						continue;
 					snprintf(chemin, sizeof(chemin), "Tools/Genia/gabarits/%s.nkscene", F[i]);
 					const NkString t = NkFile::ReadAllText(chemin);
 					if (!t.Data() || !t.Data()[0])
@@ -766,6 +927,16 @@ namespace nkentseu {
 				int32 annuleDans = -1;	 ///< NK_CREA_ANNULE : images restantes avant le geste
 				int32 mesureAnnul = -1;	 ///< images restantes avant la mesure d'apres
 				int32 quitteDans = -1;
+				// ── L'IMAGE JOINTE (Q7) ──
+				// Posee par `NkCreaJoindreImage` (le panneau, piece jointe) ; consommee
+				// par la PROCHAINE demande de creation, puis videe.
+				char imageJointe[400] = {0};
+				char descriptionImage[700] = {0};
+				converse::NkConverseBackendProcessus vision;
+				converse::NkEnvoiAsync envoiVision;
+				int32 ongletAttente = 0;
+				converse::NkIConverseBackend *dorsalAttente = nullptr;
+				bool tripoApresPose = false;
 				// ── les vues (rendu par l'application) ──
 				int32 vuesEtape = -1;
 				int32 vuesAttente = 0;
@@ -947,7 +1118,51 @@ namespace nkentseu {
 			for (int32 i = 0; i < d.n; ++i) {
 				const NkCreaPartie &pc = d.p[i];
 				noeud[i] = -1;
-				const int32 n = demo::Demo3DHostAddNode(F[pc.forme].kind, F[pc.forme].sub);
+				if (pc.exclue)
+					continue; // refusee avant la pose (echelle) : le motif est dans le fil
+				int32 n = -1;
+				char pourquoiRev[160] = {0};
+				if (F[pc.forme].kind == -1) {
+					// ── LE PROFIL FERME, TIRE DES POINTS DU MODELE ──────────────
+					// Plein : axe en bas -> contour exterieur -> axe en haut. Creux
+					// (paroi e) : axe en bas -> exterieur montant -> interieur
+					// descendant (rayon - e) jusqu'au fond, a h0 + e -> axe.
+					float32 pr[140];
+					uint32 np = 0;
+					const int32 nc = pc.nNombres / 2;
+					const float32 h0 = pc.profil[1];
+					auto pt = [&](float32 r, float32 h) {
+						if (np < 70) {
+							pr[2 * np] = r < 0.f ? 0.f : r;
+							pr[2 * np + 1] = h;
+							++np;
+						}
+					};
+					if (pc.profil[0] > 1e-4f)
+						pt(0.f, h0);
+					for (int32 k = 0; k < nc; ++k)
+						pt(pc.profil[2 * k], pc.profil[2 * k + 1]);
+					if (pc.paroi > 1e-5f) {
+						for (int32 k = nc - 1; k >= 0; --k) {
+							const float32 h = pc.profil[2 * k + 1];
+							if (h < h0 + pc.paroi)
+								break;
+							pt(pc.profil[2 * k] - pc.paroi, h);
+						}
+						pt(0.f, h0 + pc.paroi);
+					} else if (pc.profil[2 * (nc - 1)] > 1e-4f)
+						pt(0.f, pc.profil[2 * (nc - 1) + 1]);
+					const float32 zero3[3] = {0.f, 0.f, 0.f};
+					n = demo::Demo3DHostCreateRevolution(pr, np, 48, zero3, pc.nom, pourquoiRev,
+														 (uint32)sizeof(pourquoiRev));
+				} else
+					n = demo::Demo3DHostAddNode(F[pc.forme].kind, F[pc.forme].sub);
+				if (n < 0 && pourquoiRev[0]) {
+					char m[240];
+					snprintf(m, sizeof(m), "partie « %s » non posee : %s", pc.nom, pourquoiRev);
+					(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+					continue;
+				}
 				if (n < 0) {
 					snprintf(b.motif, sizeof(b.motif),
 							 "Plus d'emplacement libre apres %d partie(s) : le reste n'est pas pose.", (int)i);
@@ -968,6 +1183,9 @@ namespace nkentseu {
 						// Un plan n'a pas d'epaisseur : son echelle en y n'a aucun
 						// sens, on la laisse a 1 au lieu de diviser par zero.
 						scl[i][a] = ext > 1e-4f ? (pc.taille[a] > 1e-4f ? pc.taille[a] : 1e-4f) / ext : 1.f;
+						// une revolution sans taille explicite garde les metres de son profil
+						if (F[pc.forme].kind == -1 && !pc.tailleDonnee)
+							scl[i][a] = 1.f;
 					}
 				}
 				const float32 zero[3] = {0.f, 0.f, 0.f};
@@ -1399,6 +1617,31 @@ namespace nkentseu {
 
 		/// LANCE la demande de creation. `dorsalOnglet` sert pour un onglet distant ;
 		/// l'onglet local prend le dorsal de creation (budget de jetons).
+		inline bool NkCreaLancerPlan(NkModelerState &st, converse::NkIConverseBackend *dorsal);
+
+		/// LA DESCRIPTION DE L'IMAGE GUIDE-T-ELLE LE PLAN ? NON PAR DEFAUT, et c'est
+		/// une MESURE (21/09, Q7) : moondream a vu une « urne » dans la chaise de
+		/// TripoSR et dans la theiere ; guide par lui, le plan a rendu une urne a la
+		/// place d'une chaise. La description reste AFFICHEE dans le fil (on voit ce
+		/// que la machine voit) ; l'image, elle, part a TripoSR, qui la reconstruit
+		/// bien. `NK_CREA_IMAGE_GUIDE=1` rebranche la description dans le plan, le
+		/// jour ou un modele de vision plus fort sera la (qwen2.5vl).
+		inline bool NkCreaImageGuidePlan() {
+			const char *v = std::getenv("NK_CREA_IMAGE_GUIDE");
+			return v && v[0] && v[0] != '0';
+		}
+
+		/// ── LA PIECE JOINTE, COTE MODELEUR (Q7) ──────────────────────────────────
+		/// LA porte que le panneau appelle quand l'utilisateur joint une image (`+`,
+		/// coller, glisser-deposer) : le panneau fournit le fichier, le modeleur le
+		/// consomme a la prochaine demande de creation. Chaine vide = la retirer.
+		/// ⚠️ Le crochet de mesure `NK_CREA_IMAGE` entre ICI, pas plus loin.
+		inline void NkCreaJoindreImage(const char *chemin) {
+			NkCreaEtat &E = NkCrea();
+			snprintf(E.imageJointe, sizeof(E.imageJointe), "%s", chemin ? chemin : "");
+			E.descriptionImage[0] = 0;
+		}
+
 		inline bool NkCreaLancer(NkModelerState &st, const char *demande, int32 onglet,
 								 converse::NkIConverseBackend *dorsalOnglet) {
 			NkCreaPreparer();
@@ -1426,7 +1669,58 @@ namespace nkentseu {
 									  "La fenetre reste vivante.");
 				return true;
 			}
-			static char invite[20000];
+			if (E.imageJointe[0]) {
+				// ── UNE IMAGE EST JOINTE : D'ABORD LA REGARDER ─────────────────────
+				// Le modele de VISION local (moondream, deja present : aucun `pull`)
+				// decrit l'objet ; sa description entre dans le plan. L'image part
+				// AUSSI a TripoSR, une fois l'assemblage pose.
+				// ⚠️ DEUX APPELS EN SERIE, PAS EN PARALLELE : la carte de 8 Go est
+				//    disputee (Ilyana) ; deux modeles charges ensemble debordent.
+				const char *py = std::getenv("NK_IA_PYTHON");
+				const char *mv = std::getenv("NK_IA_VISION_MODELE");
+				char g[900];
+				snprintf(g, sizeof(g), "%s \"Tools/Genia/ia_verbe.py\" \"{invite}\" \"{sortie}\" 220 \"%s\" \"%s\"",
+						 (py && *py) ? py : "python", (mv && *mv) ? mv : "moondream", E.imageJointe);
+				E.vision.gabarit = NkString(g);
+				E.vision.nom = NkString("vision");
+				E.vision.invitePath = NkString("logs/nk3dmodeler_vision_invite.txt");
+				E.vision.sortiePath = NkString("logs/nk3dmodeler_vision_reponse.txt");
+				E.ongletAttente = onglet;
+				E.dorsalAttente = dorsal;
+				NkString pv;
+				if (E.envoiVision.Lancer(&E.vision,
+										 NkString("Describe this object in one short English paragraph: what it is, its "
+												  "parts and their shapes, its material and colours, and its proportions "
+												  "(height compared to width)."),
+										 pv)) {
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "Image jointe : je la fais decrire par le modele de vision local, puis elle "
+									  "guidera le plan ; elle partira ensuite a TripoSR.");
+					std::printf("[crea] VISION : image '%s' -> %s\n", E.imageJointe, (mv && *mv) ? mv : "moondream");
+					std::fflush(stdout);
+					return true;
+				}
+				char m[240];
+				snprintf(m, sizeof(m), "L'image jointe n'a pas pu etre regardee (%s) : le plan part sans elle.",
+						 pv.CStr());
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+			}
+			return NkCreaLancerPlan(st, dorsal);
+		}
+
+		/// LE PLAN, avec la description de l'image jointe s'il y en a une.
+		inline bool NkCreaLancerPlan(NkModelerState &st, converse::NkIConverseBackend *dorsal) {
+			NkCreaEtat &E = NkCrea();
+			const char *demande = E.demande;
+			static char avecImage[1100];
+			if (E.descriptionImage[0] && NkCreaImageGuidePlan()) {
+				snprintf(avecImage, sizeof(avecImage),
+						 "%s\n(L'utilisateur a joint une IMAGE de l'objet. Un modele de vision y voit : %s -- "
+						 "respecte les parties, les formes et les proportions de cette image.)",
+						 E.demande, E.descriptionImage);
+				demande = avecImage;
+			}
+			static char invite[22000];
 			NkCreaEcrireInvite(invite, sizeof(invite), demande);
 			NkString pourquoi;
 			if (!E.envoi.Lancer(dorsal, NkString(invite), pourquoi)) {
@@ -1445,6 +1739,105 @@ namespace nkentseu {
 		}
 
 		/// Pose un document et raconte le resultat dans le fil. Rend le numero du lot.
+		/// L'ENCOMBREMENT d'une partie avant la pose, en metres : sa taille, ou pour
+		/// une revolution l'etendue de son profil.
+		inline float32 NkCreaEtendue(const NkCreaPartie &pc) {
+			int32 nf = 0;
+			const NkCreaForme *F = NkCreaFormes(nf);
+			if (pc.forme >= 0 && F[pc.forme].kind == -1 && !pc.tailleDonnee) {
+				float32 rmax = 0.f, hmin = 1e30f, hmax = -1e30f;
+				for (int32 k = 0; k + 1 < pc.nNombres; k += 2) {
+					if (pc.profil[k] > rmax)
+						rmax = pc.profil[k];
+					if (pc.profil[k + 1] < hmin)
+						hmin = pc.profil[k + 1];
+					if (pc.profil[k + 1] > hmax)
+						hmax = pc.profil[k + 1];
+				}
+				const float32 h = hmax - hmin;
+				return 2.f * rmax > h ? 2.f * rmax : h;
+			}
+			float32 e = pc.taille[0];
+			if (pc.taille[1] > e)
+				e = pc.taille[1];
+			if (pc.taille[2] > e)
+				e = pc.taille[2];
+			return e;
+		}
+
+		/// LA COHERENCE D'ECHELLE (Q7) : une partie dont le plus grand cote depasse
+		/// 10 fois la MEDIANE des plus grands cotes des AUTRES parties est hors
+		/// d'echelle -- le « mur geant » a cote du verre de 10 cm (capture du 21/09,
+		/// 13 h 45). Rend le nombre de parties signalees ; `exclure` les retire de la
+		/// pose, avec un refus NOMME dans d.refus.
+		/// ⚠️ LA MEDIANE DES AUTRES, PAS LA MOYENNE DE TOUTES : avec deux parties, la
+		///    moyenne contient deja le mur et le ratio s'ecrase ; et une maison (murs
+		///    6 m, fenetre 1 m) reste sous le seuil (6 / ~1,7).
+		static const float32 kCreaEchelleMax = 10.f;
+		inline int32 NkCreaVerifierEchelle(NkCreaDoc &d, bool exclure, char (*motifs)[176], int32 capMotifs,
+										   int32 &nMot) {
+			int32 signalees = 0;
+			// `NK_CREA_SANS_ECHELLE=1` : la MUTATION -- la garde se tait, et le juge
+			// (epreuve_creation.py, C6) doit alors voir le mur que l'application
+			// aurait refuse. Sans ce negatif, un C6 vert ne prouverait rien.
+			if (const char *mu = std::getenv("NK_CREA_SANS_ECHELLE"))
+				if (mu[0] && mu[0] != '0')
+					return 0;
+			if (d.n < 2)
+				return 0;
+			float32 e[kCreaMaxParties];
+			for (int32 i = 0; i < d.n; ++i)
+				e[i] = NkCreaEtendue(d.p[i]);
+			for (int32 i = 0; i < d.n; ++i) {
+				float32 autres[kCreaMaxParties];
+				int32 na = 0;
+				for (int32 j = 0; j < d.n; ++j)
+					if (j != i && !d.p[j].exclue)
+						autres[na++] = e[j];
+				if (na == 0)
+					continue;
+				for (int32 a = 1; a < na; ++a) // tri par insertion : 48 parties au plus
+					for (int32 b = a; b > 0 && autres[b - 1] > autres[b]; --b) {
+						const float32 t = autres[b];
+						autres[b] = autres[b - 1];
+						autres[b - 1] = t;
+					}
+				const float32 med = (na & 1) ? autres[na / 2] : 0.5f * (autres[na / 2 - 1] + autres[na / 2]);
+				if (med <= 1e-5f || e[i] <= kCreaEchelleMax * med * 1.001f)
+					continue;
+				// ⚠️ QUI EST FAUTIF ? Entre deux parties, le rapport ne le dit pas : un
+				//    bouchon de 3 cm sur une bouteille de 30 cm donne 10, comme un verre
+				//    et un mur. Ce qui les separe est l'ATTACHE : le bouchon est pose SUR
+				//    la bouteille, le mur ne touche le verre par aucune relation. On
+				//    n'EXCLUT donc qu'une partie sans attache (aucune relation vers une
+				//    autre partie, et aucune partie ne s'appuie sur elle) ; une partie
+				//    attachee est seulement SIGNALEE au modele. Le gabarit bouteille
+				//    etait refuse par la premiere version -- c'est lui qui l'a montre.
+				bool attachee = false;
+				for (int32 r = 0; r < d.p[i].nRels && !attachee; ++r)
+					attachee = d.p[i].relsIdx[r] >= 0;
+				for (int32 j = 0; j < d.n && !attachee; ++j)
+					for (int32 r = 0; r < d.p[j].nRels && !attachee; ++r)
+						attachee = (j != i && d.p[j].relsIdx[r] == i);
+				++signalees;
+				char m[176];
+				snprintf(m, sizeof(m),
+						 "partie « %s » HORS D'ECHELLE : %.2f m, %.0f fois la mediane des autres parties (%.3f m) -- "
+						 "elle n'appartient pas a cet objet",
+						 d.p[i].nom, (double)e[i], (double)(e[i] / med), (double)med);
+				if (motifs && nMot < capMotifs)
+					snprintf(motifs[nMot++], 176, "%s", m);
+				if (exclure && !attachee) {
+					d.p[i].exclue = true;
+					if (d.nRefus < kCreaMaxRefus)
+						snprintf(d.refus[d.nRefus++], sizeof(d.refus[0]), "%s : non posee", m);
+					std::printf("[crea] REFUS ECHELLE : %s\n", m);
+					std::fflush(stdout);
+				}
+			}
+			return signalees;
+		}
+
 		inline int32 NkCreaDire(NkModelerState &st, const NkCreaDoc &d, const NkCreaBilan &b, int32 num,
 								const char *demande) {
 			if (num < 0) {
@@ -1474,8 +1867,12 @@ namespace nkentseu {
 			std::fflush(stdout);
 			return num;
 		}
-		inline int32 NkCreaPoserEtDire(NkModelerState &st, const NkCreaDoc &d, const char *texte,
+		inline int32 NkCreaPoserEtDire(NkModelerState &st, const NkCreaDoc &d0, const char *texte,
 									   const char *demande) {
+			static NkCreaDoc d;
+			d = d0;
+			int32 nmBidon = 0;
+			NkCreaVerifierEchelle(d, true, nullptr, 0, nmBidon);
 			NkCreaBilan b;
 			const int32 num = NkCreaPoser(st, d, texte, demande, b);
 			return NkCreaDire(st, d, b, num, demande);
@@ -1577,6 +1974,16 @@ namespace nkentseu {
 					pm[nMot] = motifs[nMot];
 					++nMot;
 				}
+			{
+				// L'ECHELLE : signalee au modele tant qu'il reste des tours ; au dernier,
+				// la partie fautive est EXCLUE de la pose, refus nomme.
+				const bool dernier = !(E.tour < E.toursMax);
+				int32 nm2 = nMot;
+				NkCreaVerifierEchelle(d, dernier, motifs, kCreaMaxRefus + 8, nm2);
+				for (int32 k = nMot; k < nm2; ++k)
+					pm[k] = motifs[k];
+				nMot = nm2;
+			}
 			if (d.n == 0 && nMot == 0) {
 				snprintf(motifs[0], sizeof(motifs[0]), "aucune ligne « partie » dans la reponse");
 				pm[0] = motifs[0];
@@ -1832,6 +2239,38 @@ namespace nkentseu {
 							   void (*poserUndo)(NkModelerState &), int32 image) {
 			NkCreaEtat &E = NkCrea();
 			NkGeniaRecolter(st); // voies (b) et (c) : la generation qui vole hors du fil
+			{
+				static bool sImgHook = false;
+				if (!sImgHook) {
+					sImgHook = true;
+					if (const char *im = std::getenv("NK_CREA_IMAGE"))
+						if (*im)
+							NkCreaJoindreImage(im); // la MEME porte que le panneau
+				}
+			}
+			if (E.envoiVision.EnCours()) {
+				NkString rep, err;
+				bool okv = false;
+				if (E.envoiVision.Recolter(rep, err, okv)) {
+					const char *t = rep.CStr() ? rep.CStr() : "";
+					if (okv && strncmp(t, "REFUS:", 6) != 0) {
+						snprintf(E.descriptionImage, sizeof(E.descriptionImage), "%s", t);
+						for (char *c = E.descriptionImage; *c; ++c)
+							if (*c == '\n' || *c == '\r')
+								*c = ' ';
+					}
+					char m[800];
+					snprintf(m, sizeof(m), okv ? "Ce que le modele de vision voit sur l'image (%.1f s) : %s"
+											   : "Le modele de vision n'a pas repondu (%.1f s) : %s -- le plan part sans lui.",
+							 (double)E.envoiVision.Secondes(), okv ? E.descriptionImage : err.CStr());
+					(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+					std::printf("[crea] VISION : %.1f s -> %s\n", (double)E.envoiVision.Secondes(),
+								okv ? E.descriptionImage : "ECHEC");
+					std::fflush(stdout);
+					E.tripoApresPose = true;
+					(void)NkCreaLancerPlan(st, E.dorsalAttente);
+				}
+			}
 			bool pose = NkCreaRecolter(st, onglet, dorsalOnglet);
 			// NK_CREA_DOC=<fichier>[,image] : pose un document ECRIT A LA MAIN, sans
 			// modele. C'est le temoin de l'OUTIL seul : si la chaise d'un document
@@ -1861,6 +2300,17 @@ namespace nkentseu {
 						}
 					}
 				}
+			}
+			if (pose && E.tripoApresPose && E.imageJointe[0]) {
+				// L'IMAGE JOINTE PART AUSSI A TRIPOSR, apres la pose (carte au
+				// navigateur, hors du fil) ; puis la piece jointe est CONSOMMEE.
+				E.tripoApresPose = false;
+				if (NkGeniaLancer(st, false, E.imageJointe, "image"))
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "L'image jointe part a TripoSR : sa reconstruction arrivera en carte au navigateur, "
+									  "a cote de l'assemblage.");
+				E.imageJointe[0] = 0;
+				E.descriptionImage[0] = 0;
 			}
 			if (pose) {
 				NkCreaDemarrerVues();
