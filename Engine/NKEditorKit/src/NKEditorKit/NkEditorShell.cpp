@@ -1514,6 +1514,21 @@ namespace nkentseu {
 				//    le canvas, et l etat 2 serait devenu l etat 3 sans decision.
 				const NkRect corps = {actWL + railL, bodyTop,
 									  W - actWL - actWR - railL - railR, bodyH - railB};
+				// (Q7, 21/09) UN TIROIR ANCRE PREND SA PLACE : le dock recoit le corps
+				// MOINS le tiroir ouvert. C'est une decision de l'application
+				// (`SetRailAncre`) ; sans elle rien ne change.
+				NkRect corpsDock = corps;
+				for (int32 sl = 0; sl < 2; ++sl) {
+					if (!mRailAncre[sl] || mRailOuvert[sl] < 0 || mRailOuvert[sl] >= mRailCount[sl])
+						continue;
+					const NkRect t = RectTiroir(sl, corps);
+					if (sl == 0) {
+						const float32 fin = t.x + t.w;
+						corpsDock.w -= fin - corpsDock.x;
+						corpsDock.x = fin;
+					} else
+						corpsDock.w = t.x - corpsDock.x;
+				}
 				if (railL > 0.f)
 					DrawRail(0, {actWL, bodyTop, railW, bodyH - railB}, true);
 				if (railR > 0.f)
@@ -1525,7 +1540,7 @@ namespace nkentseu {
 				//    pris, un separateur s'est SAISI du geste -- et ce n'est plus une
 				//    question de curseur. On ne l'imprime que sur un clic.
 				const nkgui::NkGuiId actifAvantDock = mUI.activeId;
-				DockSpace(mUI, "##EditorDock", corps);
+				DockSpace(mUI, "##EditorDock", corpsDock);
 			phase("DockSpace (separateurs)");
 				{
 					static const bool traceDock = []() {
@@ -1887,6 +1902,10 @@ namespace nkentseu {
 
 			for (int32 i = 0; i < mRailCount[slot]; ++i) {
 				const NkEditorRailItem &it = mRailItems[slot][i];
+				// (Q7) SANS SELECTION, une pastille liee a la selection est RETIREE du
+				// rail (Rodolf, 21/09) -- les suivantes remontent.
+				if (it.lieALaSelection && !mRailSelection)
+					continue;
 				const float32 lg = (it.largeur > 0.f) ? it.largeur : cell;
 				NkRect r;
 				if (vertical)
@@ -1973,24 +1992,60 @@ namespace nkentseu {
 		}
 
 		// ETAT 2 : le tiroir, EN OVERLAY par-dessus le canvas.
-		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
+		NkRect NkEditorShell::RectTiroir(int32 slot, const NkRect &corps) noexcept {
 			const float32 cell = 28.f;
-			const float32 taille = 320.f; // §13.2 : « largeur/hauteur par defaut ~320px »
+			// LES BORNES (Q6) : 260 px au moins -- en dessous, le composeur du
+			// panneau IA ne tient plus sa barre ; au plus 60 % du corps -- la vue
+			// reste utilisable. Une valeur relue d'un fichier est bornee ICI, pas
+			// crue sur parole.
+			const float32 plein = (slot == 2) ? corps.h : corps.w;
+			float32 maxi = plein * 0.6f;
+			const float32 mini = (slot == 2) ? 120.f : 260.f;
+			if (maxi < mini)
+				maxi = mini;
+			float32 t = mRailLargeur[slot];
+			if (t < mini)
+				t = mini;
+			if (t > maxi)
+				t = maxi;
+			mRailLargeur[slot] = t;
+			// ANCRE, le tiroir touche son rail : l'ecart de 28 px du tiroir flottant
+			// laissait une colonne morte entre le panneau et ses pastilles.
+			const float32 ecart = mRailAncre[slot] ? 0.f : cell;
+			if (slot == 0)
+				return {corps.x + ecart, corps.y, t, corps.h};
+			if (slot == 1)
+				return {corps.x + corps.w - ecart - t, corps.y, t, corps.h};
+			return {corps.x, corps.y + corps.h - cell - t, corps.w, t};
+		}
+
+		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
 			bool clicDansUnTiroir = false;
+			bool fermeAuClic = false;
+
+			// LA PORTE DES SONDES (Q6) : `NK_TIROIR_LARGEUR=<px>` ecrit la largeur du
+			// tiroir droit comme un glisser l'ecrirait -- aucune souris injectee.
+			// Lue UNE fois, APRES `LoadUiState` : la sonde prime sur le fichier.
+			{
+				static bool sLu = false;
+				if (!sLu) {
+					sLu = true;
+					if (const char *v = getenv("NK_TIROIR_LARGEUR"))
+						if (*v)
+							mRailLargeur[1] = (float32)atof(v);
+				}
+			}
 
 			for (int32 slot = 0; slot < 3; ++slot) {
 				const int32 i = mRailOuvert[slot];
 				if (i < 0 || i >= mRailCount[slot])
 					continue;
-				NkEditorPanel *p = TrouverPanneau(mRailItems[slot][i].panel);
+				const NkEditorRailItem &item = mRailItems[slot][i];
+				NkEditorPanel *p = TrouverPanneau(item.panel);
+				if (NkEditorTiroirFermeAuClicDehors(item.mode))
+					fermeAuClic = true;
 
-				NkRect d;
-				if (slot == 0)
-					d = {corps.x + cell, corps.y, taille, corps.h};
-				else if (slot == 1)
-					d = {corps.x + corps.w - cell - taille, corps.y, taille, corps.h};
-				else
-					d = {corps.x, corps.y + corps.h - cell - 240.f, corps.w, 240.f};
+				const NkRect d = RectTiroir(slot, corps);
 
 				// ⚠️ TOUT CECI VA DANS LA COUCHE OVERLAY. Le tiroir doit passer
 				//    PAR-DESSUS les panneaux ancres ; dessine dans la couche
@@ -2036,18 +2091,59 @@ namespace nkentseu {
 				mUI.dlOverlay.AddRectFilled(d, mUI.theme.panel, 6.f);
 				mUI.dlOverlay.AddRect(d, mUI.theme.border, 1.f, 6.f);
 
-				const float32 titreH = mUI.ItemHeight() + 6.f;
-				if (mUI.font && mUI.font->Valid()) {
-					const char *t = p ? p->Title() : mRailItems[slot][i].panel;
-					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
-										  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
-														   + mUI.font->Ascent()},
-										  t, mUI.theme.text);
+				// UN SEUL EN-TETE : un panneau qui porte le sien (le panneau IA) ne
+				// recoit pas celui du tiroir par-dessus.
+				const float32 titreH = item.titrePropre ? 0.f : mUI.ItemHeight() + 6.f;
+				if (!item.titrePropre) {
+					if (mUI.font && mUI.font->Valid()) {
+						const char *t = p ? p->Title() : item.panel;
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
+															   + mUI.font->Ascent()},
+											  t, mUI.theme.text);
+					}
+					mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
+										  mUI.theme.border, 1.f);
 				}
-				mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
-									  mUI.theme.border, 1.f);
 
 				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
+
+				// LA POIGNEE (Q6) : le bord INTERIEUR du tiroir, le separateur du kit
+				// (`Splitter`, prehension elargie a 8 px, curseur ResizeEW). Le rail
+				// droit grandit vers la gauche : la valeur glissee est l'OPPOSE de la
+				// largeur, pour que le meme delta de souris serve les deux cotes.
+				{
+					const bool vertical = slot != 2;
+					NkRect poignee;
+					if (slot == 0)
+						poignee = {d.x + d.w - 1.f, d.y, 2.f, d.h};
+					else if (slot == 1)
+						poignee = {d.x - 1.f, d.y, 2.f, d.h};
+					else
+						poignee = {d.x, d.y - 1.f, d.w, 2.f};
+					float32 v = (slot == 0) ? mRailLargeur[slot] : -mRailLargeur[slot];
+					const char *ids[3] = {"##tiroir_poignee_g", "##tiroir_poignee_d", "##tiroir_poignee_b"};
+					if (Splitter(mUI, ids[slot], poignee, vertical, &v, -1.0e6f, 1.0e6f, 8.f))
+						mRailLargeur[slot] = (slot == 0) ? v : -v;
+					const NkVec2 mp = mUI.input.mousePos;
+					if (mp.x >= poignee.x - 4.f && mp.x < poignee.x + poignee.w + 4.f && mp.y >= poignee.y - 4.f &&
+						mp.y < poignee.y + poignee.h + 4.f)
+						clicDansUnTiroir = true;
+				}
+
+				// (Q7) LA PASTILLE A ETE RETIREE PAR LA DESELECTION : le tiroir RESTE
+				// ouvert et le DIT, au lieu de sauter vers une autre pastille.
+				if (item.lieALaSelection && !mRailSelection) {
+					if (mUI.font && mUI.font->Valid())
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 12.f, dedans.y + 28.f}, "Aucun élément sélectionné",
+											  mUI.theme.textMuted);
+					PopOverlay(mUI);
+					const NkVec2 m2 = mUI.input.mousePos;
+					if (m2.x >= d.x && m2.x < d.x + d.w && m2.y >= d.y && m2.y < d.y + d.h)
+						clicDansUnTiroir = true;
+					continue;
+				}
 
 				// 🔴 UN TIROIR NE MONTRE PAS UN PANNEAU DEJA ANCRE (mesure du 14/09).
 				//    `DrawPanels` dessine tous les panneaux OUVERTS ; ce tiroir passe
@@ -2128,7 +2224,9 @@ namespace nkentseu {
 			// §13.2 : « un clic ailleurs sur le canvas la referme ». ⚠️ Le clic sur
 			// la PASTILLE a deja ete consomme plus haut : sans cette consommation,
 			// ouvrir et refermer se produisaient dans la meme image.
-			if (mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
+			// (Q7, 21/09) SEULEMENT POUR UNE MODALE : un panneau de travail se ferme
+			// par sa pastille, jamais parce qu'on a clique la toile.
+			if (fermeAuClic && mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
 				for (int32 slot = 0; slot < 3; ++slot)
 					mRailOuvert[slot] = -1;
 			}
@@ -3411,6 +3509,9 @@ namespace nkentseu {
 			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
+				// (Q6) une application peut refuser la geometrie (voir SetUiStateGeometrie)
+				if (!mUiStateGeometrie && (StartsWith(s, "win=") || StartsWith(s, "maximized=")))
+					return;
 				if (StartsWith(s, "win=")) {
 					// Restaure la TAILLE seulement (pas la position -> pas de changement de
 					// moniteur/DPI qui désynchroniserait l'échelle). Le resize du renderer
@@ -3430,6 +3531,18 @@ namespace nkentseu {
 							mWindow.Maximize();
 					} else if (mWindow.IsMaximized())
 						mWindow.Restore();
+				} else if (StartsWith(s, "tiroir=")) {
+					// (Q6) bornee a l'affichage par `RectTiroir`, pas ici : le corps n'est
+					// pas encore connu.
+					int32 g = 0, dr = 0, b = 0;
+					if (std::sscanf(s + 7, "%d|%d|%d", &g, &dr, &b) == 3) {
+						if (g > 0)
+							mRailLargeur[0] = (float32)g;
+						if (dr > 0)
+							mRailLargeur[1] = (float32)dr;
+						if (b > 0)
+							mRailLargeur[2] = (float32)b;
+					}
 				} else if (StartsWith(s, "panel=")) {
 					// L'IDENTIFIANT D'ABORD, LE TITRE EN REPLI (cf. `PanneauParIdentite`).
 					if (NkEditorPanel *pp = PanneauParIdentite(s + 6))
@@ -3768,6 +3881,8 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			if (!gmax)
 				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
+			// (Q6) LA LARGEUR DES TIROIRS, gauche|droite|bas, en px.
+			out += NkPrintf("tiroir=%d|%d|%d\n", (int)mRailLargeur[0], (int)mRailLargeur[1], (int)mRailLargeur[2]);
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
 					out += "panel=";

@@ -1,6 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    Engine/NKEditorKit/src/NKEditorKit/NkEditorTiroirMode.h
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   CE QU'UN TIROIR FAIT A CE QU'IL Y A DESSOUS : deux modes declares,
 //          et deux fonctions pures qui en decoulent.
@@ -83,6 +84,16 @@ namespace nkentseu {
 		///    quelle ; ce lot ne la rouvre pas.
 		inline bool NkEditorTiroirReclameLeCorps(NkEditorTiroirMode m, bool drag) {
 			return m == NkEditorTiroirMode::Modal && !drag;
+		}
+
+		/// Un clic HORS du tiroir le ferme-t-il ?
+		/// ⚠️ PLUS POUR UN PANNEAU DE TRAVAIL (Rodolf, 21/09 : « la fermeture de ce
+		///    panneau doit etre volontaire »). La regle §13.2 « un clic ailleurs la
+		///    referme » fermait le panneau IA pendant qu'on travaillait la toile --
+		///    une generation recoltee, un clic sur la planche, et la reponse
+		///    disparaissait avec son panneau. Seule une MODALE se ferme ainsi.
+		inline bool NkEditorTiroirFermeAuClicDehors(NkEditorTiroirMode m) {
+			return m == NkEditorTiroirMode::Modal;
 		}
 
 	} // namespace editorkit

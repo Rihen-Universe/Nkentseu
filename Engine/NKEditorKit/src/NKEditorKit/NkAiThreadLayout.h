@@ -144,6 +144,19 @@ namespace nkentseu {
 			ChromeTexte,
 			/// L'indication d'un fil vide (« ce que l'assistant sait faire »).
 			Indication,
+			// ── 21/09, Q5 : les proprietes d'un modele et ses fenetres ──
+			/// Un interrupteur a droite d'une ligne de menu (Thinking). kAiActif = allume.
+			Interrupteur,
+			/// Un curseur a crans (Effort). `debut` = cran courant, `longueur` = crans.
+			Curseur,
+			/// Le champ « Filtrer les actions… » en tete du menu « / ».
+			MenuFiltre,
+			/// Une fenetre (Utilisation, Carte des agents) posee sur le fil.
+			Fenetre,
+			/// La croix qui la ferme.
+			FenetreFermer,
+			/// Une barre de proportion dans une fenetre. `longueur` = part en millimes.
+			Barre,
 
 			Count
 		};
@@ -187,6 +200,12 @@ namespace nkentseu {
 				case NkAiPiece::MenuLigne:		   return "menu_ligne";
 				case NkAiPiece::ChromeTexte:	   return "chrome_texte";
 				case NkAiPiece::Indication:		   return "indication";
+				case NkAiPiece::Interrupteur:	   return "interrupteur";
+				case NkAiPiece::Curseur:		   return "curseur";
+				case NkAiPiece::MenuFiltre:		   return "menu_filtre";
+				case NkAiPiece::Fenetre:		   return "fenetre";
+				case NkAiPiece::FenetreFermer:	   return "fenetre_fermer";
+				case NkAiPiece::Barre:			   return "barre";
 				default:						   return "";
 			}
 		}
@@ -211,7 +230,10 @@ namespace nkentseu {
 			MenuDetail,	  ///< le detail attenue de la ligne `debut`
 			Indication,	  ///< l'indication d'un fil vide
 			Action,		  ///< le libelle de l'action `debut` (le bloc est dans blocId)
-			EffetBloc	  ///< une tranche de l'EFFET du bloc (l'effet deplie en entier)
+			EffetBloc,	  ///< une tranche de l'EFFET du bloc (l'effet deplie en entier)
+			MenuDroite,	  ///< le texte attenue aligne a droite de la ligne `debut` du menu
+			Filtre,		  ///< ce qui est tape dans le filtre du menu « / » (ou son invite)
+			FenetreTexte  ///< ligne `debut` de la fenetre ; `longueur` 0 = libelle, 1 = valeur
 		};
 
 		/// Drapeaux d'une piece. Ils disent un ETAT que la geometrie ne dit pas.
@@ -221,7 +243,8 @@ namespace nkentseu {
 			kAiEteint = 4u,	  ///< le geste est indisponible : il se dessine ATTENUE
 			kAiActif = 8u,	  ///< la ligne de menu est la valeur courante (coche)
 			kAiDistant = 16u, ///< la pastille dit un service DISTANT (point orange)
-			kAiArret = 32u	  ///< le bouton d'envoi est un bouton d'ARRET (tour en cours)
+			kAiArret = 32u,	  ///< le bouton d'envoi est un bouton d'ARRET (tour en cours)
+			kAiSection = 64u  ///< la ligne de menu est un TITRE de section : ni survol, ni clic
 		};
 
 		/// UN RECTANGLE PUBLIE. Ce que le peintre peint, et rien d'autre.
@@ -1285,12 +1308,15 @@ namespace nkentseu {
 				const float32 reste = dispo - (total() - w - extra);
 				w = (reste - extra > plancher) ? reste - extra : plancher;
 			};
-			if (total() > dispo)
-				wDur = 0.f;
+			// 21/09 (coordinateur, sur les images des applications) : la DUREE et le
+			// MODE sont dans la capture a toute largeur ; le LIEU cede le premier,
+			// puis la longueur du modele et du mode, et la duree seulement ensuite.
 			if (total() > dispo)
 				wLieu = 0.f;
 			reduire(wMod, 96.f, 0.f);
 			reduire(wMode, 56.f, 8.f);
+			if (total() > dispo)
+				wDur = 0.f;
 			if (total() > dispo)
 				wCmd = 0.f;
 			reduire(wMod, 48.f, 0.f);
