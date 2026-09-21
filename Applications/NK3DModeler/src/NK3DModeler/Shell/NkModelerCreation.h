@@ -39,7 +39,7 @@
 //  LA BOUCLE. Planifier -> poser -> VERIFIER -> corriger, et la condition
 //  d'arret appartient a l'application, pas au modele : si des lignes sont
 //  refusees ou si des parties flottent, on renvoie au modele SON document et les
-//  motifs NOMMES, au plus `NK_CREA_TOURS` fois (defaut 1). Apres, on pose ce qui
+//  motifs NOMMES, au plus `NK_CREA_TOURS` fois (defaut 2). Apres, on pose ce qui
 //  est valide et on DIT ce qui ne l'est pas.
 //
 //  L'ANNULATION, EN MODE OBJET AUSSI. Tout ce que l'IA cree forme UN LOT ; un
@@ -52,6 +52,7 @@
 #include "NK3DModeler/Shell/NkModelerAiPanel.h" // NkAiPousser, NkAiCopie
 #include "NK3DModeler/Shell/NkModelerCommon.h"	// NkMatUniqueName
 #include "NK3DModeler/Shell/NkModelerScreens.h" // NkMarkDirty
+#include "NK3DModeler/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
@@ -154,8 +155,16 @@ namespace nkentseu {
 				int32 forme = -1;
 				float32 taille[3] = {0.f, 0.f, 0.f};
 				float32 rot[3] = {0.f, 0.f, 0.f};
-				int32 rel = 0; ///< 0 aucune, 1 pose_sur, 2 pose_sous, 3 aligne_sur
-				int32 relIdx = -1;
+				/// 0 aucune, 1 pose_sur, 2 pose_sous, 3 aligne_sur,
+				/// 4 a_gauche_de, 5 a_droite_de, 6 devant, 7 derriere
+				int32 rel = 0;
+				int32 relIdx = -1; ///< -2 : le SOL (`pose_sur sol`)
+				/// TOUTES les relations de la ligne, dans l'ordre (course 3) : le
+				/// modele ecrit naturellement « pose_sur tronc a_droite_de tronc ».
+				int32 rels[4] = {0, 0, 0, 0};
+				int32 relsIdx[4] = {-1, -1, -1, -1};
+				int32 nRels = 0;
+				bool aDim[3] = {false, false, false}; ///< largeur / hauteur / profondeur nommees
 				bool aCentre = false;
 				float32 centre[3] = {0.f, 0.f, 0.f};
 				float32 decale[3] = {0.f, 0.f, 0.f};
@@ -276,6 +285,31 @@ namespace nkentseu {
 			return -1;
 		}
 
+		/// LA RELATION, ET SES SYNONYMES. ⚠️ Chaque synonyme de cette table a ete
+		/// ECRIT PAR LE MODELE lors des courses 1 et 2 (« pose_droite_de »,
+		/// « pose_derriere »...), refuse, puis redemande deux fois sans succes. Ce
+		/// ne sont pas des relations de plus : ils designent les MEMES, et la table
+		/// les rend lisibles au lieu de laisser un mur flotter pour un prefixe.
+		/// 0 = pas une relation.
+		inline int32 NkCreaRelationDuMot(const char *m) {
+			struct R {
+					const char *mot;
+					int32 rel;
+			};
+			static const R kR[] = {
+				{"pose_sur", 1},	  {"sur", 1},			  {"pose_sous", 2},		 {"sous", 2},
+				{"aligne_sur", 3},	  {"a_gauche_de", 4},	  {"pose_gauche_de", 4}, {"pose_a_gauche_de", 4},
+				{"gauche_de", 4},	  {"a_gauche", 4},		  {"a_droite_de", 5},	 {"pose_droite_de", 5},
+				{"pose_a_droite_de", 5}, {"droite_de", 5},	  {"a_droite", 5},		 {"devant", 6},
+				{"devant_de", 6},	  {"pose_devant", 6},	  {"pose_devant_de", 6}, {"derriere", 7},
+				{"derriere_de", 7},	  {"pose_derriere", 7},	  {"pose_derriere_de", 7},
+			};
+			for (const R &r : kR)
+				if (strcmp(r.mot, m) == 0)
+					return r.rel;
+			return 0;
+		}
+
 		inline int32 NkCreaPartieDuNom(const NkCreaDoc &d, const char *nom) {
 			for (int32 i = 0; i < d.n; ++i)
 				if (strcmp(d.p[i].nom, nom) == 0)
@@ -390,9 +424,26 @@ namespace nkentseu {
 							NkCreaRefuser(d, "partie « %s » : « decale » attend trois nombres%s", pc.nom);
 							ok = false;
 						}
-					} else if (strcmp(clef, "pose_sur") == 0 || strcmp(clef, "pose_sous") == 0 ||
-							   strcmp(clef, "aligne_sur") == 0) {
-						const int32 r = clef[5] == 's' && clef[6] == 'o' ? 2 : (clef[0] == 'a' ? 3 : 1);
+					} else if (strcmp(clef, "largeur") == 0 || strcmp(clef, "hauteur") == 0 ||
+							   strcmp(clef, "profondeur") == 0) {
+						// ── LES DIMENSIONS NOMMEES (course 2, 21/09) ──────────────
+						// La course 1 a montre le modele ecrire `taille 1.20 0.80 0.03`
+						// pour un plateau de 3 cm d'EPAISSEUR : il pensait (largeur,
+						// profondeur, hauteur). Trois nombres sans nom laissent l'ordre
+						// a deviner ; trois nombres NOMMES ne laissent rien.
+						const int32 ax = clef[0] == 'l' ? 0 : (clef[0] == 'h' ? 1 : 2);
+						float32 val = 0.f;
+						if (!NkCreaMot(q, v, sizeof(v)) || !NkCreaNombre(v, val) || val < 0.f || val > 60.f) {
+							NkCreaRefuser(d, "partie « %s » : « %s » attend un nombre en metres, entre 0 et 60", pc.nom, clef);
+							ok = false;
+						} else {
+							pc.taille[ax] = val;
+							pc.aDim[ax] = true;
+							if (pc.aDim[0] && pc.aDim[1] && pc.aDim[2])
+								aTaille = true;
+						}
+					} else if (NkCreaRelationDuMot(clef) != 0) {
+						const int32 r = NkCreaRelationDuMot(clef);
 						char cible[64];
 						if (!NkCreaMot(q, cible, sizeof(cible))) {
 							NkCreaRefuser(d, "partie « %s » : « %s » sans nom de partie", pc.nom, clef);
@@ -400,13 +451,27 @@ namespace nkentseu {
 						} else {
 							char cn[24];
 							NkCreaCopieNom(cn, sizeof(cn), cible);
-							const int32 idx = NkCreaPartieDuNom(d, cn);
-							if (idx < 0) {
+							const int32 idx = (r == 1 && strcmp(cn, "sol") == 0) ? -2 : NkCreaPartieDuNom(d, cn);
+							float32 bidon = 0.f;
+							if (idx == -1 && NkCreaNombre(cn, bidon)) {
+								// « a_gauche_de 0.10 0 0 » : la relation prise pour un
+								// decalage (course 2). Le motif le dit TEL QUEL, sinon le
+								// modele relit « 0.10 n'est pas une partie » sans comprendre.
+								NkCreaRefuser(d, "partie « %s » : « %s » attend le NOM d'une partie, pas un nombre (pour deplacer, c'est decale)", pc.nom, clef);
+								ok = false;
+							} else if (idx == -1) {
 								NkCreaRefuser(d, "partie « %s » : elle se pose sur « %s », qui n'est pas une partie ecrite AVANT elle", pc.nom, cn);
 								ok = false;
 							} else {
-								pc.rel = r;
-								pc.relIdx = idx;
+								if (pc.nRels == 0) {
+									pc.rel = r;
+									pc.relIdx = idx;
+								}
+								if (pc.nRels < 4) {
+									pc.rels[pc.nRels] = r;
+									pc.relsIdx[pc.nRels] = idx;
+									++pc.nRels;
+								}
 							}
 						}
 					} else if (strcmp(clef, "matiere") == 0 || strcmp(clef, "materiau") == 0 ||
@@ -448,6 +513,10 @@ namespace nkentseu {
 					NkCreaRefuser(d, "partie « %s » : pas de forme%s", pc.nom);
 					ok = false;
 				}
+				if (ok && !aTaille && (pc.aDim[0] || pc.aDim[1] || pc.aDim[2])) {
+					NkCreaRefuser(d, "partie « %s » : il faut les TROIS dimensions (largeur, hauteur, profondeur)%s", pc.nom);
+					ok = false;
+				}
 				if (ok && !aTaille) {
 					NkCreaRefuser(d, "partie « %s » : pas de taille%s", pc.nom);
 					ok = false;
@@ -474,7 +543,7 @@ namespace nkentseu {
 			ajout("les lignes du document, rien d'autre : pas d'explication, pas de texte avant ou apres.\n\n");
 			ajout("Premiere ligne : scene <nom_de_l_objet>\n");
 			ajout("Puis UNE ligne par partie :\n");
-			ajout("partie <nom> forme <forme> taille <largeur> <hauteur> <profondeur> [placement] [rotation <rx> <ry> <rz>] [matiere <matiere>]\n\n");
+			ajout("partie <nom> forme <forme> largeur <x> hauteur <y> profondeur <z> [placement] [rotation <rx> <ry> <rz>] [matiere <matiere>]\n\n");
 			ajout("LES UNITES SONT DES METRES. Une porte mesure 2.0 de haut, une tasse 0.1, un immeuble 20.\n");
 			ajout("Les axes : x = largeur (gauche-droite), y = hauteur (vers le haut), z = profondeur (avant-arriere).\n\n");
 			ajout("LES FORMES, et il n'y en a pas d'autres :\n");
@@ -487,16 +556,23 @@ namespace nkentseu {
 					ajout(l);
 				}
 			}
-			ajout("\nLA TAILLE est l'encombrement TOTAL de la partie sur chaque axe, en metres :\n");
-			ajout("- cylindre taille 0.05 0.40 0.05 : un barreau de 40 cm de haut\n");
-			ajout("- cube taille 1.20 0.03 0.40 : une planche\n");
-			ajout("- cylindre taille 0.30 0.02 0.30 : un disque plat\n\n");
+			ajout("\nLARGEUR, HAUTEUR, PROFONDEUR sont l'encombrement TOTAL de la partie, en metres.\n");
+			ajout("La HAUTEUR est TOUJOURS la dimension verticale :\n");
+			ajout("- cylindre largeur 0.05 hauteur 0.40 profondeur 0.05 : un barreau debout de 40 cm\n");
+			ajout("- cube largeur 1.20 hauteur 0.03 profondeur 0.40 : une planche posee a plat\n");
+			ajout("- cube largeur 1.20 hauteur 0.80 profondeur 0.02 : un panneau debout\n");
+			ajout("- cylindre largeur 0.30 hauteur 0.02 profondeur 0.30 : un disque plat\n\n");
 			ajout("LE PLACEMENT dit ou va la partie PAR RAPPORT A UNE PARTIE ECRITE AU-DESSUS :\n");
 			ajout("- pose_sur <autre> : elle est posee SUR l'autre (son dessous touche le dessus de l'autre), centree sur elle\n");
 			ajout("- pose_sous <autre> : elle est SOUS l'autre (son dessus touche le dessous de l'autre), centree sous elle\n");
-			ajout("- decale <dx> <dy> <dz> : deplacement en metres APRES le placement (pour ecarter des pieds, par exemple)\n");
+			ajout("- a_gauche_de <autre>, a_droite_de <autre> : elle touche le cote gauche (ou droit) de l'autre, centree sur sa hauteur\n");
+			ajout("- devant <autre>, derriere <autre> : elle touche l'avant (ou l'arriere) de l'autre, centree sur sa hauteur\n");
+			ajout("- pose_sur sol : elle est posee par terre (pour une seconde partie qui touche le sol)\n");
+			ajout("On peut COMBINER une relation verticale et une horizontale : pose_sur X a_droite_de X.\n");
+			ajout("- decale <dx> <dy> <dz> : deplacement en metres APRES le placement (pour ecarter des pieds, par exemple).\n");
+			ajout("  Avec pose_sur ou pose_sous, garde dy = 0 : sinon les deux parties ne se touchent plus.\n");
 			ajout("- centre <x> <y> <z> : position absolue du centre, seulement si aucune relation ne convient\n");
-			ajout("La premiere partie n'a pas de placement. Chaque autre partie DOIT avoir pose_sur ou pose_sous,\n");
+			ajout("La premiere partie n'a pas de placement. Chaque autre partie DOIT avoir une relation,\n");
 			ajout("sinon elle flotte. <autre> est le NOM d'une partie deja ecrite.\n\n");
 			ajout("LA ROTATION, en degres, tourne la partie autour de son centre (rotation 0 0 30 l'incline de 30 degres).\n\n");
 			ajout("LA MATIERE, facultative, parmi :");
@@ -521,9 +597,9 @@ namespace nkentseu {
 			//    aurait mesure la recopie.
 			ajout("EXEMPLE, pour « un banc de jardin en bois » :\n");
 			ajout("scene banc\n");
-			ajout("partie planche forme cube taille 1.50 0.05 0.40 matiere bois\n");
-			ajout("partie pied_gauche forme cube taille 0.06 0.40 0.36 pose_sous planche decale -0.65 0 0 matiere bois\n");
-			ajout("partie pied_droit forme cube taille 0.06 0.40 0.36 pose_sous planche decale 0.65 0 0 matiere bois\n\n");
+			ajout("partie planche forme cube largeur 1.50 hauteur 0.05 profondeur 0.40 matiere bois\n");
+			ajout("partie pied_gauche forme cube largeur 0.06 hauteur 0.40 profondeur 0.36 pose_sous planche decale -0.65 0 0 matiere bois\n");
+			ajout("partie pied_droit forme cube largeur 0.06 hauteur 0.40 profondeur 0.36 pose_sous planche decale 0.65 0 0 matiere bois\n\n");
 			ajout("Maintenant, decris : ");
 			ajout(demande ? demande : "");
 			ajout("\n");
@@ -614,7 +690,7 @@ namespace nkentseu {
 				char demande[256] = {0};
 				char docPrecedent[6144] = {0};
 				int32 tour = 0;
-				int32 toursMax = 1;
+				int32 toursMax = 2;
 				// ── les lots ──
 				NkCreaLot lots[kCreaMaxLots];
 				int32 nLots = 0;
@@ -844,16 +920,51 @@ namespace nkentseu {
 					cB[a] = 0.5f * (rmn[i][a] + rmx[i][a]);
 				for (int32 a = 0; a < 3; ++a)
 					pos[i][a] = pc.aCentre ? pc.centre[a] - cB[a] : -cB[a];
-				if (pc.rel != 0 && pc.relIdx >= 0 && noeud[pc.relIdx] >= 0) {
-					const int32 k = pc.relIdx;
+				if (pc.rel == 1 && pc.relIdx == -2) {
+					// `pose_sur sol` : le dessous a y = 0, centre en x et z sur
+					// l'origine de l'objet (puis `decale`). Le sol n'est pas une
+					// partie ; c'est le plan que la pose au sol vise de toute facon.
+					pos[i][0] = -cB[0];
+					pos[i][1] = -rmn[i][1];
+					pos[i][2] = -cB[2];
+				} else if (pc.rel != 0 && pc.relIdx >= 0 && noeud[pc.relIdx] >= 0) {
+					{
+						const int32 k = pc.relIdx;
+						for (int32 a = 0; a < 3; ++a)
+							pos[i][a] = pos[k][a] + 0.5f * (rmn[k][a] + rmx[k][a]) - cB[a];
+					}
+					if (pc.rel == 3)
+						pos[i][1] = pc.aCentre ? pc.centre[1] - cB[1] : -cB[1];
+				}
+				// ── UNE RELATION PAR AXE (course 3) ─────────────────────────────
+				// Chaque relation pose le CONTACT sur son axe ; les axes qu'aucune
+				// relation ne nomme restent centres sur la premiere cible. « pose_sur
+				// tronc a_droite_de tronc » donne donc une branche posee a l'angle du
+				// tronc, au lieu que la seconde relation efface la premiere.
+				for (int32 r = 0; r < pc.nRels; ++r) {
+					const int32 k = pc.relsIdx[r];
+					if (k < 0 || noeud[k] < 0)
+						continue;
 					const float32 aMin[3] = {pos[k][0] + rmn[k][0], pos[k][1] + rmn[k][1], pos[k][2] + rmn[k][2]};
 					const float32 aMax[3] = {pos[k][0] + rmx[k][0], pos[k][1] + rmx[k][1], pos[k][2] + rmx[k][2]};
-					pos[i][0] = 0.5f * (aMin[0] + aMax[0]) - cB[0];
-					pos[i][2] = 0.5f * (aMin[2] + aMax[2]) - cB[2];
-					if (pc.rel == 1)
-						pos[i][1] = aMax[1] - rmn[i][1];
-					else if (pc.rel == 2)
-						pos[i][1] = aMin[1] - rmx[i][1];
+					// ── LE CONTACT, SUR L'AXE DE LA RELATION ──────────────────
+					// pose_sur/sous : vertical. a_gauche_de/a_droite_de : x.
+					// devant/derriere : z (devant = +z, cote de la vue de face).
+					// Les deux autres axes restent CENTRES sur l'autre partie.
+					// ⚠️ CES QUATRE RELATIONS HORIZONTALES ONT ETE AJOUTEES APRES
+					//    LA COURSE 1 : un bras « pose_sous corps » pendait SOUS le
+					//    torse. FORMAT_SCENE §7 l'annoncait : « pose_sur est
+					//    vertical... se rouvre au premier document qui en aurait
+					//    besoin ». Le voici.
+					switch (pc.rels[r]) {
+						case 1: pos[i][1] = aMax[1] - rmn[i][1]; break;
+						case 2: pos[i][1] = aMin[1] - rmx[i][1]; break;
+						case 4: pos[i][0] = aMin[0] - rmx[i][0]; break;
+						case 5: pos[i][0] = aMax[0] - rmn[i][0]; break;
+						case 6: pos[i][2] = aMax[2] - rmn[i][2]; break;
+						case 7: pos[i][2] = aMin[2] - rmx[i][2]; break;
+						default: break;
+					}
 				}
 				for (int32 a = 0; a < 3; ++a)
 					pos[i][a] += pc.decale[a];
@@ -1035,9 +1146,15 @@ namespace nkentseu {
 					E.dorsal.gabarit = NkString(g);
 			if (E.dorsal.gabarit.Length() == 0) {
 				const char *py = std::getenv("NK_IA_PYTHON");
+				// LE MODELE DE CREATION EST UN REGLAGE, ET SON DEFAUT VIENT D'UNE
+				// MESURE : sur le jeu d'epreuve, meme invite, qwen2.5:7b-instruct a
+				// rendu 0/8 objets verts sur les cinq criteres, qwen2.5-coder:7b 3/8
+				// (course 3, 21/09). n = 8 : c'est un indice, pas une loi.
+				// `NK_IA_CREA_MODELE` le remplace ; les verbes d'edition gardent le leur.
+				const char *mo = std::getenv("NK_IA_CREA_MODELE");
 				char buf[512];
-				snprintf(buf, sizeof(buf), "%s \"Tools/Genia/ia_verbe.py\" \"{invite}\" \"{sortie}\" 1200",
-						 (py && *py) ? py : "python");
+				snprintf(buf, sizeof(buf), "%s \"Tools/Genia/ia_verbe.py\" \"{invite}\" \"{sortie}\" 1200 \"%s\"",
+						 (py && *py) ? py : "python", (mo && *mo) ? mo : "qwen2.5-coder:7b");
 				E.dorsal.gabarit = NkString(buf);
 			}
 			if (const char *t = std::getenv("NK_CREA_TOURS"))
@@ -1126,10 +1243,8 @@ namespace nkentseu {
 		}
 
 		/// Pose un document et raconte le resultat dans le fil. Rend le numero du lot.
-		inline int32 NkCreaPoserEtDire(NkModelerState &st, const NkCreaDoc &d, const char *texte,
-									   const char *demande) {
-			NkCreaBilan b;
-			const int32 num = NkCreaPoser(st, d, texte, demande, b);
+		inline int32 NkCreaDire(NkModelerState &st, const NkCreaDoc &d, const NkCreaBilan &b, int32 num,
+								const char *demande) {
 			if (num < 0) {
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus, b.motif);
 				return -1;
@@ -1156,6 +1271,32 @@ namespace nkentseu {
 				std::printf("[crea]   refus : %s\n", d.refus[i]);
 			std::fflush(stdout);
 			return num;
+		}
+		inline int32 NkCreaPoserEtDire(NkModelerState &st, const NkCreaDoc &d, const char *texte,
+									   const char *demande) {
+			NkCreaBilan b;
+			const int32 num = NkCreaPoser(st, d, texte, demande, b);
+			return NkCreaDire(st, d, b, num, demande);
+		}
+
+		/// RETIRE le dernier lot SANS rien dire : c'est un essai intermediaire de la
+		/// boucle, pas un geste de Rodolf. Il ne devient pas « refaisable ».
+		inline void NkCreaRetirerEssai(NkModelerState &st) {
+			NkCreaEtat &E = NkCrea();
+			if (E.nLots == 0)
+				return;
+			NkCreaLot &lot = E.lots[E.nLots - 1];
+			for (int32 i = lot.nNoeuds - 1; i >= 0; --i) {
+				const int32 n = lot.noeuds[i];
+				if (demo::Demo3DHostNodeDeleted(n) || strcmp(st.customNames[n], lot.noms[i]) != 0)
+					continue;
+				demo::Demo3DHostDeleteNode(n, false);
+				st.customNames[n][0] = 0;
+			}
+			for (int32 m = 0; m < lot.nMats; ++m)
+				demo::Demo3DHostProjMatDelete(lot.mats[m]);
+			demo::Demo3DHostHierarchyResync();
+			--E.nLots;
 		}
 
 		/// A CHAQUE IMAGE : recolte, corrige ou pose. Rend vrai quand un lot est pose.
@@ -1199,6 +1340,24 @@ namespace nkentseu {
 				++nMot;
 			}
 			for (int32 i = 1; i < d.n && nMot < kCreaMaxRefus + 8; ++i)
+				for (int32 r = 0; r < d.p[i].nRels && nMot < kCreaMaxRefus + 8; ++r) {
+					// ⚠️ DEFAUT VU AUX COURSES 1 ET 2 : « pose_sur X decale 0 0.10 0 »
+					//    dit a la fois « touche X » et « 10 cm au-dessus de X ». La
+					//    relation est tenue, le decalage la defait, la partie flotte.
+					//    Meme chose sur x pour a_gauche_de/a_droite_de, sur z pour
+					//    devant/derriere : le decalage sur l'axe d'une relation la ROMPT.
+					const int32 rr = d.p[i].rels[r];
+					const int32 ax = (rr == 1 || rr == 2) ? 1 : ((rr == 4 || rr == 5) ? 0 : ((rr == 6 || rr == 7) ? 2 : -1));
+					if (ax < 0 || (d.p[i].decale[ax] < 1e-4f && d.p[i].decale[ax] > -1e-4f))
+						continue;
+					static const char *const kAxe[3] = {"dx", "dy", "dz"};
+					snprintf(motifs[nMot], sizeof(motifs[0]),
+							 "partie « %s » : sa relation colle la partie sur cet axe, et decale %s = %.2f la decolle -- elle flottera ; mets %s a 0",
+							 d.p[i].nom, kAxe[ax], (double)d.p[i].decale[ax], kAxe[ax]);
+					pm[nMot] = motifs[nMot];
+					++nMot;
+				}
+			for (int32 i = 1; i < d.n && nMot < kCreaMaxRefus + 8; ++i)
 				if (d.p[i].rel == 0 && !d.p[i].aCentre) {
 					snprintf(motifs[nMot], sizeof(motifs[0]),
 							 "partie « %s » : ni pose_sur ni pose_sous, elle flottera -- dis sur quelle partie elle repose",
@@ -1239,7 +1398,43 @@ namespace nkentseu {
 				std::fflush(stdout);
 				return false;
 			}
-			return NkCreaPoserEtDire(st, d, brut, E.demande) > 0;
+			NkCreaBilan b;
+			const int32 num = NkCreaPoser(st, d, brut, E.demande, b);
+			// ── POSER, MESURER, ET CORRIGER CE QUE LA MESURE CONTREDIT ──────────
+			// Les defauts qu'on ne voit qu'une fois pose : une partie dont la boite
+			// ne touche ni le sol ni une autre partie. On RETIRE l'essai (il n'a
+			// jamais ete un geste de Rodolf) et on renvoie au modele les noms que
+			// la MESURE designe -- pas une supposition sur son document.
+			if (num > 0 && b.flottantes > 0 && E.tour < E.toursMax) {
+				NkCreaRetirerEssai(st);
+				++E.tour;
+				static char mot0[400];
+				snprintf(mot0, sizeof(mot0),
+						 "mesure apres pose : %d partie(s) ne touchent ni le sol ni une autre partie : %s -- "
+						 "donne-leur une relation qui les colle a une partie existante",
+						 (int)b.flottantes, b.flottanteNoms);
+				const char *pm2[1] = {mot0};
+				static char invite2[28000];
+				snprintf(E.docPrecedent, sizeof(E.docPrecedent), "%s", brut);
+				NkCreaEcrireCorrection(invite2, sizeof(invite2), E.demande, E.docPrecedent, pm2, 1);
+				converse::NkIConverseBackend *dorsal = (onglet == 0) ? (converse::NkIConverseBackend *)&E.dorsal
+																	 : dorsalOnglet;
+				NkString pourquoi;
+				std::printf("[crea] CORRECTION tour %d (apres pose) : %s\n", (int)E.tour, mot0);
+				std::fflush(stdout);
+				if (dorsal && E.envoi.Lancer(dorsal, NkString(invite2), pourquoi)) {
+					char m[240];
+					snprintf(m, sizeof(m), "Pose d'essai : %d partie(s) flottent (%s). Je renvoie le plan au modele "
+										   "(tour %d sur %d).",
+							 (int)b.flottantes, b.flottanteNoms, (int)E.tour, (int)E.toursMax);
+					(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+					return false;
+				}
+				// L'appel n'a pas pu partir : on repose l'essai tel quel, et on le dit.
+				const int32 num2 = NkCreaPoser(st, d, brut, E.demande, b);
+				return NkCreaDire(st, d, b, num2, E.demande) > 0;
+			}
+			return NkCreaDire(st, d, b, num, E.demande) > 0;
 		}
 
 		// =====================================================================
@@ -1249,9 +1444,26 @@ namespace nkentseu {
 		/// trois vues (3/4, face, profil) par sa propre cible hors ecran -- jamais
 		/// une capture d'ecran. `Demo3DHostCaptureView` fige la derniere image rendue
 		/// de la vue 3D ; on attend donc quelques images apres chaque geste de camera.
+		/// LA VOIE (b) EST-ELLE DEMANDEE ? `NK_CREA_VOIE=triposr` : apres la pose,
+		/// la vue 3/4 RENDUE PAR L'APPLICATION devient l'entree de TripoSR. Le texte
+		/// seul est le cas limite de la vue manquante -- toutes manquent -- et c'est
+		/// l'assemblage qui les cree. ⚠️ PAS LE DEFAUT : la mesure du 21/09 dit ce
+		/// que cette voie rend (voir modelisation-ia.reponses.md), et l'attente est
+		/// SYNCHRONE (~30 s de fenetre figee), la dette deja declaree du generateur.
+		inline bool NkCreaVoieTripoSR() {
+			const char *v = std::getenv("NK_CREA_VOIE");
+			return v && strcmp(v, "triposr") == 0;
+		}
+
 		inline void NkCreaDemarrerVues() {
 			NkCreaEtat &E = NkCrea();
 			const char *v = std::getenv("NK_CREA_VUES");
+			char defaut[64];
+			if ((!v || !*v) && NkCreaVoieTripoSR()) {
+				NkDirectory::CreateRecursive("logs");
+				snprintf(defaut, sizeof(defaut), "logs/crea_vue_%03d", (int)E.dernierLot);
+				v = defaut;
+			}
 			if (!v || !*v)
 				return;
 			snprintf(E.vuesPrefixe, sizeof(E.vuesPrefixe), "%s", v);
@@ -1329,7 +1541,7 @@ namespace nkentseu {
 		/// ⚠️ PENDANT LES VUES, les autres objets sont masques et les surimpressions
 		///    de mise au point eteintes : l'image doit montrer l'OBJET CREE, pas le
 		///    cube de depart ni le texte de la vue. Tout est rendu a la fin.
-		inline bool NkCreaVuesTick() {
+		inline bool NkCreaVuesTick(NkModelerState &st) {
 			NkCreaEtat &E = NkCrea();
 			static bool sHudAvant = true, sCurseurAvant = true;
 			if (E.vuesEtape < 0)
@@ -1368,6 +1580,27 @@ namespace nkentseu {
 				demo::Demo3DHostSetHud(sHudAvant);
 				demo::Demo3DHostSetCursorShown(sCurseurAvant);
 				E.vuesEtape = -1;
+				if (NkCreaVoieTripoSR()) {
+					// ── VOIE (b) : LA VUE RENDUE -> TRIPOSR -> UNE CARTE ─────────
+					// Par la MEME porte que le bouton « Generer » : le refus est nomme
+					// a l'ecran s'il y en a un. La carte nait dans le navigateur (un
+					// import n'ajoute pas a la scene, contrat du 17/08).
+					snprintf(chemin, sizeof(chemin), "%s_34.png", E.vuesPrefixe);
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "Voie (b) : la vue 3/4 de l'assemblage part a TripoSR (fenetre figee ~30 s)...");
+					const int32 avant = st.BrowserCount();
+					const bool ok = NkGeniaImporterImage(st, chemin);
+					char m[240];
+					snprintf(m, sizeof(m),
+							 ok ? "Voie (b) : TripoSR a rendu un maillage, carte ajoutee au navigateur (%d carte(s)). "
+								  "L'assemblage en parties reste dans la scene."
+								: "Voie (b) : TripoSR n'a rien rendu (%d carte) -- le motif est dans le toast. "
+								  "L'assemblage en parties reste dans la scene.",
+							 (int)(st.BrowserCount() - avant));
+					(void)NkAiPousser(st, ok ? NkModelerState::AiType::Note : NkModelerState::AiType::Refus, m);
+					std::printf("[crea] VOIE (b) TripoSR sur %s : %s\n", chemin, ok ? "importe" : "REFUS");
+					std::fflush(stdout);
+				}
 				return false;
 			}
 			if (e % 2 == 0) {
@@ -1429,7 +1662,7 @@ namespace nkentseu {
 				if (const char *a = std::getenv("NK_CREA_ANNULE"))
 					E.annuleDans = (int32)std::atoi(a);
 			}
-			if (NkCreaVuesTick())
+			if (NkCreaVuesTick(st))
 				return; // les vues d'abord : annuler avant la photo effacerait le sujet
 			if (E.annuleDans > 0 && --E.annuleDans == 0) {
 				E.annuleDans = -1;
