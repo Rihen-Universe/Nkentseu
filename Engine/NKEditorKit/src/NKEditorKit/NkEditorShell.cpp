@@ -621,6 +621,10 @@ namespace nkentseu {
 			mUI.clipboardSetFn = [](void *u, const char *t) {
 				static_cast<NkWindow *>(u)->SetClipboardText(NkString(t));
 			};
+			// (Q9) l'image du presse-papiers (un bitmap copie)
+			mUI.clipboardImageFn = [](void *u, NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) {
+				return static_cast<NkWindow *>(u)->GetClipboardImage(rgba, w, h, motif);
+			};
 
 			// Hook barre d'onglets : le panneau ACTIF dessine ses actions a droite.
 			mUI.dockHeaderUser = this;

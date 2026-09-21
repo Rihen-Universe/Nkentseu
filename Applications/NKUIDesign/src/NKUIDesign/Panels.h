@@ -552,6 +552,73 @@ namespace nkuidesign {
 		return true;
 	}
 
+	/// (Q9) CE QUE LE MODELE POSE A UNE GEOMETRIE. Mesure du 21/09 (NK_AI_DUMP) :
+	/// la racine generee etait un cadre `layout=None` (« feuille : pas d'enfants a
+	/// disposer ») de taille `Expand` pose dans une TOILE -- 0 x 0 -- et ses huit
+	/// enfants n'etaient JAMAIS disposes (aucun rectangle). Le canevas cadrait la
+	/// page faute de mieux ; la vignette n'avait rien a tracer.
+	/// La correction, a la pose et nulle part ailleurs :
+	///   - un noeud qui a des enfants sans agencement devient une COLONNE (les
+	///     enfants s'empilent, s'etirent en largeur) ;
+	///   - la racine posee prend une taille FIXE : la largeur d'un ecran mobile
+	///     (360) et la somme des hauteurs de ses enfants -- une taille « Expand »
+	///     n'a pas de sens dans une toile, qui n'a pas de reste a partager.
+	/// Ce que le modele a declare explicitement (Fixed, un agencement) reste.
+	/// Deuxieme mesure (meme jour, autre course) : la racine venait `Fixed 360 x 360`
+	/// mais en TOILE (`Free`) avec ses huit enfants tous a (0, 0), les hauteurs en
+	/// `Content` resolues a 0 et les largeurs `Expand` a 0 dans une toile : huit
+	/// rectangles de hauteur nulle empiles au meme point.
+	inline void NkNormaliserGreffe(NkUIDocument &d, int32 racine) {
+		if (!d.IsValidIndex(racine))
+			return;
+		NkVector<int32> pile;
+		pile.PushBack(racine);
+		while (pile.Size() > 0) {
+			const int32 i = pile[pile.Size() - 1];
+			pile.PopBack();
+			NkUINode &n = d.nodes[(uint32)i];
+			if (n.children.Size() > 0) {
+				// des enfants SANS agencement, ou une toile ou le modele n'a place
+				// personne (tous a l'origine) : une COLONNE
+				bool tousAOrigine = true;
+				for (usize k = 0; k < n.children.Size() && tousAOrigine; ++k) {
+					const NkUINode &c = d.nodes[(uint32)n.children[k]];
+					tousAOrigine = c.posX == 0.f && c.posY == 0.f;
+				}
+				if (n.layout.kind == NkLayoutKind::None || (n.layout.kind == NkLayoutKind::Free && tousAOrigine)) {
+					n.layout.kind = NkLayoutKind::Column;
+					n.layout.crossAlign = NkAlign::Stretch;
+				}
+			}
+			if (i != racine) {
+				// une hauteur « au contenu » ou « extensible » que rien ne mesure ici
+				// devient la hauteur que le modele a ecrite, sinon 32
+				if (n.height.mode != NkSizeMode::Fixed || n.height.value < 1.f) {
+					n.height.value = n.height.value > 1.f ? n.height.value : 32.f;
+					n.height.mode = NkSizeMode::Fixed;
+				}
+				// une largeur au contenu nulle s'etire (la colonne l'etire)
+				if (n.width.mode == NkSizeMode::Content && n.width.value < 1.f)
+					n.width.mode = NkSizeMode::Expand;
+			}
+			for (usize k = 0; k < n.children.Size(); ++k)
+				pile.PushBack(n.children[k]);
+		}
+		NkUINode &R = d.nodes[(uint32)racine];
+		if (R.width.mode != NkSizeMode::Fixed || R.width.value < 1.f) {
+			R.width.mode = NkSizeMode::Fixed;
+			R.width.value = 360.f;
+		}
+		// la hauteur de la racine : au moins la somme de ses enfants empiles
+		float32 h = 16.f;
+		for (usize k = 0; k < R.children.Size(); ++k)
+			h += d.nodes[(uint32)R.children[k]].height.value + 8.f;
+		if (R.height.mode != NkSizeMode::Fixed || R.height.value < h) {
+			R.height.mode = NkSizeMode::Fixed;
+			R.height.value = h;
+		}
+	}
+
 	struct DesignState {
 			NkUIDocument doc;
 			NkLayoutResult layout;
@@ -885,8 +952,10 @@ namespace nkuidesign {
 						// CE QUI VIENT D'ETRE POSE DEVIENT LA SELECTION, et le canevas le
 						// CADRE : sinon « Document pose » arrive sur une vue qui ne le
 						// montre pas.
-						if (doc.IsValidIndex(r.graftedRoot))
+						if (doc.IsValidIndex(r.graftedRoot)) {
+							NkNormaliserGreffe(doc, r.graftedRoot);
 							SelectSingle(r.graftedRoot);
+						}
 						cadrerApresGreffe = true;
 						// ⚠️ PAS DE `Recompute` ICI : la toile en fait un A CHAQUE IMAGE avec SA
 						//    surface (`mSt->Recompute(docSurface)`). En lancer un second, depuis
@@ -9764,7 +9833,7 @@ namespace nkuidesign {
 					mPanneau.actions.libelle[0] = "Appliquer";
 					mPanneau.actions.libelle[1] = "Rejeter";
 				}
-				Sondes();
+				Sondes(ctx);
 				// NK_AI_COPIE=<image> (Q8) : Ctrl+A puis Ctrl+C DANS LE FIL, par l'etat
 				// qu'un clavier ecrirait (wantSelectAll, wantCopy) -- puis le presse-
 				// papiers du SYSTEME est relu et compare au texte selectionne.
@@ -9790,8 +9859,26 @@ namespace nkuidesign {
 						}
 					}
 				}
+				ContexteDuChat();
 				Proprietes();
 				// (Q8) LA VIGNETTE EN ATTENTE de la mise en page de ce qui a ete pose.
+				if (mVignetteBloc != 0u && mSt->layout.Has(mVignetteRacine) && std::getenv("NK_AI_DUMP")) {
+					// (Q9) LA GEOMETRIE DE CE QUI A ETE POSE, noeud par noeud : pourquoi 0 x 0 ?
+					NkVector<int32> pile;
+					pile.PushBack(mVignetteRacine);
+					while (pile.Size() > 0) {
+						const int32 i = pile[pile.Size() - 1];
+						pile.PopBack();
+						const NkUINode &nd = mSt->doc.nodes[(uint32)i];
+						const NkPaintRect q = mSt->layout.Has(i) ? mSt->layout.At(i) : NkPaintRect{-1, -1, -1, -1};
+						printf("[NKUIDesign] AI DUMP %d « %s » comp=%s pos=(%.0f,%.0f) w=%d:%.0f h=%d:%.0f layout=%d rect=(%.0f,%.0f,%.0f,%.0f)%c",
+							   (int)i, nd.label.Data(), nd.component.Data(), (double)nd.posX, (double)nd.posY,
+							   (int)nd.width.mode, (double)nd.width.value, (int)nd.height.mode, (double)nd.height.value,
+							   (int)nd.layout.kind, (double)q.x, (double)q.y, (double)q.w, (double)q.h, (char)10);
+						for (usize k = 0; k < nd.children.Size(); ++k)
+							pile.PushBack(nd.children[k]);
+					}
+				}
 				if (mVignetteBloc != 0u && mSt->layout.Has(mVignetteRacine)) {
 					if (editorkit::NkAiBlocDonnees *vb = mPanneau.Fil().MutableParId(mVignetteBloc)) {
 						vb->vignette.Clear();
@@ -9966,6 +10053,22 @@ namespace nkuidesign {
 						l.texte = NkString(b);
 						NkString pq;
 						(void)mPanneau.Fil().Pousser(l, pq);
+					}
+					// 1 bis. VOIR (Q9) : l'image jointe, lue par le modele de vision AVANT la
+					//    generation -- l'etape est posee ICI, dans l'ordre reel, et recoit
+					//    sa description a la recolte.
+					mBlocVoir = 0u;
+					if (mImagesEnvoi.Size() > 0) {
+						editorkit::NkAiBlocDonnees v;
+						v.type = editorkit::NkAiBloc::Outil;
+						v.titre = NkString("Voir");
+						v.texte = NkString("l'image jointe, par le modele de vision local");
+						v.etiquetteSortie = NkString("Vu");
+						v.sortieEnClair = true;
+						v.sortie = NkString("…");
+						NkString pqv;
+						if (mPanneau.Fil().Pousser(v, pqv))
+							mBlocVoir = mPanneau.Fil().At(mPanneau.Fil().Taille() - 1).id;
 					}
 					// 2. DESIGN (poser) ou ESQUISSE (apercu) : la demande entre, ce qui
 					//    a ete fait sort EN TERMES DE DESIGN, avec sa vignette.
@@ -10212,17 +10315,16 @@ namespace nkuidesign {
 				mGesteEnCours = -1;
 				++mRecoltes;
 				printf("[NKUIDesign] AI RECOLTE peinture=%u : %s\n", (unsigned)mImages, message.Data() ? message.Data() : "");
-				if (mVision.description.Length() > 0) {
-					editorkit::NkAiBlocDonnees v;
-					v.type = editorkit::NkAiBloc::Outil;
-					v.titre = NkString("Voir");
-					v.texte = NkString("l'image jointe, decrite par ");
-					v.texte.Append(mVision.vision.modele.CStr());
-					v.sortie = mVision.description;
-					v.etiquetteSortie = NkString("Vu");
-					v.sortieEnClair = true;
-					NkString pq;
-					(void)mPanneau.Fil().Pousser(v, pq);
+				if (mVision.description.Length() > 0 || mBlocVoir != 0u) {
+					// (Q9) l'etape « Voir » existe DEJA, avant « Design » : elle recoit ici
+					// ce que le modele de vision a dit
+					if (editorkit::NkAiBlocDonnees *v = mPanneau.Fil().MutableParId(mBlocVoir)) {
+						v->texte = NkString("l'image jointe, decrite par ");
+						v->texte.Append(mVision.vision.modele.CStr());
+						v->sortie = mVision.description.Length() ? mVision.description
+																 : NkString("(le modele de vision n'a rien rendu)");
+					}
+					mBlocVoir = 0u;
 					printf("[NKUIDesign] AI VISION %s : %u caracteres -- %.120s%c", mVision.vision.modele.CStr(),
 						   (unsigned)mVision.description.Length(), mVision.description.CStr(), (char)10);
 					mVision.description = NkString();
@@ -10319,7 +10421,7 @@ namespace nkuidesign {
 			///   NK_AI_REGLAGES="effort=<cran>;penser=<0|1>;modele=<nom>" (une fois)
 			///   NK_AI_MENU="<fournisseurs|modeles|modes|commandes|plus>,<image>"
 			///   NK_AI_FILTRE="<texte>"   NK_AI_FENETRE="<1|2>,<image>"
-			void Sondes() {
+			void Sondes(nkgui::NkGuiContext &ctx) {
 				static bool sReglages = false;
 				if (!sReglages) {
 					sReglages = true;
@@ -10365,6 +10467,16 @@ namespace nkuidesign {
 							mPanneau.PoserFiltre(f);
 					}
 				}
+				// NK_AI_ETAT=<image>[,<image>...] (Q9) : l'etat du panneau, presse-papiers relu
+				if (const char *v = std::getenv("NK_AI_ETAT"))
+					for (const char *c = v; *c;) {
+						if (std::atoi(c) == (int32)mImages)
+							mPanneau.TracerEtat(ctx, "NKUIDesign", (int32)mImages);
+						while (*c && *c != ',')
+							++c;
+						if (*c == ',')
+							++c;
+					}
 				// NK_AI_JOINDRE=<chemin> : l'image jointe comme par « + » (une fois)
 				{
 					static bool sJoint = false;
@@ -10474,6 +10586,36 @@ namespace nkuidesign {
 				}
 				b.sortie = t;
 				b.vignetteRapport = (rw > 1.f && rh > 1.f) ? rh / rw : 0.75f;
+			}
+
+			/// (Q9) LA CONVERSATION DU MODELE SUIT LE CHAT : a chaque bascule, celle du
+			/// chat quitte est rangee, celle du chat ouvert est posee. Un chat relu du
+			/// disque (sans conversation tenue) la retrouve depuis son fil : ses
+			/// demandes et ses reponses en prose.
+			void ContexteDuChat() {
+				const int32 c = mPanneau.ChatActif();
+				if (c == mChatVu)
+					return;
+				if (mChatVu >= 0) {
+					while ((int32)mContextes.Size() <= mChatVu)
+						mContextes.PushBack(NkDesignConversation());
+					mContextes[(usize)mChatVu] = mSt->conversation;
+				}
+				while ((int32)mContextes.Size() <= c)
+					mContextes.PushBack(NkDesignConversation());
+				NkDesignConversation &cv = mContextes[(usize)c];
+				if (cv.Vide()) {
+					const editorkit::NkAiFil &f = mPanneau.Fil();
+					for (uint32 k = 0; k < f.Taille(); ++k) {
+						const editorkit::NkAiBlocDonnees &b = f.At(k);
+						if (b.type == editorkit::NkAiBloc::Demande)
+							cv.Ajouter(NkQui::Moi, b.texte.CStr());
+						else if (b.type == editorkit::NkAiBloc::Prose)
+							cv.Ajouter(NkQui::IA, b.texte.CStr());
+					}
+				}
+				mSt->conversation = cv;
+				mChatVu = c;
 			}
 
 			/// (Q8) LE MODELE DE VISION : parmi les modeles DEJA installes qui annoncent
@@ -10721,6 +10863,8 @@ namespace nkuidesign {
 			void Appliquer() {
 				const NkAIResult r = mSt->ai.CommitProposal(mSt->doc, mSt->selected);
 				char b[320];
+				if (r.Accepted() && mSt->doc.IsValidIndex(r.graftedRoot))
+					NkNormaliserGreffe(mSt->doc, r.graftedRoot);
 				if (r.Accepted()) {
 					snprintf(b, sizeof(b), "Appliquee : %u nœud(s) poses. « /retirer » l'annule en une operation.",
 							 r.nodesAdded);
@@ -10765,6 +10909,12 @@ namespace nkuidesign {
 			nkentseu::NkVector<nkentseu::converse::NkConverseModeleInfo> mInfosLocales;
 			bool mOllama = false;
 			uint32 mVignetteBloc = 0u;
+			uint32 mBlocVoir = 0u;
+			/// (Q9) LE CONTEXTE DU MODELE, RANGE PAR CHAT : la conversation que le
+			/// generateur lit suit le chat ouvert (et se reconstruit depuis son fil
+			/// quand elle n'a pas ete tenue -- un chat relu au lancement).
+			NkVector<NkDesignConversation> mContextes;
+			int32 mChatVu = -1;
 			NkDesignBackendVision mVision;
 			NkVector<NkString> mImagesEnvoi;
 			int32 mVignetteRacine = -1;

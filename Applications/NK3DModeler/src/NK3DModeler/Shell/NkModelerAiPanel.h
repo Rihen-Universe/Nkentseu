@@ -487,6 +487,13 @@ namespace nkentseu {
 			static const nkgui::NkGuiFont *p = nullptr;
 			return p;
 		}
+		/// (Q9) LA PORTE DE L'IMAGE JOINTE vers la creation (`NkCreaJoindreImage`),
+		/// posee par main.cpp : ce fichier ne peut pas inclure la creation (elle
+		/// l'inclut). Appelee AVANT la soumission de la demande.
+		inline void (*&NkAiRelaisImage())(const char *) {
+			static void (*f)(const char *) = nullptr;
+			return f;
+		}
 		/// Les capacites des modeles locaux (Q5), lues au service une fois.
 		inline nkentseu::NkVector<converse::NkConverseModeleInfo> &NkAiInfosLocales() {
 			static nkentseu::NkVector<converse::NkConverseModeleInfo> v;
@@ -735,6 +742,27 @@ namespace nkentseu {
 					if (const char *f = std::getenv("NK_AI_FILTRE"))
 						pan.PoserFiltre(f);
 				}
+				// NK_AI_ETAT=<peinture>[,<peinture>...] : l'etat du panneau et le
+				// presse-papiers relu (Q9).
+				{
+					static char sEtat[128] = {0};
+					static bool sLu = false;
+					if (!sLu) {
+						sLu = true;
+						if (const char *v = std::getenv("NK_AI_ETAT"))
+							NkAiCopie(sEtat, sizeof(sEtat), v);
+					}
+					if (sEtat[0]) {
+						for (const char *c = sEtat; *c;) {
+							if (std::atoi(c) == sPeint)
+								pan.TracerEtat(*guiCtx, "nk3d", sPeint);
+							while (*c && *c != ',')
+								++c;
+							if (*c == ',')
+								++c;
+						}
+					}
+				}
 				// NK_AI_JOINDRE=<chemin> : l'image jointe comme par « + » (une fois).
 				{
 					static bool sJoint = false;
@@ -833,8 +861,15 @@ namespace nkentseu {
 			// ── LES GESTES ──
 			if (out.joindreImage)
 				st.aiDemandeJointe = true; // la boucle ouvre le selecteur d'image
-			if (out.envoyer)
+			if (out.envoyer) {
 				st.aiImagesJointes = out.images; // FOURNIES a la modelisation (Q7 de modelisation-ia)
+				// (Q9) AVANT la demande : la creation la consomme dans CE tour.
+				if (out.images.Size() > 0 && NkAiRelaisImage()) {
+					NkAiRelaisImage()(out.images[0].CStr());
+					std::printf("[nk3d] AI IMAGE -> creation AVANT la demande : %s\n", out.images[0].CStr());
+					std::fflush(stdout);
+				}
+			}
 			if (out.envoyer) {
 				// LA RECOLTE EST ICI, et pas dans `NkAiSoumettre` : c'est le seul
 				// endroit ou une phrase TAPEE entre (le bouton « Annuler » et les
