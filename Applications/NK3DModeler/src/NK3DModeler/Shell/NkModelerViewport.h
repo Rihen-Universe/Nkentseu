@@ -1786,18 +1786,64 @@ namespace nkentseu {
 					// gizmo (sa touche C). Il manquait a la barre.
 					{NkIcon::Gizmo, NkTool::MultiGizmo, "vp.t.multi"},
 				};
+				// ── EN SCULPTURE : GRISES, PAS CACHES, ET ILS DISENT POURQUOI (21/09) ──
+				// Decision du coordinateur : ni disparaitre (l'outil Transform de
+				// sculpture viendra ICI, avec le masque), ni faire semblant (un bouton
+				// qui s'allume sans effet apprend a ne plus croire la barre). Le critere
+				// est le MODE (NkModeMaillageSansElements) : ils redeviennent actifs
+				// d'eux-memes en Objet et en Edition.
+				// UNE decision, lue par le trace, le clic ET le crochet de mesure.
+				// NK_SCULPT_GIZMO_MUTE=1 la retire (negatif du banc sonde_sculpt_gizmo).
+				static const bool sMuteGrise = [] {
+					const char *v = std::getenv("NK_SCULPT_GIZMO_MUTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				const bool xfGrises = !sMuteGrise && demo::NkModeMaillageSansElements((int32)st.mode);
+				static const char *const kMotifXf =
+					"En Sculpture, on deforme avec les pinceaux ; l'outil Transform viendra avec le masque";
+				// CROCHET DE MESURE NK_TOOL_CLIC="<i>[,<image>]" : un clic ECRIT sur le
+				// bouton i (0 Deplacer, 1 Rotation, 2 Echelle, 3 Multigizmo), a la
+				// n-ieme peinture de la barre. Il emprunte la MEME acceptation que le
+				// vrai clic ; aucune souris n'est touchee. Avec NK_MODE_PROBE, la barre
+				// imprime son etat quand il change, et le resultat du clic ecrit.
+				static int32 sXfImg = 0, sXfClicI = -2, sXfClicImg = 0, sXfDernier = -1;
+				++sXfImg;
+				if (sXfClicI == -2) {
+					sXfClicI = -1;
+					if (const char *tc = std::getenv("NK_TOOL_CLIC")) {
+						sXfClicI = std::atoi(tc);
+						const char *c = tc;
+						while (*c && *c != ',')
+							++c;
+						sXfClicImg = (*c == ',') ? std::atoi(c + 1) : 200;
+					}
+				}
+				static const bool sXfProbe = (std::getenv("NK_MODE_PROBE") != nullptr);
+				if (sXfProbe && (int32)xfGrises != sXfDernier) {
+					sXfDernier = (int32)xfGrises;
+					std::printf("[nk3d] OUTILS-TRANSFORM mode=%d grises=%d\n", (int)st.mode, xfGrises ? 1 : 0);
+					std::fflush(stdout);
+				}
 				for (int32 i = 0; i < 4; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kXf[i].key, br);
-					const bool on = (st.tool == kXf[i].tool);
-					if (on)
+					const bool on = !xfGrises && (st.tool == kXf[i].tool);
+					if (xfGrises)
+						NkHelp(over, kMotifXf); // grise : ni survol, ni accent -- le motif
+					else if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked(kXf[i].key))
+					const bool clicEcrit = (sXfClicI == i && sXfImg == sXfClicImg);
+					if ((hit.Clicked(kXf[i].key) || clicEcrit) && !xfGrises)
 						st.tool = kXf[i].tool;
+					if (clicEcrit && sXfProbe) {
+						std::printf("[nk3d] OUTILS-TRANSFORM clic ecrit bouton=%d mode=%d grises=%d -> outil=%d\n",
+									(int)i, (int)st.mode, xfGrises ? 1 : 0, (int)st.tool);
+						std::fflush(stdout);
+					}
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kXf[i].ic,
-							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+							xfGrises ? NkRole::TextMuted : (on ? NkRole::TextOnAccent : NkRole::Text), 14.f);
 					cx += btn + 2.f;
 				}
 			}
