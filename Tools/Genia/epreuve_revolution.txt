@@ -1,0 +1,11 @@
+# JEU D'EPREUVE « objets de revolution » (Q7)
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# ⚠️ ECRIT LE 21/09 A 15 H, AVANT le gabarit de revolution et avant toute course.
+# Le gabarit sera une BOUTEILLE : aucun des trois objets ci-dessous n'en est une.
+# Memes criteres C1..C5 ; une revolution est UNE partie, d'ou min_parties = 1.
+# Le CREUX ne se juge pas sur des boites : il se voit a l'image (vue 3/4).
+# FORMAT : <cle> | <famille> | <demande> | min_parties | H min-max | L min-max | l min-max
+
+verre      | revolution | modelise moi un verre de table | 1 | 0.07-0.25 | 0.05-0.12 | 0.05-0.12
+vase       | revolution | un vase a fleurs               | 1 | 0.15-0.80 | 0.08-0.50 | 0.08-0.50
+bol        | revolution | un bol                         | 1 | 0.04-0.15 | 0.10-0.30 | 0.10-0.30
