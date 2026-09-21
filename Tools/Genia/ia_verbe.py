@@ -18,6 +18,7 @@
 # CE QU'IL FAIT : lit l'invite, la soumet au service local, ecrit la reponse.
 #   argv[3]       budget de jetons de la reponse (defaut 64 : une ligne)
 #   argv[4]       modele, s'il est donne (prime sur NK_IA_MODELE)
+#   argv[5]       une image jointe (modele de vision), facultative
 #   NK_IA_MODELE  (defaut qwen2.5:7b-instruct)
 #   NK_IA_URL     (defaut http://127.0.0.1:11434)
 #   NK_IA_TIMEOUT (defaut 120 s)
@@ -112,6 +113,16 @@ def main() -> int:
         "options": {"temperature": 0, "num_predict": jetons,
                     "num_ctx": int(os.environ.get("NK_IA_CTX", "8192" if jetons > 64 else "4096"))},
     }
+    # UNE IMAGE, EN CINQUIEME ARGUMENT (21/09, Q7) : l'image jointe par
+    # l'utilisateur part a un modele de VISION local (moondream). Rien d'autre ne
+    # change : meme service, meme contrat de sortie.
+    if len(sys.argv) > 5 and sys.argv[5].strip():
+        import base64
+        try:
+            with open(sys.argv[5].strip(), "rb") as fi:
+                charge["images"] = [base64.b64encode(fi.read()).decode("ascii")]
+        except OSError as e:
+            return refuser(chemin_sortie, "image jointe illisible : %s" % e, 3)
     donnees = json.dumps(charge).encode("utf-8")
     req = urllib.request.Request(
         base.rstrip("/") + "/api/generate",
