@@ -1,0 +1,10 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene maison
+partie murs forme cube largeur 6.00 hauteur 2.80 profondeur 5.00 matiere platre
+partie toit forme cube largeur 3.90 hauteur 3.90 profondeur 5.40 rotation 0 0 45 pose_sur murs decale 0 -2.76 0 matiere tuile
+partie porte forme cube largeur 1.00 hauteur 2.10 profondeur 0.08 devant murs decale 0 -0.35 0 matiere bois_sombre
+partie fenetre_gauche forme cube largeur 1.00 hauteur 1.00 profondeur 0.06 devant murs decale -1.90 0.20 0 matiere verre
+partie fenetre_droite forme cube largeur 1.00 hauteur 1.00 profondeur 0.06 devant murs decale 1.90 0.20 0 matiere verre
+partie cheminee forme cube largeur 0.50 hauteur 1.20 profondeur 0.50 pose_sur murs decale 1.60 0 -1.20 matiere brique
