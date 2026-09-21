@@ -4523,6 +4523,14 @@ int nkmain(const NkEntryState &entry) {
 				//    rectangles deviennent lisibles sans avoir peint la donnee.
 				//    Les compteurs (`v=`, `f=`) et l'etat de mesure viennent de la table
 				//    annexe du modeleur : ils n'appartiennent pas au fil commun.
+				// ⚠️ `type=` PORTE UN NOM, PLUS UN NUMERO, ET C EST UN CORRECTIF.
+				//    Il imprimait l enumeration du MODELEUR (Operation = 1) ; la migration
+				//    du fil lui a fait porter celle du KIT (Outil = 2). Le champ a garde
+				//    son NOM et change de VOCABULAIRE -- deux sondes le lisaient, et elles
+				//    cherchaient toujours `type=1`. Elles n ont rien trouve et ont rendu
+				//    CINQ rouges qui n etaient pas des defauts du produit.
+				//    *Un indice n est pas un nom* : un numero peut changer de sens sans que
+				//    rien ne le dise ; un nom, non.
 				for (uint32 i = 0; i < st.aiFil.Taille(); ++i) {
 					const editorkit::NkAiBlocDonnees &bl = st.aiFil.At(i);
 					editorkit::NkAiRectPublie rl, ru;
@@ -4532,14 +4540,16 @@ int nkmain(const NkEntryState &entry) {
 					const NkModelerState::AiMesure *me = nullptr;
 					for (int32 k = 0; k < NkModelerState::kAiMesures; ++k)
 						if (st.aiMesures[k].id == bl.id) { me = &st.aiMesures[k]; break; }
-					std::printf("[nk3d] AI BLOC %u type=%d replie=%d mesure=%d"
+					std::printf("[nk3d] AI BLOC %u type=%s replie=%d mesure=%d"
 						   " ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
 						   " v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
-						   (unsigned)bl.id, (int)bl.type, (int)(bl.replie ? 1 : 0),
+						   (unsigned)bl.id, editorkit::NkAiBlocNom(bl.type), (int)(bl.replie ? 1 : 0),
 						   me ? (int)me->etat : 0,
-						   aL ? (double)rl.x : 0.0, aL ? (double)rl.y : 0.0,
+						   aL ? (double)(rl.x + st.aiPlanOrigine[0]) : 0.0,
+						   aL ? (double)(rl.y + st.aiPlanOrigine[1]) : 0.0,
 						   aL ? (double)rl.w : 0.0, aL ? (double)rl.h : 0.0,
-						   aU ? (double)ru.x : 0.0, aU ? (double)ru.y : 0.0,
+						   aU ? (double)(ru.x + st.aiPlanOrigine[0]) : 0.0,
+						   aU ? (double)(ru.y + st.aiPlanOrigine[1]) : 0.0,
 						   aU ? (double)ru.w : 0.0, aU ? (double)ru.h : 0.0,
 						   me ? me->vA : 0, me ? me->vB : 0, me ? me->fA : 0, me ? me->fB : 0,
 						   bl.titre.Length() ? bl.titre.CStr() : bl.texte.CStr(),

@@ -1100,6 +1100,14 @@ namespace nkentseu {
 				///    (`b.rl[0] = filR.x` au milieu de la boucle de dessin) : desormais le
 				///    peintre publie et ne mute rien.
 				editorkit::NkAiPlan aiPlan;
+				/// L ORIGINE A LAQUELLE LE PLAN A ETE PEINT, a l ecran.
+				/// ⚠️ LE PLAN EST RELATIF AU PANNEAU, PAS A L ECRAN. La trace
+				///    `AI BLOC` publiait autrefois des rectangles ECRAN, ecrits par le
+				///    peintre ; depuis la migration elle publiait ceux du plan, qui sont
+				///    relatifs. Deux sondes CLIQUENT a ces coordonnees : elles visaient le
+				///    coin de la fenetre. Un contrat qui garde son nom et change de repere
+				///    ne se signale pas -- il fait rater les clics en silence.
+				float32 aiPlanOrigine[2] = {0.f, 0.f};
 
 				// ── L HISTORIQUE DES CONVERSATIONS (20/09) ────────────────
 				// ⚠️ IL EXISTE PARCE QU UN BOUTON MORT LE PROMETTAIT DEJA. `ai.hist`
