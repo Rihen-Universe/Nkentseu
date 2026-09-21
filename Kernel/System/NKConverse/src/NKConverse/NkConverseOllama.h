@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkConverseOllama.h
 // @Brief   LE DORSAL OLLAMA -- un service HTTP local qui tient le modele.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -93,10 +94,35 @@ namespace nkentseu::converse {
 			///    comportement d'usage). A 0, la generation devient reproductible et
 			///    deux invites peuvent enfin se comparer -- c'est le reglage de BANC.
 			float32 temperature = -1.f;
+			/// LE BUDGET DE REPONSE (`options.num_predict`), pose par l'EFFORT du panneau
+			/// IA (21/09). -1 = aucun plafond ecrit : le service garde le sien.
+			nkentseu::int32 numPredict = -1;
+			/// LE RAISONNEMENT A VOIX HAUTE (`think`, champ racine d'Ollama) : -1 = non
+			/// ecrit, 0 = false, 1 = true. ⚠️ N'a de sens que pour un modele dont
+			/// /api/show annonce la capacite « thinking » : le panneau GRISE
+			/// l'interrupteur pour les autres, il ne l'ecrit pas en silence.
+			nkentseu::int32 penser = -1;
 			/// Publies pour que l'appelant puisse les IMPRIMER : un temps de
 			/// reponse sans sa condition ne vaut rien.
 			mutable nkentseu::uint32 dernierCode = 0u;
 			nkentseu::uint64 dernierMs = 0u;
+			/// LE CORPS EXACT DE LA DERNIERE REQUETE (21/09, Q5). C'est lui que la
+			/// preuve compare : « meme demande, deux reglages, deux requetes
+			/// differentes » se mesure sur les octets envoyes, pas sur l'etat du
+			/// panneau.
+			NkString dernierCorps;
+			/// Ce que le service a MESURE du dernier tour (champs de /api/generate) :
+			/// la fenetre « Utilisation » les montre, rien n'est estime.
+			nkentseu::uint64 derniersJetons = 0u; ///< eval_count
+			nkentseu::uint64 derniereGenNs = 0u;  ///< eval_duration
+			nkentseu::uint64 dernierChargeNs = 0u; ///< load_duration (0 = deja en memoire)
+			/// Le raisonnement rendu a part quand `think` est vrai (champ `thinking`).
+			NkString dernierRaisonnement;
+
+			/// Le corps que `Complete` enverrait pour cette invite -- la MEME fonction.
+			void CorpsPour(const NkString &invite, NkString &out) const {
+				BatirCorps(invite, out);
+			}
 
 			bool Complete(const NkConverseRequest &req, NkConverseReply &out) override {
 				out.success = false;
@@ -104,6 +130,8 @@ namespace nkentseu::converse {
 				out.error = NkString("");
 				dernierCode = 0u;
 				dernierMs = 0u;
+				derniersJetons = derniereGenNs = dernierChargeNs = 0u;
+				dernierRaisonnement = NkString();
 				if (modele.Length() == 0) {
 					out.error = NkString("REFUS : aucun modele nomme (le modele est un reglage, pas un defaut)");
 					return false;
@@ -118,6 +146,7 @@ namespace nkentseu::converse {
 
 				NkString corps;
 				BatirCorps(full, corps);
+				dernierCorps = corps;
 
 				nkentseu::net::NkHTTPClient http;
 				nkentseu::net::NkHTTPClient::Config cfg;
@@ -225,6 +254,12 @@ namespace nkentseu::converse {
 					return false;
 				}
 
+				// LES MESURES DU SERVICE, et le raisonnement s'il a ete demande
+				derniersJetons = NombreJson(r.body, "eval_count");
+				derniereGenNs = NombreJson(r.body, "eval_duration");
+				dernierChargeNs = NombreJson(r.body, "load_duration");
+				if (penser == 1)
+					(void)ExtraireChamp(r.body, "thinking", dernierRaisonnement);
 				// (3) UNE REPONSE VIDE N'EST PAS UN SUCCES. Le depot a deja nomme
 				//     cette faute plus haut dans la chaine : « un modele qui repond
 				//     "Bien sur ! Voici :" sans liste rendrait une reponse non vide
@@ -260,6 +295,18 @@ namespace nkentseu::converse {
 			}
 
 		private:
+			static nkentseu::uint64 NombreJson(const NkString &j, const char *cle) {
+				NkString motif("\"");
+				motif.Append(cle);
+				motif.Append("\":");
+				const NkString::SizeType i = j.Find(motif.Data(), 0);
+				if (i == NkString::npos)
+					return 0u;
+				nkentseu::uint64 v = 0u;
+				for (NkString::SizeType k = i + motif.Length(); k < j.Length() && j[k] >= '0' && j[k] <= '9'; ++k)
+					v = v * 10u + (nkentseu::uint64)(j[k] - '0');
+				return v;
+			}
 			/// Le corps JSON. `stream=false` : UNE reponse, pas un flux -- le
 			/// contrat de `NkIConverseBackend` est « une invite, une reponse ».
 			void BatirCorps(const NkString &invite, NkString &out) const {
@@ -268,9 +315,20 @@ namespace nkentseu::converse {
 				out.Append("\",\"prompt\":\"");
 				Echapper(invite, out);
 				out.Append("\",\"stream\":false");
-				if (temperature >= 0.f) {
-					char t[64];
-					snprintf(t, sizeof(t), ",\"options\":{\"temperature\":%.3f}", (double)temperature);
+				// LES PROPRIETES DU PANNEAU AGISSENT ICI, et nulle part ailleurs : le
+				// corps est la seule chose que le service lit. Une propriete affichee
+				// qui ne changerait pas ces octets serait pire qu'absente.
+				if (penser >= 0)
+					out.Append(penser ? ",\"think\":true" : ",\"think\":false");
+				if (temperature >= 0.f || numPredict > 0) {
+					char t[96];
+					if (temperature >= 0.f && numPredict > 0)
+						snprintf(t, sizeof(t), ",\"options\":{\"temperature\":%.3f,\"num_predict\":%d}",
+								 (double)temperature, (int)numPredict);
+					else if (temperature >= 0.f)
+						snprintf(t, sizeof(t), ",\"options\":{\"temperature\":%.3f}", (double)temperature);
+					else
+						snprintf(t, sizeof(t), ",\"options\":{\"num_predict\":%d}", (int)numPredict);
 					out.Append(t);
 				}
 				out.Append("}");

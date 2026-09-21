@@ -53,6 +53,11 @@ namespace nkentseu {
 				const char *const *menuDetail = nullptr;
 				uint32 menuN = 0;
 				const NkAiActionsFil *actions = nullptr;
+				const char *const *menuDroite = nullptr; ///< le texte a droite de chaque ligne de menu
+				const char *filtre = nullptr;			 ///< le filtre du menu « / »
+				const char *filtreInvite = nullptr;		 ///< son invite quand il est vide
+				const char *const *fenetreTextes = nullptr; ///< 2 par ligne : libelle, valeur
+				uint32 fenetreN = 0;
 				/// ⚠️ ANCIEN NOM, garde pour les appelants du 20/09 : le texte du
 				///    composeur. `saisie` le remplace.
 				const char *composeur = nullptr;
@@ -122,6 +127,32 @@ namespace nkentseu {
 								return src[0] != 0;
 							}
 							return false;
+						case NkAiSource::MenuDroite:
+							src = (c.menuDroite && r.debut < c.menuN) ? c.menuDroite[r.debut] : nullptr;
+							if (src) {
+								debut = src;
+								fin = nullptr;
+								return src[0] != 0;
+							}
+							return false;
+						case NkAiSource::Filtre:
+							src = (c.filtre && c.filtre[0]) ? c.filtre : c.filtreInvite;
+							if (src) {
+								debut = src;
+								fin = nullptr;
+								return src[0] != 0;
+							}
+							return false;
+						case NkAiSource::FenetreTexte: {
+							const uint32 k = r.debut * 2u + (r.longueur ? 1u : 0u);
+							src = (c.fenetreTextes && r.debut < c.fenetreN) ? c.fenetreTextes[k] : nullptr;
+							if (src) {
+								debut = src;
+								fin = nullptr;
+								return src[0] != 0;
+							}
+							return false;
+						}
 						case NkAiSource::Action:
 							src = (c.actions && r.debut < 2u) ? c.actions->libelle[r.debut] : nullptr;
 							if (src) {
@@ -396,11 +427,12 @@ namespace nkentseu {
 						break;
 					case NkAiPiece::Envoi: {
 						const bool arret = (r.drapeaux & kAiArret) != 0u;
-						if (eteint)
-							p.Fill(rect, (uint16)NkRole::ButtonBg, 5.f);
-						else
-							p.Fill(rect, role, 5.f);
-						const uint16 fl = eteint ? (uint16)NkRole::TextMuted : (uint16)NkRole::TextOnAccent;
+						// ORANGE ET PLEIN, comme la capture, meme quand le champ est vide
+						// (coordinateur, 21/09) : l'envoi d'un champ vide ne part pas, et
+						// c'est l'invite du composeur qui le dit -- pas un bouton gris.
+						p.Fill(rect, role, 5.f);
+						const uint16 fl = (uint16)NkRole::TextOnAccent;
+						(void)eteint;
 						const float32 cx = rect.x + rect.w * 0.5f, cy = rect.y + rect.h * 0.5f;
 						if (arret) {
 							const float32 s = rect.w * 0.30f;
@@ -414,11 +446,64 @@ namespace nkentseu {
 						break;
 					}
 					case NkAiPiece::MenuLigne:
-						if (survol)
+						if ((r.drapeaux & kAiSection) != 0u)
+							break; // un titre de section : ni survol, ni coche
+						if (survol && !eteint)
 							p.Fill(rect, (uint16)NkRole::ButtonBg, aipaint::Arrondi(r.piece));
 						if ((r.drapeaux & kAiActif) != 0u)
-							aipaint::Coche(p, rect, (uint16)NkRole::AccentUi);
+							aipaint::Coche(p, rect, (uint16)NkRole::TextMuted); // grise, comme 065128
 						break;
+					case NkAiPiece::Interrupteur: {
+						// La gelule de la capture : pleine (accent) allumee, bordure eteinte.
+						const bool on = (r.drapeaux & kAiActif) != 0u;
+						p.Fill(rect, eteint ? (uint16)NkRole::Border : (on ? (uint16)NkRole::AccentUi : (uint16)NkRole::Border),
+							   rect.h * 0.5f);
+						const float32 d = rect.h - 4.f;
+						p.Ellipse({on ? rect.x + rect.w - d - 2.f : rect.x + 2.f, rect.y + 2.f, d, d},
+								  eteint ? (uint16)NkRole::TextMuted : (uint16)NkRole::TextOnAccent);
+						break;
+					}
+					case NkAiPiece::Curseur: {
+						// Les crans de l'EFFORT : une piste, la part remplie jusqu'au cran
+						// courant, un point par cran, la poignee sur le courant.
+						// La gelule compacte de la capture (065041) : piste, part remplie
+						// jusqu'a la poignee, un point par cran restant.
+						const uint32 crans = r.longueur > 1u ? r.longueur : 2u;
+						const uint32 cran = r.debut < crans ? r.debut : crans - 1u;
+						p.Fill(rect, (uint16)NkRole::Border, rect.h * 0.5f);
+						const float32 pas = (rect.w - rect.h) / (float32)(crans - 1u);
+						const float32 cx = rect.x + rect.h * 0.5f + pas * (float32)cran;
+						if (!eteint)
+							p.Fill({rect.x, rect.y, cx - rect.x + rect.h * 0.5f, rect.h}, (uint16)NkRole::AccentUi,
+								   rect.h * 0.5f);
+						for (uint32 k = cran + 1u; k < crans; ++k) {
+							const float32 x = rect.x + rect.h * 0.5f + pas * (float32)k;
+							p.Ellipse({x - 1.5f, rect.y + rect.h * 0.5f - 1.5f, 3.f, 3.f}, (uint16)NkRole::TextMuted);
+						}
+						const float32 d = rect.h - 4.f;
+						p.Ellipse({cx - d * 0.5f, rect.y + 2.f, d, d},
+								  eteint ? (uint16)NkRole::TextMuted : (uint16)NkRole::Text);
+						break;
+					}
+					case NkAiPiece::MenuFiltre:
+						p.Outline(rect, (uint16)NkRole::Border, (uint16)NkRole::InputBg, 4.f);
+						break;
+					case NkAiPiece::Fenetre:
+						p.Outline(rect, (uint16)NkRole::Border, (uint16)NkRole::PanelBg, 8.f);
+						break;
+					case NkAiPiece::FenetreFermer: {
+						const uint16 c = survol ? (uint16)NkRole::Text : (uint16)NkRole::TextMuted;
+						(void)p.Line(rect.x + 3.f, rect.y + 3.f, rect.x + rect.w - 3.f, rect.y + rect.h - 3.f, c, 1.4f);
+						(void)p.Line(rect.x + rect.w - 3.f, rect.y + 3.f, rect.x + 3.f, rect.y + rect.h - 3.f, c, 1.4f);
+						break;
+					}
+					case NkAiPiece::Barre: {
+						p.Fill(rect, (uint16)NkRole::Border, rect.h * 0.5f);
+						const float32 part = (float32)(r.longueur > 1000u ? 1000u : r.longueur) / 1000.f;
+						if (part > 0.f)
+							p.Fill({rect.x, rect.y, rect.w * part, rect.h}, role, rect.h * 0.5f);
+						break;
+					}
 					case NkAiPiece::Action:
 						p.Outline(rect, (uint16)NkRole::Border, survol && !eteint ? (uint16)NkRole::ButtonBg
 																				 : (uint16)NkRole::PanelBg,
@@ -447,7 +532,9 @@ namespace nkentseu {
 							break;
 						// LES LIGNES DE MENU SONT ROGNEES a leur rectangle : leur texte vient
 						// entier de l'hote (un motif peut etre long), le plan lui a donne sa place.
-						if (r.source == NkAiSource::MenuTexte || r.source == NkAiSource::MenuDetail) {
+						if (r.source == NkAiSource::MenuTexte || r.source == NkAiSource::MenuDetail ||
+							r.source == NkAiSource::MenuDroite || r.source == NkAiSource::Filtre ||
+							r.source == NkAiSource::FenetreTexte) {
 							p.PushClip(rect);
 							p.TextePolice(rect, a, b, role, (uint8)r.police);
 							p.PopClip();

@@ -263,6 +263,8 @@ static nkentseu::NkChrono gMesureHorloge;
 
 /// Le panneau IA, pour que le banc puisse le piloter. Pose au montage.
 static nkuidesign::AIPanel *gPanneauIA = nullptr;
+/// (Q6) Le fichier de l'etat d'interface (largeur du panneau de droite...).
+static char gCheminEtatUi[260] = {0};
 /// (R19) La toile, pour que la sonde des portes ouvre ses menus du clic droit.
 static nkuidesign::PreviewPanel *gPanneauToile = nullptr;
 
@@ -272,7 +274,7 @@ static nkuidesign::PreviewPanel *gPanneauToile = nullptr;
 /// surcouches posees), rasterisee sans GPU, decoupee au rectangle que le panneau
 /// a PUBLIE. Jamais une capture de l'ecran. `<chemin>.png` = le panneau,
 /// `<chemin>_fenetre.png` = la fenetre entiere.
-static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W, nkentseu::int32 H, void *) {
+static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W, nkentseu::int32 H, void *user) {
 	using namespace nkentseu;
 	static int32 sCible = -2;
 	static int32 sApres = 0;
@@ -323,6 +325,10 @@ static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W,
 		   (double)r.x, (double)r.y, (double)r.w, (double)r.h, gPanneauIA ? (unsigned)gPanneauIA->ImagesPeintes() : 0u,
 		   r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
 	fflush(stdout);
+	// NK_AI_QUITTER : la photo prise, la sonde se ferme d'elle-meme (Q5) -- une
+	// reponse locale peut prendre une minute, un `--capture-frame` fixe non.
+	if (std::getenv("NK_AI_QUITTER") && user)
+		static_cast<NkEditorShell *>(user)->RequestClose();
 }
 
 /// LE TICK DU BANC. Il vit dans le meme crochet par image que la capture -- la
@@ -8344,6 +8350,9 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	//    *Une tache de fond ne se recolte pas dans le dessin de ce qui l'affiche.*
 	gDesign.RecolterIA();
 	++gImagesReelles; // UNE fois par image : la seule cadence de reference
+	// (Q7) LES PASTILLES LIEES A LA SELECTION se retirent sans selection.
+	if (gShell)
+		gShell->SetRailSelection(gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0);
 	if (gSauverImage >= 0 && gImagesReelles == gSauverImage)
 		SauverEtRelire(); // (R20)
 	if (gDispoImage >= 0 && gImagesReelles == gDispoImage) {
@@ -9972,6 +9981,13 @@ int nkmain(const NkEntryState &state) {
 	bibliotheque.SetOpen(false); // vit dans le TIROIR du rail droit (ecran 9)
 	static nkuidesign::PalettePanel palette(&gDesign);
 	palette.SetOpen(false);
+	// (Q7) ILS VIVENT DANS LE PANNEAU DE DROITE : fermes au dock, le tiroir les
+	// dessine (un panneau ouvert ET vise par une pastille serait dessine deux fois).
+	inspecteur.SetOpen(false);
+	variables.SetOpen(false);
+	stylesRail.SetOpen(false);
+	ambiances.SetOpen(false);
+	greffons.SetOpen(false);
 	if (gToileSeule) {
 		// La toile seule : les deux panneaux fixes se FERMENT (ils restent
 		// enregistres — Affichage les rouvre), les rails ne seront pas poses.
@@ -10028,7 +10044,7 @@ int nkmain(const NkEntryState &state) {
 	shell->SetOverlay(&EcrireReleveUI, nullptr);
 	// NK_AI_IMAGE : apres l'image complete, avant sa soumission (21/09).
 	if (std::getenv("NK_AI_IMAGE"))
-		shell->SetApresImage(&ImagePanneauIA, nullptr);
+		shell->SetApresImage(&ImagePanneauIA, shell.Get());
 
 	// ── LE THEME : UNE SEULE AUTORITE, POUSSEE VERS LE DESSIN ────────────
 	// ⚠️ SANS CET APPEL, LA MOITIE DE LA FENETRE NE SUIVRAIT PAS. La
@@ -10222,11 +10238,16 @@ int nkmain(const NkEntryState &state) {
 		//    `NkEditorPanel("Aperçu", NK_CENTER)` (Panels.h). Le titre EST la cle --
 		//    l'avertissement etait deja ecrit vingt lignes plus haut, et il a quand
 		//    meme ete paye deux fois (« Hierarchie » contre « Hiérarchie », puis ici).
-		{"Aperçu", "Aperçu / Test — exécuter l'interface dessinée", "T",
-		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool, bool, void *) {
-			 nkuidesign::costume::IcOeilVague(ui.dl, r.x + (r.w - 14.f) * 0.5f,
-											  r.y + (r.h - 14.f) * 0.5f, ui.theme.textMuted);
-		 }},
+		// (Q7, 21/09) « Aperçu » QUITTE LE RAIL DROIT : c'est la toile CENTRALE, et
+		//    son tiroir ne pouvait qu'ecrire « deja ancre ». Le rail bas garde sa
+		//    pilule. A sa place, les panneaux qui etaient ANCRES a droite ou a
+		//    gauche : Rodolf veut UN panneau de droite dont le contenu change selon
+		//    la pastille, comme NK3DModeler.
+		{"Inspecteur", "Inspecteur — propriétés de l'élément sélectionné", "I", nullptr},
+		{"Styles", "Styles — remplissages et typographies", "S", nullptr},
+		{"Variables", "Variables — couleurs et nombres nommés", "V", nullptr},
+		{"Ambiances", "Ambiances — les jeux de variables", "A", nullptr},
+		{"Greffons", "Greffons — extensions", "G", nullptr},
 	};
 	static NkEditorShell::NkEditorRailItem kRailBas[] = {
 		{"Console", "Console / Validation", "C",
@@ -10269,11 +10290,46 @@ int nkmain(const NkEntryState &state) {
 			gTiroirIA = i;
 			break;
 		}
-	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite, gToileSeule ? 0 : 3);
+	// (Q6/Q7) LE PANNEAU IA PORTE SON EN-TETE ; L'INSPECTEUR NE VAUT QUE POUR UNE
+	//    SELECTION ; LE TIROIR DROIT EST ANCRE (il prend sa place, comme le panneau
+	//    de droite du modeleur, au lieu de passer sur la toile).
+	for (int32 i = 0; i < (int32)(sizeof(kRailDroite) / sizeof(kRailDroite[0])); ++i) {
+		if (NkComponentDecl::StrEq(kRailDroite[i].panel, "IA"))
+			kRailDroite[i].titrePropre = true;
+		if (NkComponentDecl::StrEq(kRailDroite[i].panel, "Inspecteur"))
+			kRailDroite[i].lieALaSelection = true;
+	}
+	shell->SetRail(NkEditorDockSide::NK_RIGHT, kRailDroite,
+				   gToileSeule ? 0 : (int32)(sizeof(kRailDroite) / sizeof(kRailDroite[0])));
+	shell->SetRailAncre(NkEditorDockSide::NK_RIGHT, true);
 	shell->SetRail(NkEditorDockSide::NK_BOTTOM, kRailBas, gToileSeule ? 0 : 2);
 	// Le crochet du chemin REPARE : il passe par la resolution par le nom.
 	if (gTiroirParLeNom)
 		OuvrirTiroirIA();
+	// (Q7) PAR DEFAUT le panneau de droite est OUVERT sur l'Inspecteur -- c'etait
+	// le panneau ancre a droite ; sa place ne change pas, seul son hote change.
+	if (!gToileSeule && !gTiroirParLeNom && gTiroirCote != 'd')
+		for (int32 i = 0; i < (int32)(sizeof(kRailDroite) / sizeof(kRailDroite[0])); ++i)
+			if (NkComponentDecl::StrEq(kRailDroite[i].panel, "Inspecteur"))
+				shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, i);
+	// (Q6) LA LARGEUR DU PANNEAU DE DROITE EST MEMORISEE par la persistance
+	// existante de la coquille (`LoadUiState` / `SaveUiState`, ligne `tiroir=`).
+	// `NK_UI_ETAT` designe un autre fichier : une sonde ne touche pas l'etat de
+	// Rodolf.
+	{
+		const char *etat = std::getenv("NK_UI_ETAT");
+		// ⚠️ UNE FENETRE DE SONDE SANS `NK_UI_ETAT` NE LIT NI N'ECRIT RIEN : elle
+		//    ecrirait sa largeur de banc dans le fichier de Rodolf.
+		if ((etat && *etat) || !gTitreSonde)
+			snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", (etat && *etat) ? etat : "logs/nkuidesign_ui.cfg");
+		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
+		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
+		shell->SetUiStateGeometrie(false);
+		if (gCheminEtatUi[0])
+			shell->LoadUiState(gCheminEtatUi);
+		printf("[NKUIDesign] ETAT UI relu de %s : panneau de droite %.0f px\n", gCheminEtatUi,
+			   (double)shell->RailLargeur(NkEditorDockSide::NK_RIGHT));
+	}
 	if (gTiroirCote == 'd')
 		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
 	else if (gTiroirCote == 'g')
@@ -10370,6 +10426,12 @@ int nkmain(const NkEntryState &state) {
 	if (gSondePortes[0] && !shell->RegisterCommand("Sonde : rien", +[](void *) { ++gSondeRienExecutee; }, nullptr, nullptr))
 		printf("[sonde-portes] la commande sans effet n'a PAS pu etre enregistree\n");
 	const int codeShell = shell->Run();
+	// (Q6) LA LARGEUR SURVIT AU RELANCEMENT : ecrite par la persistance existante.
+	if (gCheminEtatUi[0] && !gToileSeule) {
+		shell->SaveUiState(gCheminEtatUi);
+		printf("[NKUIDesign] ETAT UI ecrit dans %s : panneau de droite %.0f px\n", gCheminEtatUi,
+			   (double)shell->RailLargeur(NkEditorDockSide::NK_RIGHT));
+	}
 
 	// ── Verdict du mode --capture : le FICHIER, pas un drapeau ────────────────
 	// Le tick a pu armer, le backend a pu accepter — seul le fichier écrit
