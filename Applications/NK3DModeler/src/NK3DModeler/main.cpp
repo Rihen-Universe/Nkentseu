@@ -4942,8 +4942,11 @@ int nkmain(const NkEntryState &entry) {
 			// Le generateur est un PROCESSUS EXTERNE derriere NkIGenerateur ; le
 			// glTF qu'il ecrit passe par LA MEME chaine que l'import (ci-dessus).
 			// Aucune logique de generation ici : on enchaine, c'est tout.
+			// (21/09, Q6) HORS DU FIL D'AFFICHAGE : la generation part dans un fil
+			// (NkGeniaLancer, NkModelerCreation.h) et l'import se fait a la
+			// recolte. L'appel synchrone figeait la fenetre 40 a 84 s.
 			if (st.pickerAction == 3 && st.picker.pickerResultPath[0])
-				(void)nk3d::NkGeniaImporterImage(st, st.picker.pickerResultPath);
+				(void)nk3d::NkGeniaLancer(st, false, st.picker.pickerResultPath, "image");
 			st.pickerAction = 0;
 			st.matNewPending = false;
 			// Le mode « nouveau materiau » du selecteur se desarme TOUT SEUL,

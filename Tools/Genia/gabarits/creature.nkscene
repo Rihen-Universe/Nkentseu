@@ -1,0 +1,13 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene creature
+partie corps forme capsule largeur 0.60 hauteur 1.20 profondeur 0.60 rotation 0 0 90 matiere cuir
+partie patte_avant_gauche forme capsule largeur 0.14 hauteur 0.50 profondeur 0.14 pose_sous corps decale 0.40 0.10 0.20 matiere cuir
+partie patte_avant_droite forme capsule largeur 0.14 hauteur 0.50 profondeur 0.14 pose_sous corps decale 0.40 0.10 -0.20 matiere cuir
+partie patte_arriere_gauche forme capsule largeur 0.14 hauteur 0.50 profondeur 0.14 pose_sous corps decale -0.40 0.10 0.20 matiere cuir
+partie patte_arriere_droite forme capsule largeur 0.14 hauteur 0.50 profondeur 0.14 pose_sous corps decale -0.40 0.10 -0.20 matiere cuir
+partie tete forme sphere largeur 0.42 hauteur 0.40 profondeur 0.40 a_droite_de corps decale -0.05 0.25 0 matiere cuir
+partie oreille_gauche forme cone largeur 0.10 hauteur 0.16 profondeur 0.06 pose_sur tete decale 0 -0.03 0.10 matiere cuir
+partie oreille_droite forme cone largeur 0.10 hauteur 0.16 profondeur 0.06 pose_sur tete decale 0 -0.03 -0.10 matiere cuir
+partie queue forme capsule largeur 0.08 hauteur 0.50 profondeur 0.08 rotation 0 0 60 a_gauche_de corps decale 0.05 0.15 0 matiere cuir
