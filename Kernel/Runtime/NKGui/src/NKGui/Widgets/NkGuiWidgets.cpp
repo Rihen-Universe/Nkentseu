@@ -5344,13 +5344,19 @@ namespace nkentseu {
 			if (r.y < 0.f)
 				r.y = 0.f;
 
-			// OVERLAY direct + clip plein écran (jamais rogné, bordure complète).
-			ctx.dlOverlay.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
-			ctx.dlOverlay.AddRectFilled(r, NkColor{24, 26, 32, 245}, ctx.theme.rounding);
-			ctx.dlOverlay.AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
-			ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + padX, CenteredBaseline(ctx, r)}, text,
-								  ctx.theme.text);
-			ctx.dlOverlay.PopClipRect();
+			// (21/09, Q8) L'INFOBULLE EST PEINTE EN DERNIER, PAS ICI. Peinte a
+			// l'appel, dans l'overlay, elle passait SOUS tout ce qui s'y peignait
+			// ensuite -- le tiroir du rail droit recouvrait l'infobulle de sa propre
+			// pastille (Rodolf : « les infobulles doivent toujours etre au premier
+			// plan »). Elle est retenue, et `EndFrame` la pose au sommet.
+			ctx.tooltipPose = true;
+			ctx.tooltipRect = r;
+			ctx.tooltipBase = CenteredBaseline(ctx, r);
+			ctx.tooltipPadX = padX;
+			int32 n = 0;
+			for (; text[n] && n + 1 < (int32)sizeof(ctx.tooltipTexte); ++n)
+				ctx.tooltipTexte[n] = text[n];
+			ctx.tooltipTexte[n] = 0;
 		}
 
 	} // namespace nkgui
