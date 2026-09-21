@@ -105,7 +105,12 @@ def main() -> int:
         "stream": False,
         # num_predict borne la reponse : on attend UNE ligne. Sans borne, un
         # modele bavard fait payer des secondes pour du texte qu'on jette.
-        "options": {"temperature": 0, "num_predict": jetons},
+        # LE CONTEXTE (21/09, Q6) : avec la bibliotheque de gabarits, l'invite
+        # de creation depasse 4 096 jetons, le defaut d'Ollama -- tronquee EN
+        # SILENCE par le debut, elle perdait ses regles. 8 192 des qu'on attend
+        # un document ; NK_IA_CTX le remplace. Cout : de la memoire video en plus.
+        "options": {"temperature": 0, "num_predict": jetons,
+                    "num_ctx": int(os.environ.get("NK_IA_CTX", "8192" if jetons > 64 else "4096"))},
     }
     donnees = json.dumps(charge).encode("utf-8")
     req = urllib.request.Request(

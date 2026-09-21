@@ -1,5 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkGenerateur.h
 // @Brief   GENIA -- L'INTERFACE du generateur : UNE seule question,
 //          « une image -> un chemin glTF ». Rien d'autre ne traverse.
@@ -445,6 +446,23 @@ namespace nkentseu {
 						sGen.gabarit =
 							NkString::Format("\"%s\" \"%s\" --image \"{image}\" --out \"{out}\"",
 											 pyChoisi.CStr(), scChoisi.CStr());
+						// (21/09, Q6) LA PORTE TEXTE SE DEDUIT DE LA MEME FACON, et
+						// seulement si SON script existe : genia_texte_3d.py, a cote de
+						// genia_triposr.py (texte -> image locale -> detourage ->
+						// TripoSR). Ce n'est pas le script d'image recycle -- la faute
+						// que le commentaire plus bas interdit.
+						if (!std::getenv("NK_GENIA_CMD_TEXTE") && !std::getenv("NK_GENIA_SCRIPT_TEXTE")) {
+							NkString st2 = scChoisi;
+							const NkString::SizeType barre = st2.FindLastOf("/\\");
+							if (barre != NkString::npos) {
+								st2 = st2.SubStr(0, barre + 1);
+								st2.Append("genia_texte_3d.py");
+								if (NkFile::Exists(st2.CStr()))
+									sGen.gabaritTexte = NkString::Format(
+										"\"%s\" \"%s\" --invite \"{invite}\" --out \"{out}\"", pyChoisi.CStr(),
+										st2.CStr());
+							}
+						}
 					} else {
 						// ⚠️ ON NE COMPOSE PAS UNE COMMANDE QU'ON SAIT FAUSSE. Mettre
 						//    `python` ici rendrait un echec PLUS LOIN (import torch) dont

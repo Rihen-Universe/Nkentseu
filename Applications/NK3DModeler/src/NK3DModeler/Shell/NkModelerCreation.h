@@ -529,6 +529,25 @@ namespace nkentseu {
 		// =====================================================================
 		//  3. L'INVITE DE CREATION — ecrite depuis les tables, jamais recopiee
 		// =====================================================================
+		/// LES GABARITS PAR FAMILLE (21/09, Q6) : des documents ECRITS A LA MAIN,
+		/// lus sur le disque (Tools/Genia/gabarits/<famille>.nkscene) -- des
+		/// DONNEES, que Rodolf corrige dans un editeur sans recompiler. Le modele
+		/// les ADAPTE au lieu d'inventer la structure.
+		/// ⚠️ ILS SONT TOUS DONNES, pas choisis par mot-cle : un choix par mot-cle
+		///    ne servirait a rien sur un objet sans gabarit (le jeu neuf), et c'est
+		///    justement la qu'il faut savoir s'ils aident.
+		/// `NK_CREA_GABARITS=0` les retire (la MUTATION de la mesure).
+		inline const char *const *NkCreaFamilles(int32 &n) {
+			static const char *const kF[] = {"chaise", "table",	   "tabouret", "etagere",  "lampe",
+											 "maison", "arbre",	   "personnage", "vehicule", "creature"};
+			n = (int32)(sizeof(kF) / sizeof(kF[0]));
+			return kF;
+		}
+		inline bool NkCreaGabaritsActifs() {
+			const char *v = std::getenv("NK_CREA_GABARITS");
+			return !(v && v[0] == '0');
+		}
+
 		inline void NkCreaEcrireInvite(char *dst, uint32 cap, const char *demande) {
 			if (!dst || cap == 0)
 				return;
@@ -595,6 +614,51 @@ namespace nkentseu {
 			//    `decale` -- sans donner la reponse d'un cas mesure. L'exemple de
 			//    l'ancien pont etait une TABLE : la mesurer apres l'avoir montree
 			//    aurait mesure la recopie.
+			if (NkCreaGabaritsActifs()) {
+				int32 nf = 0;
+				const char *const *F = NkCreaFamilles(nf);
+				int32 lus = 0;
+				ajout("BIBLIOTHEQUE DE GABARITS. Ce sont des objets JUSTES, ecrits a la main, en metres.\n");
+				ajout("Si l'objet demande appartient a l'une de ces familles, RECOPIE son gabarit et ADAPTE-le\n");
+				ajout("(tailles, matieres, pieces en plus ou en moins). Sinon, construis l'objet DE LA MEME FACON :\n");
+				ajout("memes relations, memes ordres de grandeur, une partie nommee par piece reelle.\n\n");
+				for (int32 i = 0; i < nf; ++i) {
+					char chemin[160];
+					snprintf(chemin, sizeof(chemin), "Tools/Genia/gabarits/%s.nkscene", F[i]);
+					const NkString t = NkFile::ReadAllText(chemin);
+					if (!t.Data() || !t.Data()[0])
+						continue;
+					char entete[96];
+					snprintf(entete, sizeof(entete), "--- gabarit %s ---\n", F[i]);
+					ajout(entete);
+					// Les commentaires du fichier ne partent pas : ils parlent a Rodolf.
+					const char *c = t.Data();
+					while (*c) {
+						const char *l = c;
+						while (*c && *c != '\n')
+							++c;
+						if (*l != '#' && *l != '\r' && l != c) {
+							char ligne[400];
+							uint32 lg = (uint32)(c - l);
+							if (lg >= sizeof(ligne) - 2)
+								lg = sizeof(ligne) - 2;
+							memcpy(ligne, l, lg);
+							ligne[lg] = '\n';
+							ligne[lg + 1] = 0;
+							if (lg > 0 && ligne[lg - 1] == '\r') {
+								ligne[lg - 1] = '\n';
+								ligne[lg] = 0;
+							}
+							ajout(ligne);
+						}
+						if (*c == '\n')
+							++c;
+					}
+					++lus;
+				}
+				ajout("\n");
+				(void)lus;
+			}
 			ajout("EXEMPLE, pour « un banc de jardin en bois » :\n");
 			ajout("scene banc\n");
 			ajout("partie planche forme cube largeur 1.50 hauteur 0.05 profondeur 0.40 matiere bois\n");
@@ -1126,6 +1190,136 @@ namespace nkentseu {
 			return NkCreaPoser(st, d, doc, dem, b) > 0;
 		}
 
+		/// VOIE (c) : texte -> image (modele de diffusion local) -> detourage ->
+		/// TripoSR, par la PORTE TEXTE du generateur. `NK_CREA_VOIE=image`.
+		inline bool NkCreaVoieImage() {
+			const char *v = std::getenv("NK_CREA_VOIE");
+			return v && strcmp(v, "image") == 0;
+		}
+
+		/// ── LE GENERATEUR, VU COMME UN DORSAL DE CONVERSATION ────────────────
+		/// ⚠️ POURQUOI CE DEGUISEMENT : `NkEnvoiAsync` (NKConverse) sait deja faire
+		///    tourner un appel long HORS du fil d'affichage, le recolter une fois,
+		///    compter les images pendant l'attente, et lacher sa tache sans course.
+		///    Ecrire un second mecanisme de fil pour le generateur serait la dette
+		///    des trois exemplaires. On lui donne donc la forme d'un dorsal :
+		///    `Complete` lance la generation, `rep.text` rend le chemin produit.
+		/// Les chemins sont poses AVANT le lancement et jamais retouches ensuite
+		/// (la regle de NkTacheIA : un seul ecrivain par champ).
+		class NkGeniaDorsal final : public converse::NkIConverseBackend {
+			public:
+				NkIGenerateur *gen = nullptr;
+				bool depuisTexte = false;
+				NkString entree; ///< l'image, ou l'invite
+				NkString sortie; ///< le .glb attendu
+				bool Complete(const converse::NkConverseRequest &, converse::NkConverseReply &out) override {
+					NkString why;
+					const bool ok = gen && (depuisTexte ? gen->GenererDepuisTexte(entree.CStr(), sortie.CStr(), why)
+														: gen->Generer(entree.CStr(), sortie.CStr(), why));
+					out.success = ok;
+					out.text = ok ? sortie : NkString("");
+					out.error = ok ? NkString("") : why;
+					return ok;
+				}
+				bool IsAvailable() const override {
+					return gen != nullptr;
+				}
+				const char *Name() const override {
+					return depuisTexte ? "generateur (texte)" : "generateur (image)";
+				}
+		};
+		struct NkGeniaVol {
+				converse::NkEnvoiAsync envoi;
+				NkGeniaDorsal dorsal;
+				char voie[8] = {0};
+				int32 relances = 0;
+		};
+		inline NkGeniaVol &NkGenia() {
+			static NkGeniaVol s;
+			return s;
+		}
+
+		/// LANCE une generation hors du fil. Rend faux (et le dit) si une autre vole.
+		inline bool NkGeniaLancer(NkModelerState &st, bool depuisTexte, const char *entree, const char *voie) {
+			NkGeniaVol &G = NkGenia();
+			if (G.envoi.EnCours()) {
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus,
+								  "Une generation est deja en cours : attendez qu'elle rende son objet.");
+				return false;
+			}
+			G.dorsal.gen = &NkGeniaGenerateurParDefaut();
+			G.dorsal.depuisTexte = depuisTexte;
+			G.dorsal.entree = NkString(entree);
+			if (depuisTexte) {
+				// Le nom du fichier vient de la demande, pas d'un compteur : on doit
+				// pouvoir le retrouver dans le dossier Genia/ du projet.
+				char nom[80];
+				uint32 n = 0;
+				for (const char *c = entree; *c && n + 1u < 40u; ++c) {
+					const char x = *c;
+					nom[n++] = ((x >= 'a' && x <= 'z') || (x >= '0' && x <= '9')) ? x : '_';
+				}
+				nom[n] = 0;
+				snprintf(nom + n, sizeof(nom) - n, ".png");
+				G.dorsal.sortie = NkGeniaSortiePour(st, nom);
+			} else
+				G.dorsal.sortie = NkGeniaSortiePour(st, entree);
+			snprintf(G.voie, sizeof(G.voie), "%s", voie);
+			{
+				// le dossier Genia/ du projet peut ne pas exister encore
+				char dos[400];
+				snprintf(dos, sizeof(dos), "%s", G.dorsal.sortie.CStr());
+				if (char *b = strrchr(dos, '/'))
+					*b = 0;
+				NkDirectory::CreateRecursive(dos);
+			}
+			NkString pourquoi;
+			if (!G.envoi.Lancer(&G.dorsal, NkString("genia"), pourquoi)) {
+				char m[200];
+				snprintf(m, sizeof(m), "La generation n'a pas pu partir : %s", pourquoi.CStr());
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+				return false;
+			}
+			std::printf("[crea] VOIE (%s) : generation lancee HORS du fil d'affichage -> %s\n", voie,
+						G.dorsal.sortie.CStr());
+			std::fflush(stdout);
+			return true;
+		}
+
+		/// A CHAQUE IMAGE : recolte, puis IMPORT sur le fil d'affichage (l'hote et
+		/// le navigateur ne se touchent que d'ici).
+		inline void NkGeniaRecolter(NkModelerState &st) {
+			NkGeniaVol &G = NkGenia();
+			if (!G.envoi.EnCours())
+				return;
+			NkString rep, err;
+			bool ok = false;
+			if (!G.envoi.Recolter(rep, err, ok))
+				return;
+			char m[300];
+			std::printf("[crea] VOIE (%s) : generation finie en %.1f s, %u image(s) affichee(s) pendant l'attente -> %s\n",
+						G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), ok ? "fichier ecrit" : "REFUS");
+			std::fflush(stdout);
+			if (!ok) {
+				snprintf(m, sizeof(m), "Voie (%s) : rien n'a ete genere -- %s", G.voie,
+						 err.CStr() ? err.CStr() : "raison inconnue");
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+				return;
+			}
+			const char *un[1] = {rep.CStr()};
+			const int32 avant = st.BrowserCount();
+			const int32 importes = NkImportFiles(st, un, 1);
+			snprintf(m, sizeof(m),
+					 importes > 0
+						 ? "Voie (%s) : maillage genere en %.0f s (la fenetre est restee vivante : %u images), carte "
+						   "ajoutee au navigateur (%d). Glissez-la dans la scene."
+						 : "Voie (%s) : le fichier genere en %.0f s (%u images) n'a pas pu etre importe (%d carte).",
+					 G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), (int)(st.BrowserCount() - avant));
+			(void)NkAiPousser(st, importes > 0 ? NkModelerState::AiType::Note : NkModelerState::AiType::Refus, m);
+			std::printf("[crea] %s\n", m);
+			std::fflush(stdout);
+		}
+
 		// =====================================================================
 		//  7. LA CONVERSATION : lancer, recolter, corriger
 		// =====================================================================
@@ -1224,6 +1418,14 @@ namespace nkentseu {
 			NkCreaCopieNom(E.demande, sizeof(E.demande), demande);
 			E.tour = 0;
 			E.docPrecedent[0] = 0;
+			if (NkCreaVoieImage()) {
+				// VOIE (c) : pas d'assemblage. Texte -> image -> TripoSR, hors du fil.
+				if (NkGeniaLancer(st, true, demande, "c"))
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "Voie (c) : texte -> image (modele de diffusion local) -> detourage -> TripoSR. "
+									  "La fenetre reste vivante.");
+				return true;
+			}
 			static char invite[20000];
 			NkCreaEcrireInvite(invite, sizeof(invite), demande);
 			NkString pourquoi;
@@ -1348,7 +1550,17 @@ namespace nkentseu {
 					//    devant/derriere : le decalage sur l'axe d'une relation la ROMPT.
 					const int32 rr = d.p[i].rels[r];
 					const int32 ax = (rr == 1 || rr == 2) ? 1 : ((rr == 4 || rr == 5) ? 0 : ((rr == 6 || rr == 7) ? 2 : -1));
-					if (ax < 0 || (d.p[i].decale[ax] < 1e-4f && d.p[i].decale[ax] > -1e-4f))
+					if (ax < 0)
+						continue;
+					// ⚠️ SEUL UN DECALAGE QUI ELOIGNE ROMPT LE CONTACT (21/09, Q6). Un
+					//    decalage qui ENFONCE garde les deux boites en contact : c'est
+					//    ainsi qu'un toit s'encastre dans les murs, une roue dans la
+					//    caisse. La premiere version refusait les deux, et aurait
+					//    refuse les gabarits ecrits a la main.
+					// sens qui eloigne : pose_sur +y, pose_sous -y, a_gauche_de -x,
+					// a_droite_de +x, devant +z, derriere -z.
+					const float32 sens = (rr == 1 || rr == 5 || rr == 6) ? 1.f : -1.f;
+					if (d.p[i].decale[ax] * sens <= 1e-4f)
 						continue;
 					static const char *const kAxe[3] = {"dx", "dy", "dz"};
 					snprintf(motifs[nMot], sizeof(motifs[0]),
@@ -1454,7 +1666,6 @@ namespace nkentseu {
 			const char *v = std::getenv("NK_CREA_VOIE");
 			return v && strcmp(v, "triposr") == 0;
 		}
-
 		inline void NkCreaDemarrerVues() {
 			NkCreaEtat &E = NkCrea();
 			const char *v = std::getenv("NK_CREA_VUES");
@@ -1585,21 +1796,14 @@ namespace nkentseu {
 					// Par la MEME porte que le bouton « Generer » : le refus est nomme
 					// a l'ecran s'il y en a un. La carte nait dans le navigateur (un
 					// import n'ajoute pas a la scene, contrat du 17/08).
+					// ⚠️ PLUS D'ATTENTE SUR LE FIL D'AFFICHAGE (Q6) : la mesure du
+					//    21/09 donnait 84 s de fenetre figee. La generation part dans
+					//    un fil ; l'import se fait a la recolte.
 					snprintf(chemin, sizeof(chemin), "%s_34.png", E.vuesPrefixe);
-					(void)NkAiPousser(st, NkModelerState::AiType::Note,
-									  "Voie (b) : la vue 3/4 de l'assemblage part a TripoSR (fenetre figee ~30 s)...");
-					const int32 avant = st.BrowserCount();
-					const bool ok = NkGeniaImporterImage(st, chemin);
-					char m[240];
-					snprintf(m, sizeof(m),
-							 ok ? "Voie (b) : TripoSR a rendu un maillage, carte ajoutee au navigateur (%d carte(s)). "
-								  "L'assemblage en parties reste dans la scene."
-								: "Voie (b) : TripoSR n'a rien rendu (%d carte) -- le motif est dans le toast. "
-								  "L'assemblage en parties reste dans la scene.",
-							 (int)(st.BrowserCount() - avant));
-					(void)NkAiPousser(st, ok ? NkModelerState::AiType::Note : NkModelerState::AiType::Refus, m);
-					std::printf("[crea] VOIE (b) TripoSR sur %s : %s\n", chemin, ok ? "importe" : "REFUS");
-					std::fflush(stdout);
+					if (NkGeniaLancer(st, false, chemin, "b"))
+						(void)NkAiPousser(st, NkModelerState::AiType::Note,
+										  "Voie (b) : la vue 3/4 de l'assemblage part a TripoSR. La fenetre reste "
+										  "vivante ; l'assemblage en parties reste dans la scene.");
 				}
 				return false;
 			}
@@ -1627,6 +1831,7 @@ namespace nkentseu {
 		inline void NkCreaTick(NkModelerState &st, int32 onglet, converse::NkIConverseBackend *dorsalOnglet,
 							   void (*poserUndo)(NkModelerState &), int32 image) {
 			NkCreaEtat &E = NkCrea();
+			NkGeniaRecolter(st); // voies (b) et (c) : la generation qui vole hors du fil
 			bool pose = NkCreaRecolter(st, onglet, dorsalOnglet);
 			// NK_CREA_DOC=<fichier>[,image] : pose un document ECRIT A LA MAIN, sans
 			// modele. C'est le temoin de l'OUTIL seul : si la chaise d'un document
@@ -1696,7 +1901,7 @@ namespace nkentseu {
 					if (*q && *q != '0')
 						E.quitteDans = 5;
 			}
-			if (E.quitteDans > 0 && --E.quitteDans == 0)
+			if (E.quitteDans > 0 && !NkGenia().envoi.EnCours() && --E.quitteDans == 0)
 				st.running = false;
 		}
 
