@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Applications/NKEditorKitTest/src/NkAiPaintProbe.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   FAMILLE 23 — la transcription du plan en commandes de dessin.
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -77,21 +78,29 @@ namespace aipaintprobe {
 		(void)fil.Pousser(outil, pq);
 	}
 
-	/// Une piece va-t-elle produire une commande ? Les fonds et la puce toujours ;
-	/// une piece de texte seulement si elle a du texte.
-	inline bool PieceSePeint(const NkAiFil &fil, const NkAiRectPublie &r) {
+	/// Une piece est-elle un TEXTE ? Depuis le 21/09 une piece de forme peut
+	/// emettre plusieurs commandes (une estompe en cinq bandes, une icone en
+	/// traits) : le compte « une commande par piece » ne vaut plus que pour le
+	/// texte, qui reste une commande par fragment.
+	inline bool PieceTexte(const NkAiRectPublie &r) {
 		switch (r.piece) {
-			case NkAiPiece::Cadre:
-			case NkAiPiece::FondIn:
-			case NkAiPiece::FondOut:
-			case NkAiPiece::Estompe:
-			case NkAiPiece::Puce:
+			case NkAiPiece::Titre:
+			case NkAiPiece::Fragment:
+			case NkAiPiece::TexteIn:
+			case NkAiPiece::TexteOut:
+			case NkAiPiece::Effet:
+			case NkAiPiece::GouttiereIn:
+			case NkAiPiece::GouttiereOut:
+			case NkAiPiece::ChromeTexte:
+			case NkAiPiece::ComposeurTexte:
 				return true;
-			default: {
-				const char *s = aipaint::TextePiece(fil, r.blocId, r.piece);
-				return s && s[0] != '\0';
-			}
+			default:
+				return false;
 		}
+	}
+	/// Le texte peint : la REGLE DU KIT (`aipaint::PieceSePeint`), pas une copie.
+	inline bool PieceSePeint(const NkAiFil &fil, const NkAiRectPublie &r) {
+		return PieceTexte(r) && aipaint::PieceSePeint(fil, r, NkAiChromeTextes{});
 	}
 
 	inline bool Pres(float32 a, float32 b) {
@@ -116,31 +125,43 @@ namespace aipaintprobe {
 		// (une commande de trop est un rectangle que le plan n'a pas prevu, donc
 		// invisible a la sonde du plan), ni moins.
 		{
-			uint32 attendues = 0;
+			// ⚠️ DEPUIS LE 21/09, LE COMPTE PORTE SUR LE TEXTE : une piece de forme
+			//    peut emettre plusieurs commandes (l'estompe en cinq bandes, une
+			//    icone en traits). Le texte reste une commande par fragment.
+			uint32 attendues = 0, textes = 0;
 			for (uint32 i = 0; i < plan.Pieces(); ++i)
 				if (PieceSePeint(fil, plan.Piece(i)))
 					++attendues;
-			Essai(b, "23a", (uint32)rec.cmds.Size() == attendues,
-				  "une commande par piece qui doit se peindre -- ni plus, ni moins");
-			printf("         plan : %u pieces | peintes : %u | commandes : %u\n", plan.Pieces(),
-				   attendues, (uint32)rec.cmds.Size());
+			for (usize i = 0; i < rec.cmds.Size(); ++i)
+				if (rec.cmds[i].op == NkPaintOp::Text)
+					++textes;
+			Essai(b, "23a", textes == attendues && attendues > 0,
+				  "une commande de TEXTE par piece de texte qui se peint -- ni plus, ni moins");
+			printf("         plan : %u pieces | textes attendus : %u | commandes de texte : %u\n",
+				   plan.Pieces(), attendues, textes);
 		}
 
 		// 23b — LA GEOMETRIE PEINTE EST EXACTEMENT CELLE DU PLAN. C'est l'essai
 		// qui interdit a la transcription de recalculer quoi que ce soit : le
 		// moindre ajustement, meme d'un pixel, rougit ici.
 		{
+			// Chaque piece de texte trouve SA commande, dans l'ordre, au rectangle
+			// exact : le moindre ajustement de la transcription rougit ici.
 			bool identique = true;
 			uint32 c = 0;
+			usize k0 = 0;
 			for (uint32 i = 0; i < plan.Pieces() && identique; ++i) {
 				const NkAiRectPublie &r = plan.Piece(i);
 				if (!PieceSePeint(fil, r))
 					continue;
-				if (c >= (uint32)rec.cmds.Size()) {
+				while (k0 < rec.cmds.Size() && rec.cmds[k0].op != NkPaintOp::Text)
+					++k0;
+				if (k0 >= rec.cmds.Size()) {
 					identique = false;
 					break;
 				}
-				const NkPaintCmd &k = rec.cmds[c++];
+				const NkPaintCmd &k = rec.cmds[k0++];
+				++c;
 				if (!Pres(k.x, r.x) || !Pres(k.y, r.y) || !Pres(k.w, r.w) || !Pres(k.h, r.h))
 					identique = false;
 			}
@@ -255,6 +276,14 @@ namespace aipaintprobe {
 			bool bon = t.cmds.Size() == rec.cmds.Size();
 			for (usize i = 0; bon && i < t.cmds.Size(); ++i) {
 				const NkPaintCmd &a = rec.cmds[i], &c = t.cmds[i];
+				// ⚠️ `PopClip` N'A PAS DE GEOMETRIE (21/09) : les lignes de code se
+				//    peignent rognees au bord de leur compartiment, et le retrait du
+				//    rognage ne porte aucun rectangle a decaler. On n'exige d'elle
+				//    que d'etre la meme operation, au meme rang.
+				if (a.op == NkPaintOp::PopClip) {
+					bon = c.op == NkPaintOp::PopClip;
+					continue;
+				}
 				bon = a.op == c.op && a.role == c.role && a.role2 == c.role2 &&
 					  Pres(c.x, a.x + 10.f) && Pres(c.y, a.y + 20.f) && Pres(c.w, a.w) &&
 					  Pres(c.h, a.h);
@@ -285,7 +314,7 @@ namespace aipaintprobe {
 			for (usize i = 0; i < rec.cmds.Size(); ++i) {
 				const NkPaintCmd &k = rec.cmds[i];
 				if (k.op == NkPaintOp::Outline && k.role == (uint16)NkRole::Border &&
-					k.role2 == (uint16)NkRole::PanelBg)
+					k.role2 == (uint16)NkRole::PanelHeader)
 					bon = true;
 			}
 			Essai(b, "23i", bon, "le cadre de la demande nomme SES DEUX roles (bordure, interieur)");

@@ -3,6 +3,7 @@
 // @Brief   BANC DE NKEditorKit — la resolution des roles de theme, et le choix
 //          du backend graphique. Sans fenetre, sans GPU, sans souris.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -107,6 +108,7 @@
 #include "NKEditorKit/NkAiThreadLayout.h"
 #include "NkAiPlanProbe.h" // famille 22 : le plan du fil, eprouve sans fenetre
 #include "NkAiPaintProbe.h" // famille 23 : la transcription du plan en commandes
+#include "NkAiPanneauProbe.h" // famille 24 : le panneau entier, et son IMAGE
 // Famille 5 — le RAIL du selecteur de fichiers. Le banc vit DANS LE KIT
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
@@ -1298,6 +1300,16 @@ int main(int argc, char **argv) {
 		printf("  famille 23 : %u/%u\n", b23.ok, b23.total);
 		gPassed += b23.ok;
 		gFailed += (b23.total - b23.ok);
+	}
+
+	// Famille 24 - le PANNEAU IA ENTIER du kit (21/09) : une conversation par
+	// assistant, les menus, et son IMAGE a cote de la capture cible.
+	{
+		printf("\n--- Famille 24 : le panneau IA entier, et son image ---\n");
+		const aipanneauprobe::Bilan b24 = aipanneauprobe::Sonder();
+		printf("  famille 24 : %u/%u\n", b24.ok, b24.total);
+		gPassed += b24.ok;
+		gFailed += (b24.total - b24.ok);
 	}
 
 	printf("\n---------------------------------------------\n");
