@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkDemo3DHost.h
 // @Brief   Facade OPAQUE de la vue 3D portee de renderdemo --demo=2.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -435,6 +436,9 @@ namespace nkentseu {
 
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
+		// Cadrer une BOITE MONDE donnee (l'angle est garde) : FrameAll cadre la
+		// scene entiere, lumieres et camera comprises.
+		void Demo3DHostFrameBox(const float32 *mn3, const float32 *mx3);
 		// Cadrer SERRE sur le maillage edite, ou sur sa seule SELECTION.
 		// `Demo3DHostFrameAll` cadre la SCENE et ELOIGNE donc la camera d'un objet
 		// unique : trois preuves visuelles ont echoue pour cette raison.
@@ -986,6 +990,16 @@ namespace nkentseu {
 		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
 									   const uint32 *indices, uint32 icount,
 									   const float32 *pos3, const char *debugName);
+		// ── LA BOITE D'UN NOEUD, LUE SUR SES SOMMETS (21/09) ────────────────
+		// `monde=false` : l'etendue de la primitive A VIDE (sans transformation),
+		// ce qui convertit une taille en metres en echelle sans recopier les
+		// dimensions des generateurs. `monde=true` : la boite MONDE, par la meme
+		// composition T*R*S que le pick. Faux pour un noeud sans maillage.
+		bool Demo3DHostNodeBounds(int32 node, bool monde, float32 *mn3, float32 *mx3);
+		// Ajoute les triangles MONDE du noeud a un .obj ouvert (`fichier` est un
+		// FILE*), sous le groupe `groupe`. `*vbase` = indice (base 1) du premier
+		// sommet, avance d'autant. Faux pour un noeud sans maillage.
+		bool Demo3DHostNodeAppendObj(int32 node, void *fichier, uint32 *vbase, const char *groupe);
 		// ── LA GEOMETRIE PROPRE D'UN NOEUD : LUE, PUIS REPOSEE (06/09) ──────
 		// Ce que le fichier de projet doit ecrire pour qu'un objet IMPORTE
 		// survive a enregistrer / fermer / rouvrir. Sans ces deux portes, le

@@ -17442,6 +17442,25 @@ namespace nkentseu {
 			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
 						centre.x, centre.y, centre.z, rayon, d);
 		}
+		// CADRER UNE BOITE MONDE, l'angle garde (21/09). `FrameAll` cadre la
+		// SCENE : la lumiere et la camera de demo l'ecartent, et une chaise de
+		// 0,9 m y tenait en vingt pixels -- l'image ne montrait rien a juger. La
+		// MEME loi de distance que FrameAll, sur la boite qu'on lui donne.
+		void Demo3DHostFrameBox(const float32 *mn3, const float32 *mx3) {
+			auto *st = HostSt();
+			if (!st || !mn3 || !mx3)
+				return;
+			const NkVec3f centre{(mn3[0] + mx3[0]) * 0.5f, (mn3[1] + mx3[1]) * 0.5f, (mn3[2] + mx3[2]) * 0.5f};
+			const float32 ex = mx3[0] - centre.x, ey = mx3[1] - centre.y, ez = mx3[2] - centre.z;
+			float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+			if (rayon < 0.05f)
+				rayon = 0.05f;
+			const float32 fovY = 45.f * 3.14159265f / 180.f;
+			float32 d = (rayon * 1.25f) / tanf(fovY * 0.5f);
+			if (d < 0.2f)
+				d = 0.2f;
+			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
+		}
 
 		// NK_EDGE_MARK=1 : pose `sel=1` sur TOUTES les aretes vivantes.
 		// Sert a PRODUIRE LE CAS : rien dans l'application n'ecrit `Edge::sel`
@@ -24135,6 +24154,119 @@ namespace nkentseu {
 			nkvpNodeMatP1[n] = HostEnsureDefaultMat() + 1;
 			HostHierSnapNode(st, n);
 			return n;
+		}
+		// ── LA BOITE D'UN NOEUD, LUE SUR SES SOMMETS (21/09, creation par IA) ─
+		// Ce que la creation par parties nommees exige et que l'hote ne rendait
+		// pas : l'etendue REELLE d'une primitive, a vide (pour convertir une
+		// taille en metres en echelle) et dans le monde (pour poser une partie
+		// SUR une autre, puis pour MESURER le resultat).
+		// ⚠️ ON NE RECOPIE PAS LES DIMENSIONS DES PRIMITIVES. Un cube de
+		//    NkMeshSystem mesure 1, un tore 1 x 0,3 x 1, une capsule 0,5 x 1 x
+		//    0,5 : les ecrire ici en dur les ferait mentir au premier changement
+		//    du generateur. On lit les sommets que le rendu soumet.
+		// ⚠️ LA MEME resolution de maillage que le pick et la soumission (le
+		//    maillage propre s'il existe, sinon la primitive partagee), et la
+		//    MEME composition T * R * S : une boite calculee autrement decrirait
+		//    un objet que personne ne voit.
+		bool Demo3DHostNodeBounds(int32 node, bool monde, float32 *mn3, float32 *mx3) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !mn3 || !mx3 || node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			if (nkvpDeleted[node])
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const uint8 uk = nkvpUserKind[u];
+			if (uk < 1 || uk > 3)
+				return false; // pas une primitive maillee : rien a mesurer, et on le rend
+			NkMeshHandle mh = nkvpUserMesh[u];
+			if (!mh.IsValid()) {
+				const uint8 usv = nkvpUserSub[u];
+				if (uk == 1)
+					mh = usv == 1 ? st->meshIco : st->meshSphere;
+				else if (uk == 2)
+					mh = usv == 1 ? st->meshCylinder : (usv == 2 ? st->meshCone : st->meshCube);
+				else
+					mh = st->meshPlane;
+			}
+			if (!mh.IsValid() || !ms->HasCPUData(mh))
+				return false;
+			const auto *vv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+			const uint32 vc = ms->GetVertexCount(mh);
+			if (!vv || vc == 0)
+				return false;
+			NkMat4f W = NkMat4f::Identity();
+			if (monde) {
+				float32 wp[3], wsc[3];
+				NkMat4f wr;
+				HostNodeWorldById(node, wp, wr, wsc);
+				W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr * NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+			}
+			for (int32 a = 0; a < 3; ++a) {
+				mn3[a] = 1e30f;
+				mx3[a] = -1e30f;
+			}
+			for (uint32 i = 0; i < vc; ++i) {
+				const NkVec3f p = monde ? (W * vv[i].pos) : vv[i].pos;
+				const float32 c[3] = {p.x, p.y, p.z};
+				for (int32 a = 0; a < 3; ++a) {
+					if (c[a] < mn3[a])
+						mn3[a] = c[a];
+					if (c[a] > mx3[a])
+						mx3[a] = c[a];
+				}
+			}
+			return true;
+		}
+		// ── LES TRIANGLES MONDE D'UN NOEUD, AJOUTES A UN .OBJ (21/09) ─────────
+		// L'assemblage cree par l'IA doit pouvoir SORTIR tel qu'il est rendu :
+		// pour le comparer a une reconstruction (TripoSR), pour le corpus, pour
+		// Rodolf. Meme maillage et meme composition T*R*S que
+		// Demo3DHostNodeBounds -- deux lectures de la geometrie qui divergeraient
+		// feraient comparer autre chose que ce qu'on voit.
+		// `*vbase` est l'indice (base 1) du premier sommet de ce noeud dans le
+		// fichier ; il avance du nombre de sommets ecrits.
+		bool Demo3DHostNodeAppendObj(int32 node, void *fichier, uint32 *vbase, const char *groupe) {
+			FILE *f = (FILE *)fichier;
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!f || !vbase || !st || !ms || node < kNkvpFirstUser || node >= kNkvpMaxNodes || nkvpDeleted[node])
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const uint8 uk = nkvpUserKind[u];
+			if (uk < 1 || uk > 3)
+				return false;
+			NkMeshHandle mh = nkvpUserMesh[u];
+			if (!mh.IsValid()) {
+				const uint8 usv = nkvpUserSub[u];
+				if (uk == 1)
+					mh = usv == 1 ? st->meshIco : st->meshSphere;
+				else if (uk == 2)
+					mh = usv == 1 ? st->meshCylinder : (usv == 2 ? st->meshCone : st->meshCube);
+				else
+					mh = st->meshPlane;
+			}
+			if (!mh.IsValid() || !ms->HasCPUData(mh))
+				return false;
+			const auto *vv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+			const uint32 vc = ms->GetVertexCount(mh);
+			const uint32 *ii = ms->GetIndices(mh);
+			const uint32 ic = ms->GetIndexCount(mh);
+			if (!vv || vc == 0 || !ii || ic < 3)
+				return false;
+			float32 wp[3], wsc[3];
+			NkMat4f wr;
+			HostNodeWorldById(node, wp, wr, wsc);
+			const NkMat4f W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr * NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+			fprintf(f, "g %s\n", groupe ? groupe : "partie");
+			for (uint32 i = 0; i < vc; ++i) {
+				const NkVec3f p = W * vv[i].pos;
+				fprintf(f, "v %.5f %.5f %.5f\n", (double)p.x, (double)p.y, (double)p.z);
+			}
+			for (uint32 t = 0; t + 2 < ic; t += 3)
+				fprintf(f, "f %u %u %u\n", *vbase + ii[t], *vbase + ii[t + 1], *vbase + ii[t + 2]);
+			*vbase += vc;
+			return true;
 		}
 		// ── LA GEOMETRIE PROPRE, LUE POUR L'ECRITURE DU PROJET (06/09) ─────
 		// Meme perimetre que HostMakeGeometryOwn, et pour la meme raison : un
