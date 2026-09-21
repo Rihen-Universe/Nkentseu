@@ -51,12 +51,26 @@ def _refus(msg, code=2):
     sys.exit(code)
 
 
+def _alpha_reel(image):
+    """Le canal alpha DETOURE-t-il vraiment l'objet ?
+    ⚠️ CORRIGE LE 21/09 : le test etait « un seul pixel sous 255 ». Une vue
+    rendue par NK3DModeler porte un alpha a 229..255 sur 0,05 % des pixels
+    (bords anticreneles) : le test la declarait detouree, le detourage etait
+    SAUTE, et TripoSR recevait le sol et le ciel comme faisant partie de
+    l'objet. Un alpha reel met au moins 1 % des pixels sous 128."""
+    if image.mode not in ("RGBA", "LA"):
+        return False
+    import numpy as _np
+    a = _np.asarray(image.getchannel("A"))
+    return float((a < 128).mean()) >= 0.01
+
+
 def _controler_detourage(image, autorise):
     """Le detourage exige un modele de 1,02 Go. On le controle AVANT de charger
     les 1,68 Go de poids de TripoSR, parce qu'un refus qui arrive apres le
     travail cher se paie deux fois. Rend la liste des modeles trouves."""
     import os as _os
-    if image.mode in ("RGBA", "LA") and image.getchannel("A").getextrema()[0] < 255:
+    if _alpha_reel(image):
         return None  # canal alpha reel : aucun detourage, aucun modele requis
     # ⚠️ LE CHEMIN DURABLE D'ABORD. `~/.rembg/models` est un CACHE : propre a la
     # machine, efface par un nettoyage de disque, et invisible pour qui reprend
@@ -196,7 +210,7 @@ def main():
     print("MESURE genia : chargement_modele_s=%.1f" % (t2 - t1))
 
     image = Image.open(a.image)
-    alpha = image.mode in ("RGBA", "LA") and image.getchannel("A").getextrema()[0] < 255
+    alpha = _alpha_reel(image)
     if alpha:
         # Image DEJA detouree (canal alpha reel) : pas de rembg, donc pas de
         # telechargement de u2net. Meme preparation que run.py ensuite.
@@ -205,7 +219,12 @@ def main():
     else:
         # (le controle a eu lieu AVANT le chargement du modele : voir _controler_detourage)
         import rembg
-        image = remove_background(image, rembg.new_session())
+        # ⚠️ force=True : `remove_background` de TripoSR refait LE MEME test fautif
+        #    (un pixel d'alpha sous 255 -> rien a detourer) et sautait le
+        #    detourage EN SILENCE. Sans ce drapeau, corriger `_alpha_reel` seul
+        #    aurait laisse le defaut en place a l'etage d'en dessous -- le meme
+        #    nombre de sommets au sommet pres l'a montre (31 570 dans les deux cas).
+        image = remove_background(image.convert("RGB"), rembg.new_session(), force=True)
         detourage = "rembg (%s)" % ("modele local" if _modeles_detourage else "TELECHARGE, autorise explicitement")
     image = resize_foreground(image, a.foreground_ratio)
     arr = np.array(image).astype(np.float32) / 255.0
