@@ -3,6 +3,7 @@
 // @File    Panels.h
 // @Brief   Les panneaux de NkUIDesign : palette, composition, apercu, proprietes, IA.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -40,8 +41,7 @@
 
 #include "NKGui/Core/NkGuiDrawListRaster.h" // LE rasteriseur de la maison (la pipette le PILOTE)
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
-#include "NKEditorKit/NkAiThreadLayout.h" // le PLAN du fil, commun aux applications
-#include "NKEditorKit/NkAiThreadPaint.h"  // sa transcription en commandes
+#include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
 #include "NKEditorKit/Components/NkComponentRole.h" // LE catalogue de roles du kit --
 // la seule table qui porte les EVENEMENTS exiges et le masque d'ETATS (mesure Q155)
 #include "NKEditorKit/NkFilePickerNav.h"
@@ -677,6 +677,13 @@ namespace nkuidesign {
 			/// La derniere phrase a montrer dans le panneau IA. Elle vit ici parce
 			/// que la recolte, elle aussi, a lieu hors du panneau.
 			NkString messageIA;
+			/// OU POSER le document de la prochaine generation (-1 = l'ancienne
+			/// regle : la selection, sinon la racine). Pose par le panneau IA au
+			/// depart, lu par la recolte a l'arrivee.
+			nkentseu::int32 cibleIA = -1;
+			/// Le canevas doit CADRER ce qui vient d'etre pose (21/09, capture
+			/// 040716 : « Document pose en 9,4 s » puis un canevas vide a 2111 %).
+			bool cadrerApresGreffe = false;
 
 			/// A APPELER A CHAQUE IMAGE, hors de tout panneau. Rend vrai quand une
 			/// tache vient de s'achever.
@@ -861,7 +868,8 @@ namespace nkuidesign {
 						return true;
 					}
 					envoiIntention = Intention::Discussion;
-					const int32 cible = doc.IsValidIndex(selected) ? selected : 0;
+					const int32 cible = doc.IsValidIndex(cibleIA) ? cibleIA : (doc.IsValidIndex(selected) ? selected : 0);
+					cibleIA = -1;
 					const NkAIResult r = ai.Apply(texte.Data(), doc, cible, "panneau IA");
 					char b[320];
 					if (r.Accepted()) {
@@ -872,6 +880,12 @@ namespace nkuidesign {
 						//    que l'IA vient de poser -- un geste qu'on ne peut pas defaire
 						//    est pire qu'un geste qu'on ne peut pas faire.
 						++editionGeneration;
+						// CE QUI VIENT D'ETRE POSE DEVIENT LA SELECTION, et le canevas le
+						// CADRE : sinon « Document pose » arrive sur une vue qui ne le
+						// montre pas.
+						if (doc.IsValidIndex(r.graftedRoot))
+							SelectSingle(r.graftedRoot);
+						cadrerApresGreffe = true;
 						// ⚠️ PAS DE `Recompute` ICI : la toile en fait un A CHAQUE IMAGE avec SA
 						//    surface (`mSt->Recompute(docSurface)`). En lancer un second, depuis
 						//    la barre de menus et avec une AUTRE surface, aurait pose une
@@ -4126,6 +4140,28 @@ namespace nkuidesign {
 						mVuePosee = true;
 						mSt->view.panX = kOutilsMarge * 2.f + kOutilsLargeur;
 						mSt->view.panY = 12.f;
+					}
+				}
+				// ── LE CADRAGE APRES UNE GREFFE DE L'IA (21/09) ─────────────────────
+				// Rodolf, capture 040716 : « Document pose en 9,4 s », et le canevas
+				// VIDE a 2111 %. Le document etait bien pose -- a la racine, « hors
+				// page », hors de la vue. Le panneau pose desormais dans la planche
+				// visee ; ici on CADRE ce qui vient d'etre pose (la selection), avec
+				// un PLAFOND de 100 % : cadrer un bouton de 100 x 50 sans plafond
+				// donnerait precisement un zoom a quatre chiffres.
+				// ⚠️ ON ATTEND QUE LA DISPOSITION EXISTE : le noeud neuf n'a de
+				//    rectangle qu'apres le calcul de cette image. Le drapeau reste
+				//    pose jusqu'a ce qu'un cadrage REUSSISSE (ou huit essais).
+				if (mSt->cadrerApresGreffe) {
+					const NkPaintRect b = EnglobantDoc(true);
+					if (b.w > 0.f && b.h > 0.f && mSt->view.AjusterSur(b, 0u, 1.f)) {
+						mSt->cadrerApresGreffe = false;
+						mEssaisCadrage = 0;
+						logger.Info("[NKUIDesign] cadrage apres greffe : ({0}, {1}) {2}x{3} -> zoom {4}", b.x, b.y, b.w,
+									b.h, mSt->view.zoom);
+					} else if (++mEssaisCadrage > 8) {
+						mSt->cadrerApresGreffe = false;
+						mEssaisCadrage = 0;
 					}
 				}
 				const NkPaintRect docSurface = {0.f, 0.f, mSt->view.ToDocLength(area.w),
@@ -9069,6 +9105,7 @@ namespace nkuidesign {
 				}
 				return b;
 			}
+			int32 mEssaisCadrage = 0;
 			bool mPanning = false;
 			bool mMarquee = false;
 			float32 mMarqX = 0.f, mMarqY = 0.f;
@@ -9555,638 +9592,160 @@ namespace nkuidesign {
 			char mRecherche[64] = {0};
 	};
 
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  LE PANNEAU IA — CELUI DU KIT, LE MEME QUE NK3DMODELER ET NKCODE (21/09)
+	// ═══════════════════════════════════════════════════════════════════════════
+	//  Rodolf, 21/09 a 04h, captures 040611 -> 040716 : « le panneau IA de
+	//  nkuidesign n'est pas le panneau demande qui est suppose etre implemente
+	//  dans nkeditorkit ». Il avait raison : ce panneau peignait ENCORE son
+	//  ancien costume (« Passer a Claude », « Generer l'interface », « Outils
+	//  avances », « Message » libelle a droite du champ), et le fil du kit n'etait
+	//  qu'AJOUTE dessous.
+	//
+	//  CE QUI PART, ET NE RESTE PAS MORT A COTE : la bande modele, les puces
+	//  d'actions rapides (inertes), le bloc « Dorsal », les champs Sujet /
+	//  Message / Demande / Nom de la specification, les boutons, la carte
+	//  « Releve de changements » et le depliage « Outils avances ».
+	//
+	//  OU VONT LEURS GESTES -- AUCUN N'EST PERDU :
+	//    - GENERER / PROPOSER / DISCUTER : la pastille de MODE du composeur. C'est
+	//      l'exigence liante du §7 de la spec : la surface dit, sans qu'on
+	//      l'essaie, quel geste produit un document -- l'envoi est ORANGE quand
+	//      il produit, BLEU quand il discute, et l'invite le dit en toutes lettres
+	//      (« …il sera pose dans le document » / « …le document ne bougera pas »).
+	//      Les deux invites restent OPPOSEES ; rien ne devine laquelle on veut.
+	//    - Passer a Claude / Revenir au local : la pastille du FOURNISSEUR (menu a
+	//      deux niveaux, fournisseur puis modele). Distant = point ORANGE.
+	//    - Appliquer / Rejeter une proposition : deux boutons SUR le bloc de la
+	//      proposition, dans le fil -- la ou elle est lue.
+	//    - Retirer la greffe, rejeu, specification, affinage, detachement,
+	//      effacement : le « / » du composeur (/retirer, /rejeu, /specification…).
+	//
+	//  UNE CONVERSATION PAR ASSISTANT : le fil ET la conversation que le modele
+	//  lit (`mSt->conversation`, qui batit l'invite de discussion) suivent le
+	//  fournisseur. Revenir au local ramene SA discussion, pas celle de Claude.
+	// ═══════════════════════════════════════════════════════════════════════════
 	class AIPanel : public NkEditorPanel {
 		public:
-			// 🔴 L'ANCRAGE ETAIT `NK_BOTTOM`, ET C'EST CE QUI DONNAIT DEUX PORTES
-			//    A UN SEUL PANNEAU. Par la pastille du rail il se deplie A
-			//    DROITE ; par `Affichage > Panneaux` ou `IA > Ouvrir le chat IA`
-			//    il s'ancrait EN BAS, sur toute la moitie basse. Rodolf a pris la
-			//    porte du menu le 20/09 et a conclu -- a juste titre -- qu'il
-			//    n'avait pas de pastille a droite : *il n'a jamais vu celle qui
-			//    marche.*
-			//
-			//    `NK_RIGHT` fait CONVERGER les deux portes. Ce n'est pas
-			//    cosmetique : deux portes qui donnent deux resultats sont le
-			//    defaut lui-meme, pas un desagrement.
+			// L'ANCRAGE EST `NK_RIGHT` : la pastille du rail, `Affichage > Panneaux`
+			// et `IA > Ouvrir le chat IA` donnent le MEME panneau au MEME endroit.
 			explicit AIPanel(DesignState *st)
 				: NkEditorPanel("ia", "IA", NkEditorDockSide::NK_RIGHT), mSt(st) {
-				// ⚠️ LES REGLAGES DU FIL SONT DECLARES ICI, PAS HERITES.
-				//    Lecon payee le 20/09 sur NK3DModeler : sa fenetre de 16 blocs
-				//    serait passee a 200 EN SILENCE, parce que c'est le defaut du kit.
-				//    Ce panneau n'avait AUCUN fil, donc aucun plafond a preserver -- et
-				//    c'est precisement pour ca qu'il faut l'ecrire : un defaut hérité
-				//    sans decision est indiscernable d'un defaut choisi.
-				//    200 est le defaut du kit et il convient ici : ce panneau ne pousse
-				//    qu'une phrase par geste, pas une par etape d'outil.
-				editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
-				cap.produitRefus = true; // « RIEN N'EST PARTI — <motif> »
-				mFil.Declarer(cap);
-				mFil.PoserPlafond(200);
-				// ⚠️ CE COMMENTAIRE DISAIT LE CONTRAIRE DE CE QUI EST, ET IL A INDUIT
-				//    EN ERREUR. Il affirmait que « la coquille ne porte ni rail ni
-				//    pastille » et que « rien n'a ete converti, parce qu'il n'y a pas
-				//    encore de rail ou le poser ». C'etait vrai le jour ou il a ete
-				//    ecrit ; ca ne l'est plus, et personne n'est revenu le corriger.
-				//
-				//    MESURE DU 14/09, captures a l'appui :
-				//      - le kit PORTE le rail : `NkEditorShell.h` §13, struct
-				//        `NkEditorRailItem`, `SetRail`, `OuvrirTiroir`, `kRailMax=8`,
-				//        `DrawRail` et `DrawRailDrawers` (tiroir de 320 px en overlay,
-				//        voile `theme.scrim`, une seule pastille depliee par rail) ;
-				//      - NkUIDesign POSE deja sa pastille : `main.cpp`, `kRailDroite[1]
-				//        = {"IA", "Chat IA", ...}` avec l'etoile violette AccentAI ;
-				//      - `--tiroir=d:1` ouvre CE panneau : sur les 28 colonnes de
-				//        droite, 40 pixels violets contre 0 sans le rail ; dans le
-				//        rectangle du tiroir, 153 pixels verts (la pilule LOCAL)
-				//        contre 0, et AUCUN pixel rouge ajoute — c'est-a-dire pas de
-				//        « Aucun panneau enregistre sous ce titre ».
-				//
-				//    DONC : `SetOpen(false)` N'EST PLUS UN DEMI-CORRECTIF, c'est le
-				//    comportement voulu. §13.1 place « Chat IA » sur le rail DROIT :
-				//    le panneau ne s'ANCRE pas au demarrage, il se DEPLIE en tiroir
-				//    par sa pastille. `TrouverPanneau` resout par le TITRE seul, sans
-				//    regarder ni le cote d'ancrage ni l'etat ouvert/ferme — le
-				//    `NK_BOTTOM` ci-dessus ne contrarie donc pas le rail droit ; il ne
-				//    decrit que l'ancrage qu'aurait ce panneau si on l'ancrait.
-				//    Il reste aussi atteignable par `Affichage > Panneaux` et par
-				//    `IA > Ouvrir le chat IA`.
 				SetOpen(false);
 			}
 
-			// ── LE COSTUME DE L'ÉCRAN 28, SUR LA PLOMBERIE Q31 ──────────────
-			// Bande modèle (nom RÉEL du backend + pilule LOCAL + « Rien ne
-			// quitte cette machine. »), actions rapides, carte « RELEVÉ DE
-			// CHANGEMENTS » quand une proposition attend (compte réel, cases,
-			// « S'appliquera en une seule opération annulable. », Rejeter /
-			// Appliquer — les VRAIS gestes DiscardProposal / CommitProposal),
-			// invite + envoi. Retirer/Rejeu restent en liens dessous.
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				auto &F = costume::Fontes();
-				auto &dl = ctx.DL();
-				// ⚠️ EN TETE, ET A CHAQUE IMAGE : c'est le seul endroit ou la
-				//    reponse du fil entre dans la conversation. La poser plus bas
-				//    la ferait apparaitre une image plus tard que le compteur qui
-				//    l'annonce.
-				// ⚠️ PLUS DE RECOLTE ICI : elle a lieu dans `DrawMenuBar`, qui passe
-				//    a chaque image meme quand ce panneau n'est pas dessine. On ne
-				//    fait que RELEVER ce que la recolte a ecrit.
-				if (mSt->messageIA.Length() > 0) {
-					Dire(mSt->messageIA.Data() ? mSt->messageIA.Data() : "");
-					mSt->messageIA = NkString("");
+				Declarer();
+				Etats();
+				// ⚠️ EN TETE, ET A CHAQUE IMAGE : la reponse recoltee (hors du panneau,
+				//    dans `DrawMenuBar`) entre ici dans le fil.
+				Recolter();
+				// ── NK_AI_DEMANDE=<texte>,<image> (NK_AI_GESTE=0|1|2) ────────────
+				// LA MEME PORTE QUE LE COMPOSEUR (`Envoyer`), a la N-ieme image ou le
+				// panneau est peint. Aucune injection d'entree : ce qui n'est donc PAS
+				// mesure, et je le dis, c'est la frappe elle-meme.
+				{
+					++mImages;
+					static int32 sQuand = -2;
+					static char sTexte[512] = {0};
+					if (sQuand == -2) {
+						sQuand = -1;
+						if (const char *v = std::getenv("NK_AI_DEMANDE")) {
+							const char *virg = nullptr;
+							for (const char *c = v; *c; ++c)
+								if (*c == ',')
+									virg = c;
+							uint32 n = 0;
+							for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sTexte); ++c)
+								sTexte[n++] = *c;
+							sTexte[n] = 0;
+							sQuand = virg ? (int32)std::atoi(virg + 1) : 30;
+						}
+					}
+					if (sQuand >= 0 && (int32)mImages == sQuand) {
+						sQuand = -1;
+						const char *g = std::getenv("NK_AI_GESTE");
+						const int32 geste = (g && *g >= '0' && *g <= '2') ? (int32)(*g - '0') : 0;
+						mPanneau.mode = geste;
+						const bool parti = Envoyer(sTexte, geste);
+						printf("[NKUIDesign] AI DEMANDE image=%u : « %s » geste=%d -> %s\n", (unsigned)mImages, sTexte,
+							   (int)geste, parti ? "partie" : "refusee");
+						fflush(stdout);
+					}
 				}
 				if (mSt->proposerInitial) { // mise en scene : une proposition prete
 					mSt->proposerInitial = false;
-					snprintf(mSt->promptBuf, sizeof(mSt->promptBuf),
-							 "un écran de connexion : un titre, deux champs, un bouton");
-					Proposer();
+					mPanneau.mode = 1;
+					Envoyer("un écran de connexion : un titre, deux champs, un bouton", 1);
 				}
-				// ── LA BANDE MODÈLE ──────────────────────────────────────────
-				{
-					const NkRect r = ctx.NextItemRect(-1.f, 34.f);
-					costume::IcCarreaux(dl, r.x + costume::PadPanneau, r.y + (34.f - 14.f) * 0.5f,
-										ctx.theme.textMuted);
-					const bool dispo = mSt->ai.Backend() && mSt->ai.Backend()->IsAvailable();
-					char b[96];
-					snprintf(b, sizeof(b), "%s",
-							 mSt->ai.Backend() ? mSt->ai.Backend()->Name() : "(aucun backend)");
-					costume::TexteGras(dl, F.px11,
-									   r.x + costume::PadPanneau + 14.f + (float32)costume::EspSerre,
-									   costume::CentrerY(F.px11, r.y, 34.f), b, ctx.theme.text,
-									   0.3f);
-					float32 px = r.x + costume::PadPanneau + 14.f + (float32)costume::EspSerre
-								 + costume::Largeur(F.px11, b) + 8.f;
-					if (dispo) {
-						// la pilule LOCAL, verte — vraie : le pont est local.
-						const float32 wl = costume::Largeur(F.px9, "LOCAL")
-												   + 2.f * (float32)costume::EspSerre;
-						NkColor vert = ctx.theme.success;
-						NkColor fondV = vert;
-						fondV.a = 40;
-						dl.AddRectFilled({px, r.y + (34.f - 16.f) * 0.5f, wl, 16.f}, fondV, 8.f);
-						costume::TexteGras(dl, F.px9, px + (float32)costume::EspSerre,
-										   costume::CentrerY(F.px9, r.y + (34.f - 16.f) * 0.5f, 16.f), "LOCAL",
-										   vert, 0.4f);
-					} else
-						costume::Texte(dl, F.px10, px, costume::CentrerY(F.px10, r.y, 34.f),
-									   "(indisponible)", ctx.theme.textMuted);
+				// LES BOUTONS D'UN BLOC : la proposition en attente porte Appliquer /
+				// Rejeter, la ou elle est lue.
+				mPanneau.actions = editorkit::NkAiActionsFil{};
+				if (mSt->ai.HasProposal() && mBlocProposition != 0u) {
+					mPanneau.actions.blocId = mBlocProposition;
+					mPanneau.actions.libelle[0] = "Appliquer";
+					mPanneau.actions.libelle[1] = "Rejeter";
 				}
-				{
-					const NkRect r = ctx.NextItemRect(-1.f, 18.f);
-					costume::Texte(dl, F.px10, r.x + costume::PadPanneau,
-								   costume::CentrerY(F.px10, r.y, 18.f),
-								   "Rien ne quitte cette machine.", ctx.theme.textMuted);
-					dl.AddLine({r.x, r.y + 17.5f}, {r.x + r.w, r.y + 17.5f}, ctx.theme.border,
-							   1.f);
-				}
-				// ── LES ACTIONS RAPIDES (chips) ──────────────────────────────
-				{
-					static const char *const kChips[3] = {"Générer un écran",
-														  "Modifier la sélection",
-														  "Générer un comportement"};
-					const NkRect r = ctx.NextItemRect(-1.f, 30.f);
-					const float32 wVisC = r.w > 304.f ? 304.f : r.w;
-					float32 x = r.x + costume::PadPanneau;
-					for (uint32 i = 0; i < 3; ++i) {
-						const float32 w = costume::Largeur(F.px10, kChips[i]) + 16.f;
-						if (x + w > r.x + wVisC - 4.f)
-							break; // le panneau étroit coupe la 3e — elle vit au menu IA
-						const NkRect c = {x, r.y + 4.f, w, 22.f};
-						const bool sv = ctx.popupDepth == 0
-										&& NkGuiRectContains(c, ctx.input.mousePos);
-						dl.AddRectFilled(c, sv ? ctx.theme.buttonHover : ctx.theme.button, 11.f);
-						costume::Texte(dl, F.px10, c.x + 8.f,
-									   costume::CentrerY(F.px10, c.y, c.h), kChips[i],
-									   ctx.theme.text);
-						if (sv && ctx.input.mouseClicked[0])
-							mSt->status = NkString("Action rapide : à brancher (elle remplira "
-												   "l'invite).");
-						x += w + 6.f;
-					}
-				}
-				// ═══════════════════════════════════════════════════════════
-				//  DISCUTER — AVANT DE DESSINER
-				// ═══════════════════════════════════════════════════════════
-				//  ⚠️ CETTE SECTION NE TOUCHE PAS AU DOCUMENT. Pas une ligne
-				//     d'ici n'ecrit dans `mSt->doc` : `NkDesignConversation` n'a
-				//     meme pas de quoi le faire — elle ne recoit aucun document.
-				//     C'est ce qui rend « discuter ne dessine pas » vrai PAR
-				//     CONSTRUCTION, et non par vigilance : la meme discipline que
-				//     `Propose`, qui travaille dans un document DE COTE.
-				//
-				//  ⚠️ ET C'EST SYNCHRONE. Avec le dorsal FICHIER, « Envoyer » rend
-				//     la main tout de suite. Avec un dorsal PAR PROCESSUS qui
-				//     charge un modele local, la mesure du 14/09 donne 12,6 s de
-				//     chargement + ~0,6 s par mot : la fenetre ne repond pas
-				//     pendant ce temps. Dette declaree, la meme que le pont GENIA
-				//     du modeleur ; la mise sur un fil viendra quand la chaine
-				//     aura prouve qu'elle tient.
-				ec.Separator();
-				{
-					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
-					costume::TexteGras(dl, F.px11, r.x + costume::PadPanneau,
-									   costume::CentrerY(F.px11, r.y, 20.f), "Discussion",
-									   ctx.theme.text, 0.5f);
-				}
-				// ⚠️ « Sujet » PASSE DERRIERE LE DEPLIAGE. Il etait le PREMIER
-				//    champ du panneau : la premiere chose que Rodolf voyait etait
-				//    une question qu'il ne s'etait pas posee. Le sujet n'est pas
-				//    necessaire pour taper une demande -- il affine la
-				//    specification, ce qui est un autre geste.
-				if (mOutilsAvances) {
-					Libelle(ctx, "Sujet — ce qu'on veut concevoir");
-					InputText(ctx, "Sujet", mSt->specSujetBuf, (int32)sizeof(mSt->specSujetBuf));
-					mSt->conversation.sujet = NkString(mSt->specSujetBuf);
-				}
+				const nkgui::NkRect r = ctx.DL().CurrentClip();
+				mPanneau.maintenant = mHorloge.Elapsed().ToSeconds();
+				mPanneau.phase = (float32)(mPanneau.maintenant - (float64)(int64)mPanneau.maintenant);
+				editorkit::NkGuiComponentPaint pc(ctx, mSt->theme);
+				pc.PoserPolices(nullptr, costume::Fontes().mono.Valid() ? &costume::Fontes().mono : nullptr);
+				const bool libre = ctx.popupDepth == 0 && ctx.PointReachable(ctx.input.mousePos) &&
+								   NkGuiRectContains(r, ctx.input.mousePos);
+				const editorkit::NkAiSorties out = mPanneau.Dessiner(ctx, pc, {r.x, r.y, r.w, r.h}, libre);
+				if (out.clicPris)
+					ctx.input.mouseClicked[0] = false; // le clic appartient au panneau
+				Gestes(out);
+			}
 
-				// LES TOURS DE PAROLE, bornes : un tiroir de 320 px ne montre pas
-				// trente tours, et laisser filer pousserait l'invite hors de
-				// portee. Ce qui est coupe est DIT (« N tour(s) plus haut »), pas
-				// escamote.
-				{
-					const uint32 nTours = mSt->conversation.Count();
-					const uint32 kMontres = 8u;
-					const uint32 debut = nTours > kMontres ? nTours - kMontres : 0u;
-					if (nTours == 0u) {
-						ctx.BeginDisabled();
-						ec.Text("(aucun echange — posez une question)");
-						ctx.EndDisabled();
-					}
-					if (debut > 0u) {
-						char bt[64];
-						snprintf(bt, sizeof(bt), "… %u tour(s) plus haut", debut);
-						ctx.BeginDisabled();
-						ec.Text(bt);
-						ctx.EndDisabled();
-					}
-					for (uint32 it = debut; it < nTours; ++it) {
-						const NkDesignTour &t = mSt->conversation.Tours()[it];
-						const bool moi = t.qui == NkQui::Moi;
-						const NkRect rq = ctx.NextItemRect(-1.f, 16.f);
-						costume::TexteGras(dl, F.px10, rq.x + costume::PadPanneau,
-										   costume::CentrerY(F.px10, rq.y, 16.f),
-										   moi ? "moi" : "IA",
-										   moi ? ctx.theme.textMuted : ctx.theme.accent, 0.4f);
-						// AVEC RETOUR A LA LIGNE : une reponse de modele fait
-						// plusieurs phrases, et `Text` seul la couperait au bord
-						// sans le dire.
-						nkgui::TextWrapped(ctx, t.texte.Data() ? t.texte.Data() : "");
-					}
-				}
-
-				// ═══════════════════════════════════════════════════════════
-				//  LE DORSAL : LE CHOIX EST UN GESTE, ET IL EST INFORME
-				// ═══════════════════════════════════════════════════════════
-				//  ⚠️ CE BLOC EXISTE PARCE QUE LE CINQUIEME DORSAL SORT DE LA
-				//     MACHINE. Les quatre autres se choisissent tout seuls dans la
-				//     cascade de `Init` et personne n'a besoin de le savoir. Celui-ci
-				//     envoie l'invite -- ET LE DOCUMENT COURANT -- chez Anthropic.
-				//     *Rodolf doit pouvoir choisir en connaissance de cause a chaque
-				//     usage, pas l'apprendre apres.*
-				//
-				//  ⚠️ ET LE ZERO DIT LEQUEL. « Claude indisponible » enverrait
-				//     chercher un defaut de reseau quand il manque une connexion.
-				//     `NkClaudeDiagnostic` separe les deux et rend le GESTE QUI
-				//     REPARE, en tete de phrase parce que la ligne peut etre coupee.
-				ec.Separator();
-				{
-					const bool surClaude = (mSt->ai.Backend() == &mSt->claudeBackend);
-					char b[320];
-					snprintf(b, sizeof(b), "Dorsal : %s", mSt->ai.Backend()
-															 ? mSt->ai.Backend()->Name()
-															 : "aucun");
-					ec.Text(b);
-					if (surClaude) {
-						// CE QUI PART, NOMME, ET LE CHIFFRE DE CE QUI EST DEJA PARTI.
-						// Un avertissement general se survole ; « 3 332 octets sont
-						// partis » se lit. Il vaut 0 avant le premier envoi, et c'est
-						// vrai : rien n'est encore sorti.
-						nkgui::TextWrapped(ctx, nkentseu::converse::NkClaudeAvertissement());
-						snprintf(b, sizeof(b),
-								 "Partent : votre message, le catalogue des composants, ET LE "
-								 "DOCUMENT COURANT. Deja envoye : %u octets.",
-								 (unsigned)mSt->claudeBackend.DerniereInvite().Length());
-						nkgui::TextWrapped(ctx, b);
-						if (ec.Button("Revenir au dorsal local")) {
-							mSt->ai.SetBackend(mSt->dorsalLocal ? mSt->dorsalLocal
-															   : (NkIDesignBackend *)&mSt->fileBackend);
-							Dire("Dorsal local — plus rien ne quitte cette machine.");
-						}
-					} else {
-						NkString quoiFaire;
-						const bool pret =
-							nkentseu::converse::NkClaudeDiagnostic(mSt->claudeBackend.compte,
-																   quoiFaire) ==
-							nkentseu::converse::NkClaudeEtat::Pret;
-						if (pret) {
-							if (ec.Button("Passer a Claude (SERVICE DISTANT)")) {
-								mSt->ai.SetBackend(&mSt->claudeBackend);
-								Dire("Dorsal Claude — a partir de maintenant, l'invite "
-												 "ET le document courant QUITTENT cette machine.");
-							}
-						} else {
-							// ⚠️ UN REFUS MUET A COTE DE DORSAUX QUI MARCHENT SE LIT
-							//    COMME UN SILENCE : on cherche alors le defaut dans sa
-							//    propre demande. On le DIT, avec le geste qui repare.
-							ctx.BeginDisabled();
-							ec.Text("Claude (distant) — indisponible");
-							ctx.EndDisabled();
-							nkgui::TextWrapped(ctx, quoiFaire.Data() ? quoiFaire.Data() : "");
-						}
-					}
-				}
-
-				Libelle(ctx, "Message");
-				InputText(ctx, "Message", mSt->chatBuf, (int32)sizeof(mSt->chatBuf));
-				// ⚠️ PENDANT L'ATTENTE, LE BOUTON CHANGE DE SENS. Laisser
-				//    « Envoyer » actif inviterait a lancer une seconde generation
-				//    que le materiel ne peut pas tenir ; le griser sans rien dire
-				//    laisserait croire a un blocage. On dit ce qui se passe, et on
-				//    offre la seule action qui ait un sens : arreter.
-				if (mSt->envoi.EnCours()) {
-					char b[160];
-					snprintf(b, sizeof(b), "Genere… %.1f s  ·  %u images",
-							 mSt->envoi.Secondes(), mSt->envoi.Images());
-					ec.Text(b);
-					if (ec.Button("Annuler la generation")) {
-						mSt->envoi.Annuler();
-						Dire("Generation annulee — sa reponse ne sera "
-										 "jamais posee dans la discussion.");
-					}
-				} else {
-					// ⚠️ UNE SAISIE, UN GESTE PRINCIPAL -- ET ON NE DEVINE PAS.
-					//    Rodolf demande « un panneau a la Claude Code » : une zone
-					//    de saisie et un fil. Le geste principal est donc celui
-					//    qu'il reclame depuis le 17/09 -- il tape, et le document
-					//    APPARAIT.
-					//
-					//    ⚠️ ON N'A PAS FAIT CHOISIR L'OUTIL, ET C'EST DELIBERE.
-					//    « Discuter » et « Generer » sont des invites OPPOSEES :
-					//    celle de la discussion INTERDIT au modele de produire un
-					//    document. Une regle qui devinerait laquelle on veut serait
-					//    une devinette non mesuree, et elle demanderait son propre
-					//    jeu d'epreuve. *La saisie fait UN geste connu ; l'autre
-					//    reste atteignable, et on le dit.*
-					if (ec.Button("Générer l'interface"))
-						GenererDocument();
-				}
-				// ── LE DEPLIAGE ────────────────────────────────────────────
-				// ⚠️ DIX CONTROLES EN SURFACE POSAIENT A L'UTILISATEUR UNE
-				//    QUESTION QU'IL NE S'ETAIT JAMAIS POSEE. Sujet, Message,
-				//    Envoyer, Generer, Nom de la spec, Ecrire la spec, Selection,
-				//    Demande, Proposer, Verifier par rejeu : ce sont NOS verbes,
-				//    pas les siens. Ils restent atteignables -- *on ne retire pas
-				//    un geste parce qu'il encombre, on le recule* -- mais ils ne
-				//    sont plus la premiere chose qu'on voit.
-				ec.Separator();
-				if (ec.Button(mOutilsAvances ? "Outils avancés  ▾" : "Outils avancés  ▸"))
-					mOutilsAvances = !mOutilsAvances;
-				if (!mOutilsAvances) {
-					ec.Separator();
-					PeindreFil(ec);
-					return;
-				}
-
-				if (mSt->conversation.Count() > 0 && ec.Button("Effacer la discussion")) {
-					mSt->conversation.Effacer();
-					Dire("Discussion effacee — le document n'a pas bouge.");
-				}
-				// ⚠️ « Envoyer » VIT ICI DESORMAIS, et il garde son sens exact :
-				//    il DISCUTE, son invite interdit au modele de produire un
-				//    document, et le document ne bouge pas. Le confondre avec
-				//    « Generer » avait deja coute une plainte de Rodolf.
-				if (ec.Button("Envoyer (discuter, sans toucher au document)"))
-					Discuter();
-
-				// ═══════════════════════════════════════════════════════════
-				//  LE DOCUMENT DE SPECIFICATION
-				// ═══════════════════════════════════════════════════════════
-				//  ⚠️ IL EXISTE SANS AUCUN MODELE. « Ecrire » fabrique les
-				//     exigences MECANIQUEMENT : ce sont les tours de l'HUMAIN,
-				//     c'est-a-dire ce qu'il a dit vouloir. « Affiner » ne fait que
-				//     les reformuler avec le dorsal, et n'ecrase RIEN s'il echoue.
-				//     Une specification qui n'existerait qu'avec un modele
-				//     disponible ne serait pas un document : ce serait une sortie.
-				ec.Separator();
-				Libelle(ctx, "Nom de la specification");
-				InputText(ctx, "Nom de la spec", mSt->specNomBuf,
-						  (int32)sizeof(mSt->specNomBuf));
-				if (ec.Button("Ecrire la specification"))
-					EcrireSpec();
-				if (!mSt->spec.Vide()) {
-					char bs[224];
-					snprintf(bs, sizeof(bs), "Specification « %s » : %u exigence(s)",
-							 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "",
-							 mSt->spec.CountExigences());
-					ec.Text(bs);
-					if (ec.Button("Affiner les exigences (dorsal)"))
-						AffinerSpec();
-					// LA LIAISON AU DESIGN, ET ELLE SE VOIT A L'ECRAN :
-					snprintf(bs, sizeof(bs), "Le design engendre portera  origine = %s",
-							 mSt->ai.OrigineCourante());
-					ctx.BeginDisabled();
-					ec.Text(bs);
-					ctx.EndDisabled();
-					if (ec.Button("Detacher la specification")) {
-						mSt->ai.specTexte = NkString("");
-						mSt->ai.specOrigine = NkString("");
-						Dire("Specification detachee — les prochaines greffes "
-										 "porteront de nouveau le nom du dorsal.");
-					}
-				}
-
-				// ── LA CARTE « RELEVÉ DE CHANGEMENTS » ───────────────────────
-				if (mSt->ai.HasProposal()) {
-					const uint32 nprop = mSt->ai.Proposal().NodeCount();
-					const float32 hCarte = 96.f + (float32)(nprop > 6 ? 6 : nprop) * 22.f;
-					const NkRect r = ctx.NextItemRect(-1.f, hCarte + 8.f);
-					// ⚠️ LARGEUR VISIBLE, PAS LARGEUR DE REGION : dans le tiroir la
-					//    region de defilement est plus large que la fenetre — la
-					//    carte deborderait a droite et ses boutons partiraient hors
-					//    champ (mesure sur capture, 31/08).
-					const float32 wVis = r.w > 304.f ? 304.f : r.w;
-					const NkRect c = {r.x + 8.f, r.y + 4.f, wVis - 16.f, hCarte};
-					dl.AddRectFilled(c, ctx.theme.panel, 6.f);
-					dl.AddRect(c, ctx.theme.border, 1.f, 6.f);
-					costume::TexteGras(dl, F.px11, c.x + costume::PadPanneau, c.y + 8.f,
-									   "Relevé de changements", ctx.theme.text, 0.5f);
-					char b[64];
-					snprintf(b, sizeof(b), "%u ajout(s)", nprop);
-					costume::Texte(dl, F.px10, c.x + costume::PadPanneau, c.y + 24.f, b,
-								   ctx.theme.textMuted);
-					float32 y = c.y + 42.f;
-					const uint32 max = nprop > 6 ? 6 : nprop;
-					for (uint32 i = 0; i < max; ++i) {
-						// la case cochée (l'application PARTIELLE viendra : cases
-						// figées cochées, dit dans le rapport)
-						dl.AddRectFilled({c.x + 10.f, y + 3.f, 12.f, 12.f}, ctx.theme.accent,
-										 3.f);
-						const nkgui::NkVec2 pc[3] = {{c.x + 12.5f, y + 9.f},
-													 {c.x + 15.f, y + 12.f},
-													 {c.x + 19.5f, y + 5.5f}};
-						dl.AddPolyline(pc, 3, ctx.theme.onAccent, 1.4f);
-						const char *nomN = mSt->ai.Proposal().nodes[i].label.Data();
-						costume::Texte(dl, F.px11, c.x + 30.f, y + 2.f,
-									   nomN && *nomN ? nomN : "(nœud)", ctx.theme.text);
-						y += 22.f;
-					}
-					costume::Texte(dl, F.px9, c.x + costume::PadPanneau, c.y + hCarte - 44.f,
-								   "S'appliquera en une seule opération annulable.",
-								   ctx.theme.textMuted);
-					// Rejeter (bord) / Appliquer (accent)
-					const float32 by = c.y + hCarte - 30.f;
-					const float32 wA = costume::Largeur(F.px11, "Appliquer") + 20.f;
-					const float32 wR = costume::Largeur(F.px11, "Rejeter") + 20.f;
-					const NkRect ra = {c.x + c.w - wA - costume::PadPanneau, by, wA, 22.f};
-					const NkRect rr = {ra.x - wR - 8.f, by, wR, 22.f};
-					dl.AddRect(rr, ctx.theme.border, 1.f, 4.f);
-					costume::Texte(dl, F.px11, rr.x + costume::PadPanneau,
-								   costume::CentrerY(F.px11, by, 22.f), "Rejeter", ctx.theme.text);
-					dl.AddRectFilled(ra, ctx.theme.accent, 4.f);
-					costume::TexteGras(dl, F.px11, ra.x + costume::PadPanneau,
-									   costume::CentrerY(F.px11, by, 22.f), "Appliquer",
-									   ctx.theme.onAccent, 0.3f);
-					if (ctx.popupDepth == 0 && ctx.input.mouseClicked[0]) {
-						if (NkGuiRectContains(ra, ctx.input.mousePos))
-							Appliquer();
-						else if (NkGuiRectContains(rr, ctx.input.mousePos)) {
-							mSt->ai.DiscardProposal();
-							Dire("Proposition rejetée — rien n'a changé.");
-						}
-					}
-				}
-				// ── L'INVITE + LA PORTÉE + L'ENVOI ───────────────────────────
-				{
-					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
-					// la portée : « Sélection » (vraie : la greffe vise la sélection)
-					const float32 wp = costume::Largeur(F.px10, "Sélection")
-									   + 2.f * (float32)costume::EspNormal;
-					const NkRect rp = {r.x + costume::PadPanneau, r.y + 2.f, wp, 20.f};
-					dl.AddRect(rp, ctx.theme.border, 1.f, 10.f);
-					costume::Texte(dl, F.px10, rp.x + (float32)costume::EspNormal,
-								   costume::CentrerY(F.px10, rp.y, 20.f), "Sélection",
-								   ctx.theme.textMuted);
-				}
-				Libelle(ctx, "Demande — ce qu'on veut voir engendre");
-				InputText(ctx, "Demande", mSt->promptBuf, (int32)sizeof(mSt->promptBuf));
-				// ⚠️ PENDANT L'ATTENTE, ON MONTRE ET ON OFFRE D'ARRETER. Le bouton
-				//    « Proposer » disparait : le laisser actif inviterait a lancer
-				//    une seconde generation que la carte ne tient pas, et le griser
-				//    sans rien dire laisserait croire au gel qu'on vient de retirer.
-				if (mSt->envoi.EnCours()) {
-					char ba[160];
-					snprintf(ba, sizeof(ba), "J'interroge le modèle…  %.1f s  ·  %u images",
-							 mSt->envoi.Secondes(), mSt->envoi.Images());
-					ec.Text(ba);
-					if (ec.Button("Annuler la génération")) {
-						mSt->envoi.Annuler();
-						Dire("Génération annulée — sa réponse ne sera jamais posée.");
-					}
-				} else if (ec.Button("Proposer (aperçu)")) {
-					Proposer();
-				}
-				if (mDernierCommit.Accepted() && ec.Button("Retirer la greffe posée"))
-					Retirer();
-				if (ec.Button("Vérifier le document par rejeu"))
-					Replay();
-				ec.Separator();
-				PeindreFil(ec);
+			/// Le panneau du kit, publie pour les sondes (plans, rectangles).
+			const editorkit::NkAiPanneau &Panneau() const {
+				return mPanneau;
+			}
+			editorkit::NkAiPanneau &Panneau() {
+				return mPanneau;
 			}
 
 			// ── LE FIL ────────────────────────────────────
-			/// Pose une phrase dans le fil. Remplace `mLast = ...`, a 24 sites.
-			/// ⚠️ Toutes en `Prose`, et c'est DELIBERE : ces phrases sont des etats
-			///    de la chaine (« Generation lancee », « Discussion effacee »), pas
-			///    des refus nommes. Les typer en `Refus` parce que certaines sonnent
-			///    negatif serait inventer une distinction que le code ne fait pas.
-			///    Le seul vrai refus de ce panneau -- « RIEN N'EST PARTI » -- porte
-			///    son motif et passe par `DireRefus`.
-			void Dire(const NkString &t) {
+			/// Pose une phrase dans le fil (un ETAT de la chaine, pas un refus).
+			void Dire(const char *t) {
 				editorkit::NkAiBlocDonnees b;
 				b.type = editorkit::NkAiBloc::Prose;
-				b.texte = t;
+				b.texte = NkString(t ? t : "");
 				NkString pourquoi;
-				(void)mFil.Pousser(b, pourquoi);
-			}
-			void Dire(const char *t) {
-				Dire(NkString(t ? t : ""));
+				(void)mPanneau.Fil().Pousser(b, pourquoi);
 			}
 			/// Le refus NOMME, avec son motif -- une reponse, pas une panne.
 			void DireRefus(const char *motif) {
 				editorkit::NkAiBlocDonnees b;
 				b.type = editorkit::NkAiBloc::Refus;
-				b.motif = NkString(motif ? motif : "raison non nommee");
+				b.motif = NkString(motif && motif[0] ? motif : "raison non nommee");
 				NkString pourquoi;
-				(void)mFil.Pousser(b, pourquoi);
-			}
-			/// La mesure de texte que le plan demande, servie par la fonte du costume.
-			static float32 MesurerTexte(void *, editorkit::NkAiPolice, const char *t) {
-				return costume::Largeur(costume::Fontes().px11, t ? t : "");
-			}
-			// ⚠️ CE PANNEAU NE DESSINE PLUS SON FIL. La geometrie vient de
-			//    `NkAiFilMesurer`, la peinture de `NkAiFilPeindre` -- les memes que
-			//    NK3DModeler. Trois panneaux conformes aujourd'hui divergent en un
-			//    mois ; un composant partage ne le peut pas.
-			void PeindreFil(NkEditorFrameContext &ec) {
-				auto &ctx = ec.Ui();
-				if (mFil.Taille() == 0)
-					return; // rien a dire : on ne reserve meme pas la place
-				editorkit::NkAiMetriques metr;
-				editorkit::NkAiFilMesurer(mFil, ctx.ContentWidth(), metr, MesurerTexte, nullptr, mPlan);
-				const NkRect r = ctx.NextItemRect(-1.f, mPlan.Hauteur());
-				editorkit::NkGuiComponentPaint pc(ctx, mSt->theme);
-				editorkit::NkAiFilPeindre(pc, mFil, mPlan, r.x, r.y);
-				// La marque se consomme LA OU LES BLOCS SONT PEINTS, jamais au clic.
-				mFil.MarquerVus();
-			}
-
-		private:
-			// ⚠️ LE LIBELLE D'UN CHAMP NE SE VOYAIT PAS, ET C'EST MESURE, PAS
-			//    SUPPOSE : la capture du 14/09 montre TROIS boites vides a la
-			//    suite dans le tiroir. `InputText` de NKGui pose son libelle A
-			//    DROITE du champ ; dans un tiroir de 320 px, la region de
-			//    defilement est plus large que la fenetre, et le libelle part
-			//    hors champ -- exactement le defaut deja paye par la carte
-			//    « Releve de changements » le 31/08 (« LARGEUR VISIBLE, PAS
-			//    LARGEUR DE REGION »). Le champ « Demande », plus ancien, en
-			//    souffrait deja sans que personne le dise.
-			//
-			//    On pose donc le libelle AU-DESSUS, a la largeur visible. Ce
-			//    n'est pas un widget de plus : c'est une ligne de texte, et elle
-			//    vit dans UNE fonction -- quatre copies auraient diverge au
-			//    premier changement de police.
-			void Libelle(nkgui::NkGuiContext &ctx, const char *texte) {
-				auto &F = costume::Fontes();
-				const NkRect r = ctx.NextItemRect(-1.f, 15.f);
-				costume::Texte(ctx.DL(), F.px10, r.x + costume::PadPanneau,
-							   costume::CentrerY(F.px10, r.y, 15.f), texte,
-							   ctx.theme.textMuted);
-			}
-
-			// ═══════════════════════════════════════════════════════════════
-			//  DISCUTER — SANS BLOQUER LA FENETRE (g3)
-			// ═══════════════════════════════════════════════════════════════
-			//  ⚠️ LE TOUR HUMAIN EST POSE TOUT DE SUITE, la reponse arrivera plus
-			//     tard. C'est ce qui rend l'attente lisible : l'utilisateur voit
-			//     ce qu'il a envoye pendant que ca calcule, au lieu d'un champ
-			//     vide et d'un curseur d'attente.
-			//  ⚠️ ET L'INVITE EST BATIE MAINTENANT, pas dans le fil. Elle lit la
-			//     conversation, qui appartient a l'interface ; la batir dans le
-			//     travailleur aurait mis la conversation a portee du second fil —
-			//     c'est-a-dire exactement ce que la regle de partage interdit.
-			/// ⚠️ LE GESTE QUE RODOLF DEMANDE : il tape une phrase, et le document
-			///    APPARAIT. Il ne passe PAS par `Discuter` : l'invite de
-			///    conversation dit au modele « tu ne produis AUCUN document », donc
-			///    la reponse ne contiendrait jamais de `nkuidoc`. Mesure du 17/09 :
-			///    « pas de ligne nkuidoc dans la reponse », a chaque fois.
-			void GenererDocument() {
-				NkString pourquoi;
-				if (mSt->LancerGenerationIA(mSt->chatBuf, pourquoi)) {
-					mSt->chatBuf[0] = 0;
-					Dire("Generation du document lancee — la fenetre reste vivante.");
-				} else {
-					// Le refus est NOMME a l'ECRAN, pas seulement au journal : un
-					// bouton qui ne fait rien sans rien dire est le pire des deux.
-					char b[320];
-					snprintf(b, sizeof(b), "REFUS — %s",
-							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					Dire(b);
-				}
-			}
-
-			void Discuter() {
-				// ⚠️ LE GESTE VIT DANS L'ETAT (`LancerDemandeIA`), PAS ICI. Le bouton
-				//    ne fait que l'appeler et traduire son refus en phrase. Un second
-				//    exemplaire du geste dans une sonde aurait laisse eprouver un chemin
-				//    pendant que l'autre cassait -- « deux chemins pour un geste ».
-				NkString pourquoi;
-				if (mSt->LancerDemandeIA(mSt->chatBuf, pourquoi)) {
-					mSt->chatBuf[0] = 0; // le message est parti : le champ se vide
-					Dire("Generation lancee — la fenetre reste vivante.");
-				} else {
-					// ATTENTION : LE TOUR HUMAIN RESTE. Retirer ce que
-					// l'utilisateur vient de taper parce que le modele n'a pas
-					// repondu lui ferait perdre sa phrase. Et le refus est NOMME,
-					// jamais un silence ni un tour IA vide.
-					char b[320];
-					snprintf(b, sizeof(b), "REFUS — %s",
-							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					Dire(b);
-				}
+				(void)mPanneau.Fil().Pousser(b, pourquoi);
 			}
 
 			// ── LE BANC (--mesure-async) ────────────────────────────────────
 			// Publiques parce que `main.cpp` tient l'objet et pilote le banc par
 			// image. Elles ne servent a rien d'autre, et elles le disent.
-		public:
-			/// Lance une generation de banc sur le DORSAL LENT. `sync` emprunte
-			/// l'ancien chemin BLOQUANT — c'est le NEGATIF du banc : il doit rendre
-			/// une seule image.
-			/// ⚠️ LE CHEMIN DE L'APERCU, MESURE PAR LA MEME PORTE. Le banc
-			///    eprouvait la POIGNEE ; il n'eprouvait pas le branchement de
-			///    « Proposer (apercu) » -- c'est-a-dire precisement le bouton sur
-			///    lequel Rodolf a vu la fenetre geler le 20/09. Un banc qui mesure
-			///    a cote du defaut signale n'est pas le banc de ce defaut.
-			///    Il pose un dorsal LENT sur l'IA le temps de la course, puis le
-			///    rend : sans ca, on mesurerait le vrai modele et la duree
-			///    dependrait de la VRAM libre.
+			/// ⚠️ LE CHEMIN DE L'APERCU, MESURE PAR LA MEME PORTE que le geste
+			///    « Proposer » du composeur -- pas une copie.
 			void BancAsyncProposer(nkentseu::int64 ms) {
 				mSt->dorsalLent.millisecondes = ms;
 				NkIDesignBackend *avant = mSt->ai.Backend();
 				mSt->ai.SetBackend(&mSt->dorsalLent);
-				snprintf(mSt->promptBuf, sizeof(mSt->promptBuf), "banc apercu");
-				Proposer(); // LA MEME fonction que le bouton, pas une copie
+				Envoyer("banc apercu", 1);
 				mSt->ai.SetBackend(avant);
 			}
-
 			void BancAsyncLancer(nkentseu::int64 ms, bool sync) {
 				mSt->dorsalLent.millisecondes = ms;
 				mSt->conversation.Ajouter(NkQui::Moi, "banc");
 				NkString invite;
 				mSt->conversation.BatirInvite(invite);
 				if (sync) {
-					// LE CHEMIN D'AVANT, garde exprimes pour le banc : un appel
-					// bloquant dans le fil de dessin.
+					// LE CHEMIN D'AVANT, garde expres pour le banc : un appel bloquant
+					// dans le fil de dessin -- le NEGATIF du banc.
 					mBancSyncHorloge = nkentseu::NkChrono();
 					NkDesignRequest req;
 					req.prompt = invite;
@@ -10209,148 +9768,386 @@ namespace nkuidesign {
 				return mBancSyncFait ? mBancSyncSecondes : mSt->envoi.Secondes();
 			}
 
+			/// ENVOYER, par la meme porte que le bouton : ce que fait le composeur,
+			/// et ce que les sondes (NK_AI_DEMANDE) appellent. `geste` : 0 generer,
+			/// 1 proposer, 2 discuter. Rend vrai si quelque chose est parti.
+			bool Envoyer(const char *texte, int32 geste) {
+				Declarer();
+				if (!texte || !texte[0])
+					return false;
+				if (texte[0] == '/')
+					return Commande(texte);
+				PoserDemande(texte);
+				NkString pourquoi;
+				bool parti = false;
+				// OU SE POSE LE DOCUMENT ENGENDRE (capture 040716 : il tombait « hors
+				// page », a la racine, et le canevas n'en montrait rien). Sans
+				// selection, c'est la MEME reponse que la palette et le depot :
+				// la planche sous l'oeil, sinon celle de la selection, sinon la
+				// premiere -- jamais la racine.
+				mSt->cibleIA = (mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0)
+								   ? mSt->selected
+								   : NkParentPourPose(*mSt);
+				if (geste == 2)
+					parti = mSt->LancerDemandeIA(texte, pourquoi);
+				else if (geste == 1)
+					parti = mSt->LancerPropositionIA(texte, pourquoi);
+				else
+					parti = mSt->LancerGenerationIA(texte, pourquoi);
+				if (!parti) {
+					char b[320];
+					snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
+							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
+					DireRefus(b);
+					return false;
+				}
+				mGesteEnCours = geste;
+				mBlocEnCours = 0u;
+				if (geste != 2) {
+					// LE BLOC D'OUTIL : la demande en ENTREE, la reponse du modele en
+					// SORTIE a son arrivee (tronquee, avec l'estompe) -- plus jamais le
+					// texte `.nkuidoc` brut dans la prose du fil (capture 040656).
+					editorkit::NkAiBlocDonnees o;
+					o.type = editorkit::NkAiBloc::Outil;
+					o.titre = NkString(geste == 1 ? "Proposer" : "Generer");
+					o.texte = NkString(geste == 1 ? "apercu : rien n'est pose avant « Appliquer »"
+												  : "le document sera pose dans la page");
+					o.entree = NkString(texte);
+					o.replie = false;
+					NkString pq;
+					if (mPanneau.Fil().Pousser(o, pq))
+						mBlocEnCours = mPanneau.Fil().At(mPanneau.Fil().Taille() - 1).id;
+				}
+				return true;
+			}
+
 		private:
+			void PoserDemande(const char *texte) {
+				editorkit::NkAiBlocDonnees d;
+				d.type = editorkit::NkAiBloc::Demande;
+				d.texte = NkString(texte);
+				NkString pq;
+				(void)mPanneau.Fil().Pousser(d, pq);
+			}
+
+			// ── CE QUE NKUIDESIGN DECLARE AU PANNEAU ─────────────────────────
+			void Declarer() {
+				if (mPanneau.fournisseurs.Size() > 0)
+					return;
+				editorkit::NkAiFournisseurDesc loc;
+				loc.cle = NkString("local");
+				loc.nom = NkString("Local");
+				editorkit::NkAiModeleDesc ml;
+				// ⚠️ LE NOM DU DORSAL, JAMAIS CELUI D'UN MODELE ECRIT EN DUR : le panneau
+				//    n'affiche que `Name()` -- le jour ou un modele de Rihen prend la place,
+				//    pas une ligne ici ne bouge.
+				ml.nom = NkString(mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name() : "fichier");
+				loc.modeles.PushBack(ml);
+				mPanneau.fournisseurs.PushBack(loc);
+				editorkit::NkAiFournisseurDesc cl;
+				cl.cle = NkString("claude");
+				cl.nom = NkString("Claude");
+				cl.distant = true; // l'invite ET LE DOCUMENT COURANT quittent la machine
+				static const char *const kModeles[3] = {"sonnet", "opus", "haiku"};
+				for (int32 i = 0; i < 3; ++i) {
+					editorkit::NkAiModeleDesc m;
+					m.nom = NkString(kModeles[i]);
+					cl.modeles.PushBack(m);
+					if (mSt->claudeBackend.modele == NkString(kModeles[i]))
+						cl.modele = i;
+				}
+				mPanneau.fournisseurs.PushBack(cl);
+
+				editorkit::NkAiModeDesc g;
+				g.nom = NkString("Generer");
+				g.detail = NkString("pose un document");
+				g.invite = NkString("Decrivez l'ecran a generer — il sera pose dans le document…");
+				g.produit = true;
+				mPanneau.modes.PushBack(g);
+				editorkit::NkAiModeDesc pr;
+				pr.nom = NkString("Proposer");
+				pr.detail = NkString("apercu, rien n'est pose");
+				pr.invite = NkString("Decrivez l'ecran — un apercu, rien n'est pose avant « Appliquer »…");
+				pr.produit = true;
+				mPanneau.modes.PushBack(pr);
+				editorkit::NkAiModeDesc di;
+				di.nom = NkString("Discuter");
+				di.detail = NkString("le document ne bouge pas");
+				di.invite = NkString("Discutez de la conception — le document ne bougera pas…");
+				di.produit = false;
+				mPanneau.modes.PushBack(di);
+				mPanneau.mode = 0; // le geste que Rodolf demande depuis le 17/09 : il tape, le document APPARAIT
+
+				static const char *const kCmd[8][2] = {
+					{"/appliquer", "pose la proposition en attente, en une operation annulable"},
+					{"/rejeter", "jette la proposition en attente"},
+					{"/retirer", "retire la derniere greffe posee"},
+					{"/rejeu", "verifie le document par rejeu"},
+					{"/specification", "ecrit la specification depuis la discussion"},
+					{"/affiner", "reformule les exigences par le dorsal"},
+					{"/detacher", "detache la specification des prochaines greffes"},
+					{"/effacer", "efface la discussion (le document ne bouge pas)"}};
+				for (int32 i = 0; i < 8; ++i) {
+					editorkit::NkAiCommandeDesc c;
+					c.nom = NkString(kCmd[i][0]);
+					c.detail = NkString(kCmd[i][1]);
+					c.insertion = NkString(kCmd[i][0]);
+					mPanneau.commandes.PushBack(c);
+				}
+				editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
+				cap.produitOutil = true; // une generation : la demande en entree, la reponse en sortie
+				cap.produitRefus = true; // « RIEN N'EST PARTI — <motif> »
+				mPanneau.capacites = cap;
+				mPanneau.plafond = 200;
+				mPanneau.indication = NkString(
+					"**Generer** : decrivez un ecran, il est pose dans le document. **Discuter** : le document ne "
+					"bouge pas. La pastille de mode choisit ; le « / » liste les outils (`/rejeu`, `/specification`…).");
+				mPanneau.declaration =
+					NkString("Local : NK_DESIGN_CMD, ou Ollama s'il repond. Claude : le CLI « claude », compte NK_CLAUDE_COMPTE.");
+			}
+
+			/// L'ETAT DES FOURNISSEURS, relu a chaque image. ⚠️ Pour Claude, le
+			/// diagnostic rend le GESTE QUI REPARE, en tete de phrase.
+			void Etats() {
+				editorkit::NkAiFournisseurDesc &loc = mPanneau.fournisseurs[0];
+				loc.pret = mSt->dorsalLocal != nullptr;
+				loc.motif = NkString(loc.pret ? "" : "aucun dorsal local");
+				editorkit::NkAiFournisseurDesc &cl = mPanneau.fournisseurs[1];
+				NkString quoiFaire;
+				cl.pret = nkentseu::converse::NkClaudeDiagnostic(mSt->claudeBackend.compte, quoiFaire) ==
+						  nkentseu::converse::NkClaudeEtat::Pret;
+				cl.motif = cl.pret ? NkString("") : quoiFaire;
+				mPanneau.occupe = mSt->envoi.EnCours();
+				// L'ACTIF SUIT LE DORSAL REEL : un banc ou le menu IA ont pu le changer.
+				const int32 attendu = (mSt->ai.Backend() == &mSt->claudeBackend) ? 1 : 0;
+				if (attendu != mPanneau.Actif() && !mPanneau.occupe) {
+					NkString pq;
+					const int32 avant = mPanneau.Actif();
+					if (mPanneau.Choisir(attendu, pq))
+						Echanger(avant, attendu);
+				}
+			}
+
+			/// LA CONVERSATION QUE LE MODELE LIT suit l'assistant, comme le fil.
+			void Echanger(int32 ancien, int32 nouveau) {
+				if (ancien < 0 || ancien > 1 || nouveau < 0 || nouveau > 1)
+					return;
+				mConversations[ancien] = mSt->conversation;
+				mSt->conversation = mConversations[nouveau];
+			}
+
+			void Recolter() {
+				if (mSt->messageIA.Length() == 0)
+					return;
+				const NkString message = mSt->messageIA;
+				mSt->messageIA = NkString("");
+				// LA REPONSE BRUTE du modele : le dernier tour IA de la conversation.
+				const NkDesignTour *ia = nullptr;
+				const uint32 n = mSt->conversation.Count();
+				if (n > 0 && mSt->conversation.Tours()[n - 1].qui == NkQui::IA)
+					ia = &mSt->conversation.Tours()[n - 1];
+				// LE VERDICT, LU DANS LA PHRASE DE LA RECOLTE (une seule formulation,
+				// deux destinations) : « REFUS — », « … NON POSEE », « … NON RETENUE ».
+				const char *m0 = message.Data() ? message.Data() : "";
+				const bool refus = (m0[0] == 'R' && m0[1] == 'E' && m0[2] == 'F') || strstr(m0, "NON POSEE") != nullptr ||
+								   strstr(m0, "NON RETENUE") != nullptr;
+				if (mGesteEnCours == 2) {
+					// UNE DISCUSSION : la reponse du modele EST le message -- en prose.
+					if (ia && !refus)
+						Dire(ia->texte.Data());
+					else
+						DireRefus(message.Data());
+				} else if (editorkit::NkAiBlocDonnees *b = mPanneau.Fil().MutableParId(mBlocEnCours)) {
+					// UNE GENERATION : l'etape d'outil recoit sa sortie et son verdict.
+					b->sortie = ia ? ia->texte : NkString("(aucune reponse)");
+					b->texte = message;
+					b->replie = true; // la sortie se deplie a la demande, comme la capture
+					if (mGesteEnCours == 1 && mSt->ai.HasProposal())
+						mBlocProposition = mBlocEnCours;
+					if (mGesteEnCours == 0 && !refus)
+						mSt->cadrerApresGreffe = true; // le canevas CADRE ce qui vient d'etre pose
+				} else
+					Dire(message.Data());
+				mBlocEnCours = 0u;
+				mGesteEnCours = -1;
+			}
+
+			void Gestes(const editorkit::NkAiSorties &out) {
+				if (out.fournisseurChange) {
+					mSt->ai.SetBackend(out.nouveau == 1 ? (NkIDesignBackend *)&mSt->claudeBackend
+														: (mSt->dorsalLocal ? mSt->dorsalLocal
+																			: (NkIDesignBackend *)&mSt->fileBackend));
+					Echanger(out.ancien, out.nouveau);
+				}
+				if (out.modeleChange && mPanneau.Actif() == 1) {
+					const editorkit::NkAiFournisseurDesc &f = mPanneau.fournisseurs[1];
+					if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())
+						mSt->claudeBackend.modele = f.modeles[(usize)f.modele].nom;
+				}
+				if (out.envoyer && Envoyer(out.texte.CStr(), out.mode))
+					mPanneau.ViderSaisie(); // parti : le champ se vide ; refuse : la phrase RESTE
+				if (out.arreter && mSt->envoi.EnCours()) {
+					mSt->envoi.Annuler();
+					Dire("Generation annulee — sa reponse ne sera jamais posee.");
+					mBlocEnCours = 0u;
+					mGesteEnCours = -1;
+				}
+				if (out.actionBloc != 0u && out.actionBloc == mBlocProposition) {
+					if (out.actionIndice == 0)
+						Appliquer();
+					else if (out.actionIndice == 1) {
+						mSt->ai.DiscardProposal();
+						Dire("Proposition rejetee — rien n'a change.");
+					}
+					mBlocProposition = 0u;
+				}
+			}
+
+			/// LES OUTILS DU « / » -- les gestes des anciens « Outils avances ».
+			bool Commande(const char *texte) {
+				auto est = [&](const char *c) {
+					uint32 i = 0;
+					for (; c[i]; ++i)
+						if (texte[i] != c[i])
+							return false;
+					return texte[i] == 0 || texte[i] == ' ';
+				};
+				PoserDemande(texte);
+				if (est("/appliquer")) {
+					if (!mSt->ai.HasProposal())
+						DireRefus("aucune proposition en attente : « Proposer » d'abord");
+					else
+						Appliquer();
+				} else if (est("/rejeter")) {
+					if (!mSt->ai.HasProposal())
+						DireRefus("aucune proposition en attente");
+					else {
+						mSt->ai.DiscardProposal();
+						mBlocProposition = 0u;
+						Dire("Proposition rejetee — rien n'a change.");
+					}
+				} else if (est("/retirer"))
+					Retirer();
+				else if (est("/rejeu"))
+					Replay();
+				else if (est("/specification")) {
+					const char *nom = texte + 14;
+					while (*nom == ' ')
+						++nom;
+					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "%s", *nom ? nom : "spec");
+					EcrireSpec();
+				} else if (est("/affiner"))
+					AffinerSpec();
+				else if (est("/detacher")) {
+					mSt->ai.specTexte = NkString("");
+					mSt->ai.specOrigine = NkString("");
+					Dire("Specification detachee — les prochaines greffes porteront de nouveau le nom du dorsal.");
+				} else if (est("/effacer")) {
+					mSt->conversation.Effacer();
+					Dire("Discussion effacee — le document n'a pas bouge.");
+				} else {
+					char b[160];
+					snprintf(b, sizeof(b), "« %s » n'est pas une commande : le « / » les liste.", texte);
+					DireRefus(b);
+					return false;
+				}
+				return true;
+			}
 
 			// -- ECRIRE LA SPECIFICATION. Mecanique, sans dorsal.
 			void EcrireSpec() {
 				if (mSt->conversation.Vide()) {
-					Dire("Aucune discussion : il n'y a rien a specifier — "
-									 "et aucun fichier n'est ecrit.");
+					Dire("Aucune discussion : il n'y a rien a specifier — et aucun fichier n'est ecrit.");
 					return;
 				}
 				if (!mSt->specNomBuf[0])
 					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "spec");
-				NkSpecification::DepuisConversation(mSt->conversation, mSt->specNomBuf,
-													mSt->spec);
+				NkSpecification::DepuisConversation(mSt->conversation, mSt->specNomBuf, mSt->spec);
 				NkString texte;
 				mSt->spec.Ecrire(texte);
 				char chemin[192];
 				snprintf(chemin, sizeof(chemin), "nkuidesign_%s.nkuispec", mSt->specNomBuf);
 				const bool ecrit = nkentseu::NkFile::WriteAllText(chemin, texte.Data());
-				// LE LIEN. Deux champs, deux roles : `specTexte` entre dans
-				// l'invite, `specOrigine` entre dans la provenance de chaque
-				// noeud engendre. Les confondre aurait fait porter aux noeuds un
-				// paragraphe entier au lieu d'un nom.
+				// LE LIEN : `specTexte` entre dans l'invite, `specOrigine` dans la
+				// provenance de chaque noeud engendre.
 				mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
 				mSt->ai.specOrigine = mSt->spec.nom;
 				char b[352];
 				snprintf(b, sizeof(b),
-						 ecrit ? "Specification ecrite : %s (%u exigence(s)). Le design "
-								 "engendre portera origine = %s."
-							   : "ECHEC d'ecriture de %s (%u exigence(s)) — origine = %s "
-								 "posee quand meme en memoire.",
-						 chemin, mSt->spec.CountExigences(),
-						 mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
+						 ecrit ? "Specification ecrite : %s (%u exigence(s)). Le design engendre portera origine = %s."
+							   : "ECHEC d'ecriture de %s (%u exigence(s)) — origine = %s posee quand meme en memoire.",
+						 chemin, mSt->spec.CountExigences(), mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
 				Dire(b);
 			}
 
 			// -- AFFINER. N'ecrase les exigences QUE si le dorsal en rend.
 			void AffinerSpec() {
 				NkString pourquoi;
-				if (NkSpecification::Affiner(mSt->conversation, mSt->ai.Backend(), mSt->spec,
-											 pourquoi)) {
+				if (NkSpecification::Affiner(mSt->conversation, mSt->ai.Backend(), mSt->spec, pourquoi)) {
 					mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
 					char b[160];
-					snprintf(b, sizeof(b), "Exigences affinees : %u.",
-							 mSt->spec.CountExigences());
+					snprintf(b, sizeof(b), "Exigences affinees : %u.", mSt->spec.CountExigences());
 					Dire(b);
 				} else {
 					char b[320];
-					snprintf(b, sizeof(b),
-							 "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
+					snprintf(b, sizeof(b), "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
-					Dire(b);
+					DireRefus(b);
 				}
 			}
 
-			/// 🔴 ELLE APPELAIT `ai.Propose(...)` -- DONC LE DORSAL -- DANS LE FIL
-			///    DE DESSIN. Avec le plafond de 300 s, Rodolf est reste cinq
-			///    minutes devant une fenetre morte le 20/09. *Une attente sans
-			///    temoin est indiscernable d'un plantage.*
-			///
-			///    La poignee asynchrone existait depuis le 17/09, avec son banc et
-			///    son compteur d'images ; elle n'etait branchee que sur la
-			///    conversation. Ce chemin-ci est desormais le meme.
-			void Proposer() {
-				NkString pourquoi;
-				if (mSt->LancerPropositionIA(mSt->promptBuf, pourquoi)) {
-					Dire("J'interroge le modèle… la fenêtre reste vivante, "
-									 "et « Annuler » arrête l'attente.");
-					return;
-				}
-				char b[256];
-				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
-						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
-				DireRefus(b);
-			}
 			void Appliquer() {
 				const NkAIResult r = mSt->ai.CommitProposal(mSt->doc, mSt->selected);
 				char b[320];
 				if (r.Accepted()) {
-					snprintf(b, sizeof(b),
-							 "Appliquée : %u nœud(s) posés. « Retirer la greffe posée » "
-							 "l'annule en une opération.",
+					snprintf(b, sizeof(b), "Appliquee : %u nœud(s) poses. « /retirer » l'annule en une operation.",
 							 r.nodesAdded);
 					mSt->host.SyncTo(mSt->doc);
 					mSt->selected = r.graftedRoot;
 					mDernierCommit = r;
+					mSt->cadrerApresGreffe = true;
+					Dire(b);
 				} else {
-					snprintf(b, sizeof(b), "GREFFE REFUSÉE — %s. La proposition reste en attente.",
+					snprintf(b, sizeof(b), "GREFFE REFUSEE — %s. La proposition reste en attente.",
 							 NkAIVerdictName(r.verdict));
+					DireRefus(b);
 				}
-				Dire(b);
 			}
 			void Retirer() {
+				if (!mDernierCommit.Accepted()) {
+					DireRefus("aucune greffe posee par ce panneau a retirer (Ctrl+Z defait une generation)");
+					return;
+				}
 				if (NkDesignAI::Retract(mSt->doc, mDernierCommit)) {
 					mSt->host.SyncTo(mSt->doc);
 					mSt->SelectSingle(0);
-					Dire("Greffe retirée — le document est revenu à l'état d'avant.");
-				} else {
-					Dire("RETRAIT REFUSÉ — le document a changé depuis la pose.");
-				}
+					Dire("Greffe retiree — le document est revenu a l'etat d'avant.");
+				} else
+					DireRefus("RETRAIT REFUSE — le document a change depuis la pose.");
 				mDernierCommit = NkAIResult();
-			}
-			/// ⚠️ AUCUN BOUTON NE L'APPELLE AUJOURD'HUI -- et c'est precisement
-			///    pourquoi elle etait dangereuse. Elle tenait l'ANCIEN chemin
-			///    bloquant, pret a etre rebranche par quelqu'un qui ne saurait pas
-			///    ce qu'il rallume. *Un stub qui attend d'etre branche coute deux
-			///    fois : une fois quand on l'ecrit, une fois quand on l'utilise.*
-			///
-			///    Elle emprunte desormais le MEME depart asynchrone que le reste :
-			///    il n'existe plus une seule porte qui fige la fenetre.
-			void Ask() {
-				NkString pourquoi;
-				if (mSt->LancerGenerationIA(mSt->promptBuf, pourquoi)) {
-					Dire("J'interroge le modèle… la fenêtre reste vivante, "
-									 "et « Annuler » arrête l'attente.");
-					return;
-				}
-				char b[256];
-				snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
-						 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommée");
-				Dire(b);
 			}
 			void Replay() {
 				const uint32 diffs = NkDesignAI::ReplayDiffs(mSt->doc, mSt->ai.replaySurface);
 				char b[192];
 				snprintf(b, sizeof(b), "Rejeu du document : %u divergence(s)%s", diffs,
-						 diffs == 0 ? " — fidèle." : " — NON fidèle.");
+						 diffs == 0 ? " — fidele." : " — NON fidele.");
 				Dire(b);
 				if (diffs == 0)
 					mSt->doc.MarkVerified(0);
 			}
+
 			DesignState *mSt;
-			/// Le depliage des outils avances. FERME par defaut : la surface
-			/// principale est un fil et une saisie, comme Rodolf l'a demande.
-			bool mOutilsAvances = false;
-			// ⚠️ `NkString mLast` A DISPARU. Ce panneau n'avait pas de fil : UNE
-			//    seule phrase, ecrasee a chaque tour. On ne voyait donc jamais ce
-			//    qui s'etait passe avant, et une reponse chassait la precedente
-			//    sans que rien ne le dise.
-			editorkit::NkAiFil mFil;
-			/// Le PLAN du fil, publie par la derniere passe de peinture.
-			editorkit::NkAiPlan mPlan;
+			editorkit::NkAiPanneau mPanneau;
+			/// La conversation que le modele lit, PAR ASSISTANT (0 local, 1 Claude).
+			NkDesignConversation mConversations[2];
+			/// Le bloc d'outil qui attend sa reponse, et le geste qui l'a lance.
+			uint32 mBlocEnCours = 0u;
+			int32 mGesteEnCours = -1;
+			/// Le bloc de la proposition en attente (porte Appliquer / Rejeter).
+			uint32 mBlocProposition = 0u;
 			NkAIResult mDernierCommit;
+			nkentseu::NkChrono mHorloge;
+			uint32 mImages = 0; ///< les images ou le panneau a ete peint (NK_AI_DEMANDE)
 			// le banc synchrone (--mesure-async=<ms>:sync), et rien d'autre
 			nkentseu::NkChrono mBancSyncHorloge;
 			nkentseu::float64 mBancSyncSecondes = 0.0;
