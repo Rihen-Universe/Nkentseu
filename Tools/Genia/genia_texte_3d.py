@@ -82,8 +82,15 @@ def main():
     ap.add_argument("--image-seule", action="store_true", help="s'arreter a l'image (mesure)")
     a = ap.parse_args()
     poids = os.environ.get("NK_GENIA_POIDS_T2I", "C:/Rihen/Modeles/" + a.modele)
-    if not os.path.isfile(os.path.join(poids, "model_index.json")):
-        refus("poids %s absents : %s (aucun telechargement implicite)" % (a.modele, poids))
+    # ⚠️ LES POIDS DE CHAQUE ETAGE, PAS SEULEMENT L'INDEX : un telechargement
+    #    interrompu laisse model_index.json present et les poids absents ; le
+    #    premier essai du 21/09 est mort en pile d'appels au lieu d'un refus.
+    manquants = [c for c in ("unet", "text_encoder", "vae")
+                 if not any(f.endswith(".safetensors") and not f.endswith(".incomplete")
+                            for f in (os.listdir(os.path.join(poids, c)) if os.path.isdir(os.path.join(poids, c)) else []))]
+    if not os.path.isfile(os.path.join(poids, "model_index.json")) or manquants:
+        refus("poids %s incomplets dans %s (etages sans poids : %s) ; aucun telechargement implicite"
+              % (a.modele, poids, ", ".join(manquants) or "index"))
     t0 = time.time()
     en, comment = invite_anglaise(a.invite)
     # L'habillage vise l'ENTREE de TripoSR : un objet seul, entier, fond uni.
