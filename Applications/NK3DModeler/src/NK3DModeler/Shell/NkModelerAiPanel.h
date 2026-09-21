@@ -83,6 +83,8 @@
 //    en-tete qui compilait chez ses deux consommateurs d'alors, et cassait chez
 //    le premier qui ne tirait pas sa dependance.
 #include <cstdio>
+#include <cstdlib> // std::getenv, std::atoi (portes des sondes)
+#include <cstring> // std::strrchr, std::strcmp, std::strchr
 
 namespace nkentseu {
 	namespace nk3d {
@@ -533,6 +535,58 @@ namespace nkentseu {
 				return;
 			NkAiDeclarerPanneau(st);
 			editorkit::NkAiPanneau &pan = st.aiPanneau;
+			// ── LES PORTES DES SONDES (21/09), sans souris ni clavier ──────────
+			// NK_AI_BASCULE=<fournisseur>@<peinture>[;<fournisseur>@<peinture>...]
+			// ecrit `st.aiOnglet` -- la valeur qu'un choix au menu ecrit ;
+			// NK_AI_MENU=<menu>,<image> ouvre un menu du kit (fournisseurs, modeles,
+			// commandes, historique, ajouter) comme son clic. Elles ne creent aucun
+			// comportement que le geste n'a pas.
+			{
+				static int32 sPeint = 0, sMenuQuand = -2, sNb = 0;
+				static int32 sBascVers[4] = {0, 0, 0, 0}, sBascQuand[4] = {-1, -1, -1, -1};
+				static char sMenu[32] = {0};
+				++sPeint;
+				if (sMenuQuand == -2) {
+					if (const char *v = std::getenv("NK_AI_BASCULE")) {
+						const char *c = v;
+						while (*c && sNb < 4) {
+							sBascVers[sNb] = (int32)std::atoi(c);
+							const char *at = std::strchr(c, '@');
+							if (!at)
+								break;
+							sBascQuand[sNb++] = (int32)std::atoi(at + 1);
+							const char *pv = std::strchr(at, ';');
+							if (!pv)
+								break;
+							c = pv + 1;
+						}
+					}
+					sMenuQuand = -1;
+					if (const char *v = std::getenv("NK_AI_MENU")) {
+						NkAiCopie(sMenu, sizeof(sMenu), v);
+						if (char *virg = std::strrchr(sMenu, ',')) {
+							*virg = 0;
+							sMenuQuand = (int32)std::atoi(virg + 1);
+						} else
+							sMenuQuand = 30;
+					}
+				}
+				for (int32 k = 0; k < sNb; ++k)
+					if (sPeint == sBascQuand[k]) {
+						std::printf("[nk3d] AI BASCULE peinture=%d : fournisseur %d -> %d (fil de %u bloc(s) avant)\n",
+									(int)sPeint, (int)st.aiOnglet, (int)sBascVers[k], (unsigned)st.aiFil.Taille());
+						std::fflush(stdout);
+						st.aiOnglet = sBascVers[k];
+					}
+				if (sPeint == sMenuQuand) {
+					const editorkit::NkAiMenu m = (std::strcmp(sMenu, "modeles") == 0)	  ? editorkit::NkAiMenu::Modeles
+												  : (std::strcmp(sMenu, "commandes") == 0)  ? editorkit::NkAiMenu::Commandes
+												  : (std::strcmp(sMenu, "historique") == 0) ? editorkit::NkAiMenu::Historique
+												  : (std::strcmp(sMenu, "ajouter") == 0)	? editorkit::NkAiMenu::AjouterIa
+																						: editorkit::NkAiMenu::Fournisseurs;
+					pan.OuvrirMenu(m, 1);
+				}
+			}
 			// L'onglet a pu etre ecrit par la boucle ou une sonde : le panneau suit.
 			if (st.aiOnglet != pan.Actif()) {
 				NkString pq;

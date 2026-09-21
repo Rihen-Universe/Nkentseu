@@ -3671,6 +3671,7 @@ int nkmain(const NkEntryState &entry) {
 				sIa.MotifDe(io, st.aiMotifDe[io], sizeof(st.aiMotifDe[io]));
 			}
 			st.aiEnvoiEnCours = sIa.envoi.EnCours();
+			st.aiPeutAnnulerObjet = (st.mode == NkMode::Object) && nk3d::NkCrea().nLots > 0;
 			if (st.aiArreter) {
 				st.aiArreter = false;
 				if (sIa.envoi.EnCours()) {

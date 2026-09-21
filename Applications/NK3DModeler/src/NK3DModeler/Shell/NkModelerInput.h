@@ -1143,6 +1143,11 @@ namespace nkentseu {
 				/// Le composeur a le focus clavier : aucune touche ne doit atteindre les
 				/// raccourcis du modeleur (taper « e » ne doit pas extruder).
 				bool aiComposeurActif = false;
+				/// EN MODE OBJET, la pile de l'assistant sait-elle retirer quelque chose ?
+				/// (le dernier LOT cree par l'IA -- `NkCreaAnnuler`, transit du 21/09).
+				/// Publie par la boucle ; sans lui le bouton « Annuler cette action »
+				/// restait eteint en mode Objet alors que le geste y marchait.
+				bool aiPeutAnnulerObjet = false;
 
 				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
 				// Les compteurs de maillage et l'etat d'une mesure en cours sont des
