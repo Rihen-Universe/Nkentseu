@@ -4144,7 +4144,49 @@ int nkmain(const NkEntryState &entry) {
 				std::printf("[nk3d-mod ] action %d REFUSEE pendant une modale\n", (int)a);
 				std::fflush(stdout);
 			}
-			switch ((inModal && !permiseEnModale) ? NkVpAction::None : a) {
+			// ── SCULPTURE : TOUT COMME BLENDER, AUCUNE ACTION D'ELEMENT (21/09) ──
+			// Le maillage est ouvert, mais on n'y designe rien : G/R/S, 1/2/3, A,
+			// E, X, M, F, W, I, B, C, Ctrl+R, Ctrl+B visaient la selection de
+			// sommets EN SCULPTURE (mesure : X supprimait le maillage entier).
+			// ⚠ LA MEME LISTE BLANCHE que la modale, et pour la meme raison : ce qui
+			//   n'est pas cite est REFUSE, donc la prochaine action ajoutee ne passe
+			//   pas par oubli. ⚠ ET ON NE DESCEND PAS DANS LE CAS : G/R/S y retombent
+			//   sur `Viewport3DBeginModal` (la vue dormante) quand la facade refuse --
+			//   une modale fantome qui verrouillerait ensuite tout le clavier.
+			// Le critere est le MODE (NkModeMaillageSansElements), jamais `editMode`.
+			// NK_SCULPT_GIZMO_MUTE=1 : l'ancienne regle, des DEUX cotes (vue et shell),
+			// pour que le banc sonde_sculpt_gizmo.ps1 prouve qu'il sait rougir.
+			static const bool sMuteSansElements = [] {
+				const char *v = std::getenv("NK_SCULPT_GIZMO_MUTE");
+				return v && v[0] && v[0] != '0';
+			}();
+			bool permiseSansElements = true;
+			if (!sMuteSansElements && demo::NkModeMaillageSansElements((int32)st.mode)) {
+				switch (a) {
+					case NkVpAction::ToggleEdit:
+					case NkVpAction::Undo:
+					case NkVpAction::Redo:
+					case NkVpAction::ModalConfirm:
+					case NkVpAction::ModalCancel:
+					case NkVpAction::ViewFront:
+					case NkVpAction::ViewBack:
+					case NkVpAction::ViewRight:
+					case NkVpAction::ViewLeft:
+					case NkVpAction::ViewTop:
+					case NkVpAction::ViewBottom:
+					case NkVpAction::ToggleOrtho:
+					case NkVpAction::FrameAll:
+					case NkVpAction::ToggleXray:
+						break;
+					default:
+						permiseSansElements = false;
+						std::printf("[nk3d-mod ] action %d REFUSEE en mode %d (sans elements)\n", (int)a,
+									(int)st.mode);
+						std::fflush(stdout);
+						break;
+				}
+			}
+			switch (((inModal && !permiseEnModale) || !permiseSansElements) ? NkVpAction::None : a) {
 				case NkVpAction::ToggleEdit:
 					st.mode = edit ? NkMode::Object : NkMode::Edit;
 					break;
