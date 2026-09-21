@@ -123,20 +123,45 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 				qui = gPanneauxIA[k]->Title();
 				break;
 			}
-		const nkgui::NkGuiFont *polices[2] = {ui.font, sh ? sh->TermCodeFont() : nullptr};
+		const nkgui::NkGuiFont *polices[3] = {ui.font, sh ? sh->TermCodeFont() : nullptr,
+											  nkcode::AiPanel::PoliceCorpsIA().Valid() ? &nkcode::AiPanel::PoliceCorpsIA()
+																					   : nullptr};
 		const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
 		char c1[300], c2[300];
 		snprintf(c1, sizeof(c1), "%s.png", sChemin);
 		snprintf(c2, sizeof(c2), "%s_fenetre.png", sChemin);
 		const uint32 fond = sh ? sh->KitTheme().Get(editorkit::NkRole::WindowBg) : 0x010409FFu;
 		const editorkit::NkAiImageResultat r1 =
-			editorkit::NkAiEcrireImageListes(listes, 2, W, H, r.x, r.y, r.w, r.h, polices, 2, fond, c1);
+			editorkit::NkAiEcrireImageListes(listes, 2, W, H, r.x, r.y, r.w, r.h, polices, 3, fond, c1);
 		const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
-			listes, 2, W, H, 0.f, 0.f, (float32)W, (float32)H, polices, 2, fond, c2);
+			listes, 2, W, H, 0.f, 0.f, (float32)W, (float32)H, polices, 3, fond, c2);
 		printf("[nkcode] AI IMAGE image=%d panneau « %s » (%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)sImage, qui,
 			   (double)r.x, (double)r.y, (double)r.w, (double)r.h, r1.ok ? r1.message : "ECHEC",
 			   r2.ok ? r2.message : "ECHEC");
 		fflush(stdout);
+	}
+	// NK_AI_MENU=<modeles|modes|fournisseurs|plus>,<image> (Q5) : ouvre un menu du
+	// kit comme son clic -- l'etat qu'un clic ecrirait, aucune entree injectee.
+	{
+		static int32 sMenuQuand = -2;
+		static char sMenu[32] = {0};
+		if (sMenuQuand == -2) {
+			const char *m = std::getenv("NK_AI_MENU");
+			sMenuQuand = m ? NkLireImage(m, sMenu, sizeof(sMenu), 800) : -1;
+		}
+		if (sImage == sMenuQuand)
+			for (int32 k = 0; k < 4; ++k)
+				if (gPanneauxIA[k] && gPanneauxIA[k]->IsOpen()) {
+					editorkit::NkAiPanneau &kit = gPanneauxIA[k]->KitModifiable();
+					const editorkit::NkAiMenu mm = std::strcmp(sMenu, "modeles") == 0 ? editorkit::NkAiMenu::Modeles
+												   : std::strcmp(sMenu, "modes") == 0 ? editorkit::NkAiMenu::Modes
+												   : std::strcmp(sMenu, "plus") == 0  ? editorkit::NkAiMenu::Plus
+																					  : editorkit::NkAiMenu::Fournisseurs;
+					kit.OuvrirMenu(mm, kit.Actif());
+					printf("[nkcode] AI MENU image=%d : %s\n", (int)sImage, sMenu);
+					fflush(stdout);
+					break;
+				}
 	}
 	if (sImage == sSortie && sh) {
 		// LA SONDE SE FERME ELLE-MEME, par la porte que la confirmation emprunte :
