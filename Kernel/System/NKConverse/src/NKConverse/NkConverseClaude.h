@@ -300,6 +300,35 @@ namespace nkentseu::converse {
 				mDerniereInvite = NkString("");
 				dernierCode = -1;
 
+				// ── (21/09, Q8) LA PORTE DE SONDE : INTERCEPTER AVANT L'ENVOI ──────
+				// Un appel Claude est FACTURE sur l'abonnement de Rodolf. Pour prouver
+				// qu'une demande part bien au modele et a l'Effort choisis, sans rien
+				// depenser : `NK_CONVERSE_INTERCEPTE=<dossier>` ecrit le LANCEUR REEL
+				// (le meme EcrireScript, donc la vraie ligne `--model ... --effort ...`)
+				// et l'INVITE COMPLETE (le meme assemblage que l'envoi), puis REFUSE en
+				// le disant. Aucun processus n'est lance, aucun octet ne sort.
+				if (const char *ic = std::getenv("NK_CONVERSE_INTERCEPTE")) {
+					if (*ic) {
+						NkString sp = scriptPath;
+						scriptPath = NkString(ic);
+						scriptPath.Append("/claude_lanceur_intercepte.cmd");
+						const bool okS = EcrireScript();
+						scriptPath = sp;
+						NkString full;
+						NkConverseBackendProcessus::EcrireRequete(req, full);
+						NkString ip = NkString(ic);
+						ip.Append("/claude_requete_interceptee.txt");
+						const bool okI = nkentseu::NkFile::WriteAllText(ip.Data(), full.Data());
+						mDerniereInvite = full;
+						out.error = NkString("REFUS : INTERCEPTE avant l'envoi (NK_CONVERSE_INTERCEPTE) -- modele ");
+						out.error.Append(modele);
+						out.error.Append(", effort ");
+						out.error.Append(effort.Length() ? effort : NkString("(defaut)"));
+						out.error.Append(okS && okI ? " ; lanceur et requete ecrits" : " ; ECRITURE ECHOUEE");
+						return false;
+					}
+				}
+
 				// (1) et (2) LE CLI, ET LE COMPTE. Avant d'ecrire quoi que ce soit :
 				//     ecrire l'invite puis echouer laisserait un fichier qui ferait
 				//     croire qu'un appel a eu lieu.
