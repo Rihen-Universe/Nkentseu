@@ -475,6 +475,7 @@ namespace nkentseu {
 						else
 							NkCreaRefuser(d, "famille « %s » : parametre inconnu « %s », ignore", nf, cle);
 					}
+					detaille = true; // le modele ne decide pas du niveau : voir NkCreaPoserFamille
 					if (const char *dv = std::getenv("NK_CREA_DETAIL"))
 						detaille = strcmp(dv, "simple") != 0; // la mesure « simple contre detaille »
 					fp.detaille = detaille;
@@ -891,6 +892,13 @@ namespace nkentseu {
 					char chemin[160];
 					if (NkCreaSansRevolution() && strcmp(F[i], "revolution") == 0)
 						continue;
+					// (Q8) UNE FAMILLE CONSTRUITE REMPLACE SON GABARIT : la course Q8 a
+					// montre le modele RECOPIER le gabarit « table » ou « maison » au lieu
+					// d'ecrire la famille -- deux chemins pour la meme chose, et il prenait
+					// l'ancien. Le gabarit ne reste que si les familles sont coupees.
+					if (!NkCreaSansFamilles() && (strcmp(F[i], "table") == 0 || strcmp(F[i], "maison") == 0 ||
+												  strcmp(F[i], "revolution") == 0))
+						continue;
 					snprintf(chemin, sizeof(chemin), "Tools/Genia/gabarits/%s.nkscene", F[i]);
 					const NkString t = NkFile::ReadAllText(chemin);
 					if (!t.Data() || !t.Data()[0])
@@ -1234,7 +1242,22 @@ namespace nkentseu {
 			++lot.nNoeuds;
 			static NkFamPiece pieces[kCreaMaxParties];
 			char pourquoi[200] = {0};
-			const int32 np = NkFamConstruire(d.famille, pieces, kCreaMaxParties, pourquoi, sizeof(pourquoi));
+			// ── LE NIVEAU DE DETAIL APPARTIENT A L'UTILISATEUR, PAS AU MODELE ──
+			// Mesure du 21/09 (course Q8) : le 7B ecrit `detail simple` de lui-meme,
+			// et la porte chinoise sortait sans tuiles ni panneaux -- exactement ce
+			// que Rodolf reproche (« je ne vois pas de details, des creux »). Le
+			// simple n'est donc retenu que si LA DEMANDE le dit (« simple »,
+			// « basique », « low poly »). `NK_CREA_DETAIL` reste la porte de mesure.
+			NkFamParams fp = d.famille;
+			if (!std::getenv("NK_CREA_DETAIL")) {
+				bool demandeSimple = false;
+				static const char *const kS[] = {"simple", "basique", "low poly", "lowpoly", "sans detail"};
+				for (const char *k : kS)
+					if (demande && strstr(demande, k))
+						demandeSimple = true;
+				fp.detaille = !demandeSimple;
+			}
+			const int32 np = NkFamConstruire(fp, pieces, kCreaMaxParties, pourquoi, sizeof(pourquoi));
 			if (np <= 0) {
 				demo::Demo3DHostDeleteNode(g, false);
 				st.customNames[g][0] = 0;
@@ -1278,11 +1301,11 @@ namespace nkentseu {
 			NkCreaMesurer(lot, numero, d.nRefus, b);
 			if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
 				fprintf(f, "FAMILLE %d %s style=%s detail=%s pieces=%d faces=%u\n", numero, d.famille.famille,
-						d.famille.style, d.famille.detaille ? "detaille" : "simple", (int)np, (unsigned)faces);
+						d.famille.style, fp.detaille ? "detaille" : "simple", (int)np, (unsigned)faces);
 				fclose(f);
 			}
 			std::printf("[crea] FAMILLE %s (style %s, %s) : %d pieces, %u faces\n", d.famille.famille,
-						d.famille.style[0] ? d.famille.style : "-", d.famille.detaille ? "detaille" : "simple", (int)np,
+						d.famille.style[0] ? d.famille.style : "-", fp.detaille ? "detaille" : "simple", (int)np,
 						(unsigned)faces);
 			std::fflush(stdout);
 			return numero;
