@@ -174,6 +174,35 @@ namespace nkentseu {
 		//    Les quatre lignes qui rattrapaient `st.aiEnCours` a la main ont
 		//    disparu d'ici : un identifiant ne glisse pas. On ne propage pas une
 		//    correction au site qui l'avait oubliee, on supprime sa raison d'etre.
+		/// (Q8) LES VERBES DU MODELEUR, NOMMES EN FRANCAIS PAR L'HOTE : le kit ne
+		/// connait aucun verbe, chaque application declare les siens (Rodolf :
+		/// « Subdiviser, Biseauter, Generer… »). Un verbe absent garde son nom.
+		inline const char *NkAiNatureDuVerbe(const char *ligne) {
+			static const char *const kTable[][2] = {
+				{"subdivide", "Subdiviser"}, {"bevel", "Biseauter"},	 {"extrude", "Extruder"},
+				{"inset", "Incruster"},		 {"loopcut", "Couper en boucle"}, {"delete", "Supprimer"},
+				{"dissolve", "Dissoudre"},	 {"undo", "Annuler"},		 {"redo", "Retablir"},
+				{"selectall", "Selectionner"}, {"selectnone", "Deselectionner"}, {"frameall", "Cadrer"},
+				{"toggleedit", "Mode Edition"}, {"togglexray", "Rayon X"},	 {"viewfront", "Vue"},
+				{"viewtop", "Vue"},			 {"viewright", "Vue"},		 {"submodevert", "Sommets"},
+				{"submodeedge", "Aretes"},	 {"submodeface", "Faces"},	 {"create", "Generer"},
+				{"genere", "Generer"},		 {"modalmove", "Deplacer"}};
+			if (!ligne)
+				return "";
+			usize n = 0;
+			while (ligne[n] && ligne[n] != ':' && ligne[n] != ' ')
+				++n;
+			for (usize i = 0; i < sizeof(kTable) / sizeof(kTable[0]); ++i) {
+				const char *v = kTable[i][0];
+				usize k = 0;
+				while (k < n && v[k] && v[k] == ligne[k])
+					++k;
+				if (k == n && v[k] == 0)
+					return kTable[i][1];
+			}
+			return ligne;
+		}
+
 		inline uint32 NkAiPousser(NkModelerState &st, NkModelerState::AiType t,
 			   const char *ligne) {
 			// Les capacites sont posees ICI, a chaque appel : c'est idempotent et ca
@@ -205,8 +234,13 @@ namespace nkentseu {
 					//    `dem`, qui porte deja la forme du contrat (`subdivide:2`) --
 					//    la traduction a eu lieu en amont. Aucun libelle invente.
 					b.type = editorkit::NkAiBloc::Outil;
-					b.titre = NkString(ligne);
+					// (Q8) LE TITRE EST LA NATURE DE L'ACTION (« Subdiviser »), le verbe
+					// du contrat reste LU tel quel a cote et en entree -- aucun libelle
+					// ne remplace ce qui a ete execute.
+					b.titre = NkString(NkAiNatureDuVerbe(ligne));
+					b.texte = NkString(ligne);
 					b.entree = NkString(ligne);
+					b.etiquetteEntree = NkString("Verbe");
 					// L'effet n'est pas encore mesure, et le dire est plus honnete qu'un
 					// blanc : c'est deja ce que le panneau affichait.
 					b.effet = NkString("effet en cours de mesure");
@@ -596,7 +630,17 @@ namespace nkentseu {
 				// ⚠️ LA FENETRE RESTE A 16, et c'est DECLARE (le 20/09 le defaut du
 				//    kit l'avait fait passer a 200 en silence).
 				pan.plafond = 16;
+				pan.accepteImages = true; // (Q8) l'image se joint ; son usage est a la modelisation
 				pan.Lier(&st.aiFil);
+				// (Q8) LES CHATS SURVIVENT A LA FERMETURE -- sauf en sonde (NK_SONDE),
+				// qui n'ecrit rien chez Rodolf sans NK_AI_CHATS.
+				{
+					const char *c = std::getenv("NK_AI_CHATS");
+					if (c && *c)
+						pan.cheminChats = NkString(c);
+					else if (!std::getenv("NK_SONDE"))
+						pan.cheminChats = NkString("logs/nk3dmodeler_ia_chats.txt");
+				}
 				pan.indication = NkString("Ce que l'assistant sait faire : une phrase (« subdivise le cube deux "
 										  "fois ») ou un verbe du contrat (`subdivide:3`, `bevel:0.2:4`, `undo`). "
 										  "Le « / » les liste.");
@@ -691,6 +735,18 @@ namespace nkentseu {
 					if (const char *f = std::getenv("NK_AI_FILTRE"))
 						pan.PoserFiltre(f);
 				}
+				// NK_AI_JOINDRE=<chemin> : l'image jointe comme par « + » (une fois).
+				{
+					static bool sJoint = false;
+					if (!sJoint) {
+						sJoint = true;
+						if (const char *j = std::getenv("NK_AI_JOINDRE")) {
+							NkString pq;
+							const bool ok = pan.JoindreImage(j, pq);
+							std::printf("[nk3d] AI JOINDRE %s -> %s\n", j, ok ? "jointe" : pq.CStr());
+						}
+					}
+				}
 				// NK_AI_FENETRE=<1|2>,<peinture> : la fenetre Utilisation / Carte.
 				{
 					static int32 sFenQuand = -2, sFen = 0;
@@ -775,6 +831,10 @@ namespace nkentseu {
 			st.aiComposeurActif = pan.ComposeurActif(*guiCtx);
 
 			// ── LES GESTES ──
+			if (out.joindreImage)
+				st.aiDemandeJointe = true; // la boucle ouvre le selecteur d'image
+			if (out.envoyer)
+				st.aiImagesJointes = out.images; // FOURNIES a la modelisation (Q7 de modelisation-ia)
 			if (out.envoyer) {
 				// LA RECOLTE EST ICI, et pas dans `NkAiSoumettre` : c'est le seul
 				// endroit ou une phrase TAPEE entre (le bouton « Annuler » et les
