@@ -57,6 +57,7 @@
 #include "NK3DModeler/Shell/NkModelerComponentPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
+#include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"
 #include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
@@ -1148,6 +1149,17 @@ int nkmain(const NkEntryState &entry) {
 	// L'atlas de glyphes doit etre televerse AVANT la premiere frame, sinon le
 	// texte sort en rectangles vides -- symptome classique et deroutant.
 	renderer.UploadFontGray8(font.TexId(), font.pixels, font.atlasW, font.atlasH);
+	// ── LA CHASSE FIXE DU PANNEAU IA (21/09) ──────────────────────────────
+	// Les compartiments IN / OUT de la capture sont en police a chasse fixe ; ce
+	// modeleur n'en chargeait aucune. Cousine est embarquee, sans repli externe
+	// (atlas minuscule). Identifiant +3 : +1..+15 sont libres ici, les icones
+	// partent de +16.
+	static nkgui::NkGuiFont sPoliceMono;
+	if (sPoliceMono.LoadEmbedded(NkEmbeddedFontId::Cousine, (float32)(int32)(12.f * total + 0.5f), false)) {
+		sPoliceMono.texId = font.TexId() + 3u;
+		renderer.UploadFontGray8(sPoliceMono.TexId(), sPoliceMono.pixels, sPoliceMono.atlasW, sPoliceMono.atlasH);
+		nk3d::NkAiPoliceMono() = &sPoliceMono;
+	}
 
 	// ── ICONES ──────────────────────────────────────────────────────────────
 	// Apres la police : leurs identifiants de texture partent APRES celui de
@@ -1982,7 +1994,9 @@ int nkmain(const NkEntryState &entry) {
 		// censee proteger, si bien que « Creer » refusait ses propres clics.
 		// La garde du clavier suit l'etat REEL des widgets : tant qu'un champ est
 		// en cours de saisie, aucune touche ne doit atteindre les raccourcis.
-		st.editingText = ws.editing;
+		// Le composeur de l'assistant compte aussi : taper « e » dans sa phrase ne
+		// doit pas extruder (21/09 -- l'ancien champ n'etait pas garde du tout).
+		st.editingText = ws.editing || st.aiComposeurActif;
 		// Relu CHAQUE frame et non seulement apres notre bouton : l'utilisateur peut
 		// maximiser par double-clic sur la barre, par raccourci Windows ou en glissant
 		// la fenetre en haut de l'ecran. L'icone doit suivre dans tous les cas.
@@ -3647,6 +3661,26 @@ int nkmain(const NkEntryState &entry) {
 			st.aiOngletDistant = (st.aiOnglet == 1);
 			sIa.MotifDe(st.aiOnglet, st.aiOngletMotif, sizeof(st.aiOngletMotif));
 			sIa.LigneEtat(st.aiOnglet, st.aiEtat, sizeof(st.aiEtat));
+			// ── LE PANNEAU DU KIT (21/09) : l'etat des TROIS, pas seulement de l'actif ──
+			// Son menu montre les trois fournisseurs : il faut dire pour CHACUN s'il
+			// est pret, et sinon pourquoi. La meme autorite (`DorsalDe`, `MotifDe`).
+			for (int32 io = 0; io < 3; ++io) {
+				st.aiPretDe[io] = sIa.DorsalDe(io) != nullptr;
+				sIa.MotifDe(io, st.aiMotifDe[io], sizeof(st.aiMotifDe[io]));
+			}
+			st.aiEnvoiEnCours = sIa.envoi.EnCours();
+			if (st.aiArreter) {
+				st.aiArreter = false;
+				if (sIa.envoi.EnCours()) {
+					sIa.envoi.Annuler();
+					(void)nk3d::NkAiPousser(st, NkModelerState::AiType::Note,
+											"Arrete : la reponse ne sera pas posee.");
+				}
+			}
+			if (st.aiClaudeModele[0])
+				sIa.claude.modele = NkString(st.aiClaudeModele);
+			nk3d::NkAiCopie(st.aiClaudeModeleCourant, sizeof(st.aiClaudeModeleCourant),
+							sIa.claude.modele.Data() ? sIa.claude.modele.Data() : "");
 		}
 		// (a) LA RECOLTE, A CHAQUE IMAGE. C'est ce qui empeche la fenetre de geler,
 		//     et `Images()` en est la PREUVE : si la boucle etait bloquee, ce
@@ -4705,11 +4739,19 @@ int nkmain(const NkEntryState &entry) {
 					const bool aL = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Texte, rl) ||
 						   st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Titre, rl);
 					const bool aU = st.aiPlan.Trouver(bl.id, editorkit::NkAiPiece::Effet, ru);
+					// ⚠️ 21/09 : `annuler=` EST RENDU AU BOUTON, `effet=` PORTE L'EFFET.
+					//    Le champ `annuler=` portait le rectangle de l'EFFET (« faces 6 ->
+					//    384 ») depuis la migration du 20/09 : une sonde cliquait l'effet
+					//    en croyant cliquer le bouton, et son rouge etait juste par
+					//    accident. Chacun a desormais SON champ et SON rectangle publie.
+					editorkit::NkAiRectPublie ra;
+					const bool aA = st.aiPlan.TrouverIndice(bl.id, editorkit::NkAiPiece::Action, 0u, ra);
 					const NkModelerState::AiMesure *me = nullptr;
 					for (int32 k = 0; k < NkModelerState::kAiMesures; ++k)
 						if (st.aiMesures[k].id == bl.id) { me = &st.aiMesures[k]; break; }
 					std::printf("[nk3d] AI BLOC %u type=%s replie=%d mesure=%d"
-						   " ligne=(%.0f,%.0f,%.0f,%.0f) annuler=(%.0f,%.0f,%.0f,%.0f)"
+						   " ligne=(%.0f,%.0f,%.0f,%.0f) effet=(%.0f,%.0f,%.0f,%.0f)"
+						   " annuler=(%.0f,%.0f,%.0f,%.0f)"
 						   " v=%d->%d f=%d->%d texte=\"%s\" out=\"%s\" motif=\"%s\"\n",
 						   (unsigned)bl.id, editorkit::NkAiBlocNom(bl.type), (int)(bl.replie ? 1 : 0),
 						   me ? (int)me->etat : 0,
@@ -4719,6 +4761,9 @@ int nkmain(const NkEntryState &entry) {
 						   aU ? (double)(ru.x + st.aiPlanOrigine[0]) : 0.0,
 						   aU ? (double)(ru.y + st.aiPlanOrigine[1]) : 0.0,
 						   aU ? (double)ru.w : 0.0, aU ? (double)ru.h : 0.0,
+						   aA ? (double)(ra.x + st.aiPlanOrigine[0]) : 0.0,
+						   aA ? (double)(ra.y + st.aiPlanOrigine[1]) : 0.0,
+						   aA ? (double)ra.w : 0.0, aA ? (double)ra.h : 0.0,
 						   me ? me->vA : 0, me ? me->vB : 0, me ? me->fA : 0, me ? me->fB : 0,
 						   bl.titre.Length() ? bl.titre.CStr() : bl.texte.CStr(),
 						   bl.sortie.CStr(), bl.motif.CStr());
@@ -4954,6 +4999,48 @@ int nkmain(const NkEntryState &entry) {
 			static const bool kSondePeintre = (std::getenv("NK3D_SONDE_PEINTRE") != nullptr);
 			if (kSondePeintre)
 				PaintSondePeintre(p, {0.f, lay.tool.y + lay.tool.h, (float32)W, (float32)H});
+		}
+
+		// ── NK_AI_IMAGE=<chemin>,<image> : LE PANNEAU IA, RENDU PAR L'APPLICATION ──
+		// La preuve exigee le 21/09 : une IMAGE du panneau, rendue par le modeleur
+		// lui-meme -- la liste d'affichage de CETTE image, rasterisee sans GPU,
+		// decoupee au rectangle que le panneau a PUBLIE. Jamais une capture de
+		// l'ecran. `<chemin>.png` = le panneau, `<chemin>_fenetre.png` = la fenetre
+		// entiere (pour juger la colonne de pastilles a cote).
+		{
+			static int32 sImgF = -2;
+			static char sImgChemin[256] = {0};
+			if (sImgF == -2) {
+				sImgF = -1;
+				if (const char *v = std::getenv("NK_AI_IMAGE")) {
+					const char *virg = nullptr;
+					for (const char *c = v; *c; ++c)
+						if (*c == ',')
+							virg = c;
+					uint32 n = 0;
+					for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sImgChemin); ++c)
+						sImgChemin[n++] = *c;
+					sImgChemin[n] = 0;
+					sImgF = virg ? (int32)std::atoi(virg + 1) : 60;
+				}
+			}
+			if (sImgF >= 0 && agentFrame == sImgF) {
+				const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
+				const nkgui::NkGuiFont *polices[2] = {&font, nk3d::NkAiPoliceMono()};
+				char c1[300], c2[300];
+				snprintf(c1, sizeof(c1), "%s.png", sImgChemin);
+				snprintf(c2, sizeof(c2), "%s_fenetre.png", sImgChemin);
+				const editorkit::NkAiImageResultat r1 = editorkit::NkAiEcrireImageListes(
+					listes, 2, (int32)W, (int32)H, st.aiPanRect[0], st.aiPanRect[1], st.aiPanRect[2], st.aiPanRect[3],
+					polices, 2, theme.Get(NkRole::WindowBg), c1);
+				const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
+					listes, 2, (int32)W, (int32)H, 0.f, 0.f, (float32)W, (float32)H, polices, 2,
+					theme.Get(NkRole::WindowBg), c2);
+				std::printf("[nk3d] AI IMAGE frame=%d panneau=(%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)agentFrame,
+							(double)st.aiPanRect[0], (double)st.aiPanRect[1], (double)st.aiPanRect[2],
+							(double)st.aiPanRect[3], r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
+				std::fflush(stdout);
+			}
 		}
 
 		ui.EndFrame();

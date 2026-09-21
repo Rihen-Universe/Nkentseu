@@ -10,10 +10,14 @@
 // =============================================================================
 //  « que ce soit pour nkcode, nk3dmodeler ou nkuidesign ou les futures, ils
 //    doivent ressembler a celui de VSCode, sauf si tu as mieux a proposer »
-//  La forme est ecrite dans `echanges/PANNEAU_IA_SPEC.md` : panneau ancre a
-//  droite sur toute la hauteur, une barre d'onglets PAR FOURNISSEUR, une ligne
-//  de titre, un fil de BLOCS TYPES replies par defaut, un composeur en bas, et
-//  sous lui une ligne d'etat.
+//  La forme est ecrite dans `echanges/PANNEAU_IA_SPEC.md`.
+//
+//  ⚠️ 21/09 : LE PANNEAU EST DESORMAIS CELUI DU KIT (`NKEditorKit/NkAiPanneau.h`),
+//     le meme que NKUIDesign et NKCode. PLUS D'ONGLETS (§6 de la spec) : le
+//     fournisseur puis le modele se choisissent dans la pastille de la barre du
+//     bas. Ce fichier ne garde que ce que le modeleur est seul a savoir. Les
+//     paragraphes ci-dessous racontent l'histoire ; le bloc « 21/09 » plus bas
+//     dit l'etat.
 //
 //  ⚠️ CE FICHIER EST REECRIT, ET LA RAISON EST UN DEFAUT, PAS UN GOUT.
 //     La premiere version (17/09, 18h09) peignait le panneau DANS la pastille
@@ -56,10 +60,8 @@
 //     porte donc AUCUN bloc de « reflexion » : en fabriquer un serait du
 //     theatre, personne ne pense derriere.
 //
-//  DEUX DETTES NOMMEES, AVEC LEUR CONDITION DE RETRAIT :
-//    - La specification demande l'entree et la sortie **a chasse fixe**. Ce
-//      peintre n'a qu'une police. Le bloc est distingue par son FOND. A
-//      corriger le jour ou le shell charge une seconde police.
+//  UNE DETTE NOMMEE, AVEC SA CONDITION DE RETRAIT (la chasse fixe est levee le
+//  21/09 : main.cpp charge Cousine et la televerse, `NkAiPoliceMono`) :
 //    - La specification demande que le panneau soit monte depuis un document
 //      `.nkgui`. Le mecanisme de zone hote vient d'arriver par transit ; le
 //      panneau doit d'abord exister et se mesurer. Le jour venu, seule
@@ -70,9 +72,10 @@
 #include "NK3DModeler/Shell/NkModelerInput.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
 #include "NKEditorKit/NkEditorKit.h"
-#include "NKEditorKit/NkAiThreadLayout.h" // le PLAN du fil, commun aux applications
-#include "NKEditorKit/NkAiThreadPaint.h"  // sa transcription en commandes
-#include "NK3DModeler/Shell/NkModelerComponentPaint.h" // NkModelerPainter vu comme NkComponentPaint
+#include "NKEditorKit/NkAiPanneau.h" // LE panneau IA, commun aux applications (21/09)
+#include "NKEditorKit/Components/NkGuiComponentPaint.h" // le peintre NKGui : polices grasse et fixe
+#include "NK3DModeler/Shell/NkModelerContrat.h" // le vocabulaire des verbes (le « / »)
+#include "NKTime/NkChrono.h" // la duree de la conversation
 
 // ⚠️ IL INCLUT CE QU'IL UTILISE. `snprintf` arrivait ici PAR CHANCE, tire par un
 //    en-tete voisin ; la recolte ajoute `fopen`/`fputs`/`FILE`, et compter sur
@@ -83,15 +86,6 @@
 
 namespace nkentseu {
 	namespace nk3d {
-
-		/// La mesure de texte que le plan demande, servie par la police du peintre.
-		/// ⚠️ UNE SEULE POLICE ICI, et le plan demande quand meme la chasse fixe :
-		///    c'est le peintre qui se rabat, pas le plan qui ment. Dette nommee,
-		///    levee le jour ou la coquille chargera une seconde police.
-		inline float32 NkAiMesurerTexte(void *ctx, editorkit::NkAiPolice, const char *t) {
-			return ctx ? ((NkModelerPainter *)ctx)->TextW(t) : 0.f;
-		}
-
 
 		// Copie bornee, sans dependre de strncpy : le depot ecrit ses propres
 		// primitives de chaine (zero-STL), et une troncature doit etre VOULUE.
@@ -266,9 +260,8 @@ namespace nkentseu {
 				return false;
 			}
 			NkAiCopie(st.aiPending, sizeof(st.aiPending), texte);
-			// LE SUJET EST LA PREMIERE DEMANDE, comme dans la capture.
-			if (!st.aiSujet[0])
-				NkAiCopie(st.aiSujet, sizeof(st.aiSujet), texte);
+			// LE SUJET EST LA PREMIERE DEMANDE, comme dans la capture -- le kit le lit
+			// dans le fil (`NkAiPanneau::Sujet`) : plus de copie a tenir a jour.
 			(void)NkAiPousser(st, NkModelerState::AiType::Demande, texte);
 			// ── UNE DEMANDE **MARQUE** LE PANNEAU, ELLE NE L'OUVRE PLUS ───────
 			// L'ancienne version posait ici `st.aiOuvert = true`, pour une raison qui
@@ -324,54 +317,11 @@ namespace nkentseu {
 			return nullptr; // table pleine : on ne mesure pas plutot que d'ecraser
 		}
 
-		// ── L HISTORIQUE : ARCHIVER, ROUVRIR, VIDER ───────────────
-		// ⚠️ FENETRE GLISSANTE, COMME LE FIL : on perd la plus ancienne, jamais
-		//    la plus recente. Et le sujet voyage AVEC l archive -- sans lui, la
-		//    liste afficherait huit lignes identiques.
-		inline void NkAiArchiver(NkModelerState &st) {
-			if (st.aiFil.Taille() == 0)
-				return; // rien a garder : on n archive pas du vide
-			if (st.aiArchivesN >= NkModelerState::kAiArchives) {
-				for (int32 i = 1; i < NkModelerState::kAiArchives; ++i) {
-					st.aiArchives[i - 1] = st.aiArchives[i];
-					NkAiCopie(st.aiArchivesSujet[i - 1], 80, st.aiArchivesSujet[i]);
-				}
-				st.aiArchivesN = NkModelerState::kAiArchives - 1;
-			}
-			st.aiArchives[st.aiArchivesN] = st.aiFil;
-			NkAiCopie(st.aiArchivesSujet[st.aiArchivesN], 80,
-					  st.aiSujet[0] ? st.aiSujet : "Sans sujet");
-			++st.aiArchivesN;
-		}
-		/// Rouvre une archive. ⚠️ LA CONVERSATION COURANTE EST ARCHIVEE D ABORD :
-		///    rouvrir ne doit jamais faire perdre ce qui etait a l ecran.
-		inline void NkAiRouvrir(NkModelerState &st, int32 i) {
-			if (i < 0 || i >= st.aiArchivesN)
-				return;
-			editorkit::NkAiFil garde = st.aiArchives[i];
-			char sujet[80];
-			NkAiCopie(sujet, sizeof(sujet), st.aiArchivesSujet[i]);
-			// On retire l archive rouverte, puis on archive la courante a sa place.
-			for (int32 k = i + 1; k < st.aiArchivesN; ++k) {
-				st.aiArchives[k - 1] = st.aiArchives[k];
-				NkAiCopie(st.aiArchivesSujet[k - 1], 80, st.aiArchivesSujet[k]);
-			}
-			--st.aiArchivesN;
-			NkAiArchiver(st);
-			st.aiFil = garde;
-			NkAiCopie(st.aiSujet, sizeof(st.aiSujet), sujet);
-			st.aiEnCoursId = 0u;
-			st.aiDefile = 0.f;
-		}
-		/// Vide l historique. ⚠️ IL DOIT ETRE ATTEIGNABLE : un historique qu on ne
-		///    peut pas vider est une dette de vie privee.
-		inline void NkAiViderHistorique(NkModelerState &st) {
-			for (int32 i = 0; i < NkModelerState::kAiArchives; ++i) {
-				st.aiArchives[i].Vider();
-				st.aiArchivesSujet[i][0] = 0;
-			}
-			st.aiArchivesN = 0;
-		}
+		// ── L'HISTORIQUE ─────────────────────────────────────────────────────
+		// ⚠️ IL A QUITTE CE FICHIER LE 21/09 : il vit dans le KIT
+		//    (`NkAiPanneau::NouvelleConversation` / `Rouvrir`), et il est PAR
+		//    ASSISTANT -- l'ancien etait un seul historique pour trois
+		//    fournisseurs. Le banc C de `NKAiFilTest` le mesure la-bas.
 
 		// ── LE TOUR, UNE FOIS QUE LA TABLE A REPONDU ────────────────
 		// Appelee par la boucle APRES `NkVpPoserAction` : c'est la table qui sait si
@@ -463,341 +413,197 @@ namespace nkentseu {
 			return 0u;
 		}
 
-		// ── LE PANNEAU ─────────────────────────────────────────────────────────
-		// `r` est le rectangle COMPLET du panneau (ancre a droite, pleine hauteur).
-		// `peutAnnuler` vient de l'hote (`Demo3DHostEditCanUndo`) : le panneau ne
-		// connait pas le maillage.
 		// ══════════════════════════════════════════════════════════════
-		//  L ASSISTANT EST LE CONTENU DU PANNEAU DE DROITE, PAS UN PANNEAU A LUI
+		//  21/09 — LE PANNEAU EST CELUI DU KIT, ET CE FICHIER NE DESSINE PLUS RIEN
 		// ══════════════════════════════════════════════════════════════
-		// Rodolf, 20/09 au soir : « la pastille de IA doit s ouvrir sur le panel de
-		// droite comme tout le monde, il ne doit pas avoir son propre panel. »
+		// Rodolf, 21/09 a 04h, capture 040803 a l'appui : le modeleur portait
+		// encore les onglets `Local / Claude / Ollama` et les boutons `Envoyer /
+		// Fermer`, que le §6 de la spec supprimait la veille ; l'en-tete et le
+		// composeur du kit existaient avec ZERO appelant. « Soit tu ne l'as pas
+		// implemente, soit tu l'as implemente et ne l'as pas lie. » Les deux.
 		//
-		// La fonction ne PEINT PLUS DE PANNEAU : elle remplit le corps qu on lui
-		// donne -- celui du panneau de droite -- comme une section de proprietes.
-		// Partent donc le fond, le filet de gauche, et l emprise `ai.box`.
+		// Ce qui PART : les onglets, « Envoyer », « Fermer », la ligne d'etat
+		// ecrite ici, le popover d'historique, `NkAiArchiver` & co. -- le kit les
+		// porte (`NkAiPanneau`), une fois pour les trois applications.
+		// Ce qui RESTE ICI : ce que le modeleur est seul a savoir -- ses trois
+		// fournisseurs et leur etat (publie par la boucle), son vocabulaire de
+		// verbes (le « / »), le bouton « Annuler cette action » et ce qu'il fait.
 		//
-		// ⚠️ CE N EST PAS LE « PANNEAU DANS UN PANNEAU HOTE » QUE LA SPECIFICATION
-		//    INTERDIT, et la distinction est celle qui compte : ce defaut-la -- les
-		//    clics une image sur deux, deux menus de NKUIDesign -- vient d un
-		//    panneau FLOTTANT dessine dans un hote, avec ses propres couches et sa
-		//    propre emprise. Ici il n y a plus de panneau du tout : c est le CONTENU
-		//    de l hote qui change, comme quand on passe de « Materiau » a
-		//    « Lumiere ». Une seule couche, une seule emprise.
-		//
-		// ⚠️ `aiPanRect` RESTE PUBLIE : deux sondes le lisent, et il dit desormais
-		//    le corps occupe DANS l hote. Le temoin garde son critere -- la pastille
-		//    et le contenu ne se recouvrent pas -- et il reste vrai.
-		inline void PaintAiDansPanneau(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
-								   nkgui::NkGuiContext *guiCtx, const NkRect &r, bool peutAnnuler) {
-			if (!st.aiOuvert)
-				return;
-			// ── VU, PARCE QU'IL EST PEINT ──────────────────────────────
-			// La marque se consomme ICI et nulle part ailleurs : au moment ou les blocs
-			// passent sous les yeux. La poser au CLIC de la pastille aurait marque
-			// « vu » un panneau que ce meme clic venait peut-etre de FERMER.
-			st.aiFil.MarquerVus();
-			const float32 kRowH = S(22.f);
-			const float32 pad = S(8.f);
-			// L'EMPRISE, DECLAREE D'ABORD. Sans elle, un clic dans le vide du
-			// panneau traverserait jusqu'au viseur et deselectionnerait -- le
-			// defaut « les clics traversent » deja paye sur les surcouches de la vue.
-			// ⚠️ PLUS D EMPRISE `ai.box`. On ne reclame pas le corps d un panneau
-			//    dont on EST le contenu : l hote a deja reclame. La garder aurait pose
-			//    une SECONDE reclamation sur la meme zone -- et c est ainsi qu on
-			//    fabrique un survol qui gagne une image sur deux.
-			// Le panneau PUBLIE le rectangle qu il vient de reclamer. Le temoin le
-			// compare a celui de la pastille : deux mesures, deux peintres, aucune
-			// formule recopiee dans la sonde.
-			st.aiPanRect[0] = r.x; st.aiPanRect[1] = r.y;
-			st.aiPanRect[2] = r.w; st.aiPanRect[3] = r.h;
-			// Ni fond ni filet : le panneau hote les peint. Un second fond par-dessus
-			// le sien serait invisible aujourd hui et faux le jour ou le theme change.
+		// ⚠️ LA CONVERSATION VIVANTE RESTE `st.aiFil`. Quarante sites l'ecrivent
+		//    (boucle, recolte, sondes) ; `Lier` dit au panneau qu'elle vit la, et
+		//    changer d'assistant la RANGE dans la case de l'ancien. C'est ce qui
+		//    donne une conversation PAR ASSISTANT sans toucher a la boucle.
+		// ⚠️ `st.aiOnglet` RESTE L'AUTORITE DE LA BOUCLE (elle choisit le dorsal
+		//    par lui). Le panneau le lit en entrant -- `NK_AI_ONGLET` des sondes
+		//    l'ecrit -- et le reecrit en sortant : un seul entier, deux lecteurs.
 
-			float32 yy = r.y;
+		/// La police a chasse fixe du panneau, chargee et TELEVERSEE par main.cpp
+		/// (le code des compartiments IN / OUT). `nullptr` : repli sur la police
+		/// d'interface, dit par le peintre.
+		inline const nkgui::NkGuiFont *&NkAiPoliceMono() {
+			static const nkgui::NkGuiFont *p = nullptr;
+			return p;
+		}
 
-			// ── 1. LA BARRE D'ONGLETS DE FOURNISSEUR ───────────────────────────
-			{
-				const float32 tw = (r.w - pad * 2.f) / (float32)kAiFournisseurs;
-				for (int32 i = 0; i < kAiFournisseurs; ++i) {
-					const NkRect tr{r.x + pad + tw * (float32)i, yy + S(4.f), tw, kRowH};
-					char cle[24];
-					snprintf(cle, sizeof(cle), "ai.tab%d", (int)i);
-					const bool over = hit.Add(cle, tr);
-					const bool actif = (st.aiOnglet == i);
-					p.Fill(tr,
-						   actif ? NkRole::PanelHeader : (over ? NkRole::InputBg : NkRole::PanelBg),
-						   3.f);
-					p.TextV(tr.x + (tw - p.TextW(NkAiFournisseur(i))) * 0.5f, tr.y, kRowH,
-							NkAiFournisseur(i), actif ? NkRole::Text : NkRole::TextMuted);
-					if (actif)
-						p.Fill({tr.x, tr.y + kRowH - S(2.f), tw, S(2.f)}, NkRole::AccentUi, 0.f);
-					if (hit.Clicked(cle))
-						st.aiOnglet = i;
-				}
-				yy += kRowH + S(8.f);
-			}
-
-			// ── 2. LA LIGNE DE TITRE : sujet tronque, et deux boutons discrets ──
-			{
-				const float32 bw = S(22.f);
-				const NkRect nouv{r.x + r.w - pad - bw, yy, bw, kRowH};
-				const NkRect hist{nouv.x - bw - S(4.f), yy, bw, kRowH};
-				p.TextClipped(r.x + pad, yy + S(4.f), hist.x - r.x - pad * 2.f,
-							  st.aiSujet[0] ? st.aiSujet : "Nouvelle conversation", NkRole::Text);
-				const bool ovH = hit.Add("ai.hist", hist);
-				// ⚠️ LE GESTE QUI MANQUAIT. Cette cle etait enregistree et son survol
-				//    LU (il colore l icone) sans que `Clicked` existe nulle part : une
-				//    icone qui s eclaire promet un geste. Elle le tient desormais.
-				if (hit.Clicked("ai.hist"))
-					st.aiHistOuvert = !st.aiHistOuvert;
-				const bool ovN = hit.Add("ai.nouv", nouv);
-				p.IconV(hist.x + S(4.f), yy, kRowH, NkIcon::Journal,
-						ovH ? NkRole::Text : NkRole::TextMuted, 12.f);
-				p.IconV(nouv.x + S(4.f), yy, kRowH, NkIcon::PlusCircle,
-						ovN ? NkRole::Text : NkRole::TextMuted, 12.f);
-				if (hit.Clicked("ai.nouv")) {
-					// NOUVELLE CONVERSATION : le fil se vide, le sujet aussi.
-					// ⚠️ Rien d'autre. Elle ne touche pas au maillage : une
-					//    conversation qu'on ferme ne defait pas ce qu'elle a fait.
-					// ⚠️ ON ARCHIVE AVANT DE VIDER. Avant, « nouvelle conversation »
-					//    JETAIT le fil : le travail disparaissait sans recours.
-					NkAiArchiver(st);
-					st.aiFil.Vider();
-					st.aiEnCoursId = 0u;
-					st.aiSujet[0] = 0;
-					st.aiDefile = 0.f;
-				}
-				yy += kRowH + S(4.f);
-				// ── LE POPOVER DE L HISTORIQUE ────────────────────────
-				// ⚠️ IL DIT QUE RIEN NE SURVIT A LA FERMETURE, et ce n est pas une note
-				//    de bas de page : un historique qui s evapore EN SILENCE fait perdre
-				//    du travail qu on croyait garde. La persistance demande un format ;
-				//    tant qu il n existe pas, la phrase remplace la promesse.
-				if (st.aiHistOuvert) {
-					const float32 lh = kRowH;
-					const int32 n = st.aiArchivesN;
-					const float32 hpop = lh * (float32)(n + 2) + S(8.f);
-					const NkRect pop{r.x + pad, yy, r.w - pad * 2.f, hpop};
-					(void)hit.Add("ai.pop", pop); // l emprise : les clics ne traversent pas
-					p.Outline(pop, NkRole::Border, NkRole::PanelHeader, S(4.f));
-					float32 py = pop.y + S(4.f);
-					for (int32 a = n - 1; a >= 0; --a) {
-						char cle[24];
-						snprintf(cle, sizeof(cle), "ai.arch%d", (int)a);
-						const NkRect lr{pop.x + S(2.f), py, pop.w - S(4.f), lh};
-						if (hit.Add(cle, lr))
-							p.Fill(lr, NkRole::InputBg, S(3.f));
-						char lib[120];
-						snprintf(lib, sizeof(lib), "%s   ·   %u bloc(s)", st.aiArchivesSujet[a],
-								 (unsigned)st.aiArchives[a].Taille());
-						p.TextClipped(lr.x + S(6.f), py + S(4.f), lr.w - S(12.f), lib, NkRole::Text);
-						if (hit.Clicked(cle)) {
-							NkAiRouvrir(st, a);
-							st.aiHistOuvert = false;
-						}
-						py += lh;
-					}
-					if (n == 0) {
-						p.TextClipped(pop.x + S(6.f), py + S(4.f), pop.w - S(12.f),
-								 "Aucune conversation archivee.", NkRole::TextMuted);
-						py += lh;
-					}
-					// ⚠️ VIDER DOIT ETRE ATTEIGNABLE. Un historique qu on ne peut pas
-					//    vider est une dette de vie privee.
-					const NkRect vr{pop.x + S(2.f), py, pop.w - S(4.f), lh};
-					if (hit.Add("ai.histvide", vr))
-						p.Fill(vr, NkRole::InputBg, S(3.f));
-					p.TextClipped(vr.x + S(6.f), py + S(4.f), vr.w - S(12.f),
-							 n > 0 ? "Vider l historique" : "Vider l historique (rien a vider)",
-							 n > 0 ? NkRole::AxisX : NkRole::TextMuted);
-					if (n > 0 && hit.Clicked("ai.histvide"))
-						NkAiViderHistorique(st);
-					py += lh;
-					p.TextClipped(pop.x + S(6.f), py + S(2.f), pop.w - S(12.f),
-							 "Les conversations ne survivent pas a la fermeture.", NkRole::TextMuted);
-					yy += hpop + S(4.f);
-				}
-			}
-			p.Fill({r.x + pad, yy, r.w - pad * 2.f, S(1.f)}, NkRole::Border, 0.f);
-			yy += S(6.f);
-
-			// ── 3. LE COMPOSEUR ET SA LIGNE D'ETAT, RESERVES EN BAS ────────────
-			// Reserves AVANT de peindre le fil : c'est ce qui donne au fil sa
-			// hauteur exacte. L'inverse -- peindre le fil puis « ce qui reste » --
-			// laisse le composeur sortir du panneau des que le fil est long.
-			const float32 hComposeur = kRowH * 2.f + S(6.f);
-			const float32 hEtat = kRowH;
-			const float32 yComposeur = r.y + r.h - pad - hEtat - S(6.f) - hComposeur;
-			const NkRect filR{r.x + pad, yy, r.w - pad * 2.f, yComposeur - yy - S(6.f)};
-
-			// ── 4. LE FIL DE BLOCS TYPES ── PEINT PAR LE KIT ───────────
-			// ⚠️ CE PANNEAU NE DESSINE PLUS SON FIL, ET C'EST TOUT LE LOT.
-			//    Rodolf, 20/09 : « que ce soit nk code ou nk3dmodeler ou nkuidesign
-			//    [...] je veux que le panneau soit exactement comme ceci ». Trois
-			//    panneaux conformes aujourd'hui divergent en un mois ; un composant
-			//    partage ne le peut pas.
-			//
-			//    La geometrie vient de `NkAiFilMesurer` (un PLAN de rectangles
-			//    nommes), la peinture de `NkAiFilPeindre`, qui ne calcule aucune
-			//    position. L'adaptateur `NkModelerComponentPaint` existait depuis le
-			//    18/08 : il n'y avait rien a ecrire pour brancher l'un sur l'autre.
-			//
-			// ⚠️ LA CHASSE FIXE MANQUE TOUJOURS -- ce peintre n'a qu'une police, et
-			//    le plan la demande quand meme. C'est le PEINTRE qui se rabat, pas le
-			//    plan qui ment : le jour ou la coquille charge une seconde police,
-			//    rien n'est a changer ici. Les blocs `IN`/`OUT` restent distingues
-			//    par leur FOND (`code_bg` / `code_out_bg`), comme aujourd'hui.
-			p.Clip(filR);
-			if (st.aiFil.Taille() == 0) {
-				float32 fy = filR.y;
-				p.TextV(filR.x, fy, kRowH, "Aucun echange pour l'instant.", NkRole::TextMuted);
-				fy += kRowH;
-				// ⚠️ ON DIT CE QU'ON SAIT FAIRE. Un champ libre sans exemple se repond
-				//    par des phrases que rien ne comprend, et l'utilisateur conclut que
-				//    l'outil ne marche pas -- alors qu'il n'a jamais su ce qu'on
-				//    attendait de lui.
-				p.TextV(filR.x, fy, kRowH, "Ex. : subdivide:3  ·  bevel:0.2:4  ·  undo",
-						 NkRole::TextMuted);
-			} else {
-				editorkit::NkAiMetriques metr;
-				// ⚠️ L ECHELLE DE L HOTE, SANS QUOI LE PANNEAU IGNORE `gUiScale`.
-				//    Toute la mise en page du modeleur passe par `S(px)` ; le kit est en
-				//    pixels bruts. Sans cette ligne le fil resterait a 100 % pendant que
-				//    le reste du panneau grandit -- invisible ici (`gUiScale` = 1), et
-				//    seulement chez quelqu un qui travaille a 125 %.
-				metr.Echelle(S(1.f));
-				editorkit::NkAiFilMesurer(st.aiFil, filR.w, metr, NkAiMesurerTexte, &p, st.aiPlan);
-				NkModelerComponentPaint pc(p);
-				// L origine EST publiee : c est elle qui ramene le plan a l ecran.
-				st.aiPlanOrigine[0] = filR.x;
-				st.aiPlanOrigine[1] = filR.y - st.aiDefile;
-				editorkit::NkAiFilPeindre(pc, st.aiFil, st.aiPlan, filR.x, filR.y - st.aiDefile);
-				// ⚠️ LE CLIC PASSE PAR L'IDENTIFIANT, PLUS PAR UN INDICE. `ai.b%d`
-				//    avec la position etait faux des qu'un bloc entrait dans un fil
-				//    plein : mesure du 20/09, l'indice 10 designait « etape 11 ».
-				for (uint32 i = 0; i < st.aiFil.Taille(); ++i) {
-					const uint32 id = st.aiFil.At(i).id;
-					editorkit::NkAiRectPublie rc;
-					if (!st.aiPlan.Trouver(id, editorkit::NkAiPiece::Texte, rc) &&
-						 !st.aiPlan.Trouver(id, editorkit::NkAiPiece::Titre, rc))
-						continue;
-					char cle[24];
-					snprintf(cle, sizeof(cle), "ai.b%u", (unsigned)id);
-					(void)hit.Add(cle, {filR.x, rc.y + filR.y - st.aiDefile, filR.w, metr.ligne});
-					if (hit.Clicked(cle))
-						st.aiFil.BasculerParId(id); // ⚠️ DEPLIER N'EXECUTE RIEN
-				}
-			}
-			p.Unclip();
-
-			// ── 5. LE COMPOSEUR ────────────────────────────────────────────────
-			// ⚠️ CE N'EST PLUS « LOCAL OU RIEN ». Jusqu'au 20/09 le composeur
-			//    n'etait allume que sur l'onglet 0, parce qu'aucun autre n'etait
-			//    cable. Il l'est maintenant des que la BOUCLE dit que l'onglet a
-			//    un dorsal -- `st.aiOngletPret`, ecrit par `NkIaCanal::DorsalDe`.
-			//    Le panneau ne redecide pas : deux avis sur la meme question
-			//    finissent toujours par diverger, et l'utilisateur croit celui
-			//    qu'il voit.
-			const bool ongletActif = st.aiOngletPret;
-			{
-				const float32 bw = S(74.f);
-				const NkRect champ{r.x + pad, yComposeur, r.w - pad * 2.f - bw - S(6.f),
-								   hComposeur};
-				p.Outline(champ, NkRole::Border, NkRole::InputBg, 3.f);
-				if (guiCtx && ongletActif) {
-					editorkit::NkOverlayTextField(*guiCtx, guiCtx->dl, p.FontPtr(),
-												  {champ.x, champ.y, champ.w, kRowH}, st.aiSaisie,
-												  (int32)sizeof(st.aiSaisie) - 1, true);
-					// ── CE QUI PART, DIT SOUS LE CHAMP, AVANT D'ENVOYER ───────
-					// ⚠️ L'AVERTISSEMENT VIT SOUS LE CURSEUR, PAS DANS UNE LIGNE
-					//    D'ETAT EN BAS DE PANNEAU. Rodolf doit pouvoir choisir en
-					//    connaissance de cause A CHAQUE USAGE, et le regard est
-					//    sur le champ qu'il remplit -- pas sur le bord inferieur.
-					if (st.aiOngletDistant)
-						p.TextClipped(champ.x + S(4.f), champ.y + S(4.f) + kRowH,
-									  champ.w - S(8.f),
-									  "⚠ SERVICE DISTANT : cette demande et le contrat des 26 "
-									  "verbes QUITTENT cette machine.",
-									  NkRole::AxisX);
-				} else if (!ongletActif) {
-					// LE ZERO, ET IL DIT LEQUEL. Le motif vient du canal, avec le
-					// GESTE QUI REPARE en tete : « Installez... », « Connectez-vous... ».
-					// ⚠️ Un refus muet a cote de deux onglets bavards se lit comme
-					//    un silence -- et on cherche le defaut dans sa demande.
-					p.TextWrap(champ.x + S(4.f), champ.y + S(4.f), champ.w - S(8.f),
-							   st.aiOngletMotif[0] ? st.aiOngletMotif
-												   : "Aucun dorsal pour cet onglet.",
-							   NkRole::TextMuted);
+		/// Les trois fournisseurs du modeleur, DANS L'ORDRE DE `st.aiOnglet` (0 local,
+		/// 1 Claude, 2 Ollama). Declares une fois ; leur ETAT (pret, motif) est relu
+		/// a chaque image dans ce que la boucle publie -- le panneau ne redecide pas.
+		inline void NkAiDeclarerPanneau(NkModelerState &st) {
+			editorkit::NkAiPanneau &pan = st.aiPanneau;
+			if (pan.fournisseurs.Size() == 0) {
+				editorkit::NkAiFournisseurDesc loc;
+				loc.cle = NkString("local");
+				loc.nom = NkString("Local");
+				editorkit::NkAiModeleDesc ml;
+				// LE MODELE QUE LE SCRIPT EMPLOIERA VRAIMENT : `ia_verbe.py` lit
+				// NK_IA_MODELE, qwen2.5:7b-instruct par defaut. Un gabarit NK_IA_CMD
+				// remplace le script entier : on ne pretend alors plus savoir.
+				const char *cmd = std::getenv("NK_IA_CMD");
+				const char *mod = std::getenv("NK_IA_MODELE");
+				if (cmd && *cmd) {
+					ml.nom = NkString("NK_IA_CMD");
+					ml.detail = NkString("commande posee");
 				} else {
-					// Repli nomme (pas de contexte) : on AFFICHE, on n'edite pas. Un
-					// champ muet qui a l'air editable est pire qu'un champ eteint.
-					p.TextV(champ.x + S(4.f), champ.y, kRowH, st.aiSaisie, NkRole::TextMuted);
+					ml.nom = NkString((mod && *mod) ? mod : "qwen2.5:7b-instruct");
+					ml.detail = NkString("ia_verbe.py");
 				}
-				const NkRect bt{r.x + r.w - pad - bw, yComposeur, bw, kRowH};
-				const bool over = hit.Add("ai.envoyer", bt);
-				const bool actif = ongletActif && !NkAiVide(st.aiSaisie);
-				// Le bouton dit lui-meme s'il fera quelque chose : eteint quand le
-				// champ est vide. C'est le ZERO, rendu visible avant d'etre clique.
-				p.Fill(bt,
-					   actif ? (over ? NkRole::AccentUi : NkRole::PanelHeader) : NkRole::InputBg,
-					   3.f);
-				p.TextV(bt.x + (bw - p.TextW("Envoyer")) * 0.5f, bt.y, kRowH, "Envoyer",
-						actif ? NkRole::Text : NkRole::TextMuted);
-				if (actif && hit.Clicked("ai.envoyer")) {
-					// ── LA RECOLTE EST **ICI**, ET PAS DANS `NkAiSoumettre` ───────
-					// ⚠️ C'est le seul endroit ou une phrase TAPEE entre. Poser la
-					//    recolte dans `NkAiSoumettre` aurait paru plus sur -- « tout
-					//    passe par la » -- et aurait pollue le corpus : ses autres
-					//    appelants sont le bouton « Annuler cette action », qui
-					//    soumet le verbe `undo`, et le crochet de mesure
-					//    `NK_AI_DEMANDE`, qui soumet MES phrases de banc. Le corpus
-					//    aurait alors contenu ce que l'application se dit a
-					//    elle-meme, melange a ce que Rodolf demande -- et c'est
-					//    justement ce melange qu'on cherche a eviter.
-					NkAiRecolter(st.aiSaisie);
-					if (NkAiSoumettre(st, st.aiSaisie))
-						st.aiSaisie[0] = 0; // le champ se vide : la demande est PARTIE
+				loc.modeles.PushBack(ml);
+				pan.fournisseurs.PushBack(loc);
+				editorkit::NkAiFournisseurDesc cl;
+				cl.cle = NkString("claude");
+				cl.nom = NkString("Claude");
+				cl.distant = true;
+				// Les ALIAS que le CLI accepte (`--model`). Le choix est ecrit dans
+				// `st.aiClaudeModele`, que la boucle pose sur le dorsal.
+				static const char *const kModeles[3] = {"sonnet", "opus", "haiku"};
+				for (int32 i = 0; i < 3; ++i) {
+					editorkit::NkAiModeleDesc m;
+					m.nom = NkString(kModeles[i]);
+					cl.modeles.PushBack(m);
 				}
-				// FERMER : le panneau est refermable, comme celui de la capture.
-				const NkRect fb{bt.x, bt.y + kRowH + S(6.f), bw, kRowH};
-				const bool ovF = hit.Add("ai.fermer", fb);
-				p.Fill(fb, ovF ? NkRole::InputBg : NkRole::PanelBg, 3.f);
-				p.TextV(fb.x + (bw - p.TextW("Fermer")) * 0.5f, fb.y, kRowH, "Fermer",
-						NkRole::TextMuted);
-				if (hit.Clicked("ai.fermer"))
-					// ON RECULE UN GESTE, ON NE LE RETIRE PAS : ce bouton reste, mais
-					// il n'est plus la SEULE sortie -- la pastille du bord droit en
-					// est une, visible que le panneau soit ouvert ou ferme. Les deux
-					// ecrivent le MEME etat : aucune des deux portes ne peut produire
-					// un resultat que l'autre ne produirait pas.
-					st.aiOuvert = false;
-			}
+				pan.fournisseurs.PushBack(cl);
+				editorkit::NkAiFournisseurDesc ol;
+				ol.cle = NkString("ollama");
+				ol.nom = NkString("Ollama");
+				pan.fournisseurs.PushBack(ol);
 
-			// ── 6. LA LIGNE D'ETAT : LE DORSAL ET SON COUT ─────────────────────
-			// ⚠️ « NON CHARGE » EST LA PARTIE IMPORTANTE. Les 4 444 Mo sont une
-			//    mesure d'en-tete du 14/09, pas une mesure de l'instant :
-			//    l'afficher seul ferait croire que le modele occupe la carte
-			//    maintenant. Et la carte est DISPUTEE -- l'entrainement d'Ilyana y
-			//    tourne. Rodolf doit pouvoir comprendre un ralentissement sans le
-			//    deviner.
-			//
-			// ⚠️ CETTE LIGNE N'EST PLUS COMPOSEE ICI, ET C'EST LE CORRECTIF DU
-			//    20/09. Le panneau ecrivait le texte PUIS le recopiait dans
-			//    `st.aiEtat` « ce qui est AFFICHE, pas une copie » -- mais il le
-			//    composait a partir du SEUL `aiOnglet`, sans rien savoir du
-			//    dorsal. Avec trois onglets dont deux cables, il aurait fallu lui
-			//    apprendre l'etat des dorsaux : c'est-a-dire une SECONDE autorite
-			//    sur la meme question. `NkIaCanal::LigneEtat` l'ecrit, la boucle
-			//    la depose, le panneau la PEINT. Un seul auteur.
+				editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
+				cap.produitOutil = true; // une operation porte une entree et une sortie
+				cap.produitRefus = true; // un verbe inconnu est une REPONSE, pas une panne
+				pan.capacites = cap;
+				// ⚠️ LA FENETRE RESTE A 16, et c'est DECLARE (le 20/09 le defaut du
+				//    kit l'avait fait passer a 200 en silence).
+				pan.plafond = 16;
+				pan.Lier(&st.aiFil);
+				pan.indication = NkString("Ce que l'assistant sait faire : une phrase (« subdivise le cube deux "
+										  "fois ») ou un verbe du contrat (`subdivide:3`, `bevel:0.2:4`, `undo`). "
+										  "Le « / » les liste.");
+				pan.invite = NkString("Decrivez l'operation sur la selection…");
+				pan.declaration = NkString("Local : NK_IA_CMD (commande) ou NK_IA_MODELE. Claude : le CLI « claude », "
+										   "compte NK_CLAUDE_COMPTE.");
+				// LE « / » : le VOCABULAIRE DU CONTRAT, lu dans sa table -- une seule
+				// autorite, celle que le pont et l'imprimeur du contrat lisent deja.
+				int32 nv = 0;
+				const NkVerbe *V = NkVerbes(nv);
+				for (int32 i = 0; i < nv; ++i) {
+					editorkit::NkAiCommandeDesc c;
+					c.nom = NkString(V[i].nom);
+					c.detail = NkString(V[i].effet ? V[i].effet : "");
+					c.insertion = NkString(V[i].nom);
+					pan.commandes.PushBack(c);
+				}
+				// le modele de Claude deja pose (NK_CLAUDE_MODELE) est la valeur courante
+				for (int32 i = 0; i < 3; ++i)
+					if (st.aiClaudeModeleCourant[0] && NkString(kModeles[i]) == NkString(st.aiClaudeModeleCourant))
+						pan.fournisseurs[1].modele = i;
+			}
+			for (int32 i = 0; i < 3 && i < (int32)pan.fournisseurs.Size(); ++i) {
+				pan.fournisseurs[(usize)i].pret = st.aiPretDe[i];
+				pan.fournisseurs[(usize)i].motif = NkString(st.aiMotifDe[i]);
+			}
+			pan.occupe = st.aiEnvoiEnCours;
+		}
+
+		/// L'assistant, CONTENU du panneau de droite (Rodolf, 20/09 : « la pastille
+		/// de IA doit s'ouvrir sur le panel de droite comme tout le monde »).
+		/// `peutAnnuler` vient de l'HOTE : c'est lui qui tient la pile.
+		inline void PaintAiDansPanneau(NkModelerPainter &p, NkHitRegistry &hit, NkModelerState &st,
+									   nkgui::NkGuiContext *guiCtx, const NkRect &r, bool peutAnnuler) {
+			if (!st.aiOuvert || !guiCtx)
+				return;
+			NkAiDeclarerPanneau(st);
+			editorkit::NkAiPanneau &pan = st.aiPanneau;
+			// L'onglet a pu etre ecrit par la boucle ou une sonde : le panneau suit.
+			if (st.aiOnglet != pan.Actif()) {
+				NkString pq;
+				if (!pan.Choisir(st.aiOnglet, pq))
+					st.aiOnglet = pan.Actif();
+			}
+			// ── « ANNULER CETTE ACTION », RENDU (regression du 20/09, reparee) ──
+			// ⚠️ SUR LA DERNIERE OPERATION SEULEMENT : notre pile a UN cran pour
+			//    l'assistant -- un bouton sur une ligne ancienne annulerait la
+			//    derniere en affichant le texte d'une autre.
+			// ⚠️ `peutAnnuler` EST LU, PLUS SEULEMENT RECU. C'etait le defaut : le
+			//    parametre arrivait, juste, et personne ne le lisait.
+			pan.actions = editorkit::NkAiActionsFil{};
+			const uint32 derniere = NkAiDerniereOperation(st);
+			if (derniere != 0u) {
+				pan.actions.blocId = derniere;
+				pan.actions.libelle[0] = "Annuler cette action";
+				pan.actions.actif[0] = peutAnnuler;
+			}
+			pan.echelle = S(1.f);
+			static NkChrono sHorloge;
+			const float64 t = sHorloge.Elapsed().ToSeconds();
+			pan.maintenant = t;
+			pan.phase = (float32)(t - (float64)(int64)t);
+			// L'EMPRISE : le panneau reclame SON rectangle. Le survol ne lui revient
+			// que s'il est la surface du dessus -- un menu deroule reste prioritaire.
+			const bool libre = hit.Add("ai.panneau", r);
+			editorkit::NkGuiComponentPaint pc(*guiCtx, p.Theme());
+			pc.PoserPolices(nullptr, NkAiPoliceMono());
+			const editorkit::NkAiSorties out = pan.Dessiner(*guiCtx, pc, {r.x, r.y, r.w, r.h}, libre);
+			st.aiOnglet = pan.Actif();
+
+			// ── CE QUE LE PANNEAU PUBLIE, pour les sondes (jamais recalcule) ──
+			st.aiPanRect[0] = r.x;
+			st.aiPanRect[1] = r.y;
+			st.aiPanRect[2] = r.w;
+			st.aiPanRect[3] = r.h;
+			st.aiPlan = pan.planFil;
+			st.aiPlanOrigine[0] = pan.filOx;
+			st.aiPlanOrigine[1] = pan.filOy;
+			// LE BOUTON A SON PROPRE RECTANGLE PUBLIE -- plus celui de l'effet.
+			st.aiActionRect[0] = st.aiActionRect[1] = st.aiActionRect[2] = st.aiActionRect[3] = 0.f;
 			{
-				const NkRect er{r.x + pad, r.y + r.h - pad - hEtat, r.w - pad * 2.f, hEtat};
-				// LE DISTANT SE VOIT : fond d'alerte, pas le fond d'en-tete ordinaire.
-				// Un avertissement de la meme couleur que tout le reste n'avertit pas.
-				p.Fill(er, st.aiOngletDistant ? NkRole::InputBg : NkRole::PanelHeader, 3.f);
-				p.TextClipped(er.x + S(6.f), er.y + S(3.f), er.w - S(12.f),
-							  st.aiEtat[0] ? st.aiEtat : "(etat non publie par la boucle)",
-							  st.aiOngletDistant ? NkRole::AxisX : NkRole::TextMuted);
+				editorkit::NkAiRectPublie ab;
+				if (derniere != 0u && pan.planFil.TrouverIndice(derniere, editorkit::NkAiPiece::Action, 0u, ab)) {
+					st.aiActionRect[0] = ab.x + pan.filOx;
+					st.aiActionRect[1] = ab.y + pan.filOy;
+					st.aiActionRect[2] = ab.w;
+					st.aiActionRect[3] = ab.h;
+				}
+			}
+			st.aiComposeurActif = pan.ComposeurActif(*guiCtx);
+
+			// ── LES GESTES ──
+			if (out.envoyer) {
+				// LA RECOLTE EST ICI, et pas dans `NkAiSoumettre` : c'est le seul
+				// endroit ou une phrase TAPEE entre (le bouton « Annuler » et les
+				// crochets de mesure soumettent aussi, et ne sont pas Rodolf).
+				NkAiRecolter(out.texte.CStr());
+				if (NkAiSoumettre(st, out.texte.CStr()))
+					pan.ViderSaisie(); // la demande est PARTIE
+			}
+			if (out.arreter)
+				st.aiArreter = true;
+			if (out.actionBloc != 0u && out.actionBloc == derniere && out.actionIndice == 0)
+				// LA MEME PORTE QUE Ctrl+Z : le verbe `undo`, par le point d'entree unique.
+				(void)NkAiSoumettre(st, "undo");
+			if (out.modeleChange && pan.Actif() == 1) {
+				const editorkit::NkAiFournisseurDesc &f = pan.fournisseurs[1];
+				if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())
+					NkAiCopie(st.aiClaudeModele, sizeof(st.aiClaudeModele), f.modeles[(usize)f.modele].nom.CStr());
 			}
 		}
 

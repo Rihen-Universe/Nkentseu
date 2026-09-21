@@ -3,6 +3,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkModelerInput.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // =============================================================================
@@ -36,6 +37,7 @@
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkAiThread.h" // LE FIL du panneau IA, commun au kit
 #include "NKEditorKit/NkAiThreadLayout.h" // et le PLAN qu'il publie
+#include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
 #include "NK3DModeler/Shell/NkModelerFold.h"
@@ -415,6 +417,11 @@ namespace nkentseu {
 				bool propOpen[8] = {true};
 				bool propFold[8] = {};
 				bool AnyPropOpen() const {
+					// L'ASSISTANT OUVERT EST UN CONTENU du panneau (21/09) : sans cette
+					// ligne, l'ouvrir alors qu'aucune section n'est choisie repliait le
+					// panneau sur sa colonne de pastilles -- un assistant de 46 px.
+					if (aiOuvert && !welcome)
+						return true;
 					for (int32 i = 0; i < 8; ++i)
 						if (propOpen[i])
 							return true;
@@ -1049,7 +1056,8 @@ namespace nkentseu {
 				//   sortie standard : parfait pour une sonde, INVISIBLE pour Rodolf, qui
 				//   n'a pas de console. Un outil qui refuse sans le dire a l'ecran se lit
 				//   comme un outil qui ne marche pas.
-				char aiSaisie[256] = {0};  ///< ce qui est en train d'etre tape
+				// ⚠️ `aiSaisie` A DISPARU LE 21/09 : ce qui est tape vit dans le composeur
+				//    du kit (`aiPanneau.Saisie()`), UTF-8 -- l'ancien champ refusait les accents.
 				char aiPending[256] = {0}; ///< la demande soumise (vide = rien a faire)
 				char aiMotif[192] = {0};   ///< le dernier refus, AFFICHE et pas seulement journalise
 				bool aiMotifEstRefus = false; ///< distingue « refuse » de « fait »
@@ -1109,24 +1117,32 @@ namespace nkentseu {
 				///    ne se signale pas -- il fait rater les clics en silence.
 				float32 aiPlanOrigine[2] = {0.f, 0.f};
 
-				// ── L HISTORIQUE DES CONVERSATIONS (20/09) ────────────────
-				// ⚠️ IL EXISTE PARCE QU UN BOUTON MORT LE PROMETTAIT DEJA. `ai.hist`
-				//    etait dessine, s eclairait au survol -- donc promettait un geste --
-				//    et `Clicked("ai.hist")` n existait nulle part. Une icone qui
-				//    s eclaire promet un geste : c est le defaut dont Rodolf s est plaint
-				//    le matin du 20/09, dans le panneau cense le corriger.
-				//    Rodolf ayant autorise l historique, on l HONORE au lieu de le retirer.
-				//
-				// ⚠️ IL NE SURVIT PAS A LA FERMETURE, ET L INTERFACE LE DIT. La
-				//    persistance demande un format, et on en ouvre deja un ailleurs. Un
-				//    historique qui s evapore EN SILENCE est pire que pas d historique :
-				//    il fait perdre du travail qu on croyait garde.
-				static const int32 kAiArchives = 8;
-				editorkit::NkAiFil aiArchives[kAiArchives];
-				char aiArchivesSujet[kAiArchives][80] = {{0}};
-				int32 aiArchivesN = 0;
-				/// Le popover de l historique est-il deplie ?
-				bool aiHistOuvert = false;
+				// ── LE PANNEAU DU KIT (21/09) ─────────────────────────────
+				// L'historique, la saisie, les menus et UNE CONVERSATION PAR ASSISTANT
+				// vivent dans `NkAiPanneau`, le meme que NKUIDesign et NKCode. Le fil
+				// VIVANT reste `aiFil` (le panneau y est lie : `Lier`).
+				editorkit::NkAiPanneau aiPanneau;
+				/// L'ETAT DES TROIS FOURNISSEURS, publie par la boucle a chaque image
+				/// (`NkIaCanal::DorsalDe` / `MotifDe`). Le panneau l'AFFICHE ; il ne le
+				/// redecide pas -- deux avis sur la meme question finissent par diverger.
+				bool aiPretDe[3] = {false, false, false};
+				char aiMotifDe[3][192] = {{0}};
+				/// Un tour est en vol (`envoi.EnCours()`), publie par la boucle.
+				bool aiEnvoiEnCours = false;
+				/// Le bouton d'ARRET a ete presse : la boucle annule l'envoi et remet a faux.
+				bool aiArreter = false;
+				/// Le modele de Claude CHOISI dans la pastille (vide = celui du reglage),
+				/// et celui que le dorsal porte vraiment -- relu, pas suppose.
+				char aiClaudeModele[48] = {0};
+				char aiClaudeModeleCourant[48] = {0};
+				/// LE RECTANGLE ECRAN du bouton « Annuler cette action », PUBLIE par le
+				/// panneau (0 = pas de bouton). Il a SON rectangle : la trace portait
+				/// sous `annuler=` celui de l'EFFET, et une sonde cliquait l'effet en
+				/// croyant cliquer le bouton.
+				float32 aiActionRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// Le composeur a le focus clavier : aucune touche ne doit atteindre les
+				/// raccourcis du modeleur (taper « e » ne doit pas extruder).
+				bool aiComposeurActif = false;
 
 				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
 				// Les compteurs de maillage et l'etat d'une mesure en cours sont des
@@ -1236,13 +1252,11 @@ namespace nkentseu {
 				///    Un seul des deux laisserait passer l'autre.
 				int32 aiBoucleTourMax = 24;
 
-				char aiSujet[80] = {0}; ///< le sujet de la conversation (la premiere demande)
 				/// LA LIGNE D'ETAT, ECRITE PAR LA PEINTURE. Elle vit ici pour qu'une
 				/// sonde puisse la LIRE : la recomposer de son cote ferait deux textes
 				/// qui finiraient par ne plus dire la meme chose -- et c'est justement
 				/// celui qui doit dire « modele NON CHARGE ».
 				char aiEtat[128] = {0};
-				float32 aiDefile = 0.f;
 				NkVpAction pendingAction = NkVpAction::None;
 				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
 				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes

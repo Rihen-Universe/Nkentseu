@@ -1,6 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkModelerProperties.h
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   LE PANNEAU DE PROPRIETES (droite) : widgets de reglage (ligne de
 //          transformation, selecteur de couleur, groupes repliables) puis les
 //          pastilles elles-memes -- objet, materiau, lumiere, camera, monde,
@@ -7422,7 +7423,11 @@ namespace nkentseu {
 							break;
 						}
 					char hd[64];
-					if (actSec == 7 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
+					// L'ASSISTANT OUVERT DONNE SON NOM AU PANNEAU : il en est le contenu,
+					// et « Proprietes (Outil) » au-dessus de lui nommait ce qui est cache.
+					if (st.aiOuvert && !st.welcome)
+						snprintf(hd, sizeof(hd), "Assistant");
+					else if (actSec == 7 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
 						snprintf(hd, sizeof(hd), "Proprietes (%s)",
 								 kHdrMode[(int32)st.mode - 1]);
 					else if (actSec >= 0 && actSec < 7)
@@ -7873,7 +7878,12 @@ namespace nkentseu {
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};
-					const bool on = st.propOpen[i2];
+					// ── UNE SEULE PASTILLE ALLUMEE (Rodolf, 21/09, capture 040803 : deux
+					//    etaient bleues). Pendant que l'assistant est le contenu du
+					//    panneau, la section qu'il recouvre n'est PAS affichee : sa
+					//    pastille s'eteint. Elle se rallume a la fermeture -- la section
+					//    reste ouverte dessous, c'est ce qu'on retrouve.
+					const bool on = st.propOpen[i2] && !(st.aiOuvert && !st.welcome);
 					const bool overT = hit.Add(tk, tb);
 					if (on)
 						p.Fill(tb, NkRole::AccentUi, 3.f);
@@ -7881,7 +7891,16 @@ namespace nkentseu {
 						HoverFill(p, tb, overT, 3.f);
 					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kSecs[i2].icon,
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
-					if (hit.Clicked(tk)) {
+					if (hit.Clicked(tk) && st.aiOuvert && !st.welcome) {
+						// L'ASSISTANT CEDE LA PLACE a la section choisie -- sans la
+						// replier si elle etait deja ouverte dessous : le clic dit
+						// « montre-moi ceci », pas « ferme ceci ».
+						st.aiOuvert = false;
+						for (int32 j2 = 0; j2 < kNSec; ++j2)
+							if (j2 != i2)
+								st.propOpen[j2] = false;
+						st.propOpen[i2] = true;
+					} else if (hit.Clicked(tk)) {
 						// EXCLUSIVE : choisir une categorie eteint les autres, et
 						// recliquer l'active replie le panneau. Une section fermee
 						// oublie son agrandissement et son defilement -- ils ne
