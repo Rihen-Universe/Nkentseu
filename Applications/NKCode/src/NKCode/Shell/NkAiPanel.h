@@ -746,6 +746,12 @@ namespace nkentseu {
 							}
 						} else
 							mKit.commandesParHote = true;
+						// L'EFFORT (Q5) : les CINQ niveaux que l'aide du CLI documente pour
+						// `--effort`, sous leur vrai nom -- NKCode les transmet deja.
+						mKit.effortCrans.Clear();
+						static const char *const kCli[5] = {"low", "medium", "high", "xhigh", "max"};
+						for (int32 i = 0; i < 5; ++i)
+							mKit.effortCrans.PushBack(NkString(kCli[i]));
 						mKit.fileAttente = true;	   // NKCode met en file ce qu'on tape pendant un tour
 						mKit.plafond = 400;
 						mKit.declaration = NkString(
@@ -765,13 +771,37 @@ namespace nkentseu {
 					const char *const *models = mKind == 1 ? ClaudeModelTitles(nM) : kModels(nM);
 					if ((int32)moi.modeles.Size() != nM) {
 						moi.modeles.Clear();
+						// (Q5) LA LIGNE DE DESCRIPTION de « Select a model » : celle que
+						// NKCode tient deja pour Claude Code (ClaudeModelDescs), jamais
+						// brodee ici.
+						int32 nD = 0;
+						const char *const *descs = mKind == 1 ? ClaudeModelDescs(nD) : nullptr;
 						for (int32 i = 0; i < nM; ++i) {
 							editorkit::NkAiModeleDesc m;
 							m.nom = NkString(models[i]);
+							if (descs && i < nD && descs[i])
+								m.detail = NkString(descs[i]);
 							moi.modeles.PushBack(m);
 						}
 					}
 					moi.modele = mModelIdx;
+					// (Q5) LES PROPRIETES, et leur motif quand elles n'agissent pas : NKCode
+					// ne transmet `--effort` qu'au CLI de Claude Code, et ne rend le
+					// raisonnement (`thinking_delta`) que de son flux.
+					for (usize i = 0; i < moi.modeles.Size(); ++i) {
+						moi.modeles[i].motifEffort =
+							mKind == 1 ? NkString() : NkString("l'effort n'agit que sur Claude Code (--effort du CLI)");
+						moi.modeles[i].motifPensee = mKind == 1
+														 ? NkString()
+														 : NkString("seul Claude Code rend son raisonnement ici");
+					}
+					// les SIX niveaux de NKCode -> les CINQ du CLI, par la table deja ecrite
+					// pour la ligne de commande (low, low, medium, high, xhigh, max)
+					{
+						static const int32 kVersCran[6] = {0, 0, 1, 2, 3, 4};
+						mKit.effort = (mEffort >= 0 && mEffort < 6) ? kVersCran[mEffort] : 1;
+						mKit.penser = mThinking;
+					}
 					int32 nMo = 0, nDe = 0;
 					const char *const *modes = ModeOptionsFor(mKind, nMo);
 					const char *const *descs = ModeDescFor(mKind, nDe);
@@ -903,7 +933,13 @@ namespace nkentseu {
 					mKit.echelle = ctx.S(1.f);
 					static const editorkit::NkTheme sDefaut = editorkit::NkTheme::Dark();
 					editorkit::NkGuiComponentPaint pc(ctx, mShell ? mShell->KitTheme() : sDefaut);
-					pc.PoserPolices(nullptr, mShell ? mShell->TermCodeFont() : nullptr);
+					// LE CORPS DU PANNEAU (Q6) : Inter 15, la taille de la capture, televerse
+					// UNE fois dans l'emplacement d'application 0 de la coquille (libre ici).
+					if (!PoliceCorpsIA().Valid() && mShell &&
+						PoliceCorpsIA().LoadEmbedded(NkEmbeddedFontId::Inter, (float32)(int32)(ctx.S(15.f) + 0.5f)))
+						(void)mShell->UploadAppFont(PoliceCorpsIA(), 0u);
+					pc.PoserPolices(nullptr, mShell ? mShell->TermCodeFont() : nullptr,
+									PoliceCorpsIA().Valid() ? &PoliceCorpsIA() : nullptr);
 					const bool libre = !popOuvert && ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos);
 					const editorkit::NkAiSorties out = mKit.Dessiner(ctx, pc, {r.x, r.y, r.w, r.h}, libre);
 					// LES ANCRES des popovers de NKCode : les pieces du kit qui les ouvrent.
@@ -952,6 +988,16 @@ namespace nkentseu {
 						mPlusOpen = !mPlusOpen;
 					if (out.modeChange)
 						mMode = out.mode;
+					// (Q5) LES PROPRIETES AGISSENT par les champs que NKCode lit deja :
+					// `mEffort` part en `--effort` sur la ligne du CLI, `mThinking` decide
+					// si le raisonnement est rendu dans la conversation.
+					if (out.effortChange) {
+						static const int32 kVersNiveau[5] = {1, 2, 3, 4, 5};
+						if (mKit.effort >= 0 && mKit.effort < 5)
+							mEffort = kVersNiveau[mKit.effort];
+					}
+					if (out.penserChange)
+						mThinking = mKit.penser;
 					if (out.modeleChange && mKit.Actif() == mKind)
 						mModelIdx = mKit.fournisseurs[(usize)mKind].modele;
 					if (out.fournisseurChange) {
@@ -973,6 +1019,14 @@ namespace nkentseu {
 				/// Le panneau du kit, publie pour l'image de preuve (NK_AI_IMAGE).
 				const editorkit::NkAiPanneau &Kit() const {
 					return mKit;
+				}
+				editorkit::NkAiPanneau &KitModifiable() {
+					return mKit;
+				}
+				/// La police du corps du panneau (Inter 15), commune aux quatre assistants.
+				static nkgui::NkGuiFont &PoliceCorpsIA() {
+					static nkgui::NkGuiFont f;
+					return f;
 				}
 
 			private:
