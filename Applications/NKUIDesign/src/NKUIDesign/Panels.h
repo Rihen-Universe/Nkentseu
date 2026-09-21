@@ -9638,6 +9638,56 @@ namespace nkuidesign {
 	//  lit (`mSt->conversation`, qui batit l'invite de discussion) suivent le
 	//  fournisseur. Revenir au local ramene SA discussion, pas celle de Claude.
 	// ═══════════════════════════════════════════════════════════════════════════
+	/// (Q8) LA REFERENCE VISUELLE : une image jointe est DECRITE par un modele de
+	/// vision LOCAL (moondream, ou qwen2.5vl s'il est deja telecharge -- jamais de
+	/// `pull`), et la description entre dans l'invite du generateur. Le dorsal de
+	/// generation ne change pas : celui-ci l'ENVELOPPE, le temps d'une demande.
+	/// ⚠️ SI LA VISION ECHOUE, LA DEMANDE ECHOUE EN LE DISANT : generer « comme
+	///    cette image » sans l'avoir vue serait une reponse fausse presentee comme
+	///    juste.
+	class NkDesignBackendVision final : public NkIDesignBackend {
+		public:
+			NkIDesignBackend *suite = nullptr;
+			nkentseu::converse::NkConverseBackendOllama vision;
+			NkString description; ///< ce que le modele de vision a dit (publie pour la trace)
+			bool Complete(const NkDesignRequest &req, nkentseu::converse::NkConverseReply &out) override {
+				description = NkString();
+				if (!suite) {
+					out.success = false;
+					out.error = NkString("REFUS : aucun generateur derriere la vision");
+					return false;
+				}
+				nkentseu::converse::NkConverseRequest rv;
+				rv.prompt = NkString(
+					"Describe precisely the user interface screen shown in this image: its title, every text, "
+					"every input field with its label, every button with its text, and their order from top to "
+					"bottom. Answer in a short list.");
+				nkentseu::converse::NkConverseReply rr;
+				if (!vision.Complete(rv, rr) || rr.text.Length() == 0) {
+					out.success = false;
+					out.error = NkString("REFUS : l'image jointe n'a pas pu etre lue par le modele de vision ");
+					out.error.Append(vision.modele.CStr());
+					out.error.Append(" -- ");
+					out.error.Append(rr.error.CStr());
+					return false;
+				}
+				description = rr.text;
+				NkDesignRequest r2 = req;
+				r2.prompt.Append("\n--- reference visuelle (image jointe, decrite par ");
+				r2.prompt.Append(vision.modele.CStr());
+				r2.prompt.Append(") : reproduis cet ecran ---\n");
+				r2.prompt.Append(description.CStr());
+				r2.prompt.Append("\n");
+				return suite->Complete(r2, out);
+			}
+			bool IsAvailable() const override {
+				return suite && suite->IsAvailable();
+			}
+			const char *Name() const override {
+				return suite ? suite->Name() : "vision";
+			}
+	};
+
 	class AIPanel : public NkEditorPanel {
 		public:
 			// L'ANCRAGE EST `NK_RIGHT` : la pastille du rail, `Affichage > Panneaux`
@@ -9681,7 +9731,21 @@ namespace nkuidesign {
 						const char *g = std::getenv("NK_AI_GESTE");
 						const int32 geste = (g && *g >= '0' && *g <= '2') ? (int32)(*g - '0') : 0;
 						mPanneau.mode = geste;
+						mImagesEnvoi = mPanneau.ImagesJointes(); // les images jointes partent avec
 						const bool parti = Envoyer(sTexte, geste);
+						if (parti && mImagesEnvoi.Size() > 0) {
+							// elles se rattachent a la demande posee, comme par le composeur
+							const editorkit::NkAiFil &f = mPanneau.Fil();
+							for (uint32 k = f.Taille(); k > 0; --k)
+								if (f.At(k - 1).type == editorkit::NkAiBloc::Demande) {
+									if (editorkit::NkAiBlocDonnees *db = mPanneau.Fil().MutableParId(f.At(k - 1).id))
+										db->images = mImagesEnvoi;
+									break;
+								}
+							while (mPanneau.ImagesJointes().Size() > 0)
+								mPanneau.RetirerImage(0);
+						}
+						mImagesEnvoi.Clear();
 						printf("[NKUIDesign] AI DEMANDE image=%u : « %s » geste=%d -> %s\n", (unsigned)mImages, sTexte,
 							   (int)geste, parti ? "partie" : "refusee");
 						fflush(stdout);
@@ -9701,7 +9765,42 @@ namespace nkuidesign {
 					mPanneau.actions.libelle[1] = "Rejeter";
 				}
 				Sondes();
+				// NK_AI_COPIE=<image> (Q8) : Ctrl+A puis Ctrl+C DANS LE FIL, par l'etat
+				// qu'un clavier ecrirait (wantSelectAll, wantCopy) -- puis le presse-
+				// papiers du SYSTEME est relu et compare au texte selectionne.
+				{
+					static int32 sCopie = -2;
+					if (sCopie == -2) {
+						const char *v = std::getenv("NK_AI_COPIE");
+						sCopie = (v && *v) ? (int32)std::atoi(v) : -1;
+					}
+					if (sCopie >= 0) {
+						if ((int32)mImages == sCopie)
+							mPanneau.ToutSelectionnerFil();
+						else if ((int32)mImages == sCopie + 2)
+							ctx.input.wantCopy = true;
+						else if ((int32)mImages == sCopie + 4) {
+							const NkString lu = ctx.GetClipboard();
+							const NkString sel = mPanneau.TexteSelectionne();
+							printf("[NKUIDesign] AI COPIE presse-papiers=%u octets, selection=%u octets, identiques=%d : "
+								   "%.80s%c",
+								   (unsigned)lu.Length(), (unsigned)sel.Length(), (lu == sel && lu.Length() > 0) ? 1 : 0,
+								   lu.CStr(), (char)10);
+							fflush(stdout);
+						}
+					}
+				}
 				Proprietes();
+				// (Q8) LA VIGNETTE EN ATTENTE de la mise en page de ce qui a ete pose.
+				if (mVignetteBloc != 0u && mSt->layout.Has(mVignetteRacine)) {
+					if (editorkit::NkAiBlocDonnees *vb = mPanneau.Fil().MutableParId(mVignetteBloc)) {
+						vb->vignette.Clear();
+						ResumerDesign(mSt->doc, mVignetteRacine, *vb, &mSt->layout);
+						printf("[NKUIDesign] AI VIGNETTE bloc=%u : %u rectangle(s)%c", (unsigned)mVignetteBloc,
+							   (unsigned)vb->vignette.Size(), (char)10);
+					}
+					mVignetteBloc = 0u;
+				}
 				const nkgui::NkRect r = ctx.DL().CurrentClip();
 				mPanneau.maintenant = mHorloge.Elapsed().ToSeconds();
 				mPanneau.phase = (float32)(mPanneau.maintenant - (float64)(int64)mPanneau.maintenant);
@@ -9814,12 +9913,33 @@ namespace nkuidesign {
 				mSt->cibleIA = (mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0)
 								   ? mSt->selected
 								   : NkParentPourPose(*mSt);
+				// (Q8) UNE IMAGE JOINTE : le dorsal est ENVELOPPE par la vision le temps
+				// de ce lancement (le fil d'envoi garde le pointeur qu'il a recu).
+				NkIDesignBackend *avantVision = mSt->ai.Backend();
+				const bool avecImage = mImagesEnvoi.Size() > 0 && geste != 2;
+				if (avecImage) {
+					if (!PreparerVision(pourquoi)) {
+						char b[320];
+						snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.", pourquoi.Data());
+						DireRefus(b);
+						return false;
+					}
+					mVision.suite = avantVision;
+					mSt->ai.SetBackend(&mVision);
+				}
 				if (geste == 2)
 					parti = mSt->LancerDemandeIA(texte, pourquoi);
 				else if (geste == 1)
 					parti = mSt->LancerPropositionIA(texte, pourquoi);
 				else
 					parti = mSt->LancerGenerationIA(texte, pourquoi);
+				if (avecImage) {
+					mSt->ai.SetBackend(avantVision);
+					printf("[NKUIDesign] AI IMAGE JOINTE : %u image(s) -> vision %s, puis %s%c",
+						   (unsigned)mImagesEnvoi.Size(), mVision.vision.modele.CStr(),
+						   avantVision && avantVision->Name() ? avantVision->Name() : "?", (char)10);
+					fflush(stdout);
+				}
 				if (!parti) {
 					char b[320];
 					snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
@@ -9830,15 +9950,34 @@ namespace nkuidesign {
 				mGesteEnCours = geste;
 				mBlocEnCours = 0u;
 				if (geste != 2) {
-					// LE BLOC D'OUTIL : la demande en ENTREE, la reponse du modele en
-					// SORTIE a son arrivee (tronquee, avec l'estompe) -- plus jamais le
-					// texte `.nkuidoc` brut dans la prose du fil (capture 040656).
+					// (Q8) LES ETAPES PORTENT LA NATURE DE L'ACTION DE DESIGN, pas IN /
+					// OUT (le vocabulaire de NKCode, des commandes). Rodolf : « on doit
+					// avoir Read, Write, Design, Wireframe, Esquisse… ».
+					// 1. LIRE : ce que le modele recoit du document.
+					{
+						editorkit::NkAiBlocDonnees l;
+						l.type = editorkit::NkAiBloc::Outil;
+						l.titre = NkString("Lire");
+						char b[200];
+						const bool sel = mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0;
+						snprintf(b, sizeof(b), "le document : %u noeud(s)%s%s%s", (unsigned)mSt->doc.nodes.Size(),
+								 sel ? ", selection « " : "", sel ? mSt->doc.nodes[(uint32)mSt->selected].label.Data() : "",
+								 sel ? " »" : "");
+						l.texte = NkString(b);
+						NkString pq;
+						(void)mPanneau.Fil().Pousser(l, pq);
+					}
+					// 2. DESIGN (poser) ou ESQUISSE (apercu) : la demande entre, ce qui
+					//    a ete fait sort EN TERMES DE DESIGN, avec sa vignette.
 					editorkit::NkAiBlocDonnees o;
 					o.type = editorkit::NkAiBloc::Outil;
-					o.titre = NkString(geste == 1 ? "Proposer" : "Generer");
-					o.texte = NkString(geste == 1 ? "apercu : rien n'est pose avant « Appliquer »"
-												  : "le document sera pose dans la page");
+					o.titre = NkString(geste == 1 ? "Esquisse" : "Design");
+					o.texte = NkString(geste == 1 ? "un apercu : rien n'est pose avant « Appliquer »"
+												  : "l'ecran est pose dans la page");
 					o.entree = NkString(texte);
+					o.etiquetteEntree = NkString("Demande");
+					o.etiquetteSortie = NkString(geste == 1 ? "Apercu" : "Pose");
+					o.sortieEnClair = true;
 					o.replie = false;
 					NkString pq;
 					if (mPanneau.Fil().Pousser(o, pq))
@@ -9860,6 +9999,15 @@ namespace nkuidesign {
 			void Declarer() {
 				if (mPanneau.fournisseurs.Size() > 0)
 					return;
+				// (Q8) LES CHATS SURVIVENT A LA FERMETURE. Une fenetre de sonde sans
+				// NK_AI_CHATS n'ecrit rien chez Rodolf.
+				{
+					const char *c = std::getenv("NK_AI_CHATS");
+					if (c && *c)
+						mPanneau.cheminChats = NkString(c);
+					else if (!std::getenv("NK_AI_IMAGE") && !std::getenv("NK_AI_DEMANDE"))
+						mPanneau.cheminChats = NkString("logs/nkuidesign_ia_chats.txt");
+				}
 				editorkit::NkAiFournisseurDesc loc;
 				loc.cle = NkString("local");
 				loc.nom = NkString("Local");
@@ -9975,6 +10123,7 @@ namespace nkuidesign {
 				cap.produitRefus = true; // « RIEN N'EST PARTI — <motif> »
 				mPanneau.capacites = cap;
 				mPanneau.plafond = 200;
+				mPanneau.accepteImages = true; // (Q8) une image sert de reference a l'ecran genere
 				mPanneau.indication = NkString(
 					"**Generer** : decrivez un ecran, il est pose dans le document. **Discuter** : le document ne "
 					"bouge pas. La pastille de mode choisit ; le « / » liste les outils (`/rejeu`, `/specification`…).");
@@ -10003,18 +10152,14 @@ namespace nkuidesign {
 				if (attendu != mPanneau.Actif() && !mPanneau.occupe) {
 					NkString pq;
 					const int32 avant = mPanneau.Actif();
-					if (mPanneau.Choisir(attendu, pq))
-						Echanger(avant, attendu);
+					(void)avant;
+					(void)mPanneau.Choisir(attendu, pq);
 				}
 			}
 
-			/// LA CONVERSATION QUE LE MODELE LIT suit l'assistant, comme le fil.
-			void Echanger(int32 ancien, int32 nouveau) {
-				if (ancien < 0 || ancien > 1 || nouveau < 0 || nouveau > 1)
-					return;
-				mConversations[ancien] = mSt->conversation;
-				mSt->conversation = mConversations[nouveau];
-			}
+			// (Q8) `Echanger` EST RETIRE : il rangeait la conversation que le modele
+			// lit dans la case de l'ancien fournisseur -- changer de modele vidait
+			// le contexte. Un chat garde SA conversation quel que soit le modele.
 
 			void Recolter() {
 				if (mSt->messageIA.Length() == 0)
@@ -10038,8 +10183,23 @@ namespace nkuidesign {
 					else
 						DireRefus(message.Data());
 				} else if (editorkit::NkAiBlocDonnees *b = mPanneau.Fil().MutableParId(mBlocEnCours)) {
-					// UNE GENERATION : l'etape d'outil recoit sa sortie et son verdict.
-					b->sortie = ia ? ia->texte : NkString("(aucune reponse)");
+					// UNE GENERATION : l'etape recoit ce qui a ete FAIT, en design --
+					// les noeuds poses et leur vignette -- plus le texte .nkuidoc brut.
+					b->sortie = NkString();
+					b->vignette.Clear();
+					if (!refus) {
+						if (mGesteEnCours == 0 && mSt->doc.IsValidIndex(mSt->selected)) {
+							ResumerDesign(mSt->doc, mSt->selected, *b, &mSt->layout);
+							// LA MISE EN PAGE DES NOEUDS POSES n'existe qu'apres le prochain
+							// passage de la toile : la vignette se trace a ce moment-la.
+							mVignetteBloc = b->id;
+							mVignetteRacine = mSt->selected;
+						}
+						else if (mGesteEnCours == 1 && mSt->ai.HasProposal())
+							ResumerDesign(mSt->ai.Proposal(), 0, *b, nullptr);
+					}
+					if (b->sortie.Length() == 0)
+						b->sortie = refus ? message : (ia ? ia->texte : NkString("(aucune reponse)"));
 					b->texte = message;
 					b->replie = false; // IN / OUT VISIBLES, tronques avec l'estompe : la capture
 					if (mGesteEnCours == 1 && mSt->ai.HasProposal())
@@ -10052,6 +10212,21 @@ namespace nkuidesign {
 				mGesteEnCours = -1;
 				++mRecoltes;
 				printf("[NKUIDesign] AI RECOLTE peinture=%u : %s\n", (unsigned)mImages, message.Data() ? message.Data() : "");
+				if (mVision.description.Length() > 0) {
+					editorkit::NkAiBlocDonnees v;
+					v.type = editorkit::NkAiBloc::Outil;
+					v.titre = NkString("Voir");
+					v.texte = NkString("l'image jointe, decrite par ");
+					v.texte.Append(mVision.vision.modele.CStr());
+					v.sortie = mVision.description;
+					v.etiquetteSortie = NkString("Vu");
+					v.sortieEnClair = true;
+					NkString pq;
+					(void)mPanneau.Fil().Pousser(v, pq);
+					printf("[NKUIDesign] AI VISION %s : %u caracteres -- %.120s%c", mVision.vision.modele.CStr(),
+						   (unsigned)mVision.description.Length(), mVision.description.CStr(), (char)10);
+					mVision.description = NkString();
+				}
 				// ⚠️ LA REQUETE REELLEMENT ENVOYEE (Q5) : ses champs de reglage, relus
 				//    dans les OCTETS du corps -- la preuve que l'Effort et Thinking
 				//    agissent se lit ici, pas dans l'etat du panneau.
@@ -10059,9 +10234,11 @@ namespace nkuidesign {
 					const nkentseu::converse::NkConverseBackendOllama &o = mSt->ollamaBackend;
 					const char *c = o.dernierCorps.Data() ? o.dernierCorps.Data() : "";
 					const char *reglages = strstr(c, "\"stream\":false");
-					printf("[NKUIDesign] AI REQUETE modele=%s reglages=%s jetons=%llu gen_ns=%llu\n", o.modele.Data(),
-						   reglages ? reglages : "(aucun)", (unsigned long long)o.derniersJetons,
-						   (unsigned long long)o.derniereGenNs);
+					printf("[NKUIDesign] AI REQUETE modele=%s reglages=%s jetons=%llu gen_ns=%llu corps=%u octets "
+						   "reference_visuelle=%d\n",
+						   o.modele.Data(), reglages ? reglages : "(aucun)", (unsigned long long)o.derniersJetons,
+						   (unsigned long long)o.derniereGenNs, (unsigned)o.dernierCorps.Length(),
+						   o.dernierCorps.Find("reference visuelle", 0) != NkString::npos ? 1 : 0);
 					if (o.dernierRaisonnement.Length() > 0 && mPanneau.penser) {
 						editorkit::NkAiBlocDonnees rb;
 						rb.type = editorkit::NkAiBloc::Reflexion;
@@ -10080,8 +10257,11 @@ namespace nkuidesign {
 					mSt->ai.SetBackend(out.nouveau == 1 ? (NkIDesignBackend *)&mSt->claudeBackend
 														: (mSt->dorsalLocal ? mSt->dorsalLocal
 																			: (NkIDesignBackend *)&mSt->fileBackend));
-					Echanger(out.ancien, out.nouveau);
 				}
+				// (Q8) UN CHAT NEUF, ou une bascule : le contexte que le modele lit
+				// repart de ce chat-ci (une page blanche pour un chat neuf).
+				if (out.nouvelle)
+					mSt->conversation.Effacer();
 				if (out.modeleChange && mPanneau.Actif() == 1) {
 					const editorkit::NkAiFournisseurDesc &f = mPanneau.fournisseurs[1];
 					if (f.modele >= 0 && f.modele < (int32)f.modeles.Size())
@@ -10103,8 +10283,20 @@ namespace nkuidesign {
 					t.Append(" » ");
 					mPanneau.PoserSaisie(t.Data());
 				}
+				if (out.copie)
+					printf("[NKUIDesign] AI COPIE faite : %u octets mis au presse-papiers%c",
+						   (unsigned)out.copieTexte.Length(), (char)10);
+				if (out.joindreImage) {
+					const nkentseu::NkDialogResult r = nkentseu::NkDialogs::OpenFileDialog(
+						NkString("*.png;*.jpg;*.jpeg;*.bmp"), NkString("Joindre une image de reference"));
+					NkString pq;
+					if (r.confirmed && r.path.Length() > 0 && !mPanneau.JoindreImage(r.path.CStr(), pq))
+						DireRefus(pq.CStr());
+				}
+				mImagesEnvoi = out.images;
 				if (out.envoyer && Envoyer(out.texte.CStr(), out.mode))
 					mPanneau.ViderSaisie(); // parti : le champ se vide ; refuse : la phrase RESTE
+				mImagesEnvoi.Clear();
 				if (out.arreter && mSt->envoi.EnCours()) {
 					mSt->envoi.Annuler();
 					Dire("Generation annulee — sa reponse ne sera jamais posee.");
@@ -10173,6 +10365,18 @@ namespace nkuidesign {
 							mPanneau.PoserFiltre(f);
 					}
 				}
+				// NK_AI_JOINDRE=<chemin> : l'image jointe comme par « + » (une fois)
+				{
+					static bool sJoint = false;
+					if (!sJoint) {
+						sJoint = true;
+						if (const char *j = std::getenv("NK_AI_JOINDRE")) {
+							NkString pq;
+							const bool ok = mPanneau.JoindreImage(j, pq);
+							printf("[NKUIDesign] AI JOINDRE %s -> %s%c", j, ok ? "jointe" : pq.CStr(), (char)10);
+						}
+					}
+				}
 				if (const char *v = std::getenv("NK_AI_FENETRE")) {
 					char nom[8];
 					if (quand(v, nom, sizeof(nom)) == (int32)mImages) {
@@ -10181,6 +10385,134 @@ namespace nkuidesign {
 							Utilisation();
 					}
 				}
+			}
+
+			/// (Q8) CE QUI A ETE POSE, EN TERMES DE DESIGN : une ligne par noeud
+			/// (« + Bouton « Se connecter » · bouton ») et la vignette des cadres,
+			/// normalises dans le cadre de la racine posee.
+			/// ⚠️ LA VIGNETTE SE LIT DANS LA MISE EN PAGE CALCULEE (`layout`), jamais
+			///    dans posX / width.value : un noeud en flux a 0 la et sa vraie place
+			///    ailleurs -- la premiere vignette tracee ainsi etait fausse. Sans
+			///    mise en page (une proposition), pas de vignette plutot qu'une fausse.
+			static void ResumerDesign(const NkUIDocument &d, int32 racine, editorkit::NkAiBlocDonnees &b,
+									  const NkLayoutResult *lay) {
+				if (!d.IsValidIndex(racine))
+					return;
+				bool geo = lay != nullptr;
+				float32 rx = 0.f, ry = 0.f, rw = 0.f, rh = 0.f;
+				NkVector<int32> pile;
+				pile.PushBack(racine);
+				uint32 n = 0, lignes = 0;
+				NkString t;
+				NkVector<int32> tous;
+				while (pile.Size() > 0) {
+					const int32 i = pile[pile.Size() - 1];
+					pile.PopBack();
+					tous.PushBack(i);
+					const NkUINode &nd = d.nodes[(uint32)i];
+					for (usize k = nd.children.Size(); k > 0; --k)
+						pile.PushBack(nd.children[k - 1]);
+				}
+				// LE CADRE DE LA VIGNETTE : l'UNION des rectangles calcules du sous-arbre
+				// (la racine posee est souvent un cadre sans taille propre -- 0 x 0 --,
+				// et normaliser par lui ne donnait AUCUN rectangle : mesure du 21/09).
+				if (geo) {
+					float32 x0 = 1.0e30f, y0 = 1.0e30f, x1 = -1.0e30f, y1 = -1.0e30f;
+					for (usize k = 0; k < tous.Size(); ++k)
+						if (lay->Has(tous[k])) {
+							const NkPaintRect &q = lay->At(tous[k]);
+							if (q.w <= 0.f || q.h <= 0.f)
+								continue;
+							x0 = q.x < x0 ? q.x : x0;
+							y0 = q.y < y0 ? q.y : y0;
+							x1 = q.x + q.w > x1 ? q.x + q.w : x1;
+							y1 = q.y + q.h > y1 ? q.y + q.h : y1;
+						}
+					if (x1 > x0 && y1 > y0) {
+						rx = x0;
+						ry = y0;
+						rw = x1 - x0;
+						rh = y1 - y0;
+					} else
+						geo = false;
+				}
+				for (usize k = 0; k < tous.Size(); ++k) {
+					const int32 ik = tous[k];
+					const NkUINode &nd = d.nodes[(uint32)ik];
+					++n;
+					if (lignes < 12u) {
+						char l[200];
+						snprintf(l, sizeof(l), "%s+ %s · %s", t.Length() ? "\n" : "",
+								 nd.label.Length() ? nd.label.Data() : "(sans nom)",
+								 nd.component.Length() ? nd.component.Data() : "cadre");
+						t.Append(l);
+						++lignes;
+					}
+					if (geo && lay->Has(ik) && rw > 1.f && rh > 1.f && b.vignette.Size() < 200u) {
+						const NkPaintRect &q = lay->At(ik);
+						editorkit::NkAiBlocDonnees::Vignette v;
+						v.x = (q.x - rx) / rw;
+						v.y = (q.y - ry) / rh;
+						v.w = q.w / rw;
+						v.h = q.h / rh;
+						const NkString &c = nd.component;
+						v.genre = c.Length() == 0 ? 0u
+								  : (c.Find("bouton", 0) != NkString::npos || c.Find("button", 0) != NkString::npos)
+									  ? 3u
+								  : (c.Find("texte", 0) != NkString::npos || c.Find("etiquette", 0) != NkString::npos ||
+									 c.Find("label", 0) != NkString::npos || c.Find("titre", 0) != NkString::npos)
+									  ? 1u
+									  : 2u;
+						if (v.w > 0.f && v.h > 0.f)
+							b.vignette.PushBack(v);
+					}
+				}
+				if (n > lignes) {
+					char l[64];
+					snprintf(l, sizeof(l), "\n… et %u autre(s)", (unsigned)(n - lignes));
+					t.Append(l);
+				}
+				b.sortie = t;
+				b.vignetteRapport = (rw > 1.f && rh > 1.f) ? rh / rw : 0.75f;
+			}
+
+			/// (Q8) LE MODELE DE VISION : parmi les modeles DEJA installes qui annoncent
+			/// la capacite « vision », qwen2.5vl d'abord, sinon le premier (moondream).
+			/// Aucun telechargement n'est lance.
+			bool PreparerVision(NkString &pourquoi) {
+				nkentseu::NkVector<nkentseu::converse::NkConverseModeleInfo> infos;
+				NkString motif;
+				if (!nkentseu::converse::NkConverseOllamaModeles(mSt->ollamaBackend.hote.Data(), infos, motif)) {
+					pourquoi = NkString("aucun service de modeles pour lire l'image : ");
+					pourquoi.Append(motif.CStr());
+					return false;
+				}
+				NkString choisi;
+				for (usize i = 0; i < infos.Size(); ++i)
+					if (infos[i].vision && infos[i].nom.Find("qwen2.5vl", 0) != NkString::npos)
+						choisi = infos[i].nom;
+				for (usize i = 0; i < infos.Size() && choisi.Length() == 0; ++i)
+					if (infos[i].vision)
+						choisi = infos[i].nom;
+				if (choisi.Length() == 0) {
+					pourquoi = NkString("aucun modele de vision installe (moondream, qwen2.5vl) : l'image ne peut pas "
+										"etre lue");
+					return false;
+				}
+				mVision.vision.hote = mSt->ollamaBackend.hote;
+				mVision.vision.modele = choisi;
+				mVision.vision.temperature = 0.f;
+				mVision.vision.images.Clear();
+				for (usize i = 0; i < mImagesEnvoi.Size(); ++i) {
+					NkString b64;
+					if (!nkentseu::converse::NkConverseBase64Fichier(mImagesEnvoi[i].CStr(), b64)) {
+						pourquoi = NkString("image illisible : ");
+						pourquoi.Append(mImagesEnvoi[i].CStr());
+						return false;
+					}
+					mVision.vision.images.PushBack(b64);
+				}
+				return true;
 			}
 
 			/// ⚠️ LES PROPRIETES AGISSENT SUR LE DORSAL, ET SEULEMENT HORS D'UN TOUR :
@@ -10432,9 +10764,12 @@ namespace nkuidesign {
 			/// dorsal local n'est pas Ollama.
 			nkentseu::NkVector<nkentseu::converse::NkConverseModeleInfo> mInfosLocales;
 			bool mOllama = false;
+			uint32 mVignetteBloc = 0u;
+			NkDesignBackendVision mVision;
+			NkVector<NkString> mImagesEnvoi;
+			int32 mVignetteRacine = -1;
 			NkString mMotifModelesClaude;
-			/// La conversation que le modele lit, PAR ASSISTANT (0 local, 1 Claude).
-			NkDesignConversation mConversations[2];
+
 			/// Le bloc d'outil qui attend sa reponse, et le geste qui l'a lance.
 			uint32 mBlocEnCours = 0u;
 			int32 mGesteEnCours = -1;

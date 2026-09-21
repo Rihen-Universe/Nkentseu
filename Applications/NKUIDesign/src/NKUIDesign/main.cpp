@@ -8353,6 +8353,19 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	// (Q7) LES PASTILLES LIEES A LA SELECTION se retirent sans selection.
 	if (gShell)
 		gShell->SetRailSelection(gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0);
+	// (Q8) LA TRACE DE LA SELECTION : chaque changement, lu dans l'etat -- la sonde
+	// « on ne peut plus rien selectionner » rougit si elle ne bouge pas.
+	{
+		static int32 sSelAvant = -2;
+		if (gDesign.selected != sSelAvant) {
+			sSelAvant = gDesign.selected;
+			printf("[NKUIDesign] SELECTION image=%d noeud=%d « %s »%c", (int)gImagesReelles, (int)gDesign.selected,
+				   gDesign.doc.IsValidIndex(gDesign.selected) ? gDesign.doc.nodes[(uint32)gDesign.selected].label.Data()
+															  : "",
+				   (char)10);
+			fflush(stdout);
+		}
+	}
 	if (gSauverImage >= 0 && gImagesReelles == gSauverImage)
 		SauverEtRelire(); // (R20)
 	if (gDispoImage >= 0 && gImagesReelles == gDispoImage) {
@@ -10042,6 +10055,23 @@ int nkmain(const NkEntryState &state) {
 	if (gReleveDemande)
 		nkgui::NkGuiIntrospectActiver(shell->Ui(), true);
 	shell->SetOverlay(&EcrireReleveUI, nullptr);
+	// (Q8) UN FICHIER LACHE SUR LE PANNEAU IA s'y joint (s'il est une image).
+	shell->SetDropFilesHandler(
+		+[](void *, const NkVector<NkString> &chemins, nkentseu::int32 x, nkentseu::int32 y) {
+			if (!gPanneauIA)
+				return;
+			const editorkit::NkPaintRect r = gPanneauIA->Panneau().rect;
+			if (!((float32)x >= r.x && (float32)x < r.x + r.w && (float32)y >= r.y && (float32)y < r.y + r.h))
+				return;
+			NkVector<const char *> c;
+			for (usize i = 0; i < chemins.Size(); ++i)
+				c.PushBack(chemins[i].CStr());
+			NkString pq;
+			const uint32 n = gPanneauIA->Panneau().DeposerFichiers(c.Data(), (uint32)c.Size(), pq);
+			printf("[NKUIDesign] AI DEPOT %u fichier(s) -> %u image(s) jointe(s) %s%c", (unsigned)c.Size(), (unsigned)n,
+				   pq.CStr(), (char)10);
+		},
+		nullptr);
 	// NK_AI_IMAGE : apres l'image complete, avant sa soumission (21/09).
 	if (std::getenv("NK_AI_IMAGE"))
 		shell->SetApresImage(&ImagePanneauIA, shell.Get());
@@ -10243,11 +10273,31 @@ int nkmain(const NkEntryState &state) {
 		//    pilule. A sa place, les panneaux qui etaient ANCRES a droite ou a
 		//    gauche : Rodolf veut UN panneau de droite dont le contenu change selon
 		//    la pastille, comme NK3DModeler.
-		{"Inspecteur", "Inspecteur — propriétés de l'élément sélectionné", "I", nullptr},
-		{"Styles", "Styles — remplissages et typographies", "S", nullptr},
-		{"Variables", "Variables — couleurs et nombres nommés", "V", nullptr},
-		{"Ambiances", "Ambiances — les jeux de variables", "A", nullptr},
-		{"Greffons", "Greffons — extensions", "G", nullptr},
+		{"Inspecteur", "Inspecteur — propriétés de l'élément sélectionné", "I",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
+			 nkuidesign::costume::IcInspecteur(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,
+									 (ouvert || survol) ? ui.theme.text : ui.theme.textMuted);
+		 }},
+		{"Styles", "Styles — remplissages et typographies", "S",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
+			 nkuidesign::costume::IcStyles(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,
+									 (ouvert || survol) ? ui.theme.text : ui.theme.textMuted);
+		 }},
+		{"Variables", "Variables — couleurs et nombres nommés", "V",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
+			 nkuidesign::costume::IcVariables(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,
+									 (ouvert || survol) ? ui.theme.text : ui.theme.textMuted);
+		 }},
+		{"Ambiances", "Ambiances — les jeux de variables", "A",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
+			 nkuidesign::costume::IcAmbiances(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,
+									 (ouvert || survol) ? ui.theme.text : ui.theme.textMuted);
+		 }},
+		{"Greffons", "Greffons — extensions", "G",
+		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
+			 nkuidesign::costume::IcGreffons(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,
+									 (ouvert || survol) ? ui.theme.text : ui.theme.textMuted);
+		 }},
 	};
 	static NkEditorShell::NkEditorRailItem kRailBas[] = {
 		{"Console", "Console / Validation", "C",
