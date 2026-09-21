@@ -3,6 +3,7 @@
 // @File    NkComponentPaint.h
 // @Brief   Le PEINTRE vu par un composant : une interface, pas une implementation.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -369,6 +370,63 @@ namespace nkentseu {
 
 				/// Icone par POIGNEE OPAQUE (exigence B ci-dessus). `0` = aucune.
 				virtual void Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) = 0;
+
+				// ── LE TEXTE PAR POLICE (21/09/2026, panneau IA) ─────────────────
+				// La capture de reference porte TROIS polices dans le meme fil : le
+				// texte courant, le GRAS (le nom d'un outil, le titre de la
+				// conversation) et la CHASSE FIXE (les compartiments IN/OUT, le code
+				// en ligne). `Text` n'en connait qu'une.
+				//
+				// ⚠️ `police` : 0 normale, 1 grasse, 2 chasse fixe -- les valeurs de
+				//    `NkAiPolice`, gardees en entier ici pour que ce contrat ne
+				//    depende pas du panneau IA.
+				// ⚠️ [s, fin) : une TRANCHE, pas une chaine terminee. Le plan du fil
+				//    publie des fragments par leur debut et leur longueur ; les
+				//    recopier pour les terminer couterait une allocation par mot.
+				//    `fin == nullptr` = jusqu'au zero.
+				// ⚠️ ELLE NE POSE PAS DE POINTS DE SUITE. `Text` ellipse ; ici on
+				//    rogne -- c'est l'appelant qui decide, par le rognage (PushClip),
+				//    ou le texte s'arrete. La capture coupe NET les lignes de code au
+				//    bord du compartiment, sans « ... ».
+				// LE REPLI, pour un peintre qui ne connait qu'une police : `Text` sur
+				// une copie terminee de la tranche. Un peintre sans chasse fixe
+				// dessine donc du texte proportionnel -- faux sur la forme, juste sur
+				// le contenu, et c'est dit par `NomDuPeintre`.
+				virtual void TextePolice(const NkPaintRect &r, const char *s, const char *fin, uint16 role,
+										 uint8 police) {
+					(void)police;
+					if (!s)
+						return;
+					if (!fin) {
+						Text(r, s, role, NkTextAlign::Left);
+						return;
+					}
+					char tmp[512];
+					uint32 n = 0;
+					for (const char *q = s; q < fin && *q && n + 1u < (uint32)sizeof(tmp); ++q)
+						tmp[n++] = *q;
+					tmp[n] = 0;
+					Text(r, tmp, role, NkTextAlign::Left);
+				}
+				/// La largeur de la tranche [s, fin) dans cette police. Meme repli.
+				virtual float32 LargeurPolice(const char *s, const char *fin, uint8 police) const {
+					(void)police;
+					if (!s)
+						return 0.f;
+					if (!fin)
+						return TextWidth(s);
+					char tmp[512];
+					uint32 n = 0;
+					for (const char *q = s; q < fin && *q && n + 1u < (uint32)sizeof(tmp); ++q)
+						tmp[n++] = *q;
+					tmp[n] = 0;
+					return TextWidth(tmp);
+				}
+				/// La hauteur de ligne de cette police (le repli : celle de `Text`).
+				virtual float32 HauteurPolice(uint8 police) const {
+					(void)police;
+					return LineHeight();
+				}
 
 				// ── AJOUTS ADDITIFS DU 2026-08-30 (chaine du designer) ──────────
 				// ⚠️ DEFAUT INERTE QUI LE DIT : ces deux primitives rendent FAUX

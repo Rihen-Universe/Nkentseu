@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Applications/NKEditorKitTest/src/NkAiPlanProbe.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   FAMILLE 22 — le plan du fil du panneau IA, eprouve SANS FENETRE.
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -436,47 +437,185 @@ namespace aiplanprobe {
 				"les icones ne bougent pas avec la longueur du titre");
 		}
 		{
-			// 22t — LA BARRE D ETAT EST RESERVEE ET VIDE. Sa hauteur est retiree de
-			//       la place, donc le fil ne descend pas dessous ; mais AUCUNE piece
-			//       n y est publiee tant que ses elements n ont pas de support.
+			// 22t — LE COMPOSEUR DE LA CAPTURE, AU PIXEL. Quatre lignes tapees : le
+			//       cadre fait 154 px (14 + 4 x 20 + 26 + 34) et son sommet tombe a
+			//       1116 dans un panneau de 1292 -- la ou la capture le met.
+			// ⚠️ 21/09 : IL GRANDIT AVEC LE TEXTE. La version du 20/09 avait une
+			//    hauteur FIXE de 155 px ; la capture montre un cadre qui porte ce qu'on
+			//    tape, et c'est ce que cet essai mesure maintenant.
 			NkAiPlan pl;
-			const float32 y = NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, pl);
+			NkAiComposeurDecl d;
+			d.texte = "une\ndeux\ntrois\nquatre";
+			d.invite = "Posez votre question";
+			const float32 y = NkAiComposeurMesurer(d, W, 1292.f, M, Mesure, nullptr, pl);
 			NkAiRectPublie cad;
 			const bool a = pl.Trouver(0u, NkAiPiece::ComposeurCadre, cad);
-			Essai(b, "22t",
-				a && cad.h == M.composeur + M.barreEtat && y == 1292.f - cad.h - M.margeBas &&
-					y == 1115.f, // la capture, au pixel
-				"barre d etat reservee (37 px), et le sommet retombe sur 1115 -- la capture");
-			printf("         composeur : sommet a %.0f, hauteur %.0f (saisie %.0f + etat %.0f)\n",
-				   (double)y, (double)cad.h, (double)M.composeur, (double)M.barreEtat);
+			Essai(b, "22t", a && cad.h == 154.f && y == 1116.f && y == 1292.f - cad.h - M.margeBas,
+				"4 lignes : cadre de 154 px, sommet a 1116 -- la capture, au pixel");
+			printf("         composeur : sommet a %.0f, hauteur %.0f\n", (double)y, (double)cad.h);
 		}
 		{
 			// 22u — L INVITE N EST PAS DU TEXTE. Un champ vide qui porterait le role
 			//       `Text` se lirait comme un champ rempli.
 			NkAiPlan vide, plein;
-			(void)NkAiComposeurMesurer("", "Posez votre question", W, 1292.f, M, vide);
-			(void)NkAiComposeurMesurer("subdivise le cube", "Posez votre question", W, 1292.f, M, plein);
+			NkAiComposeurDecl d0, d1;
+			d0.texte = "";
+			d0.invite = "Posez votre question";
+			d1.texte = "subdivise le cube";
+			d1.invite = "Posez votre question";
+			(void)NkAiComposeurMesurer(d0, W, 1292.f, M, Mesure, nullptr, vide);
+			(void)NkAiComposeurMesurer(d1, W, 1292.f, M, Mesure, nullptr, plein);
 			NkAiRectPublie a, c;
 			const bool x = vide.Trouver(0u, NkAiPiece::ComposeurTexte, a);
 			const bool y2 = plein.Trouver(0u, NkAiPiece::ComposeurTexte, c);
-			Essai(b, "22u", x && y2 && a.role == NkRole::TextMuted && c.role == NkRole::Text,
-				"l invite porte le role ATTENUE, le texte saisi le role plein");
+			Essai(b, "22u",
+				x && y2 && a.role == NkRole::TextMuted && c.role == NkRole::Text &&
+					a.source == NkAiSource::Invite && c.source == NkAiSource::Saisie,
+				"l invite porte le role ATTENUE et la source INVITE, le texte saisi le role plein");
 		}
 		{
-			// 22v — AUCUN MICRO. Il est dans la capture et il n a PAS de support :
-			//       capture audio oui, reconnaissance vocale nulle part. Cet essai
-			//       est ecrit pour TOMBER le jour ou on en dessinerait un sans que
-			//       Rodolf l ait tranche.
+			// 22v — CE QUI N A PAS DE SOURCE N EST PAS PUBLIE. Un porteur qui ne
+			//       declare ni « + », ni « / », ni duree, ni lieu, ni mode n obtient
+			//       QUE le cadre, sa ligne et l envoi -- jamais une icone qui
+			//       n ouvre rien (la regle des blocs, appliquee a la barre). Et
+			//       AUCUN micro : aucune reconnaissance vocale dans le depot.
+			NkAiPlan muet, plein;
+			NkAiComposeurDecl d0;
+			d0.texte = "x";
+			(void)NkAiComposeurMesurer(d0, W, 1292.f, M, Mesure, nullptr, muet);
+			NkAiComposeurDecl d1 = d0;
+			d1.portePlus = true;
+			d1.porteCommandes = true;
+			d1.duree = "57m";
+			d1.lieu = "local";
+			d1.modele = "Ollama · qwen2.5";
+			d1.mode = "Auto";
+			(void)NkAiComposeurMesurer(d1, W, 1292.f, M, Mesure, nullptr, plein);
+			const bool rienDeTrop = muet.Compter(NkAiPiece::BoutonPlus) == 0 &&
+									muet.Compter(NkAiPiece::BoutonCommandes) == 0 &&
+									muet.Compter(NkAiPiece::Horloge) == 0 &&
+									muet.Compter(NkAiPiece::PastilleLieu) == 0 &&
+									muet.Compter(NkAiPiece::PastilleMode) == 0 &&
+									muet.Compter(NkAiPiece::Envoi) == 1;
+			const bool toutDeclare = plein.Compter(NkAiPiece::BoutonPlus) == 1 &&
+									 plein.Compter(NkAiPiece::BoutonCommandes) == 1 &&
+									 plein.Compter(NkAiPiece::Horloge) == 1 &&
+									 plein.Compter(NkAiPiece::PastilleLieu) == 1 &&
+									 plein.Compter(NkAiPiece::PastilleModele) == 1 &&
+									 plein.Compter(NkAiPiece::PastilleMode) == 1;
+			Essai(b, "22v", rienDeTrop && toutDeclare,
+				"porteur muet : cadre, texte et envoi seulement ; declares : les six pieces de la barre");
+		}
+		{
+			// 22y — LE RAIL RELIE LES PUCES DU FIL, ET NE TRAVERSE PAS LA DEMANDE.
+			NkAiFil f;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees o = outil;
+			o.replie = true;
+			(void)f.Pousser(o, p);
+			(void)f.Pousser(o, p);
+			NkAiBlocDonnees dd = dem;
+			(void)f.Pousser(dd, p);
+			(void)f.Pousser(o, p);
 			NkAiPlan pl;
-			(void)NkAiComposeurMesurer("x", "y", W, 1292.f, M, pl);
-			uint32 pieces = 0;
+			NkAiFilMesurer(f, W, M, Mesure, nullptr, pl);
+			NkAiRectPublie p0, p1, r;
+			const bool a = pl.Trouver(f.At(0).id, NkAiPiece::Puce, p0) &&
+						   pl.Trouver(f.At(1).id, NkAiPiece::Puce, p1) && pl.Trouver(0u, NkAiPiece::Rail, r);
+			Essai(b, "22y",
+				a && pl.Compter(NkAiPiece::Rail) == 1 && PresPlan(r.y, p0.y + p0.h * 0.5f) &&
+					PresPlan(r.y + r.h, p1.y + p1.h * 0.5f),
+				"un filet de puce a puce ; la demande l interrompt (1 rail pour 3 puces)");
+		}
+		{
+			// 22z — LE CODE NE SE REPLIE JAMAIS. Une ligne de 400 caracteres reste
+			//       UNE ligne, coupee au bord par le rognage -- la capture coupe net.
+			NkAiFil f;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees o = outil;
+			o.entree = NkString("");
+			for (int i = 0; i < 40; ++i)
+				o.entree.Append("0123456789");
+			o.sortie = NkString("ok");
+			(void)f.Pousser(o, p);
+			NkAiPlan pl;
+			NkAiFilMesurer(f, 320.f, M, Mesure, nullptr, pl);
+			Essai(b, "22z", pl.Compter(NkAiPiece::TexteIn) == 1 && pl.Compter(NkAiPiece::BoiteOutil) == 1 &&
+								pl.Compter(NkAiPiece::Separateur) == 1,
+				"400 caracteres d entree : UNE ligne ; IN et OUT dans UNE boite, coupes d un filet");
+		}
+		{
+			// 22aa — LE CODE EN LIGNE ET LE GRAS DE LA PROSE. Les marques ne se
+			//        peignent pas ; le code porte son fond.
+			NkAiFil f;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees pr;
+			pr.type = NkAiBloc::Prose;
+			pr.texte = NkString("`durcir` apparait **sans recompilation** et le banc l eprouve");
+			(void)f.Pousser(pr, p);
+			NkAiPlan pl;
+			NkAiFilMesurer(f, W, M, Mesure, nullptr, pl);
+			uint32 gras = 0, fixe = 0, marque = 0;
+			for (uint32 i = 0; i < pl.Pieces(); ++i) {
+				const NkAiRectPublie &r = pl.Piece(i);
+				if (r.piece != NkAiPiece::Fragment)
+					continue;
+				if (r.police == NkAiPolice::Grasse)
+					++gras;
+				if (r.police == NkAiPolice::ChasseFixe)
+					++fixe;
+				const char *t = f.At(0).texte.CStr() + r.debut;
+				for (uint32 k = 0; k < r.longueur; ++k)
+					if (t[k] == '`' || t[k] == '*')
+						++marque;
+			}
+			Essai(b, "22aa", gras == 1 && fixe == 1 && marque == 0 && pl.Compter(NkAiPiece::FondCode) == 1,
+				"un fragment gras, un a chasse fixe sur son fond, et AUCUNE marque peinte");
+		}
+		{
+			// 22ab — « ANNULER CETTE ACTION » N EST PUBLIE QUE SUR LE BLOC DESIGNE.
+			//        Notre pile a UN cran : un bouton sur une ligne ancienne annulerait
+			//        la derniere en affichant le texte d une autre.
+			NkAiFil f;
+			f.Declarer(cap);
+			NkString p;
+			NkAiBlocDonnees o = outil;
+			o.replie = true;
+			(void)f.Pousser(o, p);
+			(void)f.Pousser(o, p);
+			NkAiActionsFil act;
+			act.blocId = f.At(1).id;
+			act.libelle[0] = "Annuler cette action";
+			NkAiPlan pl;
+			NkAiFilMesurer(f, W, M, Mesure, nullptr, pl, &act);
+			NkAiRectPublie bt;
+			const bool a = pl.TrouverIndice(f.At(1).id, NkAiPiece::Action, 0u, bt);
+			Essai(b, "22ab", a && pl.Compter(NkAiPiece::Action) == 1 && !pl.Possede(f.At(0).id, NkAiPiece::Action),
+				"un seul bouton, sur le bloc designe, avec SON rectangle publie");
+		}
+		{
+			// 22ac — PANNEAU ETROIT (276 px, le modeleur) : la barre CEDE la duree
+			//        puis le lieu, jamais l envoi ni le modele.
+			NkAiPlan pl;
+			NkAiComposeurDecl d;
+			d.texte = "x";
+			d.portePlus = true;
+			d.porteCommandes = true;
+			d.duree = "57m";
+			d.lieu = "local";
+			d.modele = "Local · ia_verbe";
+			(void)NkAiComposeurMesurer(d, 276.f, 800.f, M, Mesure, nullptr, pl);
+			bool dedans = true;
 			for (uint32 i = 0; i < pl.Pieces(); ++i)
-				if (pl.Piece(i).piece != NkAiPiece::ComposeurCadre &&
-					pl.Piece(i).piece != NkAiPiece::Filet &&
-					pl.Piece(i).piece != NkAiPiece::ComposeurTexte)
-					++pieces;
-			Essai(b, "22v", pieces == 0,
-				"le composeur ne publie QUE cadre, filet et texte -- pas de micro");
+				if (pl.Piece(i).x + pl.Piece(i).w > 276.f - M.margeComposeur + 0.5f)
+					dedans = false;
+			Essai(b, "22ac",
+				dedans && pl.Compter(NkAiPiece::Envoi) == 1 && pl.Compter(NkAiPiece::PastilleModele) == 1 &&
+					pl.Compter(NkAiPiece::Horloge) == 0,
+				"276 px : l envoi et le modele restent, la duree cede, rien ne sort du cadre");
 		}
 
 		{
