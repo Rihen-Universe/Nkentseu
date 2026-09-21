@@ -172,6 +172,18 @@ def main():
         _refus("CUDA demande mais torch.cuda.is_available() = False (torch %s) ; --device cpu pour l'accepter"
                % torch.__version__)
     device = a.device
+    # LA CARTE EST DISPUTEE (21/09, Q6) : l'entrainement d'Ilyana et le modele de
+    # langue resident d'Ollama y vivent. Mesure du 21/09 : lancee avec 2,6 Go
+    # libres, la reconstruction a debordé en memoire partagee et a pris 574 s au
+    # lieu de 30. Sous le seuil, on passe au PROCESSEUR et on le dit ; on
+    # n'arrete jamais les autres occupants de la carte.
+    if device.startswith("cuda"):
+        libre0, _ = torch.cuda.mem_get_info(0)
+        seuil = int(os.environ.get("NK_GENIA_VRAM_MIN_MIO", "3000"))
+        if libre0 // (1024 * 1024) < seuil:
+            print("MESURE genia : vram_libre_mio=%d < %d -> REPLI PROCESSEUR (la carte est occupee)"
+                  % (libre0 // (1024 * 1024), seuil))
+            device = "cpu"
     print("MESURE genia : device=%s torch=%s cuda=%s" % (device, torch.__version__, torch.version.cuda))
     if device.startswith("cuda"):
         p = torch.cuda.get_device_properties(0)

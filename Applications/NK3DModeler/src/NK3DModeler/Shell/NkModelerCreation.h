@@ -1298,7 +1298,7 @@ namespace nkentseu {
 				return;
 			char m[300];
 			std::printf("[crea] VOIE (%s) : generation finie en %.1f s, %u image(s) affichee(s) pendant l'attente -> %s\n",
-						G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), ok ? "fichier ecrit" : "REFUS");
+						G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), ok ? "fichier ecrit" : err.CStr());
 			std::fflush(stdout);
 			if (!ok) {
 				snprintf(m, sizeof(m), "Voie (%s) : rien n'a ete genere -- %s", G.voie,
