@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiContext.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   Contexte NKGui — état par instance (IDs, thème, input, draw list,
 //          machine à états d'interaction). Phase 2.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -462,6 +463,13 @@ namespace nkentseu {
 				// Curseur souhaité cette frame (posé par les widgets, ex. DragFloat → ↔).
 				// L'app le mappe vers NkWindow::SetCursor (OPTIONNEL). Reset chaque frame.
 				NkGuiCursor wantCursor = NkGuiCursor::Arrow;
+				/// (Q8, 21/09) L'INFOBULLE RETENUE, peinte par `EndFrame` au SOMMET de
+				/// l'overlay : aucun panneau, menu ou tiroir peint apres elle ne la
+				/// recouvre plus.
+				bool tooltipPose = false;
+				NkRect tooltipRect = {0.f, 0.f, 0.f, 0.f};
+				float32 tooltipBase = 0.f, tooltipPadX = 0.f;
+				char tooltipTexte[256] = {0};
 
 				// Stockage PERSISTANT (entre frames) : arbres ouverts + onglet
 				// sélectionné par barre d'onglets.

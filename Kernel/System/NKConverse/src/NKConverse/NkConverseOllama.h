@@ -102,6 +102,9 @@ namespace nkentseu::converse {
 			/// /api/show annonce la capacite « thinking » : le panneau GRISE
 			/// l'interrupteur pour les autres, il ne l'ecrit pas en silence.
 			nkentseu::int32 penser = -1;
+			/// (Q8) LES IMAGES de la requete, en base64 (champ `images` d'Ollama) :
+			/// seul un modele qui annonce la capacite « vision » les lit.
+			nkentseu::NkVector<NkString> images;
 			/// Publies pour que l'appelant puisse les IMPRIMER : un temps de
 			/// reponse sans sa condition ne vaut rien.
 			mutable nkentseu::uint32 dernierCode = 0u;
@@ -314,7 +317,19 @@ namespace nkentseu::converse {
 				Echapper(modele, out);
 				out.Append("\",\"prompt\":\"");
 				Echapper(invite, out);
-				out.Append("\",\"stream\":false");
+				out.Append("\"");
+				if (images.Size() > 0) {
+					out.Append(",\"images\":[");
+					for (nkentseu::usize i = 0; i < images.Size(); ++i) {
+						if (i)
+							out.Append(",");
+						out.Append("\"");
+						out.Append(images[i]);
+						out.Append("\"");
+					}
+					out.Append("]");
+				}
+				out.Append(",\"stream\":false");
 				// LES PROPRIETES DU PANNEAU AGISSENT ICI, et nulle part ailleurs : le
 				// corps est la seule chose que le service lit. Une propriete affichee
 				// qui ne changerait pas ces octets serait pire qu'absente.
