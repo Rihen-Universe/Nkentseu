@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    Engine/NKEditorKit/src/NKEditorKit/NkAiThread.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   LE CONTRAT DE DONNEES DU FIL DU PANNEAU IA — des blocs types, ce
 //          qu'un porteur declare savoir produire, et le refus de tout le reste.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -216,6 +217,27 @@ namespace nkentseu {
 				/// Replie par defaut, sauf `Demande`. C'est la capture : le fil est
 				/// une SUITE DE LIGNES, et on deplie ce qu'on veut lire.
 				bool replie = true;
+				// ── 21/09, Q8 (Rodolf : « pourquoi IN et OUT alors qu'on doit avoir
+				//    Read, Write, Design, Wireframe, Esquisse… ») ──
+				/// Les ETIQUETTES des deux compartiments, declarees par l'HOTE : vides =
+				/// « IN » / « OUT », le vocabulaire de NKCode (des commandes). Le titre
+				/// du bloc porte la NATURE de l'action (Lire, Design, Esquisse…).
+				NkString etiquetteEntree;
+				NkString etiquetteSortie;
+				/// La sortie est un RESULTAT EN CLAIR (noeuds crees, faces changees) et
+				/// non du code : police du texte, pas la chasse fixe.
+				bool sortieEnClair = false;
+				/// LA VIGNETTE DU RESULTAT, tracee : des rectangles normalises (0..1)
+				/// dans le cadre de ce qui a ete pose. Vide = pas de vignette.
+				struct Vignette {
+						float32 x = 0.f, y = 0.f, w = 0.f, h = 0.f;
+						uint8 genre = 0; ///< 0 cadre, 1 texte, 2 composant, 3 bouton
+				};
+				NkVector<Vignette> vignette;
+				/// (Q8) LES IMAGES JOINTES a une demande : leurs chemins. Le fil les
+				/// montre en vignettes dans la demande encadree.
+				NkVector<NkString> images;
+				float32 vignetteRapport = 0.75f; ///< hauteur / largeur du cadre pose
 		};
 
 		// ── LE FIL ──────────────────────────────────────────────────────────────

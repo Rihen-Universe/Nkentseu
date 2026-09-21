@@ -157,6 +157,20 @@ namespace nkentseu {
 			FenetreFermer,
 			/// Une barre de proportion dans une fenetre. `longueur` = part en millimes.
 			Barre,
+			// ── 21/09, Q8 : selectionner et copier ──
+			/// Le surlignage d'une tranche SELECTIONNEE (fil ou composeur).
+			Surlignage,
+			/// Le bouton « copier » d'un bloc, pose au SURVOL de ce bloc.
+			BoutonCopier,
+			/// La vignette d'un resultat de design : son cadre, puis un rectangle par
+			/// element pose (`debut` = genre : 0 cadre, 1 texte, 2 composant, 3 bouton).
+			VignetteFond,
+			VignetteRect,
+			/// (Q8) Une image jointe, en vignette : dans le composeur (bloc 0) ou
+			/// dans la demande encadree. `debut` = son rang.
+			ImageJointe,
+			/// La croix qui retire une image jointe du composeur.
+			RetirerImage,
 
 			Count
 		};
@@ -206,6 +220,12 @@ namespace nkentseu {
 				case NkAiPiece::Fenetre:		   return "fenetre";
 				case NkAiPiece::FenetreFermer:	   return "fenetre_fermer";
 				case NkAiPiece::Barre:			   return "barre";
+				case NkAiPiece::Surlignage:		   return "surlignage";
+				case NkAiPiece::BoutonCopier:	   return "bouton_copier";
+				case NkAiPiece::VignetteFond:	   return "vignette_fond";
+				case NkAiPiece::VignetteRect:	   return "vignette_rect";
+				case NkAiPiece::ImageJointe:	   return "image_jointe";
+				case NkAiPiece::RetirerImage:	   return "retirer_image";
 				default:						   return "";
 			}
 		}
@@ -304,6 +324,20 @@ namespace nkentseu {
 				float32 pastilleH = 20.f;
 				float32 menuLigne = 26.f;
 
+				/// (Q8, Rodolf 21/09 : « le texte est trop centre, il doit prendre bien
+				/// de l'espace et laisser juste une petite marge »). Dans un panneau
+				/// ETROIT (celui des applications : 276 a 520 px), les retraits de la
+				/// capture (24 / 55 / 41 px, pris sur 695) mangeaient un tiers de la
+				/// largeur. Le fil, la demande et le composeur y gardent 8 a 12 px.
+				void Compacter(float32 k) {
+					retraitDemande = 10.f * k;
+					margeDroite = 10.f * k;
+					railX = 16.f * k;
+					retraitFil = 30.f * k;
+					margeComposeur = 8.f * k;
+					margeBas = 10.f * k;
+					margeTitre = 12.f * k;
+				}
 				void Echelle(float32 k) {
 					retraitDemande *= k; margeDroite *= k; retraitFil *= k;
 					railX *= k; puceR *= k; gouttiere *= k; ligne *= k; ligneCode *= k;
@@ -856,7 +890,27 @@ namespace nkentseu {
 													  w - 2.f * m.padding, m.ligne, NkRole::Text,
 													  64u /* la question ne se tronque pas */, m, mes, ctx);
 					const float32 hT = (float32)(n == 0 ? 1 : n) * m.ligne;
-					const float32 h = hT + 2.f * m.padding;
+					float32 h = hT + 2.f * m.padding;
+					// (Q8) LES IMAGES JOINTES, en tuiles sous la question
+					if (b.images.Size() > 0) {
+						const float32 t = 56.f;
+						float32 tx = x + m.padding;
+						for (usize k = 0; k < b.images.Size(); ++k) {
+							if (tx + t > x + w - m.padding)
+								break;
+							NkAiRectPublie im;
+							im.blocId = b.id;
+							im.piece = NkAiPiece::ImageJointe;
+							im.x = tx;
+							im.y = y + h - m.padding + 4.f;
+							im.w = t;
+							im.h = t;
+							im.debut = (uint32)k;
+							plan.Ajouter(im);
+							tx += t + 6.f;
+						}
+						h += t + 4.f;
+					}
 					plan.PieceModifiable(iCadre).h = h;
 					Pousser(b.id, NkAiPiece::Texte, NkRole::Text, NkAiPolice::Normale, x + m.padding, y + m.padding,
 							w - 2.f * m.padding, hT);
@@ -1006,7 +1060,17 @@ namespace nkentseu {
 					const uint32 iBoite = plan.Pieces();
 					Pousser(b.id, NkAiPiece::BoiteOutil, NkRole::CodeBg, NkAiPolice::Normale, bx, yb, bw, 0.f);
 					const float32 y0 = yb;
-					const float32 xc = bx + m.gouttiere;
+					// LA GOUTTIERE SE MESURE sur les etiquettes de L'HOTE (« Demande »,
+					// « Pose ») : 42 px tenaient « OUT », pas un mot.
+					float32 gout = m.gouttiere;
+					if (mes) {
+						const float32 le = b.etiquetteEntree.Length() ? mes(ctx, NkAiPolice::Normale, b.etiquetteEntree.CStr()) : 0.f;
+						const float32 ls = b.etiquetteSortie.Length() ? mes(ctx, NkAiPolice::Normale, b.etiquetteSortie.CStr()) : 0.f;
+						const float32 lm = (le > ls ? le : ls) + 18.f;
+						if (lm > gout)
+							gout = lm;
+					}
+					const float32 xc = bx + gout;
 					const float32 wc = droite - 8.f - xc;
 					NkVector<aidetail::Tranche> lg;
 					bool premier = true;
@@ -1014,7 +1078,10 @@ namespace nkentseu {
 						const NkString &src = comp == 0 ? b.entree : b.sortie;
 						if (src.Length() == 0)
 							continue;
-						const bool tr = aidetail::LignesCode(src.CStr(), m.lignesMax, lg);
+						// un RESULTAT EN CLAIR se lit en entier (12 lignes) : c'est la liste de
+						// ce qui a ete fait, pas un journal a survoler
+						const bool tr =
+							aidetail::LignesCode(src.CStr(), (comp == 1 && b.sortieEnClair) ? 12u : m.lignesMax, lg);
 						const uint32 n = (uint32)lg.Size();
 						const float32 h = (float32)n * m.ligneCode + 2.f * m.padding;
 						if (!premier)
@@ -1027,13 +1094,13 @@ namespace nkentseu {
 							Pousser(b.id, NkAiPiece::FondOut, NkRole::CodeOutBg, NkAiPolice::Normale, xc - 2.f,
 									yb + m.padding * 0.5f, droite - 8.f - (xc - 2.f), h - m.padding);
 						Pousser(b.id, comp == 0 ? NkAiPiece::GouttiereIn : NkAiPiece::GouttiereOut, NkRole::TextMuted,
-								NkAiPolice::Normale, bx + 8.f, yb + m.padding, m.gouttiere - 10.f, m.ligneCode);
+								NkAiPolice::Normale, bx + 8.f, yb + m.padding, gout - 10.f, m.ligneCode);
 						for (uint32 k = 0; k < n; ++k) {
 							NkAiRectPublie r;
 							r.blocId = b.id;
 							r.piece = comp == 0 ? NkAiPiece::TexteIn : NkAiPiece::TexteOut;
 							r.role = NkRole::Text;
-							r.police = NkAiPolice::ChasseFixe;
+							r.police = (comp == 1 && b.sortieEnClair) ? NkAiPolice::Normale : NkAiPolice::ChasseFixe;
 							r.x = xc;
 							r.y = yb + m.padding + (float32)k * m.ligneCode;
 							r.w = wc;
@@ -1048,6 +1115,33 @@ namespace nkentseu {
 									yb + h - m.padding - m.estompeH * 0.6f,
 									comp == 0 ? bw - 2.f : droite - 8.f - (xc - 2.f), m.estompeH);
 						yb += h;
+					}
+					// LA VIGNETTE : ce qui a ete pose, trace a l'echelle dans la boite.
+					if (b.vignette.Size() > 0) {
+						float32 vw = wc;
+						if (vw > 240.f)
+							vw = 240.f;
+						float32 vh = vw * (b.vignetteRapport > 0.05f ? b.vignetteRapport : 0.75f);
+						if (vh > 150.f) {
+							vw *= 150.f / vh;
+							vh = 150.f;
+						}
+						const float32 vx = xc, vy = yb + 6.f;
+						Pousser(b.id, NkAiPiece::VignetteFond, NkRole::PanelBg, NkAiPolice::Normale, vx, vy, vw, vh);
+						for (usize k = 0; k < b.vignette.Size(); ++k) {
+							const NkAiBlocDonnees::Vignette &v = b.vignette[k];
+							NkAiRectPublie r;
+							r.blocId = b.id;
+							r.piece = NkAiPiece::VignetteRect;
+							r.role = NkRole::Border;
+							r.x = vx + v.x * vw;
+							r.y = vy + v.y * vh;
+							r.w = v.w * vw > 1.f ? v.w * vw : 1.f;
+							r.h = v.h * vh > 1.f ? v.h * vh : 1.f;
+							r.debut = v.genre;
+							plan.Ajouter(r);
+						}
+						yb = vy + vh + 8.f;
 					}
 					plan.PieceModifiable(iBoite).h = yb - y0;
 				}
@@ -1178,6 +1272,9 @@ namespace nkentseu {
 				bool distant = false;
 				const char *modele = nullptr; ///< « Ollama · qwen2.5 7B »
 				const char *modeleDetail = nullptr;
+				/// (Q8) La hauteur RESERVEE en tete du cadre (les vignettes des images
+				/// jointes) : le texte descend d'autant, le cadre grandit d'autant.
+				float32 reserveHaut = 0.f;
 				const char *mode = nullptr; ///< « Auto », « Générer », ou nullptr
 				bool envoiActif = false;	///< quelque chose a envoyer
 				/// Le geste d'envoi PRODUIT-il un document ? (§7 de la spec) : orange
@@ -1219,7 +1316,7 @@ namespace nkentseu {
 			if (vis > m.lignesComposeurMax)
 				vis = m.lignesComposeurMax;
 			const uint32 premiere = n > vis ? n - vis : 0u;
-			const float32 fh = m.hautComposeur + (float32)vis * m.ligne + m.ecartSousTexte + m.barreEtat;
+			const float32 fh = d.reserveHaut + m.hautComposeur + (float32)vis * m.ligne + m.ecartSousTexte + m.barreEtat;
 			const float32 fy = hauteur - m.margeBas - fh;
 
 			NkAiRectPublie r;
@@ -1241,7 +1338,7 @@ namespace nkentseu {
 				t.source = vide ? NkAiSource::Invite : NkAiSource::Saisie;
 				t.role = vide ? NkRole::TextMuted : NkRole::Text;
 				t.x = xt;
-				t.y = fy + m.hautComposeur + (float32)(k - premiere) * m.ligne;
+				t.y = fy + d.reserveHaut + m.hautComposeur + (float32)(k - premiere) * m.ligne;
 				t.w = wt;
 				t.h = m.ligne;
 				t.debut = lg[k].debut;
@@ -1254,10 +1351,10 @@ namespace nkentseu {
 				for (uint32 k = 0; k < n; ++k)
 					if ((uint32)d.caret >= lg[k].debut)
 						ligneC = k;
-				float32 cx = xt, cyy = fy + m.hautComposeur;
+				float32 cx = xt, cyy = fy + d.reserveHaut + m.hautComposeur;
 				if (!vide && n > 0 && ligneC >= premiere) {
 					cx = xt + aidetail::Largeur(d.texte, lg[ligneC].debut, (uint32)d.caret, NkAiPolice::Normale, mes, ctx);
-					cyy = fy + m.hautComposeur + (float32)(ligneC - premiere) * m.ligne;
+					cyy = fy + d.reserveHaut + m.hautComposeur + (float32)(ligneC - premiere) * m.ligne;
 				}
 				NkAiRectPublie c;
 				c.blocId = 0u;

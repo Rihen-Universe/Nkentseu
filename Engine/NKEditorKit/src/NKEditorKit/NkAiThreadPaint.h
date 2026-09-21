@@ -32,6 +32,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkAiThreadLayout.h"
+#include "NKImage/NKImage.h" // (Q8) les vignettes des images jointes
 #include "NKEditorKit/Components/NkComponentPaint.h"
 
 namespace nkentseu {
@@ -58,10 +59,73 @@ namespace nkentseu {
 				const char *filtreInvite = nullptr;		 ///< son invite quand il est vide
 				const char *const *fenetreTextes = nullptr; ///< 2 par ligne : libelle, valeur
 				uint32 fenetreN = 0;
+				const char *const *images = nullptr; ///< (Q8) les images jointes du composeur
+				uint32 imagesN = 0;
 				/// ⚠️ ANCIEN NOM, garde pour les appelants du 20/09 : le texte du
 				///    composeur. `saisie` le remplace.
 				const char *composeur = nullptr;
 		};
+
+		// ── (Q8) LA VIGNETTE D'UNE IMAGE JOINTE, SANS TEXTURE ────────────────────
+		// ⚠️ LE KIT N'A PAS D'ATLAS NI DE TEXTURE PAR IMAGE (memoire « Icon peint un
+		//    carre ») : la vignette est l'image REDUITE a une grille de cellules
+		//    de couleur moyenne (32 x 24 au plus), tracees en rectangles. C'est
+		//    l'image, a basse definition -- pas un pictogramme a sa place.
+		struct NkAiVignetteImage {
+				NkString chemin;
+				bool ok = false;
+				int32 w = 0, h = 0;	  ///< les pixels de l'image
+				int32 cw = 0, ch = 0; ///< la grille
+				NkVector<uint32> cellules; ///< RGBA, ligne par ligne
+		};
+		inline NkVector<NkAiVignetteImage> &NkAiCacheVignettes() {
+			static NkVector<NkAiVignetteImage> v;
+			return v;
+		}
+		/// La vignette de `chemin`, lue et reduite UNE fois. `ok` faux = illisible.
+		inline const NkAiVignetteImage &NkAiVignetteDe(const char *chemin) {
+			NkVector<NkAiVignetteImage> &c = NkAiCacheVignettes();
+			for (usize i = 0; i < c.Size(); ++i)
+				if (c[i].chemin == NkString(chemin ? chemin : ""))
+					return c[i];
+			NkAiVignetteImage v;
+			v.chemin = NkString(chemin ? chemin : "");
+			NkImage img;
+			if (chemin && img.Load(chemin, 4) && img.Width() > 0 && img.Height() > 0) {
+				v.w = img.Width();
+				v.h = img.Height();
+				const float32 k = (float32)v.w / (float32)v.h;
+				v.cw = k >= 1.f ? 32 : (int32)(24.f * k + 0.5f);
+				v.ch = k >= 1.f ? (int32)(32.f / k + 0.5f) : 24;
+				if (v.cw < 1)
+					v.cw = 1;
+				if (v.ch < 1)
+					v.ch = 1;
+				const uint8 *px = img.Pixels();
+				const int32 st = img.Stride();
+				for (int32 cy = 0; cy < v.ch; ++cy)
+					for (int32 cx = 0; cx < v.cw; ++cx) {
+						const int32 x0 = cx * v.w / v.cw, x1 = (cx + 1) * v.w / v.cw;
+						const int32 y0 = cy * v.h / v.ch, y1 = (cy + 1) * v.h / v.ch;
+						uint64 r = 0, g = 0, b = 0, n = 0;
+						const int32 pas = ((x1 - x0) * (y1 - y0) > 256) ? 4 : 1;
+						for (int32 yy = y0; yy < (y1 > y0 ? y1 : y0 + 1); yy += pas)
+							for (int32 xx = x0; xx < (x1 > x0 ? x1 : x0 + 1); xx += pas) {
+								const uint8 *p = px + yy * st + xx * 4;
+								r += p[0];
+								g += p[1];
+								b += p[2];
+								++n;
+							}
+						if (n == 0)
+							n = 1;
+						v.cellules.PushBack(((uint32)(r / n) << 24) | ((uint32)(g / n) << 16) | ((uint32)(b / n) << 8) | 0xFFu);
+					}
+				v.ok = true;
+			}
+			c.PushBack(v);
+			return c[c.Size() - 1];
+		}
 
 		namespace aipaint {
 
@@ -85,14 +149,20 @@ namespace nkentseu {
 								   const char *&debut, const char *&fin) {
 				debut = fin = nullptr;
 				const char *src = nullptr;
-				if (r.piece == NkAiPiece::GouttiereIn) {
-					debut = "IN";
-					fin = debut + 2;
-					return true;
-				}
-				if (r.piece == NkAiPiece::GouttiereOut) {
-					debut = "OUT";
-					fin = debut + 3;
+				// (Q8) L'ETIQUETTE DECLAREE PAR L'HOTE, sinon IN / OUT.
+				if (r.piece == NkAiPiece::GouttiereIn || r.piece == NkAiPiece::GouttiereOut) {
+					uint32 i = 0;
+					if (r.blocId != 0u && fil.TrouverParId(r.blocId, i)) {
+						const NkString &e = r.piece == NkAiPiece::GouttiereIn ? fil.At(i).etiquetteEntree
+																			   : fil.At(i).etiquetteSortie;
+						if (e.Length() > 0) {
+							debut = e.CStr();
+							fin = debut + e.Length();
+							return true;
+						}
+					}
+					debut = r.piece == NkAiPiece::GouttiereIn ? "IN" : "OUT";
+					fin = debut + (r.piece == NkAiPiece::GouttiereIn ? 2 : 3);
 					return true;
 				}
 				if (r.source == NkAiSource::EffetBloc && r.blocId != 0u) {
@@ -495,6 +565,73 @@ namespace nkentseu {
 						const uint16 c = survol ? (uint16)NkRole::Text : (uint16)NkRole::TextMuted;
 						(void)p.Line(rect.x + 3.f, rect.y + 3.f, rect.x + rect.w - 3.f, rect.y + rect.h - 3.f, c, 1.4f);
 						(void)p.Line(rect.x + rect.w - 3.f, rect.y + 3.f, rect.x + 3.f, rect.y + rect.h - 3.f, c, 1.4f);
+						break;
+					}
+					case NkAiPiece::ImageJointe: {
+						const char *chemin = nullptr;
+						if (r.blocId != 0u) {
+							uint32 bi = 0;
+							if (fil.TrouverParId(r.blocId, bi) && r.debut < fil.At(bi).images.Size())
+								chemin = fil.At(bi).images[r.debut].CStr();
+						} else if (chrome.images && r.debut < chrome.imagesN)
+							chemin = chrome.images[r.debut];
+						const NkAiVignetteImage &v = NkAiVignetteDe(chemin);
+						p.Outline(rect, (uint16)NkRole::Border, (uint16)NkRole::CodeBg, 4.f);
+						if (v.ok) {
+							// l'image TIENT dans la tuile, proportions gardees
+							const float32 k = (float32)v.cw / (float32)v.ch;
+							float32 iw = rect.w - 6.f, ih = iw / k;
+							if (ih > rect.h - 6.f) {
+								ih = rect.h - 6.f;
+								iw = ih * k;
+							}
+							const float32 ix = rect.x + (rect.w - iw) * 0.5f, iy = rect.y + (rect.h - ih) * 0.5f;
+							const float32 sx = iw / (float32)v.cw, sy = ih / (float32)v.ch;
+							for (int32 cy = 0; cy < v.ch; ++cy)
+								for (int32 cx = 0; cx < v.cw; ++cx)
+									p.FillColor({ix + cx * sx, iy + cy * sy, sx + 0.6f, sy + 0.6f},
+												v.cellules[(usize)(cy * v.cw + cx)], 0.f);
+						} else {
+							(void)p.Line(rect.x + 8.f, rect.y + 8.f, rect.x + rect.w - 8.f, rect.y + rect.h - 8.f,
+										 (uint16)NkRole::TextMuted, 1.2f);
+						}
+						break;
+					}
+					case NkAiPiece::RetirerImage: {
+						p.Fill(rect, survol ? (uint16)NkRole::ButtonBg : (uint16)NkRole::PanelBg, rect.w * 0.5f);
+						const uint16 c = (uint16)NkRole::Text;
+						(void)p.Line(rect.x + 4.f, rect.y + 4.f, rect.x + rect.w - 4.f, rect.y + rect.h - 4.f, c, 1.3f);
+						(void)p.Line(rect.x + rect.w - 4.f, rect.y + 4.f, rect.x + 4.f, rect.y + rect.h - 4.f, c, 1.3f);
+						break;
+					}
+					case NkAiPiece::VignetteFond:
+						p.Outline(rect, (uint16)NkRole::Border, (uint16)NkRole::PanelBg, 3.f);
+						break;
+					case NkAiPiece::VignetteRect:
+						// cadre : trait ; texte : barre grise ; composant : plein doux ;
+						// bouton : l'accent -- ce qu'un oeil reconnait d'une maquette.
+						if (r.debut == 1u)
+							p.Fill({rect.x, rect.y + rect.h * 0.3f, rect.w, rect.h * 0.4f > 1.f ? rect.h * 0.4f : 1.f},
+								   (uint16)NkRole::TextMuted, 0.f);
+						else if (r.debut == 3u)
+							p.Fill(rect, (uint16)NkRole::AccentUi, 1.5f);
+						else if (r.debut == 2u)
+							p.Outline(rect, (uint16)NkRole::Border, (uint16)NkRole::InputBg, 1.f);
+						else
+							p.Outline(rect, (uint16)NkRole::TextMuted, (uint16)NkRole::PanelBg, 1.f);
+						break;
+					case NkAiPiece::Surlignage:
+						// TRANSLUCIDE, POSE PAR-DESSUS : le texte reste lisible dessous.
+						p.FillColor(rect, aipaint::AvecAlpha(p.ColorOf((uint16)NkRole::AccentUi), 0.35f), 2.f);
+						break;
+					case NkAiPiece::BoutonCopier: {
+						// DEUX FEUILLES DECALEES : le signe « copier » de la capture, trace.
+						const uint16 c = survol ? (uint16)NkRole::Text : (uint16)NkRole::TextMuted;
+						if (survol)
+							p.Fill(rect, (uint16)NkRole::ButtonBg, 3.f);
+						const float32 s = rect.w * 0.42f, x0 = rect.x + rect.w * 0.22f, y0 = rect.y + rect.h * 0.22f;
+						p.Outline({x0 + s * 0.35f, y0, s, s}, c, (uint16)NkRole::PanelBg, 1.5f);
+						p.Outline({x0, y0 + s * 0.35f, s, s}, c, (uint16)NkRole::PanelBg, 1.5f);
 						break;
 					}
 					case NkAiPiece::Barre: {
