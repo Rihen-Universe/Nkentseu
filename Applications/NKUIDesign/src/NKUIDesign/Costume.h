@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Costume.h — le COSTUME EXACT de la maquette Banani (remandat du 2026-08-31).
 //
 //  « Va planche après planche et code-les À L'IDENTIQUE — THÈME, DESIGN,
@@ -126,6 +127,9 @@ namespace nkuidesign {
 				NkGuiFont px13; ///< valeurs fortes (cartes du Dashboard)
 				NkGuiFont px15; ///< le « + » des onglets
 				NkGuiFont px16; ///< titre du document (« Connexion »)
+				/// La CHASSE FIXE du panneau IA (21/09) : les compartiments IN / OUT et
+				/// le code en ligne. Cousine embarquee, sans repli externe.
+				NkGuiFont mono;
 				bool ok = false;
 
 				/// Charge les sept corps (Inter embarquée) et les téléverse par le
@@ -147,6 +151,10 @@ namespace nkuidesign {
 							|| !sh.UploadAppFont(*lignes[i].f, i))
 							ok = false;
 					}
+					// l'emplacement 7, le dernier des huit que la coquille reserve
+					if (!mono.LoadEmbedded(nkentseu::NkEmbeddedFontId::Cousine, CorpsMaquette(9.f) * dpi, false)
+						|| !sh.UploadAppFont(mono, 7u))
+						ok = false;
 				}
 		};
 

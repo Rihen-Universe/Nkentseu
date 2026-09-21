@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkAiPanel.h — Panneau ASSISTANT IA (chat) fonctionnel.
 //   UI : sélecteur de fournisseur + liste de messages (bulles) + zone de saisie.
@@ -7,6 +8,13 @@
 //     1) Ollama local          — http://localhost:11434 (aucune clé)
 //     2) Maison (à venir)      — réservé pour l'IA maison de Rihen (stub désactivé)
 //   Non-streaming pour ce 1er jet (réponse complète). Parsing JSON minimal.
+//
+//   ⚠️ 21/09/2026 : LA VUE DE CONVERSATION EST LE PANNEAU DU KIT
+//      (`NKEditorKit/NkAiPanneau.h`, le meme que NK3DModeler et NKUIDesign),
+//      rempli par `DessinerKit`. L'en-tete a pilule, la barre de session, les
+//      bulles et la barre Mode/Portee/Edition ne se dessinent plus pour la
+//      conversation ; tout ce que ce fichier sait FAIRE (CLI, comptes, file,
+//      persistance, permissions, usage, palette, slash) sert tel quel.
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkEditorCombo.h" // NkComboButton/NkComboMenu (combo reutilisable, ouverture haut/bas auto)
@@ -16,6 +24,10 @@
 #include "NKCode/Project/NkLsp.h" // NkPipeProc (process a pipes CreateProcessW, reutilise pour le CLI `claude`)
 #include "NKCode/Editor/NkTextDraw.h" // NkEncodeU8 (décodage \uXXXX -> UTF-8)
 #include "NKCode/Shell/NkAiAccounts.h" // comptes multiples (CLAUDE_CONFIG_DIR par workspace)
+#include "NKCode/Shell/Panels.h" // SideRightGroup / OpenSideExclusive : la pastille amene le panneau de l'assistant choisi
+#include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
+#include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKTime/NkChrono.h"
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h" // NkIcons (icones de la vue IDE)
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
@@ -205,7 +217,8 @@ namespace nkentseu {
 					// deja pret des que l'utilisateur regarde "Compte et utilisation".
 					if (!mAutoUsageFetched) {
 						mAutoUsageFetched = true;
-						EnsureUsageDataFetching();
+						if (!SondeSansAppel())
+							EnsureUsageDataFetching();
 					}
 					// Sauvegarde debouncee (~1,5 s) sur changement d'empreinte, hors flux.
 					if (++mSaveTick >= 90) {
@@ -330,6 +343,17 @@ namespace nkentseu {
 					const NkRect body = {r.x, bodyY, r.w, bodyH};
 
 					dl.AddRectFilled(r, kBody);
+
+					// ══ 21/09 : LA CONVERSATION EST LE PANNEAU DU KIT ══════════════════
+					// (voir `DessinerKit`). L'ancienne surface ne sert plus qu'aux sous-vues
+					// Generation / Revue de l'Assistant general, que le « / » ouvre.
+					if (chatView) {
+						const bool popOuvert = mComboOpen != 0 || mPropsOpen || mChatListOpen || mPlusOpen ||
+											   mActionsOpen || mUsageOpen || mAccountsOpen || mSlashOpen;
+						DessinerKit(ctx, r, popOuvert);
+						DessinerSurcouches(ctx, r, kViolet);
+						return;
+					}
 
 					// ══ EN-TÊTE : logo étincelle · pilule modèle · engrenage · liste des chats · + nouveau chat ══
 					dl.AddRectFilled(hdr, kHdr);
@@ -544,6 +568,16 @@ namespace nkentseu {
 						DrawCodeReviewView(ctx, body, kViolet);
 					}
 
+					DessinerSurcouches(ctx, r, kViolet);
+				}
+
+
+				/// LES SURCOUCHES (menus de combo, popovers) : dessinees APRES tout, par-dessus.
+				/// Sorties de `OnUI` le 21/09 pour servir les DEUX surfaces -- l'ancienne
+				/// (Generation / Revue) et le panneau du kit (la conversation).
+				void DessinerSurcouches(NkGuiContext &ctx, const NkRect &r, const NkColor &kViolet) {
+					auto &dl = ctx.DL();
+					const NkGuiFont *font = ctx.font;
 					// ══ Overlays (au-dessus de tout) : menu du combo ouvert (ouvre haut/bas selon la
 					//    place dans `r`) · popover réglages. Ancre DEDIEE par combo (jamais partagee). ══
 					if (mComboOpen == 1) {
@@ -593,6 +627,352 @@ namespace nkentseu {
 						DrawAccountsPopover(ctx, r, kViolet);
 					if (mSlashOpen)
 						DrawSlashPopover(ctx, r, kViolet);
+				}
+
+				// ═══════════════════════════════════════════════════════════════
+				//  21/09 — LA VUE DE CONVERSATION EST LE PANNEAU DU KIT
+				// ═══════════════════════════════════════════════════════════════
+				//  Rodolf, 21/09 : « qu'il s'agisse de NKCode, NK3DModeler, NKUIDesign…
+				//  je veux que le panneau soit exactement comme ceci ». NKCode avait le
+				//  panneau le plus riche des trois, et le plus DIVERGENT : en-tete a
+				//  pilule, barre de session, bulles, barre d'outils Mode/Portee/Edition.
+				//
+				//  ⚠️ CE QUI EST REMPLACE, C'EST LA SURFACE -- PAS CE QU'ELLE SAIT FAIRE.
+				//     Tout ce que ce fichier sait deja reste ici et sert tel quel : le CLI
+				//     `claude` et son flux NDJSON, les comptes (NkAiAccounts.h), la file
+				//     d'attente, la persistance par workspace, les permissions
+				//     can_use_tool, l'usage, la palette d'actions, les commandes slash.
+				//     Le kit PEINT ; NKCode FAIT.
+				//
+				//  CORRESPONDANCES (message -> bloc du kit) :
+				//    role 0            -> Demande (encadree, en tete)
+				//    role 1            -> Prose (gras, code en ligne)
+				//    role 2 + outil    -> Outil (« Bash » + la commande ; IN = la commande)
+				//    role 2 reflexion  -> Reflexion (« Thinking », repliee)
+				//    role 2 autre      -> Prose (une information), Echec si c'est une erreur
+				//    permission        -> un bloc d'outil portant « Autoriser » / « Refuser »
+				//  FOURNISSEURS : les QUATRE assistants de NKCode (un panneau chacun, une
+				//  conversation chacun). En choisir un autre dans la pastille AMENE SON
+				//  panneau a la meme place -- donc SA conversation.
+				//  MODELES : ceux de l'assistant courant (le second niveau du menu).
+				//  MODES : les modes de l'assistant (Manuel / Auto-edition / Plan / Auto…).
+				//  « + » : le menu d'ajout de NKCode ; « / » : sa palette d'actions ;
+				//  l'horloge : sa liste de conversations persistees.
+				editorkit::NkAiPanneau mKit;
+				uint32 mKitEmpreinte = 0xFFFFFFFFu;
+				int32 mKitChat = -1;
+				/// Pour chaque message, l'identifiant de son bloc (0 = aucun) : ce qui
+				/// garde un bloc DEPLIE deplie quand le fil est rebati (un flux qui arrive
+				/// ne doit pas replier ce qu'on est en train de lire).
+				NkVector<uint32> mKitBlocDe;
+				NkVector<uint8> mKitDeplie;
+				uint32 mKitPermBloc = 0u;
+				nkentseu::NkChrono mKitHorloge;
+
+				static const char *KitNom(int32 kind) {
+					static const char *const kNoms[4] = {"Assistant IA", "Claude Code", "Codex", "NkAI"};
+					return (kind >= 0 && kind < 4) ? kNoms[kind] : "?";
+				}
+
+				/// ⚠️ UNE FENETRE DE SONDE (`NK_SONDE`) NE LANCE AUCUN CLI TOUTE SEULE.
+				///    L'entree dans le panneau Claude Code lance `claude auth status`,
+				///    `claude -p /usage` et la sonde des modeles : sur le compte de Rodolf,
+				///    pour une image de preuve. « Aucun appel facture » (21/09). Un
+				///    lancement normal n'est pas touche.
+				static bool SondeSansAppel() {
+					static const bool v = std::getenv("NK_SONDE") != nullptr;
+					return v;
+				}
+				static bool KitCommence(const char *t, const char *p) {
+					if (!t || !p)
+						return false;
+					while (*p)
+						if (*t++ != *p++)
+							return false;
+					return true;
+				}
+				/// La longueur du prefixe « Thinking » d'un message de reflexion, 0 sinon.
+				/// ⚠️ DANS TOUTES LES LANGUES : les conversations sont PERSISTEES, et une
+				///    reflexion enregistree en anglais (« Thinking : ») se relit dans une
+				///    interface passee en francais (« Reflexion »). Comparer a la seule
+				///    langue courante l'aurait affichee en prose.
+				static uint32 KitPrefixeReflexion(const char *t, const char *courant) {
+					const char *const kMots[] = {courant, "Thinking", "Réflexion", "Pensando", "Denken", "Думаю"};
+					for (const char *mot : kMots) {
+						if (!mot || !mot[0] || !KitCommence(t, mot))
+							continue;
+						uint32 n = 0;
+						while (mot[n])
+							++n;
+						const char c = t[n];
+						if (c == 0 || c == ' ' || c == ':' || c == '\n')
+							return n;
+					}
+					return 0u;
+				}
+
+				void KitDeclarer() {
+					if (mKit.fournisseurs.Size() == 0) {
+						for (int32 k = 0; k < 4; ++k) {
+							editorkit::NkAiFournisseurDesc f;
+							f.cle = NkString(KitNom(k));
+							f.nom = NkString(KitNom(k));
+							mKit.fournisseurs.PushBack(f);
+						}
+						NkString pq;
+						(void)mKit.Choisir(mKind, pq);
+						editorkit::NkAiCapacites cap = editorkit::NkAiCapacites::Texte();
+						cap.produitOutil = true;
+						cap.produitRefus = true;
+						cap.produitReflexion = true; // le CLI emet `thinking_delta`
+						mKit.capacites = cap;
+						mKit.portePlus = true;
+						mKit.historiqueParHote = true; // les conversations persistees de NKCode
+						// LE « / » : la palette d'actions de NKCode -- sauf pour l'Assistant
+						// general, dont les deux sous-vues (Generation de code, Revue de code)
+						// n'ont plus d'onglets au-dessus de la conversation : ce sont ses
+						// commandes, et « /actions » garde la palette atteignable.
+						if (mKind == 0) {
+							static const char *const kCmd[3][2] = {
+								{"/generation", "Generation de code : description, langage, options"},
+								{"/revue", "Revue de code IA : portee et focus sur le vrai code"},
+								{"/actions", "la palette d'actions (contexte, modele, reglages)"}};
+							for (int32 i = 0; i < 3; ++i) {
+								editorkit::NkAiCommandeDesc c;
+								c.nom = NkString(kCmd[i][0]);
+								c.detail = NkString(kCmd[i][1]);
+								c.insertion = NkString(kCmd[i][0]);
+								mKit.commandes.PushBack(c);
+							}
+						} else
+							mKit.commandesParHote = true;
+						mKit.fileAttente = true;	   // NKCode met en file ce qu'on tape pendant un tour
+						mKit.plafond = 400;
+						mKit.declaration = NkString(
+							"Claude Code : un COMPTE (dossier de configuration, NkAiAccounts) -- le CLI "
+							"s'authentifie lui-meme. API : NKCODE_ANTHROPIC_KEY / ANTHROPIC_API_KEY. Ollama : local.");
+					}
+					// L'ETAT, relu a chaque image : pret, lieu, modeles de l'assistant courant.
+					for (int32 k = 0; k < 4; ++k) {
+						editorkit::NkAiFournisseurDesc &f = mKit.fournisseurs[(usize)k];
+						f.pret = (k != 2);
+						f.motif = (k == 2) ? NkString(NkT("ai.codexsoon")) : NkString();
+						f.distant = (k == 1 || k == 2);
+					}
+					editorkit::NkAiFournisseurDesc &moi = mKit.fournisseurs[(usize)mKind];
+					moi.distant = (mKind == 1 || mKind == 2) || (mKind == 0 && ProviderForModel() == 0);
+					int32 nM = 0;
+					const char *const *models = mKind == 1 ? ClaudeModelTitles(nM) : kModels(nM);
+					if ((int32)moi.modeles.Size() != nM) {
+						moi.modeles.Clear();
+						for (int32 i = 0; i < nM; ++i) {
+							editorkit::NkAiModeleDesc m;
+							m.nom = NkString(models[i]);
+							moi.modeles.PushBack(m);
+						}
+					}
+					moi.modele = mModelIdx;
+					int32 nMo = 0, nDe = 0;
+					const char *const *modes = ModeOptionsFor(mKind, nMo);
+					const char *const *descs = ModeDescFor(mKind, nDe);
+					if ((int32)mKit.modes.Size() != nMo) {
+						mKit.modes.Clear();
+						for (int32 i = 0; i < nMo; ++i) {
+							editorkit::NkAiModeDesc d;
+							d.nom = NkString(modes[i]);
+							d.detail = NkString(i < nDe ? descs[i] : "");
+							d.produit = true;
+							mKit.modes.PushBack(d);
+						}
+					}
+					mKit.mode = mMode;
+					mKit.invite = NkString(NkT("ai.ask"));
+				}
+
+				/// Rebatit le fil du kit depuis les messages de la conversation ACTIVE
+				/// quand ils ont change (empreinte : nombre, longueurs, tour, permission).
+				void KitSynchroniser() {
+					const NkVector<Msg> &msgs = Msgs();
+					uint32 e = 2166136261u;
+					auto mix = [&](uint32 v) { e = (e ^ v) * 16777619u; };
+					mix((uint32)msgs.Size());
+					for (usize i = 0; i < msgs.Size(); ++i) {
+						mix((uint32)msgs[i].role);
+						mix((uint32)msgs[i].text.Size());
+					}
+					mix(mBusy ? 1u : 0u);
+					mix(mPermPending ? 1u : 0u);
+					if (e == mKitEmpreinte && mKitChat == mActiveChat)
+						return;
+					// L'ETAT DEPLIE, retenu par message avant de rebatir.
+					if (mKitChat == mActiveChat) {
+						mKitDeplie.Clear();
+						for (usize i = 0; i < mKitBlocDe.Size(); ++i) {
+							uint32 idx = 0;
+							const bool d = mKitBlocDe[i] && mKit.Fil().TrouverParId(mKitBlocDe[i], idx) &&
+										   !mKit.Fil().At(idx).replie;
+							mKitDeplie.PushBack(d ? 1u : 0u);
+						}
+					} else
+						mKitDeplie.Clear();
+					mKitEmpreinte = e;
+					mKitChat = mActiveChat;
+					editorkit::NkAiFil &fil = mKit.Fil();
+					fil.Vider();
+					mKitBlocDe.Clear();
+					const NkString bonjour(NkT("ai.hello"));
+					const NkString penser(NkT("ai.thinking"));
+					NkString pq;
+					for (usize i = 0; i < msgs.Size(); ++i) {
+						const Msg &m = msgs[i];
+						editorkit::NkAiBlocDonnees b;
+						bool ok = true;
+						if (m.role == 0) {
+							b.type = editorkit::NkAiBloc::Demande;
+							b.texte = m.text;
+						} else if (m.role == 1) {
+							b.type = editorkit::NkAiBloc::Prose;
+							b.texte = m.text;
+						} else if (m.tool > 0) {
+							// « [Bash] cd D:/… » : le NOM de l'outil, puis ce qu'il fait.
+							b.type = editorkit::NkAiBloc::Outil;
+							const char *t = m.text.CStr();
+							NkString nom, det;
+							if (t[0] == '[') {
+								const char *f = t + 1;
+								while (*f && *f != ']')
+									++f;
+								nom = NkString(t + 1, (usize)(f - (t + 1)));
+								det = NkString(*f ? f + 1 : f);
+							} else
+								det = m.text;
+							while (det.Size() && det[0] == ' ')
+								det = NkString(det.CStr() + 1);
+							b.titre = nom.Size() ? nom : NkString("Outil");
+							b.texte = det;
+							b.entree = det;
+						} else if (const uint32 lp = KitPrefixeReflexion(m.text.CStr(), penser.CStr())) {
+							b.type = editorkit::NkAiBloc::Reflexion;
+							b.titre = penser;
+							const char *c = m.text.CStr() + lp;
+							while (*c == ' ' || *c == ':' || *c == '\n')
+								++c;
+							b.texte = NkString(*c ? c : "...");
+						} else if (i == 0 && (m.text == bonjour || KitCommence(m.text.CStr(), "Hi! Pick a provider") ||
+											  KitCommence(m.text.CStr(), "Bonjour ! Choisissez"))) {
+							ok = false; // la salutation : le fil vide du kit dit deja quoi faire
+						} else {
+							b.type = editorkit::NkAiBloc::Prose;
+							b.texte = m.text;
+						}
+						uint32 id = 0u;
+						if (ok && fil.Pousser(b, pq)) {
+							id = fil.At(fil.Taille() - 1).id;
+							if (i < mKitDeplie.Size() && mKitDeplie[i])
+								fil.BasculerParId(id);
+						}
+						mKitBlocDe.PushBack(id);
+					}
+					// LA PERMISSION EN ATTENTE : un bloc d'outil qui porte les deux boutons.
+					mKitPermBloc = 0u;
+					if (mPermPending) {
+						editorkit::NkAiBlocDonnees b;
+						b.type = editorkit::NkAiBloc::Outil;
+						b.titre = mPermTool.Size() ? mPermTool : NkString("Outil");
+						b.texte = NkString(NkT("ai.perm.title"));
+						b.entree = mPermDetail;
+						b.replie = false;
+						if (fil.Pousser(b, pq))
+							mKitPermBloc = fil.At(fil.Taille() - 1).id;
+					}
+				}
+
+				/// LA SURFACE DE CONVERSATION : le panneau du kit, rempli par NKCode.
+				void DessinerKit(NkGuiContext &ctx, const NkRect &r, bool popOuvert) {
+					KitDeclarer();
+					KitSynchroniser();
+					mKit.actions = editorkit::NkAiActionsFil{};
+					if (mPermPending && mKitPermBloc) {
+						mKit.actions.blocId = mKitPermBloc;
+						mKit.actions.libelle[0] = NkT("ai.perm.allow");
+						mKit.actions.libelle[1] = NkT("ai.perm.deny");
+					}
+					mKit.occupe = mBusy;
+					mKit.maintenant = mKitHorloge.Elapsed().ToSeconds();
+					mKit.phase = (float32)(mKit.maintenant - (float64)(int64)mKit.maintenant);
+					mKit.echelle = ctx.S(1.f);
+					static const editorkit::NkTheme sDefaut = editorkit::NkTheme::Dark();
+					editorkit::NkGuiComponentPaint pc(ctx, mShell ? mShell->KitTheme() : sDefaut);
+					pc.PoserPolices(nullptr, mShell ? mShell->TermCodeFont() : nullptr);
+					const bool libre = !popOuvert && ctx.popupDepth == 0 && NkGuiRectContains(r, ctx.input.mousePos);
+					const editorkit::NkAiSorties out = mKit.Dessiner(ctx, pc, {r.x, r.y, r.w, r.h}, libre);
+					// LES ANCRES des popovers de NKCode : les pieces du kit qui les ouvrent.
+					auto ancre = [&](editorkit::NkAiPiece p, NkRect &dst) {
+						editorkit::NkAiRectPublie q;
+						if (mKit.planChrome.Trouver(0u, p, q))
+							dst = {r.x + q.x, r.y + q.y, q.w, q.h};
+					};
+					ancre(editorkit::NkAiPiece::IconeHistorique, mChatListAnchor);
+					ancre(editorkit::NkAiPiece::BoutonPlus, mPlusAnchor);
+					ancre(editorkit::NkAiPiece::BoutonCommandes, mActionsAnchor);
+					if (out.clicPris)
+						ctx.input.mouseClicked[0] = false; // le clic appartient au panneau
+					// LES COMMANDES DE L'ASSISTANT GENERAL s'executent ici, elles ne partent pas.
+					bool commandeLocale = false;
+					if (out.envoyer && mKind == 0) {
+						if (out.texte == NkString("/generation"))
+							mView = 1, commandeLocale = true;
+						else if (out.texte == NkString("/revue"))
+							mView = 2, commandeLocale = true;
+						else if (out.texte == NkString("/actions"))
+							mActionsOpen = true, commandeLocale = true;
+						if (commandeLocale)
+							mKit.ViderSaisie();
+					}
+					if (out.envoyer && !commandeLocale) {
+						// LE MEME CHEMIN QUE L'ANCIENNE SAISIE : le brouillon de la
+						// conversation, puis SendOrQueue (qui met en file pendant un tour).
+						const usize cap = sizeof(mInput) - 1;
+						const usize n = out.texte.Size() < cap ? out.texte.Size() : cap;
+						::memcpy(mInput, out.texte.CStr(), n);
+						mInput[n] = 0;
+						SendOrQueue();
+						mKit.ViderSaisie();
+						mChats[static_cast<usize>(mActiveChat)].stick = true;
+					}
+					if (out.arreter && mKind == 1)
+						CancelClaudeCli();
+					if (out.nouvelle)
+						NewChat();
+					if (out.historique)
+						mChatListOpen = !mChatListOpen;
+					if (out.commandes)
+						mActionsOpen = !mActionsOpen;
+					if (out.plus)
+						mPlusOpen = !mPlusOpen;
+					if (out.modeChange)
+						mMode = out.mode;
+					if (out.modeleChange && mKit.Actif() == mKind)
+						mModelIdx = mKit.fournisseurs[(usize)mKind].modele;
+					if (out.fournisseurChange) {
+						// UN AUTRE ASSISTANT = SON panneau, a la meme place, avec SA
+						// conversation. Ce panneau-ci reste celui de `mKind`.
+						const int32 cible = mKit.Actif();
+						NkString pq;
+						(void)mKit.Choisir(mKind, pq);
+						int32 gN = 0;
+						const char *const *g = SideRightGroup(gN);
+						if (mShell)
+							OpenSideExclusive(mShell, g, gN, KitNom(cible));
+					}
+					if (out.actionBloc != 0u && out.actionBloc == mKitPermBloc && mPermPending)
+						AnswerClaudePermission(out.actionIndice == 0);
+				}
+
+			public:
+				/// Le panneau du kit, publie pour l'image de preuve (NK_AI_IMAGE).
+				const editorkit::NkAiPanneau &Kit() const {
+					return mKit;
 				}
 
 			private:
@@ -5768,7 +6148,8 @@ namespace nkentseu {
 							mModelsAccountInit = true;
 							ResetModelsProbe();
 						}
-						TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
+						if (!SondeSansAppel())
+							TriggerModelsProbe(); // liste REELLE des modeles (une fois par compte)
 						PollModelsProbe();
 						// La liste peut RETRECIR d'un compte a l'autre : un index conserve
 						// pointerait alors a cote (et --model recevrait un nom absent).

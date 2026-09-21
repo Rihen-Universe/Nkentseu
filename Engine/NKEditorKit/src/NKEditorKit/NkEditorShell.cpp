@@ -1620,6 +1620,9 @@ namespace nkentseu {
 			mWindow.SetCursor(MapCursor(mUI.wantCursor));
 			phase("curseur OS");
 
+			// APRES L'IMAGE : la liste est complete (voir `SetApresImage`).
+			if (mApresImageFn)
+				mApresImageFn(mUI, (int32)sz.x, (int32)sz.y, mApresImageUser);
 			mRenderer->BeginFrame();
 			phase("rendu : ouverture");
 			mRenderer->SubmitDrawList(mUI.dl, sz.x, sz.y);
