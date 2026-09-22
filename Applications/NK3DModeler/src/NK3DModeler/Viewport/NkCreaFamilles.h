@@ -4,8 +4,12 @@
 // @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCreaFamilles.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-// LES CONSTRUCTEURS PAR FAMILLE (21/09, Q8) — notre code construit l'objet, le
-// modele ne choisit que la famille et quelques parametres.
+// L'ADAPTATEUR DES FAMILLES (21/09 Q8, deplace le 22/09 Q10.1).
+//
+// ⚠️ LES CONSTRUCTEURS VIVENT DANS NKRenderer, PAS ICI :
+//    `Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkMeshFamilles.h`. Noge,
+//    Nogee et NKScena les appellent de la meme facon. Ce qui suit n'est que la
+//    porte du modeleur : geometrie -> noeuds de scene.
 //
 // POURQUOI. La porte chinoise de Rodolf est sortie en 22 planches alignees au
 // sol, la villa en 21 boites : l'assemblage libre demande au modele de SAVOIR
@@ -52,6 +56,18 @@ namespace nkentseu {
 
 		/// La famille est-elle construite par NkFamConstruire ?
 		bool NkFamConnue(const char *famille);
+
+		/// Le nom de la i-eme famille, nullptr au-dela. UNE SEULE LISTE, celle de la
+		/// bibliotheque : le lexique de reconnaissance la lit au lieu de la recopier.
+		const char *NkFamNom(int32 i);
+
+		/// Le formulaire de la famille, AVEC ses valeurs autorisees.
+		bool NkFamFormulaire(const char *famille, char *out, uint32 cap);
+
+		/// Valeur autorisee pour ce champ ? Sinon `remplacement` recoit le defaut
+		/// nomme -- on CORRIGE, on ne rejette pas le document entier (defaut du 21/09).
+		bool NkFamValeurAutorisee(const char *famille, const char *champ, const char *valeur, char *remplacement,
+								  uint32 cap);
 
 	} // namespace nk3d
 } // namespace nkentseu
