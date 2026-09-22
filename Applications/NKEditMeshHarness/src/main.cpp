@@ -37,6 +37,7 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Mesh/NkMeshFamilles.h"
 #include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
 #include "NKRenderer/Mesh/NkMeshRetopo.h"
@@ -4057,6 +4058,112 @@ static void SixOpsBattery() {
 		Put("{0:<34} ok={1} sommets {2} -> {3} faces {4} -> {5} | bord {6} -> {7} nonmanif {8} -> {9}",
 				 "ops/coupe-par-plan", ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces,
 				 avant.boundary, apres.boundary, avant.nonManifold, apres.nonManifold);
+	}
+}
+
+// ── LES FAMILLES, CONSTRUITES SANS APPLICATION (22/09, Q10.1) ──────────────
+// CE QUE CE BANC PROUVE, ET POURQUOI IL FALLAIT LE PROUVER
+// Les constructeurs de familles ont quitte NK3DModeler pour NKRenderer, afin que
+// Noge, Nogee et NKScena puissent s'en servir. « Ils ont demenage » est une
+// phrase ; ce banc est la mesure. Il tourne dans un binaire de CONSOLE : aucune
+// fenetre, aucun GPU, aucun noeud de scene, aucun `Demo3DHost*`. S'il construit
+// une porte chinoise de 21 pieces ici, alors n'importe quel hote le peut.
+//
+// ⚠️ LES ATTENDUS NE SONT PAS DICTES A LA MAIN. Un nombre de pieces recopie se
+//    perime au premier ajout de detail. On mesure des INVARIANTS : chaque piece
+//    a un nom NON VIDE et une matiere, aucun nom n'est en double, les indices
+//    designent des sommets qui existent, le nombre d'indices est un multiple de
+//    3, et l'objet POSE SUR LE SOL (y minimal a zero, a un millimetre pres,
+//    puisque c'est le contrat des coordonnees objet).
+//
+// ⚠️ ET LE NIVEAU DE DETAIL EST COMPARE A LUI-MEME : « detaille » doit produire
+//    STRICTEMENT plus de faces que « simple » sur la meme famille. C'est le seul
+//    critere qui ne depende d'aucun chiffre grave.
+static void FamillesBattery() {
+	struct Cas {
+			const char *famille;
+			const char *style;
+	};
+	static const Cas cas[] = {{"porte", "chinois"}, {"porte", "simple"}, {"table", ""}, {"maison", "deux_pans"}};
+	for (const Cas &c : cas) {
+		NkFamilleParams p;
+		snprintf(p.famille, sizeof(p.famille), "%s", c.famille);
+		snprintf(p.style, sizeof(p.style), "%s", c.style);
+		p.detaille = true;
+		NkVector<NkFamillePiece> pieces;
+		char pourquoi[256] = {0};
+		const int32 n = NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
+
+		uint32 sommets = 0, tris = 0, faces = 0;
+		uint32 sansNom = 0, sansMat = 0, doublons = 0, indexFaux = 0, pasMultiple3 = 0;
+		float32 bas = 1e30f, haut = -1e30f;
+		for (int32 i = 0; i < n; ++i) {
+			const NkFamillePiece &q = pieces[(usize)i];
+			if (!q.nom[0])
+				++sansNom;
+			if (!q.matiere[0])
+				++sansMat;
+			for (int32 k = 0; k < i; ++k)
+				if (strcmp(pieces[(usize)k].nom, q.nom) == 0)
+					++doublons;
+			if ((q.indices.Size() % 3u) != 0u)
+				++pasMultiple3;
+			for (uint32 k = 0; k < (uint32)q.indices.Size(); ++k)
+				if (q.indices[k] >= (uint32)q.verts.Size())
+					++indexFaux;
+			for (uint32 k = 0; k < (uint32)q.verts.Size(); ++k) {
+				const float32 y = q.verts[k].pos.y;
+				if (y < bas)
+					bas = y;
+				if (y > haut)
+					haut = y;
+			}
+			sommets += (uint32)q.verts.Size();
+			tris += (uint32)q.indices.Size() / 3u;
+			faces += q.faces;
+		}
+		// le meme objet en « simple » : la comparaison qui ne dicte aucun chiffre
+		NkFamilleParams ps = p;
+		ps.detaille = false;
+		NkVector<NkFamillePiece> simples;
+		char pq2[256] = {0};
+		const int32 ns = NkFamilleConstruire(ps, simples, pq2, sizeof(pq2));
+		uint32 facesSimple = 0;
+		for (int32 i = 0; i < ns; ++i)
+			facesSimple += simples[(usize)i].faces;
+
+		char nom[64];
+		snprintf(nom, sizeof(nom), "famille/%s%s%s", c.famille, c.style[0] ? "-" : "", c.style);
+		Put("{0:<34} pieces={1} sommets={2} tris={3} faces={4} | simple={5} detail>simple={6} | sansnom={7} "
+			"sansmat={8} doublons={9} index-faux={10} tri3={11} bas={12:.4f} haut={13:.3f}",
+			nom, n, sommets, tris, faces, facesSimple, (faces > facesSimple) ? 1 : 0, sansNom, sansMat, doublons,
+			indexFaux, (pasMultiple3 == 0u) ? 1 : 0, (n > 0) ? bas : 0.f, (n > 0) ? haut : 0.f);
+	}
+
+	// ── LE REFUS NOMME, ET LES VALEURS AUTORISEES ──────────────────────────
+	// ⚠️ CE CAS EXISTE A CAUSE D'UN DEFAUT PAYE : le 21/09, le modele a ecrit
+	//    `silhouette vase` et le DOCUMENT ENTIER a ete refuse. Un champ enumere
+	//    doit dire ses valeurs, et une valeur inconnue doit etre CORRIGEE vers le
+	//    defaut nomme -- pas faire tout perdre.
+	{
+		NkFamilleParams p;
+		snprintf(p.famille, sizeof(p.famille), "%s", "soucoupe");
+		NkVector<NkFamillePiece> v;
+		char pourquoi[256] = {0};
+		const int32 n = NkFamilleConstruire(p, v, pourquoi, sizeof(pourquoi));
+		char rempl[32] = {0};
+		const bool okVase = NkFamilleValeurAutorisee("revolution", "silhouette", "vase", rempl, sizeof(rempl));
+		char r2[32] = {0};
+		const bool okConique = NkFamilleValeurAutorisee("revolution", "silhouette", "conique", r2, sizeof(r2));
+		char r3[32] = {0};
+		const bool okStyle = NkFamilleValeurAutorisee("porte", "style", "gothique", r3, sizeof(r3));
+		uint32 nbFam = 0;
+		while (NkFamilleNom((int32)nbFam))
+			++nbFam;
+		Put("{0:<34} inconnue->refus={1} pieces={2} | 'vase' refuse={3} corrige='{4}' | 'conique' accepte={5} | "
+			"'gothique' refuse={6} corrige='{7}' | familles={8}",
+			"famille/valeurs-autorisees", (n < 0) ? 1 : 0, (int32)v.Size(), okVase ? 0 : 1, rempl, okConique ? 1 : 0,
+			okStyle ? 0 : 1, r3, nbFam);
 	}
 }
 
@@ -11021,6 +11128,8 @@ int main(int argc, char **argv) {
 	EnPlaceBattery();
 	// AJOUTEE EN FIN, meme raison : les lignes precedentes gardent leur numero.
 	SweepBattery();
+	// AJOUTEE EN FIN, meme raison : les lignes precedentes gardent leur numero.
+	FamillesBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.
