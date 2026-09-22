@@ -154,15 +154,15 @@ retopo/apres-decimation-naif-champ naif quads=37 | champ quads=100 tris-restants
 retopo/pipeline-ferme-manifold     ok=1 decim 768->268 tris | sortie quads=100 tris=68 ratio=0.60 | ferme=1 manifold=1 genre=0
 retopo/seuil-qualite-agit          defaut(0,25) quads=100 | strict(0,75) quads=14 (doit chuter)
 retopo/aretes-vives-epinglees      faces=12 epinglees=12 (toutes attendues) | align-axes=1.000 (1,0 attendu)
-theme/aller-retour                 lu=1 appliques=30 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
-theme/heritage-partiel             appliques=3 | herites=27/27 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
+theme/aller-retour                 lu=1 appliques=46 inconnus=0 | roles differents=0 (0 attendu) nom=Mon theme
+theme/heritage-partiel             appliques=3 | herites=43/43 noirs=0 (0 attendu) | accent_ui=#2266FF nom=Bleu nuit
 theme/role-inconnu-tolere          lu=1 inconnus=1 (1 attendu) appliques=2 (2 attendus) | axis_x=#FF0000
 theme/couleurs-metier-dans-theme   axeY/panneau sombre=7.45 clair=5.58 | couleur-du-sombre-sur-clair=2.54 (doit chuter)
-theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 5 defaut(s), pire text sur panel_header = 1.31 (exige 4.5)
+theme/validation-contraste         defauts sombre=0 clair=0 (0 attendu) | theme casse : 8 defaut(s), pire text sur inline_code_bg = 1.02 (exige 4.5)
 theme/seuils-par-usage             pire rapport brut sombre=4.63 clair=3.35 | seuils texte=4,5 graphique=3,0
-theme/roles-application            ids coeur=30 ext=30,31 idempotent=1 | apres aller-retour #FF00AA inconnus=0
+theme/roles-application            ids coeur=46 ext=46,47 idempotent=1 | apres aller-retour #FF00AA inconnus=0
 theme/theme-d-une-autre-app        lu=1 appliques=1 inconnus=2 (2 attendus) | accent_ui=#445566
-theme/bibliotheque                 builtins=2 | Papier trouve=1 herite-du-clair=1 | surcharge sans doublon=1 Sombre.fond=#000000
+theme/bibliotheque                 builtins=4 | Papier trouve=1 herite-du-clair=1 | surcharge sans doublon=1 Sombre.fond=#000000
 theme/palette-imposee              porteuses de sens=3/3 | ecart sarcelles=1.004 | hierarchie a 3 niveaux=1
 linked/cube-soude                  composantes=1 sommets=24 assignes=24
 linked/deux-cubes                  composantes=2 somme=48 sommets=48 orphelins=0 L(ok=1)=24
