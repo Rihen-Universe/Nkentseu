@@ -175,7 +175,22 @@ namespace nkentseu {
 						return false;
 					}
 					NkString cmd = gabaritTexte;
-					Remplir(cmd, "{invite}", invite);
+					// ⚠️ L'INVITE EST POSEE DANS UN ARGUMENT DEJA ENTRE GUILLEMETS
+					//    (`--invite "{invite}"`). Un guillemet VENANT DE L'UTILISATEUR
+					//    ferme donc l'argument trop tot, et la suite de sa phrase devient
+					//    des arguments inconnus. Mesure du 22/09 : Rodolf a ecrit
+					//    « modelise moi ceci "C:/.../tuk tuk blueprint.jpg" » et le script
+					//    a rendu `unrecognized arguments: tuk`, puis la creation est
+					//    retombee sur l'assemblage de volumes. Ce n'etait PAS un defaut du
+					//    script : la commande etait deja cassee au moment de l'ecrire.
+					//    On neutralise donc les guillemets de l'invite. Les remplacer par
+					//    une apostrophe garde la phrase LISIBLE pour le modele, la ou les
+					//    supprimer collerait les mots.
+					NkString inviteSure = invite;
+					for (NkString::SizeType i = 0; i < inviteSure.Size(); ++i)
+						if (inviteSure[i] == '"')
+							inviteSure[i] = '\'';
+					Remplir(cmd, "{invite}", inviteSure.CStr());
 					Remplir(cmd, "{out}", outPath);
 					if (NkFile::Exists(outPath))
 						NkFile::Delete(outPath);
