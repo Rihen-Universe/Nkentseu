@@ -462,12 +462,31 @@ namespace nkentseu {
 							fp.nombre = (int32)(x + 0.5f);
 						else if (strcmp(cle, "fenetres") == 0 && num)
 							fp.fenetres = (int32)(x + 0.5f);
-						else if (strcmp(cle, "style") == 0 || strcmp(cle, "toit") == 0)
-							snprintf(fp.style, sizeof(fp.style), "%s", val);
+						else if (strcmp(cle, "style") == 0 || strcmp(cle, "toit") == 0) {
+							char rempl[24] = {0};
+							if (!NkFamValeurAutorisee(nf, cle, val, rempl, sizeof(rempl))) {
+								char av[120];
+								snprintf(av, sizeof(av), "%s « %s » inconnu pour la famille %s", cle, val, nf);
+								NkCreaRefuser(d, "%s : je prends « %s »", av, rempl);
+								snprintf(fp.style, sizeof(fp.style), "%s", rempl);
+							} else
+								snprintf(fp.style, sizeof(fp.style), "%s", val);
+						}
 						else if (strcmp(cle, "detail") == 0)
 							detaille = strcmp(val, "simple") != 0;
-						else if (strcmp(cle, "silhouette") == 0)
-							snprintf(silh, sizeof(silh), "%s", val);
+						else if (strcmp(cle, "silhouette") == 0) {
+							// ⚠️ ON CORRIGE, ON NE REJETTE PAS (Q10.1). Le 21/09 le modele a
+							//    ecrit `silhouette vase` -- un mot pris dans la demande, absent
+							//    de la table -- et le DOCUMENT ENTIER a ete refuse : l'utilisateur
+							//    n'a rien eu pour un mot. La valeur inconnue retombe maintenant
+							//    sur le defaut NOMME du champ, et le refus devient un AVIS.
+							char rempl[24] = {0};
+							if (!NkFamValeurAutorisee(nf, "silhouette", val, rempl, sizeof(rempl))) {
+								NkCreaRefuser(d, "silhouette « %s » inconnue : je prends « %s »", val, rempl);
+								snprintf(silh, sizeof(silh), "%s", rempl);
+							} else
+								snprintf(silh, sizeof(silh), "%s", val);
+						}
 						else if (strcmp(cle, "paroi") == 0 && num)
 							paroi = x;
 						else if (strcmp(cle, "matiere") == 0)
@@ -501,7 +520,19 @@ namespace nkentseu {
 						continue;
 					}
 					if (!NkFamConnue(nf)) {
-						NkCreaRefuser(d, "famille inconnue « %s » (porte, table, maison, revolution) : ecris des parties%s", nf);
+						// LA LISTE VIENT DE LA BIBLIOTHEQUE, elle n'est plus recopiee ici :
+						// une liste recopiee se perime au premier ajout de famille.
+						char connues[192];
+						connues[0] = 0;
+						for (int32 fi = 0; const char *fn = NkFamNom(fi); ++fi) {
+							if (connues[0])
+								strncat(connues, ", ", sizeof(connues) - strlen(connues) - 1u);
+							strncat(connues, fn, sizeof(connues) - strlen(connues) - 1u);
+						}
+						strncat(connues, ", revolution", sizeof(connues) - strlen(connues) - 1u);
+						char av2[224];
+						snprintf(av2, sizeof(av2), "famille inconnue « %s » (connues : %s)", nf, connues);
+						NkCreaRefuser(d, "%s : ecris des parties%s", av2);
 						continue;
 					}
 					d.famille = fp;
@@ -1118,6 +1149,11 @@ namespace nkentseu {
 				///    enfants, qui ne sont pas dans le lot et que l'isolation masquait
 				///    donc. Trois series d'images identiques et vides l'ont dit.
 				bool vuesToutVoir = false;
+				/// (Q10.0) La voie par l'image a ete prise PAR DEFAUT : si elle refuse,
+				/// l'assemblage libre reprend la main, et le fil le dit.
+				bool replisurAssemblage = false;
+				/// Le dorsal a rappeler pour le repli (celui de l'onglet en cours).
+				converse::NkIConverseBackend *dorsalRepli = nullptr;
 				/// La boite a CADRER quand `vuesToutVoir` : l'assemblage reuni a l'objet
 				/// genere. ⚠️ PAS « tout cadrer » : Demo3DHostFrameAll embrasse aussi
 				/// les noeuds SOURCES des cartes du navigateur, qui vivent loin de la
@@ -1825,9 +1861,33 @@ namespace nkentseu {
 
 		/// VOIE (c) : texte -> image (modele de diffusion local) -> detourage ->
 		/// TripoSR, par la PORTE TEXTE du generateur. `NK_CREA_VOIE=image`.
+		// ── (Q10.0) LA REGLE DES VOIES, ECRITE UNE FOIS ────────────────────────
+		//   famille reconnue          -> LA FAMILLE (notre code construit)
+		//   sinon                     -> LA VOIE PAR L'IMAGE (texte -> diffusion
+		//                                locale -> TripoSR), et c'est LE DEFAUT
+		//   la voie par l'image refuse -> l'assemblage libre, en REPLI NOMME
+		//
+		// ⚠️ PLUS DE VARIABLE D'ENVIRONNEMENT POUR L'UTILISATEUR. Jusqu'au 22/09 il
+		//    fallait `NK_CREA_VOIE=image` pour obtenir autre chose que des pavés ; un
+		//    reglage qu'il faut connaitre pour avoir le bon resultat est un reglage
+		//    qui ne sera jamais mis. `NK_CREA_VOIE` ne sert plus qu'a FORCER une voie
+		//    pour la mesure -- c'est un instrument, pas une porte d'entree.
+		//
+		// ⚠️ LA PRESENCE DES POIDS N'EST PAS TESTEE ICI, ET C'EST VOULU.
+		//    `genia_texte_3d.py` la verifie deja, etage par etage (un telechargement
+		//    interrompu laisse `model_index.json` sans poids). La reecrire en C++
+		//    ferait DEUX verites sur le meme fait, qui se decorreleraient au premier
+		//    changement de format. On lance, et le REFUS NOMME du script declenche le
+		//    repli -- une seule autorite.
 		inline bool NkCreaVoieImage() {
 			const char *v = std::getenv("NK_CREA_VOIE");
 			return v && strcmp(v, "image") == 0;
+		}
+		/// `NK_CREA_VOIE=assemblage` : force l'ancien comportement (plan libre), pour
+		/// mesurer « avant » dans le MEME binaire.
+		inline bool NkCreaVoieAssemblageForcee() {
+			const char *v = std::getenv("NK_CREA_VOIE");
+			return v && strcmp(v, "assemblage") == 0;
 		}
 
 		/// ── LE GENERATEUR, VU COMME UN DORSAL DE CONVERSATION ────────────────
@@ -1960,6 +2020,33 @@ namespace nkentseu {
 						G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), ok ? "fichier ecrit" : err.CStr());
 			std::fflush(stdout);
 			if (!ok) {
+				NkCreaEtat &EE = NkCrea();
+				// ── (Q10.0) LE REPLI NOMME ────────────────────────────────────────
+				// La voie par l'image a ete prise PAR DEFAUT et elle a refuse (poids
+				// absents, carte prise, script casse). On ne laisse pas l'utilisateur
+				// les mains vides : l'assemblage libre reprend, ET ON LE DIT. Un repli
+				// muet ferait croire que c'est le resultat normal.
+				if (EE.replisurAssemblage) {
+					EE.replisurAssemblage = false;
+					snprintf(m, sizeof(m),
+							 "La voie par l'image n'a rien rendu (%s). Je retombe sur un assemblage de volumes "
+							 "nommes -- c'est une EBAUCHE, pas le resultat vise.",
+							 err.CStr() ? err.CStr() : "raison inconnue");
+					(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+					std::printf("[crea] VOIE PAR DEFAUT : refus de la voie (c) -> REPLI sur l'assemblage libre (%s)\n",
+								err.CStr() ? err.CStr() : "?");
+					std::fflush(stdout);
+					static char inv[22000];
+					NkCreaEcrireInvite(inv, sizeof(inv), EE.demande);
+					NkString pq;
+					if (EE.envoi.Lancer(EE.dorsalRepli ? EE.dorsalRepli : (converse::NkIConverseBackend *)&EE.dorsal,
+										NkString(inv), pq))
+						return;
+					snprintf(m, sizeof(m), "Le repli sur l'assemblage a echoue lui aussi : %s",
+							 pq.Data() ? pq.Data() : "raison inconnue");
+					(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+					return;
+				}
 				snprintf(m, sizeof(m), "Voie (%s) : rien n'a ete genere -- %s", G.voie,
 						 err.CStr() ? err.CStr() : "raison inconnue");
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
@@ -2562,6 +2649,25 @@ namespace nkentseu {
 				snprintf(m, sizeof(m), "Famille reconnue : %s%s%s. Je demande seulement ses parametres.",
 						 E.familleReconnue, E.styleReconnu[0] ? ", style " : "", E.styleReconnu);
 				(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+			} else if (!E.imageJointe[0] && !NkCreaVoieAssemblageForcee() && !NkCreaSansFamilles()) {
+				// ── (Q10.0) AUCUNE FAMILLE : LA VOIE PAR L'IMAGE, PAR DEFAUT ──────
+				// Pas d'assemblage de pavés : la demande part au generateur local
+				// (texte -> image -> TripoSR), hors du fil d'affichage. Si le script
+				// refuse (poids absents), `NkGeniaRecolter` retombe sur le plan libre
+				// et le DIT.
+				E.replisurAssemblage = true;
+				E.dorsalRepli = dorsal;
+				if (NkGeniaLancer(st, true, demande, "c")) {
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "Aucune famille reconnue : je passe par l'image (texte -> modele de diffusion "
+									  "local -> TripoSR). La fenetre reste vivante ; si les poids manquent, je "
+									  "retombe sur un assemblage de volumes et je vous le dirai.");
+					std::printf("[crea] VOIE PAR DEFAUT : aucune famille reconnue -> voie (c) texte->image->TripoSR\n");
+					std::fflush(stdout);
+					return true;
+				}
+				E.replisurAssemblage = false;
+				NkCreaEcrireInvite(invite, sizeof(invite), demande);
 			} else
 				NkCreaEcrireInvite(invite, sizeof(invite), demande);
 			NkString pourquoi;
