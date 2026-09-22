@@ -4060,6 +4060,233 @@ static void SixOpsBattery() {
 	}
 }
 
+// ── LE BALAYAGE D'UN PROFIL LE LONG D'UNE COURBE (21/09) ───────────────────
+// POURQUOI CE BANC EXISTE
+// NkEditMesh::BuildSweep a ete ecrit pour le COYAU d'un toit chinois : une
+// piece dont la courbure ne s'obtient ni par revolution (l'axe n'existe pas) ni
+// par extrusion droite. Le piege du balayage n'est pas le maillage, c'est
+// L'ORIENTATION du profil le long du chemin, et il est SILENCIEUX : un tube
+// vrille se compile, s'affiche, et n'a l'air faux que de pres.
+//
+// ⚠️ LES QUATRE CAS SONT CHOISIS CONTRE LE REPERE DE FRENET, pas pour flatter
+//    le notre. Frenet est le choix « evident » : il est cite partout. Il a deux
+//    defauts que ces cas mesurent -- il n'existe pas quand la courbure est nulle
+//    (cas 1, segment droit), et il SE RETOURNE de 180 degres a un point
+//    d'inflexion (cas 3, chemin en S). Un banc qui ne ferait que le quart de
+//    cercle (cas 2) verdirait avec Frenet comme avec la rotation minimale, et ne
+//    prouverait donc rien du choix fait dans le code.
+//
+// LE NEGATIF, MESURE LE 21/09 (deux mutations posees dans NkEditMesh.cpp, puis
+// RETIREES) -- sans lui, quatre lignes vertes ne prouveraient que d'avoir tourne.
+//   (a) repere de FRENET discret a la place de la rotation minimale :
+//       inflexion-en-S passe de saut/pas 1.0071 a 4.1632. Les cas 1 et 2 restent
+//       verts, et c'est le fait interessant : ils ne discriminent PAS Frenet.
+//   (b) vrille artificielle de 0.2 rad par station : quart-de-cercle passe de
+//       ecart-hors-plan 0.000000 a 0.427850, inflexion-en-S a 4.1211.
+// ⚠️ CE QUE CE BANC NE COUVRE PAS, et la mesure le dit : le cas 1 (chemin droit)
+//    n'a rougi sous AUCUNE des deux mutations. Son critere de rayon constant est
+//    invariant par rotation du profil autour de l'axe -- il juge la topologie et
+//    la fermeture, pas l'orientation. Le prendre pour un temoin de la vrille
+//    serait l'erreur exacte que ce fichier documente ailleurs.
+//
+// Aucun attendu n'est dicte par l'oeil : le cas 1 se juge par une identite
+// (Euler V-E+F = 2 sur un tube ferme, rayon constant), le cas 2 par une
+// invariance geometrique (une courbe PLANE ne doit pas faire tourner le profil
+// hors de son plan), le cas 3 par une continuite (aucun saut entre deux anneaux
+// voisins), le cas 4 par un refus nomme.
+static void SweepBattery() {
+	// Profil carre de demi-cote r, contour FERME, parcouru dans un sens fixe.
+	const float32 r = 0.5f;
+	const NkVec2f prof[4] = {{-r, -r}, {r, -r}, {r, r}, {-r, r}};
+
+	// ── 1. CHEMIN DROIT : la ou Frenet n'existe pas ─────────────────────────
+	{
+		NkVec3f chemin[5];
+		for (uint32 i = 0; i < 5; ++i)
+			chemin[i] = {0.f, 0.f, (float32)i}; // 4 segments le long de +Z
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, 5, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		// Rayon : distance de chaque sommet a l'axe du chemin (ici l'axe Z).
+		float32 rmin = 1e9f, rmax = 0.f;
+		for (uint32 v = 0; v < (uint32)m.verts.Size(); ++v) {
+			const NkVec3f &q = m.verts[v].pos;
+			const float32 d = sqrtf(q.x * q.x + q.y * q.y);
+			if (d < rmin)
+				rmin = d;
+			if (d > rmax)
+				rmax = d;
+		}
+		// COHERENCE INTERNE, pas attendu dicte : un tube bouche est une sphere
+		// topologique, donc V - E + F = 2. Le compteur juge la topologie sans
+		// qu'on lui souffle le nombre de faces.
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} aretes={4} | euler={5} rayon {6:.4f}..{7:.4f} bord={8} "
+			"nonmanif={9}",
+			"sweep/chemin-droit", ok ? 1 : 0, s2.verts, s2.faces, s2.edges, euler, rmin, rmax, s2.boundary,
+			s2.nonManifold);
+	}
+
+	// ── 2. QUART DE CERCLE PLAN : l'invariance hors du plan ─────────────────
+	// Le chemin vit dans le plan XZ. Une orientation a rotation minimale ne fait
+	// JAMAIS tourner le profil autour de la tangente sur une courbe plane : la
+	// composante Y de chaque sommet reste donc exactement +-r. C'est la mesure.
+	{
+		const uint32 nc = 13;
+		NkVec3f chemin[13];
+		for (uint32 i = 0; i < nc; ++i) {
+			const float32 a = 1.5707963f * (float32)i / (float32)(nc - 1); // 0 -> pi/2
+			chemin[i] = {3.f * sinf(a), 0.f, 3.f * (1.f - cosf(a))};
+		}
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, nc, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		float32 pireY = 0.f;
+		for (uint32 v = 0; v < (uint32)m.verts.Size(); ++v) {
+			const float32 e = fabsf(fabsf(m.verts[v].pos.y) - r);
+			if (e > pireY)
+				pireY = e;
+		}
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} | euler={4} ecart-hors-plan={5:.6f} bord={6} nonmanif={7}",
+			"sweep/quart-de-cercle", ok ? 1 : 0, s2.verts, s2.faces, euler, pireY, s2.boundary, s2.nonManifold);
+	}
+
+	// ── 3. CHEMIN EN S : le point d'inflexion, la ou Frenet se retourne ─────
+	// Deux arcs de courbure opposee. La mesure est une CONTINUITE : le plus grand
+	// deplacement d'un meme point du profil entre deux anneaux voisins, rapporte
+	// au plus grand pas du chemin. Sans vrille ce rapport reste proche de 1. Un
+	// retournement de 180 degres a l'inflexion ferait sauter un coin du profil a
+	// l'oppose, soit 2*r*racine(2) = 1.414 d'un coup -- plusieurs fois le pas.
+	{
+		const uint32 nc = 41;
+		NkVec3f chemin[41];
+		for (uint32 i = 0; i < nc; ++i) {
+			const float32 t = 6.2831853f * (float32)i / (float32)(nc - 1); // 0 -> 2*pi
+			chemin[i] = {sinf(t) * 2.f, 0.f, t}; // sinus : inflexion en t = pi
+		}
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, nc, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		float32 sautMax = 0.f, pasMax = 0.f;
+		for (uint32 i = 0; i + 1u < nc; ++i) {
+			const NkVec3f d = chemin[i + 1] - chemin[i];
+			const float32 pas = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (pas > pasMax)
+				pasMax = pas;
+		}
+		// ⚠️ LES SOMMETS SONT LUS DANS L'ORDRE DE CONSTRUCTION (anneau i, point k),
+		//    pas par recherche geometrique : une recherche du « plus proche »
+		//    masquerait justement le saut qu'on cherche.
+		for (uint32 i = 0; i + 1u < nc; ++i)
+			for (uint32 k = 0; k < 4; ++k) {
+				const NkVec3f &a = m.verts[i * 4u + k].pos;
+				const NkVec3f &b = m.verts[(i + 1u) * 4u + k].pos;
+				const NkVec3f d = b - a;
+				const float32 l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+				if (l > sautMax)
+					sautMax = l;
+			}
+		const float32 rapport = pasMax > 1e-6f ? sautMax / pasMax : 0.f;
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} | euler={4} saut/pas={5:.4f} (vrille si >> 1) nonmanif={6}",
+			"sweep/inflexion-en-S", ok ? 1 : 0, s2.verts, s2.faces, euler, rapport, s2.nonManifold);
+	}
+
+	// ── 3bis. LE SENS DU PROFIL, MESURE SUR LA NORMALE REELLEMENT SOUMISE ──
+	// PREMIERE VERSION DE CE CAS, ET POURQUOI ELLE ETAIT FAUSSE (21/09)
+	// J'avais d'abord juge par le VOLUME SIGNE de l'ordre des sommets, et exige
+	// qu'il soit POSITIF -- la convention des manuels. Sur cette base j'ai
+	// « corrige » deux endroits du modeleur. Puis j'ai mesure la primitive du
+	// depot : le cube unite du modeleur donne un volume signe de -1,000000, la
+	// sphere -0,515, le cylindre -0,520. LA CONVENTION DU DEPOT EST L'INVERSE DE
+	// CELLE DES MANUELS, et mes deux corrections allaient donc a l'envers. Elles
+	// ont ete retirees.
+	//
+	// ⚠️ LA LECON EST SUR L'INSTRUMENT, PAS SUR LE SIGNE. Le volume signe mesure
+	//    l'ORDRE DES SOMMETS ; ce que le rendu eclaire, c'est la NORMALE que
+	//    RecomputeNormals calcule et que le maillage soumet. Entre les deux il y
+	//    a une convention interne (NkEmFaceCross), et se tromper dessus donne un
+	//    instrument exact, coherent, et faux. On mesure donc ce que le rendu
+	//    consomme : la normale du sommet, contre la direction qui s'eloigne du
+	//    centre de la piece. Et on le CALIBRE sur le cube du depot au lieu de le
+	//    decreter : le cube est la reference, le balayage doit lui ressembler.
+	{
+		auto dehors = [](const NkEditMesh &m) {
+			NkVec3f c{0.f, 0.f, 0.f};
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+				c.x += m.verts[i].pos.x;
+				c.y += m.verts[i].pos.y;
+				c.z += m.verts[i].pos.z;
+				++n;
+			}
+			if (!n)
+				return 0.f;
+			c = {c.x / (float32)n, c.y / (float32)n, c.z / (float32)n};
+			uint32 ok = 0, tot = 0;
+			for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+				const NkVec3f d{m.verts[i].pos.x - c.x, m.verts[i].pos.y - c.y, m.verts[i].pos.z - c.z};
+				const NkVec3f &nn = m.verts[i].normal;
+				const float32 dd = d.x * nn.x + d.y * nn.y + d.z * nn.z;
+				if (fabsf(dd) < 1e-9f)
+					continue;
+				++tot;
+				if (dd > 0.f)
+					++ok;
+			}
+			return tot ? (float32)ok / (float32)tot : 0.f;
+		};
+		// LA REFERENCE : le cube du depot, passe par la meme RecomputeNormals.
+		NkVector<NkVertex3D> cv;
+		NkVector<uint32> ci;
+		MakeCube(cv, ci);
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.RecomputeNormals();
+		const float32 fRef = dehors(ref);
+
+		NkVec3f chemin[4];
+		for (uint32 i = 0; i < 4; ++i)
+			chemin[i] = {0.f, 0.f, (float32)i};
+		const NkVec2f direct[4] = {{-r, -r}, {r, -r}, {r, r}, {-r, r}};
+		const NkVec2f inverse[4] = {{-r, r}, {r, r}, {r, -r}, {-r, -r}};
+		NkEditMesh m1, m2;
+		m1.BuildSweep(direct, 4, chemin, 4, true, true);
+		m2.BuildSweep(inverse, 4, chemin, 4, true, true);
+		m1.RecomputeNormals();
+		m2.RecomputeNormals();
+		const float32 f1 = dehors(m1), f2 = dehors(m2);
+		Put("{0:<34} cube-reference={1:.3f} | profil direct={2:.3f} inverse={3:.3f} | insensible={4} conforme={5}",
+			"sweep/sens-du-profil", fRef, f1, f2, (f1 == f2) ? 1 : 0,
+			(f1 == fRef && f2 == fRef) ? 1 : 0);
+	}
+
+	// ── 4. LE REFUS NOMME : un chemin d'un seul point ───────────────────────
+	// Un balayage sans segment n'a pas de sens. La fonction doit rendre faux ET
+	// NE RIEN TOUCHER : le maillage garde le cube qu'il contenait. Sans ce cas,
+	// « rend faux » serait invérifiable d'un « rend faux apres avoir tout efface ».
+	{
+		NkVector<NkVertex3D> cv;
+		NkVector<uint32> ci;
+		MakeCube(cv, ci);
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.RebuildEdges();
+		const Sig avant = Signature(m);
+		const NkVec3f un[1] = {{0.f, 0.f, 0.f}};
+		const bool ok = m.BuildSweep(prof, 4, un, 1, true, true);
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		Put("{0:<34} refus={1} intact={2} | sommets {3} -> {4} faces {5} -> {6}", "sweep/chemin-trop-court",
+			ok ? 0 : 1, (avant.verts == apres.verts && avant.faces == apres.faces) ? 1 : 0, avant.verts, apres.verts,
+			avant.faces, apres.faces);
+	}
+}
+
 // ── LA CONVENTION D'ENROULEMENT, MESUREE SANS GPU ───────────────────────────
 // POURQUOI CE CAS EXISTE
 // Le 2026-08-22, un arbitrage demandant `frontFace = CW` dans tout le moteur a
@@ -10792,6 +11019,8 @@ int main(int argc, char **argv) {
 	MatModRestantsBattery();
 	// AJOUTEE EN FIN, meme raison : les 284 lignes precedentes gardent leur numero.
 	EnPlaceBattery();
+	// AJOUTEE EN FIN, meme raison : les lignes precedentes gardent leur numero.
+	SweepBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.

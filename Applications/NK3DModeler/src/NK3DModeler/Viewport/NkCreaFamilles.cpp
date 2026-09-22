@@ -34,6 +34,7 @@ namespace nkentseu {
 			using renderer::NkEditMesh;
 			using renderer::NkVertex3D;
 			using math::NkVec3f;
+			using math::NkVec2f;
 			using renderer::NkEmId;
 
 			struct Soupe {
@@ -76,15 +77,57 @@ namespace nkentseu {
 				s.fa.PushBack(a);
 			}
 
+			/// POSE UNE FACE DANS LE SENS QUI REGARDE `dehors`.
+			/// ⚠️ ECRIT POUR NE PAS AVOIR A DEVINER UN SENS D'ENROULEMENT. Sur une
+			///    nappe courbe, « l'ordre qui donne la normale vers le haut » change
+			///    de signe avec le cote du toit, avec le sens de parcours et avec le
+			///    signe de la pente. Trois occasions de se tromper en silence, pour
+			///    une faute qui ne se voit qu'a l'ombrage. On CALCULE la normale de
+			///    l'ordre propose, et on retourne si elle pointe du mauvais cote.
+			/// ⚠️ « LE BON COTE » EST L'INVERSE DE L'INTUITION, et c'est mesure : le
+			///    cube unite du modeleur a un volume signe de -1,000000 (lacet dans le
+			///    sens des manuels = +1), et ce sont ses normales qui pointent dehors.
+			///    L'enroulement du depot est donc l'oppose du produit vectoriel CCW
+			///    standard. Le lacet de Gauss doit donc pointer VERS L'INTERIEUR pour
+			///    que la normale eclairee sorte : d'ou le signe de ce test.
+			void FaceVers(Soupe &s, const uint32 *idx, uint32 n, NkVec3f dehors) {
+				NkVec3f nn{0.f, 0.f, 0.f};
+				for (uint32 k = 0; k < n; ++k) {
+					const NkVec3f &p = s.v[idx[k]].pos;
+					const NkVec3f &q = s.v[idx[(k + 1u) % n]].pos;
+					nn.x += (p.y - q.y) * (p.z + q.z);
+					nn.y += (p.z - q.z) * (p.x + q.x);
+					nn.z += (p.x - q.x) * (p.y + q.y);
+				}
+				if (nn.x * dehors.x + nn.y * dehors.y + nn.z * dehors.z <= 0.f) {
+					Face(s, idx, n);
+					return;
+				}
+				uint32 inv[8];
+				const uint32 m = n > 8u ? 8u : n;
+				for (uint32 k = 0; k < m; ++k)
+					inv[k] = idx[m - 1u - k];
+				Face(s, inv, m);
+			}
+
 			/// Un pave, faces sortantes : 0 -Y, 1 +Y, 2 -Z, 3 +Z, 4 -X, 5 +X.
+			/// ⚠️ LES BOUCLES SONT POSEES A L'ENVERS DU LACET NATUREL, et c'est
+			///    VOULU : la convention d'enroulement du depot est l'inverse de celle
+			///    des manuels (le cube unite du modeleur mesure un volume signe de
+			///    -1,000000, et ce sont ses normales qui pointent dehors). Ecrites
+			///    dans l'ordre « evident », les faces de ce pave donnaient +0,022 pour
+			///    un socle et +0,328 pour un battant : leurs normales rentraient dans
+			///    la piece. Mesure du 21/09, sur l'export .obj du lot.
 			void Pave(Soupe &s, float32 x0, float32 y0, float32 z0, float32 x1, float32 y1, float32 z1) {
 				gDebut = (uint32)s.v.Size();
 				const uint32 a = Sommet(s, x0, y0, z0), b = Sommet(s, x1, y0, z0), c = Sommet(s, x1, y0, z1),
 							 d = Sommet(s, x0, y0, z1), e = Sommet(s, x0, y1, z0), f = Sommet(s, x1, y1, z0),
 							 g = Sommet(s, x1, y1, z1), h = Sommet(s, x0, y1, z1);
 				const uint32 F[6][4] = {{a, b, c, d}, {e, h, g, f}, {a, e, f, b}, {d, c, g, h}, {a, d, h, e}, {b, f, g, c}};
-				for (int32 i = 0; i < 6; ++i)
-					Face(s, F[i], 4);
+				for (int32 i = 0; i < 6; ++i) {
+					const uint32 inv[4] = {F[i][3], F[i][2], F[i][1], F[i][0]};
+					Face(s, inv, 4);
+				}
 			}
 
 			/// Soupe -> NkEditMesh.
@@ -98,6 +141,30 @@ namespace nkentseu {
 				s.fv.Clear();
 				s.fa.Clear();
 				m.ToPolygons(s.v, s.fs, s.fv, &s.fa);
+			}
+
+			/// AJOUTE A LA SOUPE le resultat d'un BALAYAGE (NkEditMesh::BuildSweep).
+			/// Les sommets sont ajoutes SANS recherche de doublon : un balayage partage
+			/// deja les siens, et deux pieces distinctes ne doivent pas se souder.
+			void AjouterBalayage(Soupe &s, const NkVec2f *prof, uint32 np, const NkVec3f *chemin, uint32 nc,
+								 const NkVec3f *ref = nullptr, bool bouchons = true) {
+				NkEditMesh m;
+				if (!m.BuildSweep(prof, np, chemin, nc, true, bouchons, ref))
+					return;
+				Soupe t;
+				VersSoupe(m, t);
+				const uint32 off = (uint32)s.v.Size();
+				for (uint32 i = 0; i < (uint32)t.v.Size(); ++i)
+					s.v.PushBack(t.v[i]);
+				if (s.fs.Size() == 0)
+					s.fs.PushBack(0u);
+				for (uint32 f = 0; f < t.Faces(); ++f) {
+					for (uint32 k = t.fs[f]; k < t.fs[f + 1]; ++k)
+						s.fv.PushBack(t.fv[k] + off);
+					s.fs.PushBack((uint32)s.fv.Size());
+					s.fa.PushBack(f < (uint32)t.fa.Size() ? t.fa[f] : NkEditMesh::FaceAttrib{});
+				}
+				gDebut = (uint32)s.v.Size();
 			}
 
 			NkVec3f Normale(const Soupe &s, uint32 f, NkVec3f *centre) {
@@ -303,6 +370,157 @@ namespace nkentseu {
 			}
 
 			// ================================================================
+			//  LE TOIT CHINOIS : UNE COURBE, PAS DES PLANCHES (Q9.3)
+			// ================================================================
+			// CE QUI N'ALLAIT PAS, ET QUI EST VISIBLE SUR L'IMAGE DU 21/09
+			// Le toit etait fait de deux paves inclines plus QUATRE PLANCHES tournees
+			// de 20 degres autour d'un coin, appelees « coyaux ». Resultat : quatre
+			// lames qui volent a cote du toit sans le toucher, aucun faitage visible,
+			// et une silhouette droite la ou un toit chinois est COURBE. Le releve des
+			// coins n'est pas un morceau qu'on ajoute : c'est la NAPPE ELLE-MEME qui
+			// se releve, continument, en approchant du pignon.
+			//
+			// LA NAPPE : pour chaque station le long du faitage (u) et chaque station
+			// de la pente (t), un point. La section de pente est une BEZIER CUBIQUE --
+			// raide au faitage, qui s'aplatit puis se retrousse a l'egout. Le releve
+			// des coins est un terme qui croit en u^4 : nul au milieu, franc au bout.
+			// La nappe est donc SYMETRIQUE par construction (u et -u donnent le meme
+			// releve, +z et -z la meme section) et son faitage est HORIZONTAL (t = 0
+			// donne y = 0 quel que soit u).
+			struct CourbeToit {
+					float32 xm = 1.f;	  // demi-longueur, le long du faitage
+					float32 larg = 1.f;	  // profondeur horizontale d'un versant
+					float32 chute = 0.6f; // denivele du faitage a l'egout
+					float32 releve = 0.4f;	// montee supplementaire du coin
+					float32 sortie = 0.15f; // debord supplementaire du coin
+					float32 sgn = 1.f;		// +1 versant avant, -1 versant arriere
+
+					/// u dans [-1, 1] le long du faitage, t dans [0, 1] du faitage a l'egout.
+					NkVec3f P(float32 u, float32 t) const {
+						const float32 m = 1.f - t;
+						// Bezier cubique (z', y') : P0 au faitage, P3 a l'egout retrousse.
+						const float32 b0 = m * m * m, b1 = 3.f * m * m * t, b2 = 3.f * m * t * t, b3 = t * t * t;
+						float32 z = b1 * (0.30f * larg) + b2 * (0.80f * larg) + b3 * larg;
+						float32 y = b1 * (-0.62f * chute) + b2 * (-1.00f * chute) + b3 * (-0.88f * chute);
+						(void)b0;
+						const float32 f = u * u * u * u; // le releve ne prend qu'aux bouts
+						y += releve * f * t * t * t;
+						z *= 1.f + sortie * f * t * t;
+						return {u * xm, y, sgn * z};
+					}
+			};
+
+			/// LA NAPPE, en volume : la surface du dessus, celle du dessous decalee de
+			/// `ep` vers le bas, et les quatre bandes de rive qui les relient.
+			/// Le sens de chaque face est decide par FaceVers, pas par un ordre devine.
+			void NappeToit(Soupe &s, const CourbeToit &c, float32 ep, int32 nu, int32 nv) {
+				if (nu < 2)
+					nu = 2;
+				if (nv < 2)
+					nv = 2;
+				gDebut = (uint32)s.v.Size();
+				const uint32 off = (uint32)s.v.Size();
+				auto pousser = [&](NkVec3f p) {
+					NkVertex3D q{};
+					q.pos = p;
+					q.normal = {0.f, 1.f, 0.f};
+					q.tangent = {1.f, 0.f, 0.f};
+					q.color = 0xFFFFFFFFu;
+					s.v.PushBack(q);
+				};
+				for (int32 i = 0; i < nu; ++i)
+					for (int32 j = 0; j < nv; ++j)
+						pousser(c.P(2.f * (float32)i / (float32)(nu - 1) - 1.f, (float32)j / (float32)(nv - 1)));
+				for (int32 i = 0; i < nu; ++i)
+					for (int32 j = 0; j < nv; ++j) {
+						NkVec3f p = c.P(2.f * (float32)i / (float32)(nu - 1) - 1.f, (float32)j / (float32)(nv - 1));
+						p.y -= ep;
+						pousser(p);
+					}
+				const uint32 nb = (uint32)(nu * nv);
+				auto H = [&](int32 i, int32 j) { return off + (uint32)(i * nv + j); };
+				auto B = [&](int32 i, int32 j) { return off + nb + (uint32)(i * nv + j); };
+				for (int32 i = 0; i + 1 < nu; ++i)
+					for (int32 j = 0; j + 1 < nv; ++j) {
+						const uint32 h[4] = {H(i, j), H(i, j + 1), H(i + 1, j + 1), H(i + 1, j)};
+						FaceVers(s, h, 4, {0.f, 1.f, 0.f});
+						const uint32 b[4] = {B(i, j), B(i, j + 1), B(i + 1, j + 1), B(i + 1, j)};
+						FaceVers(s, b, 4, {0.f, -1.f, 0.f});
+					}
+				// rives : egout (t = 1), faitage (t = 0), et les deux pignons
+				for (int32 i = 0; i + 1 < nu; ++i) {
+					const uint32 e[4] = {H(i, nv - 1), H(i + 1, nv - 1), B(i + 1, nv - 1), B(i, nv - 1)};
+					FaceVers(s, e, 4, {0.f, 0.f, c.sgn});
+					const uint32 f[4] = {H(i, 0), H(i + 1, 0), B(i + 1, 0), B(i, 0)};
+					FaceVers(s, f, 4, {0.f, 0.f, -c.sgn});
+				}
+				for (int32 j = 0; j + 1 < nv; ++j) {
+					const uint32 g[4] = {H(0, j), H(0, j + 1), B(0, j + 1), B(0, j)};
+					FaceVers(s, g, 4, {-1.f, 0.f, 0.f});
+					const uint32 d[4] = {H(nu - 1, j), H(nu - 1, j + 1), B(nu - 1, j + 1), B(nu - 1, j)};
+					FaceVers(s, d, 4, {1.f, 0.f, 0.f});
+				}
+			}
+
+			/// LES TUILES CANAL : un demi-rond BALAYE le long de la pente, une fois par
+			/// tuile. Chaque tuile suit SA propre section, donc elle se releve avec le
+			/// coin -- ce qu'un modificateur Array n'aurait pas su faire, puisqu'il
+			/// recopie une forme a l'identique. La reference initiale du repere (l'axe
+			/// X) est ce qui met le dos de la tuile EN HAUT.
+			void TuilesCanal(Soupe &s, const CourbeToit &c, float32 ep, float32 pas, int32 nv) {
+				const float32 rt = pas * 0.42f;
+				NkVec2f prof[7];
+				for (int32 k = 0; k < 7; ++k) {
+					const float32 a = 3.14159265f * (1.f - (float32)k / 6.f);
+					prof[k] = {rt * cosf(a), rt * sinf(a) * 0.85f};
+				}
+				const int32 n = (int32)(2.f * c.xm / pas);
+				// ⚠️ LE SIGNE DU COTE ENTRE DANS LA REFERENCE, et il a ete MESURE, pas
+				//    devine : avec +X pour les deux versants, la boite des tuiles
+				//    arriere sortait a y 3.8599..4.4440 quand celle des tuiles avant
+				//    donnait 3.9028..4.4738 -- l'arriere s'enfoncait de 4 cm dans la
+				//    nappe. Cause : la binormale vaut T x r, et la tangente change de
+				//    signe en z d'un versant a l'autre ; le dos de la tuile se
+				//    retournait donc VERS LE BAS. Le meme dessin, lu de l'autre cote,
+				//    demande la reference opposee.
+				const NkVec3f axeX{c.sgn, 0.f, 0.f};
+				NkVector<NkVec3f> ch;
+				ch.Resize(nv);
+				for (int32 i = 0; i < n; ++i) {
+					const float32 u = (2.f * ((float32)i + 0.5f) / (float32)n - 1.f);
+					if (fabsf(u) * c.xm + rt > c.xm)
+						continue;
+					for (int32 j = 0; j < nv; ++j) {
+						NkVec3f p = c.P(u, (float32)j / (float32)(nv - 1));
+						p.y += 0.004f; // la tuile POSE sur la nappe
+						ch[j] = p;
+					}
+					AjouterBalayage(s, prof, 7, ch.Data(), (uint32)nv, &axeX, true);
+				}
+				(void)ep;
+			}
+
+			/// LA RIVE D'EGOUT : un rond balaye LE LONG DE LA LIGNE D'EGOUT, qui monte
+			/// aux deux bouts. C'est la piece que l'oeil lit comme « le coyau releve »,
+			/// et c'est une COURBE 3D : ni une revolution, ni une extrusion droite.
+			void RiveEgout(Soupe &s, const CourbeToit &c, float32 rayon, int32 nu) {
+				NkVec2f prof[8];
+				for (int32 k = 0; k < 8; ++k) {
+					const float32 a = 6.2831853f * (float32)k / 8.f;
+					prof[k] = {rayon * cosf(a), rayon * sinf(a)};
+				}
+				NkVector<NkVec3f> ch;
+				ch.Resize(nu);
+				for (int32 i = 0; i < nu; ++i) {
+					NkVec3f p = c.P(2.f * (float32)i / (float32)(nu - 1) - 1.f, 1.f);
+					p.y -= rayon * 0.4f;
+					ch[i] = p;
+				}
+				const NkVec3f haut{0.f, 1.f, 0.f};
+				AjouterBalayage(s, prof, 8, ch.Data(), (uint32)nu, &haut, true);
+			}
+
+			// ================================================================
 			//  UN VERSANT DE TOIT, et ses rangs de tuiles
 			// ================================================================
 			/// Le versant est construit dans SON repere (x le long du faitage, z le long
@@ -440,39 +658,69 @@ namespace nkentseu {
 					}
 					Emettre(S, s, "linteau_haut", "laque_rouge");
 				}
-				// toit a deux versants, debord genereux, et COYAUX releves aux quatre coins
+				// ── LE TOIT (Q9.3) : deux nappes COURBES, symetriques, faitage
+				//    horizontal, coins releves par la nappe elle-meme ──
 				const float32 yT = yL2 + hL2;
-				const float32 Lt = L * 1.25f, pente = 26.f, larg = 0.95f, epT = 0.08f;
-				const float32 yF = yT + 0.45f, aP = pente * 0.017453292f;
+				CourbeToit c;
+				c.xm = L * 0.66f;
+				c.larg = 1.05f;
+				c.chute = 0.60f;
+				c.releve = 0.40f;
+				c.sortie = 0.16f;
+				const float32 epT = 0.07f;
+				const float32 yF = yT + 0.52f; // LE FAITAGE : une seule hauteur, pour les deux versants
+				const int32 nu = det ? 19 : 7, nv = det ? 9 : 5;
 				for (int32 cote = 0; cote < 2; ++cote) {
-					const float32 sgn = cote == 0 ? 1.f : -1.f;
-					Versant(S, cote == 0 ? "versant_avant" : "versant_arriere", cote == 0 ? "tuiles_avant" : "tuiles_arriere",
-							-Lt * 0.5f, Lt * 0.5f, larg, epT, pente, sgn, yF, det, 0.1f, true);
-					// COYAUX : l'extremite de la rive, relevee autour de son propre coin
-					for (int32 bout = 0; bout < 2; ++bout) {
-						const float32 sb = bout == 0 ? -1.f : 1.f;
-						Soupe c;
-						const float32 za = sgn > 0.f ? larg * 0.45f : -larg, zb = sgn > 0.f ? larg : -larg * 0.45f;
-						Pave(c, sb > 0.f ? 0.f : -0.5f, -epT, za, sb > 0.f ? 0.5f : 0.f, 0.f, zb);
-						if (det)
-							Chanfrein(c, {0.f, 1.f, 0.f}, 0.015f, 1);
-						// le coin d'egout, apres la rotation de pente
-						const NkVec3f coin{0.f, -larg * sinf(aP), sgn * larg * cosf(aP)};
-						Emettre(S, c,
-								cote == 0 ? (bout == 0 ? "coyau_av_g" : "coyau_av_d") : (bout == 0 ? "coyau_ar_g" : "coyau_ar_d"),
-								"tuile", sgn * pente, sb * 20.f, {sb * Lt * 0.5f, yF, 0.f}, coin);
+					c.sgn = cote == 0 ? 1.f : -1.f;
+					const bool av = cote == 0;
+					{
+						Soupe s2;
+						NappeToit(s2, c, epT, nu, nv);
+						Emettre(S, s2, av ? "versant_avant" : "versant_arriere", "tuile", 0.f, 0.f, {0.f, yF, 0.f});
+					}
+					if (det) {
+						Soupe t;
+						TuilesCanal(t, c, epT, 0.12f, nv);
+						Emettre(S, t, av ? "tuiles_avant" : "tuiles_arriere", "tuile", 0.f, 0.f, {0.f, yF, 0.f});
+					}
+					{
+						Soupe r2;
+						RiveEgout(r2, c, 0.045f, nu);
+						Emettre(S, r2, av ? "rive_avant" : "rive_arriere", "laque_rouge", 0.f, 0.f, {0.f, yF, 0.f});
 					}
 				}
 				{
-					// faitage, et ses deux epis
-					Soupe s;
-					Pave(s, -Lt * 0.5f, yT + 0.40f, -0.09f, Lt * 0.5f, yT + 0.58f, 0.09f);
+					// LE FAITAGE : un demi-rond balaye le long d'un chemin DROIT et
+					// horizontal. C'est le cas ou un repere de Frenet n'existe pas
+					// (courbure nulle) -- voir le banc sweep/chemin-droit.
+					const float32 hr = 0.10f, rr = 0.09f;
+					NkVec2f prof[9];
+					for (int32 k = 0; k < 9; ++k) {
+						const float32 a = 3.14159265f * (float32)k / 8.f;
+						prof[k] = {hr * sinf(a), -rr * cosf(a)};
+					}
+					const NkVec3f ch[2] = {{-c.xm - 0.06f, 0.f, 0.f}, {c.xm + 0.06f, 0.f, 0.f}};
+					const NkVec3f haut{0.f, 1.f, 0.f};
+					Soupe f;
+					AjouterBalayage(f, prof, 9, ch, 2, &haut, true);
+					Emettre(S, f, "faitage", "tuile", 0.f, 0.f, {0.f, yF + 0.005f, 0.f});
+					// les deux epis, aux bouts du faitage
 					if (det)
-						Chanfrein(s, {0.f, 1.f, 0.f}, 0.04f, 2);
-					Emettre(S, s, "faitage", "tuile");
-					// un pan de mur sous le toit, entre linteau et versants
+						for (int32 k = 0; k < 2; ++k) {
+							const float32 ex = k == 0 ? -c.xm - 0.05f : c.xm + 0.05f;
+							// ⚠️ PAS DE RAYON NUL EN FIN DE PROFIL : Tournee ferme deja sur
+							//    l'axe, et le point (0, h) ecrit a la main faisait DOUBLON.
+							//    Le maillage restait etanche (0 arete de bord) mais cessait
+							//    d'etre simple : les deux epis, miroir l'un de l'autre,
+							//    mesuraient +0,0073 et +0,0021 -- deux volumes differents
+							//    pour la meme piece, ce qu'un volume signe ne peut pas faire
+							//    sur une surface propre.
+							const float32 ep2[6] = {0.07f, 0.f, 0.05f, 0.08f, 0.09f, 0.14f};
+							Tournee(S, ep2, 3, k == 0 ? "epi_gauche" : "epi_droit", "tuile", {ex, yF + 0.08f, 0.f});
+						}
+					// le pan de mur sous le toit, entre linteau et versants
 					Soupe m;
-					Pave(m, -L * 0.5f, yT, -0.12f, L * 0.5f, yT + 0.42f, 0.12f);
+					Pave(m, -L * 0.5f, yT, -0.12f, L * 0.5f, yF - c.chute * 0.18f, 0.12f);
 					Emettre(S, m, "frise", "laque_rouge");
 				}
 				// les battants, entre les poteaux, et leurs anneaux

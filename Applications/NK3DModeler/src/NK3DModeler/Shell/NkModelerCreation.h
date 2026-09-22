@@ -458,7 +458,7 @@ namespace nkentseu {
 							fp.hauteur = x;
 						else if (strcmp(cle, "profondeur") == 0 && num)
 							fp.profondeur = x;
-						else if ((strcmp(cle, "battants") == 0 || strcmp(cle, "etages") == 0 || strcmp(cle, "nombre") == 0) && num)
+						else if ((strcmp(cle, "battants") == 0 || strcmp(cle, "etages") == 0 || strcmp(cle, "nombre") == 0 || strcmp(cle, "pieces") == 0) && num)
 							fp.nombre = (int32)(x + 0.5f);
 						else if (strcmp(cle, "fenetres") == 0 && num)
 							fp.fenetres = (int32)(x + 0.5f);
@@ -982,6 +982,53 @@ namespace nkentseu {
 			return true;
 		}
 
+		// =====================================================================
+		//  (Q9) RECONNAITRE LA FAMILLE DANS LA DEMANDE — avant le modele
+		// =====================================================================
+		//  Mesure Q8 : le 7B ne prenait la famille qu'une fois sur deux ; il a
+		//  construit une table de 45 cm a la main alors que la famille existait.
+		//  La chaine decide donc elle-meme : un LEXIQUE (francais et anglais) lu sur
+		//  le NOM DE TETE de la demande -- le premier mot qui n'est ni une formule,
+		//  ni un verbe, ni un determinant, ni un adjectif courant.
+		//  ⚠️ LE NOM DE TETE, PAS « UN MOT QUELQUE PART » : « un verre de table » est
+		//     un verre, « une lampe de table » n'est pas une table, « un tabouret de
+		//     bar » n'est pas une table. Un simple « contient table » se tromperait
+		//     sur les trois.
+		/// Minuscules, accents retires (UTF-8 latin courant), ponctuation -> espace.
+		inline void NkCreaNormaliser(const char *src, char *dst, uint32 cap) {
+			uint32 n = 0;
+			for (const unsigned char *c = (const unsigned char *)src; c && *c && n + 1u < cap; ++c) {
+				unsigned char x = *c;
+				if (x == 0xC3 && c[1]) {
+					const unsigned char y = c[1];
+					char r = 0;
+					if ((y >= 0xA0 && y <= 0xA5) || (y >= 0x80 && y <= 0x85))
+						r = 'a';
+					else if (y == 0xA7 || y == 0x87)
+						r = 'c';
+					else if ((y >= 0xA8 && y <= 0xAB) || (y >= 0x88 && y <= 0x8B))
+						r = 'e';
+					else if ((y >= 0xAC && y <= 0xAF) || (y >= 0x8C && y <= 0x8F))
+						r = 'i';
+					else if ((y >= 0xB2 && y <= 0xB6) || (y >= 0x92 && y <= 0x96))
+						r = 'o';
+					else if ((y >= 0xB9 && y <= 0xBC) || (y >= 0x99 && y <= 0x9C))
+						r = 'u';
+					if (r) {
+						dst[n++] = r;
+						++c;
+						continue;
+					}
+				}
+				if (x >= 'A' && x <= 'Z')
+					x = (unsigned char)(x - 'A' + 'a');
+				if (!((x >= 'a' && x <= 'z') || (x >= '0' && x <= '9') || x >= 0x80))
+					x = ' ';
+				dst[n++] = (char)x;
+			}
+			dst[n] = 0;
+		}
+
 		/// L'INVITE DE CORRECTION : le document du modele, et ce qu'on lui reproche
 		/// NOMMEMENT. Un « recommence » sans motif ferait tirer au hasard.
 		inline void NkCreaEcrireCorrection(char *dst, uint32 cap, const char *demande, const char *docPrecedent,
@@ -1051,12 +1098,34 @@ namespace nkentseu {
 				int32 ongletAttente = 0;
 				converse::NkIConverseBackend *dorsalAttente = nullptr;
 				bool tripoApresPose = false;
+				// ── (Q9) LA FAMILLE RECONNUE PAR NOTRE CODE, avant le modele ──
+				char familleReconnue[24] = {0};
+				char nomTete[24] = {0}; ///< le mot de la demande (« verre », « villa ») : le nom de la scene
+				char styleReconnu[24] = {0};
 				// ── (Q8) CE QUI EST REELLEMENT APPELE, dit dans le fil ──
 				char qui[200] = {0};
 				char modeleAppele[64] = {0};
 				// ── les vues (rendu par l'application) ──
 				int32 vuesEtape = -1;
 				int32 vuesAttente = 0;
+				/// (Q9.4) LA SERIE QUI MONTRE TOUT. Les vues d'une creation ISOLENT le
+				/// lot : c'est ce qu'il faut pour photographier l'objet qu'on vient de
+				/// poser. Pour la serie qui suit la generation, c'est exactement
+				/// l'inverse -- il faut voir l'assemblage ET l'objet genere, cote a
+				/// cote, sinon l'image ne dit rien de leur echelle relative.
+				/// ⚠️ ET L'ISOLATION AURAIT MONTRE UNE SCENE VIDE : le noeud inscrit au
+				///    lot est le CONTENEUR du modele importe ; la geometrie vit dans ses
+				///    enfants, qui ne sont pas dans le lot et que l'isolation masquait
+				///    donc. Trois series d'images identiques et vides l'ont dit.
+				bool vuesToutVoir = false;
+				/// La boite a CADRER quand `vuesToutVoir` : l'assemblage reuni a l'objet
+				/// genere. ⚠️ PAS « tout cadrer » : Demo3DHostFrameAll embrasse aussi
+				/// les noeuds SOURCES des cartes du navigateur, qui vivent loin de la
+				/// scene ; la camera partait si haut que les deux objets tenaient dans
+				/// trente pixels. Mesure : trois series d'images ou l'on ne distinguait
+				/// rien. On cadre donc une boite qu'on a CALCULEE, pas la scene entiere.
+				float32 vuesBoite[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
+				bool vuesBoiteValide = false;
 				char vuesPrefixe[200] = {0};
 		};
 		inline NkCreaEtat &NkCrea() {
@@ -1210,6 +1279,57 @@ namespace nkentseu {
 			return slot;
 		}
 
+		/// LA SURFACE DEMANDEE, en m² : un nombre suivi, a trois mots au plus, de « m2 »,
+		/// « m² », « metres carres » (et « mettre carrer », ecrit par Rodolf le
+		/// 21/09), « sqm », « square ». 0 si la demande n'en donne pas.
+		inline float32 NkCreaSurfaceDemandee(const char *demande) {
+			if (!demande)
+				return 0.f;
+			char t[400];
+			NkCreaNormaliser(demande, t, sizeof(t));
+			// « m² » : l'exposant deux (C2 B2) est devenu un octet >= 0x80 conserve
+			char mots[40][24];
+			int32 n = 0;
+			for (const char *c = t; *c && n < 40;) {
+				while (*c == ' ')
+					++c;
+				if (!*c)
+					break;
+				uint32 k = 0;
+				while (*c && *c != ' ') {
+					if (k + 1u < 24u)
+						mots[n][k++] = *c;
+					++c;
+				}
+				mots[n][k] = 0;
+				++n;
+			}
+			for (int32 i = 0; i < n; ++i) {
+				float32 v = 0.f;
+				char nb[24];
+				snprintf(nb, sizeof(nb), "%s", mots[i]);
+				// « 200m2 » colle
+				uint32 j = 0;
+				while (nb[j] >= '0' && nb[j] <= '9')
+					++j;
+				const char *suite = nb + j;
+				nb[j] = 0;
+				if (j == 0 || !NkCreaNombre(nb, v))
+					continue;
+				auto surf = [](const char *m) {
+					return strncmp(m, "m2", 2) == 0 || (m[0] == 'm' && (unsigned char)m[1] >= 0x80) ||
+						   strncmp(m, "carr", 4) == 0 || strncmp(m, "sqm", 3) == 0 || strncmp(m, "square", 6) == 0 ||
+						   strcmp(m, "mc") == 0;
+				};
+				if (*suite && surf(suite))
+					return v;
+				for (int32 k = i + 1; k < n && k <= i + 3; ++k)
+					if (surf(mots[k]))
+						return v;
+			}
+			return 0.f;
+		}
+
 		/// (Q8) POSE UNE FAMILLE : notre code construit (NkFamConstruire), la creation
 		/// fait le reste comme pour un assemblage -- groupe nomme, curseur 3D, lot
 		/// annulable d'un geste, matieres, mesure, vues.
@@ -1249,6 +1369,48 @@ namespace nkentseu {
 			// simple n'est donc retenu que si LA DEMANDE le dit (« simple »,
 			// « basique », « low poly »). `NK_CREA_DETAIL` reste la porte de mesure.
 			NkFamParams fp = d.famille;
+			if (strcmp(fp.famille, "maison") == 0 && !std::getenv("NK_CREA_SANS_SURFACE")) {
+				// ── (Q9) LA MAISON : NOTRE CODE TIRE LES DIMENSIONS DE LA SURFACE ──
+				// « une villa sur 200 m² » avait donne 30 x 20 m sur un niveau (600 m²
+				// au sol) : les dimensions venaient du modele. Elles viennent
+				// desormais de la SURFACE demandee (habitable, tous niveaux) :
+				//   niveaux : jusqu'a 120 m² -> 1, jusqu'a 320 -> 2, au-dela -> 3 ;
+				//   emprise = surface / niveaux ; plan en rectangle 1,4 : 1 ;
+				//   hauteur d'etage 2,9 m (2,6 sous plafond + plancher) ;
+				//   fenetres par facade : une par 3,2 m de facade, de 2 a 6.
+				// Sans surface, les pieces la donnent (22 m² par piece, 60 au moins),
+				// et sans pieces, 120 m². Le modele ne fournit que le style.
+				float32 S = NkCreaSurfaceDemandee(demande);
+				const char *origine = "demandee";
+				if (S <= 0.f && d.famille.nombre > 0) {
+					S = 22.f * (float32)d.famille.nombre;
+					if (S < 60.f)
+						S = 60.f;
+					origine = "tiree du nombre de pieces";
+				}
+				if (S <= 0.f) {
+					S = 120.f;
+					origine = "par defaut";
+				}
+				const int32 niv = S <= 120.f ? 1 : (S <= 320.f ? 2 : 3);
+				const float32 emprise = S / (float32)niv;
+				fp.largeur = sqrtf(emprise * 1.4f);
+				fp.profondeur = emprise / fp.largeur;
+				fp.nombre = niv;
+				int32 nf = (int32)(fp.largeur / 3.2f + 0.5f);
+				fp.fenetres = nf < 2 ? 2 : (nf > 6 ? 6 : nf);
+				if (!fp.style[0])
+					snprintf(fp.style, sizeof(fp.style), "deux_pans");
+				std::printf("[crea] MAISON : surface %.0f m² (%s) -> %d niveau(x), emprise %.1f x %.1f m, %d fenetres/facade, toit %s\n",
+							(double)S, origine, (int)niv, (double)fp.largeur, (double)fp.profondeur, (int)fp.fenetres,
+							fp.style);
+				std::fflush(stdout);
+				if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
+					fprintf(f, "MAISON surface=%.1f niveaux=%d hauteur_etage=2.9 largeur=%.2f profondeur=%.2f toit=%s\n",
+							(double)S, (int)niv, (double)fp.largeur, (double)fp.profondeur, fp.style);
+					fclose(f);
+				}
+			}
 			if (!std::getenv("NK_CREA_DETAIL")) {
 				bool demandeSimple = false;
 				static const char *const kS[] = {"simple", "basique", "low poly", "lowpoly", "sans detail"};
@@ -1759,6 +1921,32 @@ namespace nkentseu {
 
 		/// A CHAQUE IMAGE : recolte, puis IMPORT sur le fil d'affichage (l'hote et
 		/// le navigateur ne se touchent que d'ici).
+		/// La boite MONDE du dernier lot, relue a l'hote.
+		inline bool NkCreaBoiteDernierLot(float32 *mn, float32 *mx) {
+			NkCreaEtat &E = NkCrea();
+			if (E.nLots == 0)
+				return false;
+			const NkCreaLot &l = E.lots[E.nLots - 1];
+			bool trouve = false;
+			for (int32 a = 0; a < 3; ++a) {
+				mn[a] = 1e30f;
+				mx[a] = -1e30f;
+			}
+			for (int32 i = 0; i < l.nNoeuds; ++i) {
+				float32 a0[3], a1[3];
+				if (!demo::Demo3DHostNodeBounds(l.noeuds[i], true, a0, a1))
+					continue;
+				trouve = true;
+				for (int32 a = 0; a < 3; ++a) {
+					if (a0[a] < mn[a])
+						mn[a] = a0[a];
+					if (a1[a] > mx[a])
+						mx[a] = a1[a];
+				}
+			}
+			return trouve;
+		}
+
 		inline void NkGeniaRecolter(NkModelerState &st) {
 			NkGeniaVol &G = NkGenia();
 			if (!G.envoi.EnCours())
@@ -1779,12 +1967,223 @@ namespace nkentseu {
 			}
 			const char *un[1] = {rep.CStr()};
 			const int32 avant = st.BrowserCount();
-			const int32 importes = NkImportFiles(st, un, 1);
+			NkVector<int32> cartes;
+			const int32 importes = NkImportFiles(st, un, 1, &cartes);
+			// ── (Q9.4) L'OBJET VA DANS LA SCENE, PAS SEULEMENT AU NAVIGATEUR ────
+			// « Glissez-la dans la scene » demandait un geste de plus pour un objet
+			// qu'on vient de demander. La carte reste (elle sert a le reposer), mais
+			// le noeud est pose tout de suite, a cote de l'assemblage, mis a
+			// l'echelle de sa hauteur, et inscrit dans un lot : Ctrl+Z le retire
+			// comme il retire une creation.
+			int32 poses = 0;
+			float32 hAv = 0.f, hAp = 0.f, kEch = 1.f;
+			bool debout = false;
+			if (importes > 0 && cartes.Size() > 0) {
+				NkCreaEtat &E = NkCrea();
+				NkVector<int32> nes;
+				poses = NkImportInstantiate(st, cartes, nullptr, &nes);
+				if (poses > 0) {
+					// LA BOITE DU RESULTAT, MESUREE (monde), et celle de l'assemblage
+					// en place -- c'est elle qui donne l'echelle et le cote ou poser.
+					float32 mn[3] = {0.f, 0.f, 0.f}, mx[3] = {0.f, 0.f, 0.f};
+					bool aBoite = false;
+					for (usize i = 0; i < nes.Size(); ++i) {
+						float32 a[3], b[3];
+						if (!demo::Demo3DHostNodeBounds(nes[i], true, a, b))
+							continue;
+						for (int32 k = 0; k < 3; ++k) {
+							if (!aBoite || a[k] < mn[k])
+								mn[k] = a[k];
+							if (!aBoite || b[k] > mx[k])
+								mx[k] = b[k];
+						}
+						aBoite = true;
+					}
+					// La cible : la hauteur du dernier lot cree, sinon 1 m.
+					// ⚠️ LA BOITE DE L'ASSEMBLAGE VIENT DE LA PORTE QUI EXISTE DEJA
+					//    (NkCreaBoiteDernierLot), et pas d'une seconde boucle ecrite
+					//    ici : deux derivations du meme chiffre se decorrelent au
+					//    premier changement, et c'est alors la copie qui ment.
+					float32 cibleH = 1.f, bordX = 0.f;
+					float32 lm[3] = {0.f, 0.f, 0.f}, lM[3] = {0.f, 0.f, 0.f};
+					const bool aAssemblage = NkCreaBoiteDernierLot(lm, lM);
+					if (aAssemblage && lM[1] - lm[1] > 1e-4f) {
+						cibleH = lM[1] - lm[1];
+						bordX = lM[0];
+					}
+					if (aBoite) {
+						hAv = mx[1] - mn[1];
+						const float32 lx = mx[0] - mn[0], lz = mx[2] - mn[2];
+						// ⚠️ « DEBOUT » EST UNE OBSERVATION, PAS UNE CORRECTION. La
+						//    conversion d'axes est deja faite a la source
+						//    (genia_triposr.py, Z-up -> Y-up, NkFBXLoader.cpp:1717) ;
+						//    remettre une rotation ici serait une derivation EN DOUBLE,
+						//    et deux redressements se compensent ou s'ajoutent sans que
+						//    rien ne le dise. On MESURE donc, on ECRIT ce qu'on voit, et
+						//    on ne tourne pas : si ce compte dit un jour « couche », le
+						//    defaut est a la source et c'est la qu'il faut le corriger.
+						debout = hAv >= 0.6f * (lx > lz ? lx : lz);
+						if (hAv > 1e-4f) {
+							kEch = cibleH / hAv;
+							hAp = cibleH;
+						}
+						const float32 marge = 0.35f * cibleH;
+						for (usize i = 0; i < nes.Size(); ++i) {
+							float32 sp[3], sr[3], ss[3];
+							if (!demo::Demo3DHostEmptyTransform(nes[i], sp, sr, ss))
+								continue;
+							// ⚠️ L'ECHELLE PART DE L'ORIGINE DU NOEUD, PAS DE SA BOITE, et
+							//    la premiere version melangeait les deux : l'objet est
+							//    parti hors du champ, et l'image rendue par l'application
+							//    l'a montre tout de suite. Le calcul juste : apres
+							//    SetModelTransform(np3, rot, k*ss), un point du monde
+							//    devient np3 + k * (monde - sp). On resout donc np3 pour
+							//    que le BAS touche le sol, que le cote GAUCHE tombe apres
+							//    l'assemblage, et que la profondeur reste centree.
+							const float32 np3[3] = {bordX + marge - kEch * (mn[0] - sp[0]),
+													-kEch * (mn[1] - sp[1]),
+													-kEch * (0.5f * (mn[2] + mx[2]) - sp[2])};
+							const float32 ns3[3] = {ss[0] * kEch, ss[1] * kEch, ss[2] * kEch};
+							demo::Demo3DHostSetModelTransform(nes[i], np3, sr, ns3);
+						}
+						demo::Demo3DHostHierarchyResync();
+						// LA BOITE D'APRES, RELUE A L'HOTE. Sans elle, « pose a
+						// l'echelle » serait une intention, pas une mesure -- et la
+						// premiere version de ce calcul a justement envoye l'objet
+						// hors du champ sans qu'aucun chiffre ne le dise.
+						{
+							float32 a2[3] = {0.f, 0.f, 0.f}, b2[3] = {0.f, 0.f, 0.f};
+							bool ab2 = false;
+							for (usize i = 0; i < nes.Size(); ++i) {
+								float32 u[3], w[3];
+								if (!demo::Demo3DHostNodeBounds(nes[i], true, u, w))
+									continue;
+								for (int32 k = 0; k < 3; ++k) {
+									if (!ab2 || u[k] < a2[k])
+										a2[k] = u[k];
+									if (!ab2 || w[k] > b2[k])
+										b2[k] = w[k];
+								}
+								ab2 = true;
+							}
+							if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
+								fprintf(f,
+										"TRIPOSR_BOITE avant=(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f) "
+										"apres=(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f) bordX=%.3f cibleH=%.3f\n",
+										(double)mn[0], (double)mn[1], (double)mn[2], (double)mx[0], (double)mx[1],
+										(double)mx[2], (double)a2[0], (double)a2[1], (double)a2[2], (double)b2[0],
+										(double)b2[1], (double)b2[2], (double)bordX, (double)cibleH);
+								fclose(f);
+							}
+							std::printf("[crea] TRIPOSR boite avant (%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f) -> apres "
+										"(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f), bordX=%.3f\n",
+										(double)mn[0], (double)mn[1], (double)mn[2], (double)mx[0], (double)mx[1],
+										(double)mx[2], (double)a2[0], (double)a2[1], (double)a2[2], (double)b2[0],
+										(double)b2[1], (double)b2[2], (double)bordX);
+							std::fflush(stdout);
+						}
+					}
+					// LE LOT : sans lui, l'objet pose ne serait pas annulable, et le
+					// contrat « Ctrl+Z retire ce que la conversation a mis » serait faux
+					// pour la moitie des voies.
+					NkCreaLot lot;
+					lot.objetsAvant = NkCreaCompterObjets() - poses;
+					snprintf(lot.scene, sizeof(lot.scene), "%s", "genere");
+					snprintf(lot.demande, sizeof(lot.demande), "voie (%s)", G.voie);
+					// ⚠️ LES ENFANTS ENTRENT DANS LE LOT, PAS SEULEMENT LE CONTENEUR.
+					//    Un modele importe est un conteneur SANS geometrie ; ses
+					//    maillages sont ses enfants. N'inscrire que le conteneur
+					//    retirait le porte-manteau et laissait les manteaux : l'objet
+					//    aurait survecu au Ctrl+Z, alors que le compteur d'objets, lui,
+					//    serait revenu a son chiffre d'avant -- un vert par omission.
+					//    Les enfants d'abord, le conteneur ensuite : NkCreaAnnuler
+					//    parcourt le lot a l'envers, donc jamais un parent avant ses
+					//    enfants.
+					{
+						const int32 nT = demo::Demo3DHostNodeCount();
+						for (usize i = 0; i < nes.Size(); ++i) {
+							for (int32 q = 0; q < nT && lot.nNoeuds < kCreaMaxParties; ++q) {
+								if (q == nes[i] || demo::Demo3DHostNodeDeleted(q))
+									continue;
+								int32 pere = demo::Demo3DHostNodeParent(q);
+								bool descend = false;
+								for (int32 garde = 0; pere >= 0 && garde < 16 && !descend; ++garde) {
+									descend = (pere == nes[i]);
+									pere = demo::Demo3DHostNodeParent(pere);
+								}
+								if (!descend)
+									continue;
+								lot.noeuds[lot.nNoeuds] = q;
+								NkCreaCopieNom(lot.noms[lot.nNoeuds], 24,
+											   (q < NkModelerState::kMaxNodeNames) ? st.customNames[q] : "genere");
+								++lot.nNoeuds;
+							}
+							if (lot.nNoeuds < kCreaMaxParties) {
+								lot.noeuds[lot.nNoeuds] = nes[i];
+								NkCreaCopieNom(lot.noms[lot.nNoeuds], 24,
+											   (nes[i] < NkModelerState::kMaxNodeNames) ? st.customNames[nes[i]]
+																					   : "genere");
+								++lot.nNoeuds;
+							}
+						}
+					}
+					if (E.nLots == kCreaMaxLots) {
+						for (int32 i = 1; i < kCreaMaxLots; ++i)
+							E.lots[i - 1] = E.lots[i];
+						--E.nLots;
+					}
+					E.lots[E.nLots++] = lot;
+					E.aRefaire = false;
+					E.dernierLot = ++E.compteurLots;
+					if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
+						fprintf(f,
+								"TRIPOSR %d voie=%s noeuds=%d hauteur_avant=%.4f hauteur_apres=%.4f echelle=%.4f "
+								"debout=%d\n",
+								(int)E.dernierLot, G.voie, (int)poses, (double)hAv, (double)hAp, (double)kEch,
+								debout ? 1 : 0);
+						fclose(f);
+					}
+					std::printf("[crea] TRIPOSR pose dans la scene : %d noeud(s), hauteur %.3f -> %.3f m "
+								"(echelle %.3f), debout=%d ; Ctrl+Z le retire.\n",
+								(int)poses, (double)hAv, (double)hAp, (double)kEch, debout ? 1 : 0);
+					std::fflush(stdout);
+					// LES VUES REPARTENT : les premieres ont photographie l'assemblage
+					// SEUL, puisque la generation dure une minute. Sans cette seconde
+					// serie, aucune image de l'application ne montrerait ce que Q9.4
+					// ajoute -- et le rapport parlerait d'un resultat que personne n'a
+					// vu. Le prefixe change, donc rien n'est ecrase.
+					if (const char *v = std::getenv("NK_CREA_VUES"))
+						if (*v) {
+							char p2[200];
+							snprintf(p2, sizeof(p2), "%s_avec", v);
+							snprintf(E.vuesPrefixe, sizeof(E.vuesPrefixe), "%s", p2);
+							E.vuesToutVoir = true;
+							// La boite a cadrer : l'objet POSE -- donc le dernier lot, deja
+							// a sa place -- reuni a l'assemblage. Les deux ensemble, c'est
+							// le sujet de la photo, et leur echelle relative le propos.
+							// ⚠️ PAS `mn`/`mx` : ce sont les bornes D'AVANT la pose, et
+							//    cadrer dessus montrerait l'endroit ou l'objet N'EST PLUS.
+							float32 u[3], w[3];
+							if (NkCreaBoiteDernierLot(u, w)) {
+								for (int32 k = 0; k < 3; ++k) {
+									E.vuesBoite[k] = (aAssemblage && lm[k] < u[k]) ? lm[k] : u[k];
+									E.vuesBoite[3 + k] = (aAssemblage && lM[k] > w[k]) ? lM[k] : w[k];
+								}
+								E.vuesBoiteValide = true;
+							}
+							E.vuesEtape = 0;
+							E.vuesAttente = 3;
+						}
+				}
+			}
 			snprintf(m, sizeof(m),
-					 importes > 0
-						 ? "Voie (%s) : maillage genere en %.0f s (la fenetre est restee vivante : %u images), carte "
-						   "ajoutee au navigateur (%d). Glissez-la dans la scene."
-						 : "Voie (%s) : le fichier genere en %.0f s (%u images) n'a pas pu etre importe (%d carte).",
+					 importes <= 0
+						 ? "Voie (%s) : le fichier genere en %.0f s (%u images) n'a pas pu etre importe (%d carte)."
+						 : (poses > 0 ? "Voie (%s) : maillage genere en %.0f s (la fenetre est restee vivante : %u "
+										"images), POSE DANS LA SCENE a cote de l'assemblage, mis a son echelle "
+										"(%d carte gardee au navigateur). Ctrl+Z le retire."
+									  : "Voie (%s) : maillage genere en %.0f s (%u images), carte ajoutee au "
+										"navigateur (%d) -- il n'a PAS pu etre pose dans la scene. Glissez-la."),
 					 G.voie, (double)G.envoi.Secondes(), (unsigned)G.envoi.Images(), (int)(st.BrowserCount() - avant));
 			(void)NkAiPousser(st, importes > 0 ? NkModelerState::AiType::Note : NkModelerState::AiType::Refus, m);
 			std::printf("[crea] %s\n", m);
@@ -1870,6 +2269,150 @@ namespace nkentseu {
 
 		/// LANCE la demande de creation. `dorsalOnglet` sert pour un onglet distant ;
 		/// l'onglet local prend le dorsal de creation (budget de jetons).
+		/// Rend la famille (porte, table, maison, revolution) ou vide ; `style` recoit
+		/// « chinois » si la demande le dit.
+		inline bool NkCreaReconnaitreFamille(const char *demande, char *famille, uint32 capF, char *style, uint32 capS) {
+			famille[0] = 0;
+			if (style)
+				style[0] = 0;
+			char t[400];
+			NkCreaNormaliser(demande, t, sizeof(t));
+			static const char *const kVides[] = {
+				"bonjour", "salut", "hello", "je", "j", "veux", "voudrais", "aimerais", "souhaite", "peux", "tu", "me",
+				"moi", "nous", "vous", "modelise", "modeliser", "modelisez", "fais", "fait", "faire", "cree", "creer",
+				"creez", "construis", "construire", "genere", "generer", "dessine", "dessiner", "donne", "ajoute",
+				"un", "une", "des", "le", "la", "les", "l", "d", "du", "de", "mon", "ma", "mes", "s", "il", "te",
+				"plait", "stp", "svp", "petit", "petite", "grand", "grande", "gros", "grosse", "beau", "belle",
+				"joli", "jolie", "vieux", "vieille", "ancien", "ancienne", "vieil", "nouveau", "nouvelle", "simple",
+				"a", "an", "the", "make", "create", "build", "model", "please", "i", "want", "me", "some", "big",
+				"small", "old", "new", "nice", "tres", "super", "vraie", "vrai"};
+			static const struct {
+					const char *mot;
+					const char *famille;
+			} kLex[] = {
+				{"porte", "porte"},		{"portail", "porte"},	   {"portique", "porte"},	  {"torii", "porte"},
+				{"paifang", "porte"},	{"gate", "porte"},		   {"door", "porte"},		  {"doorway", "porte"},
+				{"table", "table"},		{"bureau", "table"},	   {"desk", "table"},		  {"guéridon", "table"},
+				{"gueridon", "table"},	{"maison", "maison"},	   {"villa", "maison"},		  {"pavillon", "maison"},
+				{"house", "maison"},	{"home", "maison"},		   {"cottage", "maison"},	  {"chalet", "maison"},
+				{"bungalow", "maison"}, {"demeure", "maison"},	   {"batisse", "maison"},	  {"verre", "revolution"},
+				{"gobelet", "revolution"}, {"vase", "revolution"}, {"bol", "revolution"},	  {"bouteille", "revolution"},
+				{"tasse", "revolution"}, {"coupe", "revolution"},  {"carafe", "revolution"},  {"cruche", "revolution"},
+				{"jarre", "revolution"}, {"amphore", "revolution"}, {"flacon", "revolution"}, {"pot", "revolution"},
+				{"glass", "revolution"}, {"cup", "revolution"},	   {"bowl", "revolution"},	  {"bottle", "revolution"},
+				{"mug", "revolution"},	{"jar", "revolution"},	   {"goblet", "revolution"},  {"verres", "revolution"},
+			};
+			// le premier mot « plein »
+			const char *c = t;
+			char mot[48];
+			while (*c) {
+				while (*c == ' ')
+					++c;
+				if (!*c)
+					break;
+				uint32 n = 0;
+				while (*c && *c != ' ') {
+					if (n + 1u < sizeof(mot))
+						mot[n++] = *c;
+					++c;
+				}
+				mot[n] = 0;
+				bool vide = false;
+				for (const char *v : kVides)
+					if (strcmp(v, mot) == 0)
+						vide = true;
+				if (vide)
+					continue;
+				for (const auto &L : kLex)
+					if (strcmp(L.mot, mot) == 0) {
+						snprintf(famille, capF, "%s", L.famille);
+						snprintf(NkCrea().nomTete, sizeof(NkCrea().nomTete), "%s", mot);
+						break;
+					}
+				break; // le nom de tete est trouve : reconnu ou pas, on s'arrete
+			}
+			if (!famille[0])
+				return false;
+			if (style && strcmp(famille, "porte") == 0) {
+				static const char *const kChinois[] = {"chinois", "chinoise", "torii", "pagode", "japonais", "japonaise",
+													   "asiatique", "paifang", "temple", "chinese", "japanese"};
+				for (const char *k : kChinois)
+					if (strstr(t, k))
+						snprintf(style, capS, "chinois");
+			}
+			return true;
+		}
+
+		/// LE FORMULAIRE D'UNE FAMILLE : c'est TOUT ce que le modele recoit quand la
+		/// famille est reconnue. Une ligne a remplir ; aucune grammaire de parties.
+		inline void NkCreaEcrireFormulaire(char *dst, uint32 cap, const char *famille, const char *demande) {
+			const char *ligne = "";
+			const char *aide = "";
+			if (strcmp(famille, "porte") == 0) {
+				ligne = "famille porte style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2>";
+				aide = "style chinois pour une porte chinoise, un torii, une pagode ; largeur et hauteur de l'OUVERTURE "
+					   "entiere (une porte d'entree : 0.9 x 2.1 ; un portail chinois : 2.4 x 3.2).";
+			} else if (strcmp(famille, "table") == 0) {
+				ligne = "famille table largeur <metres> profondeur <metres> hauteur <metres>";
+				aide = "une table a manger : 1.6 x 0.9 x 0.75 ; une table basse : 1.1 x 0.6 x 0.45 ; un bureau : 1.4 x 0.7 x 0.75.";
+			} else if (strcmp(famille, "maison") == 0) {
+				ligne = "famille maison style <deux_pans|plat> pieces <nombre de pieces si la demande le dit, sinon 0>";
+				aide = "style plat pour une villa moderne ou un toit terrasse ; deux_pans sinon. Les DIMENSIONS ne sont PAS a "
+					   "donner : l'outil les tire de la surface demandee.";
+			} else {
+				ligne = "famille revolution silhouette <droit|evase|ventru|goulot|coupe|dome|conique|colonne> largeur <metres> "
+						"hauteur <metres> paroi <metres, 0 si plein>";
+				aide = "largeur et hauteur REELLES de l'objet (un verre : 0.08 x 0.12, paroi 0.003 ; un bol : 0.16 x 0.08, "
+					   "paroi 0.004 ; un vase : 0.2 x 0.35, paroi 0.006).";
+			}
+			snprintf(dst, cap,
+					 "Tu remplis UN formulaire. La demande est reconnue comme un objet de la famille « %s ».\n"
+					 "Reponds par UNE SEULE ligne, exactement de cette forme, en remplacant chaque <...> par une "
+					 "valeur :\n%s\n%s\nRien d'autre : pas de phrase, pas de partie.\n\nDemande : %s\nLigne :",
+					 famille, ligne, aide, demande ? demande : "");
+		}
+
+		/// LE DOCUMENT D'UNE FAMILLE RECONNUE, tire de la reponse : on n'y prend QUE la
+		/// ligne `famille` ; la famille est FORCEE a celle reconnue ; un formulaire
+		/// non rempli retombe sur les valeurs de la famille, et on le DIT.
+		inline void NkCreaDocFamille(const char *reponse, NkCreaDoc &d, bool &rempli) {
+			NkCreaEtat &E = NkCrea();
+			rempli = false;
+			const char *ligneModele = nullptr;
+			for (const char *c = reponse; c && *c;) {
+				while (*c == ' ' || *c == '\t' || *c == '`' || *c == '-' || *c == '*' || *c == '\n' || *c == '\r')
+					++c;
+				if (strncmp(c, "famille ", 8) == 0 || strncmp(c, "Famille ", 8) == 0) {
+					ligneModele = c;
+					break;
+				}
+				while (*c && *c != '\n')
+					++c;
+			}
+			static char doc[700];
+			char ligne[500] = {0};
+			if (ligneModele) {
+				// la famille ecrite par le modele est REMPLACEE par celle reconnue
+				const char *q = ligneModele + 8;
+				while (*q == ' ')
+					++q;
+				while (*q && *q != ' ' && *q != '\n')
+					++q; // saute le nom de famille du modele
+				uint32 n = 0;
+				while (*q && *q != '\n' && *q != '\r' && n + 1u < sizeof(ligne))
+					ligne[n++] = *q++;
+				ligne[n] = 0;
+				rempli = true;
+			}
+			// le style reconnu PRIME s'il a ete trouve dans la demande
+			// LE NOM DE LA SCENE EST LE MOT DE RODOLF (« verre », « villa »), pas le nom
+			// interne de la famille : c'est ce qu'il lit dans la hierarchie.
+			snprintf(doc, sizeof(doc), "scene %s\nfamille %s %s%s%s\n", E.nomTete[0] ? E.nomTete : E.familleReconnue,
+					 E.familleReconnue, ligne,
+					 E.styleReconnu[0] ? " style " : "", E.styleReconnu);
+			NkCreaLire(doc, d);
+		}
+
 		inline bool NkCreaLancerPlan(NkModelerState &st, converse::NkIConverseBackend *dorsal);
 
 		/// LA DESCRIPTION DE L'IMAGE GUIDE-T-ELLE LE PLAN ? NON PAR DEFAUT, et c'est
@@ -2005,7 +2548,22 @@ namespace nkentseu {
 				demande = avecImage;
 			}
 			static char invite[22000];
-			NkCreaEcrireInvite(invite, sizeof(invite), demande);
+			E.familleReconnue[0] = 0;
+			E.styleReconnu[0] = 0;
+			const bool sansReco = std::getenv("NK_CREA_SANS_RECONNAISSANCE") != nullptr;
+			if (!sansReco && !NkCreaSansFamilles() &&
+				NkCreaReconnaitreFamille(E.demande, E.familleReconnue, sizeof(E.familleReconnue), E.styleReconnu,
+										 sizeof(E.styleReconnu))) {
+				NkCreaEcrireFormulaire(invite, sizeof(invite), E.familleReconnue, demande);
+				E.tour = E.toursMax; // un formulaire ne se « corrige » pas : il se remplit ou prend ses defauts
+				std::printf("[crea] FAMILLE RECONNUE par la chaine : %s%s%s -> formulaire\n", E.familleReconnue,
+							E.styleReconnu[0] ? " style " : "", E.styleReconnu);
+				char m[240];
+				snprintf(m, sizeof(m), "Famille reconnue : %s%s%s. Je demande seulement ses parametres.",
+						 E.familleReconnue, E.styleReconnu[0] ? ", style " : "", E.styleReconnu);
+				(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+			} else
+				NkCreaEcrireInvite(invite, sizeof(invite), demande);
 			NkString pourquoi;
 			if (!E.envoi.Lancer(dorsal, NkString(invite), pourquoi)) {
 				char m[192];
@@ -2205,7 +2763,17 @@ namespace nkentseu {
 				return false;
 			}
 			static NkCreaDoc d;
-			NkCreaLire(brut, d);
+			if (E.familleReconnue[0]) {
+				bool rempli = false;
+				NkCreaDocFamille(brut, d, rempli);
+				std::printf("[crea] FORMULAIRE %s : %s\n", E.familleReconnue,
+							rempli ? "rempli par le modele" : "NON rempli : valeurs de la famille");
+				std::fflush(stdout);
+				if (!rempli)
+					(void)NkAiPousser(st, NkModelerState::AiType::Note,
+									  "Le modele n'a pas rempli le formulaire : l'objet prend les valeurs de sa famille.");
+			} else
+				NkCreaLire(brut, d);
 			if (d.impossible && d.n == 0 && !d.aFamille) {
 				(void)NkAiPousser(st, NkModelerState::AiType::Refus,
 								  "Le modele juge la demande trop vague pour un objet precis : rien n'est cree. "
@@ -2377,30 +2945,6 @@ namespace nkentseu {
 
 		/// Rend vrai tant qu'une sequence de vues est en cours.
 		/// La boite MONDE du dernier lot, relue a l'hote.
-		inline bool NkCreaBoiteDernierLot(float32 *mn, float32 *mx) {
-			NkCreaEtat &E = NkCrea();
-			if (E.nLots == 0)
-				return false;
-			const NkCreaLot &l = E.lots[E.nLots - 1];
-			bool trouve = false;
-			for (int32 a = 0; a < 3; ++a) {
-				mn[a] = 1e30f;
-				mx[a] = -1e30f;
-			}
-			for (int32 i = 0; i < l.nNoeuds; ++i) {
-				float32 a0[3], a1[3];
-				if (!demo::Demo3DHostNodeBounds(l.noeuds[i], true, a0, a1))
-					continue;
-				trouve = true;
-				for (int32 a = 0; a < 3; ++a) {
-					if (a0[a] < mn[a])
-						mn[a] = a0[a];
-					if (a1[a] > mx[a])
-						mx[a] = a1[a];
-				}
-			}
-			return trouve;
-		}
 
 		/// Masque (ou rend) tout objet utilisateur qui n'est pas du dernier lot. ⚠️
 		/// L'ETAT D'AVANT EST GARDE ET RENDU : une photo ne doit pas laisser la
@@ -2420,11 +2964,33 @@ namespace nkentseu {
 					const int32 uk = demo::Demo3DHostUserKind(q);
 					if (!((uk >= 1 && uk <= 3) || uk == 10) || demo::Demo3DHostNodeDeleted(q))
 						continue;
+					// ⚠️ LE LOT, SES ANCETRES, ET LE LOT D'AVANT QUAND ON MONTRE TOUT.
+					//    Deux elargissements, tous deux payes par une image :
+					//    (1) un noeud IMPORTE est un CONTENEUR dont la geometrie vit
+					//        dans des enfants, qui ne sont pas inscrits au lot ; s'en
+					//        tenir aux noeuds du lot donnait une scene vide ;
+					//    (2) la serie qui suit une generation doit montrer l'assemblage
+					//        A COTE de l'objet genere, donc DEUX lots -- sinon il ne
+					//        reste rien a quoi comparer l'echelle.
 					bool duLot = false;
-					if (E.nLots > 0) {
-						const NkCreaLot &l = E.lots[E.nLots - 1];
-						for (int32 i = 0; i < l.nNoeuds && !duLot; ++i)
-							duLot = (l.noeuds[i] == q);
+					const int32 premier = E.vuesToutVoir && E.nLots > 1 ? E.nLots - 2 : E.nLots - 1;
+					for (int32 li = premier; li < E.nLots && !duLot; ++li) {
+						const NkCreaLot &l = E.lots[li];
+						for (int32 i = 0; i < l.nNoeuds && !duLot; ++i) {
+							if (l.noeuds[i] == q) {
+								duLot = true;
+								break;
+							}
+							// remonte : `q` descend-il d'un noeud du lot ?
+							int32 pere = demo::Demo3DHostNodeParent(q);
+							for (int32 garde = 0; pere >= 0 && garde < 16; ++garde) {
+								if (pere == l.noeuds[i]) {
+									duLot = true;
+									break;
+								}
+								pere = demo::Demo3DHostNodeParent(pere);
+							}
+						}
 					}
 					if (duLot)
 						continue;
@@ -2463,14 +3029,22 @@ namespace nkentseu {
 			static const char *const kNom[3] = {"face", "profil", "34"};
 			char chemin[256];
 			float32 mn[3], mx[3];
-			const bool boite = NkCreaBoiteDernierLot(mn, mx);
+			bool boite;
+			if (E.vuesToutVoir) {
+				boite = E.vuesBoiteValide;
+				for (int32 k = 0; k < 3; ++k) {
+					mn[k] = E.vuesBoite[k];
+					mx[k] = E.vuesBoite[3 + k];
+				}
+			} else
+				boite = NkCreaBoiteDernierLot(mn, mx);
 			const int32 e = E.vuesEtape;
 			if (e == 0) {
 				sHudAvant = demo::Demo3DHostHud();
 				sCurseurAvant = demo::Demo3DHostCursorShown();
 				demo::Demo3DHostSetHud(false);
 				demo::Demo3DHostSetCursorShown(false);
-				NkCreaIsoler(true);
+				NkCreaIsoler(true); // deux lots quand E.vuesToutVoir : voir NkCreaIsoler
 				demo::Demo3DHostSelectEmptyNode(-1);
 			}
 			if (e == 2 || e == 4 || e == 6) {
@@ -2523,7 +3097,16 @@ namespace nkentseu {
 				demo::Demo3DHostSetHud(sHudAvant);
 				demo::Demo3DHostSetCursorShown(sCurseurAvant);
 				E.vuesEtape = -1;
-				if (NkCreaVoieTripoSR()) {
+				const bool serieDApres = E.vuesToutVoir;
+				E.vuesToutVoir = false; // JAMAIS laisse arme : la creation suivante isole a nouveau
+				// ⚠️ LA SERIE D'APRES NE RELANCE PAS LA VOIE (b), ET C'EST UNE BOUCLE
+				//    INFINIE QUI L'A APPRIS. La voie (b) part de la vue 3/4 en fin de
+				//    serie ; la serie ajoutee apres la generation produit une vue 3/4
+				//    de plus, donc une generation de plus, donc une serie de plus. Mesure
+				//    du 22/09 : onze generations sur un seul « un banc de parc », chacune
+				//    a 60 s, jusqu'au delai de garde. Le declencheur appartient a la
+				//    PREMIERE serie, celle qui photographie une creation.
+				if (NkCreaVoieTripoSR() && !serieDApres) {
 					// ── VOIE (b) : LA VUE RENDUE -> TRIPOSR -> UNE CARTE ─────────
 					// Par la MEME porte que le bouton « Generer » : le refus est nomme
 					// a l'ecran s'il y en a un. La carte nait dans le navigateur (un
@@ -2672,9 +3255,25 @@ namespace nkentseu {
 				std::printf("[crea] MESURE annulation : geste=%d objets %d -> %d, %d partie(s) restante(s)\n",
 							geste ? 1 : 0, (int)l.objetsAvant, (int)apres, (int)restants);
 				std::fflush(stdout);
+				// UNE IMAGE D'APRES L'ANNULATION, quand on la demande. Un compteur qui
+				// revient a son chiffre d'avant n'est pas une scene vide : il peut etre
+				// juste pendant que la geometrie reste a l'ecran. Le cadrage est celui
+				// deja calcule pour la serie d'apres generation, donc les deux images se
+				// comparent directement, meme camera, meme boite.
+				bool photoApres = false;
+				if (const char *v = std::getenv("NK_CREA_VUES"))
+					if (*v && std::getenv("NK_CREA_VUE_APRES_ANNULE") && E.vuesBoiteValide) {
+						char p3[200];
+						snprintf(p3, sizeof(p3), "%s_annule", v);
+						snprintf(E.vuesPrefixe, sizeof(E.vuesPrefixe), "%s", p3);
+						E.vuesToutVoir = true;
+						E.vuesEtape = 0;
+						E.vuesAttente = 3;
+						photoApres = true;
+					}
 				if (const char *q = std::getenv("NK_CREA_QUITTE"))
 					if (*q && *q != '0')
-						E.quitteDans = 5;
+						E.quitteDans = photoApres ? 200 : 5;
 			}
 			if (E.quitteDans > 0 && !NkGenia().envoi.EnCours() && --E.quitteDans == 0)
 				st.running = false;

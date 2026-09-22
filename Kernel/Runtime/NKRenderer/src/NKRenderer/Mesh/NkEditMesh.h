@@ -1312,6 +1312,52 @@ namespace nkentseu {
 				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity(),
 								  uint32 *outMaterialChanged = nullptr);
 
+				// ── BALAYAGE LE LONG D'UNE COURBE (21/09) ───────────────────────────
+				// Un PROFIL 2D (dans le plan normal au chemin) BALAYE le long d'une
+				// polyligne : c'est ce qui manquait pour un tuyau, une anse, une rampe,
+				// une moulure -- et pour le COYAU d'un toit chinois, dont la courbure
+				// ne s'obtient ni par revolution ni par extrusion droite.
+				//
+				// ⚠️ L'ORIENTATION EST A ROTATION MINIMALE (« double reflection », Wang
+				//    et al. 2008), PAS UN REPERE DE FRENET. Le repere de Frenet se
+				//    RETOURNE aux points d'inflexion et n'existe pas sur un segment
+				//    droit (courbure nulle) : un tuyau construit ainsi se vrille d'un
+				//    demi-tour au milieu, sans que rien ne le signale. La rotation
+				//    minimale transporte le repere d'un point au suivant par deux
+				//    reflexions, ce qui est stable sur une droite comme dans une boucle.
+				//
+				// `profil` : `np` points (x, y) dans le plan (normale, binormale).
+				// `chemin` : `nc` points (>= 2). `ferme` : le profil est un contour
+				// FERME (le dernier point rejoint le premier) -> le balayage produit un
+				// tube ; `bouchons` ajoute alors les deux faces d'extremite.
+				// Le maillage courant est REMPLACE. Rend faux (et ne touche a rien) si
+				// les tableaux sont trop petits.
+				//
+				// LE SENS DU PROFIL EST NORMALISE ICI. L'appelant dessine une section ;
+				// il n'a pas a savoir que son sens de parcours decide de l'endroit et de
+				// l'envers. L'aire signee du contour est calculee, et le profil est
+				// parcouru a l'envers quand il faut.
+				//
+				// ⚠️ LA CIBLE EST LA CONVENTION DU DEPOT, ET ELLE EST L'INVERSE DE CELLE
+				//    DES MANUELS. Mesure du 21/09 : le cube unite du modeleur a un
+				//    volume signe de -1,000000, la sphere -0,515, le cylindre -0,520 --
+				//    et tous trois recoivent de RecomputeNormals des normales qui
+				//    pointent DEHORS (banc sweep/sens-du-profil : cube-reference =
+				//    1,000). Viser l'aire positive, « comme dans les livres », donne un
+				//    tube dont 100 % des normales pointent DEDANS. Cette ligne a ete
+				//    ecrite a l'envers une premiere fois, et c'est la primitive du
+				//    depot, pas un manuel, qui a tranche.
+				//
+				// `refInitiale` : LA DIRECTION DU PREMIER AXE DU PROFIL. Sans elle, le
+				// repere de depart est choisi arbitrairement (un vecteur non colineaire
+				// a la premiere tangente) : la section est bien orientee LE LONG du
+				// chemin, mais son roulis de depart est celui du hasard. Une tuile
+				// ronde doit avoir son dos EN HAUT ; c'est le seul moyen de le dire.
+				// Le vecteur est orthogonalise a la tangente ; s'il lui est colineaire,
+				// il est ignore et le choix arbitraire reprend.
+				bool BuildSweep(const NkVec2f *profil, uint32 np, const NkVec3f *chemin, uint32 nc, bool ferme = true,
+								bool bouchons = true, const NkVec3f *refInitiale = nullptr);
+
 				// ── DISSOLVE (Ctrl+X) — fusion en n-gon, PAS un trou ────────────────
 				// Principe unique aux trois modes : on marque un ensemble d'arêtes à
 				// RETIRER, puis on reparcourt le CONTOUR de chaque région ainsi fusionnée
