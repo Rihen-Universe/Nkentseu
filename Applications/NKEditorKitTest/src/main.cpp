@@ -248,6 +248,7 @@ static void Famille2_JetonsReels() {
 
 	uint32 total = 0, resolus = 0, pascal = 0;
 	char premierFautif[96] = {0};
+	char premierPascal[96] = {0};
 
 	for (uint16 c = 0; c < nbComposants; ++c) {
 		const NkComponentDecl *d = NkComponentRegistry::At(c);
@@ -260,6 +261,9 @@ static void Famille2_JetonsReels() {
 			for (const char *p = role; p && *p; ++p)
 				if (*p >= 'A' && *p <= 'Z') {
 					++pascal;
+					if (!premierPascal[0])
+						snprintf(premierPascal, sizeof(premierPascal), "%s::%s -> « %s »", d->name,
+								 d->tokens[t].name, role);
 					break;
 				}
 			if (NkResolveRole(role) != NK_ROLE_INVALID)
@@ -278,10 +282,31 @@ static void Famille2_JetonsReels() {
 			 total, premierFautif[0] ? " — premier fautif : " : "", premierFautif);
 	Check("2b", total > 0 && resolus == total, msg);
 
-	// Ce qui rend l'essai 2b non trivial : s'il n'y avait AUCUN PascalCase, il
-	// passerait sans que la canonisation ait rien fait. On le dit a voix haute.
-	Check("2c", pascal > 0,
-		  "au moins un jeton est declare en PascalCase — sinon 2b ne prouverait rien");
+	// ⚠️ 2c A CHANGE DE PORTEUR LE 22/09, ET C'EST LE POINT DU CORRECTIF.
+	//    Il disait : « au moins un jeton est declare en PascalCase — sinon 2b ne
+	//    prouverait rien ». Il tirait donc sa non-trivialite d'un DEFAUT DE LA
+	//    SOURCE, et serait devenu rouge le jour ou quelqu'un corrige cette
+	//    source — exactement le piege que la Famille 3 refuse deux ecrans plus
+	//    bas (« il punirait le correctif qu'il reclame »). La non-trivialite
+	//    passe a un nom PascalCase ECRIT ICI, dans le banc : la canonisation
+	//    reste eprouvee, et plus personne n'a besoin qu'une declaration soit
+	//    fausse pour que l'essai ait un sens.
+	Check("2c",
+		  NkResolveRole("PanelBg") != NK_ROLE_INVALID &&
+			  NkResolveRole("PanelBg") == NkResolveRole("panel_bg"),
+		  "un nom PascalCase ecrit DANS LE BANC est toujours rattrape, et sur le meme role");
+
+	// 2d. LA REGLE DE SOURCE, TENUE PAR UNE MESURE ET NON PAR LA MEMOIRE DES
+	//     AUTEURS. Le 20/09, l'objection contre le renommage etait : « le
+	//     vingt-quatrieme jeton refera la meme erreur ; une convention que
+	//     l'auteur doit CONNAITRE sera enfreinte par le prochain auteur ». Elle
+	//     est juste tant que rien ne la controle. Cet essai EST ce controle : un
+	//     jeton declare en PascalCase rougit le banc du kit immediatement, en
+	//     nommant le composant et le jeton fautifs. Le rattrapage reste (2c),
+	//     mais il n'a plus rien a rattraper au lancement des applications.
+	snprintf(msg, sizeof(msg), "%u jeton(s) sur %u encore en PascalCase (0 exige)%s%s", pascal,
+			 total, premierPascal[0] ? " — premier : " : "", premierPascal);
+	Check("2d", pascal == 0, msg);
 }
 
 // =============================================================================

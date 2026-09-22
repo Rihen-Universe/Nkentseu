@@ -603,7 +603,7 @@ namespace nkuidesign {
 
 		// ── 7. UN JETON REAFFECTE ───────────────────────────────────────────
 		NkComponentInstance t(NkContentBrowserDecl());
-		t.SetTokenRole("card_bg", "PanelHeader");
+		t.SetTokenRole("card_bg", "panel_header");
 		check("7. un JETON se reaffecte a un autre role, et l'instance le retient",
 			  t.IsTokenOverridden("card_bg"), t.TokenRole("card_bg"));
 
@@ -1342,6 +1342,16 @@ namespace nkuidesign {
 		//    enfreinte par le prochain auteur. Deux jetons sur deux fichiers
 		//    ecrits par deux personnes, 23 sur 23 : ce n'est pas une inattention,
 		//    c'est une classe de defaut.
+		//
+		//    ⚠️ SUITE DU 22/09 — LES DEUX, ET DANS CET ORDRE. L'argument ci-dessus
+		//       est juste TANT QUE RIEN NE CONTROLE LA CONVENTION, et il a coute
+		//       une alarme criee a chaque lancement (« A CORRIGER A LA SOURCE »,
+		//       9 noms distincts) que personne ne pouvait eteindre sans mentir.
+		//       Les 37 noms sont donc renommes A LA SOURCE, le rattrapage reste
+		//       (il n'a plus rien a rattraper), et le vingt-quatrieme jeton est
+		//       desormais arrete par une MESURE et non par la memoire des
+		//       auteurs : `NKEditorKitTest 2d` exige `pascal == 0` sur tous les
+		//       jetons declares du registre, et nomme le composant fautif.
 		//
 		//    (a) la resolution CANONISE -> la classe de defaut disparait ;
 		//    (b) le repli est FRANC -> ce que (a) ne couvre pas se DIT.

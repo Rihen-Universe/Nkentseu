@@ -643,22 +643,22 @@ namespace nkentseu {
 				 nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
-				{"panel_bg", "PanelBg", "fond du panneau"},
-				{"header_bg", "PanelHeader", "bande de tete, barre d'outils, onglets"},
-				{"border", "Border", "traits de separation"},
-				{"text", "Text", "libelles"},
-				{"text_muted", "TextMuted", "type de l'asset, compteurs"},
-				{"card_bg", "InputBg", "fond de la vignette"},
-				{"card_footer_bg", "InputBg", "pied de carte — la planche lui donne le MEME fond que la "
+				{"panel_bg", "panel_bg", "fond du panneau"},
+				{"header_bg", "panel_header", "bande de tete, barre d'outils, onglets"},
+				{"border", "border", "traits de separation"},
+				{"text", "text", "libelles"},
+				{"text_muted", "text_muted", "type de l'asset, compteurs"},
+				{"card_bg", "input_bg", "fond de la vignette"},
+				{"card_footer_bg", "input_bg", "pied de carte — la planche lui donne le MEME fond que la "
 											  "vignette, l'existant le peint en PanelHeader (ecart n.13)"},
-				{"active_mark", "AccentUi", "la carte ACTIVE (ecart n.3 : la planche veut un contour)"},
-				{"chosen_mark", "AccentUi", "les cartes CHOISIES — doit rester DISTINCT de active_mark"},
-				{"folder_tint", "TypeFolder", "teinte de l'icone de dossier"},
-				{"chip_bg", "InputBg", "fond d'une puce de filtre au repos — enfoncée, la puce "
+				{"active_mark", "accent_ui", "la carte ACTIVE (ecart n.3 : la planche veut un contour)"},
+				{"chosen_mark", "accent_ui", "les cartes CHOISIES — doit rester DISTINCT de active_mark"},
+				{"folder_tint", "type_folder", "teinte de l'icone de dossier"},
+				{"chip_bg", "input_bg", "fond d'une puce de filtre au repos — enfoncée, la puce "
 									   "prend le rôle de sa nature en contour"},
-				{"badge_text", "PanelBg", "texte du badge de type sur la carte (le fond du badge "
+				{"badge_text", "panel_bg", "texte du badge de type sur la carte (le fond du badge "
 										  "est le role de la nature, sombre sur clair)"},
-				{"status_bg", "PanelHeader", "fond de la barre d'état basse"},
+				{"status_bg", "panel_header", "fond de la barre d'état basse"},
 			};
 			static const NkMetricDecl kMetrics[] = {
 				{"card_gap", 12.f, "gouttiere entre deux cartes"},

@@ -2850,7 +2850,7 @@ namespace nkentseu {
 				for (uint16 i = 0; i < d.tokenCount; ++i)
 					if (NkComponentDecl::StrEq(d.tokens[i].name, jeton))
 						return NkResolveRole(d.tokens[i].defaultRole);
-				return NkResolveRole("TextMuted");
+				return NkResolveRole("text_muted");
 			};
 			NkFilePickerNavStyle s;
 			s.volet.panelBg = role("panel_bg");
