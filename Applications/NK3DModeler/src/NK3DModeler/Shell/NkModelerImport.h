@@ -1,5 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkModelerImport.h
 // @Brief   IMPORT D'UN FICHIER 3D : chargement par les chargeurs du moteur,
 //          puis DECOMPOSITION -- les models distincts chacun dans leur fichier,
@@ -854,8 +855,12 @@ namespace nkentseu {
 		/// models au meme point aurait defait ce que le fichier declare.
 		/// `off3 == nullptr` : coordonnees du fichier telles quelles
 		/// (hierarchie). Rend le nombre de noeuds nes ; le dernier est selectionne.
-		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards,
-										 const float32 *off3) {
+		/// `noeudsOut`, quand il est fourni, recoit LES NOEUDS NES. Sans lui,
+		/// l'appelant ne connait que leur NOMBRE : il ne peut ni les mesurer, ni les
+		/// mettre a l'echelle, ni les inscrire dans un lot annulable. C'est
+		/// exactement ce qui manquait pour poser un objet genere dans la scene.
+		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards, const float32 *off3,
+										 NkVector<int32> *noeudsOut = nullptr) {
 			int32 nes = 0, dernier = -1;
 			for (usize i = 0; i < cards.Size(); ++i) {
 				const int32 c = cards[i];
@@ -895,6 +900,8 @@ namespace nkentseu {
 										c, st.Card(c).name, src, nn,
 										demo::Demo3DHostNodeIsModel(nn) ? 1 : 0, gp[0], gp[1], gp[2]);
 				dernier = nn;
+				if (noeudsOut)
+					noeudsOut->PushBack(nn);
 				++nes;
 			}
 			if (dernier >= 0)
