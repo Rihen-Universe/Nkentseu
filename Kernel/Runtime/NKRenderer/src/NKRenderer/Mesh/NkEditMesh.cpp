@@ -1348,6 +1348,124 @@ namespace nkentseu {
 			return on;
 		}
 
+		// ── BALAYAGE D'UN PROFIL LE LONG D'UNE POLYLIGNE ───────────────────────
+		// Voir l'en-tete pour le choix du repere a ROTATION MINIMALE. Le maillage
+		// est bati en polygones (quads entre deux anneaux, plus les bouchons), puis
+		// remis a BuildFromPolygons : une seule porte de construction.
+		bool NkEditMesh::BuildSweep(const NkVec2f *profil, uint32 np, const NkVec3f *chemin, uint32 nc, bool ferme,
+									bool bouchons, const NkVec3f *refInitiale) {
+			if (!profil || !chemin || np < 2 || nc < 2)
+				return false;
+			// SENS DU CONTOUR : aire signee (lacet de Gauss). POSITIVE -> on parcourt
+			// le profil a l'envers. Le sens vise est celui du cube du depot, pas celui
+			// des manuels : voir l'en-tete, et le banc sweep/sens-du-profil.
+			NkVector<NkVec2f> pr;
+			pr.Resize(np);
+			{
+				float32 aire = 0.f;
+				for (uint32 k = 0; k < np; ++k) {
+					const NkVec2f &u = profil[k];
+					const NkVec2f &v = profil[(k + 1u) % np];
+					aire += u.x * v.y - v.x * u.y;
+				}
+				for (uint32 k = 0; k < np; ++k)
+					pr[k] = aire > 0.f ? profil[np - 1u - k] : profil[k];
+			}
+			profil = pr.Data();
+			// tangentes : differences centrees, normalisees
+			NkVector<NkVec3f> T;
+			T.Resize(nc);
+			for (uint32 i = 0; i < nc; ++i) {
+				NkVec3f t = (i == 0)			? (chemin[1] - chemin[0])
+							: (i + 1u == nc)	? (chemin[nc - 1] - chemin[nc - 2])
+												: (chemin[i + 1] - chemin[i - 1]);
+				const float32 l = sqrtf(t.x * t.x + t.y * t.y + t.z * t.z);
+				T[i] = l > 1e-9f ? NkVec3f{t.x / l, t.y / l, t.z / l} : NkVec3f{0.f, 0.f, 1.f};
+			}
+			// repere initial : celui qu'on demande, sinon un vecteur non colineaire a T0
+			NkVec3f r{0.f, 1.f, 0.f};
+			if (fabsf(T[0].y) > 0.9f)
+				r = {1.f, 0.f, 0.f};
+			if (refInitiale) {
+				const NkVec3f &q = *refInitiale;
+				const float32 d = q.x * T[0].x + q.y * T[0].y + q.z * T[0].z;
+				const NkVec3f o{q.x - d * T[0].x, q.y - d * T[0].y, q.z - d * T[0].z};
+				if (o.x * o.x + o.y * o.y + o.z * o.z > 1e-6f)
+					r = o; // normalise juste apres, avec l'autre cas
+			}
+			{
+				const float32 d = r.x * T[0].x + r.y * T[0].y + r.z * T[0].z;
+				r = {r.x - d * T[0].x, r.y - d * T[0].y, r.z - d * T[0].z};
+				const float32 l = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+				r = {r.x / l, r.y / l, r.z / l};
+			}
+			NkVector<NkVertex3D> V;
+			NkVector<uint32> faceStart, faceVerts;
+			V.Resize(np * nc);
+			for (uint32 i = 0; i < nc; ++i) {
+				if (i > 0) {
+					// DOUBLE REFLEXION : deux reflexions transportent le repere sans
+					// torsion parasite (Wang 2008). C'est trois produits scalaires.
+					const NkVec3f v1 = chemin[i] - chemin[i - 1];
+					const float32 c1 = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
+					NkVec3f rL = r, tL = T[i - 1];
+					if (c1 > 1e-18f) {
+						const float32 k1 = 2.f * (v1.x * r.x + v1.y * r.y + v1.z * r.z) / c1;
+						rL = {r.x - k1 * v1.x, r.y - k1 * v1.y, r.z - k1 * v1.z};
+						const float32 k2 = 2.f * (v1.x * T[i - 1].x + v1.y * T[i - 1].y + v1.z * T[i - 1].z) / c1;
+						tL = {T[i - 1].x - k2 * v1.x, T[i - 1].y - k2 * v1.y, T[i - 1].z - k2 * v1.z};
+					}
+					const NkVec3f v2 = T[i] - tL;
+					const float32 c2 = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
+					if (c2 > 1e-18f) {
+						const float32 k3 = 2.f * (v2.x * rL.x + v2.y * rL.y + v2.z * rL.z) / c2;
+						r = {rL.x - k3 * v2.x, rL.y - k3 * v2.y, rL.z - k3 * v2.z};
+					} else
+						r = rL;
+					const float32 l = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+					if (l > 1e-9f)
+						r = {r.x / l, r.y / l, r.z / l};
+				}
+				// binormale = T x N
+				const NkVec3f b{T[i].y * r.z - T[i].z * r.y, T[i].z * r.x - T[i].x * r.z, T[i].x * r.y - T[i].y * r.x};
+				for (uint32 k = 0; k < np; ++k) {
+					NkVertex3D q{};
+					q.pos = {chemin[i].x + r.x * profil[k].x + b.x * profil[k].y,
+							 chemin[i].y + r.y * profil[k].x + b.y * profil[k].y,
+							 chemin[i].z + r.z * profil[k].x + b.z * profil[k].y};
+					q.normal = r;
+					q.tangent = T[i];
+					q.uv = {(float32)k / (float32)(np - 1), (float32)i / (float32)(nc - 1)};
+					q.color = 0xFFFFFFFFu;
+					V[i * np + k] = q;
+				}
+			}
+			faceStart.PushBack(0u);
+			const uint32 nSeg = ferme ? np : np - 1u;
+			for (uint32 i = 0; i + 1u < nc; ++i)
+				for (uint32 k = 0; k < nSeg; ++k) {
+					const uint32 k2 = (k + 1u) % np;
+					const uint32 a = i * np + k, b2 = i * np + k2, c = (i + 1u) * np + k2, d = (i + 1u) * np + k;
+					faceVerts.PushBack(a);
+					faceVerts.PushBack(b2);
+					faceVerts.PushBack(c);
+					faceVerts.PushBack(d);
+					faceStart.PushBack((uint32)faceVerts.Size());
+				}
+			if (ferme && bouchons) {
+				for (uint32 k = 0; k < np; ++k)
+					faceVerts.PushBack(np - 1u - k); // premier anneau, sens inverse
+				faceStart.PushBack((uint32)faceVerts.Size());
+				for (uint32 k = 0; k < np; ++k)
+					faceVerts.PushBack((nc - 1u) * np + k);
+				faceStart.PushBack((uint32)faceVerts.Size());
+			}
+			BuildFromPolygons(V.Data(), (uint32)V.Size(), faceStart.Data(), (uint32)faceStart.Size() - 1u,
+							  faceVerts.Data(), nullptr);
+			RecomputeNormals();
+			return true;
+		}
+
 		void NkEditMesh::BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
 										   const uint32 *faceVerts, const FaceAttrib *faceAttrib) {
 			Clear();
