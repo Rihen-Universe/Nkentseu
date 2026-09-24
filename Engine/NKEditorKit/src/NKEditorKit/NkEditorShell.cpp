@@ -930,6 +930,11 @@ namespace nkentseu {
 				savedInput = mUI.input;
 				mPopupMasked = overPopup && !mShowPrefs && !mUI.appModal; // cf. dockHeaderFn
 				mRealInput = savedInput;
+				// Les panneaux vont voir une entree VIDE ; une modale dessinee depuis l'un
+				// d'eux lira l'entree reelle (NkGuiContext::InputModale). Voir la
+				// restauration apres les panneaux.
+				mUI.inputModale = savedInput;
+				mUI.inputModaleValide = true;
 				mUI.input.mousePos = {-100000.f, -100000.f};
 				for (int32 i = 0; i < 3; ++i) {
 					mUI.input.mouseClicked[i] = false;
@@ -1027,8 +1032,13 @@ namespace nkentseu {
 			HandleEdgeResize(W, H); // bords de redimensionnement (fenetre sans bordure)
 			phase("bords de fenetre");
 
-			if (modal)
-				mUI.input = savedInput; // restaure pour le popup
+			if (modal) {
+				// On restaure depuis la copie de la modale, pas depuis savedInput : si une
+				// modale dessinee dans un panneau a CONSOMME un clic (bouton, clic dehors),
+				// il ne doit pas ressurgir pour l'overlay et ce qui suit.
+				mUI.input = mUI.inputModaleValide ? mUI.inputModale : savedInput; // restaure pour le popup
+				mUI.inputModaleValide = false;
+			}
 			mPopupMasked = false;
 			DrawContextMenu(); // menu contextuel shell-level (au-dessus des panneaux)
 			phase("menu contextuel");
