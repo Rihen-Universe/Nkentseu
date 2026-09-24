@@ -607,9 +607,35 @@ namespace nkentseu {
 				// montre six images qu'on identifie d'un regard.
 				// Les colonnes s'adaptent a la largeur : la carte garde une
 				// taille lisible au lieu de s'etirer sur un ecran large.
-				const NkRect area{x, y, w, H - y - S(64.f)};
+				// ⚠️ LA BARRE DE DEFILEMENT SE DESSINE DANS `area` (`p.VScroll(area,
+				//    …)`) : si la grille prend toute la largeur, la barre PASSE PAR
+				//    DESSUS la derniere colonne et les cartes de droite paraissent
+				//    coupees. Constat de Rodolf, 24/09 : « a droite ca ne doit pas
+				//    etre coupe ; en haut ou en bas ca peut, il y a le defilement ».
+				//    On lui reserve donc sa largeur, et seulement quand elle sert :
+				//    sans defilement, la grille reprend toute la place.
+				const float32 barreW = S(16.f);
+				const float32 hDispo = H - y - S(64.f);
+				NkRect area{x, y, w, hDispo};
 				const float32 gap = S(12.f);
 				const float32 cardWmin = S(210.f);
+				{
+					// Deux passes : la premiere dit s'il y aura defilement, la
+					// seconde recalcule la largeur en consequence. Une seule passe
+					// ne peut pas trancher, puisque la hauteur du contenu depend de
+					// la largeur qui depend de la barre.
+					const int32 nEstim = (int32)rec.items.Size();
+					int32 c0 = (int32)((area.w + gap) / (cardWmin + gap));
+					if (c0 < 1)
+						c0 = 1;
+					if (c0 > 5)
+						c0 = 5;
+					const float32 cw0 = (area.w - gap * (float32)(c0 - 1)) / (float32)c0;
+					const float32 ch0 = cw0 * 9.f / 16.f + S(48.f);
+					const int32 r0 = (nEstim + c0 - 1) / c0;
+					if ((float32)r0 * (ch0 + gap) > hDispo)
+						area.w -= barreW;
+				}
 				int32 cols = (int32)((area.w + gap) / (cardWmin + gap));
 				if (cols < 1)
 					cols = 1;
@@ -712,7 +738,10 @@ namespace nkentseu {
 						}
 					}
 					p.Unclip();
-					p.VScroll(area, contentH, st.welcomeScroll);
+					// La barre se dessine dans la BANDE RESERVEE, a droite de la
+					// grille retrecie : `area` ne la contient plus (voir la garde
+					// plus haut), sinon elle reviendrait sur la derniere colonne.
+					p.VScroll(NkRect{x, y, w, hDispo}, contentH, st.welcomeScroll);
 				}
 			}
 
