@@ -609,11 +609,22 @@ def Main() -> int:
         if "jenga-src" not in txt:
             pth.write_text(txt.rstrip("\n") + "\n../jenga-src\n", encoding="ascii", newline="")
             Log(f"  {pth.name} : ajout de ../jenga-src")
+    # Le shim PREFIXE le compilateur embarque a son PATH, comme
+    # NkEmbeddedJenga::Configure le fait pour le process NKCode. Mesure le
+    # 2026-09-24 : lance hors de NKCode (terminal Windows, script), le shim ne
+    # voyait pas tools/compilers/llvm-mingw -> sur une machine sans compilateur,
+    # « No suitable toolchain found ». Le banc « machine vierge » ne l'avait pas
+    # vu parce que Jenga >= 2.8.3 retombe sur C:\msys64 quand il existe : sur le
+    # poste de developpement, un AUTRE clang compilait a la place du sien.
+    # setlocal : le PATH du terminal appelant n'est pas modifie.
     (tools / "jenga.cmd").write_text(
         "@echo off\r\n"
         "rem Shim GENERE par scripts/MakeNkCodeDist.py : Jenga via le Python embarque.\r\n"
         'rem (le chemin des sources vient du fichier python*._pth, pas de PYTHONPATH)\r\n'
-        '"%~dp0python-embed\\python.exe" -m Jenga %*\r\n', encoding="ascii", newline="")
+        "setlocal\r\n"
+        'if exist "%~dp0compilers\\llvm-mingw\\bin\\clang.exe" set "PATH=%~dp0compilers\\llvm-mingw\\bin;%PATH%"\r\n'
+        '"%~dp0python-embed\\python.exe" -m Jenga %*\r\n'
+        "exit /b %ERRORLEVEL%\r\n", encoding="ascii", newline="")
     # Variante POSIX (Phase 6 Linux/macOS) : ecrite des maintenant pour que le
     # pipeline soit identique quand le runtime non-Windows arrivera.
     sh = tools / "jenga"
