@@ -57,10 +57,13 @@ New-Item -ItemType Directory -Force $tmp | Out-Null
 function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
-	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE")
+	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE",
+			  "NK_BOITE_FAUSSE")
 	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
 	$env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
-	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1" }
+	# La mutation porte les DEUX negatifs de ce banc : l'ancienne regle des modes,
+	# et une boite publiee SANS CIBLE (NK_BOITE_FAUSSE).
+	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1" }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-RedirectStandardOutput $out | Out-Null
@@ -236,6 +239,25 @@ if (Condition "Edition (g)" (($null -ne $b) -and ($b.mode -eq 1)) "le clic ecrit
 $b = Barre (Courir "barre_0" @{ "NK_EDIT_MODE" = "3,40"; "NK_VP_ACTION" = "toggleedit,90"; "NK_TOOL_CLIC" = "1,140"; "NK_AGENT_EXIT" = "170" })
 if (Condition "Objet (g)" (($null -ne $b) -and ($b.mode -eq 0)) "le clic ecrit n'a pas eu lieu en Objet") {
 	Dire "Objet (g) sorti de Sculpture, les boutons redeviennent ACTIFS" (($b.grises -eq 0) -and ($b.outil -eq 3)) "grises=$($b.grises) outil=$($b.outil)"
+}
+
+# ── (h) AUCUNE BOITE PUBLIEE SANS CIBLE, AU CLIC DU CURSEUR 3D ──────────────
+# Defaut signale par Rodolf le 24/09 : « en cliquant sur le curseur de l'univers,
+# une boite englobante apparait brievement et disparait, a chaque clic ». Ce
+# critere ne juge pas l'image : il lit ce que la vue PUBLIE au masque de
+# silhouette. `sans_cible` compte les soumissions dont le maillage est INVALIDE --
+# une boite qui ne designe rien. Le clic du curseur 3D est ECRIT (NK_CURSOR_CLIC),
+# l'outil Curseur est arme par le crochet du bouton (NK_TOOL_CLIC=4).
+# ⚠ CONDITION : il faut qu'une boite soit publiee ce tour-la (un noeud cerne), et
+#   que le clic ait eu lieu -- sinon le zero ne dirait rien.
+$c = Courir "boite" @{ "NK_AGENT_SCENE" = "5"; "NK_BOITE_SONDE" = "1"; "NK_TOOL_CLIC" = "4,60";
+					   "NK_CURSOR_CLIC" = "500:400:100:20"; "NK_AGENT_EXIT" = "200" }
+$lignes = @(Select-String -Path $c.log -Pattern "\[BOITE-SONDE\]")
+$clics = @(Select-String -Path $c.log -Pattern "NK_CURSOR_CLIC : clic ecrit").Count
+$cernes = @($lignes | Where-Object { $_.Line -match "cerne_user=([1-9])" }).Count
+$sans = @($lignes | Where-Object { $_.Line -match "sans_cible=([1-9])" }).Count
+if (Condition "Curseur 3D (h)" (($lignes.Count -gt 0) -and ($clics -gt 0) -and ($cernes -gt 0)) "lignes=$($lignes.Count) clics=$clics images avec une boite=$cernes") {
+	Dire "Curseur 3D (h) aucune boite publiee SANS CIBLE" ($sans -eq 0) "$sans image(s) sur $($lignes.Count) publient une boite sans maillage, sur $clics clic(s) du curseur"
 }
 
 Write-Host "-----------------------------------------------------------------------"
