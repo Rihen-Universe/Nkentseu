@@ -960,6 +960,22 @@ int nkmain(const NkEntryState &entry) {
 					 : NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
+	// (24/09) NK_FENETRE=<largeur>x<hauteur> : la taille de la fenetre pour la
+	// MESURE. Rodolf travaille en plein ecran (1920) ; une sonde qui ne mesure
+	// qu'en 1600 ne peut pas voir un defaut de mise en page qui n'apparait qu'a
+	// cinq colonnes. Instrument seulement : sans la variable, rien ne bouge.
+	if (const char *fw = std::getenv("NK_FENETRE")) {
+		const int lw = std::atoi(fw);
+		const char *xx = fw;
+		while (*xx && *xx != 'x' && *xx != 'X')
+			++xx;
+		const int lh = *xx ? std::atoi(xx + 1) : 0;
+		if (lw >= 800 && lh >= 600) {
+			wc.width = (uint32)lw;
+			wc.height = (uint32)lh;
+			wc.centered = false;
+		}
+	}
 	wc.minWidth = 1100;
 	wc.minHeight = 700;
 	wc.centered = true;
