@@ -57,6 +57,7 @@
 #include "NK3DModeler/Shell/NkModelerComponentPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
@@ -1880,6 +1881,10 @@ int nkmain(const NkEntryState &entry) {
 				std::fflush(stdout);
 			}
 		}
+		// (25/09) LA PORTE D'INERTIE DE LA SONDE. Le modeleur a sa propre boucle :
+		// il appelle donc la porte du kit lui-meme, au MEME endroit que la coquille
+		// (juste avant BeginFrame). Hors `NK_SONDE`, elle ne fait rien.
+		editorkit::NkSondeFiltrerEntree(ui, "NK3DModeler");
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
