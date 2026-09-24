@@ -394,6 +394,17 @@ namespace nkentseu {
 			NK_GL_ERR("gladLoadGLES2(WebGL) failed\n");
 			return false;
 		}
+
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// 2026-09-24 : cette branche MANQUAIT. Sous macOS glad n'etait jamais
+		// charge : le contexte NSGL se creait, puis le premier appel GL passait
+		// par un pointeur nul (« GLAD: ERROR glCreateShader is NULL! », SIGSEGV).
+		// Le chargeur de glad ouvre OpenGL.framework (chemins systeme connus).
+		int ver = gladLoaderLoadGL();
+		if (!ver) {
+			NK_GL_ERR("gladLoaderLoadGL(OpenGL.framework) failed\n");
+			return false;
+		}
 #endif
 
 		// La validation de version cible le GL DESKTOP. Sur les chemins EGL/GLES
