@@ -16,6 +16,7 @@
 //    un arbitrage : (1) aucune ligne de code de ce fichier n'utilise le symbole ;
 //    (2) cet en-tete tire NKCanvas (l.16-18), absent des includes du kit, et le
 //    compilateur le refuse : fatal error 'NKCanvas/Core/NkContextDesc.h' not found.
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
 #include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorModal.h"	 // (R17) NkNiveauModalDeLImage : le niveau rendu par regle
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
@@ -1130,6 +1131,12 @@ namespace nkentseu {
 				}
 			}
 
+			// (25/09) LA PORTE D'INERTIE DE LA SONDE, ET ELLE EST ICI POUR TOUS LES
+			// HOTES DE LA COQUILLE. Hors `NK_SONDE` elle ne fait rien. Sous sonde,
+			// l'entree qui ne vient pas du script d'evenements est jetee : une
+			// fenetre de mesure qui recoit les clics de Rodolf fabrique des defauts
+			// qui n'existent pas -- deux faux defauts en une nuit, le 24/09.
+			NkSondeFiltrerEntree(mUI, "NkEditorShell");
 			mUI.BeginFrame(dt);
 
 			// ═══ (R17) DEUX REGLES DE DEBUT D'IMAGE, AVANT LE PREMIER ECRIVAIN ═══════

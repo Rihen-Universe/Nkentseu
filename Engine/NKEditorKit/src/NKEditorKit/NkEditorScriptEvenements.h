@@ -32,6 +32,7 @@
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkDropEvent.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) marquer l'image ou CE script a injecte
 #include "NKContainers/String/NkString.h"
 #include <cstdio>
 #include <cstdlib>
@@ -76,6 +77,21 @@ namespace nkentseu {
 						return;
 					++mImage;
 					auto &ev = NkEvents();
+					// (25/09) CE QUI EST MARQUE, C'EST L'IMAGE OU L'ON INJECTE VRAIMENT.
+					// ⚠️ PREMIER CABLAGE FAUX, ET IL AURAIT TOUT ANNULE : le marquage
+					//    etait pose ICI, avant la boucle, donc a CHAQUE image -- la porte
+					//    d'inertie aurait laisse passer toutes les entrees humaines en se
+					//    croyant active. Un garde-fou qui ne garde rien est pire que pas
+					//    de garde-fou : on cesse de se mefier. Le marquage se pose donc
+					//    a l'endroit exact ou un evenement part, et nulle part ailleurs.
+					// ⚠️ ET LE MAINTIEN COMPTE AUSSI. Entre le `d` et le `u` d'un glisser,
+					//    les images intermediaires ne portent AUCUN pas -- mais le bouton
+					//    est enfonce, et l'application le lit. Sans cette ligne, la porte
+					//    d'inertie relachait le bouton a l'image suivant l'appui : tout
+					//    glisser scripte cessait de fonctionner sous `NK_SONDE`, en
+					//    silence, et c'est l'outil de mesure lui-meme qu'on aurait casse.
+					if (mRelacher.Size() > 0 || mBoutonTenu)
+						NkSondeInjecteCetteImage() = true;
 					// la touche appuyee a l'image precedente se relache
 					for (usize i = 0; i < mRelacher.Size(); ++i) {
 						NkKeyReleaseEvent e(mRelacher[i]);
@@ -85,6 +101,7 @@ namespace nkentseu {
 					for (usize i = 0; i < mPas.Size(); ++i) {
 						if (mPas[i].image != mImage)
 							continue;
+						NkSondeInjecteCetteImage() = true;
 						const char *c = mPas[i].cmd.CStr();
 						const char t = c[0];
 						const char *a = c + 2;
@@ -108,6 +125,7 @@ namespace nkentseu {
 								ev.DispatchEvent(e0);
 								NkMouseButtonPressEvent e(NkMouseButton::NK_MB_LEFT, ix, iy);
 								ev.DispatchEvent(e);
+								mBoutonTenu = true; // le glisser court jusqu'au relache
 								break;
 							}
 							case 'u': {
@@ -115,6 +133,7 @@ namespace nkentseu {
 								ev.DispatchEvent(e0);
 								NkMouseButtonReleaseEvent e(NkMouseButton::NK_MB_LEFT, ix, iy);
 								ev.DispatchEvent(e);
+								mBoutonTenu = false;
 								break;
 							}
 							case 'r': {
@@ -226,6 +245,7 @@ namespace nkentseu {
 					return NkKey::NK_UNKNOWN;
 				}
 				bool mCharge = false;
+				bool mBoutonTenu = false; ///< un `d` sans `u` : le glisser est en cours
 				int32 mImage = 0;
 				int32 mRelacherDroitImage = 0, mDroitX = 0, mDroitY = 0;
 				NkVector<Pas> mPas;
