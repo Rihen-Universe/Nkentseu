@@ -10018,6 +10018,78 @@ namespace nkuidesign {
 						}
 					}
 				}
+				// ── (25/09) NK_AI_CRITERES=<image> : DEUX CRITERES SUR L'ENVOI ──────
+				//
+				// (A) « AUCUN ENVOI N'ECRIT DANS LE PRESSE-PAPIERS ». L'envoi est
+				//     innocent -- je l'ai accuse a tort le 24/09, et la trace a nomme le
+				//     vrai site (le bouton « copier le bloc », garde par un clic). Ce
+				//     critere reste utile pour exactement une raison : il INTERDIT LA
+				//     REGRESSION. Une sentinelle est posee, l'envoi a lieu, et le
+				//     presse-papiers est relu : s'il a bouge, c'est ROUGE.
+				//
+				// (B) « LE TEXTE ENVOYE EST LE TEXTE AFFICHE ». C'est la moitie
+				//     manquante du brouillon persistant : `ViderSaisie` efface desormais
+				//     le brouillon range, mais rien ne prouvait que `PoserChat` ne
+				//     reinjecte pas un vieux brouillon ENTRE la frappe et l'envoi. On
+				//     compare donc ce que le composeur AFFICHE juste avant l'envoi et ce
+				//     que l'envoi a REELLEMENT pris.
+				//
+				// ⚠️ LE PRESSE-PAPIERS DE RODOLF EST RENDU. Il est lu, remplace par une
+				//    sentinelle, puis RESTAURE a sa valeur d'origine. Un critere qui
+				//    volerait le presse-papiers pour prouver qu'on ne le vole pas serait
+				//    la meme faute, en plus bete.
+				{
+					static int32 sCrit = -2;
+					static NkString sAvant, sSentinelle, sAffiche;
+					if (sCrit == -2) {
+						const char *v = std::getenv("NK_AI_CRITERES");
+						sCrit = (v && *v) ? (int32)std::atoi(v) : -1;
+					}
+					if (sCrit >= 0) {
+						const int32 im = (int32)mImages;
+						if (im == sCrit) {
+							sAvant = ctx.GetClipboard();
+							sSentinelle = NkString("NKPP-SENTINELLE-25-09");
+							ctx.SetClipboard(sSentinelle.CStr());
+							mPanneau.PoserSaisie("critere : ce texte doit partir tel quel");
+						} else if (im == sCrit + 2) {
+							// Ce que le composeur AFFICHE au moment ou l'on envoie.
+							sAffiche = NkString(mPanneau.Saisie());
+							const bool parti = Envoyer(sAffiche.CStr(), 0);
+							if (parti)
+								mPanneau.ViderSaisie();
+							printf("[NKUIDesign] CRITERE envoi : parti=%d, affiche=%u octets\n",
+								   (int)(parti ? 1 : 0), (unsigned)sAffiche.Length());
+						} else if (im == sCrit + 6) {
+							const NkString apres = ctx.GetClipboard();
+							const bool ppIntact = (apres == sSentinelle);
+							// Ce que l'envoi a pris : la derniere DEMANDE posee dans le fil.
+							NkString envoye;
+							const editorkit::NkAiFil &f = mPanneau.Fil();
+							for (uint32 k = f.Taille(); k > 0; --k)
+								if (f.At(k - 1).type == editorkit::NkAiBloc::Demande) {
+									envoye = f.At(k - 1).texte;
+									break;
+								}
+							const bool memeTexte = (envoye == sAffiche) && sAffiche.Length() > 0;
+							printf("[NKUIDesign] CRITERE (A) presse-papiers apres envoi : %s "
+								   "(sentinelle=%u octets, relu=%u octets)\n",
+								   ppIntact ? "VERT - intact" : "ROUGE - MODIFIE PAR L'ENVOI",
+								   (unsigned)sSentinelle.Length(), (unsigned)apres.Length());
+							printf("[NKUIDesign] CRITERE (B) texte envoye == texte affiche : %s\n",
+								   memeTexte ? "VERT" : "ROUGE - L'APPLICATION A ENVOYE AUTRE CHOSE");
+							printf("[NKUIDesign] CRITERE   affiche = \"%.60s\"\n", sAffiche.CStr());
+							printf("[NKUIDesign] CRITERE   envoye  = \"%.60s\"\n", envoye.CStr());
+							// ⚠️ ON REND LE PRESSE-PAPIERS, meme si le critere est rouge.
+							ctx.SetClipboard(sAvant.CStr());
+							printf("[NKUIDesign] CRITERE   presse-papiers de l'utilisateur restaure "
+								   "(%u octets)\n",
+								   (unsigned)sAvant.Length());
+							fflush(stdout);
+							sCrit = -1;
+						}
+					}
+				}
 				ContexteDuChat();
 				Proprietes();
 				// (Q8) LA VIGNETTE EN ATTENTE de la mise en page de ce qui a ete pose.
