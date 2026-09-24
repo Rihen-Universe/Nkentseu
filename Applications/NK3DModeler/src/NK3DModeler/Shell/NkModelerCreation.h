@@ -135,6 +135,65 @@ namespace nkentseu {
 			return kS;
 		}
 
+		/// ── UN RECIPIENT EST OUVERT EN HAUT, ET C'EST NOTRE CODE QUI LE SAIT ──
+		/// Mesure du 22/09 : une fois l'effet de chaque silhouette donne au modele, il
+		/// a cesse d'ecrire `silhouette vase` -- mais il a repondu `dome` pour un vase
+		/// a fleurs, et l'application a rendu un OBUS ferme en haut. Deux tentatives
+		/// de le dire dans l'invite ont ete MESUREES ET REFUTEES (voir
+		/// `Tools/Genia/mesure_formulaire.py`, variantes APRES2 et APRES3 : nommer les
+		/// objets a fait revenir le mot `vase`, 9/9 -> 6/9 sur les valeurs permises).
+		/// La regle appartient donc a l'outil : un objet CREUX (`paroi > 0`) ne peut
+		/// pas porter une silhouette qui se referme. Le rayon du haut vient de la
+		/// TABLE elle-meme -- rien n'est recopie, une silhouette ajoutee est jugee
+		/// sans qu'on touche a ce code.
+		inline float32 NkCreaSilhouetteRayonHaut(const NkCreaSilhouette &S) {
+			return S.n > 0 ? S.uv[2 * (S.n - 1)] : 1.f;
+		}
+		inline bool NkCreaSilhouetteOuverte(const NkCreaSilhouette &S) {
+			return NkCreaSilhouetteRayonHaut(S) >= 0.25f;
+		}
+		/// Le rayon de `S` a la hauteur `v`, par interpolation sur son profil.
+		inline float32 NkCreaSilhouetteRayonA(const NkCreaSilhouette &S, float32 v) {
+			if (S.n <= 0)
+				return 1.f;
+			for (int32 k = 1; k < S.n; ++k) {
+				const float32 v0 = S.uv[2 * (k - 1) + 1], v1 = S.uv[2 * k + 1];
+				if (v <= v1 + 1e-6f) {
+					const float32 d = v1 - v0;
+					const float32 t = d > 1e-6f ? (v - v0) / d : 0.f;
+					return S.uv[2 * (k - 1)] + t * (S.uv[2 * k] - S.uv[2 * (k - 1)]);
+				}
+			}
+			return S.uv[2 * (S.n - 1)];
+		}
+		/// L'OUVERTE LA PLUS PROCHE de `k`, au sens de l'ecart de profil (L2 sur 16
+		/// hauteurs). ⚠️ PAS le defaut nomme du champ : retomber sur `droit` rendrait
+		/// un tube pour toute forme fermee, alors qu'une forme fermee RESSEMBLE a
+		/// quelque chose, et c'est cette ressemblance qu'on garde.
+		inline int32 NkCreaSilhouetteOuvrir(int32 k) {
+			int32 n = 0;
+			const NkCreaSilhouette *S = NkCreaSilhouettes(n);
+			if (k < 0 || k >= n)
+				return k;
+			int32 meilleur = -1;
+			float32 best = 0.f;
+			for (int32 j = 0; j < n; ++j) {
+				if (j == k || !NkCreaSilhouetteOuverte(S[j]))
+					continue;
+				float32 e = 0.f;
+				for (int32 t = 0; t < 16; ++t) {
+					const float32 v = (float32)t / 15.f;
+					const float32 d = NkCreaSilhouetteRayonA(S[j], v) - NkCreaSilhouetteRayonA(S[k], v);
+					e += d * d;
+				}
+				if (meilleur < 0 || e < best) {
+					best = e;
+					meilleur = j;
+				}
+			}
+			return meilleur < 0 ? k : meilleur;
+		}
+
 		/// `NK_CREA_SANS_FAMILLES=1` : la MUTATION du Q8 (l'« avant »).
 		inline bool NkCreaSansFamilles() {
 			const char *v = std::getenv("NK_CREA_SANS_FAMILLES");
@@ -501,6 +560,25 @@ namespace nkentseu {
 					if (strcmp(nf, "revolution") == 0 || strcmp(nf, "objet_de_revolution") == 0) {
 						// LA REVOLUTION reste une PARTIE : elle a deja son chemin (profil,
 						// silhouette, paroi) ; la famille ne fait que la declarer.
+						// ── UN CREUX NE SE REFERME PAS (22/09) ──────────────────────────
+						// `paroi > 0` dit « recipient » ; une silhouette qui se referme en
+						// haut donnerait un obus etanche, pas un vase. On CORRIGE vers
+						// l'ouverte la plus proche et on le DIT : un silence ici rendrait
+						// l'objet inexplicable, exactement ce que Rodolf a vu.
+						if (paroi > 0.f && silh[0]) {
+							int32 nsv = 0;
+							const NkCreaSilhouette *SV = NkCreaSilhouettes(nsv);
+							for (int32 k = 0; k < nsv; ++k) {
+								if (strcmp(SV[k].nom, silh) != 0 || NkCreaSilhouetteOuverte(SV[k]))
+									continue;
+								const int32 o = NkCreaSilhouetteOuvrir(k);
+								NkCreaRefuser(d, "silhouette « %s » se referme en haut : un objet creux ne peut pas "
+												 "l'etre, je prends « %s »",
+											  silh, SV[o].nom);
+								snprintf(silh, sizeof(silh), "%s", SV[o].nom);
+								break;
+							}
+						}
 						static char ligne[256];
 						snprintf(ligne, sizeof(ligne),
 								 "partie objet forme revolution silhouette %s largeur %g hauteur %g%s%g matiere %s",
@@ -2430,27 +2508,128 @@ namespace nkentseu {
 			return true;
 		}
 
+		/// Retire de `ligne` les champs que L'OUTIL remplit lui-meme, avec leur
+		/// valeur `<...>` (les valeurs des formulaires ne portent jamais d'espace).
+		/// ⚠️ POURQUOI PLUTOT QUE RECOPIER LA LIGNE DANS L'APPLICATION : la
+		///    bibliotheque est seule a dire quels champs existent et quelles valeurs
+		///    sont permises ; l'application, elle, sait lesquels elle s'approprie -- le
+		///    niveau de detail vient de la demande (Q8), les dimensions de la maison de
+		///    sa surface (Q9.2). Une ligne recopiee a la main se perime au premier
+		///    champ ajoute : c'est exactement le defaut paye le 21/09.
+		inline void NkCreaRetirerChamps(char *ligne, const char *const *champs, int32 n) {
+			char out[400];
+			uint32 o = 0;
+			const char *c = ligne;
+			while (*c) {
+				while (*c == ' ')
+					++c;
+				const char *mot = c;
+				while (*c && *c != ' ')
+					++c;
+				const usize lm = (usize)(c - mot);
+				if (!lm)
+					break;
+				bool aRetirer = false;
+				for (int32 k = 0; k < n; ++k)
+					if (strlen(champs[k]) == lm && strncmp(mot, champs[k], lm) == 0)
+						aRetirer = true;
+				if (aRetirer) {
+					while (*c == ' ')
+						++c;
+					while (*c && *c != ' ')
+						++c; // la valeur <...> qui suit part avec le champ
+					continue;
+				}
+				if (o && o + 1u < sizeof(out))
+					out[o++] = ' ';
+				for (usize k = 0; k < lm && o + 1u < sizeof(out); ++k)
+					out[o++] = mot[k];
+			}
+			out[o] = 0;
+			snprintf(ligne, 400, "%s", out);
+		}
+
+		/// LA LIGNE DU FORMULAIRE, SEULE. Elle est extraite parce que DEUX endroits en
+		/// ont besoin : l'invite (ci-dessous) et la LECTURE de la reponse, qui doit
+		/// savoir quels mots sont des champs de cette famille.
+		inline void NkCreaLigneFormulaire(char *ligne, uint32 cap, const char *famille) {
+			ligne[0] = 0;
+			if (!NkFamFormulaire(famille, ligne, cap)) {
+				// `revolution` : la liste des silhouettes est CONSTRUITE depuis la table,
+				// jamais recopiee -- une valeur ajoutee a la table apparait ici seule.
+				int32 ns = 0;
+				const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+				snprintf(ligne, cap, "famille revolution silhouette <");
+				for (int32 k = 0; k < ns; ++k) {
+					strncat(ligne, S[k].nom, cap - strlen(ligne) - 2u);
+					if (k + 1 < ns)
+						strncat(ligne, "|", cap - strlen(ligne) - 2u);
+				}
+				strncat(ligne, "> largeur <metres> hauteur <metres> paroi <metres, 0 si plein>",
+						cap - strlen(ligne) - 2u);
+			}
+			// LE DETAIL N'EST JAMAIS DEMANDE AU MODELE : il vient de la demande (Q8).
+			static const char *const kDetail[] = {"detail"};
+			NkCreaRetirerChamps(ligne, kDetail, 1);
+			if (strcmp(famille, "maison") == 0) {
+				// LES DIMENSIONS DE LA MAISON VIENNENT DE LA SURFACE (Q9.2) : les demander
+				// au modele serait lui faire ecrire des nombres qu'on jette.
+				// ⚠️ ET `etages` PORTAIT UNE COLLISION : le lecteur range `etages`,
+				//    `battants`, `nombre` et `pieces` dans le MEME champ `nombre`, dont la
+				//    maison se sert comme d'un nombre de PIECES (22 m² chacune). Un modele
+				//    qui ecrivait `etages 2` faisait donc calculer une surface de 44 m².
+				//    Le champ que la maison veut vraiment s'appelle `pieces`, et il est a
+				//    l'application : on le declare ici, une fois.
+				static const char *const kSurface[] = {"largeur", "profondeur", "etages", "fenetres"};
+				NkCreaRetirerChamps(ligne, kSurface, 4);
+				strncat(ligne, " pieces <nombre de pieces si la demande le dit, sinon 0>",
+						cap - strlen(ligne) - 2u);
+			}
+		}
+
 		/// LE FORMULAIRE D'UNE FAMILLE : c'est TOUT ce que le modele recoit quand la
 		/// famille est reconnue. Une ligne a remplir ; aucune grammaire de parties.
+		/// ⚠️ LA LIGNE VIENT DE LA BIBLIOTHEQUE (22/09, Q10.1), plus d'un gabarit
+		///    recopie ici. Seule `revolution` reste ecrite dans l'application : la
+		///    bibliotheque ne la construit pas (elle passe par une partie `forme
+		///    revolution`), et ses silhouettes vivent dans `NkCreaSilhouettes`.
+		/// ⚠️ ET L'AIDE DIT L'EFFET DE CHAQUE VALEUR, pas seulement son nom. MESURE du
+		///    22/09 sur le jeu revolution (3 objets x 3 courses, qwen2.5-coder:7b,
+		///    `Tools/Genia/mesure_formulaire.py`) : avec la seule liste des noms, la
+		///    silhouette PLAUSIBLE sortait **0 fois sur 9** -- un verre et un bol en
+		///    « conique », un vase en « vase » (mot pris dans la demande, hors table).
+		///    En donnant l'effet de chaque forme : permise 6/9 -> **9/9**, plausible
+		///    0/9 -> **6/9**. Nommer les valeurs ne suffit pas ; il faut les DECRIRE.
 		inline void NkCreaEcrireFormulaire(char *dst, uint32 cap, const char *famille, const char *demande) {
-			const char *ligne = "";
-			const char *aide = "";
-			if (strcmp(famille, "porte") == 0) {
-				ligne = "famille porte style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2>";
-				aide = "style chinois pour une porte chinoise, un torii, une pagode ; largeur et hauteur de l'OUVERTURE "
-					   "entiere (une porte d'entree : 0.9 x 2.1 ; un portail chinois : 2.4 x 3.2).";
+			char ligne[400] = {0};
+			char aide[1200] = {0};
+			NkCreaLigneFormulaire(ligne, sizeof(ligne), famille);
+			if (strcmp(famille, "porte") == 0 || strcmp(famille, "portail") == 0) {
+				snprintf(aide, sizeof(aide),
+						 "style chinois pour une porte chinoise, un torii, une pagode ; largeur et hauteur de "
+						 "l'OUVERTURE entiere (une porte d'entree : 0.9 x 2.1 ; un portail chinois : 2.4 x 3.2).");
 			} else if (strcmp(famille, "table") == 0) {
-				ligne = "famille table largeur <metres> profondeur <metres> hauteur <metres>";
-				aide = "une table a manger : 1.6 x 0.9 x 0.75 ; une table basse : 1.1 x 0.6 x 0.45 ; un bureau : 1.4 x 0.7 x 0.75.";
+				snprintf(aide, sizeof(aide),
+						 "une table a manger : 1.6 x 0.9 x 0.75 ; une table basse : 1.1 x 0.6 x 0.45 ; "
+						 "un bureau : 1.4 x 0.7 x 0.75.");
 			} else if (strcmp(famille, "maison") == 0) {
-				ligne = "famille maison style <deux_pans|plat> pieces <nombre de pieces si la demande le dit, sinon 0>";
-				aide = "style plat pour une villa moderne ou un toit terrasse ; deux_pans sinon. Les DIMENSIONS ne sont PAS a "
-					   "donner : l'outil les tire de la surface demandee.";
+				snprintf(aide, sizeof(aide),
+						 "toit plat pour une villa moderne ou un toit terrasse ; deux_pans sinon. Les DIMENSIONS ne "
+						 "sont PAS a donner : l'outil les tire de la surface demandee.");
 			} else {
-				ligne = "famille revolution silhouette <droit|evase|ventru|goulot|coupe|dome|conique|colonne> largeur <metres> "
-						"hauteur <metres> paroi <metres, 0 si plein>";
-				aide = "largeur et hauteur REELLES de l'objet (un verre : 0.08 x 0.12, paroi 0.003 ; un bol : 0.16 x 0.08, "
-					   "paroi 0.004 ; un vase : 0.2 x 0.35, paroi 0.006).";
+				// ⚠️ L'AIDE DE LA REVOLUTION DECRIT CHAQUE SILHOUETTE. C'est le correctif
+				//    mesure : sans ces effets, le modele choisit par le NOM DE L'OBJET.
+				snprintf(aide, sizeof(aide),
+						 "largeur et hauteur REELLES de l'objet (un verre : 0.08 x 0.12, paroi 0.003 ; un bol : "
+						 "0.16 x 0.08, paroi 0.004 ; un vase : 0.2 x 0.35, paroi 0.006).\n"
+						 "CHOISIS la silhouette par sa FORME, jamais par le nom de l'objet :");
+				int32 ns = 0;
+				const NkCreaSilhouette *S = NkCreaSilhouettes(ns);
+				for (int32 k = 0; k < ns; ++k) {
+					char l[160];
+					snprintf(l, sizeof(l), "\n- %s : %s", S[k].nom, S[k].effet);
+					strncat(aide, l, sizeof(aide) - strlen(aide) - 2u);
+				}
 			}
 			snprintf(dst, cap,
 					 "Tu remplis UN formulaire. La demande est reconnue comme un objet de la famille « %s ».\n"
@@ -2466,6 +2645,7 @@ namespace nkentseu {
 			NkCreaEtat &E = NkCrea();
 			rempli = false;
 			const char *ligneModele = nullptr;
+			char doc2[500] = {0}; ///< la ligne de repli, sans le mot `famille`
 			for (const char *c = reponse; c && *c;) {
 				while (*c == ' ' || *c == '\t' || *c == '`' || *c == '-' || *c == '*' || *c == '\n' || *c == '\r')
 					++c;
@@ -2476,8 +2656,63 @@ namespace nkentseu {
 				while (*c && *c != '\n')
 					++c;
 			}
+			// ── LE PREFIXE `famille ` N'EST PAS LA REPONSE, IL EST LA CEREMONIE ────
+			// MESURE du 22/09 (`Tools/Genia/mesure_formulaire.py`, critere C_lu) : sur
+			// « un bol », le 7B repond deux fois sur trois
+			// `silhouette evase largeur 0.16 hauteur 0.08 paroi 0.004` -- juste, complet,
+			// mais SANS le mot `famille`. Tout etait jete, et l'objet retombait sur les
+			// valeurs par defaut, c'est-a-dire un VERRE a la place d'un bol.
+			// ⚠️ ET LE MOT NE SERVAIT DEJA A RIEN : la famille ecrite par le modele est
+			//    REMPLACEE par celle que la chaine a reconnue, juste en dessous. On
+			//    exigeait donc un mot qu'on s'appretait a effacer.
+			// La ligne de repli est acceptee sur PREUVE : son premier mot doit etre un
+			// CHAMP du formulaire de cette famille -- et les champs sont lus dans le
+			// formulaire lui-meme, jamais recopies ici.
+			if (!ligneModele) {
+				char form[400] = {0};
+				NkCreaLigneFormulaire(form, sizeof(form), E.familleReconnue);
+				for (const char *c = reponse; c && *c;) {
+					while (*c == ' ' || *c == '\t' || *c == '`' || *c == '-' || *c == '*' || *c == '\n' || *c == '\r')
+						++c;
+					const char *mot = c;
+					while (*c && *c != ' ' && *c != '\n' && *c != '\r')
+						++c;
+					const usize lm = (usize)(c - mot);
+					// ce premier mot est-il un champ du formulaire ?
+					bool champ = false;
+					for (const char *f = form; *f && !champ;) {
+						while (*f == ' ')
+							++f;
+						const char *fm = f;
+						while (*f && *f != ' ')
+							++f;
+						const usize lf = (usize)(f - fm);
+						if (lf == lm && lm > 0u && fm[0] != '<' && strncmp(fm, mot, lm) == 0)
+							champ = true;
+					}
+					if (champ) {
+						ligneModele = mot;
+						break;
+					}
+					while (*c && *c != '\n')
+						++c;
+				}
+				if (ligneModele) {
+					// ici il n'y a PAS de nom de famille a sauter : la ligne commence
+					// deja par un champ. On la copie telle quelle.
+					uint32 n = 0;
+					const char *q = ligneModele;
+					while (*q && *q != '\n' && *q != '\r' && n + 1u < 500u)
+						doc2[n++] = *q++;
+					doc2[n] = 0;
+					rempli = true;
+					ligneModele = nullptr; // deja consommee
+				}
+			}
 			static char doc[700];
 			char ligne[500] = {0};
+			if (doc2[0])
+				snprintf(ligne, sizeof(ligne), "%s", doc2);
 			if (ligneModele) {
 				// la famille ecrite par le modele est REMPLACEE par celle reconnue
 				const char *q = ligneModele + 8;
@@ -3283,6 +3518,30 @@ namespace nkentseu {
 					std::fflush(stdout);
 					E.tripoApresPose = true;
 					(void)NkCreaLancerPlan(st, E.dorsalAttente);
+				}
+			}
+			// ── NK_CREA_DEMANDE=<phrase> : LA PORTE DE MESURE DE LA CREATION ──
+			// ⚠️ ELLE EXISTE PARCE QUE LA FRAPPE REJOUEE NE SUFFIT PLUS (22/09). Le
+			//    clic + `t:` + Entree de `NK_EVENEMENTS` a tape « modelise moi un vase
+			//    a fleurs » et l'application a envoye « Je veux un canar ninja » : le
+			//    composeur portait un brouillon RESTAURE, et c'est lui qui est parti.
+			//    Mesurer la creation a travers le composeur, c'est donc mesurer aussi
+			//    l'etat du panneau -- et se tromper de coupable quand il change. Cette
+			//    porte entre au MEME endroit que le panneau (`NkCreaLancer`), avec le
+			//    meme onglet et le meme dorsal : elle court-circuite la saisie, rien
+			//    d'autre. Ce n'est pas une entree d'utilisateur, c'est un instrument.
+			{
+				static bool sDemFait = false;
+				if (!sDemFait) {
+					const char *v = std::getenv("NK_CREA_DEMANDE");
+					if (!v || !*v)
+						sDemFait = true;
+					else if (image >= 30 && demo::Demo3DHostReady() && !E.envoi.EnCours()) {
+						sDemFait = true;
+						std::printf("[crea] NK_CREA_DEMANDE : « %s »\n", v);
+						std::fflush(stdout);
+						(void)NkCreaLancer(st, v, onglet, dorsalOnglet);
+					}
 				}
 			}
 			bool pose = NkCreaRecolter(st, onglet, dorsalOnglet);
