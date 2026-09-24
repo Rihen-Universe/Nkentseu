@@ -17,26 +17,31 @@ TC_WINDOWS = "nk-windows-clang-mingw"
 def nkentseutoolchain():
     RegisterJengaGlobalToolchains()
 
-    # Enregistrement du toolchain Windows avec resolution explicite du compilateur
+    # Windows natif : la RECHERCHE du compilateur n'est plus faite ici.
+    # RegisterJengaGlobalToolchains() vient d'enregistrer « clang-mingw » en
+    # cherchant clang/clang++/llvm-ar dans le PATH puis sous C:\msys64
+    # (ucrt64, clang64, mingw64) -- ce fichier refaisait la meme recherche a la
+    # main, en moins complet. On reprend donc les chemins que Jenga a trouves.
+    #
+    # Ce qui reste propre a Nkentseu, et justifie un toolchain a part :
+    #   - WINVER / _WIN32_WINNT (Windows 7 minimum) ;
+    #   - le lien STATIQUE de la runtime MinGW (voir ldflags plus bas) ;
+    #   - le NOM : « nk-windows-clang-mingw » est ecrit en dur dans cinq
+    #     sous-modules (ImGui, NKAssimp, NKGLSlang, NKShaderc, NKSPIRVCross),
+    #     il ne se renomme pas sans pousser d'abord dans chacun d'eux.
     if os.name == "nt":
-        _clang = shutil.which("clang")
-        _clangxx = shutil.which("clang++")
-        _llvm_ar = shutil.which("llvm-ar") or shutil.which("ar")
-        if not _clang and os.path.exists(r"C:\msys64\ucrt64\bin\clang.exe"):
-            _clang = r"C:\msys64\ucrt64\bin\clang.exe"
-        if not _clangxx and os.path.exists(r"C:\msys64\ucrt64\bin\clang++.exe"):
-            _clangxx = r"C:\msys64\ucrt64\bin\clang++.exe"
-        if not _llvm_ar and os.path.exists(r"C:\msys64\ucrt64\bin\llvm-ar.exe"):
-            _llvm_ar = r"C:\msys64\ucrt64\bin\llvm-ar.exe"
-        if not _llvm_ar and os.path.exists(r"C:\msys64\ucrt64\bin\ar.exe"):
-            _llvm_ar = r"C:\msys64\ucrt64\bin\ar.exe"
+        _ws = getcurrentworkspace()
+        _base = _ws.toolchains.get("clang-mingw") if _ws else None
+        _clang = _base.ccPath if _base else None
+        _clangxx = _base.cxxPath if _base else None
+        _llvm_ar = _base.arPath if _base else None
 
         with toolchain(TC_WINDOWS, "clang"):
             settarget("Windows", "x86_64", "mingw")
             targettriple(r"x86_64-w64-windows-gnu")
             ccompiler(_clang or "clang")
             cppcompiler(_clangxx or "clang++")
-            linker(_clangxx or "clang++")
+            linker((_base.ldPath if _base else None) or _clangxx or "clang++")
             if _llvm_ar:
                 archiver(_llvm_ar)
             cflags([
