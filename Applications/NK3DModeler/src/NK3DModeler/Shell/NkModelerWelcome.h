@@ -607,9 +607,35 @@ namespace nkentseu {
 				// montre six images qu'on identifie d'un regard.
 				// Les colonnes s'adaptent a la largeur : la carte garde une
 				// taille lisible au lieu de s'etirer sur un ecran large.
-				const NkRect area{x, y, w, H - y - S(64.f)};
+				// ⚠️ LA BARRE DE DEFILEMENT SE DESSINE DANS `area` (`p.VScroll(area,
+				//    …)`) : si la grille prend toute la largeur, la barre PASSE PAR
+				//    DESSUS la derniere colonne et les cartes de droite paraissent
+				//    coupees. Constat de Rodolf, 24/09 : « a droite ca ne doit pas
+				//    etre coupe ; en haut ou en bas ca peut, il y a le defilement ».
+				//    On lui reserve donc sa largeur, et seulement quand elle sert :
+				//    sans defilement, la grille reprend toute la place.
+				const float32 barreW = S(16.f);
+				const float32 hDispo = H - y - S(64.f);
+				NkRect area{x, y, w, hDispo};
 				const float32 gap = S(12.f);
 				const float32 cardWmin = S(210.f);
+				{
+					// Deux passes : la premiere dit s'il y aura defilement, la
+					// seconde recalcule la largeur en consequence. Une seule passe
+					// ne peut pas trancher, puisque la hauteur du contenu depend de
+					// la largeur qui depend de la barre.
+					const int32 nEstim = (int32)rec.items.Size();
+					int32 c0 = (int32)((area.w + gap) / (cardWmin + gap));
+					if (c0 < 1)
+						c0 = 1;
+					if (c0 > 5)
+						c0 = 5;
+					const float32 cw0 = (area.w - gap * (float32)(c0 - 1)) / (float32)c0;
+					const float32 ch0 = cw0 * 9.f / 16.f + S(48.f);
+					const int32 r0 = (nEstim + c0 - 1) / c0;
+					if ((float32)r0 * (ch0 + gap) > hDispo)
+						area.w -= barreW;
+				}
 				int32 cols = (int32)((area.w + gap) / (cardWmin + gap));
 				if (cols < 1)
 					cols = 1;
@@ -619,6 +645,31 @@ namespace nkentseu {
 				// 16:9 pour l'image + deux lignes de texte dessous.
 				const float32 thumbH = cardW * 9.f / 16.f;
 				const float32 cardH = thumbH + S(48.f);
+				// ── (24/09) NK_ACCUEIL_SONDE : LA GRILLE SE MESURE, ELLE NE SE DEVINE PAS ─
+				// Rodolf voit les cartes de droite coupees. Une correction de largeur
+				// ne se juge pas a l'oeil sur une capture : on imprime les chiffres qui
+				// decident, UNE fois, et on les confronte a l'image rendue.
+				// ⚠️ Le rectangle de la DERNIERE carte de la premiere ligne est celui
+				//    qui doit finir AVANT le bord : c'est lui qu'on imprime, pas une
+				//    moyenne.
+				{
+					static bool sDit = false;
+					if (!sDit && std::getenv("NK_ACCUEIL_SONDE")) {
+						sDit = true;
+						const float32 dernX = area.x + (float32)(cols - 1) * (cardW + gap);
+						std::printf("[nk3d] ACCUEIL W=%.0f H=%.0f leftW=%.0f pad=%.0f x=%.0f w=%.0f "
+									"area.w=%.0f barreW=%.0f cols=%d cardW=%.0f gap=%.0f%c",
+									(double)W, (double)H, (double)leftW, (double)pad, (double)x, (double)w,
+									(double)area.w, (double)S(16.f), (int)cols, (double)cardW, (double)gap,
+									(char)10);
+						std::printf("[nk3d] ACCUEIL derniere carte ligne 1 : x=%.0f -> %.0f ; "
+									"barre de defilement : x=%.0f -> %.0f ; bord de la fenetre=%.0f ; "
+									"depassement=%.0f%c",
+									(double)dernX, (double)(dernX + cardW), (double)(x + w - S(16.f)),
+									(double)(x + w), (double)W, (double)((dernX + cardW) - W), (char)10);
+						std::fflush(stdout);
+					}
+				}
 				const int32 n = (int32)rec.items.Size();
 				if (n == 0) {
 					// ETAT VIDE HONNETE : aucune carte de demonstration. La liste
@@ -712,7 +763,10 @@ namespace nkentseu {
 						}
 					}
 					p.Unclip();
-					p.VScroll(area, contentH, st.welcomeScroll);
+					// La barre se dessine dans la BANDE RESERVEE, a droite de la
+					// grille retrecie : `area` ne la contient plus (voir la garde
+					// plus haut), sinon elle reviendrait sur la derniere colonne.
+					p.VScroll(NkRect{x, y, w, hDispo}, contentH, st.welcomeScroll);
 				}
 			}
 

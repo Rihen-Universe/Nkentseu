@@ -275,6 +275,66 @@ namespace nkentseu {
 				return p.ImagePolygone(xy, uv, 4, (uint32)handle, 100.f);
 			}
 
+			// ── (Q11, 22/09) LA VIGNETTE EN CELLULES, TRACEE ─────────────────
+			// ⚠️ POURQUOI PAS `ImagePolygone` : il faudrait une TEXTURE, et le kit n'en
+			//    fabrique aucune. La poignee `thumbnail` existe depuis le 05/09 et
+			//    aucun hote ne l'a jamais remplie -- trois semaines d'icones
+			//    generiques. Les cellules, elles, ne demandent que `FillColor`, que
+			//    tous les peintres portent deja.
+			//
+			// L'image garde son rapport DANS le rectangle recu : le reste est de
+			// l'air, pas de l'etirement. Les cellules sont posees sur une grille
+			// d'entiers de pixels, en etendant chaque case jusqu'au debut de la
+			// suivante -- sinon un arrondi laisse des fentes du fond entre les
+			// colonnes, et la vignette se lit comme un grillage.
+			bool DrawThumbCells(NkComponentPaint &p, const NkPaintRect &r, int32 cw, int32 ch,
+								const uint32 *cellules) {
+				if (!cellules || cw <= 0 || ch <= 0 || r.w <= 1.f || r.h <= 1.f)
+					return false;
+				float32 w = r.w, h = r.h;
+				const float32 kImg = (float32)cw / (float32)ch;
+				const float32 kBoite = w / h;
+				if (kImg > kBoite)
+					h = w / kImg;
+				else
+					w = h * kImg;
+				const float32 x0 = r.x + (r.w - w) * 0.5f, y0 = r.y + (r.h - h) * 0.5f;
+				for (int32 cy = 0; cy < ch; ++cy) {
+					const float32 ya = y0 + h * (float32)cy / (float32)ch;
+					const float32 yb = y0 + h * (float32)(cy + 1) / (float32)ch;
+					for (int32 cx = 0; cx < cw; ++cx) {
+						const float32 xa = x0 + w * (float32)cx / (float32)cw;
+						const float32 xb = x0 + w * (float32)(cx + 1) / (float32)cw;
+						const float32 px = (float32)(int32)xa, py = (float32)(int32)ya;
+						float32 pw = (float32)(int32)(xb + 0.999f) - px;
+						float32 ph = (float32)(int32)(yb + 0.999f) - py;
+						if (pw < 1.f)
+							pw = 1.f;
+						if (ph < 1.f)
+							ph = 1.f;
+						p.FillColor({px, py, pw, ph}, cellules[(usize)cy * (usize)cw + (usize)cx]);
+					}
+				}
+				return true;
+			}
+
+			/// Le repli complet d'une vignette : la poignee de texture d'abord (le
+			/// contrat du 05/09, intact), les cellules ensuite, la silhouette en
+			/// dernier. UN seul endroit decide, pour que les deux variantes (grille
+			/// et liste) ne divergent pas.
+			bool DrawVignette(NkComponentPaint &p, const NkPaintRect &r, const NkAssetEntry &e,
+							  int32 index, const NkContentBrowserHooks &hooks) {
+				if (DrawThumb(p, r, e.thumbnail))
+					return true;
+				if (!hooks.vignetteCellules)
+					return false;
+				int32 cw = 0, ch = 0;
+				const uint32 *cel = nullptr;
+				if (!hooks.vignetteCellules(hooks.user, index, &cw, &ch, &cel))
+					return false;
+				return DrawThumbCells(p, r, cw, ch, cel);
+			}
+
 			// ── ②③ LES SILHOUETTES, DESSINEES (2026-09-05, nuit) ───────────────────
 			// Rodolf : « les dossiers ne sont pas bien designes » (des rectangles pleins) et
 			// « il doit y avoir des icones pour specifier chaque type comme c'est le cas
@@ -1092,7 +1152,7 @@ namespace nkentseu {
 					const float32 thumbZoneH = cell.h - footerH;
 					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
 											   thumbZoneH - pad * 2.f};
-					if (!DrawThumb(p, zoneVign, e.thumbnail))
+					if (!DrawVignette(p, zoneVign, e, idx, hooks))
 						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
 								   e.contenu);
 					// LE BADGE DE TYPE (Aetherion) : la couleur de la nature en
@@ -1129,7 +1189,7 @@ namespace nkentseu {
 				} else {
 					p.Fill(cell, s.cardBg);
 					const NkPaintRect zoneVign{cell.x + pad, cell.y, rowH, rowH};
-					if (!DrawThumb(p, zoneVign, e.thumbnail))
+					if (!DrawVignette(p, zoneVign, e, idx, hooks))
 						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
 								   e.contenu);
 					p.Text({cell.x + pad + rowH, cell.y, cell.w * 0.6f, cell.h}, Label(e), s.text);
