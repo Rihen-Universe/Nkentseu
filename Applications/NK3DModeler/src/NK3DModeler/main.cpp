@@ -986,6 +986,24 @@ int nkmain(const NkEntryState &entry) {
 	// drapeau, l'explorateur montre le curseur « interdit » et rien n'arrive --
 	// c'etait l'ecoute qui manquait (contrat d'import, point 2).
 	wc.dropEnabled = true;
+	// ── UNE FENETRE DE SONDE NE PREND NI LES CLICS NI LES TOUCHES DE RODOLF ──
+	// Regle apprise la nuit du 24 au 25/09 : deux agents ont fabrique des defauts
+	// qui n'existaient pas (presse-papiers, brouillon) parce que LEUR fenetre de
+	// mesure avait le focus et recevait les gestes de Rodolf. Une sonde qui capte
+	// l'entree de quelqu'un d'autre ne mesure plus le produit : elle le fabrique.
+	// DEUX COUCHES, parce que la premiere ne couvre que la souris :
+	//   1. `clickThrough` -- la fenetre est TRANSPARENTE AUX CLICS (Win32 :
+	//      WS_EX_LAYERED|WS_EX_TRANSPARENT) : ils vont a ce qui est dessous ;
+	//   2. plus bas dans la boucle, TOUTE entree reelle est ignoree et COMPTEE --
+	//      le clavier, lui, suit le focus, que la plateforme nous donne sans le
+	//      demander. On l'ecrit au journal plutot que de faire semblant.
+	// Les crochets de mesure (NK_*) n'en souffrent pas : ils ecrivent dans l'etat
+	// de l'image, jamais par la file d'evenements.
+	if (sonde) {
+		wc.clickThrough = true;
+		std::printf("[sonde] fenetre transparente aux clics ; toute entree reelle sera ignoree\n");
+		std::fflush(stdout);
+	}
 
 	NkWindow window;
 
@@ -1977,6 +1995,47 @@ int nkmain(const NkEntryState &entry) {
 				ui.input.keyInit[k] = false;
 			}
 		}
+		// ── SONDE : L'ENTREE REELLE EST IGNOREE, ET COMPTEE ────────────────
+		// Seconde couche de la garde posee a la creation de la fenetre. Le
+		// `clickThrough` ecarte la souris ; le CLAVIER, lui, suit le focus, et la
+		// plateforme nous le donne sans qu'on le demande. On vide donc l'entree
+		// AVANT `hit.Begin` -- c'est le seul endroit ou l'etancheite vaut a la fois
+		// pour le registre de clics et pour le code qui lit l'entree directement
+		// (meme raison que le vidage des modales, dix lignes plus haut).
+		// ⚠ ON LE DIT AU JOURNAL. Une entree ignoree en silence ressemblerait a un
+		//   produit qui ne repond pas : c'est le defaut qu'on cherche a ne PAS
+		//   fabriquer. Le compteur dit combien de gestes de Rodolf sont tombes sur
+		//   cette fenetre -- s'il monte, c'est qu'elle lui vole encore le focus.
+		if (sonde) {
+			static int32 sSondeIgnores = 0;
+			int32 vus = 0;
+			for (int32 b = 0; b < 3; ++b) {
+				vus += (ui.input.mouseDown[b] || ui.input.mouseClicked[b] ||
+						ui.input.mouseReleased[b] || ui.input.mouseDoubleClicked[b])
+						   ? 1
+						   : 0;
+				ui.input.mouseDown[b] = false;
+				ui.input.mouseClicked[b] = false;
+				ui.input.mouseReleased[b] = false;
+				ui.input.mouseDoubleClicked[b] = false;
+			}
+			vus += (ui.input.wheel != 0.f || ui.input.wheelH != 0.f) ? 1 : 0;
+			vus += (int32)ui.input.charCount;
+			ui.input.wheel = 0.f;
+			ui.input.wheelH = 0.f;
+			ui.input.charCount = 0;
+			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k) {
+				vus += (ui.input.keyDown[k] || ui.input.keyInit[k]) ? 1 : 0;
+				ui.input.keyDown[k] = false;
+				ui.input.keyInit[k] = false;
+			}
+			if (vus > 0) {
+				sSondeIgnores += vus;
+				std::printf("[sonde] entree REELLE ignoree (image %d) : %d signal(aux) ce tour, %d en tout\n",
+							(int)agentFrame, (int)vus, (int)sSondeIgnores);
+				std::fflush(stdout);
+			}
+		}
 		hit.Begin(ui.input);
 		// L'emprise des surfaces flottantes de la frame precedente devient celle
 		// que TOUT LE MONDE consulte cette frame -- registre et code direct.
@@ -2103,8 +2162,12 @@ int nkmain(const NkEntryState &entry) {
 			// garde, cliquer une carte de projet recent selectionnerait aussi un
 			// objet derriere l'ecran, et taper un nom de projet extruderait un
 			// maillage. Meme raisonnement que `st.editingText`.
-			demo::Demo3DHostSetView(viewImg.x, viewImg.y, overSceneLastFrame && !st.welcome,
-									!st.editingText && !st.welcome);
+			// SOUS SONDE, LA VUE N'ECOUTE PLUS NI LE SURVOL NI LES TOUCHES : ses
+			// rappels sont gardes par ces deux drapeaux, et les crochets de mesure
+			// (NK_EDIT_DRAG, NK_SCULPT_AT, NK_CURSOR_CLIC...) n'y passent pas.
+			demo::Demo3DHostSetView(viewImg.x, viewImg.y,
+									overSceneLastFrame && !st.welcome && !sonde,
+									!st.editingText && !st.welcome && !sonde);
 			// ── MESURE : LES DEUX SOURCES DE POSITION SOURIS ────────────────
 			// NK_MOUSE_TRACE=1. Le CLIC lit `NkInput.MouseX()` dans la vue 3D ;
 			// le LACHER du navigateur lit `hit.Mouse()`, alimente par
