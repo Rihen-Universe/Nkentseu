@@ -552,25 +552,109 @@ namespace nkuidesign {
 		return true;
 	}
 
-	/// (Q9) CE QUE LE MODELE POSE A UNE GEOMETRIE. Mesure du 21/09 (NK_AI_DUMP) :
-	/// la racine generee etait un cadre `layout=None` (« feuille : pas d'enfants a
-	/// disposer ») de taille `Expand` pose dans une TOILE -- 0 x 0 -- et ses huit
-	/// enfants n'etaient JAMAIS disposes (aucun rectangle). Le canevas cadrait la
-	/// page faute de mieux ; la vignette n'avait rien a tracer.
-	/// La correction, a la pose et nulle part ailleurs :
-	///   - un noeud qui a des enfants sans agencement devient une COLONNE (les
-	///     enfants s'empilent, s'etirent en largeur) ;
-	///   - la racine posee prend une taille FIXE : la largeur d'un ecran mobile
-	///     (360) et la somme des hauteurs de ses enfants -- une taille « Expand »
-	///     n'a pas de sens dans une toile, qui n'a pas de reste a partager.
-	/// Ce que le modele a declare explicitement (Fixed, un agencement) reste.
-	/// Deuxieme mesure (meme jour, autre course) : la racine venait `Fixed 360 x 360`
-	/// mais en TOILE (`Free`) avec ses huit enfants tous a (0, 0), les hauteurs en
-	/// `Content` resolues a 0 et les largeurs `Expand` a 0 dans une toile : huit
-	/// rectangles de hauteur nulle empiles au meme point.
-	inline void NkNormaliserGreffe(NkUIDocument &d, int32 racine) {
+	/// Le nom d'un mode de taille, pour que la trace se lise sans table de codes.
+	inline const char *NkModeNom(NkSizeMode m) {
+		switch (m) {
+			case NkSizeMode::Fixed: return "fixed";
+			case NkSizeMode::Content: return "content";
+			case NkSizeMode::Fraction: return "fraction";
+			case NkSizeMode::Weight: return "weight";
+			case NkSizeMode::Expand: return "expand";
+			default: return "?";
+		}
+	}
+
+	/// NK_AI_DUMP : la geometrie de CHAQUE noeud de la greffe, apres normalisation.
+	/// C'est ce releve, et lui seul, qui distingue une racine remise d'aplomb d'une
+	/// mise en page ecrasee -- une image ne dit pas si un `expand` a survecu.
+	inline void NkDumpGreffe(const NkUIDocument &d, int32 racine) {
+		NkVector<int32> pile;
+		pile.PushBack(racine);
+		while (pile.Size() > 0) {
+			const int32 i = pile[pile.Size() - 1];
+			pile.PopBack();
+			const NkUINode &n = d.nodes[(uint32)i];
+			printf("[NKUIDesign] GREFFE   [%d] %-20s l=%s %.0f  h=%s %.0f  agencement=%d%c", (int)i,
+				   n.label.Data() ? n.label.Data() : "", NkModeNom(n.width.mode), (double)n.width.value,
+				   NkModeNom(n.height.mode), (double)n.height.value, (int)n.layout.kind, (char)10);
+			for (usize k = n.children.Size(); k > 0; --k)
+				pile.PushBack(n.children[k - 1]);
+		}
+	}
+
+	/// (Q9) CE QUE LE MODELE POSE A UNE GEOMETRIE, ET CE QU'IL NE POSE PAS.
+	///
+	/// L'INVITE LUI INTERDIT LES POSITIONS -- « REGLE ABSOLUE : n'ecris JAMAIS de
+	/// position ni de coordonnee. La position se calcule ; tu declares des tailles
+	/// et un agencement. » Il n'y a donc RIEN a respecter du cote des positions :
+	/// tout ce que la greffe apporte, ce sont des TAILLES et des AGENCEMENTS, et
+	/// c'est exactement ce que cette fonction doit se garder d'ecraser.
+	///
+	/// ⚠️ CE QUE LA VERSION DU 21/09 FAISAIT, ET QUE RODOLF A VU LE 22/09 A 04h34.
+	///    Elle forcait `hauteur = Fixed 32` sur TOUT noeud dont la hauteur n'etait
+	///    pas deja `Fixed`. Sur la course « designe un viewport 3d style unreal
+	///    engine 5 », le modele avait pourtant declare une geometrie complete :
+	///      Barre_Haut        fixed 1920 x fixed 100
+	///      Barre_Gauche      fixed  256 x EXPAND        -> 32 px
+	///      Contenu_Principal EXPAND     x EXPAND        -> 32 px
+	///      Scene_View        EXPAND     x EXPAND        -> 32 px
+	///    Les barres laterales et la vue 3D devenaient des bandes de 32 px empilees
+	///    dans une racine de 360 px de large : la colonne de barres grises
+	///    identiques de la capture. **La normalisation ne sauvait pas la mise en
+	///    page, elle la remplacait.**
+	///
+	/// ⚠️ LA CAUSE, ET POURQUOI LE CORRECTIF DU 21/09 ETAIT TROP LARGE. Le vrai
+	///    probleme n'a jamais concerne que LA RACINE de la greffe : elle est posee
+	///    dans une TOILE, c'est-a-dire dans un parent qui n'a pas de reste a
+	///    partager. `Expand` et `Content` y resolvent a zero, et la greffe entiere
+	///    disparait. Mais des que la racine a une boite REELLE, ses descendants
+	///    resolvent normalement : `Expand` se partage la boite de la racine.
+	///    Le correctif du 21/09 a applique a tous les noeuds le remede d'UN seul.
+	///
+	/// CE QU'ELLE FAIT MAINTENANT, et rien d'autre :
+	///   1. un noeud qui a des enfants sans agencement (`None`), ou une toile ou
+	///      personne n'est place (tous a l'origine -- ce qui est TOUJOURS le cas,
+	///      l'invite interdisant les positions), devient une COLONNE ;
+	///   2. une taille DEGENEREE -- `Fixed` a moins d'un pixel, ou `Content` a
+	///      moins d'un pixel (rien a mesurer) -- recoit un minimum ;
+	///   3. `Expand`, `Weight` et `Fraction` ne sont PAS touches : ils ont un sens
+	///      des que la racine a une boite ;
+	///   4. la RACINE, et elle seule, recoit une boite concrete quand elle n'en a
+	///      pas -- deduite des largeurs fixes que le modele a declarees dans la
+	///      greffe (ici 1920), a defaut d'un ecran par defaut. Une racine de 360 px
+	///      pour un document dont les barres font 1920 n'etait pas une mise en page,
+	///      c'etait un decoupage.
+	///
+	/// `normalises` (facultatif) rend le nombre de noeuds dont la GEOMETRIE a ete
+	/// reecrite. C'est la mesure, et un chiffre qu'on n'imprime pas ne se verifie pas.
+	inline void NkNormaliserGreffe(NkUIDocument &d, int32 racine, int32 *normalises = nullptr) {
+		if (normalises)
+			*normalises = 0;
 		if (!d.IsValidIndex(racine))
 			return;
+		// Zero pixel demande explicitement, ou un « au contenu » que rien ne mesure :
+		// dans les deux cas le noeud n'occupera aucune place.
+		auto degeneree = [](const NkSizeDecl &s) {
+			return (s.mode == NkSizeMode::Fixed || s.mode == NkSizeMode::Content) && s.value < 1.f;
+		};
+		// La plus grande largeur FIXE declaree dans la greffe : c'est la seule
+		// indication de taille d'ecran que le modele nous donne, et elle vaut mieux
+		// qu'une constante. Relevee AVANT de toucher quoi que ce soit.
+		float32 largeurDeclaree = 0.f;
+		{
+			NkVector<int32> p2;
+			p2.PushBack(racine);
+			while (p2.Size() > 0) {
+				const int32 i = p2[p2.Size() - 1];
+				p2.PopBack();
+				const NkUINode &n = d.nodes[(uint32)i];
+				if (i != racine && n.width.mode == NkSizeMode::Fixed && n.width.value > largeurDeclaree)
+					largeurDeclaree = n.width.value;
+				for (usize k = 0; k < n.children.Size(); ++k)
+					p2.PushBack(n.children[k]);
+			}
+		}
+		int32 touches = 0;
 		NkVector<int32> pile;
 		pile.PushBack(racine);
 		while (pile.Size() > 0) {
@@ -578,45 +662,75 @@ namespace nkuidesign {
 			pile.PopBack();
 			NkUINode &n = d.nodes[(uint32)i];
 			if (n.children.Size() > 0) {
-				// des enfants SANS agencement, ou une toile ou le modele n'a place
-				// personne (tous a l'origine) : une COLONNE
 				bool tousAOrigine = true;
 				for (usize k = 0; k < n.children.Size() && tousAOrigine; ++k) {
 					const NkUINode &c = d.nodes[(uint32)n.children[k]];
 					tousAOrigine = c.posX == 0.f && c.posY == 0.f;
 				}
-				if (n.layout.kind == NkLayoutKind::None || (n.layout.kind == NkLayoutKind::Free && tousAOrigine)) {
+				if (n.layout.kind == NkLayoutKind::None
+					|| (n.layout.kind == NkLayoutKind::Free && tousAOrigine)) {
 					n.layout.kind = NkLayoutKind::Column;
 					n.layout.crossAlign = NkAlign::Stretch;
 				}
 			}
 			if (i != racine) {
-				// une hauteur « au contenu » ou « extensible » que rien ne mesure ici
-				// devient la hauteur que le modele a ecrite, sinon 32
-				if (n.height.mode != NkSizeMode::Fixed || n.height.value < 1.f) {
-					n.height.value = n.height.value > 1.f ? n.height.value : 32.f;
+				bool ecrit = false;
+				// ⚠️ SEULEMENT LA GEOMETRIE DEGENEREE. Une hauteur `Expand` n'est pas
+				//    degeneree : elle est RELATIVE, et elle se resout des que la racine a
+				//    une boite. La confondre avec « nulle » est ce qui a produit la
+				//    colonne de barres de 32 px.
+				if (degeneree(n.height)) {
 					n.height.mode = NkSizeMode::Fixed;
+					n.height.value = 32.f;
+					ecrit = true;
 				}
-				// une largeur au contenu nulle s'etire (la colonne l'etire)
-				if (n.width.mode == NkSizeMode::Content && n.width.value < 1.f)
+				if (degeneree(n.width)) {
+					// une largeur nulle dans une colonne : on la laisse s'etirer, ce que
+					// `crossAlign = Stretch` fera d'elle.
 					n.width.mode = NkSizeMode::Expand;
+					n.width.value = 1.f;
+					ecrit = true;
+				}
+				if (ecrit)
+					++touches;
 			}
 			for (usize k = 0; k < n.children.Size(); ++k)
 				pile.PushBack(n.children[k]);
 		}
+		// ── LA RACINE, ET ELLE SEULE ───────────────────────────────────
+		// Elle est posee dans une toile : aucun parent ne lui donnera de place, donc
+		// `Expand` y vaut zero. C'est le SEUL noeud pour lequel une taille concrete
+		// doit etre inventee -- ce que le correctif du 21/09 avait raison de faire,
+		// avant de l'appliquer a tout le monde.
 		NkUINode &R = d.nodes[(uint32)racine];
 		if (R.width.mode != NkSizeMode::Fixed || R.width.value < 1.f) {
 			R.width.mode = NkSizeMode::Fixed;
-			R.width.value = 360.f;
+			R.width.value = largeurDeclaree >= 1.f ? largeurDeclaree : 360.f;
+			++touches;
 		}
-		// la hauteur de la racine : au moins la somme de ses enfants empiles
-		float32 h = 16.f;
-		for (usize k = 0; k < R.children.Size(); ++k)
-			h += d.nodes[(uint32)R.children[k]].height.value + 8.f;
-		if (R.height.mode != NkSizeMode::Fixed || R.height.value < h) {
+		if (R.height.mode != NkSizeMode::Fixed || R.height.value < 1.f) {
+			// La somme de ce qui est REELLEMENT fixe chez les enfants, plus de la place
+			// pour ceux qui s'etirent. Sommer `value` sans regarder le mode comptait le
+			// POIDS d'un `Expand` (1) comme une hauteur d'un pixel : neuf enfants
+			// extensibles donnaient une racine de 97 px.
+			float32 fixe = 16.f;
+			int32 extensibles = 0;
+			for (usize k = 0; k < R.children.Size(); ++k) {
+				const NkUINode &c = d.nodes[(uint32)R.children[k]];
+				if (c.height.mode == NkSizeMode::Fixed && c.height.value >= 1.f)
+					fixe += c.height.value + 8.f;
+				else
+					++extensibles;
+			}
+			// Un extensible a besoin d'une part : on lui donne la proportion d'ecran qui
+			// va avec la largeur retenue (16:9), partagee entre eux.
+			const float32 ecran = R.width.value * 9.f / 16.f;
 			R.height.mode = NkSizeMode::Fixed;
-			R.height.value = h;
+			R.height.value = extensibles > 0 ? (fixe + ecran) : fixe;
+			++touches;
 		}
+		if (normalises)
+			*normalises = touches;
 	}
 
 	struct DesignState {
@@ -953,7 +1067,24 @@ namespace nkuidesign {
 						// CADRE : sinon « Document pose » arrive sur une vue qui ne le
 						// montre pas.
 						if (doc.IsValidIndex(r.graftedRoot)) {
-							NkNormaliserGreffe(doc, r.graftedRoot);
+							// ⚠️ COMBIEN DE NOEUDS LA NORMALISATION A-T-ELLE REECRITS ?
+							//    Le 22/09, elle en reecrivait presque tous et personne ne le
+							//    voyait : le fil disait « Document pose » pendant que la toile
+							//    montrait une colonne de barres identiques. Ce chiffre est
+							//    la difference entre « elle a rattrape une geometrie
+							//    degeneree » et « elle a remplace la mise en page ».
+							int32 normalises = 0;
+							NkNormaliserGreffe(doc, r.graftedRoot, &normalises);
+							const int32 total = r.nodesAdded;
+							printf("[NKUIDesign] GREFFE normalisee : %d noeud(s) sur %d ; racine %s %.0f x %s %.0f%c",
+								   (int)normalises, (int)total,
+								   NkModeNom(doc.nodes[(uint32)r.graftedRoot].width.mode),
+								   (double)doc.nodes[(uint32)r.graftedRoot].width.value,
+								   NkModeNom(doc.nodes[(uint32)r.graftedRoot].height.mode),
+								   (double)doc.nodes[(uint32)r.graftedRoot].height.value, (char)10);
+							if (std::getenv("NK_AI_DUMP"))
+								NkDumpGreffe(doc, r.graftedRoot);
+							fflush(stdout);
 							SelectSingle(r.graftedRoot);
 						}
 						cadrerApresGreffe = true;
@@ -1656,7 +1787,18 @@ namespace nkuidesign {
 					//    d'ici est NOTRE requete et NOTRE reponse, jamais le protocole d'un
 					//    service. C'est un REGLAGE, pas une reecriture.
 					NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
-					if (ollamaBackend.IsAvailable())
+					// ⚠️ (Q9 suite, 24/09) `NK_IA_DORSAL=fichier` FORCE le dorsal fichier.
+					//    Ce n'est pas un reglage d'utilisateur, c'est un INSTRUMENT : une
+					//    mesure avant / apres sur la mise en page d'un ecran genere n'a
+					//    aucune valeur si les deux courses n'ont pas recu LA MEME reponse.
+					//    Avec Ollama, elles ne l'ont pas : deux tirages, deux documents,
+					//    et on ne saurait plus si l'ecart vient du correctif ou du modele.
+					//    Le fichier de reponse est ecrit UNE fois, par le vrai modele, et
+					//    les deux courses le relisent.
+					const char *dorsalForce = std::getenv("NK_IA_DORSAL");
+					if (dorsalForce && NkComponentDecl::StrEq(dorsalForce, "fichier"))
+						ai.SetBackend(&fileBackend);
+					else if (ollamaBackend.IsAvailable())
 						ai.SetBackend(&ollamaBackend);
 					else if (proc.IsAvailable())
 						ai.SetBackend(&proc);

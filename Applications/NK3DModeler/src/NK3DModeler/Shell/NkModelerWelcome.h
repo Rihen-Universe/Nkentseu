@@ -645,6 +645,31 @@ namespace nkentseu {
 				// 16:9 pour l'image + deux lignes de texte dessous.
 				const float32 thumbH = cardW * 9.f / 16.f;
 				const float32 cardH = thumbH + S(48.f);
+				// ── (24/09) NK_ACCUEIL_SONDE : LA GRILLE SE MESURE, ELLE NE SE DEVINE PAS ─
+				// Rodolf voit les cartes de droite coupees. Une correction de largeur
+				// ne se juge pas a l'oeil sur une capture : on imprime les chiffres qui
+				// decident, UNE fois, et on les confronte a l'image rendue.
+				// ⚠️ Le rectangle de la DERNIERE carte de la premiere ligne est celui
+				//    qui doit finir AVANT le bord : c'est lui qu'on imprime, pas une
+				//    moyenne.
+				{
+					static bool sDit = false;
+					if (!sDit && std::getenv("NK_ACCUEIL_SONDE")) {
+						sDit = true;
+						const float32 dernX = area.x + (float32)(cols - 1) * (cardW + gap);
+						std::printf("[nk3d] ACCUEIL W=%.0f H=%.0f leftW=%.0f pad=%.0f x=%.0f w=%.0f "
+									"area.w=%.0f barreW=%.0f cols=%d cardW=%.0f gap=%.0f%c",
+									(double)W, (double)H, (double)leftW, (double)pad, (double)x, (double)w,
+									(double)area.w, (double)S(16.f), (int)cols, (double)cardW, (double)gap,
+									(char)10);
+						std::printf("[nk3d] ACCUEIL derniere carte ligne 1 : x=%.0f -> %.0f ; "
+									"barre de defilement : x=%.0f -> %.0f ; bord de la fenetre=%.0f ; "
+									"depassement=%.0f%c",
+									(double)dernX, (double)(dernX + cardW), (double)(x + w - S(16.f)),
+									(double)(x + w), (double)W, (double)((dernX + cardW) - W), (char)10);
+						std::fflush(stdout);
+					}
+				}
 				const int32 n = (int32)rec.items.Size();
 				if (n == 0) {
 					// ETAT VIDE HONNETE : aucune carte de demonstration. La liste

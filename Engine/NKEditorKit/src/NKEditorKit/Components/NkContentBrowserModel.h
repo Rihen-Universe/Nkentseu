@@ -385,6 +385,27 @@ namespace nkentseu {
 				// Filtre PROPRE a l'application, en plus du filtre texte du modele.
 				bool (*acceptEntry)(void *user, const NkAssetEntry &e) = nullptr;
 
+				// ── (Q11, 22/09) LA VIGNETTE EN CELLULES DE COULEUR ─────────────
+				// Rodolf, capture 051749 : le selecteur montrait 98 fichiers avec la MEME
+				// icone generique. `thumbnail` ne pouvait pas y repondre : c'est une
+				// poignee de TEXTURE, et le kit n'a pas d'atlas (memoire « Icon peint un
+				// carre »). Aucun des trois hotes ne l'a jamais remplie -- le crochet
+				// `vignette` du selecteur etait la depuis le 05/09, branche nulle part.
+				//
+				// Ce crochet-ci rend l'image REDUITE : une grille de couleurs moyennes,
+				// que le composant trace en rectangles avec `FillColor`.
+				// ⚠️ LE COMPOSANT NE DECODE TOUJOURS RIEN. Il ne connait ni NKImage ni le
+				//    disque : il demande, il trace, et un `false` le renvoie a la
+				//    silhouette -- exactement le repli d'une poignee nulle. C'est ce qui
+				//    garantit qu'un fichier casse ne laisse ni case vide ni plantage.
+				// ⚠️ IL EST APPELE AU DESSIN, DONC SEULEMENT SUR CE QUI SE VOIT : c'est la
+				//    moitie « chargement paresseux » de la demande, et elle ne coute rien
+				//    a ecrire ici puisque le dessin est deja borne par le defilement.
+				// Les cellules pointent chez l'hote ; le composant les consomme sur place
+				// et ne les garde pas d'un appel a l'autre.
+				bool (*vignetteCellules)(void *user, int32 index, int32 *cw, int32 *ch,
+										 const uint32 **cellules) = nullptr;
+
 				// Le COMPLEMENT de la barre d'etat pour l'entree active (« 24 Ko ·
 				// Modifie il y a 2j » — Aetherion). Le composant affiche deja nom et
 				// nature ; la taille et la date sont des connaissances de
