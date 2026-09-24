@@ -178,9 +178,32 @@ def _version_exigee():
 
 
 _V_EXIGEE = _version_exigee()
-if _V_EXIGEE and _HAS_JENGA_SRC:
-    _fmt2 = lambda t: ".".join(str(x) for x in t)
-    if _version_du_wheel(_JENGA_WHL) != _V_EXIGEE:
+_fmt2 = lambda t: ".".join(str(x) for x in t)
+
+# ⚠️ LE REFUS ARRETE NKCode, PAS L'ESPACE DE TRAVAIL (2026-09-24).
+# Ce fichier est evalue au CHARGEMENT : un SystemExit ici bloquait TOUTES les
+# cibles -- `jenga build --target NkDames --platform android`, `jenga info`...
+# -- pour un defaut qui ne concerne que NKCode. Le refus part donc en
+# prebuild() (voir le bloc projet plus bas, et tools/garde_version_jenga.py),
+# qui ne s'execute que si NKCode est construit.
+# Un prebuild ne mord qu'a partir de Jenga 2.8.2 : avant, son code de retour
+# etait ignore. Sous un Jenga plus ancien, on garde donc l'arret au chargement
+# -- mieux vaut bloquer trop que laisser passer en silence.
+try:
+    from Jenga import __version__ as _JENGA_EXEC_VERSION
+    _V_EXEC = tuple(int(x) for x in _JENGA_EXEC_VERSION.split(".")[:3])
+except Exception:
+    _V_EXEC = ()
+_PREBUILD_MORD = bool(_V_EXEC) and _V_EXEC >= (2, 8, 2)
+_GARDE_WHEEL_ECART = bool(_V_EXIGEE and _HAS_JENGA_SRC
+                          and _version_du_wheel(_JENGA_WHL) != _V_EXIGEE)
+
+if _GARDE_WHEEL_ECART and _PREBUILD_MORD:
+    print("[NKCode] ATTENTION : wheel embarque " + _fmt2(_version_du_wheel(_JENGA_WHL))
+          + " != JENGA_VERSION " + _fmt2(_V_EXIGEE)
+          + " -- NKCode refusera de se construire (les autres cibles ne sont pas touchees).")
+elif _V_EXIGEE and _HAS_JENGA_SRC:
+    if _GARDE_WHEEL_ECART:
         raise SystemExit(
             "[NKCode] ARRET : le wheel embarque est en "
             + _fmt2(_version_du_wheel(_JENGA_WHL))
@@ -243,6 +266,16 @@ with project("NKCode"):
     language("C++")
     cppdialect("C++17")
     location(".")
+
+    # Garde de version du wheel Jenga embarque : s'execute a la construction
+    # de NKCode seulement, et l'arrete (code 1) si le wheel ne suit pas
+    # JENGA_VERSION. Les deux versions sont calculees plus haut, a l'evaluation.
+    if _GARDE_WHEEL_ECART and _PREBUILD_MORD:
+        import sys as _sys
+        prebuild(['"' + _sys.executable + '" "'
+                  + os.path.join(_REPO_ROOT, "Applications", "NKCode", "tools", "garde_version_jenga.py")
+                  + '" ' + _fmt2(_V_EXIGEE) + " " + _fmt2(_version_du_wheel(_JENGA_WHL))
+                  + ' "' + _JENGA_WHL + '"'])
 
     files(["src/**.cpp"])
 
