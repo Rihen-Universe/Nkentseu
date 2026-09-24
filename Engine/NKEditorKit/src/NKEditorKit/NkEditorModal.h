@@ -41,6 +41,11 @@ namespace nkentseu {
 								  const char *const *buttons, int32 count) {
 			if (!m.open || count <= 0)
 				return -1;
+			// L'entree REELLE, meme quand ce dialogue est dessine depuis un panneau
+			// dont l'hote a vide l'entree (voir NkGuiContext::InputModale). Avant
+			// 2026-09-24 on lisait ctx.input : des l'image suivant l'ouverture, les
+			// boutons ne voyaient plus ni souris ni touches -- aucun ne repondait.
+			NkGuiInput &in = ctx.InputModale();
 			NkGuiDrawList &dl = ctx.dlOverlay;
 			const NkGuiFont *font = ctx.font;
 			const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
@@ -53,7 +58,7 @@ namespace nkentseu {
 			// les effacer. Seule la modale du BAS le pose ; les suivantes s'y posent.
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
-			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
+			in.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW), static_cast<float32>(ctx.viewH)},
 								  NkColor{0, 0, 0, 120});
@@ -105,7 +110,7 @@ namespace nkentseu {
 				m.pos.x = static_cast<float32>(ctx.viewW) - boxW;
 			if (m.pos.y + boxH > static_cast<float32>(ctx.viewH))
 				m.pos.y = static_cast<float32>(ctx.viewH) - boxH;
-			const NkVec2 mp = ctx.input.mousePos;
+			const NkVec2 mp = in.mousePos;
 			// ── ROUTEUR D'OCCLUSION UNIFIE : ce dialogue est une surface MODALE
 			// (couche 100). Ses hit-tests utilisent la couche 100 ; toute surface de
 			// couche inferieure passee a InputHits/ClickIn devient automatiquement
@@ -118,12 +123,12 @@ namespace nkentseu {
 				const NkRect prelimTitle = {m.pos.x, m.pos.y, boxW, titleH};
 				const bool overTitlePrelim = mp.x >= prelimTitle.x && mp.x < prelimTitle.x + prelimTitle.w &&
 											 mp.y >= prelimTitle.y && mp.y < prelimTitle.y + prelimTitle.h;
-				if (!justOpened && overTitlePrelim && ctx.input.mouseClicked[0] && !m.dragging) {
+				if (!justOpened && overTitlePrelim && in.mouseClicked[0] && !m.dragging) {
 					m.dragging = true;
 					m.dragOff = {mp.x - m.pos.x, mp.y - m.pos.y};
 				}
 				if (m.dragging) {
-					if (ctx.input.mouseDown[0]) {
+					if (in.mouseDown[0]) {
 						m.pos = {mp.x - m.dragOff.x, mp.y - m.dragOff.y};
 						if (m.pos.x < 0.f)
 							m.pos.x = 0.f;
@@ -170,16 +175,16 @@ namespace nkentseu {
 							   {br.x + (br.w - tw) * 0.5f, br.y + (br.h - lh) * 0.5f + font->Ascent()}, buttons[i],
 							   ctx.theme.text);
 				}
-				if (hov && ctx.input.mouseClicked[0])
+				if (hov && in.mouseClicked[0])
 					clicked = i;
 				bx += btnWs[i] + gap;
 			}
-			if (clicked < 0 && ctx.input.KeyPressed(NkGuiKey::Enter)) // Entree = bouton par defaut (primaire)
+			if (clicked < 0 && in.KeyPressed(NkGuiKey::Enter)) // Entree = bouton par defaut (primaire)
 				clicked = 0;
 			bool cancelled = false;
-			if (clicked < 0 && ctx.input.KeyPressed(NkGuiKey::Escape))
+			if (clicked < 0 && in.KeyPressed(NkGuiKey::Escape))
 				cancelled = true;
-			if (clicked < 0 && !cancelled && !justOpened && ctx.input.mouseClicked[0] && !inBox)
+			if (clicked < 0 && !cancelled && !justOpened && in.mouseClicked[0] && !inBox)
 				cancelled = true; // clic en dehors du dialogue -> Annuler (jamais sur la frame d'ouverture)
 
 			// MODALITE : force ctx.popupDepth > 0 tant que ce dialogue reste affiche —
@@ -222,8 +227,8 @@ namespace nkentseu {
 			// Consomme TOUT clic cette frame (rien derriere ne doit reagir tant que
 			// le dialogue reste affiche), SAUF celui qui vient d'armer le glisser
 			// (deja traite ci-dessus, ne doit pas se propager non plus).
-			ctx.input.mouseClicked[0] = false;
-			ctx.input.mouseClicked[1] = false;
+			in.mouseClicked[0] = false;
+			in.mouseClicked[1] = false;
 			return -1;
 		}
 
@@ -302,6 +307,7 @@ namespace nkentseu {
 			NkModalFrame out;
 			if (!m.open)
 				return out;
+			NkGuiInput &in = ctx.InputModale(); // l'entree reelle, voir NkModalDraw
 			NkGuiDrawList &dl = ctx.dlOverlay;
 			const NkGuiFont *font = ctx.font;
 			const float32 lh = (font && font->Valid()) ? font->LineHeight() : 16.f;
@@ -310,7 +316,7 @@ namespace nkentseu {
 			// VOILE : une seule fois pour toute la pile (voir NkModalDraw).
 			const bool premiereDeLaPile = (ctx.modalDepth == 0);
 			++ctx.modalDepth;
-			ctx.input.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
+			in.ReserverSaisie(); // ② une modale possede souris, molette ET clavier (une image de retard)
 			if (premiereDeLaPile)
 				dl.AddRectFilled({0.f, 0.f, static_cast<float32>(ctx.viewW),
 								  static_cast<float32>(ctx.viewH)},
@@ -338,7 +344,7 @@ namespace nkentseu {
 			if (m.pos.y + boxH > static_cast<float32>(ctx.viewH))
 				m.pos.y = static_cast<float32>(ctx.viewH) - boxH;
 
-			const NkVec2 mp = ctx.input.mousePos;
+			const NkVec2 mp = in.mousePos;
 			NkGuiContext::NkInputLayerScope _layer(ctx, 100);
 			// Glisser par la barre de titre, traite AVANT de figer la boite (sinon
 			// l'affichage reste en retard d'une frame sur la souris).
@@ -348,12 +354,12 @@ namespace nkentseu {
 				const NkRect t0 = {m.pos.x, m.pos.y, boxW, titleH};
 				const bool overTitle = !inerte && mp.x >= t0.x && mp.x < t0.x + t0.w &&
 									   mp.y >= t0.y && mp.y < t0.y + t0.h;
-				if (!justOpened && overTitle && ctx.input.mouseClicked[0] && !m.dragging) {
+				if (!justOpened && overTitle && in.mouseClicked[0] && !m.dragging) {
 					m.dragging = true;
 					m.dragOff = {mp.x - m.pos.x, mp.y - m.pos.y};
 				}
 				if (m.dragging) {
-					if (ctx.input.mouseDown[0]) {
+					if (in.mouseDown[0]) {
 						m.pos = {mp.x - m.dragOff.x, mp.y - m.dragOff.y};
 						if (m.pos.x < 0.f)
 							m.pos.x = 0.f;
@@ -430,9 +436,9 @@ namespace nkentseu {
 			out.box = box;
 			out.content = {box.x + pad, box.y + titleH, contentW, contentH};
 			out.closeAsked = !inerte &&
-							 ((overClose && ctx.input.mouseClicked[0]) ||
-							  ctx.input.KeyPressed(NkGuiKey::Escape) ||
-							  (!justOpened && ctx.input.mouseClicked[0] && !inBox));
+							 ((overClose && in.mouseClicked[0]) ||
+							  in.KeyPressed(NkGuiKey::Escape) ||
+							  (!justOpened && in.mouseClicked[0] && !inBox));
 			if (out.closeAsked) {
 				m.open = false;
 				m.posInit = false;
@@ -445,8 +451,8 @@ namespace nkentseu {
 			// destine a la surface ouverte au-dessus, qui sera peinte apres nous et le
 			// trouverait deja mange.
 			if (!inBox && !inerte) {
-				ctx.input.mouseClicked[0] = false;
-				ctx.input.mouseClicked[1] = false;
+				in.mouseClicked[0] = false;
+				in.mouseClicked[1] = false;
 			}
 			return out;
 		}
