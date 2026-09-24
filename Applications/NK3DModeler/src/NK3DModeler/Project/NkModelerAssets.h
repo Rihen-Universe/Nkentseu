@@ -1513,10 +1513,25 @@ namespace nkentseu {
 			// qu'il faut bien un numero, puis il est ARCHIVE : invisible, hors
 			// hierarchie, et donc incapable d'apparaitre dans une scene. C'est ce
 			// qui manquait quand tout vivait dans un seul fichier.
+			// ⚠️ ELLE EMPRUNTE LA SCENE 0, ET ELLE DOIT LA RENDRE (24/09).
+			//    Mesure : ouvrir `r1` chargeait bien ses 37 noeuds dans la scene 1, et
+			//    `NkProjectTreeRestore` finissait bien sur la scene active 1 -- puis un
+			//    QUATRIEME appel a cette fonction (le rebalayage du disque trouve
+			//    `geometry_0_04.nkmesh`, present dans le dossier mais absent de l'arbre
+			//    du .nk3dm) reposait la scene active a 0, et personne ne la rendait.
+			//    Resultat : 37 noeuds dans la scene 1, la vue sur la scene 0, et
+			//    l'application qui affiche « 0 objet(s) » sur un projet plein.
+			//    Le defaut n'etait donc NI un chargement rate NI un fichier casse :
+			//    c'etait un etat global emprunte et pas rendu.
+			// ⚠️ LE MOTIF EXISTE DEJA DANS CE DEPOT : `NkModelerImport.h` sauve
+			//    `scAvant` avant de basculer et le repose ensuite. On ne l'invente pas
+			//    ici, on l'applique la ou il manquait.
+			const int32 sceneAvant = demo::Demo3DHostActiveScene();
 			demo::Demo3DHostSetActiveScene(0);
 			NkVector<int32> made;
 			NkAsNodesRestore(in, root, rel, st, true, nodeMiss, &made, nullptr, geoOldOut);
 			st.Card(card).srcNode = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
+			demo::Demo3DHostSetActiveScene(sceneAvant);
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────
@@ -1958,7 +1973,6 @@ namespace nkentseu {
 			// enfants, deja poses. L'ambiance aussi : les objets recrees sont des
 			// occludeurs du GI voxel.
 			demo::Demo3DHostHierarchyResync();
-			demo::Demo3DHostGIMarkDirty();
 
 			if (err) {
 				err->Clear();
