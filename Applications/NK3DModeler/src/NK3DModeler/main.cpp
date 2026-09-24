@@ -58,6 +58,7 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
+#include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"
 #include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
@@ -5216,6 +5217,87 @@ int nkmain(const NkEntryState &entry) {
 							(double)st.aiPanRect[0], (double)st.aiPanRect[1], (double)st.aiPanRect[2],
 							(double)st.aiPanRect[3], r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
 				std::fflush(stdout);
+			}
+		}
+
+		// ── (Q11) NK_VIGNETTES=<dossier>,<image> : LES MINIATURES DU SELECTEUR ──
+		// Rodolf, capture 2026-09-22 051749 : « + -> Joindre une image » ouvre un
+		// selecteur de 98 fichiers qui montrent tous la MEME icone generique.
+		// Cette porte ouvre LE MEME selecteur que le « + » du panneau (action 4),
+		// sur le dossier demande, et imprime a chaque image ce que les vignettes
+		// coutent. `NK_VIGNETTES_OFF=1` rejoue l'ancien comportement SUR LE MEME
+		// BINAIRE : c'est le « avant » de la mesure, et il ne demande pas de croire
+		// qu'aucune autre difference ne s'est glissee entre deux constructions.
+		{
+			static int32 sVigF = -2;
+			static char sVigDir[256] = {0};
+			static NkChrono sVigHorloge;
+			static int32 sVigLignes = 0;
+			if (sVigF == -2) {
+				sVigF = -1;
+				if (const char *v = std::getenv("NK_VIGNETTES")) {
+					const char *virg = nullptr;
+					for (const char *c = v; *c; ++c)
+						if (*c == ',')
+							virg = c;
+					uint32 n = 0;
+					for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sVigDir); ++c)
+						sVigDir[n++] = *c;
+					sVigDir[n] = 0;
+					sVigF = virg ? (int32)std::atoi(virg + 1) : 5;
+				}
+				if (std::getenv("NK_VIGNETTES_OFF"))
+					st.picker.vignettes = false;
+			}
+			if (sVigF >= 0 && agentFrame == sVigF) {
+				NkChrono hOuv;
+				nk3d::NkPickerOuvrirImage(st, sVigDir[0] ? sVigDir : nullptr);
+				st.pickerAction = 4; // piece jointe : le geste du « + » du panneau
+				const float64 msScan = (double)hOuv.Elapsed().ToMilliseconds();
+				// (Q11) LE DEFILEMENT, parce que les DOSSIERS passent toujours en tete :
+				// sur Downloads, 25 dossiers occupent les cinq premieres rangees, et
+				// la plage visible d'une fenetre non defilee ne contient AUCUNE image.
+				// Rodolf, lui, avait defile. On pose donc le meme defilement -- une
+				// position de vue, pas un raccourci : la plage visible reste calculee
+				// par le composant, et le crochet comme la boucle de decodage passent
+				// par le chemin de l'application, inchange.
+				if (const char *sc = std::getenv("NK_VIGNETTES_SCROLL"))
+					st.picker.vue.scroll = (float32)std::atof(sc);
+				sVigHorloge.Reset();
+				std::printf("[nk3d] VIGNETTES OUVERTURE image=%d dossier=%s vignettes=%d "
+							"OpenPickerBase=%.2f ms\n",
+							(int)agentFrame, sVigDir, (int)(st.picker.vignettes ? 1 : 0), msScan);
+				std::fflush(stdout);
+			}
+			if (sVigF >= 0 && agentFrame > sVigF && sVigLignes < 60 && st.picker.pickerOpen) {
+				const float64 ms = (double)sVigHorloge.Reset().ToMilliseconds();
+				++sVigLignes;
+				// Le defilement se pose APRES la premiere image, pas avant : a
+				// l'ouverture, la liste n'est pas encore lue et le volet ramene toute
+				// position au contenu qu'il connait -- c'est-a-dire a zero.
+				if (sVigLignes <= 2)
+					if (const char *sc2 = std::getenv("NK_VIGNETTES_SCROLL"))
+						st.picker.vue.scroll = (float32)std::atof(sc2);
+				std::printf("[nk3d] VIGNETTES image=%d duree=%.2f ms entrees=%u vues=%d..%d "
+							"demandees=%u servies=%u decodees=%u refusees=%u\n",
+							(int)agentFrame, ms, (unsigned)st.picker.vue.entries.Size(),
+							(int)st.picker.premierVu, (int)st.picker.dernierVu,
+							(unsigned)st.picker.vignettesDemandees, (unsigned)st.picker.vignettesServies,
+							(unsigned)st.picker.vignettesDecodees, (unsigned)st.picker.vignettesRefusees);
+				// Le detail de la plage visible, une seule fois et tard : QUELLE image a
+				// une vignette, laquelle a ete refusee. Un compteur de refus sans le nom
+				// du fichier refuse ne se verifie pas.
+				if (sVigLignes == 30 && st.picker.premierVu >= 0)
+					for (int32 q = st.picker.premierVu;
+						 q <= st.picker.dernierVu && (uint32)q < st.picker.vue.entries.Size(); ++q) {
+						const editorkit::NkAssetEntry &en = st.picker.vue.entries[(uint32)q];
+						const editorkit::NkVignetteImage *vg = editorkit::NkVignetteConnue(
+							en.path.CStr(), en.dateModif, st.picker.grilleVignette);
+						std::printf("[nk3d] VIGNETTES [%d] %s dossier=%d vignette=%s %dx%d\n", (int)q,
+									en.name.CStr(), (int)en.isFolder,
+									!vg ? "pas-tentee" : (vg->ok ? "OUI" : "REFUSEE"), vg ? vg->cw : 0,
+									vg ? vg->ch : 0);
+					}
 			}
 		}
 
