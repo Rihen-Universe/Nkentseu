@@ -32,7 +32,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/NkAiThreadLayout.h"
-#include "NKImage/NKImage.h" // (Q8) les vignettes des images jointes
+#include "NKEditorKit/NkVignetteImage.h" // (Q8/Q11) le reducteur d'image, partage avec le selecteur
 #include "NKEditorKit/Components/NkComponentPaint.h"
 
 namespace nkentseu {
@@ -66,66 +66,13 @@ namespace nkentseu {
 				const char *composeur = nullptr;
 		};
 
-		// ── (Q8) LA VIGNETTE D'UNE IMAGE JOINTE, SANS TEXTURE ────────────────────
-		// ⚠️ LE KIT N'A PAS D'ATLAS NI DE TEXTURE PAR IMAGE (memoire « Icon peint un
-		//    carre ») : la vignette est l'image REDUITE a une grille de cellules
-		//    de couleur moyenne (32 x 24 au plus), tracees en rectangles. C'est
-		//    l'image, a basse definition -- pas un pictogramme a sa place.
-		struct NkAiVignetteImage {
-				NkString chemin;
-				bool ok = false;
-				int32 w = 0, h = 0;	  ///< les pixels de l'image
-				int32 cw = 0, ch = 0; ///< la grille
-				NkVector<uint32> cellules; ///< RGBA, ligne par ligne
-		};
-		inline NkVector<NkAiVignetteImage> &NkAiCacheVignettes() {
-			static NkVector<NkAiVignetteImage> v;
-			return v;
-		}
-		/// La vignette de `chemin`, lue et reduite UNE fois. `ok` faux = illisible.
-		inline const NkAiVignetteImage &NkAiVignetteDe(const char *chemin) {
-			NkVector<NkAiVignetteImage> &c = NkAiCacheVignettes();
-			for (usize i = 0; i < c.Size(); ++i)
-				if (c[i].chemin == NkString(chemin ? chemin : ""))
-					return c[i];
-			NkAiVignetteImage v;
-			v.chemin = NkString(chemin ? chemin : "");
-			NkImage img;
-			if (chemin && img.Load(chemin, 4) && img.Width() > 0 && img.Height() > 0) {
-				v.w = img.Width();
-				v.h = img.Height();
-				const float32 k = (float32)v.w / (float32)v.h;
-				v.cw = k >= 1.f ? 32 : (int32)(24.f * k + 0.5f);
-				v.ch = k >= 1.f ? (int32)(32.f / k + 0.5f) : 24;
-				if (v.cw < 1)
-					v.cw = 1;
-				if (v.ch < 1)
-					v.ch = 1;
-				const uint8 *px = img.Pixels();
-				const int32 st = img.Stride();
-				for (int32 cy = 0; cy < v.ch; ++cy)
-					for (int32 cx = 0; cx < v.cw; ++cx) {
-						const int32 x0 = cx * v.w / v.cw, x1 = (cx + 1) * v.w / v.cw;
-						const int32 y0 = cy * v.h / v.ch, y1 = (cy + 1) * v.h / v.ch;
-						uint64 r = 0, g = 0, b = 0, n = 0;
-						const int32 pas = ((x1 - x0) * (y1 - y0) > 256) ? 4 : 1;
-						for (int32 yy = y0; yy < (y1 > y0 ? y1 : y0 + 1); yy += pas)
-							for (int32 xx = x0; xx < (x1 > x0 ? x1 : x0 + 1); xx += pas) {
-								const uint8 *p = px + yy * st + xx * 4;
-								r += p[0];
-								g += p[1];
-								b += p[2];
-								++n;
-							}
-						if (n == 0)
-							n = 1;
-						v.cellules.PushBack(((uint32)(r / n) << 24) | ((uint32)(g / n) << 16) | ((uint32)(b / n) << 8) | 0xFFu);
-					}
-				v.ok = true;
-			}
-			c.PushBack(v);
-			return c[c.Size() - 1];
-		}
+		// ── (Q8, puis Q11) LA VIGNETTE D'UNE IMAGE, SANS TEXTURE ─────────────
+		// ⚠️ LE REDUCTEUR A DEMENAGE (Q11, 22/09) : il vit dans
+		//    `NkVignetteImage.h`, parce que le selecteur de fichiers en a besoin et
+		//    qu'il n'a rien a faire dans la transcription du panneau IA. `NkAiVignetteDe`
+		//    et `NkAiVignetteImage` gardent leur nom ET leur comportement : les
+		//    appelants du 21/09 ne bougent pas. Voir l'en-tete du nouveau fichier pour
+		//    ce qui a ete AJOUTE autour (date, plafonds, compteur de decodages).
 
 		namespace aipaint {
 

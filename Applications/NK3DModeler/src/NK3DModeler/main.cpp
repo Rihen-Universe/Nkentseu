@@ -58,6 +58,7 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
+#include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
 #include "NK3DModeler/Shell/NkModelerMenus.h"
 #include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
@@ -959,6 +960,22 @@ int nkmain(const NkEntryState &entry) {
 					 : NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
+	// (24/09) NK_FENETRE=<largeur>x<hauteur> : la taille de la fenetre pour la
+	// MESURE. Rodolf travaille en plein ecran (1920) ; une sonde qui ne mesure
+	// qu'en 1600 ne peut pas voir un defaut de mise en page qui n'apparait qu'a
+	// cinq colonnes. Instrument seulement : sans la variable, rien ne bouge.
+	if (const char *fw = std::getenv("NK_FENETRE")) {
+		const int lw = std::atoi(fw);
+		const char *xx = fw;
+		while (*xx && *xx != 'x' && *xx != 'X')
+			++xx;
+		const int lh = *xx ? std::atoi(xx + 1) : 0;
+		if (lw >= 800 && lh >= 600) {
+			wc.width = (uint32)lw;
+			wc.height = (uint32)lh;
+			wc.centered = false;
+		}
+	}
 	wc.minWidth = 1100;
 	wc.minHeight = 700;
 	wc.centered = true;
@@ -5216,6 +5233,194 @@ int nkmain(const NkEntryState &entry) {
 							(double)st.aiPanRect[0], (double)st.aiPanRect[1], (double)st.aiPanRect[2],
 							(double)st.aiPanRect[3], r1.ok ? r1.message : "ECHEC", r2.ok ? r2.message : "ECHEC");
 				std::fflush(stdout);
+			}
+		}
+
+		// ── (24/09) NK_SCENE_CONTENU=<image> : CE QUE LA SCENE OUVERTE CONTIENT ─
+		// Rodolf : « il faut verifier que la scene qui s'ouvre s'ouvre bien avec son
+		// contenu ». La verification ne peut pas se faire a l'oeil : un objet absent
+		// se lit comme « la scene est vide », un objet sans matiere comme « elle est
+		// grise ». On COMPTE dans l'application, apres le chargement.
+		//
+		// ⚠️ PREMIER INSTRUMENT JETE, ET IL FAUT LE DIRE. Il bouclait sur
+		//    `Demo3DHostObjectCount()` en appelant `Demo3DHostObjectName` : cette
+		//    fonction NOMME chaque emplacement (« Sphere 01 »…) qu'il soit occupe ou
+		//    non. Elle rendait 86 objets sur une scene VIDE. Le compte qui fait foi
+		//    est celui de l'application elle-meme -- `NkSceneCounts`, qui s'appuie sur
+		//    `NkHierNodeSkip` et qui alimente deja la barre d'etat et le pied de la
+		//    Hierarchie. Une sonde qui compte autrement que l'application temoigne
+		//    d'autre chose que ce que Rodolf voit.
+		{
+			static int32 sScF = -2;
+			if (sScF == -2) {
+				sScF = -1;
+				if (const char *v = std::getenv("NK_SCENE_CONTENU"))
+					sScF = (int32)std::atoi(v);
+			}
+			if (sScF > 0 && agentFrame == sScF) {
+				int32 vivants = 0, selectionnes = 0, seul = -1;
+				nk3d::NkSceneCounts(st, vivants, selectionnes, seul);
+				const int32 kFirstLight = demo::Demo3DHostObjectCount();
+				int32 nNoeuds = demo::Demo3DHostNodeCount();
+				if (nNoeuds > nk3d::NkModelerState::kMaxNodeNames)
+					nNoeuds = nk3d::NkModelerState::kMaxNodeNames;
+				int32 objets = 0, lumieres = 0, empties = 0, avecMaillage = 0, avecMatiere = 0;
+				int32 totalSommets = 0, totalTris = 0;
+				for (int32 n = 0; n < nNoeuds; ++n) {
+					if (nk3d::NkHierNodeSkip(n))
+						continue;
+					if (n >= 90)
+						++empties;
+					else if (n >= kFirstLight)
+						++lumieres;
+					else {
+						++objets;
+						int32 vt = 0, ar = 0, tr = 0;
+						if (demo::Demo3DHostMeshCounts(n, &vt, &ar, &tr) && vt > 0) {
+							++avecMaillage;
+							totalSommets += vt;
+							totalTris += tr;
+						}
+						if (demo::Demo3DHostNodeMatCount(n) > 0)
+							++avecMatiere;
+					}
+				}
+				std::printf("[nk3d] SCENE CONTENU image=%d projet=%s%c", (int)agentFrame,
+							proj.file.Empty() ? "(aucun)" : proj.file.CStr(), (char)10);
+				std::printf("[nk3d] SCENE   vivants=%d | objets=%d (avec maillage=%d, avec matiere=%d) "
+							"lumieres=%d empties=%d | sommets=%d triangles=%d | lumieres_hote=%d "
+							"camera_active=%d%c",
+							(int)vivants, (int)objets, (int)avecMaillage, (int)avecMatiere, (int)lumieres,
+							(int)empties, (int)totalSommets, (int)totalTris,
+							(int)demo::Demo3DHostLightCount(), (int)demo::Demo3DHostActiveCamera(), (char)10);
+				char nom[128];
+				for (int32 n = 0; n < nNoeuds; ++n) {
+					if (nk3d::NkHierNodeSkip(n))
+						continue;
+					nom[0] = 0;
+					nk3d::NkHierNodeName(st, n, nom, sizeof(nom));
+					int32 vt = 0, ar = 0, tr = 0;
+					demo::Demo3DHostMeshCounts(n, &vt, &ar, &tr);
+					std::printf("[nk3d] SCENE   [%3d] %-30s sommets=%-7d triangles=%-7d matieres=%d%c",
+								(int)n, nom, (int)vt, (int)tr,
+								(int)(n < kFirstLight ? demo::Demo3DHostNodeMatCount(n) : 0), (char)10);
+				}
+				// DISCRIMINER « pas charge » de « charge dans une autre scene » : le
+				// predicat de la hierarchie saute tout noeud dont la scene differe de
+				// la scene active. Sans ce second compte, un chargement REUSSI mais
+				// range au mauvais numero se lirait comme un chargement rate.
+				{
+					int32 brut = 0, autreScene = 0, supprimes = 0;
+					const int32 nMax = demo::Demo3DHostNodeCount();
+					for (int32 n = 0; n < nMax; ++n) {
+						if (demo::Demo3DHostNodeDeleted(n)) {
+							++supprimes;
+							continue;
+						}
+						if (demo::Demo3DHostUserKind(n) == 0 && n >= 96)
+							continue;
+						++brut;
+						if (demo::Demo3DHostNodeScene(n) != demo::Demo3DHostActiveScene())
+							++autreScene;
+					}
+					std::printf("[nk3d] SCENE   scene_active=%d | noeuds non supprimes=%d dont "
+								"dans une AUTRE scene=%d | supprimes=%d | erreur_projet=%s\n",
+								(int)demo::Demo3DHostActiveScene(), (int)brut, (int)autreScene,
+								(int)supprimes, st.projError[0] ? st.projError : "(aucune)");
+					const int32 dAct = st.TabDoc(st.activeTab);
+					std::printf("[nk3d] SCENE   onglet actif=%d sur %d ; document=%d ; "
+								"docScene=%d ; docUsed=%d\n",
+								(int)st.activeTab, (int)st.sceneCount, (int)dAct,
+								(int)(dAct >= 0 ? st.docScene[dAct] : -1),
+								(int)(dAct >= 0 ? (st.docUsed[dAct] ? 1 : 0) : -1));
+					for (int32 d2 = 0; d2 < nk3d::NkModelerState::kMaxDocs; ++d2)
+						if (st.docUsed[d2])
+							std::printf("[nk3d] SCENE     doc[%d] nom=%s scene=%d transitoire=%d\n",
+										(int)d2, st.docName[d2], (int)st.docScene[d2],
+										(int)(st.docTransient[d2] ? 1 : 0));
+				}
+				std::fflush(stdout);
+			}
+		}
+
+		// ── (Q11) NK_VIGNETTES=<dossier>,<image> : LES MINIATURES DU SELECTEUR ──
+		// Rodolf, capture 2026-09-22 051749 : « + -> Joindre une image » ouvre un
+		// selecteur de 98 fichiers qui montrent tous la MEME icone generique.
+		// Cette porte ouvre LE MEME selecteur que le « + » du panneau (action 4),
+		// sur le dossier demande, et imprime a chaque image ce que les vignettes
+		// coutent. `NK_VIGNETTES_OFF=1` rejoue l'ancien comportement SUR LE MEME
+		// BINAIRE : c'est le « avant » de la mesure, et il ne demande pas de croire
+		// qu'aucune autre difference ne s'est glissee entre deux constructions.
+		{
+			static int32 sVigF = -2;
+			static char sVigDir[256] = {0};
+			static NkChrono sVigHorloge;
+			static int32 sVigLignes = 0;
+			if (sVigF == -2) {
+				sVigF = -1;
+				if (const char *v = std::getenv("NK_VIGNETTES")) {
+					const char *virg = nullptr;
+					for (const char *c = v; *c; ++c)
+						if (*c == ',')
+							virg = c;
+					uint32 n = 0;
+					for (const char *c = v; *c && (!virg || c < virg) && n + 1u < sizeof(sVigDir); ++c)
+						sVigDir[n++] = *c;
+					sVigDir[n] = 0;
+					sVigF = virg ? (int32)std::atoi(virg + 1) : 5;
+				}
+				if (std::getenv("NK_VIGNETTES_OFF"))
+					st.picker.vignettes = false;
+			}
+			if (sVigF >= 0 && agentFrame == sVigF) {
+				NkChrono hOuv;
+				nk3d::NkPickerOuvrirImage(st, sVigDir[0] ? sVigDir : nullptr);
+				st.pickerAction = 4; // piece jointe : le geste du « + » du panneau
+				const float64 msScan = (double)hOuv.Elapsed().ToMilliseconds();
+				// (Q11) LE DEFILEMENT, parce que les DOSSIERS passent toujours en tete :
+				// sur Downloads, 25 dossiers occupent les cinq premieres rangees, et
+				// la plage visible d'une fenetre non defilee ne contient AUCUNE image.
+				// Rodolf, lui, avait defile. On pose donc le meme defilement -- une
+				// position de vue, pas un raccourci : la plage visible reste calculee
+				// par le composant, et le crochet comme la boucle de decodage passent
+				// par le chemin de l'application, inchange.
+				if (const char *sc = std::getenv("NK_VIGNETTES_SCROLL"))
+					st.picker.vue.scroll = (float32)std::atof(sc);
+				sVigHorloge.Reset();
+				std::printf("[nk3d] VIGNETTES OUVERTURE image=%d dossier=%s vignettes=%d "
+							"OpenPickerBase=%.2f ms\n",
+							(int)agentFrame, sVigDir, (int)(st.picker.vignettes ? 1 : 0), msScan);
+				std::fflush(stdout);
+			}
+			if (sVigF >= 0 && agentFrame > sVigF && sVigLignes < 60 && st.picker.pickerOpen) {
+				const float64 ms = (double)sVigHorloge.Reset().ToMilliseconds();
+				++sVigLignes;
+				// Le defilement se pose APRES la premiere image, pas avant : a
+				// l'ouverture, la liste n'est pas encore lue et le volet ramene toute
+				// position au contenu qu'il connait -- c'est-a-dire a zero.
+				if (sVigLignes <= 2)
+					if (const char *sc2 = std::getenv("NK_VIGNETTES_SCROLL"))
+						st.picker.vue.scroll = (float32)std::atof(sc2);
+				std::printf("[nk3d] VIGNETTES image=%d duree=%.2f ms entrees=%u vues=%d..%d "
+							"demandees=%u servies=%u decodees=%u refusees=%u\n",
+							(int)agentFrame, ms, (unsigned)st.picker.vue.entries.Size(),
+							(int)st.picker.premierVu, (int)st.picker.dernierVu,
+							(unsigned)st.picker.vignettesDemandees, (unsigned)st.picker.vignettesServies,
+							(unsigned)st.picker.vignettesDecodees, (unsigned)st.picker.vignettesRefusees);
+				// Le detail de la plage visible, une seule fois et tard : QUELLE image a
+				// une vignette, laquelle a ete refusee. Un compteur de refus sans le nom
+				// du fichier refuse ne se verifie pas.
+				if (sVigLignes == 30 && st.picker.premierVu >= 0)
+					for (int32 q = st.picker.premierVu;
+						 q <= st.picker.dernierVu && (uint32)q < st.picker.vue.entries.Size(); ++q) {
+						const editorkit::NkAssetEntry &en = st.picker.vue.entries[(uint32)q];
+						const editorkit::NkVignetteImage *vg = editorkit::NkVignetteConnue(
+							en.path.CStr(), en.dateModif, st.picker.grilleVignette);
+						std::printf("[nk3d] VIGNETTES [%d] %s dossier=%d vignette=%s %dx%d\n", (int)q,
+									en.name.CStr(), (int)en.isFolder,
+									!vg ? "pas-tentee" : (vg->ok ? "OUI" : "REFUSEE"), vg ? vg->cw : 0,
+									vg ? vg->ch : 0);
+					}
 			}
 		}
 
