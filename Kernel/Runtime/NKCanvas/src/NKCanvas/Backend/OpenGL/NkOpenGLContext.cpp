@@ -302,6 +302,15 @@ namespace nkentseu {
 			Shutdown();
 			return false;
 		}
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// macOS + NK_NO_GLAD2 : le rendu 2D consomme glad quand meme (voir
+		// LoadOpenGLEntryPoints) -- il faut donc l'APPELER ici. Il se termine par
+		// FillInfo(). (2026-09-24 : le chargement ajoute dans LoadOpenGLEntryPoints
+		// ne s'executait pas, cette branche n'appelait que FillInfo.)
+		if (!LoadOpenGLEntryPoints(desc.opengl)) {
+			Shutdown();
+			return false;
+		}
 #else
 		FillInfo();
 #endif
