@@ -144,6 +144,16 @@ namespace nkentseu {
 			return nkvpInputOn && NkInput.IsKeyDown(k);
 		}
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
+		// SONDE « BOITE AU CLIC DU CURSEUR » (NK_BOITE_SONDE=1) : ce qui est PUBLIE
+		// pour etre cerne, a l'image pres. On compte les SOUMISSIONS au masque de
+		// silhouette et les cibles qu'elles designent -- jamais une relecture de la
+		// condition qui les garde.
+		static int32 gBoiteOutObj = 0, gBoiteOutUser = 0, gBoiteOutObjIdx = -1, gBoiteOutUserIdx = -1;
+		// ⚠️ « UNE BOITE PUBLIEE SANS CIBLE » : une soumission au masque de silhouette
+		//    dont le maillage est INVALIDE. Le masque rendrait alors une silhouette vide
+		//    ou une forme de repli -- la famille « un compteur dont le zero n'est pas
+		//    zero ». On la COMPTE, et le banc rougit si elle n'est pas nulle.
+		static int32 gBoiteSansCible = 0;
 		// SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) : aretes de cage envoyees au dernier
 		// overlay reconstruit. On COMPTE ce qui part au trace, on ne relit pas la condition.
 		static uint32 gModeSondeCage = 0u;
@@ -13741,7 +13751,11 @@ namespace nkentseu {
 							// L'objet ACTIF reçoit un liseré de teinte plus claire (façon
 							// Blender) : sans cette distinction, impossible de savoir sur quel
 							// objet porteront les opérations qui ne visent que l'actif.
+							if (!sdc.mesh.IsValid())
+								++gBoiteSansCible;
 							r3d->SubmitSelection(sdc, i == activeIdx);
+							++gBoiteOutObj;
+							gBoiteOutObjIdx = i;
 							nOut++;
 						}
 						(void)nOut;
@@ -13792,7 +13806,24 @@ namespace nkentseu {
 												 NkMat4f::Scale({nkvpDimFactor[un][0],
 																 nkvpDimFactor[un][1],
 																 nkvpDimFactor[un][2]});
+							// MUTATION DANS LE MEME BINAIRE (NK_BOITE_FAUSSE=1) : on publie
+							// EN PLUS une boite sans cible. Le critere du banc doit rougir --
+							// sinon il ne surveille rien.
+							static const bool sBoiteFausse = []() {
+								const char *v = getenv("NK_BOITE_FAUSSE");
+								return v && v[0] && v[0] != '0';
+							}();
+							if (sBoiteFausse) {
+								NkDrawCall3D faux;
+								faux.transform = sdc2.transform;
+								++gBoiteSansCible;
+								r3d->SubmitSelection(faux, false);
+							}
+							if (!sdc2.mesh.IsValid())
+								++gBoiteSansCible;
 							r3d->SubmitSelection(sdc2, e == esel2);
+							++gBoiteOutUser;
+							gBoiteOutUserIdx = un;
 						}
 					}
 
@@ -14173,6 +14204,77 @@ namespace nkentseu {
 				const NkVec3f cup = crgt.Cross(cfwd).Normalized();
 				const float32 cthY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
 				const float32 cthX = cthY * ((float32)ctx.width / (float32)ctx.height);
+				// ── CROCHET DE MESURE : UN CLIC DE L'OUTIL CURSEUR, ECRIT ──────────
+				// NK_CURSOR_CLIC="x:y[:image[:periode]]" arme EXACTEMENT ce que pose le
+				// rappel souris de l'outil Curseur (cursorPlacePending + pixels de vue) :
+				// aucune souris de la machine n'est touchee, et le geste emprunte la seule
+				// porte existante. `periode` rejoue le clic toutes les N images -- le defaut
+				// signale est un clignotement d'UNE image, il faut donc pouvoir le viser.
+				// Separateur ':' (la virgule est le separateur decimal en fr-FR).
+				{
+					static bool sCcLu = false;
+					static float32 sCcX = 0.f, sCcY = 0.f;
+					static int32 sCcImg0 = 0, sCcPer = 0, sCcN = 0;
+					static bool sCcArme = false;
+					if (!sCcLu) {
+						sCcLu = true;
+						if (const char *cc = getenv("NK_CURSOR_CLIC")) {
+							float32 v[4] = {0.f, 0.f, 100.f, 0.f};
+							int32 k = 0;
+							for (const char *q = cc; k < 4 && *q;) {
+								v[k++] = (float32)atof(q);
+								while (*q && *q != ':')
+									++q;
+								if (*q == ':')
+									++q;
+							}
+							sCcX = v[0];
+							sCcY = v[1];
+							sCcImg0 = (int32)v[2];
+							sCcPer = (int32)v[3];
+							sCcArme = true;
+							logger.Info("[Demo3D] NK_CURSOR_CLIC arme : ({0},{1}) px de vue a partir de "
+								  "l'image {2}, periode {3}\n",
+								  sCcX, sCcY, sCcImg0, sCcPer);
+						}
+					}
+					if (sCcArme) {
+						++sCcN;
+						const bool premier = (sCcN == sCcImg0);
+						const bool rejoue = (sCcPer > 0 && sCcN > sCcImg0 && ((sCcN - sCcImg0) % sCcPer) == 0);
+						if (premier || rejoue) {
+							st->cursorPlacePending = true;
+							st->cursorPX = sCcX;
+							st->cursorPY = sCcY;
+							logger.Info("[Demo3D] NK_CURSOR_CLIC : clic ecrit a l'image {0}\n", sCcN);
+						}
+					}
+				}
+				const bool boiteClic = st->cursorPlacePending;
+				// SONDE NK_BOITE_SONDE=1 : ce que CETTE image publie pour etre cerne, et
+				// l'etat des candidats. Imprimee A CHAQUE IMAGE autour d'un clic : un
+				// clignotement d'une image ne se voit pas dans un releve espace.
+				{
+					static const bool sBs = []() {
+						const char *v = getenv("NK_BOITE_SONDE");
+						return v && v[0] && v[0] != '0';
+					}();
+					static int32 sBsImg = 0;
+					++sBsImg;
+					if (sBs)
+						logger.Info("[BOITE-SONDE] img={0} clic={1} curseur=({2}, {3}, {4}) "
+									"cerne_demo={5} (idx={6}) cerne_user={7} (noeud={8}) gizmoCache={9} "
+									"demoSel={10} userActif={11} selTool={12} selDrag={13} outilCurseur={14} "
+									"sans_cible={15}\n",
+									sBsImg, boiteClic ? 1 : 0, st->cursor3D.x, st->cursor3D.y, st->cursor3D.z,
+									gBoiteOutObj, gBoiteOutObjIdx, gBoiteOutUser, gBoiteOutUserIdx,
+									nkvpGizmoHidden ? 1 : 0, st->gizmo.HasSelection() ? 1 : 0,
+									st->emptyGizmo.ActiveIndex(), st->selTool, st->selDragging ? 1 : 0,
+									nkvpCursorTool ? 1 : 0, gBoiteSansCible);
+					gBoiteOutObj = 0;
+					gBoiteOutUser = 0;
+					gBoiteSansCible = 0;
+				}
 				if (st->cursorPlacePending) {
 					st->cursorPlacePending = false;
 					const float32 nx = st->cursorPX / (float32)ctx.width * 2.f - 1.f;
