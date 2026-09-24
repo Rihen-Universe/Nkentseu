@@ -211,6 +211,12 @@ static void LoadGL33Procs() {
 #ifndef GL_MAX
 #define GL_MAX 0x8008
 #endif
+// APIENTRY vient des en-tetes Windows (et de glad sous Windows) ; ni <GL/gl.h>
+// de Mesa ni <OpenGL/gl.h> d'Apple ne le definissent. Sans ce repli, la ligne
+// suivante ne compilait que sous Windows (« expected ')' » sous Linux et macOS).
+#ifndef APIENTRY
+#define APIENTRY
+#endif
 static void(APIENTRY *nkGlBlendEquation)(GLenum) = nullptr;
 
 // GL constants manquants sous certains environnements
