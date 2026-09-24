@@ -19,6 +19,9 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 int nkmain(const NkEntryState &state) {
 	logger.Infof("%s v%s demarrage", globals::PLATFORM_NAME, globals::PLATFORM_VERSION);
 
+	NkWindow window;
+	window.
+
 	MouPlatformApp app;
 	if (!app.Initialize(state)) {
 		logger.Error("Impossible d'initialiser la plateforme Mu");
