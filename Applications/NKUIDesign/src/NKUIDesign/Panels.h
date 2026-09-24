@@ -792,6 +792,9 @@ namespace nkuidesign {
 			///    de `Init` -- c'est-a-dire l'ecrire une seconde fois, et les deux
 			///    finiraient par ne plus designer le meme dorsal.
 			NkIDesignBackend *dorsalLocal = nullptr;
+			/// (24/09) VRAI seulement quand `NK_IA_DORSAL=fichier` est pose. C'est une
+			/// SONDE, pas un fournisseur : la puce le dit, et le fil aussi.
+			bool dorsalSonde = false;
 
 			// -- DISCUTER AVANT DE DESSINER -----------------------------------
 			// Rodolf : « on doit pouvoir discuter avec lui AVANT de commencer a
@@ -1796,14 +1799,28 @@ namespace nkuidesign {
 					//    Le fichier de reponse est ecrit UNE fois, par le vrai modele, et
 					//    les deux courses le relisent.
 					const char *dorsalForce = std::getenv("NK_IA_DORSAL");
-					if (dorsalForce && NkComponentDecl::StrEq(dorsalForce, "fichier"))
+					dorsalSonde = dorsalForce && NkComponentDecl::StrEq(dorsalForce, "fichier");
+					if (dorsalSonde)
 						ai.SetBackend(&fileBackend);
 					else if (ollamaBackend.IsAvailable())
 						ai.SetBackend(&ollamaBackend);
 					else if (proc.IsAvailable())
 						ai.SetBackend(&proc);
 					else
-						ai.SetBackend(&fileBackend);
+						// \U0001f534 LE DORSAL FICHIER N'EST PLUS LE DERNIER RECOURS (24/09).
+						//    Capture de Rodolf 234010 : la puce du modele affichait
+						//    \u00ab fichier \u00bb et la generation repondait \u00ab REFUS \u2014 Prompt ecrit
+						//    dans nkuidesign_pro\u2026 \u00bb. Il n'avait rien choisi : la cascade
+						//    tombait toute seule sur le dorsal FICHIER, qui ecrit une
+						//    invite sur le disque et attend qu'un humain colle la
+						//    reponse. Presente comme un modele parmi d'autres, c'est
+						//    un mensonge : ce n'est pas un modele, c'est un tuyau
+						//    manuel.
+						// \u26a0\ufe0f ON GARDE DONC OLLAMA MEME INDISPONIBLE. Son refus NOMME
+						//    la vraie cause (\u00ab Ollama ne repond pas \u00bb) la ou le dorsal
+						//    fichier repondait par un chemin de fichier incomprehensible.
+						//    Un repli qui reste plausible est pire qu'un refus.
+						ai.SetBackend(&ollamaBackend);
 					// ⚠️ CLAUDE N'ENTRE PAS DANS CETTE CASCADE, ET C'EST LE POINT.
 					//    « Le premier qui REPOND gagne » est une bonne regle entre
 					//    dorsaux LOCAUX : le pire qui puisse arriver est un fichier a
@@ -10281,8 +10298,20 @@ namespace nkuidesign {
 				} else {
 					editorkit::NkAiModeleDesc ml;
 					// ⚠️ LE NOM DU DORSAL, JAMAIS CELUI D'UN MODELE ECRIT EN DUR.
-					ml.nom = NkString(mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name() : "fichier");
-					ml.detail = NkString(mOllama ? motifLocal.Data() : "dorsal par processus ou par fichier");
+					// \U0001f534 UNE PORTE DE MESURE NE SE DEGUISE PAS EN MODELE (24/09).
+					//    Quand `NK_IA_DORSAL=fichier` est pose, la puce le DIT : Rodolf
+					//    doit pouvoir lire, sans ouvrir un terminal, que ce qu'il a sous
+					//    les yeux est une sonde et non un modele.
+					if (mSt->dorsalSonde) {
+						ml.nom = NkString("SONDE");
+						ml.detail = NkString("PORTE DE MESURE (NK_IA_DORSAL=fichier) \u2014 ce n'est pas un "
+											 "modele : l'invite est ecrite sur le disque et la reponse doit "
+											 "y etre collee a la main.");
+					} else {
+						ml.nom = NkString(mSt->dorsalLocal && mSt->dorsalLocal->Name() ? mSt->dorsalLocal->Name()
+																					  : "local");
+						ml.detail = NkString(mOllama ? motifLocal.Data() : "dorsal local par processus");
+					}
 					ml.motifEffort = NkString("ce dorsal ne recoit aucun budget de reponse");
 					ml.motifPensee = NkString("ce dorsal ne recoit aucun reglage de raisonnement");
 					loc.modeles.PushBack(ml);
