@@ -337,7 +337,26 @@ namespace nkentseu {
 		mData.version = s ? (const char *)s : "Unknown";
 	}
 
+#if defined(NKENTSEU_PLATFORM_MACOS) && defined(NK_NO_GLAD2)
+	// Fourni par NKGlad (dependance de NKCanvas) ; liaison C, comme dans glad/gl.h.
+	extern "C" int gladLoaderLoadGL(void);
+#endif
+
 	bool NkOpenGLContext::LoadOpenGLEntryPoints(const NkOpenGLDesc &gl) {
+#if defined(NKENTSEU_PLATFORM_MACOS) && defined(NK_NO_GLAD2)
+		// 2026-09-24 : macOS compile NKCanvas avec NK_NO_GLAD2 (NKCanvas.jenga,
+		// _GLAD_DEF_OTHER), donc CE fichier n'utilise pas glad -- mais
+		// NkOpenGLRenderer2D.cpp, lui, inclut glad/gl.h sous macOS et appelle ses
+		// pointeurs. Personne ne les chargeait : « GLAD: ERROR glCreateShader is
+		// NULL! », SIGSEGV au premier dessin (etape Machine vierge). Le contexte
+		// charge donc glad sous macOS quoi qu'il arrive : c'est ce que le rendu
+		// consomme. (Aligner les deux fichiers sur une seule decision -- glad ou
+		// en-tetes systeme -- reste a faire ; ceci rend le couple coherent.)
+		if (!gladLoaderLoadGL()) {
+			NK_GL_ERR("gladLoaderLoadGL(OpenGL.framework) failed\n");
+			return false;
+		}
+#endif
 #ifndef NK_NO_GLAD2
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 		if (!gladLoadWGL(mData.hdc, (GLADloadfunc)wglGetProcAddress)) {
