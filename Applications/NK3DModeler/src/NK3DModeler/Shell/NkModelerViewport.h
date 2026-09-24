@@ -1739,6 +1739,25 @@ namespace nkentseu {
 				p.Fill({tx, barY, wTools, barH}, NkRole::PanelBg, 5.f);
 				float32 cx = tx + S(4.f);
 
+				// CROCHET DE MESURE NK_TOOL_CLIC="<i>[,<image>]" : un clic ECRIT sur le
+				// bouton i (0 Deplacer, 1 Rotation, 2 Echelle, 3 Multigizmo), a la
+				// n-ieme peinture de la barre. Il emprunte la MEME acceptation que le
+				// vrai clic ; aucune souris n'est touchee. Avec NK_MODE_PROBE, la barre
+				// imprime son etat quand il change, et le resultat du clic ecrit.
+				static int32 sXfImg = 0, sXfClicI = -2, sXfClicImg = 0, sXfDernier = -1;
+				++sXfImg;
+				if (sXfClicI == -2) {
+					sXfClicI = -1;
+					if (const char *tc = std::getenv("NK_TOOL_CLIC")) {
+						sXfClicI = std::atoi(tc);
+						const char *c = tc;
+						while (*c && *c != ',')
+							++c;
+						sXfClicImg = (*c == ',') ? std::atoi(c + 1) : 200;
+					}
+				}
+				static const bool sXfProbe = (std::getenv("NK_MODE_PROBE") != nullptr);
+
 				// SELECTION : une liste de formes (rectangle / cercle / lasso).
 				{
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
@@ -1749,7 +1768,8 @@ namespace nkentseu {
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					Combo(p, hit, ws, "vp.selshape", br, shapes, NkSelShapeIcons(), nS2,
 						  st.selShape, combo, true, false, false);
-					if (hit.Clicked("vp.selshape"))
+					// Indice 5 du crochet NK_TOOL_CLIC : l'outil SELECTION, sans souris.
+					if (hit.Clicked("vp.selshape") || (sXfClicI == 5 && sXfImg == sXfClicImg))
 						st.tool = NkTool::Select; // choisir une forme active l'outil
 					cx += btn + 2.f;
 				}
@@ -1762,8 +1782,15 @@ namespace nkentseu {
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked("vp.t.cursor"))
+					// Indice 4 du crochet NK_TOOL_CLIC : l'outil CURSEUR s'arme sans souris
+					// (il n'a aucune autre porte -- ni touche, ni action du shell).
+					if (hit.Clicked("vp.t.cursor") || (sXfClicI == 4 && sXfImg == sXfClicImg)) {
 						st.tool = NkTool::Cursor;
+						if (sXfProbe) {
+							std::printf("[nk3d] OUTILS-TRANSFORM clic ecrit bouton=4 -> outil CURSEUR\n");
+							std::fflush(stdout);
+						}
+					}
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, NkIcon::Cursor,
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
 					cx += btn + 2.f;
@@ -1801,24 +1828,6 @@ namespace nkentseu {
 				const bool xfGrises = !sMuteGrise && demo::NkModeMaillageSansElements((int32)st.mode);
 				static const char *const kMotifXf =
 					"En Sculpture, on deforme avec les pinceaux ; l'outil Transform viendra avec le masque";
-				// CROCHET DE MESURE NK_TOOL_CLIC="<i>[,<image>]" : un clic ECRIT sur le
-				// bouton i (0 Deplacer, 1 Rotation, 2 Echelle, 3 Multigizmo), a la
-				// n-ieme peinture de la barre. Il emprunte la MEME acceptation que le
-				// vrai clic ; aucune souris n'est touchee. Avec NK_MODE_PROBE, la barre
-				// imprime son etat quand il change, et le resultat du clic ecrit.
-				static int32 sXfImg = 0, sXfClicI = -2, sXfClicImg = 0, sXfDernier = -1;
-				++sXfImg;
-				if (sXfClicI == -2) {
-					sXfClicI = -1;
-					if (const char *tc = std::getenv("NK_TOOL_CLIC")) {
-						sXfClicI = std::atoi(tc);
-						const char *c = tc;
-						while (*c && *c != ',')
-							++c;
-						sXfClicImg = (*c == ',') ? std::atoi(c + 1) : 200;
-					}
-				}
-				static const bool sXfProbe = (std::getenv("NK_MODE_PROBE") != nullptr);
 				if (sXfProbe && (int32)xfGrises != sXfDernier) {
 					sXfDernier = (int32)xfGrises;
 					std::printf("[nk3d] OUTILS-TRANSFORM mode=%d grises=%d\n", (int)st.mode, xfGrises ? 1 : 0);
