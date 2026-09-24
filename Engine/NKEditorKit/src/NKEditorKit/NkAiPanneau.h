@@ -666,6 +666,22 @@ namespace nkentseu {
 				void ViderSaisie() {
 					mSaisie[0] = 0;
 					mCaret = 0;
+					mSelComp = -1;
+					// 🔴 LE BROUILLON RANGE DOIT PARTIR AVEC (24/09).
+					//    Mesure de l'agent de la modelisation : la porte d'evenements a
+					//    tape « un vase a fleurs » et l'application a envoye « Je veux un
+					//    canar ninja » -- une demande d'une session precedente.
+					//    `ViderSaisie` vidait le CHAMP (`mSaisie`) mais laissait
+					//    `mConv[mChat].brouillon` intact : le brouillon est cense etre
+					//    « ce qui n'a pas ete envoye », et il survivait a l'envoi. Le
+					//    prochain `PoserChat` le reinjectait donc dans le composeur, par
+					//    dessus ce que l'utilisateur venait de taper.
+					// ⚠️ CE N'EST QUE LA MOITIE DU DEFAUT, et je le dis : il reste a
+					//    prouver que `PoserChat` ne s'execute jamais ENTRE la frappe et
+					//    l'envoi. Cette ligne ferme la voie « pas efface a l'envoi » ;
+					//    la voie « relu au mauvais moment » n'est pas mesuree.
+					if (mChat >= 0 && (usize)mChat < mConv.Size())
+						mConv[(usize)mChat].brouillon = NkString();
 				}
 				void PoserSaisie(const char *t) {
 					uint32 n = 0;
