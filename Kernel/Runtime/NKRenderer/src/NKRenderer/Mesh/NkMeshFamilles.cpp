@@ -1013,15 +1013,20 @@ namespace nkentseu {
 					void (*bati)(Sortie &, const NkFamilleParams &);
 					const char *formulaire;
 			};
+			// ⚠️ `<metres>` ET JAMAIS `<m>` (mesure du 22/09). Avec `largeur <m>`, le 7B
+			//    a repondu `largeur 0.08 m hauteur 0.12 m` : l'unite abregee dans le
+			//    gabarit invite a la RECOPIER dans la reponse, et le lecteur a rejete
+			//    deux parametres inconnus (« m », « 0.12 »). Le mot entier ne se
+			//    recopie pas.
 			const Famille kFamilles[] = {
 					{"porte", &Porte,
-					 "famille porte style <simple|chinois> largeur <m> hauteur <m> battants <1|2> detail <simple|detaille>"},
+					 "famille porte style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2> detail <simple|detaille>"},
 					{"portail", &Porte,
-					 "famille portail style <simple|chinois> largeur <m> hauteur <m> battants <1|2> detail <simple|detaille>"},
+					 "famille portail style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2> detail <simple|detaille>"},
 					{"table", &Table,
-					 "famille table largeur <m> profondeur <m> hauteur <m> pieds <4> detail <simple|detaille>"},
+					 "famille table largeur <metres> profondeur <metres> hauteur <metres> pieds <4> detail <simple|detaille>"},
 					{"maison", &Maison,
-					 "famille maison toit <deux_pans|plat> largeur <m> profondeur <m> etages <1|2|3> fenetres <2..6> detail <simple|detaille>"},
+					 "famille maison toit <deux_pans|plat> largeur <metres> profondeur <metres> etages <1|2|3> fenetres <2..6> detail <simple|detaille>"},
 			};
 			const int32 kNbFamilles = (int32)(sizeof(kFamilles) / sizeof(kFamilles[0]));
 			const Famille *Trouver(const char *nom) {
