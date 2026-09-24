@@ -72,6 +72,8 @@
 #include "NKEditorKit/NkTheme.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/NkVignetteImage.h" // (Q11) LE reducteur d'image du kit, celui du composeur
+#include "NKTime/NkChrono.h"				  // (Q11) le budget de decodage se MESURE, il ne se devine pas
 
 namespace nkentseu {
 	namespace editorkit {
@@ -231,6 +233,28 @@ namespace nkentseu {
 				/// La plage d'entrees VISIBLES rendue par le volet a l'image precedente : c'est
 				/// elle, et elle seule, que l'on sonde. -1 tant que rien n'a ete dessine.
 				int32 premierVu = -1, dernierVu = -1;
+
+				// ── (Q11, 22/09) LES MINIATURES ─────────────────────────
+				// Rodolf, capture 051749 : 98 fichiers, 98 fois la meme icone generique.
+				//
+				// ⚠️ LE DECODAGE NE SE FAIT PAS AU DESSIN, ET C'EST TOUT L'INTERET.
+				//    Le crochet passe au composant ne fait que LIRE le cache : il ne
+				//    touche jamais au disque. Le decodage se fait APRES le dessin, sur la
+				//    seule plage qui vient d'etre rendue, et sous un budget de temps.
+				//    Consequence mesurable : ouvrir le dossier coute ce qu'il coutait --
+				//    la lecture du repertoire -- et les vignettes arrivent sur les images
+				//    suivantes. Decoder dans le crochet aurait rendu la PREMIERE image du
+				//    dossier proportionnelle au nombre de fichiers visibles : exactement
+				//    le gel que « chargement paresseux » demande d'eviter.
+				bool vignettes = true;			   ///< l'hote peut les eteindre (sonde, mesure a blanc)
+				float32 budgetVignettesMs = 8.f;   ///< par image ; au moins UNE vignette est tentee
+				int32 grilleVignette = 32;		   ///< le cote de la grille, cle du cache avec le chemin
+				// Les compteurs de la sonde. Sans eux, « c'est paresseux » serait une
+				// affirmation -- meme lecon que `NkCacheDossiers::accesDisque`.
+				uint32 vignettesDemandees = 0;	 ///< appels du crochet par le composant
+				uint32 vignettesServies = 0;		 ///< dont servies depuis le cache
+				uint32 vignettesDecodees = 0;	 ///< decodages REELS declenches par ce dialogue
+				uint32 vignettesRefusees = 0;	 ///< decodees et illisibles -> icone generique
 				/// Le dialogue etait-il ouvert a l'image precedente ? Sert a vider le cache a
 				/// l'ouverture -- un seul site, celui du dessin.
 				bool etaitOuvert = false;
@@ -2349,6 +2373,36 @@ namespace nkentseu {
 					if (chemin && NkDirectory::Exists(chemin))
 						*p->cible = NkString(chemin);
 				};
+				// ── (Q11) LA MINIATURE, SERVIE DEPUIS LE CACHE ET RIEN D'AUTRE ─────
+				// ⚠️ CE CROCHET NE DECODE PAS. Il repond « je l'ai » ou « je ne l'ai pas
+				//    (encore) » ; la boucle de decodage est plus bas, apres le dessin,
+				//    et elle seule touche au disque. C'est la difference entre un
+				//    dossier qui s'ouvre tout de suite et un dossier qui s'ouvre
+				//    quand la derniere image visible a fini de se decoder.
+				h.vignetteCellules = [](void *u, int32 index, int32 *cw, int32 *ch,
+										const uint32 **cellules) -> bool {
+					Pont *p = (Pont *)u;
+					NkFilePickerNavState &st = *p->fp;
+					if (!st.vignettes || index < 0 || (uint32)index >= (uint32)st.vue.entries.Size())
+						return false;
+					const NkAssetEntry &e = st.vue.entries[(uint32)index];
+					if (e.isFolder || (NkAssetIcone)e.icone != NkAssetIcone::Image)
+						return false;
+					++st.vignettesDemandees;
+					const NkVignetteImage *v =
+						NkVignetteConnue(e.path.CStr(), e.dateModif, st.grilleVignette);
+					if (!v || !v->ok || v->cellules.Empty())
+						return false; // pas encore la, ou illisible : l'icone de nature prend le relais
+					++st.vignettesServies;
+					*cw = v->cw;
+					*ch = v->ch;
+					*cellules = &v->cellules[0];
+					return true;
+				};
+				// (Q11) Les deux compteurs du crochet se lisent PAR IMAGE : cumules,
+				// ils diraient l'age du dialogue, pas ce qu'il vient de faire.
+				fp.vignettesDemandees = 0;
+				fp.vignettesServies = 0;
 				const NkContentBrowserResult res =
 					NkDrawContentBrowser(peintre, in, {zone.x, zone.y, zone.w, zone.h}, fp.vue,
 										 volet, h);
@@ -2385,6 +2439,43 @@ namespace nkentseu {
 							continue;
 						e.contenu = fp.cacheDossiers.Etat(e.path.CStr(), e.dateModif, false);
 					}
+				}
+				// ── (Q11) LES MINIATURES : SEULEMENT CE QUI SE VOIT, ET SOUS BUDGET ──
+				// Meme regle que « vide ou plein » juste au-dessus, et pour la meme
+				// raison : la plage vient d'etre rendue par le volet, on ne paie que
+				// sur elle. La difference est le BUDGET -- decoder un PNG coute mille
+				// fois ce que coute demander « ce dossier est-il vide ». Sans budget,
+				// un dossier de 98 images ferait une premiere image de plusieurs
+				// secondes, ce qui est exactement le defaut qu'on repare.
+				//
+				// ⚠️ AU MOINS UNE PAR IMAGE, MEME SI LE BUDGET EST DEJA DEPASSE : un
+				//    budget qui peut rendre zero n'avance jamais quand une seule
+				//    vignette coute plus cher que lui, et les miniatures ne
+				//    finiraient pas d'arriver.
+				if (fp.vignettes && res.premierVisible >= 0) {
+					NkChrono horlogeVign;
+					const uint32 avant = NkVignetteDecodages();
+					uint32 faites = 0;
+					const uint32 fin2 = (uint32)res.dernierVisible < (uint32)fp.vue.entries.Size()
+											? (uint32)res.dernierVisible
+											: (uint32)fp.vue.entries.Size() - 1u;
+					for (uint32 i = (uint32)res.premierVisible; i <= fin2; ++i) {
+						const NkAssetEntry &e = fp.vue.entries[i];
+						if (e.isFolder || (NkAssetIcone)e.icone != NkAssetIcone::Image)
+							continue;
+						if (NkVignetteConnue(e.path.CStr(), e.dateModif, fp.grilleVignette))
+							continue; // deja tentee : reussie ou non, on n'y revient pas
+						if (faites > 0
+							&& (float32)horlogeVign.Elapsed().ToMilliseconds() >= fp.budgetVignettesMs)
+							break;
+						const NkVignetteImage &v =
+							NkVignetteDe(e.path.CStr(), e.dateModif, fp.grilleVignette,
+										 e.taille > 0 ? (nk_uint64)e.taille : 0ull);
+						++faites;
+						if (!v.ok)
+							++fp.vignettesRefusees;
+					}
+					fp.vignettesDecodees += NkVignetteDecodages() - avant;
 				}
 				// ── ② LE CLIC DROIT OUVRE LE MENU (06/09) ─────────────────────────
 				// ⚠️ ON DECIDE ICI, ON DESSINE TOUT EN BAS. Le menu doit passer par-dessus
