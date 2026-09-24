@@ -134,6 +134,19 @@ namespace nkentseu {
 				if (!n || !n->IsScalar())
 					return def;
 				const NkArchiveValue &v = n->value;
+				// ⚠️ LE BOOLEEN D'ABORD (22/09). `normalized` vaut `true` en JSON, donc un
+				//    BOOLEEN -- et ce lecteur ne connaissait qu'entier, non-signe, flottant
+				//    et texte. Il rendait donc le defaut, c'est-a-dire 0 : « non
+				//    normalise ». Les COLOR_0 de TripoSR (unsigned byte, min 16, max 214)
+				//    n'etaient plus divises par 255, chaque canal depassait 1, et le
+				//    clamp les ramenait tous a 255 : TOUT LE MAILLAGE ARRIVAIT BLANC.
+				//    C'est la cause reelle de « les maillages de Tripo ne sont pas
+				//    textures » -- ce n'etait pas la multiplication par la teinte, c'etait
+				//    la couleur perdue a la lecture. Le meme defaut touchait tous les
+				//    attributs normalises en entier : couleurs, poids de skinning, UV
+				//    compresses.
+				if (v.IsBool())
+					return v.raw.b ? 1 : 0;
 				if (v.IsInt())
 					return v.raw.i;
 				if (v.IsUInt())
