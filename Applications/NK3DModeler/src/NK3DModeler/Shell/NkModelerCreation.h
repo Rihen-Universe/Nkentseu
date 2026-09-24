@@ -52,6 +52,7 @@
 #include "NK3DModeler/Shell/NkModelerAiPanel.h" // NkAiPousser, NkAiCopie
 #include "NK3DModeler/Shell/NkModelerCommon.h"	// NkMatUniqueName
 #include "NK3DModeler/Shell/NkModelerScreens.h" // NkMarkDirty
+#include "NK3DModeler/Shell/NkModelerVertexColor.h" // (Q15) les couleurs de sommet de TripoSR
 #include "NK3DModeler/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NK3DModeler/Viewport/NkCreaFamilles.h" // (Q8) les constructeurs par famille
@@ -2248,6 +2249,61 @@ namespace nkentseu {
 							std::fflush(stdout);
 						}
 					}
+					// ── (Q15) LES COULEURS DE SOMMET SONT RECENSEES ET DITES ──────────
+					// Un objet TripoSR arrive avec COLOR_0 et sans UV. Le nuanceur fait
+					// `vColor = aColor * uObj.tint` : la couleur du materiau y est
+					// MULTIPLIEE par celle des sommets, jamais posee a sa place. On le
+					// constate a l'import, on le NOMME dans le fil, et l'interrupteur
+					// existe -- plutot que de laisser l'utilisateur devant un objet qui
+					// ne repond pas comme les autres sans que rien ne le dise.
+					// ⚠️ LA GEOMETRIE EST DANS LES ENFANTS, PAS DANS LE NOEUD POSE. Un
+					//    modele importe est un CONTENEUR sans sommets ; ses maillages sont
+					//    ses descendants. La premiere version ne regardait que `nes` et
+					//    n'a rien trouve sur un objet qui portait pourtant 15 200 sommets
+					//    colores -- un compte a zero qui disait « rien a signaler ».
+					//    Le parcours est celui que le LOT fait dix lignes plus bas, pour la
+					//    meme raison et par les memes portes.
+					{
+						int32 colores = 0, avecCouleurs = 0;
+						const int32 nT2 = demo::Demo3DHostNodeCount();
+						for (usize i = 0; i < nes.Size(); ++i) {
+							const int32 c = NkVcDetecter(nes[i]);
+							if (c > 0) {
+								colores += c;
+								++avecCouleurs;
+							}
+							for (int32 q = 0; q < nT2; ++q) {
+								if (q == nes[i] || demo::Demo3DHostNodeDeleted(q))
+									continue;
+								int32 pere = demo::Demo3DHostNodeParent(q);
+								bool descend = false;
+								for (int32 garde = 0; pere >= 0 && garde < 16 && !descend; ++garde) {
+									descend = (pere == nes[i]);
+									pere = demo::Demo3DHostNodeParent(pere);
+								}
+								if (!descend)
+									continue;
+								const int32 ce = NkVcDetecter(q);
+								if (ce > 0) {
+									colores += ce;
+									++avecCouleurs;
+								}
+							}
+						}
+						if (avecCouleurs > 0) {
+							char mv[300];
+							snprintf(mv, sizeof(mv),
+									 "Ce maillage porte des COULEURS PAR SOMMET (%d sommets sur %d piece(s)) et "
+									 "aucune UV. Une couleur de materiau posee dessus serait multipliee par "
+									 "elles : l'interrupteur « utiliser les couleurs du maillage » les eteint.",
+									 (int)colores, (int)avecCouleurs);
+							(void)NkAiPousser(st, NkModelerState::AiType::Note, mv);
+							std::printf("[crea] COULEURS DE SOMMET : %d sommet(s) colore(s) sur %d piece(s) ; "
+										"interrupteur allume\n",
+										(int)colores, (int)avecCouleurs);
+							std::fflush(stdout);
+						}
+					}
 					// LE LOT : sans lui, l'objet pose ne serait pas annulable, et le
 					// contrat « Ctrl+Z retire ce que la conversation a mis » serait faux
 					// pour la moitie des voies.
@@ -3482,6 +3538,89 @@ namespace nkentseu {
 			return true;
 		}
 
+		/// ── NK_VC_PREUVE=<prefixe> : LA PREUVE DEMANDEE PAR Q15, EN QUATRE IMAGES ──
+		/// Le meme objet TripoSR, materiau GRIS puis ROUGE, avec les couleurs du
+		/// maillage puis sans elles. Quatre fichiers, meme camera, meme objet : la
+		/// seule chose qui bouge d'une image a l'autre est ce qu'on veut montrer.
+		/// ⚠️ ELLE POSE LA TEINTE PAR LA MEME PORTE QUE LE PANNEAU
+		///    (`Demo3DHostSetMeshTint`) : une preuve qui passerait par un chemin a
+		///    elle ne dirait rien de ce que l'utilisateur obtient.
+		inline bool NkVcPreuveTick(NkModelerState &st) {
+			const char *pref = std::getenv("NK_VC_PREUVE");
+			if (!pref || !*pref)
+				return false;
+			static int32 etape = 0;
+			static int32 attente = 0;
+			if (etape > 8)
+				return false;
+			NkVector<NkVcEntree> &T = NkVcTable();
+			if (T.Size() == 0)
+				return false; // rien de colore dans la scene : il n'y a rien a montrer
+			if (attente > 0) {
+				--attente;
+				return true;
+			}
+			const float32 kGris[3] = {0.50f, 0.50f, 0.50f};
+			const float32 kRouge[3] = {0.80f, 0.10f, 0.10f};
+			auto teinter = [&](const float32 *c) {
+				for (usize i = 0; i < T.Size(); ++i)
+					demo::Demo3DHostSetMeshTint(T[i].noeud, c);
+			};
+			auto capturer = [&](const char *suffixe) {
+				char chemin[260];
+				snprintf(chemin, sizeof(chemin), "%s_%s.png", pref, suffixe);
+				const bool ok = demo::Demo3DHostCaptureView(chemin);
+				std::printf("[vc] PREUVE %s -> %s : %s\n", suffixe, chemin, ok ? "ecrite" : "ECHEC");
+				std::fflush(stdout);
+			};
+			switch (etape) {
+				case 0: {
+					// CADRER SUR L'OBJET COLORE, et sur lui seul : cadrer la scene
+					// entiere le montrerait a cote de l'assemblage, trop petit pour
+					// qu'on voie quoi que ce soit de sa matiere.
+					float32 mn[3] = {0.f, 0.f, 0.f}, mx[3] = {0.f, 0.f, 0.f};
+					bool aB = false;
+					for (usize i = 0; i < T.Size(); ++i) {
+						float32 a[3], b[3];
+						if (!demo::Demo3DHostNodeBounds(T[i].noeud, true, a, b))
+							continue;
+						for (int32 k = 0; k < 3; ++k) {
+							if (!aB || a[k] < mn[k])
+								mn[k] = a[k];
+							if (!aB || b[k] > mx[k])
+								mx[k] = b[k];
+						}
+						aB = true;
+					}
+					if (aB)
+						demo::Demo3DHostFrameBox(mn, mx);
+					attente = 8;
+					break;
+				}
+				case 1: teinter(kGris); attente = 6; break;
+				case 2: capturer("gris_avec_couleurs"); attente = 2; break;
+				case 3: teinter(kRouge); attente = 6; break;
+				case 4: capturer("rouge_avec_couleurs"); attente = 2; break;
+				case 5: {
+					int32 n = 0;
+					for (usize i = 0; i < T.Size(); ++i)
+						if (NkVcRegler(T[i].noeud, false))
+							++n;
+					teinter(kGris);
+					std::printf("[vc] INTERRUPTEUR eteint sur %d noeud(s)\n", (int)n);
+					std::fflush(stdout);
+					attente = 10;
+					break;
+				}
+				case 6: capturer("gris_sans_couleurs"); attente = 2; break;
+				case 7: teinter(kRouge); attente = 6; break;
+				case 8: capturer("rouge_sans_couleurs"); attente = 2; break;
+				default: break;
+			}
+			++etape;
+			return etape <= 8;
+		}
+
 		/// A appeler une fois par image. `poserUndo` pose le geste « annuler » par la
 		/// porte commune (NkVpPoserAction) -- c'est l'appelant qui la connait.
 		inline void NkCreaTick(NkModelerState &st, int32 onglet, converse::NkIConverseBackend *dorsalOnglet,
@@ -3590,6 +3729,8 @@ namespace nkentseu {
 				if (const char *a = std::getenv("NK_CREA_ANNULE"))
 					E.annuleDans = (int32)std::atoi(a);
 			}
+			if (NkVcPreuveTick(st))
+				return; // (Q15) la preuve des couleurs de sommet passe avant l'annulation
 			if (NkCreaVuesTick(st))
 				return; // les vues d'abord : annuler avant la photo effacerait le sujet
 			if (E.annuleDans > 0 && --E.annuleDans == 0) {
