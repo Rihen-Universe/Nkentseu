@@ -20,7 +20,7 @@
 //   lisait comme l'inverse. *Declarer n'est pas livrer.*
 //
 // CE QU'IL FAIT, ET RIEN DE PLUS
-//   Cinq nombres. Pas de docks, pas d'onglets, pas de position de fenetre : ce
+//   Cinq nombres, plus un interrupteur d'affichage (25/09). Pas de docks, pas d'onglets, pas de position de fenetre : ce
 //   qui n'est pas demande n'est pas ecrit, et un format qu'on n'etend pas est un
 //   format qu'on ne casse pas.
 //
@@ -99,6 +99,10 @@ namespace nkentseu {
 			std::fprintf(f, "browser=%.4f\n", (double)st.browserFrac);
 			std::fprintf(f, "props=%.4f\n", (double)st.propsFrac);
 			std::fprintf(f, "browser.tree=%.4f\n", (double)st.browserTreeFrac);
+			// L'INTERRUPTEUR DES COMPTEURS, avec les fractions : c'est la meme
+			// chose sous une autre designation -- ce que l'utilisateur a regle
+			// dans son interface et qu'il doit retrouver.
+			std::fprintf(f, "compteurs=%d\n", st.compteursOn ? 1 : 0);
 			std::fclose(f);
 		}
 
@@ -133,6 +137,12 @@ namespace nkentseu {
 					st.propsFrac = NkUiFracBornee(v, 0.08f, 0.60f);
 				else if (std::strcmp(clef, "browser.tree") == 0)
 					st.browserTreeFrac = NkUiFracBornee(v, kBrowserTreeFracMin, kBrowserTreeFracMax);
+				// ⚠️ TOUT CE QUI N'EST PAS EXACTEMENT « 1 » EST ETEINT, y compris une
+				//    ligne abimee. Le defaut SUR d'un interrupteur d'affichage est
+				//    ETEINT : allumer sur une valeur qu'on n'a pas comprise, c'est
+				//    exactement ce qui polluait les captures de Rodolf.
+				else if (std::strcmp(clef, "compteurs") == 0)
+					st.compteursOn = (v > 0.5f && v < 1.5f);
 			}
 			std::fclose(f);
 		}

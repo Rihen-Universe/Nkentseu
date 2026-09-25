@@ -119,6 +119,7 @@
 #include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKEditorKit/NkScreenLogSink.h" // (25/09) famille 27 : le neuvieme puits
 #include "NKEditorKit/NkScreenLogView.h" // et son affichage, eprouve dans l enregistreur
+#include "NKEditorKit/NkScreenCountersView.h" // (25/09) famille 28 : (A) les compteurs
 // (o3) la porte du chrome : les couches de surfaces et PointReachable
 #include "NKEditorKit/NkEditorSurface.h"
 
@@ -1584,6 +1585,99 @@ int main(int argc, char **argv) {
 			Check("27h", resteErreur && !resteInfo,
 				  "apres 8 s l INFO a disparu et l ERREUR est toujours la (la duree suit le niveau)");
 		}
+	}
+
+
+	// ═══ (25/09) FAMILLE 28 : (A) LES COMPTEURS — relayes, jamais recalcules,
+	//     et un zero qui n'est pas un zero
+	//
+	// [!] LE HUD DE LABORATOIRE affichait « GPU 0.00 ms » tant qu'aucune requete
+	//     GPU n'avait repondu, jusqu'a ce que `gpuTimeValid` soit ajoute le
+	//     04/09. Un zero affiche la ou il n'y a pas de mesure est un chiffre
+	//     FAUX, pas une absence -- et personne ne peut le distinguer d'un GPU
+	//     instantane. Ces criteres empechent ce retour.
+	{
+		using namespace nkentseu::editorkit;
+		NkEcranCompteursVue vue;
+		NkRecordingPaint rec;
+
+		// —— 28a : les entiers relayes arrivent a l'ecran, tels quels —————
+		NkEcranCompteurs c;
+		c.draws = 137u;
+		c.triangles = 240681u;
+		c.sommets = 120344u;
+		c.lots = 9u;
+		c.api = "Vulkan";
+		rec.Reset();
+		const NkPaintRect pris = vue.Peindre(rec, {0.f, 0.f, 1280.f, 720.f}, c);
+		bool vuDraws = false, vuTris = false, vuApi = false;
+		for (nkentseu::usize k = 0; k < rec.cmds.Size(); ++k)
+			if (rec.cmds[k].op == NkPaintOp::Text) {
+				if (Contient(rec.cmds[k].text.Data(), "137"))
+					vuDraws = true;
+				if (Contient(rec.cmds[k].text.Data(), "240681"))
+					vuTris = true;
+				if (Contient(rec.cmds[k].text.Data(), "Vulkan"))
+					vuApi = true;
+			}
+		Check("28a", vuDraws && vuTris && vuApi,
+			  "les compteurs relayes sont PEINTS tels quels (137 draws, 240681 tris, Vulkan)");
+
+		// —— 28b : EN HAUT A DROITE, pas en bas — les messages ont le bas ———
+		Check("28b",
+			  pris.w > 0.f && pris.x + pris.w < 1280.f && pris.x > 640.f && pris.y < 360.f,
+			  "le panneau est en HAUT A DROITE de la zone (le bas est aux messages)");
+
+		// —— 28c : [!] LE ZERO QUI N'EST PAS UN ZERO ———————————————
+		//     GPU invalide -> « -- », JAMAIS « 0.00 ».
+		NkEcranCompteurs sansGpu;
+		sansGpu.gpuMs = 0.f;
+		sansGpu.gpuValide = false;
+		sansGpu.horlogeValide = false;
+		rec.Reset();
+		(void)vue.Peindre(rec, {0.f, 0.f, 1280.f, 720.f}, sansGpu);
+		bool vuTirets = false, vuZeroMs = false;
+		for (nkentseu::usize k = 0; k < rec.cmds.Size(); ++k)
+			if (rec.cmds[k].op == NkPaintOp::Text) {
+				if (Contient(rec.cmds[k].text.Data(), "--"))
+					vuTirets = true;
+				if (Contient(rec.cmds[k].text.Data(), "0.00 ms"))
+					vuZeroMs = true;
+			}
+		Check("28c", vuTirets && !vuZeroMs,
+			  "GPU non mesure : la vue ecrit « -- » et JAMAIS « 0.00 ms »");
+
+		// —— 28d : LE NEGATIF DE 28c — valide, le chiffre s'ecrit pour de bon —
+		//     Sans lui, 28c passerait aussi sur une vue qui n'ecrirait JAMAIS de
+		//     millisecondes. *Une preuve qui ne peut pas echouer ne prouve rien.*
+		NkEcranCompteurs avecGpu;
+		avecGpu.gpuMs = 4.25f;
+		avecGpu.gpuValide = true;
+		rec.Reset();
+		(void)vue.Peindre(rec, {0.f, 0.f, 1280.f, 720.f}, avecGpu);
+		bool vu425 = false;
+		for (nkentseu::usize k = 0; k < rec.cmds.Size(); ++k)
+			if (rec.cmds[k].op == NkPaintOp::Text && Contient(rec.cmds[k].text.Data(), "4.25 ms"))
+				vu425 = true;
+		Check("28d", vu425,
+			  "NEGATIF : GPU mesure a 4,25 ms -> « 4.25 ms » est bien ecrit (28c n'est pas vide)");
+
+		// —— 28e : une vue trop petite se TAIT, elle ne deborde pas ——————
+		rec.Reset();
+		const NkPaintRect rien = vue.Peindre(rec, {0.f, 0.f, 40.f, 20.f}, c);
+		Check("28e", rien.w == 0.f && rien.h == 0.f && rec.cmds.Empty(),
+			  "zone trop petite : RIEN n'est peint (plutot qu'un panneau qui deborde)");
+
+		// —— 28f : l'horloge lisse, et elle ne se declare valide qu'apres coup —
+		NkEcranHorloge h;
+		Check("28f0", !h.Valide(), "NEGATIF : l'horloge n'est pas valide avant la premiere image");
+		h.Tick(1.f / 60.f);
+		const float32 dt1 = h.DtMs();
+		for (int32 i = 0; i < 200; ++i)
+			h.Tick(1.f / 30.f);
+		const float32 dt2 = h.DtMs();
+		Check("28f", h.Valide() && dt1 > 16.f && dt1 < 17.f && dt2 > 32.f && dt2 < 34.f,
+			  "l'horloge lissee converge : 16,7 ms puis 33,3 ms apres 200 images");
 	}
 
 
