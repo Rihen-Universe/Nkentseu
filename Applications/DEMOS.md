@@ -162,6 +162,50 @@ ne peut voir aucun défaut de ce qu'elle mesure.*
 |---|---|---|
 | **`nkdemodepliageuv`**<br>`Build/Bin/Release-Windows/nkdemodepliageuv/`<br>*lancer depuis la racine de l'arbre* | Un objet **généré** qui tourne lentement, couvert d'un **damier** (gris clair / gris foncé, liseré orange tous les 4 carreaux). Un bandeau pétrole en haut donne l'état : nombre d'îlots, triangles par îlot, distorsion d'aire et d'angle, recouvrement, temps. **ESPACE** bascule `[BRUT]` ↔ `[DEPLIE]`. Le nom du fichier montré est affiché à droite. | • `[BRUT]` et `[DEPLIE]` donnent **la même image** → les UV calculées n'arrivent pas au GPU : le câblage est coupé entre le solveur et le rendu.<br>• Le damier est un **confetti** de carreaux minuscules sans continuité → le dépliage a éclaté le maillage en un îlot par triangle. **C'est l'état mesuré aujourd'hui** (2 115 îlots pour 2 156 triangles) : c'est attendu, et c'est le défaut à corriger.<br>• Un **REFUS** s'affiche avec son nom et son chiffre d'Euler → le maillage n'est pas dépliable tel quel. Ce n'est pas une panne de la démo.<br>• La fenêtre **fige plusieurs dizaines de secondes** à l'ouverture → elle est tombée sur le maillage TripoSR (42 s mesurées), pas sur celui de famille (267 ms). |
 
+## 25/09 au soir — la première version ne montrait RIEN, et pourquoi
+
+Rodolf l'a lancée : fenêtre ouverte, bandeau pétrole **peint et vide**, et
+dessous un aplat uni. **Deux causes, toutes les deux de moi, et elles
+expliquent chacune une moitié de l'écran.**
+
+1. **Le bandeau vide** — je demandais `assets/font.ttf`, un fichier qui n'existe
+   **nulle part** dans ce dépôt, après avoir écrit « sans fichier à préparer »
+   dans l'en-tête de la démo. `LoadFont` rendait une poignée invalide et
+   `DrawText` ne peignait rien. Le cadre se peignait (`NkRender2D`), le texte
+   non : c'est la signature exacte d'une police absente.
+   → `GetDefaultFont()`, embarquée dans le binaire.
+
+2. **L'objet invisible** — j'appelais `r3d->Flush(cmd)` moi-même. Or c'est le
+   **graphe de rendu** qui flushe la 3D, dans sa passe de géométrie
+   (`NkRendererImpl.cpp:979`), quand `Present()` l'exécute. En flushant à la
+   main je vidais la liste de dessin **hors de toute passe** : le travail
+   partait dans un tampon sans cible et la passe du graphe ne trouvait plus rien.
+   → on ne flushe plus ; `BeginScene` + `Submit`, et `Present()` fait le reste.
+
+**Le 2D et la 3D n'empruntent pas le même chemin** : `r2d->Begin/End` se dessine
+en direct, la 3D passe par le graphe. C'est pourquoi le bandeau prouvait le
+dorsal graphique **et pas la scène** — un seul écran, deux chemins, et j'ai lu
+le premier comme s'il parlait du second.
+
+**Ajouté pour que ça ne se reproduise pas :**
+- un **cube de repli**, construit en code, affiché et annoncé quand aucun objet
+  généré n'est trouvé. Une fenêtre vide ne peut plus vouloir dire deux choses.
+- la **résolution des chemins remonte jusqu'à six niveaux** de répertoires
+  parents : la démo ne dépend plus de l'endroit d'où on la lance, et chaque
+  essai part au journal.
+- une **trace de ce que la démo croit dessiner** — fichier, police, texture,
+  matériau, maillages, cadrage, les trois lignes du bandeau, puis la poignée
+  effectivement soumise aux deux premières images. Elle situe un défaut en amont
+  ou en aval **sans jamais regarder l'écran**.
+
+⚠️ **Le verdict est dans `logs/app.log`, pas sur la sortie standard** — cherchez
+les lignes `[demo-uv]`.
+
+⚠️ **Lancée depuis le dossier du binaire, la démo se ferme net** (code −1) : le
+compilateur de nuanceurs échoue (`non-opaque uniforms outside a block`). Ce
+n'est pas propre à cette démo — c'est la résolution des ressources du moteur
+relative au répertoire courant. **Lancer depuis la racine de l'arbre.**
+
 ## État honnête au 25/09/2026
 
 Le dépliage **est branché** — pour la première fois il est appelable depuis
