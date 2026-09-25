@@ -3546,6 +3546,81 @@ namespace nkentseu {
 			return nullptr;
 		}
 
+		// ── (25/09) NK_DOCKS=<chemin|-> : L'ETAT REEL DES PANNEAUX, ECRIT ───────
+		//
+		// Rodolf voit DEUX panneaux de droite ancres cote a cote (IA et Inspecteur)
+		// alors que la regle, ecrite depuis le 21/09, en veut UN. Le rail existe et
+		// l'applique ; quelque chose d'autre ouvre les panneaux a cote de lui.
+		//
+		// ⚠️ CETTE PORTE NE CORRIGE RIEN. Elle ECRIT ce qui est, pour qu'on sache
+		//    par quelle porte chaque panneau est arrive AVANT de toucher au docking
+		//    -- qui est partage par NK3DModeler, NKUIDesign, NKCode et tout hote de
+		//    la coquille. Un correctif de docking sans instrument, c'est la faute
+		//    que ce chantier vient de payer deux fois.
+		//
+		// Ce qu'elle rend : les pastilles de chaque rail et le tiroir ouvert, la
+		// liste `panel=` que le fichier persiste, l'arbre des docks, et pour CHAQUE
+		// panneau : son cote par defaut, s'il est ouvert, et s'il est ancre dans un
+		// noeud de dock. La derniere colonne est celle qui repond a la question :
+		// un panneau de droite OUVERT et ANCRE alors que le rail ne le designe pas
+		// est arrive par la SECONDE PORTE.
+		void NkEditorShell::EcrireEtatDocks(const char *quand) noexcept {
+			const char *v = std::getenv("NK_DOCKS");
+			if (!v || !*v)
+				return;
+			static const char *const kCote[4] = {"gauche", "droite", "haut", "bas"};
+			auto nomCote = [&](NkEditorDockSide d) -> const char * {
+				const int32 i = (int32)d;
+				return (i >= 0 && i < 4) ? kCote[i] : "centre";
+			};
+			std::printf("[docks] \u2500\u2500 ETAT (%s) \u2500\u2500\n", quand ? quand : "?");
+			for (int32 slot = 0; slot < 3; ++slot) {
+				if (mRailCount[slot] == 0)
+					continue;
+				std::printf("[docks] rail[%d] %d pastille(s), tiroir ouvert = %d, largeur = %.0f, ancre = %d\n",
+							(int)slot, (int)mRailCount[slot], (int)mRailOuvert[slot],
+							(double)mRailLargeur[slot], (int)(mRailAncre[slot] ? 1 : 0));
+				for (int32 i = 0; i < mRailCount[slot]; ++i)
+					std::printf("[docks]   pastille[%d] %s%s\n", (int)i,
+								mRailItems[slot][i].panel ? mRailItems[slot][i].panel : "(sans panneau)",
+								mRailOuvert[slot] == i ? "   <- OUVERT" : "");
+			}
+			int32 droiteOuverts = 0, droiteAncres = 0;
+			for (int32 i = 0; i < mNumPanels; ++i) {
+				NkEditorPanel *pp = mPanels[i];
+				if (!pp)
+					continue;
+				const NkGuiId wid = mUI.GetId(pp->Title());
+				int32 noeud = -1;
+				for (uint32 k = 0; k < mUI.windowMeta.Size(); ++k)
+					if (mUI.windowMeta[k].id == wid) {
+						noeud = mUI.windowMeta[k].dockNode;
+						break;
+					}
+				const bool aDroite = pp->DefaultSide() == NkEditorDockSide::NK_RIGHT;
+				// Le rail designe-t-il ce panneau comme son tiroir ouvert ?
+				bool parLeRail = false;
+				if (aDroite && mRailOuvert[1] >= 0 && mRailOuvert[1] < mRailCount[1]) {
+					const char *n = mRailItems[1][mRailOuvert[1]].panel;
+					parLeRail = n && StrEqual(n, pp->Title());
+				}
+				if (aDroite && pp->IsOpen()) {
+					++droiteOuverts;
+					if (noeud >= 0)
+						++droiteAncres;
+				}
+				std::printf("[docks] panneau %-16s cote=%-7s ouvert=%d noeud_dock=%-3d %s\n", pp->Title(),
+							nomCote(pp->DefaultSide()), (int)(pp->IsOpen() ? 1 : 0), (int)noeud,
+							(aDroite && pp->IsOpen() && !parLeRail) ? "<- SECONDE PORTE" : "");
+			}
+			std::printf("[docks] BILAN cote droit : %d panneau(x) ouvert(s), dont %d ancre(s) dans un "
+						"noeud de dock ; la regle en veut UN\n",
+						(int)droiteOuverts, (int)droiteAncres);
+			std::printf("[docks] arbre : %u noeud(s), racine = %d\n", (unsigned)mUI.dockNodes.Size(),
+						(int)mUI.dockRoot);
+			std::fflush(stdout);
+		}
+
 		void NkEditorShell::LoadUiState(const char *path) noexcept {
 			if (!path || !*path)
 				return;
@@ -3620,8 +3695,50 @@ namespace nkentseu {
 					}
 				} else if (StartsWith(s, "panel=")) {
 					// L'IDENTIFIANT D'ABORD, LE TITRE EN REPLI (cf. `PanneauParIdentite`).
-					if (NkEditorPanel *pp = PanneauParIdentite(s + 6))
+					if (NkEditorPanel *pp = PanneauParIdentite(s + 6)) {
+						// \U0001f534 (25/09) LE COTE DROIT N'A QU'UNE PORTE : SON RAIL.
+						//    Regle de Rodolf depuis le 21/09 : UN panneau de droite, dont
+						//    le contenu change selon la pastille, une seule pastille
+						//    allumee. Le rail l'applique -- et cette ligne-ci la
+						//    contredisait : elle rouvrait les panneaux de droite comme
+						//    docks classiques, A COTE du tiroir.
+						//    Mesure (NK_DOCKS, sur la configuration de Rodolf) :
+						//      avant LoadUiState : 0 panneau de droite ouvert
+						//      apres             : 2 ouverts, 2 ancres dans des noeuds
+						//                          de dock (IA n\u00b0 4, Inspecteur n\u00b0 5)
+						//    C'est la memoire \u00ab Une porte, pas neuf \u00bb : deux chemins pour
+						//    le meme geste, et le second defait ce que le premier tient.
+						// \u26a0\ufe0f SEULEMENT SI LE RAIL EXISTE. Un hote sans rail droit
+						//    (NKCode, NkAnimaEditor, Nogee aujourd'hui) garde EXACTEMENT
+						//    son comportement : la coquille est partagee, et une regle
+						//    d'une application ne s'impose pas aux autres.
+						// ⚠️ LA SAUTER SUFFIT A FERMER LA PORTE (mesure : 1 seul panneau de
+						//    droite au lieu de 2) MAIS LAISSE DEUX COLONNES VIDES : les
+						//    feuilles de dock du fichier reservent leur largeur meme sans
+						//    fenetre. L'elagage existe (`DockCollapseLeaf`) mais vit dans un
+						//    espace anonyme de `NkGuiWidgets.cpp`, sans declaration en en-tete ;
+						//    le reecrire ici serait une SECONDE implementation de l'elagage.
+						//    Ce qu'il faut d'abord : exposer `NkGuiDockPruneEmpty(ctx)` dans
+						//    NKGui. Non fait, donc non livre : je ne ferme pas une porte pour
+						//    laisser un trou.
 						pp->SetOpen(true);
+					}
+				} else if (StartsWith(s, "tiroirs=")) {
+					// (25/09) LE TIROIR OUVERT DE CHAQUE RAIL. Il ne l'etait pas : seule
+					// la LARGEUR (`tiroir=`) survivait. Tant que la liste `panel=`
+					// rouvrait les panneaux de droite, ca ne se voyait pas -- le second
+					// chemin rattrapait le premier. En fermant ce second chemin, il
+					// fallait bien que le choix de l'utilisateur survive, sinon on
+					// corrigeait une regle en cassant un usage.
+					int32 g = -1, d = -1, b = -1;
+					if (std::sscanf(s + 8, "%d|%d|%d", &g, &d, &b) == 3) {
+						if (g >= -1 && g < mRailCount[0])
+							mRailOuvert[0] = g;
+						if (d >= -1 && d < mRailCount[1])
+							mRailOuvert[1] = d;
+						if (b >= -1 && b < mRailCount[2])
+							mRailOuvert[2] = b;
+					}
 				} else if (StartsWith(s, "dockroot=")) {
 					// Disposition sérialisée -> RESET du dock courant (l'arbre du fichier
 					// fait foi) ; les nœuds arrivent ensuite dans l'ordre 0..n-1 (DFS).
@@ -3662,6 +3779,13 @@ namespace nkentseu {
 							//    derivent une identite du titre -- c'est le cout de migration,
 							//    ecrit dans le rapport, pas paye ici.
 							NkEditorPanel *pw = PanneauParIdentite(b + 1);
+							// (25/09) LE COTE DROIT N'ENTRE PAS DANS L'ARBRE DES DOCKS quand
+							// il a un rail : sans cette ligne, on fermait la porte mais on
+							// laissait la PLACE -- deux colonnes vides restaient a cote de
+							// la toile, mesurees sur l'image rendue. Un noeud de dock sans
+							// fenetre reserve quand meme sa largeur.
+							if (pw && pw->DefaultSide() == NkEditorDockSide::NK_RIGHT && mRailCount[1] > 0)
+								return;
 							const char *tw = pw ? pw->Title() : (b + 1);
 							const NkGuiId wid = mUI.GetId(tw);
 							L.windows[L.winCount++] = wid;
@@ -3958,8 +4082,24 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			// (Q6) LA LARGEUR DES TIROIRS, gauche|droite|bas, en px.
 			out += NkPrintf("tiroir=%d|%d|%d\n", (int)mRailLargeur[0], (int)mRailLargeur[1], (int)mRailLargeur[2]);
+			// (25/09) LE TIROIR OUVERT DE CHAQUE RAIL, et pas seulement sa largeur. Il ne
+			// survivait pas : tant que la liste `panel=` rouvrait les panneaux de droite,
+			// le second chemin rattrapait le premier et personne ne le voyait. En fermant
+			// ce second chemin il fallait bien que le choix de l'utilisateur survive --
+			// sinon on corrige une regle en cassant un usage.
+			out += NkPrintf("tiroirs=%d|%d|%d\n", (int)mRailOuvert[0], (int)mRailOuvert[1],
+							(int)mRailOuvert[2]);
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
+					// (25/09) LA MIGRATION SE FAIT A L'ECRITURE, pas par une suppression
+					// de fichier : le `logs/nkuidesign_ui.cfg` de Rodolf garde ses
+					// lignes `panel=` de droite -- elles sont simplement IGNOREES a la
+					// relecture -- et le prochain enregistrement ne les reecrit plus.
+					// Son fichier n'est jamais efface, et sa largeur de tiroir
+					// (`tiroir=`) n'est pas touchee.
+					if (mPanels[i] && mPanels[i]->DefaultSide() == NkEditorDockSide::NK_RIGHT
+						&& mRailCount[1] > 0)
+						continue;
 					out += "panel=";
 					// L'IDENTIFIANT, PAS LE TITRE : un libelle se renomme et se traduit.
 					out += mPanels[i]->Id();
