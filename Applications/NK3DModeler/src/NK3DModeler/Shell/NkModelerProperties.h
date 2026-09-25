@@ -6758,6 +6758,99 @@ namespace nkentseu {
 							yy += NkGroupPad();
 							PaintGroupBlock(p, rowR, gToolsTop, yy);
 						}
+						// ── DEMO : L'EPROUVETTE FACIALE ────────────────────────────────
+						// Rodolf, 25/09 : « en branchant, si tu peux, cree des demos que je
+						// peux tester ». Trois curseurs posent des coefficients d'Action
+						// Unit ; le calcul vit dans NKAnima (descendu de PV3DE le meme
+						// jour) ; la deformation est celle du maillage edite.
+						//
+						// ⚠️ « COUPER LA LIAISON » EST LE COEUR DE LA DEMO, pas un extra :
+						//    les poids continuent de changer, la forme se FIGE. C'est le
+						//    negatif du banc, rendu visible a l'oeil -- si la forme bougeait
+						//    encore, c'est qu'un autre chemin la deforme et que la liaison
+						//    mesuree n'est pas celle qu'on croit.
+						//
+						// ⚠️ ET LE PANNEAU DIT QUE LE SUJET EST PROCEDURAL. Sans cette
+						//    ligne, Rodolf croirait que le depot contient une tete faciale,
+						//    et quelqu'un construirait dessus dans six mois. Le depot a paye
+						//    « une sonde qui se fait passer pour le produit ».
+						{
+							yy += NkPropGroupGap();
+							const bool gFace = PaintPropGroup(p, hit, st, rowR, yy,
+															  "prop.g.face", "Facial (eprouvette)",
+															  0x8000u);
+							const float32 gFaceTop = yy;
+							if (gFace) {
+								const NkRect iR = NkGroupInner(rowR);
+								yy += NkGroupPad();
+								const bool actif = demo::Demo3DHostFaceDemo();
+								const NkRect br{iR.x, yy + S(2.f), S(150.f), kRowH - S(4.f)};
+								const bool sv = hit.Add("prop.face.on", br);
+								if (actif)
+									p.Fill(br, NkRole::AccentUi, 3.f);
+								else
+									HoverFill(p, br, sv, 3.f);
+								p.TextV(br.x + S(8.f), yy, kRowH, actif ? "Eprouvette ACTIVE" : "Activer l eprouvette",
+										actif ? NkRole::TextOnAccent : NkRole::Text);
+								NkHelp(sv, "Trois Action Units deforment le maillage ouvert. Les cibles "
+										   "sont CALCULEES : ce n est pas une tete.");
+								if (hit.Clicked("prop.face.on"))
+									demo::Demo3DHostSetFaceDemo(!actif);
+								yy += kRowH;
+
+								if (actif) {
+									static const char *const kNoms[3] = {"AU1 sourcil", "AU26 machoire",
+																		"AU12 sourire"};
+									for (int32 a = 0; a < 3; ++a) {
+										float32 v = demo::Demo3DHostFaceAU(a);
+										const float32 av = v;
+										p.TextV(iR.x, yy, kRowH, kNoms[a], NkRole::TextMuted);
+										const NkRect fr{iR.x + S(104.f), yy + S(3.f),
+														rowR.w - 2.f * kPad - S(112.f), kRowH - S(6.f)};
+										char cle[32];
+										snprintf(cle, sizeof(cle), "prop.face.au%d", a);
+										DragFloat(p, hit, ws, in, cle, fr, v, 0.005f, NkRole::AccentUi,
+												  "%.2f", "Intensite de l Action Unit (0 a 1)");
+										if (v < 0.f) v = 0.f;
+										if (v > 1.f) v = 1.f;
+										if (v != av)
+											demo::Demo3DHostSetFaceAU(a, v);
+										yy += kRowH - S(2.f);
+									}
+									// L INTERRUPTEUR. Il ne coupe PAS le calcul -- sinon la forme
+									// se figerait pour une autre raison que celle qu on montre.
+									const bool lien = demo::Demo3DHostFaceLiaison();
+									const NkRect lr{iR.x, yy + S(2.f), S(150.f), kRowH - S(4.f)};
+									const bool lv = hit.Add("prop.face.lien", lr);
+									if (!lien)
+										p.Fill(lr, NkColor{196, 72, 72, 255}, 3.f);
+									else
+										HoverFill(p, lr, lv, 3.f);
+									p.TextV(lr.x + S(8.f), yy, kRowH,
+											lien ? "Liaison BRANCHEE" : "Liaison COUPEE",
+											lien ? NkRole::Text : NkRole::TextOnAccent);
+									NkHelp(lv, "Coupe le dernier maillon : les poids continuent de "
+											   "changer, la forme se fige.");
+									if (hit.Clicked("prop.face.lien"))
+										demo::Demo3DHostSetFaceLiaison(!lien);
+									yy += kRowH;
+									// LE CHIFFRE, pas seulement la forme : « deplacement = 0 »
+									// dit pourquoi rien ne bouge, la ou l oeil doute.
+									char dtxt[96];
+									snprintf(dtxt, sizeof(dtxt), "deplacement max : %.4f",
+											 (double)demo::Demo3DHostFaceDeplacement());
+									p.TextV(iR.x, yy, kRowH, dtxt, NkRole::TextMuted);
+									yy += kRowH - S(2.f);
+								}
+								yy += p.TextWrap(iR.x, yy, rowR.w - 2.f * kPad - S(8.f),
+												 "Cibles CALCULEES sur le maillage ouvert (haut, bas, "
+												 "milieu) : ce n est pas une tete. Aucun maillage a "
+												 "blendshapes n existe encore dans le depot.",
+												 NkRole::TextMuted);
+								yy += NkGroupPad();
+								PaintGroupBlock(p, rowR, gFaceTop, yy);
+							}
+						}
 						yy += NkPropGroupGap();
 						const bool gGeo = PaintPropGroup(p, hit, st, rowR, yy,
 														 "prop.g.edgeo", "Geometrie",

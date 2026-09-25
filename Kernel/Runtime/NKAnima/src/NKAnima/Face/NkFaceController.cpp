@@ -1,11 +1,33 @@
-#include "NkFaceController.h"
+// -----------------------------------------------------------------------------
+// @File    Kernel/Runtime/NKAnima/src/NKAnima/Face/NkFaceController.cpp
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// @Brief   Le CALCUL facial : Action Units -> poids de blendshapes.
+//
+// POURQUOI CE FICHIER A CHANGE D'ADRESSE (Rodolf, 25/09/2026)
+//   « le facial, que ce soit rig ou deformation ou calcul, c'est necessaire a
+//     tout ce qui demande des personnages, des animaux, etc. qui ont des faces.
+//     Donc ca doit vivre ou tous peuvent en profiter. »
+//
+//   Il vivait dans `Applications/PV3DE/`. Une APPLICATION est une FEUILLE du
+//   graphe de dependances : rien ne peut dependre d'elle. Ce n'etait donc pas un
+//   oubli de cablage si « rien ne reliait le calcul a la deformation » -- c'etait
+//   une consequence de l'ADRESSE. Aucun branchement n'aurait pu la contourner.
+//
+//   NKAnima est SOUS NKRenderer (`NKRenderer.jenga` l. 34 declare en dependre) :
+//   la deformation peut donc appeler ce calcul sans inverser aucune dependance.
+//   Le sens du fil est fixe par le graphe : NKRenderer -> NKAnima, jamais
+//   l'inverse.
+//
+// @License Proprietary - All Rights Reserved (see LICENSE)
+// -----------------------------------------------------------------------------
+#include "NKAnima/Face/NkFaceController.h"
 #include "NKMath/NKMath.h"
 #include "NKLogger/NkLog.h"
 #include <string.h>
 #include <stdlib.h>
 
 namespace nkentseu {
-	namespace pv3de {
+	namespace anim {
 
 		using namespace nkentseu::math;
 
@@ -138,5 +160,5 @@ namespace nkentseu {
 			}
 		}
 
-	} // namespace pv3de
+	} // namespace anim
 } // namespace nkentseu

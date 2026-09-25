@@ -40,7 +40,7 @@ with project("PV3DE"):
     # NKGui et rendue par NkGuiRHIBackend (Integrations/NKGui, cf. dependson).
     nkentseudependson(
         ["Noge", "NKAgent", "NKRL", "NKTensor", "NKAudio", "NKMedia", "NKNetwork",
-         "NKRenderer", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
+         "NKRenderer", "NKAnima", "NKSL", "NKCollision", "NKPhysics", "NKNavigation",
          "NKSerialization", "NKFileSystem", "NKECS", "NKRHI",
          "NKGLSlang", "NKSPIRVCross", "NKGlad", "NKGui", "NKFont", "NKImage",
          "NKEvent", "NKWindow", "NKLogger", "NKMath", "NKTime", "NKStream",
