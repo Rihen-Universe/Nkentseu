@@ -6548,6 +6548,25 @@ namespace nkentseu {
 					//    qui ne defait rien.
 					return r.applied;
 				}
+				case NkMeshEditOp::MaskAll: {
+					// LE MASQUE EN BLOC. Rend VRAI seulement si quelque chose a CHANGE :
+					// `Demo3D_ApplyCmd` s'en sert pour ne pas commiter une etape
+					// d'annulation qui ne defait rien -- « tout demasquer » sur un
+					// maillage deja libre ne doit pas remplir la pile.
+					// ⚠️ LE TEMOIN EST LA SOMME, PAS LE COMPTE. Deux masques differents
+					//    peuvent avoir le meme nombre de sommets masques ; ils n'ont pas
+					//    la meme somme. Et l'EXISTENCE du tableau compte aussi : liberer
+					//    la memoire est un changement, meme quand la somme valait deja 0.
+					const bool avaitTableau = m.MaskExists();
+					const float32 avant = m.MaskSum();
+					if (maskAll.mode == 1u)
+						m.MaskFillAll(maskAll.poids);
+					else if (maskAll.mode == 2u)
+						m.MaskInvert();
+					else
+						m.MaskClearAll();
+					return (m.MaskExists() != avaitTableau) || (m.MaskSum() != avant);
+				}
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
 				case NkMeshEditOp::ExtrudeVerts:
@@ -6699,7 +6718,8 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(11u); // v11 : + LE COUP DE BROSSE (params + polyligne)
+			w.U32(12u); // v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
+			//       v11 : + LE COUP DE BROSSE (params + polyligne)
 			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
 						//       s'ecrivaient a l'identique -- 370 octets pour « deux faces
 						//       opposees » comme pour « tout selectionner »)
@@ -6788,6 +6808,11 @@ namespace nkentseu {
 					w.F32(c.sculptNormals[k].y);
 					w.F32(c.sculptNormals[k].z);
 				}
+				// v12 : LE MASQUE EN BLOC. Ecrit EN FIN, comme les onze paliers
+				// precedents : un lecteur v11 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.U8(c.maskAll.mode);
+				w.F32(c.maskAll.poids);
 			}
 		}
 
@@ -7883,6 +7908,13 @@ namespace nkentseu {
 						const float32 x = r.F32(), y = r.F32(), z = r.F32();
 						c.sculptNormals.PushBack(NkVec3f{x, y, z});
 					}
+				}
+				// v12 : LE MASQUE EN BLOC. Un fichier v11 laisse `maskAll` a ses
+				// valeurs par defaut ; comme aucune de ses commandes ne porte l'op
+				// MaskAll, ces valeurs ne sont jamais lues.
+				if (ver >= 12) {
+					c.maskAll.mode = r.U8();
+					c.maskAll.poids = r.F32();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en

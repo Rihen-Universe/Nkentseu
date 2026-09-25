@@ -74,6 +74,15 @@ namespace nkentseu {
 			/// `sens = -1` l'inverse en ACCENTUANT l'ecart (le relief se durcit) :
 			/// ce n'est pas un effet de bord, c'est la meme formule prise a rebours.
 			NK_SCULPT_OP_SMOOTH = 1,
+			/// PEINT LE MASQUE au lieu de deplacer la matiere. C'est la TROISIEME
+			/// primitive, et elle est d'une autre nature que les deux premieres :
+			/// elle n'ecrit AUCUNE position -- elle ecrit un poids par sommet
+			/// (NkEditMesh::vertMask), que les deux autres LISENT ensuite.
+			/// `sens = -1` EFFACE le masque au lieu de le poser : meme geste, meme
+			/// formule prise a rebours, exactement comme creuser/dessiner.
+			/// ⚠️ Elle entre dans cette table parce que `NkSculptApplyStroke` la
+			///    TRAITE, pas parce qu'on la prevoit -- la regle ecrite au-dessus.
+			NK_SCULPT_OP_MASK = 2,
 			NK_SCULPT_OP_COUNT		 ///< ⚠️ Compte ce qui AGIT, pas ce qu'on projette.
 		};
 

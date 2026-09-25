@@ -3044,6 +3044,32 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// NK_MASK_ALL="<mode>[,frame]" : le masque EN BLOC, par la porte de
+		// l'interface (0 tout demasquer, 1 tout masquer, 2 inverser). Sans lui, le
+		// masque ne serait verifiable qu'a la main -- donc pas de facon
+		// reproductible. Il ne cree aucun etat : il appelle la facade, comme le
+		// bouton le fera.
+		{
+			static bool sMaskDone = false;
+			if (const char *mv = std::getenv("NK_MASK_ALL")) {
+				int32 mode = std::atoi(mv), fr = 120;
+				const char *c = mv;
+				while (*c && *c != ',')
+					++c;
+				if (*c == ',')
+					fr = (int32)std::atoi(c + 1);
+				if (!sMaskDone && agentFrame >= fr && demo::Demo3DHostInEditMode()) {
+					sMaskDone = true;
+					const bool ok = demo::Demo3DHostMaskAll(mode, 1.f);
+					std::printf("[nk3d] NK_MASK_ALL mode=%d -> agi=%d · masques=%d somme=%.3f octets=%d\n",
+								(int)mode, ok ? 1 : 0, (int)demo::Demo3DHostMaskCount(0.001f),
+								(double)demo::Demo3DHostMaskSum(), (int)demo::Demo3DHostMaskBytes());
+					std::fflush(stdout);
+				}
+			} else {
+				sMaskDone = true;
+			}
+		}
 		// NK_EDIT_PICK="x,y[,frame][,shift][,alt]" : UN CLIC D'ELEMENT A DES
 		// COORDONNEES ECRITES, en pixels de la VUE. Il passe par la MEME porte que
 		// le clic de la souris (`Demo3DHostEditPickAt` arme, la vue consomme au
