@@ -1965,3 +1965,11 @@ with workspace("Nkentseu", location="."):
     # relectures differentes -- sinon c est l instrument qui ment, pas le dorsal.
     with include("Applications/NkOffscreenProbe/NkOffscreenProbe.jenga"):
         pass
+
+    # Banc « la console reste muette » (25/09) : un utilisateur de NKLogger ne
+    # voyait ni logger.Debug() ni std::cout. Ce projet est declare consoleapp()
+    # expres et MESURE, marqueur par marqueur, ce qui sort et ce qui ne sort
+    # pas -- type de handle stdout, tampon de la libc, nombre de puits branches
+    # par defaut, niveau du journal. Voir wiki/System/NKLogger/.
+    with include("Sandbox/System/NKLoggerSilence/NKLoggerSilence.jenga"):
+        pass
