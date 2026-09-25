@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NkDemoDepliageUV — la demo lancable du depliage UV.
+
+Un objet genere, un damier, et la bascule BRUT / DEPLIE a la barre d'espace.
+Elle existe parce qu'un cablage ne se declare pas fini tant que Rodolf ne peut
+pas le lancer : un banc n'eprouve que son maillon, une demo eprouve la chaine.
+
+Calquee sur NK3DModeler.jenga et non sur la liste manuelle de DemoRW : la
+fermeture des dependances se resout par `nkentseudependson`, ce qui evite
+d'oublier un module — NKAnima, tire par NKRenderer, manquait a la main et le
+lien echouait sur `NkAnimationPlayer::Update`.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("nkdemodepliageuv"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKAnima",
+         "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage", "NKFileSystem",
+         "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
+         "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux ==============================================================
+    with filter("system:Linux"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL", "m"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Foundation"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

@@ -23,6 +23,8 @@
 
 #include "NkUVUnwrap.h"
 
+#include "NKContainers/Associative/NkHashMap.h"
+
 #include "NKFileSystem/NkFile.h"
 
 #include <math.h>
@@ -258,6 +260,79 @@ namespace nkentseu {
 		// =====================================================================
 		// LE SOLVEUR
 		// =====================================================================
+
+	// -- COUTURES AUTOMATIQUES : ARBRE COUVRANT DU DUAL ----------------------
+	// DEMENAGEE ICI DEPUIS `NKUVUnwrapTest/src/main.cpp` le 25/09/2026, ou elle
+	// etait `static`. Tant qu'elle y vivait, ce module ne pouvait pas etre
+	// appele sur une surface fermee : son entree obligatoire n'existait que
+	// dans un fichier de test. Le banc l'appelle desormais ICI -- c'est lui qui
+	// prouve que le demenagement n'a rien change au comportement.
+	//
+	// CHEMIN INDEPENDANT DU SOLVEUR, et c'est le point : le solveur groupe les
+	// ilots par union-find sur les coutures ; ici c'est un parcours en largeur
+	// du graphe dual. Si les deux s'accordent, ce n'est pas parce qu'ils
+	// partagent le meme code.
+uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outSeams, uint32 dropOne) noexcept {
+		outSeams.Clear();
+		const uint32 F = (uint32)m.faces.Size();
+		NkVector<uint8> visited;
+		visited.Resize(F, (uint8)0);
+		NkVector<uint8> inTree;
+		inTree.Resize(m.edges.Size(), (uint8)0);
+	
+		NkVector<uint32> queue;
+		uint32 head = 0u;
+		// Premiere face vivante comme racine.
+		for (uint32 f = 0; f < F; ++f) {
+			if (m.faces[f].alive) {
+				visited[f] = 1u;
+				queue.PushBack(f);
+				break;
+			}
+		}
+		NkVector<NkEmId> fe;
+		NkVector<NkEmId> ef;
+		while (head < (uint32)queue.Size()) {
+			const uint32 f = queue[head++];
+			// Aretes de la face : on passe par les demi-aretes du bord.
+			fe.Clear();
+			{
+				const NkEmId h0 = m.faces[f].hedge;
+				NkEmId h = h0;
+				for (uint32 guard = 0; guard < 64u && h != NK_EM_INVALID; ++guard) {
+					fe.PushBack(m.EdgeOfHedge(h));
+					h = m.hedges[h].next;
+					if (h == h0) break;
+				}
+			}
+			for (uint32 i = 0; i < (uint32)fe.Size(); ++i) {
+				const NkEmId e = fe[i];
+				if (e == NK_EM_INVALID || e >= (NkEmId)m.edges.Size()) continue;
+				ef.Clear();
+				m.EdgeFaces(e, ef);
+				if ((uint32)ef.Size() != 2u) continue;
+				const uint32 other = (ef[0] == f) ? (uint32)ef[1] : (uint32)ef[0];
+				if (other >= F || visited[other]) continue;
+				visited[other] = 1u;
+				inTree[e] = 1u;
+				queue.PushBack(other);
+			}
+		}
+		uint32 dropped = 0u;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive) continue;
+			if (inTree[e]) continue;
+			// `dropOne` retire des coutures pour le NEGATIF : moins de coupes, donc
+			// des faces qui restent reliees, donc MOINS d'ilots.
+			if (dropped < dropOne) {
+				++dropped;
+				continue;
+			}
+			outSeams.PushBack((NkEmId)e);
+		}
+		return (uint32)outSeams.Size();
+	}
+
 		bool NkUVUnwrap(NkEditMesh &mesh, const NkUVUnwrapParams &params, NkUVResult &outResult,
 						NkVector<NkUVIslandInfo> *outIslands, NkVector<NkEmId> *outIslandFaces) noexcept {
 			outResult = NkUVResult{};
@@ -1039,6 +1114,120 @@ namespace nkentseu {
 				mesh.verts[i].uv = NkVec2f{fu, fv2};
 			}
 			return true;
+		}
+
+		// -- LA CHAINE COMPLETE, D'UN MAILLAGE IMPORTE A SES UV ------------------
+		// C'EST LE FIL MANQUANT, et rien d'autre : cette fonction n'invente aucun
+		// calcul, elle enchaine quatre briques deja ecrites et deja eprouvees --
+		// `NkUVSeamsFromDualSpanningTree`, `NkEditMesh::SplitEdges`,
+		// `NkEditMesh::RebuildEdges`, `NkUVUnwrap`. Elle existe parce qu'AUCUN
+		// appelant du produit ne pouvait les enchainer : la sequence etait ecrite
+		// une seule fois, dans un cas de banc, et trois hotes en ont besoin.
+		//
+		// POURQUOI LES DEUX GESTES, ET PAS UN SEUL. La de-soudure donne a chaque
+		// coin le DROIT de porter sa propre UV ; les coutures disent OU couper la
+		// connexite. Ce ne sont pas des alternatives. Le banc porte la trace de
+		// l'erreur inverse -- « la decoupe suffit, les ilots se forment d'eux-memes »
+		// -- refutee par la mesure : E restait a 272 et Euler a 0.
+		//
+		// LE PIEGE QUE CETTE FONCTION PAIE POUR SES APPELANTS : l'identite soudee de
+		// `NkEditMesh` est SPATIALE. `RebuildEdges` refusionne par position, donc une
+		// de-soudure qui ne deplace rien lui est INVISIBLE et le maillage se recoud.
+		// Il faut donc retrouver les coutures APRES la reconstruction, par leurs
+		// positions. Le banc le fait en O(coutures x aretes) : tenable sur 120 faces,
+		// pas sur un objet genere. Ici, une table de hachage rend l'appariement
+		// lineaire -- et le nombre de coutures RETROUVEES est publie, parce qu'un
+		// appariement incomplet ferait rougir le depliage pour une raison qui n'a
+		// rien a voir avec le depliage.
+		static uint64 NkUVCleArete(const NkVec3f &a, const NkVec3f &b) noexcept {
+			// Cle SYMETRIQUE : une arete n'a pas de sens, et `RebuildEdges` peut
+			// rendre ses deux extremites dans l'ordre inverse.
+			uint32 ba[3], bb[3];
+			memcpy(ba, &a, sizeof(ba));
+			memcpy(bb, &b, sizeof(bb));
+			uint64 ha = 1469598103934665603ull, hb = 1469598103934665603ull;
+			for (int32 i = 0; i < 3; ++i) {
+				ha = (ha ^ (uint64)ba[i]) * 1099511628211ull;
+				hb = (hb ^ (uint64)bb[i]) * 1099511628211ull;
+			}
+			return ha ^ hb; // commutatif : l'ordre des extremites ne change rien
+		}
+
+		bool NkUVUnwrapAuto(NkEditMesh &mesh, const NkUVUnwrapParams &base, NkUVResult &outResult,
+							NkUVAutoBilan *outBilan) noexcept {
+			NkUVAutoBilan bilan;
+			outResult = NkUVResult{};
+
+			// 1. LES COUTURES, sur la topologie d'origine.
+			NkVector<NkEmId> seams;
+			bilan.coutures = NkUVSeamsFromDualSpanningTree(mesh, seams, 0u);
+			if (bilan.coutures == 0u) {
+				// AUCUNE COUTURE N'EST UN ETAT NOMME, pas un demi-succes : sur une
+				// surface fermee, deplier sans coupe n'a pas de sens, et se taire
+				// ici produirait exactement le repli muet que le negatif interdit.
+				outResult.refus = NkUVRefus::IlotNonDisque;
+				if (outBilan)
+					*outBilan = bilan;
+				return false;
+			}
+
+			// 2. MEMORISER LES EXTREMITES AVANT LA DECOUPE -- les indices, eux, ne
+			//    survivront pas a la duplication des sommets.
+			NkVector<NkVec3f> aPos, bPos;
+			aPos.Reserve(bilan.coutures);
+			bPos.Reserve(bilan.coutures);
+			for (uint32 k = 0; k < bilan.coutures; ++k) {
+				const NkEmId e = seams[k];
+				aPos.PushBack(mesh.verts[mesh.edges[e].v0].pos);
+				bPos.PushBack(mesh.verts[mesh.edges[e].v1].pos);
+			}
+
+			// 3. LA DE-SOUDURE. `keepGeometry` : une de-soudure de couture est
+			//    TOPOLOGIQUE -- deplacer les positions deformerait le modele qu'on
+			//    cherche seulement a deplier.
+			bilan.sommetsAvant = (uint32)mesh.verts.Size();
+			uint32 dup = 0u;
+			if (!mesh.SplitEdges(seams.Data(), bilan.coutures, /*keepGeometry*/ true, &dup)) {
+				outResult.refus = NkUVRefus::CoinsSoudes;
+				if (outBilan)
+					*outBilan = bilan;
+				return false;
+			}
+			mesh.RebuildEdges();
+			bilan.sommetsDupliques = dup;
+			bilan.sommetsApres = (uint32)mesh.verts.Size();
+
+			// 4. RETROUVER LES COUTURES par position, en une passe.
+			NkHashMap<uint64, NkEmId> parCle;
+			for (uint32 e = 0; e < (uint32)mesh.edges.Size(); ++e) {
+				if (!mesh.edges[e].alive)
+					continue;
+				const uint64 c = NkUVCleArete(mesh.verts[mesh.edges[e].v0].pos,
+											  mesh.verts[mesh.edges[e].v1].pos);
+				if (!parCle.Find(c))
+					parCle.Insert(c, (NkEmId)e);
+			}
+			NkVector<NkEmId> seams2;
+			seams2.Reserve(bilan.coutures);
+			for (uint32 k = 0; k < bilan.coutures; ++k) {
+				const NkEmId *id = parCle.Find(NkUVCleArete(aPos[k], bPos[k]));
+				if (id)
+					seams2.PushBack(*id);
+			}
+			bilan.couturesRetrouvees = (uint32)seams2.Size();
+
+			// 5. LE DEPLIAGE, avec les coutures de la NOUVELLE topologie.
+			NkUVUnwrapParams pr = base;
+			pr.seams = seams2.Data();
+			pr.seamCount = bilan.couturesRetrouvees;
+			const bool ok = NkUVUnwrap(mesh, pr, outResult);
+			if (ok) {
+				NkUVMeasureDistortion(mesh, outResult.distortion);
+				bilan.pairesRecouvrement = NkUVCountOverlaps(mesh, &bilan.aireRecouvrement);
+			}
+			if (outBilan)
+				*outBilan = bilan;
+			return ok;
 		}
 
 	} // namespace renderer
