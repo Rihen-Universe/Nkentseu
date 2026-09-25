@@ -259,6 +259,39 @@ surface **fermée, de genre 0, aux sommets soudés** — exactement ce qu'un
 maillage importé présente au déplieur — donc elle exerce la chaîne entière et
 elle est identique partout.
 
+## 26/09 nuit — le damier se voit : deux causes, et la seconde était le cadrage
+
+**(1) Le canal de texture était faux.** J'écrivais dans
+`SetTexture("albedo_map", ...)` ; le gabarit lit `GetTex("albedo")`
+(`NkMaterialSystem.cpp:620`). **Aucun alias**, et le repli est
+`GetWhite1x1()` — un nom d'emplacement faux ne produit pas un refus, il produit
+un objet **blanc parfaitement plausible**. Même famille que l'AABB vide : on
+échoue en silence, et le silence ressemble à un résultat.
+→ `mat->SetAlbedoMap(tex)` : la porte typée supprime la chaîne, donc la faute.
+
+**(2) Le cadrage montrait l'intérieur d'un carreau.** À 3,2 d'éloignement la
+sphère débordait de l'écran : un gros plan sur un carreau clair est une surface
+claire. Les mots de Rodolf le disaient déjà — *« je ne vois pas de damier, à part
+une superposition de surface »*. **Un défaut de présentation se lit comme un
+défaut de fond quand on ne voit que le résultat.**
+
+**Le cadrage se calcule désormais**, depuis le champ de vision réel, pour que les
+**deux** sphères tiennent entières avec de la marge. Et la démo journalise le
+chiffre qui aurait épargné la soirée :
+
+```
+[demo-uv] cadrage : 28.42 carreaux dans la vue, distance 4.28 (seuil de lisibilite : 4)
+```
+
+Sous 4 carreaux, elle **avertit** : la caméra est dans le damier, aucun motif ne
+peut se lire.
+
+**Le culling suivi angle par angle** : sur une rotation complète, **114 relevés,
+`écartés = 0` partout**. Je ne reproduis pas la disparition des sphères vue sur
+la troisième capture — celle-ci venait du binaire d'avant, au cadrage serré.
+L'instrument reste **armé** : il journalise dès que `écartés > 0`, pas seulement
+périodiquement, donc si le défaut revient il se nomme tout seul.
+
 ## État honnête au 25/09/2026
 
 Le dépliage **est branché** — pour la première fois il est appelable depuis
