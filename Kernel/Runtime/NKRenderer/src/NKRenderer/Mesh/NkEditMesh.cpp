@@ -6585,8 +6585,18 @@ namespace nkentseu {
 						pts[k].radius = sculpt.radius;
 						pts[k].pressure = 1.f;
 					}
+					// LA SYMETRIE DEPLIE LE TRAIT AVANT QU'IL NE PARTE. Une seule
+					// primitive, un seul chemin de deformation : ce sont les TAMPONS
+					// qui se multiplient, pas le code. Et la couture est traitee la ou
+					// elle se voit (cf. NkSculptExpandSymmetry).
+					NkVector<NkSculptPoint> ptsSym;
+					const bool aSym = (sculpt.symX || sculpt.symY || sculpt.symZ);
+					if (aSym)
+						NkSculptExpandSymmetry(pts.Data(), (uint32)pts.Size(), sculpt.symX,
+											   sculpt.symY, sculpt.symZ, ptsSym);
 					const NkSculptApply r =
-						NkSculptApplyStroke(m, d, pts.Data(), (uint32)pts.Size());
+						aSym ? NkSculptApplyStroke(m, d, ptsSym.Data(), (uint32)ptsSym.Size())
+							 : NkSculptApplyStroke(m, d, pts.Data(), (uint32)pts.Size());
 					// ⚠️ `applied` EST FAUX QUAND RIEN N'A BOUGE, et c'est ce que
 					//    Demo3D_ApplyCmd attend pour ne pas commiter un undo vide : un
 					//    trait hors du maillage ne doit pas laisser une etape d'annulation
@@ -7011,7 +7021,8 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(14u); // v14 : + la MATRICE du geste de gizmo (Transform de sculpture)
+			w.U32(15u); // v15 : + la SYMETRIE du mode, enregistree avec le coup de brosse
+			//       v14 : + la MATRICE du geste de gizmo (Transform de sculpture)
 			//       v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
 			//       v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
 			//       v11 : + LE COUP DE BROSSE (params + polyligne)
@@ -7130,6 +7141,10 @@ namespace nkentseu {
 					for (int32 row = 0; row < 4; ++row)
 						w.F32(c.sculptXform.matrice[col][row]);
 				w.U8(c.sculptXform.aMatrice);
+				// v15 : la SYMETRIE DU MODE au moment du coup de brosse.
+				w.U8(c.sculpt.symX);
+				w.U8(c.sculpt.symY);
+				w.U8(c.sculpt.symZ);
 			}
 		}
 
@@ -8255,6 +8270,11 @@ namespace nkentseu {
 						for (int32 row = 0; row < 4; ++row)
 							c.sculptXform.matrice[col][row] = r.F32();
 					c.sculptXform.aMatrice = r.U8();
+				}
+				if (ver >= 15) {
+					c.sculpt.symX = r.U8();
+					c.sculpt.symY = r.U8();
+					c.sculpt.symZ = r.U8();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en
