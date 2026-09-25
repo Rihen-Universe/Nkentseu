@@ -1337,6 +1337,82 @@ int main(int argc, char **argv) {
 		gFailed += (b24.total - b24.ok);
 	}
 
+	// ═══ (25/09) LA VIGNETTE SUIT LE CHAT — aller-retour par le disque ═══════
+	//
+	// 🔴 CE QUE CE CRITERE EMPECHE DE REVENIR : la vignette du resultat etait
+	//    calculee, affichee... et PERDUE a la fermeture. Le fichier de chats
+	//    portait DIX champs, aucun n'etait `vignette`. Rouvrir une conversation
+	//    rendait le texte des etapes ET UNE TOILE VIDE a cote : ce que le bloc
+	//    disait avoir pose n'etait plus montrable.
+	//
+	// ⚠️ L'ALLER-RETOUR PASSE PAR LE DISQUE, pas par une copie en memoire : c'est
+	//    l'ECRITURE et la RELECTURE qu'on met en doute, pas la structure.
+	{
+		using namespace nkentseu::editorkit;
+		const char *chemin = "kit_vignette_chat.txt";
+		bool okEcrit = false, okRelu = false, memeRect = false, memeRapport = false;
+		{
+			NkAiPanneau pan;
+			NkAiFil fil;
+			pan.Lier(&fil);
+			// ⚠️ LA CAPACITE SE DECLARE, SINON LE BLOC EST REFUSE -- et c'est le
+			//    banc qui me l'a appris, pas la relecture : les capacites par defaut
+			//    sont `Texte()`, qui ne produit pas d'`Outil`. Le fichier sortait sans
+			//    AUCUNE ligne `bloc`, et l'aller-retour echouait pour une raison qui
+			//    n'avait rien a voir avec la vignette.
+			pan.capacites.produitOutil = true;
+			NkAiBlocDonnees d;
+			d.type = NkAiBloc::Outil;
+			d.titre = nkentseu::NkString("Design");
+			d.texte = nkentseu::NkString("Pose");
+			d.vignetteRapport = 0.625f;
+			NkAiBlocDonnees::Vignette a;
+			a.x = 0.1f; a.y = 0.2f; a.w = 0.3f; a.h = 0.4f; a.genre = 2;
+			NkAiBlocDonnees::Vignette b;
+			b.x = 0.5f; b.y = 0.6f; b.w = 0.25f; b.h = 0.125f; b.genre = 3;
+			d.vignette.PushBack(a);
+			d.vignette.PushBack(b);
+			nkentseu::NkString pq;
+			// ⚠️ PAR `pan.Fil()`, PAS PAR LE FIL BRUT, et le banc me l'a appris :
+			//    `Fil()` DECLARE les capacites avant de rendre le fil, et `Pousser`
+			//    REFUSE un bloc dont le type n'est pas declare. Ma premiere version
+			//    poussait dans `fil` directement et ignorait le refus avec un
+			//    `(void)` : le fichier sortait sans AUCUNE ligne `bloc`, et
+			//    l'aller-retour echouait -- pour une raison qui n'avait rien a voir
+			//    avec la vignette. *Un refus qu'on jette est un defaut qu'on deplace.*
+			const bool pousse = pan.Fil().Pousser(d, pq);
+			okEcrit = pousse && pan.EnregistrerChats(chemin);
+		}
+		{
+			NkAiPanneau pan2;
+			NkAiFil fil2;
+			pan2.Lier(&fil2);
+			// ⚠️ ET LA MEME CAPACITE A LA RELECTURE : sans elle, le bloc relu est
+			//    refuse a son tour et le fil revient VIDE -- l'ecriture etait bonne,
+			//    la lecture jetait. Un aller-retour se declare aux DEUX bouts.
+			pan2.capacites.produitOutil = true;
+			okRelu = pan2.ChargerChats(chemin);
+			if (okRelu && fil2.Taille() > 0) {
+				const NkAiBlocDonnees &r = fil2.At(fil2.Taille() - 1);
+				memeRapport = r.vignetteRapport > 0.624f && r.vignetteRapport < 0.626f;
+				if (r.vignette.Size() == 2) {
+					const NkAiBlocDonnees::Vignette &v0 = r.vignette[0];
+					const NkAiBlocDonnees::Vignette &v1 = r.vignette[1];
+					auto pres = [](float32 x, float32 y) { return x > y - 0.001f && x < y + 0.001f; };
+					memeRect = pres(v0.x, 0.1f) && pres(v0.y, 0.2f) && pres(v0.w, 0.3f) &&
+							   pres(v0.h, 0.4f) && v0.genre == 2 && pres(v1.x, 0.5f) &&
+							   pres(v1.w, 0.25f) && v1.genre == 3;
+				}
+			}
+		}
+		Check("25a", okEcrit && okRelu, "le chat s'ecrit et se relit");
+		Check("25b", memeRect,
+			  "les DEUX rectangles de la vignette reviennent, aux memes coordonnees et du meme genre");
+		Check("25c", memeRapport, "et le rapport du cadre revient aussi (0,625)");
+		nkentseu::NkFile::Delete(nkentseu::NkPath(chemin));
+	}
+
+
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);
 	if (gFailed) {
