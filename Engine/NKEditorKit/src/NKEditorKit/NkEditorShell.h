@@ -1120,6 +1120,11 @@ namespace nkentseu {
 				/// La largeur (hauteur pour le rail bas) de chaque tiroir -- Q6.
 				float32 mRailLargeur[3] = {320.f, 320.f, 240.f};
 				bool mRailAncre[3] = {false, false, false};
+				/// (25/09) Combien de lignes `panel=` de DROITE la relecture a refuse de
+				/// rouvrir, et combien de feuilles vides l'elagage a retirees derriere.
+				/// Les compter distingue « la porte est fermee » de « il n'y avait rien ».
+				int32 mPanneauxDroiteIgnores = 0;
+				int32 mFeuillesElaguees = 0;
 				bool mRailSelection = true;
 				bool mUiStateGeometrie = true;
 				/// Le rectangle du tiroir ouvert d'un rail dans `corps`, borne.
