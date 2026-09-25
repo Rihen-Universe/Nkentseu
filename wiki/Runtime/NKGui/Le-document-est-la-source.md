@@ -85,17 +85,54 @@ immédiat. **Viser** NKGui ne pose aucun problème : c'est un aval comme un autr
    au runtime     +WASM        (NKGui direct)   (greffons)
 ```
 
-**Deux façons de viser NKGui, et elles ne servent pas la même chose :**
+**Deux façons de viser NKGui** — et elles se cumulent, elles ne se choisissent pas.
 
-| | ce que ça fait | ce qu'on gagne | ce qu'on perd |
-|---|---|---|---|
-| **Monter au runtime** — existe (`NkGuiMonteur.h`) | l'application lit le `.nkgui` et construit les widgets | **on redessine sans recompiler** | un peu de lecture au démarrage |
-| **Générer du C++** | le document produit du source qui appelle NKGui | zéro lecture, erreurs à la compilation, rien à livrer à côté | exactement la propriété ci-dessus |
+⚠️ **Une première rédaction posait ici un faux dilemme** : elle présentait « monter au
+runtime » et « générer du C++ » comme deux produits, chacun perdant ce que l'autre gagne.
+Rodolf, le 25/09 : **« je ne veux rien perdre. »** Il a raison, et le dilemme n'existait
+pas — ce sont **deux configurations de construction du même document**, comme Qt le fait
+avec QML et Slint avec ses composants.
 
-Pour les applications de l'écosystème (Nogee, NKScena, NkAnimaEditor), **c'est le montage
-au runtime qui est voulu** : c'est toute la raison d'être du chantier « interface comme
-document ». La génération de C++ vise un autre cas — un produit livré où l'interface ne
-doit pas être modifiable.
+```
+développement  →  l'application LIT le .nkgui sur le disque  →  on redessine sans recompiler
+livraison      →  le document est EMBARQUÉ à la compilation  →  rien à livrer, rien à lire
+```
+
+### ⚠️ Le piège à éviter, et la conception qui l'évite
+
+Si le générateur émet du C++ **qui appelle directement les widgets**, il existe alors
+**deux implémentations de ce que signifie un document**. Elles divergeront — ce dépôt a
+payé ce motif plusieurs fois (*deux compteurs sans code commun*, *une dérivation en
+double*).
+
+**La conception correcte : le générateur n'émet pas des appels, il émet l'arbre DÉJÀ
+ANALYSÉ.**
+
+| | qui interprète le document |
+|---|---|
+| développement | le monteur |
+| livraison | **le monteur**, sur un arbre construit en mémoire au lieu d'être lu |
+
+Une seule implémentation de la sémantique. La divergence devient impossible **par
+construction**, pas par vigilance.
+
+### Et le contrôle à la compilation s'obtient quand même
+
+C'était l'argument sérieux en faveur du C++ généré. Il s'obtient sans lui, par deux
+mécanismes bon marché :
+
+1. **La validation à la construction.** `NkGuiValidate.h` existe déjà ; branché au build,
+   un document fautif casse la compilation au lieu d'ouvrir une fenêtre vide.
+2. **Un en-tête de signatures engendré.** Le document dit `Callback "sauvegarder"` → le
+   générateur émet la déclaration que l'hôte doit satisfaire. L'hôte oublie de
+   l'implémenter → **ça ne compile pas**.
+
+### Ce que ça coûte réellement, et il faut le payer
+
+**Un banc qui prouve que les deux configurations donnent le même résultat** : monter un
+document depuis le disque, monter le même embarqué, comparer l'arbre obtenu ; s'il
+diffère, rouge. C'est la seule chose qui empêche les deux chemins de se séparer en
+silence, et elle n'est pas facultative.
 
 📌 **Et une propriété qui vaut d'être notée** : NKGui devient **un dorsal parmi les
 autres**, comme dans l'architecture NkSL. Mais celui-là est utilisé tous les jours — il
