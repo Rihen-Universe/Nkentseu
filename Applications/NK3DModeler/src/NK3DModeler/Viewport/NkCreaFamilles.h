@@ -48,6 +48,20 @@ namespace nkentseu {
 				char nom[24] = {0};
 				char matiere[24] = {0};
 				uint32 faces = 0; ///< faces du maillage (n-gons) : la mesure « simple contre detaille »
+				// ── LA LIAISON, REMONTEE A L'APPELANT (25/09, Q18) ─────────────
+				// ⚠️ LE PIVOT N'EST PLUS POSE SUR LE NOEUD, et c'est mesure :
+				//    `Demo3DHostSetNodeOrigin` RECULE LES ENFANTS, et la porte
+				//    passait de 2,40 a 4,46 m avec quatre pieces flottantes.
+				//    Le pivot voyage donc jusqu'a celui qui fait tourner, qui
+				//    l'applique en COMPOSANT : pour tourner autour de P, il pose
+				//    `pos' = P + R*(pos - P)` -- les transformations de ce systeme
+				//    sont ABSOLUES et `SetModelTransform` emmene deja les
+				//    descendants. Aucune origine a deplacer, donc rien a reculer.
+				int32 parent = -1;             ///< noeud parent, ou -1
+				int32 liaison = 0;             ///< 0 fixe, 1 charniere, 2 glissiere
+				float32 pivot[3] = {0.f, 0.f, 0.f}; ///< point de l'axe, en MONDE
+				float32 axe[3] = {0.f, 1.f, 0.f};
+				float32 butee[2] = {0.f, 0.f};
 		};
 
 		/// Construit la famille, pieces en coordonnees OBJET (sol a y = 0, centre en

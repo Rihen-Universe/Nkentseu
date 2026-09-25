@@ -121,6 +121,16 @@ namespace nkentseu {
 					(void)demo::Demo3DHostSetNodeParent(nd, noeudDe[q.parent]);
 				NkFamPiece &P = out[nes++];
 				P.noeud = nd;
+				// La piece est creee a la position ZERO : ses coordonnees OBJET sont
+				// donc ses coordonnees MONDE a cet instant. Le pivot voyage tel quel.
+				P.parent = (q.parent >= 0 && q.parent < i && q.parent < 64) ? noeudDe[q.parent] : -1;
+				P.liaison = (int32)q.liaison;
+				for (int32 k = 0; k < 3; ++k) {
+					P.pivot[k] = q.pivot[k];
+					P.axe[k] = q.axe[k];
+				}
+				P.butee[0] = q.butee[0];
+				P.butee[1] = q.butee[1];
 				snprintf(P.nom, sizeof(P.nom), "%s", q.nom);
 				snprintf(P.matiere, sizeof(P.matiere), "%s", q.matiere);
 				P.faces = q.faces;
