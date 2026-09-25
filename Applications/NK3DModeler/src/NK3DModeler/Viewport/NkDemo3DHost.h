@@ -327,6 +327,10 @@ namespace nkentseu {
 		// partie NON MASQUEE autour d'un pivot (repere OBJET), avec la symetrie
 		// par axe (bit 0 = X, 1 = Y, 2 = Z). Angles en DEGRES. Rend vrai si au
 		// moins un sommet a bouge -- donc si une etape d'annulation a ete posee.
+		/// La symetrie de la sculpture : bit 0 = X, 1 = Y, 2 = Z. Reglage d'outil
+		/// (pas une commande : annuler un deplacement ne doit pas la changer).
+		void Demo3DHostSetSculptSym(int32 mask);
+		int32 Demo3DHostSculptSym();
 		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
 									   const float32 *scale3, const float32 *pivot3, int32 symMask);
 		bool Demo3DHostEditLoopCut();

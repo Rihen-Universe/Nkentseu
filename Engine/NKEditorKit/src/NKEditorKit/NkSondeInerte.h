@@ -102,12 +102,18 @@ namespace nkentseu {
 				return true;
 			if (in.mouseDown[0] || in.mouseDown[1] || in.mouseDown[2])
 				return true;
+			if (in.mouseReleased[0] || in.mouseReleased[1] || in.mouseReleased[2])
+				return true;
+			if (in.mouseDoubleClicked[0] || in.mouseDoubleClicked[1] || in.mouseDoubleClicked[2])
+				return true;
+			if (in.wheelH != 0.f)
+				return true;
 			if (in.charCount > 0 || in.wheel != 0.f)
 				return true;
 			if (in.wantCopy || in.wantCut || in.wantPaste || in.wantSelectAll)
 				return true;
 			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k)
-				if (in.keyDown[k])
+				if (in.keyDown[k] || in.keyInit[k])
 					return true;
 			return false;
 		}
@@ -144,13 +150,26 @@ namespace nkentseu {
 			for (int32 i = 0; i < 3; ++i) {
 				ctx.input.mouseDown[i] = false;
 				ctx.input.mouseClicked[i] = false;
+				// ⚠️ LE RELACHEMENT ET LE DOUBLE-CLIC DECLENCHENT AUSSI (25/09, agent
+				//    sculpture). Un bouton qui agit au RELACHEMENT -- ils sont nombreux
+				//    dans le kit -- restait atteignable par la main de Rodolf a travers
+				//    cette porte : le clic partait, le relachement passait, et le geste
+				//    se terminait. Ce qui declenche tombe ; ce qui decrit reste.
+				ctx.input.mouseReleased[i] = false;
+				ctx.input.mouseDoubleClicked[i] = false;
 			}
 			ctx.input.wheel = 0.f;
 			ctx.input.charCount = 0;
 			ctx.input.ctrlDown = ctx.input.shiftDown = ctx.input.altDown = false;
 			ctx.input.wantCopy = ctx.input.wantCut = ctx.input.wantPaste = ctx.input.wantSelectAll = false;
-			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k)
+			ctx.input.wheelH = 0.f; // la molette horizontale defile, donc elle declenche
+			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k) {
 				ctx.input.keyDown[k] = false;
+				// `keyInit` est la PREMIERE image d'un appui : c'est lui que lisent les
+				// raccourcis « une fois par appui ». Le laisser passer suffisait a
+				// declencher une action pendant qu'on mesure.
+				ctx.input.keyInit[k] = false;
+			}
 			if (n == 1u || (n % 120u) == 0u) {
 				std::printf("[sonde] ENTREE HUMAINE IGNOREE (%u image(s) depuis le debut) -- cette fenetre "
 							"est une SONDE DE MESURE, elle n'obeit qu'a son script%s%s\n",

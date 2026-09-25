@@ -1825,16 +1825,18 @@ namespace nkentseu {
 					const char *v = std::getenv("NK_SCULPT_GIZMO_MUTE");
 					return v && v[0] && v[0] != '0';
 				}();
-				const bool xfGrises = !sMuteGrise && demo::NkModeMaillageSansElements((int32)st.mode);
-				// ⚠️ LE MOTIF SUIT L'ETAT REEL (25/09). Le masque EXISTE desormais, et
-				// l'outil Transform de sculpture agit deja comme OPERATION (partie non
-				// masquee, pivot, symetrie, mesuree par sonde_masque.ps1). Ce qui manque
-				// est son GIZMO : tant qu'on ne peut pas le tirer a la souris, ces boutons
-				// resteraient des boutons qui s'allument sans rien faire -- « ni
-				// disparaitre, ni faire semblant ».
+				// ⚠️ LES QUATRE BOUTONS SONT REDEVENUS ACTIFS EN SCULPTURE (25/09), et
+				//    c'est la MEME regle qui les avait grises : un bouton s'allume quand
+				//    il agit. Le 21/09 l'outil n'existait pas ; le 25/09 au matin il
+				//    agissait sans gizmo ; il a maintenant son gizmo, donc il EXISTE pour
+				//    la main -- et les grises n'ont plus de motif. Le drapeau reste (une
+				//    ligne, et le crochet de mesure qui le lit) : le jour ou un mode
+				//    rejoindra les modes a brosses SANS outil, c'est ici qu'on l'ecrira.
+				const bool xfGrises = false;
+				(void)sMuteGrise;
 				static const char *const kMotifXf =
-					"En Sculpture, on deforme avec les pinceaux ; l'outil Transform agit deja sur la "
-					"partie non masquee -- son gizmo arrive";
+					"Transform de sculpture : deplace, tourne ou met a l'echelle la partie NON "
+					"masquee, autour du pivot";
 				if (sXfProbe && (int32)xfGrises != sXfDernier) {
 					sXfDernier = (int32)xfGrises;
 					std::printf("[nk3d] OUTILS-TRANSFORM mode=%d grises=%d\n", (int)st.mode, xfGrises ? 1 : 0);
@@ -1844,9 +1846,11 @@ namespace nkentseu {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kXf[i].key, br);
 					const bool on = !xfGrises && (st.tool == kXf[i].tool);
-					if (xfGrises)
-						NkHelp(over, kMotifXf); // grise : ni survol, ni accent -- le motif
-					else if (on)
+					// En Sculpture, l'infobulle DIT ce que l'outil fait de particulier :
+					// il ne transforme pas un objet, il deforme la partie non masquee.
+					if (demo::NkModeMaillageSansElements((int32)st.mode))
+						NkHelp(over, kMotifXf);
+					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
