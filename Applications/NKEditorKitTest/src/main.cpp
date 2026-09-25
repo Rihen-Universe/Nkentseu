@@ -1681,6 +1681,104 @@ int main(int argc, char **argv) {
 	}
 
 
+	// ═══ (26/09) FAMILLE 29 : `TextDisabled` — le role qui manquait, mesure
+	//     DANS LES DEUX THEMES
+	//
+	// [!] PRECEDENT EXACT : « Theme : un seul role manquait » (31/08). Deux
+	//     statuts existaient, le troisieme non, et les statuts s'effacaient en
+	//     theme CLAIR -- le sombre ne l'avait pas dit. Ces criteres passent donc
+	//     les deux themes, et le clair est celui qui tranche.
+	//
+	// ⚠️ CE N'EST PAS UN CRITERE WCAG A 4,5, ET C'EST DELIBERE. WCAG exempte
+	//    explicitement les elements DESACTIVES de son seuil de texte : un gris
+	//    qui atteint 4,5 ne se lit plus comme desactive. Ce qu'on garde, ce sont
+	//    les deux proprietes qui font le role -- un ORDRE (plus attenue que
+	//    `TextMuted`) et un PLANCHER (jamais confondu avec le fond).
+	{
+		using namespace nkentseu::editorkit;
+		const NkTheme sombre = NkTheme::Dark();
+		const NkTheme clair = NkTheme::Light();
+
+		// —— 29a : le role EXISTE et sa cle resout ————————————————
+		//    Par `NkResolveRole`, la vraie -- celle que les applications appellent.
+		Check("29a", NkResolveRole("text_disabled") == (nkentseu::uint16)NkRole::TextDisabled,
+			  "la cle « text_disabled » resout sur le role, et sur LUI");
+		// NEGATIF : une cle voisine ne doit pas y arriver. Sans lui, 29a passerait
+		// sur un resolveur qui dit oui a tout -- le defaut du 18/08.
+		Check("29a2", NkResolveRole("text_disable") == NK_ROLE_INVALID,
+			  "NEGATIF : « text_disable » (sans d) ne resout PAS");
+
+		// —— 29b : il est DIFFERENT de ses deux voisins, dans les DEUX themes —
+		const bool diffS = sombre.Get(NkRole::TextDisabled) != sombre.Get(NkRole::TextMuted) &&
+						   sombre.Get(NkRole::TextDisabled) != sombre.Get(NkRole::Text);
+		const bool diffC = clair.Get(NkRole::TextDisabled) != clair.Get(NkRole::TextMuted) &&
+						   clair.Get(NkRole::TextDisabled) != clair.Get(NkRole::Text);
+		Check("29b", diffS && diffC,
+			  "il differe de Text ET de TextMuted, en sombre comme en clair");
+
+		// —— 29c : L'ORDRE — plus ATTENUE que `TextMuted`, sur le fond REEL ——
+		//    Le fond reel d'un menu deroule est `PanelHeader` (le remplissage
+		//    interieur de `p.Outline(box, Border, PanelHeader)`). Mesurer contre un
+		//    fond ou la couleur ne se peint jamais serait un controle qui ne
+		//    controle rien -- la regle est deja ecrite dans `ContrastPairs`.
+		// 🔴 IL FAUT COMPOSITER, ET LE BANC ME L'A APPRIS EN ROUGISSANT.
+		//    Premiere version : `Contrast(Get(role), Get(fond))` directement. En
+		//    theme CLAIR, `TextMuted` vaut #0000008C et `TextDisabled` #00000059 --
+		//    deux NOIRS TRANSLUCIDES. `Contrast()` ne composite pas : il les a lus
+		//    tous deux comme du noir pur et a rendu **17,46 pour les deux**. Le
+		//    critere d'ordre a donc echoue, et c'etait la bonne reponse.
+		//    `Validate()` composite (`themedetail::Composite`) : on passe par la
+		//    MEME chaine, sinon le banc mesurerait une couleur que personne ne
+		//    peint. Le piege etait deja ecrit dans `ContrastPairs` -- je l'ai lu
+		//    apres l'avoir paye.
+		auto contraste = [](const NkTheme &t, NkRole fg, NkRole bg) {
+			return NkTheme::Contrast(themedetail::Composite(t.Get(fg), t.Get(bg)), t.Get(bg));
+		};
+		const float32 cS = contraste(sombre, NkRole::TextDisabled, NkRole::PanelHeader);
+		const float32 mS = contraste(sombre, NkRole::TextMuted, NkRole::PanelHeader);
+		const float32 cC = contraste(clair, NkRole::TextDisabled, NkRole::PanelHeader);
+		const float32 mC = contraste(clair, NkRole::TextMuted, NkRole::PanelHeader);
+		printf("         contraste sur PanelHeader : sombre desactive=%.2f muette=%.2f | "
+			   "clair desactive=%.2f muette=%.2f\n", (double)cS, (double)mS, (double)cC, (double)mC);
+		Check("29c", cS < mS && cC < mC,
+			  "il est plus ATTENUE que TextMuted dans les deux themes (sinon il ne dit rien)");
+
+		// —— 29d : LE PLANCHER — attenue, mais jamais invisible ————————
+		//    2,0 et non 4,5 : voir l'entete. Un gris a 1,0 serait le fond lui-meme.
+		Check("29d", cS >= 2.0f && cC >= 2.0f,
+			  "et il reste VISIBLE : contraste >= 2,0 sur le fond du menu, dans les deux");
+
+		// —— 29e : les variantes nommees le portent AUSSI ———————————
+		//    Elles derivent de Dark()/Light() et reposent leurs gris : sans cette
+		//    ligne, « GitHub Light Pro » aurait garde le desactive du theme SOMBRE.
+		{
+			NkThemeLibrary lib;
+			// ⚠️ SANS CET APPEL LA BIBLIOTHEQUE EST VIDE, et le banc me l'a dit :
+			//    29e rougissait en n'imprimant AUCUNE ligne de detail -- signe que
+			//    la boucle ne tournait pas. La garde `vus > 0` est ce qui l'a
+			//    empeche de passer au VERT sur zero theme : *une garde verte grace
+			//    a l'absence* aurait annonce quatre themes conformes sans en avoir
+			//    regarde un seul.
+			lib.AddBuiltins();
+			nkentseu::uint32 vus = 0, conformes = 0;
+			for (nkentseu::uint32 i = 0; i < lib.Count(); ++i) {
+				const NkTheme &thr = lib.At(i);
+				const NkTheme *th = &thr;
+				++vus;
+				const float32 c = contraste(*th, NkRole::TextDisabled, NkRole::PanelHeader);
+				const float32 m = contraste(*th, NkRole::TextMuted, NkRole::PanelHeader);
+				if (c < m && c >= 2.0f)
+					++conformes;
+				else
+					printf("         theme « %s » : desactive=%.2f muette=%.2f\n",
+						   th->Name().CStr(), (double)c, (double)m);
+			}
+			Check("29e", vus > 0 && conformes == vus,
+				  "TOUS les themes de la bibliotheque respectent l'ordre et le plancher");
+		}
+	}
+
+
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);
 	if (gFailed) {

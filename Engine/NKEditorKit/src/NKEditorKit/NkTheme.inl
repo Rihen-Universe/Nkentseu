@@ -55,6 +55,9 @@ namespace nkentseu {
 					"code_bg",
 					"code_out_bg",
 					"inline_code_bg",
+					// (26/09) Ajoute EN FIN, comme le role : cette table est
+					// POSITIONNELLE et la cle est un contrat de fichier.
+					"text_disabled",
 				};
 				return kNames;
 			}
@@ -707,6 +710,9 @@ namespace nkentseu {
 			S(NkRole::LabelCol, "#161B22");
 			S(NkRole::Text, "#FFFFFF");
 			S(NkRole::TextMuted, "#8B949E"); // le gris de texte secondaire de GitHub
+			// (26/09) DESACTIVE : `fg.subtle` de GitHub, un cran sous `fg.muted`.
+			// Meme famille que le reste du theme -- pas une couleur importee.
+			S(NkRole::TextDisabled, "#6E7681");
 			S(NkRole::TextOnAccent, "#FFFFFF");
 			S(NkRole::AccentUi, "#1F6FEB"); // bleu d'etat d'interface
 			S(NkRole::AccentSel, "#F2980E"); // l'orange UNIQUE du produit (10bis.2), inchange
@@ -799,6 +805,12 @@ namespace nkentseu {
 			S(NkRole::LabelCol, "#F0F0F0");
 			S(NkRole::Text, "#1A1A1A");
 			S(NkRole::TextMuted, "#0000008C");
+			// (26/09) DESACTIVE : 35 % de noir contre les 55 % de `TextMuted`.
+			// ⚠️ TRANSLUCIDE COMME SON VOISIN, ET C'EST LA RAISON : un opaque
+			//    calcule ici sans composition passerait tous les seuils sans rien
+			//    prouver -- c'est le piege deja nomme pour `TextMuted / CodeBg`.
+			//    `Validate()` et le banc compositent tous deux.
+			S(NkRole::TextDisabled, "#00000059");
 			S(NkRole::AccentUi, "#0E5FA6");	 // bleu assombri
 			S(NkRole::AccentSel, "#C97A08"); // ambre assombri
 			S(NkRole::ElemActive, "#101010");
@@ -1121,6 +1133,7 @@ namespace nkentseu {
 			t.Set(NkRole::LabelCol, NkTheme::FromHex("#161b22"));
 			t.Set(NkRole::Text, NkTheme::FromHex("#c9d1d9"));		// fg.default
 			t.Set(NkRole::TextMuted, NkTheme::FromHex("#8b949e"));	// fg.muted
+			t.Set(NkRole::TextDisabled, NkTheme::FromHex("#6e7681")); // fg.subtle
 			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
 			t.Set(NkRole::AccentUi, NkTheme::FromHex("#58a6ff"));	// accent.fg
 			// ⚠️ `AccentSel` RESTE L ORANGE DU PRODUIT. C est une regle du depot --
@@ -1143,6 +1156,7 @@ namespace nkentseu {
 			t.Set(NkRole::LabelCol, NkTheme::FromHex("#f6f8fa"));
 			t.Set(NkRole::Text, NkTheme::FromHex("#1f2328"));		// fg.default
 			t.Set(NkRole::TextMuted, NkTheme::FromHex("#656d76"));	// fg.muted
+			t.Set(NkRole::TextDisabled, NkTheme::FromHex("#8c959f")); // fg.subtle (clair)
 			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
 			t.Set(NkRole::AccentUi, NkTheme::FromHex("#0969da"));	// accent.fg
 			return t;
@@ -1171,6 +1185,7 @@ namespace nkentseu {
 			t.Set(NkRole::InputBg, NkTheme::FromHex("#0d1117"));
 			t.Set(NkRole::Text, NkTheme::FromHex("#dfdfdf"));
 			t.Set(NkRole::TextMuted, NkTheme::FromHex("#7d8590"));
+			t.Set(NkRole::TextDisabled, NkTheme::FromHex("#6e7681"));
 			t.Set(NkRole::TextOnAccent, NkTheme::FromHex("#ffffff"));
 			t.Set(NkRole::AccentUi, NkTheme::FromHex("#1f6feb"));
 			// Les deux roles qui ont rendu cette palette exprimable :
