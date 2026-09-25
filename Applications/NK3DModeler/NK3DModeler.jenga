@@ -31,7 +31,12 @@ with project("NK3DModeler"):
     # tutoriels. Le commentaire d'en-tete disait le modeleur sans NKMedia --
     # c'etait vrai tant qu'il ne produisait que des images fixes.
     nkentseudependson(
-        ["NKEditorKit", "NKRenderer", "NKRHI", "NKSL", "NKCanvas", "NKGui",
+        ["NKEditorKit", "NKRenderer",
+         # NKAnima : le CALCUL FACIAL (Action Units -> poids de blendshapes) y est
+         # descendu le 25/09. Le modeleur le consomme pour prouver le fil complet
+         # calcul -> deformation SANS copier une ligne de PV3DE -- c'est le critere
+         # pose par Rodolf : "ca doit vivre ou tous peuvent en profiter".
+         "NKAnima", "NKRHI", "NKSL", "NKCanvas", "NKGui",
          "NKMedia",
          # NKConverse : le PANNEAU IA appelle un modele par le module PARTAGE.
          # On consomme son interface et son envoi asynchrone ; aucun dorsal
