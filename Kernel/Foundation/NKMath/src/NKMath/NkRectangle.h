@@ -32,6 +32,15 @@
 #include "NKMath/NkVec.h"		   // Types NkVector2f et NkVec2T<T>
 #include "NKMath/NkSegment.h"	   // Type NkSegment pour les tests d'axe
 
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
+
 // =====================================================================
 // Namespace principal du projet
 // =====================================================================
@@ -123,9 +132,6 @@ namespace nkentseu {
 
 				// Surcharge globale de ToString pour appel fonctionnel libre
 				friend NkString ToString(const NkRectangle &rectangle);
-
-				// Opérateur de flux pour affichage dans std::ostream
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkRectangle &rectangle);
 
 		}; // class NkRectangle
 
@@ -277,12 +283,6 @@ namespace nkentseu {
 				// ToString : conversion en chaîne formatée pour débogage
 				NkString ToString() const {
 					return NkFormat("NkRectT[pos({0}, {1}); size({2}, {3})]", x, y, width, height);
-				}
-
-				// Opérateur de flux pour affichage dans std::ostream
-				// Note : template spécifique pour NkRectT<T>
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkRectT &rectangle) {
-					return outputStream << rectangle.ToString().CStr();
 				}
 
 		}; // class NkRectT<T>

@@ -18,7 +18,15 @@
 #include "NKMath/NkColor.h"
 #include "NKMath/NkRandom.h"
 #include "NKContainers/String/NkString.h"
-#include <ostream>
+
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
 
 // -------------------------------------------------------------------------
 // ESPACE DE NOMS PRINCIPAL
@@ -587,16 +595,6 @@ namespace nkentseu {
 			return c.ToString();
 		}
 
-		/**
-		 * @brief Opérateur de flux pour sortie std::ostream
-		 * @param os Flux de sortie
-		 * @param c Couleur à écrire
-		 * @return Référence vers os pour chaînage
-		 */
-		std::ostream &operator<<(std::ostream &os, const NkColor &c) {
-			return os << c.ToString().CStr();
-		}
-
 		// -------------------------------------------------------------------------
 		// NKCOLORF
 		// -------------------------------------------------------------------------
@@ -616,16 +614,6 @@ namespace nkentseu {
 		 */
 		NkString ToString(const NkColorF &c) {
 			return c.ToString();
-		}
-
-		/**
-		 * @brief Opérateur de flux pour sortie std::ostream
-		 * @param os Flux de sortie
-		 * @param c Couleur flottante à écrire
-		 * @return Référence vers os pour chaînage
-		 */
-		std::ostream &operator<<(std::ostream &os, const NkColorF &c) {
-			return os << c.ToString().CStr();
 		}
 
 		// ====================================================================

@@ -48,7 +48,15 @@
 #include "NKMath/NkFunctions.h"			  // Fonctions mathématiques : NkFabs, NkFmod, constantes epsilon
 #include "NKContainers/String/NkString.h" // Classe NkString pour représentation texte
 #include "NKContainers/String/NkFormat.h" // NkFormatProps, NkFormatter, NkFormat
-#include <ostream>						  // std::ostream pour operator<<
+
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
 
 // ========================================================================
 // ESPACE DE NOMS PRINCIPAL
@@ -471,16 +479,6 @@ namespace nkentseu {
 				 */
 				friend NKENTSEU_MATH_API NkString ToString(const NkAngleT &a);
 
-				/**
-				 * @brief Opérateur de flux pour sortie std::ostream
-				 * @param os Flux de sortie (std::cout, fichier, etc.)
-				 * @param a Angle à écrire
-				 * @return Référence vers os pour chaînage d'opérations
-				 * @note Délègue à ToString() puis CStr() pour compatibilité C++ standard
-				 * @note Utile pour logging/debug avec std::cout << angle
-				 */
-				friend NKENTSEU_MATH_API std::ostream &operator<<(std::ostream &os, const NkAngleT &a);
-
 				// ====================================================================
 				// SECTION PUBLIQUE : SÉRIALISATION BINAIRE (PERSISTENCE)
 				// ====================================================================
@@ -691,20 +689,12 @@ namespace nkentseu {
 			return a.ToString();
 		}
 
-		inline std::ostream &operator<<(std::ostream &os, const NkAngleT<float32> &a) {
-			return os << a.ToString().CStr();
-		}
-
 		template <> inline NkString NkAngleT<float64>::ToString() const {
 			return NkFormat("{0}", *this);
 		}
 
 		inline NkString ToString(const NkAngleT<float64> &a) {
 			return a.ToString();
-		}
-
-		inline std::ostream &operator<<(std::ostream &os, const NkAngleT<float64> &a) {
-			return os << a.ToString().CStr();
 		}
 
 	} // namespace math

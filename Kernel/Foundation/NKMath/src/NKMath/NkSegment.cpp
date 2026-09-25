@@ -20,6 +20,15 @@
 // =====================================================================
 #include "NKMath/NkSegment.h"
 
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
+
 // =====================================================================
 // Namespace : nkentseu::math
 // =====================================================================
@@ -118,23 +127,6 @@ namespace nkentseu {
 		// ---------------------------------------------------------------------
 		NkString NkSegment::ToString() const {
 			return NkFormat("NkSegment[A({0}, {1}); B({2}, {3})]", points[0].x, points[0].y, points[1].x, points[1].y);
-		}
-
-		// ---------------------------------------------------------------------
-		// Opérateur : operator<< (friend)
-		// ---------------------------------------------------------------------
-		// Surcharge de l'opérateur de flux pour permettre l'affichage direct
-		// d'un NkSegment dans un std::ostream (std::cout, fichiers, etc.)
-		//
-		// Paramètres :
-		//   outputStream : flux de sortie cible
-		//   segment : segment à afficher
-		//
-		// Retour :
-		//   Référence au flux pour chaînage des opérations <<
-		// ---------------------------------------------------------------------
-		std::ostream &operator<<(std::ostream &outputStream, const NkSegment &segment) {
-			return outputStream << segment.ToString().CStr();
 		}
 
 		// ---------------------------------------------------------------------
