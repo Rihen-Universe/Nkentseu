@@ -460,6 +460,13 @@ namespace nkentseu {
 		if (config.opacity < 1.0f) {
 			mData.mDwExStyle |= WS_EX_LAYERED;
 		}
+		// (25/09) NE PAS VOLER LE FOCUS. `WS_EX_NOACTIVATE` empeche la fenetre de
+		// devenir active au clic comme a l'affichage ; `SW_SHOWNOACTIVATE` plus bas
+		// empeche l'activation initiale. Les deux sont necessaires : le style seul
+		// laisse passer l'activation de la PREMIERE apparition.
+		if (config.noActivate) {
+			mData.mDwExStyle |= WS_EX_NOACTIVATE;
+		}
 
 		if (config.native.utilityWindow && !mData.mParentHwnd) {
 			mData.mUtilityOwner =
@@ -611,9 +618,17 @@ namespace nkentseu {
 		setupDropTarget();
 
 		if (config.visible) {
-			ShowWindow(mData.mHwnd, SW_SHOWNORMAL);
-			SetForegroundWindow(mData.mHwnd);
-			SetFocus(mData.mHwnd);
+			if (config.noActivate) {
+				// ⚠️ NI `SetForegroundWindow` NI `SetFocus` : les appeler ici
+				//    annulerait `WS_EX_NOACTIVATE` d'une ligne. Le style dit « ne
+				//    m'active pas » ; ces deux appels disent « active-moi ». Le
+				//    dernier qui parle gagne, et ce serait eux.
+				ShowWindow(mData.mHwnd, SW_SHOWNOACTIVATE);
+			} else {
+				ShowWindow(mData.mHwnd, SW_SHOWNORMAL);
+				SetForegroundWindow(mData.mHwnd);
+				SetFocus(mData.mHwnd);
+			}
 		}
 
 		// Synchronisation initiale : mConfig reflète l'état réel
