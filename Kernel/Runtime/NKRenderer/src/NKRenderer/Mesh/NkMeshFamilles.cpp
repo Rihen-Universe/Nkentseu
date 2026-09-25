@@ -19,6 +19,8 @@
 //   position plutot que par un numero qu'une operation precedente a decale.
 // -----------------------------------------------------------------------------
 #include "NKRenderer/Mesh/NkMeshFamilles.h"
+
+#include "NKRenderer/Mesh/NkMeshFamilleFichier.h"
 #include "NKRenderer/Mesh/NkEditMesh.h"
 
 #include <cmath>
@@ -1052,6 +1054,65 @@ namespace nkentseu {
 			}
 		} // namespace
 
+		// ── LES PRIMITIVES, EXPOSEES A L'INTERPRETE DE FICHIERS (Q16) ─────────
+		// ⚠️ L'INTERPRETE N'A PAS SA PROPRE GEOMETRIE, ET C'EST CE QUI REND
+		//    L'IDENTITE AU BIT POSSIBLE. S'il refaisait les cubes lui-meme,
+		//    « identique » ne voudrait rien dire : on comparerait deux geometries
+		//    qui n'ont aucune raison de coincider. Ces enveloppes ne font que
+		//    rendre appelables, depuis un autre fichier, les fonctions qui sont
+		//    deja dans l'espace anonyme ci-dessus.
+		void *NkFamOpNouvelleSoupe() {
+			return new Soupe();
+		}
+		void NkFamOpLibererSoupe(void *s) {
+			delete (Soupe *)s;
+		}
+		void NkFamOpPave(void *s, float32 x0, float32 y0, float32 z0, float32 x1, float32 y1, float32 z1) {
+			if (s)
+				Pave(*(Soupe *)s, x0, y0, z0, x1, y1, z1);
+		}
+		void NkFamOpChanfrein(void *s, float32 dx, float32 dy, float32 dz, float32 largeur, int32 segments) {
+			if (s)
+				Chanfrein(*(Soupe *)s, {dx, dy, dz}, largeur, segments);
+		}
+		void NkFamOpPanneaux(void *s, float32 dx, float32 dy, float32 dz, int32 n, float32 bord, float32 creux) {
+			if (s)
+				PanneauxEnCreux(*(Soupe *)s, {dx, dy, dz}, n, bord, creux);
+		}
+		void *NkFamOpSortie(NkVector<NkFamillePiece> *out) {
+			Sortie *S = new Sortie();
+			S->out = out;
+			return S;
+		}
+		void NkFamOpLibererSortie(void *s) {
+			delete (Sortie *)s;
+		}
+		bool NkFamOpSortieOk(void *s) {
+			return s ? ((Sortie *)s)->ok : false;
+		}
+		bool NkFamOpEmettre(void *sortie, void *s, const char *nom, const char *matiere) {
+			if (!sortie || !s)
+				return false;
+			Emettre(*(Sortie *)sortie, *(Soupe *)s, nom, matiere);
+			return ((Sortie *)sortie)->ok;
+		}
+		bool NkFamOpTournee(void *sortie, const float32 *rh, int32 n, const char *nom, const char *matiere, float32 tx,
+							float32 ty, float32 tz, float32 rxDeg) {
+			if (!sortie)
+				return false;
+			Tournee(*(Sortie *)sortie, rh, n, nom, matiere, {tx, ty, tz}, rxDeg);
+			return ((Sortie *)sortie)->ok;
+		}
+		void NkFamOpLiaison(void *sortie, const char *parent, int32 liaison, float32 px, float32 py, float32 pz,
+							float32 ax, float32 ay, float32 az, float32 bmin, float32 bmax) {
+			if (!sortie)
+				return;
+			Articuler(*(Sortie *)sortie, parent,
+					  liaison == 1 ? NkFamilleLiaison::Charniere
+								   : (liaison == 2 ? NkFamilleLiaison::Glissiere : NkFamilleLiaison::Fixe),
+					  {px, py, pz}, {ax, ay, az}, bmin, bmax);
+		}
+
 		// =====================================================================
 		//  LA TABLE DES FAMILLES : une seule liste, lue par tout le reste
 		// =====================================================================
@@ -1104,10 +1165,18 @@ namespace nkentseu {
 		}
 
 		bool NkFamilleConnue(const char *famille) {
-			return Trouver(famille) != nullptr;
+			// ⚠️ LE FICHIER PRIME, LE C++ EST LE REPLI. C'est l'ordre qui rend Q16
+			//    utile : ajouter ou corriger une famille ne demande plus de
+			//    reconstruire. Une famille que l'interprete ne couvre pas reste en
+			//    C++, et son fichier DIT pourquoi (`implementation cpp`).
+			return NkFamilleFichierConnue(famille) || Trouver(famille) != nullptr;
 		}
 
 		bool NkFamilleFormulaire(const char *famille, char *out, uint32 cap) {
+			// LE FORMULAIRE ENVOYE AU MODELE EST LU DANS LE FICHIER (Q16.4) : c'est
+			// ce qui permet d'ajouter un champ sans recompiler.
+			if (NkFamilleFichierFormulaire(famille, out, cap))
+				return true;
 			const Famille *f = Trouver(famille);
 			if (!f || !out || !cap)
 				return false;
@@ -1208,6 +1277,20 @@ namespace nkentseu {
 
 		int32 NkFamilleConstruire(const NkFamilleParams &p, NkVector<NkFamillePiece> &out, char *pourquoi,
 								  uint32 capPourquoi) {
+			// ── LE FICHIER D'ABORD (Q16) ──────────────────────────────────────
+			// ⚠️ ET SON REFUS N'EFFACE PAS LE REPLI : si l'interprete refuse (recette
+			//    invalide, ou `implementation cpp`), on essaie le C++. Un fichier mal
+			//    tape ne doit pas faire disparaitre une famille qui marchait -- c'est
+			//    la meme regle que pour le rechargement a chaud.
+			if (NkFamilleFichierConnue(p.famille)) {
+				char pq[256] = {0};
+				const int32 n = NkFamilleFichierConstruire(p, out, pq, sizeof(pq));
+				if (n > 0)
+					return n;
+				out.Clear();
+				if (pourquoi && pq[0])
+					snprintf(pourquoi, capPourquoi, "%s", pq);
+			}
 			const Famille *f = Trouver(p.famille);
 			if (!f) {
 				if (pourquoi) {
