@@ -1051,7 +1051,35 @@ namespace nkentseu {
 			const NkRect assetArea{ax - S(10.f), ty + S(34.f), r.x + r.w - (ax - S(10.f)),
 								   th - S(34.f)};
 			hit.Add("brow.tree", treeArea);
-			hit.Wheel("brow.tree", st.scrollTree, 5.f * kRowH + S(8.f), treeArea.h);
+			// 🔴 (Q13, 25/09) LA HAUTEUR DU CONTENU DE L'ARBRE ETAIT GRAVEE A CINQ
+			//    LIGNES. Rodolf : « le navigateur de contenu a gauche ne permet pas de
+			//    tout voir ». Son arbre en porte neuf (Contenu, Apercus, Modeles,
+			//    female character, je_veux_un_canar_ninja, bob, materiaux, textures,
+			//    vues) : la molette et la barre croyaient toutes deux que le contenu
+			//    tenait en cinq, donc les dernieres lignes etaient INATTEIGNABLES.
+			// ⚠️ ET LE MEME DEFAUT ETAIT DEJA CORRIGE A DEUX LIGNES D'ICI, du cote
+			//    des cartes -- le commentaire juste en dessous le raconte : « la hauteur
+			//    de contenu etait figee a 125 px... la derniere rangee restait
+			//    inaccessible ». On avait repare un cote et laisse l'autre.
+			//    *Un chiffre grave se perime, et il se perime en silence.*
+			// La vraie hauteur : la racine « Contenu » + les dossiers REELLEMENT
+			// dessines (`folderCount`, compte par la boucle de dessin plus haut).
+			const float32 treeContentH = (float32)(folderCount + 1) * kRowH + S(8.f);
+			hit.Wheel("brow.tree", st.scrollTree, treeContentH, treeArea.h);
+			// (Q13) LE CRITERE : le dernier element doit etre JOIGNABLE. Il rougit si la
+			// hauteur annoncee au defilement est plus courte que ce qui est dessine --
+			// c'est exactement ce qui rendait les dernieres lignes inatteignables.
+			if (std::getenv("NK_TRACE_ARBRE")) {
+				const float32 basDessine = (float32)(folderCount + 1) * kRowH + S(8.f);
+				const bool joignable = treeContentH + 0.5f >= basDessine;
+				std::printf("[arbre] %d dossier(s) + racine ; hauteur dessinee %.0f px, "
+							"hauteur annoncee au defilement %.0f px, zone %.0f px -> %s\n",
+							(int)folderCount, (double)basDessine, (double)treeContentH,
+							(double)treeArea.h,
+							joignable ? "VERT - le dernier element est joignable"
+									  : "ROUGE - le dernier element est INATTEIGNABLE");
+				std::fflush(stdout);
+			}
 			hit.Add("brow.assets", assetArea);
 			// La hauteur de contenu etait figee a 125 px, valeur de l'ancienne carte.
 			// Les cartes font maintenant 133 px : le defilement s'arretait avant le bas
@@ -1061,7 +1089,7 @@ namespace nkentseu {
 			// LES DEUX COTES DU NAVIGATEUR portent la meme barre que les
 			// proprietes (Rihen). La grille commence sous le bandeau de
 			// recherche : sa gouttiere aussi, sinon la barre le recouvrirait.
-			NkPaintVScroll(p, guiCtx, treeArea, 5.f * kRowH + S(8.f), st.scrollTree, 0x42524F57u);
+			NkPaintVScroll(p, guiCtx, treeArea, treeContentH, st.scrollTree, 0x42524F57u);
 			NkPaintVScroll(p, guiCtx, assetArea, assetContentH, st.scrollAssets, 0x42415353u);
 			// CIBLES HORS WIDGET, declarees EXPLICITEMENT (API NKGui) : le FOND
 			// de la grille (= dossier courant) et la VUE 3D. Les cartes ont ete

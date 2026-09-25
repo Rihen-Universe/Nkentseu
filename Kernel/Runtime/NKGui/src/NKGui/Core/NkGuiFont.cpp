@@ -104,12 +104,18 @@ namespace nkentseu {
 			if (!ext)
 				return;
 			auto add = [&](const char *path, const uint32 *ranges) {
-				if (!NkFileExists(path))
+				const bool present = path && path[0] && NkFileExists(path);
+				if (!present) {
+					if (path && path[0] && std::getenv("NK_TRACE_POLICE"))
+						std::printf("[police] repli ABSENT du disque : %s\n", path);
 					return;
+				}
 				NkFontConfig fb;
 				fb.glyphRanges = ranges;
 				fb.mergeMode = true;
-				atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &fb);
+				const bool ok = atlas.AddFontFromFile(path, sizePx > 0.f ? sizePx : 16.f, &fb) != nullptr;
+				if (std::getenv("NK_TRACE_POLICE"))
+					std::printf("[police] repli %s : %s\n", ok ? "FUSIONNE" : "REFUSE PAR L'ATLAS", path);
 			};
 			add(gFbBroad, NkBroadRanges());
 			add(gFbCjk, NkCjkRanges());
@@ -131,6 +137,8 @@ namespace nkentseu {
 			int32 bpp = 0;
 			atlas.GetTexDataAsAlpha8(&pixels, &atlasW, &atlasH, &bpp);
 			dirty = (pixels != nullptr && atlasW > 0 && atlasH > 0);
+			if (std::getenv("NK_TRACE_POLICE"))
+				std::printf("[police] atlas %d x %d apres fusion (sans ideogrammes il tient en quelques centaines de px de cote ; avec, plusieurs milliers)\n", (int)atlasW, (int)atlasH);
 			return dirty;
 		}
 
