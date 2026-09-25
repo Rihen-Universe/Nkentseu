@@ -44,8 +44,24 @@
 #          elle n'est pas un critere, elle sert a lire les resultats.
 
 chaise   | 00018_chair_B_wood                | modelise moi cette chaise       | -
-table    | 00109_Table2                      | modelise moi cette table        | table
-porte    | 00168_Door_5                       | modelise moi cette porte        | porte
+table    | 00342_table_medium_long           | modelise moi cette table        | table
+porte    | 00335_door-white                  | modelise moi cette porte        | porte
 maison   | 00079_Houses_SecondAge_2_Level2   | modelise moi cette maison       | maison
-arbre    | 00023_Tree_1                      | modelise moi cet arbre          | -
+arbre    | 00359_tree_fat                    | modelise moi cet arbre          | -
 tonneau  | 00266_barrel_small                | modelise moi ce tonneau         | -
+
+# ⚠️ TROIS REFERENCES ONT ETE REMPLACEES LE 25/09, ET C'EST MA FAUTE.
+#    La premiere version choisissait les identifiants sur leur NOM dans le
+#    manifeste, sans ouvrir une seule image. Trois des six n'etaient pas l'objet
+#    que leur nom annonce :
+#      00109_Table2  -> un PANNEAU gris vertical a deux ergots, pas une table ;
+#      00168_Door_5  -> une DALLE POSEE A PLAT au sol, pas une porte debout ;
+#      00023_Tree_1  -> une MASSE BLANCHE grumeleuse avec un baton, sans texture.
+#    Ce sont exactement les trois objets sur lesquels la chaine echouait le plus,
+#    et l'explication n'etait pas la chaine : on lui demandait « cette table »
+#    devant un panneau. J'avais meme conclu de la porte que TripoSR la
+#    reconstruisait COUCHEE -- il la reconstruisait FIDELEMENT, c'est la
+#    reference qui etait couchee.
+#    Les remplacantes ont ete choisies EN LES REGARDANT, sur une planche de
+#    contact (`ref/planche_choix.png`), et la planche des six retenues est dans
+#    `ref/planche_references.png`. Compter n'est pas ouvrir.

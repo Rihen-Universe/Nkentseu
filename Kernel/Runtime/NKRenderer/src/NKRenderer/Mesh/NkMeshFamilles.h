@@ -48,12 +48,39 @@ namespace nkentseu {
 
 		/// UNE PIECE : un maillage triangule, nomme, avec sa matiere. Les coordonnees
 		/// sont celles de l'OBJET : le sol a y = 0, centre en x = z = 0.
+		/// ── LES LIAISONS (25/09, Q18.1) ────────────────────────────────────────
+		/// Rodolf : « les parties s'articulent : la poignee ouvre la porte ».
+		/// ⚠️ CE N'EST PAS UNE SECONDE HIERARCHIE. Le modeleur en a deja une
+		///    (`Demo3DHostSetNodeParent`) et chaque noeud a deja un PIVOT
+		///    (`Demo3DHostSetNodeOrigin` : « point autour duquel il tourne, et la
+		///    deplacer NE DEPLACE PAS la matiere »). Ce que la famille ajoute, c'est
+		///    la seule chose qu'elle est seule a savoir : QUI porte QUI, OU passe
+		///    l'axe, et jusqu'ou ca tourne. Le reste est deja en place, et une
+		///    seconde mecanique aurait diverge de la premiere.
+		/// ⚠️ ET UNE PARTIE RESTE UNE PARTIE : parente ne veut pas dire fondue. Elle
+		///    garde son nom, sa matiere, sa selection ; on peut la casser du parent.
+		enum class NkFamilleLiaison : uint8 {
+			Fixe = 0,     ///< solidaire du parent
+			Charniere,    ///< tourne autour de `axe` passant par `pivot` (butees en DEGRES)
+			Glissiere,    ///< coulisse le long de `axe` (butees en METRES)
+		};
+
 		struct NkFamillePiece {
 				char nom[24] = {0};
 				char matiere[24] = {0};
 				NkVector<NkVertex3D> verts;
 				NkVector<uint32> indices;
 				uint32 faces = 0; ///< faces AVANT triangulation (n-gons) : la mesure « simple contre detaille »
+				// ── ARTICULATION ───────────────────────────────────────────────
+				int32 parent = -1;  ///< indice d'une piece DEJA emise, ou -1
+				NkFamilleLiaison liaison = NkFamilleLiaison::Fixe;
+				/// Le pivot est en coordonnees OBJET, comme les sommets : c'est le
+				/// point que la rotation ne doit pas bouger (l'arete des gonds, l'axe
+				/// d'une roue). Il vaut (0,0,0) tant qu'aucune famille ne le place --
+				/// et (0,0,0) est alors le centre de l'objet, pas « pas de pivot ».
+				float32 pivot[3] = {0.f, 0.f, 0.f};
+				float32 axe[3] = {0.f, 1.f, 0.f};
+				float32 butee[2] = {0.f, 0.f}; ///< min, max ; egales = pas de butee ecrite
 		};
 
 		/// Construit la famille. Rend le nombre de pieces, ou -1 avec `pourquoi`.
