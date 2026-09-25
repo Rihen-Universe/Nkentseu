@@ -218,6 +218,54 @@ def main():
     else:
         verdict("b7", False, "entree introuvable : b7 non mesure")
 
+    # ── b8/b9 : LA PAIRE APPARIEE, dans LE MEME menu ────────────────────────
+    #    « Objet » porte les deux cas : « Deplacer » est cablee, « Appliquer
+    #    tout » est grisee. Cliquer la premiere REFERME le menu, cliquer la
+    #    seconde le LAISSE OUVERT. Les deux clics sont a quelques pixels l'un de
+    #    l'autre, dans le meme menu, a la meme image : la difference ne peut
+    #    venir que du champ `indisponible`. *Un negatif apparie vaut mieux qu'un
+    #    negatif lointain.*
+    CLIC_OBJET = (400, 15)
+    rep2 = courir(a.exe, "60:m:400:15;80:d:400:15;82:u:400:15", 140,
+                  os.path.join(base, "b8a"), trace=2)
+    cibles = {}
+    for m in re.finditer(r"entree menu=5 .*cle=(\S+) indispo=(\d) .*"
+                         r"rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", rep2):
+        x, y, w, h = (int(m.group(k)) for k in (3, 4, 5, 6))
+        cibles[m.group(1)] = (m.group(2), x + w // 2, y + h // 2)
+    # « Appliquer tout » n'a pas de cle : on la repere par son rang DANS la
+    # trace, qui donne aussi le libelle. Plus simple : on prend la derniere
+    # entree sans cle et indisponible du menu Objet.
+    grisee = None
+    for m in re.finditer(r"entree menu=5 .*indispo=1 racc=\S+ libelle=Appliquer tout "
+                         r"rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", rep2):
+        x, y, w, h = (int(m.group(k)) for k in (1, 2, 3, 4))
+        grisee = (x + w // 2, y + h // 2)
+
+    dep = cibles.get("objet.deplacer")
+    if dep and dep[0] == "0":
+        j8 = courir(a.exe, "60:m:400:15;80:d:400:15;82:u:400:15;"
+                           "100:m:%d:%d;120:d:%d:%d;122:u:%d:%d"
+                           % (dep[1], dep[2], dep[1], dep[2], dep[1], dep[2]), 190,
+                    os.path.join(base, "b8"), trace=2)
+        ouvert8 = images_menu_ouvert(j8, 5)
+        verdict("b8", ouvert8 < 60,
+                "« Objet -> Deplacer » (cablee) AGIT et referme le menu (%d images)" % ouvert8)
+    else:
+        verdict("b8", False, "« objet.deplacer » introuvable ou grisee")
+
+    if grisee:
+        j9 = courir(a.exe, "60:m:400:15;80:d:400:15;82:u:400:15;"
+                           "100:m:%d:%d;120:d:%d:%d;122:u:%d:%d"
+                           % (grisee[0], grisee[1], grisee[0], grisee[1], grisee[0], grisee[1]),
+                    190, os.path.join(base, "b9"), trace=2)
+        ouvert9 = images_menu_ouvert(j9, 5)
+        verdict("b9", ouvert9 >= 60,
+                "NEGATIF APPARIE : « Appliquer tout » (grisee) laisse le menu ouvert "
+                "(%d images)" % ouvert9)
+    else:
+        verdict("b9", False, "« Appliquer tout » introuvable")
+
     print("RESULTAT : %d/%d" % (gOk, gOk + gKo))
     if a.negatif:
         # Le negatif NOMME les criteres attendus en rouge : un banc casse pour
