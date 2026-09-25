@@ -1,0 +1,13 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+famille portail
+synonymes portail
+formulaire style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2> detail <simple|detaille>
+valeurs style simple|chinois
+borne largeur 0.6 8.0 2.4
+borne hauteur 1.6 10.0 3.2
+plausible largeur 1.20 4.00 2.40
+plausible hauteur 1.80 3.40 2.60
+
+implementation cpp
+pourquoi meme constructeur que « porte », donc meme manque.
+manque balayage le long d'une polyligne, repetition en grille, boucle « pour ».

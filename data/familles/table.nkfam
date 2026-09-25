@@ -1,0 +1,68 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# La famille TABLE, migree du C++ vers un fichier (Q16).
+# Preuve exigee et faite : le meme objet, IDENTIQUE AU BIT, avant et apres.
+#
+# Ce fichier se recharge a chaud : le modifier et relancer une creation suffit,
+# sans reconstruire le moteur. Une erreur ici ne fait pas disparaitre la table --
+# l'interprete refuse en nommant le fichier, la ligne et le mot, et le C++
+# reprend la main.
+
+famille table
+synonymes table, bureau, desk, gueridon
+formulaire largeur <metres> profondeur <metres> hauteur <metres> detail <simple|detaille>
+
+# Bornes de CONSTRUCTION : ce que la geometrie supporte sans casser.
+borne largeur 0.4 4.0 1.6
+borne profondeur 0.4 2.0 0.9
+borne hauteur 0.3 1.2 0.75
+# Bornes de VRAISEMBLANCE : autre chose, et les confondre laisserait passer une
+# table de 4 m de haut parce qu'elle se construit.
+plausible hauteur 0.72 0.78 0.75
+
+var e = 0.035
+var retrait = 0.05
+var lx = largeur*0.5 - retrait - 0.04
+var lz = profondeur*0.5 - retrait - 0.04
+var hp = hauteur - e
+
+piece plateau matiere bois
+  pave -largeur*0.5, hauteur-e, -profondeur*0.5, largeur*0.5, hauteur, profondeur*0.5
+  si detaille
+    chanfrein 0, 1, 0, 0.01, 2
+  fin
+fin
+
+# LES QUATRE PIEDS, ECRITS UN PAR UN. La boucle du C++ tirait x et z de bits de
+# l'indice (`k & 1`, `k & 2`) : quatre lignes explicites disent la meme chose
+# sans demander a l'interprete un operateur binaire dont c'etait le seul usage.
+si detaille
+  tournee pied_arriere_gauche matiere bois en -lx, 0, -lz, profil 0.020, 0, 0.022, 0.03, 0.018, 0.04, 0.026, hp*0.55, 0.032, hp*0.62, 0.026, hp*0.66, 0.034, hp*0.80, 0.034, hp
+  tournee pied_arriere_droit  matiere bois en lx, 0, -lz, profil 0.020, 0, 0.022, 0.03, 0.018, 0.04, 0.026, hp*0.55, 0.032, hp*0.62, 0.026, hp*0.66, 0.034, hp*0.80, 0.034, hp
+  tournee pied_avant_gauche   matiere bois en -lx, 0, lz, profil 0.020, 0, 0.022, 0.03, 0.018, 0.04, 0.026, hp*0.55, 0.032, hp*0.62, 0.026, hp*0.66, 0.034, hp*0.80, 0.034, hp
+  tournee pied_avant_droit    matiere bois en lx, 0, lz, profil 0.020, 0, 0.022, 0.03, 0.018, 0.04, 0.026, hp*0.55, 0.032, hp*0.62, 0.026, hp*0.66, 0.034, hp*0.80, 0.034, hp
+sinon
+  piece pied_arriere_gauche matiere bois
+    pave -lx-0.035, 0, -lz-0.035, -lx+0.035, hp, -lz+0.035
+  fin
+  piece pied_arriere_droit matiere bois
+    pave lx-0.035, 0, -lz-0.035, lx+0.035, hp, -lz+0.035
+  fin
+  piece pied_avant_gauche matiere bois
+    pave -lx-0.035, 0, lz-0.035, -lx+0.035, hp, lz+0.035
+  fin
+  piece pied_avant_droit matiere bois
+    pave lx-0.035, 0, lz-0.035, lx+0.035, hp, lz+0.035
+  fin
+fin
+
+si detaille
+  var hc = 0.09
+  var t = 0.022
+  piece ceinture matiere bois
+    pave -lx, hp-hc, lz-t*0.5, lx, hp, lz+t*0.5
+    pave -lx, hp-hc, -lz-t*0.5, lx, hp, -lz+t*0.5
+    pave -lx-t*0.5, hp-hc, -lz, -lx+t*0.5, hp, lz
+    pave lx-t*0.5, hp-hc, -lz, lx+t*0.5, hp, lz
+    chanfrein 0, -1, 0, 0.006, 1
+  fin
+fin

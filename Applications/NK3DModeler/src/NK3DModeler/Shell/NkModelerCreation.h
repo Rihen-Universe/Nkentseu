@@ -2114,7 +2114,26 @@ namespace nkentseu {
 			G.dorsal.gen = &NkGeniaGenerateurParDefaut();
 			G.dorsal.depuisTexte = depuisTexte;
 			G.dorsal.entree = NkString(entree);
-			if (depuisTexte) {
+			// ── (25/09) UN OBJET, UN SEUL DOSSIER ──────────────────────────────────
+			// ⚠️ DEFAUT PROUVE PAR UNE COURSE : le dossier du modele venait du STEM DE
+			//    L'IMAGE (`NkGeniaSortiePour`) pendant que les vues venaient du NOM DE
+			//    L'OBJET (`NkCreaNomObjet`). Avec une image nommee `photo_de_rodolf.png`
+			//    et la demande « modelise moi cette table », on obtenait DEUX dossiers :
+			//        Modeles/photo_de_rodolf/  (le .glb, la fiche, l'image source)
+			//        Modeles/table/vues/       (les trois rendus)
+			//    Un autre agent a mesure « vues/ ne contient qu'une seule image » : il
+			//    regardait le premier. Deux derivations du meme nom se decorrelent --
+			//    celle-ci l'avait deja fait. Il n'y en a plus qu'une.
+			{
+				const NkString dm = NkGeniaDossierModele(st, NkCreaNomObjet());
+				if (!dm.Empty()) {
+					NkString o = dm;
+					o.Append(NkCreaNomObjet());
+					o.Append(".glb");
+					G.dorsal.sortie = o;
+				}
+			}
+			if (G.dorsal.sortie.Empty() && depuisTexte) {
 				// Le nom du fichier vient de la demande, pas d'un compteur : on doit
 				// pouvoir le retrouver dans le dossier Genia/ du projet.
 				char nom[80];
@@ -2126,7 +2145,7 @@ namespace nkentseu {
 				nom[n] = 0;
 				snprintf(nom + n, sizeof(nom) - n, ".png");
 				G.dorsal.sortie = NkGeniaSortiePour(st, nom);
-			} else
+			} else if (G.dorsal.sortie.Empty())
 				G.dorsal.sortie = NkGeniaSortiePour(st, entree);
 			snprintf(G.voie, sizeof(G.voie), "%s", voie);
 			// ── (Q18.4) SANS PROJET, ON REFUSE AVANT DE GENERER ────────────────────
@@ -3805,6 +3824,45 @@ namespace nkentseu {
 				std::fflush(stdout);
 			}
 			if (e == 6 || e == 8) {
+				// ── L'APERCU, A COTE DU MODELE ET AVEC SON NOM DE BASE (25/09) ───
+				// Regle tranchee par le coordinateur : l'apercu vit A COTE du modele,
+				// meme nom de base, extension .png -- la recherche devient « chemin du
+				// modele, extension remplacee » et survit a tous les renommages.
+				// ⚠️ C'EST UN FICHIER A PART, ET CA COMPTE : `vues/` garde son role de
+				//    vues de REFERENCE pour la fidelite et l'entrainement. Si l'apercu
+				//    y vivait, le navigateur ecraserait ou perimerait des images dont
+				//    la mesure depend. Le premier apercu est une COPIE de la vue 3/4 ;
+				//    le jour ou il faudra mieux, c'est ce fichier-la qu'on remplacera,
+				//    sans toucher aux vues.
+				{
+					char v34[400];
+					snprintf(v34, sizeof(v34), "%s_34.png", E.vuesPrefixe);
+					// le dossier du modele : deux crans au-dessus de `vues/<objet>`
+					char dos[400];
+					snprintf(dos, sizeof(dos), "%s", E.vuesPrefixe);
+					if (char *b1 = strrchr(dos, '/')) {
+						*b1 = 0;                      // retire `/<objet>`
+						if (char *b2 = strrchr(dos, '/'))
+							*b2 = 0;                  // retire `/vues`
+					}
+					char ap[400];
+					snprintf(ap, sizeof(ap), "%s/%s.png", dos, NkCreaNomObjet());
+					if (NkFile::Exists(v34) && NkFile::Copy(v34, ap, true)) {
+						std::printf("[crea] APERCU -> %s (copie de la vue 3/4)\n", ap);
+						std::fflush(stdout);
+					}
+					// ET A COTE DU FICHIER DE MODELE DU PROJET (`<objet>.nkgeo`), qui vit
+					// a la racine : c'est LUI que le navigateur trouve, et la regle est
+					// « chemin du modele, extension remplacee par .png ».
+					if (!st.projectRoot.Empty() && NkFile::Exists(v34)) {
+						char ap2[400];
+						snprintf(ap2, sizeof(ap2), "%s/%s.png", st.projectRoot.CStr(), NkCreaNomObjet());
+						if (NkFile::Copy(v34, ap2, true)) {
+							std::printf("[crea] APERCU -> %s (a cote du fichier de modele)\n", ap2);
+							std::fflush(stdout);
+						}
+					}
+				}
 				NkCreaIsoler(false);
 				demo::Demo3DHostSetHud(sHudAvant);
 				demo::Demo3DHostSetCursorShown(sCurseurAvant);
