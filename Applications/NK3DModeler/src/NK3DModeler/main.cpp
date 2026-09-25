@@ -1209,6 +1209,55 @@ int nkmain(const NkEntryState &entry) {
 	// La taille de corps est ARRONDIE : une police demandee a 16,25 px produit
 	// des metriques fractionnaires, donc des lignes de base entre deux pixels.
 	const float32 fontPx = (float32)(int32)(13.f * total + 0.5f);
+	// ── (Q12.2) LES GLYPHES NON LATINS, AVANT DE CONSTRUIRE L'ATLAS ──────────
+	//
+	// Rodolf voyait `??moba?????.JPG` dans le selecteur. 🔴 CE N'EST PAS UNE PERTE
+	// D'ENCODAGE : la trace imprime le nom EXACT (« 轻度moba竞技地图设计, zeqing
+	// yan.jpg ») -- la chaine est juste, en UTF-8, de bout en bout. Ce qui manque,
+	// ce sont les GLYPHES : `NkGlyphRanges()` couvre le latin, le grec, le
+	// cyrillique, la ponctuation et les symboles, **pas les ideogrammes**.
+	//
+	// Le mecanisme existe deja (`NkSetFallbackFontPaths`), il est explicitement
+	// « opt-in » parce qu'une police CJK est volumineuse -- et **seul NKCode le
+	// declarait**, alors que les polices Noto sont deja dans le depot. Un caractere
+	// qu'on ne sait pas dessiner devient `?`, et l'utilisateur croit a un fichier
+	// corrompu.
+	//
+	// ⚠️ LE DOSSIER DES POLICES EST CELUI DE NKCODE, et c'est une DECISION DE
+	//    PAQUETAGE que je ne prends pas : soit les polices remontent dans un
+	//    `data/fonts/` partage, soit chaque application en garde une copie (plusieurs
+	//    Mo chacune). En attendant, on les cherche la ou elles sont, et si on ne les
+	//    trouve pas, on ne declare rien -- pas de repli invente.
+	{
+		auto trouver = [](const char *const *noms, char *out, usize cap) {
+			out[0] = 0;
+			const NkString ed = NkPath::GetExecutableDirectory().ToString();
+			const NkString exeFonts = ed.Empty() ? NkString() : (ed + "/data/fonts/");
+			const char *dirs[] = {"Applications/NKCode/data/fonts/", "data/fonts/",
+								  exeFonts.Empty() ? "data/fonts/" : exeFonts.CStr(), ""};
+			for (const char *const *np = noms; *np; ++np)
+				for (const char *const *dp = dirs;; ++dp) {
+					const NkString c = NkString(*dp) + NkString(*np);
+					if (NkFile::Exists(c.CStr())) {
+						usize k = 0;
+						for (const char *q = c.CStr(); *q && k + 1 < cap; ++q)
+							out[k++] = *q;
+						out[k] = 0;
+						return;
+					}
+					if (!**dp)
+						break;
+				}
+		};
+		static char broad[600], cjk[600];
+		const char *broadN[] = {"NotoSans-Regular.ttf", nullptr};
+		const char *cjkN[] = {"NotoSansSC-Regular.ttf", "NotoSansSC.ttf", nullptr};
+		trouver(broadN, broad, sizeof(broad));
+		trouver(cjkN, cjk, sizeof(cjk));
+		nkgui::NkSetFallbackFontPaths(broad[0] ? broad : nullptr, cjk[0] ? cjk : nullptr, nullptr);
+		std::printf("[nk3d] polices de repli : large=%s cjk=%s\n", broad[0] ? broad : "(aucune)",
+					cjk[0] ? cjk : "(aucune)");
+	}
 	if (!font.LoadEmbedded(NkEmbeddedFontId::Inter, fontPx)) {
 		printf("[nk3d] police introuvable.\n");
 		return 1;
