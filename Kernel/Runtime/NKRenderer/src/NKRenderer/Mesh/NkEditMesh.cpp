@@ -5864,19 +5864,64 @@ namespace nkentseu {
 						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{});
 					}
 			} else { // bandes reliant les anneaux consécutifs
+				// ── L'ORIENTATION SE DECIDE UNE FOIS, POUR TOUTE LA SURFACE (25/09) ──
+				// ⚠️ DEFAUT MESURE : la regle « la normale du quad doit FUIR l'axe »
+				//    etait appliquee QUAD PAR QUAD. Elle est juste pour une surface
+				//    convexe vue du dehors, et FAUSSE pour la paroi INTERIEURE d'un
+				//    recipient, qu'on regarde depuis la cavite : ses quads etaient
+				//    retournes vers l'exterieur, donc en desaccord avec leurs voisins.
+				//    Sur le bol du jeu revolution : 95 aretes interieures sur 1 201
+				//    (7,91 %) parcourues dans le MEME sens par leurs deux faces, 189
+				//    faces sur 1 056 (17,9 %) -- deux anneaux de 48, exactement les
+				//    deux cercles ou la paroi interieure rencontre le reste. A l'ecran,
+				//    un coin noir dans le bol, que Rodolf a vu et qu'aucun compte de
+				//    trous ni de non-manifold ne signalait (0 bord, 0 non-manifold).
+				//
+				// LA REGLE JUSTE EST UN INVARIANT, PAS UNE HEURISTIQUE : on construit
+				// tous les quads avec LE MEME enroulement -- ce qui rend la surface
+				// coherente par construction -- puis on retourne l'ENSEMBLE si le
+				// volume signe de la surface fermee est negatif (normales rentrantes).
+				// Le volume signe ne se trompe pas la ou « fuir l'axe » se trompait :
+				// il ne regarde pas un quad, il regarde le solide.
+				// Pour un profil OUVERT, le volume ne veut rien dire ; on retombe alors
+				// sur l'ancienne regle, mais prise EN SOMME sur tous les quads, donc
+				// une seule decision, donc une surface coherente dans tous les cas.
+				bool retourner = false;
+				{
+					float64 vol = 0.0, radial = 0.0;
+					for (int32 k = 0; k < steps; ++k)
+						for (uint32 e = 0; e < (uint32)eA.Size(); ++e) {
+							const uint32 a0 = ring[(uint32)k * pn + (uint32)slot[eA[e]]];
+							const uint32 b0 = ring[(uint32)k * pn + (uint32)slot[eB[e]]];
+							const uint32 a1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eA[e]]];
+							const uint32 b1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eB[e]]];
+							const NkVec3f p0 = pv[a0].pos - ctr, p1 = pv[b0].pos - ctr;
+							const NkVec3f p2 = pv[b1].pos - ctr, p3 = pv[a1].pos - ctr;
+							vol += (float64)p0.Dot(p1.Cross(p2)) + (float64)p0.Dot(p2.Cross(p3));
+							const NkVec3f n4 = NkEmFaceCross(pv[a0].pos, pv[b0].pos, pv[b1].pos);
+							NkVec3f rad = (pv[a0].pos + pv[b0].pos + pv[a1].pos + pv[b1].pos) * 0.25f - ctr;
+							rad = rad - ax * rad.Dot(ax);
+							if (rad.LenSq() > 1e-12f)
+								radial += (float64)n4.Dot(rad);
+						}
+					// ⚠️ LE SIGNE EST MESURE, PAS SUPPOSE. J'avais ecrit « volume negatif =
+					//    normales rentrantes », par la convention usuelle. Faux ICI : les
+					//    assemblages de boites, qui s'affichent correctement depuis
+					//    toujours, rendent un volume signe NEGATIF par cette formule
+					//    (chaise -0,0156 ; table -0,0158, mesures du 25/09). La premiere
+					//    version a donc retourne le bol dans le mauvais sens : le coin
+					//    noir avait disparu, et tout l'interieur etait devenu noir a sa
+					//    place. On lit le signe sur ce qui marche deja, jamais dans un
+					//    manuel.
+					retourner = (vol > 1e-9) || (vol > -1e-9 && vol < 1e-9 && radial < 0.0);
+				}
 				for (int32 k = 0; k < steps; ++k) {
 					for (uint32 e = 0; e < (uint32)eA.Size(); ++e) {
 						const uint32 a0 = ring[(uint32)k * pn + (uint32)slot[eA[e]]];
 						const uint32 b0 = ring[(uint32)k * pn + (uint32)slot[eB[e]]];
 						const uint32 a1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eA[e]]];
 						const uint32 b1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eB[e]]];
-						// ORIENTATION : la normale du quad doit FUIR l'axe (surface de
-						// révolution vue de l'extérieur) ; sinon on inverse la boucle.
-						const NkVec3f n4 = NkEmFaceCross(pv[a0].pos, pv[b0].pos, pv[b1].pos);
-						const NkVec3f cq = (pv[a0].pos + pv[b0].pos + pv[a1].pos + pv[b1].pos) * 0.25f;
-						NkVec3f rad = cq - ctr;
-						rad = rad - ax * rad.Dot(ax);
-						if ((rad.LenSq() > 1e-12f) && (n4.Dot(rad) < 0.f)) {
+						if (retourner) {
 							nfv.PushBack(a1);
 							nfv.PushBack(b1);
 							nfv.PushBack(b0);

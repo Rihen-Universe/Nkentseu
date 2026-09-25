@@ -2037,13 +2037,56 @@ namespace nkentseu {
 			} else
 				G.dorsal.sortie = NkGeniaSortiePour(st, entree);
 			snprintf(G.voie, sizeof(G.voie), "%s", voie);
+			// ── (Q18.4) SANS PROJET, ON REFUSE AVANT DE GENERER ────────────────────
+			// ⚠️ MESURE DU 24/09 : sans projet ouvert, la generation ecrivait dans le
+			//    dossier temporaire un fichier parfaitement valide -- que l'import
+			//    refusait ensuite (« Import impossible : aucun PROJET ouvert »). 72
+			//    secondes de carte graphique pour un fichier que personne ne pouvait
+			//    ouvrir, et le fil ne disait « 0 carte » qu'a la fin. Le refus remonte
+			//    donc AVANT le calcul, et il dit quoi faire.
+			if (G.dorsal.sortie.Empty()) {
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus,
+								  "Aucun projet n'est ouvert : le modele n'aurait nulle part ou vivre, et rien "
+								  "ne pourrait etre importe. Fichier > Nouveau projet, puis redemandez.");
+				std::printf("[crea] REFUS voie (%s) : aucun projet ouvert\n", voie);
+				std::fflush(stdout);
+				return false;
+			}
 			{
-				// le dossier Genia/ du projet peut ne pas exister encore
+				// le dossier du modele peut ne pas exister encore
 				char dos[400];
 				snprintf(dos, sizeof(dos), "%s", G.dorsal.sortie.CStr());
 				if (char *b = strrchr(dos, '/'))
 					*b = 0;
 				NkDirectory::CreateRecursive(dos);
+			}
+			// ── (Q18.4) LE DOSSIER DU MODELE : l'entree y est RECOPIEE, et la fiche
+			//    ecrite MAINTENANT. Une fiche qu'on remplirait apres coup manquerait
+			//    pour les objets qui auront echoue -- c'est-a-dire ceux qu'on voudra
+			//    relire.
+			{
+				char nomObj[64];
+				NkImpStem(G.dorsal.sortie.CStr(), nomObj, (uint32)sizeof(nomObj));
+				const NkString dm = NkGeniaDossierModele(st, nomObj);
+				if (!dm.Empty()) {
+					if (!depuisTexte && entree && entree[0]) {
+						char stem2[48];
+						NkImpStem(entree, stem2, (uint32)sizeof(stem2));
+						const char *ext = strrchr(entree, '.');
+						NkString dst = dm;
+						dst.Append("vues/");
+						dst.Append(stem2);
+						dst.Append(ext ? ext : ".png");
+						// L'IMAGE FOURNIE EST RECOPIEE, PAS REFERENCEE : elle peut vivre
+						// n'importe ou sur la machine de l'utilisateur, et le dossier du
+						// modele doit rester lisible seul, plus tard, ailleurs.
+						(void)NkFile::Copy(entree, dst.CStr(), true);
+					}
+					NkCreaEtat &EC = NkCrea();
+					NkGeniaEcrireFiche(dm, nomObj, EC.demande, voie,
+									   depuisTexte ? "diffusion locale + TripoSR" : "TripoSR",
+									   depuisTexte ? "" : entree);
+				}
 			}
 			NkString pourquoi;
 			if (!G.envoi.Lancer(&G.dorsal, NkString("genia"), pourquoi)) {
@@ -2506,7 +2549,16 @@ namespace nkentseu {
 				"plait", "stp", "svp", "petit", "petite", "grand", "grande", "gros", "grosse", "beau", "belle",
 				"joli", "jolie", "vieux", "vieille", "ancien", "ancienne", "vieil", "nouveau", "nouvelle", "simple",
 				"a", "an", "the", "make", "create", "build", "model", "please", "i", "want", "me", "some", "big",
-				"small", "old", "new", "nice", "tres", "super", "vraie", "vrai"};
+				"small", "old", "new", "nice", "tres", "super", "vraie", "vrai",
+				// ⚠️ LES DEMONSTRATIFS MANQUAIENT (25/09). « modelise moi CETTE table »
+				//    s'arretait sur « cette » : le nom de tete etait un determinant, la
+				//    famille n'etait pas reconnue, et la table partait en assemblage
+				//    libre -- 5 boites sans nom la ou la famille en donne 6 nommees.
+				//    C'est aussi ce que Q12 demande : une demande qui DESIGNE l'image
+				//    (« ceci », « cet objet », « ce qui est en image jointe ») ne doit
+				//    pas perdre son nom de tete en chemin.
+				"ce", "cet", "cette", "ces", "ceci", "cela", "ca", "celui", "celle",
+				"this", "that", "these", "those", "it", "here"};
 			static const struct {
 					const char *mot;
 					const char *famille;
