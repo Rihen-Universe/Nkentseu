@@ -1,0 +1,51 @@
+# JEU D'EPREUVE « FIDELITE A LA REFERENCE » (Q14.1)
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# ECRIT LE 25/09 AVANT LA PREMIERE MESURE, avant d'avoir lance une seule course.
+# Rodolf : « certes le block out est correct, mais ne rend pas l'objet FIDELE A
+# LA CAPTURE ». Le critere n'est plus « ca ressemble a une chaise », c'est
+# « c'est CETTE chaise ».
+#
+# ── POURQUOI CES REFERENCES-LA ────────────────────────────────────────────────
+# Elles viennent de NOTRE corpus de vues (logs_genia3d/corpus_vues), et pas du
+# web, pour trois raisons qui comptent :
+#   1. la VERITE existe : chaque reference a son maillage d'origine et la POSE
+#      exacte de sa camera, donc l'instrument peut prouver son zero (la
+#      reference contre elle-meme doit rendre 1,000000) ;
+#   2. l'alpha du rendu EST la silhouette : aucun detourage ne s'interpose, donc
+#      on ne mesure pas la qualite d'un detoureur en croyant mesurer la notre ;
+#   3. la provenance et la licence sont deja ecrites dans le manifeste du corpus.
+# ⚠️ CE QU'ELLES NE SONT PAS : des photographies. Un rendu de synthese a un fond
+#    uni et un eclairage propre. Le jour ou la chaine recevra une VRAIE photo,
+#    ces chiffres seront un plafond, pas une prevision -- et il faudra le redire.
+#
+# ── LES CRITERES, ET LE SEUIL ECRIT D'AVANCE ──────────────────────────────────
+# C_zero    la reference comparee a ELLE-MEME rend IoU = 1,000000. Sinon
+#           l'instrument se declare HORS SERVICE et ne rend aucun verdict.
+# C_forme   IoU moyen des silhouettes sur TROIS vues de la reference (azimuts
+#           0, 90 et 180 degres a la meme elevation), le candidat etant vu sous
+#           UN SEUL decalage d'azimut commun aux trois. Seuil : >= 0,70.
+#           ⚠️ Trois vues et un seul decalage : un candidat qui tomberait juste
+#           sur une vue par chance ne peut pas tomber juste sur trois.
+#           Les deux masques sont ramenes a la MEME boite englobante avant l'IoU
+#           -- C_forme ne juge donc que la FORME, jamais la taille.
+# C_prop    les proportions : |ln(largeur/hauteur) candidat - ln(...) reference|
+#           moyenne sur les trois vues. Seuil : <= 0,25 (soit +/- 28 %).
+#           C'est la grandeur que C_forme a expressement retiree.
+# C_negatif LE CONTROLE QUI DECIDE : le meilleur C_forme obtenu par les
+#           candidats des AUTRES references sur cette reference-ci. Un resultat
+#           qui ne bat pas ce chiffre ne prouve rien -- il dit seulement que
+#           deux objets quelconques se ressemblent a cette resolution.
+#           ⚠️ Si les negatifs atteignent 0,70, c'est le SEUIL qui est faux, et
+#           c'est ce qu'il faudra ecrire, pas le maquiller.
+#
+# FORMAT : <cle> | <id corpus> | <demande> | <famille attendue ou ->
+#          la « famille attendue » dit seulement quelle voie DEVRAIT partir ;
+#          elle n'est pas un critere, elle sert a lire les resultats.
+
+chaise   | 00018_chair_B_wood                | modelise moi cette chaise       | -
+table    | 00109_Table2                      | modelise moi cette table        | table
+porte    | 00168_Door_5                       | modelise moi cette porte        | porte
+maison   | 00079_Houses_SecondAge_2_Level2   | modelise moi cette maison       | maison
+arbre    | 00023_Tree_1                      | modelise moi cet arbre          | -
+tonneau  | 00266_barrel_small                | modelise moi ce tonneau         | -
