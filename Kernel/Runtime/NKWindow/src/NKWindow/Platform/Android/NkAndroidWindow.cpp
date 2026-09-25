@@ -1033,7 +1033,9 @@ namespace nkentseu {
 	}
 
 	float32 NkWindow::GetOpacity() const {
-		return mConfig.opacity;
+		// ARBITRAGE DU 25/09 : un accesseur decrit le monde. Ce dorsal n'applique
+		// pas l'opacite ; la fenetre est donc OPAQUE. Cf. IsAlwaysOnTop.
+		return 1.0f;
 	}
 
 	void NkWindow::SetAlwaysOnTop(bool onTop) {
@@ -1041,7 +1043,16 @@ namespace nkentseu {
 	}
 
 	bool NkWindow::IsAlwaysOnTop() const {
-		return mConfig.alwaysOnTop;
+		// ARBITRAGE DU 25/09 — UN ACCESSEUR DECRIT LE MONDE, PAS NOTRE MEMOIRE.
+		// Ce dorsal n'applique PAS le toujours-devant. La fenetre n'est donc PAS
+		// au-dessus, et c'est la seule reponse dont l'appelant puisse faire
+		// quelque chose. Rendre `mConfig.alwaysOnTop` lui ferait croire l'inverse
+		// de ce qu'il voit a l'ecran.
+		// L'information « ta demande a ete ignoree » n'est pas perdue : le refus
+		// nomme la donne UNE fois, AU MOMENT DE LA DEMANDE (NkWindowAudit.h).
+		// Si un jour il faut distinguer « non applique » de « applique et faux »,
+		// cela s'ecrira `NkWindowSupporte(propriete)` — pas en changeant celui-ci.
+		return false;
 	}
 
 	void NkWindow::SetClickThrough(bool clickThrough) {
@@ -1049,7 +1060,9 @@ namespace nkentseu {
 	}
 
 	bool NkWindow::IsClickThrough() const {
-		return mConfig.clickThrough;
+		// ARBITRAGE DU 25/09 : un accesseur decrit le monde. Ce dorsal ne rend pas
+		// la fenetre transparente aux clics ; elle les recoit donc. Cf. IsAlwaysOnTop.
+		return false;
 	}
 
 	void NkWindow::SetTitle(const NkString &title) {

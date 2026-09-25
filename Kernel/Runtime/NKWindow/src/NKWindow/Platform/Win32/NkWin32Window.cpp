@@ -238,6 +238,47 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// LE FOND DE LA FENETRE — `bgColor`, enfin lu (25/09)
+	//
+	// AVANT : `wc.hbrBackground = BLACK_BRUSH`, en dur. C'est CETTE brosse que
+	// Windows etale sur la zone nouvellement decouverte pendant un
+	// redimensionnement, avant que l'application ait eu sa chance de peindre.
+	// D'ou le clignotement NOIR au redimensionnement, sur toutes les
+	// applications — pendant que `bgColor` valait `0x141414FF` et n'etait lu
+	// nulle part.
+	//
+	// ⚠️ CHANGEMENT VISIBLE, ASSUME : le clignotement passe du NOIR PUR au
+	//    `0x141414` par defaut. Ce n'est pas une regression — c'est la valeur que
+	//    `NkWindowConfig` annonce depuis le debut, et elle est plus proche du
+	//    theme sombre des editeurs que le noir qu'elle n'a jamais remplace.
+	//
+	// ⚠️ LA BROSSE APPARTIENT A LA CLASSE, PAS A LA FENETRE, et la classe est
+	//    nommee par `config.name`. Deux fenetres de MEME `name` et de `bgColor`
+	//    DIFFERENTS partagent donc la brosse de la premiere enregistree. Ce n'est
+	//    pas rattrapable sans repeindre nous-memes a chaque WM_ERASEBKGND — ce qui
+	//    rendrait le clignotement que le code actuel evite en ne peignant RIEN
+	//    (WM_ERASEBKGND rend 1 sans toucher au HDC). Le second appelant recoit
+	//    donc un REFUS NOMME au lieu d'une couleur silencieusement ignoree.
+	//
+	// ⚠️ DUREE DE VIE — ET UN PIEGE PAYE LE 25/09. `NkWindow::Close()` appelle
+	//    `UnregisterClassW`, et `UnregisterClass` DETRUIT la brosse de fond de la
+	//    classe. Une premiere version gardait un cache de brosses par couleur
+	//    pour le processus : la deuxieme fenetre recevait donc un HBRUSH MORT,
+	//    et `CreateWindowExW` echouait. Le banc l'a vu parce qu'il ouvre
+	//    plusieurs fenetres dans un seul processus ; un banc a une fenetre
+	//    serait reste vert.
+	//    Regle : la brosse est creee UNIQUEMENT quand la classe ne l'est pas
+	//    encore, et c'est `UnregisterClass` qui la detruit. Si la classe existe
+	//    deja, on reprend LA SIENNE — jamais une copie, jamais un cache.
+	// =============================================================================
+	static COLORREF NkWin32CouleurDeFond(uint32 rgba) {
+		// `bgColor` est 0xRRGGBBAA ; COLORREF est 0x00BBGGRR. L'alpha n'a pas de
+		// sens pour une brosse GDI : il est ignore, et c'est dit ici plutot que
+		// laisse deviner.
+		return RGB((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF);
+	}
+
+	// =============================================================================
 	// LE STYLE VIENT DE LA CONFIGURATION — il ne la contredit plus
 	//
 	// AVANT (jusqu'au 25/09/2026) : `mDwStyle = WS_OVERLAPPEDWINDOW` quoi qu'il
@@ -617,8 +658,36 @@ namespace nkentseu {
 		mData.mIconBig = wc.hIcon;
 		mData.mIconSmall = wc.hIconSm;
 		wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-		wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+		// `bgColor` : la brosse est posee plus bas, une fois su si la classe
+		// existe deja (elle en possede alors une, qu'il ne faut pas doubler).
+		wc.hbrBackground = nullptr;
 		wc.lpszClassName = wClassName.CStr();
+		// ── LE FOND : `bgColor` agit, et sa reserve se dit ────────────────────
+		{
+			const COLORREF voulue = NkWin32CouleurDeFond(config.bgColor);
+			WNDCLASSEXW existante = {};
+			existante.cbSize = sizeof(WNDCLASSEXW);
+			if (GetClassInfoExW(mData.mHInstance, wClassName.CStr(), &existante)) {
+				// La classe existe : elle POSSEDE deja sa brosse et la detruira a
+				// son desenregistrement. On reprend la sienne, on n'en cree pas une
+				// seconde — et si la couleur demandee n'est pas la sienne, on le DIT.
+				wc.hbrBackground = existante.hbrBackground;
+				LOGBRUSH lb = {};
+				if (GetObjectW(existante.hbrBackground, sizeof(lb), &lb) && lb.lbColor != voulue) {
+					NkWindowRefuserUneFois(
+						NkWindowProp::BgColor, "Win32",
+						"la brosse de fond appartient a la CLASSE de fenetre, nommee par config.name : "
+						"une classe deja enregistree garde la couleur de la premiere fenetre. Donnez un "
+						"`name` distinct pour une couleur distincte");
+				}
+			} else {
+				// Classe neuve : la brosse lui appartient des l'enregistrement, et
+				// `UnregisterClassW` (dans Close) la detruira. Rien a liberer ici.
+				wc.hbrBackground = CreateSolidBrush(voulue);
+				if (!wc.hbrBackground)
+					wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+			}
+		}
 		RegisterClassExW(&wc);
 
 		InitializeDpiAPIs();
@@ -1216,7 +1285,9 @@ namespace nkentseu {
 		// L'OS fait autorité : un autre process peut retirer le topmost.
 		if (mData.mHwnd)
 			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-		return mConfig.alwaysOnTop;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	void NkWindow::SetClickThrough(bool clickThrough) {
@@ -1241,7 +1312,9 @@ namespace nkentseu {
 	bool NkWindow::IsClickThrough() const {
 		if (mData.mHwnd)
 			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
-		return mConfig.clickThrough;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	// ── Presse-papiers OS image (CF_DIBV5 / CF_DIB ↔ RGBA8) ─────────────────────
