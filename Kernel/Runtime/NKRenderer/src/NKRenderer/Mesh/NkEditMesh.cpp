@@ -6613,7 +6613,10 @@ namespace nkentseu {
 									  NkMat4f::RotationY(NkAngle::FromRad(T.rotDeg.y * kD2R)) *
 									  NkMat4f::RotationX(NkAngle::FromRad(T.rotDeg.x * kD2R));
 					const NkMat4f S = NkMat4f::Scale(T.scale);
-					const NkMat4f M = NkMat4f::Translate(T.translate) * R * S;
+					// La matrice du gizmo fait autorite quand elle est la : le geste
+					// enregistre est ALORS exactement celui qui a ete vu.
+					const NkMat4f M =
+						T.aMatrice ? T.matrice : (NkMat4f::Translate(T.translate) * R * S);
 					// La reflexion d'un axe : S·M·S. On la compose pour chaque axe
 					// symetrise, donc jusqu'a huit combinaisons -- exactement les
 					// huit octants que Blender traite.
@@ -6859,7 +6862,8 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(13u); // v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
+			w.U32(14u); // v14 : + la MATRICE du geste de gizmo (Transform de sculpture)
+			//       v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
 			//       v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
 			//       v11 : + LE COUP DE BROSSE (params + polyligne)
 			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
@@ -6972,6 +6976,11 @@ namespace nkentseu {
 				w.U8(c.sculptXform.symX);
 				w.U8(c.sculptXform.symY);
 				w.U8(c.sculptXform.symZ);
+				// v14 : la MATRICE du geste (le gizmo n'a pas d'euler a donner).
+				for (int32 col = 0; col < 4; ++col)
+					for (int32 row = 0; row < 4; ++row)
+						w.F32(c.sculptXform.matrice[col][row]);
+				w.U8(c.sculptXform.aMatrice);
 			}
 		}
 
@@ -8091,6 +8100,12 @@ namespace nkentseu {
 					c.sculptXform.symX = r.U8();
 					c.sculptXform.symY = r.U8();
 					c.sculptXform.symZ = r.U8();
+				}
+				if (ver >= 14) {
+					for (int32 col = 0; col < 4; ++col)
+						for (int32 row = 0; row < 4; ++row)
+							c.sculptXform.matrice[col][row] = r.F32();
+					c.sculptXform.aMatrice = r.U8();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en

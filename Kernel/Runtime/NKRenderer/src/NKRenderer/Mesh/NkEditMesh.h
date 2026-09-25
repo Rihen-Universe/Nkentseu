@@ -1715,6 +1715,17 @@ namespace nkentseu {
 			NkVec3f scale = {1.f, 1.f, 1.f};
 			NkVec3f pivot = {0.f, 0.f, 0.f};  ///< en REPERE OBJET
 			uint8 symX = 0, symY = 0, symZ = 0;
+			// ── LE GESTE DU GIZMO ARRIVE EN MATRICE, ET C'EST VOULU ─────────
+			// `NkGizmo3D::ApplyAbout` rend une MATRICE monde. La decomposer en
+			// translation / angles / echelle pour la recomposer ici ferait un
+			// aller-retour lossy (une rotation n'a pas d'euler unique, une echelle
+			// negative se cache dans la rotation) : le geste vu a l'ecran et le
+			// geste enregistre pourraient differer sans que rien ne le dise.
+			// Quand `aMatrice` vaut 1, `matrice` fait autorite et les trois champs
+			// ci-dessus ne sont plus lus. Ils restent pour la porte ECRITE
+			// (NK_SCULPT_XFORM, verbes), ou une matrice serait illisible.
+			NkMat4f matrice = NkMat4f::Identity(); ///< en REPERE OBJET, deja centree sur le pivot
+			uint8 aMatrice = 0;
 		};
 
 		struct NkMeshEditCommand {				NkMeshEditOp op = NkMeshEditOp::None;

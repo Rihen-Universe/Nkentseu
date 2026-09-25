@@ -213,32 +213,48 @@ if (Condition "Objet" ($o1 -gt 0) "aucune ligne GIZMO-DIAG en mode Objet avec un
 	Dire "Objet : le gizmo d'OBJET, seul, et plus aucun trace d'edition" ($o1 -gt 0) "lignes « emptyGizmo dessine=1 -> 1 gizmo »=$o1"
 }
 
-# ── LES BOUTONS DEPLACER / TOURNER / ECHELLE DE LA BARRE (decision du 21/09) ──
-# En Sculpture et en 2.5D : GRISES, non cliquables, motif en infobulle ; actifs
-# d'eux-memes en Objet et en Edition. Le clic est ECRIT (NK_TOOL_CLIC) sur le
-# bouton Rotation (1) et passe par la MEME acceptation que la souris ; la barre
-# imprime son etat et l'outil obtenu. Rotation = outil 3 ; l'outil de depart est 2.
 function Barre($c) {
 	$g = @(Select-String -Path $c.out -Pattern "OUTILS-TRANSFORM clic ecrit bouton=1 mode=(\d+) grises=(\d) -> outil=(\d+)")
 	if ($g.Count -eq 0) { return $null }
 	$m = $g[0].Matches[0]
 	return [pscustomobject]@{ mode = [int]$m.Groups[1].Value; grises = [int]$m.Groups[2].Value; outil = [int]$m.Groups[3].Value }
 }
+# ── (g) LES BOUTONS DE LA BARRE, ET LE GIZMO DU TRANSFORM DE SCULPTURE ─────
+# 21/09 : grises, parce que l'outil n'existait pas. 25/09 : ACTIFS, parce qu'il
+# existe -- masque, pivot, symetrie, et son gizmo. C'est la MEME regle qui a
+# decide les deux fois : un bouton s'allume quand il agit.
+#
+# ⚠ LE CRITERE PORTE SUR L'EFFET, PAS SUR L'APPARENCE. « Le bouton est actif »
+#   se satisferait d'un bouton qui s'allume pour rien -- exactement ce qu'on
+#   refusait le 21/09. On exige donc DEUX choses ensemble : choisir l'outil fait
+#   APPARAITRE le gizmo (triangles traces > 0), et le glisser DEPLACE la matiere.
+#   Le negatif est dans la meme course : sans choisir l'outil, le meme glisser ne
+#   trace rien et ne deplace rien.
+function Gizmo($c, [int]$mode) {
+	$L = @(Lignes $c $mode | Where-Object { $_.img -ge 20 })
+	$d = Delta $L
+	return [pscustomobject]@{ lignes = $L.Count; tri = (Max $L "gizmoTri"); bouge = $d }
+}
+$dragBase = @{ "NK_EDIT_USER" = "99"; "NK_EDIT_SEL" = "n"; "NK_EDIT_PRESUB" = "4";
+			   "NK_SCULPT_DRAG" = "120,0,8,150"; "NK_AGENT_EXIT" = "280" }
 foreach ($mode in @(3, 2)) {
 	$n = $noms[$mode]
-	$b = Barre (Courir "barre_$mode" @{ "NK_EDIT_MODE" = "$mode,40"; "NK_TOOL_CLIC" = "1,120"; "NK_AGENT_EXIT" = "160" })
-	if (Condition "$n (g)" (($null -ne $b) -and ($b.mode -eq $mode)) "le clic ecrit n'a pas eu lieu dans ce mode") {
-		Dire "$n (g) Deplacer/Tourner/Echelle GRISES et le clic n'y fait rien" (($b.grises -eq 1) -and ($b.outil -ne 3)) "grises=$($b.grises) outil apres clic sur Rotation=$($b.outil) (exige grises=1, outil different de 3)"
+	$avec = Gizmo (Courir "gz_outil_$mode" (Fusion $dragBase @{ "NK_EDIT_MODE" = "$mode,40"; "NK_TOOL_CLIC" = "0,60" })) $mode
+	$sans = Gizmo (Courir "gz_sans_$mode" (Fusion $dragBase @{ "NK_EDIT_MODE" = "$mode,40" })) $mode
+	if (Condition "$n (g)" (($avec.lignes -gt 2) -and ($sans.lignes -gt 2)) "courses incompletes") {
+		Dire "$n (g) l'outil choisi : le gizmo se trace ET le glisser deplace" `
+			(($avec.tri -gt 0) -and ($avec.bouge -gt 1.0)) `
+			"triangles=$($avec.tri) deplacement=$([Math]::Round($avec.bouge, 3))"
+		Dire "$n (g) NEGATIF : sans l'outil, aucun gizmo et rien ne bouge" `
+			(($sans.tri -eq 0) -and ($sans.bouge -eq 0.0)) `
+			"triangles=$($sans.tri) deplacement=$([Math]::Round($sans.bouge, 5)) (le meme glisser, sans avoir choisi l'outil)"
 	}
 }
+# EDITION INCHANGEE : le bouton choisit l'outil du gizmo de sommets, comme avant.
 $b = Barre (Courir "barre_1" @{ "NK_EDIT_MODE" = "1,40"; "NK_TOOL_CLIC" = "1,120"; "NK_AGENT_EXIT" = "160" })
 if (Condition "Edition (g)" (($null -ne $b) -and ($b.mode -eq 1)) "le clic ecrit n'a pas eu lieu en Edition") {
-	Dire "Edition (g) les boutons sont ACTIFS : Rotation se choisit" (($b.grises -eq 0) -and ($b.outil -eq 3)) "grises=$($b.grises) outil=$($b.outil)"
-}
-# Retour en Objet DEPUIS la Sculpture (TAB) : ils redeviennent actifs seuls.
-$b = Barre (Courir "barre_0" @{ "NK_EDIT_MODE" = "3,40"; "NK_VP_ACTION" = "toggleedit,90"; "NK_TOOL_CLIC" = "1,140"; "NK_AGENT_EXIT" = "170" })
-if (Condition "Objet (g)" (($null -ne $b) -and ($b.mode -eq 0)) "le clic ecrit n'a pas eu lieu en Objet") {
-	Dire "Objet (g) sorti de Sculpture, les boutons redeviennent ACTIFS" (($b.grises -eq 0) -and ($b.outil -eq 3)) "grises=$($b.grises) outil=$($b.outil)"
+	Dire "Edition (g) les boutons sont ACTIFS : Rotation se choisit" (($b.grises -eq 0) -and ($b.outil -eq 3)) `
+		"grises=$($b.grises) outil=$($b.outil)"
 }
 
 # ── (h) AUCUNE BOITE PUBLIEE SANS CIBLE, AU CLIC DU CURSEUR 3D ──────────────

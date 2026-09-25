@@ -113,6 +113,12 @@ function PalierPrecedent($L, [string]$champ) {
 function Max($L, [string]$champ) { $v = -1; foreach ($x in $L) { if ($x.$champ -gt $v) { $v = $x.$champ } }; return $v }
 
 $rouges = 0; $conditions = 0
+function Fusionner([hashtable]$a, [hashtable]$b) {
+	$r = @{}
+	foreach ($k in $a.Keys) { $r[$k] = $a[$k] }
+	foreach ($k in $b.Keys) { $r[$k] = $b[$k] }
+	return $r
+}
 function Dire([string]$nom, [bool]$vert, [string]$detail) {
 	if ($vert) { Write-Host "VERT   $nom  $detail" } else { Write-Host "ROUGE  $nom  $detail"; $script:rouges++ }
 }
@@ -246,6 +252,28 @@ if (Condition "(f) transform" ($libre.Count -gt 2) "aucune ligne") {
 	$sym = @(Lignes (Courir "xform_sym" @{ "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:1:150" }))
 	Dire "(f) symetrie X : les deux cotes partent en miroir, la couture tient" ((Bouge $sym) -eq 0.0) `
 		"deplacement de la somme = $([Math]::Round((Bouge $sym), 5)) (exige 0 : +0,5 d'un cote, -0,5 de l'autre, 0 sur le plan)"
+}
+
+# ── (g) LE GIZMO DU TRANSFORM RESPECTE LE MASQUE ────────────────────────────
+# Le meme geste qu'a la souris : le crochet NK_SCULPT_DRAG attrape la poignee
+# centrale AU PIVOT et tire de 120 px, par la structure de l'image -- aucune
+# souris de la machine n'est touchee. C'est le chemin COMPLET (pick du gizmo,
+# apercu par image, commande au relachement), pas l'operation appelee de cote.
+$gzBase = @{ "NK_TOOL_CLIC" = "0,60"; "NK_SCULPT_DRAG" = "120,0,8,150"; "NK_AGENT_EXIT" = "280" }
+$gLibre = @(Lignes (Courir "gz_libre" $gzBase))
+$gTout = @(Lignes (Courir "gz_tout" (Fusionner $gzBase @{ "NK_MASK_ALL" = "1,120" })))
+$gPart = @(Lignes (Courir "gz_part" (Fusionner $gzBase @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120" })))
+$gSym = @(Lignes (Courir "gz_sym" (Fusionner $gzBase @{ "NK_SCULPT_SYM" = "1" })))
+$dL = Bouge $gLibre
+if (Condition "(g) gizmo" (($gLibre.Count -gt 2) -and ($dL -gt 1.0)) `
+		"le glisser LIBRE n'a rien deplace ($([Math]::Round($dL, 5))) : le gizmo n'a pas ete attrape") {
+	Dire "(g) gizmo, tout masque : il ne deplace RIEN" ((Bouge $gTout) -eq 0.0) `
+		"libre $([Math]::Round($dL, 2)) -> masque $([Math]::Round((Bouge $gTout), 5)) (exige 0 exactement)"
+	$dP = Bouge $gPart
+	Dire "(g) gizmo, masque PARTIEL : il deplace moins, pas rien" (($dP -gt 0.0) -and ($dP -lt $dL)) `
+		"libre $([Math]::Round($dL, 2)) -> partiel $([Math]::Round($dP, 2)) ($(Dernier $gPart 'masque') sommets proteges)"
+	Dire "(g) gizmo, symetrie X : les deux cotes partent en miroir" ((Bouge $gSym) -eq 0.0) `
+		"deplacement de la somme = $([Math]::Round((Bouge $gSym), 5)) (exige 0)"
 }
 
 Write-Host "-----------------------------------------------------------------------"

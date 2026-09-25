@@ -2018,6 +2018,21 @@ namespace nkentseu {
 				int32 modalPvFull = 0, modalPvPos = 0;
 				float64 modalPvFullMs = 0.0, modalPvPosMs = 0.0;
 				renderer::NkGizmo3D editGizmo;	// 1 seule cible = PIVOT courant de la sélection
+				// ── LE GIZMO DE L'OUTIL TRANSFORM DE SCULPTURE ────────────────────
+				// ⚠️ MEME CLASSE, AUTRE INSTANCE -- pas un second gizmo. `NkGizmo3D`
+				//    porte deja les poignees, le pick, le glisser et le dessin ; ce
+				//    qui change ici est ce qu'on lui donne (une cible : le pivot de
+				//    la partie NON MASQUEE) et ce qu'on fait de son geste (deformer
+				//    la partie non masquee, pas transformer un objet).
+				//    Une instance a part, comme `lightGizmo` et `emptyGizmo` : l'etat
+				//    d'un geste de sculpture n'a rien a faire dans celui de l'edition,
+				//    et les melanger ferait qu'un G en Edition deplacerait ce qu'un
+				//    glisser de sculpture avait laisse derriere lui.
+				renderer::NkGizmo3D sculptGizmo;
+				bool sculptXformDragging = false;   // un geste est-il en cours ?
+				NkVector<NkVec3f> sculptXformRest;  // positions AU DEBUT du geste (repere objet)
+				NkVec3f sculptXformPivotW = {0.f, 0.f, 0.f}; // pivot MONDE, fige au depart
+				int32 sculptSymMask = 0;            // symetrie : bit 0 X, 1 Y, 2 Z
 				// ── OMBRAGE FLAT / SMOOTH (façon Blender « Shade Flat / Shade Smooth ») ──
 				// Shift+F = FLAT · Shift+S = SMOOTH. S'applique aux FACES SÉLECTIONNÉES si
 				// la sélection en contient (mixte autorisé, comme Blender), sinon à TOUT le
@@ -10974,6 +10989,11 @@ namespace nkentseu {
 				// gizmo deviendrait inattrapable.)
 				bool clickNow = st->pickPending;
 				st->pickPending = false;
+				// L'APPUI BRUT, AVANT TOUTE GARDE. En Sculpture, le clic n'appartient
+				// plus a la selection d'elements -- mais il appartient au gizmo du
+				// Transform quand cet outil est choisi. Sans cette copie, la garde qui
+				// suit (« le clic appartient a la brosse ») le lui retirerait aussi.
+				const bool appuiBrut = clickNow;
 				// Pilote headless : NK_PICK_AT="x,y" force un clic de selection a ces pixels.
 				if (st->pickForcePending) {
 					st->pickForcePending = false;
@@ -11383,7 +11403,195 @@ namespace nkentseu {
 							st->uiMode, st->editMode ? 1 : 0, nv, st->editHE.VertCount(),
 							st->editHE.FaceCount());
 				}
-				if (st->uiMode == 3 && nv > 0) {
+				// ══ L'OUTIL TRANSFORM DE SCULPTURE, ET SON GIZMO ═══════════════════
+				// Blender : en Sculpt Mode, Move/Rotate/Scale deplacent la partie NON
+				// MASQUEE autour d'un pivot, avec la symetrie. C'est le seul gizmo de
+				// ce mode -- il n'y a ni selection ni poignees de sommets.
+				//
+				// ⚠️ MEME CLASSE QUE LES AUTRES (`NkGizmo3D`), autre instance : les
+				//    poignees, le pick, le glisser et le dessin existent deja. Ce qui
+				//    est propre a la sculpture tient en trois choses : la CIBLE (le
+				//    pivot de la partie non masquee), l'EFFET (deformer, pas
+				//    transformer un objet) et la garde (le clic ne peint plus).
+				//
+				// ⚠️ L'APERCU PASSE PAR LA COMMANDE ELLE-MEME. A chaque image du
+				//    glisser : on restaure les positions du DEBUT du geste, puis on
+				//    applique `NkMeshEditOp::SculptTransform` avec la matrice courante.
+				//    Une seconde implantation « rapide » pour l'apercu aurait diverge
+				//    de celle qui enregistre -- et l'ecart ne se serait vu qu'au
+				//    relachement, loin de sa cause.
+				const bool outilXformSculpt =
+					!elems && st->editMode && !nkvpGizmoHidden && NkModeMaillageSansElements(st->uiMode);
+				if (outilXformSculpt) {
+					// LE PIVOT : barycentre des sommets NON MASQUES, pondere par leur
+					// liberte (1 - masque). Un sommet a demi protege compte a moitie :
+					// le pivot suit le masque de facon CONTINUE, sans sauter quand un
+					// poids franchit un seuil. Fige pendant le geste -- sinon il
+					// deriverait sous la main a mesure que la matiere bouge.
+					if (!st->sculptXformDragging) {
+						NkVec3f acc{0.f, 0.f, 0.f};
+						float32 poidsTotal = 0.f;
+						for (int32 i = 0; i < nv; ++i) {
+							const float32 libre = 1.f - st->editHE.MaskAt((uint32)i);
+							if (libre <= 0.f)
+								continue;
+							acc = acc + worldV(i) * libre;
+							poidsTotal += libre;
+						}
+						st->sculptXformPivotW = (poidsTotal > 0.f)
+													? acc * (1.f / poidsTotal)
+													: (st->editAnchor * NkVec3f{0.f, 0.f, 0.f});
+					}
+					renderer::NkGizmoTarget vtS[1];
+					vtS[0] = {NkMat4f::Translate(st->sculptXformPivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
+					// ⚠️ LA CIBLE DOIT ETRE **SELECTIONNEE**, sinon il n'y a pas de
+					//    poignees a attraper : `NkGizmo3D` ne dessine et ne pique que ce
+					//    qui est retenu. Mesure du 25/09 : premier essai, le gizmo se
+					//    dessinait (54 triangles) et l'appui au pivot ne prenait RIEN --
+					//    aucun « geste COMMENCE ». Le gizmo d'edition fait le meme appel
+					//    (`SelectAll` hors glisser) ; l'oublier ici donnait un gizmo
+					//    decoratif, qui est exactement ce qu'on refuse aux boutons.
+					if (!st->sculptGizmo.IsDragging())
+						st->sculptGizmo.SelectAll();
+					st->sculptGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
+					renderer::NkGizmoInput gs = gin;
+					gs.leftPressed = appuiBrut;
+					gs.leftDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+					// ── NK_SCULPT_DRAG="dx,dy[,images[,frame0]]" ─────────────────────
+					// Le MEME geste que NK_EDIT_DRAG, pour le gizmo de sculpture :
+					// attrape la poignee centrale AU PIVOT et tire. Il ecrit dans `gs`,
+					// la structure de CETTE image -- aucune souris de la machine n'est
+					// touchee, et le geste emprunte ensuite le chemin du vrai clic.
+					{
+						static bool sSdLu = false;
+						static float32 sSdDX = 0.f, sSdDY = 0.f, sSdX = 0.f, sSdY = 0.f;
+						static int32 sSdFrames = 8, sSdFrame0 = 100, sSdK = -1;
+						static bool sSdOn = false;
+						if (!sSdLu) {
+							sSdLu = true;
+							if (const char *dg = getenv("NK_SCULPT_DRAG")) {
+								float32 v[4] = {0.f, 0.f, 8.f, 100.f};
+								int32 k = 0;
+								for (const char *q = dg; k < 4 && *q;) {
+									v[k++] = (float32)atof(q);
+									while (*q && *q != ',')
+										++q;
+									if (*q == ',')
+										++q;
+								}
+								sSdDX = v[0];
+								sSdDY = v[1];
+								sSdFrames = (int32)v[2] > 0 ? (int32)v[2] : 8;
+								sSdFrame0 = (int32)v[3];
+								sSdOn = true;
+								logger.Info("[Demo3D] NK_SCULPT_DRAG arme : d=({0},{1}) px en {2} images, "
+											"a partir de la frame {3}\n",
+											sSdDX, sSdDY, sSdFrames, sSdFrame0);
+							}
+						}
+						if (sSdOn) {
+							++sSdK;
+							const int32 k = sSdK - sSdFrame0;
+							if (k == 0) {
+								float32 px = 0.f, py = 0.f;
+								if (project(st->sculptXformPivotW, px, py)) {
+									sSdX = px;
+									sSdY = py;
+									gs.mouseX = px;
+									gs.mouseY = py;
+									gs.leftPressed = true;
+									gs.leftDown = true;
+									logger.Info("[Demo3D] NK_SCULPT_DRAG appui a ({0}, {1}) px de vue\n", px, py);
+								} else {
+									logger.Info("[Demo3D] NK_SCULPT_DRAG : pivot non projetable, geste ABANDONNE\n");
+									sSdOn = false;
+								}
+							} else if (k > 0 && k <= sSdFrames) {
+								const float32 fx = sSdDX / (float32)sSdFrames;
+								const float32 fy = sSdDY / (float32)sSdFrames;
+								sSdX += fx;
+								sSdY += fy;
+								gs.mouseX = sSdX;
+								gs.mouseY = sSdY;
+								gs.mouseDX = fx;
+								gs.mouseDY = fy;
+								gs.leftDown = true;
+							} else if (k == sSdFrames + 1) {
+								gs.leftDown = false;
+								sSdOn = false;
+								logger.Info("[Demo3D] NK_SCULPT_DRAG relache\n");
+							}
+						}
+					}
+					const bool avantDrag = st->sculptGizmo.IsDragging();
+					st->sculptGizmo.Update(vtS, 1, gs);
+					const bool maintenantDrag = st->sculptGizmo.IsDragging();
+					if (!avantDrag && maintenantDrag) {
+						// DEBUT DU GESTE : la photo des positions. C'est elle qui rend
+						// l'apercu IDEMPOTENT -- sans elle, chaque image composerait la
+						// matrice sur le resultat de la precedente, et le moindre
+						// aller-retour de la souris s'accumulerait.
+						st->sculptXformRest.Clear();
+						st->sculptXformRest.Reserve(st->editHE.VertCount());
+						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+							st->sculptXformRest.PushBack(st->editHE.verts[i].pos);
+						st->sculptXformDragging = true;
+						logger.Info("[Demo3D] TRANSFORM sculpture : geste COMMENCE, pivot monde=({0}, {1}, "
+									"{2}) sommets={3} masques={4}\n",
+									st->sculptXformPivotW.x, st->sculptXformPivotW.y,
+									st->sculptXformPivotW.z, (int32)st->editHE.VertCount(),
+									(int32)st->editHE.MaskedCount());
+					}
+					auto commandeXform = [&]() {
+						renderer::NkMeshEditCommand c;
+						c.op = renderer::NkMeshEditOp::SculptTransform;
+						c.sculptXform.aMatrice = 1;
+						// MONDE -> OBJET : le gizmo parle en monde, le maillage vit en
+						// local. Oublier l'ancre deformerait autour de l'origine du monde.
+						c.sculptXform.matrice = st->editAnchorInv *
+												st->sculptGizmo.ApplyAbout(0, st->sculptXformPivotW) *
+												st->editAnchor;
+						c.sculptXform.pivot = st->editAnchorInv * st->sculptXformPivotW;
+						c.sculptXform.symX = (uint8)((st->sculptSymMask & 1) ? 1 : 0);
+						c.sculptXform.symY = (uint8)((st->sculptSymMask & 2) ? 1 : 0);
+						c.sculptXform.symZ = (uint8)((st->sculptSymMask & 4) ? 1 : 0);
+						return c;
+					};
+					auto restaurerDepart = [&]() {
+						const uint32 n = (uint32)st->sculptXformRest.Size();
+						if (n != st->editHE.VertCount())
+							return false; // la topologie a change sous le geste : on ne devine pas
+						for (uint32 i = 0; i < n; ++i)
+							st->editHE.verts[i].pos = st->sculptXformRest[i];
+						return true;
+					};
+					if (maintenantDrag && st->sculptXformDragging) {
+						if (restaurerDepart()) {
+							renderer::NkMeshEditCommand c = commandeXform();
+							(void)c.Apply(st->editHE); // MEME code que l'enregistrement
+							Demo3D_SyncFromHE(st, meshSysF);
+						}
+					}
+					if (avantDrag && !maintenantDrag && st->sculptXformDragging) {
+						// FIN DU GESTE : retour a l'etat de DEPART, puis la porte unique
+						// des commandes -- une seule etape d'annulation, et l'etat final
+						// est celui que l'apercu montrait (meme matrice, meme code).
+						st->sculptXformDragging = false;
+						if (restaurerDepart()) {
+							renderer::NkMeshEditCommand c = commandeXform();
+							st->sculptXformParams = c.sculptXform;
+							const uint32 undoAvant = st->editHistory.UndoCount();
+							Demo3D_ApplyCmd(st, meshSysF, c);
+							logger.Info("[Demo3D] TRANSFORM sculpture : geste TERMINE, undo {0} -> {1} · "
+										"masques={2} sym={3}\n",
+										undoAvant, st->editHistory.UndoCount(),
+										(int32)st->editHE.MaskedCount(), st->sculptSymMask);
+						}
+						st->sculptGizmo.ResetSelected(); // le geste est enregistre : il ne se rejoue pas
+						st->sculptXformRest.Clear();
+					}
+				}
+				if (st->uiMode == 3 && nv > 0 && !outilXformSculpt) {
 					// Le catalogue doit etre la AVANT qu'on lise la brosse active :
 					// sinon le journal dit « brosse='(aucune)' » alors que le geste a
 					// bien agi, et le lecteur cherche un defaut qui n'existe pas.
@@ -12577,6 +12785,18 @@ namespace nkentseu {
 				// (drawLine pour tiges/liserés fins + drawTri pour formes PLEINES : cônes/cubes/
 				// rubans). Le 2e callback active la surcharge Draw(drawLine, drawTri) du gizmo —
 				// mêmes couleurs d'axe (X rouge, Y vert, Z bleu) et mêmes formes que l'objet.
+				// LE GIZMO DE L'OUTIL TRANSFORM DE SCULPTURE, dessine par le MEME
+				// chemin que les autres (lignes fines + formes pleines en overlay).
+				// Il n'apparait que quand son outil est choisi -- sinon la Sculpture
+				// reste ce qu'elle doit etre : des brosses et rien d'autre.
+				if (!nkvpGizmoHidden && !elemsTrace && st->editMode &&
+					NkModeMaillageSansElements(st->uiMode))
+					st->sculptGizmo.Draw(
+						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+							++nkGizmoTri;
+							r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+						});
 				if (!nkvpGizmoHidden && elemsTrace)
 					st->editGizmo.Draw(
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
@@ -14610,6 +14830,15 @@ namespace nkentseu {
 													  : "SCULPTURE 2.5D  |  aucune brosse encore");
 					// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
 					// l'affichage en montre vraiment.
+					// L'OUTIL ACTIF ET SA SYMETRIE : sans cette ligne, « pourquoi l'autre
+					// cote bouge-t-il aussi ? » n'a aucune reponse a l'ecran.
+					if (!nkvpGizmoHidden) {
+						const char *axes[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+						overlay->DrawText({20.f, 136.f},
+										  "TRANSFORM de sculpture  |  il deplace la partie NON MASQUEE  |  "
+										  "symetrie : %s  |  pivot : barycentre du libre",
+										  axes[st->sculptSymMask & 7]);
+					}
 					if (st->editHE.MaskExists()) {
 						char pasTxt[48];
 						pasTxt[0] = 0;
@@ -17245,6 +17474,7 @@ namespace nkentseu {
 			op &= 3;
 			st->gizmo.SetMode(op);
 			st->editGizmo.SetMode(op);
+			st->sculptGizmo.SetMode(op); // le Transform de sculpture suit la meme barre
 			st->lightGizmo.SetMode(op);
 			st->emptyGizmo.SetMode(op);
 		}
@@ -18523,6 +18753,19 @@ namespace nkentseu {
 						T.rotDeg.z, T.scale.x, T.scale.y, T.scale.z, T.pivot.x, T.pivot.y,
 						T.pivot.z, symMask, ok ? 1 : 0, st->editHE.MaskedCount());
 			return ok;
+		}
+		// LA SYMETRIE DE LA SCULPTURE (bit 0 = X, 1 = Y, 2 = Z). Elle vaut pour
+		// l'outil Transform ; les brosses la recevront quand elles la porteront.
+		// ⚠️ ETAT, PAS COMMANDE : c'est un REGLAGE d'outil, pas un geste. L'inscrire
+		//    dans l'historique ferait qu'annuler un deplacement changerait aussi la
+		//    symetrie -- deux intentions de duree differente dans un meme champ.
+		void Demo3DHostSetSculptSym(int32 mask) {
+			if (auto *st = HostSt())
+				st->sculptSymMask = mask & 7;
+		}
+		int32 Demo3DHostSculptSym() {
+			auto *st = HostSt();
+			return st ? st->sculptSymMask : 0;
 		}
 		bool Demo3DHostEditLoopCut() {
 			if (HostRefuseSansElements("LoopCut"))
