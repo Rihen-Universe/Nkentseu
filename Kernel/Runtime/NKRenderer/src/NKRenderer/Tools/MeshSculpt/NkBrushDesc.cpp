@@ -125,6 +125,9 @@ namespace nkentseu {
 				{"lisser", NkSculptOp::NK_SCULPT_OP_SMOOTH},
 				{"lissage", NkSculptOp::NK_SCULPT_OP_SMOOTH},
 				{"smooth", NkSculptOp::NK_SCULPT_OP_SMOOTH},
+				{"masque", NkSculptOp::NK_SCULPT_OP_MASK},
+				{"masquer", NkSculptOp::NK_SCULPT_OP_MASK},
+				{"mask", NkSculptOp::NK_SCULPT_OP_MASK},
 			};
 
 			struct NamedFalloff {

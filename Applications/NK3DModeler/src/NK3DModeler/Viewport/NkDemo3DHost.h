@@ -309,6 +309,20 @@ namespace nkentseu {
 		int32 Demo3DHostSelectionnerTrait(int32 numero);
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
 					  const char *brushName, float32 radius, float32 strength);
+
+		// ── LE MASQUE DE SCULPTURE ──────────────────────────────────────────
+		// Un poids par sommet (0 libre, 1 protege) que TOUTES les brosses lisent.
+		// Il se peint avec les brosses `masquer` / `demasquer` -- donc par la porte
+		// ci-dessus, sans API a part : une brosse est une donnee.
+		// Ces quatre entrees servent aux gestes EN BLOC et a la lecture.
+		// `mode` : 0 tout demasquer · 1 tout masquer · 2 inverser. Rend vrai si
+		// quelque chose a change (une etape d'annulation a alors ete posee).
+		bool Demo3DHostMaskAll(int32 mode, float32 poids);
+		bool Demo3DHostMaskExists();
+		int32 Demo3DHostMaskCount(float32 seuil);
+		float32 Demo3DHostMaskSum();
+		/// Les octets REELLEMENT occupes par le masque (0 tant que rien n'est peint).
+		int32 Demo3DHostMaskBytes();
 		bool Demo3DHostEditLoopCut();
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();

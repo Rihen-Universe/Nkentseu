@@ -1,0 +1,45 @@
+# =============================================================================
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# Masquer -- LA TROISIEME PRIMITIVE, et elle ne deforme RIEN.
+#
+# Les deux premieres ecrivent des POSITIONS ; celle-ci ecrit un POIDS par
+# sommet. Ce poids, toutes les autres brosses le LISENT : un sommet a 1 est
+# protege, un sommet a 0 se deforme a plein, et entre les deux l'effet
+# s'attenue lineairement. C'est le masque de Blender, et c'est lui qui rendra
+# l'outil Transform de sculpture utilisable -- on masque, puis on deplace ce
+# qui ne l'est pas.
+#
+# CE QUE « force » VEUT DIRE ICI : la quantite de masque deposee PAR TAMPON.
+# 0.5 = un passage pose un demi-poids, deux passages saturent. Ce n'est ni une
+# distance (dessiner) ni une fraction de chemin (lisser) : une brosse porte sa
+# grandeur, et c'est pour ca qu'elle est une DONNEE.
+#
+# Son inverse est `demasquer.nkbrush` : meme fichier, `sens = -1`.
+# =============================================================================
+
+nkbrush 1
+
+nom = masquer
+libelle = Masquer
+icone = brush
+
+operation = masque
+
+# Un masque se veut FRANC sur son coeur et doux sur son bord : le profil
+# spherique donne ce plateau, la ou « doux » attenue des le centre.
+profil = sphere
+
+rayon = 0.30
+force = 0.5
+durete = 0.5
+
+# +1 POSE le masque.
+sens = 1
+
+espacement = 0.25
+
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0

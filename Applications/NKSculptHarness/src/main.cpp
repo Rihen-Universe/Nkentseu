@@ -625,8 +625,25 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 // ⚠️ ET ON COMPARE CONTRE L'ORIGINAL AUSSI : si la commande ne faisait RIEN,
 //    A et B seraient egaux tous les deux a l'original, et le test passerait
 //    en ne prouvant rien. Un critere que l'inaction satisfait ne mesure pas.
-static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrushDesc &brush) {
+static void RunReplay(const char *primName, const NkEditMesh &srcIn, const NkBrushDesc &brush) {
 	char label[128], det[128];
+
+	// ── UNE BROSSE DE MASQUE NE DEPLACE RIEN, ET LE BANC DOIT LE SAVOIR ────
+	// Les criteres ci-dessous ont ete ecrits pour des brosses qui ECRIVENT DES
+	// POSITIONS. Appliques tels quels a `masquer`, ils rougissent pour une
+	// raison qui n'est pas un defaut : la troisieme primitive ecrit des POIDS.
+	// ⚠️ ON NE LES DESACTIVE PAS -- on les TRADUIT. « La commande a agi »,
+	//    « A differe de l'original » et « A == B au bit » gardent leur sens,
+	//    mais se lisent sur le masque. Un critere qu'on eteint pour un cas
+	//    particulier cesse de surveiller ce cas.
+	// ⚠️ ET LA CONDITION SE PREPARE : `demasquer` sur un maillage SANS masque
+	//    n'a rien a effacer, et « la commande n'agit pas » serait alors la
+	//    BONNE reponse a une question mal posee. On masque donc d'abord.
+	const bool estMasque = (brush.op == NkSculptOp::NK_SCULPT_OP_MASK);
+	NkEditMesh srcPrep = srcIn;
+	if (estMasque && brush.dir < 0.f)
+		srcPrep.MaskFillAll(1.f);
+	const NkEditMesh &src = srcPrep;
 
 	// La commande : le geste, AVEC toutes ses valeurs (rien n'est relu d'un
 	// fichier de brosse au rejeu).
@@ -666,9 +683,21 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 	Snapshot s0;
 	Capture(src, s0);
 	const uint32 movedA = CountMoved(a, s0);
-	snprintf(label, sizeof(label), "%s/%s rejeu: A differe de l'original", primName, brush.name);
-	snprintf(det, sizeof(det), "sommets deplaces=%u", movedA);
-	Check(movedA > 0, label, det);
+	if (estMasque) {
+		// LE TEMOIN EST LE MASQUE : la somme des poids a change, et AUCUN sommet
+		// n'a bouge. Les deux ensemble -- « elle a agi » et « elle n'a pas
+		// deforme » -- sont ce qui distingue cette primitive des deux autres.
+		const float32 dm = a.MaskSum() - src.MaskSum();
+		snprintf(label, sizeof(label), "%s/%s rejeu: A differe de l'original (masque)", primName,
+				 brush.name);
+		snprintf(det, sizeof(det), "somme masque %.4f -> %.4f · sommets deplaces=%u",
+				 (double)src.MaskSum(), (double)a.MaskSum(), movedA);
+		Check((dm != 0.f) && movedA == 0, label, det);
+	} else {
+		snprintf(label, sizeof(label), "%s/%s rejeu: A differe de l'original", primName, brush.name);
+		snprintf(det, sizeof(det), "sommets deplaces=%u", movedA);
+		Check(movedA > 0, label, det);
+	}
 
 	// B : par le journal, apres un aller-retour BINAIRE.
 	NkMeshEditRecorder rec;
@@ -696,6 +725,13 @@ static void RunReplay(const char *primName, const NkEditMesh &src, const NkBrush
 	} else {
 		for (uint32 i = 0; i < a.VertCount(); ++i)
 			if (!SameBits3(a.verts[i].pos, bmesh.verts[i].pos))
+				++diff;
+		// LE MASQUE AUSSI TRAVERSE LE JOURNAL. Sans cette comparaison, un rejeu
+		// qui reproduirait les positions et perdrait les poids serait declare
+		// « egal au bit » -- et la perte ne se verrait qu'au coup de brosse
+		// suivant, tres loin de sa cause.
+		for (uint32 i = 0; i < a.VertCount(); ++i)
+			if (a.MaskAt(i) != bmesh.MaskAt(i))
 				++diff;
 	}
 	snprintf(label, sizeof(label), "%s/%s rejeu: A == B AU BIT", primName, brush.name);

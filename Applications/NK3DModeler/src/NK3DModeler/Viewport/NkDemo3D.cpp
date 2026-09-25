@@ -157,6 +157,10 @@ namespace nkentseu {
 		// SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) : aretes de cage envoyees au dernier
 		// overlay reconstruit. On COMPTE ce qui part au trace, on ne relit pas la condition.
 		static uint32 gModeSondeCage = 0u;
+		// CE QUE LE MASQUE A TRACE a la derniere image, et a quel pas : l'incrustation
+		// le DIT, parce qu'un affichage partiel qui se tait ferait croire a un masque
+		// plus petit qu'il n'est.
+		static uint32 gMasqueVus = 0u, gMasquePas = 1u;
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
@@ -1698,6 +1702,8 @@ namespace nkentseu {
 				NkVector<NkVec3f> sculptPts;
 				NkVector<NkVec3f> sculptNrm;
 				renderer::NkSculptCmdParams sculptParams;
+				// Parametres du dernier « masque en bloc » demande (cf. Demo3D_MaskAllHE).
+				renderer::NkMaskAllParams maskAllParams;
 				bool sculptPending = false;
 				// LE TRAIT EN COURS DE TRACE (souris enfoncee). Separe de `sculptPts`,
 				// qui est le trait DEJA remis a la commande : les melanger ferait
@@ -4571,6 +4577,17 @@ namespace nkentseu {
 			c.sculpt = st->sculptParams;
 			c.sculptPoints = st->sculptPts;
 			c.sculptNormals = st->sculptNrm;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// ── LE MASQUE EN BLOC : TOUT MASQUER / DEMASQUER / INVERSER ─────────
+		// Meme porte que le coup de brosse : une COMMANDE, donc annulable,
+		// rejouable, et enregistree dans la session. Ecrire directement dans
+		// `editHE.vertMask` aurait marche a l'ecran et disparu au premier Ctrl+Z.
+		static void Demo3D_MaskAllHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::MaskAll;
+			c.maskAll = st->maskAllParams;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -10541,24 +10558,30 @@ namespace nkentseu {
 					// Le trait vise le sommet le PLUS HAUT du maillage : un choix
 					//    DETERMINISTE, donc rejouable a l'identique d'une execution a
 					//    l'autre -- ce qu'un clic de souris ne serait jamais.
-					{
-						static bool sLu = false;
-						static bool sArme = false;
-						static char sBrosse[48] = {};
-						static float32 sRayon = 0.f, sForce = 0.f;
-						static int32 sFrame = 0;
-						static int32 sVu = 0;
-						if (!sLu) {
-							sLu = true;
-							if (const char *e = getenv("NK_SCULPT_STROKE")) {
+					// ⚠️ DEUX TRAITS ECRITS, ET C'EST UNE MESURE QUI LES A DEMANDES : le
+					//    masque se PEINT avec une brosse, puis une AUTRE brosse doit
+					//    venir se heurter a lui. Avec un seul trait par course, « la
+					//    protection est-elle PARTIELLE la ou le masque est partiel ? »
+					//    ne pouvait pas se poser. Meme motif que NK_VP_ACTION2.
+					struct NkTraitEcrit {
+							bool lu = false, arme = false;
+							char brosse[48] = {};
+							float32 rayon = 0.f, force = 0.f;
+							int32 frame = 0, vu = 0;
+					};
+					static NkTraitEcrit sTrait1, sTrait2;
+					auto traitEcrit = [&](const char *nomVar, NkTraitEcrit &T) {
+						if (!T.lu) {
+							T.lu = true;
+							if (const char *e = getenv(nomVar)) {
 								uint32 n = 0;
 								while (e[n] && e[n] != ':' && n < 47) {
-									sBrosse[n] = e[n];
+									T.brosse[n] = e[n];
 									++n;
 								}
-								sBrosse[n] = 0;
+								T.brosse[n] = 0;
 								const char *q = e + n;
-								float32 *cible[3] = {&sRayon, &sForce, nullptr};
+								float32 *cible[3] = {&T.rayon, &T.force, nullptr};
 								int32 champ = 0;
 								while (*q == ':' && champ < 3) {
 									++q;
@@ -10585,18 +10608,18 @@ namespace nkentseu {
 									if (champ < 2)
 										*cible[champ] = v;
 									else
-										sFrame = (int32)v;
+										T.frame = (int32)v;
 									++champ;
 								}
-								sArme = true;
-								logger.Info("[Demo3D] NK_SCULPT_STROKE arme : brosse='{0}' rayon={1} "
+								T.arme = true;
+								logger.Info("[Demo3D] SCULPT trait ecrit ({4}) arme : brosse='{0}' rayon={1} "
 									  "force={2} frame={3}\n",
-									  sBrosse, sRayon, sForce, sFrame);
+									  T.brosse, T.rayon, T.force, T.frame, nomVar);
 							}
 						}
-						if (sArme && st->editHE.VertCount() > 0) {
-							if (sVu++ >= sFrame) {
-								sArme = false; // UNE SEULE FOIS : un trait par image remplirait
+						if (T.arme && st->editHE.VertCount() > 0) {
+							if (T.vu++ >= T.frame) {
+								T.arme = false; // UNE SEULE FOIS : un trait par image remplirait
 								               // l'historique et rendrait toute mesure illisible.
 								uint32 hi = 0;
 								for (uint32 i = 1; i < st->editHE.VertCount(); ++i)
@@ -10608,7 +10631,7 @@ namespace nkentseu {
 								const float32 nrm[3] = {n.x, n.y, n.z};
 								const uint32 vAvant = st->editHE.VertCount();
 								const uint32 undoAvant = st->editHistory.UndoCount();
-								const bool ok = Demo3DHostEditSculptStroke(pts, nrm, 1, sBrosse, sRayon, sForce);
+								const bool ok = Demo3DHostEditSculptStroke(pts, nrm, 1, T.brosse, T.rayon, T.force);
 								// CE QUE CE JOURNAL DOIT PERMETTRE DE DISTINGUER : « la brosse n'a
 								// pas agi » de « elle a agi sans rien changer ». Le compte
 								// d'annulation tranche : une operation qui n'a rien change ne pose
@@ -10619,7 +10642,10 @@ namespace nkentseu {
 									  st->editHistory.UndoCount(), hi);
 							}
 						}
-					}
+					};
+					traitEcrit("NK_SCULPT_STROKE", sTrait1);
+					// LE SECOND TRAIT : meme porte, meme journal, autre variable.
+					traitEcrit("NK_SCULPT_STROKE2", sTrait2);
 					if (st->editSubdivPending) {
 						st->editSubdivPending = false;
 						Demo3D_SubdivideHE(st, meshSysT); // subdivCuts passes en 1 commande (1 undo)
@@ -12453,6 +12479,48 @@ namespace nkentseu {
 						}
 					}
 					// CENTRES DE FACE (mode FACE) : petit carré plein au barycentre de chaque face.
+					// ── LE MASQUE SE VOIT, SINON IL N'EXISTE PAS POUR LA MAIN ──────────
+					// Blender grise la zone protegee. Ici : un point GRIS par sommet
+					// masque, de la meme fabrique que les marqueurs d'edition (meme
+					// chemin overlay, valide GL et DX12).
+					//
+					// ⚠️ IL S'AFFICHE LA OU LES MARQUEURS D'EDITION NE S'AFFICHENT PLUS.
+					//    En Sculpture il n'y a ni sommets ni cage (lot du 21/09) ; le
+					//    masque, lui, DOIT se voir -- c'est le seul retour qui dit ou la
+					//    brosse n'agira pas.
+					//
+					// ⚠️ UN BUDGET, ET IL SE DIT. Un mannequin de 250 000 sommets
+					//    entierement masque ferait 250 000 quads par image. On en trace
+					//    au plus `kMasqueMax`, repartis par un PAS regulier sur tout le
+					//    maillage (jamais les premiers : ils sont voisins, et l'on
+					//    verrait une tache au lieu d'une zone). L'incrustation dit alors
+					//    « 1 sur k » -- un affichage partiel qui se tait ferait croire a
+					//    un masque plus petit qu'il n'est.
+					if (st->editHE.MaskExists()) {
+						const uint32 mtotal = st->editHE.MaskedCount(0.02f);
+						gMasqueVus = mtotal;
+						const uint32 kMasqueMax = 4000u;
+						uint32 pas = 1u;
+						if (mtotal > kMasqueMax)
+							pas = (mtotal + kMasqueMax - 1u) / kMasqueMax;
+						gMasquePas = pas;
+						uint32 rang = 0;
+						for (int32 i = 0; i < nv && i < (int32)st->editHE.VertCount(); i++) {
+							const float32 poids = st->editHE.MaskAt((uint32)i);
+							if (poids < 0.02f)
+								continue;
+							if ((rang++ % pas) != 0u)
+								continue;
+							const NkVec3f w = liveWv(i);
+							if (!facingCam(w, st->editLive[i].normal))
+								continue;
+							// Le GRIS s'eclaircit avec le poids : un masque a mi-course
+							// se distingue d'un masque plein, sinon « protege a 50 % » et
+							// « protege » auraient la meme image.
+							const float32 g = 0.28f + 0.42f * poids;
+							dot(w, 1.6f, NkVec4f{g, g, g + 0.03f, 0.92f});
+						}
+					}
 					if (elemsTrace && (st->editSelMask & 4)) {
 						const uint32 fcnt = (uint32)st->editHE.faces.Size();
 						NkVector<renderer::NkEmId> fvd;
@@ -12546,12 +12614,14 @@ namespace nkentseu {
 						}
 						logger.Info("[MODE-SONDE] img={0} uiMode={1} editMode={2} selV={3} gizmoSel={4} "
 									"gizmoTri={5} drag={6} marqPts={7} cage={8} nv={9} somme=({10}, {11}, {12}) "
-									"modale={13} selTool={14}\n",
+									"modale={13} selTool={14} masque={15} sommeMasque={16} octetsMasque={17}\n",
 									sModeImg - 1, st->uiMode, st->editMode ? 1 : 0, selV,
 									st->editGizmo.HasSelection() ? 1 : 0, (int32)nkGizmoTri,
 									st->editGizmo.IsDragging() ? 1 : 0, (int32)nkMarqPts, (int32)gModeSondeCage,
 									(int32)st->editLive.Size(), (float32)sx, (float32)sy, (float32)sz, st->modalOp,
-									st->selTool);
+									st->selTool, (int32)st->editHE.MaskedCount(),
+									(float32)st->editHE.MaskSum(),
+									(int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)));
 					}
 				}
 			}
@@ -14528,6 +14598,20 @@ namespace nkentseu {
 									  "%s  |  ni selection, ni gizmo de sommets, ni G/R/S (comme Blender)",
 									  st->uiMode == 3 ? "SCULPTURE  |  clic gauche = brosse  |  Ctrl+Z = annuler le trait"
 													  : "SCULPTURE 2.5D  |  aucune brosse encore");
+					// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
+					// l'affichage en montre vraiment.
+					if (st->editHE.MaskExists()) {
+						char pasTxt[48];
+						pasTxt[0] = 0;
+						if (gMasquePas > 1u)
+							snprintf(pasTxt, sizeof(pasTxt), "  (affichage : 1 point sur %u)",
+									 (unsigned)gMasquePas);
+						overlay->DrawText({20.f, 118.f},
+										  "MASQUE  |  %u sommet(s) protege(s) sur %u  |  somme %.1f%s  |  "
+										  "brosses « masquer » / « demasquer »",
+										  (unsigned)gMasqueVus, (unsigned)st->editHE.VertCount(),
+										  (double)st->editHE.MaskSum(), pasTxt);
+					}
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
@@ -18357,6 +18441,46 @@ namespace nkentseu {
 			}
 			st->sculptPending = true;
 			return HostEditRun(&Demo3D_SculptHE);
+		}
+		// ── LE MASQUE : LES TROIS GESTES EN BLOC, ET SA LECTURE ─────────────
+		// `mode` : 0 tout demasquer · 1 tout masquer · 2 inverser. Rend vrai si
+		// quelque chose a CHANGE (donc si une etape d'annulation a ete posee).
+		// ⚠️ PAS DE `HostRefuseSansElements` ICI : le masque EST un outil de
+		//    sculpture. Il doit agir precisement la ou le gizmo de sommets ne doit
+		//    pas -- c'est meme la seule raison pour laquelle il existe.
+		bool Demo3DHostMaskAll(int32 mode, float32 poids) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			st->maskAllParams.mode = (uint8)((mode < 0 || mode > 2) ? 0 : mode);
+			st->maskAllParams.poids = (poids > 0.f) ? poids : 1.f;
+			const bool ok = HostEditRun(&Demo3D_MaskAllHE);
+			logger.Info("[Demo3D] MASQUE en bloc : mode={0} poids={1} -> agi={2} · sommets masques={3} somme={4}\n",
+						(int32)st->maskAllParams.mode, st->maskAllParams.poids, ok ? 1 : 0,
+						st->editHE.MaskedCount(), st->editHE.MaskSum());
+			return ok;
+		}
+		// CE QUE LE MASQUE VAUT, pour l'interface et pour les bancs. Trois
+		// chiffres distincts parce qu'ils ne disent pas la meme chose : le
+		// tableau existe-t-il (cout memoire), combien de sommets sont proteges
+		// (ce qui se voit), et la somme des poids (le seul critere continu).
+		bool Demo3DHostMaskExists() {
+			auto *st = HostSt();
+			return st && st->editHE.MaskExists();
+		}
+		int32 Demo3DHostMaskCount(float32 seuil) {
+			auto *st = HostSt();
+			return st ? (int32)st->editHE.MaskedCount(seuil > 0.f ? seuil : 0.001f) : 0;
+		}
+		float32 Demo3DHostMaskSum() {
+			auto *st = HostSt();
+			return st ? st->editHE.MaskSum() : 0.f;
+		}
+		// LE COUT MEMOIRE, MESURE ET NON ESTIME : les octets que le masque occupe
+		// reellement dans ce maillage (0 tant que personne n'a peint).
+		int32 Demo3DHostMaskBytes() {
+			auto *st = HostSt();
+			return st ? (int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)) : 0;
 		}
 		bool Demo3DHostEditLoopCut() {
 			if (HostRefuseSansElements("LoopCut"))
