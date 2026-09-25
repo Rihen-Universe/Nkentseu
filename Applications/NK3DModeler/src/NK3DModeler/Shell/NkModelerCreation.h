@@ -1355,6 +1355,27 @@ namespace nkentseu {
 				char flottanteNoms[160] = {0};
 		};
 
+		/// LES PARAMETRES TROUVES PAR L'AJUSTEMENT, en attente de la pose.
+		/// ⚠️ UN SEUL ECRIVAIN : la recolte les pose, la pose les consomme et les
+		///    efface. Deux ecrivains rendraient un objet ajuste sur l'image
+		///    PRECEDENTE sans que rien ne le dise.
+		struct NkAjustResultat {
+				bool pret = false;
+				/// ⚠️ « DEJA TENTE » N'EST PAS « REUSSI », ET C'EST TOUT L'INTERET.
+				///    Sans ce drapeau, un REFUS relance le plan, qui relance
+				///    l'ajustement, qui refuse : boucle infinie, mesuree le 25/09 sur
+				///    la porte (« objet presque plan », en boucle jusqu'au delai de
+				///    garde). C'est la meme faute que la voie (b) d'aout, et le meme
+				///    correctif : le declencheur appartient a la PREMIERE tentative.
+				bool tente = false;
+				float32 L = 0.f, H = 0.f, P = 0.f, cfid = 0.f;
+				int32 vues = 0;
+		};
+		inline NkAjustResultat &NkAjustRes() {
+			static NkAjustResultat r;
+			return r;
+		}
+
 		/// Deux boites se touchent-elles (a `tol` pres) ?
 		inline bool NkCreaTouche(const float32 *amn, const float32 *amx, const float32 *bmn, const float32 *bmx,
 								 float32 tol) {
@@ -1559,6 +1580,28 @@ namespace nkentseu {
 			// simple n'est donc retenu que si LA DEMANDE le dit (« simple »,
 			// « basique », « low poly »). `NK_CREA_DETAIL` reste la porte de mesure.
 			NkFamParams fp = d.famille;
+			// ── (Q17) LES PARAMETRES AJUSTES SUR L'IMAGE PRIMENT ─────────────────
+			// ⚠️ ILS PRIMENT SUR CEUX DU MODELE, ET C'EST LE POINT. Le 7B invente des
+			//    dimensions plausibles ; l'ajustement les MESURE sur l'image de
+			//    Rodolf. Mesure du 25/09 : la table ajustee passe de 0,725 a 0,298
+			//    d'ecart de fidelite, et bat aussi la voie image (0,890).
+			// ⚠️ ET ILS SE CONSOMMENT : une fois poses, le resultat est efface, sinon
+			//    la creation SUIVANTE hériterait de l'image precedente sans rien dire.
+			{
+				NkAjustResultat &R = NkAjustRes();
+				if (R.pret) {
+					if (R.L > 0.f)
+						fp.largeur = R.L;
+					if (R.H > 0.f)
+						fp.hauteur = R.H;
+					if (R.P > 0.f)
+						fp.profondeur = R.P;
+					std::printf("[crea] FAMILLE AJUSTEE sur l'image : %.2f x %.2f x %.2f m (ecart %.3f, %d vue(s))\n",
+								(double)R.L, (double)R.H, (double)R.P, (double)R.cfid, (int)R.vues);
+					std::fflush(stdout);
+					R.pret = false;
+				}
+			}
 			if (strcmp(fp.famille, "maison") == 0 && !std::getenv("NK_CREA_SANS_SURFACE")) {
 				// ── (Q9) LA MAISON : NOTRE CODE TIRE LES DIMENSIONS DE LA SURFACE ──
 				// « une villa sur 200 m² » avait donne 30 x 20 m sur un niveau (600 m²
@@ -2093,6 +2136,177 @@ namespace nkentseu {
 					return depuisTexte ? "generateur (texte)" : "generateur (image)";
 				}
 		};
+		/// ── L'AJUSTEMENT PAR PROJECTION, VU COMME UN DORSAL (25/09, Q17) ─────
+		/// Rodolf : « il faut que ca passe, car je veux deja tester la PERTINENCE
+		/// du systeme de generation 3D. » L'ajustement vivait dans un outil de
+		/// mesure ; il entre ici par la MEME porte que le generateur.
+		/// ⚠️ AUCUN SECOND MECANISME : meme deguisement en dorsal, meme
+		///    `NkEnvoiAsync`, meme gabarit de commande, meme refus nomme. Ecrire un
+		///    second chemin d'appel a Python serait la dette des trois exemplaires.
+		/// ⚠️ ET IL TOURNE HORS DU FIL : 12,3 s mesurees sur la table (trois axes,
+		///    deux passes). La fenetre ne doit pas figer -- c'est la regle payee sur
+		///    les 84 s de la voie (b).
+		class NkAjustDorsal final : public converse::NkIConverseBackend {
+			public:
+				NkString gabarit; ///< "<python> Tools/Genia/ajuster_depuis_image.py --famille {f} --image {i} --sortie {o}"
+				NkString famille, image, sortie;
+				bool Complete(const converse::NkConverseRequest &, converse::NkConverseReply &out) override {
+					if (gabarit.Empty()) {
+						out.success = false;
+						out.error = NkString("aucun interpreteur Python : l'ajustement ne peut pas etre lance");
+						return false;
+					}
+					// ⚠️ REMPLACEMENT A LA MAIN : `NkString::Replace` prend une POSITION
+					//    et un COMPTE, pas deux chaines. L'appeler comme un remplacement
+					//    textuel compilait dans ma tete, pas dans le compilateur.
+					char cmdBuf[900];
+					{
+						const char *g = gabarit.CStr();
+						uint32 o = 0;
+						for (const char *c = g; *c && o + 1u < sizeof(cmdBuf);) {
+							const char *sub = nullptr;
+							if (strncmp(c, "{f}", 3) == 0)
+								sub = famille.CStr();
+							else if (strncmp(c, "{i}", 3) == 0)
+								sub = image.CStr();
+							else if (strncmp(c, "{o}", 3) == 0)
+								sub = sortie.CStr();
+							if (sub) {
+								for (const char *k = sub; *k && o + 1u < sizeof(cmdBuf); ++k)
+									cmdBuf[o++] = *k;
+								c += 3;
+							} else
+								cmdBuf[o++] = *c++;
+						}
+						cmdBuf[o] = 0;
+					}
+					const NkString cmd(cmdBuf);
+					NkLog::Instance().Infof("[ajust] lancement : %s", cmd.CStr());
+					const int code = std::system(cmd.CStr());
+					// ⚠️ LE CODE DE SORTIE NE DECIDE PAS : c'est le FICHIER qui fait foi.
+					//    Un script qui rend 0 sans ecrire n'a rien ajuste, et un script
+					//    qui rend autre chose en ayant ecrit a quand meme travaille.
+					const bool ok = NkFile::Exists(sortie.CStr());
+					out.success = ok;
+					out.text = ok ? sortie : NkString("");
+					if (!ok) {
+						char e[120];
+						snprintf(e, sizeof(e), "l'ajustement n'a rien ecrit (code %d)", (int)code);
+						out.error = NkString(e);
+					} else
+						out.error = NkString("");
+					return ok;
+				}
+				bool IsAvailable() const override {
+					return !gabarit.Empty();
+				}
+				const char *Name() const override {
+					return "ajustement par projection";
+				}
+		};
+		struct NkAjustVol {
+				converse::NkEnvoiAsync envoi;
+				NkAjustDorsal dorsal;
+				bool enAttente = false; ///< une creation attend ce resultat
+		};
+		inline NkAjustVol &NkAjust() {
+			static NkAjustVol s;
+			return s;
+		}
+
+		/// LANCE l'ajustement hors du fil. Rend faux si rien ne part (et le DIT).
+		inline bool NkAjustLancer(NkModelerState &st, const char *famille, const char *image) {
+			NkAjustVol &A = NkAjust();
+			if (A.envoi.EnCours() || !famille || !famille[0] || !image || !image[0])
+				return false;
+			if (A.dorsal.gabarit.Empty()) {
+				// Le MEME gabarit que le generateur : `NK_IA_PYTHON` sinon « python ».
+				const char *py = std::getenv("NK_IA_PYTHON");
+				const char *g = std::getenv("NK_IA_AJUST_CMD");
+				char buf[600];
+				if (g && *g)
+					snprintf(buf, sizeof(buf), "%s", g);
+				else
+					snprintf(buf, sizeof(buf),
+							 "%s \"Tools/Genia/ajuster_depuis_image.py\" --famille \"{f}\" --image \"{i}\" --sortie \"{o}\"",
+							 (py && *py) ? py : "python");
+				A.dorsal.gabarit = NkString(buf);
+			}
+			NkDirectory::CreateRecursive("logs");
+			A.dorsal.famille = NkString(famille);
+			A.dorsal.image = NkString(image);
+			A.dorsal.sortie = NkString("logs/crea_ajust.txt");
+			(void)NkFile::Delete(A.dorsal.sortie.CStr()); // le fichier fait foi : il doit etre NEUF
+			NkString pq;
+			if (!A.envoi.Lancer(&A.dorsal, NkString("ajuste"), pq)) {
+				char m[240];
+				snprintf(m, sizeof(m), "L'ajustement sur l'image n'a pas pu partir : %s. Je pose la famille "
+									   "non ajustee.",
+						 pq.Data() ? pq.Data() : "raison inconnue");
+				(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+				return false;
+			}
+			A.enAttente = true;
+			(void)NkAiPousser(st, NkModelerState::AiType::Note,
+							  "J'ajuste la famille sur votre image (silhouette, proportions). La fenetre reste "
+							  "vivante ; ca prend une dizaine de secondes.");
+			std::printf("[ajust] LANCE famille=%s image=%s (hors du fil)\n", famille, image);
+			std::fflush(stdout);
+			return true;
+		}
+
+		/// Lit le fichier de resultat. Rend vrai si des parametres sont utilisables.
+		inline bool NkAjustLire(const char *chemin, float32 &L, float32 &H, float32 &P, char *motif, uint32 capM,
+								int32 &vues, float32 &cfid) {
+			L = H = P = 0.f;
+			vues = 0;
+			cfid = 0.f;
+			if (motif && capM)
+				motif[0] = 0;
+			const NkString txt = NkFile::ReadAllText(chemin);
+			const char *t = txt.Data();
+			if (!t || !t[0])
+				return false;
+			bool ok = false;
+			for (const char *c = t; *c;) {
+				char cle[24];
+				uint32 n = 0;
+				while (*c && *c != '=' && *c != '\n' && n + 1u < sizeof(cle))
+					cle[n++] = *c++;
+				cle[n] = 0;
+				if (*c != '=') {
+					while (*c && *c != '\n')
+						++c;
+					if (*c)
+						++c;
+					continue;
+				}
+				++c;
+				char val[300];
+				uint32 m = 0;
+				while (*c && *c != '\n' && *c != '\r' && m + 1u < sizeof(val))
+					val[m++] = *c++;
+				val[m] = 0;
+				while (*c == '\n' || *c == '\n')
+					++c;
+				if (strcmp(cle, "etat") == 0)
+					ok = (strcmp(val, "ok") == 0);
+				else if (strcmp(cle, "motif") == 0 && motif)
+					snprintf(motif, capM, "%s", val);
+				else if (strcmp(cle, "largeur") == 0)
+					L = (float32)atof(val);
+				else if (strcmp(cle, "hauteur") == 0)
+					H = (float32)atof(val);
+				else if (strcmp(cle, "profondeur") == 0)
+					P = (float32)atof(val);
+				else if (strcmp(cle, "vues") == 0)
+					vues = atoi(val);
+				else if (strcmp(cle, "cfid") == 0)
+					cfid = (float32)atof(val);
+			}
+			return ok;
+		}
+
 		struct NkGeniaVol {
 				converse::NkEnvoiAsync envoi;
 				NkGeniaDorsal dorsal;
@@ -3150,6 +3364,8 @@ namespace nkentseu {
 				return false;
 			}
 			NkCreaCopieNom(E.demande, sizeof(E.demande), demande);
+			NkAjustRes().tente = false; // une NOUVELLE demande a droit a son ajustement
+			NkAjustRes().pret = false;
 			E.tour = 0;
 			E.docPrecedent[0] = 0;
 			// ── (Q8) LA CREATION SUIT LE FOURNISSEUR, LE MODELE ET L'EFFORT DU CHAT ──
@@ -3257,6 +3473,17 @@ namespace nkentseu {
 				snprintf(m, sizeof(m), "Famille reconnue : %s%s%s. Je demande seulement ses parametres.",
 						 E.familleReconnue, E.styleReconnu[0] ? ", style " : "", E.styleReconnu);
 				(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+				// ── (Q17) FAMILLE RECONNUE + IMAGE JOINTE -> AJUSTEMENT D'ABORD ──
+				// ⚠️ ICI ET PAS PLUS HAUT, ET C'EST UNE MESURE QUI L'A DIT : a la
+				//    recolte de la vision, `familleReconnue` est encore VIDE -- la
+				//    reconnaissance a lieu dix lignes plus haut, dans CETTE fonction.
+				//    Mon premier branchement testait donc un champ vide et ne partait
+				//    jamais : la table sortait a ses dimensions par defaut sans qu'un
+				//    seul refus ne s'affiche.
+				// Le plan repartira a la recolte de l'ajustement, avec ou sans lui.
+				if (E.imageJointe[0] && !NkAjustRes().pret && !NkAjustRes().tente && !NkAjust().enAttente &&
+					(NkAjustRes().tente = true) && NkAjustLancer(st, E.familleReconnue, E.imageJointe))
+					return true;
 			} else if (!E.imageJointe[0] && !NkCreaVoieAssemblageForcee() && !NkCreaSansFamilles()) {
 				// ── (Q10.0) AUCUNE FAMILLE : LA VOIE PAR L'IMAGE, PAR DEFAUT ──────
 				// Pas d'assemblage de pavés : la demande part au generateur local
@@ -4139,6 +4366,50 @@ namespace nkentseu {
 		inline void NkCreaTick(NkModelerState &st, int32 onglet, converse::NkIConverseBackend *dorsalOnglet,
 							   void (*poserUndo)(NkModelerState &), int32 image) {
 			NkCreaEtat &E = NkCrea();
+			// ── (Q17) LA RECOLTE DE L'AJUSTEMENT, PUIS LE PLAN ────────────────
+			{
+				NkAjustVol &A = NkAjust();
+				if (A.enAttente && A.envoi.EnCours()) {
+					NkString rep, err;
+					bool okA = false;
+					if (A.envoi.Recolter(rep, err, okA)) {
+						A.enAttente = false;
+						float32 Lv = 0.f, Hv = 0.f, Pv = 0.f, cf = 0.f;
+						int32 nv = 0;
+						char motif[300] = {0};
+						const bool bon = okA && NkAjustLire(A.dorsal.sortie.CStr(), Lv, Hv, Pv, motif, sizeof(motif),
+														   nv, cf);
+						char m[420];
+						if (bon) {
+							NkAjustResultat &R = NkAjustRes();
+							R.pret = true;
+							R.L = Lv;
+							R.H = Hv;
+							R.P = Pv;
+							R.cfid = cf;
+							R.vues = nv;
+							snprintf(m, sizeof(m),
+									 "Famille ajustee sur votre image : %d vue(s) utilisee(s), %.2f x %.2f x %.2f m, "
+									 "ecart de silhouette %.3f (%.1f s).",
+									 (int)nv, (double)Lv, (double)Hv, (double)Pv, (double)cf,
+									 (double)A.envoi.Secondes());
+							(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
+						} else {
+							// ⚠️ LE REPLI EST NOMME, ET IL POSE QUAND MEME. « Jamais
+							//    rien » : un refus d'ajustement ne doit pas coûter l'objet.
+							snprintf(m, sizeof(m), "L'ajustement n'a pas abouti (%s). Je pose la famille NON "
+												   "ajustee, avec ses dimensions par defaut.",
+									 motif[0] ? motif : (err.CStr() ? err.CStr() : "raison inconnue"));
+							(void)NkAiPousser(st, NkModelerState::AiType::Refus, m);
+						}
+						std::printf("[ajust] %s\n", m);
+						std::fflush(stdout);
+						// le plan part maintenant, avec ou sans ajustement
+						(void)NkCreaLancerPlan(st, E.dorsalAttente);
+					}
+					return; // rien d'autre tant que l'ajustement vole
+				}
+			}
 			NkGeniaRecolter(st); // voies (b) et (c) : la generation qui vole hors du fil
 			{
 				static bool sImgHook = false;
