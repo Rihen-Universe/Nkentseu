@@ -270,9 +270,41 @@ int nkmain(const NkEntryState &state) {
 	// aucune des deux n'apparait, il est dans la scene ou la camera.
 	NkMeshHandle mTemoin = meshes->CreateSphereMesh(16u, 24u);
 
+	// -- LE NEGATIF QUI SEPARE « la texture n'arrive pas » DE « la coupe est
+	//    desastreuse » : `NK_DEMO_UV_ROUGE=1` pose un ROUGE UNI a la place du
+	//    damier. Une couleur unie ne depend d'AUCUNE UV -- le temoin est donc
+	//    insensible a ce qu'on suspecte. Sphere rouge = la texture arrive, le
+	//    probleme est la coupe. Sphere blanche = la texture n'arrive pas.
+	NkTexHandle texAlbedo = texDamier;
+	if (std::getenv("NK_DEMO_UV_ROUGE") != nullptr) {
+		static uint8 rouge[4 * 4 * 4];
+		for (uint32 i = 0; i < 4u * 4u; ++i) {
+			rouge[i * 4 + 0] = 220;
+			rouge[i * 4 + 1] = 30;
+			rouge[i * 4 + 2] = 30;
+			rouge[i * 4 + 3] = 255;
+		}
+		NkTextureCreateDesc rd;
+		rd.pixels = rouge;
+		rd.width = 4;
+		rd.height = 4;
+		rd.srgb = true;
+		rd.debugName = "negatif_rouge";
+		texAlbedo = textures->Create(rd);
+	}
+
 	NkMaterial *mat = NkMaterial::Create(mats, NkMaterialType::NK_PBR_METALLIC);
-	if (mat && texDamier.IsValid())
-		mat->SetTexture("albedo_map", texDamier);
+	if (mat && texAlbedo.IsValid()) {
+		// -- LA PORTE TYPEE, PAS LA CHAINE ---------------------------------------
+		// VOILA POURQUOI LES SPHERES ETAIENT BLANCHES. J'ecrivais dans
+		// `SetTexture("albedo_map", ...)`, or le gabarit lit `GetTex("albedo")`
+		// (NkMaterialSystem.cpp:620) -- un emplacement que PERSONNE ne lit. Il n'y
+		// a aucun alias, et le repli est `GetWhite1x1()` : un nom faux ne produit
+		// pas un refus, il produit un objet BLANC parfaitement plausible.
+		// Meme famille que l'AABB vide : on echoue en silence, et le silence
+		// ressemble a un resultat. `SetAlbedoMap` supprime la chaine, donc la faute.
+		mat->SetAlbedoMap(texAlbedo);
+	}
 
 	logger.Info("[demo-uv] --- ce que la demo croit dessiner ---\n");
 	logger.Info("[demo-uv] sujet        : sphere construite en code, {0} sommets {1} indices\n",
@@ -284,6 +316,20 @@ int nkmain(const NkEntryState &state) {
 	logger.Info("[demo-uv] maillage brut: {0}   deplie: {1}   temoin moteur: {2}\n",
 				mBrut.IsValid() ? "VALIDE" : "INVALIDE", mDeplie.IsValid() ? "VALIDE" : "absent",
 				mTemoin.IsValid() ? "VALIDE" : "INVALIDE");
+	// -- CE QUE VALENT LES UV, des deux cotes -------------------------------
+	// Le discriminant demande : si les UV brutes sont toutes a (0,0), `[BRUT]`
+	// ne peut rien montrer quoi qu'on fasse. Elles se mesurent sans ecran.
+	{
+		float32 u0 = 1e30f, u1 = -1e30f, v0 = 1e30f, v1 = -1e30f;
+		for (uint32 i = 0; i < (uint32)sv.Size(); ++i) {
+			const NkVec2f &t = sv[i].uv;
+			u0 = t.x < u0 ? t.x : u0;
+			u1 = t.x > u1 ? t.x : u1;
+			v0 = t.y < v0 ? t.y : v0;
+			v1 = t.y > v1 ? t.y : v1;
+		}
+		logger.Info("[demo-uv] UV brutes    : u[{0} .. {1}]  v[{2} .. {3}]\n", u0, u1, v0, v1);
+	}
 	logger.Info("[demo-uv] bandeau L1   : {0}\n", ligne1);
 	logger.Info("[demo-uv] bandeau L2   : {0}\n", ligne2);
 	logger.Info("[demo-uv] bandeau L3   : {0}\n", ligne3);
@@ -329,7 +375,24 @@ int nkmain(const NkEntryState &state) {
 		sctx.camera.SetFOV(50.f);
 		sctx.camera.SetAspect(W, H ? H : 1u);
 		sctx.camera.SetNearFar(0.05f, 60.f);
-		sctx.camera.SetPosition({3.2f * sinf(angle), 1.2f, 3.2f * cosf(angle)});
+		// -- LE CADRAGE SE CALCULE, IL NE SE DEVINE PAS -------------------------
+		// A 3,2 d'eloignement la sphere occupait presque tout l'ecran : on voyait
+		// l'INTERIEUR D'UN CARREAU, et un gros plan sur un carreau clair est une
+		// surface claire. Rodolf l'avait dit exactement -- « je ne vois pas de
+		// damier, a part une superposition de surface ». Un defaut de PRESENTATION
+		// se lit comme un defaut de FOND quand on ne voit que le resultat.
+		//
+		// Les deux spheres s'etendent de x = -2,3 a x = +2,3, et de y = -1 a +1.
+		// On calcule la distance qui les fait tenir ENTIERES, avec de la marge,
+		// depuis le champ de vision reel -- pas depuis un nombre choisi a l'oeil.
+		const float32 kFov = 50.f;
+		const float32 demiV = tanf(kFov * 0.5f * 0.0174532925f);
+		const float32 aspect = (float32)W / (float32)(H ? H : 1u);
+		const float32 demiH = demiV * aspect;
+		const float32 besoinH = 2.45f / demiH; // demi-largeur a couvrir
+		const float32 besoinV = 1.15f / demiV;
+		const float32 dist = (besoinH > besoinV ? besoinH : besoinV) * 1.45f; // marge
+		sctx.camera.SetPosition({dist * sinf(angle), dist * 0.28f, dist * cosf(angle)});
 		sctx.camera.SetTarget({0.f, 0.f, 0.f});
 		sctx.ambientIntensity = 0.35f;
 		NkLightDesc L;
@@ -414,6 +477,50 @@ int nkmain(const NkEntryState &state) {
 			overlay->DrawText({16.f, (float32)H - 76.f},
 							  "temoin (1) carre magenta  |  temoin (3) sphere grise a gauche");
 			overlay->EndOverlay();
+		}
+
+		// -- COMBIEN DE CARREAUX TIENNENT DANS LA VUE ---------------------------
+		// LE CHIFFRE QUI AURAIT EPARGNE UNE SOIREE. Le damier fait 16 carreaux sur
+		// le tour de la sphere, donc environ 8 sur la moitie visible, pour 2 unites
+		// de monde : 4 carreaux par unite. La vue couvre `2 * dist * demiH` unites
+		// a la profondeur des objets. Si moins de 4 carreaux tiennent dans la vue,
+		// la camera est DANS le damier et la demo ne peut rien montrer -- elle le
+		// dit, au lieu de laisser croire a une texture absente.
+		{
+			static bool sDitCadrage = false;
+			const float32 largeurVue = 2.f * dist * demiH;
+			const float32 carreaux = largeurVue * 4.f;
+			if (!sDitCadrage) {
+				sDitCadrage = true;
+				if (carreaux < 4.f)
+					logger.Warn("[demo-uv] CADRAGE TROP PRES : {0} carreau(x) dans la vue. "
+								"La camera est dans le damier ; aucun motif ne peut se lire.\n",
+								carreaux);
+				else
+					logger.Info("[demo-uv] cadrage       : {0} carreaux dans la vue, distance {1} "
+								"(seuil de lisibilite : 4)\n",
+								carreaux, dist);
+			}
+		}
+
+		// -- LE CULLING, SUIVI PENDANT QUE LA CAMERA TOURNE --------------------
+		// UN COMPTEUR PRIS UNE SEULE FOIS NE DIT RIEN D'UN DEFAUT QUI DEPEND DE
+		// L'ANGLE. Rodolf a vu les deux spheres disparaitre a certains angles,
+		// bandeau et carre magenta toujours peints -- donc la 3D s'eteint, pas le
+		// 2D. On journalise donc l'angle AVEC le compte, periodiquement : si
+		// `ecartes` passe a 2 pour un angle donne, la cause est nommee sans jamais
+		// regarder l'ecran.
+		{
+			static uint32 sIm = 0;
+			const NkRender3D::NkCullStats &cs2 = r3d->GetCullStats();
+			const bool anormal = (cs2.opaqueCulled > 0u);
+			if ((++sIm % 30u) == 0u || anormal) {
+				logger.Info("[demo-uv] angle={0} deg  cam=({1} {2} {3})  soumis={4} ecartes={5}{6}\n",
+							(int32)(angle * 57.2957795f) % 360, sctx.camera.GetPosition().x,
+							sctx.camera.GetPosition().y, sctx.camera.GetPosition().z,
+							cs2.opaqueSubmitted, cs2.opaqueCulled,
+							anormal ? "   <-- ECARTE : la geometrie disparait a cet angle" : "");
+			}
 		}
 
 		if (tracees < 2u) {
