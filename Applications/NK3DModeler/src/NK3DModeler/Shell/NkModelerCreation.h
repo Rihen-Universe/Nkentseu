@@ -4322,6 +4322,203 @@ namespace nkentseu {
 			return etape <= 8;
 		}
 
+		/// ── NK_LUM_PREUVE=<prefixe> : LA LUMIERE A-T-ELLE UN EFFET ? ────────────
+		/// Rodolf : « la lumiere n'a aucun effet sur l'objet, on dirait qu'il est
+		/// peint ». Ce sont DEUX affirmations, et une seule se mesure ici : est-ce
+		/// que changer la lumiere change les pixels ?
+		///
+		/// ⚠️ LE TEMOIN POSITIF EST DANS LA MEME IMAGE. On capture la vue ENTIERE,
+		///    qui contient l'objet importe ET l'assemblage de la famille (sans
+		///    couleurs de sommet, lui). Si AUCUN pixel ne bouge, c'est ma sonde ou
+		///    le moteur qui est en cause, pas l'objet ; si l'assemblage bouge et
+		///    que l'objet ne bouge pas, alors le defaut est bien sur l'objet.
+		///    Une sonde qui ne peut pas se refuter elle-meme ne mesure rien.
+		///
+		/// Cinq images, meme camera, meme objet : direction A, direction B,
+		/// lumiere ETEINTE, lumiere QUADRUPLEE, puis retour a l'etat initial.
+		/// La comparaison se fait en dehors, sur les pixels.
+		inline bool NkLumPreuveTick(NkModelerState &st) {
+			char pref[260];
+			if (!NkCreaEnvUtf8("NK_LUM_PREUVE", pref, sizeof(pref)) || !pref[0])
+				return false;
+			static int32 etape = 0;
+			static int32 attente = 0;
+			static float32 dirSauve[8][3];
+			static float32 colSauve[8][3];
+			static float32 intSauve[8];
+			static int32 nbLum = 0;
+			// LES LUMIERES QUI ECLAIRENT VRAIMENT NE SONT PAS LES QUATRE EXPOSEES.
+			// La mesure precedente l'a montre : une seule lumiere atteint l'image
+			// (ponctuelle, blanche, intensite 1000) et mettre les quatre a zero ne
+			// la touche pas -- c'est une lumiere UTILISATEUR, adressee par NOEUD.
+			// On les trouve par la porte publique : `Demo3DHostUserLightParams` ne
+			// rend vrai que sur un noeud de lumiere.
+			static int32 uNoeud[32];
+			static float32 uCol[32][3];
+			static float32 uInt[32];
+			static int32 nbUser = 0;
+			if (etape > 11)
+				return false;
+			if (attente > 0) {
+				--attente;
+				return true;
+			}
+			auto dire = [&](const char *msg) {
+				std::fputs(msg, stdout);
+				std::fputc(10, stdout);
+				std::fflush(stdout);
+			};
+			auto capturer = [&](const char *suffixe) {
+				char chemin[400];
+				snprintf(chemin, sizeof(chemin), "%s_%s.png", pref, suffixe);
+				const bool ok = demo::Demo3DHostCaptureView(chemin);
+				char msg[560];
+				// LE TEMOIN EST DANS LA MEME LIGNE QUE LA MESURE : combien de
+				// lumieres ont VRAIMENT ete soumises pour cette image, et quelle
+				// energie. Sans ce chiffre, « rien ne change » est ambigu -- ma
+				// premiere version a cru mesurer l'objet alors qu'elle n'avait
+				// bouge aucune lumiere.
+				snprintf(msg, sizeof(msg),
+						 "[lum] %s -> %s : %s | lumieres soumises=%d energie=%.3f",
+						 suffixe, chemin, ok ? "ecrite" : "ECHEC",
+						 (int)demo::Demo3DHostFrameLightCount(),
+						 demo::Demo3DHostFrameLightEnergy());
+				dire(msg);
+				for (int32 i = 0; i < demo::Demo3DHostFrameLightCount(); ++i) {
+					int32 ty = -1;
+					float32 dd[3] = {0.f, 0.f, 0.f}, cc[3] = {0.f, 0.f, 0.f}, ii = 0.f;
+					if (!demo::Demo3DHostFrameLightInfo(i, &ty, dd, cc, &ii))
+						continue;
+					char m3[260];
+					snprintf(m3, sizeof(m3),
+							 "[lum]     soumise %d : type=%d dir(%.2f %.2f %.2f) coul(%.2f %.2f %.2f) int=%.2f",
+							 (int)i, (int)ty, dd[0], dd[1], dd[2], cc[0], cc[1], cc[2], ii);
+					dire(m3);
+				}
+			};
+			auto poserDir = [&](float32 x, float32 y, float32 z) {
+				const float32 d[3] = {x, y, z};
+				for (int32 i = 0; i < nbLum; ++i)
+					demo::Demo3DHostSetLightDir(i, d);
+			};
+			// RECENSER AU MOMENT D'AGIR, PAS AU DEMARRAGE. Ma version precedente
+			// recensait les lumieres utilisateur a l'etape 0 et trouvait ZERO sur
+			// 352 noeuds -- alors qu'une ponctuelle blanche a 1000 W etait bel et
+			// bien soumise a chaque image. Le trio par defaut (cube, lumiere,
+			// camera) n'existait simplement PAS ENCORE quand je comptais. C'est la
+			// meme faute que j'ai deja payee trois fois : conclure avant que la
+			// chose existe. Le recensement se refait donc juste avant chaque geste.
+			auto recenser = [&]() {
+				// ON NE SAUVEGARDE QU'UNE FOIS. Premiere version : le recensement
+				// relisait l'intensite a chaque passage -- donc apres l'avoir mise
+				// a zero, il sauvegardait ZERO, et « x4 » multipliait zero par
+				// quatre. L'instrument effacait sa propre reference.
+				if (nbUser > 0)
+					return;
+				nbUser = 0;
+				const int32 nn = demo::Demo3DHostNodeCount();
+				for (int32 n = 0; n < nn && nbUser < 32; ++n) {
+					float32 c3[3] = {0.f, 0.f, 0.f}, it = 0.f;
+					if (!demo::Demo3DHostUserLightParams(n, c3, &it))
+						continue;
+					uNoeud[nbUser] = n;
+					uCol[nbUser][0] = c3[0];
+					uCol[nbUser][1] = c3[1];
+					uCol[nbUser][2] = c3[2];
+					uInt[nbUser] = it;
+					++nbUser;
+				}
+				char m6[200];
+				snprintf(m6, sizeof(m6), "[lum]   recensement : %d lumiere(s) utilisateur",
+						 (int)nbUser);
+				dire(m6);
+			};
+			auto poserInt = [&](float32 facteur) {
+				if (nbUser == 0)
+					recenser(); // elles peuvent naitre apres le demarrage
+				for (int32 i = 0; i < nbLum; ++i)
+					demo::Demo3DHostSetLightParams(i, colSauve[i], intSauve[i] * facteur);
+				for (int32 i = 0; i < nbUser; ++i)
+					demo::Demo3DHostSetUserLightParams(uNoeud[i], uCol[i], uInt[i] * facteur);
+			};
+			switch (etape) {
+				case 0: {
+					// LE MODE D'OMBRAGE D'ABORD : hors du mode RENDU, l'absence
+					// d'effet serait NORMALE et ma mesure ne prouverait rien.
+					// (NkDemo3D : 0 = RENDERED, seul mode ou les lumieres agissent.)
+					const int32 avant = demo::Demo3DHostShading();
+					if (avant != 0)
+						demo::Demo3DHostSetShading(0);
+					// ATTENTION -- `Demo3DHostLightCount` REND ZERO ICI, ET CE N'EST PAS
+					// UNE ABSENCE DE LUMIERE : il rend `hst.ok ? kNumLights : 0`, et
+					// `hst` est le host HORS-ECRAN, vrai seulement pendant un rendu
+					// vers fichier. Les poseurs, eux, passent par `HostSt()`. Ma
+					// premiere version a lu ce compte, trouve 0, et n'a touche
+					// AUCUNE lumiere -- puis j'ai failli conclure « la lumiere n'a
+					// aucun effet » alors que je n'avais rien bouge. On prend donc
+					// le nombre FIXE du moteur (Demo3DState::kNumLights = 4 :
+					// Soleil, ponctuelle rouge, ponctuelle bleue, projecteur) ; les
+					// poseurs bornent eux-memes l'indice.
+					const int32 compte = demo::Demo3DHostLightCount();
+					nbLum = 4;
+					char mc[200];
+					snprintf(mc, sizeof(mc),
+							 "[lum] Demo3DHostLightCount()=%d (porte hors-ecran) ; on agit sur %d",
+							 (int)compte, (int)nbLum);
+					dire(mc);
+					for (int32 i = 0; i < nbLum; ++i) {
+						demo::Demo3DHostLightDir(i, dirSauve[i]);
+						demo::Demo3DHostLightParams(i, colSauve[i], &intSauve[i]);
+					}
+					char msg[240];
+					snprintf(msg, sizeof(msg),
+							 "[lum] ombrage avant=%d force a 0 (RENDU) ; %d lumiere(s)",
+							 (int)avant, (int)nbLum);
+					dire(msg);
+					for (int32 i = 0; i < nbLum; ++i) {
+						char m2[240];
+						snprintf(m2, sizeof(m2),
+								 "[lum]   lumiere %d dir (%.2f %.2f %.2f) intensite %.3f",
+								 (int)i, dirSauve[i][0], dirSauve[i][1], dirSauve[i][2],
+								 intSauve[i]);
+						dire(m2);
+					}
+					recenser();
+					demo::Demo3DHostFrameAll(); // la vue ENTIERE : le temoin doit y etre
+					attente = 10;
+					break;
+				}
+				case 1: poserDir(0.6f, -0.7f, 0.4f); attente = 6; break;
+				case 2: capturer("dirA"); attente = 3; break;
+				case 3: poserDir(-0.6f, -0.7f, -0.4f); attente = 6; break;
+				case 4: capturer("dirB"); attente = 3; break;
+				case 5: recenser(); poserInt(0.f); dire("[lum] lumieres ETEINTES"); attente = 8; break;
+				case 6: capturer("eteinte"); attente = 3; break;
+				case 7: recenser(); poserInt(4.f); dire("[lum] lumieres x4"); attente = 8; break;
+				case 8: capturer("forte"); attente = 3; break;
+				case 9: {
+					for (int32 i = 0; i < nbLum; ++i) {
+						demo::Demo3DHostSetLightDir(i, dirSauve[i]);
+						demo::Demo3DHostSetLightParams(i, colSauve[i], intSauve[i]);
+					}
+					// LA LUMIERE UTILISATEUR AUSSI -- c'est la SEULE qui eclaire
+					// vraiment. L'oublier laissait le journal ecrire « restitue »
+					// au-dessus d'une image encore a x4 : un instrument qui ment
+					// sur son propre retour a zero.
+					for (int32 i = 0; i < nbUser; ++i)
+						demo::Demo3DHostSetUserLightParams(uNoeud[i], uCol[i], uInt[i]);
+					dire("[lum] etat initial restitue");
+					attente = 6;
+					break;
+				}
+				case 10: capturer("restituee"); attente = 3; break;
+				case 11: dire("[lum] FIN"); break;
+				default: break;
+			}
+			++etape;
+			return etape <= 11;
+		}
+
 		/// ── NK_ARTIC_MESURE=1 : LA MESURE DES 30 DEGRES, REECRITE POUR ECHOUER ──
 		/// ⚠️ LA PREMIERE VERSION ETAIT UNE TAUTOLOGIE, et c'est la lecon de ce
 		///    crochet. Elle comparait `sp + o` avant et apres une rotation qui ne
@@ -4639,6 +4836,8 @@ namespace nkentseu {
 					E.annuleDans = (int32)std::atoi(a);
 			}
 			NkArticMesureTick(st, image);
+			if (NkLumPreuveTick(st))
+				return; // la mesure de la lumiere : elle restitue l'etat qu'elle a change
 			if (NkVcPreuveTick(st))
 				return; // (Q15) la preuve des couleurs de sommet passe avant l'annulation
 			if (NkCreaVuesTick(st))

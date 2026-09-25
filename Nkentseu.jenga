@@ -1263,6 +1263,12 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):
 
         pass
+
+    # NkDemoDepliageUV : la demo lancable du depliage UV (objet genere + damier,
+    # bascule brut/deplie). Inscrite dans Applications/DEMOS.md.
+    with include("Applications/NkDemoDepliageUV/nkdemodepliageuv.jenga"):
+
+        pass
     # NKTexte3D : « une phrase -> un maillage editable ». Console pure, CPU pur.
     with include("Applications/NKTexte3D/NKTexte3D.jenga"):
 
