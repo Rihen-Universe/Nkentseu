@@ -17,6 +17,8 @@ borne profondeur 0.4 2.0 0.9
 borne hauteur 0.3 1.2 0.75
 # Bornes de VRAISEMBLANCE : autre chose, et les confondre laisserait passer une
 # table de 4 m de haut parce qu'elle se construit.
+plausible largeur 0.60 2.60 1.40
+plausible profondeur 0.40 1.20 0.80
 plausible hauteur 0.72 0.78 0.75
 
 var e = 0.035
