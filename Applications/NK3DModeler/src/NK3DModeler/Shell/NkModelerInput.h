@@ -1407,6 +1407,30 @@ namespace nkentseu {
 
 				// Menus ouverts. -1 = aucun. L'indice designe l'entree de la barre.
 				int32 openMenu = -1;
+				/// 🔴 (25/09) L'ETAT DU MENU **A L'ENTREE DE L'IMAGE**, et il existe
+				/// parce que `st.openMenu` ne peut pas jouer ce role : il change EN
+				/// COURS d'image.
+				///
+				/// LE DEFAUT QU'IL REPARE (rapporte par Rodolf, mesure le 25/09) :
+				/// aucun menu de la barre principale ne s'ouvrait. Dans une SEULE
+				/// image, le MEME clic etait lu DEUX FOIS --
+				///   1. `PaintMenuBar` (couche 0) : `hit.Clicked("menu.0")` -> vrai,
+				///      `st.openMenu = 0` ;
+				///   2. plus bas, couche 50, `NkMenuBarClics` redeclare `menu.0` et
+				///      relit le MEME clic (rien ne l'a consomme) : `st.openMenu == 0`
+				///      -> bascule -> **-1**.
+				/// Le menu s'ouvrait et se refermait avant d'etre peint. Sa garde
+				/// `if (st.openMenu < 0) return;` etait censee l'en empecher, mais a
+				/// l'image de l'ouverture cette valeur vient d'etre ecrite par l'etape
+				/// 1 : la garde lisait le resultat de ce qu'elle devait ignorer.
+				///
+				/// ⚠️ POSE UNE SEULE FOIS PAR IMAGE, sur la MEME ligne que
+				///    `menuDeroule` (main.cpp), pour que les deux ne puissent pas
+				///    diverger. Les deux chemins sont alors DISJOINTS : menu ferme a
+				///    l'entree -> `PaintMenuBar` traite et `NkMenuBarClics` se tait ;
+				///    menu ouvert a l'entree -> l'entree des panneaux est videe, donc
+				///    `PaintMenuBar` ne voit rien et `NkMenuBarClics` traite.
+				bool menuOuvertAvantImage = false;
 				/// LA GEOMETRIE DES ENTREES DE LA BARRE PRINCIPALE, posee par
 				/// `PaintMenuBarI` a chaque image et relue par `PaintOpenMenu` dans la
 				/// couche des surcouches.
@@ -1501,6 +1525,22 @@ namespace nkentseu {
 				///    d'un seul interrupteur les compteurs, l'aide produit ET le
 				///    rectangle de selection. Celui-ci ne couvre QUE les compteurs.
 				bool compteursOn = false;
+
+				/// (25/09, rapporte par Rodolf) L'AIDE AUX RACCOURCIS -- les deux
+				/// bandeaux « OBJET | G/R/S=... » et « clic=sel Shift+clic=multi... »
+				/// peints dans la vue par le viseur.
+				///
+				/// ⚠️ ALLUMEE PAR DEFAUT, ET C'EST L'INVERSE DES COMPTEURS. Ce n'est
+				///    pas du diagnostic : Rodolf s'en sert pour enseigner les
+				///    raccourcis a ses etudiants. Ce qui manquait n'etait pas de
+				///    l'eteindre, c'etait de POUVOIR l'eteindre -- il l'a lue comme
+				///    un residu du HUD de laboratoire, faute d'interrupteur.
+				///
+				/// ⚠️ `Demo3DHostSetAide` / `Demo3DHostAide` EXISTAIENT ET ETAIENT
+				///    IMPLEMENTEES depuis le 25/09, avec ZERO appelant. Brancher cet
+				///    interrupteur n'ecrit donc aucune brique neuve : c'est le fil qui
+				///    manquait entre une facade finie et l'interface.
+				bool aideOn = true;
 				/// Glissement de CETTE separation-la. Elle n'est PAS dans le tableau
 				/// de `PaintSplitters` : celui-ci travaille sur la mise en page
 				/// generale (`NkLayout`) et ne connait ni l'entete du navigateur ni
