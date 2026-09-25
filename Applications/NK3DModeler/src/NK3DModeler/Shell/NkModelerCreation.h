@@ -1306,6 +1306,22 @@ namespace nkentseu {
 			return s;
 		}
 
+		/// Le nom de l'objet courant : le mot de la demande, sinon la famille.
+		/// ⚠️ IL SERT A DEUX CHOSES QUI DOIVENT S'ACCORDER : le dossier du modele et
+		///    le nom du noeud dans la hierarchie. Deux derivations se
+		///    decorreleraient au premier changement.
+		inline const char *NkCreaNomObjet() {
+			NkCreaEtat &E = NkCrea();
+			if (E.nomTete[0])
+				return E.nomTete;
+			if (E.nLots > 0 && E.lots[E.nLots - 1].scene[0])
+				return E.lots[E.nLots - 1].scene;
+			if (E.familleReconnue[0])
+				return E.familleReconnue;
+			return "genere";
+		}
+
+
 		inline int32 NkCreaCompterObjets() {
 			int32 c = 0;
 			const int32 nT = demo::Demo3DHostNodeCount();
@@ -2465,6 +2481,49 @@ namespace nkentseu {
 							std::fflush(stdout);
 						}
 					}
+					// ── (Q19.1) CHAQUE PARTIE POSEE PORTE UNE FENTE DE MATERIAU ──────
+					// Rodolf, capture 060654 : « le personnage importe n'a AUCUN materiau
+					// dans sa configuration » -- le panneau des proprietes n'a alors rien
+					// a montrer, et il ne peut RIEN changer. Les pieces de famille en ont
+					// une depuis toujours (`Demo3DHostProjMatAssign`) ; l'objet de la voie
+					// image n'en avait aucune, parce que son glTF n'en declare aucun.
+					// ⚠️ LE MATERIAU EST BLANC, ET C'EST LE SEUL CHOIX JUSTE ICI : le
+					//    maillage porte ses propres couleurs de sommet, que le nuanceur
+					//    MULTIPLIE par la teinte. Toute autre couleur les assombrirait ou
+					//    les teinterait -- exactement le defaut de Q15. Blanc = « la fente
+					//    existe et ne change rien tant que tu n'y touches pas ».
+					{
+						const char *nomMat = NkCreaNomObjet();
+						int32 slotObj = NkCreaMatDuProjet(nomMat);
+						if (slotObj < 0) {
+							slotObj = demo::Demo3DHostProjMatCreate();
+							if (slotObj >= 0) {
+								const float32 blanc[3] = {1.f, 1.f, 1.f};
+								demo::Demo3DHostProjMatSetName(slotObj, nomMat);
+								demo::Demo3DHostProjMatSetParams(slotObj, blanc, 0.6f, 0.f);
+							}
+						}
+						int32 nAff = 0;
+						if (slotObj >= 0) {
+							const int32 nT4 = demo::Demo3DHostNodeCount();
+							for (usize i = 0; i < nes.Size(); ++i) {
+								demo::Demo3DHostProjMatAssign(nes[i], slotObj);
+								++nAff;
+								for (int32 q = 0; q < nT4; ++q) {
+									if (q == nes[i] || demo::Demo3DHostNodeDeleted(q))
+										continue;
+									if (demo::Demo3DHostNodeParent(q) != nes[i])
+										continue;
+									demo::Demo3DHostProjMatAssign(q, slotObj);
+									++nAff;
+								}
+							}
+						}
+						std::printf("[crea] MATERIAU « %s » (blanc) pose sur %d noeud(s) : le panneau peut "
+									"desormais en changer\n",
+									nomMat, (int)nAff);
+						std::fflush(stdout);
+					}
 					// ── (25/09) L'OBJET PORTE LE NOM DE LA DEMANDE, PAS « geometry_0 » ──
 					// Rodolf a photographie un noeud nomme `geometry_0`, sans parent ni
 					// enfant : le nom venait du glTF de TripoSR, qui ne sait rien de ce
@@ -3562,10 +3621,28 @@ namespace nkentseu {
 			const char *v = std::getenv("NK_CREA_VOIE");
 			return v && strcmp(v, "triposr") == 0;
 		}
-		inline void NkCreaDemarrerVues() {
+		inline void NkCreaDemarrerVues(const NkModelerState &st) {
 			NkCreaEtat &E = NkCrea();
 			const char *v = std::getenv("NK_CREA_VUES");
-			char defaut[64];
+			char defaut[400];
+			// ── (Q19.2) TOUTE GENERATION ECRIT SES VUES, QUELLE QUE SOIT LA VOIE ──
+			// Rodolf : « qu'on passe en texte ou pas, on doit pouvoir voir la
+			// reconstitution de vue, si c'est le cas, dans son dossier ».
+			// Avant, seule la voie TripoSR rendait des vues, et elle les ecrivait
+			// dans `logs/` -- c'est-a-dire nulle part pour l'utilisateur. Le dossier
+			// `vues/` du modele existait et restait VIDE, ce qui est pire que pas de
+			// dossier : il promet quelque chose qu'il ne contient pas.
+			// Desormais : des qu'un projet est ouvert, les vues vont dans
+			// `<projet>/Modeles/<objet>/vues/`, pour la voie famille comme pour la
+			// voie image. Elles servent a la mesure de fidelite, a Q17 et a
+			// l'entrainement -- c'est-a-dire qu'elles ne sont pas une decoration.
+			if (!v || !*v) {
+				const NkString dm = NkGeniaDossierModele(st, NkCreaNomObjet());
+				if (!dm.Empty()) {
+					snprintf(defaut, sizeof(defaut), "%svues/%s", dm.CStr(), NkCreaNomObjet());
+					v = defaut;
+				}
+			}
 			if ((!v || !*v) && NkCreaVoieTripoSR()) {
 				NkDirectory::CreateRecursive("logs");
 				snprintf(defaut, sizeof(defaut), "logs/crea_vue_%03d", (int)E.dernierLot);
@@ -4083,7 +4160,7 @@ namespace nkentseu {
 				E.descriptionImage[0] = 0;
 			}
 			if (pose) {
-				NkCreaDemarrerVues();
+				NkCreaDemarrerVues(st);
 				if (const char *a = std::getenv("NK_CREA_ANNULE"))
 					E.annuleDans = (int32)std::atoi(a);
 			}
