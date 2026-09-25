@@ -149,9 +149,23 @@ Les cases modifiées, et elles seules :
 | `maxWidth`/`maxHeight` | silence | **agit** (`ptMaxTrackSize`, mêmes coordonnées) |
 | `modal`, `canFullscreen`, `bgColor`, `screenOrientation`, `hideSystemUI`, `lockOrientation`, `respectSafeArea` | silence | **refus** nommé au journal |
 
-Sur tous les autres dorsaux, les **silence** du tableau deviennent des **refus** : l'audit
-(`NkWindowAuditerConfig`) est appelé par chaque dorsal avec la liste de ce qu'il tient, et parle
-une fois par couple (propriété, plateforme).
+Sur tous les autres dorsaux, les **silence** du tableau deviennent des **refus**. L'audit
+(`NkWindowAuditerDorsalCourant`, dans `NkWindowAudit.cpp`) est appelé depuis
+**`NkWESystem::RegisterWindow`** — le seul point que les douze `NkWindow::Create` traversent tous —
+et parle une fois par couple (propriété, plateforme).
+
+**Le choix est assumé, et il a un prix.** Un appel écrit dans chacun des douze `Create` aurait été
+plus lisible, mais onze de ces fichiers ne sont compilés par aucune construction faite ici, et *un
+refus qui ne compile pas est un silence de plus*. En contrepartie, les masques des onze dorsaux
+non-Windows sont **lus dans le code, pas mesurés à l'exécution** : cette colonne du tableau est de
+la lecture de source, pas de la mesure. La colonne Win32, elle, est mesurée par `NkWindowSonde`.
+
+Mesure du 25/09 sur Win32, `NkWindowSonde` : **19 essais, 0 échec**, et le négatif
+`--ancien-style` fait rougir les six critères de l'essai A pendant que le témoin de non-régression
+reste vert. Deux chiffres qui résument le lot : `GWL_STYLE` passe de `0x04CF0000` (défaut) à
+`0x04C80000` avec les trois interdits — exactement `WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX`
+en moins ; et `ptMinTrackSize` rend `516×439` pour un client demandé de `500×400`, là où l'ancien
+code rendait `500×400` et laissait donc la fenêtre descendre **sous** le minimum demandé.
 
 ### Le cas de la fenêtre sans cadre (`frame = false`)
 
@@ -179,3 +193,9 @@ système, pas de pixels : `WM_NCCALCSIZE` rend toute la fenêtre cliente).
 
 Il porte son **négatif** : `--ancien-style` reconstruit le style d'avant le correctif et le banc
 doit **rougir**. Un banc qui ne sait dire que « oui » ne mesure rien.
+
+Deux critères **ne s'inversent pas** en mode négatif, et c'est voulu : le **témoin de
+non-régression** (configuration par défaut == `WS_OVERLAPPEDWINDOW`, la garde des cinq applications
+qui partagent NKWindow), et le **négatif de l'audit lui-même** — `resizable` *est* tenu, donc il ne
+doit produire **aucun** refus. Un audit qui crie sur tout ne vaut pas mieux qu'un audit muet : il
+apprend à l'utilisateur à ne plus lire son journal.
