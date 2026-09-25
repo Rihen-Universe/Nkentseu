@@ -59,6 +59,7 @@
 #include "NKRenderer/Mesh/NkMeshFamilles.h"   // (25/09) les dimensions plausibles
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkFileSystem.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -3835,6 +3836,20 @@ namespace nkentseu {
 				//    le jour ou il faudra mieux, c'est ce fichier-la qu'on remplacera,
 				//    sans toucher aux vues.
 				{
+					// ── LA PEREMPTION : A REFAIRE SI LE MODELE EST PLUS RECENT ──────
+					// ⚠️ ET LE SENS DE LA COMPARAISON EST CELUI QUI PEUT SE TROMPER.
+					//    « Le modele est plus recent que l'apercu » veut dire que
+					//    l'apercu ne montre plus le modele. Comparer dans l'autre sens
+					//    garderait un apercu perime en croyant l'economiser. Quand
+					//    l'apercu n'existe pas, sa date vaut 0 et la comparaison le dit
+					//    perime, ce qui est exact.
+					auto perime = [](const char *modele, const char *apercu) {
+						if (!NkFile::Exists(apercu))
+							return true;
+						const nk_int64 tm = NkFileSystem::GetLastWriteTime(modele);
+						const nk_int64 ta = NkFileSystem::GetLastWriteTime(apercu);
+						return tm > ta;
+					};
 					char v34[400];
 					snprintf(v34, sizeof(v34), "%s_34.png", E.vuesPrefixe);
 					// le dossier du modele : deux crans au-dessus de `vues/<objet>`
@@ -3847,7 +3862,12 @@ namespace nkentseu {
 					}
 					char ap[400];
 					snprintf(ap, sizeof(ap), "%s/%s.png", dos, NkCreaNomObjet());
-					if (NkFile::Exists(v34) && NkFile::Copy(v34, ap, true)) {
+					char modele[400];
+					snprintf(modele, sizeof(modele), "%s/%s.glb", dos, NkCreaNomObjet());
+					if (!perime(modele, ap)) {
+						std::printf("[crea] APERCU a jour, rien a refaire : %s\n", ap);
+						std::fflush(stdout);
+					} else if (NkFile::Exists(v34) && NkFile::Copy(v34, ap, true)) {
 						std::printf("[crea] APERCU -> %s (copie de la vue 3/4)\n", ap);
 						std::fflush(stdout);
 					}

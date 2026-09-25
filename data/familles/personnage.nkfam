@@ -1,0 +1,118 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# LA FAMILLE PERSONNAGE, ecrite DEVANT les references (Q19.3, Q21) :
+#   24 planches de block-out  (echanges/references/block_out_personnage/planche_*.png)
+#   2 planches de mannequin   (mannequin_blueprint_bleu.png, _gris.png)
+#
+# CE QUE J'Y AI VU, ET QUI COMMANDE CE FICHIER :
+#  - UNE SEULE RECETTE, un nombre de tetes different. L'alien fait ~4 tetes, la
+#    guerriere ~7,5, l'enfant du blueprint ~4,5 : ce sont des VARIANTES, pas des
+#    familles. Toutes les longueurs sont en tetes ; la taille absolue est un
+#    seul parametre.
+#  - LE DECOUPAGE SUIT L'ANATOMIE, PAS LE SQUELETTE. Deltoide separe du biceps,
+#    fessier separe de la cuisse : les coutures ne tombent PAS aux articulations.
+#    D'ou DEUX LISTES separees -- les `piece` et les `liaison`.
+#  - UNE MATIERE PAR PIECE : sur toutes les planches, la COULEUR EST la
+#    separation des parties.
+#  - DES VOLUMES GALBES, pas des boites : les membres sont des REVOLUTIONS.
+#  - LES MASSES SE CHEVAUCHENT FRANCHEMENT. Aucune garde « rien ne
+#    s'interpenetre » : elle refuserait le bon resultat.
+#  - LE BLUEPRINT DE MANNEQUIN montre autre chose : des coques SEPAREES avec un
+#    jeu aux articulations, et un triedre a chaque pivot. Block-out et mannequin
+#    sont deux reglages d'une meme famille.
+#
+# ⚠️ CE QUE CE FICHIER N'A PAS : le quadrupede (vu sur une planche : une creature
+#    type renard en quatre vues), la queue, les antennes, et le dimorphisme --
+#    sexe, age et corpulence ne changent encore RIEN. Ecrit plutot que silencieux.
+
+famille personnage
+synonymes personnage, humain, humanoide, mannequin, character, human, figure, bonhomme
+formulaire tetes <4 stylise a 8 realiste> hauteur <metres> sexe <neutre|f|m> corpulence <mince|moyen|fort> age <enfant|adulte|vieux>
+
+borne hauteur 0.6 3.0 1.75
+plausible hauteur 1.00 2.10 1.75
+
+var taille = hauteur
+# `tetes` voyage par le champ `nombre` (le seul canal entier libre aujourd'hui).
+# ⚠️ C'EST UN EMPRUNT, ET IL EST ECRIT : le jour ou `NkFamilleParams` portera un
+#    champ nomme, cette ligne devient `var nt = tetes`.
+var nt = 7.5
+si nombre
+  var nt = nombre
+fin
+var ht = taille / nt
+
+var epauleL = ht * 1.9
+var bassinL = ht * 1.35
+var torseP = ht * 0.62
+
+var yPied = 0
+var yCheville = taille * 0.040
+var yGenou = taille * 0.285
+var yHanche = taille * 0.530
+var yTaille = taille * 0.620
+var yPoitrine = taille * 0.740
+var yEpaule = taille * 0.818
+var yCou = taille * 0.862
+var yMenton = taille - ht
+var yCoude = taille * 0.620
+var yPoignet = taille * 0.470
+
+piece crane matiere peau
+  pave -ht*0.30, yMenton, -ht*0.32, ht*0.30, yMenton+ht*0.78, ht*0.30
+  chanfrein 0, 1, 0, ht*0.12, 3
+fin
+
+piece machoire matiere peau_sombre
+  pave -ht*0.24, yMenton, -ht*0.30, ht*0.24, yMenton+ht*0.26, ht*0.22
+  chanfrein 0, -1, 0, ht*0.08, 2
+fin
+
+tournee cou matiere peau en 0, yCou, 0, profil ht*0.17, 0, ht*0.19, yMenton-yCou
+
+piece cage matiere tissu_bleu
+  pave -epauleL*0.42, yPoitrine-ht*0.62, -torseP*0.5, epauleL*0.42, yEpaule, torseP*0.5
+  chanfrein 0, 1, 0, ht*0.08, 2
+fin
+
+piece abdomen matiere tissu_vert
+  pave -bassinL*0.40, yTaille-ht*0.30, -torseP*0.44, bassinL*0.40, yPoitrine-ht*0.50, torseP*0.44
+  chanfrein 0, 1, 0, ht*0.05, 2
+fin
+
+piece bassin matiere tissu_violet
+  pave -bassinL*0.5, yHanche-ht*0.20, -torseP*0.46, bassinL*0.5, yTaille, torseP*0.46
+  chanfrein 0, -1, 0, ht*0.10, 3
+fin
+
+# ── LE COTE GAUCHE, ECRIT UNE FOIS : le miroir ecrit l'autre ─────────────────
+miroir
+  var xe = epauleL*0.5*cote
+  var xh = bassinL*0.28*cote
+
+  piece deltoide matiere tissu_rose
+    pave xe-ht*0.26*cote, yEpaule-ht*0.30, -ht*0.24, xe+ht*0.10*cote, yEpaule+ht*0.10, ht*0.24
+    chanfrein 0, 1, 0, ht*0.09, 3
+  fin
+
+  tournee bras matiere peau en xe*0.96, yCoude, 0, profil ht*0.13, 0, ht*0.17, (yEpaule-yCoude)*0.55, ht*0.15, yEpaule-yCoude
+  tournee avantbras matiere peau en xe*0.96, yPoignet, 0, profil ht*0.10, 0, ht*0.15, (yCoude-yPoignet)*0.7, ht*0.13, yCoude-yPoignet
+
+  piece main matiere peau
+    pave xe*0.96-ht*0.12, yPoignet-ht*0.42, -ht*0.06, xe*0.96+ht*0.12, yPoignet, ht*0.06
+    chanfrein 0, -1, 0, ht*0.04, 2
+  fin
+
+  tournee cuisse matiere tissu_violet en xh, yGenou, 0, profil ht*0.17, 0, ht*0.26, (yHanche-yGenou)*0.6, ht*0.24, yHanche-yGenou
+  tournee jambe matiere tissu_jaune en xh, yCheville, 0, profil ht*0.10, 0, ht*0.20, (yGenou-yCheville)*0.35, ht*0.13, yGenou-yCheville
+
+  piece pied matiere cuir
+    pave xh-ht*0.13, yPied, -ht*0.16, xh+ht*0.13, yCheville+ht*0.06, ht*0.34
+    chanfrein 0, 1, 0, ht*0.04, 2
+  fin
+fin
+
+# ── LES LIAISONS : une AUTRE liste, et c'est la lecture des planches ─────────
+# Les pivots tombent aux ARTICULATIONS, pas aux coutures des pieces. Le blueprint
+# de mannequin les annote ainsi : « ARTICULATION COUDE », « PIVOT HANCHE ».
+liaison cage, charniere, pivot 0, yCou, 0, axe 0, 1, 0, butees -60, 60
+liaison cage, charniere, pivot 0, yTaille, 0, axe 0, 1, 0, butees -35, 35
