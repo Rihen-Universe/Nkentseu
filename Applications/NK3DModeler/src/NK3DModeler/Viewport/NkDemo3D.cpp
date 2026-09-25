@@ -50,7 +50,13 @@
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKRenderer/Mesh/NkEditOverlayStyle.h" // L'APPARENCE : une seule autorite
-#include "NKRenderer/Tools/MeshSculpt/NkBrushRegistry.h" // registre des brosses (transit)
+#include "NKRenderer/Tools/MeshSculpt/NkBrushRegistry.h"
+// LE CALCUL FACIAL, DEPUIS SON NOUVEAU DOMICILE. Il vivait dans
+// Applications/PV3DE/ -- une feuille du graphe -- donc personne ne pouvait en
+// dependre. Descendu dans NKAnima le 25/09, il se consomme d ici sans qu une
+// ligne de PV3DE soit recopiee : c est exactement le critere pose par Rodolf.
+#include "NKRenderer/Mesh/NkGLTFLoader.h" // ApplyGLTFMorphCPU : la deformation
+#include "NKAnima/Face/NkFaceController.h" // registre des brosses (transit)
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
@@ -2344,6 +2350,84 @@ namespace nkentseu {
 				sVu = a;
 			}
 			sDer = jalon;
+		}
+
+		// ══ LE FIL FACIAL, DE BOUT EN BOUT, HORS DE PV3DE ═════════════════════
+		// NK_FACE_FIL=1 : coefficients d'Action Units -> poids de blendshapes
+		// (NKAnima) -> deformation de sommets (NKRenderer). Les deux bouts
+		// existaient et fonctionnaient ; RIEN ne les reliait, et ce n'etait pas un
+		// oubli de cablage : le calcul vivait dans une APPLICATION, donc aucune
+		// dependance ne pouvait l'atteindre.
+		//
+		// ⚠️ CE N'EST PAS ENCORE LA DEMO QUE RODOLF DOIT POUVOIR LANCER. Il n'y a
+		//    AUCUN maillage a morph targets dans Resources/Models (quatre .glb
+		//    verifies, zero cible) : la tete manque, pas le fil. Cette mesure
+		//    prouve la CHAINE ; la fenetre avec des curseurs demande un sujet, et
+		//    le sujet est une decision, pas un chantier qu'on ouvre seul.
+		//
+		// ⚠️ LE SUJET EST CONSTRUIT ICI, ET MINUSCULE, EXPRES : trois sommets, une
+		//    cible qui en deplace UN. Un sujet plus riche ne prouverait rien de
+		//    plus et ferait croire a une demo -- or ce n'en est pas une.
+		static void Demo3D_FilFacial() {
+			static bool sFait = false;
+			if (sFait)
+				return;
+			const char *v = getenv("NK_FACE_FIL");
+			if (!v || !v[0] || v[0] == '0')
+				return;
+			sFait = true;
+
+			// 1. LE CALCUL (NKAnima) : une AU pilote une cible de morph.
+			anim::NkFaceController fc;
+			fc.Init(1);
+			fc.BindAU(anim::NkActionUnitId::AU12, 0, 1.f); // AU12 = sourire
+			fc.SetAUImmediate(anim::NkActionUnitId::AU12, 1.f);
+			fc.Update(0.016f);
+			const NkVector<nk_float32> &w = fc.GetBlendshapeWeights();
+
+			// 2. LE SUJET : trois sommets, une cible qui souleve le deuxieme.
+			renderer::NkGLTFMeshData data;
+			for (int32 i = 0; i < 3; ++i) {
+				renderer::NkVertex3D vx{};
+				vx.pos = {(float32)i, 0.f, 0.f};
+				vx.normal = {0.f, 1.f, 0.f};
+				data.vertices.PushBack(vx);
+			}
+			renderer::NkGLTFMeshData::NkGLTFMorphTarget cible;
+			for (int32 i = 0; i < 3; ++i) {
+				cible.dPos.PushBack(NkVec3f{0.f, (i == 1) ? 1.f : 0.f, 0.f});
+				cible.dNormal.PushBack(NkVec3f{0.f, 0.f, 0.f});
+			}
+			data.morphTargets.PushBack(cible);
+			data.hasMorphs = true;
+
+			// 3. LA DEFORMATION (NKRenderer) -- la porte EXISTANTE, pas une copie.
+			// LE NEGATIF : NK_FACE_FIL_COUPE=1 coupe LA LIAISON, pas le calcul. Le
+			// controleur tourne et produit ses poids ; on ne les transmet pas. La
+			// face DOIT alors se figer (dy = 0).
+			// ⚠️ SI ELLE BOUGE ENCORE, c'est qu'un AUTRE chemin la deforme et que la
+			//    liaison mesuree n'est pas celle qu'on croit -- « une garde verte
+			//    grace au defaut », que ce depot a deja payee.
+			static const bool sCoupe = []() {
+				const char *c = getenv("NK_FACE_FIL_COUPE");
+				return c && c[0] && c[0] != '0';
+			}();
+			NkVector<renderer::NkVertex3D> sortie;
+			const bool ok = sCoupe
+								? renderer::ApplyGLTFMorphCPU(data, nullptr, 0u, sortie)
+								: renderer::ApplyGLTFMorphCPU(data, w.Data(), (uint32)w.Size(), sortie);
+
+			// ⚠️ ON MESURE LE DEPLACEMENT, PAS LE SUCCES DE L'APPEL. « ok=1 » dirait
+			//    seulement que la fonction est passee ; c'est le sommet qui doit
+			//    avoir bouge. Le depot a paye « un compteur vert n'est pas un rendu
+			//    juste » -- ici, un booleen vert ne serait pas une face qui bouge.
+			float32 dy = 0.f;
+			if (ok && sortie.Size() == 3)
+				dy = sortie[1].pos.y - data.vertices[1].pos.y;
+			logger.Info("[FACE-FIL] liaison={4} AU12={0} -> poids[0]={1} -> ok={2} dy={3} "
+						"(calcul NKAnima, deformation NKRenderer, zero ligne de PV3DE)\n",
+						fc.GetAUIntensity(anim::NkActionUnitId::AU12),
+						w.IsEmpty() ? -1.f : w[0], ok ? 1 : 0, dy, sCoupe ? "COUPEE" : "branchee");
 		}
 
 		static bool Demo3D_ElementsActifs(const Demo3DState *st) {
@@ -8585,6 +8669,7 @@ namespace nkentseu {
 		// PREMIER JALON : l'etat de la selection A L'ENTREE de l'image, avant que
 		// quoi que ce soit ne l'ait touchee. C'est la borne basse de l'intervalle.
 		HostJalonSel(st, "debut d'image");
+		Demo3D_FilFacial(); // sous crochet, une seule fois
 		HostJalonLight(st, "debut d'image");
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
 			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.

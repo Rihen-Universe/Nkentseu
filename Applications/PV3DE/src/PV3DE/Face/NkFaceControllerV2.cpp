@@ -1,4 +1,5 @@
 #include "NkFaceControllerV2.h"
+// PV3DE CONSOMME le calcul facial depuis NKAnima : il ne le possede plus.
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {

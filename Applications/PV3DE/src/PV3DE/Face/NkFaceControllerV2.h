@@ -18,6 +18,12 @@
 namespace nkentseu {
 	namespace humanoid {
 
+		// LE CALCUL FACIAL VIENT DE NKAnima DEPUIS LE 25/09 : il vivait dans cette
+		// application, donc personne d autre ne pouvait en dependre. Cette ligne est
+		// tout ce que le demenagement a coute ici -- le V2, lui, reste chez PV3DE :
+		// il depend de NkBehaviorOutput, qui est du medical, pas du general.
+		using namespace nkentseu::anim;
+
 		class NkFaceControllerV2 : public pv3de::NkFaceController {
 			public:
 				NkFaceControllerV2() = default;
