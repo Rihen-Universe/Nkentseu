@@ -444,7 +444,6 @@ useconfig("config/wayland.jenga")    # backend Wayland Linux (partage)
 
 
 with workspace("Nkentseu", location="."):
-
     nkentseutoolchain()
 
 

@@ -211,3 +211,43 @@ sur l'édition.
    lissage doux/plat.
 6. Sessions et rejeu.
 7. Multi-objets, primitives, lumières manipulables.
+
+## Ce qui appartient au LABO, et non au produit (25/09/2026)
+
+Le portage a amené du **diagnostic de laboratoire** en même temps que le moteur
+de vue. Ces éléments ne disparaissent pas : ils passent derrière une garde
+éteinte par défaut (`nkvpHudOn`, « HUD de labo »).
+
+| élément | pourquoi c'est du labo | garde |
+|---|---|---|
+| compteurs `Draw / Tris / GPU / CPU / Batches` | mesure de rendu | labo |
+| `Demo 3D \| API : … \| Affichage(Z)` | état du moteur | labo |
+| `FPS approx \| dt` | mesure de cadence | labo |
+| panneau d'ombres (`bias`, `VSM atlas`, `quality`, `softness`, `slots`, `casters`, `framesInFlight`) | réglage de la passe d'ombres | labo |
+| chargement de `test_pattern.png` + `SetLightCookie3D(0, …)` | **test de la chaîne file-based** ; le cookie sert au spot de **démonstration**, qui n'existe pas dans un projet | labo |
+
+⚠️ **La ressource `Resources/NKRenderer/Textures/Defaults/test_pattern.png` ne se
+supprime pas.** Elle est versionnée (262 488 octets) et compte **quatre
+consommateurs réels**, tous des bancs :
+
+- `Kernel/Runtime/NKRenderer/tests/test_texture_asset.cpp` (4 sites)
+- `Kernel/Runtime/NKImage/tests/test_texture_bake.cpp`
+- `Applications/Sandbox/src/Demo/DemoStream.cpp`
+- `Applications/Sandbox/src/Demo/main.cpp`
+
+Ce qui a bougé est **l'usage qu'en faisait le modeleur**, pas la ressource.
+
+**Ce qui n'est PAS du labo et reste allumé :**
+
+- les **bandeaux de raccourcis** (`OBJET | G/R/S=… | TAB=editer`, `clic=sel…`) —
+  c'est de l'**aide produit** mal placée. Elle naît allumée et déménagera vers la
+  barre d'état ; Rodolf s'en sert pour enseigner les raccourcis.
+- le **tracé des outils de sélection par zone** (rectangle pointillé, lasso,
+  cercle). ⚠️ Il vivait sous la garde du HUD : l'éteindre aurait supprimé un
+  **outil** en croyant nettoyer un **affichage**, et aucun banc ne le mesurait.
+
+**Condition de retrait de la génération du PNG** (`GenerateTestPatternPNG` et ses
+deux chemins de repli) : le jour où la construction **garantit** la présence de la
+ressource — copie de `Resources/` vérifiée au démarrage, ou échec nommé — cette
+branche part. Elle n'a jamais tiré sur les machines mesurées ; elle tirerait sur
+une machine neuve, et c'est le seul cas où une écriture surprise arriverait.
