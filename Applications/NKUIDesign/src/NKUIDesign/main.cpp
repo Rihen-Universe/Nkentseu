@@ -10375,10 +10375,29 @@ int nkmain(const NkEntryState &state) {
 	// Rodolf.
 	{
 		const char *etat = std::getenv("NK_UI_ETAT");
-		// ⚠️ UNE FENETRE DE SONDE SANS `NK_UI_ETAT` NE LIT NI N'ECRIT RIEN : elle
-		//    ecrirait sa largeur de banc dans le fichier de Rodolf.
-		if ((etat && *etat) || !gTitreSonde)
-			snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", (etat && *etat) ? etat : "logs/nkuidesign_ui.cfg");
+		// ⚠️ UNE FENETRE DE SONDE N'ECRIT PAS DANS LE FICHIER DE RODOLF.
+		//    (25/09) LA GARDE TESTAIT `gTitreSonde` -- c'est-a-dire l'option
+		//    `--titre-sonde` -- ET PAS `NK_SONDE`. Deux noms pour la meme idee, et
+		//    ils ont diverge : une course lancee avec `NK_SONDE=1` seul passait a
+		//    travers et REECRIVAIT `logs/nkuidesign_ui.cfg`. Mesure par
+		//    `Tools/sonde_etat_utilisateur.py` : 284 octets -> 228, empreinte
+		//    changee. On demande donc au KIT, qui connait les deux signaux
+		//    (`NK_SONDE`, `NK_TOAST_PROBE`), au lieu de recopier un troisieme test.
+		//
+		// ⚠️ ET ON REDIRIGE PLUTOT QUE DE NE RIEN ECRIRE : une sonde qui n'ecrit
+		//    rien perd la largeur de son tiroir d'une course a l'autre, donc on ne
+		//    peut plus eprouver la PERSISTANCE. `NK_ETAT_SONDE` (ou son defaut,
+		//    `logs/sonde-etat/`) lui donne son propre fichier.
+		{
+			const NkString redir =
+				nkentseu::editorkit::NkSondeChemin(nullptr, "nkuidesign_ui.cfg");
+			if (etat && *etat)
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", etat);
+			else if (!redir.Empty())
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", redir.CStr());
+			else if (!gTitreSonde)
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
+		}
 		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
 		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
 		shell->SetUiStateGeometrie(false);
