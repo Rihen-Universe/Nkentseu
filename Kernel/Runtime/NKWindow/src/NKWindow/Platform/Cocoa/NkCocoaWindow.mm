@@ -798,7 +798,9 @@ namespace nkentseu {
 	bool NkWindow::IsAlwaysOnTop() const {
 		if (mData.mNSWindow)
 			return [mData.mNSWindow level] != NSNormalWindowLevel;
-		return mConfig.alwaysOnTop;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	void NkWindow::SetClickThrough(bool clickThrough) {
@@ -811,7 +813,9 @@ namespace nkentseu {
 	bool NkWindow::IsClickThrough() const {
 		if (mData.mNSWindow)
 			return [mData.mNSWindow ignoresMouseEvents] != NO;
-		return mConfig.clickThrough;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	// ── Fenêtre sans bordure / barre de titre custom (préparation NkRef) ─────
