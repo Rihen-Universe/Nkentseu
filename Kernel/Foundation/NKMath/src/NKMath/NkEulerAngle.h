@@ -26,6 +26,15 @@
 #include "NKMath/NkLegacySystem.h" // Définitions des types fondamentaux (float32, etc.)
 #include "NkAngle.h"			   // Type NkAngle pour la gestion des angles
 
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
+
 // =====================================================================
 // Namespace principal du projet
 // =====================================================================
@@ -178,11 +187,6 @@ namespace nkentseu {
 				// Surcharge globale de ToString : permet l'appel fonctionnel libre
 				friend NkString ToString(const NkEulerAngle &euler) {
 					return euler.ToString();
-				}
-
-				// Opérateur de flux : permet l'affichage direct dans std::ostream
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkEulerAngle &euler) {
-					return outputStream << euler.ToString().CStr();
 				}
 
 		}; // struct NkEulerAngle
