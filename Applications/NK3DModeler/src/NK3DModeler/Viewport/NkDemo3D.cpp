@@ -20302,8 +20302,36 @@ namespace nkentseu {
 		// du shell, qui ne depend pas du survol de la vue.
 		bool Demo3DHostTransformModal(int32 op) {
 			auto *st = HostSt();
-			// En Sculpture, G/R/S ne transforment ni les sommets NI l'objet (Blender).
-			if (!st || op < 9 || op > 11 || HostRefuseSansElements("G/R/S"))
+			// ── LA TRACE EST ICI, OU LE REFUS SE DECIDE ─────────────────────
+			// LA FORME DE PREUVE EXIGEE (coordinateur, 25/09) : « je n'ai jamais
+			// vu le repli s'armer » ne prouve rien. L'appelant (`main.cpp`) ecrit
+			// `if (!Demo3DHostTransformModal(n)) Viewport3DBeginModal(...)` : son
+			// `if` ne connaît QUE le resultat, jamais le MOTIF. Trois causes de
+			// refus se lisent pareil chez lui, et deux d'entre elles sont mortes.
+			//
+			// ⚠️ SANS CROCHET : ce chemin se parcourt trois fois par session, pas
+			//    trois mille. Le mettre sous variable d'environnement demanderait a
+			//    Rodolf de relancer autrement pour qu'on puisse le voir -- donc de
+			//    reproduire expres ce qui lui arrive par surprise.
+			const bool horsPlage = (op < 9 || op > 11);
+			const bool sansElements = (st && !horsPlage) ? HostRefuseSansElements("G/R/S") : false;
+			// LE NEGATIF DE LA QUESTION « la seconde vue est-elle morte ? » :
+			// NK_MODAL_REFUS_FORCE=1 fait refuser l'hote sans rien casser d'autre.
+			// C'est la SEULE facon de repondre : les trois motifs de refus reels
+			// sont inatteignables par les chemins normaux (mesure du 25/09), donc
+			// « je n'ai jamais vu le repli s'armer » ne prouverait rien du tout.
+			// Si la vue dormante prend le relais sous cette mutation, elle VIT et
+			// elle reste ; si elle ne le prend pas meme forcee, elle est morte.
+			static const bool sRefusForce = []() {
+				const char *v = getenv("NK_MODAL_REFUS_FORCE");
+				return v && v[0] && v[0] != '0';
+			}();
+			const bool refus = (sRefusForce || !st || horsPlage || sansElements);
+			logger.Info("[MODAL-REFUS] op={0} -> {1} · motif : hote={2} horsPlage={3} "
+						"sansElements={4} · uiMode={5}\n",
+						op, refus ? "REFUS (la vue dormante prend le relais)" : "accepte",
+						st ? 1 : 0, horsPlage ? 1 : 0, sansElements ? 1 : 0, st ? st->uiMode : -1);
+			if (refus)
 				return false;
 			st->modalStartPending = op;
 			return true;
