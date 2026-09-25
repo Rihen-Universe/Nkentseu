@@ -150,6 +150,15 @@ namespace nkentseu {
 		// silhouette et les cibles qu'elles designent -- jamais une relecture de la
 		// condition qui les garde.
 		static int32 gBoiteOutObj = 0, gBoiteOutUser = 0, gBoiteOutObjIdx = -1, gBoiteOutUserIdx = -1;
+		// ── POURQUOI UN OBJET SELECTIONNE N'EST PAS CERNE ───────────────────
+		// Le journal de Rodolf montre deux clics avec `selUser=10` et
+		// `cerneUser=0` : un objet actif, aucun contour. La boucle a trois
+		// `continue`, et sans ces compteurs on ne saurait pas lequel a parle --
+		// « aucun contour » se lit pareil qu'un objet cache, qu'un model, ou
+		// qu'une nature d'objet hors plage. Comptes UNIQUEMENT sur les objets
+		// dont le contour etait DU : un refus sur un objet non selectionne est
+		// le fonctionnement normal, pas une information.
+		static int32 gBoiteRefusModel = 0, gBoiteRefusCache = 0, gBoiteRefusKind = 0;
 		// ⚠️ « UNE BOITE PUBLIEE SANS CIBLE » : une soumission au masque de silhouette
 		//    dont le maillage est INVALIDE. Le masque rendrait alors une silhouette vide
 		//    ou une forme de repli -- la famille « un compteur dont le zero n'est pas
@@ -14849,14 +14858,27 @@ namespace nkentseu {
 						const int32 esel2 = st->emptyGizmo.ActiveIndex();
 						const float32 kD2Ro = 0.017453292f;
 						for (int32 u = 0; u < kNkvpMaxUser; ++u) {
-							if (nkvpUserKind[u] < 1 || nkvpUserKind[u] > 3)
+							// ⚠️ LA SELECTION SE LIT AVANT LES REFUS, et pas apres : un
+							//    compteur de refus qui ne saurait pas si le contour etait
+							//    DU compterait tous les objets de la scene a chaque image.
+							const bool duContour = st->emptyGizmo.IsSelected(6 + u);
+							if (nkvpUserKind[u] < 1 || nkvpUserKind[u] > 3) {
+								if (duContour)
+									++gBoiteRefusKind;
 								continue;
+							}
 							const int32 e = 6 + u;
 							const int32 un = kNkvpFirstUser + u;
-							if (nkvpIsModel[un])
+							if (nkvpIsModel[un]) {
+								if (duContour)
+									++gBoiteRefusModel;
 								continue; // il ne rend rien : ses maillages le cernent
-							if (HostHiddenEff(un))
+							}
+							if (HostHiddenEff(un)) {
+								if (duContour)
+									++gBoiteRefusCache;
 								continue;
+							}
 							// LA ZONE D'UN MODEL, C'EST SA MATIERE (Rihen) : un
 							// maillage se lisere aussi quand c'est SON MODEL qui est
 							// selectionne -- sinon le lisere restait a l'origine du
@@ -14903,6 +14925,19 @@ namespace nkentseu {
 							}
 							if (!sdc2.mesh.IsValid())
 								++gBoiteSansCible;
+							// LE NEGATIF DU CRITERE (i) : NK_CONTOUR_SANS=1 fait sauter la
+							// publication une image sur deux. Un negatif qui l'eteindrait
+							// TOUJOURS serait plus faible : il produirait « jamais de
+							// contour », alors que le defaut cherche est « par
+							// intermittence » -- et un critere qui ne rougit que sur
+							// l'absence totale ne surveille pas l'intermittence.
+							static const bool sContourSans = []() {
+								const char *v = getenv("NK_CONTOUR_SANS");
+								return v && v[0] && v[0] != '0';
+							}();
+							static uint32 sContourImg = 0;
+							if (sContourSans && ((++sContourImg & 1u) == 0u))
+								continue;
 							r3d->SubmitSelection(sdc2, e == esel2);
 							++gBoiteOutUser;
 							gBoiteOutUserIdx = un;
@@ -15407,8 +15442,66 @@ namespace nkentseu {
 									nkvpGizmoHidden ? 1 : 0, st->gizmo.HasSelection() ? 1 : 0,
 									st->emptyGizmo.ActiveIndex(), st->selTool, st->selDragging ? 1 : 0,
 									nkvpCursorTool ? 1 : 0, gBoiteSansCible);
+					// PLACEE AVANT TOUTES LES REMISES A ZERO, et c'est la SECONDE fois
+					// cette nuit que cette faute se presente -- `masqueTri` rendait 0
+					// pendant que l'ecran montrait la zone peinte, pour la meme raison.
+					// Ecrite dix lignes plus bas, elle aurait lu `gBoiteOutObj` DEJA remis
+					// a zero : le champ `cerneDemo` aurait toujours dit 0, et une transition
+					// du contour d'un objet de demo serait passee inapercue.
+					// *La place d'une lecture est fixee par l'ordre de l'image.*
+					// ══ LES TRANSITIONS DU CONTOUR, SANS CROCHET ═══════════════════
+					// LA TRACE DE CLIC A REPONDU, ET ELLE A POSE LA QUESTION SUIVANTE.
+					// Elle a designe `cerneUser=1` sur l'objet 31, en mode Objet, sans
+					// outil -- donc le CONTOUR DE SELECTION d'un objet utilisateur, et
+					// non l'outil Curseur, ni le rectangle de zone, ni une boite sans
+					// cible : mes trois hypotheses sont tombees d'un coup.
+					//
+					// Mais elle ne court que SEPT images. Rodolf voit la boite
+					// « apparaitre ET disparaitre » : c'est la DUREE qui est anormale,
+					// pas la boite -- et la fin de cette duree tombe hors de la fenetre
+					// de la trace. Ce qu'il faut savoir, c'est A QUELLE IMAGE le contour
+					// cesse, et si la SELECTION a cessé au meme instant.
+					//
+					// ⚠️ ON N'ECRIT QUE LES CHANGEMENTS. Une ligne par image ferait des
+					//    dizaines de milliers de lignes dans le journal de Rodolf pour
+					//    dire cent fois la meme chose ; et c'est precisement la ou elle
+					//    CHANGE que le clignotement se lit.
+					//
+					// ⚠️ ET ON SE TAIT APRES 400 TRANSITIONS, en le disant. Un contour
+					//    qui oscillerait a chaque image -- c'est-a-dire le defaut le plus
+					//    grave que cette trace puisse trouver -- remplirait le journal
+					//    justement parce qu'il est grave. Une trace qui s'etouffe sur le
+					//    cas qu'elle cherche ne sert a rien.
+					{
+						static int32 sTrCerne = -1, sTrActif = -999, sTrImg = 0, sTrN = 0;
+						static int32 sTrDerImg = 0;
+						++sTrImg;
+						const int32 actif = st->emptyGizmo.ActiveIndex();
+						const int32 cerne = gBoiteOutUser + gBoiteOutObj;
+						if ((cerne > 0) != (sTrCerne > 0) || actif != sTrActif) {
+							if (sTrN < 400) {
+								++sTrN;
+								logger.Info("[CONTOUR-TRANSITION] img={0} (+{1} images) contour {2} -> {3} "
+											"selection {4} -> {5} · cerneUser={6} cerneDemo={7} "
+											"noeud={8} sansCible={9} refus(model={10} cache={11} "
+											"nature={12}){13}\n",
+											sTrImg, sTrImg - sTrDerImg, (sTrCerne > 0) ? 1 : 0,
+											(cerne > 0) ? 1 : 0, sTrActif, actif, gBoiteOutUser,
+											gBoiteOutObj, gBoiteOutUserIdx, gBoiteSansCible,
+											gBoiteRefusModel, gBoiteRefusCache, gBoiteRefusKind,
+											(sTrN == 400) ? " [DERNIERE : 400 transitions, je me tais]"
+														  : "");
+							}
+							sTrDerImg = sTrImg;
+							sTrCerne = cerne;
+							sTrActif = actif;
+						}
+					}
 					gBoiteOutObj = 0;
 					gBoiteOutUser = 0;
+					gBoiteRefusModel = 0;
+					gBoiteRefusCache = 0;
+					gBoiteRefusKind = 0;
 					gBoiteSansCible = 0;
 				}
 				if (st->cursorPlacePending) {
