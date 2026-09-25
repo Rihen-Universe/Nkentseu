@@ -86,6 +86,112 @@ namespace nkentseu {
 		///    mesure du 20/09, les deux moities etaient fausses et le bouton ne
 		///    pouvait pas aboutir. Et si la deduction echoue, le gabarit reste
 		///    VIDE avec son motif -- on ne compose pas une commande qu'on sait fausse.
+		/// ── LANCER UN PROCESSUS, ET C'EST LA SEULE PORTE (25/09) ──────────────
+		/// ⚠️ ELLE EST SORTIE DE LA CLASSE PARCE QU'IL Y EN AVAIT DEUX, ET QUE LA
+		///    SECONDE ETAIT FAUSSE. Le generateur convertissait UTF-8 -> UTF-16 et
+		///    appelait `CreateProcessW` ; l'ajustement, lui, appelait `std::system`,
+		///    qui passe par la page ANSI de Windows. Resultat mesure dans le
+		///    journal de Rodolf :
+		///        recu par l'application : « telechargement (23).jpg » en UTF-8
+		///        recu par Python        : « tÃ©lÃ©chargement (23).jpg »
+		///    -- les memes octets UTF-8 relus comme du cp1252, donc un encodage EN
+		///    DOUBLE. L'ajustement refusait « image introuvable » sur une image
+		///    parfaitement presente, et la generation, elle, marchait : deux chemins
+		///    qui ne traitaient pas le nom de la meme facon.
+		/// ⚠️ ET ON NE CONTOURNE PAS : pas de renommage, pas de copie vers un chemin
+		///    sans accent. Rodolf aura toujours des fichiers accentues, et ses
+		///    utilisateurs aussi.
+		inline bool NkLancerProcessus(const char *ligne, int32 &code, NkString &sortie) {
+				sortie.Clear();
+				static const uint32 kGarde = 4096u;
+				char queue[kGarde + 1u];
+				uint32 nq = 0u;
+				auto avaler = [&](const char *buf, uint32 n) {
+					for (uint32 i = 0; i < n; ++i) {
+						if (nq < kGarde) {
+							queue[nq++] = buf[i];
+							continue;
+						}
+						// la queue est pleine : on decale d'un cran (fenetre glissante)
+						for (uint32 k = 1; k < kGarde; ++k)
+							queue[k - 1] = queue[k];
+						queue[kGarde - 1] = buf[i];
+					}
+				};
+#ifdef _WIN32
+				SECURITY_ATTRIBUTES sa;
+				std::memset(&sa, 0, sizeof(sa));
+				sa.nLength = sizeof(sa);
+				sa.bInheritHandle = TRUE;
+				HANDLE rd = nullptr, wr = nullptr;
+				if (!CreatePipe(&rd, &wr, &sa, 0))
+					return false;
+				// LE BOUT LECTEUR N'EST PAS HERITE : s'il l'etait, l'enfant en
+				// garderait une copie ouverte et notre lecture n'atteindrait jamais
+				// la fin de fichier -- on attendrait pour toujours un tube que
+				// personne ne ferme.
+				SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+				// UTF-8 -> UTF-16 : les chemins de Rodolf portent des accents.
+				const int n = MultiByteToWideChar(CP_UTF8, 0, ligne, -1, nullptr, 0);
+				if (n <= 0) {
+					CloseHandle(rd);
+					CloseHandle(wr);
+					return false;
+				}
+				wchar_t *w = new wchar_t[(size_t)n];
+				MultiByteToWideChar(CP_UTF8, 0, ligne, -1, w, n);
+				STARTUPINFOW si;
+				PROCESS_INFORMATION pi;
+				std::memset(&si, 0, sizeof(si));
+				si.cb = sizeof(si);
+				si.dwFlags = STARTF_USESTDHANDLES;
+				si.hStdOutput = wr;
+				si.hStdError = wr;
+				si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+				std::memset(&pi, 0, sizeof(pi));
+				// CREATE_NO_WINDOW : toujours pas de console qui surgit devant la
+				// fenetre du modeleur -- mais sa sortie ne se perd plus pour autant.
+				// L'heritage des poignees passe a TRUE : c'est ce qui donne au
+				// processus le bout ECRIVAIN du tube.
+				const BOOL ok = CreateProcessW(nullptr, w, nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+											   nullptr, nullptr, &si, &pi);
+				delete[] w;
+				CloseHandle(wr); // le parent n'ecrit pas : sans cette fermeture, pas de fin de fichier
+				if (!ok) {
+					CloseHandle(rd);
+					return false;
+				}
+				char buf[1024];
+				DWORD lu = 0;
+				while (ReadFile(rd, buf, (DWORD)sizeof(buf), &lu, nullptr) && lu > 0)
+					avaler(buf, (uint32)lu);
+				CloseHandle(rd);
+				WaitForSingleObject(pi.hProcess, INFINITE);
+				DWORD ec = (DWORD)-1;
+				GetExitCodeProcess(pi.hProcess, &ec);
+				CloseHandle(pi.hThread);
+				CloseHandle(pi.hProcess);
+				code = (int32)ec;
+				queue[nq] = 0;
+				sortie = NkString(queue);
+				return true;
+#else
+				// `2>&1` : les deux flux dans le meme tube, comme sous Windows.
+				NkString avecErr = NkString::Format("%s 2>&1", ligne);
+				FILE *f = popen(avecErr.CStr(), "r");
+				if (!f)
+					return false;
+				char buf[1024];
+				while (const char *r = std::fgets(buf, (int)sizeof(buf), f))
+					avaler(r, (uint32)std::strlen(r));
+				const int st = pclose(f);
+				code = (int32)st;
+				queue[nq] = 0;
+				sortie = NkString(queue);
+				return true;
+#endif
+			}
+
 		class NkGenerateurProcessus : public NkIGenerateur {
 			public:
 				NkString gabarit; // ex. "\"C:/.../python.exe\" \"Tools/Genia/genia_triposr.py\" --image \"{image}\" --out \"{out}\""
@@ -261,95 +367,9 @@ namespace nkentseu {
 				///    imprime sa progression noierait son erreur ; et c'est a la fin
 				///    qu'un script pose son motif de refus.
 				static bool Lancer(const char *ligne, int32 &code, NkString &sortie) {
-					sortie.Clear();
-					static const uint32 kGarde = 4096u;
-					char queue[kGarde + 1u];
-					uint32 nq = 0u;
-					auto avaler = [&](const char *buf, uint32 n) {
-						for (uint32 i = 0; i < n; ++i) {
-							if (nq < kGarde) {
-								queue[nq++] = buf[i];
-								continue;
-							}
-							// la queue est pleine : on decale d'un cran (fenetre glissante)
-							for (uint32 k = 1; k < kGarde; ++k)
-								queue[k - 1] = queue[k];
-							queue[kGarde - 1] = buf[i];
-						}
-					};
-#ifdef _WIN32
-					SECURITY_ATTRIBUTES sa;
-					std::memset(&sa, 0, sizeof(sa));
-					sa.nLength = sizeof(sa);
-					sa.bInheritHandle = TRUE;
-					HANDLE rd = nullptr, wr = nullptr;
-					if (!CreatePipe(&rd, &wr, &sa, 0))
-						return false;
-					// LE BOUT LECTEUR N'EST PAS HERITE : s'il l'etait, l'enfant en
-					// garderait une copie ouverte et notre lecture n'atteindrait jamais
-					// la fin de fichier -- on attendrait pour toujours un tube que
-					// personne ne ferme.
-					SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
-					// UTF-8 -> UTF-16 : les chemins de Rodolf portent des accents.
-					const int n = MultiByteToWideChar(CP_UTF8, 0, ligne, -1, nullptr, 0);
-					if (n <= 0) {
-						CloseHandle(rd);
-						CloseHandle(wr);
-						return false;
-					}
-					wchar_t *w = new wchar_t[(size_t)n];
-					MultiByteToWideChar(CP_UTF8, 0, ligne, -1, w, n);
-					STARTUPINFOW si;
-					PROCESS_INFORMATION pi;
-					std::memset(&si, 0, sizeof(si));
-					si.cb = sizeof(si);
-					si.dwFlags = STARTF_USESTDHANDLES;
-					si.hStdOutput = wr;
-					si.hStdError = wr;
-					si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-					std::memset(&pi, 0, sizeof(pi));
-					// CREATE_NO_WINDOW : toujours pas de console qui surgit devant la
-					// fenetre du modeleur -- mais sa sortie ne se perd plus pour autant.
-					// L'heritage des poignees passe a TRUE : c'est ce qui donne au
-					// processus le bout ECRIVAIN du tube.
-					const BOOL ok = CreateProcessW(nullptr, w, nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-												   nullptr, nullptr, &si, &pi);
-					delete[] w;
-					CloseHandle(wr); // le parent n'ecrit pas : sans cette fermeture, pas de fin de fichier
-					if (!ok) {
-						CloseHandle(rd);
-						return false;
-					}
-					char buf[1024];
-					DWORD lu = 0;
-					while (ReadFile(rd, buf, (DWORD)sizeof(buf), &lu, nullptr) && lu > 0)
-						avaler(buf, (uint32)lu);
-					CloseHandle(rd);
-					WaitForSingleObject(pi.hProcess, INFINITE);
-					DWORD ec = (DWORD)-1;
-					GetExitCodeProcess(pi.hProcess, &ec);
-					CloseHandle(pi.hThread);
-					CloseHandle(pi.hProcess);
-					code = (int32)ec;
-					queue[nq] = 0;
-					sortie = NkString(queue);
-					return true;
-#else
-					// `2>&1` : les deux flux dans le meme tube, comme sous Windows.
-					NkString avecErr = NkString::Format("%s 2>&1", ligne);
-					FILE *f = popen(avecErr.CStr(), "r");
-					if (!f)
-						return false;
-					char buf[1024];
-					while (const char *r = std::fgets(buf, (int)sizeof(buf), f))
-						avaler(r, (uint32)std::strlen(r));
-					const int st = pclose(f);
-					code = (int32)st;
-					queue[nq] = 0;
-					sortie = NkString(queue);
-					return true;
-#endif
+					return NkLancerProcessus(ligne, code, sortie);
 				}
+
 		};
 
 		/// ── L'ARBRE, DEDUIT DE L'EXECUTABLE, PAR UNE ANCRE NOMMEE ───────────────
