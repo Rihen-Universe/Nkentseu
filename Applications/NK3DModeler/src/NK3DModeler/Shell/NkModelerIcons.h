@@ -162,6 +162,11 @@ namespace nkentseu {
 			// d'epingler a son dessin propre, comme l'aimant et le transport
 			// d'enregistrement l'ont eu avant lui.
 			Pin,
+			// LE PINCEAU DE SCULPTURE : l'outil neutre des modes a brosses. Il a son
+			// dessin a lui (data/icons/brush.svg), parce qu'aucun des existants ne dit
+			// « je depose de la matiere » -- le pot de peinture remplit, le crayon trace
+			// une ligne, la cible designe.
+			Brush,
 			Count
 		};
 
@@ -244,6 +249,7 @@ namespace nkentseu {
 					{NkIcon::MinusCircle, "minus-circle"},
 					{NkIcon::Tag, "tag"},
 					{NkIcon::Pipette, "pipette"},
+					{NkIcon::Brush, "brush"},
 						{NkIcon::Camera, "device-camera"},
 						{NkIcon::CameraOff, "device-camera-off"},
 						{NkIcon::Ortho, "ortho-cube"},

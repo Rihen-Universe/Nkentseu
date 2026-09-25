@@ -248,6 +248,15 @@ foreach ($mode in @(3, 2)) {
 		Dire "$n (g) NEGATIF : sans l'outil, aucun gizmo et rien ne bouge" `
 			(($sans.tri -eq 0) -and ($sans.bouge -eq 0.0)) `
 			"triangles=$($sans.tri) deplacement=$([Math]::Round($sans.bouge, 5)) (le meme glisser, sans avoir choisi l'outil)"
+		# ⚠ ET CE QUI REMPLACE LE GIZMO PAR DEFAUT DOIT AGIR : entrer dans un mode a
+		#   brosses arme la BROSSE (l'entree de barre du 25/09). Sans ce critere,
+		#   « rien ne bouge sans l'outil » serait satisfait par un mode ou plus rien
+		#   ne marche -- le pire des verts.
+		$brosse = @(Lignes (Courir "gz_brosse_$mode" (Fusion $dragBase @{ "NK_EDIT_MODE" = "$mode,40";
+																		 "NK_SCULPT_STROKE" = "creuser:0.3:0.8:150" })) $mode |
+					Where-Object { $_.img -ge 20 })
+		Dire "$n (g) ... et la BROSSE, elle, agit par defaut" ((Delta $brosse) -gt 1e-4) `
+			"deplacement d'un trait a l'entree dans le mode = $([Math]::Round((Delta $brosse), 5)) (outil par defaut : la brosse)"
 	}
 }
 # EDITION INCHANGEE : le bouton choisit l'outil du gizmo de sommets, comme avant.
