@@ -92,6 +92,32 @@ namespace nkentseu {
 		//    y compris les NORMALES. Recalculer les normales « au cas ou » suffirait
 		//    a faire echouer une comparaison au bit, et le critere du zero serait
 		//    perdu pour une raison qui n'a rien a voir avec la sculpture.
+		// ── LA SYMETRIE : ELLE APPARTIENT AU MODE, PAS A LA BROSSE ─────────────
+		// Blender : la symetrie est un reglage du MODE Sculpture (X, Y, Z
+		// independants), pas une propriete de la brosse. Le meme pinceau sculpte
+		// en miroir ou non selon un interrupteur qui n'est pas dans son fichier --
+		// et c'est juste : « creuser » ne change pas de nature parce qu'on
+		// travaille un visage plutot qu'une coquille.
+		//
+		// CE QUE CETTE FONCTION FAIT : elle DEPLIE le trait. Chaque tampon donne
+		// naissance a ses images miroir (jusqu'a huit avec les trois axes), et
+		// c'est le trait deplie qui part a `NkSculptApplyStroke`. Rien d'autre ne
+		// change : une seule primitive, un seul chemin de deformation.
+		//
+		// ⚠️ LA COUTURE, ET C'EST LA QUE LE PRECEDENT S'EST FAIT PRENDRE. Un
+		//    tampon POSE SUR LE PLAN est son propre miroir : le dupliquer y
+		//    appliquerait la brosse DEUX FOIS, et la couture se creuserait deux
+		//    fois plus que ses voisins. Le meme defaut, dans sa version geometrique,
+		//    a ete mesure sur l'outil Transform le 25/09 (somme 34 au lieu de 0).
+		//    Une image miroir qui retombe sur un tampon deja present est donc
+		//    ECARTEE -- et c'est un critere du banc, pas une precaution silencieuse.
+		//
+		// Le miroir est pris autour de l'ORIGINE DE L'OBJET (le trait est deja en
+		// repere objet), comme dans Blender.
+		// Rend le nombre de tampons deplies (>= count si au moins un axe est actif).
+		uint32 NkSculptExpandSymmetry(const NkSculptPoint *in, uint32 count, uint8 symX, uint8 symY,
+									  uint8 symZ, NkVector<NkSculptPoint> &out) noexcept;
+
 		// ── LA MUTATION DU MASQUE, ET ELLE N'A QU'UNE SOURCE ────────────────
 		// `NK_MASQUE_IGNORE=1` rend l'etat d'AVANT le masque : les brosses ET
 		// l'outil Transform de sculpture ignorent les poids. Les criteres de

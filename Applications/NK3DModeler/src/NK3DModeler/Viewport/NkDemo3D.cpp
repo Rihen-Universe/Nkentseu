@@ -14948,8 +14948,17 @@ namespace nkentseu {
 													  : "SCULPTURE 2.5D  |  aucune brosse encore");
 					// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
 					// l'affichage en montre vraiment.
-					// L'OUTIL ACTIF ET SA SYMETRIE : sans cette ligne, « pourquoi l'autre
-					// cote bouge-t-il aussi ? » n'a aucune reponse a l'ecran.
+					// LA SYMETRIE SE DIT TOUJOURS, PAS SEULEMENT SOUS LE GIZMO. Elle
+					// agit desormais sur les BROSSES aussi : « pourquoi l'autre cote
+					// bouge-t-il ? » doit avoir sa reponse a l'ecran quel que soit
+					// l'outil. (Elle etait gardee par `!nkvpGizmoHidden`, donc
+					// invisible sous la brosse -- exactement quand on en a besoin.)
+					{
+						const char *axesB[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+						overlay->DrawText({20.f, 154.f}, "Symetrie : %s", axesB[st->sculptSymMask & 7]);
+					}
+					// L'OUTIL ACTIF : sans cette ligne, « pourquoi le clic ne peint-il
+					// plus ? » n'a aucune reponse a l'ecran.
 					if (!nkvpGizmoHidden) {
 						const char *axes[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
 						overlay->DrawText({20.f, 136.f},
@@ -18788,6 +18797,13 @@ namespace nkentseu {
 			st->sculptParams.dir = d.dir;
 			st->sculptParams.falloff = (uint8)d.falloff;
 			st->sculptParams.primitive = (uint8)d.op;
+			// LA SYMETRIE DU MODE VOYAGE AVEC LE GESTE. Elle n'est pas dans le
+			// fichier de brosse (c'est un reglage du mode, pas de l'outil), mais
+			// elle doit etre dans la COMMANDE : rejouer une session apres avoir
+			// change l'interrupteur reproduirait sinon un autre geste, en silence.
+			st->sculptParams.symX = (uint8)((st->sculptSymMask & 1) ? 1 : 0);
+			st->sculptParams.symY = (uint8)((st->sculptSymMask & 2) ? 1 : 0);
+			st->sculptParams.symZ = (uint8)((st->sculptSymMask & 4) ? 1 : 0);
 			for (uint32 k = 0; k < 47 && d.name[k]; ++k)
 				st->sculptParams.brushName[k] = d.name[k];
 			st->sculptPts.Clear();

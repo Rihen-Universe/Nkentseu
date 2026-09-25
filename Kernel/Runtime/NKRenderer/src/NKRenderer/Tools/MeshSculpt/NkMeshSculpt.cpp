@@ -54,6 +54,57 @@ namespace nkentseu {
 			return (float32)(acc / 6.0);
 		}
 
+		uint32 NkSculptExpandSymmetry(const NkSculptPoint *in, uint32 count, uint8 symX, uint8 symY,
+									  uint8 symZ, NkVector<NkSculptPoint> &out) noexcept {
+			out.Clear();
+			if (!in || count == 0)
+				return 0;
+			// La TOLERANCE de la couture est RELATIVE au rayon du tampon : sur une
+			// brosse de 1 cm et sur une de 10 m, « pose sur le plan » ne veut pas
+			// dire la meme distance. Un epsilon absolu aurait ecarte les doublons
+			// d'un cote et pas de l'autre.
+			for (uint32 i = 0; i < count; ++i) {
+				const NkSculptPoint &p = in[i];
+				const float32 r = (p.radius > 0.f) ? p.radius : 0.25f;
+				const float32 eps = r * 1e-3f;
+				for (int32 sx = 0; sx < 2; ++sx) {
+					if (sx && !symX)
+						continue;
+					for (int32 sy = 0; sy < 2; ++sy) {
+						if (sy && !symY)
+							continue;
+						for (int32 sz = 0; sz < 2; ++sz) {
+							if (sz && !symZ)
+								continue;
+							NkSculptPoint q = p;
+							if (sx) {
+								q.pos.x = -q.pos.x;
+								q.normal.x = -q.normal.x;
+							}
+							if (sy) {
+								q.pos.y = -q.pos.y;
+								q.normal.y = -q.normal.y;
+							}
+							if (sz) {
+								q.pos.z = -q.pos.z;
+								q.normal.z = -q.normal.z;
+							}
+							// LA COUTURE : une image qui retombe sur un tampon deja
+							// pose appliquerait la brosse deux fois au meme endroit.
+							bool doublon = false;
+							for (uint32 k = 0; k < (uint32)out.Size() && !doublon; ++k) {
+								const NkVec3f d = out[k].pos - q.pos;
+								doublon = (fabsf(d.x) <= eps && fabsf(d.y) <= eps && fabsf(d.z) <= eps);
+							}
+							if (!doublon)
+								out.PushBack(q);
+						}
+					}
+				}
+			}
+			return (uint32)out.Size();
+		}
+
 		NkSculptApply NkSculptApplyStroke(NkEditMesh &mesh, const NkBrushDesc &brush,
 										  const NkSculptPoint *points, uint32 count) noexcept {
 			NkSculptApply out;
