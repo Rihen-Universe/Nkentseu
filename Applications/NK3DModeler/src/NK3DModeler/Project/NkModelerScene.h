@@ -259,6 +259,10 @@ namespace nkentseu {
 			cam.SetInt32("fondType", v.fondType);
 			cam.SetFloat32("fondLuminosite", v.fondLum);
 			NkScSetVec3(cam, "fondCouleur", v.fondPerso);
+			// ECRITE EN PLUS, JAMAIS A LA PLACE : un fichier d'hier n'a pas cette
+			// cle, et sa relecture garde le defaut (aucune symetrie) au lieu de lire
+			// un zero qui voudrait dire autre chose.
+			cam.SetInt32("symetrieSculpture", v.sculptSym);
 		}
 		inline void NkScViewRead(const NkArchive &cam, NkModelerState &st, int32 d) {
 			float32 *cp = st.docCamPose[d];
@@ -280,6 +284,7 @@ namespace nkentseu {
 			v.fondLum = NkScFloat(cam, "fondLuminosite", v.fondLum);
 			NkScGetVec3(cam, "fondCouleur", v.fondPerso, v.fondPerso[0],
 						v.fondPerso[1], v.fondPerso[2]);
+			v.sculptSym = NkScInt(cam, "symetrieSculpture", v.sculptSym) & 7;
 			st.docView[d] = v;
 			st.docViewSet[d] = NkScBool(cam, "reglee", false);
 		}
