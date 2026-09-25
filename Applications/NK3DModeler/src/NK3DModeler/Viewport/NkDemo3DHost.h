@@ -298,6 +298,14 @@ namespace nkentseu {
 		// depose un).
 		const char *Demo3DHostBrushCurrent();
 		bool Demo3DHostSetBrushByName(const char *nom);
+		// Les trois grandeurs de la brosse ACTIVE, et les bornes que son fichier
+		// declare. Ce qu'on rend est la valeur EFFECTIVE (reglage s'il existe,
+		// sinon fichier) ; une valeur < 0 passee a Set laisse la grandeur telle
+		// quelle. `Nudge` : quoi = 0 rayon (pas multiplicatif), 1 force, 2 durete.
+		bool Demo3DHostBrushParams(float32 *radius, float32 *strength, float32 *hardness);
+		bool Demo3DHostBrushRange(float32 *rMin, float32 *rMax, float32 *sMin, float32 *sMax);
+		bool Demo3DHostSetBrushParams(float32 radius, float32 strength, float32 hardness);
+		bool Demo3DHostNudgeBrush(int32 quoi, int32 sens);
 		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
 		// = garder ceux de la brosse. Rend true si le maillage a change (et si une
 		// etape d'annulation a donc ete posee).
@@ -307,8 +315,13 @@ namespace nkentseu {
 		int32 Demo3DHostCompteTrait(int32 numero);
 		int32 Demo3DHostEffaceTrait(int32 numero);
 		int32 Demo3DHostSelectionnerTrait(int32 numero);
+		// ⚠️ radius / strength / hardness <= 0 (< 0 pour la durete) = « prends
+		//    celle de la brosse, reglage vivant compris ». C'est par la que le
+		//    geste souris passe : il ne redit pas les valeurs, il laisse la porte
+		//    les resoudre -- sinon la resolution existerait a deux endroits.
 		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
-					  const char *brushName, float32 radius, float32 strength);
+					  const char *brushName, float32 radius, float32 strength,
+					  float32 hardness = -1.f);
 
 		// ── LE MASQUE DE SCULPTURE ──────────────────────────────────────────
 		// Un poids par sommet (0 libre, 1 protege) que TOUTES les brosses lisent.
