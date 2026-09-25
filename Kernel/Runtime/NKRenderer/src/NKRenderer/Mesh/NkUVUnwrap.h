@@ -215,6 +215,32 @@ namespace nkentseu {
 		// `outIslands` / `outIslandFaces` sont facultatifs ; quand ils sont fournis,
 		// `outIslandFaces` contient les faces de tous les ilots a la suite, et
 		// chaque `NkUVIslandInfo` y pointe par (firstFace, faceCount).
+		// -- COUTURES AUTOMATIQUES : ARBRE COUVRANT DU DUAL ---------------------
+		// DEMENAGEE DEPUIS LE BANC, le 25/09/2026, et c'est la raison pour laquelle
+		// ce module n'avait AUCUN appelant dans le produit. `NkUVUnwrapParams::seams`
+		// est une ENTREE OBLIGATOIRE pour toute surface fermee : sans coupe, une
+		// sphere a un Euler de 2, le solveur refuse a juste titre, et le refus
+		// ressemble a une panne. Or la seule fonction du depot capable de produire
+		// ces coutures vivait `static` dans `NKUVUnwrapTest/src/main.cpp` : un
+		// deplieur de 1 045 lignes rendu inappelable par l'absence de son entree.
+		// Le fil manquant etait la, pas dans le solveur.
+		//
+		// Propriete utilisee : decouper une surface fermee de genre 0 le long du
+		// complementaire d'un arbre couvrant de son dual donne EXACTEMENT un
+		// disque. L'attendu se DERIVE des chiffres du maillage :
+		//   coutures = E - (F - 1)   ·   ilots = 1   ·   Euler = 1
+		//
+		// ATTENTION -- C'EST UNE COUPE VALIDE, PAS UNE BONNE COUPE. Elle garantit
+		// un disque ; elle ne dit rien de la distorsion ni du nombre d'ilots qu'un
+		// artiste voudrait. Un placement de coutures intelligent est un autre
+		// sujet ; celui-ci rend le module APPELABLE, et la mesure dira ce que la
+		// coupe brute vaut vraiment.
+		//
+		// `dropOne` retire N coutures : sert au NEGATIF du banc (moins de coupes
+		// donc moins d'ilots). Rend le nombre de coutures produites.
+		uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &mesh, NkVector<NkEmId> &outSeams,
+											 uint32 dropOne = 0u) noexcept;
+
 		bool NkUVUnwrap(NkEditMesh &mesh, const NkUVUnwrapParams &params, NkUVResult &outResult,
 						NkVector<NkUVIslandInfo> *outIslands = nullptr,
 						NkVector<NkEmId> *outIslandFaces = nullptr) noexcept;
@@ -233,6 +259,28 @@ namespace nkentseu {
 		// construction. Une liste d'exclusions serait exactement l'endroit ou un
 		// detecteur devient aveugle sans le dire.
 		// Rend le NOMBRE de paires en recouvrement ; `outArea` recoit l'aire totale.
+		// -- LA CHAINE COMPLETE : D'UN MAILLAGE IMPORTE A SES UV ----------------
+		// Coutures automatiques, de-soudure, reconstruction, depliage, mesures.
+		// Elle n'invente aucun calcul : elle ENCHAINE quatre briques deja
+		// eprouvees. Elle existe parce qu'aucun appelant du produit ne pouvait
+		// les enchainer -- la sequence n'etait ecrite que dans un cas de banc.
+		//
+		// `NkUVAutoBilan` publie les chiffres de chaque etape, y compris le
+		// nombre de coutures RETROUVEES apres la reconstruction : un appariement
+		// incomplet ferait rougir le depliage pour une raison etrangere au
+		// depliage, et il faut pouvoir le distinguer.
+		struct NkUVAutoBilan {
+			uint32 coutures = 0;
+			uint32 couturesRetrouvees = 0;
+			uint32 sommetsAvant = 0;
+			uint32 sommetsApres = 0;
+			uint32 sommetsDupliques = 0;
+			uint32 pairesRecouvrement = 0;
+			float32 aireRecouvrement = 0.f;
+		};
+		bool NkUVUnwrapAuto(NkEditMesh &mesh, const NkUVUnwrapParams &base, NkUVResult &outResult,
+							NkUVAutoBilan *outBilan = nullptr) noexcept;
+
 		uint32 NkUVCountOverlaps(const NkEditMesh &mesh, float32 *outArea = nullptr) noexcept;
 
 		bool NkUVMeasureDistortion(const NkEditMesh &mesh, NkUVDistortion &out) noexcept;
