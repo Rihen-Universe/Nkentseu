@@ -411,6 +411,64 @@ namespace {
 		gAttenduRouge = sauve;
 	}
 
+	// -------------------------------------------------------------------------
+	// Essai F — `bgColor` et l'arbitrage des accesseurs (26/09)
+	//
+	// (F1) La brosse de la CLASSE porte-t-elle la couleur demandee ? On la lit
+	//      par `GetClassLongPtrW` puis `GetObject`, c'est-a-dire chez GDI et non
+	//      chez nous. C'est cette brosse que Windows etale pendant un
+	//      redimensionnement : la mesurer, c'est mesurer le clignotement.
+	//
+	// (F2) UN ACCESSEUR DECRIT LE MONDE. Sur une fenetre fermee — donc sans
+	//      fenetre native — `IsAlwaysOnTop()` et `IsClickThrough()` doivent rendre
+	//      FALSE, meme si la configuration les demandait. Avant l'arbitrage ils
+	//      rendaient `mConfig`, c'est-a-dire notre memoire au lieu du monde.
+	//      ⚠️ Ce critere ne s'inverse pas en mode negatif : il ne depend pas du
+	//         style de fenetre que la mutation remet.
+	// -------------------------------------------------------------------------
+	void EssaiFondEtAccesseurs() {
+		NkWindowConfig c = ConfigDeBase("F-fond");
+		c.name = "NkWindowSondeFond"; // classe DISTINCTE : la brosse est par classe
+		c.bgColor = 0x2A5F6EFF;		  // petrole Rihen, et aucune valeur par defaut
+		c.alwaysOnTop = true;
+		c.clickThrough = true;
+
+		NkWindow w;
+		if (!w.Create(c)) {
+			std::printf("  [ECHEC ] la fenetre F n'a pas pu etre creee\n");
+			++gEssais;
+			++gEchecs;
+			return;
+		}
+		HWND hwnd = w.GetSurfaceDesc().hwnd;
+
+		HBRUSH brosse = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
+		LOGBRUSH lb = {};
+		const int lu = GetObjectW(brosse, sizeof(lb), &lb);
+		const COLORREF attendu = RGB(0x2A, 0x5F, 0x6E);
+		char buf[200];
+		std::snprintf(buf, sizeof(buf), "brosse de classe = 0x%06lX, attendu 0x%06lX (style %lu)",
+					  static_cast<unsigned long>(lb.lbColor), static_cast<unsigned long>(attendu),
+					  static_cast<unsigned long>(lb.lbStyle));
+		Critere("bgColor -> brosse de fond de la classe", lu != 0 && lb.lbStyle == BS_SOLID && lb.lbColor == attendu,
+				buf);
+
+		// La fenetre EXISTE : les deux accesseurs doivent dire vrai.
+		Critere("fenetre vivante -> IsAlwaysOnTop vrai", w.IsAlwaysOnTop(), "lu sur WS_EX_TOPMOST");
+		Critere("fenetre vivante -> IsClickThrough vrai", w.IsClickThrough(), "lu sur WS_EX_TRANSPARENT");
+
+		w.Close();
+
+		// La fenetre N'EXISTE PLUS : rien n'est applique, donc rien n'est vrai.
+		const bool sauve = gAttenduRouge;
+		gAttenduRouge = false;
+		Critere("fenetre fermee -> IsAlwaysOnTop FAUX", !w.IsAlwaysOnTop(),
+				"un accesseur decrit le monde, pas mConfig");
+		Critere("fenetre fermee -> IsClickThrough FAUX", !w.IsClickThrough(),
+				"un accesseur decrit le monde, pas mConfig");
+		gAttenduRouge = sauve;
+	}
+
 	int Mesurer(bool negatif) {
 		gAttenduRouge = negatif;
 		std::printf("\n=== NkWindowSonde — %s ===\n",
@@ -425,6 +483,8 @@ namespace {
 			EssaiDiscrete();
 			std::printf("--- E. les refus nommes au journal\n");
 			EssaiRefus();
+			std::printf("--- F. bgColor et l'arbitrage des accesseurs\n");
+			EssaiFondEtAccesseurs();
 		}
 		std::printf("--- D. temoin de NON-REGRESSION (config par defaut)\n");
 		EssaiDefauts();

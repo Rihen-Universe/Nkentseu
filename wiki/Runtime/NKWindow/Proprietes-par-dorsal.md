@@ -23,6 +23,33 @@ Règle du **refus** : il ne se déclenche **que si l'utilisateur a demandé une 
 défaut**. Une application qui ne touche à rien ne doit pas voir une page d'avertissements au
 démarrage ; le journal ne parle que de ce qui a été *demandé* et ne sera pas *livré*.
 
+## Règle des accesseurs — **un accesseur décrit LE MONDE, pas notre mémoire**
+
+Arbitrage rendu le 25/09/2026, applicable partout dans NKWindow.
+
+Sur un dorsal où la propriété **n'est pas appliquée**, `IsAlwaysOnTop()` rend **`false`**,
+`GetOpacity()` rend **`1.0`**, `IsClickThrough()` rend **`false`** — parce que c'est ce que la
+fenêtre **est**. Même règle quand il n'y a **pas de fenêtre native** (avant `Create`, après
+`Close`) : rien n'a été appliqué, donc rien n'est vrai.
+
+Ce n'est pas « le mensonge inverse » : c'est la vérité observable, et c'est la seule réponse dont un
+appelant puisse faire quelque chose. Trois raisons :
+
+1. « suis-je au-dessus ? » a une vraie réponse booléenne. Un tri-état répondrait à une **autre**
+   question — « est-ce supporté ici ? » — qui mérite sa propre porte si le besoin apparaît ;
+2. changer la signature toucherait les cinq applications pour un besoin que personne n'a exprimé ;
+3. l'information « ta demande a été ignorée » **n'est pas perdue** : le refus nommé la donne une
+   fois, **au moment de la demande** et non à la lecture — c'est-à-dire là où l'appelant peut encore
+   décider autre chose.
+
+> **Condition de réouverture, écrite d'avance** : le jour où quelqu'un doit distinguer « non
+> appliqué » de « appliqué et faux », cela s'écrira **`NkWindowSupporte(propriété)`** — une porte
+> nouvelle, pas une signature changée.
+
+Dorsaux modifiés par cet arbitrage : Wayland (`alwaysOnTop`, `opacity`), Android, UIKit, Emscripten,
+UWP, HarmonyOS, Xbox, Noop (les trois) ; et le repli « pas de poignée native » sur Win32, Cocoa,
+XLib, XCB, qui rendait lui aussi `mConfig`.
+
 ---
 
 ## Table — état au **25/09/2026, AVANT le correctif Win32**
@@ -75,8 +102,20 @@ Mesure : comptage des lectures du champ dans `Kernel/Runtime/NKWindow/src/NKWind
 | `hasShadow` | agit | agit | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
 | `transparent` | agit | agit | agit | agit | agit | **silence** | agit | agit | **silence** | **silence** | agit | s/o |
 | `visible` | agit | agit | agit | agit | agit | s/o | s/o | agit | agit | agit | agit | agit |
-| `bgColor` | **silence** | **silence** | agit | agit | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | agit | s/o |
+| `bgColor` | **silence** → **agit**⁸ | **silence** | agit | agit | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | agit | s/o |
 | `title` / `name` / `iconPath` | agit | agit | agit | agit | agit | s/o | s/o | agit (titre) | agit | s/o | s/o | s/o |
+
+⁸ **`bgColor` agit sur Win32 depuis le 25/09.** La classe de fenêtre peignait un `BLACK_BRUSH` en
+dur — et c'est cette brosse que Windows étale sur la zone nouvellement découverte pendant un
+redimensionnement, avant que l'application ait eu sa chance de peindre. D'où le **clignotement noir
+au redimensionnement**, sur toutes les applications, pendant que `bgColor` valait `0x141414FF` et
+n'était lu nulle part.
+**Changement visible, assumé** : le clignotement passe du noir pur au `0x141414` par défaut.
+**Réserve, dite au journal** : la brosse appartient à la **classe**, nommée par `config.name`. Deux
+fenêtres de même `name` et de `bgColor` différents partagent la brosse de la première ; la seconde
+reçoit un refus nommé qui lui dit de choisir un `name` distinct. La corriger vraiment demanderait de
+repeindre nous-mêmes à chaque `WM_ERASEBKGND`, ce qui rendrait le clignotement que le code actuel
+évite en ne peignant **rien**.
 
 ### Fenêtre discrète
 
@@ -147,7 +186,8 @@ Les cases modifiées, et elles seules :
 | `movable` | silence | **agit** (`SC_MOVE` grisé, `WM_NCLBUTTONDOWN`/`HTCAPTION` filtré, `BeginDragMove` refuse) |
 | `minWidth`/`minHeight` | agit à tort | **agit** (converties en coordonnées **fenêtre** par `AdjustWindowRectEx`) |
 | `maxWidth`/`maxHeight` | silence | **agit** (`ptMaxTrackSize`, mêmes coordonnées) |
-| `modal`, `canFullscreen`, `bgColor`, `screenOrientation`, `hideSystemUI`, `lockOrientation`, `respectSafeArea` | silence | **refus** nommé au journal |
+| `bgColor` | silence | **agit** (brosse de la classe ; réserve dite au journal, cf. ⁸) |
+| `modal`, `canFullscreen`, `screenOrientation`, `hideSystemUI`, `lockOrientation`, `respectSafeArea` | silence | **refus** nommé au journal |
 
 Sur tous les autres dorsaux, les **silence** du tableau deviennent des **refus**. L'audit
 (`NkWindowAuditerDorsalCourant`, dans `NkWindowAudit.cpp`) est appelé depuis
@@ -160,7 +200,7 @@ refus qui ne compile pas est un silence de plus*. En contrepartie, les masques d
 non-Windows sont **lus dans le code, pas mesurés à l'exécution** : cette colonne du tableau est de
 la lecture de source, pas de la mesure. La colonne Win32, elle, est mesurée par `NkWindowSonde`.
 
-Mesure du 25/09 sur Win32, `NkWindowSonde` : **19 essais, 0 échec**, et le négatif
+Mesure du 25/09 sur Win32, `NkWindowSonde` : **24 essais, 0 échec**, et le négatif
 `--ancien-style` fait rougir les six critères de l'essai A pendant que le témoin de non-régression
 reste vert. Deux chiffres qui résument le lot : `GWL_STYLE` passe de `0x04CF0000` (défaut) à
 `0x04C80000` avec les trois interdits — exactement `WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX`
