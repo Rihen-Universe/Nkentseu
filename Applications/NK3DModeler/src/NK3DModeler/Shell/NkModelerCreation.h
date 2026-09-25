@@ -2186,6 +2186,7 @@ namespace nkentseu {
 			// comme il retire une creation.
 			int32 poses = 0;
 			float32 hAv = 0.f, hAp = 0.f, kEch = 1.f;
+			float32 basApres = 0.f; ///< le y minimal APRES la pose, relu a l'hote
 			bool debout = false;
 			if (importes > 0 && cartes.Size() > 0) {
 				NkCreaEtat &E = NkCrea();
@@ -2275,6 +2276,8 @@ namespace nkentseu {
 								}
 								ab2 = true;
 							}
+							if (ab2)
+								basApres = a2[1]; // « au sol » se MESURE, il ne se decrete pas
 							if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
 								fprintf(f,
 										"TRIPOSR_BOITE avant=(%.3f,%.3f,%.3f)-(%.3f,%.3f,%.3f) "
@@ -2334,6 +2337,20 @@ namespace nkentseu {
 							}
 						}
 						if (avecCouleurs > 0) {
+							// ── LA TEINTE DOIT ETRE BLANCHE (25/09) ──────────────────────
+							// MESURE : les couleurs de sommet de TripoSR valent deja 0,61 a
+							// 0,85 de la luminance de l'image source (le modele assombrit).
+							// Le nuanceur fait ensuite `vColor = aColor * uObj.tint` : une
+							// teinte de materiau qui n'est pas blanche les assombrit une
+							// SECONDE fois, et l'objet arrive « tres sombre » dans la scene.
+							// Tant que l'interrupteur « utiliser les couleurs du maillage »
+							// est allume, la teinte est donc posee a blanc -- par la MEME
+							// porte que le panneau, pour que le reglage soit celui qu'on voit.
+							const float32 blanc[3] = {1.f, 1.f, 1.f};
+							for (usize i = 0; i < nes.Size(); ++i)
+								demo::Demo3DHostSetMeshTint(nes[i], blanc);
+							for (usize i = 0; i < NkVcTable().Size(); ++i)
+								demo::Demo3DHostSetMeshTint(NkVcTable()[i].noeud, blanc);
 							char mv[300];
 							snprintf(mv, sizeof(mv),
 									 "Ce maillage porte des COULEURS PAR SOMMET (%d sommets sur %d piece(s)) et "
@@ -2346,6 +2363,52 @@ namespace nkentseu {
 										(int)colores, (int)avecCouleurs);
 							std::fflush(stdout);
 						}
+					}
+					// ── (25/09) L'OBJET PORTE LE NOM DE LA DEMANDE, PAS « geometry_0 » ──
+					// Rodolf a photographie un noeud nomme `geometry_0`, sans parent ni
+					// enfant : le nom venait du glTF de TripoSR, qui ne sait rien de ce
+					// qu'on lui a demande. Un objet qu'on ne retrouve pas dans la
+					// hierarchie n'est pas livre. Le nom est celui que la chaine a deja
+					// reconnu dans la demande (`nomTete`, le mot de Rodolf), sinon le nom
+					// de scene, sinon « genere ».
+					{
+						NkCreaEtat &EN = NkCrea();
+						// ⚠️ TROIS SOURCES, DANS CET ORDRE, ET LA TROISIEME COMPTE. `nomTete`
+						//    n'est rempli que si le LEXIQUE a reconnu une famille : pour « cet
+						//    arbre », il est vide, et le repli tombait sur « genere » --
+						//    c'est-a-dire le defaut que je venais de corriger. Le nom de SCENE
+						//    du dernier lot pose est, lui, toujours le mot de la demande.
+						const char *nomLot = (EN.nLots > 0) ? EN.lots[EN.nLots - 1].scene : "";
+						const char *nomObjet = EN.nomTete[0] ? EN.nomTete
+											  : (nomLot && nomLot[0] ? nomLot
+												 : (EN.familleReconnue[0] ? EN.familleReconnue : "genere"));
+						for (usize i = 0; i < nes.Size(); ++i) {
+							if (nes[i] < NkModelerState::kMaxNodeNames)
+								snprintf(st.customNames[nes[i]], 24, "%s", nomObjet);
+						}
+						// ET SES MORCEAUX LUI APPARTIENNENT : un descendant garde son nom
+						// mais prend le nom de l'objet en prefixe, pour qu'on lise a qui il
+						// est. ⚠️ On ne REPARENTE rien : l'import a deja construit la
+						// hierarchie, et la refaire ici serait une seconde mecanique.
+						const int32 nT3 = demo::Demo3DHostNodeCount();
+						int32 nEnfants = 0;
+						for (usize i = 0; i < nes.Size(); ++i)
+							for (int32 q = 0; q < nT3; ++q) {
+								if (q == nes[i] || demo::Demo3DHostNodeDeleted(q))
+									continue;
+								if (demo::Demo3DHostNodeParent(q) != nes[i])
+									continue;
+								if (q < NkModelerState::kMaxNodeNames) {
+									char sousNom[24];
+									snprintf(sousNom, sizeof(sousNom), "%s_%d", nomObjet, (int)nEnfants);
+									snprintf(st.customNames[q], 24, "%s", sousNom);
+								}
+								++nEnfants;
+							}
+						demo::Demo3DHostHierarchyResync();
+						std::printf("[crea] TRIPOSR nomme « %s » (%d morceau(x) sous lui)\n",
+									nomObjet, (int)nEnfants);
+						std::fflush(stdout);
 					}
 					// LE LOT : sans lui, l'objet pose ne serait pas annulable, et le
 					// contrat « Ctrl+Z retire ce que la conversation a mis » serait faux
@@ -2407,9 +2470,11 @@ namespace nkentseu {
 								debout ? 1 : 0);
 						fclose(f);
 					}
-					std::printf("[crea] TRIPOSR pose dans la scene : %d noeud(s), hauteur %.3f -> %.3f m "
-								"(echelle %.3f), debout=%d ; Ctrl+Z le retire.\n",
-								(int)poses, (double)hAv, (double)hAp, (double)kEch, debout ? 1 : 0);
+					std::printf("[crea] TRIPOSR pose : %d noeud(s), hauteur %.3f -> %.3f m (echelle %.3f, "
+								"cible prise sur %s), bas a y=%.4f, debout=%d ; Ctrl+Z le retire.\n",
+								(int)poses, (double)hAv, (double)hAp, (double)kEch,
+								aAssemblage ? "la boite de l'assemblage" : "1 m par defaut (AUCUN assemblage)",
+								(double)basApres, debout ? 1 : 0);
 					std::fflush(stdout);
 					// LES VUES REPARTENT : les premieres ont photographie l'assemblage
 					// SEUL, puisque la generation dure une minute. Sans cette seconde
@@ -2833,6 +2898,26 @@ namespace nkentseu {
 					ligne[n++] = *q++;
 				ligne[n] = 0;
 				rempli = true;
+			}
+			// ── UN STYLE EXOTIQUE DOIT ETRE DEMANDE (25/09) ───────────────────────
+			// MESURE : « modelise moi cette porte » a rendu un PORTAIL CHINOIS de
+			// 4,66 m (21 pieces). Le modele ecrit `style chinois` parce que l'aide du
+			// formulaire nomme trois fois le chinois (« porte chinoise, torii,
+			// pagode ») : le mot le plus saillant de l'aide l'emporte sur le defaut.
+			// La chaine sait deja lire ce style DANS LA DEMANDE (`styleReconnu`).
+			// Sans trace dans la demande, le style du modele ne peut pas introduire
+			// l'exotique : on le retire de sa ligne, et le defaut de la famille joue.
+			// ⚠️ LA REGLE NE VAUT QUE POUR PORTE/PORTAIL, et c'est ecrit : la maison
+			//    n'a AUCUN lecteur de style dans la demande, donc lui appliquer la
+			//    meme regle interdirait « toit plat » sans qu'aucun texte ne puisse
+			//    l'autoriser. Elle s'etendra le jour ou le lexique lira « moderne »
+			//    ou « terrasse ».
+			if (!E.styleReconnu[0] &&
+				(strcmp(E.familleReconnue, "porte") == 0 || strcmp(E.familleReconnue, "portail") == 0)) {
+				if (char *q2 = strstr(ligne, "style chinois")) {
+					memmove(q2, q2 + 13, strlen(q2 + 13) + 1u);
+					NkCreaRefuser(d, "style « chinois » non demande : je prends « simple »%s", "");
+				}
 			}
 			// le style reconnu PRIME s'il a ete trouve dans la demande
 			// LE NOM DE LA SCENE EST LE MOT DE RODOLF (« verre », « villa »), pas le nom
