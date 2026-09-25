@@ -924,7 +924,9 @@ namespace nkentseu {
 		// Le WM fait autorité (l'utilisateur peut basculer l'état hors app) :
 		// on lit _NET_WM_STATE, comme IsMaximized().
 		if (!mData.mDisplay || !mData.mXid)
-			return mConfig.alwaysOnTop;
+			// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 		const Atom wmState = XInternAtom(mData.mDisplay, "_NET_WM_STATE", True);
 		const Atom above = XInternAtom(mData.mDisplay, "_NET_WM_STATE_ABOVE", True);
 		if (wmState == None || above == None)
