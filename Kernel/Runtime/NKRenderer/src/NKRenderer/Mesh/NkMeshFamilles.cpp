@@ -1137,6 +1137,44 @@ namespace nkentseu {
 			};
 		} // namespace
 
+		// ── LES DIMENSIONS PLAUSIBLES, OBJET PAR OBJET ────────────────────────
+		// Les intervalles viennent de l'usage courant du batiment et du mobilier :
+		// une porte interieure fait 2,00 a 2,20 m sous linteau, un plateau de table
+		// se tient entre 0,72 et 0,78 m, une maison d'un niveau entre 2,50 et 3,00 m
+		// sous plafond. Ils ne sont pas mesures sur un corpus -- et c'est ecrit :
+		// leur role est de REMPLACER un nombre invente par un nombre defendable,
+		// pas de faire autorite. Le jour ou le corpus donnera des distributions,
+		// elles remplaceront cette table, qui existe pour etre remplacee.
+		namespace {
+			struct DimPlausible {
+					const char *famille;
+					float32 lo[3], hi[3], def[3]; ///< largeur, hauteur, profondeur
+			};
+			const DimPlausible kDims[] = {
+					{"porte", {0.70f, 2.00f, 0.05f}, {1.60f, 2.20f, 0.30f}, {0.90f, 2.10f, 0.14f}},
+					{"portail", {1.20f, 1.80f, 0.05f}, {4.00f, 3.40f, 0.40f}, {2.40f, 2.60f, 0.20f}},
+					{"table", {0.60f, 0.72f, 0.40f}, {2.60f, 0.78f, 1.20f}, {1.40f, 0.75f, 0.80f}},
+					{"maison", {4.00f, 2.50f, 4.00f}, {20.00f, 12.00f, 16.00f}, {9.00f, 6.00f, 7.00f}},
+			};
+		} // namespace
+
+		bool NkFamilleDimensionPlausible(const char *famille, int32 axe, float32 *lo, float32 *hi, float32 *defaut) {
+			if (!famille || axe < 0 || axe > 2)
+				return false;
+			for (const DimPlausible &d : kDims) {
+				if (strcmp(d.famille, famille) != 0)
+					continue;
+				if (lo)
+					*lo = d.lo[axe];
+				if (hi)
+					*hi = d.hi[axe];
+				if (defaut)
+					*defaut = d.def[axe];
+				return true;
+			}
+			return false;
+		}
+
 		bool NkFamilleValeurAutorisee(const char *famille, const char *champ, const char *valeur, char *remplacement,
 									  uint32 cap) {
 			if (!champ || !valeur)
