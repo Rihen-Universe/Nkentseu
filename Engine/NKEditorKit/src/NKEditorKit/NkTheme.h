@@ -275,6 +275,44 @@ namespace nkentseu {
 			/// approximation nommee, pas un synonyme.
 			InlineCodeBg,
 
+			/// 🔴 LE ROLE AJOUTE LE 2026-09-26 — « PREVU, PAS DISPONIBLE ».
+			///
+			/// Texte d'un element d'interface DESACTIVE : une entree de menu dont
+			/// le panneau n'existe pas encore, un bouton qu'un etat rend inerte.
+			/// Il ne dit pas « secondaire » (c'est `TextMuted`) : il dit « on ne
+			/// peut pas agir dessus ». Deux messages differents demandent deux
+			/// roles -- reutiliser `TextMuted` reviendrait a dire qu'un libelle
+			/// secondaire et un bouton mort se ressemblent.
+			///
+			/// ⚠️ POURQUOI IL MANQUAIT, ET POURQUOI CE N'EST PAS UNE FONCTION NEUVE
+			///    La table de theme de NKGui porte `textDisabled` depuis toujours
+			///    (`NkGuiContext.h` : {120,124,134,255}), et `NkCtxMenu` du kit
+			///    l'emploie deja pour griser ses entrees. Le vocabulaire de ROLES,
+			///    lui, ne l'avait pas : une application qui peint par roles -- donc
+			///    NK3DModeler, Nogee, NkAnimaEditor -- n'avait aucun moyen de dire
+			///    « desactive » et se rabattait sur `TextMuted`. On complete un
+			///    vocabulaire qui a deja son equivalent ailleurs.
+			///    Precedent exact : *« Theme : un seul role manquait »* (31/08) --
+			///    deux statuts existaient, le troisieme manquait, et les statuts
+			///    s'effacaient en theme clair.
+			///
+			/// ⚠️ AJOUTE EN FIN D'ENUMERATION, ET C'EST OBLIGATOIRE. La table
+			///    `RoleNames()` est POSITIONNELLE et la cle est un CONTRAT DE
+			///    FICHIER (son en-tete le dit). L'inserer apres `TextMuted` aurait
+			///    decale toutes les cles suivantes : chaque theme deja enregistre
+			///    sur disque aurait relu ses couleurs sous les mauvais noms.
+			///
+			/// ⚠️ IL N'EST PAS DANS LA TABLE DE CONTRASTE A 4,5, ET C'EST UN CHOIX
+			///    MESURE, PAS UN OUBLI. WCAG exempte explicitement les elements
+			///    DESACTIVES de son seuil de texte : un gris qui atteint 4,5 ne se
+			///    lit plus comme desactive, il se lit comme du texte normal -- le
+			///    seuil detruirait la fonction du role. Ce qui est garde, et
+			///    eprouve au banc (famille 29), c'est un PLANCHER DE VISIBILITE et
+			///    un ORDRE : plus attenue que `TextMuted`, jamais confondu avec le
+			///    fond.
+			/// Repli : `TextMuted` -- une approximation nommee, pas un synonyme.
+			TextDisabled,
+
 			Count
 		};
 
