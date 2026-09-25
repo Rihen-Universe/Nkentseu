@@ -1643,6 +1643,18 @@ namespace nkentseu {
 				st.voidMenuY = hit.Mouse().y;
 			}
 			if (hit.Clicked("hier.list") && !hierDragging && st.hierMenuNode < 0) {
+				// ⚠️ MARQUE : CE SITE EST UN CONSOMMATEUR DU MEME CLIC QUE LA VUE.
+				//    Un clic sur le FOND de la liste vide toute la selection. Si sa
+				//    zone debordait, ou si `Clicked` repondait vrai pour un clic
+				//    tombe ailleurs, chaque clic dans la vue 3D deselectionnerait --
+				//    et l'utilisateur verrait exactement ce que Rodolf decrit : une
+				//    selection qui s'allume puis s'eteint dans le meme geste.
+				//    La porte commune (`Demo3DHostDeselectAll`) dit ce qu'elle
+				//    efface ; cette ligne-ci dit D'OU vient l'ordre, et a quelles
+				//    coordonnees -- sans quoi les deux appelants se liraient pareil.
+				std::printf("[nk3d] HIERARCHIE fond cliquee (%.0f, %.0f) : deselection totale\n",
+							(double)hit.Mouse().x, (double)hit.Mouse().y);
+				std::fflush(stdout);
 				demo::Demo3DHostDeselectAll();
 				st.activeEmpty = -1;
 			}

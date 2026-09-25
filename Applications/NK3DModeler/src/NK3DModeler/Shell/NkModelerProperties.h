@@ -7752,8 +7752,21 @@ namespace nkentseu {
 							actif = k2;
 							break;
 						}
-					std::printf("[nk3d] PANNEAU selection=%d ouvert=%d section=%d assistant=%d\n", (int)selMaintenant,
-								st.AnyPropOpen() && st.showRight ? 1 : 0, (int)actif, st.aiOuvert ? 1 : 0);
+					// ⚠️ ET DESORMAIS : LAQUELLE DES TROIS SOURCES A BASCULE.
+					//    Rodolf, 25/09 : la boite « apparait et disparait » a chaque
+					//    clic. C'est cette ligne -- deja imprimee, deja lue par lui --
+					//    qui l'a dit la premiere : « selection=1 » puis « selection=0 »,
+					//    vingt paires de suite. Deux instruments dedies ne l'avaient pas
+					//    vu en deux jours.
+					//    Mais `hasSel5` est un OU de TROIS sources, et un OU qui bascule
+					//    ne dit pas lequel de ses termes a bouge. Sans ces trois
+					//    nombres, il faut deviner -- et deviner est exactement ce qui a
+					//    coute ces deux jours.
+					std::printf("[nk3d] PANNEAU selection=%d ouvert=%d section=%d assistant=%d "
+								"· empty=%d objet=%d lumiere=%d\n", (int)selMaintenant,
+								st.AnyPropOpen() && st.showRight ? 1 : 0, (int)actif, st.aiOuvert ? 1 : 0,
+								(int)st.activeEmpty, (int)demo::Demo3DHostActiveObject(),
+								(int)demo::Demo3DHostSelectedLight());
 					std::fflush(stdout);
 					sSelAvant = selMaintenant;
 				}
