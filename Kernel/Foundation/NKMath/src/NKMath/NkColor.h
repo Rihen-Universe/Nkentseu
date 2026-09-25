@@ -81,6 +81,15 @@
 #include "NKContainers/String/NkFormat.h" // Classe NkString et NkFormatProps pour représentation texte
 #include "NKMath/NkVec.h"				  // Vecteurs NkVector3f/NkVector4f pour conversions
 
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
+
 // Forward declaration pour éviter dépendance circulaire
 namespace nkentseu {
 	class NkRandom;
@@ -623,16 +632,6 @@ namespace nkentseu {
 				 * @note Permet l'usage : ToString(color) via Argument-Dependent Lookup
 				 */
 				friend NKENTSEU_MATH_API NkString ToString(const NkColorF &c);
-
-				/**
-				 * @brief Opérateur de flux pour sortie std::ostream
-				 * @param os Flux de sortie (std::cout, fichier, etc.)
-				 * @param c Couleur à écrire
-				 * @return Référence vers os pour chaînage d'opérations
-				 * @note Délègue à ToString() puis CStr() pour compatibilité C++ standard
-				 * @note Utile pour logging/debug avec std::cout << color
-				 */
-				friend NKENTSEU_MATH_API std::ostream &operator<<(std::ostream &os, const NkColorF &c);
 
 				/**
 				 * @brief Convertit la couleur flottante courante en structure HSV
@@ -1686,16 +1685,6 @@ namespace nkentseu {
 				 * @note Permet l'usage : ToString(color) via Argument-Dependent Lookup
 				 */
 				friend NKENTSEU_MATH_API NkString ToString(const NkColor &c);
-
-				/**
-				 * @brief Opérateur de flux pour sortie std::ostream
-				 * @param os Flux de sortie (std::cout, fichier, etc.)
-				 * @param c Couleur à écrire
-				 * @return Référence vers os pour chaînage d'opérations
-				 * @note Délègue à ToString() puis CStr() pour compatibilité C++ standard
-				 * @note Utile pour logging/debug avec std::cout << color
-				 */
-				friend NKENTSEU_MATH_API std::ostream &operator<<(std::ostream &os, const NkColor &c);
 
 				// ====================================================================
 				// SECTION PUBLIQUE : FACTORIES DE BASE

@@ -11,7 +11,6 @@
 
 #include "NKMath/NkAngle.h"
 #include "NKContainers/String/NkFormat.h"
-#include <ostream>
 
 namespace nkentseu {} // namespace nkentseu
 

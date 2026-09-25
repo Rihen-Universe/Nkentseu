@@ -36,6 +36,15 @@
 #include "NKContainers/String/NkFormat.h" // Système de formatage de chaînes
 #include "NKCore/NkTraits.h"			  // Traits de métaprogrammation : NkIsFloatingPoint_v
 
+// 2026-09-25 : les operator<<(std::ostream&, ...) de ce fichier ont ete
+// RETIRES. Ils n'etaient qu'une enveloppe autour de ToString(), mais ils
+// faisaient dependre NKMath de libstdc++ : un kit compile contre libstdc++
+// ne se liait plus avec une chaine qui a libc++ (celle qu'embarque NKCode).
+// Remplacement : `couleur.ToString()` ou `NkFormat("{0}", couleur)`, qui
+// etaient deja le CORPS de ces operateurs -- et qui sont 1,92x plus rapides
+// que le passage par un std::ostringstream (banc du 25/09 : 461 ns contre
+// 883 ns par couleur, meme texte au caractere pres).
+
 // =====================================================================
 // Namespace principal du projet
 // =====================================================================
@@ -449,11 +458,6 @@ namespace nkentseu {
 					return vector.ToString();
 				}
 
-				// Opérateur de flux pour affichage std::ostream
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkVec2T &vector) {
-					return outputStream << vector.ToString().CStr();
-				}
-
 		}; // struct NkVec2T
 
 		// =================================================================
@@ -863,10 +867,6 @@ namespace nkentseu {
 					return vector.ToString();
 				}
 
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkVec3T &vector) {
-					return outputStream << vector.ToString().CStr();
-				}
-
 				// -----------------------------------------------------------------
 				// Section : Swizzle getters (lecture)
 				// -----------------------------------------------------------------
@@ -1200,10 +1200,6 @@ namespace nkentseu {
 
 				friend NkString ToString(const NkVec4T &vector) {
 					return vector.ToString();
-				}
-
-				friend std::ostream &operator<<(std::ostream &outputStream, const NkVec4T &vector) {
-					return outputStream << vector.ToString().CStr();
 				}
 
 				// -----------------------------------------------------------------
