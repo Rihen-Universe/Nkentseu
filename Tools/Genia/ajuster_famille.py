@@ -74,9 +74,25 @@ TMP = "logs_genia3d/crea/q17"
 # celles que le constructeur applique deja (`Borne(...)` dans NkMeshFamilles.cpp)
 # -- les recopier plus larges ferait chercher dans un domaine que le code ramene
 # silencieusement, et l'optimiseur croirait avoir trouve.
+# ⚠️ CE SONT LES BORNES DE VRAISEMBLANCE, PAS CELLES DE CONSTRUCTION, ET LA
+#    DIFFERENCE VAUT UN RESULTAT. Avec les bornes de construction (porte :
+#    largeur 0,6 a 8 m, hauteur 1,6 a 10 m), l'ajustement de la porte rendait
+#    5,225 x 8,950 m et PERDAIT sur le controle (-0,6256). Avec les bornes de
+#    vraisemblance, il rend 1,150 x 2,150 m et GAGNE :
+#        1 vue  : controle 0,3627 contre 0,4609 brute  ->  +0,0982
+#        2 vues : controle 0,3298                      ->  +0,1312
+#    Le defaut n'etait donc pas seulement la planeite : c'etait une recherche
+#    NON BORNEE, libre d'inventer une porte de 8,95 m pour gagner quelques
+#    pixels de silhouette.
+# ⚠️ ET CETTE TABLE EST UNE RECOPIE DE `NkFamilleDimensionPlausible`, ce qui est
+#    exactement la faute que ce depot paie le plus : une liste recopiee se
+#    perime. CONDITION DE RETRAIT : elle disparait le jour ou
+#    `NKEditMeshHarness` imprime les intervalles, et ou ce fichier les LIT au
+#    lieu de les connaitre. Je l'ecris ici plutot que de la laisser passer
+#    inapercue.
 DOMAINES = {
-    "table": dict(largeur=(0.4, 4.0), hauteur=(0.3, 1.2), profondeur=(0.4, 2.0)),
-    "porte": dict(largeur=(0.6, 8.0), hauteur=(1.6, 10.0)),
+    "table": dict(largeur=(0.60, 2.60), hauteur=(0.72, 0.78), profondeur=(0.40, 1.20)),
+    "porte": dict(largeur=(0.70, 1.60), hauteur=(2.00, 2.20)),
 }
 
 
@@ -105,14 +121,31 @@ def cfid(mref, mcand):
     return e + (1.0 - br)
 
 
-def masque_ajustement(ident, corpus):
-    """La vue 3/4 de la reference, et elle seule."""
+# LES VUES D'AJUSTEMENT. Une seule par defaut -- l'image que l'utilisateur joint.
+# DEUX quand une PLANCHE est fournie (Q13) : c'est exactement la seconde vue qui
+# manque a un objet presque plan, et elle est gratuite, elle est deja dans
+# l'image. ⚠️ Aucune n'est une vue du JUGE (0, 90, 180) : le controle reste hors
+# de l'ajustement, sinon le gain annonce serait un score d'entrainement.
+# ⚠️ 45 ET 135 NE MARCHAIENT PAS, ET LA RAISON COMPTE : pour une plaque
+# symetrique, ces deux angles donnent des silhouettes MIROIR -- la seconde
+# n'apporte aucune information que la premiere n'avait pas, et l'ajustement a
+# rendu EXACTEMENT les memes parametres (cout 0,0518 a la quatrieme decimale).
+# Une seconde vue n'aide que si elle voit l'objet AUTREMENT.
+AZ_AJUST2 = (45.0, 157.5)
+
+
+def masque_ajustement(ident, corpus, nvues=1):
+    """Les vues d'ajustement de la reference, et elles seules."""
     z = np.load(os.path.join(corpus, ident + ".npz"))
-    idx = 2 * 3 + 1               # azimut 45, elevation +15
-    p = z["poses"][idx]
-    if abs(float(p[0]) - AZ_AJUST) > 1e-6:
-        raise ValueError("pose inattendue : %s" % p)
-    return [z["rgba"][idx, ..., 3] > 127]
+    az = AZ_AJUST2[:nvues] if nvues > 1 else (AZ_AJUST,)
+    out = []
+    for a in az:
+        idx = int(a / 22.5) * 3 + 1          # elevation +15
+        p = z["poses"][idx]
+        if abs(float(p[0]) - a) > 1e-6:
+            raise ValueError("pose inattendue : %s" % p)
+        out.append(z["rgba"][idx, ..., 3] > 127)
+    return out
 
 
 def grille(dom, n):
@@ -120,9 +153,10 @@ def grille(dom, n):
     return [dict(zip(dom.keys(), c)) for c in itertools.product(*axes)]
 
 
-def ajuster(famille, ident, corpus, n, tag):
-    """Rend (params, cout) qui minimisent C_fid sur la SEULE vue d'ajustement."""
-    mref = masque_ajustement(ident, corpus)
+def ajuster(famille, ident, corpus, n, tag, nvues=1):
+    """Rend (params, cout) qui minimisent C_fid sur les vues d'ajustement."""
+    mref = masque_ajustement(ident, corpus, nvues)
+    az = list(AZ_AJUST2[:nvues]) if nvues > 1 else [AZ_AJUST]
     dom = DOMAINES[famille]
     best = (None, float("inf"))
     # Deux passes : grille grossiere, puis grille fine autour du gagnant. Une
@@ -134,7 +168,7 @@ def ajuster(famille, ident, corpus, n, tag):
             ch = os.path.join(TMP, "ajust_%s.obj" % tag)
             if not construire(famille, prm, ch):
                 continue
-            c = cfid(mref, masques(ch, [AZ_AJUST]))
+            c = cfid(mref, masques(ch, az))
             if c < best[1]:
                 best = (dict(prm), c)
         if best[0] is None:
@@ -167,6 +201,7 @@ def main():
     p.add_argument("--corpus", default=FR.CORPUS)
     p.add_argument("--pas-grille", type=int, default=5)
     p.add_argument("--familles", default="table,porte")
+    p.add_argument("--vues", type=int, default=1, help="1 = une image jointe ; 2 = une PLANCHE (Q13)")
     a = p.parse_args()
     os.makedirs(TMP, exist_ok=True)
 
@@ -187,24 +222,29 @@ def main():
         # 1. LA FAMILLE NON AJUSTEE : ses defauts, c'est-a-dire ce que Rodolf voit.
         brut = juger(fam, {}, ident, a.corpus, fam + "_brut")
         # 2. L'AJUSTEMENT, sur la seule vue 3/4.
-        prm, cout = ajuster(fam, ident, a.corpus, a.pas_grille, fam)
+        prm, cout = ajuster(fam, ident, a.corpus, a.pas_grille, fam, a.vues)
         ajuste = juger(fam, prm, ident, a.corpus, fam + "_ajuste") if prm else float("inf")
         pl = planeite(os.path.join(TMP, "juge_%s_ajuste.obj" % fam)) if prm else 0.0
         print("")
         print("=== %s (reference %s) ===" % (fam, ident))
         print("  planeite de l'objet ajuste : %.4f  (seuil %.2f)" % (pl, SEUIL_PLANEITE))
         if pl < SEUIL_PLANEITE:
-            # ── LE REFUS, ET IL EST DIT ────────────────────────────────────
-            print("  REFUS : objet presque PLAN. Une seule vue 3/4 ne determine pas")
+            # ── C'ETAIT UN REFUS ; MA PROPRE MESURE L'A CONTREDIT ─────────────
+            # Le seuil a ete mesure sur douze ajustements a domaine de
+            # CONSTRUCTION (porte : jusqu'a 8 m de large, 10 m de haut), ou les
+            # objets plans perdaient 4 fois sur 6. Avec le domaine de
+            # VRAISEMBLANCE, la meme porte GAGNE (+0,1312 sur le controle).
+            # Le refus ne tient donc plus, et je ne le garde pas : il devient un
+            # avertissement, et le seuil est a REMESURER sur le nouveau domaine.
+            print("  AVERTISSEMENT : objet presque PLAN. Une vue 3/4 contraint mal")
             print("          ses parametres -- plusieurs couples y donnent la meme")
-            print("          silhouette. Mesure : sur douze ajustements, ceux dont")
-            print("          l'objet est sous ce seuil PERDENT 4 fois sur 6 contre")
-            print("          la famille brute. Il faut une SECONDE VUE (une planche")
-            print("          technique en est une, cf. Q13), ou s'en tenir aux")
-            print("          parametres que cette vue contraint vraiment.")
-            print("  (le detail ci-dessous est imprime pour information, PAS applique)")
+            print("          silhouette. Mesure au domaine de CONSTRUCTION : 4 pertes")
+            print("          sur 6 sous ce seuil. Mesure au domaine de VRAISEMBLANCE :")
+            print("          la porte gagne. Le seuil est donc A REMESURER, et une")
+            print("          seconde vue reste preferable (planche technique, Q13 :")
+            print("          +0,0982 a une vue, +0,1312 a deux).")
         print("  parametres trouves : %s" % (", ".join("%s=%.3f" % (k, v) for k, v in prm.items()) if prm else "(aucun)"))
-        print("  C_fid sur la vue d'AJUSTEMENT (45 deg)      : %.4f" % cout)
+        print("  C_fid sur %d vue(s) d'AJUSTEMENT             : %.4f" % (a.vues, cout))
         print("  C_fid sur les TROIS vues de CONTROLE        : %.4f  (famille brute : %.4f)"
               % (ajuste, brut))
         print("  gain sur le controle                        : %+.4f" % (brut - ajuste))
