@@ -209,15 +209,17 @@ namespace nkentseu {
 				// Le libelle d'une bascule est toujours en retrait, cochee ou non :
 				// sinon le texte saute lateralement a chaque clic, et c'est le saut
 				// qu'on lit au lieu de la coche.
-				// ⚠️ `TextMuted` ET PAS UN GRIS ECRIT EN DUR. Le vocabulaire de roles
-				//    du kit n'a AUCUN role « desactive » (mesure : aucun `Disabled`,
-				//    `Inactif` ni `Grise` dans `NKEditorKit/NkTheme.h`) -- `TextMuted`
-				//    est le plus proche qui existe, et il suit les deux themes. Le
-				//    role manquant est inscrit dans la liste du 2 novembre ; une
-				//    couleur en dur deviendrait illisible en theme clair, et ce depot
-				//    a deja paye ce prix.
+				// ⚠️ `TextDisabled`, LE ROLE DEDIE, POSE LE 26/09. Il disait
+				//    `TextMuted` la veille -- le vocabulaire de roles du kit n'avait
+				//    AUCUN role « desactive », alors que la table de theme NKGui en
+				//    a un depuis toujours. Ce n'etait pas un synonyme : `TextMuted`
+				//    dit « secondaire », celui-ci dit « on ne peut pas agir dessus ».
+				//    Mesure du banc (famille 29), sur le fond REEL du menu :
+				//    sombre 3,77 contre 5,62 ; clair 2,40 contre 4,50 -- plus
+				//    attenue dans les DEUX themes, et jamais confondu avec le fond.
 				p.TextV(ir.x + (estBascule ? S(28.f) : S(12.f)), y, itemH, m.items[i].label,
-						indispo ? NkRole::TextMuted : (over ? NkRole::TextOnAccent : NkRole::Text));
+						indispo ? NkRole::TextDisabled
+								: (over ? NkRole::TextOnAccent : NkRole::Text));
 				// Le RACCOURCI est lu dans la table, jamais recopie : rebinder une
 				// touche met l'affichage a jour tout seul.
 				// ⚠️ PAS DE RACCOURCI A COTE D'UNE ENTREE INDISPONIBLE. L'afficher
