@@ -59,9 +59,11 @@ $base = @{ "NK_ADD_NODE" = "2,0,20"; "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "3,
 function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
-	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE")
+	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
 	$env:NK_SONDE = "1"
-	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1" }
+	# La mutation couvre les DEUX proprietes de ce banc : les brosses qui LISENT
+	# le masque, et le REPORT du masque a travers une operation topologique.
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
 	foreach ($k in $base.Keys) { Set-Item "Env:\$k" $base[$k]; $poses += $k }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
@@ -274,6 +276,84 @@ if (Condition "(g) gizmo" (($gLibre.Count -gt 2) -and ($dL -gt 1.0)) `
 		"libre $([Math]::Round($dL, 2)) -> partiel $([Math]::Round($dP, 2)) ($(Dernier $gPart 'masque') sommets proteges)"
 	Dire "(g) gizmo, symetrie X : les deux cotes partent en miroir" ((Bouge $gSym) -eq 0.0) `
 		"deplacement de la somme = $([Math]::Round((Bouge $gSym), 5)) (exige 0)"
+}
+
+# ── (h) LE MASQUE TRAVERSE LES OPERATIONS TOPOLOGIQUES ──────────────────────
+# `BuildFromPolygons` renumerote les sommets : le masque, indexe par numero, est
+# vide a l'arrivee. Il est REPORTE depuis le pre-etat -- chaque sommet neuf
+# herite de ses plus proches A EGALITE, c'est-a-dire de ses parents (les deux
+# extremites d'une arete coupee, les N coins d'une face).
+#
+# ⚠ CE BANC MESURE LES OPERATIONS UNE PAR UNE. « Ca marche sur la subdivision »
+#   ne dit rien de l'extrusion : ce sont des maillages differents, et le report
+#   est geometrique. Cinq operations, cinq courses.
+#
+# ⚠ ET IL NE MESURE PAS LA SOMME. Subdiviser AJOUTE des sommets dans la zone
+#   protegee : leur poids s'ajoute, donc la somme CROIT -- c'est juste, et un
+#   critere « la somme est conservee » rougirait sur un comportement correct. Ce
+#   qui doit se conserver, c'est la PROPORTION masquee (la zone) et, surtout,
+#   l'EFFET : la brosse ne doit toujours pas y agir. Le second critere est le
+#   seul qui ne puisse pas etre satisfait par un report qui aurait tout barbouille.
+# Le sujet est un cube pre-subdivise deux fois (150 sommets), en mode EDITION :
+# c'est la que vivent les operations topologiques.
+$baseTopo = @{ "NK_ADD_NODE" = "2,0,20"; "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "1,40";
+			   "NK_EDIT_SEL" = "a"; "NK_EDIT_PRESUB" = "2"; "NK_MODE_PROBE" = "1";
+			   "NK_AGENT_EXIT" = "300" }
+function CourirTopo([string]$nom, [hashtable]$vars) {
+	$out = Join-Path $tmp "$nom.txt"
+	$log = Join-Path $tmp "$nom.log"
+	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
+	$env:NK_SONDE = "1"
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
+	foreach ($k in $baseTopo.Keys) { Set-Item "Env:\$k" $baseTopo[$k]; $poses += $k }
+	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
+	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $out | Out-Null
+	foreach ($k in $poses) { if (Test-Path "Env:\$k") { Remove-Item "Env:\$k" } }
+	if (Test-Path $journal) { Copy-Item $journal $log -Force } else { Set-Content $log "" }
+	return [pscustomobject]@{ out = $out; log = $log }
+}
+foreach ($op in @("subdivide", "extrude", "inset", "bevel", "loopcut")) {
+	$c = CourirTopo "topo_$op" @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120"; "NK_VP_ACTION" = "$op,180" }
+	$L = @(Lignes $c)
+	# AVANT = la derniere ligne ou le maillage a encore sa taille d'origine.
+	$nvFin = Dernier $L "nv"
+	$avant = @($L | Where-Object { $_.nv -ne $nvFin -and $_.masque -gt 0 })
+	$apres = @($L | Where-Object { $_.nv -eq $nvFin })
+	if (Condition "(h) $op" (($avant.Count -gt 0) -and ($apres.Count -gt 0) -and ($nvFin -gt 0)) `
+			"l'operation n'a pas change le maillage (nv reste $nvFin) : il n'y a rien a traverser") {
+		$nvAv = $avant[$avant.Count - 1].nv
+		$mAv = $avant[$avant.Count - 1].masque
+		$mAp = Dernier $L "masque"
+		$fracAv = $mAv / $nvAv
+		$fracAp = $mAp / $nvFin
+		Dire "(h) $op : le masque SURVIT a l'operation" ($mAp -gt 0) `
+			"$mAv sommet(s) sur $nvAv -> $mAp sur $nvFin"
+		Dire "(h) $op : la ZONE protegee garde sa proportion" ([Math]::Abs($fracAp - $fracAv) -lt 0.05) `
+			"fraction masquee $([Math]::Round($fracAv, 4)) -> $([Math]::Round($fracAp, 4)) (exige un ecart < 0,05 : ni perdu, ni barbouille)"
+	}
+}
+# LE CRITERE D'EFFET : apres une subdivision, la brosse ne doit TOUJOURS pas
+# agir dans la zone protegee. C'est le seul que ni une perte ni un barbouillage
+# ne peuvent satisfaire.
+$mq = @(Lignes (CourirTopo "topo_effet" @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120";
+										   "NK_VP_ACTION" = "subdivide,180";
+										   "NK_SCULPT_STROKE2" = "dessiner:0.35:0.8:230" }))
+$sans = @(Lignes (CourirTopo "topo_effet_sans" @{ "NK_VP_ACTION" = "subdivide,180";
+												  "NK_SCULPT_STROKE2" = "dessiner:0.35:0.8:230" }))
+# On ne compare que ce qui suit l'operation : la subdivision elle-meme ne
+# deplace aucun sommet, mais elle change `nv`, et la somme des positions avec.
+function BougeApres($L) {
+	$fin = Dernier $L "nv"
+	$M = @($L | Where-Object { $_.nv -eq $fin })
+	if ($M.Count -lt 2) { return -1.0 }
+	$a = $M[0]; $b = $M[$M.Count - 1]
+	return [Math]::Abs($b.sx - $a.sx) + [Math]::Abs($b.sy - $a.sy) + [Math]::Abs($b.sz - $a.sz)
+}
+$dSans = BougeApres $sans
+$dAvec = BougeApres $mq
+if (Condition "(h) effet" ($dSans -gt 0.01) "le trait TEMOIN n'a rien deplace apres subdivision ($([Math]::Round($dSans, 5)))") {
+	Dire "(h) apres subdivision, le masque PROTEGE ENCORE" (($dAvec -ge 0.0) -and ($dAvec -lt ($dSans * 0.25))) `
+		"sans masque $([Math]::Round($dSans, 4)) -> avec masque reporte $([Math]::Round($dAvec, 4)) (exige moins du quart)"
 }
 
 Write-Host "-----------------------------------------------------------------------"
