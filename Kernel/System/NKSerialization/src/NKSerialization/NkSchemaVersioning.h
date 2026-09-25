@@ -177,8 +177,8 @@ namespace nkentseu {
 	 * v2.major = 1; v2.minor = 2; v2.patch = 3;  // Version 1.2.3
 	 *
 	 * // Comparaisons
-	 * if (v1 < v2) { /* v1 est plus ancienne *\/ }
-	 * if (v2 != v1) { /* versions différentes *\/ }
+	 * if (v1 < v2) { /\* v1 est plus ancienne *\/ }
+	 * if (v2 != v1) { /\* versions différentes *\/ }
 	 *
 	 * // Packing/unpacking pour stockage binaire
 	 * nk_uint64 packed = v2.Pack();           // 0x000100020003
