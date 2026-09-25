@@ -249,6 +249,7 @@ namespace nkentseu {
 				bool vignettes = true;			   ///< l'hote peut les eteindre (sonde, mesure a blanc)
 				float32 budgetVignettesMs = 8.f;   ///< par image ; au moins UNE vignette est tentee
 				int32 grilleVignette = 32;		   ///< le cote de la grille, cle du cache avec le chemin
+				float32 zoneVignettePx = 0.f;	 ///< (Q12) la taille AFFICHEE, publiee par le volet
 				// Les compteurs de la sonde. Sans eux, « c'est paresseux » serait une
 				// affirmation -- meme lecon que `NkCacheDossiers::accesDisque`.
 				uint32 vignettesDemandees = 0;	 ///< appels du crochet par le composant
@@ -2427,6 +2428,30 @@ namespace nkentseu {
 				// retourne pas au disque tant que son horodatage n'a pas bouge.
 				// ⚠️ APRES LE DESSIN, PAS PENDANT : on ecrit dans `vue.entries`, que le
 				//    composant tenait encore par reference une ligne plus haut.
+				// (Q12) LA FINESSE SUIT LA TAILLE AFFICHEE. Le volet vient de dire combien
+				// de pixels une vignette occupe ; on demande une grille de ce cote-la, au
+				// lieu d'un 32 ecrit une fois pour toutes.
+				if (res.zoneVignettePx > 8.f) {
+					fp.zoneVignettePx = res.zoneVignettePx;
+					// (Q12) LA FINESSE SUIT LA TAILLE AFFICHEE. Mesure du 25/09 : zone de
+					// 97 px, grille de 32 -> **3,0 px par cellule**, et des rapports de
+					// reduction de 14x a 44x. Ce que Rodolf appelle « flou », ce sont ces
+					// carres de 3 px.
+					// ⚠️ LE PLAFOND EST UN COMPROMIS ASSUME, et il se chiffre : chaque
+					//    cellule est un RECTANGLE dans la liste d'affichage. A 64 de cote,
+					//    une vignette coute 4 096 rectangles et une grille de 15 en coute
+					//    61 000. Descendre a 1 px par cellule (97 de cote) en couterait
+					//    138 000 : c'est la limite de l'approche « image tracee en
+					//    rectangles », qui existe parce que le kit n'a pas d'atlas.
+					//    Le vrai remede serait une TEXTURE (`ImagePolygone` l'attend deja) ;
+					//    il demande qu'un hote sache en fabriquer une, ce qu'aucun ne fait.
+					int32 g = (int32)(fp.zoneVignettePx + 0.5f);
+					if (g < 32)
+						g = 32;
+					if (g > 64)
+						g = 64;
+					fp.grilleVignette = g;
+				}
 				fp.premierVu = res.premierVisible;
 				fp.dernierVu = res.dernierVisible;
 				if (res.premierVisible >= 0) {
@@ -2471,6 +2496,15 @@ namespace nkentseu {
 						const NkVignetteImage &v =
 							NkVignetteDe(e.path.CStr(), e.dateModif, fp.grilleVignette,
 										 e.taille > 0 ? (nk_uint64)e.taille : 0ull);
+						// (Q12) LE RAPPORT DE REDUCTION REEL, mesure avant de corriger le flou.
+						if (std::getenv("NK_VIGNETTES") && v.ok && fp.vignettesDecodees < 3u)
+							std::printf("[vignette] %s : source %d x %d -> grille %d x %d "
+										"(rapport %.1f x) ; cellule affichee ~%.1f px pour une "
+										"zone de %.0f px\n",
+										e.name.CStr(), (int)v.w, (int)v.h, (int)v.cw, (int)v.ch,
+										(double)v.w / (v.cw > 0 ? (double)v.cw : 1.0),
+										fp.zoneVignettePx > 0.f ? (double)fp.zoneVignettePx / (v.cw > 0 ? v.cw : 1) : 0.0,
+										(double)fp.zoneVignettePx);
 						++faites;
 						if (!v.ok)
 							++fp.vignettesRefusees;
