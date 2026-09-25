@@ -3655,6 +3655,56 @@ namespace nkentseu {
 			DockDetachFromLeaf(ctx, ctx.GetId(windowTitle));
 		}
 
+		int32 DockPruneEmpty(NkGuiContext &ctx) noexcept {
+			// Une passe par feuille elaguee : `DockCollapseLeaf` REMPLACE le parent par
+			// le frere, donc les indices bougent sous nos pieds. On recommence tant
+			// qu'on trouve quelque chose -- c'est la seule facon sure de parcourir un
+			// arbre qu'on modifie, et l'arbre d'un dock compte quelques dizaines de
+			// noeuds, pas des milliers.
+			// ⚠️ ON NE CHERCHE QUE DANS CE QUI EST ATTEIGNABLE DEPUIS LA RACINE, et
+			//    le banc a paye cette ligne comptant. `DockCollapseLeaf` recopie le
+			//    FRERE dans le parent : le noeud de la feuille elaguee reste dans le
+			//    tableau, orphelin, avec toujours `kind == 2`, `winCount == 0` et un
+			//    `parent >= 0` perime. Une recherche lineaire sur le tableau le
+			//    retrouvait indefiniment -- premiere version : 257 elagages sur UNE
+			//    feuille vide, c'est-a-dire le garde-fou, c'est-a-dire une boucle sans
+			//    fin. Le tableau n'est pas l'arbre.
+			int32 elaguees = 0;
+			for (;;) {
+				// Descente depuis la racine, pile explicite (zero-STL, et une
+				// recursion sur un arbre relu d'un fichier n'a pas de fond garanti).
+				int32 pile[256];
+				int32 haut = 0, cible = -1;
+				if (ctx.dockRoot >= 0 && ctx.dockRoot < (int32)ctx.dockNodes.Size())
+					pile[haut++] = ctx.dockRoot;
+				while (haut > 0 && cible < 0) {
+					const int32 i = pile[--haut];
+					if (i < 0 || i >= (int32)ctx.dockNodes.Size())
+						continue;
+					const NkGuiDockNode &n = ctx.dockNodes[i];
+					if (n.kind == 1) { // separation : on descend
+						if (haut + 2 <= 256) {
+							pile[haut++] = n.child0;
+							pile[haut++] = n.child1;
+						}
+						continue;
+					}
+					// FEUILLE sans fenetre, et qui a un parent : la racine vide se
+					// garde -- `DockCollapseLeaf` le dit deja, on ne duplique pas
+					// cette regle et on ne la contredit pas non plus.
+					if (n.kind == 2 && n.winCount == 0 && n.parent >= 0)
+						cible = i;
+				}
+				if (cible < 0)
+					break;
+				DockCollapseLeaf(ctx, cible);
+				++elaguees;
+				if (elaguees > 256)
+					break; // garde-fou : un arbre incoherent ne doit pas tourner sans fin
+			}
+			return elaguees;
+		}
+
 		void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle, bool hide) noexcept {
 			const NkGuiId wid = ctx.GetId(windowTitle);
 			int32 mi;

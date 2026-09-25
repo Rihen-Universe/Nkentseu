@@ -3618,6 +3618,8 @@ namespace nkentseu {
 						(int)droiteOuverts, (int)droiteAncres);
 			std::printf("[docks] arbre : %u noeud(s), racine = %d\n", (unsigned)mUI.dockNodes.Size(),
 						(int)mUI.dockRoot);
+			std::printf("[docks] `panel=` de droite refusees : %d ; feuilles vides elaguees : %d\n",
+						(int)mPanneauxDroiteIgnores, (int)mFeuillesElaguees);
 			std::fflush(stdout);
 		}
 
@@ -3712,16 +3714,25 @@ namespace nkentseu {
 						//    (NKCode, NkAnimaEditor, Nogee aujourd'hui) garde EXACTEMENT
 						//    son comportement : la coquille est partagee, et une regle
 						//    d'une application ne s'impose pas aux autres.
-						// ⚠️ LA SAUTER SUFFIT A FERMER LA PORTE (mesure : 1 seul panneau de
-						//    droite au lieu de 2) MAIS LAISSE DEUX COLONNES VIDES : les
+						// 🔴 LE COTE DROIT N'A QU'UNE PORTE : SON RAIL (25/09).
+						//    Regle de Rodolf depuis le 21/09 : UN panneau de droite, dont le
+						//    contenu change selon la pastille. Le rail l'applique ; cette
+						//    ligne la defaisait. Mesure sur la configuration de Rodolf :
+						//      avant LoadUiState : 0 panneau de droite ouvert
+						//      apres             : 2 ouverts, 2 ancres (IA n° 4, Inspecteur n° 5)
+						// ⚠️ ET LA PLACE PART AVEC. Sauter l'ouverture ne suffisait pas : les
 						//    feuilles de dock du fichier reservent leur largeur meme sans
-						//    fenetre. L'elagage existe (`DockCollapseLeaf`) mais vit dans un
-						//    espace anonyme de `NkGuiWidgets.cpp`, sans declaration en en-tete ;
-						//    le reecrire ici serait une SECONDE implementation de l'elagage.
-						//    Ce qu'il faut d'abord : exposer `NkGuiDockPruneEmpty(ctx)` dans
-						//    NKGui. Non fait, donc non livre : je ne ferme pas une porte pour
-						//    laisser un trou.
-						pp->SetOpen(true);
+						//    fenetre -- deux colonnes vides, mesurees sur l'image. L'elagage
+						//    se fait en fin de relecture, par `DockPruneEmpty`, qui DECLARE
+						//    l'elagage deja existant au lieu d'en ecrire un second.
+						// ⚠️ SEULEMENT SI LE RAIL EXISTE. Un hote sans rail droit garde
+						//    EXACTEMENT son comportement : la coquille est partagee, et la
+						//    regle d'une application ne s'impose pas aux autres.
+						const bool aDroite = pp->DefaultSide() == NkEditorDockSide::NK_RIGHT;
+						if (aDroite && mRailCount[1] > 0)
+							++mPanneauxDroiteIgnores;
+						else
+							pp->SetOpen(true);
 					}
 				} else if (StartsWith(s, "tiroirs=")) {
 					// (25/09) LE TIROIR OUVERT DE CHAQUE RAIL. Il ne l'etait pas : seule
@@ -3865,8 +3876,21 @@ namespace nkentseu {
 							has = true;
 					if (!has)
 						DockBuilderDock(mUI, pl->Title(), SideToZone(pl->DefaultSide()));
-				}
 			}
+			// 🔴 (25/09) ET LA PLACE DES PANNEAUX REFUSES PART AVEC EUX.
+			//    Sauter l'ouverture d'un panneau de droite ne suffisait pas : la feuille
+			//    de dock que le fichier avait creee pour lui RESERVE SA LARGEUR meme sans
+			//    fenetre. Mesure : deux colonnes vides entre la toile et l'Inspecteur, sur
+			//    l'image rendue par l'application.
+			//    `DockPruneEmpty` collapse ces feuilles. Elle ne REECRIT PAS l'elagage :
+			//    elle appelle `DockCollapseLeaf`, qui existe depuis toujours et n'etait pas
+			//    declare -- c'est une declaration, pas une seconde implementation.
+			// ⚠️ ELLE NE TOUCHE JAMAIS UNE FEUILLE QUI PORTE UNE FENETRE : c'est LE
+			//    risque, il se paie en panneaux disparus, et le negatif du banc
+			//    (`NKGuiInteractTest`, d2) l'eprouve.
+			if (mPanneauxDroiteIgnores > 0)
+				mFeuillesElaguees = nkgui::DockPruneEmpty(mUI);
+		}
 		}
 
 		// ── Gestionnaire de menu contextuel (réutilisable) ───────────────────────
