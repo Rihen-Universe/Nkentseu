@@ -1,4 +1,5 @@
-﻿// =============================================================================
+﻿// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
 // NkWin32EventSystem.cpp
 // Implémentation Win32 des méthodes platform-spécifiques de NkEventSystem.
 //
@@ -708,12 +709,89 @@ namespace nkentseu {
 				}
 				break;
 
+			// =====================================================================
+			// Bornes de taille — EN COORDONNEES FENETRE
+			//
+			// ⚠️ LE DEFAUT CORRIGE LE 25/09 : `ptMinTrackSize` etait rempli avec les
+			//    valeurs CLIENT telles quelles. Or MINMAXINFO parle en coordonnees
+			//    FENETRE, bordure et barre de titre comprises. Demander un client
+			//    minimum de 160x90 laissait donc Windows descendre jusqu'a un client
+			//    de 160-16 par 90-39 : PLUS PETIT QUE DEMANDE, et personne ne le
+			//    disait. Oublier AdjustWindowRect, c'est livrer moins que promis.
+			//
+			// ⚠️ `ptMaxTrackSize` n'etait PAS touche : `maxWidth`/`maxHeight` etaient
+			//    acceptes et jetes. 0xFFFF (le defaut) signifie « pas de plafond » et
+			//    laisse donc Windows decider, comme avant.
+			//
+			// Fenetre sans cadre : WM_NCCALCSIZE rend toute la fenetre cliente, donc
+			// fenetre == client et il ne faut RIEN ajuster (meme regle qu'a la
+			// creation — l'ajustement y fabriquait deja une bande morte).
+			// =====================================================================
 			case WM_GETMINMAXINFO:
 				if (owner) {
 					auto *mm = reinterpret_cast<MINMAXINFO *>(lp);
-					mm->ptMinTrackSize.x = (LONG)owner->GetConfig().minWidth;
-					mm->ptMinTrackSize.y = (LONG)owner->GetConfig().minHeight;
+					const NkWindowConfig &wc = owner->GetConfig();
+					const bool borderless = owner->mData.mBorderless;
+					// Le style VIVANT, pas celui memorise : SetDecorated a pu le changer.
+					const DWORD st = (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE);
+					const DWORD ex = (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+
+					RECT rcMin = {0, 0, (LONG)wc.minWidth, (LONG)wc.minHeight};
+					if (!borderless)
+						AdjustWindowRectEx(&rcMin, st, FALSE, ex);
+					mm->ptMinTrackSize.x = rcMin.right - rcMin.left;
+					mm->ptMinTrackSize.y = rcMin.bottom - rcMin.top;
+
+					const bool plafonne = (wc.maxWidth > 0 && wc.maxWidth < 0xFFFF) ||
+										  (wc.maxHeight > 0 && wc.maxHeight < 0xFFFF);
+					if (plafonne) {
+						const LONG cw = (wc.maxWidth > 0 && wc.maxWidth < 0xFFFF) ? (LONG)wc.maxWidth : 0xFFFF;
+						const LONG ch = (wc.maxHeight > 0 && wc.maxHeight < 0xFFFF) ? (LONG)wc.maxHeight : 0xFFFF;
+						RECT rcMax = {0, 0, cw, ch};
+						if (!borderless)
+							AdjustWindowRectEx(&rcMax, st, FALSE, ex);
+						mm->ptMaxTrackSize.x = rcMax.right - rcMax.left;
+						mm->ptMaxTrackSize.y = rcMax.bottom - rcMax.top;
+					}
 				}
+				break;
+
+			// =====================================================================
+			// `closable` et `movable` : le style ne sait pas les dire
+			//
+			// Griser le menu systeme (NkWin32AppliquerMenuSysteme, cote Window)
+			// eteint le bouton X et les entrees du menu, mais NI Alt+F4, NI le
+			// double-clic sur la barre de titre, NI le glisser de titre ne passent
+			// par ce menu : ils envoient directement le WM_SYSCOMMAND. Les deux
+			// moities sont necessaires ; aucune ne tient seule.
+			//
+			// ⚠️ SC_MINIMIZE / SC_MAXIMIZE sont filtres pour l'UTILISATEUR seulement.
+			//    `NkWindow::Minimize()` et `Maximize()` appellent ShowWindow
+			//    directement et restent obeis : ce sont des ordres du PROGRAMME, et
+			//    `minimizable = false` decrit ce que l'utilisateur peut faire de la
+			//    fenetre, pas ce que le programme s'interdit.
+			// =====================================================================
+			case WM_SYSCOMMAND: {
+				if (owner) {
+					const NkWindowConfig &wc = owner->GetConfig();
+					const UINT cmd = (UINT)(wp & 0xFFF0);
+					const bool interdit = (cmd == SC_CLOSE && !wc.closable) ||
+										  (cmd == SC_MOVE && !wc.movable) ||
+										  (cmd == SC_SIZE && !wc.resizable) ||
+										  (cmd == SC_MINIMIZE && !wc.minimizable) ||
+										  (cmd == SC_MAXIMIZE && (!wc.maximizable || !wc.resizable));
+					if (interdit)
+						suppressDefaultProc = true;
+				}
+				break;
+			}
+
+			// Glisser la barre de titre : DefWindowProc transforme ce message en
+			// SC_MOVE, donc le filtre ci-dessus suffirait — mais l'arreter ici evite
+			// en plus le clignotement du menu systeme sous le curseur.
+			case WM_NCLBUTTONDOWN:
+				if (owner && !owner->GetConfig().movable && wp == HTCAPTION)
+					suppressDefaultProc = true;
 				break;
 
 			// =====================================================================

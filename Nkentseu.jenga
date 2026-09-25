@@ -1716,6 +1716,17 @@ with workspace("Nkentseu", location="."):
 
 
 
+    # SONDE DE MESURE (canal NKWindow) -- PAS UN PRODUIT, et elle n'affiche rien.
+    # Mesure, propriete par propriete, ce que le SYSTEME repond a `NkWindowConfig`
+    # (GetWindowLong, GetMenuState, GetLayeredWindowAttributes, WM_GETMINMAXINFO).
+    # Porte son negatif : `--ancien-style` doit la faire rougir.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkWindowSonde/NkWindowSonde.jenga"):
+
+        pass
+
+
+
     # SONDE DE MESURE (canal onglets : o1 la bande partagee, o2 les accents).
     # PAS UN PRODUIT -- sa fenetre le dit dans son titre et elle se ferme seule.
     # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen

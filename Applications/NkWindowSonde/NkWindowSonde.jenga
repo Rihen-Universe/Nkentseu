@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NkWindowSonde — SONDE DE MESURE de NkWindowConfig. PAS UN PRODUIT.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Un utilisateur a pose `resizable = false` et sa fenetre s'est redimensionnee
+quand meme. Cette sonde mesure, propriete par propriete, ce que le SYSTEME
+repond — `GetWindowLong`, `GetMenuState`, `GetLayeredWindowAttributes`,
+`WM_GETMINMAXINFO` — et jamais ce que nos propres variables contiennent. Un banc
+qui relirait `mConfig.resizable` rendrait vert sur le code casse : la variable a
+toujours ete juste, c'est la fenetre qui ne la suivait pas.
+
+Elle porte son NEGATIF : `NkWindowSonde --ancien-style` remet sur chaque fenetre
+le style d'avant le correctif et les memes criteres doivent ROUGIR.
+
+⚠️ APPLICATION CONSOLE, et pas un `unitest()` : l'execution des tests unitaires
+   est desactivee par la politique du workspace depuis mars. Un banc qu'on ne
+   peut pas EXECUTER ne mesure rien.
+
+⚠️ ELLE N'AFFICHE RIEN. Toutes ses fenetres sont creees `visible = false` ; leur
+   titre porte quand meme `*** SONDE DE MESURE ***` au cas ou l'une se montrerait
+   par accident. Aucune entree injectee, aucune capture d'ecran.
+
+⚠️ DEPENDANCES MINIMALES, ET C'EST VOULU : NKWindow et ce qu'il exige, rien de
+   plus. Ni canvas, ni GPU, ni police. La sonde doit pouvoir tourner la ou il n'y
+   a pas de pilote graphique.
+
+Point d'extension : ajouter un essai = ajouter un `Critere(...)` dans
+`src/NkWindowSonde/main.cpp`. Rien a toucher ici tant qu'aucune dependance
+nouvelle n'entre.
+"""
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NkWindowSonde"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKWindow", "NKEvent", "NKLogger", "NKMath", "NKTime", "NKStream",
+         "NKFileSystem", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "src/NkWindowSonde"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "dwmapi", "shell32", "uuid", "ole32", "dinput8", "dxguid"])
+
+    # ===== Linux XLib (defaut) ===================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

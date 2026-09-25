@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 // =============================================================================
 // NkWindowConfig.h
@@ -64,6 +65,22 @@ namespace nkentseu {
 			uintptr win32PixelFormatShareWindowHandle = 0;
 	};
 
+	// -------------------------------------------------------------------------
+	// NkWindowConfig
+	//
+	// ⚠️ TOUS CES REGLAGES NE SONT PAS TENUS PAR TOUS LES DORSAUX, et c'est
+	//    ecrit noir sur blanc : `wiki/Runtime/NKWindow/Proprietes-par-dorsal.md`
+	//    donne la table de verite propriete x dorsal (agit / silence / refus
+	//    nomme / sans objet). Elle existe parce qu'un utilisateur a pose
+	//    `resizable = false`, vu sa fenetre se redimensionner quand meme, et
+	//    cherche l'erreur chez lui pendant que le defaut etait chez nous.
+	//
+	// ⚠️ DEPUIS LE 25/09/2026, UN REGLAGE NON TENU LE DIT. Si la valeur
+	//    demandee differe du defaut et que le dorsal ne l'honore pas, un REFUS
+	//    NOMME sort au journal, une fois, avec le nom du champ et celui de la
+	//    plateforme (voir `NkWindowAudit.h`). Si votre reglage ne produit rien
+	//    et que le journal est muet, le defaut est ailleurs que dans ce struct.
+	// -------------------------------------------------------------------------
 	struct NkWindowConfig {
 			// --- Position et taille ---
 			int32 x = 100;

@@ -17,6 +17,7 @@
 #include "NkWin32Window.h"
 #include "NKWindow/Platform/Win32/NkWin32DropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowAudit.h" // ce que Win32 ne tient pas, il le DIT
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -237,6 +238,86 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// LE STYLE VIENT DE LA CONFIGURATION — il ne la contredit plus
+	//
+	// AVANT (jusqu'au 25/09/2026) : `mDwStyle = WS_OVERLAPPEDWINDOW` quoi qu'il
+	// arrive. Ce seul mot contient WS_THICKFRAME, WS_MINIMIZEBOX et
+	// WS_MAXIMIZEBOX : `resizable = false` etait accepte puis jete. Un
+	// utilisateur a perdu du temps a chercher l'erreur chez lui.
+	//
+	// ⚠️ EQUIVALENCE AUX DEFAUTS. Avec la configuration par defaut (frame,
+	//    resizable, minimizable, maximizable tous vrais) cette fonction rend
+	//    EXACTEMENT WS_OVERLAPPEDWINDOW (= WS_OVERLAPPED | WS_CAPTION |
+	//    WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), et pour
+	//    `frame = false` exactement l'ancien WS_POPUP | WS_THICKFRAME |
+	//    WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX. NKWindow est
+	//    partage par TOUTES les applications : aucune d'elles ne doit voir sa
+	//    fenetre changer parce qu'on a corrige celles qui demandaient autre
+	//    chose.
+	//
+	// ⚠️ `maximizable` est SUBORDONNE a `resizable` : maximiser, c'est
+	//    redimensionner. Laisser WS_MAXIMIZEBOX sur une fenetre declaree non
+	//    redimensionnable offrirait un bouton qui fait precisement ce qui vient
+	//    d'etre interdit.
+	//
+	// ⚠️ FENETRE SANS CADRE (`frame = false`). WS_THICKFRAME y etait garde
+	//    EXPRES : sa bordure invisible donne l'accrochage Aero et le
+	//    redimensionnement natif que `BeginResize` relaie depuis notre propre
+	//    decoration. DECISION : `resizable = false` l'emporte. Le style tombe,
+	//    l'accrochage Aero est perdu, `BeginResize` refuse au journal — et c'est
+	//    juste : une fenetre declaree non redimensionnable n'a aucun bord a
+	//    accrocher. WS_CAPTION et WS_SYSMENU restent (animation de reduction et
+	//    menu systeme ; ils ne peignent aucun pixel puisque WM_NCCALCSIZE rend
+	//    toute la fenetre cliente).
+	// =============================================================================
+	static DWORD NkWin32ComposerStyle(const NkWindowConfig &c) {
+		DWORD style = (c.frame ? WS_OVERLAPPED : WS_POPUP) | WS_CAPTION | WS_SYSMENU;
+		if (c.resizable)
+			style |= WS_THICKFRAME;
+		if (c.minimizable)
+			style |= WS_MINIMIZEBOX;
+		if (c.maximizable && c.resizable)
+			style |= WS_MAXIMIZEBOX;
+		return style;
+	}
+
+	// =============================================================================
+	// Menu systeme : griser ce qui est interdit
+	//
+	// Le style suffit pour `resizable`/`minimizable`/`maximizable` (Windows grise
+	// les boutons correspondants tout seul), mais PAS pour `closable` ni
+	// `movable` : il n'existe aucun style « pas de bouton X » ni « pas de
+	// deplacement ». Ces deux-la passent par le menu systeme — et griser SC_CLOSE
+	// eteint AUSSI le bouton X de la barre de titre, c'est le meme item.
+	//
+	// ⚠️ Griser ne suffit pas non plus a lui seul : le double-clic sur la barre de
+	//    titre, Alt+F4 et le glisser de titre n'ouvrent pas le menu, ils envoient
+	//    directement le WM_SYSCOMMAND. Le filtre qui les arrete vit dans
+	//    NkWin32EventSystem.cpp. Les deux moities sont necessaires ; aucune ne
+	//    tient seule.
+	// =============================================================================
+	static void NkWin32AppliquerMenuSysteme(HWND hwnd, const NkWindowConfig &c) {
+		if (!hwnd)
+			return;
+		if (c.closable && c.movable && c.resizable && c.minimizable && c.maximizable)
+			return; // rien d'interdit : ne pas toucher au menu du systeme
+		HMENU menu = GetSystemMenu(hwnd, FALSE);
+		if (!menu)
+			return;
+		const UINT eteint = MF_BYCOMMAND | MF_GRAYED | MF_DISABLED;
+		if (!c.closable)
+			EnableMenuItem(menu, SC_CLOSE, eteint);
+		if (!c.movable)
+			EnableMenuItem(menu, SC_MOVE, eteint);
+		if (!c.resizable)
+			EnableMenuItem(menu, SC_SIZE, eteint);
+		if (!c.minimizable)
+			EnableMenuItem(menu, SC_MINIMIZE, eteint);
+		if (!c.maximizable || !c.resizable)
+			EnableMenuItem(menu, SC_MAXIMIZE, eteint);
+	}
+
+	// =============================================================================
 	// Fonctions de synchronisation mData ↔ mConfig
 	// =============================================================================
 
@@ -430,12 +511,11 @@ namespace nkentseu {
 			mData.mDwStyle = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
 		} else {
 			mData.mDwExStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-			mData.mDwStyle =
-				config.frame ? WS_OVERLAPPEDWINDOW
-							 : (WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-			// frame=false : on garde WS_THICKFRAME/CAPTION (snap + min/max + resize
-			// natif via BeginResize) mais on SUPPRIME visuellement la zone non-cliente
-			// (titre + bordure OS) via WM_NCCALCSIZE -> seule notre deco s'affiche.
+			// Le style DESCEND de la configuration (cf. NkWin32ComposerStyle) : il ne
+			// vaut plus WS_OVERLAPPEDWINDOW quoi qu'on demande.
+			mData.mDwStyle = NkWin32ComposerStyle(config);
+			// frame=false : on SUPPRIME visuellement la zone non-cliente (titre +
+			// bordure OS) via WM_NCCALCSIZE -> seule notre deco s'affiche.
 			mData.mBorderless = !config.frame;
 		}
 
@@ -611,6 +691,13 @@ namespace nkentseu {
 		}
 
 		ApplyWindowIcons(mData.mHwnd, mData, config.iconPath);
+
+		// `closable` et `movable` n'ont pas de style : ils vivent dans le menu
+		// systeme (et dans le filtre WM_SYSCOMMAND de NkWin32EventSystem.cpp).
+		NkWin32AppliquerMenuSysteme(mData.mHwnd, config);
+
+		// (L'audit de ce que Win32 ne tient pas est declenche pour TOUS les dorsaux
+		//  depuis NkWESystem::RegisterWindow — un seul endroit, une seule verite.)
 
 		CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, kIIDTaskbarList3,
 						 reinterpret_cast<void **>(&mData.mTaskbarList));
@@ -915,18 +1002,26 @@ namespace nkentseu {
 	// SWP_FRAMECHANGED est indispensable pour que le nouveau style soit
 	// reellement applique — sans lui, le changement reste invisible jusqu'au
 	// prochain redimensionnement.
+	// ⚠️ 25/09 — CE SETTER DEFAISAIT LE CORRECTIF. Il remettait
+	//    `WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX` SANS CONDITION : une
+	//    fenetre creee `resizable = false` redevenait redimensionnable des le
+	//    premier passage par une barre de titre personnalisee. Corriger la
+	//    creation sans corriger ceci n'aurait tenu que jusqu'au premier appel.
+	//    Il repasse donc par la MEME fonction que la creation.
 	void NkWindow::SetDecorated(bool decorated) {
 		mConfig.frame = decorated;
 		if (!mData.mHwnd)
 			return;
+		// mBorderless commande WM_NCCALCSIZE : sans cette ligne, SetDecorated(false)
+		// retirait la barre de titre du STYLE mais laissait l'OS peindre son cadre.
+		mData.mBorderless = !decorated;
 		LONG_PTR style = GetWindowLongPtrW(mData.mHwnd, GWL_STYLE);
-		if (decorated) {
-			style |= (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-		} else {
-			style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-			style |= WS_POPUP;
-		}
+		style &= ~(LONG_PTR)(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP);
+		style |= (LONG_PTR)NkWin32ComposerStyle(mConfig);
+		mData.mDwStyle = (DWORD)style;
 		SetWindowLongPtrW(mData.mHwnd, GWL_STYLE, style);
+		// Le menu systeme est reconstruit avec le style : re-griser ce qui reste interdit.
+		NkWin32AppliquerMenuSysteme(mData.mHwnd, mConfig);
 		SetWindowPos(mData.mHwnd, nullptr, 0, 0, 0, 0,
 					 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 	}
@@ -952,6 +1047,11 @@ namespace nkentseu {
 		// Indispensable pour une barre de titre custom (fenetre sans bordure).
 		if (!mData.mHwnd)
 			return;
+		if (!mConfig.movable) {
+			NkWindowRefuserUneFois(NkWindowProp::Movable, "Win32",
+								   "BeginDragMove appele sur une fenetre creee movable=false : ignore");
+			return;
+		}
 		ReleaseCapture();
 		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
 	}
@@ -1402,6 +1502,15 @@ namespace nkentseu {
 	void NkWindow::BeginResize(NkResizeEdge edge) {
 		if (!mData.mHwnd)
 			return;
+		// Une fenetre declaree non redimensionnable ne se redimensionne pas non plus
+		// par la porte de service : `BeginResize` est le hand-off natif qu'une
+		// decoration personnalisee appelle depuis ses bords. Le refus est NOMME —
+		// une decoration qui croit encore gerer le redimensionnement doit l'apprendre.
+		if (!mConfig.resizable) {
+			NkWindowRefuserUneFois(NkWindowProp::Resizable, "Win32",
+								   "BeginResize appele sur une fenetre creee resizable=false : ignore");
+			return;
+		}
 		WPARAM ht = HTCAPTION;
 		switch (edge) {
 			case NkResizeEdge::Left:
@@ -1593,6 +1702,10 @@ namespace nkentseu {
 	}
 
 	void NkWindow::SetScreenOrientation(NkScreenOrientation) {
+		// Un bureau Windows ne tourne pas sur commande d'une application. Le corps
+		// etait VIDE : l'appelant croyait avoir agi.
+		NkWindowRefuserUneFois(NkWindowProp::ScreenOrientation, "Win32",
+							   "un bureau Windows n'a pas d'orientation pilotable par l'application");
 	}
 
 	NkScreenOrientation NkWindow::GetScreenOrientation() const {
@@ -1600,6 +1713,8 @@ namespace nkentseu {
 	}
 
 	void NkWindow::SetAutoRotateEnabled(bool) {
+		NkWindowRefuserUneFois(NkWindowProp::LockOrientation, "Win32",
+							   "la rotation automatique n'existe pas sur un bureau Windows");
 	}
 
 	bool NkWindow::IsAutoRotateEnabled() const {
