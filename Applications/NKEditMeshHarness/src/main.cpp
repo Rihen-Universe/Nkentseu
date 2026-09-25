@@ -38,6 +38,7 @@
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
 #include "NKRenderer/Mesh/NkMeshFamilles.h"
+#include "NKRenderer/Mesh/NkMeshFamilleFichier.h"
 #include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
 #include "NKRenderer/Mesh/NkMeshRetopo.h"
@@ -4120,10 +4121,32 @@ static int32 FamilleVersObj(int32 argc, char **argv) {
 		NkLog::Instance().Error("--famille-obj demande aussi --nom <famille>");
 		return 2;
 	}
+	// LES FAMILLES EN FICHIERS (Q16) : chargees AVANT de construire. Sans projet
+	// ni application ici -- le banc lit le dossier du depot.
+	{
+		char pq[256] = {0};
+		const int32 nf = renderer::NkFamilleFichierCharger("data/familles", pq, sizeof(pq));
+		printf("FAMILLES_FICHIERS %d lue(s) dans data/familles%s%s\n", (int)nf, pq[0] ? " ; " : "", pq);
+		fflush(stdout);
+	}
 	NkVector<renderer::NkFamillePiece> pieces;
 	char pourquoi[256] = {0};
-	const int32 n = renderer::NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
+	// ── `--fichier-seul` : SANS LE REPLI C++ (mutation, Q16) ──────────────────
+	// ⚠️ ELLE EXISTE PARCE QUE MON PREMIER « IDENTIQUE AU BIT » ETAIT FAUX. Avec
+	//    le repli, un interprete qui echoue rend quand meme le bon objet : le md5
+	//    est vert, et il est vert GRACE AU DEFAUT. La preuve doit pouvoir echouer,
+	//    donc elle doit pouvoir couper le repli.
+	bool fichierSeul = false;
+	for (int32 i = 1; i < argc; ++i)
+		if (strcmp(argv[i], "--fichier-seul") == 0)
+			fichierSeul = true;
+	const int32 n = fichierSeul ? renderer::NkFamilleFichierConstruire(p, pieces, pourquoi, sizeof(pourquoi))
+								: renderer::NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
 	if (n <= 0) {
+		// Le refus va AUSSI sur la sortie standard : un banc dont le motif part
+		// dans un journal qu'on ne lit pas est un banc muet.
+		printf("FAMILLE_REFUS %s\n", pourquoi);
+		fflush(stdout);
 		NkLog::Instance().Error("famille refusee : {0}", pourquoi);
 		return 1;
 	}
