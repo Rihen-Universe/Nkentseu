@@ -1658,7 +1658,12 @@ namespace nkentseu {
 			// le coup de brosse : ce qui n'est pas une commande ne s'annule pas, ne
 			// se rejoue pas, et disparait au premier tour de la spirale de
 			// regeneration.
-			MaskAll
+			MaskAll,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : L'OUTIL TRANSFORM DE
+			// SCULPTURE (Blender). Il deplace / tourne / met a l'echelle la partie
+			// NON MASQUEE autour d'un pivot, avec la symetrie. C'est le premier
+			// consommateur du masque, et la raison pour laquelle il existe.
+			SculptTransform
 		};
 
 		// ── PARAMETRES D'UN COUP DE BROSSE ─────────────────────────────
@@ -1692,8 +1697,27 @@ namespace nkentseu {
 			float32 poids = 1.f;
 		};
 
-		struct NkMeshEditCommand {
-				NkMeshEditOp op = NkMeshEditOp::None;
+		// ── L'OUTIL TRANSFORM DE SCULPTURE ─────────────────────────────────
+		// ⚠️ CE N'EST PAS G/R/S SUR UNE SELECTION. Il n'y a AUCUNE selection en
+		//    sculpture : ce qui decide, c'est le MASQUE. Un sommet libre subit la
+		//    transformation entiere, un sommet protege ne bouge pas, et entre les
+		//    deux l'effet est interpole -- ce qui donne les bords doux que le
+		//    masque existe pour produire.
+		//
+		// ⚠️ LA SYMETRIE EST PAR AXE, ET ELLE MIROITE LA TRANSFORMATION, pas la
+		//    geometrie. Un sommet du cote NEGATIF d'un axe symetrise recoit la
+		//    transformation reflechie (S·M·S) : deplacer la joue droite deplace la
+		//    gauche en miroir, comme chez Blender. Symetriser en copiant des
+		//    sommets ferait autre chose -- un maillage qui double.
+		struct NkSculptTransformParams {
+			NkVec3f translate = {0.f, 0.f, 0.f};
+			NkVec3f rotDeg = {0.f, 0.f, 0.f}; ///< degres, ordre X puis Y puis Z
+			NkVec3f scale = {1.f, 1.f, 1.f};
+			NkVec3f pivot = {0.f, 0.f, 0.f};  ///< en REPERE OBJET
+			uint8 symX = 0, symY = 0, symZ = 0;
+		};
+
+		struct NkMeshEditCommand {				NkMeshEditOp op = NkMeshEditOp::None;
 				NkVector<uint32> selection;			  // sommets sélectionnés à l'application
 				// ── L'INTENTION DE FACE, ENREGISTREE AVEC LA COMMANDE (v10) ──────────
 				// ⚠️ SANS ELLE, DEUX GESTES HUMAINS DIFFERENTS S'ECRIVAIENT PAREIL.
@@ -1738,6 +1762,7 @@ namespace nkentseu {
 				//    ce qui la rend rejouable.
 				NkSculptCmdParams sculpt;
 				NkMaskAllParams maskAll; // (op == MaskAll) tout masquer / demasquer / inverser
+				NkSculptTransformParams sculptXform; // (op == SculptTransform) la partie NON masquee
 				NkVector<NkVec3f> sculptPoints;  // centres des tampons
 				NkVector<NkVec3f> sculptNormals; // normale au point de pose (meme taille)
 

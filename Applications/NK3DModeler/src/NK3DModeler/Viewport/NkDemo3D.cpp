@@ -1704,6 +1704,8 @@ namespace nkentseu {
 				renderer::NkSculptCmdParams sculptParams;
 				// Parametres du dernier « masque en bloc » demande (cf. Demo3D_MaskAllHE).
 				renderer::NkMaskAllParams maskAllParams;
+				// Parametres du dernier « Transform de sculpture » demande.
+				renderer::NkSculptTransformParams sculptXformParams;
 				bool sculptPending = false;
 				// LE TRAIT EN COURS DE TRACE (souris enfoncee). Separe de `sculptPts`,
 				// qui est le trait DEJA remis a la commande : les melanger ferait
@@ -4588,6 +4590,14 @@ namespace nkentseu {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::MaskAll;
 			c.maskAll = st->maskAllParams;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// L'OUTIL TRANSFORM DE SCULPTURE : meme porte que tout le reste.
+		static void Demo3D_SculptXformHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::SculptTransform;
+			c.sculptXform = st->sculptXformParams;
 			Demo3D_ApplyCmd(st, ms, c);
 		}
 
@@ -18481,6 +18491,38 @@ namespace nkentseu {
 		int32 Demo3DHostMaskBytes() {
 			auto *st = HostSt();
 			return st ? (int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)) : 0;
+		}
+		// ── L'OUTIL TRANSFORM DE SCULPTURE (Blender) ────────────────────────
+		// Deplace / tourne / met a l'echelle la partie NON MASQUEE, autour d'un
+		// pivot, avec la symetrie par axe. Angles en DEGRES, pivot en repere
+		// OBJET. Rend vrai si au moins un sommet a bouge.
+		// ⚠️ SANS MASQUE, IL DEPLACE TOUT -- « la partie non masquee » d'un
+		//    maillage sans masque, c'est le maillage. C'est Blender.
+		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
+									   const float32 *scale3, const float32 *pivot3, int32 symMask) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			renderer::NkSculptTransformParams T;
+			if (translate3)
+				T.translate = {translate3[0], translate3[1], translate3[2]};
+			if (rotDeg3)
+				T.rotDeg = {rotDeg3[0], rotDeg3[1], rotDeg3[2]};
+			if (scale3)
+				T.scale = {scale3[0], scale3[1], scale3[2]};
+			if (pivot3)
+				T.pivot = {pivot3[0], pivot3[1], pivot3[2]};
+			T.symX = (uint8)((symMask & 1) ? 1 : 0);
+			T.symY = (uint8)((symMask & 2) ? 1 : 0);
+			T.symZ = (uint8)((symMask & 4) ? 1 : 0);
+			st->sculptXformParams = T;
+			const bool ok = HostEditRun(&Demo3D_SculptXformHE);
+			logger.Info("[Demo3D] TRANSFORM sculpture : t=({0}, {1}, {2}) r=({3}, {4}, {5}) "
+						"e=({6}, {7}, {8}) pivot=({9}, {10}, {11}) sym={12} -> agi={13} · masques={14}\n",
+						T.translate.x, T.translate.y, T.translate.z, T.rotDeg.x, T.rotDeg.y,
+						T.rotDeg.z, T.scale.x, T.scale.y, T.scale.z, T.pivot.x, T.pivot.y,
+						T.pivot.z, symMask, ok ? 1 : 0, st->editHE.MaskedCount());
+			return ok;
 		}
 		bool Demo3DHostEditLoopCut() {
 			if (HostRefuseSansElements("LoopCut"))

@@ -323,6 +323,12 @@ namespace nkentseu {
 		float32 Demo3DHostMaskSum();
 		/// Les octets REELLEMENT occupes par le masque (0 tant que rien n'est peint).
 		int32 Demo3DHostMaskBytes();
+		// L'OUTIL TRANSFORM DE SCULPTURE : deplace / tourne / met a l'echelle la
+		// partie NON MASQUEE autour d'un pivot (repere OBJET), avec la symetrie
+		// par axe (bit 0 = X, 1 = Y, 2 = Z). Angles en DEGRES. Rend vrai si au
+		// moins un sommet a bouge -- donc si une etape d'annulation a ete posee.
+		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
+									   const float32 *scale3, const float32 *pivot3, int32 symMask);
 		bool Demo3DHostEditLoopCut();
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();

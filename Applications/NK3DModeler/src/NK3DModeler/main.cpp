@@ -3070,6 +3070,46 @@ int nkmain(const NkEntryState &entry) {
 				sMaskDone = true;
 			}
 		}
+		// NK_SCULPT_XFORM="tx:ty:tz:rx:ry:rz:sx:sy:sz:sym:image" : l'outil
+		// Transform de sculpture, par la porte de la facade. Separateur ':' (la
+		// virgule est le separateur decimal en fr-FR). Tout est facultatif a
+		// partir du premier champ manquant : l'echelle vaut 1, la symetrie 0.
+		{
+			static bool sXfDone = false;
+			if (const char *xv = std::getenv("NK_SCULPT_XFORM")) {
+				float32 v[10] = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 1.f, 1.f, 1.f, 0.f};
+				int32 img = 150, k = 0;
+				const char *q = xv;
+				while (k < 11 && *q) {
+					float32 val = 0.f;
+					bool neg = false;
+					if (*q == '-') { neg = true; ++q; }
+					while (*q >= '0' && *q <= '9')
+						val = val * 10.f + (float32)(*q++ - '0');
+					if (*q == '.') {
+						++q;
+						float32 sc = 0.1f;
+						while (*q >= '0' && *q <= '9') { val += (float32)(*q++ - '0') * sc; sc *= 0.1f; }
+					}
+					if (neg) val = -val;
+					if (k < 10) v[k] = val; else img = (int32)val;
+					++k;
+					if (*q == ':') ++q; else break;
+				}
+				if (!sXfDone && agentFrame >= img && demo::Demo3DHostInEditMode()) {
+					sXfDone = true;
+					const float32 t[3] = {v[0], v[1], v[2]};
+					const float32 r[3] = {v[3], v[4], v[5]};
+					const float32 e[3] = {v[6], v[7], v[8]};
+					const float32 piv[3] = {0.f, 0.f, 0.f};
+					const bool ok = demo::Demo3DHostSculptTransform(t, r, e, piv, (int32)v[9]);
+					std::printf("[nk3d] NK_SCULPT_XFORM -> agi=%d\n", ok ? 1 : 0);
+					std::fflush(stdout);
+				}
+			} else {
+				sXfDone = true;
+			}
+		}
 		// NK_EDIT_PICK="x,y[,frame][,shift][,alt]" : UN CLIC D'ELEMENT A DES
 		// COORDONNEES ECRITES, en pixels de la VUE. Il passe par la MEME porte que
 		// le clic de la souris (`Demo3DHostEditPickAt` arme, la vue consomme au

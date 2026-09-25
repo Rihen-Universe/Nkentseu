@@ -1826,8 +1826,15 @@ namespace nkentseu {
 					return v && v[0] && v[0] != '0';
 				}();
 				const bool xfGrises = !sMuteGrise && demo::NkModeMaillageSansElements((int32)st.mode);
+				// ⚠️ LE MOTIF SUIT L'ETAT REEL (25/09). Le masque EXISTE desormais, et
+				// l'outil Transform de sculpture agit deja comme OPERATION (partie non
+				// masquee, pivot, symetrie, mesuree par sonde_masque.ps1). Ce qui manque
+				// est son GIZMO : tant qu'on ne peut pas le tirer a la souris, ces boutons
+				// resteraient des boutons qui s'allument sans rien faire -- « ni
+				// disparaitre, ni faire semblant ».
 				static const char *const kMotifXf =
-					"En Sculpture, on deforme avec les pinceaux ; l'outil Transform viendra avec le masque";
+					"En Sculpture, on deforme avec les pinceaux ; l'outil Transform agit deja sur la "
+					"partie non masquee -- son gizmo arrive";
 				if (sXfProbe && (int32)xfGrises != sXfDernier) {
 					sXfDernier = (int32)xfGrises;
 					std::printf("[nk3d] OUTILS-TRANSFORM mode=%d grises=%d\n", (int)st.mode, xfGrises ? 1 : 0);
