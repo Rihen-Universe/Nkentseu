@@ -146,6 +146,8 @@ geste prouve quelque chose.
 | **L'aide aux raccourcis.** Menu **Fenêtre → Aide aux raccourcis** (cochée par défaut). | Les deux bandeaux « OBJET \| G/R/S=… » et « clic=sel Shift+clic=multi… » disparaissent **et rien d'autre** — la barre d'outils du viseur, le gizmo d'axes et les boutons latéraux restent. | • D'autres éléments disparaissent avec eux → la garde couvre plus que l'aide, et c'est le défaut de garde unique qu'on vient de défaire.<br>• Ils reviennent après redémarrage alors qu'on les avait éteints → `aide=` n'est pas relu, ou n'est pas poussé au viseur. |
 | **Les panneaux.** Menu **Fenêtre → Hiérarchie / Propriétés / Navigateur de contenu / Plein écran**. | Chaque entrée replie ou rouvre son panneau, et porte une **coche** quand il est visible. | • Une entrée ne fait rien → le fil vers `st.showLeft` / `showRight` / `showBrowser` est coupé.<br>• La coche ne suit pas l'état → elle est lue ailleurs que dans l'état qui commande. |
 
+| **L'entrée grisée.** Menu **Fenêtre**, regarder **Panneau d'outils**. | Elle est **plus grise** que les autres, **ne s'allume pas** au survol, **n'affiche aucun raccourci**, et cliquer dessus **ne fait rien** — le menu reste ouvert. Elle dit « prévu, pas disponible ». | • Elle s'allume au survol → un surlignage est une promesse de clic.<br>• Un **« T »** apparaît à sa droite → on promet un raccourci qui n'a aucun consommateur ; on douterait du clavier plutôt que de la fonction.<br>• Le menu **se referme** quand on clique dessus → le clic « a fait quelque chose », et c'est exactement ce que le gris doit nier.<br>• Elle a disparu → on aurait effacé une intention réelle au lieu de la dire. |
+
 ### Pour les bancs (sans souris, sans fenêtre)
 
 ```
@@ -153,7 +155,7 @@ NK3DModeler.exe --sonde-messages              -> 9/9   (le chemin logger -> band
 NK3DModeler.exe --sonde-ui-etat <fichier>     -> 14/14 (l'aller-retour, les bornes,
                                                         et l'interrupteur des compteurs)
 NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comprises)
-python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 5/5  (la barre de menus)
+python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 8/8  (la barre de menus, et l'entree grisee)
 ```
 
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,

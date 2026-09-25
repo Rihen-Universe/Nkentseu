@@ -1260,6 +1260,26 @@ namespace nkentseu {
 				const char *label;   ///< nullptr = separateur
 				const char *command; ///< cle NkShortcutTable, ou ""
 				bool submenu;		 ///< ouvre un sous-menu
+				/// 🔴 (25/09, tranche par Rodolf) PREVU, PAS DISPONIBLE.
+				/// L'entree se peint GRISEE, ne prend pas le survol, ne repond pas au
+				/// clic, et N'AFFICHE PAS SON RACCOURCI.
+				///
+				/// ⚠️ POURQUOI NI LA RETIRER NI LA LAISSER INERTE -- les deux mentent :
+				///   · inerte avec son raccourci affiche, elle PROMET une fonction qui
+				///     n'existe pas ; on clique, rien ne se passe, on conclut a une
+				///     panne. C'est *declarer n'est pas livrer*, dans l'interface ;
+				///   · retiree, elle efface une intention REELLE (`app.panneau_outils`
+				///     est liee a la touche T dans la table des raccourcis), et
+				///     quelqu'un la redecouvrira ou la reconstruira dans six mois.
+				///     C'est *demenager, pas supprimer*, applique a l'envers.
+				/// Grisee, elle dit la verite. C'est le REFUS NOMME qu'on applique
+				/// deja au presse-papiers hors Win32, au codec WebP et aux proprietes
+				/// que le dorsal ignore : *ce qui ne peut pas agir doit le DIRE*.
+				///
+				/// ⚠️ ELLE N'EST PAS UN SUBSTITUT A UNE ENTREE SANS OBJET. « Details »
+				///    a ete RETIREE et non grisee, parce que son panneau n'existe
+				///    plus du tout : il n'y a rien a rendre disponible un jour.
+				bool indisponible = false;
 		};
 		struct NkMenuDef {
 				const char *title;
@@ -1329,7 +1349,12 @@ namespace nkentseu {
 				{"Proprietes", "app.vue.proprietes", false},
 				{kBrowserTitle, "app.vue.navigateur", false},
 				{nullptr, "", false},
-				{"Panneau d'outils", "app.panneau_outils", false}, {nullptr, "", false},
+				// PREVU, PAS DISPONIBLE : le panneau n'existe pas. Mesure du 25/09 --
+				// `app.panneau_outils` est liee a la touche T et n'a AUCUN
+				// consommateur ; masquer la barre d'outils demanderait un etat neuf
+				// et une branche dans `NkLayout::Compute`. Grisee jusque-la.
+				{"Panneau d'outils", "app.panneau_outils", false, /*indisponible*/ true},
+				{nullptr, "", false},
 				{"Plein ecran", "app.vue.plein_ecran", false},
 				// (25/09, tranche par Rodolf) LES COMPTEURS DE RENDU. Ajoutee EN FIN
 				// de table, et c'est deliberé : le repartiteur de `NkModelerMenus.h`
