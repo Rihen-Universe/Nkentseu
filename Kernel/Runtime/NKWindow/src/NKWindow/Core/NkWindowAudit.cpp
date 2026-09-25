@@ -148,16 +148,21 @@ namespace nkentseu {
 							  kSansBureau | kSansMobile);
 
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
-		// Win32 apres le correctif du 25/09 : le style DESCEND de la config.
+		// Win32 apres le correctif du 25/09 : le style DESCEND de la config, et
+		// `bgColor` alimente la brosse de la classe.
 		// Restent hors promesse : canFullscreen (rien n'interdit Win+Fleche ni
-		// SetFullscreen), modal (aucune desactivation du parent), bgColor (la
-		// classe peint un BLACK_BRUSH fixe).
+		// SetFullscreen) et modal (aucune desactivation du parent).
+		// ⚠️ `bgColor` est TENU, mais il porte une reserve que l'audit global ne
+		//    sait pas exprimer : la brosse appartient a la CLASSE de fenetre. Le
+		//    cas « deja enregistree avec une autre couleur » est donc refuse a son
+		//    propre site, dans NkWin32Window.cpp, la ou il se constate.
 		NkWindowAuditerConfig(config, "Win32",
 							  kBase | NK_WPROP(Resizable) | NK_WPROP(Movable) | NK_WPROP(Closable) |
 								  NK_WPROP(Minimizable) | NK_WPROP(Maximizable) | NK_WPROP(Centered) |
 								  NK_WPROP(DropEnabled) | NK_WPROP(Frame) | NK_WPROP(HasShadow) |
 								  NK_WPROP(Transparent) | NK_WPROP(AlwaysOnTop) | NK_WPROP(ClickThrough) |
-								  NK_WPROP(Opacity) | NK_WPROP(NoActivate) | NK_WPROP(MinSize) | NK_WPROP(MaxSize),
+								  NK_WPROP(Opacity) | NK_WPROP(NoActivate) | NK_WPROP(MinSize) |
+							  NK_WPROP(MaxSize) | NK_WPROP(BgColor),
 							  kSansMobile);
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
