@@ -10075,7 +10075,7 @@ namespace nkentseu {
 								sAuditImg, objVivants, (int32)Demo3DState::kNumObj, objRendus,
 								vidVivants, (int32)(kNkvpFirstUser - kNkvpEmptyBase), lumVivantes,
 								(int32)Demo3DState::kNumLights, lumEclairent, lumPickables,
-								(int32)st->frameLights.Size(), Demo3DHostSkySunLightsScene() ? 1 : 0);
+								(int32)st->frameLights.Size(), Demo3DHostSkySunLightsScene() ? 1 : 0, nkvpHudOn ? 1 : 0);
 				}
 			}
 			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
