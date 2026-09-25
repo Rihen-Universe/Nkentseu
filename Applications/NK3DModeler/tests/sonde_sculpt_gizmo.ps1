@@ -344,13 +344,18 @@ if (Condition "Contour (i)" (($lignes.Count -gt 0) -and ($avecSel -gt 0)) `
 #   ajoute par NK_ADD_NODE -- verifie par `touche=99` dans le journal.
 $c = Courir "proprio" @{ "NK_AGENT_SCENE" = "5"; "NK_BOITE_SONDE" = "1";
 						 "NK_SEL_AT" = "523,340,200"; "NK_AGENT_EXIT" = "300" }
-$jalons = @(Select-String -Path $c.log -Pattern "\[SEL-JALON\]")
-$parUpdate = @($jalons | Where-Object { $_.Line -match "emptyGizmo\.Update" }).Count
+# LES TROIS POPULATIONS, et c est la lecon de la nuit : objets de demo,
+# objets utilisateur, LUMIERES. Mon premier correctif visait `emptyGizmo`
+# pendant que le defaut de Rodolf se jouait sur la LUMIERE -- posee au centre
+# de l univers, donc celle qu on touche en « cliquant au centre ». Un critere
+# qui ne surveille qu une population rend vert sur les deux autres.
+$jalons = @(Select-String -Path $c.log -Pattern "\[SEL-JALON\]|\[LIGHT-JALON\]")
+$parUpdate = @($jalons | Where-Object { $_.Line -match "Gizmo\.Update" }).Count
 $touche = @(Select-String -Path $c.log -Pattern "MESURE pick vue : .*touche=(9\d|1\d\d)").Count
 if (Condition "Proprietaire (j)" (($jalons.Count -gt 0) -and ($touche -gt 0)) `
 		"jalons=$($jalons.Count) clics qui touchent=$touche (il faut un clic QUI TOUCHE)") {
-	Dire "Proprietaire (j) le gizmo ne touche PAS a la selection" ($parUpdate -eq 0) `
-		"$parUpdate transition(s) de selection attribuee(s) a emptyGizmo.Update (exige 0)"
+	Dire "Proprietaire (j) aucun gizmo sans cible ne touche a la selection" ($parUpdate -eq 0) `
+		"$parUpdate transition(s) attribuee(s) a un Gizmo.Update, TOUTES populations (exige 0)"
 }
 
 Write-Host "-----------------------------------------------------------------------"

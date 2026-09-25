@@ -2241,6 +2241,41 @@ namespace nkentseu {
 		// ⚠️ SANS CROCHET, et silencieux tant que rien ne bouge : il n'ecrit que
 		//    sur un CHANGEMENT, et nomme le jalon precedent -- c'est l'intervalle
 		//    entre deux jalons qui contient le coupable.
+		// ── LE MEME JALON, POUR LA LUMIERE ──────────────────────────────────
+		// Rodolf, 25/09 : quatorze paires « selection=1 … lumiere=0 » puis
+		// « selection=0 … lumiere=-1 ». Ce n'etait ni l'objet ni le vide : le
+		// Point light est pose AU CENTRE DE L'UNIVERS, donc « cliquer au centre »
+		// le touche, lui.
+		//
+		// ⚠️ TROISIEME FOIS CETTE NUIT QU'UN INSTRUMENT OU UN CORRECTIF VISE LA
+		//    MAUVAISE POPULATION : `HostSelTrace` regardait les objets de
+		//    demonstration ; ma reproduction prenait un cube neuf la ou Rodolf a
+		//    un objet importe ; et ma garde a ete mesuree sur `emptyGizmo` quand
+		//    le defaut se jouait sur `lightGizmo`. La regle qui en sort : *avant
+		//    de mesurer, dire sur QUELLE population -- et la verifier dans le
+		//    relevé, pas dans l'intention.*
+		static void HostJalonLight(Demo3DState *st, const char *jalon) {
+			if (!st)
+				return;
+			static int32 sVu = -999;
+			static const char *sDer = "(depart)";
+			// ⚠️ IL SUIT `lightSel`, LA VALEUR QUE LE PANNEAU LIT -- pas
+			//    `lightGizmo.ActiveIndex()`, qui n'en est qu'UNE des sources.
+			//    Premiere version de ce jalon : il lisait l'actif du gizmo, et il
+			//    est reste muet pendant que `lumiere=` basculait sous mes yeux.
+			//    QUATRIEME fois cette nuit qu'un instrument vise a cote : ce n'est
+			//    plus un accident, c'est la question qu'il faut poser AVANT de
+			//    mesurer -- *de quelle valeur exacte parle le symptome ?*
+			const int32 a = st->lightSel;
+			if (a != sVu) {
+				if (sVu != -999)
+					logger.Info("[LIGHT-JALON] lightSel {0} -> {1} · entre '{2}' et '{3}'\n", sVu, a,
+								sDer, jalon);
+				sVu = a;
+			}
+			sDer = jalon;
+		}
+
 		static void HostJalonSel(Demo3DState *st, const char *jalon) {
 			if (!st)
 				return;
@@ -8465,6 +8500,7 @@ namespace nkentseu {
 		// PREMIER JALON : l'etat de la selection A L'ENTREE de l'image, avant que
 		// quoi que ce soit ne l'ait touchee. C'est la borne basse de l'intervalle.
 		HostJalonSel(st, "debut d'image");
+		HostJalonLight(st, "debut d'image");
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
 			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
 			// ⚠ LE POINTEUR EST LA POUR UNE RAISON PRECISE. Une trace qui n'imprime
@@ -14151,10 +14187,21 @@ namespace nkentseu {
 							st->lightGizmo.SetMode(md);
 						}
 						const bool lwasDrag = st->lightGizmo.IsDragging();
+						HostJalonLight(st, "juste avant lightGizmo.Update");
 						st->lightGizmo.Update(ltg, Demo3DState::kNumLights, lin);
+						HostJalonLight(st, "juste apres lightGizmo.Update");
 						if (!lwasDrag && st->lightGizmo.IsDragging())
 							lightClaimedClick = true; // poignee saisie : le clic est a nous
+						// ⚠️ CETTE LIGNE ECRASE `lightSel` A CHAQUE IMAGE, sans condition.
+						//    C'est une SECONDE PORTE, distincte des sept portes de
+						//    deselection que j'avais recensees : elle ne « vide » rien,
+						//    elle RECOPIE -- et recopier -1 sur une selection valide a
+						//    exactement le meme effet visible. Un recensement des portes
+						//    qui EFFACENT ne pouvait pas la trouver ; il faut recenser
+						//    celles qui ECRIVENT.
+						HostJalonLight(st, "avant lightSel = lightGizmo.ActiveIndex()");
 						st->lightSel = st->lightGizmo.ActiveIndex();
+						HostJalonLight(st, "apres lightSel = lightGizmo.ActiveIndex()");
 						// LE CLIC EST CONSOMME : sans cela, deplacer une lumiere selectionnerait
 						// en meme temps l'objet situe derriere elle.
 						if (lightClaimedClick)
@@ -14615,6 +14662,7 @@ namespace nkentseu {
 							// `avant=N apres=1` prouve l'effondrement, `avant=N apres=N`
 							// innocente ce chemin et renvoie l'enquete en aval.
 							HostJalonSel(st, "avant le pick de la vue");
+							HostJalonLight(st, "avant le pick de la vue");
 							const int32 pickedU0 = bestU;
 							int32 nSelAvPick = 0;
 							for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
@@ -14656,6 +14704,7 @@ namespace nkentseu {
 								st->emptyGizmo.ClearSelection();
 							}
 							HostJalonSel(st, "apres le pick de la vue");
+							HostJalonLight(st, "apres le pick de la vue");
 							{
 								int32 nSelApPick = 0;
 								for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
