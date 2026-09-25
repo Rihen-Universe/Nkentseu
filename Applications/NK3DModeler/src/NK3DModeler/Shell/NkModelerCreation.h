@@ -3851,6 +3851,17 @@ namespace nkentseu {
 						std::printf("[crea] APERCU -> %s (copie de la vue 3/4)\n", ap);
 						std::fflush(stdout);
 					}
+					// ET A COTE DU FICHIER DE MODELE DU PROJET (`<objet>.nkgeo`), qui vit
+					// a la racine : c'est LUI que le navigateur trouve, et la regle est
+					// « chemin du modele, extension remplacee par .png ».
+					if (!st.projectRoot.Empty() && NkFile::Exists(v34)) {
+						char ap2[400];
+						snprintf(ap2, sizeof(ap2), "%s/%s.png", st.projectRoot.CStr(), NkCreaNomObjet());
+						if (NkFile::Copy(v34, ap2, true)) {
+							std::printf("[crea] APERCU -> %s (a cote du fichier de modele)\n", ap2);
+							std::fflush(stdout);
+						}
+					}
 				}
 				NkCreaIsoler(false);
 				demo::Demo3DHostSetHud(sHudAvant);
