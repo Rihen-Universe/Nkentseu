@@ -1403,7 +1403,23 @@ namespace nkentseu {
 			cmd->Draw(3, 1, 0, 0);
 		}
 
+		// CUMUL SUR TOUTE LA VIE DU PROCESSUS. `mCullStats` est remis a zero a
+		// chaque image : il ne peut pas repondre a « combien au total ». Ce
+		// compteur-ci est lu une fois, a l'arret, et donne le chiffre qu'on
+		// cherche sans avoir a scruter chaque image.
+		static uint64 sAABBNonRenseigneeCumul = 0;
+		static uint64 sSoumissionsCumul = 0;
+
 		void NkRender3D::Shutdown() {
+			// -- LE CHIFFRE QUE L'ON CHERCHE, DIT UNE FOIS ----------------------
+			// Combien de soumissions, sur toute la vie de ce processus, portaient
+			// une etendue JAMAIS RENSEIGNEE -- donc ecartee en silence par le
+			// culling. Zero = le piege est dormant dans cette application. Non nul
+			// = de la geometrie disparait aujourd'hui sans que personne ne le voie.
+			if (sSoumissionsCumul > 0) {
+				logger.Info("[NkRender3D] bilan etendues : {0} non renseignee(s) sur {1} soumission(s)\n",
+							(uint32)sAABBNonRenseigneeCumul, (uint32)sSoumissionsCumul);
+			}
 			if (mSkyboxPipeline.IsValid()) {
 				mDevice->DestroyPipeline(mSkyboxPipeline);
 				mSkyboxPipeline = {};
@@ -1645,6 +1661,19 @@ namespace nkentseu {
 			}
 			mObjectDrawIdx = 0;
 			mShadowInstIdx = 0; // pool d'instances shadow : reset pour la nouvelle frame
+
+			// -- LE CHIFFRE NE DOIT PAS DEPENDRE D'UNE FERMETURE PROPRE ---------
+			// La ligne de `Shutdown` ne s'ecrit que si l'application se ferme
+			// normalement. Or on mesure justement des applications qu'on arrete a
+			// la main, et une mesure qui disparait quand on tue le processus n'est
+			// pas une mesure. On la repete donc periodiquement.
+			static uint64 sImages = 0;
+			if ((++sImages % 60ull) == 0ull && sSoumissionsCumul > 0) {
+				logger.Info("[NkRender3D] bilan etendues : {0} non renseignee(s) sur {1} soumission(s) "
+							"(image {2})\n",
+							(uint32)sAABBNonRenseigneeCumul, (uint32)sSoumissionsCumul,
+							(uint32)sImages);
+			}
 		}
 
 		void NkRender3D::BeginScene(const NkSceneContext &ctx) {
@@ -1713,6 +1742,50 @@ namespace nkentseu {
 
 			// Culling camera : uniquement pour le rendu visible (mOpaque).
 			mCullStats.opaqueSubmitted++;
+			sSoumissionsCumul++;
+			// -- MESURE (26/09/2026) : L'ETENDUE A-T-ELLE ETE RENSEIGNEE ? -------
+			// `NkAABB` naît inversee et ce culling l'ecarte : un appelant qui
+			// oublie `dc.aabb` perd sa geometrie SANS UN MOT. On compte ici, sans
+			// rien changer au comportement, pour savoir combien d'objets
+			// disparaissent aujourd'hui dans les vraies applications. Le chiffre
+			// decide du correctif, pas l'inverse.
+			if (AABBNonRenseignee(dc.aabb)) {
+				mCullStats.aabbNonRenseignee++;
+				sAABBNonRenseigneeCumul++;
+				// -- ECHOUER OUVERT ET BAVARD, PLUTOT QUE FERME ET MUET ---------
+				// Une etendue restee inversee veut dire « PERSONNE N'A RENSEIGNE
+				// l'etendue », pas « il n'y a rien ». Le culling en tirait
+				// « invisible » -- la plus destructrice des deux lectures, et sans
+				// un mot. Un objet qui apparait par erreur se voit et se corrige ;
+				// un objet qui disparait en silence coute une soiree : il en a
+				// coute une, le 25/09, sur `nkdemodepliageuv`.
+				//
+				// MESURE AVANT CHANGEMENT (26/09/2026) : 0 soumission concernee sur
+				// 7 797 dans NK3DModeler, 0 sur 2 999 dans NkAnimaEditor. Le piege
+				// etait donc REEL MAIS DORMANT -- ce garde-fou ne change aucune
+				// image d'aujourd'hui, il protege les 110 fichiers qui appellent
+				// `Submit` et ceux qui viendront.
+				//
+				// `NK_AABB_VIDE_CULL=1` retablit l'ancien comportement : sans ce
+				// retour en arriere, aucun banc ne pourrait faire rougir la regle.
+				static bool sDit = false;
+				static const bool sCullVide = (std::getenv("NK_AABB_VIDE_CULL") != nullptr);
+				if (!sDit) {
+					sDit = true;
+					logger.Warn("[NkRender3D] AABB NON RENSEIGNEE sur une soumission (mesh id={0}) : "
+								"l'etendue est restee inversee. Elle est traitee comme VISIBLE. "
+								"Remplissez `NkDrawCall3D::aabb` en MONDE -- sinon le culling ne "
+								"peut pas faire son travail.\n",
+								dc.mesh.id);
+				}
+				if (!sCullVide) {
+					if (dc.alpha < 0.999f)
+						mTransparent.PushBack({dc, depth});
+					else
+						mOpaque.PushBack({dc, depth});
+					return;
+				}
+			}
 			if (!mCtx.camera.IsAABBVisible(dc.aabb)) {
 				mCullStats.opaqueCulled++;
 				return;
