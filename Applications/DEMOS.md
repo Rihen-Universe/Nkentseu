@@ -154,7 +154,6 @@ NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comp
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
 `NkBrowserTreeW`), jamais une copie : *une sonde qui recalcule ce qu'elle mesure
 ne peut voir aucun défaut de ce qu'elle mesure.*
-||||||| 96c1ce562
 
 ---
 
@@ -184,3 +183,81 @@ devait faire dans le `NkUVEditor` qui n'a jamais eu de corps.
 |---|---|
 | **l'éditeur UV** | on ouvre, on déplace un îlot, la texture suit sur l'objet. Pas encore écrit : les opérations doivent d'abord vivre dans `NKRenderer/Mesh/` sur `NkEditMesh`, et le panneau dans `NKEditorKit` pour que NK3DModeler, NkAnimaEditor et NKScena l'hébergent à l'identique. |
 
+
+---
+
+## L'interface est un document — « je change un fichier, je relance, l'interface a changé »
+
+**`Build/Bin/Release-Windows/NkAnimaEditor/NkAnimaEditor.exe`**
+*(à lancer depuis la racine de l'arbre : les documents sont cherchés en relatif)*
+
+**Ce que ça montre, et c'est un câblage, pas un module :** NKUIDesign **écrit** un `.nkgui` →
+`NkGuiArchive` le **lit** → `NkGuiMonteur` (2 242 l.) le **monte** en widgets réels →
+`NkGuiInteraction` (1 385 l.) **exécute** son `behavior` → et **NkAnimaEditor construit sa barre
+d'outils, son panneau de gauche et sa barre d'état depuis ces fichiers**. Les cinq pièces
+existaient depuis des jours ; ce qui manquait était le fil, et **aucune application ne
+construisait sa coquille depuis un document** avant le 25/09.
+
+Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
+`barre_outils.nkgui`, `barre_etat.nkgui`, `panneau_outils.nkgui`.
+
+### Le geste — c'est le seul qui prouve quelque chose
+
+1. lancer `NkAnimaEditor` : une **barre d'outils** apparaît sous le titre (Jouer/Pause, Insérer une
+   clé, Supprimer la clé, Annuler, Refaire), un panneau **« Outils »** à gauche, et la **barre
+   d'état** du bas porte le texte du document ;
+2. **cliquer « Jouer / Pause »** : l'animation démarre. Le bouton vient du fichier, l'effet du C++ ;
+3. **fermer l'application**, ouvrir `Resources/Interface/NkAnimaEditor/barre_etat.nkgui`, changer le
+   texte, **relancer** : le bas de la fenêtre porte le nouveau texte. **Rien n'a été recompilé** ;
+4. même geste dans `barre_outils.nkgui` : ajouter un `Button`, en retirer un, changer un libellé.
+
+### Ce qu'on doit voir
+
+- les trois bandes portent ce que les fichiers disent, et **changent quand les fichiers changent** ;
+- le panneau de gauche montre une **bande des clés** (traits cyan) avec le curseur de lecture blanc :
+  c'est une **zone hôte** — le document dit `Host "apercu_cles"`, l'application la peint ;
+- la case **« Jouer en boucle »** agit : elle passe par `bind`, un `behavior` écrit **dans le
+  fichier** la lit, et il appelle l'application par `Callback`.
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| **je change un document, je relance, rien ne change** | ⚠️ **le plus grave** : ce qu'on regarde ne vient pas des documents. C'est le seul symptôme qui annule toute la démo. Le contre-test est dans le même binaire : `NKANIMA_SANS_DOCUMENT=1` doit faire **disparaître** la barre d'outils et le panneau « Outils ». Si l'interface est identique avec et sans, le fil n'est pas celui qu'on croit. |
+| une bande **vide**, sans un mot | le refus n'est pas nommé. Un document illisible doit ÉCRIRE pourquoi **à la place de la bande** — mesuré : « bloc jamais ferme : HBox », « le fichier doit commencer par `nkgui <majeure>.<mineure>` ». *Une fenêtre vide n'est pas une livraison.* |
+| la zone des clés est couverte de **hachures avec un nom écrit dedans** | personne ne sert cette zone hôte : le nom du `Host` dans le fichier ne correspond à aucune zone de l'application. C'est le comportement **voulu**, pas une panne — une zone que personne ne remplit ne doit pas se faire prendre pour un fond. |
+| un bouton **apparaît et ne fait rien** | son identifiant ne nomme aucune action servie. La table est fermée et le compteur `actionsInconnues` monte : `anim.jouer`, `anim.inserer`, `anim.supprimer`, `anim.annuler`, `anim.refaire`. |
+| la case « boucle » **ne fait rien** | le `behavior` du fichier n'est pas exécuté, ou `bind` ne rejoint pas le modèle. |
+
+### Pour les bancs (sans fenêtre, sans GPU, sans souris)
+
+```
+NkAnimaEditor.exe --sonde-coquille                    -> 6/6   (3 bandes + l'action + disque==réémis + le négatif)
+NkAnimaEditor.exe --sonde-coquille --interface=<dir>  -> monte un AUTRE jeu de documents
+```
+
+Mesure de référence du 25/09 (documents livrés) :
+
+```
+barre_outils     widgets=7  montes=7  contenu=11462  inconnus=0  hotes=0/0
+barre_etat       widgets=3  montes=3  contenu=3153   inconnus=0  hotes=0/0
+panneau_outils   widgets=10 montes=10 contenu=34125  inconnus=0  hotes=1/1
+```
+
+⚠️ **`contenu` compte les pixels qui S'ÉCARTENT DE LA DOMINANTE, pas les pixels peints.** La
+première version comptait « différent du fond effacé » et rendait **exactement l'aire** des trois
+bandes (30 600 / 23 400 / 109 200) : elle comptait l'aplat, donc elle ne pouvait pas rougir.
+*Une preuve qui ne peut pas échouer ne prouve rien.*
+
+**Et le critère a été prouvé falsifiable, par mutation des DONNÉES :** vider le `widgets` de la barre
+d'état rend `montes=0 contenu=0` → **KO** ; renommer le `Host` du panneau fait passer `hotes` de
+**1/1 à 0/1** et le contenu de **34 125 à 11 794**. Les deux mutations portent sur des fichiers, pas
+sur du code — c'est la démonstration même du chantier.
+
+### ⚠️ Ce que cette démo n'est PAS
+
+**Ce n'est pas « NkAnimaEditor a l'interface de NK3DModeler ».** Trois bandes viennent d'un document ;
+la coquille (docking, titre, rails, menus) reste celle de `NKEditorKit`. **La barre de menu n'est pas
+branchée, et c'est mesuré :** le format connaît `MenuBar`, `Menu`, `MenuItem` et `ContextMenu`, mais
+le monteur n'en monte **aucun** — un document de menu valide à **0 erreur** et monte **0 widget pour
+4 rôles inconnus** (mesuré avec `NKGuiMonteTest --monter=`).
