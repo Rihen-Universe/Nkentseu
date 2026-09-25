@@ -370,6 +370,24 @@ namespace nkentseu {
 		// Retire la fenêtre de sa feuille SANS drag (meta dockNode = -1) ; une feuille
 		// vidée collapse -> la zone disparaît (fermeture de sidebar façon VSCode).
 		NKENTSEU_NKGUI_API void DockDetachWindow(NkGuiContext &ctx, const char *windowTitle) noexcept;
+		// (25/09) ELAGUE LES FEUILLES VIDES de l'arbre de docks, et rend leur nombre.
+		//
+		// ⚠️ CE N'EST PAS UN ALGORITHME NEUF : elle appelle `DockCollapseLeaf`, qui
+		//    existe depuis toujours et que `DockDetachWindow` utilise deja. Il vivait
+		//    seulement dans un espace anonyme, donc hors d'atteinte d'un appelant -- et
+		//    une coquille qui en avait besoin s'est vu refuser le geste plutot que d'en
+		//    ecrire une seconde version. Cette ligne DECLARE ce qui existe.
+		//
+		// A QUOI CA SERT : une disposition RELUE d'un fichier peut contenir des feuilles
+		//    auxquelles plus aucune fenetre n'est liee (un panneau que l'hote refuse
+		//    desormais d'ouvrir). Une feuille sans fenetre RESERVE QUAND MEME SA
+		//    LARGEUR : a l'ecran, une colonne vide. `DockDetachWindow` collapse a la
+		//    detache ; ceci collapse ce qui n'a jamais ete rempli.
+		//
+		// ⚠️ ELLE NE TOUCHE JAMAIS UNE FEUILLE QUI PORTE UNE FENETRE. C'est LE risque
+		//    de cette fonction, et il se paie en fenetres perdues : le negatif du banc
+		//    l'eprouve explicitement.
+		NKENTSEU_NKGUI_API int32 DockPruneEmpty(NkGuiContext &ctx) noexcept;
 		// Marque une fenêtre « barre d'onglets masquée quand elle est SEULE dans sa
 		// feuille » (crée la meta au besoin). Réservé au panneau central (éditeur) :
 		// les autres (Terminal, Sortie, sidebars) gardent TOUJOURS leurs onglets.
