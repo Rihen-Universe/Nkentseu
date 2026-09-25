@@ -1071,13 +1071,32 @@ namespace nkentseu {
 			const float32 colEye = r.x + r.w - S(70.f);
 			const float32 colCam = r.x + r.w - S(48.f);
 			const float32 colLock = r.x + r.w - S(26.f);
-			const float32 colType = r.x + r.w - S(144.f);
+			// 🔴 (25/09, vu sur une capture de Rodolf) « NomType » ET « SceneScene ».
+			//    `r.x + r.w - S(144)` compte depuis le bord DROIT. Sur un panneau
+			//    etroit -- et il l'est au premier lancement : la fraction gauche vaut
+			//    zero, donc `Compute()` applique son plancher `kMinLeftW = S(200)` --
+			//    cela donne `r.x + 56`, alors que la colonne « Nom » commence a
+			//    `r.x + 34` et mesure ~25 px. Les deux colonnes se SUPERPOSENT, et
+			//    l'en-tete se lit « NomType », la racine « SceneScene ».
+			//    ⚠️ Ce n'etait pas un defaut de texte : c'etait une colonne calculee
+			//    depuis un bord sans verifier qu'elle tenait depuis l'autre.
+			//
+			// LA REGLE : la colonne Type ne remonte jamais avant la fin de « Nom » ;
+			// et si, meme repoussee, elle n'a plus la place de s'ecrire avant les
+			// trois icones, elle NE SE PEINT PAS DU TOUT. *Une vue trop petite se
+			// tait* -- un mot tronque ou superpose ment plus qu'une absence.
+			const float32 colTypeMin = r.x + S(34.f) + p.TextW("Nom") + S(10.f);
+			const float32 colTypeVoulu = r.x + r.w - S(144.f);
+			const float32 colType = colTypeVoulu > colTypeMin ? colTypeVoulu : colTypeMin;
+			// « Lumiere » est le plus long des libelles de nature (NkUserKindLabel).
+			const bool typeTient = (colType + p.TextW("Lumiere") + S(6.f)) < colEye;
 
 			// L'EN-TETE annonce TOUTES les colonnes : nom, type, oeil, camera,
 			// cadenas -- pour que l'utilisateur sache exactement ce que c'est.
 			p.Fill({r.x, y, r.w, kRowH}, NkRole::WindowBg);
 			p.TextV(r.x + S(34.f), y, kRowH, "Nom");
-			p.TextV(colType, y, kRowH, "Type", NkRole::TextMuted);
+			if (typeTient)
+				p.TextV(colType, y, kRowH, "Type", NkRole::TextMuted);
 			p.IconV(colEye, y, kRowH, NkIcon::Eye, NkRole::TextMuted, 12.f);
 			p.IconV(colCam, y, kRowH, NkIcon::Camera, NkRole::TextMuted, 12.f);
 			p.IconV(colLock, y, kRowH, NkIcon::Lock, NkRole::TextMuted, 12.f);
@@ -1120,7 +1139,8 @@ namespace nkentseu {
 					if (e8 >= 0 && e8 < st.BrowserCount() && st.Card(e8).kind == 5)
 						NkWidgetState::Copy(st.Card(e8).name, st.docName[dAct], 31u);
 				}
-				p.TextV(colType, yy, kRowH, "Scene", NkRole::TextMuted);
+				if (typeTient)
+					p.TextV(colType, yy, kRowH, "Scene", NkRole::TextMuted);
 				yy += kRowH;
 				++visibleCount;
 			}
@@ -1337,7 +1357,8 @@ namespace nkentseu {
 						if (st.sceneTabKind[st.activeTab] == 7 &&
 							(isLight || (isEmpty && (ukind == 4 || ukind == 5))))
 							tyTxt = "Cosmetique";
-						p.TextV(colType, yy, kRowH, tyTxt, dim);
+						if (typeTient)
+							p.TextV(colType, yy, kRowH, tyTxt, dim);
 						if (!isEmpty && !isLight && sel && node == activeObj)
 							p.Fill({colType - S(12.f), yy + kRowH * 0.5f - S(2.f), S(4.f), S(4.f)}, fg);
 						// L'OEIL, pour TOUS : cacher un parent cache son sous-arbre
