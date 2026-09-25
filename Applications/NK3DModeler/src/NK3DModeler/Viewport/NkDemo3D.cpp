@@ -12962,14 +12962,16 @@ namespace nkentseu {
 						}
 						logger.Info("[MODE-SONDE] img={0} uiMode={1} editMode={2} selV={3} gizmoSel={4} "
 									"gizmoTri={5} drag={6} marqPts={7} cage={8} nv={9} somme=({10}, {11}, {12}) "
-									"modale={13} selTool={14} masque={15} sommeMasque={16} octetsMasque={17}\n",
+									"modale={13} selTool={14} masque={15} sommeMasque={16} octetsMasque={17} "
+									"sym={18}\n",
 									sModeImg - 1, st->uiMode, st->editMode ? 1 : 0, selV,
 									st->editGizmo.HasSelection() ? 1 : 0, (int32)nkGizmoTri,
 									st->editGizmo.IsDragging() ? 1 : 0, (int32)nkMarqPts, (int32)gModeSondeCage,
 									(int32)st->editLive.Size(), (float32)sx, (float32)sy, (float32)sz, st->modalOp,
 									st->selTool, (int32)st->editHE.MaskedCount(),
 									(float32)st->editHE.MaskSum(),
-									(int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)));
+									(int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)),
+									st->sculptSymMask);
 					}
 				}
 			}

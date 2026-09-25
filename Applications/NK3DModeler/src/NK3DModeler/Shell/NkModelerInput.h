@@ -295,6 +295,12 @@ namespace nkentseu {
 				int32 matcap = 0;		  ///< matcap actif, mode edition seulement
 				int32 viewLayout = 0;	  ///< disposition des vues (menu de gauche)
 				int32 selShape = 0;		  ///< rectangle / cercle / lasso
+				// SYMETRIE DE LA SCULPTURE : bits 1 X, 2 Y, 4 Z. L'AUTORITE est la
+				// vue (Demo3DHostSetSculptSym) ; ce champ est le miroir du shell, celui
+				// que le panneau peint et que le document emporte. Meme forme que
+				// `shading` ou `solidLight` -- et la synchronisation se fait au MEME
+				// endroit qu'eux, jamais a cote.
+				int32 sculptSym = 0;
 				int32 modOpenCat = 0;	  ///< categorie de modificateurs survolee
 				NkRect modAnchor{};		  ///< ou ancrer la liste a deux niveaux
 				int32 activeTab = 0;
@@ -826,6 +832,12 @@ namespace nkentseu {
 						int32 fondType = 0;	   ///< st.bgType
 						float32 fondLum = 1.f; ///< st.bgBrightness
 						float32 fondPerso[3] = {0.13f, 0.15f, 0.19f}; ///< st.bgCustom
+						// LA SYMETRIE DE LA SCULPTURE (bits 1 X, 2 Y, 4 Z). Elle part
+						// avec le DOCUMENT, comme l'ombrage et le fond : on ne sculpte
+						// pas un visage (symetrique) et une roche (non) avec le meme
+						// reglage, et le retrouver a la reouverture est la moindre des
+						// choses.
+						int32 sculptSym = 0; ///< st.sculptSym
 				};
 				NkDocView docView[32];
 				bool docViewSet[32] = {};
