@@ -152,6 +152,52 @@ def juger(chemin):
           % (vv.mean(), quantiles(vv), 100.0 * (vv == 4).mean()))
 
 
+
+
+# ── ORIENTATION : LES FACES SE SUIVENT-ELLES ? (25/09) ───────────────────────
+# Une surface fermee et manifold a une orientation COHERENTE : chaque arete
+# interieure est parcourue en sens INVERSE par ses deux faces. Quand deux faces
+# la parcourent dans le MEME sens, l'une des deux tourne le dos a l'autre --
+# elle est noire a l'ecran, ou disparait sous le culling, sans qu'aucun compte
+# de trous ni de non-manifold ne s'en apercoive. C'est ce que cette fonction
+# compte, et rien d'autre.
+#
+# USAGE : python qualite_maillage_glb.py --orientation <fichier.obj|.glb>
+def orientation(chemin):
+    import trimesh
+    m = trimesh.load(chemin, force="mesh")
+    F = np.asarray(m.faces, dtype=np.int64)
+    V = np.asarray(m.vertices, dtype=np.float64)
+    diag = float(np.linalg.norm(V.max(axis=0) - V.min(axis=0)))
+    cle = np.round(V / max(diag * 1e-6, 1e-12)).astype(np.int64)
+    _, inv = np.unique(cle, axis=0, return_inverse=True)
+    G = np.asarray(inv).reshape(-1)[F]
+    oriente = defaultdict(list)
+    for t in range(len(G)):
+        for a, b in ((G[t, 0], G[t, 1]), (G[t, 1], G[t, 2]), (G[t, 2], G[t, 0])):
+            oriente[(min(a, b), max(a, b))].append((int(a), int(b), t))
+    memes, inter, faces = 0, 0, set()
+    for k, lst in oriente.items():
+        if len(lst) != 2:
+            continue
+        inter += 1
+        if lst[0][0] == lst[1][0]:      # meme sens = orientation contradictoire
+            memes += 1
+            faces.add(lst[0][2])
+            faces.add(lst[1][2])
+    print("%s" % chemin)
+    print("  aretes interieures : %d   PARCOURUES DANS LE MEME SENS : %d (%.2f %%)"
+          % (inter, memes, 100.0 * memes / max(inter, 1)))
+    print("  faces impliquees   : %d sur %d (%.2f %%)"
+          % (len(faces), len(F), 100.0 * len(faces) / max(len(F), 1)))
+    return memes
+
+
 if __name__ == "__main__":
-    for c in sys.argv[1:]:
-        juger(c)
+    args = sys.argv[1:]
+    if args and args[0] == "--orientation":
+        for c in args[1:]:
+            orientation(c)
+    else:
+        for c in args:
+            juger(c)
