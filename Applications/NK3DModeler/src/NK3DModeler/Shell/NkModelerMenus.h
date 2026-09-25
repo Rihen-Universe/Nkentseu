@@ -33,7 +33,19 @@ namespace nkentseu {
 		/// peinte avec les panneaux. La GEOMETRIE n'est pas recalculee : elle est
 		/// relue de `st.menuBarRects`, posee par `PaintMenuBarI` a la meme image.
 		inline void NkMenuBarClics(NkModelerState &st, NkHitRegistry &hit) {
-			if (st.openMenu < 0)
+			// 🔴 LA GARDE LIT L'ETAT D'ENTREE DE L'IMAGE, PAS `st.openMenu`.
+			//    (25/09, rapporte par Rodolf : aucun menu de la barre ne s'ouvrait.)
+			//    `st.openMenu` a pu etre ecrit PAR CETTE IMAGE : `PaintMenuBar`
+			//    l'ouvre en couche 0, et cette fonction, en couche 50, relisait le
+			//    MEME clic -- rien ne l'avait consomme -- et le refermait aussitot.
+			//    Le menu s'ouvrait et mourait avant d'etre peint.
+			//    ⚠️ LES DEUX CHEMINS SONT DISJOINTS, et c'est ce predicat qui les
+			//       separe : menu ferme a l'entree -> `PaintMenuBar` traite (l'entree
+			//       n'est pas videe) et nous nous taisons ; menu ouvert a l'entree ->
+			//       l'entree des panneaux est videe, `PaintMenuBar` ne voit rien, et
+			//       c'est nous qui traitons -- ce pour quoi cette fonction existe :
+			//       passer d'un menu deroule a un autre.
+			if (!st.menuOuvertAvantImage || st.openMenu < 0)
 				return;
 			char k[16];
 			for (int32 i = 0; i < NkModelerState::kMenuBarCount; ++i) {
@@ -46,6 +58,12 @@ namespace nkentseu {
 			for (int32 i = 0; i < NkModelerState::kMenuBarCount; ++i) {
 				snprintf(k, sizeof(k), "menu.%d", i);
 				if (hit.Clicked(k)) {
+					static const bool kTrM = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (kTrM) {
+						std::printf("[nk3d] NkMenuBarClics i=%d openMenu %d -> %d\n", i,
+									st.openMenu, (st.openMenu == i) ? -1 : i);
+						std::fflush(stdout);
+					}
 					st.openMenu = (st.openMenu == i) ? -1 : i; // le meme = referme
 					return;
 				}
@@ -116,6 +134,25 @@ namespace nkentseu {
 				const NkRect ir{box.x + 2.f, y, box.w - 4.f, itemH};
 				snprintf(keys, sizeof(keys), "menu.item.%d", i);
 				const bool over = hit.Add(keys, ir);
+				// ── NK_MENU_TRACE>=2 : L'APPLICATION DIT OU SONT SES ENTREES ────
+				// ⚠️ ELLE EXISTE PARCE QUE MON PROPRE BANC VISAIT UN RANG. Il
+				//    cliquait « menu.item.9 » a une coordonnee ecrite a la main ;
+				//    retirer UNE entree du menu (« Details », perimee) a decale la
+				//    cible et l'aurait fait rougir pour une raison qui n'a rien a
+				//    voir avec ce qu'il mesure. *Un indice n'est pas un nom* --
+				//    le banc demande desormais la position a l'application.
+				{
+					static const int32 kTrI = []() {
+						const char *v = std::getenv("NK_MENU_TRACE");
+						return v ? (int32)std::atoi(v) : 0;
+					}();
+					if (kTrI >= 2)
+						std::printf("[nk3d] entree menu=%d i=%d cle=%s libelle=%s rect=%.0f,%.0f,%.0f,%.0f\n",
+									st.openMenu, i,
+									m.items[i].command && m.items[i].command[0] ? m.items[i].command
+																				: "(sans)",
+									m.items[i].label, ir.x, ir.y, ir.w, ir.h);
+				}
 				if (over)
 					p.Fill(ir, NkRole::AccentUi, 3.f);
 				// ── LA COCHE D'UNE BASCULE, TROUVEE PAR SA CLE ──────────────────
@@ -123,9 +160,28 @@ namespace nkentseu {
 				//    entree bouge des qu'on en insere une autre, et le decalage est
 				//    SILENCIEUX -- c'est la faute que le bloc de repartition, plus
 				//    bas, signale deja en grand. *Un indice n'est pas un nom.*
+				// LA TABLE DES BASCULES, et elle est ici plutot qu'en deux `if` :
+				// une troisieme bascule s'ajoutera en une ligne, et la coche comme
+				// la repartition la trouveront toutes deux par la meme cle.
 				const char *cmd = m.items[i].command;
-				const bool estBascule = (cmd && strcmp(cmd, "app.compteurs") == 0);
-				const bool cochee = estBascule && st.compteursOn;
+				// LA TABLE DES BASCULES, en un seul endroit : libelle -> etat. Une
+				// septieme s'ajoutera en une ligne, et la coche comme la repartition
+				// la trouveront par la meme cle.
+				const bool *etatBascule = nullptr;
+				if (cmd) {
+					if (strcmp(cmd, "app.compteurs") == 0)
+						etatBascule = &st.compteursOn;
+					else if (strcmp(cmd, "app.aide") == 0)
+						etatBascule = &st.aideOn;
+					else if (strcmp(cmd, "app.vue.hierarchie") == 0)
+						etatBascule = &st.showLeft;
+					else if (strcmp(cmd, "app.vue.proprietes") == 0)
+						etatBascule = &st.showRight;
+					else if (strcmp(cmd, "app.vue.navigateur") == 0)
+						etatBascule = &st.showBrowser;
+				}
+				const bool estBascule = (etatBascule != nullptr);
+				const bool cochee = estBascule && *etatBascule;
 				if (cochee)
 					p.IconV(ir.x + S(10.f), y, itemH, NkIcon::Check,
 							over ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
@@ -188,7 +244,31 @@ namespace nkentseu {
 						// Trouvee par la CLE, pas par le rang -- meme raison que la
 						// coche : ajouter une entree au-dessus ne doit pas allumer
 						// les compteurs a la place de « Plein ecran ».
-						if (m.items[i].command && strcmp(m.items[i].command, "app.compteurs") == 0) {
+						const char *c2 = m.items[i].command;
+						// ── LES PANNEAUX : LE FIL QUI MANQUAIT ─────────────────
+						// Les trois panneaux EXISTENT et se replient deja par leur
+						// poignee (`handle.left`, `handle.right`, `handle.browser`).
+						// L'entree de menu ne les atteignait pas : c'etait un fil
+						// manquant entre deux choses finies, pas une brique neuve.
+						if (c2 && strcmp(c2, "app.vue.hierarchie") == 0) {
+							st.showLeft = !st.showLeft;
+						} else if (c2 && strcmp(c2, "app.vue.proprietes") == 0) {
+							st.showRight = !st.showRight;
+						} else if (c2 && strcmp(c2, "app.vue.navigateur") == 0) {
+							st.showBrowser = !st.showBrowser;
+						} else if (c2 && strcmp(c2, "app.vue.plein_ecran") == 0) {
+							// LE MEME CHEMIN que le bouton de la barre de titre : une
+							// seconde politique d'agrandissement divergerait au
+							// premier cas particulier.
+							st.wantMaxRestore = true;
+						} else if (c2 && strcmp(c2, "app.aide") == 0) {
+							st.aideOn = !st.aideOn;
+							// LE RELAIS VERS LE VISEUR : la facade existait depuis le
+							// 25/09 avec ZERO appelant. C'est elle, et pas un second
+							// drapeau ecrit ici, qui porte l'etat cote viseur.
+							demo::Demo3DHostSetAide(st.aideOn);
+							NkSaveUiState(st);
+						} else if (c2 && strcmp(c2, "app.compteurs") == 0) {
 							st.compteursOn = !st.compteursOn;
 							// ECRIT TOUT DE SUITE, comme la largeur du navigateur :
 							// une application fermee par la croix de l'OS n'ecrirait
@@ -226,6 +306,14 @@ namespace nkentseu {
 				for (int32 i = 0; i < nMenus && !onBar; ++i) {
 					snprintf(keys, sizeof(keys), "menu.%d", i);
 					onBar = hit.IsHovered(keys);
+				}
+				{
+					static const bool kTrF = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (kTrF)
+						std::printf("[nk3d] fermeture-ailleurs onItem=%d onBar=%d survol=%s -> %s\n",
+									onItem ? 1 : 0, onBar ? 1 : 0,
+									hit.Hovered() && hit.Hovered()[0] ? hit.Hovered() : "(rien)",
+									(!onItem && !onBar) ? "FERME" : "garde");
 				}
 				if (!onItem && !onBar)
 					st.openMenu = -1;

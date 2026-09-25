@@ -1290,11 +1290,47 @@ namespace nkentseu {
 				{"Supprimer", "objet.supprimer", false}, {nullptr, "", false},
 				{"Preferences...", "", false},
 			};
+			// ── LE MENU FENETRE, MESURE ENTREE PAR ENTREE (25/09) ──────────────
+			// Rodolf : « ca depend de l'utilite et si c'est deja concu. » C'est un
+			// critere, pas un feu vert. Chaque entree a donc ete OUVERTE, pas
+			// inferee d'un nom :
+			//   Hierarchie      -> `st.showLeft`, panneau peint, poignee de
+			//                      reouverture `handle.left`        -> CABLAGE
+			//   Proprietes      -> `st.showRight`, `PaintPropertiesUnified`,
+			//                      poignee `handle.right`           -> CABLAGE
+			//   Navigateur      -> `st.showBrowser`, `PaintBrowser`,
+			//                      poignee `handle.browser`         -> CABLAGE
+			//   Plein ecran     -> `st.wantMaxRestore`, deja le bouton de la barre
+			//                      de titre                         -> CABLAGE
+			//   Details         -> ⚠️ IL N'Y A PLUS DE PANNEAU. Il a ete FUSIONNE
+			//                      dans le panneau droit unique (main.cpp :
+			//                      « Proprietes et Details disaient deux fois la
+			//                      meme chose ; leurs deux rectangles sont reunis
+			//                      en un seul »). L'entree est PERIMEE : elle est
+			//                      RETIREE, pas cablee. Cabler une entree vers un
+			//                      panneau disparu rendrait la meme chose que
+			//                      « Proprietes » et on ne saurait plus laquelle
+			//                      est en panne.
+			//   Panneau d'outils-> ⚠️ AUCUN PANNEAU. `app.panneau_outils` est liee
+			//                      a la touche T dans la table des raccourcis et
+			//                      N'A AUCUN CONSOMMATEUR : ni la touche ni
+			//                      l'entree n'agissent aujourd'hui. Masquer la
+			//                      barre d'outils demanderait un etat neuf et une
+			//                      branche dans `NkLayout::Compute` -> DU NEUF,
+			//                      donc NON FAIT. L'entree reste, inerte, avec son
+			//                      raccourci affiche : la retirer ferait croire que
+			//                      la fonction n'est pas prevue.
+			//
+			// ⚠️ CHAQUE BASCULE PORTE UNE CLE. Le repartiteur route par la CLE et
+			//    plus par le rang : c'est ce qui permet d'en retirer une sans
+			//    decaler les autres en silence. *Un indice n'est pas un nom.*
 			static const NkMenuItem kWindow[] = {
-				{"Hierarchie", "", false},		{"Proprietes", "", false}, {"Details", "", false},
-				{kBrowserTitle, "", false},		{nullptr, "", false},
+				{"Hierarchie", "app.vue.hierarchie", false},
+				{"Proprietes", "app.vue.proprietes", false},
+				{kBrowserTitle, "app.vue.navigateur", false},
+				{nullptr, "", false},
 				{"Panneau d'outils", "app.panneau_outils", false}, {nullptr, "", false},
-				{"Plein ecran", "", false},
+				{"Plein ecran", "app.vue.plein_ecran", false},
 				// (25/09, tranche par Rodolf) LES COMPTEURS DE RENDU. Ajoutee EN FIN
 				// de table, et c'est deliberé : le repartiteur de `NkModelerMenus.h`
 				// dispatche sur des INDICES ecrits a la main, et inserer au milieu
@@ -1303,6 +1339,7 @@ namespace nkentseu {
 				// un nom*, et `--demo=2` s'est deja decale a chaque fusion.
 				{nullptr, "", false},
 				{"Compteurs de rendu", "app.compteurs", false},
+				{"Aide aux raccourcis", "app.aide", false},
 			};
 			static const NkMenuItem kTools[] = {
 				{"Rechercher une commande", "app.palette", false}, {nullptr, "", false},
