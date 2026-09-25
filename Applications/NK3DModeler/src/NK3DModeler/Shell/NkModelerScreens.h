@@ -97,6 +97,23 @@ namespace nkentseu {
 				// `hit.Clicked` serait toujours faux et le silence passerait pour
 				// « le bouton ne marche pas ». `NkMenuBarClics`, appelee dans la
 				// couche 50 avec l'entree reelle, s'en charge.
+				// ── NK_MENU_TRACE=1 : LA TRACE EST POSEE LA OU LE CLIC EST LU ──────
+				// ⚠️ ET PAS LA OU JE CROIS QU'IL ARRIVE. « la barre ne recoit pas le
+				//    clic » et « elle le recoit et n'ouvre rien » ont le MEME
+				//    symptome ; seul ce point les separe, parce qu'il voit a la fois
+				//    la zone declaree, le survol, le clic, et l'etat qui garde.
+				{
+					static const bool kTrMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
+					if (kTrMenu && (hit.AnyClick() || hit.IsHovered(kMenuKeys[i]))) {
+						std::printf("[nk3d] barre i=%d %-10s rect=%.0f,%.0f,%.0f,%.0f survol=%d "
+									"clic=%d anyclic=%d bloque=%d openMenu=%d souris=%.0f,%.0f\n",
+									i, kMenus[i], mr.x, mr.y, mr.w, mr.h, over ? 1 : 0,
+									hit.Clicked(kMenuKeys[i]) ? 1 : 0, hit.AnyClick() ? 1 : 0,
+									hit.BlockedAtMouse() ? 1 : 0, st.openMenu, hit.Mouse().x,
+									hit.Mouse().y);
+						std::fflush(stdout);
+					}
+				}
 				if (st.openMenu < 0 && hit.Clicked(kMenuKeys[i]))
 					st.openMenu = i;
 				x += w;
