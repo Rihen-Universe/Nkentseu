@@ -209,8 +209,11 @@ namespace nkentseu {
 			fprintf(f, "- **La designation par le langage n'existe pas.** Nos commandes portent des\n");
 			fprintf(f, "  INDICES ; rien ne traduit « l'arete du haut ». Une demande qui designe\n");
 			fprintf(f, "  par les mots est refusee, elle n'est pas devinee.\n");
-			fprintf(f, "- **La generation d'objets n'est pas ici.** Ce contrat agit sur un maillage\n");
-			fprintf(f, "  EXISTANT, a partir de la selection.\n");
+			// (21/09) CETTE LIGNE DISAIT « la generation d'objets n'est pas ici », et
+			// c'etait la cause exacte du « aucune » que Rodolf a recu. Les verbes
+			// ci-dessus EDITENT ; la creation suit, dans sa propre section.
+			fprintf(f, "- **Ces verbes EDITENT un maillage existant**, a partir de la selection.\n");
+			fprintf(f, "  CREER un objet passe par la section « Creation » qui suit.\n");
 			fclose(f);
 			return true;
 		}

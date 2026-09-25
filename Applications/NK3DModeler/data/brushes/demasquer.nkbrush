@@ -1,0 +1,36 @@
+# =============================================================================
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# Demasquer -- et voici tout ce qui la separe de « Masquer » : sens = -1.
+#
+# Pas une primitive de plus, pas une ligne de code : le poids se RETRANCHE au
+# lieu de s'ajouter. Meme demonstration que creuser/dessiner, sur la brosse qui
+# ecrit des poids au lieu de positions.
+#
+# (Dans Blender, c'est Ctrl tenu pendant le trait. Ici c'est une brosse, parce
+# qu'une brosse est une donnee : le jour ou le modificateur existera, il
+# choisira ce fichier au lieu d'en refaire la formule.)
+# =============================================================================
+
+nkbrush 1
+
+nom = demasquer
+libelle = Demasquer
+icone = brush-minus
+
+operation = masque
+profil = sphere
+
+rayon = 0.30
+force = 0.5
+durete = 0.5
+
+# LE SEUL CHANGEMENT.
+sens = -1
+
+espacement = 0.25
+
+rayon_min = 0.005
+rayon_max = 2.0
+force_min = 0.0
+force_max = 1.0

@@ -3,7 +3,7 @@
 // @File    Roles.h
 // @Brief   D'UN NOM DE ROLE DECLARE VERS UN IDENTIFIANT DE THEME -- et ce qui se
 //          passe quand ca rate.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -22,6 +22,16 @@
 //     laisserait le vingt-quatrieme jeton refaire exactement la meme erreur --
 //     et c'est la lecon deja payee par ce depot : une convention que l'auteur
 //     doit CONNAITRE pour l'appliquer sera enfreinte par le prochain auteur.
+//
+//  ⚠️ ET UNE TROISIEME, LE 22/09 : ON RENOMME QUAND MEME. La canonisation a fait
+//     son travail (plus de magenta), mais l'audit CRIAIT a chaque lancement
+//     « A CORRIGER A LA SOURCE » pour 9 noms distincts -- une alarme vraie que
+//     personne ne pouvait eteindre sans la faire taire. Les 37 `defaultRole` du
+//     kit passent donc en snake_case. Ce qui rendait ce renommage insuffisant
+//     (« le vingt-quatrieme jeton refera l'erreur ») est desormais tenu par une
+//     mesure et non par la memoire des auteurs : `NKEditorKitTest 2d` exige
+//     `pascal == 0` sur tous les jetons declares. Le rattrapage reste en place,
+//     sans rien a rattraper.
 //
 //  DEUX REPONSES, ET IL FAUT LES DEUX. Elles ne se remplacent pas :
 //

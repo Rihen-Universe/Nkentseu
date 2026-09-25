@@ -3,6 +3,7 @@
 // @Brief   BANC DE NKEditorKit — la resolution des roles de theme, et le choix
 //          du backend graphique. Sans fenetre, sans GPU, sans souris.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -98,6 +99,16 @@
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkIEditorRenderer.h"
 #include "NKEditorKit/NkTheme.h"
+// Le contrat de donnees du fil du panneau IA (20/09). Il n'est PAS dans le
+// parapluie `NkEditorKit.h` et ce n'est pas un oubli : tant que le peintre
+// n'existe pas, l'y mettre ferait recompiler tous les consommateurs du kit pour
+// un en-tete que personne n'appelle. CONDITION D'ENTREE DANS LE PARAPLUIE : le
+// jour ou le peintre du fil est livre.
+#include "NKEditorKit/NkAiThread.h"
+#include "NKEditorKit/NkAiThreadLayout.h"
+#include "NkAiPlanProbe.h" // famille 22 : le plan du fil, eprouve sans fenetre
+#include "NkAiPaintProbe.h" // famille 23 : la transcription du plan en commandes
+#include "NkAiPanneauProbe.h" // famille 24 : le panneau entier, et son IMAGE
 // Famille 5 — le RAIL du selecteur de fichiers. Le banc vit DANS LE KIT
 // (`NkFilePickerNavProbe.h`) : c'est le kit qu'il mesure, et une fusion doit
 // l'emporter avec le correctif qu'il garde. Ici, une ligne d'appel.
@@ -237,6 +248,7 @@ static void Famille2_JetonsReels() {
 
 	uint32 total = 0, resolus = 0, pascal = 0;
 	char premierFautif[96] = {0};
+	char premierPascal[96] = {0};
 
 	for (uint16 c = 0; c < nbComposants; ++c) {
 		const NkComponentDecl *d = NkComponentRegistry::At(c);
@@ -249,6 +261,9 @@ static void Famille2_JetonsReels() {
 			for (const char *p = role; p && *p; ++p)
 				if (*p >= 'A' && *p <= 'Z') {
 					++pascal;
+					if (!premierPascal[0])
+						snprintf(premierPascal, sizeof(premierPascal), "%s::%s -> « %s »", d->name,
+								 d->tokens[t].name, role);
 					break;
 				}
 			if (NkResolveRole(role) != NK_ROLE_INVALID)
@@ -267,10 +282,31 @@ static void Famille2_JetonsReels() {
 			 total, premierFautif[0] ? " — premier fautif : " : "", premierFautif);
 	Check("2b", total > 0 && resolus == total, msg);
 
-	// Ce qui rend l'essai 2b non trivial : s'il n'y avait AUCUN PascalCase, il
-	// passerait sans que la canonisation ait rien fait. On le dit a voix haute.
-	Check("2c", pascal > 0,
-		  "au moins un jeton est declare en PascalCase — sinon 2b ne prouverait rien");
+	// ⚠️ 2c A CHANGE DE PORTEUR LE 22/09, ET C'EST LE POINT DU CORRECTIF.
+	//    Il disait : « au moins un jeton est declare en PascalCase — sinon 2b ne
+	//    prouverait rien ». Il tirait donc sa non-trivialite d'un DEFAUT DE LA
+	//    SOURCE, et serait devenu rouge le jour ou quelqu'un corrige cette
+	//    source — exactement le piege que la Famille 3 refuse deux ecrans plus
+	//    bas (« il punirait le correctif qu'il reclame »). La non-trivialite
+	//    passe a un nom PascalCase ECRIT ICI, dans le banc : la canonisation
+	//    reste eprouvee, et plus personne n'a besoin qu'une declaration soit
+	//    fausse pour que l'essai ait un sens.
+	Check("2c",
+		  NkResolveRole("PanelBg") != NK_ROLE_INVALID &&
+			  NkResolveRole("PanelBg") == NkResolveRole("panel_bg"),
+		  "un nom PascalCase ecrit DANS LE BANC est toujours rattrape, et sur le meme role");
+
+	// 2d. LA REGLE DE SOURCE, TENUE PAR UNE MESURE ET NON PAR LA MEMOIRE DES
+	//     AUTEURS. Le 20/09, l'objection contre le renommage etait : « le
+	//     vingt-quatrieme jeton refera la meme erreur ; une convention que
+	//     l'auteur doit CONNAITRE sera enfreinte par le prochain auteur ». Elle
+	//     est juste tant que rien ne la controle. Cet essai EST ce controle : un
+	//     jeton declare en PascalCase rougit le banc du kit immediatement, en
+	//     nommant le composant et le jeton fautifs. Le rattrapage reste (2c),
+	//     mais il n'a plus rien a rattraper au lancement des applications.
+	snprintf(msg, sizeof(msg), "%u jeton(s) sur %u encore en PascalCase (0 exige)%s%s", pascal,
+			 total, premierPascal[0] ? " — premier : " : "", premierPascal);
+	Check("2d", pascal == 0, msg);
 }
 
 // =============================================================================
@@ -534,6 +570,326 @@ static void Famille15_RolesAlerte() {
 	Check("15o", NkRoleAudit::RepliCount() == 0,
 		  "controle negatif : sur un theme complet, AUCUN repli n'est annonce");
 	NkRoleAudit::Reset();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FAMILLE 20 — LES TROIS SURFACES DU PANNEAU IA (20/09/2026)
+//
+//  CE QU'ELLE MESURE, ET CE QU'ELLE NE PEUT PAS MESURER
+//    Elle juge le THEME : trois roles existent, se nomment, different entre les
+//    deux themes, et portent un texte lisible sur les deux. Elle ne dit RIEN de
+//    ce qui arrive a l'ecran -- aucun banc sans fenetre ne le peut, et le
+//    prochain lot (le peintre du fil) apportera son propre temoin, qui comparera
+//    des rectangles PUBLIES PAR LEURS PEINTRES, en AVAL de la passe.
+//
+//  ⚠️ POURQUOI ELLE VIT ICI ET PAS DANS UN BANC NEUF. `Famille15_RolesAlerte`
+//     mesure exactement la meme classe de defaut, trouvee six jours plus tot.
+//     Un second harnais aurait deux tables de seuils qui divergeraient -- le
+//     depot a deja paye « deux listes ecrites separement finissent toujours par
+//     diverger » (l'en-tete de NKConverse le raconte).
+//
+//  ⚠️ LES QUATRE ESSAIS QUI PEUVENT DIRE NON, ET CE QU'ILS REFUTENT :
+//     20c refute « j'ai pose la meme couleur pour les deux themes » -- la faute
+//         exacte payee le 31/08 (CanvasBg) PUIS le 14/09 (StatusOk/Err).
+//     20d refute « trois roles pour une seule couleur » : un lot qui aurait
+//         recopie #161B22 trois fois passerait 20c et tomberait ici.
+//     20f refute « les valeurs sont jolies mais le texte ne s'y lit pas » --
+//         c'est `Validate()`, seuils du kit, les quatre paires neuves comprises.
+//     20g refute « le role est fictif » : un theme qui ne le porte pas doit
+//         tomber sur son repli ET L'ANNONCER, pas peindre transparent.
+static void Famille20_SurfacesCode() {
+	printf("\n[Famille 20] les trois surfaces du panneau IA\n");
+
+	const NkTheme d = NkTheme::Dark();
+	const NkTheme l = NkTheme::Light();
+
+	// 20a — les trois existent et se nomment par la SURFACE, pas par l'appelant.
+	Check("20a", Same(NkRoleName(NkRole::CodeBg), "code_bg") &&
+					 Same(NkRoleName(NkRole::CodeOutBg), "code_out_bg") &&
+					 Same(NkRoleName(NkRole::InlineCodeBg), "inline_code_bg"),
+		  "les trois portent des cles de SURFACE (code_bg/code_out_bg/inline_code_bg)");
+
+	// 20b — ils resolvent PAR NOM : c'est le chemin d'un theme de fichier.
+	Check("20b", NkResolveRole("code_bg") == (uint16)NkRole::CodeBg &&
+					 NkResolveRole("code_out_bg") == (uint16)NkRole::CodeOutBg &&
+					 NkResolveRole("inline_code_bg") == (uint16)NkRole::InlineCodeBg,
+		  "les trois cles resolvent sur les bons identifiants");
+
+	// 20c — ATTENDU ECRIT AVANT LA MESURE. Chacun doit DIFFERER entre sombre et
+	// clair. C'est l'essai qui tombe si quelqu'un pose la valeur une seule fois,
+	// et c'est la faute que ce fichier a deja vue deux fois.
+	const bool troisDifferents =
+		d.Get(NkRole::CodeBg) != l.Get(NkRole::CodeBg) &&
+		d.Get(NkRole::CodeOutBg) != l.Get(NkRole::CodeOutBg) &&
+		d.Get(NkRole::InlineCodeBg) != l.Get(NkRole::InlineCodeBg);
+	Check("20c", troisDifferents,
+		  "les TROIS surfaces rendent une couleur differente en sombre et en clair");
+
+	// 20d — et distinctes ENTRE ELLES dans chaque theme. Trois roles qui
+	// rendraient la meme couleur seraient un inventaire, pas une palette.
+	const bool distinctes =
+		d.Get(NkRole::CodeBg) != d.Get(NkRole::CodeOutBg) &&
+		d.Get(NkRole::CodeBg) != d.Get(NkRole::InlineCodeBg) &&
+		d.Get(NkRole::CodeOutBg) != d.Get(NkRole::InlineCodeBg) &&
+		l.Get(NkRole::CodeBg) != l.Get(NkRole::CodeOutBg) &&
+		l.Get(NkRole::CodeBg) != l.Get(NkRole::InlineCodeBg) &&
+		l.Get(NkRole::CodeOutBg) != l.Get(NkRole::InlineCodeBg);
+	Check("20d", distinctes,
+		  "les trois sont distinctes entre elles, dans CHAQUE theme");
+
+	// 20e — LE POINT DE LA CAPTURE : la sortie est plus claire que l'entree en
+	// SOMBRE, et plus sombre qu'elle en CLAIR. C'est l'ORDRE qui porte le sens
+	// (« ce qui est RENDU se detache de ce qui a ete RECU »), et il s'inverse
+	// avec le theme. Un lot qui recopierait la valeur sombre en clair passerait
+	// 20c et 20d, et tomberait ici.
+	const float32 cSombre = NkTheme::Contrast(d.Get(NkRole::CodeOutBg), d.Get(NkRole::PanelBg));
+	const float32 cSombreIn = NkTheme::Contrast(d.Get(NkRole::CodeBg), d.Get(NkRole::PanelBg));
+	const float32 cClair = NkTheme::Contrast(l.Get(NkRole::CodeOutBg), l.Get(NkRole::PanelBg));
+	const float32 cClairIn = NkTheme::Contrast(l.Get(NkRole::CodeBg), l.Get(NkRole::PanelBg));
+	Check("20e", cSombre > cSombreIn && cClair > cClairIn,
+		  "la SORTIE s'ecarte du fond de panneau plus que l'ENTREE, dans les deux themes");
+	printf("         ecart au PanelBg : sombre in=%.3f out=%.3f | clair in=%.3f out=%.3f\n",
+		   (double)cSombreIn, (double)cSombre, (double)cClairIn, (double)cClair);
+
+	// 20f — LE CONTRASTE DU TEXTE, contre le seuil que le kit s'impose. Les
+	// QUATRE paires neuves sont dans `ContrastPairs` : `Validate` echoue si
+	// l'une tombe. La plus serree est {TextMuted, CodeBg} en clair -- 4,66 pour
+	// 4,50 exiges, et seulement parce que `Validate` COMPOSITE le noir
+	// translucide au lieu de le lire comme du noir pur.
+	NkThemeIssue pireD, pireL;
+	Check("20f", d.Validate(&pireD) == 0 && l.Validate(&pireL) == 0,
+		  "les deux themes passent leurs seuils, les 4 paires neuves comprises");
+	if (l.Validate(nullptr) != 0)
+		printf("         pire paire claire : %s sur %s = %.2f (exige %.2f)\n",
+			   NkRoleName(pireL.fg), NkRoleName(pireL.bg), (double)pireL.ratio,
+			   (double)pireL.required);
+
+	// 20g — LE REPLI, sur le cas REEL : un theme de fichier ecrit avant
+	// aujourd'hui ne porte aucune des trois lignes.
+	NkRoleAudit::Reset();
+	NkTheme ancien;                                 // tout magenta, sentinelles posees
+	ancien.Set(NkRole::LabelCol, 0x161B22FFu);      // le repli de CodeBg est pose
+	ancien.Set(NkRole::Border, 0x30363DFFu);        // celui d'InlineCodeBg aussi
+	Check("20g", ancien.GetBrut(NkRole::CodeBg) == NkThemeNonDefini &&
+					 ancien.GetBrut(NkRole::CodeOutBg) == NkThemeNonDefini,
+		  "controle de depart : dans ce theme, les surfaces n'ont PAS ete posees");
+	const NkThemeColor pCode = ancien.Get(NkRole::CodeBg);
+	const NkThemeColor pOut = ancien.Get(NkRole::CodeOutBg);
+	const NkThemeColor pInline = ancien.Get(NkRole::InlineCodeBg);
+	Check("20h", pCode == 0x161B22FFu && pInline == 0x30363DFFu,
+		  "un role non pose prend la couleur de son repli, pas la sentinelle");
+	// 20i — LA CHAINE A DEUX SAUTS : CodeOutBg -> CodeBg -> LabelCol. Aucun des
+	// deux premiers n'est pose ; sans le chainage, `pOut` serait transparent.
+	Check("20i", pOut == 0x161B22FFu,
+		  "CodeOutBg remonte DEUX crans (-> CodeBg -> LabelCol) au lieu de disparaitre");
+	// 20j — et le repli s'ANNONCE. Un repli muet est exactement le defaut du
+	// 14/09 : la couleur etait plausible et personne ne savait qu'elle etait
+	// empruntee.
+	Check("20j", NkRoleAudit::RepliCount() >= 3,
+		  "les trois emprunts sont ANNONCES dans NkRoleAudit, pas silencieux");
+
+	// 20k — CONTROLE NEGATIF. Sur un theme complet, aucun des trois ne doit
+	// declencher de repli. Sans lui, un `Get` qui replierait toujours passerait
+	// 20h et 20i sans rien prouver.
+	NkRoleAudit::Reset();
+	(void)d.Get(NkRole::CodeBg);
+	(void)d.Get(NkRole::CodeOutBg);
+	(void)d.Get(NkRole::InlineCodeBg);
+	(void)l.Get(NkRole::CodeBg);
+	(void)l.Get(NkRole::CodeOutBg);
+	(void)l.Get(NkRole::InlineCodeBg);
+	Check("20k", NkRoleAudit::RepliCount() == 0,
+		  "controle negatif : sur les themes livres, AUCUN des trois n'emprunte");
+	NkRoleAudit::Reset();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FAMILLE 21 — LE CONTRAT DE DONNEES DU FIL (NkAiThread.h, 20/09/2026)
+//
+//  CE QU'ELLE MESURE : qu'un bloc SANS PRODUCTEUR REEL ne peut pas entrer dans
+//  le fil, et qu'un bloc incomplet non plus. C'est la traduction executable de
+//  la regle que deux chantiers ont ecrite separement -- `NkBrushDesc.h`
+//  (« aucune primitive declaree sans etre implementee ») et `NkAiPanel.h`
+//  (« pas de fausse carte d'outil qui ne ferait rien ») -- et de ce que Rodolf
+//  a subi le matin du 20/09 : dix controles dont il ne comprenait pas l'usage.
+//
+//  ⚠️ CE QU'ELLE NE MESURE PAS, ET QUI VIENDRA AU LOT SUIVANT : que le fil se
+//     PEIGNE juste. Aucun banc console ne le dit. Le temoin du peintre comparera
+//     des rectangles PUBLIES PAR LEURS PEINTRES, place EN AVAL de la passe --
+//     place en amont il lirait des zeros et conclurait « conforme », faute
+//     payee le 20/09 meme sur le panneau du modeleur.
+static void Famille21_ContratDuFil() {
+	printf("\n[Famille 21] le contrat de donnees du fil\n");
+
+	auto Bloc = [](NkAiBloc t, const char *texte) {
+		NkAiBlocDonnees b;
+		b.type = t;
+		b.texte = NkString(texte);
+		return b;
+	};
+
+	// 21a — un porteur qui n'a RIEN declare n'accepte que la demande de
+	// l'utilisateur. Le defaut permissif serait le defaut invisible.
+	{
+		NkAiFil fil;
+		NkString pourquoi;
+		const bool dem = fil.Pousser(Bloc(NkAiBloc::Demande, "subdivise le cube"), pourquoi);
+		const bool pro = fil.Pousser(Bloc(NkAiBloc::Prose, "voila"), pourquoi);
+		Check("21a", dem && !pro && fil.Taille() == 1,
+			  "porteur muet : la DEMANDE entre (elle vient de l'utilisateur), la prose non");
+		printf("         motif du refus : %s\n", pourquoi.CStr());
+	}
+
+	// 21b — LE POINT DU LOT. `Reflexion` n'a aucun producteur aujourd'hui : meme
+	// un porteur qui declare TOUT LE RESTE ne peut pas en pousser une.
+	// ⚠️ CET ESSAI EST ECRIT POUR TOMBER le jour ou un dorsal emettra vraiment
+	//    de la reflexion -- il faudra alors poser `produitReflexion` ET changer
+	//    cette ligne. C'est voulu : *un contournement dit quand le supprimer.*
+	{
+		NkAiCapacites tout;
+		tout.produitProse = tout.produitOutil = tout.produitRefus = true;
+		tout.produitEchec = tout.produitEffet = true; // tout SAUF la reflexion
+		NkAiFil fil;
+		fil.Declarer(tout);
+		NkString pourquoi;
+		const bool refl = fil.Pousser(Bloc(NkAiBloc::Reflexion, "hmm"), pourquoi);
+		Check("21b", !refl && fil.Taille() == 0,
+			  "un bloc « reflexion » n'entre PAS : aucun dorsal n'en emet aujourd'hui");
+		printf("         motif du refus : %s\n", pourquoi.CStr());
+	}
+
+	// 21c — CONTROLE NEGATIF DE 21b. Sans lui, un `Pousser` qui refuserait TOUT
+	// passerait 21a et 21b sans rien prouver. Le jour ou la reflexion aura une
+	// source, ce meme chemin doit l'accepter -- on le verifie des maintenant en
+	// posant le drapeau a la main.
+	{
+		NkAiCapacites c = NkAiCapacites::Texte();
+		c.produitReflexion = true; // ce qu'un dorsal fera le jour venu
+		NkAiFil fil;
+		fil.Declarer(c);
+		NkString pourquoi;
+		const bool refl = fil.Pousser(Bloc(NkAiBloc::Reflexion, "hmm"), pourquoi);
+		Check("21c", refl && fil.Taille() == 1,
+			  "controle negatif : DECLAREE, la reflexion entre -- le refus vise le type, pas tout");
+	}
+
+	// 21d — un bloc INCOMPLET n'entre pas, meme si son type est declare. Un
+	// refus sans motif est le defaut exact que le modeleur a paye le 20/09 au
+	// matin : Ollama eteint, annonce comme un fichier manquant.
+	{
+		NkAiCapacites c = NkAiCapacites::Texte();
+		c.produitRefus = true;
+		c.produitEffet = true;
+		NkAiFil fil;
+		fil.Declarer(c);
+		NkString p1, p2, p3;
+		NkAiBlocDonnees refusMuet;
+		refusMuet.type = NkAiBloc::Refus; // motif vide
+		NkAiBlocDonnees effetVide;
+		effetVide.type = NkAiBloc::Effet; // effet vide
+		const bool r1 = fil.Pousser(refusMuet, p1);
+		const bool r2 = fil.Pousser(effetVide, p2);
+		const bool r3 = fil.Pousser(Bloc(NkAiBloc::Prose, ""), p3);
+		Check("21d", !r1 && !r2 && !r3 && fil.Taille() == 0,
+			  "refus sans motif, effet sans mesure, prose vide : les trois sont refuses");
+		printf("         motifs : %s | %s\n", p1.CStr(), p2.CStr());
+	}
+
+	// 21e — LES DEUX RAISONS DE REFUS SE DISTINGUENT. « le porteur ne produit
+	// pas ce type » et « ce bloc est incomplet » demandent deux corrections
+	// OPPOSEES : declarer, ou remplir. Un booleen seul enverrait chercher la
+	// mauvaise, et c'est le genre de message qui fait perdre une heure.
+	{
+		NkAiCapacites c = NkAiCapacites::Texte();
+		NkAiFil fil;
+		fil.Declarer(c);
+		NkString pType, pVide;
+		NkAiBlocDonnees outil;
+		outil.type = NkAiBloc::Outil;
+		outil.titre = NkString("Bash");
+		(void)fil.Pousser(outil, pType);          // type non declare
+		(void)fil.Pousser(Bloc(NkAiBloc::Prose, ""), pVide); // type OK, bloc vide
+		const bool distincts = pType.Length() > 0 && pVide.Length() > 0 &&
+							   !Same(pType.CStr(), pVide.CStr());
+		Check("21e", distincts,
+			  "les deux raisons de refus rendent DEUX motifs differents, pas un booleen");
+	}
+
+	// 21f — LA DEMANDE N'EST JAMAIS REPLIEE, meme poussee repliee. C'est la
+	// capture : la question est encadree en tete, lisible sans un geste.
+	{
+		NkAiFil fil;
+		NkString pourquoi;
+		NkAiBlocDonnees d = Bloc(NkAiBloc::Demande, "subdivise le cube deux fois");
+		d.replie = true; // on essaie de la replier
+		(void)fil.Pousser(d, pourquoi);
+		Check("21f", fil.Taille() == 1 && !fil.At(0).replie,
+			  "la DEMANDE entre depliee, meme poussee repliee");
+		fil.BasculerParId(fil.At(0).id); // par le NOM, jamais la position (corrige le 20/09 au soir)
+		Check("21g", !fil.At(0).replie,
+			  "et elle ne se replie pas non plus au clic : une question repliee n'en est plus une");
+	}
+
+	// 21h — LA FENETRE GLISSANTE PERD LE PLUS ANCIEN, JAMAIS LE PLUS RECENT.
+	// ⚠️ Ecrit parce que l'implementation naive fait l'inverse : un plafond
+	//    applique AVANT l'ajout REFUSE le bloc neuf. La sortie de l'utilisateur
+	//    est la meme (« le fil ne grandit plus »), la perte est l'opposee.
+	{
+		NkAiFil fil;
+		fil.Declarer(NkAiCapacites::Texte());
+		fil.PoserPlafond(3);
+		NkString pourquoi;
+		for (int i = 0; i < 6; ++i) {
+			char t[16];
+			snprintf(t, sizeof(t), "bloc %d", i);
+			(void)fil.Pousser(Bloc(NkAiBloc::Prose, t), pourquoi);
+		}
+		const bool bonneFin = fil.Taille() == 3 && Same(fil.At(2).texte.CStr(), "bloc 5") &&
+							  Same(fil.At(0).texte.CStr(), "bloc 3");
+		Check("21h", bonneFin,
+			  "plafond 3 apres 6 blocs : il reste 3, 4, 5 -- le PLUS RECENT survit");
+	}
+
+	// 21i — LA MARQUE. Elle compte ce qui n'a pas ete PEINT, et elle ne se
+	// consomme qu'a la peinture. C'est la lecon de `d31c127e9` remontee dans le
+	// kit : consommee au clic, elle marquerait « vu » un panneau que ce clic
+	// venait peut-etre de fermer.
+	{
+		NkAiFil fil;
+		fil.Declarer(NkAiCapacites::Texte());
+		NkString pourquoi;
+		(void)fil.Pousser(Bloc(NkAiBloc::Prose, "a"), pourquoi);
+		(void)fil.Pousser(Bloc(NkAiBloc::Prose, "b"), pourquoi);
+		const uint32 avant = fil.NonVus();
+		fil.MarquerVus();
+		const uint32 apres = fil.NonVus();
+		(void)fil.Pousser(Bloc(NkAiBloc::Prose, "c"), pourquoi);
+		Check("21i", avant == 2 && apres == 0 && fil.NonVus() == 1,
+			  "la marque compte les blocs non peints : 2, puis 0, puis 1");
+	}
+
+	// 21j — ET ELLE NE MENT PAS A LA REMISE A ZERO. Une nouvelle conversation
+	// n'a rien a faire voir : la pastille ne doit pas rester marquee pour des
+	// blocs qui n'existent plus.
+	{
+		NkAiFil fil;
+		fil.Declarer(NkAiCapacites::Texte());
+		NkString pourquoi;
+		(void)fil.Pousser(Bloc(NkAiBloc::Prose, "a"), pourquoi);
+		fil.Vider();
+		Check("21j", fil.Taille() == 0 && fil.NonVus() == 0,
+			  "un fil vide ne laisse AUCUN bloc en attente derriere lui");
+	}
+
+	// 21k — chaque type porte une cle stable et non vide : c'est l'acces du
+	// FICHIER, celui d'un fil enregistre et des journaux.
+	{
+		bool tous = true;
+		for (uint8 i = 0; i < (uint8)NkAiBloc::Count; ++i)
+			if (NkAiBlocNom((NkAiBloc)i)[0] == '\0')
+				tous = false;
+		Check("21k", tous, "les sept types de bloc portent tous une cle stable non vide");
+	}
 }
 
 //  ⚠️ NUMEROTATION : 16 et 19, avec un TROU en 17-18. La famille 15 est
@@ -920,6 +1276,8 @@ int main(int argc, char **argv) {
 	Famille3_RepliFranc();
 	Famille4_BackendGraphique();
 	Famille15_RolesAlerte();
+	Famille20_SurfacesCode();
+	Famille21_ContratDuFil();
 	// Famille 5 — le rail du selecteur. Elle tient son propre compte et rend un
 	// BILAN : on additionne les deux nombres, sinon deux echecs vaudraient un.
 	{
@@ -947,6 +1305,150 @@ int main(int argc, char **argv) {
 		gPassed += ok19;
 		gFailed += (total19 - ok19);
 	}
+
+	// Famille 22 - le plan du fil du panneau IA. Meme forme que 5, 16 et 19 :
+	// elle tient son propre compte et rend un BILAN, quon ADDITIONNE -- sinon
+	// deux echecs vaudraient un.
+	{
+		printf("\n--- Famille 22 : le plan du fil (panneau IA) ---\n");
+		const aiplanprobe::Bilan b22 = aiplanprobe::Sonder();
+		printf("  famille 22 : %u/%u\n", b22.ok, b22.total);
+		gPassed += b22.ok;
+		gFailed += (b22.total - b22.ok);
+	}
+
+	// Famille 23 - la transcription du plan en commandes de dessin. Elle
+	// branche l'enregistreur headless que le kit portait deja.
+	{
+		printf("\n--- Famille 23 : la transcription du plan ---\n");
+		const aipaintprobe::Bilan b23 = aipaintprobe::Sonder();
+		printf("  famille 23 : %u/%u\n", b23.ok, b23.total);
+		gPassed += b23.ok;
+		gFailed += (b23.total - b23.ok);
+	}
+
+	// Famille 24 - le PANNEAU IA ENTIER du kit (21/09) : une conversation par
+	// assistant, les menus, et son IMAGE a cote de la capture cible.
+	{
+		printf("\n--- Famille 24 : le panneau IA entier, et son image ---\n");
+		const aipanneauprobe::Bilan b24 = aipanneauprobe::Sonder();
+		printf("  famille 24 : %u/%u\n", b24.ok, b24.total);
+		gPassed += b24.ok;
+		gFailed += (b24.total - b24.ok);
+	}
+
+	// ═══ (25/09) LA VIGNETTE SUIT LE CHAT — aller-retour par le disque ═══════
+	//
+	// 🔴 CE QUE CE CRITERE EMPECHE DE REVENIR : la vignette du resultat etait
+	//    calculee, affichee... et PERDUE a la fermeture. Le fichier de chats
+	//    portait DIX champs, aucun n'etait `vignette`. Rouvrir une conversation
+	//    rendait le texte des etapes ET UNE TOILE VIDE a cote : ce que le bloc
+	//    disait avoir pose n'etait plus montrable.
+	//
+	// ⚠️ L'ALLER-RETOUR PASSE PAR LE DISQUE, pas par une copie en memoire : c'est
+	//    l'ECRITURE et la RELECTURE qu'on met en doute, pas la structure.
+	{
+		using namespace nkentseu::editorkit;
+		const char *chemin = "kit_vignette_chat.txt";
+		bool okEcrit = false, okRelu = false, memeRect = false, memeRapport = false;
+		{
+			NkAiPanneau pan;
+			NkAiFil fil;
+			pan.Lier(&fil);
+			// ⚠️ LA CAPACITE SE DECLARE, SINON LE BLOC EST REFUSE -- et c'est le
+			//    banc qui me l'a appris, pas la relecture : les capacites par defaut
+			//    sont `Texte()`, qui ne produit pas d'`Outil`. Le fichier sortait sans
+			//    AUCUNE ligne `bloc`, et l'aller-retour echouait pour une raison qui
+			//    n'avait rien a voir avec la vignette.
+			pan.capacites.produitOutil = true;
+			NkAiBlocDonnees d;
+			d.type = NkAiBloc::Outil;
+			d.titre = nkentseu::NkString("Design");
+			d.texte = nkentseu::NkString("Pose");
+			d.vignetteRapport = 0.625f;
+			NkAiBlocDonnees::Vignette a;
+			a.x = 0.1f; a.y = 0.2f; a.w = 0.3f; a.h = 0.4f; a.genre = 2;
+			NkAiBlocDonnees::Vignette b;
+			b.x = 0.5f; b.y = 0.6f; b.w = 0.25f; b.h = 0.125f; b.genre = 3;
+			d.vignette.PushBack(a);
+			d.vignette.PushBack(b);
+			nkentseu::NkString pq;
+			// ⚠️ PAR `pan.Fil()`, PAS PAR LE FIL BRUT, et le banc me l'a appris :
+			//    `Fil()` DECLARE les capacites avant de rendre le fil, et `Pousser`
+			//    REFUSE un bloc dont le type n'est pas declare. Ma premiere version
+			//    poussait dans `fil` directement et ignorait le refus avec un
+			//    `(void)` : le fichier sortait sans AUCUNE ligne `bloc`, et
+			//    l'aller-retour echouait -- pour une raison qui n'avait rien a voir
+			//    avec la vignette. *Un refus qu'on jette est un defaut qu'on deplace.*
+			const bool pousse = pan.Fil().Pousser(d, pq);
+			okEcrit = pousse && pan.EnregistrerChats(chemin);
+		}
+		{
+			NkAiPanneau pan2;
+			NkAiFil fil2;
+			pan2.Lier(&fil2);
+			// ⚠️ ET LA MEME CAPACITE A LA RELECTURE : sans elle, le bloc relu est
+			//    refuse a son tour et le fil revient VIDE -- l'ecriture etait bonne,
+			//    la lecture jetait. Un aller-retour se declare aux DEUX bouts.
+			pan2.capacites.produitOutil = true;
+			okRelu = pan2.ChargerChats(chemin);
+			if (okRelu && fil2.Taille() > 0) {
+				const NkAiBlocDonnees &r = fil2.At(fil2.Taille() - 1);
+				memeRapport = r.vignetteRapport > 0.624f && r.vignetteRapport < 0.626f;
+				if (r.vignette.Size() == 2) {
+					const NkAiBlocDonnees::Vignette &v0 = r.vignette[0];
+					const NkAiBlocDonnees::Vignette &v1 = r.vignette[1];
+					auto pres = [](float32 x, float32 y) { return x > y - 0.001f && x < y + 0.001f; };
+					memeRect = pres(v0.x, 0.1f) && pres(v0.y, 0.2f) && pres(v0.w, 0.3f) &&
+							   pres(v0.h, 0.4f) && v0.genre == 2 && pres(v1.x, 0.5f) &&
+							   pres(v1.w, 0.25f) && v1.genre == 3;
+				}
+			}
+		}
+		Check("25a", okEcrit && okRelu, "le chat s'ecrit et se relit");
+		Check("25b", memeRect,
+			  "les DEUX rectangles de la vignette reviennent, aux memes coordonnees et du meme genre");
+		Check("25c", memeRapport, "et le rapport du cadre revient aussi (0,625)");
+		nkentseu::NkFile::Delete(nkentseu::NkPath(chemin));
+	}
+
+
+	// ═══ (25/09) NkString : UNE AFFECTATION DEPUIS SON PROPRE TAMPON ═════════
+	//
+	// 🔴 `operator=(const char *)` faisait `Clear()` PUIS `Append(str)`. Si `str`
+	//    pointe dans le tampon de la chaine elle-meme, `Clear()` y a deja ecrit un
+	//    ' ' -- et `Append` peut en plus REALLOUER (petite chaine -> tas) en lisant
+	//    l'ancien. Une faute qui compile, qui passe souvent, et qui tombe parfois.
+	// ⚠️ LA GARDE DE `operator=(const NkString&)` NE COUVRAIT PAS CE CAS : elle teste
+	//    `this != &other`, ce qui protege `a = a` mais PAS `a = <un pointeur dans a>`.
+	{
+		using nkentseu::NkString;
+		{
+			NkString s("Modeles/bob/geometry_0.nkgeo");
+			s = s.CStr();
+			Check("26a", s == NkString("Modeles/bob/geometry_0.nkgeo"),
+				  "s = s.CStr() garde la chaine (elle devenait VIDE, en silence)");
+		}
+		{
+			NkString s("Modeles/bob/geometry_0.nkgeo");
+			s = s.CStr() + 8;
+			Check("26b", s == NkString("bob/geometry_0.nkgeo"),
+				  "s = s.CStr() + 8 garde la fin -- c'est le cas qui REALLOUE");
+		}
+		{
+			NkString s("court");
+			s = s.CStr() + 2;
+			Check("26c", s == NkString("urt"), "meme chose sur une PETITE chaine (sans tas)");
+		}
+		{
+			// NEGATIF : depuis une AUTRE chaine, rien ne doit changer -- la defense ne
+			// doit pas se declencher partout.
+			NkString a("alpha"), b("beta");
+			a = b.CStr();
+			Check("26d", a == NkString("beta"), "NEGATIF : depuis une AUTRE chaine, inchange");
+		}
+	}
+
 
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);

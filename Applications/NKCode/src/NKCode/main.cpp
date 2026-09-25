@@ -1,4 +1,5 @@
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // main.cpp — Point d'entree de NKCode (IDE type VSCode, base sur Jenga).
 // Coquille = NKEditorKit (sur NKGui). Panneaux : Explorateur (fichiers reels),
 // Editeur (onglets + saisie), Sortie (jenga build). Commandes : Construire /
@@ -22,6 +23,7 @@
 #include "NKCode/Shell/NkGitPanel.h"
 #include "NKCode/Shell/NkDebugPanel.h"
 #include "NKCode/Shell/NkAiPanel.h"
+#include "NKEditorKit/NkEditorScriptEvenements.h" // (Q9) NK_EVENEMENTS
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppFonts.h"
 #include "NKCode/Shell/NkAppIcons.h"
@@ -31,6 +33,7 @@
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
 #include "NKCode/Editor/NkSyntaxLangs.h" // coloration data-driven (CSS, JS, Lua…)
+#include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 
 #include <cstdio>
 #include <cstddef>
@@ -64,6 +67,130 @@ static nkcode::NkUpdateState g_update;
 static nkcode::NkJengaUpdateState g_jenga_update;
 
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LES CROCHETS DE PREUVE DU PANNEAU IA (21/09) — aucune injection d'entree
+// ═══════════════════════════════════════════════════════════════════════════
+//  NK_AI_PANNEAU=<assistant>,<image> : ouvre le panneau de cet assistant par la
+//      MEME porte que l'icone de la barre d'activite (OpenSideExclusive).
+//  NK_AI_IMAGE=<chemin>,<image>      : l'image du panneau, rendue par NKCode --
+//      sa liste d'affichage COMPLETE, rasterisee sans GPU, decoupee au rectangle
+//      que le panneau a PUBLIE. Jamais une capture de l'ecran.
+//  NK_AGENT_EXIT=<image>             : ferme CETTE instance (RequestQuit).
+//  Ils ne sont poses que si l'une des variables existe : un lancement normal ne
+//  change pas d'un octet.
+static nkcode::AiPanel *gPanneauxIA[4] = {nullptr, nullptr, nullptr, nullptr};
+
+static nkentseu::int32 NkLireImage(const char *v, char *texte, nkentseu::usize cap, nkentseu::int32 defaut) {
+	const char *virg = nullptr;
+	for (const char *c = v; *c; ++c)
+		if (*c == ',')
+			virg = c;
+	nkentseu::usize n = 0;
+	for (const char *c = v; *c && (!virg || c < virg) && n + 1u < cap; ++c)
+		texte[n++] = *c;
+	texte[n] = 0;
+	return virg ? (nkentseu::int32)std::atoi(virg + 1) : defaut;
+}
+
+static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W, nkentseu::int32 H, void *u) {
+	using namespace nkentseu;
+	auto *sh = static_cast<NkEditorShell *>(u);
+	static int32 sImage = 0;
+	static int32 sOuvre = -2, sPhoto = -2, sSortie = -2;
+	static char sQui[64] = {0}, sChemin[256] = {0};
+	if (sOuvre == -2) {
+		const char *a = std::getenv("NK_AI_PANNEAU");
+		sOuvre = a ? NkLireImage(a, sQui, sizeof(sQui), 30) : -1;
+		const char *b = std::getenv("NK_AI_IMAGE");
+		sPhoto = b ? NkLireImage(b, sChemin, sizeof(sChemin), 120) : -1;
+		const char *c = std::getenv("NK_AGENT_EXIT");
+		sSortie = c ? (int32)std::atoi(c) : -1;
+	}
+	++sImage;
+	{
+		// (Q9) NK_EVENEMENTS : rejoue par les rappels de la coquille
+		static editorkit::NkEditorScriptEvenements sScript;
+		sScript.Tick();
+	}
+	if (const char *v = std::getenv("NK_AI_ETAT"))
+		for (const char *c = v; *c;) {
+			if (std::atoi(c) == sImage)
+				for (int32 k = 0; k < 4; ++k)
+					if (gPanneauxIA[k] && gPanneauxIA[k]->IsOpen()) {
+						gPanneauxIA[k]->Kit().TracerEtat(ui, "nkcode", sImage);
+						break;
+					}
+			while (*c && *c != ',')
+				++c;
+			if (*c == ',')
+				++c;
+		}
+	if (sImage == sOuvre && sh) {
+		int32 gN = 0;
+		const char *const *g = nkcode::SideRightGroup(gN);
+		nkcode::OpenSideExclusive(sh, g, gN, sQui);
+		printf("[nkcode] AI PANNEAU image=%d : « %s » ouvert\n", (int)sImage, sQui);
+		fflush(stdout);
+	}
+	if (sImage == sPhoto) {
+		editorkit::NkPaintRect r{};
+		const char *qui = "";
+		for (int32 k = 0; k < 4; ++k)
+			if (gPanneauxIA[k] && gPanneauxIA[k]->IsOpen() && gPanneauxIA[k]->Kit().rect.w > 0.f) {
+				r = gPanneauxIA[k]->Kit().rect;
+				qui = gPanneauxIA[k]->Title();
+				break;
+			}
+		const nkgui::NkGuiFont *polices[3] = {ui.font, sh ? sh->TermCodeFont() : nullptr,
+											  nkcode::AiPanel::PoliceCorpsIA().Valid() ? &nkcode::AiPanel::PoliceCorpsIA()
+																					   : nullptr};
+		const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
+		char c1[300], c2[300];
+		snprintf(c1, sizeof(c1), "%s.png", sChemin);
+		snprintf(c2, sizeof(c2), "%s_fenetre.png", sChemin);
+		const uint32 fond = sh ? sh->KitTheme().Get(editorkit::NkRole::WindowBg) : 0x010409FFu;
+		const editorkit::NkAiImageResultat r1 =
+			editorkit::NkAiEcrireImageListes(listes, 2, W, H, r.x, r.y, r.w, r.h, polices, 3, fond, c1);
+		const editorkit::NkAiImageResultat r2 = editorkit::NkAiEcrireImageListes(
+			listes, 2, W, H, 0.f, 0.f, (float32)W, (float32)H, polices, 3, fond, c2);
+		printf("[nkcode] AI IMAGE image=%d panneau « %s » (%.0f,%.0f,%.0f,%.0f) : %s | %s\n", (int)sImage, qui,
+			   (double)r.x, (double)r.y, (double)r.w, (double)r.h, r1.ok ? r1.message : "ECHEC",
+			   r2.ok ? r2.message : "ECHEC");
+		fflush(stdout);
+	}
+	// NK_AI_MENU=<modeles|modes|fournisseurs|plus>,<image> (Q5) : ouvre un menu du
+	// kit comme son clic -- l'etat qu'un clic ecrirait, aucune entree injectee.
+	{
+		static int32 sMenuQuand = -2;
+		static char sMenu[32] = {0};
+		if (sMenuQuand == -2) {
+			const char *m = std::getenv("NK_AI_MENU");
+			sMenuQuand = m ? NkLireImage(m, sMenu, sizeof(sMenu), 800) : -1;
+		}
+		if (sImage == sMenuQuand)
+			for (int32 k = 0; k < 4; ++k)
+				if (gPanneauxIA[k] && gPanneauxIA[k]->IsOpen()) {
+					editorkit::NkAiPanneau &kit = gPanneauxIA[k]->KitModifiable();
+					const editorkit::NkAiMenu mm = std::strcmp(sMenu, "modeles") == 0 ? editorkit::NkAiMenu::Modeles
+												   : std::strcmp(sMenu, "modes") == 0 ? editorkit::NkAiMenu::Modes
+												   : std::strcmp(sMenu, "plus") == 0  ? editorkit::NkAiMenu::Plus
+																					  : editorkit::NkAiMenu::Fournisseurs;
+					kit.OuvrirMenu(mm, kit.Actif());
+					printf("[nkcode] AI MENU image=%d : %s\n", (int)sImage, sMenu);
+					fflush(stdout);
+					break;
+				}
+	}
+	if (sImage == sSortie && sh) {
+		// LA SONDE SE FERME ELLE-MEME, par la porte que la confirmation emprunte :
+		// `RequestQuit` seul est VETOE par la question « quitter ? » (voulue pour
+		// la main). Cette fenetre est la notre -- aucune autre n'est touchee.
+		g_state.quitConfirmed = true;
+		g_state.ConfirmQuit();
+	}
+}
+
 int nkmain(const NkEntryState &state) {
 	(void)state;
 
@@ -87,7 +214,10 @@ int nkmain(const NkEntryState &state) {
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
-	cfg.title = "NKCode - IDE (Jenga)";
+	// ⚠️ UNE FENETRE DE SONDE SE DENONCE (21/09) : `NK_SONDE` -- le meme marqueur
+	//    que NK3DModeler. Sans lui, pas un caractere ne change.
+	cfg.title = std::getenv("NK_SONDE") ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** NKCode"
+										: "NKCode - IDE (Jenga)";
 	cfg.width = 1440; // grande fenetre centree, REDIMENSIONNABLE (pas maximisee de force)
 	cfg.height = 900;
 	// ── BACKEND DE RENDU, INJECTE ────────────────────────────────────────
@@ -152,6 +282,12 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::AiPanel claudePanel(&g_state, shell.Get(), 1, "Claude Code");
 	static nkcode::AiPanel codexPanel(&g_state, shell.Get(), 2, "Codex");
 	static nkcode::AiPanel nkaiPanel(&g_state, shell.Get(), 3, "NkAI");
+	gPanneauxIA[0] = &aiPanel;
+	gPanneauxIA[1] = &claudePanel;
+	gPanneauxIA[2] = &codexPanel;
+	gPanneauxIA[3] = &nkaiPanel;
+	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT"))
+		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
 	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);
 	shell->AddPanel(&pSearch);

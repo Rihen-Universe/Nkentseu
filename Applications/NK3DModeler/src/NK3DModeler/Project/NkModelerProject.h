@@ -165,6 +165,16 @@ namespace nkentseu {
 				// faire.
 				uint32 tex = 0;
 
+				// ── (25/09) LE FICHIER EXISTE-T-IL ENCORE ? ──────────────────────
+				// Mesure du 24/09 : sur les 20 premieres cartes de Rodolf, DIX-NEUF
+				// pointaient vers des projets sans aucun `.nkscene` -- des coquilles creees
+				// par des courses de mesure, dans un repertoire de session. Elles
+				// s'affichaient comme les autres, et cliquer dessus ne pouvait qu'echouer.
+				// ⚠️ MESURE UNE FOIS, PAS A CHAQUE IMAGE : un `Exists` par carte et par
+				//    image, c'est un acces disque par carte, soixante fois par seconde.
+				//    0 = pas encore regarde, 1 = present, 2 = introuvable.
+				uint8 etatFichier = 0;
+
 				/// Chemin ABSOLU de la couverture, ou chaine vide.
 				NkString CoverAbs() const;
 		};

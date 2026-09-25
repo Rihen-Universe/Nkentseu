@@ -345,9 +345,13 @@ namespace nkentseu {
 		// navigateur). Meme regle que l'import : pas de confinement au projet,
 		// depart a la racine. Les extensions sont celles que le generateur
 		// (Tools/Genia/genia_triposr.py, via Pillow) lit REELLEMENT.
-		inline void NkPickerOuvrirImage(NkModelerState &st) {
+		/// (Q11) `dossier` force le repertoire de depart. Il ne sert qu'a la MESURE
+		/// des miniatures (porte `NK_VIGNETTES`) : a nullptr, le comportement est
+		/// celui du 20/09, mot pour mot -- on part de la racine du projet.
+		inline void NkPickerOuvrirImage(NkModelerState &st, const char *dossier = nullptr) {
 			st.picker.OpenPickerBase(editorkit::NkFilePickerState::PK_File,
-									 st.projectRoot.CStr(), nullptr, 0, nullptr);
+									 (dossier && *dossier) ? dossier : st.projectRoot.CStr(), nullptr, 0,
+									 nullptr);
 			st.picker.filtres.Clear();
 			st.picker.filtreActif = 0;
 			st.picker.AjouterFiltre("Images (.png .jpg .jpeg .webp .bmp)", "png;jpg;jpeg;webp;bmp");

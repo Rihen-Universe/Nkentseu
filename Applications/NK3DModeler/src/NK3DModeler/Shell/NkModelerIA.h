@@ -39,6 +39,7 @@
 #include "NK3DModeler/Shell/NkModelerContrat.h"
 #include "NK3DModeler/Shell/NkModelerInput.h" // NkModelerState, NkVpAction
 #include "NKConverse/NkConverseChatAsync.h"
+#include "NKConverse/NkConverseClaude.h" // le dorsal DISTANT, choisi par l'onglet
 
 #include <cstdio>
 #include <cstdlib>
@@ -148,6 +149,30 @@ namespace nkentseu {
 			}
 			ajout("\nUne valeur hors bornes est ramenee aux bornes ; un parametre en trop est\n");
 			ajout("refuse.\n");
+			//
+			// -- COMMENT SEPARER DEUX COMMANDES : LE TROU QUI NOUS FAISAIT ACCUSER --
+			// -- LE MODELE ---------------------------------------------------------
+			//
+			// Ce contrat decrivait les parametres d UNE commande et ne disait NULLE
+			// PART ou finit l une et ou commence l autre. Le modele enchainait donc
+			// avec des deux-points -- `toggleedit:selectall:subdivide` -- les trois bons
+			// verbes, dans le bon ordre, et l extracteur les rejetait.
+			//
+			// Mesure sur 378 appels : FORMAT exploitable 0/10 avec le contrat tel
+			// quel, 7/10 avec ces lignes. *On accusait le modele d un trou de notre
+			// contrat.*
+			//
+			// [!] C EST L EXEMPLE SUR DEUX LIGNES QUI A FAIT LA DIFFERENCE, pas la
+			//     regle enoncee seule : on garde donc les deux, et on ne resume pas.
+			// [!] ET LE CHIFFRE EST OPTIMISTE, la formulation ayant ete ecrite apres
+			//     lecture des echecs. Le 0/10 du contrat d avant, lui, est aveugle.
+			ajout("\nLa demande peut demander PLUSIEURS operations a la suite. Dans ce cas,\n");
+			ajout("ecris UNE commande PAR LIGNE, dans l\'ordre d\'execution.\n");
+			ajout("Les deux-points ne separent JAMAIS deux commandes : ils ne servent qu\'aux\n");
+			ajout("parametres d\'UNE SEULE commande.\n");
+			ajout("Exemple, pour « selectionne tout puis subdivise deux fois » :\n");
+			ajout("selectall\n");
+			ajout("subdivide:2\n");
 		}
 
 		// ── LA REPONSE -> UN VERBE ─────────────────────────────────────────────
@@ -203,6 +228,728 @@ namespace nkentseu {
 			return false;
 		}
 
+		// =====================================================================
+		//  LA BOUCLE — « fais X jusqu'a ce que Y »
+		// =====================================================================
+		//  ⚠️ CE QUI EST MESURE, ET CE QUI NE L'EST PAS. L'addendum ci-dessous est
+		//     le texte EXACT du banc P1/P2 du 20/09 :
+		//       claude/sonnet : P1 12/12 sur les trois axes, P2 8/8, 0 predicat invente
+		//       qwen2.5:7b    : P1 7/12 (triplet), P2 5/8, 3 predicats INVENTES
+		//     Seuil ecrit d'avance : P1 >= 10 ET P2 >= 6. Claude passe, qwen non.
+		//     ⚠️ CE QUI N'EST PAS MESURE : la sortie A DEUX LIGNES (le verbe PUIS
+		//        le predicat) dans un MEME appel. P1 ne demandait que le predicat,
+		//        le verbe venant de M1 (10/10) dans un appel separe. Les deux
+		//        moities sont mesurees, **leur reunion ne l'est pas.** Elle se
+		//        mesure par 12 appels, et tant que ce n'est pas fait, ce chiffre
+		//        n'existe pas -- ne pas lire le 12/12 de P1 comme s'il couvrait
+		//        cette forme.
+		//
+		//  ⚠️ LE MODELE EST APPELE **UNE FOIS**, PAS UNE FOIS PAR TOUR. Il traduit
+		//     la demande en (verbe, predicat) et sort de la boucle. Ensuite
+		//     l'application applique, LIT ses compteurs, evalue, recommence. Les
+		//     tours suivants ne quittent pas la machine et ne coutent rien.
+		//     C'est la forme que la mesure U7 donnait deja a 10/10 : *la condition
+		//     d'arret appartient a la boucle, pas au modele.*
+
+		// =====================================================================
+		//  LES LOIS DE CROISSANCE : CE QUI EST MESURE, ET CE QUI NE L'EST PAS
+		// =====================================================================
+		//  ⚠️ CETTE LISTE EXISTE PARCE QUE `NkIaPasSur` NE PEUT PREDIRE QUE CE
+		//     QU'ON A MESURE. Elle est ecrite pour que la personne suivante
+		//     trouve le travail fait, et non pour qu'elle croie les chiffres :
+		//     il n'y en a qu'UN ici.
+		//
+		//  LES SEPT VERBES BOUCLABLES SE PARTAGENT EN DEUX FAMILLES, et la
+		//  distinction n'est pas cosmetique -- elle decide QUEL plafond garde :
+		//
+		//  (A) CEUX QUI FONT CROITRE  -> le plafond de FACES est le risque.
+		//      1. `subdivide[:k]`  **MESURE** : faces x 4^k. Mesure du 17/09,
+		//         6 -> 24 pour k=1 et 6 -> 384 pour k=3. C'est la SEULE loi
+		//         etablie, et la seule que la garde predit.
+		//      2. `loopcut:n[:glissement]`  **MESURE le 20/09, 8 relevés VALIDES** :
+		//             faces ajoutees = **n x (faces traversees par la BOUCLE)**
+		//           cube (boucle = 4 faces)      : n=1/2/3/5 -> +4/+8/+12/+20
+		//           cube+sub (boucle = 8 faces)  : n=1/2/3/5 -> +8/+16/+24/+40
+		//           « n x 4 » -- la valeur du cube -- est FAUSSE sur cube+sub : le
+		//           cube seul ne separait pas les deux, il a fallu subdiviser.
+		//           C'est la troisieme fois de la journee que le jeu d'epreuve
+		//           minimal faisait passer deux formules pour une.
+		//         ⚠️ BORNE DE VALIDITE TENUE. Antecedent connu : une arete
+		//            degeneree au glissement 0,999, avec V-E+F = -10 et 4 aretes
+		//            non-manifold. Mesure faite a `slide = 0` uniquement, et
+		//            CHAQUE relevé publie son Euler et son non-manifold :
+		//            **8/8 a Euler = 2 et non-manifold = 0**. Aucun relevé ecarte.
+		//            (Euler juge la topologie sans attendu dicte par nous.)
+		//         ⚠️ ET LA LOI EST INUTILISABLE TELLE QUELLE : « faces de la
+		//            boucle » n'est PAS une grandeur que l'hote publie. Une loi
+		//            juste ecrite avec une grandeur illisible ne garde rien.
+		//            CE QUI EST UTILISABLE : la boucle ne peut pas traverser plus
+		//            de faces qu'il n'en existe, donc
+		//                faces ajoutees <= **n x F**
+		//            -- jamais depassee sur les 8 relevés, et F est publie.
+		//            Lache (cube+sub, n=5 : reel +40, borne +120) mais du bon cote.
+		//         ⚠️ EPREUVE MESUREE : le REPLI (on marque les deux sommets d'une
+		//            arete sans poser d'intention). Ce que fait NK3DModeler pour
+		//            designer son arete n'a pas ete verifie : **rien ici ne porte
+		//            sur ce que voit Rodolf**.
+		//      3. `extrude[:individuelles]`  **MESURE le 20/09**, et il a bien DEUX
+		//         comportements -- le drapeau est un interrupteur de TOPOLOGIE
+		//         (`NkEditMesh.h` : « traite chaque face separement au lieu de la
+		//         region »).
+		//
+		//         `extrude:1` INDIVIDUEL -> **LOI ETABLIE, 8 cas sur 8** :
+		//             faces ajoutees = **somme des valences des faces selectionnees**
+		//           (une couronne par COTE de face).
+		//           ⚠️ ELLE A ETE LIVREE LE 20/09 SUR UNE CONVICTION, ET ELLE EST
+		//              DEPUIS **MESUREE**. Les huit premiers cas etaient tous
+		//              TOUT-QUADS, ou « somme des valences » == « 4 x nb faces » :
+		//              les deux formules y sont indiscernables, et j'avais ecarte
+		//              la seconde par un RAISONNEMENT sur les n-gones. Le
+		//              separateur etait a portee -- `BuildFromIndexed(quadify=false)`
+		//              rend le meme cube en 12 TRIANGLES. Verdict : 1/2/3/12
+		//              triangles -> **+3/+6/+9/+36**, soit la somme des valences,
+		//              et « 4 x nb faces » FAUSSE sur les quatre. La loi tient ;
+		//              c'est maintenant une mesure et non plus une opinion.
+		//           ⚠️ CETTE LOI A D'ABORD ETE CONFONDUE AVEC `2 x E`. Sur
+		//              `SelectAll` d'un maillage ferme les deux donnent le MEME
+		//              nombre : le jeu d'epreuve etait trop pauvre pour les
+		//              separer. Il a fallu ecrire la SELECTION PARTIELLE pour les
+		//              departager -- la somme des valences suit le nombre de faces
+		//              prises, `2E` ne bouge pas. Relevés : 1/2/3/6 faces ->
+		//              +4/+8/+12/+24, sur deux maillages. *Deux formules qui
+		//              s'accordent sur tout le jeu ne sont pas la meme loi.*
+		//
+		//         `extrude` / `extrude:0` REGION -> **TOUJOURS PAS UNE LOI**, mais
+		//           ce n'est plus l'inconnu total. Mesure sur selection partielle :
+		//           il vaut la somme des valences quand les faces prises ne se
+		//           touchent pas, et MOINS des qu'elles se touchent (cube+sub,
+		//           2/3/6 faces -> +6/+8/+14 contre +8/+12/+24). La forme « aretes
+		//           de BORD de la region » colle a cube+sub et NON au cube -- je ne
+		//           la retiens donc pas : *ajuster une formule sur la moitie des
+		//           points qui l'arrange est exactement ce qu'on s'interdit.*
+		//
+		//         ⚠️ CE QUI EST ACQUIS POUR LA GARDE, ET QUI SUFFIT : sur les 22
+		//            relevés, **region <= individuel <= 2 x E**. La borne haute
+		//            couvre donc les DEUX modes, et elle s'ecrit avec une grandeur
+		//            que l'hote publie deja. C'est ce que `NkIaPasSur` utilise.
+		//            ⚠️ ET ELLE EST TRES LACHE sur une selection partielle :
+		//               cube+sub, une face -> reel +4, borne +96. Elle refusera
+		//               donc des boucles legitimes bien avant le danger. Le sens de
+		//               l'erreur est le bon (on surestime, on ne laisse pas
+		//               passer), mais le cout est reel.
+		//               CONDITION DE RETRAIT : que l'hote publie la somme des
+		//               valences de la selection -- alors la garde devient EXACTE
+		//               pour `extrude:1`, sans rien changer d'autre.
+		//      4. `inset[:individuel[:profondeur]]`  **NON ETABLI, ET UNE
+		//         ANOMALIE MESUREE** (20/09, selection partielle + maillage
+		//         triangule). Ses chiffres ne se laissent ecrire par AUCUNE des
+		//         trois candidates :
+		//           quad, 1 face  -> +4   (= somme des valences)
+		//           quad, 2 faces -> +24  (la somme vaudrait 8)
+		//           quad, 3 faces -> +24  (la somme vaudrait 12)
+		//           quad, 6 faces -> +24  (= somme des valences)
+		//         et le mode region REFUSE sur 2, 3 et 6 faces.
+		//         ⚠️ +24 = 6 faces x 4 : `inset` a traite TOUT le cube quand on
+		//            lui en designait DEUX. Sur la MEME selection et le MEME
+		//            maillage, `extrude` n'en traite que deux (+8). **Les deux
+		//            operations ne designent pas le meme ensemble de faces a
+		//            partir de la meme selection.**
+		//         ⚠️ DEUX LECTURES, ET JE NE LES SEPARE PAS : soit `inset` resout
+		//            la selection sur l'identite SOUDEE la ou `extrude` la resout
+		//            sur les COINS, soit mon aide de mesure ne marque pas les
+		//            coins coincidents et `inset` les exige. Le FAIT est le meme
+		//            dans les deux cas ; la CAUSE demande une epreuve que je n'ai
+		//            pas faite. Aucune loi n'est donc retenue, et `inset` reste
+		//            sous la regle du quart -- lui inventer une formule alors que
+		//            ses chiffres se contredisent serait le pire des trois choix.
+		//         A EPROUVER ENSUITE : marquer les coins COINCIDENTS dans la
+		//         selection et rejouer les memes lignes. Si l'anomalie disparait,
+		//         c'etait l'instrument ; si elle reste, c'est `inset`.
+		//         ⚠️ `depth` ne change PAS les comptes (0 et 0,5 -> +4 tous les
+		//            deux). C'etait une supposition ; elle est desormais eprouvee,
+		//            sur UN cas.
+		//      5. `bevel[:largeur[:segments]]`  **MESURE le 20/09**, et il etait
+		//         bien le plus gros risque des quatre. DEUX regimes, EXACTS sur
+		//         les dix relevés, sans le moindre residu -- des lois LUES, pas
+		//         une courbe ajustee sur ses propres points :
+		//             segments == 1  ->  faces ajoutees = **E + V**
+		//             segments >= 2  ->  faces ajoutees = **3 x E x segments**
+		//         (E = aretes, V = sommets, comptes AVANT l'operation.)
+		//         La rupture entre les deux regimes n'est pas une anomalie :
+		//         `NkEditMesh.h` la documente lui-meme -- 1 = chanfrein PLAT (une
+		//         bande de faces), N > 1 = ARRONDI (N bandes). Deux topologies,
+		//         deux lois, et c'est pourquoi une formule unique aurait menti.
+		//         ⚠️ LE RISQUE EST CONFIRME PAR LE CHIFFRE : sur 48 aretes,
+		//            `bevel:0.05:16` porte 24 faces a 2 328 -- **x97**. En theorie
+		//            `subdivide:10` fait pire, mais bevel y arrive avec des
+		//            parametres qu'un utilisateur tape sans y penser.
+		//         MESURE PAR : `NKEditMeshHarness --loi-bevel` -- le harnais sans
+		//         viseur, donc hors du verrou des deux modes Edition. Il rend
+		//         AVANT les batteries comparees et n'ecrit RIEN dans la baseline :
+		//         `--check` reste octet pour octet ce qu'il etait.
+		//         ⚠️ CONDITION DE VALIDITE, ETROITE ET ECRITE : les DEUX maillages
+		//            testes sont FERMES et tout-quads. Rien n'est mesure sur un
+		//            maillage a BORD -- une arete de bord ne porte qu'une face et
+		//            ne peut pas engendrer la meme bande -- ni sur des triangles.
+		//            *Un chiffre voyage sans sa condition* : celle-ci reste
+		//            collee a lui, et la prediction se DESACTIVE d'elle-meme quand
+		//            E et V ne sont pas fournis (voir `NkIaPasSur`).
+		//
+		//
+		//  ═══════════════════════════════════════════════════════════════════
+		//  ⚠️⚠️ LE REGIME REEL : CES LOIS ONT ETE MESUREES SUR `SelectAll`
+		//  ═══════════════════════════════════════════════════════════════════
+		//  L'application a rendu `subdivide : 6 -> 9` la ou la loi annoncait
+		//  6 -> 24 : elle avait UNE face selectionnee, pas six. Les lois
+		//  ci-dessus sont ecrites avec les grandeurs du MAILLAGE alors que les
+		//  operations portent sur la SELECTION -- et sur `SelectAll` les deux
+		//  coincident, ce qui est tout ce qui avait ete mesure.
+		//  Course du 20/09 en selection PARTIELLE (`--loi-regime`) :
+		//
+		//    `subdivide`  -> **la loi passe au sous-ensemble** : `3 x Fsel`,
+		//                    exact sur 1, 2 et 6 faces (3, 6, 18). Le `x4^k` du
+		//                    maillage n'en etait que le cas `Fsel = F`.
+		//    `extrude:1`  -> **INCHANGEE** : elle etait deja ecrite sur le
+		//                    sous-ensemble. Exacte sur les trois tailles.
+		//    `loopcut`    -> **INCHANGEE** : pilotee par UNE arete, elle ne
+		//                    depend pas de la taille de la selection (4 partout).
+		//    ⚠️ Ces deux-la sont le NEGATIF de la course, et il a tenu : la these
+		//       « les lois du maillage passent au sous-ensemble » ne s'applique
+		//       QU'A celles qui etaient ecrites sur le maillage. *Une course ou
+		//       tout bouge n'expliquerait rien.*
+		//
+		//    `bevel`      -> ⚠️ **SA FORME SOUS-ENSEMBLE N'EST PAS ETABLIE**, et
+		//                    c'est le resultat le plus important de la course --
+		//                    c'est la seule garde dont on ait une preuve de tir.
+		//                    DEUX causes distinctes, mesurees :
+		//                    (a) il resout la selection sur l'IDENTITE SOUDEE
+		//                        (meme famille qu'`inset`) : deux faces opposees
+		//                        d'un cube couvrent les 8 sommets soudes, donc
+		//                        les 12 aretes -- mesure 144 = 3 x 12 x 4 la ou
+		//                        le sous-ensemble (8 aretes) donnerait 96 ;
+		//                    (b) a `segments = 1`, le terme de COIN depend du
+		//                        nombre d'aretes SELECTIONNEES qui se rejoignent
+		//                        en chaque sommet, pas de `Vsel` : une face seule
+		//                        ajoute 4 et non `E+V = 8`.
+		//
+		//  ⚠️⚠️ ET C'EST POURQUOI ON NE RESSERRE PAS LA GARDE. Passer `bevel` a
+		//     la forme sous-ensemble aurait predit **96** la ou la mesure vaut
+		//     **144** : la garde aurait SOUS-ESTIME, c'est-a-dire laisse passer
+		//     le pas qu'elle existe pour arreter. La forme MAILLAGE ne
+		//     sous-estime sur aucun des six cas mesures (4/20/20 contre 20 ;
+		//     48/144/144 contre 144). *Une loi plus juste doit RESSERRER la
+		//     borne, jamais la relacher -- et ici la plus juste l'aurait
+		//     relachee.* On garde donc les grandeurs du maillage, EXPRES.
+		//
+		//  CONDITION DE RETRAIT : que l'hote publie le nombre de faces et
+		//  d'aretes SELECTIONNEES **en identite soudee**. Alors `subdivide`
+		//  devient exact (`3 x Fsel`), et `bevel` redevient mesurable proprement.
+		//
+		//  (B) CEUX QUI FONT DECROITRE -> le plafond de FACES n'est pas le
+		//      risque ; c'est le plafond de TOURS qui garde (une boucle qui
+		//      n'avance pas). Aucune loi de croissance n'est requise pour eux.
+		//      6. `delete`   attendu decroissant, **NON MESURE**.
+		//      7. `dissolve` attendu decroissant, **NON MESURE**.
+		//      ⚠️ « Attendu » est le mot juste : je n'ai pas mesure que dissoudre
+		//         ne peut jamais AUGMENTER un compte. La garde ne repose donc pas
+		//         sur cette attente -- elle lit le SENS DU PREDICAT, qui est une
+		//         donnee, pas une supposition (cf. `NkIaPasSur`).
+		//
+		//  ⚠️ CE QUI RENDRAIT CES MESURES POSSIBLES N'EXISTE PAS ENCORE. Les
+		//     compteurs `Demo3DHostStats` ne sont renseignes QUE lorsque le
+		//     VISEUR est en mode Edition (`st->editMode`), et le crochet
+		//     `NK_EDIT_MODE` pose le mode du SHELL (`st.mode`) -- deux etats
+		//     distincts. `NK_EDIT_PICK` exige, lui, `Demo3DHostInEditMode()` deja
+		//     vrai : aucun crochet n'amorce donc l'etat. **Les six relevés
+		//     ci-dessus sont a la merci de ce chainon**, et c'est la meme absence
+		//     qui empeche `AI EFFET` de temoigner depuis le 19/09.
+		//
+		//  CONDITION DE RETRAIT DE CETTE LISTE : chaque ligne disparait le jour
+		//  ou sa loi est mesuree ET ecrite dans `NkIaPasSur`. La liste entiere
+		//  disparait quand les cinq croissants sont predits exactement.
+
+		/// Les SIX quantites, et elles existent toutes deja dans l'hote.
+		/// Aucune API nouvelle : `Demo3DHostStats` en donne quatre,
+		/// `Demo3DHostObjectCount` et `Demo3DHostEditSelCount` les deux autres.
+		enum class NkIaQuantite : uint8 { Faces = 0, Sommets, Aretes, Triangles, Objets, Selection, Aucune };
+
+		inline NkIaQuantite NkIaQuantiteDuNom(const char *n) {
+			if (!n)
+				return NkIaQuantite::Aucune;
+			struct { const char *nom; NkIaQuantite q; } kT[] = {
+				{"faces", NkIaQuantite::Faces},		  {"sommets", NkIaQuantite::Sommets},
+				{"aretes", NkIaQuantite::Aretes},	  {"triangles", NkIaQuantite::Triangles},
+				{"objets", NkIaQuantite::Objets},	  {"selection", NkIaQuantite::Selection},
+			};
+			for (uint32 i = 0; i < 6u; ++i) {
+				const char *a = kT[i].nom;
+				const char *b = n;
+				while (*a && *a == *b) { ++a; ++b; }
+				if (!*a && !*b)
+					return kT[i].q;
+			}
+			return NkIaQuantite::Aucune;
+		}
+
+		inline const char *NkIaQuantiteNom(NkIaQuantite q) {
+			switch (q) {
+				case NkIaQuantite::Faces: return "faces";
+				case NkIaQuantite::Sommets: return "sommets";
+				case NkIaQuantite::Aretes: return "aretes";
+				case NkIaQuantite::Triangles: return "triangles";
+				case NkIaQuantite::Objets: return "objets";
+				case NkIaQuantite::Selection: return "elements selectionnes";
+				default: return "?";
+			}
+		}
+
+		// ── LES SEPT VERBES, ET C'EST UNE BORNE DU DESIGN ─────────────────────
+		// ⚠️ « fais X jusqu'a Y » n'a de sens que pour un verbe qui DEPLACE une
+		//    quantite mesurable. Sur les 26 du contrat, **7** le font : c'est leur
+		//    role. Les 19 autres basculent un etat (submode*, toggleedit,
+		//    togglexray), cadrent une vue (view*, frameall), pilotent une modale
+		//    (modal*, 6) ou rejouent l'historique (undo/redo -- ils bougent bien
+		//    les compteurs, mais par EFFET DE BORD, et boucler dessus n'a pas de
+		//    sens productif).
+		// ⚠️ LA PORTE REFUSE NOMMEMENT pour les 19 autres. Elle ne se rabat
+		//    SURTOUT PAS sur un tour unique : *une boucle qui fait toujours
+		//    exactement un tour est une boucle qui ment sur ce qu'elle est*, et
+		//    l'utilisateur croirait avoir boucle.
+		inline bool NkIaVerbeBouclable(const char *verbe) {
+			if (!verbe)
+				return false;
+			static const char *kSept[] = {"subdivide", "loopcut", "extrude",
+										  "inset",	   "bevel",	  "delete", "dissolve"};
+			for (uint32 i = 0; i < 7u; ++i) {
+				const char *a = kSept[i];
+				const char *b = verbe;
+				while (*a && *a == *b) { ++a; ++b; }
+				// le verbe peut porter ses parametres : « subdivide:2 » compte
+				if (!*a && (*b == 0 || *b == ':'))
+					return true;
+			}
+			return false;
+		}
+
+		/// DETACHE le predicat du verbe quand le modele les a COLLES.
+		/// ⚠️ DEFAUT OBSERVE, PAS PREVU. `qwen2.5:7b` a rendu, sur une seule
+		///    ligne, `delete:jusqua:objets:moins:2` -- la faute exacte que le banc
+		///    du 20/09 avait deja nommee chez lui (« les deux-points ne separent
+		///    JAMAIS deux commandes », il l'ignore). Sans cette coupe, le verbe
+		///    ARME de la boucle etait la chaine entiere : elle passait
+		///    `NkVerbeTrouve` (un verbe a le droit de porter des parametres), puis
+		///    partait au pont VINGT-CINQ FOIS avec quatre parametres parasites.
+		///    Claude, lui, rend deux lignes propres -- **et c'est precisement
+		///    pourquoi la garde doit exister : elle protege du modele qu'on n'a
+		///    pas choisi, pas de celui qu'on a mesure.**
+		inline void NkIaCouperPredicat(char *verbe) {
+			if (!verbe)
+				return;
+			for (char *c = verbe; *c; ++c) {
+				if (*c != ':')
+					continue;
+				const char *m = ":jusqua";
+				const char *p = c;
+				while (*m && *m == *p) { ++m; ++p; }
+				if (!*m) {
+					*c = 0; // le verbe s'arrete avant la condition
+					return;
+				}
+			}
+		}
+
+		/// Cherche le jeton `jusqua:...` N'IMPORTE OU dans la reponse.
+		/// ⚠️ ON NE COMPTE PAS LES LIGNES. Prendre « la seconde ligne » supposerait
+		///    que la premiere est le verbe et qu'il n'y a ni ligne vide ni ornement
+		///    -- une hypothese sur la mise en forme d'un modele, c'est-a-dire la
+		///    chose qui bouge le plus. On cherche le motif, qui, lui, est a nous.
+		inline bool NkIaTrouverPredicat(const char *reponse, char *dst, uint32 taille) {
+			if (!dst || taille == 0)
+				return false;
+			dst[0] = 0;
+			if (!reponse)
+				return false;
+			for (const char *c = reponse; *c; ++c) {
+				const char *m = "jusqua:";
+				const char *p = c;
+				while (*m && *m == *p) { ++m; ++p; }
+				if (*m)
+					continue;
+				uint32 n = 0;
+				for (const char *q = c; *q && n + 1u < taille; ++q) {
+					const char x = (*q >= 'A' && *q <= 'Z') ? (char)(*q - 'A' + 'a') : *q;
+					const bool ok = (x >= 'a' && x <= 'z') || (x >= '0' && x <= '9') || x == ':' ||
+									x == '.' || x == '-' || x == '_';
+					if (!ok)
+						break;
+					dst[n++] = x;
+				}
+				dst[n] = 0;
+				return n > 0;
+			}
+			return false;
+		}
+
+		struct NkIaPredicat {
+				NkIaQuantite quantite = NkIaQuantite::Aucune;
+				bool plus = true; ///< vrai = « depasser », faux = « descendre sous »
+				int32 seuil = 0;
+				bool valide = false;
+		};
+
+		/// Lit `jusqua:quantite:sens:seuil`. Rend `valide=false` pour `aucune`,
+		/// pour un jeton malforme et pour une quantite inconnue -- TROIS cas que
+		/// l'appelant distingue par ce qu'il a lu, pas par un booleen unique.
+		inline NkIaPredicat NkIaLirePredicat(const char *jeton) {
+			NkIaPredicat p;
+			if (!jeton)
+				return p;
+			// « jusqua: »
+			const char *c = jeton;
+			const char *m = "jusqua:";
+			while (*m && *m == *c) { ++m; ++c; }
+			if (*m)
+				return p; // pas un predicat (c'est `aucune`, ou autre chose)
+			char nom[16];
+			uint32 n = 0;
+			while (*c && *c != ':' && n + 1u < sizeof(nom))
+				nom[n++] = *c++;
+			nom[n] = 0;
+			if (*c != ':')
+				return p;
+			++c;
+			p.quantite = NkIaQuantiteDuNom(nom);
+			if (p.quantite == NkIaQuantite::Aucune)
+				return p;
+			if (*c == 'p')
+				p.plus = true;
+			else if (*c == 'm')
+				p.plus = false;
+			else
+				return p;
+			while (*c && *c != ':')
+				++c;
+			if (*c != ':')
+				return p;
+			++c;
+			// ⚠️ PAS D'atof ICI. En fr-FR, `atof("0.2")` rend 0.0 -- le depot l'a
+			//    deja paye. Un seuil est un ENTIER de comptage : on le lit chiffre
+			//    a chiffre, sans libc et sans locale.
+			int32 v = 0;
+			bool chiffre = false;
+			for (; *c >= '0' && *c <= '9'; ++c) {
+				v = v * 10 + (int32)(*c - '0');
+				chiffre = true;
+				if (v > 100000000)
+					break; // borne de lecture : au-dela, le seuil n'a plus de sens
+			}
+			if (!chiffre)
+				return p;
+			p.seuil = v;
+			p.valide = true;
+			return p;
+		}
+
+		/// Le predicat est-il DEJA satisfait par l'etat qu'on vient de LIRE ?
+		/// ⚠️ `valeur` vient des compteurs de l'hote, jamais d'une prediction.
+		inline bool NkIaPredicatSatisfait(const NkIaPredicat &p, int32 valeur) {
+			return p.plus ? (valeur > p.seuil) : (valeur < p.seuil);
+		}
+
+		// ── LE PLAFOND ABSOLU, ET IL SE VERIFIE **AVANT** LE PAS ──────────────
+		// ⚠️ J'AVAIS ECRIT QUE CE GARDE-FOU DEVENAIT INUTILE. C'ETAIT FAUX, et la
+		//    correction est du coordinateur : sortir le modele de la boucle borne
+		//    le depassement « a un pas » -- mais **un pas de `subdivide` est
+		//    MULTIPLICATIF**. Mesure du 17/09 : 6 -> 24 pour `subdivide`, 6 -> 384
+		//    pour `subdivide:3`, soit x4^k. « Borne par un pas » veut donc dire
+		//    « borne par 4x le seuil », pas « borne ». Et la loi n'est pas la meme
+		//    selon le verbe : `extrude` n'ajoute pas comme `subdivide` multiplie.
+		//    **Deux verbes, deux lois de croissance, une seule phrase « un pas ».**
+		//
+		// ⚠️ ET LA VERIFICATION EST DECALEE D'UN CRAN : AVANT d'appliquer, pas
+		//    apres. Apres coup le maillage est deja a 400 000 faces et la fenetre
+		//    est deja partie ; le constat arrive trop tard pour servir a quoi que
+		//    ce soit.
+		//
+		// ⚠️ LA MENACE A CHANGE DE CAMP, LE GARDE-FOU RESTE. Il ne protege plus du
+		//    MODELE qui choisissait `subdivide:10` -- le modele n'est plus dans la
+		//    boucle. Il protege du PAS LUI-MEME. Retirer un garde-fou parce que la
+		//    menace a change de camp est une faute que ce depot a deja payee.
+		//
+		// CONDITION DE RETRAIT : le jour ou chaque verbe bouclable publie sa loi
+		// de croissance MESUREE, cette borne peut devenir une prediction exacte
+		// par verbe. Tant que UNE SEULE loi est mesuree (subdivide), elle reste.
+		inline int32 NkIaPlafondFaces() {
+			static int32 sPlafond = -1;
+			if (sPlafond < 0) {
+				sPlafond = 2000000; // 2 M faces : au-dela, l'interactivite est perdue
+				if (const char *v = std::getenv("NK_AI_BOUCLE_PLAFOND")) {
+					int32 x = 0;
+					for (const char *c = v; *c >= '0' && *c <= '9'; ++c)
+						x = x * 10 + (int32)(*c - '0');
+					if (x > 0)
+						sPlafond = x;
+				}
+			}
+			return sPlafond;
+		}
+
+		/// Le pas est-il SUR a appliquer ? `motif` recoit la raison du refus.
+		/// ⚠️ UNE SEULE LOI DE CROISSANCE EST MESUREE, ET JE NE PREDIS QUE
+		///    CELLE-LA. Pour `subdivide:k`, le resultat est exactement
+		///    `faces * 4^k` (mesure du 17/09). Pour les six autres verbes
+		///    bouclables, **je n'ai aucune loi mesuree** : je refuse donc de
+		///    predire, et j'applique une regle conservatrice -- ne pas faire un
+		///    pas de plus quand on est deja au quart du plafond. C'est une
+		///    HYPOTHESE, elle est ecrite ici, et elle se remplace par une mesure.
+		/// `versLeHaut` est le SENS DU PREDICAT (`plus` = vrai). Il n'est pas
+		/// decoratif : c'est la seule chose qu'on sache de la direction de la
+		/// boucle sans avoir mesure la loi du verbe. Voir le corps.
+		///
+		/// `aretes` et `sommets` servent a PREDIRE `bevel`, dont la loi a ete
+		/// mesuree le 20/09 (voir la liste en tete). ⚠️ A ZERO -- leur defaut --
+		/// LA PREDICTION SE DESACTIVE et l'on retombe sur la regle du quart.
+		/// C'est voulu : un appelant qui ne fournit pas ces comptes n'obtient pas
+		/// une prediction batie sur des zeros, il obtient la garde prudente.
+		/// ⚠️ AUCUN APPELANT NE LES PASSE ENCORE : `main.cpp` lit pourtant E et V
+		///    a deux lignes du site (`bv`, `be`), mais ce fichier est en cours de
+		///    migration par un autre chantier et je n'y touche pas. **La branche
+		///    bevel de cette fonction n'est donc pas exercee aujourd'hui** -- ne
+		///    pas la lire comme eprouvee ; c'est un ajout d'une ligne au site
+		///    d'appel, le jour ou la migration est fusionnee.
+		inline bool NkIaPasSur(const char *verbe, int32 facesActuelles, bool versLeHaut,
+							   char *motif, uint32 taille, int32 aretes = 0, int32 sommets = 0) {
+			const int32 plafond = NkIaPlafondFaces();
+			int32 prevu = facesActuelles;
+			bool predit = false;
+			const char *p = verbe ? verbe : "";
+			const char *m = "subdivide";
+			const char *c = p;
+			while (*m && *m == *c) { ++m; ++c; }
+			if (!*m && (*c == 0 || *c == ':')) {
+				int32 k = 1;
+				if (*c == ':') {
+					++c;
+					int32 x = 0;
+					bool d = false;
+					for (; *c >= '0' && *c <= '9'; ++c) { x = x * 10 + (int32)(*c - '0'); d = true; }
+					if (d && x >= 1 && x <= 10)
+						k = x;
+				}
+				prevu = facesActuelles;
+				for (int32 i = 0; i < k; ++i) {
+					if (prevu > plafond) break;
+					prevu *= 4; // LOI MESUREE le 17/09 : x4 par coupe
+				}
+				predit = true;
+			}
+			// ── `loopcut:n` : UNE BORNE, PAS LA LOI ───────────────────────────
+			// ⚠️ LA LOI EST `n x (faces de la BOUCLE)`, mesuree 8/8 sur relevés
+			//    tous valides (Euler = 2, non-manifold = 0). Mais « faces de la
+			//    boucle » n'est PAS publie par l'hote : *une loi juste ecrite
+			//    avec une grandeur illisible ne garde rien.* La boucle ne pouvant
+			//    traverser plus de faces qu'il n'en existe, on borne par `n x F`
+			//    -- jamais depassee sur les 8 relevés, et F est publie. Lache
+			//    (cube+sub, n=5 : reel +40, borne +120), mais du bon cote.
+			if (!predit) {
+				const char *ml = "loopcut";
+				const char *cl = p;
+				while (*ml && *ml == *cl) { ++ml; ++cl; }
+				if (!*ml && (*cl == 0 || *cl == ':')) {
+					int32 n = 1;
+					if (*cl == ':') {
+						++cl;
+						int32 x = 0;
+						bool d = false;
+						for (; *cl >= '0' && *cl <= '9'; ++cl) {
+							x = x * 10 + (int32)(*cl - '0');
+							d = true;
+						}
+						if (d && x >= 1 && x <= 5) // borne du contrat du modeleur
+							n = x;
+					}
+					prevu = facesActuelles + n * facesActuelles;
+					predit = true;
+				}
+			}
+			// ── `extrude` : UNE BORNE HAUTE, ET ELLE COUVRE LES DEUX MODES ────
+			// ⚠️ CE N'EST PAS LA LOI, C'EST UNE BORNE, et la difference se dit.
+			//    La loi d'`extrude:1` est la somme des valences des faces
+			//    selectionnees (etablie sur 8 cas) ; celle du mode REGION n'est
+			//    PAS etablie. Mais les 22 relevés donnent
+			//        region <= individuel <= 2 x E
+			//    et `2 x E` s'ecrit avec une grandeur que l'hote publie, la ou la
+			//    somme des valences de la SELECTION ne l'est pas. Les deux modes
+			//    passent donc par la meme borne -- c'est le mode region qui y
+			//    gagne, lui qui tombait jusqu'ici dans la regle du quart, aveugle.
+			// ⚠️ ET ELLE EST LACHE : cube+sub, une seule face -> reel +4, borne
+			//    +96. Elle refusera des boucles legitimes bien avant le danger. On
+			//    l'accepte parce que le SENS de l'erreur est le bon -- surestimer
+			//    arrete trop tot, sous-estimer laisse passer l'explosion -- et
+			//    parce qu'elle se resserrera d'elle-meme le jour ou l'hote
+			//    publiera la somme des valences de la selection.
+			if (!predit && aretes > 0) {
+				const char *me = "extrude";
+				const char *ce = p;
+				while (*me && *me == *ce) { ++me; ++ce; }
+				if (!*me && (*ce == 0 || *ce == ':')) {
+					prevu = facesActuelles + 2 * aretes;
+					predit = true;
+				}
+			}
+			// ── `bevel` : DEUX REGIMES, MESURES le 20/09 ──────────────────────
+			// ⚠️ ELLE N'EST TENTEE QUE SI E ET V SONT FOURNIS. A zero, on ne
+			//    predit pas avec des zeros : on laisse la regle du quart faire son
+			//    travail. *Une prediction batie sur une absence est pire que pas
+			//    de prediction : elle a l'air d'un chiffre.*
+			if (!predit && aretes > 0 && sommets > 0) {
+				const char *mb = "bevel";
+				const char *cb = p;
+				while (*mb && *mb == *cb) { ++mb; ++cb; }
+				if (!*mb && (*cb == 0 || *cb == ':')) {
+					// `bevel[:largeur[:segments]]` -- segments est le SECOND
+					// parametre. La largeur ne change pas les comptes (mesure).
+					int32 segments = 1;
+					if (*cb == ':') {
+						++cb;
+						while (*cb && *cb != ':') // on saute la largeur
+							++cb;
+						if (*cb == ':') {
+							++cb;
+							int32 x = 0;
+							bool d = false;
+							for (; *cb >= '0' && *cb <= '9'; ++cb) {
+								x = x * 10 + (int32)(*cb - '0');
+								d = true;
+							}
+							if (d && x >= 1 && x <= 16)
+								segments = x;
+						}
+					}
+					// segments == 1 -> E + V ; segments >= 2 -> 3 x E x segments.
+					const int32 ajout =
+						(segments == 1) ? (aretes + sommets) : (3 * aretes * segments);
+					prevu = facesActuelles + ajout;
+					predit = true;
+				}
+			}
+			if (predit && prevu > plafond) {
+				snprintf(motif, taille,
+						 "Boucle arretee : le prochain pas porterait le maillage a environ %d faces, "
+						 "au-dela du plafond de %d (NK_AI_BOUCLE_PLAFOND).",
+						 prevu, plafond);
+				return false;
+			}
+			if (!predit) {
+				// ── LA DIRECTION VIENT DU PREDICAT, PAS D'UNE LOI DEVINEE ──────
+				// ⚠️ DEFAUT TROUVE EN DRESSANT LA LISTE DES LOIS NON MESUREES, ET
+				//    IL ETAIT DANS CE FICHIER. La regle du quart s'appliquait a
+				//    TOUS les verbes non predits -- donc aussi a `delete` et
+				//    `dissolve`. Une boucle « supprime jusqu'a moins de N faces »
+				//    lancee sur un maillage deja au-dessus du quart du plafond
+				//    etait REFUSEE, alors qu'elle ne pouvait que faire DESCENDRE le
+				//    compte. *Un garde-fou qui refuse le geste qui reduit le risque
+				//    protege contre lui-meme.*
+				//
+				// ⚠️ ET JE NE LE REPARE PAS EN DECRETANT « delete reduit ». Je ne
+				//    l'ai pas mesure, et remplacer une hypothese par une autre ne
+				//    m'avance pas. Je me sers de ce que je SAIS : la DIRECTION que
+				//    l'utilisateur a demandee, qui est dans le predicat.
+				//      `plus`  -> la boucle grossit par INTENTION : le plafond de
+				//                 faces est le risque qui mord, regle du quart.
+				//      `moins` -> la boucle reduit par INTENTION : le plafond de
+				//                 faces n'est pas le risque, et c'est le plafond de
+				//                 TOURS qui garde (il a d'ailleurs parle : « objets
+				//                 = 86 n'a pas atteint 2 » apres 24 tours). On ne
+				//                 refuse que si l'on est DEJA au-dela du plafond
+				//                 absolu.
+				//    ⚠️ Si le verbe ne va pas dans le sens demande, la boucle
+				//       n'avance pas -- et c'est exactement la panne que le plafond
+				//       de TOURS attrape, en la nommant.
+				if (versLeHaut && facesActuelles > plafond / 4) {
+					// L'HYPOTHESE, DITE A L'UTILISATEUR PLUTOT QUE CACHEE.
+					snprintf(motif, taille,
+							 "Boucle arretee a %d faces : la croissance de « %s » n'est pas "
+							 "mesuree, on ne franchit pas le quart du plafond de %d a l'aveugle.",
+							 facesActuelles, p, plafond);
+					return false;
+				}
+				if (!versLeHaut && facesActuelles > plafond) {
+					snprintf(motif, taille,
+							 "Boucle arretee : le maillage est deja a %d faces, au-dela du "
+							 "plafond de %d (NK_AI_BOUCLE_PLAFOND).",
+							 facesActuelles, plafond);
+					return false;
+				}
+			}
+			return true;
+		}
+
+		/// L'ADDENDUM — les MEMES lignes que le banc P1/P2, plus la demande du
+		/// verbe. ⚠️ CE N'EST PAS UN CINQUIEME CONSTRUCTEUR D'INVITE : il
+		/// s'APPEND a `NkIaEcrireContratDansInvite`, qui reste l'autorite unique.
+		inline void NkIaEcrireAddendumBoucle(char *dst, uint32 taille) {
+			if (!dst)
+				return;
+			uint32 n = 0;
+			while (n < taille && dst[n])
+				++n;
+			auto ajout = [&](const char *s) {
+				while (*s && n + 1u < taille)
+					dst[n++] = *s++;
+				dst[n] = 0;
+			};
+			ajout("\nSi la demande dit de REPETER une operation JUSQU'A une condition CHIFFREE,\n");
+			ajout("reponds en DEUX LIGNES :\n");
+			ajout("ligne 1 : la commande a repeter (un verbe du tableau ci-dessus)\n");
+			ajout("ligne 2 : jusqua:quantite:sens:seuil\n");
+			ajout("quantite est l'un de : faces, sommets, aretes, triangles, objets, selection\n");
+			ajout("sens est  plus  (depasser le seuil) ou  moins  (descendre sous le seuil)\n");
+			ajout("Si la demande ne porte AUCUNE condition chiffree et mesurable, n'ecris pas\n");
+			ajout("de seconde ligne.\n");
+		}
+		// -- COMBIEN DE COMMANDES LA REPONSE CONTIENT-ELLE ? ------------------
+		//
+		// Depuis que le contrat autorise un plan sur plusieurs lignes, une reponse
+		// peut en porter trois. L extracteur, lui, prend la PREMIERE et s arrete.
+		// Sans ce compte, deux commandes sur trois disparaitraient EN SILENCE --
+		// et l utilisateur verrait un tiers de ce qu il a demande sans savoir
+		// pourquoi. *Un geste qu on n execute pas se dit ; il ne s oublie pas.*
+		//
+		// [!] CE N EST PAS L EXECUTION DU PLAN, ET C EST ASSUME. Le pont ne prend
+		//     qu une action a la fois ; enchainer demanderait une file et son
+		//     annulation par lot. CONDITION DE RETRAIT de ce compteur : le jour ou
+		//     l hote execute la suite, il remplace le message par l enchainement.
+
+		inline uint32 NkIaCompterCommandes(const char *reponse) {
+			if (!reponse)
+				return 0u;
+			uint32 n = 0u;
+			char tampon[192];
+			const char *c = reponse;
+			while (*c) {
+				const char *deb = c;
+				while (*c && *c != '\n' && *c != '\r')
+					++c;
+				const uint32 lg = (uint32)(c - deb);
+				if (lg > 0u && lg + 1u < sizeof(tampon)) {
+					for (uint32 k = 0; k < lg; ++k)
+						tampon[k] = deb[k];
+					tampon[lg] = 0;
+					char v[192];
+		//     On reutilise l extracteur LIGNE PAR LIGNE : compter avec une
+		//     seconde regle de plausibilite ferait deux juges pour une meme
+		//     question, et ils divergeraient au premier ornement nouveau.
+					if (NkIaExtraireVerbe(tampon, v, sizeof(v)))
+						++n;
+				}
+				while (*c == '\n' || *c == '\r')
+					++c;
+			}
+			return n;
+		}
+
+
 		// ── LE DORSAL, ET IL EST UN REGLAGE ────────────────────────────────────
 		// `NK_IA_CMD` porte le gabarit, deux trous `{invite}` et `{sortie}`.
 		// Absent, on compose un defaut a partir de `NK_IA_PYTHON` (sinon
@@ -211,12 +958,107 @@ namespace nkentseu {
 		// par une variable le jour ou le dorsal du module arrive.
 		struct NkIaCanal {
 				converse::NkConverseBackendProcessus dorsal;
+				// ── LE DORSAL DISTANT, A COTE ET JAMAIS A LA PLACE ────────────────
+				// ⚠️ IL N'EST PAS CHOISI PAR DEFAUT, ET C'EST DELIBERE. Le local ne
+				//    fait rien sortir de la machine ; celui-ci envoie l'invite chez
+				//    Anthropic. Un dorsal distant qui s'imposerait « parce qu'il
+				//    repond » ferait partir la premiere demande avant que Rodolf ait
+				//    su qu'elle partait. C'est l'ONGLET qui le designe, donc un geste.
+				converse::NkConverseBackendClaude claude;
 				converse::NkEnvoiAsync envoi;
 				bool pret = false;
 				char motif[256] = {0};
 
+				/// L'ONGLET -> LE DORSAL. Une seule fonction, et elle est la seule
+				/// autorite : `main.cpp` lui demande au lieu de choisir de son cote.
+				/// Deux endroits qui decident du dorsal auraient fini par ne pas
+				/// designer le meme, et l'un des deux aurait eu raison en silence.
+				/// Rend `nullptr` pour un onglet sans cablage -- ce qui est un refus
+				/// nomme par `MotifDe`, pas une panne.
+				converse::NkIConverseBackend *DorsalDe(int32 onglet) {
+					if (onglet == 1)
+						return claude.IsAvailable() ? (converse::NkIConverseBackend *)&claude : nullptr;
+					if (onglet == 0)
+						return pret ? (converse::NkIConverseBackend *)&dorsal : nullptr;
+					return nullptr; // l'onglet Ollama n'a pas de cablage dans le modeleur
+				}
+
+				/// LE ZERO, ET IL DIT LEQUEL. Trois onglets, trois raisons possibles
+				/// de ne rien pouvoir faire, et elles se reparent a trois endroits
+				/// differents. ⚠️ Le conseil passe DEVANT le diagnostic : cette
+				/// chaine s'affiche dans une ligne qui tronque, et c'est le geste qui
+				/// repare qu'il ne faut pas perdre a la coupure.
+				void MotifDe(int32 onglet, char *dst, uint32 taille) const {
+					if (!dst || taille == 0)
+						return;
+					dst[0] = 0;
+					if (onglet == 1) {
+						NkString quoiFaire;
+						if (converse::NkClaudeDiagnostic(claude.compte, quoiFaire) !=
+							converse::NkClaudeEtat::Pret)
+							snprintf(dst, taille, "%s", quoiFaire.Data() ? quoiFaire.Data() : "");
+						return;
+					}
+					if (onglet == 0) {
+						if (!pret)
+							snprintf(dst, taille, "%s", motif);
+						return;
+					}
+					snprintf(dst, taille,
+							 "Choisissez Local ou Claude : l'onglet Ollama n'est pas cable au "
+							 "modeleur (le transport existe, le cablage non).");
+				}
+
+				/// LA LIGNE D'ETAT DE L'ONGLET. Elle dit le dorsal ET ce qu'il coute
+				/// -- et pour le distant, elle dit d'abord QUE CA SORT.
+				void LigneEtat(int32 onglet, char *dst, uint32 taille) const {
+					if (!dst || taille == 0)
+						return;
+					if (onglet == 1) {
+						NkString quoiFaire;
+						if (converse::NkClaudeDiagnostic(claude.compte, quoiFaire) !=
+							converse::NkClaudeEtat::Pret) {
+							snprintf(dst, taille, "claude · %s",
+									 quoiFaire.Data() ? quoiFaire.Data() : "");
+							return;
+						}
+						// ⚠️ LE CHIFFRE, PAS SEULEMENT L'AVERTISSEMENT. « des donnees
+						//    partent » se survole ; « 2 431 octets sont partis » se lit.
+						//    Il vaut 0 tant qu'aucune demande n'a ete envoyee, et c'est
+						//    vrai : rien n'est encore sorti.
+						snprintf(dst, taille, "claude · %s modele %s · %u octets envoyes",
+								 converse::NkClaudeAvertissement(),
+								 claude.modele.Data() ? claude.modele.Data() : "?",
+								 (unsigned)claude.DerniereInvite().Length());
+						return;
+					}
+					if (onglet == 0) {
+						snprintf(dst, taille,
+								 pret ? "local · rien ne quitte cette machine · %s"
+									  : "local · indisponible · %s",
+								 dorsal.Name() ? dorsal.Name() : "?");
+						return;
+					}
+					snprintf(dst, taille, "ollama · aucun cablage dans le modeleur");
+				}
+
 				void Preparer(const char *racine) {
 					dorsal.nom = NkString("assistant");
+					// ── LE DISTANT : SES FICHIERS DE TRAVAIL, ET SON COMPTE ───────
+					// Meme regle que le local : dans `logs/`, pas a la racine.
+					// ⚠️ LE COMPTE EST UN REGLAGE, ET IL EST VIDE PAR DEFAUT -- le
+					//    dossier de configuration ordinaire du CLI. `NK_CLAUDE_COMPTE`
+					//    vise un compte de NKCode (~/.nkcode/accounts/<nom>). Aucune
+					//    cle n'est lue nulle part : on ne pose qu'un CHEMIN.
+					claude.invitePath = NkString("logs/nkclaude_invite.txt");
+					claude.sortiePath = NkString("logs/nkclaude_reponse.txt");
+					claude.scriptPath = NkString("logs/nkclaude_lance.cmd");
+					if (const char *c = std::getenv("NK_CLAUDE_COMPTE"))
+						if (*c)
+							claude.compte = NkString(c);
+					if (const char *m = std::getenv("NK_CLAUDE_MODELE"))
+						if (*m)
+							claude.modele = NkString(m);
 					// ⚠️ DANS `logs/`, PAS A LA RACINE. Le dorsal ecrit deux fichiers de
 					//    travail a CHAQUE appel ; poses dans le repertoire courant, ils
 					//    salissent le dossier de projet de Rodolf et reapparaissent apres

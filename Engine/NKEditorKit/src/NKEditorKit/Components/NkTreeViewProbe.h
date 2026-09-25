@@ -437,7 +437,7 @@ namespace nkentseu {
 
 				// ── 7. UN JETON REAFFECTE ───────────────────────────────────────
 				NkComponentInstance ti(decl);
-				ti.SetTokenRole("active_mark", "PanelHeader");
+				ti.SetTokenRole("active_mark", "panel_header");
 				check("7.  un JETON se reaffecte a un autre role, et l'instance le retient",
 					  ti.IsTokenOverridden("active_mark"), ti.TokenRole("active_mark"));
 

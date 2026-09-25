@@ -303,6 +303,38 @@ namespace nkuidesign {
 	// l'instrument. Un banc qui exige des couleurs distinctes la ou l'ecran n'en
 	// a pas mesure une reconstruction, pas la chose.
 	//
+	// ── LA PORTE (b) : UNE COULEUR DE ROLE NE SE LIT PLUS SANS ETRE JUGEE ──────
+	//
+	// ⚠️ LA SENTINELLE MAGENTA EST LA VALEUR DE 43 ROLES A LA FOIS. Un theme neuf
+	//    la porte sur TOUS ses roles. Un critere qui identifie la geometrie PAR SA
+	//    COULEUR et qui lit une sentinelle ne compare plus rien : il retient 78 %
+	//    des sommets de la scene (mesure du 17/09 : 3 688 sur 4 754). Et il ne
+	//    tombe pas en panne pour autant -- il PEUT rester VERT, parce que le
+	//    dessin utilise le MEME theme casse : les deux cotes sont d'accord sur du
+	//    magenta. C'est la pire forme du defaut : coherent avec lui-meme.
+	//
+	//    La porte (a) -- `DesignState` nait avec `NkTheme::Dark()` -- empeche le
+	//    cas d'exister. Celle-ci le DENONCE s'il revient : un `NkTheme` nu declare
+	//    a la main, un etat d'un autre type, un role que `Dark()` ne pose pas.
+	//    *Empecher sans denoncer, c'est se reposer sur le fait que personne
+	//    n'ecrira jamais la ligne suivante.*
+	static const uint32 kSentinelleRoleOublie = 0xFFFF00FFu;
+	/// Rend la couleur de dessin d'un role, et REFUSE la sentinelle en la NOMMANT.
+	/// `false` -> le critere appelant doit ECHOUER, jamais comparer.
+	inline bool CouleurDeRoleSure(const nkentseu::editorkit::NkTheme &th, const char *role,
+							  nkentseu::uint32 &out, char *pourquoi, nkentseu::uint32 cap) noexcept {
+		out = nkgui::NkGuiPackColor(nkentseu::editorkit::NkThemeUnpack(th.Get(NkDesignResolveRole(role))));
+		if (out != kSentinelleRoleOublie)
+			return true;
+		if (pourquoi && cap)
+			snprintf(pourquoi, cap,
+					 "THEME NON CHARGE : le role `%s` rend la SENTINELLE 0x%08X, valeur commune"
+					 " a des dizaines de roles. Comparer une couleur a cette valeur ne distingue"
+					 " RIEN -- ce critere refuse de mesurer plutot que de verdir par hasard.",
+					 role, kSentinelleRoleOublie);
+		return false;
+	}
+
 	// La sonde passe donc par `NkDesignResolveRole` -- exactement la fonction de
 	// l'editeur fenetre, et par defaut de `NkDocumentHost`. Il n'y a plus qu'une
 	// resolution dans le programme, et c'est la seule facon qu'un essai headless
@@ -571,7 +603,7 @@ namespace nkuidesign {
 
 		// ── 7. UN JETON REAFFECTE ───────────────────────────────────────────
 		NkComponentInstance t(NkContentBrowserDecl());
-		t.SetTokenRole("card_bg", "PanelHeader");
+		t.SetTokenRole("card_bg", "panel_header");
 		check("7. un JETON se reaffecte a un autre role, et l'instance le retient",
 			  t.IsTokenOverridden("card_bg"), t.TokenRole("card_bg"));
 
@@ -1310,6 +1342,16 @@ namespace nkuidesign {
 		//    enfreinte par le prochain auteur. Deux jetons sur deux fichiers
 		//    ecrits par deux personnes, 23 sur 23 : ce n'est pas une inattention,
 		//    c'est une classe de defaut.
+		//
+		//    ⚠️ SUITE DU 22/09 — LES DEUX, ET DANS CET ORDRE. L'argument ci-dessus
+		//       est juste TANT QUE RIEN NE CONTROLE LA CONVENTION, et il a coute
+		//       une alarme criee a chaque lancement (« A CORRIGER A LA SOURCE »,
+		//       9 noms distincts) que personne ne pouvait eteindre sans mentir.
+		//       Les 37 noms sont donc renommes A LA SOURCE, le rattrapage reste
+		//       (il n'a plus rien a rattraper), et le vingt-quatrieme jeton est
+		//       desormais arrete par une MESURE et non par la memoire des
+		//       auteurs : `NKEditorKitTest 2d` exige `pascal == 0` sur tous les
+		//       jetons declares du registre, et nomme le composant fautif.
 		//
 		//    (a) la resolution CANONISE -> la classe de defaut disparait ;
 		//    (b) le repli est FRANC -> ce que (a) ne couvre pas se DIT.
@@ -6181,8 +6223,17 @@ namespace nkuidesign {
 					const float32 yBarre = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f + 26.f;
 					const nkentseu::uint32 accent = nkgui::NkGuiPackColor(ctxI.theme.accent);
 					const nkentseu::uint32 encre = nkgui::NkGuiPackColor(ctxI.theme.text); // l'anneau de la pastille courante (rayon 6)
-					const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
-						nkentseu::editorkit::NkThemeUnpack(stI.theme.Get(nkentseu::editorkit::NkRole::InputBg)));
+					// ⚠️ CE CRITERE MELANGEAIT DEUX SOURCES, ET C'EST POURQUOI IL ETAIT VERT
+					//    POUR UNE MAUVAISE RAISON : `accent` et `encre` viennent de
+					//    `ctxI.theme` (le theme NKGui, INITIALISE) et `boite` d'un `NkTheme`
+					//    d'editorkit qui, jusqu'au 17/09, n'etait JAMAIS charge -- donc la
+					//    sentinelle. Il restait vert parce que le DESSIN utilisait le meme
+					//    theme casse : les deux cotes etaient d'accord sur du magenta.
+					//    *Un vert dont une des trois entrees est une sentinelle est un vert a
+					//    re-prouver, pas un vert.*
+					nkentseu::uint32 boite = 0u;
+					char malTheme[220] = {0};
+					const bool themeSain = CouleurDeRoleSure(stI.theme, "input_bg", boite, malTheme, sizeof(malTheme));
 					float32 basPastilles = -1e9f, hautAngle = 1e9f;
 					uint32 nA = 0u, nB = 0u;
 					for (uint32 i = 0; i < (uint32)ctxI.dlOverlay.vtx.Size(); ++i) {
@@ -6198,11 +6249,11 @@ namespace nkuidesign {
 							++nB;
 						}
 					}
-					const bool disjoints = nA > 0u && nB > 0u && basPastilles <= hautAngle + 0.01f;
+					const bool disjoints = themeSain && nA > 0u && nB > 0u && basPastilles <= hautAngle + 0.01f;
 					stI.picker = DesignState::DemandePicker();
 					image4();
-					snprintf(det, sizeof(det), "barre a y=%.0f : bas des pastilles %.1f (%u sommets), haut de la boite Angle %.1f (%u sommets)",
-							 yBarre, basPastilles, nA, hautAngle, nB);
+					snprintf(det, sizeof(det), "barre a y=%.0f : bas des pastilles %.1f (%u sommets), haut de la boite Angle %.1f (%u sommets)%s%s",
+							 yBarre, basPastilles, nA, hautAngle, nB, themeSain ? "" : " -- ", malTheme);
 					check("60m. ④ LES PASTILLES DE LA BARRE ET LA RANGEE SUIVANTE NE SE RECOUVRENT PAS : le bas des pastilles "
 						  "est au-dessus du haut de la boite du champ Angle, mesure sur la couche overlay",
 						  disjoints, det);
@@ -6256,8 +6307,10 @@ namespace nkuidesign {
 						const float32 x0 = px + 0.5f + 8.f;
 						// apres la rangee Angle ; + 26 : la rangee d'opacite (③ du 05/09, apres-midi)
 						const float32 yListe = py + 0.5f + 8.f + 26.f + 168.f + 26.f + 26.f + 34.f + 26.f;
-						const nkentseu::uint32 boite = nkgui::NkGuiPackColor(
-							nkentseu::editorkit::NkThemeUnpack(stI.theme.Get(nkentseu::editorkit::NkRole::InputBg)));
+						// Meme porte que la 60m : une couleur de role ne se lit pas sans etre jugee.
+						nkentseu::uint32 boite = 0u;
+						char malThemeS[220] = {0};
+						const bool themeSainS = CouleurDeRoleSure(stI.theme, "input_bg", boite, malThemeS, sizeof(malThemeS));
 						// les boites du champ « position » des rangees visibles : x0+2 .. x0+42
 						auto boitesY = [&](float32 &yMin, uint32 &n) {
 							yMin = 1e9f;
@@ -6303,9 +6356,11 @@ namespace nkuidesign {
 								 "fenetre 420 : popover y %.0f..%.0f (dans la fenetre=%d), %u arrets ; boites de la liste (x0=%.0f, yListe=%.0f) : "
 								 "%u sommets, premiere a y=%.1f puis, apres une demi-cran de molette, %u sommets, a y=%.1f (defile=%d) ; bas VISIBLE apres=%.0f",
 								 py, pyMax, dansFenetre ? 1 : 0, 12u, x0, yListe, nAvant, yAvant, nApres, yApres, defile ? 1 : 0, pyMax2);
+						if (!themeSainS)
+							snprintf(det, sizeof(det), "%s", malThemeS);
 						check("60n. ⑤ L'ASCENSEUR DU POPOVER : douze arrets dans une fenetre de 420 px -- le popover tient dans la "
 							  "fenetre, la liste defile a la molette (l'interieur bouge, pas le popover)",
-							  dansFenetre && defile && pyMax2 <= 420.5f, det);
+							  themeSainS && dansFenetre && defile && pyMax2 <= 420.5f, det);
 					}
 				}
 				// 60p. LE DEGRADE SURVIT A LA GEOMETRIE (Rodolf : « des que je modifie la geometrie, le

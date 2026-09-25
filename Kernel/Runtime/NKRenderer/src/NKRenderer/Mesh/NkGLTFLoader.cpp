@@ -134,6 +134,19 @@ namespace nkentseu {
 				if (!n || !n->IsScalar())
 					return def;
 				const NkArchiveValue &v = n->value;
+				// ⚠️ LE BOOLEEN D'ABORD (22/09). `normalized` vaut `true` en JSON, donc un
+				//    BOOLEEN -- et ce lecteur ne connaissait qu'entier, non-signe, flottant
+				//    et texte. Il rendait donc le defaut, c'est-a-dire 0 : « non
+				//    normalise ». Les COLOR_0 de TripoSR (unsigned byte, min 16, max 214)
+				//    n'etaient plus divises par 255, chaque canal depassait 1, et le
+				//    clamp les ramenait tous a 255 : TOUT LE MAILLAGE ARRIVAIT BLANC.
+				//    C'est la cause reelle de « les maillages de Tripo ne sont pas
+				//    textures » -- ce n'etait pas la multiplication par la teinte, c'etait
+				//    la couleur perdue a la lecture. Le meme defaut touchait tous les
+				//    attributs normalises en entier : couleurs, poids de skinning, UV
+				//    compresses.
+				if (v.IsBool())
+					return v.raw.b ? 1 : 0;
 				if (v.IsInt())
 					return v.raw.i;
 				if (v.IsUInt())
@@ -940,8 +953,33 @@ namespace nkentseu {
 							// Les COLOR_0 float sont en [0,1] ; les int normalises
 							// sont deja ramenes a [0,1] par ReadAccessorFloat.
 							auto clamp01 = [](float32 x) { return x < 0.f ? 0.f : (x > 1.f ? 1.f : x); };
-							v.color = PackRGBA8((uint8)(clamp01(r) * 255.f + 0.5f), (uint8)(clamp01(g) * 255.f + 0.5f),
-												(uint8)(clamp01(b) * 255.f + 0.5f), (uint8)(clamp01(a) * 255.f + 0.5f));
+							// ── COLOR_0 EST LINEAIRE, LE NUANCEUR LE CROIT sRGB (25/09) ────
+							// La specification glTF dit COLOR_0 en espace LINEAIRE. Notre
+							// fragment fait `albedo = pow(texture(tAlbedo,vUV) * vColor, 2.2)`
+							// : il DECODE la couleur de sommet comme si elle etait sRGB, donc
+							// une seconde fois. On pre-encode ici pour annuler ce decodage.
+							// ⚠️ MESURE QUI L'ETABLIT, et elle refute ce que j'allais conclure.
+							//    Je m'appretais a dire « c'est le modele qui assombrit ». Le
+							//    rapport de luminance maillage/source n'est PAS un facteur
+							//    constant : il monte de 0,54 a 0,85 quand la valeur monte
+							//    (p25 -> p90 sur l'arbre). C'est la signature d'une LOI DE
+							//    PUISSANCE, pas d'un biais. Le gamma equivalent estime sur la
+							//    mediane vaut 2,172, a comparer aux 2,2 d'un sRGB -> lineaire.
+							// ⚠️ POURQUOI ICI ET PAS DANS LE NUANCEUR : la teinte du materiau,
+							//    elle, est authorisee en sRGB (un selecteur de couleur), donc
+							//    la decoder est JUSTE. Les deux se multiplient avant le pow :
+							//    le nuanceur ne peut pas les distinguer. Le seul endroit qui
+							//    sait dans quel espace est SA donnee est le chargeur.
+							// ⚠️ CONDITION DE RETRAIT : cette compensation disparait le jour ou
+							//    le nuanceur separe les deux espaces (un decodage pour la
+							//    texture et la teinte, aucun pour la couleur de sommet).
+							auto versSrgb = [](float32 x) {
+								return x <= 0.0031308f ? 12.92f * x : 1.055f * powf(x, 1.f / 2.4f) - 0.055f;
+							};
+							v.color = PackRGBA8((uint8)(clamp01(versSrgb(clamp01(r))) * 255.f + 0.5f),
+												(uint8)(clamp01(versSrgb(clamp01(g))) * 255.f + 0.5f),
+												(uint8)(clamp01(versSrgb(clamp01(b))) * 255.f + 0.5f),
+												(uint8)(clamp01(a) * 255.f + 0.5f)); // l'alpha n'est PAS une couleur
 						} else {
 							v.color = PackRGBA8(255, 255, 255, 255);
 						}

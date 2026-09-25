@@ -3,6 +3,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkModelerInput.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // =============================================================================
@@ -34,9 +35,13 @@
 // ... et il est SPECIALISE pour la creation de materiau (choix du type avant
 // creation) : la classe derivee et le catalogue des types vivent a part.
 #include "NK3DModeler/Shell/NkModelerMatTypes.h"
+#include "NKEditorKit/NkAiThread.h" // LE FIL du panneau IA, commun au kit
+#include "NKEditorKit/NkAiThreadLayout.h" // et le PLAN qu'il publie
+#include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NK3DModeler/Shell/NkModelerFold.h"#include "NKEditorKit/NkShortcutTable.h"
+#include "NK3DModeler/Shell/NkModelerFold.h"
+#include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
 namespace nkentseu {
@@ -75,7 +80,23 @@ namespace nkentseu {
 
 		// Outil actif : « que fait mon clic ? ». Un seul a la fois.
 		// MultiGizmo = le mode COMBINE de la demo (T+R+S en un seul gizmo).
-		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale, MultiGizmo };
+		// ⚠️ `Brush` EST AJOUTE EN FIN : cette enumeration voyage dans l'etat de
+		//    session, et renumeroter changerait l'outil actif d'un projet rouvert.
+		//    C'est l'outil NEUTRE des modes a brosses -- celui sous lequel le clic
+		//    appartient a la brosse. Avant lui, ce neutre s'appelait « Selection »,
+		//    ce qui ne veut rien dire en Sculpture : il n'y a aucune selection a y faire.
+		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale, MultiGizmo, Brush };
+
+		/// LE GIZMO SE TAIT-IL SOUS CET OUTIL ? UNE SEULE REPONSE, ET C'EST ICI.
+		/// ⚠️ Elle etait ecrite DEUX FOIS dans main.cpp, a deux endroits eloignes.
+		///    L'entree « Brosse » n'a ete ajoutee qu'a l'une des deux : le gizmo du
+		///    Transform restait donc affiche sous la brosse, et son incrustation avec.
+		///    Mesure : l'image de la barre montrait le pinceau ACTIF et le gizmo
+		///    present. Deux copies d'une meme decision divergent au premier ajout --
+		///    celui-la a pris quelques minutes ; le prochain aurait pu passer.
+		inline bool NkOutilCacheGizmo(NkTool t) {
+			return t == NkTool::Select || t == NkTool::Cursor || t == NkTool::Brush;
+		}
 
 		// ── INTENTION CLAVIER ───────────────────────────────────────────────────
 		// Une TOUCHE ne fait rien elle-meme : elle pose une intention, consommee
@@ -274,6 +295,12 @@ namespace nkentseu {
 				int32 matcap = 0;		  ///< matcap actif, mode edition seulement
 				int32 viewLayout = 0;	  ///< disposition des vues (menu de gauche)
 				int32 selShape = 0;		  ///< rectangle / cercle / lasso
+				// SYMETRIE DE LA SCULPTURE : bits 1 X, 2 Y, 4 Z. L'AUTORITE est la
+				// vue (Demo3DHostSetSculptSym) ; ce champ est le miroir du shell, celui
+				// que le panneau peint et que le document emporte. Meme forme que
+				// `shading` ou `solidLight` -- et la synchronisation se fait au MEME
+				// endroit qu'eux, jamais a cote.
+				int32 sculptSym = 0;
 				int32 modOpenCat = 0;	  ///< categorie de modificateurs survolee
 				NkRect modAnchor{};		  ///< ou ancrer la liste a deux niveaux
 				int32 activeTab = 0;
@@ -412,6 +439,11 @@ namespace nkentseu {
 				bool propOpen[8] = {true};
 				bool propFold[8] = {};
 				bool AnyPropOpen() const {
+					// L'ASSISTANT OUVERT EST UN CONTENU du panneau (21/09) : sans cette
+					// ligne, l'ouvrir alors qu'aucune section n'est choisie repliait le
+					// panneau sur sa colonne de pastilles -- un assistant de 46 px.
+					if (aiOuvert && !welcome)
+						return true;
 					for (int32 i = 0; i < 8; ++i)
 						if (propOpen[i])
 							return true;
@@ -800,6 +832,12 @@ namespace nkentseu {
 						int32 fondType = 0;	   ///< st.bgType
 						float32 fondLum = 1.f; ///< st.bgBrightness
 						float32 fondPerso[3] = {0.13f, 0.15f, 0.19f}; ///< st.bgCustom
+						// LA SYMETRIE DE LA SCULPTURE (bits 1 X, 2 Y, 4 Z). Elle part
+						// avec le DOCUMENT, comme l'ombrage et le fond : on ne sculpte
+						// pas un visage (symetrique) et une roche (non) avec le meme
+						// reglage, et le retrouver a la reouverture est la moindre des
+						// choses.
+						int32 sculptSym = 0; ///< st.sculptSym
 				};
 				NkDocView docView[32];
 				bool docViewSet[32] = {};
@@ -1046,7 +1084,8 @@ namespace nkentseu {
 				//   sortie standard : parfait pour une sonde, INVISIBLE pour Rodolf, qui
 				//   n'a pas de console. Un outil qui refuse sans le dire a l'ecran se lit
 				//   comme un outil qui ne marche pas.
-				char aiSaisie[256] = {0};  ///< ce qui est en train d'etre tape
+				// ⚠️ `aiSaisie` A DISPARU LE 21/09 : ce qui est tape vit dans le composeur
+				//    du kit (`aiPanneau.Saisie()`), UTF-8 -- l'ancien champ refusait les accents.
 				char aiPending[256] = {0}; ///< la demande soumise (vide = rien a faire)
 				char aiMotif[192] = {0};   ///< le dernier refus, AFFICHE et pas seulement journalise
 				bool aiMotifEstRefus = false; ///< distingue « refuse » de « fait »
@@ -1071,44 +1110,207 @@ namespace nkentseu {
 					Refus = 2,     ///< un verbe inconnu, AVEC son motif. Une reponse, pas une panne.
 					Note = 3       ///< un fait de la chaine (dorsal absent, onglet muet)
 				};
-				struct AiBloc {
-						uint8 type = 0;
-						uint8 replie = 1; ///< replie PAR DEFAUT : c'est la forme de la capture
-						uint8 mesure = 0; ///< 0 pas encore lu · 1 lu · 2 lu et rien n'a change
-						int32 vA = 0, eA = 0, fA = 0;
-						int32 vB = 0, eB = 0, fB = 0;
-						char ligne[96] = {0};	///< la ligne visible quand le bloc est replie
-						char detail[192] = {0}; ///< ce qui apparait quand on le deplie
-						char in[96] = {0};		///< l'entree, telle qu'elle est partie
-						char out[128] = {0};	///< la sortie, telle qu'elle a ete LUE
-						/// ⚠️ LES RECTANGLES SONT ECRITS PAR LA PEINTURE ET LUS PAR LA
-						///    SONDE. Une sonde qui calculerait les coordonnees de son
-						///    cote mesurerait SA formule de disposition, pas celle du
-						///    panneau : le jour ou la mise en page bouge, elle
-						///    cliquerait a cote en restant verte.
-						float32 rl[4] = {0.f, 0.f, 0.f, 0.f}; ///< la ligne repliable
-						float32 ru[4] = {0.f, 0.f, 0.f, 0.f}; ///< « Annuler » (w=0 : absent)
+				// ⚠️ `AiBloc` A ETE SUPPRIME, PAS LAISSE EN PLACE. Le fil est
+				//    desormais `editorkit::NkAiFil` ; une structure qui ne stocke plus
+				//    rien mais reste declaree se lit comme un inventaire, et quelqu'un
+				//    finit par y reecrire. Ses champs de MESURE (compteurs, etat) sont
+				//    partis dans `AiMesure` ; ses champs de TEXTE dans le fil du kit ;
+				//    ses rectangles `rl`/`ru` sont desormais PUBLIES PAR LE PLAN
+				//    (`NkAiPlan`) au lieu d'etre ecrits dans la donnee par la peinture.
+				// ── LE FIL VIT DESORMAIS DANS LE KIT ─────────────────────
+				// ⚠️ MIGRATION DU 20/09, ET ELLE CORRIGE UN DEFAUT MESURE.
+				//    Le fil etait `AiBloc aiFil[16]` que `NkAiPousser` faisait GLISSER
+				//    (`aiFil[i-1] = aiFil[i]`), et le panneau designait ses blocs PAR
+				//    LEUR POSITION : `snprintf(cle, "ai.b%d", i)`.
+				//    Mesure du 20/09 (`NKAiFilTest`, essais A3/A4, ROUGES avant ceci) :
+				//    apres un bloc de plus, l'indice 10 designait « etape 11 ».
+				//    Rodolf depliait un bloc, une reponse arrivait, un AUTRE se depliait.
+				//
+				//    `NkAiFil` pose un identifiant monotone en UN SEUL endroit et ne le
+				//    reutilise jamais -- meme apres `Vider`, sinon un identifiant recycle
+				//    ferait basculer un bloc de l'ancienne conversation.
+				editorkit::NkAiFil aiFil;
+				/// Le PLAN du fil, tel que la derniere passe de peinture l'a publie.
+				/// ⚠️ PUBLIE PAR LE PEINTRE, LU PAR LE TEMOIN -- jamais recalcule ailleurs.
+				///    Il remplace les `rl`/`ru` que la PEINTURE ECRIVAIT DANS LA DONNEE
+				///    (`b.rl[0] = filR.x` au milieu de la boucle de dessin) : desormais le
+				///    peintre publie et ne mute rien.
+				editorkit::NkAiPlan aiPlan;
+				/// L ORIGINE A LAQUELLE LE PLAN A ETE PEINT, a l ecran.
+				/// ⚠️ LE PLAN EST RELATIF AU PANNEAU, PAS A L ECRAN. La trace
+				///    `AI BLOC` publiait autrefois des rectangles ECRAN, ecrits par le
+				///    peintre ; depuis la migration elle publiait ceux du plan, qui sont
+				///    relatifs. Deux sondes CLIQUENT a ces coordonnees : elles visaient le
+				///    coin de la fenetre. Un contrat qui garde son nom et change de repere
+				///    ne se signale pas -- il fait rater les clics en silence.
+				float32 aiPlanOrigine[2] = {0.f, 0.f};
+
+				// ── LE PANNEAU DU KIT (21/09) ─────────────────────────────
+				// L'historique, la saisie, les menus et UNE CONVERSATION PAR ASSISTANT
+				// vivent dans `NkAiPanneau`, le meme que NKUIDesign et NKCode. Le fil
+				// VIVANT reste `aiFil` (le panneau y est lie : `Lier`).
+				editorkit::NkAiPanneau aiPanneau;
+				/// L'ETAT DES TROIS FOURNISSEURS, publie par la boucle a chaque image
+				/// (`NkIaCanal::DorsalDe` / `MotifDe`). Le panneau l'AFFICHE ; il ne le
+				/// redecide pas -- deux avis sur la meme question finissent par diverger.
+				bool aiPretDe[3] = {false, false, false};
+				char aiMotifDe[3][192] = {{0}};
+				/// Un tour est en vol (`envoi.EnCours()`), publie par la boucle.
+				bool aiEnvoiEnCours = false;
+				/// Le bouton d'ARRET a ete presse : la boucle annule l'envoi et remet a faux.
+				bool aiArreter = false;
+				/// Le modele de Claude CHOISI dans la pastille (vide = celui du reglage),
+				/// et celui que le dorsal porte vraiment -- relu, pas suppose.
+				char aiClaudeModele[48] = {0};
+				char aiClaudeModeleCourant[48] = {0};
+				/// LE RECTANGLE ECRAN du bouton « Annuler cette action », PUBLIE par le
+				/// panneau (0 = pas de bouton). Il a SON rectangle : la trace portait
+				/// sous `annuler=` celui de l'EFFET, et une sonde cliquait l'effet en
+				/// croyant cliquer le bouton.
+				float32 aiActionRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// Le composeur a le focus clavier : aucune touche ne doit atteindre les
+				/// raccourcis du modeleur (taper « e » ne doit pas extruder).
+				bool aiComposeurActif = false;
+				/// EN MODE OBJET, la pile de l'assistant sait-elle retirer quelque chose ?
+				/// (le dernier LOT cree par l'IA -- `NkCreaAnnuler`, transit du 21/09).
+				/// Publie par la boucle ; sans lui le bouton « Annuler cette action »
+				/// restait eteint en mode Objet alors que le geste y marchait.
+				bool aiPeutAnnulerObjet = false;
+				// ── Q5 (21/09) : le modele et ses proprietes ──
+				/// Le modele LOCAL choisi dans la pastille : la boucle le pose dans
+				/// l'environnement (`NK_IA_MODELE`), que `ia_verbe.py` relit a CHAQUE
+				/// appel -- le choix agit sans toucher au gabarit ni a la boucle.
+				char aiLocalModele[96] = {0};
+				/// L'effort de Claude (`--effort` du CLI) ; vide = defaut du CLI.
+				char aiClaudeEffort[16] = {0};
+				/// « + » -> « Une image pour l'objet 3D… » : le MEME geste que le
+				/// bouton « Generer » du navigateur (selecteur d'image, puis GENIA).
+				bool aiDemandeImage = false;
+				/// Ce que le dernier appel a Claude a envoye, en octets (Utilisation).
+				uint32 aiOctetsClaude = 0u;
+				// ── Q8 : l'image jointe ──
+				/// « Joindre une image… » : la boucle ouvre le selecteur (action 4).
+				bool aiDemandeJointe = false;
+				/// Les images parties avec la DERNIERE demande (chemins). ⚠️ LEUR USAGE
+				///    (image -> objet) appartient a l'agent de la modelisation : le
+				///    panneau ne fait que les FOURNIR.
+				NkVector<NkString> aiImagesJointes;
+				/// La derniere liste relayee (reste lisible par la modelisation).
+				NkVector<NkString> aiImagesJointesVues;
+
+				// ── CE QUE LE FIL NE PORTE PAS, ET NE DOIT PAS PORTER ────────
+				// Les compteurs de maillage et l'etat d'une mesure en cours sont des
+				// preoccupations du MODELEUR, pas du fil. Les faire entrer dans
+				// `NkAiBlocDonnees` serait le commun qui absorbe la donnee d'une seule
+				// application -- et le prochain a integrer NKCode demanderait les
+				// siennes. *Un contrat qui accueille les besoins de chaque appelant
+				// cesse d'etre un contrat.* (Arbitrage du 20/09, option (a).)
+				//
+				// ⚠️ LA CLE EST L'IDENTIFIANT DU BLOC, JAMAIS SA POSITION -- sans quoi
+				//    cette table reintroduirait exactement le defaut qu'on retire.
+				// ⚠️ ET UNE ENTREE DONT L'IDENTIFIANT A QUITTE LA FENETRE SE SUPPRIME.
+				//    Jamais de repli sur la position : mieux vaut perdre la mesure d'un
+				//    bloc qu'on ne voit plus que l'attribuer a son voisin.
+				struct AiMesure {
+					uint32 id = 0; ///< 0 = entree libre
+					uint8 etat = 0; ///< 0 pas encore lu · 1 lu · 2 lu et rien n'a change
+					int32 vA = 0, eA = 0, fA = 0;
+					int32 vB = 0, eB = 0, fB = 0;
 				};
-				static const int32 kAiFil = 16;
-				AiBloc aiFil[kAiFil];
-				int32 aiFilN = 0;
+				static const int32 kAiMesures = 16;
+				AiMesure aiMesures[kAiMesures];
 				/// Le bloc dont l'effet reste a mesurer, et l'image ou il a ete pose.
 				/// La mesure se prend a l'image SUIVANTE : l'operation s'execute plus bas
 				/// dans la meme boucle, donc lire les compteurs tout de suite rendrait
 				/// l'etat d'AVANT en le presentant comme celui d'apres.
-				int32 aiEnCours = -1;
+				/// ⚠️ UN IDENTIFIANT, PLUS UN INDICE. 0 = aucun.
+				///    C'etait `int32 aiEnCours = -1`, un INDICE dans `aiFil` -- et le
+				///    fil GLISSAIT, donc `NkAiPousser` devait le rattraper a la main :
+				///        if (st.aiEnCours > 0) --st.aiEnCours;
+				///        else if (st.aiEnCours == 0) st.aiEnCours = -1;
+				///    Ces quatre lignes ont disparu. On ne PROPAGE pas la correction au
+				///    second site qui l'avait oubliee (la cle de clic) : on supprime la
+				///    RAISON d'avoir une correction. Un identifiant ne glisse pas.
+				uint32 aiEnCoursId = 0;
 				int32 aiEnCoursFrame = -1;
+				/// Le rectangle du PANNEAU de l'assistant, tel qu'il vient d'etre PEINT.
+				/// Meme raison que le suivant : le temoin compare deux rectangles PUBLIES
+				/// par leurs peintres, jamais deux formules recopiees.
+				float32 aiPanRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// Le rectangle de la PASTILLE de l'assistant, tel qu'il vient d'etre
+				/// PEINT (x, y, w, h ; w = 0 : elle n'est pas a l'ecran). Il est publie par
+				/// la peinture et lu par le temoin, jamais recalcule ailleurs : une sonde
+				/// qui refait la formule de son cote mesure sa propre formule.
+				/// Il existe parce que le temoin ne PEUT PAS passer par la souris -- aucune
+				/// injection d'entree n'est permise sur cette machine -- et qu'il fallait
+				/// donc un critere GEOMETRIQUE : la pastille et le panneau ne se
+				/// recouvrent pas.
+				float32 aiTabRect[4] = {0.f, 0.f, 0.f, 0.f};
+				/// La MARQUE : combien de blocs du fil ont deja ete VUS, c'est-a-dire
+				/// peints alors que le panneau etait ouvert. `aiFilN > aiFilVu` dit donc
+				/// « il y a du neuf que personne n'a lu » -- et c'est ce que la pastille
+				/// affiche.
+				/// [?] ELLE REMPLACE UNE OUVERTURE DE FORCE. Jusqu'ici, soumettre une
+				///    demande posait `aiOuvert = true` : la reponse se voyait, mais en
+				///    prenant l'ecran sans qu'on l'ait demande. Ouvrir de force repond au
+				///    besoin de l'APPLICATION ; marquer repond a celui de l'UTILISATEUR.
+				/// [?] ET C'EST UN ETAT, DONC UN BANC SANS FENETRE PEUT LE LIRE. C'est la
+				///    condition pour que la marque REMPLACE l'ouverture au lieu de s'y
+				///    ajouter : deux comportements pour un meme etat, c'est le motif
+				///    qu'on retire depuis hier.
+				// ⚠️ `aiFilVu` A DISPARU : la marque vit dans le fil du kit
+				//    (`NonVus()` / `MarquerVus()`), avec la meme regle -- elle se
+				//    consomme LA OU LES BLOCS SONT PEINTS, jamais au clic.
 				bool aiOuvert = false; ///< le panneau est-il deploye ? (ferme au demarrage)
 				/// L'onglet de fournisseur. 0 = LOCAL, et c'est le defaut : le seul qui
 				/// soit branche a quelque chose aujourd'hui.
+				/// ⚠️ CE COMMENTAIRE A CESSE D'ETRE VRAI LE 20/09 : l'onglet Claude est
+				///    cable. Le defaut RESTE 0, et ce n'est pas un oubli -- le local ne
+				///    fait rien sortir de la machine. Un onglet distant par defaut ferait
+				///    partir la premiere demande avant que l'utilisateur l'ait su.
 				int32 aiOnglet = 0;
-				char aiSujet[80] = {0}; ///< le sujet de la conversation (la premiere demande)
+				/// ── CE QUE LE CANAL SAIT, ET QUE LE PANNEAU NE PEUT PAS SAVOIR ─────
+				/// Le panneau n'inclut aucun dorsal : c'est la boucle qui interroge
+				/// `NkIaCanal` et depose son verdict ici, a chaque image.
+				/// ⚠️ UNE SEULE AUTORITE. Si le panneau recalculait « cet onglet est-il
+				///    utilisable ? » de son cote, il pourrait allumer le composeur d'un
+				///    dorsal que la boucle refuserait ensuite d'appeler -- deux avis, et
+				///    l'utilisateur croirait le premier.
+				bool aiOngletPret = false;
+				/// Le motif quand il ne l'est pas, LE GESTE QUI REPARE EN TETE (cette
+				/// ligne est tronquee a l'affichage : ce qui compte doit passer avant).
+				char aiOngletMotif[192] = {0};
+				/// Vrai pour un dorsal qui envoie HORS de la machine. Le panneau
+				/// l'annonce AVANT l'usage, pas apres.
+				bool aiOngletDistant = false;
+
+				// ── LA BOUCLE « fais X jusqu'a Y » ─────────────────────────────
+				// ⚠️ ELLE VIT DANS L'ETAT, PAS DANS UNE STATIQUE DE `main`. Une
+				//    statique aurait survecu a la fermeture du projet : on aurait
+				//    rouvert une scene neuve avec une boucle encore armee sur les
+				//    compteurs de l'ancienne.
+				// ⚠️ ET LE MODELE N'Y EST PAS. Il a traduit la demande en (verbe,
+				//    predicat) en UN appel, puis il est sorti. Ces champs sont ce
+				//    qu'il a laisse derriere lui ; les tours suivants ne quittent
+				//    pas la machine et ne coutent rien.
+				bool aiBoucleActive = false;
+				char aiBoucleVerbe[64] = {0}; ///< le verbe a REPETER
+				uint8 aiBoucleQuantite = 0;	  ///< NkIaQuantite, stockee en brut (evite un cycle d'include)
+				bool aiBouclePlus = true;	  ///< « depasser » (vrai) ou « descendre sous »
+				int32 aiBoucleSeuil = 0;
+				int32 aiBoucleTour = 0;
+				/// ⚠️ UN PLAFOND DE TOURS **EN PLUS** DU PLAFOND DE FACES, parce
+				///    qu'ils attrapent deux pannes DIFFERENTES : celui-ci attrape la
+				///    boucle qui n'avance pas (un verbe qui ne deplace rien sur cette
+				///    selection), celui des faces attrape la boucle qui avance trop.
+				///    Un seul des deux laisserait passer l'autre.
+				int32 aiBoucleTourMax = 24;
+
 				/// LA LIGNE D'ETAT, ECRITE PAR LA PEINTURE. Elle vit ici pour qu'une
 				/// sonde puisse la LIRE : la recomposer de son cote ferait deux textes
 				/// qui finiraient par ne plus dire la meme chose -- et c'est justement
 				/// celui qui doit dire « modele NON CHARGE ».
 				char aiEtat[128] = {0};
-				float32 aiDefile = 0.f;
 				NkVpAction pendingAction = NkVpAction::None;
 				/// LES MODIFICATEURS DE L'APPUI QUI A POSE `pendingAction`. L'action etait
 				/// une simple enumeration : ce qui ne se decide qu'a l'EXECUTION -- les axes

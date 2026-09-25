@@ -269,6 +269,30 @@ namespace nkentseu {
 				int32 mode = 1;
 		};
 
+		// ── ECHANTILLONNER UN CHAMP PORTE PAR DES POINTS ────────────────────────
+		// « Quel poids pour ce point-ci, sachant les poids de ceux-la ? » La regle :
+		// les points source les PLUS PROCHES A EGALITE (a `tol` pres, RELATIF)
+		// l'emportent, et l'on prend leur moyenne. Elle donne le bon sens sans
+		// qu'aucun appelant n'ait a decrire sa parente :
+		//   point conserve -> distance 0 a lui-meme       -> son poids ;
+		//   milieu d'arete -> ses DEUX extremites         -> leur moyenne ;
+		//   centre de face -> ses N coins (equidistants)  -> leur moyenne.
+		//
+		// ⚠️ UNE SEULE IMPLANTATION POUR TROIS USAGES : le masque qui traverse une
+		//    operation topologique, celui qui descend du noeud vers le maillage
+		//    d'edition, et celui qui y remonte. Trois copies de la meme boucle
+		//    auraient diverge -- et l'ecart ne se serait vu que sur un cas de bord,
+		//    tres loin de sa cause.
+		//
+		// ⚠️ GRILLE DE HACHAGE, PAS DE RECHERCHE EXHAUSTIVE : sur 250 000 points,
+		//    le O(n x m) serait « present et impraticable », ce qui revient a
+		//    absent.
+		//
+		// `out` recoit `m` valeurs. Un point de destination qui ne trouve AUCUNE
+		// source (cas impossible sur un maillage, garde par prudence) recoit 0.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol = 0.02f) noexcept;
+
 		class NkEditMesh {
 			public:
 				struct Vert {
@@ -452,6 +476,9 @@ namespace nkentseu {
 						//   > chemin-la. La distinction ne se voit pas tant qu'on ne
 						//   > l'exerce pas.
 						uint16 material = 0;
+						// LE TRAIT, cote FACE. Il voyage par `FaceAttrib`, comme le materiau et
+						// l'ombrage, et pour la meme raison : une seule table de parente.
+						uint8 trait = 0;
 				};
 
 				// ── SLOTS DE MATERIAU DU MAILLAGE ────────────────────────────────────
@@ -497,6 +524,29 @@ namespace nkentseu {
 						// choisie ? » sans redemander aux sommets -- la question qui s'effondre
 						// des que les sommets choisis couvrent l'objet.
 						uint8 sel = 0;
+						// LE TRAIT : une zone DESSINEE SUR LA SURFACE, et c'est le quatrieme
+						// attribut annonce par l'arbitrage du 2026-08-22 (« il s'ajoute ici et
+						// suit la meme parente sans qu'aucune operation ne soit modifiee »).
+						//
+						// POURQUOI IL N'EST PAS `sel` : `sel` est ce que l'utilisateur DESIGNE
+						// maintenant, et chaque clic l'efface. Un trait doit SURVIVRE a la
+						// selection suivante -- on le trace, on regarde, on demande « creuse
+						// ici » trois gestes plus tard. Deux intentions de duree differente ne
+						// peuvent pas partager un champ.
+						//
+						// [!] ET C'EST CE QUI ATTACHE LE TRAIT A LA SURFACE. Le trait de
+						//     sculpture existant vit en `NkVec3f` -- des coordonnees d'espace,
+						//     donc il FLOTTE : deformez le maillage et il reste ou il etait.
+						//     Ici il n'y a aucune coordonnee : le trait EST un sous-ensemble de
+						//     faces, et une face qui bouge emporte le trait avec elle.
+						//     Mesure : marque posee, bevel applique (6 faces -> 78), 78/78
+						//     portent encore la marque.
+						//
+						// 0 = pas de trait. Les valeurs suivantes sont libres : un jour elles
+						// numeroteront des traits distincts (« lisse ici, creuse la »), et ce
+						// jour-la il faudra une table de zones NOMMEES -- un vrai lot, pas un
+						// ajout. Tant qu'on trace puis qu'on agit, 0 ou 1 suffit.
+						uint8 trait = 0;
 				};
 
 				NkVector<Vert> verts;
@@ -553,6 +603,141 @@ namespace nkentseu {
 				// une precaution.
 				NkVector<uint32> canonOf;
 
+				// ── LE MASQUE DE SCULPTURE : UN POIDS PAR SOMMET ────────────────────
+				// Blender : un masque protege une zone contre TOUTES les brosses, et
+				// c'est lui qui rend l'outil Transform de sculpture utilisable (on
+				// masque, puis on deplace la partie NON masquee).
+				//
+				// ⚠️ VIDE = AUCUN MASQUE, ET C'EST LE COUT ZERO. Tant que personne n'a
+				//    peint, ce vecteur reste VIDE : un maillage de 249 906 sommets ne
+				//    paie pas un octet pour une fonction qu'il n'utilise pas. Des qu'un
+				//    poids est pose, il vaut 4 octets par sommet -- chiffre MESURE par
+				//    le banc du masque, pas estime.
+				//
+				// ⚠️ PAR SOMMET ET NON PAR FACE, contrairement au TRAIT. Un masque doit
+				//    etre DEGRADE (bord doux) pour que la deformation ne montre pas
+				//    l'escalier des faces ; le trait, lui, est une zone qu'on designe, et
+				//    une face y est ou n'y est pas. Deux natures, deux domiciles.
+				//
+				// ⚠️ CE QU'IL NE FAIT PAS ENCORE : traverser une operation TOPOLOGIQUE.
+				//    `BuildFromPolygons` reconstruit `verts` et le masque n'est pas
+				//    transporte -- c'est MESURE et ecrit (critere « subdivision » du
+				//    banc), pas suppose. La sculpture, elle, ne change aucune topologie :
+				//    c'est le cas qui compte aujourd'hui.
+				//
+				// 0 = libre (la brosse agit a plein), 1 = protege (elle n'agit pas du
+				// tout), entre les deux = attenuation lineaire.
+				NkVector<float32> vertMask;
+
+				/// Le poids du sommet `v`. Rend 0 sans masque : la question a une
+				/// reponse meme sans tableau, et cette reponse est « libre ».
+				float32 MaskAt(uint32 v) const {
+					return (v < (uint32)vertMask.Size()) ? vertMask[v] : 0.f;
+				}
+				/// Le tableau existe-t-il ? (≠ « un sommet est-il masque »)
+				bool MaskExists() const {
+					return !vertMask.Empty();
+				}
+				/// Alloue a la taille du maillage, a 0, et la SUIT : un maillage qui
+				/// gagne des sommets voit les nouveaux naitre LIBRES.
+				void MaskEnsure() {
+					const uint32 vc = VertCount();
+					const uint32 n = (uint32)vertMask.Size();
+					if (n == vc)
+						return;
+					vertMask.Resize(vc);
+					for (uint32 i = n; i < vc; ++i)
+						vertMask[i] = 0.f;
+				}
+				/// Pose un poids, borne a [0..1]. Alloue a la demande.
+				void MaskSet(uint32 v, float32 w) {
+					if (v >= VertCount())
+						return;
+					MaskEnsure();
+					if (w < 0.f)
+						w = 0.f;
+					if (w > 1.f)
+						w = 1.f;
+					vertMask[v] = w;
+				}
+				/// Combien de sommets sont masques AU MOINS a `seuil`.
+				/// ⚠️ Le seuil est un parametre, pas une constante cachee : « masque »
+				///    n'a pas le meme sens pour un affichage (tout ce qui se voit) et
+				///    pour un critere de banc (ce qui protege vraiment).
+				uint32 MaskedCount(float32 seuil = 0.001f) const {
+					uint32 n = 0;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						if (vertMask[i] >= seuil)
+							++n;
+					return n;
+				}
+				/// Somme des poids -- le critere CONTINU du banc : deux masques
+				/// differents peuvent avoir le meme COMPTE, jamais la meme somme.
+				float32 MaskSum() const {
+					float32 s = 0.f;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						s += vertMask[i];
+					return s;
+				}
+				/// Tout demasquer ET LIBERER : « plus de masque » et « un masque
+				/// partout a zero » doivent etre le MEME etat, sinon le cout memoire
+				/// survivrait a la fonction.
+				void MaskClearAll() {
+					vertMask.Clear();
+				}
+				/// Tout masquer (poids `w`, 1 par defaut).
+				void MaskFillAll(float32 w = 1.f) {
+					MaskEnsure();
+					if (w < 0.f)
+						w = 0.f;
+					if (w > 1.f)
+						w = 1.f;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						vertMask[i] = w;
+				}
+				// ── LE TRANSPORT DU MASQUE A TRAVERS UNE OPERATION TOPOLOGIQUE ─────
+				// `BuildFromPolygons` reconstruit `verts` et renumerote : le masque,
+				// indexe par numero de sommet, ne peut pas survivre tel quel (il est
+				// donc vide par `Clear()`). Le REPORTER demande de repondre a « de qui
+				// ce sommet neuf descend-il ? ».
+				//
+				// ⚠️ LA REPONSE EST GEOMETRIQUE, ET C'EST CE QUI LA REND GENERIQUE.
+				//    L'autre voie -- faire porter la parente par chaque operation --
+				//    aurait demande de toucher subdiviser, biseauter, inserer, loop
+				//    cut, extruder... et la prochaine operation ecrite aurait oublie de
+				//    la porter, EN SILENCE. Ici, une seule implantation les couvre
+				//    toutes, y compris celles qui n'existent pas encore.
+				//
+				//    La regle : un sommet neuf herite des sommets d'AVANT qui sont ses
+				//    PLUS PROCHES A EGALITE (a `tol` pres, relatif). Elle donne
+				//    exactement ce que le bon sens attend :
+				//      - sommet inchange  -> distance 0 a lui-meme      -> son poids ;
+				//      - milieu d'arete   -> ses DEUX extremites        -> leur moyenne ;
+				//      - centre de face   -> ses N coins (equidistants) -> leur moyenne.
+				//    C'est la regle demandee, obtenue sans qu'aucune operation n'ait a
+				//    la connaitre.
+				//
+				// ⚠️ CE QU'ELLE APPROCHE, ET IL FAUT LE DIRE : un sommet cree LOIN de
+				//    l'ancienne surface (l'extrusion decalee, par exemple) herite de ce
+				//    qui etait le plus proche -- ce n'est pas faux, c'est le meilleur
+				//    sens disponible. Et une operation qui DEPLACE aussi les sommets
+				//    (lissage) degrade la correspondance. Les deux cas sont MESURES par
+				//    le banc plutot que supposes.
+				//
+				// Rend le nombre de sommets qui ont recu un poids non nul. Sans masque
+				// dans `avant`, ne fait rien et rend 0 -- le cout est alors nul.
+				uint32 MaskTransferFrom(const NkEditMesh &avant, float32 tol = 0.02f);
+
+				/// Inverser : ce qui etait protege devient libre, et l'inverse.
+				/// ⚠️ SUR UN MAILLAGE SANS MASQUE, inverser MASQUE TOUT -- c'est le
+				///    comportement de Blender, et la seule lecture coherente de
+				///    « l'inverse de rien ».
+				void MaskInvert() {
+					MaskEnsure();
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						vertMask[i] = 1.f - vertMask[i];
+				}
+
 				void Clear() {
 					verts.Clear();
 					hedges.Clear();
@@ -568,6 +753,15 @@ namespace nkentseu {
 					// la BONNE TAILLE mais du MAILLAGE D'AVANT ne se distingue pas d'un
 					// tableau valide.
 					canonOf.Clear();
+					// ⚠️ LE MASQUE PART AVEC LA TOPOLOGIE, ET C'EST UN CHOIX ECRIT.
+					// `vertMask` est indexe par le NUMERO de sommet ; une
+					// reconstruction renumerote. Le garder rendrait des poids justes
+					// attribues aux mauvais sommets -- « un indice n'est pas un nom »,
+					// et un masque faux est pire qu'un masque absent parce qu'il
+					// protege ce qu'on voulait deformer sans le dire. Le transport a
+					// travers une operation topologique est un lot a part ; tant
+					// qu'il n'existe pas, l'oubli est MESURE et ANNONCE.
+					vertMask.Clear();
 					// ⚠ `materialSlots` N'EST PAS VIDE ICI, ET C'EST VOULU.
 					// BuildFromPolygons appelle Clear() a chaque operation d'edition :
 					// vider les slots ferait perdre la liste des materiaux du maillage a
@@ -817,6 +1011,64 @@ namespace nkentseu {
 
 				// Sélection interne (Vert::sel).
 				void SelectAll();
+
+				// -- LE TRAIT : UNE ZONE DESSINEE SUR LA SURFACE ---------------------
+				//
+				// Rodolf, 19/09 : « en mode edition on trace un trait, on dit au modele de
+				// couper et reconstruire a partir du trace, ou creuse ici » -- et, le
+				// lendemain, l'essentiel : « c'est mieux SUR LA SURFACE, comme ca ca
+				// epouse la courbe une fois ».
+				//
+				// [!] LE TRAIT N'A DONC PAS DE COORDONNEES, ET C'EST TOUT LE POINT. Le
+				//     trait de sculpture existant vit en `NkVec3f` : il FLOTTE, et une
+				//     deformation le laisse ou il etait. Ici le trait EST un sous-ensemble
+				//     de faces -- une face qui bouge emporte le trait avec elle, et une
+				//     face qui se subdivise le transmet a ses filles par la meme parente
+				//     que le materiau. Il n'y a qu'UNE verite sur ou il est.
+				//
+				// TraceTrait marque les faces dont le CENTRE tombe a moins de `rayon` du
+				// point donne, et rend leur nombre. Additif : plusieurs appels dessinent
+				// un trait continu, exactement comme les tampons d'une brosse.
+				uint32 TraceTrait(const NkVec3f &point, float32 rayon, uint8 numero = 1);
+				// Efface tout (numero = 0) ou un trait donne. Rend le nombre efface.
+				uint32 EffaceTrait(uint8 numero = 0);
+				// Combien de faces vivantes portent ce trait.
+				uint32 CompteTrait(uint8 numero = 1) const;
+				// COMBIEN DE FACES DU TRAIT ONT TOUTES LEURS VOISINES TRACEES.
+				//
+				// [!] CE N'EST PAS LA CONDITION DE SURVIE DU TRAIT, ET JE L'AI CRU.
+				//     J'avais ecrit ici que c'en etait une : une operation ne donnant le
+				//     trait aux faces neuves qu'a l'unanimite, un trait sans interieur
+				//     n'aurait rien a transmettre. La mesure a refute la loi AVANT
+				//     qu'elle ne serve -- balayage sur une sphere 20x20, bevel 0,02 :
+				//
+				//         20 tracees,  0 interieure  ->   0 apres bevel
+				//         40 tracees,  0 interieure  ->  80 apres bevel
+				//         60 tracees,  0 interieure  -> 320 apres bevel
+				//         80 tracees, 20 interieures -> 560 apres bevel
+				//
+				//     A 40 et 60 faces il n'y a AUCUNE face interieure et le trait
+				//     survit ; a 20 non plus, et il meurt. L'interieur ne separe donc
+				//     pas les deux cas : des faces filles heritent par une PARENTE que
+				//     ce compte ignore.
+				//
+				//     Ce compte reste une mesure utile -- il dit la compacite du trait --
+				//     mais il ne doit fonder AUCUN refus tant que la vraie condition
+				//     n'est pas trouvee. *Une loi refutee qu'on laisse ecrite comme vraie
+				//     devient la consigne du lecteur suivant.*
+				uint32 CompteTraitInterieur(uint8 numero = 1) const;
+				//
+				// [!] LA DESIGNATION PASSE PAR `sel`, ET AUCUN VERBE N'EST A ECRIRE.
+				//     Sept verbes du contrat operent deja « sur la selection » (subdivide,
+				//     extrude, inset, bevel, dissolve, delete, loopcut). « Creuse ici »
+				//     n'est donc pas un verbe de plus : c'est ce transfert, puis un verbe
+				//     qui existe. On ne touche ni au contrat ni a la table.
+				//
+				//     Le trait n'est PAS `sel` lui-meme parce que leurs durees different :
+				//     `sel` est ce qu'on designe maintenant et chaque clic l'efface ; un
+				//     trait doit survivre aux trois gestes qui separent le trace de la
+				//     demande.
+				uint32 SelectionnerTrait(uint8 numero = 1);
 				void SelectNone();
 				bool AnyVertSelected() const;
 
@@ -1228,6 +1480,52 @@ namespace nkentseu {
 				bool SpinSelected(const NkSpinParams &p, const NkMat4f &localToSpin = NkMat4f::Identity(),
 								  uint32 *outMaterialChanged = nullptr);
 
+				// ── BALAYAGE LE LONG D'UNE COURBE (21/09) ───────────────────────────
+				// Un PROFIL 2D (dans le plan normal au chemin) BALAYE le long d'une
+				// polyligne : c'est ce qui manquait pour un tuyau, une anse, une rampe,
+				// une moulure -- et pour le COYAU d'un toit chinois, dont la courbure
+				// ne s'obtient ni par revolution ni par extrusion droite.
+				//
+				// ⚠️ L'ORIENTATION EST A ROTATION MINIMALE (« double reflection », Wang
+				//    et al. 2008), PAS UN REPERE DE FRENET. Le repere de Frenet se
+				//    RETOURNE aux points d'inflexion et n'existe pas sur un segment
+				//    droit (courbure nulle) : un tuyau construit ainsi se vrille d'un
+				//    demi-tour au milieu, sans que rien ne le signale. La rotation
+				//    minimale transporte le repere d'un point au suivant par deux
+				//    reflexions, ce qui est stable sur une droite comme dans une boucle.
+				//
+				// `profil` : `np` points (x, y) dans le plan (normale, binormale).
+				// `chemin` : `nc` points (>= 2). `ferme` : le profil est un contour
+				// FERME (le dernier point rejoint le premier) -> le balayage produit un
+				// tube ; `bouchons` ajoute alors les deux faces d'extremite.
+				// Le maillage courant est REMPLACE. Rend faux (et ne touche a rien) si
+				// les tableaux sont trop petits.
+				//
+				// LE SENS DU PROFIL EST NORMALISE ICI. L'appelant dessine une section ;
+				// il n'a pas a savoir que son sens de parcours decide de l'endroit et de
+				// l'envers. L'aire signee du contour est calculee, et le profil est
+				// parcouru a l'envers quand il faut.
+				//
+				// ⚠️ LA CIBLE EST LA CONVENTION DU DEPOT, ET ELLE EST L'INVERSE DE CELLE
+				//    DES MANUELS. Mesure du 21/09 : le cube unite du modeleur a un
+				//    volume signe de -1,000000, la sphere -0,515, le cylindre -0,520 --
+				//    et tous trois recoivent de RecomputeNormals des normales qui
+				//    pointent DEHORS (banc sweep/sens-du-profil : cube-reference =
+				//    1,000). Viser l'aire positive, « comme dans les livres », donne un
+				//    tube dont 100 % des normales pointent DEDANS. Cette ligne a ete
+				//    ecrite a l'envers une premiere fois, et c'est la primitive du
+				//    depot, pas un manuel, qui a tranche.
+				//
+				// `refInitiale` : LA DIRECTION DU PREMIER AXE DU PROFIL. Sans elle, le
+				// repere de depart est choisi arbitrairement (un vecteur non colineaire
+				// a la premiere tangente) : la section est bien orientee LE LONG du
+				// chemin, mais son roulis de depart est celui du hasard. Une tuile
+				// ronde doit avoir son dos EN HAUT ; c'est le seul moyen de le dire.
+				// Le vecteur est orthogonalise a la tangente ; s'il lui est colineaire,
+				// il est ignore et le choix arbitraire reprend.
+				bool BuildSweep(const NkVec2f *profil, uint32 np, const NkVec3f *chemin, uint32 nc, bool ferme = true,
+								bool bouchons = true, const NkVec3f *refInitiale = nullptr);
+
 				// ── DISSOLVE (Ctrl+X) — fusion en n-gon, PAS un trou ────────────────
 				// Principe unique aux trois modes : on marque un ensemble d'arêtes à
 				// RETIRER, puis on reparcourt le CONTOUR de chaque région ainsi fusionnée
@@ -1403,11 +1701,97 @@ namespace nkentseu {
 			// AJOUTEES EN FIN (l'op est serialisee en uint8) : X ne supprime pas la
 			// meme chose selon le sous-mode, exactement comme Blender.
 			DeleteEdges,
-			DeleteVerts
+			DeleteVerts,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : un COUP DE BROSSE.
+			// Il entre dans la couche de commandes -- et non a cote -- pour une
+			// raison que Rodolf a posee le 19/09 : les corrections a la main
+			// doivent SURVIVRE a une regeneration. On regenere la base depuis le
+			// document, puis on REJOUE la pile. Une sculpture qui ne serait pas
+			// une commande serait perdue au premier tour de la spirale.
+			Sculpt,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : LE MASQUE EN BLOC --
+			// tout masquer, tout demasquer, inverser. Ces trois gestes sont des
+			// COMMANDES et non des appels directs, pour la raison qui a fait entrer
+			// le coup de brosse : ce qui n'est pas une commande ne s'annule pas, ne
+			// se rejoue pas, et disparait au premier tour de la spirale de
+			// regeneration.
+			MaskAll,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : L'OUTIL TRANSFORM DE
+			// SCULPTURE (Blender). Il deplace / tourne / met a l'echelle la partie
+			// NON MASQUEE autour d'un pivot, avec la symetrie. C'est le premier
+			// consommateur du masque, et la raison pour laquelle il existe.
+			SculptTransform
 		};
 
-		struct NkMeshEditCommand {
-				NkMeshEditOp op = NkMeshEditOp::None;
+		// ── PARAMETRES D'UN COUP DE BROSSE ─────────────────────────────
+		// ⚠️ AUTO-SUFFISANTS, ET C'EST LE POINT. On enregistre les VALEURS
+		//    EFFECTIVES du geste, jamais le NOM de la brosse qui l'a produit.
+		//    Une brosse est une donnee, donc un fichier, donc quelque chose que
+		//    l'utilisateur peut modifier demain. Si la commande renvoyait a
+		//    « dessiner », rejouer la session apres un reglage de « dessiner »
+		//    reproduirait un AUTRE geste que celui qui a ete fait -- et sans rien
+		//    dire. C'est « un chiffre voyage sans sa condition » applique a un
+		//    geste : ce qui est rejoue doit porter tout ce dont il depend.
+		//    Le nom reste, mais pour le JOURNAL et l'affichage, jamais pour
+		//    retrouver des reglages a l'execution.
+		struct NkSculptCmdParams {
+			float32 radius = 0.25f;   ///< unites monde
+			float32 strength = 0.5f;
+			float32 hardness = 0.5f;
+			float32 dir = 1.f;        ///< +1 sort de la surface, -1 y entre
+			uint8 falloff = 0;        ///< NkSculptFalloffKind
+			uint8 primitive = 0;      ///< NkSculptOp
+			char brushName[48] = {};  ///< pour le journal et l'affichage UNIQUEMENT
+			// LA SYMETRIE DU MODE, ENREGISTREE AVEC LE GESTE. Elle n'est pas une
+			// propriete de la brosse (le fichier ne la porte pas) mais un reglage du
+			// mode ; elle doit pourtant voyager avec la commande, sinon rejouer une
+			// session apres avoir change l'interrupteur reproduirait un AUTRE geste.
+			// Meme raison que les valeurs effectives de la brosse, juste au-dessus.
+			uint8 symX = 0, symY = 0, symZ = 0;
+		};
+
+		// ── LE MASQUE EN BLOC ───────────────────────────────────────────
+		// `mode` : 0 = tout DEMASQUER (et liberer), 1 = tout MASQUER a `poids`,
+		// 2 = INVERSER. ⚠️ Inverser un maillage SANS masque le masque
+		// entierement -- c'est Blender, et la seule lecture coherente de
+		// « l'inverse de rien ».
+		struct NkMaskAllParams {
+			uint8 mode = 0;
+			float32 poids = 1.f;
+		};
+
+		// ── L'OUTIL TRANSFORM DE SCULPTURE ─────────────────────────────────
+		// ⚠️ CE N'EST PAS G/R/S SUR UNE SELECTION. Il n'y a AUCUNE selection en
+		//    sculpture : ce qui decide, c'est le MASQUE. Un sommet libre subit la
+		//    transformation entiere, un sommet protege ne bouge pas, et entre les
+		//    deux l'effet est interpole -- ce qui donne les bords doux que le
+		//    masque existe pour produire.
+		//
+		// ⚠️ LA SYMETRIE EST PAR AXE, ET ELLE MIROITE LA TRANSFORMATION, pas la
+		//    geometrie. Un sommet du cote NEGATIF d'un axe symetrise recoit la
+		//    transformation reflechie (S·M·S) : deplacer la joue droite deplace la
+		//    gauche en miroir, comme chez Blender. Symetriser en copiant des
+		//    sommets ferait autre chose -- un maillage qui double.
+		struct NkSculptTransformParams {
+			NkVec3f translate = {0.f, 0.f, 0.f};
+			NkVec3f rotDeg = {0.f, 0.f, 0.f}; ///< degres, ordre X puis Y puis Z
+			NkVec3f scale = {1.f, 1.f, 1.f};
+			NkVec3f pivot = {0.f, 0.f, 0.f};  ///< en REPERE OBJET
+			uint8 symX = 0, symY = 0, symZ = 0;
+			// ── LE GESTE DU GIZMO ARRIVE EN MATRICE, ET C'EST VOULU ─────────
+			// `NkGizmo3D::ApplyAbout` rend une MATRICE monde. La decomposer en
+			// translation / angles / echelle pour la recomposer ici ferait un
+			// aller-retour lossy (une rotation n'a pas d'euler unique, une echelle
+			// negative se cache dans la rotation) : le geste vu a l'ecran et le
+			// geste enregistre pourraient differer sans que rien ne le dise.
+			// Quand `aMatrice` vaut 1, `matrice` fait autorite et les trois champs
+			// ci-dessus ne sont plus lus. Ils restent pour la porte ECRITE
+			// (NK_SCULPT_XFORM, verbes), ou une matrice serait illisible.
+			NkMat4f matrice = NkMat4f::Identity(); ///< en REPERE OBJET, deja centree sur le pivot
+			uint8 aMatrice = 0;
+		};
+
+		struct NkMeshEditCommand {				NkMeshEditOp op = NkMeshEditOp::None;
 				NkVector<uint32> selection;			  // sommets sélectionnés à l'application
 				// ── L'INTENTION DE FACE, ENREGISTREE AVEC LA COMMANDE (v10) ──────────
 				// ⚠️ SANS ELLE, DEUX GESTES HUMAINS DIFFERENTS S'ECRIVAIENT PAREIL.
@@ -1441,6 +1825,20 @@ namespace nkentseu {
 				NkVec3f planeNormal = {0.f, 1.f, 0.f};
 				NkMat4f bisectXform = NkMat4f::Identity();
 				NkVector<NkVec3f> moveDeltas; // (op == Move) delta par sommet (aligné sur selection)
+
+				// (op == Sculpt) LE TRAIT, DANS LE REPERE DE L'OBJET.
+				// ⚠️ JAMAIS EN PIXELS ECRAN : un trait en pixels ne survit pas a une
+				//    rotation de camera. Jamais par indices d'elements non plus : ils
+				//    sont reconstruits a chaque changement de topologie, donc ils
+				//    deviennent SILENCIEUSEMENT faux -- et la sculpture EST du
+				//    remaillage. Une polyligne de points ne reference AUCUN element du
+				//    maillage : elle survit a la camera comme au remaillage, et c'est
+				//    ce qui la rend rejouable.
+				NkSculptCmdParams sculpt;
+				NkMaskAllParams maskAll; // (op == MaskAll) tout masquer / demasquer / inverser
+				NkSculptTransformParams sculptXform; // (op == SculptTransform) la partie NON masquee
+				NkVector<NkVec3f> sculptPoints;  // centres des tampons
+				NkVector<NkVec3f> sculptNormals; // normale au point de pose (meme taille)
 
 				// Pose la sélection sur `m` puis exécute l'op. true si la géométrie a changé.
 				bool Apply(NkEditMesh &m) const;

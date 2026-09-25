@@ -66,8 +66,10 @@ using namespace nkentseu;
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKTime/NkChrono.h"
+#include "Recolte.h" // la RECOLTE : garder chaque paire, surtout les echecs
 #include "NKUIDesign/ComposantsBase.h"
 #include "NKUIDesign/DesignAI.h"
+#include "NKUIDesign/DesignChat.h" // la SPECIFICATION, batie par SON ecrivain
 #include "NKUIDesign/Document.h"
 #include "NKUIDesign/Layout.h"
 #include "NKUIDesign/NkGuiEcrire.h"
@@ -235,6 +237,16 @@ namespace {
 		NkString invite;
 		NkDesignAI::BuildPrompt("<la demande de l'utilisateur, en francais>", invite);
 		out.Append(invite);
+		// ⚠️ LE CONTRAT DOIT DIRE OU ARRIVE LA DEMANDE, sinon il ment par
+		//    omission. Depuis le 20/09 elle n'est plus en tete de l'invite : elle
+		//    est RAPPELEE EN DERNIER, apres le catalogue et le document courant
+		//    (mesure : sur un document de 42 noeuds, le document occupait 84 % de
+		//    l'invite et le modele y repondait au lieu de la demande).
+		//    Un modele distant qui ne voit QUE ce fichier doit le savoir.
+		out.Append("\nORDRE DE L'INVITE : ce format d'abord, puis le catalogue, puis le\n");
+		out.Append("document courant s'il y en a un, et EN DERNIER la demande, sous\n");
+		out.Append("`--- ce que je te demande maintenant ---`. C'est a CELLE-LA qu'on\n");
+		out.Append("repond ; le document courant est un contexte, pas une question.\n");
 
 		out.Append("\n## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants\n");
 		out.Append("# Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais\n");
@@ -311,14 +323,50 @@ int main(int argc, char **argv) {
 	const char *fDemandes = "Applications/NKUIDesign/exemples/ia/demandes.txt";
 	const char *dSortie = "Build/ia-jeu";
 	const char *dorsal = "processus";
+	bool sondeHttp = false; // --sonde-http : le TRANSPORT avant le modele
+	bool catalogueBref = false; // --catalogue=bref : sans les param/variante
+	const char *rejouer = nullptr; // --rejouer=<f> : un texte, sans modele
+	const char *migrer = nullptr;  // --migrer=<f> : `enfants` -> `parent`, en place
+	// --spec=<texte> : pose une SPECIFICATION dans l'invite, comme le panneau le
+	// fait apres « Ecrire la specification ». C'est la variable a eprouver.
+	const char *specTexte = nullptr;
+	// --document=<f> : le DOCUMENT COURANT sur lequel la demande arrive. Vide par
+	// defaut -- et c'est precisement la condition qu'on avait toujours mesuree.
+	const char *documentBase = nullptr;
+	// --selection=<n> : le noeud que l'utilisateur aurait sous la main. Au-dela du
+	// seuil, c'est le SEUL donne en entier dans l'invite ; -1 = aucun.
+	int32 selectionBanc = -1;
+	// --structure=enfants : l invite d AVANT le 20/09, pour comparer la FORME
+	// et rien d autre. Defaut : `parent`, la forme livree.
+	bool structureEnfants = false;
 	const char *seul = nullptr;		// --seule=d01 : une seule demande
 	const char *contrat = nullptr;	// --contrat=<f> : ECRIRE le contrat d'outil
 	const char *verifier = nullptr; // --verifier-contrat=<f> : la GARDE anti-derive
+	/// Le plafond d'attente du dorsal, en ms. 0 = « sans objet » (dorsal sans
+	/// reseau). Il voyage jusqu'a la paire de recolte : une duree egale au
+	/// plafond doit pouvoir se lire comme telle des annees plus tard.
+	unsigned delaiDorsal = 0u;
 	for (int a = 1; a < argc; ++a) {
 		if (CommencePar(argv[a], "--demandes="))
 			fDemandes = argv[a] + 11;
 		else if (CommencePar(argv[a], "--sortie="))
 			dSortie = argv[a] + 9;
+		else if (std::strcmp(argv[a], "--sonde-http") == 0)
+			sondeHttp = true;
+		else if (CommencePar(argv[a], "--rejouer="))
+			rejouer = argv[a] + 10;
+		else if (CommencePar(argv[a], "--migrer="))
+			migrer = argv[a] + 9;
+		else if (CommencePar(argv[a], "--spec="))
+			specTexte = argv[a] + 7;
+		else if (CommencePar(argv[a], "--document="))
+			documentBase = argv[a] + 11;
+		else if (CommencePar(argv[a], "--selection="))
+			selectionBanc = (int32)std::atoi(argv[a] + 12);
+		else if (std::strcmp(argv[a], "--structure=enfants") == 0)
+			structureEnfants = true;
+		else if (std::strcmp(argv[a], "--catalogue=bref") == 0)
+			catalogueBref = true;
 		else if (CommencePar(argv[a], "--dorsal="))
 			dorsal = argv[a] + 9;
 		else if (CommencePar(argv[a], "--seule="))
@@ -334,10 +382,12 @@ int main(int argc, char **argv) {
 			contrat = argv[a] + 10;
 		else if (std::strcmp(argv[a], "--aide") == 0) {
 			std::printf("NKDesignIABanc --demandes=<f> --sortie=<dossier> "
-						"[--dorsal=processus|temoin] [--seule=<id>]\n"
+						"[--dorsal=processus|temoin|ollama] [--seule=<id>]\n"
 						"  processus : le gabarit de NK_DESIGN_CMD / NK_DESIGN_EXE "
 						"(NKDesignLLM)\n"
 						"  temoin    : LE ZERO du banc -- une reponse fixe et juste\n"
+						"  ollama    : un VRAI modele, par le service HTTP local (le modele et "
+						"              l'hote sont des REGLAGES : NK_OLLAMA_MODELE, NK_OLLAMA_HOTE)\n"
 						"  --contrat=<f>           ecrit le CONTRAT D'OUTIL (sans dorsal,\n"
 						"                          sans modele, sans carte graphique)\n"
 						"  --verifier-contrat=<f>  la GARDE : rend 1 si le fichier versionne\n"
@@ -347,6 +397,14 @@ int main(int argc, char **argv) {
 	}
 
 	PeuplerCatalogue();
+
+	// ⚠️ POSE ICI, ET PAS PLUS BAS. Le contrat est ENGENDRE depuis `BuildPrompt` :
+	//    si ce reglage arrivait apres le bloc du contrat, `--structure=enfants
+	//    --contrat=<f>` ecrirait le contrat de l'AUTRE forme sans rien dire.
+	//    *Un reglage pose apres son premier lecteur est un reglage sans effet,
+	//    et il n'en previent personne.*
+	NkDesignAI::structureParent = !structureEnfants;
+
 
 	// LE CONTRAT SE REND AVANT TOUTE COURSE, ET C'EST TOUT L'INTERET : il ne
 	// demande ni dorsal, ni modele, ni carte graphique. C'est le point du cap --
@@ -386,6 +444,128 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
+	// ── SONDE DU TRANSPORT : `NkHTTPClient` PARLE-T-IL REELLEMENT ? ──────────
+	// ⚠️ ELLE EXISTE PARCE QUE « DECLARER N'EST PAS LIVRER ». `NkHTTPClient` a
+	//    1 582 lignes d'en-tete, un `.cpp`, et des exemples en commentaire. Rien
+	//    de tout ca ne prouve qu'un POST aboutit. Avant d'accuser un modele ou
+	//    une invite, on demande au TRANSPORT ce qu'il rend, et on l'imprime.
+	// ── REJOUER UN TEXTE SANS RAPPELER UN MODELE ─────────────────────────────
+	// ⚠️ `DesignAI.h` PROMET DEJA CETTE CAPACITE : « `Apply` est separee de
+	//    `Ask` pour une raison pratique : c'est ce qui permet de rejouer un
+	//    texte suspect autant de fois qu'on veut, sans rappeler un modele et
+	//    sans payer un jeton. » Elle n'avait aucune porte en ligne de commande.
+	//
+	//    Elle repond a une question qu'aucune course ne tranche : quand un
+	//    document est rejete, EST-CE POUR LA RAISON QU'ON CROIT ? Une reponse
+	//    peut echouer sur la STRUCTURE avant meme que le nom des composants
+	//    soit regarde -- et on attribuerait alors le rejet au mauvais gardien.
+	// ── LA MIGRATION `enfants` -> `parent` ───────────────────────────────────
+	// ⚠️ ELLE PASSE PAR LE VRAI LECTEUR ET LE VRAI ECRIVAIN. Un script qui
+	//    transformerait le texte a cote serait une SECONDE ECRITURE de la regle
+	//    de format : elle divergerait au premier champ ajoute, et c'est la faute
+	//    que ce depot a deja payee ailleurs.
+	//
+	// ⚠️ ET ELLE A UN POUVOIR D'ARRET. Elle relit ce qu'elle s'apprete a ecrire
+	//    et compare les comptes AVANT de toucher au fichier : un controle qui
+	//    vit dans la meme commande que l'action n'est une garde que s'il peut
+	//    empecher l'action. Sinon c'est de la decoration.
+	if (migrer) {
+		const NkString txt = NkFile::ReadAllText(NkPath(migrer));
+		if (txt.Size() == 0) {
+			std::printf("MIGRATION : %s est vide ou illisible. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		PeuplerCatalogue();
+		NkUIDocument avant;
+		if (!avant.Load(txt.CStr())) {
+			std::printf("MIGRATION : %s ne se charge pas AVANT migration. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		const uint32 nAvant = avant.NodeCount();
+		NkString apresTexte;
+		avant.Save(apresTexte);
+		NkUIDocument apres;
+		if (!apres.Load(apresTexte.CStr())) {
+			std::printf("MIGRATION : %s -- la relecture de ce qu'on allait ecrire ECHOUE. "
+						"RIEN ecrit.\n", migrer);
+			return 1;
+		}
+		const uint32 nApres = apres.NodeCount();
+		// Les comptes, ET la forme de l'arbre : un meme nombre de noeuds ranges
+		// autrement passerait un simple comptage. *Un compteur egal n'est pas un
+		// arbre identique.*
+		bool memeArbre = (nAvant == nApres);
+		for (uint32 i = 0; memeArbre && i < nAvant; ++i)
+			memeArbre = (avant.nodes[i].parent == apres.nodes[i].parent) &&
+						(avant.nodes[i].children.Size() == apres.nodes[i].children.Size());
+		if (!memeArbre) {
+			std::printf("MIGRATION : %s -- l'arbre CHANGE (%u noeuds avant, %u apres, ou des "
+						"liens differents). RIEN ecrit.\n", migrer, nAvant, nApres);
+			return 1;
+		}
+		if (!NkFile::WriteAllText(NkPath(migrer), apresTexte.CStr())) {
+			std::printf("MIGRATION : %s -- ecriture impossible. RIEN ecrit.\n", migrer);
+			return 2;
+		}
+		std::printf("MIGRATION OK : %-58s %u noeuds, arbre identique\n", migrer, nAvant);
+		return 0;
+	}
+
+	if (rejouer) {
+		const NkString txt = NkFile::ReadAllText(NkPath(rejouer));
+		if (txt.Size() == 0) {
+			std::printf("REJEU : %s est vide ou illisible. Rien n'a ete mesure.\n", rejouer);
+			return 2;
+		}
+		NkDesignAI iaR;
+		PeuplerCatalogue();
+		NkUIDocument docR;
+		docR.NewDocument("Rejeu", NkAuthor::Humain);
+		// ⚠️ LE REJEU PEUT DESORMAIS PARTIR D'UN DOCUMENT. Sans ca il ne pouvait
+		//    pas eprouver un INCREMENT : un delta n'a de sens que contre un
+		//    document existant, et le rejeu aurait mesure le mauvais chemin.
+		if (documentBase && *documentBase) {
+			const NkString dt = NkFile::ReadAllText(NkPath(documentBase));
+			if (dt.Size() == 0 || !docR.Load(dt.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
+		const NkAIResult rr = iaR.Apply(txt.CStr(), docR, 0, "rejeu");
+		std::printf("REJEU de %s (%u octets)\n", rejouer, (uint32)txt.Size());
+		std::printf("  verdict : %s\n", NkAIVerdictName(rr.verdict));
+		std::printf("  detail  : %s\n", rr.detail.Size() > 0 ? rr.detail.CStr() : "(aucun)");
+		std::printf("  noeuds ajoutes : %u ; composants inconnus : %u\n",
+				 rr.nodesAdded, rr.unknownComponents);
+		return rr.Accepted() ? 0 : 1;
+	}
+
+	if (sondeHttp) {
+		static NkOllamaBackend o;
+		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
+			o.hote = NkString(h);
+		nkentseu::net::NkHTTPClient http;
+		nkentseu::net::NkHTTPClient::Config cfg;
+		cfg.defaultTimeoutMs = 10000u;
+		http.Configure(cfg);
+		NkString u = o.hote;
+		u.Append("/api/tags");
+		const nkentseu::net::NkHTTPResponse g = http.Get(u.Data());
+		std::printf("SONDE HTTP  GET  %s\n", u.Data());
+		std::printf("   statusCode = %u   octets de corps = %u   duree = %u ms\n",
+				   (unsigned)g.statusCode, (unsigned)g.body.Size(), (unsigned)g.timeMs);
+		std::printf("   erreur reseau = \"%s\"\n", g.error.Data());
+		NkString u2 = o.hote;
+		u2.Append("/api/generate");
+		const nkentseu::net::NkHTTPResponse pr =
+			http.Post(u2.Data(), "{\"model\":\"qwen2.5:7b-instruct\",\"prompt\":\"OK\",\"stream\":false}");
+		std::printf("SONDE HTTP  POST %s\n", u2.Data());
+		std::printf("   statusCode = %u   octets de corps = %u   duree = %u ms\n",
+				   (unsigned)pr.statusCode, (unsigned)pr.body.Size(), (unsigned)pr.timeMs);
+		std::printf("   erreur reseau = \"%s\"\n", pr.error.Data());
+		return 0;
+	}
+
 	NkDirectory::CreateRecursive(dSortie);
 
 	Ligne demandes[64];
@@ -397,9 +577,46 @@ int main(int argc, char **argv) {
 
 	// ── LE DORSAL ────────────────────────────────────────────────────────────
 	DorsalTemoin temoin;
+	// ⚠️ STATIQUE, PARCE QUE `ia` GARDE UN POINTEUR. Ce depot a paye la faute
+	//    inverse : « le registre garde un pointeur -- declarer par valeur =
+	//    segfault mouvant ». Le dorsal doit survivre a la portee ou il est pose.
+	static NkOllamaBackend ollama;
 	NkDesignAI ia;
 	if (std::strcmp(dorsal, "temoin") == 0) {
 		ia.SetBackend(&temoin);
+	} else if (std::strcmp(dorsal, "ollama") == 0) {
+		// Le modele et l'hote sont des REGLAGES : lus dans l'environnement plutot
+		// que graves. NK_OLLAMA_MODELE et NK_OLLAMA_HOTE.
+		if (const char *m = std::getenv("NK_OLLAMA_MODELE"))
+			ollama.modele = NkString(m);
+		if (const char *h = std::getenv("NK_OLLAMA_HOTE"))
+			ollama.hote = NkString(h);
+		// ⚠️ TEMPERATURE 0 = MESURE REPRODUCTIBLE. Sans elle, deux courses
+		//    identiques rendent des taux differents et l'ecart entre deux invites
+		//    se noie dans le tirage au sort.
+		if (const char *tp = std::getenv("NK_OLLAMA_TEMP"))
+			ollama.temperature = (float32)atof(tp);
+		// ⚠️ LE BANC NE LIT PLUS `NK_OLLAMA_DELAI` : le DORSAL le lit, et lui
+		//    seul. Deux lecteurs du meme reglage, c'etaient deux valeurs
+		//    possibles -- et surtout **l'application n'en beneficiait pas**,
+		//    puisque seul le banc lisait. On prend ici ce que le dorsal a decide,
+		//    et on l'IMPRIME : un plafond muet fait lire « le modele echoue » la
+		//    ou il faut lire « on a cesse d'attendre ».
+		delaiDorsal = (unsigned)ollama.delaiMs;
+		// ⚠️ ON INTERROGE LE SERVICE AVANT DE LANCER DOUZE DEMANDES. Sans ca, un
+		//    service eteint rendrait douze refus identiques et on lirait « le
+		//    modele echoue » la ou il faut lire « personne n'ecoute ».
+		if (!ollama.IsAvailable()) {
+			std::printf("SERVICE INJOIGNABLE : %s ne repond pas (code %u). Rien mesure.\n",
+					ollama.hote.Data(), (unsigned)ollama.dernierCode);
+			return 2;
+		}
+		std::printf("modele        : %s (reglage) sur %s\n", ollama.modele.Data(), ollama.hote.Data());
+		std::printf("delai max     : %u ms (reglage NK_OLLAMA_DELAI) -- une duree egale\n"
+					"                a ce plafond dit qu'ON A CESSE D'ATTENDRE, pas que le\n"
+					"                modele a echoue\n",
+					(unsigned)ollama.delaiMs);
+		ia.SetBackend(&ollama);
 	} else {
 		NkDesignBackendProcessus &proc = NkDesignBackendProcessus::ParDefaut();
 		char inv[512], sor[512];
@@ -415,8 +632,27 @@ int main(int argc, char **argv) {
 		ia.SetBackend(&proc);
 	}
 
+	// L'etiquette voyage avec chaque paire : voir Recolte.h.
+	NkString etiquetteCatalogue;
+	ia.catalogueBref = catalogueBref;
+	ia.selectionCourante = selectionBanc;
+	// ⚠️ LA SPECIFICATION EST BATIE PAR SON PROPRE ECRIVAIN, pas recopiee ici.
+	//    `DepuisConversation` puis `PourLeGenerateur` sont exactement ce que le
+	//    panneau appelle apres « Ecrire la specification » : les exigences sont
+	//    les TOURS DE L'HUMAIN. La reecrire a la main ici en ferait une seconde
+	//    version, et on mesurerait ma reconstitution au lieu de l'outil.
+	if (specTexte && *specTexte) {
+		nkuidesign::NkDesignConversation conv;
+		conv.sujet = NkString(specTexte);
+		conv.Ajouter(nkuidesign::NkQui::Moi, specTexte);
+		nkuidesign::NkSpecification sp;
+		nkuidesign::NkSpecification::DepuisConversation(conv, "spec", sp);
+		sp.PourLeGenerateur(ia.specTexte);
+		std::printf("specification  : %u exigence(s), %u octets dans l'invite\n",
+					sp.CountExigences(), (unsigned)ia.specTexte.Size());
+	}
 	NkString catalogue;
-	NkDesignAI::BuildCatalog(catalogue);
+	NkDesignAI::BuildCatalog(catalogue, catalogueBref);
 	uint32 nbComposants = 0;
 	for (uint32 i = 0; i < (uint32)catalogue.Size(); ++i)
 		if (catalogue.Data()[i] == '\n' && i + 10 < (uint32)catalogue.Size()
@@ -427,7 +663,27 @@ int main(int argc, char **argv) {
 
 	std::printf("=== JEU D'EPREUVE DE L'IA DE DESIGN ===\n");
 	std::printf("dorsal        : %s\n", ia.Backend()->Name());
+	// ⚠️ LA CONDITION DE LA COURSE, CAPTUREE UNE FOIS. Une paire de recolte qui
+	//    ne porte pas son modele est un chiffre sans sa condition -- faute payee
+	//    trois fois par ce depot. On la fixe ici, pas dans la boucle.
+	// Un dorsal sans modele le dit en un mot : le nom du fichier doit rester
+	// triable, et `[condition]` porte deja le dorsal.
+	NkString modeleCourant = NkString("aucun");
+	if (std::strcmp(dorsal, "ollama") == 0)
+		modeleCourant = ollama.modele;
 	std::printf("demandes      : %u (lues dans %s)\n", nbD, fDemandes);
+	// ⚠️ LE NIVEAU DU CATALOGUE EST UNE CONDITION DE LA MESURE : il s'imprime
+	//    et il entre dans la recolte. Un taux qui ne dit pas avec quel
+	//    catalogue il a ete obtenu est un chiffre sans sa condition.
+	std::printf("catalogue     : %s, %u octets\n",
+		   catalogueBref ? "BREF (sans param/variante)" : "COMPLET",
+		   (uint32)catalogue.Size());
+	{
+		char eb[64];
+		snprintf(eb, sizeof(eb), "%s, %u octets", catalogueBref ? "bref" : "complet",
+				 (unsigned)catalogue.Size());
+		etiquetteCatalogue = NkString(eb);
+	}
 	std::printf("catalogue     : %u composant(s) declares au registre\n", nbComposants);
 	std::printf("sortie        : %s\n\n", dSortie);
 
@@ -438,30 +694,64 @@ int main(int argc, char **argv) {
 			continue;
 		++b.total;
 
-		// L'INVITE EXACTE, celle que l'application enverrait — batie par le meme
-		// code, jamais recopiee ici.
-		NkString invite;
-		ia.BatirInviteComplete(d.texte, invite);
+		// ⚠️ LE CHEMIN SEULEMENT : le FICHIER s'ecrit APRES l'appel, depuis les
+		//    octets que le dorsal a reellement envoyes.
+		//
+		//    Ce bloc REBATISSAIT l'invite de son cote. Deux ecritures de la meme
+		//    regle, donc deux verites -- et elles avaient DIVERGE : mesure du
+		//    20/09 sur `e10`, 3 332 caracteres envoyes contre 2 693 ecrits. Il
+		//    manquait un saut de ligne et **tout le bloc `document courant`**.
+		//    *Le fichier ne prouvait rien, et il piegeait quiconque le rejouait --
+		//    moi le premier, la meme nuit.*
 		char cheminInv[512];
 		char nomInv[64];
 		Joindre(nomInv, sizeof(nomInv), "/", d.id);
 		char nomInv2[80];
 		Joindre(nomInv2, sizeof(nomInv2), nomInv, "_invite.txt");
 		Joindre(cheminInv, sizeof(cheminInv), dSortie, nomInv2);
-		{
-			NkString pleine(invite);
-			pleine.Append("\n--- composants declares ---\n");
-			pleine.Append(catalogue);
-			NkFile::WriteAllText(NkPath(cheminInv), pleine);
-		}
 
 		// ── N1 : le dorsal rend-il quelque chose ? ───────────────────────────
+		// ⚠️ LE DOCUMENT COURANT ENTRE DANS L'INVITE (`doc.Save(req.currentDoc)`),
+		//    et le banc a TOUJOURS mesure sur un document VIDE. On mesurait donc
+		//    la generation a vide et on la livrait sur un document plein : le
+		//    20/09, celui de Rodolf portait 42 noeuds, et le modele s'est mis a
+		//    DECRIRE ces noeuds au lieu de repondre a la demande.
+		//    `--document=<f>` met le banc dans la condition reelle.
 		NkUIDocument doc;
 		doc.NewDocument("Jeu", NkAuthor::Humain);
+		if (documentBase && *documentBase) {
+			const NkString t = NkFile::ReadAllText(NkPath(documentBase));
+			// ⚠️ ON REFUSE PLUTOT QUE DE MESURER A VIDE SANS LE DIRE. Un document
+			//    qui ne se charge pas laisserait la course tourner sur un document
+			//    NEUF, et le chiffre porterait l'autre condition sous le meme nom.
+			if (t.Size() == 0 || !doc.Load(t.CStr())) {
+				std::printf("DOCUMENT DE BASE ILLISIBLE : %s -- rien mesure.\n", documentBase);
+				return 2;
+			}
+		}
 		NkChrono chrono;
 		chrono.Reset();
 		const NkAIResult res = ia.Ask(d.texte, doc, 0);
 		const float64 msEcoule = chrono.Elapsed().ToMilliseconds();
+
+		// ── L'INVITE : LES OCTETS ENVOYES, OU RIEN ──────────────────────────
+		// ⚠️ `WriteAllBytes` ET NON `WriteAllText` : l'ecriture texte convertit
+		//    les sauts de ligne en CRLF, et le fichier cesserait d'etre identique
+		//    AU BIT a ce qui est parti sur le reseau. Le temoin de ce correctif
+		//    est precisement cette identite-la.
+		// ⚠️ ET SI LE DORSAL N'A RIEN BATI (le temoin), ON N'ECRIT RIEN. Un
+		//    fichier reconstitue serait la faute qu'on vient de retirer :
+		//    *un fichier absent est honnete, un fichier faux ne l'est pas.*
+		if (ia.Backend()) {
+			const NkString &envoye = ia.Backend()->DerniereInvite();
+			if (envoye.Length() > 0) {
+				NkVector<uint8> octets;
+				for (NkString::SizeType k = 0; k < envoye.Length(); ++k)
+					octets.PushBack((uint8)envoye.Data()[k]);
+				NkFile::WriteAllBytes(NkPath(cheminInv), octets);
+			}
+		}
+
 		const NkString &brut = ia.LastReply();
 		char cheminRep[512], nomRep[80];
 		Joindre(nomRep, sizeof(nomRep), nomInv, "_reponse.txt");
@@ -479,6 +769,11 @@ int main(int argc, char **argv) {
 		// ── N3 : le document s'ouvre-t-il ? ──────────────────────────────────
 		// Greffe faite (Ask pose deja), mise en page, puis `.nkgui` sur le
 		// disque. Le MONTAGE est l'affaire de l'autre binaire.
+		// ⚠️ DECLARE A LA PORTEE DE LA PAIRE, pas dans le `if (n2)` : la RECOLTE
+		//    en a besoin apres, et une variable enfermee dans la branche du succes
+		//    aurait force a recalculer le chemin ailleurs -- deux verites sur le
+		//    meme fichier.
+		char cheminG[512] = {0};
 		bool n3 = false;
 		uint32 lignesNkgui = 0;
 		uint32 rolesDuComposant = 0;
@@ -487,7 +782,7 @@ int main(int argc, char **argv) {
 			NkPaintRect sfc = {0.f, 0.f, 1200.f, 800.f};
 			NkLayoutResult lay;
 			NkComputeLayout(doc, sfc, lay);
-			char cheminG[512], nomG[80];
+			char nomG[80];
 			Joindre(nomG, sizeof(nomG), nomInv, ".nkgui");
 			Joindre(cheminG, sizeof(cheminG), dSortie, nomG);
 			guifmt::NkEcritRapport rap;
@@ -521,6 +816,43 @@ int main(int argc, char **argv) {
 		}
 		if (!n2 && res.detail.Size() > 0)
 			std::printf("  [%s]", res.detail.CStr());
+
+		// ── LA RECOLTE ───────────────────────────────────────────────────────
+		// ⚠️ ICI, ET PAS AILLEURS : c'est le seul endroit ou les trois verdicts
+		//    existent en meme temps que la reponse brute et le document. Les
+		//    recalculer plus loin aurait fait deux verites sur la meme paire.
+		//
+		// ⚠️ AUCUNE CONDITION SUR n2 NI n3. On ecrit la paire QUOI QU'IL ARRIVE :
+		//    un corpus qui ne contient que des reussites n'apprend pas a refuser.
+		{
+			NkString docProduit;
+			if (n3)
+				docProduit = NkFile::ReadAllText(NkPath(cheminG));
+			nkrecolte::NkPaire paire;
+			paire.id = d.id;
+			paire.demande = d.texte;
+			paire.dorsal = ia.Backend()->Name();
+			paire.modele = modeleCourant.CStr();
+			paire.verdictNom = NkAIVerdictName(res.verdict);
+			paire.motif = res.detail.Size() > 0 ? res.detail.CStr() : "";
+			paire.n1 = n1;
+			paire.n2 = n2;
+			paire.n3 = n3;
+			paire.ms = msEcoule;
+			paire.delaiMs = delaiDorsal;
+			paire.catalogue = etiquetteCatalogue.CStr();
+			// La provenance du JEU DE DEMANDES, pas de la reponse : le fichier des
+			// demandes est a nous, ecrit avant la premiere course et jamais modifie.
+			paire.provenance = fDemandes;
+			paire.brut = &brut;
+			paire.document = &docProduit;
+			char dRecolte[512];
+			Joindre(dRecolte, sizeof(dRecolte), dSortie, "/recolte");
+			// Une recolte qui echoue en SILENCE se decouvre le jour ou on veut s'en
+			// servir : on le dit tout de suite, sur la meme ligne que le verdict.
+			if (!nkrecolte::Ecrire(dRecolte, paire))
+				std::printf("  [RECOLTE NON ECRITE]");
+		}
 		std::printf("\n");
 		std::fflush(stdout);
 	}

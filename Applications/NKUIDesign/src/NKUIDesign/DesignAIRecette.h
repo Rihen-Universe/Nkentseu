@@ -1,8 +1,10 @@
 #pragma once
+#include "NKConverse/NkConverseModeles.h" // (Q5) la table de l'Effort
 // -----------------------------------------------------------------------------
 // @File    DesignAIRecette.h
 // @Brief   LA PREUVE DE RECETTE du pipeline IA — chaque maillon MESURE.
-// @Author  Rihen
+// @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // =============================================================================
@@ -50,10 +52,20 @@
 // -----------------------------------------------------------------------------
 
 #include "DesignAI.h"
+#include "NKEditorKit/NkAiThreadLayout.h" // le fil du panneau, et son PLAN
 
 #include <cstdio>
 
 namespace nkuidesign {
+
+	/// La mesure de texte de la recette : deterministe, sans fonte.
+	inline nkentseu::float32 RcMesureTexte(void *, nkentseu::editorkit::NkAiPolice,
+				   const char *t) {
+		nkentseu::uint32 n = 0;
+		while (t && t[n]) ++n;
+		return (nkentseu::float32)n * 7.f;
+	}
+
 
 	// ── HELPERS LOCAUX ──────────────────────────────────────────────────────
 	// Prefixes `Rc` pour ne pas entrer en collision avec ceux de `Probe.h` si
@@ -413,6 +425,108 @@ namespace nkuidesign {
 			doc.Save(apresRetrait2);
 			check("7e. le Commit se retire d'un geste, document identique à l'avant-Propose",
 				  retrait2 && RcSameText(base.Data(), apresRetrait2.Data()), "");
+		}
+
+		// ── 8. LA REPONSE EST-ELLE AFFICHEE ? ─────────────────────
+		// ⚠️ CE QUI MANQUAIT A CETTE RECETTE, ET QUE PERSONNE N AVAIT REMARQUE :
+		//    elle prouvait que la GENERATION marche -- 7 noeuds poses, annulables,
+		//    document identique au bit -- et RIEN sur ce que l utilisateur VOIT.
+		//    Or le panneau n avait qu une phrase ecrasee a chaque tour ; depuis le
+		//    20/09 il a un fil. Un document juste dans un panneau muet se lit comme
+		//    un outil casse.
+		//
+		//    On mesure donc le PLAN -- ce que le peintre PUBLIE -- et pas un etat
+		//    interne du fil : c est la difference entre « le texte est range » et
+		//    « le texte sera peint ».
+		{
+			using namespace nkentseu::editorkit;
+			NkAiFil fil;
+			NkAiCapacites cap = NkAiCapacites::Texte();
+			cap.produitRefus = true;
+			fil.Declarer(cap);
+			fil.PoserPlafond(200);
+			NkString pourquoi;
+			
+			// Ce que le panneau pousse a chaque geste, par la meme porte que lui.
+			NkAiBlocDonnees d;
+			d.type = NkAiBloc::Prose;
+			d.texte = NkString("Generation du document lancee.");
+			const bool e1 = fil.Pousser(d, pourquoi);
+			check("8a. la reponse entre dans le fil du panneau", e1 && fil.Taille() == 1, "");
+			
+			// ⚠️ LE MAILLON QUI MANQUAIT : est-elle PUBLIEE par le peintre ?
+			NkAiMetriques metr;
+			NkAiPlan plan;
+			NkAiFilMesurer(fil, 320.f, metr, RcMesureTexte, nullptr, plan);
+			NkAiRectPublie rc;
+			const uint32 id = fil.Taille() ? fil.At(0).id : 0u;
+			const bool vu = plan.Trouver(id, NkAiPiece::Texte, rc);
+			snprintf(buf, sizeof(buf), "publiee a (%.0f,%.0f) sur %.0f px", (double)rc.x,
+				  (double)rc.y, (double)rc.w);
+			check("8b. et le peintre la PUBLIE -- ce n est pas qu un etat range",
+				  vu && rc.w > 0.f && rc.h > 0.f, buf);
+			
+			// 8c. ⚠️ CONTROLE NEGATIF : le fil REFUSE un bloc que le porteur ne
+			//     declare pas produire, et il le dit. Sans lui, un fil qui accepterait
+			//     tout passerait 8a et 8b sans rien prouver.
+			// ⚠️ 21/09 : NKUIDesign DECLARE desormais l'outil (une generation : la
+			//    demande en entree, la reponse du modele en sortie). Le controle
+			//    negatif prend donc un type qu'il NE produit toujours pas : la
+			//    reflexion -- aucun de ses dorsaux n'en emet.
+			NkAiBlocDonnees o;
+			o.type = NkAiBloc::Reflexion;
+			o.titre = NkString("Thinking");
+			o.texte = NkString("...");
+			NkString motif;
+			const bool refuse = !fil.Pousser(o, motif);
+			check("8c. controle negatif : un bloc non declare est refuse AVEC son motif",
+				  refuse && motif.Length() > 0 && fil.Taille() == 1, "");
+		}
+
+		// ── 9. LES PROPRIETES AGISSENT (Q5, 21/09) ─────────────────────────
+		// « Une propriete affichee qui ne change rien est pire qu'absente. » La
+		// MEME demande, deux reglages du panneau (Effort Bas + Thinking eteint,
+		// puis Effort Max + Thinking allume), traduits par la MEME table que
+		// l'application (`NkConverseBudgetEffort`) : les deux corps HTTP que le
+		// dorsal enverrait doivent DIFFERER, et par les bons champs. Negatif : le
+		// meme reglage deux fois rend le meme corps -- sinon « different » ne
+		// voudrait rien dire.
+		{
+			nkentseu::converse::NkConverseBackendOllama o;
+			o.modele = NkString("deepseek-r1:8b");
+			const char *kDemande = "donne trois idees d ecran de connexion";
+			NkString a1, a2, b1;
+			o.numPredict = nkentseu::converse::NkConverseBudgetEffort(0, 4);
+			o.penser = 0;
+			o.CorpsPour(NkString(kDemande), a1);
+			o.CorpsPour(NkString(kDemande), a2);
+			o.numPredict = nkentseu::converse::NkConverseBudgetEffort(3, 4);
+			o.penser = 1;
+			o.CorpsPour(NkString(kDemande), b1);
+			auto queue = [](const NkString &c) -> const char * {
+				const char *q = strstr(c.Data() ? c.Data() : "", "\"stream\"");
+				return q ? q : "(?)";
+			};
+			rep.Append("  reglage A (Effort Bas, Thinking eteint) : ");
+			rep.Append(queue(a1));
+			rep.Append("\n  reglage B (Effort Max, Thinking allume) : ");
+			rep.Append(queue(b1));
+			rep.Append("\n");
+			const bool differe = !(a1 == b1);
+			const bool champsA = a1.Find("\"num_predict\":512", 0) != NkString::npos &&
+								 a1.Find("\"think\":false", 0) != NkString::npos;
+			const bool champsB = b1.Find("\"num_predict\"", 0) == NkString::npos &&
+								 b1.Find("\"think\":true", 0) != NkString::npos;
+			check("9a. meme demande, deux reglages : deux corps DIFFERENTS", differe, "");
+			check("9b. Effort Bas = num_predict 512 ; Thinking eteint = think:false", champsA, "");
+			check("9c. Effort Max = aucun plafond ecrit ; Thinking allume = think:true", champsB, "");
+			check("9d. negatif : le meme reglage deux fois rend le MEME corps", a1 == a2, "");
+			// un modele SANS la capacite : `think` n'est pas ecrit (-1), jamais force
+			o.penser = -1;
+			NkString c1;
+			o.CorpsPour(NkString(kDemande), c1);
+			check("9e. Thinking sans objet (penser=-1) : le champ think n'est PAS ecrit",
+				  c1.Find("\"think\"", 0) == NkString::npos, "");
 		}
 
 		// ── FIN : on ne laisse rien trainer ─────────────────────────────────

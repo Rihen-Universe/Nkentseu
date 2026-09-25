@@ -36,6 +36,8 @@
 #include "NKWindow/Core/NkLauncher.h" // ouvre le navigateur du systeme
 #include "NKWindow/Core/NkDialogs.h"  // selecteurs natifs DEJA presents dans le depot
 #include "NKEditorKit/NkIEditorRenderer.h"
+// OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
+#include "NK3DModeler/NkModelerData.h"
 #include "NKImage/NKImage.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -67,6 +69,16 @@ namespace nkentseu {
 		//   2. le nom de son auteur
 		// Sans image, la bande ne s'affiche PAS DU TOUT -- pas de cadre vide,
 		// pas d'image d'emprunt.
+		// ⚠️ CES DEUX CHEMINS SONT RELATIFS ET NE SE LISENT PAS TELS QUELS : ils
+		//    passent par `NkDataFile` (NkModelerData.h), qui essaie les trois
+		//    racines. Ecrits tels quels ils ne designaient AUCUN fichier possible
+		//    -- il n'existe pas de `data/` a la racine de l'arbre, d'ou
+		//    l'application se lance. C'etait donc un piege monte : le
+		//    `data/splash/LISEZMOI.md` dit a Rodolf de deposer `splash.png` dans
+		//    `Applications/NK3DModeler/data/splash/`, et le code regardait
+		//    ailleurs. L'image n'aurait jamais paru, et RIEN ne l'aurait dit --
+		//    l'absence d'image etant un etat normal, l'echec se confondait avec
+		//    le cas ou il n'y a simplement rien a montrer.
 		static const char *const kSplashImage = "data/splash/splash.png";
 		static const char *const kSplashCredits = "data/splash/splash.txt";
 		static const uint32 kSplashTexId = 4599u; ///< juste sous les couvertures
@@ -98,17 +110,47 @@ namespace nkentseu {
 			if (art.tried)
 				return;
 			art.tried = true;
-			NkImage img;
-			if (!img.Load(kSplashImage, 4) || !img.IsValid())
+			// LES TROIS RACINES, par la porte commune. Sans elle, ce chargeur
+			// cherchait un fichier a un endroit qui ne peut pas exister.
+			const NkString chemin = NkDataFile(kSplashImage);
+			if (chemin.Empty()) {
+				// ⚠️ ON LE DIT, MEME SI C'EST NORMAL. « Pas d'image livree » et
+				//    « image livree au bon endroit mais cherchee au mauvais » sont
+				//    le meme silence, et c'est precisement ce silence qui a laisse
+				//    ce chemin mort passer. La ligne nomme les racines essayees :
+				//    Rodolf depose son PNG, relit le journal, et sait tout de
+				//    suite si le produit est alle le chercher la ou il l'a mis.
+				NkDataRefus("image de version (ecran d'accueil)", kSplashImage);
 				return; // pas d'image livree : la bande n'existera pas
+			}
+			NkImage img;
+			if (!img.Load(chemin.CStr(), 4) || !img.IsValid()) {
+				NkLog::Instance().Warn(
+					"[nk3d-data] image de version TROUVEE mais illisible : {0}\n", chemin.CStr());
+				return;
+			}
 			art.w = (uint32)img.Width();
 			art.h = (uint32)img.Height();
 			renderer.UploadImageRGBA(kSplashTexId, (const uint8 *)img.Pixels(), (int32)art.w,
 									 (int32)art.h);
 			art.valid = true;
+			// ⚠️ LE SUCCES SE DIT AUSSI, et pas seulement le refus. Sans cette
+			//    ligne, « pas de ligne au journal » voudrait dire a la fois
+			//    « trouvee » et « jamais tentee » : on ne pourrait pas prouver
+			//    qu'une image deposee a ete PRISE, seulement qu'elle n'a pas ete
+			//    refusee -- et une absence ne prouve rien. Elle dit le chemin
+			//    RETENU, donc laquelle des trois racines a repondu.
+			NkLog::Instance().Info("[nk3d-data] image de version chargee : {0} ({1}x{2})\n",
+								   chemin.CStr(), art.w, art.h);
 			// Credits : deux lignes, facultatives. Une image sans credit
 			// s'affiche quand meme -- mais un credit vide ne s'invente pas.
-			const NkString txt = NkFile::ReadAllText(NkPath(kSplashCredits));
+			// Le credit suit la MEME resolution que l'image : il vit a cote
+			// d'elle, donc dans la meme racine. Le resoudre autrement ferait
+			// afficher une oeuvre avec le credit d'une autre.
+			const NkString cheminCredits = NkDataFile(kSplashCredits);
+			if (cheminCredits.Empty())
+				return; // image sans credit : elle s'affiche quand meme
+			const NkString txt = NkFile::ReadAllText(NkPath(cheminCredits.CStr()));
 			if (txt.Empty())
 				return;
 			const char *s = txt.CStr();
@@ -556,6 +598,54 @@ namespace nkentseu {
 				}
 
 				p.TextV(x, y, S(24.f), "Projets recents");
+				// ── (25/09) « RETIRER LES PROJETS INTROUVABLES » ──────────────────
+				// Mesure du 24/09 : 19 des 20 premieres cartes de Rodolf pointaient vers
+				// des projets disparus. Une liste qu'on ne peut pas nettoyer devient une
+				// liste qu'on ne lit plus.
+				//
+				// ⚠️ LE BOUTON ANNONCE LE NOMBRE AVANT D'AGIR, et il n'existe que s'il y
+				//    a quelque chose a retirer. C'est la difference entre proposer un
+				//    geste et le prendre : Rodolf voit « 19 », puis decide. **Aucune
+				//    purge sans son clic** -- et le retrait ne touche QUE la liste des
+				//    recents, jamais le disque.
+				//
+				// ⚠️ IL NE COMPTE QUE CE QUI A ETE REGARDE. `etatFichier` vaut 0 tant
+				//    qu'une carte n'a pas ete dessinee : on ne va pas sonder 103 chemins
+				//    pour afficher un nombre. Le compte grandit donc a mesure que Rodolf
+				//    defile -- et il ne PROMET jamais plus que ce qu'il a vu.
+				{
+					int32 morts = 0;
+					for (usize k = 0; k < rec.items.Size(); ++k)
+						if (rec.items[k].etatFichier == 2u || rec.items[k].etatFichier == 3u)
+							++morts;
+					if (morts > 0) {
+						char lib[80];
+						snprintf(lib, sizeof(lib), "Retirer les %d projet(s) vide(s) ou introuvable(s)", (int)morts);
+						const float32 bw = S(260.f), bh = S(24.f);
+						const NkRect br{x + w - bw, y - S(2.f), bw, bh};
+						const bool ovR = hit.Add("wel.purge", br);
+						p.Outline(br, ovR ? NkRole::AccentUi : NkRole::Border,
+								  ovR ? NkRole::PanelHeader : NkRole::PanelBg, 4.f);
+						p.TextV(br.x + S(8.f), br.y + S(4.f), S(18.f), lib,
+								ovR ? NkRole::Text : NkRole::TextMuted);
+						if (ovR)
+							hit.WantCursor(NkCursorWant::Hand);
+						if (hit.Clicked("wel.purge")) {
+							// A REBOURS : retirer par index en montant decalerait tout ce
+							// qui suit, et on sauterait une entree sur deux.
+							int32 retires = 0;
+							for (isize k = (isize)rec.items.Size() - 1; k >= 0; --k)
+								if (rec.items[(usize)k].etatFichier == 2u || rec.items[(usize)k].etatFichier == 3u) {
+									rec.Remove((usize)k);
+									++retires;
+								}
+							std::printf("[nk3d] ACCUEIL %d projet(s) vide(s) ou introuvable(s) retire(s) de la "
+										"liste des recents (le disque n'est pas touche)\n",
+										(int)retires);
+							std::fflush(stdout);
+						}
+					}
+				}
 				p.HLine(x, y + S(26.f), w);
 				y += S(38.f);
 
@@ -565,9 +655,35 @@ namespace nkentseu {
 				// montre six images qu'on identifie d'un regard.
 				// Les colonnes s'adaptent a la largeur : la carte garde une
 				// taille lisible au lieu de s'etirer sur un ecran large.
-				const NkRect area{x, y, w, H - y - S(64.f)};
+				// ⚠️ LA BARRE DE DEFILEMENT SE DESSINE DANS `area` (`p.VScroll(area,
+				//    …)`) : si la grille prend toute la largeur, la barre PASSE PAR
+				//    DESSUS la derniere colonne et les cartes de droite paraissent
+				//    coupees. Constat de Rodolf, 24/09 : « a droite ca ne doit pas
+				//    etre coupe ; en haut ou en bas ca peut, il y a le defilement ».
+				//    On lui reserve donc sa largeur, et seulement quand elle sert :
+				//    sans defilement, la grille reprend toute la place.
+				const float32 barreW = S(16.f);
+				const float32 hDispo = H - y - S(64.f);
+				NkRect area{x, y, w, hDispo};
 				const float32 gap = S(12.f);
 				const float32 cardWmin = S(210.f);
+				{
+					// Deux passes : la premiere dit s'il y aura defilement, la
+					// seconde recalcule la largeur en consequence. Une seule passe
+					// ne peut pas trancher, puisque la hauteur du contenu depend de
+					// la largeur qui depend de la barre.
+					const int32 nEstim = (int32)rec.items.Size();
+					int32 c0 = (int32)((area.w + gap) / (cardWmin + gap));
+					if (c0 < 1)
+						c0 = 1;
+					if (c0 > 5)
+						c0 = 5;
+					const float32 cw0 = (area.w - gap * (float32)(c0 - 1)) / (float32)c0;
+					const float32 ch0 = cw0 * 9.f / 16.f + S(48.f);
+					const int32 r0 = (nEstim + c0 - 1) / c0;
+					if ((float32)r0 * (ch0 + gap) > hDispo)
+						area.w -= barreW;
+				}
 				int32 cols = (int32)((area.w + gap) / (cardWmin + gap));
 				if (cols < 1)
 					cols = 1;
@@ -577,6 +693,31 @@ namespace nkentseu {
 				// 16:9 pour l'image + deux lignes de texte dessous.
 				const float32 thumbH = cardW * 9.f / 16.f;
 				const float32 cardH = thumbH + S(48.f);
+				// ── (24/09) NK_ACCUEIL_SONDE : LA GRILLE SE MESURE, ELLE NE SE DEVINE PAS ─
+				// Rodolf voit les cartes de droite coupees. Une correction de largeur
+				// ne se juge pas a l'oeil sur une capture : on imprime les chiffres qui
+				// decident, UNE fois, et on les confronte a l'image rendue.
+				// ⚠️ Le rectangle de la DERNIERE carte de la premiere ligne est celui
+				//    qui doit finir AVANT le bord : c'est lui qu'on imprime, pas une
+				//    moyenne.
+				{
+					static bool sDit = false;
+					if (!sDit && std::getenv("NK_ACCUEIL_SONDE")) {
+						sDit = true;
+						const float32 dernX = area.x + (float32)(cols - 1) * (cardW + gap);
+						std::printf("[nk3d] ACCUEIL W=%.0f H=%.0f leftW=%.0f pad=%.0f x=%.0f w=%.0f "
+									"area.w=%.0f barreW=%.0f cols=%d cardW=%.0f gap=%.0f%c",
+									(double)W, (double)H, (double)leftW, (double)pad, (double)x, (double)w,
+									(double)area.w, (double)S(16.f), (int)cols, (double)cardW, (double)gap,
+									(char)10);
+						std::printf("[nk3d] ACCUEIL derniere carte ligne 1 : x=%.0f -> %.0f ; "
+									"barre de defilement : x=%.0f -> %.0f ; bord de la fenetre=%.0f ; "
+									"depassement=%.0f%c",
+									(double)dernX, (double)(dernX + cardW), (double)(x + w - S(16.f)),
+									(double)(x + w), (double)W, (double)((dernX + cardW) - W), (char)10);
+						std::fflush(stdout);
+					}
+				}
 				const int32 n = (int32)rec.items.Size();
 				if (n == 0) {
 					// ETAT VIDE HONNETE : aucune carte de demonstration. La liste
@@ -606,11 +747,46 @@ namespace nkentseu {
 						if (cr.y + cr.h < area.y || cr.y > area.y + area.h)
 							continue;
 						NkRecentEntry &e = rec.items[(usize)i];
+						// (25/09) LE FICHIER EXISTE-T-IL ? Mesure UNE fois par entree, a la
+						// premiere image ou la carte se voit -- pas a chaque image, et pas
+						// pour les cartes hors champ (la boucle les a deja sautees).
+						if (e.etatFichier == 0) {
+							// ⚠️ CE N'EST PAS « LE FICHIER EXISTE-T-IL », ET C'EST UNE PREMISSE
+							//    QUE J'AI DU CORRIGER. `NkRecentList::Load` FILTRE DEJA les
+							//    entrees dont le `.nk3dm` a disparu (`if (!e.path.Empty() &&
+							//    NkFile::Exists(...)) items.PushBack(e)`) : une carte
+							//    « fichier introuvable » ne peut donc pas exister au
+							//    lancement. Mesure : une liste de 5 morts + 1 vivant charge
+							//    « 1 projet(s) recent(s) ».
+							//    Ce que Rodolf voit -- 19 cartes sur 20 sans vignette -- ce
+							//    sont des projets QUI EXISTENT ET QUI SONT VIDES : le `.nk3dm`
+							//    est la, le dossier ne porte AUCUN `.nkscene`. Des coquilles
+							//    creees par des courses de mesure.
+							// ⚠️ UN BALAYAGE DE DOSSIER PAR CARTE, UNE SEULE FOIS, et
+							//    seulement pour les cartes DESSINEES : la boucle a deja saute
+							//    celles qui sont hors champ.
+							const NkString dossier = NkPath(e.path.CStr()).GetParent().ToString();
+							const bool absent = !NkFile::Exists(e.path.CStr());
+							bool vide = false;
+							if (!absent) {
+								const NkVector<NkString> sc = NkDirectory::GetFiles(
+									dossier.CStr(), "*.nkscene", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+								vide = sc.Empty();
+							}
+							e.etatFichier = absent ? 2u : (vide ? 3u : 1u);
+						}
+						const bool introuvable = (e.etatFichier == 2u);
+						const bool vide = (e.etatFichier == 3u);
+						const bool aRetirer = introuvable || vide;
 						snprintf(key, sizeof(key), "wel.rec.%d", i);
 						const bool over = hit.Add(key, cr);
-						p.Outline(cr, over ? NkRole::AccentUi : NkRole::Border,
-								  over ? NkRole::PanelHeader : NkRole::PanelBg, 5.f);
-						if (over)
+						p.Outline(cr, over && !aRetirer ? NkRole::AccentUi : NkRole::Border,
+								  over && !aRetirer ? NkRole::PanelHeader : NkRole::PanelBg, 5.f);
+						// ⚠️ PAS LA MAIN SUR UNE CARTE MORTE : le curseur promet un clic qui
+						//    ne peut qu'echouer. La carte reste cliquable -- l'ouverture rend
+						//    alors un refus NOMME -- mais elle cesse de faire la publicite
+						//    d'un projet qui n'existe pas.
+						if (over && !aRetirer)
 							hit.WantCursor(NkCursorWant::Hand);
 
 						// VIGNETTE : la derniere image du projet, PLEINE LARGEUR de
@@ -631,9 +807,18 @@ namespace nkentseu {
 						const float32 txx = cr.x + S(10.f);
 						p.Clip({txx, cr.y + thumbH, cr.w - S(66.f), S(46.f)});
 						p.TextV(txx, cr.y + thumbH + S(4.f), S(22.f), e.name.CStr());
-						p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f),
-								e.date.Empty() ? "date inconnue" : e.date.CStr(),
-								NkRole::TextMuted);
+						// (25/09) UNE CARTE MORTE LE DIT, a la place de sa date : la date
+						// d'un projet disparu n'apprend rien, et l'absence, si.
+						if (introuvable)
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet introuvable",
+									NkRole::StatusErr);
+						else if (vide)
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet vide — aucune scene",
+									NkRole::StatusErr);
+						else
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f),
+									e.date.Empty() ? "date inconnue" : e.date.CStr(),
+									NkRole::TextMuted);
 						p.Unclip();
 
 						// EPINGLE et RETRAIT, comme NKCode. L'epingle garde le projet
@@ -670,7 +855,10 @@ namespace nkentseu {
 						}
 					}
 					p.Unclip();
-					p.VScroll(area, contentH, st.welcomeScroll);
+					// La barre se dessine dans la BANDE RESERVEE, a droite de la
+					// grille retrecie : `area` ne la contient plus (voir la garde
+					// plus haut), sinon elle reviendrait sur la derniere colonne.
+					p.VScroll(NkRect{x, y, w, hDispo}, contentH, st.welcomeScroll);
 				}
 			}
 
@@ -972,6 +1160,53 @@ namespace nkentseu {
 						const NkString::SizeType s2 = dir.RFind('/');
 						const NkString grand =
 							(s2 == NkString::npos) ? NkString(".") : NkString(dir.CStr(), s2);
+
+						// ── LE CHEMIN DOIT DEJA ETRE CONFORME, SINON ON REFUSE ────────
+						// ⚠️ CE SILENCE A COUTE UNE NUIT DE FAUX DIAGNOSTIC (20/09).
+						//    `NkProjectCreate` prend un PARENT et un NOM, jamais un chemin de
+						//    fichier : un projet vit dans un dossier a son nom. La convention
+						//    est assumee, et remonter d'un cran la respecte.
+						//    Mais quand le chemin recu n'est PAS deja de cette forme, le
+						//    segment de dossier etait JETE et remplace par le nom du fichier :
+						//    on demandait `mesures/p512.nk3dm`, on obtenait `p512/p512.nk3dm`.
+						//    Le projet existait -- ailleurs. Rouvrir le chemin DEMANDE tombait
+						//    sur un dossier vide, et l'application attendait sans rien dire.
+						//    J'en ai conclu qu'un gros maillage bloquait le modeleur. C'etait
+						//    faux, et rien ne me contredisait.
+						//
+						// ⚠️ ON NE CORRIGE NI LA CONVENTION NI LA FORME DE L'ENTREE. Un chemin
+						//    deja conforme se comporte EXACTEMENT comme avant -- les scripts
+						//    existants ne changent pas d'un octet. Seul le cas qui etait
+						//    reecrit en silence devient un REFUS NOMME.
+						//    Des deux facons de manquer, crier ou effacer, celle qui efface est
+						//    la pire : un refus aurait coute trente secondes.
+						{
+							const NkString dossier =
+								(s2 == NkString::npos)
+									? dir
+									: NkString(dir.CStr() + s2 + 1,
+										   (NkString::SizeType)(dir.Size() - s2 - 1));
+							if (dossier != base) {
+								NkString m = "chemin de projet non conforme. Attendu "
+									  "<parent>/<nom>/<nom>.nk3dm (un projet vit dans un "
+									  "dossier a son nom) ; recu un dossier \"";
+								m += dossier;
+								m += "\" pour le projet \"";
+								m += base;
+								m += "\". Le projet aurait ete cree dans \"";
+								m += base;
+								m += "/\", pas dans le dossier demande.";
+							// ⚠️ LE REFUS DOIT SE LIRE. `fail` le pose dans l'etat de l'accueil,
+							//    donc a l'ECRAN -- invisible pour un script ou un agent, qui ne
+							//    verrait qu'un projet manquant. Les deux autres issues de ce
+							//    crochet s'impriment (« projet CREE », « projet OUVERT ») : un
+							//    refus muet a cote de deux succes bavards se lit comme un
+							//    silence, et c'est ce silence qu'on corrige ici.
+							std::printf("[nk3d] NK_PROJECT REFUSE : %s\n", m.CStr());
+							fail(m);
+							break;
+						}
+						}
 						if (!NkProjectCreate(grand.CStr(), base.CStr(), proj, &err)) {
 							fail(err);
 							break;

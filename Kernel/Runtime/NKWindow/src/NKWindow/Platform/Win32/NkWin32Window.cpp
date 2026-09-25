@@ -1,4 +1,5 @@
-﻿// =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// =============================================================================
 // NkWin32Window.cpp
 // Implémentation Win32 de NkWindow sans PIMPL.
 //
@@ -16,6 +17,7 @@
 #include "NkWin32Window.h"
 #include "NKWindow/Platform/Win32/NkWin32DropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowAudit.h" // ce que Win32 ne tient pas, il le DIT
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -236,6 +238,166 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// LE FOND DE LA FENETRE — `bgColor`, enfin lu (25/09)
+	//
+	// AVANT : `wc.hbrBackground = BLACK_BRUSH`, en dur. C'est CETTE brosse que
+	// Windows etale sur la zone nouvellement decouverte pendant un
+	// redimensionnement, avant que l'application ait eu sa chance de peindre.
+	// D'ou le clignotement NOIR au redimensionnement, sur toutes les
+	// applications — pendant que `bgColor` valait `0x141414FF` et n'etait lu
+	// nulle part.
+	//
+	// ⚠️ CHANGEMENT VISIBLE, ASSUME : le clignotement passe du NOIR PUR au
+	//    `0x141414` par defaut. Ce n'est pas une regression — c'est la valeur que
+	//    `NkWindowConfig` annonce depuis le debut, et elle est plus proche du
+	//    theme sombre des editeurs que le noir qu'elle n'a jamais remplace.
+	//
+	// ⚠️ LA BROSSE APPARTIENT A LA CLASSE, PAS A LA FENETRE, et la classe est
+	//    nommee par `config.name`. Deux fenetres de MEME `name` et de `bgColor`
+	//    DIFFERENTS partagent donc la brosse de la premiere enregistree. Ce n'est
+	//    pas rattrapable sans repeindre nous-memes a chaque WM_ERASEBKGND — ce qui
+	//    rendrait le clignotement que le code actuel evite en ne peignant RIEN
+	//    (WM_ERASEBKGND rend 1 sans toucher au HDC). Le second appelant recoit
+	//    donc un REFUS NOMME au lieu d'une couleur silencieusement ignoree.
+	//
+	// ⚠️ DUREE DE VIE — ET UN PIEGE PAYE LE 25/09. `NkWindow::Close()` appelle
+	//    `UnregisterClassW`, et `UnregisterClass` DETRUIT la brosse de fond de la
+	//    classe. Une premiere version gardait un cache de brosses par couleur
+	//    pour le processus : la deuxieme fenetre recevait donc un HBRUSH MORT,
+	//    et `CreateWindowExW` echouait. Le banc l'a vu parce qu'il ouvre
+	//    plusieurs fenetres dans un seul processus ; un banc a une fenetre
+	//    serait reste vert.
+	//    Regle : la brosse est creee UNIQUEMENT quand la classe ne l'est pas
+	//    encore, et c'est `UnregisterClass` qui la detruit. Si la classe existe
+	//    deja, on reprend LA SIENNE — jamais une copie, jamais un cache.
+	// =============================================================================
+	static COLORREF NkWin32CouleurDeFond(uint32 rgba) {
+		// `bgColor` est 0xRRGGBBAA ; COLORREF est 0x00BBGGRR. L'alpha n'a pas de
+		// sens pour une brosse GDI : il est ignore, et c'est dit ici plutot que
+		// laisse deviner.
+		return RGB((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF);
+	}
+
+	// =============================================================================
+	// LE STYLE VIENT DE LA CONFIGURATION — il ne la contredit plus
+	//
+	// AVANT (jusqu'au 25/09/2026) : `mDwStyle = WS_OVERLAPPEDWINDOW` quoi qu'il
+	// arrive. Ce seul mot contient WS_THICKFRAME, WS_MINIMIZEBOX et
+	// WS_MAXIMIZEBOX : `resizable = false` etait accepte puis jete. Un
+	// utilisateur a perdu du temps a chercher l'erreur chez lui.
+	//
+	// ⚠️ EQUIVALENCE AUX DEFAUTS. Avec la configuration par defaut (frame,
+	//    resizable, minimizable, maximizable tous vrais) cette fonction rend
+	//    EXACTEMENT WS_OVERLAPPEDWINDOW (= WS_OVERLAPPED | WS_CAPTION |
+	//    WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX), et pour
+	//    `frame = false` exactement l'ancien WS_POPUP | WS_THICKFRAME |
+	//    WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX. NKWindow est
+	//    partage par TOUTES les applications : aucune d'elles ne doit voir sa
+	//    fenetre changer parce qu'on a corrige celles qui demandaient autre
+	//    chose.
+	//
+	// ⚠️ `maximizable` est SUBORDONNE a `resizable` : maximiser, c'est
+	//    redimensionner. Laisser WS_MAXIMIZEBOX sur une fenetre declaree non
+	//    redimensionnable offrirait un bouton qui fait precisement ce qui vient
+	//    d'etre interdit.
+	//
+	// ⚠️ FENETRE SANS CADRE (`frame = false`). WS_THICKFRAME y etait garde
+	//    EXPRES : sa bordure invisible donne l'accrochage Aero et le
+	//    redimensionnement natif que `BeginResize` relaie depuis notre propre
+	//    decoration. DECISION : `resizable = false` l'emporte. Le style tombe,
+	//    l'accrochage Aero est perdu, `BeginResize` refuse au journal — et c'est
+	//    juste : une fenetre declaree non redimensionnable n'a aucun bord a
+	//    accrocher. WS_CAPTION et WS_SYSMENU restent (animation de reduction et
+	//    menu systeme ; ils ne peignent aucun pixel puisque WM_NCCALCSIZE rend
+	//    toute la fenetre cliente).
+	// =============================================================================
+	static DWORD NkWin32ComposerStyle(const NkWindowConfig &c) {
+		DWORD style = (c.frame ? WS_OVERLAPPED : WS_POPUP) | WS_CAPTION | WS_SYSMENU;
+		if (c.resizable)
+			style |= WS_THICKFRAME;
+		if (c.minimizable)
+			style |= WS_MINIMIZEBOX;
+		if (c.maximizable && c.resizable)
+			style |= WS_MAXIMIZEBOX;
+		return style;
+	}
+
+	// =============================================================================
+	// Menu systeme : griser ce qui est interdit
+	//
+	// Le style suffit pour `resizable`/`minimizable`/`maximizable` (Windows grise
+	// les boutons correspondants tout seul), mais PAS pour `closable` ni
+	// `movable` : il n'existe aucun style « pas de bouton X » ni « pas de
+	// deplacement ». Ces deux-la passent par le menu systeme — et griser SC_CLOSE
+	// eteint AUSSI le bouton X de la barre de titre, c'est le meme item.
+	//
+	// ⚠️ Griser ne suffit pas non plus a lui seul : le double-clic sur la barre de
+	//    titre, Alt+F4 et le glisser de titre n'ouvrent pas le menu, ils envoient
+	//    directement le WM_SYSCOMMAND. Le filtre qui les arrete vit dans
+	//    NkWin32EventSystem.cpp. Les deux moities sont necessaires ; aucune ne
+	//    tient seule.
+	// =============================================================================
+	static void NkWin32AppliquerMenuSysteme(HWND hwnd, const NkWindowConfig &c) {
+		if (!hwnd)
+			return;
+		if (c.closable && c.movable && c.resizable && c.minimizable && c.maximizable)
+			return; // rien d'interdit : ne pas toucher au menu du systeme
+		HMENU menu = GetSystemMenu(hwnd, FALSE);
+		if (!menu)
+			return;
+		const UINT eteint = MF_BYCOMMAND | MF_GRAYED | MF_DISABLED;
+		if (!c.closable)
+			EnableMenuItem(menu, SC_CLOSE, eteint);
+		if (!c.movable)
+			EnableMenuItem(menu, SC_MOVE, eteint);
+		if (!c.resizable)
+			EnableMenuItem(menu, SC_SIZE, eteint);
+		if (!c.minimizable)
+			EnableMenuItem(menu, SC_MINIMIZE, eteint);
+		if (!c.maximizable || !c.resizable)
+			EnableMenuItem(menu, SC_MAXIMIZE, eteint);
+	}
+
+	// =============================================================================
+	// CLIENT -> FENETRE : UN SEUL CALCUL, UNE SEULE GARDE
+	//
+	// LE DEFAUT DU 20/09, CORRIGE ICI LE 25/09 : `SetSize(GetSize())` n'etait PAS
+	// l'identite. La fenetre grossissait de +16 px en largeur et +39 en hauteur
+	// A CHAQUE LANCEMENT des editeurs, parce qu'ils sauvent leur geometrie a la
+	// fermeture et la restaurent au demarrage.
+	//
+	// LA CAUSE : `Create` portait la garde
+	//     if (!mData.mBorderless) AdjustWindowRectEx(...)
+	// et `SetSize` comme `SyncWindowFromConfig` appliquaient `AdjustWindowRectEx`
+	// SANS ELLE. Or une fenetre sans cadre garde WS_CAPTION | WS_THICKFRAME dans
+	// son STYLE (ils portent le menu systeme et l'accrochage) pendant que
+	// WM_NCCALCSIZE rend TOUTE la fenetre cliente. `AdjustWindowRectEx` ajoutait
+	// donc un cadre qui n'existe pas, et ce cadre devenait du CLIENT au message
+	// suivant. Exactement +16/+39 : la taille du cadre que le style annonce.
+	//
+	// LE MEME CALCUL A TROIS SITES, GARDE A UN SEUL. La garde manquante etait a
+	// dix lignes de celle qui existait. Il n'y a donc plus trois calculs : il y a
+	// CETTE fonction, et les trois sites l'appellent.
+	//
+	// ⚠️ Le style est lu VIVANT (`GetWindowLongW`) et non dans `mData.mDwStyle` :
+	//    `SetDecorated` peut l'avoir change depuis la creation, et calculer un
+	//    cadre avec un style perime est la meme faute sous un autre nom.
+	// =============================================================================
+	static void NkWin32TailleFenetreDepuisClient(HWND hwnd, bool borderless, LONG clientW, LONG clientH,
+											  LONG &fenetreW, LONG &fenetreH) {
+		RECT rc = {0, 0, clientW, clientH};
+		// Fenetre SANS cadre : WM_NCCALCSIZE rend toute la fenetre cliente, donc
+		// fenetre == client et il n'y a RIEN a ajouter.
+		if (!borderless && hwnd) {
+			const DWORD st = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_STYLE));
+			const DWORD ex = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+			AdjustWindowRectEx(&rc, st, FALSE, ex);
+		}
+		fenetreW = rc.right - rc.left;
+		fenetreH = rc.bottom - rc.top;
+	}
+
+	// =============================================================================
 	// Fonctions de synchronisation mData ↔ mConfig
 	// =============================================================================
 
@@ -271,7 +433,7 @@ namespace nkentseu {
 		}
 	}
 
-	static void SyncWindowFromConfig(HWND hwnd, const NkWindowConfig &config) {
+	static void SyncWindowFromConfig(HWND hwnd, const NkWindowConfig &config, bool borderless) {
 		if (!hwnd)
 			return;
 
@@ -285,11 +447,11 @@ namespace nkentseu {
 		uint32 currentH = currentRect.bottom - currentRect.top;
 
 		if (currentW != config.width || currentH != config.height) {
-			RECT rc = {0, 0, (LONG)config.width, (LONG)config.height};
-			DWORD style = GetWindowLongW(hwnd, GWL_STYLE);
-			DWORD exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
-			AdjustWindowRectEx(&rc, style, FALSE, exStyle);
-			SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER);
+			// `config.width/height` sont une taille CLIENT (cf. le contrat en tete
+			// de NkWindowConfig.h) : la conversion passe par le calcul unique.
+			LONG fw = 0, fh = 0;
+			NkWin32TailleFenetreDepuisClient(hwnd, borderless, (LONG)config.width, (LONG)config.height, fw, fh);
+			SetWindowPos(hwnd, nullptr, 0, 0, fw, fh, SWP_NOMOVE | SWP_NOZORDER);
 		}
 
 		// Position
@@ -429,12 +591,11 @@ namespace nkentseu {
 			mData.mDwStyle = WS_POPUP | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
 		} else {
 			mData.mDwExStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-			mData.mDwStyle =
-				config.frame ? WS_OVERLAPPEDWINDOW
-							 : (WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-			// frame=false : on garde WS_THICKFRAME/CAPTION (snap + min/max + resize
-			// natif via BeginResize) mais on SUPPRIME visuellement la zone non-cliente
-			// (titre + bordure OS) via WM_NCCALCSIZE -> seule notre deco s'affiche.
+			// Le style DESCEND de la configuration (cf. NkWin32ComposerStyle) : il ne
+			// vaut plus WS_OVERLAPPEDWINDOW quoi qu'on demande.
+			mData.mDwStyle = NkWin32ComposerStyle(config);
+			// frame=false : on SUPPRIME visuellement la zone non-cliente (titre +
+			// bordure OS) via WM_NCCALCSIZE -> seule notre deco s'affiche.
 			mData.mBorderless = !config.frame;
 		}
 
@@ -458,6 +619,13 @@ namespace nkentseu {
 		}
 		if (config.opacity < 1.0f) {
 			mData.mDwExStyle |= WS_EX_LAYERED;
+		}
+		// (25/09) NE PAS VOLER LE FOCUS. `WS_EX_NOACTIVATE` empeche la fenetre de
+		// devenir active au clic comme a l'affichage ; `SW_SHOWNOACTIVATE` plus bas
+		// empeche l'activation initiale. Les deux sont necessaires : le style seul
+		// laisse passer l'activation de la PREMIERE apparition.
+		if (config.noActivate) {
+			mData.mDwExStyle |= WS_EX_NOACTIVATE;
 		}
 
 		if (config.native.utilityWindow && !mData.mParentHwnd) {
@@ -529,8 +697,36 @@ namespace nkentseu {
 		mData.mIconBig = wc.hIcon;
 		mData.mIconSmall = wc.hIconSm;
 		wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-		wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+		// `bgColor` : la brosse est posee plus bas, une fois su si la classe
+		// existe deja (elle en possede alors une, qu'il ne faut pas doubler).
+		wc.hbrBackground = nullptr;
 		wc.lpszClassName = wClassName.CStr();
+		// ── LE FOND : `bgColor` agit, et sa reserve se dit ────────────────────
+		{
+			const COLORREF voulue = NkWin32CouleurDeFond(config.bgColor);
+			WNDCLASSEXW existante = {};
+			existante.cbSize = sizeof(WNDCLASSEXW);
+			if (GetClassInfoExW(mData.mHInstance, wClassName.CStr(), &existante)) {
+				// La classe existe : elle POSSEDE deja sa brosse et la detruira a
+				// son desenregistrement. On reprend la sienne, on n'en cree pas une
+				// seconde — et si la couleur demandee n'est pas la sienne, on le DIT.
+				wc.hbrBackground = existante.hbrBackground;
+				LOGBRUSH lb = {};
+				if (GetObjectW(existante.hbrBackground, sizeof(lb), &lb) && lb.lbColor != voulue) {
+					NkWindowRefuserUneFois(
+						NkWindowProp::BgColor, "Win32",
+						"la brosse de fond appartient a la CLASSE de fenetre, nommee par config.name : "
+						"une classe deja enregistree garde la couleur de la premiere fenetre. Donnez un "
+						"`name` distinct pour une couleur distincte");
+				}
+			} else {
+				// Classe neuve : la brosse lui appartient des l'enregistrement, et
+				// `UnregisterClassW` (dans Close) la detruira. Rien a liberer ici.
+				wc.hbrBackground = CreateSolidBrush(voulue);
+				if (!wc.hbrBackground)
+					wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+			}
+		}
 		RegisterClassExW(&wc);
 
 		InitializeDpiAPIs();
@@ -604,15 +800,54 @@ namespace nkentseu {
 
 		ApplyWindowIcons(mData.mHwnd, mData, config.iconPath);
 
+		// `closable` et `movable` n'ont pas de style : ils vivent dans le menu
+		// systeme (et dans le filtre WM_SYSCOMMAND de NkWin32EventSystem.cpp).
+		NkWin32AppliquerMenuSysteme(mData.mHwnd, config);
+
+		// ── `modal` : le parent cesse de repondre tant que celle-ci vit ───────
+		// Win32 n'a PAS de fenetre modale native : « modal » s'obtient en
+		// DESACTIVANT la fenetre parent (`EnableWindow(parent, FALSE)`), ce qui
+		// lui retire clavier et souris sans la cacher.
+		// ⚠️ SANS PARENT, IL N'Y A RIEN A DESACTIVER, et desactiver « toutes les
+		//    fenetres de l'application » serait une invention dangereuse : on ne
+		//    sait pas lesquelles appartiennent a l'appelant. Refus nomme.
+		// ⚠️ LA REACTIVATION EST OBLIGATOIRE ET DOIT SURVIVRE A TOUT : un parent
+		//    laisse desactive est une application morte a l'ecran, sans message
+		//    d'erreur. Elle vit dans `Close()`, qui passe aussi par le chemin de
+		//    destruction, et `mModalOwner` est remis a zero pour qu'une double
+		//    fermeture ne reactive pas deux fois.
+		if (config.modal) {
+			if (mData.mParentHwnd && IsWindow(mData.mParentHwnd)) {
+				mData.mModalOwner = mData.mParentHwnd;
+				EnableWindow(mData.mModalOwner, FALSE);
+			} else {
+				NkWindowRefuserUneFois(NkWindowProp::Modal, "Win32",
+									   "aucune fenetre parent : renseignez native.parentWindowHandle. "
+									   "Win32 rend une fenetre modale en DESACTIVANT son parent ; sans "
+									   "parent il n'y a rien a desactiver");
+			}
+		}
+
+		// (L'audit de ce que Win32 ne tient pas est declenche pour TOUS les dorsaux
+		//  depuis NkWESystem::RegisterWindow — un seul endroit, une seule verite.)
+
 		CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_INPROC_SERVER, kIIDTaskbarList3,
 						 reinterpret_cast<void **>(&mData.mTaskbarList));
 
 		setupDropTarget();
 
 		if (config.visible) {
-			ShowWindow(mData.mHwnd, SW_SHOWNORMAL);
-			SetForegroundWindow(mData.mHwnd);
-			SetFocus(mData.mHwnd);
+			if (config.noActivate) {
+				// ⚠️ NI `SetForegroundWindow` NI `SetFocus` : les appeler ici
+				//    annulerait `WS_EX_NOACTIVATE` d'une ligne. Le style dit « ne
+				//    m'active pas » ; ces deux appels disent « active-moi ». Le
+				//    dernier qui parle gagne, et ce serait eux.
+				ShowWindow(mData.mHwnd, SW_SHOWNOACTIVATE);
+			} else {
+				ShowWindow(mData.mHwnd, SW_SHOWNORMAL);
+				SetForegroundWindow(mData.mHwnd);
+				SetFocus(mData.mHwnd);
+			}
 		}
 
 		// Synchronisation initiale : mConfig reflète l'état réel
@@ -629,6 +864,19 @@ namespace nkentseu {
 	void NkWindow::Close() {
 		if (!mIsOpen)
 			return;
+
+		// ── `modal` : RENDRE LA MAIN AU PARENT, avant toute autre chose ──────
+		// Un parent laisse desactive est une application morte a l'ecran, sans
+		// message d'erreur. On le reactive AVANT `DestroyWindow` pour que le
+		// focus lui revienne, et on oublie la poignee pour qu'une seconde
+		// fermeture ne la reactive pas une seconde fois.
+		if (mData.mModalOwner) {
+			if (IsWindow(mData.mModalOwner)) {
+				EnableWindow(mData.mModalOwner, TRUE);
+				SetActiveWindow(mData.mModalOwner);
+			}
+			mData.mModalOwner = nullptr;
+		}
 
 		const HWND hwnd = mData.mHwnd;
 		NkWin32UnregisterWindow(hwnd);
@@ -847,13 +1095,19 @@ namespace nkentseu {
 		return n > 0 ? (uint32)n : 1u;
 	}
 
+	// `w`/`h` sont une taille CLIENT — comme `GetSize`, comme `config.width`.
+	// C'est ce qui fait de `SetSize(GetSize())` une IDENTITE, et ce qui ne
+	// l'etait pas avant le 25/09 : cette fonction appliquait
+	// `AdjustWindowRectEx` sans la garde `mBorderless` que `Create` portait,
+	// et chaque appel ajoutait +16/+39 sur une fenetre sans cadre.
 	void NkWindow::SetSize(uint32 w, uint32 h) {
 		mConfig.width = w;
 		mConfig.height = h;
-
-		RECT rc = {0, 0, (LONG)w, (LONG)h};
-		AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
-		SetWindowPos(mData.mHwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER);
+		if (!mData.mHwnd)
+			return;
+		LONG fw = 0, fh = 0;
+		NkWin32TailleFenetreDepuisClient(mData.mHwnd, mData.mBorderless, (LONG)w, (LONG)h, fw, fh);
+		SetWindowPos(mData.mHwnd, nullptr, 0, 0, fw, fh, SWP_NOMOVE | SWP_NOZORDER);
 	}
 
 	void NkWindow::SetPosition(int32 x, int32 y) {
@@ -899,18 +1153,26 @@ namespace nkentseu {
 	// SWP_FRAMECHANGED est indispensable pour que le nouveau style soit
 	// reellement applique — sans lui, le changement reste invisible jusqu'au
 	// prochain redimensionnement.
+	// ⚠️ 25/09 — CE SETTER DEFAISAIT LE CORRECTIF. Il remettait
+	//    `WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX` SANS CONDITION : une
+	//    fenetre creee `resizable = false` redevenait redimensionnable des le
+	//    premier passage par une barre de titre personnalisee. Corriger la
+	//    creation sans corriger ceci n'aurait tenu que jusqu'au premier appel.
+	//    Il repasse donc par la MEME fonction que la creation.
 	void NkWindow::SetDecorated(bool decorated) {
 		mConfig.frame = decorated;
 		if (!mData.mHwnd)
 			return;
+		// mBorderless commande WM_NCCALCSIZE : sans cette ligne, SetDecorated(false)
+		// retirait la barre de titre du STYLE mais laissait l'OS peindre son cadre.
+		mData.mBorderless = !decorated;
 		LONG_PTR style = GetWindowLongPtrW(mData.mHwnd, GWL_STYLE);
-		if (decorated) {
-			style |= (WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-		} else {
-			style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
-			style |= WS_POPUP;
-		}
+		style &= ~(LONG_PTR)(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP);
+		style |= (LONG_PTR)NkWin32ComposerStyle(mConfig);
+		mData.mDwStyle = (DWORD)style;
 		SetWindowLongPtrW(mData.mHwnd, GWL_STYLE, style);
+		// Le menu systeme est reconstruit avec le style : re-griser ce qui reste interdit.
+		NkWin32AppliquerMenuSysteme(mData.mHwnd, mConfig);
 		SetWindowPos(mData.mHwnd, nullptr, 0, 0, 0, 0,
 					 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 	}
@@ -936,6 +1198,11 @@ namespace nkentseu {
 		// Indispensable pour une barre de titre custom (fenetre sans bordure).
 		if (!mData.mHwnd)
 			return;
+		if (!mConfig.movable) {
+			NkWindowRefuserUneFois(NkWindowProp::Movable, "Win32",
+								   "BeginDragMove appele sur une fenetre creee movable=false : ignore");
+			return;
+		}
 		ReleaseCapture();
 		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
 	}
@@ -983,6 +1250,79 @@ namespace nkentseu {
 		return out;
 	}
 
+	// ── (Q9) L'IMAGE DU PRESSE-PAPIERS : CF_DIBV5 / CF_DIB -> RGBA ───────────────
+	// ⚠️ UN DIB EST RANGE DU BAS VERS LE HAUT quand biHeight > 0 ; en BGR(A) ;
+	//    avec des lignes alignees sur 4 octets ; et BI_BITFIELDS pose 3 masques
+	//    apres l'en-tete d'un BITMAPINFOHEADER (pas d'un V5, qui les porte). Chacun
+	//    de ces quatre details, oublie, donne une image a l'envers, bleue, cisaillee
+	//    ou decalee de 12 octets.
+	bool NkWindow::GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const {
+		w = h = 0;
+		rgba.Clear();
+		if (!IsClipboardFormatAvailable(CF_DIB) && !IsClipboardFormatAvailable(CF_DIBV5)) {
+			motif = NkString("le presse-papiers ne contient pas d'image");
+			return false;
+		}
+		if (!OpenClipboard(mData.mHwnd)) {
+			motif = NkString("presse-papiers occupe par une autre application");
+			return false;
+		}
+		HANDLE hd = GetClipboardData(IsClipboardFormatAvailable(CF_DIBV5) ? CF_DIBV5 : CF_DIB);
+		bool ok = false;
+		if (hd) {
+			const uint8 *p = static_cast<const uint8 *>(GlobalLock(hd));
+			const SIZE_T taille = GlobalSize(hd);
+			if (p && taille >= sizeof(BITMAPINFOHEADER)) {
+				const BITMAPINFOHEADER *bi = reinterpret_cast<const BITMAPINFOHEADER *>(p);
+				const int32 bw = (int32)bi->biWidth;
+				const int32 bh = bi->biHeight < 0 ? -(int32)bi->biHeight : (int32)bi->biHeight;
+				const bool basEnHaut = bi->biHeight > 0;
+				const int32 bpp = (int32)bi->biBitCount;
+				usize decal = bi->biSize;
+				if (bi->biCompression == BI_BITFIELDS && bi->biSize == sizeof(BITMAPINFOHEADER))
+					decal += 12u;
+				decal += (usize)bi->biClrUsed * 4u;
+				const usize ligne = (((usize)bw * (usize)bpp + 31u) / 32u) * 4u;
+				if (bw > 0 && bh > 0 && bw <= 16384 && bh <= 16384 && (bpp == 24 || bpp == 32) &&
+					(bi->biCompression == BI_RGB || bi->biCompression == BI_BITFIELDS) &&
+					decal + ligne * (usize)bh <= (usize)taille) {
+					rgba.Resize((usize)bw * (usize)bh * 4u);
+					// un 32 bits dont l'alpha vaut 0 partout : l'alpha n'est pas porte
+					bool alphaNul = bpp == 32;
+					for (int32 y = 0; y < bh && alphaNul; ++y) {
+						const uint8 *s = p + decal + (usize)y * ligne;
+						for (int32 x = 0; x < bw; ++x)
+							if (s[x * 4 + 3] != 0) {
+								alphaNul = false;
+								break;
+							}
+					}
+					for (int32 y = 0; y < bh; ++y) {
+						const int32 sy = basEnHaut ? (bh - 1 - y) : y;
+						const uint8 *s = p + decal + (usize)sy * ligne;
+						uint8 *d = rgba.Data() + (usize)y * (usize)bw * 4u;
+						for (int32 x = 0; x < bw; ++x) {
+							const uint8 *px = s + x * (bpp / 8);
+							d[x * 4 + 0] = px[2];
+							d[x * 4 + 1] = px[1];
+							d[x * 4 + 2] = px[0];
+							d[x * 4 + 3] = (bpp == 32 && !alphaNul) ? px[3] : 255u;
+						}
+					}
+					w = bw;
+					h = bh;
+					ok = true;
+				} else
+					motif = NkString("format d'image du presse-papiers non pris en charge (ni 24 ni 32 bits non compresses)");
+				GlobalUnlock(hd);
+			}
+		}
+		CloseClipboard();
+		if (!ok && motif.Length() == 0)
+			motif = NkString("image du presse-papiers illisible");
+		return ok;
+	}
+
 	// ── Fenêtre discrète : opacité / toujours-devant / click-through ─────────────
 	//
 	// Les trois reposent sur les styles étendus. Règle WS_EX_LAYERED : il reste
@@ -1027,7 +1367,9 @@ namespace nkentseu {
 		// L'OS fait autorité : un autre process peut retirer le topmost.
 		if (mData.mHwnd)
 			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-		return mConfig.alwaysOnTop;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	void NkWindow::SetClickThrough(bool clickThrough) {
@@ -1052,7 +1394,9 @@ namespace nkentseu {
 	bool NkWindow::IsClickThrough() const {
 		if (mData.mHwnd)
 			return (GetWindowLongPtrW(mData.mHwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
-		return mConfig.clickThrough;
+		// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 	}
 
 	// ── Presse-papiers OS image (CF_DIBV5 / CF_DIB ↔ RGBA8) ─────────────────────
@@ -1313,6 +1657,15 @@ namespace nkentseu {
 	void NkWindow::BeginResize(NkResizeEdge edge) {
 		if (!mData.mHwnd)
 			return;
+		// Une fenetre declaree non redimensionnable ne se redimensionne pas non plus
+		// par la porte de service : `BeginResize` est le hand-off natif qu'une
+		// decoration personnalisee appelle depuis ses bords. Le refus est NOMME —
+		// une decoration qui croit encore gerer le redimensionnement doit l'apprendre.
+		if (!mConfig.resizable) {
+			NkWindowRefuserUneFois(NkWindowProp::Resizable, "Win32",
+								   "BeginResize appele sur une fenetre creee resizable=false : ignore");
+			return;
+		}
 		WPARAM ht = HTCAPTION;
 		switch (edge) {
 			case NkResizeEdge::Left:
@@ -1344,6 +1697,11 @@ namespace nkentseu {
 		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, ht, 0);
 	}
 
+	// ⚠️ `canFullscreen` N'EST PAS CONSULTE ICI, ET C'EST VOULU — meme regle que
+	//    `Minimize()`/`Maximize()` : `canFullscreen = false` decrit ce que
+	//    l'UTILISATEUR peut faire de la fenetre, pas ce que le programme
+	//    s'interdit. Un appel explicite est un ordre, il est obei.
+	//    Le raccourci systeme, lui, est refuse dans NkWin32EventSystem.cpp.
 	void NkWindow::SetFullscreen(bool fs) {
 		mConfig.fullscreen = fs;
 
@@ -1504,6 +1862,10 @@ namespace nkentseu {
 	}
 
 	void NkWindow::SetScreenOrientation(NkScreenOrientation) {
+		// Un bureau Windows ne tourne pas sur commande d'une application. Le corps
+		// etait VIDE : l'appelant croyait avoir agi.
+		NkWindowRefuserUneFois(NkWindowProp::ScreenOrientation, "Win32",
+							   "un bureau Windows n'a pas d'orientation pilotable par l'application");
 	}
 
 	NkScreenOrientation NkWindow::GetScreenOrientation() const {
@@ -1511,6 +1873,8 @@ namespace nkentseu {
 	}
 
 	void NkWindow::SetAutoRotateEnabled(bool) {
+		NkWindowRefuserUneFois(NkWindowProp::LockOrientation, "Win32",
+							   "la rotation automatique n'existe pas sur un bureau Windows");
 	}
 
 	bool NkWindow::IsAutoRotateEnabled() const {

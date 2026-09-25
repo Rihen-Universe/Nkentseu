@@ -287,14 +287,14 @@ namespace nkentseu {
 			};
 
 			static const NkTokenDecl kTokens[] = {
-				{"band_bg", "PanelBg", "fond de la bande entiere"},
-				{"border", "Border", "trait bas de la bande et filets entre onglets"},
-				{"tab_bg", "InputBg", "onglet au repos"},
-				{"tab_hover_bg", "PanelBg", "onglet survole"},
-				{"tab_active_bg", "PanelHeader", "onglet actif"},
-				{"text", "Text", "libelle de l'onglet actif"},
-				{"text_muted", "TextMuted", "libelles inactifs, croix, point « non enregistre »"},
-				{"accent", "AccentUi", "lisere de l'onglet actif"},
+				{"band_bg", "panel_bg", "fond de la bande entiere"},
+				{"border", "border", "trait bas de la bande et filets entre onglets"},
+				{"tab_bg", "input_bg", "onglet au repos"},
+				{"tab_hover_bg", "panel_bg", "onglet survole"},
+				{"tab_active_bg", "panel_header", "onglet actif"},
+				{"text", "text", "libelle de l'onglet actif"},
+				{"text_muted", "text_muted", "libelles inactifs, croix, point « non enregistre »"},
+				{"accent", "accent_ui", "lisere de l'onglet actif"},
 			};
 
 			static const NkMetricDecl kMetrics[] = {

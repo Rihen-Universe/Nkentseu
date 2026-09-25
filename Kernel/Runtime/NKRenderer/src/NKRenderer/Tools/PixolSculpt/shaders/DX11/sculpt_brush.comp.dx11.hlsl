@@ -4,7 +4,7 @@
 // Variante DirectX 11 (HLSL SM5, override optionnel). DX11 n'a pas de register
 // spaces : le binding des UAV/CBV est gere par le RHI. push_constant -> cbuffer.
 //
-// ⚠️ SQUELETTE. Le layout du cbuffer doit matcher renderer::NkSculptBrushGPU.
+// ⚠️ SQUELETTE. Le layout du cbuffer doit matcher renderer::NkPixolBrushGPU.
 // =============================================================================
 
 RWTexture2D<float>  uPixolDepth  : register(u0);

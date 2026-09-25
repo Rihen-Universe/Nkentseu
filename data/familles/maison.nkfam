@@ -1,0 +1,13 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+famille maison
+synonymes maison, villa, pavillon, house, home, cottage, chalet, bungalow, demeure, batisse
+formulaire toit <deux_pans|plat> etages <1|2|3> fenetres <2..6> detail <simple|detaille>
+valeurs toit deux_pans|plat
+borne largeur 3.0 40.0 9.0
+borne hauteur 2.0 20.0 6.0
+borne profondeur 3.0 30.0 7.0
+plausible hauteur 2.50 12.00 6.00
+
+implementation cpp
+pourquoi la facade PERCEE (trumeaux et alleges autour de chaque ouverture, embrasures dans l'epaisseur du mur) se calcule a partir d'une liste d'ouvertures : c'est un algorithme, pas une suite d'operations.
+manque une operation « facade percee » prenant une liste d'ouvertures, et une boucle « pour » sur les niveaux.

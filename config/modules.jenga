@@ -93,7 +93,7 @@ _REGISTRY: dict = {
     "NKThreading"    : _m("NKENTSEU_THREADING",    ["NKPlatform", "NKCore", "NKMemory", "NKContainers"]),
     "NKLogger"       : _m("NKENTSEU_LOGGER",       ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading"]),
     "NKFileSystem"   : _m("NKENTSEU_FILESYSTEM",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading", "NKLogger"]),
-    "NKConverse"     : _m("NKENTSEU_CONVERSE",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKFileSystem", "NKThreading", "NKTime"]),
+    "NKConverse"     : _m("NKENTSEU_CONVERSE",     ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger", "NKFileSystem", "NKThreading", "NKTime", "NKNetwork"]),
     "NKStream"       : _m("NKENTSEU_STREAM",       ["NKPlatform", "NKCore", "NKLogger", "NKContainers", "NKThreading", "NKFileSystem"]),
     "NKTime"         : _m("NKENTSEU_TIME",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger"]),
     "NKReflection"   : _m("NKENTSEU_REFLECTION",   ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKThreading", "NKLogger"]),

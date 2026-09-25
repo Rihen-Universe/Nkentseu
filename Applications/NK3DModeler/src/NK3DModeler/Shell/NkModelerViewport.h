@@ -1378,12 +1378,18 @@ namespace nkentseu {
 			// dans la barre -- regle de Rihen)
 
 			// Largeurs, calculees d'abord pour caler le tout a droite.
-			const bool editMode2 = demo::Demo3DHostInEditMode();
+			// La pastille V/E/F DESIGNE des elements : elle suit le MODE (Sculpture =
+			// maillage ouvert sans elements), pas le seul maillage ouvert (21/09).
+			const bool editMode2 = demo::Demo3DHostElementsActifs();
 			const float32 wSub = editMode2 ? (S(8.f) + 3.f * (btn + 2.f)) : 0.f;
 			// OUTILS EN DEUX BLOCS dans le meme cadre : [Selection | Curseur] puis
 			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
 			// disposition demandee par Rihen (celle de Blender).
-			const float32 wTools = S(8.f) + 6.f * (btn + 2.f) + S(10.f);
+			// UNE ENTREE DE PLUS DANS LES MODES A BROSSES : le pinceau. La largeur du
+			// groupe la compte, sinon le dernier bouton sortirait du cadre -- un defaut
+			// deja paye sur ce meme groupe (les reglages tombaient hors de l'ecran).
+			const bool barreBrosse = demo::NkModeMaillageSansElements((int32)st.mode);
+			const float32 wTools = S(8.f) + (barreBrosse ? 7.f : 6.f) * (btn + 2.f) + S(10.f);
 			// Orientation, pivot, aimant + SON chevron, edition proportionnelle
 			// + LE SIEN, vitesse. Sans compter les deux derniers, le groupe
 			// restait trop etroit et ils tombaient HORS du cadre, a droite de
@@ -1737,6 +1743,49 @@ namespace nkentseu {
 				p.Fill({tx, barY, wTools, barH}, NkRole::PanelBg, 5.f);
 				float32 cx = tx + S(4.f);
 
+				// CROCHET DE MESURE NK_TOOL_CLIC="<i>[,<image>]" : un clic ECRIT sur le
+				// bouton i (0 Deplacer, 1 Rotation, 2 Echelle, 3 Multigizmo), a la
+				// n-ieme peinture de la barre. Il emprunte la MEME acceptation que le
+				// vrai clic ; aucune souris n'est touchee. Avec NK_MODE_PROBE, la barre
+				// imprime son etat quand il change, et le resultat du clic ecrit.
+				static int32 sXfImg = 0, sXfClicI = -2, sXfClicImg = 0, sXfDernier = -1;
+				++sXfImg;
+				if (sXfClicI == -2) {
+					sXfClicI = -1;
+					if (const char *tc = std::getenv("NK_TOOL_CLIC")) {
+						sXfClicI = std::atoi(tc);
+						const char *c = tc;
+						while (*c && *c != ',')
+							++c;
+						sXfClicImg = (*c == ',') ? std::atoi(c + 1) : 200;
+					}
+				}
+				static const bool sXfProbe = (std::getenv("NK_MODE_PROBE") != nullptr);
+
+				// ── LE PINCEAU, EN TETE, ET DANS LES MODES A BROSSES SEULEMENT ──
+				// C'est l'outil NEUTRE de la Sculpture : celui sous lequel le clic
+				// appartient a la brosse. Il vient EN PREMIER, comme les brosses dans
+				// la barre de Blender -- l'ordre d'une barre dit ce qu'on fait le plus
+				// souvent.
+				// ⚠️ IL N'APPARAIT PAS EN OBJET NI EN EDITION : il n'y a pas de brosse a
+				//    y armer, et un bouton present qui ne ferait rien est exactement ce
+				//    que le grisage du 21/09 refusait.
+				if (barreBrosse) {
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add("vp.t.brush", br);
+					const bool on = (st.tool == NkTool::Brush);
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					NkHelp(over, "Brosse : le clic depose la matiere (outil par defaut en Sculpture)");
+					// Indice 6 du crochet NK_TOOL_CLIC : la brosse s'arme sans souris.
+					if (hit.Clicked("vp.t.brush") || (sXfClicI == 6 && sXfImg == sXfClicImg))
+						st.tool = NkTool::Brush;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, NkIcon::Brush,
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					cx += btn + 2.f;
+				}
 				// SELECTION : une liste de formes (rectangle / cercle / lasso).
 				{
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
@@ -1747,7 +1796,8 @@ namespace nkentseu {
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					Combo(p, hit, ws, "vp.selshape", br, shapes, NkSelShapeIcons(), nS2,
 						  st.selShape, combo, true, false, false);
-					if (hit.Clicked("vp.selshape"))
+					// Indice 5 du crochet NK_TOOL_CLIC : l'outil SELECTION, sans souris.
+					if (hit.Clicked("vp.selshape") || (sXfClicI == 5 && sXfImg == sXfClicImg))
 						st.tool = NkTool::Select; // choisir une forme active l'outil
 					cx += btn + 2.f;
 				}
@@ -1760,8 +1810,15 @@ namespace nkentseu {
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked("vp.t.cursor"))
+					// Indice 4 du crochet NK_TOOL_CLIC : l'outil CURSEUR s'arme sans souris
+					// (il n'a aucune autre porte -- ni touche, ni action du shell).
+					if (hit.Clicked("vp.t.cursor") || (sXfClicI == 4 && sXfImg == sXfClicImg)) {
 						st.tool = NkTool::Cursor;
+						if (sXfProbe) {
+							std::printf("[nk3d] OUTILS-TRANSFORM clic ecrit bouton=4 -> outil CURSEUR\n");
+							std::fflush(stdout);
+						}
+					}
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, NkIcon::Cursor,
 							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
 					cx += btn + 2.f;
@@ -1784,18 +1841,57 @@ namespace nkentseu {
 					// gizmo (sa touche C). Il manquait a la barre.
 					{NkIcon::Gizmo, NkTool::MultiGizmo, "vp.t.multi"},
 				};
+				// ── EN SCULPTURE : GRISES, PAS CACHES, ET ILS DISENT POURQUOI (21/09) ──
+				// Decision du coordinateur : ni disparaitre (l'outil Transform de
+				// sculpture viendra ICI, avec le masque), ni faire semblant (un bouton
+				// qui s'allume sans effet apprend a ne plus croire la barre). Le critere
+				// est le MODE (NkModeMaillageSansElements) : ils redeviennent actifs
+				// d'eux-memes en Objet et en Edition.
+				// UNE decision, lue par le trace, le clic ET le crochet de mesure.
+				// NK_SCULPT_GIZMO_MUTE=1 la retire (negatif du banc sonde_sculpt_gizmo).
+				static const bool sMuteGrise = [] {
+					const char *v = std::getenv("NK_SCULPT_GIZMO_MUTE");
+					return v && v[0] && v[0] != '0';
+				}();
+				// ⚠️ LES QUATRE BOUTONS SONT REDEVENUS ACTIFS EN SCULPTURE (25/09), et
+				//    c'est la MEME regle qui les avait grises : un bouton s'allume quand
+				//    il agit. Le 21/09 l'outil n'existait pas ; le 25/09 au matin il
+				//    agissait sans gizmo ; il a maintenant son gizmo, donc il EXISTE pour
+				//    la main -- et les grises n'ont plus de motif. Le drapeau reste (une
+				//    ligne, et le crochet de mesure qui le lit) : le jour ou un mode
+				//    rejoindra les modes a brosses SANS outil, c'est ici qu'on l'ecrira.
+				const bool xfGrises = false;
+				(void)sMuteGrise;
+				static const char *const kMotifXf =
+					"Transform de sculpture : deplace, tourne ou met a l'echelle la partie NON "
+					"masquee, autour du pivot";
+				if (sXfProbe && (int32)xfGrises != sXfDernier) {
+					sXfDernier = (int32)xfGrises;
+					std::printf("[nk3d] OUTILS-TRANSFORM mode=%d grises=%d\n", (int)st.mode, xfGrises ? 1 : 0);
+					std::fflush(stdout);
+				}
 				for (int32 i = 0; i < 4; ++i) {
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
 					const bool over = hit.Add(kXf[i].key, br);
-					const bool on = (st.tool == kXf[i].tool);
+					const bool on = !xfGrises && (st.tool == kXf[i].tool);
+					// En Sculpture, l'infobulle DIT ce que l'outil fait de particulier :
+					// il ne transforme pas un objet, il deforme la partie non masquee.
+					if (demo::NkModeMaillageSansElements((int32)st.mode))
+						NkHelp(over, kMotifXf);
 					if (on)
 						p.Fill(br, NkRole::AccentUi, 3.f);
 					else
 						HoverFill(p, br, over);
-					if (hit.Clicked(kXf[i].key))
+					const bool clicEcrit = (sXfClicI == i && sXfImg == sXfClicImg);
+					if ((hit.Clicked(kXf[i].key) || clicEcrit) && !xfGrises)
 						st.tool = kXf[i].tool;
+					if (clicEcrit && sXfProbe) {
+						std::printf("[nk3d] OUTILS-TRANSFORM clic ecrit bouton=%d mode=%d grises=%d -> outil=%d\n",
+									(int)i, (int)st.mode, xfGrises ? 1 : 0, (int)st.tool);
+						std::fflush(stdout);
+					}
 					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, kXf[i].ic,
-							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+							xfGrises ? NkRole::TextMuted : (on ? NkRole::TextOnAccent : NkRole::Text), 14.f);
 					cx += btn + 2.f;
 				}
 			}
@@ -1959,7 +2055,28 @@ namespace nkentseu {
 			// ce message en est un -- et je laisse Rodolf trancher s'il faut un
 			// role a part.
 			if (editMode && demo::Demo3DHostEditRefusedFrames() > 10) {
+				// ⚠️ LE BANDEAU DIT CE QUE LE JOURNAL DIT. Il affichait un seul
+				//    texte pour CINQ causes, et celui qu'il affichait designait la
+				//    seule qui etait fausse : le 20/09, Rodolf a re-clique son cube
+				//    alors qu'il etait bien selectionne. Le journal le disait depuis
+				//    le 17/09 ; personne ne lit logs/app.log en sculptant.
 				const char *msg = "Selectionne un objet, puis TAB";
+				switch (demo::Demo3DHostEditRefusMotif()) {
+					case 2:
+						msg = "Cet objet est supprime : il ne peut pas etre edite";
+						break;
+					case 3:
+						msg = "Cet objet n'a pas de maillage a lui (projet jamais enregistre)";
+						break;
+					case 4:
+						msg = "Cette nature d'objet n'est pas editable";
+						break;
+					case 5:
+						msg = "La selection ne designe aucun maillage editable";
+						break;
+					default:
+						break; // 0 et 1 : le texte d'origine, qui est juste dans ce cas
+				}
 				const float32 tw = p.TextW(msg);
 				const float32 bw = tw + S(28.f), bh = kRowH + S(6.f);
 				const NkRect br{r.x + (r.w - bw) * 0.5f, r.y + r.h * 0.5f - bh * 0.5f, bw, bh};
@@ -1970,7 +2087,11 @@ namespace nkentseu {
 			// Le raccourci de l'operation courante est LU dans la table via sa CLE DE
 			// COMMANDE, jamais recopie : rebinder la touche changera cet affichage tout
 			// seul. La cle est stable, l'index ne l'est pas.
-			{
+			// ⚠ SCULPTURE (21/09) : le maillage est ouvert mais on n'y designe rien --
+			// ni menu du maillage au clic droit, ni menu X, ni « Extruder E » annonce.
+			// Le critere est le MODE (NkModeMaillageSansElements), pas `editMode`.
+			const bool sansElements = demo::NkModeMaillageSansElements((int32)st.mode);
+			if (!sansElements) {
 				const char *cmd = editMode ? "edit.extruder" : "objet.deplacer";
 				char keys[32];
 				if (sc.FormatFor(cmd, keys, sizeof(keys))) {
@@ -1995,7 +2116,7 @@ namespace nkentseu {
 			// une operation modale, et Maj+clic droit place le curseur 3D. Ouvrir
 			// le menu sans le savoir aurait fait DEUX choses d'un seul clic. On ne
 			// s'ouvre donc que sur un clic droit NU, hors modale.
-			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+			if (guiCtx && editMode && !sansElements && demo::Demo3DHostReady()) {
 				const bool dansVue = st.viewRect.w > 0.f && in.mousePos.x >= st.viewRect.x &&
 									 in.mousePos.x < st.viewRect.x + st.viewRect.w &&
 									 in.mousePos.y >= st.viewRect.y &&
@@ -2078,7 +2199,7 @@ namespace nkentseu {
 			// 3D (elle ne dessine pas de menu, c'est le shell qui tient NKGui) ;
 			// on le consomme ici. Le contenu vit dans `NkModelerDeleteMenu.h`,
 			// qui est du CALCUL PUR et se mesure donc en console, sans fenetre.
-			if (guiCtx && editMode && demo::Demo3DHostReady()) {
+			if (guiCtx && editMode && !sansElements && demo::Demo3DHostReady()) {
 				if (demo::Demo3DHostTakeDeleteMenuAsk() && !st.deleteMenu.open) {
 					st.deleteMenu.open = true;
 					st.deleteMenu.pos = in.mousePos;

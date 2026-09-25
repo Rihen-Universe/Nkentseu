@@ -1,6 +1,8 @@
 // =============================================================================
 // NKNetwork/HTTP/NkHTTPClient.cpp
 // =============================================================================
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
 // DESCRIPTION :
 //   Implémentation du client HTTP/HTTPS pour communications avec APIs REST.
 //   Gestion des requêtes synchrones/asynchrones, parsing HTTP/1.1, TLS.
@@ -33,6 +35,11 @@
 #include "pch.h"
 #include "NKCore/Text/NkSnprintf.h"
 #include "NkHTTPClient.h"
+// ⚠️ IL INCLUT CE QU'IL UTILISE. `NkSocket` est le proprietaire de la
+//    connaissance « comment demarre-t-on la pile sur cette plateforme ». Appeler
+//    `WSAStartup` directement ici aurait fait DEUX endroits qui savent la meme
+//    chose, et ils auraient fini par ne plus etre d'accord.
+#include "NKNetwork/Transport/NkSocket.h"
 
 // Opérations bas-niveau, chaînes, temps et fichiers via les modules Nkentseu (zero-STL)
 #include "NKMemory/NkFunction.h"
@@ -249,6 +256,32 @@ namespace {
 #endif
 
 	NkNativeSocket CreateTcpSocket(const char *host, uint16 port, uint32 timeoutMs) noexcept {
+		// ⚠️ LA PILE DE SOCKETS N'ETAIT JAMAIS DEMARREE, ET LE MESSAGE D'ERREUR
+		//    ACCUSAIT LE SERVEUR. Sous Windows, `socket()` echoue tant que
+		//    `WSAStartup` n'a pas ete appele. Ce fichier ne l'appelait nulle part
+		//    (mesure du 17/09 : 0 occurrence de PlatformInit / WSAStartup), donc
+		//    CHAQUE requete rendait `kInvalidSocket`, et `SendOverTCP` ecrivait
+		//    « Connection failed » -- c'est-a-dire « le serveur n'est pas la ».
+		//
+		//    Mesure qui l'a trouve : meme URL, meme instant, `curl` rend 200 en
+		//    7,5 ms pendant que ce client rend 0 en **0 ms**. Le zero est le fait
+		//    decisif : il n'a pas expire, il n'est jamais parti.
+		//
+		// ⚠️ PARESSEUSE ET UNE SEULE FOIS. `NkSocket.h` dit « appeler exactement une
+		//    fois au demarrage de l'application » -- mais une bibliotheque ne peut
+		//    pas exiger de chacun de ses appelants qu'il se souvienne d'un rituel :
+		//    c'est exactement « un etat qu'il faut armer se fera oublier par la
+		//    porte que les appelants prennent ». Un `static` local est initialise
+		//    une fois, et de facon sure entre fils, depuis C++11.
+		//
+		//    On ne libere PAS (`WSACleanup`) : la pile vit aussi longtemps que le
+		//    processus, et un compteur de liberation partage entre appelants
+		//    couperait le reseau du premier qui finit sous les pieds des autres.
+		static const bool pileDemarree =
+			(nkentseu::net::NkSocket::PlatformInit() == nkentseu::net::NkNetResult::NK_NET_OK);
+		if (!pileDemarree)
+			return kInvalidSocket; // le message du dessus dira lequel des deux
+		
 		// Résolution DNS
 		addrinfo hints = {};
 		hints.ai_family = AF_UNSPEC;
@@ -350,26 +383,171 @@ namespace {
 		return true;
 	}
 
+	/// Un caractere en minuscule, sans passer par la locale. ⚠️ `tolower` de la
+	/// libc depend de `setlocale` ; un en-tete HTTP est de l'ASCII et ne doit pas
+	/// dependre du fr-FR de la machine.
+	inline char NkBasMin(char c) noexcept {
+		return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+	}
+
+	/// Cherche `motif` (deja en minuscules) dans `[0, fin)` de `texte`, sans
+	/// tenir compte de la casse. Rend l'indice, ou `npos`.
+	NkString::SizeType NkTrouveSansCasse(const NkString &texte, NkString::SizeType fin,
+										 const char *motif) noexcept {
+		NkString::SizeType n = 0;
+		while (motif[n] != '\0')
+			++n;
+		if (n == 0 || fin < n)
+			return NkString::npos;
+		for (NkString::SizeType i = 0; i + n <= fin; ++i) {
+			NkString::SizeType k = 0;
+			while (k < n && NkBasMin(texte.Data()[i + k]) == motif[k])
+				++k;
+			if (k == n)
+				return i;
+		}
+		return NkString::npos;
+	}
+
+	/// Lit le CADRAGE annonce par les en-tetes : `Content-Length`, ou
+	/// `Transfer-Encoding: chunked`. Rend `true` si l'un des deux est annonce --
+	/// c'est-a-dire si l'on sait dire quand le corps est fini.
+	bool LireCadrage(const NkString &brut, NkString::SizeType finEntetes, uint32 &attendu,
+					 bool &parMorceaux) noexcept {
+		attendu = 0u;
+		parMorceaux = false;
+		NkString::SizeType p = NkTrouveSansCasse(brut, finEntetes, "transfer-encoding:");
+		if (p != NkString::npos) {
+			const NkString::SizeType q = NkTrouveSansCasse(brut, finEntetes, "chunked");
+			if (q != NkString::npos && q > p) {
+				parMorceaux = true;
+				return true;
+			}
+		}
+		p = NkTrouveSansCasse(brut, finEntetes, "content-length:");
+		if (p == NkString::npos)
+			return false;
+		p += 15u; // longueur de "content-length:"
+		while (p < finEntetes && (brut.Data()[p] == ' ' || brut.Data()[p] == '\t'))
+			++p;
+		bool unChiffre = false;
+		uint32 v = 0u;
+		while (p < finEntetes && brut.Data()[p] >= '0' && brut.Data()[p] <= '9') {
+			v = v * 10u + static_cast<uint32>(brut.Data()[p] - '0');
+			unChiffre = true;
+			++p;
+		}
+		if (!unChiffre)
+			return false;
+		attendu = v;
+		return true;
+	}
+
+	/// Le corps est-il ENTIER ? ⚠️ Sans cadrage annonce, la reponse est `false` :
+	/// seule la fermeture du pair dira la fin. *Repondre « oui » par defaut est
+	/// exactement la faute qu'on repare ici.*
+	bool CorpsComplet(const NkString &brut, NkString::SizeType finEntetes, uint32 attendu,
+					  bool parMorceaux, bool longueurConnue) noexcept {
+		if (!longueurConnue)
+			return false;
+		if (!parMorceaux)
+			return (brut.Length() - finEntetes) >= attendu;
+		// Decoupage `chunked` : on avance de morceau en morceau jusqu'a celui de
+		// taille nulle. Tant qu'il manque des octets, le corps n'est pas fini.
+		NkString::SizeType i = finEntetes;
+		for (;;) {
+			NkString::SizeType j = i;
+			while (j + 1 < brut.Length() && !(brut.Data()[j] == '\r' && brut.Data()[j + 1] == '\n'))
+				++j;
+			if (j + 1 >= brut.Length())
+				return false; // la ligne de taille n'est pas encore entiere
+			uint32 taille = 0u;
+			bool unChiffre = false;
+			for (NkString::SizeType k = i; k < j; ++k) {
+				const char c = NkBasMin(brut.Data()[k]);
+				if (c >= '0' && c <= '9')
+					taille = taille * 16u + static_cast<uint32>(c - '0');
+				else if (c >= 'a' && c <= 'f')
+					taille = taille * 16u + static_cast<uint32>(c - 'a' + 10);
+				else if (c == ';')
+					break; // extension de morceau : la taille s'arrete la
+				else
+					return false; // ligne de taille illisible : on n'invente pas
+				unChiffre = true;
+			}
+			if (!unChiffre)
+				return false;
+			if (taille == 0u)
+				return true; // morceau terminal atteint : le corps est entier
+			i = j + 2u + taille + 2u; // donnees, puis le CRLF qui les suit
+			if (i > brut.Length())
+				return false;
+		}
+	}
+
+	/// ⚠️ ELLE S'ARRETAIT A LA FIN DES EN-TETES, ET RENDAIT `true`.
+	///
+	///    `if (out.Find("\r\n\r\n") != npos) return true;` : le CORPS etait ce qui
+	///    se trouvait par hasard dans le meme `recv` de 4 096 octets. Deux modes
+	///    d'echec, tous deux REPRODUITS au miroir HTTP le 20/09 :
+	///
+	///      (1) en-tetes seuls. Un serveur en `Transfer-Encoding: chunked` --
+	///          c'est ce que fait Ollama -- ecrit ses en-tetes AVANT que le corps
+	///          existe. Miroir chunked, corps retarde de 2 s : le client rendait
+	///          un corps VIDE en 31 ms, et l'appelant annoncait « le modele n'a
+	///          rien rendu ». *Le defaut etait chez nous, le motif accusait le
+	///          modele.*
+	///      (2) corps tronque a ~4 ko. Seuil mesure par dichotomie au miroir :
+	///          un champ `response` de 3 900 octets passait, 4 100 non. Le JSON
+	///          etait coupe au milieu d'une chaine, et `ExtraireChamp` rendait
+	///          « champ absent » pour un champ PRESENT mais jamais ferme.
+	///
+	///    Cote Ollama, `"response"` finit vers l'octet 700 d'un corps de 5 852
+	///    (le gros `context` vient APRES) : c'est pourquoi la plupart des appels
+	///    marchaient, et pourquoi seuls les plus longs tombaient. *Un defaut qui
+	///    ne frappe que les cas lourds se lit comme une faiblesse du modele.*
+	///
+	///    Elle lit maintenant le corps ENTIER : `Content-Length` s'il est annonce,
+	///    le decoupage `chunked` sinon, et a defaut jusqu'a fermeture du pair.
 	bool RecvWithTimeout(NkNativeSocket sock, NkString &out, uint32 maxSize, uint32 timeoutMs) noexcept {
 		char buffer[4096];
 		out.Clear();
 		const NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
+		NkString::SizeType finEntetes = NkString::npos;
+		uint32 attendu = 0u;   // octets de corps annonces par Content-Length
+		bool parMorceaux = false;
+		bool longueurConnue = false;
 
 		while (NkNetNowMs() < deadline) {
 			int result = recv(sock, buffer, sizeof(buffer), 0);
 			if (result > 0) {
 				out.Append(buffer, static_cast<uint32>(result));
+				// ⚠️ UNE TRONCATURE REND `false`. L'ancienne version rendait
+				//    `true` avec un corps coupe : un appelant ne peut pas
+				//    distinguer ca d'une reponse complete. *Des deux facons de
+				//    manquer -- crier ou effacer -- celle-ci effacait.*
 				if (out.Length() >= maxSize) {
-					NK_NET_LOG_WARN("Réponse HTTP trop grande — tronquée");
-					return true;
+					NK_NET_LOG_WARN("Réponse HTTP trop grande — refusée, pas tronquée");
+					return false;
 				}
-				// Vérification fin de headers HTTP
-				if (out.Find("\r\n\r\n") != NkString::npos) {
-					return true;
+				if (finEntetes == NkString::npos) {
+					const NkString::SizeType p = out.Find("\r\n\r\n");
+					if (p != NkString::npos) {
+						finEntetes = p + 4u;
+						longueurConnue = LireCadrage(out, finEntetes, attendu, parMorceaux);
+					}
 				}
+				if (finEntetes != NkString::npos && CorpsComplet(out, finEntetes, attendu,
+															   parMorceaux, longueurConnue))
+					return true;
 			} else if (result == 0) {
-				// Connexion fermée proprement
-				return !out.Empty();
+				// Connexion fermee proprement : c'est LA fin du corps quand aucun
+				// cadrage n'a ete annonce. Si un cadrage l'etait et qu'il n'est pas
+				// satisfait, le corps est incomplet -- et on le dit.
+				if (finEntetes == NkString::npos)
+					return false;
+				return CorpsComplet(out, finEntetes, attendu, parMorceaux, longueurConnue)
+					   || !longueurConnue;
 			} else if (!NkWouldBlock(NkGetLastError())) {
 				return false; // Erreur réseau
 			}
@@ -878,6 +1056,71 @@ namespace nkentseu {
 			// Le reste est le corps de la réponse
 			if (start < end) {
 				resp.body = NkString(start, static_cast<uint32>(end - start));
+			}
+
+			// ⚠️ LE RECOLLAGE DES MORCEAUX, ET IL MANQUAIT.
+			//    Ollama repond en `Transfer-Encoding: chunked`. Le corps rendu
+			//    portait donc les lignes de taille en hexadecimal (`16dc\r\n`... puis
+			//    `\r\n0\r\n\r\n`). Ca PASSAIT tant que le JSON tenait dans un seul
+			//    morceau -- `ExtraireChamp` cherche `"response":` et sautait la
+			//    ligne de tete sans le savoir. En DEUX morceaux, une ligne de taille
+			//    se serait plantee au milieu du JSON. *Un defaut qui ne se voit pas
+			//    parce que le cas a deux morceaux n'est pas encore arrive n'est pas
+			//    un defaut absent : c'est un defaut a retardement.*
+			for (const NkHTTPHeader &h : resp.headers) {
+				if (NkString(h.key).Find("ransfer-Encoding") == NkString::npos &&
+					NkString(h.key).Find("ransfer-encoding") == NkString::npos)
+					continue;
+				if (NkString(h.value).Find("chunked") == NkString::npos)
+					continue;
+				NkString recolle;
+				NkString::SizeType i = 0;
+				bool sain = true;
+				while (i < resp.body.Length()) {
+					NkString::SizeType j = i;
+					while (j + 1 < resp.body.Length() &&
+						   !(resp.body.Data()[j] == '\r' && resp.body.Data()[j + 1] == '\n'))
+						++j;
+					if (j + 1 >= resp.body.Length()) {
+						sain = false;
+						break;
+					}
+					uint32 taille = 0u;
+					bool unChiffre = false;
+					for (NkString::SizeType k = i; k < j; ++k) {
+						const char c = resp.body.Data()[k];
+						const char m = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+						if (m >= '0' && m <= '9')
+							taille = taille * 16u + static_cast<uint32>(m - '0');
+						else if (m >= 'a' && m <= 'f')
+							taille = taille * 16u + static_cast<uint32>(m - 'a' + 10);
+						else if (m == ';')
+							break;
+						else {
+							sain = false;
+							break;
+						}
+						unChiffre = true;
+					}
+					if (!sain || !unChiffre) {
+						sain = false;
+						break;
+					}
+					if (taille == 0u)
+						break; // morceau terminal
+					if (j + 2u + taille > resp.body.Length()) {
+						sain = false;
+						break;
+					}
+					recolle.Append(resp.body.Data() + j + 2u, taille);
+					i = j + 2u + taille + 2u;
+				}
+				// ⚠️ ON NE REMPLACE QUE SI LE RECOLLAGE A ABOUTI. Rendre un corps
+				//    vide sur un decoupage qu'on n'a pas su lire transformerait un
+				//    defaut d'analyse en « le serveur n'a rien dit ».
+				if (sain)
+					resp.body = recolle;
+				break;
 			}
 
 			return resp;

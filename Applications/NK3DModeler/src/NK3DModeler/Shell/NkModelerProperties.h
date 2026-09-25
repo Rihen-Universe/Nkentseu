@@ -1,6 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkModelerProperties.h
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   LE PANNEAU DE PROPRIETES (droite) : widgets de reglage (ligne de
 //          transformation, selecteur de couleur, groupes repliables) puis les
 //          pastilles elles-memes -- objet, materiau, lumiere, camera, monde,
@@ -805,6 +806,22 @@ namespace nkentseu {
 		// Le bouton pleine largeur des panneaux de reglage. Fonction LIBRE : les
 		// pastilles extraites de PaintPropertiesUnified en ont besoin autant que
 		// le corps principal, et une lambda ne se partage pas.
+		// -- LA LARGEUR DE LA COLONNE DE PASTILLES : UNE SOURCE, DES LECTEURS --
+		// Elle etait ecrite DEUX FOIS, et pas avec le meme nombre : la mise en page
+		// reservait S(28.f) (main.cpp, le repli du panneau sur sa colonne) pendant
+		// que la peinture amputait S(26.f) + kSbW. Deux chiffres pour une meme
+		// colonne, c est un defaut qui dort ; en recopier un troisieme pour poser a
+		// cote le panneau de l assistant l aurait reveille.
+		//
+		// [!] LE 26 PASSE A 28, CHANGEMENT VISIBLE, MINUSCULE MAIS REEL : le contenu
+		//     du panneau deplie perd deux pixels de large. On garde le chiffre de la
+		//     MISE EN PAGE et non celui de la peinture, parce que c est lui qui decide
+		//     la place rendue a la vue 3D ; la peinture, elle, n avait qu a tenir
+		//     dedans, et elle y tient (pastille de 20 px posee a +3).
+		inline float32 NkPropTabColW() {
+			return S(28.f);
+		}
+		//
 		inline bool NkPropButton(NkModelerPainter &p, NkHitRegistry &hit, const char *key,
 								 float32 yB, const char *label, float32 x, float32 w) {
 			const NkRect br{x, yB + S(2.f), w, kRowH - S(4.f)};
@@ -6762,7 +6779,209 @@ namespace nkentseu {
 							"Texturing : peinture et calques -- a venir.",
 							"Patron : depliage UV (unwrapping) -- a venir.",
 							"Texture painting : peinture sur texture -- a venir."};
-						if (m5 >= 2 && m5 <= 6) {
+						// ── LA SYMETRIE DU MODE : TROIS CASES X / Y / Z ────────────────
+						// Blender la met dans le panneau du MODE, pas dans l'outil : le
+						// meme pinceau sculpte en miroir ou non selon cet interrupteur.
+						// Elle AGISSAIT depuis cette nuit (les brosses et le Transform la
+						// lisent) mais ne se reglait que par variable d'environnement --
+						// donc elle n'existait pas pour Rodolf. La voici.
+						//
+						// ⚠️ L'ICONE EST TRACEE, comme tout ce que ce panneau dessine :
+						//    deux paves de part et d'autre du PLAN du miroir (deux petits
+						//    segments), teintes a la couleur de l'axe -- X rouge, Y vert,
+						//    Z bleu, les MEMES que les axes de la vue, sinon le panneau et
+						//    la scene ne parleraient pas de la meme chose. La lettre est
+						//    dessous : a cette taille, c'est elle qui se lit en premier.
+						//
+						// ⚠️ L'ETAT EST LU CHEZ L'AUTORITE (la vue), jamais garde ici. Un
+						//    miroir local afficherait « aucune » pendant que la sculpture
+						//    travaille en miroir, le jour ou un autre chemin la changerait.
+						if (m5 == 2 || m5 == 3) {
+							const int32 symCur = demo::Demo3DHostSculptSym();
+							yy += S(4.f);
+							p.TextV(r.x + kPad, yy, kRowH, "Symetrie", NkRole::TextMuted);
+							const float32 bw = S(34.f), bh = kRowH - S(2.f);
+							float32 bx = r.x + rowR.w - 2.f * kPad - 3.f * (bw + S(4.f));
+							if (bx < r.x + kPad + S(70.f))
+								bx = r.x + kPad + S(70.f);
+							static const char *const kAx[3] = {"X", "Y", "Z"};
+							static const NkColor kAxC[3] = {NkColor{214, 86, 86, 255},
+															NkColor{96, 190, 96, 255},
+															NkColor{86, 130, 224, 255}};
+							for (int32 a5 = 0; a5 < 3; ++a5) {
+								const int32 bit = 1 << a5;
+								const bool on = (symCur & bit) != 0;
+								const NkRect br{bx, yy + S(1.f), bw, bh};
+								char ka[32];
+								snprintf(ka, sizeof(ka), "prop.sculpt.sym%d", a5);
+								const bool surv = hit.Add(ka, br);
+								if (on)
+									p.Fill(br, NkRole::AccentUi, 3.f);
+								else
+									HoverFill(p, br, surv, 3.f);
+								const float32 cx5 = br.x + br.w * 0.5f;
+								const float32 gy = br.y + S(3.f), gh = S(6.f), gw = S(5.f);
+								const NkColor c5 = on ? NkColor{255, 255, 255, 235} : kAxC[a5];
+								p.Fill({cx5 - S(2.f) - gw, gy, gw, gh}, c5, 1.f);
+								p.Fill({cx5 + S(2.f), gy, gw, gh}, c5, 1.f);
+								p.Fill({cx5 - 0.5f, gy - S(1.f), 1.f, S(3.f)}, c5);
+								p.Fill({cx5 + -0.5f, gy + gh - S(2.f), 1.f, S(3.f)}, c5);
+								p.TextV(cx5 - S(3.f), br.y + S(7.f), kRowH - S(7.f), kAx[a5],
+										on ? NkRole::TextOnAccent : NkRole::Text);
+								NkHelp(surv, on ? "Symetrie ACTIVE sur cet axe : chaque coup de brosse "
+												  "est aussi pose en miroir"
+												: "Symetrie sur cet axe : le geste sera pose des deux "
+												  "cotes du plan");
+								if (hit.Clicked(ka))
+									demo::Demo3DHostSetSculptSym(symCur ^ bit);
+								bx += bw + S(4.f);
+							}
+							yy += kRowH + S(2.f);
+						}
+						if (m5 == 3) {
+						//   -- LES BROSSES, ENFIN VISIBLES ------------------------------------
+						//   Rodolf, 20/09 : « je ne vois meme pas les brosses ». Elles
+						//   chargeaient, elles sculptaient, et ce panneau annoncait « a venir » :
+						//   le seul endroit ou il aurait fallu les montrer disait qu'elles
+						//   n'existaient pas.
+						//
+						//   [!] LA LISTE VIENT DE LA DONNEE, PAS D'UNE TABLE EN DUR. Ecrire ici
+						//       les quatre noms connus aurait annule tout ce que le chargement
+						//       par fichier a coute : une brosse deposee n'apparaitrait pas, et
+						//       la regle de Rodolf (« sans recompiler ») serait fausse a
+						//       l'endroit meme ou elle se voit.
+						//
+						//   [!] ET LA CLE DE ZONE PORTE LE NOM, PAS L'INDICE. Le catalogue est
+						//       trie : deposer une brosse insere une entree et decale tout ce qui
+						//       suit. Une cle « brosse.2 » designerait alors une autre brosse que
+						//       celle qu'on vient de peindre. Le banc de sculpture a paye cette
+						//       faute le jour meme, sur son propre critere.
+							const int32 nb = demo::Demo3DHostBrushCount();
+							const char *cur = demo::Demo3DHostBrushCurrent();
+							// NK_BRUSH_PROBE=1 : COMBIEN DE BROSSES CE PANNEAU A-T-IL PEINTES.
+							// Sans elle, « le selecteur est la » resterait une affirmation : le
+							// panneau ne se lit qu'a l'ecran, et aucune capture n'est permise ici.
+							// Elle lit ce que la peinture vient de faire, elle ne le recalcule pas.
+							static const bool sBrProbe = (std::getenv("NK_BRUSH_PROBE") != nullptr);
+							static int32 sBrDit = -1;
+							if (sBrProbe && sBrDit != nb) {
+								sBrDit = nb;
+								std::printf("[nk3d] SELECTEUR BROSSES : %d peinte(s), active=%s\n", nb,
+										(cur && cur[0]) ? cur : "(aucune)");
+								std::fflush(stdout);
+							}
+							if (nb <= 0) {
+								yy += p.TextWrap(r.x + kPad, yy, rowR.w - 2.f * kPad,
+										 "Aucune brosse dans data/brushes.", NkRole::TextMuted);
+							} else {
+								yy += S(2.f);
+								for (int32 bi = 0; bi < nb; ++bi) {
+									const char *nm = demo::Demo3DHostBrushName(bi);
+									if (!nm || !nm[0])
+										continue;
+									char bk[72];
+									snprintf(bk, sizeof(bk), "brosse.%s", nm);
+									const NkRect br{r.x + kPad, yy + S(2.f), rowR.w - 2.f * kPad,
+												  kRowH - S(4.f)};
+									const bool actif = (cur && std::strcmp(cur, nm) == 0);
+									const bool surv = hit.Add(bk, br);
+									if (actif)
+										p.Fill(br, NkRole::AccentUi, 3.f);
+									else
+										HoverFill(p, br, surv, 3.f);
+									p.TextV(br.x + S(8.f), yy, kRowH, nm,
+											actif ? NkRole::TextOnAccent : NkRole::Text);
+									if (hit.Clicked(bk))
+										(void)demo::Demo3DHostSetBrushByName(nm);
+									yy += kRowH;
+								}
+						//   ── LES PROPRIETES DE LA BROSSE ACTIVE ────────────────────────
+						//   Rodolf, 25/09 : « on ne voit pas la taille de brosse, on ne peut
+						//   pas modifier les proprietes de dessin d'une brosse : taille,
+						//   epaisseur, douceur, bref tout ». Les trois grandeurs existaient
+						//   -- dans le FICHIER, en lecture seule. Les voici reglables.
+						//
+						//   [!] AUCUN CHAMP INVENTE. Rayon, force et durete sont ce que
+						//       `.nkbrush` porte deja (avec `profil`, `sens`, `espacement` et
+						//       les bornes). Ajouter ici une « epaisseur » qu'aucune formule
+						//       ne lit aurait donne une glissiere qui tourne dans le vide --
+						//       « 108 widgets declares, 2 qui peignent ».
+						//
+						//   [!] LES BORNES VIENNENT DE LA BROSSE, pas d'une plage commune.
+						//       Le format le dit : « une brosse de detail et une brosse de
+						//       blocage n'ont pas la meme plage utile ». Une plage unique
+						//       forcerait toutes les brosses a partager celle de la premiere.
+						//
+						//   [!] ET CE QU'ON AFFICHE EST LA VALEUR EFFECTIVE, lue chez
+						//       l'autorite a chaque image. Un miroir garde ici afficherait
+						//       l'ancienne taille apres un appui sur `[` -- le panneau
+						//       mentirait sur l'etat au moment meme ou on le regarde.
+								{
+									float32 br = 0.f, bf = 0.f, bh = 0.f;
+									float32 rmn = 0.005f, rmx = 2.f, fmn = 0.f, fmx = 1.f;
+									if (demo::Demo3DHostBrushParams(&br, &bf, &bh)) {
+										demo::Demo3DHostBrushRange(&rmn, &rmx, &fmn, &fmx);
+										yy += S(6.f);
+										p.TextV(r.x + kPad, yy, kRowH, "Reglages", NkRole::TextMuted);
+										yy += kRowH - S(2.f);
+										const float32 lw = S(74.f);
+										struct Ligne {
+												const char *lbl;
+												float32 *v;
+												float32 mn, mx, pas;
+												const char *fmt;
+												const char *cle;
+												const char *aide;
+										};
+										const Ligne lg[3] = {
+											{"Taille", &br, rmn, rmx, (rmx - rmn) * 0.004f, "%.3f",
+											 "prop.brosse.r",
+											 "Rayon de la brosse, en unites monde (touches [ et ])"},
+											{"Force", &bf, fmn, fmx, 0.005f, "%.2f", "prop.brosse.f",
+											 "Intensite du coup de brosse (Maj + [ et ])"},
+											{"Douceur", &bh, 0.f, 1.f, 0.005f, "%.2f", "prop.brosse.h",
+											 "Durete du profil : 0 = bord tres doux, 1 = bord franc"}};
+										for (int32 li = 0; li < 3; ++li) {
+											const float32 av = *lg[li].v;
+											p.TextV(r.x + kPad, yy, kRowH, lg[li].lbl, NkRole::TextMuted);
+											const NkRect fr{r.x + kPad + lw, yy + S(3.f),
+															rowR.w - 2.f * kPad - lw, kRowH - S(6.f)};
+											DragFloat(p, hit, ws, in, lg[li].cle, fr, *lg[li].v,
+													  lg[li].pas, NkRole::AccentUi, lg[li].fmt,
+													  lg[li].aide);
+											// LA BORNE EST POSEE ICI *ET* CHEZ L'AUTORITE. Ce n'est
+											// pas un doublon : celle-ci empeche la glissiere
+											// d'AFFICHER une valeur que l'autorite refusera, ce qui
+											// se lirait comme un champ qui ne prend pas.
+											if (*lg[li].v < lg[li].mn)
+												*lg[li].v = lg[li].mn;
+											if (*lg[li].v > lg[li].mx)
+												*lg[li].v = lg[li].mx;
+											if (*lg[li].v != av) {
+												// On n'envoie QUE la grandeur touchee : envoyer les
+												// trois reecrirait les deux autres avec ce que le
+												// panneau croit savoir, et ecraserait un reglage
+												// arrive entre-temps par le clavier.
+												demo::Demo3DHostSetBrushParams(
+													li == 0 ? *lg[li].v : -1.f,
+													li == 1 ? *lg[li].v : -1.f,
+													li == 2 ? *lg[li].v : -1.f);
+											}
+											yy += kRowH - S(2.f);
+										}
+										yy += S(2.f);
+									}
+								}
+						//     Le dossier est dit APRES la liste : c'est la reponse a « comment
+						//     j'en ajoute une », et elle doit se lire sans quitter le panneau.
+								yy += S(4.f);
+								yy += p.TextWrap(r.x + kPad, yy, rowR.w - 2.f * kPad,
+										 "Deposez un .nkbrush dans data/brushes pour en ajouter une.",
+										 NkRole::TextMuted);
+							}
+						}
+						// Le mode 3 (Sculpture) est traite ci-dessus : il a ses brosses.
+						if (m5 >= 2 && m5 <= 6 && m5 != 3) {
 							// Blocs qui vont a la ligne : ces phrases depassaient
 							// la largeur du panneau des qu'on le retrecissait.
 							yy += S(3.f);
@@ -7340,7 +7559,11 @@ namespace nkentseu {
 							break;
 						}
 					char hd[64];
-					if (actSec == 7 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
+					// L'ASSISTANT OUVERT DONNE SON NOM AU PANNEAU : il en est le contenu,
+					// et « Proprietes (Outil) » au-dessus de lui nommait ce qui est cache.
+					if (st.aiOuvert && !st.welcome)
+						snprintf(hd, sizeof(hd), "Assistant");
+					else if (actSec == 7 && (int32)st.mode >= 1 && (int32)st.mode <= 6)
 						snprintf(hd, sizeof(hd), "Proprietes (%s)",
 								 kHdrMode[(int32)st.mode - 1]);
 					else if (actSec >= 0 && actSec < 7)
@@ -7373,7 +7596,10 @@ namespace nkentseu {
 			// douter qu'il y ait quelque chose plus bas.
 			const float32 kSbW = editorkit::NkScrollbarWidth();
 			NkRect r = rFull;
-			r.w -= S(26.f) + kSbW;
+			// La colonne lit sa largeur A SA SOURCE (`NkPropTabColW`) : ce site et
+			// la mise en page en portaient chacun sa propre valeur, 26 ici et 28
+			// la-bas, pour la meme bande de pixels.
+			r.w -= NkPropTabColW() + kSbW;
 			char key[40], buf[96];
 
 			// Etait une lambda locale : elle ne capturait que le peintre et le
@@ -7466,6 +7692,14 @@ namespace nkentseu {
 				st.propOpen[7] = false;
 				st.propSecH[7] = 0.f;
 				st.propScroll3[7] = 0.f;
+				// (Q7) LE PANNEAU NE SE FERME PAS POUR AUTANT : la pastille du mode
+				// disparait, la main revient a « Modele » (meme regle que la sortie
+				// de mode, plus haut).
+				bool autre = false;
+				for (int32 j2 = 0; j2 < 7; ++j2)
+					autre = autre || st.propOpen[j2];
+				if (!autre)
+					st.propOpen[0] = true;
 			}
 			// LA PASTILLE MODELE N'EXISTE QUE POUR UNE SELECTION (regle de
 			// Rihen) : sans objet actif elle disparait de la colonne, et si
@@ -7498,25 +7732,30 @@ namespace nkentseu {
 			// section TOUJOURS disponible — jamais sur une autre orpheline.
 			// Ce n'est pas un automatisme d'ouverture (regle du 11 aout) : le
 			// panneau reste ouvert, seul son CONTENU change.
-			for (int32 i2 = 0; i2 < kNSec; ++i2) {
-				const bool orphelin = ((i2 == 0 || i2 == 3) && !hasSel5) ||
-									  (i2 == 4 && !hasObj5);
-				if (!orphelin || !st.propOpen[i2])
-					continue;
-				st.propOpen[i2] = false;
-				bool reste = false;
-				for (int32 k2 = 0; k2 < kNSec && !reste; ++k2)
-					reste = st.propOpen[k2];
-				if (reste)
-					continue; // une autre section tient deja l'affiche
-				for (int32 k2 = 0; k2 < kNSec; ++k2) {
-					const bool orph2 = ((k2 == 0 || k2 == 3) && !hasSel5) ||
-									   (k2 == 4 && !hasObj5);
-					if (!orph2) {
-						st.propOpen[k2] = true;
-						st.propFold[k2] = false;
-						break;
-					}
+			// 🔴 (Q7, Rodolf 21/09) PLUS DE BASCULE. La boucle qui suivait ici FERMAIT
+			//    la section orpheline et en OUVRAIT une autre : deselectionner faisait
+			//    sauter le panneau de « Modele » a « Rendu ». Rodolf : « la fermeture
+			//    de ce panneau doit etre volontaire », et si la pastille active est
+			//    masquee, le panneau reste ouvert sur son etat vide NOMME -- que la
+			//    section peint deja (« Aucun objet selectionne », plus bas). La
+			//    pastille, elle, reste retiree de la colonne (regle de selection).
+			//
+			// LA TRACE DE LA PREUVE : a chaque changement de selection, l'etat du
+			// panneau -- lu, pas suppose.
+			{
+				static int32 sSelAvant = -1;
+				const int32 selMaintenant = hasSel5 ? 1 : 0;
+				if (selMaintenant != sSelAvant) {
+					int32 actif = -1;
+					for (int32 k2 = 0; k2 < kNSec; ++k2)
+						if (st.propOpen[k2]) {
+							actif = k2;
+							break;
+						}
+					std::printf("[nk3d] PANNEAU selection=%d ouvert=%d section=%d assistant=%d\n", (int)selMaintenant,
+								st.AnyPropOpen() && st.showRight ? 1 : 0, (int)actif, st.aiOuvert ? 1 : 0);
+					std::fflush(stdout);
+					sSelAvant = selMaintenant;
 				}
 			}
 			int32 nOpen = 0, nUnfold = 0;
@@ -7538,6 +7777,17 @@ namespace nkentseu {
 			// pilote (celles des sections sont inserees).
 			const float32 stackTop = y;
 			p.Clip({r.x, stackTop, r.w, (r.y + r.h) - stackTop});
+			// ── L ASSISTANT PREND LE CORPS DU PANNEAU ─────────────────
+			// Rodolf, 20/09 au soir : « la pastille de IA doit s ouvrir sur le panel
+			// de droite comme tout le monde, il ne doit pas avoir son propre panel. »
+			// Il occupe donc la MEME zone que les sections, dans le MEME clip, sur la
+			// MEME couche. Ce n est pas un panneau pose dessus : c est le contenu.
+			if (st.aiOuvert && !st.welcome)
+				PaintAiDansPanneau(p, hit, st, guiCtx,
+						   {r.x, stackTop, r.w, (r.y + r.h) - stackTop},
+						   // LES DEUX PILES : l'edition (mode Edition) et le lot cree
+						   // par l'IA (mode Objet) -- le bouton dit ce que `undo` fera.
+						   demo::Demo3DHostEditCanUndo() || st.aiPeutAnnulerObjet);
 			float32 secY = y - st.propScroll;
 
 			bool anyWheel = false;
@@ -7545,7 +7795,11 @@ namespace nkentseu {
 				// PASTILLE DECOCHEE = SECTION RETIREE de la liste (Rihen) : ni
 				// contenu NI en-tete -- la colonne de pastilles est le seul moyen
 				// de la faire revenir.
-				if (!st.propOpen[sec])
+				// ⚠️ L ASSISTANT REMPLACE LES SECTIONS, IL NE SE SUPERPOSE PAS. Sans
+				//    cette garde, les deux se peindraient dans le meme clip et les
+				//    proprietes transparaitraient dessous -- un panneau sur un panneau,
+				//    exactement ce que Rodolf refuse.
+				if (st.aiOuvert || !st.propOpen[sec])
 					continue;
 				snprintf(key, sizeof(key), "props.sec.%d", sec);
 				// Le CHEVRON plie/deplie ; il ne retire jamais la section de la
@@ -7650,7 +7904,7 @@ namespace nkentseu {
 				const bool secOrphelin =
 					((sec == 0 || sec == 3) && !hasSel5) || (sec == 4 && !hasObj5);
 				if (secOrphelin) {
-					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucune selection",
+					p.TextV(r.x + NkPropInset(), yy, kRowH, "Aucun objet sélectionné",
 							NkRole::TextMuted);
 					yy += kRowH;
 				} else if (sec == 0) {
@@ -7775,7 +8029,12 @@ namespace nkentseu {
 					char tk[24];
 					snprintf(tk, sizeof(tk), "props.tab.%d", i2);
 					const NkRect tb{tabX + S(3.f), ty, S(20.f), S(24.f)};
-					const bool on = st.propOpen[i2];
+					// ── UNE SEULE PASTILLE ALLUMEE (Rodolf, 21/09, capture 040803 : deux
+					//    etaient bleues). Pendant que l'assistant est le contenu du
+					//    panneau, la section qu'il recouvre n'est PAS affichee : sa
+					//    pastille s'eteint. Elle se rallume a la fermeture -- la section
+					//    reste ouverte dessous, c'est ce qu'on retrouve.
+					const bool on = st.propOpen[i2] && !(st.aiOuvert && !st.welcome);
 					const bool overT = hit.Add(tk, tb);
 					if (on)
 						p.Fill(tb, NkRole::AccentUi, 3.f);
@@ -7783,7 +8042,16 @@ namespace nkentseu {
 						HoverFill(p, tb, overT, 3.f);
 					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, kSecs[i2].icon,
 							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
-					if (hit.Clicked(tk)) {
+					if (hit.Clicked(tk) && st.aiOuvert && !st.welcome) {
+						// L'ASSISTANT CEDE LA PLACE a la section choisie -- sans la
+						// replier si elle etait deja ouverte dessous : le clic dit
+						// « montre-moi ceci », pas « ferme ceci ».
+						st.aiOuvert = false;
+						for (int32 j2 = 0; j2 < kNSec; ++j2)
+							if (j2 != i2)
+								st.propOpen[j2] = false;
+						st.propOpen[i2] = true;
+					} else if (hit.Clicked(tk)) {
 						// EXCLUSIVE : choisir une categorie eteint les autres, et
 						// recliquer l'active replie le panneau. Une section fermee
 						// oublie son agrandissement et son defilement -- ils ne
@@ -7803,6 +8071,70 @@ namespace nkentseu {
 							st.propScroll3[i2] = 0.f;
 						}
 					}
+					ty += S(28.f);
+				}
+				// -- SECONDE FAMILLE : LES PASTILLES D OUTIL, SOUS CELLES DES SECTIONS --
+				// Rodolf, 20/09 : « quand le panneau IA est ouvert on ne peut plus le fermer
+				// sur NK3DModeler, pourtant je voulais que ce dernier soit une pastille
+				// comme les autres. »
+				//
+				// [!] CE QUI EST UNE PASTILLE ICI, C EST LA POIGNEE -- PAS LA SECTION.
+				//     L assistant a DEJA vecu comme une section de ce panneau (17/09, 18h09)
+				//     et il en a ete SORTI : un panneau dessine dans un panneau hote, ce que
+				//     la specification interdit depuis que deux menus de NKUIDesign laissaient
+				//     passer les clics une image sur deux. Son contenu reste donc sur la
+				//     couche overlay. Seule sa POIGNEE rejoint la colonne -- c est exactement
+				//     le partage du rail de NKUIDesign : le rail porte la pastille, le tiroir
+				//     se deplie ailleurs.
+				//
+				// [!] ET C EST POURQUOI ELLE N ENTRE PAS DANS `kSecs` NI DANS `propOpen`.
+				//     Cette table-la porte deja quatre cas particuliers par INDICE (0 et 3
+				//     sans selection, 4 sans objet, 7 pour le mode) et ce fichier dit lui-meme
+				//     la faute payee : « la table etait restee a six, et l indice 6 -- Output
+				//     -- tombait dans la branche pastille du mode ». Une seconde famille ne
+				//     decale aucun indice, et la regle « en ajouter une = une entree dans la
+				//     table » reste vraie pour les sections.
+				//
+				// La cle est un NOM (`props.outil.ia`), jamais une position : c est la lecon
+				// que l autre chantier vient de payer sur `kRailDroite[1]`.
+				//
+				// [!] L ICONE EST `Terminal` FAUTE DE MIEUX, ET C EST A REVOIR : la
+				//     fonte du modeleur n a ni bulle de conversation ni etincelle. Terminal
+				//     dit au moins la bonne chose -- on tape une demande, ca repond. On la
+				//     remplace le jour ou une icone d assistant est tracee ; en fabriquer
+				//     une au juge ici aurait mis du dessin dans un fichier de panneau.
+				//
+				// [!] L ICONE EST  FAUTE DE MIEUX, ET C EST A REVOIR : la fonte du
+				//     modeleur n a ni bulle de conversation ni etincelle. Terminal dit au moins
+				//     la bonne chose -- on tape une demande, ca repond. On la remplace le jour
+				//     ou une icone d assistant est tracee ; en fabriquer une au jugé ici aurait
+				//     mis du dessin dans un fichier de panneau.
+				if (!st.welcome) {
+					const NkRect tb{tabX + S(3.f), ty + S(6.f), S(20.f), S(24.f)};
+					st.aiTabRect[0] = tb.x;
+					st.aiTabRect[1] = tb.y;
+					st.aiTabRect[2] = tb.w;
+					st.aiTabRect[3] = tb.h;
+					const bool on = st.aiOuvert;
+					const bool overT = hit.Add("props.outil.ia", tb);
+					if (on)
+						p.Fill(tb, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, tb, overT, 3.f);
+					p.IconV(tb.x + (tb.w - S(14.f)) * 0.5f, tb.y, tb.h, NkIcon::Terminal,
+							on ? NkRole::TextOnAccent : NkRole::TextMuted, 14.f);
+				//
+				// -- LA MARQUE : CE QUE LE PANNEAU FERME DIT QUAND MEME --
+				// Une demande n OUVRE plus le panneau de force. Pour que la reponse ne se
+				// perde pas pour autant, la pastille porte un point tant que le fil compte
+				// des blocs que personne n a vus. *Ouvrir de force repond au besoin de
+				// l application ; marquer repond a celui de l utilisateur.*
+					if (!on && st.aiFil.NonVus() > 0u) {
+						const float32 d = S(6.f);
+						p.Fill({tb.x + tb.w - d, tb.y + S(1.f), d, d}, NkRole::AccentUi, d * 0.5f);
+					}
+					if (hit.Clicked("props.outil.ia"))
+						st.aiOuvert = !st.aiOuvert;
 					ty += S(28.f);
 				}
 			}

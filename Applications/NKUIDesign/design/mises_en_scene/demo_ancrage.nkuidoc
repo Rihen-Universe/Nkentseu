@@ -14,10 +14,13 @@ origine = main
 
 noeud 0
   libelle = Toile
-  enfants = 1
+  composant = 
   largeur = expand 0 0 0
   hauteur = expand 0 0 0
   agencement = free start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   auteur = humain
   verifiee = 0
   corrigee = 0
@@ -25,10 +28,14 @@ noeud 0
 
 noeud 1
   libelle = Fenetre
-  enfants = 2 3 4
+  composant = 
+  parent = 0
   largeur = fixed 560 0 0
   hauteur = fixed 360 0 0
   agencement = anchor start start 0
+  espacement = 
+  remplissage = 
+  ancrage = 
   position = 60 80
   forme = frame
   auteur = humain
@@ -38,10 +45,13 @@ noeud 1
 
 noeud 2
   libelle = Barre haute
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 560 0 0
   hauteur = fixed 40 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
   ancrage = ltr
   forme = rect
   fond = #4c6fff
@@ -52,10 +62,13 @@ noeud 2
 
 noeud 3
   libelle = Pied
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 560 0 0
   hauteur = fixed 28 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
   ancrage = lrb
   forme = rect
   fond = #30363d
@@ -66,10 +79,13 @@ noeud 3
 
 noeud 4
   libelle = Panneau
-  enfants =
+  composant = 
+  parent = 1
   largeur = fixed 160 0 0
   hauteur = fixed 280 0 0
   agencement = none start start 0
+  espacement = 
+  remplissage = 
   ancrage = ltb
   forme = rect
   fond = #f79a28

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKAiFilTest -- un bloc du fil IA se designe-t-il par sa POSITION ou par son NOM.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Le fil du panneau IA de NK3DModeler construit ses cles de clic avec l'INDICE
+(`ai.b%d`) au-dessus d'une FENETRE GLISSANTE. Des qu'un bloc entre dans un fil
+plein, tout se decale et la cle ne designe plus le meme bloc : Rodolf deplie un
+bloc, une reponse arrive, un AUTRE se deplie.
+
+Le decalage etait deja connu A UN SEUL SITE -- `NkAiPousser` corrige
+`st.aiEnCours` et explique pourquoi en commentaire. La cle du registre de clics,
+elle, n'a pas ete corrigee. Le meme calcul a deux sites, garde a un seul.
+
+Ce banc appelle le VRAI producteur sur un VRAI etat, sans fenetre et sans
+injection, et pose une seule question : apres un bloc de plus, l'indice k
+designe-t-il toujours le meme bloc ? Il pose la MEME question a `NkAiFil`
+(NKEditorKit), qui designe par identifiant stable.
+
+⚠️ IL NE REFABRIQUE PAS LA FORMULE DE LA CLE. Il interroge l'IDENTITE DU BLOC A
+   L'INDICE k -- ce que la cle resout. Une sonde qui recopierait `"ai.b%d"`
+   mesurerait sa propre copie du defaut.
+
+NE MESURE PAS : la peinture, le clic reel, la hauteur du panneau. Aucun banc
+sans fenetre ne les atteint.
+
+Precedent de la maison : NKFoldTest (14/09), meme famille de defaut -- une
+identite portee par une position -- et meme forme de banc.
+"""
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKAiFilTest"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/main.cpp"])
+
+    # `NkModelerAiPanel.h` tire la coquille du modeleur (NkModelerUI -> NKGui),
+    # d'ou une liste identique a celle de NKEditorKitTest. NKFoldTest s'en tire
+    # avec six modules parce que `NkModelerFold.h` n'inclut que NKCore -- la
+    # regle y avait ete SORTIE du panneau. Ici le producteur mesure vit encore
+    # dans le panneau : c'est le prix de mesurer l'existant plutot qu'une copie.
+    nkentseudependson(
+        # Reprise TELLE QUELLE de la liste de NK3DModeler : `NkModelerAiPanel.h`
+        # tire sa coquille, donc il tire ses dependances. Les deviner une par une
+        # au fil des erreurs de compilation aurait produit une liste qui marche
+        # aujourd'hui et casse au premier include ajoute en amont.
+        ["NKEditorKit", "NKRenderer", "NKRHI", "NKSL", "NKCanvas", "NKGui", "NKMedia",
+         "NKConverse", "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage",
+         "NKFileSystem", "NKSerialization", "NKReflection", "NKThreading", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src",
+                        "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "ole32", "oleaut32", "uuid", "advapi32", "imm32", "winmm", "ws2_32",
+        ]
+        links(_WIN_LINKS)
+
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread", "X11", "Xext", "GL"])
+
+    with filter("system:Macosx"):
+        usetoolchain("clang-native")

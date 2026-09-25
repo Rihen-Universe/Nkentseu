@@ -16,6 +16,7 @@
 //    un arbitrage : (1) aucune ligne de code de ce fichier n'utilise le symbole ;
 //    (2) cet en-tete tire NKCanvas (l.16-18), absent des includes du kit, et le
 //    compilateur le refuse : fatal error 'NKCanvas/Core/NkContextDesc.h' not found.
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
 #include "NKEditorKit/NkEditorSurface.h" // ④ LA porte unique pour peindre au-dessus
 #include "NKEditorKit/NkEditorModal.h"	 // (R17) NkNiveauModalDeLImage : le niveau rendu par regle
 #include "NKEditorKit/NkEditorTooltip.h"		// NkTooltip : infobulle des voyants du footer
@@ -478,6 +479,10 @@ namespace nkentseu {
 			wc.centered = true;
 			wc.resizable = config.resizable;
 			wc.frame = false; // SANS bordure OS -> barre de titre custom (VSCode)
+			// (25/09) SOUS `NK_SONDE`, LA FENETRE NE PREND PAS LE FOCUS. C'est la
+			// vraie parade au vol de clics ; la porte par image ne fait que jeter ce
+			// qui est entre malgre tout. Hors sonde, rien ne bouge.
+			(void)NkSondePoserFenetreDiscrete(wc);
 			if (!mWindow.Create(wc))
 				return false;
 			CopyStr(mTitle, config.title, sizeof(mTitle));
@@ -620,6 +625,10 @@ namespace nkentseu {
 			mUI.clipboardGetFn = [](void *u, NkString &out) { out = static_cast<NkWindow *>(u)->GetClipboardText(); };
 			mUI.clipboardSetFn = [](void *u, const char *t) {
 				static_cast<NkWindow *>(u)->SetClipboardText(NkString(t));
+			};
+			// (Q9) l'image du presse-papiers (un bitmap copie)
+			mUI.clipboardImageFn = [](void *u, NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) {
+				return static_cast<NkWindow *>(u)->GetClipboardImage(rgba, w, h, motif);
 			};
 
 			// Hook barre d'onglets : le panneau ACTIF dessine ses actions a droite.
@@ -1126,6 +1135,12 @@ namespace nkentseu {
 				}
 			}
 
+			// (25/09) LA PORTE D'INERTIE DE LA SONDE, ET ELLE EST ICI POUR TOUS LES
+			// HOTES DE LA COQUILLE. Hors `NK_SONDE` elle ne fait rien. Sous sonde,
+			// l'entree qui ne vient pas du script d'evenements est jetee : une
+			// fenetre de mesure qui recoit les clics de Rodolf fabrique des defauts
+			// qui n'existent pas -- deux faux defauts en une nuit, le 24/09.
+			NkSondeFiltrerEntree(mUI, "NkEditorShell");
 			mUI.BeginFrame(dt);
 
 			// ═══ (R17) DEUX REGLES DE DEBUT D'IMAGE, AVANT LE PREMIER ECRIVAIN ═══════
@@ -1514,6 +1529,21 @@ namespace nkentseu {
 				//    le canvas, et l etat 2 serait devenu l etat 3 sans decision.
 				const NkRect corps = {actWL + railL, bodyTop,
 									  W - actWL - actWR - railL - railR, bodyH - railB};
+				// (Q7, 21/09) UN TIROIR ANCRE PREND SA PLACE : le dock recoit le corps
+				// MOINS le tiroir ouvert. C'est une decision de l'application
+				// (`SetRailAncre`) ; sans elle rien ne change.
+				NkRect corpsDock = corps;
+				for (int32 sl = 0; sl < 2; ++sl) {
+					if (!mRailAncre[sl] || mRailOuvert[sl] < 0 || mRailOuvert[sl] >= mRailCount[sl])
+						continue;
+					const NkRect t = RectTiroir(sl, corps);
+					if (sl == 0) {
+						const float32 fin = t.x + t.w;
+						corpsDock.w -= fin - corpsDock.x;
+						corpsDock.x = fin;
+					} else
+						corpsDock.w = t.x - corpsDock.x;
+				}
 				if (railL > 0.f)
 					DrawRail(0, {actWL, bodyTop, railW, bodyH - railB}, true);
 				if (railR > 0.f)
@@ -1525,7 +1555,9 @@ namespace nkentseu {
 				//    pris, un separateur s'est SAISI du geste -- et ce n'est plus une
 				//    question de curseur. On ne l'imprime que sur un clic.
 				const nkgui::NkGuiId actifAvantDock = mUI.activeId;
-				DockSpace(mUI, "##EditorDock", corps);
+				// (Q8) LA POIGNEE DU TIROIR prend le geste AVANT le dock et les panneaux.
+				PoigneesTiroirs(corps);
+				DockSpace(mUI, "##EditorDock", corpsDock);
 			phase("DockSpace (separateurs)");
 				{
 					static const bool traceDock = []() {
@@ -1620,6 +1652,9 @@ namespace nkentseu {
 			mWindow.SetCursor(MapCursor(mUI.wantCursor));
 			phase("curseur OS");
 
+			// APRES L'IMAGE : la liste est complete (voir `SetApresImage`).
+			if (mApresImageFn)
+				mApresImageFn(mUI, (int32)sz.x, (int32)sz.y, mApresImageUser);
 			mRenderer->BeginFrame();
 			phase("rendu : ouverture");
 			mRenderer->SubmitDrawList(mUI.dl, sz.x, sz.y);
@@ -1884,6 +1919,10 @@ namespace nkentseu {
 
 			for (int32 i = 0; i < mRailCount[slot]; ++i) {
 				const NkEditorRailItem &it = mRailItems[slot][i];
+				// (Q7) SANS SELECTION, une pastille liee a la selection est RETIREE du
+				// rail (Rodolf, 21/09) -- les suivantes remontent.
+				if (it.lieALaSelection && !mRailSelection)
+					continue;
 				const float32 lg = (it.largeur > 0.f) ? it.largeur : cell;
 				NkRect r;
 				if (vertical)
@@ -1970,24 +2009,115 @@ namespace nkentseu {
 		}
 
 		// ETAT 2 : le tiroir, EN OVERLAY par-dessus le canvas.
-		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
+		NkRect NkEditorShell::RectTiroir(int32 slot, const NkRect &corps) noexcept {
 			const float32 cell = 28.f;
-			const float32 taille = 320.f; // §13.2 : « largeur/hauteur par defaut ~320px »
+			// LES BORNES (Q6) : 260 px au moins -- en dessous, le composeur du
+			// panneau IA ne tient plus sa barre ; au plus 60 % du corps -- la vue
+			// reste utilisable. Une valeur relue d'un fichier est bornee ICI, pas
+			// crue sur parole.
+			const float32 plein = (slot == 2) ? corps.h : corps.w;
+			float32 maxi = plein * 0.6f;
+			const float32 mini = (slot == 2) ? 120.f : 260.f;
+			if (maxi < mini)
+				maxi = mini;
+			float32 t = mRailLargeur[slot];
+			if (t < mini)
+				t = mini;
+			if (t > maxi)
+				t = maxi;
+			mRailLargeur[slot] = t;
+			// ANCRE, le tiroir touche son rail : l'ecart de 28 px du tiroir flottant
+			// laissait une colonne morte entre le panneau et ses pastilles.
+			const float32 ecart = mRailAncre[slot] ? 0.f : cell;
+			if (slot == 0)
+				return {corps.x + ecart, corps.y, t, corps.h};
+			if (slot == 1)
+				return {corps.x + corps.w - ecart - t, corps.y, t, corps.h};
+			return {corps.x, corps.y + corps.h - cell - t, corps.w, t};
+		}
+
+		// ── (Q8) LA POIGNEE DU TIROIR, A LA SOURIS ────────────────────────────────
+		// 🔴 LA POIGNEE DE Q6 NE SE SAISISSAIT PAS (Rodolf, 21/09 13h42). Mesure :
+		//    `--glisser` depuis le bord du tiroir (1089, 1092, 1095 px) laissait la
+		//    largeur a 320. Cause : c'etait un `Splitter` NKGui appele DANS le tiroir,
+		//    donc APRES `DrawPanels` -- la toile avait deja consomme l'appui, et le
+		//    survol NKGui (z-ordre des fenetres) ne donnait pas la main a un widget
+		//    pose hors de toute fenetre. La poignee lit maintenant l'entree BRUTE,
+		//    avant le dock, et CONSOMME l'appui qu'elle prend.
+		void NkEditorShell::PoigneesTiroirs(const NkRect &corps) noexcept {
+			mRailPoigneeSurvol = -1;
+			const NkVec2 m = mUI.input.mousePos;
+			if (mRailGlisse >= 0) {
+				if (mUI.input.mouseDown[0]) {
+					const float32 d = m.x - mRailGlisseX0;
+					if (mRailGlisse == 0)
+						mRailLargeur[0] = mRailGlisseL0 + d;
+					else if (mRailGlisse == 1)
+						mRailLargeur[1] = mRailGlisseL0 - d;
+					else
+						mRailLargeur[2] = mRailGlisseL0 - (m.y - mRailGlisseX0);
+					(void)RectTiroir(mRailGlisse, corps); // borne tout de suite
+					mUI.wantCursor = mRailGlisse == 2 ? NkGuiCursor::ResizeNS : NkGuiCursor::ResizeEW;
+					mUI.input.mouseClicked[0] = false;
+					mRailPoigneeSurvol = mRailGlisse;
+					return;
+				}
+				mRailGlisse = -1;
+			}
+			for (int32 slot = 0; slot < 3; ++slot) {
+				const int32 i = mRailOuvert[slot];
+				if (i < 0 || i >= mRailCount[slot])
+					continue;
+				const NkRect d = RectTiroir(slot, corps);
+				const float32 g = 5.f; // la PRISE : 10 px autour d'un trait de 1
+				bool dessus;
+				if (slot == 0)
+					dessus = m.x >= d.x + d.w - g && m.x < d.x + d.w + g && m.y >= d.y && m.y < d.y + d.h;
+				else if (slot == 1)
+					dessus = m.x >= d.x - g && m.x < d.x + g && m.y >= d.y && m.y < d.y + d.h;
+				else
+					dessus = m.y >= d.y - g && m.y < d.y + g && m.x >= d.x && m.x < d.x + d.w;
+				if (!dessus)
+					continue;
+				mRailPoigneeSurvol = slot;
+				mUI.wantCursor = slot == 2 ? NkGuiCursor::ResizeNS : NkGuiCursor::ResizeEW;
+				if (mUI.input.mouseClicked[0]) {
+					mRailGlisse = slot;
+					mRailGlisseX0 = slot == 2 ? m.y : m.x;
+					mRailGlisseL0 = mRailLargeur[slot];
+					mUI.input.mouseClicked[0] = false; // l'appui est a la poignee, pas a la toile
+				}
+				return;
+			}
+		}
+
+		void NkEditorShell::DrawRailDrawers(NkEditorFrameContext &ec, const NkRect &corps) noexcept {
 			bool clicDansUnTiroir = false;
+			bool fermeAuClic = false;
+
+			// LA PORTE DES SONDES (Q6) : `NK_TIROIR_LARGEUR=<px>` ecrit la largeur du
+			// tiroir droit comme un glisser l'ecrirait -- aucune souris injectee.
+			// Lue UNE fois, APRES `LoadUiState` : la sonde prime sur le fichier.
+			{
+				static bool sLu = false;
+				if (!sLu) {
+					sLu = true;
+					if (const char *v = getenv("NK_TIROIR_LARGEUR"))
+						if (*v)
+							mRailLargeur[1] = (float32)atof(v);
+				}
+			}
 
 			for (int32 slot = 0; slot < 3; ++slot) {
 				const int32 i = mRailOuvert[slot];
 				if (i < 0 || i >= mRailCount[slot])
 					continue;
-				NkEditorPanel *p = TrouverPanneau(mRailItems[slot][i].panel);
+				const NkEditorRailItem &item = mRailItems[slot][i];
+				NkEditorPanel *p = TrouverPanneau(item.panel);
+				if (NkEditorTiroirFermeAuClicDehors(item.mode))
+					fermeAuClic = true;
 
-				NkRect d;
-				if (slot == 0)
-					d = {corps.x + cell, corps.y, taille, corps.h};
-				else if (slot == 1)
-					d = {corps.x + corps.w - cell - taille, corps.y, taille, corps.h};
-				else
-					d = {corps.x, corps.y + corps.h - cell - 240.f, corps.w, 240.f};
+				const NkRect d = RectTiroir(slot, corps);
 
 				// ⚠️ TOUT CECI VA DANS LA COUCHE OVERLAY. Le tiroir doit passer
 				//    PAR-DESSUS les panneaux ancres ; dessine dans la couche
@@ -2012,26 +2142,87 @@ namespace nkentseu {
 					const char *v = getenv("NK_PORTES_MUTATION");
 					return v && v[0] == 't';
 				}();
-				const NkRect reclame = (mUI.dragActive && !kMutationTiroir) ? d : corps;
+				// (20/09) LES DEUX COMPORTEMENTS SUIVENT LE MODE DECLARE, ET LA
+				//   DECISION N'EST PLUS ICI. Elle vit dans `TiroirVoile` et
+				//   `TiroirReclameLeCorps`, qui sont des fonctions PURES : tant
+				//   qu'elle etait dans ce peintre, elle n'etait atteignable qu'avec
+				//   une fenetre, donc jamais mesuree -- et c'est pour ca qu un voile
+				//   sans usage modal a survecu si longtemps a cote d'un panneau
+				//   qu'il empechait d'utiliser.
+				const NkEditorTiroirMode mode = mRailItems[slot][i].mode;
+				const bool reclameCorps =
+					NkEditorTiroirReclameLeCorps(mode, mUI.dragActive) || kMutationTiroir;
+				const NkRect reclame = reclameCorps ? corps : d;
 				NkSurfaceFlottante _tiroir(mUI, reclame, NkCouche::Menu, NkPriseClavier::Non);
-				// Le voile : il dit « ce qui est dessous attend ». Sans lui, le
-				// tiroir se lit comme un panneau de plus, pas comme un tiroir.
-				mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
+				// Le voile dit « reponds a ceci avant de continuer ». Un panneau de
+				// CONVERSATION ne dit pas ca : on y tape en regardant ce qu'on
+				// modifie. Rodolf, 20/09 : le tiroir assombrissait toute sa toile
+				// pendant qu'il demandait de la modifier.
+				if (NkEditorTiroirVoile(mode))
+					mUI.dlOverlay.AddRectFilled(corps, mUI.theme.scrim);
 				mUI.dlOverlay.AddRectFilled(d, mUI.theme.panel, 6.f);
 				mUI.dlOverlay.AddRect(d, mUI.theme.border, 1.f, 6.f);
 
-				const float32 titreH = mUI.ItemHeight() + 6.f;
-				if (mUI.font && mUI.font->Valid()) {
-					const char *t = p ? p->Title() : mRailItems[slot][i].panel;
-					mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
-										  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
-														   + mUI.font->Ascent()},
-										  t, mUI.theme.text);
+				// UN SEUL EN-TETE : un panneau qui porte le sien (le panneau IA) ne
+				// recoit pas celui du tiroir par-dessus.
+				const float32 titreH = item.titrePropre ? 0.f : mUI.ItemHeight() + 6.f;
+				if (!item.titrePropre) {
+					if (mUI.font && mUI.font->Valid()) {
+						const char *t = p ? p->Title() : item.panel;
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {d.x + 10.f, d.y + (titreH - mUI.font->LineHeight()) * 0.5f
+															   + mUI.font->Ascent()},
+											  t, mUI.theme.text);
+					}
+					mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
+										  mUI.theme.border, 1.f);
 				}
-				mUI.dlOverlay.AddLine({d.x, d.y + titreH}, {d.x + d.w, d.y + titreH},
-									  mUI.theme.border, 1.f);
 
 				const NkRect dedans = {d.x, d.y + titreH, d.w, d.h - titreH};
+
+				// LA POIGNEE (Q6) : le bord INTERIEUR du tiroir, le separateur du kit
+				// (`Splitter`, prehension elargie a 8 px, curseur ResizeEW). Le rail
+				// droit grandit vers la gauche : la valeur glissee est l'OPPOSE de la
+				// largeur, pour que le meme delta de souris serve les deux cotes.
+				{
+					const bool vertical = slot != 2;
+					NkRect poignee;
+					if (slot == 0)
+						poignee = {d.x + d.w - 1.f, d.y, 2.f, d.h};
+					else if (slot == 1)
+						poignee = {d.x - 1.f, d.y, 2.f, d.h};
+					else
+						poignee = {d.x, d.y - 1.f, d.w, 2.f};
+					(void)vertical;
+					// LA POIGNEE SE VOIT au survol et pendant le glisser : un trait
+					// d'accent de 3 px (le geste est traite par `PoigneesTiroirs`).
+					if (mRailPoigneeSurvol == slot) {
+						NkRect vis = poignee;
+						if (slot == 2) {
+							vis.y -= 1.f;
+							vis.h = 3.f;
+						} else {
+							vis.x -= 1.f;
+							vis.w = 3.f;
+						}
+						mUI.dlOverlay.AddRectFilled(vis, mUI.theme.accent, 0.f);
+						clicDansUnTiroir = true;
+					}
+				}
+
+				// (Q7) LA PASTILLE A ETE RETIREE PAR LA DESELECTION : le tiroir RESTE
+				// ouvert et le DIT, au lieu de sauter vers une autre pastille.
+				if (item.lieALaSelection && !mRailSelection) {
+					if (mUI.font && mUI.font->Valid())
+						mUI.dlOverlay.AddText(mUI.font->Face(), mUI.font->TexId(),
+											  {dedans.x + 12.f, dedans.y + 28.f}, "Aucun élément sélectionné",
+											  mUI.theme.textMuted);
+					PopOverlay(mUI);
+					const NkVec2 m2 = mUI.input.mousePos;
+					if (m2.x >= d.x && m2.x < d.x + d.w && m2.y >= d.y && m2.y < d.y + d.h)
+						clicDansUnTiroir = true;
+					continue;
+				}
 
 				// 🔴 UN TIROIR NE MONTRE PAS UN PANNEAU DEJA ANCRE (mesure du 14/09).
 				//    `DrawPanels` dessine tous les panneaux OUVERTS ; ce tiroir passe
@@ -2112,7 +2303,9 @@ namespace nkentseu {
 			// §13.2 : « un clic ailleurs sur le canvas la referme ». ⚠️ Le clic sur
 			// la PASTILLE a deja ete consomme plus haut : sans cette consommation,
 			// ouvrir et refermer se produisaient dans la meme image.
-			if (mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
+			// (Q7, 21/09) SEULEMENT POUR UNE MODALE : un panneau de travail se ferme
+			// par sa pastille, jamais parce qu'on a clique la toile.
+			if (fermeAuClic && mUI.input.mouseClicked[0] && !clicDansUnTiroir) {
 				for (int32 slot = 0; slot < 3; ++slot)
 					mRailOuvert[slot] = -1;
 			}
@@ -3357,6 +3550,83 @@ namespace nkentseu {
 			return nullptr;
 		}
 
+		// ── (25/09) NK_DOCKS=<chemin|-> : L'ETAT REEL DES PANNEAUX, ECRIT ───────
+		//
+		// Rodolf voit DEUX panneaux de droite ancres cote a cote (IA et Inspecteur)
+		// alors que la regle, ecrite depuis le 21/09, en veut UN. Le rail existe et
+		// l'applique ; quelque chose d'autre ouvre les panneaux a cote de lui.
+		//
+		// ⚠️ CETTE PORTE NE CORRIGE RIEN. Elle ECRIT ce qui est, pour qu'on sache
+		//    par quelle porte chaque panneau est arrive AVANT de toucher au docking
+		//    -- qui est partage par NK3DModeler, NKUIDesign, NKCode et tout hote de
+		//    la coquille. Un correctif de docking sans instrument, c'est la faute
+		//    que ce chantier vient de payer deux fois.
+		//
+		// Ce qu'elle rend : les pastilles de chaque rail et le tiroir ouvert, la
+		// liste `panel=` que le fichier persiste, l'arbre des docks, et pour CHAQUE
+		// panneau : son cote par defaut, s'il est ouvert, et s'il est ancre dans un
+		// noeud de dock. La derniere colonne est celle qui repond a la question :
+		// un panneau de droite OUVERT et ANCRE alors que le rail ne le designe pas
+		// est arrive par la SECONDE PORTE.
+		void NkEditorShell::EcrireEtatDocks(const char *quand) noexcept {
+			const char *v = std::getenv("NK_DOCKS");
+			if (!v || !*v)
+				return;
+			static const char *const kCote[4] = {"gauche", "droite", "haut", "bas"};
+			auto nomCote = [&](NkEditorDockSide d) -> const char * {
+				const int32 i = (int32)d;
+				return (i >= 0 && i < 4) ? kCote[i] : "centre";
+			};
+			std::printf("[docks] \u2500\u2500 ETAT (%s) \u2500\u2500\n", quand ? quand : "?");
+			for (int32 slot = 0; slot < 3; ++slot) {
+				if (mRailCount[slot] == 0)
+					continue;
+				std::printf("[docks] rail[%d] %d pastille(s), tiroir ouvert = %d, largeur = %.0f, ancre = %d\n",
+							(int)slot, (int)mRailCount[slot], (int)mRailOuvert[slot],
+							(double)mRailLargeur[slot], (int)(mRailAncre[slot] ? 1 : 0));
+				for (int32 i = 0; i < mRailCount[slot]; ++i)
+					std::printf("[docks]   pastille[%d] %s%s\n", (int)i,
+								mRailItems[slot][i].panel ? mRailItems[slot][i].panel : "(sans panneau)",
+								mRailOuvert[slot] == i ? "   <- OUVERT" : "");
+			}
+			int32 droiteOuverts = 0, droiteAncres = 0;
+			for (int32 i = 0; i < mNumPanels; ++i) {
+				NkEditorPanel *pp = mPanels[i];
+				if (!pp)
+					continue;
+				const NkGuiId wid = mUI.GetId(pp->Title());
+				int32 noeud = -1;
+				for (uint32 k = 0; k < mUI.windowMeta.Size(); ++k)
+					if (mUI.windowMeta[k].id == wid) {
+						noeud = mUI.windowMeta[k].dockNode;
+						break;
+					}
+				const bool aDroite = pp->DefaultSide() == NkEditorDockSide::NK_RIGHT;
+				// Le rail designe-t-il ce panneau comme son tiroir ouvert ?
+				bool parLeRail = false;
+				if (aDroite && mRailOuvert[1] >= 0 && mRailOuvert[1] < mRailCount[1]) {
+					const char *n = mRailItems[1][mRailOuvert[1]].panel;
+					parLeRail = n && StrEqual(n, pp->Title());
+				}
+				if (aDroite && pp->IsOpen()) {
+					++droiteOuverts;
+					if (noeud >= 0)
+						++droiteAncres;
+				}
+				std::printf("[docks] panneau %-16s cote=%-7s ouvert=%d noeud_dock=%-3d %s\n", pp->Title(),
+							nomCote(pp->DefaultSide()), (int)(pp->IsOpen() ? 1 : 0), (int)noeud,
+							(aDroite && pp->IsOpen() && !parLeRail) ? "<- SECONDE PORTE" : "");
+			}
+			std::printf("[docks] BILAN cote droit : %d panneau(x) ouvert(s), dont %d ancre(s) dans un "
+						"noeud de dock ; la regle en veut UN\n",
+						(int)droiteOuverts, (int)droiteAncres);
+			std::printf("[docks] arbre : %u noeud(s), racine = %d\n", (unsigned)mUI.dockNodes.Size(),
+						(int)mUI.dockRoot);
+			std::printf("[docks] `panel=` de droite refusees : %d ; feuilles vides elaguees : %d\n",
+						(int)mPanneauxDroiteIgnores, (int)mFeuillesElaguees);
+			std::fflush(stdout);
+		}
+
 		void NkEditorShell::LoadUiState(const char *path) noexcept {
 			if (!path || !*path)
 				return;
@@ -3395,6 +3665,9 @@ namespace nkentseu {
 			};
 			auto apply = [&](const NkString &ln) {
 				const char *s = ln.CStr();
+				// (Q6) une application peut refuser la geometrie (voir SetUiStateGeometrie)
+				if (!mUiStateGeometrie && (StartsWith(s, "win=") || StartsWith(s, "maximized=")))
+					return;
 				if (StartsWith(s, "win=")) {
 					// Restaure la TAILLE seulement (pas la position -> pas de changement de
 					// moniteur/DPI qui désynchroniserait l'échelle). Le resize du renderer
@@ -3414,10 +3687,73 @@ namespace nkentseu {
 							mWindow.Maximize();
 					} else if (mWindow.IsMaximized())
 						mWindow.Restore();
+				} else if (StartsWith(s, "tiroir=")) {
+					// (Q6) bornee a l'affichage par `RectTiroir`, pas ici : le corps n'est
+					// pas encore connu.
+					int32 g = 0, dr = 0, b = 0;
+					if (std::sscanf(s + 7, "%d|%d|%d", &g, &dr, &b) == 3) {
+						if (g > 0)
+							mRailLargeur[0] = (float32)g;
+						if (dr > 0)
+							mRailLargeur[1] = (float32)dr;
+						if (b > 0)
+							mRailLargeur[2] = (float32)b;
+					}
 				} else if (StartsWith(s, "panel=")) {
 					// L'IDENTIFIANT D'ABORD, LE TITRE EN REPLI (cf. `PanneauParIdentite`).
-					if (NkEditorPanel *pp = PanneauParIdentite(s + 6))
-						pp->SetOpen(true);
+					if (NkEditorPanel *pp = PanneauParIdentite(s + 6)) {
+						// \U0001f534 (25/09) LE COTE DROIT N'A QU'UNE PORTE : SON RAIL.
+						//    Regle de Rodolf depuis le 21/09 : UN panneau de droite, dont
+						//    le contenu change selon la pastille, une seule pastille
+						//    allumee. Le rail l'applique -- et cette ligne-ci la
+						//    contredisait : elle rouvrait les panneaux de droite comme
+						//    docks classiques, A COTE du tiroir.
+						//    Mesure (NK_DOCKS, sur la configuration de Rodolf) :
+						//      avant LoadUiState : 0 panneau de droite ouvert
+						//      apres             : 2 ouverts, 2 ancres dans des noeuds
+						//                          de dock (IA n\u00b0 4, Inspecteur n\u00b0 5)
+						//    C'est la memoire \u00ab Une porte, pas neuf \u00bb : deux chemins pour
+						//    le meme geste, et le second defait ce que le premier tient.
+						// \u26a0\ufe0f SEULEMENT SI LE RAIL EXISTE. Un hote sans rail droit
+						//    (NKCode, NkAnimaEditor, Nogee aujourd'hui) garde EXACTEMENT
+						//    son comportement : la coquille est partagee, et une regle
+						//    d'une application ne s'impose pas aux autres.
+						// 🔴 LE COTE DROIT N'A QU'UNE PORTE : SON RAIL (25/09).
+						//    Regle de Rodolf depuis le 21/09 : UN panneau de droite, dont le
+						//    contenu change selon la pastille. Le rail l'applique ; cette
+						//    ligne la defaisait. Mesure sur la configuration de Rodolf :
+						//      avant LoadUiState : 0 panneau de droite ouvert
+						//      apres             : 2 ouverts, 2 ancres (IA n° 4, Inspecteur n° 5)
+						// ⚠️ ET LA PLACE PART AVEC. Sauter l'ouverture ne suffisait pas : les
+						//    feuilles de dock du fichier reservent leur largeur meme sans
+						//    fenetre -- deux colonnes vides, mesurees sur l'image. L'elagage
+						//    se fait en fin de relecture, par `DockPruneEmpty`, qui DECLARE
+						//    l'elagage deja existant au lieu d'en ecrire un second.
+						// ⚠️ SEULEMENT SI LE RAIL EXISTE. Un hote sans rail droit garde
+						//    EXACTEMENT son comportement : la coquille est partagee, et la
+						//    regle d'une application ne s'impose pas aux autres.
+						const bool aDroite = pp->DefaultSide() == NkEditorDockSide::NK_RIGHT;
+						if (aDroite && mRailCount[1] > 0)
+							++mPanneauxDroiteIgnores;
+						else
+							pp->SetOpen(true);
+					}
+				} else if (StartsWith(s, "tiroirs=")) {
+					// (25/09) LE TIROIR OUVERT DE CHAQUE RAIL. Il ne l'etait pas : seule
+					// la LARGEUR (`tiroir=`) survivait. Tant que la liste `panel=`
+					// rouvrait les panneaux de droite, ca ne se voyait pas -- le second
+					// chemin rattrapait le premier. En fermant ce second chemin, il
+					// fallait bien que le choix de l'utilisateur survive, sinon on
+					// corrigeait une regle en cassant un usage.
+					int32 g = -1, d = -1, b = -1;
+					if (std::sscanf(s + 8, "%d|%d|%d", &g, &d, &b) == 3) {
+						if (g >= -1 && g < mRailCount[0])
+							mRailOuvert[0] = g;
+						if (d >= -1 && d < mRailCount[1])
+							mRailOuvert[1] = d;
+						if (b >= -1 && b < mRailCount[2])
+							mRailOuvert[2] = b;
+					}
 				} else if (StartsWith(s, "dockroot=")) {
 					// Disposition sérialisée -> RESET du dock courant (l'arbre du fichier
 					// fait foi) ; les nœuds arrivent ensuite dans l'ordre 0..n-1 (DFS).
@@ -3458,6 +3794,13 @@ namespace nkentseu {
 							//    derivent une identite du titre -- c'est le cout de migration,
 							//    ecrit dans le rapport, pas paye ici.
 							NkEditorPanel *pw = PanneauParIdentite(b + 1);
+							// (25/09) LE COTE DROIT N'ENTRE PAS DANS L'ARBRE DES DOCKS quand
+							// il a un rail : sans cette ligne, on fermait la porte mais on
+							// laissait la PLACE -- deux colonnes vides restaient a cote de
+							// la toile, mesurees sur l'image rendue. Un noeud de dock sans
+							// fenetre reserve quand meme sa largeur.
+							if (pw && pw->DefaultSide() == NkEditorDockSide::NK_RIGHT && mRailCount[1] > 0)
+								return;
 							const char *tw = pw ? pw->Title() : (b + 1);
 							const NkGuiId wid = mUI.GetId(tw);
 							L.windows[L.winCount++] = wid;
@@ -3537,8 +3880,21 @@ namespace nkentseu {
 							has = true;
 					if (!has)
 						DockBuilderDock(mUI, pl->Title(), SideToZone(pl->DefaultSide()));
-				}
 			}
+			// 🔴 (25/09) ET LA PLACE DES PANNEAUX REFUSES PART AVEC EUX.
+			//    Sauter l'ouverture d'un panneau de droite ne suffisait pas : la feuille
+			//    de dock que le fichier avait creee pour lui RESERVE SA LARGEUR meme sans
+			//    fenetre. Mesure : deux colonnes vides entre la toile et l'Inspecteur, sur
+			//    l'image rendue par l'application.
+			//    `DockPruneEmpty` collapse ces feuilles. Elle ne REECRIT PAS l'elagage :
+			//    elle appelle `DockCollapseLeaf`, qui existe depuis toujours et n'etait pas
+			//    declare -- c'est une declaration, pas une seconde implementation.
+			// ⚠️ ELLE NE TOUCHE JAMAIS UNE FEUILLE QUI PORTE UNE FENETRE : c'est LE
+			//    risque, il se paie en panneaux disparus, et le negatif du banc
+			//    (`NKGuiInteractTest`, d2) l'eprouve.
+			if (mPanneauxDroiteIgnores > 0)
+				mFeuillesElaguees = nkgui::DockPruneEmpty(mUI);
+		}
 		}
 
 		// ── Gestionnaire de menu contextuel (réutilisable) ───────────────────────
@@ -3752,8 +4108,26 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			if (!gmax)
 				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
+			// (Q6) LA LARGEUR DES TIROIRS, gauche|droite|bas, en px.
+			out += NkPrintf("tiroir=%d|%d|%d\n", (int)mRailLargeur[0], (int)mRailLargeur[1], (int)mRailLargeur[2]);
+			// (25/09) LE TIROIR OUVERT DE CHAQUE RAIL, et pas seulement sa largeur. Il ne
+			// survivait pas : tant que la liste `panel=` rouvrait les panneaux de droite,
+			// le second chemin rattrapait le premier et personne ne le voyait. En fermant
+			// ce second chemin il fallait bien que le choix de l'utilisateur survive --
+			// sinon on corrige une regle en cassant un usage.
+			out += NkPrintf("tiroirs=%d|%d|%d\n", (int)mRailOuvert[0], (int)mRailOuvert[1],
+							(int)mRailOuvert[2]);
 			for (int32 i = 0; i < mNumPanels; ++i)
 				if (mPanels[i]->IsOpen()) {
+					// (25/09) LA MIGRATION SE FAIT A L'ECRITURE, pas par une suppression
+					// de fichier : le `logs/nkuidesign_ui.cfg` de Rodolf garde ses
+					// lignes `panel=` de droite -- elles sont simplement IGNOREES a la
+					// relecture -- et le prochain enregistrement ne les reecrit plus.
+					// Son fichier n'est jamais efface, et sa largeur de tiroir
+					// (`tiroir=`) n'est pas touchee.
+					if (mPanels[i] && mPanels[i]->DefaultSide() == NkEditorDockSide::NK_RIGHT
+						&& mRailCount[1] > 0)
+						continue;
 					out += "panel=";
 					// L'IDENTIFIANT, PAS LE TITRE : un libelle se renomme et se traduit.
 					out += mPanels[i]->Id();
