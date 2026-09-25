@@ -201,7 +201,22 @@ namespace nkentseu {
 						uint32 opaqueCulled = 0;
 						uint32 instancedBatches = 0;
 						uint32 instancedCulled = 0;
+						// SOUMISSIONS DONT L'ETENDUE N'A PAS ETE RENSEIGNEE.
+						// `NkAABB` naît INVERSEE (min=+1e30, max=-1e30) et `Submit`
+						// cull dessus : un appelant qui oublie `dc.aabb` voit donc
+						// sa geometrie ECARTEE EN SILENCE. Ce compteur existe pour
+						// repondre a « combien d'objets disparaissent aujourd'hui
+						// sans que personne ne le sache », avant de decider quoi
+						// que ce soit. MESURE SEULE : il ne change aucun rendu.
+						uint32 aabbNonRenseignee = 0;
 				};
+
+				// Une etendue est NON RENSEIGNEE si elle est restee inversee. Ce
+				// n'est pas la meme chose qu'une etendue VIDE mais coherente
+				// (min == max, un point) : celle-la a ete ecrite par quelqu'un.
+				static bool AABBNonRenseignee(const NkAABB &b) noexcept {
+					return b.min.x > b.max.x || b.min.y > b.max.y || b.min.z > b.max.z;
+				}
 
 				const NkCullStats &GetCullStats() const noexcept {
 					return mCullStats;
