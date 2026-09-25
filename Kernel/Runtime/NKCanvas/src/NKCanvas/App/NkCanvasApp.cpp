@@ -376,7 +376,20 @@ namespace nkentseu {
 		// CreateWindowAndTarget
 		// =====================================================================
 		bool NkCanvasApp::CreateWindowAndTarget() {
-			NkWindowConfig cfg;
+			// ⚠️ ON PART DE LA CONFIGURATION COMPLETE, PAS D'UN STRUCT VIDE.
+			//    Jusqu'au 25/09/2026 cette fonction construisait un
+			//    `NkWindowConfig` neuf et y recopiait SIX champs sur vingt-cinq.
+			//    Tout le reste — `movable`, `closable`, `minimizable`,
+			//    `maximizable`, `modal`, `canFullscreen`, `minWidth`/`maxWidth`,
+			//    `bgColor`, `alwaysOnTop`, `clickThrough`, `opacity`,
+			//    `noActivate`, `transparent`, `hasShadow`, `dropEnabled`,
+			//    `iconPath`, `native` — etait perdu ICI, avant meme d'atteindre
+			//    NKWindow. Corriger le dorsal ne pouvait donc rien changer pour
+			//    un utilisateur de NKCanvas, c'est-a-dire pour la plupart.
+			NkWindowConfig cfg = mConfig.fenetre;
+			// Les six raccourcis historiques gagnent sur la base : le code qui
+			// ne remplit que `title`/`width`/... garde exactement son
+			// comportement d'avant, a la ligne pres.
 			cfg.title = mConfig.title;
 			cfg.width = mConfig.width;
 			cfg.height = mConfig.height;
