@@ -1,0 +1,113 @@
+"""NkMessagesEnVue — LA DEMO du neuvieme puits de NKLogger.
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Trois boutons. Chacun appelle `logger.Info()`, `logger.Warn()` ou
+`logger.Error()`, ET RIEN D'AUTRE -- aucun ne dessine quoi que ce soit. Les
+messages apparaissent pourtant DANS LA VUE, avec leur couleur, leur mot de
+severite, leur duree qui depend du niveau, et la fusion des repetitions
+(« x 12 »).
+
+C'est exactement ce qu'il fallait prouver : l'emetteur ne connait pas l'ecran.
+Le chemin est `logger.*` -> NkLogger -> NkEcranLogSink (le puits) -> la boucle
+d'affichage -> NkEcranLogVue. Demain les scripts et le nodal empruntent le meme
+chemin sans une ligne a ecrire.
+
+Le quatrieme bouton DEBRANCHE le puits : c'est le NEGATIF, a la main. Apres
+l'avoir presse, plus aucun message n'apparait -- si l'un apparaissait encore,
+un autre chemin le peindrait et la demo mentirait.
+"""
+
+from Jenga import *
+from jengaconfig import *
+import os
+import shutil
+import subprocess
+
+
+with project("NkMessagesEnVue"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["NKEditorKit", "NKCanvas", "NKGui", "NKReflection", "NKWindow", "NKEvent", "NKGlad",
+         "NKFont", "NKImage", "NKLogger", "NKMath", "NKTime", "NKStream",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # ===== Windows ================================================================
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux XLib (defaut) ===================================================
+    with filter("system:Linux && options:linux-backend=xlib || system:Linux && !options:linux-backend && !options:headless"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL"])
+
+    # ===== Linux XCB =============================================================
+    with filter("system:Linux && options:linux-backend=xcb"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XCB_ONLY"])
+        links(["pthread", "xcb", "xcb-image", "xcb-icccm", "xcb-randr", "xcb-xfixes",
+               "X11", "X11-xcb", "Xext", "xkbcommon", "xkbcommon-x11", "GL"])
+        ldflags(["-fuse-ld=lld"])
+
+    # ===== macOS ==================================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+
+    # ===== Web ====================================================================
+    with filter("system:Web"):
+        consoleapp()
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_ENABLE_EMSCRIPTEN"])
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(32)
+        emscriptenextraflags([
+            "-s", "ASYNCIFY",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+        ])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)

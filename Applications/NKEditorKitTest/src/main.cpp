@@ -117,6 +117,8 @@
 // peint : le banc lit le flux, il ne croit pas un resultat rapporte.
 #include "NKEditorKit/Components/NkTabStripModel.h"
 #include "NKEditorKit/Components/NkRecordingPaint.h"
+#include "NKEditorKit/NkScreenLogSink.h" // (25/09) famille 27 : le neuvieme puits
+#include "NKEditorKit/NkScreenLogView.h" // et son affichage, eprouve dans l enregistreur
 // (o3) la porte du chrome : les couches de surfaces et PointReachable
 #include "NKEditorKit/NkEditorSurface.h"
 
@@ -141,6 +143,20 @@ namespace {
 			++gFailed;
 			printf("  [FAIL] %-6s %s\n", id, what);
 		}
+	}
+
+	/// Sous-chaine, sans <string.h> : le banc ne depend que de lui-meme.
+	bool Contient(const char *tout, const char *bout) {
+		if (!tout || !bout)
+			return false;
+		for (nkentseu::uint32 i = 0; tout[i]; ++i) {
+			nkentseu::uint32 j = 0;
+			while (bout[j] && tout[i + j] == bout[j])
+				++j;
+			if (!bout[j])
+				return true;
+		}
+		return false;
 	}
 
 	// Comparaison de chaines locale au banc. Ce n'est PAS une reimplantation de
@@ -1446,6 +1462,127 @@ int main(int argc, char **argv) {
 			NkString a("alpha"), b("beta");
 			a = b.CStr();
 			Check("26d", a == NkString("beta"), "NEGATIF : depuis une AUTRE chaine, inchange");
+		}
+	}
+
+
+	// ═══ (25/09) FAMILLE 27 : LE NEUVIEME PUITS — les messages sortent de la
+	//     console et arrivent DANS LA VUE (NkScreenLogSink + NkScreenLogView)
+	//
+	// [!] CE QUE CES CRITERES EMPECHENT DE REVENIR : un refus n'etait dit que
+	//    dans la console et dans `logs/app.log`. Rodolf a rapporte DEUX FOIS le
+	//    meme import refuse dont la raison etait ecrite en clair — ailleurs.
+	//
+	// ⚠️ LE POINT QUE CES CRITERES EPROUVENT VRAIMENT : l'emetteur n'appelle QUE
+	//    `logger.*`. Il ne connait ni l'ecran, ni la vue, ni le puits. Si un
+	//    critere passait parce que le banc a pousse lui-meme dans la vue, il ne
+	//    prouverait rien — d'ou le negatif 27g, qui coupe le puits et exige que
+	//    le message DISPARAISSE.
+	{
+		using namespace nkentseu::editorkit;
+		using nkentseu::NkLogLevel;
+
+		const nkentseu::usize avant = nkentseu::NkLog::Instance().GetSinkCount();
+		const bool branche1 = NkBrancherEcranLog(NkLogLevel::NK_WARN);
+		const nkentseu::usize apres = nkentseu::NkLog::Instance().GetSinkCount();
+		Check("27a", branche1 && apres == avant + 1,
+			  "NkBrancherEcranLog ajoute UN puits au journal global (point d'extension existant)");
+
+		const bool branche2 = NkBrancherEcranLog(NkLogLevel::NK_WARN);
+		const nkentseu::usize apres2 = nkentseu::NkLog::Instance().GetSinkCount();
+		Check("27b", !branche2 && apres2 == apres,
+			  "brancher deux fois est REFUSE (sinon chaque message serait peint deux fois)");
+
+		NkEcranLogVue vue;
+
+		// —— 27c : une ERREUR emise par `logger` arrive dans la vue ——————————
+		vue.Vider();
+		logger.Errorf("%s", "banc27 : le pivot est introuvable");
+		vue.Tick(0.016f);
+		bool vueErreur = false;
+		for (nkentseu::uint32 i = 0; i < vue.Count(); ++i)
+			if (vue.Item(i).niveau == NkLogLevel::NK_ERROR &&
+				Contient(vue.Item(i).texte, "le pivot est introuvable"))
+				vueErreur = true;
+		Check("27c", vueErreur,
+			  "logger.Error() apparait DANS LA VUE sans que l'emetteur connaisse l'ecran");
+
+		// —— 27d : le filtre du puits tient — une INFO ne monte pas a l'ecran ——
+		vue.Vider();
+		logger.Infof("%s", "banc27 : information qui ne doit PAS monter a l ecran");
+		vue.Tick(0.016f);
+		bool vueInfo = false;
+		for (nkentseu::uint32 i = 0; i < vue.Count(); ++i)
+			if (Contient(vue.Item(i).texte, "information qui ne doit"))
+				vueInfo = true;
+		Check("27d", !vueInfo,
+			  "une INFO ne monte PAS a l ecran (le puits filtre a WARN) — l ecran n est pas la console");
+
+		// —— 27e : douze fois le meme message = UNE ligne et « x 12 » ————————
+		vue.Vider();
+		for (int r = 0; r < 12; ++r)
+			logger.Warnf("%s", "banc27 : maillage sans UV");
+		vue.Tick(0.016f);
+		nkentseu::uint32 lignes = 0, repet = 0;
+		for (nkentseu::uint32 i = 0; i < vue.Count(); ++i)
+			if (Contient(vue.Item(i).texte, "maillage sans UV")) {
+				++lignes;
+				repet = vue.Item(i).repetitions;
+			}
+		Check("27e", lignes == 1 && repet == 12,
+			  "douze repetitions donnent UNE ligne et un compteur a 12, pas douze lignes");
+
+		// —— 27f : ca se PEINT — lu dans l enregistreur, sans fenetre ni GPU ——
+		{
+			NkRecordingPaint rec;
+			rec.Reset();
+			const NkPaintRect emprise = vue.Peindre(rec, {0.f, 0.f, 1280.f, 720.f});
+			bool texteVu = false, motVu = false, bandeVue = false;
+			for (nkentseu::usize c = 0; c < rec.cmds.Size(); ++c) {
+				const NkPaintCmd &k = rec.cmds[c];
+				if (k.op == NkPaintOp::Text) {
+					if (Contient(k.text.Data(), "maillage sans UV"))
+						texteVu = true;
+					if (Contient(k.text.Data(), "AVERTISSEMENT"))
+						motVu = true;
+				}
+				if (k.op == NkPaintOp::Fill && k.role == (nkentseu::uint16)NkRole::StatusWarn)
+					bandeVue = true;
+			}
+			Check("27f", texteVu && motVu && bandeVue && emprise.h > 0.f,
+				  "la vue PEINT le texte, le MOT de severite et la bande de couleur du role");
+		}
+
+		// —— 27g : LE NEGATIF — sans le puits, le message n arrive plus —————
+		//    ⚠️ C est le critere qui donne leur valeur aux six precedents. S il
+		//    restait vert, un AUTRE chemin peindrait le message et 27c ne
+		//    mesurerait pas ce qu il pretend.
+		NkDebrancherEcranLogPourNegatif();
+		vue.Vider();
+		logger.Errorf("%s", "banc27 : erreur emise SANS puits branche");
+		vue.Tick(0.016f);
+		bool vueApresRetrait = false;
+		for (nkentseu::uint32 i = 0; i < vue.Count(); ++i)
+			if (Contient(vue.Item(i).texte, "SANS puits branche"))
+				vueApresRetrait = true;
+		Check("27g", !vueApresRetrait,
+			  "NEGATIF : puits retire, le message n apparait PLUS dans la vue");
+
+		// —— 27h : le vieillissement efface, et il depend du NIVEAU ———————
+		{
+			NkEcranLogVue v2;
+			v2.Poser(NkLogLevel::NK_INFO, "info courte");
+			v2.Poser(NkLogLevel::NK_ERROR, "erreur longue");
+			v2.Tick(8.f); // > 6 s (info), < 20 s (erreur)
+			bool resteErreur = false, resteInfo = false;
+			for (nkentseu::uint32 i = 0; i < v2.Count(); ++i) {
+				if (Contient(v2.Item(i).texte, "erreur longue"))
+					resteErreur = true;
+				if (Contient(v2.Item(i).texte, "info courte"))
+					resteInfo = true;
+			}
+			Check("27h", resteErreur && !resteInfo,
+				  "apres 8 s l INFO a disparu et l ERREUR est toujours la (la duree suit le niveau)");
 		}
 	}
 

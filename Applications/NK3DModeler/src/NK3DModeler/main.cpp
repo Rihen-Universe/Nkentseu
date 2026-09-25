@@ -46,6 +46,7 @@
 #include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
 #include "NK3DModeler/Shell/NkModelerJournal.h"
 #include "NK3DModeler/Shell/NkModelerToast.h" // le resultat d'une action, DIT A L'ECRAN
+#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
 #include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
@@ -58,6 +59,7 @@
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
+#include "NKEditorKit/NkScreenLogSink.h" // (25/09) LE NEUVIEME PUITS : les messages sortent de la console
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
@@ -719,6 +721,237 @@ int nkmain(const NkEntryState &entry) {
 	// ⚠ IL N'EST PAS ECRIT A LA MAIN : il parcourt la table des verbes et la
 	//   table des parametres. Un contrat recopie decrirait, tot ou tard, un outil
 	//   qui n'existe plus.
+	// ── `--sonde-messages` : LES MESSAGES EN VUE, SANS FENETRE (25/09) ─────
+	// Aucune fenetre, aucun device, aucune souris. Elle eprouve le CHEMIN :
+	// `logger.*` -> le puits d'ecran de NKEditorKit -> la pile de bandeaux.
+	//
+	// ⚠️ ELLE APPELLE `NkToastDrainerJournal()`, LA VRAIE -- celle que la boucle
+	//    appelle. Elle n'a aucun drainage a elle : une sonde qui reecrit le
+	//    chemin qu'elle mesure ne peut voir aucun defaut de ce chemin.
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-messages")))
+			continue;
+		uint32 ok = 0, ko = 0;
+		auto verdict = [&](const char *id, bool cond, const char *quoi) {
+			if (cond) {
+				++ok;
+				std::printf("  [ ok ] %-5s %s\n", id, quoi);
+			} else {
+				++ko;
+				std::printf("  [FAIL] %-5s %s\n", id, quoi);
+			}
+		};
+		std::printf("=== sonde messages en vue (NK3DModeler) ===\n");
+
+		nk3d::NkToastClear();
+		verdict("m0", nk3d::NkToasts().count == 0, "NEGATIF DE DEPART : la pile est vide");
+
+		// (0) SANS PUITS, RIEN NE MONTE. C'est le negatif qui donne leur valeur
+		//     a tous les criteres suivants.
+		logger.Warnf("%s", "sonde : avant tout branchement");
+		(void)nk3d::NkToastDrainerJournal();
+		verdict("m1", nk3d::NkToasts().count == 0,
+				"NEGATIF : puits non branche, un logger.Warn ne pose AUCUN bandeau");
+
+		editorkit::NkBrancherEcranLog(NkLogLevel::NK_WARN);
+
+		// (1) UN AVERTISSEMENT MONTE, UNE INFORMATION NON.
+		nk3d::NkToastClear();
+		logger.Warnf("%s", "sonde : ce maillage n a pas d UV");
+		(void)nk3d::NkToastDrainerJournal();
+		const int32 apresWarn = nk3d::NkToasts().count;
+		logger.Infof("%s", "sonde : une information qui ne doit pas monter");
+		(void)nk3d::NkToastDrainerJournal();
+		verdict("m2", apresWarn == 1 && nk3d::NkToasts().count == 1,
+				"logger.Warn pose UN bandeau ; logger.Info n en pose AUCUN");
+
+		// (2) UNE ERREUR DEVIENT UN REFUS, ET UN REFUS N EXPIRE PAS.
+		nk3d::NkToastClear();
+		logger.Errorf("%s", "sonde : le materiau n a pas de nuanceur");
+		(void)nk3d::NkToastDrainerJournal();
+		verdict("m3",
+				nk3d::NkToasts().count == 1 &&
+					nk3d::NkToasts().items[0].kind == nk3d::NkToastKind::Refus &&
+					nk3d::NkToasts().items[0].restant <= 0.f,
+				"logger.Error devient un REFUS, qui n expire pas tout seul");
+
+		// (3) DOUZE FOIS LE MEME MESSAGE = UNE LIGNE ET « x 12 ».
+		nk3d::NkToastClear();
+		for (int32 r = 0; r < 12; ++r)
+			logger.Errorf("%s", "sonde : douze fois la meme chose");
+		(void)nk3d::NkToastDrainerJournal();
+		verdict("m4",
+				nk3d::NkToasts().count == 1 && nk3d::NkToasts().items[0].repetitions == 12u,
+				"douze repetitions : UNE ligne, compteur a 12");
+
+		// (4) 🔴 LE DEFAUT QUE LA MESURE A TROUVE, ET SA REPARATION.
+		//     `NkImportNote` pose le bandeau AVEC son verdict, PUIS journalise le
+		//     MEME texte prefixe de « [import] ». Sans la marque « je viens du
+		//     journal », le refus s afficherait deux fois -- en rouge et en ambre --
+		//     et comme un refus n expire pas, les deux resteraient.
+		nk3d::NkToastClear();
+		{
+			const char *refus = "Import REFUSE : ouvrez une SCENE avant d importer";
+			nk3d::NkToastPush(nk3d::NkToastKind::Refus, refus); // ce que fait le produit
+			logger.Warnf("[import] %s", refus);					// et ce qu il journalise
+			(void)nk3d::NkToastDrainerJournal();
+			verdict("m5", nk3d::NkToasts().count == 1,
+					"un refus pose PUIS journalise ne s affiche qu UNE fois");
+			verdict("m6", nk3d::NkToasts().count == 1 && nk3d::NkToasts().items[0].repetitions == 1u,
+					"et son compteur reste a 1 : l echo du journal ne compte pas");
+			verdict("m7",
+					nk3d::NkToasts().count == 1 &&
+						nk3d::NkToasts().items[0].kind == nk3d::NkToastKind::Refus &&
+						nk3d::NkToasts().items[0].restant <= 0.f,
+					"il reste un REFUS permanent (l echo ne le degrade pas en 12 secondes)");
+		}
+
+		// (5) LE NEGATIF DE (4), SANS MUTER LE CODE : le MEME appel, mais sans la
+		//     marque, doit donner DEUX bandeaux. C est ce qui prouve que la marque
+		//     est bien ce qui fait la difference, et pas un hasard de comparaison.
+		nk3d::NkToastClear();
+		{
+			const char *refus = "Import REFUSE : ouvrez une SCENE avant d importer";
+			nk3d::NkToastPush(nk3d::NkToastKind::Refus, refus);
+			nk3d::NkToastPush(nk3d::NkToastKind::Partiel, "[import] Import REFUSE : ouvrez une SCENE avant d importer",
+							  1u, /*venuDuJournal*/ false);
+			verdict("m8", nk3d::NkToasts().count == 2,
+					"NEGATIF : sans la marque, le meme refus donne bien DEUX bandeaux");
+		}
+
+		nk3d::NkToastClear();
+		std::printf("RESULTAT : %u/%u\n", ok, ok + ko);
+		std::fflush(stdout);
+		return ko == 0 ? 0 : 1;
+	}
+
+	// ── `--sonde-ui-etat` : LA DISPOSITION, EPROUVEE SANS FENETRE (25/09) ───
+	// Aucune fenetre, aucun device, aucune souris. Elle eprouve les deux moities
+	// du critere de Rodolf qui ne demandent PAS un geste humain :
+	//   (1) la largeur survit a l'aller-retour par le disque ;
+	//   (2) aucune des deux sections ne peut disparaitre, y compris quand le
+	//       fichier porte une absurdite (le tiroir de rail declarait 999 980 px).
+	// Ce qu'elle NE mesure PAS, et qui reste a Rodolf : que la poignee reponde
+	// a la souris. Une sonde qui pretendrait le mesurer sans souris mentirait.
+	//
+	// ⚠️ ELLE APPELLE `NkBrowserTreeW`, LA VRAIE. Elle n'a aucun calcul a elle :
+	//    une sonde qui recalcule la borne ne peut voir aucun defaut de borne.
+	// ⚠️ ELLE ECRIT DANS LE FICHIER QU'ON LUI DONNE, jamais dans celui de
+	//    l'utilisateur : le chemin est passe EN ARGUMENT a Save/Load, il n'y a
+	//    donc aucune variable d'environnement a penser a poser -- et rien a
+	//    oublier. *Un garde-fou qu'il faut armer se fera oublier.*
+	for (usize a = 0; a < entry.args.Size(); ++a) {
+		if (!(entry.args[a] == NkString("--sonde-ui-etat")))
+			continue;
+		const NkString out = (a + 1u < entry.args.Size()) ? entry.args[a + 1u]
+														  : NkString("sonde_ui_etat.cfg");
+		const char *cheminSonde = out.CStr();
+		uint32 ok = 0, ko = 0;
+		auto verdict = [&](const char *id, bool cond, const char *quoi) {
+			if (cond) {
+				++ok;
+				std::printf("  [ ok ] %-5s %s\n", id, quoi);
+			} else {
+				++ko;
+				std::printf("  [FAIL] %-5s %s\n", id, quoi);
+			}
+		};
+		std::printf("=== sonde disposition NK3DModeler -> %s ===\n", out.CStr());
+
+		// (1) ALLER-RETOUR : une largeur choisie revient a l'identique.
+		{
+			nk3d::NkModelerState a1;
+			a1.browserTreeFrac = 0.3725f;
+			a1.leftFrac = 0.2100f;
+			nk3d::NkSaveUiState(a1, cheminSonde);
+			nk3d::NkModelerState b1; // neuf : ses champs valent le DEFAUT
+			verdict("u0", b1.browserTreeFrac != a1.browserTreeFrac,
+					"NEGATIF DE DEPART : un etat neuf ne porte PAS la valeur ecrite");
+			nk3d::NkLoadUiState(b1, cheminSonde);
+			const float32 d = b1.browserTreeFrac - 0.3725f;
+			verdict("u1", d < 0.0002f && d > -0.0002f,
+					"la largeur de la separation revient du disque a l'identique");
+			const float32 dl = b1.leftFrac - 0.21f;
+			verdict("u2", dl < 0.0002f && dl > -0.0002f,
+					"et les autres separateurs aussi (la promesse de NkModelerInput.h, enfin tenue)");
+		}
+
+		// (2) DIX FERMETURES ET REOUVERTURES : la valeur ne DERIVE pas.
+		{
+			nk3d::NkModelerState c;
+			c.browserTreeFrac = 0.4200f;
+			float32 vu = 0.f;
+			for (int32 tour = 0; tour < 10; ++tour) {
+				nk3d::NkSaveUiState(c, cheminSonde);
+				nk3d::NkModelerState d2;
+				nk3d::NkLoadUiState(d2, cheminSonde);
+				c = d2;
+				vu = d2.browserTreeFrac;
+			}
+			const float32 e = vu - 0.42f;
+			verdict("u3", e < 0.0002f && e > -0.0002f,
+					"apres DIX aller-retours, la valeur n'a pas derive d'un millieme");
+		}
+
+		// (3) LES BORNES, MESUREES -- et des DEUX cotes.
+		{
+			nk3d::NkModelerState g;
+			g.browserTreeFrac = 999980.f; // la valeur exacte du tiroir de rail
+			nk3d::NkSaveUiState(g, cheminSonde);
+			nk3d::NkModelerState h2;
+			nk3d::NkLoadUiState(h2, cheminSonde);
+			verdict("u4", h2.browserTreeFrac <= nk3d::kBrowserTreeFracMax,
+					"999 980 relu est RAMENE a la borne haute (il ne ferme pas la grille)");
+			nk3d::NkModelerState i2;
+			i2.browserTreeFrac = -12.f;
+			nk3d::NkSaveUiState(i2, cheminSonde);
+			nk3d::NkModelerState j2;
+			nk3d::NkLoadUiState(j2, cheminSonde);
+			verdict("u5", j2.browserTreeFrac >= nk3d::kBrowserTreeFracMin,
+					"une valeur NEGATIVE est ramenee a la borne basse (il ne ferme pas l'arbre)");
+		}
+
+		// (4) LA GEOMETRIE : aucune section ne disparait, a AUCUNE largeur.
+		{
+			const float32 largeurs[7] = {320.f, 640.f, 1280.f, 1920.f, 3840.f, 200.f, 380.f};
+			const float32 fracs[5] = {nk3d::kBrowserTreeFracMin, 0.18f, 0.42f,
+									  nk3d::kBrowserTreeFracMax, 0.f};
+			bool arbreOk = true, grilleOk = true, dedansOk = true;
+			float32 pireW = 0.f, pireF = 0.f, pireA = 0.f, pireG = 0.f;
+			for (int32 w = 0; w < 7; ++w) {
+				for (int32 k = 0; k < 5; ++k) {
+					const float32 tw = nk3d::NkBrowserTreeW(largeurs[w], fracs[k]);
+					const float32 gw = largeurs[w] - tw;
+					if (tw <= 0.f || gw <= 0.f) {
+						dedansOk = false;
+						pireW = largeurs[w];
+						pireF = fracs[k];
+						pireA = tw;
+						pireG = gw;
+					}
+					// Au-dessus de la somme des deux planchers, les deux planchers
+					// doivent TENIR. En dessous, on partage -- et c'est dit.
+					if (largeurs[w] >= nk3d::NkBrowserTreeMinPx() + nk3d::NkBrowserGridMinPx()) {
+						if (tw < nk3d::NkBrowserTreeMinPx() - 0.5f)
+							arbreOk = false;
+						if (gw < nk3d::NkBrowserGridMinPx() - 0.5f)
+							grilleOk = false;
+					}
+				}
+			}
+			if (!dedansOk)
+				std::printf("         pire cas : panneau=%.0f frac=%.3f -> arbre=%.1f grille=%.1f\n",
+							(double)pireW, (double)pireF, (double)pireA, (double)pireG);
+			verdict("u6", dedansOk, "35 combinaisons largeur x fraction : les DEUX sections restent > 0");
+			verdict("u7", arbreOk, "l'arbre ne descend jamais sous son plancher en PIXELS");
+			verdict("u8", grilleOk, "ni la grille sous le sien");
+		}
+
+		std::printf("RESULTAT : %u/%u\n", ok, ok + ko);
+		std::fflush(stdout);
+		return ko == 0 ? 0 : 1;
+	}
+
 	for (usize a = 0; a < entry.args.Size(); ++a) {
 		if (!(entry.args[a] == NkString("--contrat-outils")))
 			continue;
@@ -1786,6 +2019,29 @@ int nkmain(const NkEntryState &entry) {
 	NkClock clock;
 	uint32 lastW = real0.x, lastH = real0.y;
 
+	// ── LA DISPOSITION D'HIER (25/09, demande de Rodolf) ────────────────────
+	// Les cinq fractions des separateurs, relues du fichier de disposition. Lu
+	// ICI, avant la premiere image : `lay.Compute()` les lit des la premiere.
+	// ⚠️ Absent au premier lancement, et c'est NORMAL : les valeurs par defaut
+	//    de `NkModelerState` tiennent, et `Compute()` applique ses planchers.
+	nk3d::NkLoadUiState(st);
+
+	// ── LES MESSAGES SORTENT DE LA CONSOLE (25/09, demande de Rodolf) ───────
+	// Le journal recoit un NEUVIEME puits -- celui qui ecrit a l'ecran. A partir
+	// d'ici, TOUT ce qui appelle `logger.Warn` ou `logger.Error`, dans N'IMPORTE
+	// QUEL module (rendu, import, physique, et demain les scripts et le nodal),
+	// apparait dans la vue. Aucun de ces modules n'a une ligne a changer, et
+	// aucun ne connait l'ecran : c'est tout l'interet d'un puits.
+	//
+	// ⚠️ LE PUITS NE DESSINE PAS. `NkLogger::LogInternal` appelle les puits sur
+	//    LE FIL DE L'APPELANT ; dessiner depuis la ferait planter le jour ou un
+	//    fil de travail journalise. Il DEPOSE ; la boucle RELIT plus bas.
+	//
+	// ⚠️ NIVEAU `WARN` : une information n'interrompt pas le travail. Les succes
+	//    et les refus d'action continuent de passer par `NkToastPush` directement
+	//    (l'import, par exemple) -- ils ne sont pas des messages de journal.
+	editorkit::NkBrancherEcranLog(NkLogLevel::NK_WARN);
+
 	// ── BOUCLE ──────────────────────────────────────────────────────────────
 	while (st.running && window.IsOpen()) {
 		while (NkEvent *ev = NkEvents().PollEvent()) {
@@ -1837,6 +2093,16 @@ int nkmain(const NkEntryState &entry) {
 			dt = 1.f / 60.f;
 		// Les messages a l'ecran vieillissent en SECONDES, pas en images.
 		nk3d::NkToastTick(dt);
+		// ── CE QUE LE PUITS A DEPOSE DEVIENT UN BANDEAU ─────────────────────
+		// ICI, et seulement ici, on est sur le fil d'affichage. Le puits est vide
+		// dans la meme image : rien ne s'accumule, rien ne se perd.
+		//
+		// ⚠️ LA PILE DE BANDEAUX DE NK3DModeler EST MEILLEURE QUE CELLE DU KIT
+		//    (repli du texte, croix de fermeture, couche d'incrustation). On la
+		//    NOURRIT, on ne la remplace pas : « on branche, on ne batit pas ».
+		//    Un hote qui n'en a pas (Nogee, NkAnimaEditor, NKScena) prendra
+		//    `editorkit::NkEcranLogVue`, qui peint la meme chose.
+		(void)nk3d::NkToastDrainerJournal();
 
 		// LA TAILLE DE VUE SUIT LA FENETRE. `NkGuiContext::Init` la pose une fois
 		// et ne la revoit jamais : apres un redimensionnement, tout composant qui

@@ -41,6 +41,7 @@
 // -----------------------------------------------------------------------------
 #include "NK3DModeler/Shell/NkModelerUI.h"
 #include "NK3DModeler/Shell/NkModelerWidgets.h" // NkOvPainter : la couche peinte EN DERNIER
+#include "NKEditorKit/NkScreenLogSink.h" // (25/09) LE NEUVIEME PUITS : ce qu il depose arrive ici
 
 namespace nkentseu {
 	namespace nk3d {
@@ -64,6 +65,20 @@ namespace nkentseu {
 				NkToastKind kind = NkToastKind::Succes;
 				float32 restant = 0.f; ///< secondes restantes ; <= 0 = permanent
 				bool ferme = false;	   ///< la croix a ete cliquee
+				/// (25/09) D'OU VIENT CE BANDEAU. Le puits d'ecran de NKLogger fait
+				/// remonter TOUT ce qui est journalise au-dessus de l'avertissement --
+				/// y compris l'echo d'un message que le code produit a DEJA pose
+				/// lui-meme. `NkImportNote` fait exactement cela : `NkToastPush(buf)`
+				/// puis `logger.Warnf("[import] %s", buf)`. Sans cette marque, le meme
+				/// refus s'afficherait DEUX FOIS -- et comme un refus n'expire pas,
+				/// les deux resteraient. Mesure faite avant d'ecrire ce champ.
+				bool venuDuJournal = false;
+				/// (25/09) FUSION DES REPETITIONS. Le puits d'ecran de NKEditorKit
+				/// fait remonter des messages qui peuvent se repeter des dizaines
+				/// de fois par seconde (une boucle de rendu qui refuse un maillage).
+				/// Douze bandeaux identiques chassent tout le reste de l'ecran ;
+				/// un bandeau et « x 12 » disent la meme chose et laissent la place.
+				uint32 repetitions = 1;
 		};
 
 		struct NkToastPile {
@@ -86,8 +101,73 @@ namespace nkentseu {
 
 		/// Pose un message a l'ecran. Un REFUS reste tant qu'on ne le ferme pas ;
 		/// un PARTIEL douze secondes (il y a plus a lire) ; un succes six.
-		inline void NkToastPush(NkToastKind kind, const char *texte) {
+		/// Deux textes disent-ils LE MEME message ? Egaux, ou bien l'un est le
+		/// SUFFIXE de l'autre -- c'est le cas de l'echo du journal, qui prefixe la
+		/// source entre crochets (« [import] » ). Le seuil de longueur evite
+		/// qu'« Annule » et « Import annule » ne soient pris l'un pour l'autre par
+		/// accident : en dessous de douze caracteres, on exige l'egalite stricte.
+		inline bool NkToastMemeMessage(const char *a, const char *b) {
+			if (!a || !b)
+				return false;
+			uint32 la = 0, lb = 0;
+			while (a[la])
+				++la;
+			while (b[lb])
+				++lb;
+			if (la == lb) {
+				for (uint32 i = 0; i < la; ++i)
+					if (a[i] != b[i])
+						return false;
+				return true;
+			}
+			const char *court = (la < lb) ? a : b;
+			const char *long_ = (la < lb) ? b : a;
+			const uint32 lc = (la < lb) ? la : lb, ll = (la < lb) ? lb : la;
+			if (lc < 12u)
+				return false;
+			for (uint32 i = 0; i < lc; ++i)
+				if (court[i] != long_[ll - lc + i])
+					return false;
+			return true;
+		}
+
+		inline void NkToastPush(NkToastKind kind, const char *texte, uint32 repetitions = 1,
+								bool venuDuJournal = false) {
 			NkToastPile &pl = NkToasts();
+			// (25/09) MEME TEXTE, MEME SEVERITE, DEJA A L'ECRAN : on compte, on
+			// n'empile pas. Et la duree repart : un message qui se repete est un
+			// message encore vrai.
+			if (texte) {
+				for (int32 i = 0; i < pl.count; ++i) {
+					if (pl.items[i].ferme)
+						continue;
+					// ⚠️ LE `kind` N'ENTRE PLUS DANS LA COMPARAISON quand l'un des deux
+					//    vient du journal : `NkImportNote` pose un `Refus` et journalise
+					//    en `Warn`, que le puits traduit en `Partiel`. Exiger le meme
+					//    verdict ferait echouer la fusion sur le cas meme qu'elle doit
+					//    couvrir -- et le refus s'afficherait deux fois, en deux couleurs.
+					const bool memeVerdict = (pl.items[i].kind == kind);
+					const bool echo = venuDuJournal || pl.items[i].venuDuJournal;
+					if (!memeVerdict && !echo)
+						continue;
+					if (NkToastMemeMessage(pl.items[i].texte, texte)) {
+						// L'ECHO NE COMPTE PAS. Un message deja pose par le code produit
+						// et re-vu par le journal reste UN message : il voit sa duree
+						// repartir, pas son compteur monter.
+						if (!(venuDuJournal && !pl.items[i].venuDuJournal))
+							pl.items[i].repetitions += repetitions;
+						// ⚠️ LA DUREE SE RELIT SUR LE BANDEAU EXISTANT, PAS SUR L'ARRIVANT.
+						//    Avec l'arrivant, l'echo d'un REFUS (permanent) -- que le
+						//    puits traduit en « Partiel » -- lui posait douze secondes
+						//    et le faisait disparaitre. Un refus qui s'efface tout seul
+						//    est exactement le defaut qu'on repare.
+						pl.items[i].restant = (pl.items[i].kind == NkToastKind::Refus)	  ? 0.f
+											  : (pl.items[i].kind == NkToastKind::Partiel) ? 12.f
+																						   : 6.f;
+						return;
+					}
+				}
+			}
 			if (pl.count >= kToastMax) {
 				// Le plus ANCIEN cede, jamais le plus recent : c'est le dernier
 				// message qui repond au dernier geste.
@@ -102,6 +182,8 @@ namespace nkentseu {
 						: (kind == NkToastKind::Partiel) ? 12.f
 														 : 6.f;
 			t.ferme = false;
+			t.repetitions = repetitions < 1u ? 1u : repetitions;
+			t.venuDuJournal = venuDuJournal;
 		}
 
 		/// Fait vieillir la pile. Appele UNE fois par image avec le vrai `dt` de
@@ -127,6 +209,48 @@ namespace nkentseu {
 		}
 
 		inline void NkToastClear() { NkToasts().count = 0; }
+
+		// ── CE QUE LE PUITS D'ECRAN A DEPOSE DEVIENT DES BANDEAUX (25/09) ───────
+		// Le neuvieme puits de NKLogger (`NKEditorKit/NkScreenLogSink.h`) depose
+		// sur le fil de l'emetteur ; cette fonction RELIT, et elle n'est appelee
+		// que depuis le fil d'affichage.
+		//
+		// ⚠️ ELLE EST UNE FONCTION, ET PAS DIX LIGNES DANS LA BOUCLE, POUR UNE
+		//    SEULE RAISON : la sonde `--sonde-messages` appelle EXACTEMENT ce que
+		//    le produit appelle. Une sonde qui reecrirait ce drainage de son cote
+		//    ne pourrait voir aucun defaut de drainage -- c'est le piege du 18/08,
+		//    ou une sonde annoncait 72/72 devant un ecran magenta.
+		inline uint32 NkToastDrainerJournal() {
+			editorkit::NkEcranLogSink *puits = editorkit::NkEcranLogPuits();
+			if (!puits)
+				return 0;
+			// LE ZERO SE DIT : ce qu'une rafale a fait tomber du tampon est annonce,
+			// sinon l'ecran affirme une completude qu'il n'a pas.
+			const uint32 perdus = puits->ReprendrePerdus();
+			editorkit::NkEcranLogEntree lot[editorkit::kEcranLogMax];
+			const uint32 n = puits->Drain(lot, editorkit::kEcranLogMax);
+			for (uint32 i = 0; i < n; ++i) {
+				// AVERTISSEMENT -> « PARTIEL » (ambre), ERREUR et au-dela -> « REFUSE »
+				// (rouge). Les trois verdicts du bandeau disent une ACTION ; les trois
+				// niveaux du journal disent une GRAVITE. La correspondance est ecrite
+				// ici, une fois.
+				const NkToastKind k = (lot[i].niveau >= NkLogLevel::NK_ERROR) ? NkToastKind::Refus
+																			  : NkToastKind::Partiel;
+				// ⚠️ LE QUATRIEME ARGUMENT DIT « JE VIENS DU JOURNAL », et il compte :
+				//    `NkImportNote` pose deja son bandeau ET journalise le meme texte
+				//    prefixe de « [import] ». Sans cette marque, chaque refus d'import
+				//    s'afficherait DEUX FOIS -- et comme un refus n'expire pas, les deux
+				//    resteraient a l'ecran. Mesure faite avant d'ecrire la ligne.
+				NkToastPush(k, lot[i].texte, lot[i].repetitions, /*venuDuJournal*/ true);
+			}
+			if (perdus > 0) {
+				char b[80];
+				snprintf(b, sizeof(b), "%u message(s) perdu(s) : rafale plus longue que le tampon",
+						 (unsigned)perdus);
+				NkToastPush(NkToastKind::Partiel, b, 1u, true);
+			}
+			return n;
+		}
 
 		/// LA PILE, PEINTE. En BAS AU CENTRE, juste au-dessus de la barre d'etat :
 		/// c'est la zone que l'oeil balaie apres une action, et elle ne recouvre
@@ -199,6 +323,14 @@ namespace nkentseu {
 				const float32 tx = r.x + bande + pad;
 				// Ligne 1 : le MOT. Ligne 2+ : la phrase, repliee.
 				p.TextV(tx, r.y + pad * 0.5f, lh, NkToastMot(t.kind), accent);
+				// « x 12 » A DROITE DU MOT. Il n'apparait qu'a partir de DEUX :
+				// « x 1 » sur chaque message serait du bruit permanent.
+				if (t.repetitions > 1) {
+					char rep[24];
+					snprintf(rep, sizeof(rep), "x %u", (unsigned)t.repetitions);
+					p.TextV(tx + p.TextW(NkToastMot(t.kind)) + S(10.f), r.y + pad * 0.5f, lh, rep,
+							accent);
+				}
 				p.Clip({r.x, r.y, r.w - croixW, r.h});
 				(void)p.TextWrap(tx, r.y + pad * 0.5f + lh, dispo, t.texte, NkRole::Text);
 				p.Unclip();

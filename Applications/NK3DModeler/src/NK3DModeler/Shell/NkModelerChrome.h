@@ -17,6 +17,7 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
 
 namespace nkentseu {
 	namespace nk3d {
@@ -85,6 +86,11 @@ namespace nkentseu {
 			if (st.dragSplitter >= 0) {
 				if (!hit.MouseDown()) {
 					st.dragSplitter = -1;
+					// (25/09) LA DISPOSITION SURVIT A LA FERMETURE. Ecrite au
+					// RELACHEMENT et non a la sortie : une application fermee par la
+					// croix de l'OS n'ecrirait jamais rien. Voir `NkModelerUiState.h`
+					// -- et la promesse non tenue qui y est mesuree.
+					NkSaveUiState(st);
 				} else {
 					const Sp &sp = sps[st.dragSplitter];
 					const float32 now = sp.vertical ? hit.Mouse().x : hit.Mouse().y;
