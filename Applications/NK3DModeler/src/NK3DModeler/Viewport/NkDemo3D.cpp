@@ -6780,7 +6780,37 @@ namespace nkentseu {
 				if (st->maskedMat && st->maskedTex.IsValid())
 					st->maskedMat->SetAlbedoMap(st->maskedTex)->SetRoughness(0.8f)->SetCastShadowAlphaTest(true);
 			}
-			if (texLib && r3d) {
+			// ── LE COOKIE DE LABO : CHARGE SEULEMENT SI LE LABO EST ALLUME ──
+			// MESURE (coordinateur, 25/09) : `test_pattern.png` est une ressource
+			// VERSIONNEE (262 488 octets, suivie par git), et elle a QUATRE
+			// consommateurs reels, tous des bancs :
+			//   Kernel/Runtime/NKRenderer/tests/test_texture_asset.cpp (4 sites)
+			//   Kernel/Runtime/NKImage/tests/test_texture_bake.cpp
+			//   Applications/Sandbox/src/Demo/DemoStream.cpp
+			//   Applications/Sandbox/src/Demo/main.cpp
+			// ⚠️ ELLE NE SE SUPPRIME DONC PAS. Ce qui se deplace, c'est ce que LE
+			//    MODELEUR en fait : il la chargeait inconditionnellement pour la
+			//    donner en cookie au spot de DEMONSTRATION -- un spot qui n'existe
+			//    plus dans un projet utilisateur. Elle ne nourrissait rien ici.
+			//
+			// ⚠️ ET J'AVAIS TORT SUR LE MOTIF. J'avais ecrit « un fichier ecrit sur
+			//    le disque de Rodolf a chaque lancement » : faux. Le code dit
+			//    « generer SI ABSENT », et elle n'est jamais absente. La branche
+			//    d'ecriture n'a jamais tire ici. *Un « si absent » ne dit pas ce
+			//    qui se passe : il dit ce qui se passerait.*
+			//
+			// CONDITION DE RETRAIT de la generation : le jour ou la construction
+			// GARANTIT la presence de la ressource (copie de Resources/ verifiee
+			// au demarrage, ou echec nomme), `GenerateTestPatternPNG` et ses deux
+			// chemins de repli partent. Tant que ce jour n'est pas venu, elle
+			// reste -- c'est elle qui sauverait une machine neuve, et c'est la
+			// seule ou l'ecriture surprise pourrait arriver.
+			//
+			// ⚠️ LA GARDE EST LUE A L'INITIALISATION, une fois. Allumer le labo en
+			//    cours de session n'ira pas rechercher le cookie : il faut
+			//    relancer. C'est assume -- charger une texture au milieu d'une
+			//    image pour un diagnostic couterait plus que ca ne rapporte.
+			if (texLib && r3d && nkvpHudOn) {
 				// Phase H : test de la pipeline file-based.
 				// On genere un PNG "test_pattern.png" puis on le charge via
 				// NkTextureLibrary::Load(). Si la chaine fonctionne, on l'utilise
