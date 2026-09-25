@@ -21,6 +21,14 @@ namespace nkentseu {
 			}
 		} // namespace
 
+		bool NkSculptMasqueIgnore() noexcept {
+			static const bool sIgnore = []() {
+				const char *v = std::getenv("NK_MASQUE_IGNORE");
+				return v && v[0] && v[0] != '0';
+			}();
+			return sIgnore;
+		}
+
 		float32 NkSculptSignedVolume(const NkEditMesh &mesh) noexcept {
 			// Somme des produits mixtes sur un eventail par face. Pour une surface
 			// fermee, c'est SIX fois le volume signe ; on divise donc par 6. Pour
@@ -377,11 +385,7 @@ namespace nkentseu {
 				// banc qui disent « le masque protege » DOIVENT alors rougir ; sans
 				// ce negatif, ils pourraient etre verts pour une autre raison (un
 				// trait qui rate le maillage rend aussi « rien n'a bouge »).
-				static const bool sIgnoreMasque = []() {
-					const char *v = std::getenv("NK_MASQUE_IGNORE");
-					return v && v[0] && v[0] != '0';
-				}();
-				const float32 protege = sIgnoreMasque ? 0.f : mesh.MaskAt(i);
+				const float32 protege = NkSculptMasqueIgnore() ? 0.f : mesh.MaskAt(i);
 				const NkVec3f d = (protege > 0.f) ? dBrut * (1.f - protege) : dBrut;
 				if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
 					continue; // entierement protege : ce sommet ne compte pas comme deplace
