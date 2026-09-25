@@ -1413,6 +1413,43 @@ int main(int argc, char **argv) {
 	}
 
 
+	// ═══ (25/09) NkString : UNE AFFECTATION DEPUIS SON PROPRE TAMPON ═════════
+	//
+	// 🔴 `operator=(const char *)` faisait `Clear()` PUIS `Append(str)`. Si `str`
+	//    pointe dans le tampon de la chaine elle-meme, `Clear()` y a deja ecrit un
+	//    ' ' -- et `Append` peut en plus REALLOUER (petite chaine -> tas) en lisant
+	//    l'ancien. Une faute qui compile, qui passe souvent, et qui tombe parfois.
+	// ⚠️ LA GARDE DE `operator=(const NkString&)` NE COUVRAIT PAS CE CAS : elle teste
+	//    `this != &other`, ce qui protege `a = a` mais PAS `a = <un pointeur dans a>`.
+	{
+		using nkentseu::NkString;
+		{
+			NkString s("Modeles/bob/geometry_0.nkgeo");
+			s = s.CStr();
+			Check("26a", s == NkString("Modeles/bob/geometry_0.nkgeo"),
+				  "s = s.CStr() garde la chaine (elle devenait VIDE, en silence)");
+		}
+		{
+			NkString s("Modeles/bob/geometry_0.nkgeo");
+			s = s.CStr() + 8;
+			Check("26b", s == NkString("bob/geometry_0.nkgeo"),
+				  "s = s.CStr() + 8 garde la fin -- c'est le cas qui REALLOUE");
+		}
+		{
+			NkString s("court");
+			s = s.CStr() + 2;
+			Check("26c", s == NkString("urt"), "meme chose sur une PETITE chaine (sans tas)");
+		}
+		{
+			// NEGATIF : depuis une AUTRE chaine, rien ne doit changer -- la defense ne
+			// doit pas se declencher partout.
+			NkString a("alpha"), b("beta");
+			a = b.CStr();
+			Check("26d", a == NkString("beta"), "NEGATIF : depuis une AUTRE chaine, inchange");
+		}
+	}
+
+
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);
 	if (gFailed) {
