@@ -57,6 +57,15 @@ namespace nkentseu {
 		struct NkDelMenuEntry {
 				NkDelCmd cmd;
 				const char *label;
+				/// ⚠️ LE GROUPE, PAS LE TRAIT. Blender range ses onze commandes en
+				///    QUATRE groupes, et le groupe est une information : « ces trois-la
+				///    vont ensemble » se lit sans un mot. Une liste de onze libelles
+				///    oblige a tout lire pour en trouver un.
+				///    On stocke le NUMERO DE GROUPE et on en DERIVE le trait, au lieu
+				///    de poser un booleen « trait apres » : ajouter une entree au milieu
+				///    d'un groupe deplacerait sinon le trait d'une ligne sans que
+				///    personne le remarque.
+				int32 groupe;
 		};
 
 		inline const NkDelMenuEntry *NkDelMenuTable(int32 &count) {
@@ -64,17 +73,17 @@ namespace nkentseu {
 			// sous-mode a l'autre n'est pas la PRESENCE mais la DISPONIBILITE --
 			// voir `NkDelMenuMotif`.
 			static const NkDelMenuEntry kT[] = {
-				{NkDelCmd::Vertices, "Sommets"},
-				{NkDelCmd::Edges, "Aretes"},
-				{NkDelCmd::Faces, "Faces"},
-				{NkDelCmd::OnlyEdgesFaces, "Seulement aretes et faces"},
-				{NkDelCmd::OnlyFaces, "Seulement les faces"},
-				{NkDelCmd::DissolveVerts, "Dissoudre les sommets"},
-				{NkDelCmd::DissolveEdges, "Dissoudre les aretes"},
-				{NkDelCmd::DissolveFaces, "Dissoudre les faces"},
-				{NkDelCmd::LimitedDissolve, "Dissolution limitee"},
-				{NkDelCmd::EdgeCollapse, "Effondrer les aretes"},
-				{NkDelCmd::EdgeLoops, "Boucles d'aretes"},
+				{NkDelCmd::Vertices, "Sommets", 0},
+				{NkDelCmd::Edges, "Aretes", 0},
+				{NkDelCmd::Faces, "Faces", 0},
+				{NkDelCmd::OnlyEdgesFaces, "Seulement aretes et faces", 0},
+				{NkDelCmd::OnlyFaces, "Seulement les faces", 0},
+				{NkDelCmd::DissolveVerts, "Dissoudre les sommets", 1},
+				{NkDelCmd::DissolveEdges, "Dissoudre les aretes", 1},
+				{NkDelCmd::DissolveFaces, "Dissoudre les faces", 1},
+				{NkDelCmd::LimitedDissolve, "Dissolution limitee", 2},
+				{NkDelCmd::EdgeCollapse, "Effondrer les aretes et les faces", 3},
+				{NkDelCmd::EdgeLoops, "Boucles d'aretes", 3},
 			};
 			count = (int32)(sizeof(kT) / sizeof(kT[0]));
 			return kT;
@@ -152,7 +161,7 @@ namespace nkentseu {
 		// Construit les tableaux paralleles attendus par `NkCtxMenuDraw`, et REND
 		// les motifs : la vue les affiche, le banc les verifie.
 		inline int32 NkDelMenuBuild(int32 selMask, int32 selCount, const char **labels, bool *enabled,
-									NkDelCmd *ids, const char **motifs) {
+									NkDelCmd *ids, const char **motifs, bool *sepAfter = nullptr) {
 			int32 nT = 0;
 			const NkDelMenuEntry *T = NkDelMenuTable(nT);
 			int32 n = 0;
@@ -163,6 +172,12 @@ namespace nkentseu {
 				ids[n] = T[i].cmd;
 				if (motifs)
 					motifs[n] = m;
+				// LE TRAIT SE DERIVE DU GROUPE : il suit la DERNIERE entree de son
+				// groupe, donc il reste juste quand on ajoute ou retire une entree.
+				// ⚠️ Et jamais apres la derniere : un trait en bas de menu separe le
+				//    menu de rien.
+				if (sepAfter)
+					sepAfter[n] = (i + 1 < nT) && (T[i + 1].groupe != T[i].groupe);
 				++n;
 			}
 			return n;

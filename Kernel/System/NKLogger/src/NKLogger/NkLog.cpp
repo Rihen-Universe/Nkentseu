@@ -320,6 +320,154 @@ namespace nkentseu {
 			}
 		}
 
+
+		// ---------------------------------------------------------------------
+		// SECTION 1ter : CE QUE L'UTILISATEUR PEUT REGLER SANS RECOMPILER
+		// ---------------------------------------------------------------------
+		// MESURE DU 2026-09-25 qui a motive ce bloc. Un utilisateur ecrivait
+		// `logger.Debug()` dans sa boucle de jeu et ne voyait RIEN. Trois causes
+		// etaient vraies EN MEME TEMPS, et aucune ne se disait :
+		//
+		//   1. le niveau du journal vaut `info`, et NK_DEBUG (1) < NK_INFO (2) :
+		//      `logger.Debug()` est rejete par `NkLogger::LogInternal` AVANT
+		//      d'atteindre le moindre puits. Mesure : un binaire Debug branche
+		//      pourtant un puits console REGLE SUR `debug` -- il ne recoit
+		//      jamais rien. Le puits n'y peut rien : le filtre est en amont.
+		//
+		//   2. en Release, `NKLogger.jenga` pose `NDEBUG`, donc le puits console
+		//      etait compile HORS du module. Mesure : `llvm-nm` ne trouve AUCUNE
+		//      reference a `NkConsoleSink` dans `src_NKLogger_NkLog.obj` de
+		//      Release, et `GetSinkCount()` rend 2 au lieu de 3. Une application
+		//      Release n'avait donc aucun canal visible : meme `logger.Error()`
+		//      partait dans le seul fichier.
+		//
+		//   3. la documentation de `NkLogLevel.h` promet `NK_LOG_LEVEL`... dans
+		//      un BLOC DE COMMENTAIRE. Aucune ligne de code ne lisait cette
+		//      variable. Celui qui la posait ne changeait rien et ne l'apprenait
+		//      jamais.
+		//
+		// Trois variables existent desormais POUR DE VRAI :
+		//   NK_LOG_LEVEL   = trace|debug|info|warn|error|critical|fatal|off
+		//   NK_LOG_CONSOLE = 0 (aucun puits console) | 1 (puits sans filtre
+		//                    propre) | un nom de niveau (puits filtre a ce
+		//                    niveau)
+		//   NK_LOG_QUIET   = 1 pour taire la ligne de demarrage
+		//   NK_LOG_BANNER  = 1 pour la forcer meme hors console
+
+		/// @brief Comparaison de deux chaines en ignorant la casse.
+		/// @note `NkEqualsIgnoreCase` existe deja, mais en `static inline` DANS
+		///       NkLogLevel.cpp : elle n'est visible d'aucune autre unite de
+		///       compilation. On ne la deplace pas (cela toucherait l'entete
+		///       public de tout le depot) ; on en garde une ici, locale.
+		bool NkMemeTexteSansCasse(const char *a, const char *b) {
+			if (a == nullptr || b == nullptr) {
+				return a == b;
+			}
+			while (*a != '\0' && *b != '\0') {
+				const char ca = (*a >= 'A' && *a <= 'Z') ? (char)(*a + 32) : *a;
+				const char cb = (*b >= 'A' && *b <= 'Z') ? (char)(*b + 32) : *b;
+				if (ca != cb) {
+					return false;
+				}
+				++a;
+				++b;
+			}
+			return *a == '\0' && *b == '\0';
+		}
+
+		/// @brief Vrai si la variable vaut 1/on/yes/true/oui (casse ignoree).
+		bool NkEnvEstVrai(const char *nom) {
+			const char *v = ::getenv(nom);
+			if (v == nullptr || v[0] == '\0') {
+				return false;
+			}
+			return NkMemeTexteSansCasse(v, "1") || NkMemeTexteSansCasse(v, "on") ||
+				   NkMemeTexteSansCasse(v, "yes") || NkMemeTexteSansCasse(v, "true") ||
+				   NkMemeTexteSansCasse(v, "oui");
+		}
+
+		/// @brief Vrai si la variable vaut 0/off/no/false/non (casse ignoree).
+		bool NkEnvEstFaux(const char *nom) {
+			const char *v = ::getenv(nom);
+			if (v == nullptr || v[0] == '\0') {
+				return false;
+			}
+			return NkMemeTexteSansCasse(v, "0") || NkMemeTexteSansCasse(v, "off") ||
+				   NkMemeTexteSansCasse(v, "no") || NkMemeTexteSansCasse(v, "false") ||
+				   NkMemeTexteSansCasse(v, "non");
+		}
+
+		/// @brief Lit un NIVEAU et DIT s'il a ete reconnu.
+		/// @note `NkStringToLogLevel` rend `info` pour toute chaine inconnue :
+		///       une faute de frappe y deviendrait silencieusement le defaut.
+		///       Ici on repond deux choses -- la valeur ET si elle vient du
+		///       texte -- pour pouvoir NOMMER la faute au lieu de l'effacer.
+		bool NkNiveauDepuisTexte(const char *texte, NkLogLevel &sortie) {
+			if (texte == nullptr || texte[0] == '\0') {
+				return false;
+			}
+			static const char *kNoms[] = {"trace", "debug", "info",	   "warn",
+										  "error", "critical", "fatal", "off"};
+			static const NkLogLevel kNiveaux[] = {
+				NkLogLevel::NK_TRACE, NkLogLevel::NK_DEBUG,	   NkLogLevel::NK_INFO,
+				NkLogLevel::NK_WARN,  NkLogLevel::NK_ERROR,	   NkLogLevel::NK_CRITICAL,
+				NkLogLevel::NK_FATAL, NkLogLevel::NK_OFF};
+			for (int i = 0; i < 8; ++i) {
+				if (NkMemeTexteSansCasse(texte, kNoms[i])) {
+					sortie = kNiveaux[i];
+					return true;
+				}
+			}
+			// Alias tolere par NkStringToLogLevel
+			if (NkMemeTexteSansCasse(texte, "warning")) {
+				sortie = NkLogLevel::NK_WARN;
+				return true;
+			}
+			return false;
+		}
+
+		/// @brief Chemin ABSOLU d'un chemin relatif au repertoire courant.
+		/// @note C'est le point qui coute le plus de temps a l'usage : le
+		///       journal n'est pas a cote de l'executable, il est a cote du
+		///       REPERTOIRE DE TRAVAIL. Deux lancements du meme binaire depuis
+		///       deux dossiers ecrivent dans deux fichiers differents. On
+		///       imprime donc le chemin resolu, jamais « logs/app.log ».
+		void NkCheminAbsolu(const char *relatif, char *sortie, size_t capacite) {
+			if (sortie == nullptr || capacite == 0) {
+				return;
+			}
+			sortie[0] = '\0';
+#if defined(_WIN32)
+			const DWORD n = ::GetFullPathNameA(relatif, (DWORD)capacite, sortie, nullptr);
+			if (n == 0 || n >= capacite) {
+				nkentseu::NkSnprintf(sortie, capacite, "%s", relatif);
+			}
+#else
+			char courant[512] = {0};
+			if (::getcwd(courant, sizeof(courant)) != nullptr) {
+				nkentseu::NkSnprintf(sortie, capacite, "%s/%s", courant, relatif);
+			} else {
+				nkentseu::NkSnprintf(sortie, capacite, "%s", relatif);
+			}
+#endif
+		}
+
+		/// @brief Vrai si stderr est une VRAIE console (pas un tube, pas un fichier).
+		/// @note La ligne de demarrage n'est destinee qu'a un humain. La
+		///       conditionner a la console est ce qui garantit qu'AUCUN banc
+		///       ne devient bavard : un banc redirige, donc il ne la voit pas.
+		bool NkStderrEstUneConsole() {
+#if defined(_WIN32)
+			HANDLE h = ::GetStdHandle(STD_ERROR_HANDLE);
+			if (h == nullptr || h == INVALID_HANDLE_VALUE) {
+				return false;
+			}
+			return ::GetFileType(h) == FILE_TYPE_CHAR;
+#else
+			return ::isatty(2) != 0;
+#endif
+		}
+
 	} // namespace anonyme
 
 	// -------------------------------------------------------------------------
@@ -333,17 +481,32 @@ namespace nkentseu {
 	// DESCRIPTION : Initialisation avec configuration par défaut et sinks
 	// -------------------------------------------------------------------------
 	NkLog::NkLog(const NkString &name) : NkLogger(name) {
-		// Configuration par defaut :
-		//   - DEBUG : console + fichier (verbose, dev quotidien)
-		//   - RELEASE : fichier UNIQUEMENT (pas de pollution console pour
-		//     les builds distribues aux testeurs / utilisateurs finaux).
+		// =====================================================================
+		// LA REGLE PAR DEFAUT (revue le 2026-09-25, apres mesure)
+		// =====================================================================
+		// Ce qu'elle etait, et pourquoi elle piegeait :
+		//   Debug   : puits console (regle sur `debug`) + deux puits fichier.
+		//   Release : deux puits fichier, et RIEN de visible. Meme une erreur
+		//             fatale ne laissait aucune trace a l'ecran.
+		//   Niveau du journal : `info` dans les DEUX cas -- donc `logger.Debug()`
+		//             etait rejete en amont, y compris en Debug, y compris avec
+		//             un puits console regle sur `debug`.
 		//
-		// L'utilisateur peut reactiver le sink console en Release via :
-		//   logger.AddSink(memory::MakeShared<NkConsoleSink>());
-		// ou tout autre sink custom (NkNetworkSink, NkFileSink supplementaire,
-		// etc.). Voir NkLogger::AddSink() pour l'API.
-
-		// Sur ANDROID le sink console reste actif MÊME en Release, et ce n'est
+		// Ce qu'elle est maintenant :
+		//   - un puits console dans TOUTES les configurations ;
+		//   - en Debug il laisse passer `debug` (comme avant) ;
+		//   - en Release il ne laisse passer que `error` et pire. Ce choix n'est
+		//     pas timide, il est MESURE : `NkConsoleSink` envoie error, critical
+		//     et fatal sur STDERR (GetStreamForLevel, m_UseStderrForErrors vaut
+		//     vrai par defaut). La sortie STANDARD d'un binaire Release est donc
+		//     rigoureusement inchangee -- aucun banc qui lit stdout ne devient
+		//     bavard -- et pourtant une erreur se voit enfin.
+		//   - le NIVEAU du journal reste `info` par defaut : le changer rendrait
+		//     bavards tous les bancs Debug du depot. Il se regle par
+		//     `NK_LOG_LEVEL`, et surtout la ligne de demarrage DIT qu'il filtre
+		//     `debug`. Le piege n'etait pas la valeur, c'etait le silence.
+		//
+		// Sur ANDROID le puits console reste actif MÊME en Release, et ce n'est
 		// pas une entorse : sur téléphone il n'y a pas de console à polluer —
 		// NkConsoleSink route vers LOGCAT, qui est le journal du système et le
 		// seul moyen d'observer une application. Le sink fichier, lui, ne prend
@@ -352,20 +515,73 @@ namespace nkentseu {
 		// Sans cette exception, un build Release sur téléphone n'écrit donc
 		// NULLE PART. Mesuré le 2026-08-12 sur NKARDemo : écran noir, aucune
 		// trace, et des heures passées à chercher sans instrument.
-#if !defined(NDEBUG) || defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
-		// Sink console : sortie vers stdout/stderr avec support couleurs
-		// Sur Android : NkConsoleSink route automatiquement vers logcat
-		NkConsoleSink *consoleSinkRaw = new NkConsoleSink();
-		consoleSinkRaw->SetColorEnabled(true);			// Activer les couleurs ANSI si supporté
-		consoleSinkRaw->SetLevel(NkLogLevel::NK_DEBUG); // Verbose par défaut en console
-		memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
-		AddSink(consoleSink);
-#endif
 
-		// Sinks fichier : persistance des logs. TOUJOURS actifs (debug +
-		// release) pour permettre le post-mortem en prod quand un user testeur
-		// rencontre un bug. Le fichier reste disponible apres crash,
-		// contrairement a la console.
+		// --- 1. Le niveau du journal -----------------------------------------
+		NkLogLevel niveauJournal = NkLogLevel::NK_INFO;
+		const char *texteNiveau = ::getenv("NK_LOG_LEVEL");
+		bool niveauVientDeLEnv = false;
+		bool niveauEnvIllisible = false;
+		if (texteNiveau != nullptr && texteNiveau[0] != '\0') {
+			NkLogLevel lu = NkLogLevel::NK_INFO;
+			if (NkNiveauDepuisTexte(texteNiveau, lu)) {
+				niveauJournal = lu;
+				niveauVientDeLEnv = true;
+			} else {
+				// On NE retombe PAS silencieusement sur `info` : la ligne de
+				// demarrage nommera la valeur refusee.
+				niveauEnvIllisible = true;
+			}
+		}
+
+		// --- 2. Le puits console ---------------------------------------------
+		// Niveau par defaut du puits, selon la configuration de compilation.
+#if defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__)
+		NkLogLevel niveauConsole = NkLogLevel::NK_DEBUG;
+#elif defined(NDEBUG)
+		NkLogLevel niveauConsole = NkLogLevel::NK_ERROR;
+#else
+		NkLogLevel niveauConsole = NkLogLevel::NK_DEBUG;
+#endif
+		// ⚠️ UNE SEULE VARIABLE DOIT SUFFIRE. Premiere version mesuree le
+		//    2026-09-25 : avec `NK_LOG_LEVEL=debug` seul, en Release, le journal
+		//    laissait bien passer `debug` MAIS le puits console gardait son
+		//    filtre `error` -- l'ecran restait muet, et il fallait DEUX
+		//    variables pour voir une ligne. C'est le meme piege que celui qu'on
+		//    corrige, un cran plus loin. Poser `NK_LOG_LEVEL` explicitement, ce
+		//    n'est pas regler un compteur : c'est dire « je veux VOIR ce
+		//    niveau ». Le puits console suit donc, sauf si `NK_LOG_CONSOLE` dit
+		//    autre chose -- l'explicite l'emporte toujours sur le deduit.
+		if (niveauVientDeLEnv) {
+			niveauConsole = niveauJournal;
+		}
+		bool consoleBranchee = true;
+		if (NkEnvEstFaux("NK_LOG_CONSOLE")) {
+			consoleBranchee = false;
+		} else if (NkEnvEstVrai("NK_LOG_CONSOLE")) {
+			// « 1 » = le puits n'ajoute AUCUN filtre propre : seul le niveau du
+			// journal decide. C'est ce que veut quelqu'un qui cherche pourquoi
+			// il ne voit rien.
+			niveauConsole = NkLogLevel::NK_TRACE;
+		} else {
+			NkLogLevel lu = NkLogLevel::NK_INFO;
+			if (NkNiveauDepuisTexte(::getenv("NK_LOG_CONSOLE"), lu)) {
+				niveauConsole = lu;
+			}
+		}
+
+		if (consoleBranchee) {
+			// Sur Android : NkConsoleSink route automatiquement vers logcat
+			NkConsoleSink *consoleSinkRaw = new NkConsoleSink();
+			consoleSinkRaw->SetColorEnabled(true); // Activer les couleurs ANSI si supporté
+			consoleSinkRaw->SetLevel(niveauConsole);
+			memory::NkSharedPtr<NkISink> consoleSink(consoleSinkRaw);
+			AddSink(consoleSink);
+		}
+
+		// --- 3. Les puits fichier --------------------------------------------
+		// Persistance des logs. TOUJOURS actifs (debug + release) pour permettre
+		// le post-mortem en prod quand un user testeur rencontre un bug. Le
+		// fichier reste disponible apres crash, contrairement a la console.
 		//
 		// DEUX destinations depuis le 2026-08-18 (voir SECTION 1bis) :
 		//   (a) logs/app_<date>_<heure>_<pid>.log — UN PAR LANCEMENT, garde
@@ -374,25 +590,60 @@ namespace nkentseu {
 		// (b) garde son nom historique et continue d'alimenter tous les outils
 		// et habitudes existants ; il est simplement TRONQUE au lancement au
 		// lieu d'accumuler indefiniment.
+		//
+		// ⚠️ LEUR NIVEAU SUIT DESORMAIS CELUI DU JOURNAL quand on l'a baisse.
+		//    Il etait fige a `info` : `NK_LOG_LEVEL=debug` aurait donc fait
+		//    apparaitre les lignes a l'ecran mais PAS dans le fichier, et le
+		//    fichier est justement ce qu'on envoie quand on demande de l'aide.
+		const NkLogLevel niveauFichier =
+			(niveauJournal < NkLogLevel::NK_INFO) ? niveauJournal : NkLogLevel::NK_INFO;
 
 		// Purge AVANT creation : ne conserver que les N derniers journaux
 		NkPurgeRunLogs(NkRunLogsToKeep());
 
 		// (a) Journal de CETTE course : jamais ecrase par un lancement suivant
 		memory::NkSharedPtr<NkISink> runSink(new NkFileSink(NkMakeRunLogPath(), /*truncate*/ true));
-		runSink->SetLevel(NkLogLevel::NK_INFO);					 // Moins verbose en fichier pour production
+		runSink->SetLevel(niveauFichier);
 		runSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN); // Pattern lisible
 		AddSink(runSink);
 
 		// (b) Journal courant : chemin historique, remis a zero a chaque lancement
 		memory::NkSharedPtr<NkISink> fileSink(new NkFileSink(kCurrentRunLogPath, /*truncate*/ true));
-		fileSink->SetLevel(NkLogLevel::NK_INFO);					 // Moins verbose en fichier pour production
+		fileSink->SetLevel(niveauFichier);
 		fileSink->SetPattern(NkLoggerFormatter::NK_DEFAULT_PATTERN); // Pattern lisible
 		AddSink(fileSink);
 
-		// Configuration globale du logger
-		SetLevel(NkLogLevel::NK_INFO);						// Niveau par défaut : info et plus grave
+		// --- 4. Configuration globale du logger -------------------------------
+		SetLevel(niveauJournal);
 		SetPattern(NkLoggerFormatter::NK_NKENTSEU_PATTERN); // Pattern avec support couleurs
+
+		// --- 5. LA LIGNE QUI DIT OU EST LE JOURNAL ----------------------------
+		// Elle part sur STDERR, et seulement si stderr est une vraie console (ou
+		// si on la force). Deux raisons, toutes deux mesurees :
+		//   - stdout est ce que lisent les bancs : on n'y touche pas ;
+		//   - un banc redirige stderr aussi, donc la condition « console » suffit
+		//     a garantir qu'aucun banc ne change de sortie.
+		// Elle nomme le piege le plus couteux : `debug` et `trace` sont filtres.
+#if !defined(NKENTSEU_PLATFORM_ANDROID) && !defined(__ANDROID__) && !defined(NKENTSEU_PLATFORM_HARMONYOS)
+		const bool banniereForcee = NkEnvEstVrai("NK_LOG_BANNER");
+		if (!NkEnvEstVrai("NK_LOG_QUIET") && (banniereForcee || NkStderrEstUneConsole())) {
+			char chemin[1024] = {0};
+			NkCheminAbsolu(kCurrentRunLogPath, chemin, sizeof(chemin));
+
+			char ligne[2048] = {0};
+			nkentseu::NkSnprintf(
+				ligne, sizeof(ligne),
+				"[NKLogger] niveau=%s%s | console=%s | journal=%s%s\n"
+				"[NKLogger] trace/debug sont SOUS le niveau : NK_LOG_LEVEL=debug pour les voir ; "
+				"NK_LOG_CONSOLE=1 pour tout mettre a l'ecran ; NK_LOG_QUIET=1 pour taire ces deux lignes.\n",
+				NkLogLevelToString(niveauJournal), niveauVientDeLEnv ? " (NK_LOG_LEVEL)" : "",
+				consoleBranchee ? NkLogLevelToString(niveauConsole) : "aucune", chemin,
+				niveauEnvIllisible ? " | ATTENTION : NK_LOG_LEVEL illisible, ignoree" : "");
+
+			(void)::fputs(ligne, stderr);
+			(void)::fflush(stderr);
+		}
+#endif
 	}
 
 	// -------------------------------------------------------------------------
