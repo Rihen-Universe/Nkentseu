@@ -58,12 +58,12 @@ function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
 	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE",
-			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS")
+			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS", "NK_GIZMO_VIDE_SANS_PICK")
 	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
 	$env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	# La mutation porte les DEUX negatifs de ce banc : l'ancienne regle des modes,
 	# et une boite publiee SANS CIBLE (NK_BOITE_FAUSSE).
-	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1" }
+	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1"; $env:NK_GIZMO_VIDE_SANS_PICK = "1" }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-RedirectStandardOutput $out | Out-Null
@@ -320,6 +320,37 @@ if (Condition "Contour (i)" (($lignes.Count -gt 0) -and ($avecSel -gt 0)) `
 		"lignes=$($lignes.Count) images avec une selection=$avecSel") {
 	Dire "Contour (i) publie a CHAQUE image ou un objet est selectionne" ($discord -eq 0) `
 		"$discord image(s) en desaccord sur $($lignes.Count) ($avecSel avec selection)"
+}
+
+# -- (j) LA SELECTION A UN SEUL PROPRIETAIRE : LE PICK DE LA VUE --------------
+# LA REGLE (coordinateur, 25/09) : un composant a qui l on dit « pas de pick »
+# (`pickRadius = 0`) n a pas le droit de MODIFIER la selection. Il peut la lire,
+# il peut dessiner ce qu elle implique, il ne la change pas.
+#
+# LE DEFAUT QU ELLE CORRIGE : le gizmo des empties recevait le clic avec des
+# cibles toutes non designables ; il concluait au clic dans le vide et vidait la
+# selection ; le pick de la vue la reposait juste apres. Deux consommateurs du
+# meme clic -- la selection faisait 1 -> 0 -> 1 DANS LA MEME IMAGE, et le contour
+# avec elle. C est exactement ce que Rodolf voyait.
+#
+# ⚠ CE CRITERE NE SE LIT PAS SUR UNE SUITE D IMAGES. Le creux tient dans UNE
+#   image : un releve de fin d image (comme [BOITE-SONDE]) le manque
+#   systematiquement, parce qu il arrive quand tout est deja rejoue. Les JALONS,
+#   eux, mesurent QUAND la valeur change a l interieur de l image -- c est la
+#   seule facon de voir un aller-retour intra-image.
+#
+# ⚠ ET LE CLIC DOIT TOUCHER. Un clic dans le vide ne distingue rien : les deux
+#   chemins deselectionnent, avec et sans le correctif. (523,340) touche le cube
+#   ajoute par NK_ADD_NODE -- verifie par `touche=99` dans le journal.
+$c = Courir "proprio" @{ "NK_AGENT_SCENE" = "5"; "NK_BOITE_SONDE" = "1";
+						 "NK_SEL_AT" = "523,340,200"; "NK_AGENT_EXIT" = "300" }
+$jalons = @(Select-String -Path $c.log -Pattern "\[SEL-JALON\]")
+$parUpdate = @($jalons | Where-Object { $_.Line -match "emptyGizmo\.Update" }).Count
+$touche = @(Select-String -Path $c.log -Pattern "MESURE pick vue : .*touche=(9\d|1\d\d)").Count
+if (Condition "Proprietaire (j)" (($jalons.Count -gt 0) -and ($touche -gt 0)) `
+		"jalons=$($jalons.Count) clics qui touchent=$touche (il faut un clic QUI TOUCHE)") {
+	Dire "Proprietaire (j) le gizmo ne touche PAS a la selection" ($parUpdate -eq 0) `
+		"$parUpdate transition(s) de selection attribuee(s) a emptyGizmo.Update (exige 0)"
 }
 
 Write-Host "-----------------------------------------------------------------------"
