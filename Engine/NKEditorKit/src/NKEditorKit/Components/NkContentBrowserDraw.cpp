@@ -1152,6 +1152,11 @@ namespace nkentseu {
 					const float32 thumbZoneH = cell.h - footerH;
 					const NkPaintRect zoneVign{cell.x + pad, cell.y + pad, cell.w - pad * 2.f,
 											   thumbZoneH - pad * 2.f};
+					// (Q12) La taille REELLE de la zone, publiee pour que l'hote demande une
+					// grille a la bonne finesse. Il demandait 32 de cote pour une zone de
+					// ~96 px : trois pixels par cellule, d'ou les gros blocs.
+					if (zoneVign.w > res.zoneVignettePx)
+						res.zoneVignettePx = zoneVign.w;
 					if (!DrawVignette(p, zoneVign, e, idx, hooks))
 						Silhouette(p, zoneVign, IconeDe(e), e.isFolder ? s.folderTint : e.kindRole,
 								   e.contenu);

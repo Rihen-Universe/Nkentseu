@@ -474,6 +474,13 @@ namespace nkentseu {
 				/// taille des cellules et le nombre de colonnes. L'hote s'en sert pour ne
 				/// payer un acces disque (« ce dossier est-il vide ? ») QUE sur ce qui se
 				/// voit : sur un dossier de 124 entrees, c'est une quinzaine au lieu de 124.
+				/// (Q12, 25/09) LA TAILLE REELLE en pixels de la zone ou une vignette est
+				/// peinte. Le composant est le SEUL a la connaitre (elle depend de la
+				/// largeur du volet, du nombre de colonnes et du curseur de taille), et
+				/// l'hote en a besoin pour DEMANDER UNE GRILLE A LA BONNE FINESSE.
+				/// Sans elle, la vignette etait reduite a 32 de cote et affichee sur ~96 px
+				/// : trois pixels par cellule, d'ou les gros blocs que Rodolf a vus.
+				float32 zoneVignettePx = 0.f;
 				int32 premierVisible = -1;
 				int32 dernierVisible = -1;
 
