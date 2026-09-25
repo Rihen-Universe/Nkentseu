@@ -1385,7 +1385,11 @@ namespace nkentseu {
 			// OUTILS EN DEUX BLOCS dans le meme cadre : [Selection | Curseur] puis
 			// un vide, puis [Deplacer | Rotation | Echelle | Multigizmo] -- la
 			// disposition demandee par Rihen (celle de Blender).
-			const float32 wTools = S(8.f) + 6.f * (btn + 2.f) + S(10.f);
+			// UNE ENTREE DE PLUS DANS LES MODES A BROSSES : le pinceau. La largeur du
+			// groupe la compte, sinon le dernier bouton sortirait du cadre -- un defaut
+			// deja paye sur ce meme groupe (les reglages tombaient hors de l'ecran).
+			const bool barreBrosse = demo::NkModeMaillageSansElements((int32)st.mode);
+			const float32 wTools = S(8.f) + (barreBrosse ? 7.f : 6.f) * (btn + 2.f) + S(10.f);
 			// Orientation, pivot, aimant + SON chevron, edition proportionnelle
 			// + LE SIEN, vitesse. Sans compter les deux derniers, le groupe
 			// restait trop etroit et ils tombaient HORS du cadre, a droite de
@@ -1758,6 +1762,30 @@ namespace nkentseu {
 				}
 				static const bool sXfProbe = (std::getenv("NK_MODE_PROBE") != nullptr);
 
+				// ── LE PINCEAU, EN TETE, ET DANS LES MODES A BROSSES SEULEMENT ──
+				// C'est l'outil NEUTRE de la Sculpture : celui sous lequel le clic
+				// appartient a la brosse. Il vient EN PREMIER, comme les brosses dans
+				// la barre de Blender -- l'ordre d'une barre dit ce qu'on fait le plus
+				// souvent.
+				// ⚠️ IL N'APPARAIT PAS EN OBJET NI EN EDITION : il n'y a pas de brosse a
+				//    y armer, et un bouton present qui ne ferait rien est exactement ce
+				//    que le grisage du 21/09 refusait.
+				if (barreBrosse) {
+					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
+					const bool over = hit.Add("vp.t.brush", br);
+					const bool on = (st.tool == NkTool::Brush);
+					if (on)
+						p.Fill(br, NkRole::AccentUi, 3.f);
+					else
+						HoverFill(p, br, over);
+					NkHelp(over, "Brosse : le clic depose la matiere (outil par defaut en Sculpture)");
+					// Indice 6 du crochet NK_TOOL_CLIC : la brosse s'arme sans souris.
+					if (hit.Clicked("vp.t.brush") || (sXfClicI == 6 && sXfImg == sXfClicImg))
+						st.tool = NkTool::Brush;
+					p.IconV(cx + (btn - S(14.f)) * 0.5f, barY, barH, NkIcon::Brush,
+							on ? NkRole::TextOnAccent : NkRole::Text, 14.f);
+					cx += btn + 2.f;
+				}
 				// SELECTION : une liste de formes (rectangle / cercle / lasso).
 				{
 					const NkRect br{cx, barY + 2.f, btn, barH - 4.f};
