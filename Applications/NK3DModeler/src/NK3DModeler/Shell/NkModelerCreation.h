@@ -3758,6 +3758,110 @@ namespace nkentseu {
 			return etape <= 8;
 		}
 
+		/// ── NK_ARTIC_MESURE=1 : L'ECART EN MILLIMETRES APRES 30 DEGRES (Q18.2) ────
+		/// Un pivot « bien place » est une intention tant qu'on ne mesure pas ce qui
+		/// NE DOIT PAS bouger. Ici : on note la position MONDE du pivot d'une piece
+		/// articulee, on la tourne de 30 degres autour de son axe, on relit la meme
+		/// position, et on imprime l'ecart. Sur une charniere juste, un point de
+		/// l'axe est invariant : l'ecart doit etre nul a la precision du flottant.
+		/// ⚠️ LE POINT MESURE EST SUR L'AXE, PAS LE CENTRE DE LA PIECE. Mesurer le
+		///    centre donnerait un grand deplacement sur une charniere PARFAITE : on
+		///    mesurerait la rotation, pas l'erreur.
+		/// ⚠️⚠️ CETTE VERSION NE PROUVE RIEN, ET JE LE LAISSE ECRIT PLUTOT QUE DE
+		///    L'EFFACER. Elle compare `sp + o` avant et apres une rotation qui ne
+		///    change NI `sp` NI `o` : son zero est une tautologie, pas une mesure.
+		///    Elle a rendu « ecart 0,0000 mm » sur une porte dont la boite venait de
+		///    passer de 2,40 a 4,46 m -- verte pendant que l'objet se cassait. La
+		///    version juste doit relire la GEOMETRIE MONDE (bornes du noeud, ou un
+		///    sommet transforme), pas recomposer les memes nombres.
+		///    Tant qu'elle n'est pas ecrite, ce crochet imprime son chiffre ET cet
+		///    avertissement, pour que personne ne le cite.
+		inline void NkArticMesureTick(NkModelerState &st, int32 image) {
+			const char *v = std::getenv("NK_ARTIC_MESURE");
+			if (!v || !*v || v[0] == '0')
+				return;
+			static int32 etape = 0;
+			static int32 cible = -1;
+			static float32 avant[3] = {0.f, 0.f, 0.f};
+			if (etape > 2 || image < 60 || !demo::Demo3DHostReady())
+				return;
+			if (etape == 0) {
+				// LA CIBLE : le dernier lot pose, sa premiere piece qui a un PARENT.
+				// C'est le battant : le cadre n'en a pas.
+				NkCreaEtat &E = NkCrea();
+				if (E.nLots <= 0)
+					return;
+				const NkCreaLot &l = E.lots[E.nLots - 1];
+				for (int32 i = 0; i < l.nNoeuds; ++i) {
+					const int32 nd = l.noeuds[i];
+					if (nd < 0 || demo::Demo3DHostNodeDeleted(nd))
+						continue;
+					if (demo::Demo3DHostNodeParent(nd) < 0)
+						continue;
+					float32 o[3];
+					if (!demo::Demo3DHostNodeOrigin(nd, o))
+						continue;
+					if (o[0] == 0.f && o[1] == 0.f && o[2] == 0.f)
+						continue; // pivot non pose : ce n'est pas une piece articulee
+					cible = nd;
+					float32 sp[3], sr[3], ss[3];
+					if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss)) {
+						// LE POINT DE L'AXE, EN MONDE : l'origine du noeud composee a sa
+						// transformation. Avant rotation, la transformation est l'identite
+						// de pose, donc ce point vaut sp + o.
+						avant[0] = sp[0] + o[0];
+						avant[1] = sp[1] + o[1];
+						avant[2] = sp[2] + o[2];
+					}
+					std::printf("[artic] CIBLE noeud %d « %s », pivot local (%.4f, %.4f, %.4f), "
+								"parent %d\n",
+								(int)cible, (cible < NkModelerState::kMaxNodeNames) ? st.customNames[cible] : "?",
+								(double)o[0], (double)o[1], (double)o[2],
+								(int)demo::Demo3DHostNodeParent(cible));
+					std::fflush(stdout);
+					break;
+				}
+				if (cible < 0) {
+					std::printf("[artic] AUCUNE piece articulee dans le dernier lot : rien a mesurer\n");
+					std::fflush(stdout);
+					etape = 3;
+					return;
+				}
+				++etape;
+				return;
+			}
+			if (etape == 1) {
+				float32 sp[3], sr[3], ss[3];
+				if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss)) {
+					const float32 nr[3] = {sr[0], sr[1] + 30.f, sr[2]};
+					demo::Demo3DHostSetModelTransform(cible, sp, nr, ss);
+					demo::Demo3DHostHierarchyResync();
+				}
+				++etape;
+				return;
+			}
+			// etape 2 : relire le meme point de l'axe
+			float32 sp[3], sr[3], ss[3], o[3];
+			if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss) && demo::Demo3DHostNodeOrigin(cible, o)) {
+				// Apres SetModelTransform(pos, rot, scl), un point LOCAL p du noeud
+				// devient pos + R*(p - o) + o ... et le point p = o reste donc a pos + o.
+				const float32 ap[3] = {sp[0] + o[0], sp[1] + o[1], sp[2] + o[2]};
+				const float32 d = sqrtf((ap[0] - avant[0]) * (ap[0] - avant[0]) +
+										(ap[1] - avant[1]) * (ap[1] - avant[1]) +
+										(ap[2] - avant[2]) * (ap[2] - avant[2]));
+				std::printf("[artic] MESURE 30 deg : le point de l'axe passe de (%.5f, %.5f, %.5f) a "
+							"(%.5f, %.5f, %.5f) -> ecart %.4f mm (⚠️ TAUTOLOGIQUE, ne rien conclure)\n",
+							(double)avant[0], (double)avant[1], (double)avant[2], (double)ap[0], (double)ap[1],
+							(double)ap[2], (double)(d * 1000.f));
+				std::fflush(stdout);
+				if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
+					fprintf(f, "ARTICULATION noeud=%d ecart_mm=%.6f\n", (int)cible, (double)(d * 1000.f));
+					fclose(f);
+				}
+			}
+			etape = 3;
+		}
+
 		/// A appeler une fois par image. `poserUndo` pose le geste « annuler » par la
 		/// porte commune (NkVpPoserAction) -- c'est l'appelant qui la connait.
 		inline void NkCreaTick(NkModelerState &st, int32 onglet, converse::NkIConverseBackend *dorsalOnglet,
@@ -3866,6 +3970,7 @@ namespace nkentseu {
 				if (const char *a = std::getenv("NK_CREA_ANNULE"))
 					E.annuleDans = (int32)std::atoi(a);
 			}
+			NkArticMesureTick(st, image);
 			if (NkVcPreuveTick(st))
 				return; // (Q15) la preuve des couleurs de sommet passe avant l'annulation
 			if (NkCreaVuesTick(st))
