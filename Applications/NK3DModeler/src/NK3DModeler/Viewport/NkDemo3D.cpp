@@ -159,6 +159,10 @@ namespace nkentseu {
 		// dont le contour etait DU : un refus sur un objet non selectionne est
 		// le fonctionnement normal, pas une information.
 		static int32 gBoiteRefusModel = 0, gBoiteRefusCache = 0, gBoiteRefusKind = 0;
+		// Le jeton du clic sur le curseur de l'univers. La garde du curseur 3D est
+		// la seule a le connaitre ; les traces, elles, vivent DEHORS -- elles le
+		// lisent ici au lieu d'etre enfermees avec lui.
+		static bool gClicBoite = false;
 		// ⚠️ « UNE BOITE PUBLIEE SANS CIBLE » : une soumission au masque de silhouette
 		//    dont le maillage est INVALIDE. Le masque rendrait alors une silhouette vide
 		//    ou une forme de repli -- la famille « un compteur dont le zero n'est pas
@@ -2215,6 +2219,42 @@ namespace nkentseu {
 		// valait 0 a toutes les images avant le correctif, quel que soit le
 		// materiau de l'objet.
 		static uint32 gEditMatLie = 0;
+
+		// Declaration anticipee : la porte du clic dans le vide -- celle que Rodolf
+		// declenche -- vit bien avant la definition de cette trace.
+		static void HostSelTrace(Demo3DState *st, const char *porte);
+
+		// ── LES JALONS DANS L'IMAGE ─────────────────────────────────────────
+		// LE FAIT QUI A IMPOSE CECI (mesure du 25/09, course `sel2`) : la ligne
+		// du shell passe de `empty=99` a `empty=-1`, et AUCUNE des sept portes
+		// marquees n'a parle. La selection se perd donc SANS passer par une porte
+		// connue -- ou bien elle se perd plus tot dans l'image que la ou je
+		// regardais. Le pick, lui, dit « selectionnes avant=0 » a l'image meme ou
+		// la trace de fin d'image disait encore « actif=9 » : les deux sont vrais
+		// et se contredisent parce qu'ils ne parlent pas du MEME INSTANT.
+		//
+		// Un jalon ne mesure pas la valeur, il mesure QUAND elle change. Pose
+		// plusieurs fois dans la meme image, il encadre l'instant a quelques
+		// lignes de code pres -- ce qu'aucune trace de fin d'image ne peut faire,
+		// puisqu'elle arrive quand tout est deja joue.
+		//
+		// ⚠️ SANS CROCHET, et silencieux tant que rien ne bouge : il n'ecrit que
+		//    sur un CHANGEMENT, et nomme le jalon precedent -- c'est l'intervalle
+		//    entre deux jalons qui contient le coupable.
+		static void HostJalonSel(Demo3DState *st, const char *jalon) {
+			if (!st)
+				return;
+			static int32 sVu = -999;
+			static const char *sDer = "(depart)";
+			const int32 a = st->emptyGizmo.ActiveIndex();
+			if (a != sVu) {
+				if (sVu != -999)
+					logger.Info("[SEL-JALON] actif {0} -> {1} · entre '{2}' et '{3}'\n", sVu, a, sDer,
+								jalon);
+				sVu = a;
+			}
+			sDer = jalon;
+		}
 
 		static bool Demo3D_ElementsActifs(const Demo3DState *st) {
 			static const bool sMute = []() {
@@ -8422,6 +8462,9 @@ namespace nkentseu {
 			NKEDSTEP(0); // jalon de dichotomie
 			const auto tFr0 = std::chrono::high_resolution_clock::now();
 			auto *st = (Demo3DState *)ctx.userData;
+		// PREMIER JALON : l'etat de la selection A L'ENTREE de l'image, avant que
+		// quoi que ce soit ne l'ait touchee. C'est la borne basse de l'intervalle.
+		HostJalonSel(st, "debut d'image");
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
 			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
 			// ⚠ LE POINTEUR EST LA POUR UNE RAISON PRECISE. Une trace qui n'imprime
@@ -11329,6 +11372,7 @@ namespace nkentseu {
 				//    garde, une selection heritee de l'Edition -- ou un clic -- le faisait
 				//    reparaitre (54 triangles traces, mesure) et le glisser deplacait les
 				//    sommets. Zero cible = rien a attraper ni a dessiner.
+				HostJalonSel(st, "avant le bloc d edition");
 				const bool elems = Demo3D_ElementsActifs(st);
 				const int32 gcount = (elems && selCnt > 0) ? 1 : 0;
 
@@ -14144,6 +14188,7 @@ namespace nkentseu {
 					// detecteur de parente -> les enfants suivent EN DIRECT ; en
 					// fin de drag le resultat est replie dans la base.
 					{
+						HostJalonSel(st, "avant Update du gizmo des empties");
 						st->emptyGizmo.SetCamera(cam.GetPosition(), cam.GetTarget(), 60.f,
 												 (float32)ctx.width, (float32)ctx.height);
 						renderer::NkGizmoTarget etg[kNkvpMaxEmpty];
@@ -14212,7 +14257,9 @@ namespace nkentseu {
 						// dependent du noeud ACTIF, qui change sans que
 						// l'orientation, elle, ne change.
 						HostPushExtFrames(st, st->emptyGizmo.Orientation());
+						HostJalonSel(st, "juste avant emptyGizmo.Update");
 						st->emptyGizmo.Update(etg, kNkvpMaxEmpty, ein);
+						HostJalonSel(st, "juste apres emptyGizmo.Update");
 						if (!ewasDrag && st->emptyGizmo.IsDragging())
 							gin.leftPressed = false; // poignee saisie : le clic est a nous
 						if (st->emptyDragPrev && !st->emptyGizmo.IsDragging()) {
@@ -14399,6 +14446,7 @@ namespace nkentseu {
 					// deux gizmos de deplacement la recoivent (l'oubli du gizmo
 					// des vides a deja coute une fois).
 					st->gizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
+					HostJalonSel(st, "apres Update du gizmo des empties");
 					st->emptyGizmo.SetSnapQuery(&Demo3D_SnapQuery, &sRayCtx);
 					// ── MODALE OBJET : LE MEME CADRE, DEUXIEME SITE D'APPEL ─────────
 					// Pas un second cadre : les MEMES `Demo3D_ModalParams` et
@@ -14566,6 +14614,7 @@ namespace nkentseu {
 							// On journalise donc le compte AVANT la decision et APRES :
 							// `avant=N apres=1` prouve l'effondrement, `avant=N apres=N`
 							// innocente ce chemin et renvoie l'enquete en aval.
+							HostJalonSel(st, "avant le pick de la vue");
 							const int32 pickedU0 = bestU;
 							int32 nSelAvPick = 0;
 							for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
@@ -14596,8 +14645,17 @@ namespace nkentseu {
 								// d'un AUTRE objet, qui changeaient donc la selection).
 								// Les objets de demo, eux, se deselectionnaient deja
 								// via le gizmo.
+								// ⚠️ MARQUE, PARCE QUE C'EST LE SITE QUE RODOLF DECLENCHE.
+								//    « Clic dans le vide » est une DEDUCTION de ce chemin
+								//    (`bestU < 0`), pas un fait : si le pick ecarte l'objet
+								//    sous le curseur pour un motif quelconque, ce site lit
+								//    « le vide » et efface une selection legitime. La ligne
+								//    dit alors ce qu'il efface, et le compte des candidats
+								//    ecartes est imprime juste apres.
+								HostSelTrace(st, "vue: clic dans le vide");
 								st->emptyGizmo.ClearSelection();
 							}
+							HostJalonSel(st, "apres le pick de la vue");
 							{
 								int32 nSelApPick = 0;
 								for (int32 sc = 0; sc < kNkvpMaxEmpty; ++sc)
@@ -15368,60 +15426,7 @@ namespace nkentseu {
 					}
 				}
 				const bool boiteClic = st->cursorPlacePending;
-				// ══ LA TRACE DU CLIC, ET ELLE N'A PAS DE CROCHET ═══════════════════
-				// Rodolf voit, a chaque clic sur le curseur de l'univers, « une boite
-				// englobante qui apparait et disparait ». Trois portes de clic ecrites
-				// n'ont pas reproduit le defaut, et je lui ai demande trois precisions
-				// -- ce qui revient a lui demander d'attraper une image au bon
-				// millieme de seconde, avec les mots qu'il faut.
-				//
-				// ⚠️ C'EST AU PROGRAMME DE REPONDRE, PAS A L'UTILISATEUR. Cette trace
-				//    part a CHAQUE clic, dans le binaire livre, sans variable
-				//    d'environnement : sans quoi elle demanderait a Rodolf de relancer
-				//    autrement, c'est-a-dire de reproduire exprès ce qui lui arrive par
-				//    surprise.
-				//
-				// ⚠️ ET ELLE COURT SUR PLUSIEURS IMAGES. Un clignotement d'UNE image ne
-				//    se voit pas dans un releve pris a l'instant du clic : la cause
-				//    peut etre publiee l'image d'APRES. On ecrit donc l'image du clic
-				//    et les six suivantes, puis on se tait.
-				{
-					static int32 sTrImg = 0;
-					static int32 sTrRest = 0;
-					static bool sTrPrev = false;
-					++sTrImg;
-					// ⚠️ LU A LA SOURCE (NkInput) ET NON DANS `gin`, qui n'existe pas a cette
-						//    portee : `gin` est l'entree assemblee du bloc d'edition, bien
-						//    plus haut. Meme question, meme reponse -- la source commune.
-						const bool clicMaintenant =
-							nkvpInputOn && nkvpHover && NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
-					if ((clicMaintenant && !sTrPrev) || boiteClic)
-						sTrRest = 7;
-					sTrPrev = clicMaintenant;
-					if (sTrRest > 0) {
-						--sTrRest;
-						// CE QU'ELLE DOIT PERMETTRE DE DISTINGUER, et c'est pour ca
-						// qu'elle porte ces champs-la et pas d'autres :
-						//   · mode + outil  -> quel chemin de clic a ete emprunte ;
-						//   · selection      -> un contour a-t-il une cible, ou non ;
-						//   · cerne / rect   -> une BOITE 3D publiee, ou un RECTANGLE
-						//                       plat de selection par zone. Les deux
-						//                       se decrivent « une boite qui apparait »
-						//                       et n'ont pas la meme cause.
-						int32 selV = 0;
-						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
-							selV += st->vertSel[i] ? 1 : 0;
-						logger.Info("[CLIC-TRACE] img={0} clic={1} curseur3D={2} mode={3} editMode={4} "
-									"outil={5} outilCurseur={6} selSommets={7} selObjet={8} selUser={9} "
-									"rectZone={10} cerneDemo={11} cerneUser={12} sansCible={13} "
-									"gizmoCache={14}\n",
-									sTrImg, clicMaintenant ? 1 : 0, boiteClic ? 1 : 0, st->uiMode,
-									st->editMode ? 1 : 0, st->selTool, nkvpCursorTool ? 1 : 0, selV,
-									st->gizmo.HasSelection() ? 1 : 0, st->emptyGizmo.ActiveIndex(),
-									st->selDragging ? 1 : 0, gBoiteOutObj, gBoiteOutUser,
-									gBoiteSansCible, nkvpGizmoHidden ? 1 : 0);
-					}
-				}
+				gClicBoite = boiteClic;
 				// SONDE NK_BOITE_SONDE=1 : ce que CETTE image publie pour etre cerne, et
 				// l'etat des candidats. Imprimee A CHAQUE IMAGE autour d'un clic : un
 				// clignotement d'une image ne se voit pas dans un releve espace.
@@ -15449,60 +15454,6 @@ namespace nkentseu {
 					// a zero : le champ `cerneDemo` aurait toujours dit 0, et une transition
 					// du contour d'un objet de demo serait passee inapercue.
 					// *La place d'une lecture est fixee par l'ordre de l'image.*
-					// ══ LES TRANSITIONS DU CONTOUR, SANS CROCHET ═══════════════════
-					// LA TRACE DE CLIC A REPONDU, ET ELLE A POSE LA QUESTION SUIVANTE.
-					// Elle a designe `cerneUser=1` sur l'objet 31, en mode Objet, sans
-					// outil -- donc le CONTOUR DE SELECTION d'un objet utilisateur, et
-					// non l'outil Curseur, ni le rectangle de zone, ni une boite sans
-					// cible : mes trois hypotheses sont tombees d'un coup.
-					//
-					// Mais elle ne court que SEPT images. Rodolf voit la boite
-					// « apparaitre ET disparaitre » : c'est la DUREE qui est anormale,
-					// pas la boite -- et la fin de cette duree tombe hors de la fenetre
-					// de la trace. Ce qu'il faut savoir, c'est A QUELLE IMAGE le contour
-					// cesse, et si la SELECTION a cessé au meme instant.
-					//
-					// ⚠️ ON N'ECRIT QUE LES CHANGEMENTS. Une ligne par image ferait des
-					//    dizaines de milliers de lignes dans le journal de Rodolf pour
-					//    dire cent fois la meme chose ; et c'est precisement la ou elle
-					//    CHANGE que le clignotement se lit.
-					//
-					// ⚠️ ET ON SE TAIT APRES 400 TRANSITIONS, en le disant. Un contour
-					//    qui oscillerait a chaque image -- c'est-a-dire le defaut le plus
-					//    grave que cette trace puisse trouver -- remplirait le journal
-					//    justement parce qu'il est grave. Une trace qui s'etouffe sur le
-					//    cas qu'elle cherche ne sert a rien.
-					{
-						static int32 sTrCerne = -1, sTrActif = -999, sTrImg = 0, sTrN = 0;
-						static int32 sTrDerImg = 0;
-						++sTrImg;
-						const int32 actif = st->emptyGizmo.ActiveIndex();
-						const int32 cerne = gBoiteOutUser + gBoiteOutObj;
-						if ((cerne > 0) != (sTrCerne > 0) || actif != sTrActif) {
-							if (sTrN < 400) {
-								++sTrN;
-								logger.Info("[CONTOUR-TRANSITION] img={0} (+{1} images) contour {2} -> {3} "
-											"selection {4} -> {5} · cerneUser={6} cerneDemo={7} "
-											"noeud={8} sansCible={9} refus(model={10} cache={11} "
-											"nature={12}){13}\n",
-											sTrImg, sTrImg - sTrDerImg, (sTrCerne > 0) ? 1 : 0,
-											(cerne > 0) ? 1 : 0, sTrActif, actif, gBoiteOutUser,
-											gBoiteOutObj, gBoiteOutUserIdx, gBoiteSansCible,
-											gBoiteRefusModel, gBoiteRefusCache, gBoiteRefusKind,
-											(sTrN == 400) ? " [DERNIERE : 400 transitions, je me tais]"
-														  : "");
-							}
-							sTrDerImg = sTrImg;
-							sTrCerne = cerne;
-							sTrActif = actif;
-						}
-					}
-					gBoiteOutObj = 0;
-					gBoiteOutUser = 0;
-					gBoiteRefusModel = 0;
-					gBoiteRefusCache = 0;
-					gBoiteRefusKind = 0;
-					gBoiteSansCible = 0;
 				}
 				if (st->cursorPlacePending) {
 					st->cursorPlacePending = false;
@@ -15572,6 +15523,140 @@ namespace nkentseu {
 				r3d->DrawDebugLine(CC - cup * (Rw * 2.0f), CC - cup * (Rw * 0.7f), colW, 0.f, true);
 				r3d->DrawDebugLine(CC + cup * (Rw * 0.7f), CC + cup * (Rw * 2.0f), colW, 0.f, true);
 			}
+
+			// ══ LES DEUX TRACES DU CLIC, HORS DE TOUTE GARDE D'AFFICHAGE ══════
+			// ⚠️ ELLES ETAIENT ENFERMEES DANS LA GARDE DU CURSEUR 3D
+			//    (`nkvpCursorShow && (nkvpOutPhase == 0 || ...)`) : decocher
+			//    « Curseur 3D » dans l'onglet Affichage, ou rendre une image sans
+			//    les aides, et LES DEUX SE TAISENT -- sans que rien ne le signale.
+			//    Le journal de Rodolf du 25/09 montrait UNE seule transition sur
+			//    deux mille images : ce n'etait pas un contour stable, c'etait un
+			//    instrument muet par construction.
+			//
+			//    TROISIEME FOIS EN UNE NUIT que la PLACE d'une lecture est le
+			//    defaut : `masqueTri` remis a zero apres son incrementation, la
+			//    transition du contour lue apres la remise a zero, et maintenant
+			//    deux traces sous la garde d'une AUTRE fonctionnalite.
+			//    *Une trace se place par ce qu'elle doit voir, jamais par l'endroit
+			//    du fichier ou son sujet se trouvait.*
+				// ══ LA TRACE DU CLIC, ET ELLE N'A PAS DE CROCHET ═══════════════════
+				// Rodolf voit, a chaque clic sur le curseur de l'univers, « une boite
+				// englobante qui apparait et disparait ». Trois portes de clic ecrites
+				// n'ont pas reproduit le defaut, et je lui ai demande trois precisions
+				// -- ce qui revient a lui demander d'attraper une image au bon
+				// millieme de seconde, avec les mots qu'il faut.
+				//
+				// ⚠️ C'EST AU PROGRAMME DE REPONDRE, PAS A L'UTILISATEUR. Cette trace
+				//    part a CHAQUE clic, dans le binaire livre, sans variable
+				//    d'environnement : sans quoi elle demanderait a Rodolf de relancer
+				//    autrement, c'est-a-dire de reproduire exprès ce qui lui arrive par
+				//    surprise.
+				//
+				// ⚠️ ET ELLE COURT SUR PLUSIEURS IMAGES. Un clignotement d'UNE image ne
+				//    se voit pas dans un releve pris a l'instant du clic : la cause
+				//    peut etre publiee l'image d'APRES. On ecrit donc l'image du clic
+				//    et les six suivantes, puis on se tait.
+				{
+					static int32 sTrImg = 0;
+					static int32 sTrRest = 0;
+					static bool sTrPrev = false;
+					++sTrImg;
+					// ⚠️ LU A LA SOURCE (NkInput) ET NON DANS `gin`, qui n'existe pas a cette
+						//    portee : `gin` est l'entree assemblee du bloc d'edition, bien
+						//    plus haut. Meme question, meme reponse -- la source commune.
+						const bool clicMaintenant =
+							nkvpInputOn && nkvpHover && NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+					if ((clicMaintenant && !sTrPrev) || gClicBoite)
+						sTrRest = 7;
+					sTrPrev = clicMaintenant;
+					if (sTrRest > 0) {
+						--sTrRest;
+						// CE QU'ELLE DOIT PERMETTRE DE DISTINGUER, et c'est pour ca
+						// qu'elle porte ces champs-la et pas d'autres :
+						//   · mode + outil  -> quel chemin de clic a ete emprunte ;
+						//   · selection      -> un contour a-t-il une cible, ou non ;
+						//   · cerne / rect   -> une BOITE 3D publiee, ou un RECTANGLE
+						//                       plat de selection par zone. Les deux
+						//                       se decrivent « une boite qui apparait »
+						//                       et n'ont pas la meme cause.
+						int32 selV = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							selV += st->vertSel[i] ? 1 : 0;
+						logger.Info("[CLIC-TRACE] img={0} clic={1} curseur3D={2} mode={3} editMode={4} "
+									"outil={5} outilCurseur={6} selSommets={7} selObjet={8} selUser={9} "
+									"rectZone={10} cerneDemo={11} cerneUser={12} sansCible={13} "
+									"gizmoCache={14}\n",
+									sTrImg, clicMaintenant ? 1 : 0, gClicBoite ? 1 : 0, st->uiMode,
+									st->editMode ? 1 : 0, st->selTool, nkvpCursorTool ? 1 : 0, selV,
+									st->gizmo.HasSelection() ? 1 : 0, st->emptyGizmo.ActiveIndex(),
+									st->selDragging ? 1 : 0, gBoiteOutObj, gBoiteOutUser,
+									gBoiteSansCible, nkvpGizmoHidden ? 1 : 0);
+					}
+				}
+
+					// ══ LES TRANSITIONS DU CONTOUR, SANS CROCHET ═══════════════════
+					// LA TRACE DE CLIC A REPONDU, ET ELLE A POSE LA QUESTION SUIVANTE.
+					// Elle a designe `cerneUser=1` sur l'objet 31, en mode Objet, sans
+					// outil -- donc le CONTOUR DE SELECTION d'un objet utilisateur, et
+					// non l'outil Curseur, ni le rectangle de zone, ni une boite sans
+					// cible : mes trois hypotheses sont tombees d'un coup.
+					//
+					// Mais elle ne court que SEPT images. Rodolf voit la boite
+					// « apparaitre ET disparaitre » : c'est la DUREE qui est anormale,
+					// pas la boite -- et la fin de cette duree tombe hors de la fenetre
+					// de la trace. Ce qu'il faut savoir, c'est A QUELLE IMAGE le contour
+					// cesse, et si la SELECTION a cessé au meme instant.
+					//
+					// ⚠️ ON N'ECRIT QUE LES CHANGEMENTS. Une ligne par image ferait des
+					//    dizaines de milliers de lignes dans le journal de Rodolf pour
+					//    dire cent fois la meme chose ; et c'est precisement la ou elle
+					//    CHANGE que le clignotement se lit.
+					//
+					// ⚠️ ET ON SE TAIT APRES 400 TRANSITIONS, en le disant. Un contour
+					//    qui oscillerait a chaque image -- c'est-a-dire le defaut le plus
+					//    grave que cette trace puisse trouver -- remplirait le journal
+					//    justement parce qu'il est grave. Une trace qui s'etouffe sur le
+					//    cas qu'elle cherche ne sert a rien.
+					{
+						static int32 sTrCerne = -1, sTrActif = -999, sTrImg = 0, sTrN = 0;
+						static int32 sTrDerImg = 0;
+						++sTrImg;
+						const int32 actif = st->emptyGizmo.ActiveIndex();
+						const int32 cerne = gBoiteOutUser + gBoiteOutObj;
+						if ((cerne > 0) != (sTrCerne > 0) || actif != sTrActif) {
+							if (sTrN < 400) {
+								++sTrN;
+								logger.Info("[CONTOUR-TRANSITION] img={0} (+{1} images) contour {2} -> {3} "
+											"selection {4} -> {5} · cerneUser={6} cerneDemo={7} "
+											"noeud={8} sansCible={9} refus(model={10} cache={11} "
+											"nature={12}){13}\n",
+											sTrImg, sTrImg - sTrDerImg, (sTrCerne > 0) ? 1 : 0,
+											(cerne > 0) ? 1 : 0, sTrActif, actif, gBoiteOutUser,
+											gBoiteOutObj, gBoiteOutUserIdx, gBoiteSansCible,
+											gBoiteRefusModel, gBoiteRefusCache, gBoiteRefusKind,
+											(sTrN == 400) ? " [DERNIERE : 400 transitions, je me tais]"
+														  : "");
+							}
+							sTrDerImg = sTrImg;
+							sTrCerne = cerne;
+							sTrActif = actif;
+						}
+					}
+
+			// ⚠️ LES REMISES A ZERO SORTENT AUSSI DE LA GARDE DU CURSEUR 3D, et
+			//    c'est la moitie du correctif, pas un detail de rangement : laissees
+			//    dedans, elles ne s'executaient pas quand le curseur etait masque,
+			//    les compteurs s'ACCUMULAIENT d'image en image, et la trace -- qui
+			//    vit maintenant dehors -- aurait lu « contour > 0 » pour toujours
+			//    des la premiere publication. Un instrument muet aurait ete remplace
+			//    par un instrument qui ment, ce qui est pire.
+			//    Elles viennent APRES la trace : c'est elle qui les lit.
+			gBoiteOutObj = 0;
+			gBoiteOutUser = 0;
+			gBoiteRefusModel = 0;
+			gBoiteRefusCache = 0;
+			gBoiteRefusKind = 0;
+			gBoiteSansCible = 0;
 
 			// PORTAGE NK3DModeler : ces trois axes debug sont AUSSI sous la
 			// bascule « Axes du plan » du shell -- la decocher les eteint.
@@ -20863,15 +20948,34 @@ namespace nkentseu {
 		// selection est tombee ; elle ne dit pas PAR OU. Une seule fonction, appelee
 		// par chaque facade qui peut vider `st->gizmo` : six copies divergeraient, et
 		// celle qui manquerait serait justement la coupable.
+		// ── QUI EFFACE LA SELECTION ─────────────────────────────────────────
+		// Rodolf, 25/09 : la boite « apparait et disparait » a chaque clic. La
+		// sortie console l'a dit avant tous mes instruments : « PANNEAU
+		// selection=1 » puis « selection=0 », vingt paires de suite. Le contour
+		// suit donc fidelement une selection POSEE PUIS ANNULEE dans le meme
+		// geste, et la seule question qui reste est : par QUI.
+		//
+		// ⚠️ CETTE TRACE EXISTAIT, ET ELLE ETAIT MUETTE POUR LUI, DEUX FOIS :
+		//    1. elle ne partait que sous `NK_SEL_TRACE` -- donc jamais chez lui ;
+		//    2. elle ne regardait que `st->gizmo` (les objets de DEMONSTRATION),
+		//       alors que sa selection est un objet UTILISATEUR (`emptyGizmo`).
+		//    Un instrument qui observe la mauvaise population rend zero et se lit
+		//    comme une absence de defaut. C'est la meme faute que « le temoin qui
+		//    lit la source » -- sauf qu'ici il lisait une AUTRE source.
+		//
+		// Elle part maintenant SANS CROCHET, sur les TROIS populations, et
+		// seulement quand il y a REELLEMENT quelque chose a effacer : une porte
+		// qui vide une selection deja vide n'apprend rien et inonderait.
 		static void HostSelTrace(Demo3DState *st, const char *porte) {
-			static int t = -1;
-			if (t == -1) {
-				const char *v = getenv("NK_SEL_TRACE");
-				t = (v && v[0] && v[0] != '0') ? 1 : 0;
-			}
-			if (t && st && st->gizmo.ActiveIndex() >= 0)
-				logger.Info("[Demo3D] SEL TRACE : {0} va effacer ActiveIndex={1}\n", porte,
-							st->gizmo.ActiveIndex());
+			if (!st)
+				return;
+			const int32 d = st->gizmo.ActiveIndex();
+			const int32 u = st->emptyGizmo.ActiveIndex();
+			const int32 l = st->lightSel;
+			if (d < 0 && u < 0 && l < 0)
+				return; // rien a effacer : rien a dire
+			logger.Info("[SEL-EFFACE] porte='{0}' efface : demo={1} user={2} lumiere={3}\n", porte,
+						d, u, l);
 		}
 		void Demo3DHostSelectObject(int32 i, bool additive) {
 			auto *st = HostSt();
@@ -20900,6 +21004,10 @@ namespace nkentseu {
 			if (!st)
 				return;
 			st->lightGizmo.ClearSelection(); // meme regle que Demo3DHostSelectObject
+			// MARQUEE : le recensement des portes qui effacent la selection doit etre
+			// COMPLET -- sinon « aucune ligne » se lit comme « aucune porte n'a efface »
+			// alors que ca veut dire « la porte coupable n'est pas marquee ».
+			HostSelTrace(st, "Demo3DHostSelectGroup");
 			st->emptyGizmo.ClearSelection();
 			st->lightSel = -1;
 			if (!additive)
@@ -20921,6 +21029,10 @@ namespace nkentseu {
 			if (!st)
 				return;
 			st->gizmo.ClearSelection();
+			// MARQUEE : le recensement des portes qui effacent la selection doit etre
+			// COMPLET -- sinon « aucune ligne » se lit comme « aucune porte n'a efface »
+			// alors que ca veut dire « la porte coupable n'est pas marquee ».
+			HostSelTrace(st, "Demo3DHostSelectAllLights");
 			st->emptyGizmo.ClearSelection();
 			st->lightGizmo.SelectAll();
 			st->lightSel = st->lightGizmo.ActiveIndex();
@@ -20976,6 +21088,10 @@ namespace nkentseu {
 			if (li >= 0 && HostLockedEff(86 + li))
 				return; // lumiere cadenassee (elle ou un ancetre)
 			st->gizmo.ClearSelection();
+			// MARQUEE : le recensement des portes qui effacent la selection doit etre
+			// COMPLET -- sinon « aucune ligne » se lit comme « aucune porte n'a efface »
+			// alors que ca veut dire « la porte coupable n'est pas marquee ».
+			HostSelTrace(st, "Demo3DHostSelectLight");
 			st->emptyGizmo.ClearSelection();
 			// PAS lightSel directement : la demo le REECRIT chaque frame depuis
 			// la selection interne du gizmo des lumieres (lightSel =
@@ -21561,6 +21677,10 @@ namespace nkentseu {
 			if (!st)
 				return;
 			if (node < kNkvpFirstEmpty || node >= kNkvpMaxNodes) {
+				// MARQUEE : le recensement des portes qui effacent la selection doit etre
+				// COMPLET -- sinon « aucune ligne » se lit comme « aucune porte n'a efface »
+				// alors que ca veut dire « la porte coupable n'est pas marquee ».
+				HostSelTrace(st, "Demo3DHostSelectEmptyNode");
 				st->emptyGizmo.ClearSelection();
 				return;
 			}
@@ -23378,6 +23498,10 @@ namespace nkentseu {
 					st->lightGizmo.ToggleSelection(n - Demo3DState::kNumObj);
 				st->lightSel = st->lightGizmo.ActiveIndex();
 			} else if (st->emptyGizmo.ActiveIndex() == n - kNkvpFirstEmpty) {
+				// MARQUEE : le recensement des portes qui effacent la selection doit etre
+				// COMPLET -- sinon « aucune ligne » se lit comme « aucune porte n'a efface »
+				// alors que ca veut dire « la porte coupable n'est pas marquee ».
+				HostSelTrace(st, "HostDeselectNode");
 				st->emptyGizmo.ClearSelection();
 			}
 		}
