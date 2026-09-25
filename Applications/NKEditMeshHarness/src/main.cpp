@@ -4090,6 +4090,29 @@ static void SixOpsBattery() {
 //
 // USAGE : --famille-obj <sortie.obj> --nom <famille> [--style S] [--largeur L]
 //         [--hauteur H] [--profondeur P] [--nombre N] [--fenetres F] [--simple]
+// L'ECRITURE .OBJ, PARTAGEE PAR LES DEUX MODES (un seul fichier, un balayage).
+// Deux ecritures separees divergeraient, et la comparaison « identique au bit »
+// comparerait alors deux formats.
+static bool EcrireObj(const char *chemin, const NkVector<renderer::NkFamillePiece> &pieces, int32 n) {
+	FILE *f = fopen(chemin, "wb");
+	if (!f)
+		return false;
+	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis - Rihen\n");
+	uint32 base = 1;
+	for (int32 i = 0; i < n; ++i) {
+		const renderer::NkFamillePiece &q = pieces[(usize)i];
+		fprintf(f, "g %s\n", q.nom);
+		for (usize v = 0; v < q.verts.Size(); ++v)
+			fprintf(f, "v %.6f %.6f %.6f\n", (double)q.verts[v].pos.x, (double)q.verts[v].pos.y,
+					(double)q.verts[v].pos.z);
+		for (usize k = 0; k + 2 < q.indices.Size(); k += 3)
+			fprintf(f, "f %u %u %u\n", base + q.indices[k], base + q.indices[k + 1], base + q.indices[k + 2]);
+		base += (uint32)q.verts.Size();
+	}
+	fclose(f);
+	return true;
+}
+
 static int32 FamilleVersObj(int32 argc, char **argv) {
 	renderer::NkFamilleParams p;
 	const char *sortie = nullptr;
@@ -4145,34 +4168,91 @@ static int32 FamilleVersObj(int32 argc, char **argv) {
 	if (n <= 0) {
 		// Le refus va AUSSI sur la sortie standard : un banc dont le motif part
 		// dans un journal qu'on ne lit pas est un banc muet.
-		printf("FAMILLE_REFUS %s\n", pourquoi);
+		printf("FAMILLE_REFUS n=%d motif=%s\n", (int)n, pourquoi[0] ? pourquoi : "(aucun motif ecrit)");
 		fflush(stdout);
 		NkLog::Instance().Error("famille refusee : {0}", pourquoi);
 		return 1;
 	}
-	FILE *f = fopen(sortie, "wb");
-	if (!f) {
+	if (!EcrireObj(sortie, pieces, n)) {
+		// ⚠️ UN BANC MUET SUR L'ECHEC D'ECRITURE M'A FAIT CROIRE A UN PLANTAGE :
+		//    le dossier de sortie n'existait pas, la famille etait parfaitement
+		//    construite, et je bisectais une recette saine.
+		printf("FAMILLE_ECHEC ecriture impossible : %s (le dossier existe-t-il ?)\n", sortie);
+		fflush(stdout);
 		NkLog::Instance().Error("ecriture impossible : {0}", sortie);
 		return 1;
 	}
-	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis - Rihen\n");
-	fprintf(f, "# famille %s style %s %.4f x %.4f x %.4f, %d pieces\n", p.famille, p.style, (double)p.largeur,
-			(double)p.hauteur, (double)p.profondeur, (int)n);
-	uint32 base = 1;
-	for (int32 i = 0; i < n; ++i) {
-		const renderer::NkFamillePiece &q = pieces[(usize)i];
-		fprintf(f, "g %s\n", q.nom);
-		for (usize v = 0; v < q.verts.Size(); ++v)
-			fprintf(f, "v %.6f %.6f %.6f\n", (double)q.verts[v].pos.x, (double)q.verts[v].pos.y,
-					(double)q.verts[v].pos.z);
-		for (usize k = 0; k + 2 < q.indices.Size(); k += 3)
-			fprintf(f, "f %u %u %u\n", base + q.indices[k], base + q.indices[k + 1], base + q.indices[k + 2]);
-		base += (uint32)q.verts.Size();
-	}
-	fclose(f);
+	uint32 base = 0;
+	for (int32 i = 0; i < n; ++i)
+		base += (uint32)pieces[(usize)i].verts.Size();
+	++base;
 	printf("FAMILLE_OBJ %s : %d pieces, %u sommets\n", sortie, (int)n, (unsigned)(base - 1));
 	fflush(stdout);
 	return 0;
+}
+
+// ── BALAYAGE : N JEUX DE PARAMETRES EN UN SEUL PROCESSUS (25/09, Q17) ───────
+// ⚠️ IL EXISTE POUR UNE RAISON MESUREE : l'ajustement par projection evalue des
+//    dizaines de candidats. Un processus par candidat coute ~0,2 s de LANCEMENT,
+//    soit plus que tout le reste -- dans un outil de mesure on s'en moque, dans
+//    l'application non. Ici, un seul processus construit tout.
+// Le fichier d'entree : une ligne par candidat, « largeur hauteur profondeur
+// nombre ». La sortie : <dossier>/000.obj, 001.obj, ...
+// USAGE : --famille-balayage <tuples.txt> --nom <famille> --sortie-dir <dossier>
+static int32 FamilleBalayage(int32 argc, char **argv) {
+	const char *tuples = nullptr, *dossier = nullptr, *nom = nullptr;
+	for (int32 i = 1; i < argc; ++i) {
+		auto suivant = [&](const char *cle) -> const char * {
+			return (strcmp(argv[i], cle) == 0 && i + 1 < argc) ? argv[++i] : nullptr;
+		};
+		if (const char *v = suivant("--famille-balayage"))
+			tuples = v;
+		else if (const char *v = suivant("--sortie-dir"))
+			dossier = v;
+		else if (const char *v = suivant("--nom"))
+			nom = v;
+	}
+	if (!tuples || !dossier || !nom) {
+		printf("FAMILLE_ECHEC --famille-balayage demande --nom et --sortie-dir\n");
+		return 2;
+	}
+	{
+		char pq[256] = {0};
+		(void)renderer::NkFamilleFichierCharger("data/familles", pq, sizeof(pq));
+	}
+	FILE *f = fopen(tuples, "rb");
+	if (!f) {
+		printf("FAMILLE_ECHEC tuples illisibles : %s\n", tuples);
+		return 1;
+	}
+	char ligne[256];
+	int32 k = 0, ok = 0;
+	while (fgets(ligne, sizeof(ligne), f)) {
+		float32 a[4] = {0.f, 0.f, 0.f, 0.f};
+		if (sscanf(ligne, "%f %f %f %f", &a[0], &a[1], &a[2], &a[3]) < 3) {
+			++k;
+			continue;
+		}
+		renderer::NkFamilleParams p;
+		snprintf(p.famille, sizeof(p.famille), "%s", nom);
+		p.largeur = a[0];
+		p.hauteur = a[1];
+		p.profondeur = a[2];
+		p.nombre = (int32)(a[3] + 0.5f);
+		p.detaille = true;
+		NkVector<renderer::NkFamillePiece> pieces;
+		char pq[256] = {0};
+		const int32 n = renderer::NkFamilleConstruire(p, pieces, pq, sizeof(pq));
+		char chemin[400];
+		snprintf(chemin, sizeof(chemin), "%s/%03d.obj", dossier, (int)k);
+		if (n > 0 && EcrireObj(chemin, pieces, n))
+			++ok;
+		++k;
+	}
+	fclose(f);
+	printf("FAMILLE_BALAYAGE %d/%d ecrits dans %s\n", (int)ok, (int)k, dossier);
+	fflush(stdout);
+	return ok > 0 ? 0 : 1;
 }
 
 static void FamillesBattery() {
@@ -11103,6 +11183,9 @@ int main(int argc, char **argv) {
 	for (int32 i = 1; i < argc; ++i)
 		if (strcmp(argv[i], "--famille-obj") == 0)
 			return FamilleVersObj(argc, argv);
+	for (int32 i = 1; i < argc; ++i)
+		if (strcmp(argv[i], "--famille-balayage") == 0)
+			return FamilleBalayage(argc, argv);
 
 	bool baseline = false, check = false, perf = false, intention = false;
 	bool suppression = false;
