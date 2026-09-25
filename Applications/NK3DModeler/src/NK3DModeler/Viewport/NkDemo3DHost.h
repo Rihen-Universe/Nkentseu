@@ -762,6 +762,20 @@ namespace nkentseu {
 		bool Demo3DHostPickTake(int32 *node, float32 *world3);
 		void Demo3DHostObjectPosition(int32 i, float32 *out3);
 		int32 Demo3DHostLightCount();
+		// COMBIEN DE LUMIERES ATTEIGNENT REELLEMENT L'IMAGE.
+		// `Demo3DHostLightCount` ne repond PAS a cette question : il rend
+		// `hst.ok ? kNumLights : 0`, ou `hst` est le host hors-ecran -- donc 0
+		// pendant l'affichage normal. Ce compte-ci lit `frameLights`, rempli a
+		// la soumission APRES le filtre de visibilite : c'est le seul chiffre
+		// qui distingue « l'objet ne reagit pas a la lumiere » de « aucune
+		// lumiere n'a ete soumise ». Lecture seule.
+		int32 Demo3DHostFrameLightCount();
+		float32 Demo3DHostFrameLightEnergy();
+		// QUI est cette lumiere : type, direction, couleur, intensite. Sert a
+		// repondre a « laquelle eclaire, alors que les quatre exposees ne le
+		// font pas ». Lecture seule.
+		bool Demo3DHostFrameLightInfo(int32 i, int32 *type, float32 *dir3, float32 *col3,
+									  float32 *intensity);
 		void Demo3DHostLightName(int32 li, char *out, uint32 cap);
 		int32 Demo3DHostSelectedLight();
 		void Demo3DHostSelectLight(int32 li);
