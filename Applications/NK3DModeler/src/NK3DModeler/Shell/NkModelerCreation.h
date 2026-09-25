@@ -4512,10 +4512,53 @@ namespace nkentseu {
 							if (*c == '\n' || *c == '\r')
 								*c = ' ';
 					}
+					// ── LA DESCRIPTION NE SERT A RIEN, ET ON LE DIT (25/09) ──────────
+					// ⚠️ VERIFIE AVANT DE L'ECRIRE : `descriptionImage` n'a qu'UN seul
+					//    consommateur, et il est derriere `NkCreaImageGuidePlan()`,
+					//    eteint par defaut depuis le 21/09. Rien d'autre ne la lit.
+					// ⚠️ ET ELLE EST SOUVENT DEGENEREE. Journal de Rodolf du 25/09 :
+					//    « urn, pot, vase, bowl, cup, jar, bottle, box, basket » puis
+					//    « basket » repete 60 fois ; sur la seconde image, « !!!IMAGE!!! ».
+					//    Afficher ce charabia a l'utilisateur lui fait croire que la
+					//    chaine a compris quelque chose. On le DIT, et on le montre
+					//    tronque -- sans le cacher : le jour ou un modele de vision
+					//    utile arrivera, c'est cette ligne qui changera.
+					bool degenere = false;
+					{
+						// un mot repete plus de cinq fois de suite, ou un marqueur brut
+						char prec[40] = {0}, mot[40];
+						int32 suite = 0;
+						for (const char *c = E.descriptionImage; *c;) {
+							while (*c == ' ' || *c == ',')
+								++c;
+							uint32 k = 0;
+							while (*c && *c != ' ' && *c != ',' && k + 1u < sizeof(mot))
+								mot[k++] = *c++;
+							mot[k] = 0;
+							if (!k)
+								break;
+							suite = (strcmp(mot, prec) == 0) ? suite + 1 : 0;
+							if (suite >= 5)
+								degenere = true;
+							snprintf(prec, sizeof(prec), "%s", mot);
+						}
+						if (strstr(E.descriptionImage, "!!!"))
+							degenere = true;
+					}
 					char m[800];
-					snprintf(m, sizeof(m), okv ? "Ce que le modele de vision voit sur l'image (%.1f s) : %s"
-											   : "Le modele de vision n'a pas repondu (%.1f s) : %s -- le plan part sans lui.",
-							 (double)E.envoiVision.Secondes(), okv ? E.descriptionImage : err.CStr());
+					if (okv && degenere)
+						snprintf(m, sizeof(m),
+								 "Le modele de vision a rendu une reponse degeneree (%.1f s) : « %.60s… ». "
+								 "Sans importance : SA DESCRIPTION N'EST PAS UTILISEE -- ni par le plan, ni par "
+								 "l'ajustement, ni par la reconstruction. C'est votre IMAGE qui sert.",
+								 (double)E.envoiVision.Secondes(), E.descriptionImage);
+					else
+						snprintf(m, sizeof(m),
+								 okv ? "Ce que le modele de vision voit (%.1f s) : %.300s — pour information "
+									   "seulement : cette description n'alimente pas le plan."
+									 : "Le modele de vision n'a pas repondu (%.1f s) : %s -- sans consequence, "
+									   "sa description n'est pas utilisee.",
+								 (double)E.envoiVision.Secondes(), okv ? E.descriptionImage : err.CStr());
 					(void)NkAiPousser(st, NkModelerState::AiType::Note, m);
 					std::printf("[crea] VISION : %.1f s -> %s\n", (double)E.envoiVision.Secondes(),
 								okv ? E.descriptionImage : "ECHEC");
