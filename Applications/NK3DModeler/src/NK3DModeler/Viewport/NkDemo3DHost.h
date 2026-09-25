@@ -78,6 +78,27 @@ namespace nkentseu {
 		void Demo3DHostFrame(void *cmd);
 		// Secondes par image du viseur, lissees ; 0 avant la premiere image.
 		float32 Demo3DHostFrameSeconds();
+
+		// ── (25/09) LES COMPTEURS DE RENDU, RELAYES ─────────────────────────
+		// Ils viennent de `NkRenderer::GetStats()` et de nulle part ailleurs.
+		// ⚠️ AUCUN CALCUL ICI. Ce depot a paye *une derivation en double, pas une
+		//    compensation* : l'un publiait, l'autre lisait, et les deux ont
+		//    diverge en silence. Cette facade COPIE, point.
+		// ⚠️ Les types NKRenderer ne peuvent pas traverser cet en-tete (voir la
+		//    regle en tete de fichier) : la sortie est donc une structure a nous,
+		//    en types de base.
+		struct NkVpCompteurs {
+				uint32 draws = 0, triangles = 0, sommets = 0, lots = 0;
+				uint32 ecartes = 0, lumieres = 0, ombreurs = 0;
+				float32 gpuMs = 0.f;
+				bool gpuValide = false; ///< faux -> l'affichage ecrit « -- », pas « 0.00 »
+				float32 cpuMs = 0.f;
+				bool cpuValide = false;
+				const char *api = nullptr; ///< nom du dorsal, ou nullptr
+		};
+		/// Rend faux tant que la vue 3D n'a pas de renderer : l'appelant n'affiche
+		/// alors RIEN, plutot qu'un panneau de zeros qui aurait l'air d'une mesure.
+		bool Demo3DHostCompteurs(NkVpCompteurs &out);
 		/// Rend l'apercu du materiau `slot` a `w` x `h`, dans le command buffer de
 		/// l'editeur — donc AVANT la passe backbuffer, une passe de rendu ne
 		/// pouvant pas en contenir une autre. Une seule image par frame : celle

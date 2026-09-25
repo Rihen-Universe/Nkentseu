@@ -134,11 +134,21 @@ NKScena**.
 | **Les messages en vue.** Provoquer un refus d'import : importer un modèle **sans avoir ouvert de scène**. | Le bandeau apparaît **dans la vue**, une seule fois, en rouge, et il ne s'efface pas tout seul. | • Le refus n'apparaît que dans la console ou `logs/app.log`.<br>• Il apparaît **deux fois**, en rouge **et** en ambre → la marque « je viens du journal » ne tient plus (`NkImportNote` pose le bandeau *et* journalise le même texte).<br>• Il **disparaît** au bout de douze secondes → la durée est relue sur l'écho au lieu du bandeau existant. |
 | **Le navigateur de contenu.** L'ouvrir (panneau du bas), **tirer la séparation** entre l'arbre des dossiers (gauche) et la grille des vignettes (droite). Puis **fermer l'application et la rouvrir**. | Le curseur devient une **double flèche** au survol du trait, le trait **s'éclaire**, la séparation suit la souris — et la largeur est **encore là** après réouverture. | • Le curseur ne change pas → la poignée n'est pas déclarée, ou une autre zone lui vole le clic.<br>• L'arbre **ou** la grille disparaît quand on tire à fond → une borne manque.<br>• La largeur revient à celle d'origine après réouverture → `~/.nk3dmodeler_ui.cfg` n'est pas écrit. Il l'est **au relâchement** de la poignée, jamais à la sortie du programme : une application fermée par la croix de l'OS n'écrirait rien. |
 
+| **Les compteurs de rendu.** Menu **Fenêtre → Compteurs de rendu**. | Un petit panneau apparaît **en haut à droite de la vue 3D** : Draw, Tris, Sommets, Lots, Écartés, Lumières, Ombreurs, GPU, CPU, dt, FPS — et le nom du dorsal en titre (« Vulkan », « OpenGL »…). L'entrée de menu porte une **coche**. Refermer et rouvrir l'application les retrouve **allumés**. | • Ils sont **allumés au premier lancement** → le défaut n'est plus « éteint », et c'est ce qui polluait chaque capture.<br>• **« GPU 0.00 ms »** alors qu'aucune mesure GPU n'a encore répondu → un zéro qui n'est pas un zéro ; la vue doit écrire **« -- »**.<br>• Les chiffres restent **figés** pendant qu'on tourne la caméra → ils ne viennent plus de `NkRenderer::GetStats()`.<br>• Ils apparaissent **sur l'écran d'accueil** → la garde `!st.welcome` est tombée.<br>• Un clic dessus **tourne la caméra** → la zone n'est pas réclamée, et l'affichage laisse passer. |
+
+⚠️ **Les compteurs n'ont pas de démo à part, et c'est délibéré :** leur sujet est
+de **relayer** les chiffres d'un vrai rendu. Une démo qui les alimenterait avec
+des nombres inventés montrerait un relais de rien du tout — elle aurait l'air de
+marcher quel que soit l'état du câblage. NK3DModeler est le seul endroit où le
+geste prouve quelque chose.
+
 ### Pour les bancs (sans souris, sans fenêtre)
 
 ```
-NK3DModeler.exe --sonde-messages              -> 9/9  (le chemin logger -> bandeau)
-NK3DModeler.exe --sonde-ui-etat <fichier>     -> 9/9  (l'aller-retour et les bornes)
+NK3DModeler.exe --sonde-messages              -> 9/9   (le chemin logger -> bandeau)
+NK3DModeler.exe --sonde-ui-etat <fichier>     -> 14/14 (l'aller-retour, les bornes,
+                                                        et l'interrupteur des compteurs)
+NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comprises)
 ```
 
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,

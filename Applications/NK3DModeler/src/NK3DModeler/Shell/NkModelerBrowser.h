@@ -1295,6 +1295,14 @@ namespace nkentseu {
 				{kBrowserTitle, "", false},		{nullptr, "", false},
 				{"Panneau d'outils", "app.panneau_outils", false}, {nullptr, "", false},
 				{"Plein ecran", "", false},
+				// (25/09, tranche par Rodolf) LES COMPTEURS DE RENDU. Ajoutee EN FIN
+				// de table, et c'est deliberé : le repartiteur de `NkModelerMenus.h`
+				// dispatche sur des INDICES ecrits a la main, et inserer au milieu
+				// les decalerait tous en silence. Sa coche, elle, est trouvee par sa
+				// CLE (`app.compteurs`), jamais par son rang -- *un indice n'est pas
+				// un nom*, et `--demo=2` s'est deja decale a chaque fusion.
+				{nullptr, "", false},
+				{"Compteurs de rendu", "app.compteurs", false},
 			};
 			static const NkMenuItem kTools[] = {
 				{"Rechercher une commande", "app.palette", false}, {nullptr, "", false},

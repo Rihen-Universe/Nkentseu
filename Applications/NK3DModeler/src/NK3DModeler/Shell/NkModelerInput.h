@@ -1443,18 +1443,39 @@ namespace nkentseu {
 				editorkit::NkCtxMenu toolMenu;
 
 				// ── PROPORTIONS AJUSTABLES ──────────────────────────────────────
-				// Les separateurs modifient ces FRACTIONS et non des pixels : a la
-				// prochaine ouverture, la disposition se retrouve identique quelle que
-				// soit la taille de fenetre. En pixels, une fenetre plus petite
-				// ecraserait les panneaux ; en fractions, ils suivent.
+				// Les separateurs modifient ces FRACTIONS et non des pixels : la
+				// disposition tient a toutes les tailles de fenetre. En pixels, une
+				// fenetre plus petite ecraserait les panneaux ; en fractions, ils
+				// suivent.
+				//
+				// 🔴 CE COMMENTAIRE A MENTI JUSQU'AU 25/09/2026, ET C'EST INSCRIT ICI
+				//    PARCE QU'UN COMMENTAIRE FAUX EST PIRE QU'UN SILENCE. Il disait
+				//    « a la prochaine ouverture, la disposition se retrouve
+				//    identique » et « fermer puis rouvrir retrouve sa largeur ». Ces
+				//    quatre fractions n'etaient ECRITES NULLE PART : fermer
+				//    l'application les perdait toutes. La phrase parlait de fermer un
+				//    PANNEAU (la poignee de reouverture) ; elle se lisait comme
+				//    l'inverse, et faisait conclure a une REGRESSION quand quelqu'un
+				//    constatait l'absence.
+				//    ⚠️ Et le nom qu'on allait chercher etait juste au MAUVAIS ETAGE :
+				//    `SaveUiState` / `LoadUiState` existent bien -- dans
+				//    `NkEditorShell` (NKEditorKit), que NK3DModeler n'emploie pas.
+				//
+				// CE QUI EST VRAI DEPUIS : les CINQ fractions ci-dessous sont ecrites
+				// dans `~/.nk3dmodeler_ui.cfg` par `NkModelerUiState.h`, AU
+				// RELACHEMENT d'un separateur -- jamais a la sortie du programme, qu'une
+				// croix de l'OS peut ne jamais atteindre. Fermer l'application et la
+				// rouvrir retrouve donc bien la disposition.
+				//
 				// LARGEUR MINIMALE A LA PREMIERE OUVERTURE (Rihen) : un panneau
 				// qui s'ouvre trop large mange la vue 3D, et l'utilisateur doit
 				// le retrecir avant de travailler -- l'inverse du bon defaut.
 				// Une fraction NULLE laisse Compute() appliquer son plancher
 				// (kMinLeftW / kMinRightW) : on obtient donc la largeur minimale
-				// sans dupliquer ces valeurs ici. Des que l'utilisateur bouge un
-				// separateur, la fraction devient la SIENNE et se conserve --
-				// fermer puis rouvrir retrouve sa largeur, pas le minimum.
+				// sans dupliquer ces valeurs ici. C'est aussi pourquoi le zero
+				// TRAVERSE la relecture sans etre borne (cf. NkModelerUiState.h) :
+				// le borner a 0,08 changerait la largeur d'ouverture de quelqu'un
+				// qui n'a jamais touche ses separateurs.
 				float32 leftFrac = 0.f;
 				float32 rightFrac = 0.f;
 				float32 browserFrac = 0.22f;
@@ -1466,6 +1487,20 @@ namespace nkentseu {
 				/// tire a la souris, et qui survit a la fermeture
 				/// (`NkModelerUiState.h`).
 				float32 browserTreeFrac = kBrowserTreeFracDefaut;
+
+				/// (25/09, tranche par Rodolf) (A) LES COMPTEURS DE RENDU dans la
+				/// vue, en haut a droite : Draw, Tris, Sommets, Lots, GPU, CPU,
+				/// dt, FPS.
+				///
+				/// ⚠️ ETEINT PAR DEFAUT, et c'est la condition qui compte : c'est
+				///    l'affichage permanent qui polluait CHAQUE capture de Rodolf.
+				///    L'etat se memorise (`NkModelerUiState.h`) -- celui qui les
+				///    allume les retrouve, celui qui ne les a jamais demandes ne
+				///    les voit jamais.
+				/// ⚠️ CE N'EST PAS LA GARDE DU LABO. Le HUD de laboratoire couvrait
+				///    d'un seul interrupteur les compteurs, l'aide produit ET le
+				///    rectangle de selection. Celui-ci ne couvre QUE les compteurs.
+				bool compteursOn = false;
 				/// Glissement de CETTE separation-la. Elle n'est PAS dans le tableau
 				/// de `PaintSplitters` : celui-ci travaille sur la mise en page
 				/// generale (`NkLayout`) et ne connait ni l'entete du navigateur ni
