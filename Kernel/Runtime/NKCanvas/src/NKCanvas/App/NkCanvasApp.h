@@ -88,12 +88,42 @@ namespace nkentseu {
 		/// moment ou la fenetre n'existe pas encore. Modifier un champ apres
 		/// coup n'a aucun effet — et le journal le dit plutot que de l'ignorer.
 		struct NkCanvasAppConfig {
+				// ── LES SIX RACCOURCIS ────────────────────────────────────────
+				// Ils couvrent le cas courant et ne bougent pas : tout le code
+				// existant continue de fonctionner sans une ligne de changement.
 				NkString title = "Application NKCanvas";
 				uint32 width = 960;
 				uint32 height = 540;
 				bool resizable = true;
 				bool centered = true;
 				bool frame = true; ///< false = sans bordure (barre de titre dessinee par l'app)
+
+				// ── ET LA CONFIGURATION DE FENETRE COMPLETE (25/09/2026) ──────
+				//
+				// LE DEFAUT QUE CE CHAMP CORRIGE : `CreateWindowAndTarget`
+				// recopiait SIX champs de `NkWindowConfig` sur vingt-cinq. Un
+				// utilisateur de NKCanvas — c'est-a-dire la plupart — ne pouvait
+				// donc atteindre NI `movable`, NI `closable`, NI `minimizable`,
+				// NI `maximizable`, NI `modal`, NI `canFullscreen`, NI
+				// `minWidth`/`maxWidth`, NI `bgColor`, NI `alwaysOnTop`, NI
+				// `clickThrough`, NI `opacity`, NI `noActivate`, NI
+				// `transparent`, NI `hasShadow`, NI `dropEnabled`, NI
+				// `iconPath`, NI `native`. Ces reglages etaient perdus AVANT
+				// meme d'atteindre NKWindow : aucun correctif du dorsal ne
+				// pouvait les rendre visibles ici.
+				//
+				// COMMENT LES DEUX COEXISTENT, et la regle est simple :
+				//   `fenetre` est la base, les six raccourcis sont appliques
+				//   PAR-DESSUS. Qui ne touche a rien garde exactement le
+				//   comportement d'avant ; qui remplit `fenetre` obtient les
+				//   vingt-cinq reglages ; qui remplit les deux voit le raccourci
+				//   gagner, parce qu'il est le plus specifique et le plus visible
+				//   a la lecture.
+				//
+				// ⚠️ `fenetre.width/height` sont une taille CLIENT, comme tout
+				//    ce qui touche a la taille dans NKWindow. Voir le bloc
+				//    LE CONTRAT en tete de `NkWindowConfig.h`.
+				NkWindowConfig fenetre;
 
 				/// NK_GFX_API_NONE = "choisis pour moi" : la coquille resout
 				/// selon la plateforme, apres avoir consulte la ligne de commande
