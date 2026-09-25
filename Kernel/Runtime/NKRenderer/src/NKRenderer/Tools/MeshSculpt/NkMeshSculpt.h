@@ -92,6 +92,16 @@ namespace nkentseu {
 		//    y compris les NORMALES. Recalculer les normales « au cas ou » suffirait
 		//    a faire echouer une comparaison au bit, et le critere du zero serait
 		//    perdu pour une raison qui n'a rien a voir avec la sculpture.
+		// ── LA MUTATION DU MASQUE, ET ELLE N'A QU'UNE SOURCE ────────────────
+		// `NK_MASQUE_IGNORE=1` rend l'etat d'AVANT le masque : les brosses ET
+		// l'outil Transform de sculpture ignorent les poids. Les criteres de
+		// protection des bancs doivent alors rougir.
+		// ⚠️ UNE SEULE LECTURE POUR LES DEUX SITES. Deux `getenv` dans deux unites
+		//    de compilation seraient deux compteurs sans code commun : ils
+		//    pourraient diverger (une faute de frappe dans l'un), et la mutation
+		//    n'en couvrirait plus qu'un -- en le laissant croire.
+		bool NkSculptMasqueIgnore() noexcept;
+
 		NkSculptApply NkSculptApplyStroke(NkEditMesh &mesh, const NkBrushDesc &brush,
 										  const NkSculptPoint *points, uint32 count) noexcept;
 
