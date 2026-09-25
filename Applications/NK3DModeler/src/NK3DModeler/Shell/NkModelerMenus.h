@@ -209,15 +209,17 @@ namespace nkentseu {
 				// Le libelle d'une bascule est toujours en retrait, cochee ou non :
 				// sinon le texte saute lateralement a chaque clic, et c'est le saut
 				// qu'on lit au lieu de la coche.
-				// ⚠️ `TextMuted` ET PAS UN GRIS ECRIT EN DUR. Le vocabulaire de roles
-				//    du kit n'a AUCUN role « desactive » (mesure : aucun `Disabled`,
-				//    `Inactif` ni `Grise` dans `NKEditorKit/NkTheme.h`) -- `TextMuted`
-				//    est le plus proche qui existe, et il suit les deux themes. Le
-				//    role manquant est inscrit dans la liste du 2 novembre ; une
-				//    couleur en dur deviendrait illisible en theme clair, et ce depot
-				//    a deja paye ce prix.
+				// ⚠️ `TextDisabled`, LE ROLE DEDIE, POSE LE 26/09. Il disait
+				//    `TextMuted` la veille -- le vocabulaire de roles du kit n'avait
+				//    AUCUN role « desactive », alors que la table de theme NKGui en
+				//    a un depuis toujours. Ce n'etait pas un synonyme : `TextMuted`
+				//    dit « secondaire », celui-ci dit « on ne peut pas agir dessus ».
+				//    Mesure du banc (famille 29), sur le fond REEL du menu :
+				//    sombre 3,77 contre 5,62 ; clair 2,40 contre 4,50 -- plus
+				//    attenue dans les DEUX themes, et jamais confondu avec le fond.
 				p.TextV(ir.x + (estBascule ? S(28.f) : S(12.f)), y, itemH, m.items[i].label,
-						indispo ? NkRole::TextMuted : (over ? NkRole::TextOnAccent : NkRole::Text));
+						indispo ? NkRole::TextDisabled
+								: (over ? NkRole::TextOnAccent : NkRole::Text));
 				// Le RACCOURCI est lu dans la table, jamais recopie : rebinder une
 				// touche met l'affichage a jour tout seul.
 				// ⚠️ PAS DE RACCOURCI A COTE D'UNE ENTREE INDISPONIBLE. L'afficher
@@ -251,6 +253,39 @@ namespace nkentseu {
 					// Les demandes partent en DIFFERE (`projPending`) : le selecteur
 					// de fichiers de l'OS ouvre une boucle modale, l'appeler pendant
 					// la peinture reentrerait dans la frame en cours.
+					// ── LES SEPT ENTREES CABLEES DES CINQ AUTRES MENUS (26/09) ──
+					// Routees PAR LEUR CLE, jamais par leur rang -- c'est ce qui
+					// permet d'en retirer ou d'en griser une sans decaler les
+					// autres. Chacune appelle LA facade qui existe deja, celle que
+					// le clavier appelle : deux chemins vers un meme geste doivent
+					// passer par la meme porte, sinon ils divergent.
+					{
+						const char *c3 = m.items[i].command;
+						bool traite = true;
+						if (!c3 || !*c3)
+							traite = false;
+						else if (strcmp(c3, "app.annuler") == 0)
+							(void)demo::Demo3DHostEditUndo();
+						else if (strcmp(c3, "app.refaire") == 0)
+							(void)demo::Demo3DHostEditRedo();
+						else if (strcmp(c3, "sel.tout") == 0)
+							demo::Demo3DHostSelectAll(true);
+						else if (strcmp(c3, "sel.rien") == 0)
+							demo::Demo3DHostDeselectAll();
+						else if (strcmp(c3, "objet.deplacer") == 0)
+							demo::Demo3DHostSetGizmoOp(0);
+						else if (strcmp(c3, "objet.tourner") == 0)
+							demo::Demo3DHostSetGizmoOp(1);
+						else if (strcmp(c3, "objet.echelle") == 0)
+							demo::Demo3DHostSetGizmoOp(2);
+						else
+							traite = false;
+						if (traite) {
+							st.openMenu = -1;
+							return;
+						}
+					}
+
 					if (st.openMenu == 0) {
 						if (i == 0)
 							st.projPending = 1;
@@ -269,11 +304,9 @@ namespace nkentseu {
 					//   0 Rechercher une commande · 2 Retopologier · 3 Decimer...
 					//   5 Recuire les textures · 7 Extensions (sous-menu)
 					// MENU FENETRE (index 2) : les indices sont ceux de kWindow.
-					//   0 Hierarchie · 1 Proprietes · 2 Details · 3 Navigateur
-					//   5 Panneau d'outils · 7 Plein ecran · 9 Compteurs de rendu
-					// ⚠️ AUCUNE DES AUTRES ENTREES N'EST CABLEE A CE JOUR, et je ne
-					//    les cable pas au passage : ce serait du neuf non demande.
-					//    C'est un CONSTAT, pas un oubli.
+					// ⚠️ PLUS AUCUN INDICE ICI, et c'est le correctif du 26/09 : cette
+					//    liste en nommait sept, et retirer « Details » les a tous
+					//    decales. Tout passe desormais par la CLE.
 					else if (st.openMenu == 2) {
 						// Trouvee par la CLE, pas par le rang -- meme raison que la
 						// coche : ajouter une entree au-dessus ne doit pas allumer

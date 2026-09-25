@@ -1304,11 +1304,33 @@ namespace nkentseu {
 				{nullptr, "", false},
 				{"Quitter", "", false},
 			};
+			// ── LES CINQ AUTRES MENUS, MESURES ENTREE PAR ENTREE (26/09) ───────
+			// Meme methode que « Fenetre » : chaque entree OUVERTE, jamais inferee
+			// d'un nom. 19 entrees reelles (hors separateurs), trois verdicts :
+			// CABLER quand la fonction existe et que le fil tient en quelques
+			// lignes ; GRISER quand elle n'existe pas ou que son chemin produit
+			// n'est pas partageable en l'etat ; RETIRER quand l'entree n'a plus
+			// d'objet (aucune dans ces cinq menus : c'etait le cas de « Details »).
 			static const NkMenuItem kEdit[] = {
-				{"Annuler", "app.annuler", false}, {"Refaire", "app.refaire", false},
-				{nullptr, "", false},			   {"Dupliquer", "objet.dupliquer", false},
-				{"Supprimer", "objet.supprimer", false}, {nullptr, "", false},
-				{"Preferences...", "", false},
+				// `Demo3DHostEditUndo/Redo` existent -> une ligne chacune.
+				{"Annuler", "app.annuler", false},
+				{"Refaire", "app.refaire", false},
+				{nullptr, "", false},
+				// ⚠️ LA FONCTION EXISTE (`Demo3DHostDuplicateNode`,
+				//    `Demo3DHostDeleteNode`) ET POURTANT ELLES SONT GRISEES. Leur
+				//    CHEMIN PRODUIT -- nommage de la copie, reparentage, selection ;
+				//    et pour la suppression, la demande de confirmation -- vit EN
+				//    LIGNE dans le repartiteur du menu contextuel de la hierarchie.
+				//    Le reproduire ici creerait DEUX politiques qui divergeraient au
+				//    premier cas particulier. L'extraire est un chantier, pas un fil.
+				//    -> liste du 2 novembre. En attendant, elles sont disponibles par
+				//    le clic droit de la hierarchie, et ce menu ne le promet pas.
+				{"Dupliquer", "objet.dupliquer", false, /*indisponible*/ true},
+				{"Supprimer", "objet.supprimer", false, /*indisponible*/ true},
+				{nullptr, "", false},
+				// Aucun ecran de preferences : le bouton « Reglages » de la barre
+				// d'outils declare sa zone et n'a AUCUN `hit.Clicked`.
+				{"Preferences...", "", false, /*indisponible*/ true},
 			};
 			// ── LE MENU FENETRE, MESURE ENTREE PAR ENTREE (25/09) ──────────────
 			// Rodolf : « ca depend de l'utilite et si c'est deja concu. » C'est un
@@ -1367,24 +1389,55 @@ namespace nkentseu {
 				{"Aide aux raccourcis", "app.aide", false},
 			};
 			static const NkMenuItem kTools[] = {
-				{"Rechercher une commande", "app.palette", false}, {nullptr, "", false},
-				{"Retopologier", "", false},   {"Decimer...", "", false},
-				{nullptr, "", false},		   {"Recuire les textures", "", false},
-				{nullptr, "", false},		   {"Extensions", "", true},
+				// Aucune palette de commandes n'existe : `app.palette` est liee et
+				// n'a aucun consommateur.
+				{"Rechercher une commande", "app.palette", false, true},
+				{nullptr, "", false},
+				// Aucune facade de retopologie ni de decimation cote viseur.
+				{"Retopologier", "", false, true},
+				{"Decimer...", "", false, true},
+				{nullptr, "", false},
+				// LA SEULE DEJA CABLEE des cinq menus : `NkTextureCache::Vider()`.
+				{"Recuire les textures", "", false},
+				{nullptr, "", false},
+				// Sous-menu sans contenu : « une entree AVEC sous-menu en ouvrirait
+				// un second -- non ecrit tant qu'aucune n'a de contenu reel ».
+				{"Extensions", "", true, true},
 			};
 			static const NkMenuItem kSelect[] = {
-				{"Tout selectionner", "", false}, {"Tout deselectionner", "", false},
-				{"Inverser", "", false},		  {nullptr, "", false},
-				{"Par type", "", true},
+				// `Demo3DHostSelectAll` / `Demo3DHostDeselectAll` existent.
+				{"Tout selectionner", "sel.tout", false},
+				{"Tout deselectionner", "sel.rien", false},
+				// ⚠️ AUCUNE FONCTION D'INVERSION cote viseur -- ni `Invert`, ni
+				//    `Inverse`, dans toute la facade. L'ecrire serait du neuf.
+				{"Inverser", "", false, true},
+				{nullptr, "", false},
+				{"Par type", "", true, true},
 			};
 			static const NkMenuItem kObject[] = {
-				{"Deplacer", "objet.deplacer", false}, {"Tourner", "objet.tourner", false},
-				{"Redimensionner", "objet.echelle", false}, {nullptr, "", false},
-				{"Ajouter un modificateur", "", true}, {"Appliquer tout", "", false},
+				// `Demo3DHostSetGizmoOp(0/1/2)` existe : une ligne chacune, et c'est
+				// le MEME chemin que les touches G / R / S.
+				{"Deplacer", "objet.deplacer", false},
+				{"Tourner", "objet.tourner", false},
+				{"Redimensionner", "objet.echelle", false},
+				{nullptr, "", false},
+				// ⚠️ LE MENU DES MODIFICATEURS EXISTE (`PaintModifierMenu`), mais il
+				//    s'ouvre par une combo de la barre d'outils (`ws.ComboOpen
+				//    ("tb.mod")`) et lit son ancre dans `st.modAnchor`. L'atteindre
+				//    d'ici demande de faire descendre `NkWidgetState` jusqu'au
+				//    repartiteur : un changement de signature, pas un fil.
+				{"Ajouter un modificateur", "", true, true},
+				{"Appliquer tout", "", false, true},
 			};
+			// ⚠️ AUCUN DES TROIS ECRANS N'EXISTE : ni documentation, ni table des
+			//    raccourcis affichable, ni « A propos ». La table `NkShortcutTable`
+			//    existe bien, mais rien ne la PEINT en plein ecran -- elle ne sert
+			//    qu'a afficher les raccourcis a cote des entrees de menu.
 			static const NkMenuItem kHelp[] = {
-				{"Documentation", "", false}, {"Raccourcis clavier", "", false},
-				{nullptr, "", false},		  {"A propos", "", false},
+				{"Documentation", "", false, true},
+				{"Raccourcis clavier", "", false, true},
+				{nullptr, "", false},
+				{"A propos", "", false, true},
 			};
 			// LE NOMBRE D'ENTREES SE DEDUIT DE LA TABLE, il ne se recopie pas.
 			// Il etait ecrit a la main : ajouter « Enregistrer tout » a kFile sans
