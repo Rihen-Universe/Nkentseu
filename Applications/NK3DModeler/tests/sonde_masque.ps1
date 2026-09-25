@@ -79,13 +79,13 @@ function Lignes($c) {
 	foreach ($l in @(Select-String -Path $c.log -Pattern "\[MODE-SONDE\]")) {
 		$m = [regex]::Match($l.Line,
 			"img=(\d+) .* nv=(\d+) somme=\((-?[0-9.e+-]+), (-?[0-9.e+-]+), (-?[0-9.e+-]+)\).*" +
-			"masque=(\d+) sommeMasque=(-?[0-9.e+-]+) octetsMasque=(\d+)")
+			"masque=(\d+) sommeMasque=(-?[0-9.e+-]+) octetsMasque=(\d+) sym=(\d+)")
 		if (-not $m.Success) { continue }
 		$r += [pscustomobject]@{
 			img = [int]$m.Groups[1].Value; nv = [int]$m.Groups[2].Value
 			sx = [double]$m.Groups[3].Value; sy = [double]$m.Groups[4].Value; sz = [double]$m.Groups[5].Value
 			masque = [int]$m.Groups[6].Value; somme = [double]$m.Groups[7].Value
-			octets = [int]$m.Groups[8].Value
+			octets = [int]$m.Groups[8].Value; sym = [int]$m.Groups[9].Value
 		}
 	}
 	return $r
@@ -446,6 +446,35 @@ foreach ($b in @("dessiner", "creuser", "lisser", "durcir")) {
 		Dire "(j) $b : et le geste a bien eu lieu DES DEUX COTES" ((Bouge $avec) -gt ((Bouge $sans) * 1.2)) `
 			"deplacement total $([Math]::Round((Bouge $sans), 4)) -> $([Math]::Round((Bouge $avec), 4)) (deux tampons au lieu d'un)"
 	}
+}
+
+# ── (k) LA SYMETRIE EST UN REGLAGE DU DOCUMENT, ET ELLE SURVIT ─────────────
+# Elle se regle maintenant dans le panneau (trois cases X / Y / Z, icones
+# tracees). Ce qui se mesure d'ici, c'est ce qui compte pour Rodolf : le reglage
+# part avec le DOCUMENT -- on ne sculpte pas un visage (symetrique) et une roche
+# (non) avec le meme reglage -- et il est LA quand on rouvre.
+# ⚠ DEUX PROCESSUS, comme pour le masque : relire dans le meme mesurerait la
+#   memoire, pas le fichier.
+$projSym = Join-Path $tmp "projet_symetrie"
+if (Test-Path $projSym) { Remove-Item -Recurse -Force $projSym }
+New-Item -ItemType Directory -Force (Join-Path $projSym "ms") | Out-Null
+$fSym = Join-Path $projSym "ms\ms.nk3dm"
+$a2 = CourirNu "sym_ecrire" @{ "NK_PROJECT" = $fSym; "NK_ADD_NODE" = "2,0,40"; "NK_EDIT_USER" = "99";
+							   "NK_EDIT_MODE" = "3,60"; "NK_EDIT_SEL" = "n"; "NK_SCULPT_SYM" = "3";
+							   "NK_VP_ACTION" = "toggleedit,200"; "NK_AGENT_SAVE" = "240";
+							   "NK_AGENT_EXIT" = "320" }
+$scene = Get-ChildItem -Path $projSym -Filter "*.nkscene" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+$ecrit = $false
+if ($null -ne $scene) { $ecrit = (Select-String -Path $scene.FullName -Pattern '"symetrieSculpture": 3').Count -gt 0 }
+$b2 = CourirNu "sym_relire" @{ "NK_PROJECT" = $fSym; "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "3,120";
+							   "NK_AGENT_EXIT" = "220" }
+$Lsym = @(Lignes $b2)
+if (Condition "(k) symetrie" (($null -ne $scene) -and ($Lsym.Count -gt 0)) `
+		"fichier de scene=$($null -ne $scene) · lignes relues=$($Lsym.Count)") {
+	Dire "(k) la symetrie est ECRITE dans le document" $ecrit `
+		"« symetrieSculpture: 3 » dans $($scene.Name)"
+	Dire "(k) et elle est LA au retour, dans un processus neuf" ((Dernier $Lsym "sym") -eq 3) `
+		"symetrie relue = $(Dernier $Lsym 'sym') (exige 3 = X|Y)"
 }
 
 Write-Host "-----------------------------------------------------------------------"

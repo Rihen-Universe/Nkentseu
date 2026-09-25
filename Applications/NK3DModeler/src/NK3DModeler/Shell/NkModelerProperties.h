@@ -6779,6 +6779,65 @@ namespace nkentseu {
 							"Texturing : peinture et calques -- a venir.",
 							"Patron : depliage UV (unwrapping) -- a venir.",
 							"Texture painting : peinture sur texture -- a venir."};
+						// ── LA SYMETRIE DU MODE : TROIS CASES X / Y / Z ────────────────
+						// Blender la met dans le panneau du MODE, pas dans l'outil : le
+						// meme pinceau sculpte en miroir ou non selon cet interrupteur.
+						// Elle AGISSAIT depuis cette nuit (les brosses et le Transform la
+						// lisent) mais ne se reglait que par variable d'environnement --
+						// donc elle n'existait pas pour Rodolf. La voici.
+						//
+						// ⚠️ L'ICONE EST TRACEE, comme tout ce que ce panneau dessine :
+						//    deux paves de part et d'autre du PLAN du miroir (deux petits
+						//    segments), teintes a la couleur de l'axe -- X rouge, Y vert,
+						//    Z bleu, les MEMES que les axes de la vue, sinon le panneau et
+						//    la scene ne parleraient pas de la meme chose. La lettre est
+						//    dessous : a cette taille, c'est elle qui se lit en premier.
+						//
+						// ⚠️ L'ETAT EST LU CHEZ L'AUTORITE (la vue), jamais garde ici. Un
+						//    miroir local afficherait « aucune » pendant que la sculpture
+						//    travaille en miroir, le jour ou un autre chemin la changerait.
+						if (m5 == 2 || m5 == 3) {
+							const int32 symCur = demo::Demo3DHostSculptSym();
+							yy += S(4.f);
+							p.TextV(r.x + kPad, yy, kRowH, "Symetrie", NkRole::TextMuted);
+							const float32 bw = S(34.f), bh = kRowH - S(2.f);
+							float32 bx = r.x + rowR.w - 2.f * kPad - 3.f * (bw + S(4.f));
+							if (bx < r.x + kPad + S(70.f))
+								bx = r.x + kPad + S(70.f);
+							static const char *const kAx[3] = {"X", "Y", "Z"};
+							static const NkColor kAxC[3] = {NkColor{214, 86, 86, 255},
+															NkColor{96, 190, 96, 255},
+															NkColor{86, 130, 224, 255}};
+							for (int32 a5 = 0; a5 < 3; ++a5) {
+								const int32 bit = 1 << a5;
+								const bool on = (symCur & bit) != 0;
+								const NkRect br{bx, yy + S(1.f), bw, bh};
+								char ka[32];
+								snprintf(ka, sizeof(ka), "prop.sculpt.sym%d", a5);
+								const bool surv = hit.Add(ka, br);
+								if (on)
+									p.Fill(br, NkRole::AccentUi, 3.f);
+								else
+									HoverFill(p, br, surv, 3.f);
+								const float32 cx5 = br.x + br.w * 0.5f;
+								const float32 gy = br.y + S(3.f), gh = S(6.f), gw = S(5.f);
+								const NkColor c5 = on ? NkColor{255, 255, 255, 235} : kAxC[a5];
+								p.Fill({cx5 - S(2.f) - gw, gy, gw, gh}, c5, 1.f);
+								p.Fill({cx5 + S(2.f), gy, gw, gh}, c5, 1.f);
+								p.Fill({cx5 - 0.5f, gy - S(1.f), 1.f, S(3.f)}, c5);
+								p.Fill({cx5 + -0.5f, gy + gh - S(2.f), 1.f, S(3.f)}, c5);
+								p.TextV(cx5 - S(3.f), br.y + S(7.f), kRowH - S(7.f), kAx[a5],
+										on ? NkRole::TextOnAccent : NkRole::Text);
+								NkHelp(surv, on ? "Symetrie ACTIVE sur cet axe : chaque coup de brosse "
+												  "est aussi pose en miroir"
+												: "Symetrie sur cet axe : le geste sera pose des deux "
+												  "cotes du plan");
+								if (hit.Clicked(ka))
+									demo::Demo3DHostSetSculptSym(symCur ^ bit);
+								bx += bw + S(4.f);
+							}
+							yy += kRowH + S(2.f);
+						}
 						if (m5 == 3) {
 						//   -- LES BROSSES, ENFIN VISIBLES ------------------------------------
 						//   Rodolf, 20/09 : « je ne vois meme pas les brosses ». Elles

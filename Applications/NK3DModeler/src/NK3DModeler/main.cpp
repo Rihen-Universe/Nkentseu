@@ -2196,7 +2196,7 @@ int nkmain(const NkEntryState &entry) {
 		if (demo::Demo3DHostReady()) {
 			static struct {
 					int32 shading = -1, solidLight = -1, projection = -1, orientation = -1,
-						  camSpeed = -1, gizmoOp = -1;
+						  camSpeed = -1, gizmoOp = -1, sculptSym = -1;
 					uint32 overlay = 0xFFFFFFFFu;
 					NkTool tool = (NkTool)255;
 					bool snapGrid = false, snapAngle = false, snapScale = false;
@@ -2216,6 +2216,17 @@ int nkmain(const NkEntryState &entry) {
 			else
 				st.solidLight = demo::Demo3DHostUnlitColor();
 			sy.solidLight = st.solidLight;
+
+			// LA SYMETRIE DE LA SCULPTURE, dans le MEME va-et-vient que ses voisines :
+			// le panneau la change -> on la pousse ; sinon on relit l'autorite (la vue),
+			// qui peut l'avoir recue du crochet de mesure. Sans ce second sens, le
+			// panneau afficherait « aucune » pendant que la sculpture travaille en
+			// miroir -- un affichage qui ment sur l'etat reel.
+			if (!sy.first && st.sculptSym != sy.sculptSym)
+				demo::Demo3DHostSetSculptSym(st.sculptSym);
+			else
+				st.sculptSym = demo::Demo3DHostSculptSym();
+			sy.sculptSym = st.sculptSym;
 
 			// Projection : 0 perspective, 1 orthogonale, 2..7 vues d'axe. Une vue
 			// d'axe est une ACTION (elle pose la camera) ; l'etat durable, c'est
