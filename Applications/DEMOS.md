@@ -84,3 +84,63 @@ Mesure de référence (cube subdivisé, 486 sommets, coefficients à 0,8) :
 liaison=branchee : dmax=0.24   nonNuls=486/486
 liaison=COUPEE   : dmax=0      nonNuls=0
 ```
+
+
+---
+
+## Messages en vue — « le module qui journalise ne connaît pas l'écran »
+
+**`Build/Bin/Release-Windows/NkMessagesEnVue/NkMessagesEnVue.exe`**
+
+**Ce que ça montre, et c'est un câblage, pas un module :** `logger.Warn()` /
+`logger.Error()` → **NKLogger** → le **neuvième puits**
+(`NKEditorKit/NkScreenLogSink.h`) → la boucle d'affichage → `NkEcranLogVue`.
+Chaque bouton de la fenêtre appelle `logger.*` **et rien d'autre** : aucun ne
+dessine, aucun ne connaît l'écran, aucun ne choisit une couleur. C'est tout le
+sujet — le rendu, l'import, la physique, et **demain les scripts et le nodal**
+sont déjà branchés sans une ligne à écrire chez eux.
+
+### Ce qu'on doit voir
+
+- **« Emettre un AVERTISSEMENT »** → une pastille **ambre** dans le cadre du
+  bas, qui s'efface au bout d'une douzaine de secondes ;
+- **« Emettre une ERREUR »** → une pastille **rouge**, qui reste plus longtemps
+  que l'avertissement ;
+- **« Douze fois la MEME erreur »** → **UNE** pastille portant **« x 12 »** ;
+- **« Emettre une INFORMATION »** → **rien à l'écran**, et c'est le
+  comportement attendu : le puits filtre à AVERTISSEMENT. La ligne part quand
+  même dans la console et dans `logs/app.log`.
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| **après avoir pressé « DEBRANCHER le puits », un message apparaît encore** | ⚠️ **le plus grave** : un **autre** chemin le peint, et tout le reste de la démo ne prouve rien. C'est le bouton le plus important de la fenêtre. |
+| une pastille **bleue** après « Emettre une INFORMATION » | le filtre de niveau du puits ne tient pas — l'écran devient la console |
+| **douze** pastilles identiques au lieu d'une | la fusion des répétitions ne marche pas ; une boucle de rendu qui refuse remplira l'écran |
+| l'erreur disparaît **avant** l'avertissement | la durée ne suit pas le niveau |
+
+La démo emploie `NkEcranLogVue`, **la vue du kit** — pas la pile de bandeaux de
+NK3DModeler. Elle prouve donc en même temps que l'affichage marche chez un hôte
+qui n'a aucune pile à lui : ce sera le cas de **Nogee, NkAnimaEditor et
+NKScena**.
+
+---
+
+## Dans NK3DModeler — deux gestes, pas de démo à part
+
+| quoi faire | ce qu'on doit voir | ce qui prouverait que c'est cassé |
+|---|---|---|
+| **Les messages en vue.** Provoquer un refus d'import : importer un modèle **sans avoir ouvert de scène**. | Le bandeau apparaît **dans la vue**, une seule fois, en rouge, et il ne s'efface pas tout seul. | • Le refus n'apparaît que dans la console ou `logs/app.log`.<br>• Il apparaît **deux fois**, en rouge **et** en ambre → la marque « je viens du journal » ne tient plus (`NkImportNote` pose le bandeau *et* journalise le même texte).<br>• Il **disparaît** au bout de douze secondes → la durée est relue sur l'écho au lieu du bandeau existant. |
+| **Le navigateur de contenu.** L'ouvrir (panneau du bas), **tirer la séparation** entre l'arbre des dossiers (gauche) et la grille des vignettes (droite). Puis **fermer l'application et la rouvrir**. | Le curseur devient une **double flèche** au survol du trait, le trait **s'éclaire**, la séparation suit la souris — et la largeur est **encore là** après réouverture. | • Le curseur ne change pas → la poignée n'est pas déclarée, ou une autre zone lui vole le clic.<br>• L'arbre **ou** la grille disparaît quand on tire à fond → une borne manque.<br>• La largeur revient à celle d'origine après réouverture → `~/.nk3dmodeler_ui.cfg` n'est pas écrit. Il l'est **au relâchement** de la poignée, jamais à la sortie du programme : une application fermée par la croix de l'OS n'écrirait rien. |
+
+### Pour les bancs (sans souris, sans fenêtre)
+
+```
+NK3DModeler.exe --sonde-messages              -> 9/9  (le chemin logger -> bandeau)
+NK3DModeler.exe --sonde-ui-etat <fichier>     -> 9/9  (l'aller-retour et les bornes)
+```
+
+Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
+`NkBrowserTreeW`), jamais une copie : *une sonde qui recalcule ce qu'elle mesure
+ne peut voir aucun défaut de ce qu'elle mesure.*

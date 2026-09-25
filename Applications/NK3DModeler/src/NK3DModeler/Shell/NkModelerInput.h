@@ -1459,6 +1459,21 @@ namespace nkentseu {
 				float32 rightFrac = 0.f;
 				float32 browserFrac = 0.22f;
 				float32 propsFrac = 0.45f; ///< part des proprietes dans la colonne de droite
+				/// (25/09, demande de Rodolf) LA SEPARATION INTERNE DU NAVIGATEUR
+				/// DE CONTENU : part de l'ARBRE DES DOSSIERS dans sa largeur, la
+				/// grille des vignettes prenant le reste. C'etait 0,18 ecrit en dur
+				/// dans `NkModelerBrowser.h` ; c'est maintenant une fraction qu'on
+				/// tire a la souris, et qui survit a la fermeture
+				/// (`NkModelerUiState.h`).
+				float32 browserTreeFrac = kBrowserTreeFracDefaut;
+				/// Glissement de CETTE separation-la. Elle n'est PAS dans le tableau
+				/// de `PaintSplitters` : celui-ci travaille sur la mise en page
+				/// generale (`NkLayout`) et ne connait ni l'entete du navigateur ni
+				/// sa hauteur utile. La poignee vit donc avec le panneau qu'elle
+				/// coupe, et son etat aussi.
+				bool dragBrowserTree = false;
+				float32 dragBrowserTreeStart = 0.f;	 ///< souris en X au debut
+				float32 dragBrowserTreeFrac0 = 0.f;	 ///< fraction au debut
 
 				// Separateur en cours de glissement. -1 = aucun. On MEMORISE lequel :
 				// sans cela, un glissement rapide qui sort du rectangle du separateur
