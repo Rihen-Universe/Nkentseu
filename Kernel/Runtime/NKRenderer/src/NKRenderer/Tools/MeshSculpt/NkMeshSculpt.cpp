@@ -10,6 +10,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cmath>
+#include <cstdlib> // getenv : la mutation du masque vit dans le MEME binaire
 
 namespace nkentseu {
 	namespace renderer {
@@ -19,6 +20,14 @@ namespace nkentseu {
 				return a.x * b.x + a.y * b.y + a.z * b.z;
 			}
 		} // namespace
+
+		bool NkSculptMasqueIgnore() noexcept {
+			static const bool sIgnore = []() {
+				const char *v = std::getenv("NK_MASQUE_IGNORE");
+				return v && v[0] && v[0] != '0';
+			}();
+			return sIgnore;
+		}
 
 		float32 NkSculptSignedVolume(const NkEditMesh &mesh) noexcept {
 			// Somme des produits mixtes sur un eventail par face. Pour une surface
@@ -173,6 +182,94 @@ namespace nkentseu {
 				}
 			}
 			
+			// ── LA BROSSE MASQUE : ELLE N'ECRIT AUCUNE POSITION ────────────────
+			// Troisieme primitive, et la seule qui ne deforme rien : elle pose un
+			// POIDS par sommet. Elle sort donc AVANT tout le calcul de deplacement --
+			// y compris le volume signe, qui n'aurait aucun sens ici (le maillage ne
+			// bouge pas, la mesure vaudrait « pas de changement » sur un geste qui a
+			// pourtant agi).
+			//
+			// ⚠️ LE MEME CHEMIN QUE LES AUTRES JUSQU'ICI : soudure en groupes, zone,
+			//    attenuation, pression. Un masque calcule sur les indices BRUTS
+			//    donnerait a un coin de cube trois poids differents selon la copie,
+			//    et la protection serait partielle la ou l'utilisateur l'a voulue
+			//    pleine. Le poids se calcule par GROUPE, puis se pose sur TOUTES les
+			//    copies du groupe -- exactement comme le deplacement.
+			//
+			// ⚠️ `sens = -1` EFFACE : le poids se retranche au lieu de s'ajouter.
+			//    `amp` porte deja force x sens, donc il n'y a rien a decider ici.
+			if (brush.op == NkSculptOp::NK_SCULPT_OP_MASK) {
+				NkVector<float32> add;
+				add.Resize(vc);
+				for (uint32 i = 0; i < vc; ++i)
+					add[i] = 0.f;
+				uint32 groupesTouches = 0;
+				for (uint32 g = 0; g < vc; ++g) {
+					if (gCnt[g] == 0)
+						continue;
+					float32 acc = 0.f;
+					bool touche = false;
+					for (uint32 p = 0; p < count; ++p) {
+						const NkSculptPoint &pt = points[p];
+						const float32 r = (pt.radius > 0.f) ? pt.radius : brush.radius;
+						if (r <= 0.f)
+							continue;
+						const NkVec3f d = gPos[g] - pt.pos;
+						const float32 dist = sqrtf(Dot3(d, d));
+						if (dist > r)
+							continue;
+						float32 pr = pt.pressure;
+						if (pr < 0.f)
+							pr = 0.f;
+						if (pr > 1.f)
+							pr = 1.f;
+						const float32 w = NkBrushFalloff(dist / r, brush.falloff, brush.hardness) * amp * pr;
+						if (w == 0.f)
+							continue;
+						acc += w;
+						touche = true;
+					}
+					if (touche) {
+						add[g] = acc;
+						++groupesTouches;
+					}
+				}
+				out.groupsInRadius = groupesTouches;
+				if (groupesTouches == 0)
+					return out; // aucun octet ecrit, masque compris
+				mesh.MaskEnsure();
+				uint32 poses = 0;
+				float32 maxDelta = 0.f;
+				for (uint32 i = 0; i < vc; ++i) {
+					const uint32 c = canon[i];
+					if (c >= vc || add[c] == 0.f)
+						continue;
+					const float32 avant = mesh.vertMask[i];
+					float32 apres = avant + add[c];
+					if (apres < 0.f)
+						apres = 0.f;
+					if (apres > 1.f)
+						apres = 1.f;
+					if (apres == avant)
+						continue; // deja sature : ne pas compter un sommet qui n'a pas change
+					mesh.vertMask[i] = apres;
+					++poses;
+					const float32 m = (apres > avant) ? (apres - avant) : (avant - apres);
+					if (m > maxDelta)
+						maxDelta = m;
+				}
+				if (poses == 0)
+					return out;
+				// `vertsMoved` compte ici les sommets dont le POIDS a change : le nom
+				// dit « ce que le trait a touche », et c'est ce que l'appelant lit
+				// pour savoir si le geste a agi. `maxDisplacement` porte le plus grand
+				// ecart de poids -- sans unite de longueur, et c'est dit.
+				out.vertsMoved = poses;
+				out.maxDisplacement = maxDelta;
+				out.applied = true;
+				return out;
+			}
+
 			// -- DEPLACEMENT PAR GROUPE --
 			NkVector<NkVec3f> disp;
 			disp.Resize(vc);
@@ -270,9 +367,28 @@ namespace nkentseu {
 				const uint32 c = canon[i];
 				if (c >= vc)
 					continue;
-				const NkVec3f &d = disp[c];
-				if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
+				const NkVec3f &dBrut = disp[c];
+				if (dBrut.x == 0.f && dBrut.y == 0.f && dBrut.z == 0.f)
 					continue;
+				// ── LE MASQUE PROTEGE, ET IL PROTEGE **TOUTES** LES BROSSES ────────
+				// Ici, au SEUL point d'ecriture des positions : toute primitive --
+				// celle d'aujourd'hui, celle de demain -- y passe. Une attenuation
+				// posee dans chaque branche aurait couvert la premiere et oublie la
+				// suivante ; c'est le defaut que le coordinateur annonce comme « le
+				// point qui se rate ».
+				// Poids 1 = intact, 0 = plein effet, entre les deux = lineaire. Il est
+				// lu par SOMMET (et non par groupe) parce que le tableau est par
+				// sommet ; les copies d'un coin portent le meme poids, la brosse
+				// masque les ayant toutes ecrites ensemble.
+				// MUTATION DANS LE MEME BINAIRE : NK_MASQUE_IGNORE=1 rend l'etat
+				// d'AVANT ce lot -- les brosses ignorent le masque. Les criteres du
+				// banc qui disent « le masque protege » DOIVENT alors rougir ; sans
+				// ce negatif, ils pourraient etre verts pour une autre raison (un
+				// trait qui rate le maillage rend aussi « rien n'a bouge »).
+				const float32 protege = NkSculptMasqueIgnore() ? 0.f : mesh.MaskAt(i);
+				const NkVec3f d = (protege > 0.f) ? dBrut * (1.f - protege) : dBrut;
+				if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
+					continue; // entierement protege : ce sommet ne compte pas comme deplace
 				mesh.verts[i].pos = mesh.verts[i].pos + d;
 				++moved;
 				const float32 m = sqrtf(Dot3(d, d));
