@@ -6593,6 +6593,121 @@ namespace nkentseu {
 					//    qui ne defait rien.
 					return r.applied;
 				}
+				case NkMeshEditOp::SculptTransform: {
+					// L'OUTIL TRANSFORM DE SCULPTURE. Il agit sur la partie NON
+					// MASQUEE -- c'est le premier consommateur du masque.
+					//
+					// ⚠️ LE POIDS INTERPOLE, IL NE SEUILLE PAS. p' = p + (M·p - p) x
+					//    (1 - masque) : un masque a 0,5 laisse passer la moitie du
+					//    deplacement. Seuiller ferait apparaitre une marche la ou le
+					//    masque a justement ete degrade.
+					//
+					// ⚠️ SANS MASQUE, IL DEPLACE TOUT, et c'est Blender : « la partie
+					//    non masquee » d'un maillage sans masque, c'est le maillage.
+					const uint32 vc = m.VertCount();
+					if (vc == 0)
+						return false;
+					const NkSculptTransformParams &T = sculptXform;
+					const float32 kD2R = 0.017453292f;
+					const NkMat4f R = NkMat4f::RotationZ(NkAngle::FromRad(T.rotDeg.z * kD2R)) *
+									  NkMat4f::RotationY(NkAngle::FromRad(T.rotDeg.y * kD2R)) *
+									  NkMat4f::RotationX(NkAngle::FromRad(T.rotDeg.x * kD2R));
+					const NkMat4f S = NkMat4f::Scale(T.scale);
+					const NkMat4f M = NkMat4f::Translate(T.translate) * R * S;
+					// La reflexion d'un axe : S·M·S. On la compose pour chaque axe
+					// symetrise, donc jusqu'a huit combinaisons -- exactement les
+					// huit octants que Blender traite.
+					auto refl = [](const NkMat4f &mm, int32 axe) {
+						NkVec3f d{1.f, 1.f, 1.f};
+						if (axe == 0)
+							d.x = -1.f;
+						else if (axe == 1)
+							d.y = -1.f;
+						else
+							d.z = -1.f;
+						const NkMat4f F = NkMat4f::Scale(d);
+						return F * mm * F;
+					};
+					uint32 bouges = 0;
+					for (uint32 i = 0; i < vc; ++i) {
+						// MEME porte de mutation que les brosses : un seul `getenv`, deux sites.
+						const float32 libre = NkSculptMasqueIgnore() ? 1.f : (1.f - m.MaskAt(i));
+						if (libre <= 0.f)
+							continue; // entierement protege : pas un octet
+						const NkVec3f p = m.verts[i].pos;
+						const NkVec3f rel = p - T.pivot;
+						// ⚠️ LE SOMMET POSE SUR LE PLAN DE SYMETRIE APPARTIENT AUX DEUX
+						//    COTES. Premiere version : il suivait le cote positif (le
+						//    test etait `< 0`). Mesure : sur un cube symetrise en X,
+						//    l'anneau x = 0 partait de +0,5 pendant que ses voisins a
+						//    x = -epsilon partaient de -0,5 -- le maillage se DECHIRAIT
+						//    exactement sur la couture, la ou la symetrie devait le
+						//    souder. On MOYENNE donc les transformations applicables :
+						//    pour une translation le long de X, la moyenne vaut zero, et
+						//    l'anneau reste sur le plan. C'est ce que fait Blender.
+						const float32 kEps = 1e-6f;
+						NkVec3f somme{0.f, 0.f, 0.f};
+						uint32 nCombi = 0;
+						for (int32 cx = 0; cx < 2; ++cx) {
+							if (cx == 1 && !(T.symX && rel.x <= kEps))
+								continue;
+							if (cx == 0 && T.symX && rel.x < -kEps)
+								continue;
+							for (int32 cy = 0; cy < 2; ++cy) {
+								if (cy == 1 && !(T.symY && rel.y <= kEps))
+									continue;
+								if (cy == 0 && T.symY && rel.y < -kEps)
+									continue;
+								for (int32 cz = 0; cz < 2; ++cz) {
+									if (cz == 1 && !(T.symZ && rel.z <= kEps))
+										continue;
+									if (cz == 0 && T.symZ && rel.z < -kEps)
+										continue;
+									NkMat4f Mv = M;
+									if (cx == 1)
+										Mv = refl(Mv, 0);
+									if (cy == 1)
+										Mv = refl(Mv, 1);
+									if (cz == 1)
+										Mv = refl(Mv, 2);
+									somme = somme + (T.pivot + (Mv * rel));
+									++nCombi;
+								}
+							}
+						}
+						if (nCombi == 0)
+							continue;
+						const NkVec3f q = somme * (1.f / (float32)nCombi);
+						const NkVec3f d = (q - p) * libre;
+						if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
+							continue;
+						m.verts[i].pos = p + d;
+						++bouges;
+					}
+					if (bouges == 0)
+						return false;
+					m.RecomputeNormals();
+					return true;
+				}
+				case NkMeshEditOp::MaskAll: {
+					// LE MASQUE EN BLOC. Rend VRAI seulement si quelque chose a CHANGE :
+					// `Demo3D_ApplyCmd` s'en sert pour ne pas commiter une etape
+					// d'annulation qui ne defait rien -- « tout demasquer » sur un
+					// maillage deja libre ne doit pas remplir la pile.
+					// ⚠️ LE TEMOIN EST LA SOMME, PAS LE COMPTE. Deux masques differents
+					//    peuvent avoir le meme nombre de sommets masques ; ils n'ont pas
+					//    la meme somme. Et l'EXISTENCE du tableau compte aussi : liberer
+					//    la memoire est un changement, meme quand la somme valait deja 0.
+					const bool avaitTableau = m.MaskExists();
+					const float32 avant = m.MaskSum();
+					if (maskAll.mode == 1u)
+						m.MaskFillAll(maskAll.poids);
+					else if (maskAll.mode == 2u)
+						m.MaskInvert();
+					else
+						m.MaskClearAll();
+					return (m.MaskExists() != avaitTableau) || (m.MaskSum() != avant);
+				}
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
 				case NkMeshEditOp::ExtrudeVerts:
@@ -6744,7 +6859,9 @@ namespace nkentseu {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(11u); // v11 : + LE COUP DE BROSSE (params + polyligne)
+			w.U32(13u); // v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
+			//       v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
+			//       v11 : + LE COUP DE BROSSE (params + polyligne)
 			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
 						//       s'ecrivaient a l'identique -- 370 octets pour « deux faces
 						//       opposees » comme pour « tout selectionner »)
@@ -6833,6 +6950,28 @@ namespace nkentseu {
 					w.F32(c.sculptNormals[k].y);
 					w.F32(c.sculptNormals[k].z);
 				}
+				// v12 : LE MASQUE EN BLOC. Ecrit EN FIN, comme les onze paliers
+				// precedents : un lecteur v11 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.U8(c.maskAll.mode);
+				w.F32(c.maskAll.poids);
+				// v13 : L'OUTIL TRANSFORM DE SCULPTURE. En fin, comme les douze
+				// paliers precedents.
+				w.F32(c.sculptXform.translate.x);
+				w.F32(c.sculptXform.translate.y);
+				w.F32(c.sculptXform.translate.z);
+				w.F32(c.sculptXform.rotDeg.x);
+				w.F32(c.sculptXform.rotDeg.y);
+				w.F32(c.sculptXform.rotDeg.z);
+				w.F32(c.sculptXform.scale.x);
+				w.F32(c.sculptXform.scale.y);
+				w.F32(c.sculptXform.scale.z);
+				w.F32(c.sculptXform.pivot.x);
+				w.F32(c.sculptXform.pivot.y);
+				w.F32(c.sculptXform.pivot.z);
+				w.U8(c.sculptXform.symX);
+				w.U8(c.sculptXform.symY);
+				w.U8(c.sculptXform.symZ);
 			}
 		}
 
@@ -7928,6 +8067,30 @@ namespace nkentseu {
 						const float32 x = r.F32(), y = r.F32(), z = r.F32();
 						c.sculptNormals.PushBack(NkVec3f{x, y, z});
 					}
+				}
+				// v12 : LE MASQUE EN BLOC. Un fichier v11 laisse `maskAll` a ses
+				// valeurs par defaut ; comme aucune de ses commandes ne porte l'op
+				// MaskAll, ces valeurs ne sont jamais lues.
+				if (ver >= 12) {
+					c.maskAll.mode = r.U8();
+					c.maskAll.poids = r.F32();
+				}
+				if (ver >= 13) {
+					c.sculptXform.translate.x = r.F32();
+					c.sculptXform.translate.y = r.F32();
+					c.sculptXform.translate.z = r.F32();
+					c.sculptXform.rotDeg.x = r.F32();
+					c.sculptXform.rotDeg.y = r.F32();
+					c.sculptXform.rotDeg.z = r.F32();
+					c.sculptXform.scale.x = r.F32();
+					c.sculptXform.scale.y = r.F32();
+					c.sculptXform.scale.z = r.F32();
+					c.sculptXform.pivot.x = r.F32();
+					c.sculptXform.pivot.y = r.F32();
+					c.sculptXform.pivot.z = r.F32();
+					c.sculptXform.symX = r.U8();
+					c.sculptXform.symY = r.U8();
+					c.sculptXform.symZ = r.U8();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en
