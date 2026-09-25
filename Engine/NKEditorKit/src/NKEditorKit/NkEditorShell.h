@@ -877,6 +877,10 @@ namespace nkentseu {
 				// Etat d'interface PAR PROJET (lu/ecrit dans un fichier de config du
 				// workspace, ex. <ws>/.nkcode/ui.cfg) : fenetre maximisee + panneaux
 				// ouverts. LoadUiState applique l'etat ; no-op si le fichier est absent.
+				/// (25/09) NK_DOCKS : ECRIT l'etat reel des panneaux et des rails. Ne
+				/// corrige rien : elle sert a savoir par quelle porte chaque panneau de
+				/// droite est arrive, AVANT de toucher au docking partage.
+				void EcrireEtatDocks(const char *quand) noexcept;
 				void LoadUiState(const char *path) noexcept;
 				void SaveUiState(const char *path) noexcept;
 				/// (Q6, 21/09) `false` : `LoadUiState` ne touche PAS a la geometrie de la

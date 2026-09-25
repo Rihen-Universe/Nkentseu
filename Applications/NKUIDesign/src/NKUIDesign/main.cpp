@@ -10382,10 +10382,14 @@ int nkmain(const NkEntryState &state) {
 		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
 		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
 		shell->SetUiStateGeometrie(false);
+		shell->EcrireEtatDocks("avant LoadUiState"); // (25/09) NK_DOCKS : l'etat AVANT le fichier
 		if (gCheminEtatUi[0])
 			shell->LoadUiState(gCheminEtatUi);
 		printf("[NKUIDesign] ETAT UI relu de %s : panneau de droite %.0f px\n", gCheminEtatUi,
 			   (double)shell->RailLargeur(NkEditorDockSide::NK_RIGHT));
+		// (25/09) ET L'ETAT APRES : la difference dit exactement ce que le fichier a
+		// ouvert -- c'est-a-dire ce qui est arrive par la seconde porte.
+		shell->EcrireEtatDocks("apres LoadUiState");
 	}
 	if (gTiroirCote == 'd')
 		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
