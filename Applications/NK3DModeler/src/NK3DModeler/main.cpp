@@ -827,10 +827,23 @@ int nkmain(const NkEntryState &entry) {
 
 	NkThemeLibrary themes;
 	NkString userThemes;
-	if (const char *appdata = env::GetEnvVar("APPDATA")) {
-		if (*appdata) {
-			userThemes = NkString(appdata);
-			userThemes.Append("/NK3DModeler/themes");
+	// (25/09) LE QUATRIEME ETAT SANS PORTE, et il est chez moi. `LoadThemes` LIT ce
+	// dossier ; une course qui y enregistrerait un theme ecrirait chez Rodolf, et le
+	// critere `Tools/sonde_etat_utilisateur.py` le surveille deja. On lui donne la
+	// meme redirection qu'aux autres, par la MEME variable.
+	// ⚠️ LECTURE COMPRISE, ET C'EST VOULU : une sonde qui lirait les themes
+	//    PERSONNELS de Rodolf ne mesurerait pas le produit tel qu'il sort d'usine.
+	//    Deux courses sur deux machines ne rendraient pas la meme image, et on
+	//    passerait la nuit a chercher pourquoi.
+	{
+		const NkString redThemes = editorkit::NkSondeChemin(nullptr, "themes");
+		if (!redThemes.Empty())
+			userThemes = redThemes;
+		else if (const char *appdata = env::GetEnvVar("APPDATA")) {
+			if (*appdata) {
+				userThemes = NkString(appdata);
+				userThemes.Append("/NK3DModeler/themes");
+			}
 		}
 	}
 	const uint32 fromDisk = LoadThemes(themes, roles, "data/themes", userThemes.CStr());
