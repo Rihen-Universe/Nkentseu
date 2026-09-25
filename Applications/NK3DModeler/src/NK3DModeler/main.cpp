@@ -2134,6 +2134,24 @@ int nkmain(const NkEntryState &entry) {
 		float32 dt = clock.Tick().delta;
 		if (dt <= 0.f || dt > 0.1f)
 			dt = 1.f / 60.f;
+		// ── L'AIDE RELUE REJOINT LE VISEUR (25/09) ──────────────────────────
+		// ⚠️ SANS CE BLOC, LA VALEUR PERSISTEE NE SERAIT JAMAIS APPLIQUEE :
+		//    `NkLoadUiState` ecrit `st.aideOn`, mais l'etat qui commande le
+		//    dessin vit dans le viseur (`nkvpAideOn`). Un reglage relu qui ne
+		//    rejoint pas son destinataire est un reglage perdu -- et il se
+		//    diagnostique comme « la persistance ne marche pas ».
+		// ⚠️ ET IL NE POUSSE QUE SUR CHANGEMENT : pousser a chaque image
+		//    ecraserait tout autre chemin qui voudrait poser cet etat, et on ne
+		//    saurait plus qui commande.
+		{
+			static int32 sAideVue = -1;
+			const int32 veut = st.aideOn ? 1 : 0;
+			if (sAideVue != veut && demo::Demo3DHostReady()) {
+				sAideVue = veut;
+				demo::Demo3DHostSetAide(st.aideOn);
+			}
+		}
+
 		// Les messages a l'ecran vieillissent en SECONDES, pas en images.
 		nk3d::NkToastTick(dt);
 		// ── CE QUE LE PUITS A DEPOSE DEVIENT UN BANDEAU ─────────────────────
@@ -2348,6 +2366,13 @@ int nkmain(const NkEntryState &entry) {
 										// image se comporte comme un menu ouvert
 		}
 		const bool menuDeroule = st.openMenu >= 0;
+		// 🔴 LE MEME PREDICAT, MEMORISE POUR LE RESTE DE L'IMAGE. `NkMenuBarClics`
+		//    le lit au lieu de `st.openMenu`, qui change EN COURS d'image -- c'est
+		//    ce qui faisait qu'aucun menu de la barre ne s'ouvrait : le meme clic
+		//    etait lu deux fois, la seconde lecture refermant ce que la premiere
+		//    venait d'ouvrir. Pose ICI et sur cette ligne pour que les deux ne
+		//    puissent pas diverger. Voir `NkModelerInput.h`.
+		st.menuOuvertAvantImage = menuDeroule;
 		// ── LE JOURNAL SUSPEND CE QU'IL RECOUVRE, AU MEME ENDROIT ───────────
 		// Il n'est pas modal -- le reste de l'application doit rester utilisable
 		// -- mais SOUS LUI plus rien ne doit repondre. J'avais vide l'input plus
@@ -2394,6 +2419,22 @@ int nkmain(const NkEntryState &entry) {
 		// Ce qui reste ici, et que le kit ne peut pas faire : la fenetre creee
 		// `clickThrough` (cf. sa creation) et la vue 3D mise hors survol/hors entree
 		// (elle lit `NkInput`, pas `ui.input` : deux canaux disjoints).
+		// ── NK_MENU_TRACE=1 : L'AMONT DU CLIC ──────────────────────────────
+		// La trace de la barre (NkModelerScreens.h) dit ce que la barre VOIT ;
+		// celle-ci dit ce qu'on lui a LAISSE voir. Les deux ensemble separent
+		// « la barre ne recoit pas le clic » de « elle le recoit et n'ouvre rien ».
+		{
+			static const bool kTrMenu = (std::getenv("NK_MENU_TRACE") != nullptr);
+			if (kTrMenu && (inputReel.mouseClicked[0] || inputReel.mouseDown[0])) {
+				std::printf("[nk3d] amont clic=%d down=%d -> videe=%d (modale=%d accueil=%d "
+							"menu=%d journal=%d) souris=%.0f,%.0f\n",
+							inputReel.mouseClicked[0] ? 1 : 0, inputReel.mouseDown[0] ? 1 : 0,
+							saisieVidee ? 1 : 0, modalOpen ? 1 : 0, st.welcome ? 1 : 0,
+							menuDeroule ? 1 : 0, sourisSurJournal ? 1 : 0, inputReel.mousePos.x,
+							inputReel.mousePos.y);
+				std::fflush(stdout);
+			}
+		}
 		hit.Begin(ui.input);
 		// L'emprise des surfaces flottantes de la frame precedente devient celle
 		// que TOUT LE MONDE consulte cette frame -- registre et code direct.
@@ -5605,6 +5646,23 @@ int nkmain(const NkEntryState &entry) {
 			PaintModifierMenu(p, st, hit, ws, W, H);
 			PaintAddObjectMenu(p, st, hit, ws, W, H);
 			PaintOpenMenu(p, lay.menu, st, hit, shortcuts);
+			// NK_MENU_TRACE=2 : la ZONE GAGNANTE sous la souris, une ligne par image.
+			// ⚠️ POSEE **APRES** LES SURCOUCHES, et la premiere version ne l'etait
+			//    pas : placee avant, elle rendait « (rien) » sur tout le menu
+			//    deroule, parce que les zones de la couche 50 n'etaient pas encore
+			//    declarees. Un instrument pose trop tot dit « absent » de ce qui
+			//    n'est pas encore ne.
+			{
+				static const int32 kTrN = []() {
+					const char *v = std::getenv("NK_MENU_TRACE");
+					return v ? (int32)std::atoi(v) : 0;
+				}();
+				if (kTrN >= 2)
+					std::printf("[nk3d] img=%d survol=%s souris=%.0f,%.0f openMenu=%d\n",
+								agentFrame,
+								hit.Hovered() && hit.Hovered()[0] ? hit.Hovered() : "(rien)",
+								hit.Mouse().x, hit.Mouse().y, st.openMenu);
+			}
 		}
 		// L'emprise que les menus viennent de declarer devient, a la frame
 		// SUIVANTE, ce qui les rend etanches : les panneaux peints sous eux la

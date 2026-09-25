@@ -103,6 +103,7 @@ namespace nkentseu {
 			// chose sous une autre designation -- ce que l'utilisateur a regle
 			// dans son interface et qu'il doit retrouver.
 			std::fprintf(f, "compteurs=%d\n", st.compteursOn ? 1 : 0);
+			std::fprintf(f, "aide=%d\n", st.aideOn ? 1 : 0);
 			std::fclose(f);
 		}
 
@@ -143,6 +144,13 @@ namespace nkentseu {
 				//    exactement ce qui polluait les captures de Rodolf.
 				else if (std::strcmp(clef, "compteurs") == 0)
 					st.compteursOn = (v > 0.5f && v < 1.5f);
+				// ⚠️ LE DEFAUT SUR EST L'INVERSE DE CELUI DES COMPTEURS, et c'est
+				//    voulu : l'aide est ALLUMEE par defaut, donc seule la valeur
+				//    explicite « 0 » l'eteint. Une ligne abimee la laisse allumee --
+				//    perdre l'aide sur un fichier mal relu couterait plus cher a
+				//    Rodolf que de la garder.
+				else if (std::strcmp(clef, "aide") == 0)
+					st.aideOn = !(v > -0.5f && v < 0.5f);
 			}
 			std::fclose(f);
 		}
