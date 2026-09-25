@@ -142,6 +142,10 @@ des nombres inventés montrerait un relais de rien du tout — elle aurait l'air
 marcher quel que soit l'état du câblage. NK3DModeler est le seul endroit où le
 geste prouve quelque chose.
 
+| **La barre de menus.** Cliquer **Fichier**, puis **Fenêtre**, puis **Fichier** de nouveau. | Chaque menu **se déroule et reste ouvert** ; un second clic sur un autre titre y passe ; un second clic sur le même le referme. | • Rien ne se déroule → le défaut du 25/09 est revenu : le même clic est lu deux fois dans l'image, et la seconde lecture referme ce que la première vient d'ouvrir.<br>• Le menu clignote → même cause, à une image près. |
+| **L'aide aux raccourcis.** Menu **Fenêtre → Aide aux raccourcis** (cochée par défaut). | Les deux bandeaux « OBJET \| G/R/S=… » et « clic=sel Shift+clic=multi… » disparaissent **et rien d'autre** — la barre d'outils du viseur, le gizmo d'axes et les boutons latéraux restent. | • D'autres éléments disparaissent avec eux → la garde couvre plus que l'aide, et c'est le défaut de garde unique qu'on vient de défaire.<br>• Ils reviennent après redémarrage alors qu'on les avait éteints → `aide=` n'est pas relu, ou n'est pas poussé au viseur. |
+| **Les panneaux.** Menu **Fenêtre → Hiérarchie / Propriétés / Navigateur de contenu / Plein écran**. | Chaque entrée replie ou rouvre son panneau, et porte une **coche** quand il est visible. | • Une entrée ne fait rien → le fil vers `st.showLeft` / `showRight` / `showBrowser` est coupé.<br>• La coche ne suit pas l'état → elle est lue ailleurs que dans l'état qui commande. |
+
 ### Pour les bancs (sans souris, sans fenêtre)
 
 ```
@@ -149,6 +153,7 @@ NK3DModeler.exe --sonde-messages              -> 9/9   (le chemin logger -> band
 NK3DModeler.exe --sonde-ui-etat <fichier>     -> 14/14 (l'aller-retour, les bornes,
                                                         et l'interrupteur des compteurs)
 NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comprises)
+python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 5/5  (la barre de menus)
 ```
 
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
