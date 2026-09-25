@@ -6,6 +6,7 @@
 // diverge au premier caractere a echapper.
 // =============================================================================
 
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) une sonde n'ecrit pas chez Rodolf
 #include "NK3DModeler/Project/NkModelerProject.h"
 
 #include "NKFileSystem/NkFile.h"
@@ -454,6 +455,17 @@ namespace nkentseu {
 			if (const char *vr = env::GetEnvVar("NK_RECENTS"))
 				if (*vr)
 					return NkString(vr);
+			// 🔴 ET SOUS `NK_SONDE`, LA REDIRECTION EST LE DEFAUT (25/09).
+			//    Mesure : ouvrir un projet sous sonde REECRIVAIT la liste de Rodolf --
+			//    `Touch()` puis `Save()`, sans que personne ne l'ait demande. Sa liste
+			//    portait 105 entrees, dont la plupart etaient nos coquilles.
+			//    `NK_RECENTS` reste pour choisir OU ; le defaut, lui, est SUR.
+			//    *Un garde-fou qu'il faut penser a armer se fera oublier.*
+			{
+				const NkString red = editorkit::NkSondeChemin(nullptr, "nk3dmodeler_recent.cfg");
+				if (!red.Empty())
+					return red;
+			}
 			const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 			if (!home || !*home)
 				home = env::GetEnvVar("HOME");
