@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# NKLoggerSilence.jenga — banc « pourquoi la console reste muette »
+#
+# Ce projet est declare `consoleapp()` EXPRES : c'est le geste qu'un
+# utilisateur fait quand il ne voit rien, et le banc mesure ce que ce geste
+# change REELLEMENT sur Windows (reponse mesuree : rien du tout, le lien
+# n'emet aucun /SUBSYSTEM et le sous-systeme est deja « console »).
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+
+with project("NKLoggerSilence"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/**.cpp"])
+    nkentseudependson(
+        ["NKLogger", "NKThreading", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
+        extra_includes=["src"],
+    )
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+    with filter("system:Linux"):
+        usetoolchain("clang-native")
+        links(["pthread"])
