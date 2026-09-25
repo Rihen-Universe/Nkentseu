@@ -21,6 +21,7 @@
 #include "NKLogger/NkLog.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace nkentseu {
@@ -62,6 +63,9 @@ namespace nkentseu {
 			int32 nes = 0;
 			uint32 faces = 0;
 			const float32 zero[3] = {0.f, 0.f, 0.f};
+			int32 noeudDe[64]; ///< indice de piece -> noeud, pour le parentage
+			for (int32 k = 0; k < 64; ++k)
+				noeudDe[k] = -1;
 			for (int32 i = 0; i < n && nes < cap; ++i) {
 				renderer::NkFamillePiece &q = pieces[(usize)i];
 				const int32 nd = demo::Demo3DHostCreateMeshNode(-1, q.verts.Data(), (uint32)q.verts.Size(),
@@ -80,6 +84,41 @@ namespace nkentseu {
 					return -1;
 				}
 				demo::Demo3DHostSetNodeIsMesh(nd, false);
+				if (i < 64)
+					noeudDe[i] = nd;
+				// ── (Q18.1/18.2) LE PARENT ET LE PIVOT, POSES PAR LES PORTES EXISTANTES ──
+				// ⚠️ AUCUNE MECANIQUE NEUVE : `Demo3DHostSetNodeOrigin` est le pivot que
+				//    le modeleur applique deja a tout noeud (« point autour duquel il
+				//    tourne ; la deplacer NE DEPLACE PAS la matiere »), et
+				//    `Demo3DHostSetNodeParent` la hierarchie qu'il a depuis toujours.
+				//    La famille ne fait que REMPLIR ce que ces deux portes attendent.
+				// ⚠️ ET L'ORIGINE SE POSE AVANT LE PARENT : la reparenter apres
+				//    deplacerait le pivot avec la transformation du parent, et l'arete
+				//    des gonds ne serait plus sur les gonds.
+				// ⚠️ LE PIVOT EST ETEINT PAR DEFAUT, ET C'EST MESURE (25/09).
+				//    `Demo3DHostSetNodeOrigin` dit « la deplacer NE DEPLACE PAS la
+				//    matiere -- LES ENFANTS SONT RECULES D'AUTANT ». C'est la seconde
+				//    moitie de la phrase qui mord : la rosace et la poignee sont des
+				//    ENFANTS du battant, et poser le pivot du battant les a poussees.
+				//    Mutation NK_ARTIC_PIVOT, sur « modelise moi cette porte » :
+				//        avec pivot : boite 4,46 x 3,20 m, 4 pieces FLOTTANTES
+				//                     (rosace, poignee, rosace_2, poignee_2)
+				//        sans pivot : boite 2,40 x 3,20 m, 0 flottante
+				//    Une porte de 4,46 m est pire que pas d'articulation du tout : on
+				//    laisse donc le pivot derriere une porte nommee jusqu'a ce que
+				//    l'ordre soit juste (poser l'origine APRES avoir reparent les
+				//    enfants, ou compenser leur recul). LE PARENTAGE, LUI, RESTE : il
+				//    ne deplace rien et il est ce que Rodolf veut voir dans la
+				//    hierarchie.
+				//    ⚠️ CONDITION DE RETRAIT : cette porte disparait le jour ou la
+				//    boite de la porte simple reste a 2,40 m et le compte de flottantes
+				//    a 0 avec le pivot allume.
+				const char *avecPivot = std::getenv("NK_ARTIC_PIVOT");
+				if (avecPivot && avecPivot[0] && avecPivot[0] != '0' &&
+					(q.pivot[0] != 0.f || q.pivot[1] != 0.f || q.pivot[2] != 0.f))
+					demo::Demo3DHostSetNodeOrigin(nd, q.pivot);
+				if (q.parent >= 0 && q.parent < i && q.parent < 64 && noeudDe[q.parent] >= 0)
+					(void)demo::Demo3DHostSetNodeParent(nd, noeudDe[q.parent]);
 				NkFamPiece &P = out[nes++];
 				P.noeud = nd;
 				snprintf(P.nom, sizeof(P.nom), "%s", q.nom);
@@ -87,8 +126,17 @@ namespace nkentseu {
 				P.faces = q.faces;
 				faces += q.faces;
 			}
-			NkLog::Instance().Infof("[famille] %s style=%s detail=%s : %d pieces, %u faces (bibliotheque NKRenderer)",
-									p.famille, p.style, p.detaille ? "detaille" : "simple", (int)nes, (unsigned)faces);
+			int32 nLiaisons = 0;
+			for (int32 i = 0; i < n && i < 64; ++i)
+				if (pieces[(usize)i].liaison != renderer::NkFamilleLiaison::Fixe)
+					++nLiaisons;
+			NkLog::Instance().Infof("[famille] %s style=%s detail=%s : %d pieces, %u faces, %d liaison(s) "
+									"(bibliotheque NKRenderer)",
+									p.famille, p.style, p.detaille ? "detaille" : "simple", (int)nes, (unsigned)faces,
+									(int)nLiaisons);
+			std::printf("[famille] %s : %d piece(s), %d liaison(s) declaree(s) ; parent pose, pivot SOUS NK_ARTIC_PIVOT\n", p.famille,
+						(int)nes, (int)nLiaisons);
+			std::fflush(stdout);
 			return nes;
 		}
 
