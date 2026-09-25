@@ -9,6 +9,40 @@
 > qui s'accepte sans agir est pire qu'une propriété absente** : l'absence se voit à la compilation,
 > le silence se paie en heures perdues.
 
+## LE CONTRAT TAILLE / POSITION — à lire avant tout le reste
+
+> Il manquait, et son absence a coûté des mois : `SetSize(GetSize())` n'était **pas** l'identité, et
+> la fenêtre des éditeurs grossissait de **+16 px en largeur et +39 en hauteur à chaque lancement**
+> (ils sauvent leur géométrie à la fermeture et la restaurent au démarrage).
+
+| | Unité | Qui |
+|---|---|---|
+| **Taille** | zone **CLIENT** — la surface où l'on dessine, sans barre de titre ni bordure. C'est aussi la taille de la swapchain. | `width`/`height`, `minWidth`/`minHeight`, `maxWidth`/`maxHeight`, `GetSize()`, `SetSize()` |
+| **Position** | coin haut-gauche de la **FENÊTRE**, cadre compris — le seul point que l'utilisateur voit et que le système sait placer. | `x`/`y`, `GetPosition()`, `SetPosition()` |
+
+Trois conséquences :
+
+1. **`SetSize(GetSize())` est une identité.** Dix cycles ne déplacent rien. C'est mesuré
+   (`NkWindowSonde`, essai G), sur une fenêtre **avec** cadre et sur une fenêtre **sans**.
+2. Une fenêtre **sans cadre** a fenêtre == client : la conversion ne doit **rien** ajouter.
+3. **La conversion client → fenêtre n'existe qu'à UN endroit par dorsal.** Si vous en écrivez une
+   deuxième, vous réintroduisez ce défaut.
+
+### La cause, pour qu'elle ne revienne pas
+
+`Create` portait la garde `if (!mData.mBorderless) AdjustWindowRectEx(...)`. `SetSize` et
+`SyncWindowFromConfig` appliquaient `AdjustWindowRectEx` **sans elle** — *le même calcul à trois
+sites, gardé à un seul*. Or une fenêtre sans cadre garde `WS_CAPTION | WS_THICKFRAME` dans son
+**style** (ils portent le menu système et l'accrochage) pendant que `WM_NCCALCSIZE` rend **toute** la
+fenêtre cliente. `AdjustWindowRectEx` ajoutait donc un cadre qui n'existe pas, et ce cadre devenait
+du client au message suivant. **Exactement +16/+39 : la taille du cadre que le style annonce.**
+
+Mesure du négatif, qui rejoue la ligne d'avant : après 10 cycles, **1280×720 → 1440×1110**, soit
++16/+39 par tour, et **seulement sans cadre** — ce qui explique que seuls les éditeurs aient été
+touchés.
+
+---
+
 ## Comment lire la table
 
 | Marque | Sens |
@@ -66,9 +100,9 @@ Mesure : comptage des lectures du champ dans `Kernel/Runtime/NKWindow/src/NKWind
 | `closable` | **silence** | partiel¹ | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
 | `minimizable` | **silence** | agit | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
 | `maximizable` | **silence** | **silence** | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
-| `canFullscreen` | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | s/o | s/o |
+| `canFullscreen` | **silence** → **agit**¹⁰ | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | **silence** | s/o | s/o |
 | `fullscreen` | agit | agit | agit | agit | agit | agit | agit | agit | agit | agit | agit | agit |
-| `modal` | **silence** | **silence** | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
+| `modal` | **silence** → **agit**⁹ | **silence** | **silence** | **silence** | **silence** | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
 | `centered` | agit | agit | agit | agit | s/o² | s/o | s/o | s/o | s/o | s/o | s/o | s/o |
 | `vsync` | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ | hors NKWindow³ |
 | `dropEnabled` | agit | **silence**⁴ | **silence**⁴ | **silence**⁴ | agit | s/o | s/o | **silence**⁴ | s/o | s/o | s/o | s/o |
@@ -81,6 +115,23 @@ Mesure : comptage des lectures du champ dans `Kernel/Runtime/NKWindow/src/NKWind
    qu'au passage EGL de `NkContext.cpp`.
 ⁴ La cible de dépôt est construite **sans condition** sur ces dorsaux : `dropEnabled = false`
    n'empêche rien.
+
+⁹ **`modal` agit sur Win32 depuis le 25/09.** Win32 n'a pas de fenêtre modale native : « modal »
+   s'obtient en **désactivant la fenêtre parent** (`EnableWindow(parent, FALSE)`), ce qui lui retire
+   clavier et souris sans la cacher. Le parent est celui de `native.parentWindowHandle`.
+   **Sans parent, il n'y a rien à désactiver** — et désactiver « toutes les fenêtres de
+   l'application » serait une invention dangereuse, car nous ne savons pas lesquelles appartiennent
+   à l'appelant : l'appelant reçoit donc un **refus nommé** qui lui dit de renseigner le parent.
+   La **réactivation à la fermeture est obligatoire et mesurée** : un parent laissé désactivé est une
+   application morte à l'écran, sans message d'erreur.
+
+¹⁰ **`canFullscreen = false` agit sur Win32 depuis le 25/09** — pour l'**utilisateur**. `SC_MAXIMIZE`
+   (Win+Haut, double-clic sur la barre de titre) est refusé. **Ce qu'il ne fait pas, et c'est dit
+   plutôt que laissé croire** : il n'empêche pas `SetFullscreen(true)` — un appel explicite du
+   programme est un ordre, exactement comme `Maximize()` ; il ne donne aucun sens à **F11**, que
+   NKWindow laisse passer à l'application comme n'importe quelle touche ; et il n'empêche pas
+   l'accrochage Aero par glissement, qui maximise sans passer par `SC_MAXIMIZE` — pour cela, c'est
+   `resizable = false` qu'il faut, et il retire `WS_THICKFRAME`.
 
 ### Taille
 
@@ -187,7 +238,14 @@ Les cases modifiées, et elles seules :
 | `minWidth`/`minHeight` | agit à tort | **agit** (converties en coordonnées **fenêtre** par `AdjustWindowRectEx`) |
 | `maxWidth`/`maxHeight` | silence | **agit** (`ptMaxTrackSize`, mêmes coordonnées) |
 | `bgColor` | silence | **agit** (brosse de la classe ; réserve dite au journal, cf. ⁸) |
-| `modal`, `canFullscreen`, `screenOrientation`, `hideSystemUI`, `lockOrientation`, `respectSafeArea` | silence | **refus** nommé au journal |
+| `modal` | silence | **agit** (désactive le parent désigné ; refus nommé sans parent) |
+| `canFullscreen` | silence | **agit** pour l'utilisateur (`SC_MAXIMIZE` refusé ; `SetFullscreen` reste un ordre) |
+| `minWidth`…/`SetSize` | **dérivait de +16/+39** | **identité**, contrat écrit, mesuré sur 10 cycles |
+| `screenOrientation`, `hideSystemUI`, `lockOrientation`, `respectSafeArea` | silence | **refus** nommé (sans objet sur un bureau) |
+
+> **Il ne reste AUCUN « silence » sur Win32.** Chaque propriété de `NkWindowConfig` y est désormais
+> soit **tenue**, soit **refusée à voix haute** parce qu'elle n'a pas de sens sur un bureau. C'est
+> ce que le banc vérifie dans les deux directions (essai E).
 
 Sur tous les autres dorsaux, les **silence** du tableau deviennent des **refus**. L'audit
 (`NkWindowAuditerDorsalCourant`, dans `NkWindowAudit.cpp`) est appelé depuis
@@ -200,7 +258,7 @@ refus qui ne compile pas est un silence de plus*. En contrepartie, les masques d
 non-Windows sont **lus dans le code, pas mesurés à l'exécution** : cette colonne du tableau est de
 la lecture de source, pas de la mesure. La colonne Win32, elle, est mesurée par `NkWindowSonde`.
 
-Mesure du 25/09 sur Win32, `NkWindowSonde` : **24 essais, 0 échec**, et le négatif
+Mesure du 25/09 sur Win32, `NkWindowSonde` : **32 essais, 0 échec**, et le négatif
 `--ancien-style` fait rougir les six critères de l'essai A pendant que le témoin de non-régression
 reste vert. Deux chiffres qui résument le lot : `GWL_STYLE` passe de `0x04CF0000` (défaut) à
 `0x04C80000` avec les trois interdits — exactement `WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX`
