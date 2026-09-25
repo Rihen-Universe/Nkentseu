@@ -35,7 +35,6 @@
 #include "NKCore/Text/NkSnprintf.h"
 
 #include <cstdint>
-#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -560,7 +559,7 @@ namespace nkentseu {
 
 				template <typename T> static NkAnyArg Make(const T &val) {
 					NkAnyArg a;
-					a.ptr = static_cast<const void *>(std::addressof(val));
+					a.ptr = static_cast<const void *>(__builtin_addressof(val)); // pas <memory> : zero-STL, et clang/gcc/MSVC le connaissent
 					a.fn = [](const void *p, const NkFormatProps &props) -> NkString {
 						return NkFmtDispatch(*static_cast<const T *>(p), props);
 					};
@@ -608,8 +607,17 @@ namespace nkentseu {
 					const char *close = s + 1;
 					while (close < end && *close != '}')
 						++close;
-					if (close >= end)
-						throw std::runtime_error("nkformat: accolade '{' non fermée dans la chaîne de format");
+					if (close >= end) {
+						// Plus d'exception std:: ici (2026-09-25) : un `throw std::...`
+						// dans cet en-tete rendait CHAQUE bibliotheque qui formate un
+						// message dependante de la bibliotheque standard C++ — un kit
+						// compile contre libstdc++ ne se liait plus avec libc++
+						// (« undefined symbol: std::out_of_range::out_of_range »). Un
+						// format faux se SIGNALE dans le texte produit, a l'endroit
+						// exact, et le reste du message survit.
+						out.Append("{!format: '{' non fermee}");
+						break;
+					}
 
 					NkStringView inner(s + 1, static_cast<size_t>(close - s - 1));
 
@@ -625,8 +633,13 @@ namespace nkentseu {
 					if (ip < ie && *ip == ':')
 						spec = NkStringView(ip + 1, static_cast<size_t>(ie - (ip + 1)));
 
-					if (idx < 0 || idx >= static_cast<int>(args.Size()))
-						throw std::out_of_range("nkformat: index d'argument hors limites");
+					if (idx < 0 || idx >= static_cast<int>(args.Size())) {
+						out.Append("{!format: argument ");
+						out.Append(NkStringView(s + 1, static_cast<size_t>(close - s - 1)));
+						out.Append(" absent}");
+						s = close + 1;
+						continue;
+					}
 
 					out.Append(args[idx].Format(NkParseBraceSpec(spec)));
 					s = close + 1;
@@ -637,7 +650,8 @@ namespace nkentseu {
 						s += 2;
 						continue;
 					}
-					throw std::runtime_error("nkformat: accolade '}' inattendue");
+					out.Append("{!format: '}' inattendue}");
+					++s;
 				} else {
 					out.Append(*s++);
 				}
@@ -685,11 +699,18 @@ namespace nkentseu {
 				while (p < end && (*p == 'l' || *p == 'h' || *p == 'z' || *p == 't' || *p == 'j'))
 					++p;
 				// Type char
-				if (p >= end)
-					throw std::runtime_error("nkformat: spécificateur printf non terminé");
+				// Meme regle que NkRunBrace : un format faux se signale dans le
+				// texte, jamais par une exception std:: (voir plus haut).
+				if (p >= end) {
+					out.Append("%!format: specificateur non termine");
+					break;
+				}
 
-				if (argIdx >= static_cast<int>(args.Size()))
-					throw std::out_of_range("nkformat: trop peu d'arguments pour le format printf");
+				if (argIdx >= static_cast<int>(args.Size())) {
+					out.Append("%!format: argument absent");
+					s = p + 1;
+					continue;
+				}
 
 				out.Append(args[argIdx++].Format(NkParsePrintfSpec(specStart, p)));
 				s = p + 1;

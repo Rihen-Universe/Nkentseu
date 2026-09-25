@@ -46,6 +46,16 @@ namespace nkentseu {
 			return gExeDir.Empty() ? NkString() : (gExeDir + "/tools/compilers");
 		}
 
+		// Build sans Jenga embarque : aucun dossier de sources Jenga.
+		// 2026-09-24 : absente de ce bouchon, JengaSrcDir() (ajoutee a l'en-tete
+		// et au vrai module pour la mise a jour de Jenga) faisait echouer le LIEN
+		// de NKCode partout ou ce bouchon est compile (Linux sans runtime Python
+		// vendorise) : « undefined reference to NkEmbeddedJenga::JengaSrcDir() ».
+		// Un bouchon doit definir TOUT ce que l'en-tete declare.
+		NkString NkEmbeddedJenga::JengaSrcDir() {
+			return NkString();
+		}
+
 		// Build sans Jenga embarque : aucune version a rapporter.
 		NkString NkEmbeddedJenga::EmbeddedVersion() {
 			return NkString();

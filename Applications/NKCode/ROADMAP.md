@@ -9,6 +9,26 @@ Légende : ✅ fait · 🟡 partiel · ⬜ à faire.
 
 ---
 
+## 🐞 Revue d'interface progressive — défauts relevés, à corriger un par un
+
+Décision de Rodolf (2026-09-24) : **veille progressive** sur l'interface — on
+consigne chaque défaut vu à l'usage, on le corrige ensuite un par un, sans
+refonte d'ensemble. Relevés sur la **distribution autonome Windows** construite
+depuis `main` (`abb771773`, Jenga 2.8.4), par Rodolf, à la main.
+
+| # | Défaut | Statut |
+|---|---|---|
+| 1 | **Le terminal intégré tronque l'affichage** (constaté sur `clang++ --version` puis `jenga -v`, dont la bannière large). | ⬜ |
+| 2 | **Fermer un onglet modifié** ouvre « Sauvegarder / Ne pas sauvegarder / Annuler », mais **aucun des trois boutons ne répond**. L'onglet ne peut donc ni être sauvé ni fermé par cette voie. | ⬜ |
+| 3 | **Le combo de la barre d'outils** (projet à construire) **n'affiche pas les projets** du workspace. | ⬜ |
+
+Ce qui a été vérifié **fonctionnel** au même moment : dans le terminal
+intégré, `clang++` est celui de la distribution
+(`tools/compilers/llvm-mingw`), et `jenga` répond en 2.8.4 — le câblage du
+Jenga et du compilateur embarqués tient.
+
+---
+
 ## 🧩 Widgets réutilisables — OÙ ça vit (cartographie, décidée 2026-07-12)
 
 **Constat** : plusieurs widgets ont été RÉIMPLÉMENTÉS à l'app (bugs de traversée

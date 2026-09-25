@@ -10,7 +10,7 @@
 //  - Synchronisation thread-safe via NKThreading/NkMutex
 //  - Namespace unique : nkentseu (pas de sous-namespace logger)
 //
-// Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -27,10 +27,23 @@
 
 #include <cerrno>
 #include <cstdio>
-#include <sys/stat.h>
 
 #if defined(_WIN32)
+// 2026-09-25 : <sys/stat.h> RETIRE de la branche Windows. `::stat` y est une
+// declaration portant un alias d'assembleur (__MINGW_ASM_CALL) dont le NOM
+// DEPEND de la version de mingw-w64 : mingw-w64 recent (MSYS2) emet
+// `stat64i32`, llvm-mingw 20240619 (le compilateur embarque dans NKCode) emet
+// `_stat64i32`. Un objet compile ici ne se liait donc pas la-bas :
+// « ld.lld: error: undefined symbol: stat64i32 », NkFileSink.cpp:57 et :70.
+// L'API Win32 n'a pas ce probleme : un seul nom, dans une bibliotheque
+// d'importation que toutes les chaines d'outils Windows possedent.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #include <direct.h>
+#else
+#include <sys/stat.h>
 #endif
 
 // -------------------------------------------------------------------------
@@ -53,8 +66,12 @@ namespace {
 			return false;
 		}
 
+#if defined(_WIN32)
+		return ::GetFileAttributesA(path.CStr()) != INVALID_FILE_ATTRIBUTES;
+#else
 		struct stat fileInfo{};
 		return ::stat(path.CStr(), &fileInfo) == 0;
+#endif
 	}
 
 	// -------------------------------------------------------------------------
@@ -65,6 +82,20 @@ namespace {
 	// NOTE : Utilise stat().st_size, retourne 0 en cas d'erreur
 	// -------------------------------------------------------------------------
 	nkentseu::usize NkGetPathFileSize(const nkentseu::NkString &path) {
+#if defined(_WIN32)
+		WIN32_FILE_ATTRIBUTE_DATA infos{};
+
+		if (::GetFileAttributesExA(path.CStr(), GetFileExInfoStandard, &infos) == 0) {
+			return 0;
+		}
+
+		// La taille Win32 arrive en deux moities de 32 bits.
+		const unsigned long long taille =
+			(static_cast<unsigned long long>(infos.nFileSizeHigh) << 32) |
+			static_cast<unsigned long long>(infos.nFileSizeLow);
+
+		return static_cast<nkentseu::usize>(taille);
+#else
 		struct stat fileInfo{};
 
 		if (::stat(path.CStr(), &fileInfo) != 0) {
@@ -72,6 +103,7 @@ namespace {
 		}
 
 		return static_cast<nkentseu::usize>(fileInfo.st_size);
+#endif
 	}
 
 	// -------------------------------------------------------------------------
@@ -541,7 +573,8 @@ namespace nkentseu {
 	6. COMPATIBILITÉ MULTIPLATEFORME :
 	   - fopen/fwrite/fclose : standards C, portables partout
 	   - mkdir/_mkdir : abstraction via NkCreateDirectory()
-	   - stat : disponible sur Windows (via <sys/stat.h>) et POSIX
+	   - existence/taille : API Win32 sous Windows (GetFileAttributes[Ex]A),
+	     stat() ailleurs — voir la note du bloc d'inclusions
 
 	7. PERFORMANCE :
 	   - Filtrage précoce dans Log() évite formatage si message ignoré

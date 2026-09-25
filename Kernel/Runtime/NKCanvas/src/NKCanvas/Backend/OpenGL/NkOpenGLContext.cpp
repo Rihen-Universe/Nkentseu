@@ -302,6 +302,15 @@ namespace nkentseu {
 			Shutdown();
 			return false;
 		}
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// macOS + NK_NO_GLAD2 : le rendu 2D consomme glad quand meme (voir
+		// LoadOpenGLEntryPoints) -- il faut donc l'APPELER ici. Il se termine par
+		// FillInfo(). (2026-09-24 : le chargement ajoute dans LoadOpenGLEntryPoints
+		// ne s'executait pas, cette branche n'appelait que FillInfo.)
+		if (!LoadOpenGLEntryPoints(desc.opengl)) {
+			Shutdown();
+			return false;
+		}
 #else
 		FillInfo();
 #endif
@@ -337,7 +346,26 @@ namespace nkentseu {
 		mData.version = s ? (const char *)s : "Unknown";
 	}
 
+#if defined(NKENTSEU_PLATFORM_MACOS) && defined(NK_NO_GLAD2)
+	// Fourni par NKGlad (dependance de NKCanvas) ; liaison C, comme dans glad/gl.h.
+	extern "C" int gladLoaderLoadGL(void);
+#endif
+
 	bool NkOpenGLContext::LoadOpenGLEntryPoints(const NkOpenGLDesc &gl) {
+#if defined(NKENTSEU_PLATFORM_MACOS) && defined(NK_NO_GLAD2)
+		// 2026-09-24 : macOS compile NKCanvas avec NK_NO_GLAD2 (NKCanvas.jenga,
+		// _GLAD_DEF_OTHER), donc CE fichier n'utilise pas glad -- mais
+		// NkOpenGLRenderer2D.cpp, lui, inclut glad/gl.h sous macOS et appelle ses
+		// pointeurs. Personne ne les chargeait : « GLAD: ERROR glCreateShader is
+		// NULL! », SIGSEGV au premier dessin (etape Machine vierge). Le contexte
+		// charge donc glad sous macOS quoi qu'il arrive : c'est ce que le rendu
+		// consomme. (Aligner les deux fichiers sur une seule decision -- glad ou
+		// en-tetes systeme -- reste a faire ; ceci rend le couple coherent.)
+		if (!gladLoaderLoadGL()) {
+			NK_GL_ERR("gladLoaderLoadGL(OpenGL.framework) failed\n");
+			return false;
+		}
+#endif
 #ifndef NK_NO_GLAD2
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 		if (!gladLoadWGL(mData.hdc, (GLADloadfunc)wglGetProcAddress)) {
@@ -392,6 +420,17 @@ namespace nkentseu {
 		int ver = gladLoadGLES2((GLADloadfunc)emscripten_webgl_get_proc_address);
 		if (!ver) {
 			NK_GL_ERR("gladLoadGLES2(WebGL) failed\n");
+			return false;
+		}
+
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+		// 2026-09-24 : cette branche MANQUAIT. Sous macOS glad n'etait jamais
+		// charge : le contexte NSGL se creait, puis le premier appel GL passait
+		// par un pointeur nul (« GLAD: ERROR glCreateShader is NULL! », SIGSEGV).
+		// Le chargeur de glad ouvre OpenGL.framework (chemins systeme connus).
+		int ver = gladLoaderLoadGL();
+		if (!ver) {
+			NK_GL_ERR("gladLoaderLoadGL(OpenGL.framework) failed\n");
 			return false;
 		}
 #endif
@@ -1065,9 +1104,55 @@ namespace nkentseu {
 		using FnType = GLXContext (*)(Display *, GLXFBConfig, GLXContext, Bool, const int *);
 		auto fn = (FnType)glXGetProcAddressARB((const GLubyte *)"glXCreateContextAttribsARB");
 
+		// ── Version demandee, puis REPLI (2026-09-24) ─────────────────────────
+		// Avant : la version demandee (4.6) etait passee telle quelle. Un pilote
+		// qui ne l'a pas (Mesa llvmpipe = 4.5, carte ancienne, Xvfb) repond par
+		// une ERREUR X11 (GLXBadFBConfig / BadMatch), et le gestionnaire par
+		// defaut de Xlib TERMINE le processus : le test `!mData.context` plus bas
+		// n'etait jamais atteint. Mesure : NKCode mourait au demarrage sous Xvfb
+		// (CI), et ne demarrait sous WSLg que par le chemin legacy reserve a WSL.
+		// Remede (celui de GLFW) : intercepter les erreurs X le temps de la
+		// creation, descendre les versions, puis le contexte legacy -- pour
+		// TOUTES les machines. La suite accepte deja une version plus basse
+		// (« GL x demande, y obtenu - on continue »).
 		if (fn && !runningInWsl) {
-			mData.context = fn(mData.display, fbConfig, shareCtx, True, ctxAttribs);
-		} else {
+			static bool sErreurGlx = false;
+			struct Garde {
+				static int Handler(Display *, XErrorEvent *) {
+					sErreurGlx = true;
+					return 0;
+				}
+			};
+			int (*ancien)(Display *, XErrorEvent *) = XSetErrorHandler(&Garde::Handler);
+			const int essais[][2] = {{gl.majorVersion, gl.minorVersion}, {4, 5}, {4, 3}, {3, 3}};
+			for (const auto &v : essais) {
+				const bool plusBas = (v[0] < gl.majorVersion) || (v[0] == gl.majorVersion && v[1] < gl.minorVersion);
+				if (&v != &essais[0] && !plusBas)
+					continue;
+				int attribs[sizeof(ctxAttribs) / sizeof(ctxAttribs[0])];
+				for (size_t i = 0; i < sizeof(ctxAttribs) / sizeof(ctxAttribs[0]); ++i)
+					attribs[i] = ctxAttribs[i];
+				attribs[1] = v[0];
+				attribs[3] = v[1];
+				sErreurGlx = false;
+				GLXContext c = fn(mData.display, fbConfig, shareCtx, True, attribs);
+				XSync(mData.display, False);
+				if (c && !sErreurGlx) {
+					mData.context = c;
+					if (&v != &essais[0])
+						NK_GL_LOG("GLX: GL %d.%d refuse par le pilote, contexte %d.%d obtenu\n",
+								  gl.majorVersion, gl.minorVersion, v[0], v[1]);
+					break;
+				}
+				if (c)
+					glXDestroyContext(mData.display, c);
+			}
+			XSync(mData.display, False);
+			XSetErrorHandler(ancien);
+			if (!mData.context)
+				NK_GL_LOG("GLX: aucune version moderne acceptee -> contexte legacy\n");
+		}
+		if (!mData.context) {
 			NK_GL_LOG("Using legacy GLX context path%s\n", runningInWsl ? " (WSL)" : "");
 			mData.context = glXCreateNewContext(mData.display, fbConfig, GLX_RGBA_TYPE, shareCtx, True);
 		}
@@ -1084,7 +1169,9 @@ namespace nkentseu {
 		}
 		SetVSyncGLX(gl.swapInterval != NkGLSwapInterval::Immediate);
 
-		NK_GL_LOG("GLX OK (GL %d.%d)\n", gl.majorVersion, gl.minorVersion);
+		// Version DEMANDEE seulement : l'obtenue peut etre plus basse (repli
+		// ci-dessus), et LoadOpenGLEntryPoints la mesure et la journalise.
+		NK_GL_LOG("GLX OK (GL %d.%d demande)\n", gl.majorVersion, gl.minorVersion);
 		return true;
 	}
 
@@ -1520,18 +1607,11 @@ namespace nkentseu {
 // =============================================================================
 //  macOS NSGL â€” NkOpenGLContext_macOS.mm
 // =============================================================================
-#if defined(NKENTSEU_PLATFORM_MACOS)
-	bool NkOpenGLContext::InitNSGL(const NkSurfaceDesc &, const NkOpenGLDesc &) {
-		NK_GL_ERR("macOS: compile NkOpenGLContext_macOS.mm instead of this file\n");
-		return false;
-	}
-
-	void NkOpenGLContext::ShutdownNSGL() {
-	}
-
-	void NkOpenGLContext::SwapNSGL() {
-	}
-#endif
+// InitNSGL / ShutdownNSGL / SwapNSGL sont definis dans NkOpenGLContextMacOS.mm,
+// compile sous macOS par NKCanvas.jenga. (2026-09-24 : ce fichier en portait un
+// BOUCHON qui renvoyait false -- et le .mm n'etait jamais compile. NKCode ne
+// pouvait ouvrir AUCUNE fenetre sur Mac, et quittait avec le code 0. Mesure :
+// etape « Machine vierge » de build-remote, journal de NKCode.)
 
 // =============================================================================
 //  iOS EAGL â€” NkOpenGLContext_iOS.mm

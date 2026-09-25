@@ -164,13 +164,18 @@ with project("NKCanvas"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
         defines([_VK_OFF] + _GLAD_DEF_OTHER)
-        frameworks(["Metal", "QuartzCore"])
+        frameworks(["Metal", "QuartzCore", "OpenGL", "AppKit"])
         # Les backends Metal sont des .mm : le files() global ("**.cpp") ne les
         # attrape pas — la factory les référence, le link macOS échouait
         # (vtable NkMetalContext manquante, CI 2026-08-11).
+        # Meme cause pour le contexte OpenGL (NSOpenGL) : NkOpenGLContextMacOS.mm
+        # n'etait jamais compile, et un bouchon de NkOpenGLContext.cpp repondait
+        # « compile the .mm instead » -> aucune fenetre OpenGL sur Mac
+        # (2026-09-24, build-remote « Machine vierge »). OpenGL + AppKit : ses imports.
         files([
             "src/NKCanvas/Backend/Metal/NkMetalContext.mm",
             "src/NKCanvas/Backend/Metal/NkMetalComputeContext.mm",
+            "src/NKCanvas/Backend/OpenGL/NkOpenGLContextMacOS.mm",
         ])
 
     # ===== Android ================================================================
