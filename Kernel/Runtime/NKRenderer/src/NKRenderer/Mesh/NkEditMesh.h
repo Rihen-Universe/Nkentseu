@@ -579,6 +579,108 @@ namespace nkentseu {
 				// une precaution.
 				NkVector<uint32> canonOf;
 
+				// ── LE MASQUE DE SCULPTURE : UN POIDS PAR SOMMET ────────────────────
+				// Blender : un masque protege une zone contre TOUTES les brosses, et
+				// c'est lui qui rend l'outil Transform de sculpture utilisable (on
+				// masque, puis on deplace la partie NON masquee).
+				//
+				// ⚠️ VIDE = AUCUN MASQUE, ET C'EST LE COUT ZERO. Tant que personne n'a
+				//    peint, ce vecteur reste VIDE : un maillage de 249 906 sommets ne
+				//    paie pas un octet pour une fonction qu'il n'utilise pas. Des qu'un
+				//    poids est pose, il vaut 4 octets par sommet -- chiffre MESURE par
+				//    le banc du masque, pas estime.
+				//
+				// ⚠️ PAR SOMMET ET NON PAR FACE, contrairement au TRAIT. Un masque doit
+				//    etre DEGRADE (bord doux) pour que la deformation ne montre pas
+				//    l'escalier des faces ; le trait, lui, est une zone qu'on designe, et
+				//    une face y est ou n'y est pas. Deux natures, deux domiciles.
+				//
+				// ⚠️ CE QU'IL NE FAIT PAS ENCORE : traverser une operation TOPOLOGIQUE.
+				//    `BuildFromPolygons` reconstruit `verts` et le masque n'est pas
+				//    transporte -- c'est MESURE et ecrit (critere « subdivision » du
+				//    banc), pas suppose. La sculpture, elle, ne change aucune topologie :
+				//    c'est le cas qui compte aujourd'hui.
+				//
+				// 0 = libre (la brosse agit a plein), 1 = protege (elle n'agit pas du
+				// tout), entre les deux = attenuation lineaire.
+				NkVector<float32> vertMask;
+
+				/// Le poids du sommet `v`. Rend 0 sans masque : la question a une
+				/// reponse meme sans tableau, et cette reponse est « libre ».
+				float32 MaskAt(uint32 v) const {
+					return (v < (uint32)vertMask.Size()) ? vertMask[v] : 0.f;
+				}
+				/// Le tableau existe-t-il ? (≠ « un sommet est-il masque »)
+				bool MaskExists() const {
+					return !vertMask.Empty();
+				}
+				/// Alloue a la taille du maillage, a 0, et la SUIT : un maillage qui
+				/// gagne des sommets voit les nouveaux naitre LIBRES.
+				void MaskEnsure() {
+					const uint32 vc = VertCount();
+					const uint32 n = (uint32)vertMask.Size();
+					if (n == vc)
+						return;
+					vertMask.Resize(vc);
+					for (uint32 i = n; i < vc; ++i)
+						vertMask[i] = 0.f;
+				}
+				/// Pose un poids, borne a [0..1]. Alloue a la demande.
+				void MaskSet(uint32 v, float32 w) {
+					if (v >= VertCount())
+						return;
+					MaskEnsure();
+					if (w < 0.f)
+						w = 0.f;
+					if (w > 1.f)
+						w = 1.f;
+					vertMask[v] = w;
+				}
+				/// Combien de sommets sont masques AU MOINS a `seuil`.
+				/// ⚠️ Le seuil est un parametre, pas une constante cachee : « masque »
+				///    n'a pas le meme sens pour un affichage (tout ce qui se voit) et
+				///    pour un critere de banc (ce qui protege vraiment).
+				uint32 MaskedCount(float32 seuil = 0.001f) const {
+					uint32 n = 0;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						if (vertMask[i] >= seuil)
+							++n;
+					return n;
+				}
+				/// Somme des poids -- le critere CONTINU du banc : deux masques
+				/// differents peuvent avoir le meme COMPTE, jamais la meme somme.
+				float32 MaskSum() const {
+					float32 s = 0.f;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						s += vertMask[i];
+					return s;
+				}
+				/// Tout demasquer ET LIBERER : « plus de masque » et « un masque
+				/// partout a zero » doivent etre le MEME etat, sinon le cout memoire
+				/// survivrait a la fonction.
+				void MaskClearAll() {
+					vertMask.Clear();
+				}
+				/// Tout masquer (poids `w`, 1 par defaut).
+				void MaskFillAll(float32 w = 1.f) {
+					MaskEnsure();
+					if (w < 0.f)
+						w = 0.f;
+					if (w > 1.f)
+						w = 1.f;
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						vertMask[i] = w;
+				}
+				/// Inverser : ce qui etait protege devient libre, et l'inverse.
+				/// ⚠️ SUR UN MAILLAGE SANS MASQUE, inverser MASQUE TOUT -- c'est le
+				///    comportement de Blender, et la seule lecture coherente de
+				///    « l'inverse de rien ».
+				void MaskInvert() {
+					MaskEnsure();
+					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
+						vertMask[i] = 1.f - vertMask[i];
+				}
+
 				void Clear() {
 					verts.Clear();
 					hedges.Clear();
@@ -594,6 +696,15 @@ namespace nkentseu {
 					// la BONNE TAILLE mais du MAILLAGE D'AVANT ne se distingue pas d'un
 					// tableau valide.
 					canonOf.Clear();
+					// ⚠️ LE MASQUE PART AVEC LA TOPOLOGIE, ET C'EST UN CHOIX ECRIT.
+					// `vertMask` est indexe par le NUMERO de sommet ; une
+					// reconstruction renumerote. Le garder rendrait des poids justes
+					// attribues aux mauvais sommets -- « un indice n'est pas un nom »,
+					// et un masque faux est pire qu'un masque absent parce qu'il
+					// protege ce qu'on voulait deformer sans le dire. Le transport a
+					// travers une operation topologique est un lot a part ; tant
+					// qu'il n'existe pas, l'oubli est MESURE et ANNONCE.
+					vertMask.Clear();
 					// ⚠ `materialSlots` N'EST PAS VIDE ICI, ET C'EST VOULU.
 					// BuildFromPolygons appelle Clear() a chaque operation d'edition :
 					// vider les slots ferait perdre la liste des materiaux du maillage a
@@ -1540,7 +1651,14 @@ namespace nkentseu {
 			// doivent SURVIVRE a une regeneration. On regenere la base depuis le
 			// document, puis on REJOUE la pile. Une sculpture qui ne serait pas
 			// une commande serait perdue au premier tour de la spirale.
-			Sculpt
+			Sculpt,
+			// AJOUTEE EN FIN (l'op est serialisee en uint8) : LE MASQUE EN BLOC --
+			// tout masquer, tout demasquer, inverser. Ces trois gestes sont des
+			// COMMANDES et non des appels directs, pour la raison qui a fait entrer
+			// le coup de brosse : ce qui n'est pas une commande ne s'annule pas, ne
+			// se rejoue pas, et disparait au premier tour de la spirale de
+			// regeneration.
+			MaskAll
 		};
 
 		// ── PARAMETRES D'UN COUP DE BROSSE ─────────────────────────────
@@ -1562,6 +1680,16 @@ namespace nkentseu {
 			uint8 falloff = 0;        ///< NkSculptFalloffKind
 			uint8 primitive = 0;      ///< NkSculptOp
 			char brushName[48] = {};  ///< pour le journal et l'affichage UNIQUEMENT
+		};
+
+		// ── LE MASQUE EN BLOC ───────────────────────────────────────────
+		// `mode` : 0 = tout DEMASQUER (et liberer), 1 = tout MASQUER a `poids`,
+		// 2 = INVERSER. ⚠️ Inverser un maillage SANS masque le masque
+		// entierement -- c'est Blender, et la seule lecture coherente de
+		// « l'inverse de rien ».
+		struct NkMaskAllParams {
+			uint8 mode = 0;
+			float32 poids = 1.f;
 		};
 
 		struct NkMeshEditCommand {
@@ -1609,6 +1737,7 @@ namespace nkentseu {
 				//    maillage : elle survit a la camera comme au remaillage, et c'est
 				//    ce qui la rend rejouable.
 				NkSculptCmdParams sculpt;
+				NkMaskAllParams maskAll; // (op == MaskAll) tout masquer / demasquer / inverser
 				NkVector<NkVec3f> sculptPoints;  // centres des tampons
 				NkVector<NkVec3f> sculptNormals; // normale au point de pose (meme taille)
 
