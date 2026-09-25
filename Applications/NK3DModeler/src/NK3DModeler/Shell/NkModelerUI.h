@@ -86,6 +86,51 @@ namespace nkentseu {
 			return {x0, y0, Px(r.x + r.w) - x0, Px(r.y + r.h) - y0};
 		}
 
+		// ── LA SEPARATION INTERNE DU NAVIGATEUR DE CONTENU (25/09) ──────────────
+		// Elle vit ici et NULLE PART AILLEURS : la valeur par defaut, ses bornes en
+		// fraction, et ses planchers en pixels. Le navigateur les applique, l'etat
+		// les stocke, le fichier de disposition les relit -- trois lecteurs, une
+		// seule source.
+		//
+		// ⚠️ DEUX BORNES, ET IL EN FAUT DEUX. La fraction est bornee pour que le
+		//    fichier de configuration ne puisse pas porter d'absurdite ; la LARGEUR
+		//    EN PIXELS l'est aussi, parce qu'une fraction parfaitement raisonnable
+		//    (0,08) donne 40 px dans une fenetre etroite -- et 40 px d'arbre, ce
+		//    n'est pas un arbre, c'est une bande. Aucune des deux sections ne doit
+		//    pouvoir disparaitre : c'est le critere, et il se mesure des deux cotes.
+		inline constexpr float32 kBrowserTreeFracDefaut = 0.18f; ///< la valeur d'avant, inchangee
+		inline constexpr float32 kBrowserTreeFracMin = 0.08f;
+		inline constexpr float32 kBrowserTreeFracMax = 0.60f;
+		inline float32 NkBrowserTreeMinPx() {
+			return S(120.f);
+		} ///< l'arbre ne descend jamais sous ca
+		inline float32 NkBrowserGridMinPx() {
+			return S(220.f);
+		} ///< ni la grille, de l'autre cote
+
+		/// LA LARGEUR DE L'ARBRE, calculee ICI ET NULLE PART AILLEURS.
+		///
+		/// ⚠️ C'EST LA CONTRAINTE N.1 DE CETTE FONCTION : le navigateur l'appelle,
+		///    et la sonde l'appelle AUSSI. Une sonde qui recalculerait la borne de
+		///    son cote ne pourrait voir aucun defaut de borne -- c'est exactement le
+		///    piege du 18/08, ou une sonde annoncait 72/72 devant un ecran magenta
+		///    parce qu'elle avait sa propre resolution de roles.
+		inline float32 NkBrowserTreeW(float32 panneauW, float32 frac) {
+			float32 w = panneauW * frac;
+			const float32 minA = NkBrowserTreeMinPx();
+			const float32 minG = NkBrowserGridMinPx();
+			if (w < minA)
+				w = minA;
+			if (w > panneauW - minG)
+				w = panneauW - minG;
+			// Fenetre trop etroite pour les deux planchers a la fois : on partage,
+			// plutot que de laisser un plancher ecraser l'autre et sortir du
+			// panneau. Ce cas EXISTE (panneauW < 340 px a l'echelle 1).
+			if (w < 0.f)
+				w = panneauW * 0.5f;
+			return w;
+		}
+
 		// ── PROPORTIONS DE LA MAQUETTE ──────────────────────────────────────────
 		// Reprises telles quelles de l'ecran A. Les pourcentages sont bornes par un
 		// minimum en pixels : sous 1024 de large, un panneau a 16 % deviendrait

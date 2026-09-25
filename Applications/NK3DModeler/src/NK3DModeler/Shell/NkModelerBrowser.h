@@ -21,6 +21,7 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la largeur de la separation survit
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKLogger/NkLog.h" // [MESURE Maj+clic] temporaire
 #include "NKEditorKit/NkShortcutTable.h"
@@ -272,7 +273,13 @@ namespace nkentseu {
 			// deborde sur le navigateur : lui aussi est peint apres ce panneau.
 			const bool uiModal = (st.browMenuIdx != -1) || (st.browAskIdx >= 0) ||
 								 st.UiBlocks(hit.Mouse().x, hit.Mouse().y);
-			const float32 treeW = r.w * 0.18f;
+			// ── LA SEPARATION EST TIREE A LA SOURIS (25/09, demande de Rodolf) ──
+			// C'etait `r.w * 0.18f`, ecrit en dur. C'est maintenant une fraction de
+			// l'etat, BORNEE DEUX FOIS : en fraction (contre un fichier de
+			// disposition abime) et en pixels (contre une fenetre etroite). Le
+			// critere est que ni l'arbre ni la grille ne puissent disparaitre --
+			// donc les deux planchers, pas un seul.
+			const float32 treeW = NkBrowserTreeW(r.w, st.browserTreeFrac);
 			const float32 ty = r.y + topH;
 			const float32 th = r.h - topH;
 			p.Clip({r.x, ty, r.w, th});
@@ -302,6 +309,48 @@ namespace nkentseu {
 			// evaluee avant que celles du dessus ne soient declarees.
 			const int32 actifAvantGrille = st.selectedAsset;
 			hit.Add("brow.grid", {r.x + treeW, ty, r.w - treeW, th});
+			// ── LA POIGNEE, DECLAREE APRES LES DEUX ZONES QU'ELLE BORDE ─────────
+			// Le registre donne la priorite a la DERNIERE zone declaree : c'est ce
+			// qui fait que la poignee recoit le clic et non l'arbre ou la grille.
+			// Sa zone sensible est PLUS LARGE que le trait (6 px contre 1) -- viser
+			// un trait d'un pixel est un exercice d'adresse, pas une interaction.
+			// Meme geste que `PaintSplitters`, meme largeur.
+			{
+				const float32 grab = S(6.f);
+				const NkRect zone{r.x + treeW - grab * 0.5f, ty, grab, th};
+				const bool survol = hit.Add("brow.split", zone);
+				if (survol || st.dragBrowserTree) {
+					hit.WantCursor(NkCursorWant::ResizeWE);
+					// Le trait S'ECLAIRE au survol : sans retour visuel, on ne sait
+					// pas qu'on a attrape le bon endroit avant d'avoir deja tire.
+					p.Fill(zone, st.dragBrowserTree ? NkRole::AccentUi : NkRole::Border);
+				}
+				if (!uiModal && hit.Clicked("brow.split")) {
+					st.dragBrowserTree = true;
+					st.dragBrowserTreeStart = hit.Mouse().x;
+					st.dragBrowserTreeFrac0 = st.browserTreeFrac;
+				}
+				// Le glissement se poursuit MEME SI la souris quitte la zone : c'est
+				// le bouton enfonce qui commande, pas la position. Sans cela, un
+				// glissement rapide lacherait la poignee en pleine course.
+				if (st.dragBrowserTree) {
+					if (!hit.MouseDown()) {
+						st.dragBrowserTree = false;
+						// LA LARGEUR SURVIT A LA FERMETURE, et elle est ecrite ICI,
+						// au RELACHEMENT -- pas a la sortie du programme. Une
+						// application qu'on ferme par la croix de l'OS, ou qui
+						// s'arrete mal, n'ecrirait jamais sa disposition ; et
+						// l'ecrire a chaque image ferait cent fichiers par seconde.
+						NkSaveUiState(st);
+					} else if (r.w > 1.f) {
+						const float32 f = st.dragBrowserTreeFrac0 +
+										  (hit.Mouse().x - st.dragBrowserTreeStart) / r.w;
+						st.browserTreeFrac = f < kBrowserTreeFracMin   ? kBrowserTreeFracMin
+											 : f > kBrowserTreeFracMax ? kBrowserTreeFracMax
+																	   : f;
+					}
+				}
+			}
 			if (!uiModal && hit.Clicked("brow.grid"))
 				st.selectedAsset = -1;
 			if (hit.RightClicked("brow.grid")) {
