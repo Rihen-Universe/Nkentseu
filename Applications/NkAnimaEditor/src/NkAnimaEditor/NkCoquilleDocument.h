@@ -410,9 +410,19 @@ namespace nkanima {
 	// =========================================================================
 	//  LE PANNEAU DONT LE CONTENU EST UN DOCUMENT
 	// =========================================================================
-	/// ⚠️ SON TITRE VIENT DU DOCUMENT, PAS D'UN LITTÉRAL. C'est le plus petit
-	///    signe visible que l'interface est devenue une donnée : renommer le
-	///    panneau dans le fichier renomme l'onglet au lancement suivant.
+	/// Le CONTENU du panneau vient du document ; **son TITRE, non**, et il faut le
+	/// dire plutôt que de le laisser croire.
+	///
+	/// 🔴 J'AVAIS ÉCRIT ICI QUE LE TITRE VENAIT DU DOCUMENT. C'était faux : il est
+	///    le littéral `"Outils"` ci-dessous. `NkEditorPanel` garde son titre dans un
+	///    `char mTitle[64]` posé à la construction et **n'expose aucun `SetTitle`** ;
+	///    or le panneau se construit AVANT que le document ne soit lu. Le rendre
+	///    dynamique demanderait de toucher `NKEditorKit`, qui appartient à un autre
+	///    agent. *Déclarer n'est pas livrer* : la ligne est corrigée, pas le code.
+	///
+	/// **CONDITION DE RETRAIT :** le jour où `NkEditorPanel` accepte un titre après
+	/// coup, ce constructeur lit `title` sur le bloc racine du document et cette
+	/// note disparaît.
 	class PanneauDocument : public NkEditorPanel {
 		public:
 			explicit PanneauDocument(NkBandeDocument &bande) noexcept
