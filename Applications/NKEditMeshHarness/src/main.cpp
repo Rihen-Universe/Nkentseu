@@ -4079,6 +4079,79 @@ static void SixOpsBattery() {
 // ⚠️ ET LE NIVEAU DE DETAIL EST COMPARE A LUI-MEME : « detaille » doit produire
 //    STRICTEMENT plus de faces que « simple » sur la meme famille. C'est le seul
 //    critere qui ne depende d'aucun chiffre grave.
+// ── CONSTRUIRE UNE FAMILLE ET L'ECRIRE EN .OBJ (25/09, Q17) ──────────────────
+// Pourquoi ici, et pas un second constructeur en Python : l'ajustement de
+// parametres par projection doit optimiser LA FAMILLE REELLE, celle qui sera
+// posee dans la scene. Une reimplementation approchee optimiserait une autre
+// geometrie et rendrait des parametres justes pour elle seule -- la famille de
+// defauts « mesurer une reconstruction au lieu de la chose ».
+// Ce mode n'ouvre aucune fenetre et ne touche pas au GPU.
+//
+// USAGE : --famille-obj <sortie.obj> --nom <famille> [--style S] [--largeur L]
+//         [--hauteur H] [--profondeur P] [--nombre N] [--fenetres F] [--simple]
+static int32 FamilleVersObj(int32 argc, char **argv) {
+	renderer::NkFamilleParams p;
+	const char *sortie = nullptr;
+	p.detaille = true;
+	for (int32 i = 1; i < argc; ++i) {
+		auto suivant = [&](const char *cle) -> const char * {
+			return (strcmp(argv[i], cle) == 0 && i + 1 < argc) ? argv[++i] : nullptr;
+		};
+		if (const char *v = suivant("--famille-obj"))
+			sortie = v;
+		else if (const char *v = suivant("--nom"))
+			snprintf(p.famille, sizeof(p.famille), "%s", v);
+		else if (const char *v = suivant("--style"))
+			snprintf(p.style, sizeof(p.style), "%s", v);
+		else if (const char *v = suivant("--largeur"))
+			p.largeur = (float32)atof(v);
+		else if (const char *v = suivant("--hauteur"))
+			p.hauteur = (float32)atof(v);
+		else if (const char *v = suivant("--profondeur"))
+			p.profondeur = (float32)atof(v);
+		else if (const char *v = suivant("--nombre"))
+			p.nombre = atoi(v);
+		else if (const char *v = suivant("--fenetres"))
+			p.fenetres = atoi(v);
+		else if (strcmp(argv[i], "--simple") == 0)
+			p.detaille = false;
+	}
+	if (!sortie || !p.famille[0]) {
+		NkLog::Instance().Error("--famille-obj demande aussi --nom <famille>");
+		return 2;
+	}
+	NkVector<renderer::NkFamillePiece> pieces;
+	char pourquoi[256] = {0};
+	const int32 n = renderer::NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
+	if (n <= 0) {
+		NkLog::Instance().Error("famille refusee : {0}", pourquoi);
+		return 1;
+	}
+	FILE *f = fopen(sortie, "wb");
+	if (!f) {
+		NkLog::Instance().Error("ecriture impossible : {0}", sortie);
+		return 1;
+	}
+	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis - Rihen\n");
+	fprintf(f, "# famille %s style %s %.4f x %.4f x %.4f, %d pieces\n", p.famille, p.style, (double)p.largeur,
+			(double)p.hauteur, (double)p.profondeur, (int)n);
+	uint32 base = 1;
+	for (int32 i = 0; i < n; ++i) {
+		const renderer::NkFamillePiece &q = pieces[(usize)i];
+		fprintf(f, "g %s\n", q.nom);
+		for (usize v = 0; v < q.verts.Size(); ++v)
+			fprintf(f, "v %.6f %.6f %.6f\n", (double)q.verts[v].pos.x, (double)q.verts[v].pos.y,
+					(double)q.verts[v].pos.z);
+		for (usize k = 0; k + 2 < q.indices.Size(); k += 3)
+			fprintf(f, "f %u %u %u\n", base + q.indices[k], base + q.indices[k + 1], base + q.indices[k + 2]);
+		base += (uint32)q.verts.Size();
+	}
+	fclose(f);
+	printf("FAMILLE_OBJ %s : %d pieces, %u sommets\n", sortie, (int)n, (unsigned)(base - 1));
+	fflush(stdout);
+	return 0;
+}
+
 static void FamillesBattery() {
 	struct Cas {
 			const char *famille;
@@ -11003,6 +11076,10 @@ int main(int argc, char **argv) {
 					 NkBenchArgv0());
 		return 3;
 	}
+
+	for (int32 i = 1; i < argc; ++i)
+		if (strcmp(argv[i], "--famille-obj") == 0)
+			return FamilleVersObj(argc, argv);
 
 	bool baseline = false, check = false, perf = false, intention = false;
 	bool suppression = false;
