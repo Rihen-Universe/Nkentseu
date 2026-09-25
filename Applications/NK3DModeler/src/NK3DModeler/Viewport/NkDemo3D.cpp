@@ -10027,6 +10027,57 @@ namespace nkentseu {
 			NKEDSTEP(6); // jalon de dichotomie
 			sctx.time = ctx.totalTime;
 
+			// ══ AUDIT : QU'EST-CE QUI APPARTIENT A LA DEMO ET VIT ENCORE ICI ? ══
+			// Rodolf, 25/09 : « je croyais qu'on s'etait enfin debarrasses des
+			// scenes virtuelles liees a la demo ». Avant de couper dans 26 000
+			// lignes partagees par cinq applications, on COMPTE -- et on compte
+			// separement ce qui EXISTE, ce qui ECLAIRE, ce qui SE DESSINE et ce
+			// qui se laisse DESIGNER, parce que ces quatre-la ne coincident pas :
+			// c'est precisement leur desaccord qui a coute la journee.
+			{
+				static const bool sAudit = []() {
+					const char *v = getenv("NK_DEMO_AUDIT");
+					return v && v[0] && v[0] != '0';
+				}();
+				static int32 sAuditImg = 0;
+				if (sAudit && (++sAuditImg % 120) == 0) {
+					int32 objVivants = 0, objRendus = 0;
+					for (int32 i = 0; i < (int32)Demo3DState::kNumObj; ++i) {
+						if (!nkvpDeleted[i])
+							++objVivants;
+						if (!HostHiddenEff(i))
+							++objRendus;
+					}
+					int32 vidVivants = 0;
+					for (int32 e = kNkvpEmptyBase; e < kNkvpFirstUser; ++e)
+						if (!nkvpDeleted[e])
+							++vidVivants;
+					int32 lumVivantes = 0, lumEclairent = 0;
+					for (int32 li = 0; li < Demo3DState::kNumLights; ++li) {
+						if (!nkvpDeleted[86 + li])
+							++lumVivantes;
+						if (!HostHiddenEff(86 + li))
+							++lumEclairent;
+					}
+					// ⚠️ LE PICK SE COMPTE A PART, ET C'EST TOUT LE SUJET. Le dessin
+					//    parcourt `frameLights` (donc filtre) ; le pick parcourt
+					//    `0..kNumLights` SANS filtre. Une lumiere de demo supprimee
+					//    n'est ni rendue ni dessinee -- et reste DESIGNABLE. C'est
+					//    exactement « presente, meme invisible ».
+					int32 lumPickables = 0;
+					for (int32 li = 0; li < Demo3DState::kNumLights; ++li)
+						if (!HostHiddenEff(86 + li))
+							++lumPickables;
+					logger.Info("[DEMO-AUDIT] img={0} · objets de demo : {1}/{2} non supprimes, "
+								"{3} rendus · vides : {4}/{5} · lumieres de demo : {6}/{7} non "
+								"supprimees, {8} eclairent, {9} DESIGNABLES · widgets dessines : "
+								"{10} · soleil du ciel actif : {11}\n",
+								sAuditImg, objVivants, (int32)Demo3DState::kNumObj, objRendus,
+								vidVivants, (int32)(kNkvpFirstUser - kNkvpEmptyBase), lumVivantes,
+								(int32)Demo3DState::kNumLights, lumEclairent, lumPickables,
+								(int32)st->frameLights.Size(), Demo3DHostSkySunLightsScene() ? 1 : 0);
+				}
+			}
 			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
 			// Auparavant ces 4 descripteurs etaient reecrits a CHAQUE frame : la scene
 			// etait donc figee par construction, et aucune manipulation n'aurait pu
@@ -14100,6 +14151,44 @@ namespace nkentseu {
 							int32 best = -1;
 							float32 bestD2 = 1e30f;
 							for (int32 li = 0; li < Demo3DState::kNumLights; li++) {
+								// ── ON NE DESIGNE QUE CE QUI SE VOIT ────────────────────
+								// LA REGLE EST DE RODOLF (25/09) : « si elle est activee,
+								// elle doit pouvoir etre manipulee ; dans le cas contraire,
+								// pas besoin qu'elle soit presente, meme invisible ».
+								//
+								// LE DEFAUT, mesure par NK_DEMO_AUDIT : dans un projet
+								// utilisateur, les objets de demo sont 0/86 non supprimes et
+								// 0 rendus, les vides 0/6, les lumieres 0/4 non supprimees et
+								// 0 eclairent -- la scene virtuelle a bien disparu. MAIS
+								// cette boucle-ci comptait 4 lumieres DESIGNABLES : le pick
+								// parcourait les quatre de la demo SANS filtre, quand le
+								// dessin, lui, parcourt `frameLights` (donc filtre) et que le
+								// rendu teste `HostHiddenEff`. Trois lectures de la meme
+								// question, deux filtrees, une non.
+								//
+								// LE SOLEIL EST LE CAS QUI SE VOIT : il est DIRECTIONNEL,
+								// donc `NkLightDesc{}` lui laisse `position = {0,0,0}` et son
+								// ancre de pick tombe a l'ORIGINE -- le centre de l'univers,
+								// precisement la ou Rodolf cliquait. Une lumiere ni rendue ni
+								// dessinee lui volait ses clics.
+								//
+								// ⚠️ LE MEME POINT DE PASSAGE QUE TOUT LE RESTE. `HostHiddenEff`
+								//    dit de lui-meme etre « le point de passage unique de la
+								//    visibilite [...] tout ce qui interroge la visibilite le
+								//    saute alors sans qu'on ait a le traiter en dix endroits,
+								//    et sans risquer d'en oublier un ». Il en manquait un.
+								//
+								// ⚠️ ET LA DEMONSTRATION N'EST PAS TOUCHEE : la ou les lumieres
+								//    de demo sont vivantes, `HostHiddenEff` rend faux et le
+								//    pick se comporte exactement comme avant. La regle est
+								//    « ce qui ne se voit pas ne se designe pas », pas « plus
+								//    de lumieres de demo ».
+								static const bool sPickCache = []() {
+									const char *v = getenv("NK_LIGHT_PICK_CACHEES");
+									return v && v[0] && v[0] != '0';
+								}();
+								if (!sPickCache && HostHiddenEff(86 + li))
+									continue;
 								// On projette l'ANCRE du widget — le meme point que celui du
 								// dessin, et sur la lumiere EFFECTIVE : viser ou l'on voit.
 								const renderer::NkLightDesc eff = Demo3D_LightEffective(st, li);

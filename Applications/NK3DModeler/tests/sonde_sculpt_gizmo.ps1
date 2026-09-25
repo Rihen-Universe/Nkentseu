@@ -58,12 +58,12 @@ function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
 	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE",
-			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS", "NK_GIZMO_VIDE_SANS_PICK")
+			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS", "NK_GIZMO_VIDE_SANS_PICK", "NK_LIGHT_PICK_CACHEES")
 	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
 	$env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	# La mutation porte les DEUX negatifs de ce banc : l'ancienne regle des modes,
 	# et une boite publiee SANS CIBLE (NK_BOITE_FAUSSE).
-	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1"; $env:NK_GIZMO_VIDE_SANS_PICK = "1" }
+	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1"; $env:NK_GIZMO_VIDE_SANS_PICK = "1"; $env:NK_LIGHT_PICK_CACHEES = "1" }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-RedirectStandardOutput $out | Out-Null
@@ -356,6 +356,42 @@ if (Condition "Proprietaire (j)" (($jalons.Count -gt 0) -and ($touche -gt 0)) `
 		"jalons=$($jalons.Count) clics qui touchent=$touche (il faut un clic QUI TOUCHE)") {
 	Dire "Proprietaire (j) aucun gizmo sans cible ne touche a la selection" ($parUpdate -eq 0) `
 		"$parUpdate transition(s) attribuee(s) a un Gizmo.Update, TOUTES populations (exige 0)"
+}
+
+# -- (k) RIEN DE LA DEMO NE VIT DANS UN PROJET UTILISATEUR -------------------
+# LA REGLE EST DE RODOLF (25/09) : « si elle est activee, elle doit pouvoir etre
+# manipulee ; dans le cas contraire, pas besoin qu elle soit presente, meme
+# invisible. » Il parlait du soleil -- et il avait vu juste : la lumiere qu il
+# selectionnait au centre de l univers etait le SOLEIL DIRECTIONNEL DE LA DEMO,
+# dont l ancre de pick tombe a l origine faute de position.
+#
+# ⚠ LE RECENSEMENT D ABORD, LA COUPE ENSUITE. NK_DEMO_AUDIT compte SEPAREMENT ce
+#   qui EXISTE, ce qui ECLAIRE, ce qui SE DESSINE et ce qui se laisse DESIGNER --
+#   parce que ces quatre-la ne coincidaient pas, et que c est leur desaccord qui
+#   a coute la journee. Mesure du 25/09, projet utilisateur : objets 0/86 non
+#   supprimes et 0 rendus, vides 0/6, lumieres 0/4 non supprimees et 0 eclairent
+#   -- la scene virtuelle avait bien disparu -- MAIS 4 lumieres DESIGNABLES.
+#   Le nettoyage etait fait partout sauf dans le pick.
+$c = Courir "demo" @{ "NK_AGENT_SCENE" = "5"; "NK_DEMO_AUDIT" = "1"; "NK_AGENT_EXIT" = "400" }
+$au = @(Select-String -Path $c.log -Pattern "\[DEMO-AUDIT\]")
+if (Condition "Demo (k)" ($au.Count -gt 0) "aucune ligne d audit") {
+	$m = [regex]::Match($au[-1].Line,
+		"objets de demo : (\d+)/\d+ non supprimes, (\d+) rendus .* vides : (\d+)/\d+ .* lumieres de demo : (\d+)/\d+ non supprimees, (\d+) eclairent, (\d+) DESIGNABLES")
+	if ($m.Success) {
+		$objV = [int]$m.Groups[1].Value; $objR = [int]$m.Groups[2].Value
+		$vid = [int]$m.Groups[3].Value;  $lumV = [int]$m.Groups[4].Value
+		$lumE = [int]$m.Groups[5].Value; $lumD = [int]$m.Groups[6].Value
+		Dire "Demo (k) aucun objet ni vide de demo dans un projet" `
+			(($objV -eq 0) -and ($objR -eq 0) -and ($vid -eq 0)) `
+			"objets non supprimes=$objV rendus=$objR vides=$vid (exige 0/0/0)"
+		# ⚠ LES QUATRE COMPTEURS, PAS UN SEUL. « 0 eclairent » etait deja vrai
+		#   quand Rodolf perdait ses clics : c est DESIGNABLES qui le disait.
+		Dire "Demo (k) aucune lumiere de demo, ni rendue ni DESIGNABLE" `
+			(($lumV -eq 0) -and ($lumE -eq 0) -and ($lumD -eq 0)) `
+			"non supprimees=$lumV eclairent=$lumE designables=$lumD (exige 0/0/0)"
+	} else {
+		Dire "Demo (k) la ligne d audit est lisible" $false "motif non reconnu"
+	}
 }
 
 Write-Host "-----------------------------------------------------------------------"
