@@ -240,6 +240,30 @@ namespace nkentseu {
 			cmd += "\"";
 		}
 		NkString path = ExecCommand(cmd.CStr());
+		// Zenity rend EXACTEMENT ce que l'utilisateur a tapé : contrairement à
+		// GetSaveFileNameA, qui applique `lpstrDefExt`, il n'ajoute jamais
+		// l'extension par défaut. La même application enregistrait donc
+		// « croquis.nkref » sous Windows et « croquis » sous Linux ; le fichier
+		// Linux devenait ensuite invisible au dialogue d'ouverture, filtré sur
+		// « *.nkref », et l'utilisateur en concluait que l'enregistrement ne
+		// marchait pas. Le paramètre s'appelle `defaultExt` : on le tient.
+		if (!path.Empty() && !defaultExt.Empty()) {
+			const char *s = path.CStr();
+			const char *base = s;
+			for (const char *c = s; *c; ++c)
+				if (*c == '/')
+					base = c + 1;
+			bool aDejaUneExtension = false;
+			for (const char *c = base; *c; ++c)
+				if (*c == '.')
+					aDejaUneExtension = true;
+			// Un point dans le NOM suffit : on n'impose rien à qui a choisi son
+			// extension, on complète seulement qui n'en a mis aucune.
+			if (!aDejaUneExtension) {
+				path += ".";
+				path += defaultExt;
+			}
+		}
 		res.confirmed = !path.Empty();
 		res.path = path;
 		return res;
