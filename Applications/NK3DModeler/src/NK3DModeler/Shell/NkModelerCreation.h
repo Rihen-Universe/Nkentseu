@@ -56,6 +56,7 @@
 #include "NK3DModeler/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NK3DModeler/Viewport/NkCreaFamilles.h" // (Q8) les constructeurs par famille
+#include "NKRenderer/Mesh/NkMeshFamilles.h"   // (25/09) les dimensions plausibles
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -193,6 +194,63 @@ namespace nkentseu {
 				}
 			}
 			return meilleur < 0 ? k : meilleur;
+		}
+
+		/// ── LE REGISTRE DES LIAISONS (25/09) ──────────────────────────────────
+		/// ⚠️ LA LIAISON EST UNE DONNEE, PAS UN PARENTAGE DE SCENE, et deux mesures
+		///    l'imposent. (1) `Demo3DHostSetNodeOrigin` RECULE LES ENFANTS : la porte
+		///    passait de 2,40 a 4,46 m avec quatre pieces flottantes. (2) Toutes les
+		///    pieces d'une famille sont ensuite reparentees au GROUPE du lot, qui
+		///    porte l'annulation -- un parentage battant->montant y serait ecrase
+		///    dix lignes plus bas. Garder la liaison a cote satisfait aussi ce que
+		///    Rodolf demande : « une partie reste selectionnable, cassable, avec sa
+		///    propre matiere ».
+		struct NkArticulation {
+				int32 noeud = -1;
+				int32 parent = -1;
+				int32 liaison = 0;
+				float32 pivot[3] = {0.f, 0.f, 0.f}; ///< point de l'axe, en MONDE
+				float32 axe[3] = {0.f, 1.f, 0.f};
+				float32 butee[2] = {0.f, 0.f};
+		};
+		inline NkVector<NkArticulation> &NkArticTable() {
+			static NkVector<NkArticulation> t;
+			return t;
+		}
+		inline const NkArticulation *NkArticDe(int32 noeud) {
+			NkVector<NkArticulation> &t = NkArticTable();
+			for (usize i = 0; i < t.Size(); ++i)
+				if (t[i].noeud == noeud)
+					return &t[i];
+			return nullptr;
+		}
+
+		/// TOURNER UNE PIECE AUTOUR DE SON AXE, SANS DEPLACER SON PIVOT.
+		/// ⚠️ C'EST LA COMPOSITION QUI FAIT LE PIVOT, PAS UNE ORIGINE. Les
+		///    transformations de ce systeme sont ABSOLUES et `SetModelTransform`
+		///    emmene deja les descendants : pour tourner autour de P, il suffit de
+		///    poser `pos' = P + R*(pos - P)`. Rien n'est recule, rien n'est a
+		///    compenser, et aucun mecanisme neuf n'est ecrit.
+		inline bool NkArticTourner(int32 noeud, float32 degres) {
+			const NkArticulation *a = NkArticDe(noeud);
+			if (!a || a->liaison != 1)
+				return false;
+			float32 pos[3], rot[3], scl[3];
+			if (!demo::Demo3DHostEmptyTransform(noeud, pos, rot, scl))
+				return false;
+			// L'axe des familles est vertical (charniere) ou normal a la face
+			// (poignee) : on ne traite ici que la rotation autour de Y, et on le DIT
+			// plutot que de faire semblant de gerer un axe quelconque.
+			if (fabsf(a->axe[1]) < 0.9f)
+				return false;
+			const float32 t = degres * 0.017453292f;
+			const float32 c = cosf(t), sn = sinf(t);
+			const float32 dx = pos[0] - a->pivot[0], dz = pos[2] - a->pivot[2];
+			const float32 np3[3] = {a->pivot[0] + dx * c + dz * sn, pos[1], a->pivot[2] - dx * sn + dz * c};
+			const float32 nr3[3] = {rot[0], rot[1] + degres, rot[2]};
+			demo::Demo3DHostSetModelTransform(noeud, np3, nr3, scl);
+			demo::Demo3DHostHierarchyResync();
+			return true;
 		}
 
 		/// `NK_CREA_SANS_FAMILLES=1` : la MUTATION du Q8 (l'« avant »).
@@ -1558,6 +1616,24 @@ namespace nkentseu {
 				if (slot >= 0)
 					demo::Demo3DHostProjMatAssign(n, slot);
 				faces += pieces[i].faces;
+				// ── LA LIAISON ENTRE DANS LE REGISTRE, AVEC SON PIVOT EN MONDE ────
+				// Les pieces viennent d'etre translatees de `cible` : le pivot suit la
+				// MEME translation, sinon l'axe resterait a l'origine du monde pendant
+				// que la porte est ailleurs -- et la mesure des 30 degres le dirait.
+				if (pieces[i].liaison != 0) {
+					NkArticulation art;
+					art.noeud = n;
+					art.parent = pieces[i].parent;
+					art.liaison = pieces[i].liaison;
+					art.pivot[0] = pieces[i].pivot[0] + cible[0];
+					art.pivot[1] = pieces[i].pivot[1];
+					art.pivot[2] = pieces[i].pivot[2] + cible[2];
+					for (int32 k = 0; k < 3; ++k)
+						art.axe[k] = pieces[i].axe[k];
+					art.butee[0] = pieces[i].butee[0];
+					art.butee[1] = pieces[i].butee[1];
+					NkArticTable().PushBack(art);
+				}
 			}
 			const float32 gp[3] = {cible[0], 0.f, cible[2]}, r0[3] = {0.f, 0.f, 0.f}, s1[3] = {1.f, 1.f, 1.f};
 			demo::Demo3DHostSetEmptyTransform(g, gp, r0, s1);
@@ -2215,11 +2291,36 @@ namespace nkentseu {
 					//    ici : deux derivations du meme chiffre se decorrelent au
 					//    premier changement, et c'est alors la copie qui ment.
 					float32 cibleH = 1.f, bordX = 0.f;
+					const char *origineCible = "1 m par defaut";
 					float32 lm[3] = {0.f, 0.f, 0.f}, lM[3] = {0.f, 0.f, 0.f};
 					const bool aAssemblage = NkCreaBoiteDernierLot(lm, lM);
 					if (aAssemblage && lM[1] - lm[1] > 1e-4f) {
 						cibleH = lM[1] - lm[1];
 						bordX = lM[0];
+						origineCible = "la boite de l'assemblage";
+					}
+					// ── LA TAILLE PLAUSIBLE PRIME SUR CELLE DU MODELE (25/09) ────────
+					// Rodolf : « la cible de 5,30 m vient d'un nombre invente par le
+					// 7B ». Quand la famille est RECONNUE, la bibliotheque sait ce
+					// qu'est une hauteur defendable pour cet objet, et c'est elle qui
+					// donne la cible. ⚠️ ON NE CORRIGE QUE CE QUI EST HORS DU MONDE :
+					// si la hauteur de l'assemblage tombe deja dans l'intervalle
+					// plausible, on n'y touche pas -- l'ecraser jetterait une
+					// information juste (« une table BASSE ») au nom d'une moyenne.
+					{
+						NkCreaEtat &EH = NkCrea();
+						float32 lo = 0.f, hi = 0.f, def = 0.f;
+						if (EH.familleReconnue[0] &&
+							renderer::NkFamilleDimensionPlausible(EH.familleReconnue, 1, &lo, &hi, &def)) {
+							if (cibleH < lo || cibleH > hi) {
+								std::printf("[crea] TAILLE : hauteur %.2f m hors de l'intervalle plausible de "
+											"« %s » (%.2f a %.2f) -> je prends %.2f m\n",
+											(double)cibleH, EH.familleReconnue, (double)lo, (double)hi, (double)def);
+								std::fflush(stdout);
+								cibleH = def;
+								origineCible = "la table de dimensions plausibles";
+							}
+						}
 					}
 					if (aBoite) {
 						hAv = mx[1] - mn[1];
@@ -2473,7 +2574,7 @@ namespace nkentseu {
 					std::printf("[crea] TRIPOSR pose : %d noeud(s), hauteur %.3f -> %.3f m (echelle %.3f, "
 								"cible prise sur %s), bas a y=%.4f, debout=%d ; Ctrl+Z le retire.\n",
 								(int)poses, (double)hAv, (double)hAp, (double)kEch,
-								aAssemblage ? "la boite de l'assemblage" : "1 m par defaut (AUCUN assemblage)",
+								origineCible,
 								(double)basApres, debout ? 1 : 0);
 					std::fflush(stdout);
 					// LES VUES REPARTENT : les premieres ont photographie l'assemblage
@@ -3758,71 +3859,63 @@ namespace nkentseu {
 			return etape <= 8;
 		}
 
-		/// ── NK_ARTIC_MESURE=1 : L'ECART EN MILLIMETRES APRES 30 DEGRES (Q18.2) ────
-		/// Un pivot « bien place » est une intention tant qu'on ne mesure pas ce qui
-		/// NE DOIT PAS bouger. Ici : on note la position MONDE du pivot d'une piece
-		/// articulee, on la tourne de 30 degres autour de son axe, on relit la meme
-		/// position, et on imprime l'ecart. Sur une charniere juste, un point de
-		/// l'axe est invariant : l'ecart doit etre nul a la precision du flottant.
-		/// ⚠️ LE POINT MESURE EST SUR L'AXE, PAS LE CENTRE DE LA PIECE. Mesurer le
-		///    centre donnerait un grand deplacement sur une charniere PARFAITE : on
-		///    mesurerait la rotation, pas l'erreur.
-		/// ⚠️⚠️ CETTE VERSION NE PROUVE RIEN, ET JE LE LAISSE ECRIT PLUTOT QUE DE
-		///    L'EFFACER. Elle compare `sp + o` avant et apres une rotation qui ne
-		///    change NI `sp` NI `o` : son zero est une tautologie, pas une mesure.
-		///    Elle a rendu « ecart 0,0000 mm » sur une porte dont la boite venait de
-		///    passer de 2,40 a 4,46 m -- verte pendant que l'objet se cassait. La
-		///    version juste doit relire la GEOMETRIE MONDE (bornes du noeud, ou un
-		///    sommet transforme), pas recomposer les memes nombres.
-		///    Tant qu'elle n'est pas ecrite, ce crochet imprime son chiffre ET cet
-		///    avertissement, pour que personne ne le cite.
+		/// ── NK_ARTIC_MESURE=1 : LA MESURE DES 30 DEGRES, REECRITE POUR ECHOUER ──
+		/// ⚠️ LA PREMIERE VERSION ETAIT UNE TAUTOLOGIE, et c'est la lecon de ce
+		///    crochet. Elle comparait `sp + o` avant et apres une rotation qui ne
+		///    change ni `sp` ni `o` : son zero ne pouvait pas etre autre chose que
+		///    zero. Elle a imprime « ecart 0,0000 mm » sur une porte dont la boite
+		///    venait de passer de 2,40 a 4,46 m -- verte pendant que l'objet cassait.
+		/// CELLE-CI PEUT ECHOUER, et c'est tout ce qui la distingue. Elle relit la
+		/// GEOMETRIE MONDE (`Demo3DHostNodeBounds`), et elle exige DEUX choses
+		/// opposees, donc impossibles a satisfaire par accident :
+		///   (a) le cote de l'axe ne bouge pas -- sinon la charniere n'est pas sur les
+		///       gonds ;
+		///   (b) le cote OPPOSE bouge, d'a peu pres ce que la geometrie impose
+		///       (2 L sin(15 degres) pour 30 degres) -- sinon rien n'a tourne, et un
+		///       (a) vert tout seul serait vert precisement parce que rien n'a bouge.
 		inline void NkArticMesureTick(NkModelerState &st, int32 image) {
 			const char *v = std::getenv("NK_ARTIC_MESURE");
 			if (!v || !*v || v[0] == '0')
 				return;
 			static int32 etape = 0;
 			static int32 cible = -1;
-			static float32 avant[3] = {0.f, 0.f, 0.f};
+			static float32 mnA[3] = {0.f, 0.f, 0.f}, mxA[3] = {0.f, 0.f, 0.f};
+			static float32 pv[3] = {0.f, 0.f, 0.f};
 			if (etape > 2 || image < 60 || !demo::Demo3DHostReady())
 				return;
 			if (etape == 0) {
-				// LA CIBLE : le dernier lot pose, sa premiere piece qui a un PARENT.
-				// C'est le battant : le cadre n'en a pas.
-				NkCreaEtat &E = NkCrea();
-				if (E.nLots <= 0)
-					return;
-				const NkCreaLot &l = E.lots[E.nLots - 1];
-				for (int32 i = 0; i < l.nNoeuds; ++i) {
-					const int32 nd = l.noeuds[i];
-					if (nd < 0 || demo::Demo3DHostNodeDeleted(nd))
+				for (usize i = 0; i < NkArticTable().Size(); ++i) {
+					const NkArticulation &a = NkArticTable()[i];
+					if (a.liaison != 1 || a.noeud < 0 || demo::Demo3DHostNodeDeleted(a.noeud))
 						continue;
-					if (demo::Demo3DHostNodeParent(nd) < 0)
+					if (!demo::Demo3DHostNodeBounds(a.noeud, true, mnA, mxA))
 						continue;
-					float32 o[3];
-					if (!demo::Demo3DHostNodeOrigin(nd, o))
-						continue;
-					if (o[0] == 0.f && o[1] == 0.f && o[2] == 0.f)
-						continue; // pivot non pose : ce n'est pas une piece articulee
-					cible = nd;
-					float32 sp[3], sr[3], ss[3];
-					if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss)) {
-						// LE POINT DE L'AXE, EN MONDE : l'origine du noeud composee a sa
-						// transformation. Avant rotation, la transformation est l'identite
-						// de pose, donc ce point vaut sp + o.
-						avant[0] = sp[0] + o[0];
-						avant[1] = sp[1] + o[1];
-						avant[2] = sp[2] + o[2];
-					}
-					std::printf("[artic] CIBLE noeud %d « %s », pivot local (%.4f, %.4f, %.4f), "
-								"parent %d\n",
+					cible = a.noeud;
+					pv[0] = a.pivot[0];
+					pv[1] = a.pivot[1];
+					pv[2] = a.pivot[2];
+					std::printf("[artic] CIBLE noeud %d « %s » : pivot monde (%.4f, %.4f, %.4f), "
+								"boite x [%.4f, %.4f]\n",
 								(int)cible, (cible < NkModelerState::kMaxNodeNames) ? st.customNames[cible] : "?",
-								(double)o[0], (double)o[1], (double)o[2],
-								(int)demo::Demo3DHostNodeParent(cible));
+								(double)pv[0], (double)pv[1], (double)pv[2], (double)mnA[0], (double)mxA[0]);
 					std::fflush(stdout);
 					break;
 				}
 				if (cible < 0) {
-					std::printf("[artic] AUCUNE piece articulee dans le dernier lot : rien a mesurer\n");
+					// ⚠️ ON ATTEND LA POSE AU LIEU DE CONCLURE, ET L'ECHEANCE NE SUFFIT
+					//    PAS. Premiere version : conclure a l'image 60 mesurait une scene
+					//    vide. Deuxieme : une echeance de 2000 images marchait SANS image
+					//    jointe et ratait la pose AVEC -- la vision et le plan la
+					//    repoussent de plusieurs secondes, et « aucune charniere » est
+					//    retombe alors qu'il y en avait quatre. C'est deux fois la meme
+					//    faute : conclure avant que la chose existe.
+					//    On ne conclut donc que lorsque PLUS RIEN N'EST EN VOL, et
+					//    l'echeance n'est qu'un garde-fou tres large.
+					NkCreaEtat &EA = NkCrea();
+					const bool enVol = EA.envoi.EnCours() || EA.envoiVision.EnCours() || NkGenia().envoi.EnCours();
+					if (enVol || image < 12000)
+						return;
+					std::printf("[artic] AUCUNE charniere dans la scene apres 2000 images : rien a mesurer\n");
 					std::fflush(stdout);
 					etape = 3;
 					return;
@@ -3831,31 +3924,55 @@ namespace nkentseu {
 				return;
 			}
 			if (etape == 1) {
-				float32 sp[3], sr[3], ss[3];
-				if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss)) {
-					const float32 nr[3] = {sr[0], sr[1] + 30.f, sr[2]};
-					demo::Demo3DHostSetModelTransform(cible, sp, nr, ss);
-					demo::Demo3DHostHierarchyResync();
+				if (!NkArticTourner(cible, 30.f)) {
+					std::printf("[artic] ROUGE : la rotation a ete REFUSEE (axe non vertical ou noeud sans "
+								"liaison)\n");
+					std::fflush(stdout);
+					etape = 3;
+					return;
 				}
 				++etape;
 				return;
 			}
-			// etape 2 : relire le meme point de l'axe
-			float32 sp[3], sr[3], ss[3], o[3];
-			if (demo::Demo3DHostEmptyTransform(cible, sp, sr, ss) && demo::Demo3DHostNodeOrigin(cible, o)) {
-				// Apres SetModelTransform(pos, rot, scl), un point LOCAL p du noeud
-				// devient pos + R*(p - o) + o ... et le point p = o reste donc a pos + o.
-				const float32 ap[3] = {sp[0] + o[0], sp[1] + o[1], sp[2] + o[2]};
-				const float32 d = sqrtf((ap[0] - avant[0]) * (ap[0] - avant[0]) +
-										(ap[1] - avant[1]) * (ap[1] - avant[1]) +
-										(ap[2] - avant[2]) * (ap[2] - avant[2]));
-				std::printf("[artic] MESURE 30 deg : le point de l'axe passe de (%.5f, %.5f, %.5f) a "
-							"(%.5f, %.5f, %.5f) -> ecart %.4f mm (⚠️ TAUTOLOGIQUE, ne rien conclure)\n",
-							(double)avant[0], (double)avant[1], (double)avant[2], (double)ap[0], (double)ap[1],
-							(double)ap[2], (double)(d * 1000.f));
+			float32 mnB[3], mxB[3];
+			if (demo::Demo3DHostNodeBounds(cible, true, mnB, mxB)) {
+				// Le cote de l'axe : celui des deux bords en x le plus proche du pivot.
+				const bool axeAGauche = fabsf(mnA[0] - pv[0]) < fabsf(mxA[0] - pv[0]);
+				const float32 bordAxeA = axeAGauche ? mnA[0] : mxA[0];
+				const float32 bordAxeB = axeAGauche ? mnB[0] : mxB[0];
+				const float32 bordLibreA = axeAGauche ? mxA[0] : mnA[0];
+				const float32 bordLibreB = axeAGauche ? mxB[0] : mnB[0];
+				const float32 dAxe = fabsf(bordAxeB - bordAxeA) * 1000.f;
+				const float32 dLibre = fabsf(bordLibreB - bordLibreA) * 1000.f;
+				// CE QU'IMPOSE LA GEOMETRIE : le bord libre est a L du pivot ; apres 30
+				// degres il s'est deplace de 2 L sin(15 degres), dont L(1 - cos 30) en x.
+				const float32 L = fabsf(bordLibreA - pv[0]);
+				const float32 attenduX = L * (1.f - cosf(30.f * 0.017453292f)) * 1000.f;
+				// ── LA TOLERANCE EST DERIVEE, PAS CHOISIE (25/09) ───────────────
+				// La premiere version exigeait 0 mm et rougissait a 12,500 mm. Ce
+				// n'etait pas le pivot : c'est la BOITE ALIGNEE d'un battant EPAIS
+				// qui tourne. Un panneau d'epaisseur e pivotant de theta sur son
+				// arete voit le bord de sa boite reculer de (e/2) sin(theta) --
+				// (0,050/2) x sin(30) = 12,5 mm, exactement le chiffre mesure.
+				// On borne donc par ce que la geometrie impose, plus un demi-
+				// millimetre de rasterisation. ⚠️ Ce n'est PAS relacher le critere
+				// pour le faire passer : la borne se calcule sur l'epaisseur RELUE
+				// avant la rotation, et un vrai decalage de pivot la depasserait.
+				const float32 ep = mxA[2] - mnA[2];
+				const float32 tolAxe = 0.5f + 0.5f * ep * sinf(30.f * 0.017453292f) * 1000.f;
+				const bool okAxe = dAxe <= tolAxe;
+				const bool okLibre = dLibre >= 0.5f * attenduX; // il a VRAIMENT tourne
+				std::printf("[artic] MESURE 30 deg : cote de l'axe bouge de %.3f mm (attendu 0) ; "
+							"cote libre bouge de %.3f mm (la geometrie impose ~%.3f) [tolerance de l'axe "
+							"%.3f mm, tiree d'une epaisseur de %.3f m] -> %s\n",
+							(double)dAxe, (double)dLibre, (double)attenduX, (double)tolAxe, (double)ep,
+							(okAxe && okLibre) ? "VERT"
+											   : (!okAxe ? "ROUGE : l'axe s'est deplace"
+													 : "ROUGE : rien n'a tourne, le vert de l'axe ne prouve rien"));
 				std::fflush(stdout);
 				if (FILE *f = fopen("logs/crea_mesure.txt", "ab")) {
-					fprintf(f, "ARTICULATION noeud=%d ecart_mm=%.6f\n", (int)cible, (double)(d * 1000.f));
+					fprintf(f, "ARTICULATION noeud=%d axe_mm=%.4f libre_mm=%.4f attendu_mm=%.4f vert=%d\n",
+							(int)cible, (double)dAxe, (double)dLibre, (double)attenduX, (okAxe && okLibre) ? 1 : 0);
 					fclose(f);
 				}
 			}
