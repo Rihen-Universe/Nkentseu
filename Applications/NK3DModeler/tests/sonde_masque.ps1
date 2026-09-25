@@ -214,6 +214,40 @@ if (Condition "(e) partiel" (($dLibre -gt 1e-4) -and ($part.Count -gt 2)) "le tr
 		"libre $([Math]::Round($dLibre, 5)) -> partiellement masque $([Math]::Round($dPart, 5)) (exige 0 < x < libre)"
 }
 
+# ── (f) L'OUTIL TRANSFORM DE SCULPTURE : LE PREMIER CONSOMMATEUR DU MASQUE ──
+# Blender : il deplace / tourne / met a l'echelle la partie NON MASQUEE, autour
+# d'un pivot, avec la symetrie. C'est POUR LUI que le masque existe.
+# La mesure est une EGALITE, pas une ressemblance : une translation de +0,5 en X
+# sur nv sommets libres deplace la somme des positions de EXACTEMENT 0,5 x nv.
+$libre = @(Lignes (Courir "xform_libre" @{ "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:0:150" }))
+if (Condition "(f) transform" ($libre.Count -gt 2) "aucune ligne") {
+	$nv = Dernier $libre "nv"
+	$attendu = 0.5 * $nv
+	$obtenu = Bouge $libre
+	Dire "(f) sans masque : il deplace TOUT, exactement" ([Math]::Abs($obtenu - $attendu) -lt 0.01) `
+		"deplacement de la somme = $([Math]::Round($obtenu, 3)) (exige $attendu = 0,5 x $nv)"
+
+	$masq = @(Lignes (Courir "xform_masque" @{ "NK_MASK_ALL" = "1,120";
+											   "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:0:170" }))
+	Dire "(f) tout masque : il ne deplace RIEN" ((Bouge $masq) -eq 0.0) `
+		"deplacement = $([Math]::Round((Bouge $masq), 5)) (exige 0 exactement)"
+
+	$part = @(Lignes (Courir "xform_partiel" @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120";
+											    "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:0:170" }))
+	$dPart = Bouge $part
+	Dire "(f) masque PARTIEL : il deplace moins, pas rien" (($dPart -gt 0.0) -and ($dPart -lt $obtenu)) `
+		"libre $([Math]::Round($obtenu, 3)) -> partiel $([Math]::Round($dPart, 3)) (masque $(Dernier $part 'masque') sommets)"
+
+	# LA SYMETRIE, ET LA COUTURE. Le cote negatif part en MIROIR : sur un cube
+	# centre, la somme revient EXACTEMENT a zero. ⚠ Ce critere a trouve un vrai
+	# defaut : les sommets POSES SUR LE PLAN suivaient le cote positif, et le
+	# maillage se dechirait sur la couture (somme 34 au lieu de 0). Ils recoivent
+	# desormais la MOYENNE des deux transformations.
+	$sym = @(Lignes (Courir "xform_sym" @{ "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:1:150" }))
+	Dire "(f) symetrie X : les deux cotes partent en miroir, la couture tient" ((Bouge $sym) -eq 0.0) `
+		"deplacement de la somme = $([Math]::Round((Bouge $sym), 5)) (exige 0 : +0,5 d'un cote, -0,5 de l'autre, 0 sur le plan)"
+}
+
 Write-Host "-----------------------------------------------------------------------"
 if ($rouges -gt 0) { Write-Host "ECHEC ($rouges rouge(s), $conditions condition(s) non reunie(s))"; exit 1 }
 if ($conditions -gt 0) { Write-Host "CONDITION NON REUNIE ($conditions) -- ni vert ni rouge"; exit 3 }
