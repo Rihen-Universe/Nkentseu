@@ -151,15 +151,19 @@ namespace nkentseu {
 				/// anneau trace en primitives. Un splash qui refuserait de
 				/// s'afficher parce qu'un decodage SVG a echoue transformerait un
 				/// defaut cosmetique en application morte.
+				/// `logoCompletTexId` est le LOGO COMPLET — le mot RIHEN dessine.
+				/// Zero n'est pas une panne non plus : le volet retombe alors sur
+				/// le symbole et le mot ecrit avec la police, c'est-a-dire sur ce
+				/// qui existait avant le 13 septembre 2026.
 				void Dessiner(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *titre, nkgui::NkGuiFont *corps,
 							  nkgui::NkGuiFont *petite, const nkgui::NkRect &ecran,
-							  uint32 logoTexId = 0u) const noexcept {
+							  uint32 logoTexId = 0u, uint32 logoCompletTexId = 0u) const noexcept {
 					if (mTermine) {
 						return;
 					}
 					const float32 a = Opacite();
 					if (mVolet == 0) {
-						DessinerRihen(dl, titre, petite, ecran, a, logoTexId);
+						DessinerRihen(dl, titre, petite, ecran, a, logoTexId, logoCompletTexId);
 					} else {
 						DessinerMoteur(dl, titre, corps, petite, ecran, a);
 					}
@@ -187,7 +191,8 @@ namespace nkentseu {
 
 				// ── Volet 1 : RIHEN. Rigoureusement identique partout. ───────
 				void DessinerRihen(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *titre, nkgui::NkGuiFont *petite,
-								   const nkgui::NkRect &ecran, float32 a, uint32 logoTexId) const noexcept {
+								   const nkgui::NkRect &ecran, float32 a, uint32 logoTexId,
+								   uint32 logoCompletTexId = 0u) const noexcept {
 					// Fond petrole PLEIN ECRAN, encoche comprise : un fond de
 					// marque qui s'arreterait a la zone sure laisserait des
 					// bandes noires sur un telephone a encoche.
@@ -197,34 +202,56 @@ namespace nkentseu {
 					const float32 cy = ecran.y + ecran.h * 0.5f;
 					const float32 s = Echelle(ecran);
 
-					// ── LE SYMBOLE RIHEN ────────────────────────────────────
-					// C'est le VRAI logo, rasterise depuis le SVG officiel
-					// embarque (NkRihenMarque.h) : on ne dessine pas une marque,
-					// on affiche la sienne.
-					//
-					// Il RESPIRE legerement : la meme pulsation que la gemme de
-					// GemCrush, pour que l'ouverture ne soit pas une image fixe
-					// pendant deux secondes.
-					{
-						const float32 pouls = 0.5f + 0.5f * math::NkSin(mTemps * 2.2f);
-						const float32 r = (52.f + pouls * 4.f) * s;
-						const math::NkVec2f c(cx, cy - 86.f * s);
-						if (logoTexId != 0u) {
-							dl.AddImage(logoTexId, nkgui::NkRect{c.x - r, c.y - r, r * 2.f, r * 2.f},
-										math::NkVec2f(0.f, 0.f), math::NkVec2f(1.f, 1.f),
-										Alpha(nkgui::NkColor{255, 255, 255, 255}, a));
-						} else {
-							// ⚠️ REPLI ASSUME, ET IL SE VOIT COMME UN REPLI : un
-							// anneau, pas une contrefacon du symbole. Dessiner
-							// une approximation ferait croire que le logo est la.
-							dl.AddCircle(c, r, Orange(a), 3.f * s);
-							dl.AddCircleFilled(c, r * 0.30f, Orange(a * 0.85f));
-						}
-					}
-
 					const float32 hTitre = NkTexteHauteurLigne(titre, 34.f * s);
-					const float32 yTitre = cy + 8.f * s;
-					NkTexteCentre(dl, titre, cx, yTitre, "RIHEN", Alpha(nkgui::NkColor{255, 255, 255, 255}, a));
+					float32 yTitre = cy + 8.f * s;
+					const float32 pouls = 0.5f + 0.5f * math::NkSin(mTemps * 2.2f);
+
+					if (logoCompletTexId != 0u) {
+						// ── LE LOGO COMPLET ─────────────────────────────────
+						// Le mot RIHEN est DESSINE, pas ecrit avec une police :
+						// c'est le fichier officiel, celui que Pong affiche
+						// depuis le disque, embarque ici (NkRihenLogo.h).
+						//
+						// Rodolf, le 13 septembre 2026 : « sur ces jeux le logo
+						// de Rihen est deteriore contrairement a Pong ». Il
+						// l'etait : le symbole seul, rasterise a 256 px et
+						// agrandi, a cote d'un mot rendu par une fonte.
+						//
+						// Il RESPIRE de la meme pulsation qu'avant, pour que
+						// l'ouverture ne soit pas une image fixe pendant deux
+						// secondes.
+						const float32 lMaxi = (ecran.w * 0.62f < 620.f * s) ? ecran.w * 0.62f : 620.f * s;
+						const float32 l = lMaxi * (0.99f + pouls * 0.02f);
+						const float32 h = l / 3.416f; // 1920 / 562 : le rapport du fichier
+						const float32 x = cx - l * 0.5f;
+						const float32 y = cy - 40.f * s - h * 0.5f;
+						dl.AddImage(logoCompletTexId, nkgui::NkRect{x, y, l, h}, math::NkVec2f(0.f, 0.f),
+									math::NkVec2f(1.f, 1.f), Alpha(nkgui::NkColor{255, 255, 255, 255}, a));
+						yTitre = y + h + 10.f * s;
+					} else {
+						// ── LE SYMBOLE SEUL, le comportement d'avant ────────
+						// Tenu comme repli : si la rasterisation du logo complet
+						// echoue, l'ouverture reste celle qu'on connait plutot
+						// que de disparaitre.
+						{
+							const float32 r = (52.f + pouls * 4.f) * s;
+							const math::NkVec2f c(cx, cy - 86.f * s);
+							if (logoTexId != 0u) {
+								dl.AddImage(logoTexId, nkgui::NkRect{c.x - r, c.y - r, r * 2.f, r * 2.f},
+											math::NkVec2f(0.f, 0.f), math::NkVec2f(1.f, 1.f),
+											Alpha(nkgui::NkColor{255, 255, 255, 255}, a));
+							} else {
+								// ⚠️ REPLI ASSUME, ET IL SE VOIT COMME UN REPLI :
+								// un anneau, pas une contrefacon du symbole.
+								// Dessiner une approximation ferait croire que le
+								// logo est la.
+								dl.AddCircle(c, r, Orange(a), 3.f * s);
+								dl.AddCircleFilled(c, r * 0.30f, Orange(a * 0.85f));
+							}
+						}
+						NkTexteCentre(dl, titre, cx, yTitre, "RIHEN",
+									  Alpha(nkgui::NkColor{255, 255, 255, 255}, a));
+					}
 
 					// ⚠️ LE FILET SE TRACE PENDANT LE FONDU, il n'apparait pas
 					// d'un coup. C'est ce qui donne a l'ouverture son mouvement

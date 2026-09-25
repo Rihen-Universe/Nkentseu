@@ -52,6 +52,7 @@
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKCanvas/UI/NkGuiCanvasBackend.h"
 #include "NKCanvas/App/NkRihenMarque.h"
+#include "NKCanvas/App/NkRihenLogo.h"
 #include "NKImage/Codecs/SVG/NkSVGCodec.h"
 #include "NKGui/Core/NkGuiContext.h"
 
@@ -101,6 +102,19 @@ namespace nkentseu {
 				/// application morte.
 				uint32 LogoRihenTexId() const noexcept {
 					return mLogoPret ? NkRihenMarqueTexId() : 0u;
+				}
+
+				/// Le LOGO COMPLET — le mot RIHEN dessine, pas seulement le
+				/// symbole. Zero s'il n'a pas pu etre rasterise.
+				///
+				/// Rodolf, le 13 septembre 2026 : « sur ces jeux le logo de
+				/// Rihen est deteriore contrairement a Pong ». Pong affichait le
+				/// logo reel charge depuis le disque ; l'ouverture commune
+				/// n'avait que le symbole a 256 px et ecrivait le mot avec une
+				/// police. Zero reste une reponse : l'appelant retombe alors sur
+				/// le symbole, comme avant.
+				uint32 LogoCompletRihenTexId() const noexcept {
+					return mLogoCompletPret ? NkRihenLogoTexId() : 0u;
 				}
 
 				// =============================================================
@@ -228,6 +242,37 @@ namespace nkentseu {
 					}
 				}
 
+				/// Rasterise le LOGO COMPLET embarque et le televerse. Une fois.
+				///
+				/// Il est rasterise a sa definition d'affichage (1024 de large),
+				/// et non a 256 comme le symbole : c'est precisement l'ecart qui
+				/// faisait paraitre l'ouverture degradee a cote de Pong.
+				///
+				/// Un echec N'EST PAS une panne : l'ouverture retombe sur le
+				/// symbole. On le DIT, comme pour le symbole, pour que la cause
+				/// ne se cherche pas dans le splash.
+				void ChargerLogoCompletRihen() {
+					if (mLogoCompletPret) {
+						return;
+					}
+					const char *svg = NkRihenLogoSVG();
+					usize n = 0;
+					while (svg[n] != '\0') {
+						++n;
+					}
+					NkImage img = NkSVGCodec::Decode(reinterpret_cast<const uint8 *>(svg), n,
+													 NkRihenLogoLargeur(), NkRihenLogoHauteur());
+					if (!img.IsValid() || img.Pixels() == nullptr) {
+						logger.Warn("[nkcanvasgui] logo complet non rasterise — l'ouverture gardera le symbole");
+						return;
+					}
+					mLogoCompletPret = mGuiBackend.UploadImageRGBA(NkRihenLogoTexId(), img.Pixels(), img.Width(),
+																   img.Height());
+					if (!mLogoCompletPret) {
+						logger.Warn("[nkcanvasgui] televersement du logo complet refuse");
+					}
+				}
+
 				void LoadFonts(float32 bodyPx) {
 					// ⚠️ texId DISTINCT par police — voir l'en-tete de fichier.
 					mFontBody.texId = 0x4E4B4654u;
@@ -255,6 +300,7 @@ namespace nkentseu {
 					// disponibilite. Il ne depend PAS de la taille demandee, donc il
 					// ne se recharge pas a chaque rotation d'ecran.
 					ChargerLogoRihen();
+					ChargerLogoCompletRihen();
 				}
 
 				nkgui::NkGuiContext mGuiContext;
@@ -264,6 +310,7 @@ namespace nkentseu {
 				float32 mLastDelta = 1.f / 60.f;
 				bool mGuiReady = false;
 				bool mLogoPret = false;
+				bool mLogoCompletPret = false;
 		};
 
 	} // namespace renderer
