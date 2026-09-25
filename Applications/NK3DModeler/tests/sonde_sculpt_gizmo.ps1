@@ -427,6 +427,42 @@ if (Condition "HUD (l)" ($a2.Count -gt 0) "aucune ligne DEMO-AUDIT2") {
 	}
 }
 
+# -- (m) LA SECONDE VUE EST MORTE, ET ON LE PROUVE EN LA FORCANT -------------
+# Le depot porte DEUX vues : la vivante (le viseur) et NkViewport3D, declaree
+# « compilee mais DORMANTE -- chacun de ses appels est un no-op sans danger ».
+# ⚠ CETTE PHRASE EST UNE AFFIRMATION, PAS UNE MESURE, et elle est fausse sur un
+#   point : `Viewport3DModalKind()` est LU EN PRODUCTION (main.cpp, `inModal =
+#   HostModalActive() || (ModalKind() != None)`). Le retour est inerte, mais le
+#   chemin existe.
+#
+# ⚠ ET « JE N AI JAMAIS VU LE REPLI S ARMER » NE PROUVE RIEN. L appelant ecrit
+#   `if (!Demo3DHostTransformModal(n)) Viewport3DBeginModal(...)` : son `if` ne
+#   connaît QUE le resultat, jamais le motif. Les trois motifs de refus sont
+#   inatteignables par les chemins normaux -- l hote est pret des l image 1,
+#   l appelant passe toujours 9/10/11, et la Sculpture est arretee EN AMONT par
+#   la liste blanche du shell. Ne jamais voir le repli ne dit donc rien de lui.
+#
+# LA SEULE PREUVE POSSIBLE EST DONC UN NEGATIF : on FORCE le refus
+# (NK_MODAL_REFUS_FORCE), et on regarde si la vue dormante prend le relais.
+#   · si elle le prend -> elle VIT, et elle reste ;
+#   · si elle ne le prend pas MEME FORCEE -> elle est morte pour de vrai.
+# Ce critere pose lui-meme sa mutation : sans elle, il ne mesurerait rien.
+$c = Courir "vue2" @{ "NK_AGENT_SCENE" = "5"; "NK_EDIT_MODE" = "1,80"; "NK_EDIT_SEL" = "a";
+					  "NK_EDIT_DIAG" = "1"; "NK_VP_ACTION" = "modalmove,150";
+					  "NK_MODAL_REFUS_FORCE" = "1"; "NK_AGENT_EXIT" = "300" }
+$refus = @(Select-String -Path $c.log -Pattern "\[MODAL-REFUS\] op=9 -> REFUS")
+$mod2 = @(Select-String -Path $c.out -Pattern "nk3d-mod2")
+$dormanteArmee = @($mod2 | Where-Object { $_.Line -match "vue_dormante.modalKind=[1-9]" }).Count
+if (Condition "Seconde vue (m)" (($refus.Count -gt 0) -and ($mod2.Count -gt 0)) `
+		"refus forces=$($refus.Count) releves mod2=$($mod2.Count) (il faut que la mutation ait AGI)") {
+	# Le premier Dire verifie la CONDITION du second : sans refus effectif, un
+	# « elle ne s arme pas » ne vaudrait rien -- on n aurait rien demande.
+	Dire "Seconde vue (m) le refus a bien ete force" ($refus.Count -gt 0) `
+		"$($refus.Count) refus au point de decision (Demo3DHostTransformModal)"
+	Dire "Seconde vue (m) elle n arme AUCUNE modale, meme refus force" ($dormanteArmee -eq 0) `
+		"$dormanteArmee releve(s) avec vue_dormante.modalKind != 0 sur $($mod2.Count) (exige 0)"
+}
+
 Write-Host "-----------------------------------------------------------------------"
 if ($rouges -gt 0) { Write-Host "ECHEC ($rouges rouge(s), $conditions condition(s) non reunie(s))"; exit 1 }
 if ($conditions -gt 0) { Write-Host "CONDITION NON REUNIE ($conditions) -- ni vert ni rouge"; exit 3 }
