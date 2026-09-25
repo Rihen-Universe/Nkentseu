@@ -956,7 +956,7 @@ NkPath NkDirectory::GetUserFolder(NkUserFolder which) {
 				if (g && dr) {
 					NkString v(g + 1, (nkentseu::usize)(dr - g - 1));
 					if (v.StartsWith("$HOME"))
-						v = home.ToString() + v.SubString(5);
+						v = home.ToString() + v.SubStr(5);
 					if (Exists(v.CStr()))
 						return NkPath(v);
 				}

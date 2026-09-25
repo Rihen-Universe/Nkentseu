@@ -51,6 +51,74 @@ def _refus(msg, code=2):
     sys.exit(code)
 
 
+def _alpha_reel(image):
+    """Le canal alpha DETOURE-t-il vraiment l'objet ?
+    ⚠️ CORRIGE LE 21/09 : le test etait « un seul pixel sous 255 ». Une vue
+    rendue par NK3DModeler porte un alpha a 229..255 sur 0,05 % des pixels
+    (bords anticreneles) : le test la declarait detouree, le detourage etait
+    SAUTE, et TripoSR recevait le sol et le ciel comme faisant partie de
+    l'objet. Un alpha reel met au moins 1 % des pixels sous 128."""
+    if image.mode not in ("RGBA", "LA"):
+        return False
+    import numpy as _np
+    a = _np.asarray(image.getchannel("A"))
+    return float((a < 128).mean()) >= 0.01
+
+
+def _controler_detourage(image, autorise):
+    """Le detourage exige un modele de 1,02 Go. On le controle AVANT de charger
+    les 1,68 Go de poids de TripoSR, parce qu'un refus qui arrive apres le
+    travail cher se paie deux fois. Rend la liste des modeles trouves."""
+    import os as _os
+    if _alpha_reel(image):
+        return None  # canal alpha reel : aucun detourage, aucun modele requis
+    # ⚠️ LE CHEMIN DURABLE D'ABORD. `~/.rembg/models` est un CACHE : propre a la
+    # machine, efface par un nettoyage de disque, et invisible pour qui reprend
+    # le projet. Le modele a ete telecharge une fois vers les livraisons, et
+    # c'est LUI qu'on cite -- un chemin qu'on peut sauvegarder et retrouver.
+    # `REMBG_HOME` est la variable que rembg lit pour en changer.
+    DURABLE = "D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx"
+    TAILLE_ATTENDUE = 1024331469  # octets, mesures sur le fichier telecharge le 18/09
+    if _os.path.isfile(DURABLE):
+        taille = _os.path.getsize(DURABLE)
+        if taille < TAILLE_ATTENDUE:
+            # ⚠️ EXISTER N'EST PAS ETRE COMPLET. Un telechargement en cours passe
+            # `isfile`. Le laisser passer ferait lire un fichier tronque par
+            # rembg, et l'erreur remonterait sous une forme qui n'aurait plus
+            # rien a voir avec la cause.
+            _refus("le modele de detourage est INCOMPLET : %d octets sur %d attendus\n"
+                   "        %s\n"
+                   "        (un telechargement est peut-etre en cours : attends qu'il finisse)"
+                   % (taille, TAILLE_ATTENDUE, DURABLE))
+        # ⚠️ REMBG_HOME DESIGNE LE PARENT DE « models », PAS « models ».
+        # rembg y ajoute lui-meme « models/ ». Poser un niveau de trop l'envoie
+        # dans models/models/, ou il ne trouve rien -- et il RETELECHARGE. C'est
+        # arrive, 149 Mo, a cause de cette ligne.
+        _os.environ["REMBG_HOME"] = _os.path.dirname(_os.path.dirname(_os.path.dirname(DURABLE)))
+        return [DURABLE]
+    trouves = []
+    for base in (_os.path.dirname(_os.path.dirname(DURABLE)),
+                 _os.environ.get("REMBG_HOME", ""),
+                 _os.path.join(_os.path.expanduser("~"), ".rembg", "models"),
+                 _os.path.join(_os.path.expanduser("~"), ".u2net"),
+                 _os.environ.get("U2NET_HOME", "")):
+        if base and _os.path.isdir(base):
+            for r, d, f in _os.walk(base):
+                trouves += [_os.path.join(r, x) for x in f if x.endswith(".onnx")]
+    if not trouves and not autorise:
+        _refus("cette image n'a PAS de canal alpha, il faut donc la detourer, et le modele"
+               " de detourage est INTROUVABLE.\n"
+               "        ou il devrait etre :\n"
+               "          D:/Rihen/Livraisons/Modeles/rembg/models/bria-rmbg/bria-rmbg.onnx\n"
+               "        ou bien sous le dossier que designe la variable REMBG_HOME.\n"
+               "        (bria-rmbg-2.0.onnx, environ 1,02 Go, depuis github.com/danielgatis/rembg/releases)\n"
+               "        DEUX FACONS DE CONTINUER SANS RIEN TELECHARGER :\n"
+               "          - donner une image DEJA detouree (fond transparent, canal alpha) ;\n"
+               "          - detourer l'image dans un editeur, puis la repasser ici.\n"
+               "        et si tu veux le telechargement : relance avec --autoriser-telechargement")
+    return trouves
+
+
 def main():
     ap = argparse.ArgumentParser(description="GENIA : image -> glTF (TripoSR)")
     ap.add_argument("--image", required=True, help="image d'entree (png/jpg)")
@@ -65,6 +133,10 @@ def main():
                     help="y (defaut) : convertit le Z-up de TripoSR vers le Y-up de "
                          "Nkentseu. brut : aucune conversion -- c'est la MUTATION, et "
                          "elle vit dans le meme programme, pas dans une seconde copie.")
+    ap.add_argument("--autoriser-telechargement", action="store_true",
+                    dest="autoriser_telechargement",
+                    help="autorise le telechargement du modele de detourage (1,02 Go). "
+                         "ABSENT PAR DEFAUT, et c'est voulu : aucun telechargement sans accord.")
     a = ap.parse_args()
 
     if not os.path.isfile(a.image):
@@ -100,6 +172,18 @@ def main():
         _refus("CUDA demande mais torch.cuda.is_available() = False (torch %s) ; --device cpu pour l'accepter"
                % torch.__version__)
     device = a.device
+    # LA CARTE EST DISPUTEE (21/09, Q6) : l'entrainement d'Ilyana et le modele de
+    # langue resident d'Ollama y vivent. Mesure du 21/09 : lancee avec 2,6 Go
+    # libres, la reconstruction a debordé en memoire partagee et a pris 574 s au
+    # lieu de 30. Sous le seuil, on passe au PROCESSEUR et on le dit ; on
+    # n'arrete jamais les autres occupants de la carte.
+    if device.startswith("cuda"):
+        libre0, _ = torch.cuda.mem_get_info(0)
+        seuil = int(os.environ.get("NK_GENIA_VRAM_MIN_MIO", "3000"))
+        if libre0 // (1024 * 1024) < seuil:
+            print("MESURE genia : vram_libre_mio=%d < %d -> REPLI PROCESSEUR (la carte est occupee)"
+                  % (libre0 // (1024 * 1024), seuil))
+            device = "cpu"
     print("MESURE genia : device=%s torch=%s cuda=%s" % (device, torch.__version__, torch.version.cuda))
     if device.startswith("cuda"):
         p = torch.cuda.get_device_properties(0)
@@ -127,6 +211,9 @@ def main():
         _refus("image illisible : %s (%s: %s)" % (a.image, type(e).__name__, e))
     print("MESURE genia : image lisible, mode=%s taille=%dx%d" % (_mode, _w, _h))
 
+    # LE CONTROLE DU DETOURAGE, AVANT LES 1,68 Go DE POIDS.
+    _modeles_detourage = _controler_detourage(Image.open(a.image), a.autoriser_telechargement)
+
     t1 = time.time()
     model = TSR.from_pretrained(pdir, config_name="config.yaml", weight_name="model.ckpt")
     model.renderer.set_chunk_size(a.chunk_size)
@@ -135,16 +222,22 @@ def main():
     print("MESURE genia : chargement_modele_s=%.1f" % (t2 - t1))
 
     image = Image.open(a.image)
-    alpha = image.mode in ("RGBA", "LA") and image.getchannel("A").getextrema()[0] < 255
+    alpha = _alpha_reel(image)
     if alpha:
         # Image DEJA detouree (canal alpha reel) : pas de rembg, donc pas de
         # telechargement de u2net. Meme preparation que run.py ensuite.
         image = image.convert("RGBA")
         detourage = "alpha de l'image"
     else:
+        # (le controle a eu lieu AVANT le chargement du modele : voir _controler_detourage)
         import rembg
-        image = remove_background(image, rembg.new_session())
-        detourage = "rembg"
+        # ⚠️ force=True : `remove_background` de TripoSR refait LE MEME test fautif
+        #    (un pixel d'alpha sous 255 -> rien a detourer) et sautait le
+        #    detourage EN SILENCE. Sans ce drapeau, corriger `_alpha_reel` seul
+        #    aurait laisse le defaut en place a l'etage d'en dessous -- le meme
+        #    nombre de sommets au sommet pres l'a montre (31 570 dans les deux cas).
+        image = remove_background(image.convert("RGB"), rembg.new_session(), force=True)
+        detourage = "rembg (%s)" % ("modele local" if _modeles_detourage else "TELECHARGE, autorise explicitement")
     image = resize_foreground(image, a.foreground_ratio)
     arr = np.array(image).astype(np.float32) / 255.0
     arr = arr[:, :, :3] * arr[:, :, 3:4] + (1.0 - arr[:, :, 3:4]) * 0.5
@@ -203,7 +296,25 @@ def main():
         print("MESURE genia : MUTATION --axe-up=brut, aucune conversion d'axe")
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
-    mesh.export(a.out)
+    # ── LES NORMALES, ET POURQUOI LEUR ABSENCE EST UN DEFAUT A PART ─────────
+    # MESURE du 18/09, par deux instruments independants, sur le fichier produit :
+    #     attributs declares : POSITION, COLOR_0
+    #     PAS de NORMAL   PAS de TEXCOORD_0   0 image   0 materiau
+    # Sans NORMAL, chaque logiciel recalcule les normales a SA facon -- lissage,
+    # seuil d'angle, ponderation par l'aire -- et le meme objet ne s'affiche pas
+    # pareil d'un outil a l'autre. Ce n'est pas une question de gout : c'est un
+    # fichier qui ne dit pas ce qu'il montre.
+    #
+    # ⚠️ CE QUE CE CORRECTIF NE FAIT PAS : il n'ajoute NI UV NI TEXTURE. Il n'y a
+    # pas d'UV approximatives a corriger -- il n'y en a AUCUNE, et le dépliage
+    # vient APRES la topologie (cf. ETAT_REPRISE_GENIA3D.md §3).
+    #
+    # ATTENDU, DERIVE AVANT LA COURSE : trois flottants de plus par sommet, soit
+    # +12 octets par sommet. Le condensat du fichier CHANGE -- c'est la grandeur
+    # qui DOIT differer, et elle perime les condensats du R2.4 et du R3.4, qui
+    # se referaient a un fichier SANS normales. Ce qui ne doit PAS bouger : le
+    # nombre de sommets, les positions, le volume, l'etancheite.
+    mesh.export(a.out, include_normals=True)
     if not (os.path.isfile(a.out) and os.path.getsize(a.out) > 0):
         _refus("le fichier de sortie n'a pas ete ecrit : %s" % a.out, 3)
 

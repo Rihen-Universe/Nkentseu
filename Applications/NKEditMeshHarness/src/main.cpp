@@ -37,6 +37,8 @@
 //                                     sortie 1 si divergence (utilisable en CI)
 // =============================================================================
 #include "NKRenderer/Mesh/NkEditMesh.h"
+#include "NKRenderer/Mesh/NkMeshFamilles.h"
+#include "NKRenderer/Mesh/NkMeshFamilleFichier.h"
 #include "NKGraph/NkGraphDocument.h"
 #include "NKGraph/NkNodeGraph.h"
 #include "NKRenderer/Mesh/NkMeshRetopo.h"
@@ -4057,6 +4059,434 @@ static void SixOpsBattery() {
 		Put("{0:<34} ok={1} sommets {2} -> {3} faces {4} -> {5} | bord {6} -> {7} nonmanif {8} -> {9}",
 				 "ops/coupe-par-plan", ok ? 1 : 0, avant.verts, apres.verts, avant.faces, apres.faces,
 				 avant.boundary, apres.boundary, avant.nonManifold, apres.nonManifold);
+	}
+}
+
+// ── LES FAMILLES, CONSTRUITES SANS APPLICATION (22/09, Q10.1) ──────────────
+// CE QUE CE BANC PROUVE, ET POURQUOI IL FALLAIT LE PROUVER
+// Les constructeurs de familles ont quitte NK3DModeler pour NKRenderer, afin que
+// Noge, Nogee et NKScena puissent s'en servir. « Ils ont demenage » est une
+// phrase ; ce banc est la mesure. Il tourne dans un binaire de CONSOLE : aucune
+// fenetre, aucun GPU, aucun noeud de scene, aucun `Demo3DHost*`. S'il construit
+// une porte chinoise de 21 pieces ici, alors n'importe quel hote le peut.
+//
+// ⚠️ LES ATTENDUS NE SONT PAS DICTES A LA MAIN. Un nombre de pieces recopie se
+//    perime au premier ajout de detail. On mesure des INVARIANTS : chaque piece
+//    a un nom NON VIDE et une matiere, aucun nom n'est en double, les indices
+//    designent des sommets qui existent, le nombre d'indices est un multiple de
+//    3, et l'objet POSE SUR LE SOL (y minimal a zero, a un millimetre pres,
+//    puisque c'est le contrat des coordonnees objet).
+//
+// ⚠️ ET LE NIVEAU DE DETAIL EST COMPARE A LUI-MEME : « detaille » doit produire
+//    STRICTEMENT plus de faces que « simple » sur la meme famille. C'est le seul
+//    critere qui ne depende d'aucun chiffre grave.
+// ── CONSTRUIRE UNE FAMILLE ET L'ECRIRE EN .OBJ (25/09, Q17) ──────────────────
+// Pourquoi ici, et pas un second constructeur en Python : l'ajustement de
+// parametres par projection doit optimiser LA FAMILLE REELLE, celle qui sera
+// posee dans la scene. Une reimplementation approchee optimiserait une autre
+// geometrie et rendrait des parametres justes pour elle seule -- la famille de
+// defauts « mesurer une reconstruction au lieu de la chose ».
+// Ce mode n'ouvre aucune fenetre et ne touche pas au GPU.
+//
+// USAGE : --famille-obj <sortie.obj> --nom <famille> [--style S] [--largeur L]
+//         [--hauteur H] [--profondeur P] [--nombre N] [--fenetres F] [--simple]
+static int32 FamilleVersObj(int32 argc, char **argv) {
+	renderer::NkFamilleParams p;
+	const char *sortie = nullptr;
+	p.detaille = true;
+	for (int32 i = 1; i < argc; ++i) {
+		auto suivant = [&](const char *cle) -> const char * {
+			return (strcmp(argv[i], cle) == 0 && i + 1 < argc) ? argv[++i] : nullptr;
+		};
+		if (const char *v = suivant("--famille-obj"))
+			sortie = v;
+		else if (const char *v = suivant("--nom"))
+			snprintf(p.famille, sizeof(p.famille), "%s", v);
+		else if (const char *v = suivant("--style"))
+			snprintf(p.style, sizeof(p.style), "%s", v);
+		else if (const char *v = suivant("--largeur"))
+			p.largeur = (float32)atof(v);
+		else if (const char *v = suivant("--hauteur"))
+			p.hauteur = (float32)atof(v);
+		else if (const char *v = suivant("--profondeur"))
+			p.profondeur = (float32)atof(v);
+		else if (const char *v = suivant("--nombre"))
+			p.nombre = atoi(v);
+		else if (const char *v = suivant("--fenetres"))
+			p.fenetres = atoi(v);
+		else if (strcmp(argv[i], "--simple") == 0)
+			p.detaille = false;
+	}
+	if (!sortie || !p.famille[0]) {
+		NkLog::Instance().Error("--famille-obj demande aussi --nom <famille>");
+		return 2;
+	}
+	// LES FAMILLES EN FICHIERS (Q16) : chargees AVANT de construire. Sans projet
+	// ni application ici -- le banc lit le dossier du depot.
+	{
+		char pq[256] = {0};
+		const int32 nf = renderer::NkFamilleFichierCharger("data/familles", pq, sizeof(pq));
+		printf("FAMILLES_FICHIERS %d lue(s) dans data/familles%s%s\n", (int)nf, pq[0] ? " ; " : "", pq);
+		fflush(stdout);
+	}
+	NkVector<renderer::NkFamillePiece> pieces;
+	char pourquoi[256] = {0};
+	// ── `--fichier-seul` : SANS LE REPLI C++ (mutation, Q16) ──────────────────
+	// ⚠️ ELLE EXISTE PARCE QUE MON PREMIER « IDENTIQUE AU BIT » ETAIT FAUX. Avec
+	//    le repli, un interprete qui echoue rend quand meme le bon objet : le md5
+	//    est vert, et il est vert GRACE AU DEFAUT. La preuve doit pouvoir echouer,
+	//    donc elle doit pouvoir couper le repli.
+	bool fichierSeul = false;
+	for (int32 i = 1; i < argc; ++i)
+		if (strcmp(argv[i], "--fichier-seul") == 0)
+			fichierSeul = true;
+	const int32 n = fichierSeul ? renderer::NkFamilleFichierConstruire(p, pieces, pourquoi, sizeof(pourquoi))
+								: renderer::NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
+	if (n <= 0) {
+		// Le refus va AUSSI sur la sortie standard : un banc dont le motif part
+		// dans un journal qu'on ne lit pas est un banc muet.
+		printf("FAMILLE_REFUS %s\n", pourquoi);
+		fflush(stdout);
+		NkLog::Instance().Error("famille refusee : {0}", pourquoi);
+		return 1;
+	}
+	FILE *f = fopen(sortie, "wb");
+	if (!f) {
+		NkLog::Instance().Error("ecriture impossible : {0}", sortie);
+		return 1;
+	}
+	fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis - Rihen\n");
+	fprintf(f, "# famille %s style %s %.4f x %.4f x %.4f, %d pieces\n", p.famille, p.style, (double)p.largeur,
+			(double)p.hauteur, (double)p.profondeur, (int)n);
+	uint32 base = 1;
+	for (int32 i = 0; i < n; ++i) {
+		const renderer::NkFamillePiece &q = pieces[(usize)i];
+		fprintf(f, "g %s\n", q.nom);
+		for (usize v = 0; v < q.verts.Size(); ++v)
+			fprintf(f, "v %.6f %.6f %.6f\n", (double)q.verts[v].pos.x, (double)q.verts[v].pos.y,
+					(double)q.verts[v].pos.z);
+		for (usize k = 0; k + 2 < q.indices.Size(); k += 3)
+			fprintf(f, "f %u %u %u\n", base + q.indices[k], base + q.indices[k + 1], base + q.indices[k + 2]);
+		base += (uint32)q.verts.Size();
+	}
+	fclose(f);
+	printf("FAMILLE_OBJ %s : %d pieces, %u sommets\n", sortie, (int)n, (unsigned)(base - 1));
+	fflush(stdout);
+	return 0;
+}
+
+static void FamillesBattery() {
+	struct Cas {
+			const char *famille;
+			const char *style;
+	};
+	static const Cas cas[] = {{"porte", "chinois"}, {"porte", "simple"}, {"table", ""}, {"maison", "deux_pans"}};
+	for (const Cas &c : cas) {
+		NkFamilleParams p;
+		snprintf(p.famille, sizeof(p.famille), "%s", c.famille);
+		snprintf(p.style, sizeof(p.style), "%s", c.style);
+		p.detaille = true;
+		NkVector<NkFamillePiece> pieces;
+		char pourquoi[256] = {0};
+		const int32 n = NkFamilleConstruire(p, pieces, pourquoi, sizeof(pourquoi));
+
+		uint32 sommets = 0, tris = 0, faces = 0;
+		uint32 sansNom = 0, sansMat = 0, doublons = 0, indexFaux = 0, pasMultiple3 = 0;
+		float32 bas = 1e30f, haut = -1e30f;
+		for (int32 i = 0; i < n; ++i) {
+			const NkFamillePiece &q = pieces[(usize)i];
+			if (!q.nom[0])
+				++sansNom;
+			if (!q.matiere[0])
+				++sansMat;
+			for (int32 k = 0; k < i; ++k)
+				if (strcmp(pieces[(usize)k].nom, q.nom) == 0)
+					++doublons;
+			if ((q.indices.Size() % 3u) != 0u)
+				++pasMultiple3;
+			for (uint32 k = 0; k < (uint32)q.indices.Size(); ++k)
+				if (q.indices[k] >= (uint32)q.verts.Size())
+					++indexFaux;
+			for (uint32 k = 0; k < (uint32)q.verts.Size(); ++k) {
+				const float32 y = q.verts[k].pos.y;
+				if (y < bas)
+					bas = y;
+				if (y > haut)
+					haut = y;
+			}
+			sommets += (uint32)q.verts.Size();
+			tris += (uint32)q.indices.Size() / 3u;
+			faces += q.faces;
+		}
+		// le meme objet en « simple » : la comparaison qui ne dicte aucun chiffre
+		NkFamilleParams ps = p;
+		ps.detaille = false;
+		NkVector<NkFamillePiece> simples;
+		char pq2[256] = {0};
+		const int32 ns = NkFamilleConstruire(ps, simples, pq2, sizeof(pq2));
+		uint32 facesSimple = 0;
+		for (int32 i = 0; i < ns; ++i)
+			facesSimple += simples[(usize)i].faces;
+
+		char nom[64];
+		snprintf(nom, sizeof(nom), "famille/%s%s%s", c.famille, c.style[0] ? "-" : "", c.style);
+		Put("{0:<34} pieces={1} sommets={2} tris={3} faces={4} | simple={5} detail>simple={6} | sansnom={7} "
+			"sansmat={8} doublons={9} index-faux={10} tri3={11} bas={12:.4f} haut={13:.3f}",
+			nom, n, sommets, tris, faces, facesSimple, (faces > facesSimple) ? 1 : 0, sansNom, sansMat, doublons,
+			indexFaux, (pasMultiple3 == 0u) ? 1 : 0, (n > 0) ? bas : 0.f, (n > 0) ? haut : 0.f);
+	}
+
+	// ── LE REFUS NOMME, ET LES VALEURS AUTORISEES ──────────────────────────
+	// ⚠️ CE CAS EXISTE A CAUSE D'UN DEFAUT PAYE : le 21/09, le modele a ecrit
+	//    `silhouette vase` et le DOCUMENT ENTIER a ete refuse. Un champ enumere
+	//    doit dire ses valeurs, et une valeur inconnue doit etre CORRIGEE vers le
+	//    defaut nomme -- pas faire tout perdre.
+	{
+		NkFamilleParams p;
+		snprintf(p.famille, sizeof(p.famille), "%s", "soucoupe");
+		NkVector<NkFamillePiece> v;
+		char pourquoi[256] = {0};
+		const int32 n = NkFamilleConstruire(p, v, pourquoi, sizeof(pourquoi));
+		char rempl[32] = {0};
+		const bool okVase = NkFamilleValeurAutorisee("revolution", "silhouette", "vase", rempl, sizeof(rempl));
+		char r2[32] = {0};
+		const bool okConique = NkFamilleValeurAutorisee("revolution", "silhouette", "conique", r2, sizeof(r2));
+		char r3[32] = {0};
+		const bool okStyle = NkFamilleValeurAutorisee("porte", "style", "gothique", r3, sizeof(r3));
+		uint32 nbFam = 0;
+		while (NkFamilleNom((int32)nbFam))
+			++nbFam;
+		Put("{0:<34} inconnue->refus={1} pieces={2} | 'vase' refuse={3} corrige='{4}' | 'conique' accepte={5} | "
+			"'gothique' refuse={6} corrige='{7}' | familles={8}",
+			"famille/valeurs-autorisees", (n < 0) ? 1 : 0, (int32)v.Size(), okVase ? 0 : 1, rempl, okConique ? 1 : 0,
+			okStyle ? 0 : 1, r3, nbFam);
+	}
+}
+
+// ── LE BALAYAGE D'UN PROFIL LE LONG D'UNE COURBE (21/09) ───────────────────
+// POURQUOI CE BANC EXISTE
+// NkEditMesh::BuildSweep a ete ecrit pour le COYAU d'un toit chinois : une
+// piece dont la courbure ne s'obtient ni par revolution (l'axe n'existe pas) ni
+// par extrusion droite. Le piege du balayage n'est pas le maillage, c'est
+// L'ORIENTATION du profil le long du chemin, et il est SILENCIEUX : un tube
+// vrille se compile, s'affiche, et n'a l'air faux que de pres.
+//
+// ⚠️ LES QUATRE CAS SONT CHOISIS CONTRE LE REPERE DE FRENET, pas pour flatter
+//    le notre. Frenet est le choix « evident » : il est cite partout. Il a deux
+//    defauts que ces cas mesurent -- il n'existe pas quand la courbure est nulle
+//    (cas 1, segment droit), et il SE RETOURNE de 180 degres a un point
+//    d'inflexion (cas 3, chemin en S). Un banc qui ne ferait que le quart de
+//    cercle (cas 2) verdirait avec Frenet comme avec la rotation minimale, et ne
+//    prouverait donc rien du choix fait dans le code.
+//
+// LE NEGATIF, MESURE LE 21/09 (deux mutations posees dans NkEditMesh.cpp, puis
+// RETIREES) -- sans lui, quatre lignes vertes ne prouveraient que d'avoir tourne.
+//   (a) repere de FRENET discret a la place de la rotation minimale :
+//       inflexion-en-S passe de saut/pas 1.0071 a 4.1632. Les cas 1 et 2 restent
+//       verts, et c'est le fait interessant : ils ne discriminent PAS Frenet.
+//   (b) vrille artificielle de 0.2 rad par station : quart-de-cercle passe de
+//       ecart-hors-plan 0.000000 a 0.427850, inflexion-en-S a 4.1211.
+// ⚠️ CE QUE CE BANC NE COUVRE PAS, et la mesure le dit : le cas 1 (chemin droit)
+//    n'a rougi sous AUCUNE des deux mutations. Son critere de rayon constant est
+//    invariant par rotation du profil autour de l'axe -- il juge la topologie et
+//    la fermeture, pas l'orientation. Le prendre pour un temoin de la vrille
+//    serait l'erreur exacte que ce fichier documente ailleurs.
+//
+// Aucun attendu n'est dicte par l'oeil : le cas 1 se juge par une identite
+// (Euler V-E+F = 2 sur un tube ferme, rayon constant), le cas 2 par une
+// invariance geometrique (une courbe PLANE ne doit pas faire tourner le profil
+// hors de son plan), le cas 3 par une continuite (aucun saut entre deux anneaux
+// voisins), le cas 4 par un refus nomme.
+static void SweepBattery() {
+	// Profil carre de demi-cote r, contour FERME, parcouru dans un sens fixe.
+	const float32 r = 0.5f;
+	const NkVec2f prof[4] = {{-r, -r}, {r, -r}, {r, r}, {-r, r}};
+
+	// ── 1. CHEMIN DROIT : la ou Frenet n'existe pas ─────────────────────────
+	{
+		NkVec3f chemin[5];
+		for (uint32 i = 0; i < 5; ++i)
+			chemin[i] = {0.f, 0.f, (float32)i}; // 4 segments le long de +Z
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, 5, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		// Rayon : distance de chaque sommet a l'axe du chemin (ici l'axe Z).
+		float32 rmin = 1e9f, rmax = 0.f;
+		for (uint32 v = 0; v < (uint32)m.verts.Size(); ++v) {
+			const NkVec3f &q = m.verts[v].pos;
+			const float32 d = sqrtf(q.x * q.x + q.y * q.y);
+			if (d < rmin)
+				rmin = d;
+			if (d > rmax)
+				rmax = d;
+		}
+		// COHERENCE INTERNE, pas attendu dicte : un tube bouche est une sphere
+		// topologique, donc V - E + F = 2. Le compteur juge la topologie sans
+		// qu'on lui souffle le nombre de faces.
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} aretes={4} | euler={5} rayon {6:.4f}..{7:.4f} bord={8} "
+			"nonmanif={9}",
+			"sweep/chemin-droit", ok ? 1 : 0, s2.verts, s2.faces, s2.edges, euler, rmin, rmax, s2.boundary,
+			s2.nonManifold);
+	}
+
+	// ── 2. QUART DE CERCLE PLAN : l'invariance hors du plan ─────────────────
+	// Le chemin vit dans le plan XZ. Une orientation a rotation minimale ne fait
+	// JAMAIS tourner le profil autour de la tangente sur une courbe plane : la
+	// composante Y de chaque sommet reste donc exactement +-r. C'est la mesure.
+	{
+		const uint32 nc = 13;
+		NkVec3f chemin[13];
+		for (uint32 i = 0; i < nc; ++i) {
+			const float32 a = 1.5707963f * (float32)i / (float32)(nc - 1); // 0 -> pi/2
+			chemin[i] = {3.f * sinf(a), 0.f, 3.f * (1.f - cosf(a))};
+		}
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, nc, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		float32 pireY = 0.f;
+		for (uint32 v = 0; v < (uint32)m.verts.Size(); ++v) {
+			const float32 e = fabsf(fabsf(m.verts[v].pos.y) - r);
+			if (e > pireY)
+				pireY = e;
+		}
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} | euler={4} ecart-hors-plan={5:.6f} bord={6} nonmanif={7}",
+			"sweep/quart-de-cercle", ok ? 1 : 0, s2.verts, s2.faces, euler, pireY, s2.boundary, s2.nonManifold);
+	}
+
+	// ── 3. CHEMIN EN S : le point d'inflexion, la ou Frenet se retourne ─────
+	// Deux arcs de courbure opposee. La mesure est une CONTINUITE : le plus grand
+	// deplacement d'un meme point du profil entre deux anneaux voisins, rapporte
+	// au plus grand pas du chemin. Sans vrille ce rapport reste proche de 1. Un
+	// retournement de 180 degres a l'inflexion ferait sauter un coin du profil a
+	// l'oppose, soit 2*r*racine(2) = 1.414 d'un coup -- plusieurs fois le pas.
+	{
+		const uint32 nc = 41;
+		NkVec3f chemin[41];
+		for (uint32 i = 0; i < nc; ++i) {
+			const float32 t = 6.2831853f * (float32)i / (float32)(nc - 1); // 0 -> 2*pi
+			chemin[i] = {sinf(t) * 2.f, 0.f, t}; // sinus : inflexion en t = pi
+		}
+		NkEditMesh m;
+		const bool ok = m.BuildSweep(prof, 4, chemin, nc, true, true);
+		m.RebuildEdges();
+		const Sig s2 = Signature(m);
+		float32 sautMax = 0.f, pasMax = 0.f;
+		for (uint32 i = 0; i + 1u < nc; ++i) {
+			const NkVec3f d = chemin[i + 1] - chemin[i];
+			const float32 pas = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (pas > pasMax)
+				pasMax = pas;
+		}
+		// ⚠️ LES SOMMETS SONT LUS DANS L'ORDRE DE CONSTRUCTION (anneau i, point k),
+		//    pas par recherche geometrique : une recherche du « plus proche »
+		//    masquerait justement le saut qu'on cherche.
+		for (uint32 i = 0; i + 1u < nc; ++i)
+			for (uint32 k = 0; k < 4; ++k) {
+				const NkVec3f &a = m.verts[i * 4u + k].pos;
+				const NkVec3f &b = m.verts[(i + 1u) * 4u + k].pos;
+				const NkVec3f d = b - a;
+				const float32 l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+				if (l > sautMax)
+					sautMax = l;
+			}
+		const float32 rapport = pasMax > 1e-6f ? sautMax / pasMax : 0.f;
+		const int32 euler = (int32)s2.verts - (int32)s2.edges + (int32)s2.faces;
+		Put("{0:<34} ok={1} sommets={2} faces={3} | euler={4} saut/pas={5:.4f} (vrille si >> 1) nonmanif={6}",
+			"sweep/inflexion-en-S", ok ? 1 : 0, s2.verts, s2.faces, euler, rapport, s2.nonManifold);
+	}
+
+	// ── 3bis. LE SENS DU PROFIL, MESURE SUR LA NORMALE REELLEMENT SOUMISE ──
+	// PREMIERE VERSION DE CE CAS, ET POURQUOI ELLE ETAIT FAUSSE (21/09)
+	// J'avais d'abord juge par le VOLUME SIGNE de l'ordre des sommets, et exige
+	// qu'il soit POSITIF -- la convention des manuels. Sur cette base j'ai
+	// « corrige » deux endroits du modeleur. Puis j'ai mesure la primitive du
+	// depot : le cube unite du modeleur donne un volume signe de -1,000000, la
+	// sphere -0,515, le cylindre -0,520. LA CONVENTION DU DEPOT EST L'INVERSE DE
+	// CELLE DES MANUELS, et mes deux corrections allaient donc a l'envers. Elles
+	// ont ete retirees.
+	//
+	// ⚠️ LA LECON EST SUR L'INSTRUMENT, PAS SUR LE SIGNE. Le volume signe mesure
+	//    l'ORDRE DES SOMMETS ; ce que le rendu eclaire, c'est la NORMALE que
+	//    RecomputeNormals calcule et que le maillage soumet. Entre les deux il y
+	//    a une convention interne (NkEmFaceCross), et se tromper dessus donne un
+	//    instrument exact, coherent, et faux. On mesure donc ce que le rendu
+	//    consomme : la normale du sommet, contre la direction qui s'eloigne du
+	//    centre de la piece. Et on le CALIBRE sur le cube du depot au lieu de le
+	//    decreter : le cube est la reference, le balayage doit lui ressembler.
+	{
+		auto dehors = [](const NkEditMesh &m) {
+			NkVec3f c{0.f, 0.f, 0.f};
+			uint32 n = 0;
+			for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+				c.x += m.verts[i].pos.x;
+				c.y += m.verts[i].pos.y;
+				c.z += m.verts[i].pos.z;
+				++n;
+			}
+			if (!n)
+				return 0.f;
+			c = {c.x / (float32)n, c.y / (float32)n, c.z / (float32)n};
+			uint32 ok = 0, tot = 0;
+			for (uint32 i = 0; i < (uint32)m.verts.Size(); ++i) {
+				const NkVec3f d{m.verts[i].pos.x - c.x, m.verts[i].pos.y - c.y, m.verts[i].pos.z - c.z};
+				const NkVec3f &nn = m.verts[i].normal;
+				const float32 dd = d.x * nn.x + d.y * nn.y + d.z * nn.z;
+				if (fabsf(dd) < 1e-9f)
+					continue;
+				++tot;
+				if (dd > 0.f)
+					++ok;
+			}
+			return tot ? (float32)ok / (float32)tot : 0.f;
+		};
+		// LA REFERENCE : le cube du depot, passe par la meme RecomputeNormals.
+		NkVector<NkVertex3D> cv;
+		NkVector<uint32> ci;
+		MakeCube(cv, ci);
+		NkEditMesh ref;
+		ref.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		ref.RecomputeNormals();
+		const float32 fRef = dehors(ref);
+
+		NkVec3f chemin[4];
+		for (uint32 i = 0; i < 4; ++i)
+			chemin[i] = {0.f, 0.f, (float32)i};
+		const NkVec2f direct[4] = {{-r, -r}, {r, -r}, {r, r}, {-r, r}};
+		const NkVec2f inverse[4] = {{-r, r}, {r, r}, {r, -r}, {-r, -r}};
+		NkEditMesh m1, m2;
+		m1.BuildSweep(direct, 4, chemin, 4, true, true);
+		m2.BuildSweep(inverse, 4, chemin, 4, true, true);
+		m1.RecomputeNormals();
+		m2.RecomputeNormals();
+		const float32 f1 = dehors(m1), f2 = dehors(m2);
+		Put("{0:<34} cube-reference={1:.3f} | profil direct={2:.3f} inverse={3:.3f} | insensible={4} conforme={5}",
+			"sweep/sens-du-profil", fRef, f1, f2, (f1 == f2) ? 1 : 0,
+			(f1 == fRef && f2 == fRef) ? 1 : 0);
+	}
+
+	// ── 4. LE REFUS NOMME : un chemin d'un seul point ───────────────────────
+	// Un balayage sans segment n'a pas de sens. La fonction doit rendre faux ET
+	// NE RIEN TOUCHER : le maillage garde le cube qu'il contenait. Sans ce cas,
+	// « rend faux » serait invérifiable d'un « rend faux apres avoir tout efface ».
+	{
+		NkVector<NkVertex3D> cv;
+		NkVector<uint32> ci;
+		MakeCube(cv, ci);
+		NkEditMesh m;
+		m.BuildFromIndexed(cv.Data(), (uint32)cv.Size(), ci.Data(), (uint32)ci.Size(), true);
+		m.RebuildEdges();
+		const Sig avant = Signature(m);
+		const NkVec3f un[1] = {{0.f, 0.f, 0.f}};
+		const bool ok = m.BuildSweep(prof, 4, un, 1, true, true);
+		m.RebuildEdges();
+		const Sig apres = Signature(m);
+		Put("{0:<34} refus={1} intact={2} | sommets {3} -> {4} faces {5} -> {6}", "sweep/chemin-trop-court",
+			ok ? 0 : 1, (avant.verts == apres.verts && avant.faces == apres.faces) ? 1 : 0, avant.verts, apres.verts,
+			avant.faces, apres.faces);
 	}
 }
 
@@ -9939,6 +10369,724 @@ static int32 SupprXeBattery() {
 	return gIntEchecs ? 1 : 0;
 }
 
+// =============================================================================
+//  --loi-bevel : MESURER LA LOI DE CROISSANCE DE `bevel`
+// =============================================================================
+//  ⚠️ POURQUOI ICI, ET PAS DANS LE MODELEUR. La boucle d'agent du 20/09 borne
+//     ses pas avec un PLAFOND DE FACES, et ce plafond ne sait predire qu'UNE
+//     loi : `subdivide`, x4^k (mesure du 17/09). Pour les quatre autres verbes
+//     croissants, `NkIaPasSur` applique une regle du quart AVEUGLE, declaree
+//     comme hypothese dans son en-tete. `bevel` a ete designe comme le plus
+//     gros risque des quatre : le contrat autorise `segments` jusqu'a 16.
+//     Or les compteurs du modeleur ne sont lisibles QUE si le VISEUR est en
+//     mode Edition, etat qu'aucun crochet n'amorce. Ici, `NkEditMesh` se
+//     manipule SANS viseur : la loi devient mesurable.
+//
+//  ⚠️ IL REND AVANT LES BATTERIES COMPAREES, comme `--intention`, et n'ecrit
+//     AUCUNE ligne dans `editmesh_baseline.txt`. Ajouter une ligne a la
+//     signature aurait fait rougir `--check` sur un maillage intact : *un banc
+//     deja rouge ne protege plus personne.*
+//
+//  PLAN A DEUX FACTEURS, ECRIT AVANT DE LIRE LES CHIFFRES :
+//    - le nombre d'aretes : cube, puis cube subdivise (davantage d'aretes) ;
+//    - `segments` : 1, 2, 4, 8, 16. La largeur reste FIXE -- faire varier deux
+//      choses a la fois ne rendrait aucune loi.
+//  HYPOTHESE A REFUTER : les faces ajoutees valent ~ aretes x segments. Si le
+//  rapport n'est pas STABLE sur les dix cas, la loi depend d'autre chose, et il
+//  faut le DIRE plutot qu'ajuster une formule sur ses propres points.
+static uint32 LoiBevelFacesVivantes(NkEditMesh &m) {
+	uint32 n = 0;
+	for (uint32 f = 0; f < m.FaceCount(); f++)
+		if (m.faces[f].alive)
+			++n;
+	return n;
+}
+
+// ⚠️ LES SOMMETS **SOUDES**, ET LA DISTINCTION N'EST PAS UN DETAIL.
+//    `m.VertCount()` rend les EMPLACEMENTS : 24 pour un cube (quatre coins par
+//    face), pas 8. Or la loi de bevel a segments=1 s'ecrit `E + V`, et le V qui
+//    la verifie est le V SOUDE -- c'est aussi celui que `Demo3DHostStats`
+//    publie au modeleur (`Demo3D_VertSoudeCount`), donc celui que `NkIaPasSur`
+//    recevra. Se tromper de V ici ferait une loi juste sur un compteur que
+//    personne n'utilise.
+//    ⚠️ ET J'AVAIS D'ABORD PRIS CE V DANS MA TETE. La loi `E + V` a ete
+//       verifiee le 20/09 contre 8 et 26, deux nombres que j'avais DERIVES au
+//       lieu de les LIRE. Ils etaient justes -- mais *une reference tiree de
+//       l'esprit de celui qui mesure n'est pas une reference*. Cette fonction
+//       les fait produire par l'instrument.
+static uint32 LoiVertsSoudes(NkEditMesh &m) {
+	NkVector<uint32> canon;
+	m.BuildVertexMerge(canon);
+	NkVector<uint8> vu;
+	vu.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); i++)
+		vu[i] = 0;
+	NkVector<NkEmId> loop;
+	uint32 n = 0;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		for (uint32 k = 0; k < (uint32)loop.Size(); k++) {
+			const uint32 c = canon[(uint32)loop[k]];
+			if (!vu[c]) {
+				vu[c] = 1;
+				++n;
+			}
+		}
+	}
+	return n;
+}
+
+static int32 LoiBevel() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# loi de croissance de bevel -- faces VIVANTES avant/apres\n");
+	printf("# %-10s %-9s %-7s %-7s %-8s %-9s %-11s %s\n", "maillage", "segments", "E_av", "V_av",
+		   "f_avant", "f_apres", "ajoutees", "3*E*s | E+V");
+	const int32 segs[5] = {1, 2, 4, 8, 16};
+	for (int32 sub = 0; sub <= 1; ++sub) {
+		for (int32 si = 0; si < 5; ++si) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			if (sub) {
+				m.SelectAll();
+				if (!m.SubdivideSelectedFaces()) {
+					printf("  REFUS : la subdivision prealable a echoue\n");
+					continue;
+				}
+			}
+			m.SelectAll();
+			const uint32 aretes = m.EdgeCount();
+			const uint32 soudes = LoiVertsSoudes(m); // LU, plus derive de tete
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			NkBevelParams p;
+			p.offset = 0.05f; // largeur FIXE : on ne fait varier que `segments`
+			p.segments = segs[si];
+			const bool ok = m.BevelSelected(p);
+			// ⚠️ ON N'IMPRIME PAS DE RATIO QUAND L'OPERATION A ECHOUE : ce serait
+			//    un chiffre juste sur une operation qui n'a pas eu lieu.
+			if (!ok) {
+				printf("  %-10s %-9d %-7u %-7u %-8u %-9s %-11s %s\n", sub ? "cube+sub" : "cube",
+					   segs[si], aretes, soudes, f0, "REFUS", "-", "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const int32 ajout = (int32)f1 - (int32)f0;
+			// LES DEUX LOIS CANDIDATES SONT VERIFIEES PAR L'INSTRUMENT, pas par moi :
+			// chaque ligne dit elle-meme laquelle tombe juste.
+			const int32 loiArrondi = 3 * (int32)aretes * segs[si];
+			const int32 loiPlat = (int32)aretes + (int32)soudes;
+			char verdict[32];
+			snprintf(verdict, sizeof(verdict), "%s | %s", ajout == loiArrondi ? "OK" : "--",
+					 ajout == loiPlat ? "OK" : "--");
+			printf("  %-10s %-9d %-7u %-7u %-8u %-9u %-11d %s\n", sub ? "cube+sub" : "cube",
+				   segs[si], aretes, soudes, f0, f1, ajout, verdict);
+		}
+	}
+	printf("# Ratio STABLE sur les dix lignes  -> la loi est  aretes x segments.\n");
+	printf("# Ratio qui DERIVE                 -> la loi depend d'autre chose, et la regle\n");
+	printf("#   du quart doit RESTER dans NkIaPasSur jusqu'a ce qu'on sache de quoi.\n");
+	return 0;
+}
+
+// =============================================================================
+//  --loi-extrude : MESURER LES **DEUX** LOIS DE `extrude`
+// =============================================================================
+//  ⚠️ DEUX, PARCE QUE `NkExtrudeParams::individual` EST UN INTERRUPTEUR DE
+//     TOPOLOGIE, pas un reglage de confort. L'en-tete de `NkEditMesh.h` le dit
+//     lui-meme : `individual` « traite chaque face separement au lieu de la
+//     region ». Une loi unique mentirait donc au milieu tout en ayant l'air
+//     juste aux extremites -- le piege exact que `bevel` avait tendu avec ses
+//     deux regimes, et qu'une seule formule aurait manque.
+//
+//  MEME PROTOCOLE QUE `--loi-bevel`, et c'est voulu : trois maillages (6, 24 et
+//  96 faces, par subdivisions successives) x les deux valeurs du drapeau. Six
+//  relevés. Il rend AVANT les batteries comparees et n'ecrit RIEN dans la
+//  baseline.
+//
+//  ⚠️ CE QUE CE PROTOCOLE NE PEUT PAS ATTEINDRE, ET IL FAUT LE DIRE AVANT DE
+//     LIRE LES CHIFFRES. `SelectAll` sur un maillage FERME donne une region
+//     SANS BORD. Or le mode region ne fabrique sa bande que sur les aretes de
+//     BORD de la selection. Ce protocole ne mesure donc PAS la loi du mode
+//     region dans le cas qui compte -- une selection PARTIELLE, qui a un bord --
+//     il en mesure le cas degenere. *Une mesure qui ne peut pas faire varier le
+//     facteur decisif n'etablit pas la loi de ce facteur.*
+
+// ── SELECTIONNER **UNE PARTIE** DES FACES ───────────────────────────────────
+//  ⚠️ L'INSTRUMENT QUI MANQUAIT, ET TROIS LOIS EN DEPENDENT. Mesurer sur
+//     `SelectAll` mesure un CAS PARTICULIER : celui ou la region n'a AUCUN bord
+//     (maillage ferme) et ou la somme des valences vaut exactement 2E. Or c'est
+//     le bord de la selection qui fait vivre `extrude:0`, et c'est la
+//     divergence entre « 2E » et « somme des valences » qui separe les deux
+//     lois candidates d'`extrude:1`. Sans selection partielle, les deux
+//     s'accordent sur tout le jeu d'epreuve -- et *deux formules qui s'accordent
+//     partout ne sont pas la meme loi : le jeu est trop pauvre pour les separer.*
+//
+//  COMMENT : une face est selectionnee quand TOUS ses sommets le sont
+//  (`NkEditMesh::PolyFaceSelected`). On selectionne donc les sommets des `n`
+//  premieres faces vivantes -- et comme un sommet est un COIN chez nous (24 pour
+//  un cube, pas 8), les emplacements d'une face ne sont partages par aucune
+//  autre : la selection est EXACTE, sans debordement sur les voisines.
+//
+//  Rend la somme des VALENCES des faces prises : c'est la grandeur que la loi
+//  candidate met en jeu, et la LIRE ici evite de la deduire apres coup.
+// ⚠️ `coincidents` — LA VARIANTE QUI MET L'INSTRUMENT A L'EPREUVE.
+//    A false (historique) : on marque les COINS des faces choisies, et eux
+//    seuls. A true : on marque aussi tous les coins a la MEME POSITION SOUDEE
+//    (`BuildVertexMerge`), c'est-a-dire qu'on designe en identite soudee.
+//    La difference n'est pas cosmetique : sur un cube, DEUX faces opposees
+//    couvrent les 8 sommets soudes -- donc en variante soudee, choisir deux
+//    faces opposees selectionne LES SIX. C'est exactement le +24 qu'`inset`
+//    rendait deja, et c'est ce que cette variante doit trancher.
+static uint32 LoiSelectionnerFaces(NkEditMesh &m, uint32 n, uint32 *outFacesPrises,
+								   bool coincidents = false) {
+	m.SelectNone();
+	NkVector<NkEmId> loop;
+	uint32 prises = 0, valences = 0;
+	NkVector<uint32> canon;
+	NkVector<uint8> marque;
+	if (coincidents) {
+		m.BuildVertexMerge(canon);
+		marque.Resize(m.VertCount());
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			marque[i] = 0;
+	}
+	for (uint32 f = 0; f < m.FaceCount() && prises < n; f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		for (uint32 k = 0; k < (uint32)loop.Size(); k++) {
+			const uint32 vi = (uint32)loop[k];
+			m.verts[vi].sel = 1;
+			if (coincidents)
+				marque[canon[vi]] = 1;
+		}
+		valences += (uint32)loop.Size();
+		++prises;
+	}
+	if (coincidents)
+		for (uint32 i = 0; i < m.VertCount(); i++)
+			if (marque[canon[i]])
+				m.verts[i].sel = 1;
+	if (outFacesPrises)
+		*outFacesPrises = prises;
+	return valences;
+}
+
+// =============================================================================
+//  --loi-inset : `inset`, ET LA CONTRE-EPREUVE DE MA PROPRE LOI D'`extrude`
+// =============================================================================
+//  ⚠️ CE BANC COMMENCE PAR M'ACCUSER. J'ai livre la loi d'`extrude:1` --
+//     « faces ajoutees = somme des valences » -- « etablie sur 8 cas ». Or mes
+//     huit maillages etaient TOUT-QUADS, et sur des quads
+//         somme des valences == 4 x (nombre de faces selectionnees)
+//     Les deux formules sont donc INDISCERNABLES sur tout mon jeu d'epreuve :
+//     exactement le defaut que je venais de reprocher a `2 x E`. J'avais ecarte
+//     « 4 x F » par un RAISONNEMENT sur les n-gones, jamais par une mesure.
+//
+//     LE SEPARATEUR : `BuildFromIndexed(..., quadify=false)` rend le MEME cube
+//     en 12 TRIANGLES (valence 3). « Somme des valences » predit alors +3 par
+//     face, « 4 x F » predit +4. Elles divergent la, et nulle part ailleurs.
+//     Attendus ecrits AVANT la mesure : `clbr_INSET_ATTENDUS.md`.
+//
+//  TROIS AXES, pour que chaque paire de candidates se separe quelque part :
+//  topologie (quad / triangule), selection (1, 2, 3, toutes -- partielle
+//  D'EMBLEE, jamais `SelectAll` seul), drapeau `individual`. Plus `depth` sur un
+//  cas, parce que « la profondeur ne change pas les comptes » est une
+//  supposition que je refuse de garder sans l'eprouver.
+static void LoiInsetLigne(const char *op, bool triangule, int32 indiv, uint32 nDemande,
+						  const NkVector<NkVertex3D> &v, const NkVector<uint32> &idx,
+						  float32 depth) {
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), !triangule);
+	uint32 prises = 0;
+	const uint32 valences = LoiSelectionnerFaces(m, nDemande == 0u ? 0xFFFFFFFFu : nDemande, &prises);
+	const uint32 e0 = m.EdgeCount();
+	const uint32 f0 = LoiBevelFacesVivantes(m);
+	bool ok = false;
+	if (op[0] == 'i') {
+		NkInsetParams p;
+		p.individual = (indiv != 0);
+		p.depth = depth;
+		ok = m.InsetSelectedFaces(p);
+	} else {
+		NkExtrudeParams p;
+		p.individual = (indiv != 0);
+		ok = m.ExtrudeSelectedFaces(p);
+	}
+	if (!ok) {
+		printf("  %-8s %-10s %-6d %-7u %-9u %-7u %-8u %-9s %s\n", op,
+			   triangule ? "triangule" : "quad", indiv, prises, valences, e0, f0, "REFUS", "-");
+		return;
+	}
+	const uint32 f1 = LoiBevelFacesVivantes(m);
+	const int32 ajout = (int32)f1 - (int32)f0;
+	// LES TROIS CANDIDATES SONT JUGEES PAR L'INSTRUMENT, ligne par ligne : je ne
+	// veux pas etre celui qui decide laquelle tombe juste.
+	char verdict[48];
+	snprintf(verdict, sizeof(verdict), "A:%s C:%s B:%s", ajout == (int32)valences ? "OK" : "--",
+			 ajout == 4 * (int32)prises ? "OK" : "--", ajout == 2 * (int32)e0 ? "OK" : "--");
+	printf("  %-8s %-10s %-6d %-7u %-9u %-7u %-8u %-9d %s\n", op, triangule ? "triangule" : "quad",
+		   indiv, prises, valences, e0, f0, ajout, verdict);
+}
+
+// =============================================================================
+//  --loi-instrument : EPROUVER L'AIDE DE SELECTION AVANT DE S'EN RESERVIR
+// =============================================================================
+//  ⚠️ UN DOUTE SUR L'INSTRUMENT RETROAGIT SUR SES MESURES PASSEES, pas
+//     seulement sur la prochaine. `inset` traite tout le cube quand on lui
+//     designe deux faces ; `extrude`, sur la MEME selection, n'en traite que
+//     deux. L'un des deux se trompe -- ou c'est mon aide qui sous-marque.
+//     Tant que ce n'est pas tranche, toute loi mesuree avec elle est suspecte,
+//     Y COMPRIS celles deja livrees.
+//  Attendus et prediction ecrits AVANT : `clbr_INSTRUMENT_ATTENDUS.md`.
+//
+//  ═══════════════════════════════════════════════════════════════════════════
+//  ⚠️⚠️ CE BANC EXERCE LE CHEMIN DE REPLI, ET **PAS** CELUI DE L'APPLICATION.
+//  ═══════════════════════════════════════════════════════════════════════════
+//  Etabli le 20/09 en LISANT le code, apres avoir publie une conclusion trop
+//  large qu'il faut corriger ici meme.
+//
+//  Les deux operations choisissent leurs faces en DEUX temps :
+//    1. l'INTENTION DE FACE, si `RefreshFaceSel()` la declare a jour
+//       (`faceSelPorte` pose par `SetFaceSelection`, et selection de sommets
+//       inchangee depuis la photo). Les deux lisent alors `fm[f].sel` : elles
+//       sont D'ACCORD, et c'est le chemin de l'application.
+//    2. le REPLI sinon -- et c'est LA qu'elles divergent :
+//         `ExtrudeSelectedFaces` -> `PolyFaceSelected(fv, s, e)` sur les
+//            polygones bruts, donc sur les COINS ;
+//         `InsetSelectedFaces`   -> `vsel[fv[k]]` sur les polygones SOUDES
+//            (`EM_ToWeldedPolygons`), donc sur l'identite soudee.
+//       Sur un cube, deux faces opposees couvrent les 8 sommets soudes : le
+//       repli soude en designe donc SIX. D'ou le +24.
+//
+//  ⚠️ CE BANC NE POSE AUCUNE INTENTION DE FACE (il ecrit `verts[].sel` a la
+//     main) : il tombe TOUJOURS dans le repli. NK3DModeler, lui, appelle
+//     `SetFaceSelection` -- et le commentaire de `NkDemo3D.cpp` porte, mot pour
+//     mot, le defaut que je croyais decouvrir : « Sans cette ligne, l'ecran
+//     disait 2 et l'extrusion en prenait 6 ». **Il a deja ete trouve et corrige
+//     dans l'application, et ce banc ne l'atteint pas.**
+//
+//  CE QUI RESTE VRAI : les deux REPLIS se contredisent, et tout appelant qui ne
+//  pose pas d'intention de face en herite. CE QUI ETAIT FAUX : en conclure que
+//  l'utilisateur voit son cube entier traite. Il ne le voit pas.
+static void LoiInstrLigne(const char *op, bool soude, uint32 n, const NkVector<NkVertex3D> &v,
+						  const NkVector<uint32> &idx) {
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+	uint32 prises = 0;
+	const uint32 val = LoiSelectionnerFaces(m, n, &prises, soude);
+	// COMBIEN DE FACES L'OPERATION VA-T-ELLE REELLEMENT VOIR ? On le compte nous
+	// memes, avec la meme regle que le moteur (`PolyFaceSelected` : toutes les
+	// aretes du tour selectionnees) -- sinon on lirait le resultat sans savoir
+	// sur quoi il a porte.
+	uint32 vues = 0;
+	NkVector<NkEmId> loop;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		bool toutes = loop.Size() > 0;
+		for (uint32 k = 0; k < (uint32)loop.Size() && toutes; k++)
+			if (!m.verts[(uint32)loop[k]].sel)
+				toutes = false;
+		if (toutes)
+			++vues;
+	}
+	const uint32 f0 = LoiBevelFacesVivantes(m);
+	bool ok = false;
+	if (op[0] == 'i') {
+		NkInsetParams p;
+		p.individual = true;
+		ok = m.InsetSelectedFaces(p);
+	} else {
+		NkExtrudeParams p;
+		p.individual = true;
+		ok = m.ExtrudeSelectedFaces(p);
+	}
+	const uint32 f1 = ok ? LoiBevelFacesVivantes(m) : f0;
+	char ajout[24];
+	if (ok)
+		snprintf(ajout, sizeof(ajout), "%+d", (int)f1 - (int)f0);
+	else
+		snprintf(ajout, sizeof(ajout), "REFUS");
+	printf("  %-8s %-9s %-9u %-9u %-9u %-8u %s\n", op, soude ? "SOUDE" : "coins", prises, vues, val,
+		   f0, ajout);
+}
+
+static int32 LoiInstrument() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# l'aide de selection, mise a l'epreuve\n");
+	printf("# `vues` = faces que le moteur verra selectionnees (regle PolyFaceSelected)\n");
+	printf("# %-8s %-9s %-9s %-9s %-9s %-8s %s\n", "op", "variante", "demandees", "vues",
+		   "valences", "f_avant", "ajoutees");
+	for (int32 soude = 0; soude <= 1; ++soude) {
+		for (uint32 n = 1; n <= 3; ++n) {
+			LoiInstrLigne("extrude", soude != 0, n, v, idx);
+			LoiInstrLigne("inset", soude != 0, n, v, idx);
+		}
+	}
+	printf("# ⚠️ POINT D'ANCRAGE : les lignes a `demandees=1` doivent rendre `vues=1`\n");
+	printf("#   et +4, dans LES DEUX variantes. Si elles bougent, le correctif a\n");
+	printf("#   casse autre chose et le reste de la course ne vaut rien.\n");
+	// ⚠️ NOMMER LA DIVERGENCE POUR QU'ELLE NE SE FASSE PAS « REPARER ».
+	//    La ligne `coins / 2 faces`, ou inset rend +24 et extrude +8, N'EST PAS
+	//    UN ECHEC DE CE BANC : c'est le constat qu'il est venu chercher, et il
+	//    est ATTENDU tel quel. Sans cette phrase, quelqu'un finira par
+	//    « corriger » le banc pour faire coincider les deux colonnes -- et
+	//    effacera le seul endroit qui garde la trace du desaccord.
+	printf("# ✔ DIVERGENCE DECLAREE, PAS UN ECHEC : en variante `coins`, inset lit\n");
+	printf("#   l'identite SOUDEE et extrude lit les COINS. +24 contre +8 sur deux\n");
+	printf("#   faces est le resultat ATTENDU de ce banc, pas un defaut a faire\n");
+	printf("#   disparaitre. Elle est DORMANTE : l'application pose une intention\n");
+	printf("#   de face (SetFaceSelection) et n'emprunte pas ce repli. Les deux\n");
+	printf("#   sites portent la meme note dans NkEditMesh.cpp.\n");
+	return 0;
+}
+
+// =============================================================================
+//  --loi-loopcut : LA LOI, SOUS UNE BORNE DE VALIDITE POSEE AVANT
+// =============================================================================
+//  ⚠️ QUELLE EPREUVE : `LoopCutFromSelectedEdge` part d'une ARETE selectionnee.
+//     On marque les deux sommets d'une arete A LA MAIN, sans poser d'intention :
+//     c'est le chemin de REPLI. **Aucune conclusion de ce banc ne porte sur ce
+//     que voit Rodolf** tant qu'on n'a pas verifie comment NK3DModeler designe
+//     son arete. C'est la faute commise sur `inset` -- un vrai desaccord attribue
+//     a un chemin que le produit n'emprunte pas.
+//
+//  ⚠️ BORNE DE VALIDITE (antecedent : arete degeneree au glissement 0,999, avec
+//     V-E+F = -10 et 4 aretes non-manifold). `slide = 0` UNIQUEMENT, et chaque
+//     relevé publie **V-E+F** et **NonManifoldEdgeCount()**. Un relevé dont
+//     Euler n'est pas 2 (cube ferme, genre 0) ou dont le non-manifold n'est pas
+//     0 est ECARTE ET DIT -- jamais moyenne, jamais utilise pour ajuster.
+//     Euler juge la topologie SANS attendu dicte par moi : c'est un theoreme.
+//
+//  ⚠️ ET LE CUBE SEUL NE SEPARE RIEN : une boucle y traverse 4 faces, ce qui
+//     rend « n x faces de la boucle », « n x 4 » et parfois « n x F »
+//     indiscernables. Le cube SUBDIVISE est au plan d'emblee -- le piege a deja
+//     ete paye deux fois aujourd'hui.
+
+// ── LES GRANDEURS DU **SOUS-ENSEMBLE** ──────────────────────────────────────
+//  ⚠️ TOUT L'ENJEU DE LA COURSE « REGIME REEL ». Mes cinq lois ont ete mesurees
+//     sur `SelectAll`, ou les grandeurs du MAILLAGE et celles de la SELECTION
+//     coincident. Elles cessent de coincider des que la selection est partielle
+//     -- et c'est le regime dans lequel la garde sert.
+//     Une ARETE est selectionnee quand ses DEUX sommets le sont (meme regle que
+//     `PolyFaceSelected` pour une face) ; un sommet SOUDE ne compte qu'une fois.
+static void LoiSousEnsemble(NkEditMesh &m, uint32 *outF, uint32 *outE, uint32 *outV) {
+	NkVector<uint32> canon;
+	m.BuildVertexMerge(canon);
+	NkVector<NkEmId> loop;
+	uint32 nf = 0;
+	NkVector<uint8> vvu;
+	vvu.Resize(m.VertCount());
+	for (uint32 i = 0; i < m.VertCount(); i++)
+		vvu[i] = 0;
+	NkHashMap<uint64, uint32> aretes;
+	for (uint32 f = 0; f < m.FaceCount(); f++) {
+		if (!m.faces[f].alive)
+			continue;
+		loop.Clear();
+		m.GetFaceVerts((NkEmId)f, loop);
+		const uint32 n = (uint32)loop.Size();
+		bool toutes = n > 0;
+		for (uint32 k = 0; k < n && toutes; k++)
+			if (!m.verts[(uint32)loop[k]].sel)
+				toutes = false;
+		if (toutes)
+			++nf;
+		for (uint32 k = 0; k < n; k++) {
+			const uint32 a = (uint32)loop[k], b = (uint32)loop[(k + 1) % n];
+			if (!m.verts[a].sel || !m.verts[b].sel)
+				continue;
+			uint32 ca = canon[a], cb = canon[b];
+			if (ca > cb) {
+				const uint32 t = ca;
+				ca = cb;
+				cb = t;
+			}
+			aretes[((uint64)ca << 32) | (uint64)cb] = 1u;
+			vvu[ca] = 1;
+			vvu[cb] = 1;
+		}
+	}
+	uint32 nv = 0;
+	for (uint32 i = 0; i < (uint32)vvu.Size(); i++)
+		if (vvu[i])
+			++nv;
+	if (outF)
+		*outF = nf;
+	if (outE)
+		*outE = (uint32)aretes.Size();
+	if (outV)
+		*outV = nv;
+}
+
+// =============================================================================
+//  --loi-regime : LES CINQ LOIS DANS LE REGIME OU ELLES SERVENT
+// =============================================================================
+//  ⚠️ POURQUOI CETTE COURSE EXISTE. L'application a rendu `subdivide : 6 -> 9`
+//     la ou ma loi annoncait 6 -> 24. Elle avait `selection=4` en masque SOMMET,
+//     soit UNE face entiere d'un cube -- et 6 - 1 + 4 = 9. Mes lois ne sont pas
+//     fausses : elles sont ecrites avec les grandeurs du MAILLAGE alors qu'elles
+//     portent sur la SELECTION. Sur `SelectAll` les deux coincident, et c'est
+//     tout ce que j'avais mesure.
+//  ⚠️ LE NEGATIF DE LA COURSE : `extrude:1` (deja ecrite sur le sous-ensemble)
+//     et `loopcut` (pilotee par UNE arete) ne DOIVENT PAS bouger. S'ils se
+//     decalent aussi, la these est fausse et il faut chercher ailleurs.
+//     *Une course ou tout bouge n'explique rien.*
+static int32 LoiRegime() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# les cinq lois en selection PARTIELLE -- grandeurs du SOUS-ENSEMBLE\n");
+	printf("# %-12s %-6s %-6s %-6s %-6s %-8s %-9s %-9s %s\n", "verbe", "n_sel", "Fsel", "Esel",
+		   "Vsel", "f_avant", "ajoutees", "attendu", "verdict");
+	const uint32 ns[3] = {1u, 2u, 6u};
+	for (int32 k = 0; k < 3; ++k) {
+		for (int32 op = 0; op < 5; ++op) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			uint32 prises = 0;
+			(void)LoiSelectionnerFaces(m, ns[k], &prises);
+			uint32 fs = 0, es = 0, vs = 0;
+			LoiSousEnsemble(m, &fs, &es, &vs);
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			bool ok = false;
+			const char *nom = "?";
+			int32 attendu = 0;
+			if (op == 0) { // subdivide : 3 x Fsel (une face devient quatre)
+				nom = "subdivide";
+				attendu = 3 * (int32)fs;
+				ok = m.SubdivideSelectedFaces();
+			} else if (op == 1) { // bevel s=1 : Esel + Vsel
+				nom = "bevel:s1";
+				attendu = (int32)es + (int32)vs;
+				NkBevelParams p;
+				p.offset = 0.05f;
+				p.segments = 1;
+				ok = m.BevelSelected(p);
+			} else if (op == 2) { // bevel s=4 : 3 x Esel x s
+				nom = "bevel:s4";
+				attendu = 3 * (int32)es * 4;
+				NkBevelParams p;
+				p.offset = 0.05f;
+				p.segments = 4;
+				ok = m.BevelSelected(p);
+			} else if (op == 3) { // extrude:1 : valences des faces selectionnees
+				nom = "extrude:1";
+				attendu = 4 * (int32)fs; // quads : valence 4
+				NkExtrudeParams p;
+				p.individual = true;
+				ok = m.ExtrudeSelectedFaces(p);
+			} else { // loopcut : pilote par UNE arete, independant de n_sel
+				nom = "loopcut:1";
+				attendu = 4; // boucle du cube = 4 faces, n=1
+				NkLoopCutParams p;
+				p.cuts = 1;
+				p.slide = 0.f;
+				ok = m.LoopCutFromSelectedEdge(p);
+			}
+			if (!ok) {
+				printf("  %-12s %-6u %-6u %-6u %-6u %-8u %-9s %-9d %s\n", nom, prises, fs, es, vs,
+					   f0, "REFUS", attendu, "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const int32 ajout = (int32)f1 - (int32)f0;
+			printf("  %-12s %-6u %-6u %-6u %-6u %-8u %-9d %-9d %s\n", nom, prises, fs, es, vs, f0,
+				   ajout, attendu, ajout == attendu ? "OK" : "ECART");
+		}
+	}
+	printf("# ⚠️ `extrude:1` et `loopcut` sont le NEGATIF : ils ne doivent PAS se\n");
+	printf("#   decaler. S'ils se decalent aussi, la these « les lois du maillage\n");
+	printf("#   passent au sous-ensemble » est fausse et il faut chercher ailleurs.\n");
+	return 0;
+}
+
+static int32 LoiLoopcut() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# loi de loopcut -- slide=0, et chaque releve publie sa validite\n");
+	printf("# %-10s %-6s %-7s %-7s %-7s %-8s %-9s %-7s %-9s %s\n", "maillage", "cuts", "V_av",
+		   "E_av", "F_av", "F_apres", "ajoutees", "Euler", "nonmanif", "valide");
+	for (int32 sub = 0; sub <= 1; ++sub) {
+		const int32 cuts[4] = {1, 2, 3, 5};
+		for (int32 k = 0; k < 4; ++k) {
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			if (sub) {
+				m.SelectAll();
+				if (!m.SubdivideSelectedFaces())
+					continue;
+			}
+			// UNE SEULE ARETE : les deux sommets du premier tour de la face 0.
+			m.SelectNone();
+			NkVector<NkEmId> loop;
+			m.GetFaceVerts((NkEmId)0, loop);
+			if (loop.Size() < 2)
+				continue;
+			m.verts[(uint32)loop[0]].sel = 1;
+			m.verts[(uint32)loop[1]].sel = 1;
+			const uint32 v0 = LoiVertsSoudes(m), e0 = m.EdgeCount(), f0 = LoiBevelFacesVivantes(m);
+			NkLoopCutParams p;
+			p.cuts = cuts[k];
+			p.slide = 0.f; // BORNE DE VALIDITE : jamais autre chose ici
+			const bool ok = m.LoopCutFromSelectedEdge(p);
+			if (!ok) {
+				printf("  %-10s %-6d %-7u %-7u %-7u %-8s %-9s %-7s %-9s %s\n",
+					   sub ? "cube+sub" : "cube", cuts[k], v0, e0, f0, "REFUS", "-", "-", "-", "-");
+				continue;
+			}
+			const uint32 v1 = LoiVertsSoudes(m), e1 = m.EdgeCount(), f1 = LoiBevelFacesVivantes(m);
+			const int32 euler = (int32)v1 - (int32)e1 + (int32)f1;
+			const uint32 nm = m.NonManifoldEdgeCount();
+			const bool valide = (euler == 2) && (nm == 0u);
+			printf("  %-10s %-6d %-7u %-7u %-7u %-8u %-9d %-7d %-9u %s\n", sub ? "cube+sub" : "cube",
+				   cuts[k], v0, e0, f0, f1, (int)f1 - (int)f0, euler, nm,
+				   valide ? "oui" : "NON -> ECARTE");
+		}
+	}
+	printf("# ⚠️ Tout relevé marque ECARTE ne compte pas : il mesure une\n");
+	printf("#   degenerescence, pas la loi. Il est DIT, jamais moyenne.\n");
+	printf("# ⚠️ Et « faces de la boucle » n'est PAS une grandeur que l'hote publie :\n");
+	printf("#   une loi juste ecrite avec elle serait INUTILISABLE pour la garde.\n");
+	return 0;
+}
+
+static int32 LoiInset() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# inset, et la CONTRE-EPREUVE d'extrude sur maillage TRIANGULE\n");
+	printf("# A = somme des valences | C = 4 x nb faces | B = 2 x E\n");
+	printf("# %-8s %-10s %-6s %-7s %-9s %-7s %-8s %-9s %s\n", "op", "topo", "indiv", "n_faces",
+		   "valences", "E_av", "f_avant", "ajoutees", "verdicts");
+	const uint32 ns[4] = {1u, 2u, 3u, 0u}; // 0 = toutes les faces
+	for (int32 tri = 0; tri <= 1; ++tri)
+		for (int32 indiv = 1; indiv >= 0; --indiv)
+			for (int32 k = 0; k < 4; ++k)
+				LoiInsetLigne("inset", tri != 0, indiv, ns[k], v, idx, 0.f);
+	printf("# -- LA CONTRE-EPREUVE : extrude:1 sur les memes topologies --\n");
+	for (int32 tri = 0; tri <= 1; ++tri)
+		for (int32 k = 0; k < 4; ++k)
+			LoiInsetLigne("extrude", tri != 0, 1, ns[k], v, idx, 0.f);
+	printf("# -- `depth` change-t-il les COMPTES ? (supposition mise a l'epreuve) --\n");
+	LoiInsetLigne("inset", false, 1, 1u, v, idx, 0.f);
+	LoiInsetLigne("inset", false, 1, 1u, v, idx, 0.5f);
+	printf("# Si A est OK partout et C fausse sur `triangule` : la loi est la somme\n");
+	printf("#   des valences, et ma livraison d'extrude tient. Si C gagne sur\n");
+	printf("#   triangule : j'ai livre une conviction, et je dois la corriger.\n");
+	return 0;
+}
+
+static int32 LoiExtrude() {
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	MakeCube(v, idx);
+	printf("# lois de croissance de extrude -- faces VIVANTES avant/apres\n");
+	printf("# %-10s %-11s %-7s %-7s %-7s %-8s %-9s %s\n", "maillage", "individual", "F_av", "E_av",
+		   "V_av", "F_apres", "ajoutees", "ajoutees/F_av");
+	for (int32 indiv = 0; indiv <= 1; ++indiv) {
+		for (int32 sub = 0; sub <= 2; ++sub) {
+			const char *nom = (sub == 0) ? "cube" : (sub == 1) ? "cube+sub" : "cube+sub2";
+			NkEditMesh m;
+			m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+			bool prealableOk = true;
+			for (int32 k = 0; k < sub && prealableOk; ++k) {
+				m.SelectAll();
+				prealableOk = m.SubdivideSelectedFaces();
+			}
+			if (!prealableOk) {
+				printf("  REFUS : la subdivision prealable a echoue (%s)\n", nom);
+				continue;
+			}
+			m.SelectAll();
+			// MEME COMPTEUR QUE bevel : une source, deux lecteurs.
+			const uint32 f0 = LoiBevelFacesVivantes(m);
+			const uint32 e0 = m.EdgeCount();
+			const uint32 v0 = m.VertCount();
+			NkExtrudeParams p;
+			p.individual = (indiv != 0);
+			const bool ok = m.ExtrudeSelectedFaces(p);
+			if (!ok) {
+				printf("  %-10s %-11d %-7u %-7u %-7u %-8s %-9s %s\n", nom, indiv, f0, e0, v0,
+					   "REFUS", "-", "-");
+				continue;
+			}
+			const uint32 f1 = LoiBevelFacesVivantes(m);
+			const double ratio = f0 > 0 ? ((double)f1 - (double)f0) / (double)f0 : 0.0;
+			printf("  %-10s %-11d %-7u %-7u %-7u %-8u %-9d %.3f\n", nom, indiv, f0, e0, v0, f1,
+				   (int)f1 - (int)f0, ratio);
+		}
+	}
+	printf("# Ratio STABLE dans une colonne `individual` -> loi proportionnelle a F.\n");
+	printf("# ⚠️ Le mode region (individual=0) est mesure ICI SANS BORD de selection :\n");
+	printf("#   ce n'est pas son cas d'usage, et le chiffre ne doit pas voyager sans\n");
+	printf("#   cette condition.\n");
+
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LE CAS QUI SEPARE : SELECTION **PARTIELLE**
+	// ═══════════════════════════════════════════════════════════════════════
+	//  ⚠️ C'EST LA SEULE EPREUVE QUI DISTINGUE LES DEUX LOIS CANDIDATES
+	//     d'`extrude:1`. Sur `SelectAll` d'un maillage ferme, `2 x E` et
+	//     « somme des valences » donnent le MEME nombre -- elles sont
+	//     indiscernables. Ici la selection ne prend que `n` faces : la somme des
+	//     valences suit `n`, `2E` ne bouge pas. **Le desaccord est le verdict.**
+	//     Jusqu'a present j'avais la bonne des deux PAR RAISONNEMENT ; cette
+	//     section la met a l'epreuve.
+	printf("\n# extrude sur selection PARTIELLE -- le cas qui SEPARE, et celui qui\n");
+	printf("# rend enfin le mode REGION mesurable (une region partielle A un bord).\n");
+	printf("# %-6s %-10s %-7s %-9s %-7s %-8s %-9s %-11s %s\n", "indiv", "maillage", "n_faces",
+		   "valences", "E_av", "f_avant", "f_apres", "ajoutees", "valences | 2*E");
+	for (int32 indiv = 1; indiv >= 0; --indiv) {
+		for (int32 sub = 0; sub <= 1; ++sub) {
+			const uint32 ns[4] = {1u, 2u, 3u, 6u};
+			for (int32 k = 0; k < 4; ++k) {
+				NkEditMesh m;
+				m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), true);
+				if (sub) {
+					m.SelectAll();
+					if (!m.SubdivideSelectedFaces())
+						continue;
+				}
+				uint32 prises = 0;
+				const uint32 valences = LoiSelectionnerFaces(m, ns[k], &prises);
+				const uint32 e0 = m.EdgeCount();
+				const uint32 f0 = LoiBevelFacesVivantes(m);
+				NkExtrudeParams p;
+				p.individual = (indiv != 0);
+				const bool ok = m.ExtrudeSelectedFaces(p);
+				if (!ok) {
+					printf("  %-6d %-10s %-7u %-9u %-7u %-8u %-9s %-11s %s\n", indiv,
+						   sub ? "cube+sub" : "cube", prises, valences, e0, f0, "REFUS", "-", "-");
+					continue;
+				}
+				const uint32 f1 = LoiBevelFacesVivantes(m);
+				const int32 ajout = (int32)f1 - (int32)f0;
+				char verdict[32];
+				snprintf(verdict, sizeof(verdict), "%s | %s", ajout == (int32)valences ? "OK" : "--",
+						 ajout == 2 * (int32)e0 ? "OK" : "--");
+				printf("  %-6d %-10s %-7u %-9u %-7u %-8u %-9u %-11d %s\n", indiv,
+					   sub ? "cube+sub" : "cube", prises, valences, e0, f0, f1, ajout, verdict);
+			}
+		}
+	}
+	printf("# Si « valences » gagne et « 2*E » perd : la loi est la somme des valences,\n");
+	printf("#   et `2E` n'en est que la valeur au cas TOUT-SELECTIONNE -- donc une\n");
+	printf("#   SURESTIMATION sur selection partielle, ce qui est le bon sens pour une\n");
+	printf("#   garde. Si les deux perdent, aucune des deux n'est la loi.\n");
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	// ANCRE : resolue AVANT toute mesure (cf. Applications/Common/NkBenchRoot.h).
 	// C'est elle qui porte les ressources ET la reference (cf. CheminRessource).
@@ -9952,12 +11100,34 @@ int main(int argc, char **argv) {
 		return 3;
 	}
 
+	for (int32 i = 1; i < argc; ++i)
+		if (strcmp(argv[i], "--famille-obj") == 0)
+			return FamilleVersObj(argc, argv);
+
 	bool baseline = false, check = false, perf = false, intention = false;
 	bool suppression = false;
 	bool annulation = false;
 	bool supprXe = false;
+	bool loiBevel = false;
+	bool loiExtrude = false;
+	bool loiInset = false;
+	bool loiInstr = false;
+	bool loiLoopcut = false;
+	bool loiRegime = false;
 	for (int32 i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "--baseline") == 0)
+		if (strcmp(argv[i], "--loi-bevel") == 0)
+			loiBevel = true;
+		else if (strcmp(argv[i], "--loi-extrude") == 0)
+			loiExtrude = true;
+		else if (strcmp(argv[i], "--loi-inset") == 0)
+			loiInset = true;
+		else if (strcmp(argv[i], "--loi-instrument") == 0)
+			loiInstr = true;
+		else if (strcmp(argv[i], "--loi-loopcut") == 0)
+			loiLoopcut = true;
+		else if (strcmp(argv[i], "--loi-regime") == 0)
+			loiRegime = true;
+		else if (strcmp(argv[i], "--baseline") == 0)
 			baseline = true;
 		else if (strcmp(argv[i], "--check") == 0)
 			check = true;
@@ -9972,6 +11142,21 @@ int main(int argc, char **argv) {
 		else if (strcmp(argv[i], "--suppr-xe") == 0)
 			supprXe = true;
 	}
+	// ⚠️ AVANT LES BATTERIES COMPAREES, comme `--intention` : cette mesure ne
+	//    pose AUCUNE ligne dans la signature, donc `--check` reste octet pour
+	//    octet ce qu'il etait.
+	if (loiBevel)
+		return LoiBevel();
+	if (loiExtrude)
+		return LoiExtrude();
+	if (loiInset)
+		return LoiInset();
+	if (loiInstr)
+		return LoiInstrument();
+	if (loiLoopcut)
+		return LoiLoopcut();
+	if (loiRegime)
+		return LoiRegime();
 	// --intention rend AVANT les batteries comparees : il ne pose aucune ligne dans
 	// gLines, donc ne peut ni perimer ni masquer la reference de --check.
 	if (intention)
@@ -10041,6 +11226,10 @@ int main(int argc, char **argv) {
 	MatModRestantsBattery();
 	// AJOUTEE EN FIN, meme raison : les 284 lignes precedentes gardent leur numero.
 	EnPlaceBattery();
+	// AJOUTEE EN FIN, meme raison : les lignes precedentes gardent leur numero.
+	SweepBattery();
+	// AJOUTEE EN FIN, meme raison : les lignes precedentes gardent leur numero.
+	FamillesBattery();
 
 	// ⚠ HORS REFERENCE, et volontairement : une duree ne peut pas etre comparee
 	// octet pour octet. --perf IMPRIME, il ne pose aucune ligne comparee par --check.

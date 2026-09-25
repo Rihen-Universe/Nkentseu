@@ -23,6 +23,13 @@
 // tout ce que ces appelants ont deja inclus. Ici, le contexte est VIDE.
 
 #include "NKConverse/NkConverseChatAsync.h" // tire NkConverseChat.h, qui tire NkConverse.h
+// ⚠️ LE DORSAL CLAUDE PASSE PAR LA MEME EPREUVE, et c'est tout l'interet de ce
+//    fichier. Il utilise NkDirectory et NkPath : il les INCLUT donc lui-meme.
+//    S'il avait compte sur un consommateur pour les tirer, il aurait compile
+//    dans NK3DModeler -- qui inclut NKFileSystem partout -- et casse chez le
+//    premier qui ne l'a pas. Ici le contexte est VIDE : la regle 2 est verifiee
+//    par la construction, pas par la relecture.
+#include "NKConverse/NkConverseClaude.h"
 
 namespace nkentseu::converse {
 

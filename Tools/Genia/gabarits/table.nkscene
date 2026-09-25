@@ -1,0 +1,9 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene table
+partie plateau forme cube largeur 1.60 hauteur 0.04 profondeur 0.90 matiere bois
+partie pied_avant_gauche forme cube largeur 0.07 hauteur 0.71 profondeur 0.07 pose_sous plateau decale -0.72 0 0.37 matiere bois
+partie pied_avant_droit forme cube largeur 0.07 hauteur 0.71 profondeur 0.07 pose_sous plateau decale 0.72 0 0.37 matiere bois
+partie pied_arriere_gauche forme cube largeur 0.07 hauteur 0.71 profondeur 0.07 pose_sous plateau decale -0.72 0 -0.37 matiere bois
+partie pied_arriere_droit forme cube largeur 0.07 hauteur 0.71 profondeur 0.07 pose_sous plateau decale 0.72 0 -0.37 matiere bois
