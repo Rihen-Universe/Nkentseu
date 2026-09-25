@@ -58,12 +58,12 @@ function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
 	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE",
-			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS", "NK_GIZMO_VIDE_SANS_PICK", "NK_LIGHT_PICK_CACHEES")
+			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS", "NK_GIZMO_VIDE_SANS_PICK", "NK_LIGHT_PICK_CACHEES", "NK_HUD_LABO")
 	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
 	$env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	# La mutation porte les DEUX negatifs de ce banc : l'ancienne regle des modes,
 	# et une boite publiee SANS CIBLE (NK_BOITE_FAUSSE).
-	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1"; $env:NK_GIZMO_VIDE_SANS_PICK = "1"; $env:NK_LIGHT_PICK_CACHEES = "1" }
+	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1"; $env:NK_GIZMO_VIDE_SANS_PICK = "1"; $env:NK_LIGHT_PICK_CACHEES = "1"; $env:NK_HUD_LABO = "1" }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-RedirectStandardOutput $out | Out-Null
@@ -391,6 +391,39 @@ if (Condition "Demo (k)" ($au.Count -gt 0) "aucune ligne d audit") {
 			"non supprimees=$lumV eclairent=$lumE designables=$lumD (exige 0/0/0)"
 	} else {
 		Dire "Demo (k) la ligne d audit est lisible" $false "motif non reconnu"
+	}
+}
+
+# -- (l) LE HUD DE LABO EST ETEINT, L AIDE RESTE, LES OUTILS SURVIVENT -------
+# Rodolf, 25/09 : le HUD de renderdemo est peint par-dessus le produit dans un
+# projet utilisateur -- compteurs Draw/Tris/GPU, « Texture file-based », panneau
+# d ombres. Une SEULE garde couvrait trois choses de natures differentes.
+#
+# ⚠ LE TROISIEME CRITERE EST LE PLUS IMPORTANT, et il ne mesure pas le HUD : les
+#   OUTILS DE SELECTION PAR ZONE (rectangle pointille, lasso, cercle) vivaient
+#   sous la meme garde. Eteindre le HUD les aurait supprimes -- casse un OUTIL en
+#   croyant nettoyer un affichage. Aucun banc ne les mesurait : la regression
+#   aurait ete invisible ici et evidente chez Rodolf. Ce compteur existe pour ca.
+#
+# ⚠ ET QUI ALLUMAIT LE HUD : personne. Mesure par la porte HostPoseHud, zero
+#   ecriture sur toute une course. C est l INITIALISATION qui reglait seule, et
+#   le shell s y alignait au lieu de la corriger. Une lecture faite trop tot fige
+#   ce qu elle devait corriger.
+$c = Courir "hud" @{ "NK_AGENT_SCENE" = "5"; "NK_DEMO_AUDIT" = "1"; "NK_EDIT_MODE" = "1,80";
+					 "NK_EDIT_SEL" = "a"; "NK_TOOL_CLIC" = "5,120"; "NK_AGENT_EXIT" = "400" }
+$a2 = @(Select-String -Path $c.log -Pattern "\[DEMO-AUDIT2\]")
+if (Condition "HUD (l)" ($a2.Count -gt 0) "aucune ligne DEMO-AUDIT2") {
+	$m = [regex]::Match($a2[-1].Line, "HUD de labo : (\d+) . aide produit : (\d+) . segments d.outils de zone : (\d+)")
+	if ($m.Success) {
+		$labo = [int]$m.Groups[1].Value; $aide = [int]$m.Groups[2].Value; $zone = [int]$m.Groups[3].Value
+		Dire "HUD (l) le HUD de LABO est eteint dans un projet" ($labo -eq 0) `
+			"HUD de labo = $labo (exige 0)"
+		Dire "HUD (l) l aide produit est CONSERVEE" ($aide -eq 1) `
+			"aide = $aide (exige 1 : Rodolf s en sert pour enseigner les raccourcis)"
+		Dire "HUD (l) les outils de zone se tracent TOUJOURS" ($zone -gt 0) `
+			"segments = $zone (exige > 0 : ils vivaient sous la garde du HUD)"
+	} else {
+		Dire "HUD (l) la ligne d audit est lisible" $false "motif non reconnu"
 	}
 }
 
