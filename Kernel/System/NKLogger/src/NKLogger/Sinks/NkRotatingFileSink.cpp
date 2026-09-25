@@ -11,7 +11,7 @@
 //  - Gestion robuste des erreurs rename() sans propagation d'exceptions
 //  - Namespace unique : nkentseu (pas de sous-namespace logger)
 //
-// Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -27,7 +27,20 @@
 #include "NKThreading/NkScopedLock.h"
 
 #include <cstdio>
+
+#if defined(_WIN32)
+// 2026-09-25 : <sys/stat.h> RETIRE de la branche Windows — voir la note
+// detaillee dans NkFileSink.cpp. En resume : le nom d'assembleur de `::stat`
+// depend de la version de mingw-w64 (`stat64i32` chez MSYS2, `_stat64i32`
+// chez llvm-mingw 20240619, celui qu'embarque NKCode), donc un kit compile
+// ici ne se liait pas chez le consommateur. L'API Win32 n'a qu'un seul nom.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <sys/stat.h>
+#endif
 
 // -------------------------------------------------------------------------
 // SECTION 1 : NAMESPACE ANONYME - UTILITAIRES INTERNES
@@ -49,8 +62,12 @@ namespace {
 			return false;
 		}
 
+#if defined(_WIN32)
+		return ::GetFileAttributesA(path.CStr()) != INVALID_FILE_ATTRIBUTES;
+#else
 		struct stat fileInfo{};
 		return ::stat(path.CStr(), &fileInfo) == 0;
+#endif
 	}
 
 } // namespace
@@ -299,7 +316,7 @@ namespace nkentseu {
 
 	7. COMPATIBILITÉ MULTIPLATEFORME :
 	   - rename()/remove() : standards C, portables Windows/POSIX
-	   - stat() : disponible via <sys/stat.h> sur Windows (MinGW/MSVC) et POSIX
+	   - existence : API Win32 sous Windows (GetFileAttributesA), stat() ailleurs
 	   - Chemins : NkString gère / et \, NkEnsureParentDirectory() dans NkFileSink
 
 	8. EXTENSIBILITÉ FUTURES :
