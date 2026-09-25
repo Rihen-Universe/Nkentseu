@@ -43,6 +43,7 @@
 #include "NKRenderer/Mesh/NkUVUnwrap.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKLogger/NkLog.h"
+#include "NKTime/NkChrono.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -761,6 +762,150 @@ static int NkBoucherMode(const char *chemin) {
 // reecris pas, je les lis.
 // =============================================================================
 
+// AIRE UV TOTALE : l'ilot ne la porte pas, elle se calcule depuis les faces.
+// Meme calcul que le mode `--mesurer-uv`, sorti en fonction pour que les deux
+// modes ne puissent pas deriver l'un de l'autre.
+static float32 AireUVTotale(const NkEditMesh &m) {
+	float32 aire = 0.f;
+	NkVector<NkEmId> fv;
+	for (uint32 f = 0; f < m.FaceCount(); ++f) {
+		if (m.FaceSize(f) < 3)
+			continue;
+		const_cast<NkEditMesh &>(m).GetFaceVerts(f, fv);
+		for (uint32 k = 1; k + 1 < (uint32)fv.Size(); ++k) {
+			const NkVec2f &a = m.verts[fv[0]].uv, &b = m.verts[fv[k]].uv, &c = m.verts[fv[k + 1]].uv;
+			aire += 0.5f * fabsf((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+		}
+	}
+	return aire;
+}
+
+// -- LA CHAINE COMPLETE SUR UN MAILLAGE GENERE, CONTRE DES SEUILS ECRITS AVANT --
+//
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// `--deplier` mesure le SOLVEUR SEUL, et sur un maillage importe il refuse : une
+// surface fermee n'est pas un disque, et ses coins soudes ne peuvent pas porter
+// deux UV. Ce mode-ci mesure `NkUVUnwrapAuto`, c'est-a-dire la chaine entiere --
+// coutures automatiques, de-soudure, reconstruction, depliage -- celle qu'un
+// appelant du produit peut reellement invoquer.
+//
+// LES SEUILS SONT DANS `logs_genia3d/uv/CRITERES_AVANT_MESURE.md`, ecrits avant
+// le premier lancement. Ils sont RECOPIES ici pour que le verdict et sa regle
+// vivent dans le meme binaire, et non dans deux endroits qui derivent.
+static int NkUVAutoMode(const char *chemin) {
+	printf("== NKGeniaTemoin --deplier-auto : %s ==\n", chemin);
+	NkGLTFMeshData data;
+	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
+		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
+		return 2;
+	}
+	NkVector<uint32> gi;
+	IndicesGlobaux(data, gi);
+	NkEditMesh m;
+	nkentseu::NkChrono c0;
+	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(),
+					   (uint32)gi.Size(), false);
+	const double msConstruit = c0.Elapsed().ToMilliseconds();
+	printf("  entree : V=%u F=%u  (construction demi-arete %.0f ms)\n", m.VertCount(), m.FaceCount(),
+		   msConstruit);
+
+	// LE NON-MANIFOLD SE COMPTE AVANT, parce qu'il decide de tout : une arete
+	// portee par plus de deux faces n'a pas d'« autre cote », et aucune couture
+	// ni aucune de-soudure ne repare cela. Le compter separement evite de
+	// l'attribuer au depliage.
+	uint32 nonManifold = 0u, bord = 0u;
+	{
+		NkVector<NkEmId> ef;
+		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
+			if (!m.edges[e].alive)
+				continue;
+			ef.Clear();
+			m.EdgeFaces((NkEmId)e, ef);
+			if ((uint32)ef.Size() > 2u)
+				++nonManifold;
+			else if ((uint32)ef.Size() < 2u)
+				++bord;
+		}
+	}
+	printf("  topologie : aretes non-manifold=%u  aretes de bord=%u\n", nonManifold, bord);
+
+	NkUVUnwrapParams p;
+	p.packIslands = true;
+	p.packMargin = 0.02f;
+	NkUVResult res;
+	NkUVAutoBilan bilan;
+	nkentseu::NkChrono c1;
+	const bool ok = NkUVUnwrapAuto(m, p, res, &bilan);
+	const double ms = c1.Elapsed().ToMilliseconds();
+
+	printf("  coutures=%u retrouvees=%u  sommets %u -> %u (dupliques=%u)\n", bilan.coutures,
+		   bilan.couturesRetrouvees, bilan.sommetsAvant, bilan.sommetsApres,
+		   bilan.sommetsDupliques);
+	printf("  NkUVUnwrapAuto rend %s en %.0f ms\n", ok ? "VRAI" : "FAUX", ms);
+
+	if (!ok) {
+		// UN REFUS EST UN RESULTAT. On le NOMME (le module sait le faire) plutot
+		// que d'en donner une explication fixe : `--deplier` annoncait « pas un
+		// disque topologique » quel que soit le code, et disait donc « ilot non
+		// disque » sur une arete non-manifold -- un diagnostic juste sur le
+		// symptome et faux sur la cause envoie corriger au mauvais endroit.
+		printf("  REFUS : %s (code=%d) ilot=%u euler=%d coins_soudes=%u\n",
+			   NkUVRefusName(res.refus), (int)res.refus, res.refusIsland, res.refusEuler,
+			   res.weldedCorners);
+		return 1;
+	}
+
+	const float32 aireUV = AireUVTotale(m);
+	const double tauxRec = (aireUV > 0.f) ? (100.0 * (double)bilan.aireRecouvrement / (double)aireUV) : 0.0;
+	const NkUVDistortion &d = res.distortion;
+	printf("  ilots=%u coins_soudes=%u  triangles=%u\n", res.islandCount, res.weldedCorners,
+		   d.triCount);
+	printf("  recouvrement : %u paire(s)  aire=%.6f  soit %.4f %% de l'aire UV (%.6f)\n",
+		   bilan.pairesRecouvrement, (double)bilan.aireRecouvrement, tauxRec, (double)aireUV);
+	printf("  distorsion aire  : min=%.3f moy=%.3f max=%.3f\n", (double)d.areaMin, (double)d.areaMean,
+		   (double)d.areaMax);
+	printf("  distorsion angle : min=%.2f moy=%.2f max=%.2f degres\n", (double)d.angleMin,
+		   (double)d.angleMean, (double)d.angleMax);
+
+	// LES SEUILS, ECRITS AVANT LA MESURE (CRITERES_AVANT_MESURE.md).
+	const bool okRec = tauxRec < 0.5;
+	const bool okAire = (d.areaMean >= 0.80f && d.areaMean <= 1.25f) && d.areaMax <= 4.0f;
+	const bool okAngle = (d.angleMean <= 10.f) && (d.angleMax <= 45.f);
+	const bool okTemps = ms <= 2000.0;
+	// -- LE CRITERE QUI MANQUAIT, ET COMMENT JE L'AI SU ----------------------
+	// Les quatre seuils ci-dessus sont sortis VERTS sur un maillage de famille :
+	// recouvrement 0 %, aire 1,007, angle 0,00 deg, 267 ms. Et le resultat etait
+	// INUTILISABLE -- 2 115 ilots pour 2 156 triangles, c'est-a-dire un ilot par
+	// triangle. Un triangle seul se deplie toujours parfaitement : la solution
+	// degeneree satisfaisait chacun de mes seuils, un par un.
+	//
+	// J'AJOUTE DONC CE CRITERE APRES AVOIR VU LE CHIFFRE, ET JE LE DIS. Ce n'est
+	// pas la meme chose que de deplacer un seuil pour faire passer un resultat :
+	// ici le jeu de seuils ADMETTAIT une reponse absurde, et on bouche ce trou.
+	// Le SENS de la correction le montre -- elle rend le verdict plus severe, et
+	// elle fait rougir un cas qui etait vert.
+	//
+	// Un ilot de moins de 20 triangles en moyenne n'est pas une carte qu'on
+	// texture, c'est du confetti. Le temoin le disait deja ailleurs : « une
+	// couture par arete serait un atlas illisible ».
+	const uint32 ilotsMax = (d.triCount / 20u) > 1u ? (d.triCount / 20u) : 1u;
+	const bool okIlots = res.islandCount <= ilotsMax;
+	printf("\n  VERDICT contre les seuils ecrits AVANT :\n");
+	printf("    recouvrement < 0,5 %%        : %s (%.4f %%)\n", okRec ? "VERT" : "ROUGE", tauxRec);
+	printf("    aire moy 0,80-1,25 max<=4   : %s (moy %.3f max %.3f)\n", okAire ? "VERT" : "ROUGE",
+		   (double)d.areaMean, (double)d.areaMax);
+	printf("    angle moy<=10 max<=45 deg   : %s (moy %.2f max %.2f)\n", okAngle ? "VERT" : "ROUGE",
+		   (double)d.angleMean, (double)d.angleMax);
+	printf("    temps <= 2000 ms            : %s (%.0f ms)\n", okTemps ? "VERT" : "ROUGE", ms);
+	printf("    ilots <= triangles/20       : %s (%u ilots, plafond %u ; %.1f tri/ilot)\n",
+		   okIlots ? "VERT" : "ROUGE", res.islandCount, ilotsMax,
+		   res.islandCount ? (double)d.triCount / (double)res.islandCount : 0.0);
+	const bool tout = okRec && okAire && okAngle && okTemps && okIlots;
+	printf("  VERDICT : %s\n", tout ? "VERT" : "ROUGE");
+	return tout ? 0 : 1;
+}
+
 static int NkUVMode(const char *chemin) {
 	printf("== NKGeniaTemoin --deplier : %s ==\n", chemin);
 	NkGLTFMeshData data;
@@ -1021,6 +1166,12 @@ int main(int argc, char **argv) {
 	// LE DEPLIAGE UV sur un maillage REEL d'Ilyana-3DG.
 	if (strcmp(argv[1], "--deplier") == 0 && argc > 2)
 		return NkUVMode(argv[2]);
+
+	// LA CHAINE COMPLETE (coutures + de-soudure + depliage), celle qu'un
+	// appelant du produit peut reellement invoquer -- `--deplier` n'essaie que
+	// le solveur seul et refuse donc sur tout maillage importe.
+	if (strcmp(argv[1], "--deplier-auto") == 0 && argc > 2)
+		return NkUVAutoMode(argv[2]);
 
 	if (strcmp(argv[1], "--mesurer-uv") == 0 && argc > 2)
 		return NkUVMesurerMode(argv[2]);
