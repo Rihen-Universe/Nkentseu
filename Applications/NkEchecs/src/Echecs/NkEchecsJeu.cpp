@@ -306,7 +306,7 @@ namespace nkentseu {
 					mSplash.Dessiner(dl, f.titre, f.corps, f.petite,
 									 nkgui::NkRect{0.f, 0.f, static_cast<float32>(info.width),
 												   static_cast<float32>(info.height)},
-									 LogoRihenTexId());
+									 LogoRihenTexId(), LogoCompletRihenTexId());
 					return;
 				}
 				const NkEchecsVue vue = Vue();

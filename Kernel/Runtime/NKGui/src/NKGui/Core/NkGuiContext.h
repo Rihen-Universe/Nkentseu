@@ -200,6 +200,19 @@ namespace nkentseu {
 				NkGuiTheme theme;
 				NkGuiSyntax syntax; ///< couleurs de coloration syntaxique (langages)
 				NkGuiInput input;
+				// ── ENTREE REELLE D'UNE MODALE DESSINEE DEPUIS UN PANNEAU (2026-09-24) ──
+				// Quand une modale a reserve la saisie (NkGuiInput::ReserverSaisie), l'hote
+				// (NkEditorShell) vide `input` pendant le passage des PANNEAUX pour qu'aucun
+				// ne reagisse sous le dialogue. Mais une modale dessinee DEPUIS un panneau
+				// (la confirmation de fermeture d'onglet de NKCode) se trouvait privee de
+				// ses propres clics : boutons visibles, aucun ne repondait (Rodolf,
+				// 2026-09-24). L'hote depose ici l'entree reelle le temps de ce passage ;
+				// les modales (NkModalDraw, NkModalFrameDraw) la lisent, les panneaux non.
+				// Hors de ce passage : `inputModaleValide` est faux et tout lit `input`.
+				NkGuiInput inputModale;
+				bool inputModaleValide = false;
+				/// L'entree que doit lire une MODALE : la reelle si l'hote l'a deposee.
+				NkGuiInput &InputModale() noexcept { return inputModaleValide ? inputModale : input; }
 				NkGuiDrawList dl;		 ///< couche principale (rendue en 1er)
 				NkGuiDrawList dlOverlay; ///< couche popups/overlay (rendue PAR-DESSUS)
 				NkGuiLayout layout;
