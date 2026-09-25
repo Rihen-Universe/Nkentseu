@@ -3164,6 +3164,85 @@ int nkmain(const NkEntryState &entry) {
 				sMaskDone = true;
 			}
 		}
+		// NK_BRUSH_SET="rayon:force:durete" : les trois reglages de la brosse
+		// ACTIVE, par la MEME facade que la glissiere du panneau et que les
+		// crochets du clavier. Un champ vide ou negatif laisse la grandeur
+		// inchangee -- « 0.4::" ne regle que le rayon.
+		// ⚠️ Separateur ':' et non ',' : en fr-FR la virgule est le separateur
+		//    DECIMAL, et le depot a deja paye « PowerShell ecrit la virgule
+		//    decimale » (atof rend 0.0 sur « 0,9 »).
+		{
+			static bool sBsDone = false;
+			if (const char *bv = std::getenv("NK_BRUSH_SET")) {
+				if (!sBsDone && demo::Demo3DHostReady()) {
+					sBsDone = true;
+					float32 v[3] = {-1.f, -1.f, -1.f};
+					int32 k = 0;
+					const char *q = bv;
+					while (k < 3 && *q) {
+						if (*q == ':') { ++q; ++k; continue; }
+						float32 val = 0.f;
+						bool neg = false;
+						if (*q == '-') { neg = true; ++q; }
+						while (*q >= '0' && *q <= '9')
+							val = val * 10.f + (float32)(*q++ - '0');
+						if (*q == '.') {
+							++q;
+							float32 sc = 0.1f;
+							while (*q >= '0' && *q <= '9') {
+								val += (float32)(*q++ - '0') * sc;
+								sc *= 0.1f;
+							}
+						}
+						v[k] = neg ? -val : val;
+						if (*q == ':') { ++q; ++k; } else break;
+					}
+					const bool ok = demo::Demo3DHostSetBrushParams(v[0], v[1], v[2]);
+					float32 rr = -1.f, ff = -1.f, hh = -1.f;
+					demo::Demo3DHostBrushParams(&rr, &ff, &hh);
+					std::printf("[nk3d] NK_BRUSH_SET ok=%d -> rayon=%.4f force=%.4f durete=%.4f\n",
+								ok ? 1 : 0, (double)rr, (double)ff, (double)hh);
+					std::fflush(stdout);
+				}
+			} else {
+				sBsDone = true;
+			}
+		}
+		// NK_BRUSH_NUDGE="quoi:sens:n" : n appuis sur le crochet, par la MEME
+		// porte que la touche (0 rayon, 1 force, 2 durete ; sens -1 ou +1). Il
+		// mesure le PAS, que la glissiere ne peut pas mesurer -- elle pose une
+		// valeur, elle ne l'incremente pas.
+		{
+			static bool sBnDone = false;
+			if (const char *nv = std::getenv("NK_BRUSH_NUDGE")) {
+				if (!sBnDone && demo::Demo3DHostReady()) {
+					sBnDone = true;
+					int32 v[3] = {0, 1, 1};
+					int32 k = 0;
+					const char *q = nv;
+					while (k < 3 && *q) {
+						int32 val = 0;
+						bool neg = false;
+						if (*q == '-') { neg = true; ++q; }
+						while (*q >= '0' && *q <= '9')
+							val = val * 10 + (int32)(*q++ - '0');
+						v[k] = neg ? -val : val;
+						if (*q == ':') { ++q; ++k; } else break;
+					}
+					int32 fait = 0;
+					for (int32 i = 0; i < v[2]; ++i)
+						if (demo::Demo3DHostNudgeBrush(v[0], v[1]))
+							++fait;
+					float32 rr = -1.f, ff = -1.f, hh = -1.f;
+					demo::Demo3DHostBrushParams(&rr, &ff, &hh);
+					std::printf("[nk3d] NK_BRUSH_NUDGE %d/%d -> rayon=%.4f force=%.4f durete=%.4f\n",
+								fait, v[2], (double)rr, (double)ff, (double)hh);
+					std::fflush(stdout);
+				}
+			} else {
+				sBnDone = true;
+			}
+		}
 		// NK_SCULPT_SYM=<masque> : la symetrie de la sculpture (1 X, 2 Y, 4 Z).
 		// Reglage d'outil : pose une fois, il vaut pour tous les gestes suivants.
 		{
