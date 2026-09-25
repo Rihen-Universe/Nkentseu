@@ -4389,8 +4389,38 @@ namespace nkentseu {
 					cmd.faceSel.PushBack(st->faceSel[f]);
 			Demo3D_PushSel(st);
 			renderer::NkEditMesh snapshot = st->editHE; // pré-état (avec sélection live)
+			const bool masqueAvant = snapshot.MaskExists();
 			if (!cmd.Apply(st->editHE))
 				return false; // no-op -> ni undo ni enregistrement
+			// ── LE MASQUE TRAVERSE L'OPERATION, ET C'EST ICI QUE CA SE JOUE ─────
+			// Une operation TOPOLOGIQUE passe par `BuildFromPolygons`, qui vide le
+			// masque (il est indexe par numero de sommet, et la renumerotation le
+			// rendrait FAUX). On le REPORTE depuis le pre-etat : chaque sommet neuf
+			// herite de ses plus proches a egalite -- ses parents.
+			// ⚠️ UNE SEULE PORTE POUR TOUTES LES OPERATIONS. Le report est pose dans
+			//    `Demo3D_ApplyCmd`, par ou passent extruder, subdiviser, biseauter,
+			//    loop cut, inserer, dissoudre... et celles qui n'existent pas encore.
+			//    Le poser dans chaque operation aurait garanti que la prochaine
+			//    l'oublie, en silence.
+			// ⚠️ ET SEULEMENT S'IL A ETE PERDU. La brosse de masque et le Transform
+			//    de sculpture gerent leurs poids eux-memes ; les reporter par-dessus
+			//    ecraserait ce qu'ils viennent d'ecrire.
+			// MUTATION DANS LE MEME BINAIRE : NK_MASQUE_SANS_REPORT=1 rend l'etat
+			// d'avant ce lot -- le masque est PERDU a la premiere operation. Les
+			// criteres de transport du banc doivent alors rougir ; sans ce negatif,
+			// « le masque est encore la » pourrait etre vrai parce que l'operation
+			// n'a rien change du tout.
+			static const bool sSansReport = []() {
+				const char *v = getenv("NK_MASQUE_SANS_REPORT");
+				return v && v[0] && v[0] != '0';
+			}();
+			if (masqueAvant && !sSansReport && !st->editHE.MaskExists()) {
+				const uint32 repris = st->editHE.MaskTransferFrom(snapshot);
+				logger.Info("[Demo3D] MASQUE reporte a travers l'operation : {0} sommet(s) protege(s) "
+							"sur {1} (avant : {2} sur {3}) · somme {4} -> {5}\n",
+							repris, st->editHE.VertCount(), snapshot.MaskedCount(),
+							snapshot.VertCount(), snapshot.MaskSum(), st->editHE.MaskSum());
+			}
 			st->editHistory.Commit(snapshot);
 			st->editRecorder.Push(cmd); // journalise la commande
 			st->editReplayStep = -1;	// une édition sort du mode rejeu

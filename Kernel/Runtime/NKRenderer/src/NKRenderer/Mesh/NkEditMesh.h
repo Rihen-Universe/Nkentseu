@@ -671,6 +671,39 @@ namespace nkentseu {
 					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
 						vertMask[i] = w;
 				}
+				// ── LE TRANSPORT DU MASQUE A TRAVERS UNE OPERATION TOPOLOGIQUE ─────
+				// `BuildFromPolygons` reconstruit `verts` et renumerote : le masque,
+				// indexe par numero de sommet, ne peut pas survivre tel quel (il est
+				// donc vide par `Clear()`). Le REPORTER demande de repondre a « de qui
+				// ce sommet neuf descend-il ? ».
+				//
+				// ⚠️ LA REPONSE EST GEOMETRIQUE, ET C'EST CE QUI LA REND GENERIQUE.
+				//    L'autre voie -- faire porter la parente par chaque operation --
+				//    aurait demande de toucher subdiviser, biseauter, inserer, loop
+				//    cut, extruder... et la prochaine operation ecrite aurait oublie de
+				//    la porter, EN SILENCE. Ici, une seule implantation les couvre
+				//    toutes, y compris celles qui n'existent pas encore.
+				//
+				//    La regle : un sommet neuf herite des sommets d'AVANT qui sont ses
+				//    PLUS PROCHES A EGALITE (a `tol` pres, relatif). Elle donne
+				//    exactement ce que le bon sens attend :
+				//      - sommet inchange  -> distance 0 a lui-meme      -> son poids ;
+				//      - milieu d'arete   -> ses DEUX extremites        -> leur moyenne ;
+				//      - centre de face   -> ses N coins (equidistants) -> leur moyenne.
+				//    C'est la regle demandee, obtenue sans qu'aucune operation n'ait a
+				//    la connaitre.
+				//
+				// ⚠️ CE QU'ELLE APPROCHE, ET IL FAUT LE DIRE : un sommet cree LOIN de
+				//    l'ancienne surface (l'extrusion decalee, par exemple) herite de ce
+				//    qui etait le plus proche -- ce n'est pas faux, c'est le meilleur
+				//    sens disponible. Et une operation qui DEPLACE aussi les sommets
+				//    (lissage) degrade la correspondance. Les deux cas sont MESURES par
+				//    le banc plutot que supposes.
+				//
+				// Rend le nombre de sommets qui ont recu un poids non nul. Sans masque
+				// dans `avant`, ne fait rien et rend 0 -- le cout est alors nul.
+				uint32 MaskTransferFrom(const NkEditMesh &avant, float32 tol = 0.02f);
+
 				/// Inverser : ce qui etait protege devient libre, et l'inverse.
 				/// ⚠️ SUR UN MAILLAGE SANS MASQUE, inverser MASQUE TOUT -- c'est le
 				///    comportement de Blender, et la seule lecture coherente de
