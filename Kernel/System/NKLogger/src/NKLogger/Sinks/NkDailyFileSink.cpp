@@ -11,7 +11,7 @@
 //  - Gestion robuste des erreurs rename()/remove() sans propagation d'exceptions
 //  - Namespace unique : nkentseu (pas de sous-namespace logger)
 //
-// Auteur : TEUGUIA TADJUIDJE Rodolf / Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Date : 2024-2026
 // License : Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -28,13 +28,18 @@
 
 #include <ctime>
 #include <cstdio>
-#include <sys/stat.h>
 #include <cstring>
 
 #if !defined(_WIN32)
+#include <sys/stat.h>
 #include <time.h>
 #include <dirent.h>
 #else
+// 2026-09-25 : <sys/stat.h> RETIRE de la branche Windows — voir la note
+// detaillee dans NkFileSink.cpp. En resume : le nom d'assembleur de `::stat`
+// depend de la version de mingw-w64 (`stat64i32` chez MSYS2, `_stat64i32`
+// chez llvm-mingw 20240619, celui qu'embarque NKCode), donc un kit compile
+// ici ne se liait pas chez le consommateur. L'API Win32 n'a qu'un seul nom.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -269,8 +274,12 @@ namespace {
 			return false;
 		}
 
+#if defined(_WIN32)
+		return ::GetFileAttributesA(path.CStr()) != INVALID_FILE_ATTRIBUTES;
+#else
 		struct stat fileInfo{};
 		return ::stat(path.CStr(), &fileInfo) == 0;
+#endif
 	}
 
 } // namespace
