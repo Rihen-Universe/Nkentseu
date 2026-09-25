@@ -6895,6 +6895,83 @@ namespace nkentseu {
 										(void)demo::Demo3DHostSetBrushByName(nm);
 									yy += kRowH;
 								}
+						//   ── LES PROPRIETES DE LA BROSSE ACTIVE ────────────────────────
+						//   Rodolf, 25/09 : « on ne voit pas la taille de brosse, on ne peut
+						//   pas modifier les proprietes de dessin d'une brosse : taille,
+						//   epaisseur, douceur, bref tout ». Les trois grandeurs existaient
+						//   -- dans le FICHIER, en lecture seule. Les voici reglables.
+						//
+						//   [!] AUCUN CHAMP INVENTE. Rayon, force et durete sont ce que
+						//       `.nkbrush` porte deja (avec `profil`, `sens`, `espacement` et
+						//       les bornes). Ajouter ici une « epaisseur » qu'aucune formule
+						//       ne lit aurait donne une glissiere qui tourne dans le vide --
+						//       « 108 widgets declares, 2 qui peignent ».
+						//
+						//   [!] LES BORNES VIENNENT DE LA BROSSE, pas d'une plage commune.
+						//       Le format le dit : « une brosse de detail et une brosse de
+						//       blocage n'ont pas la meme plage utile ». Une plage unique
+						//       forcerait toutes les brosses a partager celle de la premiere.
+						//
+						//   [!] ET CE QU'ON AFFICHE EST LA VALEUR EFFECTIVE, lue chez
+						//       l'autorite a chaque image. Un miroir garde ici afficherait
+						//       l'ancienne taille apres un appui sur `[` -- le panneau
+						//       mentirait sur l'etat au moment meme ou on le regarde.
+								{
+									float32 br = 0.f, bf = 0.f, bh = 0.f;
+									float32 rmn = 0.005f, rmx = 2.f, fmn = 0.f, fmx = 1.f;
+									if (demo::Demo3DHostBrushParams(&br, &bf, &bh)) {
+										demo::Demo3DHostBrushRange(&rmn, &rmx, &fmn, &fmx);
+										yy += S(6.f);
+										p.TextV(r.x + kPad, yy, kRowH, "Reglages", NkRole::TextMuted);
+										yy += kRowH - S(2.f);
+										const float32 lw = S(74.f);
+										struct Ligne {
+												const char *lbl;
+												float32 *v;
+												float32 mn, mx, pas;
+												const char *fmt;
+												const char *cle;
+												const char *aide;
+										};
+										const Ligne lg[3] = {
+											{"Taille", &br, rmn, rmx, (rmx - rmn) * 0.004f, "%.3f",
+											 "prop.brosse.r",
+											 "Rayon de la brosse, en unites monde (touches [ et ])"},
+											{"Force", &bf, fmn, fmx, 0.005f, "%.2f", "prop.brosse.f",
+											 "Intensite du coup de brosse (Maj + [ et ])"},
+											{"Douceur", &bh, 0.f, 1.f, 0.005f, "%.2f", "prop.brosse.h",
+											 "Durete du profil : 0 = bord tres doux, 1 = bord franc"}};
+										for (int32 li = 0; li < 3; ++li) {
+											const float32 av = *lg[li].v;
+											p.TextV(r.x + kPad, yy, kRowH, lg[li].lbl, NkRole::TextMuted);
+											const NkRect fr{r.x + kPad + lw, yy + S(3.f),
+															rowR.w - 2.f * kPad - lw, kRowH - S(6.f)};
+											DragFloat(p, hit, ws, in, lg[li].cle, fr, *lg[li].v,
+													  lg[li].pas, NkRole::AccentUi, lg[li].fmt,
+													  lg[li].aide);
+											// LA BORNE EST POSEE ICI *ET* CHEZ L'AUTORITE. Ce n'est
+											// pas un doublon : celle-ci empeche la glissiere
+											// d'AFFICHER une valeur que l'autorite refusera, ce qui
+											// se lirait comme un champ qui ne prend pas.
+											if (*lg[li].v < lg[li].mn)
+												*lg[li].v = lg[li].mn;
+											if (*lg[li].v > lg[li].mx)
+												*lg[li].v = lg[li].mx;
+											if (*lg[li].v != av) {
+												// On n'envoie QUE la grandeur touchee : envoyer les
+												// trois reecrirait les deux autres avec ce que le
+												// panneau croit savoir, et ecraserait un reglage
+												// arrive entre-temps par le clavier.
+												demo::Demo3DHostSetBrushParams(
+													li == 0 ? *lg[li].v : -1.f,
+													li == 1 ? *lg[li].v : -1.f,
+													li == 2 ? *lg[li].v : -1.f);
+											}
+											yy += kRowH - S(2.f);
+										}
+										yy += S(2.f);
+									}
+								}
 						//     Le dossier est dit APRES la liste : c'est la reponse a « comment
 						//     j'en ajoute une », et elle doit se lire sans quitter le panneau.
 								yy += S(4.f);
