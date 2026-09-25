@@ -4145,13 +4145,18 @@ static int32 FamilleVersObj(int32 argc, char **argv) {
 	if (n <= 0) {
 		// Le refus va AUSSI sur la sortie standard : un banc dont le motif part
 		// dans un journal qu'on ne lit pas est un banc muet.
-		printf("FAMILLE_REFUS %s\n", pourquoi);
+		printf("FAMILLE_REFUS n=%d motif=%s\n", (int)n, pourquoi[0] ? pourquoi : "(aucun motif ecrit)");
 		fflush(stdout);
 		NkLog::Instance().Error("famille refusee : {0}", pourquoi);
 		return 1;
 	}
 	FILE *f = fopen(sortie, "wb");
 	if (!f) {
+		// ⚠️ UN BANC MUET SUR L'ECHEC D'ECRITURE M'A FAIT CROIRE A UN PLANTAGE :
+		//    le dossier de sortie n'existait pas, la famille etait parfaitement
+		//    construite, et je bisectais une recette saine.
+		printf("FAMILLE_ECHEC ecriture impossible : %s (le dossier existe-t-il ?)\n", sortie);
+		fflush(stdout);
 		NkLog::Instance().Error("ecriture impossible : {0}", sortie);
 		return 1;
 	}

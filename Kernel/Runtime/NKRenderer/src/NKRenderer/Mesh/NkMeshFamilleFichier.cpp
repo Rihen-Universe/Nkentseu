@@ -385,11 +385,22 @@ namespace nkentseu {
 			env.Poser("nombre", (float32)p.nombre);
 			env.Poser("fenetres", (float32)p.fenetres);
 			env.Poser("detaille", p.detaille ? 1.f : 0.f);
+			env.Poser("cote", 1.f); // hors d'un bloc miroir, il n'y a qu'un cote
 
 			void *S = NkFamOpSortie(&out);
 			void *soupe = nullptr;
 			char nomPiece[24] = {0}, matPiece[24] = {0};
 			bool dansPiece = false;
+			// ── LE MIROIR : LA SYMETRIE EST UNE CONSTRUCTION (25/09) ──────────
+			// ⚠️ ET PAS UNE VERIFICATION. Verifier la symetrie apres coup laisse
+			//    passer les asymetries d'arrondi, et oblige a ecrire deux fois le
+			//    meme membre -- deux ecritures qui divergeront. Ici, le bloc
+			//    `miroir ... fin` est EXECUTE DEUX FOIS : `cote` vaut +1 puis -1, et
+			//    les pieces recoivent le suffixe `_g` puis `_d`. L'auteur ecrit un
+			//    seul bras.
+			const char *miroirDebut = nullptr;
+			int32 miroirPasse = 0; // 0 hors bloc, 1 premiere passe, 2 seconde
+			int32 miroirLigne = 0;
 			int32 nPieces = 0, ligne = 0;
 			// La pile de conditions : `si` / `sinon` / `fin`. Trois niveaux suffisent
 			// pour ces recettes, et une pile plus profonde serait une recette a
@@ -436,6 +447,14 @@ namespace nkentseu {
 						continue;
 				}
 
+				if (strcmp(cle, "miroir") == 0) {
+					miroirDebut = c; // juste apres cette ligne
+					miroirLigne = ligne;
+					miroirPasse = 1;
+					env.Poser("cote", 1.f);
+					continue;
+				}
+
 				// ── le controle de flot d'abord : il vaut meme quand on saute ──
 				if (strcmp(cle, "si") == 0) {
 					float32 v = 0.f;
@@ -463,6 +482,14 @@ namespace nkentseu {
 				if (strcmp(cle, "piece") == 0) {
 					dansPiece = true;
 					Mot(q, nomPiece, sizeof(nomPiece));
+					if (miroirPasse) {
+						const usize ln = strlen(nomPiece);
+						if (ln + 2u < sizeof(nomPiece)) {
+							nomPiece[ln] = '_';
+							nomPiece[ln + 1] = (miroirPasse == 1) ? 'g' : 'd';
+							nomPiece[ln + 2] = 0;
+						}
+					}
 					char mot[16];
 					Mot(q, mot, sizeof(mot)); // « matiere »
 					Mot(q, matPiece, sizeof(matPiece));
@@ -483,6 +510,17 @@ namespace nkentseu {
 							soupe = nullptr;
 							++nPieces;
 						}
+					} else if (miroirPasse == 1 && prof == 0) {
+						// fin du bloc miroir, premiere passe : on rembobine
+						miroirPasse = 2;
+						env.Poser("cote", -1.f);
+						c = miroirDebut;
+						ligne = miroirLigne;
+						continue;
+					} else if (miroirPasse == 2 && prof == 0) {
+						miroirPasse = 0;
+						miroirDebut = nullptr;
+						continue;
 					} else if (prof > 0)
 						--prof;
 					continue;
@@ -534,6 +572,14 @@ namespace nkentseu {
 					// tournee <nom> matiere <mat> en <x> <y> <z> profil <r h>...
 					char nom[24], mot[16], mat[24];
 					Mot(q, nom, sizeof(nom));
+					if (miroirPasse) {
+						const usize ln = strlen(nom);
+						if (ln + 2u < sizeof(nom)) {
+							nom[ln] = '_';
+							nom[ln + 1] = (miroirPasse == 1) ? 'g' : 'd';
+							nom[ln + 2] = 0;
+						}
+					}
 					Mot(q, mot, sizeof(mot));
 					Mot(q, mat, sizeof(mat));
 					Mot(q, mot, sizeof(mot)); // « en »
