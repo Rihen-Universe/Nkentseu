@@ -353,6 +353,29 @@ namespace nkentseu {
 	 *       Gère le cas str == nullptr (devient chaîne vide).
 	 */
 	NkString &NkString::operator=(const char *str) {
+		// 🔴 (25/09) UNE AFFECTATION DEPUIS SON PROPRE TAMPON SE DEFEND ICI.
+		//    `Clear()` ecrit un ' ' en tete du tampon, puis `Append(str)` LIT `str`.
+		//    Si `str` pointe DANS ce tampon -- `s = s.CStr()`, `s = s.CStr() + k`, ou un
+		//    `const char*` obtenu de `s` plus haut -- alors :
+		//      * `s = s.CStr()`     rend une chaine VIDE, en silence ;
+		//      * `s = s.CStr() + k` lit un tampon que `Append` peut REALLOUER en cours
+		//                           de route (petite chaine -> tas).
+		//    C'est une faute qui COMPILE, qui passe souvent, et qui tombe parfois.
+		//
+		// ⚠️ LA DEFENSE EST DANS LE CONTENEUR, PAS CHEZ LES APPELANTS. Les corriger un
+		//    par un demanderait de tous les trouver, et la prochaine ecriture rouvrirait
+		//    le trou. Ici la faute disparait pour tout le monde d'un coup.
+		// ⚠️ ET `operator=(const NkString&)` NE COUVRAIT PAS CE CAS : sa garde est
+		//    `this != &other`, qui protege `a = a` mais pas `a = <pointeur dans a>`.
+		if (str) {
+			const char *deb = GetData();
+			if (str >= deb && str <= deb + mLength) {
+				const NkString copie(str); // recopie AVANT de toucher au tampon
+				Clear();
+				Append(copie);
+				return *this;
+			}
+		}
 		Clear();
 		if (str) {
 			Append(str);
