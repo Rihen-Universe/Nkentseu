@@ -771,15 +771,39 @@ namespace nkentseu {
 			//    `minimizable = false` decrit ce que l'utilisateur peut faire de la
 			//    fenetre, pas ce que le programme s'interdit.
 			// =====================================================================
+			// =====================================================================
+			// `canFullscreen = false` : le plein ecran par l'UTILISATEUR est refuse
+			//
+			// Windows n'a pas de « mode plein ecran » que l'on puisse interdire par
+			// un style. Ce que l'utilisateur a sous la main, c'est :
+			//   • le raccourci systeme Win+Haut / Win+Fleche, qui arrive en
+			//     WM_SYSCOMMAND SC_MAXIMIZE — deja filtre au-dessus quand
+			//     `maximizable` ou `resizable` est faux, et filtre ici quand c'est
+			//     `canFullscreen` qui est faux ;
+			//   • la touche F11, que BEAUCOUP d'applications interpretent elles-memes.
+			//     NKWindow ne lui donne AUCUN sens : elle part a l'application comme
+			//     n'importe quelle touche. Interdire F11 ici serait interdire une
+			//     touche, pas un mode — et casser les applications qui s'en servent
+			//     pour autre chose.
+			//
+			// ⚠️ CE QUE CE REGLAGE NE FAIT PAS, et c'est dit plutot que laisse croire :
+			//    il n'empeche pas `NkWindow::SetFullscreen(true)` — un appel explicite
+			//    du programme est un ordre, exactement comme `Maximize()`. Et il
+			//    n'empeche pas l'utilisateur de glisser la fenetre en haut de l'ecran
+			//    (l'accrochage Aero), qui maximise sans passer par SC_MAXIMIZE : pour
+			//    cela, c'est `resizable = false` qu'il faut, et il retire WS_THICKFRAME.
+			// =====================================================================
 			case WM_SYSCOMMAND: {
 				if (owner) {
 					const NkWindowConfig &wc = owner->GetConfig();
 					const UINT cmd = (UINT)(wp & 0xFFF0);
+
 					const bool interdit = (cmd == SC_CLOSE && !wc.closable) ||
 										  (cmd == SC_MOVE && !wc.movable) ||
 										  (cmd == SC_SIZE && !wc.resizable) ||
 										  (cmd == SC_MINIMIZE && !wc.minimizable) ||
-										  (cmd == SC_MAXIMIZE && (!wc.maximizable || !wc.resizable));
+										  (cmd == SC_MAXIMIZE && (!wc.maximizable || !wc.resizable)) ||
+										  (cmd == SC_MAXIMIZE && !wc.canFullscreen);
 					if (interdit)
 						suppressDefaultProc = true;
 				}

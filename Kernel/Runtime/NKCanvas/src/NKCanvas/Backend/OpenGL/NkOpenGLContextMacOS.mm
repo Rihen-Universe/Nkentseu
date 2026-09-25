@@ -30,52 +30,69 @@ namespace nkentseu {
 			return false;
 		}
 
-		// Construire les attributs pixel format depuis NkOpenGLDesc
+		// Construire les attributs pixel format depuis NkOpenGLDesc.
+		//
+		// REPLI (2026-09-24) : la demande complete (acceleration materielle +
+		// MSAA) echouait sur une machine sans GPU accelere (VM macOS de GitHub :
+		// « NSOpenGLPixelFormat creation failed ») et NKCode ne s'ouvrait pas.
+		// On descend : complet -> sans MSAA -> sans exiger l'acceleration (rendu
+		// logiciel d'Apple) -> profil 3.2 Core. Meme principe que le repli GLX
+		// de NkOpenGLContext.cpp : ce qui ne peut pas se faire a une doublure,
+		// jamais un trou.
+		auto construire = [&](bool accel, bool msaa, bool profil41, NkVector<NSOpenGLPixelFormatAttribute> &attribs) {
+			attribs.Clear();
+			if (gl.profile == NkGLProfile::Core) {
+				attribs.PushBack(NSOpenGLPFAOpenGLProfile);
+				attribs.PushBack(profil41 ? NSOpenGLProfileVersion4_1Core : NSOpenGLProfileVersion3_2Core);
+			}
+			if (accel)
+				attribs.PushBack(NSOpenGLPFAAccelerated);
+			attribs.PushBack(NSOpenGLPFADoubleBuffer); // doubleBuffer toujours sur macOS
+			attribs.PushBack(NSOpenGLPFAColorSize);
+			attribs.PushBack(gl.colorBits >= 32 ? 32 : 24);
+			if (gl.alphaBits > 0) {
+				attribs.PushBack(NSOpenGLPFAAlphaSize);
+				attribs.PushBack(gl.alphaBits);
+			}
+			if (gl.depthBits > 0) {
+				attribs.PushBack(NSOpenGLPFADepthSize);
+				attribs.PushBack(gl.depthBits);
+			}
+			if (gl.stencilBits > 0) {
+				attribs.PushBack(NSOpenGLPFAStencilSize);
+				attribs.PushBack(gl.stencilBits);
+			}
+			if (msaa && gl.msaaSamples > 1) {
+				attribs.PushBack(NSOpenGLPFAMultisample);
+				attribs.PushBack(NSOpenGLPFASampleBuffers);
+				attribs.PushBack(1);
+				attribs.PushBack(NSOpenGLPFASamples);
+				attribs.PushBack(gl.msaaSamples);
+			}
+			attribs.PushBack(0);
+		};
+
+		const bool veut41 = gl.majorVersion >= 4;
+		struct Essai { bool accel, msaa, profil41; const char *nom; };
+		const Essai essais[] = {
+			{true, true, veut41, "demande complete"},
+			{true, false, veut41, "sans MSAA"},
+			{false, false, veut41, "sans acceleration exigee"},
+			{false, false, false, "profil 3.2 Core, sans acceleration exigee"},
+		};
 		NkVector<NSOpenGLPixelFormatAttribute> attribs;
-
-		// Profil Core
-		if (gl.profile == NkGLProfile::Core) {
-			attribs.PushBack(NSOpenGLPFAOpenGLProfile);
-			if (gl.majorVersion >= 4)
-				attribs.PushBack(NSOpenGLProfileVersion4_1Core);
-			else
-				attribs.PushBack(NSOpenGLProfileVersion3_2Core);
+		NSOpenGLPixelFormat *pf = nil;
+		for (const Essai &e : essais) {
+			construire(e.accel, e.msaa, e.profil41, attribs);
+			pf = [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs.Data()];
+			if (pf) {
+				if (&e != &essais[0])
+					NK_GL_LOG("pixel format obtenu en repli : %s\n", e.nom);
+				break;
+			}
 		}
-
-		attribs.PushBack(NSOpenGLPFAAccelerated);
-		attribs.PushBack(NSOpenGLPFADoubleBuffer); // doubleBuffer toujours sur macOS
-
-		if (gl.colorBits >= 32) {
-			attribs.PushBack(NSOpenGLPFAColorSize);
-			attribs.PushBack(32);
-		} else {
-			attribs.PushBack(NSOpenGLPFAColorSize);
-			attribs.PushBack(24);
-		}
-		if (gl.alphaBits > 0) {
-			attribs.PushBack(NSOpenGLPFAAlphaSize);
-			attribs.PushBack(gl.alphaBits);
-		}
-		if (gl.depthBits > 0) {
-			attribs.PushBack(NSOpenGLPFADepthSize);
-			attribs.PushBack(gl.depthBits);
-		}
-		if (gl.stencilBits > 0) {
-			attribs.PushBack(NSOpenGLPFAStencilSize);
-			attribs.PushBack(gl.stencilBits);
-		}
-		if (gl.msaaSamples > 1) {
-			attribs.PushBack(NSOpenGLPFAMultisample);
-			attribs.PushBack(NSOpenGLPFASampleBuffers);
-			attribs.PushBack(1);
-			attribs.PushBack(NSOpenGLPFASamples);
-			attribs.PushBack(gl.msaaSamples);
-		}
-		attribs.PushBack(0);
-
-		NSOpenGLPixelFormat *pf = [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs.Data()];
 		if (!pf) {
-			NK_GL_ERR("NSOpenGLPixelFormat creation failed\n");
+			NK_GL_ERR("NSOpenGLPixelFormat creation failed (tous les replis refuses)\n");
 			return false;
 		}
 

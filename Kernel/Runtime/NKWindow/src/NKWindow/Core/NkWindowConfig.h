@@ -65,7 +65,34 @@ namespace nkentseu {
 			uintptr win32PixelFormatShareWindowHandle = 0;
 	};
 
-	// -------------------------------------------------------------------------
+	// ═══════════════════════════════════════════════════════════════════════
+	// LE CONTRAT TAILLE / POSITION — ecrit le 25/09/2026, apres un defaut qui a
+	// vecu des mois : `SetSize(GetSize())` n'etait PAS l'identite, et la fenetre
+	// des editeurs grossissait de +16 px en largeur et +39 en hauteur A CHAQUE
+	// LANCEMENT (ils sauvent leur geometrie a la fermeture et la restaurent au
+	// demarrage). Signature d'un cote qui parle CLIENT et d'un autre FENETRE.
+	//
+	//   LA TAILLE EST TOUJOURS LA ZONE **CLIENT** — la surface ou l'on dessine,
+	//   sans barre de titre ni bordure.
+	//     `width` / `height`, `minWidth` / `minHeight`, `maxWidth` / `maxHeight`,
+	//     `NkWindow::GetSize()`, `NkWindow::SetSize()`.
+	//     C'est aussi la taille de la swapchain : demander 1280x720 donne
+	//     1280x720 pixels a peindre, sur toutes les plateformes.
+	//
+	//   LA POSITION EST TOUJOURS LE COIN HAUT-GAUCHE DE LA **FENETRE** — cadre
+	//   compris, parce que c'est le seul point que l'utilisateur voit et que le
+	//   systeme sait placer.
+	//     `x` / `y`, `NkWindow::GetPosition()`, `NkWindow::SetPosition()`.
+	//
+	// Consequences a connaitre :
+	//   • `SetSize(GetSize())` est une IDENTITE. Dix cycles ne deplacent rien.
+	//     C'est le critere que mesure `NkWindowSonde` (essai G).
+	//   • une fenetre SANS CADRE a fenetre == client : la conversion ne doit
+	//     RIEN ajouter, et c'est la garde qui manquait aux deux tiers des sites.
+	//   • la conversion client -> fenetre n'existe qu'a UN endroit par dorsal.
+	//     Si vous en ecrivez une deuxieme, vous reintroduisez ce defaut.
+	// ═══════════════════════════════════════════════════════════════════════
+	//
 	// NkWindowConfig
 	//
 	// ⚠️ TOUS CES REGLAGES NE SONT PAS TENUS PAR TOUS LES DORSAUX, et c'est
@@ -80,9 +107,17 @@ namespace nkentseu {
 	//    NOMME sort au journal, une fois, avec le nom du champ et celui de la
 	//    plateforme (voir `NkWindowAudit.h`). Si votre reglage ne produit rien
 	//    et que le journal est muet, le defaut est ailleurs que dans ce struct.
+	//
+	// ⚠️ UN ACCESSEUR DECRIT LE MONDE, PAS NOTRE MEMOIRE. `IsAlwaysOnTop()`,
+	//    `GetOpacity()`, `IsClickThrough()` rendent ce que la fenetre EST — donc
+	//    `false` / `1.0` / `false` la ou la propriete n'a pas ete appliquee, et
+	//    la ou il n'y a pas (ou plus) de fenetre native.
 	// -------------------------------------------------------------------------
 	struct NkWindowConfig {
 			// --- Position et taille ---
+			// x, y      : coin haut-gauche de la FENETRE (cadre compris)
+			// width,    : taille de la zone CLIENT (surface dessinable)
+			// height      — cf. LE CONTRAT ci-dessus. Ne pas melanger.
 			int32 x = 100;
 			int32 y = 100;
 			uint32 width = 1280;
