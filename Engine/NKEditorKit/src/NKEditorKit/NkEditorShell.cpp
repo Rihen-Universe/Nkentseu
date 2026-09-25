@@ -479,6 +479,10 @@ namespace nkentseu {
 			wc.centered = true;
 			wc.resizable = config.resizable;
 			wc.frame = false; // SANS bordure OS -> barre de titre custom (VSCode)
+			// (25/09) SOUS `NK_SONDE`, LA FENETRE NE PREND PAS LE FOCUS. C'est la
+			// vraie parade au vol de clics ; la porte par image ne fait que jeter ce
+			// qui est entre malgre tout. Hors sonde, rien ne bouge.
+			(void)NkSondePoserFenetreDiscrete(wc);
 			if (!mWindow.Create(wc))
 				return false;
 			CopyStr(mTitle, config.title, sizeof(mTitle));

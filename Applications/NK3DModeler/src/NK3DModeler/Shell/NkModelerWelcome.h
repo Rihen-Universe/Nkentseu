@@ -598,6 +598,54 @@ namespace nkentseu {
 				}
 
 				p.TextV(x, y, S(24.f), "Projets recents");
+				// ── (25/09) « RETIRER LES PROJETS INTROUVABLES » ──────────────────
+				// Mesure du 24/09 : 19 des 20 premieres cartes de Rodolf pointaient vers
+				// des projets disparus. Une liste qu'on ne peut pas nettoyer devient une
+				// liste qu'on ne lit plus.
+				//
+				// ⚠️ LE BOUTON ANNONCE LE NOMBRE AVANT D'AGIR, et il n'existe que s'il y
+				//    a quelque chose a retirer. C'est la difference entre proposer un
+				//    geste et le prendre : Rodolf voit « 19 », puis decide. **Aucune
+				//    purge sans son clic** -- et le retrait ne touche QUE la liste des
+				//    recents, jamais le disque.
+				//
+				// ⚠️ IL NE COMPTE QUE CE QUI A ETE REGARDE. `etatFichier` vaut 0 tant
+				//    qu'une carte n'a pas ete dessinee : on ne va pas sonder 103 chemins
+				//    pour afficher un nombre. Le compte grandit donc a mesure que Rodolf
+				//    defile -- et il ne PROMET jamais plus que ce qu'il a vu.
+				{
+					int32 morts = 0;
+					for (usize k = 0; k < rec.items.Size(); ++k)
+						if (rec.items[k].etatFichier == 2u || rec.items[k].etatFichier == 3u)
+							++morts;
+					if (morts > 0) {
+						char lib[80];
+						snprintf(lib, sizeof(lib), "Retirer les %d projet(s) vide(s) ou introuvable(s)", (int)morts);
+						const float32 bw = S(260.f), bh = S(24.f);
+						const NkRect br{x + w - bw, y - S(2.f), bw, bh};
+						const bool ovR = hit.Add("wel.purge", br);
+						p.Outline(br, ovR ? NkRole::AccentUi : NkRole::Border,
+								  ovR ? NkRole::PanelHeader : NkRole::PanelBg, 4.f);
+						p.TextV(br.x + S(8.f), br.y + S(4.f), S(18.f), lib,
+								ovR ? NkRole::Text : NkRole::TextMuted);
+						if (ovR)
+							hit.WantCursor(NkCursorWant::Hand);
+						if (hit.Clicked("wel.purge")) {
+							// A REBOURS : retirer par index en montant decalerait tout ce
+							// qui suit, et on sauterait une entree sur deux.
+							int32 retires = 0;
+							for (isize k = (isize)rec.items.Size() - 1; k >= 0; --k)
+								if (rec.items[(usize)k].etatFichier == 2u || rec.items[(usize)k].etatFichier == 3u) {
+									rec.Remove((usize)k);
+									++retires;
+								}
+							std::printf("[nk3d] ACCUEIL %d projet(s) vide(s) ou introuvable(s) retire(s) de la "
+										"liste des recents (le disque n'est pas touche)\n",
+										(int)retires);
+							std::fflush(stdout);
+						}
+					}
+				}
 				p.HLine(x, y + S(26.f), w);
 				y += S(38.f);
 
@@ -699,11 +747,46 @@ namespace nkentseu {
 						if (cr.y + cr.h < area.y || cr.y > area.y + area.h)
 							continue;
 						NkRecentEntry &e = rec.items[(usize)i];
+						// (25/09) LE FICHIER EXISTE-T-IL ? Mesure UNE fois par entree, a la
+						// premiere image ou la carte se voit -- pas a chaque image, et pas
+						// pour les cartes hors champ (la boucle les a deja sautees).
+						if (e.etatFichier == 0) {
+							// ⚠️ CE N'EST PAS « LE FICHIER EXISTE-T-IL », ET C'EST UNE PREMISSE
+							//    QUE J'AI DU CORRIGER. `NkRecentList::Load` FILTRE DEJA les
+							//    entrees dont le `.nk3dm` a disparu (`if (!e.path.Empty() &&
+							//    NkFile::Exists(...)) items.PushBack(e)`) : une carte
+							//    « fichier introuvable » ne peut donc pas exister au
+							//    lancement. Mesure : une liste de 5 morts + 1 vivant charge
+							//    « 1 projet(s) recent(s) ».
+							//    Ce que Rodolf voit -- 19 cartes sur 20 sans vignette -- ce
+							//    sont des projets QUI EXISTENT ET QUI SONT VIDES : le `.nk3dm`
+							//    est la, le dossier ne porte AUCUN `.nkscene`. Des coquilles
+							//    creees par des courses de mesure.
+							// ⚠️ UN BALAYAGE DE DOSSIER PAR CARTE, UNE SEULE FOIS, et
+							//    seulement pour les cartes DESSINEES : la boucle a deja saute
+							//    celles qui sont hors champ.
+							const NkString dossier = NkPath(e.path.CStr()).GetParent().ToString();
+							const bool absent = !NkFile::Exists(e.path.CStr());
+							bool vide = false;
+							if (!absent) {
+								const NkVector<NkString> sc = NkDirectory::GetFiles(
+									dossier.CStr(), "*.nkscene", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+								vide = sc.Empty();
+							}
+							e.etatFichier = absent ? 2u : (vide ? 3u : 1u);
+						}
+						const bool introuvable = (e.etatFichier == 2u);
+						const bool vide = (e.etatFichier == 3u);
+						const bool aRetirer = introuvable || vide;
 						snprintf(key, sizeof(key), "wel.rec.%d", i);
 						const bool over = hit.Add(key, cr);
-						p.Outline(cr, over ? NkRole::AccentUi : NkRole::Border,
-								  over ? NkRole::PanelHeader : NkRole::PanelBg, 5.f);
-						if (over)
+						p.Outline(cr, over && !aRetirer ? NkRole::AccentUi : NkRole::Border,
+								  over && !aRetirer ? NkRole::PanelHeader : NkRole::PanelBg, 5.f);
+						// ⚠️ PAS LA MAIN SUR UNE CARTE MORTE : le curseur promet un clic qui
+						//    ne peut qu'echouer. La carte reste cliquable -- l'ouverture rend
+						//    alors un refus NOMME -- mais elle cesse de faire la publicite
+						//    d'un projet qui n'existe pas.
+						if (over && !aRetirer)
 							hit.WantCursor(NkCursorWant::Hand);
 
 						// VIGNETTE : la derniere image du projet, PLEINE LARGEUR de
@@ -724,9 +807,18 @@ namespace nkentseu {
 						const float32 txx = cr.x + S(10.f);
 						p.Clip({txx, cr.y + thumbH, cr.w - S(66.f), S(46.f)});
 						p.TextV(txx, cr.y + thumbH + S(4.f), S(22.f), e.name.CStr());
-						p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f),
-								e.date.Empty() ? "date inconnue" : e.date.CStr(),
-								NkRole::TextMuted);
+						// (25/09) UNE CARTE MORTE LE DIT, a la place de sa date : la date
+						// d'un projet disparu n'apprend rien, et l'absence, si.
+						if (introuvable)
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet introuvable",
+									NkRole::StatusErr);
+						else if (vide)
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet vide — aucune scene",
+									NkRole::StatusErr);
+						else
+							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f),
+									e.date.Empty() ? "date inconnue" : e.date.CStr(),
+									NkRole::TextMuted);
 						p.Unclip();
 
 						// EPINGLE et RETRAIT, comme NKCode. L'epingle garde le projet

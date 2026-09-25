@@ -443,6 +443,17 @@ namespace nkentseu {
 
 		// ── RECENTS : LE PATRON DE NKCODE ───────────────────────────────────────
 		NkString NkRecentFilePath() {
+			// (25/09) NK_RECENTS=<chemin> : la liste des recents d'une MESURE.
+			// ⚠️ DEUX RAISONS, ET LA SECONDE EST LA PLUS IMPORTANTE :
+			//    1. eprouver l'etat « projet introuvable » demande une liste qui en
+			//       contient, et on ne fabrique pas ca dans celle de Rodolf ;
+			//    2. **nos courses de mesure ECRIVENT dans sa liste.** Elle porte 105
+			//       entrees, dont la plupart sont des projets crees par des sondes. Une
+			//       sonde qui pollue l'etat de l'utilisateur est une sonde qui modifie ce
+			//       qu'elle mesure. Cette porte lui rend son fichier.
+			if (const char *vr = env::GetEnvVar("NK_RECENTS"))
+				if (*vr)
+					return NkString(vr);
 			const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 			if (!home || !*home)
 				home = env::GetEnvVar("HOME");
