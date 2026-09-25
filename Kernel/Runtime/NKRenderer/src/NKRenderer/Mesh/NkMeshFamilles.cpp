@@ -1024,7 +1024,14 @@ namespace nkentseu {
 					{"portail", &Porte,
 					 "famille portail style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2> detail <simple|detaille>"},
 					{"table", &Table,
-					 "famille table largeur <metres> profondeur <metres> hauteur <metres> pieds <4> detail <simple|detaille>"},
+					 					 // ⚠️ PAS DE CHAMP `pieds` (25/09). Le formulaire le demandait, `Table`
+					 // ne le lit pas -- quatre pieds, toujours -- et le lecteur du
+					 // modeleur n'en connait pas la cle : le modele repondait
+					 // consciencieusement `pieds 4` et recevait « parametre inconnu
+					 // « pieds », ignore ». Un formulaire ne demande QUE ce que le
+					 // constructeur honore ; sinon il fabrique un refus a partir de sa
+					 // propre question.
+					 "famille table largeur <metres> profondeur <metres> hauteur <metres> detail <simple|detaille>"},
 					{"maison", &Maison,
 					 "famille maison toit <deux_pans|plat> largeur <metres> profondeur <metres> etages <1|2|3> fenetres <2..6> detail <simple|detaille>"},
 			};
