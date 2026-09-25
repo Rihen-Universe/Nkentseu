@@ -516,7 +516,7 @@ int nkmain(const NkEntryState &state) {
 		guiBackend.UploadFontGray8(guiFontPtr->TexId(), guiFontPtr->pixels, guiFontPtr->atlasW, guiFontPtr->atlasH);
 	}
 	bool panelOpen = false;			 // le tiroir ne gâche l'espace QUE s'il est ouvert
-	constexpr float32 kPanelW = 300.0f; // largeur du tiroir (les sliders NKGui ont un label à droite)
+	constexpr float32 kPanelW = 340.0f; // largeur du tiroir (les sliders NKGui ont un label à droite)
 	// Le conflit « glisser le vide » (question de Rihen) tranché par un RÉGLAGE :
 	// coché (défaut, geste PureRef) = déplacer la FENÊTRE, et le rectangle passe
 	// par Ctrl+glisser ; décoché = glisser trace le rectangle directement.
@@ -537,7 +537,10 @@ int nkmain(const NkEntryState &state) {
 	bool settingsOpen = false;
 	int32 settingsTab = 0; // 0 Préférences, 1 Couleurs, 2 Raccourcis
 	bool autoDownscale = true; // préférence réelle : plafond d'import 4096 px
-	constexpr float32 kMenuW = 190.0f, kMenuH = 620.0f, kSubW = 210.0f, kSubH = 250.0f;
+	// Largeurs relevees apres le test d'usage du 14/09 : "Nouvelle planche
+	// (Ctrl+K)" debordait du menu, et le tiroir coupait "Opacite fen..." et
+	// "Epaisseur (p...".
+	constexpr float32 kMenuW = 228.0f, kMenuH = 620.0f, kSubW = 210.0f, kSubH = 250.0f;
 	NkClock clock;
 
 	NkAgentHooks agent;
@@ -560,13 +563,30 @@ int nkmain(const NkEntryState &state) {
 	float32 grabAngleDeg = 0.0f;			 // angle centre→souris à la prise
 	bool homeWasDown = false;
 	int32 titleCooldown = 0;
+	// Ce que le titre AFFICHE deja : sans ces deux temoins il gardait jusqu'a
+	// quinze images de retard, et un testeur a lu « 0 image » dans le titre
+	// pendant que le panneau disait « 1 image », juste apres un collage.
+	// Un avis passager, pour les actions qui n'ont VISIBLEMENT rien fait :
+	// sans lui, `Pack` sur une seule image ne bouge rien et laisse croire que
+	// le clic s'est perdu.
+	char avisTexte[64] = "";
+	int32 avisTicks = 0;
+	int32 dernierTitreImages = -1;
+	bool dernierTitreDirty = false;
 	// Échecs de chargement VISIBLES : sans console, un fichier illisible était
 	// un échec muet (retour Rihen : « 8 déposés, 6 pris en compte » — les deux
 	// autres étaient des formats non décodés). Compté, affiché dans le titre.
 	int32 loadFailCount = 0;
 	int32 loadFailTicks = 0;
+	// La CAUSE du dernier échec, en clair. « format ? » était le seul mot
+	// affiché, y compris quand le fichier avait été déplacé.
+	char loadFailWhy[32] = "";
 	char windowTitle[192] = "NkRef"; // partagé : SetTitle (barre des tâches) + en-tête custom
 	bool running = true;
+	// Fermer ne detruit plus le travail en silence : un testeur a perdu sa
+	// planche le 14/09, la fenetre s'etant fermee sans rien demander alors que
+	// le titre portait l'etoile du « non enregistre ».
+	bool demandeFermeture = false;
 
 	// ── Les ACTIONS, partagées entre la souris et les crochets d'agent ──────
 	// (un seul chemin : le crochet appelle exactement ce que l'événement appelle)
@@ -579,6 +599,7 @@ int nkmain(const NkEntryState &state) {
 		NkImage img;
 		if (srcBytes.Empty() || !img.LoadFromMemory(srcBytes.Data(), (usize)srcBytes.Size())) {
 			logger.Warn("[NkRef] image illisible : %s", path);
+			std::snprintf(loadFailWhy, sizeof(loadFailWhy), "image illisible");
 			++loadFailCount;
 			loadFailTicks = 400; // ~4 s d'affichage dans le titre
 			return -1;
@@ -615,6 +636,7 @@ int nkmain(const NkEntryState &state) {
 		const uint32 w = (uint32)srcImg.Width(), h = (uint32)srcImg.Height();
 		if (!okTex) {
 			logger.Warn("[NkRef] upload GPU echoue : %s", path);
+			std::snprintf(loadFailWhy, sizeof(loadFailWhy), "envoi GPU");
 			if (tex)
 				alloc.Delete(tex);
 			++loadFailCount;
@@ -941,13 +963,24 @@ int nkmain(const NkEntryState &state) {
 		nkref::NkRefView loadedView;
 		bool loadedDark = darkTheme;
 		bool loadedGrid = showGrid;
-		if (bytes.Empty() ||
-			!nkref::NkRefDeserialize(bytes.Data(), (usize)bytes.Size(), items, strokes, loadedView, loadedDark,
-									 loadedGrid)) {
-			logger.Warn("[NkRef] planche illisible : %s", path.CStr());
+		// Deux échecs très différents portaient le MÊME avis, « format ? ».
+		// Un testeur l'a signalé sur un récent : le message accusait le format
+		// alors que le fichier avait simplement été déplacé. Nommer la cause
+		// coûte une ligne et évite de chercher au mauvais endroit.
+		if (bytes.Empty()) {
+			logger.Warn("[NkRef] planche introuvable ou vide : %s", path.CStr());
+			std::snprintf(loadFailWhy, sizeof(loadFailWhy), "introuvable");
 			++loadFailCount;
 			loadFailTicks = 400;
 			return false; // la planche courante n'est PAS touchée
+		}
+		if (!nkref::NkRefDeserialize(bytes.Data(), (usize)bytes.Size(), items, strokes, loadedView, loadedDark,
+									 loadedGrid)) {
+			logger.Warn("[NkRef] ce fichier n'est pas une planche NkRef : %s", path.CStr());
+			std::snprintf(loadFailWhy, sizeof(loadFailWhy), "pas une planche");
+			++loadFailCount;
+			loadFailTicks = 400;
+			return false;
 		}
 		clearBoard();
 		for (usize i = 0; i < items.Size(); ++i) {
@@ -963,6 +996,7 @@ int nkmain(const NkEntryState &state) {
 			}
 			if (!tex) { // image du fichier corrompue : on la saute, on le dit
 				logger.Warn("[NkRef] image %u du .nkref illisible, ignoree", (unsigned)i);
+				std::snprintf(loadFailWhy, sizeof(loadFailWhy), "image du fichier");
 				++loadFailCount;
 				loadFailTicks = 400;
 				continue;
@@ -1027,7 +1061,7 @@ int nkmain(const NkEntryState &state) {
 		// ── Événements ──────────────────────────────────────────────────────
 		while (NkEvent *ev = events.PollEvent()) {
 			if (ev->Is<NkWindowCloseEvent>()) {
-				running = false;
+				demandeFermeture = true;
 				break;
 			}
 
@@ -1086,7 +1120,7 @@ int nkmain(const NkEntryState &state) {
 					// L'en-tête escamotable : boutons − □ ×, sinon déplacement natif.
 					const int32 bh = barHit(px, py, vp);
 					if (bh == 4)
-						running = false;
+						demandeFermeture = true;
 					else if (bh == 3)
 						window.Maximize(); // bascule agrandir/restaurer (Win32)
 					else if (bh == 2)
@@ -1373,7 +1407,7 @@ int nkmain(const NkEntryState &state) {
 				if (nkgui::Checkbox(gui, "Toujours devant (T)", onTop))
 					window.SetAlwaysOnTop(onTop);
 				float32 wop = window.GetOpacity();
-				if (nkgui::SliderFloat(gui, "Opacite fenetre", wop, 0.2f, 1.0f))
+				if (nkgui::SliderFloat(gui, "Opacite", wop, 0.2f, 1.0f))
 					window.SetOpacity(wop);
 				nkgui::Checkbox(gui, "Glisser le fond = fenetre", dragEmptyMovesWindow);
 				nkgui::Separator(gui);
@@ -1425,7 +1459,7 @@ int nkmain(const NkEntryState &state) {
 						}
 					}
 				}
-				nkgui::SliderFloat(gui, "Epaisseur (px)", penWidthPx, 1.0f, 24.0f);
+				nkgui::SliderFloat(gui, "Epaisseur", penWidthPx, 1.0f, 24.0f);
 				if (nkgui::Button(gui, "Annuler le dernier trait")) {
 					board.UndoStroke();
 					boardDirty = true;
@@ -1600,8 +1634,12 @@ int nkmain(const NkEntryState &state) {
 					ctxMenuOpen = false;
 				}
 				nkgui::Separator(gui);
-				if (nkgui::Button(gui, "Fermer NkRef"))
-					running = false;
+				if (nkgui::Button(gui, "Fermer NkRef")) {
+					// Le menu se referme AVANT : il restait sinon affiche par-dessus la
+					// demande de confirmation, et le bouton passait pour sans effet.
+					ctxMenuOpen = false;
+					demandeFermeture = true;
+				}
 				nkgui::EndPanel(gui);
 			}
 			if (ctxSub == 2) {
@@ -1617,7 +1655,19 @@ int nkmain(const NkEntryState &state) {
 								base = c + 1;
 						if (nkgui::Button(gui, base)) {
 							ctxMenuOpen = false;
-							openBoardFrom(recents[ri]);
+							// Une entrée qui ne s'ouvre plus SORT de la liste.
+							// Sans cela, un fichier déplacé restait proposé
+							// indéfiniment et rejouait le même avis à chaque
+							// clic, sans qu'on puisse s'en débarrasser.
+							const NkString choisi = recents[ri];
+							if (!openBoardFrom(choisi)) {
+								NkVector<NkString> restants;
+								for (usize k = 0; k < recents.Size(); ++k)
+									if (!(recents[k] == choisi))
+										restants.PushBack(recents[k]);
+								recents = traits::NkMove(restants);
+								saveRecents();
+							}
 							break; // recents vient d'être réordonné
 						}
 					}
@@ -1663,6 +1713,46 @@ int nkmain(const NkEntryState &state) {
 				}
 			}
 		}
+		// ── Fermer sans perdre : toute demande de sortie passe par ici ──────
+		//
+		// Retour d'usage du 14/09 : « Fermer NkRef ne ferme rien », puis
+		// « fermer la fenetre perd la planche sans prevenir ». Les deux sont le
+		// meme manque : aucune etape entre le geste et la perte du travail.
+		//
+		// Une planche INTACTE se ferme sans rien demander : confirmer ce qui ne
+		// risque rien apprend surtout a cliquer sans lire.
+		if (demandeFermeture) {
+			if (!boardDirty || !hasGui) {
+				running = false;
+			} else {
+				nkgui::SetNextWindowPos(gui, (vp.x - 470.0f) * 0.5f, (vp.y - 180.0f) * 0.5f);
+				nkgui::SetNextWindowSize(gui, 470.0f, 180.0f);
+				bool ouverte = true;
+				if (nkgui::Begin(gui, "Fermer NkRef", &ouverte, nkgui::NkGuiWindowFlags::NoCollapse)) {
+					nkgui::Text(gui, "Cette planche a change depuis le dernier enregistrement.");
+					nkgui::Separator(gui);
+					if (nkgui::Button(gui, "Enregistrer et fermer")) {
+						doSave();
+						// `doSave` ouvre un dialogue natif qui peut etre annule : on ne
+						// ferme que si la planche est REELLEMENT enregistree.
+						if (!boardDirty)
+							running = false;
+						else
+							demandeFermeture = false;
+					}
+					gui.SameLine();
+					if (nkgui::Button(gui, "Fermer sans enregistrer"))
+						running = false;
+					gui.SameLine();
+					if (nkgui::Button(gui, "Annuler"))
+						demandeFermeture = false;
+					nkgui::EndWindow(gui);
+				}
+				if (!ouverte)
+					demandeFermeture = false; // la croix de la boite vaut « Annuler »
+			}
+		}
+
 		gui.EndFrame();
 
 		// ── Rendu : fond + grille + images + sélection, en espace écran ─────
@@ -1786,6 +1876,32 @@ int nkmain(const NkEntryState &state) {
 			const NkColor2D col = ((int32)i == board.active) ? activeCol : selCol;
 			for (int32 k = 0; k < 4; ++k)
 				r.DrawLine(p[k], p[(k + 1) % 4], col, 1.5f);
+			// **Une selection qu'on ne voit pas n'existe pas.** Le contour suit les
+			// bords de l'image : une image plus grande que la fenetre a donc ses
+			// quatre cotes hors champ, et l'utilisateur ne sait plus ce qui est
+			// selectionne (retour de deux testeurs le 14/09, sur une image de
+			// 5238x1929). On redessine alors le cadre RAMENE a l'ecran.
+			float32 bx0 = p[0].x, by0 = p[0].y, bx1 = p[0].x, by1 = p[0].y;
+			for (int32 k = 1; k < 4; ++k) {
+				bx0 = p[k].x < bx0 ? p[k].x : bx0;
+				by0 = p[k].y < by0 ? p[k].y : by0;
+				bx1 = p[k].x > bx1 ? p[k].x : bx1;
+				by1 = p[k].y > by1 ? p[k].y : by1;
+			}
+			const bool deborde = bx0 < 0.0f || by0 < kBarH || bx1 > vp.x || by1 > vp.y;
+			if (deborde) {
+				const float32 m = 3.0f; // le cadre reste lisible contre le bord
+				const float32 cx0 = bx0 < m ? m : bx0;
+				const float32 cy0 = by0 < kBarH + m ? kBarH + m : by0;
+				const float32 cx1 = bx1 > vp.x - m ? vp.x - m : bx1;
+				const float32 cy1 = by1 > vp.y - m ? vp.y - m : by1;
+				if (cx1 > cx0 && cy1 > cy0) {
+					r.DrawLine({cx0, cy0}, {cx1, cy0}, col, 1.5f);
+					r.DrawLine({cx1, cy0}, {cx1, cy1}, col, 1.5f);
+					r.DrawLine({cx1, cy1}, {cx0, cy1}, col, 1.5f);
+					r.DrawLine({cx0, cy1}, {cx0, cy0}, col, 1.5f);
+				}
+			}
 			if ((int32)i == board.active) {
 				for (int32 k = 0; k < 4; ++k)
 					r.DrawFilledRect({p[k].x - 4.0f, p[k].y - 4.0f, 8.0f, 8.0f}, activeCol);
@@ -1808,6 +1924,39 @@ int nkmain(const NkEntryState &state) {
 			r.DrawLine({x0 + w, y0}, {x0 + w, y0 + h}, rimCol, 1.0f);
 			r.DrawLine({x0 + w, y0 + h}, {x0, y0 + h}, rimCol, 1.0f);
 			r.DrawLine({x0, y0 + h}, {x0, y0}, rimCol, 1.0f);
+		}
+
+		// ── La planche vide dit quoi faire ──────────────────────────────────
+		//
+		// Une grille nue, aucun bouton, et l'action principale cachee dans le
+		// menu du clic droit : dix-neuf secondes d'hesitation mesurees avant le
+		// premier geste, chez quelqu'un qui cherchait justement quoi faire.
+		//
+		// Le texte dispara\u00eet des qu'il y a quelque chose sur la planche : il
+		// aide au debut, il n'encombre jamais ensuite.
+		if (hasFont && board.items.Empty() && board.strokes.Empty()) {
+			struct Ligne {
+					const char *texte;
+					uint32 taille;
+			};
+			static const Ligne kAccueil[] = {
+				{"Collez une image : Ctrl+V", 20},
+				{"ou ouvrez une planche : Ctrl+O", 16},
+				{"Clic droit : tout le menu", 16},
+			};
+			float32 y = vp.y * 0.5f - 34.0f;
+			for (int32 i = 0; i < (int32)(sizeof(kAccueil) / sizeof(kAccueil[0])); ++i) {
+				NkText txt(uiFont, kAccueil[i].texte, kAccueil[i].taille);
+				txt.SetFillColor(th.barText);
+				// Centrage sur la largeur mesuree du texte, pas sur une estimation :
+				// la police embarquee n'est pas monospace. NkText n'expose pas de
+				// GetSize() : la mesure passe par la boite englobante locale, dont
+				// l'union donne `size` (largeur, hauteur) aussi bien que `width`.
+				const float32 largeur = txt.GetLocalBounds().size.x;
+				txt.SetPosition({(vp.x - largeur) * 0.5f, y});
+				target.Draw(txt);
+				y += (float32)kAccueil[i].taille + 12.0f;
+			}
 		}
 
 		// ── L'en-tête escamotable (par-dessus tout) ─────────────────────────
@@ -1908,11 +2057,19 @@ int nkmain(const NkEntryState &state) {
 
 		target.Display();
 
+		if (avisTicks > 0 && --avisTicks == 0) {
+			avisTexte[0] = '\0';
+			titleCooldown = 0;
+		}
 		if (loadFailTicks > 0 && --loadFailTicks == 0) {
 			loadFailCount = 0; // l'avis expire, le compteur repart
 			titleCooldown = 0;
 		}
+		if ((int32)board.items.Size() != dernierTitreImages || boardDirty != dernierTitreDirty)
+			titleCooldown = 0; // ce qu'il annonce a change : on n'attend pas
 		if (--titleCooldown <= 0) {
+			dernierTitreImages = (int32)board.items.Size();
+			dernierTitreDirty = boardDirty;
 			char extra[96] = "";
 			// L'état « fenêtre discrète » se lit dans le titre (pas encore de menu).
 			if (window.IsAlwaysOnTop() && window.GetOpacity() < 1.0f)
@@ -1923,10 +2080,14 @@ int nkmain(const NkEntryState &state) {
 			else if (window.GetOpacity() < 1.0f)
 				std::snprintf(extra, sizeof(extra), " - opacite %d%%",
 							  (int)(window.GetOpacity() * 100.0f + 0.5f));
+			char avis[80] = "";
+			if (avisTicks > 0 && avisTexte[0])
+				std::snprintf(avis, sizeof(avis), " - %s", avisTexte);
 			char fails[64] = "";
 			if (loadFailCount > 0 && loadFailTicks > 0)
-				std::snprintf(fails, sizeof(fails), " - %d fichier%s illisible%s (format ?)", (int)loadFailCount,
-							  loadFailCount > 1 ? "s" : "", loadFailCount > 1 ? "s" : "");
+				std::snprintf(fails, sizeof(fails), " - %d fichier%s refuse%s (%s)", (int)loadFailCount,
+							  loadFailCount > 1 ? "s" : "", loadFailCount > 1 ? "s" : "",
+							  loadFailWhy[0] ? loadFailWhy : "format");
 			// Nom de la planche + étoile « non enregistré » (même langage
 			// visuel que le modeleur), avant le zoom et le compte.
 			const char *bn = "sans titre";
@@ -1941,7 +2102,7 @@ int nkmain(const NkEntryState &state) {
 			std::snprintf(t2, sizeof(t2), "NkRef - %s%s - %d%% - %d image%s", bn, boardDirty ? "*" : "",
 						  (int)(view.zoom * 100.0f + 0.5f), (int)board.items.Size(),
 						  board.items.Size() > 1 ? "s" : "");
-			std::snprintf(windowTitle, sizeof(windowTitle), "%s%s%s", t2, extra, fails);
+			std::snprintf(windowTitle, sizeof(windowTitle), "%s%s%s%s", t2, extra, avis, fails);
 			window.SetTitle(windowTitle); // barre des tâches / Alt+Tab
 			titleCooldown = 15;
 		}
