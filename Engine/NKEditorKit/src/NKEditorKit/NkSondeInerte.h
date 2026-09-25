@@ -55,6 +55,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKWindow/Core/NkWindowConfig.h" // (25/09) `noActivate` : la vraie parade au vol de focus
 #include <cstdio>
 #include <cstdlib>
 
@@ -110,6 +111,38 @@ namespace nkentseu {
 				if (in.keyDown[k])
 					return true;
 			return false;
+		}
+
+		/// (25/09) LA FENETRE DE SONDE DEMANDE-T-ELLE A NE PAS PRENDRE LE FOCUS,
+		/// et la plateforme le tient-elle ? Pose `config.noActivate` et rend vrai
+		/// quand le dorsal l'honore.
+		///
+		/// ⚠️ C'EST LA VRAIE PARADE, et la porte par image n'en est que le
+		///    rattrapage. `NkSondeFiltrerEntree` jette l'entree APRES qu'elle est
+		///    arrivee ; `noActivate` fait qu'elle n'arrive pas. Les deux servent :
+		///    la premiere couvre ce qui entre malgre tout (une fenetre qu'on clique
+		///    volontairement), la seconde empeche le vol de focus.
+		///
+		/// ⚠️ LE REFUS EST NOMME, PAS SILENCIEUX. Hors Win32, aucun dorsal ne
+		///    porte encore l'equivalent (`_NET_WM_STATE` / `set_input_region` sous
+		///    X11 et Wayland, `NSWindowStyleMaskNonactivatingPanel` sous macOS) :
+		///    on le DIT au journal au lieu de laisser croire que la fenetre est
+		///    discrete. *Un reglage affiche qui ne change rien est pire qu'un
+		///    reglage absent.*
+		inline bool NkSondePoserFenetreDiscrete(NkWindowConfig &wc) {
+			if (!NkSondeActive())
+				return false;
+			wc.noActivate = true;
+#if defined(NKENTSEU_PLATFORM_WINDOWS) || defined(_WIN32)
+			return true;
+#else
+			std::printf("[sonde] REFUS NOMME : cette plateforme ne sait pas encore ouvrir une "
+						"fenetre SANS PRENDRE LE FOCUS. La sonde peut donc recevoir les clics "
+						"et les frappes de l'utilisateur ; seule la porte par image les "
+						"jettera, et seulement apres coup.\n");
+			std::fflush(stdout);
+			return false;
+#endif
 		}
 
 		/// LA PORTE UNIQUE. A appeler une fois par image, APRES que l'hote a
