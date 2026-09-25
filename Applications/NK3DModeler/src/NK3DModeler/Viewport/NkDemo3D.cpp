@@ -21116,6 +21116,43 @@ namespace nkentseu {
 			out3[1] = p.y;
 			out3[2] = p.z;
 		}
+		int32 Demo3DHostFrameLightCount() {
+			auto *st = HostSt();
+			return st ? (int32)st->frameLights.Size() : -1;
+		}
+		float32 Demo3DHostFrameLightEnergy() {
+			auto *st = HostSt();
+			if (!st)
+				return -1.f;
+			float32 e = 0.f;
+			for (uint32 i = 0; i < (uint32)st->frameLights.Size(); ++i) {
+				const renderer::NkLightDesc &L = st->frameLights[i];
+				e += L.intensity * (L.color.x + L.color.y + L.color.z) / 3.f;
+			}
+			return e;
+		}
+		bool Demo3DHostFrameLightInfo(int32 i, int32 *type, float32 *dir3, float32 *col3,
+									  float32 *intensity) {
+			auto *st = HostSt();
+			if (!st || i < 0 || i >= (int32)st->frameLights.Size())
+				return false;
+			const renderer::NkLightDesc &L = st->frameLights[i];
+			if (type)
+				*type = (int32)L.type;
+			if (dir3) {
+				dir3[0] = L.direction.x;
+				dir3[1] = L.direction.y;
+				dir3[2] = L.direction.z;
+			}
+			if (col3) {
+				col3[0] = L.color.x;
+				col3[1] = L.color.y;
+				col3[2] = L.color.z;
+			}
+			if (intensity)
+				*intensity = L.intensity;
+			return true;
+		}
 		int32 Demo3DHostLightCount() {
 			return hst.ok ? Demo3DState::kNumLights : 0;
 		}
