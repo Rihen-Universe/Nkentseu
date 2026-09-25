@@ -1620,6 +1620,37 @@ namespace nkentseu {
 				// rendu, au pick et aux marqueurs.
 				NkMeshHandle editMesh;					 // clone dynamique du mesh édité
 				NkVector<renderer::NkVertex3D> editRest; // vertices LOCAUX de repos (autorité CPU)
+				// ── L'EPROUVETTE FACIALE ───────────────────────────────────────────
+				// ⚠️ CE N'EST PAS UNE TETE, ET LE DIRE EST LA MOITIE DU TRAVAIL. Il n'y
+				//    a AUCUN maillage a morph targets dans le depot : quatre .glb et
+				//    tous les .gltf verifies, zero cible. Les trois cibles ci-dessous
+				//    sont CALCULEES sur le maillage present, quel qu'il soit, a partir
+				//    de la hauteur de ses sommets. C'est du MATERIEL D'EPREUVE -- il
+				//    sert a montrer le FIL (coefficient -> poids -> deformation), pas a
+				//    representer un visage.
+				//
+				//    Le depot a deja paye « une sonde qui se fait passer pour le
+				//    produit » : Rodolf a photographie la fenetre d'un agent en croyant
+				//    voir son application. L'incrustation le dit donc A L'ECRAN, et rien
+				//    n'est ecrit sur le disque -- il n'y a aucun fichier qu'on puisse
+				//    prendre pour un actif.
+				//
+				//    CONDITION DE RETRAIT : le jour ou une vraie tete a blendshapes
+				//    entre dans les ressources, cette eprouvette part et la demo charge
+				//    ses cibles au lieu de les calculer.
+				bool faceOn = false;              // le panneau a-t-il arme l'eprouvette ?
+				bool faceLiaison = true;          // la liaison poids -> deformation
+				float32 faceAU[3] = {0.f, 0.f, 0.f}; // sourcil, machoire, sourire
+				NkVector<NkVec3f> faceCibles[3];  // deltas par sommet, calcules une fois
+				bool faceCiblesPretes = false;
+				// ⚠️ LE NOMBRE DE SOMMETS POUR LEQUEL LES CIBLES ONT ETE CALCULEES.
+				//    Sans lui, un simple "faceCiblesPretes" les figeait au premier
+				//    maillage vu : mesure du 25/09 -- cibles calculees sur le cube nu
+				//    (24 sommets), puis la subdivision porte le maillage a 486, et la
+				//    garde d application refusait a chaque image. Elle avait RAISON ;
+				//    c est la preparation qui ne se refaisait pas.
+				//    *Un attendu fige au premier passage se perime au second.*
+				uint32 faceCiblesN = 0;
 				NkVector<renderer::NkVertex3D> editLive; // rest + delta (re-upload pendant drag)
 				NkVector<uint32> editIdx;				 // topologie (triangles)
 				NkVector<uint32> editEdges;				 // arêtes UNIQUES (paires) pour la cage — bâti à l'entrée
@@ -2275,6 +2306,13 @@ namespace nkentseu {
 		//    par le nombre de sommets masques (qui existait deja) mais par ce qui
 		//    part au trace -- et, apres lui, par l'ecart de couleur a l'image.
 		static uint32 gMasqueTri = 0;
+		// Deplacement MAXIMAL produit par l'eprouvette faciale cette image. C'est
+		// lui le temoin : « la fonction a ete appelee » ne dit pas que la face a
+		// bouge, et l'interrupteur de liaison se juge sur ce chiffre.
+		static float32 gFaceDMax = 0.f;
+		static float32 gFacePoids[3] = {-1.f, -1.f, -1.f};
+		static int32 gFaceTailles[3] = {0, 0, 0};
+		static int32 gFaceNonNuls = 0;
 		// 1 si le maillage EDITE a ete soumis avec l'instance moteur de son
 		// materiau. C'est le temoin du defaut « plus clair en Sculpture » : il
 		// valait 0 a toutes les images avant le correctif, quel que soit le
@@ -2428,6 +2466,148 @@ namespace nkentseu {
 						"(calcul NKAnima, deformation NKRenderer, zero ligne de PV3DE)\n",
 						fc.GetAUIntensity(anim::NkActionUnitId::AU12),
 						w.IsEmpty() ? -1.f : w[0], ok ? 1 : 0, dy, sCoupe ? "COUPEE" : "branchee");
+		}
+
+		// ══ L'EPROUVETTE FACIALE : LE FIL, RENDU VISIBLE ══════════════════════
+		// Rodolf, 25/09 : « en branchant, si tu peux, cree des demos que je peux
+		// tester, apres je serais content. » Un banc n'eprouve que son maillon ;
+		// une demo qu'un humain lance eprouve la CHAINE.
+		//
+		// CE QU'ELLE MONTRE : trois coefficients d'Action Unit -> le calcul de
+		// NKAnima -> des poids -> la deformation du maillage. Et un interrupteur
+		// qui COUPE LA LIAISON : les poids continuent de changer, la forme se fige.
+		// C'est le negatif du banc, rendu visible a l'oeil.
+		//
+		// ⚠️ LES CIBLES SONT CALCULEES, PAS CHARGEES, et l'incrustation le dit.
+		//    Trois zones prises sur la HAUTEUR du maillage, quel qu'il soit :
+		//    le haut monte (un sourcil), le bas descend (une machoire), le milieu
+		//    s'etire en largeur (un sourire). Sur un cube ca ne ressemble a rien
+		//    d'humain -- c'est voulu : ce qu'on doit lire, c'est que ca BOUGE quand
+		//    on tire, et que ca S'ARRETE quand on coupe.
+		static void Demo3D_FacePrepare(Demo3DState *st) {
+			if (!st || st->editRest.IsEmpty())
+				return;
+			// On recalcule des que la TOPOLOGIE change : une subdivision, un
+			// chargement, un annuler. Comparer les tailles suffit ici -- les cibles
+			// ne dependent que des positions de repos et de leur nombre.
+			if (st->faceCiblesPretes && st->faceCiblesN == (uint32)st->editRest.Size())
+				return;
+			const uint32 n = (uint32)st->editRest.Size();
+			float32 ymin = 1e30f, ymax = -1e30f;
+			for (uint32 i = 0; i < n; ++i) {
+				const float32 y = st->editRest[i].pos.y;
+				if (y < ymin) ymin = y;
+				if (y > ymax) ymax = y;
+			}
+			const float32 h = (ymax - ymin);
+			if (h <= 1e-6f)
+				return; // maillage plat : aucune zone a distinguer, on ne feint pas
+			for (int32 c = 0; c < 3; ++c) {
+				st->faceCibles[c].Clear();
+				st->faceCibles[c].Reserve(n);
+			}
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f p = st->editRest[i].pos;
+				const float32 t = (p.y - ymin) / h; // 0 en bas, 1 en haut
+				// Chaque zone a un poids DOUX (pas un seuil) : un seuil ferait
+				// sauter des rangees entieres d'un coup et se lirait comme un
+				// defaut, pas comme une deformation.
+				const float32 wHaut = (t > 0.6f) ? (t - 0.6f) / 0.4f : 0.f;
+				const float32 wBas = (t < 0.4f) ? (0.4f - t) / 0.4f : 0.f;
+				const float32 wMil = 1.f - NkAbs(t - 0.5f) * 2.f;
+				st->faceCibles[0].PushBack(NkVec3f{0.f, wHaut * h * 0.25f, 0.f});
+				st->faceCibles[1].PushBack(NkVec3f{0.f, -wBas * h * 0.30f, 0.f});
+				st->faceCibles[2].PushBack(NkVec3f{p.x * wMil * 0.35f, 0.f, p.z * wMil * 0.35f});
+			}
+			st->faceCiblesPretes = true;
+			st->faceCiblesN = n;
+			// La NORME MAXIMALE de chaque cible : une cible nulle se lit ici, pas
+			// trois maillons plus loin dans un deplacement qui rend zero.
+			float32 cmax[3] = {0.f, 0.f, 0.f};
+			for (int32 c = 0; c < 3; ++c)
+				for (uint32 i = 0; i < n; ++i) {
+					const float32 l = st->faceCibles[c][i].Len();
+					if (l > cmax[c]) cmax[c] = l;
+				}
+			logger.Info("[FACE-DEMO] amplitude des cibles : ({0}, {1}, {2}) · hauteur du maillage={3}\n",
+						cmax[0], cmax[1], cmax[2], h);
+			logger.Info("[FACE-DEMO] eprouvette prete : {0} sommets, 3 cibles CALCULEES "
+						"(aucune tete a blendshapes dans le depot)\n", (int32)n);
+		}
+
+		// Applique l'eprouvette. Rend le deplacement maximal observe -- c'est LUI
+		// qui dit si la face a bouge, pas le fait d'avoir appele la fonction.
+		static float32 Demo3D_FaceApplique(Demo3DState *st) {
+			if (!st || !st->faceOn || !st->faceCiblesPretes)
+				return 0.f;
+			const uint32 n = (uint32)st->editRest.Size();
+			// ⚠️ LA GARDE SE JOURNALISE QUAND ELLE REFUSE. Mes compteurs statiques
+			//    m ont menti : ils gardaient la valeur d un appel ANTERIEUR, et
+			//    « 24 sommets deplaces » se lisait comme frais alors que la fonction
+			//    venait de sortir ici. *Un compteur qui survit a son image se lit
+			//    comme s il venait d etre calcule.*
+			if (st->editLive.Size() != (nk_usize)n || st->faceCibles[0].Size() != (nk_usize)n) {
+				static int32 sRef = 0;
+				if ((++sRef % 60) == 0)
+					logger.Info("[FACE-DEMO] REFUS de la garde : rest={0} live={1} cibles={2}\n",
+								(int32)n, (int32)st->editLive.Size(), (int32)st->faceCibles[0].Size());
+				return 0.f;
+			}
+			// LE CALCUL VIT DANS NKAnima. Il tourne MEME quand la liaison est
+			// coupee : sinon on figerait la forme pour une autre raison que celle
+			// qu'on veut montrer, et l'interrupteur ne prouverait rien.
+			anim::NkFaceController fc;
+			fc.Init(3);
+			static const anim::NkActionUnitId kAU[3] = {anim::NkActionUnitId::AU1,
+														anim::NkActionUnitId::AU26,
+														anim::NkActionUnitId::AU12};
+			for (int32 c = 0; c < 3; ++c) {
+				fc.BindAU(kAU[c], (nk_uint32)c, 1.f);
+				fc.SetAUImmediate(kAU[c], st->faceAU[c]);
+			}
+			fc.Update(0.016f);
+			const NkVector<nk_float32> &w = fc.GetBlendshapeWeights();
+			// ⚠️ ON MESURE AUSSI L ENTREE. Premiere version : je ne journalisais que
+			//    le deplacement, il rendait zero, et rien ne disait si la faute etait
+			//    dans le calcul, dans les tailles ou dans les cibles. Un instrument
+			//    qui ne montre qu un bout ne sait pas designer le maillon casse.
+			gFacePoids[0] = (w.Size() > 0) ? w[0] : -1.f;
+			gFacePoids[1] = (w.Size() > 1) ? w[1] : -1.f;
+			gFacePoids[2] = (w.Size() > 2) ? w[2] : -1.f;
+			gFaceTailles[0] = (int32)n;
+			gFaceTailles[1] = (int32)st->editLive.Size();
+			gFaceTailles[2] = (int32)st->faceCibles[0].Size();
+			float32 dmax = 0.f;
+			gFaceNonNuls = 0;
+			for (uint32 i = 0; i < n; ++i) {
+				NkVec3f d{0.f, 0.f, 0.f};
+				if (st->faceLiaison) {
+					for (int32 c = 0; c < 3 && c < (int32)w.Size(); ++c)
+						d = d + st->faceCibles[c][i] * w[c];
+				}
+				st->editLive[i].pos = st->editRest[i].pos + d;
+				const float32 dl = d.Len();
+				if (dl > dmax)
+					dmax = dl;
+				// Sonde INTERNE : combien de sommets recoivent un delta non nul, et
+				// quelle est la plus grande composante vue. Mesurer DANS la boucle
+				// plutot que raisonner sur ses entrees -- les entrees etaient toutes
+				// justes (poids 0,8 · cibles 0,25 · tailles 24) et la sortie valait
+				// zero, ce qui ne peut pas arriver si la boucle fait ce qu on lit.
+				if (dl > 1e-9f)
+					++gFaceNonNuls;
+			}
+			// ⚠️ LE CHIFFRE EST DIT ICI, AVANT DE SORTIR. Le releve d image affichait
+			//    zero pendant que cette meme boucle comptait 24 sommets deplaces :
+			//    une contradiction INTERNE, donc l un des deux instruments mentait.
+			//    Journaliser a la source tranche sans discuter.
+			{
+				static int32 sIn = 0;
+				if ((++sIn % 60) == 0)
+					logger.Info("[FACE-DEMO] (interne) dmax={0} nonNuls={1} n={2}\n", dmax,
+								gFaceNonNuls, (int32)n);
+			}
+			return dmax;
 		}
 
 		static bool Demo3D_ElementsActifs(const Demo3DState *st) {
@@ -13918,6 +14098,74 @@ namespace nkentseu {
 					++nkMarqFrame;
 				}
 				// ── SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) ─────────────────
+				// ── L'EPROUVETTE FACIALE, APPLIQUEE CHAQUE IMAGE ──────────────────
+				// Elle ecrit dans `editLive` et pousse au GPU par la MEME porte que le
+				// glisser du gizmo (`UpdateVertices` sous la garde `editDisplay1to1`) :
+				// une seconde porte aurait diverge sur le cas des coins dedoubles par
+				// l'ombrage FLAT, et l'ecart ne se serait vu que sur un maillage lisse.
+				// LE CROCHET D'AGENT : il emprunte les MEMES facades que les boutons
+				// du panneau. Une sonde qui poserait `faceOn` directement mesurerait
+				// un chemin que Rodolf n'emprunte jamais.
+				// NK_FACE_DEMO="au1:au26:au12" (ou "1" pour 0,8 partout),
+				// NK_FACE_COUPE=1 coupe la liaison.
+				{
+					static bool sFdLu = false;
+					if (!sFdLu) {
+						sFdLu = true;
+						if (const char *fd = getenv("NK_FACE_DEMO")) {
+							Demo3DHostSetFaceDemo(true);
+							float32 v[3] = {0.8f, 0.8f, 0.8f};
+							if (fd[0] && fd[0] != '1') {
+								int32 k = 0;
+								const char *q = fd;
+								while (k < 3 && *q) {
+									float32 val = 0.f;
+									while (*q >= '0' && *q <= '9')
+										val = val * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											val += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									v[k++] = val;
+									if (*q == ':') ++q; else break;
+								}
+							}
+							for (int32 k = 0; k < 3; ++k)
+								Demo3DHostSetFaceAU(k, v[k]);
+							if (const char *cp = getenv("NK_FACE_COUPE"))
+								if (cp[0] && cp[0] != '0')
+									Demo3DHostSetFaceLiaison(false);
+						}
+					}
+				}
+				if (st->faceOn && st->editMode) {
+					Demo3D_FacePrepare(st);
+					gFaceDMax = Demo3D_FaceApplique(st);
+					static int32 sFdImg = 0;
+					if ((++sFdImg % 60) == 0)
+						logger.Info("[FACE-DEMO] liaison={0} AU=({1}, {2}, {3}) -> deplacement max={4}\n",
+									st->faceLiaison ? "branchee" : "COUPEE", st->faceAU[0], st->faceAU[1],
+									st->faceAU[2], gFaceDMax);
+					if ((sFdImg % 60) == 0)
+						logger.Info("[FACE-DEMO] poids=({0}, {1}, {2}) tailles rest/live/cibles=({3}, {4}, {5})\n",
+									gFacePoids[0], gFacePoids[1], gFacePoids[2], gFaceTailles[0],
+									gFaceTailles[1], gFaceTailles[2]);
+					if ((sFdImg % 60) == 0)
+						logger.Info("[FACE-DEMO] sommets deplaces={0}/{1}\n", gFaceNonNuls, gFaceTailles[0]);
+					if (gFaceDMax > 0.f || !st->faceLiaison) {
+						// Le systeme de maillage est repris ICI : la variable locale du bloc
+						// d edition est hors de portee a cet endroit de l image.
+						if (auto *msF = ctx.renderer->GetMeshSystem())
+							if (st->editDisplay1to1)
+								msF->UpdateVertices(st->editMesh, st->editLive.Data(),
+													(uint32)st->editLive.Size());
+						st->editOverlayDirty = true;
+					}
+				}
 				// CE QUI PART REELLEMENT AU TRACE dans chaque mode, et la somme des
 				// positions du maillage : un gizmo qui se DESSINE et un geste qui DEPLACE
 				// sont deux questions, et un seul compteur ne repond qu'a l'une.
@@ -21222,6 +21470,45 @@ namespace nkentseu {
 		}
 		bool Demo3DHostHud() {
 			return nkvpHudOn;
+		}
+
+		// ── L'EPROUVETTE FACIALE : SES PORTES ───────────────────────────────
+		// L'ETAT EST ICI, pas dans le panneau. Le panneau peint et transmet ; une
+		// copie gardee la-bas afficherait une valeur pendant que la deformation en
+		// utilise une autre -- la faute deja payee sur la symetrie de sculpture.
+		void Demo3DHostSetFaceDemo(bool on) {
+			auto *st = HostSt();
+			if (st)
+				st->faceOn = on;
+		}
+		bool Demo3DHostFaceDemo() {
+			auto *st = HostSt();
+			return st && st->faceOn;
+		}
+		void Demo3DHostSetFaceLiaison(bool on) {
+			auto *st = HostSt();
+			if (st)
+				st->faceLiaison = on;
+		}
+		bool Demo3DHostFaceLiaison() {
+			auto *st = HostSt();
+			return !st || st->faceLiaison;
+		}
+		void Demo3DHostSetFaceAU(int32 i, float32 v) {
+			auto *st = HostSt();
+			if (!st || i < 0 || i > 2)
+				return;
+			st->faceAU[i] = (v < 0.f) ? 0.f : ((v > 1.f) ? 1.f : v);
+		}
+		float32 Demo3DHostFaceAU(int32 i) {
+			auto *st = HostSt();
+			return (st && i >= 0 && i <= 2) ? st->faceAU[i] : 0.f;
+		}
+		// LE DEPLACEMENT REELLEMENT PRODUIT. C'est ce chiffre que le panneau
+		// affiche et que le banc lit : « la fonction a ete appelee » ne dit pas que
+		// la face a bouge.
+		float32 Demo3DHostFaceDeplacement() {
+			return gFaceDMax;
 		}
 		// L'AIDE A SA PROPRE PORTE. Sans elle, le panneau ne pourrait l'eteindre
 		// qu'en eteignant le labo -- c'est-a-dire refaire la garde unique qu'on

@@ -687,6 +687,21 @@ namespace nkentseu {
 		bool Demo3DHostOutline();
 		void Demo3DHostSetHud(bool on);
 		bool Demo3DHostHud();
+
+		// ── L'EPROUVETTE FACIALE (demo du 25/09) ────────────────────────────
+		// Trois coefficients d'Action Unit -> le calcul de NKAnima -> la
+		// deformation du maillage edite. `Liaison` coupe le dernier maillon SANS
+		// arreter le calcul : c'est ce qui montre, a l'oeil, que la deformation
+		// vient bien de la et de nulle part ailleurs.
+		// ⚠️ Les cibles sont CALCULEES sur le maillage present : ce n'est pas une
+		//    tete, il n'y en a aucune a blendshapes dans le depot.
+		void Demo3DHostSetFaceDemo(bool on);
+		bool Demo3DHostFaceDemo();
+		void Demo3DHostSetFaceLiaison(bool on);
+		bool Demo3DHostFaceLiaison();
+		void Demo3DHostSetFaceAU(int32 i, float32 v);
+		float32 Demo3DHostFaceAU(int32 i);
+		float32 Demo3DHostFaceDeplacement();
 		// L'AIDE (bandeaux de raccourcis) est separee du HUD de LABO depuis le
 		// 25/09 : une seule garde couvrait les deux, plus le trace des outils de
 		// selection par zone -- eteindre le HUD cassait donc un OUTIL.
