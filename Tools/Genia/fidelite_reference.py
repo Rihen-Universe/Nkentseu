@@ -69,6 +69,39 @@ AZ_VUES = (0.0, 90.0, 180.0)
 ELEVATION = 15.0
 RAYON, FOV = 2.6, 40.0
 
+# LE SEUIL DE C_brut, ECRIT AVANT LA PREMIERE COURSE DU 25/09 (seconde passe).
+# ⚠️ IL N'EST PAS DEDUIT DU PREMIER : le seuil de 0,70 sur C_forme a ete REFUTE
+#    par son propre controle negatif. Celui-ci est pose a 0,50 parce qu'un
+#    recouvrement de moitie entre deux silhouettes a la MEME echelle est le
+#    minimum pour parler du meme objet -- et il sera juge, lui aussi, sur le
+#    controle negatif : si les negatifs l'atteignent, c'est encore lui qui est
+#    faux, et il faudra le dire.
+SEUIL_BRUT = 0.50
+
+# ── C_fid : LE CRITERE QUI SEPARE, ET IL A ETE CHERCHE, PAS DEVINE (25/09) ────
+#     C_fid = d_prop + (1 - iou_brut)      -- une DISTANCE : 0 = identique.
+# Deux criteres avaient ete REFUTES par leur propre controle negatif : C_forme
+# (les negatifs montaient a 0,71-0,84) et C_brut seul (1 premier sur 6).
+# `Tools/Genia/chercher_critere.py` a alors calcule sept grandeurs independantes
+# sur les 36 couples de chaque jeu, et c'est le CONTROLE NEGATIF qui a elu
+# celle-ci :
+#     sur les maillages TripoSR (l'objet EST le bon)  : 6 premiers sur 6, marge
+#         mediane +0,1735 ;
+#     sur les assemblages (l'objet est generique)     : 2 sur 6, marge mediane
+#         -0,4089.
+# Autrement dit le critere separe quand il y a quelque chose a separer, et il
+# refuse quand l'objet n'est pas celui de la reference. Aucune grandeur seule
+# n'y arrivait : d_prop 5/6, iou_brut 5/6 ; c'est leur SOMME qui fait 6/6, et
+# les deux mesurent des choses differentes (le rapport des cotes, et le
+# recouvrement a echelle egale).
+# ⚠️ IL A ETE CHOISI PARMI DIX COMBINAISONS SUR SIX OBJETS. C'est un choix fait
+#    SUR le jeu qui le juge : il doit etre reprouve sur un jeu qu'il n'a pas vu
+#    avant d'etre appele un critere. Les poids sont a 1 et 1, sans ajustement --
+#    des coefficients regles auraient appris le jeu d'epreuve.
+# ⚠️ ET AUCUN SEUIL ABSOLU N'EST INVENTE. Le verdict est RELATIF : battre le
+#    meilleur des mauvais candidats. Un seuil pose ici serait ajuste sur six
+#    objets, c'est-a-dire ajuste sur rien.
+
 
 def masque_reference(ident, dossier=CORPUS):
     """Les trois silhouettes de la reference. L'ALPHA DU RENDU EST LA
@@ -116,38 +149,53 @@ def iou(a, b):
 
 
 def comparer(mref, mcand):
-    """(IoU moyen sur les trois vues, ecart moyen de ln(largeur/hauteur))."""
-    ious, ecarts = [], []
+    """(C_forme, C_prop, C_brut) moyennes sur les trois vues.
+
+    ⚠️ C_brut EST LE CRITERE QUI DECIDE, ET C_forme CELUI QUI M'A TROMPE.
+    `recadrer` ramene chaque masque a SA boite englobante : deux silhouettes
+    quelconques se recouvrent alors a 70-85 %, et le controle negatif franchissait
+    le seuil (0,707 a 0,835 le 25/09). La renormalisation 2D DETRUIT precisement
+    le signal qu'on cherche -- les proportions -- alors que le chargement a DEJA
+    ramene la boite 3D a l'unite. C_brut compare donc les masques TELS QUELS,
+    meme camera, meme echelle : une silhouette deux fois trop large y perd
+    directement. C_forme et C_prop restent affiches, parce que leur DESACCORD dit
+    quelque chose (forme juste + proportions fausses = un objet plausible qui
+    n'est pas celui de la reference)."""
+    ious, ecarts, bruts = [], [], []
     for r, c in zip(mref, mcand):
         rr, ar = recadrer(r)
         cc, ac = recadrer(c)
         ious.append(iou(rr, cc))
+        bruts.append(iou(r, c))
         if ar > 0 and ac > 0:
             ecarts.append(abs(np.log(ac) - np.log(ar)))
         else:
             ecarts.append(float("inf"))
-    return float(np.mean(ious)), float(np.mean(ecarts))
+    return float(np.mean(ious)), float(np.mean(ecarts)), float(np.mean(bruts))
 
 
 def meilleur_decalage(mref, chemin, pas, taille):
     """LE DECALAGE EST COMMUN AUX TROIS VUES. On ne cherche pas le meilleur
     angle vue par vue : ce serait accorder au candidat trois objets differents."""
-    best = (-1.0, 0.0, float("inf"))
+    best = (-1.0, 0.0, float("inf"), -1.0)
     for d in np.arange(0.0, 360.0, pas):
         m = masques_candidat(chemin, float(d), taille)
-        v, e = comparer(mref, m)
-        if v > best[0]:
-            best = (v, float(d), e)
+        v, e, br = comparer(mref, m)
+        # ⚠️ L'ANGLE EST CHOISI SUR C_brut : chercher l'angle qui maximise un
+        #    critere puis juger avec un autre donnerait au candidat le meilleur
+        #    des deux mondes.
+        if br > best[3]:
+            best = (v, float(d), e, br)
     return best
 
 
 def zero(ident, taille, dossier=CORPUS):
     """LE ZERO : la reference contre elle-meme. Doit rendre 1,000000."""
     mref = masque_reference(ident, dossier)
-    v, e = comparer(mref, mref)
-    ok = abs(v - 1.0) < 1e-12 and e < 1e-12
-    print("ZERO %-34s IoU=%.6f ecart_prop=%.6f -> %s"
-          % (ident, v, e, "vert" if ok else "HORS SERVICE"))
+    v, e, br = comparer(mref, mref)
+    ok = abs(v - 1.0) < 1e-12 and e < 1e-12 and abs(br - 1.0) < 1e-12
+    print("ZERO %-34s C_forme=%.6f C_brut=%.6f ecart_prop=%.6f -> %s"
+          % (ident, v, br, e, "vert" if ok else "HORS SERVICE"))
     return ok
 
 
@@ -171,10 +219,10 @@ def main():
     if a.reference and a.candidat:
         if not zero(a.reference, a.taille, a.corpus):
             sys.exit(3)
-        mref = masque_reference(a.reference, a.corpus)
-        v, d, e = meilleur_decalage(mref, a.candidat, a.pas, a.taille)
-        print("%-24s C_forme=%.4f  C_prop=%.4f  (decalage %.0f deg)"
-              % (os.path.basename(a.candidat), v, e, d))
+        v, d, e, br = meilleur_decalage(mref, a.candidat, a.pas, a.taille)
+        print("%-24s C_brut=%.4f  C_forme=%.4f  C_prop=%.4f  (decalage %.0f deg)"
+              % (os.path.basename(a.candidat), br, v, e, d))
+        sys.exit(0 if br >= SEUIL_BRUT else 1)
         sys.exit(0 if (v >= 0.70 and e <= 0.25) else 1)
 
     if a.jeu and a.candidats:
@@ -210,40 +258,43 @@ def main():
         for it in jeu:
             mref = masque_reference(it["ident"], a.corpus)
             for cle, ch in cands.items():
-                v, d, e = meilleur_decalage(mref, ch, a.pas, a.taille)
-                res[(it["cle"], cle)] = (v, e, d)
-        # 3. LE VERDICT. ⚠️ ON N'AFFICHE PAS QUE LE SEUIL : on affiche le RANG du
-        #    bon candidat parmi tous. Un seuil dit « au-dessus de la barre » ; le
-        #    rang dit si le critere DISCRIMINE, ce qui est une autre question et
-        #    la seule qui compte pour « est-ce CET objet-la ».
+                v, d, e, br = meilleur_decalage(mref, ch, a.pas, a.taille)
+                res[(it["cle"], cle)] = (v, e, d, br)
+        # 3. LE VERDICT. C_fid tranche ; les autres grandeurs restent affichees
+        #    parce que leur DESACCORD dit quelque chose (forme juste + proportions
+        #    fausses = un objet plausible qui n'est pas celui de la reference).
         n = len(cands)
-        print("%-10s %-9s %-9s %-9s %-9s %-9s %-9s %s" %
-              ("reference", "C_forme", "neg_max", "marge", "C_prop", "neg_prop", "rangs", "verdict"))
-        rouges, rang1_f, rang1_p = 0, 0, 0
+        print("%-10s %-9s %-9s %-9s %-9s %-9s %-11s %s" %
+              ("reference", "C_fid", "neg_fid", "marge", "d_prop", "iou_brut", "rangs f/p/b", "verdict"))
+        rouges, r1 = 0, [0, 0, 0]
+        fid = lambda t: t[1] + (1.0 - t[3])      # d_prop + (1 - iou_brut)
         for it in jeu:
             k = it["cle"]
             if (k, k) not in res:
                 continue
-            v, e, d = res[(k, k)]
-            autres_f = [res[(k, c)][0] for c in cands if c != k]
-            autres_p = [res[(k, c)][1] for c in cands if c != k]
-            neg = max(autres_f) if autres_f else 0.0
-            negp = min(autres_p) if autres_p else float("inf")
-            rf = 1 + sum(1 for x in autres_f if x > v)
-            rp = 1 + sum(1 for x in autres_p if x < e)
-            rang1_f += (rf == 1)
-            rang1_p += (rp == 1)
-            ok = (v >= 0.70) and (e <= 0.25) and (v > neg)
+            t = res[(k, k)]
+            v, e, d, br = t
+            cf = fid(t)
+            af = [fid(res[(k, c)]) for c in cands if c != k]
+            ap = [res[(k, c)][1] for c in cands if c != k]
+            ab = [res[(k, c)][3] for c in cands if c != k]
+            negf = min(af) if af else float("inf")
+            rf = 1 + sum(1 for x in af if x < cf)
+            rp = 1 + sum(1 for x in ap if x < e)
+            rb = 1 + sum(1 for x in ab if x > br)
+            r1[0] += (rf == 1)
+            r1[1] += (rp == 1)
+            r1[2] += (rb == 1)
+            ok = cf < negf
             rouges += 0 if ok else 1
-            print("%-10s %-9.4f %-9.4f %-+9.4f %-9.4f %-9.4f %d/%d %d/%d  %s"
-                  % (k, v, neg, v - neg, e, negp, rf, n, rp, n,
-                     "vert" if ok else "ROUGE (forme %s, prop %s, bat le negatif %s)"
-                     % ("ok" if v >= 0.70 else "NON", "ok" if e <= 0.25 else "NON",
-                        "oui" if v > neg else "NON")))
+            print("%-10s %-9.4f %-9.4f %-+9.4f %-9.4f %-9.4f %d/%d %d/%d %d/%d  %s"
+                  % (k, cf, negf, negf - cf, e, br, rf, n, rp, n, rb, n,
+                     "vert" if ok else "ROUGE (un AUTRE objet colle mieux a cette reference)"))
         print("")
         print("%d ROUGE(S) sur %d" % (rouges, n))
-        print("DISCRIMINATION : le bon candidat arrive PREMIER %d fois sur %d en FORME et "
-              "%d fois sur %d en PROPORTIONS. Le hasard en donnerait 1." % (rang1_f, n, rang1_p, n))
+        print("DISCRIMINATION, le bon candidat arrive PREMIER : %d/%d en C_fid, "
+              "%d/%d en d_prop, %d/%d en iou_brut. Le hasard en donnerait 1." %
+              (r1[0], n, r1[1], n, r1[2], n))
         sys.exit(1 if rouges else 0)
     p.print_help()
     sys.exit(2)
