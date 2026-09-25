@@ -6613,7 +6613,10 @@ namespace nkentseu {
 									  NkMat4f::RotationY(NkAngle::FromRad(T.rotDeg.y * kD2R)) *
 									  NkMat4f::RotationX(NkAngle::FromRad(T.rotDeg.x * kD2R));
 					const NkMat4f S = NkMat4f::Scale(T.scale);
-					const NkMat4f M = NkMat4f::Translate(T.translate) * R * S;
+					// La matrice du gizmo fait autorite quand elle est la : le geste
+					// enregistre est ALORS exactement celui qui a ete vu.
+					const NkMat4f M =
+						T.aMatrice ? T.matrice : (NkMat4f::Translate(T.translate) * R * S);
 					// La reflexion d'un axe : S·M·S. On la compose pour chaque axe
 					// symetrise, donc jusqu'a huit combinaisons -- exactement les
 					// huit octants que Blender traite.
@@ -6855,11 +6858,161 @@ namespace nkentseu {
 			static const uint32 NK_EMREC_MAGIC = 0x4E4D4543u; // "NMEC"
 		} // namespace
 
+		// ── L'ECHANTILLONNAGE D'UN CHAMP : L'IMPLANTATION, UNE SEULE FOIS ──────
+		// Cf. la declaration dans NkEditMesh.h pour la regle et ses raisons.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol) noexcept {
+			if (!dst || !out || m == 0)
+				return;
+			for (uint32 i = 0; i < m; ++i)
+				out[i] = 0.f;
+			if (!src || !poids || n == 0)
+				return;
+			// Maille de la grille : la diagonale de la boite / 64, bornee. Trop fine,
+			// on visite trop de cellules ; trop large, chaque cellule redevient une
+			// recherche exhaustive.
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f &p = src[i];
+				mn.x = (p.x < mn.x) ? p.x : mn.x;
+				mn.y = (p.y < mn.y) ? p.y : mn.y;
+				mn.z = (p.z < mn.z) ? p.z : mn.z;
+				mx.x = (p.x > mx.x) ? p.x : mx.x;
+				mx.y = (p.y > mx.y) ? p.y : mx.y;
+				mx.z = (p.z > mx.z) ? p.z : mx.z;
+			}
+			const NkVec3f d = mx - mn;
+			float32 diag = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (diag <= 1e-6f)
+				diag = 1.f;
+			const float32 cell = diag / 64.f;
+			const float32 invCell = 1.f / cell;
+			struct Cle {
+					int32 x, y, z;
+			};
+			auto cleDe = [&](const NkVec3f &p) {
+				Cle k;
+				k.x = (int32)floorf((p.x - mn.x) * invCell);
+				k.y = (int32)floorf((p.y - mn.y) * invCell);
+				k.z = (int32)floorf((p.z - mn.z) * invCell);
+				return k;
+			};
+			auto hachage = [](const Cle &k) {
+				return (uint64)((uint64)(uint32)(k.x * 73856093) ^ (uint64)(uint32)(k.y * 19349663) ^
+								(uint64)(uint32)(k.z * 83492791));
+			};
+			uint32 cap = 1u;
+			while (cap < n * 2u)
+				cap <<= 1;
+			NkVector<uint64> cles;
+			NkVector<int32> tete;
+			NkVector<int32> suivant;
+			cles.Resize(cap);
+			tete.Resize(cap);
+			suivant.Resize(n);
+			for (uint32 i = 0; i < cap; ++i) {
+				cles[i] = 0xFFFFFFFFFFFFFFFFull;
+				tete[i] = -1;
+			}
+			auto emplacement = [&](uint64 h) {
+				uint32 slot = (uint32)(h & (uint64)(cap - 1u));
+				while (cles[slot] != 0xFFFFFFFFFFFFFFFFull && cles[slot] != h)
+					slot = (slot + 1u) & (cap - 1u);
+				return slot;
+			};
+			for (uint32 i = 0; i < n; ++i) {
+				const uint64 h = hachage(cleDe(src[i]));
+				const uint32 slot = emplacement(h);
+				cles[slot] = h;
+				suivant[i] = tete[slot];
+				tete[slot] = (int32)i;
+			}
+			// Parcourt les cellules d'un cube de rayon `rayon` autour du point.
+			auto parcourir = [&](const NkVec3f &p, int32 rayon, auto &&visiter) {
+				const Cle k0 = cleDe(p);
+				for (int32 dx = -rayon; dx <= rayon; ++dx)
+					for (int32 dy = -rayon; dy <= rayon; ++dy)
+						for (int32 dz = -rayon; dz <= rayon; ++dz) {
+							const Cle k{k0.x + dx, k0.y + dy, k0.z + dz};
+							const uint64 h = hachage(k);
+							const uint32 slot = emplacement(h);
+							if (cles[slot] != h)
+								continue;
+							for (int32 j = tete[slot]; j >= 0; j = suivant[(uint32)j])
+								visiter((uint32)j);
+						}
+			};
+			const float32 epsAbs = 1e-9f;
+			for (uint32 v = 0; v < m; ++v) {
+				const NkVec3f &p = dst[v];
+				// On elargit le voisinage tant qu'on n'a rien trouve : un point cree
+				// LOIN des sources doit quand meme trouver ses plus proches, sinon il
+				// naitrait a zero par accident de maillage.
+				float32 best = 1e30f;
+				for (int32 rayon = 1; rayon <= 8 && best > 1e29f; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 < best)
+							best = d2;
+					});
+				if (best > 1e29f)
+					continue;
+				// LES PLUS PROCHES **A EGALITE** : la tolerance est RELATIVE a la
+				// distance trouvee, donc elle vaut pour un maillage de 1 cm comme de
+				// 10 m. A distance nulle (point conserve), seul lui-meme entre.
+				const float32 dmin = sqrtf(best);
+				const float32 seuil = dmin * (1.f + tol) + epsAbs;
+				const float32 seuil2 = seuil * seuil;
+				float32 somme = 0.f;
+				uint32 cnt = 0;
+				for (int32 rayon = 1; rayon <= 8 && cnt == 0; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 <= seuil2) {
+							somme += poids[j];
+							++cnt;
+						}
+					});
+				if (cnt > 0)
+					out[v] = somme / (float32)cnt;
+			}
+		}
+
+		// ── LE REPORT DU MASQUE A TRAVERS UNE OPERATION ────────────────────────
+		// N'est plus qu'un APPELANT de l'echantillonnage : le jour ou la regle
+		// changera, elle changera pour les trois usages a la fois.
+		uint32 NkEditMesh::MaskTransferFrom(const NkEditMesh &avant, float32 tol) {
+			if (!avant.MaskExists() || avant.VertCount() == 0 || VertCount() == 0)
+				return 0;
+			NkVector<NkVec3f> src, dst;
+			src.Resize(avant.VertCount());
+			for (uint32 i = 0; i < avant.VertCount(); ++i)
+				src[i] = avant.verts[i].pos;
+			dst.Resize(VertCount());
+			for (uint32 i = 0; i < VertCount(); ++i)
+				dst[i] = verts[i].pos;
+			NkVector<float32> out;
+			out.Resize(VertCount());
+			NkMaskSampleField(src.Data(), avant.vertMask.Data(), (uint32)src.Size(), dst.Data(),
+							  out.Data(), (uint32)dst.Size(), tol);
+			MaskEnsure();
+			uint32 poses = 0;
+			for (uint32 i = 0; i < VertCount(); ++i) {
+				vertMask[i] = out[i];
+				if (out[i] > 0.f)
+					++poses;
+			}
+			return poses;
+		}
+
 		void NkMeshEditRecorder::Serialize(NkVector<uint8> &out) const {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(13u); // v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
+			w.U32(14u); // v14 : + la MATRICE du geste de gizmo (Transform de sculpture)
+			//       v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
 			//       v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
 			//       v11 : + LE COUP DE BROSSE (params + polyligne)
 			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
@@ -6972,6 +7125,11 @@ namespace nkentseu {
 				w.U8(c.sculptXform.symX);
 				w.U8(c.sculptXform.symY);
 				w.U8(c.sculptXform.symZ);
+				// v14 : la MATRICE du geste (le gizmo n'a pas d'euler a donner).
+				for (int32 col = 0; col < 4; ++col)
+					for (int32 row = 0; row < 4; ++row)
+						w.F32(c.sculptXform.matrice[col][row]);
+				w.U8(c.sculptXform.aMatrice);
 			}
 		}
 
@@ -8091,6 +8249,12 @@ namespace nkentseu {
 					c.sculptXform.symX = r.U8();
 					c.sculptXform.symY = r.U8();
 					c.sculptXform.symZ = r.U8();
+				}
+				if (ver >= 14) {
+					for (int32 col = 0; col < 4; ++col)
+						for (int32 row = 0; row < 4; ++row)
+							c.sculptXform.matrice[col][row] = r.F32();
+					c.sculptXform.aMatrice = r.U8();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en

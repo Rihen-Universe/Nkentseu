@@ -327,6 +327,16 @@ namespace nkentseu {
 		// partie NON MASQUEE autour d'un pivot (repere OBJET), avec la symetrie
 		// par axe (bit 0 = X, 1 = Y, 2 = Z). Angles en DEGRES. Rend vrai si au
 		// moins un sommet a bouge -- donc si une etape d'annulation a ete posee.
+		/// LE MASQUE D'UN NOEUD, pour l'enregistrement du projet. Les poids sont
+		/// alignes sur les sommets du maillage de RENDU du noeud (ceux du .nkgeo).
+		/// Rend faux quand il n'y a aucun masque -- un projet qui n'a jamais masque
+		/// n'ecrit pas un octet pour cette fonction.
+		bool Demo3DHostNodeMask(int32 node, const float32 **outW, uint32 *outCount);
+		bool Demo3DHostSetNodeMask(int32 node, const float32 *w, uint32 count);
+		/// La symetrie de la sculpture : bit 0 = X, 1 = Y, 2 = Z. Reglage d'outil
+		/// (pas une commande : annuler un deplacement ne doit pas la changer).
+		void Demo3DHostSetSculptSym(int32 mask);
+		int32 Demo3DHostSculptSym();
 		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
 									   const float32 *scale3, const float32 *pivot3, int32 symMask);
 		bool Demo3DHostEditLoopCut();

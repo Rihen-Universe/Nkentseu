@@ -2013,47 +2013,16 @@ int nkmain(const NkEntryState &entry) {
 				ui.input.keyInit[k] = false;
 			}
 		}
-		// ── SONDE : L'ENTREE REELLE EST IGNOREE, ET COMPTEE ────────────────
-		// Seconde couche de la garde posee a la creation de la fenetre. Le
-		// `clickThrough` ecarte la souris ; le CLAVIER, lui, suit le focus, et la
-		// plateforme nous le donne sans qu'on le demande. On vide donc l'entree
-		// AVANT `hit.Begin` -- c'est le seul endroit ou l'etancheite vaut a la fois
-		// pour le registre de clics et pour le code qui lit l'entree directement
-		// (meme raison que le vidage des modales, dix lignes plus haut).
-		// ⚠ ON LE DIT AU JOURNAL. Une entree ignoree en silence ressemblerait a un
-		//   produit qui ne repond pas : c'est le defaut qu'on cherche a ne PAS
-		//   fabriquer. Le compteur dit combien de gestes de Rodolf sont tombes sur
-		//   cette fenetre -- s'il monte, c'est qu'elle lui vole encore le focus.
-		if (sonde) {
-			static int32 sSondeIgnores = 0;
-			int32 vus = 0;
-			for (int32 b = 0; b < 3; ++b) {
-				vus += (ui.input.mouseDown[b] || ui.input.mouseClicked[b] ||
-						ui.input.mouseReleased[b] || ui.input.mouseDoubleClicked[b])
-						   ? 1
-						   : 0;
-				ui.input.mouseDown[b] = false;
-				ui.input.mouseClicked[b] = false;
-				ui.input.mouseReleased[b] = false;
-				ui.input.mouseDoubleClicked[b] = false;
-			}
-			vus += (ui.input.wheel != 0.f || ui.input.wheelH != 0.f) ? 1 : 0;
-			vus += (int32)ui.input.charCount;
-			ui.input.wheel = 0.f;
-			ui.input.wheelH = 0.f;
-			ui.input.charCount = 0;
-			for (int32 k = 0; k < nkgui::NkGuiInput::KeyCount; ++k) {
-				vus += (ui.input.keyDown[k] || ui.input.keyInit[k]) ? 1 : 0;
-				ui.input.keyDown[k] = false;
-				ui.input.keyInit[k] = false;
-			}
-			if (vus > 0) {
-				sSondeIgnores += vus;
-				std::printf("[sonde] entree REELLE ignoree (image %d) : %d signal(aux) ce tour, %d en tout\n",
-							(int)agentFrame, (int)vus, (int)sSondeIgnores);
-				std::fflush(stdout);
-			}
-		}
+		// ── L'INERTIE DE LA SONDE A UNE SEULE PORTE, ET ELLE EST DANS LE KIT ──
+		// Ma porte locale (25/09, ~30 lignes ici meme) faisait le meme travail que
+		// `editorkit::NkSondeFiltrerEntree`, appelee plus haut dans cette boucle :
+		// deux portes pour un role divergent au premier champ ajoute. Elle est
+		// RETIREE, et les champs qu'elle nettoyait en plus (relachement, double-clic,
+		// premiere image d'une touche, molette horizontale) sont passes DANS la porte
+		// du kit -- ils declenchent, donc ils doivent tomber avec le reste.
+		// Ce qui reste ici, et que le kit ne peut pas faire : la fenetre creee
+		// `clickThrough` (cf. sa creation) et la vue 3D mise hors survol/hors entree
+		// (elle lit `NkInput`, pas `ui.input` : deux canaux disjoints).
 		hit.Begin(ui.input);
 		// L'emprise des surfaces flottantes de la frame precedente devient celle
 		// que TOUT LE MONDE consulte cette frame -- registre et code direct.
@@ -2290,6 +2259,27 @@ int nkmain(const NkEntryState &entry) {
 			}
 			sy.gizmoOp = demo::Demo3DHostGizmoOp();
 			sy.tool = st.tool;
+			// ── ENTRER EN SCULPTURE DONNE LA BROSSE, PAS LE GIZMO ─────────────
+			// Mesure du 25/09 : l'outil par defaut est « Deplacer ». Des que le
+			// Transform de sculpture a existe, entrer en Sculpture affichait donc son
+			// gizmo ET desarmait la brosse -- sans que personne l'ait demande. Le
+			// critere NEGATIF du banc l'a dit avant Rodolf : « sans avoir choisi
+			// l'outil, rien ne doit bouger » rougissait.
+			// On retombe donc sur l'outil NEUTRE a CHAQUE ENTREE dans un mode a
+			// brosses -- a l'entree seulement : sinon l'utilisateur ne pourrait jamais
+			// GARDER le Transform, et le bouton redeviendrait decoratif.
+			// ⚠ DETTE NOMMEE : la barre n'a pas encore d'entree « Brosse ». Le neutre
+			//   s'appelle donc « Selection », ce qui ne veut rien dire en Sculpture.
+			//   C'est une entree d'interface a ajouter, pas une regle a changer.
+			{
+				static NkMode sModePrec = NkMode::Count;
+				if (st.mode != sModePrec) {
+					sModePrec = st.mode;
+					if (demo::NkModeMaillageSansElements((int32)st.mode) &&
+						(int32)st.tool >= (int32)NkTool::Move)
+						st.tool = NkTool::Select;
+				}
+			}
 			demo::Demo3DHostSetCursorTool(st.tool == NkTool::Cursor);
 			demo::Demo3DHostSetZoneTool(st.tool == NkTool::Select ? st.selShape : -1);
 			demo::Demo3DHostSetGizmoHidden(st.tool == NkTool::Select || st.tool == NkTool::Cursor);
@@ -3086,6 +3076,19 @@ int nkmain(const NkEntryState &entry) {
 				}
 			} else {
 				sMaskDone = true;
+			}
+		}
+		// NK_SCULPT_SYM=<masque> : la symetrie de la sculpture (1 X, 2 Y, 4 Z).
+		// Reglage d'outil : pose une fois, il vaut pour tous les gestes suivants.
+		{
+			static bool sSymDone = false;
+			if (const char *sv = std::getenv("NK_SCULPT_SYM")) {
+				if (!sSymDone && demo::Demo3DHostReady()) {
+					sSymDone = true;
+					demo::Demo3DHostSetSculptSym(std::atoi(sv));
+				}
+			} else {
+				sSymDone = true;
 			}
 		}
 		// NK_SCULPT_XFORM="tx:ty:tz:rx:ry:rz:sx:sy:sz:sym:image" : l'outil
@@ -4354,6 +4357,13 @@ int nkmain(const NkEntryState &entry) {
 			if (!sMuteSansElements && demo::NkModeMaillageSansElements((int32)st.mode)) {
 				switch (a) {
 					case NkVpAction::ToggleEdit:
+					// (25/09) LES TROIS OUTILS DE TRANSFORMATION PASSENT DESORMAIS : en
+					// Sculpture ils choisissent l'outil Transform de sculpture, qui EXISTE
+					// (partie non masquee, pivot, symetrie, son gizmo). Ils etaient refuses
+					// tant qu'ils n'avaient rien a selectionner.
+					case NkVpAction::ToolMove:
+					case NkVpAction::ToolRotate:
+					case NkVpAction::ToolScale:
 					case NkVpAction::Undo:
 					case NkVpAction::Redo:
 					case NkVpAction::ModalConfirm:
