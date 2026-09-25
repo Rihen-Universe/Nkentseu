@@ -565,9 +565,34 @@ namespace nkentseu {
 									imgs.Append("|");
 								imgs.Append(d.images[q].CStr());
 							}
-							const NkString *champs[10] = {&d.titre, &d.texte,  &d.entree,		   &d.sortie,		  &d.motif,
-														  &d.effet, &enClair, &d.etiquetteEntree, &d.etiquetteSortie, &imgs};
-							for (int32 j = 0; j < 10; ++j) {
+							// \U0001f534 (25/09) LA VIGNETTE DU RESULTAT SUIT LE CHAT.
+							//    Elle etait calculee, affichee... et perdue a la fermeture : le
+							//    fichier de chats portait DIX champs, aucun n'etait `vignette`.
+							//    Rouvrir une conversation rendait donc le texte des etapes ET
+							//    UNE TOILE VIDE a cote -- ce que le bloc disait avoir pose
+							//    n'etait plus montrable.
+							// FORME : « rapport;x,y,w,h,g|x,y,w,h,g|... », normalise 0..1. Une
+							// vignette est une poignee de rectangles, pas une image : elle se
+							// serialise en quelques dizaines d'octets, et elle se redessine a
+							// n'importe quelle taille.
+							NkString vign;
+							if (d.vignette.Size() > 0) {
+								char vb[64];
+								snprintf(vb, sizeof(vb), "%.4f;", (double)d.vignetteRapport);
+								vign.Append(vb);
+								for (usize q = 0; q < d.vignette.Size(); ++q) {
+									if (q)
+										vign.Append("|");
+									const NkAiBlocDonnees::Vignette &v = d.vignette[q];
+									snprintf(vb, sizeof(vb), "%.4f,%.4f,%.4f,%.4f,%u", (double)v.x,
+											 (double)v.y, (double)v.w, (double)v.h, (unsigned)v.genre);
+									vign.Append(vb);
+								}
+							}
+							const NkString *champs[11] = {&d.titre, &d.texte,  &d.entree,		   &d.sortie,		  &d.motif,
+														  &d.effet, &enClair, &d.etiquetteEntree, &d.etiquetteSortie, &imgs,
+														  &vign};
+							for (int32 j = 0; j < 11; ++j) {
 								o.Append("\t");
 								Echapper(*champs[j], o);
 							}
@@ -637,6 +662,44 @@ namespace nkentseu {
 										++f;
 									bd.images.PushBack(NkString(q, (NkString::SizeType)(f - q)));
 									q = *f ? f + 1 : f;
+								}
+							}
+							// (25/09) LA VIGNETTE, si le fichier la porte. Un chat ecrit AVANT
+							// ce champ se relit sans erreur -- il n'aura simplement pas de
+							// vignette, comme aujourd'hui. On n'invente rien a sa place.
+							if (ch.Size() >= 14 && ch[13].Length() > 0) {
+								const char *q = ch[13].CStr();
+								bd.vignetteRapport = (float32)atof(q);
+								while (*q && *q != ';')
+									++q;
+								if (*q == ';')
+									++q;
+								while (*q) {
+									NkAiBlocDonnees::Vignette v;
+									v.x = (float32)atof(q);
+									int32 champ = 0;
+									const char *f2 = q;
+									while (*f2 && *f2 != '|') {
+										if (*f2 == ',') {
+											++champ;
+											const char *val = f2 + 1;
+											if (champ == 1)
+												v.y = (float32)atof(val);
+											else if (champ == 2)
+												v.w = (float32)atof(val);
+											else if (champ == 3)
+												v.h = (float32)atof(val);
+											else if (champ == 4)
+												v.genre = (uint8)atoi(val);
+										}
+										++f2;
+									}
+									// \u26a0\ufe0f UN RECTANGLE DEGENERE N'EST PAS UNE VIGNETTE : le
+									//    poser ferait un trait invisible que personne ne saurait
+									//    expliquer. On le laisse tomber plutot que de le tracer.
+									if (v.w > 0.f && v.h > 0.f)
+										bd.vignette.PushBack(v);
+									q = *f2 ? f2 + 1 : f2;
 								}
 							}
 							NkString pq;
