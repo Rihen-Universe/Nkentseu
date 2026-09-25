@@ -14,6 +14,7 @@
 #include "NK3DModeler/Shell/NkModelerWidgets.h"
 #include "NK3DModeler/Shell/NkModelerTables.h"
 #include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la bascule des compteurs se memorise
 #include "NK3DModeler/Viewport/NkDemo3DHost.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKRenderer/Core/NkTextureCache.h"
@@ -117,7 +118,21 @@ namespace nkentseu {
 				const bool over = hit.Add(keys, ir);
 				if (over)
 					p.Fill(ir, NkRole::AccentUi, 3.f);
-				p.TextV(ir.x + S(12.f), y, itemH, m.items[i].label,
+				// ── LA COCHE D'UNE BASCULE, TROUVEE PAR SA CLE ──────────────────
+				// ⚠️ PAR LA CLE (`app.compteurs`), JAMAIS PAR LE RANG. Le rang d'une
+				//    entree bouge des qu'on en insere une autre, et le decalage est
+				//    SILENCIEUX -- c'est la faute que le bloc de repartition, plus
+				//    bas, signale deja en grand. *Un indice n'est pas un nom.*
+				const char *cmd = m.items[i].command;
+				const bool estBascule = (cmd && strcmp(cmd, "app.compteurs") == 0);
+				const bool cochee = estBascule && st.compteursOn;
+				if (cochee)
+					p.IconV(ir.x + S(10.f), y, itemH, NkIcon::Check,
+							over ? NkRole::TextOnAccent : NkRole::AccentUi, 12.f);
+				// Le libelle d'une bascule est toujours en retrait, cochee ou non :
+				// sinon le texte saute lateralement a chaque clic, et c'est le saut
+				// qu'on lit au lieu de la coche.
+				p.TextV(ir.x + (estBascule ? S(28.f) : S(12.f)), y, itemH, m.items[i].label,
 						over ? NkRole::TextOnAccent : NkRole::Text);
 				// Le RACCOURCI est lu dans la table, jamais recopie : rebinder une
 				// touche met l'affichage a jour tout seul.
@@ -163,6 +178,24 @@ namespace nkentseu {
 					// MENU OUTILS (index 3) : les indices sont ceux de kTools.
 					//   0 Rechercher une commande · 2 Retopologier · 3 Decimer...
 					//   5 Recuire les textures · 7 Extensions (sous-menu)
+					// MENU FENETRE (index 2) : les indices sont ceux de kWindow.
+					//   0 Hierarchie · 1 Proprietes · 2 Details · 3 Navigateur
+					//   5 Panneau d'outils · 7 Plein ecran · 9 Compteurs de rendu
+					// ⚠️ AUCUNE DES AUTRES ENTREES N'EST CABLEE A CE JOUR, et je ne
+					//    les cable pas au passage : ce serait du neuf non demande.
+					//    C'est un CONSTAT, pas un oubli.
+					else if (st.openMenu == 2) {
+						// Trouvee par la CLE, pas par le rang -- meme raison que la
+						// coche : ajouter une entree au-dessus ne doit pas allumer
+						// les compteurs a la place de « Plein ecran ».
+						if (m.items[i].command && strcmp(m.items[i].command, "app.compteurs") == 0) {
+							st.compteursOn = !st.compteursOn;
+							// ECRIT TOUT DE SUITE, comme la largeur du navigateur :
+							// une application fermee par la croix de l'OS n'ecrirait
+							// jamais rien a la sortie.
+							NkSaveUiState(st);
+						}
+					}
 					else if (st.openMenu == 3) {
 						if (i == 5) {
 							// Vide le cache d'actifs textures. Rien n'est perdu :

@@ -18211,6 +18211,41 @@ namespace nkentseu {
 		float32 Demo3DHostFrameSeconds() {
 			return hst.dtLisse;
 		}
+
+		// ── (25/09) LES COMPTEURS DE RENDU, RELAYES ─────────────────────────────
+		// ⚠️ CETTE FONCTION NE CALCULE RIEN, et c'est sa seule regle. Chaque champ
+		//    est une COPIE de `NkRendererStats`, le meme objet que lisait
+		//    `overlay->DrawStats()` du HUD de laboratoire. Recalculer un seul de
+		//    ces nombres ici en ferait une seconde source, et deux sources
+		//    divergent en silence -- *une derivation en double, pas une
+		//    compensation*.
+		// ⚠️ LES DEUX DRAPEAUX DE VALIDITE SONT RELAYES EUX AUSSI. `gpuTimeValid`
+		//    vaut faux tant qu'aucune requete GPU n'a repondu ; l'affichage ecrit
+		//    alors « -- ». Les jeter ici ferait afficher « 0.00 ms », c'est-a-dire
+		//    un chiffre FAUX la ou il n'y a pas de mesure.
+		bool Demo3DHostCompteurs(NkVpCompteurs &out) {
+			if (!hst.ok || !hst.ctx.renderer)
+				return false;
+			const renderer::NkRendererStats &s = hst.ctx.renderer->GetStats();
+			out.draws = s.drawCalls;
+			out.triangles = s.triangles;
+			out.sommets = s.vertices;
+			out.lots = s.batchCount;
+			out.ecartes = s.culled;
+			out.lumieres = s.lightsActive;
+			out.ombreurs = s.shadowCasters;
+			out.gpuMs = s.gpuTimeMs;
+			out.gpuValide = s.gpuTimeValid;
+			out.cpuMs = s.cpuTimeMs;
+			// `NkRendererStats` n'a PAS de `cpuTimeValid` : le zero y est un vrai
+			// zero tant que rien n'a ete rendu. On le declare valide des qu'une
+			// image a ete dessinee -- c'est-a-dire des qu'il y a eu un appel de
+			// dessin. Sans cette condition, « CPU 0.00 ms » s'afficherait avant la
+			// premiere image et se lirait comme une mesure.
+			out.cpuValide = (s.drawCalls > 0u);
+			out.api = NkGraphicsApiName(hst.ctx.api);
+			return true;
+		}
 		bool Demo3DHostRecTutoActive() {
 			return nkvpRecTuto.on;
 		}

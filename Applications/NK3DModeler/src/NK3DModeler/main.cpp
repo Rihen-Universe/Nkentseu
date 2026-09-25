@@ -60,6 +60,7 @@
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
 #include "NKEditorKit/NkScreenLogSink.h" // (25/09) LE NEUVIEME PUITS : les messages sortent de la console
+#include "NKEditorKit/NkScreenCountersView.h" // (25/09) (A) les compteurs, dans la vue
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
@@ -909,6 +910,48 @@ int nkmain(const NkEntryState &entry) {
 			nk3d::NkLoadUiState(j2, cheminSonde);
 			verdict("u5", j2.browserTreeFrac >= nk3d::kBrowserTreeFracMin,
 					"une valeur NEGATIVE est ramenee a la borne basse (il ne ferme pas l'arbre)");
+		}
+
+		// (4bis) L'INTERRUPTEUR DES COMPTEURS : eteint par defaut, et memorise.
+		//    🔴 « ETEINT PAR DEFAUT » EST UNE CONDITION, PAS UN DETAIL : c'est
+		//    l'affichage permanent qui polluait chaque capture de Rodolf.
+		{
+			nk3d::NkModelerState neuf;
+			verdict("u9", !neuf.compteursOn,
+					"les compteurs sont ETEINTS par defaut (c'est ce qui polluait les captures)");
+
+			nk3d::NkModelerState allume;
+			allume.compteursOn = true;
+			nk3d::NkSaveUiState(allume, cheminSonde);
+			nk3d::NkModelerState relu;
+			verdict("u10", !relu.compteursOn, "NEGATIF DE DEPART : l'etat neuf est bien eteint");
+			nk3d::NkLoadUiState(relu, cheminSonde);
+			verdict("u11", relu.compteursOn, "allumes, ils le restent apres l'aller-retour");
+
+			nk3d::NkModelerState eteint;
+			eteint.compteursOn = false;
+			nk3d::NkSaveUiState(eteint, cheminSonde);
+			nk3d::NkModelerState relu2;
+			relu2.compteursOn = true; // on part ALLUME pour que la relecture ait du travail
+			nk3d::NkLoadUiState(relu2, cheminSonde);
+			verdict("u12", !relu2.compteursOn,
+					"eteints, ils le restent -- la relecture ECRIT la valeur, elle ne fait pas que la laisser");
+
+			// UNE LIGNE ABIMEE N'ALLUME PAS. Le defaut sur d'un interrupteur
+			// d'affichage est ETEINT : allumer sur une valeur qu'on n'a pas
+			// comprise, c'est exactement le defaut qu'on repare.
+			{
+				FILE *f = std::fopen(cheminSonde, "w");
+				if (f) {
+					std::fprintf(f, "compteurs=oui\n");
+					std::fclose(f);
+				}
+				nk3d::NkModelerState abime;
+				abime.compteursOn = true;
+				nk3d::NkLoadUiState(abime, cheminSonde);
+				verdict("u13", !abime.compteursOn,
+						"une ligne abimee (« compteurs=oui ») ETEINT, elle n'allume pas");
+			}
 		}
 
 		// (4) LA GEOMETRIE : aucune section ne disparait, a AUCUNE largeur.
@@ -5752,6 +5795,67 @@ int nkmain(const NkEntryState &entry) {
 		{
 			NkHitRegistry::LayerScope toastLayer(hit, 200);
 			(void)nk3d::NkToastPaint(hit, (float32)W, (float32)H, lay.status.h);
+		}
+
+		// ── (A) LES COMPTEURS DE RENDU, DANS LA VUE (25/09, tranche par Rodolf) ─
+		// EN HAUT A DROITE DE LA VUE 3D, et pas en bas : le bas est pris par les
+		// messages, et deux piles qui se poussent sont une pile qui cache l'autre.
+		// Dans la couche d'incrustation, pour la meme raison que les messages : un
+		// panneau peint apres recouvrirait les chiffres, et ils existeraient sans
+		// se voir.
+		//
+		// ⚠️ TROIS CHOSES QUE CE BLOC NE FAIT PAS, ET QUI SONT LE SUJET :
+		//    1. il ne CALCULE aucun chiffre de rendu -- `Demo3DHostCompteurs`
+		//       copie `NkRenderer::GetStats()`, et rien d'autre ;
+		//    2. il n'affiche RIEN si la vue 3D n'a pas de renderer -- un panneau
+		//       de zeros aurait l'air d'une mesure ;
+		//    3. il n'est PAS sous la garde du labo. Son interrupteur ne couvre que
+		//       lui : ni l'aide produit, ni le rectangle de selection.
+		// ⚠️ PAS SUR L'ECRAN D'ACCUEIL : aucun projet n'y est ouvert, la vue 3D
+		//    n'y montre rien, et des chiffres poses sur une page de demarrage se
+		//    liraient comme une mesure de ce qu'elle affiche. L'accueil est une
+		//    surcouche opaque : le viseur EXISTE dessous, donc le renderer repond
+		//    -- ce n'est pas lui qui peut dire non, c'est nous.
+		if (st.compteursOn && !st.welcome) {
+			// L'horloge appartient a la BOUCLE (le renderer n'en publie aucune) :
+			// une seule source, donc rien qui puisse diverger. Lissee ici pour que
+			// le nombre soit lisible ; le `dt` brut clignote.
+			static editorkit::NkEcranHorloge sHorloge;
+			sHorloge.Tick(dt);
+			demo::NkVpCompteurs vp;
+			if (demo::Demo3DHostCompteurs(vp)) {
+				editorkit::NkEcranCompteurs c;
+				c.draws = vp.draws;
+				c.triangles = vp.triangles;
+				c.sommets = vp.sommets;
+				c.lots = vp.lots;
+				c.ecartes = vp.ecartes;
+				c.lumieres = vp.lumieres;
+				c.ombreurs = vp.ombreurs;
+				c.gpuMs = vp.gpuMs;
+				c.gpuValide = vp.gpuValide;
+				c.cpuMs = vp.cpuMs;
+				c.cpuValide = vp.cpuValide;
+				c.api = vp.api;
+				c.fps = sHorloge.Fps();
+				c.dtMs = sHorloge.DtMs();
+				c.horlogeValide = sHorloge.Valide();
+				if (nk3d::NkModelerPainter *po = nk3d::NkOvPainter()) {
+					nk3d::NkModelerComponentPaint peintre(*po);
+					static const editorkit::NkEcranCompteursVue sVue;
+					const editorkit::NkPaintRect zone{lay.view.x, lay.view.y, lay.view.w,
+													  lay.view.h};
+					const editorkit::NkPaintRect pris = sVue.Peindre(peintre, zone, c);
+					// CE QUI EST PEINT SE DECLARE : sans cette zone, un clic sur les
+					// compteurs traverserait et tomberait dans la vue 3D, qui
+					// tournerait la camera. *Un affichage qui ne reclame pas laisse
+					// passer.*
+					if (pris.w > 0.f && pris.h > 0.f) {
+						NkHitRegistry::LayerScope cptLayer(hit, 200);
+						(void)hit.Add("compteurs", {pris.x, pris.y, pris.w, pris.h});
+					}
+				}
+			}
 		}
 
 		// ── SONDE DU PEINTRE (`NK3D_SONDE_PEINTRE=1`) — canal onglets, (o1) ──
