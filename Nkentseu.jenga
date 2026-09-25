@@ -1972,3 +1972,10 @@ with workspace("Nkentseu", location="."):
     # par defaut, niveau du journal. Voir wiki/System/NKLogger/.
     with include("Sandbox/System/NKLoggerSilence/NKLoggerSilence.jenga"):
         pass
+
+    # LA DEMO du neuvieme puits de NKLogger (25/09) : trois boutons qui
+    # n'appellent QUE `logger.Info/Warn/Error`, et dont les messages apparaissent
+    # DANS LA VUE. Le quatrieme debranche le puits -- c'est le negatif, a la main.
+    # Voir Applications/DEMOS.md.
+    with include("Applications/NkMessagesEnVue/NkMessagesEnVue.jenga"):
+        pass
