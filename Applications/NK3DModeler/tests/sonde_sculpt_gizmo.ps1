@@ -58,12 +58,12 @@ function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
 	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_ADD_NODE", "NK_EDIT_USER", "NK_SCULPT_GIZMO_MUTE",
-			  "NK_BOITE_FAUSSE")
+			  "NK_BOITE_FAUSSE", "NK_CONTOUR_SANS")
 	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
 	$env:NK_ADD_NODE = "2,0,20"; $env:NK_EDIT_USER = "99"
 	# La mutation porte les DEUX negatifs de ce banc : l'ancienne regle des modes,
 	# et une boite publiee SANS CIBLE (NK_BOITE_FAUSSE).
-	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1" }
+	if ($Mutation) { $env:NK_SCULPT_GIZMO_MUTE = "1"; $env:NK_BOITE_FAUSSE = "1"; $env:NK_CONTOUR_SANS = "1" }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
 		-RedirectStandardOutput $out | Out-Null
@@ -283,6 +283,43 @@ $cernes = @($lignes | Where-Object { $_.Line -match "cerne_user=([1-9])" }).Coun
 $sans = @($lignes | Where-Object { $_.Line -match "sans_cible=([1-9])" }).Count
 if (Condition "Curseur 3D (h)" (($lignes.Count -gt 0) -and ($clics -gt 0) -and ($cernes -gt 0)) "lignes=$($lignes.Count) clics=$clics images avec une boite=$cernes") {
 	Dire "Curseur 3D (h) aucune boite publiee SANS CIBLE" ($sans -eq 0) "$sans image(s) sur $($lignes.Count) publient une boite sans maillage, sur $clics clic(s) du curseur"
+}
+
+# ── (i) LE CONTOUR SUIT LA SELECTION, IMAGE PAR IMAGE ───────────────────────
+# LA TRACE DE CLIC A PARLE (25/09). Dans le journal de Rodolf : mode Objet,
+# aucun outil, `cerneUser=1` sur l'objet 31 -- donc le CONTOUR DE SELECTION d'un
+# objet utilisateur, et non l'outil Curseur, ni le rectangle de zone, ni une
+# boite sans cible. Les trois hypotheses du 24/09 sont tombees d'un coup.
+#
+# Ce qu'il voit est une boite qui « apparait ET disparait » : c'est la DUREE qui
+# est anormale. Le critere (h) ci-dessus ne repond pas a ca -- il compte les
+# boites SANS CIBLE, et il n'y en a aucune. Celui-ci repond a la vraie question :
+# le contour est-il publie a CHAQUE image tant qu'un objet est selectionne, ou
+# seulement quelques images apres un evenement ?
+#
+# ⚠ IL COMPARE DEUX COLONNES DE LA MEME LIGNE, image par image. Compter d'un
+#   cote les images avec contour et de l'autre celles avec selection, puis
+#   comparer les totaux, laisserait passer le cas ou les deux se compensent --
+#   dix images de contour sans selection et dix de selection sans contour
+#   donneraient deux totaux egaux et un defaut grave.
+$c = Courir "contour" @{ "NK_AGENT_SCENE" = "5"; "NK_BOITE_SONDE" = "1";
+						 "NK_ADD_NODE" = "2,0,40"; "NK_AGENT_EXIT" = "260" }
+$lignes = @(Select-String -Path $c.log -Pattern "\[BOITE-SONDE\]")
+$avecSel = 0; $discord = 0
+foreach ($l in $lignes) {
+	$m = [regex]::Match($l.Line, "cerne_user=(\d+) .*userActif=(-?\d+)")
+	if (-not $m.Success) { continue }
+	$cerne = [int]$m.Groups[1].Value
+	$actif = [int]$m.Groups[2].Value
+	if ($actif -ge 0) {
+		$avecSel++
+		if ($cerne -eq 0) { $discord++ }   # selectionne SANS contour : le defaut
+	} elseif ($cerne -gt 0) { $discord++ } # contour SANS selection : l'inverse
+}
+if (Condition "Contour (i)" (($lignes.Count -gt 0) -and ($avecSel -gt 0)) `
+		"lignes=$($lignes.Count) images avec une selection=$avecSel") {
+	Dire "Contour (i) publie a CHAQUE image ou un objet est selectionne" ($discord -eq 0) `
+		"$discord image(s) en desaccord sur $($lignes.Count) ($avecSel avec selection)"
 }
 
 Write-Host "-----------------------------------------------------------------------"
