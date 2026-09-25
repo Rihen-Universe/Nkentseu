@@ -987,17 +987,30 @@ int nkmain(const NkEntryState &entry) {
 	// drapeau, l'explorateur montre le curseur « interdit » et rien n'arrive --
 	// c'etait l'ecoute qui manquait (contrat d'import, point 2).
 	wc.dropEnabled = true;
+	// (25/09) SOUS `NK_SONDE`, LA FENETRE NE PREND PAS LE FOCUS. Le modeleur a sa
+	// propre boucle : il pose donc le meme reglage que la coquille, par la meme
+	// porte du kit, avec le meme refus nomme la ou la plateforme ne le tient pas.
+	(void)editorkit::NkSondePoserFenetreDiscrete(wc);
 	// ── UNE FENETRE DE SONDE NE PREND NI LES CLICS NI LES TOUCHES DE RODOLF ──
 	// Regle apprise la nuit du 24 au 25/09 : deux agents ont fabrique des defauts
 	// qui n'existaient pas (presse-papiers, brouillon) parce que LEUR fenetre de
 	// mesure avait le focus et recevait les gestes de Rodolf. Une sonde qui capte
 	// l'entree de quelqu'un d'autre ne mesure plus le produit : elle le fabrique.
-	// DEUX COUCHES, parce que la premiere ne couvre que la souris :
+	// TROIS COUCHES, et chacune couvre ce que la precedente laisse passer :
 	//   1. `clickThrough` -- la fenetre est TRANSPARENTE AUX CLICS (Win32 :
 	//      WS_EX_LAYERED|WS_EX_TRANSPARENT) : ils vont a ce qui est dessous ;
-	//   2. plus bas dans la boucle, TOUTE entree reelle est ignoree et COMPTEE --
-	//      le clavier, lui, suit le focus, que la plateforme nous donne sans le
-	//      demander. On l'ecrit au journal plutot que de faire semblant.
+	//   2. (25/09) `noActivate` -- elle ne prend JAMAIS LE FOCUS (Win32 :
+	//      WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE). C'est la reponse exacte a ce que
+	//      la couche 1 disait ne pas couvrir : « le clavier, lui, suit le focus, que
+	//      la plateforme nous donne sans le demander ». Il ne nous le donne plus.
+	//      Mesure : le focus reste au PID qui l'avait AVANT l'ouverture de la sonde,
+	//      et WS_EX_NOACTIVATE est bien present dans le style de la fenetre ;
+	//   3. plus bas dans la boucle, TOUTE entree reelle qui serait quand meme
+	//      arrivee est ignoree et COMPTEE -- le rattrapage, pas la parade.
+	// ⚠️ LES COUCHES 1 ET 2 VIENNENT DE DEUX AGENTS DIFFERENTS, le meme soir, sans se
+	//    voir. Elles ne font PAS double emploi : l'une detourne la souris, l'autre
+	//    retient le focus clavier. On les nomme ensemble ici pour que la prochaine
+	//    lecture n'en supprime pas une en croyant retirer un doublon.
 	// Les crochets de mesure (NK_*) n'en souffrent pas : ils ecrivent dans l'etat
 	// de l'image, jamais par la file d'evenements.
 	if (sonde) {

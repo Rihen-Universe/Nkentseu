@@ -105,6 +105,32 @@ namespace nkentseu {
 			bool clickThrough = false; ///< transparente aux clics (la souris traverse)
 			float32 opacity = 1.0f;	   ///< opacité globale [0..1], 1 = opaque
 
+			// ── FENETRE QUI NE PREND PAS LE FOCUS (25/09) ────────────────────
+			// Elle s'affiche, elle se rend, mais elle ne devient PAS la fenetre active :
+			// le clavier et les clics restent a ce que l'utilisateur faisait. C'est le
+			// besoin des fenetres de MESURE.
+			//
+			// POURQUOI (deux faux defauts en une nuit, 24/09) : une sonde qui passe au
+			// premier plan recoit les clics et les frappes de l'utilisateur. Une demande
+			// est partie d'un composeur que personne n'avait valide ; un presse-papiers a
+			// ete ecrit, et on en a conclu a tort que l'envoi copiait. **Une sonde qui
+			// recoit de l'entree humaine ne mesure plus le produit : elle fabrique des
+			// defauts qui n'existent pas.**
+			//
+			// ⚠️ CE N'EST PAS `clickThrough`. Celle-la laisse la souris TRAVERSER la
+			//    fenetre (elle atteint ce qu'il y a dessous) ; celle-ci garde les clics
+			//    QUI LA VISENT et refuse seulement de VOLER LE FOCUS. Deux besoins
+			//    voisins, deux styles differents.
+			//
+			// ⚠️ PORTEE REELLE, PAR PLATEFORME -- et ce qui n'est pas tenu est REFUSE A
+			//    VOIX HAUTE au lieu d'etre ignore :
+			//      Win32  : WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE. Tenu.
+			//      autres : NON TENU aujourd'hui. Le dorsal ecrit un refus nomme dans le
+			//               journal au lieu de laisser croire que la fenetre est
+			//               discrete -- un reglage affiche qui ne change rien est pire
+			//               qu'un reglage absent.
+			bool noActivate = false; ///< ne prend jamais le focus (fenetres de mesure)
+
 			// --- Identité ---
 			NkString title = "NkWindow";
 			NkString name = "NkApp";
