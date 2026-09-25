@@ -359,6 +359,45 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	// CLIENT -> FENETRE : UN SEUL CALCUL, UNE SEULE GARDE
+	//
+	// LE DEFAUT DU 20/09, CORRIGE ICI LE 25/09 : `SetSize(GetSize())` n'etait PAS
+	// l'identite. La fenetre grossissait de +16 px en largeur et +39 en hauteur
+	// A CHAQUE LANCEMENT des editeurs, parce qu'ils sauvent leur geometrie a la
+	// fermeture et la restaurent au demarrage.
+	//
+	// LA CAUSE : `Create` portait la garde
+	//     if (!mData.mBorderless) AdjustWindowRectEx(...)
+	// et `SetSize` comme `SyncWindowFromConfig` appliquaient `AdjustWindowRectEx`
+	// SANS ELLE. Or une fenetre sans cadre garde WS_CAPTION | WS_THICKFRAME dans
+	// son STYLE (ils portent le menu systeme et l'accrochage) pendant que
+	// WM_NCCALCSIZE rend TOUTE la fenetre cliente. `AdjustWindowRectEx` ajoutait
+	// donc un cadre qui n'existe pas, et ce cadre devenait du CLIENT au message
+	// suivant. Exactement +16/+39 : la taille du cadre que le style annonce.
+	//
+	// LE MEME CALCUL A TROIS SITES, GARDE A UN SEUL. La garde manquante etait a
+	// dix lignes de celle qui existait. Il n'y a donc plus trois calculs : il y a
+	// CETTE fonction, et les trois sites l'appellent.
+	//
+	// ⚠️ Le style est lu VIVANT (`GetWindowLongW`) et non dans `mData.mDwStyle` :
+	//    `SetDecorated` peut l'avoir change depuis la creation, et calculer un
+	//    cadre avec un style perime est la meme faute sous un autre nom.
+	// =============================================================================
+	static void NkWin32TailleFenetreDepuisClient(HWND hwnd, bool borderless, LONG clientW, LONG clientH,
+											  LONG &fenetreW, LONG &fenetreH) {
+		RECT rc = {0, 0, clientW, clientH};
+		// Fenetre SANS cadre : WM_NCCALCSIZE rend toute la fenetre cliente, donc
+		// fenetre == client et il n'y a RIEN a ajouter.
+		if (!borderless && hwnd) {
+			const DWORD st = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_STYLE));
+			const DWORD ex = static_cast<DWORD>(GetWindowLongW(hwnd, GWL_EXSTYLE));
+			AdjustWindowRectEx(&rc, st, FALSE, ex);
+		}
+		fenetreW = rc.right - rc.left;
+		fenetreH = rc.bottom - rc.top;
+	}
+
+	// =============================================================================
 	// Fonctions de synchronisation mData ↔ mConfig
 	// =============================================================================
 
@@ -394,7 +433,7 @@ namespace nkentseu {
 		}
 	}
 
-	static void SyncWindowFromConfig(HWND hwnd, const NkWindowConfig &config) {
+	static void SyncWindowFromConfig(HWND hwnd, const NkWindowConfig &config, bool borderless) {
 		if (!hwnd)
 			return;
 
@@ -408,11 +447,11 @@ namespace nkentseu {
 		uint32 currentH = currentRect.bottom - currentRect.top;
 
 		if (currentW != config.width || currentH != config.height) {
-			RECT rc = {0, 0, (LONG)config.width, (LONG)config.height};
-			DWORD style = GetWindowLongW(hwnd, GWL_STYLE);
-			DWORD exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
-			AdjustWindowRectEx(&rc, style, FALSE, exStyle);
-			SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER);
+			// `config.width/height` sont une taille CLIENT (cf. le contrat en tete
+			// de NkWindowConfig.h) : la conversion passe par le calcul unique.
+			LONG fw = 0, fh = 0;
+			NkWin32TailleFenetreDepuisClient(hwnd, borderless, (LONG)config.width, (LONG)config.height, fw, fh);
+			SetWindowPos(hwnd, nullptr, 0, 0, fw, fh, SWP_NOMOVE | SWP_NOZORDER);
 		}
 
 		// Position
@@ -765,6 +804,30 @@ namespace nkentseu {
 		// systeme (et dans le filtre WM_SYSCOMMAND de NkWin32EventSystem.cpp).
 		NkWin32AppliquerMenuSysteme(mData.mHwnd, config);
 
+		// ── `modal` : le parent cesse de repondre tant que celle-ci vit ───────
+		// Win32 n'a PAS de fenetre modale native : « modal » s'obtient en
+		// DESACTIVANT la fenetre parent (`EnableWindow(parent, FALSE)`), ce qui
+		// lui retire clavier et souris sans la cacher.
+		// ⚠️ SANS PARENT, IL N'Y A RIEN A DESACTIVER, et desactiver « toutes les
+		//    fenetres de l'application » serait une invention dangereuse : on ne
+		//    sait pas lesquelles appartiennent a l'appelant. Refus nomme.
+		// ⚠️ LA REACTIVATION EST OBLIGATOIRE ET DOIT SURVIVRE A TOUT : un parent
+		//    laisse desactive est une application morte a l'ecran, sans message
+		//    d'erreur. Elle vit dans `Close()`, qui passe aussi par le chemin de
+		//    destruction, et `mModalOwner` est remis a zero pour qu'une double
+		//    fermeture ne reactive pas deux fois.
+		if (config.modal) {
+			if (mData.mParentHwnd && IsWindow(mData.mParentHwnd)) {
+				mData.mModalOwner = mData.mParentHwnd;
+				EnableWindow(mData.mModalOwner, FALSE);
+			} else {
+				NkWindowRefuserUneFois(NkWindowProp::Modal, "Win32",
+									   "aucune fenetre parent : renseignez native.parentWindowHandle. "
+									   "Win32 rend une fenetre modale en DESACTIVANT son parent ; sans "
+									   "parent il n'y a rien a desactiver");
+			}
+		}
+
 		// (L'audit de ce que Win32 ne tient pas est declenche pour TOUS les dorsaux
 		//  depuis NkWESystem::RegisterWindow — un seul endroit, une seule verite.)
 
@@ -801,6 +864,19 @@ namespace nkentseu {
 	void NkWindow::Close() {
 		if (!mIsOpen)
 			return;
+
+		// ── `modal` : RENDRE LA MAIN AU PARENT, avant toute autre chose ──────
+		// Un parent laisse desactive est une application morte a l'ecran, sans
+		// message d'erreur. On le reactive AVANT `DestroyWindow` pour que le
+		// focus lui revienne, et on oublie la poignee pour qu'une seconde
+		// fermeture ne la reactive pas une seconde fois.
+		if (mData.mModalOwner) {
+			if (IsWindow(mData.mModalOwner)) {
+				EnableWindow(mData.mModalOwner, TRUE);
+				SetActiveWindow(mData.mModalOwner);
+			}
+			mData.mModalOwner = nullptr;
+		}
 
 		const HWND hwnd = mData.mHwnd;
 		NkWin32UnregisterWindow(hwnd);
@@ -1019,13 +1095,19 @@ namespace nkentseu {
 		return n > 0 ? (uint32)n : 1u;
 	}
 
+	// `w`/`h` sont une taille CLIENT — comme `GetSize`, comme `config.width`.
+	// C'est ce qui fait de `SetSize(GetSize())` une IDENTITE, et ce qui ne
+	// l'etait pas avant le 25/09 : cette fonction appliquait
+	// `AdjustWindowRectEx` sans la garde `mBorderless` que `Create` portait,
+	// et chaque appel ajoutait +16/+39 sur une fenetre sans cadre.
 	void NkWindow::SetSize(uint32 w, uint32 h) {
 		mConfig.width = w;
 		mConfig.height = h;
-
-		RECT rc = {0, 0, (LONG)w, (LONG)h};
-		AdjustWindowRectEx(&rc, mData.mDwStyle, FALSE, mData.mDwExStyle);
-		SetWindowPos(mData.mHwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top, SWP_NOMOVE | SWP_NOZORDER);
+		if (!mData.mHwnd)
+			return;
+		LONG fw = 0, fh = 0;
+		NkWin32TailleFenetreDepuisClient(mData.mHwnd, mData.mBorderless, (LONG)w, (LONG)h, fw, fh);
+		SetWindowPos(mData.mHwnd, nullptr, 0, 0, fw, fh, SWP_NOMOVE | SWP_NOZORDER);
 	}
 
 	void NkWindow::SetPosition(int32 x, int32 y) {
@@ -1615,6 +1697,11 @@ namespace nkentseu {
 		SendMessageW(mData.mHwnd, WM_NCLBUTTONDOWN, ht, 0);
 	}
 
+	// ⚠️ `canFullscreen` N'EST PAS CONSULTE ICI, ET C'EST VOULU — meme regle que
+	//    `Minimize()`/`Maximize()` : `canFullscreen = false` decrit ce que
+	//    l'UTILISATEUR peut faire de la fenetre, pas ce que le programme
+	//    s'interdit. Un appel explicite est un ordre, il est obei.
+	//    Le raccourci systeme, lui, est refuse dans NkWin32EventSystem.cpp.
 	void NkWindow::SetFullscreen(bool fs) {
 		mConfig.fullscreen = fs;
 

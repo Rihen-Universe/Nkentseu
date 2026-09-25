@@ -108,7 +108,13 @@ namespace nkentseu {
 			// --- Propriétés ---
 			NkString GetTitle() const;
 			void SetTitle(const NkString &title);
+			/// Taille de la zone CLIENT, en pixels — la surface dessinable, sans
+			/// barre de titre ni bordure. Interroge le SYSTEME, pas `mConfig`.
+			/// ⚠️ `SetSize(GetSize())` est une IDENTITE : c'est le contrat, et il est
+			///    mesure (NkWindowSonde, essai G). Cf. le bloc LE CONTRAT en tete de
+			///    NkWindowConfig.h.
 			math::NkVec2u GetSize() const;
+			/// Coin haut-gauche de la FENETRE (cadre compris), en pixels ecran.
 			math::NkVec2u GetPosition() const;
 			float32 GetDpiScale() const;
 			math::NkVec2u GetDisplaySize() const;
@@ -129,12 +135,15 @@ namespace nkentseu {
 			uint32 GetMonitorCount() const;
 
 			// --- Manipulation ---
+			/// Pose la taille de la zone CLIENT. Le cadre est ajoute par le dorsal,
+			/// a UN seul endroit et jamais par l'appelant.
 			void SetSize(uint32 width, uint32 height);
 
 			void SetSize(const math::NkVec2u &size) {
 				SetSize(size.x, size.y);
 			}
 
+			/// Pose le coin haut-gauche de la FENETRE (cadre compris).
 			void SetPosition(int32 x, int32 y);
 
 			void SetPosition(const math::NkVec2u &pos) {

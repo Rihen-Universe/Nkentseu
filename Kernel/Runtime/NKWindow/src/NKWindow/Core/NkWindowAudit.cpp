@@ -150,8 +150,11 @@ namespace nkentseu {
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
 		// Win32 apres le correctif du 25/09 : le style DESCEND de la config, et
 		// `bgColor` alimente la brosse de la classe.
-		// Restent hors promesse : canFullscreen (rien n'interdit Win+Fleche ni
-		// SetFullscreen) et modal (aucune desactivation du parent).
+		// `modal` et `canFullscreen` sont tenus depuis le 25/09 (consigne ecrite) :
+		// modal desactive la fenetre parent designee et la reactive a la fermeture
+		// (refus nomme s'il n'y a pas de parent) ; canFullscreen=false refuse le
+		// passage plein ecran par l'UTILISATEUR sans brider SetFullscreen.
+		// Plus rien n'est en silence sur ce dorsal.
 		// ⚠️ `bgColor` est TENU, mais il porte une reserve que l'audit global ne
 		//    sait pas exprimer : la brosse appartient a la CLASSE de fenetre. Le
 		//    cas « deja enregistree avec une autre couleur » est donc refuse a son
@@ -162,7 +165,8 @@ namespace nkentseu {
 								  NK_WPROP(DropEnabled) | NK_WPROP(Frame) | NK_WPROP(HasShadow) |
 								  NK_WPROP(Transparent) | NK_WPROP(AlwaysOnTop) | NK_WPROP(ClickThrough) |
 								  NK_WPROP(Opacity) | NK_WPROP(NoActivate) | NK_WPROP(MinSize) |
-							  NK_WPROP(MaxSize) | NK_WPROP(BgColor),
+							  NK_WPROP(MaxSize) | NK_WPROP(BgColor) | NK_WPROP(Modal) |
+							  NK_WPROP(CanFullscreen),
 							  kSansMobile);
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)

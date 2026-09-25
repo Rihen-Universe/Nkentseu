@@ -381,9 +381,12 @@ namespace {
 
 	void EssaiRefus() {
 		NkWindowConfig c = ConfigDeBase("E-refus");
-		c.modal = true;			 // Win32 ne pose aucune desactivation du parent
-		c.canFullscreen = false; // rien n'interdit encore Win+Fleche
-		c.hideSystemUI = true;	 // sans objet sur un bureau
+		c.name = "NkWindowSondeRefus";
+		// Deux reglages qui n'ont AUCUN sens sur un bureau Windows. Ils sont les
+		// seuls qui restent hors promesse ici : depuis le 25/09, tout le reste
+		// est TENU sur Win32.
+		c.hideSystemUI = true;		// pas de barre systeme a masquer
+		c.respectSafeArea = false;	// pas d'encoche a contourner
 
 		NkWindow w;
 		if (!w.Create(c)) {
@@ -394,20 +397,27 @@ namespace {
 		}
 		w.Close();
 
-		Critere("modal non tenu -> REFUS au journal", JournalContient("NkWindowConfig::modal"),
-				"cherche dans logs/app.log");
-		Critere("canFullscreen non tenu -> REFUS", JournalContient("NkWindowConfig::canFullscreen"),
-				"cherche dans logs/app.log");
 		Critere("hideSystemUI sans objet -> REFUS", JournalContient("NkWindowConfig::hideSystemUI"),
 				"cherche dans logs/app.log");
+		Critere("respectSafeArea sans objet -> REFUS", JournalContient("NkWindowConfig::respectSafeArea"),
+				"cherche dans logs/app.log");
 
-		// LE NEGATIF DE L'AUDIT : ce qui EST tenu doit rester SILENCIEUX. Ce
-		// critere ne s'inverse pas en mode negatif — il dit la meme chose dans les
-		// deux, et c'est precisement sa valeur.
+		// ── LE NEGATIF DE L'AUDIT : ce qui EST tenu doit rester SILENCIEUX ────
+		// ⚠️ CE CRITERE A DEJA ATTRAPE UN ATTENDU PERIME, LE JOUR MEME. Il
+		//    exigeait un refus sur `canFullscreen`, ce qui etait VRAI le matin
+		//    et FAUX l'apres-midi, une fois `canFullscreen` implemente. Le banc
+		//    a rougi sur le lot qui le rendait obsolete — c'est le bon sens du
+		//    rouge, et la raison d'ecrire les deux directions.
+		//    Cette liste EST la promesse de Win32 : si l'une de ces proprietes
+		//    cesse d'agir, le journal parlera et ce critere rougira.
 		const bool sauve = gAttenduRouge;
 		gAttenduRouge = false;
 		Critere("resizable EST tenu -> aucun refus", !JournalContient("NkWindowConfig::resizable"),
 				"le journal ne doit PAS en parler");
+		Critere("canFullscreen EST tenu -> aucun refus", !JournalContient("NkWindowConfig::canFullscreen"),
+				"tenu depuis le 25/09 : plus aucun refus attendu");
+		Critere("bgColor EST tenu -> aucun refus", !JournalContient("NkWindowConfig::bgColor"),
+				"tenu depuis le 25/09 (brosse de classe)");
 		gAttenduRouge = sauve;
 	}
 
@@ -469,11 +479,181 @@ namespace {
 		gAttenduRouge = sauve;
 	}
 
+	// -------------------------------------------------------------------------
+	// Essai G — LA TAILLE. Le defaut du 20/09, et son critere.
+	//
+	// (G1) Demander 1280x720 doit rendre 1280x720 de zone CLIENT — mesure par
+	//      `GetClientRect`, chez Windows.
+	// (G2) DIX cycles de `SetSize(GetSize())` ne doivent RIEN deplacer. C'est LE
+	//      critere qui attrape la derive : un seul cycle pourrait passer
+	//      inapercu, dix rendent +16/+39 par tour parfaitement visibles.
+	//
+	// ⚠️ LA FENETRE SANS CADRE EST LE CAS QUI ECHOUAIT, pas celle a cadre. Les
+	//    editeurs (NKUIDesign, Nogee, NkAnimaEditor, NKCode, NK3DModeler) ont
+	//    une barre de titre a eux, donc `frame = false` : leur style garde
+	//    WS_CAPTION et WS_THICKFRAME pendant que WM_NCCALCSIZE rend toute la
+	//    fenetre cliente. `AdjustWindowRectEx` y ajoutait un cadre qui n'existe
+	//    pas. Les DEUX cas sont mesures, et le sans-cadre en premier.
+	//
+	// LE NEGATIF (--ancien-style) : la sonde refait le geste de l'ANCIEN code —
+	// `AdjustWindowRectEx` applique SANS la garde `mBorderless`, puis
+	// `SetWindowPos` — dix fois, et le critere doit rougir. On mute le GESTE,
+	// pas le critere : c'est exactement la ligne qui a ete corrigee.
+	// -------------------------------------------------------------------------
+	void MesurerTaille(const char *nom, bool avecCadre) {
+		NkWindowConfig c = ConfigDeBase(nom);
+		c.name = avecCadre ? "NkWindowSondeTailleC" : "NkWindowSondeTailleS";
+		c.frame = avecCadre;
+		c.width = 1280;
+		c.height = 720;
+
+		NkWindow w;
+		if (!w.Create(c)) {
+			std::printf("  [ECHEC ] la fenetre %s n'a pas pu etre creee\n", nom);
+			++gEssais;
+			++gEchecs;
+			return;
+		}
+		HWND hwnd = w.GetSurfaceDesc().hwnd;
+		char buf[220];
+
+		RECT cr = {};
+		GetClientRect(hwnd, &cr);
+		const LONG cw0 = cr.right - cr.left, ch0 = cr.bottom - cr.top;
+		std::snprintf(buf, sizeof(buf), "GetClientRect = %ldx%ld, demande 1280x720 (%s)", cw0, ch0,
+					  avecCadre ? "avec cadre" : "SANS cadre");
+		// ⚠️ UNE MUTATION CIBLEE NE PROUVE QUE SA CIBLE. `--ancien-style` refait la
+		//    ligne de `SetSize`, et rien d'autre : la taille A LA CREATION est
+		//    donc juste dans les deux modes, et ce critere ne s'inverse PAS. Le
+		//    compter comme un echec en mode negatif ferait croire que la
+		//    mutation couvre un terrain qu'elle ne touche pas.
+		{
+			const bool sauve = gAttenduRouge;
+			gAttenduRouge = false;
+			Critere(avecCadre ? "1280x720 demande -> client (cadre)" : "1280x720 demande -> client (sans cadre)",
+					cw0 == 1280 && ch0 == 720, buf);
+			gAttenduRouge = sauve;
+		}
+
+		// Dix cycles. En mode negatif, on refait le GESTE de l'ancien code.
+		for (int i = 0; i < 10; ++i) {
+			const math::NkVec2u t = w.GetSize();
+			if (!gAttenduRouge) {
+				w.SetSize(t);
+			} else {
+				// ANCIEN CODE, mot pour mot : AdjustWindowRectEx sans la garde.
+				RECT rc = {0, 0, (LONG)t.x, (LONG)t.y};
+				AdjustWindowRectEx(&rc, (DWORD)GetWindowLongW(hwnd, GWL_STYLE), FALSE,
+								   (DWORD)GetWindowLongW(hwnd, GWL_EXSTYLE));
+				SetWindowPos(hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+							 SWP_NOMOVE | SWP_NOZORDER);
+			}
+		}
+		GetClientRect(hwnd, &cr);
+		const LONG cw1 = cr.right - cr.left, ch1 = cr.bottom - cr.top;
+		std::snprintf(buf, sizeof(buf), "apres 10 cycles : %ldx%ld (etait %ldx%ld, derive %+ld %+ld)", cw1, ch1,
+					  cw0, ch0, cw1 - cw0, ch1 - ch0);
+		// ⚠️ SEULE LA FENETRE SANS CADRE S'INVERSE, et c'est la MESURE qui le dit,
+		//    pas une precaution : sous l'ancien code, la fenetre A CADRE ne
+		//    derivait pas (`AdjustWindowRectEx` y etait legitime), et la fenetre
+		//    SANS cadre derivait de +16/+39 par cycle. C'est precisement pourquoi
+		//    le defaut n'a frappe que les editeurs, qui ont leur propre barre de
+		//    titre. Exiger que le cas a cadre rougisse serait exiger de la
+		//    mutation un effet qu'elle n'a pas.
+		const bool sauve = gAttenduRouge;
+		gAttenduRouge = gAttenduRouge && !avecCadre;
+		Critere(avecCadre ? "10x SetSize(GetSize()) = identite (cadre)"
+						  : "10x SetSize(GetSize()) = identite (sans)",
+				cw1 == cw0 && ch1 == ch0, buf);
+		gAttenduRouge = sauve;
+
+		w.Close();
+	}
+
+	void EssaiTaille() {
+		MesurerTaille("G-sans-cadre", false);
+		MesurerTaille("G-avec-cadre", true);
+	}
+
+	// -------------------------------------------------------------------------
+	// Essai H — `modal` et `canFullscreen` (consigne ecrite du 25/09)
+	//
+	// (H1) `modal` avec parent : le parent doit devenir INACTIF —
+	//      `IsWindowEnabled` le dit, et c'est Windows qui repond.
+	// (H2) a la fermeture de la modale, le parent doit REDEVENIR actif. C'est le
+	//      critere qui compte le plus : un parent laisse desactive est une
+	//      application morte a l'ecran, sans message d'erreur.
+	// (H3) `canFullscreen = false` : SC_MAXIMIZE, tel que le systeme l'envoie
+	//      pour Win+Haut et le double-clic de titre, ne doit PAS maximiser —
+	//      `IsZoomed` repond.
+	//
+	// ⚠️ SendMessageW(WM_SYSCOMMAND) N'EST PAS DE L'INJECTION D'ENTREE : c'est un
+	//    message envoye a NOTRE fenetre, dans NOTRE processus. Aucune touche,
+	//    aucun clic n'est simule, et rien ne part vers les fenetres de Rodolf.
+	// -------------------------------------------------------------------------
+	void EssaiModalEtPleinEcran() {
+		NkWindowConfig pc = ConfigDeBase("H-parent");
+		pc.name = "NkWindowSondeParent";
+		NkWindow parent;
+		if (!parent.Create(pc)) {
+			std::printf("  [ECHEC ] la fenetre parent H n'a pas pu etre creee\n");
+			++gEssais;
+			++gEchecs;
+			return;
+		}
+		HWND hParent = parent.GetSurfaceDesc().hwnd;
+		char buf[200];
+
+		{
+			NkWindowConfig mc = ConfigDeBase("H-modale");
+			mc.name = "NkWindowSondeModale";
+			mc.modal = true;
+			mc.native.parentWindowHandle = reinterpret_cast<uintptr>(hParent);
+			NkWindow modale;
+			if (!modale.Create(mc)) {
+				std::printf("  [ECHEC ] la modale H n'a pas pu etre creee\n");
+				++gEssais;
+				++gEchecs;
+			} else {
+				const bool actifPendant = IsWindowEnabled(hParent) != 0;
+				std::snprintf(buf, sizeof(buf), "IsWindowEnabled(parent) = %s", actifPendant ? "VRAI" : "faux");
+				Critere("modal -> le parent est desactive", !actifPendant, buf);
+				modale.Close();
+				const bool actifApres = IsWindowEnabled(hParent) != 0;
+				std::snprintf(buf, sizeof(buf), "IsWindowEnabled(parent) = %s", actifApres ? "vrai" : "FAUX");
+				Critere("fermeture -> le parent revit", actifApres, buf);
+			}
+		}
+
+		{
+			NkWindowConfig fc = ConfigDeBase("H-plein-ecran");
+			fc.name = "NkWindowSondePlein";
+			fc.canFullscreen = false;
+			NkWindow f;
+			if (!f.Create(fc)) {
+				std::printf("  [ECHEC ] la fenetre H-plein-ecran n'a pas pu etre creee\n");
+				++gEssais;
+				++gEchecs;
+			} else {
+				HWND h = f.GetSurfaceDesc().hwnd;
+				SendMessageW(h, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+				const bool zoome = IsZoomed(h) != 0;
+				std::snprintf(buf, sizeof(buf), "IsZoomed apres SC_MAXIMIZE = %s", zoome ? "VRAI" : "faux");
+				Critere("canFullscreen=false -> SC_MAXIMIZE refuse", !zoome, buf);
+				f.Close();
+			}
+		}
+
+		parent.Close();
+	}
+
 	int Mesurer(bool negatif) {
 		gAttenduRouge = negatif;
 		std::printf("\n=== NkWindowSonde — %s ===\n",
 					negatif ? "NEGATIF (--ancien-style) : les criteres DOIVENT rougir"
 							: "MESURE : les criteres doivent etre verts");
+		std::printf("--- G. LA TAILLE : SetSize(GetSize()) est-il l'identite ?\n");
+		EssaiTaille();
 		std::printf("--- A. les cinq comportements a false\n");
 		EssaiComportements();
 		if (!negatif) { // le WndProc ne se demute pas : l'essai B n'a pas de negatif
@@ -485,6 +665,8 @@ namespace {
 			EssaiRefus();
 			std::printf("--- F. bgColor et l'arbitrage des accesseurs\n");
 			EssaiFondEtAccesseurs();
+			std::printf("--- H. modal et canFullscreen\n");
+			EssaiModalEtPleinEcran();
 		}
 		std::printf("--- D. temoin de NON-REGRESSION (config par defaut)\n");
 		EssaiDefauts();
