@@ -118,7 +118,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exe", default=EXE_DEFAUT)
     ap.add_argument("--negatif", action="store_true",
-                    help="attend b1 et b4 ROUGES (binaire d'avant le correctif)")
+                    help="attend b1, b4a et b4 ROUGES (binaire d'avant le correctif)")
     a = ap.parse_args()
 
     if not os.path.isfile(a.exe):
@@ -163,8 +163,13 @@ def main():
     repere = courir(a.exe, "60:m:196:15;80:d:196:15;82:u:196:15", 140,
                     os.path.join(base, "b4a"), trace=2)
     cible = None
-    for m in re.finditer(r"entree menu=2 i=\d+ cle=(\S+) libelle=.* "
-                         r"rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", repere):
+    # ⚠️ LE MOTIF NE NOMME QUE CE QU'IL LIT. Sa premiere version epelait toute la
+    #    ligne (« cle=.. libelle=.. rect=.. ») ; ajouter deux champs a la trace
+    #    (`indispo=`, `racc=`) l'a fait cesser de correspondre, et b4a a rougi pour
+    #    une raison sans rapport avec ce qu'il mesure. *Un instrument dont on change
+    #    le format casse ses lecteurs en silence* -- le banc, lui, l'a dit.
+    for m in re.finditer(r"entree menu=2 .*cle=(\S+) .*rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)",
+                         repere):
         if m.group(1) == CLE_COMPTEURS:
             x, y, w, h = (int(m.group(k)) for k in (2, 3, 4, 5))
             cible = (x + w // 2, y + h // 2)
@@ -183,6 +188,35 @@ def main():
             ecrit = f.read()
     verdict("b4", "compteurs=1" in ecrit,
             "« Fenetre -> Compteurs de rendu » allume ET ecrit la disposition")
+
+    # ── b5..b7 : « PREVU, PAS DISPONIBLE » ──────────────────────────────────
+    #    Une entree dont le panneau n'existe pas est GRISEE : elle dit la verite.
+    #    La retirer effacerait une intention reelle (`app.panneau_outils` est liee
+    #    a la touche T) ; la laisser vive PROMETTRAIT une fonction absente.
+    etat5 = os.path.join(base, "b5")
+    j5 = courir(a.exe, "60:m:196:15;80:d:196:15;82:u:196:15", 140, etat5, trace=2)
+    ind = re.search(r"cle=app\.panneau_outils indispo=(\d) racc=(\S+) .*"
+                    r"rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", j5)
+    verdict("b5", bool(ind) and ind.group(1) == "1",
+            "« Panneau d'outils » est declaree INDISPONIBLE")
+    # ⚠️ `racc` dit le raccourci REELLEMENT PEINT. Le critere est refutable :
+    #    mesure faite en retirant la garde -- il imprime alors « racc=T ».
+    verdict("b6", bool(ind) and ind.group(2) == "-",
+            "et son raccourci n'est PAS affiche (sans la garde : « T »)")
+    if ind:
+        x, y, w, h = (int(ind.group(k)) for k in (3, 4, 5, 6))
+        cx, cy = x + w // 2, y + h // 2
+        j7 = courir(a.exe, "60:m:196:15;80:d:196:15;82:u:196:15;"
+                           "100:m:%d:%d;120:d:%d:%d;122:u:%d:%d"
+                           % (cx, cy, cx, cy, cx, cy), 190,
+                    os.path.join(base, "b7"), trace=2)
+        # INERTE, PAS ABSENTE : le menu reste ouvert. S'il se refermait, le clic
+        # « aurait fait quelque chose » -- et c'est ce que le gris doit nier.
+        reste = images_menu_ouvert(j7, 2)
+        verdict("b7", reste >= 60,
+                "cliquer dessus ne fait RIEN et ne referme pas le menu (%d images)" % reste)
+    else:
+        verdict("b7", False, "entree introuvable : b7 non mesure")
 
     print("RESULTAT : %d/%d" % (gOk, gOk + gKo))
     if a.negatif:

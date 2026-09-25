@@ -133,7 +133,17 @@ namespace nkentseu {
 				}
 				const NkRect ir{box.x + 2.f, y, box.w - 4.f, itemH};
 				snprintf(keys, sizeof(keys), "menu.item.%d", i);
-				const bool over = hit.Add(keys, ir);
+				// ⚠️ LA ZONE EST QUAND MEME DECLAREE, et c'est voulu : sans elle, le
+				//    clic tomberait sur `menu.panel` et la garde « un clic ailleurs
+				//    referme » verrait `onItem == false` -- le menu se fermerait, ce
+				//    qui se lit comme « ca a fait quelque chose ». Une entree
+				//    indisponible doit etre INERTE, pas absente.
+				const bool survolBrut = hit.Add(keys, ir);
+				const bool indispo = m.items[i].indisponible;
+				// Le survol ne s'allume PAS sur une entree indisponible : un
+				// surlignage est une promesse de clic. (Meme regle que `NkCtxMenu`
+				// du kit : `if (hov && enabled[i])`.)
+				const bool over = survolBrut && !indispo;
 				// ── NK_MENU_TRACE>=2 : L'APPLICATION DIT OU SONT SES ENTREES ────
 				// ⚠️ ELLE EXISTE PARCE QUE MON PROPRE BANC VISAIT UN RANG. Il
 				//    cliquait « menu.item.9 » a une coordonnee ecrite a la main ;
@@ -146,12 +156,23 @@ namespace nkentseu {
 						const char *v = std::getenv("NK_MENU_TRACE");
 						return v ? (int32)std::atoi(v) : 0;
 					}();
-					if (kTrI >= 2)
-						std::printf("[nk3d] entree menu=%d i=%d cle=%s libelle=%s rect=%.0f,%.0f,%.0f,%.0f\n",
+					if (kTrI >= 2) {
+						// ⚠️ `racc` dit le raccourci REELLEMENT PEINT, pas celui que la
+						//    table porte : c'est ce qui rend la condition « pas de
+						//    raccourci a cote d'une entree indisponible » MESURABLE.
+						//    Une trace qui relirait la table dirait l'intention.
+						char rc[32];
+						const bool peint = !m.items[i].indisponible && m.items[i].command &&
+										   *m.items[i].command &&
+										   sc.FormatFor(m.items[i].command, rc, sizeof(rc));
+						std::printf("[nk3d] entree menu=%d i=%d cle=%s indispo=%d racc=%s libelle=%s "
+									"rect=%.0f,%.0f,%.0f,%.0f\n",
 									st.openMenu, i,
 									m.items[i].command && m.items[i].command[0] ? m.items[i].command
 																				: "(sans)",
+									m.items[i].indisponible ? 1 : 0, peint ? rc : "-",
 									m.items[i].label, ir.x, ir.y, ir.w, ir.h);
+					}
 				}
 				if (over)
 					p.Fill(ir, NkRole::AccentUi, 3.f);
@@ -188,11 +209,24 @@ namespace nkentseu {
 				// Le libelle d'une bascule est toujours en retrait, cochee ou non :
 				// sinon le texte saute lateralement a chaque clic, et c'est le saut
 				// qu'on lit au lieu de la coche.
+				// ⚠️ `TextMuted` ET PAS UN GRIS ECRIT EN DUR. Le vocabulaire de roles
+				//    du kit n'a AUCUN role « desactive » (mesure : aucun `Disabled`,
+				//    `Inactif` ni `Grise` dans `NKEditorKit/NkTheme.h`) -- `TextMuted`
+				//    est le plus proche qui existe, et il suit les deux themes. Le
+				//    role manquant est inscrit dans la liste du 2 novembre ; une
+				//    couleur en dur deviendrait illisible en theme clair, et ce depot
+				//    a deja paye ce prix.
 				p.TextV(ir.x + (estBascule ? S(28.f) : S(12.f)), y, itemH, m.items[i].label,
-						over ? NkRole::TextOnAccent : NkRole::Text);
+						indispo ? NkRole::TextMuted : (over ? NkRole::TextOnAccent : NkRole::Text));
 				// Le RACCOURCI est lu dans la table, jamais recopie : rebinder une
 				// touche met l'affichage a jour tout seul.
-				if (m.items[i].command && *m.items[i].command
+				// ⚠️ PAS DE RACCOURCI A COTE D'UNE ENTREE INDISPONIBLE. L'afficher
+				//    promettrait encore : « T » est bien LIEE dans la table, mais
+				//    elle n'a aucun consommateur -- l'annoncer ferait douter du
+				//    clavier plutot que de la fonction. La LIAISON reste (elle dit
+				//    l'intention, cf. *demenager, pas supprimer*) ; seul son
+				//    AFFICHAGE se tait.
+				if (!indispo && m.items[i].command && *m.items[i].command
 					&& sc.FormatFor(m.items[i].command, keys, sizeof(keys))) {
 					const float32 kw = p.TextW(keys);
 					p.TextV(ir.x + ir.w - kw - S(12.f), y, itemH, keys,
@@ -202,7 +236,7 @@ namespace nkentseu {
 					p.IconV(ir.x + ir.w - S(18.f), y, itemH, NkIcon::ChevronRight,
 							over ? NkRole::TextOnAccent : NkRole::TextMuted, 11.f);
 				snprintf(keys, sizeof(keys), "menu.item.%d", i);
-				if (hit.Clicked(keys) && !m.items[i].submenu) {
+				if (hit.Clicked(keys) && !m.items[i].submenu && !indispo) {
 					// Une entree SANS sous-menu referme le menu. Une entree AVEC en
 					// ouvrirait un second -- non ecrit tant qu'aucune n'a de contenu
 					// reel, plutot qu'un panneau vide qui ferait croire a un bug.
