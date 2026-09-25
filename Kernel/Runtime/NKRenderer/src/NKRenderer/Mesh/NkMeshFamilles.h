@@ -106,6 +106,23 @@ namespace nkentseu {
 		/// famille est inconnue.
 		bool NkFamilleFormulaire(const char *famille, char *out, uint32 cap);
 
+		/// ── LES DIMENSIONS PLAUSIBLES D'UNE FAMILLE (25/09) ───────────────────
+		/// Rodolf a vu un objet mis a l'echelle d'un assemblage haut de 5,30 m, et
+		/// ces 5,30 m venaient du 7B. Quand aucune reference n'est jointe, la taille
+		/// ne doit pas venir de l'imagination du modele : elle vient d'ici.
+		/// ⚠️ CE SONT DES INTERVALLES, PAS DES VALEURS. Une porte fait 2,0 a 2,2 m,
+		///    une table 0,72 a 0,78 m de haut : donner un nombre unique ferait croire
+		///    a une precision qui n'existe pas, et empecherait le modele de dire
+		///    « une table basse ». Le milieu sert de defaut ; les bornes servent a
+		///    REFUSER ce qui est hors du monde (une table de 4 m de haut).
+		/// ⚠️ ET CE N'EST PAS LA MEME CHOSE QUE `Borne(...)` DANS LES CONSTRUCTEURS :
+		///    celles-la sont des bornes de CONSTRUCTION (ce que la geometrie supporte
+		///    sans casser) ; celles-ci sont des bornes de VRAISEMBLANCE. Les
+		///    confondre laisserait passer une porte de 8 m parce qu'elle se construit.
+		/// Rend faux si la famille n'a pas de dimensions ecrites. `axe` : 0 largeur,
+		/// 1 hauteur, 2 profondeur.
+		bool NkFamilleDimensionPlausible(const char *famille, int32 axe, float32 *lo, float32 *hi, float32 *defaut);
+
 		/// `valeur` est-elle autorisee pour `champ` de `famille` ? Rend vrai aussi
 		/// quand le champ est libre (un nombre). Quand elle est refusee, `remplacement`
 		/// recoit la valeur par defaut -- on CORRIGE au lieu de rejeter le document.
