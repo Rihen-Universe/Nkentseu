@@ -1015,7 +1015,9 @@ namespace nkentseu {
 	bool NkWindow::IsAlwaysOnTop() const {
 		// Le WM fait autorité : on lit _NET_WM_STATE, comme IsMaximized().
 		if (!mData.mConnection || !mData.mWindow)
-			return mConfig.alwaysOnTop;
+			// Pas de fenetre native : rien n'a ete applique, donc rien n'est vrai.
+		// Meme regle que l'arbitrage du 25/09 — un accesseur decrit le monde.
+		return false;
 		const xcb_atom_t wmState = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE", true);
 		const xcb_atom_t above = NkXCBInternAtom(mData.mConnection, "_NET_WM_STATE_ABOVE", true);
 		if (wmState == XCB_ATOM_NONE || above == XCB_ATOM_NONE)
