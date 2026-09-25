@@ -81,7 +81,12 @@ namespace nkentseu {
 		/// Version du format de geometrie, DISTINCTE de celle de l'asset : le
 		/// jour ou le layout de sommet change, c'est ce nombre qui monte, et un
 		/// `.nkmesh` inchange n'a pas a etre reecrit pour autant.
-		static const uint32 kGeoFormatVersion = 1;
+		// FORMAT 2 (25/09) : + LE MASQUE DE SCULPTURE, un poids par sommet.
+		// ⚠️ UN LECTEUR 2 LIT UN FICHIER 1 : l'entree porte son propre compte de
+		//    poids (0 = pas de masque), donc un fichier d'hier se lit sans rien
+		//    supposer. L'inverse est REFUSE et DIT (cf. NkGeoRead) : un lecteur 1
+		//    qui lirait un fichier 2 prendrait les poids pour des sommets.
+		static const uint32 kGeoFormatVersion = 2;
 		static const uint32 kGeoHeaderBytes = 16;
 		static const uint32 kGeoEntryBytes = 16;
 
@@ -128,18 +133,30 @@ namespace nkentseu {
 		}
 
 		/// Ajoute la geometrie d'un noeud, sous son RANG dans l'asset frere.
+		/// `mask`, quand il est fourni, porte `vcount` poids de sculpture (0 libre,
+		/// 1 protege). Absent, l'entree ecrit un compte de 0 et ne coute rien : un
+		/// projet qui n'a jamais masque ne paie pas un octet pour cette fonction.
 		inline void NkGeoAdd(NkGeoBuilder &g, int32 rank, const void *verts, uint32 vcount,
-							 uint32 stride, const uint32 *indices, uint32 icount) {
+							 uint32 stride, const uint32 *indices, uint32 icount,
+							 const float32 *mask = nullptr) {
 			if (rank < 0 || !verts || !indices || vcount == 0 || icount == 0 || stride == 0)
 				return;
 			NkGeoPutU32(g.body, (uint32)rank);
 			NkGeoPutU32(g.body, vcount);
 			NkGeoPutU32(g.body, stride);
 			NkGeoPutU32(g.body, icount);
+			// ⚠️ LE COMPTE VIENT AVANT LES DONNEES, ET IL EST DANS L'ENTREE. Le
+			//    mettre dans l'en-tete du FICHIER aurait force toutes les entrees a
+			//    avoir ou ne pas avoir de masque ensemble ; ici chaque objet decide.
+			const uint32 mcount = mask ? vcount : 0u;
+			NkGeoPutU32(g.body, mcount);
 			NkGeoPutBytes(g.body, verts, (usize)vcount * (usize)stride);
 			NkGeoPutBytes(g.body, indices, (usize)icount * sizeof(uint32));
+			if (mcount)
+				NkGeoPutBytes(g.body, mask, (usize)mcount * sizeof(float32));
 			++g.count;
-			g.bytes += (uint64)vcount * (uint64)stride + (uint64)icount * 4u;
+			g.bytes += (uint64)vcount * (uint64)stride + (uint64)icount * 4u +
+					   (uint64)mcount * 4u;
 		}
 
 		/// Verse le tampon dans `root/rel`. Un tampon VIDE ne laisse pas un
@@ -201,8 +218,10 @@ namespace nkentseu {
 				uint32 vcount = 0;
 				uint32 stride = 0;
 				uint32 icount = 0;
+				uint32 mcount = 0; ///< poids de masque (0 = aucun masque)
 				usize vOff = 0; ///< offset des sommets DANS `bytes`
 				usize iOff = 0; ///< offset des indices DANS `bytes`
+				usize mOff = 0; ///< offset des poids DANS `bytes` (si mcount > 0)
 		};
 
 		struct NkGeoFile {
@@ -264,10 +283,19 @@ namespace nkentseu {
 				e.stride = NkGeoGetU32(out.bytes, off + 8u);
 				e.icount = NkGeoGetU32(out.bytes, off + 12u);
 				off += (usize)kGeoEntryBytes;
+				// FORMAT 2 : le compte de poids suit l'en-tete d'entree. Un fichier
+				// de format 1 n'en a pas -- on ne le lit donc PAS, au lieu de lire
+				// quatre octets de sommet en croyant lire un compte.
+				if (ver >= 2u) {
+					e.mcount = NkGeoGetU32(out.bytes, off);
+					off += 4u;
+				}
 				const usize vb = (usize)e.vcount * (usize)e.stride;
 				const usize ib = (usize)e.icount * sizeof(uint32);
+				const usize mb = (usize)e.mcount * sizeof(float32);
 				if (e.vcount == 0 || e.stride == 0 || e.icount == 0 ||
-					off + vb + ib > out.bytes.Size()) {
+					(e.mcount != 0u && e.mcount != e.vcount) ||
+					off + vb + ib + mb > out.bytes.Size()) {
 					NkLog::Instance().Warnf("[geom] « %s » TRONQUE a l'entree %u/%u (rang %u) : "
 											"les objets suivants n'ont plus leur maillage.",
 											rel.CStr(), (unsigned)k, (unsigned)n,
@@ -276,7 +304,8 @@ namespace nkentseu {
 				}
 				e.vOff = off;
 				e.iOff = off + vb;
-				off += vb + ib;
+				e.mOff = off + vb + ib;
+				off += vb + ib + mb;
 				out.entries.PushBack(e);
 			}
 			out.present = true;

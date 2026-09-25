@@ -269,6 +269,30 @@ namespace nkentseu {
 				int32 mode = 1;
 		};
 
+		// ── ECHANTILLONNER UN CHAMP PORTE PAR DES POINTS ────────────────────────
+		// « Quel poids pour ce point-ci, sachant les poids de ceux-la ? » La regle :
+		// les points source les PLUS PROCHES A EGALITE (a `tol` pres, RELATIF)
+		// l'emportent, et l'on prend leur moyenne. Elle donne le bon sens sans
+		// qu'aucun appelant n'ait a decrire sa parente :
+		//   point conserve -> distance 0 a lui-meme       -> son poids ;
+		//   milieu d'arete -> ses DEUX extremites         -> leur moyenne ;
+		//   centre de face -> ses N coins (equidistants)  -> leur moyenne.
+		//
+		// ⚠️ UNE SEULE IMPLANTATION POUR TROIS USAGES : le masque qui traverse une
+		//    operation topologique, celui qui descend du noeud vers le maillage
+		//    d'edition, et celui qui y remonte. Trois copies de la meme boucle
+		//    auraient diverge -- et l'ecart ne se serait vu que sur un cas de bord,
+		//    tres loin de sa cause.
+		//
+		// ⚠️ GRILLE DE HACHAGE, PAS DE RECHERCHE EXHAUSTIVE : sur 250 000 points,
+		//    le O(n x m) serait « present et impraticable », ce qui revient a
+		//    absent.
+		//
+		// `out` recoit `m` valeurs. Un point de destination qui ne trouve AUCUNE
+		// source (cas impossible sur un maillage, garde par prudence) recoit 0.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol = 0.02f) noexcept;
+
 		class NkEditMesh {
 			public:
 				struct Vert {

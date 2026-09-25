@@ -608,7 +608,14 @@ namespace nkentseu {
 					const uint32 *gi = nullptr;
 					uint32 gvc = 0, gst = 0, gic = 0;
 					if (demo::Demo3DHostNodeGeometry(n, &gv, &gvc, &gst, &gi, &gic)) {
-						NkGeoAdd(geo, (int32)k, gv, gvc, gst, gi, gic);
+						// LE MASQUE DE SCULPTURE part avec la geometrie : c'est le meme
+						// objet, et le separer donnerait deux fichiers a garder
+						// d'accord. Absent (aucun masque), l'entree ecrit un compte de
+						// zero et ne coute rien.
+						const float32 *gm = nullptr;
+						uint32 gmc = 0;
+						(void)demo::Demo3DHostNodeMask(n, &gm, &gmc);
+						NkGeoAdd(geo, (int32)k, gv, gvc, gst, gi, gic, (gmc == gvc) ? gm : nullptr);
 						// DIT DANS L'ASSET AUSSI, pas seulement dans le binaire :
 						// c'est ce drapeau qui permet a la relecture de savoir
 						// qu'un maillage MANQUE au lieu de rendre un cube sans un
@@ -814,6 +821,16 @@ namespace nkentseu {
 						ok = demo::Demo3DHostSetNodeGeometry(n, geo.bytes.Data() + ge->vOff,
 															 ge->vcount, ge->stride, idx.Data(),
 															 ge->icount);
+						// LE MASQUE SUIT LA GEOMETRIE, et seulement si elle a ete
+						// reprise : reposer des poids sur un maillage qui n'est pas
+						// celui qu'ils decrivent protegerait n'importe quoi.
+						if (ok && ge->mcount == ge->vcount && ge->mcount > 0) {
+							NkVector<float32> mw;
+							mw.Resize((usize)ge->mcount);
+							std::memcpy(mw.Data(), geo.bytes.Data() + ge->mOff,
+										(usize)ge->mcount * sizeof(float32));
+							(void)demo::Demo3DHostSetNodeMask(n, mw.Data(), ge->mcount);
+						}
 					}
 					if (!ok) {
 						// 🔴 UN CUBE BLANC QUI MENT EST PIRE QU'UN OBJET QUI SE

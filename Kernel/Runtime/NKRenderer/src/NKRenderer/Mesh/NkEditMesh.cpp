@@ -6858,19 +6858,22 @@ namespace nkentseu {
 			static const uint32 NK_EMREC_MAGIC = 0x4E4D4543u; // "NMEC"
 		} // namespace
 
-		// ── LE REPORT DU MASQUE : LES PLUS PROCHES A EGALITE SONT LES PARENTS ──
-		// Grille de hachage sur les sommets d'AVANT, pas de recherche exhaustive :
-		// un maillage de 250 000 sommets rendrait le O(n x m) inutilisable, et la
-		// fonction serait « presente et impraticable » -- ce qui revient a absente.
-		uint32 NkEditMesh::MaskTransferFrom(const NkEditMesh &avant, float32 tol) {
-			if (!avant.MaskExists() || avant.VertCount() == 0 || VertCount() == 0)
-				return 0;
+		// ── L'ECHANTILLONNAGE D'UN CHAMP : L'IMPLANTATION, UNE SEULE FOIS ──────
+		// Cf. la declaration dans NkEditMesh.h pour la regle et ses raisons.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol) noexcept {
+			if (!dst || !out || m == 0)
+				return;
+			for (uint32 i = 0; i < m; ++i)
+				out[i] = 0.f;
+			if (!src || !poids || n == 0)
+				return;
 			// Maille de la grille : la diagonale de la boite / 64, bornee. Trop fine,
 			// on visite trop de cellules ; trop large, chaque cellule redevient une
 			// recherche exhaustive.
 			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
-			for (uint32 i = 0; i < avant.VertCount(); ++i) {
-				const NkVec3f &p = avant.verts[i].pos;
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f &p = src[i];
 				mn.x = (p.x < mn.x) ? p.x : mn.x;
 				mn.y = (p.y < mn.y) ? p.y : mn.y;
 				mn.z = (p.z < mn.z) ? p.z : mn.z;
@@ -6898,16 +6901,15 @@ namespace nkentseu {
 				return (uint64)((uint64)(uint32)(k.x * 73856093) ^ (uint64)(uint32)(k.y * 19349663) ^
 								(uint64)(uint32)(k.z * 83492791));
 			};
-			// Table ouverte, taille puissance de deux : pas d'allocation par cellule.
 			uint32 cap = 1u;
-			while (cap < avant.VertCount() * 2u)
+			while (cap < n * 2u)
 				cap <<= 1;
 			NkVector<uint64> cles;
 			NkVector<int32> tete;
 			NkVector<int32> suivant;
 			cles.Resize(cap);
 			tete.Resize(cap);
-			suivant.Resize(avant.VertCount());
+			suivant.Resize(n);
 			for (uint32 i = 0; i < cap; ++i) {
 				cles[i] = 0xFFFFFFFFFFFFFFFFull;
 				tete[i] = -1;
@@ -6918,75 +6920,88 @@ namespace nkentseu {
 					slot = (slot + 1u) & (cap - 1u);
 				return slot;
 			};
-			for (uint32 i = 0; i < avant.VertCount(); ++i) {
-				const uint64 h = hachage(cleDe(avant.verts[i].pos));
+			for (uint32 i = 0; i < n; ++i) {
+				const uint64 h = hachage(cleDe(src[i]));
 				const uint32 slot = emplacement(h);
 				cles[slot] = h;
 				suivant[i] = tete[slot];
 				tete[slot] = (int32)i;
 			}
-			MaskEnsure();
-			uint32 poses = 0;
+			// Parcourt les cellules d'un cube de rayon `rayon` autour du point.
+			auto parcourir = [&](const NkVec3f &p, int32 rayon, auto &&visiter) {
+				const Cle k0 = cleDe(p);
+				for (int32 dx = -rayon; dx <= rayon; ++dx)
+					for (int32 dy = -rayon; dy <= rayon; ++dy)
+						for (int32 dz = -rayon; dz <= rayon; ++dz) {
+							const Cle k{k0.x + dx, k0.y + dy, k0.z + dz};
+							const uint64 h = hachage(k);
+							const uint32 slot = emplacement(h);
+							if (cles[slot] != h)
+								continue;
+							for (int32 j = tete[slot]; j >= 0; j = suivant[(uint32)j])
+								visiter((uint32)j);
+						}
+			};
 			const float32 epsAbs = 1e-9f;
-			for (uint32 v = 0; v < VertCount(); ++v) {
-				const NkVec3f &p = verts[v].pos;
-				// On elargit le voisinage tant qu'on n'a rien trouve : un sommet cree
-				// loin de l'ancienne surface doit QUAND MEME trouver ses plus proches,
-				// sinon il naitrait libre par accident de maillage.
+			for (uint32 v = 0; v < m; ++v) {
+				const NkVec3f &p = dst[v];
+				// On elargit le voisinage tant qu'on n'a rien trouve : un point cree
+				// LOIN des sources doit quand meme trouver ses plus proches, sinon il
+				// naitrait a zero par accident de maillage.
 				float32 best = 1e30f;
-				for (int32 rayon = 1; rayon <= 8 && best > 1e29f; rayon += (rayon < 3 ? 1 : 3)) {
-					const Cle k0 = cleDe(p);
-					for (int32 dx = -rayon; dx <= rayon; ++dx)
-						for (int32 dy = -rayon; dy <= rayon; ++dy)
-							for (int32 dz = -rayon; dz <= rayon; ++dz) {
-								const Cle k{k0.x + dx, k0.y + dy, k0.z + dz};
-								const uint64 h = hachage(k);
-								const uint32 slot = emplacement(h);
-								if (cles[slot] != h)
-									continue;
-								for (int32 j = tete[slot]; j >= 0; j = suivant[(uint32)j]) {
-									const NkVec3f q = avant.verts[(uint32)j].pos - p;
-									const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
-									if (d2 < best)
-										best = d2;
-								}
-							}
-				}
+				for (int32 rayon = 1; rayon <= 8 && best > 1e29f; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 < best)
+							best = d2;
+					});
 				if (best > 1e29f)
-					continue; // vraiment rien autour : on laisse libre, et on le dit par le compte
+					continue;
 				// LES PLUS PROCHES **A EGALITE** : la tolerance est RELATIVE a la
 				// distance trouvee, donc elle vaut pour un maillage de 1 cm comme de
-				// 10 m. A distance nulle (sommet conserve), seul lui-meme entre.
+				// 10 m. A distance nulle (point conserve), seul lui-meme entre.
 				const float32 dmin = sqrtf(best);
 				const float32 seuil = dmin * (1.f + tol) + epsAbs;
 				const float32 seuil2 = seuil * seuil;
 				float32 somme = 0.f;
-				uint32 n = 0;
-				for (int32 rayon = 1; rayon <= 8 && n == 0; rayon += (rayon < 3 ? 1 : 3)) {
-					const Cle k0 = cleDe(p);
-					for (int32 dx = -rayon; dx <= rayon; ++dx)
-						for (int32 dy = -rayon; dy <= rayon; ++dy)
-							for (int32 dz = -rayon; dz <= rayon; ++dz) {
-								const Cle k{k0.x + dx, k0.y + dy, k0.z + dz};
-								const uint64 h = hachage(k);
-								const uint32 slot = emplacement(h);
-								if (cles[slot] != h)
-									continue;
-								for (int32 j = tete[slot]; j >= 0; j = suivant[(uint32)j]) {
-									const NkVec3f q = avant.verts[(uint32)j].pos - p;
-									const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
-									if (d2 <= seuil2) {
-										somme += avant.MaskAt((uint32)j);
-										++n;
-									}
-								}
-							}
-				}
-				if (n == 0)
-					continue;
-				const float32 w = somme / (float32)n;
-				vertMask[v] = w;
-				if (w > 0.f)
+				uint32 cnt = 0;
+				for (int32 rayon = 1; rayon <= 8 && cnt == 0; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 <= seuil2) {
+							somme += poids[j];
+							++cnt;
+						}
+					});
+				if (cnt > 0)
+					out[v] = somme / (float32)cnt;
+			}
+		}
+
+		// ── LE REPORT DU MASQUE A TRAVERS UNE OPERATION ────────────────────────
+		// N'est plus qu'un APPELANT de l'echantillonnage : le jour ou la regle
+		// changera, elle changera pour les trois usages a la fois.
+		uint32 NkEditMesh::MaskTransferFrom(const NkEditMesh &avant, float32 tol) {
+			if (!avant.MaskExists() || avant.VertCount() == 0 || VertCount() == 0)
+				return 0;
+			NkVector<NkVec3f> src, dst;
+			src.Resize(avant.VertCount());
+			for (uint32 i = 0; i < avant.VertCount(); ++i)
+				src[i] = avant.verts[i].pos;
+			dst.Resize(VertCount());
+			for (uint32 i = 0; i < VertCount(); ++i)
+				dst[i] = verts[i].pos;
+			NkVector<float32> out;
+			out.Resize(VertCount());
+			NkMaskSampleField(src.Data(), avant.vertMask.Data(), (uint32)src.Size(), dst.Data(),
+							  out.Data(), (uint32)dst.Size(), tol);
+			MaskEnsure();
+			uint32 poses = 0;
+			for (uint32 i = 0; i < VertCount(); ++i) {
+				vertMask[i] = out[i];
+				if (out[i] > 0.f)
 					++poses;
 			}
 			return poses;
