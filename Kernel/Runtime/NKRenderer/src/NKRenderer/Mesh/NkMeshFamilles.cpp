@@ -573,6 +573,40 @@ namespace nkentseu {
 			// ================================================================
 			//  UN BATTANT DE PORTE, avec ses panneaux en creux
 			// ================================================================
+			// ── DEUX HELPERS D'ARTICULATION (25/09, Q18.1) ───────────────────────
+			// `IndiceDe` retrouve une piece DEJA emise par son nom ; `Articuler`
+			// annote la DERNIERE emise. Les deux tiennent en dix lignes parce que la
+			// famille n'a pas de mecanique a inventer : elle REMPLIT les champs que
+			// le modeleur sait deja appliquer (parent, origine).
+			// ⚠️ LE PARENT SE DESIGNE PAR SON NOM, jamais par un indice ecrit a la
+			//    main : les indices se decalent des qu'une piece est ajoutee au
+			//    milieu, et ce decalage-la ne fait pas de bruit -- il accroche la
+			//    poignee au linteau.
+			int32 IndiceDe(const Sortie &S, const char *nom) {
+				if (!S.out)
+					return -1;
+				for (usize i = 0; i < S.out->Size(); ++i)
+					if (strcmp((*S.out)[i].nom, nom) == 0)
+						return (int32)i;
+				return -1;
+			}
+			void Articuler(Sortie &S, const char *parent, NkFamilleLiaison l, NkVec3f pivot, NkVec3f axe,
+						   float32 buteeMin, float32 buteeMax) {
+				if (!S.out || S.out->Size() == 0)
+					return;
+				NkFamillePiece &q = (*S.out)[S.out->Size() - 1u];
+				q.parent = parent ? IndiceDe(S, parent) : -1;
+				q.liaison = l;
+				q.pivot[0] = pivot.x;
+				q.pivot[1] = pivot.y;
+				q.pivot[2] = pivot.z;
+				q.axe[0] = axe.x;
+				q.axe[1] = axe.y;
+				q.axe[2] = axe.z;
+				q.butee[0] = buteeMin;
+				q.butee[1] = buteeMax;
+			}
+
 			void Battant(Sortie &S, const char *nom, float32 x0, float32 x1, float32 y0, float32 y1, float32 ep,
 						 bool detail, const char *mat, float32 zc = 0.f) {
 				Soupe s;
@@ -616,18 +650,37 @@ namespace nkentseu {
 					const float32 x0 = -W * 0.5f + f, x1 = W * 0.5f - f, jeu = 0.004f;
 					for (int32 b = 0; b < nb; ++b) {
 						const float32 bx0 = x0 + (x1 - x0) * b / nb + jeu, bx1 = x0 + (x1 - x0) * (b + 1) / nb - jeu;
-						Battant(S, nb == 1 ? "battant" : (b == 0 ? "battant_gauche" : "battant_droit"), bx0, bx1, 0.01f,
-								H - f - jeu, ep, det, "bois");
+						const char *nomB = nb == 1 ? "battant" : (b == 0 ? "battant_gauche" : "battant_droit");
+						Battant(S, nomB, bx0, bx1, 0.01f, H - f - jeu, ep, det, "bois");
+						// ── LA CHARNIERE EST SUR L'ARETE DES GONDS, PAS AU CENTRE ────
+						// Le cote des gonds est celui OPPOSE a la poignee, et la poignee
+						// est deja placee dix lignes plus bas par la meme condition :
+						// on reutilise cette condition au lieu d'en ecrire une seconde
+						// qui se desaccorderait au premier changement.
+						const bool poigneeEnBas = (nb == 1 || b == 1);
+						const float32 xGond = poigneeEnBas ? bx1 : bx0;
+						Articuler(S, poigneeEnBas ? "montant_droit" : "montant_gauche", NkFamilleLiaison::Charniere,
+								  {xGond, 0.f, 0.f}, {0.f, 1.f, 0.f}, 0.f, 110.f);
 						if (det) {
 							// POIGNEE : une rosace tournee et un bec, cote ouverture.
 							const float32 hx = (nb == 1 || b == 1) ? bx0 + 0.07f : bx1 - 0.07f;
 							const float32 ros[4] = {0.028f, 0.f, 0.024f, 0.012f};
 							Tournee(S, ros, 2, b == 0 ? "rosace" : "rosace_2", "laiton", {hx, 1.0f, ep * 0.5f}, 90.f);
+							// LA ROSACE EST SOLIDAIRE DU BATTANT : elle ne tourne pas, elle
+							// suit. C'est une liaison FIXE, et le dire vaut mieux que de la
+							// laisser sans parent -- une piece sans parent reste au cadre
+							// quand la porte s'ouvre.
+							Articuler(S, nomB, NkFamilleLiaison::Fixe, {hx, 1.0f, ep * 0.5f}, {0.f, 0.f, 1.f}, 0.f, 0.f);
 							Soupe bec;
 							const float32 sens = (nb == 1 || b == 1) ? 1.f : -1.f;
 							Pave(bec, hx, 0.99f, ep * 0.5f + 0.012f, hx + sens * 0.12f, 1.01f, ep * 0.5f + 0.03f);
 							Chanfrein(bec, {0.f, 0.f, 0.f}, 0.004f, 1);
 							Emettre(S, bec, b == 0 ? "poignee" : "poignee_2", "laiton");
+							// LA POIGNEE TOURNE SUR L'AXE DE SA ROSACE, perpendiculaire a
+							// la face de la porte -- pas sur l'axe de la porte. Butees :
+							// du repos jusqu'a 45 degres vers le bas.
+							Articuler(S, nomB, NkFamilleLiaison::Charniere, {hx, 1.0f, ep * 0.5f}, {0.f, 0.f, 1.f},
+									  -45.f, 0.f);
 						}
 					}
 					return;
