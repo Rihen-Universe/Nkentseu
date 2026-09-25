@@ -211,6 +211,53 @@ compilateur de nuanceurs échoue (`non-opaque uniforms outside a block`). Ce
 n'est pas propre à cette démo — c'est la résolution des ressources du moteur
 relative au répertoire courant. **Lancer depuis la racine de l'arbre.**
 
+## 26/09 — la cause de l'écran vide : une boîte englobante jamais remplie
+
+Rodolf a relancé : toujours rien. Sa trace a donné le diagnostic — **tout était
+valide en amont** — donc le défaut était plus bas que tout ce que
+j'instrumentais. Il l'était.
+
+**`NkRender3D::Submit` fait un culling caméra sur `dc.aabb`, et `NkAABB` naît
+INVERSÉE** :
+
+```
+NkVec3f min = { 1e30f,  1e30f,  1e30f};
+NkVec3f max = {-1e30f, -1e30f, -1e30f};
+```
+
+Une boîte vide n'est jamais visible. **Chaque soumission était rejetée, en
+silence**, sans un avertissement : maillage valide, matériau valide, scène
+ouverte, graphe complet avec ses 22 passes — et la liste de dessin vide, parce
+que le culling avait tout écarté avant. Un champ dont la valeur par défaut
+signifie « rien n'est visible » se comporte comme un interrupteur éteint
+qu'aucun appelant ne voit.
+
+**Mesuré des deux côtés** (`GetCullStats()`, que la démo journalise désormais) :
+
+| course | soumis | écartés |
+|---|---|---|
+| boîte remplie | 2 | **0** |
+| `NK_DEMO_UV_SANS_BOITE=1` (le négatif) | 2 | **2** |
+
+Le négatif est **dans la démo** : une variable d'environnement rétablit le
+défaut. Un témoin qui ne peut pas rougir ne prouve rien.
+
+**Trois chemins, trois témoins** — parce que je les avais confondus deux fois :
+- **(1) rectangles `NkRender2D`** → le carré **magenta** en bas à gauche ;
+- **(2) texte** → passé à `NkOverlayRenderer` (le chemin qu'emprunte une
+  application qui affiche vraiment du texte), avec une **réglure blanche** juste
+  sous la première ligne : si la réglure est là et le texte non, c'est (2) ;
+- **(3) 3D** → une **sphère grise** construite par le **moteur**, sans matériau
+  de moi, à gauche de la sphère damier. Si la grise apparaît et la mienne non,
+  le défaut est chez moi ; si aucune n'apparaît, il est dans la scène.
+
+**L'actif est tranché : la démo FABRIQUE sa forme en code.** Plus aucun fichier.
+La version précédente cherchait `logs_genia3d/`, **non versionné** : elle ne
+fonctionnait que dans l'arbre où l'objet avait été produit. Une sphère est une
+surface **fermée, de genre 0, aux sommets soudés** — exactement ce qu'un
+maillage importé présente au déplieur — donc elle exerce la chaîne entière et
+elle est identique partout.
+
 ## État honnête au 25/09/2026
 
 Le dépliage **est branché** — pour la première fois il est appelable depuis
