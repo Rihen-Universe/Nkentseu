@@ -215,75 +215,19 @@ static void Build(NkEditMesh &m, NkVector<NkVertex3D> &v, NkVector<uint32> &idx,
 	m.RebuildEdges();
 }
 
-// ── COUTURES PAR ARBRE COUVRANT DU DUAL ─────────────────────────────────────
-// CHEMIN INDEPENDANT DU SOLVEUR, ET C'EST LE POINT. Le solveur groupe les ilots
-// par union-find sur les coutures ; ici on fait un PARCOURS EN LARGEUR du graphe
-// dual et on coupe toute arete qui n'appartient pas a l'arbre. Si les deux
-// chemins s'accordent, ce n'est pas parce qu'ils partagent le meme code.
+// -- COUTURES PAR ARBRE COUVRANT DU DUAL : DEMENAGEE DANS LA BIBLIOTHEQUE ---
+// Elle vivait ICI, `static`, et c'est precisement ce qui rendait `NkUVUnwrap`
+// inappelable depuis le produit : son entree obligatoire (les coutures d'une
+// surface fermee) n'existait que dans ce fichier de test. Elle est desormais
+// dans `NkUVUnwrap.h/.cpp`.
 //
-// Propriete utilisee : decouper une surface fermee de genre 0 le long du
-// complementaire d'un arbre couvrant de son dual donne EXACTEMENT un disque.
-// L'attendu se DERIVE donc des chiffres du maillage, il n'est pas recopie :
-//   coutures = E - (F - 1)      ilots = 1      Euler = 1
-static uint32 SeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outSeams, uint32 dropOne) {
-	outSeams.Clear();
-	const uint32 F = (uint32)m.faces.Size();
-	NkVector<uint8> visited;
-	visited.Resize(F, (uint8)0);
-	NkVector<uint8> inTree;
-	inTree.Resize(m.edges.Size(), (uint8)0);
-
-	NkVector<uint32> queue;
-	uint32 head = 0u;
-	// Premiere face vivante comme racine.
-	for (uint32 f = 0; f < F; ++f) {
-		if (m.faces[f].alive) {
-			visited[f] = 1u;
-			queue.PushBack(f);
-			break;
-		}
-	}
-	NkVector<NkEmId> fe;
-	NkVector<NkEmId> ef;
-	while (head < (uint32)queue.Size()) {
-		const uint32 f = queue[head++];
-		// Aretes de la face : on passe par les demi-aretes du bord.
-		fe.Clear();
-		{
-			const NkEmId h0 = m.faces[f].hedge;
-			NkEmId h = h0;
-			for (uint32 guard = 0; guard < 64u && h != NK_EM_INVALID; ++guard) {
-				fe.PushBack(m.EdgeOfHedge(h));
-				h = m.hedges[h].next;
-				if (h == h0) break;
-			}
-		}
-		for (uint32 i = 0; i < (uint32)fe.Size(); ++i) {
-			const NkEmId e = fe[i];
-			if (e == NK_EM_INVALID || e >= (NkEmId)m.edges.Size()) continue;
-			ef.Clear();
-			m.EdgeFaces(e, ef);
-			if ((uint32)ef.Size() != 2u) continue;
-			const uint32 other = (ef[0] == f) ? (uint32)ef[1] : (uint32)ef[0];
-			if (other >= F || visited[other]) continue;
-			visited[other] = 1u;
-			inTree[e] = 1u;
-			queue.PushBack(other);
-		}
-	}
-	uint32 dropped = 0u;
-	for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
-		if (!m.edges[e].alive) continue;
-		if (inTree[e]) continue;
-		// `dropOne` retire des coutures pour le NEGATIF : moins de coupes, donc
-		// des faces qui restent reliees, donc MOINS d'ilots.
-		if (dropped < dropOne) {
-			++dropped;
-			continue;
-		}
-		outSeams.PushBack((NkEmId)e);
-	}
-	return (uint32)outSeams.Size();
+// CE RELAIS EST LA PREUVE DU DEMENAGEMENT, pas une commodite : les douze cas de
+// ce banc continuent de l'appeler par le meme nom, aux memes endroits, avec les
+// memes attendus derives (coutures = E - (F - 1), ilots = 1, Euler = 1). Si le
+// transport avait change quoi que ce soit au comportement, ils rougiraient ici.
+static uint32 SeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outSeams,
+										uint32 dropOne) {
+	return nkentseu::renderer::NkUVSeamsFromDualSpanningTree(m, outSeams, dropOne);
 }
 
 static uint64 UvFingerprint(const NkEditMesh &m) {
