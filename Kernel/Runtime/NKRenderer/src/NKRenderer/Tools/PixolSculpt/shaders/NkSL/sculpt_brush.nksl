@@ -34,7 +34,7 @@ const uint MODE_PAINT   = 7u;
 @binding(set=0, binding=1, format=rgba16f) uniform image2D uPixolNormal;  // .xyz = normale, .w = courbure
 @binding(set=0, binding=2, format=rgba8)   uniform image2D uPixolColor;   // .rgba = albedo
 
-// Push constants — DOIT matcher renderer::NkSculptBrushGPU (NkSculptBrush.h).
+// Push constants — DOIT matcher renderer::NkPixolBrushGPU (NkPixolBrush.h).
 @push_constant
 uniform PushConsts {
     vec2  center;

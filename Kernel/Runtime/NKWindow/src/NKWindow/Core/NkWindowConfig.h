@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 // =============================================================================
 // NkWindowConfig.h
@@ -64,8 +65,59 @@ namespace nkentseu {
 			uintptr win32PixelFormatShareWindowHandle = 0;
 	};
 
+	// ═══════════════════════════════════════════════════════════════════════
+	// LE CONTRAT TAILLE / POSITION — ecrit le 25/09/2026, apres un defaut qui a
+	// vecu des mois : `SetSize(GetSize())` n'etait PAS l'identite, et la fenetre
+	// des editeurs grossissait de +16 px en largeur et +39 en hauteur A CHAQUE
+	// LANCEMENT (ils sauvent leur geometrie a la fermeture et la restaurent au
+	// demarrage). Signature d'un cote qui parle CLIENT et d'un autre FENETRE.
+	//
+	//   LA TAILLE EST TOUJOURS LA ZONE **CLIENT** — la surface ou l'on dessine,
+	//   sans barre de titre ni bordure.
+	//     `width` / `height`, `minWidth` / `minHeight`, `maxWidth` / `maxHeight`,
+	//     `NkWindow::GetSize()`, `NkWindow::SetSize()`.
+	//     C'est aussi la taille de la swapchain : demander 1280x720 donne
+	//     1280x720 pixels a peindre, sur toutes les plateformes.
+	//
+	//   LA POSITION EST TOUJOURS LE COIN HAUT-GAUCHE DE LA **FENETRE** — cadre
+	//   compris, parce que c'est le seul point que l'utilisateur voit et que le
+	//   systeme sait placer.
+	//     `x` / `y`, `NkWindow::GetPosition()`, `NkWindow::SetPosition()`.
+	//
+	// Consequences a connaitre :
+	//   • `SetSize(GetSize())` est une IDENTITE. Dix cycles ne deplacent rien.
+	//     C'est le critere que mesure `NkWindowSonde` (essai G).
+	//   • une fenetre SANS CADRE a fenetre == client : la conversion ne doit
+	//     RIEN ajouter, et c'est la garde qui manquait aux deux tiers des sites.
+	//   • la conversion client -> fenetre n'existe qu'a UN endroit par dorsal.
+	//     Si vous en ecrivez une deuxieme, vous reintroduisez ce defaut.
+	// ═══════════════════════════════════════════════════════════════════════
+	//
+	// NkWindowConfig
+	//
+	// ⚠️ TOUS CES REGLAGES NE SONT PAS TENUS PAR TOUS LES DORSAUX, et c'est
+	//    ecrit noir sur blanc : `wiki/Runtime/NKWindow/Proprietes-par-dorsal.md`
+	//    donne la table de verite propriete x dorsal (agit / silence / refus
+	//    nomme / sans objet). Elle existe parce qu'un utilisateur a pose
+	//    `resizable = false`, vu sa fenetre se redimensionner quand meme, et
+	//    cherche l'erreur chez lui pendant que le defaut etait chez nous.
+	//
+	// ⚠️ DEPUIS LE 25/09/2026, UN REGLAGE NON TENU LE DIT. Si la valeur
+	//    demandee differe du defaut et que le dorsal ne l'honore pas, un REFUS
+	//    NOMME sort au journal, une fois, avec le nom du champ et celui de la
+	//    plateforme (voir `NkWindowAudit.h`). Si votre reglage ne produit rien
+	//    et que le journal est muet, le defaut est ailleurs que dans ce struct.
+	//
+	// ⚠️ UN ACCESSEUR DECRIT LE MONDE, PAS NOTRE MEMOIRE. `IsAlwaysOnTop()`,
+	//    `GetOpacity()`, `IsClickThrough()` rendent ce que la fenetre EST — donc
+	//    `false` / `1.0` / `false` la ou la propriete n'a pas ete appliquee, et
+	//    la ou il n'y a pas (ou plus) de fenetre native.
+	// -------------------------------------------------------------------------
 	struct NkWindowConfig {
 			// --- Position et taille ---
+			// x, y      : coin haut-gauche de la FENETRE (cadre compris)
+			// width,    : taille de la zone CLIENT (surface dessinable)
+			// height      — cf. LE CONTRAT ci-dessus. Ne pas melanger.
 			int32 x = 100;
 			int32 y = 100;
 			uint32 width = 1280;
@@ -104,6 +156,32 @@ namespace nkentseu {
 			bool alwaysOnTop = false;  ///< reste au-dessus des autres fenêtres
 			bool clickThrough = false; ///< transparente aux clics (la souris traverse)
 			float32 opacity = 1.0f;	   ///< opacité globale [0..1], 1 = opaque
+
+			// ── FENETRE QUI NE PREND PAS LE FOCUS (25/09) ────────────────────
+			// Elle s'affiche, elle se rend, mais elle ne devient PAS la fenetre active :
+			// le clavier et les clics restent a ce que l'utilisateur faisait. C'est le
+			// besoin des fenetres de MESURE.
+			//
+			// POURQUOI (deux faux defauts en une nuit, 24/09) : une sonde qui passe au
+			// premier plan recoit les clics et les frappes de l'utilisateur. Une demande
+			// est partie d'un composeur que personne n'avait valide ; un presse-papiers a
+			// ete ecrit, et on en a conclu a tort que l'envoi copiait. **Une sonde qui
+			// recoit de l'entree humaine ne mesure plus le produit : elle fabrique des
+			// defauts qui n'existent pas.**
+			//
+			// ⚠️ CE N'EST PAS `clickThrough`. Celle-la laisse la souris TRAVERSER la
+			//    fenetre (elle atteint ce qu'il y a dessous) ; celle-ci garde les clics
+			//    QUI LA VISENT et refuse seulement de VOLER LE FOCUS. Deux besoins
+			//    voisins, deux styles differents.
+			//
+			// ⚠️ PORTEE REELLE, PAR PLATEFORME -- et ce qui n'est pas tenu est REFUSE A
+			//    VOIX HAUTE au lieu d'etre ignore :
+			//      Win32  : WS_EX_NOACTIVATE + SW_SHOWNOACTIVATE. Tenu.
+			//      autres : NON TENU aujourd'hui. Le dorsal ecrit un refus nomme dans le
+			//               journal au lieu de laisser croire que la fenetre est
+			//               discrete -- un reglage affiche qui ne change rien est pire
+			//               qu'un reglage absent.
+			bool noActivate = false; ///< ne prend jamais le focus (fenetres de mesure)
 
 			// --- Identité ---
 			NkString title = "NkWindow";

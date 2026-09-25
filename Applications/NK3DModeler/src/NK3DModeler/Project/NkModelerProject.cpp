@@ -6,6 +6,7 @@
 // diverge au premier caractere a echapper.
 // =============================================================================
 
+#include "NKEditorKit/NkSondeInerte.h" // (25/09) une sonde n'ecrit pas chez Rodolf
 #include "NK3DModeler/Project/NkModelerProject.h"
 
 #include "NKFileSystem/NkFile.h"
@@ -443,6 +444,28 @@ namespace nkentseu {
 
 		// ── RECENTS : LE PATRON DE NKCODE ───────────────────────────────────────
 		NkString NkRecentFilePath() {
+			// (25/09) NK_RECENTS=<chemin> : la liste des recents d'une MESURE.
+			// ⚠️ DEUX RAISONS, ET LA SECONDE EST LA PLUS IMPORTANTE :
+			//    1. eprouver l'etat « projet introuvable » demande une liste qui en
+			//       contient, et on ne fabrique pas ca dans celle de Rodolf ;
+			//    2. **nos courses de mesure ECRIVENT dans sa liste.** Elle porte 105
+			//       entrees, dont la plupart sont des projets crees par des sondes. Une
+			//       sonde qui pollue l'etat de l'utilisateur est une sonde qui modifie ce
+			//       qu'elle mesure. Cette porte lui rend son fichier.
+			if (const char *vr = env::GetEnvVar("NK_RECENTS"))
+				if (*vr)
+					return NkString(vr);
+			// 🔴 ET SOUS `NK_SONDE`, LA REDIRECTION EST LE DEFAUT (25/09).
+			//    Mesure : ouvrir un projet sous sonde REECRIVAIT la liste de Rodolf --
+			//    `Touch()` puis `Save()`, sans que personne ne l'ait demande. Sa liste
+			//    portait 105 entrees, dont la plupart etaient nos coquilles.
+			//    `NK_RECENTS` reste pour choisir OU ; le defaut, lui, est SUR.
+			//    *Un garde-fou qu'il faut penser a armer se fera oublier.*
+			{
+				const NkString red = editorkit::NkSondeChemin(nullptr, "nk3dmodeler_recent.cfg");
+				if (!red.Empty())
+					return red;
+			}
 			const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 			if (!home || !*home)
 				home = env::GetEnvVar("HOME");

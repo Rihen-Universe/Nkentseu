@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #pragma once
 // =============================================================================
 // NkWin32Window.h — Win32 platform data for NkWindow (data only, no methods)
@@ -30,6 +31,11 @@ namespace nkentseu {
 			HWND mHwnd = nullptr;
 			HWND mParentHwnd = nullptr;
 			HWND mUtilityOwner = nullptr;
+			// `modal` : la fenetre parent que NOUS avons desactivee, et que nous
+			// DEVONS reactiver. Nulle si la fenetre n'est pas modale — la remettre a
+			// nullptr apres reactivation evite qu'une double fermeture reactive deux
+			// fois une fenetre que quelqu'un d'autre aurait desactivee entretemps.
+			HWND mModalOwner = nullptr;
 			HINSTANCE mHInstance = nullptr;
 			DWORD mDwStyle = 0;
 			DWORD mDwExStyle = 0;

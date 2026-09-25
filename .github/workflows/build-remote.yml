@@ -166,6 +166,17 @@ jobs:
               mkdir -p "$APP/tools"
               cp -R "$PYSRC" "$APP/tools/python-embed"
             fi
+            # Shim ligne de commande, pendant POSIX de tools/jenga.cmd (Windows,
+            # scripts/MakeNkCodeDist.py) : `jenga` dans un terminal, sans aucun
+            # Python systeme. Pas de ._pth sous POSIX : PYTHONPATH designe les
+            # sources Jenga du paquet.
+            mkdir -p "$APP/tools"
+            printf '%s\n' '#!/bin/sh' \
+              '# Shim : Jenga via le Python embarque du paquet NKCode (aucun Python systeme requis).' \
+              'DIR="$(cd "$(dirname "$0")" && pwd)"' \
+              'PYTHONPATH="$DIR/jenga-src" exec "$DIR/python-embed/bin/python3" -m Jenga "$@"' \
+              > "$APP/tools/jenga"
+            chmod +x "$APP/tools/jenga"
             if [ -d Build/_jenga-embed/Jenga ]; then
               mkdir -p "$APP/tools/jenga-src"
               cp -R Build/_jenga-embed/Jenga "$APP/tools/jenga-src/Jenga"
@@ -200,3 +211,77 @@ jobs:
         with:
           name: ${{ inputs.target }}-${{ inputs.platform }}-${{ inputs.config }}
           path: ${{ inputs.target }}-${{ inputs.platform }}.tar.gz
+
+      # ── Le paquet NKCode marche-t-il SANS RIEN ? ─────────────────────────────
+      # Regle du depot : une distribution s'eprouve sur une machine qui n'a rien
+      # (les betas 5, 7 et 8 sont parties sans Python utilisable : aucun testeur
+      # equipe ne pouvait le voir). Ici : paquet extrait dans un dossier neuf,
+      # environnement VIDE (env -i, PATH systeme minimal, HOME vide) :
+      #   1. le Jenga embarque repond dans la version de JENGA_VERSION ;
+      #   2. il construit ET execute un projet (compilateur du systeme :
+      #      build-essential sous Linux, outils Xcode sous macOS -- prerequis
+      #      documentes, le clang d'Apple ne se redistribue pas) ;
+      #   3. le binaire NKCode resout ses bibliotheques et DEMARRE (Xvfb sous
+      #      Linux) -- vivant apres 10 s.
+      # Place APRES l'artefact : un echec laisse le paquet telechargeable.
+      - name: Machine vierge (NKCode)
+        if: inputs.target == 'NKCode' && inputs.platform != 'ios'
+        run: |
+          set -e
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          T=$(mktemp -d); H=$(mktemp -d); P=$(mktemp -d)
+          tar -xzf "NKCode-${{ inputs.platform }}.tar.gz" -C "$T"
+          APP="$T/NKCode"
+          VIDE="env -i PATH=/usr/bin:/bin HOME=$H LANG=C.UTF-8"
+
+          echo "--- 1. Jenga embarque (attendu : $V)"
+          SORTIE=$($VIDE "$APP/tools/jenga" --version | tail -1)
+          echo "$SORTIE"
+          echo "$SORTIE" | grep -q "$V" || { echo "::error::Jenga embarque = '$SORTIE', attendu $V"; exit 1; }
+
+          echo "--- 2. construire et executer un projet"
+          printf '%s\n' 'from Jenga import *' 'with workspace("Vierge"):' '    configurations(["Debug"])' \
+            '    with project("Hello"):' '        consoleapp()' '        language("C++")' '        files(["*.cpp"])' > "$P/w.jenga"
+          printf '%s\n' '#include <cstdio>' 'int main() { std::puts("vierge-ok"); return 0; }' > "$P/main.cpp"
+          (cd "$P" && $VIDE "$APP/tools/jenga" build --no-daemon)
+          EXE=$(find "$P/Build/Bin" -type f -name Hello | head -1)
+          test -n "$EXE" || { echo "::error::aucun executable Hello produit"; exit 1; }
+          $VIDE "$EXE" | grep -q vierge-ok || { echo "::error::Hello ne s'execute pas"; exit 1; }
+          echo "Hello : vierge-ok"
+
+          echo "--- 3. binaire NKCode"
+          # Lance depuis un dossier dedie : NKCode ecrit logs/app.log dans son
+          # repertoire courant. Un echec affiche le code de sortie ET ce journal :
+          # « s'est arrete » seul ne distingue pas un defaut du produit d'un
+          # defaut du banc.
+          R=$(mktemp -d)
+          journal() { echo "--- sortie :"; cat "$R/nkcode.out" 2>/dev/null | tail -40; echo "--- logs/app.log :"; tail -60 "$R/logs/app.log" 2>/dev/null || echo "(aucun journal)"; }
+          if [ "${{ inputs.platform }}" = "linux" ]; then
+            if ldd "$APP/NKCode" | grep "not found"; then echo "::error::bibliotheque introuvable"; exit 1; fi
+            # Ecran 24 bits : par defaut xvfb-run en cree un de 8 bits, ou aucune
+            # configuration GLX ne convient (« GLXBadFBConfig » -- defaut du BANC,
+            # mesure le 2026-09-24). Mesa (llvmpipe) fournit l'OpenGL logiciel.
+            sudo apt-get install -y -qq xvfb libgl1-mesa-dri >/dev/null
+            set +e
+            (cd "$R" && xvfb-run -a -s "-screen 0 1280x1024x24" sh -c "timeout 10 env -i PATH=/usr/bin:/bin HOME=$H DISPLAY=\"\$DISPLAY\" XAUTHORITY=\"\$XAUTHORITY\" LANG=C.UTF-8 '$APP/NKCode'" > "$R/nkcode.out" 2>&1)
+            RC=$?
+            set -e
+            [ $RC -eq 124 ] || { echo "::error::NKCode s'est arrete avant 10 s (code $RC)"; journal; exit 1; }
+          else
+            if otool -L "$APP/NKCode" | tail -n +2 | grep -v "@rpath\|@executable_path\|/usr/lib/\|/System/"; then
+              echo "::error::dependance a un chemin absolu de la machine de build"; exit 1
+            fi
+            # env -i retirerait aussi TMPDIR/USER, dont les frameworks d'Apple
+            # peuvent avoir besoin : on les garde, le reste reste vide.
+            (cd "$R" && env -i PATH=/usr/bin:/bin HOME=$H LANG=C.UTF-8 TMPDIR="$TMPDIR" USER="$USER" "$APP/NKCode" > "$R/nkcode.out" 2>&1) &
+            PID=$!
+            sleep 10
+            if ! kill -0 $PID 2>/dev/null; then
+              set +e; wait $PID; RC=$?; set -e
+              echo "::error::NKCode s'est arrete avant 10 s (code $RC)"; journal; exit 1
+            fi
+            kill $PID 2>/dev/null || true
+            pkill -f "$APP/NKCode" 2>/dev/null || true
+          fi
+          echo "NKCode demarre et reste vivant 10 s"
+          journal

@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkGuiContext.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Brief   Contexte NKGui — état par instance (IDs, thème, input, draw list,
 //          machine à états d'interaction). Phase 2.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -365,6 +366,17 @@ namespace nkentseu {
 				void (*clipboardGetFn)(void *, NkString &) = nullptr;
 				void (*clipboardSetFn)(void *, const char *) = nullptr;
 
+				/// (Q9) L'IMAGE du presse-papiers (un bitmap copie), fournie par l'hote :
+				/// RGBA 8 bits, ligne par ligne, du haut vers le bas. Faux = pas
+				/// d'image, ou plateforme qui ne sait pas la lire (`motif` le dit).
+				bool (*clipboardImageFn)(void *, NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) = nullptr;
+				bool GetClipboardImage(NkVector<uint8> &rgba, int32 &w, int32 &h, NkString &motif) const {
+					if (!clipboardImageFn) {
+						motif = NkString("l'application ne relie pas le presse-papiers image");
+						return false;
+					}
+					return clipboardImageFn(clipboardUser, rgba, w, h, motif);
+				}
 				NkString GetClipboard() const {
 					NkString s;
 					if (clipboardGetFn)
@@ -462,6 +474,13 @@ namespace nkentseu {
 				// Curseur souhaité cette frame (posé par les widgets, ex. DragFloat → ↔).
 				// L'app le mappe vers NkWindow::SetCursor (OPTIONNEL). Reset chaque frame.
 				NkGuiCursor wantCursor = NkGuiCursor::Arrow;
+				/// (Q8, 21/09) L'INFOBULLE RETENUE, peinte par `EndFrame` au SOMMET de
+				/// l'overlay : aucun panneau, menu ou tiroir peint apres elle ne la
+				/// recouvre plus.
+				bool tooltipPose = false;
+				NkRect tooltipRect = {0.f, 0.f, 0.f, 0.f};
+				float32 tooltipBase = 0.f, tooltipPadX = 0.f;
+				char tooltipTexte[256] = {0};
 
 				// Stockage PERSISTANT (entre frames) : arbres ouverts + onglet
 				// sélectionné par barre d'onglets.

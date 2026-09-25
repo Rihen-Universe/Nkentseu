@@ -1,4 +1,5 @@
 #pragma once
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // Costume.h — le COSTUME EXACT de la maquette Banani (remandat du 2026-08-31).
 //
 //  « Va planche après planche et code-les À L'IDENTIQUE — THÈME, DESIGN,
@@ -126,6 +127,9 @@ namespace nkuidesign {
 				NkGuiFont px13; ///< valeurs fortes (cartes du Dashboard)
 				NkGuiFont px15; ///< le « + » des onglets
 				NkGuiFont px16; ///< titre du document (« Connexion »)
+				/// La CHASSE FIXE du panneau IA (21/09) : les compartiments IN / OUT et
+				/// le code en ligne. Cousine embarquee, sans repli externe.
+				NkGuiFont mono;
 				bool ok = false;
 
 				/// Charge les sept corps (Inter embarquée) et les téléverse par le
@@ -147,6 +151,10 @@ namespace nkuidesign {
 							|| !sh.UploadAppFont(*lignes[i].f, i))
 							ok = false;
 					}
+					// l'emplacement 7, le dernier des huit que la coquille reserve
+					if (!mono.LoadEmbedded(nkentseu::NkEmbeddedFontId::Cousine, CorpsMaquette(9.f) * dpi, false)
+						|| !sh.UploadAppFont(mono, 7u))
+						ok = false;
 				}
 		};
 
@@ -847,6 +855,58 @@ namespace nkuidesign {
 								  {x + 3.5f, y + 13.f}, {x + 4.5f, y + 9.f},	{x + 1.5f, y + 6.f},
 								  {x + 5.5f, y + 5.5f}};
 			dl.AddPolyline(p, 10, c, 1.2f, true);
+		}
+		// ── (Q8, 21/09) LES ICONES DU PANNEAU DE DROITE, TRACEES ────────────────
+		// Rodolf : « il faut les logos pour Inspecteur, Styles, Variables, Ambiances
+		// et Greffons » -- le rail portait les lettres I S V A G. Le kit n'a pas
+		// d'atlas (memoire « Icon peint un carre ») : tout se TRACE, dans le cadre
+		// 14 x 14 et au trait de 1,2 px des icones deja la (IcCarreaux, IcEtoile).
+		// Inspecteur : trois curseurs de reglage.
+		inline void IcInspecteur(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			const float32 ys[3] = {y + 3.f, y + 7.f, y + 11.f};
+			const float32 xs[3] = {x + 9.f, x + 4.f, x + 7.f};
+			for (int32 i = 0; i < 3; ++i) {
+				dl.AddLine({x + 1.f, ys[i]}, {x + 13.f, ys[i]}, c, 1.2f);
+				dl.AddCircleFilled({xs[i], ys[i]}, 1.9f, c);
+			}
+		}
+		// Styles : une goutte (le remplissage) et un « Aa » en trait.
+		inline void IcStyles(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			const NkVec2 goutte[7] = {{x + 4.5f, y + 1.5f}, {x + 7.f, y + 5.f},	 {x + 7.8f, y + 7.2f},
+									  {x + 6.8f, y + 9.2f}, {x + 4.5f, y + 9.8f}, {x + 2.2f, y + 9.2f},
+									  {x + 1.2f, y + 7.2f}};
+			dl.AddPolyline(goutte, 7, c, 1.2f, true);
+			dl.AddLine({x + 8.5f, y + 13.f}, {x + 10.8f, y + 5.5f}, c, 1.2f);
+			dl.AddLine({x + 10.8f, y + 5.5f}, {x + 13.f, y + 13.f}, c, 1.2f);
+			dl.AddLine({x + 9.4f, y + 10.4f}, {x + 12.2f, y + 10.4f}, c, 1.2f);
+		}
+		// Variables : les accolades { } -- une valeur nommee.
+		inline void IcVariables(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			const NkVec2 g[6] = {{x + 5.f, y + 1.5f}, {x + 3.5f, y + 2.5f}, {x + 3.5f, y + 6.f},
+								 {x + 1.5f, y + 7.f}, {x + 3.5f, y + 8.f},	{x + 3.5f, y + 11.5f}};
+			dl.AddPolyline(g, 6, c, 1.2f);
+			dl.AddLine({x + 3.5f, y + 11.5f}, {x + 5.f, y + 12.5f}, c, 1.2f);
+			const NkVec2 d[6] = {{x + 9.f, y + 1.5f},	{x + 10.5f, y + 2.5f}, {x + 10.5f, y + 6.f},
+								 {x + 12.5f, y + 7.f}, {x + 10.5f, y + 8.f},	{x + 10.5f, y + 11.5f}};
+			dl.AddPolyline(d, 6, c, 1.2f);
+			dl.AddLine({x + 10.5f, y + 11.5f}, {x + 9.f, y + 12.5f}, c, 1.2f);
+			dl.AddCircleFilled({x + 7.f, y + 7.f}, 1.3f, c);
+		}
+		// Ambiances : un disque moitie plein -- le clair et le sombre d'un jeu.
+		inline void IcAmbiances(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddCircle({x + 7.f, y + 7.f}, 5.5f, c, 1.2f);
+			// la moitie DROITE pleine : une ligne par pixel, demi-largeur du disque
+			static const float32 kDemi[11] = {0.f, 3.f, 4.f, 4.58f, 4.9f, 5.f, 4.9f, 4.58f, 4.f, 3.f, 0.f};
+			for (int32 k = 0; k < 11; ++k)
+				if (kDemi[k] > 0.f)
+					dl.AddLine({x + 7.f, y + 2.f + (float32)k}, {x + 7.f + kDemi[k], y + 2.f + (float32)k}, c, 1.f);
+		}
+		// Greffons : une prise -- ce qui se branche.
+		inline void IcGreffons(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {
+			dl.AddRect({x + 3.f, y + 5.f, 8.f, 5.f}, c, 1.2f, 1.5f);
+			dl.AddLine({x + 5.5f, y + 1.5f}, {x + 5.5f, y + 5.f}, c, 1.2f);
+			dl.AddLine({x + 8.5f, y + 1.5f}, {x + 8.5f, y + 5.f}, c, 1.2f);
+			dl.AddLine({x + 7.f, y + 10.f}, {x + 7.f, y + 13.f}, c, 1.2f);
 		}
 		// œil-vague : cercle r4 + vague interne
 		inline void IcOeilVague(NkGuiDrawList &dl, float32 x, float32 y, const NkColor &c) {

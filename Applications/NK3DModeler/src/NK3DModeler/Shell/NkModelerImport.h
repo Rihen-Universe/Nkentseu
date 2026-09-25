@@ -1,5 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @File    NkModelerImport.h
 // @Brief   IMPORT D'UN FICHIER 3D : chargement par les chargeurs du moteur,
 //          puis DECOMPOSITION -- les models distincts chacun dans leur fichier,
@@ -376,6 +377,56 @@ namespace nkentseu {
 		/// hierarchie affiche et ce que la capture ecrit dans le fichier) et
 		/// l'hote (le label qui nomme les fichiers produits par la sortie). La
 		/// relecture d'un projet fait exactement ces deux gestes.
+		/// ── UN NOM D'EXPORTATEUR N'EST PAS UN NOM (25/09) ─────────────────────
+		/// Rodolf a vu un objet appele `geometry_0` et onze pieces indistinctes.
+		/// MESURE, sur un glTF temoin de quatre morceaux dont deux nommes :
+		///     tete, torse, geometry_1, geometry_2
+		/// Les nommes gardent leur nom ; les autres heritent du PLACEHOLDER que
+		/// l'exportateur a fabrique. Le repli « sinon le nom du fichier » existait
+		/// deja et ne se declenchait jamais, parce que `geometry_1` n'est pas une
+		/// chaine vide.
+		/// ⚠️ C'EST UNE REGLE, PAS UNE LISTE. Une liste de noms d'exportateurs
+		///    (`geometry`, `mesh`, `Object`...) se perimerait au premier outil
+		///    inconnu. La regle : un nom fait d'UN MOT GENERIQUE suivi UNIQUEMENT
+		///    de separateurs et de chiffres ne porte aucune information -- c'est un
+		///    compteur, pas un nom. `tete` reste, `geometry_1` tombe, mais aussi
+		///    `Mesh.003`, `Object_12`, `node 7`.
+		/// ⚠️ ET ON NE REJETTE QUE CE QUI EST ENTIEREMENT GENERIQUE : `tete_2` garde
+		///    son nom, parce que `tete` n'est pas dans la liste des mots vides.
+		inline bool NkImpNomGenerique(const char *nm) {
+			if (!nm || !nm[0])
+				return true;
+			static const char *const kMots[] = {"geometry", "geometries", "mesh", "meshes", "node", "nodes",
+												"object", "objects", "group", "defaultobject", "model",
+												"maillage", "objet", "primitive", "shape", "untitled"};
+			// le mot de tete, en minuscules
+			char mot[32];
+			uint32 n = 0;
+			const char *c = nm;
+			while (*c && n + 1u < sizeof(mot)) {
+				const char x = *c;
+				if ((x >= 'a' && x <= 'z') || (x >= 'A' && x <= 'Z'))
+					mot[n++] = (char)((x >= 'A' && x <= 'Z') ? (x - 'A' + 'a') : x);
+				else
+					break;
+				++c;
+			}
+			mot[n] = 0;
+			if (!n)
+				return true; // commence par un chiffre : ce n'est pas un nom
+			bool connu = false;
+			for (const char *k : kMots)
+				if (strcmp(k, mot) == 0)
+					connu = true;
+			if (!connu)
+				return false;
+			// tout ce qui suit doit n'etre que separateurs et chiffres
+			for (; *c; ++c)
+				if (!((*c >= '0' && *c <= '9') || *c == '_' || *c == '.' || *c == '-' || *c == ' '))
+					return false;
+			return true;
+		}
+
 		inline void NkImpNodeName(NkModelerState &st, int32 node, const char *nm) {
 			if (node >= 0 && node < NkModelerState::kMaxNodeNames)
 				snprintf(st.customNames[node], sizeof(st.customNames[0]), "%s", nm);
@@ -515,7 +566,17 @@ namespace nkentseu {
 			NkString errEcr;
 			for (usize mi = 0; mi < models.Size() && !plein; ++mi) {
 				const NkImportModel &mo = models[mi];
-				const char *mnm = (mo.name && mo.name[0]) ? mo.name : stem;
+				// LE NOM DU MODEL : celui du fichier des que celui du glTF est un
+				// compteur d'exportateur. Plusieurs models -> on numerote, pour que
+				// deux morceaux d'un meme fichier restent distincts.
+				char nomModel[64];
+				if (!NkImpNomGenerique(mo.name))
+					snprintf(nomModel, sizeof(nomModel), "%s", mo.name);
+				else if (models.Size() <= 1)
+					snprintf(nomModel, sizeof(nomModel), "%s", stem);
+				else
+					snprintf(nomModel, sizeof(nomModel), "%s_%d", stem, (int)mi + 1);
+				const char *mnm = nomModel;
 				// ── passe A : l'ancre de chaque tranche, et la moyenne X/Z des
 				// tranches NON VIDES (les seules qui feront un noeud -- c'est
 				// sur les noeuds que le recentrage prendra sa moyenne).
@@ -600,9 +661,19 @@ namespace nkentseu {
 					}
 					// Le maillage direct porte le nom du MODEL (c'est lui l'objet) ;
 					// un maillage sous racine porte le nom de SA tranche.
-					const char *snm = direct ? mnm : sm.name.CStr();
-					if (!snm || !snm[0])
+					// LA TRANCHE : son nom s'il en a un, sinon `<objet>_partie_<n>` --
+					// jamais le meme nom pour toutes, sinon Rodolf voit onze pieces
+					// indistinctes et ne peut en selectionner aucune sciemment.
+					char nomTranche[64];
+					const char *snm;
+					if (direct)
 						snm = mnm;
+					else if (!NkImpNomGenerique(sm.name.CStr()))
+						snm = sm.name.CStr();
+					else {
+						snprintf(nomTranche, sizeof(nomTranche), "%s_partie_%d", mnm, (int)s + 1);
+						snm = nomTranche;
+					}
 					const int32 n = demo::Demo3DHostCreateMeshNode(
 						root, lv.Data(), (uint32)lv.Size(), li.Data(), (uint32)li.Size(),
 						a3, snm);
@@ -854,8 +925,12 @@ namespace nkentseu {
 		/// models au meme point aurait defait ce que le fichier declare.
 		/// `off3 == nullptr` : coordonnees du fichier telles quelles
 		/// (hierarchie). Rend le nombre de noeuds nes ; le dernier est selectionne.
-		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards,
-										 const float32 *off3) {
+		/// `noeudsOut`, quand il est fourni, recoit LES NOEUDS NES. Sans lui,
+		/// l'appelant ne connait que leur NOMBRE : il ne peut ni les mesurer, ni les
+		/// mettre a l'echelle, ni les inscrire dans un lot annulable. C'est
+		/// exactement ce qui manquait pour poser un objet genere dans la scene.
+		inline int32 NkImportInstantiate(NkModelerState &st, const NkVector<int32> &cards, const float32 *off3,
+										 NkVector<int32> *noeudsOut = nullptr) {
 			int32 nes = 0, dernier = -1;
 			for (usize i = 0; i < cards.Size(); ++i) {
 				const int32 c = cards[i];
@@ -895,6 +970,8 @@ namespace nkentseu {
 										c, st.Card(c).name, src, nn,
 										demo::Demo3DHostNodeIsModel(nn) ? 1 : 0, gp[0], gp[1], gp[2]);
 				dernier = nn;
+				if (noeudsOut)
+					noeudsOut->PushBack(nn);
 				++nes;
 			}
 			if (dernier >= 0)

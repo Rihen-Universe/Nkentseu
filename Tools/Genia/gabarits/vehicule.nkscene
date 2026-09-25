@@ -1,0 +1,10 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene voiture
+partie caisse forme cube largeur 4.00 hauteur 0.70 profondeur 1.80 matiere rouge
+partie habitacle forme cube largeur 2.20 hauteur 0.60 profondeur 1.60 pose_sur caisse decale -0.20 0 0 matiere verre
+partie roue_avant_gauche forme cylindre largeur 0.65 hauteur 0.25 profondeur 0.65 rotation 90 0 0 pose_sous caisse decale 1.30 0.30 0.85 matiere noir
+partie roue_avant_droite forme cylindre largeur 0.65 hauteur 0.25 profondeur 0.65 rotation 90 0 0 pose_sous caisse decale 1.30 0.30 -0.85 matiere noir
+partie roue_arriere_gauche forme cylindre largeur 0.65 hauteur 0.25 profondeur 0.65 rotation 90 0 0 pose_sous caisse decale -1.30 0.30 0.85 matiere noir
+partie roue_arriere_droite forme cylindre largeur 0.65 hauteur 0.25 profondeur 0.65 rotation 90 0 0 pose_sous caisse decale -1.30 0.30 -0.85 matiere noir

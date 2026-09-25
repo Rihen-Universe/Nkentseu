@@ -1,0 +1,14 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene personnage
+partie bassin forme cube largeur 0.34 hauteur 0.18 profondeur 0.20 matiere bleu
+partie jambe_gauche forme capsule largeur 0.13 hauteur 0.75 profondeur 0.13 pose_sous bassin decale -0.09 0 0 matiere bleu
+partie jambe_droite forme capsule largeur 0.13 hauteur 0.75 profondeur 0.13 pose_sous bassin decale 0.09 0 0 matiere bleu
+partie pied_gauche forme cube largeur 0.12 hauteur 0.06 profondeur 0.24 pose_sous jambe_gauche decale 0 0 0.04 matiere noir
+partie pied_droit forme cube largeur 0.12 hauteur 0.06 profondeur 0.24 pose_sous jambe_droite decale 0 0 0.04 matiere noir
+partie torse forme cube largeur 0.40 hauteur 0.48 profondeur 0.22 pose_sur bassin matiere rouge
+partie cou forme cylindre largeur 0.10 hauteur 0.08 profondeur 0.10 pose_sur torse matiere peau_moyenne
+partie tete forme sphere largeur 0.24 hauteur 0.28 profondeur 0.26 pose_sur cou matiere peau_moyenne
+partie bras_gauche forme capsule largeur 0.10 hauteur 0.62 profondeur 0.10 a_gauche_de torse decale 0 -0.05 0 matiere peau_moyenne
+partie bras_droit forme capsule largeur 0.10 hauteur 0.62 profondeur 0.10 a_droite_de torse decale 0 -0.05 0 matiere peau_moyenne

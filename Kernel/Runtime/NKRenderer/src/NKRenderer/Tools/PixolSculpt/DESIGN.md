@@ -32,16 +32,24 @@ dispatchs compute bornés à la tuile sous la brosse**.
   `Reads()/WritesStorage()`, et **insertion automatique des barriers** entre
   passes (`InsertBarriers` : storageWrites → `NK_UNORDERED_ACCESS`, reads →
   `NK_SHADER_READ`). Donc rien à synchroniser à la main entre Brush et Resolve.
-- **NkSL est non fonctionnel** → les kernels sont en **GLSL** (`.comp.glsl`),
-  compilés en SPIR-V via `NkShaderConverter::GlslToSpirv`. **Ne pas** passer par
-  NkSL.
+- **NkSL fonctionne** (5 dorsaux sur 6 depuis 06/2026 : OpenGL, Vulkan, DX11,
+  DX12 propres ; Software encore buggé ; Metal reste à faire). L'affirmation
+  « NkSL est non fonctionnel » qui tenait cette place jusqu'au **19/09/2026**
+  était **périmée**, et elle orientait la conception : c'est elle qui justifiait
+  « ne pas passer par NkSL ».
+  La vraie raison pour laquelle le chemin actif est en **GLSL** est ailleurs, et
+  `shaders/NkSL/sculpt_brush.nksl` la nomme déjà : **NkSL n'est pas branché dans
+  le loader du renderer**. Le chemin actif compile donc du GLSL embarqué via
+  `NkComputeContext::GetOrCompileGLSL`. C'est une limite d'**intégration**, pas
+  une limite du langage — et les deux `.nksl` du dossier sont prêts pour le
+  jour où ce branchement existera.
 
 ## 3. Structure du dossier
 
 ```
 Tools/PixolSculpt/
 ├── NkSculptTypes.h         Enums (modes, falloff), config, formats, stats, dirty rect
-├── NkSculptBrush.h         NkSculptBrush / NkSculptDab / NkSculptBrushGPU (push consts)
+├── NkPixolBrush.h          NkPixolBrush / NkPixolDab / NkPixolBrushGPU (push consts)
 ├── NkPixolBuffer.{h,cpp}   Le canvas pixol : storage images écran + import graph
 ├── NkSculptStroke.{h,cpp}  Trace : dabs interpolés + dirty rect (working set borné)
 ├── NkSculptPipelines.{h,cpp} Registre des pipelines compute (1/mode + resolve)

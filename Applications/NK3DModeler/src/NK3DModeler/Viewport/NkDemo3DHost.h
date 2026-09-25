@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // @File    NkDemo3DHost.h
 // @Brief   Facade OPAQUE de la vue 3D portee de renderdemo --demo=2.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -221,6 +222,136 @@ namespace nkentseu {
 		bool Demo3DHostEditMerge();
 		bool Demo3DHostEditMakeFace();
 		bool Demo3DHostEditSubdivide();
+		// ── SCULPTURE ──────────────────────────────────────────
+		// Le catalogue vient des FICHIERS de data/brushes, pas d'une enumeration :
+		// une brosse s'ajoute sans recompiler (demande de Rodolf, 19/09).
+		// ──────────────────────────────────────────────────────────────────────
+		// LES MODES QUI EXIGENT LE MAILLAGE OUVERT
+		// ──────────────────────────────────────────────────────────────────────
+		// « LES ESPACES SONT LES MODES » (NkModelerViewport.h:647) : Rodolf a pose
+		// TROIS AXES INDEPENDANTS -- interaction, affichage, espace de travail.
+		//
+		// ⚠️ CE QUE CETTE FONCTION SEPARE, ET QUI ETAIT CONFONDU.
+		//    « Le maillage d'edition est-il ouvert ? » est un etat de DONNEE.
+		//    « Dans quel mode suis-je ? » est un axe d'INTERACTION.
+		//    `Demo3DHostSetMode` ecrivait `veutEdition = (mode == 1)`, ce qui
+		//    IDENTIFIE les deux : entrer en Sculpture (3) armait la SORTIE du
+		//    maillage dont la sculpture a precisement besoin. Ce n'etait pas un
+		//    conflit entre deux modes, c'etait un axe ECRASE SUR L'AUTRE.
+		//    Mesure du 20/09 : `uiMode=3 editMode=1 nv=561` a l'image 119, puis
+		//    plus une seule ligne -- le maillage se refermait a l'image 120.
+		//
+		// ⚠️ ECRIT COMME UN ENSEMBLE, PAS COMME UN CAS PARTICULIER DE LA
+		//    SCULPTURE. Texturing, Patron et Texture painting reclameront le meme
+		//    maillage : les ajouter ici sera UNE LIGNE. Un `mode == 1 || mode == 3`
+		//    aurait demande de retrouver ce site trois fois de plus, et le
+		//    troisieme l'aurait oublie.
+		//
+		// ⚠️ ET SCULPTURE NE DEVIENT PAS UN SOUS-MODE D'EDITION. Les imbriquer
+		//    rangerait aussi la 2.5D sous Edition, alors que Rodolf exige qu'elles
+		//    restent DISTINCTES -- et on retomberait sur le defaut deja paye :
+		//    sept modes replies en un booleen (cf. NkDemo3D.cpp, `uiMode`).
+		//
+		// Valeurs de NkMode : 0 Objet, 1 Edition, 2 Sculpture 2.5D, 3 Sculpture,
+		// 4 Texturing, 5 Patron, 6 Texture painting.
+		inline bool NkModeNeedsEditMesh(int32 mode) {
+			return mode == 1 || mode == 2 || mode == 3;
+		}
+
+		// ──────────────────────────────────────────────────────────────────────
+		// LES MODES QUI MANIPULENT DES ELEMENTS (sommets, aretes, faces)
+		// ──────────────────────────────────────────────────────────────────────
+		// « Tout comme Blender » (Rodolf, 21/09) : en Sculpt Mode il n'y a NI
+		// selection de sommets, NI gizmo de sommets, NI G/R/S sur des sommets. On
+		// deforme avec des brosses.
+		//
+		// ⚠️ LE MEME MELANGE QUE CI-DESSUS, SUR D'AUTRES SITES. `NkModeNeedsEditMesh`
+		//    a separe « le maillage est-il ouvert ? » de « dans quel mode suis-je ? »
+		//    pour l'OUVERTURE du maillage. Le gizmo, le clic de selection, G/R/S,
+		//    les marqueurs et les raccourcis d'edition, eux, decidaient encore sur
+		//    `editMode` -- l'etat de DONNEE. Mesure du 21/09 AVANT correctif, en
+		//    Sculpture (3) comme en Sculpture 2.5D (2) : gizmo de sommets trace
+		//    (54 triangles), un clic selectionne 12 sommets, G deplace les 24
+		//    sommets, E extrude (24 -> 48 sommets), X SUPPRIME le maillage entier.
+		//
+		// ⚠️ ECRIT COMME UN ENSEMBLE, ET PAR LA NEGATIVE. Un mode qui ouvre le
+		//    maillage SANS etre dans cet ensemble est un mode « a brosses » : pas
+		//    d'elements. Texturing, Patron et Texture painting HERITENT donc de la
+		//    regle le jour ou ils rejoignent `NkModeNeedsEditMesh`, sans une ligne
+		//    de plus ; si l'un d'eux doit un jour designer des faces (selection de
+		//    faces pour le patron, masque de faces en peinture), l'ajouter ICI est
+		//    UNE ligne, et tous les sites suivent.
+		inline bool NkModeManipuleElements(int32 mode) {
+			return mode == 1;
+		}
+		// Le maillage est ouvert, mais on n'y designe rien : Sculpture, Sculpture
+		// 2.5D. C'est CE predicat que lisent le shell et la vue -- jamais un
+		// `mode == 3` recopie a un site.
+		inline bool NkModeMaillageSansElements(int32 mode) {
+			return NkModeNeedsEditMesh(mode) && !NkModeManipuleElements(mode);
+		}
+
+		int32 Demo3DHostBrushCount();
+		const char *Demo3DHostBrushName(int32 i);
+		// Le nom de la brosse en service, et le choix PAR CE NOM (jamais par un
+		// indice : le catalogue vient de fichiers, son ordre change quand on en
+		// depose un).
+		const char *Demo3DHostBrushCurrent();
+		bool Demo3DHostSetBrushByName(const char *nom);
+		// Les trois grandeurs de la brosse ACTIVE, et les bornes que son fichier
+		// declare. Ce qu'on rend est la valeur EFFECTIVE (reglage s'il existe,
+		// sinon fichier) ; une valeur < 0 passee a Set laisse la grandeur telle
+		// quelle. `Nudge` : quoi = 0 rayon (pas multiplicatif), 1 force, 2 durete.
+		bool Demo3DHostBrushParams(float32 *radius, float32 *strength, float32 *hardness);
+		bool Demo3DHostBrushRange(float32 *rMin, float32 *rMax, float32 *sMin, float32 *sMax);
+		bool Demo3DHostSetBrushParams(float32 radius, float32 strength, float32 hardness);
+		bool Demo3DHostNudgeBrush(int32 quoi, int32 sens);
+		// Points et normales en REPERE OBJET, x,y,z consecutifs. rayon/force <= 0
+		// = garder ceux de la brosse. Rend true si le maillage a change (et si une
+		// etape d'annulation a donc ete posee).
+		// LE TRAIT sur la surface : une zone qui SURVIT aux operations (elle vit
+		// dans FaceAttrib, comme le materiau), puis qui se designe.
+		int32 Demo3DHostTraceTrait(const float32 *pts, int32 count, float32 rayon, int32 numero);
+		int32 Demo3DHostCompteTrait(int32 numero);
+		int32 Demo3DHostEffaceTrait(int32 numero);
+		int32 Demo3DHostSelectionnerTrait(int32 numero);
+		// ⚠️ radius / strength / hardness <= 0 (< 0 pour la durete) = « prends
+		//    celle de la brosse, reglage vivant compris ». C'est par la que le
+		//    geste souris passe : il ne redit pas les valeurs, il laisse la porte
+		//    les resoudre -- sinon la resolution existerait a deux endroits.
+		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
+					  const char *brushName, float32 radius, float32 strength,
+					  float32 hardness = -1.f);
+
+		// ── LE MASQUE DE SCULPTURE ──────────────────────────────────────────
+		// Un poids par sommet (0 libre, 1 protege) que TOUTES les brosses lisent.
+		// Il se peint avec les brosses `masquer` / `demasquer` -- donc par la porte
+		// ci-dessus, sans API a part : une brosse est une donnee.
+		// Ces quatre entrees servent aux gestes EN BLOC et a la lecture.
+		// `mode` : 0 tout demasquer · 1 tout masquer · 2 inverser. Rend vrai si
+		// quelque chose a change (une etape d'annulation a alors ete posee).
+		bool Demo3DHostMaskAll(int32 mode, float32 poids);
+		bool Demo3DHostMaskExists();
+		int32 Demo3DHostMaskCount(float32 seuil);
+		float32 Demo3DHostMaskSum();
+		/// Les octets REELLEMENT occupes par le masque (0 tant que rien n'est peint).
+		int32 Demo3DHostMaskBytes();
+		// L'OUTIL TRANSFORM DE SCULPTURE : deplace / tourne / met a l'echelle la
+		// partie NON MASQUEE autour d'un pivot (repere OBJET), avec la symetrie
+		// par axe (bit 0 = X, 1 = Y, 2 = Z). Angles en DEGRES. Rend vrai si au
+		// moins un sommet a bouge -- donc si une etape d'annulation a ete posee.
+		/// LE MASQUE D'UN NOEUD, pour l'enregistrement du projet. Les poids sont
+		/// alignes sur les sommets du maillage de RENDU du noeud (ceux du .nkgeo).
+		/// Rend faux quand il n'y a aucun masque -- un projet qui n'a jamais masque
+		/// n'ecrit pas un octet pour cette fonction.
+		bool Demo3DHostNodeMask(int32 node, const float32 **outW, uint32 *outCount);
+		bool Demo3DHostSetNodeMask(int32 node, const float32 *w, uint32 count);
+		/// La symetrie de la sculpture : bit 0 = X, 1 = Y, 2 = Z. Reglage d'outil
+		/// (pas une commande : annuler un deplacement ne doit pas la changer).
+		void Demo3DHostSetSculptSym(int32 mask);
+		int32 Demo3DHostSculptSym();
+		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
+									   const float32 *scale3, const float32 *pivot3, int32 symMask);
 		bool Demo3DHostEditLoopCut();
 		bool Demo3DHostEditBevel(bool vertexMode);
 		bool Demo3DHostEditInset();
@@ -307,6 +438,14 @@ namespace nkentseu {
 		// d'ecart sont NORMALES (la bascule est consommee a la frame suivante) :
 		// seul un ecart qui DURE est un echec.
 		int32 Demo3DHostEditRefusedFrames();
+		// 0 = pas de refus ; 1..5 = le motif, voir NkDemo3D.cpp.
+		int32 Demo3DHostEditRefusMotif();
+		// false = le noeud se dessine avec une primitive PARTAGEE et ne peut
+		// pas entrer en edition. Meme condition que le refus d'edition.
+		bool Demo3DHostNodeHasOwnMesh(int32 node);
+		// true = sa geometrie a ete EDITEE : ses parametres de creation ne la
+		// decrivent plus, il faut donc l'ecrire a l'enregistrement.
+		bool Demo3DHostNodeMeshEdite(int32 node);
 		// REGLER un parametre de l'operation en cours -- la demande « pas de
 		// propriete ». Le parametre se pilotait deja a la souris et a la molette ;
 		// il ne se TAPAIT nulle part. Les bornes sont celles du pilotage souris
@@ -373,6 +512,9 @@ namespace nkentseu {
 
 		// Cadrer la vue sur toute la scene (centre + distance ; l'angle est garde).
 		void Demo3DHostFrameAll();
+		// Cadrer une BOITE MONDE donnee (l'angle est garde) : FrameAll cadre la
+		// scene entiere, lumieres et camera comprises.
+		void Demo3DHostFrameBox(const float32 *mn3, const float32 *mx3);
 		// Cadrer SERRE sur le maillage edite, ou sur sa seule SELECTION.
 		// `Demo3DHostFrameAll` cadre la SCENE et ELOIGNE donc la camera d'un objet
 		// unique : trois preuves visuelles ont echoue pour cette raison.
@@ -410,6 +552,10 @@ namespace nkentseu {
 		float32 Demo3DHostModGetParam(uint32 index, uint32 p);
 		void Demo3DHostModSetParam(uint32 index, uint32 p, float32 v);
 		bool Demo3DHostInEditMode();
+		// Le maillage est ouvert ET le mode y manipule des elements (cf.
+		// NkModeManipuleElements). Faux en Sculpture : c'est ce que doivent lire
+		// la pastille de sous-mode, les menus de maillage et tout ce qui designe.
+		bool Demo3DHostElementsActifs();
 		void Demo3DHostSetEditSelMask(int32 mask); // bits 1 sommet, 2 arete, 4 face
 		int32 Demo3DHostEditSelMask();
 		// ── LE CLIC A DES COORDONNEES ECRITES (13/09) ────────────────────────
@@ -924,6 +1070,21 @@ namespace nkentseu {
 		int32 Demo3DHostCreateMeshNode(int32 root, const void *verts, uint32 vcount,
 									   const uint32 *indices, uint32 icount,
 									   const float32 *pos3, const char *debugName);
+		// ── LA BOITE D'UN NOEUD, LUE SUR SES SOMMETS (21/09) ────────────────
+		// `monde=false` : l'etendue de la primitive A VIDE (sans transformation),
+		// ce qui convertit une taille en metres en echelle sans recopier les
+		// dimensions des generateurs. `monde=true` : la boite MONDE, par la meme
+		// composition T*R*S que le pick. Faux pour un noeud sans maillage.
+		bool Demo3DHostNodeBounds(int32 node, bool monde, float32 *mn3, float32 *mx3);
+		// OBJET DE REVOLUTION : un profil ferme (x = rayon >= 0, y = hauteur, `nPoints`
+		// couples) tourne de 360 degres autour de Y par NkEditMesh::SpinSelected, en
+		// `pas` pas. Rend le noeud cree (maillage propre, editable) ou -1 et le motif.
+		int32 Demo3DHostCreateRevolution(const float32 *profilRH, uint32 nPoints, int32 pas, const float32 *pos3,
+										 const char *nom, char *pourquoi, uint32 capPourquoi);
+		// Ajoute les triangles MONDE du noeud a un .obj ouvert (`fichier` est un
+		// FILE*), sous le groupe `groupe`. `*vbase` = indice (base 1) du premier
+		// sommet, avance d'autant. Faux pour un noeud sans maillage.
+		bool Demo3DHostNodeAppendObj(int32 node, void *fichier, uint32 *vbase, const char *groupe);
 		// ── LA GEOMETRIE PROPRE D'UN NOEUD : LUE, PUIS REPOSEE (06/09) ──────
 		// Ce que le fichier de projet doit ecrire pour qu'un objet IMPORTE
 		// survive a enregistrer / fermer / rouvrir. Sans ces deux portes, le

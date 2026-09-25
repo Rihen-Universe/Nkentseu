@@ -26,6 +26,10 @@
 // APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
 #include "NK3DModeler/Viewport/NkMatPreview3D.h"
+// OU SONT LES DONNEES LIVREES (brosses, themes, icones, apercus, image de
+// version) : une seule convention, un seul fichier. Cf. son en-tete pour ce
+// que sa dispersion a coute le 20/09.
+#include "NK3DModeler/NkModelerData.h"
 #include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
 #include "NK3DModeler/Viewport/NkVpEditTarget.h"
 #include "NK3DModeler/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
@@ -46,10 +50,12 @@
 #include "NKContainers/Associative/NkHashMap.h" // dedup arêtes Edit Mode
 #include "NKRenderer/Mesh/NkEditMesh.h"			// structure demi-arête n-gon
 #include "NKRenderer/Mesh/NkEditOverlayStyle.h" // L'APPARENCE : une seule autorite
+#include "NKRenderer/Tools/MeshSculpt/NkBrushRegistry.h" // registre des brosses (transit)
 #include "NKFileSystem/NkFile.h"				// save/load session d'édition (journal de commandes)
 #include "NKTime/NkChrono.h"					// mesure du coût des aperçus modaux (NK_MODAL_PERF)
 #include "NKRenderer/Tools/VoxelAO/NkVoxelAOSystem.h" // NK_GI_TEST : GI à un rebond
 #include "NKLogger/NkLog.h"			  // diagnostic par le journal (methode de travail)
+#include "NKFileSystem/NkPath.h"
 #include "NKFileSystem/NkDirectory.h" // dossier de sortie cree a la volee
 #include "NkOutCompose.h"			  // formes et composition des incrustations
 #include "NKMedia/Video/NkVideoWriter.h"			// enregistrement video de la session
@@ -139,6 +145,23 @@ namespace nkentseu {
 			return nkvpInputOn && NkInput.IsKeyDown(k);
 		}
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
+		// SONDE « BOITE AU CLIC DU CURSEUR » (NK_BOITE_SONDE=1) : ce qui est PUBLIE
+		// pour etre cerne, a l'image pres. On compte les SOUMISSIONS au masque de
+		// silhouette et les cibles qu'elles designent -- jamais une relecture de la
+		// condition qui les garde.
+		static int32 gBoiteOutObj = 0, gBoiteOutUser = 0, gBoiteOutObjIdx = -1, gBoiteOutUserIdx = -1;
+		// ⚠️ « UNE BOITE PUBLIEE SANS CIBLE » : une soumission au masque de silhouette
+		//    dont le maillage est INVALIDE. Le masque rendrait alors une silhouette vide
+		//    ou une forme de repli -- la famille « un compteur dont le zero n'est pas
+		//    zero ». On la COMPTE, et le banc rougit si elle n'est pas nulle.
+		static int32 gBoiteSansCible = 0;
+		// SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) : aretes de cage envoyees au dernier
+		// overlay reconstruit. On COMPTE ce qui part au trace, on ne relit pas la condition.
+		static uint32 gModeSondeCage = 0u;
+		// CE QUE LE MASQUE A TRACE a la derniere image, et a quel pas : l'incrustation
+		// le DIT, parce qu'un affichage partiel qui se tait ferait croire a un masque
+		// plus petit qu'il n'est.
+		static uint32 gMasqueVus = 0u, gMasquePas = 1u;
 		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
@@ -341,6 +364,17 @@ namespace nkentseu {
 		// Mesh PARAMETRIQUE du slot (regenere quand ses parametres changent)
 		// et ses parametres (segments / anneaux-subdivisions).
 		static NkMeshHandle nkvpUserMesh[kNkvpMaxUser];
+		// CE MAILLAGE NE SE REGENERE PLUS DEPUIS SES PARAMETRES.
+		// ⚠️ POURQUOI IL FAUT CE DRAPEAU. A l'enregistrement, un objet qui a des
+		//    parametres de creation n'ecrit QUE trois entiers -- et c'est le bon
+		//    choix : « des megaoctets par projet pour reproduire ce que trois
+		//    entiers disent deja ». Mais des qu'on EDITE sa geometrie, les trois
+		//    entiers ne la decrivent plus : enregistrer PERDAIT les modifications,
+		//    en silence, et la reouverture rendait la primitive d'origine.
+		//    Le drapeau n'ouvre la vanne QUE pour les primitives reellement
+		//    editees -- exactement le cas ou les trois entiers ont cesse de dire
+		//    la verite. Partout ailleurs, le compromis disque reste intact.
+		static bool nkvpUserMeshEdite[kNkvpMaxUser];
 		static int32 nkvpUserSeg[kNkvpMaxUser];
 		static int32 nkvpUserRing[kNkvpMaxUser];
 		static float32 nkvpUserAux[kNkvpMaxUser]; // ex. rayon interne du tore
@@ -1266,6 +1300,34 @@ namespace nkentseu {
 								  nkvpProjMats[pm].albedo[2]};
 		}
 
+		// ── LIER L'INSTANCE MOTEUR DU MATERIAU DU PROJET ────────────────────
+		// C'est elle qui porte les TEXTURES ; `HostMatHook` ne porte que la
+		// teinte et les coefficients. Sans cette liaison, un objet texture se
+		// rend en surface UNIE.
+		//
+		// ⚠️ CE BLOC ETAIT ECRIT EN PLACE, dans la soumission des noeuds
+		//    utilisateurs, ET NULLE PART AILLEURS. Consequence mesuree le 25/09
+		//    et signalee par Rodolf : « c'est devenu plus clair quand je suis alle
+		//    en sculpt ». Le maillage EDITE est soumis par un autre chemin, qui
+		//    appelait bien `HostMatHook` -- donc la couleur et la rugosite -- mais
+		//    jamais cette liaison. Un personnage texture perdait sa texture en
+		//    entrant en Edition ou en Sculpture, et ne gardait que sa teinte : plus
+		//    clair, plus uni. Ce n'etait pas un choix d'affichage, c'etait une
+		//    absence.
+		//
+		// ⚠️ L'instance moteur est liee MEME SANS TEXTURE : l'anisotropie, le sheen
+		//    et les types non Standard vivent dans son UBO. C'est l'arbitrage
+		//    d'origine, conserve mot pour mot -- ce n'est pas le lieu de le
+		//    rouvrir.
+		template <typename TDC>
+		static void HostLieMateriauProjet(int32 noeud, TDC &dc) {
+			if (noeud < 0 || noeud >= kNkvpMaxNodes)
+				return;
+			const int32 pm = nkvpNodeMatP1[noeud] - 1;
+			if (pm >= 0 && pm < kNkvpMaxProjMats && nkvpProjMats[pm].used && nkvpProjMatEng[pm])
+				dc.material = nkvpProjMatEng[pm]->GetInstHandle();
+		}
+
 		template <typename TDC>
 		static void HostMatHook(int32 i, TDC &dc) {
 			if (i < 0 || i >= kNkvpMaxNodes)
@@ -1624,6 +1686,16 @@ namespace nkentseu {
 				// bascule est consommee a la frame suivante) : c'est la DUREE qui fait
 				// l'echec, pas l'ecart lui-meme.
 				int32 editRefusedFrames = 0;
+				// POURQUOI l'entree en edition est refusee -- 0 = pas de refus.
+				// ⚠️ LE JOURNAL DISTINGUAIT DEJA CINQ CAS ; L'ECRAN N'EN DISAIT QU'UN.
+				//    Le 17/09, une soiree a ete perdue sur la phrase « Selectionne un
+				//    objet (clic) avant TAB » -- le journal a alors ete corrige, pas
+				//    le bandeau. Le 20/09, Rodolf a re-clique son cube pour rien : il
+				//    lisait l'ecran, pas logs/app.log. Un verdict qui n'est pas la ou
+				//    l'on regarde n'existe pas.
+				//    1 rien de selectionne · 2 objet supprime · 3 pas de maillage a lui
+				//    4 nature non editable · 5 ne designe aucun maillage editable
+				int32 editRefusMotif = 0;
 				// ── GLISSEMENT SYNTHETIQUE D'ELEMENTS (NK_EDIT_DRAG) ────────────
 				// Le deplacement d'un sommet / arete / face n'etait exercable par
 				// AUCUN banc : il faut attraper une poignee a la souris. Consequence
@@ -1647,6 +1719,79 @@ namespace nkentseu {
 				bool editOverlayDirty = true;	  // reconstruire les buffers overlay (cage/points/faces)
 				bool editExtrudePending = false;  // E : extrude région (traité côté frame)
 				bool editDeletePending = false;
+				// ── SCULPTURE : LE TRAIT EN ATTENTE ─────────────────────────
+				// Le trait vit ICI avant d'etre applique, et non dans l'appel qui le
+				// pose : c'est ce qui permet a une brosse ET a une designation « creuse
+				// ici » de consommer LE MEME objet. Un trait applique directement
+				// serait un effet, pas une donnee -- et rien d'autre ne pourrait s'en
+				// servir.
+				// ⚠️ EN REPERE OBJET, jamais en pixels : un trait en pixels ne survit
+				//    pas a une rotation de camera, et un trait par indices ne survit pas
+				//    au remaillage -- or sculpter EST remailler.
+				NkVector<NkVec3f> sculptPts;
+				NkVector<NkVec3f> sculptNrm;
+				renderer::NkSculptCmdParams sculptParams;
+				// Parametres du dernier « masque en bloc » demande (cf. Demo3D_MaskAllHE).
+				renderer::NkMaskAllParams maskAllParams;
+				// Parametres du dernier « Transform de sculpture » demande.
+				renderer::NkSculptTransformParams sculptXformParams;
+				bool sculptPending = false;
+				// LE TRAIT EN COURS DE TRACE (souris enfoncee). Separe de `sculptPts`,
+				// qui est le trait DEJA remis a la commande : les melanger ferait
+				// repartir le geste suivant avec les points du precedent.
+				NkVector<NkVec3f> sculptDragPts;
+				NkVector<NkVec3f> sculptDragNrm;
+				bool sculptDragOn = false;
+				// LE GESTE A DES COORDONNEES ECRITES (NK_SCULPT_AT), sur le patron de
+				// Demo3DHostEditPickAt. Sans lui, le raycast du geste souris ne serait
+				// eprouve PAR RIEN : on ne peut pas injecter de souris, et le crochet
+				// NK_SCULPT_STROKE vise un SOMMET sans jamais lancer de rayon.
+				// Il emprunte le MEME code que la souris -- seules les coordonnees
+				// changent, exactement comme `pickArme ? st->editPickX : gin.mouseX`.
+				float32 sculptAtX = 0.f, sculptAtY = 0.f;
+				int32 sculptAtFrames = 0; // images restantes « bouton enfonce »
+				// La brosse choisie dans le catalogue, DESIGNEE PAR SON NOM.
+				//
+				// [!] C'ETAIT UN INDEX, ET L'INDEX SE DECALE. Le catalogue est trie et
+				//     vient de fichiers : deposer `durcir.nkbrush` a insere une entree AVANT
+				//     `lisser`, et tout indice memorise a change de sujet en silence. Le
+				//     banc de sculpture l'a paye le meme jour -- il prenait « la premiere
+				//     brosse de lissage » et s'est mis a exiger d'une brosse qui DURCIT
+				//     qu'elle adoucisse. *Ce que l'utilisateur a choisi, c'est un nom.*
+				//
+				//     Vide = la premiere du catalogue, resolue a l'usage : au demarrage
+				//     aucun choix n'a encore ete fait, et ecrire un nom par defaut ici
+				//     inventerait un choix que personne n'a exprime.
+				char activeBrushName[48] = {0};
+				// ── LES REGLAGES VIVANTS D'UNE BROSSE ──────────────────────────────
+				// Rodolf, 25/09 : « on ne voit pas la taille de brosse, on ne peut pas
+				// modifier les proprietes de dessin d'une brosse ». Les trois grandeurs
+				// existaient -- dans le FICHIER, en lecture seule. Les voici reglables.
+				//
+				// ⚠️ PAR BROSSE, ET NON UN JEU GLOBAL. C'est ce que fait Blender, et la
+				//    raison est dans les donnees : `lisser` porte force=0.5 comme une
+				//    FRACTION DE CHEMIN, `dessiner` porte 0.5 comme une DISTANCE. Un
+				//    reglage unique partage entre les deux ferait qu'agrandir la brosse
+				//    de blocage abimerait la brosse de detail -- et le fichier le dit
+				//    deja, puisqu'il donne a chacune ses BORNES (`rayon_min`...).
+				//
+				// ⚠️ AUCUNE ENTREE TANT QUE RIEN N'A ETE REGLE. Une table pre-remplie
+				//    avec les valeurs des fichiers se lirait comme un choix de
+				//    l'utilisateur, et elle FIGERAIT ces valeurs : corriger un
+				//    `.nkbrush` n'aurait plus d'effet. Absent = « prends ce que dit le
+				//    fichier », et c'est la seule facon qu'une donnee reste la source.
+				struct BrosseReglee {
+						char name[48] = {0};
+						float32 radius = -1.f;	 ///< <0 = non regle, garde celui du fichier
+						float32 strength = -1.f;
+						float32 hardness = -1.f;
+				};
+				NkVector<BrosseReglee> brushTweaks;
+				// Le catalogue des brosses, charge depuis data/brushes au premier usage.
+				// ⚠️ PAS DE LISTE EN DUR : l'interface doit passer par la donnee, sinon
+				//    elle afficherait les bons noms sans qu'aucun fichier soit lu.
+				renderer::NkBrushRegistry brushes;
+				bool brushesLoaded = false;
 				// LE MENU X (Blender) : la touche DEMANDE l'ouverture, le shell l'ouvre.
 				// La vue 3D ne dessine pas de menu -- c'est le shell qui tient NKGui --,
 				// donc un JETON, exactement comme `capturePending` : l'un demande,
@@ -1926,6 +2071,60 @@ namespace nkentseu {
 				int32 modalPvFull = 0, modalPvPos = 0;
 				float64 modalPvFullMs = 0.0, modalPvPosMs = 0.0;
 				renderer::NkGizmo3D editGizmo;	// 1 seule cible = PIVOT courant de la sélection
+				// ── LE GIZMO DE L'OUTIL TRANSFORM DE SCULPTURE ────────────────────
+				// ⚠️ MEME CLASSE, AUTRE INSTANCE -- pas un second gizmo. `NkGizmo3D`
+				//    porte deja les poignees, le pick, le glisser et le dessin ; ce
+				//    qui change ici est ce qu'on lui donne (une cible : le pivot de
+				//    la partie NON MASQUEE) et ce qu'on fait de son geste (deformer
+				//    la partie non masquee, pas transformer un objet).
+				//    Une instance a part, comme `lightGizmo` et `emptyGizmo` : l'etat
+				//    d'un geste de sculpture n'a rien a faire dans celui de l'edition,
+				//    et les melanger ferait qu'un G en Edition deplacerait ce qu'un
+				//    glisser de sculpture avait laisse derriere lui.
+				renderer::NkGizmo3D sculptGizmo;
+				bool sculptXformDragging = false;   // un geste est-il en cours ?
+				NkVector<NkVec3f> sculptXformRest;  // positions AU DEBUT du geste (repere objet)
+				NkVec3f sculptXformPivotW = {0.f, 0.f, 0.f}; // pivot MONDE, fige au depart
+				int32 sculptSymMask = 0;            // symetrie : bit 0 X, 1 Y, 2 Z
+				// ── LE CURSEUR DE BROSSE ───────────────────────────────────────────
+				// Rodolf, 25/09 : « il faut le cercle sous la souris qui montre le
+				// rayon et suit la surface, sinon on sculpte a l'aveugle ».
+				//
+				// ⚠️ CE N'EST PAS UN DESSIN, C'EST UNE MESURE AFFICHEE. Le cercle est
+				//    trace au point ou LE RAYON DU TRAIT touche la surface, avec le
+				//    rayon EFFECTIF de la brosse -- meme rayon, meme intersection,
+				//    meme grandeur. Un cercle dessine a la souris en pixels aurait
+				//    l'air juste et mentirait des que la camera bouge : il montrerait
+				//    une taille d'ecran quand la brosse travaille en unites monde.
+				// LE SURVOL ECRIT (NK_BRUSH_HOVER). Il donne des coordonnees SANS
+				// enfoncer le bouton -- ce que NK_SCULPT_AT ne peut pas faire, lui
+				// qui simule un appui et sculpte donc au passage. Mesurer le curseur
+				// avec un crochet qui sculpte aurait mesure autre chose.
+				int32 brushHoverFrames = 0;
+				float32 brushHoverX = 0.f, brushHoverY = 0.f, brushHoverPas = 0.f;
+				// ── CE QUE LE CURSEUR A DEJA CALCULE ───────────────────────────────
+				// MESURE DU 25/09, sur 25 350 sommets : le rayon lance a CHAQUE image
+				// fait passer la cadence de 102 a 56 ips (rapport 0,547). Le rayon
+				// parcourt toutes les faces, et le commentaire d'origine disait bien
+				// « une structure d'acceleration serait une optimisation a MESURER
+				// avant d'etre ecrite » -- c'est mesure.
+				//
+				// Ce cache est la moitie bon marche du correctif : si ni la souris,
+				// ni la camera, ni le maillage n'ont bouge, le resultat d'hier est
+				// encore vrai aujourd'hui. Dans un editeur, c'est le cas la plupart
+				// du temps -- la souris s'arrete entre deux gestes.
+				// ⚠️ IL NE COUVRE PAS LE MOUVEMENT CONTINU : en deplacant la souris
+				//    sans arret, on paie encore le plein tarif. La suite est une
+				//    grille ou un BVH sur les faces ; CONDITION DE RETRAIT de cette
+				//    note : le jour ou l'un des deux existe, ce cache peut partir.
+				float32 brushCurLastX = -1e30f, brushCurLastY = -1e30f;
+				NkVec3f brushCurLastCam{1e30f, 1e30f, 1e30f};
+				NkVec3f brushCurLastFwd{1e30f, 1e30f, 1e30f};
+				uint32 brushCurLastVer = 0xFFFFFFFFu;
+				bool brushCurOn = false;          // la surface est-elle sous le curseur ?
+				NkVec3f brushCurP{0.f, 0.f, 0.f}; // point touche, repere LOCAL du maillage
+				NkVec3f brushCurN{0.f, 1.f, 0.f}; // normale au point, repere LOCAL
+				float32 brushCurR = 0.f;          // rayon effectif, unites monde
 				// ── OMBRAGE FLAT / SMOOTH (façon Blender « Shade Flat / Shade Smooth ») ──
 				// Shift+F = FLAT · Shift+S = SMOOTH. S'applique aux FACES SÉLECTIONNÉES si
 				// la sélection en contient (mixte autorisé, comme Blender), sinon à TOUT le
@@ -1976,7 +2175,47 @@ namespace nkentseu {
 				NkVector<renderer::NkVertex3D> editDispScratch; // tampon reutilise (zero alloc/frame)
 				NkVector<uint32> editDispScratchIdx;
 				NkVector<renderer::NkEmId> editDispScratchTF;
+				// Valeur de Demo3D_ElementsActifs a la derniere reconstruction de l'overlay :
+				// la cage et les marqueurs doivent disparaitre A L'ENTREE en Sculpture, et
+				// changer de mode ne touche aucune des causes habituelles de reconstruction.
+				bool elementsOverlay = true;
 		};
+
+		// ── LE MAILLAGE EST OUVERT, MAIS Y MANIPULE-T-ON DES ELEMENTS ? ─────────
+		// `editMode` dit que le maillage d'edition est OUVERT (etat de donnee) ; la
+		// Sculpture l'ouvre aussi. Le gizmo de sommets, le clic de selection, G/R/S,
+		// les outils de zone, les marqueurs et le clavier d'edition doivent lire
+		// CECI, qui ajoute l'axe d'INTERACTION (cf. NkModeManipuleElements).
+		// ⚠️ PAR LA NEGATIVE, et c'est voulu : `uiMode` vaut 0 pendant l'image ou
+		//    l'on RESSORT d'edition (le maillage est encore ouvert). « Pas un mode a
+		//    brosses » garde alors le comportement d'Edition pour cette image, au lieu
+		//    d'inventer un troisieme etat.
+		// MUTATION DANS LE MEME BINAIRE : NK_SCULPT_GIZMO_MUTE=1 rend l'ancienne regle
+		// (`editMode` seul). Le banc sonde_sculpt_gizmo.ps1 DOIT alors rougir.
+		// Segments du CURSEUR DE BROSSE reellement envoyes au trace cette image.
+		// ⚠️ A PART de `nkGizmoTri` : deux choses differentes sous un seul compteur
+		//    font verdir le critere de l'une sur la presence de l'autre.
+		static uint32 gBrushCurSeg = 0;
+		// Triangles de la ZONE MASQUEE reellement envoyes au trace cette image.
+		// ⚠️ C'est le temoin du point 3 : « le masque se voit » ne se prouve pas
+		//    par le nombre de sommets masques (qui existait deja) mais par ce qui
+		//    part au trace -- et, apres lui, par l'ecart de couleur a l'image.
+		static uint32 gMasqueTri = 0;
+		// 1 si le maillage EDITE a ete soumis avec l'instance moteur de son
+		// materiau. C'est le temoin du defaut « plus clair en Sculpture » : il
+		// valait 0 a toutes les images avant le correctif, quel que soit le
+		// materiau de l'objet.
+		static uint32 gEditMatLie = 0;
+
+		static bool Demo3D_ElementsActifs(const Demo3DState *st) {
+			static const bool sMute = []() {
+				const char *v = getenv("NK_SCULPT_GIZMO_MUTE");
+				return v && v[0] && v[0] != '0';
+			}();
+			if (!st || !st->editMode)
+				return false;
+			return sMute || !NkModeMaillageSansElements(st->uiMode);
+		}
 
 		// Transform de BASE (repos, sans animation) d'un objet de la démo par son index
 		// gizmo — MÊME disposition que la boucle de soumission. Sert d'ancre à l'Edit Mode.
@@ -2188,6 +2427,30 @@ namespace nkentseu {
 		// lot, les objets de l'utilisateur etaient INVISIBLES en fil de fer alors
 		// que la demo, elle, y figurait (constate par Rihen : seul le contour de
 		// selection subsistait). Caches par emplacement, remplis a la reconstruction.
+		// ── LE MASQUE DE SCULPTURE, COTE NOEUD ─────────────────────────────────
+		// ⚠️ SUR LE NOEUD, PAS SUR L'INDEX D'UN MAILLAGE TRANSITOIRE. `editHE` ne
+		//    vit que le temps de l'edition ; ce qui doit survivre a la fermeture du
+		//    mode -- et a celle du projet -- appartient au noeud. Les poids sont
+		//    alignes sur les sommets du maillage de RENDU du noeud (ceux qu'ecrit
+		//    le `.nkgeo`), et le passage dans les deux sens se fait par
+		//    `NkMaskSampleField` : la MEME regle que le report a travers une
+		//    operation, donc une seule reponse a « de qui ce sommet descend-il ? ».
+		// ⚠️ VIDE = PAS DE MASQUE : un noeud qui n'a jamais ete masque ne paie rien,
+		//    ni en memoire ni dans le fichier.
+		static NkVector<float32> nkvpUserMask[kNkvpMaxUser];
+		// ── LA MUTATION « LE MASQUE NE VOYAGE PAS », UNE SEULE SOURCE ──────────
+		// NK_MASQUE_SANS_REPORT=1 rend l'etat d'avant : le masque ne traverse ni
+		// une operation topologique, ni la sortie du mode edition, ni le fichier.
+		// ⚠️ UN SEUL `getenv` POUR LES TROIS SITES. Trois lectures separees
+		//    auraient pu diverger (une faute de frappe dans l'une), et la mutation
+		//    n'aurait plus couvert qu'une partie de son sujet -- en le laissant croire.
+		static bool Demo3D_SansReportMasque() {
+			static const bool sSans = []() {
+				const char *v = getenv("NK_MASQUE_SANS_REPORT");
+				return v && v[0] && v[0] != '0';
+			}();
+			return sSans;
+		}
 		static NkVector<NkVec3f> sUserWireEdges[kNkvpMaxUser];
 		static uint32 sUserOff[kNkvpMaxUser] = {};
 		static uint32 sUserCnt[kNkvpMaxUser] = {};
@@ -4257,8 +4520,34 @@ namespace nkentseu {
 					cmd.faceSel.PushBack(st->faceSel[f]);
 			Demo3D_PushSel(st);
 			renderer::NkEditMesh snapshot = st->editHE; // pré-état (avec sélection live)
+			const bool masqueAvant = snapshot.MaskExists();
 			if (!cmd.Apply(st->editHE))
 				return false; // no-op -> ni undo ni enregistrement
+			// ── LE MASQUE TRAVERSE L'OPERATION, ET C'EST ICI QUE CA SE JOUE ─────
+			// Une operation TOPOLOGIQUE passe par `BuildFromPolygons`, qui vide le
+			// masque (il est indexe par numero de sommet, et la renumerotation le
+			// rendrait FAUX). On le REPORTE depuis le pre-etat : chaque sommet neuf
+			// herite de ses plus proches a egalite -- ses parents.
+			// ⚠️ UNE SEULE PORTE POUR TOUTES LES OPERATIONS. Le report est pose dans
+			//    `Demo3D_ApplyCmd`, par ou passent extruder, subdiviser, biseauter,
+			//    loop cut, inserer, dissoudre... et celles qui n'existent pas encore.
+			//    Le poser dans chaque operation aurait garanti que la prochaine
+			//    l'oublie, en silence.
+			// ⚠️ ET SEULEMENT S'IL A ETE PERDU. La brosse de masque et le Transform
+			//    de sculpture gerent leurs poids eux-memes ; les reporter par-dessus
+			//    ecraserait ce qu'ils viennent d'ecrire.
+			// MUTATION DANS LE MEME BINAIRE : NK_MASQUE_SANS_REPORT=1 rend l'etat
+			// d'avant ce lot -- le masque est PERDU a la premiere operation. Les
+			// criteres de transport du banc doivent alors rougir ; sans ce negatif,
+			// « le masque est encore la » pourrait etre vrai parce que l'operation
+			// n'a rien change du tout.
+			if (masqueAvant && !Demo3D_SansReportMasque() && !st->editHE.MaskExists()) {
+				const uint32 repris = st->editHE.MaskTransferFrom(snapshot);
+				logger.Info("[Demo3D] MASQUE reporte a travers l'operation : {0} sommet(s) protege(s) "
+							"sur {1} (avant : {2} sur {3}) · somme {4} -> {5}\n",
+							repris, st->editHE.VertCount(), snapshot.MaskedCount(),
+							snapshot.VertCount(), snapshot.MaskSum(), st->editHE.MaskSum());
+			}
 			st->editHistory.Commit(snapshot);
 			st->editRecorder.Push(cmd); // journalise la commande
 			st->editReplayStep = -1;	// une édition sort du mode rejeu
@@ -4354,6 +4643,262 @@ namespace nkentseu {
 
 		// SUBDIVIDE (W) : Catmull-Clark, faces sélectionnées ou TOUT. subdivCuts passes en UNE
 		// commande (donc UN seul undo) — cf. NkEditMesh.
+		// ──────────────────────────────────────────────────────────────────────
+		// SCULPTURE : LE CHARGEMENT DES BROSSES, ET UN COUP DE BROSSE.
+		// ──────────────────────────────────────────────────────────────────────
+		// OU SONT LES BROSSES -- meme convention que les themes et les icones,
+		// le premier trouve gagne :
+		//   1. <utilisateur>/NK3DModeler/brushes/<nom>.nkbrush  (surcharge)
+		//   2. <app>/data/brushes/<nom>.nkbrush                 (livre)
+		// ⚠️ LE NOYAU N'OUVRE AUCUN FICHIER : `NkBrushRegistry::AddFromText`
+		//    prend une CHAINE. C'est l'application qui sait ou sont ses dossiers,
+		//    exactement comme NkThemeLibrary -- qui n'ouvre rien non plus pour
+		//    rester eprouvable sans lier NKFileSystem.
+		static void Demo3D_LoadBrushes(Demo3DState *st) {
+			if (!st || st->brushesLoaded)
+				return;
+			st->brushesLoaded = true; // une seule tentative, meme si elle echoue
+			// OU SONT LES DONNEES : `NkModelerData.h`, et nulle part ailleurs.
+			//
+			// ⚠️ CE QUE CE CHARGEUR A COUTE, ET POURQUOI LA REPONSE EST AILLEURS.
+			//    Il cherchait dans « data/brushes » et « <exe>/data/brushes ».
+			//    AUCUN DES DEUX N'EXISTE : les .nkbrush vivent sous
+			//    `Applications/NK3DModeler/data/brushes`, et ni la racine de
+			//    l'arbre -- d'ou l'application DOIT se lancer -- ni
+			//    `Build/Bin/.../NK3DModeler` n'ont de dossier `data/`. Le catalogue
+			//    etait donc vide a tous les coups, et la sculpture refusait chaque
+			//    trait. Journal de la session de Rodolf du 20/09 a 20h08 :
+			//    « brosses chargees depuis le disque : 0 », puis « sculpture
+			//    REFUSEE : brosse inconnue '(null)' (0 chargee(s)) », pour un trait
+			//    dont le rayon avait pourtant TOUCHE le maillage.
+			//    C'est la MEME cause que le « je ne vois meme pas les brosses » du
+			//    matin : le selecteur peint ce que le catalogue contient, et le
+			//    correctif du panneau (20/09 11h50) ne pouvait donc rien montrer.
+			//
+			// ⚠️ ET LE CORRECTIF N'EST PAS « un dossier de plus ICI ». Le meme
+			//    defaut existait au meme moment chez les themes, et la convention
+			//    juste etait deja ecrite trois fois ailleurs : c'est la RECOPIE qui
+			//    etait le defaut. On passe donc par la porte commune, qui protege
+			//    aussi le prochain chargeur.
+			const NkString dossier = nk3d::NkDataDir("data/brushes");
+			if (dossier.Empty())
+				nk3d::NkDataRefus("catalogue de brosses", "data/brushes");
+			else {
+				NkVector<NkString> files = NkDirectory::GetFiles(dossier.CStr(), "*.nkbrush");
+				for (uint32 i = 0; i < (uint32)files.Size(); ++i) {
+					NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(files[i].CStr());
+					if (bytes.Size() == 0)
+						continue;
+					char err[128] = {};
+					const renderer::NkBrushParse r = st->brushes.AddFromText(
+						(const char *)bytes.Data(), (uint32)bytes.Size(), err, 128);
+					// ⚠️ UN REFUS EST NOMME. Une brosse qui disparaitrait en silence
+					//    serait cherchee dans le code, ou elle n'est pas.
+					if (r != renderer::NkBrushParse::NK_BRUSH_OK)
+						logger.Warn("[Demo3D] brosse REFUSEE : {0} -- {1} [{2}]\n", files[i].CStr(),
+							  renderer::NkBrushParseText(r), err);
+				}
+			}
+			// LE DOSSIER RETENU EST DIT, pas seulement le compte. « 0 » sans le
+			// chemin envoie chercher un defaut dans le code ; « 0 depuis <chemin> »
+			// se tranche en ouvrant un dossier.
+			logger.Info("[Demo3D] brosses chargees depuis le disque : {0} (dossier : {1})\n",
+				(uint32)st->brushes.Count(), dossier.Empty() ? "AUCUN" : dossier.CStr());
+		}
+
+		// -- LE NOM -> LE DESCRIPTEUR : UNE SEULE PORTE ---------------------
+		// Les deux sites qui lisaient `activeBrush` par indice passent par ici, et
+		// les crochets aussi. Deux resolutions separees finiraient par differer
+		// sur le cas vide ou sur le nom absent, et c'est toujours le cas rare qui
+		// revele l'ecart -- trop tard.
+		//
+		// NOM ABSENT = ON NE DEVINE PAS. Une brosse retiree du dossier ne doit pas
+		// faire silencieusement sculpter avec sa voisine : on retombe sur la
+		// PREMIERE du catalogue, ce qui est un choix nomme et stable, et l'appelant
+		// peut le constater puisqu'on lui rend le descripteur retenu.
+		// -- LE FICHIER, PUIS LE REGLAGE PAR-DESSUS : UN SEUL SITE ----------
+		// Les trois grandeurs ont maintenant DEUX sources possibles, et l'ordre
+		// entre elles doit etre ecrit une fois pour toutes, sinon il sera ecrit
+		// deux fois et differemment -- ce que ce depot a paye sous le nom « le
+		// meme calcul a deux sites, garde a un seul ».
+		//
+		//   1. l'argument EXPLICITE d'un appel (un crochet de mesure, un rejeu) ;
+		//   2. le reglage vivant de la brosse, s'il existe ;
+		//   3. le fichier `.nkbrush`.
+		//
+		// Ce site-ci tient les niveaux 2 et 3. Le niveau 1 reste chez l'appelant :
+		// lui seul sait s'il a recu une valeur.
+		//
+		// ⚠️ LES BORNES RESTENT CELLES DU FICHIER, jamais reglees. Ce sont elles
+		//    qui disent ce qu'est une valeur SENSEE pour cette brosse, et un
+		//    reglage capable de repousser sa propre borne ne serait plus borne.
+		// LE NEGATIF DU POINT 1 : NK_BROSSE_SANS_REGLAGE=1 rend l'etat d'avant --
+		// les trois grandeurs viennent du fichier, et rien ne peut les changer.
+		// ⚠️ UNE SEULE SOURCE, ICI. La declarer aussi au point d'ecriture ferait
+		//    deux mutations pour un seul defaut, et le banc ne saurait plus
+		//    laquelle il a levee.
+		static bool Demo3D_SansReglageBrosse() {
+			static const bool s = []() {
+				const char *v = getenv("NK_BROSSE_SANS_REGLAGE");
+				return v && v[0] && v[0] != '0';
+			}();
+			return s;
+		}
+
+		static void Demo3D_AppliqueReglages(Demo3DState *st, renderer::NkBrushDesc &d) {
+			if (!st || !d.name[0] || Demo3D_SansReglageBrosse())
+				return;
+			for (uint32 i = 0; i < (uint32)st->brushTweaks.Size(); ++i) {
+				const Demo3DState::BrosseReglee &t = st->brushTweaks[i];
+				if (std::strcmp(t.name, d.name) != 0)
+					continue;
+				if (t.radius > 0.f)
+					d.radius = t.radius;
+				if (t.strength >= 0.f)
+					d.strength = t.strength;
+				if (t.hardness >= 0.f)
+					d.hardness = t.hardness;
+				return;
+			}
+		}
+
+		// L'ENTREE DE REGLAGE. Une valeur < 0 laisse la grandeur INCHANGEE : c'est
+		// ainsi qu'on regle le rayon sans avoir a connaitre la force.
+		// ⚠️ LA VALEUR EST BORNEE PAR LE FICHIER DE LA BROSSE. Le panneau borne
+		//    deja sa glissiere, mais le clavier et le crochet de mesure entrent
+		//    ici sans passer par lui : une borne qui ne vit que dans le widget ne
+		//    borne que le widget.
+		static void Demo3D_RegleBrosse(Demo3DState *st, const char *nom, float32 r, float32 fo,
+					       float32 h) {
+			if (!st || !nom || !nom[0])
+				return;
+			Demo3D_LoadBrushes(st);
+			const int32 bi = st->brushes.IndexOf(nom);
+			if (bi < 0)
+				return; // on ne regle pas une brosse qui n'existe pas
+			renderer::NkBrushDesc d;
+			if (!st->brushes.At((uint16)bi, d))
+				return;
+			if (r >= 0.f)
+				r = (r < d.radiusMin) ? d.radiusMin : ((r > d.radiusMax) ? d.radiusMax : r);
+			if (fo >= 0.f)
+				fo = (fo < d.strengthMin) ? d.strengthMin
+							  : ((fo > d.strengthMax) ? d.strengthMax : fo);
+			if (h >= 0.f)
+				h = (h < 0.f) ? 0.f : ((h > 1.f) ? 1.f : h);
+			for (uint32 i = 0; i < (uint32)st->brushTweaks.Size(); ++i) {
+				Demo3DState::BrosseReglee &t = st->brushTweaks[i];
+				if (std::strcmp(t.name, d.name) != 0)
+					continue;
+				if (r >= 0.f)
+					t.radius = r;
+				if (fo >= 0.f)
+					t.strength = fo;
+				if (h >= 0.f)
+					t.hardness = h;
+				return;
+			}
+			Demo3DState::BrosseReglee t;
+			uint32 k = 0;
+			for (; k + 1u < 48u && d.name[k]; ++k)
+				t.name[k] = d.name[k];
+			t.name[k] = 0;
+			t.radius = r;
+			t.strength = fo;
+			t.hardness = h;
+			st->brushTweaks.PushBack(t);
+		}
+
+		static bool Demo3D_BrosseCourante(Demo3DState *st, renderer::NkBrushDesc &out);
+
+		// LE PAS DU CLAVIER (les crochets, comme Blender), ET IL N'EXISTE QU'ICI.
+		// Le raccourci et la facade d'hote l'appellent tous les deux : deux pas
+		// ecrits separement finiraient par differer, et l'ecart ne se verrait que
+		// le jour ou l'un des deux chemins serait le seul emprunte.
+		//
+		// ⚠️ MULTIPLICATIF POUR LE RAYON, ADDITIF POUR LE RESTE. Ce n'est pas du
+		//    confort : un pas additif demanderait dix appuis pour passer de 0,01 a
+		//    0,11 et deux pour doubler une grosse brosse. L'oeil lit un rayon en
+		//    PROPORTION, pas en unites monde -- une force, elle, se lit en
+		//    pourcentage, donc additivement.
+		static bool Demo3D_PasBrosse(Demo3DState *st, int32 quoi, int32 sens) {
+			renderer::NkBrushDesc d;
+			if (!st || sens == 0 || !Demo3D_BrosseCourante(st, d))
+				return false;
+			if (quoi == 0) {
+				const float32 k = (sens > 0) ? 1.1f : (1.f / 1.1f);
+				Demo3D_RegleBrosse(st, d.name, d.radius * k, -1.f, -1.f);
+			} else if (quoi == 1) {
+				Demo3D_RegleBrosse(st, d.name, -1.f, d.strength + (sens > 0 ? 0.05f : -0.05f),
+						   -1.f);
+			} else {
+				Demo3D_RegleBrosse(st, d.name, -1.f, -1.f,
+						   d.hardness + (sens > 0 ? 0.05f : -0.05f));
+			}
+			return true;
+		}
+
+		static bool Demo3D_BrosseCourante(Demo3DState *st, renderer::NkBrushDesc &out) {
+			if (!st)
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			if (n == 0u)
+				return false;
+			if (st->activeBrushName[0]) {
+				for (uint16 i = 0; i < n; ++i) {
+					renderer::NkBrushDesc d;
+					if (st->brushes.At(i, d) && std::strcmp(d.name, st->activeBrushName) == 0) {
+						out = d;
+						Demo3D_AppliqueReglages(st, out);
+						return true;
+					}
+				}
+			}
+			if (!st->brushes.At(0u, out))
+				return false;
+			Demo3D_AppliqueReglages(st, out);
+			return true;
+		}
+
+
+		// UN COUP DE BROSSE. Il passe par la COUCHE DE COMMANDES, et non a cote :
+		// Demo3D_ApplyCmd fait deja le snapshot d'annulation, le Push dans
+		// l'editRecorder et la synchronisation du rendu. Une sculpture ecrite a
+		// cote aurait eu a refaire les trois -- et serait restee HORS du rejeu,
+		// donc perdue a chaque regeneration. C'est la spirale que Rodolf a
+		// demandee le 19/09 : on regenere la base, puis on rejoue la pile.
+		static void Demo3D_SculptHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			if (!st || !st->sculptPending || st->sculptPts.Empty())
+				return;
+			st->sculptPending = false; // consomme, quoi qu'il arrive ensuite
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::Sculpt;
+			c.sculpt = st->sculptParams;
+			c.sculptPoints = st->sculptPts;
+			c.sculptNormals = st->sculptNrm;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// ── LE MASQUE EN BLOC : TOUT MASQUER / DEMASQUER / INVERSER ─────────
+		// Meme porte que le coup de brosse : une COMMANDE, donc annulable,
+		// rejouable, et enregistree dans la session. Ecrire directement dans
+		// `editHE.vertMask` aurait marche a l'ecran et disparu au premier Ctrl+Z.
+		static void Demo3D_MaskAllHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::MaskAll;
+			c.maskAll = st->maskAllParams;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
+		// L'OUTIL TRANSFORM DE SCULPTURE : meme porte que tout le reste.
+		static void Demo3D_SculptXformHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
+			renderer::NkMeshEditCommand c;
+			c.op = renderer::NkMeshEditOp::SculptTransform;
+			c.sculptXform = st->sculptXformParams;
+			Demo3D_ApplyCmd(st, ms, c);
+		}
+
 		static void Demo3D_SubdivideHE(Demo3DState *st, renderer::NkMeshSystem *ms) {
 			renderer::NkMeshEditCommand c;
 			c.op = renderer::NkMeshEditOp::Subdivide;
@@ -6297,6 +6842,32 @@ namespace nkentseu {
 				// separe, comme la « Transform Modal Map » de Blender).
 				if (st->modalOp != 0)
 					return;
+				// ── LES CROCHETS : LA TAILLE DE BROSSE SOUS LES DOIGTS ──────
+				// Blender : `[` et `]` changent le rayon, Maj+crochets la force.
+				// Un sculpteur change de taille a chaque geste ; l'obliger a
+				// viser une glissiere a chaque fois, c'est lui faire quitter la
+				// surface qu'il regarde.
+				//
+				// ⚠️ SEULEMENT DANS UN MODE A BROSSES. En Objet, `[` n'a pas de
+				//    sens et volerait la touche a qui la voudra plus tard.
+				//
+				// ⚠️ SUR UN CLAVIER FRANCAIS, `[` et `]` demandent AltGr. Le
+				//    raccourci reste celui de Blender parce que c'est celui que
+				//    les sculpteurs connaissent -- mais les glissieres du panneau
+				//    sont la VRAIE porte, et elles ne dependent d'aucun clavier.
+				if ((e->GetKey() == NkKey::NK_LBRACKET || e->GetKey() == NkKey::NK_RBRACKET) &&
+					NkModeMaillageSansElements(st->uiMode)) {
+					const int32 sens = (e->GetKey() == NkKey::NK_RBRACKET) ? +1 : -1;
+					const bool maj = NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
+									 NkInput.IsKeyDown(NkKey::NK_RSHIFT);
+					if (Demo3D_PasBrosse(st, maj ? 1 : 0, sens)) {
+						renderer::NkBrushDesc d;
+						if (Demo3D_BrosseCourante(st, d))
+							logger.Info("[Demo3D] BROSSE '{0}' rayon={1} force={2} durete={3}\n",
+										d.name, d.radius, d.strength, d.hardness);
+					}
+					return;
+				}
 				if (e->GetKey() == NkKey::NK_F && !st->editMode) {
 					st->useSimCam = !st->useSimCam;
 					logger.Info("[Demo3D] Camera = {0}\n", st->useSimCam
@@ -6626,7 +7197,11 @@ namespace nkentseu {
 					return;
 				}
 				// En EDIT MODE : touches 1/2/3 = sous-mode sélection VERTEX / EDGE / FACE.
-				if (st->editMode) {
+				// ⚠️ LE MODE, PAS LE MAILLAGE OUVERT (21/09). La Sculpture ouvre le
+				//    maillage : sous `editMode`, E extrudait et X supprimait la selection
+				//    EN SCULPTURE (mesure : 24 -> 48 sommets, puis 24 -> 0). Tout ce bloc
+				//    designe ou opere sur des elements ; il suit donc l'ENSEMBLE.
+				if (Demo3D_ElementsActifs(st)) {
 					// 1/2/3 = mode SEUL (vertex/arête/face) ; Shift+1/2/3 = COMBINER (toggle),
 					// façon Blender (on peut avoir plusieurs modes actifs à la fois).
 					{
@@ -6985,6 +7560,12 @@ namespace nkentseu {
 						}
 					}
 				}
+				// ⚠️ SCULPTURE : AUCUN GIZMO A QUI PARLER. Tout ce qui suit choisit un gizmo
+				//    (Alt+G/R/S, A, virgule, Espace) ; le choix `editMode ? editGizmo : …`
+				//    rendait le gizmo de SOMMETS en Sculpture. Maillage ouvert sans
+				//    elements = ni gizmo de sommets, ni gizmo d'objet (Blender).
+				if (st->editMode && !Demo3D_ElementsActifs(st))
+					return;
 				// Gizmo ACTIF selon le mode : objet, vertices, ou LUMIERE.
 				// Une lumiere selectionnee capte G/R/S exactement comme un objet — c'est
 				// le modele Blender, ou une lampe EST un objet de la scene. Mais toutes
@@ -7508,6 +8089,41 @@ namespace nkentseu {
 				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : {1} sommets, {2} faces\n", u,
 							(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
 			}
+			// ── LE MASQUE DU NOEUD DESCEND DANS LE MAILLAGE D'EDITION ──────────
+			// ⚠️ SEULEMENT S'IL N'EN A PAS DEJA UN. Reprendre la topologie n-gon
+			//    (`sUserHE`) ramene AUSSI son masque -- il est dans le maillage. Le
+			//    reechantillonner par-dessus ferait passer deux fois par la regle
+			//    des plus proches, et un masque a bord doux s'elargirait un peu a
+			//    chaque aller-retour, sans que rien ne le dise.
+			if (!st->editHE.MaskExists() && !Demo3D_SansReportMasque() && !nkvpUserMask[u].Empty() &&
+				st->editHE.VertCount() > 0 &&
+				ms && nkvpUserMesh[u].IsValid() && ms->HasCPUData(nkvpUserMesh[u])) {
+				const auto *rv = (const renderer::NkVertex3D *)ms->GetVertices(nkvpUserMesh[u]);
+				const uint32 rc = ms->GetVertexCount(nkvpUserMesh[u]);
+				if (rv && rc == (uint32)nkvpUserMask[u].Size()) {
+					NkVector<NkVec3f> src, dst;
+					src.Resize(rc);
+					for (uint32 q = 0; q < rc; ++q)
+						src[q] = rv[q].pos;
+					dst.Resize(st->editHE.VertCount());
+					for (uint32 q = 0; q < st->editHE.VertCount(); ++q)
+						dst[q] = st->editHE.verts[q].pos;
+					NkVector<float32> out;
+					out.Resize((uint32)dst.Size());
+					renderer::NkMaskSampleField(src.Data(), nkvpUserMask[u].Data(), rc, dst.Data(),
+												out.Data(), (uint32)dst.Size());
+					st->editHE.MaskEnsure();
+					uint32 nz = 0;
+					for (uint32 q = 0; q < st->editHE.VertCount(); ++q) {
+						st->editHE.vertMask[q] = out[q];
+						if (out[q] > 0.f)
+							++nz;
+					}
+					logger.Info("[Demo3D] MASQUE repris du noeud {0} : {1} sommet(s) protege(s) sur "
+								"{2} (maillage d'edition)\n",
+								kNkvpFirstUser + u, nz, (int32)st->editHE.VertCount());
+				}
+			}
 			st->editHistory.Clear();
 			st->editRecorder.Clear();
 			st->editModifiers.Clear();
@@ -7700,7 +8316,102 @@ namespace nkentseu {
 			}
 		}
 
-		void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
+			// ──────────────────────────────────────────────────────────────────
+		// SONDE : QUI PARCOURT TOUS LES SOMMETS, A CHAQUE IMAGE ?
+		// ──────────────────────────────────────────────────────────────────
+		// ⚠️ ON COMPTE, ON NE DEVINE PAS. Les deux chiffres du 20/09 (6,9 ms
+		//    sur 77 sommets, > 4 500 ms sur 72 464) donnent un rapport de 941
+		//    pour un rapport de tailles de 941 : l'echelle est LINEAIRE, donc il
+		//    existe AU MOINS un parcours complet par image. Elle ne dit pas
+		//    COMBIEN -- et s'il y en a trois, en supprimer un ne deplacerait
+		//    presque rien, ce qui ferait conclure a tort qu'on a vise a cote.
+		//
+		// Chaque site s'annonce avec le NOMBRE d'elements qu'il traverse. Le
+		// rang est fixe dans la liste de la sonde, pas le numero de ligne : un
+		// numero de ligne se perime au premier ajout ailleurs.
+		static uint64 gEdProfIter[16] = {};
+		static uint32 gEdProfHits[16] = {};
+		static bool gEdProfOn = (getenv("NK_EDIT_PROF") != nullptr);
+
+		// ── DICHOTOMIE DANS LA FRAME ──────────────────────────────────
+		// Des jalons au NIVEAU DU CORPS de Demo3D_Frame -- donc traverses a
+		// chaque image, sans garde. L'ecart entre deux jalons dit quelle PARTIE
+		// de la frame porte les 50 secondes.
+		// ⚠️ On ne cherche plus un COUPABLE PLAUSIBLE mais l'endroit ou le temps
+		//    passe REELLEMENT : la reconstruction des reperes etait plausible,
+		//    super-lineaire d'allure et presque toujours active -- elle valait
+		//    0,1 %.
+		static double gEdStepT[24];
+		static uint32 gEdStepN = 0;
+#define NKEDSTEP(k)                                                            \
+	do {                                                                       \
+		if (gEdProfOn && (k) < 24) {                                           \
+			gEdStepT[(k)] = std::chrono::duration<double, std::milli>(          \
+							   std::chrono::high_resolution_clock::now()          \
+								   .time_since_epoch())                            \
+							   .count();                                          \
+			if ((k) + 1 > gEdStepN)                                            \
+				gEdStepN = (k) + 1;                                            \
+		}                                                                      \
+	} while (0)
+
+		static void Demo3D_EdStepDump() {
+			if (!gEdProfOn || gEdStepN < 2)
+				return;
+			char det[512];
+			det[0] = 0;
+			double pire = 0.0;
+			uint32 kPire = 0;
+			for (uint32 k = 1; k < gEdStepN; ++k) {
+				const double d = gEdStepT[k] - gEdStepT[k - 1];
+				if (d > pire) { pire = d; kPire = k; }
+				char t[48];
+				snprintf(t, sizeof(t), "%u:%.0f ", k, d);
+				if (strlen(det) + strlen(t) < sizeof(det) - 1)
+					strcat(det, t);
+			}
+			logger.Info("[Demo3D] EDSTEP ms par segment : {0}| PIRE = segment {1} ({2} ms)\n",
+						det, kPire, (float32)pire);
+			gEdStepN = 0;
+		}
+#define NKEDPROF(k, n)                                                         \
+	do {                                                                       \
+		if (gEdProfOn) {                                                       \
+			gEdProfIter[(k)] += (uint64)(n);                                   \
+			++gEdProfHits[(k)];                                                \
+		}                                                                      \
+	} while (0)
+
+		// Imprime le bilan de L'IMAGE et remet a zero. Appele une fois par image,
+		// a la fin du bloc d'edition.
+		static void Demo3D_EdProfDump(int32 nv) {
+			if (!gEdProfOn)
+				return;
+			uint64 tot = 0;
+			uint32 sites = 0;
+			char det[256];
+			det[0] = 0;
+			for (uint32 k = 0; k < 16; ++k) {
+				if (!gEdProfHits[k])
+					continue;
+				++sites;
+				tot += gEdProfIter[k];
+				char t[48];
+				snprintf(t, sizeof(t), "s%u=%llu ", k, (unsigned long long)gEdProfIter[k]);
+				if (strlen(det) + strlen(t) < sizeof(det) - 1)
+					strcat(det, t);
+			}
+			logger.Info("[Demo3D] EDPROF image : nv={0} sites={1} iterations={2} ({3}x nv) | {4}\n",
+						nv, sites, (uint32)tot, nv > 0 ? (float32)tot / (float32)nv : 0.f, det);
+			for (uint32 k = 0; k < 16; ++k) {
+				gEdProfIter[k] = 0;
+				gEdProfHits[k] = 0;
+			}
+		}
+
+	void Demo3D_Frame(DemoCtx &ctx, float32 dt) {
+			NKEDSTEP(0); // jalon de dichotomie
+			const auto tFr0 = std::chrono::high_resolution_clock::now();
 			auto *st = (Demo3DState *)ctx.userData;
 			// NK_SEL_TRACE=1 : la selection d'objet de DEMO, lue a l'ENTREE de la
 			// frame ; =2 : imprimee a CHAQUE image, avec le POINTEUR de l'etat.
@@ -7743,6 +8454,7 @@ namespace nkentseu {
 				frameMDX = curMouseX - st->lastMouseX;
 				frameMDY = curMouseY - st->lastMouseY;
 			}
+			NKEDSTEP(1); // jalon de dichotomie
 			st->lastMouseX = curMouseX;
 			st->lastMouseY = curMouseY;
 			st->mouseTracked = true;
@@ -7793,6 +8505,7 @@ namespace nkentseu {
 			auto *r3d = ctx.renderer->GetRender3D();
 			if (!r3d)
 				return;
+			NKEDSTEP(2); // jalon de dichotomie
 			ctx.renderer->FlushGraphRebuilds();
 			r3d->ResetFrame();
 			if (auto *mc = ctx.renderer->GetMaterialCollection())
@@ -8054,6 +8767,7 @@ namespace nkentseu {
 					//    lu ensuite dans le journal est l'etat REEL, pas une intention.
 					if (const char *xr = getenv("NK_EDIT_XRAY")) {
 						st->editXray = (xr[0] && xr[0] != '0');
+						NKEDPROF(8, 1); // sonde : QUI arme la reconstruction
 						st->editOverlayDirty = true;
 						logger.Info("[MARQ] crochet NK_EDIT_XRAY : editXray = {0}\n", st->editXray ? 1 : 0);
 					}
@@ -8267,6 +8981,7 @@ namespace nkentseu {
 							}
 						}
 					}
+					NKEDPROF(9, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true;
 					logger.Info("[Demo3D] NK_EDIT_MODE: selection {0} -> {1} sommets (mask={2})\n",
 								selAll		 ? "all"
@@ -8486,12 +9201,51 @@ namespace nkentseu {
 							if (nkvpUserMesh[u].IsValid())
 								ms->Release(nkvpUserMesh[u]);
 							nkvpUserMesh[u] = st->editMesh; // transfert de propriete
+							// ⚠️ LE DRAPEAU SE POSE ICI, ET NULLE PART AILLEURS. C'est LE
+							//    site ou la geometrie editee devient celle du noeud. Le
+							//    poser a un second endroit -- a l'entree en edition, a un
+							//    geste d'outil -- ferait diverger les deux : on marquerait
+							//    des maillages jamais modifies, ou on en manquerait.
+							nkvpUserMeshEdite[u] = true;
 						}
 						st->editMesh = {};
 						// La TOPOLOGIE n-gon aussi : sinon la re-entree en edition
 						// repartirait d'un quadify sur des triangles.
 						sUserHE[u] = st->editHE;
 						sUserHasHE[u] = true;
+						// ── LE MASQUE REMONTE SUR LE NOEUD ─────────────────────
+						// Aligne sur les sommets du maillage de RENDU, parce que ce
+						// sont eux que le `.nkgeo` ecrira. Sans masque, on VIDE : un
+						// noeud demasque ne doit pas garder l'ancien champ, sinon
+						// « j'ai tout demasque » se defairait a la reouverture.
+						if (st->editHE.MaskExists() && !Demo3D_SansReportMasque() && ms &&
+							nkvpUserMesh[u].IsValid() &&
+							ms->HasCPUData(nkvpUserMesh[u])) {
+							const auto *rv = (const renderer::NkVertex3D *)ms->GetVertices(nkvpUserMesh[u]);
+							const uint32 rc = ms->GetVertexCount(nkvpUserMesh[u]);
+							if (rv && rc > 0) {
+								NkVector<NkVec3f> src, dst;
+								src.Resize(st->editHE.VertCount());
+								for (uint32 q = 0; q < st->editHE.VertCount(); ++q)
+									src[q] = st->editHE.verts[q].pos;
+								dst.Resize(rc);
+								for (uint32 q = 0; q < rc; ++q)
+									dst[q] = rv[q].pos;
+								nkvpUserMask[u].Resize(rc);
+								renderer::NkMaskSampleField(src.Data(), st->editHE.vertMask.Data(),
+															(uint32)src.Size(), dst.Data(),
+															nkvpUserMask[u].Data(), rc);
+								uint32 nz = 0;
+								for (uint32 q = 0; q < rc; ++q)
+									if (nkvpUserMask[u][q] > 0.f)
+										++nz;
+								logger.Info("[Demo3D] MASQUE remonte sur le noeud {0} : {1} sommet(s) "
+											"protege(s) sur {2} (maillage de rendu)\n",
+											kNkvpFirstUser + u, nz, rc);
+							}
+						} else {
+							nkvpUserMask[u].Clear();
+						}
 						st->wireDirty = true;
 						st->wireStamp = -12345;
 					}
@@ -8524,8 +9278,10 @@ namespace nkentseu {
 								(int32)cible.kind, cible.index);
 					if (cible.kind == NkVpEditKind::Demo)
 						Demo3D_EnterEditOnObject(st, ms, r3d, cible.index);
-					else if (cible.kind == NkVpEditKind::Utilisateur)
+					else if (cible.kind == NkVpEditKind::Utilisateur) {
 						Demo3D_EnterEditOnUser(st, ms, r3d, cible.index);
+						st->editRefusMotif = 0; // l'edition s'est ouverte
+					}
 					else {
 						// ── UN REFUS NOMME, PAS UN REPLI MUET ────────────────────────
 						// « Selectionne un objet (clic) avant TAB » ACCUSE L'UTILISATEUR
@@ -8538,27 +9294,42 @@ namespace nkentseu {
 						// Cinq refus DISTINCTS, et chacun dit quoi faire.
 						const int32 uSlot = NkVpUserSlotOfEmpty(q.selEmpty);
 						if (q.selDemo < 0 && q.selEmpty < 0)
+							{
+							st->editRefusMotif = 1;
 							logger.Info("[Demo3D] EDITION REFUSEE : rien n'est selectionne. "
 										"Selectionne un objet (clic) avant TAB.\n");
+						}
 						else if (uSlot >= 0 && q.userDeleted)
+							{
+							st->editRefusMotif = 2;
 							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
 										"noeud {1}) est SUPPRIME. Un noeud supprime est aussi "
 										"desselectionne d'office a l'image suivante par la garde du "
 										"cadenas.\n",
 										uSlot, kNkvpFirstUser + uSlot);
+						}
 						else if (uSlot >= 0 && !q.userMeshValid)
+							{
+							st->editRefusMotif = 3;
 							logger.Info("[Demo3D] EDITION REFUSEE : l'objet designe (emplacement {0}, "
 										"nature {1}) n'a PAS DE MAILLAGE A LUI. Une primitive d'un "
 										"projet jamais enregistre est dans ce cas.\n",
 										uSlot, (int32)q.userKind);
+						}
 						else if (uSlot >= 0)
+							{
+							st->editRefusMotif = 4;
 							logger.Info("[Demo3D] EDITION REFUSEE : la nature {0} de l'objet designe "
 										"(emplacement {1}) n'est pas editable.\n",
 										(int32)q.userKind, uSlot);
+						}
 						else
+							{
+							st->editRefusMotif = 5;
 							logger.Info("[Demo3D] EDITION REFUSEE : la selection (demo {0}, empty {1}) "
 										"ne designe aucun maillage editable.\n",
 										q.selDemo, q.selEmpty);
+						}
 					}
 				}
 			}
@@ -8568,6 +9339,7 @@ namespace nkentseu {
 			//    Éditeur : orbit=clic MILIEU, pan=Shift+MILIEU, zoom=molette.
 			//    Simulation : regard=clic DROIT, déplacement=WASD + E/Q (Shift=rapide).
 			NkCamera3DData camData;
+			NKEDSTEP(3); // jalon de dichotomie
 			camData.up = {0.f, 1.f, 0.f};
 			camData.fovY = 60.f;
 			camData.aspect = (float32)ctx.width / (float32)ctx.height;
@@ -8605,6 +9377,7 @@ namespace nkentseu {
 			// la selection ou une poignee de gizmo.
 			// A la sortie (confirmation OU annulation), modalOp repasse a 0 : rien n'est
 			// memorise, tout redevient strictement normal des la frame suivante.
+			NKEDSTEP(4); // jalon de dichotomie
 			const bool modalLock = (st->modalOp != 0);
 			// LE CONFINEMENT SUIT LA MODALE, ET RIEN D'AUTRE. Appele a CHAQUE image,
 			// modale ou non : c'est ce qui garantit qu'il est relache des que
@@ -8698,6 +9471,7 @@ namespace nkentseu {
 			// La molette alimente le RAYON du cercle de selection dans LES DEUX modes :
 			// l'outil cercle existe desormais aussi en mode objet, et sans cette ligne son
 			// rayon y serait fige (la molette repartirait au zoom camera).
+			NKEDSTEP(5); // jalon de dichotomie
 			st->lastWheel = ((st->selTool == 3) || (st->editMode && modalLock)) ? modalWheelRaw : 0.f;
 			if (!fixcam) {
 				// FIX drift caméra : delta RECALCULÉ par frame (frameMDX/MDY = pos courante -
@@ -9162,6 +9936,7 @@ namespace nkentseu {
 			HostPushSkyToRenderer();
 			NkSceneContext sctx;
 			sctx.camera = cam;
+			NKEDSTEP(6); // jalon de dichotomie
 			sctx.time = ctx.totalTime;
 
 			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
@@ -9332,6 +10107,7 @@ namespace nkentseu {
 			// retombe sur la loi lineaire debut/fin.
 			sctx.fogDensity = nkvpFogMode == 1 ? nkvpFogDensity : 0.f;
 			sctx.fogStart = nkvpFogStart;
+			NKEDSTEP(7); // jalon de dichotomie
 			sctx.fogEnd = nkvpFogEnd;
 			// NAPPE AU SOL : hauteur, epaisseur, souffle. La VITESSE de derive
 			// suit celle des nuages quand on l'a demande -- c'est ce qui fait
@@ -9406,6 +10182,8 @@ namespace nkentseu {
 				st->giDirty = false;
 			}
 
+			NKEDSTEP(8); // jalon de dichotomie
+			NKEDSTEP(10); // jalon fin (segment 9)
 			r3d->BeginScene(sctx);
 
 			// Transform utilisateur (décalage gizmo) appliqué à un objet : délégué au
@@ -9418,8 +10196,11 @@ namespace nkentseu {
 			// pendant translate/scale/rotate (et, pour le cube central animé, la base figée
 			// Demo3D_ObjBase au lieu de sa matrice animée). Capturer la matrice dessinée garantit
 			// que l'objet ET le contour partagent EXACTEMENT la même transform.
+			NKEDSTEP(11); // jalon fin (segment 9)
 			const int32 selDrawIdx = st->gizmo.ActiveIndex();
+			NKEDSTEP(12); // jalon fin (segment 9)
 			NkMat4f selDrawXform = NkMat4f::Identity();
+			NKEDSTEP(13); // jalon fin (segment 9)
 			bool selDrawValid = false;
 			auto userXform = [&](int32 idx, const NkMat4f &base) {
 				const NkMat4f m = st->gizmo.Apply(idx, base);
@@ -9434,6 +10215,7 @@ namespace nkentseu {
 			// propriété du MODE D'AFFICHAGE SOLID/WIREFRAME UNIQUEMENT (façon Blender), PAS
 			// de l'edit mode. L'edit mode fonctionne dans N'IMPORTE QUEL mode d'affichage
 			// (RENDERED garde le matériau PBR, NORMAL/UV/AO gardent leur canal, etc.).
+			NKEDSTEP(14); // jalon fin (segment 9)
 			const bool grayActive = (st->unlitColorMode != 0) && (st->shadingMode == 1 || st->shadingMode == 2);
 			auto effTint = [st, grayActive](NkVec3f matTint) -> NkVec3f {
 				if (!grayActive)
@@ -9922,25 +10704,7 @@ namespace nkentseu {
 				// couleur du materiau reste en TEINTE par-dessus. Tester le
 				// seul albedo laissait une normal map ou un emissif sans effet
 				// tant qu'aucune texture de couleur n'etait posee.
-				{
-					const int32 pmU = nkvpNodeMatP1[un] - 1;
-					if (pmU >= 0 && pmU < kNkvpMaxProjMats && nkvpProjMats[pmU].used &&
-						nkvpProjMatEng[pmU]) {
-						bool anyMap = false;
-						for (int32 c = 0; c < kNkvpMatChanCount && !anyMap; ++c)
-							anyMap = nkvpProjMats[pmU].maps[c][0] != 0;
-						// L'instance moteur est AUSSI requise des que le TYPE n'est
-						// plus Standard ou qu'un MELANGE est actif : sans elle, un
-						// Toon sans texture restait rendu en PBR generique — « j'ai
-						// change en toon mais le materiau n'a pas suivi » (Rihen).
-						// TOUJOURS liee desormais : l'anisotropie et le sheen vivent
-						// dans l'UBO d'instance — sans liaison, leurs curseurs seraient
-						// muets sur un PBR sans texture. (void)anyMap : la variable
-						// documente encore le cas historique.
-						(void)anyMap;
-						dc.material = nkvpProjMatEng[pmU]->GetInstHandle();
-					}
-				}
+				HostLieMateriauProjet(un, dc);
 				r3d->Submit(dc);
 			}
 
@@ -10139,7 +10903,13 @@ namespace nkentseu {
 					if (st->modalStartPending != 0) {
 						const int32 mop = st->modalStartPending;
 						st->modalStartPending = 0;
-						Demo3D_ModalStart(st, mop, meshSysT);
+						// LA PORTE UNIQUE DE TOUTES LES MODALES (clavier, shell, facade,
+						// crochets) : en Sculpture, aucune ne nait -- ni G/R/S sur les
+						// sommets, ni extrusion, ni biseau.
+						if (Demo3D_ElementsActifs(st))
+							Demo3D_ModalStart(st, mop, meshSysT);
+						else
+							logger.Info("[Demo3D] modale {0} REFUSEE : mode {1} sans elements\n", mop, st->uiMode);
 					}
 					if (st->editExtrudePending) {
 						st->editExtrudePending = false;
@@ -10151,6 +10921,115 @@ namespace nkentseu {
 						Demo3D_MakeFaceHE(st, meshSysT);
 						logger.Info("[Demo3D] Create face -> {0} faces\n", (int32)st->editHE.FaceCount());
 					}
+					// ──────────────────────────────────────────────────────────────────
+					// NK_SCULPT_STROKE="<brosse>[:rayon[:force[:frame]]]"
+					// ──────────────────────────────────────────────────────────────────
+					// POSE UN TRAIT DE SCULPTURE, exactement celui qu'une main poserait.
+					//
+					// ⚠️ AUCUNE INJECTION DE SOURIS NI DE CLAVIER. Le trait est ecrit
+					//    dans l'etat de CETTE image, puis consomme par la meme porte que
+					//    le geste humain -- Demo3DHostEditSculptStroke, qui passe par
+					//    HostEditRun puis Demo3D_ApplyCmd. Un crochet qui appellerait
+					//    NkSculptApplyStroke directement prouverait que l'ALGORITHME sait
+					//    deformer, et non que la CHAINE de l'application fonctionne : il
+					//    sauterait l'annulation, le journal et la synchronisation du rendu.
+					//
+					// ⚠️ LE SEPARATEUR EST ':' ET NON ',' -- parce qu'une virgule EST le
+					//    separateur decimal en fr-FR, et qu'un reglage ecrit « 0,25 » se
+					//    serait coupe en deux champs. Le depot a deja paye cette confusion
+					//    avec atof et la locale.
+					//
+					// Le trait vise le sommet le PLUS HAUT du maillage : un choix
+					//    DETERMINISTE, donc rejouable a l'identique d'une execution a
+					//    l'autre -- ce qu'un clic de souris ne serait jamais.
+					// ⚠️ DEUX TRAITS ECRITS, ET C'EST UNE MESURE QUI LES A DEMANDES : le
+					//    masque se PEINT avec une brosse, puis une AUTRE brosse doit
+					//    venir se heurter a lui. Avec un seul trait par course, « la
+					//    protection est-elle PARTIELLE la ou le masque est partiel ? »
+					//    ne pouvait pas se poser. Meme motif que NK_VP_ACTION2.
+					struct NkTraitEcrit {
+							bool lu = false, arme = false;
+							char brosse[48] = {};
+							float32 rayon = 0.f, force = 0.f;
+							int32 frame = 0, vu = 0;
+					};
+					static NkTraitEcrit sTrait1, sTrait2;
+					auto traitEcrit = [&](const char *nomVar, NkTraitEcrit &T) {
+						if (!T.lu) {
+							T.lu = true;
+							if (const char *e = getenv(nomVar)) {
+								uint32 n = 0;
+								while (e[n] && e[n] != ':' && n < 47) {
+									T.brosse[n] = e[n];
+									++n;
+								}
+								T.brosse[n] = 0;
+								const char *q = e + n;
+								float32 *cible[3] = {&T.rayon, &T.force, nullptr};
+								int32 champ = 0;
+								while (*q == ':' && champ < 3) {
+									++q;
+									// Lecture INDEPENDANTE DE LA LOCALE : le point est le seul
+									// separateur decimal accepte (atof rendrait 0.0 en fr-FR).
+									float32 v = 0.f;
+									bool neg = false;
+									if (*q == '-') {
+										neg = true;
+										++q;
+									}
+									while (*q >= '0' && *q <= '9')
+										v = v * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											v += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									if (neg)
+										v = -v;
+									if (champ < 2)
+										*cible[champ] = v;
+									else
+										T.frame = (int32)v;
+									++champ;
+								}
+								T.arme = true;
+								logger.Info("[Demo3D] SCULPT trait ecrit ({4}) arme : brosse='{0}' rayon={1} "
+									  "force={2} frame={3}\n",
+									  T.brosse, T.rayon, T.force, T.frame, nomVar);
+							}
+						}
+						if (T.arme && st->editHE.VertCount() > 0) {
+							if (T.vu++ >= T.frame) {
+								T.arme = false; // UNE SEULE FOIS : un trait par image remplirait
+								               // l'historique et rendrait toute mesure illisible.
+								uint32 hi = 0;
+								for (uint32 i = 1; i < st->editHE.VertCount(); ++i)
+									if (st->editHE.verts[i].pos.y > st->editHE.verts[hi].pos.y)
+										hi = i;
+								const NkVec3f p = st->editHE.verts[hi].pos;
+								const NkVec3f n = st->editHE.verts[hi].normal;
+								const float32 pts[3] = {p.x, p.y, p.z};
+								const float32 nrm[3] = {n.x, n.y, n.z};
+								const uint32 vAvant = st->editHE.VertCount();
+								const uint32 undoAvant = st->editHistory.UndoCount();
+								const bool ok = Demo3DHostEditSculptStroke(pts, nrm, 1, T.brosse, T.rayon, T.force);
+								// CE QUE CE JOURNAL DOIT PERMETTRE DE DISTINGUER : « la brosse n'a
+								// pas agi » de « elle a agi sans rien changer ». Le compte
+								// d'annulation tranche : une operation qui n'a rien change ne pose
+								// PAS d'etape.
+								logger.Info("[Demo3D] SCULPT trait pose : ok={0} sommets={1} "
+									  "undo {2} -> {3} (au sommet {4})\n",
+									  ok ? 1 : 0, vAvant, undoAvant,
+									  st->editHistory.UndoCount(), hi);
+							}
+						}
+					};
+					traitEcrit("NK_SCULPT_STROKE", sTrait1);
+					// LE SECOND TRAIT : meme porte, meme journal, autre variable.
+					traitEcrit("NK_SCULPT_STROKE2", sTrait2);
 					if (st->editSubdivPending) {
 						st->editSubdivPending = false;
 						Demo3D_SubdivideHE(st, meshSysT); // subdivCuts passes en 1 commande (1 undo)
@@ -10316,6 +11195,7 @@ namespace nkentseu {
 					// de pick de 14 px), ce qui reproduit fidelement le geste reel.
 					const float32 kOffPx = 8.f;
 					const float32 offs[4][2] = {{kOffPx, 0.f}, {-kOffPx, 0.f}, {0.f, kOffPx}, {0.f, -kOffPx}};
+					NKEDPROF(0, nv); // sonde O(n) -- retirer avec NKEDPROF
 					for (int32 i = 0; i < nv; i++) {
 						const NkVec3f w = worldV(i);
 						float32 px, py;
@@ -10392,6 +11272,7 @@ namespace nkentseu {
 				NkVec3f cen = {0.f, 0.f, 0.f};
 				NkVec3f selMin{1e30f, 1e30f, 1e30f}, selMax{-1e30f, -1e30f, -1e30f};
 				int32 selCnt = 0;
+				NKEDPROF(1, nv); // sonde O(n) -- retirer avec NKEDPROF
 				for (int32 i = 0; i < nv; i++)
 					if (st->vertSel[i]) {
 						const NkVec3f w = worldV(i);
@@ -10435,7 +11316,12 @@ namespace nkentseu {
 				// Cible unique du gizmo = le PIVOT courant.
 				renderer::NkGizmoTarget vt[1];
 				vt[0] = {NkMat4f::Translate(pivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
-				const int32 gcount = (selCnt > 0) ? 1 : 0;
+				// ⚠️ LE GIZMO DE SOMMETS N'A PAS DE CIBLE EN SCULPTURE (21/09). Sans cette
+				//    garde, une selection heritee de l'Edition -- ou un clic -- le faisait
+				//    reparaitre (54 triangles traces, mesure) et le glisser deplacait les
+				//    sommets. Zero cible = rien a attraper ni a dessiner.
+				const bool elems = Demo3D_ElementsActifs(st);
+				const int32 gcount = (elems && selCnt > 0) ? 1 : 0;
 
 				st->editGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
 				// P2 : repère « Normal » (Z = normale de l'élément sélectionné) recalculé
@@ -10462,6 +11348,11 @@ namespace nkentseu {
 				// gizmo deviendrait inattrapable.)
 				bool clickNow = st->pickPending;
 				st->pickPending = false;
+				// L'APPUI BRUT, AVANT TOUTE GARDE. En Sculpture, le clic n'appartient
+				// plus a la selection d'elements -- mais il appartient au gizmo du
+				// Transform quand cet outil est choisi. Sans cette copie, la garde qui
+				// suit (« le clic appartient a la brosse ») le lui retirerait aussi.
+				const bool appuiBrut = clickNow;
 				// Pilote headless : NK_PICK_AT="x,y" force un clic de selection a ces pixels.
 				if (st->pickForcePending) {
 					st->pickForcePending = false;
@@ -10470,9 +11361,18 @@ namespace nkentseu {
 					clickNow = true;
 					logger.Info("[Demo3D] NK_PICK_AT -> clic force en ({0}, {1})\n", gin.mouseX, gin.mouseY);
 				}
+				// SCULPTURE : le clic appartient a la BROSSE, jamais a la selection. Les
+				// outils de zone et le couteau, armes en Edition, tombent avec lui.
+				if (!elems) {
+					clickNow = false;
+					st->selTool = 0;
+					st->selDragging = false;
+					st->knifeArmed = false;
+				}
 				float32 meshPx = 1e30f;
 				if (clickNow && !st->editGizmo.IsDragging()) {
 					if (st->editSelMask & 1)
+						NKEDPROF(2, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++) {
 							float32 px, py;
 							if (project(worldV(i), px, py)) {
@@ -10691,6 +11591,7 @@ namespace nkentseu {
 					// Rodolf. On lit le premier sommet SELECTIONNE.
 					float32 dbg[3] = {0.f, 0.f, 0.f};
 					int32 vv = -1;
+					NKEDPROF(3, (int32)st->vertSel.Size()); // sonde O(n) -- retirer avec NKEDPROF
 					for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
 						if (st->vertSel[i]) { vv = (int32)i; break; }
 					if (vv >= 0 && (uint32)vv < (uint32)st->editLive.Size()) {
@@ -10730,6 +11631,7 @@ namespace nkentseu {
 						st->knifeArmed = false;
 						st->knifeHasP0 = false;
 					}
+					NKEDPROF(10, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true;
 				}
 				// ── OUTILS DE SÉLECTION PAR ZONE (rectangle / lasso / cercle) ─────────
@@ -10812,6 +11714,608 @@ namespace nkentseu {
 				// UN PICK ARME (coordonnees ecrites) entre par LA MEME PORTE que le clic.
 				// Il n'y a pas de second chemin de selection : c'est la seule facon de
 				// pouvoir dire qu'une mesure prouve ce que fait le clic de Rodolf.
+				// ──────────────────────────────────────────────────────────────────
+				// SCULPTURE A LA SOURIS (mode 3 = Sculpture volumique)
+				// ──────────────────────────────────────────────────────────────────
+				// ⚠️ IL PRODUIT EXACTEMENT LE MEME OBJET QUE LE CROCHET : une
+				//    NkMeshEditOp::Sculpt avec ses valeurs effectives, posee par
+				//    Demo3DHostEditSculptStroke. S'il empruntait un autre chemin, on
+				//    aurait DEUX VERITES pour un meme geste et une seule serait
+				//    rejouable -- c'est « deux chemins pour un geste », que ce depot a
+				//    deja paye sur le loop cut.
+				//
+				// UN TRAIT = UNE ETAPE D'ANNULATION. Les points s'accumulent tant que le
+				// bouton est enfonce, et la commande part au RELACHEMENT. Appliquer a
+				// chaque image donnerait une pile d'annulation d'une centaine d'entrees
+				// pour un seul coup de brosse : Ctrl+Z ne rendrait plus le maillage
+				// d'avant le geste, mais un etat intermediaire que personne n'a voulu.
+				// DIAGNOSTIC DE LA GARDE, une ligne toutes les 60 images sous
+				// NK_SCULPT_DIAG=1. Sans lui, « le geste ne fait rien » confond TROIS
+				// causes qui rendent le meme silence : pas en mode Sculpture, pas en
+				// edition, ou maillage vide.
+				{
+					static const bool sDiag = (getenv("NK_SCULPT_DIAG") != nullptr);
+					static int32 sN = 0;
+					// OU LE MAILLAGE SE PROJETTE-T-IL ? Sans ce chiffre, viser avec
+					// NK_SCULPT_AT est un tir dans le noir : « touche=0 » ne distingue pas
+					// « le rayon est faux » de « je vise a cote ».
+					if (sDiag && (sN % 60) == 0 && st->editHE.VertCount() > 0) {
+						NkVec3f c{0.f, 0.f, 0.f};
+						NKEDPROF(4, (int32)st->editHE.VertCount()); // sonde O(n) -- retirer avec NKEDPROF
+						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+							c = c + st->editHE.verts[i].pos;
+						c = c * (1.f / (float32)st->editHE.VertCount());
+						const NkVec3f w = st->editAnchor * c;
+						const NkVec3f d = w - camPos;
+						const float32 z = d.x * fwd.x + d.y * fwd.y + d.z * fwd.z;
+						const float32 rx = d.x * rgt.x + d.y * rgt.y + d.z * rgt.z;
+						const float32 ry = d.x * upv.x + d.y * upv.y + d.z * upv.z;
+						const float32 ndcx = (z > 1e-6f) ? (rx / (z * thX)) : 0.f;
+						const float32 ndcy = (z > 1e-6f) ? (ry / (z * thY)) : 0.f;
+						logger.Info("[Demo3D] SCULPT cible : centre monde=({0},{1},{2}) z={3} "
+							  "-> ecran=({4},{5}) vue={6}x{7}\n",
+							  w.x, w.y, w.z, z, (ndcx * 0.5f + 0.5f) * VW,
+							  (1.f - (ndcy * 0.5f + 0.5f)) * VH, VW, VH);
+					}
+					if (sDiag && (sN++ % 60) == 0)
+						logger.Info("[Demo3D] SCULPT garde : uiMode={0} editMode={1} nv={2} heV={3} heF={4}\n",
+							st->uiMode, st->editMode ? 1 : 0, nv, st->editHE.VertCount(),
+							st->editHE.FaceCount());
+				}
+				// ══ L'OUTIL TRANSFORM DE SCULPTURE, ET SON GIZMO ═══════════════════
+				// Blender : en Sculpt Mode, Move/Rotate/Scale deplacent la partie NON
+				// MASQUEE autour d'un pivot, avec la symetrie. C'est le seul gizmo de
+				// ce mode -- il n'y a ni selection ni poignees de sommets.
+				//
+				// ⚠️ MEME CLASSE QUE LES AUTRES (`NkGizmo3D`), autre instance : les
+				//    poignees, le pick, le glisser et le dessin existent deja. Ce qui
+				//    est propre a la sculpture tient en trois choses : la CIBLE (le
+				//    pivot de la partie non masquee), l'EFFET (deformer, pas
+				//    transformer un objet) et la garde (le clic ne peint plus).
+				//
+				// ⚠️ L'APERCU PASSE PAR LA COMMANDE ELLE-MEME. A chaque image du
+				//    glisser : on restaure les positions du DEBUT du geste, puis on
+				//    applique `NkMeshEditOp::SculptTransform` avec la matrice courante.
+				//    Une seconde implantation « rapide » pour l'apercu aurait diverge
+				//    de celle qui enregistre -- et l'ecart ne se serait vu qu'au
+				//    relachement, loin de sa cause.
+				const bool outilXformSculpt =
+					!elems && st->editMode && !nkvpGizmoHidden && NkModeMaillageSansElements(st->uiMode);
+				if (outilXformSculpt) {
+					// LE PIVOT : barycentre des sommets NON MASQUES, pondere par leur
+					// liberte (1 - masque). Un sommet a demi protege compte a moitie :
+					// le pivot suit le masque de facon CONTINUE, sans sauter quand un
+					// poids franchit un seuil. Fige pendant le geste -- sinon il
+					// deriverait sous la main a mesure que la matiere bouge.
+					if (!st->sculptXformDragging) {
+						NkVec3f acc{0.f, 0.f, 0.f};
+						float32 poidsTotal = 0.f;
+						for (int32 i = 0; i < nv; ++i) {
+							const float32 libre = 1.f - st->editHE.MaskAt((uint32)i);
+							if (libre <= 0.f)
+								continue;
+							acc = acc + worldV(i) * libre;
+							poidsTotal += libre;
+						}
+						st->sculptXformPivotW = (poidsTotal > 0.f)
+													? acc * (1.f / poidsTotal)
+													: (st->editAnchor * NkVec3f{0.f, 0.f, 0.f});
+					}
+					renderer::NkGizmoTarget vtS[1];
+					vtS[0] = {NkMat4f::Translate(st->sculptXformPivotW), {0.001f, 0.001f, 0.001f}, 0.0001f};
+					// ⚠️ LA CIBLE DOIT ETRE **SELECTIONNEE**, sinon il n'y a pas de
+					//    poignees a attraper : `NkGizmo3D` ne dessine et ne pique que ce
+					//    qui est retenu. Mesure du 25/09 : premier essai, le gizmo se
+					//    dessinait (54 triangles) et l'appui au pivot ne prenait RIEN --
+					//    aucun « geste COMMENCE ». Le gizmo d'edition fait le meme appel
+					//    (`SelectAll` hors glisser) ; l'oublier ici donnait un gizmo
+					//    decoratif, qui est exactement ce qu'on refuse aux boutons.
+					if (!st->sculptGizmo.IsDragging())
+						st->sculptGizmo.SelectAll();
+					st->sculptGizmo.SetCamera(camPos, camTgt, 60.f, VW, VH);
+					renderer::NkGizmoInput gs = gin;
+					gs.leftPressed = appuiBrut;
+					gs.leftDown = NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+					// ── NK_SCULPT_DRAG="dx,dy[,images[,frame0]]" ─────────────────────
+					// Le MEME geste que NK_EDIT_DRAG, pour le gizmo de sculpture :
+					// attrape la poignee centrale AU PIVOT et tire. Il ecrit dans `gs`,
+					// la structure de CETTE image -- aucune souris de la machine n'est
+					// touchee, et le geste emprunte ensuite le chemin du vrai clic.
+					{
+						static bool sSdLu = false;
+						static float32 sSdDX = 0.f, sSdDY = 0.f, sSdX = 0.f, sSdY = 0.f;
+						static int32 sSdFrames = 8, sSdFrame0 = 100, sSdK = -1;
+						static bool sSdOn = false;
+						if (!sSdLu) {
+							sSdLu = true;
+							if (const char *dg = getenv("NK_SCULPT_DRAG")) {
+								float32 v[4] = {0.f, 0.f, 8.f, 100.f};
+								int32 k = 0;
+								for (const char *q = dg; k < 4 && *q;) {
+									v[k++] = (float32)atof(q);
+									while (*q && *q != ',')
+										++q;
+									if (*q == ',')
+										++q;
+								}
+								sSdDX = v[0];
+								sSdDY = v[1];
+								sSdFrames = (int32)v[2] > 0 ? (int32)v[2] : 8;
+								sSdFrame0 = (int32)v[3];
+								sSdOn = true;
+								logger.Info("[Demo3D] NK_SCULPT_DRAG arme : d=({0},{1}) px en {2} images, "
+											"a partir de la frame {3}\n",
+											sSdDX, sSdDY, sSdFrames, sSdFrame0);
+							}
+						}
+						if (sSdOn) {
+							++sSdK;
+							const int32 k = sSdK - sSdFrame0;
+							if (k == 0) {
+								float32 px = 0.f, py = 0.f;
+								if (project(st->sculptXformPivotW, px, py)) {
+									sSdX = px;
+									sSdY = py;
+									gs.mouseX = px;
+									gs.mouseY = py;
+									gs.leftPressed = true;
+									gs.leftDown = true;
+									logger.Info("[Demo3D] NK_SCULPT_DRAG appui a ({0}, {1}) px de vue\n", px, py);
+								} else {
+									logger.Info("[Demo3D] NK_SCULPT_DRAG : pivot non projetable, geste ABANDONNE\n");
+									sSdOn = false;
+								}
+							} else if (k > 0 && k <= sSdFrames) {
+								const float32 fx = sSdDX / (float32)sSdFrames;
+								const float32 fy = sSdDY / (float32)sSdFrames;
+								sSdX += fx;
+								sSdY += fy;
+								gs.mouseX = sSdX;
+								gs.mouseY = sSdY;
+								gs.mouseDX = fx;
+								gs.mouseDY = fy;
+								gs.leftDown = true;
+							} else if (k == sSdFrames + 1) {
+								gs.leftDown = false;
+								sSdOn = false;
+								logger.Info("[Demo3D] NK_SCULPT_DRAG relache\n");
+							}
+						}
+					}
+					const bool avantDrag = st->sculptGizmo.IsDragging();
+					st->sculptGizmo.Update(vtS, 1, gs);
+					const bool maintenantDrag = st->sculptGizmo.IsDragging();
+					if (!avantDrag && maintenantDrag) {
+						// DEBUT DU GESTE : la photo des positions. C'est elle qui rend
+						// l'apercu IDEMPOTENT -- sans elle, chaque image composerait la
+						// matrice sur le resultat de la precedente, et le moindre
+						// aller-retour de la souris s'accumulerait.
+						st->sculptXformRest.Clear();
+						st->sculptXformRest.Reserve(st->editHE.VertCount());
+						for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+							st->sculptXformRest.PushBack(st->editHE.verts[i].pos);
+						st->sculptXformDragging = true;
+						logger.Info("[Demo3D] TRANSFORM sculpture : geste COMMENCE, pivot monde=({0}, {1}, "
+									"{2}) sommets={3} masques={4}\n",
+									st->sculptXformPivotW.x, st->sculptXformPivotW.y,
+									st->sculptXformPivotW.z, (int32)st->editHE.VertCount(),
+									(int32)st->editHE.MaskedCount());
+					}
+					auto commandeXform = [&]() {
+						renderer::NkMeshEditCommand c;
+						c.op = renderer::NkMeshEditOp::SculptTransform;
+						c.sculptXform.aMatrice = 1;
+						// MONDE -> OBJET : le gizmo parle en monde, le maillage vit en
+						// local. Oublier l'ancre deformerait autour de l'origine du monde.
+						c.sculptXform.matrice = st->editAnchorInv *
+												st->sculptGizmo.ApplyAbout(0, st->sculptXformPivotW) *
+												st->editAnchor;
+						c.sculptXform.pivot = st->editAnchorInv * st->sculptXformPivotW;
+						c.sculptXform.symX = (uint8)((st->sculptSymMask & 1) ? 1 : 0);
+						c.sculptXform.symY = (uint8)((st->sculptSymMask & 2) ? 1 : 0);
+						c.sculptXform.symZ = (uint8)((st->sculptSymMask & 4) ? 1 : 0);
+						return c;
+					};
+					auto restaurerDepart = [&]() {
+						const uint32 n = (uint32)st->sculptXformRest.Size();
+						if (n != st->editHE.VertCount())
+							return false; // la topologie a change sous le geste : on ne devine pas
+						for (uint32 i = 0; i < n; ++i)
+							st->editHE.verts[i].pos = st->sculptXformRest[i];
+						return true;
+					};
+					if (maintenantDrag && st->sculptXformDragging) {
+						if (restaurerDepart()) {
+							renderer::NkMeshEditCommand c = commandeXform();
+							(void)c.Apply(st->editHE); // MEME code que l'enregistrement
+							Demo3D_SyncFromHE(st, meshSysF);
+						}
+					}
+					if (avantDrag && !maintenantDrag && st->sculptXformDragging) {
+						// FIN DU GESTE : retour a l'etat de DEPART, puis la porte unique
+						// des commandes -- une seule etape d'annulation, et l'etat final
+						// est celui que l'apercu montrait (meme matrice, meme code).
+						st->sculptXformDragging = false;
+						if (restaurerDepart()) {
+							renderer::NkMeshEditCommand c = commandeXform();
+							st->sculptXformParams = c.sculptXform;
+							const uint32 undoAvant = st->editHistory.UndoCount();
+							Demo3D_ApplyCmd(st, meshSysF, c);
+							logger.Info("[Demo3D] TRANSFORM sculpture : geste TERMINE, undo {0} -> {1} · "
+										"masques={2} sym={3}\n",
+										undoAvant, st->editHistory.UndoCount(),
+										(int32)st->editHE.MaskedCount(), st->sculptSymMask);
+						}
+						st->sculptGizmo.ResetSelected(); // le geste est enregistre : il ne se rejoue pas
+						st->sculptXformRest.Clear();
+					}
+				}
+				if (st->uiMode == 3 && nv > 0 && !outilXformSculpt) {
+					// Le catalogue doit etre la AVANT qu'on lise la brosse active :
+					// sinon le journal dit « brosse='(aucune)' » alors que le geste a
+					// bien agi, et le lecteur cherche un defaut qui n'existe pas.
+					Demo3D_LoadBrushes(st);
+					// NK_SCULPT_AT="x:y[:images[:frame0]]" -- un trait POSE A DES
+					// COORDONNEES ECRITES, en pixels de la VUE. Separateur ':' : la
+					// virgule est le separateur decimal en fr-FR.
+					{
+						static bool sAtLu = false;
+						static float32 sAtX = 0.f, sAtY = 0.f;
+						static int32 sAtN = 0, sAtF0 = 0, sAtVu = 0;
+						static bool sAtArme = false;
+						if (!sAtLu) {
+							sAtLu = true;
+							if (const char *e = getenv("NK_SCULPT_AT")) {
+								float32 v[4] = {0.f, 0.f, 8.f, 0.f};
+								int32 k = 0;
+								const char *q = e;
+								while (k < 4 && *q) {
+									float32 val = 0.f;
+									bool neg = false;
+									if (*q == '-') {
+										neg = true;
+										++q;
+									}
+									while (*q >= '0' && *q <= '9')
+										val = val * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											val += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									v[k++] = neg ? -val : val;
+									if (*q == ':')
+										++q;
+									else
+										break;
+								}
+								sAtX = v[0];
+								sAtY = v[1];
+								sAtN = (int32)v[2] > 0 ? (int32)v[2] : 8;
+								sAtF0 = (int32)v[3];
+								sAtArme = true;
+								logger.Info("[Demo3D] NK_SCULPT_AT arme : ({0},{1}) px de vue, {2} "
+									  "image(s), a partir de {3}\n",
+									  sAtX, sAtY, sAtN, sAtF0);
+							}
+						}
+						if (sAtArme) {
+							if (sAtVu++ >= sAtF0) {
+								if (st->sculptAtFrames <= 0 && sAtN > 0) {
+									st->sculptAtFrames = sAtN;
+									st->sculptAtX = sAtX;
+									st->sculptAtY = sAtY;
+									sAtN = 0; // une seule fois
+								}
+							}
+						}
+					}
+					// ⚠️ LES DEUX CHEMINS PARTAGENT TOUT LE CODE QUI SUIT. Le geste ecrit
+					//    ne fait que fournir d'autres coordonnees et un autre « bouton
+					//    enfonce » : s'il avait son propre raycast, il mesurerait son
+					//    raycast et non celui de Rodolf.
+					const bool ecrit = (st->sculptAtFrames > 0);
+					if (ecrit)
+						--st->sculptAtFrames;
+					// NK_BRUSH_HOVER="x:y[:images[:frame0]]" -- LE SURVOL, sans appui.
+					{
+						static bool sHvLu = false;
+						static float32 sHvX = 0.f, sHvY = 0.f, sHvPas = 0.f;
+						static int32 sHvN = 0, sHvF0 = 0, sHvVu = 0;
+						static bool sHvArme = false;
+						if (!sHvLu) {
+							sHvLu = true;
+							if (const char *e = getenv("NK_BRUSH_HOVER")) {
+								float32 v[5] = {0.f, 0.f, 0.f, 0.f, 0.f};
+								int32 k = 0;
+								const char *q = e;
+								while (k < 5 && *q) {
+									float32 val = 0.f;
+									bool neg = false;
+									if (*q == '-') { neg = true; ++q; }
+									while (*q >= '0' && *q <= '9')
+										val = val * 10.f + (float32)(*q++ - '0');
+									if (*q == '.') {
+										++q;
+										float32 sc = 0.1f;
+										while (*q >= '0' && *q <= '9') {
+											val += (float32)(*q++ - '0') * sc;
+											sc *= 0.1f;
+										}
+									}
+									v[k++] = neg ? -val : val;
+									if (*q == ':')
+										++q;
+									else
+										break;
+								}
+								sHvX = v[0];
+								sHvY = v[1];
+								sHvN = (int32)v[2] > 0 ? (int32)v[2] : 30;
+								sHvF0 = (int32)v[3];
+								// LE 5e CHAMP : UN PAS EN PIXELS PAR IMAGE. Sans lui, le
+								// crochet pose une souris IMMOBILE -- et une souris
+								// immobile ne mesure pas le cout du curseur, elle mesure
+								// son cache. C'est exactement la faute « un temoin qui
+								// tourne avec ce qu'il observe » : l'instrument annulait
+								// le phenomene.
+								sHvPas = v[4];
+								sHvArme = true;
+								logger.Info("[Demo3D] NK_BRUSH_HOVER arme : ({0},{1}) px de vue, {2} "
+											"image(s), a partir de {3}\n",
+											sHvX, sHvY, sHvN, sHvF0);
+							}
+						}
+						if (sHvArme && sHvVu++ >= sHvF0 && st->brushHoverFrames <= 0 && sHvN > 0) {
+							st->brushHoverFrames = sHvN;
+							st->brushHoverX = sHvX;
+							st->brushHoverY = sHvY;
+							st->brushHoverPas = sHvPas;
+							sHvN = 0; // une seule fois
+						}
+						// LE BALAYAGE EST ETROIT (+/- 25 px) EXPRES. Son but n'est pas de
+						// simuler un grand geste : c'est d'INVALIDER LE CACHE a chaque
+						// image tout en restant SUR l'objet. Large, il sortait de la
+						// silhouette une image sur deux, la boite englobante tranchait
+						// aussitot, et la mesure se serait lue « le curseur ne coute
+						// rien » alors qu'elle mesurait surtout le refus precoce.
+						if (st->brushHoverFrames > 0 && st->brushHoverPas != 0.f) {
+							st->brushHoverX += st->brushHoverPas;
+							if (st->brushHoverX > sHvX + 25.f || st->brushHoverX < sHvX - 25.f)
+								st->brushHoverPas = -st->brushHoverPas;
+						}
+					}
+					const bool survolEcrit = (st->brushHoverFrames > 0);
+					if (survolEcrit)
+						--st->brushHoverFrames;
+					const bool down = ecrit || gin.leftDown;
+					const float32 curX = ecrit ? st->sculptAtX
+											   : (survolEcrit ? st->brushHoverX : gin.mouseX);
+					const float32 curY = ecrit ? st->sculptAtY
+											   : (survolEcrit ? st->brushHoverY : gin.mouseY);
+					// ⚠️ LE RELACHEMENT SORT DE SON `else`, ET C'EST LE VRAI RISQUE DE
+					//    CE LOT. Il etait la branche « pas de bouton » du meme `if` ;
+					//    maintenant que le rayon part AUSSI au survol, cette branche ne
+					//    serait plus jamais prise et le trait ne partirait plus du tout.
+					//    Aucun compilateur ne le signale, aucun compteur ne le voit :
+					//    seul le geste le revele -- donc il change de place ici, et le
+					//    banc pose un critere dessus.
+					if (!down && st->sculptDragOn) {
+						st->sculptDragOn = false;
+						if (!st->sculptDragPts.Empty()) {
+							renderer::NkBrushDesc bd;
+							const char *nom = nullptr;
+							if (Demo3D_BrosseCourante(st, bd))
+								nom = bd.name;
+							NkVector<float32> fp, fn;
+							for (uint32 k = 0; k < (uint32)st->sculptDragPts.Size(); ++k) {
+								fp.PushBack(st->sculptDragPts[k].x);
+								fp.PushBack(st->sculptDragPts[k].y);
+								fp.PushBack(st->sculptDragPts[k].z);
+								fn.PushBack(st->sculptDragNrm[k].x);
+								fn.PushBack(st->sculptDragNrm[k].y);
+								fn.PushBack(st->sculptDragNrm[k].z);
+							}
+							const int32 nn = (int32)st->sculptDragPts.Size();
+							st->sculptDragPts.Clear();
+							st->sculptDragNrm.Clear();
+							// LA MEME PORTE QUE LE CROCHET.
+							const bool ok = Demo3DHostEditSculptStroke(fp.Data(), fn.Data(), nn, nom,
+																	   0.f, 0.f);
+							logger.Info("[Demo3D] SCULPT souris : {0} point(s) brosse='{1}' -> ok={2}\n",
+										nn, nom ? nom : "(aucune)", ok ? 1 : 0);
+						}
+					}
+					// LE RAYON PART AUSSI SANS BOUTON : c'est lui qui pose le curseur.
+					// ⚠️ LES DEUX CHEMINS PARTAGENT TOUT LE RESTE, comme le geste ecrit
+					//    plus haut : le crochet ne fournit que des coordonnees et la
+					//    certitude d'etre au-dessus de la vue. S'il avait son propre
+					//    raycast, il mesurerait son raycast et non celui de Rodolf.
+					const bool survolBrosse = !down && (nkvpHover || survolEcrit) && st->editMode &&
+											  NkModeMaillageSansElements(st->uiMode);
+					if (!down && !survolBrosse)
+						st->brushCurOn = false;
+					// ⚠️ LE CACHE NE VAUT QUE POUR LE SURVOL. Pendant un trait, le
+					//    maillage se deforme sous le rayon et une position gardee
+					//    designerait la surface d'avant le coup precedent.
+					bool refaireRayon = true;
+					if (survolBrosse && !down) {
+						// La « version » du maillage : le compte de sommets ET le compte
+						// d'annulation. Le premier seul manquerait une deformation qui ne
+						// change pas la topologie -- c'est-a-dire tout coup de brosse.
+						const uint32 ver = (uint32)st->editHE.VertCount() * 131u +
+										   (uint32)st->editHistory.UndoCount();
+						refaireRayon = (curX != st->brushCurLastX) || (curY != st->brushCurLastY) ||
+									   (camPos.x != st->brushCurLastCam.x) ||
+									   (camPos.y != st->brushCurLastCam.y) ||
+									   (camPos.z != st->brushCurLastCam.z) ||
+									   (fwd.x != st->brushCurLastFwd.x) ||
+									   (fwd.y != st->brushCurLastFwd.y) ||
+									   (fwd.z != st->brushCurLastFwd.z) || (ver != st->brushCurLastVer);
+						if (refaireRayon) {
+							st->brushCurLastX = curX;
+							st->brushCurLastY = curY;
+							st->brushCurLastCam = camPos;
+							st->brushCurLastFwd = fwd;
+							st->brushCurLastVer = ver;
+						}
+					}
+					if ((down || survolBrosse) && refaireRayon) {
+						// Rayon du curseur, par le MEME calcul que le pick d'element
+						// (dix lignes plus bas) : une seconde convention d'ecran ferait
+						// diverger la brosse et la selection sous le meme curseur.
+						const float32 sNdcX = curX / VW * 2.f - 1.f;
+						const float32 sNdcY = 1.f - curY / VH * 2.f;
+						NkVec3f sDir = fwd + rgt * (sNdcX * thX) + upv * (sNdcY * thY);
+						{
+							const float32 l = sDir.Len();
+							if (l > 1e-6f)
+								sDir = sDir * (1.f / l);
+						}
+						// Intersection avec le maillage en edition. Parcours direct des
+						// faces : sur les maillages du modeleur (quelques milliers de
+						// triangles) c'est bon marche, et une structure d'acceleration
+						// serait une optimisation a mesurer avant d'etre ecrite.
+						float32 best = 1e30f;
+						NkVec3f hitP{0.f, 0.f, 0.f}, hitN{0.f, 1.f, 0.f};
+						bool hit = false;
+						// ── REJET PAR LA BOITE ENGLOBANTE ───────────────────────
+						// Le cas le plus frequent au survol est « la souris n'est pas
+						// sur l'objet », et c'etait justement celui qui coutait le plus
+						// cher : aucune face ne touchait, donc TOUTES etaient testees.
+						// La boite tranche en une dizaine d'operations.
+						// ⚠️ ELLE N'ELAGUE PAS LE CAS OU L'ON EST SUR L'OBJET : le
+						//    parcours complet reste entier des qu'on vise la matiere.
+						//    Ce n'est pas une structure d'acceleration, c'est un refus
+						//    precoce, et il ne faut pas le lire pour l'autre.
+						bool boiteTouchee = true;
+						{
+							NkVec3f bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
+							for (uint32 i = 0; i < st->editHE.VertCount(); ++i) {
+								const NkVec3f w = st->editAnchor * st->editHE.verts[i].pos;
+								if (w.x < bmin.x) bmin.x = w.x;
+								if (w.y < bmin.y) bmin.y = w.y;
+								if (w.z < bmin.z) bmin.z = w.z;
+								if (w.x > bmax.x) bmax.x = w.x;
+								if (w.y > bmax.y) bmax.y = w.y;
+								if (w.z > bmax.z) bmax.z = w.z;
+							}
+							if (bmin.x <= bmax.x) {
+								const float32 o[3] = {camPos.x, camPos.y, camPos.z};
+								const float32 dd[3] = {sDir.x, sDir.y, sDir.z};
+								const float32 mn[3] = {bmin.x, bmin.y, bmin.z};
+								const float32 mx[3] = {bmax.x, bmax.y, bmax.z};
+								float32 t0 = 0.f, t1 = 1e30f;
+								for (int32 a = 0; a < 3 && boiteTouchee; ++a) {
+									if (dd[a] > -1e-9f && dd[a] < 1e-9f) {
+										// Rayon parallele a cette paire de plans : il ne
+										// peut entrer que s'il est deja entre les deux.
+										if (o[a] < mn[a] || o[a] > mx[a])
+											boiteTouchee = false;
+										continue;
+									}
+									const float32 inv = 1.f / dd[a];
+									float32 ta = (mn[a] - o[a]) * inv, tb = (mx[a] - o[a]) * inv;
+									if (ta > tb) { const float32 s = ta; ta = tb; tb = s; }
+									if (ta > t0) t0 = ta;
+									if (tb < t1) t1 = tb;
+									if (t0 > t1)
+										boiteTouchee = false;
+								}
+							}
+						}
+						NkVector<renderer::NkEmId> loop;
+						for (uint32 f = 0; boiteTouchee && f < st->editHE.FaceCount(); ++f) {
+							if (!st->editHE.faces[f].alive)
+								continue;
+							loop.Clear();
+							st->editHE.GetFaceVerts((renderer::NkEmId)f, loop);
+							for (uint32 k = 1; k + 1 < (uint32)loop.Size(); ++k) {
+								// ⚠️ LE MAILLAGE D'EDITION EST EN REPERE LOCAL, LE RAYON EN MONDE.
+								//    `editRest` le dit : « vertices LOCAUX de repos », et le pick
+								//    d'element passe par `worldV = editAnchor * pos`. Sans cette
+								//    transformation le rayon cherchait la surface la ou elle n'est
+								//    pas : mesure du 20/09, `touche=0` sur toutes les coordonnees
+								//    essayees, avec pourtant 561 sommets et 960 faces sous le
+								//    curseur.
+								const NkVec3f l0 = st->editHE.verts[loop[0]].pos;
+								const NkVec3f l1 = st->editHE.verts[loop[k]].pos;
+								const NkVec3f l2 = st->editHE.verts[loop[k + 1]].pos;
+								const NkVec3f v0 = st->editAnchor * l0;
+								const NkVec3f v1 = st->editAnchor * l1;
+								const NkVec3f v2 = st->editAnchor * l2;
+								// Moller-Trumbore.
+								const NkVec3f e1 = v1 - v0, e2 = v2 - v0; // MONDE, pour le test
+								const NkVec3f pv = sDir.Cross(e2);
+								const float32 det = e1.x * pv.x + e1.y * pv.y + e1.z * pv.z;
+								if (det > -1e-8f && det < 1e-8f)
+									continue;
+								const float32 inv = 1.f / det;
+								const NkVec3f tv = camPos - v0;
+								const float32 u = (tv.x * pv.x + tv.y * pv.y + tv.z * pv.z) * inv;
+								if (u < 0.f || u > 1.f)
+									continue;
+								const NkVec3f qv = tv.Cross(e1);
+								const float32 vv = (sDir.x * qv.x + sDir.y * qv.y + sDir.z * qv.z) * inv;
+								if (vv < 0.f || u + vv > 1.f)
+									continue;
+								const float32 tt = (e2.x * qv.x + e2.y * qv.y + e2.z * qv.z) * inv;
+								if (tt > 1e-5f && tt < best) {
+									best = tt;
+									// ⚠️ LE POINT EST RECONSTRUIT EN LOCAL PAR SES BARYCENTRIQUES,
+									//    et non converti depuis le monde. Moller-Trumbore rend deja u
+									//    et v : la meme combinaison appliquee aux sommets LOCAUX donne
+									//    le point dans le repere de l'objet, exactement, sans inverser
+									//    la matrice. Et le contrat du trait exige le repere OBJET : un
+									//    point en monde ne survivrait pas au deplacement de l'objet.
+									hitP = l0 + (l1 - l0) * u + (l2 - l0) * vv;
+									NkVec3f n = (l1 - l0).Cross(l2 - l0);
+									const float32 nl = n.Len();
+									hitN = (nl > 1e-8f) ? n * (1.f / nl) : NkVec3f{0.f, 1.f, 0.f};
+									hit = true;
+								}
+							}
+						}
+						// CE QUE CE JOURNAL DISTINGUE : « le rayon n'a rien touche » de « il a
+						// touche et le trait n'a pas avance ». Les deux donnent un trait vide,
+						// et sans cette ligne ils seraient indiscernables.
+						if (ecrit)
+							logger.Info("[Demo3D] SCULPT rayon ({0},{1}) -> touche={2} t={3}\n", curX,
+								curY, hit ? 1 : 0, hit ? best : -1.f);
+						// LE CURSEUR, POSE PAR LE MEME RESULTAT. Il vaut aussi pendant
+						// le trait : voir la brosse pendant qu'on sculpte est la moitie
+						// de son interet.
+						st->brushCurOn = hit;
+						if (hit) {
+							st->brushCurP = hitP;
+							st->brushCurN = hitN;
+							renderer::NkBrushDesc bcd;
+							st->brushCurR = Demo3D_BrosseCourante(st, bcd) ? bcd.radius : 0.f;
+						}
+						if (hit && down) {
+							// ESPACEMENT : un point par image remplirait le trait de
+							// doublons quasi confondus, et chacun couterait un tampon
+							// complet. On n'ajoute que si l'on a AVANCE.
+							bool loin = st->sculptDragPts.Empty();
+							if (!loin) {
+								const NkVec3f d = hitP - st->sculptDragPts[(uint32)st->sculptDragPts.Size() - 1];
+								renderer::NkBrushDesc bd;
+								float32 rr = 0.1f;
+								if (Demo3D_BrosseCourante(st, bd))
+									rr = bd.radius;
+								loin = (d.Len() > rr * 0.25f);
+							}
+							if (loin) {
+								st->sculptDragPts.PushBack(hitP);
+								st->sculptDragNrm.PushBack(hitN);
+							}
+							st->sculptDragOn = true;
+						}
+					}
+				}
 				const bool pickArme = st->editPickPending;
 				// L'index est lu ET remis a -1 au MEME instant que le drapeau : s'il
 				// survivait au pick, le clic SUIVANT de Rodolf viserait la face du banc.
@@ -10824,7 +12328,8 @@ namespace nkentseu {
 					st->editPickVert = -1;
 					st->editPickEdge = -1;
 				}
-				if ((clickNow || pickArme) && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+				if ((clickNow || pickArme) && elems && !grabbedHandle && !st->knifeArmed && !zoneToolConsumed) {
+					NKEDPROF(11, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true; // la sélection va changer -> reconstruire l'overlay
 					const float32 mx = pickArme ? st->editPickX : gin.mouseX;
 					const float32 my = pickArme ? st->editPickY : gin.mouseY;
@@ -10841,6 +12346,7 @@ namespace nkentseu {
 					NkVector<uint8> prevSel = st->vertSel;
 					auto wasSel = [&](uint32 i) { return i < (uint32)prevSel.Size() && prevSel[i] != 0; };
 					if (!shiftEff)
+						NKEDPROF(5, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++)
 							st->vertSel[i] = 0;
 					// Rayon curseur -> profondeurs d'ENTRÉE (near) et de SORTIE (far) dans le
@@ -10967,6 +12473,7 @@ namespace nkentseu {
 					int32 bestV = -1, bestVdummy = -1;
 					if (st->editSelMask & 1) {
 						nC = 0;
+						NKEDPROF(6, nv); // sonde O(n) -- retirer avec NKEDPROF
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = worldV(i);
 							float32 px, py;
@@ -11328,6 +12835,7 @@ namespace nkentseu {
 					// fin de drag. L'overlay (cage) suit toujours via editLive.
 					if (meshSysF && st->editDisplay1to1)
 						meshSysF->UpdateVertices(st->editMesh, st->editLive.Data(), (uint32)nv);
+					NKEDPROF(12, 1); // sonde : QUI arme la reconstruction
 					st->editOverlayDirty = true; // positions changées -> overlay suit le mesh
 				}
 				// Fin de drag -> ECRIRE la transformation dans l'autorite editHE, par la MEME
@@ -11372,6 +12880,23 @@ namespace nkentseu {
 					dc.metallic = st->editObjMetallic;
 					dc.roughness = st->editObjRoughness;
 					HostMatHook(st->editObjIdx, dc);
+					// LA MEME PORTE QUE LES AUTRES NOEUDS. C'est la ligne qui manquait :
+					// sans elle, entrer en Edition ou en Sculpture effacait les textures
+					// de l'objet sans que rien ne le dise.
+					// LE NEGATIF, DANS LE MEME BINAIRE : NK_MAT_EDIT_SANS=1 retablit
+					// l'etat d'avant (le maillage edite soumis sans son instance de
+					// materiau). Sans lui, « matEdit=1 » ne prouverait pas que la
+					// liaison CHANGE quelque chose -- il faut que le critere ROUGISSE
+					// quand elle est retiree, et qu'il le fasse dans le binaire livre.
+					{
+						static const bool sSansMat = []() {
+							const char *v = getenv("NK_MAT_EDIT_SANS");
+							return v && v[0] && v[0] != '0';
+						}();
+						if (!sSansMat)
+							HostLieMateriauProjet(st->editObjIdx, dc);
+					}
+					gEditMatLie = dc.material.IsValid() ? 1u : 0u;
 					r3d->Submit(dc);
 				}
 
@@ -11380,7 +12905,19 @@ namespace nkentseu {
 				// L'orbite caméra ne reconstruit RIEN : le GPU redessine les buffers gardés
 				// -> fluide même sur mesh dense. Occlusion = depth-test (X-ray OFF) ; offset
 				// le long de la NORMALE (indépendant caméra) pour vaincre le z-fighting.
+				const auto tOv0 = std::chrono::high_resolution_clock::now();
+				// ⚠️ SCULPTURE : NI CAGE, NI MARQUEURS, NI REMPLISSAGE DE SELECTION, NI GIZMO
+				//    DE SOMMETS (Blender). Mesure avant : 12 aretes de cage, 12 marqueurs et
+				//    54 triangles de gizmo traces en Sculpture. UNE lecture pour tout le
+				//    trace de l'overlay ; changer de mode n'arme aucune des causes habituelles
+				//    de reconstruction, d'ou la bascule suivie ici.
+				const bool elemsTrace = Demo3D_ElementsActifs(st);
+				if (elemsTrace != st->elementsOverlay) {
+					st->elementsOverlay = elemsTrace;
+					st->editOverlayDirty = true;
+				}
 				if (st->editOverlayDirty) {
+					NKEDPROF(7, (int32)st->editHE.VertCount()); // sonde : overlay RECONSTRUIT
 					st->editOverlayDirty = false;
 					auto liveW = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					auto normW = [&](int32 i) -> NkVec3f {
@@ -11442,7 +12979,7 @@ namespace nkentseu {
 					// Passe 0 = arêtes non sélectionnées, passe 1 = sélectionnées (tracées
 					// APRÈS -> elles gagnent le z-fight et restent franches).
 					for (int32 pass = 0; pass < 2; pass++) {
-						for (uint32 e = 0; e + 1 < (uint32)st->editEdges.Size(); e += 2) {
+						for (uint32 e = 0; elemsTrace && e + 1 < (uint32)st->editEdges.Size(); e += 2) {
 							const uint32 a = st->editEdges[e], b = st->editEdges[e + 1];
 							if (a >= (uint32)st->vertSel.Size() || b >= (uint32)st->vertSel.Size())
 								continue;
@@ -11478,6 +13015,7 @@ namespace nkentseu {
 						}
 					}
 					r3d->SetEditOverlayLines(L.Empty() ? nullptr : L.Data(), (uint32)(L.Size() / 7));
+					gModeSondeCage = (uint32)(L.Size() / 14); // SONDE NK_MODE_PROBE : aretes tracees
 					// POINTS : marqueurs de vertices en SPRITE ÉCRAN-CONSTANT (taille en pixels
 					// fixe quel que soit le zoom, façon Blender). Chaque point = un quad dont
 					// chaque sommet porte {centre monde, coin en PIXELS, couleur} (9 floats) ;
@@ -11494,6 +13032,11 @@ namespace nkentseu {
 					// chemin que les marqueurs, validé DX12 + GL) — cf. bloc ci-dessous.
 					r3d->SetEditOverlayTris(nullptr, 0);
 					r3d->SetEditOverlayXray(st->editXray);
+				}
+				if (gEdProfOn) {
+					const auto tOv1 = std::chrono::high_resolution_clock::now();
+					logger.Info("[Demo3D] EDPROF overlay reconstruit : nv={0} en {1} ms\n",
+								nv, (float32)std::chrono::duration<double, std::milli>(tOv1 - tOv0).count());
 				}
 				// ── DIAG (NK_DIAG_BIGTRI=1) : détecte les triangles d'overlay qui EXPLOSENT
 				// à l'écran (« carrés blancs »). Projette les 3 sommets et loggue tout
@@ -11538,6 +13081,27 @@ namespace nkentseu {
 				// reste occlus par la géométrie devant. X-ray -> overlay=true (voir à travers).
 				// Une face est sélectionnée si TOUS ses sommets le sont (convention Blender) :
 				// le fill apparaît donc aussi en mode VERTEX/EDGE, comme dans Blender.
+				// ⚠️ `facingCam` VIT ICI, ET PLUS BAS COMME AVANT. Elle a ete REMONTEE
+				//    parce que la zone masquee en a besoin et qu'elle etait declaree
+				//    apres. La copier aurait ete « le meme calcul a deux sites, garde
+				//    a un seul » : deux formules d'orientation qui divergent ne se
+				//    voient que sur une forme concave, jamais dans un compteur.
+				// ⚠️ REMIS A ZERO ICI, ET PAS AVEC SES VOISINS. Il l'etait a cote de
+				//     -- c'est-a-dire APRES la peinture de la zone masquee,
+				//    qui vient plus haut dans l'image. Le compteur etait donc remis a
+				//    zero apres avoir ete incremente, et la sonde lisait 0 pendant que
+				//    l'ecran montrait la zone. C'est « un compteur dont le zero n'est
+				//    pas zero » : le banc a rougi sur du code juste, et ce qui etait
+				//    faux etait l'INSTRUMENT. Sa place est determinee par l'ordre de
+				//    l'image, pas par le voisinage des declarations.
+				gMasqueTri = 0u;
+				const NkVec3f orgW = st->editAnchor * NkVec3f{0.f, 0.f, 0.f};
+				auto facingCam = [&](NkVec3f w, NkVec3f nLocal) {
+					if (st->editXray)
+						return true;
+					const NkVec3f nW = (st->editAnchor * nLocal) - orgW;
+					return nW.Dot(camPos - w) > 0.f;
+				};
 				{
 					// LE SURLIGNAGE LIT LA MEME AUTORITE QUE LE COMPTEUR. S'il lisait encore
 				// « tous les sommets », le chiffre dirait 2 et l'image montrerait 6 : le
@@ -11545,7 +13109,7 @@ namespace nkentseu {
 				Demo3D_FaceSelSync(st);
 				auto liveWf = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					const NkVec4f faceFill = nkentseu::renderer::NkEditOverlayStyle::FaceRemplissage();
-					const uint32 fcntF = (uint32)st->editHE.faces.Size();
+					const uint32 fcntF = elemsTrace ? (uint32)st->editHE.faces.Size() : 0u;
 					NkVector<renderer::NkEmId> fvf;
 					for (uint32 f = 0; f < fcntF; f++) {
 						if (!st->editHE.faces[f].alive)
@@ -11568,6 +13132,153 @@ namespace nkentseu {
 												   0.f, st->editXray);
 						}
 					}
+					// ── LA ZONE MASQUEE, PEINTE SUR LA SURFACE ──────────────────
+					// Rodolf, 25/09 : « on ne voit pas ce qui est masque ». Il avait
+					// 18 912 sommets ; le masque se montrait en POINTS, plafonnes a
+					// 4 000, donc un point sur cinq, de 1,6 px. Un budget qui se
+					// respecte et un affichage qu'on ne lit pas : la mesure disait
+					// « 4 000 points traces » et la main ne voyait rien.
+					//
+					// ⚠️ LE POINT EST LE MAUVAIS OBJET. Ce qui est masque est une
+					//    SURFACE, pas un ensemble de sommets -- et c'est la surface
+					//    qu'il faut assombrir, comme Blender. Un echantillon de
+					//    sommets ne devient pas une zone en devenant plus dense : il
+					//    reste un semis.
+					//
+					// ⚠️ MEME CHEMIN QUE LE REMPLISSAGE DE SELECTION, juste au-dessus :
+					//    `DrawDebugTriangle` en pipeline « DebugTriFill » (colle a la
+					//    surface, reste occlus par ce qui est devant). Un second
+					//    chemin aurait diverge sur l'occlusion, et l'ecart ne se
+					//    serait vu que sur une forme concave.
+					// LE NEGATIF DU POINT 3 : NK_MASQUE_SANS_TEINTE=1 rend l'etat
+					// d'avant -- le masque existe, il agit, mais il ne se peint plus.
+					// C'est exactement ce que Rodolf avait sous les yeux.
+					static const bool sSansTeinte = []() {
+						const char *v = getenv("NK_MASQUE_SANS_TEINTE");
+						return v && v[0] && v[0] != '0';
+					}();
+					if (!sSansTeinte && st->editHE.MaskExists()) {
+						const uint32 fcntM = (uint32)st->editHE.faces.Size();
+						NkVector<renderer::NkEmId> fvm;
+						for (uint32 f = 0; f < fcntM; f++) {
+							if (!st->editHE.faces[f].alive)
+								continue;
+							fvm.Clear();
+							st->editHE.GetFaceVerts(f, fvm);
+							const uint32 fn = (uint32)fvm.Size();
+							if (fn < 3)
+								continue;
+							// LE POIDS DE LA FACE EST LA MOYENNE DE SES COINS, et non
+							// le minimum : un coin libre au bord d'une zone masquee ne
+							// doit pas effacer toute la face, sinon la frontiere
+							// remonterait d'une rangee et le degrade disparaitrait.
+							float32 somme = 0.f;
+							bool ok = true;
+							for (uint32 k = 0; k < fn; k++) {
+								if (fvm[k] >= (uint32)st->editLive.Size()) { ok = false; break; }
+								somme += st->editHE.MaskAt(fvm[k]);
+							}
+							if (!ok)
+								continue;
+							const float32 w = somme / (float32)fn;
+							if (w < 0.02f)
+								continue;
+							// ── LES FACES QUI TOURNENT LE DOS NE SE PEIGNENT PAS ────
+							// MESURE DU 25/09 : peindre TOUT le masque sur 25 350
+							// sommets fait passer la cadence de 143 a 59 ips (rapport
+							// 0,38-0,44 sur deux courses). C'est le pire cas -- tout
+							// masque -- mais il est atteignable d'un clic (« tout
+							// masquer »), donc il compte.
+							//
+							// ⚠️ PAS DE BUDGET AVEC UN PAS, comme les points en avaient.
+							//    Un triangle sur trois ferait des TROUS dans la zone :
+							//    l'oeil lirait « masque par endroits » la ou le masque
+							//    est plein, et ce serait un affichage qui ment, pas un
+							//    affichage econome. On enleve donc ce qui est INVISIBLE,
+							//    pas ce qui est visible.
+							//
+							// ⚠️ SAUF EN X-RAY, ou voir a travers est precisement ce
+							//    qu'on demande : la garde reprend la meme condition que
+							//    les marqueurs d'edition, au lieu d'en inventer une.
+							//    Le test prend le PREMIER sommet, pas le barycentre : le
+							//    barycentre coute `fn` transformations de point, c'est-a-dire
+							//    a peu pres ce que coute le dessin qu'il evite -- une garde
+							//    aussi chere que ce qu'elle epargne ne gagne rien, et la
+							//    premiere mesure l'a montre (0,41 puis 0,55 : dans le bruit).
+							//    Le premier sommet est de toute facon calcule juste apres.
+							const NkVec3f m0 = liveWf((int32)fvm[0]);
+							if (!facingCam(m0, st->editHE.faces[f].normal))
+								continue;
+							// Bleu-gris FONCE, opacite proportionnelle au poids : un
+							// masque a mi-course reste distinct d'un masque plein.
+							// Le plancher (0,18) existe pour qu'un poids tres faible
+							// se voie quand meme -- sinon la frontiere du degrade
+							// aurait l'air d'etre la ou l'opacite devient visible,
+							// et non la ou le masque commence.
+							const NkVec4f maskFill{0.10f, 0.13f, 0.20f, 0.18f + 0.55f * w};
+							for (uint32 k = 1; k + 1 < fn; k++) {
+								r3d->DrawDebugTriangle(m0, liveWf((int32)fvm[k]),
+													   liveWf((int32)fvm[k + 1]), maskFill, 0.f,
+													   st->editXray);
+								++gMasqueTri;
+							}
+						}
+					}
+				// -- LE TRAIT : MEME CHEMIN QUE LE REMPLISSAGE DE SELECTION --------------
+				//
+				// Rodolf trace un trait sur la surface puis demande « creuse ici ». Il
+				// vivait jusqu'ici dans la topologie SANS SE VOIR -- et un trait qu'on ne
+				// voit pas est inutilisable, meme s'il survit parfaitement aux operations.
+				//
+				// [!] PAR `DrawDebugTriangle`, ET PAS PAR `SetEditOverlayTris`. J'ai failli
+				//     alimenter ce canal : il est appele UNE SEULE FOIS dans ce fichier,
+				//     avec `nullptr`, et son code moteur est bien vivant -- il ressemble
+				//     donc a une capacite oubliee. Le commentaire qui le precede dit
+				//     l'inverse : le remplissage est PASSE a DrawDebugTriangle parce que
+				//     l'overlay point-sprite rendait mal en DX12. *Un canal appele une fois
+				//     avec nullptr ressemble a du code mort et peut etre un choix mesure.*
+				//
+				// [!] ET C'EST CE QUI DISTINGUE LE TRAIT DE LA SELECTION A L'OEIL : la
+				//     selection se voit sur les ARETES (orange vif) et en remplissage
+				//     orange ; le trait se voit en remplissage CYAN. Deux teintes, mais
+				//     surtout deux intentions dont les durees different -- `sel` s'efface
+				//     au clic suivant, le trait survit aux gestes qui separent le trace de
+				//     la demande. S'ils se peignaient pareil, on ne saurait pas ce qu'on
+				//     regarde.
+				//   CINQUIEME COULEUR EN DUR DE CE FICHIER, ET C'EST DELIBERE.
+				//   `NkTheme` n'a aucune presence dans ce viewport : cageCol, selEdgeCol,
+				//   actVertCol et faceFill sont des litteraux. Passer la SEULE couleur du
+				//   trait par un role creerait deux verites sur la couleur dans le meme
+				//   fichier -- une conformite isolee coute plus qu'une exception coherente.
+				//   CONDITION DE DEMENAGEMENT : le jour ou la cage d'edition devient
+				//   theme-able, les CINQ partent ensemble. Le declencheur sera un theme
+				//   clair pour le viewport : la cage y est presque noire (0,015) et
+				//   deviendra illisible -- c'est ce jour-la qu'il faudra tout bouger.
+					const NkVec4f traitFill{0.10f, 0.62f, 1.f, 0.38f}; // cyan translucide
+					const uint32 fcntT = (uint32)st->editHE.faces.Size();
+					NkVector<renderer::NkEmId> fvt;
+					for (uint32 f = 0; f < fcntT; f++) {
+						if (!st->editHE.faces[f].alive || st->editHE.faces[f].trait == 0u)
+							continue;
+						fvt.Clear();
+						st->editHE.GetFaceVerts(f, fvt);
+						const uint32 fn = (uint32)fvt.Size();
+						if (fn < 3)
+							continue;
+				//     Les positions VIVANTES, comme le remplissage de selection : lire
+				//     `editHE.verts` peindrait le trait la ou le maillage etait avant la
+				//     modale en cours.
+						bool ok = true;
+						for (uint32 k = 0; k < fn && ok; k++)
+							if (fvt[k] >= (uint32)st->editLive.Size())
+								ok = false;
+						if (!ok)
+							continue;
+						const NkVec3f q0 = liveWf((int32)fvt[0]);
+						for (uint32 k = 1; k + 1 < fn; k++)
+							r3d->DrawDebugTriangle(q0, liveWf((int32)fvt[k]), liveWf((int32)fvt[k + 1]),
+										   traitFill, 0.f, st->editXray);
+					}
 				}
 				// ── Marqueurs VERTEX / centre-de-FACE façon Blender : petits QUADS PLEINS ──────
 				// Carré PLEIN (2 triangles) face-caméra, taille ÉCRAN-CONSTANTE (~3 px de côté),
@@ -11587,6 +13298,9 @@ namespace nkentseu {
 				}();
 				static uint32 nkMarqFrame = 0u;
 				uint32 nkMarqTri = 0u, nkMarqCull = 0u, nkMarqPts = 0u, nkGizmoTri = 0u;
+				// REMIS A ZERO ICI, avec ses voisins : un compteur cumulatif dirait
+				// « le curseur est passe un jour », jamais « il est la maintenant ».
+				gBrushCurSeg = 0u;
 				{
 					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					// ── L'ADRESSE ECRAN DE CHAQUE MARQUEUR TRACE ────────────────────
@@ -11620,13 +13334,6 @@ namespace nkentseu {
 					// on verrait aussi ceux du DOS du modèle « à travers ». Blender ne les montre
 					// qu'en X-ray. Filtre d'orientation : un marqueur dont la normale tourne le
 					// dos à la caméra est caché (X-ray OFF), gardé (X-ray ON).
-					const NkVec3f orgW = st->editAnchor * NkVec3f{0.f, 0.f, 0.f};
-					auto facingCam = [&](NkVec3f w, NkVec3f nLocal) {
-						if (st->editXray)
-							return true;
-						const NkVec3f nW = (st->editAnchor * nLocal) - orgW;
-						return nW.Dot(camPos - w) > 0.f;
-					};
 					// px (demi-côté écran) -> demi-taille MONDE à la profondeur du point.
 					const float32 pxToWorld = (2.f * thY) / VH;
 					auto fillQuad = [&](NkVec3f w, float32 halfPx, NkVec4f col) {
@@ -11687,7 +13394,7 @@ namespace nkentseu {
 					// VERTICES (mode VERTEX) : ~3 px de côté (half ~1.5), discret.
 					// Code couleur Blender : NOIR = non sélectionné, ORANGE = sélectionné,
 					// BLANC = sommet ACTIF (dernier sélectionné).
-					if (st->editSelMask & 1) {
+					if (elemsTrace && (st->editSelMask & 1)) {
 						for (int32 i = 0; i < nv; i++) {
 							NkVec3f w = liveWv(i);
 							if (!facingCam(w, st->editLive[i].normal)) {
@@ -11713,7 +13420,35 @@ namespace nkentseu {
 						}
 					}
 					// CENTRES DE FACE (mode FACE) : petit carré plein au barycentre de chaque face.
-					if (st->editSelMask & 4) {
+					// ── LE MASQUE SE VOIT, SINON IL N'EXISTE PAS POUR LA MAIN ──────────
+					// Blender grise la zone protegee. Ici : un point GRIS par sommet
+					// masque, de la meme fabrique que les marqueurs d'edition (meme
+					// chemin overlay, valide GL et DX12).
+					//
+					// ⚠️ IL S'AFFICHE LA OU LES MARQUEURS D'EDITION NE S'AFFICHENT PLUS.
+					//    En Sculpture il n'y a ni sommets ni cage (lot du 21/09) ; le
+					//    masque, lui, DOIT se voir -- c'est le seul retour qui dit ou la
+					//    brosse n'agira pas.
+					//
+					// ⚠️ UN BUDGET, ET IL SE DIT. Un mannequin de 250 000 sommets
+					//    entierement masque ferait 250 000 quads par image. On en trace
+					//    au plus `kMasqueMax`, repartis par un PAS regulier sur tout le
+					//    maillage (jamais les premiers : ils sont voisins, et l'on
+					//    verrait une tache au lieu d'une zone). L'incrustation dit alors
+					//    « 1 sur k » -- un affichage partiel qui se tait ferait croire a
+					//    un masque plus petit qu'il n'est.
+					// LES POINTS DE MASQUE SONT PARTIS : la zone se peint maintenant
+					// sur la SURFACE (plus haut, avec le remplissage de selection).
+					// Le compte, lui, reste mesure -- l'incrustation le dit encore, et
+					// le banc le lit. ⚠️ `gMasquePas` vaut desormais 1 : plus aucun
+					// echantillonnage, donc plus rien a annoncer comme partiel. Le
+					// laisser a sa valeur d'hier aurait fait dire « 1 sur 5 » a une
+					// incrustation qui montre tout.
+					if (st->editHE.MaskExists()) {
+						gMasqueVus = st->editHE.MaskedCount(0.02f);
+						gMasquePas = 1u;
+					}
+					if (elemsTrace && (st->editSelMask & 4)) {
 						const uint32 fcnt = (uint32)st->editHE.faces.Size();
 						NkVector<renderer::NkEmId> fvd;
 						for (uint32 f = 0; f < fcnt; f++) {
@@ -11759,7 +13494,89 @@ namespace nkentseu {
 				// (drawLine pour tiges/liserés fins + drawTri pour formes PLEINES : cônes/cubes/
 				// rubans). Le 2e callback active la surcharge Draw(drawLine, drawTri) du gizmo —
 				// mêmes couleurs d'axe (X rouge, Y vert, Z bleu) et mêmes formes que l'objet.
-				if (!nkvpGizmoHidden)
+				// ── LE CERCLE DE LA BROSSE, SUR LA SURFACE ──────────────────────
+				// Il est trace dans le PLAN TANGENT au point touche, au rayon
+				// EFFECTIF de la brosse. Deux cercles : le plein au rayon, et un
+				// second a la moitie -- c'est la ou le profil d'attenuation a
+				// encore presque toute sa force, et c'est l'information qu'un
+				// sculpteur lit sans y penser.
+				//
+				// ⚠️ IL N'EST PAS EN PROFONDEUR (depthTest = false, dernier
+				//    argument des appels de debug). Un cercle pose SUR une surface
+				//    courbe disparait par moities derriere elle -- et un curseur
+				//    qui clignote selon la courbure est pire que pas de curseur.
+				//
+				// ⚠️ ET IL COMPTE SES SEGMENTS DANS UN COMPTEUR A PART. Les melanger
+				//    a `nkGizmoTri` ferait verdir le critere « le gizmo est la » sur
+				//    un curseur de brosse -- deux choses differentes sous un seul
+				//    compteur, la faute que ce depot a deja payee.
+				// LE NEGATIF DU POINT 2 : NK_CURSEUR_SANS=1 eteint le cercle. Sans
+				// lui, « curseurSeg > 0 » ne prouverait pas que les segments viennent
+				// du curseur -- un autre trace pourrait les fournir.
+				static const bool sSansCurseur = []() {
+					const char *v = getenv("NK_CURSEUR_SANS");
+					return v && v[0] && v[0] != '0';
+				}();
+				if (!sSansCurseur && st->brushCurOn && st->brushCurR > 0.f && !elemsTrace &&
+					st->editMode && NkModeMaillageSansElements(st->uiMode)) {
+					const NkVec3f cW = st->editAnchor * st->brushCurP;
+					// La normale est transformee SANS la translation : c'est une
+					// direction. La transformer comme un point ferait pointer le
+					// cercle vers l'origine des que l'objet est deplace.
+					NkVec3f nW = st->editAnchor * (st->brushCurP + st->brushCurN) - cW;
+					{
+						const float32 l = nW.Len();
+						nW = (l > 1e-6f) ? nW * (1.f / l) : NkVec3f{0.f, 1.f, 0.f};
+					}
+					// Une base du plan tangent. Le vecteur de depart est choisi le
+					// moins aligne possible avec la normale : un produit vectoriel
+					// entre deux vecteurs colineaires rend zero, et le cercle
+					// s'effondrerait en un point aux poles.
+					NkVec3f aux = (nW.y * nW.y < 0.9f) ? NkVec3f{0.f, 1.f, 0.f} : NkVec3f{1.f, 0.f, 0.f};
+					NkVec3f t1 = nW.Cross(aux);
+					{
+						const float32 l = t1.Len();
+						t1 = (l > 1e-6f) ? t1 * (1.f / l) : NkVec3f{1.f, 0.f, 0.f};
+					}
+					const NkVec3f t2 = nW.Cross(t1);
+					// Le cercle est LEGEREMENT DECOLLE de la surface le long de la
+					// normale. Pose exactement dessus, il entre en concurrence avec
+					// les faces au meme profondeur et se met a scintiller.
+					const NkVec3f base = cW + nW * (st->brushCurR * 0.01f);
+					const NkVec4f colA{1.f, 1.f, 1.f, 0.9f};
+					const NkVec4f colB{1.f, 1.f, 1.f, 0.35f};
+					const int32 seg = 48;
+					for (int32 ci = 0; ci < 2; ++ci) {
+						const float32 rr = st->brushCurR * (ci == 0 ? 1.f : 0.5f);
+						const NkVec4f col = (ci == 0) ? colA : colB;
+						NkVec3f prev = base + t1 * rr;
+						for (int32 k = 1; k <= seg; ++k) {
+							const float32 a = 6.2831853f * (float32)k / (float32)seg;
+							const NkVec3f cur = base + t1 * (rr * cosf(a)) + t2 * (rr * sinf(a));
+							r3d->DrawDebugLine(prev, cur, col, 0.f, true);
+							++gBrushCurSeg;
+							prev = cur;
+						}
+					}
+					// La NORMALE, un court segment : sans elle, un cercle vu de face
+					// et un cercle vu de biais se ressemblent, et on ne sait plus de
+					// quel cote la matiere va sortir.
+					r3d->DrawDebugLine(base, base + nW * (st->brushCurR * 0.5f), colB, 0.f, true);
+					++gBrushCurSeg;
+				}
+				// LE GIZMO DE L'OUTIL TRANSFORM DE SCULPTURE, dessine par le MEME
+				// chemin que les autres (lignes fines + formes pleines en overlay).
+				// Il n'apparait que quand son outil est choisi -- sinon la Sculpture
+				// reste ce qu'elle doit etre : des brosses et rien d'autre.
+				if (!nkvpGizmoHidden && !elemsTrace && st->editMode &&
+					NkModeMaillageSansElements(st->uiMode))
+					st->sculptGizmo.Draw(
+						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
+						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
+							++nkGizmoTri;
+							r3d->DrawDebugTriangle(a, b, c, col, 0.f, true);
+						});
+				if (!nkvpGizmoHidden && elemsTrace)
 					st->editGizmo.Draw(
 					[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 					[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
@@ -11781,6 +13598,43 @@ namespace nkentseu {
 								(int32)nkMarqPts, (int32)nkMarqCull, (int32)nkMarqTri, (int32)nkGizmoTri,
 								st->editXray ? 1 : 0);
 					++nkMarqFrame;
+				}
+				// ── SONDE « SCULPTURE : LE GIZMO » (NK_MODE_PROBE=1) ─────────────────
+				// CE QUI PART REELLEMENT AU TRACE dans chaque mode, et la somme des
+				// positions du maillage : un gizmo qui se DESSINE et un geste qui DEPLACE
+				// sont deux questions, et un seul compteur ne repond qu'a l'une.
+				// Les compteurs sont ceux du trace ci-dessus (triangles envoyes, marqueurs
+				// poses), jamais une copie de la condition qui les garde.
+				{
+					static const bool sModeProbe = []() {
+						const char *v = getenv("NK_MODE_PROBE");
+						return v && v[0] && v[0] != '0';
+					}();
+					static int32 sModeImg = 0;
+					if (sModeProbe && (sModeImg++ % 10) == 0) {
+						int32 selV = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							selV += st->vertSel[i] ? 1 : 0;
+						double sx = 0.0, sy = 0.0, sz = 0.0;
+						for (uint32 i = 0; i < (uint32)st->editLive.Size(); ++i) {
+							sx += st->editLive[i].pos.x;
+							sy += st->editLive[i].pos.y;
+							sz += st->editLive[i].pos.z;
+						}
+						logger.Info("[MODE-SONDE] img={0} uiMode={1} editMode={2} selV={3} gizmoSel={4} "
+									"gizmoTri={5} drag={6} marqPts={7} cage={8} nv={9} somme=({10}, {11}, {12}) "
+									"modale={13} selTool={14} masque={15} sommeMasque={16} octetsMasque={17} "
+									"sym={18} curseur={19} curseurSeg={20} masqueTri={21} matEdit={22}\n",
+									sModeImg - 1, st->uiMode, st->editMode ? 1 : 0, selV,
+									st->editGizmo.HasSelection() ? 1 : 0, (int32)nkGizmoTri,
+									st->editGizmo.IsDragging() ? 1 : 0, (int32)nkMarqPts, (int32)gModeSondeCage,
+									(int32)st->editLive.Size(), (float32)sx, (float32)sy, (float32)sz, st->modalOp,
+									st->selTool, (int32)st->editHE.MaskedCount(),
+									(float32)st->editHE.MaskSum(),
+									(int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)),
+									st->sculptSymMask, st->brushCurOn ? 1 : 0, (int32)gBrushCurSeg,
+									(int32)gMasqueTri, (int32)gEditMatLie);
+					}
 				}
 			}
 
@@ -12979,7 +14833,11 @@ namespace nkentseu {
 							// L'objet ACTIF reçoit un liseré de teinte plus claire (façon
 							// Blender) : sans cette distinction, impossible de savoir sur quel
 							// objet porteront les opérations qui ne visent que l'actif.
+							if (!sdc.mesh.IsValid())
+								++gBoiteSansCible;
 							r3d->SubmitSelection(sdc, i == activeIdx);
+							++gBoiteOutObj;
+							gBoiteOutObjIdx = i;
 							nOut++;
 						}
 						(void)nOut;
@@ -13030,7 +14888,24 @@ namespace nkentseu {
 												 NkMat4f::Scale({nkvpDimFactor[un][0],
 																 nkvpDimFactor[un][1],
 																 nkvpDimFactor[un][2]});
+							// MUTATION DANS LE MEME BINAIRE (NK_BOITE_FAUSSE=1) : on publie
+							// EN PLUS une boite sans cible. Le critere du banc doit rougir --
+							// sinon il ne surveille rien.
+							static const bool sBoiteFausse = []() {
+								const char *v = getenv("NK_BOITE_FAUSSE");
+								return v && v[0] && v[0] != '0';
+							}();
+							if (sBoiteFausse) {
+								NkDrawCall3D faux;
+								faux.transform = sdc2.transform;
+								++gBoiteSansCible;
+								r3d->SubmitSelection(faux, false);
+							}
+							if (!sdc2.mesh.IsValid())
+								++gBoiteSansCible;
 							r3d->SubmitSelection(sdc2, e == esel2);
+							++gBoiteOutUser;
+							gBoiteOutUserIdx = un;
 						}
 					}
 
@@ -13131,6 +15006,7 @@ namespace nkentseu {
 			// ── WIDGETS DES LUMIERES (facon Blender) ────────────────────────────────
 			// Dessines en OVERLAY (dernier argument true) : un widget masque par la
 			// geometrie ne sert a rien — on doit pouvoir attraper une lumiere placee
+			NKEDSTEP(15); // jalon fin (segment 9)
 			// derriere un objet. NK_LIGHT_GIZMOS=0 les masque pour une capture propre ;
 			// NK_LIGHT_SEL=<n> selectionne la n-ieme lumiere (teinte claire), ce qui
 			// rend la distinction actif/selectionne verifiable en capture.
@@ -13322,7 +15198,57 @@ namespace nkentseu {
 										   0.f, true);
 					}
 				}
-				if (esel >= 0 && !nkvpGizmoHidden)
+				// ⚠️ NK_GIZMO_DIAG=1 : QUI DESSINE, ET COMBIEN. Rodolf a photographie
+				//    DEUX gizmos de translation le 20/09 a 20:09. Avant de corriger,
+				//    on compte -- une hypothese structurelle (« emptyGizmo n'a pas de
+				//    garde editMode ») n'est pas une mesure.
+				// ⚠️ UNE SEULE SOURCE POUR LA CONDITION, ET C'EST UN CORRECTIF DE
+				//    SONDE. La premiere version RECALCULAIT `(esel >= 0 &&
+				//    !nkvpGizmoHidden)` de son cote : apres l'ajout de `!editMode`
+				//    au dessin, elle a continue d'annoncer « dessine=1 » alors que
+				//    plus rien ne se dessinait. *Un temoin qui recopie la condition
+				//    qu'il observe cesse de l'observer.* La condition est donc
+				//    calculee ICI, une fois, et le dessin comme la sonde la LISENT.
+				const bool dessineEmpty = (esel >= 0 && !nkvpGizmoHidden && !st->editMode);
+				{
+					static const bool sGzDiag = (getenv("NK_GIZMO_DIAG") != nullptr);
+					static int32 sGzVu = 0, sGzVuHors = 0;
+					// ⚠️ ON IMPRIME DANS LES **DEUX** REGIMES, et c'est le negatif du
+					//    correctif. Ne mesurer qu'en mode Edition dirait « il ne
+					//    dessine plus » sans distinguer « la garde a fait son travail »
+					//    de « je l'ai eteint partout ». Hors edition, il DOIT dessiner.
+					int32 *compteur = st->editMode ? &sGzVu : &sGzVuHors;
+					// ⚠️ ON N'IMPRIME QUE QUAND IL Y A QUELQUE CHOSE DE SELECTIONNE.
+					//    Les premieres images n'ont AUCUNE selection (`esel=-1`) : la
+					//    sonde y rendait « dessine=0 » et ce zero ne disait rien du
+					//    correctif -- il disait seulement qu'il n'y avait rien a
+					//    dessiner. *Un zero mesure hors des conditions ou la question
+					//    se pose se lit comme une reponse.*
+					if (sGzDiag && *compteur < 2 && esel >= 0) {
+						++*compteur;
+						logger.Info("[Demo3D] GIZMO-DIAG editMode={0} : emptyGizmo dessine={1} "
+									"(esel={2}) ; gizmo OBJET sous `!editMode` ; editGizmo actif "
+									"seulement en edition -> {3} gizmo(s) a l'ecran\n",
+									st->editMode ? 1 : 0, dessineEmpty ? 1 : 0, esel,
+									(dessineEmpty ? 1 : 0) + (st->editMode ? 1 : 0));
+					}
+				}
+				// ⚠️ `!st->editMode` AJOUTE LE 20/09 — LE SECOND GIZMO DE LA CAPTURE.
+				//    Le gizmo des objets de DEMO (`st->gizmo`) vit DEJA dans le bloc
+				//    `if (!st->editMode)` : en mode Edition il se tait. Celui des
+				//    noeuds importes, lui, n'avait aucune garde -- il continuait donc
+				//    a dessiner PENDANT l'edition, a cote des poignees d'`editGizmo`.
+				//    D'ou les DEUX gizmos de translation photographies a 20:09.
+				//    MESURE AVANT CORRECTIF (`NK_GIZMO_DIAG=1`) :
+				//      « emptyGizmo dessine=1 (esel=6) [...] -> 2 gizmo(s) a l'ecran »
+				//    La garde n'est donc pas ajoutee par symetrie d'apparence : elle
+				//    RETABLIT la regle que le gizmo voisin appliquait deja, et que
+				//    celui-ci etait seul a ne pas suivre.
+				// ⚠️ ON SUPPRIME EN MODE EDITION, PAS SEULEMENT POUR L'OBJET EDITE :
+				//    c'est ce que fait `st->gizmo`, et un objet non edite dont le
+				//    gizmo resterait actif offrirait une poignee qui deplace autre
+				//    chose que ce qu'on edite.
+				if (dessineEmpty)
 					st->emptyGizmo.Draw(
 						[&](NkVec3f a, NkVec3f b, NkVec4f c) { r3d->DrawDebugLine(a, b, c, 0.f, true); },
 						[&](NkVec3f a, NkVec3f b, NkVec3f c, NkVec4f col) {
@@ -13360,6 +15286,131 @@ namespace nkentseu {
 				const NkVec3f cup = crgt.Cross(cfwd).Normalized();
 				const float32 cthY = tanf(60.f * 0.5f * 3.14159265f / 180.f);
 				const float32 cthX = cthY * ((float32)ctx.width / (float32)ctx.height);
+				// ── CROCHET DE MESURE : UN CLIC DE L'OUTIL CURSEUR, ECRIT ──────────
+				// NK_CURSOR_CLIC="x:y[:image[:periode]]" arme EXACTEMENT ce que pose le
+				// rappel souris de l'outil Curseur (cursorPlacePending + pixels de vue) :
+				// aucune souris de la machine n'est touchee, et le geste emprunte la seule
+				// porte existante. `periode` rejoue le clic toutes les N images -- le defaut
+				// signale est un clignotement d'UNE image, il faut donc pouvoir le viser.
+				// Separateur ':' (la virgule est le separateur decimal en fr-FR).
+				{
+					static bool sCcLu = false;
+					static float32 sCcX = 0.f, sCcY = 0.f;
+					static int32 sCcImg0 = 0, sCcPer = 0, sCcN = 0;
+					static bool sCcArme = false;
+					if (!sCcLu) {
+						sCcLu = true;
+						if (const char *cc = getenv("NK_CURSOR_CLIC")) {
+							float32 v[4] = {0.f, 0.f, 100.f, 0.f};
+							int32 k = 0;
+							for (const char *q = cc; k < 4 && *q;) {
+								v[k++] = (float32)atof(q);
+								while (*q && *q != ':')
+									++q;
+								if (*q == ':')
+									++q;
+							}
+							sCcX = v[0];
+							sCcY = v[1];
+							sCcImg0 = (int32)v[2];
+							sCcPer = (int32)v[3];
+							sCcArme = true;
+							logger.Info("[Demo3D] NK_CURSOR_CLIC arme : ({0},{1}) px de vue a partir de "
+								  "l'image {2}, periode {3}\n",
+								  sCcX, sCcY, sCcImg0, sCcPer);
+						}
+					}
+					if (sCcArme) {
+						++sCcN;
+						const bool premier = (sCcN == sCcImg0);
+						const bool rejoue = (sCcPer > 0 && sCcN > sCcImg0 && ((sCcN - sCcImg0) % sCcPer) == 0);
+						if (premier || rejoue) {
+							st->cursorPlacePending = true;
+							st->cursorPX = sCcX;
+							st->cursorPY = sCcY;
+							logger.Info("[Demo3D] NK_CURSOR_CLIC : clic ecrit a l'image {0}\n", sCcN);
+						}
+					}
+				}
+				const bool boiteClic = st->cursorPlacePending;
+				// ══ LA TRACE DU CLIC, ET ELLE N'A PAS DE CROCHET ═══════════════════
+				// Rodolf voit, a chaque clic sur le curseur de l'univers, « une boite
+				// englobante qui apparait et disparait ». Trois portes de clic ecrites
+				// n'ont pas reproduit le defaut, et je lui ai demande trois precisions
+				// -- ce qui revient a lui demander d'attraper une image au bon
+				// millieme de seconde, avec les mots qu'il faut.
+				//
+				// ⚠️ C'EST AU PROGRAMME DE REPONDRE, PAS A L'UTILISATEUR. Cette trace
+				//    part a CHAQUE clic, dans le binaire livre, sans variable
+				//    d'environnement : sans quoi elle demanderait a Rodolf de relancer
+				//    autrement, c'est-a-dire de reproduire exprès ce qui lui arrive par
+				//    surprise.
+				//
+				// ⚠️ ET ELLE COURT SUR PLUSIEURS IMAGES. Un clignotement d'UNE image ne
+				//    se voit pas dans un releve pris a l'instant du clic : la cause
+				//    peut etre publiee l'image d'APRES. On ecrit donc l'image du clic
+				//    et les six suivantes, puis on se tait.
+				{
+					static int32 sTrImg = 0;
+					static int32 sTrRest = 0;
+					static bool sTrPrev = false;
+					++sTrImg;
+					// ⚠️ LU A LA SOURCE (NkInput) ET NON DANS `gin`, qui n'existe pas a cette
+						//    portee : `gin` est l'entree assemblee du bloc d'edition, bien
+						//    plus haut. Meme question, meme reponse -- la source commune.
+						const bool clicMaintenant =
+							nkvpInputOn && nkvpHover && NkInput.IsMouseDown(NkMouseButton::NK_MB_LEFT);
+					if ((clicMaintenant && !sTrPrev) || boiteClic)
+						sTrRest = 7;
+					sTrPrev = clicMaintenant;
+					if (sTrRest > 0) {
+						--sTrRest;
+						// CE QU'ELLE DOIT PERMETTRE DE DISTINGUER, et c'est pour ca
+						// qu'elle porte ces champs-la et pas d'autres :
+						//   · mode + outil  -> quel chemin de clic a ete emprunte ;
+						//   · selection      -> un contour a-t-il une cible, ou non ;
+						//   · cerne / rect   -> une BOITE 3D publiee, ou un RECTANGLE
+						//                       plat de selection par zone. Les deux
+						//                       se decrivent « une boite qui apparait »
+						//                       et n'ont pas la meme cause.
+						int32 selV = 0;
+						for (uint32 i = 0; i < (uint32)st->vertSel.Size(); ++i)
+							selV += st->vertSel[i] ? 1 : 0;
+						logger.Info("[CLIC-TRACE] img={0} clic={1} curseur3D={2} mode={3} editMode={4} "
+									"outil={5} outilCurseur={6} selSommets={7} selObjet={8} selUser={9} "
+									"rectZone={10} cerneDemo={11} cerneUser={12} sansCible={13} "
+									"gizmoCache={14}\n",
+									sTrImg, clicMaintenant ? 1 : 0, boiteClic ? 1 : 0, st->uiMode,
+									st->editMode ? 1 : 0, st->selTool, nkvpCursorTool ? 1 : 0, selV,
+									st->gizmo.HasSelection() ? 1 : 0, st->emptyGizmo.ActiveIndex(),
+									st->selDragging ? 1 : 0, gBoiteOutObj, gBoiteOutUser,
+									gBoiteSansCible, nkvpGizmoHidden ? 1 : 0);
+					}
+				}
+				// SONDE NK_BOITE_SONDE=1 : ce que CETTE image publie pour etre cerne, et
+				// l'etat des candidats. Imprimee A CHAQUE IMAGE autour d'un clic : un
+				// clignotement d'une image ne se voit pas dans un releve espace.
+				{
+					static const bool sBs = []() {
+						const char *v = getenv("NK_BOITE_SONDE");
+						return v && v[0] && v[0] != '0';
+					}();
+					static int32 sBsImg = 0;
+					++sBsImg;
+					if (sBs)
+						logger.Info("[BOITE-SONDE] img={0} clic={1} curseur=({2}, {3}, {4}) "
+									"cerne_demo={5} (idx={6}) cerne_user={7} (noeud={8}) gizmoCache={9} "
+									"demoSel={10} userActif={11} selTool={12} selDrag={13} outilCurseur={14} "
+									"sans_cible={15}\n",
+									sBsImg, boiteClic ? 1 : 0, st->cursor3D.x, st->cursor3D.y, st->cursor3D.z,
+									gBoiteOutObj, gBoiteOutObjIdx, gBoiteOutUser, gBoiteOutUserIdx,
+									nkvpGizmoHidden ? 1 : 0, st->gizmo.HasSelection() ? 1 : 0,
+									st->emptyGizmo.ActiveIndex(), st->selTool, st->selDragging ? 1 : 0,
+									nkvpCursorTool ? 1 : 0, gBoiteSansCible);
+					gBoiteOutObj = 0;
+					gBoiteOutUser = 0;
+					gBoiteSansCible = 0;
+				}
 				if (st->cursorPlacePending) {
 					st->cursorPlacePending = false;
 					const float32 nx = st->cursorPX / (float32)ctx.width * 2.f - 1.f;
@@ -13505,7 +15556,9 @@ namespace nkentseu {
 				const char *gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
 				const char *orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
 				const char *seName[3] = {"VERTEX", "EDGE", "FACE"};
-				if (st->editMode) {
+				// L'AIDE SUIT LE MODE, pas le maillage ouvert : en Sculpture elle annoncait
+				// « EDIT MODE », E=extrude, X=suppr -- des touches qui ne doivent plus agir.
+				if (Demo3D_ElementsActifs(st)) {
 					char modeStr[8];
 					int mi = 0;
 					if (st->editSelMask & 1)
@@ -13521,10 +15574,31 @@ namespace nkentseu {
 					// effectivement posé ; « NORMAL » sans étoile = repli Local.
 					const int32 eo = st->editGizmo.Orientation() % 3;
 					const bool nf = (eo == 2) && st->editGizmo.HasNormalFrame();
+					// ⚠️ IL Y A **DEUX** ESPACES D'OBJETS, ET L'INCRUSTATION N'EN
+					//    NOMMAIT QU'UN. `editObjIdx` designe un objet de DEMO ;
+					//    `editUserIdx` designe un maillage de l'UTILISATEUR. Entrer
+					//    en edition sur un maillage utilisateur laisse donc
+					//    `editObjIdx` a -1 -- et l'ecran affichait « obj #-1 ».
+					//    Rodolf l'a photographie le 20/09 a 20:09.
+					// ⚠️ CE N'ETAIT PAS UNE CIBLE NON RESOLUE : la trace du meme
+					//    instant dit `cible=2 index=0`, donc la cible EST resolue.
+					//    C'etait l'incrustation qui lisait le mauvais champ, et qui
+					//    annoncait ainsi une panne qui n'existait pas. *Un affichage
+					//    qui dit -1 sur un etat valide envoie chercher un defaut
+					//    ailleurs.*
+					char cibleTxt[48];
+					if (st->editUserIdx >= 0)
+						snprintf(cibleTxt, sizeof(cibleTxt), "maillage #%d", st->editUserIdx);
+					else if (st->editObjIdx >= 0)
+						snprintf(cibleTxt, sizeof(cibleTxt), "obj #%d", st->editObjIdx);
+					else
+						// LE VRAI cas « aucune cible » garde un texte a lui : sinon on
+						// ne saurait plus distinguer l'anomalie de l'affichage.
+						snprintf(cibleTxt, sizeof(cibleTxt), "AUCUNE CIBLE");
 					overlay->DrawText({20.f, 100.f},
-									  "EDIT MODE (obj #%d)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
+									  "EDIT MODE (%s)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
 									  "Orient(,): %s%s  |  X-ray(Alt+Z): %s",
-									  st->editObjIdx, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
+									  cibleTxt, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
 									  nf ? "*" : "", st->editXray ? "ON" : "OFF");
 					overlay->DrawText({20.f, 118.f},
 									  "E=extrude %s(Sh:%s) X=suppr M=souder(Sh:%s) W=subdiv(Sh:x%d) "
@@ -13583,6 +15657,45 @@ namespace nkentseu {
 									  "Shift+clic droit (Alt+. = origine)",
 									  allSm ? "SMOOTH" : (anySm ? "MIXTE" : "FLAT"),
 									  st->editGizmo.PivotName());
+				} else if (st->editMode) {
+					// La 2.5D n'a PAS encore de brosse (seule la Sculpture en a une) : le dire
+					// plutot que promettre un clic qui ne fait rien.
+					overlay->DrawText({20.f, 100.f},
+									  "%s  |  ni selection, ni gizmo de sommets, ni G/R/S (comme Blender)",
+									  st->uiMode == 3 ? "SCULPTURE  |  clic gauche = brosse  |  Ctrl+Z = annuler le trait"
+													  : "SCULPTURE 2.5D  |  aucune brosse encore");
+					// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
+					// l'affichage en montre vraiment.
+					// LA SYMETRIE SE DIT TOUJOURS, PAS SEULEMENT SOUS LE GIZMO. Elle
+					// agit desormais sur les BROSSES aussi : « pourquoi l'autre cote
+					// bouge-t-il ? » doit avoir sa reponse a l'ecran quel que soit
+					// l'outil. (Elle etait gardee par `!nkvpGizmoHidden`, donc
+					// invisible sous la brosse -- exactement quand on en a besoin.)
+					{
+						const char *axesB[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+						overlay->DrawText({20.f, 154.f}, "Symetrie : %s", axesB[st->sculptSymMask & 7]);
+					}
+					// L'OUTIL ACTIF : sans cette ligne, « pourquoi le clic ne peint-il
+					// plus ? » n'a aucune reponse a l'ecran.
+					if (!nkvpGizmoHidden) {
+						const char *axes[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+						overlay->DrawText({20.f, 136.f},
+										  "TRANSFORM de sculpture  |  il deplace la partie NON MASQUEE  |  "
+										  "symetrie : %s  |  pivot : barycentre du libre",
+										  axes[st->sculptSymMask & 7]);
+					}
+					if (st->editHE.MaskExists()) {
+						char pasTxt[48];
+						pasTxt[0] = 0;
+						if (gMasquePas > 1u)
+							snprintf(pasTxt, sizeof(pasTxt), "  (affichage : 1 point sur %u)",
+									 (unsigned)gMasquePas);
+						overlay->DrawText({20.f, 118.f},
+										  "MASQUE  |  %u sommet(s) protege(s) sur %u  |  somme %.1f%s  |  "
+										  "brosses « masquer » / « demasquer »",
+										  (unsigned)gMasqueVus, (unsigned)st->editHE.VertCount(),
+										  (double)st->editHE.MaskSum(), pasTxt);
+					}
 				} else {
 					overlay->DrawText(
 						{20.f, 100.f},
@@ -13688,6 +15801,17 @@ namespace nkentseu {
 						prec = a;
 					}
 				}
+			}
+			// LE BILAN DE L'IMAGE. Pose en fin de FRAME et non en fin d'un bloc
+			// d'edition : les sites sont repartis dans PLUSIEURS blocs, et
+			// compter a la fin de l'un d'eux en manquerait d'autres.
+			NKEDSTEP(9); // jalon de dichotomie
+			Demo3D_EdProfDump((int32)st->editHE.VertCount());
+			Demo3D_EdStepDump();
+			if (gEdProfOn) {
+				const auto tFr1 = std::chrono::high_resolution_clock::now();
+				logger.Info("[Demo3D] EDPROF frame entiere : {0} ms\n",
+					(float32)std::chrono::duration<double, std::milli>(tFr1 - tFr0).count());
 			}
 		}
 
@@ -16195,6 +18319,7 @@ namespace nkentseu {
 			op &= 3;
 			st->gizmo.SetMode(op);
 			st->editGizmo.SetMode(op);
+			st->sculptGizmo.SetMode(op); // le Transform de sculpture suit la meme barre
 			st->lightGizmo.SetMode(op);
 			st->emptyGizmo.SetMode(op);
 		}
@@ -16355,6 +18480,24 @@ namespace nkentseu {
 			auto *st = HostSt();
 			return st && st->editMode;
 		}
+		bool Demo3DHostElementsActifs() {
+			return Demo3D_ElementsActifs(HostSt());
+		}
+		// LA PORTE DES OPERATIONS D'ELEMENTS, a cote de celle du maillage ouvert.
+		// En Sculpture le maillage EST ouvert : `HostEditRun` seul laissait donc
+		// extruder, supprimer, fusionner la selection par la facade (menus, verbes
+		// de l'IA). On REFUSE, et on le dit -- se taire ressemblerait a un bouton
+		// casse. Annuler, Refaire et le trait de sculpture, eux, restent sur
+		// `HostEditRun` : ils ne designent rien.
+		static bool HostRefuseSansElements(const char *quoi) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || Demo3D_ElementsActifs(st))
+				return false;
+			logger.Info("[Demo3D] {0} REFUSE : mode {1} sans elements (tout comme Blender en "
+						"Sculpture : ni selection, ni gizmo, ni operation de sommets)\n",
+						quoi, st->uiMode);
+			return true;
+		}
 		// OPERATIONS D EDITION : LA FORME PORTEE DEPUIS NkViewport3D
 		// Chaque entree appelle la fonction VIVANTE de ce fichier. Verifie
 		// nommement : Merge passe par Demo3D_MergeHE (qui pose merge.point, le
@@ -16404,7 +18547,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditExtrude(bool individual) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("Extrude"))
 				return false;
 			// L etat porte le mode region/individuel ; on le pose le temps de l appel
 			// et on le REND, sinon un bouton changerait un reglage que l utilisateur
@@ -16416,6 +18559,8 @@ namespace nkentseu {
 			return ok;
 		}
 		bool Demo3DHostEditDelete() {
+			if (HostRefuseSansElements("Delete"))
+				return false;
 			return HostEditRun(&Demo3D_DeleteHE);
 		}
 		// LE MENU X A DEMANDE UN ELEMENT PRECIS. Meme entonnoir que le bouton :
@@ -16424,7 +18569,7 @@ namespace nkentseu {
 		// faite sur l'un dise quelque chose de l'autre.
 		bool Demo3DHostEditDeleteMode(int32 element) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("DeleteMode"))
 				return false;
 			st->editDeleteMode = element;
 			const bool ok = HostEditRun(&Demo3D_DeleteHE);
@@ -16542,16 +18687,22 @@ namespace nkentseu {
 			if (!st || mode < 0)
 				return;
 			st->uiMode = mode;
-			const bool veutEdition = (mode == 1); // NkMode::Edit
-			if (veutEdition != st->editMode)
+			// ⚠️ L'ENSEMBLE, ET NON L'EGALITE A 1. `veutEdition = (mode == 1)`
+			//    identifiait un ETAT DE DONNEE (le maillage est-il ouvert) a un AXE
+			//    D'INTERACTION (dans quel mode suis-je). Consequence mesuree le
+			//    20/09 : passer en Sculpture ARMAIT la sortie du maillage que la
+			//    sculpture reclame. Cf. NkModeNeedsEditMesh pour le raisonnement
+			//    complet et la liste des modes a venir.
+			const bool veutMaillage = NkModeNeedsEditMesh(mode);
+			if (veutMaillage != st->editMode)
 				st->editTogglePending = true;
 			// ⚠ C'EST ICI QUE L'ECHEC DEVIENT MESURABLE, et nulle part ailleurs.
 			// Le shell appelle cette fonction UNE FOIS PAR IMAGE avec son propre
 			// mode : c'est le seul point qui voit, chaque image, si les deux cotes
 			// sont d'accord. Tant qu'ils ne le sont pas, on compte.
-			// On ne compte QUE l'entree refusee (veutEdition && !editMode) : la
+			// On ne compte QUE l'entree refusee (veutMaillage && !editMode) : la
 			// SORTIE d'edition, elle, ne peut pas echouer.
-			if (veutEdition && !st->editMode) {
+			if (veutMaillage && !st->editMode) {
 				if (st->editRefusedFrames < 1000000)
 					++st->editRefusedFrames;
 			} else {
@@ -16690,6 +18841,25 @@ namespace nkentseu {
 			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
 			logger.Info("[Demo3D] CADRER TOUT : centre=({0}, {1}, {2}) rayon={3} distance={4}\n",
 						centre.x, centre.y, centre.z, rayon, d);
+		}
+		// CADRER UNE BOITE MONDE, l'angle garde (21/09). `FrameAll` cadre la
+		// SCENE : la lumiere et la camera de demo l'ecartent, et une chaise de
+		// 0,9 m y tenait en vingt pixels -- l'image ne montrait rien a juger. La
+		// MEME loi de distance que FrameAll, sur la boite qu'on lui donne.
+		void Demo3DHostFrameBox(const float32 *mn3, const float32 *mx3) {
+			auto *st = HostSt();
+			if (!st || !mn3 || !mx3)
+				return;
+			const NkVec3f centre{(mn3[0] + mx3[0]) * 0.5f, (mn3[1] + mx3[1]) * 0.5f, (mn3[2] + mx3[2]) * 0.5f};
+			const float32 ex = mx3[0] - centre.x, ey = mx3[1] - centre.y, ez = mx3[2] - centre.z;
+			float32 rayon = sqrtf(ex * ex + ey * ey + ez * ez);
+			if (rayon < 0.05f)
+				rayon = 0.05f;
+			const float32 fovY = 45.f * 3.14159265f / 180.f;
+			float32 d = (rayon * 1.25f) / tanf(fovY * 0.5f);
+			if (d < 0.2f)
+				d = 0.2f;
+			st->editorCam.SetCenter(centre, d, st->editorCam.GetYaw(), st->editorCam.GetPitch());
 		}
 
 		// NK_EDGE_MARK=1 : pose `sel=1` sur TOUTES les aretes vivantes.
@@ -16996,7 +19166,7 @@ namespace nkentseu {
 		void Demo3DHostSelectAll(bool on) {
 			auto *st = HostModSt();
 			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
-			if (!st || !ms)
+			if (!st || !ms || HostRefuseSansElements(on ? "SelectAll" : "SelectNone"))
 				return;
 			if (on)
 				st->editHE.SelectAll();
@@ -17163,28 +19333,460 @@ namespace nkentseu {
 			HostModTouch(st);
 		}
 		bool Demo3DHostEditMerge() {
+			if (HostRefuseSansElements("Merge"))
+				return false;
 			return HostEditRun(&Demo3D_MergeHE);
 		}
 		bool Demo3DHostEditMakeFace() {
+			if (HostRefuseSansElements("MakeFace"))
+				return false;
 			return HostEditRun(&Demo3D_MakeFaceHE);
 		}
 		bool Demo3DHostEditSubdivide() {
+			if (HostRefuseSansElements("Subdivide"))
+				return false;
 			return HostEditRun(&Demo3D_SubdivideHE);
 		}
+		// ──────────────────────────────────────────────────────────────────────
+		// POSER UN TRAIT DE SCULPTURE.
+		// Les points sont en REPERE OBJET (x,y,z consecutifs), les normales de
+		// meme. `brushName` choisit la brosse DANS LE REGISTRE -- donc dans les
+		// fichiers de donnees, jamais dans une enumeration.
+		// ⚠️ Les reglages passes ici (rayon, force) SURCHARGENT ceux de la
+		//    brosse, et ce sont EUX qui partent dans la commande : ce qui est
+		//    enregistre est le geste REELLEMENT fait, pas le reglage du fichier
+		//    au moment du rejeu. Une valeur <= 0 signifie « garde celle de la
+		//    brosse ».
+
+		int32 Demo3DHostBrushCount() {
+			auto *st = HostSt();
+			if (!st)
+				return 0;
+			Demo3D_LoadBrushes(st);
+			return (int32)st->brushes.Count();
+		}
+		const char *Demo3DHostBrushName(int32 i) {
+			auto *st = HostSt();
+			if (!st || i < 0)
+				return nullptr;
+			Demo3D_LoadBrushes(st);
+			// ⚠️ STATIQUE ET RECOPIE : le registre rend une COPIE du descripteur,
+			//    qui meurt a la fin de cette fonction. Rendre un pointeur dedans
+			//    serait un pointeur pendant -- la faute que le registre de composants
+			//    a deja coutee au depot, sous une autre forme.
+			static char sName[48];
+			renderer::NkBrushDesc d;
+			if (!st->brushes.At((uint16)i, d))
+				return nullptr;
+			for (uint32 k = 0; k < 48; ++k)
+				sName[k] = d.name[k];
+			sName[47] = 0;
+			return sName;
+		}
+
+		// Le NOM de la brosse en service. Vide impossible : s'il n'y a aucune
+		// brosse, on rend la chaine vide et l'interface n'affiche pas de selecteur
+		// -- plutot qu'un selecteur vide, qui se lit comme une panne.
+		const char *Demo3DHostBrushCurrent() {
+			auto *st = HostSt();
+			static char sCur[48];
+			sCur[0] = 0;
+			renderer::NkBrushDesc d;
+			if (st && Demo3D_BrosseCourante(st, d)) {
+				for (uint32 k = 0; k < 48u; ++k) {
+					sCur[k] = d.name[k];
+					if (!d.name[k])
+						break;
+				}
+				sCur[47] = 0;
+			}
+			return sCur;
+		}
+
+		// CHOISIR PAR LE NOM, ET REFUSER UN NOM INCONNU PLUTOT QUE DE LE POSER.
+		// Accepter `n'importe quoi` ferait sculpter avec la premiere brosse du
+		// catalogue en laissant croire que le choix a pris -- un echec muet. Le
+		// booleen rendu est ce que le crochet de mesure imprime.
+		bool Demo3DHostSetBrushByName(const char *nom) {
+			auto *st = HostSt();
+			if (!st || !nom || !nom[0])
+				return false;
+			Demo3D_LoadBrushes(st);
+			const uint16 n = st->brushes.Count();
+			for (uint16 i = 0; i < n; ++i) {
+				renderer::NkBrushDesc d;
+				if (st->brushes.At(i, d) && std::strcmp(d.name, nom) == 0) {
+					uint32 k = 0;
+					for (; k + 1u < 48u && d.name[k]; ++k)
+						st->activeBrushName[k] = d.name[k];
+					st->activeBrushName[k] = 0;
+					return true;
+				}
+			}
+			return false;
+		}
+		// ── LES TROIS REGLAGES D'UNE BROSSE, ET LEURS BORNES ────────────────
+		// Rodolf, 25/09 : « on ne voit pas la taille de brosse, on ne peut pas
+		// modifier les proprietes de dessin ». Elles se lisent et s'ecrivent ici,
+		// et TOUJOURS sur la brosse ACTIVE : un reglage qui demanderait un nom
+		// obligerait chaque appelant (panneau, clavier, crochet) a redire lequel,
+		// et le premier qui se tromperait reglerait une brosse invisible.
+		//
+		// ⚠️ CE QU'ON REND EST LA VALEUR EFFECTIVE, pas le reglage : si rien n'a
+		//    ete regle, c'est celle du fichier. Rendre « non regle » obligerait
+		//    l'interface a relire le fichier pour afficher quelque chose -- donc a
+		//    refaire ici la resolution qu'on vient d'ecrire une fois.
+		bool Demo3DHostBrushParams(float32 *radius, float32 *strength, float32 *hardness) {
+			auto *st = HostSt();
+			renderer::NkBrushDesc d;
+			if (!st || !Demo3D_BrosseCourante(st, d))
+				return false;
+			if (radius)
+				*radius = d.radius;
+			if (strength)
+				*strength = d.strength;
+			if (hardness)
+				*hardness = d.hardness;
+			return true;
+		}
+
+		// Les bornes de la GLISSIERE, lues dans le fichier de la brosse. Elles y
+		// sont parce qu'« une brosse de detail et une brosse de blocage n'ont pas
+		// la meme plage utile » -- le commentaire du format le dit, et l'interface
+		// doit le respecter au lieu d'imposer une plage unique.
+		bool Demo3DHostBrushRange(float32 *rMin, float32 *rMax, float32 *sMin, float32 *sMax) {
+			auto *st = HostSt();
+			renderer::NkBrushDesc d;
+			if (!st || !Demo3D_BrosseCourante(st, d))
+				return false;
+			if (rMin)
+				*rMin = d.radiusMin;
+			if (rMax)
+				*rMax = d.radiusMax;
+			if (sMin)
+				*sMin = d.strengthMin;
+			if (sMax)
+				*sMax = d.strengthMax;
+			return true;
+		}
+
+		// REGLER. Une valeur < 0 laisse la grandeur inchangee.
+		bool Demo3DHostSetBrushParams(float32 radius, float32 strength, float32 hardness) {
+			auto *st = HostSt();
+			renderer::NkBrushDesc d;
+			if (!st || !Demo3D_BrosseCourante(st, d))
+				return false;
+			Demo3D_RegleBrosse(st, d.name, radius, strength, hardness);
+			return true;
+		}
+
+		// LE PAS DU CLAVIER (les crochets, comme Blender). Il est MULTIPLICATIF
+		// pour le rayon et ADDITIF pour la force, et ce n'est pas un detail de
+		// confort : un pas additif sur le rayon ferait dix appuis pour passer de
+		// 0,01 a 0,11 et deux pour doubler une grosse brosse. L'oeil lit le rayon
+		// en proportion, pas en unites monde.
+		bool Demo3DHostNudgeBrush(int32 quoi, int32 sens) {
+			return Demo3D_PasBrosse(HostSt(), quoi, sens);
+		}
+
+		// -- LE TRAIT : LA PORTE UNIQUE, cote hote -------------------------------
+		// Le geste souris et le crochet de mesure entrent ICI tous les deux. Un
+		// crochet qui recopierait le corps mesurerait un chemin que Rodolf
+		// n'emprunte jamais -- c'est la regle payee sur NkBrowserDropOnView et sur
+		// NK_SCULPT_AT, et elle vaut encore ici.
+		//
+		// Les points arrivent en coordonnees LOCALES du maillage edite, comme pour
+		// la sculpture : le raycast est fait par l'appelant, qui seul connait la
+		// camera. Chaque point pose un tampon ; le trait est la reunion.
+		int32 Demo3DHostTraceTrait(const float32 *pts, int32 count, float32 rayon, int32 numero) {
+			auto *st = HostSt();
+			if (!st || !pts || count <= 0 || rayon <= 0.f)
+				return 0;
+			if (numero <= 0 || numero > 255)
+				return 0;
+			if (!st->editMode)
+				return 0; // pas de maillage edite : rien a tracer, et on ne devine pas
+			// [!] TOUJOURS AUCUNE SYNCHRONISATION ICI, ET LA RAISON A CHANGE.
+			//     J'avais ecrit qu'elle manquait, avec sa condition de retrait : « le
+			//     jour ou le trait se peint, ces portes devront passer par la meme
+			//     synchronisation que les operations d'edition ». Le trait se peint
+			//     depuis aujourd'hui -- et la condition ne s'applique pas.
+			//
+			//     Il est trace chaque image par `DrawDebugTriangle`, dans la meme
+			//     boucle que le remplissage des faces selectionnees, et NON dans un
+			//     lot persistant : il n'y a donc rien a invalider. Une synchronisation
+			//     ajoutee « par securite » aurait reconstruit le fil de fer a chaque
+			//     tampon de trace, pour rien.
+			//
+			//     *Une condition de retrait qu'on laisse ecrite apres son echeance
+			//     fait faire le travail qu'elle annonçait, meme devenu inutile.*
+			int32 total = 0;
+			for (int32 k = 0; k < count; ++k) {
+				const NkVec3f p{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]};
+				total += (int32)st->editHE.TraceTrait(p, rayon, (uint8)numero);
+			}
+			return total;
+		}
+
+		int32 Demo3DHostCompteTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			return (int32)st->editHE.CompteTrait((uint8)numero);
+		}
+
+		int32 Demo3DHostEffaceTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero < 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.EffaceTrait((uint8)numero);
+			return n;
+		}
+
+		// LA DESIGNATION : le trait devient la selection, et les sept verbes du
+		// contrat qui operent « sur la selection » s'y appliquent sans qu'une ligne
+		// de la table change. C'est tout ce que « creuse ici » demandait.
+		int32 Demo3DHostSelectionnerTrait(int32 numero) {
+			auto *st = HostSt();
+			if (!st || !st->editMode || numero <= 0 || numero > 255)
+				return 0;
+			const int32 n = (int32)st->editHE.SelectionnerTrait((uint8)numero);
+			return n;
+		}
+
+		bool Demo3DHostEditSculptStroke(const float32 *pts, const float32 *nrms, int32 count,
+					  const char *brushName, float32 radius, float32 strength,
+					  float32 hardness) {
+			auto *st = HostSt();
+			if (!st || !pts || count <= 0)
+				return false;
+			Demo3D_LoadBrushes(st);
+			const int32 bi = st->brushes.IndexOf(brushName ? brushName : "dessiner");
+			if (bi < 0) {
+				// ⚠️ REFUS NOMME, jamais un repli sur « la premiere brosse venue » :
+				//    sculpter avec une autre brosse que celle demandee produirait une
+				//    forme plausible et fausse, que rien ne signalerait.
+				logger.Warn("[Demo3D] sculpture REFUSEE : brosse inconnue '{0}' ({1} chargee(s))\n",
+					brushName ? brushName : "(null)", (uint32)st->brushes.Count());
+				return false;
+			}
+			renderer::NkBrushDesc d;
+			if (!st->brushes.At((uint16)bi, d))
+				return false;
+			// LE REGLAGE VIVANT PASSE PAR-DESSUS LE FICHIER, et l'argument
+			// explicite par-dessus les deux. Ce site resout la brosse par son NOM
+			// (le rejeu en donne un qui n'est pas forcement la brosse active), donc
+			// il ne peut pas emprunter `Demo3D_BrosseCourante` -- mais il emprunte
+			// la MEME formule, celle-la meme, au lieu d'en reecrire une.
+			Demo3D_AppliqueReglages(st, d);
+			st->sculptParams = renderer::NkSculptCmdParams{};
+			st->sculptParams.radius = (radius > 0.f) ? radius : d.radius;
+			st->sculptParams.strength = (strength > 0.f) ? strength : d.strength;
+			st->sculptParams.hardness = (hardness >= 0.f) ? hardness : d.hardness;
+			st->sculptParams.dir = d.dir;
+			st->sculptParams.falloff = (uint8)d.falloff;
+			st->sculptParams.primitive = (uint8)d.op;
+			// LA SYMETRIE DU MODE VOYAGE AVEC LE GESTE. Elle n'est pas dans le
+			// fichier de brosse (c'est un reglage du mode, pas de l'outil), mais
+			// elle doit etre dans la COMMANDE : rejouer une session apres avoir
+			// change l'interrupteur reproduirait sinon un autre geste, en silence.
+			st->sculptParams.symX = (uint8)((st->sculptSymMask & 1) ? 1 : 0);
+			st->sculptParams.symY = (uint8)((st->sculptSymMask & 2) ? 1 : 0);
+			st->sculptParams.symZ = (uint8)((st->sculptSymMask & 4) ? 1 : 0);
+			for (uint32 k = 0; k < 47 && d.name[k]; ++k)
+				st->sculptParams.brushName[k] = d.name[k];
+			st->sculptPts.Clear();
+			st->sculptNrm.Clear();
+			for (int32 k = 0; k < count; ++k) {
+				st->sculptPts.PushBack(NkVec3f{pts[k * 3 + 0], pts[k * 3 + 1], pts[k * 3 + 2]});
+				if (nrms)
+					st->sculptNrm.PushBack(NkVec3f{nrms[k * 3 + 0], nrms[k * 3 + 1], nrms[k * 3 + 2]});
+			}
+			st->sculptPending = true;
+			// ── CE QUE LE TRAIT A REELLEMENT FAIT ───────────────────────────
+			// Le journal disait jusqu'ici « ok=1 », c'est-a-dire « la commande
+			// est passee » -- pas « la matiere a bouge ». Les deux se separent
+			// des qu'un reglage entre en jeu : une force a 0 rend ok=1 et ne
+			// deplace rien, et c'est precisement ce qu'un banc doit distinguer.
+			//
+			// ⚠️ COMPARE LES POSITIONS, ne recalcule pas le deplacement attendu.
+			//    Un temoin qui refait la formule de la brosse serait d'accord
+			//    avec elle par construction -- y compris quand elle est fausse.
+			//
+			// Le cout est une copie de positions PAR TRAIT (pas par image), a
+			// cote du cliche d'annulation que la commande prend de toute facon.
+			NkVector<NkVec3f> avant;
+			avant.Reserve(st->editHE.VertCount());
+			for (uint32 i = 0; i < st->editHE.VertCount(); ++i)
+				avant.PushBack(st->editHE.verts[i].pos);
+			const bool okc = HostEditRun(&Demo3D_SculptHE);
+			int32 bouges = 0;
+			float32 dmax = 0.f;
+			double dsum = 0.0;
+			const uint32 nc = (st->editHE.VertCount() < (uint32)avant.Size())
+								  ? st->editHE.VertCount()
+								  : (uint32)avant.Size();
+			for (uint32 i = 0; i < nc; ++i) {
+				const float32 dd = (st->editHE.verts[i].pos - avant[i]).Len();
+				if (dd > 1e-7f) {
+					++bouges;
+					dsum += (double)dd;
+					if (dd > dmax)
+						dmax = dd;
+				}
+			}
+			logger.Info("[SCULPT-MESURE] brosse='{0}' rayon={1} force={2} durete={3} pts={4} "
+						"-> bouges={5} dmax={6} dsomme={7} ok={8}\n",
+						d.name, st->sculptParams.radius, st->sculptParams.strength,
+						st->sculptParams.hardness, count, bouges, dmax, (float32)dsum,
+						okc ? 1 : 0);
+			return okc;
+		}
+		// ── LE MASQUE : LES TROIS GESTES EN BLOC, ET SA LECTURE ─────────────
+		// `mode` : 0 tout demasquer · 1 tout masquer · 2 inverser. Rend vrai si
+		// quelque chose a CHANGE (donc si une etape d'annulation a ete posee).
+		// ⚠️ PAS DE `HostRefuseSansElements` ICI : le masque EST un outil de
+		//    sculpture. Il doit agir precisement la ou le gizmo de sommets ne doit
+		//    pas -- c'est meme la seule raison pour laquelle il existe.
+		bool Demo3DHostMaskAll(int32 mode, float32 poids) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			st->maskAllParams.mode = (uint8)((mode < 0 || mode > 2) ? 0 : mode);
+			st->maskAllParams.poids = (poids > 0.f) ? poids : 1.f;
+			const bool ok = HostEditRun(&Demo3D_MaskAllHE);
+			logger.Info("[Demo3D] MASQUE en bloc : mode={0} poids={1} -> agi={2} · sommets masques={3} somme={4}\n",
+						(int32)st->maskAllParams.mode, st->maskAllParams.poids, ok ? 1 : 0,
+						st->editHE.MaskedCount(), st->editHE.MaskSum());
+			return ok;
+		}
+		// CE QUE LE MASQUE VAUT, pour l'interface et pour les bancs. Trois
+		// chiffres distincts parce qu'ils ne disent pas la meme chose : le
+		// tableau existe-t-il (cout memoire), combien de sommets sont proteges
+		// (ce qui se voit), et la somme des poids (le seul critere continu).
+		bool Demo3DHostMaskExists() {
+			auto *st = HostSt();
+			return st && st->editHE.MaskExists();
+		}
+		int32 Demo3DHostMaskCount(float32 seuil) {
+			auto *st = HostSt();
+			return st ? (int32)st->editHE.MaskedCount(seuil > 0.f ? seuil : 0.001f) : 0;
+		}
+		float32 Demo3DHostMaskSum() {
+			auto *st = HostSt();
+			return st ? st->editHE.MaskSum() : 0.f;
+		}
+		// LE COUT MEMOIRE, MESURE ET NON ESTIME : les octets que le masque occupe
+		// reellement dans ce maillage (0 tant que personne n'a peint).
+		int32 Demo3DHostMaskBytes() {
+			auto *st = HostSt();
+			return st ? (int32)((uint32)st->editHE.vertMask.Size() * (uint32)sizeof(float32)) : 0;
+		}
+		// ── L'OUTIL TRANSFORM DE SCULPTURE (Blender) ────────────────────────
+		// Deplace / tourne / met a l'echelle la partie NON MASQUEE, autour d'un
+		// pivot, avec la symetrie par axe. Angles en DEGRES, pivot en repere
+		// OBJET. Rend vrai si au moins un sommet a bouge.
+		// ⚠️ SANS MASQUE, IL DEPLACE TOUT -- « la partie non masquee » d'un
+		//    maillage sans masque, c'est le maillage. C'est Blender.
+		bool Demo3DHostSculptTransform(const float32 *translate3, const float32 *rotDeg3,
+									   const float32 *scale3, const float32 *pivot3, int32 symMask) {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			renderer::NkSculptTransformParams T;
+			if (translate3)
+				T.translate = {translate3[0], translate3[1], translate3[2]};
+			if (rotDeg3)
+				T.rotDeg = {rotDeg3[0], rotDeg3[1], rotDeg3[2]};
+			if (scale3)
+				T.scale = {scale3[0], scale3[1], scale3[2]};
+			if (pivot3)
+				T.pivot = {pivot3[0], pivot3[1], pivot3[2]};
+			T.symX = (uint8)((symMask & 1) ? 1 : 0);
+			T.symY = (uint8)((symMask & 2) ? 1 : 0);
+			T.symZ = (uint8)((symMask & 4) ? 1 : 0);
+			st->sculptXformParams = T;
+			const bool ok = HostEditRun(&Demo3D_SculptXformHE);
+			logger.Info("[Demo3D] TRANSFORM sculpture : t=({0}, {1}, {2}) r=({3}, {4}, {5}) "
+						"e=({6}, {7}, {8}) pivot=({9}, {10}, {11}) sym={12} -> agi={13} · masques={14}\n",
+						T.translate.x, T.translate.y, T.translate.z, T.rotDeg.x, T.rotDeg.y,
+						T.rotDeg.z, T.scale.x, T.scale.y, T.scale.z, T.pivot.x, T.pivot.y,
+						T.pivot.z, symMask, ok ? 1 : 0, st->editHE.MaskedCount());
+			return ok;
+		}
+		// LA SYMETRIE DE LA SCULPTURE (bit 0 = X, 1 = Y, 2 = Z). Elle vaut pour
+		// l'outil Transform ; les brosses la recevront quand elles la porteront.
+		// ⚠️ ETAT, PAS COMMANDE : c'est un REGLAGE d'outil, pas un geste. L'inscrire
+		//    dans l'historique ferait qu'annuler un deplacement changerait aussi la
+		//    symetrie -- deux intentions de duree differente dans un meme champ.
+		void Demo3DHostSetSculptSym(int32 mask) {
+			if (auto *st = HostSt())
+				st->sculptSymMask = mask & 7;
+		}
+		int32 Demo3DHostSculptSym() {
+			auto *st = HostSt();
+			return st ? st->sculptSymMask : 0;
+		}
+		// ── LE MASQUE D'UN NOEUD, POUR LE PROJET ────────────────────────────
+		// Lu a l'enregistrement, repose a l'ouverture. Aligne sur les sommets du
+		// maillage de RENDU du noeud -- les memes que ceux qu'ecrit le `.nkgeo`.
+		// Rend faux (et count = 0) quand le noeud n'a aucun masque : un projet qui
+		// n'a jamais masque n'ecrit rien.
+		bool Demo3DHostNodeMask(int32 node, const float32 **outW, uint32 *outCount) {
+			if (outW)
+				*outW = nullptr;
+			if (outCount)
+				*outCount = 0;
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser || nkvpUserMask[u].Empty())
+				return false;
+			// UN MASQUE TOUT A ZERO N'EST PAS UN MASQUE : l'ecrire couterait quatre
+			// octets par sommet pour dire « rien », et la relecture croirait qu'un
+			// masque existe.
+			bool nonNul = false;
+			for (uint32 i = 0; i < (uint32)nkvpUserMask[u].Size() && !nonNul; ++i)
+				nonNul = (nkvpUserMask[u][i] > 0.f);
+			if (!nonNul)
+				return false;
+			if (outW)
+				*outW = nkvpUserMask[u].Data();
+			if (outCount)
+				*outCount = (uint32)nkvpUserMask[u].Size();
+			return true;
+		}
+		bool Demo3DHostSetNodeMask(int32 node, const float32 *w, uint32 count) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser)
+				return false;
+			nkvpUserMask[u].Clear();
+			if (!w || count == 0)
+				return true; // « pas de masque » est un etat valide, pas un echec
+			nkvpUserMask[u].Resize(count);
+			for (uint32 i = 0; i < count; ++i)
+				nkvpUserMask[u][i] = w[i];
+			logger.Info("[Demo3D] MASQUE repose sur le noeud {0} : {1} poids relus\n", node, count);
+			return true;
+		}
 		bool Demo3DHostEditLoopCut() {
+			if (HostRefuseSansElements("LoopCut"))
+				return false;
 			return HostEditRun(&Demo3D_LoopCutHE);
 		}
 		bool Demo3DHostEditInset() {
+			if (HostRefuseSansElements("Inset"))
+				return false;
 			return HostEditRun(&Demo3D_InsetHE);
 		}
 		bool Demo3DHostEditDissolve() {
+			if (HostRefuseSansElements("Dissolve"))
+				return false;
 			return HostEditRun(&Demo3D_DissolveHE);
 		}
 		bool Demo3DHostEditBevel(bool vertexMode) {
 			// Demo3D_BevelHE prend un troisieme parametre : pas de pointeur uniforme.
 			auto *st = HostSt();
 			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
-			if (!st || !ms || !st->editMode)
+			if (!st || !ms || !st->editMode || HostRefuseSansElements("Bevel"))
 				return false;
 			const uint32 avant = st->editHistory.UndoCount();
 			Demo3D_BevelHE(st, ms, vertexMode);
@@ -17196,16 +19798,20 @@ namespace nkentseu {
 		// demande un nouvel operateur, c'est la STRUCTURE qu'il aurait fallu
 		// corriger, pas ajouter le chemin.
 		bool Demo3DHostEditSpin() {
+			if (HostRefuseSansElements("Spin"))
+				return false;
 			return HostEditRun(&Demo3D_SpinHE);
 		}
 		bool Demo3DHostEditEdgeSplit() {
+			if (HostRefuseSansElements("EdgeSplit"))
+				return false;
 			return HostEditRun(&Demo3D_EdgeSplitHE);
 		}
 		bool Demo3DHostEditModal(int32 op) {
 			auto *st = HostSt();
 			// 9..11 = deplacer / tourner / redimensionner : la MEME porte que les touches
 			// G/R/S du viseur (modalStartPending), que Demo3D_ModalStart sait deja lancer.
-			if (!st || !st->editMode || op < 1 || op > 11)
+			if (!st || !st->editMode || op < 1 || op > 11 || HostRefuseSansElements("EditModal"))
 				return false;
 			// On POSE la demande, on ne lance pas : le cadre modal a besoin de la
 			// souris et du systeme de maillage, dont ce rappel d'interface ne
@@ -17216,7 +19822,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostArmKnife() {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("ArmKnife"))
 				return false;
 			st->knifeArmed = true;
 			st->knifeHasP0 = false;
@@ -17243,7 +19849,8 @@ namespace nkentseu {
 		// du shell, qui ne depend pas du survol de la vue.
 		bool Demo3DHostTransformModal(int32 op) {
 			auto *st = HostSt();
-			if (!st || op < 9 || op > 11)
+			// En Sculpture, G/R/S ne transforment ni les sommets NI l'objet (Blender).
+			if (!st || op < 9 || op > 11 || HostRefuseSansElements("G/R/S"))
 				return false;
 			st->modalStartPending = op;
 			return true;
@@ -17334,6 +19941,33 @@ namespace nkentseu {
 			if (segLabel) *segLabel = ls;
 			if (seg) *seg = st->modalSeg;
 			return true;
+		}
+		// LE MOTIF DU REFUS, pour que le BANDEAU dise ce que le JOURNAL dit.
+		// Les deux sont poses au meme endroit, dans la meme condition : ils ne
+		// peuvent pas diverger.
+		// CE NOEUD A-T-IL UN MAILLAGE A LUI ?
+		// ⚠️ C'EST LA MEME CONDITION QUE CELLE QUI REFUSE L'EDITION
+		//    (`q.userMeshValid` dans NkVpResolveEditTarget). Un second calcul
+		//    divergerait : la hierarchie marquerait des noeuds que l'edition
+		//    accepte, ou l'inverse -- et on ne saurait plus lequel croire.
+		// CE MAILLAGE A-T-IL ETE EDITE ? L'enregistrement s'en sert pour decider
+		// s'il ecrit la geometrie ou seulement les parametres de creation.
+		bool Demo3DHostNodeMeshEdite(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			return nkvpUserMeshEdite[node - kNkvpFirstUser];
+		}
+		bool Demo3DHostNodeHasOwnMesh(int32 node) {
+			if (node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return true; // hors des noeuds utilisateur : rien a signaler
+			const int32 u = node - kNkvpFirstUser;
+			if (nkvpUserKind[u] == 0)
+				return true; // emplacement libre
+			return nkvpUserMesh[u].IsValid();
+		}
+		int32 Demo3DHostEditRefusMotif() {
+			auto *st = HostSt();
+			return st ? st->editRefusMotif : 0;
 		}
 		int32 Demo3DHostEditRefusedFrames() {
 			auto *st = HostSt();
@@ -17710,7 +20344,7 @@ namespace nkentseu {
 		// de sens et se taire serait pire que refuser.
 		bool Demo3DHostEditPickAt(float32 x, float32 y, bool shift, bool alt) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickAt"))
 				return false;
 			st->editPickX = x;
 			st->editPickY = y;
@@ -17731,7 +20365,7 @@ namespace nkentseu {
 		// element actif -- est le code du clic, et n'est pas duplique ici.
 		bool Demo3DHostEditPickFace(int32 face, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickFace"))
 				return false;
 			if (face < 0 || (uint32)face >= st->editHE.FaceCount())
 				return false;
@@ -17761,7 +20395,7 @@ namespace nkentseu {
 		// Le pendant pour l'ARETE. Meme porte, meme consommation, meme toggle.
 		bool Demo3DHostEditPickEdge(int32 edge, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickEdge"))
 				return false;
 			if (edge < 0 || (uint32)edge >= (uint32)st->editHE.edges.Size())
 				return false;
@@ -17796,7 +20430,7 @@ namespace nkentseu {
 		}
 		bool Demo3DHostEditPickVert(int32 vert, bool shift) {
 			auto *st = HostSt();
-			if (!st || !st->editMode)
+			if (!st || !st->editMode || HostRefuseSansElements("EditPickVert"))
 				return false;
 			if (vert < 0 || (uint32)vert >= (uint32)st->editLive.Size())
 				return false;
@@ -18384,7 +21018,7 @@ namespace nkentseu {
 		}
 		void Demo3DHostClearXform(int32 which) {
 			auto *st = HostSt();
-			if (!st)
+			if (!st || HostRefuseSansElements("ClearXform"))
 				return;
 			// L'« Appliquer » de l'outil : remet la composante de la SELECTION,
 			// exactement Alt+G / Alt+R / Alt+S de la demo -- sur le gizmo ACTIF.
@@ -20483,9 +23117,38 @@ namespace nkentseu {
 				// LE TRIO DE DEPART (Rihen) : un cube, une lumiere ponctuelle et
 				// une camera -- comme n'importe quel ajout utilisateur.
 				{
-					const int32 nCube = HostAllocUser(2);
-					if (nCube >= 0)
-						nkvpEmptyPos[nCube - kNkvpFirstEmpty][1] = 0.5f;
+					// ⚠️ LE CUBE DE DEPART PASSE PAR LA PORTE DES AJOUTS, et le commentaire
+					//    ci-dessus devient enfin vrai. Il disait « comme n'importe quel ajout
+					//    utilisateur » -- c'etait exactement ce qu'il N'ETAIT PAS :
+					//    `HostAllocUser` alloue le slot, rien de plus. `Demo3DHostAddNode`
+					//    alloue PUIS appelle `HostRegenUserMesh`, qui pose `nkvpUserMesh` et,
+					//    pour le cube, applique le repli generique ecrit sous le titre
+					//    « REGLE DE RODOLF : tout mesh doit pouvoir etre editable ».
+					//
+					// ⚠️ LA REGLE EXISTAIT, SUR L'AUTRE CHEMIN SEULEMENT. Mesure du 20/09 :
+					//    cube de depart meshOk=0 (139 refus), cube ajoute meshOk=1 (0 refus),
+					//    deux essais chacun. Rodolf est tombe dessus au PREMIER geste -- le
+					//    cube du demarrage est celui que tout le monde voit.
+					//    Une regle appliquee a un seul des deux chemins n'est pas une regle,
+					//    c'est un correctif ; et le commentaire qui AFFIRMAIT l'equivalence
+					//    l'a masquee, en donnant la reponse avant qu'on pose la question.
+					//
+					// LA POSITION EST REPOSEE EN ENTIER, pas seulement Y : Demo3DHostAddNode
+					// fait naitre au CURSEUR 3D. Il vaut (0,0,0) a la premiere image, donc la
+					// scene de depart ne bouge pas -- mais l'ecrire ne coute rien et cesse de
+					// dependre d'une valeur qui pourrait changer.
+					// ⚠️ SEUL LE CUBE CHANGE DE CHEMIN. La lumiere et la camera gardent le
+					//    leur : le trio leur pose des valeurs PROPRES (1000 W, positions,
+					//    sous-types) que Demo3DHostAddNode traite autrement -- y toucher
+					//    deplacerait un defaut au lieu d'en retirer un. Et la regle ne les
+					//    vise pas : elles n'ont aucune geometrie a editer.
+					const int32 nCube = Demo3DHostAddNode(2, 0);
+					if (nCube >= 0) {
+						const int32 eC = nCube - kNkvpFirstEmpty;
+						nkvpEmptyPos[eC][0] = 0.f;
+						nkvpEmptyPos[eC][1] = 0.5f;
+						nkvpEmptyPos[eC][2] = 0.f;
+					}
 					const int32 nLit = HostAllocUser(5);
 					if (nLit >= 0) {
 						renderer::NkLightDesc L0 = Demo3D_LightEffective(st, 1);
@@ -21726,6 +24389,10 @@ namespace nkentseu {
 			// s'editer separement, or `GetCube()` rend un handle MIS EN CACHE --
 			// le donner directement ferait editer tous les cubes a la fois. C'est
 			// tres probablement pour cela que la branche manquait.
+			// REGENERER une primitive la fait redecrire par ses parametres : le
+			// drapeau retombe, sinon on ecrirait la geometrie d'un objet que trois
+			// entiers suffisent a reproduire.
+			nkvpUserMeshEdite[u] = false;
 			if (!nkvpUserMesh[u].IsValid()) {
 				auto *stR = HostSt();
 				if (stR) {
@@ -23145,6 +25812,215 @@ namespace nkentseu {
 			HostHierSnapNode(st, n);
 			return n;
 		}
+		// ── LA BOITE D'UN NOEUD, LUE SUR SES SOMMETS (21/09, creation par IA) ─
+		// Ce que la creation par parties nommees exige et que l'hote ne rendait
+		// pas : l'etendue REELLE d'une primitive, a vide (pour convertir une
+		// taille en metres en echelle) et dans le monde (pour poser une partie
+		// SUR une autre, puis pour MESURER le resultat).
+		// ⚠️ ON NE RECOPIE PAS LES DIMENSIONS DES PRIMITIVES. Un cube de
+		//    NkMeshSystem mesure 1, un tore 1 x 0,3 x 1, une capsule 0,5 x 1 x
+		//    0,5 : les ecrire ici en dur les ferait mentir au premier changement
+		//    du generateur. On lit les sommets que le rendu soumet.
+		// ⚠️ LA MEME resolution de maillage que le pick et la soumission (le
+		//    maillage propre s'il existe, sinon la primitive partagee), et la
+		//    MEME composition T * R * S : une boite calculee autrement decrirait
+		//    un objet que personne ne voit.
+		bool Demo3DHostNodeBounds(int32 node, bool monde, float32 *mn3, float32 *mx3) {
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!st || !ms || !mn3 || !mx3 || node < kNkvpFirstUser || node >= kNkvpMaxNodes)
+				return false;
+			if (nkvpDeleted[node])
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const uint8 uk = nkvpUserKind[u];
+			if (uk < 1 || uk > 3)
+				return false; // pas une primitive maillee : rien a mesurer, et on le rend
+			NkMeshHandle mh = nkvpUserMesh[u];
+			if (!mh.IsValid()) {
+				const uint8 usv = nkvpUserSub[u];
+				if (uk == 1)
+					mh = usv == 1 ? st->meshIco : st->meshSphere;
+				else if (uk == 2)
+					mh = usv == 1 ? st->meshCylinder : (usv == 2 ? st->meshCone : st->meshCube);
+				else
+					mh = st->meshPlane;
+			}
+			if (!mh.IsValid() || !ms->HasCPUData(mh))
+				return false;
+			const auto *vv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+			const uint32 vc = ms->GetVertexCount(mh);
+			if (!vv || vc == 0)
+				return false;
+			NkMat4f W = NkMat4f::Identity();
+			if (monde) {
+				float32 wp[3], wsc[3];
+				NkMat4f wr;
+				HostNodeWorldById(node, wp, wr, wsc);
+				W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr * NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+			}
+			for (int32 a = 0; a < 3; ++a) {
+				mn3[a] = 1e30f;
+				mx3[a] = -1e30f;
+			}
+			for (uint32 i = 0; i < vc; ++i) {
+				const NkVec3f p = monde ? (W * vv[i].pos) : vv[i].pos;
+				const float32 c[3] = {p.x, p.y, p.z};
+				for (int32 a = 0; a < 3; ++a) {
+					if (c[a] < mn3[a])
+						mn3[a] = c[a];
+					if (c[a] > mx3[a])
+						mx3[a] = c[a];
+				}
+			}
+			return true;
+		}
+		// ── LES TRIANGLES MONDE D'UN NOEUD, AJOUTES A UN .OBJ (21/09) ─────────
+		// L'assemblage cree par l'IA doit pouvoir SORTIR tel qu'il est rendu :
+		// pour le comparer a une reconstruction (TripoSR), pour le corpus, pour
+		// Rodolf. Meme maillage et meme composition T*R*S que
+		// Demo3DHostNodeBounds -- deux lectures de la geometrie qui divergeraient
+		// feraient comparer autre chose que ce qu'on voit.
+		// `*vbase` est l'indice (base 1) du premier sommet de ce noeud dans le
+		// fichier ; il avance du nombre de sommets ecrits.
+		bool Demo3DHostNodeAppendObj(int32 node, void *fichier, uint32 *vbase, const char *groupe) {
+			FILE *f = (FILE *)fichier;
+			auto *st = HostSt();
+			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
+			if (!f || !vbase || !st || !ms || node < kNkvpFirstUser || node >= kNkvpMaxNodes || nkvpDeleted[node])
+				return false;
+			const int32 u = node - kNkvpFirstUser;
+			const uint8 uk = nkvpUserKind[u];
+			if (uk < 1 || uk > 3)
+				return false;
+			NkMeshHandle mh = nkvpUserMesh[u];
+			if (!mh.IsValid()) {
+				const uint8 usv = nkvpUserSub[u];
+				if (uk == 1)
+					mh = usv == 1 ? st->meshIco : st->meshSphere;
+				else if (uk == 2)
+					mh = usv == 1 ? st->meshCylinder : (usv == 2 ? st->meshCone : st->meshCube);
+				else
+					mh = st->meshPlane;
+			}
+			if (!mh.IsValid() || !ms->HasCPUData(mh))
+				return false;
+			const auto *vv = (const renderer::NkVertex3D *)ms->GetVertices(mh);
+			const uint32 vc = ms->GetVertexCount(mh);
+			const uint32 *ii = ms->GetIndices(mh);
+			const uint32 ic = ms->GetIndexCount(mh);
+			if (!vv || vc == 0 || !ii || ic < 3)
+				return false;
+			float32 wp[3], wsc[3];
+			NkMat4f wr;
+			HostNodeWorldById(node, wp, wr, wsc);
+			const NkMat4f W = NkMat4f::Translate({wp[0], wp[1], wp[2]}) * wr * NkMat4f::Scale({wsc[0], wsc[1], wsc[2]});
+			fprintf(f, "g %s\n", groupe ? groupe : "partie");
+			for (uint32 i = 0; i < vc; ++i) {
+				const NkVec3f p = W * vv[i].pos;
+				fprintf(f, "v %.5f %.5f %.5f\n", (double)p.x, (double)p.y, (double)p.z);
+			}
+			for (uint32 t = 0; t + 2 < ic; t += 3)
+				fprintf(f, "f %u %u %u\n", *vbase + ii[t], *vbase + ii[t + 1], *vbase + ii[t + 2]);
+			*vbase += vc;
+			return true;
+		}
+		// ── UN OBJET DE REVOLUTION, PAR LE SPIN DE NkEditMesh (21/09, Q7) ──────
+		// « Un verre de table » rendait un cylindre PLEIN : un verre, un vase, une
+		// bouteille, un bol sont des REVOLUTIONS de profil, pas des assemblages.
+		// ⚠️ ON NE RECODE PAS LA REVOLUTION : c'est `NkEditMesh::SpinSelected`, la
+		//    meme operation que le menu Maillage (touche J), eprouvee par le banc
+		//    NKEditMeshHarness (« ops/vis-revolution »). Ici on ne fait que lui
+		//    donner un PROFIL : un polygone ferme dans le demi-plan x >= 0 (x =
+		//    rayon, y = hauteur), qu'on fait tourner de 360 degres autour de Y.
+		// Rend le noeud cree (maillage PROPRE, editable), ou -1 avec `pourquoi`.
+		int32 Demo3DHostCreateRevolution(const float32 *profilRH, uint32 nPoints, int32 pas, const float32 *pos3,
+										 const char *nom, char *pourquoi, uint32 capPourquoi) {
+			auto dire = [&](const char *m) {
+				if (pourquoi && capPourquoi)
+					snprintf(pourquoi, capPourquoi, "%s", m);
+			};
+			if (!profilRH || nPoints < 3 || nPoints > 128) {
+				dire("profil de revolution : il faut entre 3 et 128 points");
+				return -1;
+			}
+			if (pas < 8)
+				pas = 8;
+			if (pas > 96)
+				pas = 96;
+			NkVector<renderer::NkVertex3D> v;
+			NkVector<uint32> fs, fv;
+			for (uint32 i = 0; i < nPoints; ++i) {
+				renderer::NkVertex3D q{};
+				q.pos = {profilRH[2 * i] < 0.f ? 0.f : profilRH[2 * i], profilRH[2 * i + 1], 0.f};
+				q.normal = {0.f, 0.f, 1.f};
+				q.color = 0xFFFFFFFFu;
+				v.PushBack(q);
+				fv.PushBack(i);
+			}
+			fs.PushBack(0);
+			fs.PushBack(nPoints);
+			renderer::NkEditMesh m;
+			m.BuildFromPolygons(v.Data(), (uint32)v.Size(), fs.Data(), 1u, fv.Data());
+			m.SelectAll();
+			renderer::NkSpinParams sp;
+			sp.center = {0.f, 0.f, 0.f};
+			sp.axis = {0.f, 1.f, 0.f};
+			sp.angle = 6.2831853f;
+			sp.steps = pas;
+			sp.duplicate = false;
+			const uint32 f0 = m.FaceCount();
+			if (!m.SpinSelected(sp, NkMat4f::Identity())) {
+				dire("la revolution (SpinSelected) a refuse ce profil");
+				return -1;
+			}
+			// ⚠️ LA FACE-PROFIL D'ORIGINE RESTE (le spin CONSERVE la source, comme
+			//    Blender). Couchee dans le plan x/y, elle serait une cloison interne
+			//    a la paroi du verre. On la retire : c'est la face 0, la seule qui
+			//    existait avant le spin.
+			{
+				NkVector<uint8> sel;
+				sel.Resize(m.VertCount());
+				for (uint32 i = 0; i < m.VertCount(); ++i)
+					sel[i] = 0;
+				m.SetVertSelection(sel.Data(), (uint32)sel.Size());
+			}
+			m.RebuildEdges();
+			NkVector<renderer::NkVertex3D> ov;
+			NkVector<uint32> oi;
+			NkVector<NkEmId> otf;
+			m.TriangulateShaded(ov, oi, otf);
+			// Retirer les triangles de la face-profil d'origine (id 0), sans toucher
+			// a la topologie : c'est le tampon de RENDU qui part au noeud.
+			NkVector<uint32> gard;
+			uint32 retires = 0;
+			for (uint32 t = 0; t + 2 < (uint32)oi.Size(); t += 3) {
+				if (f0 == 1u && otf[t / 3] == (NkEmId)0) {
+					++retires;
+					continue;
+				}
+				gard.PushBack(oi[t]);
+				gard.PushBack(oi[t + 1]);
+				gard.PushBack(oi[t + 2]);
+			}
+			if (gard.Size() < 3) {
+				dire("la revolution n'a produit aucune face");
+				return -1;
+			}
+			const float32 zero[3] = {0.f, 0.f, 0.f};
+			const int32 n = Demo3DHostCreateMeshNode(-1, ov.Data(), (uint32)ov.Size(), gard.Data(), (uint32)gard.Size(),
+													 pos3 ? pos3 : zero, nom);
+			if (n < 0) {
+				dire("plus d'emplacement libre, ou le maillage n'a pas pu etre cree");
+				return -1;
+			}
+			// Un maillage INTERNE de model ne se voit que dans son model : celui-ci
+			// est une partie d'objet ordinaire, visible dans la hierarchie.
+			nkvpIsMesh[n] = false;
+			logger.Info("[Demo3D] REVOLUTION : {0} points, {1} pas -> {2} sommets, {3} triangles ({4} de la face-profil retires)\n",
+						nPoints, pas, (uint32)ov.Size(), (uint32)gard.Size() / 3u, retires);
+			return n;
+		}
 		// ── LA GEOMETRIE PROPRE, LUE POUR L'ECRITURE DU PROJET (06/09) ─────
 		// Meme perimetre que HostMakeGeometryOwn, et pour la meme raison : un
 		// noeud qui rend une primitive PARTAGEE n'a pas de maillage a lui, il
@@ -23230,6 +26106,12 @@ namespace nkentseu {
 			if (!h.IsValid())
 				return false;
 			nkvpUserMesh[node - kNkvpFirstUser] = h;
+			// ⚠️ UNE GEOMETRIE RELUE RESTE MARQUEE. Sans cette ligne, le cycle
+			//    editer -> enregistrer -> rouvrir -> RE-enregistrer reperdrait tout
+			//    au DEUXIEME tour : le noeud relu retrouverait ses parametres de
+			//    creation, le drapeau serait faux, et on n'ecrirait plus sa
+			//    geometrie. La persistance doit survivre a plus d'un aller-retour.
+			nkvpUserMeshEdite[node - kNkvpFirstUser] = true;
 			// Le noeud rend desormais SA geometrie : le rendu donne la priorite
 			// a nkvpUserMesh, la primitive de la nature ne se dessine plus.
 			return true;

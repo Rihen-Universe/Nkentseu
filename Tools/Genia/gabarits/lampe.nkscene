@@ -1,0 +1,8 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene lampe
+partie socle forme cylindre largeur 0.15 hauteur 0.03 profondeur 0.15 matiere laiton
+partie pied forme cylindre largeur 0.02 hauteur 0.30 profondeur 0.02 pose_sur socle matiere laiton
+partie ampoule forme sphere largeur 0.06 hauteur 0.07 profondeur 0.06 pose_sur pied matiere blanc
+partie abat_jour forme cone largeur 0.26 hauteur 0.20 profondeur 0.26 pose_sur pied decale 0 -0.08 0 matiere tissu

@@ -259,6 +259,7 @@ namespace nkentseu {
 			v.fondLum = st.bgBrightness;
 			for (int32 a = 0; a < 3; ++a)
 				v.fondPerso[a] = st.bgCustom[a];
+			v.sculptSym = st.sculptSym; // la symetrie part avec le document, comme le reste
 			st.docViewSet[d] = true;
 		}
 
@@ -426,6 +427,7 @@ namespace nkentseu {
 					st.bgBrightness = v.fondLum;
 					for (int32 a = 0; a < 3; ++a)
 						st.bgCustom[a] = v.fondPerso[a];
+					st.sculptSym = v.sculptSym;
 				}
 				return; // l'appartenance filtre deja les objets de la scene
 			}

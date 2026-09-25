@@ -10,6 +10,9 @@ NOMME. Ce module ne sait pas ce qu'est un document, un maillage ni une scene.
 Contenu (src/NKConverse/) :
   NkConverse.h           => requete, reponse, interface de dorsal, TROIS dorsaux
                             (fichier, processus, conserve)
+  NkConverseOllama.h     => le QUATRIEME dorsal : un service HTTP local qui
+                            tient le modele. Il vit a part parce qu'il est le
+                            seul a dependre de NKNetwork.
   NkConverseChat.h       => la conversation : tours, historique
   NkConverseChatAsync.h  => l'appel qui ne gele pas l'interface
   NkConverse.cpp         => AUCUNE logique : il inclut les en-tetes dans un
@@ -44,11 +47,15 @@ from jengaconfig import *
 
 with project("NKConverse"):
     # NKThreading et NKTime : DECLARES, parce que NkConverseChatAsync.h s'en sert.
+    # NKNetwork : le dorsal OLLAMA parle HTTP a un service local. DECLARE ici,
+    # jamais tire en douce -- meme regle 2 que NKThreading et NKTime. Et la
+    # couche est la bonne : l'en-tete de ce module dit lui-meme que System est
+    # la couche des TRANSPORTS (NKStream, NKNetwork, NKSerialization).
     # NKFileSystem : le dorsal fichier et le dorsal processus ecrivent l'invite et
     # relisent la reponse -- c'est tout le contrat, et il passe par des fichiers.
     nkentseudependson(
         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKLogger",
-         "NKFileSystem", "NKThreading", "NKTime"],
+         "NKFileSystem", "NKThreading", "NKTime", "NKNetwork"],
         selfexport="NKConverse",
         extra_includes=["src", "pch"],
     )

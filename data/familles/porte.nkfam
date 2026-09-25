@@ -1,0 +1,18 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+famille porte
+synonymes porte, portique, torii, paifang, gate, door, doorway
+formulaire style <simple|chinois> largeur <metres> hauteur <metres> battants <1|2> detail <simple|detaille>
+valeurs style simple|chinois
+borne largeur 0.6 8.0 0.9
+borne hauteur 1.6 10.0 2.1
+plausible largeur 0.70 1.60 0.90
+plausible hauteur 2.00 2.20 2.10
+
+# ⚠️ CETTE FAMILLE RESTE EN C++, ET LE FICHIER DIT POURQUOI.
+implementation cpp
+pourquoi la porte chinoise demande un balayage le long d'une courbe (les coyaux du toit), une couverture de tuiles posee par rangees, et des panneaux sculptes -- trois operations que l'interprete n'expose pas encore.
+manque balayage le long d'une polyligne (BuildSweep), repetition en grille avec decalage par rangee, et une boucle « pour » avec indice.
+
+# CONDITION DE RETRAIT : ces trois lignes disparaissent le jour ou l'interprete
+# expose `balayage` et `pour`. La preuve a exiger sera la meme que pour la table :
+# le meme objet, identique au bit, avec et sans le fichier.

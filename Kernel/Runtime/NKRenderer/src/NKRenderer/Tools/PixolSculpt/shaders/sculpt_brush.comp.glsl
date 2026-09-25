@@ -5,9 +5,11 @@
 // Kernel de brosse : mute le canvas pixol (depth/normal/color) dans la tuile
 // dispatchee. Borne par le dirty rect cote CPU -> cout constant en resolution.
 //
-// ⚠️ SQUELETTE. NkSL non fonctionnel => on ecrit en GLSL, compile en SPIR-V
-//    via glslang (NkShaderConverter::GlslToSpirv).
-// ⚠️ Le push_constant DOIT matcher renderer::NkSculptBrushGPU (NkSculptBrush.h).
+// ⚠️ SQUELETTE. On ecrit en GLSL parce que NkSL n'est pas branche dans le
+//    LOADER du renderer -- et NON parce que NkSL serait non fonctionnel : il
+//    l'est sur 5 dorsaux sur 6 depuis 06/2026 (corrige le 19/09/2026).
+//    Compile en SPIR-V via glslang (NkShaderConverter::GlslToSpirv).
+// ⚠️ Le push_constant DOIT matcher renderer::NkPixolBrushGPU (NkPixolBrush.h).
 // =============================================================================
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -81,6 +83,3 @@ void main() {
     // TODO: SMOOTH (moyenne du voisinage), PINCH, INFLATE (le long normale),
     //       FLATTEN (vers plan moyen), MASK (canal masque dedie).
 }
-
-
-// aussi tu pense comment je peux aussi integrer un system comme ca pour les voxel dans nkrenderer? mais avant je veux que tu fasse une analyse complete et approfondis de nksl donc du dossier sl dans nkrhi et tu me dis si le system est complet et robuste, dis moi ce qui manque ce quon peut complete et ajouter etc.

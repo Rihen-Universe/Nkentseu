@@ -762,25 +762,38 @@ namespace nkentseu {
 		return img;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	//  DecodeVP8 (lossy) — dimensions + gris neutre
-	// ─────────────────────────────────────────────────────────────────────────────
-
+	// ──────────────────────────────────────────────────────────────────────────────────
+	//  DecodeVP8 (lossy) — REFUS NOMME, pas un gris qui se fait passer pour l'image
+	// ──────────────────────────────────────────────────────────────────────────────────
+	//
+	// 🔴 CE QU'ELLE FAISAIT, ET QUI EST PIRE QU'UNE ABSENCE (mesure du 25/09).
+	//    Elle lisait les dimensions et rendait une image VALIDE entierement remplie
+	//    de GRIS 128. Un WebP lossy ne ratait donc pas : il REUSSISSAIT, avec un
+	//    contenu invente. L'appelant recevait la bonne taille, aucun refus, et un
+	//    rectangle gris a la place de la photo.
+	//    *Un repli qui reste plausible est pire qu'un refus.*
+	//
+	//    Constate sur `2025-06-03-image-2.webp` (Rodolf) : RIFF/WEBP, UN seul chunk
+	//    `VP8 ` de 288 388 octets. **Ni VP8L, ni alpha, ni animation** : le cas le
+	//    plus ordinaire qui soit. Ce n'est donc pas « une variante exotique non
+	//    geree », c'est le chemin lossy qui n'existe pas.
+	//
+	// ⚠️ CE QU'IL FAUDRAIT POUR LE DECODER VRAIMENT, et pourquoi ce n'est pas ici :
+	//    un decodeur VP8 intra complet -- decodeur booleen arithmetique, arbres de
+	//    probabilites, prediction intra 4x4 et 16x16, DCT/WHT inverses, filtre de
+	//    boucle. C'est un chantier a part entiere, pas une correction de nuit, et
+	//    l'ecrire a moitie redonnerait exactement le defaut qu'on retire.
+	//
+	// ⚠️ CONDITION DE RETOUR, ecrite pour qu'on sache quand supprimer ce refus : le
+	//    jour ou `DecodeVP8` rend de vrais pixels, ce corps disparait ET le critere
+	//    `webp/lossy-refuse` du banc des codecs doit etre RETOURNE -- il exige
+	//    aujourd'hui un refus, il exigera alors une image juste.
 	NkImage NkWebPCodec::DecodeVP8(const uint8 *data, usize size) noexcept {
-		if (size < 10)
-			return NkImage();
-		if ((data[0] & 1) != 0)
-			return NkImage(); // pas un key frame
-		if (data[3] != 0x9D || data[4] != 0x01 || data[5] != 0x2A)
-			return NkImage();
-		const int32 w = (data[6] | (static_cast<int32>(data[7]) << 8)) & 0x3FFF;
-		const int32 h = (data[8] | (static_cast<int32>(data[9]) << 8)) & 0x3FFF;
-		if (w <= 0 || h <= 0)
-			return NkImage();
-		NkImage img = NkImage::Alloc(w, h, NkImagePixelFormat::NK_RGB24);
-		if (img.IsValid())
-			NkSet(img.Pixels(), 128, img.TotalBytes());
-		return img;
+		(void)data;
+		(void)size;
+		// On ne lit meme plus les dimensions : rendre une taille sans pixels
+		// inviterait un appelant a allouer et a peindre du vide.
+		return NkImage();
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────

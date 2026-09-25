@@ -1,0 +1,39 @@
+# JEU D'EPREUVE -- « texte vers 3D », pont Ollama
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+#
+# ⚠️ CE FICHIER EST ECRIT AVANT LA PREMIERE COURSE, ET IL NE SE RETOUCHE PAS
+# APRES AVOIR VU LES ECHECS. C'est la faute que le chantier du modeleur a payee
+# cette nuit : sa premiere serie concluait « le contrat d'outils ne sert a rien »
+# (ecart 0), et elle mesurait en realite la CULTURE du modele, pas l'outillage.
+# Un jeu d'epreuve ajuste apres coup mesure le reglage de celui qui l'ajuste.
+#
+# CE QU'IL CONTIENT, ET POURQUOI CE MELANGE :
+#   [A] des demandes d'UTILISATEUR -- ce que Rodolf taperait vraiment. Elles ne
+#       sont PAS taillees pour la grammaire, et plusieurs sont HORS de sa portee.
+#       C'est voulu : on veut savoir ou l'outillage casse, pas le flatter.
+#   [B] des demandes que la grammaire couvre, pour que le taux ne soit pas nul
+#       par construction -- un banc dont tous les cas echouent ne distingue rien.
+#   [C] des demandes ABSURDES ou vides, qui doivent etre REFUSEES. Le refus est
+#       un outil, pas une panne : un modele qui invente est le cas NORMAL.
+#
+# FORMAT : <classe> | <demande> | <attendu : formes attendues, ou REFUS>
+# L'attendu porte sur ce que l'OUTIL doit produire, pas sur ce que le modele dit.
+
+[B] | une sphere | 1 forme
+[B] | un cube | 1 forme
+[B] | deux spheres | 2 formes
+[B] | un cube perce | 1 forme, 1 trou
+[B] | un cylindre sur un cube | 2 formes, contact
+[B] | un grand tore | 1 forme
+[A] | une lampe de bureau | 2 formes ou plus, empilees
+[A] | un bonhomme de neige | 3 formes empilees
+[A] | une table basse | 2 formes ou plus
+[A] | une tour de trois etages | 3 formes empilees
+[A] | un verre a pied | 2 formes ou plus
+[A] | une roue de velo | 1 tore
+[A] | un dé à jouer | 1 cube, 6 trous (HORS PORTEE : la grammaire ne pose qu'un trou par forme)
+[A] | un personnage humain | HORS PORTEE (aucune forme organique dans la grammaire)
+[A] | une chaise | HORS PORTEE ou approximation grossiere (4 pieds + assise + dossier)
+[C] | un bidule quantique | REFUS
+[C] |  | REFUS
+[C] | fais moi quelque chose de joli | REFUS

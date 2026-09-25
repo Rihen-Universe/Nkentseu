@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkWESystem.cpp â€” cycle de vie global + registre des fenÃªtres
 // =============================================================================
@@ -8,6 +9,7 @@
 #include "NKEvent/NkGamepadSystem.h"
 #include "NKEvent/NkEventDispatcher.h"
 #include "NkWindow.h"
+#include "NkWindowAudit.h"
 
 // ---------------------------------------------------------------------------
 // Selection du backend gamepad par plateforme
@@ -191,6 +193,11 @@ namespace nkentseu {
 	NkWindowId NkWESystem::RegisterWindow(NkWindow *win) {
 		if (!win)
 			return NK_INVALID_WINDOW_ID;
+		// CE QUI NE PEUT PAS AGIR LE DIT. Tous les dorsaux passent par ici dans
+		// leur `Create` : c'est le seul endroit d'ou un refus nomme atteint les
+		// douze plateformes. Silencieux si l'appelant n'a rien demande d'autre
+		// que les defauts. Voir NkWindowAudit.h.
+		NkWindowAuditerDorsalCourant(win->GetConfig());
 		if (mWindows.BucketCount() == 0) {
 			mWindows.Rehash(32);
 		}

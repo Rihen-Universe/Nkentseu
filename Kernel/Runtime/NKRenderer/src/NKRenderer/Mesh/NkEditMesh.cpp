@@ -3,6 +3,7 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 #include "NkEditMesh.h"
+#include "NKRenderer/Tools/MeshSculpt/NkMeshSculpt.h"
 #include "NKContainers/Associative/NkHashMap.h"
 #include "NKTime/NkChrono.h" // sonde de phases de l'entonnoir (NK_BFP_PHASES)
 #include <cstdlib>			  // getenv
@@ -315,29 +316,35 @@ namespace nkentseu {
 			return 0.5f * acc.Len();
 		}
 
-		// REGLE DE FUSION DU MATERIAU (arbitrage 2026-08-22), appliquee partout ou
-		// des faces fusionnent — Quadify et Dissolve aujourd'hui. Ecrite UNE fois :
-		// deux copies d'une meme regle divergent, on l'a deja paye sur les chemins
-		// de ressources des bancs.
-		//   • contributeur DOMINANT PAR L'AIRE ;
-		//   • a aire egale (tolerance RELATIVE, cf. l'en-tete), INDICE LE PLUS BAS.
-		// ⚠ « LA PLUS GRANDE AIRE » : DE QUOI ? L'arbitrage dit « la face qui
-		// apportait la plus grande aire », mais il le justifie par « la couleur qui
-		// couvrait le plus doit rester ». Sur DEUX contributeurs les deux lectures
-		// coincident ; sur une region de Dissolve a N faces, elles divergent :
-		// deux petites faces slot 1 (0,6 + 0,6) contre une grande slot 2 (1,0)
-		// donnent slot 2 par face, slot 1 par couleur.
-		// ON RETIENT LA COULEUR — c'est ce que la justification decrit, c'est ce que
-		// l'utilisateur voit, et c'est le sur-ensemble : sur deux faces le resultat
-		// est identique a l'autre lecture. Ecart signale a l'arbitre.
-		// ⚠ LE POIDS N'EST PAS TOUJOURS UNE AIRE, et c'est voulu. Aux sites de FUSION
-		// (Quadify, Dissolve) le contributeur est une face absorbee et son poids est son
-		// AIRE. Aux sites de CREATION (chanfrein, extrusion d'aretes) le contributeur
-		// est une face VOISINE, qui n'est pas absorbee du tout — son poids est la
-		// LONGUEUR DE CONTOUR qu'elle partage avec la face creee.
-		// Les deux cas sont la meme phrase : « dominance par une mesure, egalite par
-		// l'indice le plus bas ». Les separer en deux fonctions aurait fait diverger
-		// deux enonces identiques — la faute qu'on a deja payee trois fois ici.
+		// LE TRAIT D'UNE FACE SANS MERE : L'UNANIMITE, PAS LA DOMINANTE.
+		//
+		// [!] J'AI ECRIT LA DOMINANTE D'ABORD, PAR SYMETRIE AVEC LE MATERIAU, ET
+		//     LE TEMOIN L'A CONDAMNEE. Un biseau sur un cube dont 3 faces sont
+		//     tracees en marquait 54 sur 78 : chaque bande de biseau touchant une
+		//     face tracee heritait, puis servait de voisine a la suivante. Le
+		//     trait se propageait de proche en proche jusqu'a couvrir l'objet.
+		//     Signature de la dilatation : le centre du trait se deplacait de
+		//     13 % de la diagonale SANS DEPENDRE de la largeur du biseau
+		//     (13,32 / 13,07 / 12,87 % pour 0,05 / 0,10 / 0,15) -- un effet
+		//     geometrique aurait suivi la largeur, celui-ci est structurel.
+		//
+		// Le materiau peut se permettre la dominante : il PARTITIONNE la surface,
+		// toute face en a un. Un trait, lui, est une EXCEPTION sur la surface :
+		// en cas de doute il ne s'etend pas. Une face n'herite donc que si
+		// TOUTES ses voisines portent le meme trait -- une bande entre tracé et
+		// non-tracé reste dehors.
+		static uint8 EM_TraitUnanime(const uint8 *traits, uint32 n) {
+			if (n == 0 || !traits)
+				return 0u;
+			const uint8 t0 = traits[0];
+			if (t0 == 0u)
+				return 0u;
+			for (uint32 i = 1; i < n; ++i)
+				if (traits[i] != t0)
+					return 0u;
+			return t0;
+		}
+
 		static uint16 EM_MaterialDominant(const uint16 *mats, const float32 *poids, uint32 n) {
 			if (n == 0 || !mats || !poids)
 				return 0;
@@ -411,13 +418,23 @@ namespace nkentseu {
 		// Accumule dans `outLost` le nombre de voisines dont le materiau n'a pas ete
 		// retenu — la perte, comptee et non supposee. Le compteur est ACCUMULATIF :
 		// une operation cree plusieurs faces, et c'est leur total qui interesse.
-		static NkEditMesh::FaceAttrib EM_AttribFromNeighbours(const uint16 *mats, const uint8 *smooths,
+		static NkEditMesh::FaceAttrib EM_AttribFromNeighbours(const uint16 *mats, const uint8 *smooths, const uint8 *traits,
 															  const float32 *poids, uint32 n, uint32 *outLost) {
 			NkEditMesh::FaceAttrib a;
 			if (n == 0)
 				return a; // aucune voisine : slot 0 et FLAT, faute de mieux — et rien de perdu
 			a.material = EM_MaterialDominant(mats, poids, n);
 			a.smooth = EM_SmoothMerged(smooths, n);
+			// Unanimite : en cas de doute le trait ne s'etend pas (voir EM_TraitUnanime).
+			a.trait = EM_TraitUnanime(traits, n);
+			// UNE FACE SANS MERE NE PORTE PAS LE TRAIT, et c'est un choix, pas un
+			// oubli. Ces faces naissent ENTRE des voisines (la bande d'un biseau, le
+			// pont d'une coupe) : leur faire heriter du trait l'elargirait a chaque
+			// operation jusqu'a couvrir l'objet, et personne ne saurait quand ca a
+			// commence. Le trait ne grandit donc pas tout seul ; il ne retrecit pas
+			// non plus, puisque toute face AYANT une mere en herite.
+			// CONDITION DE RETRAIT : si la mesure montre un trait troue apres biseau,
+			// c'est ici que ca se corrige, avec EM_TraitDominant deja ecrite.
 			if (outLost)
 				*outLost += EM_MaterialLost(mats, n, a.material);
 			return a;
@@ -1305,6 +1322,7 @@ namespace nkentseu {
 					a.material = faces[f].material;
 					a.smooth = faces[f].smooth;
 					a.sel = faces[f].sel;
+					a.trait = faces[f].trait;
 					ofaceAttrib->PushBack(a);
 				}
 			}
@@ -1328,6 +1346,124 @@ namespace nkentseu {
 		bool NkEmBfpPhasesActives() {
 			static const bool on = (getenv("NK_BFP_PHASES") != nullptr);
 			return on;
+		}
+
+		// ── BALAYAGE D'UN PROFIL LE LONG D'UNE POLYLIGNE ───────────────────────
+		// Voir l'en-tete pour le choix du repere a ROTATION MINIMALE. Le maillage
+		// est bati en polygones (quads entre deux anneaux, plus les bouchons), puis
+		// remis a BuildFromPolygons : une seule porte de construction.
+		bool NkEditMesh::BuildSweep(const NkVec2f *profil, uint32 np, const NkVec3f *chemin, uint32 nc, bool ferme,
+									bool bouchons, const NkVec3f *refInitiale) {
+			if (!profil || !chemin || np < 2 || nc < 2)
+				return false;
+			// SENS DU CONTOUR : aire signee (lacet de Gauss). POSITIVE -> on parcourt
+			// le profil a l'envers. Le sens vise est celui du cube du depot, pas celui
+			// des manuels : voir l'en-tete, et le banc sweep/sens-du-profil.
+			NkVector<NkVec2f> pr;
+			pr.Resize(np);
+			{
+				float32 aire = 0.f;
+				for (uint32 k = 0; k < np; ++k) {
+					const NkVec2f &u = profil[k];
+					const NkVec2f &v = profil[(k + 1u) % np];
+					aire += u.x * v.y - v.x * u.y;
+				}
+				for (uint32 k = 0; k < np; ++k)
+					pr[k] = aire > 0.f ? profil[np - 1u - k] : profil[k];
+			}
+			profil = pr.Data();
+			// tangentes : differences centrees, normalisees
+			NkVector<NkVec3f> T;
+			T.Resize(nc);
+			for (uint32 i = 0; i < nc; ++i) {
+				NkVec3f t = (i == 0)			? (chemin[1] - chemin[0])
+							: (i + 1u == nc)	? (chemin[nc - 1] - chemin[nc - 2])
+												: (chemin[i + 1] - chemin[i - 1]);
+				const float32 l = sqrtf(t.x * t.x + t.y * t.y + t.z * t.z);
+				T[i] = l > 1e-9f ? NkVec3f{t.x / l, t.y / l, t.z / l} : NkVec3f{0.f, 0.f, 1.f};
+			}
+			// repere initial : celui qu'on demande, sinon un vecteur non colineaire a T0
+			NkVec3f r{0.f, 1.f, 0.f};
+			if (fabsf(T[0].y) > 0.9f)
+				r = {1.f, 0.f, 0.f};
+			if (refInitiale) {
+				const NkVec3f &q = *refInitiale;
+				const float32 d = q.x * T[0].x + q.y * T[0].y + q.z * T[0].z;
+				const NkVec3f o{q.x - d * T[0].x, q.y - d * T[0].y, q.z - d * T[0].z};
+				if (o.x * o.x + o.y * o.y + o.z * o.z > 1e-6f)
+					r = o; // normalise juste apres, avec l'autre cas
+			}
+			{
+				const float32 d = r.x * T[0].x + r.y * T[0].y + r.z * T[0].z;
+				r = {r.x - d * T[0].x, r.y - d * T[0].y, r.z - d * T[0].z};
+				const float32 l = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+				r = {r.x / l, r.y / l, r.z / l};
+			}
+			NkVector<NkVertex3D> V;
+			NkVector<uint32> faceStart, faceVerts;
+			V.Resize(np * nc);
+			for (uint32 i = 0; i < nc; ++i) {
+				if (i > 0) {
+					// DOUBLE REFLEXION : deux reflexions transportent le repere sans
+					// torsion parasite (Wang 2008). C'est trois produits scalaires.
+					const NkVec3f v1 = chemin[i] - chemin[i - 1];
+					const float32 c1 = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
+					NkVec3f rL = r, tL = T[i - 1];
+					if (c1 > 1e-18f) {
+						const float32 k1 = 2.f * (v1.x * r.x + v1.y * r.y + v1.z * r.z) / c1;
+						rL = {r.x - k1 * v1.x, r.y - k1 * v1.y, r.z - k1 * v1.z};
+						const float32 k2 = 2.f * (v1.x * T[i - 1].x + v1.y * T[i - 1].y + v1.z * T[i - 1].z) / c1;
+						tL = {T[i - 1].x - k2 * v1.x, T[i - 1].y - k2 * v1.y, T[i - 1].z - k2 * v1.z};
+					}
+					const NkVec3f v2 = T[i] - tL;
+					const float32 c2 = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
+					if (c2 > 1e-18f) {
+						const float32 k3 = 2.f * (v2.x * rL.x + v2.y * rL.y + v2.z * rL.z) / c2;
+						r = {rL.x - k3 * v2.x, rL.y - k3 * v2.y, rL.z - k3 * v2.z};
+					} else
+						r = rL;
+					const float32 l = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+					if (l > 1e-9f)
+						r = {r.x / l, r.y / l, r.z / l};
+				}
+				// binormale = T x N
+				const NkVec3f b{T[i].y * r.z - T[i].z * r.y, T[i].z * r.x - T[i].x * r.z, T[i].x * r.y - T[i].y * r.x};
+				for (uint32 k = 0; k < np; ++k) {
+					NkVertex3D q{};
+					q.pos = {chemin[i].x + r.x * profil[k].x + b.x * profil[k].y,
+							 chemin[i].y + r.y * profil[k].x + b.y * profil[k].y,
+							 chemin[i].z + r.z * profil[k].x + b.z * profil[k].y};
+					q.normal = r;
+					q.tangent = T[i];
+					q.uv = {(float32)k / (float32)(np - 1), (float32)i / (float32)(nc - 1)};
+					q.color = 0xFFFFFFFFu;
+					V[i * np + k] = q;
+				}
+			}
+			faceStart.PushBack(0u);
+			const uint32 nSeg = ferme ? np : np - 1u;
+			for (uint32 i = 0; i + 1u < nc; ++i)
+				for (uint32 k = 0; k < nSeg; ++k) {
+					const uint32 k2 = (k + 1u) % np;
+					const uint32 a = i * np + k, b2 = i * np + k2, c = (i + 1u) * np + k2, d = (i + 1u) * np + k;
+					faceVerts.PushBack(a);
+					faceVerts.PushBack(b2);
+					faceVerts.PushBack(c);
+					faceVerts.PushBack(d);
+					faceStart.PushBack((uint32)faceVerts.Size());
+				}
+			if (ferme && bouchons) {
+				for (uint32 k = 0; k < np; ++k)
+					faceVerts.PushBack(np - 1u - k); // premier anneau, sens inverse
+				faceStart.PushBack((uint32)faceVerts.Size());
+				for (uint32 k = 0; k < np; ++k)
+					faceVerts.PushBack((nc - 1u) * np + k);
+				faceStart.PushBack((uint32)faceVerts.Size());
+			}
+			BuildFromPolygons(V.Data(), (uint32)V.Size(), faceStart.Data(), (uint32)faceStart.Size() - 1u,
+							  faceVerts.Data(), nullptr);
+			RecomputeNormals();
+			return true;
 		}
 
 		void NkEditMesh::BuildFromPolygons(const NkVertex3D *v, uint32 vc, const uint32 *faceStart, uint32 faceCount,
@@ -1380,6 +1516,11 @@ namespace nkentseu {
 					// face neuve qui herite de sa mere herite donc aussi de son etat choisi :
 					// le capuchon d'une extrusion reste selectionne, comme dans Blender.
 					fc.sel = faceAttrib[f].sel;
+					// LE TRAIT SUIT LA MEME PARENTE. Sans cette ligne il serait un attribut
+					// « qui survit » seulement aux operations passant par un AUTRE chemin --
+					// la distinction que ce fichier a deja payee sur `smooth`, et qui ne se
+					// voit pas tant qu'on ne l'exerce pas.
+					fc.trait = faceAttrib[f].trait;
 				}
 				faces.PushBack(fc);
 			}
@@ -1449,6 +1590,132 @@ namespace nkentseu {
 		// (Vert::sel). Portées depuis Demo3D_*HE : logique topologique PURE (pas de
 		// dépendance UI/GPU). L'appelant régénère le rendu (Triangulate) ensuite.
 		// =====================================================================
+
+		// -- LE TRAIT : QUATRE PORTES, ET UNE SEULE FACON DE DIRE OU IL EST ----
+		// Le centre de la face est calcule ICI et nulle part ailleurs : deux
+		// definitions du « centre » (moyenne des sommets contre barycentre d'aire)
+		// donneraient deux traits differents pour le meme geste, et la difference
+		// ne se verrait que sur les n-gons irreguliers.
+		static NkVec3f EM_FaceCentre(const NkEditMesh &m, NkEmId f) {
+			NkVector<NkEmId> lp;
+			m.GetFaceVerts(f, lp);
+			NkVec3f c{0.f, 0.f, 0.f};
+			if (lp.Size() == 0)
+				return c;
+			for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+				c = c + m.verts[lp[k]].pos;
+			return c * (1.f / (float32)lp.Size());
+		}
+
+		uint32 NkEditMesh::TraceTrait(const NkVec3f &point, float32 rayon, uint8 numero) {
+		//   RAYON NUL OU NEGATIF = RIEN, ET ON LE DIT PAR LE RETOUR. Marquer la
+		//   face la plus proche « pour faire quelque chose » ferait apparaitre un
+		//   trait la ou le geste n'a rien touche.
+			if (rayon <= 0.f || numero == 0u)
+				return 0u;
+			const float32 r2 = rayon * rayon;
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				const NkVec3f c = EM_FaceCentre(*this, (NkEmId)f);
+				const NkVec3f d = c - point;
+				if (d.x * d.x + d.y * d.y + d.z * d.z > r2)
+					continue;
+		//     ADDITIF : on n'efface pas ce qu'un tampon precedent a pose. C'est ce
+		//     qui permet de DESSINER un trait en plusieurs touches.
+				faces[f].trait = numero;
+				++n;
+			}
+			return n;
+		}
+
+		uint32 NkEditMesh::EffaceTrait(uint8 numero) {
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait == 0u)
+					continue;
+				if (numero != 0u && faces[f].trait != numero)
+					continue;
+				faces[f].trait = 0u;
+				++n;
+			}
+			return n;
+		}
+
+		uint32 NkEditMesh::CompteTrait(uint8 numero) const {
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f)
+				if (faces[f].alive && faces[f].trait == numero)
+					++n;
+			return n;
+		}
+
+		uint32 NkEditMesh::CompteTraitInterieur(uint8 numero) const {
+			if (numero == 0u)
+				return 0u;
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait != numero)
+					continue;
+				// Le tour de la face : chaque demi-arete a une jumelle, donc une voisine.
+				const NkEmId h0 = faces[f].hedge;
+				if (h0 == NK_EM_INVALID)
+					continue;
+				bool toutes = true;
+				NkEmId h = h0;
+				uint32 garde = 0u;
+				do {
+					const NkEmId t = hedges[h].twin;
+					// UN BORD COMPTE COMME UNE VOISINE ABSENTE : la face n'est pas
+					// interieure. C'est le cas d'une surface ouverte, et l'ignorer
+					// ferait passer un trait de bord pour un trait solide.
+					if (t == NK_EM_INVALID || hedges[t].face == NK_EM_INVALID ||
+						!faces[hedges[t].face].alive ||
+						faces[hedges[t].face].trait != numero) {
+						toutes = false;
+						break;
+					}
+					h = hedges[h].next;
+				} while (h != h0 && ++garde < 64u);
+				if (toutes)
+					++n;
+			}
+			return n;
+		}
+
+		uint32 NkEditMesh::SelectionnerTrait(uint8 numero) {
+		//   LA SELECTION PRECEDENTE EST REMPLACEE, PAS COMPLETEE. « Creuse ici »
+		//   designe le trait, pas le trait PLUS ce qui trainait d'avant -- un
+		//   verbe qui s'appliquerait en plus a une ancienne selection ferait des
+		//   degats loin du geste, et c'est le genre de surprise qu'on ne relie
+		//   jamais a sa cause.
+			uint32 n = 0u;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive)
+					continue;
+				const bool dedans = (faces[f].trait == numero);
+				faces[f].sel = dedans ? 1u : 0u;
+				if (dedans)
+					++n;
+			}
+		//   LES SOMMETS SUIVENT LES FACES : les operations lisent la selection de
+		//   sommets (`LoopCutFromSelectedEdge` cherche une arete dont les DEUX
+		//   extremites sont choisies). Poser `sel` sur les faces sans le propager
+		//   donnerait une selection visible qu'aucun verbe ne verrait.
+			for (uint32 v = 0; v < (uint32)verts.Size(); ++v)
+				verts[v].sel = 0u;
+			NkVector<NkEmId> lp;
+			for (uint32 f = 0; f < (uint32)faces.Size(); ++f) {
+				if (!faces[f].alive || faces[f].trait != numero)
+					continue;
+				lp.Clear();
+				GetFaceVerts((NkEmId)f, lp);
+				for (uint32 k = 0; k < (uint32)lp.Size(); ++k)
+					verts[lp[k]].sel = 1u;
+			}
+			return n;
+		}
 
 		void NkEditMesh::SelectAll() {
 			for (uint32 i = 0; i < (uint32)verts.Size(); ++i)
@@ -2156,6 +2423,7 @@ namespace nkentseu {
 				// a une reallocation, et le piege a deja ete paye ailleurs.
 				const uint16 mat = faces[f].material;
 				const uint8 sm = faces[f].smooth;
+				const uint8 tr = faces[f].trait; // LE TRAIT SUIT LA MERE, comme le reste
 				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
 				for (uint32 k = 0; k < n; ++k) {
 					const uint32 a = selVerts[b + k], c = selVerts[b + (k + 1u) % n];
@@ -2180,6 +2448,7 @@ namespace nkentseu {
 					fa.alive = 1;
 					fa.material = mat; // heritage de la face MERE, comme le chemin actuel
 					fa.smooth = sm;
+					fa.trait = tr;
 					faces.PushBack(fa);
 				}
 			}
@@ -2329,6 +2598,27 @@ namespace nkentseu {
 				// Les arêtes FIL (2 sommets) ne sont pas des faces extrudables.
 				// L'INTENTION D'ABORD (transportee par `fm`, aligne sur `f` par
 				// construction dans ToPolygons), la deduction en repli.
+				//
+				// ⚠️ DIVERGENCE DECLAREE AVEC `InsetSelectedFaces` (constatee le
+				//    20/09, et DORMANTE tant qu'`inset` n'a pas d'appelant).
+				//    CE REPLI-CI lit les COINS : `PolyFaceSelected` sur les
+				//    polygones BRUTS de `ToPolygons`.
+				//    LE REPLI D'`inset` lit l'IDENTITE SOUDEE : `vsel[...]` sur
+				//    `EM_ToWeldedPolygons`. Les deux ne designent donc PAS le meme
+				//    ensemble a partir de la meme selection de sommets.
+				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
+				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose
+				//    -- c'est le sens du commentaire de `NkDemo3D.cpp`, « sans
+				//    cette ligne, l'ecran disait 2 et l'extrusion en prenait 6 » --
+				//    donc l'application ne rencontre pas la divergence.
+				//    MESURE : sur un cube, deux faces opposees couvrent les 8
+				//    sommets soudes ; le repli soude en designe SIX la ou celui-ci
+				//    en designe DEUX (`NKEditMeshHarness --loi-instrument`).
+				// ⚠️ ET LA QUESTION N'EST PAS TRANCHEE : `PolyFaceSelected` est le
+				//    predicat PUBLIC, mais rien n'etablit qu'il soit LA convention
+				//    du moteur -- les autres replis n'ont pas ete recenses. Si un
+				//    troisieme lit encore autrement, la question aura deja ete
+				//    posee ici.
 				const bool sel = (e - s >= 3) && (fsel ? (f < (uint32)fm.Size() && fm[f].sel != 0)
 								: PolyFaceSelected(fv, s, e));
 				faceSel[f] = sel ? 1 : 0;
@@ -2685,6 +2975,7 @@ namespace nkentseu {
 					uint64 *q = edgeFaces.Find(key);
 					uint16 mats[2];
 					uint8 sms[2];
+					uint8 trs[2];
 					float32 poids[2];
 					uint32 nn = 0;
 					const float32 lg = (pv[a].pos - pv[b].pos).Len();
@@ -2700,11 +2991,12 @@ namespace nkentseu {
 						if (f1 > 0u && (f1 - 1u) < (uint32)fa.Size()) {
 							mats[nn] = fa[f1 - 1u].material;
 							sms[nn] = fa[f1 - 1u].smooth;
+							trs[nn] = fa[f1 - 1u].trait;
 							poids[nn] = lg;
 							++nn;
 						}
 					}
-					fa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+					fa.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, nn, &perdus));
 				}
 			}
 			const uint32 nfc = (uint32)fs.Size() - 1u;
@@ -4119,7 +4411,25 @@ namespace nkentseu {
 			const int32 cuts = (p.cuts < 1) ? 1 : ((p.cuts > 32) ? 32 : p.cuts);
 			// SLIDE (edge slide de Blender) : glisse les boucles insérées le long de l'anneau.
 			// 0 = position médiane (comportement historique, strictement inchangé).
-			const float32 slide = (p.slide < -1.f) ? -1.f : ((p.slide > 1.f) ? 1.f : p.slide);
+			// [!] LES BORNES ELLES-MEMES SONT DEGENERES, ET C'EST MESURE.
+			//     A slide = +/-1 EXACTEMENT, les sommets inseres tombent SUR les
+			//     sommets existants : ils fusionnent, et le maillage cesse d'en
+			//     etre un. Sur un cube, 2 boucles donnent alors V=12 E=36 F=14,
+			//     soit V-E+F = -10 au lieu de 2, avec 4 aretes non-manifold.
+			//     SEUIL CHERCHE, PAS SUPPOSE : 0,990 et 0,995 sains ; 0,999 DEJA casse.
+			//     Ma premiere valeur d ecretage (0,999) tombait du MAUVAIS COTE et ne
+			//     corrigeait rien : le banc n a pas bouge d un chiffre. *Un correctif
+			//     qui ne deplace aucune mesure est indiscernable d un placebo.*
+			//
+			//     On ecarte donc d'un epsilon au lieu d'accepter une valeur que
+			//     notre propre documentation annonce comme valide et que le code ne
+			//     sait pas honorer. *Saturer a ce que la geometrie permet, comme le
+			//     bevel le fait deja pour sa largeur.*
+			//     Decouvert parce qu'un modele a invente ce parametre : il n'a rien
+			//     casse, il a REVELE un bord que personne n'avait eprouve.
+			const float32 kSlideMax = 0.99f; // 0,995 mesure sain ; marge sous le seuil
+			const float32 slide = (p.slide < -kSlideMax) ? -kSlideMax
+								 : ((p.slide > kSlideMax) ? kSlideMax : p.slide);
 			// Arête de départ = 1re demi-arête vivante dont les 2 extrémités sont sélectionnées.
 			NkEmId h0 = NK_EM_INVALID;
 			for (uint32 h = 0; h < (uint32)hedges.Size(); ++h) {
@@ -4765,9 +5075,10 @@ namespace nkentseu {
 											W.faces[W.hedges[tw].face].material};
 					const uint8 sms[2] = {W.faces[W.hedges[h].face].smooth,
 										  W.faces[W.hedges[tw].face].smooth};
+					const uint8 trs[2] = {W.faces[W.hedges[h].face].trait, W.faces[W.hedges[tw].face].trait};
 					const float32 poids[2] = {(np[A[0]].pos - np[B[(uint32)seg]].pos).Len(),
 											  (np[A[(uint32)seg]].pos - np[B[0]].pos).Len()};
-					atBande = EM_AttribFromNeighbours(mats, sms, poids, 2u, &perdus);
+					atBande = EM_AttribFromNeighbours(mats, sms, trs, poids, 2u, &perdus);
 				}
 				for (int32 j = 0; j < seg; ++j) {
 					const uint32 st = (uint32)nfv.Size();
@@ -4794,6 +5105,7 @@ namespace nkentseu {
 				// des faces qui ne sont pas celles de l'anneau retenu.
 				NkVector<uint16> cmats;
 				NkVector<uint8> csms;
+				NkVector<uint8> ctrs;
 				NkVector<float32> cpoids;
 				bool open = false;
 				const NkEmId h0 = W.verts[v].hedge;
@@ -4807,6 +5119,7 @@ namespace nkentseu {
 						if (fh != NK_EM_INVALID && fh < (NkEmId)W.faces.Size() && W.faces[fh].alive) {
 							cmats.PushBack(W.faces[fh].material);
 							csms.PushBack(W.faces[fh].smooth);
+							ctrs.PushBack(W.faces[fh].trait);
 							// ⚠ VAUT ZERO quand les deux aretes du coin sont chanfreinees
 							// (ptPrev == ptNext, le recul est un point unique). Toutes les
 							// ponderations sont alors nulles et l'indice le plus bas
@@ -4849,7 +5162,7 @@ namespace nkentseu {
 				// chanfrein est UNE surface, comme la bande. Les triangles de l'eventail
 				// ne sont qu'une triangulation, pas des faces distinctes pour l'oeil.
 				const NkEditMesh::FaceAttrib atCoin =
-					EM_AttribFromNeighbours(cmats.Data(), csms.Data(), cpoids.Data(), (uint32)cmats.Size(),
+					EM_AttribFromNeighbours(cmats.Data(), csms.Data(), ctrs.Data(), cpoids.Data(), (uint32)cmats.Size(),
 											&perdus);
 				if (rn <= 4u) {
 					const uint32 st = (uint32)nfv.Size();
@@ -4947,6 +5260,28 @@ namespace nkentseu {
 				const uint32 s = fs[f], e = fs[f + 1];
 				// L'intention voyage dans `fm`, que le round-trip SOUDE transporte aussi
 				// (EM_ToWeldedPolygons relaie les attributs de ToPolygons, face par face).
+				//
+				// ⚠️ DIVERGENCE DECLAREE AVEC `ExtrudeSelectedFaces` (constatee le
+				//    20/09, et DORMANTE tant que cette fonction n'a pas d'appelant
+				//    hors banc -- recense le 20/09 : aucun).
+				//    CE REPLI-CI lit l'IDENTITE SOUDEE (`vsel` sur les polygones
+				//    de `EM_ToWeldedPolygons`).
+				//    LE REPLI D'`extrude` lit les COINS (`PolyFaceSelected` sur les
+				//    polygones bruts). Les deux ne designent donc PAS le meme
+				//    ensemble a partir de la meme selection de sommets.
+				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
+				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose,
+				//    donc l'application ne rencontre pas la divergence -- ne pas
+				//    lire ce paragraphe comme un defaut d'usage, c'en etait un dans
+				//    une premiere redaction et c'etait faux.
+				//    MESURE : sur un cube, deux faces opposees couvrent les 8
+				//    sommets soudes ; ce repli en designe SIX la ou celui d'extrude
+				//    en designe DEUX (`NKEditMeshHarness --loi-instrument`).
+				// ⚠️ LAQUELLE DES DEUX EST **LA** CONVENTION N'EST PAS TRANCHE.
+				//    `PolyFaceSelected` est le predicat PUBLIC, ce qui le rend
+				//    probable, mais les autres replis du fichier n'ont pas ete
+				//    recenses. Celui qui en trouvera un troisieme saura que la
+				//    question a ete posee et laissee ouverte, pas oubliee.
 				bool sel = (e - s) >= 3u;
 				if (sel && fsel)
 					sel = (f < (uint32)fm.Size()) && (fm[f].sel != 0);
@@ -5529,19 +5864,64 @@ namespace nkentseu {
 						nfm.PushBack(f < (uint32)fm.Size() ? fm[f] : NkEditMesh::FaceAttrib{});
 					}
 			} else { // bandes reliant les anneaux consécutifs
+				// ── L'ORIENTATION SE DECIDE UNE FOIS, POUR TOUTE LA SURFACE (25/09) ──
+				// ⚠️ DEFAUT MESURE : la regle « la normale du quad doit FUIR l'axe »
+				//    etait appliquee QUAD PAR QUAD. Elle est juste pour une surface
+				//    convexe vue du dehors, et FAUSSE pour la paroi INTERIEURE d'un
+				//    recipient, qu'on regarde depuis la cavite : ses quads etaient
+				//    retournes vers l'exterieur, donc en desaccord avec leurs voisins.
+				//    Sur le bol du jeu revolution : 95 aretes interieures sur 1 201
+				//    (7,91 %) parcourues dans le MEME sens par leurs deux faces, 189
+				//    faces sur 1 056 (17,9 %) -- deux anneaux de 48, exactement les
+				//    deux cercles ou la paroi interieure rencontre le reste. A l'ecran,
+				//    un coin noir dans le bol, que Rodolf a vu et qu'aucun compte de
+				//    trous ni de non-manifold ne signalait (0 bord, 0 non-manifold).
+				//
+				// LA REGLE JUSTE EST UN INVARIANT, PAS UNE HEURISTIQUE : on construit
+				// tous les quads avec LE MEME enroulement -- ce qui rend la surface
+				// coherente par construction -- puis on retourne l'ENSEMBLE si le
+				// volume signe de la surface fermee est negatif (normales rentrantes).
+				// Le volume signe ne se trompe pas la ou « fuir l'axe » se trompait :
+				// il ne regarde pas un quad, il regarde le solide.
+				// Pour un profil OUVERT, le volume ne veut rien dire ; on retombe alors
+				// sur l'ancienne regle, mais prise EN SOMME sur tous les quads, donc
+				// une seule decision, donc une surface coherente dans tous les cas.
+				bool retourner = false;
+				{
+					float64 vol = 0.0, radial = 0.0;
+					for (int32 k = 0; k < steps; ++k)
+						for (uint32 e = 0; e < (uint32)eA.Size(); ++e) {
+							const uint32 a0 = ring[(uint32)k * pn + (uint32)slot[eA[e]]];
+							const uint32 b0 = ring[(uint32)k * pn + (uint32)slot[eB[e]]];
+							const uint32 a1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eA[e]]];
+							const uint32 b1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eB[e]]];
+							const NkVec3f p0 = pv[a0].pos - ctr, p1 = pv[b0].pos - ctr;
+							const NkVec3f p2 = pv[b1].pos - ctr, p3 = pv[a1].pos - ctr;
+							vol += (float64)p0.Dot(p1.Cross(p2)) + (float64)p0.Dot(p2.Cross(p3));
+							const NkVec3f n4 = NkEmFaceCross(pv[a0].pos, pv[b0].pos, pv[b1].pos);
+							NkVec3f rad = (pv[a0].pos + pv[b0].pos + pv[a1].pos + pv[b1].pos) * 0.25f - ctr;
+							rad = rad - ax * rad.Dot(ax);
+							if (rad.LenSq() > 1e-12f)
+								radial += (float64)n4.Dot(rad);
+						}
+					// ⚠️ LE SIGNE EST MESURE, PAS SUPPOSE. J'avais ecrit « volume negatif =
+					//    normales rentrantes », par la convention usuelle. Faux ICI : les
+					//    assemblages de boites, qui s'affichent correctement depuis
+					//    toujours, rendent un volume signe NEGATIF par cette formule
+					//    (chaise -0,0156 ; table -0,0158, mesures du 25/09). La premiere
+					//    version a donc retourne le bol dans le mauvais sens : le coin
+					//    noir avait disparu, et tout l'interieur etait devenu noir a sa
+					//    place. On lit le signe sur ce qui marche deja, jamais dans un
+					//    manuel.
+					retourner = (vol > 1e-9) || (vol > -1e-9 && vol < 1e-9 && radial < 0.0);
+				}
 				for (int32 k = 0; k < steps; ++k) {
 					for (uint32 e = 0; e < (uint32)eA.Size(); ++e) {
 						const uint32 a0 = ring[(uint32)k * pn + (uint32)slot[eA[e]]];
 						const uint32 b0 = ring[(uint32)k * pn + (uint32)slot[eB[e]]];
 						const uint32 a1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eA[e]]];
 						const uint32 b1 = ring[(uint32)(k + 1) * pn + (uint32)slot[eB[e]]];
-						// ORIENTATION : la normale du quad doit FUIR l'axe (surface de
-						// révolution vue de l'extérieur) ; sinon on inverse la boucle.
-						const NkVec3f n4 = NkEmFaceCross(pv[a0].pos, pv[b0].pos, pv[b1].pos);
-						const NkVec3f cq = (pv[a0].pos + pv[b0].pos + pv[a1].pos + pv[b1].pos) * 0.25f;
-						NkVec3f rad = cq - ctr;
-						rad = rad - ax * rad.Dot(ax);
-						if ((rad.LenSq() > 1e-12f) && (n4.Dot(rad) < 0.f)) {
+						if (retourner) {
 							nfv.PushBack(a1);
 							nfv.PushBack(b1);
 							nfv.PushBack(b0);
@@ -5574,6 +5954,7 @@ namespace nkentseu {
 							uint64 *q = edgeFaces.Find(key);
 							uint16 mats[2];
 							uint8 sms[2];
+							uint8 trs[2];
 							float32 poids[2];
 							uint32 nn = 0;
 							// Les deux voisines partagent le MEME segment : longueurs
@@ -5593,11 +5974,12 @@ namespace nkentseu {
 								if (f1 > 0u && (f1 - 1u) < (uint32)fm.Size()) {
 									mats[nn] = fm[f1 - 1u].material;
 									sms[nn] = fm[f1 - 1u].smooth;
+									trs[nn] = fm[f1 - 1u].trait;
 									poids[nn] = lg;
 									++nn;
 								}
 							}
-							nfm.PushBack(EM_AttribFromNeighbours(mats, sms, poids, nn, &perdus));
+							nfm.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, nn, &perdus));
 						}
 					}
 				}
@@ -6179,6 +6561,166 @@ namespace nkentseu {
 			if (!faceSel.Empty())
 				m.SetFaceSelection(faceSel.Data(), (uint32)faceSel.Size());
 			switch (op) {
+				case NkMeshEditOp::Sculpt: {
+					// UN COUP DE BROSSE. La commande porte TOUT ce dont le geste depend
+					// (cf. NkSculptCmdParams) : rien n'est relu depuis un fichier de
+					// brosse a l'execution, donc rejouer la session reproduit le geste
+					// qui a ete fait, et non celui que la brosse est devenue depuis.
+					if (sculptPoints.Empty())
+						return false;
+					NkBrushDesc d;
+					d.radius = sculpt.radius;
+					d.strength = sculpt.strength;
+					d.hardness = sculpt.hardness;
+					d.dir = sculpt.dir;
+					d.falloff = (NkSculptFalloffKind)sculpt.falloff;
+					d.op = (NkSculptOp)sculpt.primitive;
+					d.valid = true;
+					NkVector<NkSculptPoint> pts;
+					pts.Resize((uint32)sculptPoints.Size());
+					for (uint32 k = 0; k < (uint32)sculptPoints.Size(); ++k) {
+						pts[k].pos = sculptPoints[k];
+						pts[k].normal = (k < (uint32)sculptNormals.Size()) ? sculptNormals[k]
+											  : NkVec3f{0.f, 1.f, 0.f};
+						pts[k].radius = sculpt.radius;
+						pts[k].pressure = 1.f;
+					}
+					// LA SYMETRIE DEPLIE LE TRAIT AVANT QU'IL NE PARTE. Une seule
+					// primitive, un seul chemin de deformation : ce sont les TAMPONS
+					// qui se multiplient, pas le code. Et la couture est traitee la ou
+					// elle se voit (cf. NkSculptExpandSymmetry).
+					NkVector<NkSculptPoint> ptsSym;
+					const bool aSym = (sculpt.symX || sculpt.symY || sculpt.symZ);
+					if (aSym)
+						NkSculptExpandSymmetry(pts.Data(), (uint32)pts.Size(), sculpt.symX,
+											   sculpt.symY, sculpt.symZ, ptsSym);
+					const NkSculptApply r =
+						aSym ? NkSculptApplyStroke(m, d, ptsSym.Data(), (uint32)ptsSym.Size())
+							 : NkSculptApplyStroke(m, d, pts.Data(), (uint32)pts.Size());
+					// ⚠️ `applied` EST FAUX QUAND RIEN N'A BOUGE, et c'est ce que
+					//    Demo3D_ApplyCmd attend pour ne pas commiter un undo vide : un
+					//    trait hors du maillage ne doit pas laisser une etape d'annulation
+					//    qui ne defait rien.
+					return r.applied;
+				}
+				case NkMeshEditOp::SculptTransform: {
+					// L'OUTIL TRANSFORM DE SCULPTURE. Il agit sur la partie NON
+					// MASQUEE -- c'est le premier consommateur du masque.
+					//
+					// ⚠️ LE POIDS INTERPOLE, IL NE SEUILLE PAS. p' = p + (M·p - p) x
+					//    (1 - masque) : un masque a 0,5 laisse passer la moitie du
+					//    deplacement. Seuiller ferait apparaitre une marche la ou le
+					//    masque a justement ete degrade.
+					//
+					// ⚠️ SANS MASQUE, IL DEPLACE TOUT, et c'est Blender : « la partie
+					//    non masquee » d'un maillage sans masque, c'est le maillage.
+					const uint32 vc = m.VertCount();
+					if (vc == 0)
+						return false;
+					const NkSculptTransformParams &T = sculptXform;
+					const float32 kD2R = 0.017453292f;
+					const NkMat4f R = NkMat4f::RotationZ(NkAngle::FromRad(T.rotDeg.z * kD2R)) *
+									  NkMat4f::RotationY(NkAngle::FromRad(T.rotDeg.y * kD2R)) *
+									  NkMat4f::RotationX(NkAngle::FromRad(T.rotDeg.x * kD2R));
+					const NkMat4f S = NkMat4f::Scale(T.scale);
+					// La matrice du gizmo fait autorite quand elle est la : le geste
+					// enregistre est ALORS exactement celui qui a ete vu.
+					const NkMat4f M =
+						T.aMatrice ? T.matrice : (NkMat4f::Translate(T.translate) * R * S);
+					// La reflexion d'un axe : S·M·S. On la compose pour chaque axe
+					// symetrise, donc jusqu'a huit combinaisons -- exactement les
+					// huit octants que Blender traite.
+					auto refl = [](const NkMat4f &mm, int32 axe) {
+						NkVec3f d{1.f, 1.f, 1.f};
+						if (axe == 0)
+							d.x = -1.f;
+						else if (axe == 1)
+							d.y = -1.f;
+						else
+							d.z = -1.f;
+						const NkMat4f F = NkMat4f::Scale(d);
+						return F * mm * F;
+					};
+					uint32 bouges = 0;
+					for (uint32 i = 0; i < vc; ++i) {
+						// MEME porte de mutation que les brosses : un seul `getenv`, deux sites.
+						const float32 libre = NkSculptMasqueIgnore() ? 1.f : (1.f - m.MaskAt(i));
+						if (libre <= 0.f)
+							continue; // entierement protege : pas un octet
+						const NkVec3f p = m.verts[i].pos;
+						const NkVec3f rel = p - T.pivot;
+						// ⚠️ LE SOMMET POSE SUR LE PLAN DE SYMETRIE APPARTIENT AUX DEUX
+						//    COTES. Premiere version : il suivait le cote positif (le
+						//    test etait `< 0`). Mesure : sur un cube symetrise en X,
+						//    l'anneau x = 0 partait de +0,5 pendant que ses voisins a
+						//    x = -epsilon partaient de -0,5 -- le maillage se DECHIRAIT
+						//    exactement sur la couture, la ou la symetrie devait le
+						//    souder. On MOYENNE donc les transformations applicables :
+						//    pour une translation le long de X, la moyenne vaut zero, et
+						//    l'anneau reste sur le plan. C'est ce que fait Blender.
+						const float32 kEps = 1e-6f;
+						NkVec3f somme{0.f, 0.f, 0.f};
+						uint32 nCombi = 0;
+						for (int32 cx = 0; cx < 2; ++cx) {
+							if (cx == 1 && !(T.symX && rel.x <= kEps))
+								continue;
+							if (cx == 0 && T.symX && rel.x < -kEps)
+								continue;
+							for (int32 cy = 0; cy < 2; ++cy) {
+								if (cy == 1 && !(T.symY && rel.y <= kEps))
+									continue;
+								if (cy == 0 && T.symY && rel.y < -kEps)
+									continue;
+								for (int32 cz = 0; cz < 2; ++cz) {
+									if (cz == 1 && !(T.symZ && rel.z <= kEps))
+										continue;
+									if (cz == 0 && T.symZ && rel.z < -kEps)
+										continue;
+									NkMat4f Mv = M;
+									if (cx == 1)
+										Mv = refl(Mv, 0);
+									if (cy == 1)
+										Mv = refl(Mv, 1);
+									if (cz == 1)
+										Mv = refl(Mv, 2);
+									somme = somme + (T.pivot + (Mv * rel));
+									++nCombi;
+								}
+							}
+						}
+						if (nCombi == 0)
+							continue;
+						const NkVec3f q = somme * (1.f / (float32)nCombi);
+						const NkVec3f d = (q - p) * libre;
+						if (d.x == 0.f && d.y == 0.f && d.z == 0.f)
+							continue;
+						m.verts[i].pos = p + d;
+						++bouges;
+					}
+					if (bouges == 0)
+						return false;
+					m.RecomputeNormals();
+					return true;
+				}
+				case NkMeshEditOp::MaskAll: {
+					// LE MASQUE EN BLOC. Rend VRAI seulement si quelque chose a CHANGE :
+					// `Demo3D_ApplyCmd` s'en sert pour ne pas commiter une etape
+					// d'annulation qui ne defait rien -- « tout demasquer » sur un
+					// maillage deja libre ne doit pas remplir la pile.
+					// ⚠️ LE TEMOIN EST LA SOMME, PAS LE COMPTE. Deux masques differents
+					//    peuvent avoir le meme nombre de sommets masques ; ils n'ont pas
+					//    la meme somme. Et l'EXISTENCE du tableau compte aussi : liberer
+					//    la memoire est un changement, meme quand la somme valait deja 0.
+					const bool avaitTableau = m.MaskExists();
+					const float32 avant = m.MaskSum();
+					if (maskAll.mode == 1u)
+						m.MaskFillAll(maskAll.poids);
+					else if (maskAll.mode == 2u)
+						m.MaskInvert();
+					else
+						m.MaskClearAll();
+					return (m.MaskExists() != avaitTableau) || (m.MaskSum() != avant);
+				}
 				case NkMeshEditOp::Extrude:
 					return m.ExtrudeSelectedFaces(extrude);
 				case NkMeshEditOp::ExtrudeVerts:
@@ -6326,11 +6868,165 @@ namespace nkentseu {
 			static const uint32 NK_EMREC_MAGIC = 0x4E4D4543u; // "NMEC"
 		} // namespace
 
+		// ── L'ECHANTILLONNAGE D'UN CHAMP : L'IMPLANTATION, UNE SEULE FOIS ──────
+		// Cf. la declaration dans NkEditMesh.h pour la regle et ses raisons.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol) noexcept {
+			if (!dst || !out || m == 0)
+				return;
+			for (uint32 i = 0; i < m; ++i)
+				out[i] = 0.f;
+			if (!src || !poids || n == 0)
+				return;
+			// Maille de la grille : la diagonale de la boite / 64, bornee. Trop fine,
+			// on visite trop de cellules ; trop large, chaque cellule redevient une
+			// recherche exhaustive.
+			NkVec3f mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f &p = src[i];
+				mn.x = (p.x < mn.x) ? p.x : mn.x;
+				mn.y = (p.y < mn.y) ? p.y : mn.y;
+				mn.z = (p.z < mn.z) ? p.z : mn.z;
+				mx.x = (p.x > mx.x) ? p.x : mx.x;
+				mx.y = (p.y > mx.y) ? p.y : mx.y;
+				mx.z = (p.z > mx.z) ? p.z : mx.z;
+			}
+			const NkVec3f d = mx - mn;
+			float32 diag = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (diag <= 1e-6f)
+				diag = 1.f;
+			const float32 cell = diag / 64.f;
+			const float32 invCell = 1.f / cell;
+			struct Cle {
+					int32 x, y, z;
+			};
+			auto cleDe = [&](const NkVec3f &p) {
+				Cle k;
+				k.x = (int32)floorf((p.x - mn.x) * invCell);
+				k.y = (int32)floorf((p.y - mn.y) * invCell);
+				k.z = (int32)floorf((p.z - mn.z) * invCell);
+				return k;
+			};
+			auto hachage = [](const Cle &k) {
+				return (uint64)((uint64)(uint32)(k.x * 73856093) ^ (uint64)(uint32)(k.y * 19349663) ^
+								(uint64)(uint32)(k.z * 83492791));
+			};
+			uint32 cap = 1u;
+			while (cap < n * 2u)
+				cap <<= 1;
+			NkVector<uint64> cles;
+			NkVector<int32> tete;
+			NkVector<int32> suivant;
+			cles.Resize(cap);
+			tete.Resize(cap);
+			suivant.Resize(n);
+			for (uint32 i = 0; i < cap; ++i) {
+				cles[i] = 0xFFFFFFFFFFFFFFFFull;
+				tete[i] = -1;
+			}
+			auto emplacement = [&](uint64 h) {
+				uint32 slot = (uint32)(h & (uint64)(cap - 1u));
+				while (cles[slot] != 0xFFFFFFFFFFFFFFFFull && cles[slot] != h)
+					slot = (slot + 1u) & (cap - 1u);
+				return slot;
+			};
+			for (uint32 i = 0; i < n; ++i) {
+				const uint64 h = hachage(cleDe(src[i]));
+				const uint32 slot = emplacement(h);
+				cles[slot] = h;
+				suivant[i] = tete[slot];
+				tete[slot] = (int32)i;
+			}
+			// Parcourt les cellules d'un cube de rayon `rayon` autour du point.
+			auto parcourir = [&](const NkVec3f &p, int32 rayon, auto &&visiter) {
+				const Cle k0 = cleDe(p);
+				for (int32 dx = -rayon; dx <= rayon; ++dx)
+					for (int32 dy = -rayon; dy <= rayon; ++dy)
+						for (int32 dz = -rayon; dz <= rayon; ++dz) {
+							const Cle k{k0.x + dx, k0.y + dy, k0.z + dz};
+							const uint64 h = hachage(k);
+							const uint32 slot = emplacement(h);
+							if (cles[slot] != h)
+								continue;
+							for (int32 j = tete[slot]; j >= 0; j = suivant[(uint32)j])
+								visiter((uint32)j);
+						}
+			};
+			const float32 epsAbs = 1e-9f;
+			for (uint32 v = 0; v < m; ++v) {
+				const NkVec3f &p = dst[v];
+				// On elargit le voisinage tant qu'on n'a rien trouve : un point cree
+				// LOIN des sources doit quand meme trouver ses plus proches, sinon il
+				// naitrait a zero par accident de maillage.
+				float32 best = 1e30f;
+				for (int32 rayon = 1; rayon <= 8 && best > 1e29f; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 < best)
+							best = d2;
+					});
+				if (best > 1e29f)
+					continue;
+				// LES PLUS PROCHES **A EGALITE** : la tolerance est RELATIVE a la
+				// distance trouvee, donc elle vaut pour un maillage de 1 cm comme de
+				// 10 m. A distance nulle (point conserve), seul lui-meme entre.
+				const float32 dmin = sqrtf(best);
+				const float32 seuil = dmin * (1.f + tol) + epsAbs;
+				const float32 seuil2 = seuil * seuil;
+				float32 somme = 0.f;
+				uint32 cnt = 0;
+				for (int32 rayon = 1; rayon <= 8 && cnt == 0; rayon += (rayon < 3 ? 1 : 3))
+					parcourir(p, rayon, [&](uint32 j) {
+						const NkVec3f q = src[j] - p;
+						const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+						if (d2 <= seuil2) {
+							somme += poids[j];
+							++cnt;
+						}
+					});
+				if (cnt > 0)
+					out[v] = somme / (float32)cnt;
+			}
+		}
+
+		// ── LE REPORT DU MASQUE A TRAVERS UNE OPERATION ────────────────────────
+		// N'est plus qu'un APPELANT de l'echantillonnage : le jour ou la regle
+		// changera, elle changera pour les trois usages a la fois.
+		uint32 NkEditMesh::MaskTransferFrom(const NkEditMesh &avant, float32 tol) {
+			if (!avant.MaskExists() || avant.VertCount() == 0 || VertCount() == 0)
+				return 0;
+			NkVector<NkVec3f> src, dst;
+			src.Resize(avant.VertCount());
+			for (uint32 i = 0; i < avant.VertCount(); ++i)
+				src[i] = avant.verts[i].pos;
+			dst.Resize(VertCount());
+			for (uint32 i = 0; i < VertCount(); ++i)
+				dst[i] = verts[i].pos;
+			NkVector<float32> out;
+			out.Resize(VertCount());
+			NkMaskSampleField(src.Data(), avant.vertMask.Data(), (uint32)src.Size(), dst.Data(),
+							  out.Data(), (uint32)dst.Size(), tol);
+			MaskEnsure();
+			uint32 poses = 0;
+			for (uint32 i = 0; i < VertCount(); ++i) {
+				vertMask[i] = out[i];
+				if (out[i] > 0.f)
+					++poses;
+			}
+			return poses;
+		}
+
 		void NkMeshEditRecorder::Serialize(NkVector<uint8> &out) const {
 			out.Clear();
 			EmW w{out};
 			w.U32(NK_EMREC_MAGIC);
-			w.U32(10u); // v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
+			w.U32(15u); // v15 : + la SYMETRIE du mode, enregistree avec le coup de brosse
+			//       v14 : + la MATRICE du geste de gizmo (Transform de sculpture)
+			//       v13 : + L'OUTIL TRANSFORM DE SCULPTURE (partie non masquee)
+			//       v12 : + LE MASQUE EN BLOC (tout masquer / demasquer / inverser)
+			//       v11 : + LE COUP DE BROSSE (params + polyligne)
+			//       v10 : + l'INTENTION DE FACE (sans elle, deux gestes differents
 						//       s'ecrivaient a l'identique -- 370 octets pour « deux faces
 						//       opposees » comme pour « tout selectionner »)
 						// v9 : + loopcut.slide (v8 : ToSphere/ShrinkFatten · v7 : dissolve · v6 : spin
@@ -6395,6 +7091,60 @@ namespace nkentseu {
 				w.U32((uint32)c.faceSel.Size());
 				for (uint32 k = 0; k < (uint32)c.faceSel.Size(); ++k)
 					w.U8(c.faceSel[k]);
+				// v11 : LE COUP DE BROSSE. Ecrit EN FIN, comme les dix paliers
+				// precedents : un lecteur v10 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.F32(c.sculpt.radius);
+				w.F32(c.sculpt.strength);
+				w.F32(c.sculpt.hardness);
+				w.F32(c.sculpt.dir);
+				w.U8(c.sculpt.falloff);
+				w.U8(c.sculpt.primitive);
+				for (uint32 k = 0; k < 48; ++k)
+					w.U8((uint8)c.sculpt.brushName[k]);
+				w.U32((uint32)c.sculptPoints.Size());
+				for (uint32 k = 0; k < (uint32)c.sculptPoints.Size(); ++k) {
+					w.F32(c.sculptPoints[k].x);
+					w.F32(c.sculptPoints[k].y);
+					w.F32(c.sculptPoints[k].z);
+				}
+				w.U32((uint32)c.sculptNormals.Size());
+				for (uint32 k = 0; k < (uint32)c.sculptNormals.Size(); ++k) {
+					w.F32(c.sculptNormals[k].x);
+					w.F32(c.sculptNormals[k].y);
+					w.F32(c.sculptNormals[k].z);
+				}
+				// v12 : LE MASQUE EN BLOC. Ecrit EN FIN, comme les onze paliers
+				// precedents : un lecteur v11 s'arrete avant et lit exactement ce
+				// qu'il lisait hier.
+				w.U8(c.maskAll.mode);
+				w.F32(c.maskAll.poids);
+				// v13 : L'OUTIL TRANSFORM DE SCULPTURE. En fin, comme les douze
+				// paliers precedents.
+				w.F32(c.sculptXform.translate.x);
+				w.F32(c.sculptXform.translate.y);
+				w.F32(c.sculptXform.translate.z);
+				w.F32(c.sculptXform.rotDeg.x);
+				w.F32(c.sculptXform.rotDeg.y);
+				w.F32(c.sculptXform.rotDeg.z);
+				w.F32(c.sculptXform.scale.x);
+				w.F32(c.sculptXform.scale.y);
+				w.F32(c.sculptXform.scale.z);
+				w.F32(c.sculptXform.pivot.x);
+				w.F32(c.sculptXform.pivot.y);
+				w.F32(c.sculptXform.pivot.z);
+				w.U8(c.sculptXform.symX);
+				w.U8(c.sculptXform.symY);
+				w.U8(c.sculptXform.symZ);
+				// v14 : la MATRICE du geste (le gizmo n'a pas d'euler a donner).
+				for (int32 col = 0; col < 4; ++col)
+					for (int32 row = 0; row < 4; ++row)
+						w.F32(c.sculptXform.matrice[col][row]);
+				w.U8(c.sculptXform.aMatrice);
+				// v15 : la SYMETRIE DU MODE au moment du coup de brosse.
+				w.U8(c.sculpt.symX);
+				w.U8(c.sculpt.symY);
+				w.U8(c.sculpt.symZ);
 			}
 		}
 
@@ -6522,9 +7272,10 @@ namespace nkentseu {
 							const NkEditMesh::FaceAttrib at = attrDe(f);
 							const uint16 mats[2] = {at.material, at.material};
 							const uint8 sms[2] = {at.smooth, at.smooth};
+							const uint8 trs[2] = {at.trait, at.trait};
 							const float32 lg = (ov[ia].pos - ov[ib].pos).Len();
 							const float32 poids[2] = {lg, lg};
-							nfa.PushBack(EM_AttribFromNeighbours(mats, sms, poids, 2u, nullptr));
+							nfa.PushBack(EM_AttribFromNeighbours(mats, sms, trs, poids, 2u, nullptr));
 						}
 					}
 				}
@@ -7463,6 +8214,67 @@ namespace nkentseu {
 					const uint32 fc = r.U32();
 					for (uint32 k = 0; k < fc && r.ok; ++k)
 						c.faceSel.PushBack(r.U8());
+				}
+				// v11 : LE COUP DE BROSSE. Meme regle que les dix paliers precedents :
+				// on ne lit que si le fichier l'annonce. Un fichier v10 laisse la
+				// commande avec ses valeurs par defaut et AUCUN point de trait -- donc
+				// `Apply` rend false sur une op Sculpt vide, au lieu de sculpter avec
+				// des parametres inventes.
+				if (ver >= 11) {
+					c.sculpt.radius = r.F32();
+					c.sculpt.strength = r.F32();
+					c.sculpt.hardness = r.F32();
+					c.sculpt.dir = r.F32();
+					c.sculpt.falloff = r.U8();
+					c.sculpt.primitive = r.U8();
+					for (uint32 k = 0; k < 48; ++k)
+						c.sculpt.brushName[k] = (char)r.U8();
+					c.sculpt.brushName[47] = 0; // le nom relu reste TOUJOURS termine
+					const uint32 pc = r.U32();
+					for (uint32 k = 0; k < pc && r.ok; ++k) {
+						const float32 x = r.F32(), y = r.F32(), z = r.F32();
+						c.sculptPoints.PushBack(NkVec3f{x, y, z});
+					}
+					const uint32 nc = r.U32();
+					for (uint32 k = 0; k < nc && r.ok; ++k) {
+						const float32 x = r.F32(), y = r.F32(), z = r.F32();
+						c.sculptNormals.PushBack(NkVec3f{x, y, z});
+					}
+				}
+				// v12 : LE MASQUE EN BLOC. Un fichier v11 laisse `maskAll` a ses
+				// valeurs par defaut ; comme aucune de ses commandes ne porte l'op
+				// MaskAll, ces valeurs ne sont jamais lues.
+				if (ver >= 12) {
+					c.maskAll.mode = r.U8();
+					c.maskAll.poids = r.F32();
+				}
+				if (ver >= 13) {
+					c.sculptXform.translate.x = r.F32();
+					c.sculptXform.translate.y = r.F32();
+					c.sculptXform.translate.z = r.F32();
+					c.sculptXform.rotDeg.x = r.F32();
+					c.sculptXform.rotDeg.y = r.F32();
+					c.sculptXform.rotDeg.z = r.F32();
+					c.sculptXform.scale.x = r.F32();
+					c.sculptXform.scale.y = r.F32();
+					c.sculptXform.scale.z = r.F32();
+					c.sculptXform.pivot.x = r.F32();
+					c.sculptXform.pivot.y = r.F32();
+					c.sculptXform.pivot.z = r.F32();
+					c.sculptXform.symX = r.U8();
+					c.sculptXform.symY = r.U8();
+					c.sculptXform.symZ = r.U8();
+				}
+				if (ver >= 14) {
+					for (int32 col = 0; col < 4; ++col)
+						for (int32 row = 0; row < 4; ++row)
+							c.sculptXform.matrice[col][row] = r.F32();
+					c.sculptXform.aMatrice = r.U8();
+				}
+				if (ver >= 15) {
+					c.sculpt.symX = r.U8();
+					c.sculpt.symY = r.U8();
+					c.sculpt.symZ = r.U8();
 				}
 				// ⚠️ ver < 10 : `faceSel` RESTE VIDE, et ce n'est pas un oubli. Une
 				//    session d'hier n'a jamais porte d'intention de face : lui en

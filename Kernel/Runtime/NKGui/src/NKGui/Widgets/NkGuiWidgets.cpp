@@ -3655,6 +3655,56 @@ namespace nkentseu {
 			DockDetachFromLeaf(ctx, ctx.GetId(windowTitle));
 		}
 
+		int32 DockPruneEmpty(NkGuiContext &ctx) noexcept {
+			// Une passe par feuille elaguee : `DockCollapseLeaf` REMPLACE le parent par
+			// le frere, donc les indices bougent sous nos pieds. On recommence tant
+			// qu'on trouve quelque chose -- c'est la seule facon sure de parcourir un
+			// arbre qu'on modifie, et l'arbre d'un dock compte quelques dizaines de
+			// noeuds, pas des milliers.
+			// ⚠️ ON NE CHERCHE QUE DANS CE QUI EST ATTEIGNABLE DEPUIS LA RACINE, et
+			//    le banc a paye cette ligne comptant. `DockCollapseLeaf` recopie le
+			//    FRERE dans le parent : le noeud de la feuille elaguee reste dans le
+			//    tableau, orphelin, avec toujours `kind == 2`, `winCount == 0` et un
+			//    `parent >= 0` perime. Une recherche lineaire sur le tableau le
+			//    retrouvait indefiniment -- premiere version : 257 elagages sur UNE
+			//    feuille vide, c'est-a-dire le garde-fou, c'est-a-dire une boucle sans
+			//    fin. Le tableau n'est pas l'arbre.
+			int32 elaguees = 0;
+			for (;;) {
+				// Descente depuis la racine, pile explicite (zero-STL, et une
+				// recursion sur un arbre relu d'un fichier n'a pas de fond garanti).
+				int32 pile[256];
+				int32 haut = 0, cible = -1;
+				if (ctx.dockRoot >= 0 && ctx.dockRoot < (int32)ctx.dockNodes.Size())
+					pile[haut++] = ctx.dockRoot;
+				while (haut > 0 && cible < 0) {
+					const int32 i = pile[--haut];
+					if (i < 0 || i >= (int32)ctx.dockNodes.Size())
+						continue;
+					const NkGuiDockNode &n = ctx.dockNodes[i];
+					if (n.kind == 1) { // separation : on descend
+						if (haut + 2 <= 256) {
+							pile[haut++] = n.child0;
+							pile[haut++] = n.child1;
+						}
+						continue;
+					}
+					// FEUILLE sans fenetre, et qui a un parent : la racine vide se
+					// garde -- `DockCollapseLeaf` le dit deja, on ne duplique pas
+					// cette regle et on ne la contredit pas non plus.
+					if (n.kind == 2 && n.winCount == 0 && n.parent >= 0)
+						cible = i;
+				}
+				if (cible < 0)
+					break;
+				DockCollapseLeaf(ctx, cible);
+				++elaguees;
+				if (elaguees > 256)
+					break; // garde-fou : un arbre incoherent ne doit pas tourner sans fin
+			}
+			return elaguees;
+		}
+
 		void DockWindowHideSingleTab(NkGuiContext &ctx, const char *windowTitle, bool hide) noexcept {
 			const NkGuiId wid = ctx.GetId(windowTitle);
 			int32 mi;
@@ -5344,13 +5394,19 @@ namespace nkentseu {
 			if (r.y < 0.f)
 				r.y = 0.f;
 
-			// OVERLAY direct + clip plein écran (jamais rogné, bordure complète).
-			ctx.dlOverlay.PushClipRect({0.f, 0.f, 1.0e9f, 1.0e9f}, false);
-			ctx.dlOverlay.AddRectFilled(r, NkColor{24, 26, 32, 245}, ctx.theme.rounding);
-			ctx.dlOverlay.AddRect(r, ctx.theme.border, 1.f, ctx.theme.rounding);
-			ctx.dlOverlay.AddText(ctx.font->Face(), ctx.font->TexId(), {r.x + padX, CenteredBaseline(ctx, r)}, text,
-								  ctx.theme.text);
-			ctx.dlOverlay.PopClipRect();
+			// (21/09, Q8) L'INFOBULLE EST PEINTE EN DERNIER, PAS ICI. Peinte a
+			// l'appel, dans l'overlay, elle passait SOUS tout ce qui s'y peignait
+			// ensuite -- le tiroir du rail droit recouvrait l'infobulle de sa propre
+			// pastille (Rodolf : « les infobulles doivent toujours etre au premier
+			// plan »). Elle est retenue, et `EndFrame` la pose au sommet.
+			ctx.tooltipPose = true;
+			ctx.tooltipRect = r;
+			ctx.tooltipBase = CenteredBaseline(ctx, r);
+			ctx.tooltipPadX = padX;
+			int32 n = 0;
+			for (; text[n] && n + 1 < (int32)sizeof(ctx.tooltipTexte); ++n)
+				ctx.tooltipTexte[n] = text[n];
+			ctx.tooltipTexte[n] = 0;
 		}
 
 	} // namespace nkgui

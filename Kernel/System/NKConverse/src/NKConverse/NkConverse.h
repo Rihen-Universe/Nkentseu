@@ -64,9 +64,26 @@ namespace nkentseu::converse {
 
 	// ── LA REQUETE ET LA REPONSE ────────────────────────────────────────────
 	struct NkConverseRequest {
-			NkString prompt;	 ///< ce que l'utilisateur demande, en francais
+			NkString prompt;	 ///< le format, les regles, l'exemple
 			NkString catalog;	 ///< les composants DECLARES, engendres depuis le registre
 			NkString currentDoc; ///< le document courant, pour qu'elle puisse le CONTINUER
+			/// ⚠️ LA DEMANDE, RAPPELEE EN DERNIER -- mesure du 20/09.
+			///
+			///    Elle vivait en tete de `prompt`. Sur un document de 42 noeuds, le
+			///    bloc `--- document courant ---` occupait 84 % de l'invite, et le
+			///    modele repondait au DOCUMENT au lieu de la demande : il en
+			///    publiait une analyse (« vous avez un noeud principal (28) qui est
+			///    un Graphique... »). La phrase de Rodolf, 3 courses sur 3 :
+			///    acceptee a document vide, REFUSEE sur son document.
+			///
+			///    Le pari, et il se mesure : *le modele repond a ce qui est le plus
+			///    pres du point de generation.* Elle est donc DEPLACEE, pas
+			///    dupliquee -- la repeter ferait deux endroits a tenir d'accord.
+			///
+			///    Vide -> rien n'est ajoute, et l'invite est exactement celle
+			///    d'avant : les appelants qui mettent tout dans `prompt` (la
+			///    conversation) ne changent pas de comportement.
+			NkString demande;
 	};
 
 	struct NkConverseReply {
@@ -85,6 +102,33 @@ namespace nkentseu::converse {
 			virtual bool Complete(const NkConverseRequest &req, NkConverseReply &out) = 0;
 			virtual bool IsAvailable() const = 0;
 			virtual const char *Name() const = 0;
+
+			/// ⚠️ LES OCTETS REELLEMENT ENVOYES, ET C'EST TOUTE LA RAISON D'ETRE
+			///    DE CE CHAMP.
+			///
+			///    Le banc du jeu d'epreuve REBATISSAIT l'invite de son cote pour
+			///    l'ecrire dans `dXX_invite.txt`. Deux ecritures de la meme regle
+			///    de format, donc deux verites -- et elles avaient DIVERGE :
+			///    mesure du 20/09 sur `e10`, le dorsal envoyait 3 332 caracteres,
+			///    le fichier en portait 2 693. Il manquait un saut de ligne avant
+			///    `--- composants declares ---` et **tout le bloc
+			///    `--- document courant ---`** (639 octets).
+			///
+			///    Le fichier ne PROUVAIT donc rien, et il piegeait activement :
+			///    j'ai moi-meme conclu « le service repond en 9,5 s la ou le banc
+			///    echoue » en rejouant ce fichier -- c'est-a-dire un AUTRE texte.
+			///    Rejouee a l'identique, la requete bloquait le service aussi.
+			///
+			///    Vide tant qu'aucun appel n'a eu lieu. Un dorsal qui ne batit pas
+			///    d'invite (le temoin) le laisse vide, et l'appelant doit alors
+			///    n'ecrire AUCUN fichier plutot qu'un fichier reconstitue :
+			///    *un fichier absent est honnete, un fichier faux ne l'est pas.*
+			const NkString &DerniereInvite() const {
+				return mDerniereInvite;
+			}
+
+		protected:
+			NkString mDerniereInvite;
 	};
 
 	// ── BACKEND FICHIER ─────────────────────────────────────────────────────
@@ -102,12 +146,35 @@ namespace nkentseu::converse {
 			NkString replyPath = NkString("nkuidesign_reponse.txt");
 
 			bool Complete(const NkConverseRequest &req, NkConverseReply &out) override {
+				// ⚠️ TROISIEME ECRITURE DE LA MEME REGLE, ET ELLE DIVERGE DEJA.
+				//    `EcrireRequete` (le constructeur employe par le dorsal
+				//    processus et par Ollama) n'ajoute `--- document courant ---`
+				//    QUE si le document est non vide ; celui-ci le pose toujours.
+				//    Deux invites differentes pour la meme requete, selon le
+				//    dorsal -- et personne ne s'en apercevrait, parce que chacun
+				//    est vert de son cote.
+				//    ⚠️ NON UNIFIE ICI : `EcrireRequete` appartient a
+				//    `NkConverseBackendProcessus`, declare PLUS BAS dans ce
+				//    fichier. Unifier demande de deplacer la fonction, ce qui
+				//    depasse le correctif autorise. **Le defaut est nomme, date
+				//    et mesurable ; il n'est pas corrige.**
 				NkString full;
 				full.Append(req.prompt);
 				full.Append("\n\n--- composants declares ---\n");
 				full.Append(req.catalog);
 				full.Append("\n--- document courant ---\n");
 				full.Append(req.currentDoc);
+				// ⚠️ ET LA DEMANDE, SANS QUOI CE DORSAL LA PERDAIT ENTIEREMENT.
+				//    Depuis le 20/09 elle ne vit plus en tete de `prompt` : ne pas
+				//    l'ajouter ici aurait envoye le format, le catalogue et le
+				//    document SANS jamais dire ce qu'on veut. *Un troisieme
+				//    ecrivain se paie au premier champ ajoute, et le voici.*
+				if (req.demande.Length() > 0) {
+					full.Append("\n\n--- ce que je te demande maintenant ---\n");
+					full.Append(req.demande);
+					full.Append("\n");
+				}
+				mDerniereInvite = full; // les octets envoyes, meme quand ils divergent
 				nkentseu::NkFile::WriteAllText(promptPath.Data(), full.Data());
 
 				if (!nkentseu::NkFile::Exists(replyPath.Data())) {
@@ -183,6 +250,7 @@ namespace nkentseu::converse {
 				// n'aurait plus correspondu a celle du processus.
 				NkString full;
 				EcrireRequete(req, full);
+				mDerniereInvite = full; // les octets envoyes, seule verite
 				if (!nkentseu::NkFile::WriteAllText(invitePath.Data(), full.Data())) {
 					out.error = NkString("REFUS : impossible d'ecrire l'invite dans ");
 					out.error.Append(invitePath);
@@ -238,6 +306,16 @@ namespace nkentseu::converse {
 				if (req.currentDoc.Length() > 0) {
 					full.Append("\n--- document courant ---\n");
 					full.Append(req.currentDoc);
+				}
+				// ⚠️ EN DERNIER, APRES LE DOCUMENT, ET C'EST TOUT L'OBJET.
+				//    Le modele repond a ce qui est le plus pres du point de
+				//    generation : quand le document occupait 84 % de l'invite et
+				//    que la demande etait en tete, il analysait le document.
+				if (req.demande.Length() > 0) {
+					full.Append("\n\n--- ce que je te demande maintenant ---\n");
+					full.Append(req.demande);
+					full.Append("\nReponds a CETTE demande, au format ci-dessus. "
+								"Ne decris pas le document courant.\n");
 				}
 			}
 

@@ -1583,9 +1583,21 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # NKAiFilTest (20/09) : un bloc du fil IA se designe-t-il par sa position
+    # ou par son nom. Pose a cote de NKFoldTest, meme famille de defaut.
+    with include("Applications/NKAiFilTest/NKAiFilTest.jenga"):
+
+        pass
+
 
 
     with include("Applications/NKNormalesTest/NKNormalesTest.jenga"):
+
+        pass
+
+
+
+    with include("Applications/NKSculptHarness/NKSculptHarness.jenga"):
 
         pass
 
@@ -1699,6 +1711,17 @@ with workspace("Nkentseu", location="."):
     # Mesure si `NkEditorShell::SetHeaderLayout` honore ses pixels.
     # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
     with include("Applications/NkChromeProbe/NkChromeProbe.jenga"):
+
+        pass
+
+
+
+    # SONDE DE MESURE (canal NKWindow) -- PAS UN PRODUIT, et elle n'affiche rien.
+    # Mesure, propriete par propriete, ce que le SYSTEME repond a `NkWindowConfig`
+    # (GetWindowLong, GetMenuState, GetLayeredWindowAttributes, WM_GETMINMAXINFO).
+    # Porte son negatif : `--ancien-style` doit la faire rougir.
+    # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+    with include("Applications/NkWindowSonde/NkWindowSonde.jenga"):
 
         pass
 

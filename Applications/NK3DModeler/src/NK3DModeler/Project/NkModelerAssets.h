@@ -591,12 +591,31 @@ namespace nkentseu {
 				// copie CPU. Il rend donc VRAI pour eux, et les ecrire couterait
 				// des megaoctets par projet pour reproduire ce que trois entiers
 				// disent deja. Seul le cube nu n'a pas de maillage a lui.
-				if (!regenerable) {
+				// ⚠️ OU L'EDITION ROUVRE LA VANNE, ET SEULEMENT LA.
+				//    Un objet regenerable n'ecrivait JAMAIS sa geometrie -- juste
+				//    ses trois entiers. C'est le bon choix tant que ces trois
+				//    entiers DISENT la forme. Des qu'on a edite ses sommets, ils ne
+				//    la disent plus : enregistrer perdait le travail EN SILENCE, et
+				//    la reouverture rendait la primitive d'origine.
+				//    On n'ecrit donc la geometrie que des primitives REELLEMENT
+				//    editees. Une primitive intacte continue de n'ecrire que ses
+				//    trois entiers -- le compromis disque est preserve, et c'est le
+				//    negatif a mesurer : si elle ecrit un .nkgeo, la vanne est
+				//    ouverte pour tout le monde.
+				const bool edite = demo::Demo3DHostNodeMeshEdite(n);
+				if (!regenerable || edite) {
 					const void *gv = nullptr;
 					const uint32 *gi = nullptr;
 					uint32 gvc = 0, gst = 0, gic = 0;
 					if (demo::Demo3DHostNodeGeometry(n, &gv, &gvc, &gst, &gi, &gic)) {
-						NkGeoAdd(geo, (int32)k, gv, gvc, gst, gi, gic);
+						// LE MASQUE DE SCULPTURE part avec la geometrie : c'est le meme
+						// objet, et le separer donnerait deux fichiers a garder
+						// d'accord. Absent (aucun masque), l'entree ecrit un compte de
+						// zero et ne coute rien.
+						const float32 *gm = nullptr;
+						uint32 gmc = 0;
+						(void)demo::Demo3DHostNodeMask(n, &gm, &gmc);
+						NkGeoAdd(geo, (int32)k, gv, gvc, gst, gi, gic, (gmc == gvc) ? gm : nullptr);
 						// DIT DANS L'ASSET AUSSI, pas seulement dans le binaire :
 						// c'est ce drapeau qui permet a la relecture de savoir
 						// qu'un maillage MANQUE au lieu de rendre un cube sans un
@@ -802,6 +821,16 @@ namespace nkentseu {
 						ok = demo::Demo3DHostSetNodeGeometry(n, geo.bytes.Data() + ge->vOff,
 															 ge->vcount, ge->stride, idx.Data(),
 															 ge->icount);
+						// LE MASQUE SUIT LA GEOMETRIE, et seulement si elle a ete
+						// reprise : reposer des poids sur un maillage qui n'est pas
+						// celui qu'ils decrivent protegerait n'importe quoi.
+						if (ok && ge->mcount == ge->vcount && ge->mcount > 0) {
+							NkVector<float32> mw;
+							mw.Resize((usize)ge->mcount);
+							std::memcpy(mw.Data(), geo.bytes.Data() + ge->mOff,
+										(usize)ge->mcount * sizeof(float32));
+							(void)demo::Demo3DHostSetNodeMask(n, mw.Data(), ge->mcount);
+						}
 					}
 					if (!ok) {
 						// 🔴 UN CUBE BLANC QUI MENT EST PIRE QU'UN OBJET QUI SE
@@ -1501,10 +1530,25 @@ namespace nkentseu {
 			// qu'il faut bien un numero, puis il est ARCHIVE : invisible, hors
 			// hierarchie, et donc incapable d'apparaitre dans une scene. C'est ce
 			// qui manquait quand tout vivait dans un seul fichier.
+			// ⚠️ ELLE EMPRUNTE LA SCENE 0, ET ELLE DOIT LA RENDRE (24/09).
+			//    Mesure : ouvrir `r1` chargeait bien ses 37 noeuds dans la scene 1, et
+			//    `NkProjectTreeRestore` finissait bien sur la scene active 1 -- puis un
+			//    QUATRIEME appel a cette fonction (le rebalayage du disque trouve
+			//    `geometry_0_04.nkmesh`, present dans le dossier mais absent de l'arbre
+			//    du .nk3dm) reposait la scene active a 0, et personne ne la rendait.
+			//    Resultat : 37 noeuds dans la scene 1, la vue sur la scene 0, et
+			//    l'application qui affiche « 0 objet(s) » sur un projet plein.
+			//    Le defaut n'etait donc NI un chargement rate NI un fichier casse :
+			//    c'etait un etat global emprunte et pas rendu.
+			// ⚠️ LE MOTIF EXISTE DEJA DANS CE DEPOT : `NkModelerImport.h` sauve
+			//    `scAvant` avant de basculer et le repose ensuite. On ne l'invente pas
+			//    ici, on l'applique la ou il manquait.
+			const int32 sceneAvant = demo::Demo3DHostActiveScene();
 			demo::Demo3DHostSetActiveScene(0);
 			NkVector<int32> made;
 			NkAsNodesRestore(in, root, rel, st, true, nodeMiss, &made, nullptr, geoOldOut);
 			st.Card(card).srcNode = made.Empty() || made[0] < 0 ? 0 : made[0] + 1;
+			demo::Demo3DHostSetActiveScene(sceneAvant);
 		}
 
 		// ─────────────────────────────────────────────────────────────────────────
@@ -1946,7 +1990,6 @@ namespace nkentseu {
 			// enfants, deja poses. L'ambiance aussi : les objets recrees sont des
 			// occludeurs du GI voxel.
 			demo::Demo3DHostHierarchyResync();
-			demo::Demo3DHostGIMarkDirty();
 
 			if (err) {
 				err->Clear();

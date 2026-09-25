@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // NkWindowClipboard.cpp — Presse-papiers : FALLBACK multiplateforme.
 //   Win32 fournit la vraie implementation OS (CF_UNICODETEXT) dans
@@ -30,6 +31,12 @@ namespace nkentseu {
 
 	NkString NkWindow::GetClipboardText() const {
 		return NkInternalClipboard();
+	}
+
+	bool NkWindow::GetClipboardImage(NkVector<uint8> &, int32 &w, int32 &h, NkString &motif) const {
+		w = h = 0;
+		motif = NkString("presse-papiers image non pris en charge sur cette plateforme (seul Win32 le lit)");
+		return false;
 	}
 
 } // namespace nkentseu

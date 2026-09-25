@@ -815,21 +815,21 @@ namespace nkentseu {
 			};
 
 			static const NkTokenDecl kTokens[] = {
-				{"panel_bg", "PanelBg", "fond du panneau"},
-				{"header_bg", "PanelHeader", "bande de titre et barre de recherche"},
-				{"border", "Border", "traits de separation"},
-				{"text", "Text", "libelles"},
-				{"text_muted", "TextMuted", "type du noeud, compteurs, chemin en liste plate"},
-				{"row_hover", "InputBg", "fond d'une ligne survolee"},
-				{"active_mark", "AccentUi", "la ligne ACTIVE — la planche du 18/08 veut un fond teinte "
+				{"panel_bg", "panel_bg", "fond du panneau"},
+				{"header_bg", "panel_header", "bande de titre et barre de recherche"},
+				{"border", "border", "traits de separation"},
+				{"text", "text", "libelles"},
+				{"text_muted", "text_muted", "type du noeud, compteurs, chemin en liste plate"},
+				{"row_hover", "input_bg", "fond d'une ligne survolee"},
+				{"active_mark", "accent_ui", "la ligne ACTIVE — la planche du 18/08 veut un fond teinte "
 										   "PLUS une barre a gauche, la capture sombre un aplat pleine "
 										   "largeur : l'encodage est un arbitrage de Rodolf"},
-				{"active_text", "TextOnAccent", "libelle de la ligne active"},
-				{"chosen_mark", "AccentUi", "les lignes CHOISIES — doit rester DISTINCT de active_mark"},
-				{"guide", "Border", "filets verticaux d'indentation"},
-				{"drop_mark", "AccentUi", "trait d'insertion et surlignage de la cible d'un depot"},
-				{"icon_tint", "TextMuted", "chevron, oeil, cadenas"},
-				{"dim_tint", "TextMuted", "un drapeau HERITE d'un ancetre — non modifiable sur ce noeud"},
+				{"active_text", "text_on_accent", "libelle de la ligne active"},
+				{"chosen_mark", "accent_ui", "les lignes CHOISIES — doit rester DISTINCT de active_mark"},
+				{"guide", "border", "filets verticaux d'indentation"},
+				{"drop_mark", "accent_ui", "trait d'insertion et surlignage de la cible d'un depot"},
+				{"icon_tint", "text_muted", "chevron, oeil, cadenas"},
+				{"dim_tint", "text_muted", "un drapeau HERITE d'un ancetre — non modifiable sur ce noeud"},
 			};
 
 			static const NkMetricDecl kMetrics[] = {

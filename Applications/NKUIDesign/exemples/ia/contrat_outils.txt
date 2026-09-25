@@ -10,7 +10,6 @@
 
 Tu produis une INTERFACE pour NkUIDesign.
 
-Demande : <la demande de l'utilisateur, en francais>
 
 Reponds UNIQUEMENT par un document au format ci-dessous,
 sans explication, sans balise de code.
@@ -23,8 +22,11 @@ nkuidoc 1
 titre = <texte>
 noeud <numero, en partant de 0 pour la racine>
   libelle = <texte>
-  composant = <nom du catalogue, ou vide pour un cadre>
-  enfants = <numeros de noeuds, separes par des espaces>
+  composant = <un nom de la liste ci-dessous ; LAISSE VIDE si ce
+              noeud ne porte aucun composant, comme le noeud 0
+              de l'exemple>
+  parent = <le numero du noeud qui CONTIENT celui-ci ; le noeud 0
+           est la racine et n'ecrit PAS cette ligne>
   largeur = <fixed | content | fraction | weight | expand> <valeur> <min> <max>
   hauteur = <idem>
   agencement = <none | row | column | grid | anchor | free>
@@ -35,7 +37,39 @@ noeud <numero, en partant de 0 pour la racine>
   reglage param <nom> = <valeur>   (facultatif)
   reglage variante <nom>           (facultatif)
 
+REGLE ABSOLUE : tout noeud autre que 0 porte une ligne `parent` qui
+nomme un noeud existant. Un noeud sans `parent` serait une SECONDE
+racine, et le document serait refuse pour structure incoherente.
+Le noeud 0 est la racine, et il est le SEUL sans ligne `parent`.
+
+Exemple complet et minimal :
+nkuidoc 1
+titre = Exemple
+noeud 0
+  libelle = Racine
+  composant = 
+  largeur = expand 1 0 0
+  hauteur = expand 1 0 0
+  agencement = colonne
+noeud 1
+  libelle = Titre
+  composant = etiquette
+  parent = 0
+  largeur = expand 1 0 0
+  hauteur = content 24 0 0
+noeud 2
+  libelle = Valider
+  composant = bouton
+  parent = 0
+  largeur = content 0 0 0
+  hauteur = content 32 0 0
+
 N'emploie que des composants du catalogue ci-dessous.
+
+ORDRE DE L'INVITE : ce format d'abord, puis le catalogue, puis le
+document courant s'il y en a un, et EN DERNIER la demande, sous
+`--- ce que je te demande maintenant ---`. C'est a CELLE-LA qu'on
+repond ; le document courant est un contexte, pas une question.
 
 ## 2. CE QUE L'OUTIL CONNAIT -- le catalogue des composants
 # Boucle sur le registre. Un composant absent d'ici est REFUSE, jamais
@@ -127,6 +161,7 @@ refus aucun document lisible dans la reponse
 refus nomme un composant que le registre ignore
 refus ne se rejoue pas a l'identique
 refus cible de greffe invalide
+refus l'ajout ne peut pas se poser
 
 ## 4. CE QUE L'OUTIL GARANTIT
 

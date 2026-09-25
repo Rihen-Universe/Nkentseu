@@ -1,0 +1,7 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# GABARIT de famille ecrit a la main le 21/09, en metres. Le modele l'ADAPTE
+# (tailles, nombre de pieces, matieres) au lieu d'inventer la structure.
+scene arbre
+partie tronc forme cylindre largeur 0.35 hauteur 2.50 profondeur 0.35 matiere ecorce
+partie feuillage forme sphere largeur 2.40 hauteur 2.20 profondeur 2.40 pose_sur tronc decale 0 -0.40 0 matiere feuillage
+partie feuillage_haut forme sphere largeur 1.60 hauteur 1.50 profondeur 1.60 pose_sur feuillage decale 0 -0.50 0 matiere feuillage
