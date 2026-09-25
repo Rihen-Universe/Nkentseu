@@ -1139,6 +1139,106 @@ int main(int argc, char **argv) {
 		s.exe.Debrancher(s.ctx);
 	}
 
+	// \u2550\u2550\u2550 (25/09) DockPruneEmpty : L'ELAGAGE DES FEUILLES VIDES \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+	//
+	// Pourquoi ce banc existe : une disposition RELUE d'un fichier peut contenir des
+	// feuilles auxquelles plus aucune fenetre n'est liee. Une feuille sans fenetre
+	// reserve quand meme sa largeur -- a l'ecran, une colonne vide (mesuree dans
+	// NKUIDesign le 25/09). `DockPruneEmpty` les collapse en appelant l'elagage qui
+	// existait deja (`DockCollapseLeaf`), et qui n'etait pas declare.
+	//
+	// \u26a0\ufe0f LE NEGATIF EST LA MOITIE QUI COMPTE. Le risque de cette fonction n'est pas
+	//    de ne rien elaguer : c'est d'elaguer une feuille QUI PORTE UNE FENETRE, et
+	//    ca se paie en panneaux disparus. Un banc qui ne verifierait que le positif
+	//    serait vert sur une fonction qui efface tout.
+	{
+		printf("\\n-- DockPruneEmpty (elagage des feuilles vides) --\\n");
+		// Un arbre minimal, ecrit a la main : une separation, deux feuilles.
+		//   0 (separation) -> 1 (feuille) et 2 (feuille)
+		auto arbre = [](NkGuiContext &c, bool feuille1Pleine, bool feuille2Pleine) {
+			c.dockNodes.Clear();
+			NkGuiDockNode sep;
+			sep.kind = 1;
+			sep.vertical = false;
+			sep.ratio = 0.5f;
+			sep.child0 = 1;
+			sep.child1 = 2;
+			sep.parent = -1;
+			NkGuiDockNode f1;
+			f1.kind = 2;
+			f1.parent = 0;
+			if (feuille1Pleine) {
+				f1.windows[0] = (NkGuiId)111;
+				f1.winCount = 1;
+			}
+			NkGuiDockNode f2;
+			f2.kind = 2;
+			f2.parent = 0;
+			if (feuille2Pleine) {
+				f2.windows[0] = (NkGuiId)222;
+				f2.winCount = 1;
+			}
+			c.dockNodes.PushBack(sep);
+			c.dockNodes.PushBack(f1);
+			c.dockNodes.PushBack(f2);
+			c.dockRoot = 0;
+		};
+
+		// (d1) POSITIF : une feuille vide a cote d'une feuille pleine part, et la
+		//      pleine remonte a sa place. L'arbre passe de 3 noeuds a 3 noeuds dont
+		//      la racine EST devenue la feuille pleine.
+		{
+			NkGuiContext c;
+			arbre(c, true, false);
+			const int32 n = DockPruneEmpty(c);
+			CheckEqU((uint32)n, 1u, "(d1) une feuille vide est elaguee, et une seule");
+			Check(c.dockNodes[0].kind == 2, "(d1) la racine est devenue la feuille survivante");
+			CheckEqU((uint32)c.dockNodes[0].winCount, 1u, "(d1) elle porte toujours SA fenetre");
+			Check(c.dockNodes[0].windows[0] == (NkGuiId)111,
+				  "(d1) et c'est bien la MEME fenetre -- pas une feuille reconstruite");
+		}
+
+		// (d2) NEGATIF, ET C'EST LE CRITERE QUI PROTEGE LES FENETRES : deux feuilles
+		//      PLEINES. Rien ne doit bouger. Si cette ligne rougit, la fonction fait
+		//      disparaitre des panneaux.
+		{
+			NkGuiContext c;
+			arbre(c, true, true);
+			const uint32 avant = (uint32)c.dockNodes.Size();
+			const int32 n = DockPruneEmpty(c);
+			CheckEqU((uint32)n, 0u, "(d2) NEGATIF : aucune feuille pleine n'est elaguee");
+			CheckEqU((uint32)c.dockNodes.Size(), avant, "(d2) l'arbre n'a pas change de taille");
+			Check(c.dockNodes[0].kind == 1 && c.dockNodes[1].winCount == 1 &&
+					  c.dockNodes[2].winCount == 1,
+				  "(d2) la separation et ses DEUX fenetres sont intactes");
+		}
+
+		// (d3) LA RACINE VIDE SE GARDE. Un arbre d'une seule feuille, vide : il n'y a
+		//      pas de frere a promouvoir, et collapser rendrait l'arbre inutilisable.
+		{
+			NkGuiContext c;
+			c.dockNodes.Clear();
+			NkGuiDockNode f;
+			f.kind = 2;
+			f.parent = -1;
+			c.dockNodes.PushBack(f);
+			c.dockRoot = 0;
+			const int32 n = DockPruneEmpty(c);
+			CheckEqU((uint32)n, 0u, "(d3) la racine vide n'est PAS elaguee (aucun frere a promouvoir)");
+			CheckEqU((uint32)c.dockNodes.Size(), 1u, "(d3) et l'arbre existe toujours");
+		}
+
+		// (d4) DEUX VIDES : les deux partent, et l'appel se termine. Le garde-fou de
+		//      256 passes n'est pas une excuse pour une boucle sans fin -- on verifie
+		//      que le compte est celui des feuilles vides, pas le plafond.
+		{
+			NkGuiContext c;
+			arbre(c, false, false);
+			const int32 n = DockPruneEmpty(c);
+			Check(n >= 1 && n <= 2, "(d4) deux feuilles vides : 1 ou 2 elagages, jamais le plafond");
+			Check(c.dockNodes[0].winCount == 0, "(d4) ce qui reste ne porte aucune fenetre inventee");
+		}
+	}
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }
