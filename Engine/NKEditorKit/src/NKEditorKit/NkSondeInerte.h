@@ -55,6 +55,8 @@
 // -----------------------------------------------------------------------------
 
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKFileSystem/NkDirectory.h" // (25/09) le dossier de redirection se cree
+#include "NKFileSystem/NkPath.h"
 #include "NKWindow/Core/NkWindowConfig.h" // (25/09) `noActivate` : la vraie parade au vol de focus
 #include <cstdio>
 #include <cstdlib>
@@ -117,6 +119,51 @@ namespace nkentseu {
 				if (in.keyDown[k] || in.keyInit[k])
 					return true;
 			return false;
+		}
+
+		/// (25/09) OU UNE SONDE A-T-ELLE LE DROIT D'ECRIRE ?
+		///
+		/// *Une sonde qui pollue l'etat de l'utilisateur est une sonde qui modifie ce
+		/// qu'elle mesure.* Mesure du 25/09 : la liste des projets recents de Rodolf
+		/// portait 105 entrees, dont la plupart etaient des coquilles creees par nos
+		/// propres courses -- et le critere `Tools/sonde_etat_utilisateur.py` montre
+		/// qu'il suffit d'OUVRIR un projet sous `NK_SONDE` pour reecrire sa liste.
+		///
+		/// UNE SEULE VARIABLE POUR TOUS LES ETATS : `NK_ETAT_SONDE=<dossier>`. Sans
+		/// elle, une course de sonde ecrit quand meme a cote -- dans
+		/// `logs/sonde-etat/` -- au lieu d'aller chez l'utilisateur. **Le defaut est
+		/// donc SUR, et la variable ne sert qu'a choisir OU.** Un garde-fou qu'il faut
+		/// penser a armer se fera oublier ; celui-ci s'arme tout seul avec `NK_SONDE`.
+		///
+		/// Rend une chaine VIDE hors sonde : l'appelant garde alors son chemin
+		/// habituel, et le produit ne change pas d'un octet.
+		inline NkString NkSondeDossierEtat() {
+			if (!NkSondeActive())
+				return NkString();
+			if (const char *v = std::getenv("NK_ETAT_SONDE"))
+				if (*v)
+					return NkString(v);
+			return NkString("logs/sonde-etat");
+		}
+
+		/// Le chemin qu'une sonde doit employer pour un etat utilisateur donne.
+		/// `nomCourt` est le nom de fichier voulu dans le dossier de redirection.
+		/// Hors sonde, rend `defaut` inchange.
+		inline NkString NkSondeChemin(const char *defaut, const char *nomCourt) {
+			const NkString dossier = NkSondeDossierEtat();
+			if (dossier.Empty())
+				return NkString(defaut ? defaut : "");
+			// ⚠️ LE DOSSIER EST CREE ICI, ET C'EST UN ECHEC SILENCIEUX QU'ON
+			//    SUPPRIME : `NkFile::WriteAllText` ne cree pas ses parents. Premiere
+			//    version, mesuree : la course ne touchait plus rien chez Rodolf --
+			//    VERT -- mais n'ecrivait NULLE PART non plus, parce que
+			//    `logs/sonde-etat/` n'existait pas. Un vert obtenu parce que rien ne
+			//    s'ecrit est le meme piege qu'une garde verte grace au defaut.
+			NkDirectory::CreateRecursive(NkPath(dossier.CStr()));
+			NkString out = dossier;
+			out.Append("/");
+			out.Append(nomCourt ? nomCourt : "etat.cfg");
+			return out;
 		}
 
 		/// (25/09) LA FENETRE DE SONDE DEMANDE-T-ELLE A NE PAS PRENDRE LE FOCUS,
