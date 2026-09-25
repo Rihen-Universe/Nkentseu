@@ -66,6 +66,42 @@ Le mode immédiat est une **propriété du runtime**, pas du format. Le monteur
 la preuve que le document est bien l'amont, et le runtime l'aval. Un exportateur est un
 **autre aval** du même amont.
 
+### ⚠️ Cet avertissement porte sur la SOURCE, jamais sur la CIBLE
+
+Question posée par Rodolf le 25/09, et l'ambiguïté était dans la rédaction : *« mais on
+pourra exporter vers NKGui pour les applications qui utilisent NKGui, n'est-ce pas ? »*
+
+**Oui — et c'est la direction la plus facile de toutes.** Ce qui est impossible, c'est
+d'exporter **en partant** de NKGui, c'est-à-dire en observant ses appels en mode
+immédiat. **Viser** NKGui ne pose aucun problème : c'est un aval comme un autre.
+
+```
+              ┌──────────────┐
+              │   .nkgui     │  ← LA SOURCE, toujours
+              └──────┬───────┘
+      ┌──────────────┼──────────────┬──────────────┐
+      ▼              ▼              ▼              ▼
+  NKGui (monté)  HTML+CSS      C++ généré      autres dorsaux
+   au runtime     +WASM        (NKGui direct)   (greffons)
+```
+
+**Deux façons de viser NKGui, et elles ne servent pas la même chose :**
+
+| | ce que ça fait | ce qu'on gagne | ce qu'on perd |
+|---|---|---|---|
+| **Monter au runtime** — existe (`NkGuiMonteur.h`) | l'application lit le `.nkgui` et construit les widgets | **on redessine sans recompiler** | un peu de lecture au démarrage |
+| **Générer du C++** | le document produit du source qui appelle NKGui | zéro lecture, erreurs à la compilation, rien à livrer à côté | exactement la propriété ci-dessus |
+
+Pour les applications de l'écosystème (Nogee, NKScena, NkAnimaEditor), **c'est le montage
+au runtime qui est voulu** : c'est toute la raison d'être du chantier « interface comme
+document ». La génération de C++ vise un autre cas — un produit livré où l'interface ne
+doit pas être modifiable.
+
+📌 **Et une propriété qui vaut d'être notée** : NKGui devient **un dorsal parmi les
+autres**, comme dans l'architecture NkSL. Mais celui-là est utilisé tous les jours — il
+ne peut donc pas pourrir sans qu'on le voie. *Le dorsal de référence est celui dont on se
+sert.*
+
 ---
 
 ## 3. LES DEUX CHEMINS D'EXPORT — et celui qu'il ne faut pas prendre
