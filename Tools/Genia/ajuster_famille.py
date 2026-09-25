@@ -51,6 +51,23 @@ for _f in (sys.stdout, sys.stderr):
 
 HARNESS = os.path.abspath("Build/Bin/Release-Windows/NKEditMeshHarness/NKEditMeshHarness.exe")
 AZ_AJUST = 45.0          # la vue que l'utilisateur joint : la SEULE que l'ajustement voit
+
+# ── LE SEUIL DE PLANEITE, MESURE ET NON DEVINE (25/09) ───────────────────────
+# La condition etait ecrite mais pas chiffree : « une vue 3/4 determine un
+# volume, pas un objet presque plan ». Douze ajustements (deux familles x six
+# references) la chiffrent, et la separation ne laisse aucun doute :
+#     famille table : planeite 0,323 a 0,628 -> 5 gains, 1 perte
+#     famille porte : planeite 0,016 a 0,021 -> 2 gains, 4 PERTES
+# ⚠️ LES DONNEES NE DONNENT PAS UN SEUIL, ELLES DONNENT UN INTERVALLE VIDE :
+#    rien entre 0,0212 et 0,3228. N'importe quelle valeur de cet intervalle
+#    separe les deux populations, et pretendre a mieux serait inventer une
+#    precision. On prend le milieu geometrique du vide, et on l'ecrit.
+# ⚠️ ET LA PLANEITE N'EXPLIQUE PAS TOUT : la famille table a PERDU sur la
+#    reference « maison », dont l'objet ajuste est le MOINS plan (0,571). La
+#    regle ecarte les cas ou une vue ne suffit pas ; elle ne promet pas que
+#    l'ajustement soit bon partout ailleurs.
+SEUIL_PLANEITE = 0.08
+
 TMP = "logs_genia3d/crea/q17"
 
 # Les parametres CONTINUS de chaque famille, avec leurs bornes. Les bornes sont
@@ -128,6 +145,13 @@ def ajuster(famille, ident, corpus, n, tag):
     return best
 
 
+def planeite(chemin):
+    """min / max des trois etendues. 1 = cubique, 0 = plan."""
+    Vt, F = R.charger(chemin)
+    e = Vt.max(axis=0) - Vt.min(axis=0)
+    return float(e.min() / max(e.max(), 1e-9))
+
+
 def juger(famille, params, ident, corpus, tag):
     """Le VERDICT, sur les trois vues que l'ajustement n'a jamais vues."""
     mref = FR.masque_reference(ident, corpus)
@@ -165,8 +189,20 @@ def main():
         # 2. L'AJUSTEMENT, sur la seule vue 3/4.
         prm, cout = ajuster(fam, ident, a.corpus, a.pas_grille, fam)
         ajuste = juger(fam, prm, ident, a.corpus, fam + "_ajuste") if prm else float("inf")
+        pl = planeite(os.path.join(TMP, "juge_%s_ajuste.obj" % fam)) if prm else 0.0
         print("")
         print("=== %s (reference %s) ===" % (fam, ident))
+        print("  planeite de l'objet ajuste : %.4f  (seuil %.2f)" % (pl, SEUIL_PLANEITE))
+        if pl < SEUIL_PLANEITE:
+            # ── LE REFUS, ET IL EST DIT ────────────────────────────────────
+            print("  REFUS : objet presque PLAN. Une seule vue 3/4 ne determine pas")
+            print("          ses parametres -- plusieurs couples y donnent la meme")
+            print("          silhouette. Mesure : sur douze ajustements, ceux dont")
+            print("          l'objet est sous ce seuil PERDENT 4 fois sur 6 contre")
+            print("          la famille brute. Il faut une SECONDE VUE (une planche")
+            print("          technique en est une, cf. Q13), ou s'en tenir aux")
+            print("          parametres que cette vue contraint vraiment.")
+            print("  (le detail ci-dessous est imprime pour information, PAS applique)")
         print("  parametres trouves : %s" % (", ".join("%s=%.3f" % (k, v) for k, v in prm.items()) if prm else "(aucun)"))
         print("  C_fid sur la vue d'AJUSTEMENT (45 deg)      : %.4f" % cout)
         print("  C_fid sur les TROIS vues de CONTROLE        : %.4f  (famille brute : %.4f)"
