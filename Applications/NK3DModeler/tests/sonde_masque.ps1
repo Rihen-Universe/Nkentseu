@@ -419,6 +419,35 @@ if (Condition "(i) projet" (($remonte.Success) -and ($null -ne $nkgeo) -and ($Lb
 		"$pose -> $relu (exige l'egalite : un masque qui change de taille en passant par le disque serait un autre masque)"
 }
 
+# ── (j) LA SYMETRIE DU MODE, BROSSE PAR BROSSE ──────────────────────────────
+# Blender : la symetrie est un reglage du MODE (X, Y, Z independants), pas une
+# propriete de la brosse -- le meme pinceau sculpte en miroir ou non selon un
+# interrupteur qui n'est pas dans son fichier. Le trait est DEPLIE avant de
+# partir : ce sont les tampons qui se multiplient, pas le code.
+#
+# ⚠ CE QUE CE BANC MESURE ICI, ET CE QU'IL LAISSE AU BANC DU MODULE. Ici : que
+#   l'interrupteur ARRIVE jusqu'au geste, pour CHAQUE brosse, dans l'application
+#   reelle. Le miroir champ par champ et LA COUTURE (un tampon pose sur le plan
+#   ne doit pas recevoir la brosse deux fois) se mesurent en C++ dans
+#   NKSculptHarness, ou l'on choisit les points -- ils ne se mesurent pas d'ici.
+#
+# Le trait ecrit tombe hors du plan x = 0 : sans symetrie la somme des positions
+# bouge en X, avec symetrie elle revient EXACTEMENT a zero (le miroir compense)
+# et le deplacement des deux autres axes DOUBLE (deux tampons au lieu d'un).
+foreach ($b in @("dessiner", "creuser", "lisser", "durcir")) {
+	$sans = @(Lignes (Courir "sym0_$b" @{ "NK_SCULPT_STROKE" = "${b}:0.3:0.8:150" }))
+	$avec = @(Lignes (Courir "sym1_$b" @{ "NK_SCULPT_STROKE" = "${b}:0.3:0.8:150"; "NK_SCULPT_SYM" = "1" }))
+	if (Condition "(j) $b" (($sans.Count -gt 1) -and ($avec.Count -gt 1) -and ((Bouge $sans) -gt 1e-4)) `
+			"le trait sans symetrie n'a rien deplace : il n'y a pas de miroir a mesurer") {
+		$dxS = [Math]::Abs((Dernier $sans "sx") - $sans[0].sx)
+		$dxA = [Math]::Abs((Dernier $avec "sx") - $avec[0].sx)
+		Dire "(j) $b : la symetrie X annule le deplacement en X" (($dxS -gt 1e-4) -and ($dxA -lt 1e-4)) `
+			"sans symetrie |dx| = $([Math]::Round($dxS, 5)) · avec = $([Math]::Round($dxA, 5)) (exige un miroir)"
+		Dire "(j) $b : et le geste a bien eu lieu DES DEUX COTES" ((Bouge $avec) -gt ((Bouge $sans) * 1.2)) `
+			"deplacement total $([Math]::Round((Bouge $sans), 4)) -> $([Math]::Round((Bouge $avec), 4)) (deux tampons au lieu d'un)"
+	}
+}
+
 Write-Host "-----------------------------------------------------------------------"
 if ($rouges -gt 0) { Write-Host "ECHEC ($rouges rouge(s), $conditions condition(s) non reunie(s))"; exit 1 }
 if ($conditions -gt 0) { Write-Host "CONDITION NON REUNIE ($conditions) -- ni vert ni rouge"; exit 3 }

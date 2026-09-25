@@ -2275,14 +2275,27 @@ int nkmain(const NkEntryState &entry) {
 				static NkMode sModePrec = NkMode::Count;
 				if (st.mode != sModePrec) {
 					sModePrec = st.mode;
-					if (demo::NkModeMaillageSansElements((int32)st.mode) &&
-						(int32)st.tool >= (int32)NkTool::Move)
+					// L'OUTIL NEUTRE D'UN MODE A BROSSES EST LA BROSSE. Il s'est appele
+					// « Selection » le temps que l'entree n'existe pas -- un neutre qui ne
+					// veut rien dire en Sculpture. Elle existe : on la pose.
+					if (demo::NkModeMaillageSansElements((int32)st.mode)) {
+						if ((int32)st.tool >= (int32)NkTool::Move && st.tool != NkTool::Brush)
+							st.tool = NkTool::Brush;
+					} else if (st.tool == NkTool::Brush) {
+						// ET ON EN SORT : la brosse n'existe pas en Objet ni en Edition.
+						// Sans cette ligne, revenir en Edition gardait un outil dont le
+						// bouton n'est plus dessine -- un etat qu'on ne peut plus voir.
 						st.tool = NkTool::Select;
+					}
 				}
 			}
 			demo::Demo3DHostSetCursorTool(st.tool == NkTool::Cursor);
 			demo::Demo3DHostSetZoneTool(st.tool == NkTool::Select ? st.selShape : -1);
-			demo::Demo3DHostSetGizmoHidden(st.tool == NkTool::Select || st.tool == NkTool::Cursor);
+			// LE GIZMO SE TAIT SOUS LA BROSSE AUSSI : c'est ce qui rend le clic a la
+			// brosse. LA REPONSE VIT DANS `NkOutilCacheGizmo` -- elle etait ecrite deux
+			// fois dans ce fichier, et l'ajout de la brosse n'avait touche qu'une des
+			// deux copies (cf. le commentaire de la fonction).
+			demo::Demo3DHostSetGizmoHidden(NkOutilCacheGizmo(st.tool));
 
 			// Vitesse de camera : 1x / 2x / 4x / 8x.
 			if (st.camSpeed != sy.camSpeed) {
@@ -2507,7 +2520,7 @@ int nkmain(const NkEntryState &entry) {
 		// « visible ». Repointer sans nier aurait montre le gizmo exactement
 		// quand il faut le cacher -- et l'erreur se serait vue comme un gizmo
 		// qui clignote au changement d'outil, pas comme un appel inverse.
-		demo::Demo3DHostSetGizmoHidden(!(st.tool != NkTool::Select && st.tool != NkTool::Cursor));
+		demo::Demo3DHostSetGizmoHidden(NkOutilCacheGizmo(st.tool));
 		}
 		demo::Demo3DHostSetOrientation(st.orientation);
 		// AIMANTATION : les pas sont FIXES (0,5 unite, 15 degres, 0,1 -- ceux de

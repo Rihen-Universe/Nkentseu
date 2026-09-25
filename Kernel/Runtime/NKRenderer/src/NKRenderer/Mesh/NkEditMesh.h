@@ -1742,6 +1742,12 @@ namespace nkentseu {
 			uint8 falloff = 0;        ///< NkSculptFalloffKind
 			uint8 primitive = 0;      ///< NkSculptOp
 			char brushName[48] = {};  ///< pour le journal et l'affichage UNIQUEMENT
+			// LA SYMETRIE DU MODE, ENREGISTREE AVEC LE GESTE. Elle n'est pas une
+			// propriete de la brosse (le fichier ne la porte pas) mais un reglage du
+			// mode ; elle doit pourtant voyager avec la commande, sinon rejouer une
+			// session apres avoir change l'interrupteur reproduirait un AUTRE geste.
+			// Meme raison que les valeurs effectives de la brosse, juste au-dessus.
+			uint8 symX = 0, symY = 0, symZ = 0;
 		};
 
 		// ── LE MASQUE EN BLOC ───────────────────────────────────────────

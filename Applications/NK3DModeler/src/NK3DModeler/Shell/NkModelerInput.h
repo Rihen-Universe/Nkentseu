@@ -80,7 +80,23 @@ namespace nkentseu {
 
 		// Outil actif : « que fait mon clic ? ». Un seul a la fois.
 		// MultiGizmo = le mode COMBINE de la demo (T+R+S en un seul gizmo).
-		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale, MultiGizmo };
+		// ⚠️ `Brush` EST AJOUTE EN FIN : cette enumeration voyage dans l'etat de
+		//    session, et renumeroter changerait l'outil actif d'un projet rouvert.
+		//    C'est l'outil NEUTRE des modes a brosses -- celui sous lequel le clic
+		//    appartient a la brosse. Avant lui, ce neutre s'appelait « Selection »,
+		//    ce qui ne veut rien dire en Sculpture : il n'y a aucune selection a y faire.
+		enum class NkTool : uint8 { Select = 0, Cursor, Move, Rotate, Scale, MultiGizmo, Brush };
+
+		/// LE GIZMO SE TAIT-IL SOUS CET OUTIL ? UNE SEULE REPONSE, ET C'EST ICI.
+		/// ⚠️ Elle etait ecrite DEUX FOIS dans main.cpp, a deux endroits eloignes.
+		///    L'entree « Brosse » n'a ete ajoutee qu'a l'une des deux : le gizmo du
+		///    Transform restait donc affiche sous la brosse, et son incrustation avec.
+		///    Mesure : l'image de la barre montrait le pinceau ACTIF et le gizmo
+		///    present. Deux copies d'une meme decision divergent au premier ajout --
+		///    celui-la a pris quelques minutes ; le prochain aurait pu passer.
+		inline bool NkOutilCacheGizmo(NkTool t) {
+			return t == NkTool::Select || t == NkTool::Cursor || t == NkTool::Brush;
+		}
 
 		// ── INTENTION CLAVIER ───────────────────────────────────────────────────
 		// Une TOUCHE ne fait rien elle-meme : elle pose une intention, consommee

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+  <!-- AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+       LE PINCEAU DE SCULPTURE. Dessine ici, en chemins : le modeleur rasterise
+       ses SVG a la taille voulue (cf. NkModelerIcons.h), il n'y a pas d'atlas ou
+       piocher une image toute faite. Deux formes, et c'est ce qui le rend
+       lisible a 16 px : le MANCHE (diagonale pleine, coins arrondis) et la
+       TOUFFE (masse courbe, plus large que le manche). Un pinceau dessine d'un
+       seul trait se lit comme un crayon. -->
+  <path d="M12.20 1.55a1.92 1.92 0 0 1 2.72 2.72l-5.05 5.05-2.72-2.72 5.05-5.05z"/>
+  <path d="M6.46 7.35l2.72 2.72-1.02 1.02c-.44.44-.98.74-1.57.87-.72.16-1.2.54-1.49 1.13-.39.79-1.05 1.28-1.95 1.42-.62.10-1.17-.05-1.62-.44.52-.24.88-.62 1.08-1.13.19-.49.22-.99.09-1.5-.14-.55.01-1.06.39-1.51l3.37-2.58z"/>
+</svg>

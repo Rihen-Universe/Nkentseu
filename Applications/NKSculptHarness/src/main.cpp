@@ -625,6 +625,243 @@ static void RunBrushOn(const char *primName, NkEditMesh &m, const NkBrushDesc &b
 // ⚠️ ET ON COMPARE CONTRE L'ORIGINAL AUSSI : si la commande ne faisait RIEN,
 //    A et B seraient egaux tous les deux a l'original, et le test passerait
 //    en ne prouvant rien. Un critere que l'inaction satisfait ne mesure pas.
+// == LA SYMETRIE DU MODE, ET LA COUTURE ==================================
+//
+// Blender : la symetrie est un reglage du MODE (X, Y, Z independants), pas une
+// propriete de la brosse. Le trait est DEPLIE -- chaque tampon donne ses images
+// miroir -- puis un seul chemin de deformation l'applique.
+//
+// ⚠️ TROIS CRITERES, ET LE TROISIEME EST CELUI QUI SE RATE :
+//    1. le DEPLIAGE : un tampon hors plan donne DEUX tampons avec un axe actif ;
+//    2. le MIROIR : ce qui est fait d'un cote est fait de l'autre, donc le
+//       deplacement TOTAL le long de l'axe symetrise s'annule ;
+//    3. LA COUTURE : un tampon POSE SUR LE PLAN est son propre miroir. Le
+//       dupliquer appliquerait la brosse DEUX FOIS au meme endroit, et la
+//       couture se creuserait deux fois plus que ses voisins. Le meme defaut,
+//       dans sa version geometrique, avait ete mesure sur l'outil Transform le
+//       25/09 (somme 34 au lieu de 0) -- c'est pour ca qu'il est ici.
+static void RunSymetrie(const char *primName, const NkEditMesh &src, const NkBrushDesc &brush) {
+	char label[160], det[160];
+
+	// (1) LE DEPLIAGE, mesure sur la fonction elle-meme : hors plan -> 2 ; sur le
+	// plan -> 1. C'est un critere de FONCTION, pas de forme : il ne depend
+	// d'aucun maillage, donc il ne peut pas etre satisfait par accident.
+	{
+		NkSculptPoint p0;
+		p0.pos = {0.4f, 0.2f, 0.f};
+		p0.normal = {0.f, 1.f, 0.f};
+		p0.radius = 0.25f;
+		NkVector<NkSculptPoint> out;
+		const uint32 n1 = NkSculptExpandSymmetry(&p0, 1, 1, 0, 0, out);
+		NkSculptPoint pc = p0;
+		pc.pos = {0.f, 0.2f, 0.f}; // POSE SUR LE PLAN x = 0
+		NkVector<NkSculptPoint> out2;
+		const uint32 n2 = NkSculptExpandSymmetry(&pc, 1, 1, 0, 0, out2);
+		snprintf(label, sizeof(label), "%s/%s symetrie: depliage (hors plan 2, sur le plan 1)",
+				 primName, brush.name);
+		snprintf(det, sizeof(det), "hors plan -> %u tampon(s) · sur le plan -> %u", n1, n2);
+		Check(n1 == 2u && n2 == 1u, label, det);
+	}
+
+	// Le trait : UN tampon, franchement d'un cote du plan x = 0.
+	auto poser = [&](NkEditMesh &m, uint8 symX) {
+		NkMeshEditCommand cmd;
+		cmd.op = NkMeshEditOp::Sculpt;
+		cmd.sculpt.radius = brush.radius;
+		cmd.sculpt.strength = brush.strength;
+		cmd.sculpt.hardness = brush.hardness;
+		cmd.sculpt.dir = brush.dir;
+		cmd.sculpt.falloff = (uint8)brush.falloff;
+		cmd.sculpt.primitive = (uint8)brush.op;
+		cmd.sculpt.symX = symX;
+		// Le sommet le plus a DROITE, et sa normale : un point de la surface, pas
+		// une coordonnee inventee -- une brosse posee dans le vide ne toucherait
+		// rien et tous les criteres seraient verts pour rien.
+		uint32 hi = 0;
+		for (uint32 i = 1; i < m.VertCount(); ++i)
+			if (m.verts[i].pos.x > m.verts[hi].pos.x)
+				hi = i;
+		cmd.sculptPoints.PushBack(m.verts[hi].pos);
+		cmd.sculptNormals.PushBack(m.verts[hi].normal);
+		return cmd.Apply(m);
+	};
+
+	// (2) LE MIROIR : le deplacement le long de X s'annule, et le maillage a
+	// pourtant bouge. Les deux ensemble -- l'un sans l'autre serait satisfait par
+	// une brosse qui ne fait rien.
+	Snapshot s0;
+	Capture(src, s0);
+	NkEditMesh sans = src, avec = src;
+	const bool okSans = poser(sans, 0);
+	const bool okAvec = poser(avec, 1);
+	// ⚠️ LA SOMME DES DEPLACEMENTS NE MESURE PAS LE MIROIR, ET LA SPHERE L'A DIT.
+	//    Premiere version : « la somme des dx s'annule ». Elle rougissait sur la
+	//    sphere avec dx_avec = dx_sans / 2, exactement. La cause n'etait pas la
+	//    symetrie : une sphere UV DUPLIQUE ses sommets sur la couture de longitude
+	//    (j = 0 et j = 16 sont le meme point). Le cote qui porte la couture compte
+	//    donc DEUX FOIS dans la somme, et l'autre une seule -- le desequilibre
+	//    etait dans l'INSTRUMENT, pas dans le module. Le cube passait parce que ses
+	//    doublons sont symetriques.
+	//    LA BONNE QUESTION est celle du CHAMP : le deplacement du sommet MIROIR
+	//    est-il le miroir du deplacement de ce sommet ? Elle ne depend d'aucun
+	//    comptage, seulement de la geometrie -- et c'est ce que « symetrie » veut
+	//    dire.
+	auto ecartMiroir = [](const NkEditMesh &m, const Snapshot &s) {
+		float32 pire = 0.f, ampl = 0.f;
+		const uint32 n = m.VertCount() < (uint32)s.pos.Size() ? m.VertCount() : (uint32)s.pos.Size();
+		for (uint32 i = 0; i < n; ++i) {
+			const NkVec3f di = m.verts[i].pos - s.pos[i];
+			const float32 li = sqrtf(di.x * di.x + di.y * di.y + di.z * di.z);
+			if (li > ampl)
+				ampl = li;
+			// Le sommet MIROIR : celui dont la position de depart est le reflet de
+			// la mienne. Recherche directe : ces maillages de banc font quelques
+			// centaines de sommets, et une grille ici cacherait le critere.
+			const NkVec3f cible{-s.pos[i].x, s.pos[i].y, s.pos[i].z};
+			int32 j = -1;
+			float32 best = 1e30f;
+			for (uint32 k = 0; k < n; ++k) {
+				const NkVec3f q = s.pos[k] - cible;
+				const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+				if (d2 < best) {
+					best = d2;
+					j = (int32)k;
+				}
+			}
+			if (j < 0 || best > 1e-8f)
+				continue; // pas de miroir exact : ce sommet ne dit rien de la symetrie
+			const NkVec3f dj = m.verts[(uint32)j].pos - s.pos[(uint32)j];
+			// dj DOIT etre le miroir de di : (-di.x, di.y, di.z).
+			const NkVec3f e{dj.x + di.x, dj.y - di.y, dj.z - di.z};
+			const float32 le = sqrtf(e.x * e.x + e.y * e.y + e.z * e.z);
+			if (le > pire)
+				pire = le;
+		}
+		return NkVec2f{pire, ampl};
+	};
+	const NkVec2f aSans = ecartMiroir(sans, s0);
+	const NkVec2f aAvec = ecartMiroir(avec, s0);
+	snprintf(label, sizeof(label), "%s/%s symetrie: le champ de deplacement est un MIROIR", primName,
+			 brush.name);
+	snprintf(det, sizeof(det),
+			 "ecart au miroir : %.6f avec symetrie (amplitude %.5f) · %.6f sans (amplitude %.5f)",
+			 (double)aAvec.x, (double)aAvec.y, (double)aSans.x, (double)aSans.y);
+	// ⚠️ Le seuil est RELATIF au deplacement total : un « zero » absolu ne veut
+	//    rien dire sur un maillage de 10 m, et serait trop severe sur du bruit
+	//    de virgule flottante.
+	// ⚠️ CONDITION : une brosse qui ne deplace rien (celles du MASQUE) n'a pas de
+	//    miroir geometrique a montrer. Leur symetrie se mesure sur les POIDS, et
+	//    c'est un critere a part -- pas celui-ci, qui parlerait de zeros.
+	if (!okSans || aSans.y <= 0.f) {
+		// UNE BROSSE DE MASQUE NE DEPLACE RIEN : son miroir se mesure sur les
+		// POIDS. Le critere ne disparait pas, il change de grandeur -- c'est la
+		// meme lecon que le rejeu a apprise sur cette primitive.
+		if (brush.op == NkSculptOp::NK_SCULPT_OP_MASK) {
+			float32 pire = 0.f, ampl = 0.f;
+			const uint32 n = avec.VertCount();
+			for (uint32 i = 0; i < n; ++i) {
+				const float32 wi = avec.MaskAt(i);
+				if (wi > ampl)
+					ampl = wi;
+				const NkVec3f cible{-s0.pos[i].x, s0.pos[i].y, s0.pos[i].z};
+				int32 j = -1;
+				float32 best = 1e30f;
+				for (uint32 k = 0; k < n && k < (uint32)s0.pos.Size(); ++k) {
+					const NkVec3f q = s0.pos[k] - cible;
+					const float32 d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+					if (d2 < best) {
+						best = d2;
+						j = (int32)k;
+					}
+				}
+				if (j < 0 || best > 1e-8f)
+					continue;
+				const float32 e = fabsf(avec.MaskAt((uint32)j) - wi);
+				if (e > pire)
+					pire = e;
+			}
+			snprintf(label, sizeof(label), "%s/%s symetrie: le MASQUE peint est un miroir", primName,
+					 brush.name);
+			snprintf(det, sizeof(det), "ecart au miroir %.6f · poids max %.3f", (double)pire,
+					 (double)ampl);
+			if (ampl <= 0.f)
+				printf("  [ n/a ] %-46s %s (rien n'a ete peint : voir la brosse « masquer »)\n",
+					   label, det);
+			else
+				Check(pire <= 1e-4f, label, det);
+		} else
+			printf("  [ n/a ] %-46s %s (cette brosse ne deplace aucun sommet)\n", label, det);
+	}
+	else
+		// AVEC symetrie : le champ est un miroir (ecart negligeable devant
+		// l'amplitude). SANS : il ne l'est PAS -- sinon le critere serait vrai
+		// d'une brosse qui deforme les deux cotes toute seule, et ne dirait rien
+		// de la symetrie.
+		Check(okAvec && aAvec.y > 0.f && aAvec.x < aAvec.y * 1e-3f && aSans.x > aSans.y * 1e-3f,
+			  label, det);
+
+	// (3) LA COUTURE : un tampon POSE SUR LE PLAN, avec et sans symetrie. Le
+	// deplacement maximal doit etre LE MEME -- s'il double, la brosse a frappe
+	// deux fois au meme endroit.
+	{
+		auto poserAuCentre = [&](NkEditMesh &m, uint8 symX) {
+			NkMeshEditCommand cmd;
+			cmd.op = NkMeshEditOp::Sculpt;
+			cmd.sculpt.radius = brush.radius;
+			cmd.sculpt.strength = brush.strength;
+			cmd.sculpt.hardness = brush.hardness;
+			cmd.sculpt.dir = brush.dir;
+			cmd.sculpt.falloff = (uint8)brush.falloff;
+			cmd.sculpt.primitive = (uint8)brush.op;
+			cmd.sculpt.symX = symX;
+			// Le sommet le plus proche du PLAN x = 0, le plus haut a egalite.
+			uint32 hi = 0;
+			float32 best = 1e30f;
+			for (uint32 i = 0; i < m.VertCount(); ++i) {
+				const float32 d = fabsf(m.verts[i].pos.x);
+				if (d < best - 1e-6f || (fabsf(d - best) <= 1e-6f && m.verts[i].pos.y > m.verts[hi].pos.y)) {
+					best = (d < best) ? d : best;
+					hi = i;
+				}
+			}
+			NkVec3f p = m.verts[hi].pos;
+			p.x = 0.f; // EXACTEMENT sur le plan : c'est le cas qu'on mesure
+			cmd.sculptPoints.PushBack(p);
+			cmd.sculptNormals.PushBack(m.verts[hi].normal);
+			return cmd.Apply(m);
+		};
+		NkEditMesh cSans = src, cAvec = src;
+		const bool o1 = poserAuCentre(cSans, 0);
+		const bool o2 = poserAuCentre(cAvec, 1);
+		float32 maxSans = 0.f, maxAvec = 0.f;
+		for (uint32 i = 0; i < cSans.VertCount() && i < (uint32)s0.pos.Size(); ++i) {
+			const NkVec3f d = cSans.verts[i].pos - s0.pos[i];
+			const float32 n = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (n > maxSans)
+				maxSans = n;
+		}
+		for (uint32 i = 0; i < cAvec.VertCount() && i < (uint32)s0.pos.Size(); ++i) {
+			const NkVec3f d = cAvec.verts[i].pos - s0.pos[i];
+			const float32 n = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+			if (n > maxAvec)
+				maxAvec = n;
+		}
+		snprintf(label, sizeof(label), "%s/%s symetrie: LA COUTURE ne recoit pas deux fois la brosse",
+				 primName, brush.name);
+		snprintf(det, sizeof(det), "sur le plan : deplacement max %.6f sans symetrie, %.6f avec "
+								   "(exige l'egalite ; un doublement dirait deux tampons)",
+				 (double)maxSans, (double)maxAvec);
+		// ⚠️ LA CONDITION D'ABORD, ET ELLE MANQUE SUR LE CUBE. Ses 8 coins sont a
+		//    0,5 du plan, la brosse en fait 0,25 : le tampon pose sur la couture ne
+		//    touche AUCUN sommet. « Rien n'a bouge des deux cotes » serait alors un
+		//    vert qui ne prouve rien -- et un rouge qui n'accuse rien. On le DIT.
+		if (!o1 || maxSans <= 0.f)
+			printf("  [ n/a ] %-46s %s (aucun sommet sous un tampon pose sur le plan)\n", label, det);
+		else
+			Check(o2 && fabsf(maxAvec - maxSans) <= maxSans * 1e-3f, label, det);
+	}
+}
+
 static void RunReplay(const char *primName, const NkEditMesh &srcIn, const NkBrushDesc &brush) {
 	char label[128], det[128];
 
@@ -973,6 +1210,19 @@ int main(int argc, char **argv) {
 			printf("-- cube8 (positif DEFAVORABLE : 8 coins, 24 sommets) / brosse \"%s\"\n", b.name);
 			RunBrushOn("cube8", m, b);
 			RunReplay("cube8", m, b);
+			// ⚠️ UN SUJET NEUF POUR LA SYMETRIE. `RunBrushOn` prend le maillage par
+			//    REFERENCE et le laisse dans l'etat de son dernier trait : mesurer un
+			//    miroir sur une forme deja deformee de facon asymetrique rougit sur un
+			//    module juste. Mesure du 25/09 : dx = -0,215 au lieu de 0 sur la
+			//    sphere -- le defaut etait dans le SUJET, pas dans la symetrie.
+			{
+				NkVector<NkVertex3D> v2;
+				NkVector<uint32> i2;
+				MakeCube(v2, i2);
+				NkEditMesh neuf;
+				neuf.BuildFromIndexed(v2.Data(), (uint32)v2.Size(), i2.Data(), (uint32)i2.Size(), true);
+				RunSymetrie("cube8", neuf, b);
+			}
 		}
 		{
 			MakeSphere(16, 16, v, idx);
@@ -981,6 +1231,14 @@ int main(int argc, char **argv) {
 			printf("-- sphere16 (cas dense) / brosse \"%s\"\n", b.name);
 			RunBrushOn("sphere16", m, b);
 			RunReplay("sphere16", m, b);
+			{
+				NkVector<NkVertex3D> v2;
+				NkVector<uint32> i2;
+				MakeSphere(16, 16, v2, i2);
+				NkEditMesh neuf;
+				neuf.BuildFromIndexed(v2.Data(), (uint32)v2.Size(), i2.Data(), (uint32)i2.Size(), true);
+				RunSymetrie("sphere16", neuf, b);
+			}
 		}
 		printf("\n");
 	}
