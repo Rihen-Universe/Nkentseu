@@ -2320,6 +2320,30 @@ namespace nkentseu {
 		// lot, les objets de l'utilisateur etaient INVISIBLES en fil de fer alors
 		// que la demo, elle, y figurait (constate par Rihen : seul le contour de
 		// selection subsistait). Caches par emplacement, remplis a la reconstruction.
+		// ── LE MASQUE DE SCULPTURE, COTE NOEUD ─────────────────────────────────
+		// ⚠️ SUR LE NOEUD, PAS SUR L'INDEX D'UN MAILLAGE TRANSITOIRE. `editHE` ne
+		//    vit que le temps de l'edition ; ce qui doit survivre a la fermeture du
+		//    mode -- et a celle du projet -- appartient au noeud. Les poids sont
+		//    alignes sur les sommets du maillage de RENDU du noeud (ceux qu'ecrit
+		//    le `.nkgeo`), et le passage dans les deux sens se fait par
+		//    `NkMaskSampleField` : la MEME regle que le report a travers une
+		//    operation, donc une seule reponse a « de qui ce sommet descend-il ? ».
+		// ⚠️ VIDE = PAS DE MASQUE : un noeud qui n'a jamais ete masque ne paie rien,
+		//    ni en memoire ni dans le fichier.
+		static NkVector<float32> nkvpUserMask[kNkvpMaxUser];
+		// ── LA MUTATION « LE MASQUE NE VOYAGE PAS », UNE SEULE SOURCE ──────────
+		// NK_MASQUE_SANS_REPORT=1 rend l'etat d'avant : le masque ne traverse ni
+		// une operation topologique, ni la sortie du mode edition, ni le fichier.
+		// ⚠️ UN SEUL `getenv` POUR LES TROIS SITES. Trois lectures separees
+		//    auraient pu diverger (une faute de frappe dans l'une), et la mutation
+		//    n'aurait plus couvert qu'une partie de son sujet -- en le laissant croire.
+		static bool Demo3D_SansReportMasque() {
+			static const bool sSans = []() {
+				const char *v = getenv("NK_MASQUE_SANS_REPORT");
+				return v && v[0] && v[0] != '0';
+			}();
+			return sSans;
+		}
 		static NkVector<NkVec3f> sUserWireEdges[kNkvpMaxUser];
 		static uint32 sUserOff[kNkvpMaxUser] = {};
 		static uint32 sUserCnt[kNkvpMaxUser] = {};
@@ -4410,11 +4434,7 @@ namespace nkentseu {
 			// criteres de transport du banc doivent alors rougir ; sans ce negatif,
 			// « le masque est encore la » pourrait etre vrai parce que l'operation
 			// n'a rien change du tout.
-			static const bool sSansReport = []() {
-				const char *v = getenv("NK_MASQUE_SANS_REPORT");
-				return v && v[0] && v[0] != '0';
-			}();
-			if (masqueAvant && !sSansReport && !st->editHE.MaskExists()) {
+			if (masqueAvant && !Demo3D_SansReportMasque() && !st->editHE.MaskExists()) {
 				const uint32 repris = st->editHE.MaskTransferFrom(snapshot);
 				logger.Info("[Demo3D] MASQUE reporte a travers l'operation : {0} sommet(s) protege(s) "
 							"sur {1} (avant : {2} sur {3}) · somme {4} -> {5}\n",
@@ -7810,6 +7830,41 @@ namespace nkentseu {
 				logger.Info("[Demo3D] EDIT MODE (utilisateur #{0}) : {1} sommets, {2} faces\n", u,
 							(int32)st->editHE.VertCount(), (int32)st->editHE.FaceCount());
 			}
+			// ── LE MASQUE DU NOEUD DESCEND DANS LE MAILLAGE D'EDITION ──────────
+			// ⚠️ SEULEMENT S'IL N'EN A PAS DEJA UN. Reprendre la topologie n-gon
+			//    (`sUserHE`) ramene AUSSI son masque -- il est dans le maillage. Le
+			//    reechantillonner par-dessus ferait passer deux fois par la regle
+			//    des plus proches, et un masque a bord doux s'elargirait un peu a
+			//    chaque aller-retour, sans que rien ne le dise.
+			if (!st->editHE.MaskExists() && !Demo3D_SansReportMasque() && !nkvpUserMask[u].Empty() &&
+				st->editHE.VertCount() > 0 &&
+				ms && nkvpUserMesh[u].IsValid() && ms->HasCPUData(nkvpUserMesh[u])) {
+				const auto *rv = (const renderer::NkVertex3D *)ms->GetVertices(nkvpUserMesh[u]);
+				const uint32 rc = ms->GetVertexCount(nkvpUserMesh[u]);
+				if (rv && rc == (uint32)nkvpUserMask[u].Size()) {
+					NkVector<NkVec3f> src, dst;
+					src.Resize(rc);
+					for (uint32 q = 0; q < rc; ++q)
+						src[q] = rv[q].pos;
+					dst.Resize(st->editHE.VertCount());
+					for (uint32 q = 0; q < st->editHE.VertCount(); ++q)
+						dst[q] = st->editHE.verts[q].pos;
+					NkVector<float32> out;
+					out.Resize((uint32)dst.Size());
+					renderer::NkMaskSampleField(src.Data(), nkvpUserMask[u].Data(), rc, dst.Data(),
+												out.Data(), (uint32)dst.Size());
+					st->editHE.MaskEnsure();
+					uint32 nz = 0;
+					for (uint32 q = 0; q < st->editHE.VertCount(); ++q) {
+						st->editHE.vertMask[q] = out[q];
+						if (out[q] > 0.f)
+							++nz;
+					}
+					logger.Info("[Demo3D] MASQUE repris du noeud {0} : {1} sommet(s) protege(s) sur "
+								"{2} (maillage d'edition)\n",
+								kNkvpFirstUser + u, nz, (int32)st->editHE.VertCount());
+				}
+			}
 			st->editHistory.Clear();
 			st->editRecorder.Clear();
 			st->editModifiers.Clear();
@@ -8899,6 +8954,39 @@ namespace nkentseu {
 						// repartirait d'un quadify sur des triangles.
 						sUserHE[u] = st->editHE;
 						sUserHasHE[u] = true;
+						// ── LE MASQUE REMONTE SUR LE NOEUD ─────────────────────
+						// Aligne sur les sommets du maillage de RENDU, parce que ce
+						// sont eux que le `.nkgeo` ecrira. Sans masque, on VIDE : un
+						// noeud demasque ne doit pas garder l'ancien champ, sinon
+						// « j'ai tout demasque » se defairait a la reouverture.
+						if (st->editHE.MaskExists() && !Demo3D_SansReportMasque() && ms &&
+							nkvpUserMesh[u].IsValid() &&
+							ms->HasCPUData(nkvpUserMesh[u])) {
+							const auto *rv = (const renderer::NkVertex3D *)ms->GetVertices(nkvpUserMesh[u]);
+							const uint32 rc = ms->GetVertexCount(nkvpUserMesh[u]);
+							if (rv && rc > 0) {
+								NkVector<NkVec3f> src, dst;
+								src.Resize(st->editHE.VertCount());
+								for (uint32 q = 0; q < st->editHE.VertCount(); ++q)
+									src[q] = st->editHE.verts[q].pos;
+								dst.Resize(rc);
+								for (uint32 q = 0; q < rc; ++q)
+									dst[q] = rv[q].pos;
+								nkvpUserMask[u].Resize(rc);
+								renderer::NkMaskSampleField(src.Data(), st->editHE.vertMask.Data(),
+															(uint32)src.Size(), dst.Data(),
+															nkvpUserMask[u].Data(), rc);
+								uint32 nz = 0;
+								for (uint32 q = 0; q < rc; ++q)
+									if (nkvpUserMask[u][q] > 0.f)
+										++nz;
+								logger.Info("[Demo3D] MASQUE remonte sur le noeud {0} : {1} sommet(s) "
+											"protege(s) sur {2} (maillage de rendu)\n",
+											kNkvpFirstUser + u, nz, rc);
+							}
+						} else {
+							nkvpUserMask[u].Clear();
+						}
 						st->wireDirty = true;
 						st->wireStamp = -12345;
 					}
@@ -18796,6 +18884,46 @@ namespace nkentseu {
 		int32 Demo3DHostSculptSym() {
 			auto *st = HostSt();
 			return st ? st->sculptSymMask : 0;
+		}
+		// ── LE MASQUE D'UN NOEUD, POUR LE PROJET ────────────────────────────
+		// Lu a l'enregistrement, repose a l'ouverture. Aligne sur les sommets du
+		// maillage de RENDU du noeud -- les memes que ceux qu'ecrit le `.nkgeo`.
+		// Rend faux (et count = 0) quand le noeud n'a aucun masque : un projet qui
+		// n'a jamais masque n'ecrit rien.
+		bool Demo3DHostNodeMask(int32 node, const float32 **outW, uint32 *outCount) {
+			if (outW)
+				*outW = nullptr;
+			if (outCount)
+				*outCount = 0;
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser || nkvpUserMask[u].Empty())
+				return false;
+			// UN MASQUE TOUT A ZERO N'EST PAS UN MASQUE : l'ecrire couterait quatre
+			// octets par sommet pour dire « rien », et la relecture croirait qu'un
+			// masque existe.
+			bool nonNul = false;
+			for (uint32 i = 0; i < (uint32)nkvpUserMask[u].Size() && !nonNul; ++i)
+				nonNul = (nkvpUserMask[u][i] > 0.f);
+			if (!nonNul)
+				return false;
+			if (outW)
+				*outW = nkvpUserMask[u].Data();
+			if (outCount)
+				*outCount = (uint32)nkvpUserMask[u].Size();
+			return true;
+		}
+		bool Demo3DHostSetNodeMask(int32 node, const float32 *w, uint32 count) {
+			const int32 u = node - kNkvpFirstUser;
+			if (u < 0 || u >= kNkvpMaxUser)
+				return false;
+			nkvpUserMask[u].Clear();
+			if (!w || count == 0)
+				return true; // « pas de masque » est un etat valide, pas un echec
+			nkvpUserMask[u].Resize(count);
+			for (uint32 i = 0; i < count; ++i)
+				nkvpUserMask[u][i] = w[i];
+			logger.Info("[Demo3D] MASQUE repose sur le noeud {0} : {1} poids relus\n", node, count);
+			return true;
 		}
 		bool Demo3DHostEditLoopCut() {
 			if (HostRefuseSansElements("LoopCut"))

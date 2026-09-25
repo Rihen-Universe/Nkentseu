@@ -356,6 +356,69 @@ if (Condition "(h) effet" ($dSans -gt 0.01) "le trait TEMOIN n'a rien deplace ap
 		"sans masque $([Math]::Round($dSans, 4)) -> avec masque reporte $([Math]::Round($dAvec, 4)) (exige moins du quart)"
 }
 
+# ⚠ UN LANCEUR **NU** POUR CE CRITERE, ET LA PREMIERE VERSION S'Y EST FAIT
+#   PRENDRE : le lanceur commun pose NK_ADD_NODE (il fabrique son cube). Dans la
+#   course de RELECTURE, il creait donc un cube NEUF, et `NK_EDIT_USER=99`
+#   entrait en edition sur LUI -- un noeud qui n'a jamais ete masque. Le banc
+#   lisait 0 et accusait la persistance. Ici, le projet apporte sa propre scene :
+#   le lanceur ne doit rien poser d'autre que ce qu'on lui demande.
+function CourirNu([string]$nom, [hashtable]$vars) {
+	$out = Join-Path $tmp "$nom.txt"
+	$log = Join-Path $tmp "$nom.log"
+	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
+	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
+	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
+	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $out | Out-Null
+	foreach ($k in $poses) { if (Test-Path "Env:\$k") { Remove-Item "Env:\$k" } }
+	if (Test-Path $journal) { Copy-Item $journal $log -Force } else { Set-Content $log "" }
+	return [pscustomobject]@{ out = $out; log = $log }
+}
+
+# ── (i) LE MASQUE SURVIT A LA FERMETURE DU PROJET ───────────────────────────
+# Le masque vit sur le NOEUD (pas sur l'index d'un maillage transitoire), et il
+# part dans le `.nkgeo` avec la geometrie qu'il decrit -- meme objet, meme
+# fichier : les separer donnerait deux fichiers a garder d'accord.
+#
+# ⚠ DEUX COURSES, ET C'EST LA SEULE FACON DE LE PROUVER. Une course qui
+#   enregistre et relit dans le MEME processus mesurerait la memoire, pas le
+#   fichier. Ici le second lancement ne partage rien avec le premier -- sauf le
+#   disque.
+#
+# ⚠ LE PROJET VIT DANS UN DOSSIER A SON NOM (le produit le refuse autrement) :
+#   <parent>/<nom>/<nom>.nk3dm.
+$projRacine = Join-Path $tmp "projet_masque"
+if (Test-Path $projRacine) { Remove-Item -Recurse -Force $projRacine }
+New-Item -ItemType Directory -Force (Join-Path $projRacine "mq") | Out-Null
+$projFichier = Join-Path $projRacine "mq\mq.nk3dm"
+
+# COURSE A : creer, peindre le masque, SORTIR du mode (le masque remonte sur le
+# noeud), enregistrer.
+$a = CourirNu "projet_ecrire" @{ "NK_PROJECT" = $projFichier; "NK_ADD_NODE" = "2,0,40";
+							   "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "3,60"; "NK_EDIT_SEL" = "n";
+							   "NK_EDIT_PRESUB" = "4"; "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120";
+							   "NK_VP_ACTION" = "toggleedit,200"; "NK_AGENT_SAVE" = "240";
+							   "NK_AGENT_EXIT" = "320" }
+$remonte = [regex]::Match((Get-Content -Raw $a.log), "MASQUE remonte sur le noeud (\d+) : (\d+) sommet")
+$nkgeo = Get-ChildItem -Path $projRacine -Filter "*.nkgeo" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+# COURSE B : rouvrir le projet dans un processus NEUF, entrer en Sculpture.
+$b = CourirNu "projet_relire" @{ "NK_PROJECT" = $projFichier; "NK_EDIT_USER" = "99";
+							   "NK_EDIT_MODE" = "3,120"; "NK_AGENT_EXIT" = "260" }
+$Lb = @(Lignes $b)
+$relu = Dernier $Lb "masque"
+$sommeRelue = Dernier $Lb "somme"
+if (Condition "(i) projet" (($remonte.Success) -and ($null -ne $nkgeo) -and ($Lb.Count -gt 0)) `
+		"course A : masque remonte=$($remonte.Success) · fichier .nkgeo=$($null -ne $nkgeo) · course B : $($Lb.Count) ligne(s)$(if ($Mutation) { " -- ATTENDU sous mutation : le masque ne remonte pas sur le noeud, il n'y a donc rien a enregistrer" })") {
+	$pose = [int]$remonte.Groups[2].Value
+	Dire "(i) le masque est ECRIT dans le .nkgeo" ($nkgeo.Length -gt 0) `
+		"$($nkgeo.Name), $([Math]::Round($nkgeo.Length / 1024.0, 1)) Ko"
+	Dire "(i) rouvert dans un processus NEUF, le masque est LA" ($relu -gt 0) `
+		"$pose sommet(s) a l'enregistrement -> $relu au retour (somme $([Math]::Round($sommeRelue, 3)))"
+	Dire "(i) ... et c'est LE MEME (au sommet pres)" ($relu -eq $pose) `
+		"$pose -> $relu (exige l'egalite : un masque qui change de taille en passant par le disque serait un autre masque)"
+}
+
 Write-Host "-----------------------------------------------------------------------"
 if ($rouges -gt 0) { Write-Host "ECHEC ($rouges rouge(s), $conditions condition(s) non reunie(s))"; exit 1 }
 if ($conditions -gt 0) { Write-Host "CONDITION NON REUNIE ($conditions) -- ni vert ni rouge"; exit 3 }
