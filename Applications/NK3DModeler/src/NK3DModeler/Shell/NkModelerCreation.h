@@ -65,6 +65,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace nkentseu {
 	namespace nk3d {
 
@@ -1307,6 +1314,66 @@ namespace nkentseu {
 			return s;
 		}
 
+		/// ── LIRE UNE VARIABLE D'ENVIRONNEMENT EN UTF-8 (25/09) ────────────────
+		/// ⚠️ `std::getenv` REND DE L'ANSI SUR WINDOWS, ET C'EST CE QUI A RENDU MON
+		///    CRITERE INCAPABLE DE REPRODUIRE LE DEFAUT DE RODOLF. Mesure, octets a
+		///    l'appui, sur `essai_accentué_éàü.jpg` :
+		///        par `NK_CREA_IMAGE` (getenv) : ...accentu<E9>_<E9><E0><FC>.jpg  -> cp1252
+		///        par le panneau (journal de Rodolf) : t<C3><A9>l<C3><A9>chargement -> UTF-8
+		///    Les deux chemins ne portaient donc PAS les memes octets, et mon essai
+		///    mesurait la perte de ma propre porte au lieu de celle du panneau. Un
+		///    instrument qui n'achemine pas ce que le produit achemine ne mesure pas
+		///    le produit.
+		/// La porte de mesure lit desormais l'environnement en UTF-16 et le convertit
+		/// en UTF-8, comme le panneau le fait.
+		inline bool NkCreaEnvUtf8(const char *nom, char *out, uint32 cap) {
+			if (!out || !cap)
+				return false;
+			out[0] = 0;
+#ifdef _WIN32
+			wchar_t wn[128];
+			int k = 0;
+			for (const char *c = nom; *c && k + 1 < 128; ++c)
+				wn[k++] = (wchar_t)(unsigned char)*c;
+			wn[k] = 0;
+			wchar_t wv[1024];
+			const DWORD n = GetEnvironmentVariableW(wn, wv, 1024);
+			if (n == 0 || n >= 1024)
+				return false;
+			const int m = WideCharToMultiByte(CP_UTF8, 0, wv, -1, out, (int)cap, nullptr, nullptr);
+			return m > 0;
+#else
+			const char *v = std::getenv(nom);
+			if (!v || !*v)
+				return false;
+			snprintf(out, cap, "%s", v);
+			return true;
+#endif
+		}
+
+		/// Imprime les OCTETS d'un chemin, pas la chaine. ⚠️ C'EST LA SEULE FACON DE
+		/// VOIR UN ENCODAGE : la console de Windows ne sait pas rendre l'UTF-8, donc
+		/// `essai_accentué` s'y affiche pareil qu'il soit juste ou casse. Le journal
+		/// de Rodolf montrait « tÃ©lÃ©chargement » -- il a fallu les octets pour
+		/// savoir que c'etait de l'UTF-8 relu en cp1252, et non l'inverse.
+		inline void NkCreaOctets(const char *quoi, const char *t) {
+			if (!t)
+				return;
+			char hex[260];
+			uint32 o = 0;
+			for (const char *c = t; *c && o + 4u < sizeof(hex); ++c) {
+				const unsigned char x = (unsigned char)*c;
+				if (x < 0x80u)
+					hex[o++] = (char)x;
+				else
+					o += (uint32)snprintf(hex + o, sizeof(hex) - o, "<%02X>", (unsigned)x);
+			}
+			hex[o] = 0;
+			std::printf("[octets] %s : %s\n", quoi, hex);
+			std::fflush(stdout);
+		}
+
+
 		/// Le nom de l'objet courant : le mot de la demande, sinon la famille.
 		/// ⚠️ IL SERT A DEUX CHOSES QUI DOIVENT S'ACCORDER : le dossier du modele et
 		///    le nom du noeud dans la hierarchie. Deux derivations se
@@ -2182,7 +2249,19 @@ namespace nkentseu {
 					}
 					const NkString cmd(cmdBuf);
 					NkLog::Instance().Infof("[ajust] lancement : %s", cmd.CStr());
-					const int code = std::system(cmd.CStr());
+					// ⚠️ LA MEME PORTE QUE LE GENERATEUR, ET C'EST UN CORRECTIF.
+					//    `std::system` passe par la page ANSI de Windows : les octets
+					//    UTF-8 d'un nom accentue y etaient relus comme du cp1252, donc
+					//    encodes DEUX FOIS. Mesure dans le journal de Rodolf :
+					//    « telechargement (23).jpg » arrivait a Python en
+					//    « tÃ©lÃ©chargement (23).jpg », et l'ajustement refusait
+					//    « image introuvable » sur une image parfaitement presente --
+					//    pendant que la generation, elle, marchait.
+					int32 code = 0;
+					NkString queue;
+					(void)NkLancerProcessus(cmd.CStr(), code, queue);
+					if (!queue.Empty())
+						NkLog::Instance().Infof("[ajust] sortie : %s", queue.CStr());
 					// ⚠️ LE CODE DE SORTIE NE DECIDE PAS : c'est le FICHIER qui fait foi.
 					//    Un script qui rend 0 sans ecrire n'a rien ajuste, et un script
 					//    qui rend autre chose en ayant ecrit a quand meme travaille.
@@ -2233,6 +2312,7 @@ namespace nkentseu {
 				A.dorsal.gabarit = NkString(buf);
 			}
 			NkDirectory::CreateRecursive("logs");
+			NkCreaOctets("image au lancement de l'ajustement", image);
 			A.dorsal.famille = NkString(famille);
 			A.dorsal.image = NkString(image);
 			A.dorsal.sortie = NkString("logs/crea_ajust.txt");
@@ -3343,6 +3423,7 @@ namespace nkentseu {
 		/// ⚠️ Le crochet de mesure `NK_CREA_IMAGE` entre ICI, pas plus loin.
 		inline void NkCreaJoindreImage(const char *chemin) {
 			NkCreaEtat &E = NkCrea();
+			NkCreaOctets("image jointe (arrivee)", chemin);
 			snprintf(E.imageJointe, sizeof(E.imageJointe), "%s", chemin ? chemin : "");
 			E.descriptionImage[0] = 0;
 		}
@@ -4415,9 +4496,9 @@ namespace nkentseu {
 				static bool sImgHook = false;
 				if (!sImgHook) {
 					sImgHook = true;
-					if (const char *im = std::getenv("NK_CREA_IMAGE"))
-						if (*im)
-							NkCreaJoindreImage(im); // la MEME porte que le panneau
+					char im[1024];
+					if (NkCreaEnvUtf8("NK_CREA_IMAGE", im, sizeof(im)) && im[0])
+						NkCreaJoindreImage(im); // la MEME porte, et les MEMES octets, que le panneau
 				}
 			}
 			if (E.envoiVision.EnCours()) {
@@ -4456,7 +4537,8 @@ namespace nkentseu {
 			{
 				static bool sDemFait = false;
 				if (!sDemFait) {
-					const char *v = std::getenv("NK_CREA_DEMANDE");
+					static char vbuf[1024];
+					const char *v = NkCreaEnvUtf8("NK_CREA_DEMANDE", vbuf, sizeof(vbuf)) ? vbuf : nullptr;
 					if (!v || !*v)
 						sDemFait = true;
 					else if (image >= 30 && demo::Demo3DHostReady() && !E.envoi.EnCours()) {
