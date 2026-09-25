@@ -1,0 +1,48 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA BARRE D'OUTILS DE NkAnimaEditor, ET ELLE EST UNE DONNÉE.
+// Ce fichier n'est pas de la documentation : c'est l'interface elle-même.
+// Changez une ligne, relancez NkAnimaEditor, la barre change. Rien à compiler.
+//
+// L'IDENTIFIANT D'UN BOUTON EST LE NOM DE SON ACTION. C'est la même convention
+// que la zone hôte (`Host "viseur3d"` : l'hôte répond au nom, ou la zone se
+// signale). Un nom que l'application ne sert pas est COMPTÉ, jamais tu.
+//
+// ⚠️ Les noms servis aujourd'hui par NkAnimaEditor, et la liste est fermée :
+//      anim.jouer  anim.inserer  anim.supprimer  anim.annuler  anim.refaire
+//    Écrivez-en un autre et le bouton apparaîtra, cliquable et sans effet :
+//    c'est voulu, et le compteur `actionsInconnues` le dira.
+
+widgets {
+
+  HBox "outils" {
+    gap = 6
+    align = Center
+
+    Button "anim.jouer" {
+      label = "Jouer / Pause"
+    }
+
+    Button "anim.inserer" {
+      label = "Insérer une clé"
+    }
+
+    Button "anim.supprimer" {
+      label = "Supprimer la clé"
+    }
+
+    Separator "sep" {
+      orientation = Vertical
+    }
+
+    Button "anim.annuler" {
+      label = "Annuler"
+    }
+
+    Button "anim.refaire" {
+      label = "Refaire"
+    }
+  }
+}

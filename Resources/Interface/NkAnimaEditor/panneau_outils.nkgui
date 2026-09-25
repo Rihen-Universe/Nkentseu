@@ -1,0 +1,80 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LE PANNEAU DE GAUCHE DE NkAnimaEditor, ET IL EST UNE DONNÉE.
+//
+// IL PORTE LES TROIS CHOSES QU'UNE INTERFACE DOIT SAVOIR FAIRE, et chacune par
+// un chemin DIFFÉRENT, pour qu'on voie lequel casse quand quelque chose casse :
+//
+//   1. UN BOUTON QUI AGIT      -> `Button "anim.jouer"`, servi par son NOM.
+//   2. UNE VALEUR QUI VIT      -> `Checkbox { bind = anim.boucle }` : la case
+//      écrit dans le modèle de l'application, pas dans le fichier.
+//   3. UN COMPORTEMENT ÉCRIT ICI QUI APPELLE L'APPLICATION -> la section
+//      `behavior` plus bas. Elle lit `boucle.checked` et appelle un `Callback`.
+//      Aucune ligne de C++ ne décide de ce `if` : il est dans CE fichier.
+//
+// ⚠️ ET UNE ZONE QUE L'APPLICATION REMPLIT. `Host "apercu_cles"` dit OÙ et QUOI ;
+//    l'application garde QUAND et COMMENT. Renommez-la et elle se couvrira de
+//    hachures avec son nom écrit dedans — une zone que personne ne sert ne doit
+//    pas se faire prendre pour un fond.
+
+widgets {
+
+  VBox "colonne" {
+    gap = 6
+    align = Start
+
+    Text "titre" {
+      text = "Animation"
+    }
+
+    Separator "sep1" {
+      orientation = Horizontal
+    }
+
+    Button "anim.jouer" {
+      label = "Jouer / Pause"
+    }
+
+    Button "anim.inserer" {
+      label = "Insérer une clé"
+    }
+
+    Separator "sep2" {
+      orientation = Horizontal
+    }
+
+    Checkbox "boucle" {
+      label = "Jouer en boucle"
+      bind = anim.boucle
+    }
+
+    Separator "sep3" {
+      orientation = Horizontal
+    }
+
+    Text "titre_apercu" {
+      text = "Aperçu des clés"
+    }
+
+    Host "apercu_cles" {
+      hint = "bande des clés (remplie par l'application)"
+    }
+  }
+}
+
+// CE QUI S'EXÉCUTE, ET IL S'EXÉCUTE VRAIMENT.
+//
+// ⚠️ LA LIMITE EST CONNUE ET ELLE EST ÉCRITE DANS LE MOTEUR : le format n'a pas
+//    encore de `on Changed(...) -> Behavior "..."`. L'hôte passe donc TOUS les
+//    `behavior` une fois par image, après le montage (`NkGuiInteraction.h`,
+//    limite 5). Les deux appels ci-dessous sont donc IDEMPOTENTS par
+//    construction — un `Callback` qui bascule un état serait ici un clignotant.
+behavior "boucle" {
+  if boucle.checked {
+    Callback "anim.boucle_activee"()
+  } else {
+    Callback "anim.boucle_coupee"()
+  }
+}
