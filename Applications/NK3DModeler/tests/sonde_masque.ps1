@@ -59,9 +59,11 @@ $base = @{ "NK_ADD_NODE" = "2,0,20"; "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "3,
 function Courir([string]$nom, [hashtable]$vars) {
 	$out = Join-Path $tmp "$nom.txt"
 	$log = Join-Path $tmp "$nom.log"
-	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE")
+	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
 	$env:NK_SONDE = "1"
-	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1" }
+	# La mutation couvre les DEUX proprietes de ce banc : les brosses qui LISENT
+	# le masque, et le REPORT du masque a travers une operation topologique.
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
 	foreach ($k in $base.Keys) { Set-Item "Env:\$k" $base[$k]; $poses += $k }
 	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
 	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait `
@@ -113,6 +115,12 @@ function PalierPrecedent($L, [string]$champ) {
 function Max($L, [string]$champ) { $v = -1; foreach ($x in $L) { if ($x.$champ -gt $v) { $v = $x.$champ } }; return $v }
 
 $rouges = 0; $conditions = 0
+function Fusionner([hashtable]$a, [hashtable]$b) {
+	$r = @{}
+	foreach ($k in $a.Keys) { $r[$k] = $a[$k] }
+	foreach ($k in $b.Keys) { $r[$k] = $b[$k] }
+	return $r
+}
 function Dire([string]$nom, [bool]$vert, [string]$detail) {
 	if ($vert) { Write-Host "VERT   $nom  $detail" } else { Write-Host "ROUGE  $nom  $detail"; $script:rouges++ }
 }
@@ -246,6 +254,169 @@ if (Condition "(f) transform" ($libre.Count -gt 2) "aucune ligne") {
 	$sym = @(Lignes (Courir "xform_sym" @{ "NK_SCULPT_XFORM" = "0.5:0:0:0:0:0:1:1:1:1:150" }))
 	Dire "(f) symetrie X : les deux cotes partent en miroir, la couture tient" ((Bouge $sym) -eq 0.0) `
 		"deplacement de la somme = $([Math]::Round((Bouge $sym), 5)) (exige 0 : +0,5 d'un cote, -0,5 de l'autre, 0 sur le plan)"
+}
+
+# ── (g) LE GIZMO DU TRANSFORM RESPECTE LE MASQUE ────────────────────────────
+# Le meme geste qu'a la souris : le crochet NK_SCULPT_DRAG attrape la poignee
+# centrale AU PIVOT et tire de 120 px, par la structure de l'image -- aucune
+# souris de la machine n'est touchee. C'est le chemin COMPLET (pick du gizmo,
+# apercu par image, commande au relachement), pas l'operation appelee de cote.
+$gzBase = @{ "NK_TOOL_CLIC" = "0,60"; "NK_SCULPT_DRAG" = "120,0,8,150"; "NK_AGENT_EXIT" = "280" }
+$gLibre = @(Lignes (Courir "gz_libre" $gzBase))
+$gTout = @(Lignes (Courir "gz_tout" (Fusionner $gzBase @{ "NK_MASK_ALL" = "1,120" })))
+$gPart = @(Lignes (Courir "gz_part" (Fusionner $gzBase @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120" })))
+$gSym = @(Lignes (Courir "gz_sym" (Fusionner $gzBase @{ "NK_SCULPT_SYM" = "1" })))
+$dL = Bouge $gLibre
+if (Condition "(g) gizmo" (($gLibre.Count -gt 2) -and ($dL -gt 1.0)) `
+		"le glisser LIBRE n'a rien deplace ($([Math]::Round($dL, 5))) : le gizmo n'a pas ete attrape") {
+	Dire "(g) gizmo, tout masque : il ne deplace RIEN" ((Bouge $gTout) -eq 0.0) `
+		"libre $([Math]::Round($dL, 2)) -> masque $([Math]::Round((Bouge $gTout), 5)) (exige 0 exactement)"
+	$dP = Bouge $gPart
+	Dire "(g) gizmo, masque PARTIEL : il deplace moins, pas rien" (($dP -gt 0.0) -and ($dP -lt $dL)) `
+		"libre $([Math]::Round($dL, 2)) -> partiel $([Math]::Round($dP, 2)) ($(Dernier $gPart 'masque') sommets proteges)"
+	Dire "(g) gizmo, symetrie X : les deux cotes partent en miroir" ((Bouge $gSym) -eq 0.0) `
+		"deplacement de la somme = $([Math]::Round((Bouge $gSym), 5)) (exige 0)"
+}
+
+# ── (h) LE MASQUE TRAVERSE LES OPERATIONS TOPOLOGIQUES ──────────────────────
+# `BuildFromPolygons` renumerote les sommets : le masque, indexe par numero, est
+# vide a l'arrivee. Il est REPORTE depuis le pre-etat -- chaque sommet neuf
+# herite de ses plus proches A EGALITE, c'est-a-dire de ses parents (les deux
+# extremites d'une arete coupee, les N coins d'une face).
+#
+# ⚠ CE BANC MESURE LES OPERATIONS UNE PAR UNE. « Ca marche sur la subdivision »
+#   ne dit rien de l'extrusion : ce sont des maillages differents, et le report
+#   est geometrique. Cinq operations, cinq courses.
+#
+# ⚠ ET IL NE MESURE PAS LA SOMME. Subdiviser AJOUTE des sommets dans la zone
+#   protegee : leur poids s'ajoute, donc la somme CROIT -- c'est juste, et un
+#   critere « la somme est conservee » rougirait sur un comportement correct. Ce
+#   qui doit se conserver, c'est la PROPORTION masquee (la zone) et, surtout,
+#   l'EFFET : la brosse ne doit toujours pas y agir. Le second critere est le
+#   seul qui ne puisse pas etre satisfait par un report qui aurait tout barbouille.
+# Le sujet est un cube pre-subdivise deux fois (150 sommets), en mode EDITION :
+# c'est la que vivent les operations topologiques.
+$baseTopo = @{ "NK_ADD_NODE" = "2,0,20"; "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "1,40";
+			   "NK_EDIT_SEL" = "a"; "NK_EDIT_PRESUB" = "2"; "NK_MODE_PROBE" = "1";
+			   "NK_AGENT_EXIT" = "300" }
+function CourirTopo([string]$nom, [hashtable]$vars) {
+	$out = Join-Path $tmp "$nom.txt"
+	$log = Join-Path $tmp "$nom.log"
+	$poses = @("NK_SONDE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
+	$env:NK_SONDE = "1"
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
+	foreach ($k in $baseTopo.Keys) { Set-Item "Env:\$k" $baseTopo[$k]; $poses += $k }
+	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
+	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $out | Out-Null
+	foreach ($k in $poses) { if (Test-Path "Env:\$k") { Remove-Item "Env:\$k" } }
+	if (Test-Path $journal) { Copy-Item $journal $log -Force } else { Set-Content $log "" }
+	return [pscustomobject]@{ out = $out; log = $log }
+}
+foreach ($op in @("subdivide", "extrude", "inset", "bevel", "loopcut")) {
+	$c = CourirTopo "topo_$op" @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120"; "NK_VP_ACTION" = "$op,180" }
+	$L = @(Lignes $c)
+	# AVANT = la derniere ligne ou le maillage a encore sa taille d'origine.
+	$nvFin = Dernier $L "nv"
+	$avant = @($L | Where-Object { $_.nv -ne $nvFin -and $_.masque -gt 0 })
+	$apres = @($L | Where-Object { $_.nv -eq $nvFin })
+	if (Condition "(h) $op" (($avant.Count -gt 0) -and ($apres.Count -gt 0) -and ($nvFin -gt 0)) `
+			"l'operation n'a pas change le maillage (nv reste $nvFin) : il n'y a rien a traverser") {
+		$nvAv = $avant[$avant.Count - 1].nv
+		$mAv = $avant[$avant.Count - 1].masque
+		$mAp = Dernier $L "masque"
+		$fracAv = $mAv / $nvAv
+		$fracAp = $mAp / $nvFin
+		Dire "(h) $op : le masque SURVIT a l'operation" ($mAp -gt 0) `
+			"$mAv sommet(s) sur $nvAv -> $mAp sur $nvFin"
+		Dire "(h) $op : la ZONE protegee garde sa proportion" ([Math]::Abs($fracAp - $fracAv) -lt 0.05) `
+			"fraction masquee $([Math]::Round($fracAv, 4)) -> $([Math]::Round($fracAp, 4)) (exige un ecart < 0,05 : ni perdu, ni barbouille)"
+	}
+}
+# LE CRITERE D'EFFET : apres une subdivision, la brosse ne doit TOUJOURS pas
+# agir dans la zone protegee. C'est le seul que ni une perte ni un barbouillage
+# ne peuvent satisfaire.
+$mq = @(Lignes (CourirTopo "topo_effet" @{ "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120";
+										   "NK_VP_ACTION" = "subdivide,180";
+										   "NK_SCULPT_STROKE2" = "dessiner:0.35:0.8:230" }))
+$sans = @(Lignes (CourirTopo "topo_effet_sans" @{ "NK_VP_ACTION" = "subdivide,180";
+												  "NK_SCULPT_STROKE2" = "dessiner:0.35:0.8:230" }))
+# On ne compare que ce qui suit l'operation : la subdivision elle-meme ne
+# deplace aucun sommet, mais elle change `nv`, et la somme des positions avec.
+function BougeApres($L) {
+	$fin = Dernier $L "nv"
+	$M = @($L | Where-Object { $_.nv -eq $fin })
+	if ($M.Count -lt 2) { return -1.0 }
+	$a = $M[0]; $b = $M[$M.Count - 1]
+	return [Math]::Abs($b.sx - $a.sx) + [Math]::Abs($b.sy - $a.sy) + [Math]::Abs($b.sz - $a.sz)
+}
+$dSans = BougeApres $sans
+$dAvec = BougeApres $mq
+if (Condition "(h) effet" ($dSans -gt 0.01) "le trait TEMOIN n'a rien deplace apres subdivision ($([Math]::Round($dSans, 5)))") {
+	Dire "(h) apres subdivision, le masque PROTEGE ENCORE" (($dAvec -ge 0.0) -and ($dAvec -lt ($dSans * 0.25))) `
+		"sans masque $([Math]::Round($dSans, 4)) -> avec masque reporte $([Math]::Round($dAvec, 4)) (exige moins du quart)"
+}
+
+# ⚠ UN LANCEUR **NU** POUR CE CRITERE, ET LA PREMIERE VERSION S'Y EST FAIT
+#   PRENDRE : le lanceur commun pose NK_ADD_NODE (il fabrique son cube). Dans la
+#   course de RELECTURE, il creait donc un cube NEUF, et `NK_EDIT_USER=99`
+#   entrait en edition sur LUI -- un noeud qui n'a jamais ete masque. Le banc
+#   lisait 0 et accusait la persistance. Ici, le projet apporte sa propre scene :
+#   le lanceur ne doit rien poser d'autre que ce qu'on lui demande.
+function CourirNu([string]$nom, [hashtable]$vars) {
+	$out = Join-Path $tmp "$nom.txt"
+	$log = Join-Path $tmp "$nom.log"
+	$poses = @("NK_SONDE", "NK_MODE_PROBE", "NK_MASQUE_IGNORE", "NK_MASQUE_SANS_REPORT")
+	$env:NK_SONDE = "1"; $env:NK_MODE_PROBE = "1"
+	if ($Mutation) { $env:NK_MASQUE_IGNORE = "1"; $env:NK_MASQUE_SANS_REPORT = "1" }
+	foreach ($k in $vars.Keys) { Set-Item "Env:\$k" $vars[$k]; $poses += $k }
+	Start-Process -FilePath $exe -WorkingDirectory $Arbre -NoNewWindow -Wait -RedirectStandardOutput $out | Out-Null
+	foreach ($k in $poses) { if (Test-Path "Env:\$k") { Remove-Item "Env:\$k" } }
+	if (Test-Path $journal) { Copy-Item $journal $log -Force } else { Set-Content $log "" }
+	return [pscustomobject]@{ out = $out; log = $log }
+}
+
+# ── (i) LE MASQUE SURVIT A LA FERMETURE DU PROJET ───────────────────────────
+# Le masque vit sur le NOEUD (pas sur l'index d'un maillage transitoire), et il
+# part dans le `.nkgeo` avec la geometrie qu'il decrit -- meme objet, meme
+# fichier : les separer donnerait deux fichiers a garder d'accord.
+#
+# ⚠ DEUX COURSES, ET C'EST LA SEULE FACON DE LE PROUVER. Une course qui
+#   enregistre et relit dans le MEME processus mesurerait la memoire, pas le
+#   fichier. Ici le second lancement ne partage rien avec le premier -- sauf le
+#   disque.
+#
+# ⚠ LE PROJET VIT DANS UN DOSSIER A SON NOM (le produit le refuse autrement) :
+#   <parent>/<nom>/<nom>.nk3dm.
+$projRacine = Join-Path $tmp "projet_masque"
+if (Test-Path $projRacine) { Remove-Item -Recurse -Force $projRacine }
+New-Item -ItemType Directory -Force (Join-Path $projRacine "mq") | Out-Null
+$projFichier = Join-Path $projRacine "mq\mq.nk3dm"
+
+# COURSE A : creer, peindre le masque, SORTIR du mode (le masque remonte sur le
+# noeud), enregistrer.
+$a = CourirNu "projet_ecrire" @{ "NK_PROJECT" = $projFichier; "NK_ADD_NODE" = "2,0,40";
+							   "NK_EDIT_USER" = "99"; "NK_EDIT_MODE" = "3,60"; "NK_EDIT_SEL" = "n";
+							   "NK_EDIT_PRESUB" = "4"; "NK_SCULPT_STROKE" = "masquer:0.35:1.0:120";
+							   "NK_VP_ACTION" = "toggleedit,200"; "NK_AGENT_SAVE" = "240";
+							   "NK_AGENT_EXIT" = "320" }
+$remonte = [regex]::Match((Get-Content -Raw $a.log), "MASQUE remonte sur le noeud (\d+) : (\d+) sommet")
+$nkgeo = Get-ChildItem -Path $projRacine -Filter "*.nkgeo" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+# COURSE B : rouvrir le projet dans un processus NEUF, entrer en Sculpture.
+$b = CourirNu "projet_relire" @{ "NK_PROJECT" = $projFichier; "NK_EDIT_USER" = "99";
+							   "NK_EDIT_MODE" = "3,120"; "NK_AGENT_EXIT" = "260" }
+$Lb = @(Lignes $b)
+$relu = Dernier $Lb "masque"
+$sommeRelue = Dernier $Lb "somme"
+if (Condition "(i) projet" (($remonte.Success) -and ($null -ne $nkgeo) -and ($Lb.Count -gt 0)) `
+		"course A : masque remonte=$($remonte.Success) · fichier .nkgeo=$($null -ne $nkgeo) · course B : $($Lb.Count) ligne(s)$(if ($Mutation) { " -- ATTENDU sous mutation : le masque ne remonte pas sur le noeud, il n'y a donc rien a enregistrer" })") {
+	$pose = [int]$remonte.Groups[2].Value
+	Dire "(i) le masque est ECRIT dans le .nkgeo" ($nkgeo.Length -gt 0) `
+		"$($nkgeo.Name), $([Math]::Round($nkgeo.Length / 1024.0, 1)) Ko"
+	Dire "(i) rouvert dans un processus NEUF, le masque est LA" ($relu -gt 0) `
+		"$pose sommet(s) a l'enregistrement -> $relu au retour (somme $([Math]::Round($sommeRelue, 3)))"
+	Dire "(i) ... et c'est LE MEME (au sommet pres)" ($relu -eq $pose) `
+		"$pose -> $relu (exige l'egalite : un masque qui change de taille en passant par le disque serait un autre masque)"
 }
 
 Write-Host "-----------------------------------------------------------------------"

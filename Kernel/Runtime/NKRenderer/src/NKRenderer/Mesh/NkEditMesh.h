@@ -269,6 +269,30 @@ namespace nkentseu {
 				int32 mode = 1;
 		};
 
+		// ── ECHANTILLONNER UN CHAMP PORTE PAR DES POINTS ────────────────────────
+		// « Quel poids pour ce point-ci, sachant les poids de ceux-la ? » La regle :
+		// les points source les PLUS PROCHES A EGALITE (a `tol` pres, RELATIF)
+		// l'emportent, et l'on prend leur moyenne. Elle donne le bon sens sans
+		// qu'aucun appelant n'ait a decrire sa parente :
+		//   point conserve -> distance 0 a lui-meme       -> son poids ;
+		//   milieu d'arete -> ses DEUX extremites         -> leur moyenne ;
+		//   centre de face -> ses N coins (equidistants)  -> leur moyenne.
+		//
+		// ⚠️ UNE SEULE IMPLANTATION POUR TROIS USAGES : le masque qui traverse une
+		//    operation topologique, celui qui descend du noeud vers le maillage
+		//    d'edition, et celui qui y remonte. Trois copies de la meme boucle
+		//    auraient diverge -- et l'ecart ne se serait vu que sur un cas de bord,
+		//    tres loin de sa cause.
+		//
+		// ⚠️ GRILLE DE HACHAGE, PAS DE RECHERCHE EXHAUSTIVE : sur 250 000 points,
+		//    le O(n x m) serait « present et impraticable », ce qui revient a
+		//    absent.
+		//
+		// `out` recoit `m` valeurs. Un point de destination qui ne trouve AUCUNE
+		// source (cas impossible sur un maillage, garde par prudence) recoit 0.
+		void NkMaskSampleField(const NkVec3f *src, const float32 *poids, uint32 n, const NkVec3f *dst,
+							   float32 *out, uint32 m, float32 tol = 0.02f) noexcept;
+
 		class NkEditMesh {
 			public:
 				struct Vert {
@@ -671,6 +695,39 @@ namespace nkentseu {
 					for (uint32 i = 0; i < (uint32)vertMask.Size(); ++i)
 						vertMask[i] = w;
 				}
+				// ── LE TRANSPORT DU MASQUE A TRAVERS UNE OPERATION TOPOLOGIQUE ─────
+				// `BuildFromPolygons` reconstruit `verts` et renumerote : le masque,
+				// indexe par numero de sommet, ne peut pas survivre tel quel (il est
+				// donc vide par `Clear()`). Le REPORTER demande de repondre a « de qui
+				// ce sommet neuf descend-il ? ».
+				//
+				// ⚠️ LA REPONSE EST GEOMETRIQUE, ET C'EST CE QUI LA REND GENERIQUE.
+				//    L'autre voie -- faire porter la parente par chaque operation --
+				//    aurait demande de toucher subdiviser, biseauter, inserer, loop
+				//    cut, extruder... et la prochaine operation ecrite aurait oublie de
+				//    la porter, EN SILENCE. Ici, une seule implantation les couvre
+				//    toutes, y compris celles qui n'existent pas encore.
+				//
+				//    La regle : un sommet neuf herite des sommets d'AVANT qui sont ses
+				//    PLUS PROCHES A EGALITE (a `tol` pres, relatif). Elle donne
+				//    exactement ce que le bon sens attend :
+				//      - sommet inchange  -> distance 0 a lui-meme      -> son poids ;
+				//      - milieu d'arete   -> ses DEUX extremites        -> leur moyenne ;
+				//      - centre de face   -> ses N coins (equidistants) -> leur moyenne.
+				//    C'est la regle demandee, obtenue sans qu'aucune operation n'ait a
+				//    la connaitre.
+				//
+				// ⚠️ CE QU'ELLE APPROCHE, ET IL FAUT LE DIRE : un sommet cree LOIN de
+				//    l'ancienne surface (l'extrusion decalee, par exemple) herite de ce
+				//    qui etait le plus proche -- ce n'est pas faux, c'est le meilleur
+				//    sens disponible. Et une operation qui DEPLACE aussi les sommets
+				//    (lissage) degrade la correspondance. Les deux cas sont MESURES par
+				//    le banc plutot que supposes.
+				//
+				// Rend le nombre de sommets qui ont recu un poids non nul. Sans masque
+				// dans `avant`, ne fait rien et rend 0 -- le cout est alors nul.
+				uint32 MaskTransferFrom(const NkEditMesh &avant, float32 tol = 0.02f);
+
 				/// Inverser : ce qui etait protege devient libre, et l'inverse.
 				/// ⚠️ SUR UN MAILLAGE SANS MASQUE, inverser MASQUE TOUT -- c'est le
 				///    comportement de Blender, et la seule lecture coherente de
@@ -1715,6 +1772,17 @@ namespace nkentseu {
 			NkVec3f scale = {1.f, 1.f, 1.f};
 			NkVec3f pivot = {0.f, 0.f, 0.f};  ///< en REPERE OBJET
 			uint8 symX = 0, symY = 0, symZ = 0;
+			// ── LE GESTE DU GIZMO ARRIVE EN MATRICE, ET C'EST VOULU ─────────
+			// `NkGizmo3D::ApplyAbout` rend une MATRICE monde. La decomposer en
+			// translation / angles / echelle pour la recomposer ici ferait un
+			// aller-retour lossy (une rotation n'a pas d'euler unique, une echelle
+			// negative se cache dans la rotation) : le geste vu a l'ecran et le
+			// geste enregistre pourraient differer sans que rien ne le dise.
+			// Quand `aMatrice` vaut 1, `matrice` fait autorite et les trois champs
+			// ci-dessus ne sont plus lus. Ils restent pour la porte ECRITE
+			// (NK_SCULPT_XFORM, verbes), ou une matrice serait illisible.
+			NkMat4f matrice = NkMat4f::Identity(); ///< en REPERE OBJET, deja centree sur le pivot
+			uint8 aMatrice = 0;
 		};
 
 		struct NkMeshEditCommand {				NkMeshEditOp op = NkMeshEditOp::None;
