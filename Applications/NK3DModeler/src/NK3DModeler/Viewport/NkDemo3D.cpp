@@ -163,6 +163,12 @@ namespace nkentseu {
 		// la seule a le connaitre ; les traces, elles, vivent DEHORS -- elles le
 		// lisent ici au lieu d'etre enfermees avec lui.
 		static bool gClicBoite = false;
+		// Segments des OUTILS DE SELECTION PAR ZONE (rectangle, lasso, cercle)
+		// reellement envoyes au trace cette image. ⚠️ C'est le temoin de la coupe
+		// du HUD : ces outils vivaient SOUS la garde du HUD, et l'eteindre les
+		// aurait supprimes. Aucun banc ne les mesurait -- la regression aurait ete
+		// invisible ici et evidente chez Rodolf.
+		static uint32 gZoneSeg = 0;
 		// ⚠️ « UNE BOITE PUBLIEE SANS CIBLE » : une soumission au masque de silhouette
 		//    dont le maillage est INVALIDE. Le masque rendrait alors une silhouette vide
 		//    ou une forme de repli -- la famille « un compteur dont le zero n'est pas
@@ -175,7 +181,56 @@ namespace nkentseu {
 		// le DIT, parce qu'un affichage partiel qui se tait ferait croire a un masque
 		// plus petit qu'il n'est.
 		static uint32 gMasqueVus = 0u, gMasquePas = 1u;
-		static bool nkvpHudOn = true;				   // HUD texte de la demo (surimpression)
+		// LE HUD DE LABORATOIRE : compteurs de rendu et panneau d'ombres.
+		// ⚠️ IL NAIT ETEINT, et c'est le correctif. Il valait `true`, personne ne
+		//    le corrigeait (mesure du 25/09, porte `HostPoseHud` : zero ecriture
+		//    sur toute une course), et il se peignait donc par-dessus le produit
+		//    dans les projets de Rodolf. L'intention « off par defaut » existait
+		//    deja dans le shell ; elle n'etait jamais executee.
+		//    CONDITION DE RETRAIT de ce commentaire : le jour ou le shell posera
+		//    cette valeur avant la premiere lecture, l'initialisation cessera
+		//    d'etre l'autorite et cette note pourra partir.
+		static bool nkvpHudOn = []() {
+			// LE NEGATIF DE LA COUPE : NK_HUD_LABO=1 rend l'etat d'avant -- le HUD
+			// de laboratoire peint par-dessus le produit. Le critere du banc DOIT
+			// alors rougir, sinon il ne surveille rien.
+			const char *v = getenv("NK_HUD_LABO");
+			return v && v[0] && v[0] != '0';
+		}();											// HUD de LABO (compteurs, ombres)
+		// L'AIDE PRODUIT : les bandeaux de raccourcis. Allumee par defaut -- elle
+		// n'a jamais eu vocation a etre du diagnostic, seulement a etre AILLEURS
+		// (barre d'etat). L'eteindre avec le labo aurait retire a Rodolf ce dont
+		// il se sert pour enseigner les raccourcis.
+		static bool nkvpAideOn = true;				   // bandeaux de raccourcis
+
+		// ── QUI ALLUME LE HUD ? UNE PORTE QUI SE NOMME ──────────────────────
+		// LA QUESTION AVANT LE CORRECTIF (coordinateur, 25/09) : « la chose a
+		// mesurer en premier n'est pas comment l'eteindre, c'est QUI le
+		// rallume ». Le HUD de labo s'affiche chez Rodolf ET sur mes captures,
+		// alors que le code dit deja le vouloir eteint : `overlayMask` n'a pas le
+		// bit 32 et `main.cpp:2455` commente « off par defaut : il chevauchait la
+		// barre d'outils ».
+		//
+		// Il y a QUATRE ecritures : l'initialisation a `true`, la restauration
+		// d'apres-sortie, l'extinction pendant une sortie, et la porte du shell.
+		// Nommer le gagnant par la lecture, c'est deduire ; on le fait DIRE.
+		//
+		// ⚠️ ELLE N'ECRIT QUE SUR UN CHANGEMENT. Une ligne par appel noierait le
+		//    journal sous la porte du shell, qui repose la meme valeur a chaque
+		//    image -- et c'est le CHANGEMENT qui designe l'ecrivain.
+		//
+		// ⚠️ UN TROISIEME ECRIVAIN QU'ON N'AURAIT PAS VU rendrait le correctif
+		//    invisible : le depot a paye ca sur le palier de version du cache de
+		//    nuanceurs. Cette porte est donc le SEUL chemin d'ecriture -- si une
+		//    cinquieme apparait un jour sans passer par elle, le journal dira
+		//    « personne n'a ecrit » pendant que la valeur bouge, et ce mensonge-la
+		//    se remarque.
+		static void HostPoseHud(bool on, const char *qui) {
+			if (nkvpHudOn == on)
+				return;
+			logger.Info("[HUD-ECRIT] {0} -> {1} · par '{2}'\n", nkvpHudOn ? 1 : 0, on ? 1 : 0, qui);
+			nkvpHudOn = on;
+		}
 		// OEIL et CADENAS de la hierarchie : visibilite et verrou PAR OBJET.
 		// La visibilite gate les soumissions de la demo ; le verrou bloque la
 		// selection depuis la hierarchie et l'ecriture de transformation.
@@ -10075,7 +10130,14 @@ namespace nkentseu {
 								sAuditImg, objVivants, (int32)Demo3DState::kNumObj, objRendus,
 								vidVivants, (int32)(kNkvpFirstUser - kNkvpEmptyBase), lumVivantes,
 								(int32)Demo3DState::kNumLights, lumEclairent, lumPickables,
-								(int32)st->frameLights.Size(), Demo3DHostSkySunLightsScene() ? 1 : 0, nkvpHudOn ? 1 : 0);
+								(int32)st->frameLights.Size(), Demo3DHostSkySunLightsScene() ? 1 : 0);
+					// ⚠️ UNE SECONDE LIGNE, ET NON UN TREIZIEME CHAMP. `logger.Info`
+					//    plafonne a DOUZE arguments et tronque le suivant sans erreur ni
+					//    avertissement : un formateur qui fabrique des absences. Deux
+					//    lignes courtes disent ce qu'une longue aurait mange.
+					logger.Info("[DEMO-AUDIT2] img={0} · HUD de labo : {1} · aide produit : {2} · "
+								"segments d'outils de zone : {3}\n",
+								sAuditImg, nkvpHudOn ? 1 : 0, nkvpAideOn ? 1 : 0, (int32)gZoneSeg);
 				}
 			}
 			// ── INITIALISATION UNIQUE DES LUMIERES ──────────────────────────────
@@ -13441,6 +13503,7 @@ namespace nkentseu {
 				// REMIS A ZERO ICI, avec ses voisins : un compteur cumulatif dirait
 				// « le curseur est passe un jour », jamais « il est la maintenant ».
 				gBrushCurSeg = 0u;
+				gZoneSeg = 0u;
 				{
 					auto liveWv = [&](int32 i) { return st->editAnchor * st->editLive[i].pos; };
 					// ── L'ADRESSE ECRAN DE CHAQUE MARQUEUR TRACE ────────────────────
@@ -15839,187 +15902,231 @@ namespace nkentseu {
 			// ── Overlay ──────────────────────────────────────────────────────────
 			// PORTAGE NK3DModeler : le HUD passe sous la bascule « Affichage » du
 			// shell — il chevauchait la barre d'outils de l'editeur.
-			if (auto *overlay = nkvpHudOn ? ctx.renderer->GetOverlay() : nullptr) {
+			// ══ DEUX HUD, DEUX GARDES -- ET UN OUTIL QUI N'EN EST PAS UN ═══════
+			// Rodolf, 25/09 : le HUD de renderdemo est peint par-dessus le produit,
+			// dans un projet utilisateur. Une SEULE garde (`nkvpHudOn`) couvrait trois
+			// choses de natures differentes, donc on ne pouvait pas garder l'une sans
+			// les autres :
+			//
+			//   · LE LABO -- compteurs Draw/Tris/GPU/Batches, « Demo 3D | API », FPS|dt,
+			//     « Texture file-based », et le panneau d'ombres (bias, VSM atlas,
+			//     quality, softness, slots, casters, framesInFlight). Du diagnostic de
+			//     laboratoire : il naît ETEINT.
+			//   · L'AIDE -- les bandeaux de raccourcis (« OBJET | G/R/S=... | TAB=editer »,
+			//     « clic=sel Shift+clic=multi... »). Ce n'est PAS du diagnostic, c'est de
+			//     l'aide PRODUIT mal placee : Rodolf s'en sert pour apprendre les
+			//     raccourcis a ses etudiants. Elle naît ALLUMEE, et elle demenagera vers
+			//     la barre d'etat -- elle ne disparaît pas.
+			//   · LES OUTILS DE SELECTION PAR ZONE -- rectangle pointille, lasso, cercle.
+			//     ⚠️ CE N'EST PAS DU HUD DU TOUT. Ils etaient sous la meme garde :
+			//     eteindre le HUD aurait supprime le rectangle de selection, c'est-a-dire
+			//     CASSE UN OUTIL en croyant nettoyer un affichage. Aucun de mes bancs ne
+			//     mesure ce trace : la regression aurait ete invisible ici et evidente
+			//     chez Rodolf. Ils sortent de toute garde de HUD et gardent la leur.
+			//
+			// ⚠️ QUI ALLUMAIT LE HUD ? Mesure AVANT de toucher, par la porte
+			//    `HostPoseHud` : PERSONNE. Aucune ecriture sur toute une course -- ni le
+			//    shell, ni la restauration d'apres-sortie, ni la sortie d'image. C'est
+			//    l'INITIALISATION qui reglait seule, et le shell s'y alignait au lieu de
+			//    la corriger : a la premiere image `!sy.first` est faux, donc il TIRE
+			//    l'etat de la vue dans `overlayMask` (le bit 32 y entre), puis repousse la
+			//    valeur qu'il vient de recevoir. Le commentaire « off par defaut : il
+			//    chevauchait la barre d'outils » decrivait une intention que le code
+			//    n'executait jamais. *Une lecture faite trop tot fige ce qu'elle devait
+			//    corriger.*
+			const bool hudLabo = nkvpHudOn;
+			const bool hudAide = nkvpAideOn;
+			const bool outilsZone = (st->editMode && st->selTool != 0);
+			if (auto *overlay = (hudLabo || hudAide || outilsZone) ? ctx.renderer->GetOverlay() : nullptr) {
 				overlay->BeginOverlay(ctx.renderer->GetCmd(), ctx.width, ctx.height);
-				overlay->DrawStats(ctx.renderer->GetStats());
-				{
-					const char *sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
-					const char *cm[3] = {"MATERIAL", "GRIS", "CUSTOM"};
-					int32 mcId = 0;
-					if (auto *r3dh = ctx.renderer->GetRender3D())
-						mcId = r3dh->Matcap();
-					// Nom lu dans NkMatcapLibrary : source unique. Une liste recopiee ici
-					// se desynchroniserait du contenu reel de l'atlas au premier ajout.
-					const char *mcName = renderer::NkMatcapLibrary::Name(mcId);
-					// MatCap pertinent seulement en SOLID/WIREFRAME (modes 1 et 2).
-					if (st->shadingMode == 1 || st->shadingMode == 2)
-						overlay->DrawText(
-							{20.f, 35.f},
-							"Demo 3D  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s (%d/%d)  |  Couleur(B): %s",
-							NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mcName, mcId + 1,
-							(int32)renderer::NkRender3D::kMatcapCount, cm[st->unlitColorMode % 3]);
-					else
-						overlay->DrawText({20.f, 35.f}, "Demo 3D  |  API : %s  |  Affichage(Z): %s  |  Couleur(B): %s",
-										  NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6],
-										  cm[st->unlitColorMode % 3]);
+				if (hudLabo) {
+					overlay->DrawStats(ctx.renderer->GetStats());
+					{
+						const char *sm[6] = {"RENDERED", "SOLID", "WIREFRAME", "NORMAL", "UV", "AO"};
+						const char *cm[3] = {"MATERIAL", "GRIS", "CUSTOM"};
+						int32 mcId = 0;
+						if (auto *r3dh = ctx.renderer->GetRender3D())
+							mcId = r3dh->Matcap();
+						// Nom lu dans NkMatcapLibrary : source unique. Une liste recopiee ici
+						// se desynchroniserait du contenu reel de l'atlas au premier ajout.
+						const char *mcName = renderer::NkMatcapLibrary::Name(mcId);
+						// MatCap pertinent seulement en SOLID/WIREFRAME (modes 1 et 2).
+						if (st->shadingMode == 1 || st->shadingMode == 2)
+							overlay->DrawText(
+								{20.f, 35.f},
+								"Demo 3D  |  API : %s  |  Affichage(Z): %s  |  MatCap(M): %s (%d/%d)  |  Couleur(B): %s",
+								NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6], mcName, mcId + 1,
+								(int32)renderer::NkRender3D::kMatcapCount, cm[st->unlitColorMode % 3]);
+						else
+							overlay->DrawText({20.f, 35.f}, "Demo 3D  |  API : %s  |  Affichage(Z): %s  |  Couleur(B): %s",
+											  NkGraphicsApiName(ctx.api), sm[st->shadingMode % 6],
+											  cm[st->unlitColorMode % 3]);
+					}
+					overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms", dt > 1e-4f ? 1.f / dt : 0.f,
+									  dt * 1000.f);
+					// Phase H : indication visuelle du chargement texture file-based.
+					overlay->DrawText({20.f, 75.f}, "[Phase H] Texture file-based : %s",
+									  st->phaseHLoadOk ? "test_pattern.png LOAD OK" : "fallback procedural");
 				}
-				overlay->DrawText({20.f, 55.f}, "FPS approx: %.1f  |  dt: %.2f ms", dt > 1e-4f ? 1.f / dt : 0.f,
-								  dt * 1000.f);
-				// Phase H : indication visuelle du chargement texture file-based.
-				overlay->DrawText({20.f, 75.f}, "[Phase H] Texture file-based : %s",
-								  st->phaseHLoadOk ? "test_pattern.png LOAD OK" : "fallback procedural");
-				// Aide gizmo : mode + orientation + rappel des touches.
+				// ⚠️ CES TROIS TABLES SONT A TOUT LE MONDE, donc elles vivent ENTRE les
+				//    deux gardes. Elles etaient declarees du cote LABO et lues du cote
+				//    AIDE : separer les gardes les a enfermees, et le compilateur l'a dit
+				//    tout de suite. C'est la bonne facon d'apprendre qu'un decoupage
+				//    coupe aussi des dependances -- ici il l'a dite ; ailleurs (un etat
+				//    partage, un compteur) il se serait taise.
 				const char *gmName[4] = {"TRANSLATE", "ROTATE", "SCALE", "COMBINE (T+R+S)"};
 				const char *orName[3] = {"GLOBAL", "LOCAL", "NORMAL"};
 				const char *seName[3] = {"VERTEX", "EDGE", "FACE"};
-				// L'AIDE SUIT LE MODE, pas le maillage ouvert : en Sculpture elle annoncait
-				// « EDIT MODE », E=extrude, X=suppr -- des touches qui ne doivent plus agir.
-				if (Demo3D_ElementsActifs(st)) {
-					char modeStr[8];
-					int mi = 0;
-					if (st->editSelMask & 1)
-						modeStr[mi++] = 'V';
-					if (st->editSelMask & 2)
-						modeStr[mi++] = 'E';
-					if (st->editSelMask & 4)
-						modeStr[mi++] = 'F';
-					modeStr[mi] = '\0';
-					(void)seName;
-					// L'orientation courante du gizmo est affichée AUSSI en edit mode (P2) :
-					// « NORMAL* » = un repère d'élément (normale de face/arête/sommet) est
-					// effectivement posé ; « NORMAL » sans étoile = repli Local.
-					const int32 eo = st->editGizmo.Orientation() % 3;
-					const bool nf = (eo == 2) && st->editGizmo.HasNormalFrame();
-					// ⚠️ IL Y A **DEUX** ESPACES D'OBJETS, ET L'INCRUSTATION N'EN
-					//    NOMMAIT QU'UN. `editObjIdx` designe un objet de DEMO ;
-					//    `editUserIdx` designe un maillage de l'UTILISATEUR. Entrer
-					//    en edition sur un maillage utilisateur laisse donc
-					//    `editObjIdx` a -1 -- et l'ecran affichait « obj #-1 ».
-					//    Rodolf l'a photographie le 20/09 a 20:09.
-					// ⚠️ CE N'ETAIT PAS UNE CIBLE NON RESOLUE : la trace du meme
-					//    instant dit `cible=2 index=0`, donc la cible EST resolue.
-					//    C'etait l'incrustation qui lisait le mauvais champ, et qui
-					//    annoncait ainsi une panne qui n'existait pas. *Un affichage
-					//    qui dit -1 sur un etat valide envoie chercher un defaut
-					//    ailleurs.*
-					char cibleTxt[48];
-					if (st->editUserIdx >= 0)
-						snprintf(cibleTxt, sizeof(cibleTxt), "maillage #%d", st->editUserIdx);
-					else if (st->editObjIdx >= 0)
-						snprintf(cibleTxt, sizeof(cibleTxt), "obj #%d", st->editObjIdx);
-					else
-						// LE VRAI cas « aucune cible » garde un texte a lui : sinon on
-						// ne saurait plus distinguer l'anomalie de l'affichage.
-						snprintf(cibleTxt, sizeof(cibleTxt), "AUCUNE CIBLE");
-					overlay->DrawText({20.f, 100.f},
-									  "EDIT MODE (%s)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
-									  "Orient(,): %s%s  |  X-ray(Alt+Z): %s",
-									  cibleTxt, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
-									  nf ? "*" : "", st->editXray ? "ON" : "OFF");
-					overlay->DrawText({20.f, 118.f},
-									  "E=extrude %s(Sh:%s) X=suppr M=souder(Sh:%s) W=subdiv(Sh:x%d) "
-									  "Ctrl+R=loopcut(Sh:x%d) K=couteau%s | TAB=sortir",
-									  (st->editSelMask & 4)	  ? "FACES"
-									  : (st->editSelMask & 2) ? "ARETES"
-															  : "SOMMETS",
-									  st->extrudeIndividual ? "indiv" : "region",
-									  (st->mergeMode == 2)	 ? "last"
-									  : (st->mergeMode == 1) ? "first"
-															 : "center",
-									  st->subdivCuts, st->loopCuts,
-									  st->knifeArmed ? (st->knifeHasP0 ? "[2e pt]" : "[1er pt]") : "");
-					// Outils de sélection : rappel des raccourcis + outil modal actif.
-					const char *stName[4] = {"-", "RECTANGLE", "LASSO", "CERCLE"};
-					overlay->DrawText({20.f, 136.f},
-									  "Selection: B=rect  Ctrl+glisser=lasso  C=cercle(molette=rayon)  "
-									  "Alt+clic=boucle  |  outil: %s%s",
-									  stName[st->selTool & 3],
-									  (st->selTool == 3) ? "  (clic=peindre, Echap=sortir)" : "");
-					// Nouvelles opérations de maillage (lot 2) — sur DEUX lignes : la barre
-					// d'aide dépasserait la largeur de l'écran sur une seule.
-					overlay->DrawText({20.f, 172.f},
-									  "Ctrl+B=bevel ARETE  Ctrl+Shift+B=bevel SOMMET (Alt+B=segments x%d, "
-									  "Alt+Shift+B=largeur %s)  |  I=inset %s (Shift=mode, Alt=prof %.2f)",
-									  st->bevelSegments, st->bevelOffset <= 0.f ? "AUTO" : "manuelle",
-									  st->insetIndividual ? "indiv" : "region", st->insetDepth);
-					// Separer les aretes, Spin et Bisect ne sont plus annonces avec une
-					// touche : ils N'EN ONT PLUS (conformite Blender, 2026-08-28). Les
-					// annoncer encore serait pire que de les taire — un raccourci affiche
-					// qui ne marche pas fait douter du clavier, pas de la ligne d'aide.
-					// On indique donc le chemin qui MARCHE : le clic droit.
-					overlay->DrawText({20.f, 190.f},
-									  "CLIC DROIT = menu du maillage (Separer les aretes, Spin, Bisect...)  |  "
-									  "Ctrl+X=dissolve %s  |  Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
-									  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
-					// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
-					const bool anySm = st->editHE.AnyFaceSmooth();
-					const bool allSm = st->editHE.AllFacesSmooth();
-					// OPERATION MODALE EN COURS : bandeau facon Blender (op + valeurs + sortie).
-					if (st->modalOp != 0) {
-						overlay->DrawText({20.f, 208.f},
-											"[MODAL] %s%s  |  SOURIS CAPTUREE (ni camera, ni selection, ni gizmo)  |  "
-											"%s(souris): %.4f  |  %s(molette): %d%s  |  clic gauche=CONFIRMER  ·  "
-											"Echap/clic droit=ANNULER",
-											Demo3D_ModalName(st->modalOp),
-											// L'AXE n'a de sens que pour une transformation : l'afficher
-											// partout ferait croire qu'un biseau a une direction.
-											(st->modalOp >= 9 && st->modalOp <= 11) ? Demo3D_ModalEtatTxt(st) : "",
-											(st->modalOp == 4) ? "slide" : "valeur", st->modalVal,
-											(st->modalOp == 4) ? "coupes" : "segments", st->modalSeg,
-											(st->modalOp == 4) ? "  |  anneau: survol souris (occlusion testee)" : "");
-					}
-					overlay->DrawText({20.f, 154.f},
-									  "Ombrage(Shift+S/Shift+F): %s  |  Pivot(.): %s  |  Curseur 3D: "
-									  "Shift+clic droit (Alt+. = origine)",
-									  allSm ? "SMOOTH" : (anySm ? "MIXTE" : "FLAT"),
-									  st->editGizmo.PivotName());
-				} else if (st->editMode) {
-					// La 2.5D n'a PAS encore de brosse (seule la Sculpture en a une) : le dire
-					// plutot que promettre un clic qui ne fait rien.
-					overlay->DrawText({20.f, 100.f},
-									  "%s  |  ni selection, ni gizmo de sommets, ni G/R/S (comme Blender)",
-									  st->uiMode == 3 ? "SCULPTURE  |  clic gauche = brosse  |  Ctrl+Z = annuler le trait"
-													  : "SCULPTURE 2.5D  |  aucune brosse encore");
-					// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
-					// l'affichage en montre vraiment.
-					// LA SYMETRIE SE DIT TOUJOURS, PAS SEULEMENT SOUS LE GIZMO. Elle
-					// agit desormais sur les BROSSES aussi : « pourquoi l'autre cote
-					// bouge-t-il ? » doit avoir sa reponse a l'ecran quel que soit
-					// l'outil. (Elle etait gardee par `!nkvpGizmoHidden`, donc
-					// invisible sous la brosse -- exactement quand on en a besoin.)
-					{
-						const char *axesB[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
-						overlay->DrawText({20.f, 154.f}, "Symetrie : %s", axesB[st->sculptSymMask & 7]);
-					}
-					// L'OUTIL ACTIF : sans cette ligne, « pourquoi le clic ne peint-il
-					// plus ? » n'a aucune reponse a l'ecran.
-					if (!nkvpGizmoHidden) {
-						const char *axes[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
-						overlay->DrawText({20.f, 136.f},
-										  "TRANSFORM de sculpture  |  il deplace la partie NON MASQUEE  |  "
-										  "symetrie : %s  |  pivot : barycentre du libre",
-										  axes[st->sculptSymMask & 7]);
-					}
-					if (st->editHE.MaskExists()) {
-						char pasTxt[48];
-						pasTxt[0] = 0;
-						if (gMasquePas > 1u)
-							snprintf(pasTxt, sizeof(pasTxt), "  (affichage : 1 point sur %u)",
-									 (unsigned)gMasquePas);
+				if (hudAide) {
+					// L'AIDE SUIT LE MODE, pas le maillage ouvert : en Sculpture elle annoncait
+					// « EDIT MODE », E=extrude, X=suppr -- des touches qui ne doivent plus agir.
+					if (Demo3D_ElementsActifs(st)) {
+						char modeStr[8];
+						int mi = 0;
+						if (st->editSelMask & 1)
+							modeStr[mi++] = 'V';
+						if (st->editSelMask & 2)
+							modeStr[mi++] = 'E';
+						if (st->editSelMask & 4)
+							modeStr[mi++] = 'F';
+						modeStr[mi] = '\0';
+						(void)seName;
+						// L'orientation courante du gizmo est affichée AUSSI en edit mode (P2) :
+						// « NORMAL* » = un repère d'élément (normale de face/arête/sommet) est
+						// effectivement posé ; « NORMAL » sans étoile = repli Local.
+						const int32 eo = st->editGizmo.Orientation() % 3;
+						const bool nf = (eo == 2) && st->editGizmo.HasNormalFrame();
+						// ⚠️ IL Y A **DEUX** ESPACES D'OBJETS, ET L'INCRUSTATION N'EN
+						//    NOMMAIT QU'UN. `editObjIdx` designe un objet de DEMO ;
+						//    `editUserIdx` designe un maillage de l'UTILISATEUR. Entrer
+						//    en edition sur un maillage utilisateur laisse donc
+						//    `editObjIdx` a -1 -- et l'ecran affichait « obj #-1 ».
+						//    Rodolf l'a photographie le 20/09 a 20:09.
+						// ⚠️ CE N'ETAIT PAS UNE CIBLE NON RESOLUE : la trace du meme
+						//    instant dit `cible=2 index=0`, donc la cible EST resolue.
+						//    C'etait l'incrustation qui lisait le mauvais champ, et qui
+						//    annoncait ainsi une panne qui n'existait pas. *Un affichage
+						//    qui dit -1 sur un etat valide envoie chercher un defaut
+						//    ailleurs.*
+						char cibleTxt[48];
+						if (st->editUserIdx >= 0)
+							snprintf(cibleTxt, sizeof(cibleTxt), "maillage #%d", st->editUserIdx);
+						else if (st->editObjIdx >= 0)
+							snprintf(cibleTxt, sizeof(cibleTxt), "obj #%d", st->editObjIdx);
+						else
+							// LE VRAI cas « aucune cible » garde un texte a lui : sinon on
+							// ne saurait plus distinguer l'anomalie de l'affichage.
+							snprintf(cibleTxt, sizeof(cibleTxt), "AUCUNE CIBLE");
+						overlay->DrawText({20.f, 100.f},
+										  "EDIT MODE (%s)  |  Modes(1/2/3,Shift=combi): %s  |  Gizmo(G/R/S/C): %s  |  "
+										  "Orient(,): %s%s  |  X-ray(Alt+Z): %s",
+										  cibleTxt, modeStr, gmName[st->editGizmo.Mode() & 3], orName[eo],
+										  nf ? "*" : "", st->editXray ? "ON" : "OFF");
 						overlay->DrawText({20.f, 118.f},
-										  "MASQUE  |  %u sommet(s) protege(s) sur %u  |  somme %.1f%s  |  "
-										  "brosses « masquer » / « demasquer »",
-										  (unsigned)gMasqueVus, (unsigned)st->editHE.VertCount(),
-										  (double)st->editHE.MaskSum(), pasTxt);
+										  "E=extrude %s(Sh:%s) X=suppr M=souder(Sh:%s) W=subdiv(Sh:x%d) "
+										  "Ctrl+R=loopcut(Sh:x%d) K=couteau%s | TAB=sortir",
+										  (st->editSelMask & 4)	  ? "FACES"
+										  : (st->editSelMask & 2) ? "ARETES"
+																  : "SOMMETS",
+										  st->extrudeIndividual ? "indiv" : "region",
+										  (st->mergeMode == 2)	 ? "last"
+										  : (st->mergeMode == 1) ? "first"
+																 : "center",
+										  st->subdivCuts, st->loopCuts,
+										  st->knifeArmed ? (st->knifeHasP0 ? "[2e pt]" : "[1er pt]") : "");
+						// Outils de sélection : rappel des raccourcis + outil modal actif.
+						const char *stName[4] = {"-", "RECTANGLE", "LASSO", "CERCLE"};
+						overlay->DrawText({20.f, 136.f},
+										  "Selection: B=rect  Ctrl+glisser=lasso  C=cercle(molette=rayon)  "
+										  "Alt+clic=boucle  |  outil: %s%s",
+										  stName[st->selTool & 3],
+										  (st->selTool == 3) ? "  (clic=peindre, Echap=sortir)" : "");
+						// Nouvelles opérations de maillage (lot 2) — sur DEUX lignes : la barre
+						// d'aide dépasserait la largeur de l'écran sur une seule.
+						overlay->DrawText({20.f, 172.f},
+										  "Ctrl+B=bevel ARETE  Ctrl+Shift+B=bevel SOMMET (Alt+B=segments x%d, "
+										  "Alt+Shift+B=largeur %s)  |  I=inset %s (Shift=mode, Alt=prof %.2f)",
+										  st->bevelSegments, st->bevelOffset <= 0.f ? "AUTO" : "manuelle",
+										  st->insetIndividual ? "indiv" : "region", st->insetDepth);
+						// Separer les aretes, Spin et Bisect ne sont plus annonces avec une
+						// touche : ils N'EN ONT PLUS (conformite Blender, 2026-08-28). Les
+						// annoncer encore serait pire que de les taire — un raccourci affiche
+						// qui ne marche pas fait douter du clavier, pas de la ligne d'aide.
+						// On indique donc le chemin qui MARCHE : le clic droit.
+						overlay->DrawText({20.f, 190.f},
+										  "CLIC DROIT = menu du maillage (Separer les aretes, Spin, Bisect...)  |  "
+										  "Ctrl+X=dissolve %s  |  Shift+Alt+S=TO SPHERE  Ctrl+Alt+S=SHRINK/FATTEN",
+										  (st->editSelMask & 4) ? "FACES" : ((st->editSelMask & 2) ? "ARETES" : "SOMMETS"));
+						// Ombrage courant (Shift+S / Shift+F) + point de pivot (.) + curseur 3D.
+						const bool anySm = st->editHE.AnyFaceSmooth();
+						const bool allSm = st->editHE.AllFacesSmooth();
+						// OPERATION MODALE EN COURS : bandeau facon Blender (op + valeurs + sortie).
+						if (st->modalOp != 0) {
+							overlay->DrawText({20.f, 208.f},
+												"[MODAL] %s%s  |  SOURIS CAPTUREE (ni camera, ni selection, ni gizmo)  |  "
+												"%s(souris): %.4f  |  %s(molette): %d%s  |  clic gauche=CONFIRMER  ·  "
+												"Echap/clic droit=ANNULER",
+												Demo3D_ModalName(st->modalOp),
+												// L'AXE n'a de sens que pour une transformation : l'afficher
+												// partout ferait croire qu'un biseau a une direction.
+												(st->modalOp >= 9 && st->modalOp <= 11) ? Demo3D_ModalEtatTxt(st) : "",
+												(st->modalOp == 4) ? "slide" : "valeur", st->modalVal,
+												(st->modalOp == 4) ? "coupes" : "segments", st->modalSeg,
+												(st->modalOp == 4) ? "  |  anneau: survol souris (occlusion testee)" : "");
+						}
+						overlay->DrawText({20.f, 154.f},
+										  "Ombrage(Shift+S/Shift+F): %s  |  Pivot(.): %s  |  Curseur 3D: "
+										  "Shift+clic droit (Alt+. = origine)",
+										  allSm ? "SMOOTH" : (anySm ? "MIXTE" : "FLAT"),
+										  st->editGizmo.PivotName());
+					} else if (st->editMode) {
+						// La 2.5D n'a PAS encore de brosse (seule la Sculpture en a une) : le dire
+						// plutot que promettre un clic qui ne fait rien.
+						overlay->DrawText({20.f, 100.f},
+										  "%s  |  ni selection, ni gizmo de sommets, ni G/R/S (comme Blender)",
+										  st->uiMode == 3 ? "SCULPTURE  |  clic gauche = brosse  |  Ctrl+Z = annuler le trait"
+														  : "SCULPTURE 2.5D  |  aucune brosse encore");
+						// LE MASQUE, CHIFFRE ET HONNETE : ce qu'il protege, et ce que
+						// l'affichage en montre vraiment.
+						// LA SYMETRIE SE DIT TOUJOURS, PAS SEULEMENT SOUS LE GIZMO. Elle
+						// agit desormais sur les BROSSES aussi : « pourquoi l'autre cote
+						// bouge-t-il ? » doit avoir sa reponse a l'ecran quel que soit
+						// l'outil. (Elle etait gardee par `!nkvpGizmoHidden`, donc
+						// invisible sous la brosse -- exactement quand on en a besoin.)
+						{
+							const char *axesB[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+							overlay->DrawText({20.f, 154.f}, "Symetrie : %s", axesB[st->sculptSymMask & 7]);
+						}
+						// L'OUTIL ACTIF : sans cette ligne, « pourquoi le clic ne peint-il
+						// plus ? » n'a aucune reponse a l'ecran.
+						if (!nkvpGizmoHidden) {
+							const char *axes[8] = {"aucune", "X", "Y", "XY", "Z", "XZ", "YZ", "XYZ"};
+							overlay->DrawText({20.f, 136.f},
+											  "TRANSFORM de sculpture  |  il deplace la partie NON MASQUEE  |  "
+											  "symetrie : %s  |  pivot : barycentre du libre",
+											  axes[st->sculptSymMask & 7]);
+						}
+						if (st->editHE.MaskExists()) {
+							char pasTxt[48];
+							pasTxt[0] = 0;
+							if (gMasquePas > 1u)
+								snprintf(pasTxt, sizeof(pasTxt), "  (affichage : 1 point sur %u)",
+										 (unsigned)gMasquePas);
+							overlay->DrawText({20.f, 118.f},
+											  "MASQUE  |  %u sommet(s) protege(s) sur %u  |  somme %.1f%s  |  "
+											  "brosses « masquer » / « demasquer »",
+											  (unsigned)gMasqueVus, (unsigned)st->editHE.VertCount(),
+											  (double)st->editHE.MaskSum(), pasTxt);
+						}
+					} else {
+						overlay->DrawText(
+							{20.f, 100.f},
+							"OBJET  |  G/R/S=deplacer/tourner/redimensionner  |  ESPACE=outil (%s)  |  "
+							"Orient(,): %s  |  Pivot(.): %s  |  TAB=editer l'objet selectionne",
+							gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3], st->gizmo.PivotName());
+						overlay->DrawText({20.f, 118.f}, "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  "
+														 "|  Ctrl=snap  X/Y/Z=verrou axe (tire)  |  Shift+clic droit=curseur 3D");
 					}
-				} else {
-					overlay->DrawText(
-						{20.f, 100.f},
-						"OBJET  |  G/R/S=deplacer/tourner/redimensionner  |  ESPACE=outil (%s)  |  "
-						"Orient(,): %s  |  Pivot(.): %s  |  TAB=editer l'objet selectionne",
-						gmName[st->gizmo.Mode() & 3], orName[st->gizmo.Orientation() % 3], st->gizmo.PivotName());
-					overlay->DrawText({20.f, 118.f}, "clic=sel  Shift+clic=multi  A/Alt+A=tout/rien  Alt+G/R/S=clear  "
-													 "|  Ctrl=snap  X/Y/Z=verrou axe (tire)  |  Shift+clic droit=curseur 3D");
 				}
 
 				// ── Tracé des OUTILS DE SÉLECTION (overlay 2D, façon Blender) ──────
@@ -16027,6 +16134,7 @@ namespace nkentseu {
 				if (st->editMode && st->selTool != 0) {
 					if (auto *r2dS = ctx.renderer->GetRender2D()) {
 						const NkVec4f col{1.f, 1.f, 1.f, 0.85f};
+						++gZoneSeg; // le trace des outils de zone a bien ete atteint
 						if (st->selTool == 1 && st->selDragging) {
 							const float32 x0 = NkMin(st->selX0, st->selX1), x1 = NkMax(st->selX0, st->selX1);
 							const float32 y0 = NkMin(st->selY0, st->selY1), y1 = NkMax(st->selY0, st->selY1);
@@ -16060,32 +16168,31 @@ namespace nkentseu {
 						}
 					}
 				}
-
-				// ── Debug panel : params shadow live-tunable ───────────────────────
-				// Background semi-transparent en haut a droite
-				if (auto *r2d = ctx.renderer->GetRender2D()) {
-					NkRectF panel = {(float32)ctx.width - 320.f, 10.f, 310.f, 180.f};
-					r2d->FillRect(panel, {0.f, 0.f, 0.f, 0.6f});
+				if (hudLabo) {
+					if (auto *r2d = ctx.renderer->GetRender2D()) {
+						NkRectF panel = {(float32)ctx.width - 320.f, 10.f, 310.f, 180.f};
+						r2d->FillRect(panel, {0.f, 0.f, 0.f, 0.6f});
+					}
+					const float32 px = (float32)ctx.width - 310.f;
+					overlay->DrawText({px, 30.f}, "== Shadow tweak (panel debug) ==");
+					if (auto *sh = ctx.renderer->GetShadow()) {
+						const auto &cfg = sh->GetConfig();
+						overlay->DrawText({px, 50.f}, "F5/F6    bias     : %.4f", cfg.shadowBias);
+						overlay->DrawText({px, 70.f}, " VSM atlas : %u px", sh->GetAtlasSize());
+						overlay->DrawText({px, 90.f}, "F7       quality  : %d", (int)cfg.quality);
+						overlay->DrawText({px, 110.f}, "F8/F9    softness : %.3f", cfg.softness);
+						overlay->DrawText({px, 130.f}, " slots: %u (rend %u | cache %u)", sh->GetActiveSlotCount(),
+										  sh->GetRenderedSlotsCount(), sh->GetCachedSlotsCount());
+						// COMBIEN D'OBJETS la passe d'ombre voit-elle vraiment ? Un atlas
+						// plein de slots mais nourri par ZERO caster explique une ombre
+						// qui ne correspond a rien. C'est le chiffre qui tranche.
+						if (auto *r3 = ctx.renderer->GetRender3D())
+							overlay->DrawText({px, 150.f}, " casters : %u", r3->GetShadowCasterCount());
+					} else {
+						overlay->DrawText({px, 50.f}, "(no shadow system)");
+					}
+					overlay->DrawText({px, 160.f}, "framesInFlight : %u", (uint32)ctx.renderer->GetConfig().framesInFlight);
 				}
-				const float32 px = (float32)ctx.width - 310.f;
-				overlay->DrawText({px, 30.f}, "== Shadow tweak (panel debug) ==");
-				if (auto *sh = ctx.renderer->GetShadow()) {
-					const auto &cfg = sh->GetConfig();
-					overlay->DrawText({px, 50.f}, "F5/F6    bias     : %.4f", cfg.shadowBias);
-					overlay->DrawText({px, 70.f}, " VSM atlas : %u px", sh->GetAtlasSize());
-					overlay->DrawText({px, 90.f}, "F7       quality  : %d", (int)cfg.quality);
-					overlay->DrawText({px, 110.f}, "F8/F9    softness : %.3f", cfg.softness);
-					overlay->DrawText({px, 130.f}, " slots: %u (rend %u | cache %u)", sh->GetActiveSlotCount(),
-									  sh->GetRenderedSlotsCount(), sh->GetCachedSlotsCount());
-					// COMBIEN D'OBJETS la passe d'ombre voit-elle vraiment ? Un atlas
-					// plein de slots mais nourri par ZERO caster explique une ombre
-					// qui ne correspond a rien. C'est le chiffre qui tranche.
-					if (auto *r3 = ctx.renderer->GetRender3D())
-						overlay->DrawText({px, 150.f}, " casters : %u", r3->GetShadowCasterCount());
-				} else {
-					overlay->DrawText({px, 50.f}, "(no shadow system)");
-				}
-				overlay->DrawText({px, 160.f}, "framesInFlight : %u", (uint32)ctx.renderer->GetConfig().framesInFlight);
 
 				overlay->EndOverlay();
 			}
@@ -17170,7 +17277,7 @@ namespace nkentseu {
 			nkvpMinorOn = nkvpOutSaveMinor;
 			nkvpMajorOn = nkvpOutSaveMajor;
 			nkvpAxesOn = nkvpOutSaveAxes;
-			nkvpHudOn = nkvpOutSaveHud;
+			HostPoseHud(nkvpOutSaveHud, "restauration d'apres-sortie");
 			HostSetShowLightGizmos(nkvpOutSaveLightGiz);
 			// Ciel et couleur de fond reviennent tels quels.
 			if (Demo3DHostSkyVisible() != nkvpOutSaveSky)
@@ -17247,7 +17354,7 @@ namespace nkentseu {
 			if (!(nkvpOutAids & 128))
 				nkvpGizmoHidden = true;
 			if (!(nkvpOutAids & 256))
-				nkvpHudOn = false;
+				HostPoseHud(false, "sortie d'image : aides coupees");
 			// ── FOND TRANSPARENT ────────────────────────────────────────────
 			// Deux choses a couper, pas une : le CIEL, qui peindrait un decor
 			// opaque derriere la scene, et l'ALPHA de la couleur d'effacement.
@@ -20968,10 +21075,19 @@ namespace nkentseu {
 			return hostOutlineOn;
 		}
 		void Demo3DHostSetHud(bool on) {
-			nkvpHudOn = on;
+			HostPoseHud(on, "le shell (overlayMask bit 32)");
 		}
 		bool Demo3DHostHud() {
 			return nkvpHudOn;
+		}
+		// L'AIDE A SA PROPRE PORTE. Sans elle, le panneau ne pourrait l'eteindre
+		// qu'en eteignant le labo -- c'est-a-dire refaire la garde unique qu'on
+		// vient de separer.
+		void Demo3DHostSetAide(bool on) {
+			nkvpAideOn = on;
+		}
+		bool Demo3DHostAide() {
+			return nkvpAideOn;
 		}
 
 		// ── Fond de la vue (le SetBackgroundColor du moteur, garde d'egalite) ─

@@ -687,6 +687,11 @@ namespace nkentseu {
 		bool Demo3DHostOutline();
 		void Demo3DHostSetHud(bool on);
 		bool Demo3DHostHud();
+		// L'AIDE (bandeaux de raccourcis) est separee du HUD de LABO depuis le
+		// 25/09 : une seule garde couvrait les deux, plus le trace des outils de
+		// selection par zone -- eteindre le HUD cassait donc un OUTIL.
+		void Demo3DHostSetAide(bool on);
+		bool Demo3DHostAide();
 		void Demo3DHostSetBackground(float32 r, float32 g, float32 b);
 
 		// ── Objets de la scene (hierarchie, panneau Objet) ──────────────────
