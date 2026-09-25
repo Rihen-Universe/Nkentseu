@@ -25,6 +25,9 @@
 // =============================================================================
 #include "NkCamera.h" // NkVec3f / NkVec4f / NkMat4f / NkAngle (via NKMath)
 #include <cmath>
+#include <cstdlib> // getenv : le seul usage est le NEGATIF du correctif du 25/09,
+				   // lu UNE fois (cf. mPeutDesigner). Un en-tete partage inclut ce
+				   // qu'il utilise -- le depot a deja paye NkChrono sans include.
 
 namespace nkentseu {
 	namespace renderer {
@@ -620,6 +623,53 @@ namespace nkentseu {
 						mComposed[i] = Apply(i, targets[i].base);
 						mHalf[i] = targets[i].localHalf;
 						mPickR[i] = targets[i].pickRadius;
+					}
+					// ── PEUT-IL SEULEMENT DESIGNER QUELQUE CHOSE ? ───────────────────
+					// LA REGLE (coordinateur, 25/09) : *un composant a qui l'on dit
+					// « pas de pick » n'a pas le droit de MODIFIER la selection. Il peut
+					// la lire, il peut dessiner ce qu'elle implique, il ne la change pas.*
+					//
+					// LE DEFAUT QU'ELLE CORRIGE, mesure a la ligne pres le 25/09 :
+					//   [SEL-JALON] actif 9 -> -1 · entre 'juste avant emptyGizmo.Update'
+					//                              et 'juste apres emptyGizmo.Update'
+					// L'appelant (NK3DModeler, gizmo des EMPTIES) pose `pickRadius = 0` et
+					// `localHalf = 0` sur toutes ses cibles -- « pas de pick : la
+					// hierarchie selectionne » -- ET lui transmet le clic. Aucune cible
+					// n'etant designable, `DoPick` tombait forcement dans la branche
+					// « clic dans le vide » et vidait la selection ; le pick de la vue la
+					// reposait juste apres. Deux consommateurs du meme clic : la selection
+					// s'allumait et s'eteignait a chaque clic, et le contour avec elle.
+					// C'est exactement ce que Rodolf voyait -- « la boite apparait et
+					// disparait ».
+					//
+					// ⚠️ LA GARDE EST DANS LE COMPOSANT, PAS CHEZ L'APPELANT. On aurait pu
+					//    ne plus lui transmettre le clic : ca corrigeait CE site, et le
+					//    prochain appelant distrait aurait refait la faute sans que rien
+					//    ne l'arrete. Ici la regle se deduit des DONNEES qu'on recoit, donc
+					//    elle vaut pour tous les appelants, y compris ceux qui n'existent
+					//    pas encore.
+					//
+					// ⚠️ ET ELLE NE CHANGE RIEN POUR LES AUTRES. Des qu'UNE cible est
+					//    designable -- un rayon de pick, une boite, ou un test precis
+					//    fourni par l'application -- le gizmo retrouve exactement son
+					//    comportement d'avant, clic dans le vide compris. Ce n'est pas la
+					//    regle de Blender qui etait fausse, c'est le DOUBLON.
+					// LE NEGATIF, DANS LE MEME BINAIRE : NK_GIZMO_VIDE_SANS_PICK=1 rend
+					// l'etat d'avant -- le gizmo vide la selection meme quand il ne peut
+					// designer personne. Le critere du banc DOIT alors rougir, sinon il
+					// ne surveille rien. Lue UNE FOIS : une variable d'environnement
+					// relue a chaque image couterait un appel systeme par image sur un
+					// chemin qui tourne des milliers de fois par seconde.
+					static const bool sVideSansPick = []() {
+						const char *v = getenv("NK_GIZMO_VIDE_SANS_PICK");
+						return v && v[0] && v[0] != '0';
+					}();
+					mPeutDesigner = sVideSansPick || (mRayFn != nullptr);
+					for (int32 i = 0; i < count && !mPeutDesigner; i++) {
+						if (mPickR[i] > 0.f)
+							mPeutDesigner = true;
+						else if (mHalf[i].x > 0.f || mHalf[i].y > 0.f || mHalf[i].z > 0.f)
+							mPeutDesigner = true;
 					}
 					// ── PIVOT (façon Blender) : dépend du MODE DE PIVOT courant ───────
 					// MEDIAN = barycentre des centres sélectionnés ; BBOX = centre de la
@@ -1541,7 +1591,12 @@ namespace nkentseu {
 									}
 							}
 						}
-					} else if (!in.shiftDown) {
+					} else if (!in.shiftDown && mPeutDesigner) {
+						// « LE CLIC EST DANS LE VIDE » N'EST UNE CONCLUSION QUE SI L'ON
+						// POUVAIT CONCLURE AUTREMENT. Sans aucune cible designable,
+						// `bestId < 0` ne dit rien du monde : il dit seulement qu'on ne
+						// nous a donne de quoi designer personne. Vider la selection
+						// la-dessus, c'est repondre a une question qu'on n'a pas pu poser.
 						for (int32 i = 0; i < mCount; i++)
 							mSel[i] = false;
 						mSelId = -1;
@@ -2000,6 +2055,10 @@ namespace nkentseu {
 					return s >= 0 && s <= 2 && mExtOk[s];
 				}
 				float32 mPickR[kMax] = {};
+				// Vrai des qu'UNE cible de la derniere `Update` etait designable (rayon
+				// de pick, boite, ou test precis de l'application). Faux = ce gizmo ne
+				// peut designer personne, donc il ne touche pas a la selection.
+				bool mPeutDesigner = true;
 				NkVec3f mPivot = {0, 0, 0}, mGB[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 				float32 mPivDist = 1.f, mGL = 1.f;
 				bool mHaveSel = false;
