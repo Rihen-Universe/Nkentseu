@@ -114,15 +114,15 @@ namespace nkentseu {
 			void *eglNativeWindow = nullptr; // wl_egl_window* (Wayland) or ANativeWindow* (Android)
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-#ifdef __OBJC__
-			NSOpenGLContext *context = nil;
-			NSOpenGLPixelFormat *pixelFormat = nil;
-			NSView *view = nil;
-#else
+			// void* PARTOUT, y compris en Objective-C++ (2026-09-24). Ces champs
+			// etaient types NSOpenGLContext*/... sous __OBJC__ et void* ailleurs :
+			// la MEME structure avait deux definitions selon le fichier qui
+			// l'incluait (violation de l'ODR), et NkOpenGLContextMacOS.mm -- ecrit
+			// pour des void* (CFBridgingRetain / __bridge) -- ne compilait plus.
+			// Invisible tant que le .mm n'etait pas compile.
 			void *context = nullptr;
 			void *pixelFormat = nullptr;
 			void *view = nullptr;
-#endif
 
 #elif defined(NKENTSEU_PLATFORM_IOS)
 #ifdef __OBJC__
