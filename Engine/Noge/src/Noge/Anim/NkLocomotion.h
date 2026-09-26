@@ -100,6 +100,32 @@ namespace nkentseu {
 			float32 rayLength = 1.5f;		///< Longueur du raycast vers le bas (m)
 			float32 blendSpeed = 10.f;		///< Vitesse de lissage du contact
 
+			// ── POIDS DE PLANTE, PAR PIED : 0 = libre, 1 = plante ─────────────
+			// ⚠️ AJOUTE LE 2026-09-26, apres un retour de Rodolf : « on ne peut
+			//    pas distinguer les pieds qui montent naturellement ».
+			//
+			//    Le defaut n'etait pas qu'il manquait une phase : c'est que
+			//    `NkFootIKSystem` DECIDAIT qu'un pied est pose -- en fait il le
+			//    supposait TOUJOURS vrai. `contactWeight` n'est qu'un lissage
+			//    d'`isGrounded`, lui-meme vrai des que le sol est A PORTEE DU
+			//    RAYON -- pas quand le pied TOUCHE. Mesure : un pied leve a
+			//    0,52 m du sol redescendait de 0,4479 m en 60 images, avec
+			//    `contactWeight = 1,000` et `isGrounded = OUI` EN PLEIN AIR.
+			//    Un personnage qui marche ne levait donc jamais le pied.
+			//
+			// ⚠️ L'IK NE DECIDE PLUS, ELLE RECOIT. Qui fournit ce poids n'est
+			//    PAS son affaire : une animation, une alternance imposee a la
+			//    main, ou plus tard un vrai systeme de locomotion. Ecrire ce
+			//    systeme serait BATIR, et ce n'est pas ce qui est autorise ici.
+			//
+			// ⚠️ DEFAUT A 1, ET C'EST UNE HYPOTHESE QU'ON NOMME : tant que
+			//    personne ne fournit ce poids, l'IK suppose les deux pieds
+			//    plantes -- exactement l'ancien comportement, donc aucun
+			//    appelant ne change. Mais ce n'est plus un silence : c'est une
+			//    valeur par defaut ecrite, qu'un appelant peut contredire.
+			float32 leftPlant = 1.f;  ///< [0..1] 0 = en envol, 1 = en appui
+			float32 rightPlant = 1.f; ///< [0..1] idem, pied droit
+
 			// ── Layers de physique pour le raycast ────────────────────────────
 			uint32 raycastLayerMask = 0xFFFFFFFF; ///< Layers touchant le terrain
 
