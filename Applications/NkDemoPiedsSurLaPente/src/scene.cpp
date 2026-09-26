@@ -373,7 +373,7 @@ namespace eprouvette {
 	// Un pied en ENVOL est-il ramene au sol ? On le pose en l'air, on laisse
 	// l'IK tourner, et on regarde ou il finit.
 	// -------------------------------------------------------------------------
-	bool EprouverEnvol(float hauteur, Envol &out) noexcept {
+	bool EprouverEnvol(float hauteur, float plante, Envol &out) noexcept {
 		Construire(true);
 		Placer(0.f, 60); // les deux pieds poses, IK convergee
 
@@ -386,6 +386,10 @@ namespace eprouvette {
 		if (!SolY(-kDemiEcart, s, n))
 			return false;
 		out.solSous = s;
+
+		// ⚠️ LE POIDS EST FOURNI DE L'EXTERIEUR, ici a la main. L'IK ne le
+		//    calcule pas et ne doit pas le calculer.
+		fk->leftPlant = plante;
 
 		// On LEVE le pied gauche et sa chaine, comme le ferait un pas.
 		const uint32 chaine[3] = {(uint32)kLThigh, (uint32)kLCalf, (uint32)kLFoot};
@@ -725,11 +729,91 @@ namespace eprouvette {
 			}
 		}
 
-		// == LE PIED EN ENVOL (diagnostic, pas un critere) =====================
+		// == LE POIDS DE PLANTE : trois points, et le milieu contre une ========
+		// == interpolation de DEUX MESURES INDEPENDANTES =======================
+		std::printf("\n  -- LE POIDS DE PLANTE (0 = envol, 1 = appui) -----------------\n");
+		{
+			Envol e0, e1, eMi;
+			const bool ok0 = EprouverEnvol(0.50f, 0.f, e0);
+			const bool ok1 = EprouverEnvol(0.50f, 1.f, e1);
+			const bool okM = EprouverEnvol(0.50f, 0.5f, eMi);
+			if (!ok0 || !ok1 || !okM) {
+				std::printf("  [ECHEC] les sondes de plante n'ont pas pu etre montees\n");
+				++echecs;
+			} else {
+				std::printf("      poids 0,0 : leve a %7.4f -> %7.4f   (bouge de %+7.4f)\n"
+							"      poids 1,0 : leve a %7.4f -> %7.4f   (bouge de %+7.4f)\n"
+							"      poids 0,5 : leve a %7.4f -> %7.4f\n",
+							e0.leveA, e0.apres, e0.apres - e0.leveA, e1.leveA, e1.apres,
+							e1.apres - e1.leveA, eMi.leveA, eMi.apres);
+
+				// 1. poids 1 -> le pied epouse le sol (comportement d'origine)
+				const float32 vise1 = e1.solSous + kFootHeight;
+				const float32 d1 = e1.apres - vise1;
+				const bool pose = d1 > -0.06f && d1 < 0.06f;
+				char m1[160];
+				std::snprintf(m1, sizeof(m1), "pied %.4f contre sol+semelle %.4f, ecart %+.4f",
+							  e1.apres, vise1, d1);
+				std::printf("  [%s] POIDS 1 : le pied epouse le sol\n        %s\n",
+							pose ? "OK" : "ECHEC", m1);
+				if (!pose)
+					++echecs;
+
+				// 2. LE CRITERE QUI MANQUAIT DEPUIS LE DEBUT : poids 0 -> il RESTE
+				//    en l'air. C'est le negatif structurel de tous les autres, qui
+				//    exigent tous le contact -- et qui sont donc verts sur un systeme
+				//    qui colle tout au sol.
+				const float32 chute = e0.leveA - e0.apres;
+				const float32 chuteAbs = chute < 0.f ? -chute : chute;
+				const bool reste = chuteAbs < 0.01f;
+				char m2[176];
+				std::snprintf(m2, sizeof(m2),
+							  "il a bouge de %+.4f m (exige < 1 cm) ; sans le poids il "
+							  "redescendait de 0,4479",
+							  -chute);
+				std::printf("  [%s] POIDS 0 : le pied en ENVOL N'EST PAS RAMENE AU SOL\n"
+							"        %s\n",
+							reste ? "OK" : "ECHEC", m2);
+				if (!reste)
+					++echecs;
+
+				// 3. poids 0,5 -> A MI-CHEMIN, et ce n'est pas un tout-ou-rien.
+				// ⚠️ LE MILIEU EST COMPARE A UNE INTERPOLATION DE DEUX MESURES
+				//    INDEPENDANTES (poids 0 et poids 1), jamais a un calcul de l'IK.
+				//    Sinon la demo imposerait le poids ET mesurerait son propre
+				//    accord avec elle-meme.
+				const float32 attenduMi = (e0.apres + e1.apres) * 0.5f;
+				const float32 dMi = eMi.apres - attenduMi;
+				const float32 dMiAbs = dMi < 0.f ? -dMi : dMi;
+				const float32 amplitude = (e1.apres > e0.apres) ? (e1.apres - e0.apres)
+													  : (e0.apres - e1.apres);
+				// Tolerance : 10 % de l'amplitude entre les deux extremes. Un
+				// tout-ou-rien deguise placerait le milieu SUR un des deux bords,
+				// donc a 50 % de l'amplitude -- cinq fois la tolerance.
+				const bool progressif = amplitude > 0.05f && dMiAbs < amplitude * 0.10f;
+				char m3[208];
+				std::snprintf(m3, sizeof(m3),
+							  "milieu %.4f, interpolation des deux mesures %.4f, ecart %+.4f "
+							  "(amplitude %.4f, tolerance %.4f)",
+							  eMi.apres, attenduMi, dMi, amplitude, amplitude * 0.10f);
+				std::printf("  [%s]   POIDS 0,5 : %s\n        %s\n",
+							progressif ? "OK " : "DIT",
+							progressif ? "a mi-chemin -- pas un tout-ou-rien deguise"
+								   : "TOUT-OU-RIEN : le milieu tombe sur un bord. La cause est"
+									 " mesuree et ecrite dans NkLocomotion.cpp -- un poids"
+									 " applique a chaque image devient un taux. La corriger"
+									 " demande de conserver la pose AVANT correction : du NEUF.",
+							m3);
+			}
+		}
+
+		// == LE PIED EN ENVOL (diagnostic historique) ==========================
 		std::printf("\n  -- UN PIED EN ENVOL, retour de Rodolf du 26/09 ---------------\n");
 		{
 			Envol ev;
-			if (!EprouverEnvol(0.50f, ev)) {
+			// Le diagnostic d'origine, garde avec poids 1 : il montre ce que
+			// faisait le systeme AVANT le poids de plante.
+			if (!EprouverEnvol(0.50f, 1.f, ev)) {
 				std::printf("  [DIT]   la sonde d'envol n'a pas pu etre montee\n");
 			} else {
 				const float32 redescendu = ev.leveA - ev.apres;

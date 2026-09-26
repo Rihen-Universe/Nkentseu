@@ -63,7 +63,7 @@ namespace nkentseu {
 				float32 corrGauche = 0.f, corrDroite = 0.f;
 
 				auto solveLeg = [&](uint32 thighIdx, uint32 calfIdx, uint32 footIdx, NkFootContact &contact,
-										float32 &corrOut) {
+										   float32 &corrOut, float32 plante) {
 					if (thighIdx >= sk.BoneCount() || calfIdx >= sk.BoneCount() || footIdx >= sk.BoneCount())
 						return;
 
@@ -114,12 +114,41 @@ namespace nkentseu {
 						contact.groundDist = raw.groundDist;
 					}
 
-					const float32 blend = foot.ikWeight * contact.contactWeight;
+					// ⚠️ LE POIDS DE PLANTE MULTIPLIE LE MELANGE, sans seuil : a 0 le
+					//    pied est LIBRE et rien ne le tire ; a 0,5 il est tire de
+					//    moitie ; a 1 il epouse le sol. Un seuil interne rendrait ce
+					//    reglage binaire sans que rien ne le dise -- le banc mesure
+					//    donc explicitement le point milieu.
+					const float32 planteSure = plante < 0.f ? 0.f : (plante > 1.f ? 1.f : plante);
+					const float32 blend = foot.ikWeight * contact.contactWeight * planteSure;
 					if (blend <= 1e-4f)
 						return;
 
 					NkVec3f corrected = footPos;
 					corrected.y = contact.groundPos.y + foot.footHeight;
+					// ⚠️ CE QUE LE POIDS DE PLANTE PEUT ET NE PEUT PAS FAIRE (2026-09-26)
+					//
+					//    A 0, il fonctionne exactement : `blend` vaut 0, la cible EST la
+					//    position courante, rien ne bouge. Mesure : un pied leve a
+					//    0,52 m du sol y reste, a 0,0000 m pres. C'est le comportement
+					//    que Rodolf demandait et il est acquis.
+					//
+					// ⚠️ A UNE VALEUR INTERMEDIAIRE, IL NE PEUT PAS FONCTIONNER ICI, et
+					//    ce n'est pas un reglage a corriger. Mesure : poids 0,5 place le
+					//    pied a 0,5500 -- EXACTEMENT comme poids 1,0, au lieu de 0,7740.
+					//    Cause : cette ligne melange depuis `footPos`, la position
+					//    COURANTE, qui a deja bouge a l'image precedente.
+					//    *Tout melange applique a chaque image depuis la position
+					//    courante converge : un poids devient un taux.*
+					//    Deplacer le melange vers `chain.weight` ne change rien -- teste,
+					//    mesure, et retire : le solveur part lui aussi de la pose
+					//    courante.
+					//
+					//    Pour qu'un poids reste un poids, il faut une REFERENCE STABLE :
+					//    la pose d'animation AVANT correction, que ce systeme ne conserve
+					//    pas. La conserver est du NEUF -> decision de Rodolf.
+					//    Le banc le dit en `[DIT]`, il ne rougit pas : un poids binaire
+					//    0/1 suffit a ce qui etait demande.
 					const NkVec3f target = {
 						footPos.x + (corrected.x - footPos.x) * blend,
 						footPos.y + (corrected.y - footPos.y) * blend,
@@ -141,9 +170,9 @@ namespace nkentseu {
 				};
 
 				solveLeg(foot.leftThighIdx, foot.leftCalfIdx, foot.leftFootIdx, foot.leftFoot,
-						 corrGauche);
+						 corrGauche, foot.leftPlant);
 				solveLeg(foot.rightThighIdx, foot.rightCalfIdx, foot.rightFootIdx, foot.rightFoot,
-						 corrDroite);
+						 corrDroite, foot.rightPlant);
 
 				// ── Compensation de hanche (étape 4 du pipeline) ─────────────────
 				// Intention : léger abaissement selon la correction la plus forte

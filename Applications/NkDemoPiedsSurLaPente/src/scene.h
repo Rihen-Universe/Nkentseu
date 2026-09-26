@@ -164,8 +164,9 @@ namespace eprouvette {
 			bool groundeEnLair = false; // « touche le sol » alors qu'il est en l'air ?
 	};
 
-	// Leve le pied gauche de `hauteur` metres, puis laisse l'IK travailler.
-	bool EprouverEnvol(float hauteur, Envol &out) noexcept;
+	// Leve le pied gauche de `hauteur` metres, fixe son POIDS DE PLANTE, puis
+	// laisse l'IK travailler. `plante` : 0 = envol, 1 = appui.
+	bool EprouverEnvol(float hauteur, float plante, Envol &out) noexcept;
 
 	// Mode console : imprime les critères, rend le nombre d'échecs.
 	int Mesurer() noexcept;
