@@ -303,7 +303,13 @@ int nkmain(const NkEntryState &state) {
 		// pas un refus, il produit un objet BLANC parfaitement plausible.
 		// Meme famille que l'AABB vide : on echoue en silence, et le silence
 		// ressemble a un resultat. `SetAlbedoMap` supprime la chaine, donc la faute.
-		mat->SetAlbedoMap(texAlbedo);
+		// `NK_DEMO_UV_CANAL_ANCIEN=1` remet l'ANCIEN nom, celui dont on conteste
+		// l'effet. C'est le negatif de cette mesure : deux courses, un seul
+		// changement, et le moteur dit ce qu'il lie dans chacune.
+		if (std::getenv("NK_DEMO_UV_CANAL_ANCIEN") != nullptr)
+			mat->SetTexture("albedo_map", texAlbedo);
+		else
+			mat->SetAlbedoMap(texAlbedo);
 	}
 
 	logger.Info("[demo-uv] --- ce que la demo croit dessiner ---\n");

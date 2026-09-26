@@ -618,6 +618,25 @@ namespace nkentseu {
 				};
 
 				NkTextureHandle albedoTex = GetTex("albedo");
+				// -- CE QUI EST REELLEMENT LIE, DIT UNE FOIS (26/09/2026) ---------
+				// Une contradiction a ete relevee : un binaire ecrivant dans
+				// `SetTexture("albedo_map", ...)` aurait montre une texture, alors
+				// que cette ligne-ci ne lit que « albedo ». On ne tranche pas par la
+				// lecture du code -- c'est elle qui est en cause. On fait donc dire
+				// au moteur ce qu'il lie : la texture demandee, ou le blanc 1x1 de
+				// repli. Un seul releve suffit.
+				{
+					static bool sDitAlbedo = false;
+					if (!sDitAlbedo) {
+						sDitAlbedo = true;
+						const NkTextureHandle blanc = texLib->GetRHIHandle(texLib->GetWhite1x1());
+						logger.Info("[NkMaterialSystem] canal albedo lie : id={0} (blanc 1x1 = id={1}) "
+									"-> {2}\n",
+									albedoTex.id, blanc.id,
+									(albedoTex.id == blanc.id) ? "REPLI BLANC : rien n'a ete pose sur « albedo »"
+															   : "une texture est bien posee sur « albedo »");
+					}
+				}
 				// Binding 4 : matcap si present (Toon/Anime), sinon normal map (PBR).
 				// GetTex cherche "matcap" d'abord, retombe sur "normal".
 				NkTextureHandle slot4Tex;
@@ -1107,6 +1126,44 @@ namespace nkentseu {
 		}
 
 		NkMaterialInstance *NkMaterialInstance::SetTexture(const NkString &n, NkTexHandle t) {
+			// -- UN CANAL INCONNU SE DIT, IL NE S'EFFACE PAS (26/09/2026) --------
+			// Un nom hors de cette liste est accepte, stocke, et JAMAIS LU par la
+			// liaison : le materiau retombe sur le blanc 1x1 et rend un objet blanc
+			// plausible. C'est la meme famille que l'AABB inversee -- on echoue
+			// FERME ET MUET, et le silence ressemble a un resultat. Mesure : 4
+			// sites du depot ecrivaient « albedo_map », que rien ne lit, dont
+			// l'EXEMPLE de l'en-tete de NkMaterial.h.
+			//
+			// ON AVERTIT, ON NE REFUSE PAS : un gabarit personnalise a le droit
+			// d'avoir ses propres parametres, et un refus dur casserait ce qui
+			// marche aujourd'hui. Une fois par nom suffit a se faire entendre.
+			{
+				static const char *const kConnus[] = {"albedo",	 "normal", "orm",	 "emissive",
+													  "height", "mask",	 "matcap"};
+				bool connu = false;
+				for (uint32 i = 0; i < (uint32)(sizeof(kConnus) / sizeof(kConnus[0])); ++i)
+					if (n == kConnus[i]) {
+						connu = true;
+						break;
+					}
+				if (!connu) {
+					static NkVector<NkString> sDeja;
+					bool dit = false;
+					for (uint32 i = 0; i < (uint32)sDeja.Size(); ++i)
+						if (sDeja[i] == n) {
+							dit = true;
+							break;
+						}
+					if (!dit) {
+						sDeja.PushBack(n);
+						logger.Warn("[NkMaterialSystem] canal de texture INCONNU : « {0} ». Il sera "
+									"stocke mais JAMAIS LU -- le materiau retombera sur le blanc 1x1. "
+									"Canaux lus : albedo, normal, orm, emissive, height, mask, matcap. "
+									"Preferer les portes typees (SetAlbedoMap, SetNormalMap...).\n",
+									n.CStr());
+					}
+				}
+			}
 			for (auto &p : mParams)
 				if (p.name == n && p.kind == Param::Kind::TEX) {
 					p.tex = t;
