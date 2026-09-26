@@ -187,6 +187,58 @@ static uint32 ComptePixelsAutres(const NkGuiDrawListRaster &r, const NkRect &zon
 	return n;
 }
 
+/// Les pixels d'un rectangle PLUS PROCHES d'une couleur que d'une autre.
+///
+/// ⚠️ IL EXISTE PARCE QU'UNE ENCRE NE SE COMPTE PAS A L'EGALITE. Un libelle de
+///    15 px est ANTICRENELE : ses pixels sont des melanges de l'encre et du
+///    fond, et la couleur demandee n'apparait presque jamais telle quelle.
+///    Mesure du 26/09 sur `panneau_outils` : l'encre #10222B posee sur l'orange
+///    a donne #15252b, #1b282b, #1e2a2b... et **zero** pixel exactement egal.
+///    Exiger l'egalite aurait rendu un critere toujours rouge sur un rendu
+///    parfaitement juste.
+///
+/// ⚠️ ET CE N'EST PAS « PROCHE DE LA CIBLE », C'EST « PLUS PROCHE D'ELLE QUE DE
+///    SA RIVALE ». Un seuil absolu demanderait de choisir une distance, donc un
+///    nombre que personne n'a ecrit. La question posee ici est celle qui compte
+///    vraiment : des deux encres possibles -- celle du document et celle du
+///    theme -- laquelle ce pixel a-t-il servie ?
+///
+/// 🔴 ET IL COMPTE LE LIBELLE SEUL, PAS LE BOUTON. Premiere version, le 26/09 :
+///    elle comparait TOUS les pixels du rectangle. L'aplat orange (#FFB055) est
+///    plus proche d'une encre brune (#7A2E00) que d'une encre bleu-noir
+///    (#10222B) -- il remplit le bouton, il ecrase le vote, et le critere
+///    repondait « l'encre du survol est la » quelle que soit l'encre du libelle.
+///    La mutation qui coupait l'encre d'etat est restee VERTE. *Un critere qui
+///    mesure l'aplat ne dit rien du texte pose dessus.*
+///    L'aplat et le bord sont donc EXCLUS, exactement comme dans
+///    `ComptePixelsAutres` -- ce qui reste est le libelle.
+static uint32 ComptePlusProchesDe(const NkGuiDrawListRaster &r, const NkRect &zone, NkColor cible,
+								  NkColor rivale, uint32 aplat, uint32 bord) {
+	uint32 n = 0;
+	const int32 x0 = (int32)zone.x, y0 = (int32)zone.y;
+	const int32 x1 = (int32)(zone.x + zone.w), y1 = (int32)(zone.y + zone.h);
+	for (int32 y = y0; y < y1 && y < r.Hauteur(); ++y)
+		for (int32 x = x0; x < x1 && x < r.Largeur(); ++x) {
+			if (x < 0 || y < 0)
+				continue;
+			const uint32 p = r.Pixel(x, y);
+			if (p == aplat || p == bord)
+				continue;
+			const int32 pr = (int32)((p >> 24) & 0xFFu), pv = (int32)((p >> 16) & 0xFFu),
+						pb = (int32)((p >> 8) & 0xFFu);
+			const int32 dc = (pr - (int32)cible.r) * (pr - (int32)cible.r)
+							 + (pv - (int32)cible.g) * (pv - (int32)cible.g)
+							 + (pb - (int32)cible.b) * (pb - (int32)cible.b);
+			const int32 dv = (pr - (int32)rivale.r) * (pr - (int32)rivale.r)
+							 + (pv - (int32)rivale.g) * (pv - (int32)rivale.g)
+							 + (pb - (int32)rivale.b) * (pb - (int32)rivale.b);
+			// L'egalite ne compte pour personne : elle ne departage rien.
+			if (dc < dv)
+				++n;
+		}
+	return n;
+}
+
 /// Empreinte de TOUS les pixels : deux images identiques AU BIT ont la meme.
 static uint32 Empreinte(const NkGuiDrawListRaster &r) {
 	uint32 h = 2166136261u;
@@ -722,6 +774,204 @@ int main(int argc, char **argv) {
 					   (unsigned)ref.theme.textDisabled.r, (unsigned)ref.theme.textDisabled.g,
 					   (unsigned)ref.theme.textDisabled.b);
 			}
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b1.g) L'ENCRE : `text { color }` sur un widget re-peint\n");
+	// =====================================================================
+	{
+		// 🔴 CE QUE CE CAS A TROUVE, LE 26/09. `text { color }` etait LU par le
+		//    format et honore par le seul `case Text` du monteur. Des qu'un widget
+		//    declarait une apparence, c'est le crochet de style qui peignait -- et
+		//    il ecrivait le libelle avec l'encre du THEME, quoi que le document
+		//    demande. Le bouton orange de NkAnimaEditor reclamait #10222B et rendait
+		//    **0 pixel** de sa couleur pour 2 420 pixels d'orange.
+		//
+		// ⚠️ LE CAS PORTE DEUX ENCRES, ET C'EST DELIBERE. Une seule encre, la meme
+		//    au repos et au survol, passerait meme si l'etat ne la transmettait pas :
+		//    le socle suffirait. Deux encres DIFFERENTES exigent que l'etat porte la
+		//    sienne.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { radius = 4, fill { color = #F79A28 }, text { color = #10222B } }\n"
+			"    appearance(Hover) { fill { color = #FFB055 }, text { color = #7A2E00 } }\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
+			  "(b1.g) le document a deux encres se charge");
+		const NkGuiInfoWidget *w = s.exe.infos.Trouver(NkStringView("ecrire"));
+		Check(w != nullptr, "(b1.g) le widget est lu");
+		if (w) {
+			Check(w->etats[(uint32)NkGuiEtatApp::Normal].aEncre,
+				  "(b1.g) l'encre du REPOS est lue depuis le document");
+			CheckEqU(Empaquete(w->etats[(uint32)NkGuiEtatApp::Normal].encre), 0x10222BFFu,
+					 "(b1.g) ecrire/Normal encre = #10222B");
+			CheckEqU(Empaquete(w->etats[(uint32)NkGuiEtatApp::Hover].encre), 0x7A2E00FFu,
+					 "(b1.g) ecrire/Hover  encre = #7A2E00");
+		}
+		s.Image();
+		s.Image();
+		NkRect r{0.f, 0.f, 0.f, 0.f};
+		const bool aR = s.Rect("ecrire", r);
+		Check(aR, "(b1.g) son rectangle sort du montage");
+		if (aR) {
+			NkGuiContext ref; // le theme NU : c'est lui la rivale de l'encre du document
+			const uint32 bord = Empaquete(ref.theme.border);
+			const NkColor encreRepos{0x10, 0x22, 0x2B, 0xFF};
+			const NkColor encreHover{0x7A, 0x2E, 0x00, 0xFF};
+
+			// ── AU REPOS ──────────────────────────────────────────────────
+			const uint32 auDoc =
+				ComptePlusProchesDe(s.ras, r, encreRepos, ref.theme.text, 0xF79A28FFu, bord);
+			const uint32 auTheme =
+				ComptePlusProchesDe(s.ras, r, ref.theme.text, encreRepos, 0xF79A28FFu, bord);
+			printf("        repos : %u px de libelle plus proches de l'encre du DOCUMENT, %u de "
+				   "celle du THEME\n",
+				   auDoc, auTheme);
+			Check(auDoc > 0u, "(b1.g) le libelle est peint avec l'encre du DOCUMENT");
+			Check(auDoc > auTheme,
+				  "(b1.g) NEGATIF : et PAS avec celle du theme -- les deux sont comptees");
+
+			// ── SURVOLE : l'encre CHANGE avec l'etat ──────────────────────
+			s.PoserEtStabiliser(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+			CheckEqU(s.exe.peintsParEtat[(uint32)NkGuiEtatApp::Hover], 1u,
+					 "(b1.g) le bouton est bien peint en Hover");
+			const uint32 hoverDoc =
+				ComptePlusProchesDe(s.ras, r, encreHover, encreRepos, 0xFFB055FFu, bord);
+			const uint32 hoverRepos2 =
+				ComptePlusProchesDe(s.ras, r, encreRepos, encreHover, 0xFFB055FFu, bord);
+			printf("        survol : %u px de libelle plus proches de l'encre HOVER, %u de celle "
+				   "du REPOS\n",
+				   hoverDoc, hoverRepos2);
+			Check(hoverDoc > 0u, "(b1.g) survole, le libelle prend l'encre de l'ETAT");
+			Check(hoverDoc > hoverRepos2,
+				  "(b1.g) NEGATIF : l'encre du repos n'a PAS survecu au survol");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b1.i) L'ENCRE D'UN ETAT SEUL -- le chemin que (b1.g) ne separait pas\n");
+	// =====================================================================
+	{
+		// 🔴 POURQUOI CE CAS EXISTE, ET IL EST NE D'UNE MUTATION VERTE. L'encre du
+		//    document est posee par DEUX chemins : le monteur la met dans
+		//    `theme.text` autour du widget (`EncreDuDocument`), et le crochet de
+		//    style la choisit par etat. Tant que le REPOS en declare une, couper le
+		//    second chemin ne change RIEN -- le premier la fournit quand meme.
+		//    *Une propriete garantie deux fois est une propriete dont l'echec est
+		//    masque*, et c'est exactement ce que (b1.g) seul laissait passer.
+		//
+		//    Ici le repos n'ecrit AUCUNE encre : le monteur n'a rien a poser, et
+		//    seule la resolution d'etat peut donner sa couleur au libelle survole.
+		//    Le chemin est isole, donc il est mesurable.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { radius = 4, fill { color = #F79A28 } }\n"
+			"    appearance(Hover) { fill { color = #FFB055 }, text { color = #7A2E00 } }\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
+			  "(b1.i) le document a encre d'ETAT SEUL se charge");
+		const NkGuiInfoWidget *w = s.exe.infos.Trouver(NkStringView("ecrire"));
+		Check(w && !w->etats[(uint32)NkGuiEtatApp::Normal].aEncre,
+			  "(b1.i) le REPOS ne declare aucune encre -- le monteur n'a rien a poser");
+		s.Image();
+		s.Image();
+		NkRect r{0.f, 0.f, 0.f, 0.f};
+		if (s.Rect("ecrire", r)) {
+			NkGuiContext ref;
+			const uint32 bord = Empaquete(ref.theme.border);
+			const NkColor encreHover{0x7A, 0x2E, 0x00, 0xFF};
+			// Au repos, le libelle doit etre celui du THEME : rien d'autre n'est
+			// declare. Sans cette moitie, le cas ne saurait pas dire que l'encre
+			// est ARRIVEE avec l'etat.
+			const uint32 reposTheme =
+				ComptePlusProchesDe(s.ras, r, ref.theme.text, encreHover, 0xF79A28FFu, bord);
+			const uint32 reposDoc =
+				ComptePlusProchesDe(s.ras, r, encreHover, ref.theme.text, 0xF79A28FFu, bord);
+			printf("        repos  : %u px de libelle au THEME, %u a l'encre de l'etat\n",
+				   reposTheme, reposDoc);
+			Check(reposTheme > reposDoc,
+				  "(b1.i) au repos le libelle porte l'encre du THEME (rien d'autre n'est ecrit)");
+
+			s.PoserEtStabiliser(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+			CheckEqU(s.exe.peintsParEtat[(uint32)NkGuiEtatApp::Hover], 1u,
+					 "(b1.i) le bouton est peint en Hover");
+			const uint32 survolDoc =
+				ComptePlusProchesDe(s.ras, r, encreHover, ref.theme.text, 0xFFB055FFu, bord);
+			const uint32 survolTheme =
+				ComptePlusProchesDe(s.ras, r, ref.theme.text, encreHover, 0xFFB055FFu, bord);
+			printf("        survol : %u px de libelle a l'encre de l'ETAT, %u au THEME\n",
+				   survolDoc, survolTheme);
+			Check(survolDoc > 0u, "(b1.i) survole, le libelle prend l'encre declaree par l'ETAT");
+			Check(survolDoc > survolTheme,
+				  "(b1.i) NEGATIF : le theme ne peint plus le libelle -- l'etat a gagne");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b1.h) L'ENCRE HERITE DU REPOS quand l'etat n'en parle pas\n");
+	// =====================================================================
+	{
+		// ⚠️ SANS CE CAS, LE PRECEDENT SUFFIRAIT A JUSTIFIER UNE MAUVAISE REGLE.
+		//    Un etat qui REMPLACE tout (au lieu de se poser sur le repos) passerait
+		//    (b1.g) sans faute -- ses deux encres sont declarees. Ici `Hover` ne
+		//    parle que du fond : le libelle doit garder l'encre du repos, sinon il
+		//    retombe sur le theme et disparait au survol. C'est la meme lecon que
+		//    `appearance(FocusVisible)` avait deja donnee pour le FOND.
+		//
+		// ⚠️ CE CAS MESURE LA PROPRIETE, PAS LE CHEMIN QUI LA TIENT -- et c'est une
+		//    limite, pas un oubli. Deux chemins la garantissent : l'heritage dans
+		//    `NkGuiPeintureEffective` et l'encre que le monteur pose dans
+		//    `theme.text`. Couper l'un des deux laisse ce critere VERT (mesure du
+		//    26/09). Les separer demanderait un document ou l'un des deux chemins
+		//    voit l'encre et pas l'autre : les deux lisent le meme `text { color }`
+		//    du meme document, donc un tel document n'existe pas.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { radius = 4, fill { color = #F79A28 }, text { color = #10222B } }\n"
+			"    appearance(Hover) { fill { color = #FFB055 } }\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
+			  "(b1.h) le document a UNE seule encre se charge");
+		s.Image();
+		s.Image();
+		NkRect r{0.f, 0.f, 0.f, 0.f};
+		if (s.Rect("ecrire", r)) {
+			NkGuiContext ref;
+			const uint32 bord = Empaquete(ref.theme.border);
+			const NkColor encreRepos{0x10, 0x22, 0x2B, 0xFF};
+			s.PoserEtStabiliser(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+			CheckEqU(s.exe.peintsParEtat[(uint32)NkGuiEtatApp::Hover], 1u,
+					 "(b1.h) le bouton est peint en Hover");
+			Check(ComptePixelsCouleur(s.ras, 0xFFB055FFu) > 0u,
+				  "(b1.h) le fond du survol est bien celui de l'etat (#FFB055)");
+			const uint32 herite =
+				ComptePlusProchesDe(s.ras, r, encreRepos, ref.theme.text, 0xFFB055FFu, bord);
+			const uint32 auTheme =
+				ComptePlusProchesDe(s.ras, r, ref.theme.text, encreRepos, 0xFFB055FFu, bord);
+			printf("        survol sans encre d'etat : %u px de libelle a l'encre du REPOS, %u au "
+				   "THEME\n",
+				   herite, auTheme);
+			Check(herite > 0u, "(b1.h) l'encre du repos SURVIT au survol -- elle est le socle");
+			Check(herite > auTheme, "(b1.h) NEGATIF : le theme n'a pas repris la main");
 		}
 		s.exe.Debrancher(s.ctx);
 	}

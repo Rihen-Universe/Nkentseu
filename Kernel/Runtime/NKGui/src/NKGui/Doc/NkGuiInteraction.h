@@ -214,6 +214,21 @@ namespace nkentseu {
 				float32 contourLargeur = 1.f;
 				bool aRayon = false;
 				float32 rayon = 0.f;
+				// ── L'ENCRE (2026-09-26) ─────────────────────────────────────
+				/// 🔴 CE QUI MANQUAIT, ET CE QUE CA COUTAIT. `text { color }` etait LU
+				///    par le format et honore par le monteur sur un `Text`
+				///    (`NkGuiApparenceRepos::encre`) -- et ce chemin-ci n'en savait
+				///    rien. Or des qu'un widget declare UNE apparence, c'est CE chemin
+				///    qui peint, y compris AU REPOS. Le bouton orange de NkAnimaEditor
+				///    demandait donc une encre sombre (#10222B) et recevait celle du
+				///    theme : mesure du 26/09, **0 pixel** de la couleur demandee pour
+				///    2 420 pixels d'orange. *Le document ecrivait, personne ne lisait.*
+				///
+				/// ⚠️ ET ELLE SE PORTE PAR ETAT, comme le fond. Un bouton dont le repos
+				///    est clair et le survol sombre a besoin des deux encres, sinon le
+				///    libelle disparait dans l'un des deux etats.
+				bool aEncre = false;
+				NkColor encre{0, 0, 0, 255};
 		};
 
 		/// Ce que le document dit d'UN widget : son identite, sa cle d'etat, son
@@ -347,6 +362,12 @@ namespace nkentseu {
 							float32 lw = 1.f;
 							if (eff.GetFloat32(NkStringView("width"), lw))
 								p.contourLargeur = lw;
+						} else if (NkGMotEgal(t, "text")) {
+							// ⚠️ MEME PORTE QUE LE MONTEUR : `text { color }`. Le monteur
+							//    l'appelle « encre » et l'applique a `theme.text` sur un
+							//    `Text` ; ici elle sert le LIBELLE du widget repeint.
+							if (col && NkGuiCouleurDepuisLexeme(col->Lexeme(), p.encre))
+								p.aEncre = true;
 						}
 						// `shadow` et `blur` sont LUS par le format et NON peints ici :
 						// le rasteriseur de ce chantier n'a ni flou ni ombre portee.
@@ -410,6 +431,29 @@ namespace nkentseu {
 			if (dessus.aRayon) {
 				r.aRayon = true;
 				r.rayon = dessus.rayon;
+			}
+			// L'encre suit la MEME regle de socle : l'etat la remplace s'il en
+			// declare une, sinon celle du repos reste. Un `appearance(Hover)` qui ne
+			// parle que du fond ne doit pas faire disparaitre le libelle.
+			//
+			// ⚠️ ET CETTE LIGNE-CI N'A AUJOURD'HUI AUCUN EFFET OBSERVABLE -- c'est
+			//    MESURE, pas suppose. La supprimer laisse le banc a 172/172. Raison :
+			//    quand le REPOS declare une encre, le monteur l'a deja posee dans
+			//    `theme.text` autour du widget (`EncreDuDocument`), et le repli de
+			//    `Style()` retombe donc sur la meme couleur. Les deux chemins lisent
+			//    le MEME `text { color }` du MEME document : il n'existe pas de cas
+			//    ou l'un l'aurait et pas l'autre, donc **aucun temoin ne peut les
+			//    separer**. *Une propriete garantie deux fois est une propriete dont
+			//    l'echec est masque* -- ici on ne peut pas construire le second
+			//    temoin, alors on ecrit la redondance au lieu de la croire prouvee.
+			//    Elle reste parce que cette fonction doit etre COMPLETE en
+			//    elle-meme : fond, contour, rayon et encre s'y heritent pareil, et un
+			//    appelant futur qui n'aurait pas le monteur derriere lui trouverait
+			//    l'encre a sa place. (L'encre d'un ETAT, elle, n'a que ce chemin-la,
+			//    et le cas (b1.i) la mesure.)
+			if (dessus.aEncre) {
+				r.aEncre = true;
+				r.encre = dessus.encre;
 			}
 			return r;
 		}
@@ -1321,7 +1365,26 @@ namespace nkentseu {
 						const float32 tx = it.rect.x + (it.rect.w - tw) * 0.5f;
 						const float32 by = it.rect.y + (it.rect.h - ctx.font->LineHeight()) * 0.5f
 										   + ctx.font->Ascent();
-						const NkColor lc = it.disabled ? ctx.theme.textDisabled : ctx.theme.text;
+						// ── QUELLE ENCRE, ET L'ARBITRAGE QUE CA DEMANDE ──────────
+						//  L'encre du document passe devant celle du theme. Mais un
+						//  widget DESACTIVE pose une question que le fond ne posait pas :
+						//  le document a-t-il dit a quoi ressemble son etat desactive ?
+						//
+						//  ⚠️ S'IL NE L'A PAS DIT, LE THEME GRISE. Herite de `Normal`,
+						//     l'encre rendrait un libelle pleine force sur un bouton
+						//     grise -- il se lirait comme actif, et c'est exactement le
+						//     genre de rendu que *personne n'a dessine*.
+						//     S'il l'a dit (`appearance(Disabled)` existe), son choix
+						//     vaut, y compris l'encre heritee du repos : la, quelqu'un a
+						//     regarde.
+						const bool disabledDeclare =
+							info.etats[(uint32)NkGuiEtatApp::Disabled].declare;
+						const NkColor lc =
+							(it.disabled && !disabledDeclare)
+								? ctx.theme.textDisabled
+								: (p.aEncre ? p.encre
+											: (it.disabled ? ctx.theme.textDisabled
+														   : ctx.theme.text));
 						ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, by}, it.label, lc,
 										 it.rect.w - 6.f, 0.f, fin);
 					}
