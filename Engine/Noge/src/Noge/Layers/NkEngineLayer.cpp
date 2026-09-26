@@ -113,6 +113,20 @@ namespace nkentseu {
 	// InitRenderer
 	// =========================================================================
 	void NkEngineLayer::InitRenderer() noexcept {
+		// ⚠️ UN REFUS NOMME PLUTOT QU'UN PLANTAGE (2026-09-26).
+		//    Sans NkApplication, `Get()` derefence un pointeur nul. La couche
+		//    etait donc INATTACHABLE hors d'une fenetre, ce qui interdisait
+		//    tout banc sur les systemes qu'elle enregistre -- physique, IK des
+		//    pieds, scripts. Elle continue desormais SANS rendu, et le dit.
+		//
+		//    Rien d'autre ne depend du rendu : `OnUpdate` et `OnFixedUpdate`
+		//    ne font tourner que l'ordonnanceur, et `OnRender` sort deja tout
+		//    seul quand `mRendererInitialized` est faux.
+		if (!NkApplication::HasInstance()) {
+			logger.Warnf("[NkEngineLayer] aucune NkApplication : la couche continue "
+						 "SANS rendu (les systemes ECS, eux, tournent).\n");
+			return;
+		}
 		auto &app = NkApplication::Get();
 		auto *device = app.GetDevice();
 

@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkFilMoteurProbe — TRAVERSER LE FIL DE NkEngineLayer (26/09/2026)
+# =============================================================================
+# Une scene porte NkSkeleton + NkFootIK, et ce banc ne configure RIEN : pas de
+# SetPhysicsWorld, pas de AddSystem, pas d'Execute direct. Il attache la couche,
+# la fait tourner, et regarde ou est le pied.
+#
+# POURQUOI : NkEngineLayer enregistrait NkPhysicsSystem et NkFootIKSystem, mais
+# aucune application ne portait d'entite NkFootIK -- le systeme tournait sur ZERO
+# entite. Un fil pose, enregistre, jamais traverse : exactement la situation qui
+# a laisse le pont physique casse sans temoin pendant des mois.
+#
+# ⚠️ SANS FENETRE, et c'est nouveau : OnAttach plantait hors d'une NkApplication.
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+with project("NkFilMoteurProbe"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    nkentseudependson(
+        # ⚠️ NKGLSlang et NKSPIRVCross : NkEngineLayer.cpp tire NKRenderer, qui
+        #    tire NKSL, qui appelle glslang. Sans eux, le lien rend une
+        #    quinzaine de « undefined reference to `glslang::... ». Liste
+        #    reprise d'un projet qui construit (NK3DModeler), pas devinee.
+        ["Noge", "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
+         "NKCollision", "NKPhysics",
+         "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",
+         "NKECS", "NKEvent", "NKWindow", "NKMath", "NKTime", "NKLogger",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
+        extra_includes=["src", "%{Noge.location}/src"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        links(["user32", "gdi32", "opengl32", "dwmapi", "shell32",
+               "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler", "uuid", "ole32"])
