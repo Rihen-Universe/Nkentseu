@@ -793,23 +793,11 @@ static float32 AireUVTotale(const NkEditMesh &m) {
 // LES SEUILS SONT DANS `logs_genia3d/uv/CRITERES_AVANT_MESURE.md`, ecrits avant
 // le premier lancement. Ils sont RECOPIES ici pour que le verdict et sa regle
 // vivent dans le meme binaire, et non dans deux endroits qui derivent.
-static int NkUVAutoMode(const char *chemin) {
-	printf("== NKGeniaTemoin --deplier-auto : %s ==\n", chemin);
-	NkGLTFMeshData data;
-	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
-		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
-		return 2;
-	}
-	NkVector<uint32> gi;
-	IndicesGlobaux(data, gi);
-	NkEditMesh m;
-	nkentseu::NkChrono c0;
-	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(),
-					   (uint32)gi.Size(), false);
-	const double msConstruit = c0.Elapsed().ToMilliseconds();
-	printf("  entree : V=%u F=%u  (construction demi-arete %.0f ms)\n", m.VertCount(), m.FaceCount(),
-		   msConstruit);
-
+// -- LE JUGE, UNE SEULE FOIS ----------------------------------------------
+// Charge ou construit, le maillage est juge par LE MEME code : deux juges
+// deriveraient, et on ne saurait plus si un ecart vient du maillage ou du
+// juge.
+static int MesurerDepliage(NkEditMesh &m) {
 	// LE NON-MANIFOLD SE COMPTE AVANT, parce qu'il decide de tout : une arete
 	// portee par plus de deux faces n'a pas d'« autre cote », et aucune couture
 	// ni aucune de-soudure ne repare cela. Le compter separement evite de
@@ -839,6 +827,13 @@ static int NkUVAutoMode(const char *chemin) {
 	const bool ok = NkUVUnwrapAuto(m, p, res, &bilan);
 	const double ms = c1.Elapsed().ToMilliseconds();
 
+	// LE PARCOURS A-T-IL TRAVERSE ? Des faces visitees bien moins nombreuses que
+	// les faces totales signifient un arbre couvrant INCOMPLET : toutes les
+	// aretes restantes deviennent des coutures, donc un ilot par triangle. Ce
+	// chiffre separe « mauvaise coupe » de « parcours bloque ».
+	printf("  parcours du dual : %u face(s) visitee(s) sur %u%s\n",
+		   bilan.facesVisitees, bilan.facesTotal,
+		   (bilan.facesVisitees < bilan.facesTotal) ? "   <-- INCOMPLET" : "");
 	printf("  coutures=%u retrouvees=%u  sommets %u -> %u (dupliques=%u)\n", bilan.coutures,
 		   bilan.couturesRetrouvees, bilan.sommetsAvant, bilan.sommetsApres,
 		   bilan.sommetsDupliques);
@@ -904,6 +899,70 @@ static int NkUVAutoMode(const char *chemin) {
 	const bool tout = okRec && okAire && okAngle && okTemps && okIlots;
 	printf("  VERDICT : %s\n", tout ? "VERT" : "ROUGE");
 	return tout ? 0 : 1;
+}
+
+// -- UNE SPHERE PROPRE, CONSTRUITE EN CODE -------------------------------------
+// LE TEMOIN DE TOPOLOGIE. La table de Rodolf porte 283 aretes non-manifold, le
+// maillage de famille 268 : avant d'accuser la strategie de coupe, il faut savoir
+// ce que la coupe donne sur une topologie SAINE. Cette sphere est une grille
+// reguliere, fermee, de genre 0, aux sommets soudes -- donc sans arete
+// non-manifold, et sans rien d'autre de different.
+// Si la coupe echoue AUSSI ici, le non-manifold n'est pas la cause dominante.
+static void SphereGrille(NkVector<NkVertex3D> &v, NkVector<uint32> &idx, uint32 piles,
+						 uint32 tranches) {
+	v.Clear();
+	idx.Clear();
+	for (uint32 i = 0; i <= piles; ++i) {
+		const float32 phi = 3.14159265f * (float32)i / (float32)piles;
+		for (uint32 j = 0; j <= tranches; ++j) {
+			const float32 th = 6.28318531f * (float32)j / (float32)tranches;
+			NkVertex3D p{};
+			p.normal = {sinf(phi) * cosf(th), cosf(phi), sinf(phi) * sinf(th)};
+			p.pos = p.normal;
+			p.uv = {(float32)j / (float32)tranches, (float32)i / (float32)piles};
+			v.PushBack(p);
+		}
+	}
+	for (uint32 i = 0; i < piles; ++i)
+		for (uint32 j = 0; j < tranches; ++j) {
+			const uint32 a = i * (tranches + 1u) + j, b = a + tranches + 1u;
+			idx.PushBack(a);
+			idx.PushBack(b);
+			idx.PushBack(a + 1u);
+			idx.PushBack(a + 1u);
+			idx.PushBack(b);
+			idx.PushBack(b + 1u);
+		}
+}
+
+static int NkUVAutoSphereMode(uint32 piles, uint32 tranches) {
+	printf("== NKGeniaTemoin --deplier-auto-sphere : grille %u x %u ==\n", piles, tranches);
+	NkVector<NkVertex3D> v;
+	NkVector<uint32> idx;
+	SphereGrille(v, idx, piles, tranches);
+	NkEditMesh m;
+	m.BuildFromIndexed(v.Data(), (uint32)v.Size(), idx.Data(), (uint32)idx.Size(), false);
+	return MesurerDepliage(m);
+}
+
+static int NkUVAutoMode(const char *chemin) {
+	printf("== NKGeniaTemoin --deplier-auto : %s ==\n", chemin);
+	NkGLTFMeshData data;
+	if (!ChargerMaillage(chemin, data) || !data.IsValid()) {
+		printf("REFUS : le chargeur ne lit pas %s\n", chemin);
+		return 2;
+	}
+	NkVector<uint32> gi;
+	IndicesGlobaux(data, gi);
+	NkEditMesh m;
+	nkentseu::NkChrono c0;
+	m.BuildFromIndexed(data.vertices.Data(), (uint32)data.vertices.Size(), gi.Data(),
+					   (uint32)gi.Size(), false);
+	const double msConstruit = c0.Elapsed().ToMilliseconds();
+	printf("  entree : V=%u F=%u  (construction demi-arete %.0f ms)\n", m.VertCount(), m.FaceCount(),
+		   msConstruit);
+
+	return MesurerDepliage(m);
 }
 
 static int NkUVMode(const char *chemin) {
@@ -1170,6 +1229,12 @@ int main(int argc, char **argv) {
 	// LA CHAINE COMPLETE (coutures + de-soudure + depliage), celle qu'un
 	// appelant du produit peut reellement invoquer -- `--deplier` n'essaie que
 	// le solveur seul et refuse donc sur tout maillage importe.
+	// LE TEMOIN DE TOPOLOGIE : une sphere SANS arete non-manifold, jugee par le
+	// meme code que les maillages charges.
+	if (strcmp(argv[1], "--deplier-auto-sphere") == 0)
+		return NkUVAutoSphereMode(argc > 2 ? (uint32)atoi(argv[2]) : 24u,
+								  argc > 3 ? (uint32)atoi(argv[3]) : 32u);
+
 	if (strcmp(argv[1], "--deplier-auto") == 0 && argc > 2)
 		return NkUVAutoMode(argv[2]);
 
