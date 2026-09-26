@@ -124,7 +124,27 @@ namespace nkentseu {
 					if (blend <= 1e-4f)
 						return;
 
-					NkVec3f corrected = footPos;
+					// ── LA BASE : la pose AVANT notre propre correction ──────────
+					// ⚠️ C'est elle, et non `footPos`, qui doit servir de depart au
+					//    melange. `footPos` porte deja ce que nous avons ajoute a
+					//    l'image precedente : melanger depuis lui compose le poids avec
+					//    lui-meme, et tout poids non nul finit au sol en soixante
+					//    images. Mesure avant correctif : poids 0,5 donnait 0,5500,
+					//    EXACTEMENT comme poids 1,0, au lieu de 0,7740.
+					//
+					// ⚠️ ON NE DEFAIT NOTRE DELTA QUE SI PERSONNE N'A REECRIT LA POSE.
+					//    Une animation qui repose le squelette a chaque image efface
+					//    deja notre correction ; la retirer une seconde fois
+					//    abaisserait le pied indefiniment. Le test est direct : la
+					//    pose courante est-elle celle que nous avions VISEE ?
+					NkVec3f base = footPos;
+					if (contact.hasHistory) {
+						const NkVec3f d = footPos - contact.lastTarget;
+						if (d.x * d.x + d.y * d.y + d.z * d.z < 1e-6f)
+							base.y = footPos.y - contact.appliedY;
+					}
+
+					NkVec3f corrected = base;
 					corrected.y = contact.groundPos.y + foot.footHeight;
 					// ⚠️ CE QUE LE POIDS DE PLANTE PEUT ET NE PEUT PAS FAIRE (2026-09-26)
 					//
@@ -149,13 +169,20 @@ namespace nkentseu {
 					//    pas. La conserver est du NEUF -> decision de Rodolf.
 					//    Le banc le dit en `[DIT]`, il ne rougit pas : un poids binaire
 					//    0/1 suffit a ce qui etait demande.
+					// Le melange part de la BASE : c'est ce qui fait de `blend` un
+					// POIDS et non un taux.
 					const NkVec3f target = {
-						footPos.x + (corrected.x - footPos.x) * blend,
-						footPos.y + (corrected.y - footPos.y) * blend,
-						footPos.z + (corrected.z - footPos.z) * blend,
+						base.x + (corrected.x - base.x) * blend,
+						base.y + (corrected.y - base.y) * blend,
+						base.z + (corrected.z - base.z) * blend,
 					};
-					// L'ECART vertical demande a ce pied. Nul si on est sorti plus haut.
-					corrOut = target.y - footPos.y;
+					// Ce que nous ajoutons, et la cible visee : de quoi nous defaire a
+					// l'image suivante, et de quoi savoir si on nous a reecrit.
+					contact.appliedY = target.y - base.y;
+					contact.lastTarget = target;
+					contact.hasHistory = true;
+					// L'ECART vertical demande a ce pied, depuis la base.
+					corrOut = contact.appliedY;
 
 					// Délégation réelle -- voir Rigging/NkIKSolver.h/.cpp.
 					NkIKSolver::TwoBoneChain chain;

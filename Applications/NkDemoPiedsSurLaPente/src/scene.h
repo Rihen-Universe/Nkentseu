@@ -153,6 +153,13 @@ namespace eprouvette {
 			float apres200 = 0.f; // ... apres 200 : la convergence est finie ici
 			float offsetVu = 0.f; // hipOffset tel que le composant le porte
 			bool groundeG = false, groundeD = false; // les DEUX pieds touchent-ils ?
+
+			// ── De quoi former une EGALITE au lieu d'un seuil ─────────────────
+			// La compensation doit valoir la correction du pied LE MOINS corrige,
+			// multipliee par hipCompensation. C'est ce que le code pretend faire ;
+			// une ALTITUDE de sol ne satisferait pas cette egalite.
+			float corrPiedG = 0.f, corrPiedD = 0.f; // deplacement vertical de chaque pied
+			float compensation = 0.5f;               // hipCompensation lu dans le composant
 	};
 
 	// Sur la pente, a une abscisse ou le sol est HAUT : la hanche derive-t-elle ?
@@ -171,7 +178,11 @@ namespace eprouvette {
 	struct Envol {
 			bool mesure = false;
 			float leveA = 0.f;    // ou on a POSE le pied, au-dessus du sol
-			float apres = 0.f;    // ou il se retrouve apres l'IK
+			float apres = 0.f;    // ou il se retrouve apres l'IK (60 images)
+			// ⚠️ TROIS RELEVES DANS LE TEMPS, et c'est le seul moyen de distinguer
+			//    un POIDS d'un TAUX : un poids se stabilise et y reste ; un taux
+			//    continue de descendre, meme lentement.
+			float a10 = 0.f, a60 = 0.f, a300 = 0.f;
 			float solSous = 0.f;
 			float poids = 0.f;    // contactWeight du pied leve
 			bool groundeEnLair = false; // « touche le sol » alors qu'il est en l'air ?

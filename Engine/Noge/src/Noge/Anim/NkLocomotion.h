@@ -75,6 +75,21 @@ namespace nkentseu {
 			float32 groundDist = 0.f;		  ///< Distance pied → sol
 			bool isGrounded = false;
 			float32 contactWeight = 0.f; ///< Poids du contact [0..1] (lissé)
+
+			// ── DE QUOI RETROUVER LA POSE AVANT CORRECTION (2026-09-26) ───────
+			// Sans ces deux champs, le melange partait de la position COURANTE du
+			// pied -- qui porte deja la correction de l'image precedente. Un poids
+			// de plante de 0,5 se composait donc avec lui-meme soixante fois et
+			// finissait au sol, exactement comme un poids de 1 : *un poids applique
+			// a chaque image devient un taux.*
+			//
+			// ⚠️ ET LE CAS QUI DECIDE : si une animation REECRIT la pose entre deux
+			//    images, notre delta n'y est plus et le defaire serait faux. On le
+			//    detecte en comparant la pose courante a `lastTarget` : si elles
+			//    coincident, personne n'a touche a rien depuis nous.
+			NkVec3f lastTarget = {};   ///< la cible visee a l'image precedente (MONDE)
+			float32 appliedY = 0.f;    ///< ce que nous avions ajoute en Y
+			bool hasHistory = false;   ///< y a-t-il une image precedente a defaire ?
 	};
 
 	// =========================================================================
