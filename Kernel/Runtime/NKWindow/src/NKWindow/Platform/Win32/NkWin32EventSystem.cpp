@@ -316,8 +316,16 @@ namespace nkentseu {
 			// ⚠️ ET SI LA BROSSE MANQUE, on ne peint pas et on rend 1 comme avant
 			//    — jamais un fond de repli d'une autre couleur, qui ferait croire a
 			//    un `bgColor` tenu alors qu'il ne l'est pas.
+			// ⚠️ LA BROSSE DE LA FENETRE L'EMPORTE SUR CELLE DE LA CLASSE. Celle
+			//    de la classe vient de `config.bgColor` a la creation et se
+			//    partage entre toutes les fenetres de meme `config.name` ; celle
+			//    de la fenetre est posee par `SetBackgroundColor` et n'appartient
+			//    qu'a elle. Sans cette preference, deux fenetres de meme `name`
+			//    ne pourraient toujours pas avoir deux fonds differents.
 			case WM_ERASEBKGND: {
-				HBRUSH brosse = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
+				HBRUSH brosse = reinterpret_cast<HBRUSH>(GetPropW(hwnd, kNkWin32PropFond));
+				if (brosse == nullptr)
+					brosse = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
 				HDC hdc = reinterpret_cast<HDC>(wp);
 				if (brosse != nullptr && hdc != nullptr) {
 					RECT client = {};

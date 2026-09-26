@@ -882,6 +882,11 @@ namespace nkentseu {
 		NkWin32UnregisterWindow(hwnd);
 		NkWESystem::Instance().UnregisterWindow(mId);
 
+		// Le fond propre a CETTE fenetre, s'il a ete pose par
+		// SetBackgroundColor. La brosse de la CLASSE n'est pas touchee ici :
+		// c'est `UnregisterClassW`, plus bas, qui la detruit.
+		NkWin32LibererFondFenetre(hwnd);
+
 		if (mData.mDropTarget) {
 			delete mData.mDropTarget;
 			mData.mDropTarget = nullptr;
@@ -1353,6 +1358,67 @@ namespace nkentseu {
 
 	float32 NkWindow::GetOpacity() const {
 		return mConfig.opacity;
+	}
+
+	// =========================================================================
+	// LA COULEUR DE FOND APRES LA CREATION — une brosse PAR FENETRE
+	//
+	// POURQUOI PAS LA BROSSE DE LA CLASSE. `SetClassLongPtr(GCLP_HBRBACKGROUND)`
+	// changerait le fond de TOUTES les fenetres de la meme classe — donc de
+	// toutes celles qui partagent `config.name`. Un appelant qui repeint UNE
+	// fenetre repeindrait les autres sans l'avoir demande.
+	//
+	// POURQUOI UNE PROPRIETE ATTACHEE AU HWND, ET PAS UN CHAMP DE NkWindowData.
+	// `NkWindowData` est embarque PAR VALEUR dans NkWindow, donc dans
+	// NkApplication : son agencement doit rester identique pour toutes les
+	// unites de compilation. Le depot a deja paye ce piege (DEVMODE contre
+	// DEVMODEW : 64 octets de decalage, GetDevice() lisant au mauvais offset,
+	// plantage aleatoire au demarrage de Nogee). Une propriete Win32 ne touche
+	// a aucun agencement.
+	//
+	// ⚠️ LA PROPRIETE POSSEDE SA BROSSE. Elle est detruite quand on la remplace
+	//    et quand la fenetre se ferme. La brosse de la CLASSE, elle, ne doit
+	//    jamais etre detruite ici : c'est UnregisterClass qui s'en charge, et un
+	//    HBRUSH mort a deja fait echouer CreateWindowExW le 25/09.
+	// =========================================================================
+	const wchar_t *kNkWin32PropFond = L"NkWin32FondFenetre";
+
+	void NkWin32LibererFondFenetre(HWND hwnd) {
+		if (!hwnd)
+			return;
+		HBRUSH ancienne = reinterpret_cast<HBRUSH>(GetPropW(hwnd, kNkWin32PropFond));
+		if (ancienne) {
+			RemovePropW(hwnd, kNkWin32PropFond);
+			DeleteObject(ancienne);
+		}
+	}
+
+	void NkWindow::SetBackgroundColor(uint32 rgba) {
+		mConfig.bgColor = rgba;
+		if (!mData.mHwnd)
+			return; // avant Create : la config suffit, elle sera lue a la creation
+
+		HBRUSH nouvelle = CreateSolidBrush(NkWin32CouleurDeFond(rgba));
+		if (!nouvelle) {
+			NkWindowRefuserUneFois(NkWindowProp::BgColor, "Win32",
+								   "CreateSolidBrush a echoue : le fond garde sa couleur precedente "
+								   "plutot que de tomber sur une couleur de repli qui mentirait");
+			return;
+		}
+
+		// On libere l'ancienne APRES avoir obtenu la nouvelle : si la creation
+		// avait echoue, la fenetre serait restee sans fond du tout.
+		NkWin32LibererFondFenetre(mData.mHwnd);
+		SetPropW(mData.mHwnd, kNkWin32PropFond, nouvelle);
+
+		// Sans invalidation, la couleur n'apparaitrait qu'au prochain
+		// redimensionnement — c'est-a-dire JAMAIS pour une fenetre non
+		// redimensionnable, le cas exact ou le defaut du 26/09 se voyait.
+		InvalidateRect(mData.mHwnd, nullptr, TRUE);
+	}
+
+	uint32 NkWindow::GetBackgroundColor() const {
+		return mConfig.bgColor;
 	}
 
 	void NkWindow::SetAlwaysOnTop(bool onTop) {

@@ -76,6 +76,24 @@ namespace nkentseu {
 	/// Supprime l'association HWND → NkWindow* du registre backend
 	void NkWin32UnregisterWindow(HWND hwnd);
 
+	// -------------------------------------------------------------------------
+	// Le fond PAR FENETRE — pose par NkWindow::SetBackgroundColor (26/09).
+	//
+	// La brosse est rangee dans une propriete du HWND plutot que dans
+	// NkWindowData, dont l'agencement doit rester stable entre unites de
+	// compilation. Le gestionnaire WM_ERASEBKGND la prefere a celle de la
+	// CLASSE quand elle existe ; sinon il retombe sur la classe.
+	// -------------------------------------------------------------------------
+
+	/// Nom de la propriete Win32 qui porte la brosse de fond d'UNE fenetre.
+	extern const wchar_t *kNkWin32PropFond;
+
+	/// Detruit la brosse de fond propre a cette fenetre, s'il y en a une.
+	/// A appeler avant la destruction de la fenetre. Sans effet sinon.
+	/// ⚠️ Ne touche JAMAIS a la brosse de la classe : celle-la appartient a la
+	///    classe et c'est UnregisterClass qui la detruit.
+	void NkWin32LibererFondFenetre(HWND hwnd);
+
 	/// Retourne la dernière fenêtre enregistrée (utile pour les messages orphelins)
 	NkWindow *NkWin32GetLastWindow();
 
