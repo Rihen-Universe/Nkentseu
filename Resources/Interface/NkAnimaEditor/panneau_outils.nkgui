@@ -61,6 +61,29 @@ widgets {
     Host "apercu_cles" {
       hint = "bande des clés (remplie par l'application)"
     }
+
+    Separator "sep4" {
+      orientation = Horizontal
+    }
+
+    // UNE GRILLE, ET ELLE PORTE UN ATTRIBUT QUE LE MONTEUR NE REND PAS.
+    // `Grid` est montée depuis le 26/09 (`BeginGrid`), mais son `sizes` — la
+    // largeur de chaque colonne — n'a AUCUN équivalent dans NKGui, qui ne prend
+    // que le NOMBRE de colonnes. Le monteur ne l'approxime pas et ne le jette
+    // pas : il le COMPTE (`attributsNonHonores`, visible dans la sonde).
+    //
+    // ⚠️ C'est le silence le plus coûteux qu'on évite ici : un document rendu
+    //    AUTREMENT que demandé n'a pas l'air cassé, il a l'air normal.
+    Grid "raccourcis" {
+      columns = 2
+      gap = 4
+      sizes = [90, 90]
+
+      Text "g1" { text = "Espace" }
+      Text "g2" { text = "Jouer" }
+      Text "g3" { text = "I" }
+      Text "g4" { text = "Insérer" }
+    }
   }
 }
 

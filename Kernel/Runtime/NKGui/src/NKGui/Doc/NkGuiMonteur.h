@@ -148,7 +148,36 @@ namespace nkentseu {
 			//     checked` : les deux vocabulaires coincident sans qu'on invente un mot.
 			MenuBar,
 			Menu,
-			MenuItem
+			MenuItem,
+			// =================================================================
+			//  DEUX CONTENEURS DE PLUS (2026-09-26), ET DEUX SEULEMENT
+			// =================================================================
+			//  Sur les douze roles que le format acceptait sans que le monteur les
+			//  monte, ce sont les DEUX SEULS dont le schema du format et la
+			//  signature de NKGui coincident sans rien inventer :
+			//    `Flow { gap }`           -> `BeginFlow(ctx, gap)`
+			//    `Grid { columns, gap }`  -> `BeginGrid(ctx, columns, gap)`
+			//
+			//  ⚠️ ET LE COMPTE N'EST PAS CELUI QU'ON ESPERAIT. NKGui a bien une
+			//     fonction pour presque tous les autres, mais AUCUNE ne correspond
+			//     exactement :
+			//      - `Switch`, `RadioGroup` : AUCUNE fonction dans NKGui. Du neuf.
+			//      - `Stack` : `BeginStack(ctx, width, height)` EXIGE une taille que
+			//        le schema (`anchor` seul) ne porte pas -- il faudrait l'inventer.
+			//      - `Row`/`Column` : AMBIGUS. Leur schema est identique a celui de
+			//        `HBox`/`VBox` (donc des synonymes), mais NKGui a AUSSI un
+			//        `BeginRow`/`BeginColumn` a poids de flex, qui est autre chose.
+			//        Trancher serait decider a la place de Rodolf.
+			//      - `ColorField` : `ColorEdit4` existe, mais `bind` passe par un
+			//        modele qui ne stocke QU'UN `float32` -- une couleur n'y tient pas.
+			//      - `NumberField`, `Drag`, `ImageButton`, `Table` : plausibles, mais
+			//        chacun a un attribut sans equivalent (`dir`, `valueType`, les
+			//        references d'image, les colonnes nommees). Recenses, pas montes.
+			//
+			//  Le detail, role par role, est dans
+			//  `echanges/interface-document.reponses.md`.
+			Flow,
+			Grid
 			// 🔴 `ContextMenu` N'EST PAS ICI, ET C'EST UN REFUS, PAS UN OUBLI. NKGui a
 			//    bien `BeginPopupMenu`, mais il ne rend vrai que si quelqu'un a appele
 			//    `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et ce monteur monte l'etat au
@@ -205,6 +234,8 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "MenuBar")) return NkGuiRole::MenuBar;
 			if (NkGMotEgal(n, "Menu")) return NkGuiRole::Menu;
 			if (NkGMotEgal(n, "MenuItem")) return NkGuiRole::MenuItem;
+			if (NkGMotEgal(n, "Flow")) return NkGuiRole::Flow;
+			if (NkGMotEgal(n, "Grid")) return NkGuiRole::Grid;
 			// `ContextMenu` n'est PAS traduit : voir le refus motive dans l'enumeration.
 			return NkGuiRole::Inconnu;
 		}
@@ -324,6 +355,12 @@ namespace nkentseu {
 				///    l'ecrire n'importe ou. On le compte au lieu de le poser dans le
 				///    flux, ou il aurait l'air d'un bouton qui n'en est pas un.
 				uint32 elementsMenuHorsMenu = 0;
+				/// ⚠️ LES ATTRIBUTS QUE LE FORMAT ECRIT ET QUE CE MONTEUR NE REND PAS.
+				///    Aujourd'hui : le `sizes` d'une `Grid` (NKGui ne prend que le NOMBRE
+				///    de colonnes). Un tel attribut ne fait pas REFUSER le document -- il
+				///    le fait rendre AUTREMENT que demande, ce qui est le silence le plus
+				///    couteux des deux. Il se compte donc, comme `etatsNonAppliques`.
+				uint32 attributsNonHonores = 0;
 				/// Les ZONES d'ancrage declarees par le document.
 				uint32 zones = 0;
 				/// ⚠️ CELLES QUE L'APPLICATION NE FOURNIT PAS. C'est le troisieme pire
@@ -2085,6 +2122,43 @@ namespace nkentseu {
 						//     et son nom -- ce qu'aucun contenu plausible ne ressemble -- et
 						//     elle se COMPTE (`hotesNonRemplis`). Un manque muet se fait
 						//     prendre pour un fond ; un manque qui se voit se repare.
+						// ═══════════════════════════════════════════════════
+						//  DEUX CONTENEURS DE PLUS -- ET DEUX SEULEMENT
+						// ═══════════════════════════════════════════════════
+						case NkGuiRole::Flow: {
+							// Horizontal AVEC retour a la ligne : c'est la seule difference avec
+							// une `HBox`, et NKGui la porte deja (`BeginFlow`).
+							const float32 gapF = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
+							const NkVec2 cF = ctx.layout.cursor;
+							BeginFlow(ctx, gapF);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
+							EndFlow(ctx);
+							Noter(rap, id, t, BlocConsomme(ctx, cF), prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Grid: {
+							// `columns` est le seul attribut que NKGui demande. Un document qui ne
+							// le donne pas decrit une grille d'UNE colonne -- ce qui est une
+							// colonne, pas une erreur.
+							const int32 colonnes = (int32)NkGNombre(w, "columns", 1.f);
+							const float32 gapG = NkGA(w, "gap") ? NkGNombre(w, "gap", -1.f) : -1.f;
+							// ⚠️ `sizes` EST ECRIT PAR LE FORMAT ET NKGui NE LE PREND PAS.
+							//    `BeginGrid` n'a que le NOMBRE de colonnes. On le COMPTE plutot
+							//    que de le jeter en silence : le document obtiendrait des colonnes
+							//    EGALES la ou il demande des largeurs, et rien ne le dirait. Un
+							//    document rendu AUTREMENT que demande est plus couteux qu'un
+							//    document refuse.
+							if (NkGA(w, "sizes"))
+								++rap.attributsNonHonores;
+							const NkVec2 cG = ctx.layout.cursor;
+							BeginGrid(ctx, colonnes < 1 ? 1 : colonnes, gapG);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+							EndGrid(ctx);
+							Noter(rap, id, t, BlocConsomme(ctx, cG), prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
 						// ═════════════════════════════════════════════════════
 						//  LES MENUS -- ON APPELLE NKGui, ON NE REDESSINE RIEN
 						// ═════════════════════════════════════════════════════
