@@ -2257,9 +2257,20 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::TreeItem: {
+							// MEME FAUTE, MEME CORRECTIF QUE `Expander` : `expanded` est un
+							// etat INITIAL. Le reposer a chaque image refermait la branche
+							// sous le doigt de qui vient de l'ouvrir.
 							const NkString titre = NkGTexte(w, "label", id.CStr());
-							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), NkGBooleen(w, "expanded", false));
-							if (TreeNode(ctx, titre.CStr())) {
+							if (e && !e->initialise) {
+								e->b = NkGBooleen(w, "expanded", false);
+								e->initialise = true;
+							}
+							ctx.SetNodeOpen(ctx.GetId(titre.CStr()),
+											e ? e->b : NkGBooleen(w, "expanded", false));
+							const bool ouvert = TreeNode(ctx, titre.CStr());
+							if (e)
+								e->b = ouvert;
+							if (ouvert) {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								TreePop(ctx);
 							}
@@ -2346,12 +2357,50 @@ namespace nkentseu {
 								const char *v = getenv("NK_PLIABLE_MUTATION");
 								return v && v[0] == 't';
 							}();
+							// 🔴 ET UNE SECONDE, `=fige`, QUI REMET LE DEFAUT DU 26/09. Elle
+							//    reprend la valeur du document A CHAQUE IMAGE, comme le faisait
+							//    ce `case` : l'accordeon se refermait alors sous le doigt, parce
+							//    que le pli suivant ecrasait le geste. `NkGuiMonteEtat::Entree`
+							//    porte pourtant `initialise` DEPUIS SA CREATION, et son
+							//    commentaire dit exactement ca -- « chaque trame ecraserait ce
+							//    que l'utilisateur a change ». Le `Splitter`, dix lignes plus
+							//    haut, applique la regle ; le pliable ne l'appliquait pas.
+							//    *Une regle ecrite dans le champ qui la porte n'est pas une
+							//    regle appliquee.*
+							static const bool kFige = []() {
+								const char *v = getenv("NK_PLIABLE_MUTATION");
+								return v && v[0] == 'f';
+							}();
 							const NkString titre = NkGTexte(w, "label", id.CStr());
-							const bool voulu = kToujours || NkGBooleen(w, "expanded", false);
+							// LE DOCUMENT DONNE L'ETAT INITIAL, PAS UN ORDRE PERMANENT.
+							if (e && !e->initialise) {
+								e->b = NkGBooleen(w, "expanded", false);
+								e->initialise = true;
+							}
+							const bool voulu = kToujours
+												   ? true
+												   : ((e && !kFige) ? e->b
+																	: NkGBooleen(w, "expanded", false));
 							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), voulu);
-							if (CollapsingHeader(ctx, titre.CStr()))
+							// 🔴 ET SON RECTANGLE RELEVE ETAIT CELUI DE SON ENFANT. Avec un
+							//    `break`, le `Noter` generique enregistrait `BlocConsomme` pris
+							//    APRES l'en-tete : sur un accordeon d'un seul bouton, le releve
+							//    donnait exactement le rectangle du bouton. Qui vise « le milieu
+							//    de l'accordeon » cliquait donc DANS son contenu -- c'est ce qui
+							//    a fait rougir deux criteres sur un correctif juste. Le bloc est
+							//    donc pris AVANT l'en-tete : le releve couvre l'en-tete ET le
+							//    contenu, et sa premiere rangee EST la barre cliquable.
+							const NkVec2 cExp = ctx.layout.cursor;
+							const bool ouvert = CollapsingHeader(ctx, titre.CStr());
+							// LE GESTE, garde dans l'etat -- jamais reecrit dans le document.
+							if (e && !kToujours && !kFige)
+								e->b = ouvert;
+							if (ouvert)
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
-							break;
+							Noter(rap, id, t, BlocConsomme(ctx, cExp), prof, true, horizontal,
+								  &ctx.layout.region);
+							++rap.montes;
+							return;
 						}
 						// ── LA BANDE D'ONGLETS ───────────────────────────────
 						// ⚠️ LE FORMAT DIT `tabs`, PAS `items`. Le schema du role

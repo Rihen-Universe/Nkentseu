@@ -363,6 +363,18 @@ struct Scene {
 				}
 			return false;
 		}
+
+		/// Le meme, CONTENEURS COMPRIS. `Rect` les ecarte -- c'est ce qu'il faut
+		/// quand on vise un widget de saisie, et c'est faux quand on vise un
+		/// accordeon : sa barre cliquable appartient au conteneur lui-meme.
+		bool RectTout(const char *id, NkRect &out) const {
+			for (uint32 i = 0; i < (uint32)rap.items.Size(); ++i)
+				if (rap.items[i].id.Compare(NkString(id)) == 0) {
+					out = rap.items[i].rect;
+					return true;
+				}
+			return false;
+		}
 };
 
 // Le compteur d'appels de l'application -- le bout du fil de (b2).
@@ -972,6 +984,98 @@ int main(int argc, char **argv) {
 				   herite, auTheme);
 			Check(herite > 0u, "(b1.h) l'encre du repos SURVIT au survol -- elle est le socle");
 			Check(herite > auTheme, "(b1.h) NEGATIF : le theme n'a pas repris la main");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b1.j) L'ACCORDEON SE PLIE ET RESTE PLIE\n");
+	// =====================================================================
+	{
+		// 🔴 CE QUE CE CAS A TROUVE, LE 26/09. Rodolf : « j'espere que on pourra
+		//    facilement programmer des accordeon ». Le role `Expander` existait,
+		//    montait, et repliait son contenu -- mais il appelait
+		//    `SetNodeOpen(id, expanded_du_document)` A CHAQUE IMAGE. Le clic
+		//    basculait bien l'etat de NKGui, et l'image SUIVANTE le remettait comme
+		//    le document le demande. **L'accordeon se refermait sous le doigt.**
+		//
+		//    `NkGuiMonteEtat::Entree` porte `initialise` depuis sa creation, et son
+		//    commentaire dit deja la regle : « chaque trame ecraserait ce que
+		//    l'utilisateur a change ». Le `Splitter` l'applique. Le pliable ne
+		//    l'appliquait pas. *Une regle ecrite dans le champ qui la porte n'est
+		//    pas une regle appliquee.*
+		//
+		// ⚠️ LA MESURE PORTE SUR L'ENFANT, PAS SUR L'EN-TETE. Un accordeon ferme
+		//    garde son en-tete : compter « des pixels dans la zone » resterait vert
+		//    les deux fois. C'est le `Button` de l'interieur, avec SA couleur, qui
+		//    dit si le contenu est deplie.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Expander \"section\" {\n"
+			"    label = \"Transport\"\n"
+			"    expanded = true\n"
+			"    Button \"dedans\" {\n"
+			"      label = \"Jouer\"\n"
+			"      appearance { fill { color = #1A7F37 } }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 300, 160),
+			  "(b1.j) le document a accordeon se charge");
+		s.Image();
+		s.Image();
+		const uint32 deplie = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
+		printf("        deplie (expanded = true) : %u px de l'enfant\n", deplie);
+		Check(deplie > 0u, "(b1.j) l'accordeon ouvert par le document montre son contenu");
+
+		// L'EN-TETE : son rectangle sort du releve, on ne le devine pas.
+		NkRect rTete{0.f, 0.f, 0.f, 0.f};
+		const bool aTete = s.RectTout("section", rTete);
+		Check(aTete, "(b1.j) le rectangle de l'en-tete sort du montage");
+		if (aTete) {
+			// Un clic : pointeur pose (deux images pour `hotIdPrev`), puis
+			// l'enfoncement, puis le relachement -- `mouseClicked` est une
+			// TRANSITION, pas un etat.
+			// ⚠️ LE RECTANGLE RELEVE EST CELUI DU BLOC ENTIER, PAS DE L'EN-TETE.
+			//    Viser son milieu (`y + h/2`) tombe DANS le contenu deplie : premiere
+			//    version de ce cas, le clic n'atteignait jamais la barre et les deux
+			//    criteres rougissaient sur un correctif JUSTE. L'en-tete est la
+			//    premiere rangee : `CollapsingHeader` lui donne `ctx.ItemHeight()`.
+			const float32 cx = rTete.x + 12.f;
+			const float32 cy = rTete.y + s.ctx.ItemHeight() * 0.5f;
+			s.exe.PoserPointeur(s.ctx, cx, cy);
+			s.Image();
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, true);
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, false);
+			s.Image();
+			const uint32 apresClic = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
+			printf("        apres UN clic sur l'en-tete : %u px\n", apresClic);
+			CheckEqU(apresClic, 0u, "(b1.j) LE CLIC PLIE l'accordeon");
+
+			// ⚠️ ET LA MOITIE QUI MANQUAIT AVANT LE CORRECTIF : il doit RESTER plie.
+			//    Le defaut ne se voyait pas a l'image du clic -- il se voyait a la
+			//    suivante, quand le document reimposait son `expanded = true`.
+			s.Image();
+			s.Image();
+			s.Image();
+			const uint32 troisImagesPlusTard = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
+			printf("        trois images plus tard : %u px\n", troisImagesPlusTard);
+			CheckEqU(troisImagesPlusTard, 0u,
+					 "(b1.j) IL RESTE PLIE -- le document donne l'etat INITIAL, pas un ordre");
+
+			// Et il se rouvre : un pli qui ne se deplie plus serait l'autre panne.
+			s.exe.PoserBouton(s.ctx, 0, true);
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, false);
+			s.Image();
+			s.Image();
+			const uint32 rouvert = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
+			printf("        apres un second clic : %u px\n", rouvert);
+			Check(rouvert > 0u, "(b1.j) un second clic le rouvre");
 		}
 		s.exe.Debrancher(s.ctx);
 	}

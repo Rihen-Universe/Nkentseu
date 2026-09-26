@@ -52,11 +52,17 @@ La première ligne déclare la version. Tout le reste est fait de **blocs** :
 | `controller` | le contrôleur (le C de MVC) | ❌ ignoré |
 | `callback` | signatures de rappel | ❌ ignoré |
 | `fonts` | les polices | ❌ ignorée |
-| `include` | inclure un autre document | ❌ **déclaré, traité par personne** |
+| `include` | inclure un autre document | ✅ **résolu avant le montage** *(26/09)* |
 
-⚠️ **`include` est le cas le plus frappant** : il est au vocabulaire depuis
-toujours et **rien ne le lit**. C'est le fil le plus court vers la composition
-par fichiers, et il n'est pas tiré.
+`include "composants.nkgui"` insère le contenu **à la place exacte** de la
+ligne. Il s'écrit donc **avant** `widgets` quand il apporte des composants :
+écrit après, ils arriveraient trop tard et leurs instances seraient comptées
+comme des **rôles inconnus** — le développement ne réordonne pas pour rattraper
+l'auteur.
+
+Les refus sont **nommés** — introuvable, illisible, cycle, provenance inconnue —
+et comptés (`inclusions`) : une inclusion qui échoue ne disparaît pas en
+silence.
 
 ---
 
@@ -216,21 +222,59 @@ Button "valider" {
 
 | déclaration | peint ? |
 |---|---|
-| `fill { color }` | ✅ **sur `Button`, `RepeatButton`, `Panel`, `Window` uniquement** |
-| `text { color }` | ✅ |
+| `fill { color }` | ✅ **sur tout rôle** *(26/09)* — voir la réserve ci-dessous |
+| `text { color }` | ✅ **sur tout rôle qui écrit du texte** *(26/09)* |
 | `radius` | ✅ |
+| `stroke { color, width }` | 🟡 **uniquement par état** (`appearance(Focus)`…), pas au repos |
 | `font = "..."` | ❌ **compté** — le monteur n'a qu'une seule fonte |
-| `shadow { }` | ❌ **compté** |
-| `stroke { }` | ❌ **compté** |
-| `appearance(Hover)` et tout état hors repos | ❌ **compté `etatsNonAppliques`** |
+| `shadow { }` | ❌ **compté** — ce rastériseur n'a ni flou ni ombre portée |
+| `appearance(Hover)` et les autres états | ✅ **peints par la couche d'exécution** |
 
-⚠️ **Un `fill` sur un `Text`, un `Group` ou une `HBox` est compté, pas tenu** —
-seuls quatre rôles ont une surface à remplir.
+### Le fond : où il se peint, et la seule réserve
+
+Un `fill` se peint **partout**, à une condition près : le monteur doit connaître
+le rectangle **avant** de monter le contenu. C'est vrai dans deux cas —
+
+* le widget est **posé** (`pos` écrit) : son rectangle est connu d'avance ;
+* c'est une **feuille en flux** : le monteur lui réserve une hauteur d'item.
+
+Reste un cas **compté, jamais inventé** : un **conteneur en flux** (`VBox` sans
+`pos`). Son rectangle n'existe qu'**après** ses enfants — le peindre à ce
+moment-là les recouvrirait. *Mieux vaut un fond absent et compté qu'un contenu
+effacé.*
+
+### Les états
+
+```
+Button "ecrire" {
+  label = "Enregistrer"
+  appearance         { radius = 4, fill { color = #F79A28 }, text { color = #10222B } }
+  appearance(Hover)  { fill { color = #FFB055 } }
+  appearance(Pressed){ fill { color = #D9821A } }
+  appearance(Disabled) { fill { color = #7A6A55 }, text { color = #C9BBA6 } }
+}
+```
+
+Les cinq états, **dans cet ordre de priorité** — `Disabled > Pressed > Hover >
+FocusVisible > Focus > Normal`. Un seul s'applique : *le cumul produirait un
+rendu que personne n'a dessiné.*
+
+⚠️ **`appearance { }` et `appearance(Normal) { }` sont le même état.** Le repos
+est le **socle** : un état qui ne parle que du fond garde l'encre du repos.
+
+⚠️ **Le survol a une image de retard.** NKGui résout le survol sur l'image
+**précédente** : une mesure prise après une seule image conclurait à tort que
+rien ne réagit.
+
+⚠️ **Écris l'encre de `Disabled` si tu écris son fond.** Sans elle le thème
+grise le libellé, ce qui est le bon défaut — mais si ton fond grisé est sombre,
+le libellé grisé disparaît dedans.
 
 ⚠️ **N'écris une couleur que si elle porte une information.** La couleur par
 défaut vient du **thème** (GitHub Dark Pro / Light Pro). Une couleur en dur
 reste **sombre en thème clair** : l'utilisateur verrait un bloc noir dans une
-application blanche.
+application blanche. Le bon usage : laisser le thème décider du **repos**, et
+n'écrire que ce que le thème ne sait pas — comment le widget **réagit**.
 
 ---
 
@@ -306,15 +350,37 @@ widgets {
 
 | | |
 |---|---|
-| **les états** | écrits, comptés, **jamais peints** |
 | **les animations** | la section voyage, **jamais jouée** |
-| **les événements** | aucun `on Changed(...)` |
 | **les transformations** | rotation, miroir, perspective, opacité, fusion : **aucun vocabulaire** |
-| **`include`** | déclaré, **traité par personne** |
+| **`shadow`** | déclaré, compté, **jamais peint** — pas de flou dans ce rastériseur |
+| **`Grid.sizes`** | écrit par le format, **compté** : `BeginGrid` n'a qu'un nombre de colonnes |
+| **le poids / l'expansion** | `Weight`, `Expand` : *« partage le reste au prorata »* n'est pas une taille, **aucun équivalent** |
+| **déplacer une fenêtre** | `NoMove`, `NoResize`… sont **comptés** : ce monteur monte l'état au repos |
+
+Et ce qui est **arrivé** depuis la première version de ce guide *(26/09)* :
+les **états** sont peints, les **événements** sont branchés (`on Changed`,
+`on Click`, `on Hover`), **`include`** est résolu, **`component`** est développé,
+et **`fill`** peint partout.
 
 ⚠️ **Écris-les quand même.** Ils voyagent dans le fichier et se comptent — donc
 le jour où ils seront branchés, ton document s'anime **sans être réécrit**. Ce
 qui n'aurait pas été écrit, lui, serait perdu.
+
+---
+
+## 9bis. `expanded` est un état **initial**, pas un ordre
+
+```
+Expander "section" { label = "Transport", expanded = true, ... }
+```
+
+Le document donne la valeur **de départ**. Ensuite, c'est l'utilisateur qui
+décide : son pli est gardé dans l'état du montage, pas réécrit dans le fichier.
+
+⚠️ **C'est la règle de tout ce qui s'édite** — `Splitter.ratio`, la valeur d'un
+`Slider`, le texte d'un `TextField`. Un document qui réimposerait sa valeur à
+chaque image refermerait l'accordéon **sous le doigt** de qui vient de l'ouvrir,
+et ce défaut-là ne se voit pas à l'image du clic : il se voit à la suivante.
 
 ---
 
@@ -326,8 +392,10 @@ Les compteurs, visibles dans la sonde de chaque application :
 |---|---|
 | `rolesInconnus` | un nom hors vocabulaire — **le document est refusé** |
 | `attributsNonHonores` | le monteur n'a pas d'équivalent (`Grid.sizes`) |
-| `apparencesNonPeintes` | `font`, `shadow`, `stroke`, `fill` hors des 4 rôles |
-| `etatsNonAppliques` | `appearance(Hover)` et consorts |
+| `apparencesNonPeintes` | `font`, `shadow`, un `fill` sur un conteneur **en flux**, une encre sur un conteneur |
+| `etatsNonAppliques` | ⚠️ **pas une alarme** : les états hors de portée du **monteur seul** (il n'a ni souris ni focus). La couche d'exécution les peint. |
+| `couleursDistinctes` / *muettes* | chaque couleur que le document réclame, **comptée dans les pixels** ; une seule muette rougit |
+| `couleursTranslucides` | écartées du compte — elles se mélangent, les chercher au pixel près rendrait zéro sur un rendu juste |
 | `elementsMenuHorsMenu` | un `MenuItem` posé hors d'un menu |
 | `hotes` | zones réclamées / zones servies |
 | `actionsInconnues` | un bouton nomme une action que l'application ne sert pas |
