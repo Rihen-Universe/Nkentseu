@@ -395,7 +395,13 @@ namespace nkentseu {
 			if (auto *texLib = ctx.renderer->GetTextures()) {
 				const NkTexHandle blanc = texLib->GetWhite1x1();
 				if (blanc.IsValid()) {
-					st->matOccultant->SetTexture("albedo_map", blanc);
+					// « albedo_map » retire le 26/09/2026 : ce canal n'existe pas --
+					// la liaison lit « albedo » (NkMaterialSystem.cpp:620) et un nom
+					// inconnu est stocke sans jamais etre lu. Ecrire les deux etait
+					// une ceinture-et-bretelles sans effet ; la valeur posee etant
+					// le meme blanc, rien ne change ici. La ligne partait desormais
+					// avec un avertissement, ce qui aurait fait passer un banc sain
+					// pour fautif.
 					st->matOccultant->SetTexture("albedo", blanc);
 				}
 			}
