@@ -398,13 +398,19 @@ NkAnimaEditor.exe --sonde-coquille                    -> 6/6   (3 bandes + l'act
 NkAnimaEditor.exe --sonde-coquille --interface=<dir>  -> monte un AUTRE jeu de documents
 ```
 
-Mesure de référence du 25/09 (documents livrés) :
+Mesure de référence du 26/09 (documents livrés) :
 
 ```
-barre_outils     widgets=7  montes=7  contenu=11462  inconnus=0  hotes=0/0
+barre_outils     widgets=9  montes=9  contenu=14769  inconnus=0  hotes=0/0
 barre_etat       widgets=3  montes=3  contenu=3153   inconnus=0  hotes=0/0
 panneau_outils   widgets=10 montes=10 contenu=34125  inconnus=0  hotes=1/1
 ```
+
+⚠️ **CES NOMBRES SE PÉRIMENT À CHAQUE MODIFICATION DES DOCUMENTS — et c'est le sujet même, pas un
+défaut du relevé.** `barre_outils` valait `widgets=7 contenu=11462` le 25/09 ; l'ajout du bouton
+« Compteurs de rendu » **dans le fichier** l'a porté à 9 et 14 769 **sans recompiler** (binaire
+identique à l'octet). Ne comparez donc pas un chiffre à celui d'hier : ce qui doit rester vrai,
+c'est `inconnus=0`, `hotes` servis, et la ligne `disque == réémis`.
 
 ⚠️ **`contenu` compte les pixels qui S'ÉCARTENT DE LA DOMINANTE, pas les pixels peints.** La
 première version comptait « différent du fond effacé » et rendait **exactement l'aire** des trois
