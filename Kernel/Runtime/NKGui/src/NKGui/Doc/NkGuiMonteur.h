@@ -1580,6 +1580,50 @@ namespace nkentseu {
 					if (app.aFond && !fondPeintIci && !fondTenuAilleurs)
 						++rap.apparencesNonPeintes;
 
+					// ═════════════════════════════════════════════════════════
+					//  L'ENCRE DU DOCUMENT — UNE SEULE PORTE POUR TOUS LES ROLES
+					// ═════════════════════════════════════════════════════════
+					//  🔴 CE QUI SE PASSAIT AVANT (26/09). `text { color }` etait honore
+					//     par le `case Text` et par PERSONNE D'AUTRE. Un `Button`, une
+					//     `CheckBox`, un `Selectable` recevaient l'encre du theme quoi que
+					//     le document ecrive -- et le bouton orange de NkAnimaEditor
+					//     rendait **0 pixel** de l'encre qu'il demande. *Deux roles, un
+					//     seul des deux lisait le meme attribut du meme document.*
+					//
+					//  ⚠️ LA SURCHARGE NE VAUT QUE POUR LES ROLES SANS ENFANTS, et cette
+					//     regle est deja ecrite plus haut dans ce fichier : un conteneur
+					//     dont le theme resterait surcharge pendant le montage de ses
+					//     enfants TEINDRAIT ses enfants. Un conteneur qui demande une
+					//     encre est donc COMPTE, pas honore.
+					//
+					//  ⚠️ ET LA RESTAURATION PASSE PAR UN OBJET DE PILE, pas par de la
+					//     discipline : le `switch` qui suit compte des dizaines de
+					//     `return`, et ce fichier a deja paye la meme lecon sur
+					//     `BeginDisabled`.
+					struct EncreDuDocument {
+							NkGuiContext *c;
+							NkColor sauve;
+							bool posee;
+							EncreDuDocument(NkGuiContext &cx, const NkGuiApparenceRepos &a,
+											bool conteneur, NkGuiMonteRapport &r) noexcept
+								: c(&cx), sauve(cx.theme.text), posee(false) {
+								if (!a.aEncre)
+									return;
+								if (conteneur) {
+									++r.apparencesNonPeintes;
+									return;
+								}
+								cx.theme.text = a.encre;
+								++r.apparencesPeintes;
+								posee = true;
+							}
+							~EncreDuDocument() {
+								if (posee)
+									c->theme.text = sauve;
+							}
+					};
+					EncreDuDocument encre(ctx, app, estConteneurFond, rap);
+
 					bool aDessine = true;
 					float32 valeurMontee = 0.f;
 					bool aValeurMontee = false;
@@ -1824,16 +1868,13 @@ namespace nkentseu {
 							//    ne peint pas pour un texte : on le COMPTE plutot que de l'inventer
 							//    -- inventer un rectangle demanderait de mesurer le texte avant de le
 							//    dessiner, ce que ce monteur ne fait pas.
-							const NkColor sauve = ctx.theme.text;
-							if (app.aEncre) {
-								ctx.theme.text = app.encre;
-								++rap.apparencesPeintes;
-							}
+							//  L'encre est POSEE PLUS HAUT, par `EncreDuDocument`, pour tous
+							//  les roles a la fois. La poser ici EN PLUS aurait fait deux
+							//  ecrivains sur `theme.text` et deux comptes pour un attribut.
 							if (NkGBooleen(w, "wrap", false))
 								TextWrapped(ctx, s.CStr());
 							else
 								Text(ctx, s.CStr());
-							ctx.theme.text = sauve;
 							break;
 						}
 						case NkGuiRole::Button: {
@@ -1846,6 +1887,7 @@ namespace nkentseu {
 								ctx.theme.button = app.fond;
 								++rap.apparencesPeintes;
 							}
+							// L'encre du libelle vient de `EncreDuDocument`, pose plus haut.
 							(void)Button(ctx, s.CStr());
 							ctx.theme.button = sauve;
 							break;

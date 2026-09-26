@@ -2008,6 +2008,87 @@ int main(int argc, char **argv) {
 		CheckEq(d2.rap.zonesSansPanneau, 0u, "   NEGATIF : un hote complet ne signale RIEN");
 		Check(d2.empreinte != d1.empreinte, "   et les deux images different");
 	}
+
+	// =========================================================================
+	printf("\n-- L'ENCRE DU DOCUMENT SUR UN BOUTON, PAR LE MONTEUR SEUL --\n");
+	// =========================================================================
+	//  🔴 CE QUE CE CAS A TROUVE, LE 26/09. `text { color }` etait lu par
+	//     `NkGuiLireApparenceRepos` et honore par le seul `case Text`. Un `Button`
+	//     recevait l'encre du THEME quoi que le document ecrive : sur
+	//     `panneau_outils.nkgui` de NkAnimaEditor, l'encre demandee (#10222B)
+	//     rendait **0 pixel** pour 2 420 pixels d'orange. *Deux roles, un seul des
+	//     deux lisait le meme attribut du meme document.*
+	//
+	//  ⚠️ ET CE BANC EST LE SEUL QUI PUISSE LE DIRE. L'autre chemin (le crochet de
+	//     style, `NKGuiInteractTest`) fournit la meme encre des que le document la
+	//     declare : couper l'un des deux y laisse tout vert. Ici il n'y a PAS de
+	//     crochet -- le monteur monte seul, et il est donc seul responsable.
+	//
+	//  ⚠️ LA MESURE COMPARE DEUX IMAGES, pas une couleur exacte. Un libelle de
+	//     15 px est anticrenele : la couleur demandee n'apparait presque jamais
+	//     telle quelle (mesure : #15252b, #1b282b... et zero pixel exactement egal).
+	//     On monte donc le MEME document deux fois -- avec et sans le bloc `text`
+	//     -- et on exige que l'image CHANGE, puis que le changement aille dans le
+	//     bon sens : l'encre demandee est SOMBRE, celle du theme est CLAIRE, donc
+	//     la luminance du contenu doit BAISSER.
+	{
+		static const char kAvecEncre[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { fill { color = #F79A28 }, text { color = #10222B } }\n"
+			"  }\n"
+			"}\n";
+		static const char kSansEncre[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { fill { color = #F79A28 } }\n"
+			"  }\n"
+			"}\n";
+		g_garderPixels = true;
+		const Montage avec = MonterTexte(kAvecEncre, (uint32)(sizeof(kAvecEncre) - 1u), 300, 80);
+		const Montage sans = MonterTexte(kSansEncre, (uint32)(sizeof(kSansEncre) - 1u), 300, 80);
+		g_garderPixels = false;
+		Check(avec.lu && sans.lu, "   les deux documents se lisent");
+		Check(avec.rap.montes == 1u && sans.rap.montes == 1u, "   un bouton monte de chaque cote");
+		// L'apparence supplementaire est COMPTEE : le bloc `text` en plus doit se
+		// voir dans le rapport, sinon le monteur l'a ignore avant meme de peindre.
+		printf("        apparences peintes : avec encre %u, sans encre %u\n",
+			   avec.rap.apparencesPeintes, sans.rap.apparencesPeintes);
+		CheckEq(avec.rap.apparencesPeintes, sans.rap.apparencesPeintes + 1u,
+				"   le bloc `text` compte pour UNE apparence peinte de plus");
+		const uint32 diff = PixelsQuiDifferent(avec, sans);
+		printf("        pixels qui different entre les deux images : %u\n", diff);
+		Check(diff != 0xFFFFFFFFu, "   les deux images sont comparables");
+		Check(diff > 0u, "   L'ENCRE CHANGE L'IMAGE -- le monteur l'honore sur un Button");
+		// ⚠️ « DIFFERENT » N'EST PAS « JUSTE ». Ce depot a deja compte 3 778 pixels
+		//    differents que personne ne voyait. Le SENS du changement tranche :
+		//    l'encre demandee est sombre, celle du theme est claire.
+		float32 sommeAvec = 0.f, sommeSans = 0.f;
+		uint32 nAvec = 0u, nSans = 0u;
+		for (uint32 i = 0; i + 3u < (uint32)avec.px.Size(); i += 4u) {
+			if (avec.px[i] != sans.px[i] || avec.px[i + 1u] != sans.px[i + 1u]
+				|| avec.px[i + 2u] != sans.px[i + 2u]) {
+				sommeAvec += 0.2126f * (float32)avec.px[i] + 0.7152f * (float32)avec.px[i + 1u]
+							 + 0.0722f * (float32)avec.px[i + 2u];
+				sommeSans += 0.2126f * (float32)sans.px[i] + 0.7152f * (float32)sans.px[i + 1u]
+							 + 0.0722f * (float32)sans.px[i + 2u];
+				++nAvec;
+				++nSans;
+			}
+		}
+		const float32 lumAvec = nAvec ? sommeAvec / (float32)nAvec : 0.f;
+		const float32 lumSans = nSans ? sommeSans / (float32)nSans : 0.f;
+		printf("        luminance moyenne des pixels qui changent : avec %.1f, sans %.1f\n",
+			   (double)lumAvec, (double)lumSans);
+		Check(lumAvec < lumSans,
+			  "   et elle va dans le BON SENS : l'encre demandee est plus sombre que celle du "
+			  "theme");
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
