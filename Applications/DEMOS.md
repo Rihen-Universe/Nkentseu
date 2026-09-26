@@ -471,3 +471,54 @@ d'environnement.
 Elle se lance, mais **la forme ne changera pas** : `SetCursor` n'y est pas implémenté. Le journal
 écrit alors un **refus nommé** — c'est précisément ce qu'elle doit montrer là-bas. Table complète :
 `wiki/Runtime/NKWindow/Curseur-par-dorsal.md`.
+
+---
+
+## Contact — « une bille tombe sur un plan et s'arrête »
+
+**Ce que ça montre, et c'est un câblage, pas un module :** le pont ECS → physique de Noge,
+`Noge/ECS/Systems/NkPhysicsSystem` — celui que `NkEngineLayer` enregistre. Une entité avec
+`NkTransform` + `NkRigidbody3D` + `NkCollider3D`, le pas fixe, la détection NKCollision, le solveur
+de contacts de NKPhysics, puis la synchronisation retour vers le transform.
+
+⚠️ **Cette démo est le PREMIER consommateur réel de ce pont.** Avant elle, aucune application ne
+créait de `NkRigidbody3D` : le fil était posé, enregistré, et **personne ne le traversait**. Il
+était cassé, et rien ne pouvait le dire.
+
+### Comment la lancer
+
+`Build/Bin/Release-Windows/NkDemoContact/NkDemoContact.exe` — rien à préparer.
+`NkDemoContact.exe --mesure` donne le même montage sans fenêtre, avec un verdict chiffré.
+
+### Ce qu'on doit voir
+
+- une **bille** qui tombe, **rebondit une fois** et **s'arrête** sur le plan, posée dessus ;
+- **première ligne : l'identité de construction** — heure de compilation et chemin de l'exécutable ;
+- deux lignes de chiffres : pour la bille et pour le sol, la hauteur du **CORPS** et celle de sa
+  **FORME DE COLLISION**. ⚠️ Elles doivent **coïncider** (écrites en vert). La seconde est
+  recalculée **depuis le moteur** (`NkTransformShape` sur la `restShape`), jamais depuis la consigne
+  de la scène : *ce dépôt a déjà payé « la pente n'existait pas », où les mesures étaient prises sur
+  un sol plat qu'on croyait incliné* ;
+- ⚠️ la case **« COUPER LA COLLISION »** : cochez-la, la bille **traverse le plan** et continue de
+  tomber. **Le négatif se voit à l'œil**, sans journal ;
+- un clic dans le vide relâche la bille à nouveau ; la case **Pause** fige le temps.
+
+La vue est de **côté** (plan X-Y) : la physique est bien en trois dimensions, seul l'affichage est
+plat — c'est écrit à l'écran pour que personne n'ait à le deviner.
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| ⚠️ les deux hauteurs **divergent** (lignes rouges) | la forme de collision ne suit plus son corps : **la scène ne dit pas ce qu'on croit**, et tout le reste porte sur autre chose. C'était le défaut du 26/09 : un écart constant de 6 m, exactement la hauteur de départ |
+| la bille **traverse** alors que la case est décochée | le contact n'est plus résolu — ou la paire est filtrée par le masque de couche |
+| la bille **s'arrête en l'air**, loin du plan | le sol est ailleurs qu'où il se dessine : comparer les deux hauteurs du sol |
+| la bille **s'arrête** alors que la case est **cochée** | le négatif ne réfute plus rien : quelque chose l'arrête qui n'est pas la collision |
+| elle **s'enfonce lentement** dans le plan | la correction positionnelle ne compense plus l'enfoncement |
+| `--mesure` rend `Status: ROUGE` | le verdict chiffré dit lequel des trois critères a lâché |
+
+### Ce que le négatif ne prouve pas
+
+Coupée, la collision donne une chute libre : **le même chiffre avant et après le correctif du
+26/09** (−48,64 m). Il montre donc que le montage sait distinguer une non-collision — **il ne
+valide pas le correctif**. C'est la mesure du repos (0,9999 m contre 6,9950 m avant) qui le fait.

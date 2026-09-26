@@ -53,8 +53,25 @@ namespace nkentseu {
 			physics::NkBodyId CreateBodyFor(const ecs::NkRigidbody3D &rb, const ecs::NkCollider3D &col,
 											const ecs::NkTransform &tf) noexcept;
 
-			// NkCollider3D -> forme de collision (box/sphère/capsule).
-			[[nodiscard]] static collision::NkShape MakeShape(const ecs::NkCollider3D &col) noexcept;
+			// NkCollider3D -> forme de collision (box/sphère/capsule), EN REPÈRE
+			// MONDE : déjà placée à la pose de l'entité.
+			//
+			// ⚠️ LE TRANSFORM EST UN PARAMÈTRE, ET C'EST TOUT LE POINT.
+			//    `CreateBody` attend une forme DÉJÀ PLACÉE à `def.position` : il
+			//    en déduit la forme de repos par l'inverse de la pose. Une forme
+			//    centrée sur `col.center` seul (un offset LOCAL) donnait une forme
+			//    de repos décalée de -position, et la forme de collision restait
+			//    collée à l'origine du monde pendant que le corps tombait.
+			//
+			//    Mesuré le 2026-09-26 (`NkDemoContact --mesure`) : corps à 6,995 m
+			//    et sa forme à 0,995 m — un écart constant, exactement la hauteur
+			//    de départ. La simulation, elle, était JUSTE : c'est la forme qui
+			//    s'était posée sur le sol, six mètres sous son propre corps.
+			//
+			//    Même contrat que `NkUnkenyScene::AjouterCorps`, qui passait déjà
+			//    `t->position` : ce pont-ci était le seul à ne pas le faire.
+			[[nodiscard]] static collision::NkShape MakeShape(const ecs::NkCollider3D &col,
+														  const ecs::NkTransform &tf) noexcept;
 
 			// Enum Noge -> enum NKPhysics.
 			[[nodiscard]] static physics::NkBodyType ConvertBodyType(ecs::NkBodyType t) noexcept {
