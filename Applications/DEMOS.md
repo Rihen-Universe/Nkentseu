@@ -600,3 +600,42 @@ application** : le système s'exécute sur zéro entité, donc le fil de `NkEngi
 
 > *Le mécanisme est prouvé, le site ne l'est pas.* Ce qui le prouverait : une scène Sandbox
 > portant `NkSkeleton` + `NkFootIK`, sans que rien n'appelle `SetPhysicsWorld` à la main.
+
+### Depuis le 26/09 : les os se désignent PAR LEUR NOM
+
+La démo importe aussi `Resources/Models/CesiumMan/CesiumMan.glb` (**versionné**) et affiche, en bas
+de fenêtre, ses os désignés **par leur nom** — `leg_joint_L_1 = os 11`, `leg_joint_L_2 = os 13`,
+`leg_joint_L_3 = os 15`. Le nom est écrit **à côté de son indice** : c'est la seule façon de vérifier
+à l'œil qu'on plie l'os qu'on croit plier.
+
+**Ce qui a changé** : `NkGLTFIO` ne recopiait pas `nodes[].name` vers `NkBoneDef::name`, à cause d'un
+commentaire **périmé** qui affirmait que le chargeur ne lisait pas les noms. Il les lit depuis le
+2026-08. Les deux bouts du fil existaient — le champ, `FindBone`, et de quoi le remplir — seul le fil
+manquait.
+
+⚠️ **Aucune table de correspondance en dur.** Les noms des glTF réels ne suivent aucune convention
+(`mixamorig:LeftUpLeg`, `thigh.L`, `leg_joint_L_1`…). Les trois noms utilisés ici sont ceux de **ce**
+fichier, affichés à l'écran ; ils ne valent pour aucun autre modèle. *Un nom deviné serait aussi faux
+qu'un indice deviné.*
+
+⚠️ **Un nom absent reste absent.** `BrainStem.glb`, également versionné, **ne nomme aucun** de ses
+22 nœuds. Rien n'est inventé — pas de `bone_7` — et l'import **le dit une fois**, avec le compte.
+
+### ⚠️ Et ce que la ligne orange dit à l'écran : pourquoi ce n'est pas encore utilisable
+
+    CesiumMan.glb : 19 os, 19 NOMMES | leg_joint_L_1 = os 11 ...
+    ...mais 18 de ces os ont un PARENT : pose locale y=0,0014, pose monde y=0,0835
+
+`NkFootIKSystem` lit `Pose(i).localPosition` **comme si c'était une position monde**. C'est vrai pour
+un squelette **plat** (l'éprouvette procédurale), **faux** pour un squelette hiérarchique.
+
+> **Les noms sont là ; le pont, lui, suppose encore un squelette plat.** Désigner les os par leur
+> nom était nécessaire et ne suffit pas. C'est pour cela que l'éprouvette procédurale **reste** :
+> elle est le seul montage où l'IK des pieds se prouve aujourd'hui.
+
+| symptôme supplémentaire | ce que ça veut dire |
+|---|---|
+| `19 os, 0 NOMMES` en rouge | le fil de `NkGLTFIO` a sauté : plus aucun nom ne traverse l'import |
+| `leg_joint_L_1 = os -1` | le nom n'existe plus dans ce fichier, ou la recherche par nom est cassée |
+| un nom absent rend **os 0** au lieu de −1 | ⚠️ le plus dangereux : on plierait la racine en croyant plier le pied, **et tout serait vert** |
+| la ligne orange **disparaît** | plus aucun os n'a de parent — vérifier qu'on charge bien le même fichier |
