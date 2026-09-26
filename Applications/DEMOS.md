@@ -361,7 +361,7 @@ existaient depuis des jours ; ce qui manquait était le fil, et **aucune applica
 construisait sa coquille depuis un document** avant le 25/09.
 
 Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
-`barre_outils.nkgui`, `barre_etat.nkgui`, `panneau_outils.nkgui`.
+`menu_animation.nkgui`, `barre_outils.nkgui`, `barre_etat.nkgui`, `panneau_outils.nkgui`.
 
 ### Le geste — c'est le seul qui prouve quelque chose
 
@@ -371,7 +371,8 @@ Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
 2. **cliquer « Jouer / Pause »** : l'animation démarre. Le bouton vient du fichier, l'effet du C++ ;
 3. **fermer l'application**, ouvrir `Resources/Interface/NkAnimaEditor/barre_etat.nkgui`, changer le
    texte, **relancer** : le bas de la fenêtre porte le nouveau texte. **Rien n'a été recompilé** ;
-4. même geste dans `barre_outils.nkgui` : ajouter un `Button`, en retirer un, changer un libellé.
+4. même geste dans `barre_outils.nkgui` : ajouter un `Button`, en retirer un, changer un libellé ;
+5. **ouvrir le menu « Animation »** dans la barre de menus : ses six entrées, leurs raccourcis et leur ordre viennent de `menu_animation.nkgui`. En ajouter une, relancer, elle est dans le menu.
 
 ### Ce qu'on doit voir
 
@@ -380,6 +381,8 @@ Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
   c'est une **zone hôte** — le document dit `Host "apercu_cles"`, l'application la peint ;
 - la case **« Jouer en boucle »** agit : elle passe par `bind`, un `behavior` écrit **dans le
   fichier** la lit, et il appelle l'application par `Callback`.
+- un menu **« Animation »** apparaît **à côté** de ceux de la coquille (Fichier, Affichage,
+  Fenêtre, Préférences) — **les siens restent**, le nôtre s'ajoute.
 
 ### Ce qui prouverait que c'est cassé
 
@@ -390,11 +393,14 @@ Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
 | la zone des clés est couverte de **hachures avec un nom écrit dedans** | personne ne sert cette zone hôte : le nom du `Host` dans le fichier ne correspond à aucune zone de l'application. C'est le comportement **voulu**, pas une panne — une zone que personne ne remplit ne doit pas se faire prendre pour un fond. |
 | un bouton **apparaît et ne fait rien** | son identifiant ne nomme aucune action servie. La table est fermée et le compteur `actionsInconnues` monte : `anim.jouer`, `anim.inserer`, `anim.supprimer`, `anim.annuler`, `anim.refaire`. |
 | la case « boucle » **ne fait rien** | le `behavior` du fichier n'est pas exécuté, ou `bind` ne rejoint pas le modèle. |
+| **les menus Fichier / Affichage / Fenêtre / Préférences ont disparu** | ⚠️ on est passé de `SetAppMenu` (additif) à `SetMenuBar` (qui REMPLACE). Le menu « Affichage » est engendré à l'exécution par `DrawPanelsMenuItems()`, et **le format ne sait pas exprimer une liste engendrée** : on aurait migré vers moins. |
+| le menu **s'affiche mais ses entrées ne font rien** | leurs identifiants ne nomment aucune action servie ; `actionsInconnues` monte. |
+| une entrée de menu apparaît **dans la barre elle-même**, hors de tout menu | le document pose un `MenuItem` hors d'une chaîne de menus. Le monteur **refuse et compte** (`elementsMenuHorsMenu`) plutôt que d'en faire un faux bouton. |
 
 ### Pour les bancs (sans fenêtre, sans GPU, sans souris)
 
 ```
-NkAnimaEditor.exe --sonde-coquille                    -> 6/6   (3 bandes + l'action + disque==réémis + le négatif)
+NkAnimaEditor.exe --sonde-coquille                    -> 7/7   (3 bandes + l'action + le MENU OUVERT + disque==réémis + le négatif)
 NkAnimaEditor.exe --sonde-coquille --interface=<dir>  -> monte un AUTRE jeu de documents
 ```
 
@@ -405,6 +411,14 @@ barre_outils     widgets=9  montes=9  contenu=14769  inconnus=0  hotes=0/0
 barre_etat       widgets=3  montes=3  contenu=3153   inconnus=0  hotes=0/0
 panneau_outils   widgets=10 montes=10 contenu=34125  inconnus=0  hotes=1/1
 ```
+
+```
+menu ouvert   ouverts=1/1  items=6  horsmenu=0  contenu=59920
+```
+
+⚠️ **LA SONDE OUVRE LE MENU, ET IL A FALLU TROIS CORRECTIONS POUR QUE CETTE LIGNE VEUILLE DIRE QUELQUE CHOSE.** `items=0` ne prouvait rien — il disait que le menu était **fermé**, et le cas `MenuItem` du monteur n'avait alors **jamais été exécuté**. Puis la bande était montée **sans `BeginMenuBar`**, condition qui n'arrive jamais dans l'application (la coquille appelle `mAppMenuFn` *dans* sa barre), et `BeginMenu` calculait un titre de **hauteur zéro**. Puis le compteur de pixels ignorait `dlOverlay` — **la couche où vivent les popups** — et rendait 27 000, soit l'aire exacte de la barre seule. Les six entrées étaient montées, comptées, et invisibles à la mesure.
+
+**Falsifiabilité prouvée par mutation des données** : retirer deux entrées donne `items=4` (KO) ; poser un `MenuItem` hors de tout menu donne `horsmenu=1` (KO) — il est **refusé et compté**, jamais dessiné comme un faux bouton.
 
 ⚠️ **CES NOMBRES SE PÉRIMENT À CHAQUE MODIFICATION DES DOCUMENTS — et c'est le sujet même, pas un
 défaut du relevé.** `barre_outils` valait `widgets=7 contenu=11462` le 25/09 ; l'ajout du bouton
@@ -600,3 +614,42 @@ application** : le système s'exécute sur zéro entité, donc le fil de `NkEngi
 
 > *Le mécanisme est prouvé, le site ne l'est pas.* Ce qui le prouverait : une scène Sandbox
 > portant `NkSkeleton` + `NkFootIK`, sans que rien n'appelle `SetPhysicsWorld` à la main.
+
+---
+
+## Dans Nogee — la barre d'état et un panneau viennent d'un fichier
+
+**`Build/Bin/Release-Windows/Nogee/Nogee.exe`** *(lancer depuis la racine de l'arbre)*
+
+**Ce que ça montre :** le **même** fil que chez NkAnimaEditor, par le **même fichier partagé**
+(`NKGui/Doc/NkGuiCoquille.h`). Documents : `Resources/Interface/Nogee/barre_etat.nkgui` et
+`panneau_scene.nkgui`.
+
+### Ce qu'on doit voir
+
+- la **barre d'état** en bas porte le texte du document, et un cadre donnant le **nombre
+  d'entités vivantes** du monde ECS — une zone hôte : le document dit OÙ, Nogee dit QUOI ;
+- un panneau **« Scene »** à gauche, dont le contenu vient du fichier ;
+- **les menus et la barre d'outils de Nogee sont INCHANGÉS.** C'est voulu : `NogeeChrome`
+  (609 lignes) grise ses entrées dont l'outil n'existe pas encore **et dit pourquoi**, et le format
+  ne sait pas porter ce motif. *On ne migre pas vers moins.*
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| je change `barre_etat.nkgui`, je relance, **rien ne change** | ⚠️ le plus grave. Contre-test dans le même binaire : `NOGEE_SANS_DOCUMENT=1` doit faire **disparaître** le panneau « Scene » et rendre la barre d'état de la coquille. Identique avec et sans = le fil n'est pas celui qu'on croit. |
+| le cadre des entités est couvert de **hachures avec un nom dedans** | personne ne sert `scene.entites` : le nom du `Host` ne correspond à aucune zone de l'application. Comportement **voulu**, pas une panne. |
+| **les menus de Nogee ont disparu** | on est passé à `SetMenuBar`, qui REMPLACE. Interdit ici, et pour une raison mesurée. |
+| le compte d'entités reste à **0** alors que l'Outliner en montre | la zone ne lit plus `NkWorld::EntityCount()`, ou reçoit un autre monde. |
+
+### ⚠️ Ce qui n'est PAS encore mesuré ici
+
+Les deux documents **valident à 0 erreur, 0 rôle inconnu** et **montent** (3 et 7 widgets,
+`NKGuiMonteTest --monter=`), et Nogee construit. Mais **il n'y a pas de sonde sans fenêtre pour
+Nogee** : que les deux bandes apparaissent vraiment, c'est le lancement qui le dira. La pièce
+centrale, elle, est éprouvée **7/7** chez NkAnimaEditor — c'est le même fichier.
+
+Et `NKGuiMonteTest` rend **`VERDICT : REFUSE`** sur ces deux documents : c'est le banc qui n'a
+**aucun hôte** à offrir à `scene.entites` (`1 hote(s) non rempli`), pas un défaut du document.
+C'est dit ici parce qu'un « REFUSE » qu'on ne lit pas ressemble à une panne.

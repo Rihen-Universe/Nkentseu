@@ -20,6 +20,7 @@
 #include "Nogee/Editor/ProjectManager.h"
 #include "Nogee/Shell/NkPanneauxSonde.h" // mesure de la DISPOSITION (--panneaux-sonde)
 #include "Nogee/Shell/NogeeChrome.h"      // menus, outils, barre d'etat
+#include "Nogee/Shell/NogeeCoquilleDocument.h" // barre d'etat + panneau, EN DONNEES
 
 #include "NKECS/World/NkWorld.h"
 #include "Noge/ECS/Scene/NkSceneGraph.h"
@@ -241,9 +242,20 @@ namespace nkentseu {
 			}
 
 			// ── SONDE DE DISPOSITION (--panneaux-sonde) ──────────────────────
-			// Les titres viennent des `AddPanel` ci-dessous, dans le meme ordre.
-			// Ils sont ecrits UNE fois ici parce que le shell n'expose pas sa
-			// liste ; toute divergence se verrait immediatement (« NON ANCRE »).
+			// LES CINQ PANNEAUX QUE CETTE SONDE SURVEILLE. Ils sont ecrits UNE fois
+			// ici parce que le shell n'expose pas sa liste ; toute divergence se
+			// verrait immediatement (« NON ANCRE »).
+			//
+			// 🔴 CE N'EST PLUS UN INVENTAIRE DES `AddPanel`, ET LE COMMENTAIRE LE
+			//    DISAIT ENCORE (26/09). Depuis le panneau-document (« Scene », dont le
+			//    contenu vient d'un `.nkgui`), il y a SIX `AddPanel` possibles pour
+			//    cinq titres. Cette liste est le SUJET de la sonde, pas le
+			//    recensement des panneaux.
+			//
+			// ⚠️ ET ON N'Y AJOUTE PAS « Scene » : ce panneau est CONDITIONNEL
+			//    (`NOGEE_SANS_DOCUMENT=1` le retire). L'inscrire ici ferait crier la
+			//    sonde « NON ANCRE » sous le negatif -- une fausse alarme, et ce
+			//    depot a deja paye qu'un banc deja rouge ne protege plus.
 			const char *const kTitresPanneaux[] = {"Viewport", "World Outliner", "Details",
 												   "Content Browser", "Console"};
 
@@ -305,6 +317,30 @@ namespace nkentseu {
 			ContentBrowserPanel *g_dragContent = nullptr;
 			ViewportPanel *g_dragViewport = nullptr;
 			ecs::NkWorld *g_dragWorld = nullptr;
+
+			// ── LA ZONE HOTE DU DOCUMENT : Nogee peint, le document a dit OU ─────
+			//  Le compte d'entites vivantes du monde ECS. Il rend VRAI parce qu'il
+			//  peint ; s'il rendait vrai sans peindre, la zone disparaitrait en
+			//  silence -- ce que ce role existe justement pour empecher.
+			//
+			//  ⚠️ LE MONDE ARRIVE PAR LE POINTEUR D'USAGER, la zone ne va rien
+			//     chercher elle-meme : une sonde qui recalcule ce qu'elle mesure ne
+			//     peut voir aucun defaut de ce qu'elle mesure.
+			bool PeindreEntites(nkgui::NkGuiContext &ctx, const nkgui::NkRect &z, void *user) {
+				auto *monde = (ecs::NkWorld *)user;
+				if (!monde)
+					return false; // pas de monde : la zone se signale, elle ne ment pas
+				auto &dl = ctx.DL();
+				dl.AddRectFilled(z, ctx.theme.track, ctx.theme.rounding);
+				dl.AddRect(z, ctx.theme.border, 1.f, ctx.theme.rounding);
+				if (ctx.font && ctx.font->Valid()) {
+					char txt[96];
+					std::snprintf(txt, sizeof(txt), "%u entite(s)", (unsigned)monde->EntityCount());
+					dl.AddText(ctx.font->Face(), ctx.font->TexId(), {z.x + 8.f, z.y + 4.f}, txt,
+						   ctx.theme.text);
+				}
+				return true;
+			}
 
 			void DragCheck(bool ok, const char *what) {
 				++g_drag.checks;
@@ -827,9 +863,52 @@ namespace nkentseu {
 			// l'arbre et l'inspecteur (mesure : x=276,99 et w=967,89 au lieu de 0 et
 			// W). Les deux panneaux du bas passent donc APRES les deux lateraux.
 			// Rien d'autre ne change : ce sont les memes appels, dans un autre ordre.
+			// ══════════════════════════════════════════════════════════════════════
+			//  L'INTERFACE EN DONNEES -- LA BARRE D'ETAT ET UN PANNEAU
+			// ══════════════════════════════════════════════════════════════════════
+			//  Le meme cablage que NkAnimaEditor, par le MEME fichier partage
+			//  (`NKGui/Doc/NkGuiCoquille.h`). On ne touche NI `SetMenuBar` NI
+			//  `SetToolbar` : `NogeeChrome` les tient, et il grise ses entrees EN
+			//  DISANT POURQUOI -- un motif que le format ne sait pas porter.
+			//  *On ne migre pas vers moins.* Voir `NogeeCoquilleDocument.h`.
+			//
+			//  ⚠️ `NOGEE_SANS_DOCUMENT=1` est le NEGATIF, dans le MEME binaire : la
+			//     barre d'etat redevient celle de la coquille et le panneau
+			//     disparait. Si l'interface ne change pas, ce qu'on regarde ne vient
+			//     pas des documents.
+			static nogee::NogeeCoquilleDocument sCoquilleDoc;
+			static nogee::PanneauDocumentNogee sPanneauDoc(sCoquilleDoc.panneau);
+			const bool sansDocument = std::getenv("NOGEE_SANS_DOCUMENT") != nullptr;
+			if (!sansDocument) {
+				// LA ZONE HOTE : le document dit OU, Nogee dit QUOI. Le monde ECS est
+				// passe par le pointeur d'usager -- la zone ne va rien chercher elle-meme.
+				static const nkentseu::nkgui::NkZoneNommee kZones[] = {
+					{"scene.entites", &PeindreEntites, &sWorld},
+				};
+				static const nkentseu::nkgui::NkActionNommee kActions[] = {
+					{"nogee.quitter", &CmdQuit, shell.Get()},
+				};
+				const bool ok = sCoquilleDoc.ChargerDepuisDossier("Resources/Interface/Nogee");
+				sCoquilleDoc.PoserTables(kActions, 1u, kZones, 1u);
+				logger.Info(ok ? "[Nogee] documents d'interface charges\n"
+					 : "[Nogee] documents d'interface INCOMPLETS (refus nomme a l'ecran)\n");
+				// On pose la bande MEME si le document est refuse : une bande posee ECRIT
+				// son refus, une bande absente disparait sans rien dire.
+				shell->SetStatusBarFn(&nogee::NogeeCoquilleDocument::MonterBarreEtat, &sCoquilleDoc);
+				// ⚠️ L'`AddPanel` N'EST PAS ICI, ET C'EST L'ORDRE QUI L'EXIGE. Ce fichier
+				//    dit que l'ordre des `AddPanel` est PORTANT pour le docking -- « les
+				//    deux panneaux du bas passent APRES les deux lateraux », avec la
+				//    mesure qui l'a etabli. Mon panneau est LATERAL : il se pose avec les
+				//    autres lateraux, plus bas, et non en tete ou il passerait devant le
+				//    panneau central lui-meme.
+			}
 			shell->AddPanel(&sViewport);
 			shell->AddPanel(&sOutliner);
 			shell->AddPanel(&sDetails);
+			// Le panneau dont le CONTENU vient d'un document : lateral, donc ici,
+			// entre les lateraux et les deux panneaux du bas.
+			if (!sansDocument)
+				shell->AddPanel(&sPanneauDoc);
 			shell->AddPanel(&sContent);
 			shell->AddPanel(&g_console);
 			if (g_probe.enabled)

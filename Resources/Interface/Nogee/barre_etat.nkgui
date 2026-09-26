@@ -1,0 +1,33 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA BARRE D'ÉTAT DE NOGEE, ET ELLE EST UNE DONNÉE.
+// Changez le texte, relancez Nogee : le bas de la fenêtre change. Rien à compiler.
+//
+// ⚠️ ELLE PREND LA SEULE PRISE LIBRE DE NOGEE, ET C'EST MESURÉ. `SetMenuBar` et
+//    `SetToolbar` sont déjà tenues par `NogeeChrome` (609 lignes qui marchent,
+//    `NogeeShell.cpp:989-990`) ; `SetStatusBarFn` n'apparaissait nulle part.
+//    On ne remplace pas `NogeeChrome` : il grise ses entrées dont l'outil
+//    n'existe pas encore ET ÉCRIT POURQUOI, et le format ne sait pas porter ce
+//    motif. On ne migre pas vers moins.
+
+widgets {
+
+  HBox "etat" {
+    gap = 14
+    align = Center
+
+    Text "message" {
+      text = "Nogee — cette barre vient d'un document, pas du code"
+    }
+
+    // LA ZONE HÔTE : le document dit OÙ, l'application dit QUOI.
+    // Ici l'application peint le nombre d'entités vivantes du monde ECS
+    // (`NkWorld::EntityCount()`). Renommez-la : elle se couvrira de hachures
+    // avec son nom dedans, au lieu de se faire prendre pour un fond.
+    Host "scene.entites" {
+      hint = "nombre d'entités (rempli par Nogee)"
+    }
+  }
+}
