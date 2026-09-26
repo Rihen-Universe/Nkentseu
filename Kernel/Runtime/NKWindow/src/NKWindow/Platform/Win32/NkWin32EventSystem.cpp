@@ -285,9 +285,48 @@ namespace nkentseu {
 				break;
 			}
 
-			case WM_ERASEBKGND:
+			// ── LE FOND EST PEINT — `bgColor` devient visible (26/09) ─────────────
+			//
+			// AVANT : on rendait 1 sans toucher au HDC. La brosse de la classe,
+			// alimentee par `config.bgColor` depuis le 25/09, n'etait donc JAMAIS
+			// employee pour remplir la fenetre : Windows demandait « efface le
+			// fond », on repondait « c'est fait », et rien n'etait peint. Une
+			// fenetre qui ne dessine pas gardait les pixels qui trainaient.
+			// `bgColor` n'agissait que sur la zone decouverte PENDANT un
+			// redimensionnement, peinte par le systeme avant WM_PAINT — donc
+			// invisible des que `resizable` vaut false.
+			//
+			// Rodolf l'a constate le 26/09 en direct : « la bgColor n'est pas
+			// appliquee ». Elle ne l'etait pas, en effet.
+			//
+			// ⚠️ POURQUOI CE N'EST PAS LE CLIGNOTEMENT QU'ON AVAIT CHASSE. Le
+			//    clignotement vient d'un DESACCORD de couleur entre ce que le fond
+			//    etale et ce que WM_PAINT dessine ensuite, pas du remplissage
+			//    lui-meme. Ici on peint la couleur que l'appelant a DEMANDEE : s'il
+			//    dessine par-dessus, il couvre sa propre couleur ; s'il ne dessine
+			//    rien — le cas de tous les exemples d'enseignement — il obtient
+			//    enfin le fond qu'il a decrit.
+			//
+			// ⚠️ ON LIT LA BROSSE DE LA CLASSE, on n'en fabrique pas une. Elle
+			//    appartient a la classe et c'est `UnregisterClass` qui la detruit
+			//    (piege paye le 25/09 : un cache de brosses rendait un HBRUSH mort
+			//    a la deuxieme fenetre). `GetClassLongPtrW` ne transfere aucune
+			//    propriete : il n'y a rien a liberer ici.
+			//
+			// ⚠️ ET SI LA BROSSE MANQUE, on ne peint pas et on rend 1 comme avant
+			//    — jamais un fond de repli d'une autre couleur, qui ferait croire a
+			//    un `bgColor` tenu alors qu'il ne l'est pas.
+			case WM_ERASEBKGND: {
+				HBRUSH brosse = reinterpret_cast<HBRUSH>(GetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND));
+				HDC hdc = reinterpret_cast<HDC>(wp);
+				if (brosse != nullptr && hdc != nullptr) {
+					RECT client = {};
+					if (GetClientRect(hwnd, &client))
+						FillRect(hdc, &client, brosse);
+				}
 				result = 1;
 				break;
+			}
 
 			// =====================================================================
 			// Fenêtre — focus / visibilité
