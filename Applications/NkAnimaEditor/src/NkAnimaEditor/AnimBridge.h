@@ -90,6 +90,27 @@ namespace nkanima {
 	// Rend la pose courante dans l'offscreen via le command buffer FOURNI (celui de
 	// l'éditeur, AVANT la passe UI). Lazy-init au 1er appel. cmd = NkICommandBuffer*.
 	void Anim3DRenderOffscreen(void *cmd);
+	/// (26/09) Les compteurs de rendu de la DERNIERE image de la vue 3D.
+	/// Rend faux tant qu'aucune n'a ete rendue -- l'appelant ecrit alors « -- ».
+	///
+	/// ⚠️ ILS NE VIENNENT PAS DE `NkRenderer::GetStats()`, ET C'EST MESURE.
+	///    Cet editeur ne pilote pas la frame de son renderer (son propre code le
+	///    dit : « l'editeur possede la frame device »), donc le `EndFrame()` qui
+	///    fige ces compteurs ne tourne jamais. Ils sont pris par DIFFERENCE dans
+	///    le command buffer qui enregistre -- celui de l'editeur, partage avec
+	///    l'interface, d'ou la difference plutot que le total.
+	bool Anim3DCompteurs(uint32 *draws, uint32 *tris, uint32 *sommets);
+
+	/// L'INTERRUPTEUR DES COMPTEURS, et il vit DANS LE PRODUIT.
+	/// ⚠️ PAS UNE VARIABLE D'ENVIRONNEMENT, et c'est la regle posee avec Rodolf
+	///    le 25/09 : *une fonction produit se regle dans le produit*. Sous garde
+	///    d'environnement, elle disparaitrait pour lui le jour ou personne ne
+	///    pense a poser la variable -- c'est exactement ce qui est arrive au HUD
+	///    de laboratoire. Ici c'est la palette de commandes (Ctrl+P) qui la
+	///    porte : c'est le seul point d'extension produit de cet editeur.
+	/// ⚠️ ETEINTE PAR DEFAUT : l'affichage permanent polluait chaque capture.
+	bool Anim3DCompteursVisibles();
+	void Anim3DBasculerCompteurs();
 	// Publie la texture offscreen dans le backend NKGui (guiBackend = NkGuiRHIBackend*)
 	// sous `texId`, pour l'afficher via AddImage. Pas de copie (même device).
 	void Anim3DRegisterInto(void *guiBackend, uint32 texId);

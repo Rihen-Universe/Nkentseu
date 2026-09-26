@@ -37,6 +37,10 @@ static void CmdInsert(void *) {
 	nkanima::AnimInsertKeyAtCursor();
 }
 
+static void CmdCompteurs(void *) {
+	nkanima::Anim3DBasculerCompteurs();
+}
+
 static void CmdQuit(void *u) {
 	if (u)
 		static_cast<NkEditorShell *>(u)->RequestClose();
@@ -532,6 +536,11 @@ int nkmain(const NkEntryState &state) {
 	shell->RegisterCommand("Edition: Inserer cle", &CmdInsert, nullptr, "I");
 	shell->RegisterCommand("Edition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");
 	shell->RegisterCommand("Edition: Refaire", &CmdRedo, nullptr, "Ctrl+Y");
+	// (26/09) LES COMPTEURS DE RENDU. Dans la PALETTE et non sous une variable
+	// d'environnement : *une fonction produit se regle dans le produit*. C'est le
+	// seul point d'extension produit de cet editeur -- il n'a pas de barre de
+	// menus. Eteints par defaut.
+	shell->RegisterCommand("Affichage: Compteurs de rendu", &CmdCompteurs, nullptr);
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 
 	return shell->Run();

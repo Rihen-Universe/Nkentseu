@@ -6,6 +6,8 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "AnimBridge.h"
+#include "NKEditorKit/NkScreenCountersView.h" // (26/09) les compteurs, la MEME vue que NK3DModeler
+#include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib> // getenv : mesure (a3) de la geometrie, sous variable d'environnement
@@ -236,6 +238,44 @@ namespace nkanima {
 					dl.AddImage(ANIM_VIEWPORT_TEXID, area, NkVec2{0.f, 1.f}, NkVec2{1.f, 0.f},
 								NkColor{255, 255, 255, 255});
 				dl.AddRect(area, AnimInPoseEdit() ? NkColor{0, 212, 255, 255} : NkColor{40, 42, 48, 255}, 1.f);
+
+				// ── (26/09) LES COMPTEURS DE RENDU, EN HAUT A DROITE DE LA VUE ──
+				// LA MEME VUE QUE NK3DModeler (`NKEditorKit/NkScreenCountersView.h`,
+				// ecrite contre `NkComponentPaint`) : c'est tout l'interet de
+				// l'avoir mise dans le kit -- cet hote n'ecrit aucune ligne de
+				// dessin, il fournit un peintre et des chiffres.
+				// ⚠️ LES CHIFFRES SONT RELAYES, JAMAIS RECALCULES : `Anim3DCompteurs`
+				//    rend ce que le command buffer a vu passer pour CETTE vue, par
+				//    difference. Et s'il rend faux -- aucune image rendue -- la vue
+				//    ecrit « -- » et non des zeros.
+				// ⚠️ PEINTE APRES L'IMAGE ET LE CADRE : une incrustation se peint
+				//    en dernier, sinon elle existe sans se voir.
+				{
+					static editorkit::NkEcranCompteursVue sVueCpt;
+					static editorkit::NkEcranHorloge sHorlogeCpt;
+					// L'ETAT VIENT DU PRODUIT (palette de commandes), jamais de
+					// l'environnement : *une fonction produit se regle dans le
+					// produit*. Ma premiere version lisait `NK_COMPTEURS` -- elle
+					// aurait rendu la fonction inaccessible a Rodolf.
+					if (Anim3DCompteursVisibles()) {
+						sHorlogeCpt.Tick(ec.dt);
+						editorkit::NkEcranCompteurs c;
+						uint32 d = 0, t = 0, v = 0;
+						c.compteursValides = Anim3DCompteurs(&d, &t, &v);
+						c.draws = d;
+						c.triangles = t;
+						c.sommets = v;
+						c.lots = d;
+						c.fps = sHorlogeCpt.Fps();
+						c.dtMs = sHorlogeCpt.DtMs();
+						c.horlogeValide = sHorlogeCpt.Valide();
+						static editorkit::NkTheme sThemeCpt = editorkit::NkTheme::Dark();
+						editorkit::NkGuiComponentPaint peintre(ctx, sThemeCpt);
+						(void)sVueCpt.Peindre(peintre,
+											  {area.x, area.y, area.width, area.height}, c);
+					}
+				}
+
 				if (!AnimLoaded())
 					return;
 
