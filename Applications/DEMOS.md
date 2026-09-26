@@ -522,3 +522,63 @@ plat — c'est écrit à l'écran pour que personne n'ait à le deviner.
 Coupée, la collision donne une chute libre : **le même chiffre avant et après le correctif du
 26/09** (−48,64 m). Il montre donc que le montage sait distinguer une non-collision — **il ne
 valide pas le correctif**. C'est la mesure du repos (0,9999 m contre 6,9950 m avant) qui le fait.
+
+---
+
+## Pieds sur la pente — « les pieds épousent le relief, ou le traversent »
+
+⚠️ **ÉPROUVETTE, pas un personnage — et elle le dit à l'écran.** Aucun humanoïde riggé n'est
+atteignable aujourd'hui : `CesiumMan.glb` est bien **versionné**, mais `NkGLTFIO` reconstruit un
+`ecs::NkSkeleton` dont `NkBone::name` reste **vide**, alors que `NkFootIK` demande les **indices**
+de la cuisse, du mollet et du pied. *Un indice n'est pas un nom* : les deviner fabriquerait un faux
+signal. Le squelette est donc **procédural** — neuf os, mêmes indices que les valeurs par défaut de
+`NkFootIK`, repris de `Applications/NkLocomotionDemo`.
+**Condition de retrait : le jour où un humanoïde riggé se chargera avec des os NOMMÉS, cette
+éprouvette est remplacée par lui.**
+
+**Ce que ça montre, et c'est un câblage :** `NkFootIKSystem` sait interroger un monde physique
+(`SetPhysicsWorld`) et, à défaut, retombe sur un plan plat analytique. Jusqu'au 26/09,
+`SetPhysicsWorld` **n'était appelé nulle part** et le système **n'était même pas enregistré** par
+`NkEngineLayer`. Les pieds suivaient donc **toujours** un sol à `y = 0` pendant que le monde avait
+du relief.
+
+### Comment la lancer
+
+`Build/Bin/Release-Windows/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.exe` — rien à préparer.
+`--mesure` donne le même montage sans fenêtre, avec un verdict chiffré.
+
+### Ce qu'on doit voir
+
+- deux jambes qui vont et viennent le long d'une **pente**, et dont **les pieds se posent dessus** ;
+- ⚠️ **la pente lue** en degrés, à côté de la consigne, **en vert quand elles s'accordent**. Elle est
+  obtenue par **deux raycasts verticaux**, jamais depuis la consigne — *ce dépôt a mesuré une pente
+  sur un sol plat le 13/09, et la série était parfaitement cohérente* ;
+- le **trait du sol est tracé depuis le sol lu** : si la pente n'existait pas, il serait horizontal,
+  et cela se verrait immédiatement ;
+- l'écart entre le pied et la surface, sous le pied gauche ;
+- ⚠️ la case **« BRANCHER LE MONDE PHYSIQUE à l'IK »** : décochez-la et les pieds **quittent le
+  relief**. À droite, où la pente est haute, ils **s'enfoncent** dedans ; à gauche, où elle est
+  basse, ils **flottent** au-dessus ;
+- l'identité de construction, **des deux unités de compilation**.
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| ⚠️ la pente lue vaut **0,00 deg** | **le sol est plat** : la forme de collision ne porte plus l'orientation du corps. Tout le reste de la démo porterait alors sur autre chose |
+| « AUCUN CONTACT : le rayon ne touche rien » | le raycast ne trouve plus le sol — forme absente, masque de couche, ou rayon trop court |
+| les pieds **traversent** la pente, case **cochée** | le fil `SetPhysicsWorld` a sauté, ou `NkFootIKSystem` n'est plus enregistré |
+| les pieds **suivent** la pente, case **décochée** | le négatif ne réfute plus rien : quelque chose d'autre les place |
+| les jambes **se tendent** sans que le pied bouge | la cible est hors de portée : l'IK deux os ne peut pas allonger un membre. Normal à droite en mode débranché, anormal en mode branché |
+| `--mesure` rend `Status: ROUGE` | le verdict dit lequel des quatre critères a lâché |
+
+### Pourquoi le négatif mesure les DEUX extrémités
+
+Débranché, le pied vise un sol fantôme à `y = 0`. À gauche cette cible est atteignable et le pied s'y
+pose (mesuré : **0,0200 m**, soit exactement le plan plat plus la semelle) — il **flotte** alors
+0,52 m au-dessus de la vraie pente. À droite elle est **hors de portée** de la jambe, donc le pied
+reste où la pose l'a mis et s'**enfonce** de 0,43 m.
+
+> **Deux erreurs de signe opposé prouvent qu'il ne suit pas le relief. Une seule aurait pu venir
+> d'autre chose.** Ne montrer que le côté qui traverse aurait laissé croire que « le pied suit le
+> plan plat », ce qui n'est vrai que d'un côté.
