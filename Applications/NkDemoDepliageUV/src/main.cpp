@@ -88,6 +88,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 using namespace nkentseu;
 using namespace nkentseu::renderer;
 
@@ -303,9 +307,37 @@ int nkmain(const NkEntryState &state) {
 		// pas un refus, il produit un objet BLANC parfaitement plausible.
 		// Meme famille que l'AABB vide : on echoue en silence, et le silence
 		// ressemble a un resultat. `SetAlbedoMap` supprime la chaine, donc la faute.
-		mat->SetAlbedoMap(texAlbedo);
+		// `NK_DEMO_UV_CANAL_ANCIEN=1` remet l'ANCIEN nom, celui dont on conteste
+		// l'effet. C'est le negatif de cette mesure : deux courses, un seul
+		// changement, et le moteur dit ce qu'il lie dans chacune.
+		if (std::getenv("NK_DEMO_UV_CANAL_ANCIEN") != nullptr)
+			mat->SetTexture("albedo_map", texAlbedo);
+		else
+			mat->SetAlbedoMap(texAlbedo);
 	}
 
+	// -- L'IDENTITE DE CONSTRUCTION, DES LA PREMIERE LIGNE ---------------------
+	// UNE HEURE PERDUE A TROIS, LE 26/09, POUR CE TROU. Rodolf lance un binaire,
+	// photographie l'ecran ; pendant ce temps sept arbres se reconstruisent, et
+	// plus personne ne peut rattacher la capture a un code. Une capture qui ne
+	// dit pas de quel binaire elle vient ne prouve rien.
+	// L'empreinte du commit est gravee a la CONSTRUCTION (voir le .jenga, qui
+	// interroge git) ; l'heure de compilation vient du compilateur ; le chemin
+	// de l'executable se lit a l'execution -- parce que savoir QUEL exemplaire
+	// tourne compte autant que savoir de quel code il sort.
+#ifndef NK_DEMO_COMMIT
+#define NK_DEMO_COMMIT "non grave"
+#endif
+	{
+		char chemin[1024] = "(chemin inconnu)";
+#ifdef _WIN32
+		wchar_t w[1024];
+		if (GetModuleFileNameW(nullptr, w, 1024) > 0)
+			WideCharToMultiByte(CP_UTF8, 0, w, -1, chemin, (int)sizeof(chemin), nullptr, nullptr);
+#endif
+		logger.Info("[demo-uv] IDENTITE : commit {0} · compile le {1} a {2} · {3}\n",
+					NK_DEMO_COMMIT, __DATE__, __TIME__, chemin);
+	}
 	logger.Info("[demo-uv] --- ce que la demo croit dessiner ---\n");
 	logger.Info("[demo-uv] sujet        : sphere construite en code, {0} sommets {1} indices\n",
 				(uint32)sv.Size(), (uint32)si.Size());
