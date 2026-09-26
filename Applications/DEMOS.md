@@ -635,7 +635,11 @@ qu'un indice deviné.*
 ⚠️ **Un nom absent reste absent.** `BrainStem.glb`, également versionné, **ne nomme aucun** de ses
 22 nœuds. Rien n'est inventé — pas de `bone_7` — et l'import **le dit une fois**, avec le compte.
 
-### ⚠️ Et ce que la ligne orange dit à l'écran : pourquoi ce n'est pas encore utilisable
+### ⚠️ Et ce que la ligne orange dit à l'écran : la hiérarchie, mesurée
+
+> **Ce titre disait « pourquoi ce n'est pas encore utilisable » jusqu'à la fin de la même nuit.**
+> Le pont a été corrigé quelques heures plus tard (section suivante) — et un titre qui survit à
+> sa cause est exactement le défaut que ce lot-ci a trouvé dans `NkGLTFIO`. Il est donc réécrit.
 
     CesiumMan.glb : 19 os, 19 NOMMES | leg_joint_L_1 = os 11 ...
     ...mais 18 de ces os ont un PARENT : pose locale y=0,0014, pose monde y=0,0835
@@ -657,6 +661,49 @@ un squelette **plat** (l'éprouvette procédurale), **faux** pour un squelette h
 ---
 
 ---
+
+
+### Depuis le 26/09 (fin de nuit) : le pont ne suppose plus un squelette plat
+
+`NkFootIKSystem` lit désormais la **position monde** du pied, composée par
+`NkIKSolver::BuildWorldPose` (qui existait déjà et n'était que `private`). La démo mesure donc
+**CesiumMan lui-même** sur la pente, avec 18 os sur 19 qui ont un parent :
+
+    x= -3.0 : sol -0,2319   pied MONDE -0,2119   ecart +0,0000
+    x= +3.0 : sol  1,2641   pied MONDE  1,2841   ecart -0,0000
+
+⚠️ **L'éprouvette procédurale reste, et elle est devenue le négatif le plus utile.** Sur un squelette
+plat, la composition monde est l'identité : ses chiffres sont donc **identiques au centième avant et
+après le correctif**. C'est une excellente non-régression — *et une preuve nulle*. Seul le montage
+hiérarchique distingue le correctif d'un placebo, et c'est vérifié : la mutation qui remet la lecture
+locale donne **0/2** et un écart de **+0,31 m** aux deux abscisses.
+
+> **Deux montages valent mieux qu'un : l'un ne doit rien changer, l'autre doit tout changer.**
+
+### Et la compensation de hanche, qui dormait dans un repli
+
+Trois critères de plus, parce qu'il a fallu trois essais pour en trouver un qui réfute :
+
+| critère | ce qu'il attrape | ce qu'il ne voit pas |
+|---|---|---|
+| la hanche **se stabilise** (résidu 30→200 images) | rien du tout, en fait | ⚠️ **aveugle à l'accumulation** : une fois le pied posé, l'incrément tombe à zéro, donc le résidu est nul même sur du code qui accumule |
+| ce que la hanche a **bougé** == ce que le composant **déclare** | l'accumulation (+0,2240 m non déclarés sous mutation) | la valeur peut être absurde et l'égalité tenir |
+| les deux pieds **posés** → la hanche **ne reçoit rien** | la confusion altitude/écart (+0,7476 m) | — |
+
+**Ce qui a été corrigé** : `hipOffset` valait `groundPos.y + footHeight`, une **altitude de sol**, là
+où l'intention était un **écart** ; et `+=` s'ajoutait à chaque image sans défaire la précédente — la
+hanche passait de 2,74 m à **24,43 m en 29 images**.
+
+⚠️ **Pourquoi personne ne l'avait vu** : le repli de `RaycastGround` met le sol à `y = 0`, et zéro
+fois la compensation vaut zéro. **Le défaut dormait dans la valeur nulle d'un repli** — il ne se
+réveille que sur du relief, donc seulement depuis que `SetPhysicsWorld` est branché. *Brancher un
+fil réveille les défauts que son absence endormait.*
+
+| symptôme supplémentaire | ce que ça veut dire |
+|---|---|
+| le personnage **décolle** en restant immobile | l'accumulation est revenue : la hanche reçoit un incrément que rien ne défait |
+| `hipOffset` **non nul** alors que les pieds sont posés | il porte de nouveau une altitude au lieu d'un écart |
+| `x=±3` en rouge sur CesiumMan mais l'éprouvette verte | la lecture de la pose monde a sauté — c'est exactement la signature du défaut du 26/09 |
 
 ## Dans Nogee — la barre d'état et un panneau viennent d'un fichier
 
