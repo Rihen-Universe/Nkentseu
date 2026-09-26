@@ -32,7 +32,11 @@ namespace nkentseu {
 				static constexpr int32 KeyCount = static_cast<int32>(NkGuiKey::Count);
 
 				NkVec2 mousePos{0.f, 0.f};
+				/// Le deplacement depuis l'image precedente. DERIVE par `NewFrame`,
+				/// jamais pose par l'application — cf. le bloc qui le calcule.
 				NkVec2 mouseDelta{0.f, 0.f};
+				NkVec2 mousePosPrec{0.f, 0.f}; ///< la position de l'image d'avant
+				bool posPrecValide = false;	   ///< faux tant qu'il n'y a pas eu d'image
 				bool mouseDown[3] = {}; ///< 0=gauche 1=droit 2=milieu (brut, posé par l'app)
 				bool mousePrev[3] = {};
 				bool mouseClicked[3] = {};
@@ -168,6 +172,35 @@ namespace nkentseu {
 					moletteReservee = false; // a re-armer par celui qui reste ouvert
 					saisieReserveePrec = saisieReservee; // la modale de l'image d'avant possede celle-ci
 					saisieReservee = false;				 // a re-armer par celle qui reste ouverte
+					// ── LE DEPLACEMENT DU POINTEUR (26/09) ────────────────────────
+					//  🔴 `mouseDelta` ETAIT DECLARE, LU PAR TROIS CONSOMMATEURS, ET
+					//     ECRIT PAR PERSONNE. Recense le 26/09 : `Splitter` (la variante
+					//     a poignee, NkGuiWidgets.cpp l. 1798) et le glissement du dock
+					//     (`NkUIDock.cpp`, deux sites) derivent leur geste d'un champ qui
+					//     valait **toujours zero**, et aucune application ne l'ecrivait
+					//     non plus. *Une valeur que tout le monde lit et que personne
+					//     n'ecrit est un geste qui ne se produit jamais* -- et ca ne se
+					//     voit pas a la lecture : chaque site a l'air correct.
+					//
+					//  ⚠️ IL SE DERIVE ICI, avec `mouseClicked` et `mouseReleased`. Ce
+					//     fichier pose deja la regle : l'application ecrit le BRUT
+					//     (`mousePos`), `NewFrame` derive le reste. Le faire poser par
+					//     les applications aurait donne autant de verites que
+					//     d'applications.
+					//
+					//  ⚠️ ET LA PREMIERE IMAGE VAUT ZERO, PAS LA POSITION. Sans
+					//     `posPrecValide`, la premiere image rendrait un deplacement egal
+					//     a la position ABSOLUE du curseur -- ce qui ferait sauter a
+					//     l'origine tout ce qui suit ce deplacement.
+					if (posPrecValide) {
+						mouseDelta.x = mousePos.x - mousePosPrec.x;
+						mouseDelta.y = mousePos.y - mousePosPrec.y;
+					} else {
+						mouseDelta.x = 0.f;
+						mouseDelta.y = 0.f;
+						posPrecValide = true;
+					}
+					mousePosPrec = mousePos;
 					for (int32 i = 0; i < 3; ++i) {
 						mouseClicked[i] = mouseDown[i] && !mousePrev[i];
 						mouseReleased[i] = !mouseDown[i] && mousePrev[i];

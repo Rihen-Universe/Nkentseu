@@ -467,6 +467,10 @@ namespace nkentseu {
 				/// `NoScrollbar`) : ce monteur monte l'etat AU REPOS, il n'a aucune
 				/// interaction a empecher. Comptes, jamais fait semblant.
 				uint32 flagsNonAppliques = 0;
+				/// Combien d'images ont VU une fenetre se deplacer sous le geste. Ce
+				/// n'est pas « combien de fenetres sont deplacables » : c'est le
+				/// GESTE, et il vaut zero tant que personne ne traîne rien.
+				uint32 fenetresDeplacees = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -497,6 +501,10 @@ namespace nkentseu {
 						bool b = false;
 						float32 f = 0.f;
 						char texte[256] = {0};
+						/// Le deplacement acquis par un geste, en pixels, relatif a la
+						/// position que le DOCUMENT donne. Une fenetre traînee vit ici :
+						/// le fichier reste la position de depart, jamais la courante.
+						NkVec2 deplacement{0.f, 0.f};
 						/// Vrai une fois la valeur initiale posee depuis le document.
 						/// Sans lui, chaque trame ecraserait ce que l'utilisateur a
 						/// change -- un champ que le document reinitialise sans cesse
@@ -1674,15 +1682,71 @@ namespace nkentseu {
 								++rap.modales;
 								ctx.DL().AddRectFilled(ctx.layout.region, NkColor{0, 0, 0, 120});
 							}
-							// Les drapeaux d'INTERACTION : ce monteur monte l'etat AU REPOS, il n'a
-							// aucun deplacement ni redimensionnement a empecher. Ils sont COMPTES,
-							// jamais fait semblant d'appliquer.
+							// ═══════════════════════════════════════════════════════
+							//  LA FENETRE SE DEPLACE PAR SA BARRE DE TITRE (26/09)
+							// ═══════════════════════════════════════════════════════
+							//  Rodolf : « des dialog box deplacable, bref la totale ». Le voile
+							//  modal existait, le titre se peignait -- et la fenetre etait CLOUEE.
+							//
+							//  ⚠️ LE DEPLACEMENT VIT DANS L'ETAT DU MONTAGE, PAS DANS LE DOCUMENT.
+							//     Meme regle que le `ratio` d'un `Splitter` et que le pli d'un
+							//     `Expander` : le fichier donne la position INITIALE, le geste la
+							//     deplace, et rien n'est reecrit sur le disque. Un document qui
+							//     reimposerait son `pos` a chaque image ramenerait la fenetre sous
+							//     le doigt de qui la traine.
+							//
+							//  ⚠️ IL FAUT UNE PRISE, ET C'EST LA BARRE DE TITRE. Traîner par
+							//     n'importe quel point du fond rendrait la fenetre impossible a
+							//     utiliser : chaque clic manque sur un widget deviendrait un
+							//     deplacement. Une fenetre SANS titre reste donc fixe -- et ce
+							//     n'est pas un oubli, c'est qu'elle n'offre aucune prise.
+							//
+							//  ⚠️ `NoMove` EST MAINTENANT APPLIQUE, donc il ne se compte plus.
+							//     Les quatre autres parlent de gestes que ce monteur n'a toujours
+							//     pas (fermer, replier, defiler, redimensionner) : eux restent
+							//     comptes. *Un drapeau tenu et un drapeau compte ne doivent jamais
+							//     tomber dans le meme chiffre.*
+							const NkString titreFenetre = NkGTexte(w, "title", "");
+							const bool sansBarre = NkGuiDrapeau(w, "NoTitleBar");
+							const bool aBarre = !sansBarre && titreFenetre.Size() > 0 && ctx.font
+												&& ctx.font->Valid();
+							const bool deplacable = pl.pose && aBarre && !NkGuiDrapeau(w, "NoMove");
+							if (deplacable && e) {
+								// Le deplacement deja acquis, avant tout dessin : la fenetre se
+								// peint LA OU ELLE EST, pas la ou le document l'avait mise.
+								r.x += e->deplacement.x;
+								r.y += e->deplacement.y;
+								const NkRect barre{r.x, r.y, r.w, ctx.ItemHeight()};
+								const NkGuiId idFen = ctx.GetId(id.CStr());
+								bool hovF = false, heldF = false;
+								ctx.ButtonBehavior(idFen, barre, NkGuiButtonFlags::None, -1.f, -1.f,
+												   &hovF, &heldF);
+								if (ctx.activeId == idFen) {
+									// ⚠️ UN CUMUL DE DELTAS, PAS UNE POSITION ABSOLUE. Le
+									//    `Splitter` derive sa valeur de la position absolue parce
+									//    qu'un ratio doit suivre le curseur meme si la zone change
+									//    de taille. Ici c'est l'inverse : sans la PRISE (l'ecart
+									//    entre le curseur et le coin au moment de l'appui), une
+									//    position absolue ferait sauter la fenetre pour coller son
+									//    coin sous le curseur au premier pixel de geste.
+									r.x += ctx.input.mouseDelta.x;
+									r.y += ctx.input.mouseDelta.y;
+									e->deplacement.x += ctx.input.mouseDelta.x;
+									e->deplacement.y += ctx.input.mouseDelta.y;
+									++rap.fenetresDeplacees;
+								}
+							}
 							{
-								static const char *kInteraction[] = {"NoMove", "NoResize", "NoClose",
+								static const char *kInteraction[] = {"NoResize", "NoClose",
 												  "NoCollapse", "NoScrollbar"};
-								for (uint32 fi = 0; fi < 5u; ++fi)
+								for (uint32 fi = 0; fi < 4u; ++fi)
 									if (NkGuiDrapeau(w, kInteraction[fi]))
 										++rap.flagsNonAppliques;
+								// `NoMove` ne se compte que s'il n'a rien a empecher : sur une
+								// fenetre qui n'etait de toute facon pas deplacable, il reste une
+								// promesse que personne ne tient.
+								if (NkGuiDrapeau(w, "NoMove") && !(pl.pose && aBarre))
+									++rap.flagsNonAppliques;
 							}
 							PanelBackground(ctx, r);
 							// ⚠️ PAR-DESSUS, ET AVANT LES ENFANTS. Le fond du theme est peint d'abord
@@ -1699,12 +1763,10 @@ namespace nkentseu {
 							//    pas ouvrir un conteneur n'est pas une raison de jeter
 							//    ce que le document ecrit. Il est peint a la main, au
 							//    meme endroit qu'une barre de titre.
-							const NkString titre = NkGTexte(w, "title", "");
-							// ⚠️ `NoTitleBar` EST LE SEUL DRAPEAU QUI CHANGE QUELQUE CHOSE ICI,
-							//    parce que c'est le seul qui parle de ce qui se PEINT. Les quatre
-							//    autres parlent de GESTES, et ce monteur n'en a aucun.
-							const bool sansTitre = NkGuiDrapeau(w, "NoTitleBar");
-							const bool aTitre = !sansTitre && titre.Size() > 0 && ctx.font && ctx.font->Valid();
+							// Le titre et sa barre ont ete lus plus haut : la PRISE du
+							// deplacement doit exister avant qu'on peigne quoi que ce soit.
+							const NkString &titre = titreFenetre;
+							const bool aTitre = aBarre;
 							if (aTitre) {
 								const NkVec2 coin{r.x + ctx.layout.padding, r.y + ctx.layout.padding * 0.5f};
 								(void)TextAt(ctx, coin, titre.CStr());
