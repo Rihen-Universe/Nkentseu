@@ -1739,6 +1739,11 @@ with workspace("Nkentseu", location="."):
     # (NkPhysicsSystem), donc elle montre le CABLAGE et non le module.
     with include("Applications/NkDemoContact/NkDemoContact.jenga"):
         pass
+    # EPROUVETTE : les pieds epousent une pente -- ou la traversent quand on
+    # debranche le monde physique de l IK. Elle prouve le fil pose dans
+    # NkEngineLayer (SetPhysicsWorld + enregistrement de NkFootIKSystem).
+    with include("Applications/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.jenga"):
+        pass
 
 
 
