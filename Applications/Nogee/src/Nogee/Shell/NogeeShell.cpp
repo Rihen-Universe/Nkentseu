@@ -242,9 +242,20 @@ namespace nkentseu {
 			}
 
 			// ── SONDE DE DISPOSITION (--panneaux-sonde) ──────────────────────
-			// Les titres viennent des `AddPanel` ci-dessous, dans le meme ordre.
-			// Ils sont ecrits UNE fois ici parce que le shell n'expose pas sa
-			// liste ; toute divergence se verrait immediatement (« NON ANCRE »).
+			// LES CINQ PANNEAUX QUE CETTE SONDE SURVEILLE. Ils sont ecrits UNE fois
+			// ici parce que le shell n'expose pas sa liste ; toute divergence se
+			// verrait immediatement (« NON ANCRE »).
+			//
+			// 🔴 CE N'EST PLUS UN INVENTAIRE DES `AddPanel`, ET LE COMMENTAIRE LE
+			//    DISAIT ENCORE (26/09). Depuis le panneau-document (« Scene », dont le
+			//    contenu vient d'un `.nkgui`), il y a SIX `AddPanel` possibles pour
+			//    cinq titres. Cette liste est le SUJET de la sonde, pas le
+			//    recensement des panneaux.
+			//
+			// ⚠️ ET ON N'Y AJOUTE PAS « Scene » : ce panneau est CONDITIONNEL
+			//    (`NOGEE_SANS_DOCUMENT=1` le retire). L'inscrire ici ferait crier la
+			//    sonde « NON ANCRE » sous le negatif -- une fausse alarme, et ce
+			//    depot a deja paye qu'un banc deja rouge ne protege plus.
 			const char *const kTitresPanneaux[] = {"Viewport", "World Outliner", "Details",
 												   "Content Browser", "Console"};
 
@@ -884,11 +895,20 @@ namespace nkentseu {
 				// On pose la bande MEME si le document est refuse : une bande posee ECRIT
 				// son refus, une bande absente disparait sans rien dire.
 				shell->SetStatusBarFn(&nogee::NogeeCoquilleDocument::MonterBarreEtat, &sCoquilleDoc);
-				shell->AddPanel(&sPanneauDoc);
+				// ⚠️ L'`AddPanel` N'EST PAS ICI, ET C'EST L'ORDRE QUI L'EXIGE. Ce fichier
+				//    dit que l'ordre des `AddPanel` est PORTANT pour le docking -- « les
+				//    deux panneaux du bas passent APRES les deux lateraux », avec la
+				//    mesure qui l'a etabli. Mon panneau est LATERAL : il se pose avec les
+				//    autres lateraux, plus bas, et non en tete ou il passerait devant le
+				//    panneau central lui-meme.
 			}
 			shell->AddPanel(&sViewport);
 			shell->AddPanel(&sOutliner);
 			shell->AddPanel(&sDetails);
+			// Le panneau dont le CONTENU vient d'un document : lateral, donc ici,
+			// entre les lateraux et les deux panneaux du bas.
+			if (!sansDocument)
+				shell->AddPanel(&sPanneauDoc);
 			shell->AddPanel(&sContent);
 			shell->AddPanel(&g_console);
 			if (g_probe.enabled)
