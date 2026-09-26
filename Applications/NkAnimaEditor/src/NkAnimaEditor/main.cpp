@@ -293,11 +293,11 @@ static int SondeCoquille(const char *dossier) {
 			? (d.b->rap.menus > 0u && contenu > 0u)
 			: (d.b->rap.montes > 0u && contenu > aire / 100u
 				   && contenu < (aire * 95u) / 100u);
-		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u\n",
+		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u attrNonHonores=%u\n",
 					ok ? "OK" : "KO", d.nom, d.b->rap.widgets, d.b->rap.montes, contenu,
 					d.b->rap.rolesInconnus, d.b->zonesRemplies, d.b->rap.hotes,
 					d.b->rap.menusOuverts, d.b->rap.menus, d.b->rap.elementsMenu,
-					d.b->rap.elementsMenuHorsMenu);
+					d.b->rap.elementsMenuHorsMenu, d.b->rap.attributsNonHonores);
 		if (!ok)
 			++rouges;
 	}
