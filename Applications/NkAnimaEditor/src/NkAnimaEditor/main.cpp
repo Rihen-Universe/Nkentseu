@@ -369,6 +369,16 @@ static int SondeCoquille(const char *dossier) {
 		//    barre d'etat de 900x26 rasterisee dans 1200x900 le rate forcement,
 		//    sans que rien ne soit casse. On ne masque pas le rouge -- on ecrit ce
 		//    qu'il mesure, pour qu'il ne soit pas lu comme une panne.
+		// ⚠️ `etatsNonAppl` N'EST PAS UNE ALARME, ET SON NOM LE LAISSE CROIRE. Il
+		//    compte les `appearance(Hover)` & consorts que LE MONTEUR SEUL ne peut
+		//    pas atteindre -- il n'a ni souris ni focus, et c'est sa limite assumee.
+		//    Ces etats-la sont peints par la couche d'execution, et le controle
+		//    « etat survole » plus bas le mesure. Un document a dix etats declares
+		//    fait donc monter ce compteur SANS qu'il manque quoi que ce soit.
+		if (d.b->rap.etatsNonAppliques > 0u)
+			std::printf("         -> %u etat(s) hors repos declare(s) : hors de portee du MONTEUR "
+						"(ni souris ni focus) — c'est « etat survole » qui les juge\n",
+						d.b->rap.etatsNonAppliques);
 		if (!ok && cadreImpose)
 			std::printf("         -> cadre IMPOSE (%dx%d) : le seuil de 1 %% porte sur ce "
 						"cadre-la, pas sur la bande de l'application\n",
@@ -525,6 +535,95 @@ static int SondeCoquille(const char *dossier) {
 				std::printf("         -> ce document ne demande AUCUN fond opaque : le critere "
 							"ci-dessus n'a rien juge\n");
 			(void)orange;
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  L'ETAT SURVOLE — la seule partie du design que le repos ne montre pas
+		// ═══════════════════════════════════════════════════════════════════
+		//  Rodolf veut une interface nourrie par le `.nkgui` « comportement ET
+		//  design ». Tout ce qui precede juge le document AU REPOS. Or un
+		//  `appearance(Hover)` decrit ce qui n'existe que sous le pointeur : sans
+		//  ce controle-la, l'application pourrait declarer des etats que personne
+		//  ne peint et la sonde resterait verte.
+		//
+		//  ⚠️ RIEN N'EST INJECTE DANS LA MACHINE. `PoserPointeur` ecrit dans
+		//     `ctx.input.mousePos` -- le champ que la boucle d'evenements remplit
+		//     elle-meme. Aucune API systeme n'est touchee, aucun clic n'est simule
+		//     au niveau de l'OS.
+		//
+		//  ⚠️ LA CIBLE ET LA COULEUR VIENNENT DU DOCUMENT, jamais d'ici. On cherche
+		//     le premier widget dont le document declare un fond de survol, et on
+		//     compte SA couleur. Ecrire un identifiant ou un hexa dans ce fichier
+		//     les perimerait au premier remaniement de l'interface.
+		//
+		//  ⚠️ ET LE SURVOL A UNE IMAGE DE RETARD (`hotIdPrev`) : NKGui resout le
+		//     survol sur l'image PRECEDENTE. Conclure apres une seule image dirait
+		//     « le survol ne marche pas » sur un moteur parfaitement juste.
+		{
+			const nkgui::NkGuiInfoWidget *cible = nullptr;
+			for (uint32 k = 0; k < d.b->infos.Taille() && !cible; ++k) {
+				const nkgui::NkGuiInfoWidget &i = d.b->infos[k];
+				if (i.etats[(uint32)nkgui::NkGuiEtatApp::Hover].aFond)
+					cible = &i;
+			}
+			if (cible) {
+				NkRect rc{0.f, 0.f, 0.f, 0.f};
+				bool aRect = false;
+				for (uint32 k = 0; k < (uint32)d.b->rap.items.Size(); ++k)
+					if (d.b->rap.items[k].id.Compare(cible->id) == 0) {
+						rc = d.b->rap.items[k].rect;
+						aRect = true;
+						break;
+					}
+				const NkColor cs = cible->etats[(uint32)nkgui::NkGuiEtatApp::Hover].fond;
+				// Une image de reference AVANT de poser le pointeur : le zero de ce
+				// compteur doit se prouver, pas se supposer.
+				uint32 avantSurvol = 0u, apresSurvol = 0u, peintsHover = 0u;
+				if (aRect && rc.w > 0.f && rc.h > 0.f && ras.Init(d.w, d.h)) {
+					auto image = [&]() {
+						ctx.BeginFrame(0.016f);
+						ctx.BeginLayout({0.f, 0.f, (float32)d.w, (float32)d.h});
+						ctx.DL().Reset();
+						d.b->Monter(ctx);
+						ctx.EndFrame();
+						ras.Effacer(0xFF101010u);
+						if (policeOk && police.pixels)
+							ras.PoserTexture(police.TexId(), police.pixels, police.atlasW,
+											 police.atlasH, 1);
+						ras.Rasteriser(ctx.dl);
+						ras.Rasteriser(ctx.dlOverlay);
+					};
+					d.b->PoserPointeur(ctx, -1000.f, -1000.f);
+					image();
+					image();
+					avantSurvol = PixelsDeCouleur(ras, cs.r, cs.g, cs.b, 12);
+					d.b->PoserPointeur(ctx, rc.x + rc.w * 0.5f, rc.y + rc.h * 0.5f);
+					image();
+					image(); // la seconde : `hotIdPrev` est resolu ici
+					apresSurvol = PixelsDeCouleur(ras, cs.r, cs.g, cs.b, 12);
+					peintsHover = d.b->peintsParEtat[(uint32)nkgui::NkGuiEtatApp::Hover];
+				}
+				const bool survolOk = aRect && apresSurvol > 0u && avantSurvol == 0u
+									  && peintsHover >= 1u;
+				std::printf("  [ %s ] %-16s « %s » #%02x%02x%02x : %u px hors survol -> %u px "
+							"survole (peints en Hover : %u)\n",
+							survolOk ? "OK" : "KO", "etat survole", cible->id.CStr(),
+							(unsigned)cs.r, (unsigned)cs.g, (unsigned)cs.b, avantSurvol,
+							apresSurvol, peintsHover);
+				if (!survolOk)
+					++rouges;
+				if (!aRect)
+					std::printf("         -> le widget declare un survol mais son rectangle "
+								"n'est pas au releve : rien n'a pu etre pointe\n");
+			} else {
+				// ⚠️ UN CONTROLE QUI DISPARAIT QUAND SA CIBLE DISPARAIT N'EST PAS UN
+				//    CONTROLE. Si plus aucun widget ne declare de survol, ce bloc ne
+				//    s'affichait plus du tout -- et l'interface aurait pu perdre tous
+				//    ses etats sans qu'une ligne change. Il le DIT.
+				std::printf("  [ .. ] %-16s aucun widget de ce document ne declare de fond de "
+							"survol : rien a juger\n",
+							"etat survole");
+			}
 		}
 	}
 
