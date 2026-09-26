@@ -164,6 +164,9 @@ namespace nkentseu {
 				NkPhysicsConfig mConfig;
 				collision::NkWorld mCollision; // détection (DBVH, manifolds)
 				NkVector<NkRigidBody> mBodies;
+				// ⚠️ MEMBRE MORT : jamais appelé. Le solveur qui tourne est
+				//    `SolveContacts` ci-dessus. Conservé parce qu'il dit une
+				//    intention (jalons M1..M4) ; voir NkContactSolver.h.
 				NkContactSolver mSolver;
 				NkVector<NkWarmEntry> mWarm;							   // cache d'impulses (frame précédente)
 				NkVector<NkJoint> mJoints;								   // articulations (M7)
