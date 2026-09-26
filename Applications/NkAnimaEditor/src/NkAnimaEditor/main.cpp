@@ -1,3 +1,4 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // main.cpp — NkAnimaEditor : éditeur d'animation (timeline) sur NKEditorKit.
 // L'app ne touche QUE l'Editor Kit + AnimBridge (pas NKRenderer directement, pour
@@ -146,6 +147,51 @@ static uint32 PixelsDeCouleur(const nkgui::NkGuiDrawListRaster &ras, uint8 r, ui
 	return compte;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  L'IMAGE BRUTE SUR LE DISQUE — pour que la question se pose APRES la mesure
+// ═══════════════════════════════════════════════════════════════════════════
+//  🔴 CE QUI L'A RENDUE NECESSAIRE, LE 26/09. Le correctif du fond des widgets
+//     POSES a fait tomber `appNonPeintes` de 17 a 0 -- et `contenu` n'a pas
+//     bouge d'un seul pixel : 53 239 avant, 53 239 apres. *Un correctif qui ne
+//     deplace aucune mesure est indiscernable d'un placebo.* Mais `contenu`
+//     compte « ce qui n'est pas la dominante » : il ne peut RIEN dire d'un
+//     aplat peint dans la couleur de la dominante. Poser un compteur de plus
+//     aurait fige DANS LE BINAIRE la seule question qu'on savait deja poser.
+//
+//  ⚠️ ON ECRIT DONC L'IMAGE, PAS UN VERDICT. N'importe quelle couleur se
+//     compte ensuite hors du binaire -- y compris une qu'on n'avait pas prevue,
+//     et y compris a l'oeil. Rien n'est ecrit sans `NK_SONDE_RASTER_PPM` : la
+//     sonde ordinaire ne touche pas le disque.
+//
+//  Le format est PPM P6 : trois octets par pixel, aucun codec, aucune
+//  dependance -- le canal alpha du raster est ecarte, il n'entre dans aucune
+//  des questions posees ici.
+static void EcrireRasterPPM(const nkgui::NkGuiDrawListRaster &ras, const char *nom) {
+	const char *dossier = std::getenv("NK_SONDE_RASTER_PPM");
+	if (!dossier || !dossier[0] || !nom)
+		return;
+	const uint8 *px = ras.Pixels();
+	const int32 w = ras.Largeur(), h = ras.Hauteur();
+	if (!px || w <= 0 || h <= 0)
+		return;
+	char chemin[1024];
+	std::snprintf(chemin, sizeof(chemin), "%s/%s.ppm", dossier, nom);
+	std::FILE *f = std::fopen(chemin, "wb");
+	if (!f) {
+		// ⚠️ UN ECHEC D'ECRITURE SE DIT. Une sonde qui retombe en silence sur
+		//    « rien ecrit » ferait lire l'image PRECEDENTE comme si elle etait
+		//    celle du jour -- ce depot a deja paye une livraison perimee lue
+		//    comme fraiche.
+		std::printf("    /!\\ RASTER NON ECRIT : %s\n", chemin);
+		return;
+	}
+	std::fprintf(f, "P6\n%d %d\n255\n", (int)w, (int)h);
+	for (usize k = 0, n = (usize)w * (usize)h; k < n; ++k)
+		std::fwrite(px + k * 4u, 1u, 3u, f);
+	std::fclose(f);
+	std::printf("    raster ecrit : %s (%dx%d)\n", chemin, (int)w, (int)h);
+}
+
 static int SondeCoquille(const char *dossier) {
 	nkgui::NkGuiFont police;
 	const bool policeOk = police.LoadEmbedded(NkEmbeddedFontId::DroidSans, 15.f, false);
@@ -169,11 +215,44 @@ static int SondeCoquille(const char *dossier) {
 			nkanima::NkBandeDocument *b;
 			int32 w, h;
 	};
-	const Bande bandes[3] = {
+	Bande bandes[3] = {
 		{"barre_outils", &g_coquille.barreOutils, 900, 34},
 		{"barre_etat", &g_coquille.barreEtat, 900, 26},
 		{"panneau_outils", &g_coquille.panneau, 260, 420},
 	};
+
+	// ── LE CADRE DE LA MESURE, QUAND CE N'EST PAS CELUI DE L'APPLICATION ──
+	//  🔴 CE QUI L'A RENDU NECESSAIRE, LE 26/09. Sur un document VENU DE
+	//     NKUIDesign, cinq couleurs que le document ecrit rendaient ZERO pixel
+	//     -- dont `#d0d7de`, demande ONZE fois. La conclusion tentante etait
+	//     « le fil du design est coupe ». Elle etait FAUSSE : ce design decrit
+	//     une maquette large, et la sonde le rasterisait dans la bande de
+	//     l'application (260x420). Les widgets manquants etaient HORS CADRE,
+	//     pas non peints.
+	//
+	//  ⚠️ UN ZERO PEUT DONC VENIR DU CADRE, PAS DU RENDU -- et rien ne le
+	//     disait. Le cadre s'ecrit maintenant : `NK_SONDE_TAILLE=LxH` mesure
+	//     les trois bandes dans le cadre demande, et la ligne l'annonce.
+	//     Sans la variable, RIEN NE CHANGE : les bandes gardent la taille que
+	//     l'application leur donne, qui reste le seul cadre qui juge NkAnimaEditor.
+	bool cadreImpose = false;
+	if (const char *cadre = std::getenv("NK_SONDE_TAILLE")) {
+		int32 cw = 0, ch = 0;
+		if (std::sscanf(cadre, "%dx%d", &cw, &ch) == 2 && cw > 0 && ch > 0) {
+			for (uint32 i = 0; i < 3u; ++i) {
+				bandes[i].w = cw;
+				bandes[i].h = ch;
+			}
+			cadreImpose = true;
+			std::printf("    cadre impose : %dx%d (NK_SONDE_TAILLE) — ce n'est PAS le cadre de "
+						"l'application\n",
+						cw, ch);
+		} else {
+			std::printf("    /!\\ NK_SONDE_TAILLE illisible (« %s ») : cadre de l'application "
+						"conserve\n",
+						cadre);
+		}
+	}
 
 	int32 rouges = 0;
 	for (uint32 i = 0; i < 3u; ++i) {
@@ -248,6 +327,8 @@ static int SondeCoquille(const char *dossier) {
 			// la boucle : si le fil du design est coupe, il tombe a zero et rien
 			// d'autre ne bouge.
 			orange = PixelsDeCouleur(ras, 0xF7, 0x9A, 0x28, 12);
+			// L'IMAGE ELLE-MEME, quand on la demande — voir EcrireRasterPPM.
+			EcrireRasterPPM(ras, d.nom);
 		}
 		// LE CRITERE, ECRIT AVANT LA MESURE : un document monte au moins un widget
 		// ET peint du CONTENU sur au moins 1 % de sa bande, sans couvrir plus de
@@ -283,6 +364,15 @@ static int SondeCoquille(const char *dossier) {
 					d.b->rap.apparencesNonPeintes, d.b->rap.etatsNonAppliques);
 		if (!ok)
 			++rouges;
+		// ⚠️ UN ROUGE DE CONTENU DANS UN CADRE IMPOSE NE JUGE PLUS L'APPLICATION.
+		//    Le critere exige que le contenu couvre au moins 1 % de la bande : une
+		//    barre d'etat de 900x26 rasterisee dans 1200x900 le rate forcement,
+		//    sans que rien ne soit casse. On ne masque pas le rouge -- on ecrit ce
+		//    qu'il mesure, pour qu'il ne soit pas lu comme une panne.
+		if (!ok && cadreImpose)
+			std::printf("         -> cadre IMPOSE (%dx%d) : le seuil de 1 %% porte sur ce "
+						"cadre-la, pas sur la bande de l'application\n",
+						(int)d.w, (int)d.h);
 
 		// ── LE PLACEMENT, quand le document en demande ─────────────────────
 		//  ⚠️ TROIS COMPTEURS EXISTAIENT ET PERSONNE NE LES LISAIT : `poses`
@@ -376,29 +466,65 @@ static int SondeCoquille(const char *dossier) {
 		}
 
 		// ═══════════════════════════════════════════════════════════════════
-		//  LE DESIGN VIENT-IL DU DOCUMENT ?
+		//  LE DESIGN VIENT-IL DU DOCUMENT ? — TOUTES ses couleurs, pas une
 		// ═══════════════════════════════════════════════════════════════════
 		//  Demande de Rodolf le 26/09 : l'interface doit etre nourrie par le
 		//  `.nkgui` pour la structure, le COMPORTEMENT **et le DESIGN**.
 		//
-		//  Les trois premiers compteurs de la ligne ci-dessus ne repondent pas
-		//  a cette question : ils resteraient verts pour un document sans une
-		//  seule `appearance`. On juge donc UNE couleur NOMMEE, celle que
-		//  `panneau_outils.nkgui` ecrit sur « Enregistrer en cle ».
+		//  Les compteurs de la ligne ci-dessus ne repondent pas a cette
+		//  question : ils resteraient verts pour un document sans une seule
+		//  `appearance`. On compte donc, DANS LES PIXELS, chaque couleur que le
+		//  document RECLAME -- la liste vient du monteur (`couleurDemandee`),
+		//  qui l'a relevee au moment ou il lisait le `fill`.
 		//
-		//  ⚠️ CE CRITERE SAIT ECHOUER, et c'est ce qui lui donne sa valeur :
-		//     retirez le bloc `appearance` du document, relancez, il rougit.
-		//     Aucun autre compteur ne bougerait.
-		if (d.b == &g_coquille.panneau) {
-			const bool designOk = (orange > 0u);
-			std::printf("  [ %s ] %-16s design venu du document : %u pixels #F79A28 "
-						"(le fill du bouton « Enregistrer en cle »)\n",
-						designOk ? "OK" : "KO", "apparence", orange);
-			if (!designOk) {
-				std::printf("         -> le document demande ce fond et RIEN ne l'a peint : le fil "
-							"du DESIGN est coupe, pas celui de la structure\n");
-				++rouges;
+		//  🔴 CE QUI A REMPLACE L'ANCIEN CRITERE, ET POURQUOI. Jusqu'ici une
+		//     SEULE couleur etait jugee, ecrite en dur : l'orange #F79A28 du
+		//     bouton « Enregistrer en cle ». Deux defauts, tous deux payes le
+		//     26/09 : (1) il rougissait sur tout document qui ne contient pas ce
+		//     bouton-la -- *un attendu en dur se perime* ; (2) il ne disait RIEN
+		//     des neuf autres couleurs du meme document. Le releve, lui, vient
+		//     du document mesure et suit ce qu'il devient.
+		//
+		//  ⚠️ CE CRITERE SAIT TOUJOURS ECHOUER, et c'est ce qui lui donne sa
+		//     valeur : la mutation `NK_GUI_MUTATION_FOND_POSE=1` eteint le fond
+		//     des widgets poses, et six couleurs tombent alors a zero.
+		//
+		//  ⚠️ ET UN ZERO PEUT VENIR DU CADRE. Un widget place hors de la bande
+		//     mesuree ne peint rien sans que rien ne soit casse : c'est ce qui
+		//     est arrive le 26/09 sur un design de maquette rasterise dans une
+		//     bande de 260x420. La ligne nomme donc la couleur ET le cadre, pour
+		//     que la question suivante soit posable (`NK_SONDE_TAILLE`).
+		{
+			const nkgui::NkGuiMonteRapport &r = d.b->rap;
+			uint32 muettes = 0;
+			for (uint32 c = 0; c < r.couleursDistinctes; ++c) {
+				const uint32 cle = r.couleurDemandee[c];
+				const uint32 px = PixelsDeCouleur(ras, (uint8)(cle >> 16), (uint8)(cle >> 8),
+												  (uint8)cle, 12);
+				if (px == 0u) {
+					if (muettes == 0u)
+						std::printf("         -> couleur(s) RECLAMEE(S) et introuvable(s) dans "
+									"le cadre %dx%d :\n",
+									(int)d.w, (int)d.h);
+					std::printf("            #%02x%02x%02x  reclamee %u fois, 0 pixel\n",
+								(unsigned)((cle >> 16) & 0xFFu), (unsigned)((cle >> 8) & 0xFFu),
+								(unsigned)(cle & 0xFFu), r.couleurOccurrences[c]);
+					++muettes;
+				}
 			}
+			const bool designOk = (muettes == 0u) && (r.couleursDebordees == 0u);
+			std::printf("  [ %s ] %-16s couleurs du document : %u distinctes, %u muettes"
+						"  translucides=%u debordees=%u\n",
+						designOk ? "OK" : "KO", "apparence", r.couleursDistinctes, muettes,
+						r.couleursTranslucides, r.couleursDebordees);
+			if (!designOk)
+				++rouges;
+			// ⚠️ UN DOCUMENT SANS AUCUNE COULEUR PASSERAIT CE CRITERE A VIDE, et
+			//    « zero sur zero » ressemble a « tout va bien ». On le DIT.
+			if (r.couleursDistinctes == 0u)
+				std::printf("         -> ce document ne demande AUCUN fond opaque : le critere "
+							"ci-dessus n'a rien juge\n");
+			(void)orange;
 		}
 	}
 

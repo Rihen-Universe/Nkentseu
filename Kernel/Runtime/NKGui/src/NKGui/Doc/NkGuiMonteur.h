@@ -353,6 +353,52 @@ namespace nkentseu {
 				///    passes. Il ne lui invente plus 120 px pour autant. Compte, et nomme.
 				uint32 espacesFlexibles = 0;
 				uint32 etatsNonAppliques = 0;  ///< `appearance(Hover)` et consorts
+				// ── LES COULEURS QUE LE DOCUMENT DEMANDE (2026-09-26) ────────
+				/// 🔴 POURQUOI CE RELEVE EXISTE. `apparencesPeintes` et
+				///    `apparencesNonPeintes` comptent des APPELS, pas des PIXELS. Le
+				///    26/09, `apparencesNonPeintes` est tombe de 17 a 0 pendant que le
+				///    compteur de contenu de la sonde ne bougeait pas d'un pixel : rien,
+				///    dans le rapport, ne permettait de dire si une couleur DEMANDEE
+				///    s'etait posee quelque part. *Un compteur vert n'est pas un rendu
+				///    juste.*
+				///
+				/// ⚠️ CE N'EST PAS UN VERDICT, C'EST UNE LISTE. Le monteur ne sait pas
+				///    lire l'image ; il dit seulement QUELLE couleur le document reclame
+				///    et COMBIEN de fois. Celui qui rasterise compte ensuite ces
+				///    couleurs-la dans les pixels. Les deux moities vivent dans deux
+				///    binaires differents, et c'est ce qui donne sa valeur a l'accord.
+				///
+				/// ⚠️ ET LA CAPACITE EST FINIE, DONC LE DEBORDEMENT SE COMPTE. Une table
+				///    pleine qui laisse tomber la 33e couleur EN SILENCE ferait declarer
+				///    « toutes les couleurs sont peintes » a un relevé incomplet.
+				static const uint32 kCouleursMax = 48u;
+				uint32 couleursDistinctes = 0;					 ///< entrees remplies
+				uint32 couleurDemandee[kCouleursMax] = {};		 ///< RGBA empaquetee (R<<24…)
+				uint32 couleurOccurrences[kCouleursMax] = {};	 ///< combien de widgets la reclament
+				uint32 couleursDebordees = 0;					 ///< au-dela de la capacite
+				/// ⚠️ UNE COULEUR TRANSLUCIDE NE SE RETROUVE PAS TELLE QUELLE DANS
+				///    L'IMAGE : elle se melange a ce qui est dessous, et la chercher au
+				///    pixel pres rendrait zero pour un rendu PARFAITEMENT juste. Elle est
+				///    donc ECARTEE du releve -- et COMPTEE ici, pour que « ecartee » ne
+				///    veuille jamais dire « oubliee ».
+				uint32 couleursTranslucides = 0;
+				/// Enregistre une couleur reclamee par un `fill`. Idempotent par couleur :
+				/// c'est le COMPTE d'occurrences qui monte, pas la liste.
+				void NoterCouleurDemandee(uint8 r, uint8 v, uint8 b) {
+					const uint32 cle = ((uint32)r << 16) | ((uint32)v << 8) | (uint32)b;
+					for (uint32 i = 0; i < couleursDistinctes; ++i)
+						if (couleurDemandee[i] == cle) {
+							++couleurOccurrences[i];
+							return;
+						}
+					if (couleursDistinctes >= kCouleursMax) {
+						++couleursDebordees;
+						return;
+					}
+					couleurDemandee[couleursDistinctes] = cle;
+					couleurOccurrences[couleursDistinctes] = 1u;
+					++couleursDistinctes;
+				}
 				// ── LE PLACEMENT PAR WIDGET (2026-09-14) ─────────────────────
 				// `pos` est l'interrupteur : un widget qui l'ecrit est POSE.
 				uint32 poses = 0;			 ///< widgets qui ecrivent `pos`
@@ -1396,6 +1442,15 @@ namespace nkentseu {
 					//    conteneur, lui, peint son rectangle et rend la main.
 					const NkGuiApparenceRepos app = NkGuiLireApparenceRepos(w);
 					rap.apparencesNonPeintes += app.nonRendues;
+					// LA COULEUR RECLAMEE SE NOTE ICI, ou la lecture a deja eu lieu.
+					// L'ecrire ailleurs aurait fait un second analyseur du meme texte,
+					// et deux analyseurs du meme texte divergent toujours.
+					if (app.aFond) {
+						if (app.fond.a == 255u)
+							rap.NoterCouleurDemandee(app.fond.r, app.fond.g, app.fond.b);
+						else
+							++rap.couleursTranslucides;
+					}
 
 					// ═════════════════════════════════════════════════════════
 					//  `fill` PEINT PARTOUT (26/09) — on RESERVE, puis on peint
@@ -1447,6 +1502,60 @@ namespace nkentseu {
 						ctx.DL().AddRectFilled(rFond, app.fond,
 											   app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
 						ctx.SetNextItemRect(rFond);
+						++rap.apparencesPeintes;
+						fondPeintIci = true;
+					}
+
+					// ── LE FOND D'UN CONTENEUR POSE (26/09) ──────────────────
+					//  Un conteneur ne peut pas reserver sa place comme une
+					//  feuille : sa hauteur depend de ses enfants. Mais quand il
+					//  est POSE -- `pos` ecrit, parent absolu -- son rectangle est
+					//  connu AVANT de monter son contenu, et rien n'empeche alors
+					//  de peindre son fond dessous.
+					//
+					//  ⚠️ C'EST LE CAS DE TOUS LES CONTENEURS D'UN DESIGN EXPORTE.
+					//     NKUIDesign ecrit en absolu : sur son document d'essai,
+					//     22 conteneurs sur 22 sont poses. Les 17 apparences
+					//     comptees non peintes etaient donc peignables.
+					//
+					//  ⚠️ `Window` ET `Panel` SONT EXCLUS : leur `case` peint deja
+					//     leur fond, APRES `PanelBackground` pour que l'ombre et le
+					//     contour de la primitive restent dessous. Peindre ici EN
+					//     PLUS donnerait deux couches et compterait deux fois.
+					//
+					//  ⚠️ ET UN CONTENEUR EN FLUX RESTE COMPTE. Son rectangle
+					//     (`BlocConsomme`) n'existe qu'APRES ses enfants : peindre
+					//     a ce moment-la les recouvrirait. Mieux vaut un fond
+					//     absent et compte qu'un contenu efface.
+					//  ⚠️ ET LA CONDITION EST `pl.pose`, PAS « conteneur pose ».
+					//     Premiere version de ce bloc : elle ne visait que les
+					//     conteneurs, et les 17 apparences comptees n'ont pas
+					//     bouge -- parce que ce n'etaient PAS des conteneurs.
+					//     C'etaient des FEUILLES POSEES : dans un document venu de
+					//     NKUIDesign, tout porte `pos`, donc la branche « feuille
+					//     en flux » plus haut (qui exige `!pl.pose`) les sautait,
+					//     et la branche « conteneur » aussi. Elles tombaient entre
+					//     les deux.
+					//
+					//     Or un widget POSE a son rectangle connu d'avance, qu'il
+					//     soit conteneur ou feuille. C'est la meme raison, donc
+					//     c'est la meme branche.
+					//  ⚠️ MUTATION DE BANC, `NK_GUI_MUTATION_FOND_POSE=1` : le fond
+					//     d'un widget pose n'est PAS peint, et se compte comme
+					//     avant. Meme mecanique que `NK_TAILLE_MUTATION` pour
+					//     `sizeRel`. Elle existe parce que ce correctif a d'abord
+					//     semble ne DEPLACER AUCUNE MESURE -- `contenu` valait
+					//     53 239 avant comme apres -- et qu'un correctif
+					//     indiscernable d'un placebo doit pouvoir etre eteint pour
+					//     qu'on voie ce qu'il change.
+					static const bool mutationSansFond = []() {
+						const char *v = getenv("NK_GUI_MUTATION_FOND_POSE");
+						return v && v[0] && v[0] != '0';
+					}();
+					if (app.aFond && pl.pose && !fondPeintIci && !mutationSansFond
+						&& role != NkGuiRole::Window && role != NkGuiRole::Panel) {
+						ctx.DL().AddRectFilled(pl.rect, app.fond,
+											   app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
 						++rap.apparencesPeintes;
 						fondPeintIci = true;
 					}
