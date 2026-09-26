@@ -151,6 +151,12 @@ namespace nkentseu {
 			return nkvpInputOn && NkInput.IsKeyDown(k);
 		}
 		static void *nkvpCmd = nullptr;				   // cmd de l'editeur (frame courante)
+
+		/// (26/09) Tout selectionner AU NIVEAU OBJET. Declaree ICI parce que le
+		/// gestionnaire de la touche `A` l'appelle bien avant sa definition -- et
+		/// c'est le point : la politique est EXTRAITE, donc la touche et le menu
+		/// passent par la meme porte. Definie pres de `Demo3DHostSelectAll`.
+		static bool HostSelectAllObjets();
 		// SONDE « BOITE AU CLIC DU CURSEUR » (NK_BOITE_SONDE=1) : ce qui est PUBLIE
 		// pour etre cerne, a l'image pres. On compte les SOUMISSIONS au masque de
 		// silhouette et les cibles qu'elles designent -- jamais une relecture de la
@@ -8103,11 +8109,12 @@ namespace nkentseu {
 						// scene utilisateur — Maj+A les faisait tous reapparaitre
 						// en fond (constate par Rihen, 10 aout). Si toute la demo
 						// est masquee, il n'a rien a selectionner.
-						bool anyVisible = false;
-						for (int32 o = 0; o < Demo3DState::kNumObj && !anyVisible; ++o)
-							anyVisible = !HostHiddenEff(o);
-						if (anyVisible)
-							G.SelectAll();
+						// ⚠️ LA POLITIQUE EST EXTRAITE (`HostSelectAllObjets`) ET
+						//    APPELEE ICI : elle etait ecrite en ligne, et le menu
+						//    « Selection -> Tout selectionner » ne pouvait pas
+						//    l'atteindre. La recopier la-bas aurait fait deux
+						//    politiques qui divergeraient a la premiere exception.
+						(void)HostSelectAllObjets();
 					}
 				}
 				if (k == NkKey::NK_COMMA) {
@@ -12832,6 +12839,37 @@ namespace nkentseu {
 					const float32 my = pickArme ? st->editPickY : gin.mouseY;
 					const bool shiftEff = pickArme ? st->editPickShift : gin.shiftDown;
 					const bool altEff = pickArme ? st->editPickAlt : altDown;
+					// ── NK_MOD_TRACE=1 : LES QUATRE VALEURS COTE A COTE ─────────────
+					// ⚠️ ELLE SEPARE DEUX DEFAUTS QUI ONT LE MEME SYMPTOME (« Maj et
+					//    Alt ne marchent pas ») :
+					//    · `NkInput` FAUX pendant que la touche est enfoncee -> la
+					//      coquille ne nourrit pas le singleton, et le fil manquant
+					//      est EN AMONT de toute logique de selection ;
+					//    · `NkInput` VRAI mais `shiftEff` faux -> `pickArme` gagne, et
+					//      c'est la branche du pick arme qui perd les modificateurs.
+					//    Sans les quatre ensemble, les deux se confondent.
+					{
+						static const bool kTrMod = (std::getenv("NK_MOD_TRACE") != nullptr);
+						static uint32 sNTr = 0;
+						++sNTr;
+						// On imprime AUSSI periodiquement : sans cela, "aucune ligne"
+						// ne distingue pas "le site n'est pas atteint" de "il n'y a pas
+						// eu de clic". *Le zero se dit.*
+						if (kTrMod && (clickNow || (sNTr % 120u) == 1u))
+							std::printf("[nk3d] mod clic : NkInput(shift=%d alt=%d) | gin.shift=%d "
+										"altDown=%d | pickArme=%d | shiftEff=%d altEff=%d | "
+										"sousMode=%d\n",
+										NkInput.IsKeyDown(NkKey::NK_LSHIFT) ||
+												NkInput.IsKeyDown(NkKey::NK_RSHIFT)
+											? 1
+											: 0,
+										NkInput.IsKeyDown(NkKey::NK_LALT) ||
+												NkInput.IsKeyDown(NkKey::NK_RALT)
+											? 1
+											: 0,
+										gin.shiftDown ? 1 : 0, altDown ? 1 : 0, pickArme ? 1 : 0,
+										shiftEff ? 1 : 0, altEff ? 1 : 0, (int32)st->editSelMask);
+					}
 					// TOGGLE façon Blender : on mémorise l'état AVANT le nettoyage pour savoir
 					// si l'élément cliqué était DÉJÀ sélectionné -> dans ce cas le clic le
 					// DÉSÉLECTIONNE (au lieu de le re-sélectionner). Shift+clic = toggle sans
@@ -20070,10 +20108,136 @@ namespace nkentseu {
 		// indispensable : sans lui les deux boutons SEMBLAIENT agir, parce que le
 		// crochet de capture force aussi le mode EDITION, et c'est le MODE qui
 		// changeait l'image.
+		/// 🔴 TOUT SELECTIONNER **AU NIVEAU OBJET**, et c'est la politique de la
+		/// touche `A`, EXTRAITE pour qu'il n'y en ait qu'une.
+		///
+		/// LE DEFAUT QU'ELLE REPARE (Rodolf, 26/09 : « tout selectionner ne marche
+		/// pas dans le menu Selection »). `Demo3DHostSelectAll` appelait
+		/// `st->editHE.SelectAll()` -- le maillage EN EDITION, c'est-a-dire des
+		/// sommets, aretes et faces. En mode OBJET il n'y a pas de maillage en
+		/// edition : l'appel ne faisait RIEN, et `HostRefuseSansElements` ne
+		/// refusait meme pas (elle rend `false` des que `!editMode`). Ni effet, ni
+		/// message. Rodolf a eu raison d'ecrire « ne marche pas » plutot que « ca
+		/// m'a refuse ».
+		///
+		/// ⚠️ COMMENT C'EST NE, ET CE N'EST PAS UNE ETOURDERIE : j'avais cable « la
+		///    facade que le clavier appelle deja ». Mais la touche `A` a DEUX
+		///    gestionnaires dans ce fichier -- un par mode (l. 7866 en Edition,
+		///    l. 8097 en Objet) -- et `Demo3DHostSelectAll` n'en portait qu'un.
+		///    *Une facade correcte pour un mode devient fausse dans un menu qui
+		///    n'a pas de mode.*
+		///
+		/// ⚠️ LA GARDE DE VISIBILITE VIENT DU GESTIONNAIRE DE TOUCHE, PAS DE
+		///    `NkGizmo3D::SelectAll()`. Elle y etait ecrite en ligne (« TOUT = tout
+		///    ce qui se VOIT » -- la demo selectionnait ses ~90 objets meme CACHES,
+		///    constate par Rihen le 10 aout). La recopier ici aurait fait DEUX
+		///    politiques qui divergeraient ; elle est donc extraite ICI, et le
+		///    gestionnaire de touche appelle cette fonction.
+		static bool HostSelectAllObjets() {
+			auto *st = HostSt();
+			if (!st)
+				return false;
+			// ⚠️ PAS `st->gizmo.SelectAll()`, ET C'EST LA TROISIEME COUCHE DU
+			//    DEFAUT. Cette methode marque TOUT, y compris ce qui est CACHE ou
+			//    CADENASSE -- c'est le defaut du 10 aout (« la demo selectionnait
+			//    ses ~90 objets meme caches »). Le gestionnaire de touche s'en
+			//    gardait par une simple question « y a-t-il au moins un visible ? »,
+			//    qui laissait quand meme passer tous les autres.
+			//    On passe donc par `Demo3DHostSelectObject`, LA porte qui porte
+			//    deja les deux gardes (`HostLockedEff`, et la visibilite testee
+			//    ici) -- une boucle sur une facade existante, pas une politique de
+			//    plus.
+			// ⚠️ ET ON DESELECTIONNE D'ABORD : `SelectObject(i, true)` BASCULE
+			//    (`ToggleSelection`). Sur un objet deja selectionne, « tout
+			//    selectionner » l'aurait DESELECTIONNE -- l'inverse exact du geste.
+			Demo3DHostDeselectAll();
+			int32 n = 0;
+			for (int32 o = 0; o < Demo3DState::kNumObj; ++o) {
+				if (HostHiddenEff(o) || HostLockedEff(o))
+					continue;
+				Demo3DHostSelectObject(o, true);
+				++n;
+			}
+			if (n == 0)
+				return false;
+			// ⚠️ LE COMPTE SE DIT, et il est relu -- pas affirme. Sans lui, « tout
+			//    selectionner a marche » n'est qu'une intention : c'est le nombre
+			//    d'objets REELLEMENT marques qui le prouve, et c'est ce nombre que
+			//    le banc lit.
+			{
+				static const bool kTrSel = (std::getenv("NK_SEL_TRACE") != nullptr);
+				if (kTrSel) {
+					int32 vus = 0;
+					for (int32 o = 0; o < Demo3DState::kNumObj; ++o)
+						if (st->gizmo.IsSelected(o))
+							++vus;
+					std::printf("[nk3d] SELTOUT tentes=%d objets=%d\n", n, vus);
+					std::fflush(stdout);
+				}
+			}
+			return true;
+		}
+
 		void Demo3DHostSelectAll(bool on) {
-			auto *st = HostModSt();
+			// 🔴 `HostSt()` ET NON `HostModSt()`, ET C'EST LA MOITIE DU DEFAUT.
+			//    `HostModSt()` rend `nullptr` des que `!editMode` (l. 19601) : la
+			//    facade sortait donc AVANT sa premiere ligne utile en mode Objet.
+			//    Le nom ne le disait pas -- « Mod » pour « modificateurs », pas pour
+			//    « mode » -- et la lecture rapide la prenait pour un simple accesseur.
+			//    Mesure : le clic atteignait bien l'entree du menu et la fermait,
+			//    mais RIEN ne s'imprimait ensuite, ni effet ni refus. *Un accesseur
+			//    qui filtre sans le dire dans son nom est une garde invisible.*
+			auto *st = HostSt();
 			auto *ms = hst.ctx.renderer ? hst.ctx.renderer->GetMeshSystem() : nullptr;
-			if (!st || !ms || HostRefuseSansElements(on ? "SelectAll" : "SelectNone"))
+			{
+				static const bool kTrS = (std::getenv("NK_SEL_TRACE") != nullptr);
+				if (kTrS) {
+					std::printf("[nk3d] SELALL appelee : on=%d st=%d editMode=%d\n",
+								on ? 1 : 0, st ? 1 : 0, (st && st->editMode) ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
+			if (!st)
+				return;
+			// ── ELLE SUIT LE MODE, COMME LA TOUCHE `A` ──────────────────────
+			// C'est ce que fait Blender, c'est ce que fait deja le clavier de ce
+			// produit, et *deux chemins pour un meme geste ne doivent pas
+			// diverger*. Mesure : la touche a DEUX gestionnaires, un par mode ;
+			// cette facade n'en avait qu'un.
+			if (!st->editMode) {
+				// ── MODE OBJET ──────────────────────────────────────────────
+				if (!on) {
+					// `Demo3DHostDeselectAll` agit DEJA au niveau objet (gizmo,
+					// lumieres, empties). On passe par elle : une seconde
+					// deselection ici serait une seconde politique.
+					Demo3DHostDeselectAll();
+					return;
+				}
+				if (!HostSelectAllObjets())
+					// LE REFUS EST NOMME, ET EN AVERTISSEMENT : le puits d'ecran
+					// filtre a ce niveau, donc il MONTE A L'ECRAN. Une entree de
+					// menu active qui refuse en silence est pire qu'une entree
+					// grisee -- c'est exactement ce que Rodolf a rencontre.
+					// 🔴 LE MESSAGE DIT LA LIMITE, PAS UN VERDICT SUR LA SCENE.
+					//    Mesure du 26/09 : dans un document utilisateur, les 86
+					//    objets de `st->gizmo` sont TOUS etrangers (`HostNodeForeign`)
+					//    -- ce sont ceux de la demo portee. Les objets de Rodolf
+					//    vivent dans un SECOND espace d'index (les noeuds), et ce
+					//    depot a deja paye cette confusion le 20/09 (« IL Y A DEUX
+					//    ESPACES D'OBJETS, ET L'INCRUSTATION N'EN NOMMAIT QU'UN »).
+					//    Ecrire « aucun objet visible dans la scene » devant un cube
+					//    visible serait un refus FAUX -- pire qu'un silence, parce
+					//    qu'il envoie chercher le defaut dans la scene.
+					NkLog::Instance().Warnf(
+						"[nk3d] Tout selectionner : ne couvre pas encore les objets de CE "
+						"document. Les %d objets de la vue portee sont d'un autre document ; "
+						"les objets utilisateur vivent dans un second espace d'index, non "
+						"encore branche a cette commande.\n",
+						(int32)Demo3DState::kNumObj);
+				return;
+			}
+			// ── MODE EDITION : le comportement d'origine, inchange ──────────
+			if (!ms || HostRefuseSansElements(on ? "SelectAll" : "SelectNone"))
 				return;
 			if (on)
 				st->editHE.SelectAll();
