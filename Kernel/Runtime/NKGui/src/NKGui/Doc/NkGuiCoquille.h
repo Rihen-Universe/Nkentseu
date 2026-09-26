@@ -43,6 +43,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Doc/NkGuiComposants.h"  // les composants se developpent avant le montage
+#include "NKGui/Doc/NkGuiEvenements.h"  // QUAND un `behavior` se declenche
 #include "NKGui/Doc/NkGuiInclusions.h"  // et les `include` se resolvent avant eux
 #include "NKGui/Doc/NkGuiInteraction.h" // tire NkGuiMonteur + NkGuiArchive
 
@@ -110,6 +111,19 @@ namespace nkentseu {
 				/// Idem pour les `include` : combien résolus, et chaque refus nommé
 				/// (introuvable, illisible, cycle, sans provenance).
 				NkGuiRapportInclusions inclusions;
+
+				/// Ce qui s'est produit pendant l'image courante. Vidé à chaque
+				/// montage : un événement est un fait daté.
+				NkGuiJournalEvenements evenements;
+
+				/// La valeur de chaque donnée liée à l'image PRÉCÉDENTE. C'est la
+				/// seule source possible de `Changed`.
+				NkGuiMemoireValeurs memoire;
+
+				/// Combien de comportements ont été déclenchés, combien ignorés
+				/// faute d'événement, et ce que le document a demandé sans qu'on
+				/// sache encore le servir.
+				NkGuiRapportEvenements evts;
 
 				// ═════════════════════════════════════════════════════════════
 				//  LA FAÇADE PREND UN ARBRE, JAMAIS UN CHEMIN
@@ -227,12 +241,22 @@ namespace nkentseu {
 					boutons = 0;
 					zonesRemplies = 0;
 					ReinitialiserCompteurs();
+					// ⚠️ LE JOURNAL SE VIDE ICI, AU DÉBUT DE L'IMAGE. Un événement
+					//    est un FAIT DATÉ : le garder d'une image sur l'autre
+					//    rejouerait son comportement indéfiniment, c'est-à-dire
+					//    exactement le défaut que cette couche supprime.
+					evenements.Vider();
+					evts = NkGuiRapportEvenements();
 					Brancher(ctx);
 					NkGuiMonteur::Monter(ctx, doc, etat, rap, this);
+					// `Changed` se DÉDUIT : NKGui dit ce qu'une valeur vaut, jamais
+					// qu'elle vient de changer. On confronte donc l'état monté à
+					// celui de l'image précédente, APRÈS le montage.
+					evts.faits = evenements.Nombre();
 					// Les comportements APRÈS le montage — la limite (5) de
 					// NkGuiInteraction.h : `n1.value` doit être la valeur que le widget
 					// vient d'avoir, pas celle de l'image d'avant.
-					ExecuterComportements(doc);
+					ExecuterComportementsFiltres(doc);
 					Debrancher(ctx);
 				}
 
@@ -261,6 +285,35 @@ namespace nkentseu {
 					//    (`NkGuiWidgets.cpp:5303`), donc il pose `lastItemHovered` de la meme
 					//    facon, donc la meme condition le detecte. Une entree de menu qui
 					//    n'agirait pas serait un menu purement decoratif.
+					// ── `Changed` : ICI, parce qu'ICI SEULEMENT les deux noms se
+					//    rencontrent ───────────────────────────────────────────
+					//  Un `behavior "essai"` parle du WIDGET `essai`. Mais sa valeur
+					//  vit dans l'état sous la clé de LIAISON — `essai.valeur`. Les
+					//  deux noms ne sont ensemble qu'ici : `w` porte l'identifiant du
+					//  widget, `e` porte sa clé et sa valeur.
+					//
+					//  ⚠️ PREMIÈRE VERSION, LE 26/09 : la comparaison se faisait après
+					//     le montage, en parcourant l'état. Elle notait donc le
+					//     changement sous `essai.valeur`, et le `behavior "essai"` ne
+					//     se reconnaissait jamais dedans. Mesuré : image 2,
+					//     `declenches=1` au lieu de 2 — le comportement était ignoré
+					//     en silence, et seul le témoin sans événement partait.
+					//
+					//  ⚠️ ET ON NE « RÉPARE » PAS EN COUPANT LE SUFFIXE. Une liaison
+					//     n'est pas tenue de porter le nom de son widget : `bind =
+					//     joueur.vitesse` sur une case `vitesseX` est légitime.
+					//     Deviner le lien par la graphie aurait marché sur l'exemple
+					//     et menti sur le cas suivant.
+					if (e && memoire.Confronter(NkStringView(e->cle.CStr()), e->b, e->f, e->texte))
+						evenements.Noter(NkGuiEvenement::Changed, NkGuiArchive::IdOf(w));
+
+					// ── `Hover` : le pointeur est sur CE widget ────────────────
+					//  ⚠️ NOTÉ POUR TOUT RÔLE, pas seulement les boutons. Une `Tile`
+					//     qui lance sa vignette au survol n'est pas un bouton, et une
+					//     ligne de liste qui se met en avant non plus.
+					if (ctx.IsItemHovered())
+						evenements.Noter(NkGuiEvenement::Hover, NkGuiArchive::IdOf(w));
+
 					if (!NkGMotEgal(role, "Button") && !NkGMotEgal(role, "RepeatButton")
 						&& !NkGMotEgal(role, "MenuItem"))
 						return;
@@ -268,7 +321,123 @@ namespace nkentseu {
 					// La condition de `ButtonBehavior` : relâchement, survolé, non grisé.
 					if (!ctx.IsItemHovered() || !ctx.input.mouseReleased[0] || ctx.IsDisabled())
 						return;
+					// ── `Click` : NOTÉ LÀ OÙ L'ACTION SE TIRE, PAS À CÔTÉ ─────
+					//  Une seconde condition écrite ailleurs aurait fini par diverger
+					//  de celle-ci -- *deux compteurs sans code commun*. Le clic qui
+					//  déclenche un `behavior` est EXACTEMENT celui qui tire l'action.
+					evenements.Noter(NkGuiEvenement::Click, NkGuiArchive::IdOf(w));
 					Declencher(NkGuiArchive::IdOf(w));
+				}
+
+				// ═════════════════════════════════════════════════════════════
+				//  `Changed` — il se DÉDUIT, il ne s'observe pas
+				// ═════════════════════════════════════════════════════════════
+				//  NKGui ne dit jamais « cette valeur vient de changer » : elle dit
+				//  ce qu'elle vaut. On confronte donc l'état monté à celui de
+				//  l'image précédente, après le montage.
+				//
+				//  ⚠️ LA PREMIÈRE IMAGE NE DÉCLENCHE RIEN. Une valeur vue pour la
+				//     première fois n'a pas changé : elle est APPARUE. Traiter
+				//     l'apparition comme un changement ferait partir tous les
+				//     comportements au premier tour — c'est-à-dire le comportement
+				//     d'avant, en pire, puisqu'on croirait avoir un événement.
+				void NoterLesChangements() noexcept {
+					const uint32 n = etat.Taille();
+					for (uint32 i = 0; i < n; ++i) {
+						const NkGuiMonteEtat::Entree *e = etat.A(i);
+						if (!e)
+							continue;
+						if (memoire.Confronter(NkStringView(e->cle.CStr()), e->b, e->f, e->texte))
+							evenements.Noter(NkGuiEvenement::Changed, NkStringView(e->cle.CStr()));
+					}
+					evts.faits = evenements.Nombre();
+				}
+
+				// ═════════════════════════════════════════════════════════════
+				//  QUAND un `behavior` se déclenche — la limite (5), levée
+				// ═════════════════════════════════════════════════════════════
+				//      behavior "boucle"           { ... }   chaque image, comme avant
+				//      behavior "boucle"(Changed)  { ... }   seulement au changement
+				//      behavior "sauver"(Click)    { ... }   seulement au clic
+				//
+				//  ⚠️ STRICTEMENT ADDITIF, ET C'EST LA CONDITION DU LOT. Sans
+				//     parenthèse, le comportement passe à CHAQUE IMAGE, exactement
+				//     comme avant. Les documents du corpus et les trois de
+				//     NkAnimaEditor tournent sans une ligne de changement.
+				//
+				//  ⚠️ ET LE NOM QUI DÉCLENCHE EST CELUI DU `behavior`. C'est déjà la
+				//     convention du format — un `behavior "boucle"` parle de la case
+				//     `boucle`. En inventer une seconde (un attribut `cible`) aurait
+				//     créé deux façons de nommer la même chose, et elles auraient
+				//     divergé.
+				void ExecuterComportementsFiltres(const NkArchive &d) noexcept {
+					// ⚠️ LA MÊME REMISE À ZÉRO QUE `ExecuterComportements`, ET PAR LA
+					//    MÊME PORTE. L'évaluateur garde ses variables d'une exécution
+					//    à l'autre ; ne pas le réinitialiser ferait fuir `set x = ...`
+					//    d'une image sur la suivante. On filtre QUI s'exécute, jamais
+					//    COMMENT.
+					eval.Reinitialiser();
+					const NkArchiveNode *corps = NkGMonteCorps(d);
+					if (!corps)
+						return;
+					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+						if (!corps->array[i].IsObject() || !corps->array[i].object)
+							continue;
+						const NkArchive &sec = *corps->array[i].object;
+						if (!NkGMotEgal(NkGuiArchive::TypeOf(sec), "behavior"))
+							continue;
+
+						// ⚠️ L'ÉVÉNEMENT EST UNE PROPRIÉTÉ, ET C'EST UNE MESURE, PAS UN
+						//    GOÛT. La première écriture essayée était la parenthèse
+						//    d'état — `behavior "boucle"(Changed) {` — parce que
+						//    l'archive la lit déjà pour `appearance(Hover)`. Mesure du
+						//    26/09, les deux formes côte à côte dans un même document :
+						//    la forme SANS identifiant se lit, celle qui combine un
+						//    identifiant CITÉ et une parenthèse **n'est pas reconnue
+						//    comme un bloc** — elle tombe en tranche brute, exactement
+						//    comme `behavior "x" graph {`. Le comportement disparaissait
+						//    donc en silence, ce qui est le pire des trois échecs.
+						//
+						//    `on = Changed` emploie la grammaire des propriétés, que le
+						//    lecteur porte depuis toujours. Et une propriété n'est PAS
+						//    dans le corps exécutable (`$body`) : l'évaluateur ne la
+						//    verra jamais comme une instruction.
+						const NkString motEvt = NkGTexte(sec, "on", "");
+						const NkGuiEvenement ev =
+							NkGuiEvenementDepuisNom(NkStringView(motEvt.CStr()));
+
+						// ⚠️ UN MOT INCONNU NE SE DEVINE PAS, ET NE PASSE PAS. Le
+						//    faire tomber sur « chaque image » ferait d'une faute de
+						//    frappe un comportement qui tourne en boucle -- vert à
+						//    l'œil, faux en fond. On refuse, et on compte.
+						if (ev == NkGuiEvenement::Inconnu) {
+							++evts.evenementsInconnus;
+							continue;
+						}
+
+						// Pas de parenthèse : le comportement d'avant, intact.
+						if (ev == NkGuiEvenement::Aucun) {
+							eval.ExecuterSection(sec);
+							++evts.comportementsDeclenches;
+							continue;
+						}
+
+						// ⚠️ RECONNU MAIS SANS SOURCE : on ne l'exécute pas, et on le
+						//    COMPTE séparément d'un mot inconnu. L'auteur a écrit une
+						//    intention juste que la machine ne sait pas encore
+						//    servir -- ce n'est pas la même chose qu'une erreur.
+						if (!NkGuiEvenementADesSources(ev)) {
+							++evts.evenementsSansSource;
+							continue;
+						}
+
+						if (evenements.ADeclenche(ev, NkGuiArchive::IdOf(sec))) {
+							eval.ExecuterSection(sec);
+							++evts.comportementsDeclenches;
+						} else {
+							++evts.comportementsIgnores;
+						}
+					}
 				}
 
 				/// Le nom de l'action est l'identifiant du bouton.

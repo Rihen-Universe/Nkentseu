@@ -462,6 +462,16 @@ namespace nkentseu {
 					return i < 0 ? nullptr : &mE[(uint32)i];
 				}
 
+				/// L'entree de rang `i`, ou nullptr hors bornes.
+				/// ⚠️ AJOUTE LE 26/09 POUR `Changed`. NKGui ne dit jamais « cette
+				///    valeur vient de changer » : elle dit ce qu'elle vaut.
+				///    L'evenement se DEDUIT donc d'une comparaison avec l'image
+				///    precedente, et comparer demande de PARCOURIR. `Taille()`
+				///    existait sans rien pour lire ce qu'elle compte.
+				const Entree *A(uint32 i) const noexcept {
+					return (i < (uint32)mE.Size()) ? &mE[i] : nullptr;
+				}
+
 				uint32 Taille() const noexcept {
 					return (uint32)mE.Size();
 				}
