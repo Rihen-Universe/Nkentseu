@@ -6,9 +6,21 @@ nkgui 0.3
 //
 // ⚠️ ELLE EST LE TÉMOIN LE PLUS SIMPLE DU CHANTIER. Changez le texte ci-dessous,
 //    relancez : le bas de la fenêtre change. Si rien ne change, le fil est
-//    coupé, et c'est cette bande-là qu'il faut regarder en premier — elle n'a ni
-//    valeur liée, ni comportement, ni zone hôte. Elle ne peut échouer que d'une
-//    seule façon.
+//    coupé, et c'est cette bande-là qu'il faut regarder en premier — elle n'a
+//    ni valeur liée, ni comportement, ni zone hôte. Elle ne peut échouer que
+//    d'une seule façon.
+//
+// ⚠️ ET ELLE N'AFFICHE AUCUN CHIFFRE VIVANT, PARCE QU'ELLE NE LE PEUT PAS. Le
+//    nombre de clés, la durée du clip, le temps du curseur changent à chaque
+//    image ; le format n'a pas de liaison en LECTURE SEULE vers une valeur de
+//    l'application (`bind` écrit dans le magasin du document, il ne lit pas
+//    l'application). Écrire « 0 cle » en dur donnerait un chiffre juste une
+//    seconde et faux ensuite — *un chiffre juste sous un nom faux coûte plus
+//    cher qu'un chiffre absent*.
+//
+//    Ce qu'il manque a un nom : une section `data` ou un `Host` dans la barre
+//    d'état. Le second existe déjà côté format — c'est le chemin le plus court
+//    le jour où ce besoin reviendra.
 
 widgets {
 
@@ -17,11 +29,11 @@ widgets {
     align = Center
 
     Text "message" {
-      text = "NkAnimaEditor — l'interface vient d'un document, pas du code"
+      text = "NkAnimaEditor — structure, comportement et design viennent d'un document"
     }
 
     Text "source" {
-      text = "Resources/Interface/NkAnimaEditor/barre_etat.nkgui"
+      text = "Resources/Interface/NkAnimaEditor/"
     }
   }
 }

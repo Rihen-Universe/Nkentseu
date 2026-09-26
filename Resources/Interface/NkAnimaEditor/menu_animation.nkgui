@@ -2,53 +2,67 @@ nkgui 0.3
 
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 //
-// LE MENU « Animation » DE NkAnimaEditor, ET IL EST UNE DONNÉE.
+// LES MENUS DE NkAnimaEditor, ET ILS SONT UNE DONNÉE.
 // Ajoutez une ligne ici, relancez : l'entrée est dans le menu. Rien à compiler.
 //
 // ═══════════════════════════════════════════════════════════════════════════
-//  POURQUOI CE FICHIER NE CONTIENT PAS DE `MenuBar`, ET C'EST IMPORTANT
+//  CE QUE CETTE INTERFACE VISE (Rodolf, 26/09)
+// ═══════════════════════════════════════════════════════════════════════════
+//  NkAnimaEditor n'est pas un lecteur de clips : c'est un ATELIER D'ANIMATION
+//  3D — squelette, courbes, VFX, animation non squelettique — de la famille
+//  Blender / Cascadeur / iClone. Les menus portent donc la forme de cet
+//  atelier, calquée sur les sept menus de NK3DModeler (Fichier, Édition,
+//  Fenêtre, Outils, Sélection, Objet, Aide).
+//
+//  ⚠️ ET CE QUI N'EXISTE PAS EST GRISÉ, PAS OMIS. C'est la règle de
+//     NK3DModeler, tenue entrée par entrée : CÂBLER quand la fonction existe,
+//     GRISER quand elle n'existe pas — avec sa raison écrite ici — et RETIRER
+//     quand l'entrée n'a plus d'objet.
+//
+//     *Une entrée qui s'affiche et ne fait rien est un mensonge ; une entrée
+//     grisée est une promesse datée.* Et omettre ferait croire que la fonction
+//     n'est pas prévue.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  CE FICHIER NE CONTIENT PAS DE `MenuBar`, ET C'EST IMPORTANT
 // ═══════════════════════════════════════════════════════════════════════════
 //  Il est monté par `SetAppMenu`, qui est **additif** : la coquille appelle
-//  `mAppMenuFn` À L'INTÉRIEUR de sa propre barre, après ses quatre menus
-//  (`NkEditorShell.cpp:3497`). La barre est donc DÉJÀ ouverte quand ce document
-//  se monte — y écrire un `MenuBar` en ouvrirait une seconde.
+//  `mAppMenuFn` À L'INTÉRIEUR de sa propre barre (`NkEditorShell.cpp:3497`),
+//  après ses quatre menus. La barre est DÉJÀ ouverte — y écrire un `MenuBar`
+//  en ouvrirait une seconde.
 //
-//  ⚠️ ET ON N'EMPLOIE PAS `SetMenuBar`, QUI EXISTE POURTANT. Il REMPLACE
-//     entièrement les menus de la coquille, et l'un d'eux — « Affichage » — est
-//     construit par `DrawPanelsMenuItems()`, qui **énumère les panneaux ouverts
-//     au moment où il s'exécute**. Le format n'a aucun moyen d'exprimer une
-//     liste engendrée : `ListBox` a un `bind`, `Menu` n'en a pas. Prendre la
-//     barre entière avec un document ferait donc perdre le menu des panneaux,
-//     en silence. *On ne migre pas vers moins.*
+//  ⚠️ LA COQUILLE FOURNIT DÉJÀ : Fichier · Affichage · Fenêtre · Préférences.
+//     Les menus ci-dessous s'ajoutent APRÈS. On ne redéclare donc ni
+//     « Fichier » ni « Affichage » : deux menus de même titre dans une seule
+//     barre sont indiscernables pour l'utilisateur. Le menu de vue s'appelle
+//     donc « Vue », pas « Affichage ».
+//
+//  ⚠️ ET ON N'EMPLOIE PAS `SetMenuBar`. Il REMPLACE les menus de la coquille,
+//     dont « Affichage », construit par `DrawPanelsMenuItems()` qui énumère les
+//     panneaux OUVERTS au moment où il s'exécute. Le format ne sait pas
+//     exprimer une liste engendrée. *On ne migre pas vers moins.*
 //
 // ═══════════════════════════════════════════════════════════════════════════
 //  L'IDENTIFIANT D'UNE ENTRÉE EST LE NOM DE SON ACTION
 // ═══════════════════════════════════════════════════════════════════════════
-//  Même convention que les boutons et que la zone hôte. Noms servis aujourd'hui :
-//      anim.jouer  anim.inserer  anim.supprimer  anim.annuler  anim.refaire
+//  Les 20 noms servis aujourd'hui par `kActions` (main.cpp) :
+//      anim.jouer  anim.debut  anim.fin  anim.image_prec  anim.image_suiv
+//      anim.inserer  anim.supprimer  anim.annuler  anim.refaire
+//      anim.selection_rien
+//      anim.pose_entrer  anim.pose_enregistrer  anim.pose_quitter
+//      anim.vue_solide  anim.vue_rendu  anim.vue_filaire
+//      anim.physique_on  anim.physique_off  anim.com_on  anim.com_off
 //      anim.compteurs
 //  Un nom non servi donne une entrée qui s'affiche et ne fait rien — et le
 //  compteur `actionsInconnues` le dit. Il ne disparaît pas en silence.
 
 widgets {
 
-  Menu "menu_animation" {
-    label = "Animation"
-
-    MenuItem "anim.jouer" {
-      label = "Jouer / Pause"
-      shortcut = "Espace"
-    }
-
-    MenuItem "anim.inserer" {
-      label = "Insérer une clé"
-      shortcut = "I"
-    }
-
-    MenuItem "anim.supprimer" {
-      label = "Supprimer la clé"
-      shortcut = "Suppr"
-    }
+  // ═════════════════════════════════════════════════════════════════════════
+  //  ÉDITION
+  // ═════════════════════════════════════════════════════════════════════════
+  Menu "menu_edition" {
+    label = "Edition"
 
     MenuItem "anim.annuler" {
       label = "Annuler"
@@ -60,8 +74,246 @@ widgets {
       shortcut = "Ctrl+Y"
     }
 
+    MenuItem "anim.inserer" {
+      label = "Inserer une cle"
+      shortcut = "I"
+    }
+
+    MenuItem "anim.supprimer" {
+      label = "Supprimer la cle"
+      shortcut = "Suppr"
+    }
+
+    // ⚠️ GRISÉES : `AnimMoveKey(tOld, tNew)` existe et déplace UNE clé, mais
+    //    copier/coller demande un presse-papiers de clés — quelles courbes,
+    //    quels joints, à quel temps de destination. Aucun de ces choix n'est
+    //    dans la façade : les écrire ici inventerait une politique d'édition
+    //    dans un menu. C'est un chantier, pas un fil.
+    MenuItem "anim.copier" {
+      label = "Copier les cles"
+      shortcut = "Ctrl+C"
+      enabled = false
+    }
+
+    MenuItem "anim.coller" {
+      label = "Coller les cles"
+      shortcut = "Ctrl+V"
+      enabled = false
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  SÉLECTION
+  // ═════════════════════════════════════════════════════════════════════════
+  Menu "menu_selection" {
+    label = "Selection"
+
+    // ⚠️ GRISÉE : la façade n'offre que `AnimSelectKey(t)`, clé par clé.
+    //    Boucler sur `AnimGetKeyTimes` depuis le menu inventerait une
+    //    politique de sélection alors qu'elle appartient au modèle — et il
+    //    faudrait décider si « tout » veut dire toutes les clés, celles du
+    //    joint courant, ou celles de la plage visible. Trois réponses, aucune
+    //    écrite nulle part.
+    MenuItem "anim.selection_tout" {
+      label = "Tout selectionner"
+      shortcut = "A"
+      enabled = false
+    }
+
+    MenuItem "anim.selection_rien" {
+      label = "Tout deselectionner"
+      shortcut = "Alt+A"
+    }
+
+    // ⚠️ GRISÉE : aucune fonction d'inversion dans `AnimBridge.h`. Même
+    //    constat que dans NK3DModeler — ni `Invert`, ni `Inverse` dans toute
+    //    la façade. L'écrire serait du neuf.
+    MenuItem "anim.selection_inverser" {
+      label = "Inverser la selection"
+      shortcut = "Ctrl+I"
+      enabled = false
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  ANIMATION — le transport, et il est entièrement câblé
+  // ═════════════════════════════════════════════════════════════════════════
+  Menu "menu_animation" {
+    label = "Animation"
+
+    MenuItem "anim.jouer" {
+      label = "Jouer / Pause"
+      shortcut = "Espace"
+    }
+
+    MenuItem "anim.debut" {
+      label = "Aller au debut"
+      shortcut = "Debut"
+    }
+
+    MenuItem "anim.fin" {
+      label = "Aller a la fin"
+      shortcut = "Fin"
+    }
+
+    // ⚠️ LE PAS EST UNE IMAGE, PAS UN TEMPS FIXE. `PasImage` lit `AnimFps()` :
+    //    un pas de 1/30 s sauterait des images sur un clip à 24 et en
+    //    répéterait sur un clip à 60.
+    MenuItem "anim.image_prec" {
+      label = "Image precedente"
+      shortcut = "Gauche"
+    }
+
+    MenuItem "anim.image_suiv" {
+      label = "Image suivante"
+      shortcut = "Droite"
+    }
+
+    // ⚠️ GRISÉES : ni `AnimSetRange`, ni `AnimBakeRange`, ni aucune notion de
+    //    plage de lecture dans la façade. `AnimDuration()` est la seule borne,
+    //    et elle est en lecture seule.
+    MenuItem "anim.plage" {
+      label = "Definir la plage de lecture"
+      enabled = false
+    }
+
+    MenuItem "anim.cuire" {
+      label = "Cuire l'animation"
+      enabled = false
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  POSE — le geste de Cascadeur
+  // ═════════════════════════════════════════════════════════════════════════
+  //  Trois portes distinctes, et elles ne se valent pas : entrer, ENREGISTRER
+  //  une clé depuis la pose, et sortir SANS enregistrer. Les confondre ferait
+  //  perdre du travail en silence — d'où trois entrées et non deux.
+  Menu "menu_pose" {
+    label = "Pose"
+
+    MenuItem "anim.pose_entrer" {
+      label = "Editer la pose"
+      shortcut = "Tab"
+    }
+
+    MenuItem "anim.pose_enregistrer" {
+      label = "Enregistrer la pose en cle"
+      shortcut = "Ctrl+S"
+    }
+
+    MenuItem "anim.pose_quitter" {
+      label = "Quitter sans enregistrer"
+      shortcut = "Echap"
+    }
+
+    // ⚠️ GRISÉES, ET C'EST LE CŒUR DE CE QUI MANQUE POUR ÉGALER CASCADEUR.
+    //    `AnimDragJoint`, `AnimRotateJoint` et `AnimTranslateJoint` existent
+    //    et agissent JOINT PAR JOINT — c'est de la cinématique directe. Une
+    //    chaîne IK (le pied reste au sol pendant que le bassin descend)
+    //    demande un solveur qui n'est nulle part dans la façade.
+    //
+    //    ⚠️ Et le miroir a une dépendance qu'on ne peut pas contourner : il
+    //       faut savoir quel joint est le symétrique de quel autre, donc
+    //       connaître leur NOM. `NkGLTFNode` n'a aucun champ `name` — c'est la
+    //       même absence qui rend la masse uniforme dans le calcul du centre
+    //       de masse. Un seul manque, deux fonctions bloquées.
+    MenuItem "anim.pose_ik" {
+      label = "Cinematique inverse (IK)"
+      enabled = false
+    }
+
+    MenuItem "anim.pose_miroir" {
+      label = "Miroir de la pose"
+      enabled = false
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  VUE — pas « Affichage » : la coquille a déjà un menu de ce nom
+  // ═════════════════════════════════════════════════════════════════════════
+  Menu "menu_vue" {
+    label = "Vue"
+
+    // Les trois modes de `Anim3DSetViewMode`, comme dans Blender.
+    MenuItem "anim.vue_solide" {
+      label = "Solide"
+      shortcut = "Z"
+    }
+
+    MenuItem "anim.vue_rendu" {
+      label = "Rendu"
+    }
+
+    MenuItem "anim.vue_filaire" {
+      label = "Filaire"
+    }
+
     MenuItem "anim.compteurs" {
       label = "Compteurs de rendu"
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  COURBES, VFX, SQUELETTE — l'ambition, entièrement grisée et datée
+  // ═════════════════════════════════════════════════════════════════════════
+  //  ⚠️ CE MENU NE CÂBLE RIEN, ET C'EST VOLONTAIRE. Rodolf a nommé le 26/09 ce
+  //     que NkAnimaEditor doit devenir : courbes, VFX, animation non
+  //     squelettique. Aucune de ces trois familles n'a la moindre fonction
+  //     dans `AnimBridge.h` — la façade n'expose que des CLÉS (temps +
+  //     sélection), jamais les tangentes ni les interpolations qu'un éditeur
+  //     de courbes manipule.
+  //
+  //     Les entrées sont écrites, grisées, pour que la forme de l'atelier soit
+  //     visible dès maintenant. Elles se dégriseront une par une, et chacune
+  //     dira alors ce qui l'a rendue possible.
+  Menu "menu_atelier" {
+    label = "Atelier"
+
+    MenuItem "anim.editeur_courbes" {
+      label = "Editeur de courbes"
+      enabled = false
+    }
+
+    MenuItem "anim.feuille_expo" {
+      label = "Feuille d'exposition"
+      enabled = false
+    }
+
+    MenuItem "anim.calques" {
+      label = "Calques d'animation"
+      enabled = false
+    }
+
+    MenuItem "anim.vfx" {
+      label = "Effets (VFX)"
+      enabled = false
+    }
+
+    MenuItem "anim.retarget" {
+      label = "Reciblage sur un autre squelette"
+      enabled = false
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  //  AIDE
+  // ═════════════════════════════════════════════════════════════════════════
+  Menu "menu_aide" {
+    label = "Aide"
+
+    // ⚠️ GRISÉES : aucun écran ne les affiche. Même constat que dans
+    //    NK3DModeler avant le 26/09 — la table des raccourcis existe, mais
+    //    rien ne la PEINT en plein écran. NK3DModeler a désormais son écran
+    //    « À propos » (`NkModelerApropos.h`) ; NkAnimaEditor, non.
+    MenuItem "anim.aide_raccourcis" {
+      label = "Raccourcis clavier"
+      enabled = false
+    }
+
+    MenuItem "anim.apropos" {
+      label = "A propos"
+      enabled = false
     }
   }
 }
