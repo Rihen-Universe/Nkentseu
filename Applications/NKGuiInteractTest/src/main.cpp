@@ -1081,6 +1081,146 @@ int main(int argc, char **argv) {
 	}
 
 	// =====================================================================
+	printf("\n-- (b1.k) LA BOITE DE DIALOGUE SE TRAINE PAR SA BARRE DE TITRE\n");
+	// =====================================================================
+	{
+		// Troisieme demande de Rodolf (26/09) : « des dialog box deplacable ».
+		// Le voile modal existait, le titre se peignait -- et la fenetre etait
+		// CLOUEE : `NoMove` etait COMPTE, jamais applique, faute de geste.
+		//
+		// ⚠️ LA MESURE EST LE RECTANGLE RELEVE, PAS DES PIXELS. Une fenetre
+		//    deplacee de 40 px garde exactement les memes couleurs : un compteur
+		//    de couleur serait vert avant comme apres. Ce qui bouge, c'est son
+		//    ORIGINE, et le montage la donne.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"dialogue\" {\n"
+			"    title = \"Exporter\"\n"
+			"    pos = (40, 30)\n"
+			"    size = (220, 120)\n"
+			"    placement = absolute\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 400, 240),
+			  "(b1.k) le document a fenetre titree se charge");
+		s.Image();
+		s.Image();
+		NkRect r0{0.f, 0.f, 0.f, 0.f};
+		const bool a0 = s.RectTout("dialogue", r0);
+		Check(a0, "(b1.k) le rectangle de la fenetre sort du montage");
+		if (a0) {
+			printf("        au repos : x=%.1f y=%.1f\n", (double)r0.x, (double)r0.y);
+			CheckEqF(r0.x, 40.f, 0.6f, "(b1.k) elle est ou le DOCUMENT la met (x = 40)");
+			CheckEqF(r0.y, 30.f, 0.6f, "(b1.k) ... et y = 30");
+
+			// LE GESTE : appui sur la barre de titre, puis deux deplacements.
+			// L'attendu est ECRIT AVANT, et DERIVE des deux pas, pas recopie.
+			const float32 kDx1 = 25.f, kDy1 = 14.f, kDx2 = 12.f, kDy2 = 7.f;
+			const float32 attX = 40.f + kDx1 + kDx2;
+			const float32 attY = 30.f + kDy1 + kDy2;
+			printf("        ATTENDU ECRIT AVANT : 40+%.0f+%.0f = %.0f ; 30+%.0f+%.0f = %.0f\n",
+				   (double)kDx1, (double)kDx2, (double)attX, (double)kDy1, (double)kDy2,
+				   (double)attY);
+			float32 mx = r0.x + 30.f, my = r0.y + s.ctx.ItemHeight() * 0.5f;
+			s.exe.PoserPointeur(s.ctx, mx, my);
+			s.Image();
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, true);
+			s.Image(); // l'appui PREND la fenetre
+			mx += kDx1;
+			my += kDy1;
+			s.exe.PoserPointeur(s.ctx, mx, my);
+			s.Image();
+			mx += kDx2;
+			my += kDy2;
+			s.exe.PoserPointeur(s.ctx, mx, my);
+			s.Image();
+			NkRect r1{0.f, 0.f, 0.f, 0.f};
+			const bool a1 = s.RectTout("dialogue", r1);
+			printf("        apres le geste : x=%.1f y=%.1f (images ayant vu un deplacement : %u)\n",
+				   (double)r1.x, (double)r1.y, s.rap.fenetresDeplacees);
+			Check(a1, "(b1.k) elle est toujours au releve");
+			CheckEqF(r1.x, attX, 1.0f, "(b1.k) ELLE A SUIVI le curseur en x");
+			CheckEqF(r1.y, attY, 1.0f, "(b1.k) ... et en y");
+
+			// ⚠️ ET ELLE RESTE OU ON L'A LACHEE. Sans cette moitie, un document qui
+			//    reimpose son `pos` a chaque image passerait le critere ci-dessus et
+			//    ramenerait la fenetre des le relachement.
+			s.exe.PoserBouton(s.ctx, 0, false);
+			s.Image();
+			s.Image();
+			s.Image();
+			NkRect r2{0.f, 0.f, 0.f, 0.f};
+			s.RectTout("dialogue", r2);
+			printf("        trois images apres le lacher : x=%.1f y=%.1f\n", (double)r2.x,
+				   (double)r2.y);
+			CheckEqF(r2.x, attX, 1.0f, "(b1.k) ELLE RESTE la ou on l'a lachee");
+			CheckEqF(r2.y, attY, 1.0f, "(b1.k) ... en y aussi");
+			CheckEqU(s.rap.fenetresDeplacees, 0u,
+					 "(b1.k) NEGATIF : bouton relache -> plus aucune image ne la deplace");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b1.l) CE QUI N'OFFRE AUCUNE PRISE NE SE DEPLACE PAS\n");
+	// =====================================================================
+	{
+		// Deux negatifs dans un seul document, parce qu'ils disent deux choses
+		// differentes : `NoMove` est un REFUS du document, l'absence de titre est
+		// une absence de PRISE. Les confondre ferait passer un `NoMove` ignore
+		// pour un comportement voulu.
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"clouee\" {\n"
+			"    title = \"Fixe\"\n"
+			"    pos = (20, 20)\n"
+			"    size = (150, 80)\n"
+			"    placement = absolute\n"
+			"    flags = NoMove\n"
+			"  }\n"
+			"  Window \"sansprise\" {\n"
+			"    pos = (200, 20)\n"
+			"    size = (150, 80)\n"
+			"    placement = absolute\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 400, 240),
+			  "(b1.l) le document a deux fenetres fixes se charge");
+		s.Image();
+		s.Image();
+		const char *noms[2] = {"clouee", "sansprise"};
+		const char *pourquoi[2] = {"elle ecrit `NoMove`", "elle n'a pas de barre de titre"};
+		for (uint32 k = 0; k < 2u; ++k) {
+			NkRect r0{0.f, 0.f, 0.f, 0.f};
+			if (!s.RectTout(noms[k], r0))
+				continue;
+			const float32 mx = r0.x + 30.f, my = r0.y + s.ctx.ItemHeight() * 0.5f;
+			s.exe.PoserPointeur(s.ctx, mx, my);
+			s.Image();
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, true);
+			s.Image();
+			s.exe.PoserPointeur(s.ctx, mx + 40.f, my + 25.f);
+			s.Image();
+			s.exe.PoserBouton(s.ctx, 0, false);
+			s.Image();
+			NkRect r1{0.f, 0.f, 0.f, 0.f};
+			s.RectTout(noms[k], r1);
+			printf("        « %s » (%s) : x %.1f -> %.1f\n", noms[k], pourquoi[k], (double)r0.x,
+				   (double)r1.x);
+			CheckEqF(r1.x, r0.x, 0.6f, "(b1.l) elle n'a PAS bouge en x");
+			CheckEqF(r1.y, r0.y, 0.6f, "(b1.l) ni en y");
+		}
+		CheckEqU(s.rap.fenetresDeplacees, 0u, "(b1.l) et AUCUNE image n'a vu un deplacement");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
 	printf("\n-- (b2)+(b3) LE CALLBACK ET LE COMPORTEMENT\n");
 	// =====================================================================
 	{
