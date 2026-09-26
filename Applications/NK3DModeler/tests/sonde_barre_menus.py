@@ -266,6 +266,54 @@ def main():
     else:
         verdict("b9", False, "« Appliquer tout » introuvable")
 
+    # ── b10..b12 : « AIDE -> A PROPOS », et c'est une OBLIGATION JURIDIQUE ──
+    #    62 icones de `data/icons/` sont une copie de vscode-codicons sous
+    #    CC BY 4.0, qui EXIGE l'attribution. Une attribution que seul un
+    #    developpeur peut lire ne remplit pas la condition : elle doit etre
+    #    ATTEIGNABLE DEPUIS L'APPLICATION. Ces criteres verifient le chemin.
+    CLIC_AIDE = (430, 15)
+    rep3 = courir(a.exe, "60:m:430:15;80:d:430:15;82:u:430:15", 140,
+                  os.path.join(base, "b10a"), trace=2)
+    cibleAp = None
+    for m in re.finditer(r"entree menu=6 .*cle=(\S+) indispo=(\d) .*"
+                         r"rect=(-?\d+),(-?\d+),(-?\d+),(-?\d+)", rep3):
+        if m.group(1) == "app.apropos":
+            x, y, w, h = (int(m.group(k)) for k in (3, 4, 5, 6))
+            cibleAp = (m.group(2), x + w // 2, y + h // 2)
+    verdict("b10", bool(cibleAp) and cibleAp[0] == "0",
+            "« A propos » est DEGRISEE (la mention doit etre atteignable)")
+
+    if cibleAp:
+        cx, cy = cibleAp[1], cibleAp[2]
+        j11 = courir(a.exe, "60:m:430:15;80:d:430:15;82:u:430:15;"
+                            "100:m:%d:%d;120:d:%d:%d;122:u:%d:%d" % (cx, cy, cx, cy, cx, cy),
+                     190, os.path.join(base, "b11"), trace=2)
+        ouverts = len([1 for l in j11.splitlines() if "apropos=1" in l])
+        # ⚠️ ON COMPTE DES IMAGES, pas des occurrences -- et pour la raison
+        #    exacte du 25/09 : l'ecran s'ouvrait ET se refermait dans la MEME
+        #    image (son voile, en couche 150, avalait le clic qui venait de
+        #    l'ouvrir). Un critere qui regarderait l'image du clic passerait.
+        verdict("b11", ouverts >= 20,
+                "un clic l'OUVRE et il RESTE ouvert (%d images) -- persistant, pas un bandeau"
+                % ouverts)
+        # Le menu se referme, comme toute entree ACTIVE : c'est ce qui la
+        # distingue d'une entree grisee (b7).
+        # ⚠️ LE CRITERE DIT CE QU'IL VEUT DIRE, ET NON UN SEUIL CALIBRE.
+        #    Premiere version : « moins de 40 images ouvertes au total » -- elle
+        #    a rougi, et la mesure a montre que le PRODUIT etait juste : le menu
+        #    EST ferme apres le clic, simplement le scenario laisse le menu
+        #    ouvert ~40 images AVANT. J'ai reformule au lieu d'ajuster le
+        #    nombre : *un seuil qu'on deplace jusqu'a ce qu'il passe ne mesure
+        #    plus rien.* On regarde donc les images QUI SUIVENT le clic.
+        apres = [int(m.group(1)) for m in
+                 re.finditer(r"img=(\d+) .*openMenu=6", j11) if int(m.group(1)) > 130]
+        verdict("b12", len(apres) == 0,
+                "et le menu Aide est FERME apres le clic (%d image(s) encore ouverte(s))"
+                % len(apres))
+    else:
+        verdict("b11", False, "« A propos » introuvable")
+        verdict("b12", False, "« A propos » introuvable")
+
     print("RESULTAT : %d/%d" % (gOk, gOk + gKo))
     if a.negatif:
         # Le negatif NOMME les criteres attendus en rouge : un banc casse pour
