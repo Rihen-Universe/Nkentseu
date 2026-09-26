@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkDemoPiedsSurLaPente — EPROUVETTE : les pieds epousent une pente (26/09/2026)
+# =============================================================================
+# Deux jambes procedurales (9 os) et un plan INCLINE. Une case branche, ou non,
+# le monde physique a l'IK des pieds : decochee, les pieds retombent sur le plan
+# plat analytique et TRAVERSENT la pente. Le negatif se voit a l'oeil.
+#
+# POURQUOI : `NkFootIKSystem::SetPhysicsWorld` n'etait appele NULLE PART et le
+# systeme n'etait meme pas enregistre par `NkEngineLayer`. Les pieds suivaient
+# toujours un sol analytique a y = 0.
+#
+# ⚠️ EPROUVETTE, pas un personnage : aucun humanoide rigge n'est atteignable
+#    (NkGLTFIO reconstruit un squelette dont les os n'ont PAS DE NOM, et
+#    NkFootIK veut des indices). Condition de retrait ecrite dans le main.cpp.
+#
+# `--mesure` : meme montage, sans fenetre, avec la PENTE LUE comme premier
+# critere -- ce depot a deja mesure une pente sur un sol plat (13/09).
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+import os
+
+
+with project("NkDemoPiedsSurLaPente"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    nkentseudependson(
+        ["Noge", "NKAnima", "NKCanvas", "NKPhysics", "NKCollision", "NKECS",
+         "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad"],
+        extra_includes=["src", "%{Noge.location}/src"],
+        extra_defines=[
+            # OpenGL seul : cette demo ne mesure pas le rendu, elle montre un contact.
+            "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # La police chargee au demarrage ("Resources/Fonts/Antonio-Bold.ttf").
+    dependfiles(["../../Resources/Fonts"])
+
+    # ===== Windows ===========================================================
+    # ⚠️ NKCanvas COMPILE TOUS SES DORSAUX : le lien reclame DX11/DX12/Vulkan
+    #    meme si la demo demande OpenGL. Meme liste que ConquerorProto, qui
+    #    construit — reprise telle quelle plutot que devinee ligne a ligne.
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
+            "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "vulkan-1",
+        ])
+
+    # ===== Linux (XLib) ======================================================
+    with filter("system:Linux && !options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "m"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"]); optimize("Off"); symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"]); optimize("Speed"); symbols(False)
