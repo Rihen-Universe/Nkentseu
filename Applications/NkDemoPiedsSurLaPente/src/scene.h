@@ -53,7 +53,13 @@ namespace eprouvette {
 			bool penteLisible = false;
 
 			float solSousPiedG = 0.f; // hauteur du sol juste sous le pied gauche
+			float solSousPiedD = 0.f; // ... et sous le droit
 			bool solLisible = false;
+
+			// ── LA PHASE DE CHAQUE PIED, telle qu'elle est FOURNIE ───────────
+			// C'est le poids de plante lu dans le composant, pas une deduction
+			// faite ici : ce que l'ecran montre est ce que l'IK a recu.
+			float planteG = 1.f, planteD = 1.f;
 
 			// Deux points du sol, pour tracer la pente telle qu'elle EST.
 			float solGaucheY = 0.f, solDroiteY = 0.f;
@@ -123,6 +129,13 @@ namespace eprouvette {
 
 	// `branche` : l'IK interroge le monde physique (sinon : plan plat a y=0).
 	bool PoserCesiumSurPente(float x, bool branche, SurPente &out) noexcept;
+
+	// ── L'ALTERNANCE, IMPOSEE A LA MAIN ───────────────────────────────────
+	// Fournit le poids de plante des deux pieds depuis l'exterieur, en creneau.
+	// ⚠️ CE N'EST PAS UN CYCLE DE MARCHE, et la distinction est le sujet : un
+	//    generateur de cycle serait du NEUF. Ici, deux valeurs en opposition
+	//    de phase, juste assez pour que la question se voie.
+	void ImposerAlternance(float temps, bool active) noexcept;
 
 	// ── La compensation de hanche, mise a l'epreuve ────────────────────────
 	// Deux soupcons a la LECTURE de NkFootIKSystem, qu'il faut MESURER :
