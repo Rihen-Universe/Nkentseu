@@ -101,6 +101,50 @@ namespace eprouvette {
 	// Importe CesiumMan et remplit `out`. Ne touche pas la scene de la pente.
 	bool ImporterCesiumMan(Import &out) noexcept;
 
+	// ⚠️ Le squelette importe traverse la frontiere par POINTEUR OPAQUE :
+	//    `scene.h` ne peut pas nommer `ecs::NkSkeleton` sans inclure l'en-tete
+	//    qui le declare, et `import_cesium.cpp` ne peut pas cotoyer
+	//    `NkLocomotion.h` (conflit `NkSpan`). Le pointeur appartient a
+	//    l'importeur ; l'appelant ne le libere pas.
+	void *SqueletteCesiumMan() noexcept;
+
+	// ── Le montage CesiumMan SUR LA PENTE ────────────────────────────────
+	// C'est LE critere du correctif : un squelette HIERARCHIQUE pose ses pieds.
+	// L'eprouvette plate, elle, donne les memes chiffres avant et apres le
+	// correctif (composition monde = identite quand tous les parents valent -1)
+	// -- donc elle ne peut pas le distinguer d'un placebo.
+	struct SurPente {
+			bool monte = false;
+			float solY = 0.f;      // sous le pied, lu par raycast
+			float piedY = 0.f;     // position MONDE du pied apres l'IK
+			float piedXMonde = 0.f;
+			float penteLueDeg = 0.f;
+	};
+
+	// `branche` : l'IK interroge le monde physique (sinon : plan plat a y=0).
+	bool PoserCesiumSurPente(float x, bool branche, SurPente &out) noexcept;
+
+	// ── La compensation de hanche, mise a l'epreuve ────────────────────────
+	// Deux soupcons a la LECTURE de NkFootIKSystem, qu'il faut MESURER :
+	//   (1) `dL/dR` valent une ALTITUDE de sol, pas un ecart -- donc sur un sol
+	//       haut la hanche recevrait une correction proportionnelle a l'altitude ;
+	//   (2) `sk.Pose(hip).localPosition.y += hipOffset` s'AJOUTE a chaque image
+	//       sans defaire la precedente.
+	// ⚠️ Le defaut (1) DORMAIT parce que le repli met le sol a y = 0 : zero fois
+	//    la compensation vaut zero. Il ne se reveille que sur du relief.
+	struct Hanche {
+			bool mesure = false;
+			float avant = 0.f;    // hauteur de la hanche AVANT toute execution
+			float apres1 = 0.f;   // hauteur de la hanche apres 1 image
+			float apres30 = 0.f;  // ... apres 30 images, sans rien replacer
+			float apres200 = 0.f; // ... apres 200 : la convergence est finie ici
+			float offsetVu = 0.f; // hipOffset tel que le composant le porte
+			bool groundeG = false, groundeD = false; // les DEUX pieds touchent-ils ?
+	};
+
+	// Sur la pente, a une abscisse ou le sol est HAUT : la hanche derive-t-elle ?
+	bool EprouverHanche(Hanche &out) noexcept;
+
 	// Mode console : imprime les critères, rend le nombre d'échecs.
 	int Mesurer() noexcept;
 
