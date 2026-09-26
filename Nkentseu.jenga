@@ -1734,6 +1734,11 @@ with workspace("Nkentseu", location="."):
     # SURVOLE, et les fenetres de sonde sont invisibles.
     with include("Applications/NkDemoCurseur/NkDemoCurseur.jenga"):
         pass
+    # LES DEUX DELTAS DE SOURIS cote a cote : l un retombe a zero quand la
+    # main s arrete, l autre garde sa derniere valeur. Aucun banc ne peut le
+    # montrer -- il faut une main qui s arrete.
+    with include("Applications/NkDemoDeltaSouris/NkDemoDeltaSouris.jenga"):
+        pass
     # La DEMO du contact : une bille tombe sur un plan et s arrete ; une case
     # coupe la collision et elle traverse. Elle passe par le VRAI pont de Noge
     # (NkPhysicsSystem), donc elle montre le CABLAGE et non le module.
