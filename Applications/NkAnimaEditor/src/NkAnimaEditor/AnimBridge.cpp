@@ -69,6 +69,13 @@ namespace nkanima {
 
 				// ── Debug COM (M3.1/M3.2/M3.3) : tampons réutilisés, zéro alloc/frame ──
 				bool showCom = false;
+				// (26/09) Compteurs de la derniere image de la vue 3D, pris par
+				// DIFFERENCE autour du rendu -- voir `Anim3DRenderOffscreen`.
+				uint32 cptDraws = 0, cptTris = 0, cptSommets = 0;
+				bool cptValide = false;
+				/// ETEINT PAR DEFAUT -- l'affichage permanent polluait chaque
+				/// capture de Rodolf. Bascule par la palette de commandes.
+				bool cptVisibles = false;
 				nkentseu::anim::NkPoseMass poseMass;
 				NkVector<NkVec3f> comPos;	  // positions monde des joints (scratch)
 				NkVector<int32> comParent;	  // ignoré, exigé par AnimGetSkeleton
@@ -881,6 +888,28 @@ namespace nkanima {
 				g.skin3d[j] = (j < (uint32)bm.Size()) ? bm[j] : NkMat4f::Identity();
 		}
 
+		// ── (26/09) LES COMPTEURS DE RENDU, PRIS PAR DIFFERENCE ─────────────
+		// 🔴 MESURE AVANT DE BRANCHER, et elle a donne DEUX relais differents.
+		//    Ce fichier dit lui-meme, vingt lignes plus haut : « On NE pilote PAS
+		//    sa frame (BeginFrame/Present) : l'editeur possede la frame device ».
+		//    Donc `g.r3->GetStats()` ne sera JAMAIS alimente -- c'est
+		//    `NkRendererImpl::EndFrame()` qui fige ces compteurs, et il ne tourne
+		//    pas pour ce chemin. Meme structure que NK3DModeler, meme piege : *un
+		//    instrument qui observe la mauvaise population rend zero*.
+		//    (Nogee, lui, pilote une frame complete -- son relais serait
+		//    `GetStats()` en direct. Deux hotes, deux relais : c'est la mesure qui
+		//    le dit, pas la ressemblance des noms.)
+		// ⚠️ UNE DIFFERENCE, PAS UN TOTAL : ce command buffer est celui de
+		//    l'EDITEUR, partage avec l'interface. Son total compterait les
+		//    panneaux et les bandeaux comme des triangles du personnage.
+		uint32 avD = 0, avT = 0, avV = 0;
+		{
+			const NkICommandBuffer::NkCbStats &c0 = cmd->Stats();
+			avD = c0.drawCalls;
+			avT = c0.triangles;
+			avV = c0.vertices;
+		}
+
 		// Setup per-frame (cf NkRendererImpl::BeginFrame) — UNE fois par frame.
 		r3d->ResetFrame();
 		if (auto *mc = g.r3->GetMaterialCollection())
@@ -1039,6 +1068,54 @@ namespace nkanima {
 		if (auto *graph = g.r3->GetRenderGraph())
 			graph->Execute(cmd);
 		// PAS de BeginFrame/EndFrame/Present : l'éditeur possède la frame device.
+
+		// ── LA DIFFERENCE SE FERME ICI, APRES L'EXECUTION DU GRAPHE ─────────
+		// ⚠️ APRES `graph->Execute`, et pas avant : c'est LUI qui enregistre les
+		//    passes (ombres, geometrie, post). Lue avant, la difference vaudrait
+		//    zero tout en etant branchee sur le bon tampon -- une garde d'ordre,
+		//    pas de valeur. *Un etat lu dans la meme image que son ecriture ne dit
+		//    pas s'il survit.*
+		{
+			const NkICommandBuffer::NkCbStats &c1 = cmd->Stats();
+			// Soustraction GARDEE : si le tampon a ete remis a zero entre les deux
+			// lectures, « apres » serait plus petit et la difference deborderait.
+			g.cptDraws = (c1.drawCalls >= avD) ? (c1.drawCalls - avD) : c1.drawCalls;
+			g.cptTris = (c1.triangles >= avT) ? (c1.triangles - avT) : c1.triangles;
+			g.cptSommets = (c1.vertices >= avV) ? (c1.vertices - avV) : c1.vertices;
+			g.cptValide = true;
+			// NK_CPT_TRACE=1 : la MEME trace que NK3DModeler, et pour la meme
+			// raison -- « la structure est identique » est une INFERENCE, pas une
+			// mesure. Ce depot punit exactement ca.
+			static const bool kTrA = (std::getenv("NK_CPT_TRACE") != nullptr);
+			if (kTrA) {
+				std::printf("[anim] SERVI draw=%u tris=%u som=%u valide=1\n", g.cptDraws,
+							g.cptTris, g.cptSommets);
+				std::fflush(stdout);
+			}
+		}
+	}
+
+	/// Les compteurs de la DERNIERE image de la vue 3D. Rend faux tant qu'aucune
+	/// n'a ete rendue : l'affichage ecrit alors « -- », jamais des zeros -- un
+	/// zero la ou rien n'a ete mesure est indiscernable d'une scene vide, et
+	/// c'est le defaut que Rodolf a photographie le 26/09 a 02:12.
+	bool Anim3DCompteursVisibles() {
+		return g.cptVisibles;
+	}
+	void Anim3DBasculerCompteurs() {
+		g.cptVisibles = !g.cptVisibles;
+	}
+
+	bool Anim3DCompteurs(uint32 *draws, uint32 *tris, uint32 *sommets) {
+		if (!g.cptValide)
+			return false;
+		if (draws)
+			*draws = g.cptDraws;
+		if (tris)
+			*tris = g.cptTris;
+		if (sommets)
+			*sommets = g.cptSommets;
+		return true;
 	}
 
 	void Anim3DRegisterInto(void *guiBackend, uint32 texId) {
