@@ -4,25 +4,22 @@ nkgui 0.3
 //
 // LA BARRE D'OUTILS DE NkAnimaEditor, ET ELLE EST UNE DONNÉE.
 // Ce fichier n'est pas de la documentation : c'est l'interface elle-même.
-// Changez une ligne, relancez NkAnimaEditor, la barre change. Rien à compiler.
+// Changez une ligne, relancez, la barre change. Rien à compiler.
 //
-// L'IDENTIFIANT D'UN BOUTON EST LE NOM DE SON ACTION. C'est la même convention
-// que la zone hôte (`Host "viseur3d"` : l'hôte répond au nom, ou la zone se
-// signale). Un nom que l'application ne sert pas est COMPTÉ, jamais tu.
+// ═══════════════════════════════════════════════════════════════════════════
+//  CE QU'ELLE PORTE, ET POURQUOI CET ORDRE
+// ═══════════════════════════════════════════════════════════════════════════
+//  La barre d'un atelier d'animation porte le TRANSPORT en premier — c'est le
+//  geste qu'on fait cent fois par minute — puis l'édition de clés, puis la
+//  pose, puis la vue. C'est l'ordre de Blender, de Cascadeur et d'iClone, et
+//  il n'est pas arbitraire : la main revient toujours au même endroit.
 //
-// ⚠️ Les noms servis aujourd'hui par NkAnimaEditor, et la liste est fermée :
-//      anim.jouer  anim.inserer  anim.supprimer  anim.annuler  anim.refaire
-//      anim.compteurs
-//    Écrivez-en un autre et le bouton apparaîtra, cliquable et sans effet :
-//    c'est voulu, et le compteur `actionsInconnues` le dira.
+//  ⚠️ LA BARRE NE RÉPÈTE PAS TOUT LE MENU. Elle porte ce qui se fait SOUVENT ;
+//     le reste vit dans les menus. Une barre qui double le menu entier oblige
+//     à lire deux fois la même chose pour trouver ce qu'on cherche.
 //
-// ── CE BOUTON-CI EST LA DÉMONSTRATION, ET IL A UNE HISTOIRE (26/09) ──────────
-// Un autre agent a posé les compteurs de rendu la nuit du 26/09, et il a écrit
-// dans `main.cpp` : « c'est le seul point d'extension produit de cet éditeur --
-// il n'a pas de barre de menus ». C'était vrai la veille. Ça ne l'est plus : la
-// commande est ci-dessous, dans `barre_outils.nkgui`, et elle est arrivée dans
-// l'interface **sans qu'une ligne de C++ soit recompilée pour la placer**.
-// C'est exactement ce que ce chantier sert à rendre possible.
+//  L'IDENTIFIANT D'UN BOUTON EST LE NOM DE SON ACTION. Un nom que
+//  l'application ne sert pas est COMPTÉ (`actionsInconnues`), jamais tu.
 
 widgets {
 
@@ -30,19 +27,41 @@ widgets {
     gap = 6
     align = Center
 
+    // ── LE TRANSPORT ──────────────────────────────────────────────────────
+    Button "anim.debut" {
+      label = "|<"
+    }
+
+    Button "anim.image_prec" {
+      label = "<"
+    }
+
     Button "anim.jouer" {
       label = "Jouer / Pause"
     }
 
+    Button "anim.image_suiv" {
+      label = ">"
+    }
+
+    Button "anim.fin" {
+      label = ">|"
+    }
+
+    Separator "sep_transport" {
+      orientation = Vertical
+    }
+
+    // ── LES CLÉS ──────────────────────────────────────────────────────────
     Button "anim.inserer" {
-      label = "Insérer une clé"
+      label = "Inserer une cle"
     }
 
     Button "anim.supprimer" {
-      label = "Supprimer la clé"
+      label = "Supprimer la cle"
     }
 
-    Separator "sep" {
+    Separator "sep_cles" {
       orientation = Vertical
     }
 
@@ -54,12 +73,38 @@ widgets {
       label = "Refaire"
     }
 
-    Separator "sep2" {
+    Separator "sep_edition" {
       orientation = Vertical
     }
 
-    Button "anim.compteurs" {
-      label = "Compteurs de rendu"
+    // ── LA POSE ───────────────────────────────────────────────────────────
+    //  ⚠️ « Editer la pose » et « Enregistrer » ne sont PAS le même bouton, et
+    //     ils ne le seront jamais : entrer en édition ne doit pas écrire de
+    //     clé, et enregistrer ne doit pas sortir du mode. Un bouton unique qui
+    //     bascule ferait perdre une pose au premier clic de trop.
+    Button "anim.pose_entrer" {
+      label = "Editer la pose"
+    }
+
+    Button "anim.pose_enregistrer" {
+      label = "Enregistrer en cle"
+    }
+
+    Separator "sep_pose" {
+      orientation = Vertical
+    }
+
+    // ── LA VUE ────────────────────────────────────────────────────────────
+    Button "anim.vue_solide" {
+      label = "Solide"
+    }
+
+    Button "anim.vue_rendu" {
+      label = "Rendu"
+    }
+
+    Button "anim.vue_filaire" {
+      label = "Filaire"
     }
   }
 }

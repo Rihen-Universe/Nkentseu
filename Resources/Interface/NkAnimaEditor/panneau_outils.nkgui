@@ -2,22 +2,48 @@ nkgui 0.3
 
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 //
-// LE PANNEAU DE GAUCHE DE NkAnimaEditor, ET IL EST UNE DONNÉE.
+// LE PANNEAU D'OUTILS DE NkAnimaEditor, ET IL EST UNE DONNÉE.
+// Structure, comportement ET design viennent d'ici. Rien à compiler.
 //
-// IL PORTE LES TROIS CHOSES QU'UNE INTERFACE DOIT SAVOIR FAIRE, et chacune par
-// un chemin DIFFÉRENT, pour qu'on voie lequel casse quand quelque chose casse :
+// ═══════════════════════════════════════════════════════════════════════════
+//  LES QUATRE CHOSES QU'UNE INTERFACE DOIT SAVOIR FAIRE
+// ═══════════════════════════════════════════════════════════════════════════
+//  Chacune par un chemin DIFFÉRENT, pour qu'on voie lequel casse quand quelque
+//  chose casse :
 //
-//   1. UN BOUTON QUI AGIT      -> `Button "anim.jouer"`, servi par son NOM.
-//   2. UNE VALEUR QUI VIT      -> `Checkbox { bind = anim.boucle }` : la case
-//      écrit dans le modèle de l'application, pas dans le fichier.
-//   3. UN COMPORTEMENT ÉCRIT ICI QUI APPELLE L'APPLICATION -> la section
-//      `behavior` plus bas. Elle lit `boucle.checked` et appelle un `Callback`.
-//      Aucune ligne de C++ ne décide de ce `if` : il est dans CE fichier.
+//   1. UN BOUTON QUI AGIT    -> `Button "anim.jouer"`, servi par son NOM.
+//   2. UNE VALEUR QUI VIT    -> `Checkbox { bind = ... }` : la case écrit dans
+//      le magasin du document, pas dans le fichier.
+//   3. UN COMPORTEMENT ÉCRIT ICI -> les sections `behavior` en bas. Elles
+//      lisent la case et appellent un `Callback`. Aucune ligne de C++ ne décide
+//      de ces `if` : ils sont dans CE fichier.
+//   4. UNE ZONE QUE L'APPLICATION REMPLIT -> `Host "..."` dit OÙ et QUOI ;
+//      l'application garde QUAND et COMMENT.
 //
-// ⚠️ ET UNE ZONE QUE L'APPLICATION REMPLIT. `Host "apercu_cles"` dit OÙ et QUOI ;
-//    l'application garde QUAND et COMMENT. Renommez-la et elle se couvrira de
-//    hachures avec son nom écrit dedans — une zone que personne ne sert ne doit
-//    pas se faire prendre pour un fond.
+// ═══════════════════════════════════════════════════════════════════════════
+//  LE DESIGN AUSSI VIENT D'ICI — ET VOICI CE QUI PEINT VRAIMENT
+// ═══════════════════════════════════════════════════════════════════════════
+//  MESURÉ dans `NkGuiMonteur.h` le 26/09, pas supposé :
+//
+//    `fill { color }`   PEINT sur `Button`, `RepeatButton`, `Panel`, `Window`
+//                       -- et SEULEMENT sur ces quatre. Ailleurs (`Text`,
+//                       `Group`, `HBox`...) c'est compté `apparencesNonPeintes`
+//                       (l. 1382) : la demande n'est ni tenue ni tue.
+//    `text { color }`   PEINT (l. 1630).
+//    `radius`           APPLIQUÉ (l. 944, 1451).
+//    `font = "..."`     ⚠️ COMPTÉ NON PEINT -- le monteur n'a qu'une fonte.
+//    `shadow` `stroke`  ⚠️ COMPTÉS NON PEINTS.
+//    `appearance(Hover)` et tout état hors repos
+//                       ⚠️ COMPTÉS `etatsNonAppliques` -- seul le REPOS se
+//                       monte, parce que le monteur n'a ni souris ni focus.
+//
+//  ⚠️ ET ON N'EN ABUSE PAS, POUR UNE RAISON QUI SE VOIT. La couleur par défaut
+//     vient du THÈME (GitHub Dark Pro / Light Pro). Une couleur écrite en dur
+//     ici reste SOMBRE EN THÈME CLAIR : l'utilisateur verrait un bloc noir dans
+//     une application blanche. On ne pose donc une `appearance` que là où elle
+//     porte une INFORMATION que le thème ne peut pas exprimer — ci-dessous, le
+//     fait que « Enregistrer en clé » est l'action qui écrit, donc celle qu'on
+//     ne veut pas cliquer par erreur.
 
 widgets {
 
@@ -26,23 +52,43 @@ widgets {
     align = Start
 
     Text "titre" {
-      text = "Animation"
+      text = "Atelier d'animation"
     }
 
-    Separator "sep1" {
+    Separator "sep_titre" {
       orientation = Horizontal
     }
 
-    Button "anim.jouer" {
-      label = "Jouer / Pause"
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LE TRANSPORT
+    // ═══════════════════════════════════════════════════════════════════════
+    Text "titre_transport" {
+      text = "Transport"
     }
 
-    Button "anim.inserer" {
-      label = "Insérer une clé"
-    }
+    HBox "transport" {
+      gap = 4
+      align = Center
 
-    Separator "sep2" {
-      orientation = Horizontal
+      Button "anim.debut" {
+        label = "|<"
+      }
+
+      Button "anim.image_prec" {
+        label = "<"
+      }
+
+      Button "anim.jouer" {
+        label = "Jouer"
+      }
+
+      Button "anim.image_suiv" {
+        label = ">"
+      }
+
+      Button "anim.fin" {
+        label = ">|"
+      }
     }
 
     Checkbox "boucle" {
@@ -50,54 +96,199 @@ widgets {
       bind = anim.boucle
     }
 
-    Separator "sep3" {
+    Separator "sep_transport" {
       orientation = Horizontal
     }
 
-    Text "titre_apercu" {
-      text = "Aperçu des clés"
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LES CLÉS
+    // ═══════════════════════════════════════════════════════════════════════
+    Text "titre_cles" {
+      text = "Cles"
     }
 
+    HBox "cles" {
+      gap = 4
+      align = Center
+
+      Button "anim.inserer" {
+        label = "Inserer"
+      }
+
+      Button "anim.supprimer" {
+        label = "Supprimer"
+      }
+
+      Button "anim.selection_rien" {
+        label = "Deselectionner"
+      }
+    }
+
+    // LA BANDE DES CLÉS. Renommez-la et elle se couvrira de hachures avec son
+    // nom écrit dedans — une zone que personne ne sert ne doit pas se faire
+    // prendre pour un fond.
     Host "apercu_cles" {
-      hint = "bande des clés (remplie par l'application)"
+      hint = "bande des cles (remplie par l'application)"
     }
 
-    Separator "sep4" {
+    Separator "sep_cles" {
       orientation = Horizontal
     }
 
-    // UNE GRILLE, ET ELLE PORTE UN ATTRIBUT QUE LE MONTEUR NE REND PAS.
-    // `Grid` est montée depuis le 26/09 (`BeginGrid`), mais son `sizes` — la
-    // largeur de chaque colonne — n'a AUCUN équivalent dans NKGui, qui ne prend
-    // que le NOMBRE de colonnes. Le monteur ne l'approxime pas et ne le jette
-    // pas : il le COMPTE (`attributsNonHonores`, visible dans la sonde).
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LA POSE — le geste de Cascadeur
+    // ═══════════════════════════════════════════════════════════════════════
+    Text "titre_pose" {
+      text = "Pose"
+    }
+
+    HBox "pose" {
+      gap = 4
+      align = Center
+
+      Button "anim.pose_entrer" {
+        label = "Editer"
+      }
+
+      // ⚠️ LE SEUL BOUTON TEINTÉ DE TOUT LE PANNEAU, ET C'EST DÉLIBÉRÉ. C'est
+      //    lui qui ÉCRIT une clé : le distinguer n'est pas de la décoration,
+      //    c'est empêcher un clic de trop. `fill` peint sur `Button` — vérifié
+      //    dans le monteur, pas supposé.
+      //
+      //    L'orange est celui de la charte Rihen (#F79A28). Il tient en thème
+      //    clair comme en thème sombre : c'est la condition pour écrire une
+      //    couleur en dur.
+      Button "anim.pose_enregistrer" {
+        label = "Enregistrer en cle"
+        appearance {
+          radius = 4
+          fill { color = #F79A28 }
+          text { color = #10222B }
+        }
+      }
+
+      Button "anim.pose_quitter" {
+        label = "Quitter"
+      }
+    }
+
+    Separator "sep_pose" {
+      orientation = Horizontal
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LE SQUELETTE
+    // ═══════════════════════════════════════════════════════════════════════
+    Text "titre_squelette" {
+      text = "Squelette"
+    }
+
+    // La chaîne osseuse en projection frontale. Elle montre tout de suite si le
+    // clip a un squelette, combien de joints, et si la pose suit le curseur.
+    Host "squelette" {
+      hint = "chaine osseuse (remplie par l'application)"
+    }
+
+    Separator "sep_squelette" {
+      orientation = Horizontal
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LA PHYSIQUE ET L'ÉQUILIBRE
+    // ═══════════════════════════════════════════════════════════════════════
+    Text "titre_physique" {
+      text = "Physique"
+    }
+
+    Checkbox "physique" {
+      label = "Physique d'animation"
+      bind = anim.physique
+    }
+
+    // ⚠️ LE LIBELLÉ NE PROMET PAS UN VERDICT. Tant que les joints n'ont pas de
+    //    nom (`NkGLTFNode` n'a aucun champ `name`), la masse est UNIFORME et ce
+    //    « centre de masse » est le barycentre géométrique. Il RESSEMBLE à un
+    //    centre de masse anthropométrique sans en être un — d'où le mot
+    //    « approché », qui n'est pas une précaution de style.
+    Checkbox "com" {
+      label = "Centre de masse (approche)"
+      bind = anim.com
+    }
+
+    Separator "sep_physique" {
+      orientation = Horizontal
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LES RACCOURCIS
+    // ═══════════════════════════════════════════════════════════════════════
+    //  ⚠️ UNE GRILLE QUI PORTE UN ATTRIBUT QUE LE MONTEUR NE REND PAS. `Grid`
+    //     est montée (`BeginGrid`), mais son `sizes` — la largeur de chaque
+    //     colonne — n'a AUCUN équivalent dans NKGui, qui ne prend que le NOMBRE
+    //     de colonnes. Le monteur ne l'approxime pas et ne le jette pas : il le
+    //     COMPTE (`attributsNonHonores`).
     //
-    // ⚠️ C'est le silence le plus coûteux qu'on évite ici : un document rendu
-    //    AUTREMENT que demandé n'a pas l'air cassé, il a l'air normal.
+    //     C'est le silence le plus coûteux qu'on évite ici : un document rendu
+    //     AUTREMENT que demandé n'a pas l'air cassé, il a l'air normal.
     Grid "raccourcis" {
       columns = 2
       gap = 4
-      sizes = [90, 90]
+      sizes = [100, 100]
 
-      Text "g1" { text = "Espace" }
-      Text "g2" { text = "Jouer" }
-      Text "g3" { text = "I" }
-      Text "g4" { text = "Insérer" }
+      Text "r1" { text = "Espace" }
+      Text "r2" { text = "Jouer / Pause" }
+      Text "r3" { text = "I" }
+      Text "r4" { text = "Inserer une cle" }
+      Text "r5" { text = "Suppr" }
+      Text "r6" { text = "Supprimer la cle" }
+      Text "r7" { text = "Tab" }
+      Text "r8" { text = "Editer la pose" }
+      Text "r9" { text = "Gauche / Droite" }
+      Text "r10" { text = "Image par image" }
+      Text "r11" { text = "Z" }
+      Text "r12" { text = "Mode solide" }
     }
   }
 }
 
-// CE QUI S'EXÉCUTE, ET IL S'EXÉCUTE VRAIMENT.
+// ═══════════════════════════════════════════════════════════════════════════
+//  CE QUI S'EXÉCUTE, ET IL S'EXÉCUTE VRAIMENT
+// ═══════════════════════════════════════════════════════════════════════════
+//  ⚠️ LA LIMITE EST CONNUE ET ÉCRITE DANS LE MOTEUR : le format n'a pas encore
+//     de `on Changed(...) -> Behavior "..."`. L'hôte passe donc TOUS les
+//     `behavior` une fois PAR IMAGE, après le montage (`NkGuiInteraction.h`,
+//     limite 5).
 //
-// ⚠️ LA LIMITE EST CONNUE ET ELLE EST ÉCRITE DANS LE MOTEUR : le format n'a pas
-//    encore de `on Changed(...) -> Behavior "..."`. L'hôte passe donc TOUS les
-//    `behavior` une fois par image, après le montage (`NkGuiInteraction.h`,
-//    limite 5). Les deux appels ci-dessous sont donc IDEMPOTENTS par
-//    construction — un `Callback` qui bascule un état serait ici un clignotant.
+//     Conséquence directe : les six appels ci-dessous sont IDEMPOTENTS par
+//     construction. Un `Callback` qui BASCULERAIT un état serait ici un
+//     clignotant à 60 Hz — c'est la faute que cette note existe pour empêcher.
+//
+//  ⚠️ ET LA CASE DEVIENT LA SEULE VÉRITÉ. Tant que le document repose la valeur
+//     à chaque image, un autre chemin qui changerait la physique se verrait
+//     écrasé au tour suivant. C'est acceptable parce que la case EST le
+//     contrôle ; ça cessera de l'être le jour où un raccourci clavier fera la
+//     même bascule.
+
 behavior "boucle" {
   if boucle.checked {
     Callback "anim.boucle_activee"()
   } else {
     Callback "anim.boucle_coupee"()
+  }
+}
+
+behavior "physique" {
+  if physique.checked {
+    Callback "anim.physique_on"()
+  } else {
+    Callback "anim.physique_off"()
+  }
+}
+
+behavior "com" {
+  if com.checked {
+    Callback "anim.com_on"()
+  } else {
+    Callback "anim.com_off"()
   }
 }
