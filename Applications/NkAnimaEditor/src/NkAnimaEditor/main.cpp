@@ -258,10 +258,22 @@ static int SondeCoquille(const char *dossier) {
 		//    NKGui, pas une panne. Ce qu'on exige d'elle : que le TITRE soit
 		//    monte (`menus > 0`) et qu'il se voie (du contenu peint).
 		const bool estMenu = d.b->rap.menus > 0u || d.b->rap.barresMenu > 0u;
-		const bool ok = estMenu
-			? (d.b->rap.menus > 0u && contenu > 0u)
-			: (d.b->rap.montes > 0u && contenu > aire / 100u
-				   && contenu < (aire * 95u) / 100u);
+		// ⚠️ UN ROLE INCONNU REND LA BANDE ROUGE, ET CE CRITERE MANQUAIT (26/09).
+		//    Le monteur l'ecrit depuis toujours -- « le verdict d'un document qui
+		//    nomme l'inconnaissable reste REFUSE » -- mais la sonde ne lisait pas
+		//    le compteur. Trouve en supprimant la definition d'un composant : ses
+		//    cinq instances devenaient des roles inconnus, les boutons
+		//    DISPARAISSAIENT, et la sonde rendait « TOUT PASSE ».
+		//
+		//    C'est le pire des verdicts : le document ne se presente pas comme une
+		//    erreur, il se presente comme un document plus pauvre -- et personne
+		//    ne va chercher ce qui n'est plus la. *Une verification sans pouvoir
+		//    d'arret est une decoration.*
+		const bool sansInconnu = (d.b->rap.rolesInconnus == 0u);
+		const bool ok = sansInconnu
+			&& (estMenu ? (d.b->rap.menus > 0u && contenu > 0u)
+						: (d.b->rap.montes > 0u && contenu > aire / 100u
+						   && contenu < (aire * 95u) / 100u));
 		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u attrNonHonores=%u appNonPeintes=%u etatsNonAppl=%u\n",
 					ok ? "OK" : "KO", d.nom, d.b->rap.widgets, d.b->rap.montes, contenu,
 					d.b->rap.rolesInconnus, d.b->zonesRemplies, d.b->rap.hotes,
@@ -270,6 +282,25 @@ static int SondeCoquille(const char *dossier) {
 					d.b->rap.apparencesNonPeintes, d.b->rap.etatsNonAppliques);
 		if (!ok)
 			++rouges;
+
+		// ── LES COMPOSANTS, quand le document en declare ───────────────────
+		//  ⚠️ ON N'AFFICHE QUE SI LE DOCUMENT EN A. Une ligne « 0 composant »
+		//     sur chaque bande noierait celle qui compte. Mais tout REFUS
+		//     s'affiche, meme sans definition : un composant a deux racines ou
+		//     qui s'instancie lui-meme est retire, et ca doit se voir.
+		const nkgui::NkGuiRapportComposants &comp = d.b->composants;
+		if (comp.definitions > 0u || !comp.Propre()) {
+			const bool compOk = comp.Propre() && (comp.definitions == 0u || comp.instances > 0u);
+			std::printf("  [ %s ] %-16s definis=%u instances=%u surcharges=%u refsReecrites=%u "
+						"comportements=%u  racinesMultiples=%u recursions=%u\n",
+						compOk ? "OK" : "KO", "composants", comp.definitions, comp.instances,
+						comp.attributsSurcharges, comp.referencesReecrites,
+						comp.comportementsCopies, comp.racinesMultiples, comp.recursions);
+			for (uint32 r = 0; r < (uint32)comp.refuses.Size(); ++r)
+				std::printf("         -> REFUS : %s\n", comp.refuses[r].CStr());
+			if (!compOk)
+				++rouges;
+		}
 
 		// ═══════════════════════════════════════════════════════════════════
 		//  LE DESIGN VIENT-IL DU DOCUMENT ?

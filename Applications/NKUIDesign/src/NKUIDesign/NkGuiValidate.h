@@ -518,10 +518,24 @@ namespace nkuidesign {
 		//     superieure a la notre = regle (d) : ce qu'on ne comprend pas, on le
 		//     PRESERVE, on ne le signale pas comme une faute. Sans cette condition,
 		//     la validation transformerait la compatibilite ascendante en erreur.
+		// ── `component` A REJOINT LA LISTE LE 26/09 ────────────────────────────
+		//  Un composant est un PATRON nommé : un sous-arbre avec son design et son
+		//  comportement, instanciable plusieurs fois. Sans son nom dans cette
+		//  table, un document qui en déclare un serait REFUSÉ à la lecture — et
+		//  c'est bien la table qui décide, pas le lecteur syntaxique, qui ne
+		//  connaît aucune section.
+		//
+		//  ⚠️ LE COMPTE EST DÉDUIT, PLUS ÉCRIT À LA MAIN. Il valait 8, en dur, à
+		//     côté d'une table de 8 : ajouter une section sans toucher le chiffre
+		//     aurait rendu la nouvelle INVISIBLE, et son document refusé sans
+		//     qu'on comprenne pourquoi. Ce dépôt a déjà vu « Quitter » disparaître
+		//     d'un menu pour exactement cette raison.
 		inline bool NkGSectionConnue(const NkString &nom) {
-			static const char *kSections[] = {"geometry", "widgets",	"behavior", "controller",
-											  "callback", "animation", "fonts",	   "include"};
-			for (uint32 i = 0; i < 8; ++i) {
+			static const char *kSections[] = {"geometry", "widgets",   "behavior",  "controller",
+											  "callback", "animation", "fonts",	    "include",
+											  "component"};
+			const uint32 kNb = (uint32)(sizeof(kSections) / sizeof(kSections[0]));
+			for (uint32 i = 0; i < kNb; ++i) {
 				if (nom.Compare(kSections[i]) == 0) {
 					return true;
 				}

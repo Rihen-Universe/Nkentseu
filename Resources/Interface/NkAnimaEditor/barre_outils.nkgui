@@ -21,30 +21,57 @@ nkgui 0.3
 //  L'IDENTIFIANT D'UN BOUTON EST LE NOM DE SON ACTION. Un nom que
 //  l'application ne sert pas est COMPTÉ (`actionsInconnues`), jamais tu.
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  UN COMPOSANT — un nom, un sous-arbre, son design (26/09)
+// ═══════════════════════════════════════════════════════════════════════════
+//  Les cinq boutons du transport ne different que par leur libelle et leur
+//  action. Ecrits cinq fois, leur design se serait deja desynchronise a la
+//  premiere retouche : c'est la definition meme d'un composant.
+//
+//  ⚠️ UNE SEULE RACINE, C'EST LE CONTRAT. La racine prend l'identifiant de
+//     l'instance — donc le NOM DE L'ACTION — et les attributs de l'instance
+//     l'emportent sur les siens. Sans cette surcharge, les cinq instances
+//     seraient identiques et on aurait renomme la copie-colle.
+//
+//  ⚠️ ET LA DEFINITION NE SE MONTE PAS. Elle est retiree du document developpe
+//     avant que le monteur ne le voie : un `widgets` de definition est un
+//     patron, pas une vue. L'y laisser ferait compter des widgets montes nulle
+//     part.
+component "BoutonTransport" {
+  widgets {
+    Button "bouton" {
+      label = "?"
+      appearance {
+        radius = 3
+      }
+    }
+  }
+}
+
 widgets {
 
   HBox "outils" {
     gap = 6
     align = Center
 
-    // ── LE TRANSPORT ──────────────────────────────────────────────────────
-    Button "anim.debut" {
+    // ── LE TRANSPORT, en cinq instances d'un seul composant ───────────────
+    BoutonTransport "anim.debut" {
       label = "|<"
     }
 
-    Button "anim.image_prec" {
+    BoutonTransport "anim.image_prec" {
       label = "<"
     }
 
-    Button "anim.jouer" {
+    BoutonTransport "anim.jouer" {
       label = "Jouer / Pause"
     }
 
-    Button "anim.image_suiv" {
+    BoutonTransport "anim.image_suiv" {
       label = ">"
     }
 
-    Button "anim.fin" {
+    BoutonTransport "anim.fin" {
       label = ">|"
     }
 
