@@ -272,7 +272,8 @@ namespace nkentseu {
 	// ilots par union-find sur les coutures ; ici c'est un parcours en largeur
 	// du graphe dual. Si les deux s'accordent, ce n'est pas parce qu'ils
 	// partagent le meme code.
-uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outSeams, uint32 dropOne) noexcept {
+uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outSeams,
+									uint32 dropOne, uint32 *outFacesVisitees) noexcept {
 		outSeams.Clear();
 		const uint32 F = (uint32)m.faces.Size();
 		NkVector<uint8> visited;
@@ -282,17 +283,34 @@ uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outS
 	
 		NkVector<uint32> queue;
 		uint32 head = 0u;
-		// Premiere face vivante comme racine.
-		for (uint32 f = 0; f < F; ++f) {
-			if (m.faces[f].alive) {
-				visited[f] = 1u;
-				queue.PushBack(f);
-				break;
-			}
-		}
+		// -- UNE FORET, PAS UN ARBRE (26/09/2026) ------------------------------
+		// LA VERSION PRECEDENTE PRENAIT LA PREMIERE FACE VIVANTE ET N'EN REPARTAIT
+		// JAMAIS. Deux consequences, toutes deux mesurees :
+		//   * si cette face-la est topologiquement abimee -- au pole d'une sphere,
+		//     ses aretes ne rapportent pas deux faces -- le parcours meurt sur
+		//     place, l'arbre reste VIDE, et TOUTES les aretes deviennent des
+		//     coutures : un ilot par triangle ;
+		//   * et un maillage a PLUSIEURS composantes ne peut de toute facon pas
+		//     etre couvert par un arbre unique.
+		// MESURE AVANT : 1 face visitee sur 1 536 (sphere), 28 sur 2 676 (maillage
+		// de famille). Le banc ne le voyait pas : ses douze cas sont des surfaces
+		// d'une seule piece dont la premiere face est saine.
+		//
+		// ⚠️ DEUX HYPOTHESES FAUSSES AVANT CELLE-CI, et je les laisse ecrites :
+		// « la sphere construite en code n'a pas d'arete non-manifold » (elle en a
+		// 64, aux poles, soudes par position) et « il manque RebuildEdges » (l'avoir
+		// ajoute n'a rien change). Seul le compte des faces atteintes a tranche.
+		//
+		// On repart donc de CHAQUE face non visitee : le resultat est une FORET
+		// couvrante, et la propriete utilisee tient composante par composante.
 		NkVector<NkEmId> fe;
 		NkVector<NkEmId> ef;
-		while (head < (uint32)queue.Size()) {
+		for (uint32 racine = 0; racine < F; ++racine) {
+			if (!m.faces[racine].alive || visited[racine])
+				continue;
+			visited[racine] = 1u;
+			queue.PushBack(racine);
+			while (head < (uint32)queue.Size()) {
 			const uint32 f = queue[head++];
 			// Aretes de la face : on passe par les demi-aretes du bord.
 			fe.Clear();
@@ -318,6 +336,14 @@ uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outS
 				queue.PushBack(other);
 			}
 		}
+		// LE COMPTE DES FACES ATTEINTES. Un arbre couvrant du dual doit atteindre
+		// TOUTES les faces vivantes ; s'il n'en atteint qu'UNE, aucune arete n'est
+		// dans l'arbre et TOUTES deviennent des coutures -- chaque triangle se
+		// retrouve seul dans son ilot. Sans ce chiffre, ce cas se lit comme une
+		// mauvaise strategie de coupe alors que c'est un parcours qui n'avance pas.
+		}
+		if (outFacesVisitees)
+			*outFacesVisitees = (uint32)queue.Size();
 		uint32 dropped = 0u;
 		for (uint32 e = 0; e < (uint32)m.edges.Size(); ++e) {
 			if (!m.edges[e].alive) continue;
@@ -1158,9 +1184,24 @@ uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &m, NkVector<NkEmId> &outS
 			NkUVAutoBilan bilan;
 			outResult = NkUVResult{};
 
+			// 0. LA TABLE D'ARETES DOIT EXISTER AVANT DE PARCOURIR LE DUAL.
+			// VOILA POURQUOI LA COUPE RENDAIT DU CONFETTI. Le parcours du dual traverse
+			// par `EdgeFaces`, et il saute toute arete qui ne rapporte pas EXACTEMENT
+			// deux faces. Sans `RebuildEdges`, la liaison arete->faces n'est pas etablie :
+			// le parcours ne franchit rien, l'arbre couvrant reste VIDE, et toutes les
+			// aretes deviennent des coutures -- un ilot par triangle.
+			// MESURE AVANT CORRECTIF : 1 face visitee sur 1 536 (sphere), 28 sur 2 676
+			// (maillage de famille). Le banc, lui, appelait `RebuildEdges` dans son
+			// aide `Build()` -- c'est pour cela qu'il etait vert sur ses douze cas
+			// pendant que le produit rendait du confetti. Le defaut etait dans MON
+			// enchainement, pas dans la strategie de coupe que j'allais accuser.
+			mesh.RebuildEdges();
+
 			// 1. LES COUTURES, sur la topologie d'origine.
 			NkVector<NkEmId> seams;
-			bilan.coutures = NkUVSeamsFromDualSpanningTree(mesh, seams, 0u);
+			bilan.facesTotal = (uint32)mesh.faces.Size();
+			bilan.coutures =
+				NkUVSeamsFromDualSpanningTree(mesh, seams, 0u, &bilan.facesVisitees);
 			if (bilan.coutures == 0u) {
 				// AUCUNE COUTURE N'EST UN ETAT NOMME, pas un demi-succes : sur une
 				// surface fermee, deplier sans coupe n'a pas de sens, et se taire
