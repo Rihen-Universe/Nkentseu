@@ -23543,7 +23543,7 @@ namespace nkentseu {
 			// resterait dans le graphe simplement debranche — meme regle, autre
 			// support de donnee. Cf. NkVpMatTypeDefaults.h.)
 			for (int32 c = 0; c < kNkvpMatChanCount; ++c)
-				nkvpProjMats[i].maps[c][0] = ' ';
+				nkvpProjMats[i].maps[c][0] = '\0';
 			HostMatRebuildEngine(i); // changer de type = changer de gabarit
 		}
 		void Demo3DHostProjMatPBRExtra(int32 i, float32 *alpha, float32 *aniso,
