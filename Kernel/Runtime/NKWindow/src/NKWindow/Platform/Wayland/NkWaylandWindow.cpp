@@ -21,6 +21,7 @@
 // =============================================================================
 
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKWindow/Core/NkWindowAudit.h" // refus NOMME (curseur, 26/09)
 
 #if defined(NKENTSEU_PLATFORM_LINUX) && defined(NKENTSEU_WINDOWING_WAYLAND)
 
@@ -1765,7 +1766,15 @@ namespace nkentseu {
 	void NkWindow::CaptureMouse(bool capture) {
 		// Mémorisé pour PumpOS / EventSystem.
 		// Le confinement réel nécessite zwp_pointer_constraints_v1 (non standard).
+		// ⚠️ IL RANGE, ET PERSONNE NE LIT. `mMouseCaptured` est ecrit ici et dans
+		//    ClipMouseToClient, et relu NULLE PART -- le commentaire du fichier le
+		//    disait lui-meme : « pour usage futur ». Memoriser n'est pas agir.
+		//    Comparaison qui tranche : `mMouseHidden`, lui, EST lu par
+		//    l'EventSystem -- c'est pourquoi ShowMouse agit et pas celle-ci.
 		mData.mMouseCaptured = capture;
+		NkWindowRefuserMethode("CaptureMouse", "Wayland",
+							   "Wayland n'expose pas de capture de pointeur simple (il faudrait "
+							   "zwp_pointer_constraints) ; l'etat est memorise mais rien ne le lit.");
 	}
 
 	void NkWindow::ClipMouseToClient(bool clip) {
@@ -1773,6 +1782,9 @@ namespace nkentseu {
 		// confined region). Non implem actuellement — on memorise juste l'etat
 		// dans mMouseCaptured pour usage futur.
 		mData.mMouseCaptured = clip;
+		NkWindowRefuserMethode("ClipMouseToClient", "Wayland",
+							   "Le confinement demande zwp_pointer_constraints (locked/confined "
+							   "pointer), non cable ; l'etat est memorise mais rien ne le lit.");
 	}
 
 	// =========================================================================

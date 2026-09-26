@@ -13,6 +13,7 @@
 
 #include "NKWindow/Platform/Cocoa/NkCocoaWindow.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowAudit.h" // refus NOMME
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -915,7 +916,18 @@ namespace nkentseu {
 	// necessaire (TODO si l'user veut un confinement strict). En l'etat,
 	// alias vers CaptureMouse pour fournir une API symetrique cross-platform.
 	void NkWindow::ClipMouseToClient(bool clip) {
+		// ⚠️ CE N'EST PAS UN CONFINEMENT. `CGAssociateMouseAndMouseCursorPosition`
+		//    DECOUPLE le curseur du mouvement physique -- utile pour une camera
+		//    FPS, mais le nom de cette methode promet un RECTANGLE : garder le
+		//    curseur dans la zone cliente, qu'il reste visible et utilisable.
+		//    macOS n'a pas d'equivalent direct de ClipCursor ; il faudrait
+		//    repositionner le curseur a chaque mouvement.
+		//    *Une methode qui fait autre chose que son nom est un silence qui
+		//    parle* : on croit l'avoir, on batit dessus, et l'ecart se voit tard.
 		CGAssociateMouseAndMouseCursorPosition(clip ? false : true);
+		NkWindowRefuserMethode("ClipMouseToClient", "Cocoa",
+							   "macOS decouple le curseur (CGAssociateMouse...) au lieu de le "
+							   "confiner a un rectangle : l'effet n'est pas celui du nom.");
 	}
 
 	void NkWindow::SetWebInputOptions(const NkWebInputOptions &) {

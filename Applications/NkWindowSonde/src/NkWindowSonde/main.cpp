@@ -647,6 +647,91 @@ namespace {
 		parent.Close();
 	}
 
+	// -- ESSAI I : LE CURSEUR, INTERROGE AU SYSTEME ------------------------
+	// Un utilisateur reel, 26/09 : « les methodes pour curseur dans NKWindow ne
+	// fonctionnent pas ». Cet essai demande a WINDOWS ce qu'il en est, jamais a
+	// notre propre memoire : GetClipCursor, GetCapture, ShowCursor.
+	//
+	// ⚠️ CE QUI N'EST PAS MESURABLE ICI, ET IL FAUT LE DIRE : la FORME du curseur
+	//    (SetCursor). Elle ne s'applique immediatement que si le curseur SURVOLE
+	//    notre fenetre -- garde volontaire, sans laquelle une application
+	//    d'arriere-plan ecrasait en continu le curseur du premier plan. Or les
+	//    fenetres de ce banc sont INVISIBLES et rien n'est injecte : aucune
+	//    souris ne les survole, donc GetCursor() ne peut rien confirmer.
+	//    Ce n'est pas une lacune du banc : c'est la MEME raison qui fait dire a
+	//    l'utilisateur que « ca ne marche pas ». Un essai qui pretendrait la
+	//    mesurer ici mesurerait autre chose.
+	void EssaiCurseur() {
+		NkWindowConfig c = ConfigDeBase("I-curseur");
+		c.name = "NkWindowSondeCurseur";
+		c.width = 640;
+		c.height = 480;
+		NkWindow w;
+		if (!w.Create(c)) {
+			std::printf("  [ECHEC ] la fenetre I-curseur n'a pas pu etre creee\n");
+			++gEssais;
+			++gEchecs;
+			return;
+		}
+		HWND hwnd = w.GetSurfaceDesc().hwnd;
+
+		// 1. LE CONFINEMENT. GetClipCursor rend le rectangle ECRAN en vigueur ; on
+		//    le compare a notre zone cliente convertie en ecran. Sans appel, il
+		//    rend le bureau entier : le test distingue donc bien les deux etats.
+		RECT avant{};
+		::GetClipCursor(&avant);
+		w.ClipMouseToClient(true);
+		RECT apres{};
+		::GetClipCursor(&apres);
+		RECT cl{};
+		::GetClientRect(hwnd, &cl);
+		POINT o{cl.left, cl.top}, e{cl.right, cl.bottom};
+		::ClientToScreen(hwnd, &o);
+		::ClientToScreen(hwnd, &e);
+		const bool confine = (apres.left == o.x && apres.top == o.y && apres.right == e.x &&
+							  apres.bottom == e.y);
+		char d1[192];
+		std::snprintf(d1, sizeof(d1), "demande=(%ld,%ld)-(%ld,%ld) systeme=(%ld,%ld)-(%ld,%ld)",
+					  (long)o.x, (long)o.y, (long)e.x, (long)e.y, (long)apres.left,
+					  (long)apres.top, (long)apres.right, (long)apres.bottom);
+		Critere("ClipMouseToClient confine", confine, d1);
+
+		// ⚠️ ET ON RELACHE TOUT DE SUITE. Un banc qui laisserait la souris de
+		//    Rodolf confinee a une fenetre invisible AGIRAIT sur son poste -- la
+		//    regle dit d'interroger, jamais d'agir.
+		w.ClipMouseToClient(false);
+		RECT rendu{};
+		::GetClipCursor(&rendu);
+		const bool relache = (rendu.left == avant.left && rendu.top == avant.top &&
+							  rendu.right == avant.right && rendu.bottom == avant.bottom);
+		Critere("ClipMouseToClient relache", relache, "le bureau est rendu tel qu'il etait");
+
+		// 2. LA CAPTURE. GetCapture rend la fenetre du THREAD courant qui capture.
+		w.CaptureMouse(true);
+		const HWND capt = ::GetCapture();
+		char d2[128];
+		std::snprintf(d2, sizeof(d2), "GetCapture=%p attendu=%p", (void *)capt, (void *)hwnd);
+		Critere("CaptureMouse capture", capt == hwnd, d2);
+		w.CaptureMouse(false);
+		Critere("CaptureMouse relache", ::GetCapture() == nullptr, "GetCapture rend nul");
+
+		// 3. L'AFFICHAGE. ShowCursor tient un COMPTEUR, pas un booleen : chaque
+		//    masquage le decremente. On le lit par un couple (+1, -1) qui rend la
+		//    valeur sans la laisser changee.
+		const int cptAvant = ::ShowCursor(TRUE);
+		::ShowCursor(FALSE);
+		w.ShowMouse(false);
+		const int cptApres = ::ShowCursor(TRUE);
+		::ShowCursor(FALSE);
+		char d3[128];
+		std::snprintf(d3, sizeof(d3), "compteur %d -> %d (ShowMouse(false) doit le baisser)",
+					  cptAvant, cptApres);
+		Critere("ShowMouse baisse le compteur", cptApres < cptAvant, d3);
+		w.ShowMouse(true); // on rend le curseur, quoi qu'il arrive
+
+		w.Close();
+	}
+
 	int Mesurer(bool negatif) {
 		gAttenduRouge = negatif;
 		std::printf("\n=== NkWindowSonde — %s ===\n",
@@ -667,6 +752,10 @@ namespace {
 			EssaiFondEtAccesseurs();
 			std::printf("--- H. modal et canFullscreen\n");
 			EssaiModalEtPleinEcran();
+		}
+		if (!negatif) { // ces appels agissent deja sur Win32 : pas de negatif ici
+			std::printf("--- I. le CURSEUR, interroge au systeme\n");
+			EssaiCurseur();
 		}
 		std::printf("--- D. temoin de NON-REGRESSION (config par defaut)\n");
 		EssaiDefauts();

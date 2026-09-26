@@ -299,7 +299,11 @@ namespace nkentseu {
 			// --- Curseur ---
 			// Forme du curseur dans la zone client (consomm� par les UI : poign�e de
 			// redimensionnement, lien cliquable, champ texte...). Mapp� sur les
-			// curseurs natifs (Win32 IDC_*, etc.). No-op sur mobile/web (sans curseur).
+			// curseurs natifs (Win32 IDC_*, etc.). IMPLEMENTEE SUR WIN32 SEULEMENT (26/09) : X11,
+			// Wayland et macOS ecrivent un REFUS NOMME au journal ; mobile, web et
+			// console sont sans objet. La phrase d avant -- "no-op sur mobile/web" --
+			// est celle qu un utilisateur a lue avant de conclure que ses appels
+			// etaient bons. Table : wiki/Runtime/NKWindow/Curseur-par-dorsal.md
 			enum class NkCursorType {
 				Arrow = 0,	///< fl�che standard
 				TextInput,	///< I-beam (saisie texte)
