@@ -284,6 +284,61 @@ static int SondeCoquille(const char *dossier) {
 		if (!ok)
 			++rouges;
 
+		// ── LE PLACEMENT, quand le document en demande ─────────────────────
+		//  ⚠️ TROIS COMPTEURS EXISTAIENT ET PERSONNE NE LES LISAIT : `poses`
+		//     (widgets qui ecrivent `pos`), `posesHonores` (ceux dont le
+		//     rectangle monte EST celui demande) et `posesNonConsommes`.
+		//     Sans les afficher, un document ecrit en absolu pouvait se monter
+		//     EN FLUX sans que rien ne le dise -- la mise en page etait fausse
+		//     et la sonde verte.
+		if (d.b->rap.poses > 0u) {
+			// ⚠️ LE DENOMINATEUR EST `posesFeuilles`, PAS `poses`. Un conteneur
+			//    pose son rectangle dans son propre `case` et n'atteint jamais la
+			//    comparaison : le compter au denominateur faisait rougir un
+			//    placement JUSTE -- « 18 honores sur 40 » sur un document dont
+			//    AUCUNE feuille n'etait mal placee.
+			const bool placeOk = (d.b->rap.posesHonores == d.b->rap.posesFeuilles)
+								 && (d.b->rap.posesNonConsommes == 0u);
+			std::printf("  [ %s ] %-16s ecrivent pos=%u  dont feuilles=%u  honorees=%u  "
+						"nonConsommees=%u\n",
+						placeOk ? "OK" : "KO", "placement", d.b->rap.poses,
+						d.b->rap.posesFeuilles, d.b->rap.posesHonores,
+						d.b->rap.posesNonConsommes);
+			if (!placeOk) {
+				std::printf("         -> le document ecrit des positions que le montage ne tient "
+							"pas : la mise en page n'est pas celle qui a ete dessinee\n");
+				if (d.b->rap.aDesaccordPose)
+					std::printf("            premier desaccord : %-20s demande x=%.1f y=%.1f "
+								"w=%.1f h=%.1f  |  monte x=%.1f y=%.1f w=%.1f h=%.1f\n",
+								d.b->rap.desaccordId.CStr(), (double)d.b->rap.desaccordDemande.x,
+								(double)d.b->rap.desaccordDemande.y,
+								(double)d.b->rap.desaccordDemande.w,
+								(double)d.b->rap.desaccordDemande.h,
+								(double)d.b->rap.desaccordMonte.x, (double)d.b->rap.desaccordMonte.y,
+								(double)d.b->rap.desaccordMonte.w,
+								(double)d.b->rap.desaccordMonte.h);
+				++rouges;
+			}
+			// ⚠️ AVANT DE « CORRIGER » LE PLACEMENT, ON REGARDE OU LES WIDGETS
+			//    SONT VRAIMENT. Un compteur qui rougit peut rougir parce que le
+			//    placement est faux -- ou parce que le CONTROLE compare la
+			//    mauvaise chose. Un `Text` qui pose `prevItem` a la taille de son
+			//    texte plutot qu'au rectangle impose ferait rougir un placement
+			//    JUSTE. On imprime les rectangles montes : ils se comparent au
+			//    `pos` du fichier, a l'oeil, sans interpretation.
+			if (std::getenv("NKANIMA_DUMP_PLACEMENT")) {
+				const uint32 n = (uint32)d.b->rap.items.Size();
+				std::printf("         rectangles montes (%u premiers sur %u) :\n",
+							n < 8u ? n : 8u, n);
+				for (uint32 k = 0; k < n && k < 8u; ++k) {
+					const nkgui::NkGuiMonteItem &it = d.b->rap.items[k];
+					std::printf("           %-22s x=%.0f y=%.0f w=%.0f h=%.0f\n", it.id.CStr(),
+								(double)it.rect.x, (double)it.rect.y, (double)it.rect.w,
+								(double)it.rect.h);
+				}
+			}
+		}
+
 		// ── LES INCLUSIONS, quand le document en declare ───────────────────
 		//  ⚠️ MEME REGLE QUE POUR LES COMPOSANTS : on n'affiche que si le
 		//     document en a, mais TOUT REFUS s'affiche -- un fichier introuvable

@@ -362,6 +362,18 @@ namespace nkentseu {
 				///    pas par `NextItemRect` le laisserait ARME pour le suivant. On
 				///    le desarme et on le COMPTE, plutot que de contaminer le voisin.
 				uint32 posesNonConsommes = 0;
+				/// Les FEUILLES qui ecrivent `pos` -- le seul denominateur qui ait un
+				/// sens face a `posesHonores`. Un conteneur pose son rectangle dans son
+				/// propre `case` et n'atteint jamais la comparaison.
+				uint32 posesFeuilles = 0;
+
+				/// Le PREMIER placement qui ne rend pas le rectangle demande, avec
+				/// ses chiffres. Un compteur seul ne dit pas si le defaut est dans
+				/// le placement ou dans le controle ; ces deux rectangles, si.
+				bool aDesaccordPose = false;
+				NkString desaccordId;
+				NkRect desaccordDemande = {0.f, 0.f, 0.f, 0.f};
+				NkRect desaccordMonte = {0.f, 0.f, 0.f, 0.f};
 				// ── LA ZONE HOTE (2026-09-17) ────────────────────────────────
 				/// Les `Host` rencontres : une zone se compte, remplie ou non.
 				uint32 hotes = 0;
@@ -2417,7 +2429,21 @@ namespace nkentseu {
 					//    SUIVANT, qui partirait aux coordonnees d'un autre. On le retire et on
 					//    le COMPTE : un placement qui n'a pas pris doit se voir dans le releve,
 					//    pas contaminer son voisin.
+					// ⚠️ LE DENOMINATEUR N'EST PAS `poses`, ET C'EST UNE MESURE DU
+					//    26/09. `poses` compte TOUT widget qui ecrit `pos`,
+					//    conteneurs compris ; `posesHonores` n'est incremente que
+					//    pour les FEUILLES, parce qu'un conteneur pose son rectangle
+					//    dans son propre `case` et ne passe pas par `NextItemRect`.
+					//    Comparer l'un a l'autre donnait « 18 honores sur 40
+					//    demandes » sur un document dont AUCUNE feuille n'etait mal
+					//    placee -- verifie : le releve du premier desaccord est reste
+					//    VIDE. Le placement etait juste ; c'est le rapport qui
+					//    comparait un sous-ensemble a un total.
+					//
+					//    `posesFeuilles` donne le denominateur qui a un sens. Sans
+					//    lui, on aurait « corrige » un placement qui marche.
 					if (pl.pose && !estConteneur) {
+						++rap.posesFeuilles;
 						if (ctx.nextItemRectSet) {
 							ctx.nextItemRectSet = false;
 							++rap.posesNonConsommes;
@@ -2426,6 +2452,19 @@ namespace nkentseu {
 							const float32 dx = pv.x - pl.rect.x, dy = pv.y - pl.rect.y;
 							if ((dx > -0.5f && dx < 0.5f) && (dy > -0.5f && dy < 0.5f))
 								++rap.posesHonores;
+							// ⚠️ LE PREMIER DESACCORD GARDE SES CHIFFRES (26/09).
+							//    `posesHonores` disait « 18 sur 40 » sans dire OU ni
+							//    DE COMBIEN -- et un compteur qui rougit peut rougir
+							//    parce que le placement est faux, ou parce que le
+							//    CONTROLE compare la mauvaise chose. Sans les deux
+							//    rectangles, on ne peut pas trancher, et « corriger »
+							//    un placement juste aurait casse ce qui marche.
+							else if (!rap.aDesaccordPose) {
+								rap.aDesaccordPose = true;
+								rap.desaccordId = NkString(id);
+								rap.desaccordDemande = pl.rect;
+								rap.desaccordMonte = pv;
+							}
 						}
 					}
 					if (aDessine)
