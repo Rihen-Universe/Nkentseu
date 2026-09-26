@@ -11,26 +11,40 @@ namespace nkentseu {
 	using namespace math;
 
 	// -------------------------------------------------------------------------
-	// NkCollider3D -> forme de collision (centre = offset local dans le corps).
+	// NkCollider3D -> forme de collision EN REPÈRE MONDE.
+	//
+	// `col.center` est un offset LOCAL au corps ; `CreateBody` attend la forme
+	// DÉJÀ PLACÉE. On compose donc : monde = position + rotation * offset, et la
+	// boîte prend l'orientation de l'entité. (Voir l'en-tête : le décalage a été
+	// mesuré, il valait exactement la hauteur de départ du corps.)
 	// -------------------------------------------------------------------------
-	NkShape NkPhysicsSystem::MakeShape(const NkCollider3D &col) noexcept {
-		const NkVec3f c = col.center;
+	NkShape NkPhysicsSystem::MakeShape(const NkCollider3D &col, const NkTransform &tf) noexcept {
+		const NkQuatf q = tf.localRotation;
+		const NkVec3f c = tf.localPosition + q * col.center;
 		switch (col.shape) {
 			case NkCollider3DShape::Sphere:
 				return NkShape::Sphere(c, col.sphereRadius);
 
 			case NkCollider3DShape::Capsule: {
 				const float32 h = col.capsuleHeight * 0.5f; // demi-hauteur du segment
-				const NkVec3f axis = (col.capsuleDir == NkCapsuleDirection3D::X)   ? NkVec3f{h, 0.f, 0.f}
+				const NkVec3f axisL = (col.capsuleDir == NkCapsuleDirection3D::X)  ? NkVec3f{h, 0.f, 0.f}
 									 : (col.capsuleDir == NkCapsuleDirection3D::Z) ? NkVec3f{0.f, 0.f, h}
 																				   : NkVec3f{0.f, h, 0.f};
+				// L'axe TOURNE avec l'entité : une capsule couchée sur un corps
+				// incliné doit être couchée dans le MONDE, pas dans son repère.
+				const NkVec3f axis = q * axisL;
 				return NkShape::Capsule3D(c - axis, c + axis, col.capsuleRadius);
 			}
 
 			case NkCollider3DShape::Box:
-			default:
+			default: {
 				// boxSize = dimensions PLEINES -> demi-extents pour la forme.
-				return NkShape::Box3D(c, col.boxSize * 0.5f);
+				NkShape s = NkShape::Box3D(c, col.boxSize * 0.5f);
+				// Sans ceci la boîte reste alignée sur les axes du monde : un corps
+				// incliné aurait une forme droite, et la pente n'existerait pas.
+				s.orientation = q;
+				return s;
+			}
 		}
 	}
 
@@ -58,7 +72,7 @@ namespace nkentseu {
 		def.layer = (col.layer < 32u) ? (1u << col.layer) : 0x1u;
 		def.mask = col.layerMask;
 
-		return mWorld.CreateBody(def, MakeShape(col));
+		return mWorld.CreateBody(def, MakeShape(col, tf));
 	}
 
 	// -------------------------------------------------------------------------
