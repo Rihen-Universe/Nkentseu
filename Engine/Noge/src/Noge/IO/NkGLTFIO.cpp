@@ -14,6 +14,8 @@
 #include "NKRenderer/Mesh/NkMeshLoaderUtil.h"
 #include "NKLogger/NkLog.h"
 
+#include <cstring> // strncpy : la recopie des noms d os
+
 namespace nkentseu {
 
 	namespace {
@@ -171,15 +173,59 @@ namespace nkentseu {
 			// disparait avec la troncature elle-meme.
 			memory::NkSharedPtr<anim::NkSkeletonDef> def(new anim::NkSkeletonDef());
 			const uint32 boneCount = (uint32)data.skinJoints.Size();
+			uint32 osSansNom = 0, nomsTronques = 0;
 			def->bones.Resize((NkVector<anim::NkBoneDef>::SizeType)boneCount);
 			// La pose locale n'est plus dans la definition : elle est PAR INSTANCE.
 			// On la remplit apres FromDef, depuis les noeuds glTF.
 			for (uint32 j = 0; j < boneCount; ++j) {
 				anim::NkBoneDef &b = def->bones[(NkVector<anim::NkBoneDef>::SizeType)j];
-				// b.name reste vide : renderer::NkGLTFNode ne parse pas glTF
-				// nodes[].name (limitation du loader réel, documentée en tête de
-				// NkGLTFIO.h) — pas d'invention de nom ici.
 				const int32 nodeIdx = data.skinJoints[j];
+
+				// ── LE NOM DE L'OS ───────────────────────────────────────────
+				// ⚠️ CE BLOC REMPLACE UN COMMENTAIRE PÉRIMÉ. Il disait :
+				//    « b.name reste vide : renderer::NkGLTFNode ne parse pas glTF
+				//      nodes[].name (limitation du loader réel) ».
+				//    C'ÉTAIT VRAI, ET ÇA NE L'EST PLUS : `NkGLTFNode` porte un
+				//    membre `name` et `NkGLTFLoader.cpp:238` le remplit
+				//    (`ObjGetString(*node, "name", gn.name)`) depuis le 2026-08.
+				//    Personne n'avait revérifié : les deux bouts du fil existaient
+				//    — le champ, la recherche `NkSkeletonDef::FindBone`, et de quoi
+				//    le remplir — et le fil entre eux, non. Mesuré le 2026-09-26 :
+				//    CesiumMan.glb nomme ses 19 joints, dont une jambe complète
+				//    (leg_joint_L_1 -> _L_2 -> _L_3 -> _L_5).
+				//
+				// ⚠️ ON NE NORMALISE RIEN. Les noms des glTF réels ne suivent
+				//    aucune convention (`mixamorig:LeftUpLeg`, `thigh.L`,
+				//    `leg_joint_L_1`...). Aucune table de correspondance ici : on
+				//    rend le nom DISPONIBLE et LISIBLE, l'appelant choisit.
+				//    *Un nom deviné serait aussi faux qu'un indice deviné.*
+				//
+				// ⚠️ ET UN NOM ABSENT RESTE ABSENT : BrainStem.glb ne nomme
+				//    AUCUN de ses 22 nœuds (mesuré). On ne fabrique pas
+				//    « bone_7 » : un nom inventé passerait les recherches par nom
+				//    et désignerait le mauvais os. On COMPTE, et on le dit une
+				//    fois à la fin.
+				if (nodeIdx >= 0 && (uint32)nodeIdx < (uint32)data.nodes.Size()) {
+					const renderer::NkGLTFNode &gnNom = data.nodes[(uint32)nodeIdx];
+					const char *nm = gnNom.name.CStr();
+					if (nm != nullptr && nm[0] != '\0') {
+						nk_size lg = 0;
+						while (nm[lg] != '\0')
+							++lg;
+						if (lg > (nk_size)(anim::NkBoneDef::kMaxBoneNameLen - 1))
+							++nomsTronques; // une troncature se DIT : elle change l'identité de l'os
+						std::strncpy(b.name, nm, anim::NkBoneDef::kMaxBoneNameLen - 1);
+						b.name[anim::NkBoneDef::kMaxBoneNameLen - 1] = '\0';
+					} else {
+						++osSansNom; // b.name reste vide -- volontairement
+					}
+				} else {
+					// ⚠️ INDEX DE NŒUD HORS BORNES : cet os n'aura pas de nom non plus,
+					//    et il doit donc etre COMPTE ici. Sans cette branche, le
+					//    compteur annoncait « tous nommes » sur un squelette qui ne
+					//    l'est pas : un silence de plus au lieu d'un chiffre juste.
+					++osSansNom;
+				}
 				if (nodeIdx >= 0 && (uint32)nodeIdx < parentOf.Size()) {
 					const int32 parentNode = parentOf[(uint32)nodeIdx];
 					b.parent = (parentNode >= 0 && (uint32)parentNode < nodeToJoint.Size()) ? nodeToJoint[(uint32)parentNode]
@@ -190,6 +236,17 @@ namespace nkentseu {
 					b.bindPose = b.inverseBindPose.Inverse();
 				}
 			}
+			// Un compte, pas une ligne par os : un import de 200 joints anonymes ne doit
+			// pas noyer le journal. Et le silence ici veut dire « tous nommés ».
+			if (osSansNom > 0)
+				logger.Warn("[NkGLTFIO] squelette : {0} os sur {1} SANS NOM dans le fichier -- "
+							"la recherche par nom ne les trouvera pas (aucun nom inventé)",
+							osSansNom, boneCount);
+			if (nomsTronques > 0)
+				logger.Warn("[NkGLTFIO] squelette : {0} nom(s) d'os TRONQUÉ(S) à {1} caractères -- "
+							"deux os de préfixe commun peuvent devenir homonymes",
+							nomsTronques, (uint32)anim::NkBoneDef::kMaxBoneNameLen - 1u);
+
 			// L'ordre topologique se calcule A L'IMPORT (2026-09-04) : c'est lui que suit
 			// LA conversion locale -> monde (NkSkeletonDef::LocalToWorld). Sans lui, elle
 			// retombe sur l'ordre d'index et suppose parent avant enfant.

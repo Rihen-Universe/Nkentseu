@@ -116,6 +116,11 @@ int nkmain(const NkEntryState &state) {
 
 	eprouvette::Construire(caseFil.cochee);
 
+	// Les os de CesiumMan, designes par leur NOM. Importe UNE FOIS : ce bloc
+	// ne fait pas partie de la scene de la pente, il en dit l'etat.
+	eprouvette::Import im;
+	const bool aCesium = eprouvette::ImporterCesiumMan(im);
+
 	float32 sourisX = 0.f, sourisY = 0.f, x = -5.f, sens = 1.f;
 	auto &events = NkEvents();
 
@@ -271,6 +276,42 @@ int nkmain(const NkEntryState &state) {
 			t4.SetFillColor(NkColor2D{150, 156, 164, 255});
 			t4.SetPosition({20.f, 552.f});
 			target.Draw(static_cast<NkDrawable &>(t4));
+
+			// ── Les os de CesiumMan, PAR LEUR NOM ────────────────────────────
+			// Le nom est ecrit a cote de son indice : c'est la seule facon de
+			// verifier a l'oeil qu'on plie l'os qu'on croit plier.
+			if (aCesium) {
+				char c1[224];
+				std::snprintf(c1, sizeof(c1),
+							  "CesiumMan.glb : %d os, %d NOMMES  |  %s = os %d   %s = os %d   "
+							  "%s = os %d",
+							  im.osTotal, im.osNommes, im.cuisse.nom, im.cuisse.indice,
+							  im.mollet.nom, im.mollet.indice, im.pied.nom, im.pied.indice);
+				NkText c(font, c1, 15u);
+				c.SetFillColor((im.osNommes == im.osTotal && im.pied.indice >= 0)
+							   ? NkColor2D{120, 210, 140, 255}
+							   : NkColor2D{235, 120, 100, 255});
+				c.SetPosition({20.f, 500.f});
+				target.Draw(static_cast<NkDrawable &>(c));
+
+				// ⚠️ ET CE QUI EMPECHE ENCORE DE S'EN SERVIR, ecrit a l'ecran
+				//    plutot que tue dans un rapport : le pont lit la pose LOCALE
+				//    comme si elle etait monde.
+				char c2[224];
+				std::snprintf(c2, sizeof(c2),
+							  "...mais %d de ces os ont un PARENT : pose locale y=%.4f, pose monde "
+							  "y=%.4f. L'IK lit la locale -> pas encore utilisable ici.",
+							  im.osAvecParent, im.piedLocalY, im.piedMondeY);
+				NkText c2t(font, c2, 14u);
+				c2t.SetFillColor(NkColor2D{200, 150, 90, 255});
+				c2t.SetPosition({20.f, 522.f});
+				target.Draw(static_cast<NkDrawable &>(c2t));
+			} else {
+				NkText c(font, im.refus[0] != '\0' ? im.refus : "CesiumMan.glb non importe", 15u);
+				c.SetFillColor(NkColor2D{235, 120, 100, 255});
+				c.SetPosition({20.f, 500.f});
+				target.Draw(static_cast<NkDrawable &>(c));
+			}
 		}
 
 		target.Display();
