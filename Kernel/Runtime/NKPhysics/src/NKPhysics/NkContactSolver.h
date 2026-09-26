@@ -3,6 +3,21 @@
 // NkContactSolver.h — Solveur de contacts par impulses séquentielles. [SCAFFOLD]
 // Consomme les NkManifold3D de NKCollision (multi-points) ; warm-starting via
 // NkContactPoint::id (matché contre GetPreviousManifold). À implémenter (M1..M4).
+//
+// ⚠️ LES CONTACTS SONT BEL ET BIEN RÉSOLUS — MAIS PAS ICI.
+//    Cette classe est une COQUILLE : ses quatre méthodes n'ont pas de corps et
+//    le membre `NkPhysicsWorld::mSolver` n'est appelé nulle part. Le solveur
+//    qui tourne est `NkPhysicsWorld::SolveContacts` (NkPhysicsWorld.cpp:418) :
+//    impulses séquentielles, frottement de Coulomb, warm-start par `mWarm`.
+//    Mesuré le 2026-09-26 : une bille lâchée de 6 m s'arrête à 0,9999 m pour
+//    un attendu de 1,0 m (`NkDemoContact --mesure`).
+//
+//    Sans cette phrase, qui ouvre ce fichier pour savoir si les contacts sont
+//    résolus conclut que non. Le code ne se lit pas dans l'ordre où il tourne.
+//
+//    CONDITION DE RETRAIT de cet avertissement : le jour où le solveur
+//    migrera ici (M1..M4) et où `mSolver` sera réellement appelé par
+//    `Substep`, cette phrase doit partir avec la coquille.
 // =============================================================================
 #include "NKPhysics/NkRigidBody.h"
 #include "NKCollision/NkColTypes.h"
