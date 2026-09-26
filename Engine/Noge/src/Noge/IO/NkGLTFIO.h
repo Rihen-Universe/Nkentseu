@@ -27,13 +27,28 @@
 //      pixel décodée existe côté renderer::NkGLTFMeshData::images mais
 //      NkGLTFMaterialData n'a pas de slot pour l'embarquer).
 //   ✅ Hiérarchie de nodes (TRS + parent/enfants, recalculés depuis les
-//      listes children déjà parsées — le loader réel ne stocke QUE les
-//      enfants, pas de nom de node : NkGLTFNodeData::name reste vide).
+//      listes children déjà parsées).
+//      ⚠️ LE NOM DU NŒUD N'EST PAS TRANSMIS, et la raison a changé :
+//      ce n'est plus que « le loader ne le stocke pas » — il le stocke
+//      (`renderer::NkGLTFNode::name`, rempli par NkGLTFLoader.cpp:238).
+//      C'est que **`NkGLTFNodeData` n'a aucun champ pour l'accueillir**.
+//      Ce serait donc un MEMBRE NEUF, pas une recopie : décision de Rodolf,
+//      et aucun appelant ne le réclame aujourd'hui (un seul consommateur de
+//      `scene.nodes`, `NkAssetIODemo`, qui n'en compte que la taille).
 //   ✅ Squelette (si JOINTS_0/WEIGHTS_0 + skin présents) : un seul
 //      ecs::NkSkeleton reconstruit depuis skinJoints/inverseBind/nodes.
-//      NkBone::name reste vide (même limitation que les nodes). Non couvert
-//      par la démo d'exécution de cet incrément (aucun asset skinné simple
-//      disponible n'a été exercé au-delà du comptage de joints).
+//      ✅ NkBoneDef::name EST RENSEIGNÉ depuis le 2026-09-26 (recopie de
+//      `nodes[].name`) : `NkSkeletonDef::FindBone("leg_joint_L_1")` marche.
+//      Un os que le fichier ne nomme pas reste sans nom — aucun nom n'est
+//      inventé — et l'import le DIT une fois, avec le compte.
+//
+//      ⚠️ CE QUI PRÉCÉDAIT ICI ÉTAIT FAUX, ET FAUX PAR ANALOGIE : il était
+//      écrit « NkBone::name reste vide (même limitation que les nodes) ».
+//      La limitation des nodes était réelle mais avait une AUTRE cause, et
+//      elle a été recopiée au squelette comme si c'était la même. Le champ,
+//      la recherche par nom et de quoi la remplir existaient tous : seul le
+//      fil manquait. *Une limitation empruntée à un voisin ne se périme pas
+//      quand la sienne disparaît — elle survit à sa propre cause.*
 //   ✅ Animations TRS (channels node/path/interp/times/values, remappage
 //      direct — les canaux WEIGHTS (morph) ne sont PAS transcrits : le
 //      format de canal Noge (NkVec4f par clé) ne peut pas représenter un
