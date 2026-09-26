@@ -1,0 +1,52 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LE PANNEAU « Scène » DE NOGEE, ET IL EST UNE DONNÉE.
+//
+// ⚠️ IL NE DÉCLARE AUCUNE ZONE « viseur 3D », ET C'EST DÉLIBÉRÉ. Mesuré le
+//    26/09 : `ViewportPanel::OnUI` écrit à l'écran « rendu de scene : pas
+//    encore cable (ROADMAP §10sexies) » — le viseur de Nogee est une zone de
+//    dépôt, pas un rendu. Un `Host "viseur3d"` monterait donc une zone vide
+//    sous un nom qui promet une scène, et *une zone vide sous un nom faux coûte
+//    plus cher qu'une zone absente*. Le jour où le rendu sera câblé, cette
+//    zone-là s'ajoutera ici, en une ligne.
+//
+// Les noms d'action servis aujourd'hui par Nogee, et la liste est courte parce
+// que Nogee n'enregistre qu'une commande :
+//      nogee.quitter
+// Un nom non servi donne une entrée qui s'affiche et ne fait rien — et le
+// compteur `actionsInconnues` le dit.
+
+widgets {
+
+  VBox "colonne" {
+    gap = 6
+    align = Start
+
+    Text "titre" {
+      text = "Scène"
+    }
+
+    Separator "sep1" {
+      orientation = Horizontal
+    }
+
+    Text "explication" {
+      text = "Ce panneau est décrit par un fichier."
+      wrap = true
+    }
+
+    Separator "sep2" {
+      orientation = Horizontal
+    }
+
+    Text "titre_entites" {
+      text = "Entités vivantes"
+    }
+
+    Host "scene.entites" {
+      hint = "compteur d'entités (rempli par Nogee)"
+    }
+  }
+}
