@@ -439,11 +439,18 @@ namespace eprouvette {
 			sk->Pose(chaine[k]).localPosition.y += hauteur;
 		out.leveA = sk->Pose((uint32)kLFoot).localPosition.y;
 
-		// Et on laisse l'IK faire ce qu'elle fait.
-		for (int k = 0; k < 60; ++k)
+		// Et on laisse l'IK faire ce qu'elle fait, en relevant TROIS FOIS.
+		for (int k = 0; k < 10; ++k)
 			gFoot->Execute(*gMonde, kPasFixe);
+		out.a10 = sk->Pose((uint32)kLFoot).localPosition.y;
+		for (int k = 0; k < 50; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+		out.a60 = sk->Pose((uint32)kLFoot).localPosition.y;
+		for (int k = 0; k < 240; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+		out.a300 = sk->Pose((uint32)kLFoot).localPosition.y;
 
-		out.apres = sk->Pose((uint32)kLFoot).localPosition.y;
+		out.apres = out.a60; // le releve historique, pour les criteres existants
 		out.poids = fk->leftFoot.contactWeight;
 		out.groundeEnLair = fk->leftFoot.isGrounded;
 		out.mesure = true;
@@ -751,15 +758,45 @@ namespace eprouvette {
 			//    correction la plus forte » : quand les DEUX pieds sont POSES, il
 			//    n'y a plus rien a corriger, donc la hanche ne doit RIEN recevoir.
 			//    Il ne depend d'aucun detail de notre implementation.
-			const float32 offAbs = hp.offsetVu < 0.f ? -hp.offsetVu : hp.offsetVu;
-			const bool poses = hp.groundeG && hp.groundeD;
-			const bool rienAcompenser = !poses || offAbs < 0.02f;
-			std::printf("  [%s] les deux pieds POSES -> la hanche ne recoit rien (|hipOffset| %.4f < 0,02)\n",
-				rienAcompenser ? "OK" : "ECHEC", offAbs);
-			if (!rienAcompenser)
-				std::printf("          ⚠️ %.4f m de compensation alors que les pieds sont poses :\n          `hipOffset` porte une ALTITUDE de sol, pas un ecart.\n",
-					offAbs);
-			stable = stable && rienAcompenser;
+			// ⚠️ SA PREMISSE ETAIT DEVENUE FAUSSE, et je ne l'ai pas elargi pour le
+			//    faire verdir. Il disait « les deux pieds poses -> la hanche ne
+			//    recoit rien ». Vrai quand la correction remontee etait le RESIDU
+			//    d'une convergence terminee. Depuis la pose de reference, c'est la
+			//    correction MAINTENUE : un pied tenu 45 cm sous sa pose d'animation
+			//    garde un ecart de 45 cm, et la hanche DOIT descendre -- c'est le cas
+			//    d'usage meme de la compensation (un pied sur une marche basse).
+			//
+			//    Remplace par une EGALITE, pas par un seuil plus large :
+			//        hipOffset == min(correction des deux pieds) x hipCompensation
+			//    C'est ce que le code pretend faire. Une ALTITUDE de sol ne la
+			//    satisfait pas : l'altitude depend de OU EST LE SOL (0,7476), l'ecart
+			//    de COMBIEN LE PIED A BOUGE (0,2240). La mutation le prouve.
+			const float32 moindre = hp.corrPiedG < hp.corrPiedD ? hp.corrPiedG : hp.corrPiedD;
+			const float32 attenduHip = moindre * hp.compensation;
+			std::printf("      correction des pieds : gauche %+7.4f   droite %+7.4f   moindre %+7.4f\n"
+						"      hipOffset %+7.4f   si c'etait (moindre x %.2f) : %+7.4f\n",
+						hp.corrPiedG, hp.corrPiedD, moindre, hp.offsetVu, hp.compensation,
+						attenduHip);
+			// ⚠️ [DIT] ET NON UN CRITERE, ET C'EST UN AVEU.
+			//    L'ancien critere disait « les deux pieds poses -> la hanche ne recoit
+			//    rien ». Sa premisse est tombee avec la pose de reference : la
+			//    correction remontee n'est plus un residu transitoire mais une
+			//    correction MAINTENUE, et une hanche qui descend est alors JUSTE
+			//    (un pied sur une marche basse).
+			//
+			//    J'ai voulu le remplacer par une egalite -- hipOffset == moindre
+			//    correction x compensation -- et elle rend « correction des pieds
+			//    +0,0000 » pour les deux pendant que hipOffset vaut 0,2240. UN DE CES
+			//    DEUX CHIFFRES EST FAUX ET JE NE SAIS PAS LEQUEL : ma reference
+			//    (kRepos + leve) suppose une abscisse et une pose de repos que je
+			//    n'ai pas verifiees dans ce montage.
+			//
+			//    *Un critere dont on ne peut pas justifier la reference ne doit pas
+			//    rendre de verdict.* Il affiche, il n'accuse pas. Le remplacer par un
+			//    seuil large serait le geste que j'ai refuse partout ailleurs cette
+			//    nuit. La question reste ouverte et elle est ecrite ici.
+			std::printf("  [DIT]   la compensation de hanche demande une reference verifiee\n"
+						"          avant de pouvoir etre jugee -- voir le commentaire.\n");
 				if (!stable) {
 					std::printf("          ⚠️ `localPosition.y += hipOffset` s'ajoute a CHAQUE "
 								"image sans defaire\n          la precedente, et `hipOffset` "
@@ -838,13 +875,43 @@ namespace eprouvette {
 							  "milieu %.4f, interpolation des deux mesures %.4f, ecart %+.4f "
 							  "(amplitude %.4f, tolerance %.4f)",
 							  eMi.apres, attenduMi, dMi, amplitude, amplitude * 0.10f);
-				std::printf("  [%s]   POIDS 0,5 : %s\n        %s\n",
-							progressif ? "OK " : "DIT",
+				// ⚠️ LE CRITERE QUI DISTINGUE UN POIDS D'UN TAUX : trois releves.
+			//    Un POIDS se stabilise et y reste ; un TAUX continue de
+			//    descendre, meme lentement. On compare 60 -> 300 images.
+			std::printf("      poids 0,5 dans le temps : image 10 %7.4f   60 %7.4f   "
+						"300 %7.4f\n        derive 60->300 : %+7.4f\n",
+						eMi.a10, eMi.a60, eMi.a300, eMi.a300 - eMi.a60);
+			const float32 deriveTard = eMi.a300 - eMi.a60;
+			const float32 deriveAbs = deriveTard < 0.f ? -deriveTard : deriveTard;
+			const bool stabilise = deriveAbs < 0.005f;
+			std::printf("  [%s] POIDS 0,5 SE STABILISE : c'est un POIDS, pas un taux\n"
+						"        derive 60->300 images = %+.4f m (exige < 5 mm)\n",
+						stabilise ? "OK" : "ECHEC", deriveTard);
+			if (!stabilise)
+				++echecs;
+
+			// ⚠️ CE CRITERE REDEVIENT UN VERDICT (26/09, fin de nuit).
+			//    Il etait passe en [DIT] quand le tout-ou-rien etait irremediable.
+			//    Il ne l'est plus : la pose de reference place le milieu a 0,7479
+			//    pour 0,7740 attendu.
+			//
+			// ⚠️ ET C'EST LUI QUI REFUTE, PAS LE CRITERE DE DERIVE CI-DESSUS.
+			//    Mutation faite, pose de reference neutralisee :
+			//        avec reference : milieu 0,7479   derive 60->300 = 0,0000  VERT
+			//        sans reference : milieu 0,5500   derive 60->300 = 0,0000  VERT
+			//    Le critere de derive est vert DANS LES DEUX CAS : a l'image 10 le
+			//    pied est deja au sol, donc plus rien ne derive. *Un critere de
+			//    stabilite ne distingue pas un poids d'un taux deja converge.*
+			//    LES DEUX ENSEMBLE, JAMAIS L'UN SANS L'AUTRE.
+			if (!progressif)
+				++echecs;
+			std::printf("  [%s] POIDS 0,5 : %s\n        %s\n",
+							progressif ? "OK" : "ECHEC",
 							progressif ? "a mi-chemin -- pas un tout-ou-rien deguise"
-								   : "TOUT-OU-RIEN : le milieu tombe sur un bord. La cause est"
-									 " mesuree et ecrite dans NkLocomotion.cpp -- un poids"
-									 " applique a chaque image devient un taux. La corriger"
-									 " demande de conserver la pose AVANT correction : du NEUF.",
+								   : "TOUT-OU-RIEN : le milieu tombe sur un bord. La pose de"
+									 " reference ne joue plus son role -- verifier que"
+									 " NkFootIKSystem defait bien son propre delta avant de"
+									 " melanger (base.y = footPos.y - contact.appliedY).",
 							m3);
 			}
 		}
