@@ -370,6 +370,42 @@ namespace eprouvette {
 	}
 
 	// -------------------------------------------------------------------------
+	// Un pied en ENVOL est-il ramene au sol ? On le pose en l'air, on laisse
+	// l'IK tourner, et on regarde ou il finit.
+	// -------------------------------------------------------------------------
+	bool EprouverEnvol(float hauteur, Envol &out) noexcept {
+		Construire(true);
+		Placer(0.f, 60); // les deux pieds poses, IK convergee
+
+		ecs::NkSkeleton *sk = gMonde->Get<ecs::NkSkeleton>(gPerso);
+		NkFootIK *fk = gMonde->Get<NkFootIK>(gPerso);
+		if (sk == nullptr || fk == nullptr)
+			return false;
+
+		float32 s = 0.f, n = 0.f;
+		if (!SolY(-kDemiEcart, s, n))
+			return false;
+		out.solSous = s;
+
+		// On LEVE le pied gauche et sa chaine, comme le ferait un pas.
+		const uint32 chaine[3] = {(uint32)kLThigh, (uint32)kLCalf, (uint32)kLFoot};
+		for (int k = 0; k < 3; ++k)
+			sk->Pose(chaine[k]).localPosition.y += hauteur;
+		out.leveA = sk->Pose((uint32)kLFoot).localPosition.y;
+
+		// Et on laisse l'IK faire ce qu'elle fait.
+		for (int k = 0; k < 60; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+
+		out.apres = sk->Pose((uint32)kLFoot).localPosition.y;
+		out.poids = fk->leftFoot.contactWeight;
+		out.groundeEnLair = fk->leftFoot.isGrounded;
+		out.mesure = true;
+		Detruire();
+		return true;
+	}
+
+	// -------------------------------------------------------------------------
 	int Mesurer() noexcept {
 		int echecs = 0;
 		Construire(true);
@@ -686,6 +722,34 @@ namespace eprouvette {
 								"compensation vaut zero.\n");
 					++echecs;
 				}
+			}
+		}
+
+		// == LE PIED EN ENVOL (diagnostic, pas un critere) =====================
+		std::printf("\n  -- UN PIED EN ENVOL, retour de Rodolf du 26/09 ---------------\n");
+		{
+			Envol ev;
+			if (!EprouverEnvol(0.50f, ev)) {
+				std::printf("  [DIT]   la sonde d'envol n'a pas pu etre montee\n");
+			} else {
+				const float32 redescendu = ev.leveA - ev.apres;
+				std::printf("      pied leve a %7.4f (sol %7.4f, soit +%.2f m en l'air)\n"
+							"      apres 60 images d'IK : %7.4f   il a redescendu de %+7.4f\n"
+							"      contactWeight %.3f   isGrounded %s\n",
+							ev.leveA, ev.solSous, ev.leveA - ev.solSous, ev.apres, redescendu,
+							ev.poids, ev.groundeEnLair ? "OUI" : "non");
+				if (redescendu > 0.10f)
+					std::printf("  [DIT]   ⚠️ LE PIED EN ENVOL EST RAMENE AU SOL.\n"
+								"          Aucune notion de PHASE n'existe : ni NkFootContact,\n"
+								"          ni NkFootIK, ni NkLocomotion. `contactWeight` est un\n"
+								"          lissage de `isGrounded`, vrai des que le sol est A\n"
+								"          PORTEE DU RAYON -- pas quand le pied TOUCHE.\n"
+								"          Un personnage qui marche ne levera donc jamais le\n"
+								"          pied. Trouve par RODOLF, pas par les 12 criteres --\n"
+								"          qui exigent TOUS le contact, donc sont verts sur ce\n"
+								"          defaut. Y remedier est du NEUF : decision de Rodolf.\n");
+				else
+					std::printf("  [DIT]   le pied leve RESTE en l'air : une phase existe\n");
 			}
 		}
 
