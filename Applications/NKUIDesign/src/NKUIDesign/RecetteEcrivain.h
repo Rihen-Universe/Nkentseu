@@ -689,6 +689,69 @@ namespace nkuidesign {
 			}
 
 			// -----------------------------------------------------------------
+			// (f4) LE RESPONSIVE : une taille en FRACTION traverse-t-elle ?
+			// -----------------------------------------------------------------
+			//  Rodolf, le 26/09 : « ne pas oublier le responsive ».
+			//
+			//  Mesure du meme jour : le monteur HONORE `sizeRel` depuis le 17/09,
+			//  l'editeur EXPRIME `NkSizeMode::Fraction`, et ce pont n'ecrivait
+			//  AUCUN des deux -- zero occurrence. Chaque taille etait aplatie en
+			//  pixels depuis le rectangle CALCULE, jamais depuis le mode DECLARE.
+			//  Un design exporte etait donc fige a une seule taille de fenetre :
+			//  le consommateur savait s'adapter, le producteur ne le lui disait pas.
+			//
+			//  ⚠️ ET LE DOCUMENT D'ESSAI DES AUTRES CONTROLES NE PORTE AUCUNE
+			//     FRACTION. Sans un document qui en emploie, `sizeRel = 0` dirait
+			//     seulement « ce document-la n'en a pas » -- pas « le pont ne sait
+			//     pas l'ecrire ». Le controle fabrique donc le sien, avec son
+			//     negatif DEDANS : un noeud en Fraction, un noeud en Fixed.
+			printf("\n-- (f4) le responsive : une taille en fraction traverse-t-elle ?\n");
+			{
+				NkUIDocument dr;
+				dr.NewDocument("Responsive", NkAuthor::Humain);
+				dr.nodes[0].layout.kind = NkLayoutKind::Column;
+				const int32 relatif = dr.AddChild(0, "", NkAuthor::Humain);
+				const int32 fige = dr.AddChild(0, "", NkAuthor::Humain);
+				if (dr.IsValidIndex(relatif))
+					dr.nodes[(uint32)relatif].label = NkString("MoitieGauche");
+				if (dr.IsValidIndex(fige))
+					dr.nodes[(uint32)fige].label = NkString("Fige");
+				if (dr.IsValidIndex(relatif)) {
+					NkUINode &nr = dr.nodes[(uint32)relatif];
+					nr.width.mode = NkSizeMode::Fraction;
+					nr.width.value = 0.5f; // la moitie de son parent
+					nr.width.minVal = 120.f;
+					nr.height.mode = NkSizeMode::Fixed;
+					nr.height.value = 40.f;
+				}
+				if (dr.IsValidIndex(fige)) {
+					NkUINode &nf = dr.nodes[(uint32)fige];
+					nf.width.mode = NkSizeMode::Fixed;
+					nf.width.value = 200.f;
+					nf.height.mode = NkSizeMode::Fixed;
+					nf.height.value = 40.f;
+				}
+
+				NkLayoutResult lr;
+				NkComputeLayout(dr, NkPaintRect{0.f, 0.f, 1400.f, 900.f}, lr);
+				guifmt::NkEcritRapport rr;
+				const NkString tr = guifmt::NkDocumentVersTexte(dr, lr, rr);
+
+				const uint32 nRel = Occurrences(tr, "sizeRel = ");
+				const uint32 nMin = Occurrences(tr, "minSize = ");
+				char dR[400];
+				snprintf(dR, sizeof(dR),
+						 "1 noeud en Fraction(0,5) et 1 en Fixed -> %u `sizeRel`, %u `minSize` "
+						 "ecrit(s) ; le rapport compte %u taille(s) relative(s), %u sans equivalent",
+						 nRel, nMin, rr.taillesRelatives, rr.taillesSansEquivalent);
+				// ⚠️ LE NEGATIF EST DANS LE MEME DOCUMENT : le noeud `Fige` ne doit
+				//    produire AUCUN `sizeRel`. Un pont qui en poserait partout
+				//    passerait un controle qui ne compterait que « au moins un ».
+				Check(nRel == 1u && nMin == 1u && rr.taillesRelatives == 1u,
+					  "(f4) une taille en FRACTION s'ecrit `sizeRel` ; une taille FIXE, non", dR);
+			}
+
+			// -----------------------------------------------------------------
 			// (f1) LA CAUSE DU PLACEMENT -- etablie AVANT tout correctif
 			// -----------------------------------------------------------------
 			printf("\n-- (f1) pourquoi les feuilles descendent en pile : la CAUSE, mesuree\n");

@@ -129,6 +129,19 @@ namespace nkuidesign {
 		};
 
 		struct NkEcritRapport {
+				// ── LE RESPONSIVE (26/09) ──────────────────────────────────
+				/// Noeuds dont la taille est ecrite en FRACTION du parent
+				/// (`sizeRel`). Zero sur un document entierement fige -- et
+				/// c'etait le cas de TOUS avant ce lot, parce que ce pont
+				/// n'ecrivait aucun `sizeRel`.
+				uint32 taillesRelatives = 0;
+				/// Noeuds en `Weight` ou `Expand` : « partage le RESTE au
+				/// prorata ». Le format ne sait pas le dire -- c'est une
+				/// resolution, pas une taille. COMPTES, jamais devines : les
+				/// traduire en fraction inventerait un nombre que personne
+				/// n'a ecrit.
+				uint32 taillesSansEquivalent = 0;
+
 				uint32 noeudsVus = 0;	  ///< noeuds du document parcourus (racine exclue)
 				uint32 widgetsEcrits = 0; ///< blocs `widgets` produits
 				uint32 conteneurs = 0;	  ///< ceux qui portent des fils
@@ -720,6 +733,66 @@ namespace nkuidesign {
 							NkPoserVec2(bloc, "size", r.w, r.h);
 							++rap.posesEcrits;
 						}
+					}
+
+					// ═══════════════════════════════════════════════════════
+					//  LE RESPONSIVE (26/09) — il etait PERDU a l'ecriture
+					// ═══════════════════════════════════════════════════════
+					//  Rodolf : « ne pas oublier le responsive ».
+					//
+					//  MESURE DU 26/09, ET ELLE EST NETTE : le monteur HONORE
+					//  `sizeRel`, `minSize` et `maxSize` depuis le 17/09 (il a
+					//  meme une mutation de banc pour les eprouver) ; l'editeur
+					//  EXPRIME `NkSizeMode::Fraction` avec sa valeur 0..1 ; et ce
+					//  pont n'en ecrivait AUCUN -- zero occurrence dans tout le
+					//  fichier, zero `sizeRel` dans le document produit.
+					//
+					//  Chaque taille etait aplatie en PIXELS depuis le rectangle
+					//  CALCULE (`lay.At`), jamais depuis le mode DECLARE. Un design
+					//  exporte etait donc fige a une seule taille de fenetre : le
+					//  consommateur savait s'adapter, le producteur ne le lui
+					//  disait pas.
+					//
+					//  ⚠️ ON ECRIT `sizeRel` **EN PLUS** DE `size`, PAS A SA PLACE.
+					//     Le monteur prefere `sizeRel` quand il le trouve et
+					//     retombe sur `size` sinon : garder les deux donne une
+					//     degradation propre, et un lecteur qui ignorerait le
+					//     relatif obtient encore une mise en page juste a la
+					//     taille de reference.
+					//
+					//  ⚠️ ET `Weight` / `Expand` N'ONT AUCUN EQUIVALENT. Le format
+					//     ne sait pas dire « partage le RESTE au prorata » -- c'est
+					//     une resolution, pas une taille. Les traduire en fraction
+					//     serait inventer un nombre que personne n'a ecrit. Ils sont
+					//     donc COMPTES : `taillesSansEquivalent` les nomme au lieu
+					//     de les deviner.
+					{
+						const float32 relW =
+							(n.width.mode == NkSizeMode::Fraction) ? n.width.value : 0.f;
+						const float32 relH =
+							(n.height.mode == NkSizeMode::Fraction) ? n.height.value : 0.f;
+						if (relW > 0.f || relH > 0.f) {
+							NkPoserVec2(bloc, "sizeRel", relW, relH);
+							++rap.taillesRelatives;
+						}
+						// Les bornes en pixels. `maxVal <= minVal` veut dire
+						// « non borne » (contrat de `NkSizeDecl`), et on ne
+						// l'ecrit pas : une borne a zero serait lue comme une
+						// contrainte, pas comme son absence.
+						if (n.width.minVal > 0.f || n.height.minVal > 0.f)
+							NkPoserVec2(bloc, "minSize", n.width.minVal, n.height.minVal);
+						const bool maxW = n.width.maxVal > n.width.minVal;
+						const bool maxH = n.height.maxVal > n.height.minVal;
+						if (maxW || maxH)
+							NkPoserVec2(bloc, "maxSize", maxW ? n.width.maxVal : 0.f,
+										maxH ? n.height.maxVal : 0.f);
+
+						const bool partageW = n.width.mode == NkSizeMode::Weight
+											  || n.width.mode == NkSizeMode::Expand;
+						const bool partageH = n.height.mode == NkSizeMode::Weight
+											  || n.height.mode == NkSizeMode::Expand;
+						if (partageW || partageH)
+							++rap.taillesSansEquivalent;
 					}
 					rap.items.PushBack(it);
 				}
