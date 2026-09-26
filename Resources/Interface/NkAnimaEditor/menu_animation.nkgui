@@ -1,0 +1,67 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LE MENU « Animation » DE NkAnimaEditor, ET IL EST UNE DONNÉE.
+// Ajoutez une ligne ici, relancez : l'entrée est dans le menu. Rien à compiler.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  POURQUOI CE FICHIER NE CONTIENT PAS DE `MenuBar`, ET C'EST IMPORTANT
+// ═══════════════════════════════════════════════════════════════════════════
+//  Il est monté par `SetAppMenu`, qui est **additif** : la coquille appelle
+//  `mAppMenuFn` À L'INTÉRIEUR de sa propre barre, après ses quatre menus
+//  (`NkEditorShell.cpp:3497`). La barre est donc DÉJÀ ouverte quand ce document
+//  se monte — y écrire un `MenuBar` en ouvrirait une seconde.
+//
+//  ⚠️ ET ON N'EMPLOIE PAS `SetMenuBar`, QUI EXISTE POURTANT. Il REMPLACE
+//     entièrement les menus de la coquille, et l'un d'eux — « Affichage » — est
+//     construit par `DrawPanelsMenuItems()`, qui **énumère les panneaux ouverts
+//     au moment où il s'exécute**. Le format n'a aucun moyen d'exprimer une
+//     liste engendrée : `ListBox` a un `bind`, `Menu` n'en a pas. Prendre la
+//     barre entière avec un document ferait donc perdre le menu des panneaux,
+//     en silence. *On ne migre pas vers moins.*
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  L'IDENTIFIANT D'UNE ENTRÉE EST LE NOM DE SON ACTION
+// ═══════════════════════════════════════════════════════════════════════════
+//  Même convention que les boutons et que la zone hôte. Noms servis aujourd'hui :
+//      anim.jouer  anim.inserer  anim.supprimer  anim.annuler  anim.refaire
+//      anim.compteurs
+//  Un nom non servi donne une entrée qui s'affiche et ne fait rien — et le
+//  compteur `actionsInconnues` le dit. Il ne disparaît pas en silence.
+
+widgets {
+
+  Menu "menu_animation" {
+    label = "Animation"
+
+    MenuItem "anim.jouer" {
+      label = "Jouer / Pause"
+      shortcut = "Espace"
+    }
+
+    MenuItem "anim.inserer" {
+      label = "Insérer une clé"
+      shortcut = "I"
+    }
+
+    MenuItem "anim.supprimer" {
+      label = "Supprimer la clé"
+      shortcut = "Suppr"
+    }
+
+    MenuItem "anim.annuler" {
+      label = "Annuler"
+      shortcut = "Ctrl+Z"
+    }
+
+    MenuItem "anim.refaire" {
+      label = "Refaire"
+      shortcut = "Ctrl+Y"
+    }
+
+    MenuItem "anim.compteurs" {
+      label = "Compteurs de rendu"
+    }
+  }
+}

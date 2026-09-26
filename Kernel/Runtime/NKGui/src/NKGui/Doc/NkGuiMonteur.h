@@ -130,7 +130,39 @@ namespace nkentseu {
 			/// LA ZONE DEFILANTE. Elle etait au vocabulaire du VALIDATEUR
 			/// (`NkGuiValidate.h`, `axis` et `always`) et absente d'ici : un document
 			/// que le format accepte perdait tout son contenu au montage.
-			Scroll
+			Scroll,
+			// =================================================================
+			//  LES MENUS (2026-09-26) -- LE FORMAT LES PORTAIT, LE MONTEUR NON
+			// =================================================================
+			//  Mesure du 25/09, par LANCEMENT et non par lecture : un document
+			//  `MenuBar > Menu > MenuItem` validait a **0 erreur** et montait
+			//  **0 widget pour 4 roles inconnus** (`NKGuiMonteTest --monter=`). Le
+			//  format etait donc PLUS RICHE que le monteur -- l'inverse exact de la
+			//  note « le monteur est plus permissif que le format ».
+			//
+			//  ⚠️ ET RIEN N'A ETE ECRIT POUR EUX ICI. NKGui avait deja `BeginMenuBar`,
+			//     `BeginMenu` et `MenuItem` (`NkGuiWidgets.h`, l. 494-511), et la
+			//     coquille s'en servait. Il manquait le FIL, comme partout ailleurs
+			//     dans ce chantier. `MenuItem` du format porte `label`/`shortcut`/
+			//     `checked` ; `MenuItem` de NKGui prend `label, shortcut, enabled,
+			//     checked` : les deux vocabulaires coincident sans qu'on invente un mot.
+			MenuBar,
+			Menu,
+			MenuItem
+			// 🔴 `ContextMenu` N'EST PAS ICI, ET C'EST UN REFUS, PAS UN OUBLI. NKGui a
+			//    bien `BeginPopupMenu`, mais il ne rend vrai que si quelqu'un a appele
+			//    `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et ce monteur monte l'etat au
+			//    REPOS : il n'a aucun clic droit a offrir. Le monter donnerait un role
+			//    qui ne se voit JAMAIS, quoi qu'ecrive le document.
+			//
+			//    Un role invisible par construction est PIRE qu'un role refuse : il se
+			//    compterait parmi les montes, et personne n'irait chercher pourquoi
+			//    rien n'apparait. Il reste donc `Inconnu` -- donc COMPTE dans
+			//    `rolesInconnus`, donc present dans le verdict.
+			//
+			//    CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote,
+			//    de la meme forme que `RemplirHote` -- l'hote dit « ce clic droit
+			//    ouvre le menu nomme X ». C'est une conception, pas un detail.
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -170,6 +202,10 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "DockSpace")) return NkGuiRole::DockSpace;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
 			if (NkGMotEgal(n, "Scroll")) return NkGuiRole::Scroll;
+			if (NkGMotEgal(n, "MenuBar")) return NkGuiRole::MenuBar;
+			if (NkGMotEgal(n, "Menu")) return NkGuiRole::Menu;
+			if (NkGMotEgal(n, "MenuItem")) return NkGuiRole::MenuItem;
+			// `ContextMenu` n'est PAS traduit : voir le refus motive dans l'enumeration.
 			return NkGuiRole::Inconnu;
 		}
 
@@ -270,6 +306,24 @@ namespace nkentseu {
 				/// Meme raison que `hotesNonRemplis` : un arbre vide se fait prendre pour un
 				/// arbre sans elements, et le document a l'air monte alors qu'il manque sa moitie.
 				uint32 listesNonRemplies = 0;
+				// ── LES MENUS (2026-09-26) ───────────────────────────────────
+				/// Les `MenuBar` montees. Zero alors que le document en ecrit une =
+				/// la bande n'a pas pris (region degeneree, ou `BeginMenuBar` refuse).
+				uint32 barresMenu = 0;
+				/// Les `Menu` (titres) rencontres, ouverts ou non.
+				uint32 menus = 0;
+				/// ⚠️ CEUX QUI ETAIENT OUVERTS, et ce compteur existe parce que le
+				///    contenu d'un menu FERME ne se monte pas -- c'est correct, mais
+				///    sans ce chiffre un document dont aucun menu n'est deroule serait
+				///    indiscernable d'un document dont les menus sont vides.
+				uint32 menusOuverts = 0;
+				/// Les `MenuItem` reellement soumis (donc dans un menu ouvert).
+				uint32 elementsMenu = 0;
+				/// ⚠️ UN `MenuItem` HORS D'UN MENU. NKGui ne sait pas le dessiner
+				///    ailleurs que dans une chaine de menus ; le document peut
+				///    l'ecrire n'importe ou. On le compte au lieu de le poser dans le
+				///    flux, ou il aurait l'air d'un bouton qui n'en est pas un.
+				uint32 elementsMenuHorsMenu = 0;
 				/// Les ZONES d'ancrage declarees par le document.
 				uint32 zones = 0;
 				/// ⚠️ CELLES QUE L'APPLICATION NE FOURNIT PAS. C'est le troisieme pire
@@ -1193,7 +1247,11 @@ namespace nkentseu {
 					// interdit -- il monte ce qui est juste.
 					const bool estConteneur = (role == NkGuiRole::Window || role == NkGuiRole::Panel
 										  || role == NkGuiRole::Group || role == NkGuiRole::VBox
-										  || role == NkGuiRole::HBox);
+										  || role == NkGuiRole::HBox
+										  // La barre de menus est une BANDE : si le document la
+										  // pose, c'est un rectangle de conteneur qu'il pose, pas
+										  // la place d'un widget dans un flux.
+										  || role == NkGuiRole::MenuBar);
 					NkGuiPlacement pl;
 					if (parentAbsolu)
 						pl = NkGuiLirePlacement(w, ctx.layout.region, ctx.ItemHeight(), estConteneur);
@@ -2027,6 +2085,80 @@ namespace nkentseu {
 						//     et son nom -- ce qu'aucun contenu plausible ne ressemble -- et
 						//     elle se COMPTE (`hotesNonRemplis`). Un manque muet se fait
 						//     prendre pour un fond ; un manque qui se voit se repare.
+						// ═════════════════════════════════════════════════════
+						//  LES MENUS -- ON APPELLE NKGui, ON NE REDESSINE RIEN
+						// ═════════════════════════════════════════════════════
+						//  Les trois cas qui suivent ne contiennent PAS UNE SEULE
+						//  primitive de dessin, et c'est le point : `BeginMenuBar`,
+						//  `BeginMenu` et `MenuItem` existaient. On relie, on n'ecrit pas.
+						case NkGuiRole::MenuBar: {
+							// La bande prend la largeur de sa region et la hauteur d'un
+							// item, sauf si le document pose sa taille. `BeginMenuBar` se
+							// sert de `rect.h` pour la hauteur des titres : une bande
+							// degeneree donnerait des titres invisibles, et le compteur
+							// `barresMenu` reste alors a zero pour le dire.
+							const NkGuiTailleRel relB = NkGuiLireTailleRelative(w, ctx.layout.region);
+							NkRect bande = pl.pose ? pl.rect : ctx.layout.region;
+							if (!pl.pose) {
+								bande.h = relB.aH ? relB.h : ctx.ItemHeight();
+								if (relB.aW)
+									bande.w = relB.w;
+							}
+							if (!BeginMenuBar(ctx, bande))
+								break;
+							++rap.barresMenu;
+							// Les titres se posent horizontalement, et c'est `menuBarX`
+							// qui les avance -- pas le curseur de mise en page.
+							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
+							EndMenuBar(ctx);
+							Noter(rap, id, t, bande, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Menu: {
+							const NkString lbl = NkGTexte(w, "label", id.CStr());
+							++rap.menus;
+							// ⚠️ LE CONTENU D'UN MENU FERME NE SE MONTE PAS, et ce n'est pas
+							//    une perte : NKGui ne dessine ses entrees que dans le popup
+							//    ouvert. Mais un document dont aucun menu n'est deroule
+							//    serait alors indiscernable d'un document dont les menus
+							//    sont VIDES -- d'ou `menusOuverts`, qui separe les deux.
+							if (BeginMenu(ctx, lbl.CStr())) {
+								++rap.menusOuverts;
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndMenu(ctx);
+							}
+							Noter(rap, id, t, ctx.layout.prevItem, prof, true, horizontal,
+								  &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::MenuItem: {
+							// ⚠️ HORS D'UNE CHAINE DE MENUS, ON REFUSE ET ON COMPTE. NKGui
+							//    ne sait dessiner une entree que dans un popup ouvert
+							//    (`curPopupLevel >= 0`) ; le document, lui, peut en ecrire
+							//    une n'importe ou. La poser dans le flux en ferait un faux
+							//    bouton -- *un chiffre juste sous un nom faux*, applique a
+							//    l'interface. On ne l'approxime donc pas.
+							if (ctx.curPopupLevel < 0) {
+								++rap.elementsMenuHorsMenu;
+								aDessine = false;
+								break;
+							}
+							const NkString lbl = NkGTexte(w, "label", id.CStr());
+							const NkString raccourci = NkGTexte(w, "shortcut", "");
+							// `checked` vient du document ; si une donnee vivante existe
+							// pour cette cle, elle fait foi (meme regle que `Checkbox`).
+							const bool coche = e ? e->b : NkGBooleen(w, "checked", false);
+							const bool actif = NkGBooleen(w, "enabled", true) && !ctx.IsDisabled();
+							// L'appui est jete ICI COMME AILLEURS : le format n'a pas
+							// d'evenement. Meme manque que `Button`, meme contournement
+							// cote hote (l'identifiant nomme l'action).
+							(void)MenuItem(ctx, lbl.CStr(), raccourci.Size() > 0u ? raccourci.CStr() : nullptr,
+										   actif, coche);
+							++rap.elementsMenu;
+							break;
+						}
 						case NkGuiRole::Host: {
 							++rap.hotes;
 							// Un `pos`/`size` pose a deja arme `SetNextItemRect` avant le switch :
