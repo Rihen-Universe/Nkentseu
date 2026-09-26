@@ -1603,6 +1603,11 @@ int main(int argc, char **argv) {
 
 		// —— 28a : les entiers relayes arrivent a l'ecran, tels quels —————
 		NkEcranCompteurs c;
+		// ⚠️ `compteursValides` AJOUTE LE 26/09, ET CE BANC L'A DIT TOUT DE SUITE :
+		//    28a a rougi des que le champ est entre, parce qu'un compteur non
+		//    valide affiche « -- » et non son chiffre. C'est le comportement voulu
+		//    -- le critere testait des compteurs MESURES, il doit le declarer.
+		c.compteursValides = true;
 		c.draws = 137u;
 		c.triangles = 240681u;
 		c.sommets = 120344u;
@@ -1661,6 +1666,28 @@ int main(int argc, char **argv) {
 				vu425 = true;
 		Check("28d", vu425,
 			  "NEGATIF : GPU mesure a 4,25 ms -> « 4.25 ms » est bien ecrit (28c n'est pas vide)");
+
+		// —— 28g : LE NEGATIF DE 28a — non mesures, les entiers disent « -- » —
+		//    [!] C'EST LE DEFAUT DU 26/09 A 02:12 : sept zeros affiches devant un
+		//    cube visible, indiscernables d'une scene vide. Sans ce critere, rien
+		//    n'empecherait de reafficher « 0 » la ou rien n'a ete mesure.
+		{
+			NkEcranCompteurs nm;
+			nm.compteursValides = false;
+			nm.draws = 137u; // une valeur NON NULLE : si elle s'affichait, on le verrait
+			rec.Reset();
+			(void)vue.Peindre(rec, {0.f, 0.f, 1280.f, 720.f}, nm);
+			bool vu137 = false, vuTiret = false;
+			for (nkentseu::usize k = 0; k < rec.cmds.Size(); ++k)
+				if (rec.cmds[k].op == NkPaintOp::Text) {
+					if (Contient(rec.cmds[k].text.Data(), "137"))
+						vu137 = true;
+					if (Contient(rec.cmds[k].text.Data(), "--"))
+						vuTiret = true;
+				}
+			Check("28g", !vu137 && vuTiret,
+				  "NEGATIF : compteurs non mesures -> « -- » et JAMAIS le chiffre (ni un zero)");
+		}
 
 		// —— 28e : une vue trop petite se TAIT, elle ne deborde pas ——————
 		rec.Reset();
