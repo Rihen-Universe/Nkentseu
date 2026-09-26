@@ -47,6 +47,7 @@
 #include "NK3DModeler/Shell/NkModelerJournal.h"
 #include "NK3DModeler/Shell/NkModelerToast.h" // le resultat d'une action, DIT A L'ECRAN
 #include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
+#include "NK3DModeler/Shell/NkModelerApropos.h" // (26/09) la mention CC BY 4.0, atteignable depuis l'application
 #include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
 #include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
 #include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
@@ -2373,6 +2374,9 @@ int nkmain(const NkEntryState &entry) {
 		//    venait d'ouvrir. Pose ICI et sur cette ligne pour que les deux ne
 		//    puissent pas diverger. Voir `NkModelerInput.h`.
 		st.menuOuvertAvantImage = menuDeroule;
+		// MEME GESTE, MEME LIGNE, MEME RAISON : l'ecran « A propos » ne doit pas
+		// se refermer sur le clic qui vient de l'ouvrir.
+		st.aproposOuvertAvantImage = st.aproposOpen;
 		// ── LE JOURNAL SUSPEND CE QU'IL RECOUVRE, AU MEME ENDROIT ───────────
 		// Il n'est pas modal -- le reste de l'application doit rester utilisable
 		// -- mais SOUS LUI plus rien ne doit repondre. J'avais vide l'input plus
@@ -5658,10 +5662,10 @@ int nkmain(const NkEntryState &entry) {
 					return v ? (int32)std::atoi(v) : 0;
 				}();
 				if (kTrN >= 2)
-					std::printf("[nk3d] img=%d survol=%s souris=%.0f,%.0f openMenu=%d\n",
+					std::printf("[nk3d] img=%d survol=%s souris=%.0f,%.0f openMenu=%d apropos=%d\n",
 								agentFrame,
 								hit.Hovered() && hit.Hovered()[0] ? hit.Hovered() : "(rien)",
-								hit.Mouse().x, hit.Mouse().y, st.openMenu);
+								hit.Mouse().x, hit.Mouse().y, st.openMenu, st.aproposOpen ? 1 : 0);
 			}
 		}
 		// L'emprise que les menus viennent de declarer devient, a la frame
@@ -5850,6 +5854,26 @@ int nkmain(const NkEntryState &entry) {
 		// et c'est precisement le defaut que ces messages reparent. Couche 200 :
 		// au-dessus meme des modales (100), pour que la croix reste cliquable
 		// quand un dialogue est ouvert.
+		// ── « A PROPOS » : LA MENTION DES TIERS, EN DERNIER ─────────────────
+		// 🔴 OBLIGATION JURIDIQUE, pas un confort : 62 icones de `data/icons/`
+		//    sont une copie de vscode-codicons sous CC BY 4.0, et cette licence
+		//    EXIGE l'attribution. Une attribution que seul un developpeur peut
+		//    lire ne remplit pas la condition.
+		// ⚠️ SUR LA COUCHE 150, ENTRE LES MODALES (100) ET LES BANDEAUX (200) :
+		//    il recouvre tout ce qui est en dessous, et les messages restent
+		//    lisibles par-dessus -- un refus qui arriverait pendant qu'il est
+		//    ouvert ne doit pas se perdre derriere lui.
+		// ⚠️ ET IL RECOIT L'ENTREE REELLE : comme les surcouches, il est peint
+		//    apres que l'entree a ete rendue. Sans cela sa croix serait morte.
+		{
+			NkHitRegistry::LayerScope aproposLayer(hit, 150);
+			if (nk3d::PaintApropos(p, hit, st, (float32)W, (float32)H)) {
+				// Echap ferme, comme toute boite de ce produit.
+				if (ui.input.keyDown[(int32)nkgui::NkGuiKey::Escape])
+					st.aproposOpen = false;
+			}
+		}
+
 		{
 			NkHitRegistry::LayerScope toastLayer(hit, 200);
 			(void)nk3d::NkToastPaint(hit, (float32)W, (float32)H, lay.status.h);

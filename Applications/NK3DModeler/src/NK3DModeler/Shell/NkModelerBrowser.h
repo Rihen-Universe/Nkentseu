@@ -1437,7 +1437,14 @@ namespace nkentseu {
 				{"Documentation", "", false, true},
 				{"Raccourcis clavier", "", false, true},
 				{nullptr, "", false},
-				{"A propos", "", false, true},
+				// (26/09) DEGRISEE : l'ecran existe desormais (`NkModelerApropos.h`).
+				// ⚠️ ET C'EST UNE OBLIGATION, PAS UN CONFORT. Elle etait grisee a
+				//    juste titre -- aucun ecran ne l'affichait -- mais cette entree
+				//    est le SEUL chemin par lequel la mention CC BY 4.0 des icones
+				//    vscode-codicons devient atteignable depuis l'application. Une
+				//    attribution que seul un developpeur peut lire ne remplit pas la
+				//    condition de la licence.
+				{"A propos", "app.apropos", false},
 			};
 			// LE NOMBRE D'ENTREES SE DEDUIT DE LA TABLE, il ne se recopie pas.
 			// Il etait ecrit a la main : ajouter « Enregistrer tout » a kFile sans
