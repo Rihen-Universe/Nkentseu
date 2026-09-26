@@ -12,8 +12,17 @@ nkgui 0.3
 //
 // ⚠️ Les noms servis aujourd'hui par NkAnimaEditor, et la liste est fermée :
 //      anim.jouer  anim.inserer  anim.supprimer  anim.annuler  anim.refaire
+//      anim.compteurs
 //    Écrivez-en un autre et le bouton apparaîtra, cliquable et sans effet :
 //    c'est voulu, et le compteur `actionsInconnues` le dira.
+//
+// ── CE BOUTON-CI EST LA DÉMONSTRATION, ET IL A UNE HISTOIRE (26/09) ──────────
+// Un autre agent a posé les compteurs de rendu la nuit du 26/09, et il a écrit
+// dans `main.cpp` : « c'est le seul point d'extension produit de cet éditeur --
+// il n'a pas de barre de menus ». C'était vrai la veille. Ça ne l'est plus : la
+// commande est ci-dessous, dans `barre_outils.nkgui`, et elle est arrivée dans
+// l'interface **sans qu'une ligne de C++ soit recompilée pour la placer**.
+// C'est exactement ce que ce chantier sert à rendre possible.
 
 widgets {
 
@@ -43,6 +52,14 @@ widgets {
 
     Button "anim.refaire" {
       label = "Refaire"
+    }
+
+    Separator "sep2" {
+      orientation = Vertical
+    }
+
+    Button "anim.compteurs" {
+      label = "Compteurs de rendu"
     }
   }
 }

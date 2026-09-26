@@ -88,6 +88,12 @@ static const nkanima::NkActionNommee kActions[] = {
 	{"anim.supprimer", &ActSupprimer, nullptr},
 	{"anim.annuler", &CmdUndo, nullptr},
 	{"anim.refaire", &CmdRedo, nullptr},
+	// (26/09) LA MÊME FONCTION QUE LA PALETTE, PAS UNE SECONDE. `CmdCompteurs`
+	// est celle qu'un autre agent a posée dans `RegisterCommand` la nuit du
+	// 26/09 : la barre du document et la palette entrent par la MÊME porte. Deux
+	// chemins vers deux fonctions jumelles auraient divergé — ce dépôt a payé
+	// *deux compteurs sans code commun*.
+	{"anim.compteurs", &CmdCompteurs, nullptr},
 	{"anim.boucle_activee", &ActBoucleActivee, nullptr},
 	{"anim.boucle_coupee", &ActBoucleCoupee, nullptr},
 };
