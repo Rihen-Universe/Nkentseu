@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkDemoDeltaSouris — LES DEUX DELTAS COTE A COTE (26/09/2026)
+# =============================================================================
+# Bougez la souris, puis ARRETEZ-LA. MouseDeltaThisFrameX/Y() retombe a 0 ;
+# MouseDeltaX/Y() garde sa derniere valeur. Aucune des deux n'est la mauvaise,
+# et l'ecran dit quand chacune est la bonne.
+#
+# POURQUOI : un utilisateur cherchait un getter de position dans NKWindow -- la
+# lecture est dans NKEvent (NkInput.MouseX/MouseY). Il a cherche la LECTURE la ou
+# est l'ECRITURE. Troisieme utilisateur en deux jours a buter sur un silence de
+# documentation, pas sur un bug.
+#
+# ⚠️ AUCUN BANC NE PEUT MONTRER CA : la difference ne se voit que si une MAIN
+#    arrete de bouger. Nous n'injectons aucune entree.
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+import os
+
+
+with project("NkDemoDeltaSouris"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # NKCanvas tire NKWindow, NKEvent, NKCore, NKMath, NKLogger... transitivement.
+    nkentseudependson(
+        ["NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad"],
+        extra_includes=["src"],
+        extra_defines=[
+            # OpenGL seul : le dorsal le mieux valide partout, et cette demo ne
+            # mesure pas le rendu — elle mesure le curseur.
+            "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # La police chargee au demarrage ("Resources/Fonts/Antonio-Bold.ttf").
+    dependfiles(["../../Resources/Fonts"])
+
+    # ===== Windows ===========================================================
+    # ⚠️ NKCanvas COMPILE TOUS SES DORSAUX, meme ceux qu'on n'utilise pas au
+    #    runtime : cette demo demande OpenGL, et le lien reclame quand meme les
+    #    symboles DX11/DX12/Vulkan. Sans ces bibliotheques, l'editeur de liens
+    #    rend « undefined symbol » sur du code qui ne s'executera jamais.
+    #    (Meme liste que ConquerorProto, qui construit : on la reprend telle
+    #    quelle plutot que de la deviner ligne a ligne.)
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
+            "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "vulkan-1",
+        ])
+
+    # ===== Linux (XLib) ======================================================
+    # ⚠️ La demo se LANCE sur Linux, mais elle y montrera la fleche : SetCursor
+    #    n'y est pas implemente (table : wiki/Runtime/NKWindow/Curseur-par-dorsal.md).
+    #    Le journal ecrira un REFUS NOMME -- c'est precisement ce qu'elle doit
+    #    montrer la-bas.
+    with filter("system:Linux && !options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "m"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"]); optimize("Off"); symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"]); optimize("Speed"); symbols(False)

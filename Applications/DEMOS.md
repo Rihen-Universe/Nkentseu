@@ -721,6 +721,73 @@ fil réveille les défauts que son absence endormait.*
 | `hipOffset` **non nul** alors que les pieds sont posés | il porte de nouveau une altitude au lieu d'un écart |
 | `x=±3` en rouge sur CesiumMan mais l'éprouvette verte | la lecture de la pose monde a sauté — c'est exactement la signature du défaut du 26/09 |
 
+
+---
+
+## Delta de souris — « bougez, puis ARRÊTEZ-LA »
+
+**Ce que ça montre, et c'est un contrat, pas un module :** deux fonctions qui semblent faire la même
+chose et qui ne la font pas. `MouseDeltaX/Y()` rend le delta du **dernier événement** — il **persiste**
+quand la souris s'arrête. `MouseDeltaThisFrameX/Y()` rend le delta **de cette image** — il **retombe à
+zéro**.
+
+**Pourquoi elle existe** : un utilisateur cherchait un getter de position de souris dans `NKWindow`.
+Il n'y en a pas — la lecture est dans **NKEvent** (`NkInput.MouseX/MouseY`). **Il a cherché la lecture
+là où est l'écriture**, ce qui est le réflexe normal. *Troisième utilisateur en deux jours à buter sur
+un silence de documentation, pas sur un bug.* Et le dépôt notait déjà le piège du delta persistant
+(`NkDemo3D.cpp:8887` : « contrairement à NkInput.MouseDelta*() périmé »).
+
+### Comment la lancer
+
+`Build/Bin/Release-Windows/NkDemoDeltaSouris/NkDemoDeltaSouris.exe` — rien à préparer.
+`--mesure` rend le critère chiffré sans fenêtre et **sans toucher à la souris**.
+
+### Ce qu'on doit voir
+
+- en **bougeant** : les deux lignes affichent des nombres qui varient ;
+- ⚠️ en **s'arrêtant** : « DE CETTE IMAGE » tombe à **0** et passe au vert, « DERNIER ÉVÉNEMENT »
+  **garde sa valeur** ;
+- un **compteur d'images sans mouvement**, et au-delà de 60 une ligne qui affiche les deux côte à côte
+  — pour que ce ne soit pas un hasard de cadence ;
+- **la case « Appeler NkInput.NewFrame() »** : décochez-la, le delta d'image rend **0 en permanence**
+  et le journal le dit **une fois**. *Un armement oublié ne doit pas rendre une valeur périmée en
+  silence.*
+- la case **« Replacer la souris au centre au prochain clic »**, qui appelle `NkPlaceMouseInWindow` —
+  la porte nommée, en délégation pure. Elle n'agit que sur un **clic explicite**.
+- deux lignes qui disent **où est l'autre moitié** : lire dans NKEvent, écrire dans NKWindow.
+
+⚠️ **Aucune des deux n'est « la mauvaise »**, et l'écran le dit : le delta persistant sert à garder la
+dernière **direction** connue même à l'arrêt (inertie, élan) ; celui de l'image sert à tout ce qui doit
+s'arrêter quand la main s'arrête (caméra, gizmo, glisser).
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| les deux affichent **la même chose** à l'arrêt | on a ajouté une fonction pour rien — et deux noms qui ne disent pas ce qui les sépare est le vrai danger |
+| « DE CETTE IMAGE » **garde** une valeur à l'arrêt | `NewFrame()` n'est plus appelé, ou `BeginFrame()` ne remet plus à zéro |
+| « DERNIER ÉVÉNEMENT » **retombe** à zéro | quelqu'un a « corrigé » l'ancienne : son contrat est de persister |
+| case décochée et le delta d'image **garde une valeur** | l'armement n'est plus vérifié : on est revenu au piège de la valeur périmée |
+| aucune ligne de journal quand la case est décochée | le refus n'est plus nommé |
+
+### Ce que la mesure prouve, et ce qu'elle ne prouve pas
+
+    la souris bouge de (10,5) : les DEUX voient (+10,+5)
+    60 images immobiles       : ThisFrame non nul sur 0 images
+                                MouseDelta a perdu sa valeur sur 0 images
+    a l'arret, les deux DIFFERENT : +10 contre +0
+
+Les deux sont mesurées **dans la même course**, sinon on ne prouverait pas qu'elles diffèrent.
+
+⚠️ **Mais le banc ne prouve pas le geste** : la différence ne se voit vraiment que si **une main
+arrête de bouger**. Nous n'injectons aucune entrée. C'est pour cela que la fenêtre existe — même
+raison que pour la forme du curseur.
+
+⚠️ **Et l'égalité entre `NkPlaceMouseInWindow` et `SetMousePositionClient` n'est pas mesurée : elle
+est structurelle.** La porte est une ligne — `return window.SetMousePositionClient(x, y);` — donc
+l'égalité est une tautologie, pas un résultat. La mesurer demanderait de **déplacer la souris de
+Rodolf**, ce que les règles interdisent ; la case de la démo le lui laisse faire lui-même.
+
 ## Dans Nogee — la barre d'état et un panneau viennent d'un fichier
 
 **`Build/Bin/Release-Windows/Nogee/Nogee.exe`** *(lancer depuis la racine de l'arbre)*

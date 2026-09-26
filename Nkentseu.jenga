@@ -1734,6 +1734,11 @@ with workspace("Nkentseu", location="."):
     # SURVOLE, et les fenetres de sonde sont invisibles.
     with include("Applications/NkDemoCurseur/NkDemoCurseur.jenga"):
         pass
+    # LES DEUX DELTAS DE SOURIS cote a cote : l un retombe a zero quand la
+    # main s arrete, l autre garde sa derniere valeur. Aucun banc ne peut le
+    # montrer -- il faut une main qui s arrete.
+    with include("Applications/NkDemoDeltaSouris/NkDemoDeltaSouris.jenga"):
+        pass
     # La DEMO du contact : une bille tombe sur un plan et s arrete ; une case
     # coupe la collision et elle traverse. Elle passe par le VRAI pont de Noge
     # (NkPhysicsSystem), donc elle montre le CABLAGE et non le module.
@@ -1744,15 +1749,16 @@ with workspace("Nkentseu", location="."):
     # NkEngineLayer (SetPhysicsWorld + enregistrement de NkFootIKSystem).
     with include("Applications/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.jenga"):
         pass
-    # BANC : le fil de NkEngineLayer traverse-t-il ? ⚠️ PAS ENCORE DECLARE,
-    # et la raison EST le resultat du lot : NkEngineLayer.cpp N EST PAS
-    # LIABLE. Il appelle NK_PROFILE_SCOPE, donc NkProfiler::Begin et ::End,
-    # qui sont DECLARES et definis NULLE PART. Personne ne s en apercevait
-    # parce que personne ne le liait : Hello3DApp.h (le seul PushLayer(new
-    # NkEngineLayer())) n est inclus par AUCUN .cpp. L objet vit dans
-    # Noge.lib et aucun lien ne le tire.
-    # Implementer le profileur est du NEUF : decision de Rodolf. Les sources
-    # du banc restent dans Applications/NkFilMoteurProbe/, pretes.
+    # BANC : le fil de NkEngineLayer traverse-t-il ? Une scene porte
+    # NkSkeleton + NkFootIK et le banc ne configure RIEN -- c est la couche
+    # qui doit brancher l IK au monde physique.
+    # ⚠️ Il a fallu rendre NkEngineLayer LIABLE pour l ecrire : il appelait
+    # NK_PROFILE_SCOPE, donc NkProfiler::Begin/End, DECLARES et definis nulle
+    # part. Personne ne s en apercevait parce que personne ne le liait.
+    # La macro est desormais INERTE par defaut, et l activer echoue a la
+    # COMPILATION tant qu aucune implementation n existe (voir NkProfiler.h).
+    with include("Applications/NkFilMoteurProbe/NkFilMoteurProbe.jenga"):
+        pass
 
 
 
