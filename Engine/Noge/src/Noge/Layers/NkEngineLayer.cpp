@@ -6,6 +6,7 @@
 #include "../Core/NkApplication.h"
 #include "Noge/ECS/Systems/NkTransformSystem.h"
 #include "Noge/ECS/Systems/NkPhysicsSystem.h"
+#include "Noge/Anim/NkLocomotion.h" // NkFootIKSystem
 #include "Noge/ECS/Systems/NkParticleSystem.h"
 #include "Noge/ECS/Systems/NkFluidVolumeSystem.h"
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
@@ -152,7 +153,26 @@ namespace nkentseu {
 		mScheduler.AddSystem<ecs::NkBehaviourFixedSystem>();
 
 		// FixedUpdate — Physique rigide (pont ECS -> NKCollision/NKPhysics)
-		mScheduler.AddSystem<NkPhysicsSystem>();
+		NkPhysicsSystem &phys = mScheduler.AddSystem<NkPhysicsSystem>();
+
+		// PostUpdate — IK des pieds. ⚠️ IL LIT LE MONDE PHYSIQUE DE LA LIGNE
+		//    AU-DESSUS, et personne ne le lui donnait : `SetPhysicsWorld`
+		//    n'était appelé nulle part et `NkFootIKSystem` n'était même pas
+		//    enregistré. Les pieds retombaient donc TOUJOURS sur le repli
+		//    plan-plat — honnêtement annoncé dans NkLocomotion.h, mais
+		//    permanent en pratique. Un personnage marchait sur un sol
+		//    analytique à y=0 pendant que le monde avait du relief.
+		//
+		//    La référence rendue par `AddSystem<T>()` est STABLE : le
+		//    scheduler garde un `unique_ptr`, l'objet vit sur le tas et ne
+		//    bouge plus quand d'autres systèmes s'ajoutent. (Vérifié avant
+		//    de prendre son adresse — ce dépôt a déjà payé un registre qui
+		//    gardait un pointeur sur une valeur déplacée.)
+		//
+		//    Ce qui prouverait que ce fil a sauté : `NkDemoPiedsSurLaPente`,
+		//    case décochée — les pieds traversent la pente.
+		NkFootIKSystem &foot = mScheduler.AddSystem<NkFootIKSystem>();
+		foot.SetPhysicsWorld(&phys.World());
 
 		// Update — Scripts C++ natifs
 		mScheduler.AddSystem<ecs::NkScriptSystem>();
