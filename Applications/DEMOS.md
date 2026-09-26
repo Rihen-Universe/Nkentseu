@@ -542,3 +542,42 @@ plat — c'est écrit à l'écran pour que personne n'ait à le deviner.
 Coupée, la collision donne une chute libre : **le même chiffre avant et après le correctif du
 26/09** (−48,64 m). Il montre donc que le montage sait distinguer une non-collision — **il ne
 valide pas le correctif**. C'est la mesure du repos (0,9999 m contre 6,9950 m avant) qui le fait.
+
+---
+
+## Dans Nogee — la barre d'état et un panneau viennent d'un fichier
+
+**`Build/Bin/Release-Windows/Nogee/Nogee.exe`** *(lancer depuis la racine de l'arbre)*
+
+**Ce que ça montre :** le **même** fil que chez NkAnimaEditor, par le **même fichier partagé**
+(`NKGui/Doc/NkGuiCoquille.h`). Documents : `Resources/Interface/Nogee/barre_etat.nkgui` et
+`panneau_scene.nkgui`.
+
+### Ce qu'on doit voir
+
+- la **barre d'état** en bas porte le texte du document, et un cadre donnant le **nombre
+  d'entités vivantes** du monde ECS — une zone hôte : le document dit OÙ, Nogee dit QUOI ;
+- un panneau **« Scene »** à gauche, dont le contenu vient du fichier ;
+- **les menus et la barre d'outils de Nogee sont INCHANGÉS.** C'est voulu : `NogeeChrome`
+  (609 lignes) grise ses entrées dont l'outil n'existe pas encore **et dit pourquoi**, et le format
+  ne sait pas porter ce motif. *On ne migre pas vers moins.*
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| je change `barre_etat.nkgui`, je relance, **rien ne change** | ⚠️ le plus grave. Contre-test dans le même binaire : `NOGEE_SANS_DOCUMENT=1` doit faire **disparaître** le panneau « Scene » et rendre la barre d'état de la coquille. Identique avec et sans = le fil n'est pas celui qu'on croit. |
+| le cadre des entités est couvert de **hachures avec un nom dedans** | personne ne sert `scene.entites` : le nom du `Host` ne correspond à aucune zone de l'application. Comportement **voulu**, pas une panne. |
+| **les menus de Nogee ont disparu** | on est passé à `SetMenuBar`, qui REMPLACE. Interdit ici, et pour une raison mesurée. |
+| le compte d'entités reste à **0** alors que l'Outliner en montre | la zone ne lit plus `NkWorld::EntityCount()`, ou reçoit un autre monde. |
+
+### ⚠️ Ce qui n'est PAS encore mesuré ici
+
+Les deux documents **valident à 0 erreur, 0 rôle inconnu** et **montent** (3 et 7 widgets,
+`NKGuiMonteTest --monter=`), et Nogee construit. Mais **il n'y a pas de sonde sans fenêtre pour
+Nogee** : que les deux bandes apparaissent vraiment, c'est le lancement qui le dira. La pièce
+centrale, elle, est éprouvée **7/7** chez NkAnimaEditor — c'est le même fichier.
+
+Et `NKGuiMonteTest` rend **`VERDICT : REFUSE`** sur ces deux documents : c'est le banc qui n'a
+**aucun hôte** à offrir à `scene.entites` (`1 hote(s) non rempli`), pas un défaut du document.
+C'est dit ici parce qu'un « REFUSE » qu'on ne lit pas ressemble à une panne.

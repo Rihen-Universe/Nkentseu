@@ -1,8 +1,9 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // @File    NkCoquilleDocument.h
-// @Brief   LE FIL MANQUANT : une application construit sa coquille depuis des
-//          documents `.nkgui` posés sur le disque, et non depuis son code.
+// @Brief   NkAnimaEditor branche `NKGui/Doc/NkGuiCoquille.h` sur les crochets de
+//          `NkEditorShell` : menu, barre d'outils, barre d'etat et un panneau,
+//          tous decrits par des documents `.nkgui`.
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
@@ -89,8 +90,7 @@
 
 #include "NKContainers/String/NkString.h"
 #include "NKEditorKit/NkEditorKit.h"
-#include "NKFileSystem/NkFile.h"
-#include "NKGui/Doc/NkGuiInteraction.h" // tire NkGuiMonteur + NkGuiArchive
+#include "NKGui/Doc/NkGuiCoquille.h" // la bande partagee (tire le monteur)
 
 namespace nkanima {
 
@@ -110,219 +110,27 @@ namespace nkanima {
 	using namespace nkentseu::nkgui;
 
 	// =========================================================================
-	//  CE QUE L'APPLICATION FOURNIT : des actions et des zones, par NOM
+	//  LA PARTIE GENERIQUE A DEMENAGE, ET CE FICHIER NE GARDE QUE SA COLLE
 	// =========================================================================
-	using NkActionFn = void (*)(void *);
-
-	struct NkActionNommee {
-			const char *nom = nullptr; ///< l'identifiant du bouton dans le document
-			NkActionFn fn = nullptr;
-			void *user = nullptr;
-	};
-
-	/// Ce que l'hôte sait peindre dans une zone `Host "nom"`.
-	using NkZoneFn = bool (*)(NkGuiContext &, const NkRect &, void *);
-
-	struct NkZoneNommee {
-			const char *nom = nullptr;
-			NkZoneFn fn = nullptr;
-			void *user = nullptr;
-	};
-
-	// =========================================================================
-	//  UNE BANDE : un fichier, son archive, son état, son exécution
-	// =========================================================================
-	/**
-	 * ⚠️ UNE EXÉCUTION PAR BANDE, ET CE N'EST PAS DU CONFORT. `NkGuiInfosDoc`
-	 *    est indexée par identifiant de widget, et `NkGuiMonteEtat` par clé de
-	 *    `bind`. Deux documents partageant une exécution partageraient leurs
-	 *    identifiants : deux boutons « fermer » dans deux bandes deviendraient
-	 *    le même. Le format ne garantit l'unicité qu'à l'intérieur d'un fichier.
-	 */
-	class NkBandeDocument : public NkGuiExecution {
-		public:
-			// ── l'état de chargement, et il se dit ────────────────────────
-			bool lu = false;		 ///< l'archive a été lue
-			NkString chemin;		 ///< d'où elle vient
-			NkString refus;			 ///< pourquoi elle n'a pas été lue (jamais vide si !lu)
-			nkentseu::NkArchive doc; ///< le document
-			NkGuiMonteEtat etat;	 ///< le magasin des valeurs éditées
-			NkGuiMonteRapport rap;	 ///< le relevé du dernier montage
-
-			// ── ce que ce montage a fait des actions ──────────────────────
-			uint32 boutons = 0;			  ///< boutons montés à la dernière image
-			uint32 actionsTirees = 0;	  ///< actions réellement appelées (cumul)
-			uint32 actionsInconnues = 0;  ///< appuis sur un nom que personne ne sert (cumul)
-			uint32 zonesRemplies = 0;	  ///< zones hôte servies à la dernière image
-
-			// ── les tables que l'application pose ─────────────────────────
-			const NkActionNommee *actions = nullptr;
-			uint32 nbActions = 0;
-			const NkZoneNommee *zones = nullptr;
-			uint32 nbZones = 0;
-
-			// ═════════════════════════════════════════════════════════════
-			//  LA FAÇADE PREND UN ARBRE, JAMAIS UN CHEMIN
-			// ═════════════════════════════════════════════════════════════
-			/**
-			 * Décision de conception de Rodolf, 25/09 : *« je ne veux rien perdre. »*
-			 * Lire le document au lancement (on redessine sans recompiler) et
-			 * l'embarquer à la compilation (rien à livrer, rien à lire) **ne sont pas
-			 * deux produits** : ce sont deux CONFIGURATIONS DE CONSTRUCTION du même
-			 * document.
-			 *
-			 * ⚠️ ET LE PIÈGE EST NOMMÉ : si l'embarquement émettait du C++ qui appelle
-			 *    les widgets, il existerait **deux implémentations de ce que signifie
-			 *    un document**, et elles divergeraient. Ce dépôt a déjà payé ce motif
-			 *    (*deux compteurs sans code commun*, *une dérivation en double : l'un
-			 *    publie, l'autre lit*). La parade n'est pas la vigilance, c'est la
-			 *    forme : **le monteur reste la seule implémentation de la sémantique**,
-			 *    et l'embarquement ne fait qu'économiser la lecture du texte.
-			 *
-			 * C'est pourquoi `Adopter` prend un **ARBRE DÉJÀ ANALYSÉ** et que la
-			 * lecture du disque n'est qu'**un appelant parmi d'autres**. Le jour où un
-			 * générateur émettra l'arbre en mémoire, il appellera `Adopter` et **rien
-			 * d'autre ne changera ici**.
-			 */
-			bool Adopter(const nkentseu::NkArchive &arbre) noexcept {
-				lu = false;
-				refus.Clear();
-				doc = arbre;
-				NkGuiMonteur::Preparer(doc, etat);
-				infos.Lire(doc);
-				NkGuiExecution::etat = &etat;
-				eval.rappel = &NkBandeDocument::SurCallback;
-				eval.rappelUser = this;
-				lu = true;
-				return true;
-			}
-
-			/// UN appelant de `Adopter` : celui qui lit le texte sur le disque.
-			/// Rend faux AVEC un refus nommé — jamais une bande vide.
-			///
-			/// ⚠️ `ReadAllBytes`, JAMAIS `ReadAllText`. Ce dépôt a payé : `WriteAllText`
-			///    écrit en CRLF et `ReadAllText` renormalise — l'écart serait masqué des
-			///    deux côtés à la fois. Un document est une suite d'octets.
-			bool ChargerDepuisFichier(const char *ch) noexcept {
-				lu = false;
-				refus.Clear();
-				chemin = NkString(ch);
-				const nkentseu::NkVector<nkentseu::nk_uint8> octets = nkentseu::NkFile::ReadAllBytes(ch);
-				if (octets.Size() == 0u) {
-					refus = NkString("fichier introuvable ou vide");
-					return false;
-				}
-				nkentseu::NkArchive arbre;
-				nkentseu::NkGuiDiag err;
-				if (!NkGuiArchive::Read((const char *)octets.Data(), (uint32)octets.Size(), arbre, err)) {
-					// LE REFUS EST NOMMÉ, et il porte la ligne. Une fenêtre vide n'est
-					// pas un échec acceptable : ce soir même, une démo a été déclarée
-					// livrée parce qu'elle « s'ouvre et tient », et elle s'ouvrait vide.
-					refus = NkPrefixeRefus(err);
-					return false;
-				}
-				const NkString garde = chemin;
-				const bool ok = Adopter(arbre);
-				chemin = garde; // `Adopter` ne connaît aucun chemin : c'est le sujet
-				return ok;
-			}
-
-			/// Monte la bande dans la région que la coquille vient de poser.
-			void Monter(NkGuiContext &ctx) noexcept {
-				if (!lu) {
-					PeindreRefus(ctx);
-					return;
-				}
-				rap = NkGuiMonteRapport();
-				boutons = 0;
-				zonesRemplies = 0;
-				ReinitialiserCompteurs();
-				Brancher(ctx);
-				NkGuiMonteur::Monter(ctx, doc, etat, rap, this);
-				// Les comportements APRÈS le montage — la limite (5) de
-				// NkGuiInteraction.h : `n1.value` doit être la valeur que le widget
-				// vient d'avoir, pas celle de l'image d'avant.
-				ExecuterComportements(doc);
-				Debrancher(ctx);
-			}
-
-			// ── crochet du monteur : la zone hôte, par NOM ────────────────
-			bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept override {
-				for (uint32 i = 0; i < nbZones; ++i) {
-					if (zones[i].nom && zones[i].fn && NkGMotEgal(NkStringView(nom), zones[i].nom)) {
-						if (zones[i].fn(ctx, zone, zones[i].user)) {
-							++zonesRemplies;
-							return true;
-						}
-						return false; // il a dit non : le monteur peindra ses hachures
-					}
-				}
-				return false;
-			}
-
-			// ── crochet du monteur : l'appui, dérivé (voir l'en-tête) ─────
-			void Apres(NkGuiContext &ctx, const nkentseu::NkArchive &w, NkStringView role,
-					   NkGuiMonteEtat::Entree *e) noexcept override {
-				// L'exécution garde ses propres devoirs (anneau de focus, donnée
-				// vivante, EndDisabled) : on l'appelle AVANT d'ajouter les nôtres.
-				NkGuiExecution::Apres(ctx, w, role, e);
-				// ⚠️ `MenuItem` EST DE LA MEME FAMILLE, ET CE N'EST PAS UNE SUPPOSITION :
-				//    il passe par le MEME `ctx.ButtonBehavior(...)` que `Button`
-				//    (`NkGuiWidgets.cpp:5303`), donc il pose `lastItemHovered` de la meme
-				//    facon, donc la meme condition le detecte. Une entree de menu qui
-				//    n'agirait pas serait un menu purement decoratif.
-				if (!NkGMotEgal(role, "Button") && !NkGMotEgal(role, "RepeatButton")
-					&& !NkGMotEgal(role, "MenuItem"))
-					return;
-				++boutons;
-				// La condition de `ButtonBehavior` : relâchement, survolé, non grisé.
-				if (!ctx.IsItemHovered() || !ctx.input.mouseReleased[0] || ctx.IsDisabled())
-					return;
-				Declencher(NkGuiArchive::IdOf(w));
-			}
-
-			/// Le nom de l'action est l'identifiant du bouton.
-			void Declencher(NkStringView nom) noexcept {
-				for (uint32 i = 0; i < nbActions; ++i) {
-					if (actions[i].nom && actions[i].fn && NkGMotEgal(nom, actions[i].nom)) {
-						actions[i].fn(actions[i].user);
-						++actionsTirees;
-						return;
-					}
-				}
-				// PERSONNE NE SERT CE NOM. On le compte plutôt que de le taire :
-				// même motif que `hotesNonRemplis`.
-				++actionsInconnues;
-			}
-
-		private:
-			/// `Callback "nom"(...)` émis par un `behavior` : même table que les boutons.
-			static void SurCallback(const NkGuiAppelCallback &a, void *user) noexcept {
-				auto *b = (NkBandeDocument *)user;
-				if (b)
-					b->Declencher(NkStringView(a.nom.Data(), (nkentseu::usize)a.nom.Size()));
-			}
-
-			static NkString NkPrefixeRefus(const nkentseu::NkGuiDiag &err) noexcept {
-				// Le diagnostic du lecteur, tel quel : il porte déjà la ligne et la
-				// colonne. Le reformuler ferait perdre ce qu'il sait.
-				return NkString(err.message);
-			}
-
-			/// Un document qu'on n'a pas pu lire ne laisse pas une bande vide : il
-			/// ÉCRIT pourquoi, là où il aurait dû se monter.
-			void PeindreRefus(NkGuiContext &ctx) noexcept {
-				if (!ctx.font || !ctx.font->Valid())
-					return;
-				const NkRect r = ctx.layout.region;
-				NkString m = NkString("Document d'interface refusé : ");
-				m += chemin;
-				m += NkString("  —  ");
-				m += refus.Size() ? refus : NkString("raison inconnue");
-				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-								 {r.x + 8.f, r.y + 4.f}, m.CStr(), NkColor{232, 96, 80, 255});
-			}
-	};
+	//  `NkActionNommee`, `NkZoneNommee` et `NkBandeDocument` vivent desormais
+	//  dans `NKGui/Doc/NkGuiCoquille.h` : le coordinateur a accorde le meme
+	//  cablage pour Nogee, et recopier 200 lignes dans une seconde application
+	//  aurait cree deux exemplaires de la meme semantique -- la faute que ce
+	//  depot nomme (*deux compteurs sans code commun*).
+	//
+	//  ⚠️ ET LA FRONTIERE EST VERIFIEE, PAS SEULEMENT DECLAREE : la partie
+	//     partagee ne doit citer AUCUN nom de NKEditorKit, sinon NKGui
+	//     dependrait d'une couche au-dessus de lui. Ce qui reste ici est
+	//     exactement ce qui connait la coquille d'editeur -- les trois crochets
+	//     de bande et la sous-classe de panneau.
+	//
+	//  ⚠️ `NkBandeDocument` GARDE SON NOM. Le renommer aurait touche la sonde,
+	//     `main.cpp` et les messages de mesure pour un gain nul.
+	using nkgui::NkActionFn;
+	using nkgui::NkActionNommee;
+	using nkgui::NkBandeDocument;
+	using nkgui::NkZoneFn;
+	using nkgui::NkZoneNommee;
 
 	// =========================================================================
 	//  LA COQUILLE : les bandes, et les crochets que la coquille appelle
