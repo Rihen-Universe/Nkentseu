@@ -45,6 +45,13 @@ nkgui 0.3
 //     fait que « Enregistrer en clé » est l'action qui écrit, donc celle qu'on
 //     ne veut pas cliquer par erreur.
 
+// ⚠️ LE MEME `BoutonEcrit` QUE LA BARRE D'OUTILS, PAS UNE COPIE. Le bloc
+//    `appearance` etait ecrit ici en toutes lettres ; il vit maintenant dans la
+//    bibliotheque. Deux copies du meme design se desynchronisent a la premiere
+//    retouche -- c'est exactement ce que ce depot nomme *une derivation en
+//    double : l'un publie, l'autre lit*.
+include "composants.nkgui"
+
 widgets {
 
   VBox "colonne" {
@@ -150,21 +157,11 @@ widgets {
         label = "Editer"
       }
 
-      // ⚠️ LE SEUL BOUTON TEINTÉ DE TOUT LE PANNEAU, ET C'EST DÉLIBÉRÉ. C'est
-      //    lui qui ÉCRIT une clé : le distinguer n'est pas de la décoration,
-      //    c'est empêcher un clic de trop. `fill` peint sur `Button` — vérifié
-      //    dans le monteur, pas supposé.
-      //
-      //    L'orange est celui de la charte Rihen (#F79A28). Il tient en thème
-      //    clair comme en thème sombre : c'est la condition pour écrire une
-      //    couleur en dur.
-      Button "anim.pose_enregistrer" {
+      // LE BOUTON QUI ÉCRIT — son design vit dans la bibliothèque, pas ici.
+      // C'est lui qui enregistre une clé : le distinguer n'est pas de la
+      // décoration, c'est empêcher un clic de trop.
+      BoutonEcrit "anim.pose_enregistrer" {
         label = "Enregistrer en cle"
-        appearance {
-          radius = 4
-          fill { color = #F79A28 }
-          text { color = #10222B }
-        }
       }
 
       Button "anim.pose_quitter" {

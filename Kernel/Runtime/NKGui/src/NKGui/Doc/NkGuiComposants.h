@@ -127,6 +127,37 @@ namespace nkentseu {
 				return i == n && b[i] == '\0';
 			}
 
+			// ⚠️ UN IDENTIFIANT SE POSE COMME UNE CHAÎNE, JAMAIS COMME UN JETON.
+			//    Mesure du 26/09, par l'aller-retour du format : `SetToken` écrit
+			//    la valeur TELLE QUELLE, sans guillemets. Le document réémis portait
+			//    donc `Button anim.pose_enregistrer {` au lieu de
+			//    `Button "anim.pose_enregistrer" {`, et le widget DISPARAISSAIT à la
+			//    relecture — 45 montés à la lecture, 44 après réécriture.
+			//
+			//    Un identifiant de composant contient des points (`anim.jouer`,
+			//    `monInstance.case`) : ce n'est pas un littéral encore valable, donc
+			//    il DOIT être cité. L'en-tête de `NkGuiArchive` le dit dans l'autre
+			//    sens — « un jeton nu dont on change la valeur sans repasser par
+			//    SetToken perd son littéral et repart entre guillemets ». On pose
+			//    donc la valeur directement, sans passer par `SetToken`.
+			//
+			//    ⚠️ ET C'EST L'ALLER-RETOUR QUI L'A TROUVÉ, pas l'œil : à l'écran,
+			//       le bouton s'affichait normalement. Un document qui se monte bien
+			//       et ne survit pas à sa réécriture est exactement le défaut que ce
+			//       banc existe pour attraper.
+			inline void NkGCPoserId(NkArchive &bloc, const NkString &id) noexcept {
+				NkArchiveNode *n = bloc.FindNode(NkStringView(NkGuiArchive::KeyId()));
+				if (!n) {
+					// Le bloc n'avait pas d'identifiant : on le crée, puis on
+					// remplace sa valeur par une chaîne.
+					NkGuiArchive::SetToken(bloc, NkStringView(NkGuiArchive::KeyId()),
+										   NkStringView(id.CStr()));
+					n = bloc.FindNode(NkStringView(NkGuiArchive::KeyId()));
+				}
+				if (n)
+					*n = NkArchiveNode(NkArchiveValue::FromString(NkStringView(id.CStr())));
+			}
+
 			/// Une définition de composant : son nom, et son corps tel qu'écrit.
 			struct NkGCDefinition {
 					NkString nom;
@@ -168,8 +199,7 @@ namespace nkentseu {
 						NkString neuf = prefixe;
 						neuf += ".";
 						neuf += ancien;
-						NkGuiArchive::SetToken(sous, NkStringView(NkGuiArchive::KeyId()),
-											   NkStringView(neuf.CStr()));
+						NkGCPoserId(sous, neuf);
 						ren.Ajouter(ancien, neuf);
 					}
 					NkGCPrefixerIds(enfant, prefixe, ren);

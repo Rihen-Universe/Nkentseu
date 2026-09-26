@@ -1,0 +1,60 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA BIBLIOTHÈQUE DE COMPOSANTS DE NkAnimaEditor.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  POURQUOI UN FICHIER À PART, ET PAS UN COPIER-COLLER
+// ═══════════════════════════════════════════════════════════════════════════
+//  Un composant n'a de valeur que s'il se PARTAGE. Recopié dans chaque
+//  document, il se désynchronise à la première retouche — on aurait renommé la
+//  copie-colle. Ici il vit à UN endroit, et chaque document qui s'en sert écrit
+//  une ligne :
+//
+//      include "composants.nkgui"
+//
+//  ⚠️ ET L'INCLUSION SE MET AVANT `widgets`. Le contenu inclus prend la place
+//     exacte du `include` : écrit après, ses composants arriveraient trop tard
+//     et leurs instances seraient comptées comme des rôles inconnus. Le
+//     développement ne réordonne pas pour rattraper l'auteur.
+//
+//  ⚠️ CE FICHIER NE DÉCLARE AUCUNE VUE. Il ne contient que des `component`,
+//     donc il ne monte rien par lui-même. C'est voulu : une bibliothèque est un
+//     catalogue de patrons, pas un écran.
+
+// ── LE BOUTON DE TRANSPORT ────────────────────────────────────────────────
+//  Les cinq boutons du transport ne diffèrent que par leur libellé et leur
+//  action. La racine prend l'identifiant de l'instance — donc le NOM DE
+//  L'ACTION — et les attributs de l'instance l'emportent sur les siens.
+component "BoutonTransport" {
+  widgets {
+    Button "bouton" {
+      label = "?"
+      appearance {
+        radius = 3
+      }
+    }
+  }
+}
+
+// ── LE BOUTON QUI ÉCRIT ───────────────────────────────────────────────────
+//  ⚠️ LE SEUL COMPOSANT TEINTÉ, ET C'EST DÉLIBÉRÉ. Il sert aux actions qui
+//     ÉCRIVENT — enregistrer une pose en clé, cuire une animation. Les
+//     distinguer n'est pas de la décoration : c'est empêcher un clic de trop.
+//
+//     L'orange est celui de la charte Rihen (#F79A28). Il tient en thème clair
+//     comme en thème sombre : c'est la condition pour écrire une couleur en dur
+//     plutôt que de laisser le thème décider.
+component "BoutonEcrit" {
+  widgets {
+    Button "bouton" {
+      label = "?"
+      appearance {
+        radius = 4
+        fill { color = #F79A28 }
+        text { color = #10222B }
+      }
+    }
+  }
+}

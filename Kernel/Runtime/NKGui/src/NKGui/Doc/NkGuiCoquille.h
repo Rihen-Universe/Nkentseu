@@ -43,6 +43,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Doc/NkGuiComposants.h"  // les composants se developpent avant le montage
+#include "NKGui/Doc/NkGuiInclusions.h"  // et les `include` se resolvent avant eux
 #include "NKGui/Doc/NkGuiInteraction.h" // tire NkGuiMonteur + NkGuiArchive
 
 namespace nkentseu {
@@ -106,6 +107,10 @@ namespace nkentseu {
 				/// en silence.
 				NkGuiRapportComposants composants;
 
+				/// Idem pour les `include` : combien résolus, et chaque refus nommé
+				/// (introuvable, illisible, cycle, sans provenance).
+				NkGuiRapportInclusions inclusions;
+
 				// ═════════════════════════════════════════════════════════════
 				//  LA FAÇADE PREND UN ARBRE, JAMAIS UN CHEMIN
 				// ═════════════════════════════════════════════════════════════
@@ -133,6 +138,25 @@ namespace nkentseu {
 					lu = false;
 					refus.Clear();
 					doc = arbre;
+
+					// ── LES INCLUSIONS D'ABORD, ET L'ORDRE N'EST PAS ARBITRAIRE ───
+					//
+					//  Un document inclus apporte ses `component`. S'ils arrivaient
+					//  APRÈS le développement, leurs instances auraient déjà été
+					//  comptées comme des rôles inconnus — et le document se
+					//  monterait amputé sans qu'on sache pourquoi.
+					//
+					//  ⚠️ LE DOSSIER DE BASE VIENT DE `chemin`, ET IL PEUT ÊTRE VIDE.
+					//     `Adopter` prend un ARBRE : appelé directement — par un
+					//     générateur en mémoire, par un banc — il n'a aucune
+					//     provenance, donc aucun « à côté de moi ». Les `include`
+					//     sont alors COMPTÉS non résolus, jamais cherchés dans le
+					//     dossier courant du processus : le résultat dépendrait d'où
+					//     l'application a été lancée. *Un outil qui devine masque la
+					//     faute au lieu de la montrer.*
+					inclusions = NkGuiRapportInclusions();
+					NkGuiResoudreInclusions(doc, detail::NkGIDossierDe(chemin.CStr()).CStr(),
+											inclusions);
 
 					// ── LES COMPOSANTS SE DÉVELOPPENT ICI, ET NULLE PART AILLEURS ──
 					//

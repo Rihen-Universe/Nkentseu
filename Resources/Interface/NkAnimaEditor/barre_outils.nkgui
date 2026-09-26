@@ -22,31 +22,19 @@ nkgui 0.3
 //  l'application ne sert pas est COMPTÉ (`actionsInconnues`), jamais tu.
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  UN COMPOSANT — un nom, un sous-arbre, son design (26/09)
+//  LES COMPOSANTS VIENNENT D'UNE BIBLIOTHEQUE (26/09)
 // ═══════════════════════════════════════════════════════════════════════════
-//  Les cinq boutons du transport ne different que par leur libelle et leur
-//  action. Ecrits cinq fois, leur design se serait deja desynchronise a la
-//  premiere retouche : c'est la definition meme d'un composant.
+//  `BoutonTransport` vivait ici, en toutes lettres. Il vit maintenant dans
+//  `composants.nkgui`, et ce document l'emprunte. La difference n'est pas
+//  cosmetique : le panneau d'outils veut le MEME bouton, et deux copies se
+//  desynchronisent a la premiere retouche.
 //
-//  ⚠️ UNE SEULE RACINE, C'EST LE CONTRAT. La racine prend l'identifiant de
-//     l'instance — donc le NOM DE L'ACTION — et les attributs de l'instance
-//     l'emportent sur les siens. Sans cette surcharge, les cinq instances
-//     seraient identiques et on aurait renomme la copie-colle.
-//
-//  ⚠️ ET LA DEFINITION NE SE MONTE PAS. Elle est retiree du document developpe
-//     avant que le monteur ne le voie : un `widgets` de definition est un
-//     patron, pas une vue. L'y laisser ferait compter des widgets montes nulle
-//     part.
-component "BoutonTransport" {
-  widgets {
-    Button "bouton" {
-      label = "?"
-      appearance {
-        radius = 3
-      }
-    }
-  }
-}
+//  ⚠️ L'INCLUSION EST AVANT `widgets`, ET C'EST OBLIGATOIRE. Le contenu inclus
+//     prend la place exacte du `include` : ecrit apres, les composants
+//     arriveraient trop tard et leurs instances seraient comptees comme des
+//     roles inconnus. Le developpement ne reordonne pas pour rattraper
+//     l'auteur.
+include "composants.nkgui"
 
 widgets {
 

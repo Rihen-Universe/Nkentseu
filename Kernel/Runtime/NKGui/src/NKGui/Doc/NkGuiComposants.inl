@@ -64,8 +64,7 @@ namespace nkentseu {
 						bool trouve = false;
 						for (uint32 k = 0; k < (uint32)ren.avant.Size() && !trouve; ++k) {
 							if (ancien.Compare(ren.avant[k].CStr()) == 0) {
-								NkGuiArchive::SetToken(bloc, NkStringView(NkGuiArchive::KeyId()),
-													   NkStringView(ren.apres[k].CStr()));
+								NkGCPoserId(bloc, ren.apres[k]);
 								trouve = true;
 							}
 						}
@@ -76,8 +75,7 @@ namespace nkentseu {
 							NkString neuf = instance;
 							neuf += ".";
 							neuf += ancien;
-							NkGuiArchive::SetToken(bloc, NkStringView(NkGuiArchive::KeyId()),
-												   NkStringView(neuf.CStr()));
+							NkGCPoserId(bloc, neuf);
 						}
 					}
 
@@ -181,8 +179,7 @@ namespace nkentseu {
 						const NkStringView idRacine = NkGuiArchive::IdOf(r);
 						if (idRacine.Size() > 0u)
 							ren.Ajouter(NkString(idRacine), instance);
-						NkGuiArchive::SetToken(r, NkStringView(NkGuiArchive::KeyId()),
-											   NkStringView(instance.CStr()));
+						NkGCPoserId(r, instance);
 						// Ses descendants sont préfixés.
 						NkGCPrefixerIds(racine, instance, ren);
 						// Les attributs de l'instance l'emportent.
