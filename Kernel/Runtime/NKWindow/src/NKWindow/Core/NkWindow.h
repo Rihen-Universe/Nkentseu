@@ -150,6 +150,10 @@ namespace nkentseu {
 				SetPosition(pos.x, pos.y);
 			}
 
+			// ⚠️ AUCUN `IsVisible()` N'EXISTE, NI ICI NI DANS NKEvent. Verifie le
+			//    2026-09-26, site par site. Ce n'est pas un renvoi omis : il n'y a
+			//    rien ou renvoyer. Pour savoir si la fenetre est affichee, il faut
+			//    suivre soi-meme ce qu'on a demande -- ou ajouter le getter.
 			void SetVisible(bool visible);
 			void Minimize();
 			void Maximize();
@@ -173,6 +177,11 @@ namespace nkentseu {
 			/// Bord de redimensionnement pour BeginResize (fenetre sans bordure).
 			enum class NkResizeEdge { Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
 			void BeginResize(NkResizeEdge edge); ///< hand-off natif du redimensionnement par un bord
+			// ⚠️ AUCUN `IsFullscreen()` N'EXISTE, nulle part (verifie le 2026-09-26).
+			//    `IsMaximized()` et `IsMinimized()` existent, eux -- mais ils ne
+			//    repondent PAS a la meme question : une fenetre plein ecran n'est ni
+			//    maximisee ni minimisee. *Un renvoi vers une fonction au contrat
+			//    different enverrait droit dans le piege suivant.*
 			void SetFullscreen(bool fullscreen);
 
 			// ── Decoration de la fenetre (bordure + barre de titre de l'OS) ──
@@ -293,6 +302,10 @@ namespace nkentseu {
 			// journal -- si la plateforme ne sait pas le faire ou si l'appel systeme
 			// echoue : jamais un repli muet, l'appelant doit pouvoir constater que
 			// rien n'a bouge plutot que de croire que tout va bien.
+			// ⚠️ POUR *LIRE* : `NkInput.MouseX()` / `MouseY()` (NKEvent) -- et elles
+			//    sont en coordonnees CLIENT, donc elles s'accordent avec CELLE-CI,
+			//    pas avec `SetMousePosition` dont le contrat varie par plateforme.
+			//    C'est la paire coherente : ecrire ici, lire la.
 			bool SetMousePositionClient(int32 x, int32 y);
 
 			// ── LA MEME CHOSE, MAIS LA FENETRE EST NOMMEE (2026-09-26) ────────
@@ -323,7 +336,29 @@ namespace nkentseu {
 				SetMousePosition(pos.x, pos.y);
 			}
 
+			// ⚠️ AUCUNE LECTURE DE LA VISIBILITE DU CURSEUR n'existe, nulle part.
+			//    Et attention au contrat sous-jacent : sur Win32 `ShowCursor` est un
+			//    COMPTEUR, pas un booleen -- deux appels a false demandent deux
+			//    appels a true pour revenir. Le banc `NkWindowSonde` (essai I) le
+			//    mesure en interrogeant le systeme, faute de getter.
 			void ShowMouse(bool show);
+			// 🔴 LE CHAMP DE LECTURE EXISTE ET PERSONNE NE L'ALIMENTE.
+			//    `NkMouseInputState::captured` (NKEvent, NkEventState.h:583) est
+			//    documente « Capture souris active (SetCapture / grab cursor) » --
+			//    mais il n'est ecrit QUE par `Clear()`, qui le remet a `false`.
+			//    **Personne ne le met jamais a `true`.** Mesure du 2026-09-26.
+			//
+			//    C'est pire qu'une absence de getter : un champ qui PROMET une
+			//    information et rend toujours `false`. L'exposer via `NkInput`
+			//    serait livrer un mensonge -- *un renvoi qui mente est pire que pas
+			//    de renvoi*.
+			//
+			//    ET CE N'EST PAS UNE LIGNE A POSER : `CaptureMouse` est implemente
+			//    PAR DORSAL (13 fichiers Platform/). Alimenter `captured` demanderait
+			//    13 sites, ou une facade qui n'existe pas -- donc une decision, pas
+			//    un branchement. En attendant : pour savoir si la capture est active,
+			//    interroger le systeme (`GetCapture()` sur Win32), comme le fait
+			//    `NkWindowSonde` essai I.
 			void CaptureMouse(bool capture);
 
 			// --- Curseur ---
@@ -345,6 +380,13 @@ namespace nkentseu {
 			};
 			// Persistant : � rappeler chaque frame avec le curseur voulu (sinon, sur
 			// certaines plateformes, le syst�me le r�initialise � la fl�che).
+			// ⚠️ AUCUN `GetCursor()` N'EXISTE, et ce n'est pas le manque le plus
+			//    couteux ici : sur Win32 la forme est **reimposee a chaque mouvement**
+			//    (WM_SETCURSOR), donc un getter renverrait ce qu'on a demande, pas ce
+			//    que l'utilisateur voit. C'est ce qui a trompe un utilisateur reel le
+			//    25/09. La table complete dorsal par dorsal :
+			//    `wiki/Runtime/NKWindow/Curseur-par-dorsal.md`, et la demo
+			//    `NkDemoCurseur` reproduit le piege a volonte.
 			void SetCursor(NkCursorType cursor);
 
 			// Empeche le curseur de sortir de la zone client de la fenetre
@@ -353,6 +395,12 @@ namespace nkentseu {
 			// ecran. Cross-platform : implem native quand possible (Win32
 			// ClipCursor, XLib XGrabPointer, ...), no-op sur les plateformes
 			// sans curseur (mobile / web tactile).
+			// ⚠️ AUCUNE LECTURE DU CONFINEMENT n'existe, nulle part. Le systeme, lui,
+			//    sait repondre : `GetClipCursor()` sur Win32 -- c'est ainsi que
+			//    `NkWindowSonde` (essai I) le mesure, faute de getter.
+			//    ⚠️ Et le confinement SURVIT au processus s'il n'est pas relache :
+			//    tout appelant doit appeler `ClipMouseToClient(false)` avant de
+			//    quitter. `NkDemoCurseur` et `NkDemoDeltaSouris` le font.
 			void ClipMouseToClient(bool clip);
 
 			// --- Clavier logiciel (mobile : iOS / Android) ---
@@ -405,6 +453,10 @@ namespace nkentseu {
 			NkWebInputOptions GetWebInputOptions() const;
 
 			// --- OS extras ---
+			// ⚠️ AUCUN `GetProgress()` N'EXISTE, ni ici ni dans NKEvent (verifie le
+			//    2026-09-26). La valeur n'est pas conservee : elle est poussee au
+			//    systeme (barre des taches, dock) et oubliee. Un appelant qui a besoin
+			//    de la relire doit la garder lui-meme.
 			void SetProgress(float progress);
 
 			// --- Safe Area (mobile) ---
