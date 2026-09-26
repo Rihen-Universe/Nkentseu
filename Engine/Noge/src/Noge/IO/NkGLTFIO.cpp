@@ -219,6 +219,12 @@ namespace nkentseu {
 					} else {
 						++osSansNom; // b.name reste vide -- volontairement
 					}
+				} else {
+					// ⚠️ INDEX DE NŒUD HORS BORNES : cet os n'aura pas de nom non plus,
+					//    et il doit donc etre COMPTE ici. Sans cette branche, le
+					//    compteur annoncait « tous nommes » sur un squelette qui ne
+					//    l'est pas : un silence de plus au lieu d'un chiffre juste.
+					++osSansNom;
 				}
 				if (nodeIdx >= 0 && (uint32)nodeIdx < parentOf.Size()) {
 					const int32 parentNode = parentOf[(uint32)nodeIdx];
