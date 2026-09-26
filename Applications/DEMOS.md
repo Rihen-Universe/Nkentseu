@@ -423,3 +423,51 @@ la coquille (docking, titre, rails, menus) reste celle de `NKEditorKit`. **La ba
 branchée, et c'est mesuré :** le format connaît `MenuBar`, `Menu`, `MenuItem` et `ContextMenu`, mais
 le monteur n'en monte **aucun** — un document de menu valide à **0 erreur** et monte **0 widget pour
 4 rôles inconnus** (mesuré avec `NKGuiMonteTest --monter=`).
+
+---
+
+## Curseur — « survolez les quatre zones, la forme change »
+
+**Ce que ça montre :** `NkWindow::SetCursor` change réellement la forme du curseur, et
+`ClipMouseToClient` confine réellement la souris — **et pourquoi on peut croire le contraire.**
+
+> Cette démo existe parce qu'un **utilisateur réel** a rapporté, le 26/09, que « les méthodes pour
+> curseur dans NKWindow ne fonctionnent pas ». Le banc `NkWindowSonde` a pu mesurer le confinement,
+> la capture et l'affichage **en interrogeant Windows** — mais **pas la forme du curseur** : elle ne
+> s'applique que si une souris **survole** la fenêtre, et les fenêtres de sonde sont invisibles, sans
+> aucune entrée injectée. **Seul un humain qui survole peut en juger.**
+
+### Comment la lancer
+
+`Build/Bin/Release-Windows/NkDemoCurseur/NkDemoCurseur.exe` — rien à préparer, aucune variable
+d'environnement.
+
+### Ce qu'on doit voir
+
+- **quatre zones**, chacune portant **le nom de la forme attendue** : FLÈCHE, TEXTE (I-beam), MAIN,
+  REDIM. HORIZONTAL. En survolant chacune, **le curseur prend cette forme** ;
+- en haut, la **forme attendue sous le pointeur**, écrite — pour comparer ce qu'on voit à ce qui est
+  demandé, sans avoir à s'en souvenir ;
+- **première ligne : l'identité de construction** — date et heure de compilation, chemin de
+  l'exécutable. Une capture d'écran suffit alors à dire de quel binaire on parle ;
+- la case **« Confiner la souris à la fenêtre »** : cochée, la souris ne sort plus. Elle est
+  **relâchée à la fermeture**, toujours ;
+- ⚠️ la case **« Rappeler SetCursor à CHAQUE image »** : **décochez-la, bougez la souris, la forme
+  retombe à la flèche.** C'est le défaut de l'utilisateur, reproductible à volonté — Windows envoie
+  `WM_SETCURSOR` à chaque mouvement et réinitialise la forme.
+
+### Ce qui prouverait que c'est cassé
+
+| symptôme | ce que ça veut dire |
+|---|---|
+| la forme **ne change jamais**, même case cochée | `SetCursor` ne parvient plus au système — ou vous n'êtes pas sur Windows (voir la table) |
+| la forme change **mais pas celle annoncée** | la table `NkCursorType` → `IDC_*` s'est décalée |
+| case décochée et la forme **tient quand même** | quelqu'un d'autre rappelle `SetCursor` — le défaut de l'utilisateur ne serait plus reproductible, donc plus explicable |
+| « confiner » coché et la souris **sort quand même** | `ClipMouseToClient` a cessé d'agir (le banc le mesure aussi, essai I) |
+| la souris **reste enfermée après fermeture** | ⚠️ le plus grave : le relâchement à la sortie a sauté |
+
+### Sur Linux et macOS
+
+Elle se lance, mais **la forme ne changera pas** : `SetCursor` n'y est pas implémenté. Le journal
+écrit alors un **refus nommé** — c'est précisément ce qu'elle doit montrer là-bas. Table complète :
+`wiki/Runtime/NKWindow/Curseur-par-dorsal.md`.
