@@ -294,13 +294,54 @@ namespace nkentseu {
 			//   Coordonnées en pixels physiques, origine en haut-gauche fenêtre.
 			// -----------------------------------------------------------------
 
+			// ⚠️ POUR *ECRIRE* LA POSITION DE LA SOURIS : cote **NKWindow** --
+			//    `NkPlaceMouseInWindow(fenetre, x, y)` (coordonnees CLIENT, fenetre
+			//    nommee), ou `NkWindow::SetMousePositionClient`. Il n'y a pas de
+			//    setter ici, et ce n'est pas un oubli : **NKWindow depend de
+			//    NKEvent**, pas l'inverse -- un setter ici inverserait le graphe de
+			//    dependances. *Le graphe impose la coupe.*
+			//
+			//    Ajoute le 2026-09-26 : un utilisateur avait cherche la LECTURE
+			//    dans NKWindow, la ou est l'ECRITURE. Le renvoi va donc dans les
+			//    DEUX SENS, pour que les deux moities du geste soient nommees de
+			//    chaque cote.
 			int32 MouseX() const noexcept;
 
 			int32 MouseY() const noexcept;
 
+			// ── LE DELTA DU DERNIER EVENEMENT -- IL PERSISTE ──────────────────
+			// ⚠️ IL NE SE REMET PAS A ZERO quand la souris s'arrete : il garde la
+			//    valeur du dernier mouvement recu. Ce n'est pas un defaut, c'est
+			//    son contrat -- et c'est la BONNE fonction quand on veut la
+			//    derniere DIRECTION connue meme a l'arret (inertie, elan, relance
+			//    d'un geste interrompu).
+			//
+			//    Pour un deplacement « de cette image, zero si rien n'a bouge »,
+			//    voir `MouseDeltaThisFrameX/Y()` juste en dessous. Les deux
+			//    existent et aucune ne remplace l'autre.
 			int32 MouseDeltaX() const noexcept;
 
 			int32 MouseDeltaY() const noexcept;
+
+			// ── LE DELTA DE CETTE IMAGE -- IL SE REMET A ZERO ─────────────────
+			// Somme des mouvements recus DEPUIS LE DERNIER `NewFrame()`. Souris
+			// immobile -> 0. C'est la BONNE fonction pour faire tourner une
+			// camera, tirer un gizmo, faire glisser un panneau : tout ce qui doit
+			// s'arreter quand la main s'arrete.
+			//
+			// ⚠️ ELLE DEPEND DE `NewFrame()`, ET SON OUBLI NE SE TAIT PAS : si
+			//    l'application ne l'appelle jamais, ces deux fonctions rendent 0 en
+			//    permanence ET le journal le dit UNE FOIS. Un delta qui resterait
+			//    silencieusement perime serait exactement le piege qu'on repare
+			//    ici : mieux vaut un zero franc et une ligne de journal.
+			int32 MouseDeltaThisFrameX() const noexcept;
+
+			int32 MouseDeltaThisFrameY() const noexcept;
+
+			// Ouvre une nouvelle image : remet a zero le delta d'image ci-dessus.
+			// A appeler UNE FOIS par tour de boucle, avant de depiler les
+			// evenements.
+			void NewFrame() noexcept;
 
 			int32 MouseRawDeltaX() const noexcept;
 
