@@ -32,6 +32,14 @@ namespace nkentseu {
 		// est déterminé par la propriété seule.
 		bool gDejaDit[static_cast<uint32>(NkWindowProp::Count)] = {};
 
+		// Les methodes refusees deja dites. Un tableau de pointeurs sur les
+		// litteraux suffit : ils sont peu nombreux et vivent tout le programme.
+		// ⚠️ ON COMPARE LES CHAINES, pas les pointeurs : deux litteraux identiques
+		//    dans deux unites de compilation ne sont pas garantis d'etre la meme
+		//    adresse, et le refus se repeterait une fois par fichier appelant.
+		const char *gMethDites[16] = {};
+		uint32 gMethCount = 0;
+
 		void Dire(NkWindowProp p, const char *plateforme, const char *raison) {
 			const uint32 i = static_cast<uint32>(p);
 			if (i >= static_cast<uint32>(NkWindowProp::Count) || gDejaDit[i])
@@ -83,6 +91,24 @@ namespace nkentseu {
 	const char *NkWindowPropNom(NkWindowProp p) {
 		const uint32 i = static_cast<uint32>(p);
 		return i < static_cast<uint32>(NkWindowProp::Count) ? kNoms[i] : "?";
+	}
+
+	void NkWindowRefuserMethode(const char *methode, const char *plateforme, const char *raison) {
+		if (!methode)
+			return;
+		for (uint32 i = 0; i < gMethCount; ++i) {
+			const char *a = gMethDites[i];
+			const char *b = methode;
+			while (*a && *a == *b) { ++a; ++b; }
+			if (*a == *b)
+				return; // deja dit
+		}
+		if (gMethCount < 16)
+			gMethDites[gMethCount++] = methode;
+		NkLog::Instance().Warnf("[NkWindow] REFUS : NkWindow::%s n'agit pas sur le dorsal %s. %s "
+								"L'appel a ete accepte, il n'aura AUCUN effet. "
+								"Table complete : wiki/Runtime/NKWindow/Curseur-par-dorsal.md",
+								methode, plateforme ? plateforme : "?", raison ? raison : "");
 	}
 
 	void NkWindowAuditerConfig(const NkWindowConfig &config, const char *plateforme, uint64 tenues, uint64 sansObjet) {
