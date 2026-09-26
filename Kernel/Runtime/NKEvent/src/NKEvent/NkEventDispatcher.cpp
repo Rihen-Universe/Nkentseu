@@ -26,6 +26,7 @@
 #include "NkEventSystem.h"
 #include "NkGamepadSystem.h"
 #include "NKMath/NkFunctions.h"
+#include "NKLogger/NkLog.h" // le refus nomme du delta d'image
 
 namespace nkentseu {
 
@@ -92,6 +93,43 @@ namespace nkentseu {
 
 	int32 NkInputQuery::MouseDeltaY() const noexcept {
 		return State().mouse.deltaY;
+	}
+
+	// ── Le delta de CETTE IMAGE, et son armement qui ne se tait pas ──────────
+	// `NewFrame()` doit etre appele une fois par tour de boucle. S'il ne l'est
+	// JAMAIS, ces deux fonctions rendent 0 en permanence -- et le journal le dit
+	// UNE FOIS. C'est volontaire : *un etat qu'il faut armer se fera oublier*, et
+	// le pire serait de rendre silencieusement une valeur perimee -- exactement le
+	// piege de `MouseDeltaX()` qu'on repare ici.
+	namespace {
+		bool gFrameArme = false;
+		bool gPlainteFaite = false;
+
+		void PlaindreUneFois() noexcept {
+			if (gFrameArme || gPlainteFaite)
+				return;
+			gPlainteFaite = true;
+			logger.Warn("[NkInput] MouseDeltaThisFrame* lu sans que NewFrame() ait jamais ete "
+						"appele : il rendra 0 en permanence. Appelez NkInput.NewFrame() une "
+						"fois par tour de boucle, ou utilisez MouseDeltaX/Y() qui, elle, ne "
+						"depend de rien (mais persiste a l'arret).");
+		}
+	} // namespace
+
+	void NkInputQuery::NewFrame() noexcept {
+		gFrameArme = true;
+		if (mEventSystem != nullptr)
+			mEventSystem->GetInputState().mouse.BeginFrame();
+	}
+
+	int32 NkInputQuery::MouseDeltaThisFrameX() const noexcept {
+		PlaindreUneFois();
+		return gFrameArme ? State().mouse.frameDeltaX : 0;
+	}
+
+	int32 NkInputQuery::MouseDeltaThisFrameY() const noexcept {
+		PlaindreUneFois();
+		return gFrameArme ? State().mouse.frameDeltaY : 0;
 	}
 
 	int32 NkInputQuery::MouseRawDeltaX() const noexcept {
