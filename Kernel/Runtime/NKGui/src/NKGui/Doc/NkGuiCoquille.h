@@ -42,6 +42,7 @@
 
 #include "NKContainers/String/NkString.h"
 #include "NKFileSystem/NkFile.h"
+#include "NKGui/Doc/NkGuiComposants.h"  // les composants se developpent avant le montage
 #include "NKGui/Doc/NkGuiInteraction.h" // tire NkGuiMonteur + NkGuiArchive
 
 namespace nkentseu {
@@ -99,6 +100,12 @@ namespace nkentseu {
 				const NkZoneNommee *zones = nullptr;
 				uint32 nbZones = 0;
 
+				/// Ce que le développement des composants a fait, et ce qu'il a
+				/// REFUSÉ de faire. Rempli par `Adopter`, lisible ensuite : un
+				/// composant qu'on ne sait pas développer ne doit pas disparaître
+				/// en silence.
+				NkGuiRapportComposants composants;
+
 				// ═════════════════════════════════════════════════════════════
 				//  LA FAÇADE PREND UN ARBRE, JAMAIS UN CHEMIN
 				// ═════════════════════════════════════════════════════════════
@@ -126,6 +133,27 @@ namespace nkentseu {
 					lu = false;
 					refus.Clear();
 					doc = arbre;
+
+					// ── LES COMPOSANTS SE DÉVELOPPENT ICI, ET NULLE PART AILLEURS ──
+					//
+					//  Un `component "Nom" { ... }` est un PATRON, pas une vue. Ses
+					//  instances sont remplacées par ce qu'il contient AVANT que le
+					//  monteur ne voie le document : le monteur ne connaît donc pas
+					//  les composants, et il n'a pas à les connaître.
+					//
+					//  ⚠️ C'EST `doc` QU'ON DÉVELOPPE, PAS `arbre`. Le document de
+					//     l'auteur garde ses composants : c'est lui qui se réécrit
+					//     sur disque, et l'aller-retour du format doit rester vrai.
+					//     Développer la source ferait grossir le fichier à chaque
+					//     enregistrement, et le composant disparaîtrait au premier.
+					//
+					//  ⚠️ ET UN REFUS N'EMPÊCHE PAS LE MONTAGE. Un composant à deux
+					//     racines, ou qui s'instancie lui-même, est retiré et COMPTÉ.
+					//     Le document se monte alors incomplet — et `composants`
+					//     dit où. Refuser tout le document punirait les neuf autres
+					//     instances qui, elles, sont justes.
+					NkGuiDevelopperComposants(doc, composants);
+
 					NkGuiMonteur::Preparer(doc, etat);
 					infos.Lire(doc);
 					NkGuiExecution::etat = &etat;
