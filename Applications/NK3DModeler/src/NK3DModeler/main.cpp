@@ -5894,6 +5894,7 @@ int nkmain(const NkEntryState &entry) {
 				c.gpuValide = vp.gpuValide;
 				c.cpuMs = vp.cpuMs;
 				c.cpuValide = vp.cpuValide;
+				c.compteursValides = vp.compteursValides;
 				c.api = vp.api;
 				c.fps = sHorloge.Fps();
 				c.dtMs = sHorloge.DtMs();

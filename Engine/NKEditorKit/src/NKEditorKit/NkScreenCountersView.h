@@ -62,6 +62,13 @@ namespace nkentseu {
 				float32 fps = 0.f;
 				float32 dtMs = 0.f;
 				bool horlogeValide = false; ///< faux avant la premiere image mesuree
+				/// (26/09) Faux tant que les compteurs de rendu ne sont pas une
+				/// mesure (aucune frame rendue, ou source non branchee).
+				/// ⚠️ IL EXISTE PARCE QUE DES ZEROS ONT MENTI : le 26/09 a 02:12, le
+				///    panneau affichait Draw 0 / Tris 0 pendant qu'un cube se
+				///    rendait a 134 images/s. Un zero affiche la ou rien n'a ete
+				///    mesure est indiscernable d'une scene vide.
+				bool compteursValides = false;
 				const char *api = nullptr;	///< « Vulkan », « OpenGL »... ou nullptr
 		};
 
@@ -117,13 +124,14 @@ namespace nkentseu {
 					char valeurs[kLignes][24];
 					const char *libelles[kLignes];
 					uint32 n = 0;
-					Entier(libelles, valeurs, n, "Draw", c.draws);
-					Entier(libelles, valeurs, n, "Tris", c.triangles);
-					Entier(libelles, valeurs, n, "Sommets", c.sommets);
-					Entier(libelles, valeurs, n, "Lots", c.lots);
-					Entier(libelles, valeurs, n, "Ecartes", c.ecartes);
-					Entier(libelles, valeurs, n, "Lumieres", c.lumieres);
-					Entier(libelles, valeurs, n, "Ombreurs", c.ombreurs);
+					const bool v = c.compteursValides;
+					Entier(libelles, valeurs, n, "Draw", c.draws, v);
+					Entier(libelles, valeurs, n, "Tris", c.triangles, v);
+					Entier(libelles, valeurs, n, "Sommets", c.sommets, v);
+					Entier(libelles, valeurs, n, "Lots", c.lots, v);
+					Entier(libelles, valeurs, n, "Ecartes", c.ecartes, v);
+					Entier(libelles, valeurs, n, "Lumieres", c.lumieres, v);
+					Entier(libelles, valeurs, n, "Ombreurs", c.ombreurs, v);
 					Millis(libelles, valeurs, n, "GPU", c.gpuMs, c.gpuValide);
 					Millis(libelles, valeurs, n, "CPU", c.cpuMs, c.cpuValide);
 					Millis(libelles, valeurs, n, "dt", c.dtMs, c.horlogeValide);
@@ -169,12 +177,22 @@ namespace nkentseu {
 				static constexpr uint32 kLignes = 11;
 
 			private:
+				/// ⚠️ `valide == false` ECRIT « -- », JAMAIS « 0 » -- meme regle que
+				///    `Millis`, et pour la meme raison. Un compteur non mesure et un
+				///    compteur a zero ne sont pas la meme chose ; le 26/09, sept
+				///    zeros ont fait croire a une scene vide devant un cube visible.
 				static void Entier(const char **lib, char (*val)[24], uint32 &n, const char *nom,
-								   uint32 v) {
+								   uint32 v, bool valide = true) {
 					if (n >= kLignes)
 						return;
 					lib[n] = nom;
-					Nombre(val[n], 24u, v);
+					if (!valide) {
+						val[n][0] = '-';
+						val[n][1] = '-';
+						val[n][2] = ' ';
+					} else {
+						Nombre(val[n], 24u, v);
+					}
 					++n;
 				}
 				/// ⚠️ `valide == false` ECRIT « -- », JAMAIS « 0.00 ». Une mesure
