@@ -62,7 +62,7 @@ L'application doit servir cette personne seule **et** une équipe.
 ## 2. Frontières
 
 ```
-NK3DModeler ──(décors, accessoires, matériaux)──┐
+NKCraft ──(décors, accessoires, matériaux)──┐
                                                 ├──▶ NKScena ──▶ le film (vidéo + son)
 NkAnima ──(acteurs animés, clips, caches VFX,   │      │
            comportements de foule)──────────────┘      └──▶ cinématiques de jeu ──▶ Nogee / Noge
@@ -70,7 +70,7 @@ NkAnima ──(acteurs animés, clips, caches VFX,   │      │
 
 | dans NKScena | hors de NKScena |
 |---|---|
-| **préproduction** : texte, découpage, storyboard, animatique | modéliser un décor ou un accessoire → **NK3DModeler** |
+| **préproduction** : texte, découpage, storyboard, animatique | modéliser un décor ou un accessoire → **NKCraft** |
 | **décor** : assembler, poser, disperser (végétation, rochers), terrain, ciel, atmosphère | animer un corps, une physique, un effet → **NkAnima** |
 | **lumière** : sources, soleil, ciel, IBL, volumétrie, jour/nuit | écrire un comportement de foule → **NkAnima** |
 | **acteurs** : placer les personnages et leurs clips, **placer** les foules | la logique de jeu → **Nogee** |
@@ -138,7 +138,7 @@ le montage pointe vers une prise, la prise vers une scène.
 
 ### 5.1 Décor
 
-- **Assembler** des éléments venus de NK3DModeler (glisser depuis la
+- **Assembler** des éléments venus de NKCraft (glisser depuis la
   Bibliothèque), avec aimantation au sol et aux surfaces.
 - **Terrain** (existant : `NkTerrainHeightMap`, `NkTerrainSplat`,
   `NkTerrainSable`) : sculpter le relief, peindre les matières.
@@ -342,7 +342,7 @@ entier, publié après chaque rendu.
 
 ## 12. L'IA dans NKScena
 
-**Mêmes règles que NK3DModeler et NkAnima** : l'IA produit des **commandes**
+**Mêmes règles que NKCraft et NkAnima** : l'IA produit des **commandes**
 existantes, en **aperçu**, **retouchables**, et ce qu'elle a fait **reste
 marqué**.
 
@@ -401,7 +401,7 @@ que dans NkAnima (doc 07 §6.2).
 
 | # | question | réponse | raison |
 |---|---|---|---|
-| R1 | NKScena : application distincte ou espace de Nogee ? | **application distincte** | décision des trois applications (NK3DModeler, NkAnima, NKScena) ; le périmètre n'est plus un séquenceur mais un studio |
+| R1 | NKScena : application distincte ou espace de Nogee ? | **application distincte** | décision des trois applications (NKCraft, NkAnima, NKScena) ; le périmètre n'est plus un séquenceur mais un studio |
 | R2 | timeline partagée avec NkAnima ? | **oui**, une brique de l'Editor Kit | deux timelines divergeraient |
 | R3 | le son ? | **dans NKScena**, dès P2 | un film sans son ne se monte pas longtemps |
 

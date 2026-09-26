@@ -153,7 +153,7 @@ Monte du bas (Ctrl+Espace) ; peut être **amarré** (« Amarrer dans la disposit
 - Double clic → **l'éditeur de l'asset** dans un nouvel onglet (§5).
 - Clic droit : renommer, dupliquer, supprimer (avec **les références**
   listées avant confirmation), **Visionneuse de références**, **Carte des
-  tailles**, **Ouvrir dans** NK3DModeler / NkAnima / NKScena / NKUIDesign /
+  tailles**, **Ouvrir dans** NKCraft / NkAnima / NKScena / NKUIDesign /
   NKCode selon le type.
 
 ### 3.6 Journal et console

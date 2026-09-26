@@ -61,7 +61,7 @@ Décision de Rodolf : **trois applications distinctes qui communiquent par
 fichiers**.
 
 ```
-NK3DModeler ──(maillages, matériaux)──▶ NkAnima ──(personnages animés, clips,
+NKCraft ──(maillages, matériaux)──▶ NkAnima ──(personnages animés, clips,
  modélisation, sculpture                squelette, poids,     caches VFX)──▶ NKScena
                                         animation, physique,             mise en scène :
                                         VFX, IA, agents                  caméras, plans,
@@ -74,7 +74,7 @@ NK3DModeler ──(maillages, matériaux)──▶ NkAnima ──(personnages an
 
 | dans NkAnima | hors de NkAnima |
 |---|---|
-| **squelette** : création, édition, gabarits | modélisation, sculpture, UV → **NK3DModeler** |
+| **squelette** : création, édition, gabarits | modélisation, sculpture, UV → **NKCraft** |
 | **poids de peau** (skinning) : automatiques et peints | caméras de plan, découpage, montage → **NKScena** |
 | **animation** : toutes les méthodes du §5 | audio de production, mixage → **NKScena** |
 | **facial** : expressions, synchronisation labiale | rendu final, compositing → **NKScena** |
@@ -262,7 +262,7 @@ toutes les autres à quelqu'un qui n'est pas animateur.
 
 ## 6. L'IA dans NkAnima — les règles
 
-Mêmes règles que dans NK3DModeler, parce que ce sont les mêmes raisons.
+Mêmes règles que dans NKCraft, parce que ce sont les mêmes raisons.
 
 | règle | pourquoi |
 |---|---|
@@ -401,7 +401,7 @@ un **critère mesurable**, pas par « c'est codé ».
 | palier | contenu | critère de fin |
 |---|---|---|
 | **P0 — aujourd'hui** | coquille pilotée par `.nkgui`, lecture de clips, IK des pieds, ragdoll, compteurs | (acquis) |
-| **P1 — l'atelier de base** | import d'un maillage NK3DModeler ; squelette par gabarit ; poids automatiques + peinture ; clés, feuille d'exposition, courbes ; pose assistée (M2) ; export `.nkanim` / FBX | un personnage importé est rigué, animé à la main sur 5 secondes, exporté, et relu identique |
+| **P1 — l'atelier de base** | import d'un maillage NKCraft ; squelette par gabarit ; poids automatiques + peinture ; clés, feuille d'exposition, courbes ; pose assistée (M2) ; export `.nkanim` / FBX | un personnage importé est rigué, animé à la main sur 5 secondes, exporté, et relu identique |
 | **P2 — la physique et la trajectoire** | correction physique (M4), simulation active et passive, dosage dans le temps ; trajectoire (M3) avec réaction physique ; objets rigides et véhicules | un saut à la main devient balistique sans bouger les appuis ; trois objets suivent une courbe et un obstacle en dévie un |
 | **P3 — la production rapide** | locomotion et actions (M5) ; mocap BVH/FBX ; vidéo → mouvement (M6) ; bibliothèque, couches, reciblage (M8) ; facial et synchronisation labiale ; **mode Facile** (§7) | un non-animateur produit une scène de 20 s (marcher, s'asseoir, saluer) en mode Facile, puis l'ouvre en détail sans perte |
 | **P4 — les phénomènes** | vent, particules, destruction, effondrement, tissu et cheveux dans la timeline | une voiture percute un mur qui se brise, la poussière se lève et le vent l'emporte — cuit, déterministe |

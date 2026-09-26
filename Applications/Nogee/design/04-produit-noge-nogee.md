@@ -48,7 +48,7 @@ Et ce que Noge/Nogee a en propre (vision de `HANDOFF.md`, à ne pas perdre) :
 3. **IA en assistance, supervision humaine, prompt non obligatoire** : l'IA
    propose, l'humain décide, et **tout se fait aussi sans elle**.
 4. **Une famille d'outils**, pas un logiciel : Nogee **reçoit** ce que font
-   NK3DModeler, NkAnima, NKScena et NKUIDesign, au lieu de tout refaire moins bien.
+   NKCraft, NkAnima, NKScena et NKUIDesign, au lieu de tout refaire moins bien.
 
 ---
 
@@ -61,7 +61,7 @@ Et ce que Noge/Nogee a en propre (vision de `HANDOFF.md`, à ne pas perdre) :
                  │ IA de jeu · UI de jeu · scripts · E/S    │     le jeu livré
                  └─────────────────────▲────────────────────┘
                                        │
- NK3DModeler ──(maillages, matériaux)──┤
+ NKCraft ──(maillages, matériaux)──┤
  NkAnima ──(clips, graphes d'animation,├──▶ Nogee (éditeur) ──(Jenga)──▶ jeu empaqueté
             comportements, VFX)────────┤      niveaux, gameplay,           Windows · Linux ·
  NKScena ──(cinématiques)──────────────┤      scripts, test, build         Android · Web · …
@@ -71,7 +71,7 @@ Et ce que Noge/Nogee a en propre (vision de `HANDOFF.md`, à ne pas perdre) :
 
 | dans Nogee | ailleurs |
 |---|---|
-| **projets** et **niveaux** : ouvrir, créer, enregistrer, découper en sous-niveaux | modéliser → **NK3DModeler** |
+| **projets** et **niveaux** : ouvrir, créer, enregistrer, découper en sous-niveaux | modéliser → **NKCraft** |
 | **placer** : acteurs, lumières, volumes, déclencheurs, points d'apparition | animer, riguer, VFX, comportements d'agents → **NkAnima** |
 | **monde** : terrain, végétation, eau, ciel (**la même brique que NKScena**) | cinématiques → **NKScena** |
 | **gameplay** : composants, modes de jeu, contrôleurs, caméras de jeu, entrées | concevoir les écrans d'interface → **NKUIDesign** |
@@ -186,7 +186,7 @@ comme nœud ; un Blueprint peut hériter d'une classe C++. Un Blueprint peut êt
   (navigation, post-traitement, audio, déclencheurs).
 - **Blocage rapide** (« greybox ») : formes simples éditables pour dessiner un
   niveau avant d'avoir les modèles. ⚠️ C'est la **seule** modélisation dans
-  Nogee ; au-delà, NK3DModeler.
+  Nogee ; au-delà, NKCraft.
 
 ### 4.3 Les éditeurs d'assets
 
@@ -286,7 +286,7 @@ ROADMAP §8.
 2. **Ne compte comme livré que ce qui est exercé** (leçon du ROADMAP §7bis).
 3. **Ce qui tourne dans Nogee est le moteur du jeu livré** : jouer dans l'éditeur
    n'est pas une simulation du jeu, c'est le jeu.
-4. **Nogee ne refait pas les autres applications** : il ouvre dans NK3DModeler,
+4. **Nogee ne refait pas les autres applications** : il ouvre dans NKCraft,
    NkAnima, NKScena, NKUIDesign, NKCode, et récupère le résultat.
 5. **Les éditeurs partagent les briques et le thème, jamais la peinture**
    (ROADMAP §9) ; une brique générique s'écrit dans **NKEditorKit**.

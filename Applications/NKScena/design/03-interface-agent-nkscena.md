@@ -258,7 +258,7 @@ MenuBar "menus"
     Separator "sep_f2"
     Menu "menu_importer"                      label: "Importer"
       MenuItem "fichier.importer_scene"       label: "Scène Noge…"
-      MenuItem "fichier.importer_decor"       label: "Décor (NK3DModeler, FBX, glTF)…"
+      MenuItem "fichier.importer_decor"       label: "Décor (NKCraft, FBX, glTF)…"
       MenuItem "fichier.importer_acteur"      label: "Acteur NkAnima…"
       MenuItem "fichier.importer_audio"       label: "Audio…"
       MenuItem "fichier.importer_video"       label: "Vidéo de référence…"
@@ -1008,7 +1008,7 @@ Légende : ✅ servie aujourd'hui · ✚ à créer (grisée avec sa raison) ·
 
 `anim.annuler` · `anim.refaire` · `anim.copier` · `anim.coller` 🟠 ·
 `anim.inserer` 🟠 · `anim.supprimer` · `anim.cle_prec` · `anim.cle_suiv` ·
-`anim.cle_auto` · `anim.cle_propriete` 🟠 · `anim.reinitialiser_propriete` ·
+`anim.cle_auto` · `commun.cle_propriete` 🟠 · `commun.reinitialiser_propriete` ·
 `anim.aide_raccourcis` · `anim.apropos` — toutes ✚ **dans NKScena** (servies par
 NkAnimaEditor, pas encore par NKScena).
 

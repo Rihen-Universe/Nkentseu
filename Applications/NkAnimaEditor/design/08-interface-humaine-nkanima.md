@@ -37,26 +37,30 @@ n'écrit une couleur en dur : elle nomme un **jeton** (`@fond.panneau`,
 `@info.ecrit`…) que le thème résout. Une couleur écrite en dur resterait sombre
 en thème clair.
 
-Valeurs **indicatives** du thème Sombre (l'agent et NKUIDesign font foi pour les
-valeurs exactes) :
+Valeurs de référence : **la palette imposée par Rihen pour NKCraft** (UI_SPEC
+§10bis de NKCraft), devenue celle de la famille (NKCraft 02 §1.1) :
 
-| jeton | rôle | Sombre (indicatif) |
-|---|---|---|
-| `@fond.app` | derrière tout | `#0F0F0F` |
-| `@fond.panneau` | corps d'un panneau | `#1A1A1A` |
-| `@fond.entete` | en-tête de catégorie, barre d'onglets | `#242424` |
-| `@fond.champ` | champ de saisie | `#0A0A0A` |
-| `@fond.survol` | survol d'une ligne | `#2E2E2E` |
-| `@bord` | séparations fines | `#303030` |
-| `@texte` | texte courant | `#C0C0C0` |
-| `@texte.faible` | étiquettes secondaires, grisé | `#7A7A7A` |
-| `@accent` | sélection, focus, onglet actif | bleu (`#0E7AD6` environ) |
+| jeton | rôle | Sombre | Clair |
+|---|---|---|---|
+| `@fond.app` | derrière tout | `#141414` | `#F5F5F5` |
+| `@fond.panneau` | corps d'un panneau | `#212121` | `#FFFFFF` |
+| `@fond.entete` | en-tête de catégorie, barres d'outils, onglets | `#2B2B2B` | `#EAEAEA` |
+| `@fond.champ` | champ de saisie | `#0F0F0F` | `#FFFFFF` |
+| `@fond.survol` | survol d'une ligne | `#333333` | `#E0E0E0` |
+| `@bord` | séparations fines | `#303030` | `#D0D0D0` |
+| `@texte` | texte courant | `#C8C8C8` | `#1A1A1A` |
+| `@texte.faible` | étiquettes secondaires, grisé | `#7A7A7A` | `#8A8A8A` |
+| `@accent` | **état de l'interface** : sélection de ligne, focus, onglet actif | `#1177D1` | `#0E5FA6` |
+| `@selection.3d` | **sélection dans la vue 3D** | `#F2980E` | `#C97A08` |
+
+> **Bleu = état de l'interface, ambre = sélection 3D.** Deux familles, pas deux
+> nuances (règle de NKCraft, valable pour toute la famille).
 
 ### 1.2 Les couleurs qui **portent une information** (et elles seules)
 
 | jeton | sens | couleur | pourquoi |
 |---|---|---|---|
-| `@info.ecrit` | **ce bouton écrit une clé** | orange Rihen `#F79A28` | empêcher un clic de trop ; déjà en usage dans la barre d'outils actuelle |
+| `@info.ecrit` | **ce bouton écrit une clé** | orange Rihen `#F79A28` (⚠️ proposition : l'ambre unique `#F2980E`, NKCraft 02 §1.1) | empêcher un clic de trop ; déjà en usage dans la barre d'outils actuelle |
 | `@info.enregistrement` | **clé automatique active** (chaque geste écrit une clé) | rouge | convention de tous les logiciels d'animation : « on enregistre » |
 | `@axe.x` `@axe.y` `@axe.z` | l'axe d'un champ, d'un gizmo | rouge / vert / bleu | convention universelle |
 | `@origine.main` | clé posée à la main | blanc cassé | la référence neutre |

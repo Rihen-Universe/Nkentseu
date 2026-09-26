@@ -36,7 +36,7 @@ Rôle "identifiant"          propriété: valeur   propriété: valeur
 - `→ Host` = zone **remplie par l'application**, avec son `hint`.
 - Une action marquée **✚** dans la table du §6 **n'existe pas encore** : écris-la
   quand même, elle sera grisée avec sa raison.
-- Les icônes sont des noms **Lucide** (déjà la convention de NK3DModeler).
+- Les icônes sont des noms **Lucide** (déjà la convention de NKCraft).
 
 ### 0.2 Les noms d'actions
 
@@ -123,11 +123,11 @@ Chaque entrée dit **pourquoi une composition existante ne suffit pas** et **quo
   `os.bras_g.rotation`).
 - **États** : **vide** (non animé), **plein** (clé à l'image courante), **demi**
   (animé, pas de clé ici). Survol : `@info.ecrit` (il écrit).
-- **Action** : un clic émet `anim.cle_propriete` avec le `bind` en argument.
+- **Action** : un clic émet `commun.cle_propriete` avec le `bind` en argument.
 - **Pourquoi** : chaque ligne animable du panneau Détails en porte un. Trois
   états visuels, un seul geste, un argument : ni `Button` ni `Checkbox`.
 - **En attendant** : `Button` icône `diamond`, identifiant
-  `anim.cle_propriete`, `tooltip` = le chemin.
+  `commun.cle_propriete`, `tooltip` = le chemin.
 
 ### P7 — `CurveField`
 
@@ -210,7 +210,7 @@ Le thème s'appelle **« UE5 Rihen »**, en **Sombre** (défaut) et **Clair**.
 ### 2.1 Les jetons de structure — l'agent ne les écrit **jamais** dans un document
 
 Ils sont le thème : fond d'application, de panneau, d'en-tête, de champ, de
-survol, bord, texte, texte faible, accent. Valeurs indicatives au doc 08 §1.1.
+survol, bord, texte, texte faible, accent. Valeurs au doc 08 §1.1 (palette imposée de Rihen).
 **Aucun document d'interface n'écrit une de ces couleurs** : c'est le thème qui
 les porte.
 
@@ -218,7 +218,7 @@ les porte.
 
 | jeton | Sombre | où | pourquoi |
 |---|---|---|---|
-| `@info.ecrit` | `#F79A28` | fond des boutons qui écrivent une clé ; survol des `KeyDiamond` ; bouton « Appliquer » d'une proposition | **ce bouton écrit** — empêcher un clic de trop |
+| `@info.ecrit` | `#F79A28` (⚠️ proposition : `#F2980E`, l'ambre unique — NKCraft 02 §1.1, décision de Rodolf) | fond des boutons qui écrivent une clé ; survol des `KeyDiamond` ; bouton « Appliquer » d'une proposition | **ce bouton écrit** — empêcher un clic de trop |
 | `@info.enregistrement` | `#E0303A` | `ToggleButton "anim.cle_auto"` actif | chaque geste écrit une clé : l'utilisateur doit le savoir en permanence |
 | `@axe.x` `@axe.y` `@axe.z` | `#D2362E` `#5BA829` `#2F7FE0` | liserés des `VectorField` | l'axe |
 | `@origine.main` | `#D8D8D8` | `Badge` d'origine « M » | d'où vient la clé |
@@ -303,7 +303,7 @@ component "LigneNombre"
   Grid "ligne"             columns: 4   sizes: [0.40, 0.50, 0.05, 0.05]   gap: 4
     Text "etiquette"       text: "?"
     Drag "valeur"          bind: ?   speed: 0.1        // NumberField/Drag non montés : attendu
-    Button "anim.reinitialiser_propriete"   icon: undo-2   tooltip: "Revenir à la valeur par défaut"   visible: false
+    Button "commun.reinitialiser_propriete"   icon: undo-2   tooltip: "Revenir à la valeur par défaut"   visible: false
     KeyDiamond✚ "cle"      bind: ?
 ```
 
@@ -455,7 +455,7 @@ MenuBar "menus"
     MenuItem "fichier.enregistrer_sous"       label: "Enregistrer sous…"     shortcut: "Ctrl+Maj+S"
     Separator "sep_f2"
     Menu "menu_importer"                      label: "Importer"
-      MenuItem "fichier.importer_maillage"    label: "Maillage (NK3DModeler, FBX, glTF)…"
+      MenuItem "fichier.importer_maillage"    label: "Maillage (NKCraft, FBX, glTF)…"
       MenuItem "fichier.importer_mocap"       label: "Mocap (BVH, FBX)…"
       MenuItem "fichier.importer_video"       label: "Vidéo…"
       MenuItem "fichier.importer_audio"       label: "Audio de référence…"
@@ -1222,7 +1222,8 @@ qu'elles sont appelées, à retirer sinon (signale lesquelles sont mortes) :
 
 | domaine | actions (toutes ✚) |
 |---|---|
-| **anim** | `anim.cle_prec` · `anim.cle_suiv` · `anim.cle_auto` · `anim.cle_propriete` 🟠 · `anim.reinitialiser_propriete` · `anim.pose_assistee` · `anim.loco_marcher` · `anim.loco_courir` · `anim.loco_sauter` · `anim.loco_grimper` · `anim.loco_nager` · `anim.loco_ramper` · `anim.loco_custom` |
+| **anim** | `anim.cle_prec` · `anim.cle_suiv` · `anim.cle_auto` · `anim.pose_assistee` · `anim.loco_marcher` · `anim.loco_courir` · `anim.loco_sauter` · `anim.loco_grimper` · `anim.loco_nager` · `anim.loco_ramper` · `anim.loco_custom` |
+| **commun** (composants communs — préfixe fixé le 26/09, voir NKCraft 03 §0.3) | `cle_propriete` 🟠 · `reinitialiser_propriete` |
 | **fichier** | `nouveau` · `ouvrir` · `enregistrer` · `enregistrer_sous` · `importer_maillage` · `importer_mocap` · `importer_video` · `importer_audio` · `exporter_clip` · `exporter_squelette` · `exporter_effet` · `exporter_fbx` · `exporter_gltf` · `quitter` |
 | **edition** | `historique` · `dupliquer` · `supprimer` · `renommer` · `ajuster_derniere` · `preferences` |
 | **selection** | `enfants` · `symetrique` · `meme_origine` |

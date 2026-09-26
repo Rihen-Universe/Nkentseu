@@ -134,7 +134,7 @@ component "LigneAsset"
   Grid "ligne"              columns: 4   sizes: [0.40, 0.50, 0.05, 0.05]   gap: 4
     Text "etiquette"        text: "?"
     AssetField✚ "valeur"    bind: ?   type: ?
-    Button "anim.reinitialiser_propriete"   icon: undo-2   tooltip: "Revenir à la valeur par défaut"   visible: false
+    Button "commun.reinitialiser_propriete"   icon: undo-2   tooltip: "Revenir à la valeur par défaut"   visible: false
     KeyDiamond✚ "cle"       bind: ?   visible: false
 ```
 **Aujourd'hui** : `valeur` = `ChampAsset` (ci-dessous).
@@ -148,9 +148,9 @@ component "ChampAsset"
   HBox "champ"              gap: 2   align: Center
     Image "vignette"        source: "?"   size: (32, 32)
     Text "nom"              text: "(aucun)"
-    Button "contenu.parcourir"         icon: search         tooltip: "Parcourir"
-    Button "contenu.utiliser_selection" icon: arrow-left    tooltip: "Utiliser la sélection du tiroir de contenu"
-    Button "contenu.effacer_reference" icon: x              tooltip: "Effacer"
+    Button "commun.parcourir"         icon: search         tooltip: "Parcourir"
+    Button "commun.utiliser_selection" icon: arrow-left    tooltip: "Utiliser la sélection du tiroir de contenu"
+    Button "commun.effacer_reference" icon: x              tooltip: "Effacer"
 ```
 
 #### `LigneTouche`
@@ -160,7 +160,7 @@ component "LigneTouche"
   Grid "ligne"              columns: 3   sizes: [0.40, 0.50, 0.10]   gap: 4
     Text "etiquette"        text: "?"
     KeyCaptureField✚ "valeur"   bind: ?
-    Button "reglages.retirer_touche"   icon: x   tooltip: "Retirer cette touche"
+    Button "commun.retirer_touche"   icon: x   tooltip: "Retirer cette touche"
 ```
 
 ### 3.2 Propres à Nogee — `Nogee/composants_nogee.nkgui`
@@ -577,7 +577,7 @@ ContextMenu "contenu.menu"                    (non monté : attendu)
   MenuItem "fenetre.references"               label: "Visionneuse de références"
   MenuItem "fenetre.tailles"                  label: "Carte des tailles"
   Separator "s2"
-  MenuItem "contenu.ouvrir_nk3dmodeler"       label: "Ouvrir dans NK3DModeler"
+  MenuItem "contenu.ouvrir_nkcraft"       label: "Ouvrir dans NKCraft"
   MenuItem "contenu.ouvrir_nkanima"           label: "Ouvrir dans NkAnima"
   MenuItem "contenu.ouvrir_nkscena"           label: "Ouvrir dans NKScena"
   MenuItem "contenu.ouvrir_nkuidesign"        label: "Ouvrir dans NKUIDesign"
@@ -871,11 +871,11 @@ Légende : ✅ servie aujourd'hui par Nogee · ✚ à créer (grisée avec sa ra
 
 `anim.annuler` · `anim.refaire` · `anim.copier` · `anim.coller` ·
 `anim.selection_tout` · `anim.selection_rien` · `anim.selection_inverser` ·
-`anim.reinitialiser_propriete` · `anim.aide_raccourcis` · `anim.apropos` ·
+`commun.reinitialiser_propriete` · `anim.aide_raccourcis` · `anim.apropos` ·
 `biblio.ouvrir` · `fenetre.journal` · `ia.assistant` · `ia.proposer` ·
 `ia.apercu` · `ia.appliquer` · `ia.rejeter` · `lecture.*` (aperçu des clips) —
 toutes ✚ **dans Nogee**.
-⚠️ `anim.cle_propriete` : **non servie** dans Nogee (l'éditeur de niveau n'anime
+⚠️ `commun.cle_propriete` : **non servie** dans Nogee (l'éditeur de niveau n'anime
 pas). Les `KeyDiamond` des lignes engendrées y sont **masqués** ; s'il en reste un
 visible, il est grisé avec la raison « Les animations se font dans NkAnima ou
 NKScena ».
@@ -903,8 +903,9 @@ NKScena ».
 | **table** | `ajouter_ligne` · `supprimer_ligne` · `dupliquer_ligne` |
 | **phys** | `ajouter_canal` · `ajouter_profil` · `ajouter_matiere` |
 | **plateforme** | `menu` · `preparer` · `cuire` · `empaqueter` · `lancer` |
-| **reglages** | `menu` · `projet` · `monde` · `ajouter_action` · `ajouter_axe` · `retirer_touche` |
-| **contenu** | `ajouter` · `importer` · `supprimer` · `trouver` · `parcourir` · `utiliser_selection` · `effacer_reference` · `ouvrir_nk3dmodeler` · `ouvrir_nkanima` · `ouvrir_nkscena` · `ouvrir_nkuidesign` · `ouvrir_nkcode` |
+| **reglages** | `menu` · `projet` · `monde` · `ajouter_action` · `ajouter_axe` |
+| **commun** | `parcourir` · `utiliser_selection` · `effacer_reference` · `retirer_touche` · `reinitialiser_propriete` |
+| **contenu** | `ajouter` · `importer` · `supprimer` · `trouver` · `ouvrir_nkcraft` · `ouvrir_nkanima` · `ouvrir_nkscena` · `ouvrir_nkuidesign` · `ouvrir_nkcode` |
 | **scene** | `nouveau_dossier` |
 | **journal** | `copier` · `effacer` |
 | **monde** | `terrain_nouveau` · `terrain_importer` |
