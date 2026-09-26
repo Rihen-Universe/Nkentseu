@@ -685,8 +685,23 @@ static int MonterUnFichier(const char *chemin) {
 		//    est exactement le meme piege qu'un `Group` vide. *Une liste de noms
 		//    ecrite en dur se perime des qu'un role naît ; celle-ci se corrige ici, et
 		//    le jour ou elle se perimera encore, ce commentaire dit pourquoi.*
+		// ⚠️ ET ELLE S'EST PERIMEE UNE SECONDE FOIS, LE 26/09, EXACTEMENT COMME
+		//    LA LIGNE AU-DESSUS L'AVAIT PREDIT. Six roles de CONTENEUR sont nes ce
+		//    jour-la : `MenuBar`, `Menu`, `Flow`, `Grid`, et `Row`/`Column` (ces
+		//    deux derniers devenus synonymes de `HBox`/`VBox`). Le compteur les
+		//    prenait pour des widgets utiles.
+		//
+		//    MESURE QUI L'A REVELE : le MEME document, ecrit en `HBox`/`VBox` puis
+		//    en `Row`/`Column`, montait 7 widgets dans les deux cas -- mais rendait
+		//    **4 roles utiles contre 6**. Le montage etait identique ; c'est le
+		//    RELEVE qui differait.
+		//
+		//    `MenuItem` N'EST PAS dans la liste, et c'est voulu : une entree de menu
+		//    MONTRE quelque chose, elle n'est pas un simple conteneur.
 		if (r.Compare("Group") != 0 && r.Compare("VBox") != 0 && r.Compare("HBox") != 0
-			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0 && r.Compare("Scroll") != 0)
+			&& r.Compare("Panel") != 0 && r.Compare("Window") != 0 && r.Compare("Scroll") != 0
+			&& r.Compare("Row") != 0 && r.Compare("Column") != 0 && r.Compare("Flow") != 0
+			&& r.Compare("Grid") != 0 && r.Compare("MenuBar") != 0 && r.Compare("Menu") != 0)
 			++nonGroupes;
 	}
 	printf("  roles utiles: %u widget(s) qui ne sont pas un simple conteneur\n", nonGroupes);
