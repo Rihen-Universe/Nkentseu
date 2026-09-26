@@ -270,6 +270,12 @@ namespace nkentseu {
 			bool GetLockOrientation() const;
 
 			// --- Souris ---
+			// ⚠️ POUR *LIRE* LA POSITION DE LA SOURIS : `NkInput.MouseX()` /
+			//    `MouseY()` dans **NKEvent** (NkEventDispatcher.h) -- il n'y a pas de
+			//    getter ici. Ajoute le 2026-09-26 parce qu'un utilisateur a cherche
+			//    la lecture la ou est l'ecriture, ce qui est le reflexe normal.
+			//    *Une moitie de geste sans renvoi vers l'autre est un silence, pas
+			//    une absence.*
 			void SetMousePosition(uint32 x, uint32 y);
 
 			// ── LA POSITION EN COORDONNEES **CLIENT** ────────────────────────────
@@ -288,6 +294,30 @@ namespace nkentseu {
 			// echoue : jamais un repli muet, l'appelant doit pouvoir constater que
 			// rien n'a bouge plutot que de croire que tout va bien.
 			bool SetMousePositionClient(int32 x, int32 y);
+
+			// ── LA MEME CHOSE, MAIS LA FENETRE EST NOMMEE (2026-09-26) ────────
+			// Demandee par Rodolf : « un setter qui prend soit un id de fenetre
+			// soit une fenetre elle-meme ». Elle rend EXPLICITE ce que
+			// `SetMousePosition` avait d'implicite -- *sur quelle fenetre ?*
+			//
+			// ⚠️ ELLE DELEGUE, ELLE NE REIMPLEMENTE RIEN : un seul corps de code
+			//    place le curseur, celui de `SetMousePositionClient`. *Plusieurs
+			//    portes vers une seule implementation : tres bien. Deux
+			//    implementations de la meme semantique : jamais.* Ce depot a paye
+			//    trois secondes portes en deux jours, et elles ont toutes diverge.
+			//
+			// ⚠️ COORDONNEES CLIENT, SANS VARIANTE AMBIGUE. Une troisieme entree
+			//    qui dirait juste « pose la souris » re-introduirait l'ambiguite
+			//    ecran/fenetre deja payee au-dessus.
+			//
+			// ⚠️ ET POURQUOI ELLE N'EST PAS DANS `NkInput`, COMME PROPOSE :
+			//    `NkInput` vit dans **NKEvent**, et **NKWindow depend de NKEvent**,
+			//    pas l'inverse (NKEvent.jenga l. 28). Un setter dans NkInput qui
+			//    appellerait NkWindow inverserait le graphe de dependances.
+			//    *Le graphe impose la coupe.* L'en-tete de `NkInput` RENVOIE donc
+			//    ici : les deux moities du geste restent nommees au meme endroit,
+			//    ce qui etait le vrai besoin.
+			friend bool NkPlaceMouseInWindow(NkWindow &window, int32 x, int32 y);
 
 			void SetMousePosition(const math::NkVec2u &pos) {
 				SetMousePosition(pos.x, pos.y);
@@ -398,5 +428,13 @@ namespace nkentseu {
 			NkWindowConfig mConfig;
 			NkError mLastError;
 	};
+
+	// ⚠️ LA PORTE NOMMEE : delegation pure vers NkWindow::SetMousePositionClient.
+	//    Voir le commentaire sur sa declaration `friend` dans la classe.
+	//    Elle est DEHORS de la classe : c'est une fonction libre, pas une
+	//    methode -- elle nomme la fenetre dans sa signature.
+	inline bool NkPlaceMouseInWindow(NkWindow &window, int32 x, int32 y) {
+		return window.SetMousePositionClient(x, y);
+	}
 
 } // namespace nkentseu

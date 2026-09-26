@@ -175,8 +175,16 @@ int main() {
 	// Le sommet de la pente a cette abscisse, calcule geometriquement. On ne
 	// peut pas raycaster ici : le monde physique appartient au systeme de la
 	// couche, et ce banc a justement pour regle de ne rien lui demander.
+	// ⚠️ L'ATTENDU S'ECRIT AVEC LA CONDITION QU'IL SUPPOSE. Le pied GAUCHE est
+	//    a x - 0,15 (demi-ecartement), pas a x : le rayon frappe donc la pente
+	//    plus bas. Premier jet de ce banc : j'avais ecrit `kX`, l'ecart sortait
+	//    a -0,0374 m et je l'aurais mis sur le dos du moteur. C'etait mon
+	//    attendu. Avec la bonne abscisse, l'accord est au millimetre -- et la
+	//    tolerance peut alors etre SERREE au lieu d'etre large pour cacher une
+	//    approximation.
+	const float32 kDemiEcart = 0.15f;
 	const float32 solAttendu = 0.5f / math::NkCos(kPenteDeg * kPI / 180.f)
-							   + kX * math::NkTan(kPenteDeg * kPI / 180.f);
+							   + (kX - kDemiEcart) * math::NkTan(kPenteDeg * kPI / 180.f);
 	const float32 piedY = sk->Pose(fk->leftFootIdx).localPosition.y;
 	const float32 ecart = piedY - (solAttendu + kFootHeight);
 
@@ -184,10 +192,11 @@ int main() {
 	std::snprintf(d1, sizeof(d1),
 				  "x=%+.1f : sol attendu %.4f   pied %.4f   ecart %+.4f   (grounded %s)", kX,
 				  solAttendu, piedY, ecart, fk->leftFoot.isGrounded ? "oui" : "NON");
-	// Tolerance large : ce banc mesure SI LE FIL TRAVERSE, pas la precision de
-	// l'IK -- celle-la est mesuree par NkDemoPiedsSurLaPente, au centimetre.
-	Critere("LE FIL TRAVERSE : le pied a quitte sa pose de depart pour le relief",
-			ecart > -0.15f && ecart < 0.15f, d1);
+	// Tolerance SERREE, maintenant que l'attendu est juste : 2 cm. Une tolerance
+	// large aurait laisse passer une derive du meme ordre que mon erreur de
+	// depart -- c'est-a-dire exactement ce qu'on veut detecter.
+	Critere("LE FIL TRAVERSE : le pied epouse le relief, place par la COUCHE",
+			ecart > -0.02f && ecart < 0.02f, d1);
 
 	// ── Le NEGATIF : sans le monde physique, le pied suit un sol a y = 0 ────
 	// On ne peut pas retirer l'enregistrement du systeme depuis ici sans

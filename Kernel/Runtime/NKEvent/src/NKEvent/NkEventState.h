@@ -565,6 +565,14 @@ namespace nkentseu {
 			int32 screenX = 0;
 			int32 screenY = 0;
 			int32 deltaX = 0;
+			// ── LE DELTA DE L'IMAGE (2026-09-26) ─────────────────────────────
+			// ⚠️ `deltaX/Y` ci-dessus est le delta du dernier EVENEMENT de
+			//    mouvement : il PERSISTE tant que la souris ne bouge pas. Ces
+			//    deux-ci CUMULENT les mouvements de l'image et sont remis a ZERO
+			//    par `BeginFrame()`, que la boucle de l'application appelle.
+			//    Souris immobile -> ils valent 0 ; `deltaX/Y` garde sa valeur.
+			int32 frameDeltaX = 0;
+			int32 frameDeltaY = 0;
 			int32 deltaY = 0;
 			int32 rawDeltaX = 0;
 			int32 rawDeltaY = 0;
@@ -599,10 +607,20 @@ namespace nkentseu {
 			void OnMove(int32 nx, int32 ny, int32 nsx, int32 nsy) noexcept {
 				deltaX = nx - x;
 				deltaY = ny - y;
+				// On CUMULE : plusieurs evenements peuvent arriver dans une image.
+				frameDeltaX += deltaX;
+				frameDeltaY += deltaY;
 				x = nx;
 				y = ny;
 				screenX = nsx;
 				screenY = nsy;
+			}
+
+			// Remet a zero le delta de l'image. A appeler UNE FOIS par image, au
+			// debut -- via `NkInput.NewFrame()`.
+			void BeginFrame() noexcept {
+				frameDeltaX = 0;
+				frameDeltaY = 0;
 			}
 
 			void OnRaw(int32 rdx, int32 rdy) noexcept {
@@ -636,6 +654,8 @@ namespace nkentseu {
 				screenY = 0;
 				deltaX = 0;
 				deltaY = 0;
+				frameDeltaX = 0;
+				frameDeltaY = 0;
 				rawDeltaX = 0;
 				rawDeltaY = 0;
 				buttons = {};

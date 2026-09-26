@@ -53,7 +53,13 @@ namespace eprouvette {
 			bool penteLisible = false;
 
 			float solSousPiedG = 0.f; // hauteur du sol juste sous le pied gauche
+			float solSousPiedD = 0.f; // ... et sous le droit
 			bool solLisible = false;
+
+			// ── LA PHASE DE CHAQUE PIED, telle qu'elle est FOURNIE ───────────
+			// C'est le poids de plante lu dans le composant, pas une deduction
+			// faite ici : ce que l'ecran montre est ce que l'IK a recu.
+			float planteG = 1.f, planteD = 1.f;
 
 			// Deux points du sol, pour tracer la pente telle qu'elle EST.
 			float solGaucheY = 0.f, solDroiteY = 0.f;
@@ -124,6 +130,13 @@ namespace eprouvette {
 	// `branche` : l'IK interroge le monde physique (sinon : plan plat a y=0).
 	bool PoserCesiumSurPente(float x, bool branche, SurPente &out) noexcept;
 
+	// ── L'ALTERNANCE, IMPOSEE A LA MAIN ───────────────────────────────────
+	// Fournit le poids de plante des deux pieds depuis l'exterieur, en creneau.
+	// ⚠️ CE N'EST PAS UN CYCLE DE MARCHE, et la distinction est le sujet : un
+	//    generateur de cycle serait du NEUF. Ici, deux valeurs en opposition
+	//    de phase, juste assez pour que la question se voie.
+	void ImposerAlternance(float temps, bool active) noexcept;
+
 	// ── La compensation de hanche, mise a l'epreuve ────────────────────────
 	// Deux soupcons a la LECTURE de NkFootIKSystem, qu'il faut MESURER :
 	//   (1) `dL/dR` valent une ALTITUDE de sol, pas un ecart -- donc sur un sol
@@ -140,6 +153,13 @@ namespace eprouvette {
 			float apres200 = 0.f; // ... apres 200 : la convergence est finie ici
 			float offsetVu = 0.f; // hipOffset tel que le composant le porte
 			bool groundeG = false, groundeD = false; // les DEUX pieds touchent-ils ?
+
+			// ── De quoi former une EGALITE au lieu d'un seuil ─────────────────
+			// La compensation doit valoir la correction du pied LE MOINS corrige,
+			// multipliee par hipCompensation. C'est ce que le code pretend faire ;
+			// une ALTITUDE de sol ne satisferait pas cette egalite.
+			float corrPiedG = 0.f, corrPiedD = 0.f; // deplacement vertical de chaque pied
+			float compensation = 0.5f;               // hipCompensation lu dans le composant
 	};
 
 	// Sur la pente, a une abscisse ou le sol est HAUT : la hanche derive-t-elle ?
@@ -158,14 +178,19 @@ namespace eprouvette {
 	struct Envol {
 			bool mesure = false;
 			float leveA = 0.f;    // ou on a POSE le pied, au-dessus du sol
-			float apres = 0.f;    // ou il se retrouve apres l'IK
+			float apres = 0.f;    // ou il se retrouve apres l'IK (60 images)
+			// ⚠️ TROIS RELEVES DANS LE TEMPS, et c'est le seul moyen de distinguer
+			//    un POIDS d'un TAUX : un poids se stabilise et y reste ; un taux
+			//    continue de descendre, meme lentement.
+			float a10 = 0.f, a60 = 0.f, a300 = 0.f;
 			float solSous = 0.f;
 			float poids = 0.f;    // contactWeight du pied leve
 			bool groundeEnLair = false; // « touche le sol » alors qu'il est en l'air ?
 	};
 
-	// Leve le pied gauche de `hauteur` metres, puis laisse l'IK travailler.
-	bool EprouverEnvol(float hauteur, Envol &out) noexcept;
+	// Leve le pied gauche de `hauteur` metres, fixe son POIDS DE PLANTE, puis
+	// laisse l'IK travailler. `plante` : 0 = envol, 1 = appui.
+	bool EprouverEnvol(float hauteur, float plante, Envol &out) noexcept;
 
 	// Mode console : imprime les critères, rend le nombre d'échecs.
 	int Mesurer() noexcept;

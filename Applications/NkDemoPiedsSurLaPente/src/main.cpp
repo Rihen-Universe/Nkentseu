@@ -113,6 +113,13 @@ int nkmain(const NkEntryState &state) {
 	Case caseFil{20.f, 580.f, 20.f, 20.f, true,
 				 "BRANCHER LE MONDE PHYSIQUE a l'IK  (decochez : les pieds traversent la pente)"};
 	Case casePause{20.f, 608.f, 20.f, 20.f, false, "Pause du deplacement"};
+	// ⚠️ L'ALTERNANCE EST IMPOSEE A LA MAIN, pas calculee : un creneau de
+	//    2 s qui fournit le poids de plante depuis l'exterieur. Ce n'est PAS
+	//    un cycle de marche -- en ecrire un serait batir. Elle existe pour
+	//    qu'on VOIE la difference entre un pied en appui et un pied en envol,
+	//    ce qu'un personnage immobile ne peut pas montrer.
+	Case caseAlt{20.f, 636.f, 20.f, 20.f, true,
+			 "ALTERNER les pieds (creneau 2 s impose, PAS un cycle de marche)"};
 
 	eprouvette::Construire(caseFil.cochee);
 
@@ -122,6 +129,7 @@ int nkmain(const NkEntryState &state) {
 	const bool aCesium = eprouvette::ImporterCesiumMan(im);
 
 	float32 sourisX = 0.f, sourisY = 0.f, x = -5.f, sens = 1.f;
+	float32 tempsAlt = 0.f;
 	auto &events = NkEvents();
 
 	const float32 echelle = 58.f;
@@ -164,6 +172,9 @@ int nkmain(const NkEntryState &state) {
 					} else if (DansRect(sourisX, sourisY, casePause.x, casePause.y, 640.f,
 										casePause.h)) {
 						casePause.cochee = !casePause.cochee;
+					} else if (DansRect(sourisX, sourisY, caseAlt.x, caseAlt.y, 640.f,
+										caseAlt.h)) {
+						caseAlt.cochee = !caseAlt.cochee;
 					}
 				}
 			}
@@ -179,6 +190,9 @@ int nkmain(const NkEntryState &state) {
 				sens = 1.f;
 			}
 		}
+		// Le poids est POUSSE avant que l'IK ne tourne : elle le recoit.
+		tempsAlt += 1.f / 60.f;
+		eprouvette::ImposerAlternance(tempsAlt, caseAlt.cochee);
 		eprouvette::Placer(x, 2);
 
 		eprouvette::Etat e;
@@ -199,15 +213,48 @@ int nkmain(const NkEntryState &state) {
 			const int32 jambeD[4] = {eprouvette::kHip, eprouvette::kRThigh, eprouvette::kRCalf,
 									 eprouvette::kRFoot};
 			const int32 *jambes[2] = {jambeG, jambeD};
-			const NkColor2D cols[2] = {NkColor2D{235, 180, 60, 255}, NkColor2D{120, 190, 235, 255}};
+			// ⚠️ LA COULEUR DIT LA PHASE, PAS LE COTE, et c'est tout le sujet du
+			//    retour de Rodolf : « on ne peut pas distinguer les pieds qui
+			//    montent naturellement ». Un pied en APPUI est orange, un pied en
+			//    ENVOL est bleu clair. La legende est en bas.
+			//    Le poids affiche est celui que l'IK a RECU, relu dans le
+			//    composant -- pas une deduction refaite ici.
+			const float32 poids[2] = {e.planteG, e.planteD};
+			const NkColor2D kAppui{235, 180, 60, 255};
+			const NkColor2D kEnvol{110, 190, 240, 255};
+			const NkColor2D cols[2] = {poids[0] >= 0.5f ? kAppui : kEnvol,
+					   poids[1] >= 0.5f ? kAppui : kEnvol};
 			for (int32 j = 0; j < 2; ++j)
 				for (int32 s = 0; s < 3; ++s)
 					trait(sx(e.osX[jambes[j][s]]), sy(e.osY[jambes[j][s]]),
 						  sx(e.osX[jambes[j][s + 1]]), sy(e.osY[jambes[j][s + 1]]), 8.f, cols[j]);
+
+			// ── Sous chaque pied : le POINT DE CONTACT et l'ECART ───────────
+			// Le point est pris sur le SOL LU par raycast, a l'abscisse du pied.
+			// Le segment vertical entre les deux EST l'ecart : un pied pose n'en
+			// montre aucun, un pied en envol en montre un long. C'est la reponse
+			// visible a « on ne distingue pas un pied qui monte ».
+			const int32 pieds[2] = {eprouvette::kLFoot, eprouvette::kRFoot};
+			const float32 sols[2] = {e.solSousPiedG, e.solSousPiedD};
+			for (int32 j = 0; j < 2; ++j) {
+				const float32 px = e.osX[pieds[j]];
+				const float32 py = e.osY[pieds[j]];
+				const float32 sy0 = sols[j] + eprouvette::HauteurSemelle();
+				// le point de contact : un petit disque sur le sol
+				NkCircleShape pc(5.f, 14u);
+				pc.SetPosition({sx(px) - 5.f, sy(sols[j]) - 5.f});
+				pc.SetFillColor(NkColor2D{235, 235, 235, 255});
+				target.Draw(pc);
+				// le segment d'ecart, seulement s'il vaut la peine d'etre vu
+				const float32 ec = py - sy0;
+				if (ec > 0.02f || ec < -0.02f)
+					trait(sx(px), sy(py), sx(px), sy(sy0), 3.f,
+						  ec > 0.f ? NkColor2D{110, 190, 240, 255} : NkColor2D{235, 110, 110, 255});
+			}
 		}
 
-		const Case *cases[2] = {&caseFil, &casePause};
-		for (int32 i = 0; i < 2; ++i) {
+		const Case *cases[3] = {&caseFil, &casePause, &caseAlt};
+		for (int32 i = 0; i < 3; ++i) {
 			NkRectangleShape b({cases[i]->w, cases[i]->h});
 			b.SetPosition({cases[i]->x, cases[i]->y});
 			b.SetFillColor(cases[i]->cochee ? NkColor2D{235, 180, 60, 255}
@@ -271,6 +318,27 @@ int nkmain(const NkEntryState &state) {
 			t3.SetFillColor(NkColor2D{150, 156, 164, 255});
 			t3.SetPosition({20.f, 108.f});
 			target.Draw(static_cast<NkDrawable &>(t3));
+
+			char lg[240];
+			std::snprintf(lg, sizeof(lg),
+					  "PHASE  gauche %s (poids %.2f)   droite %s (poids %.2f)   "
+					  "|  orange = APPUI, bleu = ENVOL",
+					  e.planteG >= 0.5f ? "APPUI" : "ENVOL", e.planteG,
+					  e.planteD >= 0.5f ? "APPUI" : "ENVOL", e.planteD);
+			NkText tl(font, lg, 17u);
+			tl.SetFillColor(NkColor2D{235, 235, 235, 255});
+			tl.SetPosition({20.f, 132.f});
+			target.Draw(static_cast<NkDrawable &>(tl));
+
+			char lg2[240];
+			std::snprintf(lg2, sizeof(lg2),
+					  "ECART pied -> sol   gauche %+6.3f m   droite %+6.3f m   (le segment vertical le montre)",
+					  e.osY[eprouvette::kLFoot] - (e.solSousPiedG + eprouvette::HauteurSemelle()),
+					  e.osY[eprouvette::kRFoot] - (e.solSousPiedD + eprouvette::HauteurSemelle()));
+			NkText tl2(font, lg2, 15u);
+			tl2.SetFillColor(NkColor2D{175, 180, 188, 255});
+			tl2.SetPosition({20.f, 154.f});
+			target.Draw(static_cast<NkDrawable &>(tl2));
 
 			NkText t4(font, "La pente est tracee depuis le SOL LU, jamais depuis la consigne.",
 					  14u);
