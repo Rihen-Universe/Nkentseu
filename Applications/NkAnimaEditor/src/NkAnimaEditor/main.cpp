@@ -12,6 +12,7 @@
 #include "NkCoquilleDocument.h"			   // L'INTERFACE VIENT D'UN DOCUMENT, PAS D'ICI
 #include "NkEditorRHIRenderer.h"		   // UI sur NKRHI/NKRenderer (pas NKCanvas)
 #include "NKGui/Core/NkGuiDrawListRaster.h" // la sonde, sans fenetre ni GPU
+#include <cstring> // strlen : la sonde des evenements lit un document en memoire
 #include <cstdio>  // traces de la MESURE (canal chrome) : couleur et geometrie reelles
 #include <cstdlib> // getenv : negatif et choix de theme, dans le MEME binaire
 
@@ -507,6 +508,101 @@ static int SondeCoquille(const char *dossier) {
 				g_coquille.panneau.actionsInconnues);
 	if (!negOk)
 		++rouges;
+
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LES EVENEMENTS — deux images, parce qu'un changement a besoin d'un AVANT
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Un `behavior "x"(Changed)` ne doit PAS partir a la premiere image : une
+	//  valeur vue pour la premiere fois n'a pas change, elle est APPARUE. Il doit
+	//  partir a la seconde, si la valeur a bouge entre les deux.
+	//
+	//  ⚠️ LE NEGATIF EST DANS LA MESURE ELLE-MEME. La premiere image est le
+	//     negatif de la seconde : si les deux declenchaient, on aurait
+	//     simplement retrouve le comportement d'avant -- tout passe a chaque
+	//     image -- en croyant avoir un evenement.
+	{
+		nkanima::NkBandeDocument bande;
+		bande.actions = actions;
+		bande.nbActions = nAct;
+		bande.zones = zones;
+		bande.nbZones = nZon;
+
+		// Un document minimal : une case, et un comportement qui n'ecoute QUE
+		// son changement.
+		static const char *kDocEvt =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  VBox \"col\" {\n"
+			"    Checkbox \"essai\" { label = \"essai\" bind = essai.valeur }\n"
+			"  }\n"
+			"}\n"
+			"behavior \"temoin\" {\n"
+			"  Callback \"anim.jouer\"()\n"
+			"}\n"
+			"behavior \"essai\" {\n"
+			"  on = Changed\n"
+			"  Callback \"anim.jouer\"()\n"
+			"}\n";
+		NkArchive arbreEvt;
+		NkGuiDiag errEvt;
+		bool lisible = NkGuiArchive::Read(kDocEvt, (uint32)std::strlen(kDocEvt), arbreEvt, errEvt);
+		if (lisible)
+			lisible = bande.Adopter(arbreEvt);
+
+		uint32 img1 = 0, img2 = 0, ignores1 = 0;
+		if (lisible) {
+			nkgui::NkGuiContext c1;
+			c1.viewW = 200;
+			c1.viewH = 120;
+			if (policeOk)
+				c1.font = &police;
+			c1.BeginFrame(0.016f);
+			c1.BeginLayout({0.f, 0.f, 200.f, 120.f});
+			bande.Monter(c1);
+			img1 = bande.evts.comportementsDeclenches;
+			ignores1 = bande.evts.comportementsIgnores;
+
+			// On change la valeur liee ENTRE les deux images, comme le ferait un
+			// clic de l'utilisateur.
+			if (nkgui::NkGuiMonteEtat::Entree *e = bande.etat.Get(NkStringView("essai.valeur")))
+				e->b = !e->b;
+
+			nkgui::NkGuiContext c2;
+			c2.viewW = 200;
+			c2.viewH = 120;
+			if (policeOk)
+				c2.font = &police;
+			c2.BeginFrame(0.016f);
+			c2.BeginLayout({0.f, 0.f, 200.f, 120.f});
+			bande.Monter(c2);
+			img2 = bande.evts.comportementsDeclenches;
+		}
+
+		// ⚠️ L'ATTENDU SE DERIVE DU DOCUMENT, il ne se recopie pas sur ce qu'on
+		//    observe. Le document porte DEUX comportements :
+		//      `temoin` sans `on`  -> part a CHAQUE image (comportement d'avant)
+		//      `essai`  on=Changed -> ne part QUE si la valeur a bouge
+		//    donc image 1 : 1 declenche (temoin) + 1 ignore (essai, apparition)
+		//         image 2 : 2 declenches (temoin + essai, la valeur a change)
+		//
+		//    ⚠️ ET CET ATTENDU A DEJA ETE FAUX UNE FOIS, le 26/09 : il valait
+		//       « 0 puis 1 », ecrit quand le document n'avait qu'un comportement.
+		//       Le temoin a ete ajoute ensuite et l'attendu n'a pas suivi -- il a
+		//       rougi sur un resultat JUSTE. *Un attendu en dur se perime dès que
+		//       la condition qu'il suppose change.*
+		const bool evtOk = lisible && img1 == 1u && ignores1 == 1u && img2 == 2u;
+		std::printf("  [ %s ] evenements       lisible=%d  image 1 : declenches=%u ignores=%u "
+					"inconnus=%u sansSource=%u faits=%u  |  image 2 : declenches=%u\n",
+					evtOk ? "OK" : "KO", lisible ? 1 : 0, img1, ignores1,
+					bande.evts.evenementsInconnus, bande.evts.evenementsSansSource,
+					bande.evts.faits, img2);
+		if (!evtOk) {
+			std::printf("         -> attendu : image 1 = 1 declenche (le temoin sans `on`) + 1 "
+						"ignore ; image 2 = 2. Un `behavior on=Changed` qui partirait des la "
+						"premiere image serait le comportement d'AVANT, deguise en evenement\n");
+			++rouges;
+		}
+	}
 
 	std::printf("=== %s ===\n", rouges == 0 ? "TOUT PASSE" : "AU MOINS UN ECHEC");
 	return rouges == 0 ? 0 : 1;
