@@ -23,6 +23,9 @@
 #include "Noge/ECS/Components/Physics/NkPhysics.h"
 #include "Noge/ECS/Systems/NkPhysicsSystem.h"
 #include "Noge/Anim/NkLocomotion.h"
+#include "NKLogger/NkLog.h"
+
+#include <cstring>
 
 #include <cstdio>
 
@@ -300,6 +303,73 @@ namespace eprouvette {
 			++echecs;
 
 		Detruire();
+
+		// == LES NOMS D'OS (CesiumMan.glb) ====================================
+		std::printf("\n  -- les NOMS D'OS, sur un modele VERSIONNE ---------------------\n");
+		Import im;
+		const bool ok = ImporterCesiumMan(im);
+		if (!ok) {
+			std::printf("  [ECHEC] import de CesiumMan.glb : %s\n", im.refus);
+			++echecs;
+			return echecs;
+		}
+		std::printf("      %d os, dont %d NOMMES, dont %d avec un parent\n", im.osTotal,
+					im.osNommes, im.osAvecParent);
+
+		// 3. le fil du jour : les noms arrivent-ils jusqu'au squelette ?
+		const bool tousNommes = im.osNommes == im.osTotal && im.osTotal > 0;
+		std::printf("  [%s] les noms ARRIVENT au squelette (%d/%d)\n", tousNommes ? "OK" : "ECHEC",
+					im.osNommes, im.osTotal);
+		if (!tousNommes)
+			++echecs;
+
+		// 4. et la jambe se DESIGNE par son nom, sans deviner aucun indice
+		std::printf("      %-16s -> os %d\n      %-16s -> os %d\n      %-16s -> os %d\n",
+					im.cuisse.nom, im.cuisse.indice, im.mollet.nom, im.mollet.indice,
+					im.pied.nom, im.pied.indice);
+		const bool jambe = im.cuisse.indice >= 0 && im.mollet.indice >= 0 && im.pied.indice >= 0 &&
+						   im.cuisse.indice != im.mollet.indice && im.mollet.indice != im.pied.indice;
+		std::printf("  [%s] la jambe se DESIGNE par son nom (trois os distincts)\n",
+					jambe ? "OK" : "ECHEC");
+		if (!jambe)
+			++echecs;
+
+		// 5. LE NEGATIF DU NOM : un nom absent doit REFUSER, jamais rendre l'os 0.
+		//    Un repli silencieux sur zero plierait la racine en croyant plier le
+		//    pied, et le critere precedent serait vert quand meme.
+		std::printf("      %s\n", im.refus);
+		const bool refuse = im.indiceAbsent < 0;
+		std::printf("  [%s] NEGATIF : un nom ABSENT rend un refus, pas l'os 0\n",
+					refuse ? "OK" : "ECHEC");
+		if (!refuse)
+			++echecs;
+
+		// 6. LA LIMITE, mesuree et NON corrigee : le pont lit la pose LOCALE
+		//    comme si elle etait monde. Sur un squelette hierarchique, les deux
+		//    divergent -- donc designer les os par leur nom NE SUFFIT PAS ENCORE
+		//    pour poser les pieds d'un vrai personnage. Ce n'est pas un echec de
+		//    ce lot : c'est le lot suivant, et il faut le DIRE plutot que de
+		//    laisser une demo verte le faire oublier.
+		std::printf("      pied : pose LOCALE y = %.4f   pose MONDE y = %.4f   ecart %+.4f\n",
+					im.piedLocalY, im.piedMondeY, im.piedLocalY - im.piedMondeY);
+		const float32 ecartH = (im.piedLocalY - im.piedMondeY) < 0.f ? (im.piedMondeY - im.piedLocalY)
+															   : (im.piedLocalY - im.piedMondeY);
+		if (im.osAvecParent > 0 && ecartH > 0.001f)
+			std::printf("  [DIT]   la POSE LOCALE N'EST PAS LA POSE MONDE (%d os ont un "
+						"parent) --\n          NkFootIKSystem lit la locale comme si elle etait "
+						"monde.\n          Les noms sont la ; le pont, lui, suppose encore un "
+						"squelette PLAT.\n          Ce n'est PAS un echec de ce lot : c'est le "
+						"lot suivant.\n",
+						im.osAvecParent);
+			// ⚠️ L'ARGUMENT MANQUAIT, et le defaut est instructif : le %d
+			//    lisait la pile et imprimait « -4 os ont un parent » pendant que la
+			//    ligne du dessus en comptait 18. Un printf prive de son argument
+			//    COMPILE, ne previent pas, et rend un nombre CREDIBLE. Trouve parce
+			//    que deux lignes de la meme sortie se contredisaient -- c'est la
+			//    seule raison pour laquelle il a ete vu.
+		else
+			std::printf("  [DIT]   aucune divergence locale/monde mesuree ici\n");
+
 		return echecs;
 	}
 

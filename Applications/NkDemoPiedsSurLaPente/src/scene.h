@@ -75,6 +75,32 @@ namespace eprouvette {
 	// Remplit `out` pour l'abscisse `x` (déjà placée).
 	void Lire(float x, Etat &out) noexcept;
 
+	// ── Le montage CesiumMan : les os DESIGNES PAR LEUR NOM ──────────────
+	// Renseigne par l'import de `Resources/Models/CesiumMan/CesiumMan.glb`,
+	// dont les 19 joints sont nommes dans le fichier.
+	struct OsNomme {
+			char nom[64] = {};
+			int indice = -1; // -1 = introuvable : un REFUS, jamais l'os 0
+	};
+
+	struct Import {
+			bool charge = false;
+			int osTotal = 0;
+			int osNommes = 0; // combien portent un nom apres l'import
+			OsNomme cuisse, mollet, pied;
+			// ⚠️ La HIERARCHIE, et c'est la limite qui compte : `NkFootIKSystem`
+			//    lit `Pose(i).localPosition` COMME une position monde. Vrai pour
+			//    un squelette plat, faux pour CesiumMan dont les os ont un parent.
+			int osAvecParent = 0;
+			float piedLocalY = 0.f;  // ce que le pont lit
+			float piedMondeY = 0.f;  // ce que c'est vraiment (LocalToWorld)
+			char refus[160] = {};    // le refus nomme d'un nom absent
+			int indiceAbsent = 0;    // ce que rend FindBone sur un nom inexistant
+	};
+
+	// Importe CesiumMan et remplit `out`. Ne touche pas la scene de la pente.
+	bool ImporterCesiumMan(Import &out) noexcept;
+
 	// Mode console : imprime les critères, rend le nombre d'échecs.
 	int Mesurer() noexcept;
 
