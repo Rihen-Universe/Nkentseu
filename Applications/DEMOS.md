@@ -582,3 +582,15 @@ reste où la pose l'a mis et s'**enfonce** de 0,43 m.
 > **Deux erreurs de signe opposé prouvent qu'il ne suit pas le relief. Une seule aurait pu venir
 > d'autre chose.** Ne montrer que le côté qui traverse aurait laissé croire que « le pied suit le
 > plan plat », ce qui n'est vrai que d'un côté.
+
+### ⚠️ Ce que cette démo ne prouve PAS, et il faut le dire
+
+Elle appelle `SetPhysicsWorld` **elle-même**. Elle prouve donc que **le mécanisme** fonctionne —
+pas que `NkEngineLayer::RegisterCoreSystems` le fait. Les deux lignes y ont bien été posées le
+26/09, et la couche a un consommateur réel (`Applications/Sandbox/.../Base06/Hello3DApp.h:176`,
+`PushLayer(new NkEngineLayer())`), mais **aucune entité `NkFootIK` n'existe dans cette
+application** : le système s'exécute sur zéro entité, donc le fil de `NkEngineLayer` reste
+**non traversé**.
+
+> *Le mécanisme est prouvé, le site ne l'est pas.* Ce qui le prouverait : une scène Sandbox
+> portant `NkSkeleton` + `NkFootIK`, sans que rien n'appelle `SetPhysicsWorld` à la main.
