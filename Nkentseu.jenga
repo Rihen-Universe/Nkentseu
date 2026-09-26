@@ -1729,6 +1729,12 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NkWindowSonde/NkWindowSonde.jenga"):
 
         pass
+    # La DEMO du curseur : quatre zones, quatre formes. Elle montre ce que le
+    # banc ne peut pas mesurer -- la forme ne s applique que sous une souris qui
+    # SURVOLE, et les fenetres de sonde sont invisibles.
+    with include("Applications/NkDemoCurseur/NkDemoCurseur.jenga"):
+        pass
+
 
 
 
