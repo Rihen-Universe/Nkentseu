@@ -407,9 +407,9 @@ NkAnimaEditor.exe --sonde-coquille --interface=<dir>  -> monte un AUTRE jeu de d
 Mesure de référence du 26/09 (documents livrés) :
 
 ```
-barre_outils     widgets=9  montes=9  contenu=14769  inconnus=0  hotes=0/0
-barre_etat       widgets=3  montes=3  contenu=3153   inconnus=0  hotes=0/0
-panneau_outils   widgets=10 montes=10 contenu=34125  inconnus=0  hotes=1/1
+barre_outils     widgets=9  montes=9  contenu=14769  inconnus=0  hotes=0/0  attrNonHonores=0
+barre_etat       widgets=3  montes=3  contenu=3153   inconnus=0  hotes=0/0  attrNonHonores=0
+panneau_outils   widgets=16 montes=16 contenu=34982  inconnus=0  hotes=1/1  attrNonHonores=1
 ```
 
 ```
