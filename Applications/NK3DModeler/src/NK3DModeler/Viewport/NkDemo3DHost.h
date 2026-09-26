@@ -94,6 +94,10 @@ namespace nkentseu {
 				bool gpuValide = false; ///< faux -> l'affichage ecrit « -- », pas « 0.00 »
 				float32 cpuMs = 0.f;
 				bool cpuValide = false;
+				/// (26/09) Faux tant qu'aucune frame de vue 3D n'a ete rendue.
+				/// L'affichage ecrit alors « -- » : un zero la ou rien n'a ete
+				/// mesure est indiscernable d'une scene vide.
+				bool compteursValides = false;
 				const char *api = nullptr; ///< nom du dorsal, ou nullptr
 		};
 		/// Rend faux tant que la vue 3D n'a pas de renderer : l'appelant n'affiche

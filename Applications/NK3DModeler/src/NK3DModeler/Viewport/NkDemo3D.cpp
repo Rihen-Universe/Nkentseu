@@ -16635,6 +16635,13 @@ namespace nkentseu {
 					// lisse (moyenne exponentielle, 1/10) : une valeur instantanee danserait a
 					// chaque image et ne se lirait pas. Une horloge, pas deux.
 					float32 dtLisse = 0.f;
+					// (26/09) Les compteurs de la DERNIERE frame de la vue 3D,
+					// pris par difference autour de `Demo3D_Frame` -- voir
+					// `Demo3DHostFrame`. `cptValide` reste faux tant qu'aucune
+					// frame n'a ete rendue : l'affichage ecrit alors « -- »
+					// plutot que des zeros qui ressembleraient a une mesure.
+					uint32 cptDraws = 0, cptTris = 0, cptSommets = 0;
+					bool cptValide = false;
 			};
 			NkDemo3DHostState hst;
 			constexpr uint32 kHostTexId = 4096u;
@@ -18227,10 +18234,20 @@ namespace nkentseu {
 			if (!hst.ok || !hst.ctx.renderer)
 				return false;
 			const renderer::NkRendererStats &s = hst.ctx.renderer->GetStats();
-			out.draws = s.drawCalls;
-			out.triangles = s.triangles;
-			out.sommets = s.vertices;
-			out.lots = s.batchCount;
+			// ⚠️ LES QUATRE PREMIERS NE VIENNENT PLUS DE `GetStats()`, ET C'EST LE
+			//    CORRECTIF DU 26/09 : ce renderer n'enregistre pas la vue 3D, son
+			//    `EndFrame` ne tourne pas pour ce chemin, et ses compteurs restaient
+			//    a zero pendant qu'un cube se dessinait. Ils sont pris dans le
+			//    command buffer QUI ENREGISTRE (celui de l'editeur), par difference
+			//    autour de `Demo3D_Frame`. Cf. `Demo3DHostFrame`.
+			out.draws = hst.cptDraws;
+			out.triangles = hst.cptTris;
+			out.sommets = hst.cptSommets;
+			// « Lots » = appels de dessin ayant regroupe des primitives.
+			// L'approximation du moteur (batchCount = drawCalls) est reprise telle
+			// quelle, avec le meme chiffre : un second calcul ici serait une
+			// seconde verite pour la meme grandeur.
+			out.lots = hst.cptDraws;
 			out.ecartes = s.culled;
 			out.lumieres = s.lightsActive;
 			out.ombreurs = s.shadowCasters;
@@ -18242,8 +18259,42 @@ namespace nkentseu {
 			// image a ete dessinee -- c'est-a-dire des qu'il y a eu un appel de
 			// dessin. Sans cette condition, « CPU 0.00 ms » s'afficherait avant la
 			// premiere image et se lirait comme une mesure.
-			out.cpuValide = (s.drawCalls > 0u);
+			out.cpuValide = hst.cptValide && hst.cptDraws > 0u;
+			// ⚠️ TANT QU'AUCUNE FRAME DE VUE 3D N'A ETE RENDUE, LES COMPTEURS NE
+			//    SONT PAS UNE MESURE. `cptValide` le dit, et l'affichage ecrira
+			//    « -- » -- un zero affiche la ou rien n'a ete mesure est
+			//    indiscernable d'une scene vide, et c'est exactement le defaut que
+			//    Rodolf a photographie a 02:12.
+			out.compteursValides = hst.cptValide;
 			out.api = NkGraphicsApiName(hst.ctx.api);
+			// ── NK_CPT_TRACE=1 : QUELLE INSTANCE, ET QU'A-T-ELLE VU ? ───────────
+			// ⚠️ ELLE SEPARE DEUX DEFAUTS QUI ONT LE MEME SYMPTOME (des zeros) :
+			//    · le command buffer a vu des dessins (`cb=...`) mais `mStats` est
+			//      a zero -> `EndFrame()` n'a pas fige les compteurs de CETTE
+			//      instance, ou on lit avant lui : un defaut de MOMENT ;
+			//    · les DEUX sont a zero alors que l'ecran montre un cube -> on
+			//      interroge la mauvaise instance : un defaut de POPULATION.
+			//    Sans les deux chiffres cote a cote, les deux se confondent.
+			{
+				static const bool kTrC = (std::getenv("NK_CPT_TRACE") != nullptr);
+				if (kTrC) {
+					const renderer::NkRenderer *rd = hst.ctx.renderer;
+					const NkICommandBuffer *cb = rd ? rd->GetCmd() : nullptr;
+					uint32 cbD = 0, cbT = 0, cbV = 0;
+					if (cb) {
+						const NkICommandBuffer::NkCbStats &cs = cb->Stats();
+						cbD = cs.drawCalls;
+						cbT = cs.triangles;
+						cbV = cs.vertices;
+					}
+					std::printf("[nk3d] cpt rd=%p cb=%p | mStats draw=%u tris=%u som=%u | "
+								"cbStats draw=%u tris=%u som=%u | SERVI draw=%u tris=%u som=%u valide=%d\n",
+								(const void *)rd, (const void *)cb, s.drawCalls, s.triangles,
+								s.vertices, cbD, cbT, cbV, hst.cptDraws, hst.cptTris,
+								hst.cptSommets, hst.cptValide ? 1 : 0);
+					std::fflush(stdout);
+				}
+			}
 			return true;
 		}
 		bool Demo3DHostRecTutoActive() {
@@ -18544,7 +18595,42 @@ namespace nkentseu {
 			// precedente.
 			HostOutTick();
 			nkvpCmd = cmd;
+			// ── (26/09) LES COMPTEURS SE PRENNENT ICI, ET NULLE PART AILLEURS ───
+			// 🔴 LE DEFAUT QU'ILS REPARENT. `Demo3DHostCompteurs` lisait
+			//    `hst.ctx.renderer->GetStats()`. Mesure (NK_CPT_TRACE) : ce
+			//    renderer ET son command buffer rendaient TOUS DEUX zero pendant
+			//    qu'un cube se dessinait a 134 images/s. Les deux a zero, c'est un
+			//    defaut de POPULATION et non de moment : on interrogeait un objet
+			//    qui n'enregistre rien.
+			//    LA VUE 3D N'ENREGISTRE PAS DANS SON PROPRE RENDERER : elle
+			//    enregistre dans le command buffer DE L'EDITEUR, celui que
+			//    `Demo3DHostFrame` recoit en argument et pose dans `nkvpCmd`. Son
+			//    `NkRendererImpl::EndFrame` -- celui qui fige `mStats` -- ne tourne
+			//    jamais pour ce chemin.
+			// ⚠️ ON PREND LA DIFFERENCE, PAS LA VALEUR. Ce command buffer est
+			//    PARTAGE avec l'interface : lire son total compterait les panneaux,
+			//    les menus et les bandeaux comme des triangles de la scene. Avant
+			//    moins apres, c'est exactement ce que la vue 3D a soumis.
+			uint32 avD = 0, avT = 0, avV = 0;
+			if (NkICommandBuffer *cbi = (NkICommandBuffer *)cmd) {
+				const NkICommandBuffer::NkCbStats &c0 = cbi->Stats();
+				avD = c0.drawCalls;
+				avT = c0.triangles;
+				avV = c0.vertices;
+			}
 			Demo3D_Frame(hst.ctx, dt);
+			if (NkICommandBuffer *cbi = (NkICommandBuffer *)cmd) {
+				const NkICommandBuffer::NkCbStats &c1 = cbi->Stats();
+				// ⚠️ LA SOUSTRACTION EST GARDEE. Si le tampon a ete remis a zero
+				//    entre les deux lectures (l'editeur peut le faire), « apres »
+				//    serait plus petit qu'« avant » et la difference deborderait en
+				//    un nombre enorme. On garde alors la valeur d'apres, qui est le
+				//    total de ce qui reste -- et c'est dit plutot que subi.
+				hst.cptDraws = (c1.drawCalls >= avD) ? (c1.drawCalls - avD) : c1.drawCalls;
+				hst.cptTris = (c1.triangles >= avT) ? (c1.triangles - avT) : c1.triangles;
+				hst.cptSommets = (c1.vertices >= avV) ? (c1.vertices - avV) : c1.vertices;
+				hst.cptValide = true;
+			}
 			nkvpCmd = nullptr;
 			// Parente : repercuter les deltas des parents a leurs enfants, et
 			// faire respecter le cadenas (INselectionnable, meme depuis la vue).
