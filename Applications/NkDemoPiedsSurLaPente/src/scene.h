@@ -145,6 +145,28 @@ namespace eprouvette {
 	// Sur la pente, a une abscisse ou le sol est HAUT : la hanche derive-t-elle ?
 	bool EprouverHanche(Hanche &out) noexcept;
 
+	// ── UN PIED EN ENVOL EST-IL RAMENE AU SOL ? ──────────────────────────
+	// Rodolf, 26/09 : « on ne peut pas distinguer les pieds qui montent
+	// naturellement ». Mesure de structure : ni NkFootContact, ni NkFootIK, ni
+	// NkLocomotion ne portent de notion de PHASE. Le champ le plus proche,
+	// `contactWeight`, est un lissage de `isGrounded` -- vrai des que le sol
+	// est A PORTEE DU RAYON, pas quand le pied TOUCHE.
+	//
+	// ⚠️ CETTE SONDE EST UN DIAGNOSTIC, PAS UN CRITERE : y remedier serait du
+	//    NEUF (une phase d'appui/envol), donc une decision de Rodolf. Un banc
+	//    durablement rouge ne protege plus rien.
+	struct Envol {
+			bool mesure = false;
+			float leveA = 0.f;    // ou on a POSE le pied, au-dessus du sol
+			float apres = 0.f;    // ou il se retrouve apres l'IK
+			float solSous = 0.f;
+			float poids = 0.f;    // contactWeight du pied leve
+			bool groundeEnLair = false; // « touche le sol » alors qu'il est en l'air ?
+	};
+
+	// Leve le pied gauche de `hauteur` metres, puis laisse l'IK travailler.
+	bool EprouverEnvol(float hauteur, Envol &out) noexcept;
+
 	// Mode console : imprime les critères, rend le nombre d'échecs.
 	int Mesurer() noexcept;
 

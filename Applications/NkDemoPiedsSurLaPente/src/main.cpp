@@ -230,8 +230,9 @@ int nkmain(const NkEntryState &state) {
 			target.Draw(static_cast<NkDrawable &>(id));
 
 			NkText ep(font,
-					  "EPROUVETTE - pas un personnage : squelette procedural a 9 os. Aucun "
-					  "humanoide rigge n'est atteignable (ses os n'ont pas de nom).",
+					  "EPROUVETTE : squelette procedural a 9 os, tous SANS PARENT. Elle reste "
+					  "parce qu'elle est le temoin PLAT -- ce que le correctif ne doit "
+					  "pas changer.",
 					  14u);
 			ep.SetFillColor(NkColor2D{200, 150, 90, 255});
 			ep.SetPosition({20.f, 34.f});
