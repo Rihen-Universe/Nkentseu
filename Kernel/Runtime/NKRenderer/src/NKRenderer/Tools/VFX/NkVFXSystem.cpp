@@ -144,18 +144,26 @@ namespace nkentseu {
 				pd.depthStencil.depthWriteEnable = false;
 				pd.blend = NkBlendDesc::Alpha();
 				pd.debugName = "TrailMesh";
-				// 🔴 AUCUN `pd.shader` N'EST POSE ICI, ET CE N'EST PAS UN OUBLI DE
-				// CE COMMIT : le bloc voisin des billboards fait `pd.shader =
-				// particleShader` (l. 110), celui-ci et le suivant ne le font pas.
-				// Le pipeline nait donc INVALIDE, et il est pourtant lie au dessin
-				// (l. ~592). C'est la face d'execution du defaut deja grave dans le
-				// `CLAUDE.md` parent le 2026-09-03 : « aucun des trois pipelines VFX
-				// n'a de shader — Draw part sans programme ».
+				// LE FIL QUI MANQUAIT, POSE LE 2026-09-26. Le defaut etait grave ici
+				// depuis le 2026-09-03 (« aucun des trois pipelines VFX n'a de shader »)
+				// et il criait a CHAQUE lancement de presque toute application.
 				//
-				// Le refus se DIT ici, la ou le geste est fait, et pas seulement
-				// dans le RHI : Vulkan le journalisait (« shader handle id=0
-				// introuvable ») pendant que DX11 rendait `{}` en SILENCE. Meme
-				// trou, un seul dorsal parlait.
+				// CE QUI A ETE MESURE AVANT DE CORRIGER : les nuanceurs EXISTENT, sur
+				// les six dorsaux -- `Shaders/Trail/{DX11,DX12,GL,MSL,NkSL,VK}`, comme
+				// `Shaders/Particles/` dont le bloc voisin (l. ~59) se sert deja. Ce
+				// n'etait donc pas un chantier a ouvrir : c'etait un appel qui manquait
+				// entre deux choses finies.
+				//
+				// ⚠ LE REFUS RESTE, et c'est le point : si le chargement echoue, la
+				// ligne d'erreur ci-dessous dit `shader_valid=0` et nomme la cause. On
+				// remplace un echec CERTAIN par un chemin qui marche ET qui sait encore
+				// se plaindre. Un correctif qui eteindrait l'alarme sans poser le
+				// nuanceur serait indiscernable d'un placebo.
+				if (mShaderLib) {
+					auto progTrail = mShaderLib->LoadOrCompileVF("Trail", "", "");
+					if (progTrail.IsValid())
+						pd.shader = mShaderLib->GetRHIHandle(progTrail);
+				}
 				mPipeTrail = mDevice->CreateGraphicsPipeline(pd);
 				if (!mPipeTrail.IsValid())
 					logger.Errorf("[NkVFXSystem] pipeline 'TrailMesh' INVALIDE (shader_valid=%d) -- "
@@ -170,7 +178,13 @@ namespace nkentseu {
 				pd.depthStencil.depthWriteEnable = false;
 				pd.blend = NkBlendDesc::Alpha();
 				pd.debugName = "Decal";
-				// Meme trou que « TrailMesh » ci-dessus : aucun shader assigne.
+				// Meme fil que « TrailMesh » ci-dessus : les nuanceurs existent dans
+				// `Shaders/Decal/` sur les six dorsaux, et rien ne les chargeait.
+				if (mShaderLib) {
+					auto progDecal = mShaderLib->LoadOrCompileVF("Decal", "", "");
+					if (progDecal.IsValid())
+						pd.shader = mShaderLib->GetRHIHandle(progDecal);
+				}
 				mPipeDecal = mDevice->CreateGraphicsPipeline(pd);
 				if (!mPipeDecal.IsValid())
 					logger.Errorf("[NkVFXSystem] pipeline 'Decal' INVALIDE (shader_valid=%d) -- "
