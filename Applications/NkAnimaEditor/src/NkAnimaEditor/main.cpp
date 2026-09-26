@@ -139,6 +139,55 @@ static nkanima::NkCoquilleDocument g_coquille;
 //  ⚠️ ELLE COMPTE DES PIXELS, PAS SEULEMENT DES WIDGETS. Ce dépôt a payé
 //     « un compteur vert n'est pas un rendu juste » : un montage peut annoncer
 //     douze widgets et ne rien peindre. Le critère porte donc sur les DEUX.
+// ── LA MESURE DE CONTENU, ET ELLE EST PARTAGEE ────────────────────────
+//  🔴 DEUX FOIS LE MEME PIEGE DANS CE LOT. Compter « les pixels differents du
+//     fond efface » rend EXACTEMENT l'aire des que quelque chose couvre la
+//     surface -- 30 600 / 23 400 / 109 200 pour les trois bandes, puis 261 000
+//     pour l'image du menu (900x290). Un compteur sature ne peut pas rougir.
+//
+//  On compte donc ce qui S'ECARTE DE LA COULEUR DOMINANTE, DERIVEE de l'image :
+//  l'aplat depend du theme, l'ecrire en dur le perimerait au premier changement.
+//  Et une SEULE fonction, parce que deux copies de ce calcul auraient diverge --
+//  *deux compteurs sans code commun*.
+static uint32 ContenuHorsDominante(const nkgui::NkGuiDrawListRaster &ras) {
+	const uint8 *px = ras.Pixels();
+	const usize n = (usize)ras.Largeur() * (usize)ras.Hauteur();
+	if (!px || n == 0u)
+		return 0u;
+	// ⚠️ LES CANDIDATS SE PRENNENT SUR TOUTE L'IMAGE, ET C'EST LA CORRECTION.
+	//    Premiere version : la boucle s'arretait a `k > 4000`, soit les quatre
+	//    premieres lignes d'une image de 900 de large -- lignes situees DANS la
+	//    bande de menu. La dominante elue etait donc la couleur de la BARRE, et
+	//    tout le fond efface comptait comme du contenu : 237 220 sur 261 000.
+	//    Un echantillon pris sur une bande ne represente pas l'image.
+	const usize pasCand = (n / 256u) > 0u ? (n / 256u) : 1u;
+	const usize pasVote = (n / 512u) > 0u ? (n / 512u) : 1u;
+	uint32 meilleur = 0u, nbMeilleur = 0u;
+	for (usize k = 0; k < n; k += pasCand) {
+		const uint32 c = ((uint32)px[k * 4u] << 16) | ((uint32)px[k * 4u + 1u] << 8)
+				 | (uint32)px[k * 4u + 2u];
+		uint32 compte = 0u;
+		for (usize j = 0; j < n; j += pasVote) {
+			const uint32 d = ((uint32)px[j * 4u] << 16) | ((uint32)px[j * 4u + 1u] << 8)
+					 | (uint32)px[j * 4u + 2u];
+			if (d == c)
+				++compte;
+		}
+		if (compte > nbMeilleur) {
+			nbMeilleur = compte;
+			meilleur = c;
+		}
+	}
+	uint32 contenu = 0u;
+	for (usize k = 0; k < n; ++k) {
+		const uint32 c = ((uint32)px[k * 4u] << 16) | ((uint32)px[k * 4u + 1u] << 8)
+				 | (uint32)px[k * 4u + 2u];
+		if (c != meilleur)
+			++contenu;
+	}
+	return contenu;
+}
+
 static int SondeCoquille(const char *dossier) {
 	nkgui::NkGuiFont police;
 	const bool policeOk = police.LoadEmbedded(NkEmbeddedFontId::DroidSans, 15.f, false);
@@ -198,7 +247,10 @@ static int SondeCoquille(const char *dossier) {
 			ras.Effacer(0xFF101010u);
 			if (policeOk && police.pixels)
 				ras.PoserTexture(police.TexId(), police.pixels, police.atlasW, police.atlasH, 1);
-			ras.Rasteriser(ctx.DL());
+			// Les deux couches ici aussi : une bande peut porter une infobulle
+			// ou un menu contextuel, et ils vivent dans l'overlay.
+			ras.Rasteriser(ctx.dl);
+			ras.Rasteriser(ctx.dlOverlay);
 			const uint8 *px = ras.Pixels();
 			const usize n = (usize)ras.Largeur() * (usize)ras.Hauteur();
 			// La dominante, par simple vote sur les triplets quantifies.
@@ -231,10 +283,21 @@ static int SondeCoquille(const char *dossier) {
 		// ET peint du CONTENU sur au moins 1 % de sa bande, sans couvrir plus de
 		// 95 % (ce qui voudrait dire qu'on a pris un aplat pour du contenu).
 		const uint32 aire = (uint32)(d.w * d.h);
-		const bool ok = d.b->rap.montes > 0u && contenu > aire / 100u && contenu < (aire * 95u) / 100u;
-		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u\n",
+		// ⚠️ UNE BANDE DE MENU NE SE JUGE PAS COMME UNE BANDE DE WIDGETS, et
+		//    lui appliquer le meme critere la ferait rougir A TORT. Un menu
+		//    FERME ne monte aucune entree -- c'est le comportement juste de
+		//    NKGui, pas une panne. Ce qu'on exige d'elle : que le TITRE soit
+		//    monte (`menus > 0`) et qu'il se voie (du contenu peint).
+		const bool estMenu = d.b->rap.menus > 0u || d.b->rap.barresMenu > 0u;
+		const bool ok = estMenu
+			? (d.b->rap.menus > 0u && contenu > 0u)
+			: (d.b->rap.montes > 0u && contenu > aire / 100u
+				   && contenu < (aire * 95u) / 100u);
+		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u\n",
 					ok ? "OK" : "KO", d.nom, d.b->rap.widgets, d.b->rap.montes, contenu,
-					d.b->rap.rolesInconnus, d.b->zonesRemplies, d.b->rap.hotes);
+					d.b->rap.rolesInconnus, d.b->zonesRemplies, d.b->rap.hotes,
+					d.b->rap.menusOuverts, d.b->rap.menus, d.b->rap.elementsMenu,
+					d.b->rap.elementsMenuHorsMenu);
 		if (!ok)
 			++rouges;
 	}
@@ -251,6 +314,74 @@ static int SondeCoquille(const char *dossier) {
 	std::printf("  [ %s ] action nommee    tirees %u -> %u\n", actionOk ? "OK" : "KO", avant, apres);
 	if (!actionOk)
 		++rouges;
+
+	// ── LE MENU : ON L'OUVRE, SINON ON NE PROUVE RIEN ─────────────────
+	//  🔴 PREMIERE VERSION : la bande de menu passait dans la boucle ci-dessus
+	//     et rendait `menus=0/1 items=0`. Deux defauts, pas un :
+	//
+	//     (a) ELLE ETAIT MONTEE SANS `BeginMenuBar`. Or la coquille appelle
+	//         `mAppMenuFn` DANS sa barre (`NkEditorShell.cpp:3497`), donc
+	//         `ctx.menuBarRect` est pose quand le document se monte pour de vrai.
+	//         Sans lui, `BeginMenu` calcule un titre de HAUTEUR ZERO. La sonde
+	//         mesurait une condition qui n'arrive jamais.
+	//
+	//     (b) `items=0` NE PROUVAIT PAS QUE `MenuItem` MONTE -- il prouvait que le
+	//         menu etait ferme. Le cas `MenuItem` du monteur n'avait alors JAMAIS
+	//         ete execute, et je m'appretais a le declarer bon.
+	//
+	//  On reproduit donc la condition de l'hote, et on CLIQUE le titre par les
+	//  memes portes que la souris (`PoserPointeur` / `PoserBouton`).
+	{
+		nkanima::NkBandeDocument &m = g_coquille.menuApp;
+		const int32 lw = 900, lh = 30;
+		nkgui::NkGuiContext ctx;
+		ctx.viewW = lw;
+		ctx.viewH = lh;
+		if (policeOk)
+			ctx.font = &police;
+		const nkgui::NkRect bande{0.f, 0.f, (float32)lw, (float32)lh};
+		uint32 itemsOuvert = 0u, menusOuverts = 0u, contenuOuvert = 0u;
+		// Quatre images : poser le pointeur, appuyer, relacher, laisser ouvrir.
+		for (uint32 img = 0; img < 4u && m.lu; ++img) {
+			ctx.BeginFrame(0.016f);
+			ctx.BeginLayout(bande);
+			ctx.DL().Reset();
+			m.PoserPointeur(ctx, 30.f, 15.f); // sur le premier titre
+			if (img == 1u)
+				m.PoserBouton(ctx, 0, true);
+			if (img >= 2u)
+				m.PoserBouton(ctx, 0, false);
+			// LA CONDITION DE L'HOTE, reproduite : la barre est deja ouverte.
+			nkgui::BeginMenuBar(ctx, bande);
+			m.Monter(ctx);
+			nkgui::EndMenuBar(ctx);
+			menusOuverts = m.rap.menusOuverts;
+			itemsOuvert = m.rap.elementsMenu;
+			nkgui::NkGuiDrawListRaster ras;
+			if (ras.Init(lw, lh + 260)) {
+				ras.Effacer(0xFF101010u);
+				if (policeOk && police.pixels)
+					ras.PoserTexture(police.TexId(), police.pixels, police.atlasW, police.atlasH, 1);
+				// LES DEUX COUCHES, DANS L'ORDRE DU RENDU : `dl` puis `dlOverlay`.
+				// Le menu deroule vit dans la SECONDE (`NkGuiContext.h:217`), et
+				// `DL()` la rend des qu'on est dans un popup. N'en rasteriser
+				// qu'une donnait 27 000 pixels -- l'aire exacte de la barre, et
+				// rien du menu qu'on cherchait a prouver.
+				ras.Rasteriser(ctx.dl);
+				ras.Rasteriser(ctx.dlOverlay);
+				contenuOuvert = ContenuHorsDominante(ras);
+			}
+		}
+		// LE CRITERE, ECRIT AVANT LA MESURE : le menu s'ouvre (1 sur 1), il monte
+		// SES SIX ENTREES, aucune hors menu, et l'ensemble peint.
+		const bool okMenu = m.lu && menusOuverts == 1u && itemsOuvert == 6u
+			&& m.rap.elementsMenuHorsMenu == 0u && contenuOuvert > 0u;
+		std::printf("  [ %s ] menu ouvert     ouverts=%u/%u items=%u horsmenu=%u contenu=%u\n",
+					okMenu ? "OK" : "KO", menusOuverts, m.rap.menus, itemsOuvert,
+					m.rap.elementsMenuHorsMenu, contenuOuvert);
+		if (!okMenu)
+			++rouges;
+	}
 
 	// ── LES DEUX CONFIGURATIONS RENDENT-ELLES LA MEME CHOSE ? ──────────
 	//  Decision de Rodolf, 25/09 : le document se LIT en developpement et
@@ -516,6 +647,8 @@ int nkmain(const NkEntryState &state) {
 							   (uint32)(sizeof(kZones) / sizeof(kZones[0])));
 		std::printf("[COQUILLE] documents : %s (%s)  refus=%u\n", dossierUI,
 					chargee ? "charges" : "INCOMPLETS", g_coquille.RefusTotal());
+		if (!g_coquille.menuApp.lu)
+			std::printf("[COQUILLE] menu REFUSE : %s\n", g_coquille.menuApp.refus.CStr());
 		if (!g_coquille.barreOutils.lu)
 			std::printf("[COQUILLE] barre d'outils REFUSEE : %s\n",
 						g_coquille.barreOutils.refus.CStr());
@@ -529,6 +662,12 @@ int nkmain(const NkEntryState &state) {
 		//    une bande posée écrit son refus à l'écran (`PeindreRefus`), une
 		//    bande non posée disparaît sans rien dire. Rodolf doit LIRE la
 		//    panne, pas la deviner à une bande manquante.
+		// LE MENU, PAR `SetAppMenu` ET NON `SetMenuBar` : la coquille l'appelle
+		// DANS sa barre, apres ses quatre menus. Ses menus restent, le notre
+		// s'ajoute. `SetMenuBar` les aurait remplaces -- et « Affichage » est
+		// engendre a l'execution par `DrawPanelsMenuItems()`, que le format ne
+		// sait pas exprimer. On ne migre pas vers moins.
+		shell->SetAppMenu(&nkanima::NkCoquilleDocument::MonterMenuApp, &g_coquille);
 		shell->SetToolbar(&nkanima::NkCoquilleDocument::MonterBarreOutils, &g_coquille);
 		shell->SetStatusBarFn(&nkanima::NkCoquilleDocument::MonterBarreEtat, &g_coquille);
 		shell->AddPanel(&panneauDoc);
