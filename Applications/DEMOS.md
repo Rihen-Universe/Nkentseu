@@ -136,6 +136,22 @@ NKScena**.
 
 | **Les compteurs de rendu.** Menu **Fenêtre → Compteurs de rendu**. | Un petit panneau apparaît **en haut à droite de la vue 3D** : Draw, Tris, Sommets, Lots, Écartés, Lumières, Ombreurs, GPU, CPU, dt, FPS — et le nom du dorsal en titre (« Vulkan », « OpenGL »…). L'entrée de menu porte une **coche**. Refermer et rouvrir l'application les retrouve **allumés**. | • Ils sont **allumés au premier lancement** → le défaut n'est plus « éteint », et c'est ce qui polluait chaque capture.<br>• **« GPU 0.00 ms »** alors qu'aucune mesure GPU n'a encore répondu → un zéro qui n'est pas un zéro ; la vue doit écrire **« -- »**.<br>• Les chiffres restent **figés** pendant qu'on tourne la caméra → ils ne viennent plus de `NkRenderer::GetStats()`.<br>• Ils apparaissent **sur l'écran d'accueil** → la garde `!st.welcome` est tombée.<br>• Un clic dessus **tourne la caméra** → la zone n'est pas réclamée, et l'affichage laisse passer. |
 
+| **La mention des tiers — et c'est une OBLIGATION, pas un confort.** Menu **Aide → A propos**. | L'entrée n'est **plus grisée**. Un écran **centré et persistant** s'ouvre, avec le contenu de `TIERS.md` : « vscode-codicons », « Microsoft Corporation », les deux URL, « CC BY 4.0 », les modifications nommées, puis les **62 icônes** concernées. Il **défile** et se ferme par la croix, par Échap ou par un clic à côté. | • **L'entrée est encore grisée** → le chemin vers la mention n'existe pas, et la condition CC BY 4.0 n'est pas remplie.<br>• **L'écran s'ouvre vide** → le texte a été recopié dans le code au lieu d'être lu ; ou le fichier n'a pas été trouvé et le refus n'est pas nommé. Un cadre vide ferait croire que la mention n'existe pas, alors qu'elle n'a pas été **trouvée**.<br>• **Il se referme aussitôt** → son voile avale le clic qui vient de l'ouvrir (défaut du 25/09, à une couche près).<br>• **Il disparaît tout seul** au bout de quelques secondes → quelqu'un l'a routé vers un bandeau ; une notice de licence **accompagne** l'œuvre, elle ne passe pas. |
+
+⚠️ **Pourquoi cet écran n'est pas un bandeau, et pourquoi il lit un fichier.**
+62 des 104 icônes sont une copie prouvée de **vscode-codicons** sous **CC BY
+4.0**, qui **exige l'attribution**. Une attribution que seul un développeur peut
+lire ne remplit pas la condition : elle doit être **atteignable depuis
+l'application**, et **persister**. Et le texte est **lu** depuis
+`data/icons/TIERS.md`, jamais recopié : ce fichier est **engendré** depuis la
+mesure de provenance, pour rester vrai quand une icône naîtra. Un texte en dur
+se périmerait au premier ajout — et mentirait alors sur une licence.
+
+**Identité de construction** : `jenga build --config Release` (jamais
+`rebuild`), puis `python Applications/NK3DModeler/tests/sonde_barre_menus.py`
+→ **13/13**, dont `b10` (dégrisée), `b11` (elle reste ouverte) et `b12` (le menu
+se referme).
+
 ⚠️ **Les compteurs n'ont pas de démo à part, et c'est délibéré :** leur sujet est
 de **relayer** les chiffres d'un vrai rendu. Une démo qui les alimenterait avec
 des nombres inventés montrerait un relais de rien du tout — elle aurait l'air de
@@ -155,7 +171,7 @@ NK3DModeler.exe --sonde-messages              -> 9/9   (le chemin logger -> band
 NK3DModeler.exe --sonde-ui-etat <fichier>     -> 14/14 (l'aller-retour, les bornes,
                                                         et l'interrupteur des compteurs)
 NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comprises)
-python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 8/8  (la barre de menus, et l'entree grisee)
+python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 13/13 (la barre, l entree grisee, et A propos)
 ```
 
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
