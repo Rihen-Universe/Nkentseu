@@ -414,6 +414,42 @@ namespace nkentseu {
 			// ils passent par cette fonction qui délègue à Enqueue().
 			void Enqueue_Public(NkEvent &evt, NkWindowId winId);
 
+			// ── EMETTRE SES PROPRES EVENEMENTS (26/09) ────────────────────────
+			//
+			// Demande par Rodolf : « est-ce que l'utilisateur peut creer ou
+			// declencher lui-meme les evenements au lieu de passer par les reels ? »
+			// Le mecanisme existait — `Enqueue_Public` — mais sous un nom qui
+			// annonce un pont interne pour les dorsaux. Un appelant ne pouvait pas
+			// deviner qu'il lui etait destine.
+			//
+			// `PostEvent` est ce meme geste, nomme pour celui qui l'emploie.
+			// `Enqueue_Public` reste : les dorsaux l'appellent, et rien de ce qui
+			// existe ne change de nom.
+			//
+			// ⚠️ DEUX GESTES QUI NE SE RESSEMBLENT PAS :
+			//    - `PostEvent`     : l'evenement va DANS LA FILE. `PollEvent` le
+			//      rendra au tour suivant, indiscernable d'un evenement reel.
+			//      C'est celui qu'il faut pour rejouer une session, pour scripter
+			//      un test, ou pour qu'un morceau de code eloigne de la boucle
+			//      parle a l'application comme le ferait l'utilisateur.
+			//    - `DispatchEvent` : l'evenement NE PASSE PAS par la file, il part
+			//      tout de suite dans les callbacks, dans VOTRE pile d'appel. Plus
+			//      direct, mais il s'execute au milieu de ce que vous etiez en
+			//      train de faire.
+			//
+			// ⚠️ UN NkCustomPtrEvent NE TRANSPORTE QU'UN POINTEUR : ce qu'il vise
+			//    doit survivre jusqu'a la lecture, qui arrive au tour SUIVANT.
+			void PostEvent(NkEvent &evt, NkWindowId winId = NK_INVALID_WINDOW_ID) {
+				Enqueue_Public(evt, winId);
+			}
+
+			template <typename T> void PostEvent(T &&evt, NkWindowId winId = NK_INVALID_WINDOW_ID) {
+				static_assert(traits::NkIsBaseOf_v<NkEvent, traits::NkDecay_t<T>>,
+							  "PostEvent: T doit deriver de NkEvent");
+				NkEvent &base = evt;
+				Enqueue_Public(base, winId);
+			}
+
 			// --- Input state / info ---
 			const NkEventState &GetInputState() const noexcept;
 
