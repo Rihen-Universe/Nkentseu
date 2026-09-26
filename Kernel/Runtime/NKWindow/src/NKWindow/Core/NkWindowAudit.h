@@ -116,6 +116,25 @@ namespace nkentseu {
 
 	void NkWindowRefuserUneFois(NkWindowProp p, const char *plateforme, const char *raison);
 
+	// ── LE REFUS NOMME DES METHODES, a cote de celui des PROPRIETES ─────────
+	// Une propriete se declare a la construction ; une METHODE s'appelle a tout
+	// moment. Le refus ne peut donc pas passer par l'audit de config -- il n'y a
+	// pas de config a auditer quand on appelle `SetCursor` au milieu d'une image.
+	//
+	// POURQUOI IL EXISTE (utilisateur reel, 26/09) : « les methodes pour curseur
+	// dans NKWindow ne fonctionnent pas ». Elles ne fonctionnaient pas sur SON
+	// dorsal, en silence -- `SetCursor` n'est implemente que sur Win32,
+	// `CaptureMouse` est vide sur XLib et XCB, et Wayland range deux booleens que
+	// personne ne lit. Il a cherche l'erreur chez lui.
+	//
+	// ⚠️ UNE FOIS PAR METHODE ET PAR PROCESSUS. Ces methodes s'appellent souvent
+	//    a chaque image : un message par appel noierait le journal et se ferait
+	//    couper par le premier lecteur presse.
+	// ⚠️ ET SEULEMENT SI ON A APPELE. Une application qui ne touche pas au
+	//    curseur ne doit voir aucun avertissement -- meme regle que les
+	//    proprietes : le journal ne parle que de ce qui a ete DEMANDE.
+	void NkWindowRefuserMethode(const char *methode, const char *plateforme, const char *raison);
+
 	/// Remet les compteurs « déjà dit » à zéro. RÉSERVÉ AUX BANCS : une sonde qui
 	/// mesure plusieurs configurations dans un seul processus doit pouvoir
 	/// réentendre les refus de la deuxième.
