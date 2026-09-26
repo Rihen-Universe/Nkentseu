@@ -266,7 +266,13 @@ namespace nkanima {
 				// L'exécution garde ses propres devoirs (anneau de focus, donnée
 				// vivante, EndDisabled) : on l'appelle AVANT d'ajouter les nôtres.
 				NkGuiExecution::Apres(ctx, w, role, e);
-				if (!NkGMotEgal(role, "Button") && !NkGMotEgal(role, "RepeatButton"))
+				// ⚠️ `MenuItem` EST DE LA MEME FAMILLE, ET CE N'EST PAS UNE SUPPOSITION :
+				//    il passe par le MEME `ctx.ButtonBehavior(...)` que `Button`
+				//    (`NkGuiWidgets.cpp:5303`), donc il pose `lastItemHovered` de la meme
+				//    facon, donc la meme condition le detecte. Une entree de menu qui
+				//    n'agirait pas serait un menu purement decoratif.
+				if (!NkGMotEgal(role, "Button") && !NkGMotEgal(role, "RepeatButton")
+					&& !NkGMotEgal(role, "MenuItem"))
 					return;
 				++boutons;
 				// La condition de `ButtonBehavior` : relâchement, survolé, non grisé.
@@ -348,6 +354,14 @@ namespace nkanima {
 	 */
 	class NkCoquilleDocument {
 		public:
+			/// LE MENU D'APPLICATION. Monté par `SetAppMenu`, qui est **additif** :
+			/// la coquille l'appelle DANS sa propre barre, après ses quatre menus
+			/// (`NkEditorShell.cpp:3497`). On n'emploie surtout pas `SetMenuBar`, qui
+			/// la remplacerait : son menu « Affichage » est construit par
+			/// `DrawPanelsMenuItems()`, qui énumère les panneaux à l'exécution, et
+			/// **le format ne sait pas exprimer une liste engendrée**. On ne migre
+			/// pas vers moins.
+			NkBandeDocument menuApp;
 			NkBandeDocument barreOutils;
 			NkBandeDocument barreEtat;
 			NkBandeDocument panneau;
@@ -361,17 +375,18 @@ namespace nkanima {
 			/// DÉVELOPPEMENT ; celle de livraison appellera `Adopter` bande par bande.
 			bool ChargerDepuisDossier(const char *dossierDocuments) noexcept {
 				dossier = NkString(dossierDocuments);
+				const bool a = menuApp.ChargerDepuisFichier(Joindre("menu_animation.nkgui").CStr());
 				const bool b = barreOutils.ChargerDepuisFichier(Joindre("barre_outils.nkgui").CStr());
 				const bool c = barreEtat.ChargerDepuisFichier(Joindre("barre_etat.nkgui").CStr());
 				const bool d = panneau.ChargerDepuisFichier(Joindre("panneau_outils.nkgui").CStr());
-				return b && c && d;
+				return a && b && c && d;
 			}
 
-			/// Pose les mêmes tables sur les trois bandes.
+			/// Pose les mêmes tables sur les quatre bandes.
 			void PoserTables(const NkActionNommee *act, uint32 nAct, const NkZoneNommee *zon,
 							 uint32 nZon) noexcept {
-				NkBandeDocument *b[3] = {&barreOutils, &barreEtat, &panneau};
-				for (uint32 i = 0; i < 3u; ++i) {
+				NkBandeDocument *b[4] = {&menuApp, &barreOutils, &barreEtat, &panneau};
+				for (uint32 i = 0; i < 4u; ++i) {
 					b[i]->actions = act;
 					b[i]->nbActions = nAct;
 					b[i]->zones = zon;
@@ -380,6 +395,11 @@ namespace nkanima {
 			}
 
 			// ── les crochets, de la signature exacte que le kit attend ────
+			/// ⚠️ LA BARRE EST DEJA OUVERTE quand la coquille appelle ce crochet : le
+			///    document ne doit donc porter que des `Menu`, jamais un `MenuBar`.
+			static void MonterMenuApp(NkEditorFrameContext &ec, void *user) noexcept {
+				((NkCoquilleDocument *)user)->menuApp.Monter(ec.Ui());
+			}
 			static void MonterBarreOutils(NkEditorFrameContext &ec, void *user) noexcept {
 				((NkCoquilleDocument *)user)->barreOutils.Monter(ec.Ui());
 			}
@@ -389,10 +409,12 @@ namespace nkanima {
 
 			/// Combien de widgets les trois bandes ont monté à la dernière image.
 			uint32 MontesTotal() const noexcept {
-				return barreOutils.rap.montes + barreEtat.rap.montes + panneau.rap.montes;
+				return menuApp.rap.montes + barreOutils.rap.montes + barreEtat.rap.montes
+					+ panneau.rap.montes;
 			}
 			uint32 RefusTotal() const noexcept {
-				return (barreOutils.lu ? 0u : 1u) + (barreEtat.lu ? 0u : 1u) + (panneau.lu ? 0u : 1u);
+				return (menuApp.lu ? 0u : 1u) + (barreOutils.lu ? 0u : 1u)
+					+ (barreEtat.lu ? 0u : 1u) + (panneau.lu ? 0u : 1u);
 			}
 
 			NkString Joindre(const char *nom) const noexcept {
