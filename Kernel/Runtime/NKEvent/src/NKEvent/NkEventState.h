@@ -580,6 +580,25 @@ namespace nkentseu {
 			NkMouseButtons buttons;
 			NkModifierState modifiers;
 
+			// 🔴 CE CHAMP N'EST JAMAIS MIS A `true`. Mesure du 2026-09-26 :
+			//    la SEULE ecriture du depot est `Clear()`, qui le remet a `false`.
+			//    Sa documentation ci-dessus promet « Capture souris active
+			//    (SetCapture / grab cursor) » -- elle decrit une INTENTION, pas un
+			//    etat. Quiconque le lit obtient `false` en permanence.
+			//
+			// ⚠️ IL N'EST DONC PAS EXPOSE PAR `NkInput`, ET C'EST VOLONTAIRE :
+			//    l'exposer serait livrer un mensonge. *Un accesseur qui rend
+			//    toujours la meme valeur est pire qu'un accesseur absent : il
+			//    repond.*
+			//
+			//    L'alimenter n'est PAS une ligne : `NkWindow::CaptureMouse` est
+			//    implemente PAR DORSAL (13 fichiers Platform/), sans facade
+			//    commune -- ce serait 13 sites a tenir d'accord. Decision de
+			//    Rodolf. En attendant, le systeme sait repondre : `GetCapture()`
+			//    sur Win32, comme le mesure `NkWindowSonde` essai I.
+			//
+			//    CONDITION DE RETRAIT de cet avertissement : le jour ou une
+			//    ecriture a `true` existera, il part avec.
 			bool captured = false;
 			bool insideWindow = false;
 			bool insideFrame = false;
