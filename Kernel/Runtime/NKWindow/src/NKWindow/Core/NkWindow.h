@@ -228,6 +228,34 @@ namespace nkentseu {
 			void SetOpacity(float32 opacity);
 			float32 GetOpacity() const;
 
+			// ── LA COULEUR DE FOND, APRES LA CREATION (26/09) ─────────────────
+			//
+			// `NkWindowConfig::bgColor` ne se reglait qu'a la creation. Rodolf a
+			// demande a pouvoir en changer en cours de route — pour un theme
+			// clair/sombre qui bascule, par exemple.
+			//
+			// ⚠️ ET CE SETTER LEVE UNE LIMITE QUE LA CONFIGURATION PORTE ENCORE.
+			//    A la creation, la couleur alimente la brosse de la CLASSE de
+			//    fenetre, nommee par `config.name` : deux fenetres de meme `name`
+			//    et de `bgColor` differents partagent donc la brosse de la
+			//    premiere, et la seconde recoit un refus nomme. Ce setter-ci pose
+			//    une brosse PAR FENETRE, qui l'emporte sur celle de la classe :
+			//    deux fenetres de meme `name` peuvent donc avoir deux fonds
+			//    differents, a condition de passer par lui.
+			//
+			// ⚠️ CE FOND N'EST PEINT QUE SI PERSONNE NE PEINT PAR-DESSUS. Une
+			//    application qui rend sa propre image a chaque tour couvre cette
+			//    couleur : elle ne se voit alors qu'au redimensionnement et avant
+			//    la premiere image. C'est le contrat d'un fond, pas un defaut.
+			//
+			// @param rgba Couleur au format 0xRRGGBBAA. L'alpha est ignore : une
+			//             brosse GDI n'en a pas. Pour de la transparence, voyez
+			//             `SetOpacity` et `NkWindowConfig::transparent`.
+			void SetBackgroundColor(uint32 rgba);
+
+			/// @brief La couleur de fond courante, 0xRRGGBBAA.
+			uint32 GetBackgroundColor() const;
+
 			/// La fenêtre reste au-dessus de toutes les fenêtres normales,
 			/// même sans focus. L'utilisateur doit pouvoir le désactiver
 			/// (c'est une option d'outil, jamais un état imposé).

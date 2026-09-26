@@ -787,6 +787,25 @@ namespace nkentseu {
 		return mConfig.opacity;
 	}
 
+	// ── LA COULEUR DE FOND APRES LA CREATION — non tenue sur ce dorsal ─────
+	//
+	// La couleur est RANGEE (un accesseur doit rendre ce que l'appelant a
+	// demande), mais rien ne la repeint : ce dorsal n'a pas de chemin equivalent
+	// a la brosse de fenetre Win32. Le refus est donc NOMME, une fois, plutot
+	// que laisse en silence — un reglage muet se prend pour un reglage tenu.
+	void NkWindow::SetBackgroundColor(uint32 rgba) {
+		mConfig.bgColor = rgba;
+		NkWindowRefuserUneFois(NkWindowProp::BgColor, "Cocoa",
+							   "changer la couleur de fond APRES la creation n'est pas implemente sur ce "
+							   "dorsal : la valeur est conservee et relue, mais rien n'est repeint. "
+							   "Posez `bgColor` dans NkWindowConfig avant Create()");
+	}
+
+	uint32 NkWindow::GetBackgroundColor() const {
+		return mConfig.bgColor;
+	}
+
+
 	void NkWindow::SetAlwaysOnTop(bool onTop) {
 		mConfig.alwaysOnTop = onTop;
 		if (mData.mNSWindow) {

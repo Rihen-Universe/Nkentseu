@@ -152,7 +152,33 @@ namespace nkentseu {
                 return static_cast<uint32>(mWindows.Size());
             }
 
+            // ⚠️ `GetWindowAt` PARCOURT pour trouver son indice : il est en O(n).
+            //    Une boucle `for (i = 0; i < GetWindowCount(); ++i)
+            //    GetWindowAt(i)` est donc en O(n²). Sur trois fenetres personne
+            //    ne le voit ; l'ecrire quand meme evite qu'on s'appuie dessus.
+            //    Pour parcourir, prefere `ForEachWindow`, qui est en O(n).
             NkWindow *GetWindowAt(uint32 index) const;
+
+            // ── PARCOURIR LES FENETRES OUVERTES — O(n) (26/09) ───────────────
+            //
+            // Demande par Rodolf le 26/09 : « l'utilisateur doit pouvoir acceder
+            // a la liste des fenetres ouvertes ». Acceder a UNE fenetre par son
+            // identifiant existait deja (`GetWindow`) ; les PARCOURIR toutes ne
+            // se faisait qu'en O(n²) via `GetWindowAt`.
+            //
+            // @param visiteur  appele avec (NkWindowId, NkWindow *) pour chaque
+            //                  fenetre vivante, dans l'ordre du registre.
+            //
+            // ⚠️ NE FERME AUCUNE FENETRE PENDANT LE PARCOURS. Fermer modifie le
+            //    registre qu'on est en train de lire. Collecte les identifiants
+            //    d'abord, agis ensuite — c'est la meme prudence que pour un
+            //    conteneur qu'on modifie en l'iterant.
+            template <typename Visiteur> void ForEachWindow(Visiteur &&visiteur) const {
+                mWindows.ForEach([&](NkWindowId id, NkWindow *win) {
+                    if (win != nullptr)
+                        visiteur(id, win);
+                });
+            }
 
         private:
             bool mInitialised = false;
