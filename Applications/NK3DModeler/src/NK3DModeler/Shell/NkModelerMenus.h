@@ -278,6 +278,8 @@ namespace nkentseu {
 							demo::Demo3DHostSetGizmoOp(1);
 						else if (strcmp(c3, "objet.echelle") == 0)
 							demo::Demo3DHostSetGizmoOp(2);
+						else if (strcmp(c3, "app.apropos") == 0)
+							st.aproposOpen = true;
 						else
 							traite = false;
 						if (traite) {
