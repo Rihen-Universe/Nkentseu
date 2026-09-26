@@ -22,6 +22,11 @@
 //     2:x:y        double-clic gauche          k:<touche>   appui (relache a l'image suivante)
 //                  touches : a..z, left, right, home, end, back, del, enter, esc,
 //                  avec ctrl+ / shift+ / alt+ devant (« ctrl+c », « shift+left »)
+//     h:<mod>      MAINTIENT un modificateur (shift, alt, ctrl) -- il reste
+//                  enfonce jusqu'a `r:<mod>`. C'est ce qui rend Maj+clic et
+//                  Alt+clic JOUABLES par un banc ; `k:` relache a l'image
+//                  suivante et ne le permet pas.
+//     l:<mod>      le lache (`l` et non `r` : `r:` est deja le clic droit)
 //     t:<texte>    du texte tape, caractere par caractere
 //     f:x:y:<chemin>  un fichier lache a (x, y)
 // -----------------------------------------------------------------------------
@@ -175,6 +180,40 @@ namespace nkentseu {
 								mRelacher.PushBack(cle);
 								break;
 							}
+							// ── (26/09) `h:<mod>` MAINTIENT, `r:<mod>` RELACHE ──────────
+							// 🔴 POURQUOI ELLES EXISTENT. Rodolf : « Maj+clic pour
+							//    accumuler ne fonctionne pas », « Alt+selection ne
+							//    fonctionne pas ». AUCUN banc ne pouvait l'eprouver :
+							//    `k:` relache la touche A L'IMAGE SUIVANTE, donc il
+							//    etait impossible de TENIR un modificateur pendant un
+							//    clic. L'instrument ne savait pas produire le geste
+							//    qu'on accusait — et un geste qu'aucun banc ne peut
+							//    jouer est un geste que personne ne protege.
+							// ⚠️ Elles envoient un VRAI appui de LSHIFT / LALT /
+							//    LCTRL, par les memes rappels que Windows : c'est ce
+							//    qui alimente `NkEventSystem::UpdateInputState`, donc
+							//    `NkInput.IsKeyDown`. Poser l'etat a la main aurait
+							//    mesure un chemin que Rodolf n'emprunte jamais.
+							// ⚠️ `l` ET NON `r` POUR LE RELACHEMENT : `r:` est DEJA le
+							//    clic droit dans ce format, et la ligne de parsing des
+							//    coordonnees le traite comme tel. Reutiliser la lettre
+							//    aurait fait lire « shift » comme une abscisse -- un
+							//    conflit muet que seul le parseur aurait tranche.
+							case 'h':
+							case 'l': {
+								const NkKey m = Modificateur(a);
+								if (m != NkKey::NK_UNKNOWN) {
+									if (t == 'h') {
+										NkKeyPressEvent e(m, NkScancode::NK_SC_UNKNOWN,
+														  NkModifierState(false, false, false));
+										ev.DispatchEvent(e);
+									} else {
+										NkKeyReleaseEvent e(m, NkScancode::NK_SC_UNKNOWN, NkModifierState(false, false, false));
+										ev.DispatchEvent(e);
+									}
+								}
+								break;
+							}
 							case 't':
 								for (const char *q = a; *q; ++q) {
 									NkTextInputEvent e((uint32)(unsigned char)*q);
@@ -212,6 +251,18 @@ namespace nkentseu {
 						int32 image = 0;
 						NkString cmd;
 				};
+				/// Les trois modificateurs, par leur nom. Rend `NK_UNKNOWN` si le
+				/// nom n'en designe aucun -- un refus, pas un repli silencieux sur
+				/// une touche au hasard.
+				static NkKey Modificateur(const char *k) {
+					if (std::strcmp(k, "shift") == 0)
+						return NkKey::NK_LSHIFT;
+					if (std::strcmp(k, "alt") == 0)
+						return NkKey::NK_LALT;
+					if (std::strcmp(k, "ctrl") == 0)
+						return NkKey::NK_LCTRL;
+					return NkKey::NK_UNKNOWN;
+				}
 				static NkKey Cle(const char *k) {
 					// ⚠️ NkKey suit les RANGEES DU CLAVIER (A S D F…), pas l'alphabet :
 					//    « NK_A + (c - 'a') » visait une autre touche. Table explicite.
