@@ -1541,6 +1541,29 @@ namespace nkentseu {
 				///    interrupteur n'ecrit donc aucune brique neuve : c'est le fil qui
 				///    manquait entre une facade finie et l'interface.
 				bool aideOn = true;
+
+				/// (26/09) L'ECRAN « A PROPOS » — la mention des tiers.
+				/// ⚠️ CE N'EST PAS UN CONFORT : 62 icones de `data/icons/` sont une
+				///    copie de vscode-codicons sous CC BY 4.0, et cette licence EXIGE
+				///    l'attribution. Une attribution que seul un developpeur peut lire
+				///    ne remplit pas la condition -- elle doit etre ATTEIGNABLE DEPUIS
+				///    L'APPLICATION. Persistant et fermable, jamais un bandeau : une
+				///    notice ACCOMPAGNE l'oeuvre, elle ne passe pas.
+				bool aproposOpen = false;
+				float32 aproposScroll = 0.f;
+				/// 🔴 L'ETAT DE CET ECRAN **A L'ENTREE DE L'IMAGE**, et il existe pour
+				/// la MEME raison que `menuOuvertAvantImage` -- j'ai refait le defaut
+				/// du 25/09 le lendemain, a une couche pres.
+				///
+				/// L'entree « Aide -> A propos » pose `aproposOpen = true` en couche 50.
+				/// Plus bas, en couche 150, le VOILE de cet ecran est declare : il
+				/// gagne le survol (couche superieure), et `hit.AnyClick()` est ENCORE
+				/// VRAI -- c'est le meme clic, rien ne l'a consomme. La regle « un clic
+				/// sur le voile ferme » se declenchait donc a l'image meme de
+				/// l'ouverture : l'ecran naissait et mourait sans etre peint.
+				/// *Un etat lu dans la meme image que son ecriture ne dit pas s'il
+				/// survit.*
+				bool aproposOuvertAvantImage = false;
 				/// Glissement de CETTE separation-la. Elle n'est PAS dans le tableau
 				/// de `PaintSplitters` : celui-ci travaille sur la mise en page
 				/// generale (`NkLayout`) et ne connait ni l'entete du navigateur ni
