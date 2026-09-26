@@ -27,12 +27,30 @@ nkgui 0.3
 //  Les cinq boutons du transport ne diffèrent que par leur libellé et leur
 //  action. La racine prend l'identifiant de l'instance — donc le NOM DE
 //  L'ACTION — et les attributs de l'instance l'emportent sur les siens.
+//
+//  ⚠️ IL NE DÉCLARE AUCUN FOND AU REPOS, ET C'EST VOULU. Une barre de transport
+//     se fond dans sa bande : c'est le thème qui décide de son repos, et
+//     l'application suit le thème si Rodolf en change. Ce que le document écrit
+//     ici, c'est ce que le thème ne sait pas — comment ce bouton-ci RÉAGIT.
+//
+//     Le pétrole de la charte Rihen (#0A555F), éclairci au survol et assombri à
+//     l'appui. L'encre passe au blanc : sans elle le libellé resterait celui du
+//     thème, et ce dépôt a déjà mesuré un libellé illisible faute de l'avoir dit
+//     (`b1.f`, NKGuiInteractTest).
 component "BoutonTransport" {
   widgets {
     Button "bouton" {
       label = "?"
       appearance {
         radius = 3
+      }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
       }
     }
   }
@@ -46,6 +64,16 @@ component "BoutonTransport" {
 //     L'orange est celui de la charte Rihen (#F79A28). Il tient en thème clair
 //     comme en thème sombre : c'est la condition pour écrire une couleur en dur
 //     plutôt que de laisser le thème décider.
+//
+//  ⚠️ ET SES ÉTATS SE LISENT SUR L'ORANGE, PAS AILLEURS. Un survol qui
+//     changerait de teinte ferait douter qu'on est sur le même bouton : on
+//     éclaircit (#FFB055), on assombrit à l'appui (#D9821A), et l'encre sombre
+//     reste la même dans les trois cas — elle tient sur les trois oranges.
+//
+//     `Disabled` est écrit lui aussi, et il ne pouvait pas être deviné : sans
+//     lui, un bouton d'écriture grisé garderait son orange et inviterait au clic
+//     qu'il refuse. Son encre est déclarée exprès — le thème grise le libellé
+//     quand le document ne dit rien de `Disabled`, et ici le document le dit.
 component "BoutonEcrit" {
   widgets {
     Button "bouton" {
@@ -54,6 +82,16 @@ component "BoutonEcrit" {
         radius = 4
         fill { color = #F79A28 }
         text { color = #10222B }
+      }
+      appearance(Hover) {
+        fill { color = #FFB055 }
+      }
+      appearance(Pressed) {
+        fill { color = #D9821A }
+      }
+      appearance(Disabled) {
+        fill { color = #7A6A55 }
+        text { color = #C9BBA6 }
       }
     }
   }
