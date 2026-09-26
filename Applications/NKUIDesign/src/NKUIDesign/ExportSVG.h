@@ -49,6 +49,7 @@
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 
 #include "Export.h"
+#include "NkGuiEcrire.h" // le pont vers `.nkgui` -- la SPECIFICATION, pas une image
 #include "Selecteur.h" // ② le style du selecteur a deux volets
 
 namespace nkuidesign {
@@ -1152,6 +1153,79 @@ namespace nkuidesign {
 		return true;
 	}
 
+	// ═══════════════════════════════════════════════════════════════════════
+	//  L'EXPORT `.nkgui` — LE MAILLON QUI MANQUAIT AU PRODUIT (26/09)
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Le pont existait depuis le 14/09 (`NkGuiEcrire.h`, « le maillon qui
+	//  manquait »), et il n'etait atteignable QUE par un drapeau de ligne de
+	//  commande : `--recette-ecrivain`. Les exports que le menu proposait
+	//  etaient SVG et PNG -- des IMAGES, c'est-a-dire exactement ce dont une
+	//  application n'a pas besoin.
+	//
+	//  Rodolf, le 26/09 : « on doit partir de .nkgui et non de svg/png pour les
+	//  applications qui utilisent NKGui et NKEditorKit ». Et : « pour nos
+	//  applications pas besoin des export image ou svg mais besoin des
+	//  specifications ».
+	//
+	//  ⚠️ C'ETAIT UN VERDICT 🟡 « ECRITE, NON ATTEIGNABLE » -- le plus rentable
+	//     de tous, parce que le travail etait fait et qu'il ne manquait QUE le
+	//     fil. Ce qui suit n'ecrit aucun format : il branche celui qui existe.
+	//
+	//  ⚠️ ET LA DISPOSITION EST LA MEME QUE CELLE DE L'EXPORT IMAGE. Deux
+	//     dispositions calculees differemment feraient que le `.nkgui` et le
+	//     SVG du MEME design ne parleraient pas des memes rectangles -- et on
+	//     ne saurait plus lequel des deux ment.
+	inline bool NkExporterNkguiFichier(DesignState &st, const NkExportOptions &o,
+									   const char *chemin, NkExportResultat &res) {
+		using namespace nkentseu;
+		if (!chemin || !*chemin) {
+			snprintf(res.message, sizeof(res.message),
+					 "ÉCHEC d'export .nkgui : aucun chemin de destination.");
+			res.ok = false;
+			return false;
+		}
+
+		// La MEME disposition que l'export image : on la recalcule sur la meme
+		// surface plutot que de lire un etat qui peut etre perime.
+		NkLayoutResult lay;
+		NkComputeLayout(st.doc, NkPaintRect{0.f, 0.f, 1400.f, 900.f}, lay);
+
+		guifmt::NkEcritRapport rap;
+		if (!guifmt::NkEcrireNkgui(st.doc, lay, chemin, rap)) {
+			snprintf(res.message, sizeof(res.message),
+					 "ÉCHEC d'export : le .nkgui n'a pas pu être écrit dans %s.", chemin);
+			res.ok = false;
+			return false;
+		}
+		if (!NkFile::Exists(chemin) || NkFile::GetFileSize(chemin) <= 0) {
+			snprintf(res.message, sizeof(res.message),
+					 "ÉCHEC d'export : %s est vide après écriture.", chemin);
+			res.ok = false;
+			return false;
+		}
+
+		// ⚠️ LE MESSAGE DIT CE QUI N'A PAS TRAVERSE, PAS SEULEMENT CE QUI A
+		//    REUSSI. Un composite du kit sans equivalent `.nkgui` -- un
+		//    navigateur de contenu n'est pas un `ListBox` -- est COMPTE et non
+		//    devine : lui donner un role approchant produirait un fichier qui se
+		//    monte en montrant AUTRE CHOSE que ce qui a ete demande, la pire des
+		//    trois issues parce qu'elle est VERTE.
+		res.ok = true;
+		res.largeur = 0;
+		res.hauteur = 0;
+		if (rap.composantsSansRole > 0u)
+			snprintf(res.message, sizeof(res.message),
+					 ".nkgui : %u widget(s) écrit(s) (%u conteneur(s), %u feuille(s)) — "
+					 "⚠️ %u composant(s) SANS rôle équivalent, comptés et non devinés",
+					 rap.widgetsEcrits, rap.conteneurs, rap.feuilles, rap.composantsSansRole);
+		else
+			snprintf(res.message, sizeof(res.message),
+					 ".nkgui : %u nœud(s) vu(s), %u widget(s) écrit(s) "
+					 "(%u conteneur(s), %u feuille(s))",
+					 rap.noeudsVus, rap.widgetsEcrits, rap.conteneurs, rap.feuilles);
+		return true;
+	}
+
 	/// Le SVG, ecrit dans un fichier ; les images relatives au dossier du fichier.
 	inline bool NkExporterSVGFichier(DesignState &st, const NkExportOptions &o, const char *chemin,
 									 NkExportResultat &res) {
@@ -1253,8 +1327,13 @@ namespace nkuidesign {
 				chemin.Append(essai);
 			}
 			NkExportResultat r;
-			const bool ok = (o.format == NkExportFormat::PNG) ? NkExporterPNG(st, oi, chemin.Data(), r)
-															  : NkExporterSVGFichier(st, oi, chemin.Data(), r);
+			// ⚠️ TROIS FORMATS, TROIS BRANCHES. Un `? :` binaire aurait fait
+			//    tomber `.nkgui` dans la branche SVG -- sans erreur, sans message.
+			const bool ok = (oi.format == NkExportFormat::PNG)
+								? NkExporterPNG(st, oi, chemin.Data(), r)
+								: (oi.format == NkExportFormat::NKGUI
+									   ? NkExporterNkguiFichier(st, oi, chemin.Data(), r)
+									   : NkExporterSVGFichier(st, oi, chemin.Data(), r));
 			if (ok)
 				++faits;
 			else {
@@ -1324,9 +1403,19 @@ namespace nkuidesign {
 		//    dossier aide a choisir ou l'on ecrit, meme quand on enregistre.
 		c.picker.filtres.Clear();
 		c.picker.filtreActif = 0;
-		const bool png = c.format == (nkentseu::int32)NkExportFormat::PNG;
-		c.picker.AjouterFiltre(png ? "Images PNG" : "Images SVG", png ? "png" : "svg");
-		c.picker.AjouterFiltre(png ? "Images SVG" : "Images PNG", png ? "svg" : "png");
+		// Le format choisi d'abord, les deux autres ensuite. Aucun ternaire :
+		// une liste ordonnee se lit, un `? :` a trois valeurs ment.
+		{
+			const NkExportFormat fmt = (NkExportFormat)c.format;
+			const NkExportFormat kOrdre[3] = {NkExportFormat::PNG, NkExportFormat::SVG,
+											  NkExportFormat::NKGUI};
+			const char *kNoms[3] = {"Images PNG", "Images SVG", "Interfaces .nkgui"};
+			const char *kExt[3] = {"png", "svg", "nkgui"};
+			for (uint32 pass = 0; pass < 2u; ++pass)
+				for (uint32 i = 0; i < 3u; ++i)
+					if ((pass == 0u) == (kOrdre[i] == fmt))
+						c.picker.AjouterFiltre(kNoms[i], kExt[i]);
+		}
 		c.picker.AjouterFiltre("Tous les fichiers", "*");
 		c.buf[0] = '\0';
 		// ⑥ ON REPART DU DOSSIER COURANT -- le dernier ou un export a REUSSI (Rodolf :
@@ -1343,7 +1432,7 @@ namespace nkuidesign {
 		// Le filtre suit le format choisi : chercher son SVG parmi trois cents PNG
 		// etait le vrai cout de la colonne unique.
 		c.picker.OuvrirNav(nkentseu::editorkit::NkSelecteurEnregistrer, dep.Data(),
-				   c.format == (nkentseu::int32)NkExportFormat::PNG ? ".png" : ".svg",
+				   NkExportExtension((NkExportFormat)c.format),
 				   nomPropose, c.buf, (nkentseu::int32)sizeof(c.buf));
 	}
 
@@ -1389,7 +1478,7 @@ namespace nkuidesign {
 			return;
 		}
 		NkString chemin = (NkPath(c.picker.pickerResultPath) / nom).ToString();
-		const char *ext = c.format == (int32)NkExportFormat::PNG ? ".png" : ".svg";
+		const char *ext = NkExportExtension((NkExportFormat)c.format);
 		{
 			// l'extension du format, si elle manque
 			const char *p = chemin.Data();
@@ -1437,6 +1526,8 @@ namespace nkuidesign {
 		NkExportResultat res;
 		if (o.format == NkExportFormat::PNG)
 			NkExporterPNG(st, o, chemin.Data(), res);
+		else if (o.format == NkExportFormat::NKGUI)
+			NkExporterNkguiFichier(st, o, chemin.Data(), res);
 		else
 			NkExporterSVGFichier(st, o, chemin.Data(), res);
 		// ③ LE DOSSIER CHOISI DEVIENT UN RECENT -- session ET document. On le retient
@@ -1448,7 +1539,7 @@ namespace nkuidesign {
 			//    FICHIER RELU DU DISQUE -- pas un rendu de plus : si le codec avait mal
 			//    ecrit, la vignette le montrerait.
 			st.PoserAvisExport(chemin.Data(), res.largeur, res.hauteur,
-							   o.format == NkExportFormat::PNG ? "PNG" : "SVG");
+							   NkExportLibelle(o.format));
 		}
 		st.DireAuPied(res.message);
 		st.Consigner(res.message);

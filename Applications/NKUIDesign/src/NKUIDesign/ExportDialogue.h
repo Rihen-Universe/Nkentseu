@@ -138,17 +138,34 @@ namespace nkuidesign {
 			y += 26.f;
 			return choisi;
 		};
-		// ── FORMAT (PDF et code sont NOMMES et grises : ils existeront, ils n'existent pas) ──
+		// ── FORMAT ───────────────────────────────────────────────────────────
+		//  ⚠️ `.nkgui` EST LE SEUL QUI SERVE AUX APPLICATIONS, et il arrive en
+		//     troisième position le 26/09. PNG et SVG sont des IMAGES : elles
+		//     montrent, elles ne se MONTENT pas. Une application sur NKGui ou
+		//     NKEditorKit ne peut rien faire d'un PNG — ni rôle, ni identifiant,
+		//     ni comportement.
+		//
+		//  ⚠️ ET L'INDICE DE LA RANGÉE EST LA VALEUR DE L'ÉNUMÉRATION, ce qui
+		//     n'allait pas de soi : `PDF` occupait l'indice 2, celui que
+		//     `NkExportFormat::NKGUI` vaut. Les insérer sans regarder aurait fait
+		//     d'un clic sur « PDF » un export `.nkgui` — un chiffre juste sous un
+		//     nom faux. L'ordre de la liste suit donc l'énumération, et les deux
+		//     entrées grisées sont REJETÉES en fin de liste.
+		//
+		//  PDF et Code restent NOMMÉS et grisés : ils existeront, ils n'existent
+		//  pas. Les retirer ferait croire qu'ils ne sont pas prévus.
 		{
-			static const char *const kLib[4] = {"PNG", "SVG", "PDF", "Code"};
-			static const bool kActif[4] = {true, true, false, false};
-			const int32 k = rangee("Format", kLib, kActif, 4, c.format);
-			if (k == 0 || k == 1) {
-				c.format = k;
+			static const char *const kLib[5] = {"PNG", "SVG", ".nkgui", "PDF", "Code"};
+			static const bool kActif[5] = {true, true, true, false, false};
+			const int32 k = rangee("Format", kLib, kActif, 5, c.format);
+			if (k >= 0 && k <= 2) {
+				c.format = k; // 0=PNG, 1=SVG, 2=NKGUI — l'indice EST l'énumération
 				relire = true;
-			} else if (k >= 2)
-				st.DireAuPied(k == 2 ? "PDF : à construire — le même arbre que le SVG (document 14, §3b)."
-									 : "HTML / CSS / React / Next : à construire — un lecteur de plus du format.");
+			} else if (k == 3)
+				st.DireAuPied("PDF : à construire — le même arbre que le SVG (document 14, §3b).");
+			else if (k == 4)
+				st.DireAuPied("HTML / CSS / JavaScript, Java, C#, Qt : à construire — des lecteurs "
+							  "de plus du MÊME document. C'est le format qui rend ça possible.");
 		}
 		// ── ECHELLE (PNG seulement : un SVG n'a pas de pixels) ──────────────────
 		{
@@ -237,7 +254,7 @@ namespace nkuidesign {
 			nkentseu::editorkit::NkOverlayTextField(ctx, dl, ctx.font, rn, c.nom, (int32)sizeof(c.nom), true);
 			const char *ext = c.parObjet && c.selection && nSel >= 2u
 								  ? "…"
-								  : (c.format == (int32)NkExportFormat::PNG ? ".png" : ".svg");
+								  : NkExportExtension((NkExportFormat)c.format);
 			costume::Texte(dl, F.px10, rn.x + rn.w + 6.f, costume::CentrerY(F.px10, rn.y, 20.f), ext, ctx.theme.textMuted);
 			y += 26.f;
 		}
@@ -293,7 +310,7 @@ namespace nkuidesign {
 		c.dialogue.open = false;
 		c.embarquer = false;
 		char nomFichier[220];
-		const char *ext = (c.format == (int32)NkExportFormat::PNG) ? ".png" : ".svg";
+		const char *ext = NkExportExtension((NkExportFormat)c.format);
 		if (c.parObjet && c.selection && nSel >= 2u)
 			snprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "objet", ext); // le dossier compte, pas ce nom
 		else

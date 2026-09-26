@@ -54,7 +54,54 @@
 namespace nkuidesign {
 
 	// ── LES OPTIONS ET LE RESULTAT ────────────────────────────────────────────
-	enum class NkExportFormat : nkentseu::uint8 { PNG = 0, SVG = 1 };
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LES FORMATS D'EXPORT — et `.nkgui` n'est pas une image (26/09)
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Rodolf : « on doit partir de .nkgui et non de svg/png pour les
+	//  applications qui utilisent NKGui et NKEditorKit ».
+	//
+	//  PNG et SVG sont des IMAGES : elles servent a montrer, a comparer, a
+	//  communiquer. Aucune ne se MONTE -- elles ne portent ni role, ni
+	//  identifiant, ni comportement. Une application ne peut rien en faire.
+	//
+	//  `.nkgui` est la SPECIFICATION : l'arbre des widgets, leurs roles, leurs
+	//  apparences. C'est ce que `NkGuiMonteur` sait monter, et donc le seul
+	//  format qui relie NKUIDesign aux applications.
+	//
+	//  ⚠️ AJOUTER UNE TROISIEME VALEUR A UNE DECISION BINAIRE EST UN PIEGE, et
+	//     il etait partout : six sites ecrivaient `format == PNG ? "png" :
+	//     "svg"`. Un `.nkgui` y serait tombe dans la branche « sinon » et se
+	//     serait exporte en SVG -- sans erreur, sans message, avec la mauvaise
+	//     extension. Les ternaires sont donc remplaces par `NkExportExtension`
+	//     et `NkExportLibelle`, qui vivent ICI, a un seul endroit. Ajouter un
+	//     format demain ne demandera plus de retrouver six sites.
+	enum class NkExportFormat : nkentseu::uint8 { PNG = 0, SVG = 1, NKGUI = 2 };
+
+	/// L'extension d'un format, POINT COMPRIS. Jamais recopiee ailleurs.
+	inline const char *NkExportExtension(NkExportFormat f) noexcept {
+		switch (f) {
+			case NkExportFormat::PNG: return ".png";
+			case NkExportFormat::SVG: return ".svg";
+			case NkExportFormat::NKGUI: return ".nkgui";
+		}
+		return ".svg";
+	}
+
+	/// Le nom affiche d'un format.
+	inline const char *NkExportLibelle(NkExportFormat f) noexcept {
+		switch (f) {
+			case NkExportFormat::PNG: return "PNG";
+			case NkExportFormat::SVG: return "SVG";
+			case NkExportFormat::NKGUI: return "nkgui";
+		}
+		return "SVG";
+	}
+
+	/// Vrai si le format produit une IMAGE. Les options d'image -- echelle,
+	/// fond transparent, marge -- n'ont aucun sens pour une specification.
+	inline bool NkExportEstImage(NkExportFormat f) noexcept {
+		return f == NkExportFormat::PNG || f == NkExportFormat::SVG;
+	}
 
 	struct NkExportOptions {
 			NkExportFormat format = NkExportFormat::PNG;
