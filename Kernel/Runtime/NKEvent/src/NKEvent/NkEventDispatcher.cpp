@@ -274,6 +274,9 @@ namespace nkentseu {
 	void NkAxisManager::Clear() noexcept {
 		mAxes.Clear();
 		mCommands.Clear();
+		// L'etat de rampe s'en va avec le reste : sinon un axe recree sous le
+		// meme nom repartirait de la valeur qu'il avait avant l'oubli.
+		mCourant.Clear();
 	}
 
 	void NkAxisManager::CreateAxis(const NkString &name, NkAxisSubscriber handler) {
@@ -295,6 +298,7 @@ namespace nkentseu {
 	void NkAxisManager::RemoveAxis(const NkString &name) {
 		mAxes.Erase(name);
 		mCommands.Erase(name);
+		mCourant.Erase(name);
 	}
 
 	void NkAxisManager::RemoveCommand(const NkAxisCommand &cmd) {
@@ -350,6 +354,104 @@ namespace nkentseu {
 			if (math::NkFabs(total) >= dominante->GetMinInterval())
 				FireAxis(name, *dominante, total);
 		});
+	}
+
+	// =========================================================================
+	// LA RAMPE — pourquoi elle travaille en NORMALISE puis multiplie
+	//
+	// Une touche est binaire : le resolveur clavier rend 1 ou 0. La version
+	// ci-dessus multiplie par `scale` et sort, d'ou le saut de 0 a -100 que
+	// Rodolf a constate le 26/09. Il n'y avait rien a corriger dans ce calcul :
+	// la progression n'existait pas.
+	//
+	// On lisse donc la valeur NORMALISEE — la somme des bruts, signee par le
+	// sens de chaque `scale` — puis on la convertit avec la course de la
+	// commande dominante. C'est ce qui rend `sensitivity` independant de
+	// `scale` : la meme valeur se conduit pareil pour un axe a -1 et a -100.
+	//
+	// ⚠️ LE SIGNE VIENT DU `scale`, LA COURSE DE SA VALEUR ABSOLUE. Deux
+	//    commandes opposees (gauche a -100, droite a +100) toutes deux enfoncees
+	//    donnent une cible normalisee de 0, donc un retour au centre — et non
+	//    deux ordres qui s'additionnent.
+	// =========================================================================
+	void NkAxisManager::UpdateAxes(const NkAxisResolver &resolver, float dt) {
+		// ⚠️ Un `dt` negatif ferait RECULER la rampe, et un `dt` non fini la
+		//    rendrait NaN pour toujours — un axe mort qu'aucun relachement ne
+		//    reparerait. Les deux sont ramenes a 0 : la rampe ne bouge pas.
+		if (!math::NkIsFinite(dt) || dt < 0.f)
+			dt = 0.f;
+
+		mCommands.ForEach([&](const NkString &name, NkVector<NkAxisCommand> &cmds) {
+			if (cmds.IsEmpty())
+				return;
+
+			float cibleNormalisee = 0.f;
+			float meilleure = -1.f;
+			const NkAxisCommand *dominante = &cmds[0];
+
+			for (const auto &cmd : cmds) {
+				const float brut = resolver(cmd.GetCode().device, cmd.GetCode().code);
+				const float echelle = cmd.GetScale();
+				const float signe = (echelle < 0.f) ? -1.f : 1.f;
+				cibleNormalisee += brut * signe;
+
+				const float force = math::NkFabs(brut * echelle);
+				if (force > meilleure) {
+					meilleure = force;
+					dominante = &cmd;
+				}
+			}
+
+			cibleNormalisee = math::NkClamp(cibleNormalisee, -1.f, 1.f);
+
+			float *garde = mCourant.Find(name);
+			if (!garde) {
+				mCourant[name] = 0.f;
+				garde = mCourant.Find(name);
+			}
+			const float precedente = *garde;
+
+			// On s'ELOIGNE de zero -> sensibilite ; on y REVIENT -> gravite.
+			// Le depart est juge sur la cible, pas sur la valeur courante : une
+			// cible plus forte que la valeur, ou de signe oppose, est une montee.
+			const bool versLeCentre = math::NkFabs(cibleNormalisee) < math::NkFabs(precedente);
+			const float vitesse = versLeCentre ? dominante->GetGravity() : dominante->GetSensitivity();
+
+			float courante = cibleNormalisee;
+			if (vitesse > 0.f && dt > 0.f) {
+				// `pas` est en fraction de course : la course normalisee vaut 1.
+				const float pas = vitesse * dt;
+				const float ecart = cibleNormalisee - precedente;
+				if (math::NkFabs(ecart) <= pas)
+					courante = cibleNormalisee; // on arrive : pas de depassement
+				else
+					courante = precedente + ((ecart < 0.f) ? -pas : pas);
+			}
+			// vitesse <= 0 -> instantane, donc identique a la version sans `dt`.
+
+			*garde = courante;
+
+			const float valeur = courante * math::NkFabs(dominante->GetScale());
+
+			// ⚠️ LE ZERO FINAL DOIT ARRIVER. Avec `minInterval`, une rampe qui
+			//    redescend passe sous le seuil et cesserait d'emettre : le
+			//    consommateur garderait pour toujours la derniere valeur non
+			//    nulle, un axe bloque a mi-course. On emet donc aussi lorsque la
+			//    valeur a CHANGE, ce qui livre la derniere marche — celle qui
+			//    vaut zero.
+			if (math::NkFabs(valeur) >= dominante->GetMinInterval() || courante != precedente)
+				FireAxis(name, *dominante, valeur);
+		});
+	}
+
+	float NkAxisManager::GetAxisValue(const NkString &name) const noexcept {
+		const float *v = mCourant.Find(name);
+		if (!v)
+			return 0.f;
+		const NkVector<NkAxisCommand> *cmds = mCommands.Find(name);
+		if (!cmds || cmds->IsEmpty())
+			return 0.f;
+		return (*v) * math::NkFabs((*cmds)[0].GetScale());
 	}
 
 	void NkAxisManager::FireAxis(const NkString &name, const NkAxisCommand &cmd, float value) {
