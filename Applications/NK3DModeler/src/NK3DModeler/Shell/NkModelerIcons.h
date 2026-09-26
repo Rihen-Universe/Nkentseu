@@ -3,10 +3,43 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkModelerIcons.h â€” les icones de l'interface.
 //
-// SOURCE : les SVG de vscode-codicons, deposes dans data/icons/. Le SVG plutot
-// que le PNG parce qu'un rasteriseur existe deja (NkSVGCodec) : on decode a la
-// taille VOULUE, donc net a tous les facteurs d'echelle. Un PNG de 16 px
-// remonte a 24 baverait, et il faudrait livrer trois tailles de chaque icone.
+// POURQUOI LE SVG : un rasteriseur existe deja (NkSVGCodec), donc on decode a la
+// taille VOULUE, net a tous les facteurs d'echelle. Un PNG de 16 px remonte a 24
+// baverait, et il faudrait livrer trois tailles de chaque icone.
+//
+// SOURCE : ELLE N'EST PAS UNIQUE, ET CE FICHIER L'A LONGTEMPS DIT A TORT.
+//   Cette ligne annoncait « les SVG de vscode-codicons » -- une origine unique --
+//   alors que les lignes 115, 166 et 276 ci-dessous disent, elles, « dessines POUR
+//   LE PROJET » et « un dessin a lui ». Les deux ne pouvaient pas etre vraies.
+//
+//   Mesure du 2026-09-26, par comparaison des donnees de chemin (`d=`) des 104
+//   fichiers de data/icons/ aux 655 codicons officiels (revision a114bce,
+//   recuperee par `gh api .../tarball/main`) :
+//
+//     62  copies de codicon PROUVEES  -- `d=` identique au caractere pres
+//      6  meme nom, dessin DIFFERENT  -- indetermine (revision anterieure, ou
+//                                        redessine ici ; non tranche)
+//     36  etrangers au jeu            -- ni le nom ni le `d=` n'y figurent :
+//                                        les 7 primitives 3D en 256x256, 28
+//                                        icones du modeleur dans la grille 16x16,
+//                                        et `Vector.svg`
+//
+//   ⚠️ ET LE `viewBox` NE SIGNE RIEN : le jeu officiel melange les grilles.
+//      `terminal` et `output` sont en 24x24 chez Microsoft comme ici, et
+//      identiques au caractere pres. Classer sur la grille aurait fait deux faux
+//      negatifs ; seule la donnee etablit la donnee.
+//
+//   ⚠️ LICENCE : les codicons sont sous CC BY 4.0 (`LICENSE` du depot amont ;
+//      `LICENSE-CODE` = MIT pour le code), et CC BY 4.0 EXIGE l'attribution. Il
+//      n'existe aujourd'hui AUCUN fichier de licence ni d'attribution dans
+//      data/icons/. Le relevé complet est dans `echanges/ICONES_PROVENANCE.md` ;
+//      la decision (attribuer ou redessiner) appartient a Rodolf, et rien n'a ete
+//      ajoute ni retire ici.
+//
+//   ⚠️ `data/icons/icons.free` N'EST PAS UN JEU D'ICONES : c'est une archive ZIP
+//      de 2,7 Mo contenant un document d'outil de design (maquettes, captures,
+//      12 images matricielles) et PAS UN SEUL `.svg`. Rien ne le lit au
+//      lancement. Son nom trompe.
 //
 // ON RASTERISE A 2x PUIS ON REDUIT D'UN CRAN. Decoder directement a 16 px donne
 // un trait crenele : le rasteriseur n'a pas assez de surface pour moyenner. En

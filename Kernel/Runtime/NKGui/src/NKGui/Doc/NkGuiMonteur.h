@@ -236,6 +236,43 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "MenuItem")) return NkGuiRole::MenuItem;
 			if (NkGMotEgal(n, "Flow")) return NkGuiRole::Flow;
 			if (NkGMotEgal(n, "Grid")) return NkGuiRole::Grid;
+			// =================================================================
+			//  `Row` ET `Column` SONT DES SYNONYMES (2026-09-26, tranche par Rodolf)
+			// =================================================================
+			//  Leur schema est DEJA identique a celui de `HBox`/`VBox` (`pBox` :
+			//  `gap`, `align`, `justify`). Et les quatre references disent la meme
+			//  chose : le poids de flex est un attribut de l'ENFANT, jamais un type
+			//  de conteneur de plus --
+			//    Qt       `QHBoxLayout`      -> `addWidget(w, stretch)`
+			//    JavaFX   `HBox`             -> `HBox.setHgrow(...)`
+			//    CSS      `flex-direction`   -> `flex-grow`
+			//    Android  `LinearLayout`     -> `layout_weight`
+			//  Aucun des quatre n'a DEUX conteneurs horizontaux. En garder deux
+			//  obligerait l'auteur a choisir AVANT de savoir s'il voudra un poids.
+			//
+			//  🔴 ET ON NE PASSE PAS PAR `BeginRow`, PARCE QUE LA CONDITION POSEE
+			//     EST REFUTEE. On avait ecrit : « si `BeginRow` a poids nul se comporte
+			//     EXACTEMENT comme `BeginHBox`, on emploie `BeginRow` partout ». Mesure
+			//     dans `NkGuiContext::NextItemRect` -- ce sont DEUX flux distincts (1 et
+			//     5), et ils different sur trois points :
+			//
+			//       | quand aucune taille n'est donnee | HBox (flux 1) | Row (flux 5) |
+			//       | largeur par defaut               |   **120 px**  |  **60 px**   |
+			//       | hauteur de l'enfant              | la SIENNE     | ECRASEE par  |
+			//       |                                  |               | `flexCross`  |
+			//       | `curLineH` suivi                 |     oui       |     non      |
+			//
+			//     `BeginRow` force donc la hauteur de CHAQUE enfant a `ItemHeight()` et
+			//     replie les largeurs inconnues sur 60 px au lieu de 120. Ce n'est pas
+			//     « presque pareil » : c'est une autre mise en page. *Un nom de fonction
+			//     qui ressemble n'est pas un equivalent.*
+			//
+			//  ⚠️ LE POIDS DE FLEX RESTE DONC A FAIRE, et c'est dit plutot que
+			//     bricole : il demandera un attribut d'ENFANT que le format ne porte pas
+			//     encore, et le chemin `BeginRow`/`BeginColumn` de NKGui l'attend deja.
+			//     C'est un lot a part, pas un effet de bord de ce renommage.
+			if (NkGMotEgal(n, "Row")) return NkGuiRole::HBox;
+			if (NkGMotEgal(n, "Column")) return NkGuiRole::VBox;
 			// `ContextMenu` n'est PAS traduit : voir le refus motive dans l'enumeration.
 			return NkGuiRole::Inconnu;
 		}
