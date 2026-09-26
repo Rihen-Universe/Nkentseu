@@ -1744,6 +1744,15 @@ with workspace("Nkentseu", location="."):
     # NkEngineLayer (SetPhysicsWorld + enregistrement de NkFootIKSystem).
     with include("Applications/NkDemoPiedsSurLaPente/NkDemoPiedsSurLaPente.jenga"):
         pass
+    # BANC : le fil de NkEngineLayer traverse-t-il ? ⚠️ PAS ENCORE DECLARE,
+    # et la raison EST le resultat du lot : NkEngineLayer.cpp N EST PAS
+    # LIABLE. Il appelle NK_PROFILE_SCOPE, donc NkProfiler::Begin et ::End,
+    # qui sont DECLARES et definis NULLE PART. Personne ne s en apercevait
+    # parce que personne ne le liait : Hello3DApp.h (le seul PushLayer(new
+    # NkEngineLayer())) n est inclus par AUCUN .cpp. L objet vit dans
+    # Noge.lib et aucun lien ne le tire.
+    # Implementer le profileur est du NEUF : decision de Rodolf. Les sources
+    # du banc restent dans Applications/NkFilMoteurProbe/, pretes.
 
 
 

@@ -78,6 +78,17 @@ namespace nkentseu {
 			}
 
 			// Singleton — accès global à l'application courante.
+			// ⚠️ AJOUTE LE 2026-09-26. `Get()` DEREFERENCE `sInstance` sans
+			//    garde : hors application, c'est un plantage. Or `NkEngineLayer`
+			//    l'appelle dans `InitRenderer`, donc la couche moteur ne pouvait
+			//    pas s'attacher sans fenetre -- et une couche qu'on ne peut pas
+			//    attacher sans fenetre n'est pas eprouvable par un banc.
+			//    C'est une des raisons pour lesquelles le fil qu'elle pose
+			//    n'avait jamais ete traverse.
+			[[nodiscard]] static bool HasInstance() noexcept {
+				return sInstance != nullptr;
+			}
+
 			static NkApplication &Get() {
 				return *sInstance;
 			}
