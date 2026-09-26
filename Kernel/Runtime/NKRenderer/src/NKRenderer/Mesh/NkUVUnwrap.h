@@ -238,8 +238,15 @@ namespace nkentseu {
 		//
 		// `dropOne` retire N coutures : sert au NEGATIF du banc (moins de coupes
 		// donc moins d'ilots). Rend le nombre de coutures produites.
+		// `outFacesVisitees` : LE CHIFFRE QUI DIT SI LE PARCOURS A TRAVERSE.
+		// Un arbre couvrant du dual doit atteindre TOUTES les faces vivantes ;
+		// s'il n'en atteint qu'une, aucune arete n'est dans l'arbre, donc TOUTES
+		// deviennent des coutures -- et chaque triangle se retrouve seul dans son
+		// ilot. Sans ce compte, ce cas se lit comme une mauvaise strategie de
+		// coupe alors que c'est un parcours qui n'avance pas.
 		uint32 NkUVSeamsFromDualSpanningTree(const NkEditMesh &mesh, NkVector<NkEmId> &outSeams,
-											 uint32 dropOne = 0u) noexcept;
+											 uint32 dropOne = 0u,
+											 uint32 *outFacesVisitees = nullptr) noexcept;
 
 		bool NkUVUnwrap(NkEditMesh &mesh, const NkUVUnwrapParams &params, NkUVResult &outResult,
 						NkVector<NkUVIslandInfo> *outIslands = nullptr,
@@ -270,6 +277,8 @@ namespace nkentseu {
 		// incomplet ferait rougir le depliage pour une raison etrangere au
 		// depliage, et il faut pouvoir le distinguer.
 		struct NkUVAutoBilan {
+			uint32 facesVisitees = 0; // par le parcours du dual
+			uint32 facesTotal = 0;
 			uint32 coutures = 0;
 			uint32 couturesRetrouvees = 0;
 			uint32 sommetsAvant = 0;

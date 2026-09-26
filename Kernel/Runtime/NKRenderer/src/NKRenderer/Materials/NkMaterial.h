@@ -7,7 +7,17 @@
 // Usage :
 //   auto* mat = NkMaterial::Create(renderer->GetMaterials(), "PBR");
 //   mat->SetAlbedo({1, 0, 0})->SetRoughness(0.3f)->SetMetallic(0.8f);
-//   mat->SetTexture("albedo_map", myTex);
+//   mat->SetAlbedoMap(myTex);   // et NON SetTexture("albedo_map", ...)
+//
+// ATTENTION -- CE COMMENTAIRE ENSEIGNAIT « albedo_map », ET CE CANAL N'EXISTE
+// PAS. La liaison lit « albedo » (NkMaterialSystem.cpp:620) ; un nom inconnu est
+// accepte sans un mot, stocke, et jamais lu -- le materiau retombe alors sur le
+// BLANC 1x1 et rend un objet blanc parfaitement plausible. Mesure du 26/09 :
+//   SetAlbedoMap            -> « une texture est bien posee sur albedo »
+//   SetTexture("albedo_map")-> « REPLI BLANC : rien n'a ete pose sur albedo »
+// Les canaux LUS sont : albedo, normal, orm, emissive, height, mask, matcap.
+// Preferer les portes TYPEES (SetAlbedoMap, SetNormalMap, SetORMMap...) : elles
+// suppriment la chaine, donc la faute.
 //   render3D->Submit(mesh, mat, transform);
 //
 //   NkMaterial::Destroy(mat);
