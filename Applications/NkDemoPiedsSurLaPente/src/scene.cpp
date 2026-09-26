@@ -196,10 +196,43 @@ namespace eprouvette {
 		// SOUS le sol et le rayon (qui descend) ne toucherait rien. Ce n'est pas
 		// une triche : c'est la hanche qu'un contrôleur de personnage porterait.
 		const float32 leve = x * math::NkTan(kPenteDeg * kPI / 180.f);
-		for (uint32 i = 0; i < (uint32)kOs; ++i)
-			sk->Pose(i).localPosition = {kRepos[i].x + x, kRepos[i].y + leve, kRepos[i].z};
+		// ⚠️ LA POSE DE REPOS EST REECRITE A CHAQUE IMAGE, et c'est voulu : ce
+		//    montage n'a pas d'animation, donc la pose de reference doit venir
+		//    d'ici. Un pied en ENVOL recoit en plus une hauteur, pour qu'il y ait
+		//    quelque chose a ne PAS ramener au sol -- sans elle, un pied libre
+		//    resterait a la hauteur du sol et l'alternance serait invisible.
+		const NkFootIK *fkl = gMonde->Get<NkFootIK>(gPerso);
+		const float32 hG = (fkl && fkl->leftPlant < 0.5f) ? 0.35f : 0.f;
+		const float32 hD = (fkl && fkl->rightPlant < 0.5f) ? 0.35f : 0.f;
+		for (uint32 i = 0; i < (uint32)kOs; ++i) {
+			float32 sup = 0.f;
+			if (i == (uint32)kLCalf || i == (uint32)kLFoot || i == (uint32)kLToe)
+				sup = hG;
+			else if (i == (uint32)kRCalf || i == (uint32)kRFoot || i == (uint32)kRToe)
+				sup = hD;
+			sk->Pose(i).localPosition = {kRepos[i].x + x, kRepos[i].y + leve + sup, kRepos[i].z};
+		}
 		for (int i = 0; i < pas; ++i)
 			gFoot->Execute(*gMonde, kPasFixe);
+	}
+
+	// L'alternance : un creneau de 2 s, en opposition de phase. Le poids est
+	// POUSSE dans le composant -- l'IK le lira, elle ne le calculera pas.
+	void ImposerAlternance(float temps, bool active) noexcept {
+		NkFootIK *fk = gMonde ? gMonde->Get<NkFootIK>(gPerso) : nullptr;
+		if (fk == nullptr)
+			return;
+		if (!active) {
+			fk->leftPlant = 1.f;
+			fk->rightPlant = 1.f;
+			return;
+		}
+		// Creneau franc : le point milieu ne fonctionne pas dans ce systeme
+		// (voir NkLocomotion.cpp), donc on ne pretend pas l'utiliser.
+		const float32 p = temps - (float32)(int32)(temps / 2.f) * 2.f; // modulo 2 s
+		const bool gaucheEnLair = p < 1.f;
+		fk->leftPlant = gaucheEnLair ? 0.f : 1.f;
+		fk->rightPlant = gaucheEnLair ? 1.f : 0.f;
 	}
 
 	void Lire(float x, Etat &out) noexcept {
@@ -217,6 +250,15 @@ namespace eprouvette {
 		float32 y = 0.f, n = 0.f;
 		out.solLisible = SolY(x - kDemiEcart, y, n);
 		out.solSousPiedG = y;
+		float32 yd = 0.f, nd = 0.f;
+		if (SolY(x + kDemiEcart, yd, nd))
+			out.solSousPiedD = yd;
+
+		// La phase telle qu'elle a ete FOURNIE, relue dans le composant.
+		if (const NkFootIK *fk = gMonde ? gMonde->Get<NkFootIK>(gPerso) : nullptr) {
+			out.planteG = fk->leftPlant;
+			out.planteD = fk->rightPlant;
+		}
 
 		float32 ya = 0.f, yb = 0.f, na = 0.f, nb = 0.f;
 		out.solTracable = SolY(-7.f, ya, na) && SolY(7.f, yb, nb);
