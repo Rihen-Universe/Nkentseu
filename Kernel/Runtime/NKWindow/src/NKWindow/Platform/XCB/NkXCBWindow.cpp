@@ -17,6 +17,7 @@
 #include "NKWindow/Platform/XCB/NkXCBWindow.h"
 #include "NKWindow/Platform/XCB/NkXCBDropTarget.h"
 #include "NKWindow/Core/NkWindow.h"
+#include "NKWindow/Core/NkWindowAudit.h" // refus NOMME
 #include "NKLogger/NkLog.h" // SetMousePositionClient DIT ses refus : jamais un repli muet
 #include "NKWindow/Core/NkWESystem.h"
 #include "NKEvent/NkEventSystem.h"
@@ -1288,6 +1289,19 @@ namespace nkentseu {
 	}
 
 	void NkWindow::CaptureMouse(bool) {
+		// ⚠️ CE CORPS ETAIT ENTIEREMENT VIDE -- pas meme un `(void)capture;`.
+		//    Et il l'etait sur ce dorsal SEUL : `ShowMouse` et
+		//    `ClipMouseToClient` y sont, eux, implementes. C'est pourquoi
+		//    « les methodes curseur ne marchent pas » etait a la fois vrai et
+		//    faux chez l'utilisateur du 26/09 : sur X11, deux agissent et une
+		//    est muette. *Ne jamais juger une famille de methodes en bloc.*
+		//
+		//    La capture (XGrabPointer) n'est pas cablee ici. Tant qu'elle ne
+		//    l'est pas, l'appel le DIT au lieu de ne rien faire.
+		(void)capture;
+		NkWindowRefuserMethode("CaptureMouse", "XCB",
+							   "La capture du pointeur (XGrabPointer) n'est pas cablee sur ce "
+							   "dorsal ; ShowMouse et ClipMouseToClient, eux, agissent.");
 	} // XCB grab nécessite xcb_grab_pointer — laissé en no-op
 
 	void NkWindow::ClipMouseToClient(bool clip) {
