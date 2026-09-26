@@ -162,7 +162,38 @@ Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
 `NkBrowserTreeW`), jamais une copie : *une sonde qui recalcule ce qu'elle mesure
 ne peut voir aucun défaut de ce qu'elle mesure.*
 
+## Exigences de TOUTE démo
+
+1. **Un exécutable qui s'ouvre et MONTRE** — sans variable d'environnement, sans
+   argument obligatoire, sans fichier à préparer.
+2. **Nommée par ce qu'elle montre**, jamais par un numéro.
+3. **Inscrite ici**, avec la colonne « ce qui prouverait que c'est cassé ».
+4. **Son actif est dans le dépôt, ou elle le fabrique en code.** Jamais les deux
+   à moitié : une démo qui ne marche que dans l'arbre de son auteur n'est pas une
+   démo. (`logs_genia3d/` n'est pas versionné — la première version de
+   `nkdemodepliageuv` ne trouvait son objet que chez moi.)
+5. **⚠️ Elle journalise son IDENTITÉ DE CONSTRUCTION dès sa première ligne** —
+   empreinte du commit, heure de compilation, chemin de son propre exécutable :
+
+   ```
+   [demo-uv] IDENTITE : commit e52982b8c · compile le Sep 26 2026 a 01:27:05
+             · D:\...
+kdemodepliageuv.exe
+   ```
+
+   **Pourquoi** : le 26/09, une heure a été perdue à trois parce qu'une capture
+   d'écran ne pouvait se rattacher à aucun binaire — sept arbres s'étaient
+   reconstruits entre-temps et les horodatages étaient effacés. Une capture qui
+   ne dit pas de quel binaire elle vient ne prouve rien. L'empreinte est gravée
+   à la **construction** (le `.jenga` interroge `git`), l'heure vient du
+   compilateur, le chemin se lit à l'exécution.
+6. **Et un corollaire de la même heure perdue** : *commiter AVANT de faire
+   relancer par quelqu'un d'autre*. Un correctif qui ne vit que dans l'arbre de
+   travail rend le diagnostic de l'autre impossible — son `git log` ne le voit
+   pas.
+
 ---
+
 
 | démo | ce qu'on doit voir | ce qui prouverait que c'est cassé |
 |---|---|---|
