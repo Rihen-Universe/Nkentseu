@@ -61,6 +61,7 @@
 #include "NKWindow/NKWindow.h"
 #include "NKWindow/NKMain.h"
 #include "NKLogger/NkLog.h"
+#include "NKWindow/Core/NkWindowAudit.h" // NkWindowRefuserMethode : essai J
 
 #include <cstdio>
 #include <cstring>
@@ -363,6 +364,23 @@ namespace {
 	//    journal » — alors que les trois lignes y etaient, horodatees, et
 	//    verifiables au `grep`. L'INSTRUMENT ACCUSAIT LE PRODUIT DE SON PROPRE
 	//    DEFAUT. Un banc rouge se verifie avant d'etre cru.
+	// Combien de fois le motif apparait dans le journal. `JournalContient` ne
+	// suffit pas pour l'essai J : « le refus est sorti » et « il n'est sorti
+	// QU'UNE FOIS » sont deux questions, et un booleen ne repond qu'a la
+	// premiere.
+	int JournalCompte(const char *motif) {
+		FILE *f = _fsopen("logs/app.log", "rb", _SH_DENYNO);
+		if (!f)
+			return 0;
+		int n = 0;
+		char ligne[2048];
+		while (std::fgets(ligne, sizeof(ligne), f))
+			if (std::strstr(ligne, motif))
+				++n;
+		std::fclose(f);
+		return n;
+	}
+
 	bool JournalContient(const char *motif) {
 		FILE *f = _fsopen("logs/app.log", "rb", _SH_DENYNO);
 		if (!f)
@@ -732,6 +750,45 @@ namespace {
 		w.Close();
 	}
 
+	// -- ESSAI J : LE MECANISME DU REFUS DE METHODE -----------------------
+	// ⚠️ IL MESURE LE MECANISME, PAS LES DORSAUX, et il faut le dire : les
+	//    quatre sites qui refusent vraiment (SetCursor sur X11/Wayland/Cocoa,
+	//    CaptureMouse sur XLib/XCB, les deux de Wayland) ne sont pas executables
+	//    depuis Windows. Ce banc ne prouve donc PAS qu'ils parlent -- il prouve
+	//    que la porte par laquelle ils parlent fonctionne.
+	//
+	// ⚠️ ET IL VERIFIE QUE LE COMPTEUR COMPTE PAR CLE, pas globalement. Un
+	//    mecanisme qui ne dirait qu'UNE seule chose pour tout le programme
+	//    passerait un critere « une seule ligne » sans qu'on s'en apercoive :
+	//    il faut donc DEUX methodes differentes et exiger DEUX lignes.
+	//
+	// ⚠️ ON MESURE DES DELTAS. Le journal n'est pas vide entre deux executions ;
+	//    un compte absolu melangerait les lignes d'hier aux notres.
+	void EssaiRefusMethode() {
+		const int a0 = JournalCompte("NkWindow::SondeMethodeA");
+		const int b0 = JournalCompte("NkWindow::SondeMethodeB");
+
+		// Trois appels sur la MEME cle : un seul message est du.
+		NkWindowRefuserMethode("SondeMethodeA", "sonde", "essai du mecanisme, sans effet reel.");
+		NkWindowRefuserMethode("SondeMethodeA", "sonde", "essai du mecanisme, sans effet reel.");
+		NkWindowRefuserMethode("SondeMethodeA", "sonde", "essai du mecanisme, sans effet reel.");
+		// Une autre cle : elle doit avoir SA ligne.
+		NkWindowRefuserMethode("SondeMethodeB", "sonde", "essai du mecanisme, sans effet reel.");
+
+		NkLog::Instance().Flush();
+		const int a = JournalCompte("NkWindow::SondeMethodeA") - a0;
+		const int b = JournalCompte("NkWindow::SondeMethodeB") - b0;
+
+		char d1[128];
+		std::snprintf(d1, sizeof(d1), "3 appels sur la meme cle -> %d ligne(s), exige 1", a);
+		Critere("refus de methode : une fois par cle", a == 1, d1);
+
+		char d2[128];
+		std::snprintf(d2, sizeof(d2), "une SECONDE cle -> %d ligne(s), exige 1 (sinon le compteur "
+									  "est global)", b);
+		Critere("refus de methode : compte par cle", b == 1, d2);
+	}
+
 	int Mesurer(bool negatif) {
 		gAttenduRouge = negatif;
 		std::printf("\n=== NkWindowSonde — %s ===\n",
@@ -756,6 +813,10 @@ namespace {
 		if (!negatif) { // ces appels agissent deja sur Win32 : pas de negatif ici
 			std::printf("--- I. le CURSEUR, interroge au systeme\n");
 			EssaiCurseur();
+		}
+		if (!negatif) {
+			std::printf("--- J. le MECANISME du refus de methode\n");
+			EssaiRefusMethode();
 		}
 		std::printf("--- D. temoin de NON-REGRESSION (config par defaut)\n");
 		EssaiDefauts();

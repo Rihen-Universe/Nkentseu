@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# =============================================================================
+# NkDemoCurseur — LA DEMO DU CURSEUR (26/09/2026)
+# =============================================================================
+# Quatre zones, quatre formes de curseur, une case « confiner a la fenetre ».
+#
+# POURQUOI ELLE EXISTE : un utilisateur a rapporte que « les methodes pour
+# curseur dans NKWindow ne fonctionnent pas ». Le banc NkWindowSonde a pu
+# mesurer le confinement, la capture et l'affichage en interrogeant Windows —
+# mais PAS la forme du curseur : elle ne s'applique que si une souris SURVOLE la
+# fenetre, et les fenetres du banc sont invisibles, sans entree injectee.
+# Seul un humain qui survole peut en juger. C'est cette demo.
+#
+# Elle montre aussi le DEFAUT de l'utilisateur, reproductible a volonte : la
+# case « rappeler SetCursor a chaque image », decochee, fait retomber la forme a
+# la fleche des qu'on bouge — parce que Windows envoie WM_SETCURSOR a chaque
+# mouvement.
+# =============================================================================
+
+from Jenga import *
+from jengaconfig import *
+
+import os
+
+
+with project("NkDemoCurseur"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # NKCanvas tire NKWindow, NKEvent, NKCore, NKMath, NKLogger... transitivement.
+    nkentseudependson(
+        ["NKCanvas", "NKFont", "NKImage", "NKStream", "NKTime", "NKGlad"],
+        extra_includes=["src"],
+        extra_defines=[
+            # OpenGL seul : le dorsal le mieux valide partout, et cette demo ne
+            # mesure pas le rendu — elle mesure le curseur.
+            "NKENTSEU_ENABLE_VULKAN_BACKEND=0",
+        ],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    # La police chargee au demarrage ("Resources/Fonts/Antonio-Bold.ttf").
+    dependfiles(["../../Resources/Fonts"])
+
+    # ===== Windows ===========================================================
+    # ⚠️ NKCanvas COMPILE TOUS SES DORSAUX, meme ceux qu'on n'utilise pas au
+    #    runtime : cette demo demande OpenGL, et le lien reclame quand meme les
+    #    symboles DX11/DX12/Vulkan. Sans ces bibliotheques, l'editeur de liens
+    #    rend « undefined symbol » sur du code qui ne s'executera jamais.
+    #    (Meme liste que ConquerorProto, qui construit : on la reprend telle
+    #    quelle plutot que de la deviner ligne a ligne.)
+    with filter("system:Windows"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        links([
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "ole32", "uuid",
+            "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "vulkan-1",
+        ])
+
+    # ===== Linux (XLib) ======================================================
+    # ⚠️ La demo se LANCE sur Linux, mais elle y montrera la fleche : SetCursor
+    #    n'y est pas implemente (table : wiki/Runtime/NKWindow/Curseur-par-dorsal.md).
+    #    Le journal ecrira un REFUS NOMME -- c'est precisement ce qu'elle doit
+    #    montrer la-bas.
+    with filter("system:Linux && !options:linux-backend=wayland"):
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xrandr", "Xext", "GL", "m"])
+
+    with filter("config:Debug"):
+        defines(["_DEBUG"]); optimize("Off"); symbols(True)
+    with filter("config:Release"):
+        defines(["NDEBUG"]); optimize("Speed"); symbols(False)
