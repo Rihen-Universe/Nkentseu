@@ -39,6 +39,7 @@ namespace eprouvette {
 		const float32 kPenteDeg = 14.f;
 		const float32 kFootHeight = 0.02f;
 		const float32 kDemiEcart = 0.15f; // demi-écartement des pieds en x
+		const float32 kSolDemiHaut = 0.5f; // demi-epaisseur du sol -> sommet a +0,5
 		const float32 kPI = 3.14159265358979f;
 
 		math::NkQuatf QuatZ(float32 rad) noexcept {
@@ -224,6 +225,151 @@ namespace eprouvette {
 	}
 
 	// -------------------------------------------------------------------------
+	// CesiumMan SUR LA PENTE : le critere qui distingue le correctif d'un placebo.
+	//
+	// L'eprouvette plate rend EXACTEMENT les memes chiffres avant et apres le
+	// correctif -- normal, la composition monde est l'identite quand tous les
+	// parents valent -1. C'est une excellente non-regression et une preuve nulle.
+	// Il fallait donc un squelette HIERARCHIQUE : 18 os sur 19 ont un parent ici.
+	// -------------------------------------------------------------------------
+	bool PoserCesiumSurPente(float x, bool branche, SurPente &out) noexcept {
+		Import info;
+		if (!ImporterCesiumMan(info) || info.pied.indice < 0)
+			return false;
+		ecs::NkSkeleton *src = (ecs::NkSkeleton *)SqueletteCesiumMan();
+		if (src == nullptr)
+			return false;
+
+		Detruire();
+		gMonde = new ecs::NkWorld();
+		gPhys = new NkPhysicsSystem();
+		gFoot = new NkFootIKSystem();
+
+		// la meme pente que l'eprouvette, au degre pres
+		gPente = gMonde->CreateEntity();
+		{
+			ecs::NkTransform tf;
+			tf.localRotation = QuatZ(kPenteDeg * kPI / 180.f);
+			ecs::NkRigidbody3D rb;
+			rb.bodyType = ecs::NkBodyType::Static;
+			ecs::NkCollider3D col;
+			col.shape = ecs::NkCollider3DShape::Box;
+			col.boxSize = {40.f, 1.f, 40.f};
+			gMonde->Add<ecs::NkTransform>(gPente, tf);
+			gMonde->Add<ecs::NkRigidbody3D>(gPente, rb);
+			gMonde->Add<ecs::NkCollider3D>(gPente, col);
+		}
+
+		// le personnage : le squelette IMPORTE, os designes par leur NOM
+		gPerso = gMonde->CreateEntity();
+		{
+			ecs::NkSkeleton sk = *src; // la definition est partagee, pas copiee
+
+			// ⚠️ ON DEPLACE LA RACINE, PAS TOUS LES OS. Sur un squelette
+			//    hierarchique, translater la racine deplace tout le reste par
+			//    composition -- et si ca ne marchait pas, c'est precisement la
+			//    hierarchie qui serait en cause. L'eprouvette plate, elle, devait
+			//    replacer ses neuf os un par un.
+			int32 racine = -1;
+			for (uint32 b = 0; b < sk.BoneCount(); ++b)
+				if (sk.Def(b).parent < 0) {
+					racine = (int32)b;
+					break;
+				}
+			if (racine < 0)
+				return false; // aucun os racine : on ne devine pas
+
+			// Hauteur de depart : au-dessus de la pente a cette abscisse, pour que
+			// le rayon (qui DESCEND) rencontre le sol.
+			const float32 solIci = x * math::NkTan(kPenteDeg * kPI / 180.f) + kSolDemiHaut;
+			ecs::NkBonePose &r = sk.Pose((uint32)racine);
+			r.localPosition = {x, solIci + 0.35f, 0.f};
+
+			NkFootIK fk;
+			fk.footHeight = kFootHeight;
+			fk.rayLength = 4.f;
+			fk.blendSpeed = 30.f;
+			// ⚠️ LES INDICES VIENNENT DES NOMS, pas d'une convention devinee.
+			fk.leftThighIdx = (uint32)info.cuisse.indice;
+			fk.leftCalfIdx = (uint32)info.mollet.indice;
+			fk.leftFootIdx = (uint32)info.pied.indice;
+			fk.rightThighIdx = fk.leftThighIdx; // une seule jambe mesuree ici
+			fk.rightCalfIdx = fk.leftCalfIdx;
+			fk.rightFootIdx = fk.leftFootIdx;
+			fk.hipBoneIdx = (uint32)racine;
+			fk.hipCompensation = 0.f; // ⚠️ neutralisee : voir le critere dedie
+
+			gMonde->Add<ecs::NkTransform>(gPerso, ecs::NkTransform{});
+			gMonde->Add<ecs::NkSkeleton>(gPerso, sk);
+			gMonde->Add<NkFootIK>(gPerso, fk);
+		}
+
+		gFoot->SetPhysicsWorld(branche ? &gPhys->World() : nullptr);
+		gFoot->SetFallbackGroundY(0.f);
+		gPhys->Execute(*gMonde, kPasFixe);
+		for (int k = 0; k < 90; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+
+		// ⚠️ ON LIT LA POSITION MONDE, par la meme composition que le pont --
+		//    jamais la pose locale, qui est justement ce qui etait faux.
+		const ecs::NkSkeleton *sk2 = gMonde->Get<ecs::NkSkeleton>(gPerso);
+		if (sk2 == nullptr)
+			return false;
+		NkVector<math::NkMat4f> monde;
+		NkIKSolver::BuildWorldPose(*sk2, monde);
+		const uint32 pi = (uint32)info.pied.indice;
+		if ((uint32)monde.Size() <= pi)
+			return false;
+		out.piedY = monde[(NkVector<math::NkMat4f>::SizeType)pi][3][1];
+		out.piedXMonde = monde[(NkVector<math::NkMat4f>::SizeType)pi][3][0];
+
+		float32 s = 0.f, n = 0.f;
+		if (!SolY(out.piedXMonde, s, n))
+			return false;
+		out.solY = s;
+		float32 d = 0.f;
+		PenteLue(d);
+		out.penteLueDeg = d;
+		out.monte = true;
+		return true;
+	}
+
+	// -------------------------------------------------------------------------
+	// La compensation de hanche, mise a l'epreuve. On MESURE avant d'accuser :
+	// l'eprouvette de la pente replace ses neuf os a chaque image, ce qui
+	// EFFACE toute derive -- le montage masquait le defaut qu'on cherche. Ici on
+	// appelle donc `Execute` SANS replacer, et on regarde la hanche.
+	// -------------------------------------------------------------------------
+	bool EprouverHanche(Hanche &out) noexcept {
+		// Le sol est HAUT a x = +4 (environ 1,48 m) : c'est la que le defaut (1)
+		// se reveille, s'il existe.
+		Construire(true);
+		Placer(4.f, 0); // place, sans laisser l'IK converger
+
+		ecs::NkSkeleton *sk = gMonde->Get<ecs::NkSkeleton>(gPerso);
+		NkFootIK *fk = gMonde->Get<NkFootIK>(gPerso);
+		if (sk == nullptr || fk == nullptr)
+			return false;
+
+		// La reference : la hanche AVANT que quoi que ce soit ne s'y applique.
+		out.avant = sk->Pose(fk->hipBoneIdx).localPosition.y;
+		gFoot->Execute(*gMonde, kPasFixe);
+		out.apres1 = sk->Pose(fk->hipBoneIdx).localPosition.y;
+		for (int k = 0; k < 29; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+		out.apres30 = sk->Pose(fk->hipBoneIdx).localPosition.y;
+		for (int k = 0; k < 170; ++k)
+			gFoot->Execute(*gMonde, kPasFixe);
+		out.apres200 = sk->Pose(fk->hipBoneIdx).localPosition.y;
+		out.offsetVu = fk->hipOffset;
+		out.groundeG = fk->leftFoot.isGrounded;
+		out.groundeD = fk->rightFoot.isGrounded;
+		out.mesure = true;
+		Detruire();
+		return true;
+	}
+
+	// -------------------------------------------------------------------------
 	int Mesurer() noexcept {
 		int echecs = 0;
 		Construire(true);
@@ -356,10 +502,10 @@ namespace eprouvette {
 															   : (im.piedLocalY - im.piedMondeY);
 		if (im.osAvecParent > 0 && ecartH > 0.001f)
 			std::printf("  [DIT]   la POSE LOCALE N'EST PAS LA POSE MONDE (%d os ont un "
-						"parent) --\n          NkFootIKSystem lit la locale comme si elle etait "
-						"monde.\n          Les noms sont la ; le pont, lui, suppose encore un "
-						"squelette PLAT.\n          Ce n'est PAS un echec de ce lot : c'est le "
-						"lot suivant.\n",
+						"parent) --\n          et NkFootIKSystem lit desormais la POSE MONDE, "
+						"corrige le 26/09.\n          Cette ligne RESTE, parce que cet ecart est la "
+						"CONDITION de validite du critere\n          hierarchique ci-dessous : s'il tombait a zero, ce "
+						"critere ne prouverait rien\n          de plus que l'eprouvette plate.\n",
 						im.osAvecParent);
 			// ⚠️ L'ARGUMENT MANQUAIT, et le defaut est instructif : le %d
 			//    lisait la pile et imprimait « -4 os ont un parent » pendant que la
@@ -369,6 +515,179 @@ namespace eprouvette {
 			//    seule raison pour laquelle il a ete vu.
 		else
 			std::printf("  [DIT]   aucune divergence locale/monde mesuree ici\n");
+
+		// == CesiumMan SUR LA PENTE : squelette HIERARCHIQUE ==================
+		// ⚠️ C'EST LE SEUL CRITERE QUI DISTINGUE LE CORRECTIF D'UN PLACEBO.
+		//    L'eprouvette plate ci-dessus rend les MEMES chiffres avant et apres
+		//    (composition monde = identite quand tous les parents valent -1) :
+		//    excellente non-regression, preuve nulle.
+		std::printf("\n  -- CesiumMan SUR LA PENTE (18 os sur 19 ont un parent) -------\n");
+		{
+			const float32 abs2[2] = {-3.f, 3.f};
+			int poses = 0;
+			for (int k = 0; k < 2; ++k) {
+				SurPente sp;
+				if (!PoserCesiumSurPente(abs2[k], true, sp)) {
+					std::printf("      x=%+5.1f : montage IMPOSSIBLE\n", abs2[k]);
+					continue;
+				}
+				const float32 ecart = sp.piedY - (sp.solY + kFootHeight);
+				std::printf("      x=%+5.1f : pente %5.2f deg   sol %7.4f   pied MONDE %7.4f"
+							"   ecart %+7.4f\n",
+							abs2[k], sp.penteLueDeg, sp.solY, sp.piedY, ecart);
+				if (ecart > -0.06f && ecart < 0.06f)
+					++poses;
+			}
+			std::printf("  [%s] HIERARCHIQUE : le pied se pose sur la pente (%d/2, tol. 6 cm)\n",
+						poses == 2 ? "OK" : "ECHEC", poses);
+			if (poses != 2)
+				++echecs;
+
+			// LE NEGATIF, aux deux extremites, comme pour l'eprouvette : debranche,
+			// l'IK vise un sol fantome a y = 0. A droite la pente est HAUTE (le
+			// pied reste dessous), a gauche BASSE (il reste au-dessus).
+			SurPente d, g;
+			const bool okD = PoserCesiumSurPente(3.f, false, d);
+			const bool okG = PoserCesiumSurPente(-3.f, false, g);
+			if (okD && okG) {
+				const float32 enf = d.solY - d.piedY;
+				const float32 flo = g.piedY - (g.solY + kFootHeight);
+				std::printf("      x= +3.0 : sol %7.4f   pied %7.4f   ENFONCE de %+7.4f\n",
+							d.solY, d.piedY, enf);
+				std::printf("      x= -3.0 : sol %7.4f   pied %7.4f   FLOTTE de  %+7.4f\n",
+							g.solY, g.piedY, flo);
+				// ⚠️ LE SEUIL EST DERIVE DE LA TOLERANCE, PAS DU RESULTAT.
+				//    Il vaut DEUX FOIS la tolerance du critere positif (6 cm) :
+				//    l'erreur debranchee doit etre franchement hors de ce que le
+				//    critere positif accepte, sans quoi les deux montages ne se
+				//    distingueraient pas.
+				//
+				// ⚠️ ET POURQUOI PAS PLUS : l'amplitude de l'erreur est BORNEE PAR LA
+				//    LONGUEUR DE LA JAMBE. Debranche, l'IK vise y = 0,02 ; la ou
+				//    cette cible est hors de portee, la jambe s'etend au maximum et
+				//    s'arrete la -- l'ecart ne peut pas depasser ce que le membre
+				//    permet. CesiumMan a des jambes plus courtes que l'eprouvette
+				//    procedurale, donc son enfoncement est plus faible (0,145 m
+				//    contre 0,428 m) : un seuil recopie de l'eprouvette aurait
+				//    rougi sur un comportement JUSTE.
+				//
+				//    *Un attendu emprunte a un autre montage se perime sur celui-ci.*
+				//    C'est la meme faute que « meme limitation que les nodes », en
+				//    chiffres. Le seuil se derive donc du critere qu'il doit refuter,
+				//    et de rien d'autre.
+				const float32 seuilNeg = 2.f * 0.06f; // 2 x la tolerance de pose
+				const bool deuxSignes = enf > seuilNeg && flo > seuilNeg;
+				std::printf("  [%s] NEGATIF HIERARCHIQUE : enfonce a droite ET flotte a "
+							"gauche (> %.2f m = 2 x la tolerance)\n",
+							deuxSignes ? "OK" : "ECHEC", seuilNeg);
+				if (!deuxSignes)
+					++echecs;
+			} else {
+				std::printf("  [ECHEC] le negatif hierarchique n'a pas pu etre monte\n");
+				++echecs;
+			}
+			Detruire();
+		}
+
+		// == LA COMPENSATION DE HANCHE ========================================
+		std::printf("\n  -- la COMPENSATION DE HANCHE, sur un sol HAUT ----------------\n");
+		{
+			Hanche hp;
+			if (!EprouverHanche(hp)) {
+				std::printf("  [ECHEC] la sonde de hanche n'a pas pu etre montee\n");
+				++echecs;
+			} else {
+				// ⚠️ DEUX INTERVALLES, PARCE QU'IL Y A DEUX PHENOMENES.
+				//    1 -> 30   : la convergence de l'IK (contactWeight monte vers 1,
+				//                le pied descend vers le sol) -- elle DOIT bouger.
+				//    30 -> 200 : plus rien ne doit bouger. Une ACCUMULATION est
+				//                lineaire et sans fin ; une CONVERGENCE s'ARRETE.
+				//    Le critere porte donc sur l'intervalle TARDIF, et lui seul.
+				//
+				//    Le premier jet du critere portait sur 1 -> 30 et rougissait a
+				//    -0,056 m APRES correctif : il confondait les deux. Avant
+				//    correctif, ce meme intervalle donnait +21,68 m -- l'ordre de
+				//    grandeur suffisait a voir le defaut, pas a le declarer eteint.
+				const float32 tot = hp.apres30 - hp.apres1;
+				const float32 tard = hp.apres200 - hp.apres30;
+				std::printf("      hanche : 1 image %8.4f   30 %8.4f   200 %8.4f\n"
+							"      convergence 1->30 %+8.4f   RESIDU 30->200 %+8.4f\n"
+							"      hipOffset porte par le composant : %+.4f\n",
+							hp.apres1, hp.apres30, hp.apres200, tot, tard, hp.offsetVu);
+				const float32 tardAbs = tard < 0.f ? -tard : tard;
+				bool stable = tardAbs < 0.01f;
+				std::printf("  [%s] la hanche SE STABILISE : residu 30->200 images < 1 cm\n",
+							stable ? "OK" : "ECHEC");
+				if (!stable)
+					++echecs;
+
+				// ⚠️ ET LE CRITERE QUI REFUTE VRAIMENT L'ACCUMULATION : une EGALITE
+				//    COMPTABLE, sans seuil arbitraire.
+				//
+				//        ce que la hanche a REELLEMENT bouge
+				//     == ce que le composant DIT avoir applique (hipOffset)
+				//
+				//    Une somme d'increments qui ne correspond plus a l'etat declare
+				//    EST une accumulation, par definition -- pas par depassement
+				//    d'un seuil qu'il faudrait justifier.
+				//
+				// ⚠️ LE PREMIER CRITERE (residu tardif) ETAIT AVEUGLE, et c'est la
+				//    lecon : une fois le pied pose, `vise` tombe a zero, donc
+				//    `+= 0` n'accumule plus rien et le residu est nul MEME SUR DU
+				//    CODE QUI ACCUMULE. Decouvert en mutant le correctif : le
+				//    critere restait vert. Un negatif qu'on ne mute pas est une
+				//    opinion.
+				const float32 bouge = hp.apres200 - hp.avant;
+				const float32 ecartComptable = bouge - hp.offsetVu;
+				const float32 ecAbs = ecartComptable < 0.f ? -ecartComptable : ecartComptable;
+				std::printf("      hanche avant %8.4f -> apres %8.4f : elle a bouge de %+8.4f\n"
+							"      le composant declare hipOffset = %+8.4f   ecart comptable "
+							"%+8.4f\n",
+							hp.avant, hp.apres200, bouge, hp.offsetVu, ecartComptable);
+				std::printf("      pied gauche touche : %s   pied droit : %s\n",
+						hp.groundeG ? "oui" : "NON", hp.groundeD ? "oui" : "NON");
+			const bool comptable = ecAbs < 0.001f;
+				std::printf("  [%s] ce que la hanche a BOUGE == ce que le composant DECLARE\n",
+							comptable ? "OK" : "ECHEC");
+				if (!comptable)
+					std::printf("          ⚠️ la hanche porte %+.4f m que personne ne declare : "
+								"c'est une ACCUMULATION.\n",
+								ecartComptable);
+				stable = stable && comptable;
+
+			// ⚠️ TROISIEME CRITERE, et c'est le seul qui refute la confusion
+			//    ALTITUDE / ECART. Les deux precedents sont VERTS sous la mutation
+			//    qui rend `hipOffset` egal a l'altitude du sol : il vaut alors
+			//    +0,7476 m ET la hanche bouge bien de +0,7476 -- l'egalite
+			//    comptable est satisfaite. Mesure, pas deduit.
+			//
+			//    *Ils jugent la FIDELITE d'application, pas la JUSTESSE de la
+			//    valeur.* Un critere comptable ne sait pas si le nombre qu'on lui
+			//    donne a un sens.
+			//
+			//    Celui-ci exprime l'INTENTION du code -- « abaissement selon la
+			//    correction la plus forte » : quand les DEUX pieds sont POSES, il
+			//    n'y a plus rien a corriger, donc la hanche ne doit RIEN recevoir.
+			//    Il ne depend d'aucun detail de notre implementation.
+			const float32 offAbs = hp.offsetVu < 0.f ? -hp.offsetVu : hp.offsetVu;
+			const bool poses = hp.groundeG && hp.groundeD;
+			const bool rienAcompenser = !poses || offAbs < 0.02f;
+			std::printf("  [%s] les deux pieds POSES -> la hanche ne recoit rien (|hipOffset| %.4f < 0,02)\n",
+				rienAcompenser ? "OK" : "ECHEC", offAbs);
+			if (!rienAcompenser)
+				std::printf("          ⚠️ %.4f m de compensation alors que les pieds sont poses :\n          `hipOffset` porte une ALTITUDE de sol, pas un ecart.\n",
+					offAbs);
+			stable = stable && rienAcompenser;
+				if (!stable) {
+					std::printf("          ⚠️ `localPosition.y += hipOffset` s'ajoute a CHAQUE "
+								"image sans defaire\n          la precedente, et `hipOffset` "
+								"vaut une ALTITUDE de sol,\n          pas un ecart. Le defaut "
+								"DORMAIT : sur le repli a y=0, zero fois\n          la "
+								"compensation vaut zero.\n");
+					++echecs;
+				}
+			}
+		}
 
 		return echecs;
 	}

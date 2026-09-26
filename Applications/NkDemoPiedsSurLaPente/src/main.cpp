@@ -300,10 +300,12 @@ int nkmain(const NkEntryState &state) {
 				char c2[224];
 				std::snprintf(c2, sizeof(c2),
 							  "...mais %d de ces os ont un PARENT : pose locale y=%.4f, pose monde "
-							  "y=%.4f. L'IK lit la locale -> pas encore utilisable ici.",
+							  "y=%.4f. L'IK lit la pose MONDE : le releve du bas le mesure.",
 							  im.osAvecParent, im.piedLocalY, im.piedMondeY);
 				NkText c2t(font, c2, 14u);
-				c2t.SetFillColor(NkColor2D{200, 150, 90, 255});
+				// Plus un avertissement : l'ecart locale/monde est desormais la
+			// CONDITION qui rend le releve CesiumMan plus fort que l'eprouvette.
+			c2t.SetFillColor(NkColor2D{150, 156, 164, 255});
 				c2t.SetPosition({20.f, 522.f});
 				target.Draw(static_cast<NkDrawable &>(c2t));
 			} else {

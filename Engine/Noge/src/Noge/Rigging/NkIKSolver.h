@@ -185,14 +185,34 @@ namespace nkentseu {
 			[[nodiscard]] bool IsReachable(const ecs::NkSkeleton &skeleton, const NkVector<uint32> &boneIndices,
 										   const NkVec3f &target) const noexcept;
 
+			// ── Composition local -> monde, RENDUE PUBLIQUE le 2026-09-26 ────
+			// C'est une LECTURE PURE : `static`, sans etat, elle n'ecrit que dans
+			// `outWorld`. Elle etait `private`, et `NkFootIKSystem` -- qui a
+			// besoin de la position MONDE d'un pied -- se rabattait sur
+			// `Pose(i).localPosition`, juste pour un squelette PLAT seulement.
+			//
+			// ⚠️ ON L'OUVRE PLUTOT QUE DE LA DUPLIQUER. Recomposer la hierarchie
+			//    dans `NkFootIKSystem` aurait mis LE MEME CALCUL A DEUX SITES, a
+			//    tenir d'accord pour toujours -- ce depot a deja paye « le meme
+			//    calcul a deux sites, garde a un seul ».
+			//
+			// ⚠️ ET ELLE NE SE COMPOSE PAS DEUX FOIS : l'appelant s'en sert pour
+			//    LIRE ; `SolveByDesc` la rappelle pour RESOUDRE, depuis les memes
+			//    poses locales, INCHANGEES entre les deux. Une seule ECRITURE, par
+			//    `WriteBackChain`. Recomposer une pose deja composee donnerait des
+			//    chiffres coherents et faux (« une derivation en double, pas une
+			//    compensation ») : la regle est donc que cette fonction ne recoit
+			//    QUE des poses locales, jamais son propre resultat.
+			static void BuildWorldPose(const ecs::NkSkeleton &sk, NkVector<NkMat4f> &outWorld) noexcept;
+
 		private:
 			renderer::NkIKSystem mSystem;
 
 			[[nodiscard]] static uint64 SkeletonKey(const ecs::NkSkeleton &sk) noexcept;
 			renderer::NkIKRig *GetOrCreateRig(const ecs::NkSkeleton &sk) noexcept;
 
-			// FK local -> monde (marshalling ECS -> NKRenderer, voir tête de fichier).
-			static void BuildWorldPose(const ecs::NkSkeleton &sk, NkVector<NkMat4f> &outWorld) noexcept;
+			// (FK local -> monde : `BuildWorldPose` est passee en `public` au-dessus,
+			//  le 2026-09-26 -- voir le motif la-bas.)
 
 			// Write-back monde résolu -> local (uniquement les os de `boneIdx`) +
 			// recalcul de skinMatrices pour tout le squelette.

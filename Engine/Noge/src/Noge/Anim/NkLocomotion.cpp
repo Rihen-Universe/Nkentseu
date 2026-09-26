@@ -58,14 +58,48 @@ namespace nkentseu {
 				if (!foot.enabled)
 					return;
 
-				auto solveLeg = [&](uint32 thighIdx, uint32 calfIdx, uint32 footIdx, NkFootContact &contact) {
+				// La correction verticale REELLEMENT appliquee a chaque pied, en
+				// metres. C'est un ECART, et c'est ce que la hanche doit suivre.
+				float32 corrGauche = 0.f, corrDroite = 0.f;
+
+				auto solveLeg = [&](uint32 thighIdx, uint32 calfIdx, uint32 footIdx, NkFootContact &contact,
+										float32 &corrOut) {
 					if (thighIdx >= sk.BoneCount() || calfIdx >= sk.BoneCount() || footIdx >= sk.BoneCount())
 						return;
 
-					// Position MONDE courante du pied. Suppose un squelette PLAT
-					// (bones[i].parent == -1) comme le reste de ce pont -- voir
-					// tête de fichier NkLocomotion.h.
-					const NkVec3f footPos = sk.Pose(footIdx).localPosition;
+					// ── Position MONDE courante du pied ──────────────────────────
+					// ⚠️ CORRIGE LE 2026-09-26. Ce code lisait
+					//    `Pose(footIdx).localPosition` COMME une position monde --
+					//    juste pour un squelette PLAT (parent == -1), FAUX pour tout
+					//    vrai personnage. Mesure sur CesiumMan.glb (18 os sur 19 ont
+					//    un parent) : pose locale y = 0,0014 contre pose monde
+					//    y = 0,0835. Le rayon partait donc du mauvais endroit, et la
+					//    cible etait calculee depuis une position qui n'existe pas.
+					//
+					// ⚠️ LA COMPOSITION EXISTAIT DEJA : `NkIKSolver::BuildWorldPose`,
+					//    qui suit l'ordre topologique de la definition. Elle etait
+					//    seulement `private`. On l'a ouverte plutot que de la
+					//    reecrire ici : le meme calcul a deux sites finit par
+					//    diverger.
+					//
+					// ⚠️ ET LA COMPOSITION NE SE FAIT QU'UNE FOIS PAR LECTURE.
+					//    On compose ICI pour LIRE ; `SolveTwoBone` recomposera pour
+					//    RESOUDRE, depuis les memes poses LOCALES, qu'on ne touche
+					//    pas entre les deux. Rien n'est compose a partir d'un
+					//    resultat deja compose -- « une derivation en double, pas
+					//    une compensation » a deja coute ici.
+					//
+					//    Recompose a CHAQUE jambe, et non une fois pour les deux :
+					//    la premiere jambe resolue a modifie des poses locales, donc
+					//    une pose monde calculee avant elle serait perimee pour la
+					//    seconde. Deux compositions de ~20 os par image : le prix de
+					//    la justesse est ici negligeable, et il est mesurable.
+					NkVector<NkMat4f> mondeAvant;
+					NkIKSolver::BuildWorldPose(sk, mondeAvant);
+					if ((uint32)mondeAvant.Size() <= footIdx)
+						return; // squelette incoherent : on ne devine pas une position
+					const NkMat4f &mF = mondeAvant[(NkVector<NkMat4f>::SizeType)footIdx];
+					const NkVec3f footPos = {mF[3][0], mF[3][1], mF[3][2]};
 
 					NkFootContact raw;
 					const NkVec3f rayFrom = {footPos.x, footPos.y + foot.rayLength * 0.5f, footPos.z};
@@ -91,6 +125,8 @@ namespace nkentseu {
 						footPos.y + (corrected.y - footPos.y) * blend,
 						footPos.z + (corrected.z - footPos.z) * blend,
 					};
+					// L'ECART vertical demande a ce pied. Nul si on est sorti plus haut.
+					corrOut = target.y - footPos.y;
 
 					// Délégation réelle -- voir Rigging/NkIKSolver.h/.cpp.
 					NkIKSolver::TwoBoneChain chain;
@@ -104,17 +140,40 @@ namespace nkentseu {
 					mSolver.SolveTwoBone(sk, chain);
 				};
 
-				solveLeg(foot.leftThighIdx, foot.leftCalfIdx, foot.leftFootIdx, foot.leftFoot);
-				solveLeg(foot.rightThighIdx, foot.rightCalfIdx, foot.rightFootIdx, foot.rightFoot);
+				solveLeg(foot.leftThighIdx, foot.leftCalfIdx, foot.leftFootIdx, foot.leftFoot,
+						 corrGauche);
+				solveLeg(foot.rightThighIdx, foot.rightCalfIdx, foot.rightFootIdx, foot.rightFoot,
+						 corrDroite);
 
-				// Compensation de hanche (étape 4 du pipeline documenté en tête
-				// de fichier) : léger abaissement selon la correction la plus
-				// forte (pied le plus bas).
+				// ── Compensation de hanche (étape 4 du pipeline) ─────────────────
+				// Intention : léger abaissement selon la correction la plus forte
+				// (le pied qui a dû descendre le plus).
+				//
+				// ⚠️ DEUX DÉFAUTS MESURÉS ET CORRIGÉS LE 2026-09-26, sur un sol à
+				//    1,475 m (`NkDemoPiedsSurLaPente --mesure`) :
+				//
+				//    (1) `dL`/`dR` valaient `groundPos.y + footHeight` — une
+				//        ALTITUDE de sol, pas un écart. `hipOffset` sortait à
+				//        +0,7476 m pour un personnage qui n'avait rien à corriger.
+				//        Ce sont désormais les ÉCARTS réellement appliqués aux pieds.
+				//
+				//    (2) `+=` s'ajoutait à chaque image sans défaire la précédente :
+				//        la hanche passait de 2,74 m à 24,43 m en 29 images, soit
+				//        +21,68 m de dérive. On applique maintenant la DIFFÉRENCE
+				//        avec l'offset de l'image précédente, que le composant
+				//        portait déjà sans que personne s'en serve pour ça.
+				//
+				// ⚠️ ET POURQUOI ÇA N'AVAIT JAMAIS ÉTÉ VU : le repli de
+				//    `RaycastGround` met le sol à y = 0, et zéro fois la
+				//    compensation vaut zéro. **Le défaut dormait dans la valeur
+				//    nulle d'un repli.** Il ne se réveille que sur du relief — donc
+				//    seulement depuis que `SetPhysicsWorld` est branché.
 				if (foot.hipBoneIdx < sk.BoneCount()) {
-					const float32 dL = foot.leftFoot.isGrounded ? (foot.leftFoot.groundPos.y + foot.footHeight) : 0.f;
-					const float32 dR = foot.rightFoot.isGrounded ? (foot.rightFoot.groundPos.y + foot.footHeight) : 0.f;
-					foot.hipOffset = NkMin(dL, dR) * foot.hipCompensation;
-					sk.Pose(foot.hipBoneIdx).localPosition.y += foot.hipOffset;
+					const float32 dL = foot.leftFoot.isGrounded ? corrGauche : 0.f;
+					const float32 dR = foot.rightFoot.isGrounded ? corrDroite : 0.f;
+					const float32 vise = NkMin(dL, dR) * foot.hipCompensation;
+					sk.Pose(foot.hipBoneIdx).localPosition.y += (vise - foot.hipOffset);
+					foot.hipOffset = vise; // l'état appliqué, pour pouvoir le défaire
 				}
 			});
 	}

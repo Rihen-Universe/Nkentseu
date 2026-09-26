@@ -44,6 +44,17 @@ namespace eprouvette {
 	//    qu'ils vaudraient pour un autre modele. *Un nom devine serait aussi
 	//    faux qu'un indice devine.*
 	// -------------------------------------------------------------------------
+	// Le squelette importe, GARDE ici : l'appelant le lit par pointeur opaque.
+	// Statique et non libere : la demo vit le temps du processus, et un
+	// squelette de 19 os ne justifie pas une gestion de duree de vie.
+	namespace {
+		ecs::NkSkeleton *gSkel = nullptr;
+	} // namespace
+
+	void *SqueletteCesiumMan() noexcept {
+		return gSkel;
+	}
+
 	bool ImporterCesiumMan(Import &out) noexcept {
 		NkGLTFImporter imp;
 		const NkGLTFScene sc = imp.Import("Resources/Models/CesiumMan/CesiumMan.glb");
@@ -54,7 +65,13 @@ namespace eprouvette {
 													  : imp.GetLastError().CStr());
 			return false;
 		}
-		const ecs::NkSkeleton &sk = sc.skeletons[0];
+		// On COPIE le squelette : `sc` meurt a la fin de cette fonction, et la
+		// definition est un `NkSharedPtr` -- la copie la partage, elle ne la
+		// duplique pas.
+		if (gSkel == nullptr)
+			gSkel = new ecs::NkSkeleton();
+		*gSkel = sc.skeletons[0];
+		const ecs::NkSkeleton &sk = *gSkel;
 		out.charge = true;
 		out.osTotal = (int)sk.BoneCount();
 
