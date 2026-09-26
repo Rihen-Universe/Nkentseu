@@ -25,111 +25,27 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 	return d;
 })());
 
-static void CmdUndo(void *) {
-	nkanima::AnimUndo();
-}
+// ── CE QUI A DEMENAGE LE 26/09, ET POURQUOI ────────────────────────────────
+//  Rodolf : « chaque fichier ou couple .h/.cpp doit faire ce pour quoi le
+//  fichier est cree ». main.cpp portait quatre responsabilites : ce que FONT
+//  les actions, ce que PEIGNENT les zones, la SONDE, et la BOUCLE. Les deux
+//  premieres sont parties dans leur module ; il reste la sonde et la boucle.
+//
+//  ⚠️ LA PALETTE ET LE DOCUMENT ENTRENT PAR LA MEME PORTE. Les commandes
+//     enregistrees plus bas prennent leur fonction dans `NkAnimaActions` par le
+//     NOM de l'action -- jamais une fonction jumelle ecrite ici. Ce depot a
+//     paye *deux compteurs sans code commun*.
+#include "NkAnimaActions.h"
+#include "NkAnimaZones.h"
 
-static void CmdRedo(void *) {
-	nkanima::AnimRedo();
-}
-
-static void CmdInsert(void *) {
-	nkanima::AnimInsertKeyAtCursor();
-}
-
-static void CmdCompteurs(void *) {
-	nkanima::Anim3DBasculerCompteurs();
-}
-
+// LA SEULE COMMANDE QUI RESTE ICI : elle agit sur la COQUILLE, pas sur
+// l'animation. La mettre dans la table des actions d'animation aurait mélangé
+// deux domaines — et `NkAnimaActions` ne connaît pas NKEditorKit, ce qui est
+// exactement ce qui lui permet de rester testable sans fenêtre.
 static void CmdQuit(void *u) {
 	if (u)
 		static_cast<NkEditorShell *>(u)->RequestClose();
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  CE QUI RESTE EN C++ : CE QU'UNE ACTION FAIT
-// ═══════════════════════════════════════════════════════════════════════════
-//  Le document dit QUELS boutons, OÙ, avec QUEL libellé, et sous QUEL NOM. Il
-//  ne dit pas ce qu'ils font, et il ne le dira jamais : appeler
-//  `AnimInsertKeyAtCursor()` est du code, pas de la donnée.
-//
-//  ⚠️ LA TABLE EST FERMÉE, ET UN NOM ABSENT NE SE TAIT PAS. Un bouton dont le
-//     document nomme une action inconnue apparaît, se clique, et le compteur
-//     `actionsInconnues` monte. C'est la même règle que la zone hôte.
-static void ActJouer(void *) {
-	nkanima::AnimSetPlaying(!nkanima::AnimIsPlaying());
-}
-static void ActInserer(void *) {
-	nkanima::AnimInsertKeyAtCursor();
-}
-static void ActSupprimer(void *) {
-	nkanima::AnimDeleteSelected();
-}
-
-// ── « Jouer en boucle » : une case du document, un effet réel ───────────────
-//  ⚠️ APPELÉ À CHAQUE IMAGE, et c'est la limite (5) de `NkGuiInteraction.h` :
-//     le format n'a pas encore d'événement, donc l'hôte passe tous les
-//     `behavior` une fois par image. Les deux actions sont donc écrites
-//     IDEMPOTENTES — une bascule ici serait un clignotant à 60 Hz.
-static bool g_boucle = false;
-static void ActBoucleActivee(void *) {
-	g_boucle = true;
-	const float32 d = nkanima::AnimDuration();
-	if (nkanima::AnimIsPlaying() && d > 0.f && nkanima::AnimCursor() >= d - 0.001f)
-		nkanima::AnimSeek(0.f);
-}
-static void ActBoucleCoupee(void *) {
-	g_boucle = false;
-}
-
-static const nkanima::NkActionNommee kActions[] = {
-	{"anim.jouer", &ActJouer, nullptr},
-	{"anim.inserer", &ActInserer, nullptr},
-	{"anim.supprimer", &ActSupprimer, nullptr},
-	{"anim.annuler", &CmdUndo, nullptr},
-	{"anim.refaire", &CmdRedo, nullptr},
-	// (26/09) LA MÊME FONCTION QUE LA PALETTE, PAS UNE SECONDE. `CmdCompteurs`
-	// est celle qu'un autre agent a posée dans `RegisterCommand` la nuit du
-	// 26/09 : la barre du document et la palette entrent par la MÊME porte. Deux
-	// chemins vers deux fonctions jumelles auraient divergé — ce dépôt a payé
-	// *deux compteurs sans code commun*.
-	{"anim.compteurs", &CmdCompteurs, nullptr},
-	{"anim.boucle_activee", &ActBoucleActivee, nullptr},
-	{"anim.boucle_coupee", &ActBoucleCoupee, nullptr},
-};
-
-// ── LA ZONE HÔTE : le document dit OÙ, l'application dit QUOI ───────────────
-//  Une bande des clés de l'animation courante. Elle rend VRAI parce qu'elle
-//  peint ; le jour où elle n'a rien à peindre, elle rend FAUX et le monteur
-//  couvre la zone de hachures avec son nom. Répondre oui sans peindre ferait
-//  disparaître la zone en silence.
-static bool ZoneApercuCles(nkgui::NkGuiContext &ctx, const nkgui::NkRect &z, void *) {
-	auto &dl = ctx.DL();
-	dl.AddRectFilled(z, ctx.theme.track, ctx.theme.rounding);
-	dl.AddRect(z, ctx.theme.border, 1.f, ctx.theme.rounding);
-	const float32 dur = nkanima::AnimDuration();
-	if (!nkanima::AnimLoaded() || dur <= 0.f) {
-		if (ctx.font && ctx.font->Valid())
-			dl.AddText(ctx.font->Face(), ctx.font->TexId(), {z.x + 6.f, z.y + 4.f},
-					   "aucun clip chargé", ctx.theme.textDisabled);
-		return true; // la zone est SERVIE : elle dit qu'il n'y a rien, ce n'est pas rien
-	}
-	NkVector<float32> temps;
-	nkanima::AnimGetKeyTimes(temps);
-	for (usize i = 0; i < temps.Size(); ++i) {
-		const float32 t = temps[(uint32)i] / dur;
-		const float32 x = z.x + 2.f + t * (z.w - 4.f);
-		dl.AddRectFilled({x - 1.f, z.y + 3.f, 2.f, z.h - 6.f}, ctx.theme.accent, 0.f);
-	}
-	// Le curseur de lecture, en blanc : il bouge, donc la zone est VIVANTE.
-	const float32 cx = z.x + 2.f + (nkanima::AnimCursor() / dur) * (z.w - 4.f);
-	dl.AddRectFilled({cx - 1.f, z.y + 1.f, 2.f, z.h - 2.f}, nkgui::NkColor{255, 255, 255, 255}, 0.f);
-	return true;
-}
-
-static const nkanima::NkZoneNommee kZones[] = {
-	{"apercu_cles", &ZoneApercuCles, nullptr},
-};
 
 static nkanima::NkCoquilleDocument g_coquille;
 
@@ -188,6 +104,47 @@ static uint32 ContenuHorsDominante(const nkgui::NkGuiDrawListRaster &ras) {
 	return contenu;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  LE DESIGN VIENT-IL DU DOCUMENT ? — on compte SA couleur, pas « du contenu »
+// ═══════════════════════════════════════════════════════════════════════════
+//  Rodolf, le 26/09 : « que l'interface soit nourrie par .nkgui, comportement
+//  ET design ». Le compteur `contenu` ci-dessus ne repond PAS a cette
+//  question : il compte tout ce qui n'est pas l'aplat, donc il resterait vert
+//  meme si aucune `appearance` n'etait peinte.
+//
+//  On cherche donc UNE couleur precise : l'orange de la charte Rihen que
+//  `panneau_outils.nkgui` demande sur « Enregistrer en cle ». Si le fil du
+//  design est coupe, ce compte tombe a zero et rien d'autre ne bouge.
+//
+//  ⚠️ TOLERANCE, PARCE QUE LE RASTERISEUR MELANGE. Les bords du rectangle sont
+//     anticrenelés et le texte passe par-dessus : exiger l'egalite exacte
+//     compterait presque rien. On accepte un ecart par canal, et on l'ecrit
+//     plutot que de le choisir en silence.
+//
+//  ⚠️ ET CE N'EST PAS « DIFFERENT DONC VISIBLE ». Ce depot a deja compte
+//     3 778 pixels differents que personne ne voyait a l'oeil. Ici on ne
+//     cherche pas une difference : on cherche UNE couleur NOMMEE, celle que le
+//     document ecrit. Un zero veut dire que le document n'a pas ete entendu.
+static uint32 PixelsDeCouleur(const nkgui::NkGuiDrawListRaster &ras, uint8 r, uint8 v, uint8 b,
+							  int32 tolerance) {
+	const uint8 *px = ras.Pixels();
+	const usize n = (usize)ras.Largeur() * (usize)ras.Hauteur();
+	if (!px || n == 0u)
+		return 0u;
+	uint32 compte = 0u;
+	for (usize k = 0; k < n; ++k) {
+		const int32 dr = (int32)px[k * 4u] - (int32)r;
+		const int32 dv = (int32)px[k * 4u + 1u] - (int32)v;
+		const int32 db = (int32)px[k * 4u + 2u] - (int32)b;
+		const int32 ar = dr < 0 ? -dr : dr;
+		const int32 av = dv < 0 ? -dv : dv;
+		const int32 ab = db < 0 ? -db : db;
+		if (ar <= tolerance && av <= tolerance && ab <= tolerance)
+			++compte;
+	}
+	return compte;
+}
+
 static int SondeCoquille(const char *dossier) {
 	nkgui::NkGuiFont police;
 	const bool policeOk = police.LoadEmbedded(NkEmbeddedFontId::DroidSans, 15.f, false);
@@ -197,8 +154,14 @@ static int SondeCoquille(const char *dossier) {
 
 	if (!g_coquille.ChargerDepuisDossier(dossier))
 		std::printf("    /!\\ %u document(s) REFUSE(S)\n", g_coquille.RefusTotal());
-	g_coquille.PoserTables(kActions, (uint32)(sizeof(kActions) / sizeof(kActions[0])), kZones,
-						   (uint32)(sizeof(kZones) / sizeof(kZones[0])));
+	// ⚠️ LES TABLES ET LEUR COMPTE VIENNENT DE LA MEME PORTE. Le compte n'est
+	//    plus calcule ici : un `sizeof` recopie a deux endroits se perime au
+	//    premier ajout, et ce depot a deja vu une entree de menu DISPARAITRE
+	//    pour cette raison exacte.
+	uint32 nAct = 0, nZon = 0;
+	const nkgui::NkActionNommee *actions = nkanima::ActionsAnimation(nAct);
+	const nkgui::NkZoneNommee *zones = nkanima::ZonesAnimation(nZon);
+	g_coquille.PoserTables(actions, nAct, zones, nZon);
 
 	struct Bande {
 			const char *nom;
@@ -242,6 +205,7 @@ static int SondeCoquille(const char *dossier) {
 		//    (l'aplat depend du theme : l'ecrire serait le perimer au premier
 		//    changement de theme).
 		uint32 contenu = 0;
+		uint32 orange = 0; // le temoin du DESIGN venu du document (voir plus bas)
 		nkgui::NkGuiDrawListRaster ras;
 		if (ras.Init(d.w, d.h)) {
 			ras.Effacer(0xFF101010u);
@@ -278,6 +242,11 @@ static int SondeCoquille(const char *dossier) {
 				if (c != meilleur)
 					++contenu;
 			}
+			// L'ORANGE DE LA CHARTE RIHEN (#F79A28), demande par le document sur
+			// « Enregistrer en cle ». Compte ici, affiche plus bas, et JUGE apres
+			// la boucle : si le fil du design est coupe, il tombe a zero et rien
+			// d'autre ne bouge.
+			orange = PixelsDeCouleur(ras, 0xF7, 0x9A, 0x28, 12);
 		}
 		// LE CRITERE, ECRIT AVANT LA MESURE : un document monte au moins un widget
 		// ET peint du CONTENU sur au moins 1 % de sa bande, sans couvrir plus de
@@ -293,13 +262,40 @@ static int SondeCoquille(const char *dossier) {
 			? (d.b->rap.menus > 0u && contenu > 0u)
 			: (d.b->rap.montes > 0u && contenu > aire / 100u
 				   && contenu < (aire * 95u) / 100u);
-		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u attrNonHonores=%u\n",
+		std::printf("  [ %s ] %-16s widgets=%u montes=%u contenu=%u  inconnus=%u  hotes=%u/%u  menus=%u/%u items=%u horsmenu=%u attrNonHonores=%u appNonPeintes=%u etatsNonAppl=%u\n",
 					ok ? "OK" : "KO", d.nom, d.b->rap.widgets, d.b->rap.montes, contenu,
 					d.b->rap.rolesInconnus, d.b->zonesRemplies, d.b->rap.hotes,
 					d.b->rap.menusOuverts, d.b->rap.menus, d.b->rap.elementsMenu,
-					d.b->rap.elementsMenuHorsMenu, d.b->rap.attributsNonHonores);
+					d.b->rap.elementsMenuHorsMenu, d.b->rap.attributsNonHonores,
+					d.b->rap.apparencesNonPeintes, d.b->rap.etatsNonAppliques);
 		if (!ok)
 			++rouges;
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  LE DESIGN VIENT-IL DU DOCUMENT ?
+		// ═══════════════════════════════════════════════════════════════════
+		//  Demande de Rodolf le 26/09 : l'interface doit etre nourrie par le
+		//  `.nkgui` pour la structure, le COMPORTEMENT **et le DESIGN**.
+		//
+		//  Les trois premiers compteurs de la ligne ci-dessus ne repondent pas
+		//  a cette question : ils resteraient verts pour un document sans une
+		//  seule `appearance`. On juge donc UNE couleur NOMMEE, celle que
+		//  `panneau_outils.nkgui` ecrit sur « Enregistrer en cle ».
+		//
+		//  ⚠️ CE CRITERE SAIT ECHOUER, et c'est ce qui lui donne sa valeur :
+		//     retirez le bloc `appearance` du document, relancez, il rougit.
+		//     Aucun autre compteur ne bougerait.
+		if (d.b == &g_coquille.panneau) {
+			const bool designOk = (orange > 0u);
+			std::printf("  [ %s ] %-16s design venu du document : %u pixels #F79A28 "
+						"(le fill du bouton « Enregistrer en cle »)\n",
+						designOk ? "OK" : "KO", "apparence", orange);
+			if (!designOk) {
+				std::printf("         -> le document demande ce fond et RIEN ne l'a peint : le fil "
+							"du DESIGN est coupe, pas celui de la structure\n");
+				++rouges;
+			}
+		}
 	}
 
 	// ── LE BOUTON QUI AGIT, sans souris : on tire l'action par son NOM ──────
@@ -414,10 +410,10 @@ static int SondeCoquille(const char *dossier) {
 			NkGuiDiag err2;
 			if (NkGuiArchive::Read(texte.CStr(), (uint32)texte.Size(), arbre2, err2)) {
 				nkanima::NkBandeDocument parLEcrivain;
-				parLEcrivain.actions = kActions;
-				parLEcrivain.nbActions = (uint32)(sizeof(kActions) / sizeof(kActions[0]));
-				parLEcrivain.zones = kZones;
-				parLEcrivain.nbZones = (uint32)(sizeof(kZones) / sizeof(kZones[0]));
+				parLEcrivain.actions = actions;
+				parLEcrivain.nbActions = nAct;
+				parLEcrivain.zones = zones;
+				parLEcrivain.nbZones = nZon;
 				parLEcrivain.Adopter(arbre2);
 				nkgui::NkGuiContext ctx;
 				ctx.viewW = 260;
@@ -643,8 +639,10 @@ int nkmain(const NkEntryState &state) {
 	static nkanima::PanneauDocument panneauDoc(g_coquille.panneau);
 	if (!sansDocument) {
 		const bool chargee = g_coquille.ChargerDepuisDossier(dossierUI);
-		g_coquille.PoserTables(kActions, (uint32)(sizeof(kActions) / sizeof(kActions[0])), kZones,
-							   (uint32)(sizeof(kZones) / sizeof(kZones[0])));
+		uint32 nAct = 0, nZon = 0;
+		const nkgui::NkActionNommee *actions = nkanima::ActionsAnimation(nAct);
+		const nkgui::NkZoneNommee *zones = nkanima::ZonesAnimation(nZon);
+		g_coquille.PoserTables(actions, nAct, zones, nZon);
 		std::printf("[COQUILLE] documents : %s (%s)  refus=%u\n", dossierUI,
 					chargee ? "charges" : "INCOMPLETS", g_coquille.RefusTotal());
 		if (!g_coquille.menuApp.lu)
@@ -678,14 +676,60 @@ int nkmain(const NkEntryState &state) {
 	shell->AddPanel(&preview);
 	shell->AddPanel(&timeline);
 
-	shell->RegisterCommand("Edition: Inserer cle", &CmdInsert, nullptr, "I");
-	shell->RegisterCommand("Edition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");
-	shell->RegisterCommand("Edition: Refaire", &CmdRedo, nullptr, "Ctrl+Y");
-	// (26/09) LES COMPTEURS DE RENDU. Dans la PALETTE et non sous une variable
-	// d'environnement : *une fonction produit se regle dans le produit*. C'est le
-	// seul point d'extension produit de cet editeur -- il n'a pas de barre de
-	// menus. Eteints par defaut.
-	shell->RegisterCommand("Affichage: Compteurs de rendu", &CmdCompteurs, nullptr);
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LA PALETTE DE COMMANDES — PAR LA MEME PORTE QUE LE DOCUMENT
+	// ═══════════════════════════════════════════════════════════════════════
+	//  ⚠️ AUCUNE FONCTION JUMELLE N'EST ECRITE ICI. Chaque commande prend sa
+	//     fonction dans `NkAnimaActions`, par le NOM de l'action -- le meme nom
+	//     que le document ecrit dans ses boutons. Deux chemins vers deux
+	//     fonctions qui se ressemblent divergent au premier cas particulier, et
+	//     plus personne ne sait laquelle est en panne : ce depot a paye *deux
+	//     compteurs sans code commun*.
+	//
+	//  ⚠️ ET UN NOM ABSENT NE SE TAIT PAS. `FonctionDe` rend nullptr quand le
+	//     nom n'est pas dans la table ; on REFUSE d'enregistrer plutot que de
+	//     poser une entree de palette qui se clique et ne fait rien. Le refus
+	//     est nomme : c'est une faute de frappe, pas une fatalite.
+	struct EntreePalette {
+			const char *titre;
+			const char *action;
+			const char *raccourci;
+	};
+	static const EntreePalette kPalette[] = {
+		{"Edition: Inserer cle", "anim.inserer", "I"},
+		{"Edition: Annuler", "anim.annuler", "Ctrl+Z"},
+		{"Edition: Refaire", "anim.refaire", "Ctrl+Y"},
+		{"Edition: Supprimer la cle", "anim.supprimer", "Suppr"},
+		{"Animation: Jouer / Pause", "anim.jouer", "Espace"},
+		{"Animation: Aller au debut", "anim.debut", nullptr},
+		{"Animation: Aller a la fin", "anim.fin", nullptr},
+		{"Animation: Image precedente", "anim.image_prec", nullptr},
+		{"Animation: Image suivante", "anim.image_suiv", nullptr},
+		{"Selection: Tout deselectionner", "anim.selection_rien", nullptr},
+		{"Pose: Editer la pose", "anim.pose_entrer", nullptr},
+		{"Pose: Enregistrer en cle", "anim.pose_enregistrer", nullptr},
+		{"Pose: Quitter sans enregistrer", "anim.pose_quitter", nullptr},
+		{"Vue: Solide", "anim.vue_solide", nullptr},
+		{"Vue: Rendu", "anim.vue_rendu", nullptr},
+		{"Vue: Filaire", "anim.vue_filaire", nullptr},
+		// (26/09) LES COMPTEURS DE RENDU. Dans la PALETTE et non sous une
+		// variable d'environnement : *une fonction produit se regle dans le
+		// produit*. Eteints par defaut.
+		{"Affichage: Compteurs de rendu", "anim.compteurs", nullptr},
+	};
+	for (uint32 i = 0; i < (uint32)(sizeof(kPalette) / sizeof(kPalette[0])); ++i) {
+		const nkgui::NkActionFn fn = nkanima::FonctionDe(kPalette[i].action);
+		if (!fn) {
+			std::printf("[PALETTE] REFUS : l'action « %s » n'est pas dans la table "
+						"-- la commande « %s » n'est PAS enregistree\n",
+						kPalette[i].action, kPalette[i].titre);
+			continue;
+		}
+		shell->RegisterCommand(kPalette[i].titre, fn, nullptr, kPalette[i].raccourci);
+	}
+
+	// Quitter reste ici : elle agit sur la COQUILLE, pas sur l'animation, et
+	// elle n'a donc rien a faire dans la table des actions d'animation.
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
 
 	return shell->Run();
