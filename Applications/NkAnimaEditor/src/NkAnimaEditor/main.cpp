@@ -283,6 +283,23 @@ static int SondeCoquille(const char *dossier) {
 		if (!ok)
 			++rouges;
 
+		// ── LES INCLUSIONS, quand le document en declare ───────────────────
+		//  ⚠️ MEME REGLE QUE POUR LES COMPOSANTS : on n'affiche que si le
+		//     document en a, mais TOUT REFUS s'affiche -- un fichier introuvable
+		//     ou un cycle doit se voir, meme si rien n'a ete resolu.
+		const nkgui::NkGuiRapportInclusions &inc = d.b->inclusions;
+		if (inc.resolues > 0u || !inc.Propre()) {
+			const bool incOk = inc.Propre();
+			std::printf("  [ %s ] %-16s resolues=%u sections=%u  introuvables=%u illisibles=%u "
+						"cycles=%u sansProvenance=%u\n",
+						incOk ? "OK" : "KO", "inclusions", inc.resolues, inc.sectionsApportees,
+						inc.introuvables, inc.illisibles, inc.cycles, inc.nonResolues);
+			for (uint32 r = 0; r < (uint32)inc.refuses.Size(); ++r)
+				std::printf("         -> REFUS : %s\n", inc.refuses[r].CStr());
+			if (!incOk)
+				++rouges;
+		}
+
 		// ── LES COMPOSANTS, quand le document en declare ───────────────────
 		//  ⚠️ ON N'AFFICHE QUE SI LE DOCUMENT EN A. Une ligne « 0 composant »
 		//     sur chaque bande noierait celle qui compte. Mais tout REFUS
@@ -437,6 +454,17 @@ static int SondeCoquille(const char *dossier) {
 			const NkGuiStyle style; // la mise en forme par defaut : ce qu'on compare
 									// est le CONTENU monte, pas l'indentation
 			const NkString texte = NkGuiArchive::Write(g_coquille.panneau.doc, style);
+			// SONDE 26/09 : quand l'aller-retour perd un widget, on veut LIRE ce
+			// qui a ete reemis, pas le deviner. Sous garde d'environnement pour
+			// ne pas ecrire un fichier a chaque lancement.
+			if (std::getenv("NKANIMA_DUMP_REEMIS")) {
+				NkVector<nk_uint8> octetsReemis;
+				for (uint32 bi = 0; bi < (uint32)texte.Size(); ++bi)
+					octetsReemis.PushBack((nk_uint8)texte.CStr()[bi]);
+				NkFile::WriteAllBytes("reemis.nkgui", octetsReemis);
+				std::printf("    [sonde] texte reemis ecrit dans reemis.nkgui (%u octets)\n",
+							(uint32)texte.Size());
+			}
 			NkArchive arbre2;
 			NkGuiDiag err2;
 			if (NkGuiArchive::Read(texte.CStr(), (uint32)texte.Size(), arbre2, err2)) {
