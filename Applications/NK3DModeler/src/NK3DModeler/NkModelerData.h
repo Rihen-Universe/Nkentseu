@@ -99,7 +99,29 @@ namespace nkentseu {
 		/// Dit CE QU'ON CHERCHAIT et OU l'on a regarde. A appeler quand aucune des
 		/// trois racines n'a repondu -- jamais en cas de succes, sinon le journal
 		/// se remplit de lignes qui n'apprennent rien et plus personne ne le lit.
-		inline void NkDataRefus(const char *quoi, const char *relatif) {
+		/// 🔴 `attendu` (26/09) : CETTE ABSENCE EST-ELLE NORMALE ?
+		///
+		/// LE DEFAUT QUI L'A FAIT NAITRE. Depuis le 25/09, le journal arrive A
+		/// L'ECRAN (puits d'ecran de NKEditorKit, niveau AVERTISSEMENT). Rodolf a
+		/// donc vu, sur son ecran d'accueil, un bandeau ambre :
+		///   « [nk3d-data] image de version (ecran d'accueil) INTROUVABLE ... »
+		/// Or cette absence est NORMALE ET DOCUMENTEE : le `LISEZMOI.md` du
+		/// dossier, versionne, ecrit « Sans `splash.png`, la bande ne s'affiche pas
+		/// du tout ». Le fichier n'est pas un actif oublie par git -- verifie : il
+		/// n'existe dans AUCUNE branche et dans AUCUN arbre -- c'est un contenu
+		/// EDITORIAL que Rodolf depose quand il le veut.
+		///
+		/// ⚠️ LE CABLAGE N'A PAS CREE CE MESSAGE, IL L'A REVELE. Il criait depuis
+		///    toujours dans une console que personne ne lit. C'est le bon
+		///    comportement du puits -- et c'est aussi ce qui oblige a trier : *ce
+		///    qui monte a l'ecran doit meriter d'interrompre*. Une absence prevue
+		///    n'interrompt pas.
+		///
+		/// `attendu = true` -> INFO : la ligne reste dans le journal et dans
+		/// `logs/app.log`, ou elle sert toujours a diagnostiquer un chemin mort,
+		/// mais elle ne monte plus a l'ecran (le puits filtre a AVERTISSEMENT).
+		/// `attendu = false` (le defaut) -> AVERTISSEMENT, comme avant.
+		inline void NkDataRefus(const char *quoi, const char *relatif, bool attendu = false) {
 			NkString c[3];
 			const uint32 n = NkDataRoots(relatif, c);
 			NkString ou;
@@ -107,6 +129,12 @@ namespace nkentseu {
 				if (i)
 					ou.Append(" | ");
 				ou.Append(c[i].CStr());
+			}
+			if (attendu) {
+				NkLog::Instance().Infof(
+					"[nk3d-data] %s absent (prevu) : « %s » cherche dans %u racine(s) -> %s\n",
+					quoi, relatif, (unsigned)n, ou.CStr());
+				return;
 			}
 			NkLog::Instance().Warn(
 				"[nk3d-data] {0} INTROUVABLE : « {1} » cherche dans {2} racine(s) -> {3}\n", quoi,
