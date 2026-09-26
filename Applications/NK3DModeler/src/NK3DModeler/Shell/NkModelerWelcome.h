@@ -120,7 +120,13 @@ namespace nkentseu {
 				//    ce chemin mort passer. La ligne nomme les racines essayees :
 				//    Rodolf depose son PNG, relit le journal, et sait tout de
 				//    suite si le produit est alle le chercher la ou il l'a mis.
-				NkDataRefus("image de version (ecran d'accueil)", kSplashImage);
+				// ⚠️ `attendu = true` : SON ABSENCE EST L'ETAT NORMAL, et le
+				//    `LISEZMOI.md` de ce dossier le dit. Le fichier n'existe dans
+				//    aucune branche : contenu editorial, pas actif oublie. Le
+				//    journaliser en AVERTISSEMENT le faisait monter a l'ecran de
+				//    tout utilisateur depuis que le puits d'ecran est branche --
+				//    Rodolf l'a photographie le 26/09 a 02:12.
+				NkDataRefus("image de version (ecran d'accueil)", kSplashImage, /*attendu*/ true);
 				return; // pas d'image livree : la bande n'existera pas
 			}
 			NkImage img;
