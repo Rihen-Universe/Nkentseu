@@ -1374,14 +1374,81 @@ namespace nkentseu {
 					//    conteneur, lui, peint son rectangle et rend la main.
 					const NkGuiApparenceRepos app = NkGuiLireApparenceRepos(w);
 					rap.apparencesNonPeintes += app.nonRendues;
-					// ⚠️ ET CE QU'AUCUN ROLE NE SAURA PEINDRE SE COMPTE ICI, PAS PLUS LOIN.
-					//    Seuls quatre roles ont une surface a remplir. Un `fill` ecrit sur un
-					//    `Group`, un `Spacer` ou un `Text` est une demande que le monteur ne
-					//    tient pas : la compter ici, ou le role est connu, evite de la compter
-					//    dans chaque `case` -- et surtout d'en OUBLIER un en silence.
-					if (app.aFond && role != NkGuiRole::Button && role != NkGuiRole::RepeatButton
-						&& role != NkGuiRole::Panel && role != NkGuiRole::Window)
+
+					// ═════════════════════════════════════════════════════════
+					//  `fill` PEINT PARTOUT (26/09) — on RESERVE, puis on peint
+					//  DESSOUS, puis le widget se dessine par-dessus
+					// ═════════════════════════════════════════════════════════
+					//  AVANT : seuls quatre roles avaient « une surface a remplir »
+					//  (Button, RepeatButton, Panel, Window) ; partout ailleurs le
+					//  `fill` etait COMPTE et jamais tenu. Rodolf, le 26/09 : « il
+					//  doit peindre partout ».
+					//
+					//  LE PROBLEME ETAIT REEL, ET IL EST D'ORDRE IMMEDIAT : en mode
+					//  immediat, le rectangle d'un widget n'est connu QU'APRES son
+					//  dessin. Peindre un fond apres lui le RECOUVRIRAIT.
+					//
+					//  LA SORTIE EXISTAIT DEJA DANS NKGui, et on ne l'avait pas
+					//  employee : `NextItemRect(w, h)` RESERVE la place et avance le
+					//  curseur ; `SetNextItemRect(r)` IMPOSE ce rectangle au widget
+					//  suivant, pour UN seul appel. On reserve donc, on peint le
+					//  fond, puis le widget prend exactement la place reservee.
+					//
+					//  ⚠️ ON NE LE FAIT QUE POUR LES FEUILLES. Un conteneur peint son
+					//     fond a SA region, avant ses enfants -- chaque `case` le
+					//     fait ou le comptera. Reserver une hauteur d'item pour une
+					//     `VBox` lui imposerait une taille qu'elle n'a pas, et la
+					//     mise en page entiere se replierait sur une ligne.
+					//
+					//  ⚠️ ET LA HAUTEUR RESERVEE EST CELLE DU THEME, pas une
+					//     invention. Une feuille de hauteur non standard -- un `Text`
+					//     qui s'enroule, un `Chart` qui porte `height` -- recevrait
+					//     une place trop courte. Ces deux-la sont donc EXCLUS et
+					//     restent comptes : mieux vaut un fond absent et compte
+					//     qu'une mise en page fausse.
+					const bool estConteneurFond =
+						(role == NkGuiRole::Window || role == NkGuiRole::Panel
+						 || role == NkGuiRole::Group || role == NkGuiRole::VBox
+						 || role == NkGuiRole::HBox || role == NkGuiRole::Grid
+						 || role == NkGuiRole::Flow || role == NkGuiRole::Scroll
+						 || role == NkGuiRole::Splitter || role == NkGuiRole::DockSpace
+						 || role == NkGuiRole::MenuBar || role == NkGuiRole::Menu
+						 || role == NkGuiRole::Expander || role == NkGuiRole::TabBar);
+					// Ces deux-la ont une hauteur que le document decide, pas le theme.
+					const bool hauteurLibre =
+						(role == NkGuiRole::Chart || role == NkGuiRole::Host
+						 || role == NkGuiRole::Image
+						 || (role == NkGuiRole::Text && NkGBooleen(w, "wrap", false)));
+					bool fondPeintIci = false;
+					if (app.aFond && !estConteneurFond && !hauteurLibre && !pl.pose) {
+						const NkRect rFond = ctx.NextItemRect(-1.f, ctx.ItemHeight());
+						ctx.DL().AddRectFilled(rFond, app.fond,
+											   app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
+						ctx.SetNextItemRect(rFond);
+						++rap.apparencesPeintes;
+						fondPeintIci = true;
+					}
+
+					// ⚠️ ET TOUT CE QUI N'EST PAS PEINT SE COMPTE ICI, SANS EXCEPTION.
+					//    Premiere version de ce bloc (26/09) : les conteneurs autres que
+					//    `Window` et `Panel` n'etaient NI peints NI comptes -- un `fill`
+					//    sur une `VBox` disparaissait en silence. C'est la faute exacte
+					//    que tout ce fichier sert a rendre impossible : *un document
+					//    rendu autrement que demande n'a pas l'air casse, il a l'air
+					//    normal*.
+					//
+					//    La condition est donc ecrite a l'envers : on ne liste plus ce
+					//    qu'on compte, on liste les QUATRE roles qui peignent leur fond
+					//    EUX-MEMES dans leur `case` (et incrementent alors
+					//    `apparencesPeintes` de leur cote). Tout le reste tombe dans le
+					//    compteur. Ajouter un role a l'avenir le fera compter par
+					//    defaut, jamais disparaitre.
+					const bool fondTenuAilleurs =
+						(role == NkGuiRole::Window || role == NkGuiRole::Panel
+						 || role == NkGuiRole::Button || role == NkGuiRole::RepeatButton);
+					if (app.aFond && !fondPeintIci && !fondTenuAilleurs)
 						++rap.apparencesNonPeintes;
+
 					bool aDessine = true;
 					float32 valeurMontee = 0.f;
 					bool aValeurMontee = false;
