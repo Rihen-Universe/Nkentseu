@@ -472,7 +472,25 @@ namespace nkuidesign {
 		//    meme »). L'index du noeud, lui, l'est -- il est donc SUFFIXE au
 		//    libelle, jamais remplace par lui : un id `n7` seul serait illisible
 		//    dans le fichier produit.
+		// 🔴 ET IL SE CONSERVE QUAND LE NŒUD VIENT D'UN FICHIER (27/09). Cette
+		//    fonction ne savait que FABRIQUER un identifiant ; un document lu puis
+		//    réécrit voyait donc TOUS ses identifiants changer — `design.enregistrer`
+		//    devenait `Enregistrer le document_7`. Le critère de R1 (« ouvrir,
+		//    modifier une propriété, enregistrer : `git diff` montre UNE ligne »)
+		//    était hors d'atteinte avant même la première modification.
+		//
+		//    Un identifiant n'est pas une décoration : c'est la CLÉ D'ÉTAT du monteur
+		//    et le nom que la table d'actions de l'hôte doit servir. Le fabriquer à
+		//    l'enregistrement débranchait silencieusement toutes les actions du
+		//    document.
+		//
+		// ⚠️ LA FABRICATION RESTE, POUR LES NŒUDS NÉS DANS L'ÉDITEUR. Un cadre
+		//    dessiné à la souris n'a pas d'identifiant de fichier à respecter : il
+		//    lui en faut un, unique, et c'est ce que l'index garantit.
 		inline NkString NkIdDuNoeud(const NkUINode &n, int32 index) {
+			if (!n.idNkgui.Empty()) {
+				return n.idNkgui;
+			}
 			NkString id;
 			const char *l = n.label.Data();
 			// On garde les caracteres lisibles du libelle ; le reste devient `_`.

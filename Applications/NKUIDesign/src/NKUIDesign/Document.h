@@ -986,6 +986,37 @@ namespace nkuidesign {
 			///    sommets créerait deux façons de dire la même chose, et le
 			///    lecteur devrait choisir.
 			NkVector<NkPoint2> sommets;
+			// ═══════════════════════════════════════════════════════════════════
+			//  CE QUE LE NŒUD GARDE DU FICHIER `.nkgui` DONT IL VIENT (27/09)
+			// ═══════════════════════════════════════════════════════════════════
+			//  Document 5 §1.1, invariant 3 : « un nœud du modèle garde la référence
+			//  de son nœud d'archive (et de sa position de lexème) : c'est ce qui
+			//  permet [qu'une modification ne touche que ses lignes], la
+			//  synchronisation avec le mode Source et le positionnement des
+			//  diagnostics. »
+			//
+			//  🔴 ET L'IDENTIFIANT EST LA PREMIÈRE CHOSE QUE LE MODÈLE PERDAIT.
+			//     `NkIdDuNoeud` (NkGuiEcrire.h) ne CONSERVE pas l'identifiant : il le
+			//     FABRIQUE — `<libellé>_<index>`. Un `Button "design.enregistrer"` lu
+			//     puis réécrit serait devenu `Button "Enregistrer le document_7"`.
+			//     Tous les identifiants d'un fichier auraient changé au premier
+			//     enregistrement, et le critère de R1 — « git diff montre UNE ligne »
+			//     — était hors d'atteinte avant même la première modification.
+			//
+			//  ⚠️ VIDE POUR UN NŒUD NÉ DANS L'ÉDITEUR, et c'est ce qui distingue les
+			//     deux origines. `NkIdDuNoeud` rend `idNkgui` quand il existe, et
+			//     retombe sur le nom fabriqué sinon : un nœud dessiné à la souris n'a
+			//     pas d'identifiant de fichier à respecter.
+			NkString idNkgui;
+			/// Le CHEMIN de son bloc dans l'archive : les indices à suivre depuis le
+			/// corps racine. Vide pour un nœud né dans l'éditeur.
+			///
+			/// ⚠️ UN CHEMIN, PAS UN POINTEUR, ET LE DÉPÔT LE DIT DÉJÀ : « LE POINTEUR
+			///    NE SE GARDE PAS : `AddBlock` le dit, le prochain ajout dans le même
+			///    `$body` relogerait le vecteur » (NkGuiEcrire.h). Un `NkArchiveNode*`
+			///    conservé serait juste jusqu'à la première insertion, puis faux sans
+			///    prévenir — la pire des durées de vie.
+			NkVector<uint32> refArchive;
 			NkString alignText;	 ///< `centre` | `droite` (clé `texte_aligne`) — vide = gauche
 			/// La CIBLE D'APPAREIL d'un artboard (écran 26 « Menu Cible ») :
 			/// texte libre « Mobile 390 x 844 » — l'étiquette de la toile devient

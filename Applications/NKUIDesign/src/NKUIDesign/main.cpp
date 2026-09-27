@@ -80,6 +80,7 @@
 #include "Probe.h"
 #include "NkCoquilleDocument.h" // LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT
 #include "SondeCoquille.h"      // --sonde-coquille : leur verdict, sans fenetre ni GPU
+#include "SondeLecture.h"       // --sonde-lecture  : ouvrir un .nkgui, et ce que ca coute
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
@@ -9269,6 +9270,11 @@ int nkmain(const NkEntryState &state) {
 		// aurait donne deux tables incapables de se contredire.
 		if (NkComponentDecl::StrEq(a, "--sonde-coquille"))
 			return nkuidesign::SondeCoquille(gActionsDocument, gNbActionsDocument);
+		// L'OUVERTURE d'un `.nkgui` dans le modele (chantier A, doc 5 §2.2). Sa
+		// soeur juge le MONTAGE -- ce que le document AFFICHE ; celle-ci juge la
+		// LECTURE -- ce que le document DEVIENT quand on veut l'editer.
+		if (NkComponentDecl::StrEq(a, "--sonde-lecture"))
+			return nkuidesign::SondeLecture();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
