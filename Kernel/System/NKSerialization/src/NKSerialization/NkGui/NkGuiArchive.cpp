@@ -1336,9 +1336,49 @@ namespace nkentseu {
 					}
 				}
 
+				/// Vrai si la vue porte une fin de ligne. Un separateur EN LIGNE ne
+				/// peut pas en contenir : s'il y en a une, ce qu'on tient est de la
+				/// trivia de LIGNES, qui se reemet par une autre porte.
+				static bool AUnSautDeLigne(NkStringView v) {
+					for (nk_size i = 0; i < v.Size(); ++i) {
+						if (v.Data()[i] == '\n' || v.Data()[i] == '\r') {
+							return true;
+						}
+					}
+					return false;
+				}
+
+				/// Ce qui separe le membre `i` du precedent, TEL QUE LE FICHIER L'A
+				/// ECRIT -- virgule et espaces d'alignement compris.
+				///
+				/// 🔴 LE PARSEUR LE RETENAIT DEPUIS TOUJOURS, ET PERSONNE NE LE LISAIT.
+				///    `TakeLead` dit lui-meme : « on retient le SEPARATEUR ENTIER [...]
+				///    de la fin du membre PRECEDENT au debut du suivant ; c'est la
+				///    seule facon de le reemettre tel quel » -- et il le range dans la
+				///    trivia de tete du membre. L'ecrivain multi-lignes s'en sert
+				///    (`OpenMember`) ; celui-ci posait `", "` en dur.
+				///    Consequence mesuree le 27/09 : un document qui aligne ses
+				///    valeurs --
+				///        MenuItem "a"  { label = "Palette",     enabled = false }
+				///    -- revenait compacte, donc enregistrer y deplacait TOUTES ces
+				///    lignes au lieu de la seule qu'on avait modifiee.
+				///    Meme forme que `size` en flux : ecrit par l'un, lu par personne.
+				///
+				/// Rend une vue vide quand il n'y a rien de sûr a reemettre ; l'appelant
+				/// pose alors la forme canonique.
+				NkStringView SeparateurDe(const NkArchive &blk, const NkArchiveNode *body,
+										  const Ref &r) const {
+					const NkStringView t = r.entry ? blk.Entries()[r.idx].node.LeadingTrivia()
+												   : (body ? body->array[r.idx].LeadingTrivia()
+														   : NkStringView("", 0u));
+					if (t.Size() == 0 || AUnSautDeLigne(t)) {
+						return NkStringView("", 0u);
+					}
+					return t;
+				}
+
 				/// Le corps d'un bloc SUR UNE LIGNE : `{ }`, `{ color = #2F6F7A }`,
-				/// `{ offset = (0, 2), blur = 6 }`. Aucune trivia n'y est reemise --
-				/// il ne peut pas y en avoir, il n'y a pas de saut de ligne.
+				/// `{ offset = (0, 2), blur = 6 }`.
 				/// `{` precede de l'espacement QUE LE FICHIER AVAIT ECRIT, ou d'une
 				/// espace unique quand il n'a rien dit. Voir `NkGuiArchive::KeyPad()` :
 				/// c'est ce qui fait qu'un document aux accolades alignees revient a
@@ -1361,7 +1401,16 @@ namespace nkentseu {
 					const NkArchiveNode *body =
 						blk.FindNode(NkStringView(NkGuiArchive::KeyBody()));
 					for (nk_size i = 0; i < ordre.Size(); ++i) {
-						mOut.Append((i > 0 && virgules) ? ", " : " ");
+						// Le separateur du fichier s'il en a ecrit un, la forme
+						// canonique sinon. Le PREMIER membre n'en a jamais : ce qui
+						// le precede est l'accolade, deja posee par `AppendPad`.
+						const NkStringView sep =
+							(i > 0) ? SeparateurDe(blk, body, ordre[i]) : NkStringView("", 0u);
+						if (sep.Size() > 0) {
+							AppendView(mOut, sep);
+						} else {
+							mOut.Append((i > 0 && virgules) ? ", " : " ");
+						}
 						if (ordre[i].entry) {
 							const NkArchiveEntry &e = blk.Entries()[ordre[i].idx];
 							mOut.Append(e.key);

@@ -772,6 +772,28 @@ namespace nkentseu {
 						///    interdit (doc 3 §14quater) : ce champ existe pour que la
 						///    raison VOYAGE jusqu'a l'infobulle.
 						char raison[128] = {0};
+						// ── CE QU'UN COMPORTEMENT PEUT CHANGER AUSSI (Rodolf, 27/09) ──
+						/// L'ICONE et l'IMAGE posees par `set x.icon = ...` et
+						/// `set x.image = ...`.
+						///
+						/// Pourquoi elles existent : un chevron d'accordeon qui passe de
+						/// `>` a `v` est une ICONE dans la plupart des interfaces, et
+						/// `set` ne savait poser que `text`, `value`, `checked`,
+						/// `visible`, `enabled`. Un document devait donc ecrire DEUX
+						/// widgets et les `show`/`hide` l'un apres l'autre : deux
+						/// identifiants, deux entrees d'etat, et deux fois le risque
+						/// d'en oublier un.
+						///
+						/// ⚠️ LEUR DRAPEAU « QUELQU'UN L'A-T-IL DIT ? », POUR LA MEME
+						///    RAISON QUE `visibiliteDite` juste au-dessus. Une chaine
+						///    vide est une valeur LEGITIME (« retire l'icone ») : sans
+						///    le drapeau on ne la distinguerait pas de « personne n'a
+						///    rien dit », et l'icone ecrite dans le document serait
+						///    effacee des la premiere image.
+						char icone[128] = {0};
+						bool iconeDite = false;
+						char image[256] = {0};
+						bool imageDite = false;
 				};
 
 				// ── P10 : LES DISPOSITIONS D'AMARRAGE DU DOCUMENT ────────────────
@@ -3123,7 +3145,12 @@ namespace nkentseu {
 							//    fournit, la reference est COMPTEE et le bouton se
 							//    monte avec son identifiant en libelle -- visible,
 							//    cliquable, et honnete sur ce qui manque.
-							if (NkGA(w, "image") || NkGA(w, "source"))
+							// ⚠️ ET UNE IMAGE POSEE PAR UN COMPORTEMENT COMPTE AUSSI.
+							//    `set x.image = "..."` range bien la valeur dans
+							//    l'etat, mais rien ne la dessine encore : ne compter
+							//    que celle du DOCUMENT aurait rendu la perte muette
+							//    pour l'autre moitie des cas.
+							if (NkGA(w, "image") || NkGA(w, "source") || (e && e->imageDite))
 								++rap.attributsNonHonores;
 							const NkString sIB = NkGTexte(w, "label", id.CStr());
 							(void)Button(ctx, sIB.CStr());
@@ -3339,7 +3366,10 @@ namespace nkentseu {
 							// ⚠️ LA VIGNETTE EST COMPTEE, PAS INVENTEE — meme raison
 							//    que `ImageButton` : `image` nomme une ressource que
 							//    le document ne porte pas.
-							if (NkGA(w, "image"))
+							// Meme raison qu'`ImageButton` : une image posee par un
+							// comportement n'est pas plus dessinee que celle du
+							// document, et se compte donc pareil.
+							if (NkGA(w, "image") || (e && e->imageDite))
 								++rap.attributsNonHonores;
 							const NkString sT = NkGTexte(w, "label", id.CStr());
 							const NkString cap = NkGTexte(w, "caption", "");
@@ -4660,7 +4690,16 @@ namespace nkentseu {
 					//     glyphe demandé du glyphe de SECOURS : sans ce compteur, un
 					//     carré muet passerait pour l'icône qu'on voulait.
 					{
-						const NkString icone = NkGTexte(w, "icon", "");
+						// ⚠️ L'ETAT PRIME SUR LE DOCUMENT, exactement comme pour
+						//    `visible` et `enabled` plus haut. Sans cette ligne,
+						//    `set x.icon = "chevron-down"` ecrirait dans l'etat une
+						//    valeur que PERSONNE ne lirait : le document garderait la
+						//    main, le chevron ne tournerait jamais, et rien ne s'en
+						//    plaindrait. C'est la forme exacte du defaut que ce depot
+						//    a paye sur `size` en flux.
+						NkString icone = NkGTexte(w, "icon", "");
+						if (e && e->iconeDite)
+							icone = NkString(e->icone);
 						if (icone.Size() > 0u) {
 							++rap.iconesDemandees;
 							const NkGuiIconSet *jeu = NkGuiIconesPosees();
