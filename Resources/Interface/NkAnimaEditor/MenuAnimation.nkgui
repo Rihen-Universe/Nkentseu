@@ -61,7 +61,7 @@ widgets {
   // ═════════════════════════════════════════════════════════════════════════
   //  ÉDITION
   // ═════════════════════════════════════════════════════════════════════════
-  Menu "menu_edition" {
+  Menu "menuEdition" {
     label = "Edition"
 
     MenuItem "anim.annuler" {
@@ -105,7 +105,7 @@ widgets {
   // ═════════════════════════════════════════════════════════════════════════
   //  SÉLECTION
   // ═════════════════════════════════════════════════════════════════════════
-  Menu "menu_selection" {
+  Menu "menuSelection" {
     label = "Selection"
 
     // ⚠️ GRISÉE : la façade n'offre que `AnimSelectKey(t)`, clé par clé.
@@ -138,7 +138,7 @@ widgets {
   // ═════════════════════════════════════════════════════════════════════════
   //  ANIMATION — le transport, et il est entièrement câblé
   // ═════════════════════════════════════════════════════════════════════════
-  Menu "menu_animation" {
+  Menu "menuAnimation" {
     label = "Animation"
 
     MenuItem "anim.jouer" {
@@ -189,7 +189,7 @@ widgets {
   //  Trois portes distinctes, et elles ne se valent pas : entrer, ENREGISTRER
   //  une clé depuis la pose, et sortir SANS enregistrer. Les confondre ferait
   //  perdre du travail en silence — d'où trois entrées et non deux.
-  Menu "menu_pose" {
+  Menu "menuPose" {
     label = "Pose"
 
     MenuItem "anim.pose_entrer" {
@@ -232,7 +232,7 @@ widgets {
   // ═════════════════════════════════════════════════════════════════════════
   //  VUE — pas « Affichage » : la coquille a déjà un menu de ce nom
   // ═════════════════════════════════════════════════════════════════════════
-  Menu "menu_vue" {
+  Menu "menuVue" {
     label = "Vue"
 
     // Les trois modes de `Anim3DSetViewMode`, comme dans Blender.
@@ -267,7 +267,7 @@ widgets {
   //     Les entrées sont écrites, grisées, pour que la forme de l'atelier soit
   //     visible dès maintenant. Elles se dégriseront une par une, et chacune
   //     dira alors ce qui l'a rendue possible.
-  Menu "menu_atelier" {
+  Menu "menuAtelier" {
     label = "Atelier"
 
     MenuItem "anim.editeur_courbes" {
@@ -299,7 +299,7 @@ widgets {
   // ═════════════════════════════════════════════════════════════════════════
   //  AIDE
   // ═════════════════════════════════════════════════════════════════════════
-  Menu "menu_aide" {
+  Menu "menuAide" {
     label = "Aide"
 
     // ⚠️ GRISÉES : aucun écran ne les affiche. Même constat que dans

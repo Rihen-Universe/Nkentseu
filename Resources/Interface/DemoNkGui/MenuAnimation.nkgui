@@ -20,7 +20,7 @@ widgets {
       label = "Enregistrer en cle"
     }
 
-    Separator "sep_demo" {
+    Separator "sepDemo" {
       orientation = Horizontal
     }
 

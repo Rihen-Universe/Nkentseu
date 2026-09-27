@@ -34,7 +34,7 @@ nkgui 0.3
 //     arriveraient trop tard et leurs instances seraient comptees comme des
 //     roles inconnus. Le developpement ne reordonne pas pour rattraper
 //     l'auteur.
-include "composants.nkgui"
+include "Composants.nkgui"
 
 widgets {
 
@@ -63,7 +63,7 @@ widgets {
       label = ">|"
     }
 
-    Separator "sep_transport" {
+    Separator "sepTransport" {
       orientation = Vertical
     }
 
@@ -76,7 +76,7 @@ widgets {
       label = "Supprimer la cle"
     }
 
-    Separator "sep_cles" {
+    Separator "sepCles" {
       orientation = Vertical
     }
 
@@ -88,7 +88,7 @@ widgets {
       label = "Refaire"
     }
 
-    Separator "sep_edition" {
+    Separator "sepEdition" {
       orientation = Vertical
     }
 
@@ -105,7 +105,7 @@ widgets {
       label = "Enregistrer en cle"
     }
 
-    Separator "sep_pose" {
+    Separator "sepPose" {
       orientation = Vertical
     }
 

@@ -36,11 +36,11 @@ widgets {
       text = "Demo : plie, redimensionne, deplace"
     }
 
-    Separator "sep_titre" {
+    Separator "sepTitre" {
       orientation = Horizontal
     }
 
-    Expander "sec_transport" {
+    Expander "secTransport" {
       label = "Transport (clique l'en-tete)"
       expanded = true
 
@@ -93,7 +93,7 @@ widgets {
     //  Le libellé est sombre SUR l'orange. Avant le 26/09 il était écrit avec
     //  l'encre du thème — claire sur orange, donc illisible — et le `text`
     //  du document n'était lu par personne.
-    Expander "sec_cles" {
+    Expander "secCles" {
       label = "Cles (replie au demarrage)"
       expanded = false
 
@@ -148,7 +148,7 @@ widgets {
   //
   //  `pos` donne la position de DÉPART. Le déplacement vit dans l'état du
   //  montage — il n'est jamais réécrit dans ce fichier.
-  Window "dlg_export" {
+  Window "dlgExport" {
     title = "Exporter — traine-moi par le titre"
     pos = (8, 330)
     size = (244, 76)
