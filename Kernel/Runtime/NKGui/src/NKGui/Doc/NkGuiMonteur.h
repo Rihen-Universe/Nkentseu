@@ -85,6 +85,7 @@
 #include "NKGui/Doc/NkGuiCibles.h" // P27 : `platform`, le design par plateforme
 #include "NKGui/Doc/NkGuiDispositions.h" // P10 : `layout`, APPLIQUE par `DockSpace`
 #include "NKGui/Doc/NkGuiEcouteurs.h" // la table des ecouteurs, remplie par l'hote
+#include "NKGui/Doc/NkGuiLangues.h"	 // `@t:cle` -> le texte dans la langue courante
 #include "NKGui/Doc/NkGuiImages.h" // le registre nom -> texId, televerse une fois
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
@@ -987,11 +988,47 @@ namespace nkentseu {
 		/// Le texte d'une propriete. Une CHAINE rend son contenu ; un JETON NU rend
 		/// son lexeme (`Start`, `ui.filtre`) -- c'est ce que le consommateur veut
 		/// dans les deux cas.
+		/// LA FORME STABLE d'un texte du document : sa cle s'il est traduit, sa valeur
+		/// brute sinon. A employer PARTOUT ou un texte sert d'identite.
+		///
+		/// 🔴 ELLE EXISTE PARCE QUE SIX SITES FABRIQUAIENT UNE IDENTITE A PARTIR D'UN
+		///    LIBELLE, et que la bascule de langue est A CHAUD : l'identite changeait
+		///    donc en pleine session, et les sections repliees se rouvraient au moment
+		///    meme ou l'utilisateur changeait de langue. Voir `NkGuiFormeStable`.
+		inline NkString NkGTexteStable(const NkArchive &b, const char *cle,
+									   const char *defaut) noexcept {
+			NkString out;
+			if (!b.GetString(NkStringView(cle), out))
+				out = NkString(defaut);
+			return NkGuiFormeStable(out);
+		}
+
+		/// Un texte du document, TRADUIT quand il se donne comme une cle.
+		///
+		/// 🔴 `@t:` EST EXPLICITE, ET C'EST TOUT L'INTERET. Deux facons plus courtes
+		///    ont ete ecartees :
+		///
+		///    - traduire TOUT texte en le cherchant dans la table (le repli rend la
+		///      cle, donc rien ne casserait). Non : un libelle qui ressemble par
+		///      hasard a une cle se ferait traduire, et le defaut serait invisible
+		///      dans la langue ou les deux coincident ;
+		///    - le prefixe `@` seul, comme les jetons de theme. Non : `@` sert deja
+		///      aux couleurs, et un document qui ecrit `text = "@rihenuniverse"` --
+		///      ce qui arrive -- verrait son arobase mangee.
+		///
+		///    `@t:design.enregistrer` ne peut se confondre avec rien, et se cherche
+		///    d'un `grep` le jour ou on voudra recenser ce qui est traduit.
+		///
+		/// ⚠️ ET LE REPLI RESTE LA CLE. `@t:` sur une cle absente affiche
+		///    `design.enregistrer` : laid, visible, corrigeable. Voir `NkGuiLangues.h`.
 		inline NkString NkGTexte(const NkArchive &b, const char *cle, const char *defaut) noexcept {
 			NkString out;
-			if (b.GetString(NkStringView(cle), out))
-				return out;
-			return NkString(defaut);
+			if (!b.GetString(NkStringView(cle), out))
+				out = NkString(defaut);
+			const char *s = out.CStr();
+			if (s && s[0] == '@' && s[1] == 't' && s[2] == ':' && s[3] != '\0')
+				return NkString(NkGuiTexteLangue(s + 3));
+			return out;
 		}
 
 		inline bool NkGA(const NkArchive &b, const char *cle) noexcept {
