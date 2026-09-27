@@ -66,6 +66,55 @@ namespace nkentseu {
 				return true;
 			}
 
+			/// `platform = Mobile`, lu depuis une tranche brute (P27, 27/09).
+			///
+			/// 🔴 IL FAUT UN ANALYSEUR, ET J'AI D'ABORD CRU LE CONTRAIRE. La première
+			///    version lisait `sec.FindNode("platform")`, comme partout ailleurs dans
+			///    le dépôt. Elle ne compilait pas, et l'erreur disait la vraie raison :
+			///    `NkArchiveNode` n'a PAS de clé — il ne porte que `kind`, `value`,
+			///    `object` et `array`. Le corps d'un `layout` est un TABLEAU de tranches
+			///    brutes (règle T11), pas un objet à clés : `platform = Mobile` y arrive
+			///    comme du texte, exactement comme `dock "outils" left 0.16`.
+			///
+			/// ⚠️ DONC UNE SEULE FAÇON DE LIRE CE CORPS, PAS DEUX. Mélanger `FindNode`
+			///    pour un attribut et un analyseur pour l'autre aurait donné deux
+			///    vérités sur « qu'est-ce qu'il y a dans un `layout` », et la première
+			///    aurait rendu `nullptr` sans rien dire.
+			inline bool NkGDLirePlatform(NkStringView lex, NkString &valeurOut) noexcept {
+				const NkString brut(lex);
+				const char *p = brut.CStr();
+				uint32 k = 0;
+				while (NkGDEspace(p[k]))
+					++k;
+				const char *mot = "platform";
+				uint32 m = 0;
+				while (mot[m] && p[k + m] == mot[m])
+					++m;
+				if (mot[m] != '\0')
+					return false;
+				k += m;
+				while (NkGDEspace(p[k]))
+					++k;
+				if (p[k] != '=')
+					return false;
+				++k;
+				while (NkGDEspace(p[k]))
+					++k;
+				// Les guillemets sont admis (`platform = "Mobile"`) : le format les
+				// accepte ailleurs, et les refuser ici aurait fait une règle de plus à
+				// retenir pour rien.
+				const bool cite = (p[k] == '"');
+				if (cite)
+					++k;
+				valeurOut = NkString();
+				while (p[k] && (cite ? (p[k] != '"') : !NkGDEspace(p[k]))) {
+					const char c[2] = {p[k], '\0'};
+					valeurOut += c;
+					++k;
+				}
+				return valeurOut.Size() > 0u;
+			}
+
 			/// `dock "nom" cote [fraction]`, lu depuis une tranche brute.
 			///
 			/// ⚠️ UNE TRANCHE BRUTE, PARCE QUE `dock` N'A PAS D'ACCOLADES. Le
@@ -173,6 +222,37 @@ namespace nkentseu {
 					d.nom = nu;
 				}
 
+				// ── P27 : LA CIBLE, ET ELLE ARRIVE PAR DEUX TRANSPORTS ───────
+				// 🔴 CE N'EST PAS UNE HESITATION, C'EST CE QUE L'ARCHIVE FAIT. Un
+				//    `layout "defaut" { ... }` A des accolades : son corps est un vrai
+				//    objet, donc `platform = Mobile` y devient un couple CLÉ/VALEUR que
+				//    `FindNode` trouve. Les lignes `dock "outils" left 0.16`, elles,
+				//    n'ont pas d'accolades : elles tombent en TRANCHE BRUTE dans le
+				//    tableau du corps (règle T11). Les deux cohabitent dans le même bloc.
+				//
+				//    Mesure du 27/09 : n'avoir gardé que l'analyseur de tranche donnait
+				//    `Propre = oui`, `dispositions = 2`... et les DEUX dispositions à la
+				//    cible `Toutes`, parce que la ligne `platform` n'était jamais dans le
+				//    tableau. Le design mobile ne servait donc jamais — et rien ne
+				//    rougissait, puisque rien n'était invalide. *Un attribut qu'on lit au
+				//    mauvais endroit ne se plaint pas : il rend le défaut.*
+				{
+					const NkArchiveNode *np = sec.FindNode(NkStringView("platform"));
+					if (np) {
+						const NkString lex(np->Lexeme());
+						NkGuiCible c = NkGuiCible::Toutes;
+						if (NkGuiCibleDepuisNom(lex.CStr(), (uint32)lex.Size(), c)) {
+							d.cible = c;
+						} else {
+							++rap.cotesInconnus;
+							NkString r(d.nom);
+							r += " : `platform` inconnu — ";
+							r += lex;
+							rap.refuses.PushBack(r);
+						}
+					}
+				}
+
 				const NkArchiveNode *corps = detail::NkGDCorps(sec);
 				uint32 centres = 0u;
 				if (corps) {
@@ -180,6 +260,34 @@ namespace nkentseu {
 						const NkArchiveNode &n = corps->array[j];
 						if (n.IsObject())
 							continue; // un bloc dans un `layout` : pas un amarrage
+						// ── P27 : LA CIBLE DE CETTE DISPOSITION ──────────────
+						// 🔴 ET ELLE SE LIT ICI, DANS LA MÊME BOUCLE QUE `dock`. Sans
+						//    cette branche, la ligne `platform = Mobile` tombait dans
+						//    `NkGDLireDock`, qui exige une tranche commençant par `dock` :
+						//    la disposition aurait été comptée `cotesInconnus` et déclarée
+						//    NON PROPRE pour avoir déclaré correctement sa cible. Un
+						//    attribut neuf qui fait rougir le lecteur de son voisin, c'est
+						//    la forme la plus coûteuse d'ajout — elle accuse le document.
+						{
+							NkString val;
+							if (detail::NkGDLirePlatform(n.Lexeme(), val)) {
+								NkGuiCible c = NkGuiCible::Toutes;
+								if (NkGuiCibleDepuisNom(val.CStr(), (uint32)val.Size(), c)) {
+									d.cible = c;
+								} else {
+									// Même politique que pour un widget : un nom inconnu ne
+									// fait pas disparaître la disposition en silence. Il
+									// rejoint les refus NOMMÉS du rapport, qui existent
+									// exactement pour ça.
+									++rap.cotesInconnus;
+									NkString r(d.nom);
+									r += " : `platform` inconnu — ";
+									r += val;
+									rap.refuses.PushBack(r);
+								}
+								continue;
+							}
+						}
 						NkGuiAmarrage a;
 						if (!detail::NkGDLireDock(n.Lexeme(), a)) {
 							// ⚠️ ON NE DEVINE PAS LE CÔTÉ. Une ligne `dock` dont le

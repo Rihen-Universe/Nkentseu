@@ -82,6 +82,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiIcons.h" // P12 : `icon`, dessine par le jeu que l'hote pose
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "NKGui/Doc/NkGuiCibles.h" // P27 : `platform`, le design par plateforme
 #include "NKGui/Doc/NkGuiDispositions.h" // P10 : `layout`, APPLIQUE par `DockSpace`
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
@@ -230,8 +231,48 @@ namespace nkentseu {
 			//    (`menusContextuelsOuverts`) et ce qui est reste ferme faute de crochet
 			//    (`menusContextuelsSansHote`) : le second est le chiffre qui dit « ce
 			//    document declare un menu que personne n'ouvrira jamais ».
-			ContextMenu
+			ContextMenu,
+			// ── P7 — `CurveField` : la courbe EDITABLE (27/09) ────────────────
+			// Doc 09 §P7 : « la vitesse le long d'une trajectoire, la part de physique
+			// dans le temps, l'intensite d'un vent — une courbe editable EN PLACE dans
+			// une ligne de Details. `Chart` n'est pas editable. »
+			//
+			// ⚠️ LES POINTS APPARTIENNENT A L'HOTE, PAS AU DOCUMENT. Une courbe est une
+			//    DONNEE : un fichier d'interface qui la porterait la figerait, et
+			//    `NkGuiMonteEtat::Entree` ne sait tenir qu'un `float32`. La porte est
+			//    donc `NkGuiMonteHooks::CourbeLiee` / `CourbeModifiee`, de la meme forme
+			//    que `RemplirHote` et `ZoneAncree` : le document dit OU, COMMENT HAUT et
+			//    ENTRE QUELLES BORNES, l'application dit QUOI et recoit les changements.
+			CurveField
 		};
+
+		/// La cle d'interaction d'un point de courbe : `<base>#<i>`.
+		///
+		/// ⚠️ ELLE EST ECRITE A LA MAIN, SANS `snprintf`. Ce noyau est zero-libc — il a
+		///    son propre formateur (`NkFormat`, snprintf maison depuis le 20/09) et
+		///    ce fichier n'en depend pas. Deux chiffres suffisent : la table de points
+		///    plafonne a 64.
+		///
+		/// ⚠️ ET LA BASE EST LE `bind`, PAS L'INDICE SEUL. Deux courbes dans le meme
+		///    document donneraient sinon les memes identifiants a leurs points, et
+		///    tirer le troisieme point de l'une bougerait celui de l'autre — un defaut
+		///    qui ne se voit qu'a deux courbes, c'est-a-dire jamais pendant l'ecriture.
+		inline void NkGuiFormaterCleCourbe(char *out, uint32 taille, const char *base,
+										   uint32 i) noexcept {
+			if (!out || taille == 0u)
+				return;
+			uint32 k = 0u;
+			if (base)
+				for (; base[k] != '\0' && k + 5u < taille; ++k)
+					out[k] = base[k];
+			if (k + 4u < taille) {
+				out[k++] = '#';
+				if (i >= 10u)
+					out[k++] = (char)('0' + (char)((i / 10u) % 10u));
+				out[k++] = (char)('0' + (char)(i % 10u));
+			}
+			out[k] = '\0';
+		}
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
 		inline bool NkGMotEgal(NkStringView v, const char *lit) noexcept {
@@ -274,6 +315,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "VectorField")) return NkGuiRole::VectorField;
 			if (NkGMotEgal(n, "TokenField")) return NkGuiRole::TokenField;
 			if (NkGMotEgal(n, "ContextMenu")) return NkGuiRole::ContextMenu;
+			if (NkGMotEgal(n, "CurveField")) return NkGuiRole::CurveField;
 			if (NkGMotEgal(n, "Separator")) return NkGuiRole::Separator;
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
@@ -597,6 +639,32 @@ namespace nkentseu {
 				///    n'ouvrira jamais ».
 				uint32 menusContextuelsOuverts = 0;
 				uint32 menusContextuelsSansHote = 0;
+				/// P7 : les `CurveField` rencontres, ceux que l'hote n'a pas servis, et
+				/// les points qu'un geste a REELLEMENT deplaces.
+				///
+				/// ⚠️ LE TROISIEME EST LE SEUL QUI PROUVE L'EDITION. `courbes` monte pour
+				///    une courbe seulement DESSINEE, et c'est precisement ce que le
+				///    document 09 §P7 refuse (« `Chart` n'est pas editable »). Un banc qui
+				///    ne compterait que les deux premiers serait vert sur un champ de
+				///    courbe qu'on ne peut pas toucher.
+				uint32 courbes = 0;
+				uint32 courbesSansHote = 0;
+				uint32 pointsCourbeDeplaces = 0;
+				/// P27 : les widgets qu'une cible a ECARTES, et les noms de cible que le
+				/// lecteur n'a pas reconnus.
+				///
+				/// 🔴 LE PREMIER DOIT FIGURER DANS LE VERDICT DES SONDES, A COTE DE
+				///    `invisibles`. Un document qui ecrirait `platform = Mobile` partout
+				///    donne, sur un PC, une fenetre PARFAITEMENT VIDE — et aucun message
+				///    d'erreur, parce que rien n'est invalide. C'est le pire des silences :
+				///    un document juste qui n'affiche rien. Sans ce chiffre, « mon
+				///    interface a disparu » se cherche a la main.
+				///
+				/// ⚠️ ET LES DEUX SONT SEPARES PARCE QU'ILS ONT DEUX REMEDES. Un ecart
+				///    voulu se corrige en changeant de cible d'apercu ; une cible inconnue
+				///    se corrige dans le DOCUMENT, c'est une faute de frappe.
+				uint32 ecartesParPlateforme = 0;
+				uint32 ciblesInconnues = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -677,11 +745,37 @@ namespace nkentseu {
 				/// La disposition a appliquer : celle que le document nomme `defaut`, ou
 				/// la premiere s'il n'y en a pas. Rend nul quand le document n'en a aucune
 				/// — et alors `DockSpace` garde son partage par fractions, inchange.
+				/// ⚠️ P27 : LA CIBLE PASSE AVANT LE NOM, ET L'ORDRE EST LE POINT. Un
+				///    document qui porte `layout "defaut"` ET `layout "defaut"
+				///    { platform = Mobile }` doit rendre le SECOND sur un telephone,
+				///    alors que les deux portent le meme nom. Chercher d'abord « celle
+				///    qui s'appelle defaut » aurait rendu la premiere ecrite, c'est-a-dire
+				///    la version bureau, et le design mobile n'aurait jamais servi — un
+				///    document juste dont une moitie ne s'affiche nulle part.
+				///
+				/// ⚠️ ET LE REPLI EST EXPLICITE, EN QUATRE TEMPS : (1) ma cible et le nom
+				///    `defaut`, (2) ma cible, quel que soit son nom, (3) `Toutes` et
+				///    `defaut`, (4) la premiere. Sans le temps (3), une cible sans
+				///    disposition propre n'aurait rien — alors que le document en a une
+				///    qui vaut partout.
 				const NkGuiDisposition *DispositionActive() const noexcept {
 					if (dispositions.Size() == 0u)
 						return nullptr;
-					for (uint32 i = 0; i < (uint32)dispositions.Size(); ++i)
-						if (NkGMotEgal(NkStringView(dispositions[i].nom.CStr()), "defaut"))
+					const NkGuiCible ici = NkGuiCibleCourante();
+					const uint32 n = (uint32)dispositions.Size();
+					for (uint32 i = 0; i < n; ++i)
+						if (dispositions[i].cible == ici
+							&& NkGMotEgal(NkStringView(dispositions[i].nom.CStr()), "defaut"))
+							return &dispositions[i];
+					for (uint32 i = 0; i < n; ++i)
+						if (dispositions[i].cible == ici)
+							return &dispositions[i];
+					for (uint32 i = 0; i < n; ++i)
+						if (dispositions[i].cible == NkGuiCible::Toutes
+							&& NkGMotEgal(NkStringView(dispositions[i].nom.CStr()), "defaut"))
+							return &dispositions[i];
+					for (uint32 i = 0; i < n; ++i)
+						if (dispositions[i].cible == NkGuiCible::Toutes)
 							return &dispositions[i];
 					return &dispositions[0];
 				}
@@ -1457,6 +1551,41 @@ namespace nkentseu {
 					(void)posOut;
 					return false;
 				}
+
+				/// Combien de points une courbe peut porter. Fixe : ce noyau est
+				/// zero-STL, et une courbe de reglage en compte quelques-uns.
+				static const uint32 kPointsCourbeMax = 64u;
+
+				/// LA COURBE LIEE : l'hote rend ses points dans `points` (x dans [0,1],
+				/// y dans les bornes que le document declare) et le compte dans `nOut`.
+				/// Rend faux = « je ne connais pas ce `bind` ».
+				///
+				/// ⚠️ LES POINTS SONT A L'HOTE, ET CE N'EST PAS UN DETAIL D'ARCHITECTURE.
+				///    Une courbe est une DONNEE : un fichier d'interface qui la porterait
+				///    la figerait, et l'etat du monteur ne sait tenir qu'un `float32` par
+				///    cle. Le format dit la FORME (hauteur, bornes, etiquettes), jamais le
+				///    contenu — meme partage que pour une zone `Host`.
+				virtual bool CourbeLiee(const char *bind, NkVec2 *points, uint32 maxPoints,
+										uint32 &nOut) noexcept {
+					(void)bind;
+					(void)points;
+					(void)maxPoints;
+					(void)nOut;
+					return false;
+				}
+
+				/// L'utilisateur a deplace un point : l'hote recoit la courbe ENTIERE.
+				///
+				/// ⚠️ LA COURBE ENTIERE, PAS « LE POINT i A CHANGE ». Un indice n'est pas
+				///    un nom : si l'hote reordonne ses points entre deux images, un indice
+				///    envoye designe un autre point que celui qu'on a tire. Ce depot a
+				///    paye cette lecon deux fois le meme jour sur des index sans noms.
+				virtual void CourbeModifiee(const char *bind, const NkVec2 *points,
+											uint32 n) noexcept {
+					(void)bind;
+					(void)points;
+					(void)n;
+				}
 		};
 
 		// =====================================================================
@@ -1798,6 +1927,65 @@ namespace nkentseu {
 					//     la seule facon de le rendre absent. Il est COMPTE — un
 					//     document dont la moitie disparait doit pouvoir se lire dans
 					//     le releve.
+					// ── P27 : LA CIBLE, AVANT TOUT LE RESTE ───────────────────────
+					// Rodolf, 27/09 : « des design specifiques par plateforme […] web,
+					// mobile et PC ».
+					//
+					// ⚠️ ELLE SE LIT AVANT `visible`, ET L'ORDRE EST UN CHOIX. Un widget
+					//    ecarte par la plateforme n'est pas « invisible » : il n'existe
+					//    pas sur cette cible. Les confondre aurait melange dans un meme
+					//    compteur « le document cache ceci » et « ceci n'est pas pour
+					//    cette plateforme » — deux causes, deux remedes.
+					//
+					// ⚠️ ET UN ATTRIBUT SUFFIT PARCE QUE LE MONTEUR NE DESCEND PAS DANS CE
+					//    QU'IL NE MONTE PAS. `platform = Mobile` sur une `VBox` ecarte la
+					//    boite ET sa descendance, sans une ligne de plus.
+					if (NkGA(w, "platform")) {
+						NkVector<NkString> cibles;
+						uint32 nC = NkGListeChaines(w, "platform", cibles);
+						// 🔴 UN LECTEUR DE LISTE N'EST PAS UN LECTEUR DE VALEUR, et je
+						//    l'avais suppose. Mesure du 27/09 : `platform = [Mobile, Web]`
+						//    etait lu, `platform = Mobile` rendait ZERO entree — donc
+						//    aucune cible lue, donc aucun ecart et aucune faute comptee.
+						//    Le cas SIMPLE, celui que tout document ecrira, ne faisait
+						//    rien du tout, et la seule chose qui marchait etait la forme
+						//    rare. Trois criteres l'ont dit d'un coup ; un seul, pose sur
+						//    la liste, aurait ete vert.
+						if (nC == 0u) {
+							const NkString un = NkGTexte(w, "platform", "");
+							if (un.Size() > 0u) {
+								cibles.PushBack(un);
+								nC = 1u;
+							}
+						}
+						const NkGuiCible courante = NkGuiCibleCourante();
+						bool correspond = false;
+						bool auMoinsUneLue = false;
+						for (uint32 i = 0; i < nC; ++i) {
+							NkGuiCible c = NkGuiCible::Toutes;
+							if (!NkGuiCibleDepuisNom(cibles[i].CStr(), (uint32)cibles[i].Size(),
+													 c)) {
+								// ⚠️ UN NOM INCONNU N'ECARTE PAS, IL SE COMPTE. `platform =
+								//    Mobil` ne doit pas faire disparaitre un panneau en
+								//    silence : ce serait un document juste qui perd une
+								//    partie de lui-meme sans qu'aucun chiffre ne le dise.
+								//    C'est la politique INVERSE de celle d'un ROLE inconnu,
+								//    qui fait refuser le document entier — et la difference
+								//    se justifie : un role inconnu rend le document
+								//    inmontable, une cible inconnue laisse un document
+								//    parfaitement montable dont une intention est perdue.
+								++rap.ciblesInconnues;
+								continue;
+							}
+							auMoinsUneLue = true;
+							if (c == NkGuiCible::Toutes || c == courante)
+								correspond = true;
+						}
+						if (auMoinsUneLue && !correspond) {
+							++rap.ecartesParPlateforme;
+							return;
+						}
+					}
 					{
 						const bool visibleDoc = NkGBooleen(w, "visible", true);
 						const bool visible =
@@ -3796,6 +3984,143 @@ namespace nkentseu {
 							}
 							Noter(rap, id, t, ctx.layout.prevItem, prof, true, horizontal,
 								  &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						// ── P7 : LA COURBE EDITABLE ──────────────────────────
+						case NkGuiRole::CurveField: {
+							const NkString lien = NkGTexte(w, "bind", "");
+							const float32 vmin = NkGNombre(w, "min", 0.f);
+							const float32 vmax = NkGNombre(w, "max", 1.f);
+							const float32 haut = NkGNombre(w, "height", 72.f);
+							const NkString xLab = NkGTexte(w, "xLabel", "");
+							const NkString yLab = NkGTexte(w, "yLabel", "");
+							const NkRect cadre = ctx.NextItemRect(-1.f, haut);
+							++rap.courbes;
+							NkGuiDrawList &dlC = ctx.DL();
+							// Le cadre et la grille d'abord : ils existent meme sans courbe,
+							// et c'est ce qui rend une courbe ABSENTE reperable.
+							// `track` est le fond que le theme donne deja aux curseurs : un
+							// champ de courbe est de la meme famille, et en inventer un
+							// second aurait fait deux fonds pour une meme idee.
+							dlC.AddRectFilled(cadre, ctx.theme.track, ctx.theme.rounding);
+							dlC.AddRect(cadre, ctx.theme.border, 1.f, ctx.theme.rounding);
+							for (uint32 g = 1; g < 4u; ++g) {
+								const float32 gy = cadre.y + cadre.h * ((float32)g / 4.f);
+								dlC.AddLine({cadre.x + 1.f, gy}, {cadre.x + cadre.w - 1.f, gy},
+											ctx.theme.border, 1.f);
+							}
+							NkVec2 pts[NkGuiMonteHooks::kPointsCourbeMax];
+							uint32 nPts = 0u;
+							const bool servie =
+								hooks
+								&& hooks->CourbeLiee(lien.Size() > 0 ? lien.CStr() : id.CStr(), pts,
+													 NkGuiMonteHooks::kPointsCourbeMax, nPts)
+								&& nPts >= 2u;
+							if (!servie) {
+								// ⚠️ MEME POLITIQUE QU'UNE ZONE `Host` NON SERVIE : on ne
+								//    dessine pas une courbe inventee, on DIT qu'il n'y en a
+								//    pas. Une droite de repli aurait ete indiscernable d'une
+								//    vraie courbe plate — c'est-a-dire un reglage faux qui a
+								//    l'air juste.
+								++rap.courbesSansHote;
+								MarquerZoneVide(ctx, cadre, lien.Size() > 0 ? lien.CStr()
+																			: id.CStr());
+								Noter(rap, id, t, cadre, prof, false, horizontal,
+									  &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
+							// ── LES POINTS EN PIXELS ────────────────────────────
+							// ⚠️ UNE PLAGE NULLE NE DIVISE PAS. `min == max` est un document
+							//    fautif, pas un plantage : on le compte et on aplatit.
+							const float32 plage = (vmax - vmin);
+							const bool plageNulle = (plage <= 0.f && plage >= 0.f);
+							if (plageNulle)
+								++rap.attributsNonHonores;
+							NkVec2 ecran[NkGuiMonteHooks::kPointsCourbeMax];
+							const float32 marge = 4.f;
+							const float32 x0 = cadre.x + marge, larg = cadre.w - 2.f * marge;
+							const float32 y0 = cadre.y + marge, hUtile = cadre.h - 2.f * marge;
+							for (uint32 i = 0; i < nPts; ++i) {
+								float32 fx = pts[i].x;
+								if (fx < 0.f)
+									fx = 0.f;
+								if (fx > 1.f)
+									fx = 1.f;
+								float32 fy = plageNulle ? 0.5f : (pts[i].y - vmin) / plage;
+								if (fy < 0.f)
+									fy = 0.f;
+								if (fy > 1.f)
+									fy = 1.f;
+								// L'axe des ordonnees monte : `y = max` en HAUT de l'ecran.
+								ecran[i] = {x0 + larg * fx, y0 + hUtile * (1.f - fy)};
+							}
+							dlC.AddPolyline(ecran, (int32)nPts, ctx.theme.accent, 2.f);
+							// ── LE GESTE : ON TIRE UN POINT EN Y ────────────────
+							// ⚠️ EN Y SEULEMENT, ET C'EST ECRIT PARCE QUE CA SE VOIT. Tirer
+							//    aussi en X voudrait dire REORDONNER les points, donc decider
+							//    ce que devient une abscisse qui depasse sa voisine — une
+							//    question de conception que le document 09 §P7 ne tranche pas
+							//    (« la vitesse LE LONG d'une trajectoire » : l'abscisse est
+							//    l'avancement, elle ne se deplace pas). Le jour ou elle sera
+							//    tranchee, la ligne a changer est celle-ci.
+							bool bouge = false;
+							for (uint32 i = 0; i < nPts; ++i) {
+								const float32 rayon = 4.f;
+								const NkRect poignee{ecran[i].x - 6.f, ecran[i].y - 6.f, 12.f,
+													 12.f};
+								char cle[96];
+								NkGuiFormaterCleCourbe(cle, sizeof(cle),
+													   lien.Size() > 0 ? lien.CStr() : id.CStr(),
+													   i);
+								bool survolP = false, tenu = false;
+								(void)ctx.ButtonBehavior(ctx.GetId(cle), poignee,
+														 NkGuiButtonFlags::None, -1.f, -1.f,
+														 &survolP, &tenu);
+								if (tenu && !plageNulle && hUtile > 0.f) {
+									const NkVec2 g = ctx.PositionGeste();
+									float32 f = 1.f - (g.y - y0) / hUtile;
+									if (f < 0.f)
+										f = 0.f;
+									if (f > 1.f)
+										f = 1.f;
+									const float32 nv = vmin + plage * f;
+									if (nv > pts[i].y || nv < pts[i].y) {
+										pts[i].y = nv;
+										bouge = true;
+									}
+								}
+								// ⚠️ `onAccent` ET NON UNE NUANCE D'ACCENT. Le theme n'a pas de
+								//    `accentHover`, et les candidats proches (`buttonActive` =
+								//    96,150,230 contre accent = 96,165,250) sont a quinze
+								//    unites l'un de l'autre : un critere en pixels ne les
+								//    distinguerait pas, donc le survol serait invisible a la
+								//    mesure comme a l'oeil. `onAccent` est le blanc que le
+								//    theme destine a ce qui se POSE sur un accent.
+								dlC.AddCircleFilled(ecran[i], rayon,
+													(tenu || survolP) ? ctx.theme.onAccent
+																	  : ctx.theme.accent);
+							}
+							if (bouge) {
+								++rap.pointsCourbeDeplaces;
+								hooks->CourbeModifiee(lien.Size() > 0 ? lien.CStr() : id.CStr(),
+													  pts, nPts);
+							}
+							// Les etiquettes, en dernier : elles se lisent PAR-DESSUS.
+							if (ctx.font && ctx.font->Valid()) {
+								if (xLab.Size() > 0)
+									dlC.AddText(ctx.font->Face(), ctx.font->TexId(),
+												{cadre.x + 6.f,
+												 cadre.y + cadre.h - 4.f},
+												xLab.CStr(), ctx.theme.textMuted);
+								if (yLab.Size() > 0)
+									dlC.AddText(ctx.font->Face(), ctx.font->TexId(),
+												{cadre.x + 6.f,
+												 cadre.y + 4.f + ctx.font->Ascent()},
+												yLab.CStr(), ctx.theme.textMuted);
+							}
+							Noter(rap, id, t, cadre, prof, false, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
