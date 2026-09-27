@@ -1890,19 +1890,31 @@ namespace nkentseu {
 					}
 				}
 
+				/// La valeur d'un `set`, recopiee dans un tampon de taille fixe et
+				/// TOUJOURS terminee.
+				///
+				/// ⚠️ ELLE EST ICI, ET PAS RECOPIEE DANS CHAQUE CAS. Trois proprietes
+				///    (`text`, `icon`, `image`) posent une chaine dans un tampon ; la
+				///    meme boucle ecrite trois fois finirait par diverger -- la
+				///    troisieme copie oublierait la borne, ou le terminateur, et le
+				///    defaut ne se verrait qu'au tampon plein.
+				static void CopierTexte(const NkGuiDemande &d, char *dst, usize cap) noexcept {
+					const NkStringView t = (d.valeur.type == NkGuiValeur::Type::Jeton)
+											   ? NkStringView(d.valeur.jeton.Data(),
+															  (usize)d.valeur.jeton.Size())
+											   : NkStringView("", 0u);
+					usize k = 0;
+					for (; k < (usize)t.Size() && k + 1u < cap; ++k)
+						dst[k] = t.Data()[k];
+					dst[k] = '\0';
+				}
+
 				/// `set x.prop = expr` — les propriétés qu'un état peut porter.
 				static bool PoserProprieteWidget(NkGuiMonteEtat::Entree &e,
 												 const NkGuiDemande &d) noexcept {
 					const NkStringView p(d.propriete.Data(), (usize)d.propriete.Size());
 					if (NkGMotEgal(p, "text")) {
-						const NkStringView t = (d.valeur.type == NkGuiValeur::Type::Jeton)
-												   ? NkStringView(d.valeur.jeton.Data(),
-																  (usize)d.valeur.jeton.Size())
-												   : NkStringView("", 0u);
-						uint32 k = 0;
-						for (; k < (uint32)t.Size() && k + 1u < sizeof(e.texte); ++k)
-							e.texte[k] = t.Data()[k];
-						e.texte[k] = '\0';
+						CopierTexte(d, e.texte, sizeof(e.texte));
 						e.initialise = true;
 						return true;
 					}
@@ -1924,6 +1936,24 @@ namespace nkentseu {
 					if (NkGMotEgal(p, "enabled")) {
 						e.actif = d.valeur.EnBooleen();
 						e.activiteDite = true;
+						return true;
+					}
+					// ── `icon` ET `image` (Rodolf, 27/09) ────────────────────
+					// Un chevron d'accordeon qui passe de `>` a `v` est une ICONE :
+					// sans ces deux-la, le document devait ecrire deux widgets et
+					// les `show`/`hide`. Voir `NkGuiMonteEtat::Entree::icone`.
+					//
+					// ⚠️ LA CHAINE VIDE EST UNE VALEUR, PAS UNE ABSENCE. `set
+					//    x.icon = ""` veut dire « retire l'icone », et le drapeau
+					//    `iconeDite` est ce qui permet de le dire.
+					if (NkGMotEgal(p, "icon")) {
+						CopierTexte(d, e.icone, sizeof(e.icone));
+						e.iconeDite = true;
+						return true;
+					}
+					if (NkGMotEgal(p, "image")) {
+						CopierTexte(d, e.image, sizeof(e.image));
+						e.imageDite = true;
 						return true;
 					}
 					// ⚠️ UNE PROPRIÉTÉ QU'ON NE SAIT PAS POSER N'EST PAS POSÉE. La
