@@ -782,10 +782,16 @@ namespace nkentseu {
 						} else {
 							// Les operateurs a deux caracteres d'abord : sinon `>=` se
 							// lirait `>` puis `=`, et la comparaison changerait de sens.
+							// ⚠️ `!=` EST ENTRE DANS CETTE LISTE LE 27/09, et son absence
+							//    n'etait pas benigne : `a != b` se lisait `!` puis `=`,
+							//    donc une negation suivie d'une affectation dans une
+							//    EXPRESSION — du charabia que l'evaluateur comptait en
+							//    `refusees` sans dire lequel.
 							const bool deux =
 								(i + 1 < n)
 								&& ((c == '>' && p[i + 1] == '=') || (c == '<' && p[i + 1] == '=')
-									|| (c == '=' && p[i + 1] == '=') || (c == '&' && p[i + 1] == '&')
+									|| (c == '=' && p[i + 1] == '=') || (c == '!' && p[i + 1] == '=')
+									|| (c == '&' && p[i + 1] == '&')
 									|| (c == '|' && p[i + 1] == '|'));
 							j.k = Tk::Sym;
 							j.t = NkString(p + i, (NkString::SizeType)(deux ? 2u : 1u));
@@ -992,29 +998,60 @@ namespace nkentseu {
 				}
 
 				NkGuiValeur EtLogique() noexcept {
-					NkGuiValeur a = Egalite();
+					NkGuiValeur a = NonLogique();
 					while (Sym(J(), "&&")) {
 						++mT;
-						const NkGuiValeur b = Egalite();
+						const NkGuiValeur b = NonLogique();
 						a = NkGuiValeur::DeBooleen(a.EnBooleen() && b.EnBooleen());
 					}
 					return a;
 				}
 
+				/// `not expr` et `! expr` — la meme chose, deux graphies.
+				///
+				/// ⚠️ IL EST AU-DESSUS DE LA COMPARAISON, PAS AU-DESSOUS. La grammaire
+				///    l'ecrit ainsi (`and_expr := not_expr ("&&" not_expr)*`), et ce
+				///    n'est pas un detail : `not a == b` doit nier LA COMPARAISON, pas
+				///    `a`. Le mettre dans `Primaire` aurait donne `(not a) == b`, qui
+				///    est une autre question et rend souvent l'inverse.
+				NkGuiValeur NonLogique() noexcept {
+					const bool mot = (J().k == Tk::Ident)
+									 && NkGMotEgal(NkStringView(J().t.Data(), (usize)J().t.Size()),
+												   "not");
+					if (mot || Sym(J(), "!")) {
+						++mT;
+						return NkGuiValeur::DeBooleen(!NonLogique().EnBooleen());
+					}
+					return Egalite();
+				}
+
 				NkGuiValeur Egalite() noexcept {
 					NkGuiValeur a = Comparaison();
-					while (Sym(J(), "==")) {
+					for (;;) {
+						const bool egal = Sym(J(), "==");
+						const bool different = Sym(J(), "!=");
+						if (!egal && !different)
+							return a;
 						++mT;
 						const NkGuiValeur b = Comparaison();
-						// Deux JETONS se comparent par leur texte : `Enum.Haut == Enum.Haut`
-						// est vrai, et le reduire a un nombre l'aurait rendu vrai pour
-						// n'importe quelle paire de jetons.
-						if (a.type == NkGuiValeur::Type::Jeton && b.type == NkGuiValeur::Type::Jeton)
-							a = NkGuiValeur::DeBooleen(a.jeton.Compare(b.jeton) == 0);
-						else
-							a = NkGuiValeur::DeBooleen(a.EnNombre() == b.EnNombre());
+						a = ComparerEgalite(a, b);
+						if (different)
+							a = NkGuiValeur::DeBooleen(!a.EnBooleen());
 					}
-					return a;
+				}
+
+				/// ⚠️ UNE SEULE REGLE D'EGALITE, PARTAGEE PAR `==` ET `!=`. Deux
+				///    ecritures de la meme comparaison finiraient par ne plus etre
+				///    d'accord — et `a != b` cesserait d'etre l'exact contraire de
+				///    `a == b`, ce que personne ne penserait a verifier.
+				static NkGuiValeur ComparerEgalite(const NkGuiValeur &a,
+												   const NkGuiValeur &b) noexcept {
+					// Deux JETONS se comparent par leur texte : `Enum.Haut == Enum.Haut`
+					// est vrai, et le reduire a un nombre l'aurait rendu vrai pour
+					// n'importe quelle paire de jetons.
+					if (a.type == NkGuiValeur::Type::Jeton && b.type == NkGuiValeur::Type::Jeton)
+						return NkGuiValeur::DeBooleen(a.jeton.Compare(b.jeton) == 0);
+					return NkGuiValeur::DeBooleen(a.EnNombre() == b.EnNombre());
 				}
 
 				NkGuiValeur Comparaison() noexcept {
@@ -1098,11 +1135,54 @@ namespace nkentseu {
 					if (J().k == Tk::Chaine) {
 						const NkString s = J().t;
 						++mT;
+						// ⚠️ UNE CHAINE SUIVIE D'UN POINT EST UN WIDGET, PAS UN JETON.
+						//    C'est la graphie que la grammaire impose aux identifiants
+						//    qui CONTIENNENT un point — ceux que les composants
+						//    prefixent : `"transport.lecture".enabled`. Sans ce cas, le
+						//    resolveur couperait au dernier point et chercherait un
+						//    widget nomme `"transport`.
+						if (Sym(J(), ".") && mT + 1u < (uint32)mJ.Size()
+							&& mJ[mT + 1u].k == Tk::Ident) {
+							const NkString champ = mJ[mT + 1u].t;
+							mT += 2u;
+							NkString chemin = s;
+							chemin.Append(".");
+							chemin.Append(champ.CStr());
+							NkGuiValeur v;
+							if (resolveur
+								&& resolveur(NkStringView(chemin.Data(), (usize)chemin.Size()), v,
+											 resolveurUser))
+								return v;
+							++rapport.refusees;
+							return NkGuiValeur::DeNombre(0.f);
+						}
 						return NkGuiValeur::DeJeton(NkStringView(s.Data(), (usize)s.Size()));
 					}
 					if (J().k == Tk::Ident) {
 						const NkString nom = J().t;
 						++mT;
+						// ── LES QUATRE FONCTIONS DE LA GRAMMAIRE ─────────────
+						//  `empty` `length` `matches` `contains` — §3.4.
+						//
+						//  ⚠️ ELLES SONT ICI ET NON DANS L'HOTE, parce qu'elles ne
+						//     touchent a RIEN : elles lisent leurs arguments et
+						//     rendent une valeur. Les confier a l'application
+						//     donnerait autant de definitions de « vide » que
+						//     d'applications.
+						if (Sym(J(), "(") && EstFonction(NkStringView(nom.Data(),
+																	  (usize)nom.Size()))) {
+							++mT;
+							NkVector<NkGuiValeur> args;
+							while (!Sym(J(), ")") && J().k != Tk::Fin) {
+								args.PushBack(Expression());
+								if (Sym(J(), ","))
+									++mT;
+							}
+							if (Sym(J(), ")"))
+								++mT;
+							return AppelerFonction(NkStringView(nom.Data(), (usize)nom.Size()),
+												   args);
+						}
 						if (NkGMotEgal(NkStringView(nom.Data(), (usize)nom.Size()), "true"))
 							return NkGuiValeur::DeBooleen(true);
 						if (NkGMotEgal(NkStringView(nom.Data(), (usize)nom.Size()), "false"))
@@ -1120,6 +1200,82 @@ namespace nkentseu {
 					}
 					++rapport.refusees;
 					return NkGuiValeur::DeNombre(0.f);
+				}
+
+				/// Les quatre noms que la grammaire réserve (§3.4 `func_call`).
+				static bool EstFonction(NkStringView n) noexcept {
+					return NkGMotEgal(n, "empty") || NkGMotEgal(n, "length")
+						   || NkGMotEgal(n, "matches") || NkGMotEgal(n, "contains");
+				}
+
+				/// ⚠️ LE TEXTE D'UNE VALEUR, ET IL N'Y EN A QU'UN. Un jeton porte son
+				///    texte ; un nombre n'en a pas — le convertir ici donnerait une
+				///    graphie (« 1 » ou « 1.000000 » ?) que personne n'a choisie, et
+				///    `empty(x)` répondrait sur cette graphie plutôt que sur la valeur.
+				///    Un nombre n'est donc jamais « vide », et sa longueur est 0.
+				static NkStringView TexteDe(const NkGuiValeur &v) noexcept {
+					if (v.type == NkGuiValeur::Type::Jeton)
+						return NkStringView(v.jeton.Data(), (usize)v.jeton.Size());
+					return NkStringView("", 0u);
+				}
+
+				/// `contains(a, b)` et `matches(a, b)` sur des textes.
+				///
+				/// ⚠️ `matches` EST UNE ÉGALITÉ EXACTE, PAS UNE EXPRESSION RÉGULIÈRE,
+				///    et c'est écrit plutôt que supposé. La grammaire ne dit pas
+				///    laquelle des deux ; implémenter des expressions régulières
+				///    ferait entrer un moteur entier par la petite porte, et un
+				///    document écrit pour l'égalité se mettrait à correspondre à
+				///    autre chose le jour où on l'ajouterait. *Le plus petit sens
+				///    défendable, écrit.*
+				static bool Contient(NkStringView a, NkStringView b) noexcept {
+					if (b.Size() == 0u)
+						return true;
+					if (b.Size() > a.Size())
+						return false;
+					for (usize i = 0; i + b.Size() <= a.Size(); ++i) {
+						usize k = 0;
+						while (k < b.Size() && a.Data()[i + k] == b.Data()[k])
+							++k;
+						if (k == b.Size())
+							return true;
+					}
+					return false;
+				}
+
+				NkGuiValeur AppelerFonction(NkStringView nom,
+											const NkVector<NkGuiValeur> &args) noexcept {
+					const uint32 n = (uint32)args.Size();
+					if (NkGMotEgal(nom, "empty")) {
+						if (n != 1u) {
+							++rapport.refusees;
+							return NkGuiValeur::DeBooleen(true);
+						}
+						return NkGuiValeur::DeBooleen(TexteDe(args[0]).Size() == 0u);
+					}
+					if (NkGMotEgal(nom, "length")) {
+						if (n != 1u) {
+							++rapport.refusees;
+							return NkGuiValeur::DeNombre(0.f);
+						}
+						return NkGuiValeur::DeNombre((float32)TexteDe(args[0]).Size());
+					}
+					// `matches` et `contains` prennent DEUX arguments : en donner un
+					// autre nombre est une faute d'écriture, et elle se compte.
+					if (n != 2u) {
+						++rapport.refusees;
+						return NkGuiValeur::DeBooleen(false);
+					}
+					const NkStringView a = TexteDe(args[0]), b = TexteDe(args[1]);
+					if (NkGMotEgal(nom, "contains"))
+						return NkGuiValeur::DeBooleen(Contient(a, b));
+					// `matches` : égalité exacte.
+					if (a.Size() != b.Size())
+						return NkGuiValeur::DeBooleen(false);
+					for (usize i = 0; i < a.Size(); ++i)
+						if (a.Data()[i] != b.Data()[i])
+							return NkGuiValeur::DeBooleen(false);
+					return NkGuiValeur::DeBooleen(true);
 				}
 
 				void PoserVar(const NkString &nom, const NkGuiValeur &v) noexcept {
@@ -1229,7 +1385,14 @@ namespace nkentseu {
 					(void)role;
 					mCourant = infos.TrouverMod(NkGuiArchive::IdOf(w));
 					mDesactivePousse = false;
-					if (mCourant && !mCourant->actif) {
+					// ⚠️ DEUX SOURCES, ET L'ORDRE COMPTE : le DOCUMENT pose l'etat de
+					//    depart (`enabled = false`), un COMPORTEMENT le change ensuite
+					//    (`enable` / `disable ... because`). Le second l'emporte, sinon
+					//    l'instruction n'aurait aucun effet visible — et c'est la seule
+					//    lecture, il n'y en a pas une seconde ailleurs.
+					const bool actifCourant =
+						(e && e->activiteDite) ? e->actif : (mCourant ? mCourant->actif : true);
+					if (!actifCourant) {
 						ctx.BeginDisabled(true);
 						mDesactivePousse = true;
 					}
@@ -1439,6 +1602,46 @@ namespace nkentseu {
 					if (NkGMotEgal(champ, "checked")) {
 						out = NkGuiValeur::DeBooleen(e->b);
 						return true;
+					}
+					// ── LES SIX CHAMPS DE PLUS (27/09, §3.4 `Field`) ─────────
+					//  ⚠️ ILS LISENT L'ETAT DU MONTAGE, PAS LE DOCUMENT. Un
+					//     `behavior` demande « ce champ est-il vide MAINTENANT ? »,
+					//     pas « qu'est-ce que le fichier disait au depart ? ». Lire
+					//     le document rendrait la condition toujours identique, et
+					//     `if empty("nom".text)` serait vrai a jamais.
+					if (NkGMotEgal(champ, "text")) {
+						out = NkGuiValeur::DeJeton(NkStringView(e->texte));
+						return true;
+					}
+					if (NkGMotEgal(champ, "selected")) {
+						// Un choix dans une liste : l'indice vit dans `f`, la case
+						// dans `b`. Les deux disent « celui-ci est choisi ».
+						out = NkGuiValeur::DeBooleen(e->b || e->f > 0.5f);
+						return true;
+					}
+					if (NkGMotEgal(champ, "visible")) {
+						out = NkGuiValeur::DeBooleen(e->visible);
+						return true;
+					}
+					if (NkGMotEgal(champ, "enabled")) {
+						out = NkGuiValeur::DeBooleen(e->actif);
+						return true;
+					}
+					if (NkGMotEgal(champ, "focused")) {
+						// ⚠️ `Resoudre` EST STATIQUE (c'est un rappel), donc le focus
+						//    se lit sur `self`, qui le porte. Passer par `EstFocalise`
+						//    demanderait une instance ; la comparaison est la meme.
+						out = NkGuiValeur::DeBooleen(self->mFocus.Size() > 0u
+													 && self->mFocus.Compare(info->id) == 0);
+						return true;
+					}
+					if (NkGMotEgal(champ, "count")) {
+						// ⚠️ `count` EST LE NOMBRE D'ELEMENTS D'UNE LISTE, et le
+						//    magasin n'en tient pas. Le rendre a 0 ferait passer une
+						//    liste pleine pour vide ; on REFUSE, donc l'expression
+						//    se compte en `refusees` et le document sait que sa
+						//    question n'a pas ete servie.
+						return false;
 					}
 					// Un champ que je ne connais pas ne se devine pas.
 					return false;

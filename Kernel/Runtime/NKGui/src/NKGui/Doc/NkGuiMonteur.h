@@ -530,6 +530,11 @@ namespace nkentseu {
 				///    dans un document qui en porte cent.
 				uint32 raccourcisAffiches = 0;
 				uint32 infobullesPosees = 0;
+				/// Les widgets que `visible = false` — ou un `hide` — a retires du
+				/// montage. ⚠️ Compte, parce qu'un document dont la moitie disparait
+				/// doit pouvoir se LIRE dans le releve : sans ce chiffre, un `hide`
+				/// de trop ressemble a un document plus pauvre.
+				uint32 invisibles = 0;
 				/// Les `icon` demandes, et ceux que le jeu d'icones n'a pas su
 				/// rendre. ⚠️ Le second n'est pas « pas d'icone » : c'est « une
 				/// icone a ete demandee et le glyphe manque » -- le jeu distingue
@@ -576,6 +581,25 @@ namespace nkentseu {
 						/// change -- un champ que le document reinitialise sans cesse
 						/// n'est pas editable.
 						bool initialise = false;
+						// ── CE QU'UN COMPORTEMENT PEUT CHANGER (27/09) ───────
+						/// `show` / `hide` / `toggle` / `enable` / `disable` ecrivent
+						/// ICI, et le monteur les lit a la place du document.
+						///
+						/// ⚠️ DEUX DRAPEAUX ET UN « QUELQU'UN L'A-T-IL DIT ? ». Sans
+						///    `visibiliteDite`, on ne distinguerait pas « le document
+						///    dit visible » de « personne n'a rien dit » : la valeur
+						///    du document serait ecrasee des la premiere image par un
+						///    defaut, et `visible = false` ecrit dans le fichier
+						///    n'aurait plus aucun effet.
+						bool visible = true;
+						bool visibiliteDite = false;
+						bool actif = true;
+						bool activiteDite = false;
+						/// La raison d'un `disable x because "..."`, lue au survol.
+						/// ⚠️ Un element grise SANS raison est ce que la famille
+						///    interdit (doc 3 §14quater) : ce champ existe pour que la
+						///    raison VOYAGE jusqu'a l'infobulle.
+						char raison[128] = {0};
 				};
 
 				/// Recense une cle (phase 1). Sans effet si elle existe deja.
@@ -1601,6 +1625,46 @@ namespace nkentseu {
 					const NkString id(NkGuiArchive::IdOf(w));
 					const char *lbl = id.CStr();
 					NkGuiMonteEtat::Entree *e = etat.Get(NkStringView(CleEtat(w)));
+
+					// ═════════════════════════════════════════════════════════
+					//  `visible` — ET PERSONNE NE LE LISAIT (27/09)
+					// ═════════════════════════════════════════════════════════
+					//  🔴 `visible` EST AU VOCABULAIRE UNIVERSEL DU FORMAT DEPUIS
+					//     TOUJOURS. Mesure du 27/09 : aucune lecture, nulle part.
+					//     Un document qui ecrivait `visible = false` montait son
+					//     widget exactement comme les autres. Cinquieme membre de la
+					//     meme famille que `tooltip` et la couleur illisible : *le
+					//     document declare, personne ne lit, et rien ne le dit.*
+					//
+					//  ⚠️ DEUX SOURCES, ET L'ORDRE EST CELUI DE `enabled` : le
+					//     DOCUMENT pose l'etat de depart, un COMPORTEMENT le change
+					//     ensuite (`show` / `hide` / `toggle`). Le second l'emporte,
+					//     sinon l'instruction n'aurait aucun effet.
+					//
+					//  ⚠️ ET UN WIDGET CACHE NE SE MONTE PAS DU TOUT. Le dessiner
+					//     transparent le laisserait cliquable ; ne pas l'appeler est
+					//     la seule facon de le rendre absent. Il est COMPTE — un
+					//     document dont la moitie disparait doit pouvoir se lire dans
+					//     le releve.
+					{
+						const bool visibleDoc = NkGBooleen(w, "visible", true);
+						const bool visible =
+							(e && e->visibiliteDite) ? e->visible : visibleDoc;
+						// ⚠️ LA VISIBILITE EFFECTIVE EST ECRITE DANS L'ETAT, et ce
+						//    n'est pas une commodite : c'est ce que `x.visible` lit
+						//    dans un comportement. Sans cette ligne, un widget cache
+						//    PAR LE DOCUMENT se disait visible — son entree gardait
+						//    son defaut, faute d'avoir jamais ete montee. Trouve par
+						//    le temoin, qui lisait `true` sur un widget absent de
+						//    l'image.
+						if (e)
+							e->visible = visible;
+						if (!visible) {
+							++rap.invisibles;
+							return;
+						}
+					}
+
 					// Le crochet encadre TOUT ce qui suit, sorties anticipees comprises.
 					Garde garde(hooks, ctx, w, t, e);
 					// ── L'ARMEMENT, AU PLUS PRES DU CONSOMMATEUR ──────────────────
@@ -2163,10 +2227,26 @@ namespace nkentseu {
 						}
 						case NkGuiRole::Checkbox: {
 							const NkString s = NkGTexte(w, "label", id.CStr());
-							if (e)
+							if (e) {
+								// 🔴 ELLE NE LISAIT PAS SON `value` (corrige le 27/09).
+								//    Tous les autres roles editables posent leur valeur
+								//    initiale depuis le document — `Slider`, `TextField`,
+								//    `Switch`, `RadioGroup`, `Expander`, `Splitter`… —
+								//    et celui-ci partait TOUJOURS decoche. Un document
+								//    qui ecrit `value = true` obtenait une case vide, et
+								//    rien ne le disait. Trouve par le temoin de `.checked`
+								//    du blueprint, qui lisait 0 sur une case declaree
+								//    cochee.
+								if (!e->initialise) {
+									e->b = NkGBooleen(w, "value", false);
+									e->initialise = true;
+								}
 								(void)Checkbox(ctx, s.CStr(), e->b);
-							else
+								valeurMontee = e->b ? 1.f : 0.f;
+								aValeurMontee = true;
+							} else {
 								aDessine = false;
+							}
 							break;
 						}
 						case NkGuiRole::Slider: {
