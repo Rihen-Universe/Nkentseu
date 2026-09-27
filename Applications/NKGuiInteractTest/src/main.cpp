@@ -516,6 +516,184 @@ static uint32 Empaquete(const NkColor &c) {
 //
 //    D'ou cette fonction : un cas de banc qui grandit se sort de `main`, et le
 //    prochain fera de meme. Aucun critere n'a change.
+// =============================================================================
+//  (b20) `Padding`, `Aspect`, `Overlay`, `Center` — quatre conteneurs de plus
+// =============================================================================
+// Rodolf, 27/09 : « je pense qu'il y a encore plein de conteneurs qu'on peut
+// ajouter, donc integre-les. »
+//
+// ⚠️ CHAQUE CAS COMPARE AVEC ET SANS LE CONTENEUR, SUR LE MEME ENFANT. Un critere
+//    du genre « le panneau est la » serait vert meme si le conteneur ne faisait
+//    RIEN : ce qu'on exige, c'est qu'il DEPLACE quelque chose, et de combien.
+static void CasQuatreConteneursDePlus() {
+	const uint32 kBleu = 0x0969DAFFu;
+	// L'enfant est le meme partout : seul le conteneur change.
+	const char *kEnfant = "    Panel \"cible\" { size = (80, 20)\n"
+						  "      appearance { fill { color = #0969DA } }\n"
+						  "    }\n";
+	char doc[1024];
+
+	// ── LA REFERENCE : l'enfant seul, dans une VBox ─────────────────────
+	NkRect rRef{0.f, 0.f, 0.f, 0.f};
+	{
+		snprintf(doc, sizeof(doc), "nkgui 0.3\nwidgets {\n  VBox \"pile\" {\n%s  }\n}\n",
+				 kEnfant);
+		Scene s;
+		Check(s.Charger(doc, (uint32)__builtin_strlen(doc), 300, 200),
+			  "(b20) la reference (sans conteneur) se charge");
+		s.Image();
+		Check(BoiteCouleur(s.ras, kBleu, rRef), "(b20) la reference a une boite");
+		printf("        [reference] (%.0f, %.0f, %.0f x %.0f)\n", rRef.x, rRef.y, rRef.w,
+			   rRef.h);
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── `Padding` : il RENTRE le contenu, exactement ────────────────────
+	{
+		snprintf(doc, sizeof(doc),
+				 "nkgui 0.3\nwidgets {\n  VBox \"pile\" {\n"
+				 "    Padding \"marge\" { padding = 20\n%s    }\n  }\n}\n",
+				 kEnfant);
+		Scene s;
+		Check(s.Charger(doc, (uint32)__builtin_strlen(doc), 300, 200),
+			  "(b20) [Padding] le document se charge");
+		s.Image();
+		NkRect r{0.f, 0.f, 0.f, 0.f};
+		Check(BoiteCouleur(s.ras, kBleu, r), "(b20) [Padding] la cible est peinte");
+		printf("        [Padding 20] (%.0f, %.0f) — reference (%.0f, %.0f)\n", r.x, r.y,
+			   rRef.x, rRef.y);
+		// ⚠️ LE DECALAGE EXACT, PAS « IL A BOUGE ». Une marge de 20 deplace de 20 ;
+		//    exiger « > 0 » aurait accepte une marge de 3 px.
+		CheckEqF(r.x - rRef.x, 20.f, 1.f, "(b20) [Padding] DECALE DE 20 EN X, exactement");
+		CheckEqF(r.y - rRef.y, 20.f, 1.f, "(b20) [Padding] et de 20 en Y");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── `Aspect` : la hauteur SUIT la largeur ───────────────────────────
+	{
+		snprintf(doc, sizeof(doc),
+				 "nkgui 0.3\nwidgets {\n  VBox \"pile\" {\n"
+				 "    Aspect \"vue\" { ratio = 2.0, size = (200, 0)\n%s    }\n"
+				 "    Panel \"apres\" { size = (60, 10)\n"
+				 "      appearance { fill { color = #CF222E } }\n"
+				 "    }\n  }\n}\n",
+				 kEnfant);
+		Scene s;
+		Check(s.Charger(doc, (uint32)__builtin_strlen(doc), 300, 260),
+			  "(b20) [Aspect] le document se charge");
+		s.Image();
+		NkRect rV{0.f, 0.f, 0.f, 0.f};
+		const bool a = s.RectTout("vue", rV);
+		Check(a, "(b20) [Aspect] le conteneur a un rectangle");
+		if (a) {
+			printf("        [Aspect 2.0] (%.0f x %.0f) — rapport %.2f\n", rV.w, rV.h,
+				   rV.h > 0.f ? rV.w / rV.h : 0.f);
+			// 200 de large, rapport 2 -> 100 de haut. C'est le seul role qui sache
+			// dire « garde ce rapport » : aucun autre ne calcule une hauteur.
+			CheckEqF(rV.w, 200.f, 1.f, "(b20) [Aspect] la largeur est celle demandee");
+			CheckEqF(rV.h, 100.f, 1.f, "(b20) [Aspect] ET LA HAUTEUR SUIT LE RAPPORT");
+		}
+		// ⚠️ ET LE FRERE D'APRES DOIT PARTIR SOUS LUI. Un conteneur qui calcule sa
+		//    hauteur sans la CONSOMMER laisserait le suivant se peindre dessus —
+		//    exactement le defaut corrige ce matin sur `size` en flux.
+		NkRect rApres{0.f, 0.f, 0.f, 0.f};
+		if (s.RectTout("apres", rApres) && a)
+			Check(rApres.y >= rV.y + rV.h - 1.f,
+				  "(b20) [Aspect] et le frere suivant part SOUS lui");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── `Overlay` : il peint dans l'AUTRE couche ────────────────────────
+	{
+		// Deux documents identiques a un mot pres : `VBox` contre `Overlay`. La
+		// surimpression est une COUCHE, pas une region — donc les pixels sont les
+		// memes, et c'est le COMPTEUR et la couche qui doivent changer.
+		Scene sSans, sAvec;
+		char d2[1024];
+		snprintf(doc, sizeof(doc), "nkgui 0.3\nwidgets {\n  VBox \"couche\" {\n%s  }\n}\n",
+				 kEnfant);
+		snprintf(d2, sizeof(d2), "nkgui 0.3\nwidgets {\n  Overlay \"couche\" {\n%s  }\n}\n",
+				 kEnfant);
+		Check(sSans.Charger(doc, (uint32)__builtin_strlen(doc), 300, 200)
+				  && sAvec.Charger(d2, (uint32)__builtin_strlen(d2), 300, 200),
+			  "(b20) [Overlay] les deux documents se chargent");
+		sSans.Image();
+		sAvec.Image();
+		printf("        [Overlay] surimpressions sans=%u avec=%u ; px sans=%u avec=%u\n",
+			   sSans.rap.surimpressions, sAvec.rap.surimpressions,
+			   ComptePixelsCouleur(sSans.ras, kBleu), ComptePixelsCouleur(sAvec.ras, kBleu));
+		CheckEqU(sSans.rap.surimpressions, 0u, "(b20) [Overlay] sans le role, aucune couche");
+		CheckEqU(sAvec.rap.surimpressions, 1u, "(b20) [Overlay] LE ROLE OUVRE LA COUCHE");
+		// ⚠️ ET LE CONTENU ARRIVE QUAND MEME DANS L'IMAGE. Un `PushOverlay` sans
+		//    `PopOverlay`, ou une couche que le banc ne rasterise pas, donnerait un
+		//    compteur a 1 et un ecran vide — le compteur vert sur le rien.
+		Check(ComptePixelsCouleur(sAvec.ras, kBleu) > 1000u,
+			  "(b20) ET LE CONTENU EST PEINT — la couche n'avale pas ses enfants");
+		sSans.exe.Debrancher(sSans.ctx);
+		sAvec.exe.Debrancher(sAvec.ctx);
+	}
+
+	// ── `Center` : il centre ce que le document DECLARE ─────────────────
+	{
+		snprintf(doc, sizeof(doc),
+				 "nkgui 0.3\nwidgets {\n"
+				 "  Center \"milieu\" { size = (280, 180)\n%s  }\n}\n",
+				 kEnfant);
+		Scene s;
+		Check(s.Charger(doc, (uint32)__builtin_strlen(doc), 300, 200),
+			  "(b20) [Center] le document se charge");
+		s.Image();
+		NkRect r{0.f, 0.f, 0.f, 0.f}, rc{0.f, 0.f, 0.f, 0.f};
+		const bool ab = BoiteCouleur(s.ras, kBleu, r);
+		const bool ac = s.RectTout("milieu", rc);
+		printf("        [Center] centrages=%u impossibles=%u ; cible (%.0f, %.0f, %.0f x "
+			   "%.0f) dans (%.0f, %.0f, %.0f x %.0f)\n",
+			   s.rap.centrages, s.rap.centragesImpossibles, r.x, r.y, r.w, r.h, rc.x, rc.y,
+			   rc.w, rc.h);
+		CheckEqU(s.rap.centrages, 1u, "(b20) [Center] un centrage a eu lieu");
+		CheckEqU(s.rap.centragesImpossibles, 0u, "(b20) [Center] aucun enfant sans taille");
+		Check(ab && ac, "(b20) [Center] la cible et le conteneur ont un rectangle");
+		if (ab && ac) {
+			// Le critere qui compte : les DEUX marges sont egales, a un pixel pres.
+			const float32 gauche = r.x - rc.x;
+			const float32 droite = (rc.x + rc.w) - (r.x + r.w);
+			const float32 haut = r.y - rc.y;
+			const float32 bas = (rc.y + rc.h) - (r.y + r.h);
+			printf("        marges : gauche=%.0f droite=%.0f haut=%.0f bas=%.0f\n", gauche,
+				   droite, haut, bas);
+			CheckEqF(gauche, droite, 2.f, "(b20) [Center] LES MARGES GAUCHE ET DROITE SONT EGALES");
+			CheckEqF(haut, bas, 2.f, "(b20) et les marges haut et bas aussi");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── LE NEGATIF DE `Center` : un enfant qui ne dit pas sa taille ─────
+	{
+		// 🔴 IL EXISTE PARCE QUE `Center` PEUT PARFAITEMENT NE RIEN CENTRER. Une
+		//    interface immediate ne connait la taille d'un enfant qu'APRES l'avoir
+		//    monte ; ce role centre donc ce que le document DECLARE. Si les deux
+		//    compteurs n'en faisaient qu'un, un document entier pourrait etre colle
+		//    en haut a gauche pendant qu'un chiffre dirait « centre ».
+		static const char kSansTaille[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Center \"milieu\" { size = (280, 180)\n"
+			"    Text \"libre\" { text = \"sans taille declaree\" }\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kSansTaille, (uint32)(sizeof(kSansTaille) - 1u), 300, 200),
+			  "(b20) [Center sans taille] le document se charge");
+		s.Image();
+		printf("        [Center sans taille] centrages=%u impossibles=%u\n", s.rap.centrages,
+			   s.rap.centragesImpossibles);
+		CheckEqU(s.rap.centrages, 0u, "(b20) AUCUN centrage — on n'invente pas la taille");
+		CheckEqU(s.rap.centragesImpossibles, 1u,
+				 "(b20) ET C'EST COMPTE — un centrage qui n'a pas eu lieu ne se tait pas");
+		s.exe.Debrancher(s.ctx);
+	}
+}
+
 static void CasRacineNommee() {
 // =====================================================================
 printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS regions\n");
@@ -3665,6 +3843,7 @@ int main(int argc, char **argv) {
 	CasPlateformes();
 
 	CasRacineNommee();
+	CasQuatreConteneursDePlus();
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
