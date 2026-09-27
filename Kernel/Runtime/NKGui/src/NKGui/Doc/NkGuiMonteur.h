@@ -1732,7 +1732,7 @@ namespace nkentseu {
 				///    L'agent de NkAntenne l'a nomme dans son rapport comme « la raison
 				///    premiere » de son eparpillement, et l'exemplaire de NkAnimaEditor
 				///    portait deja la phrase : « **il manque
-				///    `Monter(ctx, doc, "nom_de_racine")`** ». La voici.
+				///    `Monter(ctx, doc, "racine")`** ». La voici.
 				///
 				/// ⚠️ DEUX FACONS DE NOMMER UNE RACINE, ET L'ORDRE EST ECRIT. On cherche
 				///    d'abord une SECTION `widgets "nom" { ... }`, puis, a defaut, un

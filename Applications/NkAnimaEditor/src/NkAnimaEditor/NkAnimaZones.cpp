@@ -116,7 +116,7 @@ namespace nkanima {
 		}
 
 		const nkgui::NkZoneNommee kZones[] = {
-			{"apercu_cles", &ZoneApercuCles, nullptr},
+			{"apercuCles", &ZoneApercuCles, nullptr},
 			{"squelette", &ZoneSquelette, nullptr},
 		};
 

@@ -268,9 +268,9 @@ static int SondeCoquille(const char *dossier) {
 			int32 w, h;
 	};
 	Bande bandes[3] = {
-		{"barre_outils", &g_coquille.barreOutils, 900, 34},
-		{"barre_etat", &g_coquille.barreEtat, 900, 26},
-		{"panneau_outils", &g_coquille.panneau, 260, 420},
+		{"barreOutils", &g_coquille.barreOutils, 900, 34},
+		{"barreEtat", &g_coquille.barreEtat, 900, 26},
+		{"panneauOutils", &g_coquille.panneau, 260, 420},
 	};
 
 	// ── LE CADRE DE LA MESURE, QUAND CE N'EST PAS CELUI DE L'APPLICATION ──

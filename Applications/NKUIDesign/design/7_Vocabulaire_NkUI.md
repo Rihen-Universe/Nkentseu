@@ -1,332 +1,277 @@
-// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# Document 7 — Le vocabulaire NkUI
+# Document 7 — Le vocabulaire des rôles `.nkgui`
 
-> Ouvert le **2026-08-21** à la demande de Rodolf : *« définis un vocabulaire pour
-> que, quand on exporte, on traduise directement dans ce vocabulaire qui nous est
-> propre. »*
+> **AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen**
+> Ouvert le 21/08/2026 comme proposition ; **adopté** par le validateur
+> (`NkGuiValidate.h` valide contre ce vocabulaire depuis la 0.3, doc 9 §8.1).
+> **Réécrit le 27/09/2026** : réconcilié mot pour mot avec le catalogue du
+> validateur (41 rôles), avec l'état de montage de chacun, et complété des **rôles
+> proposés** par les spécifications de la famille (§3.10).
 >
-> ⚠️ **Ce document PROPOSE.** Là où il s'écarte du
-> `2_NkUIDesign_Langage_Description_NodeBlueprint.md`, c'est signalé. Rien n'est
-> changé dans le document 2 sans l'accord de Rodolf.
+> Les numéros de section sont gardés : le code cite §3, §3.6, §3.7, §4, §5.
+> En cas de désaccord : **le validateur fait foi pour ce qui est implémenté**, ce
+> document pour ce qui est proposé ; un écart entre les deux est un défaut à corriger
+> des deux côtés, pas une préférence.
 
 ---
 
-## 1. Pourquoi un vocabulaire à nous, et pas les noms du moteur
+## 1. Pourquoi un vocabulaire à nous
 
-Le document 2 §8 fait correspondre chaque rôle `.nkgui` à **une fonction de
-l'API NKGui** : `Button` → `Button()`, `Combo` → `BeginCombo()`,
-`ColorEdit4` → `ColorEdit4()`.
-
-⚠️ **C'est un miroir, et un miroir couple le format au code.** Le jour où une
-fonction du moteur est renommée, **tous les documents déjà écrits deviennent
-faux** — alors qu'ils ne décrivent pas du code, ils décrivent une interface.
-
-> **Un `.nkgui` doit s'ouvrir en 2030 même si le moteur a tout renommé en 2028.**
-> Le vocabulaire est un **contrat**, pas un reflet.
-
-Et cela ne vaut pas que pour la durée. Trois autres raisons :
-
-- **l'export** — traduire vers une autre cible demande un point de départ stable ;
-  partir des noms d'API, c'est traduire depuis un dialecte mouvant ;
-- **l'IA de design** (document 6) apprend ce vocabulaire. S'il bouge, le corpus
-  vieillit ;
-- **NKGui lui-même le réclame** : sa raison d'être écrite est *« noms 100 %
-  Nkentseu, zéro lien ImGui »*. Un format qui recopie ses signatures C++ ramène
-  par la fenêtre ce que la réécriture a sorti par la porte.
+L'ancienne table du doc 2 §8 était un **miroir de l'API** (`Button()`, `BeginCombo()`,
+`ColorEdit4()`) : elle couplait le format au code. *Un `.nkgui` doit s'ouvrir en 2030
+même si le moteur a tout renommé en 2028.* Le vocabulaire est un **contrat**, pas un
+reflet ; il sert aussi l'export, le corpus de l'IA, et la règle de NKGui : des noms
+100 % Nkentseu.
 
 ---
 
-## 2. Les cinq règles de nommage
+## 2. Les règles de nommage
 
-**R1 — PascalCase anglais.** C'est déjà la convention du document 2 et de tout
-l'écosystème. ⚠️ **On ne francise pas le format.** Le français est la langue de
-l'**interface** (§14ter.3) ; l'anglais est celle du **fichier**. Deux registres,
-une table de correspondance, aucune ambiguïté.
-
-**R2 — Aucun `Begin`/`End` dans un nom.** L'imbrication s'exprime par
-l'imbrication. `BeginCombo` → `Combo`. *(Déjà respecté par le document 2.)*
-
-**R3 — ⚠️ Aucun type ni arité dans un nom.** `SliderFloat`, `DragInt`,
-`ColorEdit4`, `CheckBox3` portent la signature C++ dans leur nom. **Un document
-n'a pas de types C++** — il a des propriétés.
-
-**R4 — ⚠️ Aucun suffixe de commodité.** `ButtonEx`, `InputTextEx`, `TabBarEx`,
-`TreeNodeEditable`, `SelectableEditable` distinguent des surcharges d'API. Dans un
-document, **une variante est une propriété**, pas un rôle.
-
-**R5 — Un nom dit ce que la chose EST, pas ce que le moteur en fait.**
-`DockSpaceOverViewport` décrit un appel ; `DockSpace` décrit un objet.
-
-> **R3 et R4 sont les deux qui font vraiment le travail.** Elles font tomber le
-> catalogue d'une trentaine de noms à une vingtaine, et **chaque nom retiré est un
-> nom que personne n'aura à apprendre.**
+| # | règle | exemple rejeté |
+|---|---|---|
+| R1 | anglais, `PascalCase` ; **le fichier est anglais, l'interface française** | `Bouton` |
+| R2 | pas de `Begin` / `End` | `BeginListBox` |
+| R3 | pas de type ni d'arité dans le nom | `SliderFloat`, `DragInt`, `ColorEdit4`, `CheckBox3` |
+| R4 | pas de suffixe de commodité : une variante est une **propriété** | `ButtonEx`, `TabBarEditable` |
+| R5 | nommer **ce que c'est** | `DockSpaceOverViewport` |
+| R6 🆕 | un rôle **décrit une forme d'interaction**, pas un usage : l'usage est l'**identifiant** (le nom de l'action) | `SaveButton` |
 
 ---
 
 ## 3. Le vocabulaire
 
+Les propriétés sont celles du **validateur**, avec leur type (`s` chaîne · `b`
+booléen · `n` nombre · `v` Vec2 · `c` couleur ou jeton · `e` énumération · `i`
+drapeaux · `l` liste · `r` liaison · `a` quelconque). **Monté** : ✅ posé par
+`NkGuiMonteur` · ◐ lu, validé, compté, non posé.
+
 ### 3.1 Actions
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `Button` | `Button`, `ButtonEx`, `RepeatButton` | `label`, `icon`, `flags`, **`repeat`** *(bool)*, `repeatDelay`, `repeatRate` |
-| `ImageButton` | `ImageButton` | `image`, `size`, `tint` |
-| `MenuItem` | `MenuItem` | `label`, `shortcut`, `checked` |
+| rôle | propriétés | monté | remplace |
+|---|---|---|---|
+| `Button` | `label:s icon:e flags:i repeat:b repeatDelay:n repeatRate:n` | ✅ | `Button`, `ButtonEx`, `RepeatButton` |
+| `ImageButton` | `image:e source:e size:a tint:c` | ◐ | `ImageButton` |
+| `MenuItem` | `label:s shortcut:s checked:b` | ✅ dans un `Menu` | `MenuItem` |
 
-⚠️ `RepeatButton` disparaît : c'est `Button { repeat = true }`. Le document 2 le
-comptait déjà comme une propriété (`repeatDelay`, `repeatRate`) **tout en gardant
-un rôle séparé** — les deux ne peuvent pas être vrais.
+⚠️ `RepeatButton` est **alias** de `Button { repeat = true }` pour le validateur ; le
+monteur le connaît encore comme rôle propre (doc 2 §8.2). NKUIDesign écrit la forme
+canonique.
 
 ### 3.2 Saisie
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `TextField` | `InputText`, `InputTextEx`, `InputTextMultiline` | `bind`, **`multiline`**, **`secret`**, `maxChars`, `wrap`, `placeholder`, `flags` |
-| `NumberField` | `InputInt`, `InputFloat` | `bind`, **`valueType`** *(Int/Float)*, `step`, `min`, `max` |
-| `Slider` | `SliderFloat` | `bind`, **`valueType`**, `min`, `max`, `step` |
-| `Drag` | `DragFloat`, `DragInt` | `bind`, **`valueType`**, `speed`, `min`, `max`, `dir` |
-| `ColorField` | `ColorEdit4`, `ColorPicker4`, `ColorButton` | `bind`, **`alpha`** *(bool)*, **`mode`** *(Button/Field/Picker)* |
+| rôle | propriétés | monté | remplace |
+|---|---|---|---|
+| `TextField` | `bind:r multiline:b secret:b maxChars:n wrap:b placeholder:s flags:i valueType:e` | ✅ | `InputText`, `InputTextEx`, `InputTextMultiline` |
+| `NumberField` | `bind:r valueType:e step:n min:n max:n` | ◐ | `InputInt`, `InputFloat` |
+| `Slider` | `bind:r valueType:e min:n max:n step:n` | ✅ | `SliderFloat` |
+| `Drag` | `bind:r valueType:e speed:n min:n max:n dir:e` | ◐ | `DragFloat`, `DragInt` |
+| `ColorField` | `bind:r alpha:b mode:e(Button, Field, Picker)` | ◐ | `ColorEdit4`, `ColorPicker4`, `ColorButton` |
 
-⚠️ **`secret` sur `TextField` répond au manque relevé en §14ter.4** : NKGui n'a
-pas de champ de mot de passe. Le vocabulaire, lui, sait le dire — et c'est au
-moteur de suivre, pas au format de s'amputer. *Un format qui ne peut exprimer que
-ce qui existe déjà ne peut jamais rien demander.*
+`secret = true` est le champ de mot de passe (il manquait au doc 3 §14ter.4).
 
 ### 3.3 Booléens et sélection
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `Checkbox` | `Checkbox`, `CheckboxTristate`, `CheckBox3` | `bind`, **`tristate`** *(bool)*, `label` |
-| `Switch` | *(rien — n'existe pas dans NKGui)* | `bind`, `label` |
-| `RadioGroup` | *(rien)* | `bind`, `options[]`, `orientation` |
-| `Dropdown` | `Combo` | `bind`, `items[]`, `editable` |
-| `ListBox` | `BeginListBox` | `bind`, `items[]`, **`multiSelect`** |
-| `Item` | `Selectable`, `SelectableEditable`, `SelectItem` | `label`, `selected`, **`editable`** |
-| `TreeItem` | `TreeNode`, `TreeNodeEditable` | `label`, `expanded`, **`editable`** |
-
-⚠️ **`Switch` et `RadioGroup` sont dans le vocabulaire alors que le moteur ne les
-porte pas** (§14ter.4). C'est délibéré, et c'est la conséquence directe de la
-règle du §3.2 : **le vocabulaire décrit l'interface, pas l'état d'avancement du
-moteur.** Un `RadioGroup` exporté vers un moteur qui n'a pas l'exclusivité doit
-**échouer bruyamment**, pas être traduit en cases à cocher indépendantes.
+| rôle | propriétés | monté | remplace |
+|---|---|---|---|
+| `Checkbox` | `bind:r tristate:b label:s` | ✅ | `Checkbox`, `CheckboxTristate`, `CheckBox3` |
+| `Switch` | `bind:r label:s` | ◐ | — (nouveau) |
+| `RadioGroup` | `bind:r options:l orientation:e` | ◐ | — (nouveau) ; l'exporter vers un moteur sans exclusivité **échoue bruyamment** |
+| `Dropdown` | `bind:r items:l editable:b` | ✅ | `Combo` |
+| `ListBox` | `bind:r items:l multiSelect:b` | ✅ | `BeginListBox` |
+| `Item` | `label:s selected:b editable:b text:s` | ✅ | `Selectable`, `SelectableEditable`, `SelectItem` |
+| `TreeItem` | `label:s expanded:b editable:b` | ✅ | `TreeNode`, `TreeNodeEditable` |
 
 ### 3.4 Texte et affichage
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| **`Text`** | *(absent du document 2 — §14ter.3)* | `text`, `wrap`, `align`, `maxLines`, `overflow`, `for` |
-| `Image` | `Image` | `source`, `size`, `tint`, `uv0`, `uv1` |
-| `Progress` | `ProgressBar` | `bind`, `overlay`, **`indeterminate`** |
-| `Chart` | `PlotLines`, `PlotHistogram` | `values`, **`kind`** *(Line/Histogram)*, `min`, `max` |
-| `Separator` | `Separator` | `orientation` |
-| **`Spacer`** | *(absent — §14ter.3)* | `size` |
+| rôle | propriétés | monté | remplace |
+|---|---|---|---|
+| `Text` | `text:s wrap:b align:e maxLines:n overflow:e for:s` | ✅ | — (décidé le 21/08 ; **pas de `Label`**, qui doublerait la propriété `label`) |
+| `Image` | `source:e size:a tint:c uv0:v uv1:v texId:a` | ✅ | `Image` |
+| `Progress` | `bind:r overlay:s indeterminate:b` | ✅ | `ProgressBar` |
+| `Chart` | `values:l kind:e(Line, Histogram) min:n max:n height:n` | ✅ | `PlotLines`, `PlotHistogram` |
+| `Separator` | `orientation:e` | ✅ | `Separator` |
+| `Spacer` | `size:a` | ✅ | — (décidé le 21/08) |
 
 ### 3.5 Navigation
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `TabBar` | `TabBar`, `TabBarEx`, `TabBarEditable` | `tabs[]`, `bind`, **`editable`**, **`closable`** |
-| `MenuBar` | `BeginMenuBar` | — |
-| `Menu` | `BeginMenu` | `label` |
-| `ContextMenu` | `BeginPopupMenu` | — |
-| `Expander` | `CollapsingHeader` | `label`, `expanded` |
-| `DockSpace` | `DockSpace`, `DockSpaceOverViewport` | **`overViewport`** *(bool)*, `topMargin` |
+| rôle | propriétés | monté | remplace |
+|---|---|---|---|
+| `TabBar` | `tabs:l bind:r editable:b closable:b` | ✅ | `TabBar`, `TabBarEx`, `TabBarEditable` |
+| `MenuBar` | — | ✅ | `BeginMenuBar` |
+| `Menu` | `label:s` | ✅ | `BeginMenu` |
+| `ContextMenu` | — | ◐ | `BeginPopupMenu` |
+| `Expander` | `label:s expanded:b` | ✅ | `CollapsingHeader` |
+| `DockSpace` | `overViewport:b topMargin:n` | ✅ | `DockSpace`, `DockSpaceOverViewport` |
 
 ### 3.6 Conteneurs
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `Window` | `Window` | `title`, `pos`, `size`, `flags`, **`modal`** |
-| `Panel` | `Panel` | `title` |
-| `Group` | `BeginGroup` | — |
-| `VBox` · `HBox` | idem | `gap`, `align`, `justify` |
-| `Grid` | `Grid` | `columns`, `gap`, `sizes[]` |
-| `Flow` | `Flow` | `gap` |
-| `Stack` | `Stack` | `anchor` |
-| `Table` | `Table` | `columns[]`, `flags` |
-| `Scroll` | *(drapeaux de `BeginChild`)* | `axis`, `always` |
-| `Splitter` | `Splitter` | `bind`, `min`, `max`, `orientation` |
+| rôle | propriétés | monté | note |
+|---|---|---|---|
+| `Window` | `title:s flags:i modal:b placement:e` | ✅ | `modal` est une propriété, pas un rôle |
+| `Panel` | `title:s placement:e` | ✅ | |
+| `Group` | `placement:e` | ✅ | |
+| `VBox` · `HBox` | `gap:n align:e justify:e` | ✅ | |
+| `Row` · `Column` | idem | ✅ | synonymes de `HBox` · `VBox`, gardés parce que le corpus les emploie |
+| `Grid` | `columns:n gap:n sizes:l` | ✅ | `sizes` compté, non honoré (NKGui ne prend que le nombre de colonnes) |
+| `Flow` | `gap:n` | ✅ | |
+| `Stack` | `anchor:e` | ◐ | |
+| `Table` | `columns:l flags:i` | ◐ | |
+| `Scroll` | `axis:e always:b` | ✅ | était un drapeau de `BeginChild` ; c'est un conteneur explicite |
+| `Splitter` | `bind:r min:n max:n orientation:e ratio:n` | ✅ | `ratio` (17/09) : la position **par défaut** ; le geste de l'utilisateur n'est jamais réécrit dans le fichier |
 
-### 3.7 La zone hôte
+`placement = absolute` n'existe que sur les trois conteneurs **neutres** (`Window`,
+`Panel`, `Group`) : les autres **nomment** leur agencement (doc 2 §4.3).
 
-| vocabulaire | remplace | propriétés |
-|---|---|---|
-| `Host` | *(rien : le concept manquait)* | `hint` |
+### 3.7 `Host` — la zone que l'application remplit
 
-⚠️ **`Host` n'est pas un widget, et c'est tout son intérêt.** Il déclare un **rectangle
-que l'application remplit** : le viseur 3D de NK3DModeler, la toile de NKUIDesign,
-l'éditeur de texte de NKCode. C'est la **frontière du format**, et elle se dit en une
-phrase : *le document décrit OÙ et QUOI ; l'application garde QUAND et COMMENT.*
+`Host { hint:s }` — ✅ monté. Un **rectangle** que l'application remplit : le viseur 3D
+de NKCraft, la toile de NKUIDesign, l'éditeur de NKCode. *Le document dit OÙ et QUOI ;
+l'application garde QUAND et COMMENT.*
 
-Sans ce rôle, un document ne peut décrire qu'un **écran de démonstration**, jamais une
-application réelle — c'est ce que l'inventaire du 17/09 a mesuré.
+- **Ce n'est pas `Callback`** : ce mot appartient déjà deux fois au format (la section
+  `callback`, et l'appel `Callback "nom"(…)` d'un comportement). Un rôle du même nom a
+  été **retiré** du monteur, pas légalisé.
+- Non rempli : dessiné **hachuré** avec son nom (ou `hint`), compté `hotesNonRemplis`.
+- Hôtes d'extension des panneaux communs : doc 2 §8.3.
 
-⚠️ **Ce n'est PAS `Callback`.** Ce mot appartient déjà deux fois au format : `callback`
-est l'une des huit sections (document 9), et `Callback "nom"(...)` est un **appel de
-comportement** — `valides/05_animation_comportement.nkgui:29` l'emploie ainsi et valide à
-0 erreur. Le monteur avait inscrit, de son côté, un rôle de widget du même nom : aucun
-document ne l'employait, le validateur le refusait, et il a été **retiré** plutôt que
-légalisé. *Un rôle qui porte le nom d'une section n'est pas un rôle, c'est un homonyme.*
+### 3.8 Les propriétés universelles
 
-⚠️ **Le NOM est revisable, et c'est le seul point de ce lot qui demande ton arbitrage.**
-`Host` a été choisi parce que le dépôt dit déjà « l'application hôte », « les panneaux
-hôtes ». Le renommer coûtera un alias (§5), jamais une réécriture.
+`tooltip:s enabled:b visible:b id:s pos:v size:v sizeRel:v minSize:v maxSize:v` —
+✅ ; `hitShape:b` 🟢 (0.4) ; `shortcut:s` proposé (P8, §3.10).
 
-**Une zone que personne ne remplit ne disparaît pas en silence** : le monteur y peint des
-hachures et le nom de la zone, et la compte (`hotesNonRemplis`). Un manque muet se fait
-prendre pour un fond ; un manque qui se voit se répare.
+- `pos` **est l'interrupteur** du placement ; `size` seul reste le `size` du rôle
+  (`Spacer.size` est un nombre).
+- `sizeRel` = fraction du parent par axe ; `minSize` / `maxSize` bornent en pixels ;
+  **strictement additif** (une composante `≤ 0` = axe non contraint ; `sizeRel` gagne
+  sur son axe, puis les bornes).
+- **Preuve** (`valides/13_tailles_relatives.nkgui`) : à 1200×800, gauche 192 px (16 %)
+  et droite 348 px (29 %) ; à 800×600, gauche **180** px (le plancher relève 128 → 180)
+  et droite 232 px ; un `pos`+`size` reste 200 px dans les deux fenêtres.
+- **Limite nommée** : conteneurs et `Host` seulement ; une feuille dans un flux garde
+  sa taille naturelle.
 
-⚠️ **`modal` est une propriété de `Window`, pas un rôle** (§14ter.4). Et `Scroll`
-devient un conteneur explicite au lieu d'un drapeau : *une zone défilante est un
-objet dans une maquette, pas une option cachée d'un autre.*
+### 3.9 `DockSpace` — qui dit quoi
 
----
-
-### 3.8 Les tailles relatives — trois propriétés UNIVERSELLES
-
-| propriété | type | sens |
-|---|---|---|
-| `sizeRel` | vecteur | fraction de la région du **parent**, par axe (`0.16` = 16 %) |
-| `minSize` | vecteur | plancher, en pixels |
-| `maxSize` | vecteur | plafond, en pixels |
-
-⚠️ **Sans elles, un document ne décrit qu'une seule taille de fenêtre.** `pos` et `size`
-sont en **pixels absolus** ; or la disposition réelle de NK3DModeler est écrite en
-fractions — `NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`. Un `.nkgui` qui
-décrirait le modeleur avec `size` le **figerait**. C'est ce qui sépare un écran de
-démonstration d'une **fenêtre d'éditeur**.
-
-**Elles sont strictement ADDITIVES**, et c'est mesuré, pas espéré :
-- `size` garde exactement son sens — il n'agit qu'avec `pos`, en pixels ;
-- une composante `<= 0` veut dire « **cet axe n'est pas contraint** » : on peut ne dire que
-  la largeur, `sizeRel = (0.16, 0)` ;
-- si `sizeRel` est présent pour un axe, il gagne sur cet axe, puis `minSize`/`maxSize`
-  bornent le résultat.
-
-Preuve, au pixel, sur le **même** document (`valides/13_tailles_relatives.nkgui`) :
-
-    a 1200 x 800 :  gauche 192 px (16 %)      droite 348 px (29 %)
-    a  800 x 600 :  gauche 180 px (le PLANCHER mord : 128 -> 180)   droite 232 px
-    negatif      :  un `pos`+`size` rend 200 px dans LES DEUX fenetres
-
-⚠️ **Ce que ces propriétés ne font pas encore** : elles s'appliquent aux **conteneurs** et à
-`Host`. Une **feuille en flux** garde sa taille naturelle, parce que `pos` reste
-l'interrupteur du placement et que le changer ne serait plus additif. C'est une limite
-nommée, pas un oubli.
-
-### 3.9 L'ancrage — `DockSpace`
-
-| rôle | ce qu'il dit | ce qu'il NE dit PAS |
-|---|---|---|
-| `DockSpace` | **quelles zones** existent, dans quel ordre, et leurs **proportions par défaut** | l'**arbre** d'ancrage, les onglets, ce que l'utilisateur a tiré |
-
-⚠️ **La frontière, et elle vient d'une mesure, pas d'un goût.** La coquille écrit **déjà**
-un arbre complet — `dockroot=`, `node=k|kind|vertical|ratio|c0|c1|activeTab`, `nwin=`,
-`float=` — et elle le **relit** (`NkEditorShell::LoadUiState`). Si le document décrivait
-lui aussi un arbre, il dirait une **seconde vérité**, et les deux divergeraient au premier
-séparateur tiré. Donc :
-
-- le **document** dit *quelles zones, leurs proportions par défaut* ;
-- la **coquille** garde *l'arbre que l'utilisateur a obtenu*.
-
-*Le document dit le défaut, le geste vit à côté* — la même frontière que pour le
-séparateur, un cran plus haut.
-
-⚠️ **Une zone se nomme par l'IDENTIFIANT du panneau**, jamais par son libellé affiché :
-`hierarchie`, pas `Hiérarchie`. Un libellé se traduit, un identifiant non ; la mesure du
-17/09 montre que renommer perdait la disposition en silence tant que la coquille adressait
-les panneaux par leur titre.
-
-**Le monteur ne résout aucun panneau** : il **demande** à l'hôte
-(`NkGuiMonteHooks::ZoneAncree(nom, rect)`). NKGui ne sait pas quels panneaux une
-application fournit, et une table ici en ferait une seconde autorité.
-
-**Les deux cas dissymétriques, mesurés des deux côtés** :
-
-| cas | réponse | où c'est mesuré |
-|---|---|---|
-| le document nomme une zone que **personne ne fournit** | elle **se signale** : cadre, hachures, **et son nom écrit** (c'est le nom que l'application doit servir) | `NKGuiMonteTest` (m12), mutation `NK_DOCK_MUTATION=muet` |
-| l'application fournit un panneau que le **document ne nomme pas** | il reste **INTOUCHÉ** : le crochet n'est jamais appelé pour lui — le document n'a aucun pouvoir dessus | `NKGuiMonteTest` (m12) : 3 crochets pour 3 zones |
-| la **disposition enregistrée** ne nomme pas un panneau | il est **FERMÉ** — `LoadUiState` ferme tout dès qu'une ligne `panel=` existe, puis rouvre les seuls nommés | `NKUIDesign --recette-identite`, section 6 |
-
-⚠️ Les deux derniers sont des politiques **opposées** sur la même question, dans deux
-formats différents. C'est écrit pour que personne ne transporte la réponse de l'un vers
-l'autre.
-
-**La largeur d'une zone** : sa fraction si elle en déclare une, sinon **le reste** partagé
-entre celles qui n'en déclarent pas — pas « une part égale ». La règle « part égale »
-laissait une **bande orpheline** de 197 px que onze critères verts n'avaient pas vue et que
-la capture a montrée. Un dock qui laisse un trou n'est pas un dock.
-
-    zones : hierarchie 180 px (0,16 clampe par minSize 180) | apercu 530 px (le RESTE) | zone_absente 290 px (0,29)
-    couverture : 1000 / 1000
-
----
-
----
-
-## 4. Ce qui n'entre PAS au vocabulaire
-
-| | pourquoi |
+| qui | dit |
 |---|---|
-| `Tooltip` | **propriété** de n'importe quel élément (§14quinquies.1) |
-| glisser-déposer | **capacité** cochable (§14ter.4) |
-| modalité | **propriété** de `Window` |
-| dialogue de fichier natif | **appel système**, pas un widget (§14ter.6) |
+| le **document** | quelles zones existent, leur ordre, leurs proportions par défaut — zones désignées par l'**identifiant** du panneau (`hierarchie`), jamais par son libellé |
+| la **coquille** (`NkEditorShell::LoadUiState`) | l'arbre vivant (`dockroot=`, `node=…`, `nwin=`, `float=`) — jamais réécrit dans le document |
+| le **monteur** | demande chaque zone par `NkGuiMonteHooks::ZoneAncree(nom, rect)` |
 
-> **Trois fois le même classement corrigé.** Une capacité transversale n'entre
-> jamais au catalogue : sinon il faudrait `ButtonWithTooltip`, `FieldWithTooltip`,
-> et le catalogue doublerait à chaque capacité ajoutée.
+- Zone nommée non fournie → hachurée avec son nom (`NKGuiMonteTest` m12).
+- Panneau fourni non nommé → non touché, le crochet n'est pas appelé pour lui.
+- Disposition enregistrée à laquelle manque un panneau → panneau **fermé** (politique
+  inverse de celle du document, et voulue : c'est l'utilisateur qui l'a fermé).
+- Largeur : la fraction de la zone, sinon le **reste** partagé (pas des parts égales,
+  qui laissaient une bande orpheline de 197 px).
+
+### 3.10 Les rôles proposés 🆕
+
+Les spécifications des applications de la famille (NkAnima 09, NKScena 03, Nogee 06,
+NKCraft 03, PV3DE 03, NkAntenne 03) ont **proposé** ces rôles, avec l'accord de Rodolf
+(*« si tu juges que des rôles manquent, propose-les, mais décris-les »*). **Aucun
+n'est au validateur** : un document écrit leur **doublure** (colonne « en attendant »)
+et un commentaire `// P4 Tile` pour permettre le remplacement mécanique. NKUIDesign
+les pose depuis « Poser un rôle proposé » et les dessine avec un badge « proposé »
+(doc 3 §14ter).
+
+Statut : **proposé** = décrit, pas tranché. Les propositions P1, P24 à P27 sont des
+**extensions du format**, pas des rôles : elles sont **décidées** (27/09) et décrites
+au doc 2 (§20, §15, §5.4, §18, §19).
+
+| # | rôle | propriétés | événements | pourquoi aucun rôle existant ne suffit | en attendant | vient de |
+|---|---|---|---|---|---|---|
+| P2 | `ToggleButton` | `label icon bind group` (même groupe = exclusifs) | Changed | un outil actif parmi plusieurs : `Checkbox` n'a pas la forme d'un bouton, `Button` n'a pas d'état | `Button` + `appearance` d'actif (compté) | NkAnima |
+| P3 | `Badge` | `text` (1–3 car. ou nombre), `tone` (nom de jeton) | — | pastille non interactive ; `Text` n'a pas de fond peint | `Text` + `text { color }` | NkAnima |
+| P4 | `Tile` | `image label caption size` | Click, Hover, DragStart | vignette cliquable avec légende ; `ImageButton` n'en a pas et n'est pas monté | `Button` (`label`, `tooltip` = légende) | NkAnima |
+| P5 | `VectorField` | `bind components(2–4) speed min max axisColors` | Changed | le champ X/Y/Z à liseré d'axe du panneau Détails ; la couleur porte l'axe | composant de trois `Slider` | NkAnima |
+| P6 | `KeyDiamond` | `bind` (chemin animable) | Click → `commun.cle_propriete` | trois états (vide, plein, demi) pour un geste | `Button` icône losange | NkAnima |
+| P7 | `CurveField` | `bind min max height xLabel yLabel` | Changed | courbe éditable **en place** ; `Chart` n'est pas éditable | `Host` + `hint` | NkAnima |
+| P8 | `shortcut` universel | `shortcut:s` sur tout rôle interactif — **affichage seulement** | — | le raccourci se lit au même endroit qu'au menu | dans le `tooltip` : `"Déplacer (W)"` | NkAnima |
+| P9 | `Slot` dans un composant | `Slot "nom"` | — | une ligne de propriété dont la **valeur** change de rôle | un composant par type de valeur | NkAnima |
+| P10 | section `layout` | `layout "nom" { dock "id" left 0.16 … }` | — | un espace de travail **est** une disposition | section écrite, disposition posée par l'application | NkAnima |
+| P11 | `pattern = Hatch` | dans `appearance` | — | une proposition non appliquée doit se voir sans la couleur (daltonisme) | écrit, compté | NkAnima |
+| P12 | `icon` sur `TextField` | `icon:e` | — | la loupe d'un champ de recherche | `placeholder` « Rechercher… » | NkAnima |
+| P13 | `TimecodeField` | `bind fps format(Timecode, Images, Secondes)` | Changed, Submit | saisie `+1:00`, `3-040` ; affichage HH:MM:SS:II | `TextField` + `placeholder` | NKScena |
+| P14 | `Meter` | `bind peak min max channels orientation` | — | échelle en dB, zones, crête, voyant d'écrêtage | `Progress` + `Badge` | NKScena |
+| P15 | `ColorWheel` | `bind luminance label` | Changed, DoubleClick | roue de décalage d'étalonnage autour du neutre | `Host` + `Slider` | NKScena |
+| P16 | `AssetField` | `bind type allowNone` | Changed, Drop, DoubleClick | vignette, glisser-déposer typé, prendre la sélection, ouvrir | composant `ChampAsset` | Nogee |
+| P17 | `KeyCaptureField` | `bind` | Changed | capturer une touche au lieu de la taper ; conflit signalé | `TextField` + `placeholder` | Nogee |
+| P18 | `SplitButton` | `label icon` + enfants `MenuItem` | Click | ▶ Jouer ▾ : la flèche règle le bouton | `HBox` de deux `Button` + `ContextMenu` | Nogee |
+| P19 | `PieMenu` | `label` + 2 à 8 `MenuItem` (ordre : droite, gauche, bas, haut, diagonales) | — | un geste directionnel mémorisable | `ContextMenu` | NKCraft |
+| P20 | groupe **combinable** de `ToggleButton` | `group combine: Shift` | Changed | sommet / arête / face : clic remplace, Maj+clic ajoute | trois `ToggleButton` sans groupe | NKCraft |
+| P21 | `HoldButton` | `key` | Press, Release | « maintenir pour parler » | `ToggleButton` | PV3DE |
+| P22 | `Stepper` | `steps bind states(Done, Current, Todo, Hidden) free` | Changed | étapes faites / à venir / cachées | `TabBar` | PV3DE |
+| P23 | `TokenField` | `bind families allowFree` | Changed | choisir **un jeton** du thème (nom + sens), pas une valeur | `Dropdown` de jetons + `ColorField` | NKUIDesign |
+| P28 | `Drawer` | `edge(Left, Right, Bottom) size modal bind` | Changed | panneau qui glisse depuis un bord et se referme au clic extérieur | `Panel` absolu + `visible` lié | NkAntenne |
+
+📌 **Priorité d'implémentation recommandée**, par nombre de spécifications qui les
+emploient (relevé du 27/09 sur les sept documents « agent » : NkAnima, NKScena, Nogee,
+NKCraft, PV3DE, NkAntenne, NKUIDesign) : P2 `ToggleButton` (7) · P3 `Badge` (7) ·
+P4 `Tile` (7) · P6 `KeyDiamond` (4) · P5 `VectorField` (3) · P14 `Meter` (3) ·
+P22 `Stepper` (2) ; puis P23 `TokenField`, dont NKUIDesign a besoin pour son propre
+inspecteur. Les autres suivent la demande.
 
 ---
 
-## 5. Versionnage — un nom ne disparaît jamais en silence
+## 4. Ce qui n'est pas un rôle
 
-Le fichier porte déjà sa version (`nkgui 0.2`). On y ajoute une règle :
-
-⚠️ **Un rôle renommé garde son ancien nom comme alias, avec la version où il a
-changé.** Le lecteur accepte les deux ; le validateur signale l'ancien ; l'écrivain
-n'émet que le nouveau.
-
-**Sans alias, une renommée casse tous les documents existants — et personne ne
-renomme jamais rien.** Un vocabulaire qu'on ne peut plus corriger se fige avec ses
-erreurs.
-
-Les alias de cette version : `RepeatButton` → `Button{repeat}` ·
-`InputText`/`InputTextMultiline` → `TextField` · `SliderFloat` → `Slider` ·
-`ColorEdit4`/`ColorPicker4`/`ColorButton` → `ColorField` · `Combo` → `Dropdown` ·
-`CollapsingHeader` → `Expander` · `Selectable` → `Item` · `TreeNode` → `TreeItem` ·
-`ProgressBar` → `Progress` · `PlotLines`/`PlotHistogram` → `Chart`.
+| notion | ce qu'elle est | où |
+|---|---|---|
+| infobulle | une **propriété** (`tooltip`) | doc 3 §14quinquies |
+| glisser-déposer | une **capacité** (événements `DragStart` / `Drop`) | doc 3 §14ter.4 |
+| modalité | une **propriété** de `Window` (`modal`) ou un **type d'écran** (`Dialogue`) | doc 2 §18 |
+| dialogue de fichier natif | un **service** (`call "fichier.ouvrir"()`) | doc 2 §5.6 |
+| actif / sélectionné | une **donnée** (`checked`, `selected`), pas un état d'apparence | doc 2 §13.2 |
+| thème | une **section** (`theme`) et des jetons | doc 2 §20 |
 
 ---
 
-## 6. Ce que l'export fait de ce vocabulaire
+## 5. Versions et alias
 
-> **Le vocabulaire est le pivot. On n'exporte jamais depuis les noms du moteur.**
+Un rôle renommé garde son ancien nom comme **alias**, avec la version du changement :
+le lecteur accepte les deux, le validateur signale l'ancien (`W-ROLE-ALIAS`),
+l'écrivain de NKUIDesign émet le nouveau **seulement sur demande** (« Moderniser le
+document ») — un fichier écrit par quelqu'un d'autre garde ses mots.
 
-```
-document .nkgui  ──►  vocabulaire NkUI  ──►  cible
-                          (pivot)            NKGui / autre
-```
+| alias | rôle | depuis |
+|---|---|---|
+| `RepeatButton`, `ButtonEx` | `Button` (`repeat = true` pour le premier) | 0.3 |
+| `InputText`, `InputTextEx`, `InputTextMultiline` | `TextField` | 0.3 |
+| `InputInt`, `InputFloat` | `NumberField` | 0.3 |
+| `SliderFloat` | `Slider` | 0.3 |
+| `DragFloat`, `DragInt` | `Drag` | 0.3 |
+| `ColorEdit4`, `ColorPicker4`, `ColorButton` | `ColorField` | 0.3 |
+| `CheckboxTristate`, `CheckBox3` | `Checkbox` | 0.3 |
+| `Combo` | `Dropdown` | 0.3 |
+| `BeginListBox` | `ListBox` | 0.3 |
+| `CollapsingHeader` | `Expander` | 0.3 |
+| `Selectable`, `SelectableEditable`, `SelectItem` | `Item` | 0.3 |
+| `TreeNode`, `TreeNodeEditable` | `TreeItem` | 0.3 |
+| `ProgressBar` | `Progress` | 0.3 |
+| `PlotLines`, `PlotHistogram` | `Chart` | 0.3 |
+| `TabBarEx`, `TabBarEditable` | `TabBar` | 0.3 |
+| `DockSpaceOverViewport` | `DockSpace` | 0.3 |
 
-⚠️ **Un pivot n'a d'intérêt que s'il est le SEUL chemin.** Si une cible peut
-court-circuiter et lire directement les noms du moteur, elle finira par le faire —
-et le pivot deviendra une couche que l'on contourne, donc une couche qui ment.
-
-**Et chaque traduction déclare ce qu'elle ne sait pas rendre.** `RadioGroup` vers
-un moteur sans exclusivité : **erreur nommée**, jamais une approximation
-silencieuse. *Traduire en perdant sans le dire, c'est livrer une interface qui a
-l'air juste et ne l'est pas.*
+Quand un rôle proposé (§3.10) entrera au vocabulaire, sa doublure **ne devient pas**
+un alias : c'est une composition, pas un nom. NKUIDesign propose le remplacement
+(« 14 `Button` marqués `// P2 ToggleButton` peuvent devenir des `ToggleButton` »).
 
 ---
 
-## 7. Ce qui reste à trancher
+## 6. L'export
 
-1. **Adopter ce vocabulaire dans le document 2 §8**, ou le garder comme couche
-   au-dessus ? *(Ma recommandation : l'adopter — deux tables valent une
-   divergence.)*
-2. Les noms proposés — `TextField`, `Dropdown`, `Expander`, `Item`, `TreeItem`,
-   `Chart` — conviennent-ils ? **Ce sont des noms que les utilisateurs
-   apprendront ; les changer plus tard coûtera un alias chacun.**
-3. `Switch` et `RadioGroup` entrent-ils **maintenant** au vocabulaire alors que le
-   moteur ne les porte pas encore ?
+`.nkgui` → vocabulaire NkUI (le pivot, et le seul chemin) → cible (NKGui, HTML,
+code). Chaque traduction **déclare** ce qu'elle ne sait pas rendre, avec un diagnostic
+nommé et **aucune approximation silencieuse**.
+
+---
+
+## 7. Questions — état au 27/09
+
+| # | question | état |
+|---|---|---|
+| 1 | adopter ce vocabulaire au doc 2 | ✅ fait : le doc 2 réécrit y renvoie (§8) |
+| 2 | les noms sont-ils les bons | ✅ en usage dans tout le corpus et les six applications |
+| 3 | `Switch` et `RadioGroup` entrent-ils | ✅ au vocabulaire ; **montage** à faire (◐) — `RadioGroup` attend la primitive d'**exclusivité** de NKGui, qui débloque aussi `ToggleButton` en groupe (P2) |
+| 4 🆕 | l'ordre d'entrée des rôles proposés | 🔴 recommandation au §3.10 |
+| 5 🆕 | `Host` : garder ce nom | 🔴 ouvert depuis le 17/09 ; renommer ne coûterait qu'un alias |

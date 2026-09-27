@@ -20,7 +20,7 @@
 ## 0. Ce qui change par rapport à NkAnima et NKScena
 
 1. **Les documents de Nogee remplacent les deux existants** :
-   `Resources/Interface/Nogee/barre_etat.nkgui` et `panneau_scene.nkgui` (des
+   `Resources/Interface/Nogee/BarreEtat.nkgui` et `panneau_scene.nkgui` (des
    démonstrations : « ce panneau est décrit par un fichier ») sont **réécrits** ;
    leur `Host "scene.entites"` est conservé dans la barre d'état (§5.4).
 2. **Le panneau Détails de Nogee est engendré par la réflexion.** Les propriétés
@@ -122,7 +122,7 @@ NKScena parlent la même langue.
 
 ## 3. Les composants
 
-### 3.1 Communs — `Commun/composants.nkgui`
+### 3.1 Communs — `Commun/Composants.nkgui`
 
 Tous ceux de NkAnima 09 §3, inchangés. **Plus**, parce qu'ils servent aussi les
 autres applications :
@@ -332,7 +332,7 @@ MenuBar "menus"
     Separator "sep_f4"
     MenuItem "fichier.quitter"                label: "Quitter"                  shortcut: "Ctrl+Q"
 
-  Menu "menu_edition"                         label: "Édition"
+  Menu "menuEdition"                         label: "Édition"
     MenuItem "anim.annuler"                   label: "Annuler"                  shortcut: "Ctrl+Z"
     MenuItem "anim.refaire"                   label: "Refaire"                  shortcut: "Ctrl+Y"
     MenuItem "edition.historique"             label: "Historique"
@@ -380,7 +380,7 @@ MenuBar "menus"
     Menu "menu_empaqueter"                    label: "Empaqueter pour"          (idem)
     Menu "menu_lancer"                        label: "Lancer sur"               (idem : appareils détectés)
 
-  Menu "menu_selection"                       label: "Sélection"
+  Menu "menuSelection"                       label: "Sélection"
     MenuItem "anim.selection_tout"            label: "Tout"                     shortcut: "Ctrl+A"
     MenuItem "anim.selection_rien"            label: "Rien"                     shortcut: "Échap"
     MenuItem "anim.selection_inverser"        label: "Inverser"                 shortcut: "Ctrl+I"
@@ -409,7 +409,7 @@ MenuBar "menus"
       MenuItem "acteur.miroir_y"              label: "Miroir Y"
       MenuItem "acteur.miroir_z"              label: "Miroir Z"
 
-  Menu "menu_aide"                            label: "Aide"
+  Menu "menuAide"                            label: "Aide"
     MenuItem "anim.aide_raccourcis"           label: "Raccourcis"
     MenuItem "aide.documentation"             label: "Documentation"
     MenuItem "anim.apropos"                   label: "Crédits et licences / À propos"
@@ -423,7 +423,7 @@ tranche pas.**
 ### 5.3 `barre_outils.nkgui`
 
 ```
-HBox "barre_outils"                           gap: 4   align: Center
+HBox "barreOutils"                           gap: 4   align: Center
   Button "fichier.enregistrer_tout"           icon: save   tooltip: "Enregistrer tout (Ctrl+Maj+S)"
   Separator "sep1"                            orientation: Vertical
   Dropdown "mode.choix"                       bind: mode.actif   items: ["Sélection","Monde","Peinture","Volumes"]
@@ -470,7 +470,7 @@ HBox "barre_outils"                           gap: 4   align: Center
 ### 5.4 `barre_etat.nkgui`
 
 ```
-HBox "barre_etat"                             gap: 8   align: Center
+HBox "barreEtat"                             gap: 8   align: Center
   Button "biblio.ouvrir"                      icon: library   label: "Tiroir de contenu"
   Button "fenetre.journal"                    icon: scroll-text   label: "Journal"
   TextField "commande"                        placeholder: "> commande"   bind: commande.saisie

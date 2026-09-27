@@ -1,4 +1,21 @@
-# Document 9 — Grammaire `.nkgui` complétée (PROPOSITION)
+# Document 9 — Grammaire `.nkgui` : les décisions et leur histoire
+
+> **Statut au 27/09/2026 — mis à jour lors de la réécriture des documents 1 à 21.**
+> Ce document **n'est plus une proposition** : ses décisions sont implémentées (format
+> 0.3, §8) ou décidées (format 0.4, §9). La **grammaire normative complète** est
+> désormais **au document 2 §3**, réécrit le 27/09 — une seule source, pour qu'elle ne
+> diverge pas. Ce document garde **pourquoi** chaque construction est comme elle est,
+> les options écartées, et l'état d'implémentation. Les numéros de section sont
+> inchangés (le code cite §3, §3.1, §3.2bis, §4.2, §6.1, §7).
+>
+> Corrections apportées le 27/09 : les exemples emploient le vocabulaire du doc 7
+> (`TextField` au lieu de `InputText`) et le nom d'état décidé (`Normal` au lieu de
+> `Idle`) ; §6.3 et §8.5 disent que `include` est résolu et que la grammaire du thème
+> est décidée ; §9 est ajouté.
+
+---
+
+*En-tête d'origine (21/08/2026), conservé comme trace :*
 
 > Écrit le **2026-08-21**, avant d'écrire le parseur, parce qu'un parseur se
 > construit sur une grammaire arrêtée et que quatre décisions de Rodolf n'étaient
@@ -23,7 +40,7 @@
 | 3 | apparence portée par le widget, en **surcharges** | ✅ doc 3 §14ter.3, issue **(a)** |
 | 4 | section `animation`, trois familles | ✅ doc 3 §9ter |
 | 5 | déclaration de **police** | ✅ doc 3 §14quater bis |
-| 6 | **quatre manques du document 2** relevés en écrivant le parseur | 🔴 arbitrage requis |
+| 6 | **quatre manques du document 2** relevés en écrivant le parseur | ✅ fermés le 27/09 (format 0.4) |
 
 **Rien d'autre ne bouge** : le lexique (§2 du doc 2), la section `widgets`, la
 section `behavior` (script et graphe) et les contrats `controller`/`callback`
@@ -92,7 +109,7 @@ widgets {
             overflow = ellipsis
             for = "champ_email"
         }
-        InputText "champ_email" {
+        TextField "champ_email" {
             bind = email
         }
         Spacer "respiration" {
@@ -562,7 +579,7 @@ animation "bouton_valider" {
 
     ambience "respiration" {
         target = "valider"
-        state = Idle
+        state = Normal        // « Idle » dans la première version : le nom décidé est Normal (§3.2bis)
         duration = 2.4
         repeat = 0
         direction = alternate
@@ -687,7 +704,7 @@ fonts {
 
 ---
 
-## 6. 🔴 Quatre manques du document 2, relevés en écrivant le parseur
+## 6. ✅ Quatre manques du document 2, relevés en écrivant le parseur — fermés en 0.4
 
 > Ce ne sont pas des propositions. Ce sont des endroits où **la grammaire écrite
 > ne suffit pas à lire les exemples que le document 2 donne lui-même**. Ils sont
@@ -695,6 +712,10 @@ fonts {
 > format à la place de Rodolf.
 
 ### 6.1 Il n'existe aucun littéral de LISTE, et cinq rôles en demandent un
+
+> ✅ **Fermé le 27/09.** Le format 0.4 porte un **littéral de liste** (issue **(a)**)
+> et un littéral de dictionnaire : `List` et `Dict` au lexique du doc 2 §2, dans `value`
+> au doc 2 §3.2. Le texte qui suit est l'analyse d'origine.
 
 `value := String | Number | Color | Vec2 | flags | Identifier` (§3).
 
@@ -720,6 +741,11 @@ seul des trois qui ne se paie pas une deuxième fois.**
 
 ### 6.2 `expr` ne peut pas lire les exemples du document 2
 
+> ✅ **Fermé le 27/09.** `expr` lit les chemins pointés (`path`) et les champs de
+> widget (`widget_field`), et un identifiant qui contient un point s'écrit entre
+> guillemets : doc 2 §3.4 et son « ambiguïté levée ». Le texte qui suit est l'analyse
+> d'origine.
+
 §6.3 écrit `node n2 Multiply { a = n1.value, b = 100 }`.
 §4.1 écrit `Callback "…"(Enum.X, value)`.
 
@@ -735,6 +761,14 @@ segments (`a.b.c`) reste ouverte.
 
 ### 6.3 `include` est déclaré, `Theme.nkgui` ne l'est pas
 
+> ✅ **Fermé.** `include` est **résolu** depuis le 26/09 (`NkGuiInclusions` : chemin
+> relatif, place exacte, refus nommés `introuvable` / `illisible` / `cycle`). La
+> grammaire du thème est **décidée** le 27/09 (Rodolf : un système de thème par
+> application, thèmes existants, thèmes propres, plusieurs thèmes au choix de
+> l'utilisateur final, thèmes par greffon) : section `theme`, jetons `@nom`,
+> variantes — doc 2 §20, et la justification au §9.1 ci-dessous. Le texte qui suit
+> est l'analyse d'origine.
+
 §7 donne `include "Theme.nkgui"`. **La grammaire d'un fichier de thème n'existe
 nulle part** (relevé aussi par doc 3 §14ter.3). Un `include` qui résout vers un
 fichier dont la forme n'est pas définie ne se vérifie pas.
@@ -746,6 +780,10 @@ des **rôles de couleur nommés avec héritage et chargement** (doc 8 §3) — c
 là qu'il faut partir, pas d'une page blanche.
 
 ### 6.4 La validation par rôle n'a pas de table à interroger
+
+> ✅ **Fermé le 27/09.** Le vocabulaire du doc 7 est adopté (question 1 de son §7) et
+> `NkGuiValidate.h` valide contre lui depuis la 0.3 (41 rôles, `E-TYPE`) — doc 7, doc 2
+> §8. Le texte qui suit est l'analyse d'origine.
 
 §4 : *« le compilateur rejette une propriété absente du schéma du rôle »*. Le
 schéma, c'est la table §8 — **et le document 7 propose précisément de la
@@ -764,6 +802,12 @@ validation **syntaxique** (`E-PARSE`) et **pas** la validation par rôle
 ---
 
 ## 7. Récapitulatif — la grammaire complète proposée
+
+> **Depuis le 27/09, la grammaire complète normative est au document 2 §3** (0.4
+> comprise). Le récapitulatif ci-dessous est celui de la **0.3**, gardé tel quel parce
+> qu'il est cité (`NkGuiArchive.cpp`, `NKSerialization/ROADMAP.md`). **La règle des
+> mots réservés contextuels** qui le suit reste valable et s'étend aux mots de la 0.4
+> (liste complète : doc 2 §3.10).
 
 Les seuls ajouts au §3 du document 2, rassemblés :
 
@@ -830,7 +874,7 @@ se lire.*
 | 5 — polices | ✅ | ✅ `fonts` / `font` / `source` / `fallback` / `metrics` + `glyph "A" -> 1366` |
 | 6.1 — littéral de liste | ✅ **tranché** | ✅ **et les dictionnaires aussi** : `[a, b]` et `{ clé = v }`, imbriqués |
 | 6.2 — identifiant pointé | ✅ **tranché** | ✅ `n1.value`, `Enum.X`, `a.b.c` — en argument, en pin, en expression ; `NkGSplitPath` pour qui doit résoudre |
-| 6.3 — grammaire du thème | 🔴 | ❌ **toujours ouvert** — `include` est lu, sa cible n'est pas résolue |
+| 6.3 — grammaire du thème | ✅ **décidé le 27/09** | `include` ✅ **résolu** (26/09, `NkGuiInclusions`) ; section `theme` 🟢 à implémenter (doc 2 §20) |
 | 6.4 — validation par rôle | ✅ **tranché** | ✅ `NkGuiValidate.h`, **contre le vocabulaire du document 7**, alias compris |
 
 ### 8.1 Les deux choix de la validation, et ils ne sont pas neutres
@@ -938,9 +982,8 @@ resterait « équivalent ».
 
 ### 8.5 Ce qui reste ouvert
 
-1. **La grammaire du thème** (§6.3) — `include "Theme.nkgui"` se lit, sa cible ne
-   se résout pas. `NkTheme` (NKEditorKit, 302 lignes) porte déjà des rôles de
-   couleur nommés avec héritage : c'est de là qu'il faut partir.
+1. ✅ **La grammaire du thème** (§6.3) — **décidée le 27/09** (§9.1, doc 2 §20) ;
+   `include` est résolu depuis le 26/09.
 2. ✅ **Les noms des états d'apparence** (§3.2bis) — **clos le 2026-08-27**, les
    trois décisions comprises :
    - la liste : `Disabled > Pressed > Hover > FocusVisible > Focus > Normal` ;
@@ -966,6 +1009,131 @@ resterait « équivalent ».
 
 ---
 
-*Voir aussi : document 2 (la référence), document 3 §9ter / §14ter.3 /
-§14quater bis (les décisions), document 7 (le vocabulaire), document 8
-(l'inventaire de l'existant).*
+
+## 9. La version 0.4 — décidée le 27/09/2026, et pourquoi
+
+> Rodolf, 27/09 : les extensions du format proposées pour la refonte de NKUIDesign
+> sont **« décidées »** — booléens et `geometry` / `shape`, instructions d'interface,
+> carte d'application, tests, conditions sur d'autres widgets ; puis, le même matin,
+> le **système de thème par application**. La syntaxe est au doc 2 ; ici, les
+> raisons et les options écartées. Rien n'est encore implémenté (🟢).
+
+### 9.1 Les thèmes : une section, des jetons, des variantes
+
+| choix | retenu | écarté, et pourquoi |
+|---|---|---|
+| où vit un thème | une **section `theme`** dans un `.nkgui`, incluse comme le reste | un format à part (`.nktheme`) : un second lecteur, une seconde validation, et le thème ne pourrait pas voyager avec `include` |
+| la valeur d'une couleur | un **jeton** `@famille.nom` | une couleur nommée sans famille : 426 couleurs en dur mesurées chez les consommateurs NKGui (18/08) venaient justement de l'absence de rôles |
+| la sémantique | **sens obligatoire** par jeton | un jeton sans raison d'être finit en doublon d'un autre — c'est ce qui est arrivé aux deux sarcelles de la palette avant l'UI_SPEC §10bis.3 |
+| Sombre / Clair | des **variantes** d'un même thème | deux thèmes séparés : on ne saurait plus que « Rihen UE5 Clair » et « Rihen UE5 Sombre » partagent leurs jetons, et le contrôle « un jeton sans valeur dans une variante » deviendrait impossible |
+| le lien au moteur | les champs de `NkGuiTheme` **sont** des jetons réservés `@nkgui.*` | une table de correspondance à maintenir : `NkGuiThemeTokens` énumère déjà le thème par nom, depuis le 18/08, exactement pour cela |
+| le repli | **jeton par jeton**, jusqu'au thème du moteur | le repli par thème entier : un thème incomplet donnerait une interface noir sur noir (UI_SPEC §5, décision 4) |
+| le choix de l'utilisateur final | déclaré par l'**application** (`themes { … }` de la carte) | déclaré par chaque document : un écran oublié resterait dans l'ancien thème |
+| les greffons | **données seulement**, préfixées, sans pouvoir retirer un jeton | un greffon de code : une permission de plus pour changer des couleurs, et un risque qui n'apporte rien |
+
+⚠️ **Deux homonymes à ne pas confondre** : `NkTheme` (NKEditorKit, thème des outils
+d'édition) et `NkGuiTheme` (NKGui, thème du runtime). Les jetons `@nkgui.*` sont ceux
+du **second**. Le premier devra, à terme, être **décrit** par la même section — c'est
+le chantier M du doc 1 (NKUIDesign se décrit lui-même).
+
+### 9.2 Les formes : une bibliothèque nommée, des fractions, des rayons en pixels
+
+- **Pourquoi une section `geometry` nommée** plutôt qu'une section nouvelle : la
+  section `geometry` existe, elle est montée, et une forme y a déjà sa syntaxe. La
+  nommer est le plus petit ajout qui distingue « calque peint » de « forme de
+  référence ». Le doc 3 avait déjà écarté par écrit l'idée d'une section à côté.
+- **Pourquoi des fractions de la boîte** : une forme de surface suit la taille du
+  widget. **Pourquoi les rayons en pixels** : un coin arrondi qui grossit quand le
+  bouton s'élargit est exactement le défaut du « 9-slice » relevé au doc 12 §12.3(b).
+  Fractions pour la silhouette, pixels pour les angles : la moitié du problème du
+  9-slice est réglée sans découper l'image en neuf.
+- **Pourquoi l'imbrication de `shape` seulement sous `compound`** : la garde du doc 9
+  d'origine (« une forme n'a que des propriétés », `NkGuiValidate.h`) existait pour
+  empêcher un second vocabulaire d'apparence. Un opérande de booléen n'est pas de
+  l'apparence : c'est de la géométrie. La garde reste vraie partout ailleurs.
+- **Pourquoi non destructif** : c'est la décision du doc 13 (« un groupe qui porte une
+  opération est le modèle requis ») et celle de Figma, Lunacy et Sketch. Aplatir reste
+  un geste, jamais une écriture implicite.
+
+### 9.3 Les instructions d'interface : dans le script, pas dans une section
+
+- **Pourquoi dans `behavior`** : l'évaluateur existe et implémente `set` / `if` /
+  `Callback` entièrement ; les instructions nouvelles sont des `statement` de plus. Une
+  section `navigation` séparée aurait coupé la condition de son effet.
+- **Pourquoi `call` à côté de `Callback`** : l'un vise le **code de l'application**
+  (contrat déclaré, lié en C++), l'autre un **service du système** (liste fermée, servie
+  par une doublure en simulation). Les confondre aurait rendu impossible de simuler un
+  dialogue « Ouvrir » **annulé** sans écrire de C++.
+- **Pourquoi une liste fermée de services** : une doublure doit connaître d'avance les
+  échecs possibles (`annule`, `coupe`…) pour les proposer. Un service libre n'aurait pas
+  de doublure honnête.
+- **Pourquoi `disable … because`** : le doc 3 §14quater exige qu'un élément désactivé
+  dise pourquoi. Le mettre **dans l'instruction** rend l'oubli visible à la lecture et
+  détectable par le validateur (`W-RAISON-ABSENTE`).
+- **Pourquoi `emit` et `open` prennent effet à l'image suivante** : un comportement qui
+  en déclenche un autre dans la même image ouvrirait la porte à la récursion, et la
+  garantie « jamais à moitié » ne tiendrait plus.
+
+### 9.4 Les conditions sur les autres widgets
+
+- **Le point de départ est mesuré** : `NkGuiExecution::Resoudre` coupe au dernier point
+  et ne connaît que `.value` et `.checked` — *« un champ que je ne connais pas ne se
+  devine pas »*. Les six champs ajoutés sont ceux qu'une interface réelle interroge.
+- **`!=` et `not`** : absents du doc 2 d'origine, et l'évaluateur a **choisi** de ne pas
+  les ajouter en silence. Ils sont maintenant écrits d'abord — la règle de la maison.
+- **Les guillemets pour les identifiants pointés** : les composants préfixent les
+  identifiants (`instance.original`) ; sans guillemets, `transport.lecture.enabled`
+  serait coupé au mauvais point.
+
+### 9.5 La carte de l'application
+
+- **Pourquoi un document** plutôt qu'un réglage de NKUIDesign : la **même** carte doit
+  servir la simulation **et** l'application réelle (`NkGuiCoquille` monte déjà plusieurs
+  documents). Une carte qui vivrait dans l'éditeur ne prouverait rien sur l'application.
+- **Pourquoi des types d'écran** (`Fenetre`, `Dialogue`, `Feuille`, `Panneau`,
+  `Superposition`) : `open` ne fait pas la même chose d'une plateforme à l'autre (doc 3
+  §18.6), et c'est le type qui dit ce qu'il doit faire.
+
+### 9.6 Les tests
+
+- **Pourquoi une section du format** et non un script externe : les tests désignent les
+  mêmes identifiants, écrans et services que le document ; le validateur peut donc
+  vérifier qu'un test ne vise rien d'inexistant **avant** de le lancer.
+- **Pourquoi `E-TEST-SANS-ATTENTE`** : un test qui ne peut pas échouer ne prouve rien —
+  la même discipline que les recettes de la maison (« lancé une fois **sans** l'élément
+  attendu, il doit rougir »).
+
+### 9.6bis Les Blueprints exécutés
+
+> Rodolf, 27/09 : *« n'oublie surtout pas les blueprints. »*
+
+- **Pourquoi compiler plutôt qu'interpréter le graphe** : `NkGuiEvaluateur` implémente
+  déjà entièrement le script ; un second interpréteur (de graphe) aurait sa propre
+  sémantique des nœuds purs, des erreurs, de l'ordre — et le jour où les deux
+  divergeraient, un comportement ne ferait pas la même chose selon la vue dans laquelle
+  on l'a écrit. Compiler vers **la même représentation intermédiaire** rend cette
+  divergence impossible par construction.
+- **Pourquoi les nœuds purs sont évalués une fois par exécution** : c'est la règle des
+  Blueprints d'Unreal, et c'est la seule qui rend un graphe prévisible (deux lectures
+  d'un `GetWidgetValue` dans la même exécution rendent la même valeur).
+- **Pourquoi `Gate` et `DoOnce` rendent la vue Code en lecture seule** : ils portent un
+  état **caché** entre deux exécutions ; le traduire en script demanderait des variables
+  inventées que l'utilisateur n'a pas écrites.
+- **Pourquoi la disposition va au `.nkgui.meta`** : la position d'un nœud n'est pas du
+  comportement ; l'écrire dans le `.nkgui` rendrait chaque déplacement de nœud visible
+  dans le diff comme un changement d'interface.
+
+### 9.7 Ce qui reste ouvert après la 0.4
+
+1. Les **paramètres d'événement** (doc 2 §9.3) — avec le premier événement qui en porte.
+2. L'**action portée par un enfant de composant** (doc 2 §14.3) — recommandation : (a) pour un composant à **une** action, (b) pour un composant à **plusieurs** (D12).
+3. Les **emplacements** de composant (P9, doc 2 §14.5).
+4. Le **raccourci propre à un widget** (P8, doc 2 §4.2).
+5. `Dragged` (§3.2bis) — avec le glisser-déposer.
+6. La forme du chemin d'effet animé (§4.3, point 3 du §8.5).
+
+---
+
+*Voir aussi : document 2 (la référence, grammaire complète §3), document 3 (les
+décisions d'interface), document 7 (le vocabulaire), document 8 (l'inventaire de
+l'existant), document 15 (le modèle des composants).*

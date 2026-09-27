@@ -1,6 +1,17 @@
 # NkUIDesign — Brief de génération visuelle
 ### Document 4 — Destiné à Banani
 
+> **Statut au 27/09/2026 — ARCHIVE.** Ce document est un recueil de prompts pour un
+> outil externe (Banani) et le journal des planches validées en août. Il **ne fait foi
+> sur rien** : les décisions d'interface qu'il contient sont reprises, et parfois
+> corrigées, au **doc 3** (réécrit le 27/09). Écarts connus : la barre de menus a
+> désormais **dix** entrées (+ `Cible`, + `Projet`) ; le thème par défaut est **Rihen
+> UE5** (le GitHub Dark/Light de §0 reste livré en alternative) ; le mode Source
+> s'ajoute à la bascule ; le menu des rôles montre aussi les **rôles proposés**
+> (doc 3 §14ter.7). Ce qui reste précieux ici : les **leçons de méthode** (§0bis, §22.18)
+> et les planches validées comme référence de **géométrie**.
+
+
 > Chaque section est un prompt autonome à coller tel quel. Colle d'abord la section
 > 0 (système de design), identique dans l'esprit à `03-specification-banani.md`
 > (Aetherion Engine) pour garder la cohérence visuelle de l'écosystème Nkentseu,

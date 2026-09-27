@@ -1,5 +1,13 @@
 # Document 10 — L'IA de design entre dans NkUIDesign : l'état du pipeline
 
+> **Statut au 27/09/2026 — ÉTAT DATÉ du 30/08.** Le pipeline décrit (Propose / Commit /
+> Discard / Retract, recette 18 / 18) est **livré** et repris au doc 1 §6.2. Il travaille
+> encore sur le modèle **`.nkuidoc`** : avec la réécriture (doc 1 §4.1, doc 5 §1), une
+> proposition de l'IA devient une **modification de l'archive `.nkgui`**, validée par
+> `NkGuiValidate` avant l'aperçu — ce qui ferme le point 3 du §2 (« pas de convertisseur
+> nkuidoc → nkgui »).
+
+
 > Ouvert le **2026-08-30**, sur la demande de Rodolf : *« commencer, si possible,
 > à faire que l'IA de design soit prête à entrer dans NkUIDesign. »*
 > Chantier tenu à côté du chantier toile, territoires disjoints : ce document,

@@ -351,7 +351,7 @@ component "CartePropo"
       Host "apercu"                           hint: "vignette animée de la proposition"
       Text "resume"                           text: "?"   wrap: true
       HBox "impact"                           gap: 4
-        Badge✚ "nb_cles"                      text: "?"   tone: info.apercu
+        Badge✚ "nbCles"                      text: "?"   tone: info.apercu
         Text "canaux"                         text: "?"   (« bras droit, colonne, 3 autres »)
       HBox "actions"                          gap: 4   justify: End
         Button "ia.apercu"                    label: "Aperçu"    icon: eye
@@ -430,7 +430,7 @@ grain auquel un panneau s'amarre, se ferme et se rouvre.
 | `dispositions.nkgui` | — | les sections `layout` (P10), §5.19 |
 | `panneau_outils.nkgui` | **retiré** | son contenu est redistribué : transport → barre d'outils, clés → Séquenceur, pose → Détails de l'os, squelette → Arbre des os, physique → barre d'outils et espace Physique |
 
-✅ **`include` est branché depuis le 26/09 à 18 h 54** (`include "composants.nkgui"`,
+✅ **`include` est branché depuis le 26/09 à 18 h 54** (`include "Composants.nkgui"`,
 le contenu inclus prend la place exacte de la ligne ; à écrire **avant**
 `widgets`). Les composants s'écrivent donc **une seule fois**, dans
 `composants.nkgui`, et chaque document les inclut.
@@ -468,7 +468,7 @@ MenuBar "menus"
     Separator "sep_f3"
     MenuItem "fichier.quitter"                label: "Quitter"               shortcut: "Ctrl+Q"
 
-  Menu "menu_edition"                         label: "Édition"
+  Menu "menuEdition"                         label: "Édition"
     MenuItem "anim.annuler"                   label: "Annuler"               shortcut: "Ctrl+Z"
     MenuItem "anim.refaire"                   label: "Refaire"               shortcut: "Ctrl+Y"
     MenuItem "edition.historique"             label: "Historique"
@@ -481,7 +481,7 @@ MenuBar "menus"
     MenuItem "edition.ajuster_derniere"       label: "Ajuster la dernière opération"   shortcut: "F9"
     MenuItem "edition.preferences"            label: "Préférences…"          shortcut: "Ctrl+,"
 
-  Menu "menu_selection"                       label: "Sélection"
+  Menu "menuSelection"                       label: "Sélection"
     MenuItem "anim.selection_tout"            label: "Tout"                  shortcut: "A"
     MenuItem "anim.selection_rien"            label: "Rien"                  shortcut: "Alt+A"
     MenuItem "anim.selection_inverser"        label: "Inverser"              shortcut: "Ctrl+I"
@@ -489,7 +489,7 @@ MenuBar "menus"
     MenuItem "selection.symetrique"           label: "Symétrique"
     MenuItem "selection.meme_origine"         label: "Clés de même origine"
 
-  Menu "menu_vue"                             label: "Vue"
+  Menu "menuVue"                             label: "Vue"
     MenuItem "anim.vue_solide"                label: "Solide"                shortcut: "Z"
     MenuItem "anim.vue_rendu"                 label: "Éclairé"
     MenuItem "anim.vue_filaire"               label: "Filaire"
@@ -531,7 +531,7 @@ MenuBar "menus"
     MenuItem "poids.normaliser"               label: "Normaliser les poids"
     MenuItem "squel.tester_deformation"       label: "Tester la déformation"
 
-  Menu "menu_animation"                       label: "Animation"
+  Menu "menuAnimation"                       label: "Animation"
     MenuItem "anim.jouer"                     label: "Jouer / Pause"         shortcut: "Espace"
     MenuItem "anim.debut"                     label: "Aller au début"        shortcut: "Début"
     MenuItem "anim.fin"                       label: "Aller à la fin"        shortcut: "Fin"
@@ -544,7 +544,7 @@ MenuBar "menus"
     MenuItem "anim.inserer"                   label: "Insérer une clé"       shortcut: "I"
     MenuItem "anim.supprimer"                 label: "Supprimer la clé"      shortcut: "Suppr"
     MenuItem "anim.cle_auto"                  label: "Clé auto"              checked: false
-    Menu "menu_pose"                          label: "Pose"
+    Menu "menuPose"                          label: "Pose"
       MenuItem "anim.pose_entrer"             label: "Éditer la pose"        shortcut: "Tab"
       MenuItem "anim.pose_enregistrer"        label: "Enregistrer la pose en clé"   shortcut: "Ctrl+Entrée"   // était Ctrl+S : Ctrl+S = Enregistrer le projet
       MenuItem "anim.pose_quitter"            label: "Quitter sans enregistrer"     shortcut: "Échap"
@@ -619,7 +619,7 @@ MenuBar "menus"
     Separator "sep_w2"
     MenuItem "fenetre.reinitialiser"          label: "Réinitialiser la disposition"
 
-  Menu "menu_aide"                            label: "Aide"
+  Menu "menuAide"                            label: "Aide"
     MenuItem "anim.aide_raccourcis"           label: "Raccourcis"
     MenuItem "aide.documentation"             label: "Documentation"
     MenuItem "anim.apropos"                   label: "Crédits et licences / À propos"
@@ -632,7 +632,7 @@ identifiant** : si le monteur l'interdit, renomme la seconde
 ### 5.2 `barre_outils.nkgui`
 
 ```
-HBox "barre_outils"                           gap: 4   align: Center
+HBox "barreOutils"                           gap: 4   align: Center
   Dropdown "espace.choix"                     bind: espace.actif
                                               items: ["Facile","Squelette","Animation","Physique","Phénomènes","IA & Agents","Captation"]
   Separator "sep_espace"                      orientation: Vertical
@@ -654,13 +654,13 @@ HBox "barre_outils"                           gap: 4   align: Center
     BoutonTransport "anim.fin"                label: ">|"   icon: skip-forward
     ToggleButton✚ "anim.boucle"               icon: repeat   bind: anim.boucle   tooltip: "Jouer en boucle"
     NumberField "image_courante"              bind: anim.image   valueType: int   (non monté : attendu)
-  Separator "sep_transport"                   orientation: Vertical
+  Separator "sepTransport"                   orientation: Vertical
 
   HBox "cles"                                 gap: 2
     BoutonEcrit "anim.inserer"                label: "Clé"   icon: diamond-plus   tooltip: "Insérer une clé (I)"
     Button "anim.supprimer"                   icon: diamond-minus   tooltip: "Supprimer la clé (Suppr)"
     ToggleButton✚ "anim.cle_auto"             icon: circle-dot   bind: anim.cle_auto   tooltip: "Clé auto — chaque geste écrit une clé"
-  Separator "sep_cles"                        orientation: Vertical
+  Separator "sepCles"                        orientation: Vertical
 
   HBox "physique"                             gap: 4
     Text "part_titre"                         text: "Physique"
@@ -684,7 +684,7 @@ HBox "barre_outils"                           gap: 4   align: Center
 ### 5.3 `barre_etat.nkgui`
 
 ```
-HBox "barre_etat"                             gap: 8   align: Center
+HBox "barreEtat"                             gap: 8   align: Center
   Button "biblio.ouvrir"                      icon: library   label: "Bibliothèque"   tooltip: "Ctrl+Espace"
   Button "fenetre.journal"                    icon: scroll-text   label: "Journal"
   TextField "commande"                        placeholder: "> commande"   bind: commande.saisie

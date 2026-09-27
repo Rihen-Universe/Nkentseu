@@ -41,7 +41,7 @@ widgets {
       orientation = Horizontal
     }
 
-    Text "titre_entites" {
+    Text "titreEntites" {
       text = "Entités vivantes"
     }
 

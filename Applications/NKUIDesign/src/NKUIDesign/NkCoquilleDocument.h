@@ -105,7 +105,7 @@ namespace nkuidesign {
 	///    il n'existe aucune API pour ne monter qu'un sous-arbre nommé
 	///    (`MonterCorps` est privée). Or le menu et la barre d'état sont deux
 	///    RÉGIONS que la coquille pose à deux instants différents. **Il manque
-	///    `Monter(ctx, doc, "nom_de_racine")`** — c'est le même manque que
+	///    `Monter(ctx, doc, "racine")`** — c'est le même manque que
 	///    l'exemplaire d'origine a nommé, et il n'a pas bougé.
 	class NkCoquilleDocument {
 		public:
@@ -128,7 +128,7 @@ namespace nkuidesign {
 			/// Lit le document unique. Rend faux s'il manque.
 			bool ChargerDepuisDossier(const char *dossierDocuments) noexcept {
 				dossier = NkString(dossierDocuments);
-				return bande.ChargerDepuisFichier(Joindre("interface.nkgui").CStr());
+				return bande.ChargerDepuisFichier(Joindre("Interface.nkgui").CStr());
 			}
 
 			void PoserTables(const NkActionNommee *act, uint32 nAct, const NkZoneNommee *zon,
@@ -146,13 +146,13 @@ namespace nkuidesign {
 				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "menu");
 			}
 			static void MonterBarreEtat(NkEditorFrameContext &ec, void *user) noexcept {
-				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barre_etat");
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barreEtat");
 			}
 			static void MonterBarreOutils(NkEditorFrameContext &ec, void *user) noexcept {
-				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barre_outils");
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barreOutils");
 			}
 			static void MonterPanneau(NkEditorFrameContext &ec, void *user) noexcept {
-				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "panneau_outils");
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "panneauOutils");
 			}
 
 			/// Les quatre noms de racine, en UN SEUL endroit.
@@ -162,8 +162,8 @@ namespace nkuidesign {
 			///    doivent donc lire LA MÊME liste — deux listes ne peuvent pas se
 			///    contredire, donc ne prouvent rien.
 			static const char *const *NomsRacines(uint32 &nOut) noexcept {
-				static const char *const kNoms[4] = {"menu", "barre_outils", "barre_etat",
-													 "panneau_outils"};
+				static const char *const kNoms[4] = {"menu", "barreOutils", "barreEtat",
+													 "panneauOutils"};
 				nOut = 4u;
 				return kNoms;
 			}
@@ -213,7 +213,7 @@ namespace nkuidesign {
 			}
 
 			void OnUI(NkEditorFrameContext &ec) override {
-				mCoq.bande.Monter(ec.Ui(), "panneau_outils");
+				mCoq.bande.Monter(ec.Ui(), "panneauOutils");
 			}
 
 		private:

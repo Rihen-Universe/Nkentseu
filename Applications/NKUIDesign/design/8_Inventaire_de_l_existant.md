@@ -1,5 +1,12 @@
 # Document 8 — Inventaire de l'existant
 
+> **Statut au 27/09/2026 — INSTANTANÉ du 21/08.** Les nombres de lignes et le §5
+> (« ce qui manque ») sont datés : `Text`, `Spacer`, l'apparence, l'animation, les
+> composants, `include`, `Host`, l'interaction et les événements existent depuis. La
+> **règle du §6** (« chercher avant de spécifier ») et les **points d'extension du
+> §3.1** restent en vigueur : ils sont repris au doc 1 (principe 14) et au doc 3 §20bis.
+
+
 > Écrit le **2026-08-21 vers 5 h**, après que Rodolf a rappelé que NKGui porte déjà
 > NKCode, NK3DModeler et Mou.
 >

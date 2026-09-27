@@ -145,7 +145,7 @@ namespace nkanima {
 	 *    document ne peut donc pas les servir toutes les trois.
 	 *
 	 *    C'est un vrai manque du maillon, et il est nommé dans la réponse plutôt
-	 *    que contourné en silence : **il manque `Monter(ctx, doc, "nom_de_racine")`.**
+	 *    que contourné en silence : **il manque `Monter(ctx, doc, "racine")`.**
 	 *
 	 * ⚠️ LA BARRE DE MENU N'EST PAS ICI — MAIS PLUS POUR LA RAISON QUI ÉTAIT
 	 *    ÉCRITE. Ce paragraphe affirmait : « le format connaît `MenuBar`, `Menu`,
@@ -196,10 +196,10 @@ namespace nkanima {
 			/// DÉVELOPPEMENT ; celle de livraison appellera `Adopter` bande par bande.
 			bool ChargerDepuisDossier(const char *dossierDocuments) noexcept {
 				dossier = NkString(dossierDocuments);
-				const bool a = menuApp.ChargerDepuisFichier(Joindre("menu_animation.nkgui").CStr());
-				const bool b = barreOutils.ChargerDepuisFichier(Joindre("barre_outils.nkgui").CStr());
-				const bool c = barreEtat.ChargerDepuisFichier(Joindre("barre_etat.nkgui").CStr());
-				const bool d = panneau.ChargerDepuisFichier(Joindre("panneau_outils.nkgui").CStr());
+				const bool a = menuApp.ChargerDepuisFichier(Joindre("MenuAnimation.nkgui").CStr());
+				const bool b = barreOutils.ChargerDepuisFichier(Joindre("BarreOutils.nkgui").CStr());
+				const bool c = barreEtat.ChargerDepuisFichier(Joindre("BarreEtat.nkgui").CStr());
+				const bool d = panneau.ChargerDepuisFichier(Joindre("PanneauOutils.nkgui").CStr());
 				return a && b && c && d;
 			}
 

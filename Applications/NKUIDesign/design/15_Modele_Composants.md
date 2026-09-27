@@ -792,3 +792,35 @@ Les lignes `style_*` réutilisent **les mêmes lecteurs** que `fond_i` / `bord_i
 
 **Coût estimé** : moyen — un lot d'une nuit, à condition de ne pas écrire un
 second chemin de propagation. C'est le point à surveiller à la relecture.
+
+---
+
+## 15.16 🆕 LE MODÈLE DANS LE `.nkgui` — ce que devient chaque objet quand le `.nkuidoc` s'en va (27/09)
+
+> Ajouté lors de la réécriture des documents 1 à 21 : le document de NKUIDesign
+> **devient** le `.nkgui` (doc 1 §4.1). Les sections 15.1 à 15.15 décrivent le modèle
+> d'édition et restent vraies ; celle-ci dit **comment chaque objet s'écrit** au format
+> 0.4 (doc 2), et ce qui va au fichier voisin `.nkgui.meta`.
+
+| objet du modèle (§) | au `.nkgui` | au `.nkgui.meta` |
+|---|---|---|
+| déclaration de composant (§15.2) | `component "Nom" { widgets { … une racine … } behavior … }` | la position de la planche où on l'édite |
+| identité `auteur/nom@version`, `derive_de` (§15.5) | commentaire d'en-tête structuré **et** propriétés de la racine réservées à l'éditeur (`// @auteur rihen  @version 2  @derive_de lumen/carte@1`) — 🔴 à trancher : une section `provenance` du format ou le `.meta` | recommandation : **le `.meta`**, tant que le runtime n'en a pas besoin |
+| instance (`instanceDe`) | le **nom du composant comme rôle** : `BoutonTransport "anim.lecture" { … }` | — |
+| surcharges (`ecarts`, §15.3) | les **propriétés écrites sur l'instance** (elles l'emportent sur la racine, doc 2 §14.2) ; le masque de bits se **déduit** à la lecture (une propriété présente = un bit levé) | — |
+| surcharge d'un enfant de l'instance | 🔴 pas d'écriture au format 0.4 (seule la racine est surchargeable) ; en attendant, **détacher** ou ajouter une propriété au composant — doc 2 §14.5 (emplacements, P9) | la surcharge est **gardée** au `.meta` pour ne pas la perdre, et marquée ◐ |
+| états de composant (§15.7) | `appearance(État) { … }` sur la racine | — |
+| origine Système / Tiers / Mien (§15.12) | Système = rôle du vocabulaire ; Tiers = composant d'un fichier **inclus** hors du projet ou d'un greffon (préfixé) ; Mien = déclaré dans le projet | — |
+| « en retard » (R4, §15.6) | — | la version du composant tiers **vue** à la dernière mise à jour |
+| groupe `simple` / `booleen` / `composant` (§15.13) | `Group` ; un **booléen** est une forme `kind = compound` d'une section `geometry` (doc 2 §15.3) | — |
+| variables (§15.14) | **jetons** d'un thème : `token @cle { … }` + `variant "mode" { @cle = valeur }` ; une référence `@cle` s'écrit telle quelle (doc 2 §20) | — |
+| styles de calque et de texte (§15.15) | 🔴 pas de section au format 0.4 : un style s'écrit **comme un composant** quand il porte une forme, sinon ses valeurs **résolues** dans `appearance` + un commentaire `// style: primaire` | le lien style → nœuds, pour la propagation |
+
+**Règles** :
+1. **Rien du modèle ne se perd à l'aller-retour** : ce que le format 0.4 ne sait pas dire
+   va au `.meta`, et la Fidélité (doc 3 §22) le marque ◐.
+2. **Le `.meta` ne porte jamais ce que l'application doit lire** : si le runtime en a
+   besoin, c'est une extension du format (doc 2 §21), pas une ligne de `.meta`.
+3. **La propagation (R1′) réécrit les instances dans le fichier** seulement quand elle
+   change une propriété **écrite** ; une instance qui n'écrit que ses surcharges n'a
+   **rien** à réécrire — c'est le cas courant, et c'est ce qui garde les diffs petits.

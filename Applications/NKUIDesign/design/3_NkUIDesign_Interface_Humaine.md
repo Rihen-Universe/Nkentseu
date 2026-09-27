@@ -1,44 +1,65 @@
-# NkUIDesign — Interface humaine
+# NKUIDesign — Interface humaine
 ### Document 3 — Spécification lisible par un humain (fenêtre par fenêtre)
 
-> Complète `1_NkUIDesign_Specification_Application.md` (positionnement, modules) et
-> `2_NkUIDesign_Langage_Description_NodeBlueprint.md` (langage `.nkgui`). Là où ce
-> document diverge du document 1 sur l'agencement des fenêtres, **ce document fait
-> foi** — il traduit une demande explicite de disposition. Le thème visuel réutilise
-> le système GitHub Light / GitHub Dark Pro déjà établi pour le reste de la suite
-> Nkentseu (Aetherion Engine / Animate & FX), pour une cohérence d'écosystème.
+> **AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen**
+> **Réécrit le 27/09/2026** (Rodolf : *« réécris tous les documents si tu le juges
+> nécessaire, de 1 à 21 »*). Ce document **absorbe** l'interface de la refonte
+> (ancien doc 20) : le style de la famille (UE5), le projet, le mode Source, la
+> fidélité, les thèmes et jetons, le registre d'actions, les contrôles, les booléens,
+> le **Blueprint** complet, la simulation **navigable** par plateforme et les **tests
+> d'interaction**. Il est **complet** : tout ce qui apparaît à l'écran y est.
+>
+> **Ce qui a été gardé** : toutes les décisions validées depuis août (disposition,
+> menus, outils, toile, vectoriel, cibles, ancrage, rôles, indisponibilité, infobulles,
+> IA, doublures, greffons, console). Elles ne sont **pas rouvertes**. Les numéros de
+> section sont **inchangés** (le code cite §4, §5, §6, §8, §11, §11.5, §12, §12.2,
+> §13, §14) ; les nouveautés sont insérées **dans** les sections qu'elles complètent
+> ou ajoutées en **§22 à §29**.
+>
+> **Autorité** : pour **ce qui apparaît à l'écran**, ce document fait foi. Le langage
+> est au doc 2, le produit au doc 1, la traduction pour l'agent (arbres `.nkgui` de
+> l'interface de NKUIDesign) au doc 5. Si le doc 5 et celui-ci se contredisent, **celui-
+> ci gagne** et le doc 5 est à corriger.
+>
+> Marques : ✅ livré · ◐ partiel · ✚ à construire · 🔴 décision ouverte.
 
 ---
 
 ## 0. Sommaire
 
 1. Rappel de positionnement
-2. Système de thème
-3. Launcher
+2. Système de thème — **l'outil au style UE5, le document avec ses propres thèmes**
+3. Launcher — **projets d'interfaces**
 4. Anatomie de la fenêtre principale
-5. Barre de menu
-6. Barre d'onglets de projets
+5. Barre de menu · 5bis. Les menus, entrée par entrée
+6. Barre d'onglets de documents
 7. Barre d'outils flottante — une par mode de canvas
 8. Canvas infini — mode Design
-8bis. Édition vectorielle au sommet (Pen tool, ancres, booléens)
-8ter. Panneau Effets (ombres, flou, dégradés, contours, fusion)
+8bis. Édition vectorielle au sommet — et **les booléens**
+8ter. Panneau Effets
 8quater. Cibles, responsive, ancrage, marges et alignement
-9. Canvas — mode Behavior (Node Graph / Code)
-9bis. Canvas — mode Animation (widgets animés par événement)
-10. Mode Split — combiner deux canvas au choix
+9. Canvas — mode Behavior : **le Blueprint** et la vue Code
+9bis. Canvas — mode Animation · 9ter. Trois familles d'animation · 9quater. Animer côté client
+10. Mode Split
 11. Panneau Hiérarchie (Structure)
-12. Panneau Inspecteur + vue "Objets de la scène"
+12. Panneau Inspecteur + vue « Objets de la scène »
 13. Système de pastilles rétractables (Dock Rail)
-14. Palette de composants
-14bis. Bibliothèque de composants — import, instances, overrides
-14ter. Donner un rôle à un composant
+14. Palette · 14bis. Bibliothèque · 14ter. Rôles · 14quater. Indisponibilité · 14quater bis. Polices · 14quinquies. Infobulles
 15. Gestionnaire de callbacks / contrôleurs
-16. Chat IA
-17. Génération IA — points d'entrée sur le canvas
-18. Simulation du système — la fenêtre d'essai
-19. Export / Validation
-20. Préférences
+16. Chat IA · 16bis. Limites de l'IA
+17. Génération IA — points d'entrée
+18. Simulation — **une application navigable** · 18bis. Le système simulé · 18ter. **Les tests d'interaction**
+19. Enregistrer, valider, exporter
+20. Préférences · 20bis. Greffons · 20ter. Console
 21. Glossaire des composants
+22. **La fidélité**
+23. **Le projet et le graphe des inclusions**
+24. **Le registre d'actions**
+25. **Les contrôles de conception**
+26. **Thèmes et jetons — l'éditeur**
+27. **Le mode Source**
+28. **De la spécification au document ; voir dans l'application**
+29. **Table unique des raccourcis**
 
 ---
 
@@ -65,40 +86,131 @@ Animator / Rive) plutôt qu'un modèle strictement CSS.
 
 ## 2. Système de thème
 
-Identique à `01-specification-humaine.md` §2 (Aetherion Engine) : palette
-GitHub Light et GitHub Dark Pro, mêmes tokens de couleur, même règle « pas de
-noir/blanc pur », mêmes principes de densité. Une différence assumée :
+> **Décision de Rodolf, 27/09/2026** : le style des applications de la famille est
+> **Unreal Engine 5** (« celui que je préfère ») ; GitHub Pro (variantes Sombre « Dark Pro » et Clair
+> « Light Pro ») reste livré. Et **chaque application définit son propre système de thème**. Ce chapitre
+> remplace l'ancien §2 (GitHub pour tout l'écosystème).
 
-- Le **canvas de design** garde un fond neutre clair légèrement texturé
-  (petit motif de points de grille, pas de damier de transparence par
-  défaut — NkUIDesign dessine des interfaces, pas des images à canal alpha en
-  priorité), aussi bien en thème Light qu'en thème Dark, pour rester lisible
-  quel que soit le thème choisi pour l'app elle-même.
-- Le **canvas Behavior (Node Graph)** reprend le même traitement que le
-  Material/Blueprint Editor d'Aetherion (doc 1 §12-13) : fond quadrillé
-  sombre, câbles colorés par type — cohérence intentionnelle avec le reste de
-  l'écosystème puisqu'il s'agit du même paradigme visuel (nœuds Blueprint).
+### 2.1 Deux thèmes à ne jamais confondre
+
+| | le thème **de l'outil** | le thème **du document** |
+|---|---|---|
+| ce que c'est | l'apparence de NKUIDesign lui-même | les **jetons que l'on conçoit** pour une application |
+| par défaut | **Rihen UE5 Sombre** | celui que l'application déclare (`themes { defaut }`) |
+| où il se choisit | Préférences ▸ Apparence (§20) | la **grappe de la toile** (thème et variante **du document**) et l'**éditeur de thème** (§26) |
+| ce qu'il touche | panneaux, menus, inspecteur, toile Behavior | **seulement le contenu des cadres** sur la toile Design, la vue Fidélité et la simulation |
+
+On travaille donc **dans un outil sombre sur une interface claire**, ou l'inverse. La
+grappe de la toile porte toujours le nom du thème du document (« NkAnima · Rihen UE5 ·
+Clair ») pour que la confusion soit impossible.
+
+### 2.2 Les thèmes livrés
+
+**Rihen UE5** — la palette imposée de la famille (NKCraft UI_SPEC §10bis) : trois gris
+pour la structure, un **bleu d'état**, un **ambre de sélection**, des coins presque
+droits (2 px sur les panneaux, 6 px sur les nœuds flottants).
+
+| jeton | sens | Sombre | Clair |
+|---|---|---|---|
+| `@fond.app` | fond de fenêtre : recule derrière tout | `#141414` | `#F5F5F5` |
+| `@fond.panneau` | corps d'un panneau | `#212121` | `#FFFFFF` |
+| `@fond.entete` | en-têtes de panneau, barres d'outils, en-têtes de section, onglets | `#2B2B2B` | `#EAEAEA` |
+| `@fond.champ` | champ de saisie | `#0F0F0F` | `#FFFFFF` |
+| `@fond.survol` | survol d'une ligne | `#333333` | `#E0E0E0` |
+| `@bord` | séparations fines | `#303030` | `#D0D0D0` |
+| `@texte` | texte courant | `#C8C8C8` | `#1A1A1A` |
+| `@texte.fort` | titres, valeur éditée | `#F0F0F0` | `#000000` |
+| `@texte.faible` | étiquettes secondaires, grisé | `#7A7A7A` | `#8A8A8A` |
+| `@accent` | **état de l'interface** : focus, onglet actif, bouton principal, ligne sélectionnée d'une liste | `#1177D1` | `#0E5FA6` |
+| `@texte.sur_accent` | texte posé sur l'accent | `#FFFFFF` | `#FFFFFF` |
+| `@selection` | **sélection dans la zone de travail** (toile, graphe) | `#F2980E` | `#C97A08` |
+| `@selection.actif` | l'élément **actif** d'une sélection multiple | `#FFFFFF` | `#1A1A1A` |
+| `@noeud.donnees` · `.survol` | bandeau des nœuds de donnée | `#0A545E` · `#095461` | idem |
+| `@info.ok` · `@info.alerte` · `@info.erreur` | réussite · à regarder · cassé | `#3FB950` · `#D29922` · `#F85149` | `#1A7F37` · `#9A6700` · `#D1242F` |
+| `@info.ia` | ce que l'IA a produit ou propose | `#A371F7` | `#8250DF` |
+| `@arrondi` · `@arrondi.noeud` | coins des panneaux · des nœuds | `2` · `6` | idem |
+
+**GitHub Pro** — l'ancien thème de NKUIDesign, gardé tel que validé en août (doc 4
+§0) : Sombre (« Dark Pro ») `#0D1117` / `#161B22` / `#010409`, bordure `#30363D`, texte `#E6EDF3` /
+`#8B949E`, accent `#2F81F7` ; Clair (« Light Pro ») `#FFFFFF` / `#F6F8FA` / `#EAEEF2`, bordure
+`#D0D7DE`, texte `#1F2328` / `#656D76`, accent `#0969DA` ; succès, alerte, erreur,
+violet de la palette GitHub.
+
+**Contraste élevé** — Sombre `#000000` / `#0A0A0A`, texte `#FFFFFF`, accent `#4DA3FF`,
+sélection `#FFB000`, bordures `#FFFFFF` à 1 px partout ; Clair symétrique. Contraste
+AAA, aucune information portée par une teinte seule.
+
+📌 La règle « **bleu = interface, ambre = sélection dans la zone de travail** » vaut
+dans les trois thèmes (D3 : l'ambre sur la toile reste à confirmer par Rodolf — les
+utilisateurs de Figma attendent du bleu ; le thème le rend réglable par un seul
+jeton, `@selection`).
+
+### 2.3 Les couleurs d'information propres à NKUIDesign
+
+| jeton | sens | Sombre | où | symbole (jamais la couleur seule) |
+|---|---|---|---|---|
+| `@guide.alignement` | guides de magnétisme | magenta `#FF4FD8` (hors palette, exprès) | toile, pendant un glisser | ligne + cote |
+| `@fidelite.peint` · `.compte` · `.refuse` | ce que le monteur fera (§22) | vert · ambre · rouge | toile, hiérarchie, inspecteur | ✓ ◐ ✕ |
+| `@hote` | zone `Host` | hachures grises + nom | toile | hachures |
+| `@propose` | rôle **proposé** affiché par sa doublure | violet pointillé | toile, palette | pointillés + badge « P4 » |
+| `@controle.erreur` · `.alerte` · `.info` | résultat d'un contrôle (§25) | rouge · ambre · bleu | panneau Contrôles, badges | ✕ ⚠ ⓘ |
+| `@provenance.theme` · `.composant` · `.surcharge` · `.local` | d'où vient une valeur (§12.4) | gris · violet · ambre · blanc | pastille des lignes de l'inspecteur | **T C S L** |
+| `@action.servie` · `.a_creer` · `.inconnue` | état de l'action d'un élément (§24) | vert · ambre · rouge | champ Action, registre | ✅ ✚ ? |
+| `@test.reussi` · `.echoue` · `.jamais` | état d'un test (§18ter) | vert · rouge · gris | panneau Tests | ✓ ✕ ○ |
+| `@simulation.enregistre` | enregistrement d'un test en cours | rouge | barre de simulation | ● |
+| `@doublure` | ligne de journal servie par une doublure | ambre clair | console de simulation | `[DOUBLURE]` |
+| `@chemin.execute` | chemin parcouru dans un Blueprint | blanc pulsant | toile Behavior | compteur ×n |
+
+### 2.4 Les deux toiles
+
+- **La toile Design** montre le document **dans son thème** ; autour des cadres, le
+  **fond de table** reste neutre et clair, semé de points (`@toile.fond` `#EDEDED`,
+  points `#D0D0D0`), dans les deux thèmes de l'outil — décision validée en août (doc 4
+  §1bis) : on juge une interface sur un fond qui ne la colore pas. Jamais de damier.
+- **La toile Behavior** (Blueprint) est sombre et quadrillée en **points** ou en
+  **lignes** (Préférences), `@graphe.fond` `#1A1A1A`, grille `#262626` — le même
+  traitement que les Blueprints de NKCraft et de Nogee.
+- **La toile Animation** est sombre et quadrillée en **points** pour se distinguer du
+  Behavior d'un coup d'œil (doc 4 §22.13).
+
+### 2.5 Densité et typographie
+
+Inter (repli Noto Sans, DejaVu Sans) ; 12 px pour le texte courant, 11 px pour les
+étiquettes, 10 px pour les en-têtes de section en capitales ; **rangées de 30 px** dans
+l'inspecteur et les listes, **24 px** dans les arbres ; gouttières **8 px**, **16 px**
+entre catégories ; échelle d'espacement `2 / 4 / 8 / 12 / 16 / 24` (doc 16) — aucune
+autre valeur sans une raison écrite.
 
 ---
 
 ## 3. Launcher
 
-Réutilise la structure du Launcher Aetherion (doc 1 §3 : sidebar gauche +
-grille de projets), avec son propre contenu :
+Réutilise la structure d'un lanceur à barre latérale et grille, avec son propre
+contenu. **Il s'ouvre sur les projets d'interfaces**, plus sur des fichiers isolés.
 
-- Sidebar : `Bibliothèque`, `Marketplace de composants`, `Apprendre`,
-  `Préférences`
-- Bibliothèque : grille de cartes projets `.nkgui`, miniature = rendu du
-  premier écran du projet
-- Bouton `+ Nouveau projet` ouvre un choix à 3 branches (pas un stepper
-  complet comme Aetherion, plus direct car NkUIDesign a moins de paramètres
-  cibles) :
-  - **Vierge** : canvas infini vide, une page "Page 1" créée par défaut
-  - **Gabarit** : galerie de gabarits (Formulaire de connexion, Dashboard,
-    Palette d'outils, HUD de jeu…)
-  - **Via IA** : champ de description libre → génère un ou plusieurs écrans
-    complets (doc 1 §6.1), ouvre directement l'éditeur avec un aperçu à
-    valider avant écriture définitive dans le document
+- **Barre latérale** : `Projets`, `Bibliothèque`, `Thèmes`, `Marketplace de
+  composants`, `Apprendre`, `Préférences`.
+- **Projets** : grille de cartes — un **projet** est un dossier d'interfaces
+  (typiquement `Resources/Interface/` du dépôt) ; miniature = le premier écran de la
+  carte de l'application ; sous le nom, les applications qu'il contient et un badge de
+  santé (le plus grave des compteurs, §23).
+- **Récents** : projets, puis documents.
+- **Ouvrir** : `Ouvrir un projet…` (un dossier) — **l'entrée principale** ; `Ouvrir un
+  document .nkgui…` ; `Ouvrir un .nkuidoc…` (proposé avec **Convertir en `.nkgui`**,
+  décision D1 : la conversion dit ce qu'elle garde, ce qu'elle ne peut pas garder, et
+  laisse une copie `.avant-nkgui`).
+- **`+ Nouveau`** ouvre un choix :
+  - **Projet** : vierge, ou **« Application de la famille Rihen »** (pose `Commun/`
+    par `include`, une carte `application.nkgui`, le thème Rihen UE5, un dossier de
+    tests) ;
+  - **Document vierge** : une page « Page 1 » ;
+  - **Depuis un gabarit** : panneau, barre d'outils, menu, dialogue, fenêtre d'accueil,
+    formulaire, HUD de jeu — faits des **composants communs** ;
+  - **Depuis une spécification** : coller un arbre (§28) ;
+  - **Via IA** : une description → une carte et des écrans complets, en **aperçu** avant
+    toute écriture (doc 1 §6).
+- **Thèmes** : la bibliothèque de thèmes (livrés, du projet, des greffons) — ouvrir
+  l'un d'eux ouvre l'éditeur de thème (§26).
 
 ---
 
@@ -109,32 +221,51 @@ une bande : c'est un **panneau flottant vertical** posé entre la Hiérarchie et
 canvas (§7).
 
 ```
-┌────┬────────────────────────────────────────────────────────────┐
-│ ▓▓ │ Fichier Édition Affichage …     Nom du design     [—][□][x] │ ← Barre de menu   28px
-│ ▓▓ ├────────────────────────────────────────────────────────────┤
-│ ▓▓ │ [Projet A ×] [Projet B ×] [+]                               │ ← Barre d'onglets 28px
-├────┴───────┬──┬──────────────────────────────────────┬───────────┤
-│            │▐▌│   [ Design │ Behavior │ Animation │ Split ]      │ ← bascule de mode, flottante
-│ Hiérarchie │▐▌│                                      │ Inspecteur│
-│            │▐▌│           CANVAS INFINI              │           │
-│            │▐▌│                                      │           │
-│            │▐▌│                       [100% ▾][⊞][🧲]│           │ ← cluster canvas, flottant
-├────────────┴──┴──────────────────────────────────────┴───────────┤
-│  Rail de pastilles (bas) — Console / Validation, ancré discret    │
-└──────────────────────────────────────────────────────────────────┘
-              ▲
-              └── Barre d'outils FLOTTANTE, verticale, propre au mode actif
+┌────┬────────────────────────────────────────────────────────────────────────────────┐
+│ ▓▓ │ Fichier Édition Affichage Objet Cible Comportement IA Projet Fenêtre Aide  [—][□][x]│ 28
+│ ▓▓ ├────────────────────────────────────────────────────────────────────────────────┤
+│ ▓▓ │ [NkAnima › barre_outils ●×] [Commun › composants ×] [Nogee › menus ×] [+]        │ 28
+├────┴──────────┬──┬──────────────────────────────────────────────────────┬──┬─────────┤
+│ PROJET     🔍 │▐▌│ [Design│Behavior│Animation│Split│Source]  [👁 Fidélité] │▐▌│INSPECTEUR│
+│ ▾ Commun    ✓ │▐▌│                                                       │▐▌│[▢Button▾]│
+│ ▾ NkAnima  ⚠2 │▐▌│   ┌ barre_outils — Bureau 1440 ┐    ┌ …  ┐           │▐▌│anim.     │
+│   barre_out ◐ │▐▌│   │ [|<][<][▶][>][>|] [Clé]…    │    │    │           │  │inserer ✅│
+│ ▸ NKScena     │▐▌│   └─────────────────────────────┘    └────┘           │  │Design    │
+├───────────────┤  │                                                       │  │Widget    │
+│ STRUCTURE     │  │                                                       │  │Behavior  │
+│ ▾ HBox outils │  │                                                       │  │ …        │
+├───────────────┤  │ [Repos ▾][NkAnima · UE5 · Sombre ▾][1440 ▾][100%▾][⊞][🧲][▶]│  │          │
+│ COMPOSANTS    │  │                                                       │  │          │
+├───────────────┴──┴───────────────────────────────────────────────────────┴──┴─────────┤
+│ Console · Contrôles ⚠3 · Fidélité ◐7 · Tests ✕1 · Aperçu │ anim.inserer │ ● Prêt      │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+       ▲
+       └── Barre d'outils FLOTTANTE, verticale, propre au mode actif (§7)
 ```
 
 **Le logo (`▓▓`) occupe les deux bandes** : il commence sur la barre de menu et se
 termine sur la barre d'onglets. **56 × 56 px, strictement carré**, collé au coin
-supérieur gauche. Les deux bandes sont ramenées à **28px chacune** (contre 32 et
-34 auparavant) — la hauteur totale de l'en-tête passe de 66 à 56px, et le logo
-devient l'ancre visuelle de la fenêtre.
+supérieur gauche. Les deux bandes font **28 px chacune** ; la hauteur totale de
+l'en-tête est **56 px**, et le logo est l'ancre visuelle de la fenêtre.
 
-Rails de pastilles supplémentaires en bordure gauche et droite de la zone
-canvas (fines bandes de 28px, en dehors de la Hiérarchie/Inspecteur qui sont
-des panneaux fixes distincts) — détaillés en §13.
+Rails de pastilles en bordure gauche et droite de la zone canvas (bandes de 28 px, en
+dehors des panneaux fixes) — §13.
+
+### 4.1 Les zones, et ce que la refonte y a changé
+
+| zone | contenu | changement du 27/09 et pourquoi |
+|---|---|---|
+| onglets | un onglet par **document**, libellé **Application › document**, point si modifié | on travaille sur plusieurs applications à la fois |
+| colonne gauche | trois sections redimensionnables : **Projet** (§23), **Structure** (la hiérarchie de la page, §11), **Composants** (§11.6) | le projet est l'unité de travail |
+| bascule de mode | Design · Behavior · Animation · Split · **Source**, + interrupteur **Fidélité** | le `.nkgui` est le produit (§27) ; la fidélité se voit (§22) |
+| grappe de la toile | **état** · **thème et variante du document** · **tailles** · zoom · grille · magnétisme · ▶ Simuler | concevoir les états, les thèmes, le responsive, et simuler d'un geste |
+| inspecteur | **en-tête d'identité** (rôle, identifiant = **action**, état de l'action), puis onglets | l'action est ce qui compte le plus sur un élément interactif (§12.0) |
+| barre d'état | Console · **Contrôles** · **Fidélité** · **Tests** · Aperçu, la sélection, l'état | les compteurs qu'on doit voir en continu |
+| menus | + **Projet** | §5bis.7bis |
+
+**Ce qui ne change pas** : le logo carré de 56 px, les deux bandes de 28 px, la barre
+d'outils flottante verticale propre au mode, les rails de pastilles, la toile infinie
+et ses cadres étiquetés « Nom — Cible L × H ».
 
 ---
 
@@ -147,8 +278,9 @@ deux bandes commencent donc à `x = 56`, jamais à `x = 0`.
 Trois zones, dans cet ordre exact de gauche à droite :
 
 - **Zone gauche** : le menu principal horizontal en texte simple, **collé au bord
-  droit du bloc logo** : `Fichier · Édition · Affichage · Objet · Comportement ·
-  IA · Fenêtre · Aide`. Pas d'espace mort entre le logo et le menu — ils forment
+  droit du bloc logo** : `Fichier · Édition · Affichage · Objet · Cible ·
+  Comportement · IA · Projet · Fenêtre · Aide` (dix entrées : `Cible` ajoutée le
+  20/08, `Projet` le 27/09 — §5bis.7bis). Pas d'espace mort entre le logo et le menu — ils forment
   un seul groupe visuel.
 - **Zone centrale** : nom du design/projet actif (ex. `Dashboard_Admin.nkgui`),
   centré par rapport à la fenêtre entière (pas par rapport à l'espace
@@ -165,7 +297,7 @@ est draggable lui aussi.**
 
 ## 5bis. Les menus, entrée par entrée
 
-> §5 déclarait la barre et ses huit entrées, **sans jamais dire ce qu'elles
+> §5 déclarait autrefois la barre et ses huit entrées (dix aujourd'hui), **sans jamais dire ce qu'elles
 > contiennent**. Voici le contenu.
 
 ### ⚠️ Une collision à trancher : le mot « Fenêtre » désigne deux choses
@@ -181,7 +313,9 @@ de fenêtre, curseur, points de rupture, rapport de transposition. `Fenêtre` re
 à l'éditeur.
 
 ✅ **Adopté par Rodolf le 2026-08-20**, après validation de la planche du menu
-déroulant. **La barre porte neuf entrées.**
+déroulant. **La barre porte neuf entrées** — **dix** depuis le 27/09, avec `Projet`
+(§5bis.7bis), qui rassemble ce qui vaut pour **tout le projet** (thèmes, actions,
+contrôles, tests) et non pour le document ouvert.
 
 ⚠️ **Conséquence à ne pas perdre de vue** : les planches validées qui montrent la
 barre à huit entrées sont désormais **périmées** — §22.5 à §22.7 du document Banani
@@ -213,22 +347,35 @@ de leur contenu ; **seule la barre est à reprendre**, au moment de la compositi
 
 | entrée | raccourci |
 |---|---|
-| Nouveau projet… | `Ctrl+N` |
-| Ouvrir… | `Ctrl+O` |
-| Ouvrir récent `▸` | |
-| Fermer le projet | `Ctrl+W` |
+| Nouveau `▸` — Projet… · Document… · Depuis un gabarit… · Depuis une spécification… · Via IA… | `Ctrl+N` (document) |
+| Ouvrir un projet… | `Ctrl+Alt+O` |
+| Ouvrir un document… | `Ctrl+O` |
+| Ouvrir récent `▸` — projets, puis documents | |
+| Convertir un `.nkuidoc`… | |
+| Fermer le document | `Ctrl+W` |
 | *—* | |
 | Enregistrer | `Ctrl+S` |
 | Enregistrer sous… | `Ctrl+Maj+S` |
 | Enregistrer tout | `Ctrl+Alt+S` |
-| Revenir à la version enregistrée | |
+| Revenir à la version enregistrée… | |
 | *—* | |
-| Importer `▸` — Composant… · Document… · Ressources… | |
-| Exporter `▸` — Document `.nkgui` · Ressources · Code | `Ctrl+E` |
-| Valider le document | `Ctrl+Maj+V` |
+| Importer `▸` — Composant… · Document… · SVG… · Ressources… | |
+| Exporter `▸` — Image (PNG, SVG)… · Code… · Découper en fichiers… · Document `.nkgui` (copie)… | `Ctrl+E` |
+| Valider le document | `F7` |
+| **Voir dans l'application** | `Ctrl+Maj+Entrée` |
 | *—* | |
+| Backend graphique `▸` — *(les backends disponibles ; le courant coché)* | |
 | Préférences… | `Ctrl+,` |
-| Quitter | `Alt+F4` |
+| Quitter | `Ctrl+Q` |
+
+⚠️ **Enregistrer est l'export.** Le document de NKUIDesign **est** le `.nkgui` (doc 1
+§4.1) : `Ctrl+S` écrit le `.nkgui` en gardant son style et ses commentaires, et le
+`.nkgui.meta` à côté. Les exports d'images et de code sont secondaires.
+
+⚠️ **« Valider » passe de `Ctrl+Maj+V` à `F7`** : `Ctrl+Maj+V` était affiché pour deux
+entrées (« Valider le document » et « Coller à la même place »). Le collage garde la
+touche (réflexe des outils de design) ; valider prend `F7`, comme « compiler » dans
+Nogee.
 
 ⚠️ **« Revenir à la version enregistrée » demande confirmation en nommant ce qui
 sera perdu** — nombre d'éléments modifiés, heure du dernier enregistrement. Une
@@ -255,6 +402,9 @@ entrée de menu qui jette du travail sans le décrire est un piège à un clic d
 | Rechercher… | `Ctrl+F` |
 | Remplacer une propriété… | `Ctrl+H` |
 | Renommer | `F2` |
+| *—* | |
+| Coller comme arbre (texte de spécification) | `Ctrl+Maj+T` |
+| Rechercher dans le projet… | `Ctrl+Maj+F` |
 
 ### 5bis.4 `Affichage`
 
@@ -274,15 +424,21 @@ entrée de menu qui jette du travail sans le décrire est un piège à un clic d
 | ☐ Régions de fenêtre | |
 | ☐ Éléments désactivés par héritage | |
 | *—* | |
-| Mode `▸` — Design `Ctrl+1` · Behavior `Ctrl+2` · Animation `Ctrl+3` · Split `Ctrl+4` | |
-| Thème `▸` — Sombre · Clair · Système | |
-| Panneaux `▸` — Hiérarchie · Inspecteur · Console · Palette · Bibliothèque · Chat IA | |
+| Mode `▸` — Design `Ctrl+1` · Behavior `Ctrl+2` · Animation `Ctrl+3` · Split `Ctrl+4` · Source `Ctrl+5` | |
+| ☐ Fidélité (rendu du monteur) | `Maj+F` |
+| État `▸` — Repos · Survol · Appui · Focus · Focus visible · Désactivé | |
+| Thème du document `▸` — les thèmes et variantes de l'application · Les deux variantes côte à côte | |
+| Tailles multiples… | |
+| *—* | |
+| Thème de l'outil `▸` — Rihen UE5 · GitHub Pro · Contraste élevé · *(installés)* ; Sombre · Clair · Système | |
+| Panneaux `▸` — Projet · Structure · Composants · Inspecteur · Console · Contrôles · Fidélité · Tests · Actions · Palette · Bibliothèque · Chat IA | |
 | Plein écran | `F11` |
 
 ⚠️ **Deux collisions ont été trouvées en écrivant ces tables, et tranchées par
 Rodolf le 2026-08-20.** Les modes étaient sur `F1..F4`, où `F1` heurtait la
 documentation (§5bis.10) et `F2` le renommage (§5bis.3). **Les modes passent sur
-`Ctrl+1..4`**, et l'ajustement de vue libère `Ctrl+1/2` pour `Maj+1/2`.
+`Ctrl+1..4`**, et l'ajustement de vue libère `Ctrl+1/2` pour `Maj+1/2`. (Le 27/09, `Ctrl+5`
+s'y ajoute pour **Source**, §27.)
 
 *Le renommage par `F2` et l'aide par `F1` sont des réflexes que l'utilisateur
 apporte avec lui ; les modes n'ont pas d'antériorité à défendre.* **C'est le
@@ -303,15 +459,28 @@ ne le montre — et on ne l'aurait découvert qu'en appuyant sur la touche.
 | Grouper | `Ctrl+G` |
 | Dégrouper | `Ctrl+Maj+G` |
 | Convertir en composant | `Ctrl+K` |
-| Détacher l'instance | |
+| Détacher l'instance | `Ctrl+Alt+D` |
+| Appliquer au composant | `Ctrl+Alt+M` |
 | Promouvoir en composant partagé | |
 | *—* | |
 | Aligner `▸` · Répartir `▸` | |
-| Ordre `▸` — Premier plan · Avancer · Reculer · Arrière-plan | |
+| Ordre `▸` — Premier plan `Ctrl+Maj+]` · Avancer `Ctrl+]` · Reculer `Ctrl+[` · Arrière-plan `Ctrl+Maj+[` | |
+| Miroir `▸` — Horizontal `Maj+H` · Vertical `Maj+V` | |
 | *—* | |
 | ☐ Verrouiller | `Ctrl+L` |
 | ☐ Masquer dans l'éditeur | `Ctrl+Maj+H` |
 | Disponibilité `▸` — Actif · Désactivé · Lecture seule · Occupé | |
+| *—* | |
+| Choisir l'action… | `Ctrl+Maj+A` |
+| Choisir un jeton pour la couleur… | `Ctrl+T` |
+| Poser une zone hôte | |
+| Poser un rôle proposé `▸` | |
+| *—* | |
+| Booléens `▸` — Union `Ctrl+Maj+U` · Soustraire `Ctrl+Maj+P` · Intersecter `Ctrl+Maj+I` · Exclure `Ctrl+Maj+X` · Aplatir | |
+| Vectoriser le contour | `Ctrl+Maj+O` |
+| Masque | `Ctrl+M` |
+| Utiliser comme forme du widget | |
+| Enregistrer comme icône… | |
 
 ⚠️ **« Masquer dans l'éditeur » porte ces trois mots, et pas seulement
 « Masquer ».** C'est la distinction de §11.1 : masquer pour travailler n'est pas
@@ -329,6 +498,7 @@ où l'on choisit.
 | ☑ Afficher la zone sûre | |
 | Décoration `▸` — Native · Client | |
 | Curseur… | |
+| Langue du document `▸` | |
 | *—* | |
 | Points de rupture… | |
 | Aperçu multi-cibles | |
@@ -345,28 +515,56 @@ où l'on choisit.
 | Lier à un callback… · Délier | |
 | Gestionnaire de callbacks… | |
 | *—* | |
+| Nouveau Blueprint · Nouvelle fonction · Nouvelle macro | |
+| ☐ Point d'arrêt sur le nœud | `F9` |
+| *—* | |
 | Simuler | `F5` |
+| **Simuler à partir de…** | `Ctrl+F5` |
 | Geler la simulation | `F6` |
 | Recharger la simulation | `Maj+F5` |
-| Système simulé… | |
+| Pas à pas | `F10` |
+| Système simulé… (doublures) | |
+| **Carte de l'application…** | |
+| **Enregistrer un test** (en simulation) | `Ctrl+Maj+R` |
 | **Rapport de couverture…** | |
 
 ### 5bis.8 `IA`
 
-| entrée | |
+| entrée | raccourci |
 |---|---|
 | Générer un composant… · un comportement… · une animation… | |
 | Proposer un rôle pour la sélection | |
 | *—* | |
 | ☑ Chercher dans la bibliothèque avant de générer | |
 | *—* | |
-| Ouvrir le chat IA | |
+| Ouvrir le chat IA | `Ctrl+Maj+K` |
 | Réglages du modèle… | |
 
 ⚠️ **La coche « chercher avant de générer » est exposée ici, et cochée par
 défaut** (§17.1). La rendre visible dit à l'utilisateur que l'outil réutilise plutôt
 qu'il ne duplique — une garantie qu'on ne peut pas donner par un comportement
 silencieux.
+
+### 5bis.7bis `Projet` 🆕
+
+| entrée | raccourci |
+|---|---|
+| Explorateur du projet | |
+| Graphe des inclusions… | |
+| **Thème et jetons…** | |
+| **Actions** (registre) | |
+| **Contrôles** | |
+| Règles de contrôle… | |
+| *—* | |
+| **Tests** `▸` — Lancer tous · Lancer les échoués · Vérifier les tests · Rapport de couverture… · Panneau des tests | |
+| *—* | |
+| Actualiser les actions (sonde de l'application) | |
+| Moderniser les documents… (alias → noms canoniques, sur demande seulement) | |
+
+⚠️ **« Moderniser » ne s'exécute jamais tout seul.** Un fichier écrit par quelqu'un
+d'autre garde ses mots ; le remplacement des alias (`InputText` → `TextField`) ou des
+doublures de rôles proposés est **proposé**, avec la liste, et appliqué en une
+opération annulable.
 
 ### 5bis.9 `Fenêtre` — celles de l'éditeur
 
@@ -375,7 +573,7 @@ silencieux.
 | Nouvelle fenêtre | |
 | Détacher l'onglet dans une fenêtre | |
 | *—* | |
-| Disposition `▸` — Par défaut · Design · Comportement · Enregistrer la disposition… · Réinitialiser | |
+| Disposition `▸` — Par défaut · Design · Comportement · Source · Enregistrer la disposition… · Réinitialiser | |
 | *—* | |
 | Onglet suivant · précédent | `Ctrl+Tab` · `Ctrl+Maj+Tab` |
 | *—* | |
@@ -408,12 +606,15 @@ qui s'applique **à ce qu'on a sous le curseur**.
 | contexte | entrées |
 |---|---|
 | **canvas vide** | Coller · Coller à la même place · *—* · Ajouter un cadre… · Générer avec l'IA… · *—* · Ajuster à la page · Grille · Magnétisme |
-| **élément** | Devenir… · Retirer le rôle · *—* · Couper · Copier · Dupliquer · Supprimer · *—* · Grouper · Convertir en composant · *—* · Ordre `▸` · Aligner `▸` · *—* · Verrouiller · Masquer dans l'éditeur · Disponibilité `▸` · *—* · Définir des événements… |
+| **élément** | Devenir… · Retirer le rôle · Choisir l'action… · *—* · Couper · Copier · Dupliquer · Supprimer · *—* · Grouper · Convertir en composant · *—* · Ordre `▸` · Aligner `▸` · *—* · Verrouiller · Masquer dans l'éditeur · Disponibilité `▸` · *—* · Définir des événements… |
 | **page / cadre** | Renommer · Dupliquer la page · Supprimer la page · *—* · Cible `▸` · Orientation `▸` · *—* · Centrer sur cette page · Rapport de transposition… |
 | **instance de composant** | Éditer le maître · Réinitialiser au maître · Détacher l'instance · *—* · Sélectionner toutes les instances · *—* · Promouvoir en composant partagé |
 | **composant (section basse)** | Renommer · Éditer · Dupliquer · Supprimer · *—* · Promouvoir en composant partagé · *—* · Sélectionner ses instances |
 | **ligne d'événement** | Lier… · Délier · Ouvrir dans le graphe · *—* · Retirer du rôle · Rétablir |
-| **nœud du graphe** | Couper · Copier · Supprimer · *—* · Désactiver ce nœud · Ajouter un commentaire · *—* · Aller à la définition |
+| **nœud du graphe** | Couper · Copier · Supprimer · *—* · Désactiver ce nœud · Point d'arrêt · Ajouter un commentaire · *—* · Réduire en fonction · Réduire en macro · *—* · Aller à la définition · Aller au widget |
+| **fil du graphe** | Poser un renvoi · Couper · *—* · Insérer un nœud de conversion |
+| **booléen** | Opération `▸` · Aplatir… · *—* · Utiliser comme forme du widget · Enregistrer comme icône… |
+| **zone hôte** | Contenu fictif… · Retirer le contenu fictif · *—* · Qui la remplit ? |
 | **greffon** | Activer · Désactiver · *—* · Voir les permissions… · Voir les contributions… · *—* · Désinstaller… |
 
 ⚠️ **Dans un menu contextuel, un bloc entier sans objet se retire ; une entrée
@@ -433,9 +634,10 @@ instance ferait porter l'action à un objet que l'utilisateur n'a pas désigné.
 
 Hauteur **28px**, immédiatement sous la barre de menu, commençant à `x = 56`
 (après le bloc logo). **Chaque onglet
-représente un projet `.nkgui` ouvert** (pas une page à l'intérieur du
-projet — voir §8 pour les pages, qui vivent toutes sur le canvas infini d'un
-même onglet).
+représente un document `.nkgui` ouvert**, libellé **Application › document** (depuis
+le 27/09 : on travaille sur plusieurs applications d'un même projet à la fois) — pas une
+page à l'intérieur du document : les pages vivent toutes sur le canvas infini d'un même
+onglet (§8).
 
 - Onglet : icône miniature très réduite du projet (optionnelle, sinon icône
   générique), nom du projet, point `•` si non sauvegardé, bouton `×` fermer
@@ -468,7 +670,9 @@ chercher.
 ⚠️ **La bascule de mode n'est PAS dans cette barre**, et c'est délibéré : elle
 choisit *quelle* barre s'affiche, elle ne peut donc pas vivre dedans. Elle devient
 un **segmented control flottant, centré en haut du canvas** :
-`[ Design │ Behavior │ Animation │ Split ]`, raccourcis `1`/`2`/`3`/`4`. En mode
+`[ Design │ Behavior │ Animation │ Split │ Source ]`, raccourcis `Ctrl+1` Design ·
+`Ctrl+2` Behavior · `Ctrl+3` Animation · `Ctrl+4` Split · `Ctrl+5` Source
+(Source : §27), suivi de l'interrupteur **👁 Fidélité** (§22). En mode
 `Split`, le menu de combinaison et d'orientation apparaît juste à côté (§10).
 
 De même, le **cluster canvas** — zoom éditable `100% ▾`, grille, magnétisme —
@@ -493,7 +697,7 @@ famille se déplie **par-dessus** le canvas.
 
 | famille | outils |
 |---|---|
-| **Sélection** `V` | Sélection · Sélection directe (points) · Main/Pan `Espace` |
+| **Sélection** `V` | Sélection · Sélection directe (points) · Main `H` (et `Espace` maintenu : main temporaire) |
 | **Cadre** `F` | Cadre/Artboard · Section · Groupe |
 | **Formes fixes** `R` | **Rectangle · Rectangle arrondi · Cercle/Ellipse · Triangle · N-gone · Étoile · Ligne · Flèche** |
 | **Vectoriel** `P` | **Plume · Crayon libre · Courbe · Ciseaux · Booléens (union, soustraction, intersection, exclusion)** |
@@ -510,16 +714,17 @@ tant que l'utilisateur ne le demande pas explicitement.
 
 | famille | outils |
 |---|---|
-| **Sélection** `V` | Sélection · Main/Pan |
-| **Nœud** `N` | Nœud d'événement · Nœud d'action · Nœud de condition · Nœud de calcul |
-| **Liaison** `L` | Liaison · Coupe-liaison · Reroutage |
-| **Commentaire** | Note · Cadre de groupe |
+| **Sélection** `V` | Sélection · Main `H` (et `Espace` maintenu) |
+| **Nœud** `N` | Événement · Flux · Donnée · Interface · Action · Fonction — chaque outil ouvre la recherche de nœuds filtrée sur sa famille (§9.4) |
+| **Liaison** `L` | Liaison · Coupe-liaison · Renvoi |
+| **Commentaire** `C` | Note · Cadre de groupe |
+| **Débogage** | Point d'arrêt · Pas à pas (actifs en simulation) |
 
 ### 7.4 Barre d'outils — mode **Animation**
 
 | famille | outils |
 |---|---|
-| **Sélection** `V` | Sélection · Main/Pan |
+| **Sélection** `V` | Sélection · Main `H` (et `Espace` maintenu) |
 | **Clé** `K` | Poser une clé · Supprimer · Copier la pose |
 | **Courbe** `C` | Linéaire · Accéléré · Ralenti · Personnalisé (éditeur de courbe) |
 | **Déclencheur** | Au chargement · Au survol · Au clic · Sur événement nommé |
@@ -556,7 +761,7 @@ son propre volet. Elles ne fusionnent jamais : chaque canvas garde ses outils.
   décorative non promue.
 - Menu contextuel clic-droit : Grouper, Créer un cadre depuis la sélection,
   **Promouvoir en widget…** (ouvre un sous-menu = catalogue de rôles, cf.
-  doc 1 §4.5 / §14), **Rétrograder en forme**, Convertir en composant
+  doc 1 §4.6 ; voir aussi §14ter), **Rétrograder en forme**, Convertir en composant
   réutilisable, Copier le style, Définir des événements… (raccourci direct
   vers le mode Behavior filtré sur cet élément).
 
@@ -584,14 +789,60 @@ double-cliquant une forme existante pour entrer en **mode édition de points**.
   champ dans l'Inspecteur quand une seule ancre est sélectionnée.
 - **Outils complémentaires de la barre d'outils Tracé** : Ajouter un point sur
   segment, Supprimer un point, Couper un tracé, Fermer/ouvrir un tracé.
-- **Opérations booléennes** (menu contextuel sur une sélection de ≥2 formes,
-  aussi accessible en boutons dans l'Inspecteur) : `Union`, `Soustraction`,
-  `Intersection`, `Exclusion` — produisent un tracé composé unique, toujours
-  redécomposable (`Détacher les composants`) sans perte, cohérent avec le
-  principe non-destructif du doc 1 §3.
+- **Opérations booléennes** — détaillées en **§8bis.1** (Rodolf, 27/09 : *« les
+  booléens sont importants pour composer les formes graphiques qui vont permettre de
+  poser le design des widgets »*).
 - **Import vectoriel** : `Fichier > Importer > SVG…` convertit les tracés SVG
-  en formes `ShapeNode` de type tracé natif (pas une image bitmap encapsulée)
+  en formes de type tracé natif (pas une image bitmap encapsulée)
   — immédiatement éditable au sommet comme un tracé dessiné à la main.
+
+### 8bis.1 Les booléens ✚
+
+**Où on les trouve**
+
+- **Barre contextuelle** : dès que **deux formes ou plus** sont sélectionnées, une
+  petite barre flottante apparaît **au-dessus de la sélection** (comme la barre des
+  sommets en édition de forme) : **Union · Soustraire · Intersecter · Exclure ·
+  Aplatir**, chacune avec son icône **et** son mot.
+- **Objet ▸ Booléens** et les raccourcis de Lunacy : `Ctrl+Maj+U` union,
+  `Ctrl+Maj+P` soustraire, `Ctrl+Maj+I` intersecter, `Ctrl+Maj+X` exclure ;
+  `Ctrl+Maj+O` vectoriser le contour ; `Ctrl+M` masque (§29 : `Ctrl+M` libéré de la
+  commande de coquille « Vue : Préférences », qui a déjà `Ctrl+,`).
+- **Inspecteur**, sur un groupe booléen : une ligne **Opération** (Union, Soustraction,
+  Intersection, Exclusion) — on **change d'opération après coup** — et une ligne
+  **Remplissage** (non nul / pair-impair).
+
+**Ce qu'on voit**
+
+- Le résultat est **rempli** ; les formes sources restent visibles **en contour fin**
+  quand le groupe est sélectionné, et **éditables** (double-clic entre dans le groupe,
+  comme un groupe ordinaire).
+- Dans la **Structure**, un booléen est un groupe avec une **icône d'opération**
+  (∪ − ∩ ⊕) ; ses enfants sont listés **dans l'ordre qui compte** (la soustraction
+  retire les suivants du premier) — glisser pour réordonner change le résultat, en
+  direct.
+- Un booléen peut **contenir** un booléen (un bouton = union(rectangle arrondi,
+  triangle) − cercle).
+- **Aplatir** demande confirmation (« les formes sources seront perdues ») et
+  s'annule comme tout le reste. C'est le **seul** geste destructif.
+
+### 8bis.2 Du booléen au widget ✚
+
+- **« Utiliser comme forme du widget »** (clic droit sur un booléen ou une forme, ou
+  Objet ▸) : la forme rejoint la **bibliothèque de formes** du document (`geometry
+  "formes"`, doc 2 §15.2) et le widget sélectionné la prend comme **surface**
+  (`appearance { shape }`). L'inspecteur du widget montre alors, dans **Apparence**,
+  une ligne **Forme** (aperçu, nom, « Modifier la forme » qui ouvre la forme sur la
+  toile) ; la forme peut **changer par état** (une forme enfoncée pour `Pressed`).
+- **Le clic suit la forme** : case **« Zone de clic = forme »** (`hitShape`).
+- **Fidélité** : tant que le monteur ne remplit pas un contour non convexe, la forme
+  porte ◐ « le monteur remplira la boîte arrondie, pas la forme » (§22).
+- **Icônes maison** : **« Enregistrer comme icône… »** (nom, catégorie) ; l'icône
+  devient choisissable partout où l'on choisit une icône. Une icône dessinée ici n'a
+  **pas de licence à suivre**.
+- **Le critère de la famille** (doc 1 §9, R2) : un bouton à coin coupé composé par
+  soustraction, enregistré, **monté dans NkAnimaEditor avec sa forme**, qui ne réagit
+  pas au clic dans le coin.
 
 ---
 
@@ -615,37 +866,13 @@ tout élément sélectionné (forme ou widget) :
   dessous
 - **Opacité globale** de l'élément, distincte de l'opacité de chaque
   remplissage individuel
-- Tous ces effets sont des propriétés normales du modèle de document (pas un
-  mode à part) : ils s'exportent dans `.nkgui` comme des `shape_prop`/
-  `prop_decl` standards (doc 2 §2-4), donc rejouables tels quels par le
-  runtime NKGui — aucune fonctionnalité de l'éditeur qui ne soit pas
-  restituable en production.
-
----
-
-Bascule accessible depuis le segmented control de la toolbar (§7) ou depuis
-le menu contextuel d'un élément (§8).
-
-- **Portée du graphe affiché**, sélectionnable en haut du canvas Behavior
-  via un dropdown contextuel `Portée : [ Composant sélectionné ▾ ]` avec
-  options `Ce composant`, `Cette page (tous les événements)`, `Vue globale
-  (tous les contrôleurs du projet)` — répond directement au besoin
-  « définir les événements d'un composant ou de toute une page ».
-- Sous-barre d'outils spécifique Behavior : toggle `Code ⇄ Node Graph`
-  (doc 1 §4.6), recherche de nœud, minimap, mode debug (surbrillance du
-  chemin exécuté pendant un test — voir §18).
-- Le graphe lui-même reprend le style `NodeGraphCanvas` déjà établi pour
-  Aetherion (câbles Bézier, pins colorés par type de donnée), avec les
-  familles de nœuds propres au langage `.nkgui` (doc 2 §6.2) : Événement
-  (rose), Flux (blanc épais), Donnée (fin coloré par type), Action (bleu),
-  Commentaire (gris pointillé, cosmétique).
-- Vue Code : éditeur texte avec coloration `NkGuiSyntax` (doc 1 §4.6),
-  panneau d'erreurs ancré en bas de cette vue uniquement (distinct de la
-  Console générale du rail de pastilles, §13), autocomplétion des callbacks
-  déclarés.
-- Un élément du canvas Design correspondant au nœud/callback survolé dans le
-  Behavior s'illumine brièvement dans l'autre vue si elle est visible
-  (utile surtout en mode Split, §10).
+- Tous ces effets sont des propriétés normales du document (pas un mode à part) :
+  ils s'écrivent dans le bloc `appearance` du widget (`fill`, `stroke`, `shadow`,
+  `blur`, doc 2 §13) et **voyagent** jusqu'au runtime. *(Précisé le 27/09 : le
+  monteur NKGui n'en peint aujourd'hui qu'une partie — le remplissage uni de
+  quatre rôles, la couleur du texte, le rayon ; le reste est **compté**. La vue
+  Fidélité, §22, le montre sur la toile au lieu de le laisser découvrir au
+  lancement.)*
 
 ---
 
@@ -665,6 +892,11 @@ ensuite dans l'Inspecteur :
 | **Mobile** | 390×844 · 360×800 · 412×915 · libre |
 | **Tablette** | 820×1180 · 768×1024 · libre |
 | **Libre** | dimensions saisies à la main |
+
+📌 *Précision du 27/09 (§8quater.1bis, doc 1 §4.14)* : les **classes** de cible sont
+trois — **Bureau, Mobile, Web**. **Tablette** est un gabarit d'appareil de la classe
+Mobile ; **Libre** désigne des dimensions saisies, pas une classe. La table ci-dessus
+garde les gabarits validés en août.
 
 ⚠️ **La cible n'est pas décorative** : elle fixe la **zone sûre** (§ safe area), la
 densité de pixels de référence, et les gabarits de composants proposés par la
@@ -1059,59 +1291,137 @@ avec le choix de la référence — la sélection, le premier élément, ou le p
 
 ---
 
-## 9. Canvas — mode Behavior (Node Graph / Code)
+## 9. Canvas — mode Behavior : le Blueprint et la vue Code
+
+> Rodolf, 27/09 : *« n'oublie surtout pas les blueprints. »*
 
 Le mode qui répond à *« que se passe-t-il quand on clique ? »*. Même document que
 le mode Design — **un seul fichier, deux vues**. Un nœud qui référence un widget
 supprimé se signale immédiatement ; il ne devient pas orphelin en silence.
 
+📌 **Un Blueprint est un comportement de plein droit** : il est enregistré dans le
+`.nkgui` (section `behavior "…" graph`, doc 2 §6), **compilé** vers la même
+représentation que le script et **exécuté par le même évaluateur** — en simulation
+comme dans l'application (décision D11). Ce qu'on câble ici **tourne**.
+
 ### 9.1 Le canvas
 
-Fond sombre quadrillé, façon Blueprint (§2), pan et zoom identiques au mode Design
-pour ne pas réapprendre les gestes. **La barre d'outils flottante (§7.3) est au même
-endroit** que celle du mode Design — seul son contenu change.
+Fond sombre quadrillé (§2.4), pan et zoom identiques au mode Design pour ne pas
+réapprendre les gestes. **La barre d'outils flottante (§7.3) est au même endroit**
+que celle du mode Design — seul son contenu change.
 
-**Sélecteur de portée** en haut à gauche du canvas, flottant : `Portée : Ce
-composant ▾` · `Cette page` · `Ce projet`. Il filtre ce que le graphe montre —
-sans lui, un projet un peu gros devient illisible.
+- **Sélecteur de portée** en haut à gauche, flottant : `Portée : Ce widget ▾` ·
+  `Ce composant` · `Cette page` · `Cette application`. Il filtre ce que la toile
+  montre — sans lui, un projet un peu gros devient illisible.
+- **Liste des comportements** de la portée, à gauche de la toile, repliable : un
+  comportement par ligne (nom = widget source + événement, ou nom de fonction), avec
+  sa forme (**graphe** ou **script**) et son état (✓ compile · ✕ `E-GRAPHE`).
+- **Mini-carte** en bas à droite ; **recherche** (`Ctrl+F` dans la toile) qui trouve un
+  nœud, un widget désigné, un callback.
+- **Grappe** en bas à droite : zoom, grille points / lignes, « Ranger » (disposition
+  automatique gauche → droite), ⟨⟩ vue Code.
 
 ### 9.2 Les nœuds
 
-| famille | rôle | apparence |
-|---|---|---|
-| **Événement** | point d'entrée — `cliqué`, `survol entré`, `au chargement`, ou un événement créé à la main (§14ter) | en-tête rose, une seule sortie de flux |
-| **Action** | appelle un callback, change une propriété, joue une animation | en-tête bleue |
-| **Condition** | branche selon un test | en-tête ambrée, deux sorties `vrai`/`faux` |
-| **Calcul** | lit une valeur, compose, transforme | en-tête grise, pas de flux — **données seulement** |
+Chaque nœud a un **bandeau** coloré par **famille** et un **corps**. Même langage
+visuel que les Blueprints de NKCraft (UI_SPEC §10ter) et de Nogee :
+
+```
+        ┌──────────────────────────────────────────────┐
+   ▶────┤  Afficher un message                   ────▶ │  ← bandeau : titre + broches
+        ├──────────────────────────────────────────────┤     d'EXÉCUTION aux extrémités
+   ●────┤  Titre           │ « Supprimer ? »            │  ← corps : broches de DONNÉES
+   ●────┤  Texte           │ « Définitif. »             │     + valeur saisie si non reliée
+   ●────┤  Boutons         │ [Supprimer, Annuler]       │
+        │                                Supprimer ────▶ │  ← une sortie d'exécution
+        │                                Annuler   ────▶ │     PAR BOUTON
+        └──────────────────────────────────────────────┘
+```
+
+| famille | ce qu'elle fait | bandeau | exemples |
+|---|---|---|---|
+| **Événement** | point d'entrée | rose | cliqué, valeur changée, survolé, écran ouvert, événement émis, chaque image |
+| **Flux** | l'ordre et les choix | gris `#2B2B2B` | Si (Branch), Séquence, Selon (Switch), Pour chaque enfant / élément, Une seule fois, Porte, Délai |
+| **Donnée / calcul** | lit, compose, transforme — **pas de flux** | sarcelle `@noeud.donnees` | Valeur d'un widget, Variable, Comparer, Et / Ou / Non, Vide ?, Longueur, Correspond à, Concaténer, Formater, Jeton, Choisir |
+| **Interface** | agit sur l'écran | bleu `@accent` | Régler une propriété, Montrer / Cacher / Basculer, Activer, Désactiver (avec raison), Focus, Ouvrir un écran, Fermer, Retour, Afficher un message, Notification, Changer de thème |
+| **Action** | agit hors de l'écran | ambre `@selection` | Appeler un callback, Appeler un service (sorties succès / échec), Émettre, Journaliser |
+| **Fonction** | appelle une fonction de graphe | bandeau de la famille de la fonction, coin replié | Valider l'adresse, Réinitialiser le formulaire |
+| **Organisation** | sans effet à l'exécution | pas de bandeau | Commentaire (note ou **cadre** qui englobe des nœuds), Renvoi (point de passage d'un fil) |
+
+- **Coins** 6 px (un nœud flotte ; les panneaux ont 2 px).
+- **Broche d'entrée non reliée** : son **champ** s'affiche dans le corps (texte, nombre,
+  liste déroulante des widgets, des écrans, des services, des callbacks) ; reliée, le
+  champ disparaît.
+- **Libellés en français**, identifiants du fichier en anglais (`Branch`,
+  `ShowMessage`) : la bulle d'un nœud donne les deux.
 
 ⚠️ **Les événements disponibles viennent des rôles.** Attribuer le rôle `bouton`
-à une forme (§14ter) fait apparaître `pressé`, `relâché`, `cliqué`, `survol
-entré`, `survol sorti` comme nœuds d'événement posables. **Un élément sans rôle
-n'offre que les événements que l'utilisateur a créés lui-même.** C'est le lien
-direct entre le dessin et le comportement.
+à une forme (§14ter) fait apparaître ses événements comme nœuds posables. **Un
+élément sans rôle n'offre que les événements créés à la main.** C'est le lien direct
+entre le dessin et le comportement. Un événement **reconnu mais pas encore déclenché**
+par le moteur (`DoubleClick`, `Submit`…, doc 2 §9) se pose, porte ◐ et une bulle
+« écrit, compté, pas encore déclenché par NKGui ».
 
 ### 9.3 Les câbles
 
-- **flux d'exécution** : trait blanc épais, dit *dans quel ordre* les choses
-  arrivent ;
-- **données** : trait fin **coloré par type** — un coup d'œil suffit à voir qu'un
+- **flux d'exécution** : trait blanc épais, dit *dans quel ordre* les choses arrivent ;
+- **données** : trait fin **coloré par type** (booléen rouge, entier vert d'eau,
+  décimal vert, texte magenta, couleur jaune, vecteur or, énumération sarcelle, liste
+  à double trait, référence de widget bleu clair) — un coup d'œil suffit à voir qu'un
   texte entre là où un nombre est attendu ;
-- **événement** : rose, du widget vers son nœud d'entrée.
+- **événement** : rose, du widget vers son nœud d'entrée (visible en mode Split).
 
 Un câble refusé ne se branche pas : l'extrémité incompatible s'assombrit pendant
-le glisser, et une bulle dit **pourquoi** — jamais un simple refus muet.
+le glisser, et une bulle dit **pourquoi** (« un Texte ne va pas dans une condition —
+insérer *Vide ?* ») — jamais un refus muet. Une **conversion permise** (entier →
+décimal, tout → texte) pose un petit nœud de conversion visible.
 
-### 9.4 La vue Code
+**Gestes** : glisser d'une broche dans le vide ouvre la **recherche de nœuds filtrée
+par le type** de la broche ; `Alt`+clic sur un fil le coupe ; double-clic sur un fil
+pose un **renvoi** ; `Ctrl`+glisser d'une broche déplace tous ses fils.
 
-Bascule `⟨⟩` en haut à droite du canvas : le même comportement, **écrit dans le
-langage `.nkgui`** (document 2). Ce n'est pas un export : c'est **la même chose,
-lue autrement**.
+### 9.4 Poser, organiser, réutiliser
 
-⚠️ **Les deux sens fonctionnent.** Éditer le texte met le graphe à jour ; déplacer
-un nœud met le texte à jour. Une vue en lecture seule ferait du graphe la seule
-vérité, et priverait d'un moyen de réparer ce que le graphe ne sait pas exprimer.
+- **Clic droit dans le vide** ou **Tab** : la **recherche de nœuds** — tape « mess »,
+  obtiens *Afficher un message* ; les nœuds sont groupés par famille, les widgets du
+  document et les callbacks du projet sont proposés comme nœuds prêts à l'emploi.
+- **Glisser un widget** de la Structure sur la toile : menu « Lire *valeur* · Régler
+  *propriété* · Événement *cliqué* … ».
+- **Commentaire-cadre** (`C` sur une sélection) : entoure les nœuds, se déplace avec
+  eux, prend une couleur.
+- **Réduire en fonction** (clic droit sur une sélection) : la sélection devient une
+  **fonction** (paramètres = fils entrants, retour = fil sortant) et est remplacée par
+  son appel ; **Réduire en macro** garde plusieurs sorties d'exécution. Fonctions et
+  macros apparaissent dans la liste des comportements ; celles de `Commun/` sont
+  partagées par toute la famille.
+- **Ranger** (`Maj+L`) : disposition automatique ; la disposition est **enregistrée
+  dans le `.nkgui.meta`**, jamais dans le `.nkgui` (un déplacement de nœud n'est pas un
+  changement d'interface).
 
-### 9.5 Débogage pendant la simulation
+### 9.5 La vue Code
+
+Bascule `⟨⟩` (`Ctrl+²`) en haut à droite du canvas : le même comportement, **écrit
+dans le langage `.nkgui`** (doc 2 §5). Ce n'est pas un export : c'est **la même chose,
+lue autrement**. Coloration `NkGuiSyntax`, complétion (widgets, champs, écrans,
+services, callbacks, jetons), diagnostics soulignés.
+
+⚠️ **Les deux sens fonctionnent** tant que le graphe reste dans le sous-ensemble
+commun (doc 2 §6.6). Éditer le texte met le graphe à jour (et le range) ; modifier le
+graphe met le texte à jour. Hors du sous-ensemble (boucle hors nœud de boucle, `Porte`,
+`Une seule fois`, nœud personnalisé sans compilation), la vue Code passe en **lecture
+seule** avec un bandeau qui **nomme** le nœud responsable.
+
+### 9.6 Compiler, et le dire
+
+- Chaque modification recompile le comportement ; un défaut (`E-GRAPHE` : entrée
+  obligatoire non reliée, cycle de nœuds purs, types incompatibles) **rougit le nœud en
+  cause** et s'inscrit à l'onglet Validation de la console. Un comportement qui ne
+  compile pas **ne s'exécute pas** en simulation — et la simulation le dit.
+- Un nœud qui désigne un widget, un écran, un service ou un callback **absent** est
+  rouge avec la raison (`E-WIDGET-INCONNU`, `E-ECRAN-INCONNU`…) : une faute de frappe
+  se voit **avant** le lancement.
+
+### 9.7 Débogage pendant la simulation
 
 Quand la fenêtre de simulation (§18) tourne et que le canvas Behavior est visible,
 **le chemin réellement exécuté s'illumine en direct** — les câbles de flux
@@ -1121,9 +1431,13 @@ ternes.
 > **C'est ce qui transforme le graphe en instrument de diagnostic.** On ne se
 > demande plus pourquoi rien ne se passe : on voit où le flux s'arrête.
 
-Un compteur discret sur chaque nœud indique **combien de fois il a été atteint**
-depuis le début de la simulation. Un nœud à zéro, alors qu'on vient de cliquer,
-est le défaut lui-même.
+- Un **compteur** discret sur chaque nœud indique **combien de fois il a été atteint**.
+  Un nœud à zéro, alors qu'on vient de cliquer, est le défaut lui-même.
+- **Points d'arrêt** (`F9` sur un nœud) : la simulation se **fige** en y arrivant ;
+  **pas à pas** (`F10`), **continuer** (`F5`) ; survoler un fil montre **la valeur qui
+  y passe** ; le panneau Variables (§18.4) montre l'état.
+- La même illumination vaut dans la **vue Code** (la ligne exécutée), et en rejouant un
+  **test** (§18ter).
 
 ---
 
@@ -1134,7 +1448,7 @@ Réponse au besoin « ajouter des animations sur un widget en fonction des
 logique : le Behavior décide *quoi déclencher* (callback, variable...),
 l'Animation décide *comment ça bouge à l'écran*. Les deux se déclenchent par
 les mêmes événements (catalogue doc 2 §9) mais restent deux programmes
-séparés dans le document (voir doc 5 §3bis pour le modèle).
+séparés dans le document (voir doc 5 §1sexies pour le modèle).
 
 ### Deux façons de construire une animation, réutilisant volontairement les
 ### éditeurs déjà définis pour Aetherion Animate & FX (mêmes composants,
@@ -1170,7 +1484,7 @@ séparés dans le document (voir doc 5 §3bis pour le modèle).
 
 ### Barre d'outils spécifique
 `Portée : [ Ce widget ▾ ]` (widget sélectionné / groupe / page entière —
-même principe que `BehaviorScopeSelector`, doc 5 §6.7), bouton `+ Ajouter un
+même principe que `BehaviorScopeSelector`, doc 5 annexe A.7), bouton `+ Ajouter un
 état`, toggle `State Machine / Dope Sheet`, bouton `▶ Prévisualiser
 l'animation` (joue la transition dans le canvas Design en incrustation, sans
 quitter le mode Animation).
@@ -1344,7 +1658,7 @@ ou une fois — exactement ce que `NkAnimationPlayer` fait déjà.
 faire varier une valeur ; personne ne lui dit que cette valeur est l'échelle du
 bouton `Bouton_Connexion`.
 
-**2. 🔴 Le format `.nkgui` n'a pas de section d'animation.** Quatre sections —
+**2. ✅ *(fermé le 21/08 : section `animation`, doc 2 §16, doc 9 §4)* — Le format `.nkgui` n'avait pas de section d'animation.** Quatre sections —
 `geometry`, `widgets`, `behavior`, `controller` — et **aucune ne peut stocker une
 transition, une ambiance ou un effet continu**. Tout §9ter décrit donc quelque
 chose qui **n'a nulle part où s'écrire**. *(Troisième manque de la même famille
@@ -1530,7 +1844,7 @@ panneau secondaire).
 
 - Racines = **pages/cadres du projet** (chacune avec icône "page", petit
   badge du nombre d'enfants), puis, sous chaque page, son arbre de calques/
-  widgets — exactement la structure déjà décrite en doc 1 §4.3.
+  widgets — exactement la structure déjà décrite en doc 1 §4.4.
 - Icône de rôle par ligne : icône générique "forme" tant que non promu,
   icône spécifique du widget une fois promu (bouton, slider, panel…) —
   cohérent avec le catalogue doc 2 §8.
@@ -1656,6 +1970,25 @@ diverger, et personne ne saurait laquelle fait foi.*
 Panneau **fixe** à droite, symétrique de la Hiérarchie (même mécanisme de
 collapse simple, hors rail de pastilles).
 
+### 12.0 L'en-tête d'identité 🆕
+
+```
+┌──────────────────────────────────────────┐
+│ [▢ Button ▾]  anim.inserer          ✅    │  ← rôle · identifiant (= action) · état de l'action
+│ Composant : BoutonEcrit  (Commun)   ↗    │  ← seulement pour une instance
+│ Fidélité : ◐ 2  (ombre, état Survol)  ↗  │  ← seulement si quelque chose n'est pas peint
+└──────────────────────────────────────────┘
+```
+
+- **Rôle** : la **ligne de rôle**, qui est le contrôle d'attribution lui-même (§14ter) —
+  rôles natifs, puis **proposés** en pointillés violets (§14ter.7).
+- **Identifiant** : éditable (double-clic ou `F2`). Pour un élément interactif, **c'est
+  l'action** : le champ **complète depuis le registre** de l'application (§24,
+  `Ctrl+Maj+A`) et marque ✅ servie, ✚ à créer, **?** inconnue (rouge, avec « Aller au
+  registre »).
+- **Composant** : pour une instance — le nom, la bibliothèque, ↗ ouvre la déclaration.
+- **Fidélité** : ce que le monteur ne peindra pas de cet élément (§22), ↗ l'explique.
+
 ### 12.1 Rien n'est sélectionné → vue "Objets de la scène"
 Plutôt qu'un panneau vide, affiche par défaut une **grille de vignettes des
 pages/cadres du projet** (miniature rendue de chaque page, nom en dessous,
@@ -1672,9 +2005,9 @@ d'avant le vocabulaire de taille, l'ancrage, l'espacement et le rôle. Ce qui su
 énumère les sections **dans l'ordre où elles apparaissent**, parce qu'un ordre
 laissé au hasard se met à varier d'un écran à l'autre.
 
-**En-tête du panneau**, toujours visible, jamais replié :
-nom de l'élément (éditable au double-clic) · icône du rôle s'il en porte un ·
-**la ligne de rôle, qui est le contrôle d'attribution lui-même** (§14ter).
+**En-tête du panneau**, toujours visible, jamais replié : l'**en-tête d'identité**
+(§12.0) — rôle (la **ligne de rôle, qui est le contrôle d'attribution lui-même**,
+§14ter), identifiant (**= l'action**), état de l'action, instance, fidélité.
 
 Puis **trois onglets** : `Design` · `Widget` · `Behavior`.
 
@@ -1708,7 +2041,7 @@ dépliée sur un panneau.
 Propriétés spécifiques au rôle promu (bind, min/max de valeur, flags — doc 2
 §4/§8). Champ **flags combinables** rendu comme une liste de cases à cocher
 plutôt qu'un champ texte brut (ex. `NkGuiWindowFlags` : `Resizable`, `Closable`,
-`NoTitleBar`…), cohérent avec la grammaire `flags := Identifier ('|' Identifier)*`
+`NoTitleBar`…), cohérent avec la grammaire `flags := Identifier ('|' Identifier)+`
 du doc 2 §3.
 
 En tête de cet onglet : les **états du rôle** (repos, survol, pressé, désactivé,
@@ -1730,8 +2063,9 @@ avec un statut visuel :
 | pastille | sens |
 |---|---|
 | grise | non lié |
-| bleue | lié à un Node Graph / du Code |
-| orange | lié mais callback non déclaré (`E-CALLBACK-UNDECLARED`, doc 2 §12) |
+| bleue | lié à un Blueprint ou à du Code qui compile |
+| orange | lié mais callback non déclaré (`E-CALLBACK-UNDECLARED`), ou comportement qui ne compile pas (`E-GRAPHE`) — doc 2 §12 |
+| ◐ | événement reconnu mais **pas encore déclenché** par NKGui (`DoubleClick`, `Submit`…) — écrit, compté |
 
 Clic sur une ligne = bascule le canvas en mode Behavior **filtré sur cet événement
 précis**.
@@ -1747,8 +2081,8 @@ bouton pour le rétablir. *Retirer n'est pas supprimer : sans trace, on ne
 distingue pas un événement écarté d'un événement jamais vu.*
 
 Si l'élément sélectionné est un **groupe ou une page entière** plutôt qu'un widget
-unique, l'onglet Behavior affiche les événements de portée « page » (`OnPageOpen`,
-`OnPageClose`…) plutôt qu'une liste vide.
+unique, l'onglet Behavior affiche les événements de portée « page » — les événements
+d'écran `Opened` et `Closed` (doc 2 §9.1) — plutôt qu'une liste vide.
 
 #### Sélection multiple
 
@@ -1760,6 +2094,57 @@ plus facilement.** Quand plusieurs éléments sont sélectionnés :
   valeur du premier élément, qui ferait croire à une uniformité fausse ;
 - **éditer** ce champ applique la nouvelle valeur à toute la sélection ;
 - une section ne s'affiche que si **tous** les éléments sélectionnés la portent.
+
+---
+
+### 12.3 La respiration 🆕 (écart E1, doc 17)
+
+| règle | avant | après |
+|---|---|---|
+| hauteur de ligne | 26 px | **30 px** (celle des planches) |
+| gouttières | 3 à 8 px selon l'endroit | **8 px** partout, **16 px** entre catégories |
+| sections vides | « Aucun — « + » en ajoute » ×6 | **masquées** ; un seul bouton **« + Propriété ▾ »** en bas liste ce qu'on peut ajouter (Remplissage, Bordure, Effet, Typographie, Points de rupture…) |
+| textes d'aide | deux lignes pleines sous les champs | une icône **ⓘ** à droite de l'étiquette ; l'aide en **infobulle** (§14quinquies) |
+| valeurs calculées (« calculée — jamais écrite ») | un paragraphe | la valeur **grisée en italique** + ⓘ |
+| « Le parent n'est pas ancré — l'ancrage ne s'applique pas » | un paragraphe | la section **Ancrage** est **désactivée avec sa raison** (§14quater.5) |
+| colonne des étiquettes | variable | **fixe par panneau** (≈ 40 % de la largeur), les valeurs alignées en colonne |
+
+### 12.4 D'où vient chaque valeur 🆕
+
+À gauche de chaque ligne, une **pastille de provenance** :
+
+| pastille | la valeur vient de | modifier ici… |
+|---|---|---|
+| **T** gris | le **thème** (un jeton) | crée une **valeur locale** (la pastille passe à L) |
+| **C** violet | la **déclaration du composant** | crée une **surcharge** d'instance (S) — sauf « Appliquer au composant » (`Ctrl+Alt+M`) |
+| **S** ambre | une **surcharge** de cette instance | la modifie |
+| **L** blanc | une **valeur locale** | la modifie |
+
+La **flèche de retour** ↺ (comme dans UE5) apparaît quand la valeur n'est pas celle
+d'origine : elle **retire la surcharge ou la valeur locale** et rend la valeur héritée.
+Le survol de la pastille dit d'où vient exactement la valeur (« jeton `@accent` du thème
+Rihen UE5, variante Sombre »).
+
+### 12.5 Une couleur se choisit dans les jetons 🆕
+
+Le sélecteur de couleur (neuf modèles, arrêts de dégradé, opacité — doc 14) gagne un
+**premier onglet « Jetons »** : la liste des jetons du thème du document, **avec leur
+pastille, leur nom et leur sens** (« `@info.ecrit` — ce bouton écrit une clé »),
+filtrée par famille. `Ctrl+T` l'ouvre sur la couleur active. Une couleur **libre**
+reste possible (onglet « Libre ») : le champ porte alors l'avertissement « couleur en
+dur — ne suivra pas le thème » et le contrôle correspondant s'allume (§25). C'est le
+rôle proposé **`TokenField`** (P23).
+
+### 12.6 L'onglet Widget : l'action, la disponibilité, l'infobulle 🆕
+
+En tête de l'onglet Widget, avant les propriétés du rôle :
+
+| ligne | contenu |
+|---|---|
+| **Action** | la même que l'identifiant de l'en-tête, avec son libellé, son raccourci et sa **raison de grisé** lus du registre (§24) — lecture seule ici, éditée dans l'en-tête |
+| **Disponibilité** | Actif · Désactivé · Lecture seule · Occupé ; source Constante · Condition · Héritée ; **raison** (obligatoire pour Désactivé) — §14quater |
+| **Infobulle** | le texte ; ⚠ obligatoire pour un bouton à icône seule (§14quinquies) |
+| **Surface** | la forme si le widget en prend une (§8bis.2), et « Zone de clic = forme » |
 
 ---
 
@@ -1794,12 +2179,12 @@ ou horizontalement (rail bas).
    en-tête du panneau pour la faire passer en mode **ancré** (état 3).
 3. **Ancrée** : le panneau devient un vrai panneau dockable poussant le
    canvas (redimensionne réellement la zone de travail), intégré au système
-   de docking classique décrit en doc 1 §5 (glisser pour redocker ailleurs,
+   de docking de la coquille (doc 2 §8.4, doc 7 §3.9) (glisser pour redocker ailleurs,
    empiler en onglets avec Hiérarchie/Inspecteur si l'utilisateur le
    souhaite). Une icône "détacher" symétrique permet de revenir en overlay
    ou de passer directement en **fenêtre flottante indépendante** (état 4).
-4. **Fenêtre flottante** : identique au comportement de détachement décrit
-   pour Aetherine (doc 1 §5) — fenêtre indépendante, toujours au-dessus,
+4. **Fenêtre flottante** : identique au détachement des panneaux de la
+   coquille — fenêtre indépendante, toujours au-dessus,
    redockable en la glissant vers un rail ou vers un bord du canvas.
 
 ### 13.3 Règle de non-encombrement
@@ -1815,7 +2200,7 @@ usage avancé multi-panneaux pour qui le souhaite.
 ## 14. Palette de composants
 
 Contenu de la pastille "Palette" (§13), catalogue exact des rôles disponibles
-(doc 1 §4.5, doc 2 §8), généré automatiquement — jamais tenu à la main.
+(doc 1 §4.6, doc 2 §8), généré automatiquement — jamais tenu à la main.
 
 - Grille d'icônes+labels par catégorie repliable (`Conteneurs`, `Entrées`,
   `Affichage`, `Navigation`, `Feedback` — regroupement logique des rôles du
@@ -2124,7 +2509,9 @@ un rôle natif distinct, parce que `RepeatButton` existe dans les en-têtes du
 moteur. **Les deux sont vrais à leur niveau** — fonction moteur d'un côté, rôle du
 format de l'autre — et c'est le format qui fait foi pour le catalogue de rôles.
 
-### 🔴 Et un manque qui bloque : le format ne sait pas dire « texte »
+### ✅ Et un manque qui bloquait : le format ne savait pas dire « texte »
+
+> *Fermé le 21/08 : `Text` et `Spacer` sont au vocabulaire (doc 7 §3.4). Texte d'origine conservé.*
 
 **La table du doc 2 §8 ne contient ni `Text`, ni `Label`, ni `Spacer`.** Le moteur
 les porte (`Text`, `TextWrapped`, `TextAt`, `Spacer` dans `NkGuiWidgets.h`), mais
@@ -2201,7 +2588,9 @@ chaque espace délibéré.
 
 ---
 
-### 🔴 Ce que la question de Rodolf a fait sortir de plus gros : l'apparence n'a nulle part où aller
+### ✅ Ce que la question de Rodolf a fait sortir de plus gros : l'apparence n'avait nulle part où aller
+
+> *Fermé : l'option (a) est retenue — le bloc `appearance` et ses six états, en surcharge du thème (doc 2 §13, doc 9 §3) ; les jetons de thème (doc 2 §20) complètent la réponse depuis le 27/09. Texte d'origine conservé.*
 
 En vérifiant où mettre les propriétés de `Text`, j'ai relevé ceci dans le
 document 2 : **aucun rôle de la table §8 ne porte la moindre propriété
@@ -2390,6 +2779,13 @@ personne ne saura plus dans laquelle chercher.
 ⚠️ **Relevé le 2026-08-20 dans les en-têtes de NKGui.** Trois statuts, et **le
 statut est la seule information qui compte** — il dit ce que ça coûte.
 
+> **Mise à jour du 27/09.** Depuis ce relevé : le champ de mot de passe existe
+> (`TextField { secret = true }`) ; le curseur entier aussi (`Slider { valueType = Int
+> }`) ; `Switch` et `RadioGroup` sont **au vocabulaire** mais pas montés (ils attendent
+> l'**exclusivité**) ; la visionneuse 3D, l'éditeur de code et le sélecteur de fichier
+> passent par un **`Host`** (doc 7 §3.7) ou un **service** (doc 2 §5.6). Les autres 🔴
+> du tableau sont repris, avec une doublure, par les **rôles proposés** (doc 7 §3.10).
+
 | statut | sens | coût |
 |---|---|---|
 | ✅ **natif** | le moteur le porte | rien |
@@ -2496,7 +2892,9 @@ les mêmes événements et les mêmes propriétés ; seul leur rapport au reste 
 #### Ce que l'interface doit montrer de tout ça
 
 ⚠️ **Un rôle 🔴 non implémenté ne doit pas apparaître dans le menu**, même grisé,
-même « bientôt ». Un catalogue qui montre ce qu'il n'a pas fait perdre du temps à
+même « bientôt ». *(Précisé le 27/09 : les **rôles proposés** du §14ter.7 apparaissent
+dans une section à part, « RÔLES PROPOSÉS », parce que les poser pose **une doublure
+qui fonctionne aujourd'hui** — ce ne sont pas des entrées vides.)* Un catalogue qui montre ce qu'il n'a pas fait perdre du temps à
 chaque ouverture, et le jour où l'entrée devient réelle personne ne le remarque.
 
 En revanche, **un rôle de projet doit dire de quoi il dérive** (§14ter.2), et c'est
@@ -2558,6 +2956,27 @@ permissions, les lecteurs réseau et les raccourcis du système ; celui qu'on de
 connaît le projet. **Un outil sérieux offre les deux et nomme lequel est lequel** —
 parce que le jour où une ouverture de fichier échoue, la première question est de
 savoir qui a dessiné la fenêtre.
+
+---
+
+### 14ter.7 Les rôles proposés 🆕
+
+Les spécifications de la famille proposent des rôles que NKGui ne porte pas encore
+(`ToggleButton`, `Badge`, `Tile`, `VectorField`, `KeyDiamond`, `CurveField`,
+`TimecodeField`, `Meter`, `ColorWheel`, `AssetField`, `KeyCaptureField`,
+`SplitButton`, `PieMenu`, `HoldButton`, `Stepper`, `TokenField`, `Drawer`… — fiche
+complète au doc 7 §3.10).
+
+- Ils sont dans la **palette** et dans le **menu des rôles**, sous « RÔLES PROPOSÉS »,
+  en **pointillés violets** avec leur numéro (P4).
+- **Poser un rôle proposé** pose **sa doublure** — l'écriture « en attendant » que le
+  doc 7 décrit (un `ToggleButton` devient un `Button` et son `appearance` d'actif) —
+  et un commentaire `// P2 ToggleButton` dans le fichier.
+- Sur la toile, la doublure se dessine **comme le rôle proposé serait dessiné**, avec
+  le badge « proposé » ; la vue Fidélité (§22) montre ce que le monteur peindra
+  **vraiment** (la doublure).
+- Le jour où un rôle proposé entre au vocabulaire, **Projet ▸ Moderniser les
+  documents** propose de remplacer ses doublures (« 14 `Button` marqués `// P2` »).
 
 ---
 
@@ -2817,7 +3236,7 @@ on la quitte pour aller régler sa couleur, et elle s'évanouit.
 
 ## 15. Gestionnaire de callbacks / contrôleurs
 
-Contenu de la pastille "Callbacks" (§13) — vue centralisée (doc 1 §4.7) :
+Contenu de la pastille "Callbacks" (§13) — vue centralisée (doc 1 §4.8) :
 
 - Tableau : Nom du callback, Contrôleur parent, Signature (types d'arguments
   formatés comme dans le langage, ex. `(axis: Enum[X,Y,Z], value: Float) →
@@ -3076,38 +3495,129 @@ plus le voir.
 
 ---
 
-## 18. Simulation du système — la fenêtre d'essai
+## 18. Simulation — une application navigable
+
+> Rodolf, 27/09 : *« la simulation lance une fenêtre semblable à celle simulée, en
+> connaissant soit le point de départ, soit à partir de quelle fenêtre simuler ; et
+> cette fenêtre de simulation est navigable comme une véritable application, en
+> distinguant le cas PC, navigateur et mobile. »*
 
 ⚠️ **Ce n'est pas un aperçu, c'est une simulation.** L'aperçu montre ; la
 simulation **se comporte**. C'est la différence entre voir un bouton et pouvoir
 appuyer dessus et constater ce qui arrive.
 
-- Bouton `▶ Simuler` **en haut à droite du canvas**, dans le cluster flottant
-  (§7), distinct du reste — icône verte, cohérence d'écosystème avec le Play
-  d'Aetherine. Raccourci `F5`.
-- ⚠️ **Ouvre une véritable fenêtre séparée**, pas un panneau — parce qu'on simule
-  une **application**, et qu'une application a sa propre fenêtre, sa propre
-  barre de titre, ses propres bords redimensionnables. La simuler dans un
-  panneau enseignerait de mauvaises proportions.
-- Cette fenêtre affiche le design **rendu par NKGui réel** — le même moteur que
-  l'application finale. Ce qu'on voit là est ce qu'on livrera.
-- **Sa taille de départ est celle de la cible du cadre simulé** (§8quater.1) : un cadre
-  mobile ouvre une fenêtre à la taille d'un téléphone. On peut la
-  redimensionner à la souris, **et le responsive s'applique en direct** — c'est
-  le moyen le plus rapide de vérifier §8quater.4.
-- **Les interactions sont réelles** : clic, survol, saisie, glisser. Elles
-  déclenchent les callbacks avec des implémentations factices journalisées dans
-  une **console de simulation** dédiée (distincte de la pastille
-  Console/Validation du §13, accessible depuis le même rail bas).
-- **Barre de simulation** en haut de cette fenêtre : cible courante, taille
-  actuelle, `⟲ Recharger`, `⏸ Geler` (fige l'état pour inspecter), et
-  `⧉ Comparer` (affiche le design à côté du rendu, pour voir l'écart).
-- Les interactions déclenchent réellement les callbacks avec des
-  implémentations factices journalisées dans une **console de test** dédiée
-  (distincte de la pastille "Console/Validation" générale du §13, mais
-  accessible depuis le même rail bas)
-- En mode debug du Node Graph (§9), le chemin exécuté pendant le test
-  s'illumine en direct dans le canvas Behavior si celui-ci est visible
+- ⚠️ **Elle ouvre une véritable fenêtre séparée**, pas un panneau — parce qu'on simule
+  une **application**, et qu'une application a sa propre fenêtre, sa propre barre de
+  titre, ses propres bords. La simuler dans un panneau enseignerait de mauvaises
+  proportions.
+- Cette fenêtre est **rendue par NKGui réel** — le même moteur, le même monteur, le
+  même évaluateur de comportements (script **et** Blueprint) que l'application finale.
+  Ce qu'on voit là est ce qu'on livrera.
+- **Les interactions sont réelles** : clic, survol, saisie, glisser, clavier. Les
+  `Callback` sont **journalisés** (l'application n'est pas là) ; les **services** sont
+  servis par des **doublures** (§18bis).
+
+### 18.1 La carte de l'application
+
+La simulation d'une **application** part de sa **carte** (`application.nkgui`, doc 2
+§18) : ses écrans, leur type (fenêtre, dialogue, feuille, panneau, superposition), leur
+route (Web), le point de départ, ses thèmes.
+
+**Comportement ▸ Carte de l'application…** l'ouvre en **vue de carte** : les écrans en
+vignettes, les `open` du document en flèches (déduites des comportements), le départ
+marqué ▶. On y ajoute un écran (en désignant un document), on change le départ, on voit
+**un écran qu'aucune flèche n'atteint** (`I-ECRAN-INATTEIGNABLE`).
+
+**Sans carte** (un document isolé), la simulation ouvre **ce document seul** et le dit
+dans sa barre : « Pas de carte d'application — `open` sera journalisé, pas exécuté ».
+
+### 18.2 Lancer
+
+| geste | effet |
+|---|---|
+| **▶ Simuler** (`F5`) — bouton vert de la grappe de la toile | démarre **au point de départ** de la carte |
+| **Simuler à partir de…** (`Ctrl+F5`) | démarre **sur l'écran choisi** — par défaut celui qu'on édite — avec un **état de départ** : valeurs des variables et des `bind`, réponses des doublures, **historique de navigation fictif** (pour que `back` ait où revenir) ; l'état se **nomme** et se réutilise, et un test (§18ter) peut partir du même |
+| **Recharger** (`Maj+F5`) | relance au même écran, les modifications du document prises en compte |
+| **Geler** (`F6`) | fige l'état pour l'inspecter |
+
+**La taille de départ** est celle de la cible de l'écran (§8quater.1) ; la fenêtre se
+redimensionne à la souris **et le responsive s'applique en direct**. Une modification
+du document **pendant** la simulation est prise en compte **sans relancer** (la
+navigation et les variables sont gardées).
+
+### 18.3 La fenêtre de simulation, selon la plateforme
+
+```
+BUREAU                               NAVIGATEUR                          MOBILE
+┌─[Simulation]──────────────────┐    ┌──────────────────────────────┐    ┌──────────┐
+│ ◉ ▮▮ ⟲ │ accueil › principale │    │ ◀ ▶ ⟳ │ nkscena.app/rendu  │    │ 9:41 ▂▄▆ │
+├───────────────────────────────┤    ├──────────────────────────────┤    │┌────────┐│
+│ ┌ NKScena ─────────────[—□×]┐ │    │                              │    ││        ││
+│ │   la fenêtre de l'appli    │ │    │         la page              │    ││ écran  ││
+│ │     ┌ Confirmer ─[×]┐      │ │    │   ┌ Confirmer ──────┐        │    ││        ││
+│ │     │ Supprimer ?   │      │ │    │   │ Supprimer ?     │        │    │└────────┘│
+│ │     └───────────────┘      │ │    │   └─────────────────┘        │    │  ◁  ○  □ │
+│ └────────────────────────────┘ │    └──────────────────────────────┘    └──────────┘
+└───────────────────────────────┘
+```
+
+- **Bureau** : chaque fenêtre de l'application est **une vraie fenêtre système**
+  (déplaçable, redimensionnable, décoration native ou client — §8quater.1ter) ; un
+  dialogue modal **bloque** sa parente ; plusieurs fenêtres peuvent être ouvertes à la
+  fois.
+- **Navigateur** : un **cadre de navigateur** — barre d'adresse montrant **la route**
+  de l'écran, **◀ ▶ ⟳ qui marchent** (l'historique est tenu), onglets si l'application
+  en ouvre ; on peut **taper une route** pour aller à un écran, comme un lien.
+- **Mobile** : un **cadre d'appareil** (appareils réels, taille réelle ou ajustée),
+  barre d'état, **zone sûre**, barre de navigation système ; **les écrans s'empilent**
+  (transition glissée), le **geste retour** (glisser depuis le bord gauche) et le
+  bouton ◁ dépilent ; **portrait / paysage** ; le **clavier virtuel** monte quand un
+  champ prend le focus et **cache** le bas de l'écran. La souris **se comporte comme un
+  doigt** : pas de survol (un état `Hover` qui porte une information est **signalé**),
+  appui long = clic maintenu.
+
+### 18.4 La barre de simulation
+
+```
+│ ◉ Bureau ▾ │ ▮▮ Geler │ ⟲ │ accueil › principale › [rendu] │ 🗺 Carte │ 🎭 Doublures │ 𝑥 Variables │ ⧉ Comparer │ ● Enregistrer un test │
+```
+
+| élément | rôle |
+|---|---|
+| **Plateforme ▾** | Bureau · Navigateur · Mobile (appareil ▸) — **bascule sans quitter** : l'écran courant est rouvert dans l'autre cadre |
+| **Thème ▾** | les thèmes et variantes que l'application embarque — pour vérifier le choix de l'utilisateur final |
+| **Fil de navigation** | la pile des écrans ouverts ; clic = y revenir |
+| **🗺 Carte** | le graphe des écrans : **transitions parcourues en couleur, jamais parcourues en gris** ; clic sur un écran = y aller (hors navigation normale, marqué comme tel dans le journal) |
+| **🎭 Doublures** | chaque service appelé (`call`) : sa réponse actuelle, **succès ou échec**, modifiable en direct ; le bouton « Échec » est **aussi visible** que « Succès » (§18bis.1) |
+| **𝑥 Variables** | l'état : variables des comportements, valeurs des `bind`, valeurs des widgets ; **forcer** une valeur (cocher, vider un champ) pour passer dans l'autre branche d'une condition sans refaire le parcours |
+| **⧉ Comparer** | le design à côté du rendu, pour voir l'écart |
+| **● Enregistrer un test** | §18ter.1 |
+
+### 18.5 La console de simulation
+
+L'onglet **Simulation** de la console (§20ter) : le journal **atteints / jamais
+atteints** (§18bis.2), étendu à la navigation — **écrans**, **transitions**, **messages
+et leurs réponses**, **branches** des conditions, **callbacks**, **services**. Chaque
+ligne servie par une doublure porte **[DOUBLURE]**.
+
+### 18.6 Ce que font les instructions, selon la plateforme
+
+| | **Bureau** | **Navigateur** | **Mobile** |
+|---|---|---|---|
+| `open` (type Fenetre) | ouvre une **nouvelle fenêtre** (ou la ramène devant) | **change de route** dans le même onglet | **empile** l'écran (glissé) |
+| `open … as modal` / type Dialogue | dialogue modal : fenêtre fille, la parente ne répond plus | **calque modal** au-dessus de la page, fond assombri | **feuille** montant du bas, ou plein écran |
+| type Feuille | panneau latéral | panneau latéral | feuille du bas |
+| type Panneau | s'ancre dans le `DockSpace` | s'ancre | plein écran empilé |
+| `back` | ferme la fenêtre / le dialogue courant | **◀ du navigateur** — il doit marcher | **geste retour** / bouton retour : dépile |
+| `message` | boîte de message **système** | boîte **dans la page** | alerte **système mobile** (boutons empilés) |
+| `toast` | notification en coin | bandeau en haut de page | bandeau en bas, au-dessus du clavier |
+| clavier | physique | physique | **virtuel** |
+| entrées | souris, survol, clic droit, molette | souris **ou** tactile | **tactile** |
+| taille | libre | fenêtre du navigateur, points de rupture | appareils réels + rotation |
+
+📌 **La même table** est celle de l'application réelle (la coquille `NkGuiCoquille` sert
+la navigation à partir de la même carte — décision D9). Sinon la simulation cesserait
+de prouver quoi que ce soit (invariant du §18bis).
 
 ---
 
@@ -3146,12 +3656,18 @@ Chaque service simulable est une **doublure** dont on règle la valeur de retour
 | service | ce que la doublure rend |
 |---|---|
 | dialogue d'ouverture | un chemin, ou l'annulation |
-| dialogue d'enregistrement | un chemin, ou l'annulation |
+| dialogue d'enregistrement | un chemin, l'annulation, ou le disque plein |
+| dialogue de choix de dossier | un chemin, ou l'annulation |
 | système de fichiers | un contenu, ou une erreur de lecture |
 | horloge | une date fixe, ou une horloge accélérée |
 | réseau | une réponse, une lenteur, une coupure |
 | presse-papiers | un contenu |
 | locale et clavier | une langue, une disposition |
+| notifications, liens | l'acceptation ou le refus |
+
+📌 **Ce catalogue est celui des services du langage** (doc 2 §5.6, liste fermée) : une
+doublure sert exactement les noms et les échecs que `call` connaît (`annule`, `refuse`,
+`coupe`, `delai`, `introuvable`, `plein`…).
 
 ⚠️ **Chaque doublure doit pouvoir rendre l'échec, pas seulement le succès** —
 annulation, permission refusée, réseau coupé, disque plein. **Le chemin d'annulation
@@ -3210,33 +3726,113 @@ par personne.
 
 ---
 
-## 19. Export / Validation
+## 18ter. Les tests d'interaction 🆕
 
-Modal (réutilise `<Modal>` standard) accessible depuis le menu principal
-(`Fichier > Exporter`) :
+> Rodolf : *« généralement les tests se font en appelant des messages de réponse ou en
+> appelant un autre widget ».* Un test d'interface : **un geste** → **une réponse
+> attendue** — un message affiché, un autre widget qui change, un écran qui s'ouvre,
+> un callback appelé. Le format est au doc 2 §19.
 
-- Résumé avant export : nombre de pages, de widgets, de callbacks déclarés/
-  liés/orphelins
-- **Rapport de validation** : liste des erreurs/avertissements du doc 2 §12
-  (`E-PARSE`, `E-TYPE`, `E-CALLBACK-UNDECLARED` en rouge bloquant ;
-  `W-CALLBACK-UNBOUND`, `W-ID-DUPLICATE` en jaune ; `W-ORPHAN-GEOMETRY` en
-  gris info), chaque ligne cliquable = sélectionne l'élément fautif sur le
-  canvas
-- Choix du découpage en fichiers `include` (doc 2 §7) : arbre éditable où
-  glisser des pages/composants dans des regroupements de fichiers avant
-  export
-- Bouton final `Exporter` désactivé tant qu'une erreur bloquante existe
+### 18ter.1 Écrire un test en jouant
+
+1. En simulation, **● Enregistrer un test** (`Ctrl+Maj+R`) : la barre devient rouge
+   (`@simulation.enregistre`).
+2. **On joue** : clics, saisies, réponses aux messages, retours, changements de
+   plateforme. Chaque geste s'ajoute au test ; le **point de départ** et l'état de
+   départ sont ceux de la simulation.
+3. **On dit ce qu'on attend** : **＋ Attendu**, puis **clic sur ce qui doit être vrai**
+   dans la fenêtre simulée — un widget (« `titre`.text vaut… », « visible »,
+   « désactivé, raison… »), le message affiché, l'écran courant ; ou, dans la console,
+   un callback appelé, un événement émis. `Maj`+clic ajoute l'attente **inverse**
+   (« n'est **pas** visible »).
+4. **■ Arrêter** : le test est proposé en **carte** — son texte `test { … }` et un
+   nom à donner. **Enregistrer** l'ajoute au fichier de tests de l'application
+   (`tests/*.tests.nkgui`).
+
+On peut aussi **écrire** un test à la main (mode Source) ou le faire proposer par l'IA
+(« teste le cas où le réseau est coupé »).
+
+### 18ter.2 Le panneau Tests (rail bas)
+
+```
+TESTS — NKScena                         [▶ Tout] [▶ Échoués] [Sans fenêtre ☐]  Plateforme ▾
+┌──────────────────────────────────────────┬─────────┬──────────┬──────────────────┐
+│ test                                     │ état    │ durée    │                  │
+├──────────────────────────────────────────┼─────────┼──────────┼──────────────────┤
+│ ✓ Supprimer demande confirmation         │ réussi  │ 0,4 s    │ ▶  ✎            │
+│ ✕ Rendre sans budget affiche une alerte  │ échoué  │ 0,9 s    │ ▶  ✎  🖼 attendu/obtenu │
+│ ○ Ouvrir un projet annulé                │ jamais  │ —        │ ▶  ✎            │
+│ ⚠ Enregistrer ferme la fiche             │ inerte  │ 0,3 s    │ ▶  ✎            │
+└──────────────────────────────────────────┴─────────┴──────────┴──────────────────┘
+ Couverture : écrans 11/14 · transitions 23/31 · branches 38/60 · callbacks 40/52 · services 6/9 — [voir ce qui n'est jamais atteint]
+```
+
+- **▶** rejoue un test **à l'écran** (on voit les gestes se faire, le Blueprint
+  s'illumine s'il est ouvert) ; **Sans fenêtre** pour aller vite.
+- Un test **échoué** montre l'instruction qui a échoué, **l'attendu contre
+  l'obtenu**, et **l'image de l'écran** au moment de l'échec ; clic = rouvre la
+  simulation **à cet instant** (état restauré) pour comprendre.
+- **Plateforme ▾** : le même test en Bureau, Navigateur ou Mobile — un test qui ne passe
+  que sur une plateforme **le dit**.
+- **Couverture** : ce qu'**aucun** test n'atteint — la colonne qui a de la valeur
+  (§18bis.2). **Les branches** comptent à part : pour chaque condition, « vraie » et
+  « fausse » ; une condition dont **une seule issue** est testée est listée, avec un
+  lien vers le nœud ou la ligne.
+
+### 18ter.3 Vérifier que le test prouve
+
+**« Vérifier les tests »** (Projet ▸ Tests) relance chaque test **en retirant** ce qu'il
+attend — le `message`, le `set`, le `open`, ou en **retournant** la condition dont il
+dépend (`if` → `if not`) : il **doit échouer**. Un test qui passe encore n'a rien
+prouvé ; il est marqué **⚠ inerte**, avec l'élément retiré qui ne l'a pas fait rougir.
+
+Un test **sans** attente ne s'enregistre pas (`E-TEST-SANS-ATTENTE`).
+
+### 18ter.4 Hors de NKUIDesign
+
+- **Sans fenêtre, dans la construction** : un test d'interface qui échoue **arrête** la
+  construction Jenga, comme le reste de la maison.
+- **Dans l'application réelle** : les mêmes tests tournent (NKGui exécute les mêmes
+  instructions ; les `Callback` y sont vrais) ; un test qui passe dans NKUIDesign et
+  casse dans l'application **désigne l'écart** entre les deux.
+
+---
+
+## 19. Enregistrer, valider, exporter
+
+- **Enregistrer** (`Ctrl+S`) **est** l'export principal : le `.nkgui` (style et
+  commentaires gardés) et son `.nkgui.meta`. Aucune boîte de dialogue.
+- **Valider** (`F7`) ouvre le **rapport** (modale, ou onglet Validation de la console) :
+  - résumé : écrans, widgets, comportements (script / Blueprint), callbacks déclarés /
+    liés / orphelins, jetons, tests ;
+  - **diagnostics** du doc 2 §12 — erreurs en rouge (bloquantes), avertissements en
+    ambre, informations en gris ; chaque ligne cliquable sélectionne l'élément fautif ;
+  - **contrôles** du projet (§25) ; **compteurs de fidélité** (§22) ; **tests** (§18ter).
+- **Exporter ▸ Découper en fichiers…** : arbre éditable où glisser des pages, des
+  composants, un thème, des fonctions de Blueprint dans des fichiers inclus (doc 2 §7)
+  — le découpage réécrit les `include`.
+- **Exporter ▸ Image** (PNG ×1 ×2 ×3, SVG) et **Code** : les exports secondaires, dans
+  la boîte d'export existante (doc 14) ; PDF et code **grisés avec leur raison** tant
+  qu'ils ne sont pas faits.
+- Une erreur bloquante n'empêche **pas** d'enregistrer (on enregistre un travail en
+  cours) ; elle empêche **Voir dans l'application** et l'export de code, et le dit.
 
 ---
 
 ## 20. Préférences
 
-Reprend la structure standard (doc 1 §16), catégorie additionnelle
-"Intelligence Artificielle" : fournisseur IA, clé API, modèle, quota/usage
-affiché en jauge, et catégorie "Canvas" : grille/snap par défaut, position
-par défaut des pastilles au premier lancement, comportement du rail
-(règle « une seule pastille ouverte », §13.3, désactivable ici pour les
-utilisateurs avancés).
+Catégories, dans cet ordre :
+
+| catégorie | contenu |
+|---|---|
+| **Apparence** | **thème de l'outil** (Rihen UE5 par défaut, GitHub Pro, Contraste élevé, thèmes installés) et sa variante (Sombre · Clair · Système) ; taille du texte ; grille de la toile Behavior (points / lignes) — ⚠️ ne touche **jamais** le thème des documents (§2.1) |
+| **Langue** | langue de l'interface (clé stable + libellé traduisible) |
+| **Toile** | grille et magnétisme par défaut, position des pastilles au premier lancement, règle « une seule pastille ouverte » (§13.3) |
+| **Fichiers** | enregistrement automatique (intervalle, fichier de secours), fins de ligne et indentation **pour les documents neufs seulement** (un document ouvert garde les siennes) |
+| **Simulation** | plateforme et appareil par défaut, vitesse de rejeu des tests |
+| **Raccourcis** | la table unique (§29), modifiable, avec les trois couches défaut / greffon / utilisateur (§20bis.3bis) et les conflits affichés |
+| **Intelligence artificielle** | local ou distant, fournisseur, modèle, clé (jamais écrite dans un document), quota en jauge |
+| **Greffons** | le gestionnaire (§20bis) |
 
 ---
 
@@ -3268,6 +3864,8 @@ Tout ce que la spécification a fermé jusqu'ici :
 | **outils** | barre flottante (§7) | un outil de canvas |
 | **import / export** | §19 | un format de plus |
 | **doublures** | système simulé (§18bis.1) | un service simulable de plus |
+| **nœuds de Blueprint** | catalogue du doc 2 §6.3 | des nœuds préfixés, avec leur compilation (§9) |
+| **thèmes** | bibliothèque de thèmes (§26) | des thèmes, **données seulement** (§20bis.8) |
 
 ⚠️ **Un greffon ne crée jamais un rôle natif.** Un rôle natif est adossé à un
 widget du moteur (§14ter.2) ; un greffon qui en déclarerait un produirait un `id`
@@ -3389,6 +3987,22 @@ un élément absent ne se remarque même pas.
 
 ---
 
+### 20bis.8 Les thèmes par greffon 🆕
+
+> Rodolf, 27/09 : *« … ou intégrer des plugins pour le changement de thème. »*
+
+- Un greffon peut **apporter des thèmes** : à **NKUIDesign** (thèmes de l'outil) et aux
+  **applications** qui l'autorisent (`themes { greffons = true }` dans leur carte).
+- Un thème de greffon est **un fichier de données** (`theme { … }`), jamais du code : il
+  ne demande que « lecture du document ». La boîte d'installation le dit — « Ce greffon
+  n'apporte que des thèmes : aucun code ne s'exécute. »
+- Ses thèmes portent le **préfixe** du greffon (`lumen.Nuit`) ; ils **donnent des
+  valeurs** aux jetons, ils ne peuvent ni en retirer ni en renommer.
+- Désinstaller le greffon ramène au thème par défaut, sans rien casser ; un document qui
+  l'avait choisi le **nomme** comme manquant (§20bis.4) et retombe jeton par jeton.
+
+---
+
 ## 20ter. Console — et le backend graphique en cours
 
 > **Décision Rodolf, 2026-08-20 : « on doit avoir un seul backend pour les deux. »**
@@ -3396,12 +4010,13 @@ un élément absent ne se remarque même pas.
 §13 posait une pastille « Console/Validation » et §18 une console de simulation,
 **sans jamais dire ce qu'elles affichent**. Voici ce qu'elles affichent.
 
-### 20ter.1 Quatre flux, quatre onglets
+### 20ter.1 Cinq flux, cinq onglets
 
 | onglet | contenu |
 |---|---|
 | **Validation** | les codes d'erreur et d'avertissement du document, cliquables : le clic sélectionne l'élément fautif |
 | **Simulation** | le journal de §18bis.2, avec les doublures marquées et la couverture des points de connexion |
+| **Tests** | le rapport du dernier lancement, la couverture (§18ter) |
 | **Greffons** | ce qui est chargé, ce qui est rejeté et pourquoi, le temps d'exécution de chacun |
 | **Système** | version de l'hôte, backend graphique, mémoire, images par seconde |
 
@@ -3444,17 +4059,17 @@ informations coûte un aller-retour à chaque rapport.
 
 ## 21. Glossaire des composants
 
-En plus du glossaire générique déjà défini (doc 1 §19, réutilisé tel quel) :
+En plus du glossaire générique déjà défini (doc 1 §11, réutilisé tel quel) :
 
 | Composant | Description |
 |---|---|
-| `ProjectTabStrip` | Bande d'onglets où chaque onglet = un projet `.nkgui` ouvert |
-| `CanvasModeSwitch` | Segmented control Design/Behavior/Split de la toolbar |
+| `ProjectTabStrip` | Bande d'onglets où chaque onglet = un document `.nkgui` ouvert (Application › document) |
+| `CanvasModeSwitch` | Segmented control flottant Design / Behavior / Animation / Split / Source |
 | `InfiniteDesignCanvas` | Canvas avec toutes les pages/cadres du projet |
 | `SceneObjectsGrid` | Vue par défaut de l'Inspecteur quand rien n'est sélectionné |
 | `DockRailPill` | Pastille rétractable à 4 états (repliée/overlay/ancrée/flottante) |
 | `RoleBadge` | Petit tag affiché sur une sélection déjà promue en widget |
-| `BehaviorScopeSelector` | Dropdown "Composant / Page / Global" du canvas Behavior |
+| `BehaviorScopeSelector` | Dropdown « Widget / Composant / Page / Application » du canvas Behavior |
 | `AIContextButton` | Bouton `✨` flottant au survol d'une sélection |
 | `AIPreviewCard` | Carte d'aperçu Appliquer/Rejeter dans le chat IA |
 | `CallbackStatusPill` | Pastille de statut lié/non lié/invalide dans l'Inspecteur Behavior |
@@ -3464,9 +4079,347 @@ En plus du glossaire générique déjà défini (doc 1 §19, réutilisé tel que
 | `InstanceOverrideBadge` | Pastille violette marquant une propriété d'instance modifiée localement |
 | `WidgetAnimationCanvas` | Éditeur d'animation de widget (State Machine + Dope Sheet/Curve, réutilise Aetherion Animate) |
 | `AnimationEventLink` | Icône reliant un événement de l'Inspecteur Behavior à une transition d'animation définie |
+| `ProjectExplorer` | Section Projet : applications, documents, compteurs (§23) |
+| `IncludeGraph` | Graphe des inclusions entre documents (§23.2) |
+| `IdentityHeader` | En-tête de l'inspecteur : rôle, identifiant = action, état (§12.0) |
+| `ProvenancePill` | Pastille T / C / S / L d'une ligne de l'inspecteur (§12.4) |
+| `TokenField` | Choix d'une couleur **par jeton** (P23, §12.5) |
+| `ActionRegistry` | Table des actions d'une application (§24) |
+| `ChecksPanel` | Panneau des contrôles de conception (§25) |
+| `FidelityView` | Rendu du monteur NKGui sur la toile, et ses marques ✓ ◐ ✕ (§22) |
+| `ThemeEditor` | Éditeur de jetons et de variantes (§26) |
+| `SourceView` | Le texte `.nkgui` synchronisé avec la toile (§27) |
+| `BooleanBar` | Barre flottante des opérations booléennes (§8bis.1) |
+| `BlueprintNode` | Nœud à bandeau coloré par famille, broches d'exécution dans le bandeau (§9.2) |
+| `NodeSearch` | Recherche de nœuds, filtrée par le type de la broche d'origine (§9.4) |
+| `AppMapView` | Carte de l'application : écrans et transitions (§18.1) |
+| `SimulationBar` | Barre de la fenêtre de simulation : plateforme, fil, carte, doublures, variables (§18.4) |
+| `DeviceFrame` | Cadre de navigateur ou d'appareil mobile de la simulation (§18.3) |
+| `TestsPanel` | Panneau des tests, rapport et couverture (§18ter.2) |
 
 ---
 
-**Fin du document 3.** Voir `4_NkUIDesign_Brief_Banani.md` pour les prompts de
-génération visuelle et `5_NkUIDesign_Specification_Claude.md` pour la
-spécification technique d'implémentation.
+---
+
+## 22. La fidélité 🆕
+
+> Ce que le monteur NKGui **peindra**, **comptera sans peindre** ou **refusera** —
+> visible **avant** le lancement. Principe 6 du doc 1 : écrire ce qui n'est pas encore
+> peint reste **voulu** ; on le montre, on ne l'interdit pas.
+
+### 22.1 La vue Fidélité
+
+L'interrupteur **👁 Fidélité** (`Maj+F`), à côté de la bascule de mode, remplace le
+rendu de l'éditeur par **le rendu du monteur NKGui**, sur la même toile, aux mêmes
+positions. **Ce qu'on voit est ce que l'application peindra.** Maintenir **Alt** montre
+l'autre rendu tant que la touche est tenue — pour comparer d'un geste.
+
+### 22.2 Les marques
+
+| marque | sens | exemple de bulle |
+|---|---|---|
+| ✓ vert | peint tel qu'écrit | — (la marque n'est montrée qu'au survol) |
+| ◐ ambre | lu, gardé, **pas peint** | « `shadow` : compté, non peint — le monteur n'a pas encore d'ombres » · « `NumberField` : rôle connu, non monté » · « état `Hover` : pas de crochet de style sur ce rôle » |
+| ✕ rouge | **refusé** | « rôle inconnu `Buton` » · « `MenuItem` hors d'un `Menu` » · « composant à deux racines » |
+
+Les marques apparaissent en haut à droite de chaque élément concerné sur la toile, dans
+la Structure (à côté du nom) et dans l'en-tête de l'inspecteur (§12.0). Les bulles
+emploient **les mots des compteurs** (doc 2 §22), pour qu'un développeur retrouve la
+même chose dans le rapport de la sonde de son application.
+
+### 22.3 Le panneau Fidélité (rail bas)
+
+Les compteurs du document courant — **les mêmes noms que la sonde des applications**
+(`rolesInconnus`, `rolesNonMontes`, `attributsNonHonores`, `apparencesNonPeintes`,
+`etatsNonAppliques`, `elementsMenuHorsMenu`, `hotes` / `hotesNonRemplis`,
+`evenementsSansSource`, `taillesSansEquivalent`, `formes` / `formesPeintes`,
+`jetonsReplies`…) — et, pour chacun, la liste des éléments concernés (clic = sélection).
+Le compteur global est dans la barre d'état : **Fidélité ◐7**.
+
+### 22.4 Les zones hôtes
+
+Un `Host` est un objet de première classe de la toile : rectangle **hachuré** avec son
+nom au centre et son `hint` en infobulle. On peut y poser un **contenu fictif** (une
+image, un petit document) **pour la présentation seulement** : il est signalé par un
+œil barré « non exporté » et vit dans le `.nkgui.meta`. Pour un **hôte d'extension** d'un
+panneau commun, l'inspecteur liste **quelles applications le remplissent**.
+
+---
+
+## 23. Le projet et le graphe des inclusions 🆕
+
+### 23.1 La section Projet
+
+```
+PROJET                          🔍  ⚙
+▾ ⬡ Commun                    ✓
+    composants            214 ↗
+    theme                  ◆
+    panneaux ▸
+▾ ⬡ NkAnimaEditor             ⚠ 2
+    application            🗺
+    barre_outils          ◐ 3
+    menus                 ✚ 41
+    panneau_outils        ✕ 1   ← rôle inconnu
+    tests ▸               ✓ 12  ✕ 1
+▸ ⬡ NKScena  ▸ ⬡ Nogee  ▸ ⬡ NKCraft  ▸ ⬡ PV3DE  ▸ ⬡ NkAntenne  ▸ ⬡ NKUIDesign
+```
+
+- **Une ligne par application**, dépliable ; **une ligne par document**, avec **un
+  seul** badge — le plus grave de ses compteurs : ✕ refusé > ⚠ contrôle > ✕ test
+  échoué > ◐ non peint > ✚ actions à créer > ✓.
+- **Commun** en tête, toujours. Un composant montre son **nombre d'instances** dans le
+  projet (↗ ouvre la liste) ; le thème porte ◆.
+- Clic → ouvre le document dans un onglet. Clic droit : Nouveau document · Renommer
+  (les `include` qui le désignent sont **mis à jour**, avec la liste avant d'appliquer) ·
+  Dupliquer · **Voir les inclusions** · **Voir dans l'application** · Révéler dans
+  l'explorateur de fichiers.
+
+### 23.2 Le graphe des inclusions
+
+**Projet ▸ Graphe des inclusions** : les documents en boîtes, les `include` en flèches,
+dans l'ordre où ils sont écrits. Un **cycle** ou un fichier **introuvable** en rouge,
+avec la chaîne ; un fichier inclus **après** la section qui emploie ses composants est
+signalé (« trop tard : le contenu inclus prend la place exacte de l'`include` »).
+
+### 23.3 Rechercher dans le projet
+
+`Ctrl+Maj+F` : un identifiant, une action, un jeton, un composant, un écran, un texte ;
+résultats groupés par application et par document, avec la ligne ; **Remplacer** propose
+la liste avant d'appliquer, en une opération annulable.
+
+---
+
+## 24. Le registre d'actions 🆕
+
+**Projet ▸ Actions** (et pastille du rail droit) :
+
+```
+ACTIONS — NkAnimaEditor              [Application ▾]  🔍 _________  [Toutes│✅│✚│?]
+┌───────────────────────┬──────────────────────┬──────────┬──────┬────────────────┐
+│ identifiant           │ libellé              │ raccourci│ état │ utilisée par   │
+├───────────────────────┼──────────────────────┼──────────┼──────┼────────────────┤
+│ anim.inserer          │ Insérer une clé      │ I        │ ✅   │ 3 documents    │
+│ anim.cle_auto         │ Clé auto             │ —        │ ✚    │ barre_outils   │
+│ anim.insrer           │ —                    │ —        │ ?    │ menus  ← faute │
+└───────────────────────┴──────────────────────┴──────────┴──────┴────────────────┘
+ Raison de grisé (✚) : « Pas encore disponible dans NkAnima »       [Actualiser]
+```
+
+- **Rempli automatiquement** (décision D6) : **sonde** de l'application (les actions
+  qu'elle sert) + **tables d'actions des spécifications** (✚ et raisons). **Jamais
+  saisi à la main.**
+- **?** = employée dans un document mais **absente des deux sources** : presque
+  toujours une faute de frappe. Clic → les endroits ; « Remplacer par… » propose
+  l'action la plus proche.
+- **Actualiser** relance la sonde (l'application doit être construite ; sinon la
+  commande est grisée **avec cette raison**).
+- **Génère les contrats** : une action servie devient un `callback` du contrat de
+  l'application (doc 2 §10) — on ne les écrit pas deux fois.
+- **Dans un document**, une action ✚ est **grisée avec sa raison** dans la simulation et
+  dans l'application (règle de la famille) ; la Structure la marque ✚.
+
+---
+
+## 25. Les contrôles de conception 🆕
+
+Des **règles déclarées par projet** (`Resources/Interface/controles.nkgui`, décision
+D5), vérifiées **en continu**, listées dans le panneau **Contrôles** (rail bas), leur
+nombre dans la barre d'état.
+
+### 25.1 Les règles de la famille, dès le départ
+
+| règle | sévérité | vient de |
+|---|---|---|
+| aucune couleur hors jetons, sauf `// en dur : raison` | alerte | règle de la famille ; doc 2 §13.3 |
+| tout jeton a un sens ; toute variante livrée donne une valeur à chaque jeton | erreur · alerte | doc 2 §20 |
+| contraste AA de chaque paire texte / fond, par variante | alerte | §14quater.4 |
+| tout élément interactif a une action du registre | erreur | §24 |
+| une action ✚ a une raison de grisé | alerte | spécifications « agent » §6 |
+| tout bouton à icône seule a une infobulle (sauf les cinq évidentes) | alerte | §14quinquies ; UI_SPEC de NKCraft §0 |
+| un élément désactivé dit pourquoi | alerte | §14quater.5 |
+| une condition ne lit que des widgets et des champs qui existent | erreur | doc 2 §5.5 |
+| deux comportements continus n'écrivent pas la même propriété | alerte | doc 2 §5.5 |
+| un `open` vise un écran de la carte ; tout écran est atteignable | erreur · info | doc 2 §18 |
+| un composant a **une** racine ; pas de récursion | erreur | doc 2 §14 |
+| tout test a une attente ; aucun test n'est inerte | erreur · alerte | §18ter.3 |
+| un document de la **salle** de PV3DE ne référence ni `@grille.*` ni le corrigé | erreur | PV3DE 03 §0.3 |
+| un `KeyDiamond` n'apparaît pas dans NKCraft, Nogee, PV3DE | alerte | NKCraft 03 §5.6 |
+| une police `icons` n'a pas de repli texte | erreur | doc 2 §17 |
+
+### 25.2 Le panneau
+
+Les manquements **groupés par règle**, chacun avec son document, son élément, **Aller
+à** et, quand la correction est mécanique, **Corriger** (remplacer une couleur par le
+jeton le plus proche, ajouter `because "…"` à compléter, renommer vers l'action la plus
+proche). **Règles…** ouvre leur liste : nom, **raison** (lien vers le document qui la
+pose), sévérité, active / inactive, portée (tout le projet, une application).
+
+📌 **NKUIDesign est soumis à ses propres contrôles** : son interface (doc 5) est un
+document du projet comme un autre.
+
+---
+
+## 26. Thèmes et jetons — l'éditeur 🆕
+
+> Rodolf, 27/09 : chaque application définit son système de thème ; on peut partir
+> d'un thème existant, créer le sien, en livrer plusieurs au choix de l'utilisateur,
+> en recevoir par greffon.
+
+**Projet ▸ Thème et jetons…** (ou double-clic sur ◆ dans le Projet) :
+
+```
+THÈME « Rihen UE5 » — NkAnima (étend Commun)      [+ Jeton] [+ Variante]  [Sombre│Clair│Les deux]
+┌─────────────────┬──────────┬──────────┬────────────────────────────┬──────┬─────┬───┐
+│ jeton           │ Sombre   │ Clair    │ sens                       │ AA   │ ↗   │   │
+├─────────────────┼──────────┼──────────┼────────────────────────────┼──────┼─────┼───┤
+│ ▾ STRUCTURE (hérités de Commun)                                                        │
+│ @fond.app       │ ■#141414 │ ■#F5F5F5 │ derrière tout              │  —   │ 38  │ T │
+│ @accent         │ ■#1177D1 │ ■#0E5FA6 │ état de l'interface        │ ✓ ✓  │ 211 │ T │
+│ ▾ INFORMATION (propres à NkAnima)                                                     │
+│ @info.ecrit     │ ■#F2980E │ ■#C97A08 │ ce bouton écrit une clé    │ ✓ ⚠  │ 9   │ L │
+│ @origine.ia     │ ■#A371F7 │ ■#8250DF │ clé produite par l'IA      │ ✓ ✓  │ 14  │ L │
+│ ▾ MOTEUR (@nkgui.*)                                                                    │
+│ @nkgui.panel    │ → @fond.panneau       │ fond par défaut des panneaux │ —  │ —   │ L │
+└─────────────────┴──────────┴──────────┴────────────────────────────┴──────┴─────┴───┘
+ Familles : Structure · Sélection · Information · Axes · Origines · États · Moniteur · Grille · Moteur
+```
+
+- **Colonnes** : une par **variante** (Sombre, Clair, et celles qu'on ajoute) ; **AA** :
+  contraste du jeton de texte le plus fréquent sur ce fond, par variante ; **↗** : nombre
+  d'usages (clic → la liste) ; **T / L** : hérité du thème parent ou défini ici.
+- **Le sens est obligatoire** : un jeton sans phrase ne s'enregistre pas.
+- **Une valeur** : une couleur, un nombre, ou **un renvoi** (`→ @fond.panneau`) ; un cycle
+  de renvois est refusé.
+- **Les jetons du moteur** (`@nkgui.*`, doc 2 §20.2) sont listés à part : les poser règle
+  tout ce que le monteur peint par défaut.
+- **Aperçu** : la toile montre le document dans la variante choisie ; **Les deux** met
+  les deux variantes **côte à côte** (le second cadre en lecture seule).
+- **Bibliothèque de thèmes** (bouton ▾ du titre) : partir de **Rihen UE5**, **GitHub
+  Pro**, **Contraste élevé**, d'un thème du projet ou d'un greffon — **Hériter** (seul ce
+  qui change est redéclaré) ou **Dupliquer**.
+- **Ce que l'application livre** (onglet **Livraison**) : les thèmes embarqués, le
+  défaut, la variante (fixe ou « suit le système »), **le choix laissé à l'utilisateur
+  final**, **l'accueil des thèmes par greffon** — c'est la section `themes { }` de la
+  carte (doc 2 §20.4). La simulation propose ces choix dans sa barre (§18.4).
+- **L'IA** peut proposer une variante (« un thème clair pour NkAnima ») : valeurs
+  proposées **avec le contraste vérifié**, en aperçu, appliquées en une opération.
+
+---
+
+## 27. Le mode Source 🆕
+
+`Ctrl+5` (ou le segment **Source** de la bascule) : la toile **cède la place au texte
+`.nkgui`** du document, coloré (`NkGuiSyntax`), éditable, avec :
+
+- la **même sélection** que la toile et la Structure (sélectionner `Button
+  "anim.inserer"` dans le texte le sélectionne partout, et inversement) ;
+- les **diagnostics** soulignés, avec leur code (`E-PLACEMENT`…) et la correction
+  mécanique quand elle existe ;
+- la **complétion** des rôles, des propriétés du rôle, des **jetons**, des **actions du
+  registre**, des écrans, des services, des champs de widget ;
+- le **repli** des blocs, la navigation vers un `include` (`Ctrl`+clic ouvre le fichier).
+
+**Split Design | Source** (Affichage ▸ Split ▸ Design + Source) est la vue de travail
+recommandée pour qui écrit des documents à la main — l'agent comme le développeur.
+
+📌 **Les commentaires et le style du fichier sont gardés** : modifier à la souris ne
+réécrit que ce qui change ; modifier le texte ne reformate rien d'autre.
+
+---
+
+## 28. De la spécification au document ; voir dans l'application 🆕
+
+### 28.1 Coller un arbre
+
+**Fichier ▸ Nouveau ▸ Depuis une spécification** ou **Édition ▸ Coller comme arbre**
+(`Ctrl+Maj+T`) :
+
+1. Coller un arbre écrit dans la notation des spécifications de la famille :
+   ```
+   HBox "transport"        gap: 2
+     BoutonTransport "anim.debut"   label: "|<"   icon: skip-back
+   ```
+2. NKUIDesign le **lit**, montre l'**aperçu** et la liste de ce qu'il n'a pas compris
+   (une propriété inconnue du rôle, une ligne mal indentée, un rôle proposé remplacé par
+   sa doublure) — **rien n'est deviné**.
+3. **Créer** : le document naît, avec les `include` des composants communs.
+
+### 28.2 Voir dans l'application
+
+**Fichier ▸ Voir dans l'application** (`Ctrl+Maj+Entrée`) : enregistre, puis demande à
+l'application cible (NkAnimaEditor, Nogee…) de **relire** le document sans être relancée
+(surveillance de fichier, `NkFileWatcher`). Grisé, avec sa raison, si l'application
+n'est pas construite ou si le document a une erreur bloquante.
+
+---
+
+## 29. Table unique des raccourcis
+
+> *Un raccourci n'existe qu'à un seul endroit* (§5bis.1). Cette table **est** cet
+> endroit : relevée dans le code le 27/09 (menus de `main.cpp`, commandes de la coquille,
+> `NkShortcutTable`) avant d'en proposer ; les menus ci-dessus la reprennent. Contexte :
+> **G** global, **T** toile Design, **S** édition de sommets, **B** toile Behavior, **A**
+> toile Animation, **Σ** simulation.
+
+| touche | effet | ctx | état |
+|---|---|---|---|
+| `Ctrl+N` · `Ctrl+O` · `Ctrl+Alt+O` · `Ctrl+W` | nouveau document · ouvrir un document · ouvrir un projet · fermer | G | ✅ · ✅ · ✚ · ✅ |
+| `Ctrl+S` · `Ctrl+Maj+S` · `Ctrl+Alt+S` | enregistrer · sous · tout | G | ✅ |
+| `Ctrl+E` | exporter | G | ✅ |
+| `F7` | **valider** (était `Ctrl+Maj+V`, en conflit) | G | ✚ |
+| `Ctrl+Maj+Entrée` | voir dans l'application | G | ✚ |
+| `Ctrl+,` · `Ctrl+Q` | préférences · quitter | G | ✅ |
+| `Ctrl+Z` · `Ctrl+Y` | annuler · rétablir | G | ✅ |
+| `Ctrl+X` · `Ctrl+C` · `Ctrl+V` · `Ctrl+D` · `Suppr` | couper · copier · coller · dupliquer · supprimer | T | ✅ |
+| `Ctrl+Maj+V` · `Ctrl+Alt+V` | coller à la même place · coller le style | T | ✅ |
+| `Ctrl+Maj+T` | coller comme arbre (texte de spécification) | G | ✚ |
+| `Ctrl+A` · `Échap` | tout sélectionner · désélectionner | T | ✅ |
+| `Ctrl+F` · `Ctrl+Maj+F` · `Ctrl+H` | rechercher (document) · (projet) · remplacer une propriété | G | ✅ · ✚ · ✅ |
+| `F2` · `F1` | renommer · documentation | G | ✅ |
+| `Ctrl+1` · `2` · `3` · `4` · **`5`** | Design · Behavior · Animation · Split · **Source** | G | ✅ · ✚ |
+| `Maj+F` (Alt maintenu) | vue Fidélité (l'autre rendu) | T | ✚ |
+| `Ctrl++` · `Ctrl+-` · `Ctrl+0` · `Maj+1` · `Maj+2` | zooms, ajuster page, ajuster sélection | T | ✅ |
+| `Ctrl+'` · `Ctrl+;` · `F11` | grille · magnétisme · plein écran | T/G | ✅ |
+| `Ctrl+G` · `Ctrl+Maj+G` | grouper · dégrouper | T | ✅ |
+| `Ctrl+K` · `Ctrl+Alt+K` | convertir en composant — **deux touches pour une seule commande**, la seconde étant celle de Lunacy (doc 13 §9) ; le menu affiche `Ctrl+K` | T | ✅ |
+| `Ctrl+Alt+D` · `Ctrl+Alt+M` | détacher l'instance · appliquer au composant | T | ✅ |
+| `Ctrl+L` · `Ctrl+Maj+H` | verrouiller · masquer dans l'éditeur | T | ✅ |
+| `Ctrl+]` · `Ctrl+Maj+]` · `Ctrl+[` · `Ctrl+Maj+[` | avancer · premier plan · reculer · arrière-plan | T | ✅ |
+| `Maj+H` · `Maj+V` | miroir horizontal · vertical | T | ✅ |
+| `Ctrl+Maj+U` · `P` · `I` · `X` | union · soustraire · intersecter · exclure | T | ✚ |
+| `Ctrl+Maj+O` | vectoriser le contour (Lunacy) | T | ✚ |
+| `Ctrl+M` | masque | T | ✚ — libéré de « Vue : Préférences » de la coquille (qui a `Ctrl+,`) |
+| `Ctrl+Maj+A` | choisir l'action de l'élément | T | ✚ |
+| `Ctrl+T` | choisir un jeton pour la couleur active | T | ✚ |
+| `Ctrl+Maj+K` | assistant IA (dans la famille, `Ctrl+K` ; ici `Ctrl+K` est au composant — D7) | G | ✚ |
+| `V` `F` `R` `P` `T` | familles d'outils du §7.2 (la touche fait tourner la famille) ; `O` et `L` : à venir (doc 13 §10.2) | T | ◐ |
+| `H` · `Espace` maintenu | outil Main · main temporaire (relâcher rend l'outil précédent) | T/B/A | ◐ |
+| `Entrée` · `Échap` · `Suppr` | entrer / sortir de l'édition de sommets · supprimer un sommet | S | ◐ · ✅ · ✅ |
+| `Ctrl+²` | vue Code du Behavior | B | ✅ |
+| `Tab` · `C` · `Maj+L` · `Alt`+clic | recherche de nœuds · commentaire-cadre · ranger · couper un fil | B | ✚ |
+| `N` · `L` | familles Nœud · Liaison (§7.3) | B | ✚ |
+| `Ctrl+F` | rechercher dans le graphe (nœud, widget désigné, callback) — remplace, sur cette toile, la recherche du document | B | ✚ |
+| `V` · `K` · `C` | familles Sélection · Clé · Courbe (§7.4) | A | ✚ |
+| `F9` · `F10` | point d'arrêt · pas à pas | B/Σ | ✚ |
+| `F5` · `Ctrl+F5` · `Maj+F5` · `F6` | simuler · à partir de… · recharger · geler | G | ✅ · ✚ · ✅ · ✅ |
+| `F5` (simulation arrêtée sur un point d'arrêt) | continuer jusqu'au prochain point d'arrêt (§9.7) | Σ | ✚ |
+| `Ctrl+Maj+R` | enregistrer un test | Σ | ✚ |
+| `Ctrl+Tab` · `Ctrl+Maj+Tab` | onglet suivant · précédent | G | ✅ |
+
+⚠️ **Conflits relevés dans le code actuel, et leur issue** :
+1. `Ctrl+Maj+V` affiché pour « Valider » **et** « Coller à la même place » → valider
+   passe sur **`F7`**.
+2. `Ctrl+M` pris par la commande de coquille « Vue : Préférences » (doublon de
+   `Ctrl+,`) → **libéré** pour le masque.
+3. `Ctrl+K` : composant ici (réflexe Lunacy / Figma), assistant IA dans la famille →
+   assistant sur **`Ctrl+Maj+K`** ici (D7).
+4. `Ctrl+P` (« Vue : Propriétés ») et `Ctrl+K` (« Vue : Composition ») de la coquille :
+   **retirés** de la coquille — un panneau s'ouvre par le menu Fenêtre ou sa pastille,
+   et ces touches appartiennent à la toile.
+
+---
+
+**Fin du document 3.** Le langage est au doc 2, le produit au doc 1, les arbres `.nkgui`
+de l'interface de NKUIDesign et les tables d'actions au doc 5 ; le brief Banani (doc 4)
+est une archive.

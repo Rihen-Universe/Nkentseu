@@ -711,12 +711,12 @@ printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS reg
 {
 	static const char kDoc[] =
 		"nkgui 0.3\n"
-		"widgets \"barre_menu\" {\n"
+		"widgets \"barreMenu\" {\n"
 		"  Panel \"p.menu\" { size = (200, 24)\n"
 		"    appearance { fill { color = #1A7F37 } }\n"
 		"  }\n"
 		"}\n"
-		"widgets \"barre_etat\" {\n"
+		"widgets \"barreEtat\" {\n"
 		"  Panel \"p.etat\" { size = (200, 24)\n"
 		"    appearance { fill { color = #8250DF } }\n"
 		"  }\n"
@@ -752,11 +752,11 @@ printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS reg
 		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
 			  "(b19) [racine] le document se charge");
 		bool trouvee = false;
-		s.ImageRacine("barre_etat", trouvee);
+		s.ImageRacine("barreEtat", trouvee);
 		const uint32 v = ComptePixelsCouleur(s.ras, kVert);
 		const uint32 x = ComptePixelsCouleur(s.ras, kViolet);
 		const uint32 r = ComptePixelsCouleur(s.ras, kRouge);
-		printf("        [\"barre_etat\"] vert=%u violet=%u rouge=%u, montees=%u, "
+		printf("        [\"barreEtat\"] vert=%u violet=%u rouge=%u, montees=%u, "
 			   "introuvables=%u\n",
 			   v, x, r, s.rap.racinesMontees, s.rap.racinesIntrouvables);
 		Check(trouvee, "(b19) la racine nommee est TROUVEE");
@@ -792,7 +792,7 @@ printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS reg
 		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
 			  "(b19) [faute] le document se charge");
 		bool trouvee = true;
-		s.ImageRacine("barre_etatt", trouvee); // la faute de frappe la plus probable
+		s.ImageRacine("barreEtatt", trouvee); // la faute de frappe la plus probable
 		printf("        [faute] montees=%u, introuvables=%u (« %s »), peints=%u\n",
 			   s.rap.racinesMontees, s.rap.racinesIntrouvables,
 			   s.rap.derniereRacineIntrouvable.CStr(), ComptePixelsPeints(s.ras, kFond));
@@ -801,8 +801,8 @@ printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS reg
 		CheckEqU(s.rap.racinesIntrouvables, 1u, "(b19) [faute] et c'est COMPTE");
 		// 🔴 LE CHIFFRE NE SUFFIT PAS. Un appelant qui ignore le retour monterait
 		//    une region vide sans erreur ; le NOM demande est ce qui transforme
-		//    « il manque quelque chose » en « tu as ecrit barre_etatt ».
-		Check(s.rap.derniereRacineIntrouvable.Compare(NkString("barre_etatt")) == 0,
+		//    « il manque quelque chose » en « tu as ecrit barreEtatt ».
+		Check(s.rap.derniereRacineIntrouvable.Compare(NkString("barreEtatt")) == 0,
 			  "(b19) ET LE NOM DEMANDE EST GARDE — sans lui, la faute se cherche a la main");
 		s.exe.Debrancher(s.ctx);
 	}

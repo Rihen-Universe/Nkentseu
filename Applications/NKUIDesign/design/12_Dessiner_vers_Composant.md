@@ -1,5 +1,13 @@
 # 12. De la forme dessinée au composant réutilisable
 
+> **Statut au 27/09/2026 — NOTE DE CONCEPTION, largement construite depuis** (doc 13
+> §9, doc 15) : extraction (`Ctrl+Alt+K`), instance, surcharges par propriété,
+> détachement, propagation. Restent **en vigueur** : les **trois pièges** du §12.4 et la
+> **table d'extraction** du §12.3(b). La question de la taille (« 9-slice ») a une
+> réponse partielle au format 0.4 : dans une bibliothèque de formes, la silhouette est en
+> fractions de la boîte et les **rayons en pixels** (doc 2 §15.2).
+
+
 > **Note de conception — aucun code.** Écrite le 2026-09-01, à la demande du
 > coordinateur, pendant le chantier de conformité Lunacy. Elle décrit un chemin
 > que le dépôt possède **par morceaux** et qu'il ne relie pas encore.

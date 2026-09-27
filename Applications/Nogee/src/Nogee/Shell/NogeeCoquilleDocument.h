@@ -65,8 +65,8 @@ namespace nogee {
 
 			bool ChargerDepuisDossier(const char *d) noexcept {
 				dossier = NkString(d);
-				const bool a = barreEtat.ChargerDepuisFichier(Joindre("barre_etat.nkgui").CStr());
-				const bool b = panneau.ChargerDepuisFichier(Joindre("panneau_scene.nkgui").CStr());
+				const bool a = barreEtat.ChargerDepuisFichier(Joindre("BarreEtat.nkgui").CStr());
+				const bool b = panneau.ChargerDepuisFichier(Joindre("PanneauScene.nkgui").CStr());
 				return a && b;
 			}
 

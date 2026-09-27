@@ -1,5 +1,15 @@
 # Document 6 — L'IA de design : cadrage et corpus
 
+> **Statut au 27/09/2026 — CADRAGE HISTORIQUE** (rien n'y est décidé, rien n'est
+> construit). Correction de lecture : les exemples du §5ter emploient le format **0.2**
+> et des noms de l'ancienne table (`InputText`, `Combo`, `CollapsingHeader`) ; le format
+> est en **0.4** avec le vocabulaire du **doc 7** (`TextField`, `Dropdown`, `Expander`),
+> et `Text` / `Spacer` existent. La **table de correspondance du §5bis** reste utile une
+> fois ses cibles traduites en rôles du doc 7 ; les modes de taille, ancrages et points
+> de rupture qu'elle vise sont ceux du **modèle d'édition** (doc 5 §1ter), dont la
+> traduction au format est au doc 5 §1.2.
+
+
 > Ouvert le **2026-08-20** au soir, à la demande de Rodolf : *« commence à
 > travailler sur le corpus de l'IA de design et sur l'IA de design. »*
 >

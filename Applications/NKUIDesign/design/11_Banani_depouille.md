@@ -1,5 +1,12 @@
 # Document 11 — Dépouille de l'export Banani du 2026-08-30
 
+> **Statut au 27/09/2026 — TRANSCRIPTION DATÉE du 30/08**, toujours valable comme
+> **référence géométrique** des écrans V2 (écrans 1, 19, 3, 26–28). Le §5 (« écarts avec
+> ce qui est construit ») est daté ; le point 6 (« menu Cible absent ») est un écart de
+> **version**, pas une contradiction (doc 13 §0.3). Les couleurs de la maquette ne font
+> pas foi : le thème est au doc 3 §2 (Rihen UE5 par défaut, GitHub Pro en alternative).
+
+
 > Source : `design/banani_export_2026-08-30.txt` (540 Ko, JSON : `flow` + 40
 > `designs` + 8 `sharedFiles`). Dépouillé le 30/08 pour que l'implémentation
 > se fasse sans relire les 540 Ko. Tout ce qui est écrit ici a été **lu dans

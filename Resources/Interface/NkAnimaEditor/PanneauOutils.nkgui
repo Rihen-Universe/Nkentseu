@@ -59,7 +59,7 @@ nkgui 0.3
 //    bibliotheque. Deux copies du meme design se desynchronisent a la premiere
 //    retouche -- c'est exactement ce que ce depot nomme *une derivation en
 //    double : l'un publie, l'autre lit*.
-include "composants.nkgui"
+include "Composants.nkgui"
 
 widgets {
 
@@ -71,14 +71,14 @@ widgets {
       text = "Atelier d'animation"
     }
 
-    Separator "sep_titre" {
+    Separator "sepTitre" {
       orientation = Horizontal
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  LE TRANSPORT
     // ═══════════════════════════════════════════════════════════════════════
-    Text "titre_transport" {
+    Text "titreTransport" {
       text = "Transport"
     }
 
@@ -112,14 +112,14 @@ widgets {
       bind = anim.boucle
     }
 
-    Separator "sep_transport" {
+    Separator "sepTransport" {
       orientation = Horizontal
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  LES CLÉS
     // ═══════════════════════════════════════════════════════════════════════
-    Text "titre_cles" {
+    Text "titreCles" {
       text = "Cles"
     }
 
@@ -143,18 +143,18 @@ widgets {
     // LA BANDE DES CLÉS. Renommez-la et elle se couvrira de hachures avec son
     // nom écrit dedans — une zone que personne ne sert ne doit pas se faire
     // prendre pour un fond.
-    Host "apercu_cles" {
+    Host "apercuCles" {
       hint = "bande des cles (remplie par l'application)"
     }
 
-    Separator "sep_cles" {
+    Separator "sepCles" {
       orientation = Horizontal
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  LA POSE — le geste de Cascadeur
     // ═══════════════════════════════════════════════════════════════════════
-    Text "titre_pose" {
+    Text "titrePose" {
       text = "Pose"
     }
 
@@ -178,14 +178,14 @@ widgets {
       }
     }
 
-    Separator "sep_pose" {
+    Separator "sepPose" {
       orientation = Horizontal
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  LE SQUELETTE
     // ═══════════════════════════════════════════════════════════════════════
-    Text "titre_squelette" {
+    Text "titreSquelette" {
       text = "Squelette"
     }
 
@@ -195,14 +195,14 @@ widgets {
       hint = "chaine osseuse (remplie par l'application)"
     }
 
-    Separator "sep_squelette" {
+    Separator "sepSquelette" {
       orientation = Horizontal
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  LA PHYSIQUE ET L'ÉQUILIBRE
     // ═══════════════════════════════════════════════════════════════════════
-    Text "titre_physique" {
+    Text "titrePhysique" {
       text = "Physique"
     }
 
@@ -221,7 +221,7 @@ widgets {
       bind = anim.com
     }
 
-    Separator "sep_physique" {
+    Separator "sepPhysique" {
       orientation = Horizontal
     }
 
