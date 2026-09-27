@@ -86,6 +86,7 @@
 #include "SondeEcouteurs.h"     // --sonde-ecouteurs: un evenement part-il du bon widget
 #include "SondeToile.h"         // --sonde-toile    : le role Canvas et son cadrage
 #include "SondeLangues.h"       // --sonde-langues  : `@t:cle` et la bascule a chaud
+#include "NkUIDesignLangues.h"  // LA table de traduction de cette application
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
@@ -9264,6 +9265,14 @@ int nkmain(const NkEntryState &state) {
 	uint32 argCount = 0;
 	for (uint32 i = 0; i < rawCount && argCount < kMaxArgs; ++i)
 		argv[argCount++] = state.args[i].Data();
+
+	// LA TABLE DE TRADUCTION, AVANT TOUT MONTAGE (27/09).
+	// ⚠️ AVANT LA BOUCLE D'ARGUMENTS, ET PAS APRES : les sondes montent des
+	//    documents et sortent sans jamais atteindre la creation de la fenetre.
+	//    Posee plus bas, la table leur aurait manque, et leurs libelles seraient
+	//    retombes sur leur cle -- un releve qui accuse le document pour un simple
+	//    ordre d'appel.
+	nkuidesign::NkUIDesignPoserLangues();
 
 	for (uint32 i = 0; i < argCount; ++i) {
 		const char *a = argv[i];

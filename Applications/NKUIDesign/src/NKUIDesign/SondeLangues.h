@@ -34,6 +34,8 @@
 #include "NKGui/Doc/NkGuiLangues.h"
 #include "NKGui/Doc/NkGuiMonteur.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
+#include "NkCoquilleDocument.h"  // C7 : le VRAI document de NKUIDesign
+#include "NkUIDesignLangues.h"	 // C7 : et LA table de cette application
 
 namespace nkuidesign {
 
@@ -244,6 +246,51 @@ namespace nkuidesign {
 			if (!ok) ++ko;
 			printf("  C6 analyse .lang   %u paires | \"%s\" | \"%s\" | \"%s\"  %s\n", n, a.CStr(),
 				   b.CStr(), c.CStr(), ok ? "OK" : "<<< KO");
+		}
+
+		// ── C7 : 🔴 LE VRAI DOCUMENT, ET AUCUNE CLE ORPHELINE ──────────────
+		{
+			// C1..C6 eprouvent le MECANISME sur une table de sonde. C7 eprouve
+			// l'APPLICATION : chaque `@t:` ecrit dans `Interface.nkgui` a-t-il une
+			// entree dans la table de NKUIDesign ?
+			//
+			// Sans lui, une cle oubliee retomberait sur elle-meme -- le bouton
+			// afficherait `design.exporterPoints` au lieu de « Exporter... ». Visible,
+			// oui, mais seulement par quelqu'un qui regarde CE bouton-la, dans CETTE
+			// langue. Le compteur, lui, les voit toutes d'un coup.
+			NkGuiOublierSurcharges();
+			NkGuiOublierTablesLangues();
+			NkUIDesignPoserLangues();
+			NkGuiLanguesRemiseAZero();
+			NkGuiPoserLangue(0);
+
+			NkCoquilleDocument coq;
+			const bool lu = coq.ChargerDepuisDossier("Resources/Interface/NKUIDesign");
+			uint32 montes = 0u;
+			if (lu) {
+				uint32 nR = 0u;
+				const char *const *racines = NkCoquilleDocument::NomsRacines(nR);
+				for (uint32 i = 0; i < nR; ++i) {
+					NkGuiContext ctx;
+					ctx.viewW = 1280;
+					ctx.viewH = 200;
+					ctx.BeginFrame(0.016f);
+					ctx.BeginLayout(NkRect{0.f, 0.f, 1280.f, 200.f});
+					ctx.DL().Reset();
+					coq.bande.Monter(ctx, racines[i]);
+					ctx.EndFrame();
+					montes += coq.bande.rap.montes;
+				}
+			}
+			const NkGuiLanguesRapport &r = NkGuiLanguesReleve();
+			const bool ok = lu && r.demandes > 0u && r.repliCle == 0u;
+			if (!ok) ++ko;
+			printf("  C7 vrai document   lu=%s | demandes=%u servies=%u repliCle=%u  %s\n",
+				   lu ? "oui" : "NON", r.demandes, r.serviesParTable, r.repliCle,
+				   ok ? "OK" : "<<< KO");
+			if (r.repliCle > 0u)
+				printf("       ^ cle SANS traduction, la derniere : \"%s\"\n",
+					   r.derniereSansTraduction.CStr());
 		}
 
 		NkGuiOublierSurcharges();
