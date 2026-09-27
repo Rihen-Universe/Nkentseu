@@ -2297,6 +2297,109 @@ int main(int argc, char **argv) {
 				"   NEGATIF : un role qui n'existe VRAIMENT pas est toujours compte");
 	}
 
+	// =========================================================================
+	printf("\n-- LES HUIT ROLES PROPOSES (P2 P3 P4 P6 P13 P18 P5 P23) --\n");
+	// =========================================================================
+	//  Ils etaient decrits par les deux specifications d'interface, chacune
+	//  disant ce qu'il fallait ecrire « EN ATTENDANT ». Ils cessent d'etre en
+	//  attendant : schema du format ET montage, dans le meme lot.
+	{
+		// Le theme est POSE : `Badge.tone` et le lisere d'axe de `VectorField`
+		// sont des JETONS. Sans table, ils se compteraient non honores -- et le
+		// critere de l'axe ci-dessous le prouve dans les deux sens.
+		static const char kThemeP[] =
+			"nkgui 0.3\n"
+			"theme \"UE5 Rihen\" {\n"
+			"  jeton \"@origine.main\" { sombre = #D8D8D8, sens = \"cle posee a la main\" }\n"
+			"  jeton \"@axe.x\" { sombre = #D2362E, sens = \"l'axe X\" }\n"
+			"  jeton \"@axe.y\" { sombre = #5BA829, sens = \"l'axe Y\" }\n"
+			"  jeton \"@axe.z\" { sombre = #2F7FE0, sens = \"l'axe Z\" }\n"
+			"  jeton \"@accent\" { sombre = #1177D1, sens = \"etat de l'interface\" }\n"
+			"}\n";
+		nkentseu::NkArchive arcP;
+		NkGuiDiag errP;
+		Check(NkGuiArchive::Read(kThemeP, (uint32)(sizeof(kThemeP) - 1u), arcP, errP),
+			  "   le theme des roles proposes se lit");
+		NkGuiTableJetons tableP;
+		NkGuiRapportTheme rapP;
+		(void)NkGuiLireTheme(arcP, tableP, rapP);
+		CheckEq(rapP.jetons, 5u, "   cinq jetons retenus");
+		NkGuiPoserJetons(&tableP);
+
+		static const char kProp[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    gap = 4\n"
+			"    ToggleButton \"outil.deplacer\" { label = \"Deplacer\", group = outils_vue }\n"
+			"    ToggleButton \"outil.tourner\"  { label = \"Tourner\",  group = outils_vue, "
+			"value = true }\n"
+			"    Badge \"origine\"        { text = \"M\", tone = origine.main }\n"
+			"    Tile \"facile.marcher\"  { label = \"Marcher\", caption = \"4 pas\" }\n"
+			"    KeyDiamond \"cle\"       { bind = os.bras_g.rotation }\n"
+			"    SplitButton \"outil.famille\" { label = \"Plume\", items = [\"Plume\", "
+			"\"Crayon\"] }\n"
+			"    TimecodeField \"temps\"  { bind = anim.curseur, fps = 24 }\n"
+			"    VectorField \"pos\"      { bind = os.bras_g.position, components = 3 }\n"
+			"    TokenField \"jeton\"     { bind = insp.couleur, value = \"@accent\" }\n"
+			"  }\n"
+			"}\n";
+		g_garderPixels = true;
+		const Montage prop = MonterTexte(kProp, (uint32)(sizeof(kProp) - 1u), 420, 480);
+		g_garderPixels = false;
+		Check(prop.lu, "   le document des roles proposes se lit");
+		printf("        widgets=%u montes=%u inconnus=%u attrNonHonores=%u\n", prop.rap.widgets,
+			   prop.rap.montes, prop.rap.rolesInconnus, prop.rap.attributsNonHonores);
+		CheckEq(prop.rap.rolesInconnus, 0u, "   AUCUN role inconnu");
+		Check(prop.rap.montes >= 10u, "   les neuf roles se MONTENT");
+
+		// ── LE LISERE D'AXE, PAR SA COULEUR NOMMEE ───────────────────────
+		//  ⚠️ C'EST LE CRITERE QUI JUGE `VectorField`, et pas « il se monte ».
+		//     « La couleur porte l'axe : c'est de l'information » (doc 09 §1 P5).
+		//     Un champ X/Y/Z sans lisere serait trois curseurs quelconques.
+		const uint32 axeX = ComptePixelsCouleur(prop, 0xD2362EFFu);
+		const uint32 axeY = ComptePixelsCouleur(prop, 0x5BA829FFu);
+		const uint32 axeZ = ComptePixelsCouleur(prop, 0x2F7FE0FFu);
+		printf("        liseres d'axe : X=%u px  Y=%u px  Z=%u px\n", axeX, axeY, axeZ);
+		Check(axeX > 0u && axeY > 0u && axeZ > 0u,
+			  "   LES TROIS LISERES D'AXE sont peints, chacun de SA couleur");
+
+		// ── LA PILULE PORTE SON TON ──────────────────────────────────────
+		const uint32 pastille = ComptePixelsCouleur(prop, 0xD8D8D8FFu);
+		printf("        pilule d'origine : %u px de @origine.main\n", pastille);
+		Check(pastille > 0u, "   le `Badge` peint le fond que `tone` designe");
+
+		// ── L'EXCLUSIVITE DU GROUPE ──────────────────────────────────────
+		//  ⚠️ C'EST LA RAISON D'ETRE DE `ToggleButton` : sans elle, un `Checkbox`
+		//     suffirait. Le document declare `value = true` sur le SECOND : c'est
+		//     donc lui qui porte l'accent, et le premier ne doit pas l'avoir.
+		//     Un seul accent pour deux boutons d'un meme groupe.
+		{
+			NkGuiContext ref;
+			const uint32 accent = (((uint32)ref.theme.accent.r) << 24)
+								  | (((uint32)ref.theme.accent.g) << 16)
+								  | (((uint32)ref.theme.accent.b) << 8) | 255u;
+			const uint32 nAccent = ComptePixelsCouleur(prop, accent);
+			printf("        accent du theme : %u px (un seul actif attendu)\n", nAccent);
+			Check(nAccent > 0u, "   l'actif du groupe est peint avec l'accent");
+		}
+
+		// ── LE NEGATIF : SANS THEME, LES JETONS SE COMPTENT ──────────────
+		//  Sans lui, « les liseres sont peints » ne dirait pas qu'ils viennent du
+		//  THEME : ils pourraient etre ecrits en dur dans le monteur.
+		NkGuiPoserJetons(nullptr);
+		g_garderPixels = true;
+		const Montage sansTheme = MonterTexte(kProp, (uint32)(sizeof(kProp) - 1u), 420, 480);
+		g_garderPixels = false;
+		printf("        sans theme : X=%u px, attrNonHonores=%u (contre %u avec)\n",
+			   ComptePixelsCouleur(sansTheme, 0xD2362EFFu), sansTheme.rap.attributsNonHonores,
+			   prop.rap.attributsNonHonores);
+		CheckEq(ComptePixelsCouleur(sansTheme, 0xD2362EFFu), 0u,
+				"   NEGATIF : sans theme, AUCUN lisere rouge — ils viennent bien des jetons");
+		Check(sansTheme.rap.attributsNonHonores > prop.rap.attributsNonHonores,
+			  "   NEGATIF : et les jetons non resolus sont COMPTES");
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);

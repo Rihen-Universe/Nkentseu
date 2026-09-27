@@ -303,6 +303,35 @@ namespace nkuidesign {
 			static const NkGSchemaProp pGrid[] = {
 				{"columns", 'n'}, {"gap", 'n'}, {"sizes", 'l'}};
 			static const NkGSchemaProp pFlow[] = {{"gap", 'n'}};
+			// ── LES ROLES PROPOSES (27/09) ────────────────────────────────
+			//  Chaque propriete vient MOT POUR MOT de la specification qui l'a
+			//  decrite ; rien n'est ajoute « au cas ou ».
+			//
+			//  ⚠️ `group` FAIT L'EXCLUSIVITE D'UN `ToggleButton`, et c'est la
+			//     raison d'etre du role : « les boutons d'un meme groupe sont
+			//     exclusifs » (doc 09 §1 P2). Sans lui, un `Checkbox` suffirait.
+			static const NkGSchemaProp pToggleButton[] = {
+				{"label", 's'}, {"icon", 'e'}, {"bind", 'r'}, {"group", 'e'}, {"tooltip", 's'}};
+			//  `tone` = un nom de jeton SANS son `@` (doc 09 §1 P3).
+			static const NkGSchemaProp pBadge[] = {{"text", 's'}, {"tone", 'e'}, {"tooltip", 's'}};
+			static const NkGSchemaProp pTile[] = {
+				{"image", 'e'}, {"label", 's'}, {"caption", 's'}, {"size", 'a'}, {"tooltip", 's'}};
+			//  `bind` designe la PROPRIETE ANIMABLE, pas une valeur : le losange
+			//  lit son etat (vide / plein / demi) et emet `commun.cle_propriete`.
+			static const NkGSchemaProp pKeyDiamond[] = {{"bind", 'r'}, {"tooltip", 's'}};
+			static const NkGSchemaProp pSplitButton[] = {
+				{"label", 's'}, {"icon", 'e'}, {"items", 'l'}, {"bind", 'r'}, {"tooltip", 's'}};
+			static const NkGSchemaProp pTimecodeField[] = {
+				{"bind", 'r'}, {"fps", 'n'}, {"format", 'e'}, {"tooltip", 's'}};
+			//  `components` vaut 2, 3 ou 4 ; `axisColors` allume les liseres.
+			static const NkGSchemaProp pVectorField[] = {{"bind", 'r'},	  {"components", 'n'},
+														 {"speed", 'n'},  {"min", 'n'},
+														 {"max", 'n'},	  {"axisColors", 'b'}};
+			//  `families` limite les jetons proposes ; `allowFree` autorise une
+			//  couleur libre — et le controle « couleur en dur » s'allume alors.
+			static const NkGSchemaProp pTokenField[] = {
+				{"bind", 'r'}, {"families", 'l'}, {"allowFree", 'b'}};
+
 			static const NkGSchemaProp pStack[] = {{"anchor", 'e'}};
 			static const NkGSchemaProp pTable[] = {{"columns", 'l'}, {"flags", 'i'}};
 			static const NkGSchemaProp pScroll[] = {{"axis", 'e'}, {"always", 'b'}};
@@ -368,6 +397,28 @@ namespace nkuidesign {
 				{"Scroll", pScroll, 2},
 				{"Splitter", pSplitter, 5},
 				{"Host", pHost, 1},
+				// ═════════════════════════════════════════════════════════
+				//  LES ROLES PROPOSES, ENTRES AU FORMAT LE 27/09
+				// ═════════════════════════════════════════════════════════
+				//  Rodolf : « reecris donc tout le vocabulaire manquant une
+				//  fois ». Les deux specifications d'interface les decrivaient
+				//  (NkAnimaEditor doc 09 §1, NKUIDesign doc 21 §1) avec, pour
+				//  chacun, ce qu'il faut ecrire EN ATTENDANT. Ils cessent
+				//  d'etre « en attendant ».
+				//
+				//  ⚠️ UN ROLE N'ENTRE PAS SEUL. Chacun a ici son schema, et
+				//     dans `NkGuiMonteur.h` un `case` qui appelle NKGui — les
+				//     deux dans le meme lot. Un role au schema que le monteur
+				//     ignore fait REFUSER le document entier : c'est ce que
+				//     les huit roles du meme jour viennent de payer.
+				{"ToggleButton", pToggleButton, 5},
+				{"Badge", pBadge, 3},
+				{"Tile", pTile, 5},
+				{"KeyDiamond", pKeyDiamond, 2},
+				{"SplitButton", pSplitButton, 5},
+				{"TimecodeField", pTimecodeField, 4},
+				{"VectorField", pVectorField, 6},
+				{"TokenField", pTokenField, 3},
 			};
 			count = sizeof(kTable) / sizeof(NkGSchemaRole);
 			return kTable;
