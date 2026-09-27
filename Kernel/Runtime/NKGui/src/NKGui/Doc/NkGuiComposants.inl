@@ -92,6 +92,71 @@ namespace nkentseu {
 											const NkVector<NkGCDefinition> &defs,
 											NkVector<NkString> &pile,
 											NkVector<NkArchiveNode> &aPoser,
+											NkGuiRapportComposants &rap) noexcept;
+
+			// ═════════════════════════════════════════════════════════════════
+			//  P9 — REMPLIR LES `Slot` DU PATRON AVEC LES ENFANTS DE L'INSTANCE
+			// ═════════════════════════════════════════════════════════════════
+			//  Rend le nombre de `Slot` REMPLIS. Zéro peut vouloir dire deux
+			//  choses — « aucun `Slot` » ou « aucun enfant » — et c'est
+			//  l'appelant qui les distingue, parce que lui seul sait si
+			//  l'instance en avait.
+			//
+			//  ⚠️ UN `Slot` NON REMPLI EST RETIRÉ, PAS LAISSÉ. `Slot` n'est pas
+			//     un rôle du monteur : le laisser dans l'arbre ferait compter un
+			//     rôle inconnu, et **un rôle inconnu fait refuser le document
+			//     entier**, ses voisins valides compris. Un emplacement vide doit
+			//     ne rien laisser — et se compter.
+			//
+			//  ⚠️ ET LES ENFANTS NE SE DUPLIQUENT PAS. S'il y a plusieurs `Slot`,
+			//     le PREMIER reçoit les enfants et les suivants sont vides. Les
+			//     recopier partout produirait des identifiants en double, donc
+			//     des `behavior` qui désignent deux widgets — un défaut plus
+			//     coûteux que la place perdue.
+			inline uint32 NkGCRemplirSlots(NkArchiveNode &noeud, NkArchiveNode *enfants,
+										   NkGuiRapportComposants &rap) noexcept {
+				if (!noeud.IsObject() || !noeud.object)
+					return 0u;
+				NkArchiveNode *corps = NkGCCorpsMut(*noeud.object);
+				if (!corps || !corps->IsArray())
+					return 0u;
+
+				uint32 remplis = 0u;
+				NkVector<NkArchiveNode> sortie;
+				for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+					NkArchiveNode &n = corps->array[i];
+					if (!n.IsObject() || !n.object) {
+						sortie.PushBack(n);
+						continue;
+					}
+					if (NkGCMotEgal(NkGuiArchive::TypeOf(*n.object), "Slot")) {
+						bool aPose = false;
+						if (remplis == 0u && enfants && enfants->IsArray()) {
+							for (uint32 k = 0; k < (uint32)enfants->array.Size(); ++k) {
+								if (!enfants->array[k].IsObject() || !enfants->array[k].object)
+									continue;
+								sortie.PushBack(enfants->array[k]);
+								aPose = true;
+							}
+						}
+						if (aPose) {
+							++remplis;
+							++rap.slotsRemplis;
+						} else {
+							++rap.slotsVides;
+						}
+						continue; // le `Slot` lui-même ne survit jamais
+					}
+					// Pas un `Slot` : on descend, puis on le garde tel quel.
+					remplis += NkGCRemplirSlots(n, remplis == 0u ? enfants : nullptr, rap);
+					sortie.PushBack(n);
+				}
+				corps->array = sortie;
+				return remplis;
+			}
+
+			inline void NkGCDevelopperCorps(NkArchiveNode &corps, const NkVector<NkGCDefinition> &defs,
+											NkVector<NkString> &pile, NkVector<NkArchiveNode> &aPoser,
 											NkGuiRapportComposants &rap) noexcept {
 				if (!corps.IsArray())
 					return;
@@ -186,6 +251,37 @@ namespace nkentseu {
 						rap.attributsSurcharges += NkGCSurcharger(r, bloc);
 						// Les références des `behavior` internes suivent.
 						NkGCReecrireCorps(r, ren);
+					}
+
+					// ── P9 : LES ENFANTS DE L'INSTANCE PRENNENT LA PLACE DU `Slot`
+					//
+					//  ⚠️ APRÈS LE PRÉFIXAGE, ET C'EST LA SEULE PLACE JUSTE. Les
+					//     enfants viennent du DOCUMENT, pas du patron : leurs
+					//     identifiants appartiennent déjà à la portée du document.
+					//     Les injecter avant `NkGCPrefixerIds` les aurait renommés
+					//     en `<instance>.<leur nom>` — et un `behavior` du document
+					//     qui les désigne ne les aurait plus trouvés.
+					{
+						NkArchiveNode *enfantsInstance = NkGCCorpsMut(bloc);
+						uint32 nEnfants = 0u;
+						if (enfantsInstance && enfantsInstance->IsArray())
+							for (uint32 k = 0; k < (uint32)enfantsInstance->array.Size(); ++k)
+								if (enfantsInstance->array[k].IsObject()
+									&& enfantsInstance->array[k].object)
+									++nEnfants;
+
+						const uint32 poses = NkGCRemplirSlots(racine, enfantsInstance, rap);
+						if (nEnfants > 0u && poses == 0u) {
+							// L'auteur a écrit des enfants ; le patron n'offre
+							// aucune place. Avant P9, ils disparaissaient ICI, en
+							// silence — et le document ressemblait à un document
+							// plus pauvre, pas à un document cassé.
+							++rap.enfantsSansSlot;
+							NkString r(type);
+							r += " : l'instance porte des enfants et le patron n'a aucun `Slot` "
+								 "— ils seraient perdus";
+							rap.refuses.PushBack(r);
+						}
 					}
 
 					// Les sections que le composant apporte.

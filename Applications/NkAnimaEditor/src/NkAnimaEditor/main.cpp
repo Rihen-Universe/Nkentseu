@@ -516,11 +516,17 @@ static int SondeCoquille(const char *dossier) {
 		const nkgui::NkGuiRapportComposants &comp = d.b->composants;
 		if (comp.definitions > 0u || !comp.Propre()) {
 			const bool compOk = comp.Propre() && (comp.definitions == 0u || comp.instances > 0u);
+			// ⚠️ LES COMPTEURS DE `Slot` SONT ICI PARCE QU'UN COMPTEUR QU'ON
+			//    N'IMPRIME PAS NE SERT PERSONNE. `sansSlot` dit que des enfants
+			//    ecrits par l'auteur ont ete JETES — c'est le defaut que P9 vient
+			//    de fermer, et il doit se voir a la ligne, pas dans une structure.
 			std::printf("  [ %s ] %-16s definis=%u instances=%u surcharges=%u refsReecrites=%u "
-						"comportements=%u  racinesMultiples=%u recursions=%u\n",
+						"comportements=%u  racinesMultiples=%u recursions=%u  slots=%u vides=%u "
+						"sansSlot=%u\n",
 						compOk ? "OK" : "KO", "composants", comp.definitions, comp.instances,
 						comp.attributsSurcharges, comp.referencesReecrites,
-						comp.comportementsCopies, comp.racinesMultiples, comp.recursions);
+						comp.comportementsCopies, comp.racinesMultiples, comp.recursions,
+						comp.slotsRemplis, comp.slotsVides, comp.enfantsSansSlot);
 			for (uint32 r = 0; r < (uint32)comp.refuses.Size(); ++r)
 				std::printf("         -> REFUS : %s\n", comp.refuses[r].CStr());
 			if (!compOk)

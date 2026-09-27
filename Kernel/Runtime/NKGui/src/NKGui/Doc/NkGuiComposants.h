@@ -92,11 +92,40 @@ namespace nkentseu {
 				uint32 attributsSurcharges = 0; ///< attributs de l'instance appliqués
 				uint32 referencesReecrites = 0; ///< identifiants réécrits dans les `behavior`
 				uint32 comportementsCopies = 0; ///< blocs `behavior` copiés par instance
+				// ── P9 : LES EMPLACEMENTS (`Slot`) ───────────────────────────
+				/// 🔴 CE QUE LEUR ABSENCE COUTAIT, ET C'ETAIT SILENCIEUX. Le patron
+				///    REMPLACE l'instance : les enfants écrits **sur l'instance**
+				///    n'étaient réinjectés nulle part, donc ils DISPARAISSAIENT —
+				///    sans compteur, sans refus, sans trace. Un document qui écrit
+				///    `Categorie "transformation" { LigneVec3 "pos" { … } }` perdait
+				///    sa ligne et ressemblait à un document plus pauvre.
+				///    Mesuré le 27/09 en écrivant `composants.nkgui` : la
+				///    spécification demandait de signaler si le développement ne le
+				///    permettait pas. Il ne le permettait pas.
+				///
+				/// ⚠️ TROIS COMPTEURS, PARCE QUE TROIS SITUATIONS DIFFERENTES :
+				///    - `slotsRemplis`    : un `Slot` a reçu les enfants de son
+				///                          instance — le cas nominal ;
+				///    - `enfantsSansSlot` : l'instance a des enfants et le patron
+				///                          n'offre aucune place. **C'est la faute
+				///                          d'hier, désormais nommée** ;
+				///    - `slotsVides`      : le patron offre une place que l'instance
+				///                          ne remplit pas. Le `Slot` est RETIRÉ —
+				///                          sinon le monteur y verrait un rôle
+				///                          inconnu et refuserait tout le document —
+				///                          et ce retrait se compte.
+				uint32 slotsRemplis = 0;
+				uint32 enfantsSansSlot = 0;
+				uint32 slotsVides = 0;
 				NkVector<NkString> noms;		///< les composants définis, dans l'ordre
 				NkVector<NkString> refuses;		///< les noms refusés, avec leur raison
 
 				bool Propre() const noexcept {
-					return racinesMultiples == 0u && recursions == 0u;
+					// ⚠️ `enfantsSansSlot` REND LE RAPPORT SALE, et c'est délibéré :
+					//    des enfants écrits par un auteur et jetés par l'outil sont
+					//    une PERTE, pas une information. `slotsVides`, lui, est
+					//    normal — un composant peut offrir une place facultative.
+					return racinesMultiples == 0u && recursions == 0u && enfantsSansSlot == 0u;
 				}
 		};
 
