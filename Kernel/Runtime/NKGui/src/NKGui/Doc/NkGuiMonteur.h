@@ -81,6 +81,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 #include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
 
@@ -951,8 +952,34 @@ namespace nkentseu {
 		/// ⚠️ PAS DE PARSEUR MAISON : `NkColorF::FromHex` existe dans NKMath et
 		///    traite les deux longueurs. En reecrire un ici aurait donne deux
 		///    lectures d'une meme couleur, qui finissent par diverger.
+		// ─────────────────────────────────────────────────────────────────────
+		//  LA SEULE PORTE QUI LIT UNE COULEUR — hexadécimal OU jeton `@nom`
+		// ─────────────────────────────────────────────────────────────────────
+		//  🔴 IL Y EN AVAIT DEUX (mesure du 27/09). Celle-ci, et
+		//     `NkGuiCouleurDepuisLexeme` dans `NkGuiInteraction.h` : deux
+		//     implémentations indépendantes de la même syntaxe, l'une par
+		//     `NkColorF::FromHex`, l'autre par `NkParseHex` et des décalages à la
+		//     main. Elles s'accordaient ; rien ne les y obligeait. La seconde est
+		//     devenue un renvoi vers celle-ci. *Deux analyseurs du même texte
+		//     finissent par ne plus être d'accord sur ce qu'il dit.*
+		//
+		//  ⚠️ `@nom` EST RÉSOLU ICI, PAS DANS UNE PASSE SUR L'ARCHIVE (P1). Une
+		//     passe aurait remplacé le jeton par sa valeur dans le document, qui
+		//     aurait donc perdu son thème à la première sauvegarde — et changer
+		//     de thème aurait exigé de tout relire. Voir l'en-tête de
+		//     `NkGuiJetons.h`.
+		//
+		//  ⚠️ UN JETON INCONNU REND FAUX, il ne rend pas NOIR. Une couleur
+		//     absente se compte (`apparencesNonPeintes`) et se voit ; un noir
+		//     inventé se confondrait avec un choix.
 		inline bool NkGuiCouleur(NkStringView lex, NkColor &out) noexcept {
 			const uint32 n = (uint32)lex.Size();
+			if (n == 0u)
+				return false;
+			if (lex.Data()[0] == '@') {
+				const NkGuiTableJetons *t = NkGuiJetonsPoses();
+				return t && t->Resoudre(lex, out);
+			}
 			if ((n != 7u && n != 9u) || lex.Data()[0] != '#')
 				return false;
 			char buf[10];
@@ -1029,11 +1056,26 @@ namespace nkentseu {
 					const NkArchive &sub = *c2->array[j].object;
 					const NkStringView ts = NkGuiArchive::TypeOf(sub);
 					const NkArchiveNode *nc = sub.FindNode(NkStringView("color"));
-					if (NkGMotEgal(ts, "fill") && nc)
+					// 🔴 UNE COULEUR ILLISIBLE DISPARAISSAIT SANS TRACE (27/09). Ces
+					//    deux lignes rendaient `false` et personne ne comptait : un
+					//    `fill` dont la couleur est mal écrite — ou, depuis P1, un
+					//    jeton `@nom` que le thème ne connaît pas — laissait le
+					//    widget EXACTEMENT comme s'il n'avait rien demandé. C'est
+					//    la faute que tout ce fichier sert à rendre impossible :
+					//    *un document rendu autrement que demandé n'a pas l'air
+					//    cassé, il a l'air normal.*
+					//
+					//    Trouvé par le témoin de P1, qui exigeait le compteur avant
+					//    d'avoir regardé s'il existait.
+					if (NkGMotEgal(ts, "fill") && nc) {
 						a.aFond = NkGuiCouleur(nc->Lexeme(), a.fond);
-					else if (NkGMotEgal(ts, "text") && nc)
+						if (!a.aFond)
+							++a.nonRendues;
+					} else if (NkGMotEgal(ts, "text") && nc) {
 						a.aEncre = NkGuiCouleur(nc->Lexeme(), a.encre);
-					else if (NkGMotEgal(ts, "shadow") || NkGMotEgal(ts, "stroke"))
+						if (!a.aEncre)
+							++a.nonRendues;
+					} else if (NkGMotEgal(ts, "shadow") || NkGMotEgal(ts, "stroke"))
 						++a.nonRendues;
 				}
 			}

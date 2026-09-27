@@ -179,27 +179,18 @@ namespace nkentseu {
 		/// `#RRGGBB` ou `#RRGGBBAA`, et rien d'autre (`NkGuiValueKind::Color`).
 		/// Le `#` est retire puis la conversion passe par `NkParseHex`, celui de
 		/// NKContainers -- je n'en ecris pas un second.
+		/// 🔴 CETTE FONCTION ÉTAIT UN SECOND ANALYSEUR (corrigé le 27/09). Elle
+		///    lisait la même syntaxe que `NkGuiCouleur` du monteur, par un autre
+		///    chemin — `NkParseHex` et des décalages écrits à la main contre
+		///    `NkColorF::FromHex`. Les deux s'accordaient ; **rien ne les y
+		///    obligeait**, et il a suffi que P1 ajoute `@nom` pour que la question
+		///    devienne « où faut-il l'ajouter ? ». La réponse n'est jamais
+		///    « dans les deux ».
+		///
+		///    Elle garde son nom parce que trois appelants l'emploient, et parce
+		///    que le nom dit ce qu'elle fait. Elle ne garde pas son corps.
 		inline bool NkGuiCouleurDepuisLexeme(NkStringView lex, NkColor &out) noexcept {
-			if (lex.Size() < 7 || lex.Data()[0] != '#')
-				return false;
-			const uint32 n = (uint32)lex.Size() - 1u;
-			if (n != 6u && n != 8u)
-				return false;
-			uint32 v = 0u;
-			if (!string::NkParseHex(NkStringView(lex.Data() + 1, (usize)n), v))
-				return false;
-			if (n == 6u) {
-				out.r = (uint8)((v >> 16) & 0xFFu);
-				out.g = (uint8)((v >> 8) & 0xFFu);
-				out.b = (uint8)(v & 0xFFu);
-				out.a = 255u;
-			} else {
-				out.r = (uint8)((v >> 24) & 0xFFu);
-				out.g = (uint8)((v >> 16) & 0xFFu);
-				out.b = (uint8)((v >> 8) & 0xFFu);
-				out.a = (uint8)(v & 0xFFu);
-			}
-			return true;
+			return NkGuiCouleur(lex, out);
 		}
 
 		// =====================================================================
@@ -229,6 +220,11 @@ namespace nkentseu {
 				///    libelle disparait dans l'un des deux etats.
 				bool aEncre = false;
 				NkColor encre{0, 0, 0, 255};
+				/// Les couleurs de cet état que le lecteur n'a pas su lire —
+				/// écriture fautive, ou jeton `@nom` que le thème ne connaît pas.
+				/// ⚠️ Comptées, jamais tues : une couleur illisible rendait ce
+				///    widget exactement comme s'il n'avait rien demandé.
+				uint32 nonLues = 0;
 		};
 
 		/// Ce que le document dit d'UN widget : son identite, sa cle d'etat, son
@@ -353,9 +349,16 @@ namespace nkentseu {
 						const NkArchive &eff = *c->array[k].object;
 						const NkStringView t = NkGuiArchive::TypeOf(eff);
 						const NkArchiveNode *col = eff.FindNode(NkStringView("color"));
+						// ⚠️ MÊME CORRECTIF QUE CÔTÉ MONTEUR (27/09) : une couleur
+						//    illisible — ou un jeton `@nom` inconnu du thème — se
+						//    COMPTE. Sans ce compteur, l'état d'un widget dont la
+						//    couleur est mal écrite se rendrait comme s'il n'avait
+						//    rien déclaré, et rien ne le dirait.
 						if (NkGMotEgal(t, "fill")) {
 							if (col && NkGuiCouleurDepuisLexeme(col->Lexeme(), p.fond))
 								p.aFond = true;
+							else
+								++p.nonLues;
 						} else if (NkGMotEgal(t, "stroke")) {
 							if (col && NkGuiCouleurDepuisLexeme(col->Lexeme(), p.contour))
 								p.aContour = true;
@@ -368,6 +371,8 @@ namespace nkentseu {
 							//    `Text` ; ici elle sert le LIBELLE du widget repeint.
 							if (col && NkGuiCouleurDepuisLexeme(col->Lexeme(), p.encre))
 								p.aEncre = true;
+							else
+								++p.nonLues;
 						}
 						// `shadow` et `blur` sont LUS par le format et NON peints ici :
 						// le rasteriseur de ce chantier n'a ni flou ni ombre portee.
