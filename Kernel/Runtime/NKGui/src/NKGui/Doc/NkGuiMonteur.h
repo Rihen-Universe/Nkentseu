@@ -178,7 +178,21 @@ namespace nkentseu {
 			//  Le detail, role par role, est dans
 			//  `echanges/interface-document.reponses.md`.
 			Flow,
-			Grid
+			Grid,
+			// ── LES HUIT DU 27/09 ────────────────────────────────────────
+			//  Au schema du format depuis toujours, montes seulement
+			//  maintenant. Le `switch` de `MonterBloc` porte, pour chacun, la
+			//  limite qui lui reste et l'attribut qu'il COMPTE au lieu de
+			//  l'inventer. Voir la note de refus ci-dessus : elle avait raison
+			//  sur les faits, la reponse a change.
+			NumberField,
+			Drag,
+			ColorField,
+			Switch,
+			RadioGroup,
+			ImageButton,
+			Stack,
+			Table
 			// 🔴 `ContextMenu` N'EST PAS ICI, ET C'EST UN REFUS, PAS UN OUBLI. NKGui a
 			//    bien `BeginPopupMenu`, mais il ne rend vrai que si quelqu'un a appele
 			//    `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et ce monteur monte l'etat au
@@ -219,6 +233,14 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TextField")) return NkGuiRole::TextField;
 			if (NkGMotEgal(n, "Dropdown")) return NkGuiRole::Dropdown;
 			if (NkGMotEgal(n, "Progress")) return NkGuiRole::Progress;
+			if (NkGMotEgal(n, "NumberField")) return NkGuiRole::NumberField;
+			if (NkGMotEgal(n, "Drag")) return NkGuiRole::Drag;
+			if (NkGMotEgal(n, "ColorField")) return NkGuiRole::ColorField;
+			if (NkGMotEgal(n, "Switch")) return NkGuiRole::Switch;
+			if (NkGMotEgal(n, "RadioGroup")) return NkGuiRole::RadioGroup;
+			if (NkGMotEgal(n, "ImageButton")) return NkGuiRole::ImageButton;
+			if (NkGMotEgal(n, "Stack")) return NkGuiRole::Stack;
+			if (NkGMotEgal(n, "Table")) return NkGuiRole::Table;
 			if (NkGMotEgal(n, "Separator")) return NkGuiRole::Separator;
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
@@ -2102,6 +2124,324 @@ namespace nkentseu {
 							if (BeginCombo(ctx, lbl, apercu.CStr(), (int32)n))
 								EndCombo(ctx);
 							break;
+						}
+						// ═════════════════════════════════════════════════════
+						//  LES HUIT ROLES QUE LE FORMAT ACCEPTAIT SANS MONTAGE
+						// ═════════════════════════════════════════════════════
+						//  Rodolf, 27/09 : « reecris donc tout le vocabulaire
+						//  manquant une fois ». Ces huit-la sont au schema du format
+						//  depuis toujours (`NkGuiValidate.h`) : un document qui les
+						//  ecrit est VALIDE, et le monteur les comptait en
+						//  `rolesInconnus` -- donc le document entier etait REFUSE.
+						//  Le format disait oui, le monteur disait non.
+						//
+						//  ⚠️ CHACUN GARDE SA LIMITE, ECRITE A COTE DE LUI. La note
+						//     de refus du 26/09 avait raison sur le fond : aucun de
+						//     ces roles ne tombe EXACTEMENT sur une fonction de
+						//     NKGui. Ce qui a change, c'est la reponse : au lieu de
+						//     refuser le role entier, on monte ce qui correspond et
+						//     on COMPTE l'attribut sans equivalent
+						//     (`attributsNonHonores`) -- l'idiome que `Grid.sizes`
+						//     emploie deja. *Un document rendu partiellement et
+						//     compte vaut mieux qu'un document refuse en entier.*
+						case NkGuiRole::NumberField: {
+							// `valueType` decide entier ou flottant ; `step` est le
+							// pas des fleches. Le modele ne stocke qu'un `float32` :
+							// un entier y tient sans perte jusqu'a 2^24.
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							const float32 vmin = NkGNombre(w, "min", 0.f);
+							const float32 vmax = NkGNombre(w, "max", 0.f);
+							const bool borne = (vmax > vmin);
+							if (!e->initialise) {
+								e->f = NkGNombre(w, "value", borne ? vmin : 0.f);
+								e->initialise = true;
+							}
+							const NkString type = NkGTexte(w, "valueType", "Float");
+							if (NkGMotEgal(NkStringView(type.CStr()), "Int")) {
+								int32 vi = (int32)(e->f + (e->f < 0.f ? -0.5f : 0.5f));
+								(void)InputInt(ctx, lbl, vi, (int32)NkGNombre(w, "step", 1.f));
+								e->f = (float32)vi;
+							} else {
+								(void)InputFloat(ctx, lbl, e->f, NkGNombre(w, "step", 1.f));
+							}
+							// ⚠️ LES BORNES SONT APPLIQUEES ICI, PAS PAR `InputFloat`.
+							//    Il n'en prend pas : sans cette ligne, `min`/`max`
+							//    seraient ecrits par le document et ignores en
+							//    silence -- exactement le defaut que ce fichier
+							//    combat.
+							if (borne) {
+								if (e->f < vmin)
+									e->f = vmin;
+								if (e->f > vmax)
+									e->f = vmax;
+							}
+							valeurMontee = e->f;
+							aValeurMontee = true;
+							break;
+						}
+						case NkGuiRole::Drag: {
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							const float32 vmin = NkGNombre(w, "min", 0.f);
+							const float32 vmax = NkGNombre(w, "max", 0.f);
+							const bool borne = (vmax > vmin);
+							if (!e->initialise) {
+								e->f = NkGNombre(w, "value", borne ? vmin : 0.f);
+								e->initialise = true;
+							}
+							// ⚠️ `dir` N'A PAS D'EQUIVALENT et se compte. `DragFloat`
+							//    glisse horizontalement, point. Le document peut
+							//    demander `Vertical` ou `Both` : on ne fait pas
+							//    semblant.
+							if (NkGA(w, "dir"))
+								++rap.attributsNonHonores;
+							const NkString typeD = NkGTexte(w, "valueType", "Float");
+							if (NkGMotEgal(NkStringView(typeD.CStr()), "Int")) {
+								int32 vi = (int32)(e->f + (e->f < 0.f ? -0.5f : 0.5f));
+								(void)DragInt(ctx, lbl, vi, NkGNombre(w, "speed", 0.25f),
+											  borne ? (int32)vmin : 0, borne ? (int32)vmax : 0);
+								e->f = (float32)vi;
+							} else {
+								(void)DragFloat(ctx, lbl, e->f, NkGNombre(w, "speed", 0.1f),
+												borne ? vmin : 0.f, borne ? vmax : 0.f);
+							}
+							valeurMontee = e->f;
+							aValeurMontee = true;
+							break;
+						}
+						case NkGuiRole::ColorField: {
+							// 🔴 LA RAISON DU REFUS DE 09/26 ETAIT JUSTE, ET ELLE A UNE
+							//    SORTIE. « `bind` passe par un modele qui ne stocke
+							//    QU'UN `float32` -- une couleur n'y tient pas. » Vrai.
+							//    Mais l'entree de magasin porte AUSSI `char texte[256]`,
+							//    ou vit deja la saisie d'un `TextField`. Une couleur
+							//    s'y ecrit `#RRGGBBAA` : c'est la meme graphie que le
+							//    document, donc rien a convertir dans un sens ni dans
+							//    l'autre, et la valeur reste LISIBLE dans le magasin.
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							if (!e->initialise) {
+								const NkString v = NkGTexte(w, "value", "#FFFFFFFF");
+								Copier(e->texte, (int32)sizeof(e->texte), v);
+								e->initialise = true;
+							}
+							NkColor c{255, 255, 255, 255};
+							(void)NkGuiCouleur(NkStringView(e->texte), c);
+							float32 col[4] = {(float32)c.r / 255.f, (float32)c.g / 255.f,
+											  (float32)c.b / 255.f, (float32)c.a / 255.f};
+							const bool avecAlpha = NkGBooleen(w, "alpha", true);
+							if (ColorEdit4(ctx, lbl, col,
+										   avecAlpha ? NkGuiColorFlags::None
+													 : NkGuiColorFlags::NoAlpha)) {
+								// Reecrit la graphie du document : huit chiffres,
+								// majuscules, `#` en tete.
+								static const char *kHex = "0123456789ABCDEF";
+								const uint8 comp[4] = {
+									(uint8)(col[0] * 255.f + 0.5f), (uint8)(col[1] * 255.f + 0.5f),
+									(uint8)(col[2] * 255.f + 0.5f), (uint8)(col[3] * 255.f + 0.5f)};
+								e->texte[0] = '#';
+								for (uint32 k = 0; k < 4u; ++k) {
+									e->texte[1u + k * 2u] = kHex[(comp[k] >> 4) & 0xF];
+									e->texte[2u + k * 2u] = kHex[comp[k] & 0xF];
+								}
+								e->texte[9] = '\0';
+							}
+							// `mode` (RGB / HSV / Hex) n'a pas d'equivalent : compte.
+							if (NkGA(w, "mode"))
+								++rap.attributsNonHonores;
+							break;
+						}
+						case NkGuiRole::Switch: {
+							// « AUCUNE fonction dans NKGui. Du neuf. » — c'est exact,
+							// et c'est peu : un interrupteur est une piste arrondie,
+							// un bouton qui glisse, et le comportement d'un bouton.
+							//
+							// ⚠️ IL N'EST PAS UN `Checkbox` DEGUISE. Les deux disent
+							//    « vrai ou faux », mais l'un coche un choix dans une
+							//    liste et l'autre ALLUME quelque chose. Les confondre
+							//    dans le rendu ferait mentir le document.
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							if (!e->initialise) {
+								e->b = NkGBooleen(w, "value", false);
+								e->initialise = true;
+							}
+							const float32 hS = ctx.ItemHeight();
+							const NkRect rTout = ctx.NextItemRect(-1.f, hS);
+							const float32 largPiste = hS * 1.8f;
+							const NkRect piste{rTout.x, rTout.y + hS * 0.2f, largPiste, hS * 0.6f};
+							const NkGuiId idS = ctx.GetId(lbl);
+							bool hovS = false, heldS = false;
+							if (ctx.ButtonBehavior(idS, rTout, NkGuiButtonFlags::None, -1.f, -1.f,
+												   &hovS, &heldS))
+								e->b = !e->b;
+							ctx.DL().AddRectFilled(piste,
+												   e->b ? ctx.theme.accent : ctx.theme.border,
+												   piste.h * 0.5f);
+							const float32 r0 = piste.h * 0.5f - 2.f;
+							const float32 cx = e->b ? (piste.x + piste.w - r0 - 2.f)
+													: (piste.x + r0 + 2.f);
+							ctx.DL().AddCircleFilled({cx, piste.y + piste.h * 0.5f}, r0,
+													 ctx.theme.text);
+							if (lbl && lbl[0]) {
+								const NkVec2 coinS{rTout.x + largPiste + 6.f,
+												   rTout.y + (rTout.h - ctx.ItemHeight()) * 0.5f};
+								(void)TextAt(ctx, coinS, lbl);
+							}
+							valeurMontee = e->b ? 1.f : 0.f;
+							aValeurMontee = true;
+							break;
+						}
+						case NkGuiRole::RadioGroup: {
+							// Un groupe de choix EXCLUSIFS. `options` porte les
+							// libelles ; `bind` porte l'INDICE choisi.
+							//
+							// ⚠️ L'INDICE, PAS LE LIBELLE. Le magasin ne tient qu'un
+							//    `float32` ; y mettre un indice est exact et stable
+							//    quand les libelles changent de casse ou de langue.
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							NkVector<NkString> opts;
+							NkGListeChaines(w, "options", opts);
+							if (!e->initialise) {
+								e->f = NkGNombre(w, "value", 0.f);
+								e->initialise = true;
+							}
+							const bool horiz = NkGMotEgal(
+								NkStringView(NkGTexte(w, "orientation", "Vertical").CStr()),
+								"Horizontal");
+							const NkVec2 cRG = ctx.layout.cursor;
+							if (horiz)
+								BeginHBox(ctx, 8.f);
+							for (uint32 k = 0; k < (uint32)opts.Size(); ++k) {
+								const float32 hR = ctx.ItemHeight();
+								const NkRect rR = ctx.NextItemRect(horiz ? 0.f : -1.f, hR);
+								const NkGuiId idR = ctx.GetId(opts[k].CStr());
+								bool hovR = false, heldR = false;
+								if (ctx.ButtonBehavior(idR, rR, NkGuiButtonFlags::None, -1.f, -1.f,
+													   &hovR, &heldR))
+									e->f = (float32)k;
+								const bool choisi = ((uint32)(e->f + 0.5f) == k);
+								const NkVec2 c{rR.x + hR * 0.5f, rR.y + hR * 0.5f};
+								ctx.DL().AddCircle(c, hR * 0.32f, ctx.theme.border, 1.f);
+								if (choisi)
+									ctx.DL().AddCircleFilled(c, hR * 0.18f, ctx.theme.accent);
+								(void)TextAt(ctx, {rR.x + hR, rR.y}, opts[k].CStr());
+							}
+							if (horiz)
+								EndHBox(ctx);
+							Noter(rap, id, t, BlocConsomme(ctx, cRG), prof, true, horizontal,
+								  &ctx.layout.region);
+							++rap.montes;
+							valeurMontee = e->f;
+							aValeurMontee = true;
+							return;
+						}
+						case NkGuiRole::ImageButton: {
+							// ⚠️ SANS TEXTURE, ON NE FAIT PAS SEMBLANT. `image` nomme
+							//    une ressource que le DOCUMENT ne porte pas : c'est
+							//    l'hote qui la connait. Tant qu'aucun crochet ne la
+							//    fournit, la reference est COMPTEE et le bouton se
+							//    monte avec son identifiant en libelle -- visible,
+							//    cliquable, et honnete sur ce qui manque.
+							if (NkGA(w, "image") || NkGA(w, "source"))
+								++rap.attributsNonHonores;
+							const NkString sIB = NkGTexte(w, "label", id.CStr());
+							(void)Button(ctx, sIB.CStr());
+							break;
+						}
+						case NkGuiRole::Stack: {
+							// 🔴 LE REFUS DISAIT : « `BeginStack` EXIGE une taille que
+							//    le schema (`anchor` seul) ne porte pas -- il faudrait
+							//    l'inventer. » Ce n'est plus vrai depuis le 26-27/09 :
+							//    un conteneur POSE (`pos`+`size`) ou qui declare
+							//    `sizeRel` a son rectangle AVANT ses enfants. La
+							//    taille ne s'invente donc plus : elle se lit.
+							//
+							//    Sans l'une ni l'autre, on ne devine pas : le contenu
+							//    est monte EN FLUX et `anchor` est compte.
+							{
+								const NkGuiTailleRel relS =
+									NkGuiLireTailleRelative(w, ctx.layout.region);
+								NkRect rS{};
+								bool aRectS = false;
+								if (pl.pose) {
+									rS = pl.rect;
+									aRectS = true;
+								} else if (relS.aW || relS.aH) {
+									rS = ctx.NextItemRect(relS.aW ? relS.w : -1.f,
+														  relS.aH ? relS.h : ctx.AvailHeight());
+									aRectS = true;
+								}
+								if (NkGA(w, "anchor") && !aRectS)
+									++rap.attributsNonHonores;
+								if (aRectS) {
+									const NkGuiLayout sauveS = ctx.layout;
+									ctx.BeginLayout(rS);
+									// ⚠️ CHAQUE ENFANT REPART DU MEME COIN : c'est ce
+									//    qui fait une PILE et non une colonne.
+									const NkArchiveNode *csS = NkGMonteCorps(w);
+									if (csS) {
+										for (uint32 k = 0; k < (uint32)csS->array.Size(); ++k) {
+											if (!csS->array[k].IsObject() || !csS->array[k].object)
+												continue;
+											ctx.layout.cursor = {rS.x, rS.y};
+											MonterBloc(ctx, *csS->array[k].object, etat, rap,
+													   prof + 1u, false, true, hooks);
+										}
+									}
+									ctx.layout = sauveS;
+									Noter(rap, id, t, rS, prof, true, horizontal,
+										  &ctx.layout.region);
+								} else {
+									const NkVec2 c0S = ctx.layout.cursor;
+									MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+									Noter(rap, id, t, BlocConsomme(ctx, c0S), prof, true,
+										  horizontal, &ctx.layout.region);
+								}
+							}
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Table: {
+							// `columns` est une LISTE de noms : son compte donne le
+							// nombre de colonnes, et les noms font l'en-tete.
+							//
+							// ⚠️ LES LIGNES NE VIENNENT PAS DU DOCUMENT. Une table
+							//    affiche des DONNEES, que le format ne sait pas
+							//    porter. Ce qui se monte ici, c'est la STRUCTURE :
+							//    les colonnes, leur en-tete, et les enfants ecrits
+							//    dans le document, un par cellule. Une table de
+							//    donnees vivantes reste une zone `Host`.
+							NkVector<NkString> cols;
+							NkGListeChaines(w, "columns", cols);
+							const int32 nCols = (int32)cols.Size() > 0 ? (int32)cols.Size() : 1;
+							const NkVec2 cT = ctx.layout.cursor;
+							if (BeginTable(ctx, lbl, nCols)) {
+								for (uint32 k = 0; k < (uint32)cols.Size(); ++k) {
+									(void)TableNextColumn(ctx);
+									Text(ctx, cols[k].CStr());
+								}
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndTable(ctx);
+							}
+							if (NkGA(w, "flags"))
+								++rap.flagsNonAppliques;
+							Noter(rap, id, t, BlocConsomme(ctx, cT), prof, true, horizontal,
+								  &ctx.layout.region);
+							++rap.montes;
+							return;
 						}
 						case NkGuiRole::Progress: {
 							const float32 v = e ? e->f : NkGNombre(w, "value", 0.f);
