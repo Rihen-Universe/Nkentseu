@@ -25,6 +25,7 @@
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKGui/Doc/NkGuiComposants.h"
+#include "NKGui/Doc/NkGuiDispositions.h"
 #include "NKGui/Doc/NkGuiMonteur.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKMemory/NkAllocator.h"
@@ -2611,6 +2612,90 @@ int main(int argc, char **argv) {
 				"   et RETIRE — sinon un role inconnu ferait refuser tout le document");
 		Check(vide.composants.Propre(),
 			  "   mais le rapport reste PROPRE : une place facultative n'est pas une faute");
+	}
+
+	// =========================================================================
+	printf("\n-- P10 : `layout` — les dispositions d'amarrage vivent dans le document --\n");
+	// =========================================================================
+	//  « Un espace de travail EST une disposition. Aujourd'hui elle vivrait dans
+	//  le C++ ; elle doit vivre dans le document, comme le reste. » (doc 09 P10)
+	//
+	//  ⚠️ CE BANC NE VERIFIE PAS QU'UN PANNEAU EST AMARRE, et il ne le pourrait
+	//     pas : amarrer, c'est decider de la place d'un PANNEAU de l'application
+	//     — un objet que le document ne connait pas et que le monteur ne possede
+	//     pas. Ce qui est mesurable ici, c'est que la section est LUE, EXPOSEE, et
+	//     que ses fautes sont NOMMEES. L'hote applique.
+	{
+		static const char kLayout[] =
+			"nkgui 0.3\n"
+			"layout \"animation\" {\n"
+			"  dock \"vue\"         center\n"
+			"  dock \"scene\"       left   0.16\n"
+			"  dock \"details\"     right  0.22\n"
+			"  dock \"sequenceur\"  bottom 0.30\n"
+			"}\n"
+			"widgets {\n"
+			"  Text \"titre\" { text = \"Atelier\" }\n"
+			"}\n";
+		nkentseu::NkArchive arcL;
+		NkGuiDiag errL;
+		Check(NkGuiArchive::Read(kLayout, (uint32)(sizeof(kLayout) - 1u), arcL, errL),
+			  "   le document a `layout` se lit");
+		NkVector<NkGuiDisposition> disp;
+		NkGuiRapportDispositions rapL;
+		const bool luL = NkGuiLireDispositions(arcL, disp, rapL);
+		Check(luL, "   la section `layout` est trouvee");
+		printf("        dispositions=%u amarrages=%u cotesInconnus=%u horsBornes=%u centres=%u\n",
+			   rapL.dispositions, rapL.amarrages, rapL.cotesInconnus, rapL.fractionsHorsBornes,
+			   rapL.centresMultiples);
+		CheckEq(rapL.dispositions, 1u, "   UNE disposition");
+		CheckEq(rapL.amarrages, 4u, "   QUATRE amarrages — les quatre lignes `dock`");
+		Check(rapL.Propre(), "   et le rapport est propre");
+		if (disp.Size() == 1u && disp[0].amarrages.Size() == 4u) {
+			Check(disp[0].nom.Compare(NkString("animation")) == 0,
+				  "   la disposition porte son nom, guillemets retires");
+			for (uint32 k = 0; k < 4u; ++k)
+				printf("        %-12s %-7s %.2f\n", disp[0].amarrages[k].panneau.CStr(),
+					   NkGuiNomCote(disp[0].amarrages[k].cote),
+					   (double)disp[0].amarrages[k].fraction);
+			Check(disp[0].amarrages[0].cote == NkGuiCote::Centre, "   `vue` au centre");
+			// ⚠️ LE CENTRE N'A PAS DE FRACTION, et c'est un critere : il prend ce
+			//    qui reste. Lui en donner une lui ferait dire deux choses.
+			Check(!disp[0].amarrages[0].aFraction, "   et le centre n'a PAS de fraction");
+			Check(disp[0].amarrages[1].cote == NkGuiCote::Gauche
+					  && disp[0].amarrages[1].fraction > 0.15f
+					  && disp[0].amarrages[1].fraction < 0.17f,
+				  "   `scene` a gauche a 0,16 — le POINT decimal est lu, pas la virgule");
+			Check(disp[0].amarrages[3].cote == NkGuiCote::Bas, "   `sequenceur` en bas");
+		}
+
+		// ── LES TROIS REFUS, ET ILS NE SE CONFONDENT PAS ─────────────────
+		static const char kFautes[] =
+			"nkgui 0.3\n"
+			"layout \"casse\" {\n"
+			"  dock \"vue\"     center\n"
+			"  dock \"autre\"   center\n"
+			"  dock \"scene\"   gauche_haut 0.16\n"
+			"  dock \"details\" right 1.4\n"
+			"}\n";
+		nkentseu::NkArchive arcF;
+		NkGuiDiag errF;
+		Check(NkGuiArchive::Read(kFautes, (uint32)(sizeof(kFautes) - 1u), arcF, errF),
+			  "   le document fautif se lit");
+		NkVector<NkGuiDisposition> dispF;
+		NkGuiRapportDispositions rapF;
+		(void)NkGuiLireDispositions(arcF, dispF, rapF);
+		printf("        fautes : cotesInconnus=%u horsBornes=%u centresMultiples=%u\n",
+			   rapF.cotesInconnus, rapF.fractionsHorsBornes, rapF.centresMultiples);
+		CheckEq(rapF.cotesInconnus, 1u, "   NEGATIF : un cote inconnu est COMPTE, pas devine");
+		CheckEq(rapF.fractionsHorsBornes, 1u,
+				"   NEGATIF : une fraction hors ]0,1[ est COMPTEE, pas ramenee dans les bornes");
+		CheckEq(rapF.centresMultiples, 1u,
+				"   NEGATIF : deux centres sont COMPTES — la zone restante est UNE");
+		Check(!rapF.Propre(), "   et le rapport n'est PAS propre");
+		Check(rapF.refuses.Size() == 3u, "   les trois refus sont NOMMES, un par cause");
+		for (uint32 k = 0; k < (uint32)rapF.refuses.Size(); ++k)
+			printf("        refus : %s\n", rapF.refuses[k].CStr());
 	}
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
