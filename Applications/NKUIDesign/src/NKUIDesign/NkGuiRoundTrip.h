@@ -165,6 +165,10 @@ namespace nkuidesign {
 				uint32 nodeCount = 0;
 				uint32 firstDiffOffset = 0;	 ///< si !byteIdentical
 				NkGuiDiag diag;
+				/// Le TEXTE que l'ecrivain a produit. Garde pour qu'un echec puisse se
+				/// LIRE : « le document relu differe de l'original » ne dit pas en
+				/// quoi, et sans ce texte il faut deviner ce que l'ecrivain a fait.
+				NkString emitted;
 		};
 
 		/// Compte les BLOCS d'une archive, en descendant.
@@ -205,12 +209,31 @@ namespace nkuidesign {
 
 			const NkGuiStyle opt = NkGuiArchive::DetectStyle(original, length);
 			const NkString emitted = NkGuiArchive::Write(doc1, opt);
+			r.emitted = emitted;
 
 			// -- Mesure 1 : l'equivalence ---------------------------------
 			NkGuiDiag err2;
 			NkArchive doc2;
 			if (NkGuiArchive::Read(emitted.Data(), (uint32)emitted.Size(), doc2, err2)) {
-				r.equivalent = NkGuiArchive::Equal(doc1, doc2);
+				// 🔴 `withTrivia = false`, ET SANS LUI LES DEUX CRITERES N'EN FAISAIENT
+				//    QU'UN. `NkGuiArchive::Equal` porte `withTrivia = true` par DEFAUT :
+				//    il exigeait donc « aussi la meme mise en forme », c'est-a-dire
+				//    presque l'identite octet — que la mesure 2 verifie deja, plus
+				//    finement (elle donne l'offset du premier ecart).
+				//
+				//    L'en-tete de ce fichier annonce pourtant deux criteres DISTINCTS :
+				//    « 1. EQUIVALENCE : analyser -> reemettre -> reanalyser rend le meme
+				//    DOCUMENT » et « 2. IDENTITE OCTET : le texte reemis est exactement
+				//    le fichier d'origine ». Le premier doit etre le plus FAIBLE des
+				//    deux — sinon un document dont seule la mise en forme est
+				//    normalisee est declare « non equivalent », ce qui accuse
+				//    l'ecrivain d'une perte qu'il n'a pas commise.
+				//
+				//    Mesure du 27/09 : `NKUIDesign/Interface.nkgui` sortait
+				//    NON EQUIVALENT ; le vrai ecart etait mes espaces d'alignement avant
+				//    `{` et `{}` reecrit `{ }`. Pas un seul noeud, pas une seule valeur
+				//    ne differait.
+				r.equivalent = NkGuiArchive::Equal(doc1, doc2, /*withTrivia=*/false);
 			} else {
 				// Ce cas merite d'etre distingue d'une simple inegalite : il dit que
 				// l'ecrivain a produit un fichier que le lecteur REFUSE. Ce n'est pas
@@ -329,6 +352,56 @@ namespace nkuidesign {
 								   ? NkString("le document relu differe de l'original")
 								   : r.diag.message);
 					rep.Append('\n');
+					// 🔴 LE TEXTE REEMIS EST ECRIT SUR LE DISQUE, ET CE VIDAGE MANQUAIT.
+					//    « Le document relu differe de l'original » ne dit pas EN QUOI :
+					//    il a fallu trois experiences — nom de section, constructions
+					//    une par une, capacite d'un bloc — pour cerner un ecart qu'un
+					//    `diff` aurait montre en une seconde. *Un banc qui refuse sans
+					//    montrer ce qu'il a produit oblige a deviner ce qu'il a fait.*
+					//
+					// ⚠️ A COTE DU RAPPORT, PAS A COTE DE LA SOURCE. Ecrire dans le
+					//    dossier analyse y laisserait des fichiers que le balayage
+					//    suivant ramasserait — un banc qui se mesure lui-meme.
+					{
+						// 🔴 ET IL NE FINIT PAS EN `.nkgui` — SINON LE BALAYAGE LE RAMASSE.
+					//    Mesure : le corpus est passe de 46 a 47 fichiers des le
+					//    premier vidage, et le banc s'est mis a mesurer sa propre
+					//    sortie. Je l'avais ecrit deux lignes plus haut (« a cote du
+					//    rapport, pas a cote de la source ») et je l'ai fait quand
+					//    meme : le rapport EST a la racine du dossier analyse.
+					//    *Un banc qui laisse ses traces dans ce qu'il observe finit par
+					//    s'observer lui-meme.*
+					NkString nomV("nkuidesign_reemis_");
+						// Le nom du fichier seul, ses separateurs remplaces : un chemin
+						// complet ne fait pas un nom de fichier.
+						uint32 deb = 0;
+						for (uint32 c = 0; c < (uint32)files[i].Size(); ++c) {
+							const char ch = files[i].Data()[c];
+							if (ch == '/' || ch == '\\')
+								deb = c + 1u;
+						}
+						for (uint32 c = deb; c < (uint32)files[i].Size(); ++c) {
+							const char ch2[2] = {files[i].Data()[c], '\0'};
+							nomV.Append(ch2);
+						}
+						// 🔴 `WriteAllBytes`, PAS `WriteAllText` — ET J'AI PAYE L'ERREUR
+						//    DANS LA MEME HEURE. `WriteAllText` traduit les fins de
+						//    ligne en CRLF : mon vidage rendait un fichier en CRLF pur
+						//    alors que l'ecrivain avait produit du LF, et j'ai passe
+						//    trois mesures a chercher un defaut de fins de ligne dans
+						//    l'ECRIVAIN. *Un instrument qui transforme ce qu'il observe
+						//    fabrique le defaut qu'on croit mesurer.* Le depot portait
+						//    deja la lecon, a dix lignes d'ici, dans `NkEcrireNkgui`.
+						NkVector<nkentseu::uint8> octets;
+						octets.Resize((nkentseu::usize)r.emitted.Size());
+						for (uint32 c = 0; c < (uint32)r.emitted.Size(); ++c)
+							octets[c] = (nkentseu::uint8)r.emitted.Data()[c];
+						nomV.Append(".txt"); // pour que le balayage ne le ramasse pas
+						NkFile::WriteAllBytes(nomV.Data(), octets);
+						rep.Append("      texte reemis ecrit dans : ");
+						rep.Append(nomV);
+						rep.Append("\n");
+					}
 				} else if (!r.byteIdentical) {
 					rep.Append("  [OK, mise en forme differente] ");
 					rep.Append(files[i]);
