@@ -1,0 +1,104 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA BARRE D'OUTILS DE LA DÉMO — elle sert à UNE chose : voir l'état de survol.
+//
+// ⚠️ LES ÉTATS SONT ÉCRITS ICI EN TOUTES LETTRES, PAS DANS UN COMPOSANT. La
+//    version de l'application les tient dans `composants.nkgui` et l'emprunte
+//    par `include` — c'est la bonne façon quand le même bouton sert à cinq
+//    endroits. Ici on veut au contraire que le survol se LISE dans le fichier
+//    qu'on a sous les yeux, sans avoir à ouvrir un second document.
+
+widgets {
+
+  HBox "barre" {
+    gap = 4
+    align = Center
+
+    Button "anim.debut" {
+      label = "|<"
+      appearance { radius = 3 }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
+      }
+    }
+
+    Button "anim.image_prec" {
+      label = "<"
+      appearance { radius = 3 }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
+      }
+    }
+
+    Button "anim.jouer" {
+      label = "Jouer"
+      appearance { radius = 3 }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
+      }
+    }
+
+    Button "anim.image_suiv" {
+      label = ">"
+      appearance { radius = 3 }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
+      }
+    }
+
+    Button "anim.fin" {
+      label = ">|"
+      appearance { radius = 3 }
+      appearance(Hover) {
+        fill { color = #0E6B78 }
+        text { color = #FFFFFF }
+      }
+      appearance(Pressed) {
+        fill { color = #073F47 }
+        text { color = #FFFFFF }
+      }
+    }
+
+    Separator "sep" {
+      orientation = Vertical
+    }
+
+    // L'encre du document sur un fond du document : sombre SUR l'orange.
+    Button "anim.pose_enregistrer" {
+      label = "Enregistrer en cle"
+      appearance {
+        radius = 4
+        fill { color = #F79A28 }
+        text { color = #10222B }
+      }
+      appearance(Hover) {
+        fill { color = #FFB055 }
+      }
+      appearance(Pressed) {
+        fill { color = #D9821A }
+      }
+    }
+  }
+}

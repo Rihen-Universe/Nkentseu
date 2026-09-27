@@ -1,0 +1,31 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LES MENUS DE LA DÉMO — réduits à ce qui sert ici.
+//
+// ⚠️ PAS DE `MenuBar` DANS CE FICHIER, comme dans la version de l'application :
+//    il est monté par `SetAppMenu`, qui est ADDITIF — la barre est déjà ouverte
+//    par la coquille, et y écrire un `MenuBar` en ouvrirait une seconde.
+
+widgets {
+
+  Menu "Demo" {
+
+    MenuItem "anim.jouer" {
+      label = "Jouer"
+    }
+
+    MenuItem "anim.pose_enregistrer" {
+      label = "Enregistrer en cle"
+    }
+
+    Separator "sep_demo" {
+      orientation = Horizontal
+    }
+
+    MenuItem "app.quitter" {
+      label = "Quitter"
+    }
+  }
+}

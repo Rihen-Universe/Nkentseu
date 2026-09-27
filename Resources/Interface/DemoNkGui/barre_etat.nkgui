@@ -1,0 +1,22 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA BARRE D'ÉTAT DE LA DÉMO. Elle dit d'où vient ce qu'on voit — sans quoi on
+// pourrait croire qu'on regarde l'interface normale de NkAnimaEditor.
+
+widgets {
+
+  HBox "etat" {
+    gap = 12
+    align = Center
+
+    Text "message" {
+      text = "DEMO — plie l'accordeon, tire le separateur, traine le dialogue par son titre"
+    }
+
+    Text "source" {
+      text = "Resources/Interface/DemoNkGui/"
+    }
+  }
+}

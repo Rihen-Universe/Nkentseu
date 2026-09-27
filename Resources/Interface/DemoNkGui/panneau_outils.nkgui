@@ -1,0 +1,169 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LA DÉMO À CLIQUER — accordéon, section redimensionnable, dialogue déplaçable.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  POURQUOI UN DOSSIER D'INTERFACE À PART
+// ═══════════════════════════════════════════════════════════════════════════
+//  Les trois gestes que Rodolf a demandés le 26/09 sont prouvés au banc
+//  (`NKGuiInteractTest`, cas b1.j / b1.k / b1.l) — mais un banc ne se clique
+//  pas. Ce dossier existe pour qu'ils se touchent à la souris, SANS toucher
+//  l'interface de NkAnimaEditor :
+//
+//      NkAnimaEditor.exe --interface=Resources/Interface/DemoNkGui
+//
+//  Rien n'est compilé pour ça. Le dossier des documents est un argument depuis
+//  le premier jour ; c'est exactement ce pour quoi il en est un.
+//
+// ⚠️ CE DOCUMENT NE SERT PAS DE RÉFÉRENCE DE DESIGN. Il montre des mécaniques,
+//    pas une mise en page finie : les couleurs y sont plus tranchées que ce
+//    qu'on mettrait dans un vrai panneau, pour que ce qui bouge se voie.
+
+widgets {
+
+  // ── CE QUI SE PLIE ────────────────────────────────────────────────────────
+  //  `expanded` donne l'état de DÉPART, pas un ordre permanent : une fois que
+  //  la souris a plié la section, le document ne la rouvre pas à l'image
+  //  suivante. C'est le correctif du 26/09 — avant, elle se refermait sous le
+  //  doigt, et ça ne se voyait pas à l'image du clic mais à la suivante.
+  VBox "colonne" {
+    gap = 6
+    align = Start
+
+    Text "titre" {
+      text = "Demo : plie, redimensionne, deplace"
+    }
+
+    Separator "sep_titre" {
+      orientation = Horizontal
+    }
+
+    Expander "sec_transport" {
+      label = "Transport (clique l'en-tete)"
+      expanded = true
+
+      HBox "transport" {
+        gap = 4
+        align = Center
+
+        Button "anim.debut" {
+          label = "|<"
+          appearance { radius = 3 }
+          appearance(Hover) {
+            fill { color = #0E6B78 }
+            text { color = #FFFFFF }
+          }
+          appearance(Pressed) {
+            fill { color = #073F47 }
+            text { color = #FFFFFF }
+          }
+        }
+
+        Button "anim.jouer" {
+          label = "Jouer"
+          appearance { radius = 3 }
+          appearance(Hover) {
+            fill { color = #0E6B78 }
+            text { color = #FFFFFF }
+          }
+          appearance(Pressed) {
+            fill { color = #073F47 }
+            text { color = #FFFFFF }
+          }
+        }
+
+        Button "anim.fin" {
+          label = ">|"
+          appearance { radius = 3 }
+          appearance(Hover) {
+            fill { color = #0E6B78 }
+            text { color = #FFFFFF }
+          }
+          appearance(Pressed) {
+            fill { color = #073F47 }
+            text { color = #FFFFFF }
+          }
+        }
+      }
+    }
+
+    // ── L'ENCRE QUE LE DOCUMENT DEMANDE ───────────────────────────────────
+    //  Le libellé est sombre SUR l'orange. Avant le 26/09 il était écrit avec
+    //  l'encre du thème — claire sur orange, donc illisible — et le `text`
+    //  du document n'était lu par personne.
+    Expander "sec_cles" {
+      label = "Cles (replie au demarrage)"
+      expanded = false
+
+      Button "anim.pose_enregistrer" {
+        label = "Enregistrer en cle"
+        appearance {
+          radius = 4
+          fill { color = #F79A28 }
+          text { color = #10222B }
+        }
+        appearance(Hover) {
+          fill { color = #FFB055 }
+        }
+        appearance(Pressed) {
+          fill { color = #D9821A }
+        }
+      }
+    }
+  }
+
+  // ── CE QUI SE REDIMENSIONNE ───────────────────────────────────────────────
+  //  Le séparateur n'avait rien à corriger : il tenait déjà son ratio dans
+  //  l'état du montage. Il est ici pour que le geste se vérifie à la main —
+  //  attrape le trait entre les deux moitiés et tire.
+  Splitter "partage" {
+    pos = (8, 250)
+    size = (244, 70)
+    orientation = Vertical
+    ratio = 0.5
+    min = 0.15
+    max = 0.85
+
+    Panel "gauche" {
+      appearance {
+        radius = 3
+        fill { color = #23424A }
+      }
+    }
+
+    Panel "droite" {
+      appearance {
+        radius = 3
+        fill { color = #4A3A23 }
+      }
+    }
+  }
+
+  // ── CE QUI SE DÉPLACE ─────────────────────────────────────────────────────
+  //  ⚠️ LA PRISE EST LA BARRE DE TITRE, et c'est délibéré : traîner par
+  //     n'importe quel point du fond rendrait la fenêtre inutilisable, chaque
+  //     clic manqué sur un widget devenant un déplacement.
+  //
+  //  `pos` donne la position de DÉPART. Le déplacement vit dans l'état du
+  //  montage — il n'est jamais réécrit dans ce fichier.
+  Window "dlg_export" {
+    title = "Exporter — traine-moi par le titre"
+    pos = (8, 330)
+    size = (244, 76)
+    placement = absolute
+
+    Button "anim.cuire" {
+      label = "Cuire l'animation"
+      appearance {
+        radius = 4
+        fill { color = #F79A28 }
+        text { color = #10222B }
+      }
+      appearance(Hover) {
+        fill { color = #FFB055 }
+      }
+    }
+  }
+}
