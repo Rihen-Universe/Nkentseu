@@ -147,14 +147,27 @@ namespace nkanima {
 	 *    C'est un vrai manque du maillon, et il est nommé dans la réponse plutôt
 	 *    que contourné en silence : **il manque `Monter(ctx, doc, "nom_de_racine")`.**
 	 *
-	 * ⚠️ LA BARRE DE MENU N'EST PAS ICI, ET C'EST UNE MESURE, PAS UN OUBLI. Le
-	 *    format connaît `MenuBar`, `Menu`, `MenuItem` et `ContextMenu`
-	 *    (`NkGuiValidate.h`, table des 41 rôles) ; **le monteur n'en monte
-	 *    aucun** (son énumération en compte 26, et ces quatre n'y sont pas). Un
-	 *    document de barre de menu tomberait donc dans le repli « rôle inconnu »
-	 *    et se monterait à plat, sans menu déroulant.
+	 * ⚠️ LA BARRE DE MENU N'EST PAS ICI — MAIS PLUS POUR LA RAISON QUI ÉTAIT
+	 *    ÉCRITE. Ce paragraphe affirmait : « le format connaît `MenuBar`, `Menu`,
+	 *    `MenuItem` et `ContextMenu` ; **le monteur n'en monte aucun** (son
+	 *    énumération en compte 26, et ces quatre n'y sont pas) ; un document de
+	 *    barre de menu tomberait donc dans le repli "rôle inconnu" et se monterait
+	 *    à plat ».
 	 *
-	 *    Et le brancher coûterait plus que ça : `SetMenuBar` REMPLACE
+	 *    🔴 C'ÉTAIT VRAI LE 26/09, ET CE NE L'EST PLUS (corrigé le 27/09). Le
+	 *       monteur monte `MenuBar`, `Menu` et `MenuItem` — le document
+	 *       `menu_animation.nkgui` de cette application s'en sert — et
+	 *       `ContextMenu` depuis le 27/09 au matin : son refus a été levé par le
+	 *       crochet `NkGuiMonteHooks::MenuContextuelOuvre` qu'il réclamait
+	 *       lui-même. L'énumération en compte désormais plus de quarante.
+	 *
+	 *       Trouvé en COPIANT ce fichier vers NKUIDesign : la copie importait la
+	 *       phrase, et l'écart s'est vu. *Une copie ne périme pas seulement du
+	 *       code, elle périme les raisons écrites autour* — et une raison fausse
+	 *       coûte plus cher qu'une absence de raison, parce qu'on lui fait
+	 *       confiance.
+	 *
+	 *    La raison qui TIENT est la seconde, et elle suffit : `SetMenuBar` REMPLACE
 	 *    entièrement les menus de la coquille (`NkEditorShell.cpp`, l. 3459 :
 	 *    « Barre COMPLETE fournie par l'app […] remplace entierement les menus
 	 *    par defaut »). On échangerait des menus qui marchent contre une rangée
