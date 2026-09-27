@@ -243,7 +243,25 @@ namespace nkentseu {
 			//    donc `NkGuiMonteHooks::CourbeLiee` / `CourbeModifiee`, de la meme forme
 			//    que `RemplirHote` et `ZoneAncree` : le document dit OU, COMMENT HAUT et
 			//    ENTRE QUELLES BORNES, l'application dit QUOI et recoit les changements.
-			CurveField
+			CurveField,
+			// ── QUATRE CONTENEURS DE PLUS (27/09) ─────────────────────────────
+			// Rodolf : « je pense qu'il y a encore plein de conteneurs qu'on peut
+			// ajouter, donc integre-les. »
+			//
+			// ⚠️ ET `Wrap` ET `Columns` N'EN SONT PAS, PARCE QU'ILS EXISTENT DEJA SOUS
+			//    UN AUTRE NOM. `Flow` est une `HBox` AVEC retour a la ligne (c'est sa
+			//    seule difference, et NKGui porte `BeginFlow`) ; `Grid` prend son nombre
+			//    de colonnes. Les ajouter aurait donne deux noms pour un meme agencement
+			//    — et le jour ou l'un gagne un reglage, les documents se partagent en
+			//    deux familles qui ne se relisent plus.
+			//
+			// Les quatre ci-dessous ne se composent PAS a la main dans le format : il
+			// n'existe aucune facon d'ecrire « centre ceci », « rentre ceci de 12 px »,
+			// « garde ce rapport » ni « peins ceci par-dessus » avec les roles existants.
+			Center,	 ///< centre ses enfants dans son rectangle
+			Padding, ///< rentre son contenu d'une marge
+			Aspect,	 ///< impose un rapport largeur/hauteur
+			Overlay	 ///< peint ses enfants PAR-DESSUS le reste
 		};
 
 		/// La cle d'interaction d'un point de courbe : `<base>#<i>`.
@@ -316,6 +334,10 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TokenField")) return NkGuiRole::TokenField;
 			if (NkGMotEgal(n, "ContextMenu")) return NkGuiRole::ContextMenu;
 			if (NkGMotEgal(n, "CurveField")) return NkGuiRole::CurveField;
+			if (NkGMotEgal(n, "Center")) return NkGuiRole::Center;
+			if (NkGMotEgal(n, "Padding")) return NkGuiRole::Padding;
+			if (NkGMotEgal(n, "Aspect")) return NkGuiRole::Aspect;
+			if (NkGMotEgal(n, "Overlay")) return NkGuiRole::Overlay;
 			if (NkGMotEgal(n, "Separator")) return NkGuiRole::Separator;
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
@@ -677,6 +699,21 @@ namespace nkentseu {
 				uint32 racinesMontees = 0;
 				uint32 racinesIntrouvables = 0;
 				NkString derniereRacineIntrouvable;
+				/// Les quatre conteneurs du 27/09. `surimpressions` compte les
+				/// `Overlay` ouverts ; `centrages` les `Center` qui ont VRAIMENT
+				/// centre, et `centragesImpossibles` les enfants qui ne declarent pas
+				/// leur taille.
+				///
+				/// 🔴 LES DEUX DERNIERS SONT SEPARES PARCE QU'UN `Center` PEUT
+				///    PARFAITEMENT NE RIEN CENTRER. Une interface immediate ne connait
+				///    la taille d'un enfant qu'APRES l'avoir monte ; ce role centre
+				///    donc ce que le document DECLARE. Un enfant sans `size` n'est pas
+				///    centre — et si ces deux chiffres n'en faisaient qu'un, un
+				///    document entier pourrait etre colle en haut a gauche pendant
+				///    qu'un compteur dirait « centre ».
+				uint32 surimpressions = 0;
+				uint32 centrages = 0;
+				uint32 centragesImpossibles = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -4012,6 +4049,196 @@ namespace nkentseu {
 						// ═══════════════════════════════════════════════════
 						//  DEUX CONTENEURS DE PLUS -- ET DEUX SEULEMENT
 						// ═══════════════════════════════════════════════════
+						// ── QUATRE CONTENEURS DE PLUS (27/09) ───────────────
+						case NkGuiRole::Padding: {
+							// `padding = 12` ou `padding = (gauche, haut, droite, bas)`.
+							// Le plus simple des quatre, et le plus demande : il n'existe
+							// aucune facon d'ecrire « rentre ceci » avec les roles existants.
+							float32 m[4] = {0.f, 0.f, 0.f, 0.f};
+							const NkArchiveNode *np = w.FindNode(NkStringView("padding"));
+							if (np) {
+								const uint32 c = NkGNombresDansLexeme(np->Lexeme(), m, 4u);
+								if (c == 1u)
+									m[1] = m[2] = m[3] = m[0]; // un seul nombre = les quatre cotes
+								else if (c == 2u) {
+									m[2] = m[0];
+									m[3] = m[1]; // deux = horizontal, vertical
+								} else if (c != 4u) {
+									// ⚠️ NI UN, NI DEUX, NI QUATRE : on ne devine pas. Trois
+									//    nombres pourraient vouloir dire n'importe quoi, et
+									//    choisir a la place du document rendrait une marge que
+									//    personne n'a ecrite.
+									++rap.attributsNonHonores;
+									m[0] = m[1] = m[2] = m[3] = 0.f;
+								}
+							}
+							NkRect rP = pl.pose ? pl.rect : ctx.layout.region;
+							if (!pl.pose) {
+								rP.w -= (ctx.layout.cursor.x - rP.x);
+								rP.h -= (ctx.layout.cursor.y - rP.y);
+								rP.x = ctx.layout.cursor.x;
+								rP.y = ctx.layout.cursor.y;
+							}
+							NkRect rTailleP;
+							if (!pl.pose && TailleEnFlux(ctx, w, rTailleP))
+								rP = rTailleP;
+							NkRect dedans{rP.x + m[0], rP.y + m[1], rP.w - m[0] - m[2],
+										  rP.h - m[1] - m[3]};
+							if (dedans.w < 0.f)
+								dedans.w = 0.f;
+							if (dedans.h < 0.f)
+								dedans.h = 0.f;
+							{
+								const NkGuiLayout sauveP = ctx.layout;
+								ctx.BeginLayout(dedans);
+								// 🔴 LE CURSEUR SE FORCE, ET LA MESURE L'A EXIGE. `BeginLayout`
+								//    pose `cursor = region + layout.padding` : ma marge
+								//    s'AJOUTAIT a celle du theme, et `padding = 20` decalait de
+								//    30. Un conteneur dont le seul metier est de dire une marge
+								//    exacte ne peut pas en rendre une autre — c'est la
+								//    definition meme d'un attribut non honore.
+								ctx.layout.cursor = {dedans.x, dedans.y};
+								ctx.layout.lineStartX = dedans.x;
+								ctx.layout.prevItem = {dedans.x, dedans.y, 0.f, 0.f};
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
+								ctx.layout = sauveP;
+							}
+							Noter(rap, id, t, rP, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Aspect: {
+							// `ratio = 1.777` — la largeur du flux decide, la hauteur suit.
+							// C'est ce qu'un apercu de camera, une vignette ou une zone de
+							// rendu demandent, et aucun role existant ne sait le dire.
+							const float32 ratio = NkGNombre(w, "ratio", 1.f);
+							if (ratio <= 0.f) {
+								// ⚠️ UN RAPPORT NUL OU NEGATIF NE SE CORRIGE PAS EN SILENCE :
+								//    il donnerait une hauteur absurde ou une division par zero.
+								//    On le compte et on monte le contenu EN FLUX, sans imposer
+								//    de rectangle — le document garde ce qu'il a ecrit ailleurs.
+								++rap.attributsNonHonores;
+								const NkVec2 cA0 = ctx.layout.cursor;
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
+								Noter(rap, id, t, BlocConsomme(ctx, cA0), prof, true, horizontal,
+									  &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
+							float32 larg = ctx.layout.region.w
+										   - (ctx.layout.cursor.x - ctx.layout.region.x);
+							float32 sW = 0.f, sH = 0.f;
+							if (LireVec2(w, "size", sW, sH) && sW > 0.f)
+								larg = sW;
+							const NkRect rA = ctx.NextItemRect(larg, larg / ratio);
+							{
+								const NkGuiLayout sauveA = ctx.layout;
+								ctx.BeginLayout(rA);
+								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
+								ctx.layout = sauveA;
+							}
+							Noter(rap, id, t, rA, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Overlay: {
+							// ⚠️ LA BRIQUE EXISTE DEJA : `PushOverlay`/`PopOverlay`. Ce role
+							//    ne fait que l'ouvrir au format — et c'est precisement ce qui
+							//    manquait, puisque le monteur n'avait aucune facon de dire
+							//    « ceci se peint par-dessus » alors que NKGui le sait faire.
+							//
+							// ⚠️ ET LA SURIMPRESSION N'EST PAS UNE REGION : elle ne deplace
+							//    rien, elle change la COUCHE. Le contenu garde donc le flux
+							//    courant, et le rectangle note est ce qu'il a consomme.
+							const NkVec2 cO = ctx.layout.cursor;
+							PushOverlay(ctx);
+							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
+							PopOverlay(ctx);
+							++rap.surimpressions;
+							Noter(rap, id, t, BlocConsomme(ctx, cO), prof, true, horizontal,
+								  &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						case NkGuiRole::Center: {
+							// ⚠️ CENTRER DEMANDE DE CONNAITRE LA TAILLE AVANT DE PLACER, ET
+							//    UNE INTERFACE IMMEDIATE NE LA CONNAIT QU'APRES. C'est la
+							//    vraie difficulte de ce role, et elle ne se contourne pas
+							//    sans mentir. Deux issues honnetes existaient :
+							//
+							//      (a) mesurer a l'image N et centrer a l'image N+1 — le
+							//          contenu saute une fois a l'ouverture, et il faut
+							//          garder un etat par widget ;
+							//      (b) centrer ce que le document DECLARE, c'est-a-dire la
+							//          somme des `size` de ses enfants.
+							//
+							//    (b) est retenue : elle est exacte quand le document dit sa
+							//    taille — ce que `size` en flux permet depuis ce matin — et
+							//    elle ne fabrique rien quand il ne la dit pas.
+							//
+							// ⚠️ UN ENFANT SANS `size` N'EST PAS CENTRE, ET C'EST COMPTE. Le
+							//    faux confort aurait ete de centrer sur une taille devinee :
+							//    le contenu se serait pose a un endroit que personne n'a
+							//    demande, et aucun chiffre ne l'aurait dit.
+							NkRect rC = pl.pose ? pl.rect : ctx.layout.region;
+							if (!pl.pose) {
+								rC.w -= (ctx.layout.cursor.x - rC.x);
+								rC.h -= (ctx.layout.cursor.y - rC.y);
+								rC.x = ctx.layout.cursor.x;
+								rC.y = ctx.layout.cursor.y;
+							}
+							NkRect rTailleC;
+							if (!pl.pose && TailleEnFlux(ctx, w, rTailleC))
+								rC = rTailleC;
+							// La taille DECLAREE du contenu : somme en hauteur, maximum en
+							// largeur (l'axe du flux interieur est vertical par defaut).
+							float32 totalH = 0.f, maxW = 0.f;
+							uint32 sansTaille = 0u;
+							const NkArchiveNode *cc = NkGMonteCorps(w);
+							if (cc) {
+								for (uint32 k = 0; k < (uint32)cc->array.Size(); ++k) {
+									if (!cc->array[k].IsObject() || !cc->array[k].object)
+										continue;
+									float32 ew = 0.f, eh = 0.f;
+									if (LireVec2(*cc->array[k].object, "size", ew, eh)
+										&& (ew > 0.f || eh > 0.f)) {
+										totalH += (eh > 0.f) ? eh : ctx.ItemHeight();
+										if (ew > maxW)
+											maxW = ew;
+									} else {
+										++sansTaille;
+									}
+								}
+							}
+							NkRect dedansC = rC;
+							if (sansTaille == 0u && totalH > 0.f) {
+								const float32 dy = (rC.h - totalH) * 0.5f;
+								const float32 dx = (maxW > 0.f) ? (rC.w - maxW) * 0.5f : 0.f;
+								dedansC.x = rC.x + (dx > 0.f ? dx : 0.f);
+								dedansC.y = rC.y + (dy > 0.f ? dy : 0.f);
+								dedansC.w = rC.w - (dx > 0.f ? dx : 0.f);
+								dedansC.h = rC.h - (dy > 0.f ? dy : 0.f);
+								++rap.centrages;
+							} else if (sansTaille > 0u) {
+								rap.centragesImpossibles += sansTaille;
+							}
+							{
+								const NkGuiLayout sauveC = ctx.layout;
+								ctx.BeginLayout(dedansC);
+								// Meme raison que pour `Padding` : `BeginLayout` ajouterait la
+								// marge du theme au point calcule, et les quatre marges du
+								// centrage ne seraient plus egales. Mesure : 110/90 contre
+								// 90/70, soit l'ecart d'exactement deux marges.
+								ctx.layout.cursor = {dedansC.x, dedansC.y};
+								ctx.layout.lineStartX = dedansC.x;
+								ctx.layout.prevItem = {dedansC.x, dedansC.y, 0.f, 0.f};
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								ctx.layout = sauveC;
+							}
+							Noter(rap, id, t, rC, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
 						case NkGuiRole::Flow: {
 							// Horizontal AVEC retour a la ligne : c'est la seule difference avec
 							// une `HBox`, et NKGui la porte deja (`BeginFlow`).
