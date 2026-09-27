@@ -107,6 +107,7 @@
 #include "NKContainers/String/NkStringUtils.h"
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Doc/NkGuiGraphe.h" // le Blueprint nodal, compile vers le script
 #include "NKGui/Doc/NkGuiMonteur.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKSerialization/NkGui/NkGuiArchive.h"
@@ -632,6 +633,11 @@ namespace nkentseu {
 				uint32 uiReconnues = 0;
 				uint32 uiServies = 0;
 				uint32 uiSansHote = 0;
+				/// Ce que la compilation des graphes a produit et refuse.
+				/// ⚠️ Il vit DANS le rapport de l'evaluateur parce qu'un graphe
+				///    compile devient du script : ses instructions se comptent avec
+				///    les autres, et c'est ce qui prouve qu'il n'y a qu'un moteur.
+				NkGuiRapportGraphe graphe;
 		};
 
 		// =====================================================================
@@ -715,7 +721,31 @@ namespace nkentseu {
 					if (!corps)
 						return;
 					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
-						if (!corps->array[i].IsObject() || !corps->array[i].object)
+						// ── LE GRAPHE ARRIVE EN TRANCHE BRUTE (27/09) ────────
+						//  🔴 `behavior "x" graph { … }` n'est PAS un bloc pour le
+						//     lecteur d'archive : le mot `graph` s'intercale entre
+						//     l'identifiant et l'accolade, et la forme tombe en
+						//     SOURCE VERBATIM (règle T11). C'est ici, et nulle part
+						//     ailleurs, qu'on peut la voir.
+						//
+						//  ⚠️ IL SE COMPILE VERS LE SCRIPT, PUIS LE MÊME ÉVALUATEUR
+						//     L'EXÉCUTE (décision de Rodolf, §6.2). Un second
+						//     interpréteur aurait eu ses propres priorités
+						//     d'opérateurs et sa propre idée de « vide » : le jour
+						//     où les deux auraient divergé, personne n'aurait su
+						//     lequel avait raison.
+						if (!corps->array[i].IsObject()) {
+							NkString nomG, evtG, scriptG;
+							if (NkGuiCompilerGraphe(corps->array[i].Lexeme(), nomG, evtG, scriptG,
+													rapport.graphe)) {
+								mComportement = nomG;
+								if (scriptG.Size() > 0u)
+									ExecuterTranche(
+										NkStringView(scriptG.Data(), (usize)scriptG.Size()));
+							}
+							continue;
+						}
+						if (!corps->array[i].object)
 							continue;
 						const NkArchive &sec = *corps->array[i].object;
 						if (!NkGMotEgal(NkGuiArchive::TypeOf(sec), "behavior"))
@@ -733,6 +763,12 @@ namespace nkentseu {
 					//    en tranche brute et n'arrive meme pas ici. Le controle reste,
 					//    parce qu'une evolution du lecteur la ferait arriver, et qu'un
 					//    graphe evalue a moitie est pire que pas evalue du tout.
+					// ✅ DEPUIS LE 27/09, UN GRAPHE SE COMPILE (voir `ExecuterTranche`,
+					//    qui reçoit les tranches brutes). Cette garde reste pour la
+					//    forme BLOC : si le lecteur d'archive évoluait au point de
+					//    reconnaître `behavior "x" graph {`, il arriverait ici sans
+					//    être passé par le compilateur — et *un graphe évalué à
+					//    moitié est pire que pas évalué du tout*.
 					if (sec.FindNode(NkStringView("graph"))) {
 						++rapport.grapheIgnore;
 						return;
