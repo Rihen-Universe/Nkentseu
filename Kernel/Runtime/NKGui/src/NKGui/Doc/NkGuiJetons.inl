@@ -63,6 +63,21 @@ namespace nkentseu {
 			detail::NkGJetonsRegistre() = table;
 		}
 
+		namespace detail {
+			inline const NkGuiIconSet *&NkGIconesRegistre() noexcept {
+				static const NkGuiIconSet *s_jeu = nullptr;
+				return s_jeu;
+			}
+		} // namespace detail
+
+		inline const NkGuiIconSet *NkGuiIconesPosees() noexcept {
+			return detail::NkGIconesRegistre();
+		}
+
+		inline void NkGuiPoserIcones(const NkGuiIconSet *jeu) noexcept {
+			detail::NkGIconesRegistre() = jeu;
+		}
+
 		// =====================================================================
 		//  LIRE UN THÈME
 		// =====================================================================

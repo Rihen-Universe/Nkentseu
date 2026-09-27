@@ -194,6 +194,24 @@ namespace nkentseu {
 		NkGuiTableJetons *NkGuiJetonsPoses() noexcept;
 		void NkGuiPoserJetons(NkGuiTableJetons *table) noexcept;
 
+		// =====================================================================
+		//  P12 — LE JEU D'ICÔNES, POSÉ PAR L'HÔTE
+		// =====================================================================
+		//  `icon` est au schéma de `Button`, `ToggleButton`, `Tile`,
+		//  `SplitButton`, `MenuItem`… et les spécifications d'interface en
+		//  écrivent des centaines (noms Lucide). Le monteur ne peut pas les
+		//  porter : un jeu d'icônes est une RESSOURCE de l'application, comme
+		//  ses actions et ses zones.
+		//
+		//  ⚠️ MÊME FORME QUE LES JETONS, ET C'EST DÉLIBÉRÉ. Trois tables posées
+		//     par l'hôte (actions, zones, jetons) : une quatrième qui s'y
+		//     ajoute ne demande rien de nouveau à apprendre. Et `NkGuiIconSet`
+		//     distingue déjà `Glyph` de `Fallback` : le monteur peut donc
+		//     COMPTER une icône manquante au lieu de peindre un carré muet.
+		class NkGuiIconSet;
+		const NkGuiIconSet *NkGuiIconesPosees() noexcept;
+		void NkGuiPoserIcones(const NkGuiIconSet *jeu) noexcept;
+
 		/// ⚠️ DÉCLARÉE ICI, DÉFINIE DANS `NkGuiMonteur.h` — et c'est voulu. Lire
 		///    un thème, c'est lire des couleurs : si ce fichier en analysait une
 		///    lui-même, il y aurait **trois** analyseurs de la même syntaxe là où

@@ -2400,6 +2400,111 @@ int main(int argc, char **argv) {
 			  "   NEGATIF : et les jetons non resolus sont COMPTES");
 	}
 
+	// =========================================================================
+	printf("\n-- LES PROPRIETES TRANSVERSES : `tooltip`, P8, P11, P12 --\n");
+	// =========================================================================
+	//  🔴 `tooltip` EST UNIVERSEL DEPUIS TOUJOURS ET PERSONNE NE LE LISAIT.
+	//     Mesure du 27/09 : ZERO occurrence de « tooltip » dans tout
+	//     `NkGuiMonteur.h`. Les specifications d'interface en ecrivent des
+	//     CENTAINES ; toutes tombaient en silence, alors que `SetTooltip` existe
+	//     dans NKGui depuis toujours. Meme famille que la couleur illisible :
+	//     *le document declare, personne ne lit, et rien ne le dit.*
+	{
+		static const char kTrans[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Group \"colonne\" { placement = absolute\n"
+			"    Button \"outil.deplacer\" { label = \"Deplacer\", tooltip = \"Deplacer l'objet\","
+			" shortcut = \"W\", icon = move }\n"
+			"    Panel \"propo\" { pos = (10, 60), size = (200, 60)\n"
+			"      appearance { fill { color = #2A2035 }, pattern = Hatch }\n"
+			"    }\n"
+			"    Panel \"ordinaire\" { pos = (10, 150), size = (200, 60)\n"
+			"      appearance { fill { color = #2A2035 } }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		static const char kSansMotif[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Group \"colonne\" { placement = absolute\n"
+			"    Button \"outil.deplacer\" { label = \"Deplacer\", tooltip = \"Deplacer l'objet\","
+			" shortcut = \"W\", icon = move }\n"
+			"    Panel \"propo\" { pos = (10, 60), size = (200, 60)\n"
+			"      appearance { fill { color = #2A2035 } }\n"
+			"    }\n"
+			"    Panel \"ordinaire\" { pos = (10, 150), size = (200, 60)\n"
+			"      appearance { fill { color = #2A2035 } }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		g_garderPixels = true;
+		const Montage tr = MonterTexte(kTrans, (uint32)(sizeof(kTrans) - 1u), 320, 260);
+		const Montage sansMotif =
+			MonterTexte(kSansMotif, (uint32)(sizeof(kSansMotif) - 1u), 320, 260);
+		g_garderPixels = false;
+		Check(tr.lu && sansMotif.lu, "   les deux documents se lisent");
+		printf("        raccourcis=%u infobulles=%u icones=%u manquantes=%u\n",
+			   tr.rap.raccourcisAffiches, tr.rap.infobullesPosees, tr.rap.iconesDemandees,
+			   tr.rap.iconesManquantes);
+
+		// ── P8 : le raccourci se DECLARE sans souris ─────────────────────
+		//  ⚠️ DEUX COMPTEURS, ET ILS NE DISENT PAS LA MEME CHOSE.
+		//     `raccourcisAffiches` ne depend pas du pointeur : un document se
+		//     juge sans souris. `infobullesPosees` exige un survol, et vaut donc
+		//     ZERO ici -- ce zero est un fait, pas un manque.
+		CheckEq(tr.rap.raccourcisAffiches, 1u, "   P8 : le `shortcut` declare est COMPTE");
+		CheckEq(tr.rap.infobullesPosees, 0u,
+				"   et aucune infobulle posee au repos — elle demande un survol");
+
+		// ── P12 : sans jeu d'icones, on ne peint pas un carre muet ───────
+		CheckEq(tr.rap.iconesDemandees, 1u, "   P12 : l'icone demandee est comptee");
+		CheckEq(tr.rap.iconesManquantes, 1u,
+				"   et SANS jeu pose elle est comptee MANQUANTE — pas de carre muet");
+
+		// ── P11 : les hachures se VOIENT ─────────────────────────────────
+		//  🔴 ET LES PANNEAUX SONT POSES POUR UNE RAISON MESUREE. Premiere
+		//     version : deux `Panel` dans une `VBox`. Resultat : 0 pixel de
+		//     difference, motif ou pas, alors que le compteur d'apparences
+		//     peintes montait bien de 2 a 3. Cause : un conteneur EN FLUX
+		//     prend `RegionCourante` -- TOUTE la region restante -- et ne
+		//     fait pas avancer le curseur de son parent. Les deux panneaux se
+		//     superposaient donc EXACTEMENT, et le second repeignait le
+		//     premier, hachures comprises. *Le motif etait peint ; il etait
+		//     recouvert.* Defaut signale a part : deux conteneurs en flux ne
+		//     devraient pas se recouvrir.
+		//
+		//  ⚠️ LE CRITERE N'EST PAS « aHachures est vrai ». Ce depot a deja compte
+		//     3 778 pixels traces que l'oeil ne voyait pas. Les deux documents
+		//     sont IDENTIQUES a un mot pres : tout ce qui les separe est le
+		//     motif. Si l'image ne change pas, il n'y a pas de motif.
+		Check(tr.rap.apparencesPeintes > sansMotif.rap.apparencesPeintes,
+			  "   P11 : l'apparence hachuree est comptee peinte EN PLUS");
+		{
+			const uint32 diff = PixelsQuiDifferent(tr, sansMotif);
+			printf("        pixels qui different avec/sans le motif : %u\n", diff);
+			Check(diff != 0xFFFFFFFFu, "   les deux images sont comparables");
+			Check(diff > 50u, "   P11 : LE MOTIF SE VOIT — plus de 50 pixels changent");
+		}
+
+		// ── LE NEGATIF DU MOTIF INCONNU ──────────────────────────────────
+		//  Un `pattern` que le monteur ne connait pas ne peint pas des hachures
+		//  « par defaut » : il se compte. Peindre un autre motif dirait faux.
+		static const char kMotifInconnu[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Panel \"propo\" { size = (200, 60)\n"
+			"    appearance { fill { color = #2A2035 }, pattern = Pointilles }\n"
+			"  }\n"
+			"}\n";
+		const Montage inc =
+			MonterTexte(kMotifInconnu, (uint32)(sizeof(kMotifInconnu) - 1u), 320, 120);
+		printf("        motif inconnu : apparencesNonPeintes = %u\n",
+			   inc.rap.apparencesNonPeintes);
+		Check(inc.rap.apparencesNonPeintes > 0u,
+			  "   NEGATIF : un motif inconnu est COMPTE, pas remplace par un autre");
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
