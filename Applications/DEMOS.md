@@ -385,7 +385,7 @@ Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
    clé, Supprimer la clé, Annuler, Refaire), un panneau **« Outils »** à gauche, et la **barre
    d'état** du bas porte le texte du document ;
 2. **cliquer « Jouer / Pause »** : l'animation démarre. Le bouton vient du fichier, l'effet du C++ ;
-3. **fermer l'application**, ouvrir `Resources/Interface/NkAnimaEditor/barre_etat.nkgui`, changer le
+3. **fermer l'application**, ouvrir `Resources/Interface/NkAnimaEditor/BarreEtat.nkgui`, changer le
    texte, **relancer** : le bas de la fenêtre porte le nouveau texte. **Rien n'a été recompilé** ;
 4. même geste dans `barre_outils.nkgui` : ajouter un `Button`, en retirer un, changer un libellé ;
 5. **ouvrir le menu « Animation »** dans la barre de menus : ses six entrées, leurs raccourcis et leur ordre viennent de `menu_animation.nkgui`. En ajouter une, relancer, elle est dans le menu.
@@ -394,7 +394,7 @@ Les documents sont dans **`Resources/Interface/NkAnimaEditor/`** :
 
 - les trois bandes portent ce que les fichiers disent, et **changent quand les fichiers changent** ;
 - le panneau de gauche montre une **bande des clés** (traits cyan) avec le curseur de lecture blanc :
-  c'est une **zone hôte** — le document dit `Host "apercu_cles"`, l'application la peint ;
+  c'est une **zone hôte** — le document dit `Host "apercuCles"`, l'application la peint ;
 - la case **« Jouer en boucle »** agit : elle passe par `bind`, un `behavior` écrit **dans le
   fichier** la lit, et il appelle l'application par `Callback`.
 - un menu **« Animation »** apparaît **à côté** de ceux de la coquille (Fichier, Affichage,
@@ -793,7 +793,7 @@ Rodolf**, ce que les règles interdisent ; la case de la démo le lui laisse fai
 **`Build/Bin/Release-Windows/Nogee/Nogee.exe`** *(lancer depuis la racine de l'arbre)*
 
 **Ce que ça montre :** le **même** fil que chez NkAnimaEditor, par le **même fichier partagé**
-(`NKGui/Doc/NkGuiCoquille.h`). Documents : `Resources/Interface/Nogee/barre_etat.nkgui` et
+(`NKGui/Doc/NkGuiCoquille.h`). Documents : `Resources/Interface/Nogee/BarreEtat.nkgui` et
 `panneau_scene.nkgui`.
 
 ### Ce qu'on doit voir
