@@ -8977,6 +8977,20 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 			if (m.x >= rp.x && m.x < rp.x + rp.w && m.y >= rp.y && m.y < rp.y + rp.h)
 				gLauncherModal.open = true;
 		}
+		// 🔴 LA BANDE DIT OU ELLE S'ARRETE, ET C'EST UNE CAPTURE DE RODOLF QUI L'A
+		//    EXIGE (27/09). Ces onglets se dessinent a coups de rectangles EXPLICITES,
+		//    avec leur propre `x` local : ils ne deplacent JAMAIS `ctx.layout.cursor`.
+		//    Tant qu'ils etaient seuls dans la bande, cela ne se voyait pas. Depuis que
+		//    la barre d'outils monte AUSSI une racine `.nkgui` apres eux, le document
+		//    repartait du DEBUT de la bande — la capture montrait « Annuler d Retablir
+		//    e Landing_Page x Grouper », des fragments d'onglet entre les boutons.
+		//
+		//    *Un dessin en coordonnees explicites qui ne repose pas le curseur laisse
+		//    le suivant repartir de zero* — et le suivant n'existait pas le jour ou ce
+		//    code a ete ecrit.
+		ctx.layout.cursor.x = rp.x + rp.w + 8.f;
+		ctx.layout.cursor.y = z.y;
+		ctx.layout.lineStartX = ctx.layout.cursor.x;
 	}
 
 	// ── LE CHOIX A TROIS BRANCHES (§3) ──────────────────────────────────────
