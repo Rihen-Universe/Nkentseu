@@ -1850,9 +1850,16 @@ namespace nkentseu {
 		// En-tête repliable (accordéon) : barre pleine largeur cliquable, état persistant.
 		// Renvoie true si la section est ouverte (l'app dessine alors son contenu).
 		bool CollapsingHeader(NkGuiContext &ctx, const char *label) noexcept {
+			return CollapsingHeaderEx(ctx, label, label);
+		}
+
+		bool CollapsingHeaderEx(NkGuiContext &ctx, const char *idStr, const char *label) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
-			const NkGuiId id = ctx.GetId(label);
+			// MEME RAISON QUE `TreeNodeEx` : l'identite vient de `idStr`, le texte de
+			// `label`. Voir la declaration dans l'en-tete.
+			const char *cle = (idStr && *idStr) ? idStr : label;
+			const NkGuiId id = ctx.GetId(cle);
 			bool open = ctx.IsNodeOpen(id);
 			bool hov = false, held = false;
 			if (ctx.ButtonBehavior(id, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held)) {
@@ -1880,9 +1887,32 @@ namespace nkentseu {
 		}
 
 		bool TreeNode(NkGuiContext &ctx, const char *label) noexcept {
+			// L'ANCIENNE FORME PASSE PAR LA NEUVE, avec le libelle comme identifiant.
+			// ⚠️ UN SEUL CORPS, ET C'ETAIT LE POINT. Dupliquer le dessin pour ajouter
+			//    un parametre aurait donne deux arbres qui divergent a la premiere
+			//    retouche de la fleche ou de l'indentation.
+			return TreeNodeEx(ctx, label, label);
+		}
+
+		bool TreeNodeEx(NkGuiContext &ctx, const char *idStr, const char *label) noexcept {
 			const float32 h = ctx.ItemHeight();
 			const NkRect r = ctx.NextItemRect(0.f, h);
-			const NkGuiId id = ctx.GetId(label);
+			// 🔴 L'IDENTITE VIENT DE `idStr`, LE TEXTE DE `label`, ET LES DEUX NE SONT
+			//    PLUS LA MEME CHOSE. `TreeNode(ctx, label)` fabriquait son identite a
+			//    partir du TEXTE AFFICHE : avec un libelle traduit et une bascule de
+			//    langue A CHAUD, cette identite changeait EN PLEINE SESSION -- toutes
+			//    les sections repliees se rouvraient au moment ou l'utilisateur
+			//    changeait de langue.
+			//
+			//    Le patron existait deja dans le kit : `TreeNodeEditable` prend un
+			//    `idStr` separe depuis toujours. Il manquait ici.
+			//
+			// ⚠️ `idStr` NUL OU VIDE RETOMBE SUR `label`, et ce n'est pas de la
+			//    complaisance : c'est ce qui rend l'ancienne forme EXACTEMENT
+			//    equivalente a ce qu'elle etait. Un appelant qui ne sait pas quoi
+			//    passer obtient le comportement d'avant, pas un arbre sans identite.
+			const char *cle = (idStr && *idStr) ? idStr : label;
+			const NkGuiId id = ctx.GetId(cle);
 			bool open = ctx.IsNodeOpen(id);
 
 			bool hov = false, held = false;

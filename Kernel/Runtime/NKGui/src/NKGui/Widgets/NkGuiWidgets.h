@@ -273,9 +273,23 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API void PopOverlay(NkGuiContext &ctx) noexcept;
 		// En-tête repliable (accordéon) : true si ouvert → l'app dessine le contenu de la section.
 		NKENTSEU_NKGUI_API bool CollapsingHeader(NkGuiContext &ctx, const char *label) noexcept;
+		/// Un en-tete repliable dont l'IDENTITE et le TEXTE sont distincts.
+		/// Meme raison que `TreeNodeEx` : un libelle traduit change a chaud, et
+		/// l'identite ne doit pas changer avec lui.
+		NKENTSEU_NKGUI_API bool CollapsingHeaderEx(NkGuiContext &ctx, const char *idStr,
+												   const char *label) noexcept;
 
 		// Arbre repliable : true si ouvert (dessiner les enfants puis TreePop).
 		NKENTSEU_NKGUI_API bool TreeNode(NkGuiContext &ctx, const char *label) noexcept;
+		/// Un noeud d'arbre dont l'IDENTITE et le TEXTE sont distincts.
+		///
+		/// 🔴 A EMPLOYER DES QU'UN LIBELLE PEUT CHANGER -- et depuis le multilingue
+		///    du 27/09, c'est le cas de tous. `TreeNode(ctx, label)` derive son
+		///    identite du TEXTE : basculer la langue rouvrirait toutes les sections
+		///    repliees, EN PLEINE SESSION, puisque la bascule est a chaud.
+		///    Meme forme que `TreeNodeEditable`, qui separe les deux depuis toujours.
+		NKENTSEU_NKGUI_API bool TreeNodeEx(NkGuiContext &ctx, const char *idStr,
+										   const char *label) noexcept;
 		NKENTSEU_NKGUI_API void TreePop(NkGuiContext &ctx) noexcept;
 
 		// Nœud d'arbre RENOMMABLE : clic ouvre/ferme, double-clic (ou Maj+Entrée)

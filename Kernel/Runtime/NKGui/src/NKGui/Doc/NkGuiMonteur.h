@@ -3238,7 +3238,8 @@ namespace nkentseu {
 							const NkRect rTout = ctx.NextItemRect(-1.f, hS);
 							const float32 largPiste = hS * 1.8f;
 							const NkRect piste{rTout.x, rTout.y + hS * 0.2f, largPiste, hS * 0.6f};
-							const NkGuiId idS = ctx.GetId(lbl);
+							// L'identifiant, pas le libelle : voir `TreeNodeEx`.
+							const NkGuiId idS = ctx.GetId(id.CStr());
 							bool hovS = false, heldS = false;
 							if (ctx.ButtonBehavior(idS, rTout, NkGuiButtonFlags::None, -1.f, -1.f,
 												   &hovS, &heldS))
@@ -3286,7 +3287,23 @@ namespace nkentseu {
 							for (uint32 k = 0; k < (uint32)opts.Size(); ++k) {
 								const float32 hR = ctx.ItemHeight();
 								const NkRect rR = ctx.NextItemRect(horiz ? 0.f : -1.f, hR);
-								const NkGuiId idR = ctx.GetId(opts[k].CStr());
+								// 🔴 L'IDENTIFIANT ET LE RANG, JAMAIS LE TEXTE DE L'OPTION.
+								//    Le commentaire du magasin, dix lignes plus haut,
+								//    disait deja pourquoi pour la VALEUR : « l'indice est
+								//    exact et stable quand les libelles changent de casse
+								//    ou de langue ». L'IDENTITE d'interaction avait le
+								//    meme besoin et ne l'avait pas : basculer la langue
+								//    deplacait le survol d'une option a l'autre.
+								NkString idOpt(id);
+								idOpt.Append("#");
+								{
+									char num[12];
+									uint32 v = k, nd = 0;
+									do { num[nd++] = (char)('0' + (v % 10u)); v /= 10u; } while (v);
+									for (uint32 q = 0; q < nd; ++q)
+										idOpt.Append(NkStringView(&num[nd - 1u - q], 1u));
+								}
+								const NkGuiId idR = ctx.GetId(idOpt.CStr());
 								bool hovR = false, heldR = false;
 								if (ctx.ButtonBehavior(idR, rR, NkGuiButtonFlags::None, -1.f, -1.f,
 													   &hovR, &heldR))
@@ -3562,7 +3579,8 @@ namespace nkentseu {
 								}
 							}
 							const NkRect rT = ctx.NextItemRect(tw, th);
-							const NkGuiId idT = ctx.GetId(sT.CStr());
+							// L'identifiant, pas le libelle : voir `TreeNodeEx`.
+							const NkGuiId idT = ctx.GetId(id.CStr());
 							bool hovT = false, heldT = false;
 							(void)ctx.ButtonBehavior(idT, rT, NkGuiButtonFlags::None, -1.f, -1.f,
 													 &hovT, &heldT);
@@ -3654,10 +3672,19 @@ namespace nkentseu {
 								const NkRect rFleche{rSB.x + rSB.w - largFleche, rSB.y, largFleche,
 													 rSB.h};
 								bool hovP = false, heldP = false, hovF = false, heldF = false;
-								(void)ctx.ButtonBehavior(ctx.GetId(sSB.CStr()), rPrinc,
+								// ⚠️ DEUX MOITIES, DEUX IDENTITES DERIVEES DE L'IDENTIFIANT --
+								//    et surtout PAS la meme. La partie principale prenait
+								//    son identite du LIBELLE (instable a la bascule de
+								//    langue) ; lui donner simplement `id` l'aurait fait
+								//    COLLISIONNER avec la fleche, qui emploie deja `id` :
+								//    survoler l'une aurait allume l'autre. La fleche prend
+								//    donc un suffixe.
+								(void)ctx.ButtonBehavior(ctx.GetId(id.CStr()), rPrinc,
 														 NkGuiButtonFlags::None, -1.f, -1.f, &hovP,
 														 &heldP);
-								(void)ctx.ButtonBehavior(ctx.GetId(id.CStr()), rFleche,
+								NkString idFleche(id);
+								idFleche.Append("#fleche");
+								(void)ctx.ButtonBehavior(ctx.GetId(idFleche.CStr()), rFleche,
 														 NkGuiButtonFlags::None, -1.f, -1.f, &hovF,
 														 &heldF);
 								ctx.DL().AddRectFilled(rPrinc,
@@ -4078,9 +4105,14 @@ namespace nkentseu {
 								e->b = NkGBooleen(w, "expanded", false);
 								e->initialise = true;
 							}
-							ctx.SetNodeOpen(ctx.GetId(titre.CStr()),
+							// 🔴 L'IDENTITE VIENT DE L'IDENTIFIANT, LE TEXTE DU LIBELLE.
+							//    Les deux lignes DOIVENT employer la meme cle : ranger
+							//    l'etat sous une cle et interroger le widget sous une
+							//    autre donnerait un arbre qui se referme tout seul --
+							//    pire que l'instabilite qu'on corrige.
+							ctx.SetNodeOpen(ctx.GetId(id.CStr()),
 											e ? e->b : NkGBooleen(w, "expanded", false));
-							const bool ouvert = TreeNode(ctx, titre.CStr());
+							const bool ouvert = TreeNodeEx(ctx, id.CStr(), titre.CStr());
 							if (e)
 								e->b = ouvert;
 							if (ouvert) {
@@ -4194,7 +4226,10 @@ namespace nkentseu {
 												   ? true
 												   : ((e && !kFige) ? e->b
 																	: NkGBooleen(w, "expanded", false));
-							ctx.SetNodeOpen(ctx.GetId(titre.CStr()), voulu);
+							// L'identifiant fait foi, pas le libelle -- meme raison qu'au
+							// `TreeItem` plus haut, et les deux lignes emploient la meme
+							// cle.
+							ctx.SetNodeOpen(ctx.GetId(id.CStr()), voulu);
 							// 🔴 ET SON RECTANGLE RELEVE ETAIT CELUI DE SON ENFANT. Avec un
 							//    `break`, le `Noter` generique enregistrait `BlocConsomme` pris
 							//    APRES l'en-tete : sur un accordeon d'un seul bouton, le releve
@@ -4204,7 +4239,7 @@ namespace nkentseu {
 							//    donc pris AVANT l'en-tete : le releve couvre l'en-tete ET le
 							//    contenu, et sa premiere rangee EST la barre cliquable.
 							const NkVec2 cExp = ctx.layout.cursor;
-							const bool ouvert = CollapsingHeader(ctx, titre.CStr());
+							const bool ouvert = CollapsingHeaderEx(ctx, id.CStr(), titre.CStr());
 							// LE GESTE, garde dans l'etat -- jamais reecrit dans le document.
 							if (e && !kToujours && !kFige)
 								e->b = ouvert;
