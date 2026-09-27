@@ -18,10 +18,10 @@
 ## 0. Ce qui change par rapport à NkAnima
 
 1. **Les composants communs déménagent** dans
-   `Resources/Interface/Commun/composants.nkgui`, et NkAnima **et** NKScena
+   `Resources/Interface/Commun/Composants.nkgui`, et NkAnima **et** NKScena
    l'incluent. Deux applications qui recopient les mêmes composants
    divergeraient — c'est la même raison qu'entre deux timelines. ✅ `include`
-   est branché depuis le 26/09 : écris `include "../Commun/composants.nkgui"`
+   est branché depuis le 26/09 : écris `include "../Commun/Composants.nkgui"`
    (si le chemin relatif avec `..` est refusé, dis-le : c'est le seul besoin
    nouveau).
 2. **Les panneaux partagés sont partagés** : `vue_3d`, `scene`, `details`,
@@ -108,7 +108,7 @@ P1 à P12 : voir doc 09 de NkAnima. NKScena en ajoute **trois**.
 
 ## 3. Les composants
 
-### 3.1 Communs (dans `Commun/composants.nkgui`)
+### 3.1 Communs (dans `Commun/Composants.nkgui`)
 
 Ceux du doc 09 de NkAnima, **inchangés** : `BoutonOutil`, `BoutonTransport`,
 `BoutonEcrit`, `EnTetePanneau`, `Categorie`, `LigneNombre`, `LigneVec3`,
@@ -275,7 +275,7 @@ MenuBar "menus"
     Separator "sep_f3"
     MenuItem "fichier.quitter"                label: "Quitter"                shortcut: "Ctrl+Q"
 
-  Menu "menu_edition"                         label: "Édition"
+  Menu "menuEdition"                         label: "Édition"
     MenuItem "anim.annuler"                   label: "Annuler"                shortcut: "Ctrl+Z"
     MenuItem "anim.refaire"                   label: "Refaire"                shortcut: "Ctrl+Y"
     MenuItem "edition.historique"             label: "Historique"
@@ -456,7 +456,7 @@ MenuBar "menus"
     Separator "sep_w2"
     MenuItem "fenetre.reinitialiser"          label: "Réinitialiser la disposition"
 
-  Menu "menu_aide"                            label: "Aide"
+  Menu "menuAide"                            label: "Aide"
     MenuItem "anim.aide_raccourcis"           label: "Raccourcis"
     MenuItem "aide.documentation"             label: "Documentation"
     MenuItem "anim.apropos"                   label: "Crédits et licences / À propos"
@@ -471,7 +471,7 @@ signale-le.
 ### 5.2 `barre_outils.nkgui`
 
 ```
-HBox "barre_outils"                           gap: 4   align: Center
+HBox "barreOutils"                           gap: 4   align: Center
   Dropdown "espace.choix"                     bind: espace.actif
                                               items: ["Préparation","Décor","Lumière","Plan","Montage","Son","Étalonnage","Compositing","Rendu"]
   Separator "sep_espace"                      orientation: Vertical
@@ -496,7 +496,7 @@ HBox "barre_outils"                           gap: 4   align: Center
     BoutonTransport "lecture.fin"             label: ">|"   icon: skip-forward
     ToggleButton✚ "lecture.boucle"            icon: repeat   bind: lecture.boucle   tooltip: "Jouer en boucle"
     TimecodeField✚ "lecture.timecode"         bind: lecture.image   fps: film.ips   format: Timecode
-  Separator "sep_transport"                   orientation: Vertical
+  Separator "sepTransport"                   orientation: Vertical
 
   HBox "rendu"                                gap: 4
     Button "rendu.plan"                       icon: clapperboard   tooltip: "Rendre le plan (Ctrl+R)"
@@ -523,7 +523,7 @@ l'estimation : l'identifiant reste celui de l'action.
 ### 5.3 `barre_etat.nkgui`
 
 ```
-HBox "barre_etat"                             gap: 8   align: Center
+HBox "barreEtat"                             gap: 8   align: Center
   Button "biblio.ouvrir"                      icon: library   label: "Bibliothèque"
   Button "fenetre.journal"                    icon: scroll-text   label: "Journal"
   TextField "commande"                        placeholder: "> commande"   bind: commande.saisie

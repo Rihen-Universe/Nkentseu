@@ -90,7 +90,7 @@
 
 ## 3. Les composants — `PV3DE/composants_pv3de.nkgui`
 
-Plus les communs (`Commun/composants.nkgui`).
+Plus les communs (`Commun/Composants.nkgui`).
 
 #### `CarteCas`
 

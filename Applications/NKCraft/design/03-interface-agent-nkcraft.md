@@ -128,7 +128,7 @@ P1–P18 : voir les trois documents précédents. NKCraft en ajoute **deux**.
 
 ### 3.1 Communs
 
-Tous ceux de `Commun/composants.nkgui`, **avec les actions renommées en
+Tous ceux de `Commun/Composants.nkgui`, **avec les actions renommées en
 `commun.`** (§0.3).
 
 ### 3.2 Propres — `NKCraft/composants_nkcraft.nkgui`
@@ -297,7 +297,7 @@ MenuBar "menus"
     Separator "sep_f3"
     MenuItem "app.quitter"                    label: "Quitter"                  shortcut: "Ctrl+Q"
 
-  Menu "menu_edition"                         label: "Édition"
+  Menu "menuEdition"                         label: "Édition"
     MenuItem "app.annuler"                    label: "Annuler"                  shortcut: "Ctrl+Z"
     MenuItem "app.refaire"                    label: "Refaire"                  shortcut: "Ctrl+Maj+Z"
     MenuItem "app.historique"                 label: "Historique"
@@ -345,7 +345,7 @@ MenuBar "menus"
     Menu "menu_extensions"                    label: "Extensions"               (rempli par l'application : add-ons)
     MenuItem "outils.recharger_extensions"    label: "Recharger les extensions"
 
-  Menu "menu_selection"                       label: "Sélection"
+  Menu "menuSelection"                       label: "Sélection"
     MenuItem "sel.tout"                       label: "Tout"                     shortcut: "A"
     MenuItem "sel.rien"                       label: "Rien"                     shortcut: "Alt+A"
     MenuItem "sel.inverser"                   label: "Inverser"                 shortcut: "Ctrl+I"
@@ -420,7 +420,7 @@ MenuBar "menus"
     MenuItem "sculpt.remailler"               label: "Remailler"                shortcut: "Ctrl+R"
     MenuItem "sculpt.projeter_detail"         label: "Projeter le détail (2.5D → maillage)"
 
-  Menu "menu_aide"                            label: "Aide"
+  Menu "menuAide"                            label: "Aide"
     MenuItem "app.aide"                       label: "Documentation"
     MenuItem "app.raccourcis"                 label: "Raccourcis clavier"
     MenuItem "app.apropos"                    label: "À propos / Crédits et licences"
@@ -436,7 +436,7 @@ MenuBar "menus"
 ### 5.2 `barre_outils.nkgui`
 
 ```
-HBox "barre_outils"                           gap: 4   align: Center
+HBox "barreOutils"                           gap: 4   align: Center
   Button "app.enregistrer"                    icon: save   label: "Enregistrer"   tooltip: "Ctrl+S"
   Separator "sep1"                            orientation: Vertical
   Dropdown "espace.choix"                     bind: espace.actif
@@ -465,7 +465,7 @@ HBox "barre_outils"                           gap: 4   align: Center
 ### 5.3 `barre_etat.nkgui`
 
 ```
-HBox "barre_etat"                             gap: 8   align: Center
+HBox "barreEtat"                             gap: 8   align: Center
   Button "app.vue.navigateur"                 icon: folder-open   label: "Tiroir"
   Button "fenetre.journal"                    icon: scroll-text   label: "Journal"
   TextField "commande"                        placeholder: "> commande"   bind: commande.saisie
