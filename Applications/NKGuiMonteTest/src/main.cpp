@@ -2227,6 +2227,76 @@ int main(int argc, char **argv) {
 		NkGuiPoserJetons(nullptr);
 	}
 
+	// =========================================================================
+	printf("\n-- LES HUIT ROLES QUE LE FORMAT ACCEPTAIT SANS MONTAGE --\n");
+	// =========================================================================
+	//  Rodolf, 27/09 : « reecris donc tout le vocabulaire manquant une fois ».
+	//
+	//  🔴 CE QUE LEUR ABSENCE COUTAIT, ET CE N'ETAIT PAS « UN WIDGET EN MOINS ».
+	//     Ces huit roles sont au schema du format (`NkGuiValidate.h`) depuis
+	//     toujours : un document qui les ecrit est VALIDE. Le monteur, lui, les
+	//     comptait en `rolesInconnus` -- et un role inconnu fait REFUSER LE
+	//     DOCUMENT ENTIER, ses voisins valides compris. Le format disait oui, le
+	//     monteur disait non, et c'est le document qui payait.
+	//
+	//  ⚠️ LE CRITERE PORTE SUR `montes`, PAS SUR `widgets`. Un role peut etre
+	//     reconnu (donc compte dans `widgets`) sans rien appeler : c'est
+	//     exactement l'etat d'avant. `montes` ne monte que si une fonction de
+	//     NKGui a ete appelee.
+	{
+		static const char kHuit[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    gap = 4\n"
+			"    NumberField \"nb\"   { bind = essai.nb, min = 0, max = 10, step = 1 }\n"
+			"    Drag \"gliss\"       { bind = essai.gliss, speed = 0.1, min = 0, max = 1 }\n"
+			"    ColorField \"coul\"  { bind = essai.coul, value = \"#F79A28FF\" }\n"
+			"    Switch \"inter\"     { bind = essai.inter, label = \"Simulation\" }\n"
+			"    RadioGroup \"choix\" { bind = essai.choix, options = [\"Solide\", \"Rendu\", "
+			"\"Filaire\"] }\n"
+			"    ImageButton \"img\"  { image = icone_play }\n"
+			"    Table \"tab\"        { columns = [\"Nom\", \"Valeur\"] }\n"
+			"    Stack \"pile\"       { sizeRel = (0.5, 0.2), anchor = Center\n"
+			"      Text \"dessous\"   { text = \"dessous\" }\n"
+			"      Text \"dessus\"    { text = \"dessus\" }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		g_garderPixels = true;
+		const Montage huit = MonterTexte(kHuit, (uint32)(sizeof(kHuit) - 1u), 420, 420);
+		g_garderPixels = false;
+		Check(huit.lu, "   le document des huit roles se lit");
+		printf("        widgets=%u montes=%u inconnus=%u attrNonHonores=%u flagsNonAppl=%u\n",
+			   huit.rap.widgets, huit.rap.montes, huit.rap.rolesInconnus,
+			   huit.rap.attributsNonHonores, huit.rap.flagsNonAppliques);
+		CheckEq(huit.rap.rolesInconnus, 0u,
+				"   AUCUN role inconnu — le monteur connait enfin ce que le format accepte");
+		// 1 VBox + 8 roles + 2 Text dans la pile = 11 montages.
+		Check(huit.rap.montes >= 11u, "   les huit roles se MONTENT (11 widgets au moins)");
+		// ⚠️ ET CE QUI N'A PAS D'EQUIVALENT SE COMPTE. `ImageButton.image` nomme
+		//    une ressource que le document ne porte pas ; `Table.flags` n'a pas
+		//    de traduction. Les taire ferait croire qu'ils ont ete honores.
+		Check(huit.rap.attributsNonHonores > 0u,
+			  "   les attributs sans equivalent sont COMPTES (image)");
+		Check(huit.pixels > 0u, "   et l'ensemble PEINT");
+
+		// ⚠️ LE ROLE INCONNU RESTE INCONNU — le zero de ce lot se prouve.
+		//    Sans ce cas, « rolesInconnus = 0 » pourrait venir d'un compteur
+		//    casse plutot que de huit roles montes.
+		static const char kFaux[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    RoleQuiNexistePas \"x\" { }\n"
+			"  }\n"
+			"}\n";
+		const Montage faux = MonterTexte(kFaux, (uint32)(sizeof(kFaux) - 1u), 200, 100);
+		printf("        role invente : rolesInconnus = %u\n", faux.rap.rolesInconnus);
+		CheckEq(faux.rap.rolesInconnus, 1u,
+				"   NEGATIF : un role qui n'existe VRAIMENT pas est toujours compte");
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	if (g_fail > 0)
 		printf("    %d ECHEC(S)\n", g_fail);
