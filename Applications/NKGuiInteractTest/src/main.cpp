@@ -3068,6 +3068,386 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	// =====================================================================
+	printf("\n-- (b17) P7 `CurveField` : une courbe qu'on TIRE, pas seulement qu'on voit\n");
+	// =====================================================================
+	// Doc 09 §P7 : « la vitesse le long d'une trajectoire, la part de physique dans le
+	// temps, l'intensite d'un vent — une courbe editable EN PLACE. `Chart` n'est pas
+	// editable. »
+	//
+	// ⚠️ C'EST DONC L'EDITION QUI EST LE CRITERE, PAS LE DESSIN. Un champ de courbe qui
+	//    se peint joliment et qu'on ne peut pas toucher serait un `Chart` sous un autre
+	//    nom : il ferait monter `courbes`, il aurait ses pixels, et il ne rendrait
+	//    AUCUN des services que ce role existe pour rendre.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  CurveField \"vitesse\" {\n"
+			"    bind = \"traj.vitesse\"\n"
+			"    min = 0\n"
+			"    max = 200\n"
+			"    height = 90\n"
+			"    xLabel = \"avancement\"\n"
+			"    yLabel = \"km/h\"\n"
+			"  }\n"
+			"}\n";
+		// L'hote possede les points — c'est le partage que ce role a choisi. Il note
+		// aussi ce qu'on lui renvoie : sans cela, « le point a bouge a l'ecran » ne
+		// dirait pas que l'application l'a SU.
+		struct HoteCourbe : public NkGuiMonteHooks {
+				NkVec2 pts[4] = {{0.f, 20.f}, {0.33f, 120.f}, {0.66f, 60.f}, {1.f, 180.f}};
+				bool servir = true;
+				uint32 lectures = 0u;
+				uint32 notifications = 0u;
+				NkString dernierBind;
+				NkVec2 recus[4];
+				uint32 nRecus = 0u;
+				bool CourbeLiee(const char *bind, NkVec2 *out, uint32 maxP,
+								uint32 &nOut) noexcept override {
+					++lectures;
+					dernierBind = NkString(bind);
+					if (!servir || maxP < 4u)
+						return false;
+					for (uint32 i = 0; i < 4u; ++i)
+						out[i] = pts[i];
+					nOut = 4u;
+					return true;
+				}
+				void CourbeModifiee(const char *bind, const NkVec2 *p,
+									uint32 n) noexcept override {
+					++notifications;
+					dernierBind = NkString(bind);
+					nRecus = n < 4u ? n : 4u;
+					for (uint32 i = 0; i < nRecus; ++i) {
+						recus[i] = p[i];
+						pts[i] = p[i]; // l'hote garde ce qu'on lui rend
+					}
+				}
+		};
+
+		// ── SANS HOTE : le role existe, et l'ABSENCE de courbe se voit ──────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+				  "(b17) le document a `CurveField` se charge");
+			s.Image();
+			printf("        [sans hote] inconnus = %u, courbes = %u, sansHote = %u\n",
+				   s.rap.rolesInconnus, s.rap.courbes, s.rap.courbesSansHote);
+			CheckEqU(s.rap.rolesInconnus, 0u, "(b17) `CurveField` n'est plus un role inconnu");
+			CheckEqU(s.rap.courbes, 1u, "(b17) la courbe est rencontree");
+			// ⚠️ ET ELLE N'INVENTE PAS DE DROITE DE REPLI. Une ligne plate tracee faute
+			//    de donnees aurait ete indiscernable d'une vraie courbe plate — un
+			//    reglage faux qui a l'air juste. Meme politique qu'une zone `Host`.
+			CheckEqU(s.rap.courbesSansHote, 1u,
+					 "(b17) [sans hote] comptee SANS HOTE — aucune courbe inventee");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── AVEC HOTE : elle est LUE et PEINTE ──────────────────────────────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+				  "(b17) [avec hote] le document se charge");
+			HoteCourbe h;
+			// La reference sans hote, sur la meme scene : c'est l'image a laquelle la
+			// courbe doit ajouter ses pixels.
+			s.Image();
+			const uint32 sansCourbe = ComptePixelsPeints(s.ras, kFond);
+			s.Image(&h);
+			const uint32 avecCourbe = ComptePixelsPeints(s.ras, kFond);
+			const uint32 accent = Empaquete(NkGuiContext().theme.accent);
+			const uint32 pxAccent = ComptePixelsCouleur(s.ras, accent);
+			printf("        [avec hote] lectures = %u (« %s »), sansHote = %u ; pixels %u -> %u, "
+				   "accent = %u\n",
+				   h.lectures, h.dernierBind.CStr(), s.rap.courbesSansHote, sansCourbe,
+				   avecCourbe, pxAccent);
+			CheckEqU(h.lectures, 1u, "(b17) LE CROCHET EST LU, une fois par image");
+			Check(h.dernierBind.Compare(NkString("traj.vitesse")) == 0,
+				  "(b17) et avec le `bind` du document, pas l'identifiant du widget");
+			CheckEqU(s.rap.courbesSansHote, 0u, "(b17) [avec hote] elle n'est plus sans hote");
+			// 🔴 LE CRITERE EST EN PIXELS DE LA COULEUR D'ACCENT, ET LE TOTAL AURAIT
+			//    RENDU L'INVERSE DE LA VERITE. Mesure : 27 000 pixels non-fond SANS la
+			//    courbe, 26 980 AVEC — il DESCEND de vingt. Parce que sans hote le champ
+			//    se couvre de hachures (le marqueur « personne ne sert ceci »), qui
+			//    peignent plus de pixels que la courbe elle-meme. Un critere « l'image
+			//    gagne des pixels » aurait donc declare la courbe absente alors qu'elle
+			//    est la, et un critere « l'image a change » l'aurait declaree presente
+			//    quoi qu'on dessine. Il faut NOMMER la couleur cherchee — quatrieme fois
+			//    aujourd'hui qu'un total ne tranche pas.
+			Check(pxAccent > 100u, "(b17) LA COURBE EST TRACEE — la couleur d'accent est presente");
+			s.Png("b17_courbe.png");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── LE GESTE : ON TIRE UN POINT, ET L'HOTE L'APPREND ────────────────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+				  "(b17) [geste] le document se charge");
+			HoteCourbe h;
+			s.Image(&h);
+			// Le rectangle du champ sort du MONTAGE : aucune coordonnee de ce banc n'est
+			// ecrite en dur — un attendu en dur se perime quand la mise en page bouge.
+			NkRect cadre{0.f, 0.f, 0.f, 0.f};
+			const bool aCadre = s.Rect("vitesse", cadre);
+			Check(aCadre, "(b17) le rectangle du champ sort du montage");
+			if (aCadre) {
+				// Le deuxieme point : x = 0,33 de la largeur utile (marge de 4 px), et sa
+				// valeur 120 sur [0, 200].
+				const float32 marge = 4.f;
+				const float32 x0 = cadre.x + marge, larg = cadre.w - 2.f * marge;
+				const float32 y0 = cadre.y + marge, hUtile = cadre.h - 2.f * marge;
+				const float32 px = x0 + larg * 0.33f;
+				const float32 py = y0 + hUtile * (1.f - 120.f / 200.f);
+				const float32 avant = h.pts[1].y;
+				printf("        point 1 avant = %.1f, poignee a (%.0f, %.0f)\n", avant, px, py);
+
+				// Survoler d'abord : la poignee doit REPONDRE au survol avant qu'on
+				// l'appuie. Ce banc a une image de retard sur le survol (hotIdPrev).
+				s.exe.PoserPointeur(s.ctx, px, py);
+				s.Image(&h);
+				s.Image(&h);
+				const uint32 blanc = Empaquete(NkGuiContext().theme.onAccent);
+				const uint32 pxSurvol = ComptePixelsCouleur(s.ras, blanc);
+				printf("        pixels blancs au survol = %u\n", pxSurvol);
+				Check(pxSurvol > 10u,
+					  "(b17) LA POIGNEE REPOND AU SURVOL — elle passe au blanc du theme");
+
+				// Puis appuyer et tirer VERS LE HAUT (y decroit a l'ecran = valeur monte).
+				// 🔴 LE COMPTEUR SE CUMULE, ET C'EST UNE LECON PAYEE ICI MEME. `rap` est
+				//    remis a zero a CHAQUE image : lire `pointsCourbeDeplaces` apres la
+				//    derniere rendait 0, parce qu'a cette image-la le point avait deja
+				//    atteint sa cible et ne bougeait plus. Le code etait juste, le critere
+				//    regardait la mauvaise image. *Un compteur par image ne se lit pas
+				//    apres un geste qui dure plusieurs images.*
+				uint32 deplacesVus = 0u;
+				s.ctx.input.mouseDown[0] = true;
+				s.ctx.input.mouseClicked[0] = true;
+				s.Image(&h);
+				deplacesVus += s.rap.pointsCourbeDeplaces;
+				s.ctx.input.mouseClicked[0] = false;
+				const float32 cible = y0 + hUtile * (1.f - 180.f / 200.f);
+				s.exe.PoserPointeur(s.ctx, px, cible);
+				s.ctx.input.mouseDown[0] = true;
+				s.Image(&h);
+				deplacesVus += s.rap.pointsCourbeDeplaces;
+				s.Image(&h);
+				deplacesVus += s.rap.pointsCourbeDeplaces;
+				printf("        point 1 apres = %.1f (cible ~180), notifications = %u, "
+					   "deplaces (cumul) = %u\n",
+					   h.pts[1].y, h.notifications, deplacesVus);
+				s.ctx.input.mouseDown[0] = false;
+
+				// 🔴 LES TROIS MOITIES DE « C'EST EDITABLE ». La valeur a change, l'hote
+				//    l'a APPRISE, et le rapport le dit. Sans la deuxieme, un widget qui
+				//    bougerait son point sans prevenir personne passerait : ce serait un
+				//    reglage que l'utilisateur croit avoir fait.
+				Check(h.pts[1].y > avant + 30.f,
+					  "(b17) LE POINT A ETE TIRE — sa valeur a monte de plus de 30");
+				Check(h.notifications > 0u, "(b17) ET L'HOTE L'A APPRIS — `CourbeModifiee` appelee");
+				Check(deplacesVus > 0u, "(b17) et le rapport le dit");
+				CheckEqF(h.pts[1].y, 180.f, 6.f,
+						 "(b17) la valeur suit la SOURIS, pas un pas arbitraire");
+				// Les voisins n'ont pas bouge : un geste qui deplacerait toute la courbe
+				// passerait les criteres ci-dessus.
+				CheckEqF(h.pts[0].y, 20.f, 0.5f, "(b17) le point 0 n'a PAS bouge");
+				CheckEqF(h.pts[2].y, 60.f, 0.5f, "(b17) ni le point 2");
+				s.Png("b17_courbe_tiree.png");
+			}
+			s.exe.Debrancher(s.ctx);
+		}
+	}
+
+	// =====================================================================
+	printf("\n-- (b18) P27 : UN document, TROIS plateformes — et l'apercu depuis le PC\n");
+	// =====================================================================
+	// Rodolf, 27/09 : « le systeme doit pouvoir avoir des design specifiques par
+	// plateforme — web, mobile et PC, vu que Nkentseu est multiplateforme […] et comme
+	// en plus le responsive est defini, ca pourrait encore apporter plus. »
+	//
+	// ⚠️ LA SELECTION EST A L'EXECUTION, PAS A LA COMPILATION, ET CE CAS EST CE QUI LE
+	//    PROUVE : il monte le design MOBILE alors qu'il tourne sur un PC. Une
+	//    compilation conditionnelle aurait rendu cette mesure impossible — et, plus
+	//    grave, aurait empeche NKUIDesign de MONTRER le design mobile sans recompiler.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"racine\" {\n"
+			"    VBox \"pile\" {\n"
+			"      Panel \"commun\" { size = (200, 30)\n"
+			"        appearance { fill { color = #1A7F37 } }\n"
+			"      }\n"
+			"      Panel \"colonne_pc\" { platform = Bureau, size = (200, 30)\n"
+			"        appearance { fill { color = #8250DF } }\n"
+			"      }\n"
+			"      Panel \"barre_tel\" { platform = Mobile, size = (200, 30)\n"
+			"        appearance { fill { color = #CF222E } }\n"
+			"      }\n"
+			"      Panel \"ecran_tactile\" { platform = [Mobile, Web], size = (200, 30)\n"
+			"        appearance { fill { color = #0969DA } }\n"
+			"      }\n"
+			"      Panel \"faute\" { platform = Mobil, size = (200, 30)\n"
+			"        appearance { fill { color = #E0B05A } }\n"
+			"      }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		const uint32 kCommun = 0x1A7F37FFu, kPC = 0x8250DFFFu, kTel = 0xCF222EFFu,
+					 kTactile = 0x0969DAFFu, kFaute = 0xE0B05AFFu;
+
+		struct Attendu {
+				NkGuiCible cible;
+				const char *nom;
+				bool pc, tel, tactile;
+		};
+		// Le meme document, lu par trois cibles. Ce que chacune doit voir est ecrit
+		// AVANT la mesure — un attendu calcule apres coup n'est pas un attendu.
+		const Attendu kCas[] = {
+			{NkGuiCible::Bureau, "Bureau", true, false, false},
+			{NkGuiCible::Mobile, "Mobile", false, true, true},
+			{NkGuiCible::Web, "Web", false, false, true},
+		};
+
+		for (uint32 c = 0; c < 3u; ++c) {
+			NkGuiPoserCible(kCas[c].cible);
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
+				  "(b18) le document multiplateforme se charge");
+			s.Image();
+			s.Image();
+			const uint32 nCommun = ComptePixelsCouleur(s.ras, kCommun);
+			const uint32 nPC = ComptePixelsCouleur(s.ras, kPC);
+			const uint32 nTel = ComptePixelsCouleur(s.ras, kTel);
+			const uint32 nTactile = ComptePixelsCouleur(s.ras, kTactile);
+			const uint32 nFaute = ComptePixelsCouleur(s.ras, kFaute);
+			printf("        [%-7s] commun=%u pc=%u tel=%u tactile=%u faute=%u | ecartes=%u "
+				   "inconnues=%u\n",
+				   kCas[c].nom, nCommun, nPC, nTel, nTactile, nFaute,
+				   s.rap.ecartesParPlateforme, s.rap.ciblesInconnues);
+			// Le panneau sans `platform` est la sur les trois : c'est le defaut, et sans
+			// lui on ne saurait pas distinguer « ecarte » de « jamais monte ».
+			Check(nCommun > 3000u, "(b18) le panneau SANS `platform` est la");
+			Check((nPC > 3000u) == kCas[c].pc, "(b18) la colonne PC n'est la QUE sur Bureau");
+			Check((nTel > 3000u) == kCas[c].tel, "(b18) la barre mobile QUE sur Mobile");
+			// ⚠️ LA LISTE EST LE CAS QUI SEPARE UN ATTRIBUT D'UN QUALIFICATEUR. Un
+			//    `Panel(Mobile)` n'aurait pu nommer qu'UNE cible ; `platform =
+			//    [Mobile, Web]` en nomme deux, et c'est ce que « web ET mobile » demande.
+			Check((nTactile > 3000u) == kCas[c].tactile,
+				  "(b18) l'ecran tactile sur Mobile ET Web — la LISTE est lue");
+			// 🔴 LA FAUTE DE FRAPPE NE FAIT PAS DISPARAITRE UN PANNEAU. `platform =
+			//    Mobil` est monte PARTOUT et COMPTE : ecarter sur une faute aurait donne
+			//    un document juste qui perd un panneau sans qu'aucun chiffre ne le dise.
+			Check(nFaute > 3000u,
+				  "(b18) `platform = Mobil` (faute) est MONTE — on n'ecarte pas sur une faute");
+			CheckEqU(s.rap.ciblesInconnues, 1u, "(b18) et la faute est COMPTEE, pas avalee");
+			// Le compte des ecartes se derive de l'attendu, pas releve puis recopie.
+			const uint32 attendus = (kCas[c].pc ? 0u : 1u) + (kCas[c].tel ? 0u : 1u)
+									+ (kCas[c].tactile ? 0u : 1u);
+			CheckEqU(s.rap.ecartesParPlateforme, attendus,
+					 "(b18) LE COMPTE DES ECARTES est celui qu'on a calcule d'avance");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── LE PIRE DES SILENCES : un document juste qui n'affiche rien ─────
+		{
+			static const char kVide[] =
+				"nkgui 0.3\n"
+				"widgets {\n"
+				"  Window \"racine\" {\n"
+				"    Panel \"tout_mobile\" { platform = Mobile, size = (200, 30)\n"
+				"      appearance { fill { color = #CF222E } }\n"
+				"    }\n"
+				"  }\n"
+				"}\n";
+			NkGuiPoserCible(NkGuiCible::Bureau);
+			Scene s;
+			Check(s.Charger(kVide, (uint32)(sizeof(kVide) - 1u), 320, 120),
+				  "(b18) [vide] le document se charge");
+			s.Image();
+			printf("        [vide sur Bureau] refus = %u, ecartes = %u, montes = %u\n",
+				   s.rap.rolesInconnus, s.rap.ecartesParPlateforme, s.rap.montes);
+			// ⚠️ C'EST LE CAS QUI JUSTIFIE LE COMPTEUR. Rien n'est invalide : le
+			//    document est juste, il ne s'affiche simplement pas sur cette cible.
+			//    Aucun message d'erreur n'existera jamais pour ca. Sans
+			//    `ecartesParPlateforme` au verdict, « mon interface a disparu » se
+			//    cherche a la main.
+			CheckEqU(s.rap.rolesInconnus, 0u, "(b18) [vide] AUCUNE erreur — le document est juste");
+			CheckEqU(s.rap.ecartesParPlateforme, 1u,
+					 "(b18) ET POURTANT le panneau a disparu — seul ce compteur le dit");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── LES DISPOSITIONS PAR CIBLE : la colonne devient une barre ───────
+		{
+			static const char kDock[] =
+				"nkgui 0.3\n"
+				"widgets {\n"
+				"  DockSpace \"espace\" {\n"
+				"    Host \"outils\" {}\n"
+				"    Host \"scene\" {}\n"
+				"  }\n"
+				"}\n"
+				"layout \"defaut\" {\n"
+				"  dock \"outils\" left 0.25\n"
+				"  dock \"scene\" center\n"
+				"}\n"
+				"layout \"defaut\" {\n"
+				"  platform = Mobile\n"
+				"  dock \"outils\" bottom 0.2\n"
+				"  dock \"scene\" center\n"
+				"}\n";
+			NkRect rOutils[2];
+			const NkGuiCible cibles[2] = {NkGuiCible::Bureau, NkGuiCible::Mobile};
+			const char *noms[2] = {"Bureau", "Mobile"};
+			bool lus = true;
+			for (uint32 k = 0; k < 2u; ++k) {
+				NkGuiPoserCible(cibles[k]);
+				Scene s;
+				Check(s.Charger(kDock, (uint32)(sizeof(kDock) - 1u), 400, 300),
+					  "(b18) [dock] le document a DEUX dispositions se charge");
+				s.Image();
+				if (!s.RectTout("outils", rOutils[k]))
+					lus = false;
+				printf("        [dock %-7s] dispositions = %u, propre = %s, outils = "
+					   "(%.0f, %.0f, %.0f x %.0f)\n",
+					   noms[k], s.etat.rapportDispositions.dispositions,
+					   s.etat.rapportDispositions.Propre() ? "oui" : "NON", rOutils[k].x,
+					   rOutils[k].y, rOutils[k].w, rOutils[k].h);
+				// 🔴 CE CRITERE A UNE RAISON PRECISE D'EXISTER. La ligne
+				//    `platform = Mobile` vit dans le MEME tableau que les lignes `dock`,
+				//    en tranche brute : si le lecteur ne l'attrapait pas, elle tomberait
+				//    dans l'analyseur de `dock` et la disposition serait declaree NON
+				//    PROPRE pour avoir declare correctement sa cible.
+				Check(s.etat.rapportDispositions.Propre(),
+					  "(b18) [dock] les deux dispositions sont PROPRES — `platform` n'est pas pris pour un `dock`");
+				CheckEqU(s.etat.rapportDispositions.dispositions, 2u,
+						 "(b18) [dock] les deux `layout` de MEME NOM coexistent");
+				s.exe.Debrancher(s.ctx);
+			}
+			Check(lus, "(b18) [dock] la zone `outils` a un rectangle dans les deux cas");
+			if (lus) {
+				// Sur Bureau : une COLONNE a gauche (haute et etroite, collee au bord).
+				// Sur Mobile : une BARRE en bas (large et basse).
+				// ⚠️ ET C'EST LA FORME QU'ON COMPARE, PAS UNE TAILLE. `sizeRel` sait
+				//    changer une taille ; il ne sait pas deplacer un panneau d'un bord a
+				//    l'autre. C'est precisement ce que la cible apporte en plus du
+				//    responsif, et le critere doit porter sur ca.
+				Check(rOutils[0].h > rOutils[0].w,
+					  "(b18) [Bureau] `outils` est une COLONNE — plus haute que large");
+				Check(rOutils[1].w > rOutils[1].h,
+					  "(b18) [Mobile] c'est une BARRE — plus large que haute");
+				Check(rOutils[1].y > rOutils[0].y,
+					  "(b18) et elle est passee EN BAS — pas seulement redimensionnee");
+			}
+		}
+		// ⚠️ ON REMET LA CIBLE. Elle est globale au processus : la laisser sur `Mobile`
+		//    ferait mentir tous les cas qui suivent, et le defaut `Toutes` est celui
+		//    qui rend la plateforme compilee.
+		NkGuiPoserCible(NkGuiCible::Toutes);
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }

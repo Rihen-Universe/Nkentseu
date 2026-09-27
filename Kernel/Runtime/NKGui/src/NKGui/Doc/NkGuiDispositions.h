@@ -41,6 +41,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
+#include "NKGui/Doc/NkGuiCibles.h" // P27 : la cible d'une disposition
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 
 namespace nkentseu {
@@ -71,6 +72,20 @@ namespace nkentseu {
 		struct NkGuiDisposition {
 				NkString nom;
 				NkVector<NkGuiAmarrage> amarrages;
+				/// P27 — LA CIBLE DE CETTE DISPOSITION (27/09). `Toutes` = elle vaut
+				/// partout, et c'est le défaut.
+				///
+				/// ⚠️ ELLE EST ICI PARCE QUE L'AMARRAGE EST CE QUI CHANGE LE PLUS D'UNE
+				///    PLATEFORME À L'AUTRE. Une colonne d'outils à gauche sur un PC
+				///    devient une barre en bas sur un téléphone : ce n'est pas une
+				///    question de TAILLE — `sizeRel` ne sait pas déplacer un panneau d'un
+				///    bord à l'autre — c'est une question de STRUCTURE. Deux `layout` de
+				///    même nom et de cibles différentes cohabitent donc dans un seul
+				///    document :
+				///
+				///     layout "defaut" {                    dock "outils" left 0.16   }
+				///     layout "defaut" { platform = Mobile  dock "outils" bottom 0.3  }
+				NkGuiCible cible = NkGuiCible::Toutes;
 		};
 
 		/// Ce qu'une lecture a trouvé, et ce qu'elle a REFUSÉ.
