@@ -2001,6 +2001,239 @@ int main(int argc, char **argv) {
 		s.exe.Debrancher(s.ctx);
 	}
 
+	// =====================================================================
+	printf("\n-- (b8) LE BLUEPRINT NODAL : il se COMPILE vers le script\n");
+	// =====================================================================
+	//  Decision de Rodolf (doc 2 §6.2) : « le graphe est COMPILE vers la
+	//  representation intermediaire du script et execute par LE MEME evaluateur.
+	//  *Un Blueprint tourne dans l'application exactement comme le script
+	//  equivalent* — pas d'interpreteur de graphe separe, donc pas de divergence
+	//  possible. »
+	//
+	//  ⚠️ LE CRITERE QUI PORTE CETTE PHRASE EST LE DERNIER DE CE BLOC : le
+	//     graphe et le script equivalent doivent produire le MEME etat. Tout le
+	//     reste ne verifierait que « le graphe fait quelque chose ».
+	//
+	//  Le graphe est celui du §6.5, mot pour mot.
+	{
+		static const char kGraphe[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  TextField \"nom\"        { value = \"\" }\n"
+			"  Text      \"nom_erreur\" { text = \"\" }\n"
+			"}\n"
+			"behavior \"fiche.enregistrer\"(Click) graph {\n"
+			"  node n1 EventClick\n"
+			"  node n2 GetWidgetValue { target = \"nom\", field = text }\n"
+			"  node n3 IsEmpty        { value = n2.value }\n"
+			"  node n4 Branch         { cond = n3.result }\n"
+			"  node n5 SetWidgetProperty { target = \"nom_erreur\", prop = \"text\", value = "
+			"\"Le nom est obligatoire\" }\n"
+			"  node n6 Show           { target = \"nom_erreur\" }\n"
+			"  node n7 Focus          { target = \"nom\" }\n"
+			"  node n8 CallCallback   { name = \"fiche.enregistrer\" }\n"
+			"  node n9 Hide           { target = \"nom_erreur\" }\n"
+			"  wire n1.exec -> n4.exec\n"
+			"  wire n4.true -> n5.exec -> n6.exec -> n7.exec\n"
+			"  wire n4.false -> n8.exec -> n9.exec\n"
+			"}\n";
+		// LE MEME COMPORTEMENT, ECRIT EN SCRIPT. C'est la reference.
+		static const char kScript[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  TextField \"nom\"        { value = \"\" }\n"
+			"  Text      \"nom_erreur\" { text = \"\" }\n"
+			"}\n"
+			"behavior \"fiche.enregistrer\" {\n"
+			"  if empty(\"nom\".text) {\n"
+			"    set \"nom_erreur\".text = \"Le nom est obligatoire\"\n"
+			"    show \"nom_erreur\"\n"
+			"    focus \"nom\"\n"
+			"  } else {\n"
+			"    Callback \"fiche.enregistrer\"()\n"
+			"    hide \"nom_erreur\"\n"
+			"  }\n"
+			"}\n";
+
+		Scene sg;
+		Check(sg.Charger(kGraphe, (uint32)(sizeof(kGraphe) - 1u), 320, 200),
+			  "(b8) le document a graphe se charge");
+		Recepteur recG;
+		sg.exe.eval.rappel = &SurCallback;
+		sg.exe.eval.rappelUser = &recG;
+		sg.Image();
+		sg.Image();
+
+		const NkGuiRapportGraphe &rg = sg.exe.eval.rapport.graphe;
+		printf("        graphes=%u noeuds=%u fils=%u compiles=%u refuses=%u\n", rg.graphes,
+			   rg.noeuds, rg.fils, rg.compiles, rg.refuses);
+		for (uint32 k = 0; k < (uint32)rg.causes.Size(); ++k)
+			printf("        cause : %s\n", rg.causes[k].CStr());
+		CheckEqU(rg.graphes, 1u, "(b8) le graphe est VU — il arrivait en tranche brute");
+		CheckEqU(rg.noeuds, 9u, "(b8) ses NEUF noeuds sont lus");
+		// `wire a -> b -> c` est une CHAINE de N references : N-1 liens.
+		// Les trois lignes donnent 1 + 3 + 2 = SIX.
+		// ⚠️ MON PREMIER ATTENDU DISAIT CINQ, et le commentaire juste au-dessus
+		//    ecrivait deja « 1 + 3 + 2 = 6 ». L'arithmetique etait sous mes yeux ;
+		//    c'est le banc qui l'a lue, pas moi.
+		CheckEqU(rg.fils, 6u, "(b8) et ses SIX fils (une chaine de N donne N-1 liens)");
+		CheckEqU(rg.refuses, 0u, "(b8) il COMPILE");
+		CheckEqU(rg.compiles, 1u, "(b8) et il est compile UNE fois");
+		CheckEqU(sg.exe.eval.rapport.grapheIgnore, 0u,
+				 "(b8) il n'est plus IGNORE — c'etait l'etat d'avant");
+
+		Scene ss;
+		Check(ss.Charger(kScript, (uint32)(sizeof(kScript) - 1u), 320, 200),
+			  "(b8) le document en script se charge");
+		Recepteur recS;
+		ss.exe.eval.rappel = &SurCallback;
+		ss.exe.eval.rappelUser = &recS;
+		ss.Image();
+		ss.Image();
+
+		// ── L'EQUIVALENCE, ETAT PAR ETAT ────────────────────────────────
+		struct Etat {
+				bool trouve = false;
+				bool visible = false;
+				NkString texte;
+		};
+		auto lire = [](Scene &s, const char *id) {
+			Etat e;
+			const NkGuiInfoWidget *i = s.exe.infos.Trouver(NkStringView(id));
+			if (!i)
+				return e;
+			NkGuiMonteEtat::Entree *en =
+				s.etat.Get(NkStringView(i->cle.Data(), (usize)i->cle.Size()));
+			if (!en)
+				return e;
+			e.trouve = true;
+			e.visible = en->visible;
+			e.texte = NkString(en->texte);
+			return e;
+		};
+		const Etat gErr = lire(sg, "nom_erreur");
+		const Etat sErr = lire(ss, "nom_erreur");
+		printf("        graphe : visible=%d texte=\"%s\"\n", (int)gErr.visible, gErr.texte.CStr());
+		printf("        script : visible=%d texte=\"%s\"\n", (int)sErr.visible, sErr.texte.CStr());
+		Check(gErr.trouve && sErr.trouve, "(b8) les deux documents ont leur widget");
+		// ⚠️ D'ABORD L'EFFET, ENSUITE L'EGALITE. Deux etats identiques mais VIDES
+		//    passeraient une egalite nue : le champ est vide, donc la branche
+		//    VRAIE doit avoir ecrit le message et l'avoir montre.
+		Check(gErr.visible, "(b8) le graphe a pris la branche VRAIE : le message est visible");
+		Check(gErr.texte.Size() > 0u, "(b8) et son texte a ete ecrit");
+		Check(gErr.visible == sErr.visible && gErr.texte.Compare(sErr.texte) == 0,
+			  "(b8) GRAPHE ET SCRIPT DONNENT LE MEME ETAT — un seul moteur, une seule verite");
+		CheckEqU(recG.appels, recS.appels, "(b8) et le meme nombre d'appels a l'application");
+
+		// ── L'AUTRE BRANCHE, SUR LES DEUX ECRITURES ─────────────────────
+		//  ⚠️ SANS ELLE, L'EQUIVALENCE NE PORTE QUE SUR UN CHEMIN. Les deux
+		//     documents prennent la branche VRAIE parce que le champ est vide :
+		//     un compilateur qui ne saurait traduire QUE cette branche passerait
+		//     tous les criteres ci-dessus. On remplit le champ, et on exige que
+		//     les DEUX ecritures basculent ensemble.
+		const uint32 avantG = recG.appels, avantS = recS.appels;
+		for (uint32 k = 0; k < 2u; ++k) {
+			Scene &sc = (k == 0u) ? sg : ss;
+			const NkGuiInfoWidget *i = sc.exe.infos.Trouver(NkStringView("nom"));
+			if (!i)
+				continue;
+			NkGuiMonteEtat::Entree *e =
+				sc.etat.Get(NkStringView(i->cle.Data(), (usize)i->cle.Size()));
+			if (!e)
+				continue;
+			e->texte[0] = 'R';
+			e->texte[1] = '\0';
+			e->initialise = true;
+		}
+		sg.Image();
+		ss.Image();
+		const Etat gErr2 = lire(sg, "nom_erreur");
+		const Etat sErr2 = lire(ss, "nom_erreur");
+		printf("        champ rempli — graphe : visible=%d appels=+%u | script : visible=%d "
+			   "appels=+%u\n",
+			   (int)gErr2.visible, recG.appels - avantG, (int)sErr2.visible,
+			   recS.appels - avantS);
+		Check(!gErr2.visible, "(b8) branche FAUSSE : le graphe a recache le message");
+		Check(recG.appels > avantG, "(b8) et il a APPELE l'application");
+		Check(gErr2.visible == sErr2.visible && (recG.appels - avantG) == (recS.appels - avantS),
+			  "(b8) LES DEUX BRANCHES sont equivalentes, pas seulement la premiere");
+		sg.exe.Debrancher(sg.ctx);
+		ss.exe.Debrancher(ss.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b9) UN GRAPHE QUI NE COMPILE PAS N'EST PAS EXECUTE, ET IL LE DIT\n");
+	// =====================================================================
+	//  §6.2 : « Un graphe qui ne compile pas (fil manquant sur une entree
+	//  obligatoire, cycle de noeuds purs, type incompatible) n'est PAS execute et
+	//  le dit : `E-GRAPHE` + le noeud en cause. »
+	//
+	//  ⚠️ LE REFUS PORTE SUR LE GRAPHE ENTIER, PAS SUR LE NOEUD FAUTIF. Executer
+	//     la moitie d'un comportement donnerait un etat que personne n'a decrit.
+	{
+		struct Cas {
+				const char *nom;
+				const char *doc;
+		};
+		static const Cas kCas[] = {
+			{"un type inconnu",
+			 "nkgui 0.3\n"
+			 "behavior \"x\" graph {\n"
+			 "  node n1 EventClick\n"
+			 "  node n2 NoeudQuiNexistePas { a = 1 }\n"
+			 "  wire n1.exec -> n2.exec\n"
+			 "}\n"},
+			{"une entree ni reliee ni ecrite",
+			 "nkgui 0.3\n"
+			 "behavior \"x\" graph {\n"
+			 "  node n1 EventClick\n"
+			 "  node n2 Show\n"
+			 "  wire n1.exec -> n2.exec\n"
+			 "}\n"},
+			{"un cycle de noeuds purs",
+			 "nkgui 0.3\n"
+			 "behavior \"x\" graph {\n"
+			 "  node n1 EventClick\n"
+			 "  node n2 Not   { a = n3.result }\n"
+			 "  node n3 Not   { a = n2.result }\n"
+			 "  node n4 Branch { cond = n2.result }\n"
+			 "  wire n1.exec -> n4.exec\n"
+			 "  wire n2.result -> n3.a\n"
+			 "  wire n3.result -> n2.a\n"
+			 "}\n"},
+			{"aucun noeud d'evenement",
+			 "nkgui 0.3\n"
+			 "behavior \"x\" graph {\n"
+			 "  node n1 Show { target = \"a\" }\n"
+			 "}\n"},
+			{"deux noeuds d'evenement",
+			 "nkgui 0.3\n"
+			 "behavior \"x\" graph {\n"
+			 "  node n1 EventClick\n"
+			 "  node n2 EventHover\n"
+			 "}\n"},
+		};
+		for (uint32 k = 0; k < (uint32)(sizeof(kCas) / sizeof(Cas)); ++k) {
+			Scene s;
+			const uint32 n = (uint32)__builtin_strlen(kCas[k].doc);
+			if (!s.Charger(kCas[k].doc, n, 200, 120))
+				continue;
+			s.Image();
+			const NkGuiRapportGraphe &r = s.exe.eval.rapport.graphe;
+			char titre[200];
+			Joindre(titre, sizeof(titre), "(b9) REFUSE : ", kCas[k].nom);
+			Check(r.refuses == 1u && r.compiles == 0u, titre);
+			if (r.causes.Size() > 0u)
+				printf("        %s\n", r.causes[0].CStr());
+			else
+				printf("        (aucune cause nommee !)\n");
+			char titre2[200];
+			Joindre(titre2, sizeof(titre2), "(b9) ... et la cause est NOMMEE : ", kCas[k].nom);
+			Check(r.causes.Size() > 0u, titre2);
+			s.exe.Debrancher(s.ctx);
+		}
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }
