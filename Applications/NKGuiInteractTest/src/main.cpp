@@ -2806,6 +2806,124 @@ int main(int argc, char **argv) {
 		s.exe.Debrancher(s.ctx);
 	}
 
+	// =====================================================================
+	printf("\n-- (b15) LE DOCKABLE : la section `layout` PLACE les zones\n");
+	// =====================================================================
+	// Rodolf, 27/09 : « on doit aussi avoir le dockable ».
+	//
+	// 🔴 P10 ETAIT LU PAR PERSONNE. `NkGuiLireDispositions` existait depuis ce matin,
+	//    valide et compte — et son SEUL appelant etait le banc `NKGuiMonteTest`. Le
+	//    monteur ne l'appelait JAMAIS : un document qui ecrivait `dock "outils" left
+	//    0.16` etait analyse puis ignore, et les zones restaient partagees en bandes
+	//    verticales egales. *Un banc qui prouve son propre lecteur ne prouve pas que
+	//    le produit s'en sert*, et je l'avais annonce comme livre.
+	//
+	// ⚠️ LE CRITERE EXIGE LES QUATRE COTES, PAS UN. Une disposition qui ne saurait
+	//    que le `left` rendrait exactement le meme resultat que l'ancien partage
+	//    horizontal sur un document qui n'ecrit qu'un `left`.
+	{
+		// Les zones ne sont servies par personne : chacune se marque de hachures et
+		// ECRIT SON NOM. C'est ce qui les rend reperables sans hote.
+		static const char kZones[] =
+			"  DockSpace \"espace\" {\n"
+			"    Host \"outils\" {}\n"
+			"    Host \"scene\" {}\n"
+			"    Host \"props\" {}\n"
+			"    Host \"barre\" {}\n"
+			"    Host \"journal\" {}\n"
+			"  }\n";
+		char sans[1024], avec[2048];
+		// ⚠️ LES DEUX DOCUMENTS PARTAGENT LEUR SECTION `widgets`, AU CARACTERE. Deux
+		//    arbres ecrits a la main auraient pu differer par autre chose que la
+		//    section `layout`, et la comparaison aurait mesure cette difference-la.
+		snprintf(sans, sizeof(sans), "nkgui 0.3\nwidgets {\n%s}\n", kZones);
+		snprintf(avec, sizeof(avec),
+				 "nkgui 0.3\nwidgets {\n%s}\n"
+				 "layout \"defaut\" {\n"
+				 "  dock \"outils\" left 0.2\n"
+				 "  dock \"props\" right 0.25\n"
+				 "  dock \"barre\" top 0.1\n"
+				 "  dock \"journal\" bottom 0.15\n"
+				 "  dock \"scene\" center\n"
+				 "}\n",
+				 kZones);
+
+		NkRect rSans[5], rAvec[5];
+		const char *noms[5] = {"outils", "scene", "props", "barre", "journal"};
+		uint32 amarreesSans = 0u, amarreesAvec = 0u;
+		bool lusSans = true, lusAvec = true;
+
+		{
+			Scene s;
+			Check(s.Charger(sans, (uint32)__builtin_strlen(sans), 400, 300),
+				  "(b15) [sans layout] le document se charge");
+			s.Image();
+			amarreesSans = s.rap.zonesAmarrees;
+			for (uint32 k = 0; k < 5u; ++k)
+				if (!s.RectTout(noms[k], rSans[k]))
+					lusSans = false;
+			s.exe.Debrancher(s.ctx);
+		}
+		{
+			Scene s;
+			Check(s.Charger(avec, (uint32)__builtin_strlen(avec), 400, 300),
+				  "(b15) [avec layout] le document se charge");
+			s.Image();
+			amarreesAvec = s.rap.zonesAmarrees;
+			printf("        dispositions lues = %u, amarrages = %u, zonesAmarrees = %u\n",
+				   s.etat.rapportDispositions.dispositions,
+				   s.etat.rapportDispositions.amarrages, amarreesAvec);
+			Check(s.etat.rapportDispositions.Propre(),
+				  "(b15) la disposition est PROPRE — aucun cote inconnu, aucune fraction hors bornes");
+			for (uint32 k = 0; k < 5u; ++k)
+				if (!s.RectTout(noms[k], rAvec[k]))
+					lusAvec = false;
+			s.Png("b15_dock.png");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		Check(lusSans && lusAvec, "(b15) les cinq zones ont un rectangle dans les deux cas");
+		// Le negatif : sans section `layout`, RIEN n'est amarre — c'est l'etat d'avant,
+		// et c'est ce qui prouve que le chemin d'hier n'a pas bouge.
+		CheckEqU(amarreesSans, 0u, "(b15) [sans layout] AUCUNE zone amarree — chemin d'hier intact");
+		CheckEqU(amarreesAvec, 4u, "(b15) [avec layout] les QUATRE cotes sont amarres");
+
+		if (lusSans && lusAvec) {
+			for (uint32 k = 0; k < 5u; ++k)
+				printf("        %-8s sans (%.0f, %.0f, %.0f x %.0f)  avec (%.0f, %.0f, %.0f x %.0f)\n",
+					   noms[k], rSans[k].x, rSans[k].y, rSans[k].w, rSans[k].h, rAvec[k].x,
+					   rAvec[k].y, rAvec[k].w, rAvec[k].h);
+			// Sans disposition : cinq bandes verticales de meme hauteur. C'est le
+			// partage d'hier, et il doit rester exactement celui-la.
+			bool bandes = true;
+			for (uint32 k = 0; k < 5u; ++k)
+				if (rSans[k].h != rSans[0].h)
+					bandes = false;
+			Check(bandes, "(b15) [sans layout] cinq bandes de MEME hauteur — le partage horizontal");
+
+			// Avec disposition, chaque cote a sa place. Les fractions se rapportent a la
+			// zone entiere (400 x 300) : outils 80 de large, props 100, barre 30 de haut,
+			// journal 45.
+			CheckEqF(rAvec[0].w, 80.f, 1.5f, "(b15) `outils` fait 20 % de la LARGEUR");
+			CheckEqF(rAvec[2].w, 100.f, 1.5f, "(b15) `props` fait 25 % de la largeur");
+			CheckEqF(rAvec[3].h, 30.f, 1.5f, "(b15) `barre` fait 10 % de la HAUTEUR");
+			CheckEqF(rAvec[4].h, 45.f, 1.5f, "(b15) `journal` fait 15 % de la hauteur");
+			// ⚠️ ET LES COTES, PAS SEULEMENT LES TAILLES. Quatre largeurs justes
+			//    n'excluent pas que `props` soit a gauche : il faut dire OU.
+			Check(rAvec[0].x < rAvec[1].x, "(b15) `outils` est A GAUCHE de la scene");
+			Check(rAvec[2].x > rAvec[1].x, "(b15) `props` est A DROITE de la scene");
+			Check(rAvec[3].y < rAvec[1].y, "(b15) `barre` est AU-DESSUS de la scene");
+			Check(rAvec[4].y > rAvec[1].y, "(b15) `journal` est AU-DESSOUS de la scene");
+			// Le centre prend ce qui reste, et il ne reste AUCUN trou : c'est la regle
+			// que ce `case` s'etait donnee le 17/09 (« un dock qui laisse un trou n'est
+			// pas un dock »), et elle doit tenir par ce chemin-ci aussi.
+			CheckEqF(rAvec[1].x + rAvec[1].w, rAvec[2].x, 1.5f,
+					 "(b15) la scene touche `props` — aucune bande orpheline a droite");
+			CheckEqF(rAvec[1].y + rAvec[1].h, rAvec[4].y, 1.5f,
+					 "(b15) et elle touche `journal` — aucune bande orpheline en bas");
+		}
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }
