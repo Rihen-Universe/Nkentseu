@@ -399,6 +399,35 @@ struct Scene {
 			++images;
 		}
 
+		/// Une image qui ne monte QU'UNE racine nommee du document.
+		///
+		/// ⚠️ ELLE RECOPIE `Image()` AU LIEU DE L'APPELER, ET C'EST LE SEUL ENDROIT
+		///    OU CE BANC LE FAIT. La difference tient a UNE ligne — quel `Monter` on
+		///    appelle — et tout le reste (les compteurs remis a zero, la region, les
+		///    deux couches rasterisees) doit rester identique, sinon la comparaison
+		///    entre « tout monte » et « une racine montee » mesurerait autre chose que
+		///    la racine. Un parametre de plus sur `Image()` aurait ete plus propre ;
+		///    il aurait aussi donne a tous les appels existants une branche qu'ils ne
+		///    prennent jamais. **Condition de retrait :** si un troisieme mode
+		///    apparait, les trois fusionnent.
+		void ImageRacine(const char *racine, bool &trouveeOut) {
+			rap = NkGuiMonteRapport();
+			exe.ReinitialiserCompteurs();
+			const NkRect region{0.f, 0.f, (float32)ctx.viewW, (float32)ctx.viewH};
+			ctx.BeginFrame(0.016f);
+			ctx.BeginLayout(region);
+			ctx.DL().Reset();
+			trouveeOut = NkGuiMonteur::Monter(ctx, doc, racine, etat, rap, &exe);
+			exe.ExecuterComportements(doc);
+			ctx.EndFrame();
+			ras.Effacer(kFond);
+			if (g_fontOk && g_font.pixels)
+				ras.PoserTexture(g_font.TexId(), g_font.pixels, g_font.atlasW, g_font.atlasH, 1);
+			(void)ras.Rasteriser(ctx.dl);
+			(void)ras.Rasteriser(ctx.dlOverlay);
+			++images;
+		}
+
 		/// Pose le pointeur PUIS rend deux images : la premiere resout `hotId`, la
 		/// seconde le LIT (`hotIdPrev`). Voir l'avertissement en tete de fichier.
 		void PoserEtStabiliser(float32 x, float32 y) {
@@ -470,7 +499,1180 @@ static uint32 Empaquete(const NkColor &c) {
 }
 
 // =============================================================================
+// =============================================================================
+//  (b19) LE MONTAGE PAR RACINE NOMMEE — dans SA fonction, et voici pourquoi
+// =============================================================================
+// 🔴 LE BANC A DEBORDE LA PILE EN AJOUTANT CE CAS : `0xC00000FD`, code de
+//    sortie -1073741571, et AUCUNE ligne imprimee — pas meme la premiere. Ce
+//    n'etait pas une recursion : `main()` portait dix-neuf cas, chacun avec ses
+//    objets `Scene` en variables locales, et en Debug le compilateur ne reutilise
+//    pas les emplacements des portees imbriquees. Le cadre de `main` depassait
+//    simplement la pile.
+//
+// ⚠️ ET LE SYMPTOME ACCUSAIT LE MAUVAIS COUPABLE. Un binaire neuf qui ne dit RIEN
+//    et rend 127 sous git-bash ressemble a une DLL manquante ; c'est PowerShell qui
+//    a rendu le vrai code. *Un code de sortie traduit par un shell n'est pas le code
+//    de sortie.*
+//
+//    D'ou cette fonction : un cas de banc qui grandit se sort de `main`, et le
+//    prochain fera de meme. Aucun critere n'a change.
+static void CasRacineNommee() {
+// =====================================================================
+printf("\n-- (b19) `Monter(ctx, doc, \"racine\")` — UN document, PLUSIEURS regions\n");
+// =====================================================================
+// 🔴 LE MANQUE QUE TROIS APPLICATIONS PAYAIENT. `Monter` montait TOUTES les
+//    sections `widgets` au curseur courant, et `MonterCorps` est privee : une
+//    coquille qui pose sa barre de menu, sa barre d'outils et sa barre d'etat a
+//    trois instants ne pouvait pas les servir depuis un seul fichier. Le prix se
+//    comptait en fichiers — NkAntenne : 25 documents la ou 5 auraient suffi.
+//
+// ⚠️ LE CRITERE N'EST PAS « CA MONTE », C'EST « CA NE MONTE QUE CA ». Un
+//    montage par racine qui monterait tout rendrait exactement les memes
+//    compteurs qu'avant sur un document a une seule section : il faut un
+//    document a TROIS racines et exiger que les deux autres restent absentes.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets \"barre_menu\" {\n"
+		"  Panel \"p.menu\" { size = (200, 24)\n"
+		"    appearance { fill { color = #1A7F37 } }\n"
+		"  }\n"
+		"}\n"
+		"widgets \"barre_etat\" {\n"
+		"  Panel \"p.etat\" { size = (200, 24)\n"
+		"    appearance { fill { color = #8250DF } }\n"
+		"  }\n"
+		"}\n"
+		"widgets \"corps\" {\n"
+		"  Panel \"p.corps\" { size = (200, 24)\n"
+		"    appearance { fill { color = #CF222E } }\n"
+		"  }\n"
+		"}\n";
+	const uint32 kVert = 0x1A7F37FFu, kViolet = 0x8250DFFFu, kRouge = 0xCF222EFFu;
+
+	// ── LE MONTAGE ENTIER : les trois sont la ───────────────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b19) le document a trois racines se charge");
+		s.Image();
+		printf("        [tout] vert=%u violet=%u rouge=%u, sections=%u\n",
+			   ComptePixelsCouleur(s.ras, kVert), ComptePixelsCouleur(s.ras, kViolet),
+			   ComptePixelsCouleur(s.ras, kRouge), s.rap.sections);
+		// La reference : `Monter` sans racine monte TOUT. Sans elle, « une seule
+		// racine est montee » pourrait vouloir dire « le document n'en a qu'une ».
+		Check(ComptePixelsCouleur(s.ras, kVert) > 3000u
+				  && ComptePixelsCouleur(s.ras, kViolet) > 3000u
+				  && ComptePixelsCouleur(s.ras, kRouge) > 3000u,
+			  "(b19) [tout] les TROIS racines sont montees — c'est le comportement d'hier");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── UNE RACINE NOMMEE : elle seule ──────────────────────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b19) [racine] le document se charge");
+		bool trouvee = false;
+		s.ImageRacine("barre_etat", trouvee);
+		const uint32 v = ComptePixelsCouleur(s.ras, kVert);
+		const uint32 x = ComptePixelsCouleur(s.ras, kViolet);
+		const uint32 r = ComptePixelsCouleur(s.ras, kRouge);
+		printf("        [\"barre_etat\"] vert=%u violet=%u rouge=%u, montees=%u, "
+			   "introuvables=%u\n",
+			   v, x, r, s.rap.racinesMontees, s.rap.racinesIntrouvables);
+		Check(trouvee, "(b19) la racine nommee est TROUVEE");
+		CheckEqU(s.rap.racinesMontees, 1u, "(b19) une racine montee");
+		CheckEqU(s.rap.racinesIntrouvables, 0u, "(b19) aucune introuvable");
+		Check(x > 3000u, "(b19) LA RACINE DEMANDEE EST LA");
+		// 🔴 LES DEUX MOITIES. « Elle est la » sans « les autres n'y sont pas »
+		//    serait vert sur un montage qui monte tout.
+		CheckEqU(v, 0u, "(b19) ET LA RACINE D'AVANT N'Y EST PAS");
+		CheckEqU(r, 0u, "(b19) ni celle d'apres — on ne monte QUE ce qui est nomme");
+		s.Png("b19_racine_nommee.png");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── UN WIDGET DE PREMIER NIVEAU, par son identifiant ────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b19) [widget] le document se charge");
+		bool trouvee = false;
+		s.ImageRacine("p.corps", trouvee);
+		printf("        [\"p.corps\"] rouge=%u, montees=%u\n",
+			   ComptePixelsCouleur(s.ras, kRouge), s.rap.racinesMontees);
+		Check(trouvee, "(b19) un WIDGET de premier niveau sert aussi de racine");
+		Check(ComptePixelsCouleur(s.ras, kRouge) > 3000u, "(b19) et il est monte");
+		CheckEqU(ComptePixelsCouleur(s.ras, kVert), 0u, "(b19) lui SEUL");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── LE NEGATIF : une racine qui n'existe pas ────────────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b19) [faute] le document se charge");
+		bool trouvee = true;
+		s.ImageRacine("barre_etatt", trouvee); // la faute de frappe la plus probable
+		printf("        [faute] montees=%u, introuvables=%u (« %s »), peints=%u\n",
+			   s.rap.racinesMontees, s.rap.racinesIntrouvables,
+			   s.rap.derniereRacineIntrouvable.CStr(), ComptePixelsPeints(s.ras, kFond));
+		Check(!trouvee, "(b19) [faute] elle rend FAUX");
+		CheckEqU(s.rap.racinesMontees, 0u, "(b19) [faute] rien n'est monte");
+		CheckEqU(s.rap.racinesIntrouvables, 1u, "(b19) [faute] et c'est COMPTE");
+		// 🔴 LE CHIFFRE NE SUFFIT PAS. Un appelant qui ignore le retour monterait
+		//    une region vide sans erreur ; le NOM demande est ce qui transforme
+		//    « il manque quelque chose » en « tu as ecrit barre_etatt ».
+		Check(s.rap.derniereRacineIntrouvable.Compare(NkString("barre_etatt")) == 0,
+			  "(b19) ET LE NOM DEMANDE EST GARDE — sans lui, la faute se cherche a la main");
+		s.exe.Debrancher(s.ctx);
+	}
+}
+
+}
+
+// =============================================================================
+//  LES CAS RECENTS, CHACUN DANS SA FONCTION — et ce n'est pas du rangement
+// =============================================================================
+// 🔴 LE BANC A DEBORDE LA PILE. `sizeof(Scene)` vaut 37 064 octets, et `main`
+//    en portait plus de vingt-cinq en variables locales : en Debug le compilateur
+//    ne reutilise pas les emplacements des portees imbriquees, donc le cadre
+//    cumulait ~900 Ko et le processus mourait sur `0xC00000FD` pendant (b18).
+//
+// ⚠️ ET LE SYMPTOME ACCUSAIT LE MAUVAIS COUPABLE, DEUX FOIS. Sous git-bash le
+//    code rendu est 127 — celui d'une commande introuvable, donc on cherche une
+//    DLL manquante ; c'est PowerShell qui a rendu `-1073741571`. Puis la sortie
+//    redirigee, mise en tampon par blocs, s'est perdue a l'abandon : « aucune
+//    ligne imprimee » m'a fait conclure au PROLOGUE de `main`, alors que le banc
+//    tournait jusqu'a (b18). *Un code de sortie traduit par un shell n'est pas le
+//    code de sortie, et une sortie tamponnee perdue n'est pas une sortie absente.*
+//
+//    Le chiffre qui a tranche est `sizeof(Scene)`, imprime en premiere ligne.
+//    Chaque cas neuf se sort desormais de `main`.
+// =============================================================================
+static void CasConteneursFreres() {
+// =====================================================================
+printf("\n-- (b12) DEUX CONTENEURS FRERES NE SE SUPERPOSENT PLUS — `size` en flux\n");
+// =====================================================================
+// 🔴 LE DEFAUT QUE RODOLF A DEMANDE DE CORRIGER LE 27/09. `NkGuiLirePlacement`
+//    ne rend `pose` que s'il a lu un `pos` ; en flux il n'y en a pas, donc la
+//    branche `pos`+`size` de `RegionCourante` ne pouvait JAMAIS s'executer.
+//    `size` sur un conteneur en flux etait donc lu par PERSONNE, et les deux
+//    `Panel` ci-dessous prenaient tous les deux TOUTE la region : le second
+//    repeignait le premier, exactement.
+//
+// ⚠️ ET LE CRITERE NE PEUT PAS ETRE « L'IMAGE A CHANGE ». Il faut la PRESENCE
+//    de chacune des deux couleurs : c'est la seule chose qu'un recouvrement
+//    total fait tomber a ZERO. Un compteur de pixels peints, lui, rendait le
+//    meme total dans les deux mondes — la region est remplie de toute facon.
+//    C'est la troisieme fois en deux jours qu'un total masque un remplacement.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Window \"racine\" {\n"
+		"    VBox \"pile\" {\n"
+		"      Panel \"haut\" {\n"
+		"        size = (180, 50)\n"
+		"        appearance { fill { color = #1A7F37 } }\n"
+		"      }\n"
+		"      Panel \"bas\" {\n"
+		"        size = (180, 50)\n"
+		"        appearance { fill { color = #8250DF } }\n"
+		"      }\n"
+		"    }\n"
+		"  }\n"
+		"}\n";
+	const uint32 vert = 0x1A7F37FFu;	// le Panel du HAUT
+	const uint32 violet = 0x8250DFFFu;	// le Panel du BAS
+
+	// ── LE NEGATIF D'ABORD : la mutation remet le defaut ────────────────
+	// ⚠️ ON LE MESURE AVANT LE CORRECTIF, ET DANS LE MEME PROCESSUS. Un negatif
+	//    qu'on garde « pour plus tard » ne se fait jamais ; et la mutation n'est
+	//    pas mise en cache precisement pour que les deux mondes tiennent dans
+	//    une seule execution, donc comparables pixel a pixel.
+	NkDefinirVariable("NK_TAILLE_MUTATION", "flux");
+	uint32 vMute = 0u, xMute = 0u, tailleFluxMute = 0u;
+	{
+		Scene sM;
+		Check(sM.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b12) [mute] le document se charge");
+		sM.Image();
+		sM.Image();
+		vMute = ComptePixelsCouleur(sM.ras, vert);
+		xMute = ComptePixelsCouleur(sM.ras, violet);
+		tailleFluxMute = sM.rap.conteneursTailleFlux;
+		printf("        [mute]    vert = %u, violet = %u, tailleFlux = %u\n", vMute, xMute,
+			   tailleFluxMute);
+		sM.Png("b12_mute.png");
+		sM.exe.Debrancher(sM.ctx);
+	}
+	NkDefinirVariable("NK_TAILLE_MUTATION", nullptr);
+
+	// ── LE MONDE CORRIGE ───────────────────────────────────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b12) le document se charge");
+		s.Image();
+		s.Image();
+		const uint32 v = ComptePixelsCouleur(s.ras, vert);
+		const uint32 x = ComptePixelsCouleur(s.ras, violet);
+		printf("        [corrige] vert = %u, violet = %u, tailleFlux = %u, sansTaille = %u\n", v,
+			   x, s.rap.conteneursTailleFlux, s.rap.conteneursSansTaille);
+
+		// Le negatif rougit-il ? Les deux moities, parce qu'un recouvrement a
+		// DEUX signes : la couleur du dessous disparait, ET celle du dessus
+		// deborde de sa taille declaree.
+		CheckEqU(tailleFluxMute, 0u, "(b12) [mute] `size` n'est lu par personne");
+		CheckEqU(vMute, 0u, "(b12) [mute] LE PANNEAU DU HAUT A DISPARU — recouvert");
+		Check(xMute > 30000u,
+			  "(b12) [mute] et celui du bas prend TOUTE la region, pas ses 180x50");
+
+		// Le correctif. 180 x 50 = 9 000 px par panneau ; le seuil laisse la
+		// place aux coins arrondis du theme et au contour, sans laisser passer
+		// un panneau qui deborderait (la region entiere fait 64 000).
+		CheckEqU(s.rap.conteneursTailleFlux, 2u, "(b12) les deux `size` sont LUS");
+		Check(v > 6000u && v < 12000u,
+			  "(b12) LE PANNEAU DU HAUT EST VISIBLE, a sa taille declaree");
+		Check(x > 6000u && x < 12000u,
+			  "(b12) celui du bas aussi — ils ne se recouvrent plus");
+
+		// ⚠️ ET LA PREUVE GEOMETRIQUE, PARCE QUE DEUX COMPTES JUSTES NE DISENT
+		//    PAS « L'UN SOUS L'AUTRE ». Deux panneaux cote a cote, ou decales de
+		//    trois pixels, donneraient exactement les memes deux chiffres.
+		NkRect bH{0.f, 0.f, 0.f, 0.f}, bB{0.f, 0.f, 0.f, 0.f};
+		const bool aH = BoiteCouleur(s.ras, vert, bH);
+		const bool aB = BoiteCouleur(s.ras, violet, bB);
+		Check(aH && aB, "(b12) les deux couleurs ont une boite englobante");
+		if (aH && aB) {
+			printf("        haut = (%.0f, %.0f, %.0f x %.0f), bas = (%.0f, %.0f, %.0f x %.0f)\n",
+				   bH.x, bH.y, bH.w, bH.h, bB.x, bB.y, bB.w, bB.h);
+			Check(bH.y + bH.h <= bB.y + 1.f,
+				  "(b12) LE HAUT EST AU-DESSUS DU BAS — les boites ne se croisent pas");
+			Check(bH.x == bB.x, "(b12) et ils partagent leur bord gauche : c'est bien une pile");
+		}
+
+		// La racine, elle, ne dit pas sa taille : elle prend ce qui reste. Ce
+		// n'est pas un defaut — c'est le sens de « tout le reste » pour le
+		// dernier — mais le rapport doit le NOMMER, sinon un document ambigu
+		// passe sans qu'on puisse le voir.
+		CheckEqU(s.rap.conteneursSansTaille, 1u,
+				 "(b12) le `Window` racine est compte SANS TAILLE, pas oublie");
+		s.Png("b12_corrige.png");
+		s.exe.Debrancher(s.ctx);
+	}
+}
+}
+
+static void CasTableRappels() {
+// =====================================================================
+printf("\n-- (b13) LA TABLE DE RAPPELS — lambda capturante, METHODE, et le silence compte\n");
+// =====================================================================
+// Rodolf, 27/09 : « est-ce que le systeme pour brancher une fonction ou
+// methode ou lambda sur les evenements callback est deja en place ? »
+//
+// La reponse mesuree etait : le FIL oui, le BRANCHEMENT non. `NkGuiCallbackFn`
+// est un pointeur de fonction C nu — une lambda CAPTURANTE ne s'y convertit
+// pas, une METHODE non plus. Ce banc lui-meme ecrivait SIX fois le meme
+// trampoline plus un `this` deguise en `void *`.
+//
+// ⚠️ LE CRITERE NE PEUT PAS ETRE « ca compile ». Une table qui accepte un
+//    appelable et ne l'appelle jamais compile parfaitement. Ce qui est exige
+//    ici, c'est que la CAPTURE ait ete vue (un compteur exterieur a la lambda
+//    a bouge) et que l'objet ait recu l'appel SUR LUI (son propre champ a
+//    change, pas une variable globale).
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Button \"ok\" { label = \"Valider\" }\n"
+		"}\n"
+		"behavior \"b\" {\n"
+		"  Callback \"sauver\"(7)\n"
+		"  Callback \"ouvrir\"(\"scene.nk\")\n"
+		"  Callback \"personne\"()\n"
+		"}\n";
+	Scene s;
+	Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
+		  "(b13) le document a trois `Callback` se charge");
+
+	// Un objet, pour prouver la METHODE. Il compte sur LUI-MEME : une variable
+	// globale ne dirait pas que l'instance a bien ete retrouvee.
+	struct Panneau {
+			uint32 recus = 0u;
+			NkString dernier;
+			void SurOuvrir(const NkGuiAppelCallback &a) {
+				++recus;
+				// ⚠️ UNE CHAINE CITEE ARRIVE EN `Jeton`, PAS EN « TEXTE ».
+				//    `NkGuiValeur` n'a que trois types (Nombre, Booleen, Jeton)
+				//    et le texte d'un `Callback "x"("scene.nk")` vit dans
+				//    `.jeton` — c'est ce que (b2) lisait deja. Ecrire `.texte`
+				//    ne compilait pas, et c'est tant mieux : un champ qui aurait
+				//    existe et rendu du vide aurait fait un critere vert sur un
+				//    argument perdu.
+				if (a.nbArgs > 0u && a.args[0].type == NkGuiValeur::Type::Jeton)
+					dernier = a.args[0].jeton;
+			}
+	};
+	Panneau panneau;
+
+	// Une capture par reference : c'est precisement ce que le pointeur de
+	// fonction nu ne savait pas porter.
+	uint32 sauves = 0u;
+	float32 argVu = -1.f;
+
+	NkGuiRappels rappels;
+	Check(rappels.Brancher(NkStringView("sauver"),
+						   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &a) {
+							   ++sauves;
+							   if (a.nbArgs > 0u)
+								   argVu = a.args[0].nombre;
+						   })),
+		  "(b13) une LAMBDA CAPTURANTE se branche");
+	Check(rappels.Brancher(NkStringView("ouvrir"),
+						   NkGuiRappels::Rappel(&panneau, &Panneau::SurOuvrir)),
+		  "(b13) une METHODE se branche, sur SON instance");
+	CheckEqU(rappels.Nombre(), 2u, "(b13) la table porte deux noms");
+	CheckEqU(rappels.branches, 2u, "(b13) deux branchements NEUFS");
+	CheckEqU(rappels.remplaces, 0u, "(b13) aucun remplacement");
+	Check(rappels.EstBranche(NkStringView("sauver")), "(b13) `sauver` est branche");
+	Check(!rappels.EstBranche(NkStringView("personne")),
+		  "(b13) `personne` ne l'est pas — c'est le negatif de la mesure d'apres");
+
+	// Une seule ligne au lieu des deux que ce banc ecrit six fois ailleurs.
+	rappels.BrancherSur(s.exe.eval);
+	s.Image();
+
+	printf("        servis = %u, sansDestinataire = %u (« %s »), sauves = %u, arg = %.1f\n",
+		   rappels.servis, rappels.sansDestinataire,
+		   rappels.dernierSansDestinataire.CStr(), sauves, argVu);
+
+	CheckEqU(rappels.servis, 2u, "(b13) DEUX appels ont atteint un destinataire");
+	// ⚠️ ET LA CAPTURE, PAS SEULEMENT L'APPEL. `servis` monterait aussi si la
+	//    table appelait un appelable VIDE : c'est le compteur exterieur a la
+	//    lambda qui prouve que la fermeture a ete portee jusqu'au bout.
+	CheckEqU(sauves, 1u, "(b13) LA CAPTURE A ETE VUE — le compteur du dehors a bouge");
+	CheckEqF(argVu, 7.f, 0.001f, "(b13) et l'argument du document est arrive");
+	CheckEqU(panneau.recus, 1u, "(b13) L'OBJET a recu l'appel sur LUI");
+	Check(panneau.dernier.Compare(NkString("scene.nk")) == 0,
+		  "(b13) avec son argument texte");
+
+	// 🔴 LE CHIFFRE POUR LEQUEL CETTE CLASSE EXISTE. `Callback "personne"` n'a
+	//    aucun destinataire : sans ce compteur il disparaitrait sans un mot,
+	//    exactement comme les sept abandons silencieux du 27/09.
+	CheckEqU(rappels.sansDestinataire, 1u,
+			 "(b13) LE NOM SANS DESTINATAIRE EST COMPTE, pas perdu");
+	Check(rappels.dernierSansDestinataire.Compare(NkString("personne")) == 0,
+		  "(b13) ET NOMME — un compteur seul dirait qu'il manque quelque chose sans dire quoi");
+
+	// Re-brancher un nom existant : legitime, et ce n'est PAS un ajout.
+	Check(rappels.Brancher(NkStringView("sauver"),
+						   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &) { ++sauves; })),
+		  "(b13) re-brancher un nom deja la reussit");
+	CheckEqU(rappels.Nombre(), 2u, "(b13) et n'ajoute PAS de ligne");
+	CheckEqU(rappels.remplaces, 1u, "(b13) le remplacement est compte a part de l'ajout");
+
+	Check(rappels.Debrancher(NkStringView("ouvrir")), "(b13) `ouvrir` se debranche");
+	Check(!rappels.Debrancher(NkStringView("ouvrir")),
+		  "(b13) et une seconde fois rend FAUX — « rien a retirer » n'est pas « retire »");
+	rappels.ReinitialiserCompteursAppel();
+	s.Image();
+	CheckEqU(rappels.sansDestinataire, 2u,
+			 "(b13) debranche, `ouvrir` rejoint `personne` dans les sans-destinataire");
+	s.exe.Debrancher(s.ctx);
+}
+}
+
+static void CasQuatreConteneurs() {
+// =====================================================================
+printf("\n-- (b14) VBox, HBox, Group, Stack : `size` les CONFINE aussi\n");
+// =====================================================================
+// Rodolf, 27/09 : « on doit avoir plusieurs conteneur vbox hbox stack et tout
+// ce que tu juge fonctionnel ».
+//
+// ⚠️ CES QUATRE-LA NE PEIGNENT RIEN, DONC ON NE PEUT PAS LES MESURER
+//    DIRECTEMENT. Le critere passe par un `Panel` colore DANS chacun : si le
+//    conteneur s'est confine a la bande que `size` demande, son panneau tombe
+//    dans cette bande ; s'il a pris toute la region, son panneau part d'ailleurs
+//    et les bandes se croisent. Lire les rectangles du RAPPORT aurait mesure ce
+//    que le monteur CROIT avoir fait — ici on mesure ce qui est arrive a l'image.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Window \"racine\" {\n"
+		"    VBox \"pile\" {\n"
+		"      VBox \"ca\" { size = (200, 44)\n"
+		"        Panel \"pa\" { size = (160, 24)\n"
+		"          appearance { fill { color = #1A7F37 } }\n"
+		"        }\n"
+		"      }\n"
+		"      HBox \"cb\" { size = (200, 44)\n"
+		"        Panel \"pb\" { size = (160, 24)\n"
+		"          appearance { fill { color = #8250DF } }\n"
+		"        }\n"
+		"      }\n"
+		"      Group \"cc\" { size = (200, 44)\n"
+		"        Panel \"pc\" { size = (160, 24)\n"
+		"          appearance { fill { color = #CF222E } }\n"
+		"        }\n"
+		"      }\n"
+		"      Stack \"cd\" { size = (200, 44)\n"
+		"        Panel \"pd\" { size = (160, 24)\n"
+		"          appearance { fill { color = #0969DA } }\n"
+		"        }\n"
+		"      }\n"
+		"    }\n"
+		"  }\n"
+		"}\n";
+	const uint32 couleurs[4] = {0x1A7F37FFu, 0x8250DFFFu, 0xCF222EFFu, 0x0969DAFFu};
+	const char *noms[4] = {"VBox", "HBox", "Group", "Stack"};
+	Scene s;
+	Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
+		  "(b14) le document a quatre conteneurs de taille se charge");
+	s.Image();
+	s.Image();
+	printf("        tailleFlux = %u, sansTaille = %u\n", s.rap.conteneursTailleFlux,
+		   s.rap.conteneursSansTaille);
+	// Quatre conteneurs PLUS leurs quatre panneaux : huit `size` honores. Un
+	// total de quatre voudrait dire que les panneaux interieurs, eux, ne le
+	// sont pas — et le cas serait vert sur une moitie du travail.
+	CheckEqU(s.rap.conteneursTailleFlux, 8u,
+			 "(b14) HUIT `size` honores — les quatre conteneurs ET leurs quatre panneaux");
+	NkRect boites[4];
+	bool toutes = true;
+	for (uint32 k = 0; k < 4u; ++k) {
+		const uint32 n = ComptePixelsCouleur(s.ras, couleurs[k]);
+		const bool a = BoiteCouleur(s.ras, couleurs[k], boites[k]);
+		if (!a)
+			toutes = false;
+		printf("        %-6s : %u px", noms[k], n);
+		if (a)
+			printf(", boite (%.0f, %.0f, %.0f x %.0f)", boites[k].x, boites[k].y,
+				   boites[k].w, boites[k].h);
+		printf("\n");
+		// 160 x 24 = 3 840 px ; la borne haute exclut un panneau qui aurait
+		// pris la region (320 x 220 = 70 400).
+		Check(n > 2500u && n < 5000u, noms[k]);
+	}
+	Check(toutes, "(b14) les quatre couleurs sont PRESENTES — aucune n'est recouverte");
+	if (toutes) {
+		// ⚠️ ET L'ORDRE, PAS SEULEMENT LA PRESENCE. Trois comptes justes ne
+		//    disent pas « l'un sous l'autre » : trois bandes empilees a l'envers,
+		//    ou trois bandes qui se chevauchent de deux pixels, rendraient
+		//    exactement les memes trois chiffres.
+		bool ordonnees = true;
+		for (uint32 k = 0; k + 1u < 4u; ++k)
+			if (boites[k].y + boites[k].h > boites[k + 1].y)
+				ordonnees = false;
+		Check(ordonnees, "(b14) LES QUATRE BANDES SONT EMPILEES DANS L'ORDRE DU DOCUMENT");
+		// Chaque conteneur demande 44 px ; le pas attendu est donc 44 plus
+		// l'espacement du theme, jamais la hauteur de la bande peinte (24).
+		bool pasJuste = true;
+		printf("        pas entre bandes :");
+		for (uint32 k = 0; k + 1u < 4u; ++k) {
+			const float32 pas = boites[k + 1].y - boites[k].y;
+			printf(" %.0f", pas);
+			if (pas < 40.f || pas > 56.f)
+				pasJuste = false;
+		}
+		printf(" px (conteneurs de 44 px + espacement du theme)\n");
+		Check(pasJuste, "(b14) ET LE PAS VAUT LA TAILLE DEMANDEE — chacun a pris ses 44 px");
+
+		// ⚠️ LE CRITERE QUE LE PREMIER RELEVE A RECLAME. Les quatre bandes
+		//    etaient empilees et le pas tenait dans l'intervalle — mais celle du
+		//    `Stack` sortait a x = 10 quand les trois autres etaient a x = 20, et
+		//    son pas valait 40 au lieu de 50. Un intervalle assez large pour
+		//    accepter les deux ne distingue rien : *different ne veut pas dire
+		//    visible, et un intervalle qui accepte tout ne refute rien*.
+		//
+		//    Ce qu'on exige donc ici : le MEME decalage de l'enfant dans son
+		//    conteneur, pour les quatre. C'est ce qui fait qu'un document ecrit
+		//    pour une `VBox` se relit pareil dans un `Stack`.
+		const char *ids[4] = {"ca", "cb", "cc", "cd"};
+		float32 dx[4] = {0.f, 0.f, 0.f, 0.f}, dy[4] = {0.f, 0.f, 0.f, 0.f};
+		bool tousRects = true;
+		printf("        decalage de l'enfant dans son conteneur :");
+		for (uint32 k = 0; k < 4u; ++k) {
+			NkRect rc{0.f, 0.f, 0.f, 0.f};
+			if (!s.RectTout(ids[k], rc)) {
+				tousRects = false;
+				continue;
+			}
+			dx[k] = boites[k].x - rc.x;
+			dy[k] = boites[k].y - rc.y;
+			printf("  %s (%.0f, %.0f)", noms[k], dx[k], dy[k]);
+		}
+		printf("\n");
+		Check(tousRects, "(b14) les quatre conteneurs ont un rectangle au rapport");
+		if (tousRects) {
+			bool memeDecalage = true;
+			for (uint32 k = 1; k < 4u; ++k)
+				if (dx[k] != dx[0] || dy[k] != dy[0])
+					memeDecalage = false;
+			Check(memeDecalage,
+				  "(b14) LES QUATRE PLACENT LEUR ENFANT AU MEME ENDROIT — un document "
+				  "ecrit pour l'un se relit dans l'autre");
+		}
+	}
+	s.Png("b14_conteneurs.png");
+	s.exe.Debrancher(s.ctx);
+}
+}
+
+static void CasDockable() {
+// =====================================================================
+printf("\n-- (b15) LE DOCKABLE : la section `layout` PLACE les zones\n");
+// =====================================================================
+// Rodolf, 27/09 : « on doit aussi avoir le dockable ».
+//
+// 🔴 P10 ETAIT LU PAR PERSONNE. `NkGuiLireDispositions` existait depuis ce matin,
+//    valide et compte — et son SEUL appelant etait le banc `NKGuiMonteTest`. Le
+//    monteur ne l'appelait JAMAIS : un document qui ecrivait `dock "outils" left
+//    0.16` etait analyse puis ignore, et les zones restaient partagees en bandes
+//    verticales egales. *Un banc qui prouve son propre lecteur ne prouve pas que
+//    le produit s'en sert*, et je l'avais annonce comme livre.
+//
+// ⚠️ LE CRITERE EXIGE LES QUATRE COTES, PAS UN. Une disposition qui ne saurait
+//    que le `left` rendrait exactement le meme resultat que l'ancien partage
+//    horizontal sur un document qui n'ecrit qu'un `left`.
+{
+	// Les zones ne sont servies par personne : chacune se marque de hachures et
+	// ECRIT SON NOM. C'est ce qui les rend reperables sans hote.
+	static const char kZones[] =
+		"  DockSpace \"espace\" {\n"
+		"    Host \"outils\" {}\n"
+		"    Host \"scene\" {}\n"
+		"    Host \"props\" {}\n"
+		"    Host \"barre\" {}\n"
+		"    Host \"journal\" {}\n"
+		"  }\n";
+	char sans[1024], avec[2048];
+	// ⚠️ LES DEUX DOCUMENTS PARTAGENT LEUR SECTION `widgets`, AU CARACTERE. Deux
+	//    arbres ecrits a la main auraient pu differer par autre chose que la
+	//    section `layout`, et la comparaison aurait mesure cette difference-la.
+	snprintf(sans, sizeof(sans), "nkgui 0.3\nwidgets {\n%s}\n", kZones);
+	snprintf(avec, sizeof(avec),
+			 "nkgui 0.3\nwidgets {\n%s}\n"
+			 "layout \"defaut\" {\n"
+			 "  dock \"outils\" left 0.2\n"
+			 "  dock \"props\" right 0.25\n"
+			 "  dock \"barre\" top 0.1\n"
+			 "  dock \"journal\" bottom 0.15\n"
+			 "  dock \"scene\" center\n"
+			 "}\n",
+			 kZones);
+
+	NkRect rSans[5], rAvec[5];
+	const char *noms[5] = {"outils", "scene", "props", "barre", "journal"};
+	uint32 amarreesSans = 0u, amarreesAvec = 0u;
+	bool lusSans = true, lusAvec = true;
+
+	{
+		Scene s;
+		Check(s.Charger(sans, (uint32)__builtin_strlen(sans), 400, 300),
+			  "(b15) [sans layout] le document se charge");
+		s.Image();
+		amarreesSans = s.rap.zonesAmarrees;
+		for (uint32 k = 0; k < 5u; ++k)
+			if (!s.RectTout(noms[k], rSans[k]))
+				lusSans = false;
+		s.exe.Debrancher(s.ctx);
+	}
+	{
+		Scene s;
+		Check(s.Charger(avec, (uint32)__builtin_strlen(avec), 400, 300),
+			  "(b15) [avec layout] le document se charge");
+		s.Image();
+		amarreesAvec = s.rap.zonesAmarrees;
+		printf("        dispositions lues = %u, amarrages = %u, zonesAmarrees = %u\n",
+			   s.etat.rapportDispositions.dispositions,
+			   s.etat.rapportDispositions.amarrages, amarreesAvec);
+		Check(s.etat.rapportDispositions.Propre(),
+			  "(b15) la disposition est PROPRE — aucun cote inconnu, aucune fraction hors bornes");
+		for (uint32 k = 0; k < 5u; ++k)
+			if (!s.RectTout(noms[k], rAvec[k]))
+				lusAvec = false;
+		s.Png("b15_dock.png");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	Check(lusSans && lusAvec, "(b15) les cinq zones ont un rectangle dans les deux cas");
+	// Le negatif : sans section `layout`, RIEN n'est amarre — c'est l'etat d'avant,
+	// et c'est ce qui prouve que le chemin d'hier n'a pas bouge.
+	CheckEqU(amarreesSans, 0u, "(b15) [sans layout] AUCUNE zone amarree — chemin d'hier intact");
+	CheckEqU(amarreesAvec, 4u, "(b15) [avec layout] les QUATRE cotes sont amarres");
+
+	if (lusSans && lusAvec) {
+		for (uint32 k = 0; k < 5u; ++k)
+			printf("        %-8s sans (%.0f, %.0f, %.0f x %.0f)  avec (%.0f, %.0f, %.0f x %.0f)\n",
+				   noms[k], rSans[k].x, rSans[k].y, rSans[k].w, rSans[k].h, rAvec[k].x,
+				   rAvec[k].y, rAvec[k].w, rAvec[k].h);
+		// Sans disposition : cinq bandes verticales de meme hauteur. C'est le
+		// partage d'hier, et il doit rester exactement celui-la.
+		bool bandes = true;
+		for (uint32 k = 0; k < 5u; ++k)
+			if (rSans[k].h != rSans[0].h)
+				bandes = false;
+		Check(bandes, "(b15) [sans layout] cinq bandes de MEME hauteur — le partage horizontal");
+
+		// Avec disposition, chaque cote a sa place. Les fractions se rapportent a la
+		// zone entiere (400 x 300) : outils 80 de large, props 100, barre 30 de haut,
+		// journal 45.
+		CheckEqF(rAvec[0].w, 80.f, 1.5f, "(b15) `outils` fait 20 % de la LARGEUR");
+		CheckEqF(rAvec[2].w, 100.f, 1.5f, "(b15) `props` fait 25 % de la largeur");
+		CheckEqF(rAvec[3].h, 30.f, 1.5f, "(b15) `barre` fait 10 % de la HAUTEUR");
+		CheckEqF(rAvec[4].h, 45.f, 1.5f, "(b15) `journal` fait 15 % de la hauteur");
+		// ⚠️ ET LES COTES, PAS SEULEMENT LES TAILLES. Quatre largeurs justes
+		//    n'excluent pas que `props` soit a gauche : il faut dire OU.
+		Check(rAvec[0].x < rAvec[1].x, "(b15) `outils` est A GAUCHE de la scene");
+		Check(rAvec[2].x > rAvec[1].x, "(b15) `props` est A DROITE de la scene");
+		Check(rAvec[3].y < rAvec[1].y, "(b15) `barre` est AU-DESSUS de la scene");
+		Check(rAvec[4].y > rAvec[1].y, "(b15) `journal` est AU-DESSOUS de la scene");
+		// Le centre prend ce qui reste, et il ne reste AUCUN trou : c'est la regle
+		// que ce `case` s'etait donnee le 17/09 (« un dock qui laisse un trou n'est
+		// pas un dock »), et elle doit tenir par ce chemin-ci aussi.
+		CheckEqF(rAvec[1].x + rAvec[1].w, rAvec[2].x, 1.5f,
+				 "(b15) la scene touche `props` — aucune bande orpheline a droite");
+		CheckEqF(rAvec[1].y + rAvec[1].h, rAvec[4].y, 1.5f,
+				 "(b15) et elle touche `journal` — aucune bande orpheline en bas");
+	}
+}
+}
+
+static void CasMenuContextuel() {
+// =====================================================================
+printf("\n-- (b16) `ContextMenu` : le refus est LEVE par le crochet qu'il reclamait\n");
+// =====================================================================
+// L'ancien refus, dans l'enumeration des roles : « NKGui a bien `BeginPopupMenu`,
+// mais il ne rend vrai que si quelqu'un a appele `ctx.OpenPopupAt(...)` AU CLIC
+// DROIT -- et ce monteur monte l'etat au REPOS : il n'a aucun clic droit a offrir.
+// [...] CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote. »
+//
+// ⚠️ ET LE RAISONNEMENT DU REFUS EST DEVENU LE CRITERE. Il disait qu'un role
+//    invisible par construction serait PIRE qu'un role refuse, « parce qu'il se
+//    compterait parmi les montes et que personne n'irait chercher pourquoi rien
+//    n'apparait ». Ce cas exige donc les DEUX moities : que le menu s'ouvre quand
+//    l'hote le dit, ET qu'il se compte A PART quand personne ne l'ouvre.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Button \"cible\" { label = \"Clic droit ici\" }\n"
+		"  ContextMenu \"menu.scene\" {\n"
+		"    MenuItem \"m.copier\" { label = \"Copier\", shortcut = \"Ctrl+C\" }\n"
+		"    MenuItem \"m.coller\" { label = \"Coller\" }\n"
+		"    MenuItem \"m.suppr\" { label = \"Supprimer\" }\n"
+		"  }\n"
+		"}\n";
+	// L'hote : il ouvre le menu qu'il connait, a la position qu'il choisit — et
+	// SEULEMENT celui-la. Un hote qui repondrait vrai a tout nom prouverait que le
+	// monteur appelle le crochet, pas qu'il ecoute sa reponse.
+	struct HoteMenu : public NkGuiMonteHooks {
+			bool ouvrir = false;
+			uint32 demandes = 0u;
+			NkString dernierNom;
+			bool MenuContextuelOuvre(const char *nom, NkVec2 &posOut) noexcept override {
+				++demandes;
+				dernierNom = NkString(nom);
+				if (!ouvrir)
+					return false;
+				posOut = NkVec2{40.f, 60.f};
+				return true;
+			}
+	};
+
+	// ── SANS HOTE DU TOUT : le role est monte, et le menu COMPTE ────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b16) le document a `ContextMenu` se charge");
+		s.Image();
+		printf("        [sans hote]  inconnus = %u, ouverts = %u, sansHote = %u, "
+			   "itemsHorsMenu = %u\n",
+			   s.rap.rolesInconnus, s.rap.menusContextuelsOuverts,
+			   s.rap.menusContextuelsSansHote, s.rap.elementsMenuHorsMenu);
+		// 🔴 LA MOITIE QUI PROUVE QUE LE REFUS EST LEVE. Avant aujourd'hui, ce
+		//    document rendait `rolesInconnus = 1` : le role n'existait pas.
+		CheckEqU(s.rap.rolesInconnus, 0u,
+				 "(b16) `ContextMenu` N'EST PLUS UN ROLE INCONNU");
+		CheckEqU(s.rap.menusContextuelsOuverts, 0u, "(b16) [sans hote] rien ne s'ouvre");
+		CheckEqU(s.rap.menusContextuelsSansHote, 1u,
+				 "(b16) [sans hote] ET LE MENU EST COMPTE — pas un role invisible qui se dit monte");
+		// 🔴 CE CRITERE ETAIT FAUX, ET C'EST MOI QUI L'ETAIS. J'attendais 3 :
+		//    « les trois entrees sont comptees hors menu ». Il rendait 0, parce
+		//    qu'un menu FERME ne monte pas son contenu du tout — et c'est la
+		//    politique que le role `Menu` s'etait deja donnee, mot pour mot :
+		//    « LE CONTENU D'UN MENU FERME NE SE MONTE PAS, et ce n'est pas une
+		//    perte : NKGui ne dessine ses entrees que dans le popup ouvert. [...]
+		//    d'ou `menusOuverts`, qui separe les deux. » Monter les entrees en flux
+		//    pour pouvoir les compter aurait fait exactement ce que ce role refuse :
+		//    de faux boutons hors de leur menu.
+		//
+		//    Ce qui dit qu'il y a un menu invisible, ce n'est donc PAS un compte
+		//    d'entrees — c'est `menusContextuelsSansHote`, verifie juste au-dessus.
+		//    `elementsMenuHorsMenu` garde son sens d'origine : un `MenuItem` ecrit
+		//    en dehors de toute chaine de menus, ce que ce document ne fait pas.
+		CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
+				 "(b16) [sans hote] AUCUNE entree montee — un menu ferme ne monte pas son contenu");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── L'HOTE EXISTE MAIS N'OUVRE PAS : le crochet est bien APPELE ─────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b16) [hote ferme] le document se charge");
+		HoteMenu h;
+		h.ouvrir = false;
+		// Ce document n'a ni `behavior` ni `bind` : remplacer les crochets de
+		// l'execution par cet hote-ci est sans effet sur ce qu'il monte.
+		s.Image(&h);
+		printf("        [hote ferme] demandes = %u (« %s »), ouverts = %u, sansHote = %u\n",
+			   h.demandes, h.dernierNom.CStr(), s.rap.menusContextuelsOuverts,
+			   s.rap.menusContextuelsSansHote);
+		// ⚠️ SANS CE CRITERE, « rien ne s'est ouvert » serait ambigu : le monteur
+		//    pourrait ne JAMAIS appeler le crochet et rendre le meme resultat.
+		CheckEqU(h.demandes, 1u, "(b16) LE CROCHET EST APPELE, avec le nom du document");
+		Check(h.dernierNom.Compare(NkString("menu.scene")) == 0,
+			  "(b16) et c'est bien le nom du `ContextMenu`, pas un autre");
+		CheckEqU(s.rap.menusContextuelsOuverts, 0u,
+				 "(b16) [hote ferme] il a dit non, donc rien ne s'ouvre");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── L'HOTE OUVRE : le menu apparait, AVEC SES ENTREES ──────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b16) [hote ouvre] le document se charge");
+		HoteMenu h;
+		h.ouvrir = true;
+		// La reference se prend SANS hote, sur la meme scene : c'est l'image a
+		// laquelle le menu doit ajouter des pixels.
+		s.Image();
+		const uint32 peintAvant = ComptePixelsPeints(s.ras, kFond);
+		// Deux images avec l'hote : NKGui garde son popup d'une image sur l'autre,
+		// et c'est la SECONDE qui le dessine — le survol de ce banc a la meme
+		// latence, pour la meme raison.
+		s.Image(&h);
+		s.Image(&h);
+		const uint32 peintApres = ComptePixelsPeints(s.ras, kFond);
+		printf("        [hote ouvre] ouverts = %u, sansHote = %u, itemsHorsMenu = %u ; "
+			   "pixels %u -> %u\n",
+			   s.rap.menusContextuelsOuverts, s.rap.menusContextuelsSansHote,
+			   s.rap.elementsMenuHorsMenu, peintAvant, peintApres);
+		CheckEqU(s.rap.menusContextuelsOuverts, 1u, "(b16) [hote ouvre] LE MENU S'OUVRE");
+		CheckEqU(s.rap.menusContextuelsSansHote, 0u,
+				 "(b16) et il n'est plus compte comme sans hote");
+		// Les entrees sont DANS le popup : elles ne sont plus « hors menu ».
+		CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
+				 "(b16) LES TROIS ENTREES SONT DANS LE MENU, plus hors de lui");
+		// ⚠️ ET LE CRITERE QUI COMPTE EST EN PIXELS. Trois compteurs justes ne
+		//    disent pas qu'un menu est APPARU : le popup vit dans la surimpression,
+		//    et ce banc ne la rasterisait meme pas avant ce matin.
+		Check(peintApres > peintAvant + 300u,
+			  "(b16) ET IL EST PEINT — l'image gagne plus de 300 pixels");
+		s.Png("b16_menu_contextuel.png");
+		s.exe.Debrancher(s.ctx);
+	}
+}
+}
+
+static void CasCourbe() {
+// =====================================================================
+printf("\n-- (b17) P7 `CurveField` : une courbe qu'on TIRE, pas seulement qu'on voit\n");
+// =====================================================================
+// Doc 09 §P7 : « la vitesse le long d'une trajectoire, la part de physique dans le
+// temps, l'intensite d'un vent — une courbe editable EN PLACE. `Chart` n'est pas
+// editable. »
+//
+// ⚠️ C'EST DONC L'EDITION QUI EST LE CRITERE, PAS LE DESSIN. Un champ de courbe qui
+//    se peint joliment et qu'on ne peut pas toucher serait un `Chart` sous un autre
+//    nom : il ferait monter `courbes`, il aurait ses pixels, et il ne rendrait
+//    AUCUN des services que ce role existe pour rendre.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  CurveField \"vitesse\" {\n"
+		"    bind = \"traj.vitesse\"\n"
+		"    min = 0\n"
+		"    max = 200\n"
+		"    height = 90\n"
+		"    xLabel = \"avancement\"\n"
+		"    yLabel = \"km/h\"\n"
+		"  }\n"
+		"}\n";
+	// L'hote possede les points — c'est le partage que ce role a choisi. Il note
+	// aussi ce qu'on lui renvoie : sans cela, « le point a bouge a l'ecran » ne
+	// dirait pas que l'application l'a SU.
+	struct HoteCourbe : public NkGuiMonteHooks {
+			NkVec2 pts[4] = {{0.f, 20.f}, {0.33f, 120.f}, {0.66f, 60.f}, {1.f, 180.f}};
+			bool servir = true;
+			uint32 lectures = 0u;
+			uint32 notifications = 0u;
+			NkString dernierBind;
+			NkVec2 recus[4];
+			uint32 nRecus = 0u;
+			bool CourbeLiee(const char *bind, NkVec2 *out, uint32 maxP,
+							uint32 &nOut) noexcept override {
+				++lectures;
+				dernierBind = NkString(bind);
+				if (!servir || maxP < 4u)
+					return false;
+				for (uint32 i = 0; i < 4u; ++i)
+					out[i] = pts[i];
+				nOut = 4u;
+				return true;
+			}
+			void CourbeModifiee(const char *bind, const NkVec2 *p,
+								uint32 n) noexcept override {
+				++notifications;
+				dernierBind = NkString(bind);
+				nRecus = n < 4u ? n : 4u;
+				for (uint32 i = 0; i < nRecus; ++i) {
+					recus[i] = p[i];
+					pts[i] = p[i]; // l'hote garde ce qu'on lui rend
+				}
+			}
+	};
+
+	// ── SANS HOTE : le role existe, et l'ABSENCE de courbe se voit ──────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+			  "(b17) le document a `CurveField` se charge");
+		s.Image();
+		printf("        [sans hote] inconnus = %u, courbes = %u, sansHote = %u\n",
+			   s.rap.rolesInconnus, s.rap.courbes, s.rap.courbesSansHote);
+		CheckEqU(s.rap.rolesInconnus, 0u, "(b17) `CurveField` n'est plus un role inconnu");
+		CheckEqU(s.rap.courbes, 1u, "(b17) la courbe est rencontree");
+		// ⚠️ ET ELLE N'INVENTE PAS DE DROITE DE REPLI. Une ligne plate tracee faute
+		//    de donnees aurait ete indiscernable d'une vraie courbe plate — un
+		//    reglage faux qui a l'air juste. Meme politique qu'une zone `Host`.
+		CheckEqU(s.rap.courbesSansHote, 1u,
+				 "(b17) [sans hote] comptee SANS HOTE — aucune courbe inventee");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── AVEC HOTE : elle est LUE et PEINTE ──────────────────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+			  "(b17) [avec hote] le document se charge");
+		HoteCourbe h;
+		// La reference sans hote, sur la meme scene : c'est l'image a laquelle la
+		// courbe doit ajouter ses pixels.
+		s.Image();
+		const uint32 sansCourbe = ComptePixelsPeints(s.ras, kFond);
+		s.Image(&h);
+		const uint32 avecCourbe = ComptePixelsPeints(s.ras, kFond);
+		const uint32 accent = Empaquete(NkGuiContext().theme.accent);
+		const uint32 pxAccent = ComptePixelsCouleur(s.ras, accent);
+		printf("        [avec hote] lectures = %u (« %s »), sansHote = %u ; pixels %u -> %u, "
+			   "accent = %u\n",
+			   h.lectures, h.dernierBind.CStr(), s.rap.courbesSansHote, sansCourbe,
+			   avecCourbe, pxAccent);
+		CheckEqU(h.lectures, 1u, "(b17) LE CROCHET EST LU, une fois par image");
+		Check(h.dernierBind.Compare(NkString("traj.vitesse")) == 0,
+			  "(b17) et avec le `bind` du document, pas l'identifiant du widget");
+		CheckEqU(s.rap.courbesSansHote, 0u, "(b17) [avec hote] elle n'est plus sans hote");
+		// 🔴 LE CRITERE EST EN PIXELS DE LA COULEUR D'ACCENT, ET LE TOTAL AURAIT
+		//    RENDU L'INVERSE DE LA VERITE. Mesure : 27 000 pixels non-fond SANS la
+		//    courbe, 26 980 AVEC — il DESCEND de vingt. Parce que sans hote le champ
+		//    se couvre de hachures (le marqueur « personne ne sert ceci »), qui
+		//    peignent plus de pixels que la courbe elle-meme. Un critere « l'image
+		//    gagne des pixels » aurait donc declare la courbe absente alors qu'elle
+		//    est la, et un critere « l'image a change » l'aurait declaree presente
+		//    quoi qu'on dessine. Il faut NOMMER la couleur cherchee — quatrieme fois
+		//    aujourd'hui qu'un total ne tranche pas.
+		Check(pxAccent > 100u, "(b17) LA COURBE EST TRACEE — la couleur d'accent est presente");
+		s.Png("b17_courbe.png");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── LE GESTE : ON TIRE UN POINT, ET L'HOTE L'APPREND ────────────────
+	{
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
+			  "(b17) [geste] le document se charge");
+		HoteCourbe h;
+		s.Image(&h);
+		// Le rectangle du champ sort du MONTAGE : aucune coordonnee de ce banc n'est
+		// ecrite en dur — un attendu en dur se perime quand la mise en page bouge.
+		NkRect cadre{0.f, 0.f, 0.f, 0.f};
+		const bool aCadre = s.Rect("vitesse", cadre);
+		Check(aCadre, "(b17) le rectangle du champ sort du montage");
+		if (aCadre) {
+			// Le deuxieme point : x = 0,33 de la largeur utile (marge de 4 px), et sa
+			// valeur 120 sur [0, 200].
+			const float32 marge = 4.f;
+			const float32 x0 = cadre.x + marge, larg = cadre.w - 2.f * marge;
+			const float32 y0 = cadre.y + marge, hUtile = cadre.h - 2.f * marge;
+			const float32 px = x0 + larg * 0.33f;
+			const float32 py = y0 + hUtile * (1.f - 120.f / 200.f);
+			const float32 avant = h.pts[1].y;
+			printf("        point 1 avant = %.1f, poignee a (%.0f, %.0f)\n", avant, px, py);
+
+			// Survoler d'abord : la poignee doit REPONDRE au survol avant qu'on
+			// l'appuie. Ce banc a une image de retard sur le survol (hotIdPrev).
+			s.exe.PoserPointeur(s.ctx, px, py);
+			s.Image(&h);
+			s.Image(&h);
+			const uint32 blanc = Empaquete(NkGuiContext().theme.onAccent);
+			const uint32 pxSurvol = ComptePixelsCouleur(s.ras, blanc);
+			printf("        pixels blancs au survol = %u\n", pxSurvol);
+			Check(pxSurvol > 10u,
+				  "(b17) LA POIGNEE REPOND AU SURVOL — elle passe au blanc du theme");
+
+			// Puis appuyer et tirer VERS LE HAUT (y decroit a l'ecran = valeur monte).
+			// 🔴 LE COMPTEUR SE CUMULE, ET C'EST UNE LECON PAYEE ICI MEME. `rap` est
+			//    remis a zero a CHAQUE image : lire `pointsCourbeDeplaces` apres la
+			//    derniere rendait 0, parce qu'a cette image-la le point avait deja
+			//    atteint sa cible et ne bougeait plus. Le code etait juste, le critere
+			//    regardait la mauvaise image. *Un compteur par image ne se lit pas
+			//    apres un geste qui dure plusieurs images.*
+			uint32 deplacesVus = 0u;
+			s.ctx.input.mouseDown[0] = true;
+			s.ctx.input.mouseClicked[0] = true;
+			s.Image(&h);
+			deplacesVus += s.rap.pointsCourbeDeplaces;
+			s.ctx.input.mouseClicked[0] = false;
+			const float32 cible = y0 + hUtile * (1.f - 180.f / 200.f);
+			s.exe.PoserPointeur(s.ctx, px, cible);
+			s.ctx.input.mouseDown[0] = true;
+			s.Image(&h);
+			deplacesVus += s.rap.pointsCourbeDeplaces;
+			s.Image(&h);
+			deplacesVus += s.rap.pointsCourbeDeplaces;
+			printf("        point 1 apres = %.1f (cible ~180), notifications = %u, "
+				   "deplaces (cumul) = %u\n",
+				   h.pts[1].y, h.notifications, deplacesVus);
+			s.ctx.input.mouseDown[0] = false;
+
+			// 🔴 LES TROIS MOITIES DE « C'EST EDITABLE ». La valeur a change, l'hote
+			//    l'a APPRISE, et le rapport le dit. Sans la deuxieme, un widget qui
+			//    bougerait son point sans prevenir personne passerait : ce serait un
+			//    reglage que l'utilisateur croit avoir fait.
+			Check(h.pts[1].y > avant + 30.f,
+				  "(b17) LE POINT A ETE TIRE — sa valeur a monte de plus de 30");
+			Check(h.notifications > 0u, "(b17) ET L'HOTE L'A APPRIS — `CourbeModifiee` appelee");
+			Check(deplacesVus > 0u, "(b17) et le rapport le dit");
+			CheckEqF(h.pts[1].y, 180.f, 6.f,
+					 "(b17) la valeur suit la SOURIS, pas un pas arbitraire");
+			// Les voisins n'ont pas bouge : un geste qui deplacerait toute la courbe
+			// passerait les criteres ci-dessus.
+			CheckEqF(h.pts[0].y, 20.f, 0.5f, "(b17) le point 0 n'a PAS bouge");
+			CheckEqF(h.pts[2].y, 60.f, 0.5f, "(b17) ni le point 2");
+			s.Png("b17_courbe_tiree.png");
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+}
+}
+
+static void CasPlateformes() {
+// =====================================================================
+printf("\n-- (b18) P27 : UN document, TROIS plateformes — et l'apercu depuis le PC\n");
+// =====================================================================
+// Rodolf, 27/09 : « le systeme doit pouvoir avoir des design specifiques par
+// plateforme — web, mobile et PC, vu que Nkentseu est multiplateforme […] et comme
+// en plus le responsive est defini, ca pourrait encore apporter plus. »
+//
+// ⚠️ LA SELECTION EST A L'EXECUTION, PAS A LA COMPILATION, ET CE CAS EST CE QUI LE
+//    PROUVE : il monte le design MOBILE alors qu'il tourne sur un PC. Une
+//    compilation conditionnelle aurait rendu cette mesure impossible — et, plus
+//    grave, aurait empeche NKUIDesign de MONTRER le design mobile sans recompiler.
+{
+	static const char kDoc[] =
+		"nkgui 0.3\n"
+		"widgets {\n"
+		"  Window \"racine\" {\n"
+		"    VBox \"pile\" {\n"
+		"      Panel \"commun\" { size = (200, 30)\n"
+		"        appearance { fill { color = #1A7F37 } }\n"
+		"      }\n"
+		"      Panel \"colonne_pc\" { platform = Bureau, size = (200, 30)\n"
+		"        appearance { fill { color = #8250DF } }\n"
+		"      }\n"
+		"      Panel \"barre_tel\" { platform = Mobile, size = (200, 30)\n"
+		"        appearance { fill { color = #CF222E } }\n"
+		"      }\n"
+		"      Panel \"ecran_tactile\" { platform = [Mobile, Web], size = (200, 30)\n"
+		"        appearance { fill { color = #0969DA } }\n"
+		"      }\n"
+		"      Panel \"faute\" { platform = Mobil, size = (200, 30)\n"
+		"        appearance { fill { color = #E0B05A } }\n"
+		"      }\n"
+		"    }\n"
+		"  }\n"
+		"}\n";
+	const uint32 kCommun = 0x1A7F37FFu, kPC = 0x8250DFFFu, kTel = 0xCF222EFFu,
+				 kTactile = 0x0969DAFFu, kFaute = 0xE0B05AFFu;
+
+	struct Attendu {
+			NkGuiCible cible;
+			const char *nom;
+			bool pc, tel, tactile;
+	};
+	// Le meme document, lu par trois cibles. Ce que chacune doit voir est ecrit
+	// AVANT la mesure — un attendu calcule apres coup n'est pas un attendu.
+	const Attendu kCas[] = {
+		{NkGuiCible::Bureau, "Bureau", true, false, false},
+		{NkGuiCible::Mobile, "Mobile", false, true, true},
+		{NkGuiCible::Web, "Web", false, false, true},
+	};
+
+	for (uint32 c = 0; c < 3u; ++c) {
+		NkGuiPoserCible(kCas[c].cible);
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
+			  "(b18) le document multiplateforme se charge");
+		s.Image();
+		s.Image();
+		const uint32 nCommun = ComptePixelsCouleur(s.ras, kCommun);
+		const uint32 nPC = ComptePixelsCouleur(s.ras, kPC);
+		const uint32 nTel = ComptePixelsCouleur(s.ras, kTel);
+		const uint32 nTactile = ComptePixelsCouleur(s.ras, kTactile);
+		const uint32 nFaute = ComptePixelsCouleur(s.ras, kFaute);
+		printf("        [%-7s] commun=%u pc=%u tel=%u tactile=%u faute=%u | ecartes=%u "
+			   "inconnues=%u\n",
+			   kCas[c].nom, nCommun, nPC, nTel, nTactile, nFaute,
+			   s.rap.ecartesParPlateforme, s.rap.ciblesInconnues);
+		// Le panneau sans `platform` est la sur les trois : c'est le defaut, et sans
+		// lui on ne saurait pas distinguer « ecarte » de « jamais monte ».
+		Check(nCommun > 3000u, "(b18) le panneau SANS `platform` est la");
+		Check((nPC > 3000u) == kCas[c].pc, "(b18) la colonne PC n'est la QUE sur Bureau");
+		Check((nTel > 3000u) == kCas[c].tel, "(b18) la barre mobile QUE sur Mobile");
+		// ⚠️ LA LISTE EST LE CAS QUI SEPARE UN ATTRIBUT D'UN QUALIFICATEUR. Un
+		//    `Panel(Mobile)` n'aurait pu nommer qu'UNE cible ; `platform =
+		//    [Mobile, Web]` en nomme deux, et c'est ce que « web ET mobile » demande.
+		Check((nTactile > 3000u) == kCas[c].tactile,
+			  "(b18) l'ecran tactile sur Mobile ET Web — la LISTE est lue");
+		// 🔴 LA FAUTE DE FRAPPE NE FAIT PAS DISPARAITRE UN PANNEAU. `platform =
+		//    Mobil` est monte PARTOUT et COMPTE : ecarter sur une faute aurait donne
+		//    un document juste qui perd un panneau sans qu'aucun chiffre ne le dise.
+		Check(nFaute > 3000u,
+			  "(b18) `platform = Mobil` (faute) est MONTE — on n'ecarte pas sur une faute");
+		CheckEqU(s.rap.ciblesInconnues, 1u, "(b18) et la faute est COMPTEE, pas avalee");
+		// Le compte des ecartes se derive de l'attendu, pas releve puis recopie.
+		const uint32 attendus = (kCas[c].pc ? 0u : 1u) + (kCas[c].tel ? 0u : 1u)
+								+ (kCas[c].tactile ? 0u : 1u);
+		CheckEqU(s.rap.ecartesParPlateforme, attendus,
+				 "(b18) LE COMPTE DES ECARTES est celui qu'on a calcule d'avance");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── LE PIRE DES SILENCES : un document juste qui n'affiche rien ─────
+	{
+		static const char kVide[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"racine\" {\n"
+			"    Panel \"tout_mobile\" { platform = Mobile, size = (200, 30)\n"
+			"      appearance { fill { color = #CF222E } }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		NkGuiPoserCible(NkGuiCible::Bureau);
+		Scene s;
+		Check(s.Charger(kVide, (uint32)(sizeof(kVide) - 1u), 320, 120),
+			  "(b18) [vide] le document se charge");
+		s.Image();
+		printf("        [vide sur Bureau] refus = %u, ecartes = %u, montes = %u\n",
+			   s.rap.rolesInconnus, s.rap.ecartesParPlateforme, s.rap.montes);
+		// ⚠️ C'EST LE CAS QUI JUSTIFIE LE COMPTEUR. Rien n'est invalide : le
+		//    document est juste, il ne s'affiche simplement pas sur cette cible.
+		//    Aucun message d'erreur n'existera jamais pour ca. Sans
+		//    `ecartesParPlateforme` au verdict, « mon interface a disparu » se
+		//    cherche a la main.
+		CheckEqU(s.rap.rolesInconnus, 0u, "(b18) [vide] AUCUNE erreur — le document est juste");
+		CheckEqU(s.rap.ecartesParPlateforme, 1u,
+				 "(b18) ET POURTANT le panneau a disparu — seul ce compteur le dit");
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// ── LES DISPOSITIONS PAR CIBLE : la colonne devient une barre ───────
+	{
+		static const char kDock[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  DockSpace \"espace\" {\n"
+			"    Host \"outils\" {}\n"
+			"    Host \"scene\" {}\n"
+			"  }\n"
+			"}\n"
+			"layout \"defaut\" {\n"
+			"  dock \"outils\" left 0.25\n"
+			"  dock \"scene\" center\n"
+			"}\n"
+			"layout \"defaut\" {\n"
+			"  platform = Mobile\n"
+			"  dock \"outils\" bottom 0.2\n"
+			"  dock \"scene\" center\n"
+			"}\n";
+		NkRect rOutils[2];
+		const NkGuiCible cibles[2] = {NkGuiCible::Bureau, NkGuiCible::Mobile};
+		const char *noms[2] = {"Bureau", "Mobile"};
+		bool lus = true;
+		for (uint32 k = 0; k < 2u; ++k) {
+			NkGuiPoserCible(cibles[k]);
+			Scene s;
+			Check(s.Charger(kDock, (uint32)(sizeof(kDock) - 1u), 400, 300),
+				  "(b18) [dock] le document a DEUX dispositions se charge");
+			s.Image();
+			if (!s.RectTout("outils", rOutils[k]))
+				lus = false;
+			printf("        [dock %-7s] dispositions = %u, propre = %s, outils = "
+				   "(%.0f, %.0f, %.0f x %.0f)\n",
+				   noms[k], s.etat.rapportDispositions.dispositions,
+				   s.etat.rapportDispositions.Propre() ? "oui" : "NON", rOutils[k].x,
+				   rOutils[k].y, rOutils[k].w, rOutils[k].h);
+			// 🔴 CE CRITERE A UNE RAISON PRECISE D'EXISTER. La ligne
+			//    `platform = Mobile` vit dans le MEME tableau que les lignes `dock`,
+			//    en tranche brute : si le lecteur ne l'attrapait pas, elle tomberait
+			//    dans l'analyseur de `dock` et la disposition serait declaree NON
+			//    PROPRE pour avoir declare correctement sa cible.
+			Check(s.etat.rapportDispositions.Propre(),
+				  "(b18) [dock] les deux dispositions sont PROPRES — `platform` n'est pas pris pour un `dock`");
+			CheckEqU(s.etat.rapportDispositions.dispositions, 2u,
+					 "(b18) [dock] les deux `layout` de MEME NOM coexistent");
+			s.exe.Debrancher(s.ctx);
+		}
+		Check(lus, "(b18) [dock] la zone `outils` a un rectangle dans les deux cas");
+		if (lus) {
+			// Sur Bureau : une COLONNE a gauche (haute et etroite, collee au bord).
+			// Sur Mobile : une BARRE en bas (large et basse).
+			// ⚠️ ET C'EST LA FORME QU'ON COMPARE, PAS UNE TAILLE. `sizeRel` sait
+			//    changer une taille ; il ne sait pas deplacer un panneau d'un bord a
+			//    l'autre. C'est precisement ce que la cible apporte en plus du
+			//    responsif, et le critere doit porter sur ca.
+			Check(rOutils[0].h > rOutils[0].w,
+				  "(b18) [Bureau] `outils` est une COLONNE — plus haute que large");
+			Check(rOutils[1].w > rOutils[1].h,
+				  "(b18) [Mobile] c'est une BARRE — plus large que haute");
+			Check(rOutils[1].y > rOutils[0].y,
+				  "(b18) et elle est passee EN BAS — pas seulement redimensionnee");
+		}
+	}
+	// ⚠️ ON REMET LA CIBLE. Elle est globale au processus : la laisser sur `Mobile`
+	//    ferait mentir tous les cas qui suivent, et le defaut `Toutes` est celui
+	//    qui rend la plateforme compilee.
+	NkGuiPoserCible(NkGuiCible::Toutes);
+}
+}
+
 int main(int argc, char **argv) {
+	// ⚠️ CE CHIFFRE RESTE, PARCE QUE C'EST LUI QUI A TRANCHE. Le banc est mort une
+	//    fois sur `0xC00000FD` en gagnant un cas : `main` portait plus de vingt-cinq
+	//    `Scene` locales, et 37 064 octets chacune font ~900 Ko de cadre. Les cas
+	//    recents vivent desormais dans leur propre fonction ; ce chiffre est ce qui
+	//    rendra la prochaine croissance VISIBLE avant qu'elle ne coute une heure.
+	printf("[cadre] sizeof(Scene) = %u octets — un cas par fonction au-dela de ~20\n",
+		   (unsigned)sizeof(Scene));
 	const char *racine = "Applications/NKUIDesign/exemples/valides/";
 	for (int i = 1; i < argc; ++i) {
 		const char *a = argv[i];
@@ -2448,1005 +3650,21 @@ int main(int argc, char **argv) {
 		sAvec.exe.Debrancher(sAvec.ctx);
 	}
 
-	// =====================================================================
-	printf("\n-- (b12) DEUX CONTENEURS FRERES NE SE SUPERPOSENT PLUS — `size` en flux\n");
-	// =====================================================================
-	// 🔴 LE DEFAUT QUE RODOLF A DEMANDE DE CORRIGER LE 27/09. `NkGuiLirePlacement`
-	//    ne rend `pose` que s'il a lu un `pos` ; en flux il n'y en a pas, donc la
-	//    branche `pos`+`size` de `RegionCourante` ne pouvait JAMAIS s'executer.
-	//    `size` sur un conteneur en flux etait donc lu par PERSONNE, et les deux
-	//    `Panel` ci-dessous prenaient tous les deux TOUTE la region : le second
-	//    repeignait le premier, exactement.
-	//
-	// ⚠️ ET LE CRITERE NE PEUT PAS ETRE « L'IMAGE A CHANGE ». Il faut la PRESENCE
-	//    de chacune des deux couleurs : c'est la seule chose qu'un recouvrement
-	//    total fait tomber a ZERO. Un compteur de pixels peints, lui, rendait le
-	//    meme total dans les deux mondes — la region est remplie de toute facon.
-	//    C'est la troisieme fois en deux jours qu'un total masque un remplacement.
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  Window \"racine\" {\n"
-			"    VBox \"pile\" {\n"
-			"      Panel \"haut\" {\n"
-			"        size = (180, 50)\n"
-			"        appearance { fill { color = #1A7F37 } }\n"
-			"      }\n"
-			"      Panel \"bas\" {\n"
-			"        size = (180, 50)\n"
-			"        appearance { fill { color = #8250DF } }\n"
-			"      }\n"
-			"    }\n"
-			"  }\n"
-			"}\n";
-		const uint32 vert = 0x1A7F37FFu;	// le Panel du HAUT
-		const uint32 violet = 0x8250DFFFu;	// le Panel du BAS
+	CasConteneursFreres();
 
-		// ── LE NEGATIF D'ABORD : la mutation remet le defaut ────────────────
-		// ⚠️ ON LE MESURE AVANT LE CORRECTIF, ET DANS LE MEME PROCESSUS. Un negatif
-		//    qu'on garde « pour plus tard » ne se fait jamais ; et la mutation n'est
-		//    pas mise en cache precisement pour que les deux mondes tiennent dans
-		//    une seule execution, donc comparables pixel a pixel.
-		NkDefinirVariable("NK_TAILLE_MUTATION", "flux");
-		uint32 vMute = 0u, xMute = 0u, tailleFluxMute = 0u;
-		{
-			Scene sM;
-			Check(sM.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
-				  "(b12) [mute] le document se charge");
-			sM.Image();
-			sM.Image();
-			vMute = ComptePixelsCouleur(sM.ras, vert);
-			xMute = ComptePixelsCouleur(sM.ras, violet);
-			tailleFluxMute = sM.rap.conteneursTailleFlux;
-			printf("        [mute]    vert = %u, violet = %u, tailleFlux = %u\n", vMute, xMute,
-				   tailleFluxMute);
-			sM.Png("b12_mute.png");
-			sM.exe.Debrancher(sM.ctx);
-		}
-		NkDefinirVariable("NK_TAILLE_MUTATION", nullptr);
+	CasTableRappels();
 
-		// ── LE MONDE CORRIGE ───────────────────────────────────────────────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
-				  "(b12) le document se charge");
-			s.Image();
-			s.Image();
-			const uint32 v = ComptePixelsCouleur(s.ras, vert);
-			const uint32 x = ComptePixelsCouleur(s.ras, violet);
-			printf("        [corrige] vert = %u, violet = %u, tailleFlux = %u, sansTaille = %u\n", v,
-				   x, s.rap.conteneursTailleFlux, s.rap.conteneursSansTaille);
+	CasQuatreConteneurs();
 
-			// Le negatif rougit-il ? Les deux moities, parce qu'un recouvrement a
-			// DEUX signes : la couleur du dessous disparait, ET celle du dessus
-			// deborde de sa taille declaree.
-			CheckEqU(tailleFluxMute, 0u, "(b12) [mute] `size` n'est lu par personne");
-			CheckEqU(vMute, 0u, "(b12) [mute] LE PANNEAU DU HAUT A DISPARU — recouvert");
-			Check(xMute > 30000u,
-				  "(b12) [mute] et celui du bas prend TOUTE la region, pas ses 180x50");
+	CasDockable();
 
-			// Le correctif. 180 x 50 = 9 000 px par panneau ; le seuil laisse la
-			// place aux coins arrondis du theme et au contour, sans laisser passer
-			// un panneau qui deborderait (la region entiere fait 64 000).
-			CheckEqU(s.rap.conteneursTailleFlux, 2u, "(b12) les deux `size` sont LUS");
-			Check(v > 6000u && v < 12000u,
-				  "(b12) LE PANNEAU DU HAUT EST VISIBLE, a sa taille declaree");
-			Check(x > 6000u && x < 12000u,
-				  "(b12) celui du bas aussi — ils ne se recouvrent plus");
+	CasMenuContextuel();
 
-			// ⚠️ ET LA PREUVE GEOMETRIQUE, PARCE QUE DEUX COMPTES JUSTES NE DISENT
-			//    PAS « L'UN SOUS L'AUTRE ». Deux panneaux cote a cote, ou decales de
-			//    trois pixels, donneraient exactement les memes deux chiffres.
-			NkRect bH{0.f, 0.f, 0.f, 0.f}, bB{0.f, 0.f, 0.f, 0.f};
-			const bool aH = BoiteCouleur(s.ras, vert, bH);
-			const bool aB = BoiteCouleur(s.ras, violet, bB);
-			Check(aH && aB, "(b12) les deux couleurs ont une boite englobante");
-			if (aH && aB) {
-				printf("        haut = (%.0f, %.0f, %.0f x %.0f), bas = (%.0f, %.0f, %.0f x %.0f)\n",
-					   bH.x, bH.y, bH.w, bH.h, bB.x, bB.y, bB.w, bB.h);
-				Check(bH.y + bH.h <= bB.y + 1.f,
-					  "(b12) LE HAUT EST AU-DESSUS DU BAS — les boites ne se croisent pas");
-				Check(bH.x == bB.x, "(b12) et ils partagent leur bord gauche : c'est bien une pile");
-			}
+	CasCourbe();
 
-			// La racine, elle, ne dit pas sa taille : elle prend ce qui reste. Ce
-			// n'est pas un defaut — c'est le sens de « tout le reste » pour le
-			// dernier — mais le rapport doit le NOMMER, sinon un document ambigu
-			// passe sans qu'on puisse le voir.
-			CheckEqU(s.rap.conteneursSansTaille, 1u,
-					 "(b12) le `Window` racine est compte SANS TAILLE, pas oublie");
-			s.Png("b12_corrige.png");
-			s.exe.Debrancher(s.ctx);
-		}
-	}
+	CasPlateformes();
 
-	// =====================================================================
-	printf("\n-- (b13) LA TABLE DE RAPPELS — lambda capturante, METHODE, et le silence compte\n");
-	// =====================================================================
-	// Rodolf, 27/09 : « est-ce que le systeme pour brancher une fonction ou
-	// methode ou lambda sur les evenements callback est deja en place ? »
-	//
-	// La reponse mesuree etait : le FIL oui, le BRANCHEMENT non. `NkGuiCallbackFn`
-	// est un pointeur de fonction C nu — une lambda CAPTURANTE ne s'y convertit
-	// pas, une METHODE non plus. Ce banc lui-meme ecrivait SIX fois le meme
-	// trampoline plus un `this` deguise en `void *`.
-	//
-	// ⚠️ LE CRITERE NE PEUT PAS ETRE « ca compile ». Une table qui accepte un
-	//    appelable et ne l'appelle jamais compile parfaitement. Ce qui est exige
-	//    ici, c'est que la CAPTURE ait ete vue (un compteur exterieur a la lambda
-	//    a bouge) et que l'objet ait recu l'appel SUR LUI (son propre champ a
-	//    change, pas une variable globale).
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  Button \"ok\" { label = \"Valider\" }\n"
-			"}\n"
-			"behavior \"b\" {\n"
-			"  Callback \"sauver\"(7)\n"
-			"  Callback \"ouvrir\"(\"scene.nk\")\n"
-			"  Callback \"personne\"()\n"
-			"}\n";
-		Scene s;
-		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
-			  "(b13) le document a trois `Callback` se charge");
-
-		// Un objet, pour prouver la METHODE. Il compte sur LUI-MEME : une variable
-		// globale ne dirait pas que l'instance a bien ete retrouvee.
-		struct Panneau {
-				uint32 recus = 0u;
-				NkString dernier;
-				void SurOuvrir(const NkGuiAppelCallback &a) {
-					++recus;
-					// ⚠️ UNE CHAINE CITEE ARRIVE EN `Jeton`, PAS EN « TEXTE ».
-					//    `NkGuiValeur` n'a que trois types (Nombre, Booleen, Jeton)
-					//    et le texte d'un `Callback "x"("scene.nk")` vit dans
-					//    `.jeton` — c'est ce que (b2) lisait deja. Ecrire `.texte`
-					//    ne compilait pas, et c'est tant mieux : un champ qui aurait
-					//    existe et rendu du vide aurait fait un critere vert sur un
-					//    argument perdu.
-					if (a.nbArgs > 0u && a.args[0].type == NkGuiValeur::Type::Jeton)
-						dernier = a.args[0].jeton;
-				}
-		};
-		Panneau panneau;
-
-		// Une capture par reference : c'est precisement ce que le pointeur de
-		// fonction nu ne savait pas porter.
-		uint32 sauves = 0u;
-		float32 argVu = -1.f;
-
-		NkGuiRappels rappels;
-		Check(rappels.Brancher(NkStringView("sauver"),
-							   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &a) {
-								   ++sauves;
-								   if (a.nbArgs > 0u)
-									   argVu = a.args[0].nombre;
-							   })),
-			  "(b13) une LAMBDA CAPTURANTE se branche");
-		Check(rappels.Brancher(NkStringView("ouvrir"),
-							   NkGuiRappels::Rappel(&panneau, &Panneau::SurOuvrir)),
-			  "(b13) une METHODE se branche, sur SON instance");
-		CheckEqU(rappels.Nombre(), 2u, "(b13) la table porte deux noms");
-		CheckEqU(rappels.branches, 2u, "(b13) deux branchements NEUFS");
-		CheckEqU(rappels.remplaces, 0u, "(b13) aucun remplacement");
-		Check(rappels.EstBranche(NkStringView("sauver")), "(b13) `sauver` est branche");
-		Check(!rappels.EstBranche(NkStringView("personne")),
-			  "(b13) `personne` ne l'est pas — c'est le negatif de la mesure d'apres");
-
-		// Une seule ligne au lieu des deux que ce banc ecrit six fois ailleurs.
-		rappels.BrancherSur(s.exe.eval);
-		s.Image();
-
-		printf("        servis = %u, sansDestinataire = %u (« %s »), sauves = %u, arg = %.1f\n",
-			   rappels.servis, rappels.sansDestinataire,
-			   rappels.dernierSansDestinataire.CStr(), sauves, argVu);
-
-		CheckEqU(rappels.servis, 2u, "(b13) DEUX appels ont atteint un destinataire");
-		// ⚠️ ET LA CAPTURE, PAS SEULEMENT L'APPEL. `servis` monterait aussi si la
-		//    table appelait un appelable VIDE : c'est le compteur exterieur a la
-		//    lambda qui prouve que la fermeture a ete portee jusqu'au bout.
-		CheckEqU(sauves, 1u, "(b13) LA CAPTURE A ETE VUE — le compteur du dehors a bouge");
-		CheckEqF(argVu, 7.f, 0.001f, "(b13) et l'argument du document est arrive");
-		CheckEqU(panneau.recus, 1u, "(b13) L'OBJET a recu l'appel sur LUI");
-		Check(panneau.dernier.Compare(NkString("scene.nk")) == 0,
-			  "(b13) avec son argument texte");
-
-		// 🔴 LE CHIFFRE POUR LEQUEL CETTE CLASSE EXISTE. `Callback "personne"` n'a
-		//    aucun destinataire : sans ce compteur il disparaitrait sans un mot,
-		//    exactement comme les sept abandons silencieux du 27/09.
-		CheckEqU(rappels.sansDestinataire, 1u,
-				 "(b13) LE NOM SANS DESTINATAIRE EST COMPTE, pas perdu");
-		Check(rappels.dernierSansDestinataire.Compare(NkString("personne")) == 0,
-			  "(b13) ET NOMME — un compteur seul dirait qu'il manque quelque chose sans dire quoi");
-
-		// Re-brancher un nom existant : legitime, et ce n'est PAS un ajout.
-		Check(rappels.Brancher(NkStringView("sauver"),
-							   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &) { ++sauves; })),
-			  "(b13) re-brancher un nom deja la reussit");
-		CheckEqU(rappels.Nombre(), 2u, "(b13) et n'ajoute PAS de ligne");
-		CheckEqU(rappels.remplaces, 1u, "(b13) le remplacement est compte a part de l'ajout");
-
-		Check(rappels.Debrancher(NkStringView("ouvrir")), "(b13) `ouvrir` se debranche");
-		Check(!rappels.Debrancher(NkStringView("ouvrir")),
-			  "(b13) et une seconde fois rend FAUX — « rien a retirer » n'est pas « retire »");
-		rappels.ReinitialiserCompteursAppel();
-		s.Image();
-		CheckEqU(rappels.sansDestinataire, 2u,
-				 "(b13) debranche, `ouvrir` rejoint `personne` dans les sans-destinataire");
-		s.exe.Debrancher(s.ctx);
-	}
-
-	// =====================================================================
-	printf("\n-- (b14) VBox, HBox, Group, Stack : `size` les CONFINE aussi\n");
-	// =====================================================================
-	// Rodolf, 27/09 : « on doit avoir plusieurs conteneur vbox hbox stack et tout
-	// ce que tu juge fonctionnel ».
-	//
-	// ⚠️ CES QUATRE-LA NE PEIGNENT RIEN, DONC ON NE PEUT PAS LES MESURER
-	//    DIRECTEMENT. Le critere passe par un `Panel` colore DANS chacun : si le
-	//    conteneur s'est confine a la bande que `size` demande, son panneau tombe
-	//    dans cette bande ; s'il a pris toute la region, son panneau part d'ailleurs
-	//    et les bandes se croisent. Lire les rectangles du RAPPORT aurait mesure ce
-	//    que le monteur CROIT avoir fait — ici on mesure ce qui est arrive a l'image.
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  Window \"racine\" {\n"
-			"    VBox \"pile\" {\n"
-			"      VBox \"ca\" { size = (200, 44)\n"
-			"        Panel \"pa\" { size = (160, 24)\n"
-			"          appearance { fill { color = #1A7F37 } }\n"
-			"        }\n"
-			"      }\n"
-			"      HBox \"cb\" { size = (200, 44)\n"
-			"        Panel \"pb\" { size = (160, 24)\n"
-			"          appearance { fill { color = #8250DF } }\n"
-			"        }\n"
-			"      }\n"
-			"      Group \"cc\" { size = (200, 44)\n"
-			"        Panel \"pc\" { size = (160, 24)\n"
-			"          appearance { fill { color = #CF222E } }\n"
-			"        }\n"
-			"      }\n"
-			"      Stack \"cd\" { size = (200, 44)\n"
-			"        Panel \"pd\" { size = (160, 24)\n"
-			"          appearance { fill { color = #0969DA } }\n"
-			"        }\n"
-			"      }\n"
-			"    }\n"
-			"  }\n"
-			"}\n";
-		const uint32 couleurs[4] = {0x1A7F37FFu, 0x8250DFFFu, 0xCF222EFFu, 0x0969DAFFu};
-		const char *noms[4] = {"VBox", "HBox", "Group", "Stack"};
-		Scene s;
-		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
-			  "(b14) le document a quatre conteneurs de taille se charge");
-		s.Image();
-		s.Image();
-		printf("        tailleFlux = %u, sansTaille = %u\n", s.rap.conteneursTailleFlux,
-			   s.rap.conteneursSansTaille);
-		// Quatre conteneurs PLUS leurs quatre panneaux : huit `size` honores. Un
-		// total de quatre voudrait dire que les panneaux interieurs, eux, ne le
-		// sont pas — et le cas serait vert sur une moitie du travail.
-		CheckEqU(s.rap.conteneursTailleFlux, 8u,
-				 "(b14) HUIT `size` honores — les quatre conteneurs ET leurs quatre panneaux");
-		NkRect boites[4];
-		bool toutes = true;
-		for (uint32 k = 0; k < 4u; ++k) {
-			const uint32 n = ComptePixelsCouleur(s.ras, couleurs[k]);
-			const bool a = BoiteCouleur(s.ras, couleurs[k], boites[k]);
-			if (!a)
-				toutes = false;
-			printf("        %-6s : %u px", noms[k], n);
-			if (a)
-				printf(", boite (%.0f, %.0f, %.0f x %.0f)", boites[k].x, boites[k].y,
-					   boites[k].w, boites[k].h);
-			printf("\n");
-			// 160 x 24 = 3 840 px ; la borne haute exclut un panneau qui aurait
-			// pris la region (320 x 220 = 70 400).
-			Check(n > 2500u && n < 5000u, noms[k]);
-		}
-		Check(toutes, "(b14) les quatre couleurs sont PRESENTES — aucune n'est recouverte");
-		if (toutes) {
-			// ⚠️ ET L'ORDRE, PAS SEULEMENT LA PRESENCE. Trois comptes justes ne
-			//    disent pas « l'un sous l'autre » : trois bandes empilees a l'envers,
-			//    ou trois bandes qui se chevauchent de deux pixels, rendraient
-			//    exactement les memes trois chiffres.
-			bool ordonnees = true;
-			for (uint32 k = 0; k + 1u < 4u; ++k)
-				if (boites[k].y + boites[k].h > boites[k + 1].y)
-					ordonnees = false;
-			Check(ordonnees, "(b14) LES QUATRE BANDES SONT EMPILEES DANS L'ORDRE DU DOCUMENT");
-			// Chaque conteneur demande 44 px ; le pas attendu est donc 44 plus
-			// l'espacement du theme, jamais la hauteur de la bande peinte (24).
-			bool pasJuste = true;
-			printf("        pas entre bandes :");
-			for (uint32 k = 0; k + 1u < 4u; ++k) {
-				const float32 pas = boites[k + 1].y - boites[k].y;
-				printf(" %.0f", pas);
-				if (pas < 40.f || pas > 56.f)
-					pasJuste = false;
-			}
-			printf(" px (conteneurs de 44 px + espacement du theme)\n");
-			Check(pasJuste, "(b14) ET LE PAS VAUT LA TAILLE DEMANDEE — chacun a pris ses 44 px");
-
-			// ⚠️ LE CRITERE QUE LE PREMIER RELEVE A RECLAME. Les quatre bandes
-			//    etaient empilees et le pas tenait dans l'intervalle — mais celle du
-			//    `Stack` sortait a x = 10 quand les trois autres etaient a x = 20, et
-			//    son pas valait 40 au lieu de 50. Un intervalle assez large pour
-			//    accepter les deux ne distingue rien : *different ne veut pas dire
-			//    visible, et un intervalle qui accepte tout ne refute rien*.
-			//
-			//    Ce qu'on exige donc ici : le MEME decalage de l'enfant dans son
-			//    conteneur, pour les quatre. C'est ce qui fait qu'un document ecrit
-			//    pour une `VBox` se relit pareil dans un `Stack`.
-			const char *ids[4] = {"ca", "cb", "cc", "cd"};
-			float32 dx[4] = {0.f, 0.f, 0.f, 0.f}, dy[4] = {0.f, 0.f, 0.f, 0.f};
-			bool tousRects = true;
-			printf("        decalage de l'enfant dans son conteneur :");
-			for (uint32 k = 0; k < 4u; ++k) {
-				NkRect rc{0.f, 0.f, 0.f, 0.f};
-				if (!s.RectTout(ids[k], rc)) {
-					tousRects = false;
-					continue;
-				}
-				dx[k] = boites[k].x - rc.x;
-				dy[k] = boites[k].y - rc.y;
-				printf("  %s (%.0f, %.0f)", noms[k], dx[k], dy[k]);
-			}
-			printf("\n");
-			Check(tousRects, "(b14) les quatre conteneurs ont un rectangle au rapport");
-			if (tousRects) {
-				bool memeDecalage = true;
-				for (uint32 k = 1; k < 4u; ++k)
-					if (dx[k] != dx[0] || dy[k] != dy[0])
-						memeDecalage = false;
-				Check(memeDecalage,
-					  "(b14) LES QUATRE PLACENT LEUR ENFANT AU MEME ENDROIT — un document "
-					  "ecrit pour l'un se relit dans l'autre");
-			}
-		}
-		s.Png("b14_conteneurs.png");
-		s.exe.Debrancher(s.ctx);
-	}
-
-	// =====================================================================
-	printf("\n-- (b15) LE DOCKABLE : la section `layout` PLACE les zones\n");
-	// =====================================================================
-	// Rodolf, 27/09 : « on doit aussi avoir le dockable ».
-	//
-	// 🔴 P10 ETAIT LU PAR PERSONNE. `NkGuiLireDispositions` existait depuis ce matin,
-	//    valide et compte — et son SEUL appelant etait le banc `NKGuiMonteTest`. Le
-	//    monteur ne l'appelait JAMAIS : un document qui ecrivait `dock "outils" left
-	//    0.16` etait analyse puis ignore, et les zones restaient partagees en bandes
-	//    verticales egales. *Un banc qui prouve son propre lecteur ne prouve pas que
-	//    le produit s'en sert*, et je l'avais annonce comme livre.
-	//
-	// ⚠️ LE CRITERE EXIGE LES QUATRE COTES, PAS UN. Une disposition qui ne saurait
-	//    que le `left` rendrait exactement le meme resultat que l'ancien partage
-	//    horizontal sur un document qui n'ecrit qu'un `left`.
-	{
-		// Les zones ne sont servies par personne : chacune se marque de hachures et
-		// ECRIT SON NOM. C'est ce qui les rend reperables sans hote.
-		static const char kZones[] =
-			"  DockSpace \"espace\" {\n"
-			"    Host \"outils\" {}\n"
-			"    Host \"scene\" {}\n"
-			"    Host \"props\" {}\n"
-			"    Host \"barre\" {}\n"
-			"    Host \"journal\" {}\n"
-			"  }\n";
-		char sans[1024], avec[2048];
-		// ⚠️ LES DEUX DOCUMENTS PARTAGENT LEUR SECTION `widgets`, AU CARACTERE. Deux
-		//    arbres ecrits a la main auraient pu differer par autre chose que la
-		//    section `layout`, et la comparaison aurait mesure cette difference-la.
-		snprintf(sans, sizeof(sans), "nkgui 0.3\nwidgets {\n%s}\n", kZones);
-		snprintf(avec, sizeof(avec),
-				 "nkgui 0.3\nwidgets {\n%s}\n"
-				 "layout \"defaut\" {\n"
-				 "  dock \"outils\" left 0.2\n"
-				 "  dock \"props\" right 0.25\n"
-				 "  dock \"barre\" top 0.1\n"
-				 "  dock \"journal\" bottom 0.15\n"
-				 "  dock \"scene\" center\n"
-				 "}\n",
-				 kZones);
-
-		NkRect rSans[5], rAvec[5];
-		const char *noms[5] = {"outils", "scene", "props", "barre", "journal"};
-		uint32 amarreesSans = 0u, amarreesAvec = 0u;
-		bool lusSans = true, lusAvec = true;
-
-		{
-			Scene s;
-			Check(s.Charger(sans, (uint32)__builtin_strlen(sans), 400, 300),
-				  "(b15) [sans layout] le document se charge");
-			s.Image();
-			amarreesSans = s.rap.zonesAmarrees;
-			for (uint32 k = 0; k < 5u; ++k)
-				if (!s.RectTout(noms[k], rSans[k]))
-					lusSans = false;
-			s.exe.Debrancher(s.ctx);
-		}
-		{
-			Scene s;
-			Check(s.Charger(avec, (uint32)__builtin_strlen(avec), 400, 300),
-				  "(b15) [avec layout] le document se charge");
-			s.Image();
-			amarreesAvec = s.rap.zonesAmarrees;
-			printf("        dispositions lues = %u, amarrages = %u, zonesAmarrees = %u\n",
-				   s.etat.rapportDispositions.dispositions,
-				   s.etat.rapportDispositions.amarrages, amarreesAvec);
-			Check(s.etat.rapportDispositions.Propre(),
-				  "(b15) la disposition est PROPRE — aucun cote inconnu, aucune fraction hors bornes");
-			for (uint32 k = 0; k < 5u; ++k)
-				if (!s.RectTout(noms[k], rAvec[k]))
-					lusAvec = false;
-			s.Png("b15_dock.png");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		Check(lusSans && lusAvec, "(b15) les cinq zones ont un rectangle dans les deux cas");
-		// Le negatif : sans section `layout`, RIEN n'est amarre — c'est l'etat d'avant,
-		// et c'est ce qui prouve que le chemin d'hier n'a pas bouge.
-		CheckEqU(amarreesSans, 0u, "(b15) [sans layout] AUCUNE zone amarree — chemin d'hier intact");
-		CheckEqU(amarreesAvec, 4u, "(b15) [avec layout] les QUATRE cotes sont amarres");
-
-		if (lusSans && lusAvec) {
-			for (uint32 k = 0; k < 5u; ++k)
-				printf("        %-8s sans (%.0f, %.0f, %.0f x %.0f)  avec (%.0f, %.0f, %.0f x %.0f)\n",
-					   noms[k], rSans[k].x, rSans[k].y, rSans[k].w, rSans[k].h, rAvec[k].x,
-					   rAvec[k].y, rAvec[k].w, rAvec[k].h);
-			// Sans disposition : cinq bandes verticales de meme hauteur. C'est le
-			// partage d'hier, et il doit rester exactement celui-la.
-			bool bandes = true;
-			for (uint32 k = 0; k < 5u; ++k)
-				if (rSans[k].h != rSans[0].h)
-					bandes = false;
-			Check(bandes, "(b15) [sans layout] cinq bandes de MEME hauteur — le partage horizontal");
-
-			// Avec disposition, chaque cote a sa place. Les fractions se rapportent a la
-			// zone entiere (400 x 300) : outils 80 de large, props 100, barre 30 de haut,
-			// journal 45.
-			CheckEqF(rAvec[0].w, 80.f, 1.5f, "(b15) `outils` fait 20 % de la LARGEUR");
-			CheckEqF(rAvec[2].w, 100.f, 1.5f, "(b15) `props` fait 25 % de la largeur");
-			CheckEqF(rAvec[3].h, 30.f, 1.5f, "(b15) `barre` fait 10 % de la HAUTEUR");
-			CheckEqF(rAvec[4].h, 45.f, 1.5f, "(b15) `journal` fait 15 % de la hauteur");
-			// ⚠️ ET LES COTES, PAS SEULEMENT LES TAILLES. Quatre largeurs justes
-			//    n'excluent pas que `props` soit a gauche : il faut dire OU.
-			Check(rAvec[0].x < rAvec[1].x, "(b15) `outils` est A GAUCHE de la scene");
-			Check(rAvec[2].x > rAvec[1].x, "(b15) `props` est A DROITE de la scene");
-			Check(rAvec[3].y < rAvec[1].y, "(b15) `barre` est AU-DESSUS de la scene");
-			Check(rAvec[4].y > rAvec[1].y, "(b15) `journal` est AU-DESSOUS de la scene");
-			// Le centre prend ce qui reste, et il ne reste AUCUN trou : c'est la regle
-			// que ce `case` s'etait donnee le 17/09 (« un dock qui laisse un trou n'est
-			// pas un dock »), et elle doit tenir par ce chemin-ci aussi.
-			CheckEqF(rAvec[1].x + rAvec[1].w, rAvec[2].x, 1.5f,
-					 "(b15) la scene touche `props` — aucune bande orpheline a droite");
-			CheckEqF(rAvec[1].y + rAvec[1].h, rAvec[4].y, 1.5f,
-					 "(b15) et elle touche `journal` — aucune bande orpheline en bas");
-		}
-	}
-
-	// =====================================================================
-	printf("\n-- (b16) `ContextMenu` : le refus est LEVE par le crochet qu'il reclamait\n");
-	// =====================================================================
-	// L'ancien refus, dans l'enumeration des roles : « NKGui a bien `BeginPopupMenu`,
-	// mais il ne rend vrai que si quelqu'un a appele `ctx.OpenPopupAt(...)` AU CLIC
-	// DROIT -- et ce monteur monte l'etat au REPOS : il n'a aucun clic droit a offrir.
-	// [...] CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote. »
-	//
-	// ⚠️ ET LE RAISONNEMENT DU REFUS EST DEVENU LE CRITERE. Il disait qu'un role
-	//    invisible par construction serait PIRE qu'un role refuse, « parce qu'il se
-	//    compterait parmi les montes et que personne n'irait chercher pourquoi rien
-	//    n'apparait ». Ce cas exige donc les DEUX moities : que le menu s'ouvre quand
-	//    l'hote le dit, ET qu'il se compte A PART quand personne ne l'ouvre.
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  Button \"cible\" { label = \"Clic droit ici\" }\n"
-			"  ContextMenu \"menu.scene\" {\n"
-			"    MenuItem \"m.copier\" { label = \"Copier\", shortcut = \"Ctrl+C\" }\n"
-			"    MenuItem \"m.coller\" { label = \"Coller\" }\n"
-			"    MenuItem \"m.suppr\" { label = \"Supprimer\" }\n"
-			"  }\n"
-			"}\n";
-		// L'hote : il ouvre le menu qu'il connait, a la position qu'il choisit — et
-		// SEULEMENT celui-la. Un hote qui repondrait vrai a tout nom prouverait que le
-		// monteur appelle le crochet, pas qu'il ecoute sa reponse.
-		struct HoteMenu : public NkGuiMonteHooks {
-				bool ouvrir = false;
-				uint32 demandes = 0u;
-				NkString dernierNom;
-				bool MenuContextuelOuvre(const char *nom, NkVec2 &posOut) noexcept override {
-					++demandes;
-					dernierNom = NkString(nom);
-					if (!ouvrir)
-						return false;
-					posOut = NkVec2{40.f, 60.f};
-					return true;
-				}
-		};
-
-		// ── SANS HOTE DU TOUT : le role est monte, et le menu COMPTE ────────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
-				  "(b16) le document a `ContextMenu` se charge");
-			s.Image();
-			printf("        [sans hote]  inconnus = %u, ouverts = %u, sansHote = %u, "
-				   "itemsHorsMenu = %u\n",
-				   s.rap.rolesInconnus, s.rap.menusContextuelsOuverts,
-				   s.rap.menusContextuelsSansHote, s.rap.elementsMenuHorsMenu);
-			// 🔴 LA MOITIE QUI PROUVE QUE LE REFUS EST LEVE. Avant aujourd'hui, ce
-			//    document rendait `rolesInconnus = 1` : le role n'existait pas.
-			CheckEqU(s.rap.rolesInconnus, 0u,
-					 "(b16) `ContextMenu` N'EST PLUS UN ROLE INCONNU");
-			CheckEqU(s.rap.menusContextuelsOuverts, 0u, "(b16) [sans hote] rien ne s'ouvre");
-			CheckEqU(s.rap.menusContextuelsSansHote, 1u,
-					 "(b16) [sans hote] ET LE MENU EST COMPTE — pas un role invisible qui se dit monte");
-			// 🔴 CE CRITERE ETAIT FAUX, ET C'EST MOI QUI L'ETAIS. J'attendais 3 :
-			//    « les trois entrees sont comptees hors menu ». Il rendait 0, parce
-			//    qu'un menu FERME ne monte pas son contenu du tout — et c'est la
-			//    politique que le role `Menu` s'etait deja donnee, mot pour mot :
-			//    « LE CONTENU D'UN MENU FERME NE SE MONTE PAS, et ce n'est pas une
-			//    perte : NKGui ne dessine ses entrees que dans le popup ouvert. [...]
-			//    d'ou `menusOuverts`, qui separe les deux. » Monter les entrees en flux
-			//    pour pouvoir les compter aurait fait exactement ce que ce role refuse :
-			//    de faux boutons hors de leur menu.
-			//
-			//    Ce qui dit qu'il y a un menu invisible, ce n'est donc PAS un compte
-			//    d'entrees — c'est `menusContextuelsSansHote`, verifie juste au-dessus.
-			//    `elementsMenuHorsMenu` garde son sens d'origine : un `MenuItem` ecrit
-			//    en dehors de toute chaine de menus, ce que ce document ne fait pas.
-			CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
-					 "(b16) [sans hote] AUCUNE entree montee — un menu ferme ne monte pas son contenu");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── L'HOTE EXISTE MAIS N'OUVRE PAS : le crochet est bien APPELE ─────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
-				  "(b16) [hote ferme] le document se charge");
-			HoteMenu h;
-			h.ouvrir = false;
-			// Ce document n'a ni `behavior` ni `bind` : remplacer les crochets de
-			// l'execution par cet hote-ci est sans effet sur ce qu'il monte.
-			s.Image(&h);
-			printf("        [hote ferme] demandes = %u (« %s »), ouverts = %u, sansHote = %u\n",
-				   h.demandes, h.dernierNom.CStr(), s.rap.menusContextuelsOuverts,
-				   s.rap.menusContextuelsSansHote);
-			// ⚠️ SANS CE CRITERE, « rien ne s'est ouvert » serait ambigu : le monteur
-			//    pourrait ne JAMAIS appeler le crochet et rendre le meme resultat.
-			CheckEqU(h.demandes, 1u, "(b16) LE CROCHET EST APPELE, avec le nom du document");
-			Check(h.dernierNom.Compare(NkString("menu.scene")) == 0,
-				  "(b16) et c'est bien le nom du `ContextMenu`, pas un autre");
-			CheckEqU(s.rap.menusContextuelsOuverts, 0u,
-					 "(b16) [hote ferme] il a dit non, donc rien ne s'ouvre");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── L'HOTE OUVRE : le menu apparait, AVEC SES ENTREES ──────────────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
-				  "(b16) [hote ouvre] le document se charge");
-			HoteMenu h;
-			h.ouvrir = true;
-			// La reference se prend SANS hote, sur la meme scene : c'est l'image a
-			// laquelle le menu doit ajouter des pixels.
-			s.Image();
-			const uint32 peintAvant = ComptePixelsPeints(s.ras, kFond);
-			// Deux images avec l'hote : NKGui garde son popup d'une image sur l'autre,
-			// et c'est la SECONDE qui le dessine — le survol de ce banc a la meme
-			// latence, pour la meme raison.
-			s.Image(&h);
-			s.Image(&h);
-			const uint32 peintApres = ComptePixelsPeints(s.ras, kFond);
-			printf("        [hote ouvre] ouverts = %u, sansHote = %u, itemsHorsMenu = %u ; "
-				   "pixels %u -> %u\n",
-				   s.rap.menusContextuelsOuverts, s.rap.menusContextuelsSansHote,
-				   s.rap.elementsMenuHorsMenu, peintAvant, peintApres);
-			CheckEqU(s.rap.menusContextuelsOuverts, 1u, "(b16) [hote ouvre] LE MENU S'OUVRE");
-			CheckEqU(s.rap.menusContextuelsSansHote, 0u,
-					 "(b16) et il n'est plus compte comme sans hote");
-			// Les entrees sont DANS le popup : elles ne sont plus « hors menu ».
-			CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
-					 "(b16) LES TROIS ENTREES SONT DANS LE MENU, plus hors de lui");
-			// ⚠️ ET LE CRITERE QUI COMPTE EST EN PIXELS. Trois compteurs justes ne
-			//    disent pas qu'un menu est APPARU : le popup vit dans la surimpression,
-			//    et ce banc ne la rasterisait meme pas avant ce matin.
-			Check(peintApres > peintAvant + 300u,
-				  "(b16) ET IL EST PEINT — l'image gagne plus de 300 pixels");
-			s.Png("b16_menu_contextuel.png");
-			s.exe.Debrancher(s.ctx);
-		}
-	}
-
-	// =====================================================================
-	printf("\n-- (b17) P7 `CurveField` : une courbe qu'on TIRE, pas seulement qu'on voit\n");
-	// =====================================================================
-	// Doc 09 §P7 : « la vitesse le long d'une trajectoire, la part de physique dans le
-	// temps, l'intensite d'un vent — une courbe editable EN PLACE. `Chart` n'est pas
-	// editable. »
-	//
-	// ⚠️ C'EST DONC L'EDITION QUI EST LE CRITERE, PAS LE DESSIN. Un champ de courbe qui
-	//    se peint joliment et qu'on ne peut pas toucher serait un `Chart` sous un autre
-	//    nom : il ferait monter `courbes`, il aurait ses pixels, et il ne rendrait
-	//    AUCUN des services que ce role existe pour rendre.
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  CurveField \"vitesse\" {\n"
-			"    bind = \"traj.vitesse\"\n"
-			"    min = 0\n"
-			"    max = 200\n"
-			"    height = 90\n"
-			"    xLabel = \"avancement\"\n"
-			"    yLabel = \"km/h\"\n"
-			"  }\n"
-			"}\n";
-		// L'hote possede les points — c'est le partage que ce role a choisi. Il note
-		// aussi ce qu'on lui renvoie : sans cela, « le point a bouge a l'ecran » ne
-		// dirait pas que l'application l'a SU.
-		struct HoteCourbe : public NkGuiMonteHooks {
-				NkVec2 pts[4] = {{0.f, 20.f}, {0.33f, 120.f}, {0.66f, 60.f}, {1.f, 180.f}};
-				bool servir = true;
-				uint32 lectures = 0u;
-				uint32 notifications = 0u;
-				NkString dernierBind;
-				NkVec2 recus[4];
-				uint32 nRecus = 0u;
-				bool CourbeLiee(const char *bind, NkVec2 *out, uint32 maxP,
-								uint32 &nOut) noexcept override {
-					++lectures;
-					dernierBind = NkString(bind);
-					if (!servir || maxP < 4u)
-						return false;
-					for (uint32 i = 0; i < 4u; ++i)
-						out[i] = pts[i];
-					nOut = 4u;
-					return true;
-				}
-				void CourbeModifiee(const char *bind, const NkVec2 *p,
-									uint32 n) noexcept override {
-					++notifications;
-					dernierBind = NkString(bind);
-					nRecus = n < 4u ? n : 4u;
-					for (uint32 i = 0; i < nRecus; ++i) {
-						recus[i] = p[i];
-						pts[i] = p[i]; // l'hote garde ce qu'on lui rend
-					}
-				}
-		};
-
-		// ── SANS HOTE : le role existe, et l'ABSENCE de courbe se voit ──────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
-				  "(b17) le document a `CurveField` se charge");
-			s.Image();
-			printf("        [sans hote] inconnus = %u, courbes = %u, sansHote = %u\n",
-				   s.rap.rolesInconnus, s.rap.courbes, s.rap.courbesSansHote);
-			CheckEqU(s.rap.rolesInconnus, 0u, "(b17) `CurveField` n'est plus un role inconnu");
-			CheckEqU(s.rap.courbes, 1u, "(b17) la courbe est rencontree");
-			// ⚠️ ET ELLE N'INVENTE PAS DE DROITE DE REPLI. Une ligne plate tracee faute
-			//    de donnees aurait ete indiscernable d'une vraie courbe plate — un
-			//    reglage faux qui a l'air juste. Meme politique qu'une zone `Host`.
-			CheckEqU(s.rap.courbesSansHote, 1u,
-					 "(b17) [sans hote] comptee SANS HOTE — aucune courbe inventee");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── AVEC HOTE : elle est LUE et PEINTE ──────────────────────────────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
-				  "(b17) [avec hote] le document se charge");
-			HoteCourbe h;
-			// La reference sans hote, sur la meme scene : c'est l'image a laquelle la
-			// courbe doit ajouter ses pixels.
-			s.Image();
-			const uint32 sansCourbe = ComptePixelsPeints(s.ras, kFond);
-			s.Image(&h);
-			const uint32 avecCourbe = ComptePixelsPeints(s.ras, kFond);
-			const uint32 accent = Empaquete(NkGuiContext().theme.accent);
-			const uint32 pxAccent = ComptePixelsCouleur(s.ras, accent);
-			printf("        [avec hote] lectures = %u (« %s »), sansHote = %u ; pixels %u -> %u, "
-				   "accent = %u\n",
-				   h.lectures, h.dernierBind.CStr(), s.rap.courbesSansHote, sansCourbe,
-				   avecCourbe, pxAccent);
-			CheckEqU(h.lectures, 1u, "(b17) LE CROCHET EST LU, une fois par image");
-			Check(h.dernierBind.Compare(NkString("traj.vitesse")) == 0,
-				  "(b17) et avec le `bind` du document, pas l'identifiant du widget");
-			CheckEqU(s.rap.courbesSansHote, 0u, "(b17) [avec hote] elle n'est plus sans hote");
-			// 🔴 LE CRITERE EST EN PIXELS DE LA COULEUR D'ACCENT, ET LE TOTAL AURAIT
-			//    RENDU L'INVERSE DE LA VERITE. Mesure : 27 000 pixels non-fond SANS la
-			//    courbe, 26 980 AVEC — il DESCEND de vingt. Parce que sans hote le champ
-			//    se couvre de hachures (le marqueur « personne ne sert ceci »), qui
-			//    peignent plus de pixels que la courbe elle-meme. Un critere « l'image
-			//    gagne des pixels » aurait donc declare la courbe absente alors qu'elle
-			//    est la, et un critere « l'image a change » l'aurait declaree presente
-			//    quoi qu'on dessine. Il faut NOMMER la couleur cherchee — quatrieme fois
-			//    aujourd'hui qu'un total ne tranche pas.
-			Check(pxAccent > 100u, "(b17) LA COURBE EST TRACEE — la couleur d'accent est presente");
-			s.Png("b17_courbe.png");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── LE GESTE : ON TIRE UN POINT, ET L'HOTE L'APPREND ────────────────
-		{
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160),
-				  "(b17) [geste] le document se charge");
-			HoteCourbe h;
-			s.Image(&h);
-			// Le rectangle du champ sort du MONTAGE : aucune coordonnee de ce banc n'est
-			// ecrite en dur — un attendu en dur se perime quand la mise en page bouge.
-			NkRect cadre{0.f, 0.f, 0.f, 0.f};
-			const bool aCadre = s.Rect("vitesse", cadre);
-			Check(aCadre, "(b17) le rectangle du champ sort du montage");
-			if (aCadre) {
-				// Le deuxieme point : x = 0,33 de la largeur utile (marge de 4 px), et sa
-				// valeur 120 sur [0, 200].
-				const float32 marge = 4.f;
-				const float32 x0 = cadre.x + marge, larg = cadre.w - 2.f * marge;
-				const float32 y0 = cadre.y + marge, hUtile = cadre.h - 2.f * marge;
-				const float32 px = x0 + larg * 0.33f;
-				const float32 py = y0 + hUtile * (1.f - 120.f / 200.f);
-				const float32 avant = h.pts[1].y;
-				printf("        point 1 avant = %.1f, poignee a (%.0f, %.0f)\n", avant, px, py);
-
-				// Survoler d'abord : la poignee doit REPONDRE au survol avant qu'on
-				// l'appuie. Ce banc a une image de retard sur le survol (hotIdPrev).
-				s.exe.PoserPointeur(s.ctx, px, py);
-				s.Image(&h);
-				s.Image(&h);
-				const uint32 blanc = Empaquete(NkGuiContext().theme.onAccent);
-				const uint32 pxSurvol = ComptePixelsCouleur(s.ras, blanc);
-				printf("        pixels blancs au survol = %u\n", pxSurvol);
-				Check(pxSurvol > 10u,
-					  "(b17) LA POIGNEE REPOND AU SURVOL — elle passe au blanc du theme");
-
-				// Puis appuyer et tirer VERS LE HAUT (y decroit a l'ecran = valeur monte).
-				// 🔴 LE COMPTEUR SE CUMULE, ET C'EST UNE LECON PAYEE ICI MEME. `rap` est
-				//    remis a zero a CHAQUE image : lire `pointsCourbeDeplaces` apres la
-				//    derniere rendait 0, parce qu'a cette image-la le point avait deja
-				//    atteint sa cible et ne bougeait plus. Le code etait juste, le critere
-				//    regardait la mauvaise image. *Un compteur par image ne se lit pas
-				//    apres un geste qui dure plusieurs images.*
-				uint32 deplacesVus = 0u;
-				s.ctx.input.mouseDown[0] = true;
-				s.ctx.input.mouseClicked[0] = true;
-				s.Image(&h);
-				deplacesVus += s.rap.pointsCourbeDeplaces;
-				s.ctx.input.mouseClicked[0] = false;
-				const float32 cible = y0 + hUtile * (1.f - 180.f / 200.f);
-				s.exe.PoserPointeur(s.ctx, px, cible);
-				s.ctx.input.mouseDown[0] = true;
-				s.Image(&h);
-				deplacesVus += s.rap.pointsCourbeDeplaces;
-				s.Image(&h);
-				deplacesVus += s.rap.pointsCourbeDeplaces;
-				printf("        point 1 apres = %.1f (cible ~180), notifications = %u, "
-					   "deplaces (cumul) = %u\n",
-					   h.pts[1].y, h.notifications, deplacesVus);
-				s.ctx.input.mouseDown[0] = false;
-
-				// 🔴 LES TROIS MOITIES DE « C'EST EDITABLE ». La valeur a change, l'hote
-				//    l'a APPRISE, et le rapport le dit. Sans la deuxieme, un widget qui
-				//    bougerait son point sans prevenir personne passerait : ce serait un
-				//    reglage que l'utilisateur croit avoir fait.
-				Check(h.pts[1].y > avant + 30.f,
-					  "(b17) LE POINT A ETE TIRE — sa valeur a monte de plus de 30");
-				Check(h.notifications > 0u, "(b17) ET L'HOTE L'A APPRIS — `CourbeModifiee` appelee");
-				Check(deplacesVus > 0u, "(b17) et le rapport le dit");
-				CheckEqF(h.pts[1].y, 180.f, 6.f,
-						 "(b17) la valeur suit la SOURIS, pas un pas arbitraire");
-				// Les voisins n'ont pas bouge : un geste qui deplacerait toute la courbe
-				// passerait les criteres ci-dessus.
-				CheckEqF(h.pts[0].y, 20.f, 0.5f, "(b17) le point 0 n'a PAS bouge");
-				CheckEqF(h.pts[2].y, 60.f, 0.5f, "(b17) ni le point 2");
-				s.Png("b17_courbe_tiree.png");
-			}
-			s.exe.Debrancher(s.ctx);
-		}
-	}
-
-	// =====================================================================
-	printf("\n-- (b18) P27 : UN document, TROIS plateformes — et l'apercu depuis le PC\n");
-	// =====================================================================
-	// Rodolf, 27/09 : « le systeme doit pouvoir avoir des design specifiques par
-	// plateforme — web, mobile et PC, vu que Nkentseu est multiplateforme […] et comme
-	// en plus le responsive est defini, ca pourrait encore apporter plus. »
-	//
-	// ⚠️ LA SELECTION EST A L'EXECUTION, PAS A LA COMPILATION, ET CE CAS EST CE QUI LE
-	//    PROUVE : il monte le design MOBILE alors qu'il tourne sur un PC. Une
-	//    compilation conditionnelle aurait rendu cette mesure impossible — et, plus
-	//    grave, aurait empeche NKUIDesign de MONTRER le design mobile sans recompiler.
-	{
-		static const char kDoc[] =
-			"nkgui 0.3\n"
-			"widgets {\n"
-			"  Window \"racine\" {\n"
-			"    VBox \"pile\" {\n"
-			"      Panel \"commun\" { size = (200, 30)\n"
-			"        appearance { fill { color = #1A7F37 } }\n"
-			"      }\n"
-			"      Panel \"colonne_pc\" { platform = Bureau, size = (200, 30)\n"
-			"        appearance { fill { color = #8250DF } }\n"
-			"      }\n"
-			"      Panel \"barre_tel\" { platform = Mobile, size = (200, 30)\n"
-			"        appearance { fill { color = #CF222E } }\n"
-			"      }\n"
-			"      Panel \"ecran_tactile\" { platform = [Mobile, Web], size = (200, 30)\n"
-			"        appearance { fill { color = #0969DA } }\n"
-			"      }\n"
-			"      Panel \"faute\" { platform = Mobil, size = (200, 30)\n"
-			"        appearance { fill { color = #E0B05A } }\n"
-			"      }\n"
-			"    }\n"
-			"  }\n"
-			"}\n";
-		const uint32 kCommun = 0x1A7F37FFu, kPC = 0x8250DFFFu, kTel = 0xCF222EFFu,
-					 kTactile = 0x0969DAFFu, kFaute = 0xE0B05AFFu;
-
-		struct Attendu {
-				NkGuiCible cible;
-				const char *nom;
-				bool pc, tel, tactile;
-		};
-		// Le meme document, lu par trois cibles. Ce que chacune doit voir est ecrit
-		// AVANT la mesure — un attendu calcule apres coup n'est pas un attendu.
-		const Attendu kCas[] = {
-			{NkGuiCible::Bureau, "Bureau", true, false, false},
-			{NkGuiCible::Mobile, "Mobile", false, true, true},
-			{NkGuiCible::Web, "Web", false, false, true},
-		};
-
-		for (uint32 c = 0; c < 3u; ++c) {
-			NkGuiPoserCible(kCas[c].cible);
-			Scene s;
-			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
-				  "(b18) le document multiplateforme se charge");
-			s.Image();
-			s.Image();
-			const uint32 nCommun = ComptePixelsCouleur(s.ras, kCommun);
-			const uint32 nPC = ComptePixelsCouleur(s.ras, kPC);
-			const uint32 nTel = ComptePixelsCouleur(s.ras, kTel);
-			const uint32 nTactile = ComptePixelsCouleur(s.ras, kTactile);
-			const uint32 nFaute = ComptePixelsCouleur(s.ras, kFaute);
-			printf("        [%-7s] commun=%u pc=%u tel=%u tactile=%u faute=%u | ecartes=%u "
-				   "inconnues=%u\n",
-				   kCas[c].nom, nCommun, nPC, nTel, nTactile, nFaute,
-				   s.rap.ecartesParPlateforme, s.rap.ciblesInconnues);
-			// Le panneau sans `platform` est la sur les trois : c'est le defaut, et sans
-			// lui on ne saurait pas distinguer « ecarte » de « jamais monte ».
-			Check(nCommun > 3000u, "(b18) le panneau SANS `platform` est la");
-			Check((nPC > 3000u) == kCas[c].pc, "(b18) la colonne PC n'est la QUE sur Bureau");
-			Check((nTel > 3000u) == kCas[c].tel, "(b18) la barre mobile QUE sur Mobile");
-			// ⚠️ LA LISTE EST LE CAS QUI SEPARE UN ATTRIBUT D'UN QUALIFICATEUR. Un
-			//    `Panel(Mobile)` n'aurait pu nommer qu'UNE cible ; `platform =
-			//    [Mobile, Web]` en nomme deux, et c'est ce que « web ET mobile » demande.
-			Check((nTactile > 3000u) == kCas[c].tactile,
-				  "(b18) l'ecran tactile sur Mobile ET Web — la LISTE est lue");
-			// 🔴 LA FAUTE DE FRAPPE NE FAIT PAS DISPARAITRE UN PANNEAU. `platform =
-			//    Mobil` est monte PARTOUT et COMPTE : ecarter sur une faute aurait donne
-			//    un document juste qui perd un panneau sans qu'aucun chiffre ne le dise.
-			Check(nFaute > 3000u,
-				  "(b18) `platform = Mobil` (faute) est MONTE — on n'ecarte pas sur une faute");
-			CheckEqU(s.rap.ciblesInconnues, 1u, "(b18) et la faute est COMPTEE, pas avalee");
-			// Le compte des ecartes se derive de l'attendu, pas releve puis recopie.
-			const uint32 attendus = (kCas[c].pc ? 0u : 1u) + (kCas[c].tel ? 0u : 1u)
-									+ (kCas[c].tactile ? 0u : 1u);
-			CheckEqU(s.rap.ecartesParPlateforme, attendus,
-					 "(b18) LE COMPTE DES ECARTES est celui qu'on a calcule d'avance");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── LE PIRE DES SILENCES : un document juste qui n'affiche rien ─────
-		{
-			static const char kVide[] =
-				"nkgui 0.3\n"
-				"widgets {\n"
-				"  Window \"racine\" {\n"
-				"    Panel \"tout_mobile\" { platform = Mobile, size = (200, 30)\n"
-				"      appearance { fill { color = #CF222E } }\n"
-				"    }\n"
-				"  }\n"
-				"}\n";
-			NkGuiPoserCible(NkGuiCible::Bureau);
-			Scene s;
-			Check(s.Charger(kVide, (uint32)(sizeof(kVide) - 1u), 320, 120),
-				  "(b18) [vide] le document se charge");
-			s.Image();
-			printf("        [vide sur Bureau] refus = %u, ecartes = %u, montes = %u\n",
-				   s.rap.rolesInconnus, s.rap.ecartesParPlateforme, s.rap.montes);
-			// ⚠️ C'EST LE CAS QUI JUSTIFIE LE COMPTEUR. Rien n'est invalide : le
-			//    document est juste, il ne s'affiche simplement pas sur cette cible.
-			//    Aucun message d'erreur n'existera jamais pour ca. Sans
-			//    `ecartesParPlateforme` au verdict, « mon interface a disparu » se
-			//    cherche a la main.
-			CheckEqU(s.rap.rolesInconnus, 0u, "(b18) [vide] AUCUNE erreur — le document est juste");
-			CheckEqU(s.rap.ecartesParPlateforme, 1u,
-					 "(b18) ET POURTANT le panneau a disparu — seul ce compteur le dit");
-			s.exe.Debrancher(s.ctx);
-		}
-
-		// ── LES DISPOSITIONS PAR CIBLE : la colonne devient une barre ───────
-		{
-			static const char kDock[] =
-				"nkgui 0.3\n"
-				"widgets {\n"
-				"  DockSpace \"espace\" {\n"
-				"    Host \"outils\" {}\n"
-				"    Host \"scene\" {}\n"
-				"  }\n"
-				"}\n"
-				"layout \"defaut\" {\n"
-				"  dock \"outils\" left 0.25\n"
-				"  dock \"scene\" center\n"
-				"}\n"
-				"layout \"defaut\" {\n"
-				"  platform = Mobile\n"
-				"  dock \"outils\" bottom 0.2\n"
-				"  dock \"scene\" center\n"
-				"}\n";
-			NkRect rOutils[2];
-			const NkGuiCible cibles[2] = {NkGuiCible::Bureau, NkGuiCible::Mobile};
-			const char *noms[2] = {"Bureau", "Mobile"};
-			bool lus = true;
-			for (uint32 k = 0; k < 2u; ++k) {
-				NkGuiPoserCible(cibles[k]);
-				Scene s;
-				Check(s.Charger(kDock, (uint32)(sizeof(kDock) - 1u), 400, 300),
-					  "(b18) [dock] le document a DEUX dispositions se charge");
-				s.Image();
-				if (!s.RectTout("outils", rOutils[k]))
-					lus = false;
-				printf("        [dock %-7s] dispositions = %u, propre = %s, outils = "
-					   "(%.0f, %.0f, %.0f x %.0f)\n",
-					   noms[k], s.etat.rapportDispositions.dispositions,
-					   s.etat.rapportDispositions.Propre() ? "oui" : "NON", rOutils[k].x,
-					   rOutils[k].y, rOutils[k].w, rOutils[k].h);
-				// 🔴 CE CRITERE A UNE RAISON PRECISE D'EXISTER. La ligne
-				//    `platform = Mobile` vit dans le MEME tableau que les lignes `dock`,
-				//    en tranche brute : si le lecteur ne l'attrapait pas, elle tomberait
-				//    dans l'analyseur de `dock` et la disposition serait declaree NON
-				//    PROPRE pour avoir declare correctement sa cible.
-				Check(s.etat.rapportDispositions.Propre(),
-					  "(b18) [dock] les deux dispositions sont PROPRES — `platform` n'est pas pris pour un `dock`");
-				CheckEqU(s.etat.rapportDispositions.dispositions, 2u,
-						 "(b18) [dock] les deux `layout` de MEME NOM coexistent");
-				s.exe.Debrancher(s.ctx);
-			}
-			Check(lus, "(b18) [dock] la zone `outils` a un rectangle dans les deux cas");
-			if (lus) {
-				// Sur Bureau : une COLONNE a gauche (haute et etroite, collee au bord).
-				// Sur Mobile : une BARRE en bas (large et basse).
-				// ⚠️ ET C'EST LA FORME QU'ON COMPARE, PAS UNE TAILLE. `sizeRel` sait
-				//    changer une taille ; il ne sait pas deplacer un panneau d'un bord a
-				//    l'autre. C'est precisement ce que la cible apporte en plus du
-				//    responsif, et le critere doit porter sur ca.
-				Check(rOutils[0].h > rOutils[0].w,
-					  "(b18) [Bureau] `outils` est une COLONNE — plus haute que large");
-				Check(rOutils[1].w > rOutils[1].h,
-					  "(b18) [Mobile] c'est une BARRE — plus large que haute");
-				Check(rOutils[1].y > rOutils[0].y,
-					  "(b18) et elle est passee EN BAS — pas seulement redimensionnee");
-			}
-		}
-		// ⚠️ ON REMET LA CIBLE. Elle est globale au processus : la laisser sur `Mobile`
-		//    ferait mentir tous les cas qui suivent, et le defaut `Toutes` est celui
-		//    qui rend la plateforme compilee.
-		NkGuiPoserCible(NkGuiCible::Toutes);
-	}
+	CasRacineNommee();
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
