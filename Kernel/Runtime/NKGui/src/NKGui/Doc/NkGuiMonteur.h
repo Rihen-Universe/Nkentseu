@@ -209,21 +209,28 @@ namespace nkentseu {
 			SplitButton,
 			TimecodeField,
 			VectorField,
-			TokenField
-			// 🔴 `ContextMenu` N'EST PAS ICI, ET C'EST UN REFUS, PAS UN OUBLI. NKGui a
-			//    bien `BeginPopupMenu`, mais il ne rend vrai que si quelqu'un a appele
-			//    `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et ce monteur monte l'etat au
-			//    REPOS : il n'a aucun clic droit a offrir. Le monter donnerait un role
-			//    qui ne se voit JAMAIS, quoi qu'ecrive le document.
+			TokenField,
+			// ── `ContextMenu` : LE REFUS EST LEVE (27/09), ET PAR L'OUTIL QU'IL
+			//    RECLAMAIT LUI-MEME ─────────────────────────────────────────────
+			// L'ancienne note disait : « NKGui a bien `BeginPopupMenu`, mais il ne rend
+			// vrai que si quelqu'un a appele `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et
+			// ce monteur monte l'etat au REPOS : il n'a aucun clic droit a offrir. [...]
+			// CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote, de la
+			// meme forme que `RemplirHote` -- l'hote dit "ce clic droit ouvre le menu
+			// nomme X". C'est une conception, pas un detail. »
 			//
-			//    Un role invisible par construction est PIRE qu'un role refuse : il se
-			//    compterait parmi les montes, et personne n'irait chercher pourquoi
-			//    rien n'apparait. Il reste donc `Inconnu` -- donc COMPTE dans
-			//    `rolesInconnus`, donc present dans le verdict.
+			// Le crochet existe : `NkGuiMonteHooks::MenuContextuelOuvre`. Rodolf, 27/09 :
+			// « il faut les definir, rien ne doit manquer, donc met les outils qu'il faut
+			// pour les atteindre ». C'est l'outil.
 			//
-			//    CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote,
-			//    de la meme forme que `RemplirHote` -- l'hote dit « ce clic droit
-			//    ouvre le menu nomme X ». C'est une conception, pas un detail.
+			// ⚠️ ET LE RAISONNEMENT DE L'ANCIENNE NOTE RESTE VRAI POUR LE CAS FERME. Un
+			//    role invisible par construction serait pire qu'un role refuse : il se
+			//    compterait parmi les montes et personne n'irait chercher pourquoi rien
+			//    n'apparait. Le `case` compte donc SEPAREMENT ce qui s'est ouvert
+			//    (`menusContextuelsOuverts`) et ce qui est reste ferme faute de crochet
+			//    (`menusContextuelsSansHote`) : le second est le chiffre qui dit « ce
+			//    document declare un menu que personne n'ouvrira jamais ».
+			ContextMenu
 		};
 
 		/// Comparaison de noms sans <cstring> (le depot est zero-STL).
@@ -266,6 +273,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TimecodeField")) return NkGuiRole::TimecodeField;
 			if (NkGMotEgal(n, "VectorField")) return NkGuiRole::VectorField;
 			if (NkGMotEgal(n, "TokenField")) return NkGuiRole::TokenField;
+			if (NkGMotEgal(n, "ContextMenu")) return NkGuiRole::ContextMenu;
 			if (NkGMotEgal(n, "Separator")) return NkGuiRole::Separator;
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
@@ -577,6 +585,18 @@ namespace nkentseu {
 				///    analysee » de « la section AGIT » : un lecteur prouve par un banc ne
 				///    prouve pas que le produit s'en sert.
 				uint32 zonesAmarrees = 0;
+				/// Les menus contextuels que l'hote a OUVERTS, et ceux qui restent
+				/// fermes faute de crochet.
+				///
+				/// ⚠️ DEUX CHIFFRES, ET C'EST LE REFUS D'ORIGINE QUI LES EXIGE. Il disait
+				///    qu'un role invisible par construction serait pire qu'un role
+				///    refuse, « parce qu'il se compterait parmi les montes et que
+				///    personne n'irait chercher pourquoi rien n'apparait ». Un seul total
+				///    aurait fait exactement cela : `menusContextuelsSansHote` est le
+				///    chiffre qui dit « ce document declare un menu que personne
+				///    n'ouvrira jamais ».
+				uint32 menusContextuelsOuverts = 0;
+				uint32 menusContextuelsSansHote = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -1413,6 +1433,28 @@ namespace nkentseu {
 				virtual bool ZoneAncree(const char *nom, const NkRect &zone) noexcept {
 					(void)nom;
 					(void)zone;
+					return false;
+				}
+
+				/// L'OUVERTURE D'UN MENU CONTEXTUEL : l'hote doit-il ouvrir le menu
+				/// nomme `nom` a cette image, et OU ? Rend vrai et remplit `posOut`.
+				///
+				/// ⚠️ C'EST L'OUTIL QUE LE REFUS DE `ContextMenu` RECLAMAIT, ET IL EST
+				///    CHEZ L'HOTE POUR UNE RAISON. Le monteur monte l'etat au REPOS : il
+				///    n'a pas de clic droit a offrir, et il ne DOIT pas en inventer un.
+				///    C'est l'application qui sait quel clic droit, sur quoi, ouvre quel
+				///    menu — un monteur qui ouvrirait « le menu du widget survole » aurait
+				///    decide a sa place, et le document n'aurait plus aucun moyen de dire
+				///    autre chose.
+				///
+				/// ⚠️ ET LE DEFAUT EST `false`, COMME POUR `ZoneAncree`. Un hote qui ne
+				///    connait pas ce nom laisse le menu FERME, et le monteur le compte
+				///    dans `menusContextuelsSansHote`. Repondre vrai sans position ferait
+				///    surgir un menu au coin de l'ecran : un role qui « marche » a un
+				///    endroit que personne n'a demande.
+				virtual bool MenuContextuelOuvre(const char *nom, NkVec2 &posOut) noexcept {
+					(void)nom;
+					(void)posOut;
 					return false;
 				}
 		};
@@ -3754,6 +3796,38 @@ namespace nkentseu {
 							}
 							Noter(rap, id, t, ctx.layout.prevItem, prof, true, horizontal,
 								  &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
+						// ── LE MENU CONTEXTUEL (refus leve le 27/09) ────────
+						case NkGuiRole::ContextMenu: {
+							// Le crochet decide, et le document dit CE QU'IL Y A DEDANS.
+							// C'est le partage que le refus d'origine demandait : l'hote
+							// sait QUAND et OU, le fichier sait QUOI.
+							NkVec2 pos{0.f, 0.f};
+							const bool ouvre =
+								hooks && hooks->MenuContextuelOuvre(id.CStr(), pos);
+							if (ouvre)
+								ctx.OpenPopupAt(ctx.GetId(id.CStr()), pos);
+							if (BeginPopupMenu(ctx, id.CStr())) {
+								++rap.menusContextuelsOuverts;
+								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+								EndPopupMenu(ctx);
+							} else if (!ouvre) {
+								// ⚠️ LE CHIFFRE QUI EMPECHE UN ROLE INVISIBLE DE SE FAIRE
+								//    PASSER POUR MONTE. Un menu que personne n'ouvre est
+								//    exactement ce que le refus d'origine redoutait : « il
+								//    se compterait parmi les montes, et personne n'irait
+								//    chercher pourquoi rien n'apparait ». Ici, il se
+								//    compte A PART.
+								++rap.menusContextuelsSansHote;
+							}
+							// ⚠️ ET ON NE NOTE PAS `prevItem`. Un menu contextuel ne prend
+							//    aucune place dans le flux — le lire donnerait le rectangle
+							//    du widget d'AVANT, c'est-a-dire un releve faux qui a l'air
+							//    juste. Meme piege que `lastItemRect` en 09/14.
+							Noter(rap, id, t, NkRect{pos.x, pos.y, 0.f, 0.f}, prof, true,
+								  horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}

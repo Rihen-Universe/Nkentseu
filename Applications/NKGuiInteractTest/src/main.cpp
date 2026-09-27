@@ -365,14 +365,21 @@ struct Scene {
 		}
 
 		/// Une image complete : entree deja posee, montage, comportement, rendu.
-		void Image() {
+		///
+		/// ⚠️ `hooks` REMPLACE `&exe`, IL NE S'AJOUTE PAS. `NkGuiMonteur::Monter` ne
+		///    prend qu'UN objet de crochets, et `NkGuiExecution` en est un : c'est lui
+		///    que ce banc passe d'ordinaire. Un cas qui fournit son propre hote (pour
+		///    `MenuContextuelOuvre`, pour `ZoneAncree`) perd donc les crochets de
+		///    l'execution — ce qui est sans effet pour un document SANS `behavior` ni
+		///    `bind`, et faux pour tout autre. Le cas qui s'en sert doit le dire.
+		void Image(NkGuiMonteHooks *hooks = nullptr) {
 			rap = NkGuiMonteRapport();
 			exe.ReinitialiserCompteurs();
 			const NkRect region{0.f, 0.f, (float32)ctx.viewW, (float32)ctx.viewH};
 			ctx.BeginFrame(0.016f);
 			ctx.BeginLayout(region);
 			ctx.DL().Reset();
-			NkGuiMonteur::Monter(ctx, doc, etat, rap, &exe);
+			NkGuiMonteur::Monter(ctx, doc, etat, rap, hooks ? hooks : (NkGuiMonteHooks *)&exe);
 			// Les comportements APRES le montage : `n1.value` doit etre la valeur
 			// que le widget vient d'avoir, pas celle de l'image d'avant.
 			exe.ExecuterComportements(doc);
@@ -2921,6 +2928,143 @@ int main(int argc, char **argv) {
 					 "(b15) la scene touche `props` — aucune bande orpheline a droite");
 			CheckEqF(rAvec[1].y + rAvec[1].h, rAvec[4].y, 1.5f,
 					 "(b15) et elle touche `journal` — aucune bande orpheline en bas");
+		}
+	}
+
+	// =====================================================================
+	printf("\n-- (b16) `ContextMenu` : le refus est LEVE par le crochet qu'il reclamait\n");
+	// =====================================================================
+	// L'ancien refus, dans l'enumeration des roles : « NKGui a bien `BeginPopupMenu`,
+	// mais il ne rend vrai que si quelqu'un a appele `ctx.OpenPopupAt(...)` AU CLIC
+	// DROIT -- et ce monteur monte l'etat au REPOS : il n'a aucun clic droit a offrir.
+	// [...] CE QU'IL FAUDRAIT POUR LE LEVER : un crochet d'ouverture cote hote. »
+	//
+	// ⚠️ ET LE RAISONNEMENT DU REFUS EST DEVENU LE CRITERE. Il disait qu'un role
+	//    invisible par construction serait PIRE qu'un role refuse, « parce qu'il se
+	//    compterait parmi les montes et que personne n'irait chercher pourquoi rien
+	//    n'apparait ». Ce cas exige donc les DEUX moities : que le menu s'ouvre quand
+	//    l'hote le dit, ET qu'il se compte A PART quand personne ne l'ouvre.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"cible\" { label = \"Clic droit ici\" }\n"
+			"  ContextMenu \"menu.scene\" {\n"
+			"    MenuItem \"m.copier\" { label = \"Copier\", shortcut = \"Ctrl+C\" }\n"
+			"    MenuItem \"m.coller\" { label = \"Coller\" }\n"
+			"    MenuItem \"m.suppr\" { label = \"Supprimer\" }\n"
+			"  }\n"
+			"}\n";
+		// L'hote : il ouvre le menu qu'il connait, a la position qu'il choisit — et
+		// SEULEMENT celui-la. Un hote qui repondrait vrai a tout nom prouverait que le
+		// monteur appelle le crochet, pas qu'il ecoute sa reponse.
+		struct HoteMenu : public NkGuiMonteHooks {
+				bool ouvrir = false;
+				uint32 demandes = 0u;
+				NkString dernierNom;
+				bool MenuContextuelOuvre(const char *nom, NkVec2 &posOut) noexcept override {
+					++demandes;
+					dernierNom = NkString(nom);
+					if (!ouvrir)
+						return false;
+					posOut = NkVec2{40.f, 60.f};
+					return true;
+				}
+		};
+
+		// ── SANS HOTE DU TOUT : le role est monte, et le menu COMPTE ────────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+				  "(b16) le document a `ContextMenu` se charge");
+			s.Image();
+			printf("        [sans hote]  inconnus = %u, ouverts = %u, sansHote = %u, "
+				   "itemsHorsMenu = %u\n",
+				   s.rap.rolesInconnus, s.rap.menusContextuelsOuverts,
+				   s.rap.menusContextuelsSansHote, s.rap.elementsMenuHorsMenu);
+			// 🔴 LA MOITIE QUI PROUVE QUE LE REFUS EST LEVE. Avant aujourd'hui, ce
+			//    document rendait `rolesInconnus = 1` : le role n'existait pas.
+			CheckEqU(s.rap.rolesInconnus, 0u,
+					 "(b16) `ContextMenu` N'EST PLUS UN ROLE INCONNU");
+			CheckEqU(s.rap.menusContextuelsOuverts, 0u, "(b16) [sans hote] rien ne s'ouvre");
+			CheckEqU(s.rap.menusContextuelsSansHote, 1u,
+					 "(b16) [sans hote] ET LE MENU EST COMPTE — pas un role invisible qui se dit monte");
+			// 🔴 CE CRITERE ETAIT FAUX, ET C'EST MOI QUI L'ETAIS. J'attendais 3 :
+			//    « les trois entrees sont comptees hors menu ». Il rendait 0, parce
+			//    qu'un menu FERME ne monte pas son contenu du tout — et c'est la
+			//    politique que le role `Menu` s'etait deja donnee, mot pour mot :
+			//    « LE CONTENU D'UN MENU FERME NE SE MONTE PAS, et ce n'est pas une
+			//    perte : NKGui ne dessine ses entrees que dans le popup ouvert. [...]
+			//    d'ou `menusOuverts`, qui separe les deux. » Monter les entrees en flux
+			//    pour pouvoir les compter aurait fait exactement ce que ce role refuse :
+			//    de faux boutons hors de leur menu.
+			//
+			//    Ce qui dit qu'il y a un menu invisible, ce n'est donc PAS un compte
+			//    d'entrees — c'est `menusContextuelsSansHote`, verifie juste au-dessus.
+			//    `elementsMenuHorsMenu` garde son sens d'origine : un `MenuItem` ecrit
+			//    en dehors de toute chaine de menus, ce que ce document ne fait pas.
+			CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
+					 "(b16) [sans hote] AUCUNE entree montee — un menu ferme ne monte pas son contenu");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── L'HOTE EXISTE MAIS N'OUVRE PAS : le crochet est bien APPELE ─────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+				  "(b16) [hote ferme] le document se charge");
+			HoteMenu h;
+			h.ouvrir = false;
+			// Ce document n'a ni `behavior` ni `bind` : remplacer les crochets de
+			// l'execution par cet hote-ci est sans effet sur ce qu'il monte.
+			s.Image(&h);
+			printf("        [hote ferme] demandes = %u (« %s »), ouverts = %u, sansHote = %u\n",
+				   h.demandes, h.dernierNom.CStr(), s.rap.menusContextuelsOuverts,
+				   s.rap.menusContextuelsSansHote);
+			// ⚠️ SANS CE CRITERE, « rien ne s'est ouvert » serait ambigu : le monteur
+			//    pourrait ne JAMAIS appeler le crochet et rendre le meme resultat.
+			CheckEqU(h.demandes, 1u, "(b16) LE CROCHET EST APPELE, avec le nom du document");
+			Check(h.dernierNom.Compare(NkString("menu.scene")) == 0,
+				  "(b16) et c'est bien le nom du `ContextMenu`, pas un autre");
+			CheckEqU(s.rap.menusContextuelsOuverts, 0u,
+					 "(b16) [hote ferme] il a dit non, donc rien ne s'ouvre");
+			s.exe.Debrancher(s.ctx);
+		}
+
+		// ── L'HOTE OUVRE : le menu apparait, AVEC SES ENTREES ──────────────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+				  "(b16) [hote ouvre] le document se charge");
+			HoteMenu h;
+			h.ouvrir = true;
+			// La reference se prend SANS hote, sur la meme scene : c'est l'image a
+			// laquelle le menu doit ajouter des pixels.
+			s.Image();
+			const uint32 peintAvant = ComptePixelsPeints(s.ras, kFond);
+			// Deux images avec l'hote : NKGui garde son popup d'une image sur l'autre,
+			// et c'est la SECONDE qui le dessine — le survol de ce banc a la meme
+			// latence, pour la meme raison.
+			s.Image(&h);
+			s.Image(&h);
+			const uint32 peintApres = ComptePixelsPeints(s.ras, kFond);
+			printf("        [hote ouvre] ouverts = %u, sansHote = %u, itemsHorsMenu = %u ; "
+				   "pixels %u -> %u\n",
+				   s.rap.menusContextuelsOuverts, s.rap.menusContextuelsSansHote,
+				   s.rap.elementsMenuHorsMenu, peintAvant, peintApres);
+			CheckEqU(s.rap.menusContextuelsOuverts, 1u, "(b16) [hote ouvre] LE MENU S'OUVRE");
+			CheckEqU(s.rap.menusContextuelsSansHote, 0u,
+					 "(b16) et il n'est plus compte comme sans hote");
+			// Les entrees sont DANS le popup : elles ne sont plus « hors menu ».
+			CheckEqU(s.rap.elementsMenuHorsMenu, 0u,
+					 "(b16) LES TROIS ENTREES SONT DANS LE MENU, plus hors de lui");
+			// ⚠️ ET LE CRITERE QUI COMPTE EST EN PIXELS. Trois compteurs justes ne
+			//    disent pas qu'un menu est APPARU : le popup vit dans la surimpression,
+			//    et ce banc ne la rasterisait meme pas avant ce matin.
+			Check(peintApres > peintAvant + 300u,
+				  "(b16) ET IL EST PEINT — l'image gagne plus de 300 pixels");
+			s.Png("b16_menu_contextuel.png");
+			s.exe.Debrancher(s.ctx);
 		}
 	}
 
