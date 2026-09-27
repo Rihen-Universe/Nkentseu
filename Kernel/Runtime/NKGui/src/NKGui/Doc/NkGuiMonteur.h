@@ -665,6 +665,18 @@ namespace nkentseu {
 				///    se corrige dans le DOCUMENT, c'est une faute de frappe.
 				uint32 ecartesParPlateforme = 0;
 				uint32 ciblesInconnues = 0;
+				/// Le montage par RACINE NOMMEE : celles qu'on a trouvees, et celles
+				/// qu'on a demandees en vain — avec le DERNIER nom demande.
+				///
+				/// 🔴 LE NOM EST GARDE, ET C'EST LE POINT. Un appelant qui ignore le
+				///    retour de `Monter(ctx, doc, "barre", ...)` monterait une region
+				///    VIDE, sans aucune erreur, et chercherait a la main pourquoi sa
+				///    barre a disparu. Une faute de frappe dans un nom de racine est la
+				///    faute la plus probable de ce mecanisme ; un compteur sans le nom
+				///    dirait qu'il manque quelque chose sans dire quoi.
+				uint32 racinesMontees = 0;
+				uint32 racinesIntrouvables = 0;
+				NkString derniereRacineIntrouvable;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -1663,6 +1675,101 @@ namespace nkentseu {
 						// l'atteste (`03` pose son `Window` a la racine depuis le premier jour).
 						MonterCorps(ctx, sec, etat, rap, 0u, false, /*parentAbsolu=*/true, hooks);
 					}
+				}
+
+				// =====================================================================
+				//  MONTER UNE RACINE NOMMEE — un document, plusieurs regions
+				// =====================================================================
+				/// Monte UNIQUEMENT la partie du document que `racine` nomme, au curseur
+				/// courant. Rend vrai si la racine a ete trouvee.
+				///
+				/// 🔴 LE MANQUE QUE TROIS APPLICATIONS PAYAIENT DEJA. `Monter` monte
+				///    TOUTES les sections `widgets` d'un document, dans l'ordre du
+				///    fichier, au curseur courant — et `MonterCorps` est privee. Or une
+				///    coquille d'editeur pose la barre de menu, la barre d'outils, la
+				///    barre d'etat et ses panneaux a des INSTANTS et dans des REGIONS
+				///    differents : un seul document ne pouvait donc pas les servir tous.
+				///
+				///    Le prix se comptait en fichiers : NkAntenne a **25 documents la ou
+				///    5 auraient suffi**, NkAnimaEditor en a quatre, NKUIDesign deux.
+				///    L'agent de NkAntenne l'a nomme dans son rapport comme « la raison
+				///    premiere » de son eparpillement, et l'exemplaire de NkAnimaEditor
+				///    portait deja la phrase : « **il manque
+				///    `Monter(ctx, doc, "nom_de_racine")`** ». La voici.
+				///
+				/// ⚠️ DEUX FACONS DE NOMMER UNE RACINE, ET L'ORDRE EST ECRIT. On cherche
+				///    d'abord une SECTION `widgets "nom" { ... }`, puis, a defaut, un
+				///    WIDGET de premier niveau portant cet identifiant. Les deux sont de
+				///    vraies racines : la premiere regroupe plusieurs widgets, la seconde
+				///    en designe un (avec sa descendance). Chercher le widget d'abord
+				///    aurait rendu impossible d'avoir une section et un widget du meme
+				///    nom — et c'est la section qui est le cas general.
+				///
+				/// ⚠️ ET UNE RACINE INTROUVABLE NE SE TAIT PAS. Rendre faux ne suffit
+				///    pas : un appelant qui ignore le retour monterait une region VIDE,
+				///    sans erreur, et chercherait a la main pourquoi sa barre a disparu.
+				///    `racinesIntrouvables` est compte ET le nom demande est garde, parce
+				///    qu'un compteur sans le nom dit qu'il manque quelque chose sans dire
+				///    quoi. C'est la faute de frappe la plus probable de tout ce lot.
+				///
+				/// ⚠️ ELLE NE MONTE PAS LES CALQUES `geometry`. `Monter` les peint en
+				///    passe separee, AVANT tout, pour qu'un calque ne passe jamais devant
+				///    un widget ; les repeindre a chaque racine nommee les empilerait
+				///    autant de fois qu'il y a de bandes. Un document qui a des calques
+				///    ET des racines nommees passe donc par `Monter` pour ses calques.
+				static bool Monter(NkGuiContext &ctx, const NkArchive &doc, const char *racine,
+								   NkGuiMonteEtat &etat, NkGuiMonteRapport &rap,
+								   NkGuiMonteHooks *hooks = nullptr) noexcept {
+					const NkArchiveNode *corps = NkGMonteCorps(doc);
+					if (!corps || !racine) {
+						++rap.racinesIntrouvables;
+						if (racine)
+							rap.derniereRacineIntrouvable = NkString(racine);
+						return false;
+					}
+					// ── 1. une SECTION `widgets "nom"` ──────────────────────────
+					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+						if (!corps->array[i].IsObject() || !corps->array[i].object)
+							continue;
+						const NkArchive &sec = *corps->array[i].object;
+						if (!NkGMotEgal(NkGuiArchive::TypeOf(sec), "widgets"))
+							continue;
+						const NkString id(NkGuiArchive::IdOf(sec));
+						if (id.Size() == 0u || !NkGMotEgal(NkStringView(id.CStr()), racine))
+							continue;
+						++rap.sections;
+						rap.nomsSections.PushBack(NkString("widgets"));
+						++rap.racinesMontees;
+						// Meme raison qu'en haut : la racine d'un `widgets` est ABSOLUE,
+						// rien ne la contient.
+						MonterCorps(ctx, sec, etat, rap, 0u, false, /*parentAbsolu=*/true, hooks);
+						return true;
+					}
+					// ── 2. a defaut, un WIDGET de premier niveau ────────────────
+					for (uint32 i = 0; i < (uint32)corps->array.Size(); ++i) {
+						if (!corps->array[i].IsObject() || !corps->array[i].object)
+							continue;
+						const NkArchive &sec = *corps->array[i].object;
+						if (!NkGMotEgal(NkGuiArchive::TypeOf(sec), "widgets"))
+							continue;
+						const NkArchiveNode *cw = NkGMonteCorps(sec);
+						if (!cw)
+							continue;
+						for (uint32 k = 0; k < (uint32)cw->array.Size(); ++k) {
+							if (!cw->array[k].IsObject() || !cw->array[k].object)
+								continue;
+							const NkArchive &w = *cw->array[k].object;
+							const NkString id(NkGuiArchive::IdOf(w));
+							if (id.Size() == 0u || !NkGMotEgal(NkStringView(id.CStr()), racine))
+								continue;
+							++rap.racinesMontees;
+							MonterBloc(ctx, w, etat, rap, 0u, false, /*parentAbsolu=*/true, hooks);
+							return true;
+						}
+					}
+					++rap.racinesIntrouvables;
+					rap.derniereRacineIntrouvable = NkString(racine);
+					return false;
 				}
 
 			private:
