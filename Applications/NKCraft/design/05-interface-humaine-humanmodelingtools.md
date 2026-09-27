@@ -152,18 +152,63 @@ Celles de la famille, sans en ajouter :
 
 ---
 
-## 5. Ce qui manque encore, et qu'il faudra trancher
+## 5. Tranché le 27/09
 
-1. **Le nom français de l'espace.** Le menu de la famille est en français
-   (`Modélisation`, `Sculpture`) ; `HumanModelingTools` détonnerait. Proposition :
-   **Personnage**. Le nom de code du module reste `HumanModelingTools`.
-2. **Les animaux et le mot « Human ».** Rodolf demande *« personnages et
-   animaux »* : le nom du module dit « Human » et le périmètre dit le contraire.
-   À trancher — le nom, ou le périmètre.
-3. **Le nombre de mesures par partie.** Trois circonférences suffisent-elles, ou
-   faut-il un profil ? Trois est le pari, et il se mesurera à l'usage.
-4. **L'ordre des modes.** Composer avant Mesurer paraît naturel ; à vérifier sur
-   quelqu'un qui n'a pas écrit la spécification.
+### 5.1 Le nom de l'espace : **Personnage**
+
+Décision de Rodolf. Le nom de code du module reste `HumanModelingTools` ; le
+**libellé affiché** est « Personnage ».
+
+> 🔴 **ET CE LIBELLÉ SERA TRADUIT.** Rodolf, 27/09 : *« n'oublie pas que toutes
+> nos applications auront un système pour changer la langue. »* Donc
+> « Personnage » est **un libellé, jamais une clé**. L'identifiant reste
+> `perso.*`, stable dans toutes les langues.
+>
+> ⚠️ **CONSÉQUENCE MESURÉE LE MÊME JOUR, ET ELLE DÉPASSE CE DOCUMENT.** Dans
+> `NkGuiMonteur.h`, sur onze sites qui fabriquent l'identité d'interaction d'un
+> widget, **quatre** partent de son `id` — justes — et **six** partent de son
+> **libellé** ou du texte d'une option. Dont celui-ci :
+>
+> ```cpp
+> ctx.SetNodeOpen(ctx.GetId(titre.CStr()), ...)
+> ```
+>
+> Changer de langue changerait donc l'identité de ces widgets : **toutes les
+> sections repliées se rouvriraient**, le survol, le glisser en cours et l'état
+> des popups seraient perdus. Le monteur a pourtant déjà le bon réflexe à un
+> endroit — `RadioGroup` stocke l'**indice** et non le libellé, *« exact et
+> stable quand les libellés changent de casse ou de langue »*. Il reste à
+> l'appliquer aux six autres.
+>
+> 📌 **C'est un chantier de NKGui, pas de HumanModelingTools** : il est noté ici
+> parce que c'est ici que la question s'est posée, et il doit être fait **avant**
+> que le changement de langue arrive, pas après.
+
+### 5.2 Le périmètre gagne sur le nom
+
+Décision de Rodolf : *« le périmètre »*. L'espace couvre donc **les personnages
+et les animaux**, malgré le « Human » du nom de code.
+
+Et il annonce la suite : *« après on pourrait avoir un second pour les objets,
+arbres, rochers, etc. »* — un module frère, même doctrine (graphe de parties,
+couche de sculpt, mesures nommées), autre vocabulaire de parties.
+
+> ⚠️ **CE FRÈRE EST UNE RAISON DE PLUS POUR D1.** Un tronc, des branches, un
+> feuillage : c'est un graphe de parties à ramifications libres. Tout ce qui
+> serait câblé « humanoïde » dans ce module-ci devrait être réécrit dans
+> celui-là. Le graphe n'est donc pas une élégance, c'est ce qui rend le second
+> module possible sans repartir de zéro.
+
+### 5.3 Trois circonférences : **à mesurer, pas à décider**
+
+Rodolf : *« il faut tester pour voir. »* Trois (haut, milieu, bas) est donc le
+point de départ, et la phase **P1** doit rendre ce nombre facile à changer — il
+n'est pas gravé.
+
+### 5.4 Reste ouvert
+
+**L'ordre des modes.** Composer avant Mesurer paraît naturel ; à vérifier sur
+quelqu'un qui n'a pas écrit la spécification.
 
 ---
 

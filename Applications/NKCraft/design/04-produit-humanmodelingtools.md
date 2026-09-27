@@ -226,9 +226,40 @@ même personnage.
 | D3 | commencer par le régime stylisé (parties séparées) | proposée, **à confirmer** | 27/09 |
 | D4 | toute mesure porte unité et référence | proposée, **à confirmer** | 27/09 |
 | D5 | le chantier reste **en réserve** jusqu'à la fin de NKUIDesign | Rodolf | 27/09 |
+| D6 | libellé affiché **« Personnage »**, nom de code inchangé — et **le libellé sera traduit**, donc jamais une clé | Rodolf | 27/09 |
+| D7 | **le périmètre gagne sur le nom** : personnages **et** animaux | Rodolf | 27/09 |
+| D8 | trois circonférences par partie = un point de départ **à mesurer**, pas un acquis | Rodolf (*« il faut tester pour voir »*) | 27/09 |
 
 📌 **D2, D3 et D4 attendent le mot de Rodolf.** Elles sont écrites pour qu'il
 puisse trancher sur pièce, pas pour être tenues pour acquises.
+
+### 9.1 Ce que D7 annonce : un module frère
+
+Rodolf, en tranchant D7 : *« après on pourrait avoir un second pour les objets,
+arbres, rochers, etc. »*
+
+Même doctrine — graphe de parties, couche de sculpt, mesures nommées — et un
+autre vocabulaire de parties.
+
+> ⚠️ **C'EST UNE RAISON DE PLUS POUR D1, ET LA PLUS CONCRÈTE.** Un tronc, des
+> branches, un feuillage : c'est un graphe à ramifications libres, où le nombre
+> d'enfants d'un nœud n'est connu de personne à l'avance. Tout ce qui serait
+> câblé « humanoïde » dans ce module-ci devrait être réécrit dans celui-là. Le
+> graphe n'est donc pas une élégance : c'est ce qui rend le module frère possible
+> sans repartir de zéro.
+
+### 9.2 Ce que D6 découvre, et qui dépasse ce chantier
+
+La traduction des libellés a une conséquence mesurée le 27/09 dans
+`NkGuiMonteur.h` : sur onze sites qui fabriquent l'identité d'interaction d'un
+widget, **six partent de son LIBELLÉ** au lieu de son identifiant — dont
+`ctx.SetNodeOpen(ctx.GetId(titre.CStr()), …)`.
+
+**Changer de langue rouvrirait donc toutes les sections repliées**, et perdrait
+le survol, le glisser en cours et l'état des popups.
+
+C'est un chantier de **NKGui**, pas de HumanModelingTools ; il est consigné ici
+parce que c'est ici que la question s'est posée. Détail en **05 §5.1**.
 
 ---
 
