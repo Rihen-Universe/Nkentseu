@@ -542,6 +542,18 @@ namespace nkentseu {
 				/// defaut que ce compteur existe pour rendre visible.
 				uint32 iconesDemandees = 0;
 				uint32 iconesManquantes = 0;
+				/// LES CONTENEURS ET LEUR TAILLE, EN FLUX (27/09).
+				/// ⚠️ DEUX CHIFFRES PARCE QU'IL Y A DEUX SITUATIONS, ET UNE SEULE EST
+				///    UN DEFAUT. `conteneursTailleFlux` compte ceux qui DECLARENT
+				///    `size` et decoupent desormais leur rectangle dans le flux --
+				///    avant le 27/09 ce `size` n'etait lu par personne et deux `Panel`
+				///    freres se repeignaient l'un l'autre, exactement.
+				///    `conteneursSansTaille` compte ceux qui ne disent NI `size` NI
+				///    `sizeRel` : ils prennent « tout ce qui reste », ce qui est juste
+				///    pour le dernier et ambigu des qu'il a un frere. Les additionner
+				///    aurait rendu le defaut invisible dans le total.
+				uint32 conteneursTailleFlux = 0;
+				uint32 conteneursSansTaille = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -937,6 +949,22 @@ namespace nkentseu {
 				bool aW = false, aH = false;
 				float32 w = 0.f, h = 0.f;
 		};
+
+		/// MUTATION DE BANC, `NK_TAILLE_MUTATION=flux` : `size` redevient illisible
+		/// pour un conteneur EN FLUX, c'est-a-dire le defaut du 27/09 remis a la
+		/// demande. Elle existe pour qu'un temoin puisse ROUGIR -- un critere qui ne
+		/// peut pas echouer ne prouve rien.
+		///
+		/// ⚠️ ELLE NE MET RIEN EN CACHE, ET C'EST LA DIFFERENCE AVEC CELLE DE
+		///    `sizeRel`. Un `static const bool` initialise une fois par PROCESSUS
+		///    obligerait le banc a se relancer pour comparer les deux mondes ; ici il
+		///    pose la variable entre deux montages et lit les deux images dans le meme
+		///    processus, ce qui rend la comparaison pixel a pixel possible. Le cout est
+		///    un `getenv` par conteneur au montage, pas par image.
+		inline bool NkGuiTailleFluxIgnoree() noexcept {
+			const char *v = getenv("NK_TAILLE_MUTATION");
+			return v && v[0] == 'f';
+		}
 
 		inline NkGuiTailleRel NkGuiLireTailleRelative(const NkArchive &b, const NkRect &region) noexcept {
 			NkGuiTailleRel t;
@@ -1918,6 +1946,41 @@ namespace nkentseu {
 								r = ctx.NextItemRect(rel.aW ? rel.w : -1.f,
 													 rel.aH ? rel.h : ctx.AvailHeight());
 								decoupeRel = true;
+							}
+							// ── `size` SEUL, DANS UN FLUX ────────────────────────────────
+							// ⚠️ SEPTIEME ABANDON SILENCIEUX, ET CELUI-CI SE VOYAIT EN PIXELS.
+							//    `NkGuiLirePlacement` ne rend `pose` QUE s'il a lu un `pos` ; en
+							//    flux il n'y en a pas, donc `RegionCourante` etait appelee sur un
+							//    document sans `pos` -- et sa branche `pos`+`size` ne pouvait
+							//    JAMAIS s'executer. Autrement dit `size` sur un conteneur en flux
+							//    etait lu par PERSONNE, et deux `Panel { size = ... }` dans une
+							//    `VBox` prenaient tous les deux TOUTE la region : le second
+							//    repeignait le premier, exactement. C'est le defaut que Rodolf a
+							//    demande de corriger le 27/09.
+							//
+							// ⚠️ ET ON PASSE PAR `NextItemRect`, PAS PAR UNE ARITHMETIQUE A NOUS.
+							//    C'est elle qui sait avancer le curseur en X dans une HBox et en Y
+							//    ailleurs ; ecrire le calcul ici aurait fait deux verites sur « ou
+							//    commence le frere suivant », et elles auraient fini par diverger.
+							float32 sW = 0.f, sH = 0.f;
+							if (!pl.pose && !decoupeRel && !enfantsAbsolus
+								&& !NkGuiTailleFluxIgnoree()
+								&& LireVec2(w, "size", sW, sH) && (sW > 0.f || sH > 0.f)) {
+								r = ctx.NextItemRect(sW > 0.f ? sW : -1.f,
+													 sH > 0.f ? sH : ctx.ItemHeight());
+								decoupeRel = true; // le contenu vit DANS ce rectangle
+								++rap.conteneursTailleFlux;
+							} else if (!pl.pose && !decoupeRel && !enfantsAbsolus) {
+								// ⚠️ ON NE CHANGE PAS SA GEOMETRIE, ON LA COMPTE. Un conteneur qui
+								//    ne dit ni `size` ni `sizeRel` veut dire « tout ce qui reste » :
+								//    c'est un sens legitime pour le DERNIER, et une ambiguite des
+								//    qu'il a un frere. Le faire partir du curseur aurait rogne le
+								//    `Window` racine de TOUS les documents du corpus (le curseur y
+								//    est deja decale de la marge du theme), c'est-a-dire casser dix
+								//    fichiers valides pour en reparer un mal ecrit. On NOMME donc le
+								//    cas au lieu de deviner : `conteneursSansTaille` le rend visible
+								//    dans le rapport, et le document se corrige avec un `size`.
+								++rap.conteneursSansTaille;
 							}
 							// ⚠️ LE VOILE D'UNE MODALE, PEINT AVANT LE FOND.
 							//    `modal` etait DECLARE par le format (doc 7 §3.6) et lu par PERSONNE :

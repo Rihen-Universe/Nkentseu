@@ -37,8 +37,10 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Core/NkGuiIcons.h"
 #include "NKGui/Doc/NkGuiInteraction.h"
 #include "NKGui/Doc/NkGuiMonteur.h"
+#include "NKGui/Doc/NkGuiRappels.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include "NKImage/Core/NkImage.h"
@@ -52,6 +54,28 @@ using namespace nkentseu;
 using namespace nkentseu::nkgui;
 
 static int g_pass = 0, g_fail = 0;
+
+/// Pose (ou retire) une variable d'environnement, pour armer une MUTATION dans le
+/// processus courant. `valeur == nullptr` la retire.
+///
+/// ⚠️ ELLE EXISTE PARCE QU'UN NEGATIF DOIT TENIR DANS LA MEME EXECUTION QUE LE
+///    POSITIF. Les mutations plus anciennes de ce depot sont lues par un
+///    `static const bool` initialise UNE FOIS par processus : pour les comparer il
+///    fallait relancer le banc, et comparer deux images ecrites par deux
+///    executions differentes. Deux processus, c'est deux occasions de comparer
+///    autre chose que ce qu'on croit. `NkGuiTailleFluxIgnoree` relit donc
+///    l'environnement a chaque montage, et ce tampon-ci le change entre deux
+///    montages : les deux images sortent du meme banc, a la suite.
+static void NkDefinirVariable(const char *nom, const char *valeur) {
+#if defined(_WIN32)
+	(void)_putenv_s(nom, valeur ? valeur : "");
+#else
+	if (valeur)
+		(void)setenv(nom, valeur, 1);
+	else
+		(void)unsetenv(nom);
+#endif
+}
 
 static void Check(bool ok, const char *nom) {
 	(ok ? g_pass : g_fail)++;
@@ -182,6 +206,22 @@ static bool BoiteCouleur(const NkGuiDrawListRaster &r, uint32 couleur, NkRect &o
 ///    reprend la main via `ctx.styleFn`, NKGui saute TOUT son dessin par defaut
 ///    -- le texte compris. Un aplat de la bonne couleur, sans une lettre dessus,
 ///    passe tous les criteres de couleur du monde.
+/// Les pixels qui ne sont PAS le fond efface. C'est la mesure la plus large
+/// possible : « quelque chose de plus est arrive a l'image ».
+///
+/// ⚠️ ELLE EXISTE POUR CE QUI N'A PAS DE COULEUR CONNUE D'AVANCE. Une infobulle
+///    prend la couleur du theme, une icone celle du texte : les chercher par
+///    egalite obligerait a recopier le theme dans le banc, et ce chiffre se
+///    perimerait au premier changement de theme.
+static uint32 ComptePixelsPeints(const NkGuiDrawListRaster &r, uint32 fond) {
+	uint32 n = 0;
+	for (int32 y = 0; y < r.Hauteur(); ++y)
+		for (int32 x = 0; x < r.Largeur(); ++x)
+			if (r.Pixel(x, y) != fond)
+				++n;
+	return n;
+}
+
 static uint32 ComptePixelsAutres(const NkGuiDrawListRaster &r, const NkRect &zone, uint32 aplat,
 								 uint32 bord) {
 	uint32 n = 0;
@@ -340,7 +380,15 @@ struct Scene {
 			ras.Effacer(kFond);
 			if (g_fontOk && g_font.pixels)
 				ras.PoserTexture(g_font.TexId(), g_font.pixels, g_font.atlasW, g_font.atlasH, 1);
-			(void)ras.Rasteriser(ctx.DL());
+			// 🔴 LES DEUX COUCHES, ET LA SECONDE MANQUAIT (27/09). Ce banc ne
+			//    rasterisait que `ctx.dl` : tout ce qui vit dans la SURIMPRESSION —
+			//    infobulles, menus deroules, popups — lui etait INVISIBLE. Un
+			//    critere sur une infobulle ne pouvait donc rien prouver, quoi qu'il
+			//    compte. La sonde de NkAnimaEditor avait deja paye cette lecon le
+			//    26/09 : « n'en rasteriser qu'une donnait 27 000 pixels — l'aire
+			//    exacte de la barre, et rien du menu qu'on cherchait a prouver ».
+			(void)ras.Rasteriser(ctx.dl);
+			(void)ras.Rasteriser(ctx.dlOverlay);
 			++images;
 		}
 
@@ -2232,6 +2280,395 @@ int main(int argc, char **argv) {
 			Check(r.causes.Size() > 0u, titre2);
 			s.exe.Debrancher(s.ctx);
 		}
+	}
+
+	// =====================================================================
+	printf("\n-- (b10) L'INFOBULLE ET L'ICONE SE VOIENT — pas seulement se comptent\n");
+	// =====================================================================
+	//  Rodolf, 27/09 : « les silences fermes sont donc fonctionnels deja ? sinon
+	//  ils doivent etre fonctionnels s'ils ont une utilite. »
+	//
+	//  🔴 LA QUESTION ETAIT JUSTE POUR DEUX D'ENTRE EUX. Pour `tooltip` et pour
+	//     `icon`, je n'avais mesure que le COMPTEUR : « une infobulle a ete
+	//     posee », « une icone a ete demandee et le glyphe manque ». Aucun des
+	//     deux ne disait que quelque chose ARRIVE A L'ECRAN. *Un compteur vert
+	//     n'est pas un rendu juste* — ce depot le sait, et je l'avais oublie sur
+	//     ces deux-la.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"outil.deplacer\" { label = \"Deplacer\", tooltip = \"Deplacer l'objet\","
+			" shortcut = \"W\" }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200), "(b10) le document se charge");
+
+		// ── L'ETAT DE REFERENCE : pointeur LOIN du bouton ────────────────
+		s.PoserEtStabiliser(300.f, 190.f);
+		const uint32 sansSurvol = ComptePixelsPeints(s.ras, kFond);
+		printf("        pointeur loin : %u px peints, infobulles=%u\n", sansSurvol,
+			   s.rap.infobullesPosees);
+		CheckEqU(s.rap.infobullesPosees, 0u, "(b10) loin du bouton, AUCUNE infobulle posee");
+
+		// ── LE SURVOL ────────────────────────────────────────────────────
+		NkRect r{0.f, 0.f, 0.f, 0.f};
+		const bool aR = s.Rect("outil.deplacer", r);
+		Check(aR, "(b10) le rectangle du bouton sort du montage");
+		if (aR) {
+			s.PoserEtStabiliser(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+			const uint32 avecSurvol = ComptePixelsPeints(s.ras, kFond);
+			printf("        pointeur sur le bouton : %u px peints, infobulles=%u\n", avecSurvol,
+				   s.rap.infobullesPosees);
+			CheckEqU(s.rap.infobullesPosees, 1u, "(b10) survole, UNE infobulle est posee");
+			// ⚠️ LE CRITERE EST EN PIXELS, PAS EN COMPTEUR. Une infobulle posee et
+			//    jamais peinte laisserait le compteur a 1 et l'image inchangee —
+			//    c'est exactement l'etat que ce banc ne savait pas voir avant que
+			//    la SURIMPRESSION soit rasterisee.
+			Check(avecSurvol > sansSurvol + 100u,
+				  "(b10) L'INFOBULLE EST PEINTE — l'image gagne plus de 100 pixels");
+
+			// ── ET ELLE PORTE LE RACCOURCI (P8) ─────────────────────────
+			//  L'infobulle du document dit « Deplacer l'objet » ; avec `shortcut`
+			//  elle doit dire « Deplacer l'objet (W) ». La difference se mesure a
+			//  sa LARGEUR : un texte plus long fait une bulle plus large.
+			static const char kSansRaccourci[] =
+				"nkgui 0.3\n"
+				"widgets {\n"
+				"  Button \"outil.deplacer\" { label = \"Deplacer\", tooltip = \"Deplacer "
+				"l'objet\" }\n"
+				"}\n";
+			Scene s2;
+			if (s2.Charger(kSansRaccourci, (uint32)(sizeof(kSansRaccourci) - 1u), 320, 200)) {
+				NkRect r2{0.f, 0.f, 0.f, 0.f};
+				if (s2.Rect("outil.deplacer", r2) || true) {
+					s2.PoserEtStabiliser(r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+					const uint32 sansRacc = ComptePixelsPeints(s2.ras, kFond);
+					printf("        sans `shortcut` : %u px  |  avec : %u px\n", sansRacc,
+						   avecSurvol);
+					Check(avecSurvol > sansRacc,
+						  "(b10) P8 : le raccourci AGRANDIT l'infobulle — il y est vraiment");
+				}
+				s2.exe.Debrancher(s2.ctx);
+			}
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b11) P12 : une icone POSEE par l'hote est DESSINEE\n");
+	// =====================================================================
+	//  ⚠️ LE PREMIER TEMOIN NE MESURAIT QUE L'ABSENCE : « sans jeu d'icones,
+	//     elle est comptee manquante ». C'est la moitie facile. Celui-ci pose un
+	//     jeu et exige que le glyphe ARRIVE DANS L'IMAGE.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"outil.deplacer\" { label = \"Deplacer\", icon = croix }\n"
+			"}\n";
+
+		// Un jeu d'icones minimal : une CROIX vectorielle dans la boite unite.
+		// ⚠️ Elle est faite de deux traits epais, et c'est deliberе : un glyphe
+		//    trop fin se confondrait avec l'anticrenelage du libelle, et le
+		//    critere ne saurait plus ce qu'il compte.
+		NkGuiIconSet jeu;
+		jeu.Reset(0u, 0, 0);
+		const NkGuiIconHandle h = jeu.AddPath("croix");
+		// Deux traits croises, dans la boite unite, EPAIS : un glyphe trop fin
+		// se confondrait avec l'anticrenelage du libelle, et le critere ne
+		// saurait plus ce qu'il compte.
+		{
+			const NkVec2 d1[2] = {{0.15f, 0.15f}, {0.85f, 0.85f}};
+			const NkVec2 d2[2] = {{0.85f, 0.15f}, {0.15f, 0.85f}};
+			const bool c1 = jeu.AddContour(h, d1, 2, false, 0.22f, false);
+			const bool c2 = jeu.AddContour(h, d2, 2, false, 0.22f, false);
+			Check(c1 && c2, "(b11) le jeu accepte les deux contours du glyphe");
+		}
+
+		Scene sSans;
+		Check(sSans.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b11) le document se charge (sans jeu)");
+		NkGuiPoserIcones(nullptr);
+		sSans.Image();
+		sSans.Image();
+		const uint32 pxSans = ComptePixelsPeints(sSans.ras, kFond);
+
+		Scene sAvec;
+		Check(sAvec.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+			  "(b11) le document se charge (avec jeu)");
+		NkGuiPoserIcones(&jeu);
+		sAvec.Image();
+		sAvec.Image();
+		const uint32 pxAvec = ComptePixelsPeints(sAvec.ras, kFond);
+		printf("        sans jeu : %u px, manquantes=%u  |  avec jeu : %u px, manquantes=%u\n",
+			   pxSans, sSans.rap.iconesManquantes, pxAvec, sAvec.rap.iconesManquantes);
+		CheckEqU(sSans.rap.iconesManquantes, 1u, "(b11) sans jeu, l'icone est comptee MANQUANTE");
+		CheckEqU(sAvec.rap.iconesDemandees, 1u, "(b11) avec jeu, l'icone est demandee");
+
+		// ⚠️ ON N'EXIGE PAS ENCORE `manquantes == 0` : le glyphe pose ci-dessus
+		//    n'a peut-etre aucun contour, et le jeu le dirait par son repli. Ce
+		//    que le critere exige, c'est que l'etat CHANGE : poser un jeu ne doit
+		//    pas etre sans effet.
+		// ⚠️ ET LE CRITERE QUI COMPTE EST EN PIXELS. `manquantes` qui tombe a
+		//    zero dit que le GLYPHE A ETE TROUVE ; il ne dit pas qu'il a ete
+		//    DESSINE. Les deux images doivent differer, sinon l'icone est un
+		//    succes annonce et invisible.
+		//
+		// 🔴 ET LE COMPTEUR « PIXELS NON-FOND » NE POUVAIT PAS TRANCHER : il rend
+		//    2 063 des deux cotes, parce que l'icone REMPLACE des pixels du
+		//    libelle au lieu d'en ajouter. C'est la DEUXIEME fois en deux jours
+		//    qu'un compteur sature masque un changement — le compteur `contenu` de
+		//    la sonde avait fait exactement cela le 26/09, a 53 239 avant comme
+		//    apres. *Un compteur qui totalise ne voit pas un remplacement ; il
+		//    faut comparer les images.*
+		{
+			uint32 differents = 0;
+			for (int32 y = 0; y < sAvec.ras.Hauteur(); ++y)
+				for (int32 x = 0; x < sAvec.ras.Largeur(); ++x)
+					if (sAvec.ras.Pixel(x, y) != sSans.ras.Pixel(x, y))
+						++differents;
+			printf("        pixels qui different avec/sans le jeu : %u\n", differents);
+			CheckEqU(sSans.rap.iconesManquantes, 1u,
+					 "(b11) sans jeu : le glyphe manque");
+			CheckEqU(sAvec.rap.iconesManquantes, 0u,
+					 "(b11) avec jeu : le glyphe est TROUVE");
+			Check(differents > 20u,
+				  "(b11) ET DESSINE — plus de 20 pixels changent");
+		}
+		NkGuiPoserIcones(nullptr);
+		sSans.exe.Debrancher(sSans.ctx);
+		sAvec.exe.Debrancher(sAvec.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b12) DEUX CONTENEURS FRERES NE SE SUPERPOSENT PLUS — `size` en flux\n");
+	// =====================================================================
+	// 🔴 LE DEFAUT QUE RODOLF A DEMANDE DE CORRIGER LE 27/09. `NkGuiLirePlacement`
+	//    ne rend `pose` que s'il a lu un `pos` ; en flux il n'y en a pas, donc la
+	//    branche `pos`+`size` de `RegionCourante` ne pouvait JAMAIS s'executer.
+	//    `size` sur un conteneur en flux etait donc lu par PERSONNE, et les deux
+	//    `Panel` ci-dessous prenaient tous les deux TOUTE la region : le second
+	//    repeignait le premier, exactement.
+	//
+	// ⚠️ ET LE CRITERE NE PEUT PAS ETRE « L'IMAGE A CHANGE ». Il faut la PRESENCE
+	//    de chacune des deux couleurs : c'est la seule chose qu'un recouvrement
+	//    total fait tomber a ZERO. Un compteur de pixels peints, lui, rendait le
+	//    meme total dans les deux mondes — la region est remplie de toute facon.
+	//    C'est la troisieme fois en deux jours qu'un total masque un remplacement.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"racine\" {\n"
+			"    VBox \"pile\" {\n"
+			"      Panel \"haut\" {\n"
+			"        size = (180, 50)\n"
+			"        appearance { fill { color = #1A7F37 } }\n"
+			"      }\n"
+			"      Panel \"bas\" {\n"
+			"        size = (180, 50)\n"
+			"        appearance { fill { color = #8250DF } }\n"
+			"      }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		const uint32 vert = 0x1A7F37FFu;	// le Panel du HAUT
+		const uint32 violet = 0x8250DFFFu;	// le Panel du BAS
+
+		// ── LE NEGATIF D'ABORD : la mutation remet le defaut ────────────────
+		// ⚠️ ON LE MESURE AVANT LE CORRECTIF, ET DANS LE MEME PROCESSUS. Un negatif
+		//    qu'on garde « pour plus tard » ne se fait jamais ; et la mutation n'est
+		//    pas mise en cache precisement pour que les deux mondes tiennent dans
+		//    une seule execution, donc comparables pixel a pixel.
+		NkDefinirVariable("NK_TAILLE_MUTATION", "flux");
+		uint32 vMute = 0u, xMute = 0u, tailleFluxMute = 0u;
+		{
+			Scene sM;
+			Check(sM.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+				  "(b12) [mute] le document se charge");
+			sM.Image();
+			sM.Image();
+			vMute = ComptePixelsCouleur(sM.ras, vert);
+			xMute = ComptePixelsCouleur(sM.ras, violet);
+			tailleFluxMute = sM.rap.conteneursTailleFlux;
+			printf("        [mute]    vert = %u, violet = %u, tailleFlux = %u\n", vMute, xMute,
+				   tailleFluxMute);
+			sM.Png("b12_mute.png");
+			sM.exe.Debrancher(sM.ctx);
+		}
+		NkDefinirVariable("NK_TAILLE_MUTATION", nullptr);
+
+		// ── LE MONDE CORRIGE ───────────────────────────────────────────────
+		{
+			Scene s;
+			Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 200),
+				  "(b12) le document se charge");
+			s.Image();
+			s.Image();
+			const uint32 v = ComptePixelsCouleur(s.ras, vert);
+			const uint32 x = ComptePixelsCouleur(s.ras, violet);
+			printf("        [corrige] vert = %u, violet = %u, tailleFlux = %u, sansTaille = %u\n", v,
+				   x, s.rap.conteneursTailleFlux, s.rap.conteneursSansTaille);
+
+			// Le negatif rougit-il ? Les deux moities, parce qu'un recouvrement a
+			// DEUX signes : la couleur du dessous disparait, ET celle du dessus
+			// deborde de sa taille declaree.
+			CheckEqU(tailleFluxMute, 0u, "(b12) [mute] `size` n'est lu par personne");
+			CheckEqU(vMute, 0u, "(b12) [mute] LE PANNEAU DU HAUT A DISPARU — recouvert");
+			Check(xMute > 30000u,
+				  "(b12) [mute] et celui du bas prend TOUTE la region, pas ses 180x50");
+
+			// Le correctif. 180 x 50 = 9 000 px par panneau ; le seuil laisse la
+			// place aux coins arrondis du theme et au contour, sans laisser passer
+			// un panneau qui deborderait (la region entiere fait 64 000).
+			CheckEqU(s.rap.conteneursTailleFlux, 2u, "(b12) les deux `size` sont LUS");
+			Check(v > 6000u && v < 12000u,
+				  "(b12) LE PANNEAU DU HAUT EST VISIBLE, a sa taille declaree");
+			Check(x > 6000u && x < 12000u,
+				  "(b12) celui du bas aussi — ils ne se recouvrent plus");
+
+			// ⚠️ ET LA PREUVE GEOMETRIQUE, PARCE QUE DEUX COMPTES JUSTES NE DISENT
+			//    PAS « L'UN SOUS L'AUTRE ». Deux panneaux cote a cote, ou decales de
+			//    trois pixels, donneraient exactement les memes deux chiffres.
+			NkRect bH{0.f, 0.f, 0.f, 0.f}, bB{0.f, 0.f, 0.f, 0.f};
+			const bool aH = BoiteCouleur(s.ras, vert, bH);
+			const bool aB = BoiteCouleur(s.ras, violet, bB);
+			Check(aH && aB, "(b12) les deux couleurs ont une boite englobante");
+			if (aH && aB) {
+				printf("        haut = (%.0f, %.0f, %.0f x %.0f), bas = (%.0f, %.0f, %.0f x %.0f)\n",
+					   bH.x, bH.y, bH.w, bH.h, bB.x, bB.y, bB.w, bB.h);
+				Check(bH.y + bH.h <= bB.y + 1.f,
+					  "(b12) LE HAUT EST AU-DESSUS DU BAS — les boites ne se croisent pas");
+				Check(bH.x == bB.x, "(b12) et ils partagent leur bord gauche : c'est bien une pile");
+			}
+
+			// La racine, elle, ne dit pas sa taille : elle prend ce qui reste. Ce
+			// n'est pas un defaut — c'est le sens de « tout le reste » pour le
+			// dernier — mais le rapport doit le NOMMER, sinon un document ambigu
+			// passe sans qu'on puisse le voir.
+			CheckEqU(s.rap.conteneursSansTaille, 1u,
+					 "(b12) le `Window` racine est compte SANS TAILLE, pas oublie");
+			s.Png("b12_corrige.png");
+			s.exe.Debrancher(s.ctx);
+		}
+	}
+
+	// =====================================================================
+	printf("\n-- (b13) LA TABLE DE RAPPELS — lambda capturante, METHODE, et le silence compte\n");
+	// =====================================================================
+	// Rodolf, 27/09 : « est-ce que le systeme pour brancher une fonction ou
+	// methode ou lambda sur les evenements callback est deja en place ? »
+	//
+	// La reponse mesuree etait : le FIL oui, le BRANCHEMENT non. `NkGuiCallbackFn`
+	// est un pointeur de fonction C nu — une lambda CAPTURANTE ne s'y convertit
+	// pas, une METHODE non plus. Ce banc lui-meme ecrivait SIX fois le meme
+	// trampoline plus un `this` deguise en `void *`.
+	//
+	// ⚠️ LE CRITERE NE PEUT PAS ETRE « ca compile ». Une table qui accepte un
+	//    appelable et ne l'appelle jamais compile parfaitement. Ce qui est exige
+	//    ici, c'est que la CAPTURE ait ete vue (un compteur exterieur a la lambda
+	//    a bouge) et que l'objet ait recu l'appel SUR LUI (son propre champ a
+	//    change, pas une variable globale).
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ok\" { label = \"Valider\" }\n"
+			"}\n"
+			"behavior \"b\" {\n"
+			"  Callback \"sauver\"(7)\n"
+			"  Callback \"ouvrir\"(\"scene.nk\")\n"
+			"  Callback \"personne\"()\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 120),
+			  "(b13) le document a trois `Callback` se charge");
+
+		// Un objet, pour prouver la METHODE. Il compte sur LUI-MEME : une variable
+		// globale ne dirait pas que l'instance a bien ete retrouvee.
+		struct Panneau {
+				uint32 recus = 0u;
+				NkString dernier;
+				void SurOuvrir(const NkGuiAppelCallback &a) {
+					++recus;
+					// ⚠️ UNE CHAINE CITEE ARRIVE EN `Jeton`, PAS EN « TEXTE ».
+					//    `NkGuiValeur` n'a que trois types (Nombre, Booleen, Jeton)
+					//    et le texte d'un `Callback "x"("scene.nk")` vit dans
+					//    `.jeton` — c'est ce que (b2) lisait deja. Ecrire `.texte`
+					//    ne compilait pas, et c'est tant mieux : un champ qui aurait
+					//    existe et rendu du vide aurait fait un critere vert sur un
+					//    argument perdu.
+					if (a.nbArgs > 0u && a.args[0].type == NkGuiValeur::Type::Jeton)
+						dernier = a.args[0].jeton;
+				}
+		};
+		Panneau panneau;
+
+		// Une capture par reference : c'est precisement ce que le pointeur de
+		// fonction nu ne savait pas porter.
+		uint32 sauves = 0u;
+		float32 argVu = -1.f;
+
+		NkGuiRappels rappels;
+		Check(rappels.Brancher(NkStringView("sauver"),
+							   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &a) {
+								   ++sauves;
+								   if (a.nbArgs > 0u)
+									   argVu = a.args[0].nombre;
+							   })),
+			  "(b13) une LAMBDA CAPTURANTE se branche");
+		Check(rappels.Brancher(NkStringView("ouvrir"),
+							   NkGuiRappels::Rappel(&panneau, &Panneau::SurOuvrir)),
+			  "(b13) une METHODE se branche, sur SON instance");
+		CheckEqU(rappels.Nombre(), 2u, "(b13) la table porte deux noms");
+		CheckEqU(rappels.branches, 2u, "(b13) deux branchements NEUFS");
+		CheckEqU(rappels.remplaces, 0u, "(b13) aucun remplacement");
+		Check(rappels.EstBranche(NkStringView("sauver")), "(b13) `sauver` est branche");
+		Check(!rappels.EstBranche(NkStringView("personne")),
+			  "(b13) `personne` ne l'est pas — c'est le negatif de la mesure d'apres");
+
+		// Une seule ligne au lieu des deux que ce banc ecrit six fois ailleurs.
+		rappels.BrancherSur(s.exe.eval);
+		s.Image();
+
+		printf("        servis = %u, sansDestinataire = %u (« %s »), sauves = %u, arg = %.1f\n",
+			   rappels.servis, rappels.sansDestinataire,
+			   rappels.dernierSansDestinataire.CStr(), sauves, argVu);
+
+		CheckEqU(rappels.servis, 2u, "(b13) DEUX appels ont atteint un destinataire");
+		// ⚠️ ET LA CAPTURE, PAS SEULEMENT L'APPEL. `servis` monterait aussi si la
+		//    table appelait un appelable VIDE : c'est le compteur exterieur a la
+		//    lambda qui prouve que la fermeture a ete portee jusqu'au bout.
+		CheckEqU(sauves, 1u, "(b13) LA CAPTURE A ETE VUE — le compteur du dehors a bouge");
+		CheckEqF(argVu, 7.f, 0.001f, "(b13) et l'argument du document est arrive");
+		CheckEqU(panneau.recus, 1u, "(b13) L'OBJET a recu l'appel sur LUI");
+		Check(panneau.dernier.Compare(NkString("scene.nk")) == 0,
+			  "(b13) avec son argument texte");
+
+		// 🔴 LE CHIFFRE POUR LEQUEL CETTE CLASSE EXISTE. `Callback "personne"` n'a
+		//    aucun destinataire : sans ce compteur il disparaitrait sans un mot,
+		//    exactement comme les sept abandons silencieux du 27/09.
+		CheckEqU(rappels.sansDestinataire, 1u,
+				 "(b13) LE NOM SANS DESTINATAIRE EST COMPTE, pas perdu");
+		Check(rappels.dernierSansDestinataire.Compare(NkString("personne")) == 0,
+			  "(b13) ET NOMME — un compteur seul dirait qu'il manque quelque chose sans dire quoi");
+
+		// Re-brancher un nom existant : legitime, et ce n'est PAS un ajout.
+		Check(rappels.Brancher(NkStringView("sauver"),
+							   NkGuiRappels::Rappel([&](const NkGuiAppelCallback &) { ++sauves; })),
+			  "(b13) re-brancher un nom deja la reussit");
+		CheckEqU(rappels.Nombre(), 2u, "(b13) et n'ajoute PAS de ligne");
+		CheckEqU(rappels.remplaces, 1u, "(b13) le remplacement est compte a part de l'ajout");
+
+		Check(rappels.Debrancher(NkStringView("ouvrir")), "(b13) `ouvrir` se debranche");
+		Check(!rappels.Debrancher(NkStringView("ouvrir")),
+			  "(b13) et une seconde fois rend FAUX — « rien a retirer » n'est pas « retire »");
+		rappels.ReinitialiserCompteursAppel();
+		s.Image();
+		CheckEqU(rappels.sansDestinataire, 2u,
+				 "(b13) debranche, `ouvrir` rejoint `personne` dans les sans-destinataire");
+		s.exe.Debrancher(s.ctx);
 	}
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
