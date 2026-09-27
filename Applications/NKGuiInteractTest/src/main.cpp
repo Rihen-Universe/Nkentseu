@@ -2671,6 +2671,141 @@ int main(int argc, char **argv) {
 		s.exe.Debrancher(s.ctx);
 	}
 
+	// =====================================================================
+	printf("\n-- (b14) VBox, HBox, Group, Stack : `size` les CONFINE aussi\n");
+	// =====================================================================
+	// Rodolf, 27/09 : « on doit avoir plusieurs conteneur vbox hbox stack et tout
+	// ce que tu juge fonctionnel ».
+	//
+	// ⚠️ CES QUATRE-LA NE PEIGNENT RIEN, DONC ON NE PEUT PAS LES MESURER
+	//    DIRECTEMENT. Le critere passe par un `Panel` colore DANS chacun : si le
+	//    conteneur s'est confine a la bande que `size` demande, son panneau tombe
+	//    dans cette bande ; s'il a pris toute la region, son panneau part d'ailleurs
+	//    et les bandes se croisent. Lire les rectangles du RAPPORT aurait mesure ce
+	//    que le monteur CROIT avoir fait — ici on mesure ce qui est arrive a l'image.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Window \"racine\" {\n"
+			"    VBox \"pile\" {\n"
+			"      VBox \"ca\" { size = (200, 44)\n"
+			"        Panel \"pa\" { size = (160, 24)\n"
+			"          appearance { fill { color = #1A7F37 } }\n"
+			"        }\n"
+			"      }\n"
+			"      HBox \"cb\" { size = (200, 44)\n"
+			"        Panel \"pb\" { size = (160, 24)\n"
+			"          appearance { fill { color = #8250DF } }\n"
+			"        }\n"
+			"      }\n"
+			"      Group \"cc\" { size = (200, 44)\n"
+			"        Panel \"pc\" { size = (160, 24)\n"
+			"          appearance { fill { color = #CF222E } }\n"
+			"        }\n"
+			"      }\n"
+			"      Stack \"cd\" { size = (200, 44)\n"
+			"        Panel \"pd\" { size = (160, 24)\n"
+			"          appearance { fill { color = #0969DA } }\n"
+			"        }\n"
+			"      }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		const uint32 couleurs[4] = {0x1A7F37FFu, 0x8250DFFFu, 0xCF222EFFu, 0x0969DAFFu};
+		const char *noms[4] = {"VBox", "HBox", "Group", "Stack"};
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 220),
+			  "(b14) le document a quatre conteneurs de taille se charge");
+		s.Image();
+		s.Image();
+		printf("        tailleFlux = %u, sansTaille = %u\n", s.rap.conteneursTailleFlux,
+			   s.rap.conteneursSansTaille);
+		// Quatre conteneurs PLUS leurs quatre panneaux : huit `size` honores. Un
+		// total de quatre voudrait dire que les panneaux interieurs, eux, ne le
+		// sont pas — et le cas serait vert sur une moitie du travail.
+		CheckEqU(s.rap.conteneursTailleFlux, 8u,
+				 "(b14) HUIT `size` honores — les quatre conteneurs ET leurs quatre panneaux");
+		NkRect boites[4];
+		bool toutes = true;
+		for (uint32 k = 0; k < 4u; ++k) {
+			const uint32 n = ComptePixelsCouleur(s.ras, couleurs[k]);
+			const bool a = BoiteCouleur(s.ras, couleurs[k], boites[k]);
+			if (!a)
+				toutes = false;
+			printf("        %-6s : %u px", noms[k], n);
+			if (a)
+				printf(", boite (%.0f, %.0f, %.0f x %.0f)", boites[k].x, boites[k].y,
+					   boites[k].w, boites[k].h);
+			printf("\n");
+			// 160 x 24 = 3 840 px ; la borne haute exclut un panneau qui aurait
+			// pris la region (320 x 220 = 70 400).
+			Check(n > 2500u && n < 5000u, noms[k]);
+		}
+		Check(toutes, "(b14) les quatre couleurs sont PRESENTES — aucune n'est recouverte");
+		if (toutes) {
+			// ⚠️ ET L'ORDRE, PAS SEULEMENT LA PRESENCE. Trois comptes justes ne
+			//    disent pas « l'un sous l'autre » : trois bandes empilees a l'envers,
+			//    ou trois bandes qui se chevauchent de deux pixels, rendraient
+			//    exactement les memes trois chiffres.
+			bool ordonnees = true;
+			for (uint32 k = 0; k + 1u < 4u; ++k)
+				if (boites[k].y + boites[k].h > boites[k + 1].y)
+					ordonnees = false;
+			Check(ordonnees, "(b14) LES QUATRE BANDES SONT EMPILEES DANS L'ORDRE DU DOCUMENT");
+			// Chaque conteneur demande 44 px ; le pas attendu est donc 44 plus
+			// l'espacement du theme, jamais la hauteur de la bande peinte (24).
+			bool pasJuste = true;
+			printf("        pas entre bandes :");
+			for (uint32 k = 0; k + 1u < 4u; ++k) {
+				const float32 pas = boites[k + 1].y - boites[k].y;
+				printf(" %.0f", pas);
+				if (pas < 40.f || pas > 56.f)
+					pasJuste = false;
+			}
+			printf(" px (conteneurs de 44 px + espacement du theme)\n");
+			Check(pasJuste, "(b14) ET LE PAS VAUT LA TAILLE DEMANDEE — chacun a pris ses 44 px");
+
+			// ⚠️ LE CRITERE QUE LE PREMIER RELEVE A RECLAME. Les quatre bandes
+			//    etaient empilees et le pas tenait dans l'intervalle — mais celle du
+			//    `Stack` sortait a x = 10 quand les trois autres etaient a x = 20, et
+			//    son pas valait 40 au lieu de 50. Un intervalle assez large pour
+			//    accepter les deux ne distingue rien : *different ne veut pas dire
+			//    visible, et un intervalle qui accepte tout ne refute rien*.
+			//
+			//    Ce qu'on exige donc ici : le MEME decalage de l'enfant dans son
+			//    conteneur, pour les quatre. C'est ce qui fait qu'un document ecrit
+			//    pour une `VBox` se relit pareil dans un `Stack`.
+			const char *ids[4] = {"ca", "cb", "cc", "cd"};
+			float32 dx[4] = {0.f, 0.f, 0.f, 0.f}, dy[4] = {0.f, 0.f, 0.f, 0.f};
+			bool tousRects = true;
+			printf("        decalage de l'enfant dans son conteneur :");
+			for (uint32 k = 0; k < 4u; ++k) {
+				NkRect rc{0.f, 0.f, 0.f, 0.f};
+				if (!s.RectTout(ids[k], rc)) {
+					tousRects = false;
+					continue;
+				}
+				dx[k] = boites[k].x - rc.x;
+				dy[k] = boites[k].y - rc.y;
+				printf("  %s (%.0f, %.0f)", noms[k], dx[k], dy[k]);
+			}
+			printf("\n");
+			Check(tousRects, "(b14) les quatre conteneurs ont un rectangle au rapport");
+			if (tousRects) {
+				bool memeDecalage = true;
+				for (uint32 k = 1; k < 4u; ++k)
+					if (dx[k] != dx[0] || dy[k] != dy[0])
+						memeDecalage = false;
+				Check(memeDecalage,
+					  "(b14) LES QUATRE PLACENT LEUR ENFANT AU MEME ENDROIT — un document "
+					  "ecrit pour l'un se relit dans l'autre");
+			}
+		}
+		s.Png("b14_conteneurs.png");
+		s.exe.Debrancher(s.ctx);
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }
