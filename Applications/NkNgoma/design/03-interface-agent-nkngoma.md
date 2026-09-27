@@ -21,7 +21,7 @@
 
 1. **Thème Rihen UE5**, jetons de la famille. **N'écris aucune couleur de structure** ;
    les seules couleurs écrites sont les **jetons d'information** du §2, et ils vivent
-   dans `NkNgoma/theme.nkgui`.
+   dans `NkNgoma/Theme.nkgui`.
 2. **Surfaces peintes par l'application** (`Host`) — elles ont leurs propres gestes :
    - la **playlist** (timeline de la famille), la **rangée de pas** de chaque canal, le
      **rouleau de piano**, les **formes d'onde**, les **courbes d'automation** ;
@@ -34,8 +34,15 @@
    `instr.` · `effet.` · `son.` · `session.` · `design.` · `adr.` · `mix.` · `voie.` ·
    `jeu.` · `export.` · `biblio.` · `reglages.` · `accueil.` + communs (`commun.`,
    `ia.`, `fenetre.`, `edition.`).
-4. **Composants communs repris** (`Commun/composants.nkgui`) : `LigneNombre`,
-   `LigneListe`, `LigneCase`, `Categorie`, `EnTetePanneau`, `CartePropo`, `BoutonEcrit`.
+4. **Composants communs — redéclarés ICI, pas inclus d'ailleurs** : `Categorie`,
+   `EnTetePanneau`, `BoutonEcrit`, plus ceux venus de NKScena (`TrancheMixeur`,
+   `LigneCanal`). Ils vivent dans `ComposantsNgoma.nkgui` (§3).
+   ⚠️ **`Resources/Interface/Commun/` N'EXISTE PAS** — mesuré le 27/09 — et rien ne
+   doit l'inclure tant qu'il n'existe pas. Recopier est d'ailleurs la règle de la
+   maison : on copie d'une application à l'autre, chaque copie écrivant son origine
+   et sa date, puis on diverge doucement.
+   📌 **Condition pour créer `Commun/`** : quand une **troisième** application voudra
+   les mêmes composants. À deux, la copie coûte moins cher que la dépendance.
 5. **Règle D12 de la famille** (NKUIDesign doc 2 §14.3, recommandation) : un composant
    à **une** action la porte par sa **racine** ; un composant à **plusieurs** actions
    donne à chaque enfant actif `id: "<action>"` et `// D12`.
@@ -86,11 +93,13 @@ des jetons (§2) ; P28 `Drawer`.
 
 ---
 
-## 2. Les jetons d'information — `NkNgoma/theme.nkgui`
+## 2. Les jetons d'information — `NkNgoma/Theme.nkgui`
 
 ```nkgui
 nkgui 0.4
-include "../Commun/theme.nkgui"
+// ⚠️ AUCUN `include` ICI. Le thème de NkNgoma est complet à lui seul : le dossier
+//    `Commun/` n'existe pas (voir §0.4), et un include vers un dossier absent ne
+//    fait pas crier le format -- il rend un document silencieusement amputé.
 
 theme {
   nom = "Rihen UE5"   defaut = "Sombre"
@@ -136,7 +145,7 @@ en commentaire (`fill #F85149 // @info.enregistrement`).
 
 ---
 
-## 3. Les composants — `NkNgoma/composants_ngoma.nkgui`
+## 3. Les composants — `NkNgoma/ComposantsNgoma.nkgui`
 
 ### 3.1 `TrancheMixeur` — copie conforme de NKScena 03 §3
 
@@ -228,48 +237,50 @@ component "CarteFiche"
 
 | fichier | § | contenu |
 |---|---|---|
-| `application.nkgui` | 5.1 | la carte |
-| `theme.nkgui` | 2 | les jetons d'information |
-| `composants_ngoma.nkgui` | 3 | les composants propres |
-| `menus.nkgui` | 5.2 | la barre de menus |
-| `barre_transport.nkgui` | 5.3 | transport, position, tempo, espaces, CPU |
-| `accueil.nkgui` | 5.4 | l'accueil |
-| `principale.nkgui` | 5.5 | la fenêtre : bibliothèque, zone d'espace, détails, barre d'état |
-| `composer.nkgui`, `rack.nkgui`, `rouleau.nkgui`, `playlist.nkgui` | 5.6 | l'espace Composer |
-| `accordage.nkgui` | 5.7 | le panneau d'accordage |
-| `instrument_echantillonneur.nkgui`, `instrument_synthe.nkgui`, `chaine_effets.nkgui` | 5.8 | instruments et effets |
-| `son_image.nkgui`, `couches.nkgui`, `dlg_adr.nkgui` | 5.9 | l'espace Son à l'image |
-| `mixer.nkgui` | 5.10 | l'espace Mixer |
-| `jeu.nkgui` | 5.11 | l'espace Jeu |
-| `dlg_exporter.nkgui` | 5.12 | l'export |
-| `bibliotheque.nkgui` | 5.13 | la bibliothèque |
-| `reglages_audio.nkgui`, `assistant_demarrage.nkgui` | 5.14 | réglages, premier lancement |
-| `tests/NkNgoma.tests.nkgui` | 5.15 | les premiers tests |
+| `Application.nkgui` | 5.1 | la carte |
+| `Theme.nkgui` | 2 | les jetons d'information |
+| `ComposantsNgoma.nkgui` | 3 | les composants propres |
+| `Menus.nkgui` | 5.2 | la barre de menus |
+| `BarreTransport.nkgui` | 5.3 | transport, position, tempo, espaces, CPU |
+| `Accueil.nkgui` | 5.4 | l'accueil |
+| `Principale.nkgui` | 5.5 | la fenêtre : bibliothèque, zone d'espace, détails, barre d'état |
+| `Composer.nkgui`, `Rack.nkgui`, `Rouleau.nkgui`, `Playlist.nkgui` | 5.6 | l'espace Composer |
+| `Accordage.nkgui` | 5.7 | le panneau d'accordage |
+| `InstrumentEchantillonneur.nkgui`, `InstrumentSynthe.nkgui`, `ChaineEffets.nkgui` | 5.8 | instruments et effets |
+| `SonImage.nkgui`, `Couches.nkgui`, `DlgAdr.nkgui` | 5.9 | l'espace Son à l'image |
+| `Mixer.nkgui` | 5.10 | l'espace Mixer |
+| `Jeu.nkgui` | 5.11 | l'espace Jeu |
+| `DlgExporter.nkgui` | 5.12 | l'export |
+| `Bibliotheque.nkgui` | 5.13 | la bibliothèque |
+| `ReglagesAudio.nkgui`, `AssistantDemarrage.nkgui` | 5.14 | réglages, premier lancement |
+| `Tests/NkNgoma.tests.nkgui` | 5.15 | les premiers tests |
 
-📌 **Chaque document inclut** `theme.nkgui`, `../Commun/composants.nkgui` puis
-`composants_ngoma.nkgui`, **dans cet ordre**, avant sa section `widgets`.
+📌 **Chaque document inclut** `Theme.nkgui` puis `ComposantsNgoma.nkgui`, **dans cet
+ordre**, avant sa section `widgets`. **Deux includes, pas trois** : il n'y a pas de
+`Commun/` (§0.4). Mesuré sur les 25 documents écrits : 22 incluent `Theme.nkgui`,
+21 y ajoutent `ComposantsNgoma.nkgui` — les autres n'ont ni couleur ni composant.
 
 ---
 
 ## 5. Les arbres
 
-### 5.1 `application.nkgui` — la carte
+### 5.1 `Application.nkgui` — la carte
 
 ```nkgui
 nkgui 0.4
 application "NkNgoma" {
   plateforme = Bureau
   depart     = "accueil"
-  ecran "accueil"            { document = "accueil.nkgui"                type = Fenetre }
-  ecran "principale"         { document = "principale.nkgui"             type = Fenetre }
-  ecran "accordage"          { document = "accordage.nkgui"              type = Feuille }
-  ecran "echantillonneur"    { document = "instrument_echantillonneur.nkgui" type = Panneau }
-  ecran "synthe"             { document = "instrument_synthe.nkgui"      type = Panneau }
-  ecran "couches"            { document = "couches.nkgui"                type = Panneau }
-  ecran "adr"                { document = "dlg_adr.nkgui"                type = Dialogue }
-  ecran "exporter"           { document = "dlg_exporter.nkgui"           type = Dialogue }
-  ecran "reglages_audio"     { document = "reglages_audio.nkgui"         type = Dialogue }
-  ecran "assistant"          { document = "assistant_demarrage.nkgui"    type = Dialogue }
+  ecran "accueil"            { document = "Accueil.nkgui"                type = Fenetre }
+  ecran "principale"         { document = "Principale.nkgui"             type = Fenetre }
+  ecran "accordage"          { document = "Accordage.nkgui"              type = Feuille }
+  ecran "echantillonneur"    { document = "InstrumentEchantillonneur.nkgui" type = Panneau }
+  ecran "synthe"             { document = "InstrumentSynthe.nkgui"      type = Panneau }
+  ecran "couches"            { document = "Couches.nkgui"                type = Panneau }
+  ecran "adr"                { document = "DlgAdr.nkgui"                type = Dialogue }
+  ecran "exporter"           { document = "DlgExporter.nkgui"           type = Dialogue }
+  ecran "reglages_audio"     { document = "ReglagesAudio.nkgui"         type = Dialogue }
+  ecran "assistant"          { document = "AssistantDemarrage.nkgui"    type = Dialogue }
   themes { embarques = ["Rihen UE5", "GitHub Pro", "Contraste élevé"]  defaut = "Rihen UE5"
            variante = systeme  choix_utilisateur = true  greffons = true }
 }
@@ -278,7 +289,7 @@ application "NkNgoma" {
 `principale` (un `Host "principale.zone"` qui monte `composer`, `son_image`, `mixer` ou
 `jeu`), pas des écrans de la carte : changer d'espace ne change pas de fenêtre.
 
-### 5.2 `menus.nkgui`
+### 5.2 `Menus.nkgui`
 
 ```
 MenuBar "menus"
@@ -390,7 +401,7 @@ MenuBar "menus"
     MenuItem "commun.apropos"                  label: "À propos"
 ```
 
-### 5.3 `barre_transport.nkgui`
+### 5.3 `BarreTransport.nkgui`
 
 ```
 HBox "transport"                               gap: 8   align: Center   minSize: (0, 40)
@@ -428,7 +439,7 @@ HBox "transport"                               gap: 8   align: Center   minSize:
   faite, le libellé dit « latence non mesurée » en `@info.alerte`.
 - `tr.tempo` : `NumberField` non monté — attendu ; en attendant, `TextField`.
 
-### 5.4 `accueil.nkgui`
+### 5.4 `Accueil.nkgui`
 
 ```
 Window "accueil"                               title: "NkNgoma"
@@ -452,15 +463,15 @@ Window "accueil"                               title: "NkNgoma"
 - `reglages.ouvrir_depuis_accueil.label` = « ● Audio : pilote · fréquence · bloc · latence
   mesurée » — comportement continu ✅.
 
-### 5.5 `principale.nkgui`
+### 5.5 `Principale.nkgui`
 
 ```
 Window "principale"                            title: "NkNgoma"
   VBox "pr.colonne"                            gap: 0
-    Host "pr.menus"                            hint: "menus.nkgui"
-    Host "pr.transport"                        hint: "barre_transport.nkgui"
+    Host "pr.menus"                            hint: "Menus.nkgui"
+    Host "pr.transport"                        hint: "BarreTransport.nkgui"
     DockSpace "pr.dock"
-      Panel "bibliotheque"                     title: "Bibliothèque"     (bibliotheque.nkgui)
+      Panel "bibliotheque"                     title: "Bibliothèque"     (Bibliotheque.nkgui)
       Host "principale.zone"                   hint: "le document de l'espace actif : composer, son_image, mixer, jeu"
       Panel "details"                          title: "Détails"
         Host "details.contenu"                 hint: "panneau Détails de la famille, engendré depuis la réflexion : canal, note, clip, effet, voie, état"
@@ -480,18 +491,18 @@ Window "principale"                            title: "NkNgoma"
 
 ### 5.6 L'espace Composer
 
-#### `composer.nkgui` (cadre)
+#### `Composer.nkgui` (cadre)
 
 ```
 DockSpace "composer"
-  Panel "playlist"                             title: "Playlist"          (playlist.nkgui)
-  Panel "rack"                                 title: "Rack de canaux"    (rack.nkgui)
-  Panel "rouleau"                              title: "Rouleau de piano"  (rouleau.nkgui)
+  Panel "playlist"                             title: "Playlist"          (Playlist.nkgui)
+  Panel "rack"                                 title: "Rack de canaux"    (Rack.nkgui)
+  Panel "rouleau"                              title: "Rouleau de piano"  (Rouleau.nkgui)
 ```
 Dispositions : `playlist` haut 0,55 · `rack` bas-gauche 0,40 · `rouleau` bas-droite.
 `F5` / `F6` / `F7` donnent le focus au panneau et l'**ouvrent** s'il est fermé.
 
-#### `rack.nkgui`
+#### `Rack.nkgui`
 
 ```
 VBox "rack"                                    gap: 2
@@ -515,7 +526,7 @@ VBox "rack"                                    gap: 2
 - Menu d'un pas : `pas.velocite`, `pas.hauteur`, `pas.decalage`, `pas.probabilite`,
   `pas.repetition`.
 
-#### `rouleau.nkgui`
+#### `Rouleau.nkgui`
 
 ```
 VBox "rouleau"                                 gap: 2
@@ -542,7 +553,7 @@ VBox "rouleau"                                 gap: 2
 - `rl.propo.visible = (rouleau.propositions > 0)` ✅ ; `rl.propo` en
   `appearance: fill #A371F759 // @info.apercu  pattern✚: Hatch`.
 
-#### `playlist.nkgui`
+#### `Playlist.nkgui`
 
 ```
 VBox "playlist"                                gap: 2
@@ -556,7 +567,7 @@ VBox "playlist"                                gap: 2
   Host "pl.pistes"                             hint: "timeline de la famille : clips de pattern, d'audio, d'automation ; couleurs = données ; tête de lecture"
 ```
 
-### 5.7 `accordage.nkgui`
+### 5.7 `Accordage.nkgui`
 
 ```
 Panel "accordage"                              title: "Accordage"
@@ -575,7 +586,7 @@ Panel "accordage"                              title: "Accordage"
 
 ### 5.8 Instruments et effets
 
-#### `instrument_echantillonneur.nkgui`
+#### `InstrumentEchantillonneur.nkgui`
 
 ```
 Panel "echantillonneur"                        title: "Échantillonneur"
@@ -596,13 +607,13 @@ Panel "echantillonneur"                        title: "Échantillonneur"
 ```
 - Une seule page visible selon `ec.onglets` (comportement continu ✅).
 
-#### `instrument_synthe.nkgui`
+#### `InstrumentSynthe.nkgui`
 
 Même cadre ; onglets `Oscillateurs · Filtre · Enveloppes · LFO · Modulation · Effets` ;
 chaque réglage est un `Knob✚` dans une `Categorie` ; la **matrice de modulation** est un
 `Host`.
 
-#### `chaine_effets.nkgui`
+#### `ChaineEffets.nkgui`
 
 ```
 VBox "chaine"                                  gap: 2
@@ -619,7 +630,7 @@ VBox "chaine"                                  gap: 2
 
 ### 5.9 L'espace Son à l'image
 
-#### `son_image.nkgui`
+#### `SonImage.nkgui`
 
 ```
 VBox "son_image"                               gap: 0
@@ -650,7 +661,7 @@ VBox "son_image"                               gap: 0
   }
   ```
 
-#### `couches.nkgui`
+#### `Couches.nkgui`
 
 ```
 Panel "couches"                                title: "Couches du bruitage"
@@ -665,7 +676,7 @@ Panel "couches"                                title: "Couches du bruitage"
       Button "design.exporter_couches"         label: "Exporter en couches"
 ```
 
-#### `dlg_adr.nkgui`
+#### `DlgAdr.nkgui`
 
 ```
 Window "adr"                                   title: "Boucle ADR"   modal: true
@@ -678,7 +689,7 @@ Window "adr"                                   title: "Boucle ADR"   modal: true
       BoutonEcrit "adr.enregistrer"            label: "● Enregistrer les prises"
 ```
 
-### 5.10 `mixer.nkgui`
+### 5.10 `Mixer.nkgui`
 
 ```
 VBox "mixer"                                   gap: 4
@@ -701,7 +712,7 @@ VBox "mixer"                                   gap: 4
 - En 5.1 / 7.1, le `Knob✚ "pan"` des tranches est remplacé par un `Host "joystick"` (panoramique
   surround) — l'application choisit selon `mix.format`.
 
-### 5.11 `jeu.nkgui`
+### 5.11 `Jeu.nkgui`
 
 ```
 VBox "jeu"                                     gap: 4
@@ -732,7 +743,7 @@ VBox "jeu"                                     gap: 4
   }
   ```
 
-### 5.12 `dlg_exporter.nkgui`
+### 5.12 `DlgExporter.nkgui`
 
 ```
 Window "exporter"                              title: "Exporter"   modal: true
@@ -767,7 +778,7 @@ Window "exporter"                              title: "Exporter"   modal: true
   }
   ```
 
-### 5.13 `bibliotheque.nkgui`
+### 5.13 `Bibliotheque.nkgui`
 
 ```
 VBox "bibliotheque"                            gap: 4
@@ -780,7 +791,7 @@ VBox "bibliotheque"                            gap: 4
   CarteFiche "bi.fiche"
 ```
 
-### 5.14 `reglages_audio.nkgui` et `assistant_demarrage.nkgui`
+### 5.14 `ReglagesAudio.nkgui` et `AssistantDemarrage.nkgui`
 
 ```
 Window "reglages_audio"                        title: "Réglages audio et MIDI"   modal: true
@@ -802,15 +813,15 @@ Window "reglages_audio"                        title: "Réglages audio et MIDI" 
   format : signale-le.
 - `ra.latence_val` : « Latence : 6,8 ms (mesurée le … ) » ; `@info.alerte` si non mesurée ✅.
 
-`assistant_demarrage.nkgui` : trois pages (`ListBox` des étapes ou `Stepper✚` P22) —
+`AssistantDemarrage.nkgui` : trois pages (`ListBox` des étapes ou `Stepper✚` P22) —
 Sortie · Entrée et **mesure de latence** · Clavier MIDI (facultatif) ; boutons
 `accueil.precedent`, `accueil.suivant`, `accueil.terminer`.
 
-### 5.15 `tests/NkNgoma.tests.nkgui` — les premiers tests
+### 5.15 `Tests/NkNgoma.tests.nkgui` — les premiers tests
 
 ```nkgui
 nkgui 0.4
-include "../application.nkgui"
+include "../Application.nkgui"
 
 test "Exporter en FLAC sans encodeur est impossible, et dit pourquoi" {
   depart "exporter"
