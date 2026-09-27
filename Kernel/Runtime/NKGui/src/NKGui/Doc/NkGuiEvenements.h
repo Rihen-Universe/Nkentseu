@@ -99,12 +99,108 @@ namespace nkentseu {
 			Submit,		 ///< reconnu, sans source
 			DragStart,	 ///< reconnu, sans source
 			Drop,		 ///< reconnu, sans source
-			Inconnu		 ///< le mot n'est pas du vocabulaire : REFUSÉ et compté
+			// ═══════════════════════════════════════════════════════════════
+			//  L'ELARGISSEMENT DU 27/09 — Rodolf : « le système d'événements
+			//  doit être complet et toucher même les custom event gamepad bref
+			//  tout. »
+			// ═══════════════════════════════════════════════════════════════
+			//  📌 AUCUN DE CES NOMS N'EST INVENTE : ils ont tous une source
+			//     dans NKEvent, mesurée le 27/09 — `NkPointerEvent.h`,
+			//     `NkTouchEvent.h`, `NkGamepadEvent.h`, `NkGenericHidEvent.h`,
+			//     `NkCustomEvent.h`, `NkDropEvent.h`, `NkTransferEvent.h`,
+			//     `NkWindowEvent.h`. Ce qui manque n'est donc pas la source :
+			//     c'est que `NkGuiInput` ne la porte pas jusqu'ici. Le travail
+			//     restant est un ACHEMINEMENT, pas une invention — et c'est
+			//     pourquoi ces noms entrent maintenant plutôt qu'au compte-goutte.
+			//
+			//  ⚠️ EN AJOUT SEUL, APRES `Drop` ET AVANT `Inconnu`. Rien ne
+			//     persiste la valeur numérique (le format écrit des NOMS, et
+			//     `NkGuiEvenementDepuisNom` les relit), mais l'ordre reste une
+			//     discipline : une énumération qu'on insère au milieu finit par
+			//     décaler un tableau indexé par elle.
+
+			// ── LE POINTEUR, UN SEUL VOCABULAIRE POUR TROIS APPAREILS ──────
+			// 🔴 SOURIS, TACTILE ET STYLET NE SE DEDOUBLENT PAS. La tentation
+			//    était d'écrire `TouchBegin/TouchMove/TouchEnd` à côté des
+			//    événements souris : ça aurait TRIPLE le vocabulaire et forcé
+			//    chaque document à écrire deux comportements pour un seul geste
+			//    — donc à en oublier un sur mobile, où personne ne teste.
+			//    `NkPointerEvent.h` existe précisément pour ça. L'appareil se lit
+			//    dans la charge (`NkGuiEvtDetail::pointeur`), il ne se lit pas
+			//    dans le nom de l'événement.
+			PointerDown,   ///< reconnu, sans source — appui (souris, doigt, stylet)
+			PointerUp,	   ///< reconnu, sans source
+			PointerMove,   ///< reconnu, sans source
+			PointerEnter,  ///< reconnu, sans source — entrée dans la zone
+			PointerLeave,  ///< reconnu, sans source
+			PointerCancel, ///< reconnu, sans source — le geste est ANNULE (appel,
+						   ///< changement d'application, paume détectée). Sans lui,
+						   ///< un glisser interrompu reste « en cours » pour toujours.
+
+			// ── CLAVIER ET TEXTE ──────────────────────────────────────────
+			KeyUp, ///< reconnu, sans source
+			Char,  ///< reconnu, sans source — un CARACTERE, pas une touche : `KeyDown`
+				   ///< dit quelle touche, `Char` dit ce qui s'écrit. Les confondre rend
+				   ///< la saisie fausse dès qu'un clavier n'est pas le nôtre.
+
+			// ── GLISSER-DEPOSER, COMPLETE ─────────────────────────────────
+			DragOver, ///< reconnu, sans source — sans lui, aucun retour visuel pendant
+					  ///< le survol : l'utilisateur ne sait pas où il peut lâcher.
+			DragEnd,  ///< reconnu, sans source — le glisser finit SANS dépôt
+
+			// ── LA FENETRE ────────────────────────────────────────────────
+			Resize,		  ///< reconnu, sans source
+			Moved,		  ///< reconnu, sans source
+			CloseRequest, ///< reconnu, sans source — DEMANDE de fermeture, refusable
+						  ///< (« enregistrer avant de quitter ? »)
+			DpiChanged,	  ///< reconnu, sans source — l'écran change d'échelle
+
+			// ── LA MANETTE ────────────────────────────────────────────────
+			// Sa source est la plus complète du dépôt : boutons, axes, mappage
+			// persistant, HID génériques. Elle attend l'acheminement, pas l'écriture.
+			GamepadButtonDown,	 ///< reconnu, sans source
+			GamepadButtonUp,	 ///< reconnu, sans source
+			GamepadAxis,		 ///< reconnu, sans source — sticks et gâchettes
+			GamepadConnected,	 ///< reconnu, sans source
+			GamepadDisconnected, ///< reconnu, sans source — une manette qui se
+								 ///< débranche en pleine partie doit pouvoir METTRE EN
+								 ///< PAUSE, pas laisser le personnage courir.
+			HidInput,			 ///< reconnu, sans source — périphérique générique
+
+			// ── PRESSE-PAPIERS ────────────────────────────────────────────
+			Copy,  ///< reconnu, sans source
+			Cut,   ///< reconnu, sans source
+			Paste, ///< reconnu, sans source
+
+			// ── ET CE QUE LE FORMAT NE PEUT PAS CONNAITRE ─────────────────
+			// 🔴 `Custom` PORTE UN NOM, PAS UN TYPE. Le format route le FAIT que
+			//    l'événement a eu lieu et son nom (`NkGuiEvtDetail::customNom`) ;
+			//    ce qu'il TRANSPORTE appartient à qui l'a défini. Prétendre typer
+			//    une charge inconnue aurait donné un tableau de valeurs
+			//    positionnelles — « un indice n'est pas un nom », la faute que
+			//    cette structure existe pour éviter.
+			Custom,
+
+			Inconnu ///< le mot n'est pas du vocabulaire : REFUSÉ et compté
 		};
 
 		/// Vrai si l'événement a une source aujourd'hui. Les autres sont reconnus,
 		/// comptés, et ne se déclenchent pas — ce n'est pas la même chose qu'un
 		/// mot inconnu, et les deux compteurs sont séparés pour cette raison.
+		///
+		/// 🔴 CETTE FONCTION EST LE GARDE-FOU « DECLARER N'EST PAS LIVRER » DE CE
+		///    COUPLE DE FICHIERS, et elle ne doit JAMAIS être en avance sur le code.
+		///    Le 27/09 le vocabulaire est passé de 12 à 35 noms (pointeur, clavier,
+		///    fenêtre, manette, presse-papiers, custom) : trois seulement ont une
+		///    source. La tentation, en élargissant, était de faire rendre `true` à
+		///    tout le nouveau lot « puisque NKEvent les produit ». Ç'aurait été un
+		///    mensonge d'un cran : NKEvent les produit, mais `NkGuiInput` ne les
+		///    porte pas encore jusqu'ici, donc aucun document ne les verrait se
+		///    déclencher — et le relevé aurait annoncé le contraire.
+		///
+		/// 📌 À TENIR : chaque acheminement livré ajoute SON nom ici, et seulement
+		///    quand un témoin le montre déclenché. Un nom ajouté d'avance rend ce
+		///    compteur muet, et c'est le seul qui dit ce qui marche vraiment.
 		inline bool NkGuiEvenementADesSources(NkGuiEvenement e) noexcept {
 			return e == NkGuiEvenement::Click || e == NkGuiEvenement::Changed
 				   || e == NkGuiEvenement::Hover;
@@ -143,6 +239,32 @@ namespace nkentseu {
 			if (NkGEMotEgal(n, "Submit")) return NkGuiEvenement::Submit;
 			if (NkGEMotEgal(n, "DragStart")) return NkGuiEvenement::DragStart;
 			if (NkGEMotEgal(n, "Drop")) return NkGuiEvenement::Drop;
+			// ── L'ELARGISSEMENT DU 27/09 ───────────────────────────────────
+			if (NkGEMotEgal(n, "PointerDown")) return NkGuiEvenement::PointerDown;
+			if (NkGEMotEgal(n, "PointerUp")) return NkGuiEvenement::PointerUp;
+			if (NkGEMotEgal(n, "PointerMove")) return NkGuiEvenement::PointerMove;
+			if (NkGEMotEgal(n, "PointerEnter")) return NkGuiEvenement::PointerEnter;
+			if (NkGEMotEgal(n, "PointerLeave")) return NkGuiEvenement::PointerLeave;
+			if (NkGEMotEgal(n, "PointerCancel")) return NkGuiEvenement::PointerCancel;
+			if (NkGEMotEgal(n, "KeyUp")) return NkGuiEvenement::KeyUp;
+			if (NkGEMotEgal(n, "Char")) return NkGuiEvenement::Char;
+			if (NkGEMotEgal(n, "DragOver")) return NkGuiEvenement::DragOver;
+			if (NkGEMotEgal(n, "DragEnd")) return NkGuiEvenement::DragEnd;
+			if (NkGEMotEgal(n, "Resize")) return NkGuiEvenement::Resize;
+			if (NkGEMotEgal(n, "Moved")) return NkGuiEvenement::Moved;
+			if (NkGEMotEgal(n, "CloseRequest")) return NkGuiEvenement::CloseRequest;
+			if (NkGEMotEgal(n, "DpiChanged")) return NkGuiEvenement::DpiChanged;
+			if (NkGEMotEgal(n, "GamepadButtonDown")) return NkGuiEvenement::GamepadButtonDown;
+			if (NkGEMotEgal(n, "GamepadButtonUp")) return NkGuiEvenement::GamepadButtonUp;
+			if (NkGEMotEgal(n, "GamepadAxis")) return NkGuiEvenement::GamepadAxis;
+			if (NkGEMotEgal(n, "GamepadConnected")) return NkGuiEvenement::GamepadConnected;
+			if (NkGEMotEgal(n, "GamepadDisconnected"))
+				return NkGuiEvenement::GamepadDisconnected;
+			if (NkGEMotEgal(n, "HidInput")) return NkGuiEvenement::HidInput;
+			if (NkGEMotEgal(n, "Copy")) return NkGuiEvenement::Copy;
+			if (NkGEMotEgal(n, "Cut")) return NkGuiEvenement::Cut;
+			if (NkGEMotEgal(n, "Paste")) return NkGuiEvenement::Paste;
+			if (NkGEMotEgal(n, "Custom")) return NkGuiEvenement::Custom;
 			return NkGuiEvenement::Inconnu;
 		}
 
@@ -161,6 +283,35 @@ namespace nkentseu {
 				case NkGuiEvenement::Submit: return "Submit";
 				case NkGuiEvenement::DragStart: return "DragStart";
 				case NkGuiEvenement::Drop: return "Drop";
+				// ⚠️ CHAQUE NOM AJOUTE A L'ENUMERATION DOIT VENIR ICI AUSSI, et le
+				//    `default` est précisément ce qui rend l'oubli silencieux : un
+				//    événement neuf s'afficherait « (inconnu) » dans tous les relevés
+				//    alors qu'il est parfaitement reconnu. C'est arrivé le 27/09 sur
+				//    les 23 noms de l'élargissement — corrigé dans le même souffle.
+				case NkGuiEvenement::PointerDown: return "PointerDown";
+				case NkGuiEvenement::PointerUp: return "PointerUp";
+				case NkGuiEvenement::PointerMove: return "PointerMove";
+				case NkGuiEvenement::PointerEnter: return "PointerEnter";
+				case NkGuiEvenement::PointerLeave: return "PointerLeave";
+				case NkGuiEvenement::PointerCancel: return "PointerCancel";
+				case NkGuiEvenement::KeyUp: return "KeyUp";
+				case NkGuiEvenement::Char: return "Char";
+				case NkGuiEvenement::DragOver: return "DragOver";
+				case NkGuiEvenement::DragEnd: return "DragEnd";
+				case NkGuiEvenement::Resize: return "Resize";
+				case NkGuiEvenement::Moved: return "Moved";
+				case NkGuiEvenement::CloseRequest: return "CloseRequest";
+				case NkGuiEvenement::DpiChanged: return "DpiChanged";
+				case NkGuiEvenement::GamepadButtonDown: return "GamepadButtonDown";
+				case NkGuiEvenement::GamepadButtonUp: return "GamepadButtonUp";
+				case NkGuiEvenement::GamepadAxis: return "GamepadAxis";
+				case NkGuiEvenement::GamepadConnected: return "GamepadConnected";
+				case NkGuiEvenement::GamepadDisconnected: return "GamepadDisconnected";
+				case NkGuiEvenement::HidInput: return "HidInput";
+				case NkGuiEvenement::Copy: return "Copy";
+				case NkGuiEvenement::Cut: return "Cut";
+				case NkGuiEvenement::Paste: return "Paste";
+				case NkGuiEvenement::Custom: return "Custom";
 				default: return "(inconnu)";
 			}
 		}
