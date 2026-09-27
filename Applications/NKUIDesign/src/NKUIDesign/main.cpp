@@ -87,6 +87,7 @@
 #include "SondeToile.h"         // --sonde-toile    : le role Canvas et son cadrage
 #include "SondeLangues.h"       // --sonde-langues  : `@t:cle` et la bascule a chaud
 #include "NkUIDesignLangues.h"  // LA table de traduction de cette application
+#include "SondePont.h"          // --sonde-pont     : les deux vues de la toile s'accordent-elles
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
@@ -9309,6 +9310,11 @@ int nkmain(const NkEntryState &state) {
 		// utilisateur. Sans fenetre : la traduction est une table, pas un pixel.
 		if (NkComponentDecl::StrEq(a, "--sonde-langues"))
 			return nkuidesign::SondeLangues();
+		// LE PONT entre la vue de la toile et celle du role `Canvas` : mesure
+		// PREALABLE a l'integration, pour ne pas ouvrir `Panels.h` sur une
+		// hypothese.
+		if (NkComponentDecl::StrEq(a, "--sonde-pont"))
+			return nkuidesign::SondePont();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
