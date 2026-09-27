@@ -233,6 +233,33 @@ namespace nkentseu {
 
 				/// Monte la bande dans la région que la coquille vient de poser.
 				void Monter(NkGuiContext &ctx) noexcept {
+					MonterInterne(ctx, nullptr);
+				}
+
+				/// Monte UNE racine nommée du document, et rien d'autre.
+				///
+				/// ⚠️ ELLE EXISTE PARCE QU'UNE COQUILLE POSE SES BANDES A DES INSTANTS
+				///    DIFFERENTS. Sans elle il fallait un FICHIER par bande : NkAntenne en
+				///    avait 25 là où 5 suffisent, NkAnimaEditor 4, NKUIDesign 2. Le manque
+				///    était nommé dans ces trois applications ; `NkGuiMonteur` porte
+				///    désormais `Monter(ctx, doc, "racine", …)` et cette méthode n'est que
+				///    le fil jusqu'à lui.
+				///
+				/// ⚠️ ET LE NOM NON TROUVÉ NE SE TAIT PAS : `rap.racinesIntrouvables` et
+				///    `rap.derniereRacineIntrouvable`. Une bande vide sans message serait
+				///    indiscernable d'une bande qui n'affiche rien, et une faute de frappe
+				///    dans un nom de racine est la faute la plus probable de ce mécanisme.
+				void Monter(NkGuiContext &ctx, const char *racine) noexcept {
+					MonterInterne(ctx, racine);
+				}
+
+			private:
+				/// ⚠️ UN SEUL CORPS POUR LES DEUX PORTES. Tout ce qui entoure le montage —
+				///    les compteurs remis à zéro, le journal d'événements vidé, le
+				///    branchement, les comportements exécutés APRÈS — doit être identique,
+				///    sinon une bande à racine nommée ne se comporterait pas comme une
+				///    bande entière. Deux copies auraient divergé au premier ajout.
+				void MonterInterne(NkGuiContext &ctx, const char *racine) noexcept {
 					if (!lu) {
 						PeindreRefus(ctx);
 						return;
@@ -248,7 +275,10 @@ namespace nkentseu {
 					evenements.Vider();
 					evts = NkGuiRapportEvenements();
 					Brancher(ctx);
-					NkGuiMonteur::Monter(ctx, doc, etat, rap, this);
+					if (racine)
+						(void)NkGuiMonteur::Monter(ctx, doc, racine, etat, rap, this);
+					else
+						NkGuiMonteur::Monter(ctx, doc, etat, rap, this);
 					// `Changed` se DÉDUIT : NKGui dit ce qu'une valeur vaut, jamais
 					// qu'elle vient de changer. On confronte donc l'état monté à
 					// celui de l'image précédente, APRÈS le montage.
@@ -259,6 +289,15 @@ namespace nkentseu {
 					ExecuterComportementsFiltres(doc);
 					Debrancher(ctx);
 				}
+
+			public:
+				// ⚠️ LA PORTEE SE REFERME ICI, ET CE N'EST PAS DU RANGEMENT. `actions`,
+				//    `nbActions`, `zones` et `nbZones` sont posés DE L'EXTERIEUR
+				//    (`PoserTables`), et `Declencher` est appelé par les hôtes. Laisser
+				//    courir le `private:` de `MonterInterne` jusqu'au bas de la classe
+				//    aurait rendu tout cela inaccessible — une erreur de compilation
+				//    bruyante chez NkAnimaEditor et Nogee, pour un ajout qui ne les
+				//    concerne pas.
 
 				// ── crochet du monteur : la zone hôte, par NOM ────────────────
 				bool RemplirHote(NkGuiContext &ctx, const char *nom, const NkRect &zone) noexcept override {
