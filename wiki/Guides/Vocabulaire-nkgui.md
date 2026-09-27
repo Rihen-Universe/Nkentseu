@@ -54,7 +54,7 @@ La première ligne déclare la version. Tout le reste est fait de **blocs** :
 | `fonts` | les polices | ❌ ignorée |
 | `include` | inclure un autre document | ✅ **résolu avant le montage** *(26/09)* |
 
-`include "composants.nkgui"` insère le contenu **à la place exacte** de la
+`include "Composants.nkgui"` insère le contenu **à la place exacte** de la
 ligne. Il s'écrit donc **avant** `widgets` quand il apporte des composants :
 écrit après, ils arriveraient trop tard et leurs instances seraient comptées
 comme des **rôles inconnus** — le développement ne réordonne pas pour rattraper
