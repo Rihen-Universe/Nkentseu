@@ -1846,6 +1846,161 @@ int main(int argc, char **argv) {
 		s.exe.Debrancher(s.ctx);
 	}
 
+	// =====================================================================
+	printf("\n-- (b6) LE BLUEPRINT, LOT 2 : les instructions d'interface (P25)\n");
+	// =====================================================================
+	//  « Un comportement sait calculer et appeler l'application ; il ne sait pas
+	//  encore AGIR sur l'interface. » C'est le chantier O du document 19.
+	//
+	//  ⚠️ LE DOCUMENT DE CE CAS EST CELUI DE LA SPECIFICATION, mot pour mot
+	//     (doc 2 §5.5) : la condition EN CONTINU qui active ou desactive un
+	//     bouton selon l'etat d'un autre. Un cas invente aurait prouve que le
+	//     code marche sur ce que le code sait faire.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Checkbox  \"conditions\" { label = \"J'accepte\", value = false }\n"
+			"  TextField \"email\"      { value = \"\" }\n"
+			"  Button    \"inscription.suivant\" { label = \"Suivant\" }\n"
+			"  Text      \"nom_erreur\" { text = \"\" }\n"
+			"}\n"
+			"behavior \"inscription.suivant\" {\n"
+			"  if conditions.checked && not empty(email.text) {\n"
+			"    enable \"inscription.suivant\"\n"
+			"    hide \"nom_erreur\"\n"
+			"  } else {\n"
+			"    disable \"inscription.suivant\" because \"Accepte les conditions\"\n"
+			"    set \"nom_erreur\".text = \"Le nom est obligatoire\"\n"
+			"    show \"nom_erreur\"\n"
+			"  }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 360, 240), "(b6) le document se charge");
+		s.Image();
+		s.Image();
+
+		printf("        reconnues=%u servies=%u sansHote=%u refusees=%u\n",
+			   s.exe.eval.rapport.uiReconnues, s.exe.eval.rapport.uiServies,
+			   s.exe.eval.rapport.uiSansHote, s.exe.eval.rapport.refusees);
+		// ⚠️ LE PREMIER CRITERE EST QUE RIEN N'EST REFUSE : une instruction que
+		//    l'evaluateur ne comprend pas se compte en `refusees`, et un zero dit
+		//    que tous les mots du document ont ete lus.
+		CheckEqU(s.exe.eval.rapport.refusees, 0u,
+				 "(b6) AUCUNE instruction refusee — tout ce qui est ecrit est compris");
+		Check(s.exe.eval.rapport.uiReconnues >= 3u, "(b6) les instructions sont RECONNUES");
+		CheckEqU(s.exe.eval.rapport.uiSansHote, 0u, "(b6) et l'hote est branche");
+		CheckEqU(s.exe.eval.rapport.uiServies, s.exe.eval.rapport.uiReconnues,
+				 "(b6) TOUTES servies — reconnues et servies ne sont pas le meme chiffre");
+
+		// ── LA BRANCHE FAUSSE : le bouton est desactive AVEC SA RAISON ───
+		const NkGuiInfoWidget *bouton = s.exe.infos.Trouver(NkStringView("inscription.suivant"));
+		Check(bouton != nullptr, "(b6) le bouton est au releve");
+		if (bouton) {
+			NkGuiMonteEtat::Entree *e =
+				s.etat.Get(NkStringView(bouton->cle.Data(), (usize)bouton->cle.Size()));
+			Check(e != nullptr, "(b6) son etat existe");
+			if (e) {
+				printf("        etat du bouton : actif=%d raison=\"%s\"\n", (int)e->actif,
+					   e->raison);
+				Check(!e->actif, "(b6) la condition est FAUSSE -> le bouton est DESACTIVE");
+				// ⚠️ « Un element desactive dit pourquoi » (doc 3 §14quater). Sans
+				//    ce critere, `disable` serait servi et la raison PERDUE — et
+				//    l'utilisateur verrait un bouton gris sans explication.
+				Check(e->raison[0] != '\0', "(b6) et il PORTE SA RAISON, pas seulement son gris");
+			}
+		}
+
+		// ── `set x.text` et `show` ont agi sur un AUTRE widget ───────────
+		const NkGuiInfoWidget *err = s.exe.infos.Trouver(NkStringView("nom_erreur"));
+		if (err) {
+			NkGuiMonteEtat::Entree *e =
+				s.etat.Get(NkStringView(err->cle.Data(), (usize)err->cle.Size()));
+			if (e) {
+				printf("        message d'erreur : visible=%d texte=\"%s\"\n", (int)e->visible,
+					   e->texte);
+				Check(e->visible, "(b6) `show` a rendu le message visible");
+				Check(e->texte[0] != '\0', "(b6) et `set x.text` a ecrit DANS UN AUTRE widget");
+			}
+		}
+
+		// ── LA BRANCHE VRAIE : on coche, on saisit, le bouton revient ────
+		//  ⚠️ C'EST LA MOITIE QUI MANQUERAIT LE PLUS. Un `disable` qui ne se leve
+		//     jamais passerait tous les criteres ci-dessus : ils ne regardent
+		//     qu'un seul etat du monde.
+		if (bouton) {
+			const NkGuiInfoWidget *cond = s.exe.infos.Trouver(NkStringView("conditions"));
+			const NkGuiInfoWidget *mail = s.exe.infos.Trouver(NkStringView("email"));
+			if (cond && mail) {
+				NkGuiMonteEtat::Entree *ec =
+					s.etat.Get(NkStringView(cond->cle.Data(), (usize)cond->cle.Size()));
+				NkGuiMonteEtat::Entree *em =
+					s.etat.Get(NkStringView(mail->cle.Data(), (usize)mail->cle.Size()));
+				if (ec && em) {
+					ec->b = true;
+					em->texte[0] = 'a';
+					em->texte[1] = '\0';
+					s.Image();
+					NkGuiMonteEtat::Entree *e =
+						s.etat.Get(NkStringView(bouton->cle.Data(), (usize)bouton->cle.Size()));
+					printf("        apres avoir coche et saisi : actif=%d\n", (int)(e && e->actif));
+					Check(e && e->actif,
+						  "(b6) la condition devient VRAIE -> `enable` le rend actif");
+					const NkGuiInfoWidget *err2 = s.exe.infos.Trouver(NkStringView("nom_erreur"));
+					if (err2) {
+						NkGuiMonteEtat::Entree *ee =
+							s.etat.Get(NkStringView(err2->cle.Data(), (usize)err2->cle.Size()));
+						Check(ee && !ee->visible, "(b6) et `hide` a recache le message");
+					}
+				}
+			}
+		}
+		s.exe.Debrancher(s.ctx);
+	}
+
+	// =====================================================================
+	printf("\n-- (b7) CE QUE L'HOTE NE SAIT PAS FAIRE SE COMPTE, ET SE VOIT\n");
+	// =====================================================================
+	//  ⚠️ C'EST LE CRITERE QUI DONNE SA VALEUR AUX DEUX COMPTEURS. `open`,
+	//     `toast`, `emit`, `call`, `theme`, `back` parlent de NAVIGATION, de
+	//     DIALOGUES et de SERVICES — que cette couche ne possede pas. Elles sont
+	//     RECONNUES et NON SERVIES, et **l'ecart entre les deux chiffres est
+	//     exactement ce que l'application ne sait pas encore faire**. Sans lui,
+	//     un document plein d'instructions muettes passerait pour un document
+	//     qui marche.
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"projet.supprimer\" { label = \"Supprimer\" }\n"
+			"}\n"
+			"behavior \"essai\" {\n"
+			"  open \"reglages\"\n"
+			"  open \"confirmer\" as modal\n"
+			"  close\n"
+			"  back\n"
+			"  toast \"Copie\"\n"
+			"  theme \"Rihen UE5 Clair\"\n"
+			"  emit \"projet.modifie\"()\n"
+			"  after 1500 { hide \"bandeau\" }\n"
+			"  call \"fichier.ouvrir\"() -> chemin { toast chemin }\n"
+			"  message \"Supprimer ?\" \"Definitif.\" buttons [\"Supprimer\", \"Annuler\"] -> r { "
+			"toast r }\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 160), "(b7) le document se charge");
+		s.Image();
+		s.Image();
+		printf("        reconnues=%u servies=%u refusees=%u\n", s.exe.eval.rapport.uiReconnues,
+			   s.exe.eval.rapport.uiServies, s.exe.eval.rapport.refusees);
+		CheckEqU(s.exe.eval.rapport.refusees, 0u,
+				 "(b7) les DIX instructions sont LUES — aucune refusee par l'analyseur");
+		CheckEqU(s.exe.eval.rapport.uiReconnues, 10u, "(b7) et toutes RECONNUES");
+		CheckEqU(s.exe.eval.rapport.uiServies, 0u,
+				 "(b7) NEGATIF : aucune SERVIE — cette couche n'a ni navigation ni services");
+		s.exe.Debrancher(s.ctx);
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }

@@ -618,7 +618,72 @@ namespace nkentseu {
 				uint32 refusees = 0;	   ///< instructions non reconnues (compte, jamais devinees)
 				uint32 grapheIgnore = 0;   ///< sections `behavior ... graph`, refusees en bloc
 				uint32 variables = 0;	   ///< variables locales posees par `set`
+				// ── P25 : LES INSTRUCTIONS D'INTERFACE (27/09) ───────────────
+				/// ⚠️ TROIS COMPTEURS, PARCE QUE TROIS ISSUES DIFFERENTES.
+				///    `uiReconnues` : l'evaluateur a compris l'instruction.
+				///    `uiServies`   : l'hote l'a faite. **La difference entre les
+				///                    deux est exactement ce que l'application ne
+				///                    sait pas encore faire** — et c'est la seule
+				///                    facon de le voir sans lancer l'application.
+				///    `uiSansHote`  : aucun hote pose. Ce n'est pas un refus de
+				///                    l'hote, c'est son absence : les confondre
+				///                    ferait chercher un defaut la ou il n'y a
+				///                    qu'un cablage manquant.
+				uint32 uiReconnues = 0;
+				uint32 uiServies = 0;
+				uint32 uiSansHote = 0;
 		};
+
+		// =====================================================================
+		//  P25 — CE QUE L'INTERFACE **FAIT** EN REPONSE
+		// =====================================================================
+		//  « Un comportement sait calculer et appeler l'application ; il ne sait
+		//  pas encore agir sur l'interface. » C'est le chantier O du document 19,
+		//  et ce sont les instructions du §5.4 du document 2.
+		//
+		//  ⚠️ L'EVALUATEUR NE TOUCHE RIEN LUI-MEME, et c'est ce qui le garde
+		//     mesurable. Il ne connait ni les widgets, ni l'ecran courant, ni les
+		//     services : il RECONNAIT l'instruction, evalue ses arguments, et la
+		//     remet a l'hote. La meme separation que `resolveur` pour la lecture.
+		enum class NkGuiInstruction : uint8 {
+			Montrer = 0,  ///< `show x`
+			Cacher,		  ///< `hide x`
+			Basculer,	  ///< `toggle x`
+			Activer,	  ///< `enable x`
+			Desactiver,	  ///< `disable x because "raison"`
+			Focaliser,	  ///< `focus x`
+			PoserPropriete, ///< `set x.prop = expr`
+			Ouvrir,		  ///< `open "ecran"` / `as modal`
+			Fermer,		  ///< `close` / `close "ecran"`
+			Retour,		  ///< `back`
+			Message,	  ///< `message titre texte buttons [...]`
+			Notifier,	  ///< `toast "texte"`
+			Emettre,	  ///< `emit "evenement"(args)`
+			Differer,	  ///< `after ms { ... }`
+			Service,	  ///< `call "service"(args)`
+			Theme		  ///< `theme "Nom"`
+		};
+
+		/// Ce qu'une instruction demande. Les champs inutiles a l'instruction
+		/// restent vides — leur presence ne se devine pas, elle se lit.
+		struct NkGuiDemande {
+				NkGuiInstruction quoi = NkGuiInstruction::Montrer;
+				NkString cible;	   ///< widget, ecran, service, evenement ou theme
+				NkString propriete; ///< `set x.PROP = ...`
+				NkGuiValeur valeur; ///< la valeur de `set`, le texte d'un `toast`…
+				NkString raison;   ///< `disable ... because` — jamais invente
+				bool modal = false; ///< `open ... as modal`
+				float32 delai = 0.f; ///< `after MS { ... }`
+				/// Le corps d'un `after` / `message -> r { }` / `call -> r { }`,
+				/// en SOURCE VERBATIM. ⚠️ Il n'est pas evalue ici : l'hote decide
+				/// QUAND, et le rejouera par `ExecuterTranche`.
+				NkString corps;
+				NkString variable; ///< le `-> r` qui recevra la reponse
+		};
+
+		/// L'hote sert l'instruction. Faux = « je ne sais pas faire ceci » — et
+		/// l'evaluateur le COMPTE au lieu de croire que c'est fait.
+		using NkGuiAgirFn = bool (*)(const NkGuiDemande &d, void *user);
 
 		/// Resolution d'un chemin pointe vers une valeur. Rendue par l'hote.
 		using NkGuiResolveurFn = bool (*)(NkStringView chemin, NkGuiValeur &out, void *user);
@@ -629,6 +694,10 @@ namespace nkentseu {
 				void *resolveurUser = nullptr;
 				NkGuiCallbackFn rappel = nullptr;
 				void *rappelUser = nullptr;
+				/// P25 — l'hôte qui SERT les instructions d'interface. Absent, elles
+				/// sont reconnues et comptées (`uiSansHote`), jamais devinées.
+				NkGuiAgirFn agir = nullptr;
+				void *agirUser = nullptr;
 
 				/// Les appels emis pendant la derniere execution (pour les mesurer).
 				NkVector<NkGuiAppelCallback> appels;
@@ -891,19 +960,343 @@ namespace nkentseu {
 						return Condition();
 					if (Mot(J(), "Callback"))
 						return Appel();
+					// ── P25 : LES INSTRUCTIONS D'INTERFACE ───────────────────
+					//  ⚠️ ELLES SONT ESSAYEES APRES LES TROIS ANCIENNES, et l'ordre
+					//     n'est pas indifferent : `set` a deux formes désormais
+					//     (`set var = ...` et `set "x".prop = ...`), et c'est
+					//     `Affectation` qui les distingue — une seule porte pour un
+					//     seul mot.
+					if (InstructionInterface())
+						return true;
 					// Rien de connu : on COMPTE et on s'arrete, on ne devine pas.
 					++rapport.refusees;
 					return false;
 				}
 
+				/// Les quinze instructions du §5.4. Rend faux si le mot courant n'en
+				/// est pas une — sans rien consommer.
+				bool InstructionInterface() noexcept {
+					if (J().k != Tk::Ident)
+						return false;
+					const NkStringView mot(J().t.Data(), (usize)J().t.Size());
+
+					// ── Celles qui prennent UN widget ────────────────────────
+					NkGuiInstruction q = NkGuiInstruction::Montrer;
+					bool surWidget = false;
+					if (NkGMotEgal(mot, "show")) {
+						q = NkGuiInstruction::Montrer;
+						surWidget = true;
+					} else if (NkGMotEgal(mot, "hide")) {
+						q = NkGuiInstruction::Cacher;
+						surWidget = true;
+					} else if (NkGMotEgal(mot, "toggle")) {
+						q = NkGuiInstruction::Basculer;
+						surWidget = true;
+					} else if (NkGMotEgal(mot, "enable")) {
+						q = NkGuiInstruction::Activer;
+						surWidget = true;
+					} else if (NkGMotEgal(mot, "focus")) {
+						q = NkGuiInstruction::Focaliser;
+						surWidget = true;
+					}
+					if (surWidget) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = q;
+						if (!LireReferenceWidget(d.cible))
+							return VraiApresRefus();
+						return Servir(d);
+					}
+
+					// ── `disable x because "raison"` ─────────────────────────
+					//  ⚠️ LA RAISON N'EST PAS FACULTATIVE DANS L'ESPRIT DE LA
+					//     FAMILLE : « un element desactive dit pourquoi » (doc 3
+					//     §14quater). La grammaire la rend optionnelle ; l'absence
+					//     se COMPTE donc, au lieu de passer inapercue.
+					if (NkGMotEgal(mot, "disable")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Desactiver;
+						if (!LireReferenceWidget(d.cible))
+							return VraiApresRefus();
+						if (J().k == Tk::Ident
+							&& NkGMotEgal(NkStringView(J().t.Data(), (usize)J().t.Size()),
+										  "because")) {
+							++mT;
+							const NkGuiValeur r = Expression();
+							d.raison = NkString(TexteDe(r));
+						}
+						return Servir(d);
+					}
+
+					// ── `open "ecran" [as modal]` ────────────────────────────
+					if (NkGMotEgal(mot, "open")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Ouvrir;
+						if (J().k != Tk::Chaine)
+							return VraiApresRefus();
+						d.cible = J().t;
+						++mT;
+						if (J().k == Tk::Ident
+							&& NkGMotEgal(NkStringView(J().t.Data(), (usize)J().t.Size()), "as")) {
+							++mT;
+							if (J().k == Tk::Ident
+								&& NkGMotEgal(NkStringView(J().t.Data(), (usize)J().t.Size()),
+											  "modal")) {
+								d.modal = true;
+								++mT;
+							} else {
+								return VraiApresRefus();
+							}
+						}
+						return Servir(d);
+					}
+
+					// ── `close` / `close "ecran"` / `back` ───────────────────
+					if (NkGMotEgal(mot, "close")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Fermer;
+						if (J().k == Tk::Chaine) {
+							d.cible = J().t;
+							++mT;
+						}
+						return Servir(d);
+					}
+					if (NkGMotEgal(mot, "back")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Retour;
+						return Servir(d);
+					}
+
+					// ── `toast expr` et `theme expr` ─────────────────────────
+					if (NkGMotEgal(mot, "toast") || NkGMotEgal(mot, "theme")) {
+						const bool estToast = NkGMotEgal(mot, "toast");
+						++mT;
+						NkGuiDemande d;
+						d.quoi = estToast ? NkGuiInstruction::Notifier : NkGuiInstruction::Theme;
+						d.valeur = Expression();
+						d.cible = NkString(TexteDe(d.valeur));
+						return Servir(d);
+					}
+
+					// ── `emit "evt"(args)` et `call "service"(args) -> r { }` ─
+					if (NkGMotEgal(mot, "emit") || NkGMotEgal(mot, "call")) {
+						const bool estEmit = NkGMotEgal(mot, "emit");
+						++mT;
+						NkGuiDemande d;
+						d.quoi = estEmit ? NkGuiInstruction::Emettre : NkGuiInstruction::Service;
+						if (J().k != Tk::Chaine)
+							return VraiApresRefus();
+						d.cible = J().t;
+						++mT;
+						if (!Sym(J(), "("))
+							return VraiApresRefus();
+						++mT;
+						// Les arguments sont EVALUES — leur effet de bord compte —
+						// puis le premier sert de valeur portee a l'hote.
+						bool premier = true;
+						while (!Sym(J(), ")") && J().k != Tk::Fin) {
+							const NkGuiValeur a = Expression();
+							if (premier) {
+								d.valeur = a;
+								premier = false;
+							}
+							if (Sym(J(), ","))
+								++mT;
+						}
+						if (Sym(J(), ")"))
+							++mT;
+						LireSuiteEtCorps(d);
+						return Servir(d);
+					}
+
+					// ── `message titre texte buttons [...] -> r { }` ─────────
+					if (NkGMotEgal(mot, "message")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Message;
+						const NkGuiValeur titre = Expression();
+						d.cible = NkString(TexteDe(titre));
+						d.valeur = Expression();
+						if (J().k == Tk::Ident
+							&& NkGMotEgal(NkStringView(J().t.Data(), (usize)J().t.Size()),
+										  "buttons")) {
+							++mT;
+							// La liste des boutons : `[ "a", "b" ]`. Elle voyage dans
+							// `raison`, faute d'un champ de liste — et c'est ecrit
+							// plutot que devine.
+							if (Sym(J(), "["))
+								d.raison = LireListeTextuelle();
+						}
+						LireSuiteEtCorps(d);
+						return Servir(d);
+					}
+
+					// ── `after ms { ... }` ───────────────────────────────────
+					if (NkGMotEgal(mot, "after")) {
+						++mT;
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::Differer;
+						d.delai = Expression().EnNombre();
+						d.corps = LireCorpsVerbatim();
+						return Servir(d);
+					}
+
+					return false;
+				}
+
+				/// Un `widget_ref` : un identifiant nu, ou une chaine quand il
+				/// contient un point.
+				bool LireReferenceWidget(NkString &out) noexcept {
+					if (J().k == Tk::Chaine || J().k == Tk::Ident) {
+						out = J().t;
+						++mT;
+						return true;
+					}
+					return false;
+				}
+
+				/// ⚠️ ON COMPTE ET ON CONTINUE, plutot que de rendre faux : le mot
+				///    ETAIT une instruction d'interface, c'est sa suite qui est
+				///    fautive. Rendre faux la ferait compter une seconde fois en
+				///    `refusees` par l'appelant, et deux compteurs pour une faute
+				///    laisseraient croire a deux fautes.
+				bool VraiApresRefus() noexcept {
+					++rapport.refusees;
+					SauterJusquAuBoutDeLInstruction();
+					return true;
+				}
+
+				/// Jusqu'a la fin de la ligne logique : la tranche verbatim d'une
+				/// instruction ne porte qu'elle, donc la fin des jetons suffit.
+				void SauterJusquAuBoutDeLInstruction() noexcept {
+					while (J().k != Tk::Fin)
+						++mT;
+				}
+
+				/// `[ "a", "b" ]` rendu tel quel, separe par des barres verticales.
+				NkString LireListeTextuelle() noexcept {
+					NkString out;
+					if (!Sym(J(), "["))
+						return out;
+					++mT;
+					while (!Sym(J(), "]") && J().k != Tk::Fin) {
+						if (J().k == Tk::Chaine || J().k == Tk::Ident) {
+							if (out.Size() > 0u)
+								out.Append("|");
+							out.Append(J().t.CStr());
+						}
+						++mT;
+						if (Sym(J(), ","))
+							++mT;
+					}
+					if (Sym(J(), "]"))
+						++mT;
+					return out;
+				}
+
+				/// `-> r { ... }` et son `else e { ... }` eventuel.
+				///
+				/// ⚠️ LE CORPS N'EST PAS EVALUE ICI. `message`, `call` et `after`
+				///    repondent PLUS TARD : evaluer leur corps maintenant
+				///    l'executerait avant la reponse, c'est-a-dire toujours, et dans
+				///    les deux branches a la fois.
+				void LireSuiteEtCorps(NkGuiDemande &d) noexcept {
+					if (Sym(J(), "-") && mT + 1u < (uint32)mJ.Size() && Sym(mJ[mT + 1u], ">"))
+						mT += 2u;
+					else if (!Sym(J(), "->"))
+						return;
+					else
+						++mT;
+					if (J().k == Tk::Ident) {
+						d.variable = J().t;
+						++mT;
+					}
+					d.corps = LireCorpsVerbatim();
+				}
+
+				/// Le texte d'un `{ ... }`, accolades comprises, sans l'evaluer.
+				NkString LireCorpsVerbatim() noexcept {
+					NkString out;
+					if (!Sym(J(), "{"))
+						return out;
+					int32 prof = 0;
+					for (;;) {
+						if (J().k == Tk::Fin)
+							break;
+						if (Sym(J(), "{"))
+							++prof;
+						else if (Sym(J(), "}"))
+							--prof;
+						if (out.Size() > 0u)
+							out.Append(" ");
+						out.Append(J().t.CStr());
+						++mT;
+						if (prof == 0)
+							break;
+					}
+					return out;
+				}
+
+				/// Remet la demande a l'hote, et COMPTE les trois issues.
+				bool Servir(const NkGuiDemande &d) noexcept {
+					++rapport.uiReconnues;
+					++rapport.instructions;
+					if (!agir) {
+						++rapport.uiSansHote;
+						return true;
+					}
+					if (agir(d, agirUser))
+						++rapport.uiServies;
+					return true;
+				}
+
 				bool Affectation() noexcept {
 					++mT; // `set`
-					if (J().k != Tk::Ident) {
+					// ⚠️ `set` A DEUX FORMES, ET UNE SEULE PORTE LES DISTINGUE.
+					//    `set r = ...` pose une VARIABLE locale ; `set "titre".text
+					//    = ...` regle une PROPRIETE d'un autre widget (P25). La
+					//    difference se lit au point qui suit la cible — et elle se
+					//    lit ICI, parce que deux portes pour un meme mot finiraient
+					//    par ne plus s'accorder sur laquelle prend la main.
+					if (J().k != Tk::Ident && J().k != Tk::Chaine) {
 						++rapport.refusees;
 						return false;
 					}
 					const NkString cible = J().t;
+					const bool citee = (J().k == Tk::Chaine);
 					++mT;
+
+					if (Sym(J(), ".")) {
+						++mT;
+						if (J().k != Tk::Ident) {
+							++rapport.refusees;
+							return false;
+						}
+						NkGuiDemande d;
+						d.quoi = NkGuiInstruction::PoserPropriete;
+						d.cible = cible;
+						d.propriete = J().t;
+						++mT;
+						if (!Sym(J(), "=")) {
+							++rapport.refusees;
+							return false;
+						}
+						++mT;
+						d.valeur = Expression();
+						return Servir(d);
+					}
+
+					// ⚠️ UNE CIBLE CITEE SANS POINT N'EST PAS UNE VARIABLE. Les noms
+					//    de variables sont des identifiants nus ; `set "x" = 1`
+					//    n'est ni l'une ni l'autre forme, et se compte.
+					if (citee) {
+						++rapport.refusees;
+						return false;
+					}
 					if (!Sym(J(), "=")) {
 						++rapport.refusees;
 						return false;
@@ -1357,6 +1750,150 @@ namespace nkentseu {
 					ctx.styleUser = this;
 					eval.resolveur = &NkGuiExecution::Resoudre;
 					eval.resolveurUser = this;
+					eval.agir = &NkGuiExecution::Agir;
+					eval.agirUser = this;
+				}
+
+				/// Ce que l'hôte sert des instructions d'interface (P25).
+				///
+				/// ⚠️ IL NE SERT QUE CE QUI TOUCHE AUX WIDGETS, et c'est une limite
+				///    ÉCRITE, pas un oubli. `open`, `close`, `back`, `message`,
+				///    `toast`, `emit`, `after`, `call` et `theme` parlent de
+				///    NAVIGATION, de DIALOGUES et de SERVICES — des choses que cette
+				///    couche ne possède pas. Elles sont reconnues, comptées
+				///    (`uiReconnues` sans `uiServies`), et **la différence entre les
+				///    deux chiffres est exactement ce que l'application ne sait pas
+				///    encore faire**. C'est visible sans lancer l'application.
+				struct ServicesHote {
+						virtual ~ServicesHote() = default;
+						/// Rendre faux = « je ne sais pas faire ceci ». L'évaluateur
+						/// le compte ; il ne le devine pas.
+						virtual bool Servir(const NkGuiDemande &) noexcept {
+							return false;
+						}
+				};
+				ServicesHote *services = nullptr;
+
+				static bool Agir(const NkGuiDemande &d, void *user) noexcept {
+					NkGuiExecution *self = (NkGuiExecution *)user;
+					if (!self || !self->etat)
+						return false;
+
+					// ── CE QUI TOUCHE UN WIDGET ─────────────────────────────
+					switch (d.quoi) {
+						case NkGuiInstruction::Montrer:
+						case NkGuiInstruction::Cacher:
+						case NkGuiInstruction::Basculer:
+						case NkGuiInstruction::Activer:
+						case NkGuiInstruction::Desactiver:
+						case NkGuiInstruction::Focaliser:
+						case NkGuiInstruction::PoserPropriete:
+							break;
+						default:
+							// Navigation, dialogue, service : à l'hôte, s'il y en a un.
+							return self->services ? self->services->Servir(d) : false;
+					}
+
+					// ⚠️ LE WIDGET SE TROUVE PAR SON IDENTIFIANT, ET SON ÉTAT PAR SA
+					//    CLÉ. Les deux diffèrent dès qu'un `bind` existe : écrire
+					//    dans l'entrée de l'identifiant laisserait le widget lire
+					//    celle du `bind`, et l'instruction n'aurait aucun effet
+					//    VISIBLE tout en paraissant réussir.
+					const NkGuiInfoWidget *info =
+						self->infos.Trouver(NkStringView(d.cible.Data(), (usize)d.cible.Size()));
+					if (!info)
+						return false; // widget inconnu : compté par l'évaluateur
+					NkGuiMonteEtat::Entree *e = self->etat->Get(
+						NkStringView(info->cle.Data(), (usize)info->cle.Size()));
+					if (!e)
+						return false;
+
+					switch (d.quoi) {
+						case NkGuiInstruction::Montrer:
+							e->visible = true;
+							e->visibiliteDite = true;
+							return true;
+						case NkGuiInstruction::Cacher:
+							e->visible = false;
+							e->visibiliteDite = true;
+							return true;
+						case NkGuiInstruction::Basculer:
+							e->visible = !e->visible;
+							e->visibiliteDite = true;
+							return true;
+						case NkGuiInstruction::Activer:
+							e->actif = true;
+							e->activiteDite = true;
+							e->raison[0] = '\0';
+							return true;
+						case NkGuiInstruction::Desactiver: {
+							e->actif = false;
+							e->activiteDite = true;
+							// La raison VOYAGE jusqu'à l'infobulle. Sans elle, un
+							// élément grisé ne dit pas pourquoi — ce que la famille
+							// interdit.
+							const char *r = d.raison.CStr();
+							uint32 k = 0;
+							for (; r && r[k] && k + 1u < sizeof(e->raison); ++k)
+								e->raison[k] = r[k];
+							e->raison[k] = '\0';
+							return true;
+						}
+						case NkGuiInstruction::Focaliser:
+							self->mFocus = info->id;
+							// ⚠️ LE FOCUS PAR INSTRUCTION N'EST PAS UN FOCUS CLAVIER.
+							//    `FocusVisible` ne doit s'allumer qu'au clavier ;
+							//    `focus x` vient d'un comportement, donc il pose le
+							//    focus sans prétendre à l'anneau.
+							self->mFocusClavier = false;
+							return true;
+						case NkGuiInstruction::PoserPropriete:
+							return PoserProprieteWidget(*e, d);
+						default:
+							return false;
+					}
+				}
+
+				/// `set x.prop = expr` — les propriétés qu'un état peut porter.
+				static bool PoserProprieteWidget(NkGuiMonteEtat::Entree &e,
+												 const NkGuiDemande &d) noexcept {
+					const NkStringView p(d.propriete.Data(), (usize)d.propriete.Size());
+					if (NkGMotEgal(p, "text")) {
+						const NkStringView t = (d.valeur.type == NkGuiValeur::Type::Jeton)
+												   ? NkStringView(d.valeur.jeton.Data(),
+																  (usize)d.valeur.jeton.Size())
+												   : NkStringView("", 0u);
+						uint32 k = 0;
+						for (; k < (uint32)t.Size() && k + 1u < sizeof(e.texte); ++k)
+							e.texte[k] = t.Data()[k];
+						e.texte[k] = '\0';
+						e.initialise = true;
+						return true;
+					}
+					if (NkGMotEgal(p, "value")) {
+						e.f = d.valeur.EnNombre();
+						e.initialise = true;
+						return true;
+					}
+					if (NkGMotEgal(p, "checked")) {
+						e.b = d.valeur.EnBooleen();
+						e.initialise = true;
+						return true;
+					}
+					if (NkGMotEgal(p, "visible")) {
+						e.visible = d.valeur.EnBooleen();
+						e.visibiliteDite = true;
+						return true;
+					}
+					if (NkGMotEgal(p, "enabled")) {
+						e.actif = d.valeur.EnBooleen();
+						e.activiteDite = true;
+						return true;
+					}
+					// ⚠️ UNE PROPRIÉTÉ QU'ON NE SAIT PAS POSER N'EST PAS POSÉE. La
+					//    ranger « quelque part » donnerait un document qui croit
+					//    avoir réglé ce qu'il n'a pas réglé.
+					return false;
 				}
 
 				void Debrancher(NkGuiContext &ctx) noexcept {
