@@ -82,6 +82,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiIcons.h" // P12 : `icon`, dessine par le jeu que l'hote pose
 #include "NKGui/Widgets/NkGuiWidgets.h"
+#include "NKGui/Doc/NkGuiDispositions.h" // P10 : `layout`, APPLIQUE par `DockSpace`
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 #include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
@@ -566,6 +567,16 @@ namespace nkentseu {
 				///    est COMPTEE, donc le document peut savoir qu'il demande
 				///    quelque chose que l'outil ne tient pas.
 				uint32 taillesNonHonorees = 0;
+				/// P10 : les zones d'un `DockSpace` placees par la section `layout` du
+				/// document (`dock "outils" left 0.16`).
+				///
+				/// 🔴 IL EXISTE PARCE QUE `layout` N'ETAIT LU PAR PERSONNE. Le lecteur
+				///    `NkGuiLireDispositions` etait ecrit, valide et compte depuis le
+				///    27/09 au matin — et son SEUL appelant etait un banc. Le monteur ne
+				///    l'appelait jamais. Ce chiffre est ce qui separe « la section est
+				///    analysee » de « la section AGIT » : un lecteur prouve par un banc ne
+				///    prouve pas que le produit s'en sert.
+				uint32 zonesAmarrees = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -625,6 +636,58 @@ namespace nkentseu {
 						///    raison VOYAGE jusqu'a l'infobulle.
 						char raison[128] = {0};
 				};
+
+				// ── P10 : LES DISPOSITIONS D'AMARRAGE DU DOCUMENT ────────────────
+				// 🔴 ELLES ETAIENT LUES PAR PERSONNE — SAUF UN BANC. `NkGuiLireDispositions`
+				//    existait depuis le 27/09 au matin et son SEUL appelant etait
+				//    `NKGuiMonteTest` : le monteur ne l'appelait jamais, donc un document
+				//    qui ecrivait `dock "outils" left 0.16` etait analyse, valide,
+				//    compte... et ignore. *Un banc qui prouve son propre lecteur ne prouve
+				//    pas que le produit s'en sert* — c'est la forme exacte de « declarer
+				//    n'est pas livrer », et je l'avais annoncee comme livree.
+				//
+				// ⚠️ ELLES VIVENT DANS L'ETAT, PAS DANS LE RAPPORT. Le rapport dit ce
+				//    qu'un montage a FAIT ; ceci est une ENTREE du montage, lue une fois
+				//    par `Preparer`. Les mettre dans le rapport aurait fait d'un compte
+				//    rendu une source de verite, et l'ordre des deux aurait fini par
+				//    compter sans que rien ne le dise.
+				NkVector<NkGuiDisposition> dispositions;
+				NkGuiRapportDispositions rapportDispositions;
+
+				/// La disposition a appliquer : celle que le document nomme `defaut`, ou
+				/// la premiere s'il n'y en a pas. Rend nul quand le document n'en a aucune
+				/// — et alors `DockSpace` garde son partage par fractions, inchange.
+				const NkGuiDisposition *DispositionActive() const noexcept {
+					if (dispositions.Size() == 0u)
+						return nullptr;
+					for (uint32 i = 0; i < (uint32)dispositions.Size(); ++i)
+						if (NkGMotEgal(NkStringView(dispositions[i].nom.CStr()), "defaut"))
+							return &dispositions[i];
+					return &dispositions[0];
+				}
+
+				/// Le cote demande pour un panneau, dans la disposition active. Rend faux
+				/// quand ce panneau n'y figure pas : « pas d'amarrage ecrit » et « amarre
+				/// au centre » sont deux choses, et les confondre ferait disparaitre les
+				/// zones que le document n'a pas nommees.
+				/// ⚠️ ELLE PREND UN `const char *`, PAS UNE VUE, ET C'EST `NkGMotEgal` QUI
+				///    LE DICTE : sa signature est (vue, litteral). Comparer deux vues
+				///    aurait demande une SECONDE fonction de comparaison dans ce fichier,
+				///    c'est-a-dire deux facons de dire « meme nom ».
+				bool Amarrage(const char *panneau, NkGuiCote &coteOut,
+							  float32 &fractionOut) const noexcept {
+					const NkGuiDisposition *d = DispositionActive();
+					if (!d || !panneau)
+						return false;
+					for (uint32 i = 0; i < (uint32)d->amarrages.Size(); ++i) {
+						if (!NkGMotEgal(NkStringView(d->amarrages[i].panneau.CStr()), panneau))
+							continue;
+						coteOut = d->amarrages[i].cote;
+						fractionOut = d->amarrages[i].fraction;
+						return true;
+					}
+					return false;
+				}
 
 				/// Recense une cle (phase 1). Sans effet si elle existe deja.
 				void Declarer(NkStringView cle) noexcept {
@@ -1362,6 +1425,13 @@ namespace nkentseu {
 				/// Phase 1 : recenser les cles d'etat de tout le document. A appeler
 				/// AVANT `Monter` -- voir l'avertissement de `NkGuiMonteEtat`.
 				static void Preparer(const NkArchive &doc, NkGuiMonteEtat &etat) noexcept {
+					// ── P10 : LES DISPOSITIONS, LUES ICI ET NULLE PART AILLEURS ──
+					// Une seule lecture par document, avant le montage : `DockSpace` les
+					// consulte ensuite sans relire l'archive. Les lire dans le `case`
+					// aurait reparse la section `layout` a chaque image.
+					etat.dispositions.Clear();
+					etat.rapportDispositions = NkGuiRapportDispositions();
+					(void)NkGuiLireDispositions(doc, etat.dispositions, etat.rapportDispositions);
 					const NkArchiveNode *corps = NkGMonteCorps(doc);
 					if (!corps)
 						return;
@@ -3249,6 +3319,35 @@ namespace nkentseu {
 								for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k)
 									if (cd->array[k].IsObject() && cd->array[k].object)
 										++nZones;
+							// ── P10 : LA DISPOSITION DU DOCUMENT, SI ELLE EXISTE ────────
+							NkVector<NkRect> placees;
+							const bool parAmarrage =
+								PlacerParAmarrage(etat, cd, zone, placees, rap);
+							if (cd && nZones > 0u && parAmarrage) {
+								uint32 vuA = 0u;
+								for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+									if (!cd->array[k].IsObject() || !cd->array[k].object)
+										continue;
+									const NkArchive &z = *cd->array[k].object;
+									const NkString nom(NkGuiArchive::IdOf(z));
+									const NkRect r = placees[vuA++];
+									++rap.zones;
+									const bool servie = hooks && hooks->ZoneAncree(nom.CStr(), r);
+									if (!servie)
+										++rap.zonesSansPanneau;
+									// ⚠️ LA MARQUE D'UNE ZONE NON SERVIE PASSE PAR LE MEME
+									//    CODE QUE L'AUTRE CHEMIN. L'ecrire une seconde fois
+									//    ici aurait fait deux facons de signaler le meme
+									//    manque, et elles auraient fini par differer.
+									if (!servie && !kMuet)
+										MarquerZoneVide(ctx, r, nom.CStr());
+									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true,
+										  true);
+								}
+								Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
 							if (cd && nZones > 0u) {
 								// ⚠️ LE RESTE, ET NON UNE PART EGALE. Une zone qui ne declare pas
 								//    sa fraction prend ce qui RESTE apres les fractions declarees,
@@ -3300,32 +3399,8 @@ namespace nkentseu {
 										//    ECRIT SON NOM : c'est le nom que l'application doit
 										//    servir, et sans lui l'hote cherche a l'aveugle.
 										++rap.zonesSansPanneau;
-										if (!kMuet) {
-											NkGuiDrawList &dl = ctx.DL();
-											const NkColor trait = ctx.theme.textMuted;
-											dl.AddRect(r, trait, 1.f);
-											for (float32 dd = 0.f; dd < r.w + r.h; dd += 12.f) {
-												float32 x0 = r.x + dd, y0 = r.y;
-												float32 x1 = r.x, y1 = r.y + dd;
-												if (x0 > r.x + r.w) {
-													y0 += x0 - (r.x + r.w);
-													x0 = r.x + r.w;
-												}
-												if (y1 > r.y + r.h) {
-													x1 += y1 - (r.y + r.h);
-													y1 = r.y + r.h;
-												}
-												if (y0 <= r.y + r.h && x1 <= r.x + r.w)
-													dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
-											}
-											if (ctx.font && ctx.font->Valid())
-												// `AddText` prend la LIGNE DE BASE, pas le haut :
-												// sans l'ascendante, le nom sortait par le haut de
-												// la fenetre -- la capture l'a montre coupe en deux.
-												dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-														   {r.x + 6.f, r.y + 4.f + ctx.font->Ascent()},
-														   nom.CStr(), trait);
-										}
+										if (!kMuet)
+											MarquerZoneVide(ctx, r, nom.CStr());
 									}
 									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
 								}
@@ -3939,6 +4014,164 @@ namespace nkentseu {
 						if (st.Size() > 0 && !EtatEstRepos(st))
 							++rap.etatsNonAppliques;
 					}
+				}
+
+				/// Une zone d'ancrage que PERSONNE ne fournit : contour, hachures, et SON
+				/// NOM ecrit dedans.
+				///
+				/// ⚠️ ELLE EST UNE FONCTION PARCE QU'IL Y A DEUX CHEMINS DE PLACEMENT
+				///    (les fractions horizontales, et la disposition `layout` depuis le
+				///    27/09). Recopier le marquage dans le second aurait fait deux facons
+				///    de signaler le meme manque, et le jour ou l'une change l'autre
+				///    ment. Le nom est ECRIT parce que c'est celui que l'application doit
+				///    servir : sans lui, l'hote cherche a l'aveugle.
+				static void MarquerZoneVide(NkGuiContext &ctx, const NkRect &r,
+											const char *nom) noexcept {
+					NkGuiDrawList &dl = ctx.DL();
+					const NkColor trait = ctx.theme.textMuted;
+					dl.AddRect(r, trait, 1.f);
+					for (float32 dd = 0.f; dd < r.w + r.h; dd += 12.f) {
+						float32 x0 = r.x + dd, y0 = r.y;
+						float32 x1 = r.x, y1 = r.y + dd;
+						if (x0 > r.x + r.w) {
+							y0 += x0 - (r.x + r.w);
+							x0 = r.x + r.w;
+						}
+						if (y1 > r.y + r.h) {
+							x1 += y1 - (r.y + r.h);
+							y1 = r.y + r.h;
+						}
+						if (y0 <= r.y + r.h && x1 <= r.x + r.w)
+							dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+					}
+					if (ctx.font && ctx.font->Valid())
+						// `AddText` prend la LIGNE DE BASE, pas le haut : sans
+						// l'ascendante, le nom sortait par le haut de la fenetre -- la
+						// capture l'a montre coupe en deux.
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
+								   {r.x + 6.f, r.y + 4.f + ctx.font->Ascent()}, nom, trait);
+				}
+
+				// =====================================================================
+				//  P10 — LES AMARRAGES DU DOCUMENT, APPLIQUES AU `DockSpace`
+				// =====================================================================
+				/// Place les zones d'un `DockSpace` d'apres la disposition active du
+				/// document. Rend faux quand AUCUNE zone n'est amarree — l'appelant garde
+				/// alors son partage par fractions horizontales, inchange.
+				///
+				/// ⚠️ STRICTEMENT ADDITIF, ET C'EST CE `return false` QUI LE GARANTIT. Les
+				///    documents sans section `layout` — c'est-a-dire tout le corpus
+				///    d'avant — passent par le meme code qu'hier, au pixel.
+				///
+				/// ⚠️ LA FRACTION SE RAPPORTE A LA ZONE ENTIERE, PAS AU RESTE. Deux
+				///    raisons, et la seconde est la vraie : la disposition de NK3DModeler
+				///    est deja ecrite ainsi (`NkLayout::Compute(W, H, fLeft = 0.16f,
+				///    fRight = 0.29f)`), et surtout une fraction du RESTE dependrait de
+				///    l'ORDRE d'ecriture des amarrages — `left 0.2` puis `right 0.2` ne
+				///    donneraient pas la meme largeur que l'inverse. Une TAILLE qui depend
+				///    de l'ordre est une taille qu'on ne peut pas relire.
+				///
+				/// ⚠️ LA FORME, ELLE, DEPEND DE L'ORDRE — ET C'EST VRAI DE TOUT DOCK. Le
+				///    premier cote amarre traverse la zone entiere ; les suivants ne
+				///    traversent que ce qui reste. `left` puis `top` donne une colonne
+				///    pleine hauteur et une barre courte ; l'inverse donne une barre pleine
+				///    largeur. Mesure (b15) : `outils` sort en 80 x 300 et `barre` en
+				///    220 x 30. Ce n'est pas une imprecision a corriger, c'est ce que
+				///    l'ordre du document VEUT DIRE — mais il ne faut pas confondre les
+				///    deux affirmations, et la premiere version de ce commentaire les
+				///    confondait.
+				static bool PlacerParAmarrage(const NkGuiMonteEtat &etat,
+											  const NkArchiveNode *cd, const NkRect &zone,
+											  NkVector<NkRect> &out,
+											  NkGuiMonteRapport &rap) noexcept {
+					if (!cd || !etat.DispositionActive())
+						return false;
+					out.Clear();
+					NkRect reste = zone;
+					uint32 amarrees = 0u;
+					// Passe 1 : les cotes decoupent. Les centres et les zones que la
+					// disposition ne nomme pas attendent la passe 2.
+					for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+						if (!cd->array[k].IsObject() || !cd->array[k].object)
+							continue;
+						const NkString nom(NkGuiArchive::IdOf(*cd->array[k].object));
+						NkGuiCote cote = NkGuiCote::Centre;
+						float32 frac = 0.f;
+						NkRect r{0.f, 0.f, 0.f, 0.f};
+						if (etat.Amarrage(nom.CStr(), cote, frac)
+							&& cote != NkGuiCote::Centre) {
+							float32 d = 0.f;
+							switch (cote) {
+								case NkGuiCote::Gauche:
+								case NkGuiCote::Droite:
+									d = zone.w * frac;
+									if (d > reste.w)
+										d = reste.w;
+									break;
+								default:
+									d = zone.h * frac;
+									if (d > reste.h)
+										d = reste.h;
+									break;
+							}
+							if (cote == NkGuiCote::Gauche) {
+								r = {reste.x, reste.y, d, reste.h};
+								reste.x += d;
+								reste.w -= d;
+							} else if (cote == NkGuiCote::Droite) {
+								r = {reste.x + reste.w - d, reste.y, d, reste.h};
+								reste.w -= d;
+							} else if (cote == NkGuiCote::Haut) {
+								r = {reste.x, reste.y, reste.w, d};
+								reste.y += d;
+								reste.h -= d;
+							} else {
+								r = {reste.x, reste.y + reste.h - d, reste.w, d};
+								reste.h -= d;
+							}
+							++amarrees;
+						}
+						out.PushBack(r);
+					}
+					if (amarrees == 0u)
+						return false; // rien d'amarre : l'appelant garde son chemin
+					// Passe 2 : ce qui RESTE se partage entre les zones non amarrees. Sans
+					// elle, une zone que la disposition ne nomme pas serait un rectangle
+					// nul, c'est-a-dire un panneau que l'hote fournit et qu'on n'affiche
+					// pas -- exactement le « trou qui ressemble a un fond » que ce `case`
+					// combat deja par ses hachures.
+					uint32 nCentres = 0u, vu = 0u;
+					for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+						if (!cd->array[k].IsObject() || !cd->array[k].object)
+							continue;
+						if (out[vu].w <= 0.f && out[vu].h <= 0.f)
+							++nCentres;
+						++vu;
+					}
+					if (nCentres > 0u) {
+						const float32 part = reste.w / (float32)nCentres;
+						float32 x = reste.x;
+						uint32 place = 0u;
+						vu = 0u;
+						for (uint32 k = 0; k < (uint32)cd->array.Size(); ++k) {
+							if (!cd->array[k].IsObject() || !cd->array[k].object)
+								continue;
+							if (out[vu].w <= 0.f && out[vu].h <= 0.f) {
+								++place;
+								// Le DERNIER centre absorbe l'arrondi jusqu'au bord : des
+								// divisions flottantes ne retombent pas sur le pixel, et un
+								// dock qui laisse une bande noire n'est pas un dock.
+								const float32 larg = (place == nCentres)
+														 ? (reste.x + reste.w - x)
+														 : part;
+								out[vu] = {x, reste.y, larg, reste.h};
+								x += larg;
+							}
+							++vu;
+						}
+					}
+					rap.zonesAmarrees += amarrees;
+					return true;
 				}
 
 				/// `size` SUR UN CONTENEUR EN FLUX : decoupe son rectangle dans le flux
