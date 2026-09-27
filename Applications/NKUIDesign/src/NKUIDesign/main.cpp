@@ -85,6 +85,7 @@
 #include "SondeImages.h"        // --sonde-images   : un `image:` arrive-t-il dessine, et aux bonnes proportions
 #include "SondeEcouteurs.h"     // --sonde-ecouteurs: un evenement part-il du bon widget
 #include "SondeToile.h"         // --sonde-toile    : le role Canvas et son cadrage
+#include "SondeLangues.h"       // --sonde-langues  : `@t:cle` et la bascule a chaud
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
@@ -9295,6 +9296,10 @@ int nkmain(const NkEntryState &state) {
 		// LE ROLE `Canvas` : son cadrage, ses gestes, sa grille. Sans GPU.
 		if (NkComponentDecl::StrEq(a, "--sonde-toile"))
 			return nkuidesign::SondeToile();
+		// LE MULTILINGUE descendu de NKCode vers NKGui (27/09), NKUIDesign premier
+		// utilisateur. Sans fenetre : la traduction est une table, pas un pixel.
+		if (NkComponentDecl::StrEq(a, "--sonde-langues"))
+			return nkuidesign::SondeLangues();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
