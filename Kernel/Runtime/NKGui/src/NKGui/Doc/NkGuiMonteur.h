@@ -84,6 +84,7 @@
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKGui/Doc/NkGuiCibles.h" // P27 : `platform`, le design par plateforme
 #include "NKGui/Doc/NkGuiDispositions.h" // P10 : `layout`, APPLIQUE par `DockSpace`
+#include "NKGui/Doc/NkGuiEcouteurs.h" // la table des ecouteurs, remplie par l'hote
 #include "NKGui/Doc/NkGuiImages.h" // le registre nom -> texId, televerse une fois
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
@@ -628,6 +629,14 @@ namespace nkentseu {
 				///    televersement echoue) vit dans `NkGuiImagesReleve()`.
 				uint32 imagesPeintes = 0;
 				uint32 imagesNonResolues = 0;
+				/// LES EVENEMENTS EXPOSES (27/09) : combien de widgets ont remis au
+				/// moins un evenement a un ecouteur, pendant cette image.
+				/// ⚠️ CE N'EST PAS LE NOMBRE D'EVENEMENTS. Un widget qui recoit un
+				///    deplacement, un appui et une molette dans la meme image compte
+				///    UNE fois. Le detail par evenement vit dans la table elle-meme
+				///    (`servis`, `traites`, `sansDestinataire`) -- deux compteurs pour
+				///    deux questions, et les melanger rendrait les deux illisibles.
+				uint32 evenementsExposes = 0;
 				/// LES CONTENEURS ET LEUR TAILLE, EN FLUX (27/09).
 				/// ⚠️ DEUX CHIFFRES PARCE QU'IL Y A DEUX SITUATIONS, ET UNE SEULE EST
 				///    UN DEFAUT. `conteneursTailleFlux` compte ceux qui DECLARENT
@@ -1907,7 +1916,7 @@ namespace nkentseu {
 							++rap.formesPeintes;
 						else
 							++rap.formesNonPeintes;
-						Noter(rap, id, NkStringView("shape"), r, 0u, false, false);
+						Noter(ctx, rap, id, NkStringView("shape"), r, 0u, false, false);
 					}
 				}
 				
@@ -2584,7 +2593,7 @@ namespace nkentseu {
 								const NkVec2 coin{r.x + ctx.layout.padding, r.y + ctx.layout.padding * 0.5f};
 								(void)TextAt(ctx, coin, titre.CStr());
 							}
-							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 							// ── OUVRIR UNE REGION, OU NON ─────────────────────────
 							// ⚠️ STRICTEMENT ADDITIF, ET C'EST CETTE CONDITION QUI LE GARANTIT. Un
 							//    conteneur qui n'est ni POSE ni ABSOLU se comporte EXACTEMENT comme
@@ -2648,7 +2657,7 @@ namespace nkentseu {
 							} else {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, parentAbsolu, hooks);
 							}
-							Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -2670,7 +2679,7 @@ namespace nkentseu {
 								ctx.BeginLayout(r);
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, enfantsAbsolus, hooks);
 								ctx.layout = sauve;
-								Noter(rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, r, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2681,7 +2690,7 @@ namespace nkentseu {
 									MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 									EndGroup(ctx);
 								})) {
-								Noter(rap, id, t, rGT, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, rGT, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2689,7 +2698,7 @@ namespace nkentseu {
 							BeginGroup(ctx);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 							EndGroup(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -2707,7 +2716,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								EndVBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2722,7 +2731,7 @@ namespace nkentseu {
 									MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 									EndVBox(ctx);
 								})) {
-								Noter(rap, id, t, rVB, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, rVB, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2730,7 +2739,7 @@ namespace nkentseu {
 							BeginVBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 							EndVBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -2748,7 +2757,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 								EndHBox(ctx);
 								ctx.layout = sauve;
-								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2760,7 +2769,7 @@ namespace nkentseu {
 									MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 									EndHBox(ctx);
 								})) {
-								Noter(rap, id, t, rHB, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, rHB, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2768,7 +2777,7 @@ namespace nkentseu {
 							BeginHBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 							EndHBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, c0), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -3144,7 +3153,7 @@ namespace nkentseu {
 							}
 							if (horiz)
 								EndHBox(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, cRG), prof, true, horizontal,
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cRG), prof, true, horizontal,
 								  &ctx.layout.region);
 							++rap.montes;
 							valeurMontee = e->f;
@@ -3246,12 +3255,12 @@ namespace nkentseu {
 										}
 									}
 									ctx.layout = sauveS;
-									Noter(rap, id, t, rS, prof, true, horizontal,
+									Noter(ctx, rap, id, t, rS, prof, true, horizontal,
 										  &ctx.layout.region);
 								} else {
 									const NkVec2 c0S = ctx.layout.cursor;
 									MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
-									Noter(rap, id, t, BlocConsomme(ctx, c0S), prof, true,
+									Noter(ctx, rap, id, t, BlocConsomme(ctx, c0S), prof, true,
 										  horizontal, &ctx.layout.region);
 								}
 							}
@@ -3294,7 +3303,7 @@ namespace nkentseu {
 							}
 							if (NkGA(w, "flags"))
 								++rap.flagsNonAppliques;
-							Noter(rap, id, t, BlocConsomme(ctx, cT), prof, true, horizontal,
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cT), prof, true, horizontal,
 								  &ctx.layout.region);
 							++rap.montes;
 							return;
@@ -3609,7 +3618,7 @@ namespace nkentseu {
 									}
 								}
 								EndHBox(ctx);
-								Noter(rap, id, t, BlocConsomme(ctx, cV), prof, true, horizontal,
+								Noter(ctx, rap, id, t, BlocConsomme(ctx, cV), prof, true, horizontal,
 									  &ctx.layout.region);
 								++rap.montes;
 								return;
@@ -3774,10 +3783,10 @@ namespace nkentseu {
 									//    manque, et elles auraient fini par differer.
 									if (!servie && !kMuet)
 										MarquerZoneVide(ctx, r, nom.CStr());
-									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true,
+									Noter(ctx, rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true,
 										  true);
 								}
-								Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+								Noter(ctx, rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -3835,10 +3844,10 @@ namespace nkentseu {
 										if (!kMuet)
 											MarquerZoneVide(ctx, r, nom.CStr());
 									}
-									Noter(rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
+									Noter(ctx, rap, nom, NkGuiArchive::TypeOf(z), r, prof + 1u, true, true);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -3905,7 +3914,7 @@ namespace nkentseu {
 												   {zone.x + 6.f, zone.y + 4.f}, cle.CStr(), trait);
 								}
 							}
-							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -3994,7 +4003,7 @@ namespace nkentseu {
 								b.h = (zone.y + zone.h) - b.y;
 							}
 							MonterCorpsBorne(ctx, w, etat, rap, prof + 1u, hooks, a, b);
-							Noter(rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4054,7 +4063,7 @@ namespace nkentseu {
 								e->b = ouvert;
 							if (ouvert)
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
-							Noter(rap, id, t, BlocConsomme(ctx, cExp), prof, true, horizontal,
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cExp), prof, true, horizontal,
 								  &ctx.layout.region);
 							++rap.montes;
 							return;
@@ -4162,7 +4171,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 								ctx.layout = sauveP;
 							}
-							Noter(rap, id, t, rP, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, rP, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4179,7 +4188,7 @@ namespace nkentseu {
 								++rap.attributsNonHonores;
 								const NkVec2 cA0 = ctx.layout.cursor;
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
-								Noter(rap, id, t, BlocConsomme(ctx, cA0), prof, true, horizontal,
+								Noter(ctx, rap, id, t, BlocConsomme(ctx, cA0), prof, true, horizontal,
 									  &ctx.layout.region);
 								++rap.montes;
 								return;
@@ -4196,7 +4205,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 								ctx.layout = sauveA;
 							}
-							Noter(rap, id, t, rA, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, rA, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4214,7 +4223,7 @@ namespace nkentseu {
 							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
 							PopOverlay(ctx);
 							++rap.surimpressions;
-							Noter(rap, id, t, BlocConsomme(ctx, cO), prof, true, horizontal,
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cO), prof, true, horizontal,
 								  &ctx.layout.region);
 							++rap.montes;
 							return;
@@ -4294,7 +4303,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								ctx.layout = sauveC;
 							}
-							Noter(rap, id, t, rC, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, rC, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4306,7 +4315,7 @@ namespace nkentseu {
 							BeginFlow(ctx, gapF);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 							EndFlow(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, cF), prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cF), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4328,7 +4337,7 @@ namespace nkentseu {
 							BeginGrid(ctx, colonnes < 1 ? 1 : colonnes, gapG);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 							EndGrid(ctx);
-							Noter(rap, id, t, BlocConsomme(ctx, cG), prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, BlocConsomme(ctx, cG), prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4358,7 +4367,7 @@ namespace nkentseu {
 							// qui les avance -- pas le curseur de mise en page.
 							MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
 							EndMenuBar(ctx);
-							Noter(rap, id, t, bande, prof, true, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, bande, prof, true, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4375,7 +4384,7 @@ namespace nkentseu {
 								MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
 								EndMenu(ctx);
 							}
-							Noter(rap, id, t, ctx.layout.prevItem, prof, true, horizontal,
+							Noter(ctx, rap, id, t, ctx.layout.prevItem, prof, true, horizontal,
 								  &ctx.layout.region);
 							++rap.montes;
 							return;
@@ -4419,7 +4428,7 @@ namespace nkentseu {
 								++rap.courbesSansHote;
 								MarquerZoneVide(ctx, cadre, lien.Size() > 0 ? lien.CStr()
 																			: id.CStr());
-								Noter(rap, id, t, cadre, prof, false, horizontal,
+								Noter(ctx, rap, id, t, cadre, prof, false, horizontal,
 									  &ctx.layout.region);
 								++rap.montes;
 								return;
@@ -4513,7 +4522,7 @@ namespace nkentseu {
 												 cadre.y + 4.f + ctx.font->Ascent()},
 												yLab.CStr(), ctx.theme.textMuted);
 							}
-							Noter(rap, id, t, cadre, prof, false, horizontal, &ctx.layout.region);
+							Noter(ctx, rap, id, t, cadre, prof, false, horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
 						}
@@ -4544,7 +4553,7 @@ namespace nkentseu {
 							//    aucune place dans le flux — le lire donnerait le rectangle
 							//    du widget d'AVANT, c'est-a-dire un releve faux qui a l'air
 							//    juste. Meme piege que `lastItemRect` en 09/14.
-							Noter(rap, id, t, NkRect{pos.x, pos.y, 0.f, 0.f}, prof, true,
+							Noter(ctx, rap, id, t, NkRect{pos.x, pos.y, 0.f, 0.f}, prof, true,
 								  horizontal, &ctx.layout.region);
 							++rap.montes;
 							return;
@@ -4765,7 +4774,7 @@ namespace nkentseu {
 						}
 					}
 
-					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal, &ctx.layout.region);
+					Noter(ctx, rap, id, t, ctx.layout.prevItem, prof, false, horizontal, &ctx.layout.region);
 					if (rap.items.Size() > 0) {
 						NkGuiMonteItem &dernier = rap.items[(uint32)rap.items.Size() - 1u];
 						dernier.valeur = valeurMontee;
@@ -5137,9 +5146,117 @@ namespace nkentseu {
 				///    montes, avec le rectangle qu'ils ont REELLEMENT pris. Compter le
 				///    debordement ailleurs aurait voulu dire le compter dans chaque `case`,
 				///    c'est-a-dire en oublier.
-				static void Noter(NkGuiMonteRapport &rap, const NkString &id, NkStringView role,
-								  const NkRect &r, uint32 prof, bool conteneur,
+				/// Remet a l'ecouteur de `id`, s'il y en a un, ce qui vient de lui arriver.
+				///
+				/// ⚠️ ELLE SORT TOUT DE SUITE QUAND PERSONNE N'ECOUTE, et ce n'est pas une
+				///    micro-optimisation : `Exposer` est appelee pour CHAQUE widget de
+				///    CHAQUE image. Sans ce test en tete, un document de mille widgets
+				///    paierait mille recherches dans une table vide, soixante fois par
+				///    seconde.
+				///
+				/// ⚠️ ELLE N'INVENTE PAS DE SOURCE POUR CE QUI N'EN A PAS. Seuls les
+				///    evenements que `NkGuiInput` porte VRAIMENT partent d'ici : pointeur,
+				///    molette, et le focus clavier. La manette, le tactile, la fenetre et
+				///    les customs attendent leur acheminement -- et
+				///    `NkGuiEvenementADesSources()` continue de le dire.
+				static void Exposer(NkGuiContext &ctx, NkGuiMonteRapport &rap, const NkString &id,
+									const NkRect &r) noexcept {
+					NkGuiEcouteurs *tab = NkGuiEcouteursPoses();
+					if (!tab || !tab->ADesEcouteurs() || id.Empty() || r.w <= 0.f || r.h <= 0.f)
+						return;
+					const NkGuiInput &in = ctx.input;
+					const NkVec2 p = in.mousePos;
+					const bool dedans = (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y
+										 && p.y <= r.y + r.h);
+					// ⚠️ LE SURVOL DE L'IMAGE PRECEDENTE VIENT DE LA TABLE, PAS DE LA
+					//    SOURIS -- et la premiere version s'y est trompee. `NewFrame`
+					//    consomme `mousePosPrec` puis l'ECRASE avec la position courante :
+					//    apres lui, « la position de l'image d'avant » EST la position
+					//    courante, donc `dedansAvant` valait toujours `dedans` et
+					//    `Entre`/`Sorti` ne partaient jamais. Voir
+					//    `NkGuiEcouteurs::EtaitSurvole`, ou la mesure est ecrite.
+					const bool dedansAvant = tab->EtaitSurvole(id);
+					tab->PoserSurvol(id, dedans);
+
+					NkGuiEvtDetail e;
+					e.zone = id;
+					e.rect = r;
+					e.ecran = p;
+					e.local = NkVec2(p.x - r.x, p.y - r.y);
+					e.ctrl = in.ctrlDown;
+					e.maj = in.shiftDown;
+					e.alt = in.altDown;
+					e.survole = dedans;
+					e.pointeur = NkGuiEvtDetail::Appareil::Souris;
+
+					if (dedans && !dedansAvant) {
+						e.type = NkGuiEvenement::PointerEnter;
+						(void)tab->Servir(e);
+					} else if (!dedans && dedansAvant) {
+						// ⚠️ LA SORTIE SE REMET MEME SI LE POINTEUR EST LOIN. C'est le
+						//    seul evenement qu'on envoie a une zone NON survolee : sans
+						//    lui, un widget garderait son etat de survol pour toujours
+						//    des que la souris en sort vite.
+						e.type = NkGuiEvenement::PointerLeave;
+						(void)tab->Servir(e);
+						++rap.evenementsExposes;
+						return;
+					}
+					if (!dedans)
+						return;
+					if (in.mouseDelta.x != 0.f || in.mouseDelta.y != 0.f) {
+						e.type = NkGuiEvenement::PointerMove;
+						e.delta = in.mouseDelta;
+						(void)tab->Servir(e);
+						e.delta = NkVec2(0.f, 0.f);
+					}
+					for (int32 b = 0; b < 3; ++b) {
+						e.bouton = b;
+						if (in.mouseClicked[b]) {
+							e.type = NkGuiEvenement::PointerDown;
+							(void)tab->Servir(e);
+						}
+						if (in.mouseReleased[b]) {
+							e.type = NkGuiEvenement::PointerUp;
+							(void)tab->Servir(e);
+						}
+						if (in.mouseDoubleClicked[b]) {
+							e.type = NkGuiEvenement::DoubleClick;
+							(void)tab->Servir(e);
+						}
+					}
+					e.bouton = -1;
+					// ⚠️ LA MOLETTE RESERVEE EST RESPECTEE. `ctx.input.wheel` vaut deja
+					//    zero quand un menu ou un popup l'a reservee (regle du 05/09) : la
+					//    lire telle quelle suffit, et c'est ce qui empeche une toile de
+					//    zoomer « a travers » un menu ouvert.
+					if (in.wheel != 0.f || in.wheelH != 0.f) {
+						e.type = NkGuiEvenement::Wheel;
+						e.delta = NkVec2(in.wheelH, in.wheel);
+						(void)tab->Servir(e);
+					}
+					++rap.evenementsExposes;
+				}
+
+				/// Le releve d'un widget monte -- ET, depuis le 27/09, le seul endroit d'ou
+				/// les evenements partent vers l'application.
+				///
+				/// 🔴 POURQUOI ICI, ET NULLE PART AILLEURS. Son commentaire d'origine le
+				///    disait deja pour le debordement : « c'est le seul endroit du fichier
+				///    par ou passent TOUS les widgets montes, avec le rectangle qu'ils ont
+				///    REELLEMENT pris. Compter le debordement ailleurs aurait voulu dire le
+				///    compter dans chaque `case`, c'est-a-dire en oublier. » Exposer les
+				///    evenements a exactement le meme besoin : trente-sept `case` moins un,
+				///    c'est un widget muet que personne ne remarquera.
+				///
+				/// ⚠️ `ctx` EST DEVENU SON PREMIER PARAMETRE, et les 37 appels ont ete
+				///    changes d'un seul coup. Un parametre ajoute avec une valeur par
+				///    defaut aurait compile en laissant la plupart des sites muets -- la
+				///    forme exacte de « declarer n'est pas livrer ».
+				static void Noter(NkGuiContext &ctx, NkGuiMonteRapport &rap, const NkString &id,
+								  NkStringView role, const NkRect &r, uint32 prof, bool conteneur,
 								  bool axeHorizontal, const NkRect *region = nullptr) noexcept {
+					Exposer(ctx, rap, id, r);
 					NkGuiMonteItem it;
 					it.id = id;
 					it.role = NkString(role);

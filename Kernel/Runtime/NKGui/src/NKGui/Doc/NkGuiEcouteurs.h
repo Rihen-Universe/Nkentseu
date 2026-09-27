@@ -247,6 +247,46 @@ namespace nkentseu {
 					return mNb > 0u;
 				}
 
+				/// La zone etait-elle survolee a l'image PRECEDENTE ?
+				///
+				/// 🔴 POURQUOI CET ETAT VIT ICI, ET PAS DANS LA SOURIS. Premiere version :
+				///    `Exposer` comparait la position courante a `NkGuiInput::mousePosPrec`.
+				///    Faux, et mesure le 27/09 -- `NewFrame` fait, dans cet ordre :
+				///
+				///        if (posPrecValide) { mouseDelta = mousePos - mousePosPrec; }
+				///        mousePosPrec = mousePos;          // <- prec devient COURANT
+				///
+				///    donc APRES `NewFrame`, `mousePosPrec` EST `mousePos`. Le champ
+				///    documente « la position de l'image d'avant » ne l'est plus des que
+				///    les widgets tournent : il se consomme dans `NewFrame`. Resultat,
+				///    `Entre` et `Sorti` ne partaient JAMAIS -- trois criteres rouges pour
+				///    une seule cause, et deux d'entre eux n'etaient rouges que par
+				///    ricochet.
+				///
+				///    Et le remede par `mousePos - mouseDelta` aurait encore ete faux sur
+				///    la premiere image : delta vaut zero, donc un pointeur DEJA dans la
+				///    zone n'y serait jamais « entre ».
+				///
+				///    Entrer et sortir sont des transitions de l'etat DU WIDGET, pas une
+				///    propriete de la souris. Cet etat appartient donc a ce qui persiste
+				///    d'une image a l'autre : cette table.
+				bool EtaitSurvole(const NkString &nom) const noexcept {
+					for (uint32 i = 0; i < mNb; ++i) {
+						if (mTable[i].nom.Compare(nom) == 0)
+							return mTable[i].survolePrec;
+					}
+					return false;
+				}
+
+				void PoserSurvol(const NkString &nom, bool dedans) noexcept {
+					for (uint32 i = 0; i < mNb; ++i) {
+						if (mTable[i].nom.Compare(nom) == 0) {
+							mTable[i].survolePrec = dedans;
+							return;
+						}
+					}
+				}
+
 				void Vider() noexcept {
 					for (uint32 i = 0; i < mNb; ++i) {
 						mTable[i] = Entree();
@@ -274,6 +314,11 @@ namespace nkentseu {
 						NkString nom;
 						NkGuiEcouteurFn fn = nullptr;
 						void *user = nullptr;
+						/// L'etat de survol de l'image precedente. Voir `EtaitSurvole` :
+						/// c'est LUI qui rend `PointerEnter`/`PointerLeave` possibles,
+						/// et il est ici parce que la table est ce qui survit d'une image
+						/// a l'autre.
+						bool survolePrec = false;
 				};
 				Entree mTable[kMax];
 				uint32 mNb = 0;
