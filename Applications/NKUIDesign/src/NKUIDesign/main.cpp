@@ -82,6 +82,8 @@
 #include "SondeCoquille.h"      // --sonde-coquille : leur verdict, sans fenetre ni GPU
 #include "SondeLecture.h"       // --sonde-lecture  : ouvrir un .nkgui, et ce que ca coute
 #include "SondeEdition.h"       // --sonde-edition  : LE TEMOIN DE R1 -- une ligne, pas deux
+#include "SondeImages.h"        // --sonde-images   : un `image:` arrive-t-il dessine, et aux bonnes proportions
+#include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
@@ -9280,6 +9282,10 @@ int nkmain(const NkEntryState &state) {
 		// propriete posee doit deplacer UNE ligne du fichier, pas une de plus.
 		if (NkComponentDecl::StrEq(a, "--sonde-edition"))
 			return nkuidesign::SondeEdition();
+		// LE CROCHET D'IMAGE, juge sans GPU : la draw-list est du CPU, donc une
+		// image emise s'y compte et son rectangle s'y lit.
+		if (NkComponentDecl::StrEq(a, "--sonde-images"))
+			return nkuidesign::SondeImages();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
@@ -10261,6 +10267,10 @@ int nkmain(const NkEntryState &state) {
 	shell->Ui().theme.danger = {248, 81, 73, 255};
 	// 6. « ● Pret » a droite du rail bas.
 	shell->SetRailFooterStatus("Prêt", {63, 185, 80, 255});
+	// LE CHARGEUR D'IMAGES DES DOCUMENTS (27/09) — ici parce que la coquille a
+	// desormais son renderer. Sans cet appel, un `image:` d'un `.nkgui` serait
+	// compte `sansChargeur` et hachure : visible, jamais muet.
+	nkgui::NkEditorInstallerChargeurImage(shell.Get());
 	// ⚠️ UN SEUL BANDEAU BAS (§4/§13 ; Rodolf, 30/08 : « pourquoi il y a deux
 	//    footers ? ») : la barre d'etat VSCode se debranche, le RAIL de
 	//    pastilles est le survivant — l'aide contextuelle et les messages

@@ -84,6 +84,7 @@
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKGui/Doc/NkGuiCibles.h" // P27 : `platform`, le design par plateforme
 #include "NKGui/Doc/NkGuiDispositions.h" // P10 : `layout`, APPLIQUE par `DockSpace`
+#include "NKGui/Doc/NkGuiImages.h" // le registre nom -> texId, televerse une fois
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
 #include <cstdlib> // getenv : la mutation de banc `sansmarqueur` de la zone hote
@@ -615,6 +616,18 @@ namespace nkentseu {
 				/// defaut que ce compteur existe pour rendre visible.
 				uint32 iconesDemandees = 0;
 				uint32 iconesManquantes = 0;
+				/// LES IMAGES (27/09). Meme forme que les icones, et pour la meme
+				/// raison : une image demandee qui ne se peint pas doit se COMPTER.
+				/// ⚠️ `imagesNonResolues` INCREMENTE AUSSI `attributsNonHonores`, et
+				///    ce n'est pas un double comptage : le premier dit « cette image
+				///    manque », le second « ce document a demande quelque chose qui
+				///    n'est pas arrive ». Les bancs qui surveillent le second depuis
+				///    des mois continuent donc de voir la perte -- retirer
+				///    l'increment aurait rendu MUET un defaut qu'ils attrapaient.
+				///    Le detail des causes (fichier absent, hote pas pret,
+				///    televersement echoue) vit dans `NkGuiImagesReleve()`.
+				uint32 imagesPeintes = 0;
+				uint32 imagesNonResolues = 0;
 				/// LES CONTENEURS ET LEUR TAILLE, EN FLUX (27/09).
 				/// ⚠️ DEUX CHIFFRES PARCE QU'IL Y A DEUX SITUATIONS, ET UNE SEULE EST
 				///    UN DEFAUT. `conteneursTailleFlux` compte ceux qui DECLARENT
@@ -3139,21 +3152,31 @@ namespace nkentseu {
 							return;
 						}
 						case NkGuiRole::ImageButton: {
-							// ⚠️ SANS TEXTURE, ON NE FAIT PAS SEMBLANT. `image` nomme
-							//    une ressource que le DOCUMENT ne porte pas : c'est
-							//    l'hote qui la connait. Tant qu'aucun crochet ne la
-							//    fournit, la reference est COMPTEE et le bouton se
-							//    monte avec son identifiant en libelle -- visible,
-							//    cliquable, et honnete sur ce qui manque.
-							// ⚠️ ET UNE IMAGE POSEE PAR UN COMPORTEMENT COMPTE AUSSI.
-							//    `set x.image = "..."` range bien la valeur dans
-							//    l'etat, mais rien ne la dessine encore : ne compter
-							//    que celle du DOCUMENT aurait rendu la perte muette
-							//    pour l'autre moitie des cas.
-							if (NkGA(w, "image") || NkGA(w, "source") || (e && e->imageDite))
-								++rap.attributsNonHonores;
+							// L'IMAGE EST DESSINEE (27/09) -- voir `NkGuiImages.h`. Le
+							// bouton garde son comportement et son libellé ; l'image se
+							// pose PAR-DESSUS son rectangle.
+							//
+							// ⚠️ CE QUI NE SE RESOUT PAS RESTE COMPTE, exactement comme
+							//    avant. `image` nomme un fichier : il peut manquer, ne
+							//    pas se decoder, ou arriver avant que l'hote ait pose son
+							//    televerseur. Le registre compte chacun de ces cas
+							//    separement -- un compteur unique aurait melange « le
+							//    fichier n'existe pas » avec « l'hote n'est pas pret »,
+							//    qui ne se corrigent pas du tout de la meme facon.
+							// ⚠️ ET L'IMAGE POSEE PAR UN COMPORTEMENT PASSE PAR LA MEME
+							//    PORTE : `set x.image = "..."` prime sur le document,
+							//    comme `set x.icon`.
 							const NkString sIB = NkGTexte(w, "label", id.CStr());
 							(void)Button(ctx, sIB.CStr());
+							{
+								NkString src = NkGTexte(w, "image", "");
+								if (src.Empty())
+									src = NkGTexte(w, "source", "");
+								if (e && e->imageDite)
+									src = NkString(e->image);
+								if (!src.Empty())
+									PeindreImage(ctx, src, ctx.layout.prevItem, rap);
+							}
 							break;
 						}
 						case NkGuiRole::Stack: {
@@ -3366,11 +3389,8 @@ namespace nkentseu {
 							// ⚠️ LA VIGNETTE EST COMPTEE, PAS INVENTEE — meme raison
 							//    que `ImageButton` : `image` nomme une ressource que
 							//    le document ne porte pas.
-							// Meme raison qu'`ImageButton` : une image posee par un
-							// comportement n'est pas plus dessinee que celle du
-							// document, et se compte donc pareil.
-							if (NkGA(w, "image") || (e && e->imageDite))
-								++rap.attributsNonHonores;
+							// La vignette est PEINTE depuis le 27/09, par la meme porte
+							// qu'`ImageButton` (`NkGuiImages.h`).
 							const NkString sT = NkGTexte(w, "label", id.CStr());
 							const NkString cap = NkGTexte(w, "caption", "");
 							// La taille par defaut est celle de la specification (96x96) ;
@@ -3392,6 +3412,15 @@ namespace nkentseu {
 													 &hovT, &heldT);
 							ctx.DL().AddRectFilled(rT, hovT ? ctx.theme.buttonHover : ctx.theme.button,
 												   ctx.theme.rounding);
+							// LA VIGNETTE, sous le cadre et sous les libelles : c'est la
+							// tuile qui encadre l'image, pas l'inverse.
+							{
+								NkString srcT = NkGTexte(w, "image", "");
+								if (e && e->imageDite)
+									srcT = NkString(e->image);
+								if (!srcT.Empty())
+									PeindreImage(ctx, srcT, rT, rap);
+							}
 							ctx.DL().AddRect(rT, ctx.theme.border, 1.f, ctx.theme.rounding);
 							if (ctx.font && ctx.font->Valid()) {
 								(void)TextAt(ctx, {rT.x + 6.f, rT.y + rT.h - ctx.ItemHeight() * 2.f},
@@ -5024,6 +5053,59 @@ namespace nkentseu {
 						r.h = ch;
 					}
 					return r;
+				}
+
+				/// Peint une image dans `r`, ou signale VISIBLEMENT qu'elle manque.
+				///
+				/// 🔴 LE MARQUEUR N'EST PAS UN ORNEMENT, ET SA COULEUR A DEJA ETE PAYEE.
+				///    Le role `Host` a appris cette lecon en septembre : sa premiere
+				///    version tracait son cadre en `theme.border`, le banc comptait
+				///    3 778 pixels et passait au VERT alors que l'image ne montrait
+				///    RIEN -- la bordure est a neuf de luminance de l'aplat du panneau.
+				///    Un marqueur qu'aucun oeil ne voit ne signale rien. On reprend donc
+				///    la porte unique : `textMuted` et les hachures, qui disent « rien
+				///    n'est monte ici » et qu'aucun contenu d'application n'imite.
+				///
+				/// ⚠️ ELLE RESPECTE LES PROPORTIONS. Etirer une image pour remplir un
+				///    rectangle est un defaut qui ne se voit pas sur un carre et saute
+				///    aux yeux sur une photo -- donc qui passerait tous les bancs et
+				///    aucune relecture. L'image est CONTENUE et centree.
+				static void PeindreImage(NkGuiContext &ctx, const NkString &nom, const NkRect &r,
+										 NkGuiMonteRapport &rap) noexcept {
+					if (r.w <= 0.f || r.h <= 0.f)
+						return;
+					uint32 tex = 0;
+					NkVec2 taille{0.f, 0.f};
+					if (!NkGuiResoudreImage(nom.CStr(), tex, taille) || taille.x <= 0.f
+						|| taille.y <= 0.f) {
+						++rap.imagesNonResolues;
+						++rap.attributsNonHonores;
+						NkGuiDrawList &dl = ctx.DL();
+						const NkColor trait = ctx.theme.textMuted;
+						dl.AddRect(r, trait, 1.f);
+						NkGuiHachurer(dl, r, trait);
+						return;
+					}
+					// MUTATION DE BANC, NK_IMAGE_MUTATION=etire : l'image remplit son
+					// rectangle sans egard aux proportions -- la version naive, celle
+					// qu'on ecrit en premier. Elle existe pour que le critere C4 de
+					// `--sonde-images` ait quelque chose a refuter : un critere
+					// qu'aucune mutation ne fait rougir ne prouve rien. Sans la
+					// variable, ce bloc ne change absolument rien.
+					static const bool kEtire = []() {
+						const char *v = getenv("NK_IMAGE_MUTATION");
+						return v && v[0] == 'e';
+					}();
+					// « Contenir » : le plus petit des deux facteurs, jamais le plus grand.
+					const float32 fx = r.w / taille.x;
+					const float32 fy = r.h / taille.y;
+					const float32 f = fx < fy ? fx : fy;
+					const float32 w = kEtire ? r.w : taille.x * f;
+					const float32 h = kEtire ? r.h : taille.y * f;
+					const NkRect dst{r.x + (r.w - w) * 0.5f, r.y + (r.h - h) * 0.5f, w, h};
+					ctx.DL().AddImage(tex, dst, NkVec2(0.f, 0.f), NkVec2(1.f, 1.f),
+									  NkColor(255, 255, 255, 255));
+					++rap.imagesPeintes;
 				}
 
 				/// `pos = (120, 80)` est un JETON NU : deux nombres entre parentheses.
