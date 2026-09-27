@@ -831,6 +831,30 @@ namespace nkentseu {
 						++j;
 					}
 					const nk_size open = j;	 // le `{`
+					// ── L'ESPACEMENT DE L'EN-TETE, TEL QUE LE FICHIER L'A ECRIT ──
+					// Voir `KeyPad()`. Trois conditions, et chacune evite un degat :
+					//  - il faut un jeton avant (un bloc ne commence pas par `{`) ;
+					//  - il doit differer de l'espace UNIQUE que l'ecrivain pose par
+					//    defaut, sinon on paierait une entree par bloc du depot ;
+					//  - il ne doit contenir QUE des espaces et des tabulations. Un
+					//    saut de ligne ou un commentaire entre l'en-tete et le `{`
+					//    est de la TRIVIA, qui a deja son mecanisme : le ranger ici
+					//    ferait reemettre le bloc la ou l'auteur ne l'avait pas mis.
+					if (open > 0) {
+						const nk_uint32 a = T[open - 1].end;
+						const nk_uint32 b = T[open].begin;
+						if (b > a && (b - a) != 1u) {
+							bool blancs = true;
+							for (nk_uint32 p = a; p < b && blancs; ++p) {
+								blancs = (mSrc[p] == ' ' || mSrc[p] == '\t');
+							}
+							if (blancs) {
+								NkGuiArchive::SetToken(
+									child, NkStringView(NkGuiArchive::KeyPad()),
+									NkStringView(mSrc + a, (nk_size)(b - a)));
+							}
+						}
+					}
 					nk_size k = open + 1;
 					mSepStart = 0;	// il a ete consomme par l'en-tete du bloc
 					bool commas = false;
@@ -852,6 +876,27 @@ namespace nkentseu {
 					// ENTIER : les lignes avant, et le reste de ligne apres `}`.
 					const bool sameLine = (T[open].endLine == T[k].line);
 					const bool vide = (k == open + 1);
+					// ── L'INTERIEUR D'UN BLOC VIDE, TEL QU'ECRIT ─────────────
+					// `{}` et `{ }` designent le meme bloc vide, et le fichier a
+					// choisi une graphie : meme raisonnement que `$state` pour
+					// `appearance` contre `appearance(Normal)`. L'ecrivain rendait
+					// toujours `{ }` -- donc un document qui ecrit `{}` ne revenait
+					// pas a l'octet, et enregistrer y deplacait une ligne de plus
+					// que celle qu'on avait modifiee. Voir `KeyPad()`, meme cause.
+					if (vide && sameLine && T[k].begin >= T[open].end) {
+						const nk_uint32 a = T[open].end, b = T[k].begin;
+						if ((b - a) != 1u) {
+							bool blancs = true;
+							for (nk_uint32 p = a; p < b && blancs; ++p) {
+								blancs = (mSrc[p] == ' ' || mSrc[p] == '\t');
+							}
+							if (blancs) {
+								NkGuiArchive::SetToken(
+									child, NkStringView(NkGuiArchive::KeyVide()),
+									NkStringView(mSrc + a, (nk_size)(b - a)));
+							}
+						}
+					}
 					if (!T[open].trail.Empty()) {
 						child.SetHeaderTrivia(NkStringView(T[open].trail));
 					}
@@ -1261,7 +1306,7 @@ namespace nkentseu {
 						EndLine();
 						return;
 					}
-					mOut.Append(" {");
+					AppendPad(blk);
 					AppendView(mOut, blk.HeaderTrivia());
 					EndLine();
 					Members(blk, depth + 1);
@@ -1294,8 +1339,23 @@ namespace nkentseu {
 				/// Le corps d'un bloc SUR UNE LIGNE : `{ }`, `{ color = #2F6F7A }`,
 				/// `{ offset = (0, 2), blur = 6 }`. Aucune trivia n'y est reemise --
 				/// il ne peut pas y en avoir, il n'y a pas de saut de ligne.
+				/// `{` precede de l'espacement QUE LE FICHIER AVAIT ECRIT, ou d'une
+				/// espace unique quand il n'a rien dit. Voir `NkGuiArchive::KeyPad()` :
+				/// c'est ce qui fait qu'un document aux accolades alignees revient a
+				/// l'octet, donc qu'enregistrer n'y deplace QUE la ligne modifiee.
+				void AppendPad(const NkArchive &blk) {
+					const NkArchiveNode *pad =
+						blk.FindNode(NkStringView(NkGuiArchive::KeyPad()));
+					if (pad && pad->IsScalar()) {
+						AppendView(mOut, pad->Lexeme());
+					} else {
+						mOut.Append(' ');
+					}
+					mOut.Append('{');
+				}
+
 				void BlockOnOneLine(const NkArchive &blk, bool virgules) {
-					mOut.Append(" {");
+					AppendPad(blk);
 					NkVector<Ref> ordre;
 					MergeOrder(blk, ordre);
 					const NkArchiveNode *body =
@@ -1316,6 +1376,17 @@ namespace nkentseu {
 							} else {
 								AppendView(mOut, n.Lexeme());
 							}
+						}
+					}
+					if (ordre.Size() == 0) {
+						// Un bloc VIDE rend l'interieur que le fichier avait ecrit
+						// (`{}` aussi bien que `{ }`). Voir `NkGuiArchive::KeyVide()`.
+						const NkArchiveNode *v =
+							blk.FindNode(NkStringView(NkGuiArchive::KeyVide()));
+						if (v && v->IsScalar()) {
+							AppendView(mOut, v->Lexeme());
+							mOut.Append('}');
+							return;
 						}
 					}
 					mOut.Append(" }");

@@ -271,6 +271,53 @@ namespace nkentseu {
 			static const char *KeyLayout() noexcept {
 				return "$layout";
 			}
+			/**
+			 * @brief L'ESPACEMENT ecrit entre l'en-tete d'un bloc et son `{`
+			 *
+			 * ⚠️ ABSENTE dans l'immense majorite des blocs, et c'est voulu : elle ne
+			 *    se pose que lorsque le fichier a mis AUTRE CHOSE qu'une seule
+			 *    espace. Un bloc ordinaire ne coute donc aucune entree.
+			 *
+			 * Pourquoi elle existe : les documents ecrits a la main ALIGNENT leurs
+			 * accolades, et c'est ce qui les rend lisibles --
+			 *
+			 *     MenuItem "design.enregistrer" { label = "Enregistrer" }
+			 *     MenuItem "design.recharger"   { label = "Recharger" }
+			 *     MenuItem "design.nouveau"     { label = "Nouveau" }
+			 *
+			 * L'ecrivain reemettait une espace unique. Consequence MESUREE le
+			 * 27/09 sur `Interface.nkgui` : poser UNE propriete deplacait
+			 * **21 lignes** au lieu d'une -- vingt d'entre elles n'etant que
+			 * l'alignement detruit au passage. Or le temoin de R1 (NKUIDesign
+			 * doc 5 §2.3) exige qu'un enregistrement ne touche QUE ses lignes, et
+			 * un editeur qui reformate le fichier de son auteur a chaque
+			 * sauvegarde est un editeur qu'on cesse d'ouvrir.
+			 *
+			 * Meme doctrine que `$state` plus bas : **le modele ne canonise pas**.
+			 * La valeur est une, la forme ecrite appartient au fichier.
+			 *
+			 * @note Ne retient QUE des espaces et des tabulations. Un saut de ligne
+			 *       entre l'en-tete et le `{` releve de la trivia, qui a deja son
+			 *       mecanisme -- confondre les deux ferait reemettre un bloc la ou
+			 *       l'auteur ne l'avait pas mis.
+			 */
+			static const char *KeyPad() noexcept {
+				return "$pad";
+			}
+			/**
+			 * @brief L'INTERIEUR d'un bloc VIDE, tel que le fichier l'a ecrit
+			 *
+			 * `{}` et `{ }` sont le meme bloc vide ; le fichier a choisi une
+			 * graphie, et l'archive retient LAQUELLE. Meme doctrine que `$state` et
+			 * `$pad` : **le modele ne canonise pas.**
+			 *
+			 * ⚠️ ABSENTE quand le bloc vide s'ecrit `{ }`, qui est la forme que
+			 *    l'ecrivain pose par defaut. Elle ne coute donc rien aux documents
+			 *    fabriques par le code.
+			 */
+			static const char *KeyVide() noexcept {
+				return "$vide";
+			}
 			/// La version du fichier, telle qu'ecrite
 			static const char *KeyVersion() noexcept {
 				return "$version";
