@@ -554,6 +554,18 @@ namespace nkentseu {
 				///    aurait rendu le defaut invisible dans le total.
 				uint32 conteneursTailleFlux = 0;
 				uint32 conteneursSansTaille = 0;
+				/// Un conteneur qui DECLARE `size` et dont la brique ne sait pas
+				/// prendre de rectangle. Aujourd'hui : `Table`, parce que
+				/// `BeginTable` tient sa propre mise en page de colonnes.
+				///
+				/// ⚠️ IL EXISTE POUR NE PAS REFAIRE LE DEFAUT QU'ON VIENT DE
+				///    CORRIGER. `size` ignore en silence, c'est exactement ce que
+				///    `Window`/`Panel` faisaient jusqu'au 27/09 : le document
+				///    demandait une taille, personne ne la lisait, et rien ne le
+				///    disait. Ici la taille n'est pas honoree non plus — mais elle
+				///    est COMPTEE, donc le document peut savoir qu'il demande
+				///    quelque chose que l'outil ne tient pas.
+				uint32 taillesNonHonorees = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -1962,12 +1974,10 @@ namespace nkentseu {
 							//    C'est elle qui sait avancer le curseur en X dans une HBox et en Y
 							//    ailleurs ; ecrire le calcul ici aurait fait deux verites sur « ou
 							//    commence le frere suivant », et elles auraient fini par diverger.
-							float32 sW = 0.f, sH = 0.f;
+							NkRect rTaille;
 							if (!pl.pose && !decoupeRel && !enfantsAbsolus
-								&& !NkGuiTailleFluxIgnoree()
-								&& LireVec2(w, "size", sW, sH) && (sW > 0.f || sH > 0.f)) {
-								r = ctx.NextItemRect(sW > 0.f ? sW : -1.f,
-													 sH > 0.f ? sH : ctx.ItemHeight());
+								&& TailleEnFlux(ctx, w, rTaille)) {
+								r = rTaille;
 								decoupeRel = true; // le contenu vit DANS ce rectangle
 								++rap.conteneursTailleFlux;
 							} else if (!pl.pose && !decoupeRel && !enfantsAbsolus) {
@@ -2185,6 +2195,17 @@ namespace nkentseu {
 								++rap.montes;
 								return;
 							}
+							// `size` en flux, par la meme porte que les boites.
+							NkRect rGT;
+							if (MonterDansTaille(ctx, w, pl, rap, rGT, [&]() {
+									BeginGroup(ctx);
+									MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
+									EndGroup(ctx);
+								})) {
+								Noter(rap, id, t, rGT, prof, true, horizontal, &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginGroup(ctx);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, horizontal, false, hooks);
@@ -2211,6 +2232,21 @@ namespace nkentseu {
 								++rap.montes;
 								return;
 							}
+							// ── `size` EN FLUX : la boite se CONFINE ────────────────────
+							// Sans cela, une `VBox { size = (180, 50) }` prenait tout le
+							// reste de la region et son frere partait du curseur qu'elle
+							// avait laisse — c'est-a-dire ailleurs que sous elle des que le
+							// contenu etait plus court que la taille demandee.
+							NkRect rVB;
+							if (MonterDansTaille(ctx, w, pl, rap, rVB, [&]() {
+									BeginVBox(ctx, gap);
+									MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
+									EndVBox(ctx);
+								})) {
+								Noter(rap, id, t, rVB, prof, true, horizontal, &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
 							const NkVec2 c0 = ctx.layout.cursor;
 							BeginVBox(ctx, gap);
 							MonterCorps(ctx, w, etat, rap, prof + 1u, false, false, hooks);
@@ -2234,6 +2270,18 @@ namespace nkentseu {
 								EndHBox(ctx);
 								ctx.layout = sauve;
 								Noter(rap, id, t, pl.rect, prof, true, horizontal, &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
+							// Meme regle que la `VBox`, et par la MEME fonction : une
+							// seconde ecriture du calcul aurait pu diverger sur l'axe.
+							NkRect rHB;
+							if (MonterDansTaille(ctx, w, pl, rap, rHB, [&]() {
+									BeginHBox(ctx, gap);
+									MonterCorps(ctx, w, etat, rap, prof + 1u, true, false, hooks);
+									EndHBox(ctx);
+								})) {
+								Noter(rap, id, t, rHB, prof, true, horizontal, &ctx.layout.region);
 								++rap.montes;
 								return;
 							}
@@ -2659,6 +2707,15 @@ namespace nkentseu {
 									rS = ctx.NextItemRect(relS.aW ? relS.w : -1.f,
 														  relS.aH ? relS.h : ctx.AvailHeight());
 									aRectS = true;
+								} else if (TailleEnFlux(ctx, w, rS)) {
+									// ⚠️ ET `size` SEUL COMPTE AUSSI, DEPUIS LE 27/09.
+									//    Le refus ci-dessus disait « il faudrait inventer
+									//    la taille » : `size` la DIT, il n'etait
+									//    simplement lu par personne en flux. Sans cette
+									//    branche, `BeginStack` restait refuse sur le cas
+									//    le plus naturel — un empilement de taille fixe.
+									aRectS = true;
+									++rap.conteneursTailleFlux;
 								}
 								if (NkGA(w, "anchor") && !aRectS)
 									++rap.attributsNonHonores;
@@ -2667,12 +2724,29 @@ namespace nkentseu {
 									ctx.BeginLayout(rS);
 									// ⚠️ CHAQUE ENFANT REPART DU MEME COIN : c'est ce
 									//    qui fait une PILE et non une colonne.
+									//
+									// 🔴 ET CE COIN EST CELUI QUE `BeginLayout` A CHOISI,
+									//    PAS `{rS.x, rS.y}`. Mesure du 27/09, temoin
+									//    (b14) : le `Stack` placait son enfant a (0, 0)
+									//    de son rectangle quand `VBox`, `HBox` et `Group`
+									//    le placaient a (10, 10) — la marge du theme, que
+									//    `BeginLayout` venait de poser et que la ligne
+									//    d'origine jetait en reecrivant le curseur avec le
+									//    coin BRUT. L'intention etait juste, le coin non :
+									//    un document ecrit pour une `VBox` ne se relisait
+									//    pas dans un `Stack`.
+									//
+									//    ⚠️ ET LE PREMIER CRITERE NE POUVAIT PAS LE VOIR :
+									//       il exigeait un pas « entre 40 et 56 px », et
+									//       40 comme 50 y tenaient. Un intervalle assez
+									//       large pour accepter les deux ne refute rien.
+									const NkVec2 origineS = ctx.layout.cursor;
 									const NkArchiveNode *csS = NkGMonteCorps(w);
 									if (csS) {
 										for (uint32 k = 0; k < (uint32)csS->array.Size(); ++k) {
 											if (!csS->array[k].IsObject() || !csS->array[k].object)
 												continue;
-											ctx.layout.cursor = {rS.x, rS.y};
+											ctx.layout.cursor = origineS;
 											MonterBloc(ctx, *csS->array[k].object, etat, rap,
 													   prof + 1u, false, true, hooks);
 										}
@@ -2700,6 +2774,18 @@ namespace nkentseu {
 							//    les colonnes, leur en-tete, et les enfants ecrits
 							//    dans le document, un par cellule. Une table de
 							//    donnees vivantes reste une zone `Host`.
+							// ⚠️ `size` N'EST PAS HONORE ICI, ET C'EST DIT. `BeginTable`
+							//    tient sa propre mise en page de colonnes et ne prend pas
+							//    de rectangle ; lui en imposer un aurait demande de
+							//    reecrire la brique. On COMPTE la demande au lieu de
+							//    l'ignorer en silence — c'est precisement le defaut que
+							//    `Window`/`Panel` portaient jusqu'a ce matin.
+							{
+								float32 sT0 = 0.f, sT1 = 0.f;
+								if (!pl.pose && LireVec2(w, "size", sT0, sT1)
+									&& (sT0 > 0.f || sT1 > 0.f))
+									++rap.taillesNonHonorees;
+							}
 							NkVector<NkString> cols;
 							NkGListeChaines(w, "columns", cols);
 							const int32 nCols = (int32)cols.Size() > 0 ? (int32)cols.Size() : 1;
@@ -3855,8 +3941,74 @@ namespace nkentseu {
 					}
 				}
 
+				/// `size` SUR UN CONTENEUR EN FLUX : decoupe son rectangle dans le flux
+				/// du parent. Rend faux quand le document ne dit pas de taille — alors
+				/// le conteneur prend « tout ce qui reste », et l'appelant le COMPTE.
+				///
+				/// ⚠️ UN SEUL SITE POUR CETTE REGLE, ET C'EST TOUT LE POINT. Six roles
+				///    de conteneur en ont besoin (`Window`, `Panel`, `VBox`, `HBox`,
+				///    `Group`, `Stack`). Ecrire le calcul dans chacun aurait fait six
+				///    verites sur « ou commence le frere suivant », et ce depot connait
+				///    la suite : *le meme calcul a deux sites finit garde a un seul*.
+				///    La garde qui manquait, ce jour-la, etait a dix lignes de l'autre.
+				///
+				/// ⚠️ ET ELLE PASSE PAR `NextItemRect`, PAS PAR UNE SOUSTRACTION A NOUS.
+				///    C'est elle qui sait avancer le curseur en X dans une `HBox` et en
+				///    Y ailleurs — le seul endroit du fichier qui connaisse l'axe du
+				///    flux courant.
+				static bool TailleEnFlux(NkGuiContext &ctx, const NkArchive &w,
+										 NkRect &out) noexcept {
+					if (NkGuiTailleFluxIgnoree())
+						return false; // mutation de banc : le defaut, a la demande
+					float32 sW = 0.f, sH = 0.f;
+					if (!LireVec2(w, "size", sW, sH))
+						return false;
+					if (sW <= 0.f && sH <= 0.f)
+						return false; // `size = (0, 0)` ne contraint rien
+					out = ctx.NextItemRect(sW > 0.f ? sW : -1.f,
+										   sH > 0.f ? sH : ctx.ItemHeight());
+					return true;
+				}
+
+				/// Monte `corps` DANS le rectangle que `size` decoupe, et repose la mise
+				/// en page du parent. Rend faux quand il n'y a pas de taille a honorer —
+				/// l'appelant garde alors son chemin d'avant, inchange.
+				///
+				/// ⚠️ `BeginLayout` N'A PAS DE PILE : on sauve `ctx.layout` par valeur et
+				///    on le repose, exactement comme NKGui le fait pour ses popups. Et la
+				///    sauvegarde se prend APRES `TailleEnFlux`, donc apres que
+				///    `NextItemRect` a avance le curseur : c'est ce qui fait que le frere
+				///    suivant part SOUS ce conteneur et non par-dessus.
+				template <typename F>
+				static bool MonterDansTaille(NkGuiContext &ctx, const NkArchive &w,
+											 const NkGuiPlacement &pl,
+											 NkGuiMonteRapport &rap, NkRect &rOut,
+											 F corps) noexcept {
+					if (pl.pose)
+						return false;
+					NkRect r;
+					if (!TailleEnFlux(ctx, w, r))
+						return false;
+					const NkGuiLayout sauve = ctx.layout;
+					ctx.BeginLayout(r);
+					corps();
+					ctx.layout = sauve;
+					++rap.conteneursTailleFlux;
+					rOut = r;
+					return true;
+				}
+
 				/// La region que prend un conteneur de premier plan : son `pos`/`size`
 				/// s'il les ecrit, sinon ce qui reste de la region courante.
+				///
+				/// 🔴 SA BRANCHE `pos`+`size` EST MORTE, ET ELLE L'A TOUJOURS ETE. Elle
+				///    n'est appelee que depuis `!pl.pose`, et `NkGuiLirePlacement` ne rend
+				///    `pose` faux que s'il n'y a PAS de `pos` : le `LireVec2(w, "pos", …)`
+				///    ci-dessous echoue donc a chaque fois. C'est ce qui faisait que
+				///    `size` en flux n'etait lu par personne, et que deux `Panel` freres
+				///    se repeignaient l'un l'autre. On la laisse — la retirer changerait
+				///    le sens d'une fonction que six `case` appellent — mais on ecrit ici
+				///    qu'elle ne rend, en pratique, QUE la region courante.
 				static NkRect RegionCourante(NkGuiContext &ctx, const NkArchive &w) noexcept {
 					NkRect r = ctx.layout.region;
 					float32 x = 0.f, y = 0.f, cw = 0.f, ch = 0.f;
