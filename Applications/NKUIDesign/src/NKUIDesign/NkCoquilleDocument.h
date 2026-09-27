@@ -109,51 +109,70 @@ namespace nkuidesign {
 	///    l'exemplaire d'origine a nommé, et il n'a pas bougé.
 	class NkCoquilleDocument {
 		public:
-			NkBandeDocument menuApp;
-			NkBandeDocument barreEtat;
+			/// ⚠️ UNE SEULE BANDE POUR QUATRE RÉGIONS, DEPUIS LE 27/09. Ce fichier
+			///    portait deux `NkBandeDocument` et deux documents, parce que
+			///    `Monter` montait TOUT au curseur courant et que `MonterCorps` est
+			///    privée. `NkGuiMonteur::Monter(ctx, doc, "racine", …)` existe
+			///    désormais : un document, quatre racines nommées, une bande.
+			///
+			/// ⚠️ ET LA BANDE EST PARTAGÉE, DONC SON RAPPORT AUSSI. `rap` décrit le
+			///    DERNIER montage — c'est-à-dire la dernière racine montée dans
+			///    l'image, pas leur somme. Le lire pour juger « l'interface » donnerait
+			///    les chiffres de la barre d'état seule. La sonde monte donc les
+			///    racines UNE PAR UNE et lit le rapport après chacune.
+			NkBandeDocument bande;
 
-			/// Le dossier qui porte les documents. Tout est relatif à lui.
+			/// Le dossier qui porte le document. Tout est relatif à lui.
 			NkString dossier;
 
-			/// Lit les deux documents. Rend faux si l'un manque — et `RefusTotal` dit
-			/// LEQUEL, parce qu'un « ça n'a pas chargé » sans nom se cherche à la main.
+			/// Lit le document unique. Rend faux s'il manque.
 			bool ChargerDepuisDossier(const char *dossierDocuments) noexcept {
 				dossier = NkString(dossierDocuments);
-				const bool a = menuApp.ChargerDepuisFichier(Joindre("menu_design.nkgui").CStr());
-				const bool b = barreEtat.ChargerDepuisFichier(Joindre("barre_etat.nkgui").CStr());
-				return a && b;
+				return bande.ChargerDepuisFichier(Joindre("interface.nkgui").CStr());
 			}
 
-			/// Pose les mêmes tables sur les deux bandes.
 			void PoserTables(const NkActionNommee *act, uint32 nAct, const NkZoneNommee *zon,
 							 uint32 nZon) noexcept {
-				NkBandeDocument *b[2] = {&menuApp, &barreEtat};
-				for (uint32 i = 0; i < 2u; ++i) {
-					b[i]->actions = act;
-					b[i]->nbActions = nAct;
-					b[i]->zones = zon;
-					b[i]->nbZones = nZon;
-				}
+				bande.actions = act;
+				bande.nbActions = nAct;
+				bande.zones = zon;
+				bande.nbZones = nZon;
 			}
 
 			// ── les crochets, de la signature exacte que le kit attend ────
 			/// ⚠️ LA BARRE EST DÉJÀ OUVERTE quand la coquille appelle ce crochet : le
 			///    document ne doit porter que des `Menu`, jamais un `MenuBar`.
 			static void MonterMenuApp(NkEditorFrameContext &ec, void *user) noexcept {
-				((NkCoquilleDocument *)user)->menuApp.Monter(ec.Ui());
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "menu");
 			}
 			static void MonterBarreEtat(NkEditorFrameContext &ec, void *user) noexcept {
-				((NkCoquilleDocument *)user)->barreEtat.Monter(ec.Ui());
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barre_etat");
+			}
+			static void MonterBarreOutils(NkEditorFrameContext &ec, void *user) noexcept {
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "barre_outils");
+			}
+			static void MonterPanneau(NkEditorFrameContext &ec, void *user) noexcept {
+				((NkCoquilleDocument *)user)->bande.Monter(ec.Ui(), "panneau_outils");
 			}
 
-			uint32 MontesTotal() const noexcept {
-				return menuApp.rap.montes + barreEtat.rap.montes;
+			/// Les quatre noms de racine, en UN SEUL endroit.
+			///
+			/// 🔴 PARCE QU'UNE FAUTE DE FRAPPE NE SE VOIT PAS À L'ŒIL : la bande serait
+			///    simplement vide, sans erreur. Les crochets ci-dessus et la sonde
+			///    doivent donc lire LA MÊME liste — deux listes ne peuvent pas se
+			///    contredire, donc ne prouvent rien.
+			static const char *const *NomsRacines(uint32 &nOut) noexcept {
+				static const char *const kNoms[4] = {"menu", "barre_outils", "barre_etat",
+													 "panneau_outils"};
+				nOut = 4u;
+				return kNoms;
 			}
+
 			uint32 RefusTotal() const noexcept {
-				return (menuApp.lu ? 0u : 1u) + (barreEtat.lu ? 0u : 1u);
+				return bande.lu ? 0u : 1u;
 			}
 			uint32 ActionsInconnuesTotal() const noexcept {
-				return menuApp.actionsInconnues + barreEtat.actionsInconnues;
+				return bande.actionsInconnues;
 			}
 
 			NkString Joindre(const char *nom) const noexcept {
@@ -166,6 +185,39 @@ namespace nkuidesign {
 				s += NkString(nom);
 				return s;
 			}
+	};
+
+	// =========================================================================
+	//  LE PANNEAU DONT LE CONTENU EST UN DOCUMENT — le premier pas DANS `Panels.h`
+	// =========================================================================
+	/// `Panels.h` fait 21 052 lignes. On n'en réécrit pas une seule : ce panneau-ci
+	/// s'AJOUTE, décrit par la racine `panneau_outils`, et les autres continuent
+	/// comme avant. C'est le « doucement doucement » demandé le 27/09.
+	///
+	/// 🔴 SON TITRE NE VIENT PAS DU DOCUMENT, et le dire importe plus que de le
+	///    corriger. `NkEditorPanel` garde son titre dans un `char mTitle[64]` posé à
+	///    la construction et **n'expose aucun `SetTitle`** ; or le panneau se
+	///    construit AVANT que le document ne soit lu. Le rendre dynamique
+	///    demanderait de toucher NKEditorKit, qui appartient à un autre agent.
+	///    *Déclarer n'est pas livrer* : la ligne est écrite, pas le code.
+	///
+	/// **CONDITION DE RETRAIT :** le jour où `NkEditorPanel` accepte un titre après
+	/// coup, ce constructeur lit `title` sur le bloc racine et cette note disparaît.
+	class PanneauDocument : public nkentseu::editorkit::NkEditorPanel {
+		public:
+			explicit PanneauDocument(NkCoquilleDocument &coq) noexcept
+				: nkentseu::editorkit::NkEditorPanel(
+					  "nkuidesign_panneau_document", "Outils (document)",
+					  nkentseu::editorkit::NkEditorDockSide::NK_LEFT),
+				  mCoq(coq) {
+			}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				mCoq.bande.Monter(ec.Ui(), "panneau_outils");
+			}
+
+		private:
+			NkCoquilleDocument &mCoq;
 	};
 
 } // namespace nkuidesign

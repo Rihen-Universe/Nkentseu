@@ -10505,6 +10505,27 @@ int nkmain(const NkEntryState &state) {
 		if (luDoc) {
 			shell->SetStatusBarFn(&nkuidesign::NkCoquilleDocument::MonterBarreEtat,
 								  &s_coquilleDoc);
+			// ── LA BARRE D'OUTILS FAIT LES DEUX ─────────────────────────────
+			// ⚠️ `SetToolbar` N'ACCEPTE QU'UN SEUL RAPPEL, et `DrawProjectTabs`
+			//    l'occupait : il enumere les projets ouverts A L'EXECUTION, et le
+			//    format ne sait pas exprimer une liste engendree. Le remplacer aurait
+			//    SUPPRIME les onglets — on ne migre pas vers moins.
+			//
+			//    Ce rappel appelle donc les deux, dans cet ordre : les onglets
+			//    d'abord (le code qui marche), puis la racine `barre_outils`. Rien
+			//    n'est retire, et le document gagne sa place dans la bande.
+			shell->SetToolbar(
+				[](NkEditorFrameContext &ec, void *u) {
+					DrawProjectTabs(ec, nullptr);
+					nkuidesign::NkCoquilleDocument::MonterBarreOutils(ec, u);
+				},
+				&s_coquilleDoc);
+			// Le panneau dont le CONTENU vient du document. Il s'ajoute aux panneaux
+			// existants de `Panels.h` — aucun n'est touche.
+			{
+				static nkuidesign::PanneauDocument s_panneauDoc(s_coquilleDoc);
+				shell->AddPanel(&s_panneauDoc);
+			}
 			// La sonde garde la priorite sur `SetAppMenu` : elle MESURE, un menu non.
 			if (!gCapturePath[0] && !gSondeGel[0] && !gSondePortes[0] && gMesureAsyncMs < 0
 				&& gMesureFpsMs < 0 && gMesureDoubleImages < 0 && gMesureTexteImages < 0)
