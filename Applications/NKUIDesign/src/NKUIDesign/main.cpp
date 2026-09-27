@@ -78,6 +78,8 @@
 #include "Panels.h"
 #include "ExportDialogue.h" // ④ le dialogue d'export : un seul, deux portes
 #include "Probe.h"
+#include "NkCoquilleDocument.h" // LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT
+#include "SondeCoquille.h"      // --sonde-coquille : leur verdict, sans fenetre ni GPU
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
@@ -7673,6 +7675,53 @@ static void CmdQuit(void *user) {
 }
 
 // =============================================================================
+//  LA TABLE D'ACTIONS DU DOCUMENT `.nkgui` — UNE SEULE, POUR DEUX USAGES
+// =============================================================================
+//  L'identifiant d'un `MenuItem` de `Resources/Interface/NKUIDesign/menu_design.nkgui`
+//  EST le nom ci-dessous. C'est la convention de cet hote, pas une extension du
+//  format : la grammaire n'a pas de `on Pressed -> ...`, et `NkBandeDocument`
+//  derive l'appui puis cherche le nom ici.
+//
+//  ⚠️ ELLE EST A PORTEE FICHIER POUR QUE LA SONDE JUGE CE QUE L'APPLICATION
+//     BRANCHE. Declaree dans le bloc de cablage, elle aurait oblige la sonde a en
+//     tenir une COPIE — et le jour ou l'une gagne une entree, la sonde declare
+//     « tout est servi » sur un menu qui a un trou, ou l'inverse. *Deux compteurs
+//     sans code commun ne peuvent pas se contredire, donc ne peuvent rien
+//     prouver.*
+//
+//  ⚠️ AUCUNE ENVELOPPE AUTOUR DES `Cmd*`. `NkEditorCommandFn` et
+//     `nkgui::NkActionFn` sont la meme signature (`void (*)(void *)`) : pointer
+//     droit dessus fait un nom de moins a tenir d'accord. Et ce sont les MEMES
+//     fonctions que `RegisterCommand` sert — un menu du document et la palette de
+//     commandes ne peuvent donc pas divergerr sur ce que fait une action.
+static const nkgui::NkActionNommee gActionsDocument[] = {
+	{"design.enregistrer", &CmdSave, nullptr},
+	{"design.recharger", &CmdLoad, nullptr},
+	{"design.nouveau", &CmdNew, nullptr},
+	{"design.annuler", &CmdUndo, nullptr},
+	{"design.retablir", &CmdRedo, nullptr},
+	{"design.grouper", &CmdGrouper, nullptr},
+	{"design.degrouper", &CmdDegrouper, nullptr},
+	{"design.dupliquer", &CmdDupliquer, nullptr},
+	{"design.exporter", &CmdExporter, nullptr},
+	{"design.vue.hierarchie", &CmdVueHierarchie, nullptr},
+	{"design.vue.inspecteur", &CmdVueInspecteur, nullptr},
+	// 🔴 QUATRE NOMS N'Y SONT PAS, ET LA CONSTRUCTION ME L'A APPRIS.
+	//    `CmdVuePalette`, `CmdVueComposition`, `CmdVueProprietes` et
+	//    `CmdVuePreferences` vivent sous `#if NKUIDESIGN_ANCIENS_PANNEAUX`, qui est
+	//    ETEINT : elles n'existent pas dans cette construction. Ma premiere version
+	//    les listait ici, et le compilateur a refuse — c'est le seul negatif qui
+	//    n'a rien coute.
+	//
+	//    Leurs entrees de menu restent dans le document, GRISEES avec leur raison :
+	//    « une entree qui s'affiche et ne fait rien est un mensonge ; une entree
+	//    grisee est une promesse datee ». La sonde les compte a part (`grisees`) et
+	//    ne les reproche pas — une entree sans action n'a pas besoin d'action.
+};
+static const nkentseu::uint32 gNbActionsDocument =
+	(nkentseu::uint32)(sizeof(gActionsDocument) / sizeof(gActionsDocument[0]));
+
+// =============================================================================
 //  L EN-TETE A DEUX BANDES -- document 3 §4/§5, planche 091913
 // =============================================================================
 //
@@ -9201,6 +9250,11 @@ int nkmain(const NkEntryState &state) {
 			continue;
 		if (NkComponentDecl::StrEq(a, "--probe"))
 			return nkuidesign::RunProbe();
+		// LA COQUILLE VENUE D'UN DOCUMENT, jugee sans fenetre ni GPU. Elle recoit
+		// LA table que l'application branche (`gActionsDocument`) : une copie ici
+		// aurait donne deux tables incapables de se contredire.
+		if (NkComponentDecl::StrEq(a, "--sonde-coquille"))
+			return nkuidesign::SondeCoquille(gActionsDocument, gNbActionsDocument);
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
@@ -10420,6 +10474,53 @@ int nkmain(const NkEntryState &state) {
 		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
+	// ═════════════════════════════════════════════════════════════════════════
+	//  LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT `.nkgui`
+	// ═════════════════════════════════════════════════════════════════════════
+	//  Rodolf, 27/09 : « NKUIDesign doit lui aussi utiliser .nkgui […] on copie,
+	//  on modifie apres, doucement doucement. »
+	//
+	//  ⚠️ STRICTEMENT ADDITIF, ET C'EST MESURE. `SetMenuBar` (447 lignes qui
+	//     portent AUSSI la recolte de la generation IA) et `SetToolbar` (les
+	//     onglets de projet, enumeres a l'execution) restent ce qu'ils sont, deux
+	//     lignes au-dessus. Les deux crochets pris ici etaient LIBRES :
+	//     `SetStatusBarFn` n'etait jamais pose, et `SetAppMenu` ne l'est que sous
+	//     un drapeau de sonde. Rien de ce qui marche n'est retire.
+	//
+	//  ⚠️ ET LA TABLE POINTE SUR LES `Cmd*` QUE `RegisterCommand` SERT DEJA.
+	//     `NkEditorCommandFn` et `NkActionFn` sont la meme signature
+	//     (`void (*)(void *)`), donc aucune enveloppe : un nom de moins a tenir
+	//     d'accord. Le kit, lui, ne sait lancer une commande que par un INDICE
+	//     (`ExecuteCommand(int32)`) — *un indice n'est pas un nom*, il se decale
+	//     des qu'une commande est inseree.
+	{
+		static nkuidesign::NkCoquilleDocument s_coquilleDoc;
+		const bool luDoc = s_coquilleDoc.ChargerDepuisDossier("Resources/Interface/NKUIDesign");
+		// LA MEME table que celle que la sonde juge — voir `gActionsDocument`.
+		s_coquilleDoc.PoserTables(gActionsDocument, gNbActionsDocument, nullptr, 0u);
+		// ⚠️ ON NE BRANCHE PAS UNE BANDE QU'ON N'A PAS LUE. Poser le crochet sur un
+		//    document absent aurait donne une bande vide, indiscernable d'une bande
+		//    qui n'affiche rien — et le refus se serait tu. `RefusTotal` le NOMME
+		//    dans le journal, et la sonde `--sonde-coquille` en fait un verdict.
+		if (luDoc) {
+			shell->SetStatusBarFn(&nkuidesign::NkCoquilleDocument::MonterBarreEtat,
+								  &s_coquilleDoc);
+			// La sonde garde la priorite sur `SetAppMenu` : elle MESURE, un menu non.
+			if (!gCapturePath[0] && !gSondeGel[0] && !gSondePortes[0] && gMesureAsyncMs < 0
+				&& gMesureFpsMs < 0 && gMesureDoubleImages < 0 && gMesureTexteImages < 0)
+				shell->SetAppMenu(&nkuidesign::NkCoquilleDocument::MonterMenuApp,
+								  &s_coquilleDoc);
+		} else {
+			// ⚠️ `printf` ET NON LE JOURNAL, parce que c'est ce que ce fichier fait
+			//    partout (220 sites) et que le verdict d'une sonde se lit sur la
+			//    sortie standard. Un message envoye au journal quand tout le reste
+			//    passe par la console se cherche dans le mauvais fichier — ce depot
+			//    a deja paye « le verdict n'existait pas la ou on regarde ».
+			printf("[COQUILLE] %u document(s) .nkgui non lu(s) dans "
+				   "Resources/Interface/NKUIDesign - bandes non branchees\n",
+				   s_coquilleDoc.RefusTotal());
+		}
+	}
 	// Le titre initial vient du DOCUMENT (le callback `titre` prendra le
 	// relais a la premiere mesure — meme regle : jamais un nom en dur).
 	{
