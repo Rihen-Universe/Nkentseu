@@ -988,6 +988,31 @@ namespace nkentseu {
 		/// Le texte d'une propriete. Une CHAINE rend son contenu ; un JETON NU rend
 		/// son lexeme (`Start`, `ui.filtre`) -- c'est ce que le consommateur veut
 		/// dans les deux cas.
+		/// LE LIBELLE D'UN WIDGET : celui du document, ou — a defaut — la traduction
+		/// de son IDENTIFIANT.
+		///
+		/// 🔴 LA CLE EST DEJA L'IDENTIFIANT, ET L'ECRIRE DEUX FOIS EST UNE DETTE.
+		///    Apres le passage de NKUIDesign au multilingue, vingt-deux lignes du
+		///    document disaient litteralement deux fois la meme chose :
+		///
+		///        MenuItem "design.enregistrer" { label = "@t:design.enregistrer" }
+		///
+		///    Rodolf, 27/09 : « suis d'accord ». Un widget SANS `label` cherche
+		///    desormais `@t:<son id>`.
+		///
+		/// ⚠️ ET C'EST RETRO-COMPATIBLE, ce qui est la raison pour laquelle on peut
+		///    le faire sans rien casser. Sans entree dans la table, la recherche
+		///    rend LA CLE -- c'est-a-dire l'identifiant -- exactement ce que ces
+		///    sites affichaient avant en passant `id.CStr()` en defaut. Aucun
+		///    document existant ne change d'apparence.
+		///
+		/// ⚠️ UN `label` EXPLICITE GAGNE TOUJOURS, et il reste indispensable : deux
+		///    widgets peuvent porter le MEME identifiant d'action avec des libelles
+		///    differents (`design.grouper` s'ecrit « Grouper la selection » dans le
+		///    menu et « Grouper » dans la barre d'outils). Le repli sert le cas
+		///    courant ; il ne supprime pas le cas particulier.
+		inline NkString NkGLibelle(const NkArchive &w, const NkString &id) noexcept;
+
 		/// LA FORME STABLE d'un texte du document : sa cle s'il est traduit, sa valeur
 		/// brute sinon. A employer PARTOUT ou un texte sert d'identite.
 		///
@@ -1029,6 +1054,14 @@ namespace nkentseu {
 			if (s && s[0] == '@' && s[1] == 't' && s[2] == ':' && s[3] != '\0')
 				return NkString(NkGuiTexteLangue(s + 3));
 			return out;
+		}
+
+		/// Definie APRES `NkGTexte`, qu'elle appelle. Sa documentation est au-dessus,
+		/// a sa declaration -- c'est la que le lecteur la cherche.
+		inline NkString NkGLibelle(const NkArchive &w, const NkString &id) noexcept {
+			NkString parDefaut("@t:");
+			parDefaut.Append(id);
+			return NkGTexte(w, "label", parDefaut.CStr());
 		}
 
 		inline bool NkGA(const NkArchive &b, const char *cle) noexcept {
@@ -2914,7 +2947,7 @@ namespace nkentseu {
 							break;
 						}
 						case NkGuiRole::Button: {
-							const NkString s = NkGTexte(w, "label", id.CStr());
+							const NkString s = NkGLibelle(w, id);
 							// ⚠️ UNE FEUILLE : la surcharge ne peut fuir vers personne, et elle est
 							//    RENDUE juste apres. C'est ce qui la rend sure ici et interdite sur
 							//    un conteneur.
@@ -2932,14 +2965,14 @@ namespace nkentseu {
 							// Le seul role sans forme auto-placee : on lui donne le
 							// rectangle que le layout aurait donne, pas un rectangle
 							// invente.
-							const NkString s = NkGTexte(w, "label", id.CStr());
+							const NkString s = NkGLibelle(w, id);
 							const NkRect r = ctx.NextItemRect(0.f, ctx.ItemHeight());
 							(void)RepeatButton(ctx, s.CStr(), r, NkGNombre(w, "repeatDelay", -1.f),
 											   NkGNombre(w, "repeatRate", -1.f));
 							break;
 						}
 						case NkGuiRole::Checkbox: {
-							const NkString s = NkGTexte(w, "label", id.CStr());
+							const NkString s = NkGLibelle(w, id);
 							if (e) {
 								// 🔴 ELLE NE LISAIT PAS SON `value` (corrige le 27/09).
 								//    Tous les autres roles editables posent leur valeur
@@ -3289,7 +3322,7 @@ namespace nkentseu {
 							// ⚠️ ET L'IMAGE POSEE PAR UN COMPORTEMENT PASSE PAR LA MEME
 							//    PORTE : `set x.image = "..."` prime sur le document,
 							//    comme `set x.icon`.
-							const NkString sIB = NkGTexte(w, "label", id.CStr());
+							const NkString sIB = NkGLibelle(w, id);
 							(void)Button(ctx, sIB.CStr());
 							{
 								NkString src = NkGTexte(w, "image", "");
@@ -3440,7 +3473,7 @@ namespace nkentseu {
 								break;
 							}
 							const NkString grp = NkGTexte(w, "group", "");
-							const NkString sTB = NkGTexte(w, "label", id.CStr());
+							const NkString sTB = NkGLibelle(w, id);
 							NkGuiMonteEtat::Entree *eg =
 								grp.Size() > 0u ? etat.Get(NkStringView(grp.CStr())) : nullptr;
 							if (!e->initialise) {
@@ -3514,7 +3547,7 @@ namespace nkentseu {
 							//    le document ne porte pas.
 							// La vignette est PEINTE depuis le 27/09, par la meme porte
 							// qu'`ImageButton` (`NkGuiImages.h`).
-							const NkString sT = NkGTexte(w, "label", id.CStr());
+							const NkString sT = NkGLibelle(w, id);
 							const NkString cap = NkGTexte(w, "caption", "");
 							// La taille par defaut est celle de la specification (96x96) ;
 							// `size = (w, h)` se lit par la MEME porte que partout ailleurs.
@@ -3610,7 +3643,7 @@ namespace nkentseu {
 							//    jour ou un crochet d'ouverture existera, elle le
 							//    tirera sans que le document change.
 							{
-								const NkString sSB = NkGTexte(w, "label", id.CStr());
+								const NkString sSB = NkGLibelle(w, id);
 								const uint32 nItems = NkGListeCompte(w, "items");
 								if (nItems > 0u)
 									++rap.attributsNonHonores;
@@ -4040,7 +4073,7 @@ namespace nkentseu {
 							// MEME FAUTE, MEME CORRECTIF QUE `Expander` : `expanded` est un
 							// etat INITIAL. Le reposer a chaque image refermait la branche
 							// sous le doigt de qui vient de l'ouvrir.
-							const NkString titre = NkGTexte(w, "label", id.CStr());
+							const NkString titre = NkGLibelle(w, id);
 							if (e && !e->initialise) {
 								e->b = NkGBooleen(w, "expanded", false);
 								e->initialise = true;
@@ -4151,7 +4184,7 @@ namespace nkentseu {
 								const char *v = getenv("NK_PLIABLE_MUTATION");
 								return v && v[0] == 'f';
 							}();
-							const NkString titre = NkGTexte(w, "label", id.CStr());
+							const NkString titre = NkGLibelle(w, id);
 							// LE DOCUMENT DONNE L'ETAT INITIAL, PAS UN ORDRE PERMANENT.
 							if (e && !e->initialise) {
 								e->b = NkGBooleen(w, "expanded", false);
@@ -4486,7 +4519,7 @@ namespace nkentseu {
 							return;
 						}
 						case NkGuiRole::Menu: {
-							const NkString lbl = NkGTexte(w, "label", id.CStr());
+							const NkString lbl = NkGLibelle(w, id);
 							++rap.menus;
 							// ⚠️ LE CONTENU D'UN MENU FERME NE SE MONTE PAS, et ce n'est pas
 							//    une perte : NKGui ne dessine ses entrees que dans le popup
@@ -4684,7 +4717,7 @@ namespace nkentseu {
 								aDessine = false;
 								break;
 							}
-							const NkString lbl = NkGTexte(w, "label", id.CStr());
+							const NkString lbl = NkGLibelle(w, id);
 							const NkString raccourci = NkGTexte(w, "shortcut", "");
 							// `checked` vient du document ; si une donnee vivante existe
 							// pour cette cle, elle fait foi (meme regle que `Checkbox`).
