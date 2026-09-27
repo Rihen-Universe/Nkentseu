@@ -133,6 +133,18 @@ namespace nkentseu {
 			/// LA ZONE QUE L'APPLICATION REMPLIT -- viseur 3D, toile, editeur de texte.
 			/// Le document dit OU et QUOI ; l'hote garde QUAND et COMMENT.
 			Host,
+			/// LA TOILE (27/09). Une zone hote QUI PORTE SON CADRAGE : le format tient
+			/// le deplacement, l'echelle et la grille ; l'application dessine son
+			/// contenu en coordonnees MONDE et repond aux evenements par la table
+			/// d'ecouteurs.
+			///
+			/// ⚠️ CE N'EST PAS UN `Host` AVEC DES OPTIONS. Un `Host` rend un rectangle
+			///    et s'arrete la ; une `Canvas` possede un etat qui SURVIT d'une image
+			///    a l'autre (ou elle regarde, de combien elle grossit) et des gestes qui
+			///    le changent. C'est cet etat qui justifie un role a part -- sans lui,
+			///    chaque application reecrirait son zoom au curseur, et trois sur quatre
+			///    zoomeraient au centre.
+			Canvas,
 			/// LA ZONE DEFILANTE. Elle etait au vocabulaire du VALIDATEUR
 			/// (`NkGuiValidate.h`, `axis` et `always`) et absente d'ici : un document
 			/// que le format accepte perdait tout son contenu au montage.
@@ -352,6 +364,7 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "TreeItem")) return NkGuiRole::TreeItem;
 			if (NkGMotEgal(n, "DockSpace")) return NkGuiRole::DockSpace;
 			if (NkGMotEgal(n, "Host")) return NkGuiRole::Host;
+			if (NkGMotEgal(n, "Canvas")) return NkGuiRole::Canvas;
 			if (NkGMotEgal(n, "Scroll")) return NkGuiRole::Scroll;
 			if (NkGMotEgal(n, "MenuBar")) return NkGuiRole::MenuBar;
 			if (NkGMotEgal(n, "Menu")) return NkGuiRole::Menu;
@@ -637,6 +650,16 @@ namespace nkentseu {
 				///    (`servis`, `traites`, `sansDestinataire`) -- deux compteurs pour
 				///    deux questions, et les melanger rendrait les deux illisibles.
 				uint32 evenementsExposes = 0;
+				/// LES TOILES (27/09). `toilesNonRemplies` a la meme fonction que
+				/// `hotesNonRemplis` : une toile que personne ne peint se SIGNALE.
+				/// ⚠️ `toilesZoomees` ET `toilesDeplacees` NE SONT PAS DE LA
+				///    STATISTIQUE : ce sont les deux seuls chiffres qui disent que les
+				///    GESTES ont eu un effet. Sans eux, une toile qui s'affiche mais ne
+				///    bouge plus aurait exactement le meme releve qu'une toile saine.
+				uint32 toiles = 0;
+				uint32 toilesNonRemplies = 0;
+				uint32 toilesZoomees = 0;
+				uint32 toilesDeplacees = 0;
 				/// LES CONTENEURS ET LEUR TAILLE, EN FLUX (27/09).
 				/// ⚠️ DEUX CHIFFRES PARCE QU'IL Y A DEUX SITUATIONS, ET UNE SEULE EST
 				///    UN DEFAUT. `conteneursTailleFlux` compte ceux qui DECLARENT
@@ -1578,6 +1601,30 @@ namespace nkentseu {
 		 *    beaucoup plus loin, sur un widget qui n'a rien demande. L'appariement
 		 *    passe par un objet de pile (`Garde`), pas par de la discipline.
 		 */
+		/// LE CADRAGE D'UNE TOILE : ou elle regarde, et de combien elle grossit.
+		///
+		/// ⚠️ `zoom` EST UN FACTEUR, PAS UN POURCENTAGE, et il ne vaut JAMAIS ZERO.
+		///    Un zoom nul rendrait la transformation non inversible : l'ecran ne se
+		///    reconvertirait plus en monde, et tout clic tomberait a l'infini. Le
+		///    monteur le borne, et l'application qui le pose devrait en faire autant.
+		struct NkGuiVue {
+				NkVec2 centre{0.f, 0.f}; ///< le point du MONDE au centre de la zone
+				float32 zoom = 1.f;		 ///< pixels par unite de monde
+
+				/// Monde -> ecran, dans la zone `r`.
+				NkVec2 VersEcran(const NkVec2 &monde, const NkRect &r) const noexcept {
+					return NkVec2(r.x + r.w * 0.5f + (monde.x - centre.x) * zoom,
+								  r.y + r.h * 0.5f + (monde.y - centre.y) * zoom);
+				}
+				/// Ecran -> monde. L'inverse EXACT de `VersEcran` : les deux vivent
+				/// cote a cote pour que personne n'en reecrive une seule des deux.
+				NkVec2 VersMonde(const NkVec2 &ecran, const NkRect &r) const noexcept {
+					const float32 z = (zoom > 0.0001f) ? zoom : 0.0001f;
+					return NkVec2(centre.x + (ecran.x - r.x - r.w * 0.5f) / z,
+								  centre.y + (ecran.y - r.y - r.h * 0.5f) / z);
+				}
+		};
+
 		struct NkGuiMonteHooks {
 				virtual ~NkGuiMonteHooks() = default;
 				/// Avant que le widget ne dessine. `e` peut etre nul (role sans etat).
@@ -1609,6 +1656,36 @@ namespace nkentseu {
 					(void)nom;
 					(void)zone;
 					return false;
+				}
+
+				/// LA TOILE : comme `RemplirHote`, mais la VUE vient avec.
+				///
+				/// Le format tient le cadrage (deplacement et echelle), la grille et les
+				/// gestes qui les changent ; l'application dessine son contenu EN
+				/// COORDONNEES MONDE et repond aux evenements par la table d'ecouteurs.
+				///
+				/// 🔴 POURQUOI LE FORMAT TIENT LA VUE ET PAS L'APPLICATION. Quatre
+				///    surfaces de la famille veulent exactement le meme cadrage : la toile
+				///    Design, la toile des comportements, la frise d'animation et le
+				///    graphe des inclusions. Laisser chacune l'ecrire donnerait quatre
+				///    implementations du zoom au curseur -- dont trois finiraient par
+				///    zoomer au centre, ce qui ne se remarque que quand on l'a longtemps
+				///    utilise ailleurs.
+				///
+				/// ⚠️ ET LE FORMAT NE VA PAS PLUS LOIN. Il ne sait pas ce qu'il y a dans
+				///    la toile, donc il ne fait AUCUN picking : c'est l'ecouteur qui
+				///    recoit le clic, en coordonnees locales, et qui sait seul quel objet
+				///    est dessous. La frontiere est la, et elle est nette.
+				///
+				/// ⚠️ LE DEFAUT RETOMBE SUR `RemplirHote`, ET PAS SUR `false`. Une
+				///    application ecrite avant ce role continue donc de remplir sa toile ;
+				///    seule la vue lui manque. Rendre `false` par defaut aurait fait
+				///    disparaitre le contenu de toutes les toiles existantes le jour de
+				///    la mise a jour.
+				virtual bool RemplirToile(NkGuiContext &ctx, const char *nom, const NkRect &zone,
+										  const NkGuiVue &vue) noexcept {
+					(void)vue;
+					return RemplirHote(ctx, nom, zone);
 				}
 
 				/// L'ANCRAGE : l'hote fournit-il un panneau portant CE NOM ?
@@ -4584,6 +4661,110 @@ namespace nkentseu {
 							++rap.elementsMenu;
 							break;
 						}
+						case NkGuiRole::Canvas: {
+							// ── LE RECTANGLE, comme une zone hote ───────────────
+							const NkGuiTailleRel relC = NkGuiLireTailleRelative(w, ctx.layout.region);
+							const NkRect zone = ctx.NextItemRect(relC.aW ? relC.w : -1.f,
+																 relC.aH ? relC.h : ctx.ItemHeight() * 8.f);
+							if (zone.w <= 0.f || zone.h <= 0.f)
+								break;
+							++rap.toiles;
+
+							// ── LE CADRAGE, ET IL SURVIT A L'IMAGE ──────────────
+							// ⚠️ IL VIT DANS L'ETAT DU WIDGET, PAS DANS UNE VARIABLE DE
+							//    CE `case`. Un cadrage recalcule a chaque image serait
+							//    remis a zero soixante fois par seconde : la toile
+							//    reviendrait a son origine des qu'on lache la souris.
+							//    `deplacement` porte le centre, `f` le zoom -- deux
+							//    champs qui existent deja et qu'aucun autre role
+							//    n'emploie sur une toile.
+							NkGuiVue vue;
+							if (e) {
+								if (!e->initialise) {
+									// Premier montage : zoom 1, centre a l'origine du monde.
+									e->f = 1.f;
+									e->deplacement = NkVec2(0.f, 0.f);
+									e->initialise = true;
+								}
+								vue.centre = e->deplacement;
+								vue.zoom = e->f > 0.0001f ? e->f : 1.f;
+							}
+
+							const NkVec2 souris = ctx.input.mousePos;
+							const bool dedansC = (souris.x >= zone.x && souris.x <= zone.x + zone.w
+												  && souris.y >= zone.y
+												  && souris.y <= zone.y + zone.h);
+
+							// ── LE ZOOM, AU CURSEUR ─────────────────────────────
+							// 🔴 AU CURSEUR, PAS AU CENTRE, ET C'EST TOUT L'INTERET DE
+							//    METTRE CE CALCUL DANS LE FORMAT. Zoomer au centre est
+							//    ce qu'on ecrit quand on va vite, et c'est ce qui rend
+							//    une toile penible a l'usage : le point qu'on regarde
+							//    s'enfuit. La regle tient en trois lignes -- le point du
+							//    MONDE sous le curseur ne doit pas bouger -- mais elle ne
+							//    s'invente pas, et quatre surfaces de la famille la
+							//    voudront.
+							if (e && dedansC && ctx.input.wheel != 0.f) {
+								const NkVec2 avant = vue.VersMonde(souris, zone);
+								float32 z = vue.zoom * (ctx.input.wheel > 0.f ? 1.1f : (1.f / 1.1f));
+								// Bornes : un zoom nul rendrait la transformation non
+								// inversible, et tout clic tomberait a l'infini.
+								if (z < 0.02f) z = 0.02f;
+								if (z > 64.f) z = 64.f;
+								vue.zoom = z;
+								// MUTATION DE BANC, NK_TOILE_MUTATION=centre : le zoom se
+								// fait au CENTRE. C'est la version qu'on ecrit quand on va
+								// vite, et elle existe ici pour que le critere « le point
+								// du monde sous le curseur ne bouge pas » ait quelque
+								// chose a refuter. Sans la variable, ce bloc ne change
+								// rien du tout.
+								static const bool kZoomCentre = []() {
+									const char *v = getenv("NK_TOILE_MUTATION");
+									return v && v[0] == 'c';
+								}();
+								if (!kZoomCentre) {
+									const NkVec2 apres = vue.VersMonde(souris, zone);
+									vue.centre.x += avant.x - apres.x;
+									vue.centre.y += avant.y - apres.y;
+								}
+								++rap.toilesZoomees;
+							}
+
+							// ── LE DEPLACEMENT, au bouton du MILIEU ─────────────
+							// Le milieu parce que le gauche appartient au contenu
+							// (selectionner, tirer une poignee) : le format ne doit pas
+							// se servir avant l'application.
+							if (e && dedansC && ctx.input.mouseDown[2]
+								&& (ctx.input.mouseDelta.x != 0.f || ctx.input.mouseDelta.y != 0.f)) {
+								const float32 z = vue.zoom > 0.0001f ? vue.zoom : 1.f;
+								vue.centre.x -= ctx.input.mouseDelta.x / z;
+								vue.centre.y -= ctx.input.mouseDelta.y / z;
+								++rap.toilesDeplacees;
+							}
+
+							if (e) {
+								e->deplacement = vue.centre;
+								e->f = vue.zoom;
+							}
+
+							// ── LE FOND ET LA GRILLE ────────────────────────────
+							NkGuiDrawList &dlC = ctx.DL();
+							dlC.AddRectFilled(zone, ctx.theme.bgPrimary, 0.f);
+							if (!NkGMotEgal(NkStringView(NkGTexte(w, "grid", "on").CStr()), "off"))
+								PeindreGrille(ctx, zone, vue);
+
+							// ── LE CONTENU, PAR L'APPLICATION ───────────────────
+							const bool peint = hooks && hooks->RemplirToile(ctx, id.CStr(), zone, vue);
+							if (!peint) {
+								// Meme marqueur que la zone hote : visible et NOMME.
+								++rap.toilesNonRemplies;
+								MarquerZoneVide(ctx, zone, id.CStr());
+							}
+							dlC.AddRect(zone, ctx.theme.border, 1.f);
+							Noter(ctx, rap, id, t, zone, prof, true, horizontal, &ctx.layout.region);
+							++rap.montes;
+							return;
+						}
 						case NkGuiRole::Host: {
 							++rap.hotes;
 							// Un `pos`/`size` pose a deja arme `SetNextItemRect` avant le switch :
@@ -5146,6 +5327,42 @@ namespace nkentseu {
 				///    montes, avec le rectangle qu'ils ont REELLEMENT pris. Compter le
 				///    debordement ailleurs aurait voulu dire le compter dans chaque `case`,
 				///    c'est-a-dire en oublier.
+				/// La grille d'une toile, au pas du MONDE, decoupee sur la zone.
+				///
+				/// ⚠️ LE PAS S'ADAPTE AU ZOOM, ET SANS CA LA GRILLE EST INUTILISABLE.
+				///    Un pas fixe en unites de monde donne, a zoom 0,05, une bouillie de
+				///    traits a un pixel d'intervalle -- et a zoom 40, une seule ligne a
+				///    l'ecran. On monte donc par puissances de dix jusqu'a ce qu'un pas
+				///    fasse au moins huit pixels : la grille garde toujours une densite
+				///    lisible, quel que soit le cadrage.
+				static void PeindreGrille(NkGuiContext &ctx, const NkRect &r,
+										  const NkGuiVue &vue) noexcept {
+					const float32 z = vue.zoom > 0.0001f ? vue.zoom : 1.f;
+					float32 pas = 10.f;
+					while (pas * z < 8.f)
+						pas *= 10.f;
+					while (pas * z > 160.f)
+						pas *= 0.1f;
+					NkGuiDrawList &dl = ctx.DL();
+					const NkColor trait = ctx.theme.border;
+					const NkVec2 hg = vue.VersMonde(NkVec2(r.x, r.y), r);
+					const NkVec2 bd = vue.VersMonde(NkVec2(r.x + r.w, r.y + r.h), r);
+					// On part du premier multiple du pas APRES le bord : sinon la grille
+					// glisserait avec le cadrage au lieu d'etre ancree au monde.
+					float32 x = (float32)((int64)(hg.x / pas) - 1) * pas;
+					for (; x < bd.x; x += pas) {
+						const float32 sx = vue.VersEcran(NkVec2(x, 0.f), r).x;
+						if (sx >= r.x && sx <= r.x + r.w)
+							dl.AddLine(NkVec2(sx, r.y), NkVec2(sx, r.y + r.h), trait, 1.f);
+					}
+					float32 y = (float32)((int64)(hg.y / pas) - 1) * pas;
+					for (; y < bd.y; y += pas) {
+						const float32 sy = vue.VersEcran(NkVec2(0.f, y), r).y;
+						if (sy >= r.y && sy <= r.y + r.h)
+							dl.AddLine(NkVec2(r.x, sy), NkVec2(r.x + r.w, sy), trait, 1.f);
+					}
+				}
+
 				/// Remet a l'ecouteur de `id`, s'il y en a un, ce qui vient de lui arriver.
 				///
 				/// ⚠️ ELLE SORT TOUT DE SUITE QUAND PERSONNE N'ECOUTE, et ce n'est pas une

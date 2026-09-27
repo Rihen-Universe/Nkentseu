@@ -164,7 +164,24 @@ Décision de Rodolf. Le nom de code du module reste `HumanModelingTools` ; le
 > « Personnage » est **un libellé, jamais une clé**. L'identifiant reste
 > `perso.*`, stable dans toutes les langues.
 >
-> ⚠️ **CONSÉQUENCE MESURÉE LE MÊME JOUR, ET ELLE DÉPASSE CE DOCUMENT.** Dans
+> 📌 **LE SYSTÈME EXISTE DÉJÀ, ET J'AVAIS CONCLU TROP VITE QU'IL N'EXISTAIT PAS.**
+> Première recherche limitée à `NKGui/`, `NKEditorKit/` et `Foundation/` :
+> « rien nulle part ». Faux — il est dans **`Applications/NKCode/src/NKCode/Shell/NkI18n.h`**,
+> et Rodolf a dû m'y envoyer.
+>
+> Il est sérieux : **~1 541 entrées**, **807 appels** `NkT(...)` dans NKCode,
+> **8 langues** (fr, en, es, pt, de, it, ru, **Ghɔmáláʼ**), bascule **à chaud**
+> par `NkI18nSet(index)` *« temps réel, aucun redémarrage »*, et des **surcharges
+> éditables sans recompiler** (fichiers `<code>.lang` dans `data/lang/` ou
+> `~/.nkcode/lang/`), avec la priorité *surcharge → table compilée → anglais → la
+> clé*.
+>
+> Et il a la **bonne forme** : `NkT("sb.main")` est indexé **par clé**, jamais par
+> le texte affiché. C'est le modèle à remonter d'un étage pour que les `.nkgui`
+> écrivent leurs libellés par clé — **NKCode est aujourd'hui sa seule
+> application**, et trois autres vont en avoir besoin.
+>
+> ⚠️ **CONSÉQUENCE MESURÉE LE MÊME JOUR, ET LA BASCULE À CHAUD L'AGGRAVE.** Dans
 > `NkGuiMonteur.h`, sur onze sites qui fabriquent l'identité d'interaction d'un
 > widget, **quatre** partent de son `id` — justes — et **six** partent de son
 > **libellé** ou du texte d'une option. Dont celui-ci :
@@ -179,6 +196,11 @@ Décision de Rodolf. Le nom de code du module reste `HumanModelingTools` ; le
 > endroit — `RadioGroup` stocke l'**indice** et non le libellé, *« exact et
 > stable quand les libellés changent de casse ou de langue »*. Il reste à
 > l'appliquer aux six autres.
+>
+> 🔴 **ET COMME `NkI18nSet` BASCULE À CHAUD, ÇA N'ARRIVE PAS AU REDÉMARRAGE :
+> ça arrive SOUS LES DOIGTS DE L'UTILISATEUR.** Il change de langue, et les
+> panneaux se replient au même instant. Un défaut au redémarrage se pardonne ; un
+> défaut pendant le geste se remarque et s'impute au geste.
 >
 > 📌 **C'est un chantier de NKGui, pas de HumanModelingTools** : il est noté ici
 > parce que c'est ici que la question s'est posée, et il doit être fait **avant**

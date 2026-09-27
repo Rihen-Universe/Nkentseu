@@ -84,6 +84,7 @@
 #include "SondeEdition.h"       // --sonde-edition  : LE TEMOIN DE R1 -- une ligne, pas deux
 #include "SondeImages.h"        // --sonde-images   : un `image:` arrive-t-il dessine, et aux bonnes proportions
 #include "SondeEcouteurs.h"     // --sonde-ecouteurs: un evenement part-il du bon widget
+#include "SondeToile.h"         // --sonde-toile    : le role Canvas et son cadrage
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
@@ -9291,6 +9292,9 @@ int nkmain(const NkEntryState &state) {
 		// la machine : l'entree est ecrite en memoire, dans son propre contexte.
 		if (NkComponentDecl::StrEq(a, "--sonde-ecouteurs"))
 			return nkuidesign::SondeEcouteurs();
+		// LE ROLE `Canvas` : son cadrage, ses gestes, sa grille. Sans GPU.
+		if (NkComponentDecl::StrEq(a, "--sonde-toile"))
+			return nkuidesign::SondeToile();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.
