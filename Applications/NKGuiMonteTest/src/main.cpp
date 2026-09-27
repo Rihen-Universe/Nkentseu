@@ -501,6 +501,22 @@ static bool EcrirePng(const NkGuiDrawListRaster &r, const char *chemin) {
 	return ok;
 }
 
+/// Les pixels EXACTEMENT de cette couleur dans un montage (RGBA empaquete).
+///
+/// ⚠️ L'EGALITE EXACTE, ET C'EST LE BON CHOIX ICI. Un aplat de `fill` n'est pas
+///    anticrenele en son centre : la couleur demandee s'y trouve telle quelle.
+///    C'est ce qui permet a ce compteur de rendre ZERO quand elle n'y est pas --
+///    un seuil de proximite rendrait « presque » sur du gris voisin.
+static uint32 ComptePixelsCouleur(const Montage &m, uint32 rgba) {
+	const uint8 r = (uint8)((rgba >> 24) & 0xFFu), v = (uint8)((rgba >> 16) & 0xFFu),
+				b = (uint8)((rgba >> 8) & 0xFFu);
+	uint32 n = 0;
+	for (uint32 i = 0; i + 3u < (uint32)m.px.Size(); i += 4u)
+		if (m.px[i] == r && m.px[i + 1u] == v && m.px[i + 2u] == b)
+			++n;
+	return n;
+}
+
 // Combien de pixels DIFFERENT entre deux montages. Zero quand les deux images
 // sont identiques au bit -- c'est le zero prouvable de ce compteur, et il est
 // verifie juste avant de s'en servir.
@@ -2087,6 +2103,128 @@ int main(int argc, char **argv) {
 		Check(lumAvec < lumSans,
 			  "   et elle va dans le BON SENS : l'encre demandee est plus sombre que celle du "
 			  "theme");
+	}
+
+	// =========================================================================
+	printf("\n-- P1 : LES JETONS `@nom`, ET LE THEME QUI LES RESOUT --\n");
+	// =========================================================================
+	//  Rodolf, 27/09 : « on peut definir pour chaque application creee un systeme
+	//  de theme, donc l'utilisateur decide lui meme de definir le theme de son
+	//  application ». Et les deux specifications d'interface le demandent dans
+	//  les memes termes : « toutes les couleurs viennent de jetons de theme ».
+	//
+	//  ⚠️ CE QUI EST MESURE ICI EST LA CHAINE ENTIERE, PAS LA TABLE. Un document
+	//     ecrit `fill { color = @info.ecrit }` ; ce qui doit arriver, c'est que
+	//     L'ORANGE SOIT DANS LES PIXELS. Une table bien remplie dont personne ne
+	//     lirait la valeur passerait un controle qui s'arreterait a la table.
+	{
+		static const char kTheme[] =
+			"nkgui 0.3\n"
+			"theme \"UE5 Rihen\" {\n"
+			"  jeton \"@info.ecrit\" {\n"
+			"    sombre = #F79A28\n"
+			"    clair  = #C97A08\n"
+			"    sens   = \"ce bouton ecrit une cle\"\n"
+			"  }\n"
+			"  jeton \"@sans.phrase\" {\n"
+			"    sombre = #112233\n"
+			"  }\n"
+			"}\n";
+		nkentseu::NkArchive arcTheme;
+		NkGuiDiag errTheme;
+		Check(NkGuiArchive::Read(kTheme, (uint32)(sizeof(kTheme) - 1u), arcTheme, errTheme),
+			  "   le document de theme se lit");
+
+		NkGuiTableJetons table;
+		NkGuiRapportTheme rapTheme;
+		const bool luTheme = NkGuiLireTheme(arcTheme, table, rapTheme);
+		Check(luTheme, "   la section `theme` est trouvee");
+		printf("        theme « %s » : %u jeton(s) retenu(s), %u sans phrase, %u sans valeur\n",
+			   rapTheme.nomTheme.CStr(), rapTheme.jetons, rapTheme.sansSens, rapTheme.sansValeur);
+		Check(rapTheme.nomTheme.Compare(NkString("UE5 Rihen")) == 0,
+			  "   il porte son nom, guillemets retires");
+		CheckEq(rapTheme.jetons, 1u, "   UN seul jeton retenu");
+		// ⚠️ LE REFUS EST LA MOITIE QUI COMPTE. « Un jeton sans phrase ne
+		//    s'enregistre pas » : sans ce controle, la regle resterait une
+		//    intention ecrite dans un document de specification.
+		CheckEq(rapTheme.sansSens, 1u, "   et l'autre est REFUSE faute de `sens`");
+		Check(!rapTheme.Propre(), "   le rapport n'est donc PAS propre");
+		Check(rapTheme.refuses.Size() == 1u, "   le refus est NOMME");
+		if (rapTheme.refuses.Size() == 1u)
+			printf("        refus : %s\n", rapTheme.refuses[0].CStr());
+
+		static const char kDocJ[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { fill { color = @info.ecrit } }\n"
+			"  }\n"
+			"}\n";
+
+		// ── (1) SANS TABLE POSEE : le jeton ne se resout pas ──────────────
+		//  C'est le zero de ce lot, et il se prouve. Sans lui, « l'orange est
+		//  la » ne dirait pas D'OU il vient : du theme, ou du theme par defaut
+		//  de NKGui qui contiendrait par hasard la meme teinte.
+		NkGuiPoserJetons(nullptr);
+		g_garderPixels = true;
+		const Montage sansTable = MonterTexte(kDocJ, (uint32)(sizeof(kDocJ) - 1u), 300, 80);
+		const uint32 orangeSansTable = ComptePixelsCouleur(sansTable, 0xF79A28FFu);
+		printf("        sans table posee : %u px d'orange, apparencesNonPeintes=%u\n",
+			   orangeSansTable, sansTable.rap.apparencesNonPeintes);
+		CheckEq(orangeSansTable, 0u, "   NEGATIF : aucun jeton resolu, aucun orange");
+		Check(sansTable.rap.apparencesNonPeintes > 0u,
+			  "   NEGATIF : l'apparence non resolue est COMPTEE, pas tue");
+
+		// ── (2) TABLE POSEE, VARIANTE SOMBRE ──────────────────────────────
+		NkGuiPoserJetons(&table);
+		const Montage sombre = MonterTexte(kDocJ, (uint32)(sizeof(kDocJ) - 1u), 300, 80);
+		const uint32 orangeSombre = ComptePixelsCouleur(sombre, 0xF79A28FFu);
+		printf("        variante Sombre  : %u px de #F79A28\n", orangeSombre);
+		Check(orangeSombre > 0u, "   LE JETON PEINT — @info.ecrit vaut #F79A28 en Sombre");
+
+		// ── (3) LA MEME TABLE, VARIANTE CLAIRE, SANS RIEN RELIRE ──────────
+		//  ⚠️ C'EST LE CRITERE QUI PORTE LA DEMANDE DE RODOLF. Changer de theme
+		//     ne doit RIEN relire : ni le document, ni la table. Si la resolution
+		//     avait ete une passe sur l'archive, ce cas exigerait un rechargement
+		//     du document -- et l'utilisateur ne pourrait pas basculer en cours
+		//     de route.
+		table.PoserVariante(NkGuiVarianteTheme::Clair);
+		const Montage clair = MonterTexte(kDocJ, (uint32)(sizeof(kDocJ) - 1u), 300, 80);
+		g_garderPixels = false;
+		const uint32 orangeClair = ComptePixelsCouleur(clair, 0xC97A08FFu);
+		const uint32 sombreEnClair = ComptePixelsCouleur(clair, 0xF79A28FFu);
+		printf("        variante Claire  : %u px de #C97A08, %u px de #F79A28\n", orangeClair,
+			   sombreEnClair);
+		Check(orangeClair > 0u, "   LA VARIANTE CLAIRE PEINT SA PROPRE VALEUR");
+		CheckEq(sombreEnClair, 0u,
+				"   NEGATIF : et la valeur Sombre a DISPARU — ce n'est pas un ajout");
+		Check(clair.empreinte != sombre.empreinte, "   les deux images different");
+		table.PoserVariante(NkGuiVarianteTheme::Sombre);
+
+		// ── (4) UN JETON INCONNU NE DEVIENT PAS NOIR ──────────────────────
+		static const char kInconnu[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  Button \"ecrire\" {\n"
+			"    label = \"Enregistrer\"\n"
+			"    appearance { fill { color = @jeton.qui.nexiste.pas } }\n"
+			"  }\n"
+			"}\n";
+		g_garderPixels = true;
+		const Montage inconnu = MonterTexte(kInconnu, (uint32)(sizeof(kInconnu) - 1u), 300, 80);
+		g_garderPixels = false;
+		printf("        jeton inconnu : apparencesNonPeintes = %u\n",
+			   inconnu.rap.apparencesNonPeintes);
+		Check(inconnu.rap.apparencesNonPeintes > 0u,
+			  "   un jeton inconnu est COMPTE non peint — il ne devient pas noir");
+		CheckEq(ComptePixelsCouleur(inconnu, 0x000000FFu), 0u,
+				"   NEGATIF : et aucun aplat noir n'a ete invente");
+
+		// ⚠️ « LE REGISTRE GARDE UN POINTEUR » : la table meurt avec ce bloc.
+		//    Laisser son adresse derriere soi est la forme exacte du defaut que
+		//    ce depot a deja paye.
+		NkGuiPoserJetons(nullptr);
 	}
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
