@@ -83,6 +83,7 @@
 #include "SondeLecture.h"       // --sonde-lecture  : ouvrir un .nkgui, et ce que ca coute
 #include "SondeEdition.h"       // --sonde-edition  : LE TEMOIN DE R1 -- une ligne, pas deux
 #include "SondeImages.h"        // --sonde-images   : un `image:` arrive-t-il dessine, et aux bonnes proportions
+#include "SondeEcouteurs.h"     // --sonde-ecouteurs: un evenement part-il du bon widget
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
@@ -9286,6 +9287,10 @@ int nkmain(const NkEntryState &state) {
 		// image emise s'y compte et son rectangle s'y lit.
 		if (NkComponentDecl::StrEq(a, "--sonde-images"))
 			return nkuidesign::SondeImages();
+		// L'ACHEMINEMENT DES EVENEMENTS vers le C++ (27/09). Aucune injection sur
+		// la machine : l'entree est ecrite en memoire, dans son propre contexte.
+		if (NkComponentDecl::StrEq(a, "--sonde-ecouteurs"))
+			return nkuidesign::SondeEcouteurs();
 		// La preuve de recette du pipeline IA (Q31 [IA], branchement n.1) : sans
 		// fenetre ni GPU, comme la sonde -- elle tourne sur la machine
 		// d'integration.

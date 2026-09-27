@@ -149,11 +149,49 @@ namespace nkentseu {
 			DragEnd,  ///< reconnu, sans source — le glisser finit SANS dépôt
 
 			// ── LA FENETRE ────────────────────────────────────────────────
+			// 📌 CETTE FAMILLE A ETE COMPLETEE SUR UNE REMARQUE DE RODOLF (27/09) :
+			//    « le nombre ne couvre pas tout comme minimizer maximizer etc. ou ça
+			//    fait partie des événements custom. » Reponse mesuree : ce ne sont PAS
+			//    des customs. `NkWindowEvent.h` les porte tous en premiere classe --
+			//    Create, Close, Destroy, Paint, Show, Hide, DpiChange, ThemeChange,
+			//    Resize (+begin/end), Move (+begin/end), FocusGained, FocusLost,
+			//    Minimize, Maximize, Restore, Fullscreen, Windowed. Les ranger en
+			//    « custom » aurait fait ecrire a chaque application le nom de son
+			//    choix pour la meme chose : trois applications, trois orthographes de
+			//    « minimise », et aucune reutilisable.
 			Resize,		  ///< reconnu, sans source
 			Moved,		  ///< reconnu, sans source
 			CloseRequest, ///< reconnu, sans source — DEMANDE de fermeture, refusable
 						  ///< (« enregistrer avant de quitter ? »)
 			DpiChanged,	  ///< reconnu, sans source — l'écran change d'échelle
+			// ⚠️ `ResizeBegin`/`ResizeEnd` NE SONT PAS DU CONFORT. Pendant un
+			//    redimensionnement tire a la souris, `Resize` arrive a chaque image :
+			//    ce qui coute cher (reagencer, re-rastériser, relire un fichier) doit
+			//    se faire UNE FOIS, a la fin. Sans ces deux bornes, soit on le fait
+			//    soixante fois par seconde, soit on ne le fait pas du tout.
+			ResizeBegin,	   ///< reconnu, sans source
+			ResizeEnd,		   ///< reconnu, sans source
+			MoveBegin,		   ///< reconnu, sans source
+			MoveEnd,		   ///< reconnu, sans source
+			Minimized,		   ///< reconnu, sans source
+			Maximized,		   ///< reconnu, sans source
+			Restored,		   ///< reconnu, sans source — sortie de minimise/maximise
+			Fullscreen,		   ///< reconnu, sans source
+			Windowed,		   ///< reconnu, sans source — retour du plein ecran
+			Shown,			   ///< reconnu, sans source
+			Hidden,			   ///< reconnu, sans source
+			WindowCreated,	   ///< reconnu, sans source
+			WindowDestroyed,   ///< reconnu, sans source
+			/// ⚠️ DISTINCT DE `Focus`/`Blur`, ET LE NOM LE DIT EXPRES. Ceux-la sont le
+			///    focus d'un WIDGET (quel champ reçoit les touches) ; ceux-ci celui de
+			///    la FENETRE (l'application est-elle au premier plan). Les confondre
+			///    ferait perdre le focus d'un champ chaque fois qu'on change
+			///    d'application -- et le curseur reviendrait ailleurs.
+			WindowFocusGained, ///< reconnu, sans source
+			WindowFocusLost,   ///< reconnu, sans source
+			/// Le theme du SYSTEME a change (clair <-> sombre). C'est ce qui permet a un
+			/// document de suivre le reglage de l'utilisateur sans qu'il le redemande.
+			ThemeChanged, ///< reconnu, sans source
 
 			// ── LA MANETTE ────────────────────────────────────────────────
 			// Sa source est la plus complète du dépôt : boutons, axes, mappage
@@ -254,6 +292,22 @@ namespace nkentseu {
 			if (NkGEMotEgal(n, "Moved")) return NkGuiEvenement::Moved;
 			if (NkGEMotEgal(n, "CloseRequest")) return NkGuiEvenement::CloseRequest;
 			if (NkGEMotEgal(n, "DpiChanged")) return NkGuiEvenement::DpiChanged;
+			if (NkGEMotEgal(n, "ResizeBegin")) return NkGuiEvenement::ResizeBegin;
+			if (NkGEMotEgal(n, "ResizeEnd")) return NkGuiEvenement::ResizeEnd;
+			if (NkGEMotEgal(n, "MoveBegin")) return NkGuiEvenement::MoveBegin;
+			if (NkGEMotEgal(n, "MoveEnd")) return NkGuiEvenement::MoveEnd;
+			if (NkGEMotEgal(n, "Minimized")) return NkGuiEvenement::Minimized;
+			if (NkGEMotEgal(n, "Maximized")) return NkGuiEvenement::Maximized;
+			if (NkGEMotEgal(n, "Restored")) return NkGuiEvenement::Restored;
+			if (NkGEMotEgal(n, "Fullscreen")) return NkGuiEvenement::Fullscreen;
+			if (NkGEMotEgal(n, "Windowed")) return NkGuiEvenement::Windowed;
+			if (NkGEMotEgal(n, "Shown")) return NkGuiEvenement::Shown;
+			if (NkGEMotEgal(n, "Hidden")) return NkGuiEvenement::Hidden;
+			if (NkGEMotEgal(n, "WindowCreated")) return NkGuiEvenement::WindowCreated;
+			if (NkGEMotEgal(n, "WindowDestroyed")) return NkGuiEvenement::WindowDestroyed;
+			if (NkGEMotEgal(n, "WindowFocusGained")) return NkGuiEvenement::WindowFocusGained;
+			if (NkGEMotEgal(n, "WindowFocusLost")) return NkGuiEvenement::WindowFocusLost;
+			if (NkGEMotEgal(n, "ThemeChanged")) return NkGuiEvenement::ThemeChanged;
 			if (NkGEMotEgal(n, "GamepadButtonDown")) return NkGuiEvenement::GamepadButtonDown;
 			if (NkGEMotEgal(n, "GamepadButtonUp")) return NkGuiEvenement::GamepadButtonUp;
 			if (NkGEMotEgal(n, "GamepadAxis")) return NkGuiEvenement::GamepadAxis;
@@ -302,6 +356,22 @@ namespace nkentseu {
 				case NkGuiEvenement::Moved: return "Moved";
 				case NkGuiEvenement::CloseRequest: return "CloseRequest";
 				case NkGuiEvenement::DpiChanged: return "DpiChanged";
+				case NkGuiEvenement::ResizeBegin: return "ResizeBegin";
+				case NkGuiEvenement::ResizeEnd: return "ResizeEnd";
+				case NkGuiEvenement::MoveBegin: return "MoveBegin";
+				case NkGuiEvenement::MoveEnd: return "MoveEnd";
+				case NkGuiEvenement::Minimized: return "Minimized";
+				case NkGuiEvenement::Maximized: return "Maximized";
+				case NkGuiEvenement::Restored: return "Restored";
+				case NkGuiEvenement::Fullscreen: return "Fullscreen";
+				case NkGuiEvenement::Windowed: return "Windowed";
+				case NkGuiEvenement::Shown: return "Shown";
+				case NkGuiEvenement::Hidden: return "Hidden";
+				case NkGuiEvenement::WindowCreated: return "WindowCreated";
+				case NkGuiEvenement::WindowDestroyed: return "WindowDestroyed";
+				case NkGuiEvenement::WindowFocusGained: return "WindowFocusGained";
+				case NkGuiEvenement::WindowFocusLost: return "WindowFocusLost";
+				case NkGuiEvenement::ThemeChanged: return "ThemeChanged";
 				case NkGuiEvenement::GamepadButtonDown: return "GamepadButtonDown";
 				case NkGuiEvenement::GamepadButtonUp: return "GamepadButtonUp";
 				case NkGuiEvenement::GamepadAxis: return "GamepadAxis";
