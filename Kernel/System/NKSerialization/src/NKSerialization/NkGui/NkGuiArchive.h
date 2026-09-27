@@ -207,8 +207,30 @@ namespace nkentseu {
 			/// Regle (c) : au-dela de la MAJEURE on refuse ; au-dela de la MINEURE on
 			/// lit et on preserve. Ici la regle (d) ne coute rien : la couche etant
 			/// purement syntaxique, une section de la v0.4 se lit deja.
+			///
+			/// 🔴 PASSE A 0.4 LE 27/09 (decision D8), ET L'ORDRE A COMPTE. Ce chiffre
+			///    n'est pas qu'une etiquette : le validateur s'en sert pour decider
+			///    si un fichier est « plus recent que moi ». Tant qu'il valait 3, un
+			///    `nkgui 0.4` beneficiait de la regle (d) et ses sections inconnues
+			///    etaient tolerees EN SILENCE. En le passant a 4, cette indulgence
+			///    tombe et tout ce que le validateur ne connait pas devient une
+			///    ERREUR.
+			///
+			///    Le bumper d'abord aurait donc transforme des fichiers valides en
+			///    fichiers fautifs. Les ecarts ont ete combles AVANT, et chacun etait
+			///    MESURE : l'effet `text` (11 erreurs sur `DemoNkGui/BarreOutils`),
+			///    la propriete `shortcut` (7 sur `NKUIDesign/Interface`), les
+			///    sections `theme` / `layout` / `application` / `test`, et cinq roles
+			///    montes que le validateur ignorait.
+			///
+			/// ⚠️ ET LE LECTEUR NE REESTAMPILLE RIEN. La version d'un fichier est
+			///    reemise TELLE QUELLE (`NkGuiArchive.cpp` : « un outil qui
+			///    reestampille en silence les fichiers qu'il touche rend tout
+			///    diagnostic de version impossible »). Les documents 0.3 existants
+			///    restent 0.3 et continuent de s'ouvrir : ce chiffre dit ce que la
+			///    bibliotheque CONNAIT, pas ce qu'elle impose.
 			static const nk_int32 kMajor = 0;
-			static const nk_int32 kMinor = 3;
+			static const nk_int32 kMinor = 4;
 
 			// -----------------------------------------------------------------
 			// LES CLES RESERVEES
