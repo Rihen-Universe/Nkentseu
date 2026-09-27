@@ -222,8 +222,43 @@ namespace nkuidesign {
 				// ⚠️ STRICTEMENT ADDITIF : `size` garde son sens, et une composante <= 0
 				//    veut dire « cet axe n'est pas contraint ».
 				{"sizeRel", 'v'}, {"minSize", 'v'}, {"maxSize", 'v'},
+				// ── P8, P12, P27 — TROIS CAPACITES TRANSVERSALES (2026-09-27) ──
+				// 🔴 ELLES ARRIVENT ICI PAR LA MEME REGLE QUE `tooltip`, ET LEUR
+				//    ABSENCE ETAIT MESUREE. `Resources/Interface/NKUIDesign/
+				//    Interface.nkgui` rendait **7 erreurs** `E-TYPE` sur `shortcut`
+				//    — « propriete absente du schema du role 'Button' » — alors que
+				//    le monteur l'affiche : mesure du 27/09, l'infobulle passe de
+				//    4 957 a 5 576 pixels quand un `shortcut` s'y ajoute.
+				//
+				// ⚠️ `shortcut` (P8) N'ETAIT ADMIS QUE SUR `MenuItem`, et le doc 7 le
+				//    dit : « la propriete `shortcut` admise sur tout role interactif
+				//    (elle ne l'est que sur `MenuItem`) ». L'admettre par role aurait
+				//    demande `ButtonAvecRaccourci` — exactement ce que le §4
+				//    interdit. Son SENS reste l'affichage seul : la verite des
+				//    raccourcis vit dans l'application, sinon deux sources.
+				//
+				// ⚠️ `icon` (P12) EST DEJA DANS LE SCHEMA DE PLUSIEURS ROLES, et le
+				//    monteur le lit sur tous. Le declarer ici NE LE RETIRE PAS des
+				//    roles qui le portent : le schema du ROLE est consulte AVANT les
+				//    universelles, donc un role qui precise son type gagne.
+				//
+				// ⚠️ `platform` (P27) EST UNE LISTE OU UN MOT (`Mobile`, ou
+				//    `[Bureau, Web]`) : le type `'e'` (enumere/jeton nu) l'accepte
+				//    sous les deux formes, comme `items`.
+				{"shortcut", 's'}, {"icon", 'e'}, {"platform", 'e'},
 			};
-			count = 9;
+			// 🔴 LE COMPTE SE DERIVE DU TABLEAU, IL NE S'ECRIT PLUS. Il valait `9` en
+			//    dur : j'ai ajoute trois entrees et elles n'ont JAMAIS ete lues — la
+			//    boucle s'arretait avant. Le symptome etait parfait pour egarer :
+			//    `shortcut` restait refuse sur `Button` avec le message « propriete
+			//    absente du schema du role », c'est-a-dire l'erreur d'AVANT, mot pour
+			//    mot. J'ai d'abord soupconne la construction, puis l'ordre des
+			//    recherches, avant de compter les accolades.
+			//
+			//    *Un tableau et son compte tenus separement finissent par se
+			//    contredire, et c'est le compte qui gagne — en silence.* `sizeof` ne
+			//    peut pas se tromper.
+			count = (uint32)(sizeof(kUniversal) / sizeof(kUniversal[0]));
 			return kUniversal;
 		}
 
@@ -335,6 +370,31 @@ namespace nkuidesign {
 			static const NkGSchemaProp pStack[] = {{"anchor", 'e'}};
 			static const NkGSchemaProp pTable[] = {{"columns", 'l'}, {"flags", 'i'}};
 			static const NkGSchemaProp pScroll[] = {{"axis", 'e'}, {"always", 'b'}};
+			// ── LES QUATRE CONTENEURS DU 27/09, ET `CurveField` ──────────────
+			// 🔴 ILS SONT MONTES DEPUIS CE JOUR ET LE VALIDATEUR LES IGNORAIT : un
+			//    document qui les emploie recevait `E-ROLE-INCONNU` sur un role que
+			//    l'application peint. C'est l'ecart que le doc 0 §2.1 demande de
+			//    corriger des DEUX cotes.
+			//
+			// ⚠️ CHACUN NE DECLARE QUE CE QUE LE MONTEUR LIT. `Padding` lit
+			//    `padding` (un nombre, deux, ou quatre — le `case` compte les autres
+			//    formes comme non honorees) ; `Aspect` lit `ratio` ; `Center` et
+			//    `Overlay` ne lisent rien de propre, leur metier est la geometrie de
+			//    leurs enfants. Leur declarer des proprietes « au cas ou » aurait
+			//    valide des documents que l'application ignore en silence.
+			static const NkGSchemaProp pPadding[] = {{"padding", 'v'}};
+			static const NkGSchemaProp pAspect[] = {{"ratio", 'n'}};
+			// `Center` et `Overlay` : aucune propriete propre. La table exige un
+			// pointeur non nul, d'ou ce tableau d'un element jamais consulte
+			// (`count = 0`) — plutot qu'un `nullptr` qui obligerait chaque lecteur
+			// de la table a se garder.
+			static const NkGSchemaProp pSansProp[] = {{"", 's'}};
+			// P7 — la courbe editable. `bind` designe la liste de points que l'hote
+			// sert ; `min`/`max` bornent l'axe des ordonnees ; `height` fixe la
+			// hauteur du cadre ; `xLabel`/`yLabel` nomment les axes.
+			static const NkGSchemaProp pCurveField[] = {{"bind", 'r'},	  {"min", 'n'},
+														{"max", 'n'},	  {"height", 'n'},
+														{"xLabel", 's'}, {"yLabel", 's'}};
 			// ⚠️ `ratio` EST NEUF (2026-09-17) : un separateur sans position par defaut ne
 			//    peut pas etre decrit. Le document pose ce defaut UNE FOIS ; le geste de
 			//    l'utilisateur vit ensuite dans l'etat du montage, et n'est JAMAIS reecrit
@@ -397,6 +457,12 @@ namespace nkuidesign {
 				{"Scroll", pScroll, 2},
 				{"Splitter", pSplitter, 5},
 				{"Host", pHost, 1},
+				// Les quatre conteneurs du 27/09 — voir leurs schemas plus haut.
+				{"Padding", pPadding, 1},
+				{"Aspect", pAspect, 1},
+				{"Center", pSansProp, 0},
+				{"Overlay", pSansProp, 0},
+				{"CurveField", pCurveField, 6},
 				// ═════════════════════════════════════════════════════════
 				//  LES ROLES PROPOSES, ENTRES AU FORMAT LE 27/09
 				// ═════════════════════════════════════════════════════════
@@ -581,10 +647,27 @@ namespace nkuidesign {
 		//     aurait rendu la nouvelle INVISIBLE, et son document refusé sans
 		//     qu'on comprenne pourquoi. Ce dépôt a déjà vu « Quitter » disparaître
 		//     d'un menu pour exactement cette raison.
+		/// LES SECTIONS DU FORMAT.
+		///
+		/// 🔴 QUATRE ONT ÉTÉ AJOUTÉES LE 27/09, ET C'ÉTAIT UN PRÉALABLE AU PASSAGE EN
+		///    0.4. Tant que la bibliothèque déclarait `kMinor = 3`, un fichier
+		///    `nkgui 0.4` était « plus récent que moi » et ses sections inconnues
+		///    étaient tolérées EN SILENCE (règle (d), juste au-dessus de l'appel).
+		///    En passant à `kMinor = 4`, cette indulgence tombe : tout ce qui n'est
+		///    pas dans cette liste devient une ERREUR. Bumper la version sans
+		///    compléter la liste aurait donc transformé des fichiers parfaitement
+		///    valides en fichiers fautifs — dont ceux que l'application MONTE déjà.
+		///
+		///    `theme` (P1, jetons) et `layout` (P10, amarrages) sont montés par
+		///    `NkGuiMonteur` depuis le 27/09 au matin ; `application` (§18, la carte)
+		///    et `test` (§19, les scénarios) sont déclarés 🟢 0.4 par le document 2 et
+		///    ne sont pas encore consommés — ils VOYAGENT, ce que le format assume
+		///    (« le format sait faire voyager une intention »).
 		inline bool NkGSectionConnue(const NkString &nom) {
 			static const char *kSections[] = {"geometry", "widgets",   "behavior",  "controller",
 											  "callback", "animation", "fonts",	    "include",
-											  "component"};
+											  "component", "theme",    "layout",    "application",
+											  "test"};
 			const uint32 kNb = (uint32)(sizeof(kSections) / sizeof(kSections[0]));
 			for (uint32 i = 0; i < kNb; ++i) {
 				if (nom.Compare(kSections[i]) == 0) {
@@ -689,7 +772,7 @@ namespace nkuidesign {
 				{"kind", 'e'},   {"pos", 'v'},  {"size", 'v'},
 				{"color", 'c'},  {"radius", 'n'}, {"text", 's'},
 			};
-			count = 6;
+			count = (uint32)(sizeof(kProps) / sizeof(kProps[0]));
 			return kProps;
 		}
 		
@@ -697,8 +780,11 @@ namespace nkuidesign {
 		/// `ShapeNode.kind := rect | ellipse | text | image | path | frame`). C'est
 		/// ce qui permet de refuser `trapeze` sans le confondre avec un role.
 		inline const char *const *NkGNatures(uint32 &count) {
-			static const char *k[] = {"rect", "ellipse", "text", "image", "path", "frame"};
-			count = 6;
+			// `compound` est entre en 0.4 (document 2 : « + compound en 0.4 ») : une
+			// forme composee par operation booleenne, que le chantier N introduit.
+			static const char *k[] = {"rect",  "ellipse", "text",
+									  "image", "path",    "frame", "compound"};
+			count = (uint32)(sizeof(k) / sizeof(k[0]));
 			return k;
 		}
 		
@@ -843,13 +929,27 @@ namespace nkuidesign {
 				{"font", 'e'},		 {"weight", 'n'},	  {"size", 'n'},
 				{"lineHeight", 'n'}, {"textAlign", 'e'},
 			};
-			count = 8;
+			count = (uint32)(sizeof(kProps) / sizeof(kProps[0]));
 			return kProps;
 		}
 
-		/// LES QUATRE EFFETS, et la liste est FERMEE (document 9 §3.1 :
-		/// `effect_kind := "fill" | "stroke" | "shadow" | "blur"`). C'est ce qui
-		/// permet de refuser `glow` sans le confondre avec un role de widget.
+		/// LES CINQ EFFETS, et la liste reste FERMEE — c'est elle qui permet de
+		/// refuser `glow` sans le confondre avec un rôle de widget.
+		///
+		/// 🔴 `text` A ÉTÉ AJOUTÉ LE 27/09, ET SON ABSENCE ÉTAIT UN DÉFAUT MESURÉ.
+		///    Le document 2 (format **0.4**) écrit
+		///    `effect_kind := "fill" | "stroke" | "shadow" | "blur" | "text"`, `text`
+		///    marqué 🟢 0.4 ; le MONTEUR le peint depuis longtemps — c'est par lui que
+		///    passe l'encre d'un libellé ; et le validateur le refusait. Mesure :
+		///    `DemoNkGui/BarreOutils.nkgui` rendait **11 erreurs**, toutes
+		///    `E-EFFET-INCONNU` sur `text`, sur un fichier que l'application MONTE
+		///    correctement.
+		///
+		/// ⚠️ C'EST L'ÉCART QUE LE DOC 0 §2.1 NOMME : « doc 7 + `NkGuiValidate.h` pour
+		///    la liste des rôles — un écart entre eux est un défaut à corriger DES
+		///    DEUX CÔTÉS ». Un validateur en retard sur le monteur est pire qu'un
+		///    validateur absent : il déclare fautif ce qui marche, et on répare le
+		///    fichier au lieu de l'outil.
 		inline const NkGSchemaRole *NkGEffetTable(uint32 &count) {
 			static const NkGSchemaProp pFill[] = {{"color", 'c'}, {"gradient", 'e'},
 												  {"from", 'a'},  {"to", 'a'},
@@ -861,12 +961,22 @@ namespace nkuidesign {
 													{"spread", 'n'}, {"color", 'c'},
 													{"inner", 'b'}};
 			static const NkGSchemaProp pBlur[] = {{"radius", 'n'}, {"backdrop", 'b'}};
+			/// ⚠️ `text` PORTE CE QUE LE MONTEUR EN LIT, ET RIEN DE PLUS. Il lit
+			///    `color` (l'encre du libellé, par `NkGuiCouleur`, jetons compris).
+			///    Lui déclarer ici une famille de propriétés que personne ne
+			///    consomme — `size`, `weight`, `align` — aurait fait passer la
+			///    validation à des documents que l'application ignore en silence :
+			///    *une propriété validée que rien ne lit est une promesse que le
+			///    fichier fait et que l'outil ne tient pas.* Elles s'ajouteront le
+			///    jour où le monteur les lira, pas avant.
+			static const NkGSchemaProp pText[] = {{"color", 'c'}};
 
 			static const NkGSchemaRole kTable[] = {
 				{"fill", pFill, 7},
 				{"stroke", pStroke, 4},
 				{"shadow", pShadow, 5},
 				{"blur", pBlur, 2},
+				{"text", pText, 1},
 			};
 			count = sizeof(kTable) / sizeof(NkGSchemaRole);
 			return kTable;
@@ -961,7 +1071,7 @@ namespace nkuidesign {
 		inline const char *const *NkGEtats(uint32 &count) {
 			static const char *kEtats[] = {"Disabled", "Pressed",	 "Hover",
 										   "FocusVisible", "Focus", "Normal"};
-			count = 6;
+			count = (uint32)(sizeof(kEtats) / sizeof(kEtats[0]));
 			return kEtats;
 		}
 

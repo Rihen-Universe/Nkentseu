@@ -80,6 +80,10 @@
 #include "NKLogger/NkLog.h"
 
 #include "NKSerialization/NkGui/NkGuiArchive.h"
+// Les deux passes d'avant-montage : le validateur doit juger ce que le MONTEUR
+// verra, pas le fichier brut — sinon un composant ressemble a un role inconnu.
+#include "NKGui/Doc/NkGuiComposants.h"
+#include "NKGui/Doc/NkGuiInclusions.h"
 
 #include "NkGuiValidate.h"
 
@@ -398,8 +402,44 @@ namespace nkuidesign {
 					++totalErr;
 					continue;
 				}
+				// ── LES INCLUSIONS ET LES COMPOSANTS, RESOLUS AVANT DE JUGER ──
+				// 🔴 SANS CELA, LE VALIDATEUR ACCUSE DES FICHIERS JUSTES. Mesure du
+				//    27/09 : `NkAnimaEditor/BarreOutils.nkgui` rendait cinq
+				//    `E-ROLE-INCONNU` sur `BoutonTransport` — un COMPOSANT, declare
+				//    dans `Composants.nkgui` que ce fichier INCLUT a sa ligne 37.
+				//    Au meme moment la sonde de NkAnimaEditor mesurait
+				//    `barreOutils widgets=19 montes=19 inconnus=0` : l'application le
+				//    monte sans peine.
+				//
+				//    L'ecart venait de l'ordre des gestes. Le monteur passe par
+				//    `Adopter`, qui RESOUT les inclusions puis DEVELOPPE les
+				//    composants avant de monter ; le validateur, lui, jugeait le
+				//    fichier BRUT. Un composant y ressemble donc a un role inconnu.
+				//
+				// ⚠️ ET C'EST LE VALIDATEUR QUI AVAIT TORT, PAS LE FICHIER. C'est la
+				//    regle du doc 0 §2.1 : « le code gagne sur tous les documents
+				//    pour ce qu'il fait reellement ». Un outil de controle en retard
+				//    sur le produit fait reparer ce qui marche.
+				//
+				// ⚠️ ON JUGE UNE COPIE. Le document RESOLU sert au jugement ; celui
+				//    qu'on a lu reste intact — sinon un futur appelant croirait tenir
+				//    le fichier du disque alors qu'il tient sa version developpee.
+				NkArchive resolu = doc;
+				{
+					nkentseu::nkgui::NkGuiRapportInclusions ri;
+					// ⚠️ `NkGIDossierDe` EXISTE DEJA (NkGuiInclusions.h) et c'est celui
+					//    que la coquille emploie. En ecrire un second ici aurait donne
+					//    deux facons de couper un chemin, et le jour ou l'une gere un
+					//    cas que l'autre ignore, le validateur et le monteur ne
+					//    chercheraient plus les inclusions au meme endroit.
+					nkentseu::nkgui::NkGuiResoudreInclusions(
+						resolu,
+						nkentseu::nkgui::detail::NkGIDossierDe(files[i].Data()).CStr(), ri);
+					nkentseu::nkgui::NkGuiRapportComposants rc;
+					nkentseu::nkgui::NkGuiDevelopperComposants(resolu, rc);
+				}
 				NkVector<NkGuiDiag> diags;
-				const NkGValidateResult vr = NkGValidate(doc, diags);
+				const NkGValidateResult vr = NkGValidate(resolu, diags);
 				totalErr += vr.errors;
 				totalWarn += vr.warnings;
 				rep.Append(vr.errors == 0 ? "  [OK] " : "  [FAUTES] ");
