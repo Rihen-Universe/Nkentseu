@@ -192,7 +192,22 @@ namespace nkentseu {
 			RadioGroup,
 			ImageButton,
 			Stack,
-			Table
+			Table,
+			// ── LES HUIT ROLES PROPOSES, ENTRES LE MEME JOUR ─────────────
+			//  Decrits par les deux specifications d'interface (NkAnimaEditor
+			//  doc 09 §1, NKUIDesign doc 21 §1), chacune donnant pour chacun
+			//  ce qu'il fallait ecrire « EN ATTENDANT ». Ils cessent d'etre en
+			//  attendant : leur schema entre au format le meme jour, dans le
+			//  meme lot, parce qu'un role au schema que le monteur ignore fait
+			//  REFUSER le document entier.
+			ToggleButton,
+			Badge,
+			Tile,
+			KeyDiamond,
+			SplitButton,
+			TimecodeField,
+			VectorField,
+			TokenField
 			// 🔴 `ContextMenu` N'EST PAS ICI, ET C'EST UN REFUS, PAS UN OUBLI. NKGui a
 			//    bien `BeginPopupMenu`, mais il ne rend vrai que si quelqu'un a appele
 			//    `ctx.OpenPopupAt(...)` AU CLIC DROIT -- et ce monteur monte l'etat au
@@ -241,6 +256,14 @@ namespace nkentseu {
 			if (NkGMotEgal(n, "ImageButton")) return NkGuiRole::ImageButton;
 			if (NkGMotEgal(n, "Stack")) return NkGuiRole::Stack;
 			if (NkGMotEgal(n, "Table")) return NkGuiRole::Table;
+			if (NkGMotEgal(n, "ToggleButton")) return NkGuiRole::ToggleButton;
+			if (NkGMotEgal(n, "Badge")) return NkGuiRole::Badge;
+			if (NkGMotEgal(n, "Tile")) return NkGuiRole::Tile;
+			if (NkGMotEgal(n, "KeyDiamond")) return NkGuiRole::KeyDiamond;
+			if (NkGMotEgal(n, "SplitButton")) return NkGuiRole::SplitButton;
+			if (NkGMotEgal(n, "TimecodeField")) return NkGuiRole::TimecodeField;
+			if (NkGMotEgal(n, "VectorField")) return NkGuiRole::VectorField;
+			if (NkGMotEgal(n, "TokenField")) return NkGuiRole::TokenField;
 			if (NkGMotEgal(n, "Separator")) return NkGuiRole::Separator;
 			if (NkGMotEgal(n, "Spacer")) return NkGuiRole::Spacer;
 			if (NkGMotEgal(n, "Image")) return NkGuiRole::Image;
@@ -938,6 +961,20 @@ namespace nkentseu {
 			return pl;
 		}
 		
+		/// Deux chiffres, zero devant, sans passer par la bibliotheque C.
+		///
+		/// ⚠️ ELLE EXISTE PARCE QU'UN FORMATAGE PEUT DEPENDRE DE LA CULTURE. Ce
+		///    depot a deja vu un `%.2f` rendre « 0,9 » en fr-FR la ou un point
+		///    etait attendu. Des chiffres poses un par un ne dependent de rien.
+		inline void PoserDeuxChiffres(char *out, int32 &pos, int32 v) noexcept {
+			if (v < 0)
+				v = 0;
+			if (v > 99)
+				v = 99;
+			out[pos++] = (char)('0' + (v / 10));
+			out[pos++] = (char)('0' + (v % 10));
+		}
+
 		/// Vrai si le lexeme de `flags` contient CE drapeau. On travaille sur le
 		/// TEXTE : `flags = NoTitleBar | NoMove` est un JETON NU, le lecteur ne
 		/// construit aucune liste (il le dit lui-meme), donc c'est au CONSOMMATEUR
@@ -2442,6 +2479,349 @@ namespace nkentseu {
 								  &ctx.layout.region);
 							++rap.montes;
 							return;
+						}
+						// ═════════════════════════════════════════════════════
+						//  LES HUIT ROLES PROPOSES (27/09)
+						// ═════════════════════════════════════════════════════
+						case NkGuiRole::ToggleButton: {
+							// P2. « Un `Checkbox` n'a pas la forme d'un bouton
+							// d'outil ; un `Button` n'a pas d'etat. »
+							//
+							// ⚠️ `group` EST LA RAISON D'ETRE DU ROLE : les boutons
+							//    d'un meme groupe sont EXCLUSIFS. L'exclusivite vit
+							//    dans le magasin, a la cle du groupe : enfoncer l'un
+							//    y ecrit SON identifiant, et chacun se dessine actif
+							//    s'il s'y reconnait. Deux gardes-fous en un — pas
+							//    deux actifs, et l'etat survit au remontage.
+							if (!e) {
+								aDessine = false;
+								break;
+							}
+							const NkString grp = NkGTexte(w, "group", "");
+							const NkString sTB = NkGTexte(w, "label", id.CStr());
+							NkGuiMonteEtat::Entree *eg =
+								grp.Size() > 0u ? etat.Get(NkStringView(grp.CStr())) : nullptr;
+							if (!e->initialise) {
+								e->b = NkGBooleen(w, "value", false);
+								e->initialise = true;
+								if (e->b && eg)
+									Copier(eg->texte, (int32)sizeof(eg->texte), id);
+							}
+							const bool actif =
+								eg ? (NkGMotEgal(NkStringView(eg->texte), id.CStr())) : e->b;
+							// L'etat ACTIF est peint avec l'accent, « sauf
+							// surcharge » : une `appearance(Active)` du document
+							// passe devant, et c'est la couche d'execution qui
+							// l'applique. Ici, le defaut.
+							const NkColor sauveTB = ctx.theme.button;
+							if (actif && !app.aFond)
+								ctx.theme.button = ctx.theme.accent;
+							if (Button(ctx, sTB.CStr())) {
+								if (eg) {
+									// ⚠️ UN GROUPE N'A PAS D'ETAT « AUCUN » ICI. Un
+									//    outil de vue est toujours l'un des six :
+									//    re-cliquer l'actif ne le deselectionne pas.
+									Copier(eg->texte, (int32)sizeof(eg->texte), id);
+									eg->initialise = true;
+								} else {
+									e->b = !e->b;
+								}
+							}
+							ctx.theme.button = sauveTB;
+							if (eg)
+								e->b = NkGMotEgal(NkStringView(eg->texte), id.CStr());
+							valeurMontee = e->b ? 1.f : 0.f;
+							aValeurMontee = true;
+							break;
+						}
+						case NkGuiRole::Badge: {
+							// P3. « Non interactif, petite pilule. Un `Text` n'a pas
+							// de fond, et `fill` n'est pas peint sur `Text`. »
+							//
+							// ⚠️ `tone` EST UN NOM DE JETON SANS SON `@` — c'est la
+							//    graphie que la specification pose. On le prefixe
+							//    ici : le document ecrit `tone: origine.main`, et le
+							//    theme resout `@origine.main`. Une pilule dont le
+							//    ton est inconnu prend le bord du theme et le
+							//    COMPTE, elle ne devient pas invisible.
+							const NkString txtB = NkGTexte(w, "text", "");
+							NkColor fondB = ctx.theme.border;
+							const NkString ton = NkGTexte(w, "tone", "");
+							if (ton.Size() > 0u) {
+								NkString avecArobase("@");
+								avecArobase.Append(ton.CStr());
+								if (!NkGuiCouleur(NkStringView(avecArobase.CStr()), fondB))
+									++rap.attributsNonHonores;
+							}
+							const float32 hB = ctx.ItemHeight();
+							const float32 lB = ctx.font && ctx.font->Valid()
+												   ? ctx.font->MeasureWidth(txtB.CStr(), nullptr)
+														 + hB * 0.6f
+												   : hB;
+							const NkRect rB = ctx.NextItemRect(lB, hB * 0.8f);
+							ctx.DL().AddRectFilled(rB, fondB, rB.h * 0.5f);
+							if (txtB.Size() > 0u)
+								(void)TextAt(ctx, {rB.x + rB.h * 0.3f, rB.y}, txtB.CStr());
+							break;
+						}
+						case NkGuiRole::Tile: {
+							// P4. Vignette + libelle + legende, cliquable.
+							//
+							// ⚠️ LA VIGNETTE EST COMPTEE, PAS INVENTEE — meme raison
+							//    que `ImageButton` : `image` nomme une ressource que
+							//    le document ne porte pas.
+							if (NkGA(w, "image"))
+								++rap.attributsNonHonores;
+							const NkString sT = NkGTexte(w, "label", id.CStr());
+							const NkString cap = NkGTexte(w, "caption", "");
+							// La taille par defaut est celle de la specification (96x96) ;
+							// `size = (w, h)` se lit par la MEME porte que partout ailleurs.
+							float32 tw = 96.f, th = 96.f;
+							{
+								const NkArchiveNode *nsT = w.FindNode(NkStringView("size"));
+								float32 dim[4];
+								if (nsT && NkGNombresDansLexeme(nsT->Lexeme(), dim, 4u) >= 2u
+									&& dim[0] > 0.f && dim[1] > 0.f) {
+									tw = dim[0];
+									th = dim[1];
+								}
+							}
+							const NkRect rT = ctx.NextItemRect(tw, th);
+							const NkGuiId idT = ctx.GetId(sT.CStr());
+							bool hovT = false, heldT = false;
+							(void)ctx.ButtonBehavior(idT, rT, NkGuiButtonFlags::None, -1.f, -1.f,
+													 &hovT, &heldT);
+							ctx.DL().AddRectFilled(rT, hovT ? ctx.theme.buttonHover : ctx.theme.button,
+												   ctx.theme.rounding);
+							ctx.DL().AddRect(rT, ctx.theme.border, 1.f, ctx.theme.rounding);
+							if (ctx.font && ctx.font->Valid()) {
+								(void)TextAt(ctx, {rT.x + 6.f, rT.y + rT.h - ctx.ItemHeight() * 2.f},
+											 sT.CStr());
+								if (cap.Size() > 0u)
+									(void)TextAt(ctx,
+												 {rT.x + 6.f, rT.y + rT.h - ctx.ItemHeight()},
+												 cap.CStr(), ctx.theme.textDisabled);
+							}
+							break;
+						}
+						case NkGuiRole::KeyDiamond: {
+							// P6. Trois etats : vide (non anime), plein (cle a
+							// l'image courante), demi (anime, pas de cle ici).
+							//
+							// ⚠️ L'ETAT VIENT DU MAGASIN, PAS DU DOCUMENT. Un
+							//    document ne sait pas s'il y a une cle a l'image
+							//    courante : c'est l'application qui l'ecrit, a la
+							//    cle que `bind` designe. 0 = vide, 1 = plein,
+							//    0.5 = demi.
+							{
+								const float32 etatK = e ? e->f : 0.f;
+								const float32 hK = ctx.ItemHeight();
+								const NkRect rK = ctx.NextItemRect(hK, hK);
+								const NkGuiId idK = ctx.GetId(id.CStr());
+								bool hovK = false, heldK = false;
+								(void)ctx.ButtonBehavior(idK, rK, NkGuiButtonFlags::None, -1.f,
+														 -1.f, &hovK, &heldK);
+								const NkVec2 c{rK.x + rK.w * 0.5f, rK.y + rK.h * 0.5f};
+								const float32 r0 = hK * 0.3f;
+								const NkVec2 haut{c.x, c.y - r0}, bas{c.x, c.y + r0};
+								const NkVec2 gauche{c.x - r0, c.y}, droite{c.x + r0, c.y};
+								// Le survol le teinte de l'encre « il ecrit ».
+								NkColor teinte = ctx.theme.text;
+								if (hovK)
+									(void)NkGuiCouleur(NkStringView("@info.ecrit"), teinte);
+								if (etatK >= 0.75f) {
+									ctx.DL().AddTriangleFilled(haut, droite, bas, teinte);
+									ctx.DL().AddTriangleFilled(haut, gauche, bas, teinte);
+								} else if (etatK >= 0.25f) {
+									// Demi : le losange n'est que contour.
+									ctx.DL().AddLine(haut, droite, teinte, 1.f);
+									ctx.DL().AddLine(droite, bas, teinte, 1.f);
+									ctx.DL().AddLine(bas, gauche, teinte, 1.f);
+									ctx.DL().AddLine(gauche, haut, teinte, 1.f);
+								} else {
+									const NkColor faible = ctx.theme.textDisabled;
+									ctx.DL().AddLine(haut, droite, faible, 1.f);
+									ctx.DL().AddLine(droite, bas, faible, 1.f);
+									ctx.DL().AddLine(bas, gauche, faible, 1.f);
+									ctx.DL().AddLine(gauche, haut, faible, 1.f);
+								}
+							}
+							break;
+						}
+						case NkGuiRole::SplitButton: {
+							// P18. « Le bouton affiche l'outil courant, la fleche la
+							// famille. » Deux zones cliquables dans un rectangle.
+							//
+							// ⚠️ LA LISTE NE S'OUVRE PAS ICI. Ouvrir un popup demande
+							//    un `OpenPopupAt` que ce monteur n'a pas a offrir —
+							//    meme raison que `ContextMenu`. La fleche se dessine,
+							//    se survole, et son clic est COMPTE non servi : le
+							//    jour ou un crochet d'ouverture existera, elle le
+							//    tirera sans que le document change.
+							{
+								const NkString sSB = NkGTexte(w, "label", id.CStr());
+								const uint32 nItems = NkGListeCompte(w, "items");
+								if (nItems > 0u)
+									++rap.attributsNonHonores;
+								const float32 hSB = ctx.ItemHeight();
+								const NkRect rSB = ctx.NextItemRect(-1.f, hSB);
+								const float32 largFleche = hSB;
+								const NkRect rPrinc{rSB.x, rSB.y, rSB.w - largFleche, rSB.h};
+								const NkRect rFleche{rSB.x + rSB.w - largFleche, rSB.y, largFleche,
+													 rSB.h};
+								bool hovP = false, heldP = false, hovF = false, heldF = false;
+								(void)ctx.ButtonBehavior(ctx.GetId(sSB.CStr()), rPrinc,
+														 NkGuiButtonFlags::None, -1.f, -1.f, &hovP,
+														 &heldP);
+								(void)ctx.ButtonBehavior(ctx.GetId(id.CStr()), rFleche,
+														 NkGuiButtonFlags::None, -1.f, -1.f, &hovF,
+														 &heldF);
+								ctx.DL().AddRectFilled(rPrinc,
+													   hovP ? ctx.theme.buttonHover
+															: ctx.theme.button,
+													   ctx.theme.rounding);
+								ctx.DL().AddRectFilled(rFleche,
+													   hovF ? ctx.theme.buttonHover
+															: ctx.theme.button,
+													   ctx.theme.rounding);
+								ctx.DL().AddLine({rFleche.x, rFleche.y + 2.f},
+												 {rFleche.x, rFleche.y + rFleche.h - 2.f},
+												 ctx.theme.border, 1.f);
+								const float32 a = hSB * 0.18f;
+								const NkVec2 cf{rFleche.x + rFleche.w * 0.5f,
+												rFleche.y + rFleche.h * 0.5f};
+								ctx.DL().AddTriangleFilled({cf.x - a, cf.y - a * 0.5f},
+														   {cf.x + a, cf.y - a * 0.5f},
+														   {cf.x, cf.y + a * 0.7f},
+														   ctx.theme.text);
+								if (ctx.font && ctx.font->Valid())
+									(void)TextAt(ctx, {rPrinc.x + 6.f, rPrinc.y}, sSB.CStr());
+							}
+							break;
+						}
+						case NkGuiRole::TimecodeField: {
+							// P13. Un temps qui se LIT en heures:minutes:secondes:images.
+							//
+							// ⚠️ LE `fps` VIENT DU DOCUMENT ET N'EST PAS DEVINE. Sans
+							//    lui, 0,5 s ne peut pas s'ecrire en images : 12 a 24
+							//    i/s, 15 a 30. Le defaut est 24 — le cinema — et il
+							//    est ECRIT ici plutot que suppose ailleurs.
+							{
+								const float32 fps = NkGNombre(w, "fps", 24.f);
+								const float32 secondes = e ? e->f : NkGNombre(w, "value", 0.f);
+								const int32 total = (int32)(secondes * fps + 0.5f);
+								const int32 imgs = (int32)fps > 0 ? total % (int32)fps : 0;
+								const int32 sec = (int32)fps > 0 ? total / (int32)fps : 0;
+								// ⚠️ ECRIT A LA MAIN, SANS `snprintf`. Cette couche est
+								//    zero-libc, et ce depot a deja paye un formatage
+								//    qui depend de la CULTURE : une virgule decimale
+								//    en fr-FR la ou un point etait attendu. Des
+								//    chiffres poses un par un ne dependent de rien.
+								char tc[32];
+								int32 pos = 0;
+								const int32 hh = sec / 3600, mm = (sec / 60) % 60, ss = sec % 60;
+								PoserDeuxChiffres(tc, pos, hh);
+								tc[pos++] = ':';
+								PoserDeuxChiffres(tc, pos, mm);
+								tc[pos++] = ':';
+								PoserDeuxChiffres(tc, pos, ss);
+								tc[pos++] = ':';
+								PoserDeuxChiffres(tc, pos, imgs);
+								tc[pos] = '\0';
+								(void)Text(ctx, tc);
+							}
+							break;
+						}
+						case NkGuiRole::VectorField: {
+							// P5. « Le champ X/Y/Z a lisere rouge/vert/bleu est LA
+							// signature du panneau Details UE5. La couleur porte
+							// l'axe : c'est de l'information. »
+							//
+							// ⚠️ CHAQUE COMPOSANTE A SA PROPRE CLE DE MAGASIN
+							//    (`<bind>.x`, `.y`, `.z`, `.w`) : le magasin ne tient
+							//    qu'un `float32` par cle, et trois valeurs dans une
+							//    seule en perdraient deux.
+							{
+								uint32 nComp = (uint32)NkGNombre(w, "components", 3.f);
+								if (nComp < 2u)
+									nComp = 2u;
+								if (nComp > 4u)
+									nComp = 4u;
+								const bool axes = NkGBooleen(w, "axisColors", nComp == 3u);
+								const float32 vitesse = NkGNombre(w, "speed", 0.1f);
+								const float32 vmin = NkGNombre(w, "min", 0.f);
+								const float32 vmax = NkGNombre(w, "max", 0.f);
+								const bool borne = (vmax > vmin);
+								static const char *kSuffixe[4] = {".x", ".y", ".z", ".w"};
+								static const char *kJeton[4] = {"@axe.x", "@axe.y", "@axe.z", ""};
+								const NkString cle = NkGTexte(w, "bind", id.CStr());
+								const NkVec2 cV = ctx.layout.cursor;
+								BeginHBox(ctx, 2.f);
+								for (uint32 k = 0; k < nComp; ++k) {
+									NkString cleK = cle;
+									cleK.Append(kSuffixe[k]);
+									NkGuiMonteEtat::Entree *ek =
+										etat.Get(NkStringView(cleK.CStr()));
+									float32 v = ek ? ek->f : 0.f;
+									const float32 hV = ctx.ItemHeight();
+									const NkRect rV = ctx.NextItemRect(0.f, hV);
+									ctx.SetNextItemRect(rV);
+									(void)DragFloat(ctx, cleK.CStr(), v, vitesse,
+													borne ? vmin : 0.f, borne ? vmax : 0.f);
+									if (ek)
+										ek->f = v;
+									// Le lisere d'axe : 2 px a gauche du champ.
+									if (axes && k < 3u) {
+										NkColor ca{0, 0, 0, 0};
+										if (NkGuiCouleur(NkStringView(kJeton[k]), ca))
+											ctx.DL().AddRectFilled({rV.x, rV.y, 2.f, rV.h}, ca,
+																   0.f);
+										else
+											++rap.attributsNonHonores;
+									}
+								}
+								EndHBox(ctx);
+								Noter(rap, id, t, BlocConsomme(ctx, cV), prof, true, horizontal,
+									  &ctx.layout.region);
+								++rap.montes;
+								return;
+							}
+						}
+						case NkGuiRole::TokenField: {
+							// P23. « `ColorField` choisit une VALEUR ; un jeton est
+							// un NOM qui se resout par theme. »
+							//
+							// ⚠️ IL MONTRE LA PASTILLE ET LE NOM, pas un nuancier :
+							//    c'est ce qui le distingue d'un `ColorField`. La
+							//    LISTE des jetons ne s'ouvre pas ici (meme raison que
+							//    `SplitButton` : pas de popup au repos) ; `families`
+							//    est donc compte.
+							{
+								if (NkGA(w, "families"))
+									++rap.attributsNonHonores;
+								const NkString nomJ =
+									e && e->texte[0] ? NkString(e->texte)
+													 : NkGTexte(w, "value", "@accent");
+								NkColor cJ{0, 0, 0, 0};
+								const bool resolu = NkGuiCouleur(NkStringView(nomJ.CStr()), cJ);
+								const float32 hJ = ctx.ItemHeight();
+								const NkRect rJ = ctx.NextItemRect(-1.f, hJ);
+								const NkRect past{rJ.x + 2.f, rJ.y + 2.f, hJ - 4.f, hJ - 4.f};
+								if (resolu)
+									ctx.DL().AddRectFilled(past, cJ, 2.f);
+								else
+									ctx.DL().AddRect(past, ctx.theme.border, 1.f, 2.f);
+								ctx.DL().AddRect(rJ, ctx.theme.border, 1.f, ctx.theme.rounding);
+								if (ctx.font && ctx.font->Valid())
+									(void)TextAt(ctx, {rJ.x + hJ + 4.f, rJ.y}, nomJ.CStr(),
+												 resolu ? ctx.theme.text : ctx.theme.textDisabled);
+								// ⚠️ UN JETON QUI NE SE RESOUT PAS SE COMPTE. Le champ
+								//    reste lisible — son nom s'affiche en grise — mais
+								//    le document ne doit pas croire qu'il a ete honore.
+								if (!resolu)
+									++rap.attributsNonHonores;
+							}
+							break;
 						}
 						case NkGuiRole::Progress: {
 							const float32 v = e ? e->f : NkGNombre(w, "value", 0.f);
