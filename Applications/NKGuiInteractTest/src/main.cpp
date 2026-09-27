@@ -1750,6 +1750,102 @@ int main(int argc, char **argv) {
 			Check(c.dockNodes[0].winCount == 0, "(d4) ce qui reste ne porte aucune fenetre inventee");
 		}
 	}
+	// =====================================================================
+	printf("\n-- (b5) LE BLUEPRINT, LOT 1 : `!=`, `not`, les fonctions, les champs\n");
+	// =====================================================================
+	//  Rodolf, 27/09 : « le blueprint doit etre fait entierement ». Voici sa
+	//  premiere moitie : ce qu'une EXPRESSION sait dire.
+	//
+	//  ⚠️ CHAQUE AJOUT EST MESURE PAR SON EFFET, PAS PAR SA PRESENCE. Un
+	//     comportement ecrit `set r = ...` ; ce qui se verifie, c'est la VALEUR de
+	//     `r` apres coup. Un analyseur qui accepte `!=` sans le calculer passerait
+	//     un controle qui s'arreterait a « ca compile ».
+	{
+		static const char kDoc[] =
+			"nkgui 0.3\n"
+			"widgets {\n"
+			"  TextField \"nom\"      { value = \"Rodolf\" }\n"
+			"  TextField \"vide\"     { value = \"\" }\n"
+			"  Checkbox  \"conditions\" { value = true }\n"
+			"  Button    \"cache\"    { label = \"Cache\", visible = false }\n"
+			"}\n"
+			"behavior \"essai\" {\n"
+			"  set different   = 3 != 4\n"
+			"  set identique   = 3 != 3\n"
+			"  set negation    = not (1 == 1)\n"
+			"  set negation2   = !(1 == 1)\n"
+			"  set nonEgalNie  = not 3 != 4\n"
+			"  set videOui     = empty(vide.text)\n"
+			"  set videNon     = empty(nom.text)\n"
+			"  set longueur    = length(nom.text)\n"
+			"  set contientOui = contains(nom.text, \"dol\")\n"
+			"  set contientNon = contains(nom.text, \"zzz\")\n"
+			"  set egalOui     = matches(nom.text, \"Rodolf\")\n"
+			"  set egalNon     = matches(nom.text, \"rodolf\")\n"
+			"  set coche       = conditions.checked\n"
+			"  set visibleNon  = cache.visible\n"
+			"  set actifOui    = nom.enabled\n"
+			"}\n";
+		Scene s;
+		Check(s.Charger(kDoc, (uint32)(sizeof(kDoc) - 1u), 320, 240), "(b5) le document se charge");
+		s.Image();
+		s.Image();
+
+		// ⚠️ LE WIDGET CACHE NE SE MONTE PAS, et c'est mesurable : quatre widgets
+		//    ecrits, trois montes. `visible` etait au vocabulaire depuis toujours
+		//    et personne ne le lisait.
+		printf("        widgets=%u montes=%u invisibles=%u\n", s.rap.widgets, s.rap.montes,
+			   s.rap.invisibles);
+		CheckEqU(s.rap.invisibles, 1u, "(b5) `visible = false` RETIRE le widget du montage");
+		CheckEqU(s.rap.montes, 3u, "(b5) trois widgets montes sur quatre ecrits");
+
+		struct Attendu {
+				const char *nom;
+				float32 valeur;
+				const char *quoi;
+		};
+		// ⚠️ LES ATTENDUS SONT ECRITS AVANT LA MESURE, et chacun porte son
+		//    CONTRAIRE : `3 != 4` vrai ET `3 != 3` faux. Un seul des deux serait
+		//    vert sur un `!=` qui rendrait toujours vrai.
+		static const Attendu kAttendus[] = {
+			{"different", 1.f, "3 != 4 est VRAI"},
+			{"identique", 0.f, "3 != 3 est FAUX"},
+			{"negation", 0.f, "not (1 == 1) est FAUX"},
+			{"negation2", 0.f, "!(1 == 1) est FAUX — `!` et `not` sont la meme chose"},
+			// ⚠️ CELUI-CI JUGE LA PRIORITE, et c'est le seul qui la juge : `not`
+			//    porte sur la COMPARAISON, pas sur `3`. Si `not` etait dans
+			//    `Primaire`, on lirait `(not 3) != 4` — donc `false != 4`, donc
+			//    VRAI, et le contraire du sens ecrit.
+			{"nonEgalNie", 0.f, "not 3 != 4 est FAUX — `not` porte sur la COMPARAISON"},
+			{"videOui", 1.f, "empty(\"\") est VRAI"},
+			{"videNon", 0.f, "empty(\"Rodolf\") est FAUX"},
+			{"longueur", 6.f, "length(\"Rodolf\") vaut 6"},
+			{"contientOui", 1.f, "contains(\"Rodolf\", \"dol\") est VRAI"},
+			{"contientNon", 0.f, "contains(\"Rodolf\", \"zzz\") est FAUX"},
+			{"egalOui", 1.f, "matches(\"Rodolf\", \"Rodolf\") est VRAI"},
+			{"egalNon", 0.f, "matches est une egalite EXACTE : la casse compte"},
+			{"coche", 1.f, "`.checked` lit la case"},
+			{"visibleNon", 0.f, "`.visible` lit l'etat, et le widget est cache"},
+			{"actifOui", 1.f, "`.enabled` lit l'etat, et le champ est actif"},
+		};
+		for (uint32 k = 0; k < (uint32)(sizeof(kAttendus) / sizeof(Attendu)); ++k) {
+			NkGuiValeur val;
+			const bool lu = s.exe.eval.Variable(NkStringView(kAttendus[k].nom), val);
+			const float32 v = lu ? val.EnNombre() : -1.f;
+			char titre[160];
+			Joindre(titre, sizeof(titre), "(b5) ", kAttendus[k].quoi);
+			if (!lu) {
+				Check(false, titre);
+				continue;
+			}
+			CheckEqF(v, kAttendus[k].valeur, 0.001f, titre);
+		}
+		printf("        expressions refusees : %u\n", s.exe.eval.rapport.refusees);
+		CheckEqU(s.exe.eval.rapport.refusees, 0u,
+				 "(b5) et AUCUNE expression refusee — tout ce qui est ecrit est compris");
+		s.exe.Debrancher(s.ctx);
+	}
+
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;
 }
