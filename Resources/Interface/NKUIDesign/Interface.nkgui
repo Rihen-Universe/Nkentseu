@@ -45,33 +45,33 @@ nkgui 0.4
 widgets "menu" {
 
   Menu "menuDesign" {
-    label = "Design"
+    label = "@t:design.ui.menuDesign"
 
-    MenuItem "design.enregistrer" { label = "Enregistrer le document", shortcut = "Ctrl+S" }
-    MenuItem "design.recharger"   { label = "Recharger depuis le disque" }
-    MenuItem "design.nouveau"     { label = "Nouveau document" }
+    MenuItem "design.enregistrer" { label = "@t:design.enregistrer", shortcut = "Ctrl+S" }
+    MenuItem "design.recharger"   { label = "@t:design.recharger" }
+    MenuItem "design.nouveau"     { label = "@t:design.nouveau" }
 
     Separator "sep1" {}
 
-    MenuItem "design.annuler"  { label = "Annuler", shortcut = "Ctrl+Z" }
-    MenuItem "design.retablir" { label = "Retablir", shortcut = "Ctrl+Y" }
+    MenuItem "design.annuler"  { label = "@t:design.annuler", shortcut = "Ctrl+Z" }
+    MenuItem "design.retablir" { label = "@t:design.retablir", shortcut = "Ctrl+Y" }
 
     Separator "sep2" {}
 
-    MenuItem "design.grouper"   { label = "Grouper la selection", shortcut = "Ctrl+G" }
-    MenuItem "design.degrouper" { label = "Degrouper", shortcut = "Ctrl+Maj+G" }
-    MenuItem "design.dupliquer" { label = "Dupliquer", shortcut = "Ctrl+D" }
+    MenuItem "design.grouper"   { label = "@t:design.grouperSelection", shortcut = "Ctrl+G" }
+    MenuItem "design.degrouper" { label = "@t:design.degrouper", shortcut = "Ctrl+Maj+G" }
+    MenuItem "design.dupliquer" { label = "@t:design.dupliquer", shortcut = "Ctrl+D" }
 
     Separator "sep3" {}
 
-    MenuItem "design.exporter" { label = "Exporter..." }
+    MenuItem "design.exporter" { label = "@t:design.exporterPoints" }
   }
 
   Menu "menuVues" {
-    label = "Vues"
+    label = "@t:design.ui.menuVues"
 
-    MenuItem "design.vue.hierarchie" { label = "Hierarchie", shortcut = "Ctrl+J" }
-    MenuItem "design.vue.inspecteur" { label = "Inspecteur" }
+    MenuItem "design.vue.hierarchie" { label = "@t:design.vue.hierarchie", shortcut = "Ctrl+J" }
+    MenuItem "design.vue.inspecteur" { label = "@t:design.vue.inspecteur" }
 
     // ⚠️ GRISÉES, PAS OMISES — et la raison est vérifiable. `CmdVuePalette`,
     //    `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent sous
@@ -84,10 +84,10 @@ widgets "menu" {
     //    🔴 LA CONSTRUCTION A ATTRAPÉ MA PREMIÈRE VERSION : je les avais écrites
     //       actives et la table pointait sur quatre fonctions inexistantes. C'est
     //       le seul négatif qui n'a rien coûté.
-    MenuItem "design.vue.palette"     { label = "Palette",     enabled = false }
-    MenuItem "design.vue.composition" { label = "Composition", enabled = false }
-    MenuItem "design.vue.proprietes"  { label = "Proprietes",  enabled = false }
-    MenuItem "design.vue.preferences" { label = "Preferences", enabled = false }
+    MenuItem "design.vue.palette"     { label = "@t:design.vue.palette",     enabled = false }
+    MenuItem "design.vue.composition" { label = "@t:design.vue.composition", enabled = false }
+    MenuItem "design.vue.proprietes"  { label = "@t:design.vue.proprietes",  enabled = false }
+    MenuItem "design.vue.preferences" { label = "@t:design.vue.preferences", enabled = false }
   }
 }
 
@@ -107,19 +107,19 @@ widgets "barreOutils" {
   HBox "outils" {
     gap = 6
 
-    Button "design.annuler"   { label = "Annuler",   tooltip = "Annuler la derniere action", shortcut = "Ctrl+Z" }
-    Button "design.retablir"  { label = "Retablir",  tooltip = "Refaire l'action annulee",   shortcut = "Ctrl+Y" }
+    Button "design.annuler"   { label = "@t:design.annuler",   tooltip = "Annuler la derniere action", shortcut = "Ctrl+Z" }
+    Button "design.retablir"  { label = "@t:design.retablir",  tooltip = "Refaire l'action annulee",   shortcut = "Ctrl+Y" }
 
     Separator "sep_o1" {}
 
-    Button "design.grouper"   { label = "Grouper",   tooltip = "Grouper la selection", shortcut = "Ctrl+G" }
-    Button "design.degrouper" { label = "Degrouper", tooltip = "Degrouper la selection" }
-    Button "design.dupliquer" { label = "Dupliquer", tooltip = "Dupliquer la selection", shortcut = "Ctrl+D" }
+    Button "design.grouper"   { label = "@t:design.grouper",   tooltip = "Grouper la selection", shortcut = "Ctrl+G" }
+    Button "design.degrouper" { label = "@t:design.degrouper", tooltip = "Degrouper la selection" }
+    Button "design.dupliquer" { label = "@t:design.dupliquer", tooltip = "Dupliquer la selection", shortcut = "Ctrl+D" }
 
     Separator "sep_o2" {}
 
-    Button "design.enregistrer" { label = "Enregistrer", tooltip = "Enregistrer le document", shortcut = "Ctrl+S" }
-    Button "design.exporter"    { label = "Exporter",    tooltip = "Exporter le document" }
+    Button "design.enregistrer" { label = "@t:design.enregistrer", tooltip = "Enregistrer le document", shortcut = "Ctrl+S" }
+    Button "design.exporter"    { label = "@t:design.exporter",    tooltip = "Exporter le document" }
   }
 }
 
@@ -173,13 +173,13 @@ widgets "panneauOutils" {
 
     Separator "sep_p1" {}
 
-    Button "design.nouveau"     { label = "Nouveau document" }
-    Button "design.recharger"   { label = "Recharger depuis le disque" }
-    Button "design.enregistrer" { label = "Enregistrer", shortcut = "Ctrl+S" }
+    Button "design.nouveau"     { label = "@t:design.nouveau" }
+    Button "design.recharger"   { label = "@t:design.recharger" }
+    Button "design.enregistrer" { label = "@t:design.enregistrer", shortcut = "Ctrl+S" }
 
     Separator "sep_p2" {}
 
-    Button "design.vue.hierarchie" { label = "Vue : hierarchie", shortcut = "Ctrl+J" }
-    Button "design.vue.inspecteur" { label = "Vue : inspecteur" }
+    Button "design.vue.hierarchie" { label = "@t:design.vue.hierarchieLong", shortcut = "Ctrl+J" }
+    Button "design.vue.inspecteur" { label = "@t:design.vue.inspecteurLong" }
   }
 }
