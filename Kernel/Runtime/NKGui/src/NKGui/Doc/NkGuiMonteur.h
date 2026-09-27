@@ -80,6 +80,7 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKGui/Core/NkGuiContext.h"
+#include "NKGui/Core/NkGuiIcons.h" // P12 : `icon`, dessine par le jeu que l'hote pose
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKGui/Doc/NkGuiJetons.h" // P1 : la table des jetons, lue par NkGuiCouleur
 #include "NKSerialization/NkGui/NkGuiArchive.h"
@@ -517,6 +518,25 @@ namespace nkentseu {
 				/// n'est pas « combien de fenetres sont deplacables » : c'est le
 				/// GESTE, et il vaut zero tant que personne ne traîne rien.
 				uint32 fenetresDeplacees = 0;
+				// ── L'INFOBULLE ET LE RACCOURCI (2026-09-27) ─────────────────
+				/// ⚠️ DEUX COMPTEURS, PAS UN, et ils ne disent pas la meme chose.
+				///    `raccourcisAffiches` compte les widgets qui DECLARENT un
+				///    `shortcut` : il ne depend pas de la souris, donc un document
+				///    se juge sans elle. `infobullesPosees` compte les infobulles
+				///    REELLEMENT posees, ce qui exige un survol -- il vaut zero sur
+				///    un montage au repos, et c'est normal.
+				///
+				///    Les confondre aurait fait croire qu'aucune infobulle n'existe
+				///    dans un document qui en porte cent.
+				uint32 raccourcisAffiches = 0;
+				uint32 infobullesPosees = 0;
+				/// Les `icon` demandes, et ceux que le jeu d'icones n'a pas su
+				/// rendre. ⚠️ Le second n'est pas « pas d'icone » : c'est « une
+				/// icone a ete demandee et le glyphe manque » -- le jeu distingue
+				/// deja `Glyph` de `Fallback`, et un carre muet est exactement le
+				/// defaut que ce compteur existe pour rendre visible.
+				uint32 iconesDemandees = 0;
+				uint32 iconesManquantes = 0;
 				// ── LA SECTION `geometry` (document 2 §1 et §3) ───────────────
 				uint32 formes = 0;			 ///< blocs `shape` rencontres
 				uint32 formesPeintes = 0;	 ///< celles dont la nature sait se peindre
@@ -1012,6 +1032,40 @@ namespace nkentseu {
 		///    traite les deux longueurs. En reecrire un ici aurait donne deux
 		///    lectures d'une meme couleur, qui finissent par diverger.
 		// ─────────────────────────────────────────────────────────────────────
+		//  LES HACHURES — P11, et la marque d'une zone non servie
+		// ─────────────────────────────────────────────────────────────────────
+		//  🔴 ELLES ETAIENT ECRITES DANS LE `case Host`, ET P11 EN DEMANDAIT UNE
+		//     SECONDE COPIE. « Une proposition non appliquee doit se voir au
+		//     premier coup d'oeil, partout » (doc 09 §1 P11) -- donc sur une
+		//     surface quelconque, pas seulement sur une zone vide. Recopier la
+		//     boucle aurait donne deux motifs qui se seraient mis a differer :
+		//     ce depot a deja paye « deux compteurs sans code commun ».
+		//
+		//  ⚠️ LE MOTIF DIT « RIEN N'EST MONTE ICI » **ET** « PAS ENCORE A VOUS ».
+		//     Les deux sens se rejoignent : une surface hachuree n'est pas une
+		//     surface ordinaire. C'est aussi pour ca qu'aucun contenu
+		//     d'application ne doit lui ressembler.
+		inline void NkGuiHachurer(NkGuiDrawList &dl, const NkRect &zone, const NkColor &trait,
+								  float32 pas = 12.f) noexcept {
+			if (zone.w <= 0.f || zone.h <= 0.f || pas <= 0.f)
+				return;
+			for (float32 d = 0.f; d < zone.w + zone.h; d += pas) {
+				float32 x0 = zone.x + d, y0 = zone.y;
+				float32 x1 = zone.x, y1 = zone.y + d;
+				if (x0 > zone.x + zone.w) {
+					y0 += x0 - (zone.x + zone.w);
+					x0 = zone.x + zone.w;
+				}
+				if (y1 > zone.y + zone.h) {
+					x1 += y1 - (zone.y + zone.h);
+					y1 = zone.y + zone.h;
+				}
+				if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
+					dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
+			}
+		}
+
+		// ─────────────────────────────────────────────────────────────────────
 		//  LA SEULE PORTE QUI LIT UNE COULEUR — hexadécimal OU jeton `@nom`
 		// ─────────────────────────────────────────────────────────────────────
 		//  🔴 IL Y EN AVAIT DEUX (mesure du 27/09). Celle-ci, et
@@ -1062,6 +1116,12 @@ namespace nkentseu {
 				float32 rayon = -1.f;
 				bool aFond = false;
 				bool aEncre = false;
+				/// P11 — `appearance { pattern = Hatch }`. « Une proposition non
+				/// appliquee doit se voir au premier coup d'oeil, PARTOUT. La
+				/// couleur seule ne suffit pas (daltonisme), et la hachure est
+				/// deja le langage du monteur pour "zone non servie" — ici, pour
+				/// "pas encore a vous". » (doc 09 §1 P11)
+				bool aHachures = false;
 				/// Les proprietes ECRITES que ce monteur ne rend pas. Comptees, jamais tues.
 				uint32 nonRendues = 0;
 		};
@@ -1104,6 +1164,15 @@ namespace nkentseu {
 					continue;
 				if (NkGA(ap, "radius"))
 					a.rayon = NkGNombre(ap, "radius", -1.f);
+				// P11 : `pattern = Hatch`. Un motif que ce monteur ne connait pas
+				// se COMPTE au lieu d'en peindre un autre -- une surface pointillee
+				// la ou le document demandait des hachures dirait faux.
+				if (NkGA(ap, "pattern")) {
+					if (NkGMotEgal(NkStringView(NkGTexte(ap, "pattern", "").CStr()), "Hatch"))
+						a.aHachures = true;
+					else
+						++a.nonRendues;
+				}
 				if (NkGA(ap, "font"))
 					++a.nonRendues; // la chasse : le monteur n'a qu'une fonte
 				const NkArchiveNode *c2 = NkGMonteCorps(ap);
@@ -1606,6 +1675,11 @@ namespace nkentseu {
 						 || role == NkGuiRole::Image
 						 || (role == NkGuiRole::Text && NkGBooleen(w, "wrap", false)));
 					bool fondPeintIci = false;
+					// P11 : vrai des que le motif a ete pose sur un rectangle connu,
+					// pour que le bloc generique d'apres le `switch` ne le repose pas
+					// sur `prevItem` -- deux motifs superposes doubleraient le compte
+					// et epaissiraient le trait sans que personne l'ait demande.
+					bool hachuresPeintes = false;
 					if (app.aFond && !estConteneurFond && !hauteurLibre && !pl.pose) {
 						const NkRect rFond = ctx.NextItemRect(-1.f, ctx.ItemHeight());
 						ctx.DL().AddRectFilled(rFond, app.fond,
@@ -1613,6 +1687,12 @@ namespace nkentseu {
 						ctx.SetNextItemRect(rFond);
 						++rap.apparencesPeintes;
 						fondPeintIci = true;
+						// P11 : le motif suit le fond, sur le MEME rectangle.
+						if (app.aHachures) {
+							NkGuiHachurer(ctx.DL(), rFond, ctx.theme.textMuted);
+							++rap.apparencesPeintes;
+							hachuresPeintes = true;
+						}
 					}
 
 					// ── LE FOND D'UN CONTENEUR POSE (26/09) ──────────────────
@@ -1667,6 +1747,12 @@ namespace nkentseu {
 											   app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
 						++rap.apparencesPeintes;
 						fondPeintIci = true;
+						// P11 : le motif suit le fond, sur le MEME rectangle.
+						if (app.aHachures) {
+							NkGuiHachurer(ctx.DL(), pl.rect, ctx.theme.textMuted);
+							++rap.apparencesPeintes;
+							hachuresPeintes = true;
+						}
 					}
 
 					// ⚠️ ET TOUT CE QUI N'EST PAS PEINT SE COMPTE ICI, SANS EXCEPTION.
@@ -1856,6 +1942,16 @@ namespace nkentseu {
 							//    que la primitive ajoute autour.
 							if (app.aFond) {
 								ctx.DL().AddRectFilled(r, app.fond, app.rayon >= 0.f ? app.rayon : ctx.theme.rounding);
+								++rap.apparencesPeintes;
+							}
+							// P11 : SUR LE RECTANGLE DU CONTENEUR, et ici parce que ce
+							// `case` REND LA MAIN — le bloc generique d'apres le
+							// `switch` ne le verrait jamais. C'est ce qu'une premiere
+							// version a mesure : 0 pixel de difference sur un `Panel`
+							// hachure, alors que c'est LE cas que la specification
+							// demande (« une proposition non appliquee »).
+							if (app.aHachures) {
+								NkGuiHachurer(ctx.DL(), r, ctx.theme.textMuted);
 								++rap.apparencesPeintes;
 							}
 
@@ -3415,23 +3511,9 @@ namespace nkentseu {
 								//    s'ecarte de l'aplat : la bordure y rougirait.
 								const NkColor trait = ctx.theme.textMuted;
 								dl.AddRect(zone, trait, 1.f);
-								// LES HACHURES : elles disent « rien n'est monte ici », et aucun
-								// contenu d'application ne leur ressemble.
-								const float32 pas = 12.f;
-								for (float32 d = 0.f; d < zone.w + zone.h; d += pas) {
-									float32 x0 = zone.x + d, y0 = zone.y;
-									float32 x1 = zone.x, y1 = zone.y + d;
-									if (x0 > zone.x + zone.w) {
-										y0 += x0 - (zone.x + zone.w);
-										x0 = zone.x + zone.w;
-									}
-									if (y1 > zone.y + zone.h) {
-										x1 += y1 - (zone.y + zone.h);
-										y1 = zone.y + zone.h;
-									}
-									if (y0 <= zone.y + zone.h && x1 <= zone.x + zone.w)
-										dl.AddLine({x0, y0}, {x1, y1}, trait, 1.f);
-								}
+								// LES HACHURES, par la porte unique : elles disent « rien n'est
+								// monte ici », et aucun contenu d'application ne leur ressemble.
+								NkGuiHachurer(dl, zone, trait);
 								// ET SON NOM : « zone non remplie » sans dire LAQUELLE renverrait
 								// l'hote a chercher. Le nom du noeud est la cle qu'il doit servir.
 								if (ctx.font && ctx.font->Valid()) {
@@ -3493,6 +3575,91 @@ namespace nkentseu {
 					}
 					if (aDessine)
 						++rap.montes;
+
+					// ═════════════════════════════════════════════════════════
+					//  L'INFOBULLE ET LE RACCOURCI — `tooltip`, et P8
+					// ═════════════════════════════════════════════════════════
+					//  🔴 `tooltip` EST UNE PROPRIETE UNIVERSELLE DU FORMAT QUE
+					//     PERSONNE NE LISAIT. Mesure du 27/09 : ZERO occurrence de
+					//     « tooltip » dans tout ce fichier. Chaque infobulle de
+					//     chaque document -- et les specifications d'interface en
+					//     ecrivent des centaines -- tombait en silence, alors que
+					//     `SetTooltip` existe dans NKGui depuis toujours.
+					//
+					//  ⚠️ P8, LE `shortcut` UNIVERSEL, ENTRE PAR LA MEME PORTE, et
+					//     c'est ce que la specification demande : « sens :
+					//     AFFICHAGE SEULEMENT. La verite des raccourcis reste dans
+					//     l'application (sinon deux sources). » Il s'affiche donc
+					//     DANS l'infobulle -- « Deplacer (W) » -- et ne declare
+					//     aucune touche a personne.
+					// ═════════════════════════════════════════════════════════
+					//  LES HACHURES (P11) — par-dessus le fond, sous l'icône
+					// ═════════════════════════════════════════════════════════
+					//  ⚠️ ELLES SE POSENT SUR LE RECTANGLE MONTÉ, pas sur celui que
+					//     le fond a peint : un widget dont le fond est tenu par son
+					//     `case` (un `Button`, une `Window`) n'a pas de rectangle
+					//     réservé ici. `prevItem` est le seul que tous partagent.
+					if (app.aHachures && !hachuresPeintes) {
+						const NkRect rh = ctx.layout.prevItem;
+						if (rh.w > 0.f && rh.h > 0.f) {
+							NkGuiHachurer(ctx.DL(), rh, ctx.theme.textMuted);
+							++rap.apparencesPeintes;
+						} else {
+							++rap.apparencesNonPeintes;
+						}
+					}
+
+					// ═════════════════════════════════════════════════════════
+					//  L'ICÔNE (P12) — dessinée par le jeu que l'hôte a posé
+					// ═════════════════════════════════════════════════════════
+					//  ⚠️ ELLE SE POSE SUR LE RECTANGLE DÉJÀ MONTÉ, et c'est une
+					//     limite assumée : les primitives de NKGui ne prennent pas
+					//     d'icône, donc le monteur ne peut pas la faire entrer DANS
+					//     la mise en page du bouton. Elle occupe le carré de gauche
+					//     de l'élément. Un libellé long peut donc passer dessous.
+					//     *Le dire vaut mieux que de découvrir un chevauchement.*
+					//
+					//  ⚠️ ET UNE ICÔNE MANQUANTE SE COMPTE. `AddIcon` distingue le
+					//     glyphe demandé du glyphe de SECOURS : sans ce compteur, un
+					//     carré muet passerait pour l'icône qu'on voulait.
+					{
+						const NkString icone = NkGTexte(w, "icon", "");
+						if (icone.Size() > 0u) {
+							++rap.iconesDemandees;
+							const NkGuiIconSet *jeu = NkGuiIconesPosees();
+							const NkRect ri = ctx.layout.prevItem;
+							if (!jeu || ri.h <= 0.f) {
+								++rap.iconesManquantes;
+							} else {
+								const float32 cote = ri.h * 0.7f;
+								const NkRect carre{ri.x + (ri.h - cote) * 0.5f,
+												   ri.y + (ri.h - cote) * 0.5f, cote, cote};
+								const NkGuiIconDraw fait =
+									AddIcon(ctx.DL(), *jeu, jeu->Find(icone.CStr()), carre,
+											ctx.theme.text);
+								if (fait != NkGuiIconDraw::Glyph)
+									++rap.iconesManquantes;
+							}
+						}
+					}
+
+					{
+						const NkString bulle = NkGTexte(w, "tooltip", "");
+						const NkString racc = NkGTexte(w, "shortcut", "");
+						if (racc.Size() > 0u)
+							++rap.raccourcisAffiches;
+						if ((bulle.Size() > 0u || racc.Size() > 0u) && ctx.IsItemHovered()) {
+							NkString texte = bulle;
+							if (racc.Size() > 0u) {
+								texte.Append(texte.Size() > 0u ? " (" : "(");
+								texte.Append(racc.CStr());
+								texte.Append(")");
+							}
+							SetTooltip(ctx, texte.CStr());
+							++rap.infobullesPosees;
+						}
+					}
+
 					Noter(rap, id, t, ctx.layout.prevItem, prof, false, horizontal, &ctx.layout.region);
 					if (rap.items.Size() > 0) {
 						NkGuiMonteItem &dernier = rap.items[(uint32)rap.items.Size() - 1u];
