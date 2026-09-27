@@ -120,23 +120,26 @@ component "EnTetePanneau" {
 }
 
 // ── 3.5 `Categorie` — catégorie repliable du panneau Détails ──────────────
-//  ⚠️ CE COMPOSANT EST VIDE, ET C'EST LE BESOIN P9 QUI SE VOIT. La
-//     spécification dit : « les lignes s'écrivent dans l'instance comme enfants
-//     de `<instance>.corps` — si le développement ne le permet pas, c'est
-//     exactement le besoin de P9 : signale-le. »
+//  La spécification disait : « les lignes s'écrivent dans l'instance comme
+//  enfants de `<instance>.corps` — si le développement ne le permet pas, c'est
+//  exactement le besoin de P9 : signale-le. »
 //
-//     MESURE (27/09) : le développement des composants REMPLACE l'instance par
-//     le patron ; les enfants écrits sur l'instance ne sont pas réinjectés dans
-//     le `corps` du patron. **Le développement ne le permet donc pas.**
-//     👉 P9 (`Slot`) est CONFIRMÉ nécessaire, et les catégories du panneau
-//     Détails s'écrivent en clair dans leur document en attendant — un
-//     `Expander` par catégorie, ce qui est exactement ce que ce composant
-//     aurait produit.
+//  🔴 IL NE LE PERMETTAIT PAS, ET C'ÉTAIT SILENCIEUX. Mesure du 27/09 : le
+//     développement REMPLACE l'instance par le patron, et les enfants écrits sur
+//     l'instance n'étaient réinjectés nulle part — ils **disparaissaient**, sans
+//     compteur ni refus. Un document qui écrivait ses lignes ici ressemblait à
+//     un document plus pauvre, pas à un document cassé.
+//
+//  ✅ **P9 est livré le même jour** : `Slot "corps"` marque la place, et les
+//     enfants de l'instance la prennent. Le banc le mesure sur `montes` — 2 sans
+//     `Slot`, 4 avec — et non sur un compteur de `Slot`, qui serait vert même si
+//     les enfants n'arrivaient nulle part.
 component "Categorie" {
   widgets {
     Expander "categorie" {
       label = "?"
       expanded = true
+      Slot "corps" { }
     }
   }
 }

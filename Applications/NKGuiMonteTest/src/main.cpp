@@ -24,6 +24,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Doc/NkGuiComposants.h"
 #include "NKGui/Doc/NkGuiMonteur.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKMemory/NkAllocator.h"
@@ -328,6 +329,11 @@ struct Montage {
 		uint32 poigneeN = 0;		 ///< combien de pixels portaient cette couleur
 		float32 lumMaxContenu = -1.f; ///< luminance du texte reellement peint
 		uint32 pixelsTexteBande = 0; ///< pixels de dessin dans la bande demandee
+		/// Ce que le DEVELOPPEMENT DES COMPOSANTS a fait, et ce qu'il a refuse.
+		/// ⚠️ Il vit a cote du rapport de montage et non dedans : ce sont deux
+		///    passes distinctes, et les confondre ferait croire que le monteur
+		///    connait les composants — il ne les voit jamais.
+		NkGuiRapportComposants composants;
 		/// Copie des pixels, quand l'appelant l'a demandee (`g_garderPixels`).
 		/// Sert aux comparaisons image contre image -- la seule mesure qui voit un
 		/// texte peint SUR un aplat.
@@ -550,6 +556,9 @@ static Montage MonterTexte(const char *src, uint32 len, int32 w, int32 h,
 	ctx.DL().Reset();
 
 	NkGuiMonteEtat etat;
+	// LES COMPOSANTS SE DEVELOPPENT AVANT LE MONTAGE, comme dans la coquille :
+	// le monteur ne voit jamais un `component`, il voit ce qu'il est devenu.
+	NkGuiDevelopperComposants(doc, m.composants);
 	NkGuiMonteur::Preparer(doc, etat);
 	NkGuiMonteur::Monter(ctx, doc, etat, m.rap, g_hooks);
 
@@ -2503,6 +2512,105 @@ int main(int argc, char **argv) {
 			   inc.rap.apparencesNonPeintes);
 		Check(inc.rap.apparencesNonPeintes > 0u,
 			  "   NEGATIF : un motif inconnu est COMPTE, pas remplace par un autre");
+	}
+
+	// =========================================================================
+	printf("\n-- P9 : `Slot` — les enfants de l'instance prennent leur place --\n");
+	// =========================================================================
+	//  🔴 CE QUE SON ABSENCE COUTAIT, ET C'ETAIT SILENCIEUX. Le patron REMPLACE
+	//     l'instance : les enfants ecrits SUR l'instance n'etaient reinjectes
+	//     nulle part, donc ils DISPARAISSAIENT — sans compteur, sans refus, sans
+	//     trace. Mesure du 27/09, en ecrivant `composants.nkgui` : la
+	//     specification demandait de signaler si le developpement ne le
+	//     permettait pas. Il ne le permettait pas.
+	{
+		// `Categorie` est le composant EXACT du §3.5 de la specification de
+		// NkAnimaEditor : un `Expander` dont le corps accueille des lignes.
+		static const char kSlot[] =
+			"nkgui 0.3\n"
+			"component \"Categorie\" {\n"
+			"  widgets {\n"
+			"    Expander \"categorie\" {\n"
+			"      label = \"?\"\n"
+			"      expanded = true\n"
+			"      Slot \"corps\" { }\n"
+			"    }\n"
+			"  }\n"
+			"}\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    Categorie \"transformation\" {\n"
+			"      label = \"Transformation\"\n"
+			"      Button \"anim.inserer\" { label = \"Inserer\" }\n"
+			"      Button \"anim.supprimer\" { label = \"Supprimer\" }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		const Montage av = MonterTexte(kSlot, (uint32)(sizeof(kSlot) - 1u), 320, 220);
+		Check(av.lu, "   le document a `Slot` se lit");
+		printf("        remplis=%u vides=%u sansSlot=%u inconnus=%u montes=%u\n",
+			   av.composants.slotsRemplis, av.composants.slotsVides,
+			   av.composants.enfantsSansSlot, av.rap.rolesInconnus, av.rap.montes);
+		CheckEq(av.composants.slotsRemplis, 1u, "   P9 : UN `Slot` rempli");
+		CheckEq(av.composants.enfantsSansSlot, 0u, "   et aucun enfant perdu");
+		// ⚠️ LE CRITERE QUI COMPTE EST `montes`, PAS LE COMPTEUR DE `Slot`. Les
+		//    deux boutons doivent EXISTER dans l'arbre monte : VBox + Expander +
+		//    2 boutons = 4. Avant P9 il y en avait 2 — et rien ne le disait.
+		Check(av.rap.montes >= 4u,
+			  "   LES DEUX ENFANTS SONT MONTES — l'accordeon porte ses lignes");
+		CheckEq(av.rap.rolesInconnus, 0u,
+				"   et `Slot` n'a pas survecu dans l'arbre (il ferait refuser le document)");
+
+		// ── LE NEGATIF : UN PATRON SANS `Slot` NE JETTE PLUS EN SILENCE ──
+		static const char kSansSlot[] =
+			"nkgui 0.3\n"
+			"component \"Categorie\" {\n"
+			"  widgets {\n"
+			"    Expander \"categorie\" { label = \"?\", expanded = true }\n"
+			"  }\n"
+			"}\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    Categorie \"transformation\" {\n"
+			"      label = \"Transformation\"\n"
+			"      Button \"anim.inserer\" { label = \"Inserer\" }\n"
+			"    }\n"
+			"  }\n"
+			"}\n";
+		const Montage sans = MonterTexte(kSansSlot, (uint32)(sizeof(kSansSlot) - 1u), 320, 220);
+		printf("        sans `Slot` : sansSlot=%u montes=%u\n",
+			   sans.composants.enfantsSansSlot, sans.rap.montes);
+		CheckEq(sans.composants.enfantsSansSlot, 1u,
+				"   NEGATIF : des enfants sans place sont COMPTES — la faute d'hier, nommee");
+		Check(!sans.composants.Propre(),
+			  "   et le rapport n'est PAS propre : des enfants ecrits puis jetes sont une PERTE");
+		Check(sans.composants.refuses.Size() > 0u, "   le refus est NOMME");
+		if (sans.composants.refuses.Size() > 0u)
+			printf("        refus : %s\n", sans.composants.refuses[0].CStr());
+
+		// ── UN `Slot` QUE PERSONNE NE REMPLIT DISPARAIT, ET SE COMPTE ────
+		static const char kVide[] =
+			"nkgui 0.3\n"
+			"component \"Categorie\" {\n"
+			"  widgets {\n"
+			"    Expander \"categorie\" { label = \"?\", expanded = true\n"
+			"      Slot \"corps\" { }\n"
+			"    }\n"
+			"  }\n"
+			"}\n"
+			"widgets {\n"
+			"  VBox \"colonne\" {\n"
+			"    Categorie \"vide\" { label = \"Vide\" }\n"
+			"  }\n"
+			"}\n";
+		const Montage vide = MonterTexte(kVide, (uint32)(sizeof(kVide) - 1u), 320, 160);
+		printf("        `Slot` non rempli : vides=%u inconnus=%u\n",
+			   vide.composants.slotsVides, vide.rap.rolesInconnus);
+		CheckEq(vide.composants.slotsVides, 1u, "   un `Slot` non rempli est COMPTE");
+		CheckEq(vide.rap.rolesInconnus, 0u,
+				"   et RETIRE — sinon un role inconnu ferait refuser tout le document");
+		Check(vide.composants.Propre(),
+			  "   mais le rapport reste PROPRE : une place facultative n'est pas une faute");
 	}
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
