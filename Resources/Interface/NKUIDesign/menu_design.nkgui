@@ -1,0 +1,148 @@
+nkgui 0.3
+
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+//
+// LE MENU « DESIGN » DE NKUIDesign, ET IL EST UNE DONNÉE.
+// Ajoutez une entrée ici, relancez : elle est dans la barre. Rien à compiler.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  IL S'AJOUTE, IL NE REMPLACE RIEN — et c'est une mesure, pas une intention
+// ═══════════════════════════════════════════════════════════════════════════
+//  Ce document est monté par `SetAppMenu`, qui est **additif** : la coquille
+//  appelle `mAppMenuFn` À L'INTÉRIEUR de sa propre barre
+//  (`NkEditorShell.cpp:3497`), après ses menus. La barre est DÉJÀ ouverte —
+//  y écrire un `MenuBar` en ouvrirait une seconde.
+//
+//  ⚠️ ET ON NE TOUCHE PAS À `SetMenuBar`. `NKUIDesign/main.cpp` y pose
+//     `DrawMenuBar` : 447 lignes qui portent AUSSI la récolte de la génération
+//     IA (« le seul rappel que la coquille appelle à CHAQUE image sans
+//     condition » — et une mesure du 14/09 a montré que mettre cette récolte
+//     dans le panneau IA la rendait inatteignable : « 0 image(s) pendant
+//     l'attente »). Remplacer cette barre par un document casserait l'attente
+//     de la génération et échangerait des menus déroulants contre une rangée
+//     plate. **On ne migre pas vers moins.**
+//
+//  ⚠️ `SetAppMenu` EST PRIS SOUS UN DRAPEAU DE SONDE (`--capture`,
+//     `--sonde-gel`, `--sonde-portes`, les mesures). Le branchement de ce
+//     document vit donc dans la branche `else` : une sonde garde la priorité,
+//     parce qu'elle mesure et qu'un menu ne mesure rien.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+//  L'IDENTIFIANT EST LE NOM DE L'ACTION
+// ═══════════════════════════════════════════════════════════════════════════
+//  La grammaire n'a pas de `on Pressed -> ...`. La convention de cet hôte est
+//  celle de la zone `Host` : l'identifiant du `MenuItem` EST le nom que la table
+//  d'actions de `main.cpp` doit servir. Un nom que personne ne sert est COMPTÉ
+//  (`actionsInconnues`) — un menu muet ne doit pas se faire prendre pour un menu
+//  qui marche.
+//
+//  ⚠️ ET LES NOMS CI-DESSOUS NE SONT PAS INVENTÉS : chacun est une commande que
+//     `RegisterCommand` sert déjà dans `main.cpp` (`CmdSave`, `CmdUndo`,
+//     `CmdVueHierarchie`…). Écrire un nom qu'aucune fonction ne porte aurait
+//     donné un menu qui s'affiche et ne fait rien — le mensonge exact que la
+//     règle « câbler, griser ou retirer » interdit.
+
+widgets {
+
+  Menu "menu_design" {
+    label = "Design"
+
+    MenuItem "design.enregistrer" {
+      label = "Enregistrer le document"
+      shortcut = "Ctrl+S"
+    }
+
+    MenuItem "design.recharger" {
+      label = "Recharger depuis le disque"
+    }
+
+    MenuItem "design.nouveau" {
+      label = "Nouveau document"
+    }
+
+    Separator "sep1" {}
+
+    MenuItem "design.annuler" {
+      label = "Annuler"
+      shortcut = "Ctrl+Z"
+    }
+
+    MenuItem "design.retablir" {
+      label = "Retablir"
+      shortcut = "Ctrl+Y"
+    }
+
+    Separator "sep2" {}
+
+    MenuItem "design.grouper" {
+      label = "Grouper la selection"
+      shortcut = "Ctrl+G"
+    }
+
+    MenuItem "design.degrouper" {
+      label = "Degrouper"
+      shortcut = "Ctrl+Maj+G"
+    }
+
+    MenuItem "design.dupliquer" {
+      label = "Dupliquer"
+      shortcut = "Ctrl+D"
+    }
+
+    Separator "sep3" {}
+
+    MenuItem "design.exporter" {
+      label = "Exporter..."
+    }
+  }
+
+  Menu "menu_vues" {
+    label = "Vues"
+
+    MenuItem "design.vue.hierarchie" {
+      label = "Hierarchie"
+      shortcut = "Ctrl+J"
+    }
+
+    MenuItem "design.vue.inspecteur" {
+      label = "Inspecteur"
+    }
+
+    // ⚠️ GRISÉES, PAS OMISES — et la raison est vérifiable. `CmdVuePalette`,
+    //    `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent
+    //    sous `#if NKUIDESIGN_ANCIENS_PANNEAUX` dans `main.cpp`, et ce drapeau
+    //    est éteint : les fonctions n'existent pas dans cette construction.
+    //
+    //    C'est la règle de NK3DModeler, tenue entrée par entrée : CÂBLER quand
+    //    la fonction existe, GRISER quand elle n'existe pas — avec sa raison
+    //    écrite ici — et RETIRER quand l'entrée n'a plus d'objet. *Une entrée
+    //    qui s'affiche et ne fait rien est un mensonge ; une entrée grisée est
+    //    une promesse datée.* Et omettre ferait croire que ces vues ne sont pas
+    //    prévues.
+    //
+    //    🔴 ET LA SONDE A ATTRAPÉ MA PREMIÈRE VERSION. Je les avais écrites
+    //       actives, et la table pointait sur quatre fonctions inexistantes : la
+    //       construction a refusé. Sans ce refus, un document les aurait
+    //       affichées et rien ne se serait passé à l'appui — le « menu muet »
+    //       exact que `--sonde-coquille` compte.
+    MenuItem "design.vue.palette" {
+      label = "Palette"
+      enabled = false
+    }
+
+    MenuItem "design.vue.composition" {
+      label = "Composition"
+      enabled = false
+    }
+
+    MenuItem "design.vue.proprietes" {
+      label = "Proprietes"
+      enabled = false
+    }
+
+    MenuItem "design.vue.preferences" {
+      label = "Preferences"
+      enabled = false
+    }
+  }
+}
