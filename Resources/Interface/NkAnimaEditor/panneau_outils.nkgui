@@ -23,19 +23,28 @@ nkgui 0.3
 // ═══════════════════════════════════════════════════════════════════════════
 //  LE DESIGN AUSSI VIENT D'ICI — ET VOICI CE QUI PEINT VRAIMENT
 // ═══════════════════════════════════════════════════════════════════════════
-//  MESURÉ dans `NkGuiMonteur.h` le 26/09, pas supposé :
+//  MESURÉ, pas supposé — et RÉVISÉ le 27/09, parce que trois de ces lignes
+//  étaient devenues fausses en une journée. *Un commentaire périmé se croit.*
 //
-//    `fill { color }`   PEINT sur `Button`, `RepeatButton`, `Panel`, `Window`
-//                       -- et SEULEMENT sur ces quatre. Ailleurs (`Text`,
-//                       `Group`, `HBox`...) c'est compté `apparencesNonPeintes`
-//                       (l. 1382) : la demande n'est ni tenue ni tue.
-//    `text { color }`   PEINT (l. 1630).
-//    `radius`           APPLIQUÉ (l. 944, 1451).
-//    `font = "..."`     ⚠️ COMPTÉ NON PEINT -- le monteur n'a qu'une fonte.
-//    `shadow` `stroke`  ⚠️ COMPTÉS NON PEINTS.
-//    `appearance(Hover)` et tout état hors repos
-//                       ⚠️ COMPTÉS `etatsNonAppliques` -- seul le REPOS se
-//                       monte, parce que le monteur n'a ni souris ni focus.
+//    `fill { color }`   PEINT PARTOUT (26/09). Une seule réserve, et elle est
+//                       comptée : un CONTENEUR EN FLUX (une `VBox` sans `pos`)
+//                       n'a pas de rectangle avant ses enfants — le peindre à
+//                       ce moment-là les recouvrirait.
+//    `text { color }`   PEINT, sur tout rôle qui écrit du texte, et PAR ÉTAT
+//                       (27/09). Avant, seul le `case Text` la lisait : le
+//                       bouton orange ci-dessous demandait une encre sombre et
+//                       rendait ZÉRO pixel de la couleur demandée.
+//    `radius`           APPLIQUÉ.
+//    `appearance(Hover)` et les autres états
+//                       PEINTS par la couche d'exécution (`NkGuiExecution`).
+//                       ⚠️ `etatsNonAppliques` n'est PAS une alarme : il compte
+//                       ce que le MONTEUR SEUL ne peut pas atteindre — il n'a
+//                       ni souris ni focus. C'est le contrôle « état survolé »
+//                       de la sonde qui les juge, et il les voit peints.
+//    `font = "..."`     ⚠️ COMPTÉ NON PEINT — le monteur n'a qu'une fonte.
+//    `shadow`           ⚠️ COMPTÉ NON PEINT — ce rastériseur n'a pas de flou.
+//    `stroke`           🟡 PEINT PAR ÉTAT seulement (`appearance(Focus)`…),
+//                       jamais au repos.
 //
 //  ⚠️ ET ON N'EN ABUSE PAS, POUR UNE RAISON QUI SE VOIT. La couleur par défaut
 //     vient du THÈME (GitHub Dark Pro / Light Pro). Une couleur écrite en dur

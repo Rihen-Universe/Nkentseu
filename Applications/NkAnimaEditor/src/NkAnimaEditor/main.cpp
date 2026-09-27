@@ -192,6 +192,58 @@ static void EcrireRasterPPM(const nkgui::NkGuiDrawListRaster &ras, const char *n
 	std::printf("    raster ecrit : %s (%dx%d)\n", chemin, (int)w, (int)h);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  COMBIEN D'ENTREES LE PREMIER MENU DECLARE-T-IL ?
+// ═══════════════════════════════════════════════════════════════════════════
+//  Lu dans l'ARCHIVE, pas dans le montage : c'est ce qui permet au critere du
+//  menu de comparer ce que le document DEMANDE a ce que le monteur en a FAIT.
+//  Compter les entrees montees et les comparer a elles-memes ne pourrait jamais
+//  rougir -- et l'ecart a deja ete paye une fois, une entree ayant DISPARU au
+//  remontage sans que rien ne le dise.
+//
+//  ⚠️ LE PREMIER MENU, ET C'EST ASSUME. La sonde n'en ouvre qu'un (celui que
+//     son clic atteint) ; compter les entrees de TOUS les menus donnerait un
+//     attendu qui ne correspond a rien de ce qui est mesure.
+//
+//  ⚠️ ET UN `Separator` N'EST PAS UNE ENTREE. Le monteur ne l'incremente pas
+//     dans `elementsMenu` : le compter ici rendrait les deux nombres
+//     incomparables par construction.
+static uint32 EntreesDuPremierMenu(const NkArchive &doc) {
+	const NkArchiveNode *racine = nkgui::NkGMonteCorps(doc);
+	if (!racine)
+		return 0u;
+	for (uint32 i = 0; i < (uint32)racine->array.Size(); ++i) {
+		if (!racine->array[i].IsObject() || !racine->array[i].object)
+			continue;
+		const NkArchive &sec = *racine->array[i].object;
+		if (!nkgui::NkGMotEgal(NkGuiArchive::TypeOf(sec), "widgets"))
+			continue;
+		const NkArchiveNode *corps = nkgui::NkGMonteCorps(sec);
+		if (!corps)
+			continue;
+		for (uint32 j = 0; j < (uint32)corps->array.Size(); ++j) {
+			if (!corps->array[j].IsObject() || !corps->array[j].object)
+				continue;
+			const NkArchive &bloc = *corps->array[j].object;
+			if (!nkgui::NkGMotEgal(NkGuiArchive::TypeOf(bloc), "Menu"))
+				continue;
+			const NkArchiveNode *entrees = nkgui::NkGMonteCorps(bloc);
+			if (!entrees)
+				return 0u;
+			uint32 n = 0u;
+			for (uint32 k = 0; k < (uint32)entrees->array.Size(); ++k) {
+				if (!entrees->array[k].IsObject() || !entrees->array[k].object)
+					continue;
+				if (nkgui::NkGMotEgal(NkGuiArchive::TypeOf(*entrees->array[k].object),
+									  "MenuItem"))
+					++n;
+			}
+			return n;
+		}
+	}
+	return 0u;
+}
+
 static int SondeCoquille(const char *dossier) {
 	nkgui::NkGuiFont police;
 	const bool policeOk = police.LoadEmbedded(NkEmbeddedFontId::DroidSans, 15.f, false);
@@ -698,11 +750,28 @@ static int SondeCoquille(const char *dossier) {
 			}
 		}
 		// LE CRITERE, ECRIT AVANT LA MESURE : le menu s'ouvre (1 sur 1), il monte
-		// SES SIX ENTREES, aucune hors menu, et l'ensemble peint.
-		const bool okMenu = m.lu && menusOuverts == 1u && itemsOuvert == 6u
-			&& m.rap.elementsMenuHorsMenu == 0u && contenuOuvert > 0u;
-		std::printf("  [ %s ] menu ouvert     ouverts=%u/%u items=%u horsmenu=%u contenu=%u\n",
-					okMenu ? "OK" : "KO", menusOuverts, m.rap.menus, itemsOuvert,
+		// TOUTES les entrees que le document lui declare, aucune hors menu, et
+		// l'ensemble peint.
+		//
+		// 🔴 IL Y AVAIT UN `6` ECRIT EN DUR, et c'etait la taille du premier menu
+		//    de NkAnimaEditor. Sur tout autre document il rougissait -- vu le
+		//    27/09 sur un dossier de demonstration dont le menu porte trois
+		//    entrees : le montage etait JUSTE et la sonde annoncait un echec.
+		//    *Un attendu en dur se perime, et il se perime en accusant.*
+		//
+		// ⚠️ LE NOMBRE SE LIT DANS L'ARCHIVE, PAS DANS LE MONTAGE. Compter les
+		//    entrees montees et les comparer a elles-memes ne pourrait jamais
+		//    rougir. Ici, un cote vient du DOCUMENT et l'autre de ce que le
+		//    monteur en a fait : c'est justement l'ecart qui a ete paye une fois
+		//    -- une entree de menu avait DISPARU au remontage sans que rien ne le
+		//    dise.
+		const uint32 declarees = EntreesDuPremierMenu(m.doc);
+		const bool okMenu = m.lu && menusOuverts == 1u && declarees > 0u
+			&& itemsOuvert == declarees && m.rap.elementsMenuHorsMenu == 0u
+			&& contenuOuvert > 0u;
+		std::printf("  [ %s ] menu ouvert     ouverts=%u/%u items=%u/%u declarees horsmenu=%u "
+					"contenu=%u\n",
+					okMenu ? "OK" : "KO", menusOuverts, m.rap.menus, itemsOuvert, declarees,
 					m.rap.elementsMenuHorsMenu, contenuOuvert);
 		if (!okMenu)
 			++rouges;

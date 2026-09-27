@@ -111,10 +111,21 @@ static void Liberer(Fichier &f) {
 	f.ok = false;
 }
 
+/// ⚠️ ELLE POSE LE SEPARATEUR QUAND IL MANQUE, et ca n'a pas toujours ete le
+///    cas. Avant le 27/09 c'etait une concatenation nue : juste pour `racine`
+///    (qui finit par `/`), collante pour `--png=dossier`. Les douze captures
+///    d'un lot sont ainsi parties dans `Build/` sous le nom
+///    `Preuves_UI_27-09b1_a_hover.png`. La trace « image ecrite : ... » disait
+///    VRAI -- c'est l'attente de l'appelant qui etait fausse, et une interface
+///    qui n'accepte qu'une seule graphie du meme chemin la fabrique.
 static void Joindre(char *out, uint32 taille, const char *a, const char *b) {
 	uint32 i = 0;
 	for (; a[i] && i + 1u < taille; ++i)
 		out[i] = a[i];
+	const bool aFinitParSep = (i > 0u && (out[i - 1u] == '/' || out[i - 1u] == '\\'));
+	const bool bCommenceParSep = (b[0] == '/' || b[0] == '\\');
+	if (i > 0u && !aFinitParSep && !bCommenceParSep && i + 1u < taille)
+		out[i++] = '/';
 	uint32 j = 0;
 	for (; b[j] && i + 1u < taille; ++j, ++i)
 		out[i] = b[j];
@@ -843,6 +854,7 @@ int main(int argc, char **argv) {
 				ComptePlusProchesDe(s.ras, r, encreRepos, ref.theme.text, 0xF79A28FFu, bord);
 			const uint32 auTheme =
 				ComptePlusProchesDe(s.ras, r, ref.theme.text, encreRepos, 0xF79A28FFu, bord);
+			s.Png("g1_encre_repos.png");
 			printf("        repos : %u px de libelle plus proches de l'encre du DOCUMENT, %u de "
 				   "celle du THEME\n",
 				   auDoc, auTheme);
@@ -858,6 +870,7 @@ int main(int argc, char **argv) {
 				ComptePlusProchesDe(s.ras, r, encreHover, encreRepos, 0xFFB055FFu, bord);
 			const uint32 hoverRepos2 =
 				ComptePlusProchesDe(s.ras, r, encreRepos, encreHover, 0xFFB055FFu, bord);
+			s.Png("g2_encre_survol.png");
 			printf("        survol : %u px de libelle plus proches de l'encre HOVER, %u de celle "
 				   "du REPOS\n",
 				   hoverDoc, hoverRepos2);
@@ -1026,6 +1039,7 @@ int main(int argc, char **argv) {
 			  "(b1.j) le document a accordeon se charge");
 		s.Image();
 		s.Image();
+		s.Png("j1_accordeon_deplie.png");
 		const uint32 deplie = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
 		printf("        deplie (expanded = true) : %u px de l'enfant\n", deplie);
 		Check(deplie > 0u, "(b1.j) l'accordeon ouvert par le document montre son contenu");
@@ -1062,6 +1076,7 @@ int main(int argc, char **argv) {
 			s.Image();
 			s.Image();
 			s.Image();
+			s.Png("j2_accordeon_plie.png");
 			const uint32 troisImagesPlusTard = ComptePixelsCouleur(s.ras, 0x1A7F37FFu);
 			printf("        trois images plus tard : %u px\n", troisImagesPlusTard);
 			CheckEqU(troisImagesPlusTard, 0u,
@@ -1111,6 +1126,7 @@ int main(int argc, char **argv) {
 		const bool a0 = s.RectTout("dialogue", r0);
 		Check(a0, "(b1.k) le rectangle de la fenetre sort du montage");
 		if (a0) {
+			s.Png("k1_fenetre_avant.png");
 			printf("        au repos : x=%.1f y=%.1f\n", (double)r0.x, (double)r0.y);
 			CheckEqF(r0.x, 40.f, 0.6f, "(b1.k) elle est ou le DOCUMENT la met (x = 40)");
 			CheckEqF(r0.y, 30.f, 0.6f, "(b1.k) ... et y = 30");
@@ -1154,6 +1170,7 @@ int main(int argc, char **argv) {
 			s.Image();
 			NkRect r2{0.f, 0.f, 0.f, 0.f};
 			s.RectTout("dialogue", r2);
+			s.Png("k2_fenetre_apres.png");
 			printf("        trois images apres le lacher : x=%.1f y=%.1f\n", (double)r2.x,
 				   (double)r2.y);
 			CheckEqF(r2.x, attX, 1.0f, "(b1.k) ELLE RESTE la ou on l'a lachee");
