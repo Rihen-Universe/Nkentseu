@@ -128,7 +128,17 @@ widgets "menu" {
     Menu "fichier.importer" {
       label = "Importer"
       MenuItem "fichier.importerComposant"  { label = "Composant…", enabled = false }
-      MenuItem "fichier.importerDocument"   { label = "Document…", enabled = false }
+      // 🔴 LA SEULE ENTRÉE ACTIVE DE CE SOUS-MENU, ET ELLE A ATTENDU UN CHAÎNON
+      //    QUI EXISTAIT. Rodolf, 28/09 : « je ne vois pas où et comment importer
+      //    des fichiers .nkgui ». Le lecteur `NkArchiveVersDocument` était écrit
+      //    et mesuré depuis le chantier A ; seule cette ligne manquait.
+      //
+      //    ⚠️ ET CE QU'ELLE IMPORTE N'EST PAS TOUT LE FICHIER. Le `.nkgui` porte
+      //       huit sections ; le modèle de l'éditeur n'en sait tenir qu'UNE
+      //       (`widgets`). `behavior`, `animation`, `controller`, `callback`,
+      //       `geometry`, `theme` restent dans le fichier et ne s'affichent pas —
+      //       l'import le DIT dans la barre d'état, il ne le tait pas.
+      MenuItem "fichier.importerDocument"   { label = "Document .nkgui…" }
       MenuItem "fichier.importerRessources" { label = "Ressources…", enabled = false }
     }
     MenuItem "design.exporter"           { label = "Exporter…", shortcut = "Ctrl+E" }
