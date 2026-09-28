@@ -63,6 +63,7 @@ ou en sculpt, est gardée et reportée quand l'automatique ou l'IA reprend la ma
 | `.nkscene` (Genia) : parties **nommées** (`partie <nom> forme …`), **modifiable à la main** en texte (« Rodolf peut corriger une valeur sans outil ») | ✅ texte ; ❌ pas d'éditeur dans l'application | `Tools/Genia/FORMAT_SCENE.md:50`, `NkModelerCreation.h` |
 | gabarits `personnage` et `creature` | ✅, mais **nombre de membres, de doigts, de pattes écrit en dur**, pas de mains | `Tools/Genia/gabarits/` |
 | régénérer depuis `.nkscene` | ⚠️ **écrase** toute retouche manuelle | `ETAT_REPRISE_GENIA3D.md:131-140` |
+| **taux de survie d'une retouche à une régénération** | **0 aujourd'hui** — conséquence directe de la ligne ci-dessus, et **c'est une mesure, pas une impression**. Le critère de G0 devient alors un *déplacement* (0 → survit à trois régénérations) au lieu d'une affirmation | `ETAT_REPRISE_GENIA3D.md:131-140` |
 | R32 (base régénérée + pile d'opérations rejouée, désignation par nom ou critère) | 📝 **conçu, pas codé** ; la sélection par critère n'existe pas | `FORMAT_SCENE.md` §8 |
 | retopologie à champ de directions | ⚠️ 26,9 % de sommets de valence 4 sur un personnage généré (98,3 % pour la référence du marché) | `NkMeshRetopo.*` |
 | sculpt par pinceaux | ✅ (sur `NkEditMesh`) | `Tools/MeshSculpt` |
@@ -208,6 +209,42 @@ de son indice :
   message (« la retouche sur `doigt_5_g` n'a plus de cible »).
 - **Symétrie** : l'adresse miroir s'obtient en remplaçant `_g` par `_d` et `a` par
   `1 − a`.
+### 3.2bis Ce qui CASSE une adresse — l'invariant, et ses limites
+
+Le §10 tout entier repose sur l'adresse. Il faut donc dire **à quelle condition**
+elle tient, et **dans quels cas elle ne peut pas** — sinon la limite se découvre en
+production, sur le travail de quelqu'un.
+
+**L'invariant.** Une adresse `(os, s, a)` survit à toute transformation qui préserve
+**trois choses** : le **nom** de l'os, son **paramétrage** (`s = 0` à sa racine,
+`s = 1` à son extrémité) et sa **référence d'orientation** (celle qui fixe `a = 0`).
+Tout ce qui laisse ces trois-là intacts — changer une longueur, une épaisseur, un
+profil, la résolution, le nombre d'anneaux — **reporte** la retouche. C'est le cas
+nominal, et il couvre la quasi-totalité des régénérations.
+
+**Les cinq cas où elle ne peut pas, par construction.**
+
+| ce qui change | pourquoi l'adresse tombe | ce que le système doit faire |
+|---|---|---|
+| l'os est **renommé** | la clé n'existe plus | proposer le report (l'ancien et le nouveau nom, à confirmer une fois) ; refusé ⇒ orpheline |
+| l'os est **coupé** en deux (une articulation insérée au milieu de la cuisse) | `cuisse_g` devient `cuisse_g_haut` + `cuisse_g_bas` : `s = 0,5` ne désigne plus rien | **report calculable** : le `s` d'origine tombe dans l'un des deux morceaux, et s'y renormalise. C'est le seul cas cassé qui se répare tout seul, et il doit l'être |
+| deux os **fusionnent** | l'inverse : deux `s = 0,5` visent le même point | report calculable de la même façon ; les collisions se signalent, elles ne se résolvent pas en silence |
+| la **référence d'orientation** change (l'os tourne sur lui-même) | `a` est mesuré depuis elle : tout tourne | 🔴 **le report est faux sans être détectable.** La référence doit donc être **gelée** à la création de l'os et **versionnée** : la changer est une opération explicite, qui prévient |
+| l'os **disparaît** | plus de cible | orpheline **montrée**, jamais effacée (§10.4) |
+
+⚠️ **LE QUATRIÈME CAS EST LE SEUL VRAIMENT DANGEREUX**, et c'est pour ça qu'il est
+écrit ici. Les quatre autres se voient : ou bien la cible manque, ou bien le report
+se calcule. Un changement de référence d'orientation, lui, **reporte à un endroit
+faux sans que rien ne le signale** — la retouche existe encore, elle est simplement
+au mauvais endroit autour de l'os. *Une perte silencieuse est pire qu'une perte.*
+
+**Ce qui se mesure** : pour chacun de ces cinq cas, un test qui construit la
+situation, régénère, et vérifie **soit** que la retouche est au bon endroit, **soit**
+qu'elle est orpheline et montrée. Aucun des cinq ne doit rendre « reportée » une
+retouche déplacée.
+
+---
+
 
 ---
 
@@ -890,10 +927,13 @@ les images par défaut des loueurs n'activent pas Vulkan (il faut
 
 | palier | contenu | critère de fin |
 |---|---|---|
-| **G0 — les fondations** | bogue GPU corrigé (§12.3) ; **R32 codé** : adresses, sélection par nom / critère / adresse, pile C3 rejouée, orphelines, déterminisme | B=24 apprend ; les tests R32.7 passent ; une corne extrudée à la main survit à trois régénérations |
+| **G0 — les fondations** | **R32 codé** : adresses, sélection par nom / critère / adresse, pile C3 rejouée, orphelines, déterminisme ; les **cinq cas** du §3.2bis | les tests R32.7 passent ; une corne extrudée à la main survit à trois régénérations ; **et le taux de survie part d'un zéro MESURÉ**, pas supposé (§1) |
+| | ⚠️ **LE BOGUE GPU N'EST PLUS ICI** (28/09). Il bloque l'**entraînement**, pas la géométrie : le lier à G0 faisait attendre G1 à G4 — du code que Rihen maîtrise, sans besoin d'aucun GPU d'entraînement — après la correction d'un défaut de dispatch Vulkan dont ils n'ont aucun besoin. Il devient **G4b**, juste avant G5. | — |
 | **G1 — tubes et capuchons** | `.nkscene` v2 (squelette, profils), tubes, boucles d'articulation, capuchons, miroir | un serpent et un bras à 3 articulations passent le §6 |
 | **G2 — jonctions** | portage de FEQ ; gabarits d'extrémité (main à n doigts, pied, aile, pince) ; repli B-Mesh | les terrestres du catalogue passent le §6 (dont dragon, 6 bras, 8 pattes) |
-| **G2b — tous les plans de corps** | fuseau, disque, radial, cloche, segmenté ; nageoires à rayons ; ailes à plumes et d'insecte ; tentacules souples ; semis ; greffe ; boucle | **le catalogue d'essai complet** passe le §6, marins, ailés et inventés compris |
+| **G2b — les plans de corps RÉGULIERS** | fuseau, disque, radial, cloche, segmenté | les marins et les segmentés du catalogue passent le §6 |
+| **G2c — les appendices** | nageoires à rayons ; ailes à plumes et d'insecte ; tentacules souples ; semis ; greffe ; boucle | les ailés et les inventés passent le §6 |
+| | ⚠️ **G2b ÉTAIT UN JALON DÉGUISÉ EN LIGNE DE TABLEAU** (28/09) : une douzaine de constructions topologiques distinctes, chacune avec ses pôles et ses règles de parité. Écrites d'un trait, elles auraient donné une étape sans fin dont personne n'aurait su dire où elle en était. | — |
 | **G3 — volumes, peau et sculpt** | **volumes du blockout** (formes, modes fondu / séparé / creusé, rayons de fusion) ; **pose de la peau** (§5.9) ; profils, styles, subdivision ; **couches de sculpt en repère local** ; intégrer / détacher ; verrous | les tests du §10.7 passent |
 | **G4 — rig et visage** | `NkSkeletonDef` depuis C0, poids par construction et par diffusion de chaleur, export vers NkAnimaEditor ; gabarits de tête, orbites, blendshapes FACS | chaque créature du catalogue se pose et s'anime dans NkAnimaEditor sans retouche de poids |
 | **G5 — l'IA de description et d'images** | grammaire v2 dans `NkModelerCreation` ; pont NKImage → NKData ; rendu synthétique ; encodeur d'images | « un dragon à 4 pattes, 2 ailes, 3 cornes » donne le bon compte de tout ; une planche de face et de profil donne une silhouette à IoU ≥ 0,85 |
