@@ -463,6 +463,46 @@ namespace nkentseu {
 			static bool WriteAllBytes(const NkPath &path, const NkVector<nk_uint8> &data);
 
 			// -------------------------------------------------------------
+			//  AJOUT EN FIN DE FICHIER (2026-09-28)
+			// -------------------------------------------------------------
+			//  Rodolf : « implémente cet ajout dans nkfile ».
+			//
+			//  🔴 LE MODE EXISTAIT, PAS LA PORTE. `NkFileMode::NK_APPEND` et
+			//     `NK_APPEND_BINARY` sont déclarés en tête de ce fichier depuis
+			//     toujours, et `Open()` les honore — mais aucun raccourci ne les
+			//     employait. Conséquence mesurée le 28/09 : un site de NKUIDesign
+			//     qui voulait tracer une ligne rouvrait un `fopen(…, "ab")` à la
+			//     main, hors du système de fichiers de la maison.
+			//
+			//  ⚠️ L'AJOUT N'EST PAS « LIRE PUIS RÉÉCRIRE ». Le contournement
+			//     évident — `ReadAllText`, concaténer, `WriteAllText` — recopie
+			//     tout le fichier à chaque ligne (coût quadratique), et surtout il
+			//     PERD les octets qu'un autre écrivain aurait ajoutés entre la
+			//     lecture et l'écriture. Le mode « a » du système écrit à la fin
+			//     telle qu'elle est AU MOMENT de l'écriture.
+			//
+			//  ⚠️ CRÉE LE FICHIER S'IL MANQUE — c'est la sémantique du mode « a »,
+			//     et c'est ce qu'un journal attend de sa première ligne.
+
+			/// Ajoute du texte À LA FIN d'un fichier (le crée s'il manque).
+			/// @param path Chemin du fichier en format C-string
+			/// @param text Contenu à ajouter en format C-string
+			/// @return true si l'ajout a réussi, false sinon
+			static bool AppendAllText(const char *path, const char *text);
+
+			/// Ajoute du texte à la fin (version NkPath/NkString).
+			static bool AppendAllText(const NkPath &path, const NkString &text);
+
+			/// Ajoute des octets À LA FIN d'un fichier binaire (le crée s'il manque).
+			/// @param path Chemin du fichier en format C-string
+			/// @param data Données à ajouter
+			/// @return true si l'ajout a réussi, false sinon
+			static bool AppendAllBytes(const char *path, const NkVector<nk_uint8> &data);
+
+			/// Ajoute des octets à la fin (version NkPath).
+			static bool AppendAllBytes(const NkPath &path, const NkVector<nk_uint8> &data);
+
+			// -------------------------------------------------------------
 			// SOUS-SECTION 2.3.12 : Support des assets Android (read-only)
 			// -------------------------------------------------------------
 			// Sur Android, les fichiers du dossier `assets/` de l'APK ne sont

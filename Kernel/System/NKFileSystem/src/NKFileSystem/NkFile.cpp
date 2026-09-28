@@ -1054,6 +1054,55 @@ namespace nkentseu {
 		return WriteAllBytes(path.CStr(), data);
 	}
 
+	// =========================================================================
+	//  AJOUT EN FIN DE FICHIER (2026-09-28) — cf. la note du .h
+	// =========================================================================
+	//  ⚠️ LE MODE FAIT TOUT LE TRAVAIL, ET C'EST POURQUOI CES FONCTIONS SONT SI
+	//     COURTES : `NK_APPEND` se traduit par « a », qui CRÉE le fichier s'il
+	//     manque et place chaque écriture à la fin telle qu'elle est à cet
+	//     instant. Aucun `Seek` n'est nécessaire — en ajouter un serait même
+	//     FAUX : entre le `Seek` et le `Write`, un autre écrivain pourrait avoir
+	//     allongé le fichier, et on écraserait sa ligne.
+	bool NkFile::AppendAllText(const char *path, const char *text) {
+		if (!path || !text) {
+			return false;
+		}
+		NkFile file(path, NkFileMode::NK_APPEND);
+		if (!file.IsOpen()) {
+			return false;
+		}
+		const usize len = strlen(text);
+		// ⚠️ AJOUTER UNE CHAÎNE VIDE EST UN SUCCÈS : le fichier existe désormais,
+		//    ce qui est exactement ce qu'on a demandé. Rendre faux ferait croire
+		//    à une panne d'écriture là où il ne s'est rien passé.
+		if (len == 0u) {
+			return true;
+		}
+		return file.Write(text, len) == len;
+	}
+
+	bool NkFile::AppendAllText(const NkPath &path, const NkString &text) {
+		return AppendAllText(path.CStr(), text.CStr());
+	}
+
+	bool NkFile::AppendAllBytes(const char *path, const NkVector<nk_uint8> &data) {
+		if (!path) {
+			return false;
+		}
+		NkFile file(path, NkFileMode::NK_APPEND_BINARY);
+		if (!file.IsOpen()) {
+			return false;
+		}
+		if (data.Size() == 0u) {
+			return true;
+		}
+		return file.Write(data.Data(), data.Size()) == data.Size();
+	}
+
+	bool NkFile::AppendAllBytes(const NkPath &path, const NkVector<nk_uint8> &data) {
+		return AppendAllBytes(path.CStr(), data);
+	}
+
 } // namespace nkentseu
 
 // =============================================================================
