@@ -1233,6 +1233,59 @@ static void CmdQuit(void *user) {
 //     droit dessus fait un nom de moins a tenir d'accord. Et ce sont les MEMES
 //     fonctions que `RegisterCommand` sert — un menu du document et la palette de
 //     commandes ne peuvent donc pas divergerr sur ce que fait une action.
+// ═══════════════════════════════════════════════════════════════════════════
+//  LES ONZE ACTIONS QUE LA BARRE DE MENUS ENTIERE A AMENEES (28/09/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//  Rodolf : « passe tous les menus a .nkgui ». Les 447 lignes de `DrawMenuBar`
+//  sont devenues un document ; ses entrees cablees ont besoin d'un nom dans
+//  cette table, sinon elles seraient MUETES -- et la sonde les compte.
+//
+//  ⚠️ LA MEME GARDE QUE LEURS AINEES : rien pendant une saisie. Sans elle,
+//     taper « x » dans un champ de renommage supprimerait la selection.
+static void CmdCouper(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.CouperSelection();
+}
+static void CmdCopier(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.CopierSelection();
+}
+static void CmdColler(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.CollerPressePapiers();
+}
+static void CmdSupprimer(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.SupprimerSelection();
+}
+static void CmdToutSelectionner(void *) {
+	if (gDesign.SaisieOuverte())
+		return;
+	gDesign.ToutSelectionner();
+}
+static void CmdDeselectionner(void *) {
+	gDesign.SelectClear();
+}
+/// ⚠️ UNE BASCULE, PAS UNE POSE. La coche du menu LIT `aimantActif` (le
+///    controleur l'ecrit chaque image) ; l'action l'INVERSE. Poser `true` ici
+///    ferait un menu qui ne sait qu'allumer.
+static void CmdMagnetisme(void *) {
+	gDesign.aimantActif = !gDesign.aimantActif;
+}
+static void CmdZoneSure(void *) {
+	gDesign.zoneSure = !gDesign.zoneSure;
+}
+static void CmdRapportTransposition(void *) {
+	gDesign.rapportTransposition = true;
+}
+static void CmdChatIA(void *) {
+	OuvrirTiroirIA();
+}
+
 static const nkgui::NkActionNommee gActionsDocument[] = {
 	{"design.enregistrer", &CmdSave, nullptr},
 	{"design.recharger", &CmdLoad, nullptr},
@@ -1245,6 +1298,22 @@ static const nkgui::NkActionNommee gActionsDocument[] = {
 	{"design.exporter", &CmdExporter, nullptr},
 	{"design.vue.hierarchie", &CmdVueHierarchie, nullptr},
 	{"design.vue.inspecteur", &CmdVueInspecteur, nullptr},
+	// ── LA BARRE DE MENUS ENTIERE (28/09) ────────────────────────────────
+	// ⚠️ `design.quitter` PREND LA COQUILLE EN `user`, pas nullptr : `CmdQuit`
+	//    appelle `RequestClose()` sur elle. Avec nullptr il ne ferait RIEN -- une
+	//    entree « Quitter » qui ne quitte pas, et que la sonde compterait comme
+	//    servie. Le `user` est pose a l'enregistrement, plus bas.
+	{"design.quitter", &CmdQuit, nullptr},
+	{"design.couper", &CmdCouper, nullptr},
+	{"design.copier", &CmdCopier, nullptr},
+	{"design.coller", &CmdColler, nullptr},
+	{"design.supprimer", &CmdSupprimer, nullptr},
+	{"design.toutSelectionner", &CmdToutSelectionner, nullptr},
+	{"design.deselectionner", &CmdDeselectionner, nullptr},
+	{"design.magnetisme", &CmdMagnetisme, nullptr},
+	{"design.zoneSure", &CmdZoneSure, nullptr},
+	{"design.rapportTransposition", &CmdRapportTransposition, nullptr},
+	{"design.chatIA", &CmdChatIA, nullptr},
 	// 🔴 QUATRE NOMS N'Y SONT PAS, ET LA CONSTRUCTION ME L'A APPRIS.
 	//    `CmdVuePalette`, `CmdVueComposition`, `CmdVueProprietes` et
 	//    `CmdVuePreferences` vivent sous `#if NKUIDESIGN_ANCIENS_PANNEAUX`, qui est
@@ -1929,6 +1998,126 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 	++t;
 }
 
+/// LE DOCUMENT D'INTERFACE, AU FICHIER — et plus dans une fonction.
+///
+/// ⚠️ IL ETAIT UN `static` LOCAL A L'INSTALLATION DE LA COQUILLE, donc invisible
+///    d'ici. Depuis que la barre de menus vient du document (28/09), `DrawMenuBar`
+///    doit le monter : il monte donc d'un cran. Sa duree de vie ne change pas --
+///    un `static` de fonction et un `static` de fichier vivent tous deux jusqu'a
+///    la fin du programme -- seule sa PORTEE s'elargit.
+static nkuidesign::NkCoquilleDocument gCoquilleDoc;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  LES QUATRE LISTES QUE LE FORMAT NE SAIT PAS DIRE (28/09/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//  Le document declare `Host "design.menu.backends"` et ses trois soeurs ; ces
+//  fonctions les remplissent. C'est la frontiere : **le document dit OU, ces
+//  quatre-la disent QUOI**.
+//
+//  ⚠️ POURQUOI ELLES NE SONT PAS DANS LE DOCUMENT. Chacune enumere quelque chose
+//     qui n'existe qu'a l'execution : les API disponibles, les themes installes,
+//     les panneaux reellement enregistres, les langues declarees par le document
+//     ouvert. **Le format ne sait pas exprimer une liste engendree** -- et une
+//     liste ecrite a la main mentirait des qu'un theme serait depose dans le
+//     dossier personnel, ou des qu'un panneau serait debranche. C'est
+//     exactement ce qui vient d'arriver aux quatre anciens panneaux.
+//
+//  📌 ET CE N'EST PAS LEUR FORME DEFINITIVE. Rodolf, 28/09 : « on peut creer des
+//     composants qui sont appeles programmatiquement, car un document est
+//     constitue de plusieurs composants, plusieurs pages ». Il a raison, et c'est
+//     mieux qu'un trou : un `Host` est une zone que l'application peint a la
+//     main ; un COMPOSANT PARAMETRE serait un gabarit qu'elle repete, et la liste
+//     redeviendrait du document. Le format n'en est pas la -- ses composants
+//     n'ont pas de parametres et rien ne les instancie depuis le C++ -- et trois
+//     applications ont deja nomme ce manque.
+static bool ZoneMenuBackends(NkGuiContext &ctx, const NkRect &, void *) {
+	uint32 nApis = 0;
+	const char *const *apis = nkuidesign::NkGfxApiNames(nApis);
+	for (uint32 i = 0; i < nApis; ++i) {
+		// ⚠️ LA COCHE MARQUE CE QUE LE FICHIER PORTE, PAS CE QUI TOURNE. Sur un
+		//    lancement `--gfx=vulkan` avec un fichier qui dit `dx11`, cocher
+		//    `vulkan` ferait croire que le fichier a change.
+		const bool courant = !gDesign.cfgChoice.Empty()
+							 && NkComponentDecl::StrEq(gDesign.cfgChoice.Data(), apis[i]);
+		if (nkgui::MenuItem(ctx, apis[i], nullptr, true, courant)) {
+			const bool ok = gDesign.SetGfxConfig(apis[i]);
+			// LE RESULTAT SE DIT, ET LE REDEMARRAGE AUSSI : sans cette phrase,
+			// l'utilisateur regle, ne voit rien changer, et croit que rien n'a
+			// ete ecrit.
+			if (gShell)
+				gShell->SetFooter(ok ? "gfx écrit dans nkuidesign.cfg, actif au PROCHAIN "
+									   "lancement — "
+									 : "ÉCHEC d'écriture : rien n'a été modifié — ",
+								  apis[i]);
+		}
+	}
+	return true;
+}
+
+static bool ZoneMenuThemes(NkGuiContext &ctx, const NkRect &, void *) {
+	for (uint32 i = 0; i < gThemes.Count(); ++i) {
+		const bool courant = (i == gThemes.CurrentIndex());
+		if (nkgui::MenuItem(ctx, gThemes.At(i).Name().CStr(), nullptr, true, courant))
+			AppliquerTheme(i);
+	}
+	nkgui::Separator(ctx);
+	(void)nkgui::MenuItem(ctx, "Système", nullptr, false);
+	return true;
+}
+
+static bool ZoneMenuPanneaux(NkGuiContext &ctx, const NkRect &, void *) {
+	// La coquille les liste ELLE-MEME : une liste ecrite ici mentirait des le
+	// premier panneau debranche.
+	if (gShell)
+		gShell->DrawPanelsMenuItems();
+	return true;
+}
+
+static bool ZoneMenuLangues(NkGuiContext &ctx, const NkRect &, void *) {
+	const bool principale = gDesign.langueActive.Empty();
+	if (nkgui::MenuItem(ctx, "Principale (texte)", nullptr, true, principale))
+		gDesign.langueActive = NkString();
+	for (uint32 li = 0; li < (uint32)gDesign.doc.langues.Size(); ++li) {
+		const char *code = gDesign.doc.langues[li].Data();
+		const bool active = !principale
+							&& NkComponentDecl::StrEq(gDesign.langueActive.Data(), code);
+		if (nkgui::MenuItem(ctx, code, nullptr, true, active))
+			gDesign.langueActive = NkString(code);
+	}
+	nkgui::Separator(ctx);
+	static const char *const kLangues[3] = {"en", "es", "de"};
+	for (int32 la = 0; la < 3; ++la) {
+		bool deja = false;
+		for (uint32 li = 0; li < (uint32)gDesign.doc.langues.Size(); ++li)
+			if (NkComponentDecl::StrEq(gDesign.doc.langues[li].Data(), kLangues[la]))
+				deja = true;
+		if (deja)
+			continue;
+		const NkString lib = NkString::Format("Ajouter « %s »", kLangues[la]);
+		if (nkgui::MenuItem(ctx, lib.CStr())) {
+			gDesign.doc.langues.PushBack(NkString(kLangues[la]));
+			gDesign.doc.MarkHumanEdit(0);
+			gDesign.langueActive = NkString(kLangues[la]);
+			gDesign.status = NkString("Langue ajoutée au document — les textes non traduits "
+									  "s'affichent atténués (voir le Rapport).");
+		}
+	}
+	return true;
+}
+
+/// La table des zones, LUE PAR LE MONTEUR quand il rencontre un `Host`.
+/// ⚠️ LES NOMS DOIVENT S'ECRIRE A L'IDENTIQUE ICI ET DANS LE DOCUMENT. Une faute
+///    de frappe ne fait pas d'erreur : la zone se hachure, avec son nom. C'est
+///    exactement pour ca que le marqueur le NOMME.
+static const nkgui::NkZoneNommee gZonesDocument[] = {
+	{"design.menu.backends", &ZoneMenuBackends, nullptr},
+	{"design.menu.themes", &ZoneMenuThemes, nullptr},
+	{"design.menu.panneaux", &ZoneMenuPanneaux, nullptr},
+	{"design.menu.langues", &ZoneMenuLangues, nullptr},
+};
+static const uint32 gNbZonesDocument =
+	(uint32)(sizeof(gZonesDocument) / sizeof(gZonesDocument[0]));
+
 static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	InjecterClics(ec.Ui());
 	// ⚠️ LA RECOLTE DE LA GENERATION EST ICI, ET PAS DANS LE PANNEAU IA.
@@ -2003,378 +2192,75 @@ static void DrawMenuBar(NkEditorFrameContext &ec, void *) {
 	//       au-dela de son domaine. L'interface d'un produit francophone porte
 	//       ses accents.
 
-	if (BeginMenu(ctx, "Fichier")) {
-		if (MenuItem(ctx, "Nouveau projet…", "Ctrl+N"))
-			CmdNew(nullptr);
-		MenuItem(ctx, "Ouvrir…", "Ctrl+O", false);
-		if (BeginMenu(ctx, "Ouvrir récent")) {
-			MenuItem(ctx, "(aucun projet récent)", nullptr, false);
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Fermer le projet", "Ctrl+W", false);
-		Separator(ctx);
-		if (MenuItem(ctx, "Enregistrer", "Ctrl+S"))
-			CmdSave(nullptr);
-		MenuItem(ctx, "Enregistrer sous…", "Ctrl+Maj+S", false);
-		MenuItem(ctx, "Enregistrer tout", "Ctrl+Alt+S", false);
-		if (MenuItem(ctx, "Revenir à la version enregistrée"))
-			CmdLoad(nullptr);
-		Separator(ctx);
-		if (BeginMenu(ctx, "Importer")) {
-			MenuItem(ctx, "Composant…", nullptr, false);
-			MenuItem(ctx, "Document…", nullptr, false);
-			MenuItem(ctx, "Ressources…", nullptr, false);
-			EndMenu(ctx);
-		}
-		// ④ UNE SEULE ENTREE, UN SEUL DIALOGUE (2026-09-05). Le sous-menu portait NEUF
-		//    combinaisons (page x1/x2/x3, selection x1/x2, SVG, SVG embarque...) : chacune
-		//    etait un chemin, et le format ne se demandait nulle part. Rodolf : « les deux
-		//    raccourcis, clic droit et Ctrl+E, doivent demander le format, peut-etre
-		//    directement dans le dialogue approprie. » Le menu, le raccourci et le clic droit
-		//    ouvrent DESORMAIS le meme dialogue -- et Ctrl+E n'est declare qu'une fois (la
-		//    table de commandes de la coquille), la lecon de Ctrl+D du matin.
-		if (MenuItem(ctx, "Exporter…", "Ctrl+E"))
-			nkuidesign::NkOuvrirDialogueExport(gDesign, !gDesign.sel.Empty() || gDesign.selected > 0);
-		MenuItem(ctx, "Document .nkgui", nullptr, false);
-		MenuItem(ctx, "Valider le document", "Ctrl+Maj+V", false);
-		Separator(ctx);
-		// ⚠️ LE CHOIX DU BACKEND, ET IL NE DEPEND PLUS D AUCUN PANNEAU.
-		//    C'est la seule chose qui devait etre finie AVANT de debrancher le
-		//    panneau de droite : le selecteur y vivait, et le retirer sans
-		//    remplacant aurait fait perdre la capacite exigee par la regle du
-		//    depot (« toute application doit laisser choisir son backend, et un
-		//    reglage se change DEPUIS L INTERFACE »).
-		//    ⚠️ Il passe par `DesignState::SetGfxConfig` -- la MEME fonction que
-		//       le panneau appelait. Deux ecritures auraient diverge, et un choix
-		//       fait ici ne se serait pas vu la-bas.
-		if (BeginMenu(ctx, "Backend graphique")) {
-			uint32 nApis = 0;
-			const char *const *apis = nkuidesign::NkGfxApiNames(nApis);
-			for (uint32 i = 0; i < nApis; ++i) {
-				// ⚠️ LA COCHE MARQUE CE QUE LE FICHIER PORTE, pas ce qui tourne.
-				//    Sur un lancement `--gfx=vulkan` avec un fichier qui dit
-				//    `dx11`, cocher `vulkan` ferait croire que le fichier a
-				//    change. Le pied de fenetre, lui, annonce le redemarrage.
-				const bool courant = !gDesign.cfgChoice.Empty()
-									 && NkComponentDecl::StrEq(gDesign.cfgChoice.Data(), apis[i]);
-				if (MenuItem(ctx, apis[i], nullptr, true, courant)) {
-					const bool ok = gDesign.SetGfxConfig(apis[i]);
-					// ⚠️ LE RESULTAT SE DIT, PAS L APPEL, et le REDEMARRAGE est
-					//    annonce (regle du 18/08 : « ce qui implique un
-					//    redemarrage le DIT »). Sans cette phrase, l'utilisateur
-					//    regle, ne voit rien changer, et croit que rien n'a ete
-					//    ecrit.
-					if (gShell)
-						gShell->SetFooter(ok ? "gfx écrit dans nkuidesign.cfg, actif au "
-											   "PROCHAIN lancement — "
-											 : "ÉCHEC d'écriture : rien n'a "
-											   "été modifié — ",
-										  apis[i]);
-				}
+	// ═══════════════════════════════════════════════════════════════════════
+	//  LES NEUF MENUS VIENNENT DU DOCUMENT (28/09/2026)
+	// ═══════════════════════════════════════════════════════════════════════
+	//  Rodolf : « passe tous les menus a .nkgui ». Les 372 lignes de `BeginMenu`
+	//  qui etaient ici sont devenues `Resources/Interface/NKUIDesign/Interface.nkgui`,
+	//  racine `menu` : neuf menus, 121 entrees, 34 servies, 99 grisees, ZERO muette.
+	//
+	//  🔴 ET C'EST ICI, PAS DANS `SetAppMenu`, QUE CA SE MONTE -- c'est la cause du
+	//     MENU DOUBLE que Rodolf a vu (« on voit bien deux panneaux qui se
+	//     devoilent »). `SetAppMenu` n'est PAS un crochet « dessine tes menus »
+	//     malgre son nom : `NkEditorShell.cpp` l'appelle a TROIS endroits par image
+	//     (1199, 3451, 3461), parce qu'il sert de tick pour poser les drapeaux
+	//     `appFullScreen` / `appModal`. Une racine de menu montee la se dessinait
+	//     donc plusieurs fois. `SetMenuBar` -- ou nous sommes -- est appele UNE fois.
+	//
+	//  ⚠️ ET LE RESTE DE CETTE FONCTION NE BOUGE PAS. Elle porte aussi la recolte
+	//     de la generation IA : « le seul rappel appele a CHAQUE image sans
+	//     condition », et une mesure du 14/09 a montre que la deplacer dans le
+	//     panneau IA la rendait inatteignable (« 0 image pendant l'attente »).
+	//     On retire les menus, pas la fonction.
+	// ═══════════════════════════════════════════════════════════════════════
+	//  L'ETAT DYNAMIQUE, POSE PAR LE CONTROLEUR — avant le montage
+	// ═══════════════════════════════════════════════════════════════════════
+	//  🔴 LE FORMAT NE SAIT PAS LIRE UNE VALEUR DE L'APPLICATION, et c'est un
+	//     manque reel. Mais l'inverse fonctionne : l'hote ECRIT dans la table
+	//     d'etat du monteur, et le montage la lit. C'est exactement le MVC que
+	//     Rodolf decrit -- le document est la VUE, ceci est le CONTROLEUR.
+	//
+	//  ⚠️ SANS CES LIGNES, LES GRISES MENTENT. Un « Coller » cliquable avec un
+	//     presse-papiers vide est un parametre declare qui n'est pas honore --
+	//     et un `enabled` ecrit en dur dans le document serait faux des la
+	//     deuxieme image.
+	//
+	//  ⚠️ ET `activiteDite` / `initialise` NE SONT PAS DU DECOR : sans le drapeau,
+	//     le monteur ne saurait pas distinguer « l'hote a dit actif » de
+	//     « personne n'a rien dit », et le document reprendrait la main.
+	{
+		auto poser = [&](const char *cle, bool actif) {
+			if (nkgui::NkGuiMonteEtat::Entree *e =
+					gCoquilleDoc.bande.etat.Get(NkStringView(cle))) {
+				e->actif = actif;
+				e->activiteDite = true;
 			}
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Préférences…", "Ctrl+,", false);
-		Separator(ctx);
-		if (MenuItem(ctx, "Quitter", "Ctrl+Q"))
-			CmdQuit(gShell);
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "Édition")) {
-		// CÂBLÉS depuis l'annulation unifiée (§7) — grisés quand la pile est
-		// vide de leur côté, comme partout.
-		if (MenuItem(ctx, "Annuler", "Ctrl+Z", gDesign.histoire.PeutAnnuler()))
-			CmdUndo(nullptr);
-		if (MenuItem(ctx, "Rétablir", "Ctrl+Y", gDesign.histoire.PeutRetablir()))
-			CmdRedo(nullptr);
-		Separator(ctx);
-		// ── CÂBLÉS (01/09) — le geste vit dans DesignState, le menu et le
-		//    clavier l'appellent tous deux. ⚠️ GRISÉS SUR L'ÉTAT RÉEL, pas
-		//    « toujours actifs » : un « Coller » cliquable avec un
-		//    presse-papiers vide est un paramètre déclaré qui n'est pas honoré.
+		};
+		auto cocher = [&](const char *cle, bool coche) {
+			if (nkgui::NkGuiMonteEtat::Entree *e =
+					gCoquilleDoc.bande.etat.Get(NkStringView(cle))) {
+				e->b = coche;
+				e->initialise = true;
+			}
+		};
 		const bool aSel = !gDesign.sel.Empty() && !gDesign.sel.Contains(0);
-		if (MenuItem(ctx, "Couper", "Ctrl+X", aSel))
-			gDesign.CouperSelection();
-		if (MenuItem(ctx, "Copier", "Ctrl+C", aSel))
-			gDesign.CopierSelection();
-		if (MenuItem(ctx, "Coller", "Ctrl+V", gDesign.pressePapiersPlein))
-			gDesign.CollerPressePapiers();
-		MenuItem(ctx, "Coller à la même place", "Ctrl+Maj+V", false);
-		MenuItem(ctx, "Coller le style seul", "Ctrl+Alt+V", false);
-		if (MenuItem(ctx, "Dupliquer", "Ctrl+D", aSel))
-			gDesign.DupliquerSelection();
-		if (MenuItem(ctx, "Supprimer", "Suppr", aSel))
-			gDesign.SupprimerSelection();
-		Separator(ctx);
-		if (MenuItem(ctx, "Tout sélectionner", "Ctrl+A"))
-			gDesign.ToutSelectionner();
-		MenuItem(ctx, "Sélectionner tous les éléments du même rôle", nullptr, false);
-		if (MenuItem(ctx, "Désélectionner", "Échap"))
-			gDesign.SelectClear();
-		Separator(ctx);
-		MenuItem(ctx, "Rechercher…", "Ctrl+F", false);
-		MenuItem(ctx, "Remplacer une propriété…", "Ctrl+H", false);
-		MenuItem(ctx, "Renommer", "F2", false);
-		EndMenu(ctx);
+		poser("design.annuler", gDesign.histoire.PeutAnnuler());
+		poser("design.retablir", gDesign.histoire.PeutRetablir());
+		poser("design.couper", aSel);
+		poser("design.copier", aSel);
+		poser("design.coller", gDesign.pressePapiersPlein);
+		poser("design.dupliquer", aSel);
+		poser("design.supprimer", aSel);
+		poser("design.grouper", aSel);
+		// Degrouper demande un conteneur QUI A DES ENFANTS -- le grise DIT la
+		// condition, et elle n'est pas la meme que celle de Grouper.
+		poser("design.degrouper",
+			  gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0
+				  && !gDesign.doc.nodes[(uint32)gDesign.selected].children.Empty());
+		cocher("design.magnetisme", gDesign.aimantActif);
+		cocher("design.zoneSure", gDesign.zoneSure);
 	}
-
-	if (BeginMenu(ctx, "Affichage")) {
-		MenuItem(ctx, "Zoom avant", "Ctrl++", false);
-		MenuItem(ctx, "Zoom arrière", "Ctrl+-", false);
-		MenuItem(ctx, "Zoom 100 %", "Ctrl+0", false);
-		MenuItem(ctx, "Ajuster à la sélection", "Maj+2", false);
-		MenuItem(ctx, "Ajuster à la page", "Maj+1", false);
-		Separator(ctx);
-		MenuItem(ctx, "Grille", "Ctrl+'", false, true);
-		// CÂBLÉ (01/09) : la coche LIT l'état réel. ⚠️ Elle était posée à `true`
-		// en dur — une case toujours cochée à côté d'un aimant qui ne faisait
-		// rien : exactement le « paramètre déclaré qui n'est pas honoré » que ce
-		// dépôt a mesuré huit fois cette semaine.
-		if (MenuItem(ctx, "Magnétisme", "Ctrl+;", true, gDesign.aimantActif))
-			gDesign.aimantActif = !gDesign.aimantActif;
-		MenuItem(ctx, "Règles", nullptr, false, false);
-		MenuItem(ctx, "Repères intelligents", nullptr, false, true);
-		Separator(ctx);
-		MenuItem(ctx, "Marges et remplissage", nullptr, false, true);
-		MenuItem(ctx, "Régions de fenêtre", nullptr, false, false);
-		MenuItem(ctx, "Éléments désactivés par héritage", nullptr, false, false);
-		Separator(ctx);
-		if (BeginMenu(ctx, "Mode")) {
-			MenuItem(ctx, "Design", "Ctrl+1", false, true);
-			MenuItem(ctx, "Behavior", "Ctrl+2", false);
-			MenuItem(ctx, "Animation", "Ctrl+3", false);
-			MenuItem(ctx, "Split", "Ctrl+4", false);
-			EndMenu(ctx);
-		}
-		// ⚠️ LA LISTE VIENT DE LA BIBLIOTHEQUE, PAS D UNE TABLE ECRITE ICI.
-		//    Une liste en dur afficherait aujourd'hui les bons noms sans lire
-		//    quoi que ce soit -- et n'afficherait pas le theme que l'utilisateur
-		//    deposera demain dans son dossier personnel.
-		if (BeginMenu(ctx, "Thème")) {
-			for (uint32 i = 0; i < gThemes.Count(); ++i) {
-				const bool courant = (i == gThemes.CurrentIndex());
-				if (MenuItem(ctx, gThemes.At(i).Name().CStr(), nullptr, true, courant))
-					AppliquerTheme(i);
-			}
-			Separator(ctx);
-			MenuItem(ctx, "Système", nullptr, false);
-			EndMenu(ctx);
-		}
-		// LES PANNEAUX REELLEMENT ENREGISTRES -- la coquille les liste elle-meme.
-		// ⚠️ Une liste ecrite a la main ici mentirait des le premier panneau
-		//    debranche : c'est exactement ce qui vient d'arriver aux quatre
-		//    anciens.
-		if (BeginMenu(ctx, "Panneaux")) {
-			if (gShell)
-				gShell->DrawPanelsMenuItems();
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Plein écran", "F11", false);
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "Objet")) {
-		MenuItem(ctx, "Attribuer un rôle…", nullptr, false);
-		MenuItem(ctx, "Retirer le rôle", nullptr, false);
-		Separator(ctx);
-		// CÂBLÉS (01/09) : grouper demande au moins un élément, dégrouper
-		// demande un conteneur qui a des enfants — le grisé DIT la condition.
-		if (MenuItem(ctx, "Grouper", "Ctrl+G", !gDesign.sel.Empty() && !gDesign.sel.Contains(0)))
-			gDesign.GrouperSelection();
-		if (MenuItem(ctx, "Dégrouper", "Ctrl+Maj+G",
-					 gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.selected != 0
-						 && !gDesign.doc.nodes[(uint32)gDesign.selected].children.Empty()))
-			gDesign.DegrouperSelection();
-		MenuItem(ctx, "Convertir en composant", "Ctrl+K", false);
-		MenuItem(ctx, "Détacher l'instance", nullptr, false);
-		MenuItem(ctx, "Promouvoir en composant partagé", nullptr, false);
-		Separator(ctx);
-		if (BeginMenu(ctx, "Aligner")) {
-			MenuItem(ctx, "(à brancher)", nullptr, false);
-			EndMenu(ctx);
-		}
-		if (BeginMenu(ctx, "Répartir")) {
-			MenuItem(ctx, "(à brancher)", nullptr, false);
-			EndMenu(ctx);
-		}
-		if (BeginMenu(ctx, "Ordre")) {
-			MenuItem(ctx, "Premier plan", nullptr, false);
-			MenuItem(ctx, "Avancer", nullptr, false);
-			MenuItem(ctx, "Reculer", nullptr, false);
-			MenuItem(ctx, "Arrière-plan", nullptr, false);
-			EndMenu(ctx);
-		}
-		Separator(ctx);
-		MenuItem(ctx, "Verrouiller", "Ctrl+L", false, false);
-		// ⚠️ TROIS MOTS, PAS UN (§5bis.5 et §11.1) : masquer pour TRAVAILLER n'est
-		//    pas rendre invisible a l'utilisateur final. « Masquer » tout court
-		//    confondrait les deux au moment ou l'on choisit.
-		MenuItem(ctx, "Masquer dans l'éditeur", "Ctrl+Maj+H", false, false);
-		if (BeginMenu(ctx, "Disponibilité")) {
-			MenuItem(ctx, "Actif", nullptr, false, true);
-			MenuItem(ctx, "Désactivé", nullptr, false);
-			MenuItem(ctx, "Lecture seule", nullptr, false);
-			MenuItem(ctx, "Occupé", nullptr, false);
-			EndMenu(ctx);
-		}
-		EndMenu(ctx);
-	}
-
-	// ⚠️ « CIBLE » SE PLACE ENTRE « OBJET » ET « COMPORTEMENT » (§5bis.6), et sa
-	//    place n'est pas decorative : c'est le neuvieme menu, adopte le 20/08
-	//    pour lever la collision du mot « Fenetre ». Tout ce qui releve de
-	//    l'application VISEE est ici ; « Fenetre » reste a l'editeur.
-	if (BeginMenu(ctx, "Cible")) {
-		if (BeginMenu(ctx, "Classe")) {
-			MenuItem(ctx, "Bureau", nullptr, false, true);
-			MenuItem(ctx, "Mobile", nullptr, false);
-			MenuItem(ctx, "Web", nullptr, false);
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Appareil…", nullptr, false);
-		if (BeginMenu(ctx, "Orientation")) {
-			MenuItem(ctx, "Portrait", nullptr, false);
-			MenuItem(ctx, "Paysage", nullptr, false, true);
-			EndMenu(ctx);
-		}
-		Separator(ctx);
-		// L'ecran 26 le montre COCHE et il PILOTE vraiment l'affichage
-		// (ecrans 11/12) : la coche suit l'etat, cliquer bascule.
-		if (MenuItem(ctx, "Afficher la zone sûre", nullptr, true, gDesign.zoneSure))
-			gDesign.zoneSure = !gDesign.zoneSure;
-		if (BeginMenu(ctx, "Décoration")) {
-			MenuItem(ctx, "Native", nullptr, false, true);
-			MenuItem(ctx, "Client", nullptr, false);
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Curseur…", nullptr, false);
-		Separator(ctx);
-		// ── LA LANGUE DU DOCUMENT (multilingue, 01/09) ─────────────────────
-		// Le selecteur vit ICI : ni Banani ni Lunacy n'en montrent un (leurs
-		// captures n'ont pas d'i18n) — la langue est une CIBLE de l'interface
-		// concue, comme l'appareil. Bascule A CHAUD : la coche suit, l'apercu
-		// et l'edition en place suivent a l'image meme. « Ajouter » declare la
-		// langue au DOCUMENT (cle additive `langues`, annulable).
-		if (BeginMenu(ctx, "Langue du document")) {
-			const bool principale = gDesign.langueActive.Empty();
-			if (MenuItem(ctx, "Principale (texte)", nullptr, true, principale))
-				gDesign.langueActive = NkString();
-			for (nkentseu::uint32 li = 0; li < (nkentseu::uint32)gDesign.doc.langues.Size();
-				 ++li) {
-				const char *code = gDesign.doc.langues[li].Data();
-				const bool active =
-					!principale && NkComponentDecl::StrEq(gDesign.langueActive.Data(), code);
-				if (MenuItem(ctx, code, nullptr, true, active))
-					gDesign.langueActive = nkentseu::NkString(code);
-			}
-			Separator(ctx);
-			static const char *const kLangues[3] = {"en", "es", "de"};
-			for (int32 la = 0; la < 3; ++la) {
-				bool deja = false;
-				for (nkentseu::uint32 li = 0;
-					 li < (nkentseu::uint32)gDesign.doc.langues.Size(); ++li)
-					if (NkComponentDecl::StrEq(gDesign.doc.langues[li].Data(), kLangues[la]))
-						deja = true;
-				if (deja)
-					continue;
-				char lib[32];
-				snprintf(lib, sizeof(lib), "Ajouter « %s »", kLangues[la]);
-				if (MenuItem(ctx, lib)) {
-					gDesign.doc.langues.PushBack(nkentseu::NkString(kLangues[la]));
-					gDesign.doc.MarkHumanEdit(0);
-					gDesign.langueActive = nkentseu::NkString(kLangues[la]);
-					gDesign.status = NkString("Langue ajoutée au document — les textes non "
-											  "traduits s'affichent atténués (voir le Rapport).");
-				}
-			}
-			EndMenu(ctx);
-		}
-		Separator(ctx);
-		MenuItem(ctx, "Points de rupture…", nullptr, false);
-		MenuItem(ctx, "Aperçu multi-cibles", nullptr, false);
-		// L'écran 27 : l'entrée OUVRE le rapport (mécanisme absent, et le
-		// rapport le dit : 0 constat).
-		if (MenuItem(ctx, "Rapport de transposition…"))
-			gDesign.rapportTransposition = true;
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "Comportement")) {
-		MenuItem(ctx, "Ouvrir le graphe", nullptr, false);
-		MenuItem(ctx, "Vue Code", "Ctrl+²", false);
-		Separator(ctx);
-		MenuItem(ctx, "Ajouter un événement…", nullptr, false);
-		MenuItem(ctx, "Lier à un callback…", nullptr, false);
-		MenuItem(ctx, "Délier", nullptr, false);
-		MenuItem(ctx, "Gestionnaire de callbacks…", nullptr, false);
-		Separator(ctx);
-		MenuItem(ctx, "Simuler", "F5", false);
-		MenuItem(ctx, "Geler la simulation", "F6", false);
-		MenuItem(ctx, "Recharger la simulation", "Maj+F5", false);
-		MenuItem(ctx, "Système simulé…", nullptr, false);
-		MenuItem(ctx, "Rapport de couverture…", nullptr, false);
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "IA")) {
-		if (BeginMenu(ctx, "Générer")) {
-			MenuItem(ctx, "un composant…", nullptr, false);
-			MenuItem(ctx, "un comportement…", nullptr, false);
-			MenuItem(ctx, "une animation…", nullptr, false);
-			EndMenu(ctx);
-		}
-		MenuItem(ctx, "Proposer un rôle pour la sélection", nullptr, false);
-		Separator(ctx);
-		// ⚠️ COCHEE ET VISIBLE (§5bis.8) : l'exposer dit a l'utilisateur que
-		//    l'outil REUTILISE avant de dupliquer. C'est une garantie qu'un
-		//    comportement silencieux ne peut pas donner.
-		MenuItem(ctx, "Chercher dans la bibliothèque avant de générer", nullptr, false, true);
-		Separator(ctx);
-		// 🔴 CETTE PORTE MENAIT AILLEURS QUE LA PASTILLE. `FocusPanel("IA")`
-		//    ANCRAIT le panneau (en bas, avant le 20/09) ; la pastille du rail
-		//    droit le DEPLIE en tiroir. Deux portes, deux resultats -- et c'est
-		//    par celle-ci que Rodolf est passe, d'ou « je n'ai pas de pastille a
-		//    droite » : il n'a jamais vu celle qui marche.
-		//    Elles menent desormais au MEME endroit.
-		if (MenuItem(ctx, "Ouvrir le chat IA"))
-			OuvrirTiroirIA();
-		MenuItem(ctx, "Réglages du modèle…", nullptr, false);
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "Fenêtre")) {
-		MenuItem(ctx, "Nouvelle fenêtre", nullptr, false);
-		MenuItem(ctx, "Détacher l'onglet dans une fenêtre", nullptr, false);
-		Separator(ctx);
-		if (BeginMenu(ctx, "Disposition")) {
-			MenuItem(ctx, "Par défaut", nullptr, false);
-			MenuItem(ctx, "Design", nullptr, false);
-			MenuItem(ctx, "Comportement", nullptr, false);
-			MenuItem(ctx, "Enregistrer la disposition…", nullptr, false);
-			MenuItem(ctx, "Réinitialiser", nullptr, false);
-			EndMenu(ctx);
-		}
-		Separator(ctx);
-		MenuItem(ctx, "Onglet suivant", "Ctrl+Tab", false);
-		MenuItem(ctx, "Onglet précédent", "Ctrl+Maj+Tab", false);
-		EndMenu(ctx);
-	}
-
-	if (BeginMenu(ctx, "Aide")) {
-		MenuItem(ctx, "Documentation", "F1", false);
-		MenuItem(ctx, "Raccourcis clavier…", nullptr, false);
-		MenuItem(ctx, "Glossaire des composants", nullptr, false);
-		Separator(ctx);
-		MenuItem(ctx, "Gestionnaire de greffons…", nullptr, false);
-		Separator(ctx);
-		MenuItem(ctx, "Console…", nullptr, false);
-		MenuItem(ctx, "Informations système — copier", nullptr, false);
-		Separator(ctx);
-		MenuItem(ctx, "Rechercher les mises à jour", nullptr, false);
-		MenuItem(ctx, "À propos de NkUIDesign", nullptr, false);
-		EndMenu(ctx);
-	}
+	gCoquilleDoc.bande.Monter(ctx, "menu");
 }
 
 // LA BANDE 2 : les onglets de projets (document 3 §6).
@@ -4130,10 +4016,14 @@ int nkmain(const NkEntryState &state) {
 	//     (`ExecuteCommand(int32)`) — *un indice n'est pas un nom*, il se decale
 	//     des qu'une commande est inseree.
 	{
-		static nkuidesign::NkCoquilleDocument s_coquilleDoc;
+		nkuidesign::NkCoquilleDocument &s_coquilleDoc = gCoquilleDoc;
 		const bool luDoc = s_coquilleDoc.ChargerDepuisDossier("Resources/Interface/NKUIDesign");
 		// LA MEME table que celle que la sonde juge — voir `gActionsDocument`.
-		s_coquilleDoc.PoserTables(gActionsDocument, gNbActionsDocument, nullptr, 0u);
+		// LA MEME table d'actions que celle que la sonde juge, ET les quatre zones
+		// engendrees (backends, themes, panneaux, langues) : sans elles, ces
+		// sous-menus s'afficheraient HACHURES avec leur nom -- visible, mais vide.
+		s_coquilleDoc.PoserTables(gActionsDocument, gNbActionsDocument, gZonesDocument,
+								  gNbZonesDocument);
 		// ⚠️ ON NE BRANCHE PAS UNE BANDE QU'ON N'A PAS LUE. Poser le crochet sur un
 		//    document absent aurait donne une bande vide, indiscernable d'une bande
 		//    qui n'affiche rien — et le refus se serait tu. `RefusTotal` le NOMME
@@ -4162,11 +4052,19 @@ int nkmain(const NkEntryState &state) {
 				static nkuidesign::PanneauDocument s_panneauDoc(s_coquilleDoc);
 				shell->AddPanel(&s_panneauDoc);
 			}
-			// La sonde garde la priorite sur `SetAppMenu` : elle MESURE, un menu non.
-			if (!gCapturePath[0] && !gSondeGel[0] && !gSondePortes[0] && gMesureAsyncMs < 0
-				&& gMesureFpsMs < 0 && gMesureDoubleImages < 0 && gMesureTexteImages < 0)
-				shell->SetAppMenu(&nkuidesign::NkCoquilleDocument::MonterMenuApp,
-								  &s_coquilleDoc);
+			// 🔴 LE MONTAGE DU MENU N'EST PLUS ICI, ET C'ETAIT LA CAUSE DU MENU
+			//    DOUBLE (Rodolf, 28/09 : « on voit bien deux panneaux qui se
+			//    devoilent »).
+			//
+			//    `SetAppMenu` n'est PAS un crochet « dessine tes menus » malgre son
+			//    nom : `NkEditorShell.cpp` l'appelle a TROIS endroits par image
+			//    (1199, 3451, 3461), parce qu'il sert de TICK pour poser les
+			//    drapeaux `appFullScreen` / `appModal`. Une racine de menu montee
+			//    la se dessinait donc autant de fois -- deux popups pour un clic.
+			//
+			//    Les neuf menus se montent desormais depuis `DrawMenuBar`
+			//    (`SetMenuBar`), appele UNE fois par image. Le crochet reste libre
+			//    pour ce a quoi il sert vraiment : les ticks.
 		} else {
 			// ⚠️ `printf` ET NON LE JOURNAL, parce que c'est ce que ce fichier fait
 			//    partout (220 sites) et que le verdict d'une sonde se lit sur la

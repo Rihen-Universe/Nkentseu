@@ -42,54 +42,382 @@ nkgui 0.4
 //  personne ne sert est COMPTÉ — un menu muet ne doit pas se faire prendre pour un
 //  menu qui marche.
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  LA BARRE DE MENUS ENTIÈRE — neuf menus, 117 entrées (28/09/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//  Rodolf : « passe tous les menus à .nkgui ». Les 447 lignes de `DrawMenuBar`
+//  deviennent ce document ; le C++ ne garde que ce que le format ne sait pas
+//  dire.
+//
+//  🔴 ET ÇA CORRIGE LE MENU DOUBLE. Les menus du document étaient montés depuis
+//     `SetAppMenu`, qui n'est PAS un crochet « dessine tes menus » malgré son
+//     nom : `NkEditorShell.cpp` l'appelle à TROIS endroits par image (1199,
+//     3451, 3461) parce qu'il sert de tick pour poser les drapeaux
+//     `appFullScreen` / `appModal`. Une racine de menu montée là se dessinait
+//     donc plusieurs fois — « on voit bien deux panneaux qui se dévoilent ».
+//     Elle est désormais montée depuis `SetMenuBar`, appelé UNE fois.
+//
+//  ⚠️ QUATRE SOUS-MENUS SONT ENGENDRÉS À L'EXÉCUTION et restent des `Host` :
+//     la liste des backends, celle des thèmes installés, celle des panneaux
+//     enregistrés et celle des langues déclarées. **Le format ne sait pas dire
+//     une liste engendrée** — et une liste écrite à la main ici mentirait dès
+//     qu'un thème serait déposé ou un panneau débranché. Le document dit OÙ,
+//     l'application dit QUOI.
+//
+//  ⚠️ L'ÉTAT DYNAMIQUE (grisé, coché) EST POSÉ PAR LE C++, chaque image, dans la
+//     table d'état du monteur. `Annuler` n'est actif que s'il y a de l'histoire,
+//     `Coller` que si le presse-papiers est plein. Le format ne sait pas lire une
+//     valeur de l'application : c'est le CONTRÔLEUR qui l'écrit. Un `enabled`
+//     écrit en dur ici serait un mensonge dès la deuxième image.
+//
+//  📌 CE QUI EST ÉCRIT `enabled = false` SANS ÊTRE POSÉ PAR LE C++ est un JALON :
+//     l'entrée existe dans la spécification, sa fonction n'est pas écrite. La
+//     règle de la maison est câbler / griser / retirer — *une entrée qui
+//     s'affiche et ne fait rien est un mensonge ; une entrée grisée est une
+//     promesse datée*.
+
 widgets "menu" {
 
-  Menu "menuDesign" {
-    label = "@t:design.ui.menuDesign"
+  // ── FICHIER ───────────────────────────────────────────────────────────
+  Menu "menuFichier" {
+    label = "Fichier"
 
-    MenuItem "design.enregistrer" { shortcut = "Ctrl+S" }
-    MenuItem "design.recharger"   {}
-    MenuItem "design.nouveau"     {}
+    MenuItem "design.nouveau"            { label = "Nouveau projet…", shortcut = "Ctrl+N" }
+    MenuItem "fichier.ouvrir"            { label = "Ouvrir…", shortcut = "Ctrl+O", enabled = false }
+    Menu "fichier.ouvrirRecent" {
+      label = "Ouvrir récent"
+      MenuItem "fichier.aucunRecent"     { label = "(aucun projet récent)", enabled = false }
+    }
+    MenuItem "fichier.fermerProjet"      { label = "Fermer le projet", shortcut = "Ctrl+W", enabled = false }
 
-    Separator "sep1" {}
+    Separator "sepF1" {}
 
-    MenuItem "design.annuler"  { shortcut = "Ctrl+Z" }
-    MenuItem "design.retablir" { shortcut = "Ctrl+Y" }
+    MenuItem "design.enregistrer"        { label = "Enregistrer", shortcut = "Ctrl+S" }
+    MenuItem "fichier.enregistrerSous"   { label = "Enregistrer sous…", shortcut = "Ctrl+Maj+S", enabled = false }
+    MenuItem "fichier.enregistrerTout"   { label = "Enregistrer tout", shortcut = "Ctrl+Alt+S", enabled = false }
+    MenuItem "design.recharger"          { label = "Revenir à la version enregistrée" }
 
-    Separator "sep2" {}
+    Separator "sepF2" {}
 
-    MenuItem "design.grouper"   { label = "@t:design.grouperSelection", shortcut = "Ctrl+G" }
-    MenuItem "design.degrouper" { shortcut = "Ctrl+Maj+G" }
-    MenuItem "design.dupliquer" { shortcut = "Ctrl+D" }
+    Menu "fichier.importer" {
+      label = "Importer"
+      MenuItem "fichier.importerComposant"  { label = "Composant…", enabled = false }
+      MenuItem "fichier.importerDocument"   { label = "Document…", enabled = false }
+      MenuItem "fichier.importerRessources" { label = "Ressources…", enabled = false }
+    }
+    MenuItem "design.exporter"           { label = "Exporter…", shortcut = "Ctrl+E" }
+    MenuItem "fichier.documentNkgui"     { label = "Document .nkgui", enabled = false }
+    MenuItem "fichier.validerDocument"   { label = "Valider le document", shortcut = "Ctrl+Maj+V", enabled = false }
 
-    Separator "sep3" {}
+    Separator "sepF3" {}
 
-    MenuItem "design.exporter" { label = "@t:design.exporterPoints" }
+    // ⚠️ ENGENDRÉ : la liste des backends vient de `NkGfxApiNames`, et la coche
+    //    marque ce que le FICHIER porte — pas ce qui tourne.
+    Menu "fichier.backend" {
+      label = "Backend graphique"
+      Host "design.menu.backends"        { hint: "un par API disponible, coché = celui du fichier de configuration" }
+    }
+    MenuItem "fichier.preferences"       { label = "Préférences…", shortcut = "Ctrl+,", enabled = false }
+
+    Separator "sepF4" {}
+
+    MenuItem "design.quitter"            { label = "Quitter", shortcut = "Ctrl+Q" }
   }
 
+  // ── ÉDITION ───────────────────────────────────────────────────────────
+  Menu "menuEdition" {
+    label = "Édition"
+
+    // Grisés sur l'ÉTAT RÉEL, posé par le contrôleur : un « Coller » cliquable
+    // avec un presse-papiers vide est un paramètre déclaré qui n'est pas honoré.
+    MenuItem "design.annuler"            { label = "Annuler", shortcut = "Ctrl+Z" }
+    MenuItem "design.retablir"           { label = "Rétablir", shortcut = "Ctrl+Y" }
+
+    Separator "sepE1" {}
+
+    MenuItem "design.couper"             { label = "Couper", shortcut = "Ctrl+X" }
+    MenuItem "design.copier"             { label = "Copier", shortcut = "Ctrl+C" }
+    MenuItem "design.coller"             { label = "Coller", shortcut = "Ctrl+V" }
+    MenuItem "edition.collerMemePlace"   { label = "Coller à la même place", shortcut = "Ctrl+Maj+V", enabled = false }
+    MenuItem "edition.collerStyle"       { label = "Coller le style seul", shortcut = "Ctrl+Alt+V", enabled = false }
+    MenuItem "design.dupliquer"          { label = "Dupliquer", shortcut = "Ctrl+D" }
+    MenuItem "design.supprimer"          { label = "Supprimer", shortcut = "Suppr" }
+
+    Separator "sepE2" {}
+
+    MenuItem "design.toutSelectionner"   { label = "Tout sélectionner", shortcut = "Ctrl+A" }
+    MenuItem "edition.selMemeRole"       { label = "Sélectionner tous les éléments du même rôle", enabled = false }
+    MenuItem "design.deselectionner"     { label = "Désélectionner", shortcut = "Échap" }
+
+    Separator "sepE3" {}
+
+    MenuItem "edition.rechercher"        { label = "Rechercher…", shortcut = "Ctrl+F", enabled = false }
+    MenuItem "edition.remplacerPropriete" { label = "Remplacer une propriété…", shortcut = "Ctrl+H", enabled = false }
+    MenuItem "edition.renommer"          { label = "Renommer", shortcut = "F2", enabled = false }
+  }
+
+  // ── AFFICHAGE ─────────────────────────────────────────────────────────
+  Menu "menuAffichage" {
+    label = "Affichage"
+
+    MenuItem "affichage.zoomAvant"       { label = "Zoom avant", shortcut = "Ctrl++", enabled = false }
+    MenuItem "affichage.zoomArriere"     { label = "Zoom arrière", shortcut = "Ctrl+-", enabled = false }
+    MenuItem "affichage.zoom100"         { label = "Zoom 100 %", shortcut = "Ctrl+0", enabled = false }
+    MenuItem "affichage.ajusterSelection" { label = "Ajuster à la sélection", shortcut = "Maj+2", enabled = false }
+    MenuItem "affichage.ajusterPage"     { label = "Ajuster à la page", shortcut = "Maj+1", enabled = false }
+
+    Separator "sepA1" {}
+
+    MenuItem "affichage.grille"          { label = "Grille", shortcut = "Ctrl+'", enabled = false, checked = true }
+    // La coche LIT l'état réel — elle était posée en dur, à côté d'un aimant qui
+    // ne faisait rien.
+    MenuItem "design.magnetisme"         { label = "Magnétisme", shortcut = "Ctrl+;" }
+    MenuItem "affichage.regles"          { label = "Règles", enabled = false }
+    MenuItem "affichage.reperes"         { label = "Repères intelligents", enabled = false, checked = true }
+
+    Separator "sepA2" {}
+
+    MenuItem "affichage.marges"          { label = "Marges et remplissage", enabled = false, checked = true }
+    MenuItem "affichage.regions"         { label = "Régions de fenêtre", enabled = false }
+    MenuItem "affichage.heritageDesactive" { label = "Éléments désactivés par héritage", enabled = false }
+
+    Separator "sepA3" {}
+
+    Menu "affichage.mode" {
+      label = "Mode"
+      MenuItem "affichage.modeDesign"    { label = "Design", shortcut = "Ctrl+1", enabled = false, checked = true }
+      MenuItem "affichage.modeBehavior"  { label = "Behavior", shortcut = "Ctrl+2", enabled = false }
+      MenuItem "affichage.modeAnimation" { label = "Animation", shortcut = "Ctrl+3", enabled = false }
+      MenuItem "affichage.modeSplit"     { label = "Split", shortcut = "Ctrl+4", enabled = false }
+    }
+    // ⚠️ ENGENDRÉ : la liste vient de la BIBLIOTHÈQUE de thèmes. Une liste en dur
+    //    n'afficherait pas le thème que l'utilisateur déposera demain.
+    Menu "affichage.theme" {
+      label = "Thème"
+      Host "design.menu.themes"          { hint: "un par thème installé, coché = le thème courant ; puis « Système »" }
+    }
+    // ⚠️ ENGENDRÉ : la coquille liste les panneaux RÉELLEMENT enregistrés. Une
+    //    liste écrite ici mentirait dès le premier panneau débranché.
+    Menu "affichage.panneaux" {
+      label = "Panneaux"
+      Host "design.menu.panneaux"        { hint: "les panneaux enregistrés dans la coquille" }
+    }
+    MenuItem "affichage.pleinEcran"      { label = "Plein écran", shortcut = "F11", enabled = false }
+  }
+
+  // ── OBJET ─────────────────────────────────────────────────────────────
+  Menu "menuObjet" {
+    label = "Objet"
+
+    MenuItem "objet.attribuerRole"       { label = "Attribuer un rôle…", enabled = false }
+    MenuItem "objet.retirerRole"         { label = "Retirer le rôle", enabled = false }
+
+    Separator "sepO1" {}
+
+    MenuItem "design.grouper"            { label = "Grouper", shortcut = "Ctrl+G" }
+    MenuItem "design.degrouper"          { label = "Dégrouper", shortcut = "Ctrl+Maj+G" }
+    MenuItem "objet.convertirComposant"  { label = "Convertir en composant", shortcut = "Ctrl+K", enabled = false }
+    MenuItem "objet.detacherInstance"    { label = "Détacher l'instance", enabled = false }
+    MenuItem "objet.promouvoirPartage"   { label = "Promouvoir en composant partagé", enabled = false }
+
+    Separator "sepO2" {}
+
+    Menu "objet.aligner" {
+      label = "Aligner"
+      MenuItem "objet.alignerABrancher"  { label = "(à brancher)", enabled = false }
+    }
+    Menu "objet.repartir" {
+      label = "Répartir"
+      MenuItem "objet.repartirABrancher" { label = "(à brancher)", enabled = false }
+    }
+    Menu "objet.ordre" {
+      label = "Ordre"
+      MenuItem "objet.premierPlan"       { label = "Premier plan", enabled = false }
+      MenuItem "objet.avancer"           { label = "Avancer", enabled = false }
+      MenuItem "objet.reculer"           { label = "Reculer", enabled = false }
+      MenuItem "objet.arrierePlan"       { label = "Arrière-plan", enabled = false }
+    }
+
+    Separator "sepO3" {}
+
+    MenuItem "objet.verrouiller"         { label = "Verrouiller", shortcut = "Ctrl+L", enabled = false }
+    // ⚠️ TROIS MOTS, PAS UN : masquer pour TRAVAILLER n'est pas rendre invisible
+    //    à l'utilisateur final.
+    MenuItem "objet.masquerEditeur"      { label = "Masquer dans l'éditeur", shortcut = "Ctrl+Maj+H", enabled = false }
+    Menu "objet.disponibilite" {
+      label = "Disponibilité"
+      MenuItem "objet.dispoActif"        { label = "Actif", enabled = false, checked = true }
+      MenuItem "objet.dispoDesactive"    { label = "Désactivé", enabled = false }
+      MenuItem "objet.dispoLectureSeule" { label = "Lecture seule", enabled = false }
+      MenuItem "objet.dispoOccupe"       { label = "Occupé", enabled = false }
+    }
+  }
+
+  // ── CIBLE ─────────────────────────────────────────────────────────────
+  //  Sa place n'est pas décorative : neuvième menu, adopté le 20/08 pour lever
+  //  la collision du mot « Fenêtre ». Ce qui relève de l'application VISÉE est
+  //  ici ; « Fenêtre » reste à l'éditeur.
+  Menu "menuCible" {
+    label = "Cible"
+
+    Menu "cible.classe" {
+      label = "Classe"
+      MenuItem "cible.classeBureau"      { label = "Bureau", enabled = false, checked = true }
+      MenuItem "cible.classeMobile"      { label = "Mobile", enabled = false }
+      MenuItem "cible.classeWeb"         { label = "Web", enabled = false }
+    }
+    MenuItem "cible.appareil"            { label = "Appareil…", enabled = false }
+    Menu "cible.orientation" {
+      label = "Orientation"
+      MenuItem "cible.portrait"          { label = "Portrait", enabled = false }
+      MenuItem "cible.paysage"           { label = "Paysage", enabled = false, checked = true }
+    }
+
+    Separator "sepC1" {}
+
+    MenuItem "design.zoneSure"           { label = "Afficher la zone sûre" }
+    Menu "cible.decoration" {
+      label = "Décoration"
+      MenuItem "cible.decorationNative"  { label = "Native", enabled = false, checked = true }
+      MenuItem "cible.decorationClient"  { label = "Client", enabled = false }
+    }
+    MenuItem "cible.curseur"             { label = "Curseur…", enabled = false }
+
+    Separator "sepC2" {}
+
+    // ⚠️ ENGENDRÉ : les langues DÉCLARÉES par le document, plus celles qu'on peut
+    //    encore ajouter. La bascule est à chaud.
+    Menu "cible.langueDocument" {
+      label = "Langue du document"
+      Host "design.menu.langues"         { hint: "principale + langues déclarées + « Ajouter » pour celles qui manquent" }
+    }
+
+    Separator "sepC3" {}
+
+    MenuItem "cible.pointsRupture"       { label = "Points de rupture…", enabled = false }
+    MenuItem "cible.apercuMultiCibles"   { label = "Aperçu multi-cibles", enabled = false }
+    MenuItem "design.rapportTransposition" { label = "Rapport de transposition…" }
+  }
+
+  // ── COMPORTEMENT ──────────────────────────────────────────────────────
+  Menu "menuComportement" {
+    label = "Comportement"
+
+    MenuItem "comp.ouvrirGraphe"         { label = "Ouvrir le graphe", enabled = false }
+    MenuItem "comp.vueCode"              { label = "Vue Code", shortcut = "Ctrl+²", enabled = false }
+
+    Separator "sepB1" {}
+
+    MenuItem "comp.ajouterEvenement"     { label = "Ajouter un événement…", enabled = false }
+    MenuItem "comp.lierCallback"         { label = "Lier à un callback…", enabled = false }
+    MenuItem "comp.delier"               { label = "Délier", enabled = false }
+    MenuItem "comp.gestionnaireCallbacks" { label = "Gestionnaire de callbacks…", enabled = false }
+
+    Separator "sepB2" {}
+
+    MenuItem "comp.simuler"              { label = "Simuler", shortcut = "F5", enabled = false }
+    MenuItem "comp.gelerSimulation"      { label = "Geler la simulation", shortcut = "F6", enabled = false }
+    MenuItem "comp.rechargerSimulation"  { label = "Recharger la simulation", shortcut = "Maj+F5", enabled = false }
+    MenuItem "comp.systemeSimule"        { label = "Système simulé…", enabled = false }
+    MenuItem "comp.rapportCouverture"    { label = "Rapport de couverture…", enabled = false }
+  }
+
+  // ── IA ────────────────────────────────────────────────────────────────
+  Menu "menuIA" {
+    label = "IA"
+
+    Menu "ia.generer" {
+      label = "Générer"
+      MenuItem "ia.genererComposant"     { label = "un composant…", enabled = false }
+      MenuItem "ia.genererComportement"  { label = "un comportement…", enabled = false }
+      MenuItem "ia.genererAnimation"     { label = "une animation…", enabled = false }
+    }
+    MenuItem "ia.proposerRole"           { label = "Proposer un rôle pour la sélection", enabled = false }
+
+    Separator "sepI1" {}
+
+    // ⚠️ COCHÉE ET VISIBLE : l'exposer dit à l'utilisateur que l'outil RÉUTILISE
+    //    avant de dupliquer — une garantie qu'un comportement silencieux ne peut
+    //    pas donner.
+    MenuItem "ia.chercherAvantGenerer"   { label = "Chercher dans la bibliothèque avant de générer", enabled = false, checked = true }
+
+    Separator "sepI2" {}
+
+    // 🔴 CETTE PORTE MÈNE AU MÊME ENDROIT QUE LA PASTILLE DU RAIL. Elle ANCRAIT le
+    //    panneau avant le 20/09, là où la pastille le déplie en tiroir : deux
+    //    portes, deux résultats — et c'est par celle-ci que Rodolf est passé.
+    MenuItem "design.chatIA"             { label = "Ouvrir le chat IA" }
+    MenuItem "ia.reglagesModele"         { label = "Réglages du modèle…", enabled = false }
+  }
+
+  // ── FENÊTRE ───────────────────────────────────────────────────────────
+  Menu "menuFenetre" {
+    label = "Fenêtre"
+
+    MenuItem "fenetre.nouvelle"          { label = "Nouvelle fenêtre", enabled = false }
+    MenuItem "fenetre.detacherOnglet"    { label = "Détacher l'onglet dans une fenêtre", enabled = false }
+
+    Separator "sepW1" {}
+
+    Menu "fenetre.disposition" {
+      label = "Disposition"
+      MenuItem "fenetre.dispoDefaut"     { label = "Par défaut", enabled = false }
+      MenuItem "fenetre.dispoDesign"     { label = "Design", enabled = false }
+      MenuItem "fenetre.dispoComportement" { label = "Comportement", enabled = false }
+      MenuItem "fenetre.dispoEnregistrer" { label = "Enregistrer la disposition…", enabled = false }
+      MenuItem "fenetre.dispoReinitialiser" { label = "Réinitialiser", enabled = false }
+    }
+
+    Separator "sepW2" {}
+
+    MenuItem "fenetre.ongletSuivant"     { label = "Onglet suivant", shortcut = "Ctrl+Tab", enabled = false }
+    MenuItem "fenetre.ongletPrecedent"   { label = "Onglet précédent", shortcut = "Ctrl+Maj+Tab", enabled = false }
+  }
+
+  // ── AIDE ──────────────────────────────────────────────────────────────
+  Menu "menuAide" {
+    label = "Aide"
+
+    MenuItem "aide.documentation"        { label = "Documentation", shortcut = "F1", enabled = false }
+    MenuItem "aide.raccourcis"           { label = "Raccourcis clavier…", enabled = false }
+    MenuItem "aide.glossaire"            { label = "Glossaire des composants", enabled = false }
+
+    Separator "sepH1" {}
+
+    MenuItem "aide.greffons"             { label = "Gestionnaire de greffons…", enabled = false }
+
+    Separator "sepH2" {}
+
+    MenuItem "aide.console"              { label = "Console…", enabled = false }
+    MenuItem "aide.infosSysteme"         { label = "Informations système — copier", enabled = false }
+
+    Separator "sepH3" {}
+
+    MenuItem "aide.miseAJour"            { label = "Rechercher les mises à jour", enabled = false }
+    MenuItem "aide.aPropos"              { label = "À propos de NkUIDesign", enabled = false }
+  }
+
+  // ── LES DEUX MENUS PROPRES AU DOCUMENT ────────────────────────────────
+  //  Ils sont restés : ce sont les vues de l'éditeur lui-même, et leurs quatre
+  //  dernières entrées sont grisées parce que `CmdVuePalette`,
+  //  `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent sous
+  //  `#if NKUIDESIGN_ANCIENS_PANNEAUX`, qui est ÉTEINT. La construction avait
+  //  attrapé ma première version, qui les câblait.
   Menu "menuVues" {
     label = "@t:design.ui.menuVues"
 
-    MenuItem "design.vue.hierarchie" { shortcut = "Ctrl+J" }
-    MenuItem "design.vue.inspecteur" {}
+    MenuItem "design.vue.hierarchie"     { shortcut = "Ctrl+J" }
+    MenuItem "design.vue.inspecteur"     {}
 
-    // ⚠️ GRISÉES, PAS OMISES — et la raison est vérifiable. `CmdVuePalette`,
-    //    `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent sous
-    //    `#if NKUIDESIGN_ANCIENS_PANNEAUX` dans `main.cpp`, et ce drapeau est
-    //    éteint : les fonctions n'existent pas dans cette construction. La règle de
-    //    la maison est CÂBLER / GRISER / RETIRER — *une entrée qui s'affiche et ne
-    //    fait rien est un mensonge ; une entrée grisée est une promesse datée* — et
-    //    omettre ferait croire que ces vues ne sont pas prévues.
-    //
-    //    🔴 LA CONSTRUCTION A ATTRAPÉ MA PREMIÈRE VERSION : je les avais écrites
-    //       actives et la table pointait sur quatre fonctions inexistantes. C'est
-    //       le seul négatif qui n'a rien coûté.
-    MenuItem "design.vue.palette"     { enabled = false }
-    MenuItem "design.vue.composition" { enabled = false }
-    MenuItem "design.vue.proprietes"  { enabled = false }
-    MenuItem "design.vue.preferences" { enabled = false }
+    Separator "sepV1" {}
+
+    MenuItem "design.vue.palette"        { enabled = false }
+    MenuItem "design.vue.composition"    { enabled = false }
+    MenuItem "design.vue.proprietes"     { enabled = false }
+    MenuItem "design.vue.preferences"    { enabled = false }
   }
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  LA BARRE D'OUTILS — elle s'AJOUTE aux onglets de projet
