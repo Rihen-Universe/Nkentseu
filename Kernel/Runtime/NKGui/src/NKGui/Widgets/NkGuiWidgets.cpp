@@ -2275,6 +2275,32 @@ namespace nkentseu {
 
 		int32 TabBarEx(NkGuiContext &ctx, const char *id, const char *const *labels, int32 count,
 					   const bool *enabled) noexcept {
+			return TabBarOriente(ctx, id, labels, count, enabled, false);
+		}
+
+		// ═══════════════════════════════════════════════════════════════════
+		//  UNE SEULE BARRE, DEUX ORIENTATIONS (2026-09-28)
+		// ═══════════════════════════════════════════════════════════════════
+		//  Rodolf : « on a déjà des onglets horizontaux, on doit aussi avoir des
+		//  onglets verticaux ».
+		//
+		//  🔴 UNE OPTION, PAS UNE SECONDE FONCTION. Écrire `TabBarVertical` à
+		//     côté aurait donné deux dessins d'onglet, deux gestions de sélection
+		//     et deux jeux de couleurs — et le jour où l'onglet actif change
+		//     d'apparence, une seule des deux suivrait. C'est la faute que ce
+		//     dépôt nomme : *deux chemins qui peignent le même widget*.
+		//
+		//  ⚠️ CE QUI CHANGE EST LA GÉOMÉTRIE ET LE LISERÉ, RIEN D'AUTRE :
+		//     · horizontal → largeur = texte, liseré EN BAS ;
+		//     · vertical   → largeur = celle de la région, liseré À GAUCHE.
+		//     Le liseré d'un onglet vertical posé en bas se lirait comme une
+		//     séparation entre deux onglets, pas comme un état.
+		//
+		//  ⚠️ ET LE COMPORTEMENT NE BOUGE PAS D'UNE LIGNE : même `ButtonBehavior`,
+		//     même `GetTabIndex`/`SetTabIndex`, mêmes jetons de thème. Un onglet
+		//     vertical est un onglet.
+		int32 TabBarOriente(NkGuiContext &ctx, const char *id, const char *const *labels,
+							int32 count, const bool *enabled, bool vertical) noexcept {
 			if (count <= 0)
 				return 0;
 			const NkGuiId bar = ctx.GetId(id);
@@ -2288,9 +2314,12 @@ namespace nkentseu {
 			for (int32 i = 0; i < count; ++i) {
 				const bool en = (enabled == nullptr) || enabled[i];
 				const float32 tw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i], LabelEnd(labels[i])) : 40.f) + 22.f;
-				if (i > 0)
+				if (!vertical && i > 0)
 					ctx.SameLine(4.f);
-				const NkRect r = ctx.NextItemRect(tw, h);
+				// En vertical on ne pose PAS de `SameLine` : chaque onglet prend
+				// sa ligne, et sa largeur est celle de la région (-1.f), pour que
+				// la colonne soit droite quel que soit le libellé.
+				const NkRect r = vertical ? ctx.NextItemRect(-1.f, h) : ctx.NextItemRect(tw, h);
 				const NkGuiId tid = NkGuiHashStr(labels[i], bar);
 
 				bool hov = false, held = false;
@@ -2306,14 +2335,39 @@ namespace nkentseu {
 																		: ctx.theme.panel)
 									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
 				ctx.DL().AddRectFilled(r, bg, 4.f);
-				if (selected)
-					ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
-				else
+				if (selected) {
+					if (vertical)
+						ctx.DL().AddRectFilled({r.x, r.y, 3.f, r.h}, ctx.theme.accent);
+					else
+						ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
+				} else
 					ctx.DL().AddRect(r, ctx.theme.border, 1.f, 4.f);
+				// 🔴 L'ONGLET SE NOTE, ET IL NE SE NOTAIT PAS. Mesure du 28/09 :
+				//    une sonde qui cherchait les onglets d'une `TabBar` montée
+				//    depuis un document en trouvait **ZÉRO** — la nature `Onglet`
+				//    existait dans l'énumération du relevé et **aucune ligne ne
+				//    l'émettait**. Un widget absent du relevé ne peut être mesuré
+				//    par personne : ni son orientation, ni son état, ni sa place.
+				// ⚠️ L'ÉTAT COMPLET, PAS SEULEMENT LA SÉLECTION : un onglet grisé
+				//    et un onglet non sélectionné se ressemblent au compteur, et
+				//    c'est justement la différence qu'un critère doit pouvoir
+				//    lire.
+				NkGuiNoter(ctx, NkGuiNature::Onglet, tid, labels[i], r,
+						   static_cast<uint16>((selected ? NK_GUI_ETAT_SELECTION : 0)
+											   | (en ? 0 : NK_GUI_ETAT_GRISE)
+											   | (hov ? NK_GUI_ETAT_SURVOLE : 0)));
 				const NkColor lc = !en		  ? ctx.theme.textDisabled
 								   : selected ? ctx.theme.text
 											  : NkColor{180, 185, 196, 255};
-				DrawCenteredLabel(ctx, r, labels[i], lc);
+				// ⚠️ EN VERTICAL LE LIBELLÉ EST À GAUCHE, PAS CENTRÉ : une colonne
+				//    de libellés centrés ne s'aligne sur rien et se lit mal dès
+				//    que les longueurs diffèrent. Il laisse la place du liseré.
+				if (vertical && ctx.font && ctx.font->Valid())
+					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+									 {r.x + 10.f, CenteredBaseline(ctx, r)}, labels[i], lc,
+									 r.w - 14.f, 0.f, LabelEnd(labels[i]));
+				else
+					DrawCenteredLabel(ctx, r, labels[i], lc);
 			}
 			return sel;
 		}
