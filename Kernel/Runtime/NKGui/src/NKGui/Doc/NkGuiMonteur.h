@@ -5640,6 +5640,35 @@ namespace nkentseu {
 				static void Noter(NkGuiContext &ctx, NkGuiMonteRapport &rap, const NkString &id,
 								  NkStringView role, const NkRect &r, uint32 prof, bool conteneur,
 								  bool axeHorizontal, const NkRect *region = nullptr) noexcept {
+					// ═══════════════════════════════════════════════════════
+					//  🔴 L'IDENTIFIANT DU DOCUMENT DEVIENT LA CLE DU RELEVE
+					// ═══════════════════════════════════════════════════════
+					//  Mesure du 28/09 : une sonde qui cherchait
+					//  « design.exporter » dans la barre d'outils trouvait SEPT
+					//  boutons, tous avec une cle VIDE et un libelle VIDE (ils
+					//  portent une icone, pas un texte). Aucun n'etait nommable :
+					//  le releve ne montrait que sept rectangles anonymes.
+					//
+					//  Or la cle stable existe exactement pour ca --
+					//  `NkGuiIntrospectCler` : « le libelle CHANGE [...] la cle
+					//  stable de l'application ». Un document a DEJA un
+					//  identifiant par widget ; il n'arrivait simplement jamais
+					//  jusqu'au releve.
+					//
+					//  ⚠️ SANS ELLE, TOUTE SONDE QUI VISE UN WIDGET MONTE DOIT
+					//     LE DEVINER PAR SON RANG. Un rang se decale des qu'on
+					//     insere un separateur -- et le banc continue de passer,
+					//     en mesurant le voisin.
+					//  ⚠️ LES CONTENEURS SONT EXCLUS, ET LA MESURE L'A EXIGE.
+					//     `NkGuiIntrospectCler` nomme LA DERNIERE NOTE POSEE
+					//     (son contrat le dit). Un `HBox` ne pose aucune note
+					//     lui-meme et se `Noter` APRES ses enfants : sa cle
+					//     atterrissait donc sur le DERNIER bouton. Mesure :
+					//     « bouton 7 : cle = "outils" » -- l'identifiant de la
+					//     boite, colle a `design.exporter`. Un widget portait le
+					//     nom de son parent, ce qui est pire que pas de nom.
+					if (!conteneur && id.Size() > 0u)
+						NkGuiIntrospectCler(ctx, id.CStr());
 					Exposer(ctx, rap, id, r);
 					NkGuiMonteItem it;
 					it.id = id;
