@@ -3439,6 +3439,29 @@ namespace nkentseu {
 					const bool act = (ctx.activeId == sid);
 					if (hov || act)
 						ctx.wantCursor = node.vertical ? NkGuiCursor::ResizeEW : NkGuiCursor::ResizeNS;
+					// ═══════════════════════════════════════════════════════
+					//  🔴 LE SEPARATEUR CONSOMME L'APPUI QU'IL PREND
+					// ═══════════════════════════════════════════════════════
+					//  Rodolf, 28/09 : « en general les separateurs laissent
+					//  traverser les evenements, pourtant ils ne devraient pas ».
+					//
+					//  `ButtonBehavior` pose bien `activeId` — ce qui suffit aux
+					//  WIDGETS NKGui, qui le consultent. Mais la TOILE, elle, lit
+					//  l'entree BRUTE (`ctx.input.mouseClicked[0]`) : elle ne sait
+					//  rien d'`activeId`. Tirer un separateur au-dessus d'elle
+					//  deselectionnait donc au passage.
+					//
+					//  ⚠️ C'EST EXACTEMENT LE GESTE QUE `PoigneesTiroirs` FAIT
+					//     DEJA pour les tiroirs (« l'appui est a la poignee, pas a
+					//     la toile », 21/09). Le separateur du dock, lui, ne l'avait
+					//     jamais fait — deux poignees, deux comportements.
+					//
+					//  ⚠️ SURVOL COMPRIS, PAS SEULEMENT PENDANT LE GLISSER : le
+					//     tout PREMIER appui est celui qui arme le glisser. Ne
+					//     consommer que `act` laisserait passer celui-la — c'est-a-
+					//     dire precisement le clic qui deselectionne.
+					if (hov || act)
+						ctx.input.mouseClicked[0] = false;
 					if (act) { // glisser → redimensionne les 2 zones (chacune dans sa part)
 						if (node.vertical) {
 							// Split HORIZONTAL (panneaux latéraux) : largeur MINIMALE en pixels pour que
