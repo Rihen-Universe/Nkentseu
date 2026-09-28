@@ -67,6 +67,7 @@
 
 #include "Canvas.h"
 #include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
+#include "NkGuiLire.h" // `.nkgui` -> le modèle : ce que « Importer » appelle (28/09)
 #include "Historique.h" // l'annulation unifiée (§7) — instantanés de sérialisation
 #include "MenuFormat.h" // le catalogue des formats de page (chantier Cible, 31/08)
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
@@ -2427,6 +2428,14 @@ namespace nkuidesign {
 			nkentseu::editorkit::NkFilePickerNavState choixImage; // ⑥ le selecteur par defaut du kit
 			int32 choixImageNoeud = -1, choixImageIndex = -1;
 			char choixImageBuf[512] = {};
+			/// « IMPORTER UN DOCUMENT .nkgui... » (28/09) — SON PROPRE selecteur.
+			/// ⚠️ PAS CELUI DES IMAGES, et ce n'est pas du luxe : les deux portent
+			///    leurs FILTRES et leur dossier de depart. Les partager ferait
+			///    qu'ouvrir une image changerait le filtre de l'import, et
+			///    inversement — un reglage qui bouge sans que personne l'ait
+			///    touche.
+			nkentseu::editorkit::NkFilePickerNavState choixNkgui;
+			char choixNkguiBuf[512] = {};
 			/// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode
 			/// enregistrer, et ce que le menu a choisi (format, echelle, page ou
 			/// selection, images embarquees). L'export lui-meme vit dans Export.h /
@@ -2530,6 +2539,142 @@ namespace nkuidesign {
 				choixImage.AjouterFiltre("Tous les fichiers", "*");
 				choixImage.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_File, dep.Data(), choixImageBuf,
 										  (int32)sizeof(choixImageBuf), nullptr, nullptr);
+			}
+
+			// ═════════════════════════════════════════════════════════════════
+			//  IMPORTER UN `.nkgui` — LA PORTE MANQUAIT, PAS LE LECTEUR
+			// ═════════════════════════════════════════════════════════════════
+			//  Rodolf, 28/09 : « je ne vois pas où et comment importer des
+			//  fichiers .nkgui ».
+			//
+			//  🔴 IL CHERCHAIT UNE PORTE QUI N'EXISTAIT PAS, DEVANT UN CHAÎNON
+			//     DÉJÀ CONSTRUIT. `guifmt::NkArchiveVersDocument` (`NkGuiLire.h`,
+			//     chantier A de R1) lisait un `.nkgui` vers le modèle, il était
+			//     mesuré par `--sonde-lecture` — et AUCUNE entrée d'interface ne
+			//     l'appelait. Le menu `Fichier ▸ Importer` était grisé au-dessus
+			//     de code qui marchait.
+			//
+			//  🔴 ET LE RAPPORT S'AFFICHE, PARCE QUE LA FIDÉLITÉ N'EST PAS
+			//     TOTALE. Rodolf, juste après : « en les ouvrant on est sûr de
+			//     tout voir, aussi bien design graphique, animation si contenu,
+			//     blueprint si contenu ? » — **non**, et le taire aurait été le
+			//     pire des silences :
+			//       · `widgets` → le modèle : le DESIGN arrive ;
+			//       · `behavior`, `animation`, `controller`, `callback`,
+			//         `geometry`, `theme` → comptés et NOMMÉS, jamais montrés.
+			//         Pas parce que le lecteur les jette : parce que le document
+			//         de l'éditeur n'a AUCUN champ où les tenir. `NkGuiEcrire.h`
+			//         le dit déjà du côté écriture (« le document de l'éditeur ne
+			//         porte aucun comportement ») : c'est la même limite, vue de
+			//         l'autre bord, et c'est le chantier suivant.
+			//       · les attributs sans champ (`tooltip`, `shortcut`, `icon`,
+			//         `enabled`…) → comptés un par un.
+			//
+			//  ⚠️ RIEN N'EST PERDU DANS LE FICHIER POUR AUTANT : l'archive est
+			//     gardée à côté du modèle, et c'est ELLE qui se réécrit. Ce qui ne
+			//     monte pas dans le modèle reste dans l'octet.
+			void OuvrirImportNkgui() {
+				choixNkguiBuf[0] = '\0';
+				const NkString dep = DossierImages();
+				choixNkgui.filtres.Clear();
+				choixNkgui.filtreActif = 0;
+				choixNkgui.AjouterFiltre("Documents d'interface", "nkgui");
+				choixNkgui.AjouterFiltre("Tous les fichiers", "*");
+				choixNkgui.OpenPickerBase(nkentseu::editorkit::NkFilePickerState::PK_File,
+										  dep.Data(), choixNkguiBuf, (int32)sizeof(choixNkguiBuf),
+										  nullptr, nullptr);
+			}
+
+			/// Lit le fichier choisi et l'ouvre DANS UN NOUVEL ONGLET.
+			///
+			/// ⚠️ UN NOUVEL ONGLET, JAMAIS PAR-DESSUS. Importer n'est pas
+			///    remplacer : écraser le document courant perdrait un travail non
+			///    enregistré sans rien demander. Même règle que Ctrl+N (01/09).
+			void AppliquerImportNkgui() {
+				const char *choisi =
+					choixNkgui.pickerResultPath[0] ? choixNkgui.pickerResultPath : choixNkguiBuf;
+				if (!choisi || !*choisi)
+					return;
+				// ⚠️ `NkFile`, PAS `fopen` : c'est le système de fichiers de la
+				//    maison, et il est le seul à connaître les chemins du dépôt.
+				const NkString octets = nkentseu::NkFile::ReadAllText(choisi);
+				char msg[900];
+				if (octets.Empty()) {
+					nkentseu::NkSnprintf(msg, sizeof(msg),
+										 "Import « %s » : fichier illisible ou vide.", choisi);
+					DireAuPied(msg);
+					Consigner(msg);
+					return;
+				}
+				nkentseu::NkArchive ar;
+				nkentseu::NkGuiDiag diag;
+				if (!nkentseu::NkGuiArchive::Read(octets.Data(), (nkentseu::uint32)octets.Size(),
+												  ar, diag)) {
+					nkentseu::NkSnprintf(msg, sizeof(msg),
+										 "Import « %s » : ce n'est pas un document .nkgui lisible.",
+										 choisi);
+					DireAuPied(msg);
+					Consigner(msg);
+					return;
+				}
+				NkUIDocument dnew;
+				guifmt::NkLectRapport rap;
+				if (!guifmt::NkArchiveVersDocument(ar, dnew, rap) || rap.noeuds == 0u) {
+					nkentseu::NkSnprintf(msg, sizeof(msg),
+										 "Import « %s » : aucun widget n'a pu être construit "
+										 "(%u bloc(s) lu(s)).",
+										 choisi, rap.blocs);
+					DireAuPied(msg);
+					Consigner(msg);
+					return;
+				}
+				{
+					// Le nom d'onglet = le nom de fichier seul. Dériver ici plutôt
+					// qu'ajouter un helper : `NkCacheImages::Dossier` donne déjà la
+					// partie gauche, et deux dérivations du même chemin divergent.
+					const NkString dossier = NkCacheImages::Dossier(choisi);
+					dnew.title = NkString(choisi + dossier.Length());
+				}
+				const int32 onglet = OuvrirOngletInactif(dnew, choisi);
+				if (onglet >= 0)
+					BasculerVers((nkentseu::uint32)onglet);
+				RetenirDossierRecent(choisi);
+
+				// 🔴 LE MESSAGE DIT CE QUI N'EST PAS ARRIVÉ, PAS SEULEMENT CE QUI
+				//    EST ARRIVÉ. « 40 nœuds importés » serait vrai ET trompeur :
+				//    l'utilisateur croirait voir le document entier alors que son
+				//    `behavior` n'est nulle part à l'écran.
+				char manquantes[420];
+				manquantes[0] = '\0';
+				for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)rap.sectionsIgnorees.Size();
+					 ++i) {
+					nkentseu::usize n = 0;
+					while (n < sizeof(manquantes) && manquantes[n])
+						++n;
+					if (n + 2u >= sizeof(manquantes))
+						break;
+					nkentseu::NkSnprintf(manquantes + n, sizeof(manquantes) - n, "%s%s",
+										 n ? ", " : "", rap.sectionsIgnorees[i].CStr());
+				}
+				// ⚠️ LE COMPTE DES ATTRIBUTS PERDUS SE MET DANS SON PROPRE
+				//    MORCEAU, SINON IL SE COLLE AU MOT D'AVANT. Premier essai :
+				//    « … gardé dans le fichier) : behavior0 » — le `0` d'un
+				//    `%u` imprimé quoi qu'il arrive, soudé au nom de la section.
+				//    Un chiffre collé à un mot se lit comme faisant partie du mot.
+				char perdus[120];
+				perdus[0] = '\0';
+				if (rap.attributsNonPortes)
+					nkentseu::NkSnprintf(perdus, sizeof(perdus),
+										 "   %u attribut(s) sans champ dans l'éditeur (%s…)",
+										 rap.attributsNonPortes,
+										 rap.nonPortes.Size() ? rap.nonPortes[0].CStr() : "?");
+				nkentseu::NkSnprintf(
+					msg, sizeof(msg), "Import « %s » : %u nœud(s), %u attribut(s).%s%s%s",
+					dnew.title.CStr(), rap.noeuds, rap.attributsLus,
+					rap.sectionsNonLues ? "   NON MONTRÉ (mais gardé dans le fichier) : " : "",
+					rap.sectionsNonLues ? manquantes : "", perdus);
+				DireAuPied(msg);
+				Consigner(msg);
 			}
 			/// Le fichier choisi devient la source du remplissage cible, RELATIF au document
 			/// (jamais absolu dans le fichier : un document doit voyager) ; hors du dossier,
@@ -14023,7 +14168,18 @@ namespace nkuidesign {
 			st.choixImageNoeud = -1;
 			st.choixImageIndex = -1;
 		}
-		if (st.choixImage.pickerOpen)
+		// « IMPORTER UN DOCUMENT .nkgui... » — dessine ICI, la ou l'entree est
+		// reelle, comme le choix d'image juste au-dessus. Un selecteur dessine
+		// depuis le dispatcheur de commandes ne recevrait pas la souris.
+		if (st.choixNkgui.pickerOpen)
+			nkentseu::editorkit::NkDrawSelecteur(ctx, st.choixNkgui, st.theme);
+		if (st.choixNkgui.pickerConfirmed) {
+			st.choixNkgui.pickerConfirmed = false;
+			st.AppliquerImportNkgui();
+		}
+		if (st.choixNkgui.pickerCancelled)
+			st.choixNkgui.pickerCancelled = false;
+		if (st.choixImage.pickerOpen || st.choixNkgui.pickerOpen)
 			return;
 		if (!st.picker.ouvert)
 			return;

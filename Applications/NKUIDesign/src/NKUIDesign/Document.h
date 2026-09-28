@@ -4747,6 +4747,32 @@ namespace nkuidesign {
 				//    declaree laissait la ligne dans le document restaure (la
 				//    copie est ECRITE A LA MAIN a cause du pool).
 				langues = o.langues;
+				// ═══════════════════════════════════════════════════════════
+				//  🔴 CINQ CHAMPS MANQUAIENT, SOUS L'AVERTISSEMENT QUI LE DIT
+				// ═══════════════════════════════════════════════════════════
+				//  28/09 : la sonde d'import a mesure qu'ouvrir un `.nkgui`
+				//  MODIFIAIT le document de l'onglet d'a cote -- 919 octets
+				//  avant, 968 apres, premier ecart a l'octet 325 :
+				//  « dossier_recent = logs/verif/import-epreuve.nkgui ». Ce
+				//  chemin n'avait JAMAIS ete ecrit dans ce document-la.
+				//
+				//  LA CAUSE : une copie qui n'ecrit pas un champ le laisse tel
+				//  qu'il est CHEZ LA DESTINATION. `doc = ouverts[i].doc`
+				//  prenait donc les noeuds de l'onglet vise et GARDAIT les
+				//  recents, les styles, les variables, les composants declares
+				//  et le mode de celui qu'on quittait. Pas une perte : une
+				//  CONTAMINATION, dans les deux sens, et silencieuse.
+				//
+				//  ⚠️ ET L'AVERTISSEMENT DE LA LIGNE D'AU-DESSUS ETAIT DEJA LA,
+				//     ecrit le 01/09 apres exactement la meme faute sur
+				//     `langues`. *Un commentaire ne tient pas une liste a jour ;
+				//     seule une mesure y arrive.* Celle-ci en a trouve cinq d'un
+				//     coup -- et elle ne cherchait pas ca.
+				declarations = o.declarations;
+				variables = o.variables;
+				modeCourant = o.modeCourant;
+				dossiersRecents = o.dossiersRecents;
+				styles = o.styles;
 				nodes = o.nodes;
 				pool.Clear();
 				for (uint32 i = 0; i < (uint32)nodes.Size(); ++i)

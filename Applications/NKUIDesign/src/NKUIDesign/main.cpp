@@ -643,6 +643,17 @@ static void AppliquerTheme(uint32 i) {
 
 // ④ L'EXPORT : le raccourci et le menu ouvrent LE MEME dialogue. Il vise la selection
 //    quand il y en a une, la page sinon -- et le dialogue le dit avant de rien ecrire.
+/// « Fichier ▸ Importer ▸ Document .nkgui… » (28/09).
+///
+/// 🔴 ELLE N'OUVRE QU'UN SÉLECTEUR, ET C'EST VOULU : le dialogue se DESSINE
+///    dans `NkDessinerPickerDemande`, là où l'entrée souris est réelle. Un
+///    sélecteur ouvert depuis le dispatcheur de commandes s'afficherait et ne
+///    recevrait jamais un clic — c'est la même règle que le choix d'image.
+static void CmdImporterNkgui(void *) {
+	if (gDesign.SaisieOuverte())
+		return; // jamais au milieu d'un renommage (même garde que Ctrl+D)
+	gDesign.OuvrirImportNkgui();
+}
 static void CmdExporter(void *) {
 	if (gDesign.SaisieOuverte())
 		return; // jamais au milieu d'un renommage (meme garde que Ctrl+D)
@@ -909,6 +920,11 @@ struct PanneauSonde : public nkentseu::editorkit::NkEditorPanel {
 //     permet de le verifier par la construction ET par le verdict des recettes
 //     elles-memes. La vraie modularisation, `Panels.h` et ses 21 052 lignes,
 //     est le livrable 6 du doc 5 : un chantier annonce, pas un deplacement.
+// ⚠️ `SondeImport.h` EST ICI, PAS AVEC LES SEPT AUTRES SONDES EN TETE DE
+//    FICHIER, et la raison est la meme que pour les recettes : elle passe par
+//    `DesignState::AppliquerImportNkgui`, donc par `Panels.h`, declare plus haut
+//    que cette ligne et plus bas que les includes du debut.
+#include "SondeImport.h" // --sonde-import : la PORTE de « Importer un .nkgui »
 #include "RecetteAnnulation.h"
 #include "RecetteGestes.h"
 #include "RecetteSelection.h"
@@ -1303,6 +1319,9 @@ static const nkgui::NkActionNommee gActionsDocument[] = {
 	{"design.degrouper", &CmdDegrouper, nullptr},
 	{"design.dupliquer", &CmdDupliquer, nullptr},
 	{"design.exporter", &CmdExporter, nullptr},
+	// (28/09) La porte que Rodolf cherchait : « je ne vois pas ou et comment
+	// importer des fichiers .nkgui ». Le lecteur existait depuis le chantier A.
+	{"fichier.importerDocument", &CmdImporterNkgui, nullptr},
 	{"design.vue.hierarchie", &CmdVueHierarchie, nullptr},
 	{"design.vue.inspecteur", &CmdVueInspecteur, nullptr},
 	// ── LA BARRE DE MENUS ENTIERE (28/09) ────────────────────────────────
@@ -2714,6 +2733,13 @@ int nkmain(const NkEntryState &state) {
 		// LECTURE -- ce que le document DEVIENT quand on veut l'editer.
 		if (NkComponentDecl::StrEq(a, "--sonde-lecture"))
 			return nkuidesign::SondeLecture();
+		// LA PORTE, pas la fonction. `--sonde-lecture` appelle le convertisseur
+		// directement ; celle-ci passe par `AppliquerImportNkgui`, le meme code
+		// que le clic sur « Ouvrir » du selecteur. Une sonde qui court-circuite la
+		// porte ne dit rien de la porte -- et c'est exactement ce qui a laisse ce
+		// chainon construit et debranche jusqu'au 28/09.
+		if (NkComponentDecl::StrEq(a, "--sonde-import"))
+			return nkuidesign::SondeImport();
 		// LE TEMOIN DE R1 (doc 5 §2.3), sans souris et sans fenetre : une
 		// propriete posee doit deplacer UNE ligne du fichier, pas une de plus.
 		if (NkComponentDecl::StrEq(a, "--sonde-edition"))
