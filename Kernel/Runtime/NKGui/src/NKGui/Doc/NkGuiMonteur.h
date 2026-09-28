@@ -4973,10 +4973,44 @@ namespace nkentseu {
 							// `NextItemRect` le rend tel quel. Sinon, la zone lit sa TAILLE RELATIVE
 							// (« 60 % de mon parent ») ; a defaut, elle prend la largeur disponible et
 							// quatre hauteurs d'item -- assez pour se voir.
+							// ═══════════════════════════════════════════════════
+							//  🔴 DANS UN MENU, UNE ZONE HOTE NE RESERVE RIEN
+							// ═══════════════════════════════════════════════════
+							//  Rodolf, 28/09 : « plusieurs menus ou sous-menus sont
+							//  mal alignes ». Capture : le sous-menu « Theme »
+							//  montrait un grand vide, puis « Sombre » et « Clair »
+							//  tout en bas.
+							//
+							//  LA CAUSE : cette ligne reservait
+							//  `ItemHeight() * 4` AVANT d'appeler l'hote -- et les
+							//  hotes de menu, eux, dessinent AU FIL (`MenuItem`
+							//  prend `NextItemRect`). On obtenait donc quatre
+							//  rangees vides, puis les entrees en dessous.
+							//
+							//  ⚠️ LA RESERVATION RESTE PARTOUT AILLEURS. Un `Host`
+							//     de panneau EST une surface que l'hote peint :
+							//     c'est le contrat, et `zone` a un sens pour lui.
+							//     Dans un popup, il n'y a pas de surface -- il n'y
+							//     a qu'un flux d'entrees. Le distinguer par
+							//     `curPopupLevel` ne demande aucune cle nouvelle
+							//     au document : le monteur SAIT ou il est.
+							const bool dansMenu = ctx.curPopupLevel >= 0;
 							const NkGuiTailleRel relH = NkGuiLireTailleRelative(w, ctx.layout.region);
-							const NkRect zone = ctx.NextItemRect(relH.aW ? relH.w : -1.f,
-																 relH.aH ? relH.h : ctx.ItemHeight() * 4.f);
+							NkRect zone;
+							if (dansMenu)
+								zone = {ctx.layout.cursor.x, ctx.layout.cursor.y,
+										ctx.layout.region.w, 0.f};
+							else
+								zone = ctx.NextItemRect(relH.aW ? relH.w : -1.f,
+														relH.aH ? relH.h : ctx.ItemHeight() * 4.f);
 							const bool rempli = hooks && hooks->RemplirHote(ctx, id.CStr(), zone);
+							if (!rempli && dansMenu) {
+								// ⚠️ LE MARQUEUR, LUI, A BESOIN D'UNE PLACE. Une
+								//    zone non remplie doit SE VOIR ; sans rect, elle
+								//    disparaitrait en silence -- exactement ce que ce
+								//    role existe pour empecher.
+								zone = ctx.NextItemRect(-1.f, ctx.ItemHeight());
+							}
 							if (!rempli) {
 								++rap.hotesNonRemplis;
 								// MUTATION DE BANC, NK_HOTE_MUTATION=sansmarqueur : la zone vide ne
