@@ -80,7 +80,9 @@
 #include "Probe.h"
 #include "NkCoquilleDocument.h" // LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT
 #include "PanneauIcones.h"      // la bibliotheque d'icones, montree et copiable (28/09)
+#include "PanneauCatalogue.h"  // la bibliotheque des ROLES du format, par famille (28/09)
 #include "SondeCoquille.h"      // --sonde-coquille : leur verdict, sans fenetre ni GPU
+#include "SondeCatalogue.h"    // --sonde-catalogue : le vocabulaire du format, et les greffons
 #include "SondeLecture.h"       // --sonde-lecture  : ouvrir un .nkgui, et ce que ca coute
 #include "SondeEdition.h"       // --sonde-edition  : LE TEMOIN DE R1 -- une ligne, pas deux
 #include "SondeImages.h"        // --sonde-images   : un `image:` arrive-t-il dessine, et aux bonnes proportions
@@ -2800,6 +2802,10 @@ int nkmain(const NkEntryState &state) {
 		// LA COQUILLE VENUE D'UN DOCUMENT, jugee sans fenetre ni GPU. Elle recoit
 		// LA table que l'application branche (`gActionsDocument`) : une copie ici
 		// aurait donne deux tables incapables de se contredire.
+		// Le CATALOGUE : une seconde liste des roles, donc un danger nomme. La
+		// sonde le verifie DANS LES DEUX SENS et eprouve l'ajout par greffon.
+		if (NkComponentDecl::StrEq(a, "--sonde-catalogue"))
+			return nkuidesign::SondeCatalogue();
 		if (NkComponentDecl::StrEq(a, "--sonde-coquille"))
 			return nkuidesign::SondeCoquille(gActionsDocument, gNbActionsDocument);
 		// L'OUVERTURE d'un `.nkgui` dans le modele (chantier A, doc 5 §2.2). Sa
@@ -4284,6 +4290,12 @@ int nkmain(const NkEntryState &state) {
 			{
 				static nkuidesign::PanneauIcones s_panneauIcones(gDesign);
 				shell->AddPanel(&s_panneauIcones);
+				// LA BIBLIOTHEQUE DES COMPOSANTS, par famille et categorie (Rodolf,
+				// 28/09 : « ce que tu fais avec les icones doit etre fait avec les
+				// composants »). Elle lit le catalogue du NOYAU : une liste ecrite
+				// dans l'application serait fausse au premier role ajoute au monteur.
+				static nkuidesign::PanneauCatalogue s_panneauCatalogue(gDesign);
+				shell->AddPanel(&s_panneauCatalogue);
 			}
 			// 🔴 LE MONTAGE DU MENU N'EST PLUS ICI, ET C'ETAIT LA CAUSE DU MENU
 			//    DOUBLE (Rodolf, 28/09 : « on voit bien deux panneaux qui se

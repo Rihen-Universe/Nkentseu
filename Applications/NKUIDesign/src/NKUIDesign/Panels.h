@@ -68,6 +68,7 @@
 #include "Canvas.h"
 #include "Costume.h" // le costume exact Banani (polices + icônes, remandat 31/08)
 #include "NkGuiLire.h" // `.nkgui` -> le modèle : ce que « Importer » appelle (28/09)
+#include "NKGui/Doc/NkGuiCatalogue.h" // la bibliotheque des composants (registre)
 #include "Historique.h" // l'annulation unifiée (§7) — instantanés de sérialisation
 #include "MenuFormat.h" // le catalogue des formats de page (chantier Cible, 31/08)
 #include "MenuRole.h" // le menu des rôles (écrans 5-6-7) — le geste « promouvoir »
@@ -2436,6 +2437,19 @@ namespace nkuidesign {
 			///    touche.
 			nkentseu::editorkit::NkFilePickerNavState choixNkgui;
 			char choixNkguiBuf[512] = {};
+			/// IMPORTER AUSSI LES COMPOSANTS DU DOCUMENT DANS LA BIBLIOTHÈQUE ?
+			///
+			/// Rodolf, 28/09 : « importer un .nkgui peut mettre ses composants en
+			/// bibliothèque ou pas, en fonction du choix de l'utilisateur ».
+			///
+			/// ⚠️ LE DÉFAUT EST **NON**, ET CE N'EST PAS DE LA TIMIDITÉ : ajouter
+			///    d'office les `component` de tout document ouvert pour le
+			///    regarder remplirait la bibliothèque de ce qu'on a seulement
+			///    inspecté. Et le registre REFUSE les doublons — le premier
+			///    fichier ouvert gagnerait le nom pour toute la session.
+			///    La case vit dans le panneau Catalogue, là où la bibliothèque se
+			///    regarde ; l'import DIT ce qu'il a fait, dans les deux cas.
+			bool importerComposants = false;
 			/// « EXPORTER... » (05/09) : le selecteur de fichier du kit en mode
 			/// enregistrer, et ce que le menu a choisi (format, echelle, page ou
 			/// selection, images embarquees). L'export lui-meme vit dans Export.h /
@@ -2635,6 +2649,45 @@ namespace nkuidesign {
 					const NkString dossier = NkCacheImages::Dossier(choisi);
 					dnew.title = NkString(choisi + dossier.Length());
 				}
+				// ═══════════════════════════════════════════════════════════
+				//  LES `component` DU DOCUMENT PEUVENT REJOINDRE LA BIBLIOTHÈQUE
+				// ═══════════════════════════════════════════════════════════
+				//  Rodolf, 28/09 : « importer un .nkgui peut mettre ses composants
+				//  en bibliothèque ou pas, en fonction du choix de l'utilisateur ».
+				//
+				//  ⚠️ LE DÉVELOPPEMENT SE FAIT SUR UNE **COPIE**, et c'est la seule
+				//     façon honnête : `NkGuiDevelopperComposants` MODIFIE l'archive
+				//     en place (il remplace les instances et retire les
+				//     définitions). L'appliquer à `ar` abîmerait le document qu'on
+				//     vient de lire, pour une information qu'on ne fait que
+				//     CONSULTER.
+				uint32 nComposants = 0u, ajoutes = 0u;
+				{
+					nkentseu::NkArchive copie = ar;
+					nkgui::NkGuiRapportComposants rc;
+					nkgui::NkGuiPatrons pats;
+					(void)nkgui::NkGuiDevelopperComposants(copie, rc, &pats);
+					nComposants = pats.Taille();
+					if (importerComposants) {
+						const NkString dossier2 = NkCacheImages::Dossier(choisi);
+						const NkString source(choisi + dossier2.Length());
+						for (uint32 i = 0; i < nComposants; ++i) {
+							char extrait[192];
+							nkentseu::NkSnprintf(extrait, sizeof(extrait), "%s \"instance\" {}",
+												 pats.noms[i].CStr());
+							// ⚠️ LA PROVENANCE EST LE NOM DU FICHIER : c'est par
+							//    elle qu'on pourra tout retirer d'un coup, et c'est
+							//    elle que le panneau affiche. Une provenance
+							//    générique (« importé ») rendrait le retrait
+							//    impossible à viser.
+							if (nkgui::NkGuiCatalogueAjouterGreffon(
+									pats.noms[i].CStr(), "Importés", source.CStr(),
+									"composant apporté par un document importé", extrait, nullptr,
+									source.CStr()))
+								++ajoutes;
+						}
+					}
+				}
 				const int32 onglet = OuvrirOngletInactif(dnew, choisi);
 				if (onglet >= 0)
 					BasculerVers((nkentseu::uint32)onglet);
@@ -2668,11 +2721,24 @@ namespace nkuidesign {
 										 "   %u attribut(s) sans champ dans l'éditeur (%s…)",
 										 rap.attributsNonPortes,
 										 rap.nonPortes.Size() ? rap.nonPortes[0].CStr() : "?");
+				// ⚠️ LES COMPOSANTS SE DISENT DANS LES DEUX CAS. « N ajoutés » ET
+				//    « N ignorés » sont deux informations ; le SILENCE, lui, n'en
+				//    est pas une — l'utilisateur ne saurait pas que le document en
+				//    portait, ni que la case existe.
+				char compo[200];
+				compo[0] = '\0';
+				if (nComposants > 0u)
+					nkentseu::NkSnprintf(compo, sizeof(compo),
+										 importerComposants
+											 ? "   %u composant(s) : %u ajouté(s) à la bibliothèque."
+											 : "   %u composant(s) NON ajouté(s) (case « importer "
+											   "les composants », panneau Catalogue).",
+										 nComposants, ajoutes);
 				nkentseu::NkSnprintf(
-					msg, sizeof(msg), "Import « %s » : %u nœud(s), %u attribut(s).%s%s%s",
+					msg, sizeof(msg), "Import « %s » : %u nœud(s), %u attribut(s).%s%s%s%s",
 					dnew.title.CStr(), rap.noeuds, rap.attributsLus,
 					rap.sectionsNonLues ? "   NON MONTRÉ (mais gardé dans le fichier) : " : "",
-					rap.sectionsNonLues ? manquantes : "", perdus);
+					rap.sectionsNonLues ? manquantes : "", perdus, compo);
 				DireAuPied(msg);
 				Consigner(msg);
 			}

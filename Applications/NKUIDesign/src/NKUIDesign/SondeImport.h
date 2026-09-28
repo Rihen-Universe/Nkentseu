@@ -205,6 +205,57 @@ namespace nkuidesign {
 				   (uint32)st.ouverts[t].doc.dossiersRecents.Size());
 		}
 
+		// ── (i7) LES COMPOSANTS DU DOCUMENT, SELON LE CHOIX ────────────────
+		// Rodolf, 28/09 : « importer un .nkgui peut mettre ses composants en
+		// bibliothèque ou pas, en fonction du choix de l'utilisateur ».
+		//
+		// 🔴 DEUX COURSES, PAS UNE : le NON puis le OUI, sur le MÊME fichier.
+		//    Ne mesurer que le OUI laisserait passer une version qui importe
+		//    TOUJOURS — et c'est le défaut le plus probable, puisque c'est le
+		//    chemin qu'on écrit en premier.
+		{
+			const char *avecCompo = "logs/verif/import-composants.nkgui";
+			const char *src = "nkgui 0.4\n"
+							  "component \"CarteEpreuve\" {\n"
+							  "  Button \"b\" { label = \"Carte\" }\n"
+							  "}\n"
+							  "widgets {\n"
+							  "  Button \"b1\" { label = \"Un\" }\n"
+							  "}\n";
+			if (!NkSondeEcrireFichier(avecCompo, src)) {
+				printf("  -- (i7) SAUTE : fichier d'epreuve non ecrit\n");
+			} else {
+				nkgui::NkGuiCatalogueRegistre &reg = nkgui::NkGuiCatalogueGlobal();
+				const uint32 base = reg.Taille();
+				// NON : la case est fausse -> rien ne rejoint la bibliotheque.
+				st.importerComposants = false;
+				st.choixNkgui.pickerResultPath[0] = '\0';
+				nkentseu::NkSnprintf(st.choixNkguiBuf, sizeof(st.choixNkguiBuf), "%s", avecCompo);
+				st.AppliquerImportNkgui();
+				const uint32 apresNon = reg.Taille();
+				// OUI : la meme importation ajoute le composant.
+				st.importerComposants = true;
+				st.choixNkgui.pickerResultPath[0] = '\0';
+				nkentseu::NkSnprintf(st.choixNkguiBuf, sizeof(st.choixNkguiBuf), "%s", avecCompo);
+				st.AppliquerImportNkgui();
+				const uint32 apresOui = reg.Taille();
+				const bool present = reg.Trouver("CarteEpreuve") != nullptr;
+				printf("  -- (i7) catalogue : %u (base) -> %u (choix NON) -> %u (choix OUI) ; "
+					   "« CarteEpreuve » %s\n",
+					   base, apresNon, apresOui, present ? "PRESENT" : "absent");
+				if (apresNon != base) {
+					printf("     KO : des composants ont rejoint la bibliotheque alors que le "
+						   "choix etait NON\n");
+					++ko;
+				}
+				if (apresOui != base + 1u || !present) {
+					printf("     KO : le choix OUI n'a pas ajoute le composant du document\n");
+					++ko;
+				}
+				(void)reg.RetirerProvenance("import-composants.nkgui");
+			}
+		}
+
 		// ── (i3) LE DOCUMENT PRECEDENT, RELU SUR SON ONGLET ────────────────
 		if (ongletsAvant > 0u && st.ouverts.Size() > ongletsAvant) {
 			st.BasculerVers(0u);
