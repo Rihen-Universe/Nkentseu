@@ -327,7 +327,7 @@ namespace nkuidesign {
 		if (out != kSentinelleRoleOublie)
 			return true;
 		if (pourquoi && cap)
-			snprintf(pourquoi, cap,
+			nkentseu::NkSnprintf(pourquoi, cap,
 					 "THEME NON CHARGE : le role `%s` rend la SENTINELLE 0x%08X, valeur commune"
 					 " a des dizaines de roles. Comparer une couleur a cette valeur ne distingue"
 					 " RIEN -- ce critere refuse de mesurer plutot que de verdir par hasard.",
@@ -526,7 +526,7 @@ namespace nkuidesign {
 		NkRecordingPaint a1, a2;
 		Render(a1, nullptr, idle);
 		Render(a2, nullptr, idle);
-		snprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)a1.cmds.Size(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)a1.cmds.Size(),
 				 a1.DiffCount(a2));
 		check("1. TEMOIN DE BRUIT : deux passes identiques -> 0 difference", a1.DiffCount(a2) == 0,
 			  buf);
@@ -538,7 +538,7 @@ namespace nkuidesign {
 		inst.SetMetric("card_gap", 40.f);
 		NkRecordingPaint b;
 		Render(b, &inst, idle);
-		snprintf(buf, sizeof(buf), "card_gap 12 -> 40 : %u commandes differentes de la reference",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "card_gap 12 -> 40 : %u commandes differentes de la reference",
 				 a1.DiffCount(b));
 		check("2. CONTROLE POSITIF : card_gap ecrase -> le dessin change", a1.DiffCount(b) > 0, buf);
 
@@ -547,7 +547,7 @@ namespace nkuidesign {
 		p.SetParam("thumb_size", 160.f);
 		NkRecordingPaint c;
 		Render(c, &p, idle);
-		snprintf(buf, sizeof(buf), "thumb_size 96 -> 160 : %u differences", a1.DiffCount(c));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "thumb_size 96 -> 160 : %u differences", a1.DiffCount(c));
 		check("3. un PARAMETRE ecrase change le dessin", a1.DiffCount(c) > 0, buf);
 
 		// ── 4. UNE VARIANTE ─────────────────────────────────────────────────
@@ -555,7 +555,7 @@ namespace nkuidesign {
 		v.SetVariantByName("dense_list");
 		NkRecordingPaint d;
 		Render(d, &v, idle);
-		snprintf(buf, sizeof(buf), "grid -> dense_list : %u differences", a1.DiffCount(d));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "grid -> dense_list : %u differences", a1.DiffCount(d));
 		check("4. une VARIANTE change la mise en page (un modele, N rendus)", a1.DiffCount(d) > 0,
 			  buf);
 
@@ -568,7 +568,7 @@ namespace nkuidesign {
 		vmin.SetVariantByName("minimal");
 		NkRecordingPaint dmin;
 		Render(dmin, &vmin, idle);
-		snprintf(buf, sizeof(buf), "%u commandes, %u differences avec le mixte",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u commandes, %u differences avec le mixte",
 				 (uint32)dmin.cmds.Size(), a1.DiffCount(dmin));
 		check("4b. la variante `minimal` (l'ancien rendu) dessine, et differe du mixte",
 			  dmin.cmds.Size() > 20 && a1.DiffCount(dmin) > 0, buf);
@@ -580,7 +580,7 @@ namespace nkuidesign {
 		NkComponentInstance pristine(NkContentBrowserDecl());
 		NkRecordingPaint e;
 		Render(e, &pristine, idle);
-		snprintf(buf, sizeof(buf), "%u differences (attendu : 0)", a1.DiffCount(e));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u differences (attendu : 0)", a1.DiffCount(e));
 		check("5. une instance VIERGE se comporte comme la declaration", a1.DiffCount(e) == 0, buf);
 
 		// ── 6. L'ALLER-RETOUR PAR LE FICHIER — le coeur du temoin ───────────
@@ -593,11 +593,11 @@ namespace nkuidesign {
 		const bool loaded = reloaded.Load(text.Data(), &unknown, &applied);
 		NkRecordingPaint f;
 		Render(f, &reloaded, idle);
-		snprintf(buf, sizeof(buf), "entete=%d applique=%u inconnu=%u, %u differences avec l'ecrit",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "entete=%d applique=%u inconnu=%u, %u differences avec l'ecrit",
 				 loaded ? 1 : 0, applied, unknown, b.DiffCount(f));
 		check("6. ALLER-RETOUR FICHIER : ecrit -> texte -> relu -> MEME dessin",
 			  loaded && unknown == 0 && applied > 0 && b.DiffCount(f) == 0, buf);
-		snprintf(buf, sizeof(buf), "%u differences avec la reference (doit rester > 0)",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u differences avec la reference (doit rester > 0)",
 				 a1.DiffCount(f));
 		check("6b. et le dessin relu differe TOUJOURS de la reference", a1.DiffCount(f) > 0, buf);
 
@@ -612,7 +612,7 @@ namespace nkuidesign {
 		bogus.SetMetric("cle_qui_nexiste_pas", 999.f);
 		NkRecordingPaint g;
 		Render(g, &bogus, idle);
-		snprintf(buf, sizeof(buf), "%u ecrasements retenus, %u differences (attendu : 0 et 0)",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u ecrasements retenus, %u differences (attendu : 0 et 0)",
 				 bogus.OverrideCount(), a1.DiffCount(g));
 		check("8. CONTROLE NEGATIF : une cle inconnue de la declaration ne change RIEN",
 			  bogus.OverrideCount() == 0 && a1.DiffCount(g) == 0, buf);
@@ -620,14 +620,14 @@ namespace nkuidesign {
 		NkComponentInstance perime(NkContentBrowserDecl());
 		uint32 u2 = 0, a2c = 0;
 		perime.Load("nkuicomp 1\nmetrique disparue = 3\nparam thumb_size = 120\n", &u2, &a2c);
-		snprintf(buf, sizeof(buf), "inconnu=%u applique=%u", u2, a2c);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "inconnu=%u applique=%u", u2, a2c);
 		check("8b. un fichier a moitie perime se charge quand meme, et COMPTE l'inconnu",
 			  u2 == 1 && a2c == 1, buf);
 
 		// ── 9. LES BORNES VIENNENT DE LA DECLARATION ────────────────────────
 		NkComponentInstance clamp(NkContentBrowserDecl());
 		clamp.SetParam("thumb_size", 9999.f);
-		snprintf(buf, sizeof(buf), "9999 borne a %.1f (max declare : 256)", clamp.Param("thumb_size"));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "9999 borne a %.1f (max declare : 256)", clamp.Param("thumb_size"));
 		check("9. une valeur hors bornes est ramenee par la DECLARATION, pas par l'editeur",
 			  clamp.Param("thumb_size") <= 256.f, buf);
 
@@ -668,7 +668,7 @@ namespace nkuidesign {
 		click.mousePressed = true;
 		NkRecordingPaint r10;
 		Render(r10, nullptr, click, &h);
-		snprintf(buf, sizeof(buf), "onSelect=%d index=%d", ev.selects, ev.lastIndex);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "onSelect=%d index=%d", ev.selects, ev.lastIndex);
 		check("10. onSelect part au clic, avec un index valide", ev.selects == 1 && ev.lastIndex >= 0,
 			  buf);
 		// ⚠️ `ev.selects > 0` FAIT PARTIE DE LA CONDITION, et c'est tout l'objet de
@@ -685,7 +685,7 @@ namespace nkuidesign {
 		dbl.doubleClick = true;
 		NkRecordingPaint r11;
 		Render(r11, nullptr, dbl, &h);
-		snprintf(buf, sizeof(buf), "onDoubleClick=%d onSelect=%d", ev2.doubleClicks, ev2.selects);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "onDoubleClick=%d onSelect=%d", ev2.doubleClicks, ev2.selects);
 		check("11. onDoubleClick part au double-clic, et onSelect NE part PAS",
 			  ev2.doubleClicks == 1 && ev2.selects == 0, buf);
 
@@ -695,7 +695,7 @@ namespace nkuidesign {
 		h.user = &ev3;
 		NkRecordingPaint r12;
 		Render(r12, nullptr, idle, &h);
-		snprintf(buf, sizeof(buf), "select=%d double=%d menu=%d nav=%d", ev3.selects,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "select=%d double=%d menu=%d nav=%d", ev3.selects,
 				 ev3.doubleClicks, ev3.contextMenus, ev3.navigates);
 		check("12. CONTROLE NEGATIF : sans entree, AUCUN evenement ne part",
 			  ev3.selects == 0 && ev3.doubleClicks == 0 && ev3.contextMenus == 0 &&
@@ -703,14 +703,14 @@ namespace nkuidesign {
 			  buf);
 
 		// ── 13. DECOUPE EQUILIBREE ──────────────────────────────────────────
-		snprintf(buf, sizeof(buf), "profondeur max %u", a1.MaxClipDepth());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "profondeur max %u", a1.MaxClipDepth());
 		check("13. la pile de decoupe est equilibree (PushClip == PopClip)", a1.ClipBalanced(), buf);
 
 		// ── 14. LA CONVERGENCE `.nkgui` EST PRODUITE, PAS AFFIRMEE ──────────
 		const NkComponentDecl &decl = NkContentBrowserDecl();
 		char ctrl[2048];
 		const uint32 n = NkWriteControllerBlock(decl, ctrl, sizeof(ctrl));
-		snprintf(buf, sizeof(buf), "%u evenements declares, bloc de %u octets", decl.eventCount, n);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u evenements declares, bloc de %u octets", decl.eventCount, n);
 		// 8 depuis le mixte du 30/08 : les 5 d'origine + onCreate / onImport /
 		// onSaveAll (les boutons de tete, a charge vide — le fait suffit).
 		check("14. le bloc `controller` de la spec .nkgui v0.2 s'emet depuis la declaration",
@@ -729,7 +729,7 @@ namespace nkuidesign {
 		// ── 15. LE REGISTRE ENUMERE ─────────────────────────────────────────
 		NkComponentRegistry::Register(decl);
 		NkComponentRegistry::Register(decl); // idempotence
-		snprintf(buf, sizeof(buf), "%u composant(s) enregistre(s)", NkComponentRegistry::Count());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u composant(s) enregistre(s)", NkComponentRegistry::Count());
 		check("15. le registre enumere, et l'enregistrement est idempotent",
 			  NkComponentRegistry::Count() == 1 &&
 				  NkComponentRegistry::Find("content_browser") == &decl,
@@ -750,7 +750,7 @@ namespace nkuidesign {
 		hidpi.surfaceScale = 2.f;
 		NkRecordingPaint s2r;
 		Render(s2r, nullptr, hidpi);
-		snprintf(buf, sizeof(buf), "echelle 1.0 -> 2.0 : %u differences", a1.DiffCount(s2r));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "echelle 1.0 -> 2.0 : %u differences", a1.DiffCount(s2r));
 		check("16. l'echelle de SURFACE traverse jusqu'aux metriques (temoin simultane DIFFERE)",
 			  a1.DiffCount(s2r) > 0, buf);
 
@@ -786,12 +786,12 @@ namespace nkuidesign {
 			if (d && pal.AddChild(0, d->name, NkAuthor::Humain) >= 0)
 				++posed;
 		}
-		snprintf(buf, sizeof(buf), "%u declare(s), %u pose(s)", regCount, posed);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u declare(s), %u pose(s)", regCount, posed);
 		check("17b. chaque composant DECLARE se pose, sans qu'un seul nom soit ecrit dans la palette",
 			  regCount > 0 && posed == regCount, buf);
 
 		const int32 bogusNode = pal.AddChild(0, "composant_qui_nexiste_pas", NkAuthor::Humain);
-		snprintf(buf, sizeof(buf), "retour %d, %u noeud(s) au lieu de %u", bogusNode, pal.NodeCount(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "retour %d, %u noeud(s) au lieu de %u", bogusNode, pal.NodeCount(),
 				 posed + 1);
 		check("17c. CONTROLE NEGATIF : un nom absent du registre est REFUSE, et rien n'est ajoute",
 			  bogusNode < 0 && pal.NodeCount() == posed + 1, buf);
@@ -819,7 +819,7 @@ namespace nkuidesign {
 			contained = cr.x >= pr.x - 0.01f && cr.y >= pr.y - 0.01f &&
 						cr.x + cr.w <= pr.x + pr.w + 0.01f && cr.y + cr.h <= pr.y + pr.h + 0.01f;
 		}
-		snprintf(buf, sizeof(buf), "%u noeud(s), %u place(s)", doc.NodeCount(), layA.ValidCount());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeud(s), %u place(s)", doc.NodeCount(), layA.ValidCount());
 		check("19. IMBRICATION : un composant pose DANS un autre, et son rectangle est CONTENU "
 			  "dans celui du parent",
 			  nested && bothPlaced && contained, buf);
@@ -838,7 +838,7 @@ namespace nkuidesign {
 		const bool haveBoth = layA.Has(dansCorps) && layB.Has(dansCorps);
 		const float32 wA = haveBoth ? layA.At(dansCorps).w : 0.f;
 		const float32 wB = haveBoth ? layB.At(dansCorps).w : 0.f;
-		snprintf(buf, sizeof(buf), "largeur %0.1f -> %0.1f pour une surface 900 -> 1400", wA, wB);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "largeur %0.1f -> %0.1f pour une surface 900 -> 1400", wA, wB);
 		check("20. LA POSITION EST UN RESULTAT : le meme document dans deux surfaces donne deux "
 			  "mises en page",
 			  haveBoth && wA > 0.f && wB > wA, buf);
@@ -849,7 +849,7 @@ namespace nkuidesign {
 		const int32 entete = 1;
 		const float32 hA = layA.Has(entete) ? layA.At(entete).h : -1.f;
 		const float32 hB = layB.Has(entete) ? layB.At(entete).h : -2.f;
-		snprintf(buf, sizeof(buf), "entete FIXE : %0.1f puis %0.1f (declare 60)", hA, hB);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "entete FIXE : %0.1f puis %0.1f (declare 60)", hA, hB);
 		check("20b. …et un enfant FIXE garde sa taille pendant que l'extensible change", hA == 60.f && hB == 60.f,
 			  buf);
 
@@ -866,7 +866,7 @@ namespace nkuidesign {
 		NkComputeLayout(bounded, surfA, layC);
 		const float32 cw = layC.Has(capped) ? layC.At(capped).w : -1.f;
 		const float32 fw = layC.Has(free1) ? layC.At(free1).w : -1.f;
-		snprintf(buf, sizeof(buf), "borne %0.1f (max 200) + libre %0.1f = %0.1f (surface 900)", cw, fw,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "borne %0.1f (max 200) + libre %0.1f = %0.1f (surface 900)", cw, fw,
 				 cw + fw);
 		check("21. un MAX mord, et ce qu'il rend va aux AUTRES (le parent reste rempli)",
 			  layC.Has(capped) && layC.Has(free1) && cw <= 200.01f && cw > 0.f &&
@@ -900,7 +900,7 @@ namespace nkuidesign {
 		const float32 valBefore = dragged.nodes[(uint32)entete].height.value;
 		const bool dragOk = NkResizeByDrag(dragged, layF, entete, false, 40.f);
 		const float32 valAfter = dragged.nodes[(uint32)entete].height.value;
-		snprintf(buf, sizeof(buf), "mode %s, valeur %0.1f -> %0.1f", NkSizeModeName(modeBefore), valBefore,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "mode %s, valeur %0.1f -> %0.1f", NkSizeModeName(modeBefore), valBefore,
 				 valAfter);
 		check("23. TIRER UN BORD ecrit la TAILLE DECLAREE (ici un FIXE : 60 -> 100)",
 			  dragOk && valAfter > valBefore + 39.f && valAfter < valBefore + 41.f, buf);
@@ -910,7 +910,7 @@ namespace nkuidesign {
 		NkLayoutResult layG;
 		NkComputeLayout(dragged2, surfA, layG);
 		const bool dragOk2 = NkResizeByDrag(dragged2, layG, corps, false, -100.f);
-		snprintf(buf, sizeof(buf), "mode devenu %s, poids %0.3f",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "mode devenu %s, poids %0.3f",
 				 NkSizeModeName(dragged2.nodes[(uint32)corps].height.mode),
 				 dragged2.nodes[(uint32)corps].height.value);
 		check("23b. …et sur un EXTENSIBLE il ecrit un POIDS (le document reste responsive)",
@@ -928,7 +928,7 @@ namespace nkuidesign {
 		dragged.Save(dragText);
 		char foundKey[32];
 		const bool hasCoord = ProbeFindsCoordinate(dragText.Data(), foundKey, sizeof(foundKey));
-		snprintf(buf, sizeof(buf), "%u octets relus%s%s", (uint32)dragText.Length(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u octets relus%s%s", (uint32)dragText.Length(),
 				 hasCoord ? ", trouve : " : ", aucune cle de position", hasCoord ? foundKey : "");
 		check("24. LE DOCUMENT ENREGISTRE APRES UN GLISSER NE CONTIENT AUCUNE COORDONNEE",
 			  dragText.Length() > 0 && !hasCoord, buf);
@@ -942,7 +942,7 @@ namespace nkuidesign {
 		NkUIDocument reread;
 		uint32 docUnknown = 0;
 		const bool reloadOk = reread.Load(docText.Data(), &docUnknown);
-		snprintf(buf, sizeof(buf), "%u noeud(s) ecrits, %u relus, %u inconnu(s)", doc.NodeCount(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeud(s) ecrits, %u relus, %u inconnu(s)", doc.NodeCount(),
 				 reread.NodeCount(), docUnknown);
 		check("25. ALLER-RETOUR DOCUMENT : il se relit, avec le meme nombre de noeuds",
 			  reloadOk && docUnknown == 0 && reread.NodeCount() == doc.NodeCount() &&
@@ -952,7 +952,7 @@ namespace nkuidesign {
 		NkRecordingPaint dr1, dr2;
 		RenderDocument(dr1, doc, surfA);
 		RenderDocument(dr2, reread, surfA);
-		snprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)dr1.cmds.Size(),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u commandes, %u differences", (uint32)dr1.cmds.Size(),
 				 dr1.DiffCount(dr2));
 		check("25b. LE COEUR DU TEMOIN, A L'ECHELLE DU DOCUMENT : le relu donne le MEME DESSIN",
 			  dr1.cmds.Size() > 20 && dr1.DiffCount(dr2) == 0, buf);
@@ -964,7 +964,7 @@ namespace nkuidesign {
 		changed.nodes[(uint32)entete].height.value = 140.f;
 		NkRecordingPaint dr3;
 		RenderDocument(dr3, changed, surfA);
-		snprintf(buf, sizeof(buf), "%u differences apres avoir change une hauteur declaree",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u differences apres avoir change une hauteur declaree",
 				 dr1.DiffCount(dr3));
 		check("25c. CONTROLE POSITIF : changer une taille declaree CHANGE le dessin",
 			  dr1.DiffCount(dr3) > 0, buf);
@@ -987,7 +987,7 @@ namespace nkuidesign {
 		const bool posedAtCreation = prov.IsValidIndex(byHand) && prov.IsValidIndex(byMachine) &&
 									 prov.nodes[(uint32)byHand].prov.author == NkAuthor::Humain &&
 									 prov.nodes[(uint32)byMachine].prov.author == NkAuthor::IA;
-		snprintf(buf, sizeof(buf), "%u humain(s), %u ia", prov.CountByAuthor(NkAuthor::Humain),
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u humain(s), %u ia", prov.CountByAuthor(NkAuthor::Humain),
 				 prov.CountByAuthor(NkAuthor::IA));
 		check("27. LA PROVENANCE EST POSEE A LA CREATION, pas ajoutee ensuite", posedAtCreation, buf);
 
@@ -995,7 +995,7 @@ namespace nkuidesign {
 		const bool wasVerified = prov.nodes[(uint32)byMachine].prov.verified;
 		prov.MarkHumanEdit(byMachine);
 		prov.MarkHumanEdit(byHand);
-		snprintf(buf, sizeof(buf), "ia : corrigee=%d verifiee=%d | humain : corrigee=%d",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "ia : corrigee=%d verifiee=%d | humain : corrigee=%d",
 				 prov.nodes[(uint32)byMachine].prov.corrected ? 1 : 0,
 				 prov.nodes[(uint32)byMachine].prov.verified ? 1 : 0,
 				 prov.nodes[(uint32)byHand].prov.corrected ? 1 : 0);
@@ -1039,7 +1039,7 @@ namespace nkuidesign {
 				}
 			}
 		}
-		snprintf(buf, sizeof(buf), "%u composant(s) nomme(s) sur %u declare(s)", named,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u composant(s) nomme(s) sur %u declare(s)", named,
 				 NkComponentRegistry::Count());
 		check("28. LE CATALOGUE DONNE A L'IA EST ENGENDRE DEPUIS LE REGISTRE (aucune liste ecrite)",
 			  NkComponentRegistry::Count() > 0 && named == NkComponentRegistry::Count(), buf);
@@ -1064,7 +1064,7 @@ namespace nkuidesign {
 		NkDesignAI ai;
 		ai.SetBackend(&canned);
 		const NkAIResult ok = ai.Ask("un bloc avec un navigateur", aiDoc, 0);
-		snprintf(buf, sizeof(buf), "verdict=%s, +%u noeud(s), %u divergence(s) au rejeu",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "verdict=%s, +%u noeud(s), %u divergence(s) au rejeu",
 				 NkAIVerdictName(ok.verdict), ok.nodesAdded, ok.replayDiffs);
 		check("29. UNE REPONSE VALIDE ATTERRIT DANS LE DOCUMENT, par la meme fonction que la main",
 			  ok.Accepted() && ok.nodesAdded == 2 && aiDoc.NodeCount() == nodesBefore + 2, buf);
@@ -1072,7 +1072,7 @@ namespace nkuidesign {
 		const bool stamped = ok.Accepted() && aiDoc.IsValidIndex(ok.graftedRoot) &&
 							 aiDoc.nodes[(uint32)ok.graftedRoot].prov.author == NkAuthor::IA &&
 							 aiDoc.nodes[(uint32)ok.graftedRoot].prov.verified;
-		snprintf(buf, sizeof(buf), "%u noeud(s) d'origine IA", aiDoc.CountByAuthor(NkAuthor::IA));
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeud(s) d'origine IA", aiDoc.CountByAuthor(NkAuthor::IA));
 		check("29b. la PROVENANCE se remplit toute seule : auteur = ia, et rejouee parce qu'elle "
 			  "L'A ETE",
 			  stamped && aiDoc.CountByAuthor(NkAuthor::IA) == 2, buf);
@@ -1118,7 +1118,7 @@ namespace nkuidesign {
 			NkString after;
 			guard.Save(after);
 			const bool intact = SameText(guardBefore.Data(), after.Data());
-			snprintf(buf, sizeof(buf), "verdict=%s, document %s", NkAIVerdictName(r.verdict),
+			nkentseu::NkSnprintf(buf, sizeof(buf), "verdict=%s, document %s", NkAIVerdictName(r.verdict),
 					 intact ? "INTACT (octet pour octet)" : "MODIFIE");
 			check(kBad[i].label, !r.Accepted() && r.verdict == kBad[i].expected && intact, buf);
 		}
@@ -1187,7 +1187,7 @@ namespace nkuidesign {
 		const char *kVulkanArgs[] = {"--small", "--gfx=vulkan"};
 		const NkGfxChoice cVk = NkGfxResolve(nullptr, nullptr, kVulkanArgs, 2);
 		const NkString lineVk = NkGfxJournalLine(cVk);
-		snprintf(buf, sizeof(buf), "%u caracteres", (uint32)lineVk.Length());
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u caracteres", (uint32)lineVk.Length());
 		check("31a. la ligne de journal EXISTE et n'est pas un moignon", lineVk.Length() > 60, buf);
 
 		// 31b. ET ELLE A REELLEMENT SUBSTITUE -- le defaut du 18/08, en une ligne.
@@ -1396,7 +1396,7 @@ namespace nkuidesign {
 					canonEcarts.Append(got);
 				}
 			}
-			snprintf(buf, sizeof(buf), "%u cas ecrits d'avance%s%s", casVus,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u cas ecrits d'avance%s%s", casVus,
 					 canonOk ? ", tous conformes" : ", ECARTS : ",
 					 canonOk ? "" : canonEcarts.Data());
 			check("33a. la canonisation rend EXACTEMENT la forme attendue (et laisse le snake_case "
@@ -1465,7 +1465,7 @@ namespace nkuidesign {
 					}
 				}
 			}
-			snprintf(buf, sizeof(buf), "%u composant(s), %u jeton(s) examine(s), %u non resolu(s)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u composant(s), %u jeton(s) examine(s), %u non resolu(s)",
 					 (uint32)nbComp, jetonsVus, jetonsCasses);
 			check("33d. l'audit a REELLEMENT parcouru des jetons (sinon 0 casse ne dit rien)",
 				  jetonsVus >= 20 && nbComp >= 2, buf);
@@ -1492,7 +1492,7 @@ namespace nkuidesign {
 				if (NkRoleAudit::Rescued()[i].name.Empty() ||
 					NkRoleAudit::Rescued()[i].canon.Empty())
 					traceOk = false;
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "%u graphie(s) PascalCase distincte(s), sur %u jeton(s) declare(s)",
 					 NkRoleAudit::RescuedCount(), jetonsVus);
 			check("33f. tout rattrapage porte le nom DECLARE et la forme qui a resolu (liste de "
@@ -1559,7 +1559,7 @@ namespace nkuidesign {
 							horsZone.Append(", ");
 						horsZone.Append(NkPaintOpName(c.op));
 						char b[64];
-						snprintf(b, sizeof(b), "@x=%.1f w=%.1f", c.x, c.w);
+						nkentseu::NkSnprintf(b, sizeof(b), "@x=%.1f w=%.1f", c.x, c.w);
 						horsZone.Append(b);
 					}
 				}
@@ -1585,7 +1585,7 @@ namespace nkuidesign {
 			//    corrigerait ; c'est ce qui a permis de resserrer a `== 0` sans
 			//    rien casser le jour ou la correction est arrivee.
 			//    *Une quarantaine ecrite `==` aurait puni son propre correctif.*
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "%u commande(s) hors zone ; debord max gauche %.1f px, droite %.1f px", dehors,
 					 pireGauche, pireDroite);
 			check("34b. AUCUNE commande ne sort du rectangle donne au composant", dehors == 0,
@@ -1622,12 +1622,12 @@ namespace nkuidesign {
 					gridX = g.cmds[i].x;
 					iClip = i;
 					char b[64];
-					snprintf(b, sizeof(b), "%s(x=%.1f w=%.1f)", nbClips > 1 ? " > " : "",
+					nkentseu::NkSnprintf(b, sizeof(b), "%s(x=%.1f w=%.1f)", nbClips > 1 ? " > " : "",
 							 g.cmds[i].x, g.cmds[i].w);
 					clips.Append(b);
 				}
 			}
-			snprintf(buf, sizeof(buf), "%u clip(s) imbrique(s) : %s -- frontiere retenue x=%.1f",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u clip(s) imbrique(s) : %s -- frontiere retenue x=%.1f",
 					 nbClips, clips.Data(), gridX);
 			check("34c. le composant DECLARE la zone de sa grille, et elle n'est PAS le panneau entier",
 				  gridX > 0.01f && nbClips >= 2, buf);
@@ -1682,7 +1682,7 @@ namespace nkuidesign {
 								coupables->Append(", ");
 							coupables->Append(NkPaintOpName(c.op));
 							char b[96];
-							snprintf(b, sizeof(b), "@x=%.1f y=%.1f w=%.1f deborde de %.1f px [%s]", c.x,
+							nkentseu::NkSnprintf(b, sizeof(b), "@x=%.1f y=%.1f w=%.1f deborde de %.1f px [%s]", c.x,
 									 c.y, c.w, de, c.text.Data() ? c.text.Data() : "");
 							coupables->Append(b);
 						}
@@ -1712,7 +1712,7 @@ namespace nkuidesign {
 			if (gridX >= 0.f)
 				compter(g, iClip, colonneSurGrille, grilleSurColonne, pireColonne, &coupables);
 
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "bande jugee : x<%.1f et y>=%.1f ; colonne->grille : %u (debord max %.1f px) ; "
 					 "grille->colonne : %u",
 					 gridX, bandeTop, colonneSurGrille, pireColonne, grilleSurColonne);
@@ -1754,14 +1754,14 @@ namespace nkuidesign {
 			// intrus insere : c'est la condition pour que 34e prouve le detecteur
 			// employe, pas un detecteur elargi pour l'occasion.
 			compter(faute, iClip + 1, fCol, fGrille, fPire, nullptr);
-			snprintf(buf, sizeof(buf), "intrus injecte -> %u detecte(s), debord mesure %.1f px (attendu 50.0)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "intrus injecte -> %u detecte(s), debord mesure %.1f px (attendu 50.0)",
 					 fCol, fPire);
 			check("34e. CONTROLE POSITIF : le MEME detecteur voit un chevauchement injecte", fCol == 1 && fPire > 49.9f && fPire < 50.1f, buf);
 
 			rep.Append("\n--- geometrie du navigateur de contenu, mesuree ---\n  ");
 			rep.Append(buf);
 			rep.Append("\n  ");
-			snprintf(buf, sizeof(buf), "%u commande(s) au total, %u hors du rectangle donne",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u commande(s) au total, %u hors du rectangle donne",
 					 (uint32)g.cmds.Size(), dehors);
 			rep.Append(buf);
 			rep.Append("\n");
@@ -1796,7 +1796,7 @@ namespace nkuidesign {
 			char vVide[32], vAbsente[32];
 			const bool luVide = NkGfxConfigValue(kCfg, "vide", vVide, sizeof(vVide));
 			const bool luAbsente = NkGfxConfigValue(kCfg, "pas_la", vAbsente, sizeof(vAbsente));
-			snprintf(buf, sizeof(buf), "gfx='%s' (%d), vide=%d, absente=%d", lu ? v : "", (int)lu,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "gfx='%s' (%d), vide=%d, absente=%d", lu ? v : "", (int)lu,
 					 (int)luVide, (int)luAbsente);
 			check("35a. la cle se lit, les blancs de fin tombent, un commentaire ne gagne pas, "
 				  "vide == absente",
@@ -1810,7 +1810,7 @@ namespace nkuidesign {
 			const NkGfxChoice cCfgSeul = NkGfxResolve("vulkan", nullptr, nullptr, 0);
 			const NkGfxChoice cCfgEtEnv = NkGfxResolve("vulkan", "opengl", nullptr, 0);
 			const NkGfxChoice cTout = NkGfxResolve("vulkan", "opengl", kArgDx12, 1);
-			snprintf(buf, sizeof(buf), "fichier seul -> %s (%s) ; +env -> %s ; +ligne -> %s",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "fichier seul -> %s (%s) ; +env -> %s ; +ligne -> %s",
 					 cCfgSeul.effective, NkGfxSourceName(cCfgSeul.source), cCfgEtEnv.effective,
 					 cTout.effective);
 			check("35b. le fichier bat la detection, l'environnement bat le fichier, la ligne bat tout",
@@ -1824,7 +1824,7 @@ namespace nkuidesign {
 			//      l'utilisateur ne peut plus atteindre les Preferences pour
 			//      corriger le reglage qui l'empeche de demarrer.
 			const NkGfxChoice cCfgFaux = NkGfxResolve("metal", nullptr, nullptr, 0);
-			snprintf(buf, sizeof(buf), "config 'metal' -> supported=%d, repli=%d, refuse='%s', retenu='%s'",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "config 'metal' -> supported=%d, repli=%d, refuse='%s', retenu='%s'",
 					 (int)cCfgFaux.supported, (int)cCfgFaux.fellBack, cCfgFaux.refused,
 					 cCfgFaux.effective);
 			check("35c. une config indisponible DEMARRE sur le repli, en nommant ce qu'elle refusait",
@@ -1839,7 +1839,7 @@ namespace nkuidesign {
 			//      partout, et personne ne verrait la difference.
 			static const char *kArgMetal[] = {"--gfx=metal"};
 			const NkGfxChoice cLigneFausse = NkGfxResolve(nullptr, nullptr, kArgMetal, 1);
-			snprintf(buf, sizeof(buf), "--gfx=metal -> supported=%d, repli=%d",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "--gfx=metal -> supported=%d, repli=%d",
 					 (int)cLigneFausse.supported, (int)cLigneFausse.fellBack);
 			check("35d. `--gfx` indisponible REFUSE le lancement (deux sources, deux conduites)",
 				  !cLigneFausse.supported && !cLigneFausse.fellBack, buf);
@@ -1893,7 +1893,7 @@ namespace nkuidesign {
 			const nkentseu::nk_uint64 racine = t.nodes[0].id; // « Scene »
 			const bool aDesEnfants = t.nodes.Size() > 1 && t.nodes[1].parent == 0;
 			const bool ouvertAuDepart = t.IsOpen(racine, true);
-			snprintf(buf, sizeof(buf), "%u noeuds, racine a des enfants=%d, ouverte=%d",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeuds, racine a des enfants=%d, ouverte=%d",
 					 (uint32)t.nodes.Size(), (int)aDesEnfants, (int)ouvertAuDepart);
 			check("36a. l'arbre d'essai a un noeud pliable, ouvert au depart", aDesEnfants && ouvertAuDepart,
 				  buf);
@@ -1919,7 +1919,7 @@ namespace nkuidesign {
 			const NkTreeViewResult res =
 				nkentseu::editorkit::NkDrawTreeView(rec, clic, {0.f, 0.f, 320.f, 400.f}, t, st, h);
 			const bool plieMaintenant = !t.IsOpen(racine, true);
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "clic a (%.1f, %.1f) ; openChanged=%d ; racine ouverte apres = %d",
 					 clic.mouseX, clic.mouseY, (int)res.openChanged, (int)t.IsOpen(racine, true));
 			check("36b. le clic sur la zone du chevron PLIE, alors qu'AUCUNE icone n'est dessinee",
@@ -1944,7 +1944,7 @@ namespace nkuidesign {
 					if (rec.cmds[i].icon == 0)
 						++iconesVides;
 				}
-			snprintf(buf, sizeof(buf), "%u commande(s) Icon emise(s), dont %u a poignee NULLE",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u commande(s) Icon emise(s), dont %u a poignee NULLE",
 					 iconesDemandees, iconesVides);
 			check("36d. le composant DEMANDE ses icones ; c'est l'HOTE qui n'en fournit aucune",
 				  iconesDemandees > 0 && iconesVides == iconesDemandees, buf);
@@ -1995,7 +1995,7 @@ namespace nkuidesign {
 					poigneeFerme = ferme.cmds[i].icon;
 					break;
 				}
-			snprintf(buf, sizeof(buf), "deplie -> poignee %u ; replie -> poignee %u (attendu %u / %u)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "deplie -> poignee %u ; replie -> poignee %u (attendu %u / %u)",
 					 (uint32)poigneeOuvert, (uint32)poigneeFerme, (uint32)mien.chevronOpen,
 					 (uint32)mien.chevronClosed);
 			check("36f. le chevron CHANGE de signe entre deplie et replie",
@@ -2061,7 +2061,7 @@ namespace nkuidesign {
 			char relu[32];
 			const bool lu = NkGfxConfigValue(apres.Data(), "gfx", relu, sizeof(relu));
 			const NkGfxChoice apresEcriture = NkGfxResolve(lu ? relu : nullptr, nullptr, nullptr, 0);
-			snprintf(buf, sizeof(buf), "ecrit 'vulkan' -> relu '%s' -> resolu '%s' (source : %s)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "ecrit 'vulkan' -> relu '%s' -> resolu '%s' (source : %s)",
 					 lu ? relu : "", apresEcriture.effective, NkGfxSourceName(apresEcriture.source));
 			check("37d. ALLER-RETOUR : ce qui est ecrit est relu par la MEME lecture, et resolu pareil",
 				  lu && SameText(relu, "vulkan") && SameText(apresEcriture.effective, "vulkan") &&
@@ -2101,7 +2101,7 @@ namespace nkuidesign {
 			const NkString relire =
 				nkentseu::NkFile::Exists(kEssai) ? nkentseu::NkFile::ReadAllText(kEssai) : NkString("");
 			const bool tmpParti = !nkentseu::NkFile::Exists(tmpPath.Data());
-			snprintf(buf, sizeof(buf), "ecrit=%d, contenu='%s', temporaire restant=%d", (int)ecrit,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "ecrit=%d, contenu='%s', temporaire restant=%d", (int)ecrit,
 					 relire.Data(), (int)!tmpParti);
 			check("37g. l'ecriture atterrit sur le disque ET ne laisse aucun temporaire derriere",
 				  ecrit && Contains(relire.Data(), "gfx = software") && tmpParti, buf);
@@ -2117,7 +2117,7 @@ namespace nkuidesign {
 			for (const char *c = deux.Data(); c && *c; ++c)
 				if (c[0] == 'g' && c[1] == 'f' && c[2] == 'x')
 					++occurrences;
-			snprintf(buf, sizeof(buf), "%u occurrence(s) de 'gfx' apres deux enregistrements",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u occurrence(s) de 'gfx' apres deux enregistrements",
 					 occurrences);
 			check("37h. deux enregistrements successifs laissent UNE seule cle", occurrences == 1, buf);
 			nkentseu::NkFile::Delete(kEssai);
@@ -2188,7 +2188,7 @@ namespace nkuidesign {
 			const NkPaintRect &rp = lay.rects[(uint32)page];
 			const NkPaintRect &rf = lay.rects[(uint32)forme];
 
-			snprintf(buf, sizeof(buf), "page (%.1f,%.1f) forme (%.1f,%.1f %.0fx%.0f)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "page (%.1f,%.1f) forme (%.1f,%.1f %.0fx%.0f)",
 					 rp.x, rp.y, rf.x, rf.y, rf.w, rf.h);
 			check("38. une forme posee a (95,228) se dessine a (95,228)",
 				  rf.x == rp.x + 95.f && rf.y == rp.y + 228.f, buf);
@@ -2205,7 +2205,7 @@ namespace nkuidesign {
 			NkLayoutResult lay2;
 			NkComputeLayout(d, surface, lay2);
 			const NkPaintRect &rf2 = lay2.rects[(uint32)forme];
-			snprintf(buf, sizeof(buf), "x passe de %.1f a %.1f (attendu +400)", rf.x, rf2.x);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "x passe de %.1f a %.1f (attendu +400)", rf.x, rf2.x);
 			check("38c. CONTROLE NEGATIF : deplacer la forme de +400 en X deplace son "
 				  "rectangle de +400 -- le solveur LIT la position, il ne la devine pas",
 				  rf2.x == rf.x + 400.f && rf2.y == rf.y, buf);
@@ -2220,7 +2220,7 @@ namespace nkuidesign {
 			NkLayoutResult lay3;
 			NkComputeLayout(d, surface, lay3);
 			const NkPaintRect &rf3 = lay3.rects[(uint32)forme];
-			snprintf(buf, sizeof(buf), "en Column : (%.1f,%.1f) -- la position posee est ignoree",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "en Column : (%.1f,%.1f) -- la position posee est ignoree",
 					 rf3.x, rf3.y);
 			check("38d. NON-REGRESSION : sous un parent `Column`, la position posee est "
 				  "IGNOREE et le calcul reprend la main (les deux natures cohabitent)",
@@ -2284,7 +2284,7 @@ namespace nkuidesign {
 			// A LA MAIN : 300 + 137 + 95*2.5 = 674.5 ; 50 - 42 + 228*2.5 = 578.0
 			const float32 sx = v.ToScreenX(95.f);
 			const float32 sy = v.ToScreenY(228.f);
-			snprintf(buf, sizeof(buf), "(95,228) -> (%.2f,%.2f) attendu (674.50,578.00)", sx, sy);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "(95,228) -> (%.2f,%.2f) attendu (674.50,578.00)", sx, sy);
 			check("39. DOCUMENT -> ECRAN, sur des nombres ecrits a la main "
 				  "(viewport 300/50, zoom 2.5, pan 137/-42)",
 				  sx == 674.5f && sy == 578.f, buf);
@@ -2297,7 +2297,7 @@ namespace nkuidesign {
 			d.w = 320.f;
 			d.h = 180.f;
 			const NkPaintRect s = v.ToScreen(d);
-			snprintf(buf, sizeof(buf), "taille %.1fx%.1f attendu 800.0x450.0", s.w, s.h);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "taille %.1fx%.1f attendu 800.0x450.0", s.w, s.h);
 			check("39b. la TAILLE subit l'echelle et PAS le deplacement -- une "
 				  "longueur n'est pas une position",
 				  s.w == 800.f && s.h == 450.f, buf);
@@ -2307,7 +2307,7 @@ namespace nkuidesign {
 			//     de 250 a l'ecran au zoom 2.5. Une vue identite les laisserait
 			//     a 100.
 			const float32 ecart = v.ToScreenX(200.f) - v.ToScreenX(100.f);
-			snprintf(buf, sizeof(buf), "ecart ecran %.1f pour 100 en document (attendu 250)", ecart);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "ecart ecran %.1f pour 100 en document (attendu 250)", ecart);
 			check("39c. CONTROLE NEGATIF : la vue n'est PAS l'identite -- 100 en "
 				  "document font 250 a l'ecran au zoom 2.5",
 				  ecart == 250.f && v.ToScreenX(0.f) != 0.f, buf);
@@ -2322,7 +2322,7 @@ namespace nkuidesign {
 
 			// 39e. Une LONGUEUR ecran rendue en longueur document : l'echelle
 			//      seule. 20 px d'ecran font 8 unites de document au zoom 2.5.
-			snprintf(buf, sizeof(buf), "20 px ecran -> %.2f document (attendu 8.00)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "20 px ecran -> %.2f document (attendu 8.00)",
 					 v.ToDocLength(20.f));
 			check("39e. une LONGUEUR ecran se rend en document par l'echelle seule",
 				  v.ToDocLength(20.f) == 8.f, buf);
@@ -2347,7 +2347,7 @@ namespace nkuidesign {
 			const float32 apresX = v.ToScreenX(docAvantX);
 			const float32 apresY = v.ToScreenY(docAvantY);
 
-			snprintf(buf, sizeof(buf), "le point sous le curseur : (%.2f,%.2f) -> (%.2f,%.2f)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "le point sous le curseur : (%.2f,%.2f) -> (%.2f,%.2f)",
 					 curseurX, curseurY, apresX, apresY);
 			check("39f. ZOOM AU CURSEUR : le point du document sous le curseur ne "
 				  "bouge PAS d'un pixel",
@@ -2358,7 +2358,7 @@ namespace nkuidesign {
 			//     Il faut donc qu'un AUTRE point, lui, ait bien bouge -- et que
 			//     l'echelle ait change.
 			const float32 autre = v.ToScreenX(docAvantX + 100.f);
-			snprintf(buf, sizeof(buf), "zoom %.2f ; un point a +100 est a %.1f (curseur %.1f)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "zoom %.2f ; un point a +100 est a %.1f (curseur %.1f)",
 					 v.zoom, autre, curseurX);
 			check("39g. CONTROLE NEGATIF : l'echelle a VRAIMENT change -- un point "
 				  "voisin s'est ecarte de 200 px, pas de 100",
@@ -2372,7 +2372,7 @@ namespace nkuidesign {
 			const float32 bas = b.zoom;
 			for (uint32 i = 0; i < 60; ++i)
 				b.ZoomAt(2.f, 100.f, 100.f);
-			snprintf(buf, sizeof(buf), "plancher %.4f, plafond %.2f", bas, b.zoom);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "plancher %.4f, plafond %.2f", bas, b.zoom);
 			check("39h. le zoom est BORNE des deux cotes -- un zoom nul rendrait "
 				  "`ToDoc` infini",
 				  bas == NkCanvasView::MinZoom() && b.zoom == NkCanvasView::MaxZoom(), buf);
@@ -2383,7 +2383,7 @@ namespace nkuidesign {
 			p.zoom = 4.f;
 			const float32 avant = p.ToScreenX(10.f);
 			p.PanBy(33.f, 0.f);
-			snprintf(buf, sizeof(buf), "au zoom 4, un glissement de 33 px deplace de %.1f px",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "au zoom 4, un glissement de 33 px deplace de %.1f px",
 					 p.ToScreenX(10.f) - avant);
 			check("39i. le DEPLACEMENT est en pixels ecran, quel que soit le zoom "
 				  "-- la main suit le curseur, pas le document",
@@ -2435,7 +2435,7 @@ namespace nkuidesign {
 			const uint32 pendant = sel.Count();
 			sel.Clear();
 			const uint32 apres = sel.Count();
-			snprintf(buf, sizeof(buf), "avant %u, pendant %u, apres %u", avant, pendant, apres);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "avant %u, pendant %u, apres %u", avant, pendant, apres);
 			check("40. TROIS CAPTURES : vide -> un noeud -> vide. Le RETOUR est la "
 				  "troisieme, et c'est celle qu'on oublie",
 				  avant == 0 && pendant == 1 && apres == 0 && sel.Primary() == -1, buf);
@@ -2447,7 +2447,7 @@ namespace nkuidesign {
 			const uint32 deux = sel.Count();
 			const int32 principal = sel.Primary();
 			sel.Toggle(a);
-			snprintf(buf, sizeof(buf), "apres deux bascules : %u, principal %d ; retire a : %u",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "apres deux bascules : %u, principal %d ; retire a : %u",
 					 deux, principal, sel.Count());
 			check("40b. `Ctrl`+clic AJOUTE puis RETIRE -- et le retrait rend "
 				  "exactement l'etat d'avant (1 element, et c'est `b`)",
@@ -2469,7 +2469,7 @@ namespace nkuidesign {
 			const int32 rien = NkPickSelectable(d, lay, 900.f, 550.f);
 			if (rien < 0)
 				sel.Set(rien);
-			snprintf(buf, sizeof(buf), "pointage dans le vide -> %d ; selection %u", rien,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "pointage dans le vide -> %d ; selection %u", rien,
 					 sel.Count());
 			check("40c. CONTROLE NEGATIF : cliquer dans le VIDE ne designe aucun "
 				  "noeud ET vide la selection",
@@ -2480,7 +2480,7 @@ namespace nkuidesign {
 			// la troisieme (400..500).
 			sel.Clear();
 			NkPickInRect(d, lay, NkRectFromPoints(5.f, 40.f, 320.f, 140.f), sel);
-			snprintf(buf, sizeof(buf), "%u prises (attendu 2 : a et b, pas c)", sel.Count());
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u prises (attendu 2 : a et b, pas c)", sel.Count());
 			check("40d. LE RECTANGLE prend ce qu'il chevauche -- deux formes sur "
 				  "trois, en espace DOCUMENT",
 				  sel.Count() == 2 && sel.Contains(a) && sel.Contains(b) && !sel.Contains(c),
@@ -2502,7 +2502,7 @@ namespace nkuidesign {
 			NkSelection s1, s2;
 			NkPickInRect(d, lay, NkRectFromPoints(5.f, 40.f, 320.f, 140.f), s1);
 			NkPickInRect(d, lay, NkRectFromPoints(320.f, 140.f, 5.f, 40.f), s2);
-			snprintf(buf, sizeof(buf), "endroit %u, envers %u", s1.Count(), s2.Count());
+			nkentseu::NkSnprintf(buf, sizeof(buf), "endroit %u, envers %u", s1.Count(), s2.Count());
 			check("40f. tracer le rectangle A L'ENVERS prend exactement autant -- "
 				  "un rectangle se normalise avant de servir",
 				  s1.Count() == s2.Count() && s2.Contains(a) && s2.Contains(b), buf);
@@ -2514,7 +2514,7 @@ namespace nkuidesign {
 			per.Add(999);
 			const uint32 avecFaux = per.Count();
 			per.DropInvalid(d);
-			snprintf(buf, sizeof(buf), "%u -> %u apres nettoyage", avecFaux, per.Count());
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u -> %u apres nettoyage", avecFaux, per.Count());
 			check("40g. un index qui n'existe plus est RETIRE -- une selection "
 				  "perimee designerait un autre noeud apres renumerotation",
 				  avecFaux == 3 && per.Count() == 2, buf);
@@ -2579,7 +2579,7 @@ namespace nkuidesign {
 			RenderDocument(rec, d, surface);
 			const uint32 posee = (uint32)rec.cmds.Size();
 
-			snprintf(buf, sizeof(buf), "%u commande(s) de dessin", posee);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u commande(s) de dessin", posee);
 			check("41. une forme POSEE emet des commandes de dessin -- une fonction "
 				  "vide n emet rien, et c est ce qui se comptait",
 				  posee > 0, buf);
@@ -2604,7 +2604,7 @@ namespace nkuidesign {
 			d.nodes[0].layout.kind = NkLayoutKind::Column;
 			NkRecordingPaint rec2;
 			RenderDocument(rec2, d, surface);
-			snprintf(buf, sizeof(buf), "pose %u commande(s), en Column %u", posee,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "pose %u commande(s), en Column %u", posee,
 					 (uint32)rec2.cmds.Size());
 			check("41c. CONTROLE NEGATIF : le MEME noeud sous un parent `Column` "
 				  "n emet RIEN -- un cadre d agencement reste invisible",
@@ -2622,7 +2622,7 @@ namespace nkuidesign {
 					&& (rec3.cmds[i].text.Find("Forme A") != NkString::npos
 						|| rec3.cmds[i].text.Find("Forme B") != NkString::npos))
 					++formes;
-			snprintf(buf, sizeof(buf), "%u commande(s), dont %u libelle(s) de forme",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u commande(s), dont %u libelle(s) de forme",
 					 (uint32)rec3.cmds.Size(), formes);
 			check("41d. le document de DEMONSTRATION dessine ses DEUX formes posees "
 				  "(leurs libelles sortent dans le flux)",
@@ -2641,7 +2641,7 @@ namespace nkuidesign {
 			const bool lu = relu.Load(e1.Data(), &inconnus);
 			if (lu)
 				relu.Save(e2);
-			snprintf(buf, sizeof(buf), "relu=%d, %u noeud(s), %u inconnu(s), textes %s",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "relu=%d, %u noeud(s), %u inconnu(s), textes %s",
 					 lu ? 1 : 0, lu ? relu.NodeCount() : 0u, inconnus,
 					 (lu && e1.Compare(e2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
 			check("41e. le document de demonstration se RELIT et se reenregistre a "
@@ -2699,7 +2699,7 @@ namespace nkuidesign {
 				&& StrEq(redessine.nodes[(uint32)texteIdx].text.Data(), "Connexion")
 				&& dessin.IsValidIndex(pageIdx)
 				&& StrEq(redessine.nodes[(uint32)pageIdx].shape.Data(), "frame");
-			snprintf(buf, sizeof(buf), "relu=%d, formes+texte %s, textes %s", lu2 ? 1 : 0,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "relu=%d, formes+texte %s, textes %s", lu2 ? 1 : 0,
 					 formesRetrouvees ? "RETROUVES" : "PERDUS",
 					 (lu2 && f1.Compare(f2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
 			check("41f. un dessin (artboard + rectangle + texte) se sauve, se relit et se "
@@ -2749,7 +2749,7 @@ namespace nkuidesign {
 				//    toute seule, elle prouve seulement qu'on est stable.
 				const bool valeurGardee =
 					lu && r.IsValidIndex(i) && StrEq(r.nodes[(uint32)i].fill.Data(), "#12ab34");
-				snprintf(buf, sizeof(buf), "relu=%d, octets %s, `fond` %s, `fond_` %s, valeur %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "relu=%d, octets %s, `fond` %s, `fond_` %s, valeur %s",
 						 lu ? 1 : 0, (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
 						 avecSimple ? "presente" : "DISPARUE", sansListe ? "absente" : "APPARUE",
 						 valeurGardee ? "gardee" : "PERDUE");
@@ -2791,7 +2791,7 @@ namespace nkuidesign {
 									&& rn->fills[1].opacite == 50.f
 									&& rn->fills[2].visible == false
 									&& StrEq(rn->fills[2].couleur.Data(), "#0000ff");
-				snprintf(buf, sizeof(buf), "relu=%d, %u remplissage(s), champs %s, octets %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "relu=%d, %u remplissage(s), champs %s, octets %s",
 						 lu ? 1 : 0, rn ? (uint32)rn->fills.Size() : 0u,
 						 champs ? "RETROUVES" : "PERDUS",
 						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
@@ -2814,7 +2814,7 @@ namespace nkuidesign {
 				const char *sous = n.FondEffectif();
 				n.fills[0].visible = false;
 				const char *rien = n.FondEffectif();
-				snprintf(buf, sizeof(buf), "simple=%s, dessus=%s, sous=%s, tout masque=%s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "simple=%s, dessus=%s, sous=%s, tout masque=%s",
 						 avant ? avant : "(rien)", dessus ? dessus : "(rien)",
 						 sous ? sous : "(rien)", rien ? rien : "(rien)");
 				check("42c. le fond effectif : le DERNIER visible gagne, et une liste "
@@ -2834,7 +2834,7 @@ namespace nkuidesign {
 				const bool ok = un == 1 && deux == 1
 								&& StrEq(n.fills[0].couleur.Data(), "#abcdef")
 								&& n.fills[0].opacite == 100.f && n.fills[0].visible;
-				snprintf(buf, sizeof(buf), "1er appel=%u, 2e appel=%u, couleur=%s", un, deux,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "1er appel=%u, 2e appel=%u, couleur=%s", un, deux,
 						 n.fills.Empty() ? "(vide)" : n.fills[0].couleur.Data());
 				check("42d. materialiser part de la cle simple, opaque et visible, et le "
 					  "second appel ne duplique rien",
@@ -2855,7 +2855,7 @@ namespace nkuidesign {
 				const bool ok = d.IsValidIndex(j) && d.nodes[(uint32)j].fills.Size() == 1
 								&& StrEq(d.nodes[(uint32)j].fills[0].couleur.Data(), "#c0ffee")
 								&& d.nodes[(uint32)j].fills[0].opacite == 42.f;
-				snprintf(buf, sizeof(buf), "copie=%d, %u remplissage(s), opacite=%.0f", j,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "copie=%d, %u remplissage(s), opacite=%.0f", j,
 						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].fills.Size() : 0u,
 						 (d.IsValidIndex(j) && !d.nodes[(uint32)j].fills.Empty())
 							 ? d.nodes[(uint32)j].fills[0].opacite
@@ -2896,7 +2896,7 @@ namespace nkuidesign {
 				const bool bonneAutorite =
 					lu && r.IsValidIndex(i) && r.nodes[(uint32)i].fills.Size() == 1
 					&& StrEq(r.nodes[(uint32)i].fills[0].couleur.Data(), "#999999");
-				snprintf(buf, sizeof(buf), "`fond_` %s, `fond` %s, couleur relue %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "`fond_` %s, `fond` %s, couleur relue %s",
 						 aListe ? "presente" : "ABSENTE",
 						 aSimple ? "PRESENTE (deux verites)" : "absente",
 						 bonneAutorite ? r.nodes[(uint32)i].fills[0].couleur.Data() : "(perdue)");
@@ -2945,7 +2945,7 @@ namespace nkuidesign {
 				const bool garde = lu && r.IsValidIndex(i)
 								   && StrEq(r.nodes[(uint32)i].borderColor.Data(), "#334455")
 								   && r.nodes[(uint32)i].borderW == 3.f;
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "octets %s, `couleur_bord` %s, `bordure` %s, `bord_` %s, valeurs %s",
 						 (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
 						 avecSimple ? "presente" : "DISPARUE",
@@ -2995,7 +2995,7 @@ namespace nkuidesign {
 									&& rn->borders[1].visible == false
 									&& rn->borders[1].epaisseur == 5.5f
 									&& rn->borders[1].position == NkBordurePos::Exterieur;
-				snprintf(buf, sizeof(buf), "%u bordure(s), champs %s, octets %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u bordure(s), champs %s, octets %s",
 						 rn ? (uint32)rn->borders.Size() : 0u, champs ? "RETROUVES" : "PERDUS",
 						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
 				check("43b. deux bordures (couleur, opacite, oeil, epaisseur, POSITION) font "
@@ -3026,7 +3026,7 @@ namespace nkuidesign {
 				premierRect(NkBordurePos::Interieur, xi, wi);
 				premierRect(NkBordurePos::Centre, xc, wc);
 				premierRect(NkBordurePos::Exterieur, xe, we);
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "interieur x=%.0f l=%.0f, centre x=%.0f l=%.0f, exterieur x=%.0f "
 						 "l=%.0f",
 						 xi, wi, xc, wc, xe, we);
@@ -3052,7 +3052,7 @@ namespace nkuidesign {
 								&& d.nodes[(uint32)j].borders[0].epaisseur == 2.f
 								&& d.nodes[(uint32)j].borders[0].position
 									   == NkBordurePos::Exterieur;
-				snprintf(buf, sizeof(buf), "%u bordure(s) copiee(s)",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u bordure(s) copiee(s)",
 						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].borders.Size() : 0u);
 				check("43d. copier un sous-arbre emporte la LISTE de bordures, position "
 					  "comprise",
@@ -3069,7 +3069,7 @@ namespace nkuidesign {
 				const bool ok = un == 1 && n.borders.Size() == 1
 								&& StrEq(n.borders[0].couleur.Data(), "#123456")
 								&& n.borders[0].epaisseur == 7.f && n.borders[0].visible;
-				snprintf(buf, sizeof(buf), "1er=%u, 2e=%u, couleur=%s, epaisseur=%.0f", un,
+				nkentseu::NkSnprintf(buf, sizeof(buf), "1er=%u, 2e=%u, couleur=%s, epaisseur=%.0f", un,
 						 (uint32)n.borders.Size(),
 						 n.borders.Empty() ? "(vide)" : n.borders[0].couleur.Data(),
 						 n.borders.Empty() ? -1.f : n.borders[0].epaisseur);
@@ -3120,7 +3120,7 @@ namespace nkuidesign {
 				const bool bonneAutorite = lu && r.IsValidIndex(i)
 										   && r.nodes[(uint32)i].borders.Size() == 1
 										   && r.nodes[(uint32)i].borders[0].epaisseur == 9.f;
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "`bord_` %s, `couleur_bord` %s, `bordure` %s, epaisseur relue %.0f",
 						 aListe ? "presente" : "ABSENTE",
 						 aSimpleCouleur ? "PRESENTE (deux verites)" : "absente",
@@ -3171,7 +3171,7 @@ namespace nkuidesign {
 				const bool garde = lu && r.IsValidIndex(i)
 								   && StrEq(r.nodes[(uint32)i].fill.Data(), "#101010")
 								   && r.nodes[(uint32)i].effets.Empty();
-				snprintf(buf, sizeof(buf), "octets %s, cle `effet_` %s, le reste %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "octets %s, cle `effet_` %s, le reste %s",
 						 (lu && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
 						 sansCle ? "absente" : "APPARUE", garde ? "garde" : "PERDU");
 				check("44a. un document sans effet ne gagne aucune cle, se reenregistre OCTET "
@@ -3225,7 +3225,7 @@ namespace nkuidesign {
 									&& rn->effets[1].x == -3.5f && rn->effets[1].flou == 12.f
 									&& rn->effets[1].etendue == 2.5f
 									&& rn->effets[1].visible == false;
-				snprintf(buf, sizeof(buf), "%u effet(s), champs %s, octets %s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u effet(s), champs %s, octets %s",
 						 rn ? (uint32)rn->effets.Size() : 0u, champs ? "RETROUVES" : "PERDUS",
 						 (lu && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
 				check("44b. deux effets (type, X, Y, flou, etendue, couleur, opacite, oeil) "
@@ -3243,7 +3243,7 @@ namespace nkuidesign {
 								&& StrEq(NkEffetTypeNom(NkEffetType::OmbrePortee), "ombre_portee")
 								&& StrEq(NkEffetTypeNom(NkEffetType::OmbreInterne),
 										 "ombre_interne");
-				snprintf(buf, sizeof(buf), "portee->%s, interne->%s",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "portee->%s, interne->%s",
 						 NkEffetTypeNom(NkParseEffetType("ombre_portee")),
 						 NkEffetTypeNom(NkParseEffetType("ombre_interne")));
 				check("44c. les deux types d effet se relisent distinctement (ils partagent "
@@ -3277,7 +3277,7 @@ namespace nkuidesign {
 				n.effets[0].type = NkEffetType::OmbreInterne;
 				renderdetail::NkGOmbres(rec, {100.f, 100.f, 50.f, 50.f}, n, hOmbre);
 				const uint32 interne = (uint32)rec.cmds.Size();
-				snprintf(buf, sizeof(buf),
+				nkentseu::NkSnprintf(buf, sizeof(buf),
 						 "portee=%u commande(s), oeil ferme=%u, interne=%u (non peinte, dit "
 						 "au code)",
 						 avecOmbre, oeilFerme, interne);
@@ -3299,7 +3299,7 @@ namespace nkuidesign {
 				const bool ok = d.IsValidIndex(j) && d.nodes[(uint32)j].effets.Size() == 1
 								&& StrEq(d.nodes[(uint32)j].effets[0].couleur.Data(), "#123456")
 								&& d.nodes[(uint32)j].effets[0].etendue == 6.f;
-				snprintf(buf, sizeof(buf), "%u effet(s) copie(s)",
+				nkentseu::NkSnprintf(buf, sizeof(buf), "%u effet(s) copie(s)",
 						 d.IsValidIndex(j) ? (uint32)d.nodes[(uint32)j].effets.Size() : 0u);
 				check("44e. copier un sous-arbre emporte la LISTE d effets, etendue comprise",
 					  ok, buf);
@@ -3355,7 +3355,7 @@ namespace nkuidesign {
 				if (droit.cmds[i].op == NkPaintOp::Text)
 					++texteDroit;
 			}
-			snprintf(det, sizeof(det), "%u Push, %u Text sur %u commande(s)", pushDroit, texteDroit,
+			nkentseu::NkSnprintf(det, sizeof(det), "%u Push, %u Text sur %u commande(s)", pushDroit, texteDroit,
 					 (uint32)droit.cmds.Size());
 			check("45a. un document DROIT n empile AUCUNE matrice : il emet ce qu il emettait "
 				  "(et son texte est bien la)",
@@ -3398,7 +3398,7 @@ namespace nkuidesign {
 					++texteSous;
 			}
 			(void)a0; (void)b0; (void)c0; (void)d0;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "%u Push / %u Pop, profondeur max %u, 1re matrice juste=%d (a=%.3f b=%.3f "
 					 "c=%.3f d=%.3f), enfant herite=%d, Text SOUS matrice=%u",
 					 nPush, nPop, pushMax, matriceJuste ? 1 : 0, a0, b0, c0, d0, enfantHerite ? 1 : 0,
@@ -3430,7 +3430,7 @@ namespace nkuidesign {
 								 && strstr(sans.Data(), "echelle_") == nullptr;
 			const bool bornee = NkEchelleSaine(0.f) == 0.001f && NkEchelleSaine(-0.f) == 0.001f
 								&& NkEchelleSaine(-3.f) == -3.f && NkEchelleSaine(1e9f) == 1000.f;
-			snprintf(det, sizeof(det), "relue=%d additif=%d bornee=%d", relue ? 1 : 0,
+			nkentseu::NkSnprintf(det, sizeof(det), "relue=%d additif=%d bornee=%d", relue ? 1 : 0,
 					 additif ? 1 : 0, bornee ? 1 : 0);
 			check("45e. `echelle_x` / `echelle_y` : additives (absentes a 1), relues a l "
 				  "identique, et une echelle nulle est bornee loin de zero (la matrice reste "
@@ -3502,7 +3502,7 @@ namespace nkuidesign {
 				}
 			}
 			char det[256];
-			snprintf(det, sizeof(det), "%u/11 barres deux fois plus larges, %u/10 ecarts doubles "
+			nkentseu::NkSnprintf(det, sizeof(det), "%u/11 barres deux fois plus larges, %u/10 ecarts doubles "
 										"(barre 0 : %.0f -> %.0f de large, centre %.0f -> %.0f)",
 					 taillesChangees, ecartsChanges, l0[0], l1[0], c0[0], c1[0]);
 			check("46a. redimensionner GRAPHIQUE (son echelle) change la TAILLE et la POSITION "
@@ -3523,7 +3523,7 @@ namespace nkuidesign {
 				} else if (cx == c0[b] && lg == l0[b])
 					++immobiles;
 			}
-			snprintf(det, sizeof(det), "barre 3 : %.0f de large (centre %.0f) ; %u/10 autres immobiles", l3, c3,
+			nkentseu::NkSnprintf(det, sizeof(det), "barre 3 : %.0f de large (centre %.0f) ; %u/10 autres immobiles", l3, c3,
 					 immobiles);
 			check("46b. redimensionner UNE barre (feuille) ne bouge aucune autre : l'arbre s'arrete a la feuille",
 				  l3 == 24.f && immobiles == 10u, det);
@@ -3534,7 +3534,7 @@ namespace nkuidesign {
 			uint32 nEch = 0u;
 			for (const char *q = sG.Data(); (q = strstr(q, "echelle_x")) != nullptr; ++q)
 				++nEch;
-			snprintf(det, sizeof(det), "%u cle(s) echelle_x dans le fichier", nEch);
+			nkentseu::NkSnprintf(det, sizeof(det), "%u cle(s) echelle_x dans le fichier", nEch);
 			check("46c. le facteur est PORTE PAR LE GROUPE : une seule cle dans le fichier, les barres n'en ont pas",
 				  nEch == 1u, det);
 		}
@@ -3605,7 +3605,7 @@ namespace nkuidesign {
 			NkMatPoint(m0, x0, y0);
 			const bool bouge0 = x0 < cx0 - 1.f || x0 > cx0 + 1.f;
 			char det[300];
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "enfant 0 subit tout=%d (a=%.2f b=%.2f) ; refus R : a=%.2f b=%.2f d=%.2f (=%d) ; refus E : "
 					 "a=%.2f b=%.2f (=%d) ; refus P : centre (%.0f,%.0f)->(%.0f,%.0f) tenu=%d, enfant 0 bouge=%d",
 					 toutSubi ? 1 : 0, m0.a, m0.b, m1.a, m1.b, m1.d, sansRotation ? 1 : 0, m2.a, m2.b,
@@ -3619,7 +3619,7 @@ namespace nkuidesign {
 			const bool partiDeLa = !NkPointDansNoeud(dR, layR, enf[0], cx0, r0.y + r0.h * 0.5f);
 			// et l'enfant 3 (refus P) s'attrape la ou il est reste
 			const bool attrapeSurPlace = NkPointDansNoeud(dR, layR, enf[3], cx3, cy3);
-			snprintf(det, sizeof(det), "enfant 0 : dedans la ou il se voit=%d, plus la d'ou il est parti=%d ; "
+			nkentseu::NkSnprintf(det, sizeof(det), "enfant 0 : dedans la ou il se voit=%d, plus la d'ou il est parti=%d ; "
 										"enfant 3 (refus P) attrape sur place=%d",
 					 dedansVisible ? 1 : 0, partiDeLa ? 1 : 0, attrapeSurPlace ? 1 : 0);
 			check("47b. le POINTAGE honore les refus sans second code : il lit la matrice du dessin",
@@ -3638,7 +3638,7 @@ namespace nkuidesign {
 				else
 					++pushTournes;
 			}
-			snprintf(det, sizeof(det), "%u matrice(s) tournee(s), %u droite(s) (le refus R, echelle 2 sans rotation)",
+			nkentseu::NkSnprintf(det, sizeof(det), "%u matrice(s) tournee(s), %u droite(s) (le refus R, echelle 2 sans rotation)",
 					 pushTournes, pushDroits);
 			check("47c. a l'ecran (peintre enregistreur) : le refus R dessine droit sous un parent tourne, "
 				  "ses freres tournent",
@@ -3654,7 +3654,7 @@ namespace nkuidesign {
 			const bool additifsR = strstr(sR.Data(), "refus_rotation = 1") != nullptr
 								   && strstr(sR.Data(), "refus_echelle = 1") != nullptr
 								   && strstr(sR.Data(), "refus_position = 1") != nullptr;
-			snprintf(det, sizeof(det), "relus=%d additifs=%d", relusR ? 1 : 0, additifsR ? 1 : 0);
+			nkentseu::NkSnprintf(det, sizeof(det), "relus=%d additifs=%d", relusR ? 1 : 0, additifsR ? 1 : 0);
 			check("47d. `refus_position` / `refus_rotation` / `refus_echelle` : additives, relues a l'identique",
 				  relusR && additifsR, det);
 		}
@@ -3777,7 +3777,7 @@ namespace nkuidesign {
 									  && NkComponentDecl::StrEq(reluI.nodes[(uint32)apres].genre.Data(), "animation")
 									  && strstr(sI.Data(), "groupe = animation") != nullptr;
 			dF.nodes[(uint32)apres].genre = NkString();
-			snprintf(det, sizeof(det), "rect nu=feuille:%d, groupe vide declare=groupe:%d, planche=groupe:%d, "
+			nkentseu::NkSnprintf(det, sizeof(det), "rect nu=feuille:%d, groupe vide declare=groupe:%d, planche=groupe:%d, "
 										"genre inconnu=groupe:%d et preserve au fichier:%d, rect a enfants=groupe (infere):%d",
 					 !NkEstGroupe(vide) ? 1 : 0, NkEstGroupe(groupeVide) ? 1 : 0, NkEstGroupe(planche) ? 1 : 0,
 					 NkEstGroupe(inconnu) ? 1 : 0, inconnuGarde ? 1 : 0, NkEstGroupe(dF.nodes[(uint32)bouton]) ? 1 : 0);
@@ -3808,7 +3808,7 @@ namespace nkuidesign {
 								   && NkComponentDecl::StrEq(dF.nodes[(uint32)gi].role.Data(), "Button")
 								   && dF.nodes[(uint32)gi].rotation == 12.f && dF.nodes[(uint32)bouton].rotation == 0.f
 								   && dF.nodes[(uint32)bouton].children.Empty();
-			snprintf(det, sizeof(det), "%u enveloppement(s), %u -> %u noeuds, %u commandes avant / %u apres, "
+			nkentseu::NkSnprintf(det, sizeof(det), "%u enveloppement(s), %u -> %u noeuds, %u commandes avant / %u apres, "
 										"geometrie peinte identique=%d (1re difference : commande %u), structure=%d",
 					 nEnv, nAvant, (uint32)dF.nodes.Size(), (uint32)avant.cmds.Size(), (uint32)apresR.cmds.Size(),
 					 memesCommandes ? 1 : 0, premiereDiff, structure ? 1 : 0);
@@ -3818,7 +3818,7 @@ namespace nkuidesign {
 				  memesCommandes && structure, det);
 			// 48c. la migration ne se refait pas : un second passage n'enveloppe rien
 			const uint32 nEnv2 = NkEnvelopperGraphiques(dF, nullptr);
-			snprintf(det, sizeof(det), "second passage : %u", nEnv2);
+			nkentseu::NkSnprintf(det, sizeof(det), "second passage : %u", nEnv2);
 			check("48c. un document deja migre ne bouge plus (second passage : 0)", nEnv2 == 0u, det);
 			// 48d. la garde : sous le point, la feuille `apres` -- le conteneur rendu est la page, pas elle
 			NkLayoutResult layF;
@@ -3827,27 +3827,20 @@ namespace nkuidesign {
 			const int32 conteneur = NkPickFreeContainer(dF, layF, ra.x + ra.w * 0.5f, ra.y + ra.h * 0.5f);
 			const NkPaintRect rg = layF.At(gi);
 			const int32 conteneurG = NkPickFreeContainer(dF, layF, rg.x + 2.f, rg.y + 2.f);
-			snprintf(det, sizeof(det), "sur la feuille : conteneur=%d (page=0) ; sur le groupe : conteneur=%d (groupe=%d)",
+			nkentseu::NkSnprintf(det, sizeof(det), "sur la feuille : conteneur=%d (page=0) ; sur le groupe : conteneur=%d (groupe=%d)",
 					 conteneur, conteneurG, gi);
 			check("48d. LA GARDE : la pose, le depot et la creation ne rendent jamais une feuille comme conteneur "
 				  "-- le groupe, lui, en est un",
 				  conteneur == 0 && conteneurG == gi, det);
 			// 48e. le document de Rodolf, en LECTURE SEULE : six graphiques a enfants, et rien ne bouge
 			{
-				FILE *fp = fopen("nkuidesign_document.nkuidoc", "rb");
-				if (fp) {
-					fseek(fp, 0, SEEK_END);
-					const long taille = ftell(fp);
-					fseek(fp, 0, SEEK_SET);
-					NkString contenu;
-					if (taille > 0) {
-						char *buf = new char[(size_t)taille + 1];
-						const size_t lu = fread(buf, 1, (size_t)taille, fp);
-						buf[lu] = 0;
-						contenu = NkString(buf);
-						delete[] buf;
-					}
-					fclose(fp);
+				// ⚠️ `NkFile`, PAS `fopen` : le systeme de fichiers de la maison lit
+				//    un fichier entier en UNE ligne, et il est le seul a connaitre
+				//    les conventions de chemin du depot. Le bloc
+				//    `fseek`/`ftell`/`new char[]`/`delete[]` qu'il remplace portait
+				//    aussi une allocation nue a liberer sur chaque sortie.
+				const NkString contenu = nkentseu::NkFile::ReadAllText("nkuidesign_document.nkuidoc");
+				if (!contenu.Empty()) {
 					NkUIDocument dRod;
 					if (dRod.Load(contenu.Data())) {
 						NkPaintRect surfRod;
@@ -3869,7 +3862,7 @@ namespace nkuidesign {
 								noms.Append(", ");
 							noms.Append(dRod.nodes[(uint32)envR[k]].label);
 						}
-						snprintf(det, sizeof(det), "%u enveloppe(s) : %s ; %u commandes, geometrie peinte identique=%d (1re diff : commande %u)",
+						nkentseu::NkSnprintf(det, sizeof(det), "%u enveloppe(s) : %s ; %u commandes, geometrie peinte identique=%d (1re diff : commande %u)",
 								 nR, noms.Data(), (uint32)rAvant.cmds.Size(), memes ? 1 : 0, diff);
 						check("48e. LE DOCUMENT DE RODOLF (lecture seule) : ses six graphiques a enfants "
 							  "s'enveloppent, et le peintre emet les memes commandes avant et apres",
@@ -3970,7 +3963,7 @@ namespace nkuidesign {
 			const bool premiereRouge = !p0.couleurs.Empty() && ((p0.couleurs[0] >> 24) & 0xFFu) > 200u
 									   && ((p0.couleurs[0] >> 8) & 0xFFu) < 60u;
 			const bool derniereBleue = !p0.couleurs.Empty() && ((p0.couleurs[(uint32)p0.couleurs.Size() - 1u] >> 8) & 0xFFu) > 0xF0u;
-			snprintf(det, sizeof(det), "%u polygone(s), %u point(s) hors contour, y %.1f..%.1f, x %.1f..%.1f, 1re bande : y max %.1f (rouge=%d), derniere bleue=%d",
+			nkentseu::NkSnprintf(det, sizeof(det), "%u polygone(s), %u point(s) hors contour, y %.1f..%.1f, x %.1f..%.1f, 1re bande : y max %.1f (rouge=%d), derniere bleue=%d",
 					 nP, hors, yMin, yMax, xMin, xMax, yMaxP, premiereRouge ? 1 : 0, derniereBleue ? 1 : 0);
 			check("49a. LE DEGRADE SUIT L'ARRONDI : une bande par 2 px, en polygones, aucun point hors du contour arrondi, "
 				  "la forme couverte de haut en bas, du rouge au bleu",
@@ -3984,7 +3977,7 @@ namespace nkuidesign {
 			for (int32 j = 0; j < p0.tailles[0]; ++j)
 				if (p0.pts[j * 2] < xMinP)
 					xMinP = p0.pts[j * 2];
-			snprintf(det, sizeof(det), "1re bande : x %.1f..%.1f (forme %.0f..%.0f, rayon %.0f)", xMinP, xMaxP, X0, X0 + W, R);
+			nkentseu::NkSnprintf(det, sizeof(det), "1re bande : x %.1f..%.1f (forme %.0f..%.0f, rayon %.0f)", xMinP, xMaxP, X0, X0 + W, R);
 			check("49b. la bande du haut vit ENTRE les deux arcs : plus etroite que la forme des deux cotes",
 				  xMinP > X0 + 5.f && xMaxP < X0 + W - 5.f, det);
 			// 49c. angle 270 (gauche -> droite) : l'axe tourne, les bandes deviennent verticales
@@ -3992,7 +3985,7 @@ namespace nkuidesign {
 			PeintrePoly p270;
 			RenderDocument(p270, dD, surfD);
 			mesurer(p270, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
-			snprintf(det, sizeof(det), "%u polygone(s), %u hors contour, 1re bande : x max %.1f (largeur de bande %.1f), y max %.1f",
+			nkentseu::NkSnprintf(det, sizeof(det), "%u polygone(s), %u hors contour, 1re bande : x max %.1f (largeur de bande %.1f), y max %.1f",
 					 nP, hors, xMaxP, W / 24.f, yMaxP);
 			check("49c. l'ANGLE est honore : a 270 (gauche -> droite) la premiere bande est une tranche VERTICALE a gauche, "
 				  "toujours dans le contour",
@@ -4009,7 +4002,7 @@ namespace nkuidesign {
 				if (pDroit.tailles[i] != 4)
 					quatrePoints = false;
 			mesurer(pDroit, nP, hors, yMin, yMax, xMin, xMax, xMaxP, yMaxP);
-			snprintf(det, sizeof(det), "%u polygone(s) a 4 points=%d, x %.1f..%.1f", nP, quatrePoints ? 1 : 0, xMin, xMax);
+			nkentseu::NkSnprintf(det, sizeof(det), "%u polygone(s) a 4 points=%d, x %.1f..%.1f", nP, quatrePoints ? 1 : 0, xMin, xMax);
 			check("49d. sans arrondi, des rectangles pleine largeur (un par 2 px) : un rect droit garde son degrade",
 				  quatrePoints && xMin < X0 + 0.6f && xMax > X0 + W - 0.6f, det);
 			// 49e. un peintre SANS polygone (l'enregistreur du kit) retombe sur les bandes d'avant : rien ne casse
@@ -4020,7 +4013,7 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < (uint32)sansPoly.cmds.Size(); ++i)
 				if (sansPoly.cmds[i].op == NkPaintOp::FillColor && sansPoly.cmds[i].w > W - 0.6f && sansPoly.cmds[i].h < H / 24.f + 1.f)
 					++bandes;
-			snprintf(det, sizeof(det), "%u bande(s) rectangulaires chez un peintre sans polygone", bandes);
+			nkentseu::NkSnprintf(det, sizeof(det), "%u bande(s) rectangulaires chez un peintre sans polygone", bandes);
 			check("49e. un peintre sans polygone retombe sur des bandes rectangulaires, MEME calcul de couleur (le repli est nomme)",
 				  bandes == (uint32)renderdetail::NkBandesDegrade(H), det);
 		}
@@ -4072,7 +4065,7 @@ namespace nkuidesign {
 					++autres;
 			}
 			char det[220];
-			snprintf(det, sizeof(det), "%u commande(s) d'ombre : %u arrondie(s) a 20, %u droite(s), %u autre(s)",
+			nkentseu::NkSnprintf(det, sizeof(det), "%u commande(s) d'ombre : %u arrondie(s) a 20, %u droite(s), %u autre(s)",
 					 nOmbre, arrondis20, droits, autres);
 			check("50a. L'OMBRE SUIT LES COINS : un seul coin arrondi (20) donne une piece d'ombre arrondie a 20 "
 				  "et des pieces droites -- plus de rayon uniforme invente (4)",
@@ -4091,7 +4084,7 @@ namespace nkuidesign {
 				if (c.rounding > 7.5f && c.rounding < 8.5f)
 					++r8;
 			}
-			snprintf(det, sizeof(det), "%u commande(s), %u au rayon 8", n2, r8);
+			nkentseu::NkSnprintf(det, sizeof(det), "%u commande(s), %u au rayon 8", n2, r8);
 			check("50b. quatre coins egaux : une seule piece d'ombre, au rayon du noeud", n2 == 1u && r8 == 1u, det);
 		}
 		// ── 50c. L'ARRONDI PAR COIN SURVIT AU FICHIER, MEME QUAND LES QUATRE
@@ -4175,7 +4168,7 @@ namespace nkuidesign {
 			bool kd = true, ks = false;
 			allerRetour(false, 0.f, 0.f, 0.f, 0.f, 8.f, k, kd, ks);
 			const bool simpleIntact = !kd && k[0] == 8.f;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) delie + quatre coins EGAUX a 12 -> relus %.0f %.0f %.0f %.0f, "
 					 "delie=%d, aller-retour stable=%d ; (b) quatre coins DIFFERENTS "
 					 "-> %.0f %.0f %.0f %.0f (delie=%d) ; (c) non delie, rayon 8 -> %.0f "
@@ -4260,7 +4253,7 @@ namespace nkuidesign {
 								   && NkComponentDecl::StrEq(rb->inconnus.Data(), "futur=x");
 				const bool reemis = ok && strstr(s3.Data(), "jointure=rond") != nullptr
 									&& strstr(s3.Data(), "extremite=carree") != nullptr && strstr(s3.Data(), "futur=x") != nullptr;
-				snprintf(det, sizeof(det), "cle=%d relus=%d reemis=%d", cle ? 1 : 0, relus ? 1 : 0, reemis ? 1 : 0);
+				nkentseu::NkSnprintf(det, sizeof(det), "cle=%d relus=%d reemis=%d", cle ? 1 : 0, relus ? 1 : 0, reemis ? 1 : 0);
 				check("51a. `bord_` gagne cotes= / jointure= / extremite=, additifs (rien au defaut), et un jeton "
 					  "inconnu (`futur=x`) se relit et se reemet intact",
 					  cle && relus && reemis, det);
@@ -4279,7 +4272,7 @@ namespace nkuidesign {
 					if (c.x == 101.f && c.y == 104.f && c.w == 98.f && c.h == 45.f)
 						creuxJuste = true;
 				}
-				snprintf(det, sizeof(det), "%u remplissage(s) blanc(s), creux (101,104) 98x45 trouve=%d", nBlancs, creuxJuste ? 1 : 0);
+				nkentseu::NkSnprintf(det, sizeof(det), "%u remplissage(s) blanc(s), creux (101,104) 98x45 trouve=%d", nBlancs, creuxJuste ? 1 : 0);
 				check("51b. QUATRE EPAISSEURS : le creux interieur est decale de 4 en haut et de 1 sur les trois autres cotes",
 					  creuxJuste, det);
 			}
@@ -4294,7 +4287,7 @@ namespace nkuidesign {
 					if (c.op == NkPaintOp::FillColor && (c.rgba >> 8) == 0x123456u && c.rounding > 0.f)
 						++arrondis;
 				}
-				snprintf(det, sizeof(det), "%u piece(s) de cadre arrondie(s)", arrondis);
+				nkentseu::NkSnprintf(det, sizeof(det), "%u piece(s) de cadre arrondie(s)", arrondis);
 				check("51c. JOINTURE RONDE : sur un rect droit, le cadre exterieur s'arrondit de l'epaisseur du coin", arrondis >= 1u, det);
 			}
 			// 51d. biseau : un polygone a 8 points (coins coupes) chez un peintre a polygone ; l'onglet sinon
@@ -4312,7 +4305,7 @@ namespace nkuidesign {
 				for (uint32 i = 0; i < (uint32)sans.cmds.Size(); ++i)
 					if (sans.cmds[i].op == NkPaintOp::FillColor && (sans.cmds[i].rgba >> 8) == 0x123456u && sans.cmds[i].rounding == 0.f)
 						++cadreDroit;
-				snprintf(det, sizeof(det), "octogone=%d ; sans polygone : %u piece(s) droite(s) (onglet)", octogone ? 1 : 0, cadreDroit);
+				nkentseu::NkSnprintf(det, sizeof(det), "octogone=%d ; sans polygone : %u piece(s) droite(s) (onglet)", octogone ? 1 : 0, cadreDroit);
 				check("51d. BISEAU : l'exterieur est un octogone (coins coupes) ; sans polygone, repli sur l'onglet, dit au code",
 					  octogone && cadreDroit >= 1u, det);
 				dB.nodes[(uint32)f].borders[0].jointure = NkString();
@@ -4357,7 +4350,7 @@ namespace nkuidesign {
 				etendueLigne("", dP, aP, bP);
 				etendueLigne("ronde", dR, aR, bR);
 				etendueLigne("carree", dC, aC, bC);
-				snprintf(det, sizeof(det), "plate : %u disque(s), x %.0f..%.0f ; ronde : %u disque(s), x %.0f..%.0f ; carree : %u, x %.0f..%.0f",
+				nkentseu::NkSnprintf(det, sizeof(det), "plate : %u disque(s), x %.0f..%.0f ; ronde : %u disque(s), x %.0f..%.0f ; carree : %u, x %.0f..%.0f",
 						 dP, aP, bP, dR, aR, bR, dC, aC, bC);
 				check("51e. EXTREMITES d'une ligne (diagonale 100 x 20, trait de 4) : plate = rien, ronde = deux disques "
 					  "qui depassent de 2, carree = prolongee d'une demi-epaisseur de chaque cote",
@@ -4397,7 +4390,7 @@ namespace nkuidesign {
 				if (rec.cmds[i].op == NkPaintOp::Line && rec.cmds[i].w > 99.f)
 					++lignes;
 			char det[120];
-			snprintf(det, sizeof(det), "%u trait(s) de 100 px sur %u commande(s)", lignes, (uint32)rec.cmds.Size());
+			nkentseu::NkSnprintf(det, sizeof(det), "%u trait(s) de 100 px sur %u commande(s)", lignes, (uint32)rec.cmds.Size());
 			check("52. une ligne HORIZONTALE (hauteur nulle) se voit : une forme ouverte n'a besoin que d'une dimension",
 				  lignes == 1u, det);
 		}
@@ -4422,7 +4415,7 @@ namespace nkuidesign {
 				g.arrets.PushBack(arret(1.f, "#ff0000", 0.f));
 				const uint32 c = NkCouleurDegradeEn(g, 0.5f);
 				const uint32 R = (c >> 24) & 0xFFu, G = (c >> 16) & 0xFFu, B = (c >> 8) & 0xFFu, A = c & 0xFFu;
-				snprintf(det, sizeof(det), "milieu = R%u V%u B%u A%u (attendu R255 V0 B0 A~128)", R, G, B, A);
+				nkentseu::NkSnprintf(det, sizeof(det), "milieu = R%u V%u B%u A%u (attendu R255 V0 B0 A~128)", R, G, B, A);
 				check("53a. ARRET TRANSPARENT : « rouge opaque -> transparent » reste ROUGE en s'effacant "
 					  "(interpolation premultipliee) -- une interpolation naive passerait par du gris sale",
 					  R > 250u && G < 5u && B < 5u && A > 120u && A < 136u, det);
@@ -4434,7 +4427,7 @@ namespace nkuidesign {
 				g.arrets.PushBack(arret(1.f, "#ffffff", 100.f));
 				const uint32 c = NkCouleurDegradeEn(g, 0.5f);
 				const uint32 R = (c >> 24) & 0xFFu;
-				snprintf(det, sizeof(det), "milieu = %u (sRGB direct : 128 ; un melange lineaire donnerait ~188)", R);
+				nkentseu::NkSnprintf(det, sizeof(det), "milieu = %u (sRGB direct : 128 ; un melange lineaire donnerait ~188)", R);
 				check("53b. L'ESPACE EST NOMME -- sRGB direct, celui de Lunacy : noir -> blanc donne 128 au milieu",
 					  R > 125u && R < 131u, det);
 			}
@@ -4446,7 +4439,7 @@ namespace nkuidesign {
 				const uint32 avant = NkCouleurDegradeEn(g, -0.5f);
 				const uint32 apres = NkCouleurDegradeEn(g, 1.5f);
 				const uint32 mid = NkCouleurDegradeEn(g, 0.5f);
-				snprintf(det, sizeof(det), "avant=%08X (rouge attendu), apres=%08X (bleu attendu), milieu=%08X", avant, apres, mid);
+				nkentseu::NkSnprintf(det, sizeof(det), "avant=%08X (rouge attendu), apres=%08X (bleu attendu), milieu=%08X", avant, apres, mid);
 				check("53c. arrets NON TRIES : tries a la lecture ; avant le premier et apres le dernier, "
 					  "la couleur du BORD, jamais du noir",
 					  avant == 0xFF0000FFu && apres == 0x0000FFFFu && ((mid >> 24) & 0xFFu) > 120u
@@ -4462,7 +4455,7 @@ namespace nkuidesign {
 				g.arrets.PushBack(arret(1.f, "#0000ff", 100.f));
 				const uint32 juste = NkCouleurDegradeEn(g, 0.49f);
 				const uint32 apres = NkCouleurDegradeEn(g, 0.51f);
-				snprintf(det, sizeof(det), "0.49 -> %08X (rouge), 0.51 -> %08X (bleu)", juste, apres);
+				nkentseu::NkSnprintf(det, sizeof(det), "0.49 -> %08X (rouge), 0.51 -> %08X (bleu)", juste, apres);
 				check("53d. DEUX ARRETS A LA MEME POSITION = coupure franche : rouge d'un cote, bleu de l'autre, "
 					  "aucun melange -- c'est ce qui fait les bandes nettes",
 					  juste == 0xFF0000FFu && apres == 0x0000FFFFu, det);
@@ -4474,14 +4467,14 @@ namespace nkuidesign {
 				const uint32 a0 = NkCouleurDegradeEn(g, 0.f), a1 = NkCouleurDegradeEn(g, 1.f);
 				NkDegrade vide;
 				const uint32 z = NkCouleurDegradeEn(vide, 0.5f);
-				snprintf(det, sizeof(det), "un arret : t=0 -> %08X, t=1 -> %08X (attendu 00FF0080) ; zero arret -> %08X", a0, a1, z);
+				nkentseu::NkSnprintf(det, sizeof(det), "un arret : t=0 -> %08X, t=1 -> %08X (attendu 00FF0080) ; zero arret -> %08X", a0, a1, z);
 				check("53e. UN SEUL arret = un uni de cette couleur (opacite comprise), partout ; zero arret ne calcule rien",
 					  a0 == a1 && ((a0 >> 16) & 0xFFu) == 0xFFu && (a0 & 0xFFu) > 120u && (a0 & 0xFFu) < 136u && z == 0u, det);
 			}
 			// 53f. LES BANDES SUIVENT LA TAILLE : 24 pour une pastille, 192 au plafond
 			{
 				const int32 b16 = NkBandesDegrade(16.f), b200 = NkBandesDegrade(200.f), b2000 = NkBandesDegrade(2000.f);
-				snprintf(det, sizeof(det), "16 px -> %d bandes, 200 px -> %d, 2000 px -> %d", b16, b200, b2000);
+				nkentseu::NkSnprintf(det, sizeof(det), "16 px -> %d bandes, 200 px -> %d, 2000 px -> %d", b16, b200, b2000);
 				check("53f. le nombre de bandes SUIT la taille dessinee (une par 2 px, borne 24..192) : 24 bandes "
 					  "suffisent pour une pastille, pas pour un fond de 800 px",
 					  b16 == 24 && b200 == 100 && b2000 == 192, det);
@@ -4506,7 +4499,7 @@ namespace nkuidesign {
 				const bool relus = g && g->arrets.Size() == 2u && g->arrets[0].opacite == 100.f
 								   && g->arrets[1].opacite == 0.f;
 				const bool additif = strstr(s.Data(), "1:#ff0000:0") != nullptr && strstr(s.Data(), "0:#ff0000 ") != nullptr;
-				snprintf(det, sizeof(det), "relus=%d additif=%d", relus ? 1 : 0, additif ? 1 : 0);
+				nkentseu::NkSnprintf(det, sizeof(det), "relus=%d additif=%d", relus ? 1 : 0, additif ? 1 : 0);
 				check("53g. l'OPACITE PAR ARRET fait l'aller-retour, additive : rien n'est ecrit tant qu'elle vaut 100",
 					  relus && additif, det);
 			}
@@ -4558,7 +4551,7 @@ namespace nkuidesign {
 				// 4. CONTROLE NEGATIF : sans le crochet d'overlay, rien n'est peint --
 				//    c'est exactement ce que voyait Rodolf avant le remede.
 				const uint32 sansOverlay = image(248.f, 68.f, false, false);
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "survol : aucune demande=%d ; apres relachement : demande=%d (overlay %u) ; image "
 						 "suivante : dessine %u sommets, popup ouvert=%d ; SANS le crochet : %u sommets",
 						 riendemande ? 1 : 0, demande ? 1 : 0, apresRelache, dessine, tient ? 1 : 0, sansOverlay);
@@ -4595,7 +4588,7 @@ namespace nkuidesign {
 			const int32 dedans = NkConteneurPourCreation(dH, layH, 200.f, 150.f);
 			const int32 dehors = NkConteneurPourCreation(dH, layH, 700.f, 600.f);
 			const int32 avant = NkPickFreeContainer(dH, layH, 700.f, 600.f);
-			snprintf(det, sizeof(det), "racine libre=%d ; dans la page -> %d (page=%d) ; hors page -> %d "
+			nkentseu::NkSnprintf(det, sizeof(det), "racine libre=%d ; dans la page -> %d (page=%d) ; hors page -> %d "
 									   "(racine=0) ; l'ancien predicat rendait %d",
 					 racineLibre ? 1 : 0, dedans, pg, dehors, avant);
 			check("55a. DESSINER HORS D'UNE PAGE : le conteneur de creation rend la page quand on est "
@@ -4612,7 +4605,7 @@ namespace nkuidesign {
 			dH.nodes[(uint32)forme].height.value = 40.f;
 			const bool sorti = dH.Reparent(forme, 0);
 			const bool aLaRacine = sorti && dH.nodes[(uint32)forme].parent == 0;
-			snprintf(det, sizeof(det), "retire de la page=%d, parent=%d ; creation hors page -> %d",
+			nkentseu::NkSnprintf(det, sizeof(det), "retire de la page=%d, parent=%d ; creation hors page -> %d",
 					 sorti ? 1 : 0, dH.nodes[(uint32)forme].parent, dehors);
 			check("55b. LA SYMETRIE EST RETABLIE : le reparentage sort un objet de la page, et la creation "
 				  "sait desormais l'y mettre -- les deux chemins repondent la MEME chose",
@@ -4629,7 +4622,7 @@ namespace nkuidesign {
 			const NkString trait = NkHexDuRole(th, "doc_text");
 			char det[240];
 			const bool formeHex = NkHexLisible(fond.Data()) && NkHexLisible(trait.Data());
-			snprintf(det, sizeof(det), "doc_field_bg -> %s ; doc_text -> %s", fond.Data(), trait.Data());
+			nkentseu::NkSnprintf(det, sizeof(det), "doc_field_bg -> %s ; doc_text -> %s", fond.Data(), trait.Data());
 			check("56a. un role de theme se lit en « #rrggbb » : la creation peut POSER ce que le peintre "
 				  "aurait pris (une seule source pour ce qu'on voit et ce qu'on montre)",
 				  formeHex, det);
@@ -4639,7 +4632,7 @@ namespace nkuidesign {
 			rect.shape = NkString("rect");
 			texte.shape = NkString("text");
 			cadre.shape = NkString("frame");
-			snprintf(det, sizeof(det), "ligne ouverte=%d, rect ouvert=%d", NkFormeOuverte(ligne) ? 1 : 0,
+			nkentseu::NkSnprintf(det, sizeof(det), "ligne ouverte=%d, rect ouvert=%d", NkFormeOuverte(ligne) ? 1 : 0,
 					 NkFormeOuverte(rect) ? 1 : 0);
 			check("56b. la nature decide : une forme OUVERTE (ligne) recoit une bordure, une forme fermee "
 				  "un remplissage -- texte et cadre, ni l'un ni l'autre",
@@ -4680,13 +4673,13 @@ namespace nkuidesign {
 			douze.type = NkString("lineaire");
 			for (uint32 i = 0; i < 12u; ++i) {
 				char h[12];
-				snprintf(h, sizeof(h), "#%02x0000", (uint32)(i * 20u));
+				nkentseu::NkSnprintf(h, sizeof(h), "#%02x0000", (uint32)(i * 20u));
 				douze.arrets.PushBack(arret((float32)i / 11.f, h));
 			}
 			const uint32 c11 = renderdetail::NkCouleurDegradeEn(douze, 1.f);
 			const bool douzeOk = ((c11 >> 24) & 0xFFu) == 220u;
 			char det[220];
-			snprintf(det, sizeof(det), "%u/5 types honorent l'arret du milieu ; douze arrets : dernier = %02X (attendu DC)",
+			nkentseu::NkSnprintf(det, sizeof(det), "%u/5 types honorent l'arret du milieu ; douze arrets : dernier = %02X (attendu DC)",
 					 milieuxVus, (uint32)((c11 >> 24) & 0xFFu));
 			check("57. N ARRETS POUR TOUS LES TYPES : lineaire, radial, angulaire, losange et un type INCONNU "
 				  "honorent tous l'arret intermediaire -- le calcul ne regarde jamais le type pour compter",
@@ -4737,7 +4730,7 @@ namespace nkuidesign {
 				const bool memeComposant = NkComponentDecl::StrEq(dI.nodes[(uint32)a1].instanceDe.Data(),
 																   dI.nodes[(uint32)a2].instanceDe.Data());
 				const bool aucunNouveau = (uint32)dI.declarations.Size() == nDeclApres;
-				snprintf(det, sizeof(det), "instance 1 = %s, instance 2 = %s ; meme composant=%d ; %u declaration(s) "
+				nkentseu::NkSnprintf(det, sizeof(det), "instance 1 = %s, instance 2 = %s ; meme composant=%d ; %u declaration(s) "
 										   "avant et apres",
 						 c1, c2, memeComposant ? 1 : 0, (uint32)dI.declarations.Size());
 				check("58a. changer la couleur d'UNE instance ne touche pas l'autre, et NE CREE AUCUN composant : "
@@ -4761,7 +4754,7 @@ namespace nkuidesign {
 				const char *d2 = dI.nodes[(uint32)a2].fills.Empty() ? "" : dI.nodes[(uint32)a2].fills[0].couleur.Data();
 				const bool surchargeTient = NkComponentDecl::StrEq(d1, "#d21976");
 				const bool libreSuit = NkComponentDecl::StrEq(d2, "#00aa00");
-				snprintf(det, sizeof(det), "%d instance(s) touchee(s) ; surchargee = %s (tient), libre = %s "
+				nkentseu::NkSnprintf(det, sizeof(det), "%d instance(s) touchee(s) ; surchargee = %s (tient), libre = %s "
 										   "(suit la declaration #00aa00)",
 						 touchees, d1, d2);
 				check("58b. la DECLARATION change : l'instance qui a surcharge sa couleur la GARDE, et celle "
@@ -4775,7 +4768,7 @@ namespace nkuidesign {
 				const bool ecartRelu = chargee && relu.IsValidIndex(a1)
 									   && relu.nodes[(uint32)a1].Surcharge(NkUINode::EcartRemplissages)
 									   && !relu.nodes[(uint32)a2].Surcharge(NkUINode::EcartRemplissages);
-				snprintf(det, sizeof(det), "aller-retour : ecart relu sur l'instance 1=%d, absent sur la 2=%d",
+				nkentseu::NkSnprintf(det, sizeof(det), "aller-retour : ecart relu sur l'instance 1=%d, absent sur la 2=%d",
 						 (chargee && relu.IsValidIndex(a1) && relu.nodes[(uint32)a1].Surcharge(NkUINode::EcartRemplissages)) ? 1 : 0,
 						 (chargee && relu.IsValidIndex(a2) && !relu.nodes[(uint32)a2].Surcharge(NkUINode::EcartRemplissages)) ? 1 : 0);
 				check("58c. la SURCHARGE survit a l'aller-retour (`ecarts` au fichier) : c'est un fait du "
@@ -4803,7 +4796,7 @@ namespace nkuidesign {
 				renderdetail::NkAjouterArretDegrade(g, 0.5f, 12u);
 			const uint32 nb = (uint32)g.arrets.Size();
 			char det[240];
-			snprintf(det, sizeof(det), "arret ajoute en %d ; couleur en 0.25 : %08X -> %08X ; en 0.75 : %08X ; "
+			nkentseu::NkSnprintf(det, sizeof(det), "arret ajoute en %d ; couleur en 0.25 : %08X -> %08X ; en 0.75 : %08X ; "
 									   "plafond 12 -> %u arrets",
 					 idx, avant, apres, ailleurs, nb);
 			check("59. AJOUTER UN ARRET (la fonction que la barre ET, demain, le segment de la toile "
@@ -4891,7 +4884,7 @@ namespace nkuidesign {
 				uint32 n260 = 0u, n170 = 0u, o = 0u;
 				image(260.f, false, x260, n260, o);
 				image(170.f, false, x170, n170, o);
-				snprintf(det, sizeof(det), "260 px : %u sommets, x max %.1f (bord 600) ; 170 px : %u sommets, x max %.1f "
+				nkentseu::NkSnprintf(det, sizeof(det), "260 px : %u sommets, x max %.1f (bord 600) ; 170 px : %u sommets, x max %.1f "
 										   "(bord 600) ; ce qui deborde a 170 px est entre y=%.0f et y=%.0f",
 						 n260, x260, n170, x170, yDebMin, yDebMax);
 				check("60a. L'INSPECTEUR A 260 PUIS A 170 PX : aucun sommet peint ne depasse le bord droit du "
@@ -4914,7 +4907,7 @@ namespace nkuidesign {
 					if (ctxI.dlOverlay.vtx[i].pos.x < oxMin) oxMin = ctxI.dlOverlay.vtx[i].pos.x;
 					if (ctxI.dlOverlay.vtx[i].pos.x > oxMax) oxMax = ctxI.dlOverlay.vtx[i].pos.x;
 				}
-				snprintf(det, sizeof(det), "popover : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d, arret courant=%d",
+				nkentseu::NkSnprintf(det, sizeof(det), "popover : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d, arret courant=%d",
 						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, stI.picker.arretSel);
 				check("60b. LE POPOVER D'UN DEGRADE (types, selecteur, hexa, barre, liste de trois arrets) dessine "
 					  "dans l'overlay, a GAUCHE de sa pastille, et reste dans l'ecran",
@@ -4936,7 +4929,7 @@ namespace nkuidesign {
 					if (ctxI.dlOverlay.vtx[i].pos.y < oyMin) oyMin = ctxI.dlOverlay.vtx[i].pos.y;
 					if (ctxI.dlOverlay.vtx[i].pos.y > oyMax) oyMax = ctxI.dlOverlay.vtx[i].pos.y;
 				}
-				snprintf(det, sizeof(det), "pastille a y=870 (fenetre 900) : popover y %.0f..%.0f, %u sommets", oyMin, oyMax, op);
+				nkentseu::NkSnprintf(det, sizeof(det), "pastille a y=870 (fenetre 900) : popover y %.0f..%.0f, %u sommets", oyMin, oyMax, op);
 				check("60d. LE POPOVER TIENT DANS LA FENETRE : pastille sur la derniere ligne visible, le popover est "
 					  "REMONTE et tous ses sommets restent dans la fenetre -- la liste d'arrets et le + sont atteignables",
 					  op > 300u && oyMin >= 0.f && oyMax <= 900.5f, det);
@@ -4976,7 +4969,7 @@ namespace nkuidesign {
 					if (ctxI.dlOverlay.vtx[i].pos.x < oxMin) oxMin = ctxI.dlOverlay.vtx[i].pos.x;
 					if (ctxI.dlOverlay.vtx[i].pos.x > oxMax) oxMax = ctxI.dlOverlay.vtx[i].pos.x;
 				}
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "popover de bordure : %u sommets overlay, x %.0f..%.0f (ecran 0..600), ouvert=%d ; panneau a 260 px : %u "
 						 "sommets pendant le popover contre %u sans lui, MEME course -- le panneau garde ses rangees",
 						 op, oxMin, oxMax, stI.picker.ouvert ? 1 : 0, np, npSansPopover);
@@ -5047,7 +5040,7 @@ namespace nkuidesign {
 					souris(bx, ty, false);
 					const uint32 oPose = souris(-1.f, -1.f, false);
 					const NkRemplissage &fr = stI.doc.nodes[(uint32)rc].fills[(uint32)iImg];
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "popover image : %u sommets ferme, %u menu ouvert (clic a %.0f,%.0f), %u apres « Tile » ; "
 							 "cadrage=`%s` ; dans la fenetre=%d",
 							 oFerme, oOuvert, bx, by, oPose, fr.cadrage.Data(), dansFenetre ? 1 : 0);
@@ -5108,7 +5101,7 @@ namespace nkuidesign {
 					//     le MODELE reste ROUGE.
 					hoteA.apercuNoeud = cibleI;
 					hoteA.apercuIndex = -1;
-					snprintf(hoteA.apercuHex, sizeof(hoteA.apercuHex), "%s", "#00ff00");
+					nkentseu::NkSnprintf(hoteA.apercuHex, sizeof(hoteA.apercuHex), "%s", "#00ff00");
 					const bool voitVert = emise(0x00ff00ffu);
 					const bool plusDeRouge = !emise(0xff0000ffu);
 					const char *modele = dA.nodes[(uint32)cibleI].FondEffectif();
@@ -5206,7 +5199,7 @@ namespace nkuidesign {
 					float32 xv = 0.f;
 					uint32 nv = 0u, ov = 0u;
 					image(260.f, true, xv, nv, ov);
-					snprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#0000ff");
+					nkentseu::NkSnprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#0000ff");
 					stI.picker.change = true;
 					image(260.f, true, xv, nv, ov);
 					image(260.f, true, xv, nv, ov);
@@ -5225,7 +5218,7 @@ namespace nkuidesign {
 					if (ctxI.popupDepth > 0)
 						ctxI.ClosePopup();
 					char det145[640];
-					snprintf(det145, sizeof(det145),
+					nkentseu::NkSnprintf(det145, sizeof(det145),
 							 "(a) apercu pose : le peintre emet le vert=%d et plus le rouge=%d, "
 							 "pendant que le MODELE vaut toujours \"%s\" -> %d ; (b) apercu "
 							 "retire : le rouge revient et le vert disparait -> %d ; (c) "
@@ -5291,7 +5284,7 @@ namespace nkuidesign {
 					const float32 dBorne = det(bMax, bMax), dHors = det(90.f, 90.f);
 					const bool borneSaine = dBorne > 0.02f && dHors < 0.0001f && dHors > -0.0001f;
 					char det144[420];
-					snprintf(det144, sizeof(det144),
+					nkentseu::NkSnprintf(det144, sizeof(det144),
 							 "MEME course : le panneau emet %u sommets avec les rangees, %u sans "
 							 "(nœud qui refuse la rotation) -> %d ; determinant a la borne "
 							 "(%.0f\u00b0, %.0f\u00b0) = %.4f, et a 90\u00b0 = %.4f -- la forme se "
@@ -5413,7 +5406,7 @@ namespace nkuidesign {
 						}
 					}
 					char det137[420];
-					snprintf(det137, sizeof(det137),
+					nkentseu::NkSnprintf(det137, sizeof(det137),
 							 "MEME course, trois ouvertures : noyau nu %u sommets, canvas %u, "
 							 "remplissage %u ; le canvas n'est plus le noyau (%u > %u+200) -> %d ; "
 							 "meme fenetre que le remplissage, en plus court du masquage par type "
@@ -5454,7 +5447,7 @@ namespace nkuidesign {
 						stI.picker.genre = genre;
 						stI.picker.noeud = noeud;
 						stI.picker.index = index;
-						snprintf(stI.picker.etat, sizeof(stI.picker.etat), "%s", etat ? etat : "");
+						nkentseu::NkSnprintf(stI.picker.etat, sizeof(stI.picker.etat), "%s", etat ? etat : "");
 						stI.picker.champEtat = champ;
 						stI.picker.ancre = {360.f, 200.f, 16.f, 16.f};
 						float32 xz = 0.f;
@@ -5499,7 +5492,7 @@ namespace nkuidesign {
 					const NkString fill0Avant = fillsAvant > 0u ? stI.doc.nodes[(uint32)rc].fills[0].couleur : NkString();
 					const bool blocAbsentAvant = NkBlocEtatSi(stI.doc.nodes[(uint32)rc], "Hover") == nullptr;
 					ouvrir("##s.149.ecrit", 1u, rc, -1, "Hover", 1u);
-					snprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#00ff00");
+					nkentseu::NkSnprintf(stI.picker.hex, sizeof(stI.picker.hex), "%s", "#00ff00");
 					stI.picker.change = true;
 					{
 						float32 xz = 0.f;
@@ -5552,7 +5545,7 @@ namespace nkuidesign {
 						}
 					}
 					char det149[560];
-					snprintf(det149, sizeof(det149),
+					nkentseu::NkSnprintf(det149, sizeof(det149),
 							 "MEME course : noyau nu %u sommets, etat (fond) %u, etat (texte) %u, remplissage %u ; l'etat "
 							 "n'est plus le noyau (largeur %.0f, noyau %.0f, remplissage %.0f) -> %d ; meme fenetre, sans "
 							 "les cinq vignettes (2x%u < %u < 4x%u) -> %d ; rangee d'opacite retiree (la variable reste) : %.0f px [26] -> %d ; texte = "
@@ -5640,7 +5633,7 @@ namespace nkuidesign {
 					// ni l'autre seraient << les memes portes >> et un defaut plus grave.
 					const bool troisPortes = fClic && fEchap && fCroix;
 					char det138[420];
-					snprintf(det138, sizeof(det138),
+					nkentseu::NkSnprintf(det138, sizeof(det138),
 							 "remplissage : clic dans le vide=%d, Echap=%d, croix=%d ; canvas : "
 							 "clic dans le vide=%d, Echap=%d, croix=%d ; memes portes -> %d ; "
 							 "les trois ferment -> %d",
@@ -5694,7 +5687,7 @@ namespace nkuidesign {
 					bool ordre = menu.x >= x0 && menu.x + menu.w + 4.f <= ch[0].x && ch[0].x + ch[0].w <= ch[1].x
 								 && ch[1].x + ch[1].w <= ch[2].x && ch[2].x + ch[2].w + 4.f <= op.x
 								 && op.x + op.w + 12.f <= x1 + 0.5f;
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "popover %.0f px : menu %.0f, trois champs de %.1f px (« -54,00 » = %.1f px%s), opacite %.0f ; "
 							 "hexa sur %.0f px (« #1976d2 » = %.1f px)",
 							 pxMax - pxMin, menu.w, ch[0].w, lTexte, policeAbsente ? " -- police absente sans fenetre, budget 6 px/car." : "",
@@ -5755,7 +5748,7 @@ namespace nkuidesign {
 					char fr[16];
 					NkEcrireNombreFr(fr, (uint32)sizeof(fr), -54.0f, 2);
 					const bool ecriture = NkComponentDecl::StrEq(fr, "-54,00");
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "16 777 216 couleurs : rates RGB=%u, rates HSB=%u ; derive des ENTIERS affiches=%u (la raison "
 							 "de ne pas ecrire) ; hexa intact apres HSB affiche=%d ; lecture fr=%d, ecriture « %s »",
 							 ratesRgb, ratesHsb, deriveEntiers, hexaIntact ? 1 : 0, lecture ? 1 : 0, fr);
@@ -5877,7 +5870,7 @@ namespace nkuidesign {
 									 && apresInstNouveau >= 1u;
 					}
 					stI.SelectSingle(rc);
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "libre : #1976d2 -> %s, commandes bleues %u -> %u, nouvelles %u ; degrade : arret0 #fafcff -> %s, dessin change=%d ; "
 							 "instance : #2e7d32 -> %s (l'autre : %s), vertes %u -> %u, nouvelles %u",
 							 cLibre.Data(), avantLibre, apresLibreAncien, apresLibreNouveau, cArret.Data(), dessinDeg ? 1 : 0,
@@ -5978,7 +5971,7 @@ namespace nkuidesign {
 					const uint32 apresNouveau = NkHexLisible(cListe.Data()) ? compterBleu(renderdetail::NkGCouleur(cListe.Data())) : 0u;
 					stI.picker = DesignState::DemandePicker();
 					image2(-1.f, -1.f, false);
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "pastille vue=%d a (%.0f,%.0f) ; demande=%d ; cle simple `%s`, liste `%s` ; commandes #0969da %u -> %u, "
 							 "nouvelles %u",
 							 pastilleVue ? 1 : 0, pcx, pcy, demande ? 1 : 0, ns.fill.Data() ? ns.fill.Data() : "", cListe.Data(),
@@ -6094,7 +6087,7 @@ namespace nkuidesign {
 						if (!ok)
 							tout = false;
 						const size_t rl = strlen(resume);
-						snprintf(resume + rl, sizeof(resume) - rl, "%s%s : glisse 0,50->%.2f (angle %.0f, curseur %d) ; anneau (curseur %d) -> angle %.0f (arrets intacts=%d) ; aimant 3 -> %.0f",
+						nkentseu::NkSnprintf(resume + rl, sizeof(resume) - rl, "%s%s : glisse 0,50->%.2f (angle %.0f, curseur %d) ; anneau (curseur %d) -> angle %.0f (arrets intacts=%d) ; aimant 3 -> %.0f",
 								 gi ? " | " : "", kGenres[gi], (double)posMilieu, (double)angleApresGlisse, curseurDisque, curseurAnneau,
 								 (double)angleApresTour, positionsIntactes ? 1 : 0, (double)angleAimante);
 					}
@@ -6103,7 +6096,7 @@ namespace nkuidesign {
 					gd.arrets[1].position = 0.5f;
 					stI.picker = DesignState::DemandePicker();
 					scene(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "%s ; noeud fixe=%d", resume, (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
+					nkentseu::NkSnprintf(det, sizeof(det), "%s ; noeud fixe=%d", resume, (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
 					check("60k. UN GESTE POUR LES QUATRE GENRES (boucle) : le disque d'un arret GLISSE le long de l'axe (l'angle ne "
 						  "bouge pas), l'anneau d'une extremite TOURNE l'axe (les arrets ne bougent pas), l'aimant colle a 0, le "
 						  "curseur annonce le geste avant le clic, le noeud ne bouge jamais",
@@ -6179,7 +6172,7 @@ namespace nkuidesign {
 					const bool couleurIntacte = NkComponentDecl::StrEq(avant.Data(), apres.Data());
 					stI.picker = DesignState::DemandePicker();
 					image3(-1.f, -1.f, false);
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "menu ouvert : sommet du menu a l'indice %u, coin blanc du carre a %u (menu apres=%d) ; clic sur « Normal » "
 							 "au-dessus du carre : menu ferme=%d, couleur %s -> %s (intacte=%d)",
 							 iMenu, iBlanc, peintApres ? 1 : 0, ferme ? 1 : 0, avant.Data(), apres.Data(), couleurIntacte ? 1 : 0);
@@ -6252,7 +6245,7 @@ namespace nkuidesign {
 					const bool disjoints = themeSain && nA > 0u && nB > 0u && basPastilles <= hautAngle + 0.01f;
 					stI.picker = DesignState::DemandePicker();
 					image4();
-					snprintf(det, sizeof(det), "barre a y=%.0f : bas des pastilles %.1f (%u sommets), haut de la boite Angle %.1f (%u sommets)%s%s",
+					nkentseu::NkSnprintf(det, sizeof(det), "barre a y=%.0f : bas des pastilles %.1f (%u sommets), haut de la boite Angle %.1f (%u sommets)%s%s",
 							 yBarre, basPastilles, nA, hautAngle, nB, themeSain ? "" : " -- ", malTheme);
 					check("60m. ④ LES PASTILLES DE LA BARRE ET LA RANGEE SUIVANTE NE SE RECOUVRENT PAS : le bas des pastilles "
 						  "est au-dessus du haut de la boite du champ Angle, mesure sur la couche overlay",
@@ -6352,12 +6345,12 @@ namespace nkuidesign {
 						image5(-1.f, -1.f, 0.f);
 						while (g12.arrets.Size() > 3u)
 							g12.arrets.RemoveAt(g12.arrets.Size() - 1u);
-						snprintf(det, sizeof(det),
+						nkentseu::NkSnprintf(det, sizeof(det),
 								 "fenetre 420 : popover y %.0f..%.0f (dans la fenetre=%d), %u arrets ; boites de la liste (x0=%.0f, yListe=%.0f) : "
 								 "%u sommets, premiere a y=%.1f puis, apres une demi-cran de molette, %u sommets, a y=%.1f (defile=%d) ; bas VISIBLE apres=%.0f",
 								 py, pyMax, dansFenetre ? 1 : 0, 12u, x0, yListe, nAvant, yAvant, nApres, yApres, defile ? 1 : 0, pyMax2);
 						if (!themeSainS)
-							snprintf(det, sizeof(det), "%s", malThemeS);
+							nkentseu::NkSnprintf(det, sizeof(det), "%s", malThemeS);
 						check("60n. ⑤ L'ASCENSEUR DU POPOVER : douze arrets dans une fenetre de 420 px -- le popover tient dans la "
 							  "fenetre, la liste defile a la molette (l'interieur bouge, pas le popover)",
 							  themeSainS && dansFenetre && defile && pyMax2 <= 420.5f, det);
@@ -6459,7 +6452,7 @@ namespace nkuidesign {
 						polyAvant = polygones();
 						scene3(-1.f, -1.f, false);
 						const uint32 toileAvant = sommetsToile();
-						snprintf(etape, sizeof(etape), "pose par la vignette=%d (arrets=%u, polygones=%u)", poseParPopover ? 1 : 0,
+						nkentseu::NkSnprintf(etape, sizeof(etape), "pose par la vignette=%d (arrets=%u, polygones=%u)", poseParPopover ? 1 : 0,
 								 (uint32)(n3.fills.Empty() ? 0u : n3.fills[0].degrade.arrets.Size()), polyAvant);
 						stI.picker = DesignState::DemandePicker();
 						scene3(-1.f, -1.f, false);
@@ -6485,7 +6478,7 @@ namespace nkuidesign {
 						const uint32 toileApres = sommetsToile();
 						{
 							const size_t l = strlen(etape);
-							snprintf(etape + l, sizeof(etape) - l, " ; TOILE (vrai peintre) : sommets de bandes %u -> %u", toileAvant, toileApres);
+							nkentseu::NkSnprintf(etape + l, sizeof(etape) - l, " ; TOILE (vrai peintre) : sommets de bandes %u -> %u", toileAvant, toileApres);
 						}
 						apresLargeur = apresLargeur && toileAvant >= 100u && toileApres >= 100u;
 						// 4b. les autres chemins de l'application : rotation, arrondi, l'observateur
@@ -6503,7 +6496,7 @@ namespace nkuidesign {
 						const bool apresRotation = degradeVivant() && polygones() >= 24u && toileTransforme >= 100u;
 						{
 							const size_t l = strlen(etape);
-							snprintf(etape + l, sizeof(etape) - l, " ; sous rotation+echelle, toile : %u sommets", toileTransforme);
+							nkentseu::NkSnprintf(etape + l, sizeof(etape) - l, " ; sous rotation+echelle, toile : %u sommets", toileTransforme);
 						}
 						n3.echelleX = n3.echelleY = 1.f;
 						{
@@ -6520,7 +6513,7 @@ namespace nkuidesign {
 						const bool apresPropagation = degradeVivant();
 						{
 							const size_t l = strlen(etape);
-							snprintf(etape + l, sizeof(etape) - l, " ; rotation+arrondi=%d, recharge (annuler)=%d, propagation=%d",
+							nkentseu::NkSnprintf(etape + l, sizeof(etape) - l, " ; rotation+arrondi=%d, recharge (annuler)=%d, propagation=%d",
 									 apresRotation ? 1 : 0, apresRecharge ? 1 : 0, apresPropagation ? 1 : 0);
 						}
 						apresLargeur = apresLargeur && apresRotation && apresRecharge && apresPropagation;
@@ -6534,7 +6527,7 @@ namespace nkuidesign {
 							n3.fills[0].degrade.arrets.Clear();
 					}
 					stI.SelectSingle(rc);
-					snprintf(det, sizeof(det), "%s ; apres deplacer=%d, apres poignee=%d, apres largeur=%d (polygones %u -> %u) ; fichier=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "%s ; apres deplacer=%d, apres poignee=%d, apres largeur=%d (polygones %u -> %u) ; fichier=%d",
 							 etape, apresDeplacer ? 1 : 0, apresPoignee ? 1 : 0, apresLargeur ? 1 : 0, polyAvant, polyApres, fichier ? 1 : 0);
 					check("60p. LE DEGRADE SURVIT A LA GEOMETRIE : pose par le popover sur un noeud a cle simple, il reste apres un "
 						  "deplacement, une poignee de forme, un changement de largeur -- dans le document, au dessin, au fichier",
@@ -6602,7 +6595,7 @@ namespace nkuidesign {
 					const bool rienNormal = strstr(s2.Data(), "fusion=") == nullptr;
 					stI.picker = DesignState::DemandePicker();
 					image6(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "Multiply choisi -> `%s` (pied : peint, exact=%d) ; fichier `fusion=multiply`=%d ; relu=%d ; Overlay -> `overlay`=%d (pied : pas encore peint=%d) ; Normal -> efface=%d, rien au fichier=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "Multiply choisi -> `%s` (pied : peint, exact=%d) ; fichier `fusion=multiply`=%d ; relu=%d ; Overlay -> `overlay`=%d (pied : pas encore peint=%d) ; Normal -> efface=%d, rien au fichier=%d",
 							 m1.Data() ? m1.Data() : "", ditPeint ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, overlay ? 1 : 0, dit ? 1 : 0, efface ? 1 : 0, rienNormal ? 1 : 0);
 					check("60q. ②-1 LES 18 MODES DE FUSION SE CHOISISSENT : « Multiply » par le menu s'ecrit dans le modele (cle CSS), "
 						  "part au fichier et en revient, le pied dit qu'il est peint (exact) ; « Overlay » s'ecrit et le pied dit "
@@ -6681,7 +6674,7 @@ namespace nkuidesign {
 					gd.angle = 0.f;
 					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
 					sceneR(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "sans degrade, popover ferme : rotation 0 -> %.0f (noeud fixe=%d) ; avec lineaire a 45, popover OUVERT : rotation 0 -> %.0f (noeud fixe, popup present=%d)",
+					nkentseu::NkSnprintf(det, sizeof(det), "sans degrade, popover ferme : rotation 0 -> %.0f (noeud fixe=%d) ; avec lineaire a 45, popover OUVERT : rotation 0 -> %.0f (noeud fixe, popup present=%d)",
 							 (double)rotApres[0], fixe[0] ? 1 : 0, (double)rotApres[1], fixe[1] ? 1 : 0);
 					check("60s. LA ROTATION DU NOEUD tient avec et sans degrade : l'arc du coin tourne le noeud d'un quart de tour, "
 						  "meme quand une extremite de degrade tombe au coin -- la zone la plus proche du pointeur gagne",
@@ -6755,7 +6748,7 @@ namespace nkuidesign {
 					const float32 h1 = nd.height.value;
 					stI.Recompute(NkPaintRect{0.f, 0.f, 600.f, 900.f});
 					sceneT(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "noeud a l'ecran %.0f x %.0f px ; arc a 11 px hors boite : rotation 0 -> %.0f ; bord droit +10 px : largeur %.0f -> %.0f ; "
+					nkentseu::NkSnprintf(det, sizeof(det), "noeud a l'ecran %.0f x %.0f px ; arc a 11 px hors boite : rotation 0 -> %.0f ; bord droit +10 px : largeur %.0f -> %.0f ; "
 											   "centre du corps : deplace=%d (hauteur intacte=%d)",
 							 (double)rs.w, (double)rs.h, (double)rot, (double)w0, (double)w1, deplace ? 1 : 0, h1 == nd.height.value ? 1 : 0);
 					check("60t. ② LES ZONES DE DETECTION (tolerance nommee, 12 px ecran) : l'arc se prend 11 px hors de sa boite, "
@@ -6821,7 +6814,7 @@ namespace nkuidesign {
 					const bool fermeRien = !stI.picker.ouvert && ctxI.popupDepth == 0;
 					stI.SelectSingle(rc);
 					sceneU(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "ouvert avant=%d ; clic dans le vide : selection=%d (deselectionne=%d), ferme=%d ; autre noeud (%d) : ferme=%d ; deselection par le modele : ferme=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "ouvert avant=%d ; clic dans le vide : selection=%d (deselectionne=%d), ferme=%d ; autre noeud (%d) : ferme=%d ; deselection par le modele : ferme=%d",
 							 ouvertAvant ? 1 : 0, selVide, videDeselectionne ? 1 : 0, fermeVide ? 1 : 0, autre, fermeAutre ? 1 : 0, fermeRien ? 1 : 0);
 					check("60u. ④ LE SELECTEUR SE FERME quand rien n'est selectionne ou qu'on clique dans le vide : le vide "
 						  "deselectionne (le clic n'est pas consomme) et le popover se ferme, un autre noeud le ferme, une "
@@ -6900,7 +6893,7 @@ namespace nkuidesign {
 					const NkString parti = survoler(-1.f, -1.f, 3);
 					stI.picker = DesignState::DemandePicker();
 					sceneV(-1.f, -1.f);
-					snprintf(det, sizeof(det), "avant 0,4 s : « %s » ; anneau : « %s » ; disque : « %s » ; arc : « %s » ; bord : « %s » ; parti : « %s »",
+					nkentseu::NkSnprintf(det, sizeof(det), "avant 0,4 s : « %s » ; anneau : « %s » ; disque : « %s » ; arc : « %s » ; bord : « %s » ; parti : « %s »",
 							 avant.Data() ? avant.Data() : "", anneau.Data(), disque.Data(), tourner.Data(), bord.Data(), parti.Data() ? parti.Data() : "");
 					check("60v. ③ LES INFO-BULLES des poignees : rien avant 0,4 s, puis « Tourner l'axe » sur l'anneau, « Glisser "
 						  "l'arret » sur le disque, « Tourner » sur l'arc, « Redimensionner » sur le bord, rien en partant",
@@ -7015,7 +7008,7 @@ namespace nkuidesign {
 					gd.arrets[1].position = 0.5f;
 					stI.picker = DesignState::DemandePicker();
 					sceneW(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "arret a 25 %% sur le cercle=%d (rayon %.1f, distance %.1f) ; extremite glissee d'un quart de tour -> angle %.0f ; "
+					nkentseu::NkSnprintf(det, sizeof(det), "arret a 25 %% sur le cercle=%d (rayon %.1f, distance %.1f) ; extremite glissee d'un quart de tour -> angle %.0f ; "
 											   "carre a +90 de l'axe=%d ; carre tire -> rayon %.2f -> %.2f ; arret ajoute sur le cercle=%d (t=%.2f) ; noeud fixe=%d",
 							 surCercle ? 1 : 0, (double)R, (double)dR, (double)angleApres, carreSuit ? 1 : 0, (double)ry0, (double)ryApres, ajoute ? 1 : 0,
 							 (double)tAjoute, (nd.posX == posX0 && nd.posY == posY0) ? 1 : 0);
@@ -7060,7 +7053,7 @@ namespace nkuidesign {
 			const bool horizontal = hx0 > 99.9f && hx0 < 100.1f && hy0 > 129.9f && hy0 < 130.1f && hx2 > 219.9f
 									&& hx2 < 220.1f;
 			g.angle = 0.f;
-			snprintf(det, sizeof(det), "angle 0 : (%.0f,%.0f) (%.0f,%.0f) (%.0f,%.0f) ; angle 270 : (%.0f,%.0f) -> (%.0f,%.0f)",
+			nkentseu::NkSnprintf(det, sizeof(det), "angle 0 : (%.0f,%.0f) (%.0f,%.0f) (%.0f,%.0f) ; angle 270 : (%.0f,%.0f) -> (%.0f,%.0f)",
 					 x0, y0, x1, y1, x2, y2, hx0, hy0, hx2, hy2);
 			check("61a. UNE POIGNEE PAR ARRET, a sa position sur l'axe : trois arrets = trois poignees (0, 50, 100 %), "
 				  "et l'axe tourne avec l'angle -- la meme convention que le peintre",
@@ -7071,7 +7064,7 @@ namespace nkuidesign {
 			const int32 surSegment = NkQuiPrendLeClicDegrade(a0, g, 161.f, 145.f, 8.f, 5.f);
 			const int32 surRien = NkQuiPrendLeClicDegrade(a0, g, 190.f, 145.f, 8.f, 5.f);
 			const int32 auBord = NkQuiPrendLeClicDegrade(a0, g, 167.5f, 130.f, 8.f, 5.f); // au bord de la pastille
-			snprintf(det, sizeof(det), "a 6.5 px sous la poignee du milieu -> %d (poignee 1) ; sur le segment -> %d (-2) ; "
+			nkentseu::NkSnprintf(det, sizeof(det), "a 6.5 px sous la poignee du milieu -> %d (poignee 1) ; sur le segment -> %d (-2) ; "
 									   "loin -> %d (-1) ; au bord de la pastille -> %d (poignee 1)",
 					 surPoignee, surSegment, surRien, auBord);
 			check("61b. QUI PREND LE CLIC : la poignee AVANT le segment, le segment AVANT la toile -- un clic au "
@@ -7088,7 +7081,7 @@ namespace nkuidesign {
 			fR.degrade.type = NkString("radial");
 			nR.fills.PushBack(fR);
 			const int32 iL = renderdetail::NkRemplissageDegradeToile(nL), iR = renderdetail::NkRemplissageDegradeToile(nR);
-			snprintf(det, sizeof(det), "lineaire -> remplissage %d ; radial (peint, ses poignees) -> %d", iL, iR);
+			nkentseu::NkSnprintf(det, sizeof(det), "lineaire -> remplissage %d ; radial (peint, ses poignees) -> %d", iL, iR);
 			check("61c. LES QUATRE GENRES ONT LEURS POIGNEES : la porte de la toile rend le remplissage pour le "
 				  "lineaire ET le radial (peints tous deux) -- une poignee ne se montre que sur ce que le peintre rend",
 				  iL == 0 && iR == 0, det);
@@ -7148,7 +7141,7 @@ namespace nkuidesign {
 			NkString sU;
 			dUni.Save(sU);
 			const bool additif = strstr(sU.Data(), "genre=") == nullptr && strstr(sU.Data(), "cadrage=") == nullptr;
-			snprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; un uni d'avant sans jeton=%d", cles ? 1 : 0,
+			nkentseu::NkSnprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; un uni d'avant sans jeton=%d", cles ? 1 : 0,
 					 relus ? 1 : 0, reemis ? 1 : 0, additif ? 1 : 0);
 			check("62a. L'IMAGE EST UN TYPE DE REMPLISSAGE (tranche par sa capture) : `genre=image cadrage=... "
 				  "image=... rotation_image=...`, additifs, relus, l'inconnu preserve, Fill = rien au fichier",
@@ -7174,7 +7167,7 @@ namespace nkuidesign {
 				} else if ((c.rgba >> 8) == 0x9A9A9Au)
 					fond = true;
 			}
-			snprintf(det, sizeof(det), "fond gris=%d, %u carreaux clairs (64x32 / 8 px : 16 attendus), %u hors de la boite", fond ? 1 : 0,
+			nkentseu::NkSnprintf(det, sizeof(det), "fond gris=%d, %u carreaux clairs (64x32 / 8 px : 16 attendus), %u hors de la boite", fond ? 1 : 0,
 					 clairs, hors);
 			check("62b. le peintre montre le DAMIER d'une image absente (fond gris + carreaux clairs de 8 px, tous "
 				  "dans la boite) -- la source n'est pas chargee, et c'est dit, pas simule",
@@ -7243,7 +7236,7 @@ namespace nkuidesign {
 			// 63a. reference, litteral, absente
 			const uint32 cRef = couleurPeinte(dV, ref), cLit = couleurPeinte(dV, lit), cAbs = couleurPeinte(dV, abs);
 			const bool absenteDite = renderdetail::NkResolveurCourant().derniereAbsente != nullptr;
-			snprintf(det, sizeof(det), "reference -> %08X (1976D2FF), litteral -> %08X (FF0000FF), absente -> %08X (magenta), dite=%d",
+			nkentseu::NkSnprintf(det, sizeof(det), "reference -> %08X (1976D2FF), litteral -> %08X (FF0000FF), absente -> %08X (magenta), dite=%d",
 					 cRef, cLit, cAbs, absenteDite ? 1 : 0);
 			check("63a. UNE REFERENCE (« @primaire ») se peint a la valeur de la variable, un litteral reste lui-meme, "
 				  "et une variable ABSENTE se voit (magenta) et se DIT -- jamais silencieusement noire",
@@ -7254,7 +7247,7 @@ namespace nkuidesign {
 			dV.modeCourant = NkString("clair"); // un mode que la variable ne declare pas : la valeur par defaut
 			const uint32 cClair = couleurPeinte(dV, ref);
 			dV.modeCourant = NkString();
-			snprintf(det, sizeof(det), "mode sombre -> %08X (0D47A1FF) ; mode clair (non declare) -> %08X (defaut 1976D2FF)", cSombre, cClair);
+			nkentseu::NkSnprintf(det, sizeof(det), "mode sombre -> %08X (0D47A1FF) ; mode clair (non declare) -> %08X (defaut 1976D2FF)", cSombre, cClair);
 			check("63b. LES MODES, place reservee : la meme reference rend la valeur du mode courant, et un mode "
 				  "que la variable ne declare pas retombe sur sa valeur par defaut -- Dark Pro / Light Pro sans recopier",
 				  cSombre == 0x0D47A1FFu && cClair == 0x1976D2FFu, det);
@@ -7290,7 +7283,7 @@ namespace nkuidesign {
 			dSans.Save(sS);
 			const bool additif = strstr(sS.Data(), "variable = ") == nullptr && strstr(sS.Data(), "mode = ") == nullptr;
 			dV.modeCourant = NkString();
-			snprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; document sans variable : aucune ligne=%d", cles ? 1 : 0,
+			nkentseu::NkSnprintf(det, sizeof(det), "cles=%d relus=%d reemis=%d ; document sans variable : aucune ligne=%d", cles ? 1 : 0,
 					 relus ? 1 : 0, reemis ? 1 : 0, additif ? 1 : 0);
 			check("63c. LE FORMAT : `variable = <cle> <valeur> nom=\"...\" @mode=valeur`, `mode = ...`, la reference "
 				  "« @primaire » dans `fond_`, l'inconnu preserve, et un document sans variable ne gagne aucune ligne",
@@ -7311,9 +7304,9 @@ namespace nkuidesign {
 				dV.variables[0].valeur = NkString("#00aa00"); // la variable change
 				const uint32 c1 = couleurPeinte(dV, a1), c2 = couleurPeinte(dV, a2);
 				q51 = c1 == 0xFF0000FFu && c2 == 0x00AA00FFu;
-				snprintf(det, sizeof(det), "variable -> #00aa00 : instance surchargee (litteral) -> %08X (tient), instance libre (@primaire) -> %08X (suit)", c1, c2);
+				nkentseu::NkSnprintf(det, sizeof(det), "variable -> #00aa00 : instance surchargee (litteral) -> %08X (tient), instance libre (@primaire) -> %08X (suit)", c1, c2);
 			} else
-				snprintf(det, sizeof(det), "extraction ou instanciation refusee");
+				nkentseu::NkSnprintf(det, sizeof(det), "extraction ou instanciation refusee");
 			check("63d. LA PROPAGATION Q51, par la reference : changer la variable propage a tout ce qui la reference ; "
 				  "une surcharge locale (un litteral pose sur une instance) TIENT -- meme mecanisme que les composants",
 				  q51, det);
@@ -7431,7 +7424,7 @@ namespace nkuidesign {
 						++justes;
 					else {
 						const size_t l = strlen(ou);
-						snprintf(ou + l, sizeof(ou) - l, " [%u: t=%.2f vu=%d %08X/%08X]", e, (double)tt, trouve ? 1 : 0, c, attendu);
+						nkentseu::NkSnprintf(ou + l, sizeof(ou) - l, " [%u: t=%.2f vu=%d %08X/%08X]", e, (double)tt, trouve ? 1 : 0, c, attendu);
 					}
 				}
 				// aucun sommet hors de la boite, ni dans le vide du coin arrondi haut-gauche
@@ -7447,10 +7440,10 @@ namespace nkuidesign {
 					}
 				}
 				const uint32 nPoly = (uint32)pp.tailles.Size();
-				snprintf(det, sizeof(det), "%s : %u polygones, %u/8 points a la couleur attendue (vus %u), %u sommets hors contour%s",
+				nkentseu::NkSnprintf(det, sizeof(det), "%s : %u polygones, %u/8 points a la couleur attendue (vus %u), %u sommets hors contour%s",
 						 kGenres[gi], nPoly, justes, vus, dehors, ou);
 				char titre[200];
-				snprintf(titre, sizeof(titre), "64%c. %s PEINT par des bandes qui suivent la forme : deux couleurs franches, la couleur en "
+				nkentseu::NkSnprintf(titre, sizeof(titre), "64%c. %s PEINT par des bandes qui suivent la forme : deux couleurs franches, la couleur en "
 											   "chaque point est celle de la formule du genre, rien ne sort du contour arrondi",
 						 (char)('a' + gi), gi == 0u ? "LE RADIAL" : (gi == 1u ? "L'ANGULAIRE" : "LE LOSANGE"));
 				check(titre, nPoly >= 24u && justes == 8u && dehors == 0u, det);
@@ -7492,7 +7485,7 @@ namespace nkuidesign {
 					NkDrawDocument(pp, idle, dG, lay, host);
 					nb[s] = (uint32)pp.tailles.Size();
 				}
-				snprintf(det, sizeof(det), "radial 60 px : %u polygones ; 400 px : %u", nb[0], nb[1]);
+				nkentseu::NkSnprintf(det, sizeof(det), "radial 60 px : %u polygones ; 400 px : %u", nb[0], nb[1]);
 				check("64d. LE NOMBRE DE BANDES SUIT LA TAILLE, comme le lineaire : un radial de 400 px a plus de bandes qu'un de 60",
 					  nb[1] > nb[0] && nb[0] >= 24u, det);
 			}
@@ -7534,7 +7527,7 @@ namespace nkuidesign {
 			NkString s3;
 			relu.Save(s3);
 			const bool identique = NkComponentDecl::StrEq(s2.Data(), s3.Data());
-			snprintf(det, sizeof(det), "par defaut : aucun jeton=%d ; ecrit `o=0.5,0` `r=0.5,1` `zz=42` -> relus=%d ; reecrit identique=%d",
+			nkentseu::NkSnprintf(det, sizeof(det), "par defaut : aucun jeton=%d ; ecrit `o=0.5,0` `r=0.5,1` `zz=42` -> relus=%d ; reecrit identique=%d",
 					 rienParDefaut ? 1 : 0, relus ? 1 : 0, identique ? 1 : 0);
 			check("65a. ① L'ORIGINE ET LES RAYONS font l'aller-retour, additifs (rien au fichier par defaut), un jeton inconnu `zz=42` preserve",
 				  rienParDefaut && relus && identique, det);
@@ -7599,7 +7592,7 @@ namespace nkuidesign {
 				const size_t l = strlen(det);
 				if (m == 0u)
 					det[0] = '\0';
-				snprintf(det + (m == 0u ? 0 : l), sizeof(det) - (m == 0u ? 0 : l), "%s`%s` : Push=%u Pop=%u mode=%u remplissages sous mode=%u",
+				nkentseu::NkSnprintf(det + (m == 0u ? 0 : l), sizeof(det) - (m == 0u ? 0 : l), "%s`%s` : Push=%u Pop=%u mode=%u remplissages sous mode=%u",
 						 m == 0u ? "" : " ; ", kModes[m][0] ? kModes[m] : "normal", nPush, nPop, (unsigned)modeVu, fillsSousMode);
 			}
 			check("67. ②-2 LES CINQ MODES EXACTS SE PEIGNENT : `multiply` et `screen` encadres de PushBlend / PopBlend a "
@@ -7745,7 +7738,7 @@ namespace nkuidesign {
 								   && NkComponentDecl::StrEq(stV.doc.variables[0].nom.Data(), "Couleur 1");
 				const uint32 apresA = couleurPeinte(stV.doc, rc);
 				const bool piedA = stV.status.Data() && strstr(stV.status.Data(), "Couleur 1") != nullptr;
-				snprintf(det, sizeof(det), "variables %u, remplissage -> %s, valeur %s, nom « %s », peint %08X -> %08X (inchange), pied=%d",
+				nkentseu::NkSnprintf(det, sizeof(det), "variables %u, remplissage -> %s, valeur %s, nom « %s », peint %08X -> %08X (inchange), pied=%d",
 						 nVar, refA.Data() ? refA.Data() : "?", nVar ? stV.doc.variables[0].valeur.Data() : "-",
 						 nVar ? stV.doc.variables[0].nom.Data() : "-", avantA, apresA, piedA ? 1 : 0);
 				check("68a. « CREER UNE VARIABLE DE COULEUR » sous la rangee modele (la place de Lunacy) : un clic cree "
@@ -7769,7 +7762,7 @@ namespace nkuidesign {
 									  && NkComponentDecl::StrEq(stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1");
 				const uint32 pB1 = couleurPeinte(stV.doc, rc), pB2 = couleurPeinte(stV.doc, rc2);
 				const uint32 attenduB = varChangee ? renderdetail::NkGCouleur(valB.Data()) : 0u;
-				snprintf(det, sizeof(det), "variable #1976d2 -> %s, references « %s » / « %s », peints %08X et %08X (attendu %08X)",
+				nkentseu::NkSnprintf(det, sizeof(det), "variable #1976d2 -> %s, references « %s » / « %s », peints %08X et %08X (attendu %08X)",
 						 valB.Data(), stV.doc.nodes[(uint32)rc].fills[0].couleur.Data(), stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(),
 						 pB1, pB2, attenduB);
 				check("68b. LE SELECTEUR EDITE LA VARIABLE UNE FOIS « Modifier la variable » ARME (③, 05/09) : un clic dans le carre SV change "
@@ -7783,7 +7776,7 @@ namespace nkuidesign {
 									   && NkComponentDecl::StrEq(stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1")
 									   && stV.doc.variables.Size() == 1u && stV.doc.CompterUsagesVariable("couleur_1") == 1u;
 				fermer();
-				snprintf(det, sizeof(det), "remplissage -> %s (variable %s), l'autre -> %s, usages %u, variables %u", cC.Data(), valB.Data(),
+				nkentseu::NkSnprintf(det, sizeof(det), "remplissage -> %s (variable %s), l'autre -> %s, usages %u, variables %u", cC.Data(), valB.Data(),
 						 stV.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), stV.doc.CompterUsagesVariable("couleur_1"),
 						 (uint32)stV.doc.variables.Size());
 				check("68c. « DETACHER » rend au remplissage le LITTERAL que l'oeil voyait ; la variable reste, l'autre "
@@ -7840,7 +7833,7 @@ namespace nkuidesign {
 										   && NkComponentDecl::StrEq(m.apparences[0].fond.Data(), "#123456")
 										   && NkComponentDecl::StrEq(dM.declarations[0].arbre[0].fill.Data(), "#123456");
 					const bool supprime = dM.SupprimerVariable("accent") && dM.variables.Empty();
-					snprintf(det, sizeof(det), "usages %u (attendu 8 : fond, texte, remplissage, arret, bordure, effet, etat, composant) ; "
+					nkentseu::NkSnprintf(det, sizeof(det), "usages %u (attendu 8 : fond, texte, remplissage, arret, bordure, effet, etat, composant) ; "
 											   "suppression refusee=%d (dit %u) ; detaches %u, usages apres %u, litteraux=%d ; supprimee ensuite=%d",
 							 usages, refuse ? 1 : 0, uRefus, detaches, apres, litteraux ? 1 : 0, supprime ? 1 : 0);
 					check("68d. LE MODELE, PAR UN SEUL VISITEUR : huit usages comptes (cle simple, texte, remplissage, arret, bordure, "
@@ -7904,7 +7897,7 @@ namespace nkuidesign {
 					const bool pose = NkComponentDecl::StrEq(dMo.variables[0].ValeurPour("sombre"), "#111111")
 									  && NkComponentDecl::StrEq(dMo.variables[0].ValeurPour("clair"), "#ffffff")
 									  && NkComponentDecl::StrEq(dMo.variables[0].valeur.Data(), "#222222");
-					snprintf(det, sizeof(det), "mode sombre -> %08X ; relu (mode %s) -> %08X ; clair -> %08X ; defaut -> %08X ; PoserValeur : sombre %s, clair %s, defaut %s",
+					nkentseu::NkSnprintf(det, sizeof(det), "mode sombre -> %08X ; relu (mode %s) -> %08X ; clair -> %08X ; defaut -> %08X ; PoserValeur : sombre %s, clair %s, defaut %s",
 							 pSombre, modeLu.Data() ? modeLu.Data() : "?", pRelu, pClair, pDefaut, dMo.variables[0].ValeurPour("sombre"),
 							 dMo.variables[0].ValeurPour("clair"), dMo.variables[0].valeur.Data());
 					check("68e. DEUX MODES (clair / sombre) : le document se reenregistre avec ses deux valeurs et son mode courant, "
@@ -7957,7 +7950,7 @@ namespace nkuidesign {
 					rail(-1.f, -1.f, false, 0u);
 					clicRail(railV.RectPoubelle(0));
 					const bool supprimee = stV.doc.variables.Empty() && stV.status.Data() && strstr(stV.status.Data(), "supprimée") != nullptr;
-					snprintf(det, sizeof(det), "rects=%d ; popups ouverts avant %d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprimee=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "rects=%d ; popups ouverts avant %d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprimee=%d",
 							 rects ? 1 : 0, profondeurAvant, garde ? 1 : 0, statusGarde.Data() ? statusGarde.Data() : "", enRenommage ? 1 : 0,
 							 nomR.Data() ? nomR.Data() : "?", fini ? 1 : 0, detaches, supprimee ? 1 : 0);
 					check("68f. LE RAIL « VARIABLES » : la ligne (nom, poubelle) se dessine ; la poubelle REFUSE tant que la variable "
@@ -7987,7 +7980,7 @@ namespace nkuidesign {
 					const uint32 apresG = couleurPeinte(stV.doc, rc);
 					const bool piedG = stV.status.Data() && strstr(stV.status.Data(), "Pétrole") != nullptr;
 					fermer();
-					snprintf(det, sizeof(det), "variable « Pétrole » (%s) ; remplissage %08X -> « %s » (attendu « %s »), peint %08X (0A555FFF), pied=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "variable « Pétrole » (%s) ; remplissage %08X -> « %s » (attendu « %s »), peint %08X (0A555FFF), pied=%d",
 							 stV.doc.variables[(uint32)vp].cle.Data(), avantG, refG.Data() ? refG.Data() : "?", attendu.Data(), apresG, piedG ? 1 : 0);
 					check("68g. LIER UNE VARIABLE EXISTANTE depuis le selecteur : « Lier ˅ » deplie la liste des variables DANS le "
 						  "popover, un clic sur « Pétrole » fait du remplissage une reference et il rend la couleur de la variable",
@@ -8144,7 +8137,7 @@ namespace nkuidesign {
 				NkString sS;
 				dSans.Save(sS);
 				const bool additif = strstr(sS.Data(), "style") == nullptr;
-				snprintf(det, sizeof(det), "crees=%d (calque_1 « Bouton », texte_1 « Titre », r2 lie : mêmes remplissages, bordure, effet, peint 1976D2) ; "
+				nkentseu::NkSnprintf(det, sizeof(det), "crees=%d (calque_1 « Bouton », texte_1 « Titre », r2 lie : mêmes remplissages, bordure, effet, peint 1976D2) ; "
 										   "ecrit=%d ; relu=%d (inconnu preserve) ; reemis=%d ; aller-retour identique=%d ; sans style aucune ligne=%d",
 						 creeOk ? 1 : 0, ecrit ? 1 : 0, relus ? 1 : 0, reemis ? 1 : 0, identique ? 1 : 0, additif ? 1 : 0);
 				check("69a. LE MODELE ET LE FORMAT : un style de calque cree depuis un rectangle (remplissages + bordures + effets), "
@@ -8169,7 +8162,7 @@ namespace nkuidesign {
 								   && dS.nodes[(uint32)r1].borders[0].epaisseur == 5.f; // la bordure, non surchargee, suit
 				const bool reinit = dS.ReinitialiserEcartStyle(r1, NkUINode::EcartRemplissages) && couleurPeinte(r1) == 0x0000FFFFu
 									&& !dS.nodes[(uint32)r1].Surcharge(NkUINode::EcartRemplissages);
-				snprintf(det, sizeof(det), "rouge -> %d touches, peints %08X / %08X ; r1 ecrit vert -> ecart remplissages=%d (bordures non) ; "
+				nkentseu::NkSnprintf(det, sizeof(det), "rouge -> %d touches, peints %08X / %08X ; r1 ecrit vert -> ecart remplissages=%d (bordures non) ; "
 										   "bleu + bordure 5 -> %d touches, r1 %08X (tient) r2 %08X (suit), bordure r1 %.0f ; reinit -> %d",
 						 touches1, couleurPeinte(r1), couleurPeinte(r2), ecartLeve ? 1 : 0, touches2, couleurPeinte(r1), couleurPeinte(r2),
 						 dS.nodes[(uint32)r1].borders[0].epaisseur, reinit ? 1 : 0);
@@ -8192,7 +8185,7 @@ namespace nkuidesign {
 				dS.variables[0].valeur = NkString("#445566");
 				renderdetail::NkPoserResolveur(&dS);
 				const uint32 encreResolue = renderdetail::NkGCouleur(dS.nodes[(uint32)t2].textColor.Data());
-				snprintf(det, sizeof(det), "taille 30 -> %d touches (t1 %.0f, t2 %.0f) ; t1 graisse 400 a la main puis style 36 -> t1 %.0f (tient, ecart texte=%d), t2 %.0f ; "
+				nkentseu::NkSnprintf(det, sizeof(det), "taille 30 -> %d touches (t1 %.0f, t2 %.0f) ; t1 graisse 400 a la main puis style 36 -> t1 %.0f (tient, ecart texte=%d), t2 %.0f ; "
 										   "« @encre » : %u usages (t1, t2, le style) ; variable -> #445566 : le texte lie rend %08X",
 						 touchesT, dS.nodes[(uint32)t1].fontPx, dS.nodes[(uint32)t2].fontPx, dS.nodes[(uint32)t1].fontPx,
 						 dS.nodes[(uint32)t1].Surcharge(NkUINode::EcartTexte) ? 1 : 0, dS.nodes[(uint32)t2].fontPx, usagesEncre, encreResolue);
@@ -8208,7 +8201,7 @@ namespace nkuidesign {
 				st->apparence.fills[0].couleur = NkString("#123456");
 				dS.PropagerStyle("calque_1");
 				const bool detacheTient = couleurPeinte(r2) == 0x0000FFFFu && couleurPeinte(r1) == 0x123456FFu;
-				snprintf(det, sizeof(det), "« fantome » : absent=%d, r3 peint %08X (ses valeurs), propagation 0 ; r2 detache=%d puis style -> #123456 : r2 %08X (garde), r1 %08X (suit)",
+				nkentseu::NkSnprintf(det, sizeof(det), "« fantome » : absent=%d, r3 peint %08X (ses valeurs), propagation 0 ; r2 detache=%d puis style -> #123456 : r2 %08X (garde), r1 %08X (suit)",
 						 dS.TrouverStyle("fantome") == nullptr ? 1 : 0, couleurPeinte(r3), detache ? 1 : 0, couleurPeinte(r2), couleurPeinte(r1));
 				check("69d. UN STYLE ABSENT EST DIT (introuvable) ET LE CALQUE GARDE SES VALEURS -- jamais un rendu vide ; "
 					  "« Detacher » rend les valeurs locales : le calque detache ne suit plus, l'autre suit encore",
@@ -8219,7 +8212,7 @@ namespace nkuidesign {
 				const uint32 detaches = dS.DetacherTousStyle("calque_1");
 				const bool supprime = dS.SupprimerStyle("calque_1") && dS.styles.Size() == 1u && dS.nodes[(uint32)r1].styleCalque.Empty()
 									  && couleurPeinte(r1) == 0x123456FFu;
-				snprintf(det, sizeof(det), "suppression refusee=%d (utilise par %u) ; detaches %u ; supprime ensuite=%d, r1 garde %08X, styles restants %u",
+				nkentseu::NkSnprintf(det, sizeof(det), "suppression refusee=%d (utilise par %u) ; detaches %u ; supprime ensuite=%d, r1 garde %08X, styles restants %u",
 						 refuse ? 1 : 0, uRefus, detaches, supprime ? 1 : 0, couleurPeinte(r1), (uint32)dS.styles.Size());
 				check("69e. LA SUPPRESSION REFUSE tant qu'un calque lie le style (le nombre dit) ; tout detacher rend les valeurs "
 					  "locales ; puis la suppression passe et le calque garde ce qu'il montrait",
@@ -8267,7 +8260,7 @@ namespace nkuidesign {
 					rail(-1.f, -1.f, false, 0u);
 					clicRail(railS.RectPoubelle(0));
 					const bool supprimeT = dS.styles.Empty() && stS.status.Data() && strstr(stS.status.Data(), "supprimé") != nullptr;
-					snprintf(det, sizeof(det), "rects=%d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprime=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "rects=%d ; poubelle gardee=%d (« %s ») ; renommage : ouvert=%d, nom -> « %s », fini=%d ; detaches %u, supprime=%d",
 							 rects ? 1 : 0, garde ? 1 : 0, statusGarde.Data() ? statusGarde.Data() : "", enRenommage ? 1 : 0,
 							 nomR.Data() ? nomR.Data() : "?", fini ? 1 : 0, detachesT, supprimeT ? 1 : 0);
 					check("69f. LE RAIL « STYLES » : la ligne (apercu, nom, poubelle) se dessine ; la poubelle REFUSE tant qu'un "
@@ -8347,7 +8340,7 @@ namespace nkuidesign {
 					const nkgui::NkRect bDet = inspS.RectStyle(0u, 1u);
 					clicRect(bDet);
 					const bool detacheUI = bDet.w > 0.f && dS.nodes[(uint32)r2].styleCalque.Empty() && couleurPeinte(r2) == c2;
-					snprintf(det, sizeof(det), "Creer=%d (« %s » lie a r1) ; Lier=%d (liste depliee, r2 peint comme r1) ; le carre SV sur r2 -> surcharge=%d (%08X) ; "
+					nkentseu::NkSnprintf(det, sizeof(det), "Creer=%d (« %s » lie a r1) ; Lier=%d (liste depliee, r2 peint comme r1) ; le carre SV sur r2 -> surcharge=%d (%08X) ; "
 											   "Appliquer=%d (r1 suit, ecart tombe) ; Detacher=%d",
 							 cree ? 1 : 0, dS.styles.Empty() ? "?" : dS.styles[0].nom.Data(), lie ? 1 : 0, surcharge ? 1 : 0, c2, applique ? 1 : 0,
 							 detacheUI ? 1 : 0);
@@ -8389,7 +8382,7 @@ namespace nkuidesign {
 						if (relu.Pixels()[i] != (((((i / 4) % 2) + (i / 8)) & 1) ? kG : kM)[i % 4])
 							exact = false;
 				}
-				snprintf(det, sizeof(det), "ecrit=%d, relu 2x2 exact=%d (%d x %d)", pngOk ? 1 : 0, exact ? 1 : 0, relu.Width(), relu.Height());
+				nkentseu::NkSnprintf(det, sizeof(det), "ecrit=%d, relu 2x2 exact=%d (%d x %d)", pngOk ? 1 : 0, exact ? 1 : 0, relu.Width(), relu.Height());
 				check("70a. LE PNG 2x2 (magenta / vert) ecrit par la sonde avec NKImage et RELU par son codec PNG : les seize octets "
 					  "reviennent identiques -- la source du temoin, pas un fichier de Rodolf",
 					  pngOk && exact, det);
@@ -8486,7 +8479,7 @@ namespace nkuidesign {
 					if (rec.cmds[i].op == NkPaintOp::Image)
 						++nImg;
 				size_t l = strlen(out);
-				snprintf(out + l, cap - l, "%s%s (%u polygone(s)) : ", l ? " ; " : "", nom, nImg);
+				nkentseu::NkSnprintf(out + l, cap - l, "%s%s (%u polygone(s)) : ", l ? " ; " : "", nom, nImg);
 				for (uint32 a = 0; a < na; ++a) {
 					uint32 got = 0u;
 					const bool pres = texel(rec, r.x + att[a].fx * r.w, r.y + att[a].fy * r.h, got);
@@ -8494,7 +8487,7 @@ namespace nkuidesign {
 					if (!bon)
 						ok = false;
 					l = strlen(out);
-					snprintf(out + l, cap - l, "%s%s", a ? "," : "", !pres ? (att[a].present ? "VIDE!" : "vide") : (got == M ? (bon ? "M" : "M!") : (bon ? "G" : "G!")));
+					nkentseu::NkSnprintf(out + l, cap - l, "%s%s", a ? "," : "", !pres ? (att[a].present ? "VIDE!" : "vide") : (got == M ? (bon ? "M" : "M!") : (bon ? "G" : "G!")));
 				}
 				if (nImg == 0u && na && att[0].present)
 					ok = false;
@@ -8546,7 +8539,7 @@ namespace nkuidesign {
 				if (!absenteDite)
 					ok = false;
 				size_t l = strlen(det);
-				snprintf(det + l, sizeof(det) - l, " ; absente.png : %u polygone(s), %u FillColor (damier), notee « %s », entree absente=%d",
+				nkentseu::NkSnprintf(det + l, sizeof(det) - l, " ; absente.png : %u polygone(s), %u FillColor (damier), notee « %s », entree absente=%d",
 						 nImg, nFill, dite ? dite : "(rien)", stImg.images.Trouver("absente.png") ? (stImg.images.Trouver("absente.png")->absente ? 1 : 0) : -1);
 				check("70c. LA ROTATION (un quart de tour : le haut-gauche montre l'ancien bas-gauche), LE CONTOUR QUI ROGNE (un "
 					  "disque : le coin ne recoit rien, le centre si), et L'IMAGE ABSENTE : aucun polygone, le damier, le chemin "
@@ -8592,7 +8585,7 @@ namespace nkuidesign {
 					for (uint32 i = 0; i < (uint32)ctxT.dl.cmds.Size(); ++i)
 						if (ctxT.dl.cmds[i].texId == 0x4E4B0200u)
 							++sansHandle;
-					snprintf(det, sizeof(det), "commandes texturees au handle 0x4E4B0200 : %u avec televerseur, %u sans (damier)", avecHandle, sansHandle);
+					nkentseu::NkSnprintf(det, sizeof(det), "commandes texturees au handle 0x4E4B0200 : %u avec televerseur, %u sans (damier)", avecHandle, sansHandle);
 					check("70d. LE KIT TRANSMET : la toile (NkGuiComponentPaint) emet une commande texturee au handle que le "
 						  "televerseur a rendu ; sans televerseur (handle 0) le peintre repond faux et le damier prend la place",
 						  avecHandle >= 1u && sansHandle == 0u, det);
@@ -8665,7 +8658,7 @@ namespace nkuidesign {
 					if (ctxP.popupDepth > 0)
 						ctxP.ClosePopup();
 					souris(-1.f, -1.f, false);
-					snprintf(det, sizeof(det), "apercu : %u commande(s) texturee(s) au handle ; « Choisir » -> selecteur ouvert=%d, popover ferme=%d ; confirme « %s » -> source « %s », pied dit relatif=%d",
+					nkentseu::NkSnprintf(det, sizeof(det), "apercu : %u commande(s) texturee(s) au handle ; « Choisir » -> selecteur ouvert=%d, popover ferme=%d ; confirme « %s » -> source « %s », pied dit relatif=%d",
 							 apercu, stImg.choixImage.pickerOpen || ouvert ? 1 : 0, ouvert ? 1 : 0, absolu.Data(), source.Data() ? source.Data() : "?",
 							 relatif ? 1 : 0);
 					check("70e. LE POPOVER IMAGE : l'apercu est l'image (une commande texturee au handle, plus un damier muet) ; "
@@ -8730,19 +8723,19 @@ namespace nkuidesign {
 			NkRgbVersModele(8, 25.f, 118.f, 210.f, ok); // ce que la rangee affichera pour #1976D2 (Lunacy : 56,38 / -0,04 / -0,15)
 			bool tous = connus;
 			size_t l = 0;
-			snprintf(det, sizeof(det), "[%s] ", mode);
+			nkentseu::NkSnprintf(det, sizeof(det), "[%s] ", mode);
 			for (int32 k = 0; k < 6; ++k) {
 				if (ecarts[k])
 					tous = false;
 				l = strlen(det);
-				snprintf(det + l, sizeof(det) - l, "%s%s : %u ecart(s)", k ? " ; " : "", kNoms[k], ecarts[k]);
+				nkentseu::NkSnprintf(det + l, sizeof(det) - l, "%s%s : %u ecart(s)", k ? " ; " : "", kNoms[k], ecarts[k]);
 				if (ecarts[k]) {
 					l = strlen(det);
-					snprintf(det + l, sizeof(det) - l, " (premier %06X)", premier[k]);
+					nkentseu::NkSnprintf(det + l, sizeof(det) - l, " (premier %06X)", premier[k]);
 				}
 			}
 			l = strlen(det);
-			snprintf(det + l, sizeof(det) - l, " ; references : blanc OKLAB %.2f %.3f %.3f LAB %.2f %.2f %.2f, rouge OKLAB %.4f %.4f %.4f LAB %.2f %.2f %.2f HSL %.0f %.0f %.0f (connus=%d) ; #1976D2 -> OKLAB %.2f %.3f %.3f (Lunacy 56,38 / -0,04 / -0,15)",
+			nkentseu::NkSnprintf(det + l, sizeof(det) - l, " ; references : blanc OKLAB %.2f %.3f %.3f LAB %.2f %.2f %.2f, rouge OKLAB %.4f %.4f %.4f LAB %.2f %.2f %.2f HSL %.0f %.0f %.0f (connus=%d) ; #1976D2 -> OKLAB %.2f %.3f %.3f (Lunacy 56,38 / -0,04 / -0,15)",
 					 okB[0], okB[1], okB[2], labB[0], labB[1], labB[2], okR[0], okR[1], okR[2], labR[0], labR[1], labR[2], hslR[0], hslR[1], hslR[2],
 					 connus ? 1 : 0, ok[0], ok[1], ok[2]);
 			check("71. LES SIX MODELES RESTANTS derriere la frontiere unique (CSS Color 4, D65 ; OKLab d'Ottosson) : "
@@ -8885,7 +8878,7 @@ namespace nkuidesign {
 						++nImg;
 				renderdetail::NkPoserFournisseurImages(nullptr, nullptr);
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "sans modification : %u commandes identiques=%d ; sommets materialises=%d ; sommet deplace : %u polygones, %u couleurs, "
 					 "etendue x jusqu'a %.0f (boite 100..260) ; « Lineaire » re-choisi : %u polygones, %u couleurs, vert present=%d ; "
 					 "concave : %u polygones, %u couleurs ; uni : %u polygone(s) de %d sommets ; image sur le trace : %u polygone(s) texture(s)",
@@ -9116,7 +9109,7 @@ namespace nkuidesign {
 				bnb = NkContourDe(dA.nodes[(uint32)rb], lay.At(rb), bxy, 128u);
 			}
 			const bool arrondiOk = rayons && bnb > 8u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "ronde : %u quads (ep %.2f..%.2f), %u coins (%u..%u pts), convexes=%d, dist max %.2f ; onglet : %u coins de %u pts ; biseau : %u coins de %u pts ; "
 					 "concave : %u quads, %u coins, convexes=%d, dist max %.2f, ep %.2f..%.2f ; interieure : dedans=%d (dist %.2f) ; exterieure : dehors=%d (dist %.2f) ; "
 					 "arrondi 12 -> sommets 12=%d, contour %u pts",
@@ -9409,12 +9402,12 @@ namespace nkuidesign {
 						if (!nm || ecrit + 24u >= sizeof(rolesAccent))
 							continue;
 						if (ecrit)
-							ecrit += (uint32)snprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, ",");
-						ecrit += (uint32)snprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, "%s", nm);
+							ecrit += (uint32)nkentseu::NkSnprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, ",");
+						ecrit += (uint32)nkentseu::NkSnprintf(rolesAccent + ecrit, sizeof(rolesAccent) - ecrit, "%s", nm);
 					}
 				}
 				(void)fx0; (void)fx1; (void)fy0; (void)fy1; (void)ax0; (void)ax1; (void)ay0; (void)ay1;
-				snprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0), dont %u SANS SELECTION et %u SANS SELECTION NI MODE EDITION ; 1er coin droit (%.1f,%.1f) accent le plus proche (%.1f,%.1f) a %.2f px, et a %.2f px du CONTOUR TOURNE ; "
+				nkentseu::NkSnprintf(det, sizeof(det), "poignees pres des 4 sommets TOURNES : %u/4 ; pres des positions non tournees : %u (attendu 0), dont %u SANS SELECTION et %u SANS SELECTION NI MODE EDITION ; 1er coin droit (%.1f,%.1f) accent le plus proche (%.1f,%.1f) a %.2f px, et a %.2f px du CONTOUR TOURNE ; "
 										   "clic sur la position ecran du sommet 0 (%.0f,%.0f) -> tire=%d ; loin du contour tourne (%.0f,%.0f, a %.0f px du cote le plus proche) -> tire=%d ; "
 										   "couleur comptee = 0x%08X, portee par %u role(s) [%s] (controle positif : %u role(s) portent celle de `border`) ; "
 										   "%u sommet(s) sur %u la portent, et la liste de dessin ne contient que %u couleur(s) distincte(s)",
@@ -9514,7 +9507,7 @@ namespace nkuidesign {
 				const uint32 apres = (uint32)stT.doc.nodes[(uint32)rc].sommets.Size();
 				const NkString statusCote = stT.status;
 				stT.modeForme.Quitter();
-				snprintf(det, sizeof(det), "%u sommets (sommet 0 a %.0f,%.0f) ; exact -> tire=%d (mode %d sel %d) ; a 10 px -> tire=%d (mode %d sel %d) ; a 28 px -> tire=%d ; a 10 px du cote haut (segment %d a %.1f px) -> tire=%d, sommets %u -> %u, pied « %s »",
+				nkentseu::NkSnprintf(det, sizeof(det), "%u sommets (sommet 0 a %.0f,%.0f) ; exact -> tire=%d (mode %d sel %d) ; a 10 px -> tire=%d (mode %d sel %d) ; a 28 px -> tire=%d ; a 10 px du cote haut (segment %d a %.1f px) -> tire=%d, sommets %u -> %u, pied « %s »",
 						 nbS, sx[0], sx[1], aExact, noeudApres0, selApres0, a10, noeudApres, selApres, a16, segC, dC, aCote, avant, apres, statusCote.Data() ? statusCote.Data() : "");
 				check("75. ② LES POIGNEES D'EDITION SE PRENNENT A 12 PX (la tolerance nommee, la meme que les poignees de forme et de "
 					  "degrade) : a 10 px d'un sommet il est pris, a 16 px rien ; a 10 px d'un cote un sommet s'ajoute",
@@ -9625,7 +9618,7 @@ namespace nkuidesign {
 					ctxM.ClosePopup();
 				stM.picker = DesignState::DemandePicker();
 				image(-1.f, -1.f, false, false, 0.f);
-				snprintf(det, sizeof(det), "sans menu : zoom %.3f -> %.3f ; menu ouvert=%d, molette loin du menu : zoom %.3f -> %.3f (reserve consommee=%d) ; menu ferme=%d ; popover ouvert, molette loin : zoom %.3f -> %.3f",
+				nkentseu::NkSnprintf(det, sizeof(det), "sans menu : zoom %.3f -> %.3f ; menu ouvert=%d, molette loin du menu : zoom %.3f -> %.3f (reserve consommee=%d) ; menu ferme=%d ; popover ouvert, molette loin : zoom %.3f -> %.3f",
 						 z0, z1, menuOuvert ? 1 : 0, z2, z3, reserveVue ? 1 : 0, menuFerme ? 1 : 0, z4, z5);
 				check("76. ④ LA MOLETTE N'ATTEINT PAS LA TOILE SOUS UN MENU OU UN POPUP : sans menu elle zoome ; le menu contextuel "
 					  "ouvert, la molette hors du menu ne zoome pas (NKGui la reserve au menu) ; le popover du selecteur ouvert, pareil",
@@ -9735,7 +9728,7 @@ namespace nkuidesign {
 				tirerCoin(g, 30.f, 6.f, true);
 				const float32 ex = stR.doc.nodes[(uint32)g].echelleX, ey = stR.doc.nodes[(uint32)g].echelleY;
 				const bool groupe = ex > 1.02f && ey > 0.995f * ex && ey < 1.005f * ex;
-				snprintf(det, sizeof(det), "sans Maj : 160x80 -> %.1f x %.1f (libre=%d, badge=%d, %d images en redim.) ; avec Maj : -> %.1f x %.1f, rapport %.3f vs %.3f (badge vu=%d, %d images en redim.) ; groupe avec Maj : echelle %.3f x %.3f (%d images en redim.)",
+				nkentseu::NkSnprintf(det, sizeof(det), "sans Maj : 160x80 -> %.1f x %.1f (libre=%d, badge=%d, %d images en redim.) ; avec Maj : -> %.1f x %.1f, rapport %.3f vs %.3f (badge vu=%d, %d images en redim.) ; groupe avec Maj : echelle %.3f x %.3f (%d images en redim.)",
 						 wL, hL, libre ? 1 : 0, sansBadge ? 0 : 1, redimL, wP, hP, rP, r0, badgeVu ? 1 : 0, redimP, ex, ey, imagesEnRedim);
 				check("77. ③ MAJ GARDE LES PROPORTIONS, lue PENDANT le glisser (Lunacy, cite) : sans Maj le coin est libre et "
 					  "aucun badge ; avec Maj le rapport tient a 0,5 % et le badge « proportionnel » se voit ; la poignee d'un "
@@ -9769,7 +9762,7 @@ namespace nkuidesign {
 					const int32 t = stH.doc.AddChild(carte, "", NkAuthor::Humain);
 					stH.doc.nodes[(uint32)t].shape = NkString("text");
 					char lb[16];
-					snprintf(lb, sizeof(lb), "Ligne %d", k + 1);
+					nkentseu::NkSnprintf(lb, sizeof(lb), "Ligne %d", k + 1);
 					stH.doc.nodes[(uint32)t].label = NkString(lb);
 					stH.doc.nodes[(uint32)t].text = NkString(lb);
 				}
@@ -9818,7 +9811,7 @@ namespace nkuidesign {
 				const bool vu = NkAppliquerActionCtx(stH, inst, NkActionCtx::VoirComposant) && stH.composantVu == decl;
 				image();
 				const uint32 lignes = hierH.LignesComposantVu();
-				snprintf(det, sizeof(det), "declaration %d, instance %d a %u enfants dans le document ; l'arbre : ligne de l'instance %d (marquee instance=%d), %u enfants sous elle ; "
+				nkentseu::NkSnprintf(det, sizeof(det), "declaration %d, instance %d a %u enfants dans le document ; l'arbre : ligne de l'instance %d (marquee instance=%d), %u enfants sous elle ; "
 										   "ecriture sur un enfant : declaration intacte=%d ; « Voir le composant » -> %d, %u lignes listees",
 						 decl, inst, stH.doc.IsValidIndex(inst) ? (uint32)stH.doc.nodes[(uint32)inst].children.Size() : 0u, ligneInst, marqueeInstance ? 1 : 0, enfants,
 						 surcharge ? 1 : 0, vu ? 1 : 0, lignes);
@@ -9839,20 +9832,8 @@ namespace nkuidesign {
 			} else {
 				static DesignState stG;
 				NkString contenu;
-				FILE *fp = fopen("nkuidesign_document.nkuidoc", "rb");
-				if (fp) {
-					fseek(fp, 0, SEEK_END);
-					const long taille = ftell(fp);
-					fseek(fp, 0, SEEK_SET);
-					if (taille > 0) {
-						char *buf = new char[(size_t)taille + 1];
-						const size_t lu = fread(buf, 1, (size_t)taille, fp);
-						buf[lu] = 0;
-						contenu = NkString(buf);
-						delete[] buf;
-					}
-					fclose(fp);
-				}
+				// ⚠️ `NkFile`, PAS `fopen` — meme raison qu'au site precedent.
+				contenu = nkentseu::NkFile::ReadAllText("nkuidesign_document.nkuidoc");
 				stG.doc.NewDocument("Toile", NkAuthor::Humain);
 				const bool charge = !contenu.Empty() && stG.doc.Load(contenu.Data());
 				if (charge)
@@ -9931,7 +9912,7 @@ namespace nkuidesign {
 						if (!stG.doc.nodes[i].children.Empty() && NkComponentDecl::StrEq(stG.doc.nodes[i].label.Data(), kLibs[l]))
 							g = (int32)i;
 					if (g < 0) {
-						pos += (size_t)snprintf(resume + pos, sizeof(resume) - pos, "%s absent ; ", kLibs[l]);
+						pos += (size_t)nkentseu::NkSnprintf(resume + pos, sizeof(resume) - pos, "%s absent ; ", kLibs[l]);
 						continue;
 					}
 					++trouves;
@@ -9955,7 +9936,7 @@ namespace nkuidesign {
 						if (wT1 > wT0 * 1.02f)
 							++textesGrandis;
 					}
-					pos += (size_t)snprintf(resume + pos, sizeof(resume) - pos, "%s fixe=%d arme=%d ech=%.2f texte %.0f->%.0f ; ", kLibs[l], fixe ? 1 : 0,
+					pos += (size_t)nkentseu::NkSnprintf(resume + pos, sizeof(resume) - pos, "%s fixe=%d arme=%d ech=%.2f texte %.0f->%.0f ; ", kLibs[l], fixe ? 1 : 0,
 											armees > 0 ? 1 : 0, ech, wT0, wT1);
 					if (pos >= sizeof(resume) - 1)
 						break;
@@ -10026,7 +10007,7 @@ namespace nkuidesign {
 						mainEch = stG.doc.nodes[(uint32)gm].echelleX;
 					}
 				}
-				snprintf(det, sizeof(det), "document charge=%d ; %u groupes trouves, %u Fixed x Fixed, %u poignees armees, %u agrandis, textes grandis %u / %u -- %s| groupe ecrit sans taille (fichier seulement) : boite=%d %.0f x %.0f, arme=%d, echelle %.2f (mesure : pas de boite, rien a armer) | groupe fait a la main (Grouper) : Fixed x Fixed=%d, arme=%d, echelle %.2f",
+				nkentseu::NkSnprintf(det, sizeof(det), "document charge=%d ; %u groupes trouves, %u Fixed x Fixed, %u poignees armees, %u agrandis, textes grandis %u / %u -- %s| groupe ecrit sans taille (fichier seulement) : boite=%d %.0f x %.0f, arme=%d, echelle %.2f (mesure : pas de boite, rien a armer) | groupe fait a la main (Grouper) : Fixed x Fixed=%d, arme=%d, echelle %.2f",
 						 charge ? 1 : 0, trouves, fixes, armes, agrandis, textesGrandis, textesVus, resume, autoBoite ? 1 : 0, autoW, autoH, autoArme ? 1 : 0, autoEch, mainFixe ? 1 : 0, mainArme ? 1 : 0, mainEch);
 				check("79. LA POIGNEE D'UN GROUPE SUR LE DOCUMENT DE RODOLF : ses six groupes s'arment par la poignee, l'echelle "
 					  "change, un enfant texte grandit a l'ecran ; un groupe fait a la main (Grouper) est Fixed x Fixed = sa boite et "
@@ -10137,7 +10118,7 @@ namespace nkuidesign {
 					if (toileC.EnRecadrage())
 						++imagesEnCrop;
 					if (k == 2)
-						snprintf(etat, sizeof(etat), "[image 2 : selected=%d sel=%u popupDepth=%d picker.ouvert=%d modeForme=%d]", stC.selected, stC.sel.Count(),
+						nkentseu::NkSnprintf(etat, sizeof(etat), "[image 2 : selected=%d sel=%u popupDepth=%d picker.ouvert=%d modeForme=%d]", stC.selected, stC.sel.Count(),
 								 ctxC.popupDepth, stC.picker.ouvert ? 1 : 0, stC.modeForme.noeud);
 				}
 				image(hx + 40.f, hy, false);
@@ -10172,7 +10153,7 @@ namespace nkuidesign {
 					ctxC.ClosePopup();
 				stC.picker = DesignState::DemandePicker();
 				image(-1.f, -1.f, false);
-				snprintf(det, sizeof(det), "sans popover : rien=%d ; popover ouvert (profondeur %d, la poignee sous le popup=%d), poignee droite de l'image entiere (%.0f,%.0f) tiree de +40 : %d images en recadrage %s (geste calcule %d fois, dernier dx %.1f, L calcule %.3f), crop X %.3f (attendu %.3f) L %.3f (attendu %.3f), Y %.2f H %.2f ; noeud intact=%d ; peintre u0 %.3f u1-u0 %.3f",
+				nkentseu::NkSnprintf(det, sizeof(det), "sans popover : rien=%d ; popover ouvert (profondeur %d, la poignee sous le popup=%d), poignee droite de l'image entiere (%.0f,%.0f) tiree de +40 : %d images en recadrage %s (geste calcule %d fois, dernier dx %.1f, L calcule %.3f), crop X %.3f (attendu %.3f) L %.3f (attendu %.3f), Y %.2f H %.2f ; noeud intact=%d ; peintre u0 %.3f u1-u0 %.3f",
 						 sansPopover ? 1 : 0, profondeur, surPopup ? 1 : 0, hx, hy, imagesEnCrop, etat, diagN, diagDx, diagW, fa.cropX, attX, fa.cropW, attW, fa.cropY, fa.cropH, noeudIntact ? 1 : 0, u0, u1 - u0);
 				check("80. LE CROP SUR LA TOILE : sans popover la poignee n'existe pas ; le popover image ouvert, la poignee droite de "
 					  "l'image entiere tiree de +40 px change `crop=` (L plus petit, X suit), le noeud ne bouge pas, et le peintre emet "
@@ -10342,10 +10323,10 @@ namespace nkuidesign {
 			const bool ok1 = NkExporterPNG(stEx, o1, "sonde_export_page.png", r1);
 			NkImage im1;
 			const bool lu1 = ok1 && im1.Load("sonde_export_page.png", 4) && im1.Width() == 200 && im1.Height() == 120 && im1.Pixels();
-			snprintf(det, sizeof(det), "source 2x2 ecrite=%d ; export=%d (%s) ; relu 200x120=%d (%d x %d) ; textures inconnues=%u ; images=%u ; polices=%u (max %.1f px)",
+			nkentseu::NkSnprintf(det, sizeof(det), "source 2x2 ecrite=%d ; export=%d (%s) ; relu 200x120=%d (%d x %d) ; textures inconnues=%u ; images=%u ; polices=%u (max %.1f px)",
 					 pngSource ? 1 : 0, ok1 ? 1 : 0, r1.message, lu1 ? 1 : 0, im1.Width(), im1.Height(), r1.texturesInconnues, r1.images,
 					 r1.polices, (double)r1.policeMax);
-			snprintf(det + (det[0] ? (int32)NkString(det).Length() : 0), sizeof(det) - NkString(det).Length(), " ; police a 14 px chargee=%d", r1.PoliceChargee(14.f) ? 1 : 0);
+			nkentseu::NkSnprintf(det + (det[0] ? (int32)NkString(det).Length() : 0), sizeof(det) - NkString(det).Length(), " ; police a 14 px chargee=%d", r1.PoliceChargee(14.f) ? 1 : 0);
 			check("81a. EXPORT PNG D'UNE PAGE A 1x : le fichier est ecrit par le codec PNG maison et relu a 200 x 120, sans texture inconnue, "
 				  "l'image du document declaree, la police chargee a 14 px",
 				  pngSource && ok1 && lu1 && r1.texturesInconnues == 0u && r1.images == 1u && r1.PoliceChargee(14.f), det);
@@ -10362,7 +10343,7 @@ namespace nkuidesign {
 			const bool tourne1 = lu1 && proche(im1, 155, 80, 0, 0, 255, 2) && proche(im1, 155, 63, 0, 0, 255, 2) && !proche(im1, 141, 66, 0, 0, 255, 40);
 			uint8 coin[4];
 			pixel(im1, 141, 66, coin);
-			snprintf(det, sizeof(det), "rouge aux quatre points=%d ; degrade x=110 : y15=%d y25=%d y35=%d y45=%d ; image M/V/V/M=%d ; tourne : centre et (155,63) bleus, coin (141,66)=(%u,%u,%u) non bleu -> %d",
+			nkentseu::NkSnprintf(det, sizeof(det), "rouge aux quatre points=%d ; degrade x=110 : y15=%d y25=%d y35=%d y45=%d ; image M/V/V/M=%d ; tourne : centre et (155,63) bleus, coin (141,66)=(%u,%u,%u) non bleu -> %d",
 					 rouge1 ? 1 : 0, g15, g25, g35, g45, image1 ? 1 : 0, coin[0], coin[1], coin[2], tourne1 ? 1 : 0);
 			check("81b. LES PIXELS A 1x : le rect uni rouge a quatre points, le degrade noir -> blanc monotone sur sa colonne, les quatre texels "
 				  "de l'image 2x2 la ou le cadrage les met, le carre tourne de 45 degres bleu dans son losange et pas au coin de sa boite",
@@ -10401,7 +10382,7 @@ namespace nkuidesign {
 			const float32 flouExact = s2 + b2 > 0 ? (float32)b2 / (float32)(s2 + b2) : 1.f;
 			const float32 flouEtire = s2b + b2b > 0 ? (float32)b2b / (float32)(s2b + b2b) : 0.f;
 			const bool net = ok2b && r2.PoliceChargee(28.f) && flouExact < flouEtire;
-			snprintf(det, sizeof(det), "2x : export=%d relu 400x240=%d ; rouge=%d ; degrade y=%d/%d/%d/%d ; image=%d ; texte 1x : %d sombres (hauteur %d), 2x : %d sombres (hauteur %d) ; police a 28 px chargee=%d (la plus grande %.1f) ; bords flous exact %.3f contre atlas etire %.3f (%s)",
+			nkentseu::NkSnprintf(det, sizeof(det), "2x : export=%d relu 400x240=%d ; rouge=%d ; degrade y=%d/%d/%d/%d ; image=%d ; texte 1x : %d sombres (hauteur %d), 2x : %d sombres (hauteur %d) ; police a 28 px chargee=%d (la plus grande %.1f) ; bords flous exact %.3f contre atlas etire %.3f (%s)",
 					 ok2 ? 1 : 0, lu2 ? 1 : 0, rouge2 ? 1 : 0, h15, h25, h35, h45, image2 ? 1 : 0, s1, hauteur1, s2, hauteur2, r2.PoliceChargee(28.f) ? 1 : 0, (double)r2.policeMax,
 					 (double)flouExact, (double)flouEtire, r2b.message);
 			check("81c. EXPORT A 2x : memes couleurs aux memes points (doubles), 400 x 240, le texte a 4 fois l'encre et 2 fois la hauteur, "
@@ -10432,7 +10413,7 @@ namespace nkuidesign {
 			NkFile::Delete("sonde_export_rien.png");
 			const bool refus = !NkExporterPNG(stEx, oS, "sonde_export_rien.png", rR) && !NkFile::Exists("sonde_export_rien.png")
 							   && rR.message[0] == '\xC3'; // « É » de « ÉCHEC »
-			snprintf(det, sizeof(det), "3x : 600 x 360 et le bleu tourne a (465,240) -> %d ; selection : %s ; relu 76x56 rouge en (38,28) (9,9) (66,46) -> %d ; hors du rect alpha=%u -> transparent=%d ; sans selection : refuse et dit -> %d (%s)",
+			nkentseu::NkSnprintf(det, sizeof(det), "3x : 600 x 360 et le bleu tourne a (465,240) -> %d ; selection : %s ; relu 76x56 rouge en (38,28) (9,9) (66,46) -> %d ; hors du rect alpha=%u -> transparent=%d ; sans selection : refuse et dit -> %d (%s)",
 					 ok3 ? 1 : 0, rS.message, luS ? 1 : 0, hors[3], transparentHors ? 1 : 0, refus ? 1 : 0, rR.message);
 			check("81d. 3x fait 600 x 360 ; LA SELECTION s'exporte dans sa boite (plus la marge de son ombre), le reste transparent ; "
 				  "un export sans rien de selectionne est REFUSE et DIT, aucun fichier n'est ecrit",
@@ -10477,7 +10458,7 @@ namespace nkuidesign {
 			const float32 attenduT = 14.f * 2816.f / 3408.f;
 			const bool corpsJuste = metT && corpsT > attenduT - 0.05f && corpsT < attenduT + 0.05f
 									&& !contient(s, "font-size=\"14\"");
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "export=%d (%s) ; %u octets ; structure attendue=%d ; images embarquees=%d ; corps SVG d'un texte de 14 px : %.3f "
 					 "(attendu %.3f = 14 x 2816 / 3408, lu dans la face) -> %d",
 					 okV ? 1 : 0, rV.message, (uint32)svg.Length(), structure ? 1 : 0, okE ? 1 : 0, (double)corpsT, (double)attenduT,
@@ -10507,7 +10488,7 @@ namespace nkuidesign {
 					memeFond = false;
 			NkExportResultat rF;
 			const bool fichierV = NkExporterSVGFichier(stEx, oV, "sonde_export_page.svg", rF) && NkFile::Exists("sonde_export_page.svg");
-			snprintf(det, sizeof(det), "NkSVGCodec::Decode -> valide=%d (%d x %d) ; rouge aux quatre points=%d ; degrade y=%d/%d/%d/%d contre le PNG %d/%d/%d/%d (ecart <= 24)=%d ; tourne=%d ; fond de page PNG (%u,%u,%u,%u) = SVG (%u,%u,%u,%u), alpha compris -> %d ; fichier=%d (%s) | texte et image : STRUCTURE seulement (le parseur maison ne sait ni <text> ni <image>, son en-tete le dit)",
+			nkentseu::NkSnprintf(det, sizeof(det), "NkSVGCodec::Decode -> valide=%d (%d x %d) ; rouge aux quatre points=%d ; degrade y=%d/%d/%d/%d contre le PNG %d/%d/%d/%d (ecart <= 24)=%d ; tourne=%d ; fond de page PNG (%u,%u,%u,%u) = SVG (%u,%u,%u,%u), alpha compris -> %d ; fichier=%d (%s) | texte et image : STRUCTURE seulement (le parseur maison ne sait ni <text> ni <image>, son en-tete le dit)",
 					 rasOk ? 1 : 0, ras.Width(), ras.Height(), rougeR ? 1 : 0, q15, q25, q35, q45, g15, g25, g35, g45, memeDegrade ? 1 : 0, tourneR ? 1 : 0,
 					 fondPng[0], fondPng[1], fondPng[2], fondPng[3], fondSvg[0], fondSvg[1], fondSvg[2], fondSvg[3], memeFond ? 1 : 0,
 					 fichierV ? 1 : 0, rF.message);
@@ -10630,7 +10611,7 @@ namespace nkuidesign {
 				ctxRet.input.ctrlDown = false;
 				image(-1.f, -1.f, false, 0u);
 				const uint32 apresD2 = (uint32)stRet.doc.nodes.Size();
-				snprintf(det, sizeof(det), "noeuds %u -> %u (Ctrl+D tenu 3 images) -> %u (seconde pression) ; la coquille ne porte plus le raccourci « Ctrl+D » (« Édition: Dupliquer (Ctrl+D sur la toile) », sans raccourci : la toile est la seule porte) ; la repetition de l'OS n'y est pour rien (le dorsal Win32 l'envoie en NkKeyRepeatEvent, que la coquille n'ecoute pas)",
+				nkentseu::NkSnprintf(det, sizeof(det), "noeuds %u -> %u (Ctrl+D tenu 3 images) -> %u (seconde pression) ; la coquille ne porte plus le raccourci « Ctrl+D » (« Édition: Dupliquer (Ctrl+D sur la toile) », sans raccourci : la toile est la seule porte) ; la repetition de l'OS n'y est pour rien (le dorsal Win32 l'envoie en NkKeyRepeatEvent, que la coquille n'ecoute pas)",
 						 avantD, apresD, apresD2);
 				check("83. CTRL+D, UNE PRESSION = UNE COPIE : la touche tenue trois images ne duplique qu'une fois (le front `KeyPressed`), "
 					  "une seconde pression duplique une seconde fois ; le SECOND CHEMIN (le meme raccourci declare dans la table de commandes "
@@ -10692,7 +10673,7 @@ namespace nkuidesign {
 				image(10.f, 10.f, true, 0u);
 				image(10.f, 10.f, false, 0u);
 				const bool toileRepondEncore = stRet.selected != selAvant;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "reserve avant=%d, encore fausse a l'image de l'ouverture (le retard annonce)=%d, tenue ensuite=%d, levee apres fermeture=%d ; modale ouverte=%d ; clic dans le vide : "
 						 "selection %d -> %d ; molette : zoom %.3f -> %.3f ; Suppr : noeuds %u -> %u ; « Annuler » ferme=%d ; la toile repond "
 						 "de nouveau (selection -> %d)=%d",
@@ -10763,7 +10744,7 @@ namespace nkuidesign {
 				image(-1.f, -1.f, false, 0u);
 				const NkString nomZ = stRet.doc.variables.Empty() ? NkString("(aucune)") : stRet.doc.variables[(uint32)viC].nom;
 				const bool renomme = nomZ.Data() && strstr(nomZ.Data(), "Z") != nullptr;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "popover ouvert=%d, objet selectionne=%d ; rect du nom %.0f,%.0f %.0fx%.0f ; renommage ouvert=%d ; apres la frappe "
 						 "« Z » : nom « %s » -> renomme=%d",
 						 popoverOuvert ? 1 : 0, stRet.selected, (double)rNom.x, (double)rNom.y, (double)rNom.w, (double)rNom.h,
@@ -10825,7 +10806,7 @@ namespace nkuidesign {
 												  && NkComponentDecl::StrEq(cRcArme.Data(), "@couleur_1")
 												  && NkComponentDecl::StrEq(stRet.doc.nodes[(uint32)rc2].fills[0].couleur.Data(), "@couleur_1");
 					const bool piedU = stRet.status.Data() && strstr(stRet.status.Data(), "suivent") != nullptr;
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "par defaut : le remplissage passe de « @couleur_1 » a « %s » (litteral), l'autre reste « %s », la variable garde "
 							 "%s (avant %s) -> detache=%d, pied « %s » ; arme : la variable passe a %s, les DEUX remplissages restent lies -> "
 							 "modifiee=%d, pied dit les usages=%d",
@@ -10865,7 +10846,7 @@ namespace nkuidesign {
 					const NkString refF = stRet.doc.nodes[(uint32)rc].fills[0].couleur;
 					const NkVariable *varO = stRet.doc.TrouverVariable(refF.Data());
 					const bool lieeAOrange = varO && varO->nom.Data() && strstr(varO->nom.Data(), "Orange") != nullptr;
-					snprintf(det, sizeof(det),
+					nkentseu::NkSnprintf(det, sizeof(det),
 							 "%u variables au document ; apres avoir tape « Ora » dans la recherche, la premiere ligne de la liste lie -> "
 							 "remplissage « %s » = variable « %s » (attendu Orange) -> %d",
 							 nVars, refF.Data() ? refF.Data() : "?", varO ? (varO->nom.Empty() ? varO->cle.Data() : varO->nom.Data()) : "(aucune)",
@@ -11038,7 +11019,7 @@ namespace nkuidesign {
 				image(-1.f, -1.f, false);
 				const float32 hApres = stCr.doc.nodes[(uint32)rcC].height.value;
 				const bool noeudRepondEncore = hApres < hAvant - 1.f;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "png 4x3=%d ; popover attendu a (%.0f, %.0f), overlay vu a (%.0f, %.0f) ; cadrage « %s » (crop=%d) ; crop pose X %.3f Y %.3f L %.3f H %.3f (attendu Y 0,100 H 0,800) -> couvrant=%d ; "
 						 "noeud ecran %.0fx%.0f, cadre %.0fx%.0f a y %.0f (noeud y %.0f) -> plus grand=%d ; poignee du cadre tiree : crop H %.3f Y %.3f "
 						 "(change=%d), noeud intact=%d ; popover ferme, poignee du noeud : hauteur %.0f -> %.0f (repond=%d)",
@@ -11151,10 +11132,10 @@ namespace nkuidesign {
 					if (fin > 0 && point && !espace) { // ça ressemble a un identifiant, pas a un libelle
 						++fuites;
 						if (!premiere[0])
-							snprintf(premiere, sizeof(premiere), "%s", lib);
+							nkentseu::NkSnprintf(premiere, sizeof(premiere), "%s", lib);
 					}
 				}
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "%d note(s) cette image, dont %d champ(s) ; libelles qui ressemblent a un identifiant (un point, aucune "
 						 "espace) : %d%s%s",
 						 nbNotes, champs, fuites, premiere[0] ? " -- le premier : " : "", premiere[0] ? premiere : "");
@@ -11264,7 +11245,7 @@ namespace nkuidesign {
 				image();
 				float32 bx0 = 0.f, by0 = 0.f, bx1 = 0.f, by1 = 0.f;
 				const uint32 nCmd2 = boiteTexture(0x4E4B0400u, bx0, by0, bx1, by1);
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "image chargee : %u commande(s) texturee(s) au handle de l'image, boite %.1f x %.1f (une image 4:3 « fit » dans "
 						 "14 px : 14 x 10,5) -> %d ; source introuvable : %u commande(s) (le damier revient)",
 						 nCmd, (double)(ax1 - ax0), (double)(ay1 - ay0), taille ? 1 : 0, nCmd2);
@@ -11333,7 +11314,7 @@ namespace nkuidesign {
 			const NkContexteCtx cA = NkContexteDepuisEtat(stD, autre, false);
 			const bool menuOk = (cI.estInstance || cI.estDeclaration) && (cN.estInstance || cN.estDeclaration)
 								&& !(cA.estInstance || cA.estDeclaration);
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "extraction=%d, %u declaration(s) ; « Voir le composant » -> instance : %d, noeud qui porte le NOM : %d, noeud "
 					 "ordinaire : %d (raison dite=%d) ; menu actif instance=%d nom=%d ordinaire=%d",
 					 extrait ? 1 : 0, nDecl, vuInstance, vuNom, vuAutre, raison ? 1 : 0,
@@ -11456,7 +11437,7 @@ namespace nkuidesign {
 				aideX1 = rAide.x + rAide.w;
 				geomOk = rAide.w > 0.f && aideX1 <= rBtn.x - 6.f + 0.01f && maxTexte > 0.f && maxTexte <= bordBouton;
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "la porte : texte plein %.1f px, tronque a %.1f px demande -> %.1f px (avec « … »), texte entier rendu quand la "
 					 "place suffit -> %d ; l'inspecteur : le sommet de texte le plus a droite est a %.1f, la colonne du bouton commence "
 					 "a %.1f (aide peinte %.1f -> %.1f) -> %d",
@@ -11570,7 +11551,7 @@ namespace nkuidesign {
 								  && stA.doc.nodes[(uint32)dedans].posX == posAvantEnfant;
 			// et la MESURE de l'existant, inchangee : ALIGNEMENT n'a pas touche aux positions
 			const bool mesureExistant = stA.doc.nodes[(uint32)col].layout.mainAlign == avantMain;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "gauche sur la selection : %u bouges, x = %.0f / %.0f / %.0f -> %d ; milieu sur le DERNIER (C) : %u bouges, "
 					 "milieux %.1f / %.1f / %.1f (C fixe=%d) -> %d ; un seul : « %s » -> %d ; repartir a deux : refuse (%s) -> %d ; a "
 					 "trois : %u bouge, ecarts %.1f et %.1f -> %d ; enfant d'une colonne : %u refuse(s), « %s » -> %d",
@@ -11657,7 +11638,7 @@ namespace nkuidesign {
 			const bool refusDit93b = (rA.bouges > 0u)
 									 || (rA.refuses > 0u
 										 && strstr(rA.message, "parent place ses enfants") != nullptr);
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "parent en ANCRAGE : %u annonce(s) bouge(s), %u boite(s) reellement "
 					 "deplacee(s) (U1 x %.0f -> %.0f, U2 x %.0f -> %.0f), %u refuse(s) ; "
 					 "message : « %s »",
@@ -11749,7 +11730,7 @@ namespace nkuidesign {
 				if (aBouge93 != annonce93) {
 					++desaccords93;
 					if (!pire93[0])
-						snprintf(pire93, sizeof(pire93),
+						nkentseu::NkSnprintf(pire93, sizeof(pire93),
 								 "<< %s >> : le predicat annonce %s, le solveur %s",
 								 kK93[ki].nom, annonce93 ? "LU" : "ignore",
 								 aBouge93 ? "a bouge" : "n'a rien bouge");
@@ -11758,7 +11739,7 @@ namespace nkuidesign {
 			// CONTROLE POSITIF DE L'INSTRUMENT : si AUCUN des cinq ne bougeait, un
 			// << 0 desaccord >> serait aussi le score d'un montage inerte -- un
 			// alignement qui ne peut rien deplacer se compare a lui-meme.
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "cinq agencements confrontes au SOLVEUR (alignement Start -> End sur les "
 					 "deux axes) : %u desaccord(s) [%s] ; controle positif : %u agencement(s) "
 					 "deplacent reellement une boite (attendu 2 : row et column)",
@@ -11867,7 +11848,7 @@ namespace nkuidesign {
 				relu118.Save(s118b);
 			const bool stable118 = lu118 && NkComponentDecl::StrEq(s118.Data(), s118b.Data());
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) cycle sur %u metrique(s) : \"\" -> << %s >> -> << %s >> -> \"%s\", "
 					 "un nom inconnu repart sur << %s >> -> %d ; (b) ecart entre deux enfants : "
 					 "%.0f sans nom, %.0f avec (metrique = 20) -> %d ; (c) nom relu du fichier "
@@ -11984,7 +11965,7 @@ namespace nkuidesign {
 
 			const bool ok128 = aPlein == 255 && aDemi == 128 && aHerite == 128 && aQuart == 64
 							   && rienParDefaut128 && valeurRelue && stable128;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "alpha du remplissage rouge : %d a 100%%, %d avec le NŒUD a 50%%, %d avec "
 					 "le PARENT a 50%% (l'enfant a 100), %d avec les deux a 50%% ; cle : rien "
 					 "au fichier par defaut=%d, 40 relu=%d, reenregistrement identique=%d",
@@ -12134,7 +12115,7 @@ namespace nkuidesign {
 			if (luK)
 				reluK.Save(reecritK);
 			const bool stableK = luK && NkComponentDecl::StrEq(avecCle.Data(), reecritK.Data());
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "<< multiply >> : %d push / %d pop, mode=%u (Multiply=%u), l'enfant peint "
 					 "a l'index %d entre %d et %d -> %d ; << overlay >> : %d push (attendu 0) ; "
 					 "sans mode : %d push ; le vert est peint dans les trois=%d ; cle : rien par "
@@ -12288,7 +12269,7 @@ namespace nkuidesign {
 			const bool etireIgnoreX = layE.At(e1).x == layE.At(pgE).x;
 			const bool libreGardeY = layE.At(e1).y == layE.At(pgE).y + 12.f;
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) marge 30/12 sur un bord gauche+haut : boite a (%.0f, %.0f), bord du "
 					 "parent (%.0f, %.0f) -> %d ; (b) sans marge, la boite tombe sur le bord -> "
 					 "%d ; (c) parent 400 -> 700 : l'ancre DROITE passe de %.0f a %.0f (+300 "
@@ -12346,7 +12327,7 @@ namespace nkuidesign {
 								 + (double)b.h * 11.0;
 					}
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "document charge=%d, %u nœuds, %u sous un parent en ANCRAGE (0 = la branche "
 					 "modifiee n'est jamais entree) ; empreinte des boites = %.3f (a comparer "
 					 "avant / apres le changement, pas a maintenir)",
@@ -12402,7 +12383,7 @@ namespace nkuidesign {
 				if (typoLa != kT132[t].typographie) {
 					++ecarts132;
 					if (!pire132[0])
-						snprintf(pire132, sizeof(pire132),
+						nkentseu::NkSnprintf(pire132, sizeof(pire132),
 								 "<< %s >> : TYPOGRAPHIE %s, attendue %s", kT132[t].forme,
 								 typoLa ? "presente" : "absente",
 								 kT132[t].typographie ? "presente" : "absente");
@@ -12516,7 +12497,7 @@ namespace nkuidesign {
 			const char *sansAutre = NkPhraseSectionVide("DISPOSITION", nullptr);
 			const bool phraseJuste = NkComponentDecl::StrEq(sansNoeud, sansAutre)
 									 && !NkComponentDecl::StrEq(sansNoeud, avecNoeud);
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "six types confrontes a la liste attendue : %u ecart(s) [%s] ; "
 					 "selection MIXTE rect+texte : TYPOGRAPHIE %s (attendue absente) ; ce qui "
 					 "n'agit pas ENCORE reste visible : ALIGNEMENT=%d, DISPOSITION=%d ; "
@@ -12636,7 +12617,7 @@ namespace nkuidesign {
 			const bool montageValide = okOp && contient133(sOp.Data(), "<rect")
 									   && contient133(sOp.Data(), "<svg ");
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) opacite 50%% -> `opacity=\"0.5\"` present=%d ; (b) a 100%%, aucun "
 					 "attribut=%d ; (c) `overlay` (que le peintre ne sait pas) -> "
 					 "`mix-blend-mode:overlay` present=%d ; (d) `plus-darker` (hors CSS) NON "
@@ -12779,7 +12760,7 @@ namespace nkuidesign {
 			const bool zonePage = NkZoneExport(st134, st134.layout, oPage, nds, zPage, pq, sizeof(pq));
 			const bool toutEstLu = zoneTout && zonePage && nTout == nExp && zTout.w > zPage.w;
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "canvas de 4 enfants dont 1 masquee et 1 de taille nulle -> %u exportable(s) "
 					 "(attendu 2) ; (a) sans selection : panneau ouvert=%d, cible=canvas %d, "
 					 "compte annonce %u = mesure %u -> %d ; (b) canvas VIDE (%u exportable) : "
@@ -12921,7 +12902,7 @@ namespace nkuidesign {
 					deuxPortes = basculesGrille == 2u && basculesSuivies == 2u;
 				}
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) la table de << rien de selectionne >> : %d section(s), dont "
 					 "\"CANVAS\" x%u et %u commune(s) avec l'ancienne table de %d -- %u "
 					 "muette(s) retiree(s), la section honnete gardee -> %d ; (b) le fond : "
@@ -13019,7 +13000,7 @@ namespace nkuidesign {
 					unSeulChemin = nPastille == 7u && nGenre3 == 0u && nMain == 0u && nKit == 2u;
 				}
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) la garde declaree : decor sans selection RESTE=%d, son nœud "
 					 "regarde=%d, deselectionne FERME=%d, autre nœud FERME=%d, nœud disparu "
 					 "FERME=%d -> %d ; (b) sous l'ancre : x=%.0f (ancre %.0f..%.0f) chevauche=%d, "
@@ -13095,7 +13076,7 @@ namespace nkuidesign {
 			char neg[12] = {};
 			const bool refuseNeg = !NkPreleverPixel(dl, -3, 10, 0u, neg, (uint32)sizeof(neg));
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "aplat orange -> %s (attendu #f79a28) ; petrole -> %s (#0a555f) ; bleu -> %s "
 					 "(#1976d2) ; hors des aplats, le SOL -> %s (#123456) ; trois valeurs "
 					 "distinctes -> %d ; point negatif REFUSE -> %d ; SUR LA FRONTIERE : "
@@ -13146,7 +13127,7 @@ namespace nkuidesign {
 			// LE MODE EST ARME, et il retient la couleur d'avant (ce que fait l'icone).
 			stP.picker.ouvert = true;
 			stP.picker.pipette = true;
-			snprintf(stP.picker.avant, sizeof(stP.picker.avant), "%s",
+			nkentseu::NkSnprintf(stP.picker.avant, sizeof(stP.picker.avant), "%s",
 					 stP.canvasFill.couleur.Data());
 
 			// ⚠️ LA MEME PORTE QUE LE MODE, pas une copie : `NkPipetteSurvol`.
@@ -13221,7 +13202,7 @@ namespace nkuidesign {
 					}
 				}
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "image figee 80x40, frontiere a x=40 ; survol x=39 -> %s, x=40 -> %s "
 					 "(voisins, couleurs DIFFERENTES) -> %d ; clic gauche : le modele garde %s "
 					 "-> %d ; annulation : le modele rend %s (avant : %s) -> %d ; le clic droit "
@@ -13307,7 +13288,7 @@ namespace nkuidesign {
 			const bool unSeulAppuiNePrelevePas = !p1 && !p2 && !p3 && !p4;
 			const bool deuxAppuisPrelevent = p5;
 			const bool survolNePrelevePas = !p6;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "l'appui QUI ARME : %d ; maintenu : %d %d ; au relachement : %d "
 					 "(attente tombee=%d) ; SECOND appui -- le controle positif -- : %d ; "
 					 "survol seul : %d ; le CABLAGE (sources) : %u armement, %u sites de la "
@@ -13354,7 +13335,7 @@ namespace nkuidesign {
 			const bool immobileNeMontreRien = !m0 && !m1 && !m4;
 			const bool mouvementDeclenche = m2;
 			const bool acquis = m3;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "sur le point d'armement : %d ; a 1 px (tremblement) : %d ; a 3 px "
 					 "(deplacement voulu) : %d ; RETOUR sur le point d'armement : %d "
 					 "(acquis, l'attente ne revient pas) ; apres un NOUVEL armement : %d",
@@ -13524,7 +13505,7 @@ namespace nkuidesign {
 					}
 				}
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "droit : %u matrice(s) ; autour de X seul : a=%.3f d=%.3f c=%.3f "
 					 "(ecrasement SANS cisaillement) -> %d ; autour de Y seul : a=%.3f d=%.3f "
 					 "c=%.3f -> %d ; LES DEUX : a=%.3f d=%.3f c=%.3f (cisaillement sin*sin = "
@@ -13606,24 +13587,24 @@ namespace nkuidesign {
 			const bool baseRouge = emise(0xff0000ffu) && !emise(0x00ff00ffu);
 			const float32 rBase = rayonEmis(0xff0000ffu);
 			// (b) L'ETAT HOVER AFFICHE : VERT, rayon 12 -- et le document n'a pas bouge.
-			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
+			nkentseu::NkSnprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
 			const bool hoverVert = emise(0x00ff00ffu) && !emise(0xff0000ffu);
 			const float32 rHover = rayonEmis(0x00ff00ffu);
 			const bool docApresHover = documentIntact();
 			// (c) L'ETAT PRESSED : il ne pose QU'un rayon -> la couleur reste la BASE
 			//     (rouge), seul l'arrondi change. C'est la surcharge par champ, pas par bloc.
-			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Pressed");
+			nkentseu::NkSnprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Pressed");
 			const bool pressedRouge = emise(0xff0000ffu) && !emise(0x00ff00ffu);
 			const float32 rPressed = rayonEmis(0xff0000ffu);
 			// (d) UN ETAT SANS BLOC (Focus) : exactement la base.
-			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Focus");
+			nkentseu::NkSnprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Focus");
 			const bool focusBase = emise(0xff0000ffu) && rayonEmis(0xff0000ffu) == rBase;
 			// (e) LA PRIORITE : apercu de pipette > etat > base. Hover affiche ET un
 			//     apercu bleu pose -> BLEU, pas vert.
-			snprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
+			nkentseu::NkSnprintf(hE.etatAffiche, sizeof(hE.etatAffiche), "%s", "Hover");
 			hE.apercuNoeud = ne;
 			hE.apercuIndex = -1;
-			snprintf(hE.apercuHex, sizeof(hE.apercuHex), "%s", "#0000ff");
+			nkentseu::NkSnprintf(hE.apercuHex, sizeof(hE.apercuHex), "%s", "#0000ff");
 			const bool apercuGagne = emise(0x0000ffffu) && !emise(0x00ff00ffu);
 			hE.apercuNoeud = -1;
 			hE.apercuHex[0] = '\0';
@@ -13632,7 +13613,7 @@ namespace nkuidesign {
 			const bool retour = emise(0xff0000ffu) && !emise(0x00ff00ffu) && documentIntact();
 
 			const bool rayons = rBase == 0.f && rHover == 12.f && rPressed == 6.f;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) sans etat : rouge, rayon %.0f -> %d ; (b) Hover affiche : VERT, rayon "
 					 "%.0f, document intact=%d -> %d ; (c) Pressed (rayon seul) : rouge, rayon "
 					 "%.0f -> %d ; (d) Focus (aucun bloc) : la base -> %d ; (e) apercu > etat : "
@@ -13725,7 +13706,7 @@ namespace nkuidesign {
 
 			NkDocumentHost hT;
 			auto flux = [&](const char *etat, PeintreQuiRetientLaCouleurDuTexte &rec) {
-				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
+				nkentseu::NkSnprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
 				RenderDocument(rec, dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
 			};
 			// la couleur EMISE du texte « Salut »
@@ -13841,14 +13822,14 @@ namespace nkuidesign {
 			uint32 diffRelu = 999u;
 			if (memes) {
 				PeintreQuiRetientLaCouleurDuTexte reluP;
-				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Pressed");
+				nkentseu::NkSnprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Pressed");
 				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
 				diffRelu = pressed.DiffCount(reluP);
 			}
 			hT.etatAffiche[0] = '\0';
 			const bool allerRetour = nTexte == 2u && nOmbre == 3u && nApp == 6u && memes && diffRelu == 0u;
 
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) base : texte %08x, fond rouge=%d, ombre w=%.0f a=%u -> %d ; (b) Hover : texte %08x, "
 					 "%u commande(s) differente(s) [attendu 1], ombre w=%.0f a=%u -> %d ; (c) Pressed (flou seul) : "
 					 "w=%.0f [attendu %.0f] a=%u, %u diff [4] -> %d ; (d) Focus (opacite seule) : w=%.0f a=%u "
@@ -14013,7 +13994,7 @@ namespace nkuidesign {
 						&& !dR.nodes[i].borderColor.Empty())
 						++lignesRodolfACle;
 			const bool ligne = diffLigne > 0u && lignesRodolfACle == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) document de Rodolf charge=%d : %u noeuds, %u par la cle historique [6], %u a liste, "
 					 "%u ecart(s) entre la porte et les lecteurs d'avant -> %d ; (b) contrat : rien=%u, cle -> 1 "
 					 "interieure 1 px=%d, borderW 3 -> 3=%d, cap 0 -> %u, liste toute masquee -> %u (pas la cle), "
@@ -14084,7 +14065,7 @@ namespace nkuidesign {
 
 			NkDocumentHost hB;
 			auto flux = [&](const char *etat, NkRecordingPaint &rec) {
-				snprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", etat ? etat : "");
+				nkentseu::NkSnprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", etat ? etat : "");
 				RenderDocument(rec, dB, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hB);
 			};
 			auto compte = [&](const NkRecordingPaint &rec, uint32 rgba) -> uint32 {
@@ -14173,13 +14154,13 @@ namespace nkuidesign {
 			uint32 diffRelu = 999u;
 			if (memes) {
 				NkRecordingPaint reluP;
-				snprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", "Hover");
+				nkentseu::NkSnprintf(hB.etatAffiche, sizeof(hB.etatAffiche), "%s", "Hover");
 				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hB);
 				diffRelu = hover.DiffCount(reluP);
 			}
 			hB.etatAffiche[0] = '\0';
 			const bool fichier = nBord == 4u && nApp == 5u && memes && diffRelu == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) base : %u cadre(s) #123456, %u fonds rouges -> %d ; (b) Hover (couleur seule) : %u cadres VERTS "
 					 "[%u], 0 ancien=%d, fonds intacts=%d, %u diff [%u] -> %d ; (c) Pressed (epaisseur seule) : couleur "
 					 "gardee=%d, %u diff (A seul), largeur max %.0f -> %.0f -> %d ; (d) Focus (epaisseur 0) : %u cadre(s) "
@@ -14252,7 +14233,7 @@ namespace nkuidesign {
 			}
 			NkDocumentHost hO;
 			auto flux = [&](const char *etat, PeintreQuiRetientLaCouleurDuTexte &rec) {
-				snprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", etat ? etat : "");
+				nkentseu::NkSnprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", etat ? etat : "");
 				RenderDocument(rec, dO, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hO);
 			};
 			auto alphaFond = [&](const NkRecordingPaint &rec) -> uint32 {
@@ -14295,13 +14276,13 @@ namespace nkuidesign {
 			uint32 diffRelu = 999u;
 			if (memes) {
 				PeintreQuiRetientLaCouleurDuTexte reluP;
-				snprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", "Disabled");
+				nkentseu::NkSnprintf(hO.etatAffiche, sizeof(hO.etatAffiche), "%s", "Disabled");
 				RenderDocument(reluP, dR, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hO);
 				diffRelu = dis.DiffCount(reluP);
 			}
 			hO.etatAffiche[0] = '\0';
 			const bool fichier = jeton && memes && diffRelu == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) base : fond a=%u, texte a=%u -> %d ; (b) Disabled (opacite 50 seule) : fond a=%u [128], "
 					 "TEXTE ENFANT a=%u [128 -- l'ancien sens dirait 255], %u diff [2] -> %d ; (c) Hover sans bloc = "
 					 "la base -> %d ; (d) document intact (CALQUE de A = 100) -> %d ; (e) fichier : jeton a sa "
@@ -14343,7 +14324,7 @@ namespace nkuidesign {
 								   && NkComponentDecl::StrEq(p->bordureCouleur.Data(), "#123456");
 			const bool supprime = dV.CompterUsagesVariable("accent") == 0u && dV.SupprimerVariable("accent")
 								  && dV.variables.Empty();
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "la porte hexa accepte « @accent »=%d ; usages comptes %u [2 : texte d'etat, bordure d'etat] ; "
 					 "suppression refusee=%d (dit %u) ; detaches %u, litteraux=%d ; supprimee ensuite=%d",
 					 porteAccepte ? 1 : 0, usages, refuse ? 1 : 0, uRefus, detaches, litteraux ? 1 : 0, supprime ? 1 : 0);
@@ -14425,11 +14406,11 @@ namespace nkuidesign {
 						for (uint32 e = 0u; e < nEt; ++e) {
 							NkApparenceEtat &b = NkBlocEtat(stQ.doc.nodes[(uint32)cibles[c]], tEt[e]);
 							char h[12];
-							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x01u);
+							nkentseu::NkSnprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x01u);
 							b.fond = NkString(h);
-							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x02u);
+							nkentseu::NkSnprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x02u);
 							b.couleurTexte = NkString(h);
-							snprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x03u);
+							nkentseu::NkSnprintf(h, sizeof(h), "#20%02x%02x", (unsigned)(0x30u + teinte), 0x03u);
 							b.bordureCouleur = NkString(h);
 							++teinte;
 						}
@@ -14536,7 +14517,7 @@ namespace nkuidesign {
 						const char *d = c.Data();
 						if (d && NkComponentDecl::StrEq(d, hex)) {
 							++n;
-							snprintf(sortie, (size_t)cap, "%s", quoi);
+							nkentseu::NkSnprintf(sortie, (size_t)cap, "%s", quoi);
 						}
 					};
 					for (uint32 i = 0u; i < (uint32)stQ.doc.nodes.Size(); ++i) {
@@ -14560,7 +14541,7 @@ namespace nkuidesign {
 					const char *cd = stQ.canvasFill.couleur.Data();
 					if (cd && NkComponentDecl::StrEq(cd, hex)) {
 						++n;
-						snprintf(sortie, (size_t)cap, "%s", "canvas");
+						nkentseu::NkSnprintf(sortie, (size_t)cap, "%s", "canvas");
 					}
 					return n;
 				};
@@ -14604,7 +14585,7 @@ namespace nkuidesign {
 					for (int32 i = 0; i < nb; ++i)
 						if (NkComponentDecl::StrEq(notes[i].libelle, "pastille couleur")) {
 							Vue v;
-							snprintf(v.cle, sizeof(v.cle), "%s", notes[i].cle);
+							nkentseu::NkSnprintf(v.cle, sizeof(v.cle), "%s", notes[i].cle);
 							v.r = notes[i].rect;
 							vues.PushBack(v);
 						}
@@ -14613,7 +14594,7 @@ namespace nkuidesign {
 						if (fam < 0) {
 							++inconnues; // une porte que la table ne connait pas : elle doit s'y ajouter
 							const size_t li = strlen(nomsInconnus);
-							snprintf(nomsInconnus + li, sizeof(nomsInconnus) - li, "%s%s", li ? "," : "", vues[k].cle);
+							nkentseu::NkSnprintf(nomsInconnus + li, sizeof(nomsInconnus) - li, "%s%s", li ? "," : "", vues[k].cle);
 							continue;
 						}
 						fermer();
@@ -14639,13 +14620,13 @@ namespace nkuidesign {
 						// (d) ET LA COULEUR, OU VA-T-ELLE ? Un hexa unique, par le champ du popup.
 						{
 							char hexU[12];
-							snprintf(hexU, sizeof(hexU), "#%02x%02x%02x", (unsigned)(0xA0u + (uint32)fam),
+							nkentseu::NkSnprintf(hexU, sizeof(hexU), "#%02x%02x%02x", (unsigned)(0xA0u + (uint32)fam),
 								 (unsigned)(0x10u + (serie & 0x3Fu)), (unsigned)(0x40u + ((serie >> 6) & 0x3Fu)));
 							++serie;
 							NkVector<NkString> av, ap;
 							empreinte(av);
 							const NkString canAv = stQ.canvasFill.couleur;
-							snprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hexU);
+							nkentseu::NkSnprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hexU);
 							stQ.picker.change = true;
 							imageQ(-1.f, -1.f, false);
 							empreinte(ap);
@@ -14674,7 +14655,7 @@ namespace nkuidesign {
 								++ecrits[fam];
 							else if (strlen(fautesE) < 230u) {
 								const size_t lf = strlen(fautesE);
-								snprintf(fautesE + lf, sizeof(fautesE) - lf, "%s%s->%s(x%u, %u bouge%s)", lf ? " " : "",
+								nkentseu::NkSnprintf(fautesE + lf, sizeof(fautesE) - lf, "%s%s->%s(x%u, %u bouge%s)", lf ? " " : "",
 									 kNom[fam], quoi[0] ? quoi : "nulle part", porteurs, bouges, canBouge ? ", canvas" : "");
 							}
 						}
@@ -14719,7 +14700,7 @@ namespace nkuidesign {
 					if (!juste)
 						++fautes;
 					const size_t l = strlen(lignes);
-					snprintf(lignes + l, sizeof(lignes) - l, "%s%s x%u : %s %.0f px%s", k ? " ; " : "", kNom[k], instances[k],
+					nkentseu::NkSnprintf(lignes + l, sizeof(lignes) - l, "%s%s x%u : %s %.0f px%s", k ? " ; " : "", kNom[k], instances[k],
 							 noyaux[k] ? "NOYAU" : (enveloppes[k] ? "enveloppe" : (autres[k] ? "sa fenetre" : "-")),
 							 (double)largeur[k], juste ? "" : " [FAUX]");
 				}
@@ -14751,7 +14732,7 @@ namespace nkuidesign {
 					if (instances[k] > 0u && ecrits[k] == instances[k])
 						++portesJustes;
 					const size_t le = strlen(lignesE);
-					snprintf(lignesE + le, sizeof(lignesE) - le, "%s%s %u/%u", k ? " " : "", kNom[k], ecrits[k],
+					nkentseu::NkSnprintf(lignesE + le, sizeof(lignesE) - le, "%s%s %u/%u", k ? " " : "", kNom[k], ecrits[k],
 						 instances[k]);
 				}
 				const bool ecritures = portesJustes == 9u;
@@ -14779,7 +14760,7 @@ namespace nkuidesign {
 					return stQ.picker.ouvert && stQ.picker.genre == 1u;
 				};
 				auto taper = [&](const char *hex) {
-					snprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hex);
+					nkentseu::NkSnprintf(stQ.picker.hex, sizeof(stQ.picker.hex), "%s", hex);
 					stQ.picker.change = true;
 					imageQ(-1.f, -1.f, false);
 				};
@@ -14819,7 +14800,7 @@ namespace nkuidesign {
 				const NkUINode &zB = stQ.doc.nodes[(uint32)tB];
 				const bool ecritTexte = ouvreTexte && NkComponentDecl::StrEq(zB.textColor.Data(), "#0000ff") && zB.fills.Empty();
 				fermer();
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "%u famille(s) sur 9 trouvee(s) a l'ecran, %u inconnue(s) [%s], %u muette(s) ; enveloppe (remplissage) %.0f "
 						 "px, noyau nu %.0f px (controle positif) ; %s || (b) hauteurs : remplissage %.0f, effet %.0f [=], "
 						 "etats %.0f/%.0f/%.0f [-26], texte %.0f [-26], canvas %.0f [-26], BORDURE %.0f [+148, ses champs "
@@ -15114,7 +15095,7 @@ namespace nkuidesign {
 								 && NkString(svgP).Contains("data-focale=\"600");
 			const bool memeSilhouette = expP && expO && NkComponentDecl::StrEq(sansDecl.Data(), svgO.Data());
 			const bool svgJuste = declare && memeSilhouette;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) quatre coins : ecart max a la derivation %.4f px -> %d ; (b) fuite : cotes %.1f et %.1f "
 					 "(rapport %.2f), en orthogonal %.1f = %.1f -> %d ; (c) orthogonal : matrice affine=%d, ecart "
 					 "%.4f -> %d ; (d) pointage : %u/%u points d'accord avec la silhouette, %u dedans hors de la "
@@ -15254,7 +15235,7 @@ namespace nkuidesign {
 				// l'orthogonale a 40 degres ecrase en cos(40) = 0.766 : on verifie le RAPPORT
 				const float32 rapport = lDroit > 0.f ? lOrtho / lDroit : 0.f;
 				const bool avance = rapport > 0.70f && rapport < 0.82f;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "%u sommets par passe (droit / perspective / orthogonal : %u / %u / %u) -> %d ; chaque sommet "
 						 "a sa place derivee : ecart max %.4f px -> %d ; couleurs identiques %u/%u -> %d ; fuite : "
 						 "premier glyphe %.2f px, dernier %.2f px (rapport %.3f) ; en orthogonal %.2f / %.2f "
@@ -15440,7 +15421,7 @@ namespace nkuidesign {
 			const NkImage rasO = NkSVGCodec::Decode((const uint8 *)svgO.Data(), (usize)svgO.Length(), 0, 0);
 			const NkImage rasP = NkSVGCodec::Decode((const uint8 *)svgP.Data(), (usize)svgP.Length(), 0, 0);
 			const bool relus = rasO.IsValid() && rasO.Pixels() && rasP.IsValid() && rasP.Pixels();
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) defaut = garder orthogonal -> %d ; (b) orthogonal : matrice posee, rect et text gardes, "
 					 "perspective DECLAREE, aucun polygone -> %d ; (c) aplati : polygone=%d, rect %u -> %u, "
 					 "matrix %u -> %u (plus posee sur le nœud projete) -> %d ; (d) texte NOMME dans les notes et "
@@ -15512,7 +15493,7 @@ namespace nkuidesign {
 				nPhrase = compter(srcP.Data(), "Hors catalogue du kit");
 			}
 			const bool cable = nAppel == 1u && nPhrase >= 1u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) les %u graphies que l'application PRODUIT (« bouton », « Button », « champ de "
 					 "saisie », « titre », « bouton à répétition ») sont hors catalogue : %u / 5 ; "
 					 "(b) les %u cles du catalogue du kit sont reconnues : %u / %u, et un role vide reste "
@@ -15600,7 +15581,7 @@ namespace nkuidesign {
 			NkBlocEtat(dT.nodes[(uint32)zT], "Pressed").teinte = NkString("#ffffff");
 			NkDocumentHost hT;
 			auto rendre = [&](const char *etat, NkRecordingPaint &rec) {
-				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
+				nkentseu::NkSnprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", etat ? etat : "");
 				RenderDocument(rec, dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
 			};
 			// les BANDES du degrade : le peintre enregistreur n'a pas de polygone, donc
@@ -15662,7 +15643,7 @@ namespace nkuidesign {
 			uint32 diffRelu2 = 999u;
 			if (memeT) {
 				NkRecordingPaint reluP;
-				snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
+				nkentseu::NkSnprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
 				RenderDocument(reluP, dR2, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hT);
 				hT.etatAffiche[0] = '\0';
 				diffRelu2 = gris.DiffCount(reluP);
@@ -15696,7 +15677,7 @@ namespace nkuidesign {
 			const uint32 tintAvant = sonde.tint;
 			NkLayoutResult layF;
 			NkComputeLayout(dT, NkPaintRect{0.f, 0.f, 400.f, 300.f}, layF);
-			snprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
+			nkentseu::NkSnprintf(hT.etatAffiche, sizeof(hT.etatAffiche), "%s", "Hover");
 			renderdetail::DrawShape(sonde, layF.At(zT), dT.nodes[(uint32)zT], hT, NkMat2D{});
 			hT.etatAffiche[0] = '\0';
 			const uint32 tintApres = sonde.tint;
@@ -15729,7 +15710,7 @@ namespace nkuidesign {
 			const bool restaure = teintePosee && tintAvant == 0xFFFFFFFFu && tintApres == tintAvant;
 			const bool vueDuVisiteur = dV2.CompterUsagesVariable("ombre") == 1u
 									   && !dV2.SupprimerVariable("ombre");
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "degrade NU (FondEffectif = nul) -> %d ; (a) il SURVIT : %u bandes -> %u, extremites "
 					 "%08x/%08x -> %08x/%08x (distinctes) -> %d ; (b) seule la luminance bouge : ecart max "
 					 "au produit par 0x80 = %u [<=1] -> %d ; (c) CONTROLE NEGATIF, teinte BLANCHE : %u "
@@ -15814,7 +15795,7 @@ namespace nkuidesign {
 			};
 			NkDocumentHost hR;
 			auto rendreR = [&](NkUIDocument &d, const char *etat, NkRecordingPaint &rec) {
-				snprintf(hR.etatAffiche, sizeof(hR.etatAffiche), "%s", etat ? etat : "");
+				nkentseu::NkSnprintf(hR.etatAffiche, sizeof(hR.etatAffiche), "%s", etat ? etat : "");
 				RenderDocument(rec, d, NkPaintRect{0.f, 0.f, 400.f, 300.f}, &hR);
 				hR.etatAffiche[0] = '\0';
 			};
@@ -15946,7 +15927,7 @@ namespace nkuidesign {
 			// les BANDES du degrade du dessous survivent (bien plus de 2 commandes), et la
 			// DERNIERE -- le dessus -- est le vert de l'etat
 			const bool dessousSurvit = nQ > 2u && dQ == 0x00ff00ffu;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) sans etat : %u commande(s) de fond, extremites %08x/%08x (distinctes) -> %d ; "
 					 "(b) fond d'etat sur le degrade : %u commande(s) [1], couleur %08x [00ff00ff] -> %d ; "
 					 "(c) fond ET teinte : %u [1], %08x = l'APLAT multiplie [%08x] -> %d ; (d) un etat "
@@ -16034,7 +16015,7 @@ namespace nkuidesign {
 			//     `anchorEdges` (la porte unique) -- lu a la source, comme le reste.
 			const uint32 nAncr = compter(srcB.Data(), "n->anchorEdges |= zs[i].bit;");
 			const bool ancrageVivant = nAncr == 1u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) la maquette (%u octets, lue par le banc) : %u section(s) « Position » [2], %u bouton(s) "
 					 "entre chacune et la suivante [0] -> %d ; (b) la source : « a brancher » %u fois [0], boutons "
 					 "inertes %u [0], champs X %u / Y %u [1/1] -> %d ; (c) ANCRAGE ecrit toujours anchorEdges : "
@@ -16159,7 +16140,7 @@ namespace nkuidesign {
 								  + compter(srcP2.Data(), "enTete(\"Effets") + compter(srcP2.Data(), "insp.etat.police")
 								  + compter(srcP2.Data(), "insp.etat.pile") + compter(srcP2.Data(), "insp.etat.effet");
 			const bool panneauFerme = nEnTetes == 5u && nDouteux == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "(a) l'ecrivain : ligne d'etat trouvee=%d, %u jeton(s) nomme(s) [4 : texte, ombre, bordure, "
 					 "teinte] -> %d ; (b) le lecteur : « police=Arial pile=2 effet=lueur » injectes, relu=%d, bloc "
 					 "absent ou VIDE=%d -> %d ; (c) le panneau : %u en-tete(s) de rangees d'etat [5], douteux %u [0] "
@@ -16205,7 +16186,7 @@ namespace nkuidesign {
 				if (NkComponentDecl::StrEq(g, kCas[k].attendu) && ar == kCas[k].arrondiAttendu)
 					++tableOk;
 				else if (!premierEcart[0])
-					snprintf(premierEcart, sizeof(premierEcart), "outil %d/%d -> « %s » (attendu « %s »)", kCas[k].outil,
+					nkentseu::NkSnprintf(premierEcart, sizeof(premierEcart), "outil %d/%d -> « %s » (attendu « %s »)", kCas[k].outil,
 							 kCas[k].variante, g, kCas[k].attendu);
 			}
 			// 2. les commandes de l'apercu, par genre, avec le MEME peintre que la toile
@@ -16275,7 +16256,7 @@ namespace nkuidesign {
 			const NkString hexAttendu = NkHexDuRole(th, "doc_field_bg");
 			const uint32 rgbaAttendu = renderdetail::NkGCouleur(hexAttendu.Data());
 			const bool costumeOk = rgbaFond == rgbaAttendu;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "table : %u / %u cas justes%s%s ; commandes de l'apercu : ellipse %u (dont %u ellipse(s)), rect %u (0 ellipse : "
 					 "%d), ligne %u (dont %u trait(s)), cadre %u ; rayon peint : droit %.1f, arrondi %.1f (attendu 8 ; %u commande, le "
 					 "rayon voyage DANS elle) -> %d ; fond de l'apercu %08X = doc_field_bg %08X (%s) -> %d",
@@ -16433,7 +16414,7 @@ namespace nkuidesign {
 				// la bande porte UNE teinte dont l'alpha va de ~0 a plein ; le bord de la barre et
 				// le contour du curseur sont d'autres teintes, comptees et ignorees (dit)
 				const bool degradeAlpha = nSommets > 20u && alphaMin < 40u && alphaMax > 240u;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 						 "barre %.0f x %.0f (dessinee=%d) ; a 100 %% le curseur est au bout droit=%d ; modele pose a 25 %% -> curseur a "
 						 "%.0f %% (suit=%d) ; glisser a 75 %% de la barre -> opacite %.1f (ecrit=%d), curseur a %.0f %% (=%d) ; degrade "
 						 "d'alpha : %u sommets de la teinte %06X (%u sommets d'autres teintes : bord et curseur), alpha %u..%u -> %d [bande : %u en dl, %u en overlay]",
@@ -16589,7 +16570,7 @@ namespace nkuidesign {
 			const bool parObjetOk = faits == 2u && premier && second && deuxContenus;
 			// la selection est RENDUE telle quelle : l'export ne deplace pas le choix de Rodolf
 			const bool selRendue = st96.sel.Count() == 2u && st96.sel.items[0] == carre96 && st96.selected == carre96;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "assaini : « %s », « %s », « %s », « %s » -> %d ; noms proposes : page « %s », objet « %s », x2 "
 					 "« %s », multiple « %s » -> %d ; le GROUPE exporte %d x %d, pixel de l'enfant RGBA %u/%u/%u/%u -> %d ; un "
 					 "fichier par objet : %u ecrit(s) [%s], doublon « (2) »=%d, contenus differents=%d -> %d ; selection rendue=%d",
@@ -16769,11 +16750,11 @@ namespace nkuidesign {
 			//    la MESURE, pas dans le code mesure, et c'est la sonde qui l'a montre.
 			char nom0[64] = "-", nom1[64] = "-", nom2[64] = "-";
 			if (nEnt > 0u)
-				snprintf(nom0, sizeof(nom0), "%s", nav.vue.entries[0].name.Data());
+				nkentseu::NkSnprintf(nom0, sizeof(nom0), "%s", nav.vue.entries[0].name.Data());
 			if (nEnt > 1u)
-				snprintf(nom1, sizeof(nom1), "%s", nav.vue.entries[1].name.Data());
+				nkentseu::NkSnprintf(nom1, sizeof(nom1), "%s", nav.vue.entries[1].name.Data());
 			if (nEnt > 2u)
-				snprintf(nom2, sizeof(nom2), "%s", nav.vue.entries[2].name.Data());
+				nkentseu::NkSnprintf(nom2, sizeof(nom2), "%s", nav.vue.entries[2].name.Data());
 			const bool listeOk =
 				nEnt == 3u && nav.vue.entries[0].isFolder
 				&& NkComponentDecl::StrEq(nav.vue.entries[0].name.Data(), "sous_dossier")
@@ -16818,7 +16799,7 @@ namespace nkuidesign {
 			fflush(stdout);
 			const bool descendu = nav.vue.entries.Empty()
 								  && (uint32)nav.vue.breadcrumb.Size() == nCr + 1u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "MESURE : NKCode n'a pas de selecteur a lui (NkCodeDialogs herite de NkFilePickerState) ; "
 					 "vignette peinte : %u commande(s) Image (poignee %u) et %u icone(s) AVEC, %u / %u SANS -> %d ; "
 					 "volet muet : titre « Documents »=%d, « Contenu »=%d, %u textes -> %u -> %d ; miette cliquee -> "
@@ -16882,7 +16863,7 @@ namespace nkuidesign {
 						(int32)sizeof(nav98.pickerPath));
 			nav98.RelireDossier();
 			const bool pasDeBoucle = !nav98.DoitRelire() && nav98.vue.entries.Empty();
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"ouvert par la PORTE DE BASE (OpenPickerBase, sans OuvrirNav) : doit relire=%d ; premiere "
 				"lecture -> %u entree(s), %u miette(s), %u ligne(s) de rail -> %d ; puis calme=%d ; "
 				"`pickerPath` ecrit A LA MAIN -> doit relire=%d, relu vide=%d ; chemin inexistant : pas "
@@ -16962,7 +16943,7 @@ namespace nkuidesign {
 			char premierVol[64] = "-";
 			for (uint32 i = 0; i < (uint32)rail.Size(); ++i) {
 				if (rail[i].parent != iPC) continue;
-				if (sousPC == 0u) snprintf(premierVol, sizeof(premierVol), "%s", rail[i].label.Data());
+				if (sousPC == 0u) nkentseu::NkSnprintf(premierVol, sizeof(premierVol), "%s", rail[i].label.Data());
 				++sousPC;
 				// une etiquette = un libelle plus long que la seule lettre (« D: Projets »)
 				if (rail[i].label.Length() > 2u) etiquetteVue = true;
@@ -16977,7 +16958,7 @@ namespace nkuidesign {
 			//    la navigation du selecteur (qui exige `NkDirectory::Exists`) l'ignore.
 			const bool titreInerte = iPC >= 0 && rail[(uint32)iPC].path.Empty()
 					&& !NkDirectory::Exists(rail[(uint32)iPC].path.Data());
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"rail de %u ligne(s) ; sections « Acc\u00e8s rapide »=%d, « Ce PC »=%d, « Dossier courant »=%d, "
 				"racines+locked+sans chemin -> %d ; acces rapide : %u entree(s), Bureau du systeme « %s » vu=%d, "
 				"libelle = nom reel=%d -> %d ; Ce PC : %u volume(s) pose(s) pour %u pret(s) [premier : %s], "
@@ -17089,7 +17070,7 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < (uint32)nav101.vue.folders.nodes.Size(); ++i)
 				if (NkComponentDecl::StrEq(nav101.vue.folders.nodes[i].label.Data(), "R\u00e9cents"))
 					aucunTitreVide = false;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"ordre (le plus recent en tete, un doublon REMONTE)=%d ; session %u / document %u, memes tetes -> %d ; "
 				"`dossier_recent =` dans le texte=%d ; ALLER-RETOUR du .nkuidoc : %u relu(s) dans l'ordre -> %d ; "
 				"rail : %u entree(s), session en tete=%d ; section « R\u00e9cents » a l'index %d (avant « Acc\u00e8s rapide » "
@@ -17185,7 +17166,7 @@ namespace nkuidesign {
 			const uint32 oSelAll = textesDe(rOuvrir, "Tout s\u00e9lectionner");
 			const uint32 oCreer = textesDe(rOuvrir, "Cr\u00e9er");
 			const bool suitLeMode = oSelAll == 1u && oCreer == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"CONTROLE POSITIF (navigateur d'assets, sans instance) : « Contenu » %u, « Cr\u00e9er » %u, "
 				"« Importer » %u, « Tout enregistrer » %u, « Tout s\u00e9lectionner » %u -> %d ; DIALOGUE "
 				"(enregistrer / choisir un dossier) : %u / %u / %u / %u / %u -> %d ; il montre encore "
@@ -17312,7 +17293,7 @@ namespace nkuidesign {
 			st102.avisExport.echec = NkString("Le syst\u00e8me n'a pas pu ouvrir le dossier.");
 			const bool cheminGarde = !st102.avisExport.chemin.Empty()
 					&& NkString(st102.avisExport.chemin).Contains("sonde_avis_export.png");
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"png source ecrit=%d ; bandeau : « %s » / « %s » -> %d ; vignette poignee %u, %d x %d relus du "
 				"DISQUE (et non 1240 x 620) -> %d ; geometrie : cadre %.0f x %.0f, boutons dedans et "
 				"disjoints -> %d ; PILE : l'avis court occupe y %.0f..%.0f, le bandeau d'export descend a "
@@ -17382,7 +17363,7 @@ namespace nkuidesign {
 			nav103.OpenPickerBase(editorkit::NkSelecteurCreerDossier, base103.Data(), buf103,
 						(int32)sizeof(buf103), nullptr, nullptr);
 			nav103.RelireDossier();
-			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
+			nkentseu::NkSnprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
 			const bool cree = nav103.CreerDossier();
 			const NkString attendu = (NkPath(base103.Data()) / "Nouveau lot").ToString();
 			const bool creeOk = cree && NkDirectory::Exists(attendu.Data())
@@ -17391,19 +17372,19 @@ namespace nkuidesign {
 			// 4. UN NOM QUE LE SYSTEME REFUSERAIT EST REFUSE, ET DIT -- pas assaini en douce :
 			//    l'utilisateur doit reconnaitre le nom qu'il a tape (l'inverse du NOM DE
 			//    FICHIER d'export, ou c'est NOUS qui proposons, pas lui qui tape).
-			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "a/b");
+			nkentseu::NkSnprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "a/b");
 			const bool refuse = !nav103.CreerDossier() && !nav103.messageCreation.Empty()
 					&& nav103.nouveauNom[0] != '\0'; // le nom tape RESTE dans le champ
 			// ⚠️ LE MESSAGE SE FIGE ICI. Le lire a la fin du bloc afficherait celui de
 			//    l'etape SUIVANTE sous l'etiquette de celle-ci -- deux faits, une seule
 			//    variable : c'est le defaut de temoin deja paye par la sonde 60c.
 			char msgRefus[160];
-			snprintf(msgRefus, sizeof(msgRefus), "%s",
+			nkentseu::NkSnprintf(msgRefus, sizeof(msgRefus), "%s",
 				 nav103.messageCreation.Data() ? nav103.messageCreation.Data() : "?");
 			// 5. UN DOSSIER QUI EXISTE DEJA : on y entre, et on le DIT (pas d'ecrasement
 			//    silencieux -- la meme regle que le ` (2)` de l'export).
 			nav103.AllerA(base103.Data());
-			snprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
+			nkentseu::NkSnprintf(nav103.nouveauNom, sizeof(nav103.nouveauNom), "%s", "Nouveau lot");
 			const bool deuxieme = nav103.CreerDossier();
 			const bool ditDeja = deuxieme && nav103.messageCreation.Contains("existe")
 					&& editorkit::NkFilePickerState::PathSame(nav103.Dossier(), attendu.Data());
@@ -17423,7 +17404,7 @@ namespace nkuidesign {
 					&& !commeAvant.pickerConfirmed && !commeAvant.pickerCancelled
 					&& n.DoitRelire(); // plein des la premiere image, dans les QUATRE modes
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"style par defaut : %u role(s) resolu(s), %u invalide(s), variante grille -> %d ; quatre modes "
 				"(fichier %d, dossier %d, creer %d = dossier, enregistrer %d) -> %d ; « Nouveau lot » cree=%d, "
 				"on y descend et le champ se vide -> %d ; « a/b » refuse et dit « %s », nom garde -> %d ; "
@@ -17469,7 +17450,7 @@ namespace nkuidesign {
 			NkOuvrirChoixExport(st104, NkExportFormat::SVG, 1.f, false, false);
 			const bool porteA = st104.choixExport.picker.pickerOpen && prepare(st104.choixExport, ".svg");
 			char nomA[220];
-			snprintf(nomA, sizeof(nomA), "%s", st104.choixExport.picker.pickerSaveName);
+			nkentseu::NkSnprintf(nomA, sizeof(nomA), "%s", st104.choixExport.picker.pickerSaveName);
 			// PORTE B : le dialogue (`NkOuvrirSelecteurExport`), celle de Ctrl+E
 			st104.choixExport = DesignState::NkChoixExport();
 			st104.choixExport.format = (int32)NkExportFormat::PNG;
@@ -17484,7 +17465,7 @@ namespace nkuidesign {
 			editorkit::NkFilePickerNavState neuf104;
 			const bool neufNonPrepare = neuf104.vignette == nullptr && neuf104.recents.Empty()
 					&& neuf104.pickerFileExt.Empty();
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"PORTE A (menu) : ouverte et preparee=%d, nom propose « %s » ; PORTE B (dialogue, Ctrl+E) : "
 				"ouverte et preparee=%d, nom tenu « %s » -> %d ; pleine des la premiere image=%d ; "
 				"CONTROLE NEGATIF : un selecteur neuf n'est prepare par personne=%d",
@@ -17575,7 +17556,7 @@ namespace nkuidesign {
 					++sectionsPeintes;
 				if (textesRail <= 5u && t && t[0]) {
 					const usize n = NkString(premiers).Length();
-					snprintf(premiers + n, sizeof(premiers) - n, "%s%s", n ? " | " : "", t);
+					nkentseu::NkSnprintf(premiers + n, sizeof(premiers) - n, "%s%s", n ? " | " : "", t);
 				}
 			}
 			// LA LARGEUR UTILE AU PLUS PROFOND : c'est elle qui produit les « ... »
@@ -17599,7 +17580,7 @@ namespace nkuidesign {
 			//    106. Cette sonde la MESURE et l'imprime -- une sonde qui exigerait deux
 			//    corrections a la fois ne pourrait pas etre verte entre les deux commits.
 			const uint32 largeurUtile = profMax;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"MODELE : %u section(s) racine `locked` ; DESSIN a la largeur reelle (rail %.0f px sur %.0f) : "
 				"%u texte(s) dans la colonne, dont %u section(s) et %u VIDE(s) ; cinq premiers : %s ; largeur "
 				"utile au plus profond : %u px (jugee par (2), sonde 106) ; PROFONDEUR du rail : %u (≤ 2 exige), "
@@ -17697,7 +17678,7 @@ namespace nkuidesign {
 						&& NkComponentDecl::StrEq(r106.cmds[i].text.Data(), kNoms106[k]);
 				voisinsIntacts = vu;
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"libelle « docs » de la carte ACTIVE emis a la commande %d, au point (%.0f, %.0f) -> %d ; "
 				"premiere commande d'APLAT posterieure qui le recouvre : %d (aucune attendue) -> %d ; anneau "
 				"creux peint : %u -> %d ; les deux cartes non actives ont leur libelle=%d",
@@ -17761,7 +17742,7 @@ namespace nkuidesign {
 						if (!utf8Valide(buf)) {
 							++invalides;
 							if (!pire[0])
-								snprintf(pire, sizeof(pire), "%s @%d -> %s", kMots[m], w, buf);
+								nkentseu::NkSnprintf(pire, sizeof(pire), "%s @%d -> %s", kMots[m], w, buf);
 						}
 						// tronquee ? alors elle DOIT finir par l'ellipsis COMPLETE
 						if ((float32)w < pleine && n >= 3) {
@@ -17797,7 +17778,7 @@ namespace nkuidesign {
 				const bool aucunDoublon = dAvec == 0u && dSans == 0u;
 				const bool alignerPartout = contient(avec, nAvec, "ALIGNER LA S\u00c9LECTION")
 					&& contient(sans, nSans, "ALIGNER LA S\u00c9LECTION");
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 					"troncature : %u essais sur 5 mots, toutes largeurs ; UTF-8 invalide %u (pire : %s), mal "
 					"termines %u, ellipsis incomplete %u -> valides=%d, ellipsis entiere=%d ; sections : %d avec "
 					"cible (%u doublon(s)), %d sans cible (%u doublon(s)) -> aucun doublon=%d ; « ALIGNER LA "
@@ -17883,7 +17864,7 @@ namespace nkuidesign {
 				if (nav108.largeurRail < editorkit::NkFilePickerNavState::kRailMin)
 					nav108.largeurRail = editorkit::NkFilePickerNavState::kRailMin;
 				const bool borneBasse = avant108 < minRail && nav108.largeurRail == minRail;
-				snprintf(det, sizeof(det),
+				nkentseu::NkSnprintf(det, sizeof(det),
 					"minimum du rail %.0f px (« T\u00e9l\u00e9chargements » mesure %.0f) -> %d ; troncature au MILIEU : "
 					"« %s » (debut garde=%d, fin gardee=%d, tient dans la largeur=%d) ; intacte quand ca tient : "
 					"« %s » -> %d ; largeur minuscule : « %s » ; UTF-8 sur %u troncatures : %u cassee(s) -> %d ; "
@@ -17923,7 +17904,7 @@ namespace nkuidesign {
 			nav109.nouveauFocus = true;
 			// 3. ELLE SE REFERME APRES UNE CREATION REUSSIE : le dialogue revient a son
 			//    geste principal, et on est DEJA dans le dossier cree.
-			snprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "Lot du soir");
+			nkentseu::NkSnprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "Lot du soir");
 			const bool cree109 = nav109.CreerDossier();
 			if (cree109)
 				nav109.creationOuverte = false;
@@ -17934,7 +17915,7 @@ namespace nkuidesign {
 			// 4. ELLE NE SE REFERME PAS SUR UN REFUS -- sinon le message disparaitrait avec
 			//    elle, et l'utilisateur ne saurait pas pourquoi rien ne s'est passe.
 			nav109.creationOuverte = true;
-			snprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "a:b");
+			nkentseu::NkSnprintf(nav109.nouveauNom, sizeof(nav109.nouveauNom), "%s", "a:b");
 			const bool refuse109 = !nav109.CreerDossier();
 			if (refuse109) { /* on NE referme pas */ }
 			const bool resteOuverteSurRefus = refuse109 && nav109.creationOuverte
@@ -17942,7 +17923,7 @@ namespace nkuidesign {
 			// 5. LE NOM DU FICHIER N'A PAS BOUGE pendant tout ca : le geste principal est
 			//    intact. C'etait tout l'enjeu de la remontee.
 			const bool nomIntact = NkComponentDecl::StrEq(nav109.pickerSaveName, "essai.png");
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"repliee a l'ouverture=%d ; « Lot du soir » cree=%d, refermee et on y est=%d ; « a:b » refuse : "
 				"reste ouverte avec son message « %s » -> %d ; nom du fichier intact (« %s »)=%d",
 				replieeDEmblee ? 1 : 0, cree109 ? 1 : 0, refermee ? 1 : 0,
@@ -18002,7 +17983,7 @@ namespace nkuidesign {
 						if (!dedans110(g.cadre, *parts[k], marge)) {
 							++debords;
 							if (!pire110[0])
-								snprintf(pire110, sizeof(pire110),
+								nkentseu::NkSnprintf(pire110, sizeof(pire110),
 									 "%s en mode %s a %.0fx%.0f : bas %.1f pour un cadre a %.1f",
 									 kNoms110[k], save ? "enregistrer" : "ouvrir", (double)kT[t].w,
 									 (double)kT[t].h, (double)(parts[k]->y + parts[k]->h),
@@ -18061,7 +18042,7 @@ namespace nkuidesign {
 			const bool margeReelle = restantMin >= 10.f;
 			const bool pileSaine = superpositions == 0u;
 			const bool textesTiennent = textesDebordants == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"trois tailles x deux modes x bandeau x libelle : %u debordement(s) [%s], %u chevauchement(s) "
 				"volet/bas, %u superposition(s) dans la pile du haut, %u texte(s) plus large(s) que leur bouton ; "
 				"marge minimale sous le bouton de confirmation : %.1f px -> tient partout=%d, marge reelle=%d, "
@@ -18094,7 +18075,7 @@ namespace nkuidesign {
 			for (int32 k = 0; k < 24; ++k) {
 				NkAssetEntry a;
 				char nm[32];
-				snprintf(nm, sizeof(nm), "item_%02d", k);
+				nkentseu::NkSnprintf(nm, sizeof(nm), "item_%02d", k);
 				a.name = NkString(nm);
 				a.kindLabel = "PNG";
 				m111.entries.PushBack(a);
@@ -18156,7 +18137,7 @@ namespace nkuidesign {
 			// CONTROLE NEGATIF : la mesure attrape bien une bande. On refait un tour en
 			// ignorant la derniere colonne -- la bande doit alors depasser le seuil.
 			const bool mesureSensible = thumb111 + gap111 > gap111 * 1.5f + 2.f;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"%u largeurs mesurees de 700 a 1300 ; pire bande morte a droite : %.1f px (a %.0f de large) ; "
 				"seuil %.1f (une gouttiere et demie de %.0f) ; colonnes minimales sur une rangee : %u ; "
 				"pas de bande morte=%d ; la mesure est sensible (une colonne vaut %.0f px)=%d",
@@ -18243,7 +18224,7 @@ namespace nkuidesign {
 					if (emp[i] == emp[j]) {
 						++collisions;
 						if (!paire[0])
-							snprintf(paire, sizeof(paire), "%u et %u", i, j);
+							nkentseu::NkSnprintf(paire, sizeof(paire), "%u et %u", i, j);
 					}
 			const bool toutesDistinctes = collisions == 0u;
 			// 2. LE DOSSIER A UNE SILHOUETTE : au moins deux formes (languette + corps),
@@ -18257,7 +18238,7 @@ namespace nkuidesign {
 			for (uint32 k = 1; k < nG; ++k)
 				if (textes[k] != textes[0])
 					aucunGlyphe = false;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"%u natures dessinees ; empreintes geometriques : %u collision(s) [%s] -> toutes distinctes=%d ; "
 				"le dossier emet %u forme(s) (languette + corps) -> %d ; une image et un inconnu different du "
 				"dossier=%d ; commandes de texte identiques pour toutes (%u) -> aucun glyphe en guise d'icone=%d ; "
@@ -18356,7 +18337,7 @@ namespace nkuidesign {
 				compte(n, dLeg, fLeg);
 			}
 			const bool legacyOk = dLeg == 2u && fLeg == 1u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"cinq fichiers (png, jpg, svg, txt, zip) et deux dossiers ; filtre « Images » -> %u fichier(s), "
 				"« Vectoriel » -> %u, « Tous » -> %u : trois listages differents=%d ; dossiers vus : %u/%u/%u "
 				"et %u/4 modes en montrent deux -> toujours visibles=%d ; mode DOSSIER montre tout "
@@ -18398,7 +18379,7 @@ namespace nkuidesign {
 				out[0] = '\0';
 				for (uint32 i = 0; i < (uint32)n.vue.entries.Size(); ++i) {
 					const usize k = NkString(out).Length();
-					snprintf(out + k, cap - k, "%s%s", k ? " " : "", n.vue.entries[i].name.Data());
+					nkentseu::NkSnprintf(out + k, cap - k, "%s%s", k ? " " : "", n.vue.entries[i].name.Data());
 				}
 			};
 			char parNom[160], parNomD[160], parTaille[160], parDate[160], parType[160];
@@ -18446,7 +18427,7 @@ namespace nkuidesign {
 				}
 			}
 			const bool taillesLues = t1 > t2 && t2 > t3 && t3 > 0;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"nom ↗ : %s ; nom ↘ : %s ; taille : %s ; type : %s ; dossier toujours en tete=%d ; nom=%d ; "
 				"taille=%d (octets lus %lld > %lld > %lld -> %d) ; type=%d ; date complete=%d",
 				parNom, parNomD, parTaille, parType, dossierEnTete ? 1 : 0, nomOk ? 1 : 0, tailleOk ? 1 : 0,
@@ -18526,7 +18507,7 @@ namespace nkuidesign {
 			if (nav115.largeurRail < editorkit::NkFilePickerNavState::kRailMin)
 				nav115.largeurRail = editorkit::NkFilePickerNavState::kRailMin;
 			const bool retenue = gardee == 320.f && nav115.largeurRail == 320.f;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"nom : « %s » / « %s » (avec barre finale) / racine « %s » -> %d ; entree du dossier courant "
 				"trouvee=%d, libelle sans separateur=%d, infobulle = le chemin complet=%d ; %u entree(s) avec "
 				"infobulle, %u titre(s) qui en portent une (0 attendu) -> %d ; defaut du champ vide=%d ; "
@@ -18666,7 +18647,7 @@ namespace nkuidesign {
 			}
 			const float32 ratio = largeCorps > 0.f ? largePatte / largeCorps : 0.f;
 			const bool patteJuste = ratio > 0.3f && ratio < 0.5f && hautPatte > 4.f && hautPatte < 20.f;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"dossier a 96 px : %u nuance(s), %u forme(s) ; toutes de la meme dominante (%u=R,G,B)=%d ; "
 				"trois nuances=%d ; a 32/64/128 px : distinct du fichier generique=%d, %u forme(s) minimum "
 				"-> %d ; patte %.0f sur un corps de %.0f (%.0f %%) montant de %.0f px -> %d",
@@ -18770,7 +18751,7 @@ namespace nkuidesign {
 			const uint32 sans = formesRail((uint8)editorkit::NkAssetIcone::Auto);
 			const uint32 avec = formesRail((uint8)editorkit::NkAssetIcone::Dossier);
 			const bool railPeint = avec >= sans + 3u; // le dossier ajoute ses quatre formes
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"meme sous-dossier : icone grille %u, icone rail %u -> %d ; %u volume(s), %u avec l'icone "
 				"de volume -> %d ; %u titre(s), %u avec l'icone de section -> %d ; formes peintes par le rail : "
 				"%u sans silhouette, %u avec -> %d",
@@ -18891,7 +18872,7 @@ namespace nkuidesign {
 				texteSans = textes(false);
 			}
 			const bool aucunGlyphe118 = texteAvec == texteSans;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"bande : %u remplissage(s) large de %.0f pour un en-tete, %u de %.0f pour un noeud "
 				"ordinaire -> %d ; chevron : %u trait(s) avec enfants contre %u sans -> %d ; ferme et "
 				"ouvert differents=%d ; commandes de texte %u avec / %u sans -> aucun glyphe=%d",
@@ -18920,7 +18901,7 @@ namespace nkuidesign {
 												  "e.exe", "f.svg", "g.wat"};
 			for (int32 k = 0; k < 7; ++k) {
 				char ch[128];
-				snprintf(ch, sizeof(ch), "sonde_familles/%s", kFic[k]);
+				nkentseu::NkSnprintf(ch, sizeof(ch), "sonde_familles/%s", kFic[k]);
 				NkFile::WriteAllText(ch, "x");
 			}
 			const NkString base119 =
@@ -18961,7 +18942,7 @@ namespace nkuidesign {
 				if (!vu)
 					couples[nCouples++] = cle;
 				const usize l = NkString(resume).Length();
-				snprintf(resume + l, sizeof(resume) - l, "%s%s:%u/%u", l ? " " : "",
+				nkentseu::NkSnprintf(resume + l, sizeof(resume) - l, "%s%s:%u/%u", l ? " " : "",
 					 e.name.Data(), (uint32)e.icone, e.kindRole);
 			}
 			// png et svg partagent la famille Image : six couples pour sept fichiers
@@ -19007,7 +18988,7 @@ namespace nkuidesign {
 			const uint32 badgeConnu = compterBadges((uint8)editorkit::NkAssetIcone::Image, 30u);
 			const uint32 badgeInconnu = compterBadges((uint8)editorkit::NkAssetIcone::Inconnu, 30u);
 			const bool badgeOk = badgeConnu > badgeInconnu && badgeInconnu == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"%u fichier(s) : %s ; %u couple(s) (silhouette, teinte) distincts pour six familles -> %d ; "
 				"l'inconnu `g.wat` a la silhouette Inconnu et la teinte neutre=%d ; avec « Tous » SEUL, "
 				"%u/7 inconnus -> %d ; pastille : %u pour un reconnu, %u pour un inconnu -> %d",
@@ -19086,7 +19067,7 @@ namespace nkuidesign {
 					++sousRecents;
 			}
 			const bool sectionsOk120 = sousCourant == 1u && bonCourant && sousRecents == 1u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 				"vide au depart=%d ; une NAVIGATION ne le change pas=%d ; une operation REUSSIE le pose=%d ; "
 				"naviguer ailleurs sans enregistrer ne le change pas=%d ; une seconde reussite le deplace et "
 				"l'ancien passe aux recents=%d ; « Dossier courant » porte %u entree (la bonne=%d) et "
@@ -19197,7 +19178,7 @@ namespace nkuidesign {
 						continue;
 					if (d.x < c.x + c.w && d.x + d.w > c.x && d.y < c.y + c.h && d.y + d.h > c.y) {
 						++libellesRecouverts;
-						snprintf(quiRecouvre, sizeof(quiRecouvre), "%s", c.text.Data());
+						nkentseu::NkSnprintf(quiRecouvre, sizeof(quiRecouvre), "%s", c.text.Data());
 						break;
 					}
 				}
@@ -19214,7 +19195,7 @@ namespace nkuidesign {
 			const bool murGagne = b2.x >= railW121;
 			const bool dansLaFenetre = b2.y >= 0.f && b2.y + b2.h <= 400.f;
 			const bool poseOk = horsDuRail && enFace && murGagne && dansLaFenetre;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "souris sur « Bravo » (y=%.0f) : l'arbre peint la bulle=%d (0 attendu) ; il la RAPPORTE=%d "
 					 "(x=%.0f pour un rail de %.0f ; rangee y=%.0f h=%.0f) ; %u/5 libelles peints, %u "
 					 "recouvert(s) par un aplat posterieur%s%s ; pose : hors du rail=%d, en face de la "
@@ -19329,7 +19310,7 @@ namespace nkuidesign {
 								nullptr);
 			const bool rouvreLaOuOnEtait =
 				editorkit::NkFilePickerState::PathSame(nav2.pickerPath, dOk.Data());
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "apres NAVIGATION seule : la section porte le dossier navigue=%d (0 attendu), la note "
 					 "« aucun »=%d, %u enfant(s) et %u descendant(s) -> %d ; apres une REUSSITE ailleurs : "
 					 "elle le porte=%d avec %u enfant(s) / %u descendant(s), note=%d -> %d ; naviguer puis "
@@ -19407,7 +19388,7 @@ namespace nkuidesign {
 			const NkString dBcp = (NkPath(rac.Data()) / "beaucoup").ToString();
 			for (int32 k = 0; k < 124; ++k) {
 				char nom[256];
-				snprintf(nom, sizeof(nom), "%s/d%03d/dedans", dBcp.Data(), k);
+				nkentseu::NkSnprintf(nom, sizeof(nom), "%s/d%03d/dedans", dBcp.Data(), k);
 				NkDirectory::CreateRecursive(nom);
 			}
 			NkVector<NkDirectoryEntry> lot =
@@ -19505,7 +19486,7 @@ namespace nkuidesign {
 				if (hv != hn || hp == hv || hi == hv || hp == hi)
 					troisDessins = false;
 			}
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "trois dossiers : contenu(vide,fichiers,sous)=%u/%u/%u et sous-dossiers=%u/%u/%u -> %d "
 					 "(un dossier de fichiers SEULS est plein pour l'icone et sans enfant pour le chevron) ; "
 					 "illisible != vide (Empty dit vide, Probe dit illisible)=%d ; cache : %u/%u/%u/%u acces "
@@ -19639,7 +19620,7 @@ namespace nkuidesign {
 			nav124.RelireDossier(); // on rebatit le rail : le cache doit tout resservir
 			const bool cacheResservi = nav124.cacheDossiers.accesDisque == avantRelecture;
 			const bool coutBorne = acces <= entreesRail * 2u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "favoris (nes dans AjouterNoeud, pas dans PoserSousDossiers) : « avec » annonce des "
 					 "enfants=%d, « sans » non=%d, « fichiers » non=%d mais il est PLEIN=%d -> %d ; "
 					 "%u section(s) portent des entrees, %u en ont au moins une avec chevron -> %d ; place "
@@ -19924,7 +19905,7 @@ namespace nkuidesign {
 				}
 			}
 			const bool cycleOk = plieAuClic && apresCycle == 0u;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "COMPOSANT : %d rangee(s) avant, %d apres le clic sur le chevron d'un titre VERROUILLE "
 					 "-> %d ; TOUTE LA BANDE plie : %d rangee(s) rouvertes puis %d repliees par un clic sur "
 					 "le libelle -> %d ; controle negatif (une entree ORDINAIRE ne plie pas sur son "
@@ -20001,7 +19982,7 @@ namespace nkuidesign {
 					for (uint32 k = 0; k < (uint32)r.cmds.Size(); ++k)
 						if (r.cmds[k].op == NkPaintOp::Text && r.cmds[k].text.Data()
 							&& NkComponentDecl::StrEq(r.cmds[k].text.Data(), lib)) {
-							snprintf(lignes[nLignes].texte, sizeof(lignes[nLignes].texte), "%s", lib);
+							nkentseu::NkSnprintf(lignes[nLignes].texte, sizeof(lignes[nLignes].texte), "%s", lib);
 							lignes[nLignes].x = r.cmds[k].x;
 							lignes[nLignes].y = r.cmds[k].y;
 							++nLignes;
@@ -20028,7 +20009,7 @@ namespace nkuidesign {
 				if (!vu) {
 					++survoleesEffacees;
 					if (!premiereEffacee[0])
-						snprintf(premiereEffacee, sizeof(premiereEffacee), "%s", lignes[q].texte);
+						nkentseu::NkSnprintf(premiereEffacee, sizeof(premiereEffacee), "%s", lignes[q].texte);
 				}
 			}
 			// 3. LE COUPLE (FOND, TEXTE) EST DECIDE PAR UNE SEULE CONDITION.
@@ -20081,11 +20062,11 @@ namespace nkuidesign {
 				if (texteActif && fondSurvol) {
 					++couplesRompus;
 					if (!premierRompu[0])
-						snprintf(premierRompu, sizeof(premierRompu), "%s", lignes[q].texte);
+						nkentseu::NkSnprintf(premierRompu, sizeof(premierRompu), "%s", lignes[q].texte);
 				}
 			}
 			nav126.vue.folders.active = 0;
-			snprintf(det, sizeof(det),
+			nkentseu::NkSnprintf(det, sizeof(det),
 					 "%u entree(s) de rail relevees ; SURVOL une a une : %u dont le texte disparait%s%s ; "
 					 "ACTIVE **ET** SURVOLE (le geste de Rodolf) : %u couple(s) (fond, texte) rompus%s%s "
 					 "-- texte de l'etat actif sur le fond du survol",
@@ -20127,7 +20108,7 @@ namespace nkuidesign {
 			nkentseu::NkVector<NkString> trois;
 			NkSpecification::LireExigences(
 				"- un champ identifiant\n* un champ mot de passe\n3. un bouton\n", trois);
-			snprintf(buf, sizeof(buf), "texte sans liste -> %u ; texte a trois puces -> %u",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "texte sans liste -> %u ; texte a trois puces -> %u",
 					 (uint32)zero.Size(), (uint32)trois.Size());
 			check("170. LE ZERO DU LECTEUR D'EXIGENCES : un texte sans liste rend 0, et le "
 				  "CONTROLE POSITIF (trois formes de puce : « - », « * », « 3. ») rend 3. Sans "
@@ -20159,7 +20140,7 @@ namespace nkuidesign {
 								 && relue.tours.Size() == 3u
 								 && SameText(relue.tours[1].texte.Data(),
 											 "Deux lignes\net un antislash \\ au milieu.");
-			snprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s) ; aller-retour %s",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s) ; aller-retour %s",
 					 (uint32)relue.exigences.Size(), (uint32)relue.tours.Size(),
 					 identique ? "IDENTIQUE" : "DIVERGENT");
 			check("171. LE FORMAT `nkuispec` SE RELIT AU BIT, y compris un tour qui contient un "
@@ -20171,7 +20152,7 @@ namespace nkuidesign {
 			NkDesignConversation vide;
 			NkSpecification specVide;
 			NkSpecification::DepuisConversation(vide, "rien", specVide);
-			snprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u exigence(s), %u tour(s)",
 					 specVide.CountExigences(), (uint32)specVide.tours.Size());
 			check("172. LE NEGATIF DE Q4 : sans conversation, la specification ne porte AUCUNE "
 				  "exigence -- elle n'en invente pas une depuis le nom ni depuis le sujet",
@@ -20196,7 +20177,7 @@ namespace nkuidesign {
 			NkString apresChat;
 			docChat.Save(apresChat);
 			const bool intactChat = SameText(avantChat.Data(), apresChat.Data());
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "%u tour(s) echanges, %u exigence(s) ; document %s ; appels au dorsal : %d",
 					 c2.Count(), spec2.CountExigences(),
 					 intactChat ? "INTACT (octet pour octet)" : "MODIFIE", (int)bavard.calls);
@@ -20219,7 +20200,7 @@ namespace nkuidesign {
 			NkDesignConversation c4;
 			NkString errSans;
 			const bool refuseSans = !c4.Envoyer(nullptr, "bonjour", errSans);
-			snprintf(buf, sizeof(buf), "muet : %u tour(s), « %s » ; sans dorsal : %u tour(s), « %s »",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "muet : %u tour(s), « %s » ; sans dorsal : %u tour(s), « %s »",
 					 c3.Count(), errMuet.Data() ? errMuet.Data() : "",
 					 c4.Count(), errSans.Data() ? errSans.Data() : "");
 			check("174. UN DORSAL MUET EST UN REFUS NOMME, pas un silence : le tour de l'HUMAIN "
@@ -20258,7 +20239,7 @@ namespace nkuidesign {
 						&& SameText(docLie.nodes[i].prov.origin.Data(), "spec_essai"))
 						++portes;
 			toutPorte = toutPorte && portes == avecSpec.nodesAdded && portes > 0u;
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "sans spec -> origine=« %s » ; avec spec -> %u noeud(s) portent "
 					 "origine=« spec_essai » sur %u poses",
 					 docLie.nodes[(uint32)sansSpec.graftedRoot].prov.origin.Data(), portes,
@@ -20283,7 +20264,7 @@ namespace nkuidesign {
 				Contains(inviteAvec.Data(), "je veux un ecran de connexion")
 				&& !Contains(inviteSans.Data(), "je veux un ecran de connexion")
 				&& inviteAvec.Length() > inviteSans.Length();
-			snprintf(buf, sizeof(buf), "invite sans spec : %u caracteres ; avec : %u",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "invite sans spec : %u caracteres ; avec : %u",
 					 (uint32)inviteSans.Length(), (uint32)inviteAvec.Length());
 			check("176. LA SPECIFICATION ENTRE DANS L'INVITE, et pas seulement dans la "
 				  "provenance : l'exigence de l'humain s'y retrouve mot pour mot, et elle "
@@ -20328,7 +20309,7 @@ namespace nkuidesign {
 			const bool refusVieux = !proc.Complete(rq, rp3) && rp3.text.Length() == 0;
 			const bool vieuxEfface = !nkentseu::NkFile::Exists("sonde_sortie.txt");
 			const bool inviteEcrite = nkentseu::NkFile::Exists("sonde_invite.txt");
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "sans gabarit : %s | programme absent : %s | vieille sortie : posee=%s, "
 					 "refus=%s, EFFACEE=%s | l'invite a bien ete ecrite : %s",
 					 refusVide ? "refus nomme" : "PAS DE REFUS",
@@ -20360,7 +20341,7 @@ namespace nkuidesign {
 			liste.canned = NkString("- champ identifiant\n- champ mot de passe\n- bouton valider\n");
 			NkString pq2;
 			const bool acceptA = NkSpecification::Affiner(conv, &liste, specA, pq2);
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "avant %u ; apres un dorsal bavard %u (« %s ») ; apres une vraie liste %u",
 					 avantA, apresA, pourquoi.Data() ? pourquoi.Data() : "", specA.CountExigences());
 			check("178. AFFINER N'ECRASE RIEN S'IL ECHOUE. Un modele qui repond « Bien sur ! "
@@ -20451,7 +20432,7 @@ namespace nkuidesign {
 			const bool rejetInerte = propR.Accepted() && !aiR.HasProposal()
 									 && SameText(avantR.Data(), apresR.Data());
 
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "au repos : %u pas pousse(s) en 15 passages | apres la pose : %u | "
 					 "apercu inerte : %s | annulation exacte : %s | rejet inerte : %s",
 					 poussesAuRepos, poussesApres, apercuInerte ? "oui" : "NON",
@@ -20491,7 +20472,7 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < 50u; ++i)
 				if (repos.Recolter(t0, e0, r0))
 					++recoltesAuRepos;
-			snprintf(buf, sizeof(buf), "%u recolte(s) en 50 passages, %u image(s) comptee(s)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u recolte(s) en 50 passages, %u image(s) comptee(s)",
 					 recoltesAuRepos, repos.Images());
 			check("180. LE ZERO DE LA POIGNEE : au repos, 50 passages ne recoltent RIEN et ne "
 				  "comptent AUCUNE image. Un compteur qui monterait sans tache rendrait faux "
@@ -20524,7 +20505,7 @@ namespace nkuidesign {
 				if (poignee.Recolter(txt, err, ok))
 					++apres;
 			const bool refuseDeux = !poignee.Lancer(nullptr, NkString("x"), pourquoi);
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "lance=%d ; %u recolte(s) apres %u tour(s) ; %u image(s) comptee(s) ; "
 					 "%u recolte(s) de plus ensuite ; reponse=\"%s\"",
 					 lance ? 1 : 0, recoltes, tours, poignee.Images(), apres,
@@ -20569,7 +20550,7 @@ namespace nkuidesign {
 				if (!recolte3)
 					nkentseu::NkChrono::Sleep((nkentseu::int64)1);
 			}
-			snprintf(buf, sizeof(buf),
+			nkentseu::NkSnprintf(buf, sizeof(buf),
 					 "lance=%d, libre aussitot=%d, %u remontee(s) apres 400 ms et 200 passages, "
 					 "relance=%d et sa reponse = \"%s\"",
 					 lance2 ? 1 : 0, libreToutDeSuite, remontees, relance ? 1 : 0,
@@ -20584,7 +20565,7 @@ namespace nkuidesign {
 				  buf);
 		}
 
-		snprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
+		nkentseu::NkSnprintf(tail, sizeof(tail), "\n=== RESULTAT : %d / %d ===\n", pass, total);
 		rep.Append(tail);
 
 		fputs(rep.Data(), stdout);

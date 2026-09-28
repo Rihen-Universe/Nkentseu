@@ -837,7 +837,7 @@ namespace nkuidesign {
 				t = 1.f;
 			const nkentseu::uint32 c = NkCouleurDegradeEn(g, t);
 			char hx[12];
-			snprintf(hx, sizeof(hx), "#%02x%02x%02x", (nkentseu::uint32)((c >> 24) & 0xFFu),
+			nkentseu::NkSnprintf(hx, sizeof(hx), "#%02x%02x%02x", (nkentseu::uint32)((c >> 24) & 0xFFu),
 					 (nkentseu::uint32)((c >> 16) & 0xFFu), (nkentseu::uint32)((c >> 8) & 0xFFu));
 			NkArretDegrade ar;
 			ar.position = t;
@@ -2218,10 +2218,10 @@ namespace nkuidesign {
 					const float32 lh = 14.f; // interligne d'un corps 11
 					char etiquette[128];
 					if (!n.target.Empty())
-						snprintf(etiquette, sizeof(etiquette), "%s — %s", name,
+						nkentseu::NkSnprintf(etiquette, sizeof(etiquette), "%s — %s", name,
 								 n.target.Data());
 					else
-						snprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
+						nkentseu::NkSnprintf(etiquette, sizeof(etiquette), "%s — %d × %d", name,
 								 (int)(n.width.value + 0.5f), (int)(n.height.value + 0.5f));
 					// MOBILIER d'éditeur (Lunacy/Figma : l'étiquette garde sa
 					// taille écran quel que soit le zoom) — d'où PAS de

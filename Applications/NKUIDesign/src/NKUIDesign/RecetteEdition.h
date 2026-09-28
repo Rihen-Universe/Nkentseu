@@ -79,7 +79,7 @@ namespace nkuidesign {
 					hooks.onRename = [](void *u, int32, const char *, const char *,
 										const char *nouveau) {
 						auto *t = static_cast<Temoin *>(u);
-						snprintf(t->recu, sizeof(t->recu), "%s", nouveau ? nouveau : "");
+						nkentseu::NkSnprintf(t->recu, sizeof(t->recu), "%s", nouveau ? nouveau : "");
 						++t->fois;
 					};
 
@@ -140,7 +140,7 @@ namespace nkuidesign {
 					// `renameCommit` — ClavierRenommage, une ligne ; prouve au
 					// releve B2. Ici : le drapeau -> onRename part, la saisie
 					// se ferme.)
-					snprintf(m.renameBuf, sizeof(m.renameBuf), "SolRenomme");
+					nkentseu::NkSnprintf(m.renameBuf, sizeof(m.renameBuf), "SolRenomme");
 					m.renameCommit = true;
 					reposer();
 					check("arbre : ENTREE -> valide (onRename porte la nouvelle valeur) et sort",
@@ -150,7 +150,7 @@ namespace nkuidesign {
 					// 1c. ECHAP annule et sort — valeur d'origine INTACTE :
 					// aucun onRename ne part, le libelle du modele n'a pas bouge.
 					dblclicSur(sx, sy);
-					snprintf(m.renameBuf, sizeof(m.renameBuf), "NeDoitPasSortir");
+					nkentseu::NkSnprintf(m.renameBuf, sizeof(m.renameBuf), "NeDoitPasSortir");
 					m.renameCancel = true;
 					reposer();
 					check("arbre : ECHAP -> annule (aucun onRename, libelle intact) et sort",
@@ -161,7 +161,7 @@ namespace nkuidesign {
 					// fait son effet normal — la selection passe a la rangee
 					// cliquee. C'etait LE geste piege du 01/09.
 					dblclicSur(sx, sy);
-					snprintf(m.renameBuf, sizeof(m.renameBuf), "SolParLeClic");
+					nkentseu::NkSnprintf(m.renameBuf, sizeof(m.renameBuf), "SolParLeClic");
 					clicSur(ex, ey); // l'image du clic : la selection agit
 					const bool selectionAgit = (m.active == idEnv);
 					reposer(); // l'image suivante : le commit leve au clic aboutit
@@ -173,7 +173,7 @@ namespace nkuidesign {
 					// Pages) : `renameEatClick` absorbe UN clic hors rangee,
 					// le suivant valide.
 					m.renaming = idSol;
-					snprintf(m.renameBuf, sizeof(m.renameBuf), "PageNee");
+					nkentseu::NkSnprintf(m.renameBuf, sizeof(m.renameBuf), "PageNee");
 					m.renameEatClick = true;
 					clicSur(ex, ey + 400.f); // le clic d'ouverture (hors rangee)
 					const bool mange = (m.renaming == idSol);
@@ -322,7 +322,7 @@ namespace nkuidesign {
 						pv.mEditNode = t;
 						pv.mEditEtiquette = false;
 						pv.mEditRect = {100.f, 100.f, 120.f, 22.f};
-						snprintf(pv.mEditBuf, sizeof(pv.mEditBuf), "%s", frappe);
+						nkentseu::NkSnprintf(pv.mEditBuf, sizeof(pv.mEditBuf), "%s", frappe);
 					};
 					// 2a. ENTREE valide et sort (le champ traduit la touche en
 					// FermerEditionTexte(true) — une ligne ; releve du 31/08).
@@ -386,7 +386,7 @@ namespace nkuidesign {
 						pv.mEditNode = f;
 						pv.mEditEtiquette = true;
 						pv.mEditRect = {200.f, 74.f, 160.f, 22.f};
-						snprintf(pv.mEditBuf, sizeof(pv.mEditBuf), "%s", frappe);
+						nkentseu::NkSnprintf(pv.mEditBuf, sizeof(pv.mEditBuf), "%s", frappe);
 					};
 					// 3a. ENTREE.
 					ouvrirEtiquette("PageRenommee");

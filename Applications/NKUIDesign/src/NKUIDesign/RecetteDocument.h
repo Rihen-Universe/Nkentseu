@@ -69,7 +69,7 @@ static nkentseu::int32 RecetteDocument() {
 		const NkString texte = nkentseu::NkFile::ReadAllText(chemin);
 		const bool lu = !texte.Empty() && doc.Load(texte.Data());
 		char d[320];
-		snprintf(d, sizeof(d), "fichier=%s  titre=%s  noeuds=%u", chemin, doc.title.Data(),
+		nkentseu::NkSnprintf(d, sizeof(d), "fichier=%s  titre=%s  noeuds=%u", chemin, doc.title.Data(),
 				 (uint32)doc.nodes.Size());
 		verdict("1. LE DOCUMENT REEL SE LIT (et la recette DIT lequel elle a lu)",
 				lu && doc.nodes.Size() > 1, d);
@@ -190,18 +190,18 @@ static nkentseu::int32 RecetteDocument() {
 				// consequence du contrat « le plus haut gagne » -- et ca se DIT.
 				++recouverts;
 				if (!premierRecouvert[0])
-					snprintf(premierRecouvert, sizeof(premierRecouvert),
+					nkentseu::NkSnprintf(premierRecouvert, sizeof(premierRecouvert),
 							 " ; recouvert : \"%s\" (n%u) n'a aucun pixel a lui", n.label.Data(),
 							 i);
 			} else if (!premierRate[0])
-				snprintf(premierRate, sizeof(premierRate),
+				nkentseu::NkSnprintf(premierRate, sizeof(premierRate),
 						 " ; 1er RATE = \"%s\" (n%u) -> on reste sur \"%s\" (n%d)",
 						 n.label.Data(), i,
 						 (atteint >= 0) ? doc.nodes[(uint32)atteint].label.Data() : "rien",
 						 atteint);
 		}
 		char d[512];
-		snprintf(d, sizeof(d), "%u rect(s), %u ouvrent le mode, %u entierement recouvert(s)%s%s",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u rect(s), %u ouvrent le mode, %u entierement recouvert(s)%s%s",
 				 nbRect, ouvrent, recouverts, premierRecouvert, premierRate);
 		verdict("2. CHAQUE RECTANGLE DU DOCUMENT REEL ouvre le mode edition de forme depuis son "
 				"CORPS LIBRE (retour 1 de Rodolf)",
@@ -236,12 +236,12 @@ static nkentseu::int32 RecetteDocument() {
 			if (coups > 0) {
 				++ouvrent;
 				if (!premier[0])
-					snprintf(premier, sizeof(premier), " ; ex. \"%s\" (n%u) en %d coup(s)",
+					nkentseu::NkSnprintf(premier, sizeof(premier), " ; ex. \"%s\" (n%u) en %d coup(s)",
 							 n.label.Data(), i, coups);
 			}
 		}
 		char d[320];
-		snprintf(d, sizeof(d),
+		nkentseu::NkSnprintf(d, sizeof(d),
 				 "%u rect(s) a enfants, %u ouvrent le mode, %u des le 1er coup (doit rester 0)%s",
 				 nbConteneurs, ouvrent, auPremierCoup, premier);
 		verdict("5. UN RECTANGLE QUI PORTE DES ENFANTS finit par ouvrir SA forme -- et jamais "
@@ -275,7 +275,7 @@ static nkentseu::int32 RecetteDocument() {
 				++sansSommets;
 		}
 		char d[192];
-		snprintf(d, sizeof(d), "%u texte(s) : %u ouvrent la saisie, %u sans aucun sommet",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u texte(s) : %u ouvrent la saisie, %u sans aucun sommet",
 				 nbTexte, editent, sansSommets);
 		verdict("3. UN TEXTE OUVRE SA SAISIE ET N'A AUCUN SOMMET, dans le document reel "
 				"(retour 2 de Rodolf)",
@@ -298,7 +298,7 @@ static nkentseu::int32 RecetteDocument() {
 		const bool stable = avant.Size() == apres.Size()
 							&& NkComponentDecl::StrEq(avant.Data(), apres.Data());
 		char d[128];
-		snprintf(d, sizeof(d), "%u octets %s", (uint32)avant.Size(),
+		nkentseu::NkSnprintf(d, sizeof(d), "%u octets %s", (uint32)avant.Size(),
 				 stable ? "octet pour octet" : "ONT BOUGE");
 		verdict("4. CONSERVATION : lire, disposer et interroger le document n'ecrit RIEN",
 				stable && avant.Size() > 0, d);
@@ -351,7 +351,7 @@ static nkentseu::int32 RecetteDocument() {
 		const bool temoin = contient(normal, nn, "DISPOSITION")
 							&& !contient(normal, nn, "ÉDITION DE FORME");
 		char d[192];
-		snprintf(d, sizeof(d), "mode forme : %u sections (1re = %s) ; normal : %u sections",
+		nkentseu::NkSnprintf(d, sizeof(d), "mode forme : %u sections (1re = %s) ; normal : %u sections",
 				 nf, nf > 0 ? forme[0] : "?", nn);
 		verdict("6. LE PANNEAU DROIT CHANGE AVEC LA TOILE : « ÉDITION DE FORME » PREMIERE, la "
 				"geometrie REMPLACEE (pas doublee), l'apparence conservee, et le temoin hors "
@@ -422,12 +422,12 @@ static nkentseu::int32 RecetteDocument() {
 			if (dedans && dehors)
 				++pointageOk;
 			else if (!premierRate[0])
-				snprintf(premierRate, sizeof(premierRate),
+				nkentseu::NkSnprintf(premierRate, sizeof(premierRate),
 						 " ; 1er rate = \"%s\" (n%u) dedans=%d dehors=%d", n.label.Data(), i,
 						 dedans ? 1 : 0, dehors ? 1 : 0);
 		}
 		char d[320];
-		snprintf(d, sizeof(d), "%u forme(s) deformee(s), %u attrapables la ou elles se voient%s",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u forme(s) deformee(s), %u attrapables la ou elles se voient%s",
 				 nbEssais, pointageOk, premierRate);
 		verdict("7. SUR SON DOCUMENT : apres avoir tire un sommet HORS de la boite, le POINTAGE "
 				"suit la forme (on l'attrape ou elle est, pas ou elle etait)",
@@ -463,7 +463,7 @@ static nkentseu::int32 RecetteDocument() {
 			if (aMoi && cycle)
 				++arrondissent;
 			else if (!premierRate[0])
-				snprintf(premierRate, sizeof(premierRate),
+				nkentseu::NkSnprintf(premierRate, sizeof(premierRate),
 						 " ; 1er rate = \"%s\" (n%u) au mode=%d cycle %.0f/%.0f/%.0f/%.0f",
 						 n.label.Data(), i, aMoi ? 1 : 0, (double)r1, (double)r2, (double)r3,
 						 (double)r4);
@@ -483,7 +483,7 @@ static nkentseu::int32 RecetteDocument() {
 			(void)NkArrondirSommet(n, 0);
 		}
 		char d[320];
-		snprintf(d, sizeof(d), "%u rect(s) a enfants : %u arrondissent (cycle 0/8/16/32), %u "
+		nkentseu::NkSnprintf(d, sizeof(d), "%u rect(s) a enfants : %u arrondissent (cycle 0/8/16/32), %u "
 							   "dont le CONTOUR PEINT suit%s",
 				 nbC, arrondissent, contourSuit, premierRate);
 		verdict("8. LES FORMES QUI REFUSAIENT HIER : le double-clic appartient au mode, "

@@ -62,7 +62,7 @@ static nkentseu::int32 RecetteTransfo() {
 		NkTransfoPoint(t, 10.f, 20.f, x, y);
 		const bool ok = t.Identite() && x == 137.5f && y == -42.25f;
 		char d[96];
-		snprintf(d, sizeof(d), "(137.5,-42.25) -> (%.4f,%.4f)", x, y);
+		nkentseu::NkSnprintf(d, sizeof(d), "(137.5,-42.25) -> (%.4f,%.4f)", x, y);
 		verdict("1. la transformation neutre ne deplace aucun point, AU BIT PRES", ok, d);
 	}
 	// ── 2. ALLER-RETOUR : l'inverse est vraiment l'inverse ─────────────────
@@ -91,7 +91,7 @@ static nkentseu::int32 RecetteTransfo() {
 					ok = false;
 			}
 		char d[96];
-		snprintf(d, sizeof(d), "20 combinaisons (5 angles x 4 miroirs), pire ecart %.5f px",
+		nkentseu::NkSnprintf(d, sizeof(d), "20 combinaisons (5 angles x 4 miroirs), pire ecart %.5f px",
 				 pireEcart);
 		verdict("2. l'inverse est l'inverse, MIROIR ET ROTATION MELANGES", ok, d);
 	}
@@ -106,7 +106,7 @@ static nkentseu::int32 RecetteTransfo() {
 		NkTransfoPoint(t, 200.f, 200.f, x, y);
 		const bool ok = proche(x, 300.f, 0.01f) && proche(y, 100.f, 0.01f);
 		char d[96];
-		snprintf(d, sizeof(d), "(100,100) -> (%.2f,%.2f), attendu (300,100)", x, y);
+		nkentseu::NkSnprintf(d, sizeof(d), "(100,100) -> (%.2f,%.2f), attendu (300,100)", x, y);
 		verdict("3. 90 degres horaires : le coin haut-gauche passe en haut-droite", ok, d);
 		(void)r;
 	}
@@ -118,7 +118,7 @@ static nkentseu::int32 RecetteTransfo() {
 		NkTransfoPoint(t, 200.f, 200.f, x, y);
 		const bool ok = proche(x, 300.f, 0.001f) && proche(y, 130.f, 0.001f);
 		char d[96];
-		snprintf(d, sizeof(d), "(100,130) -> (%.2f,%.2f), attendu (300,130)", x, y);
+		nkentseu::NkSnprintf(d, sizeof(d), "(100,130) -> (%.2f,%.2f), attendu (300,130)", x, y);
 		verdict("4. le miroir H retourne en X et LAISSE Y", ok, d);
 	}
 	// ── 5. L'ORDRE COMPTE, ET ON LE PROUVE ─────────────────────────────────
@@ -142,7 +142,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const float32 x2 = 200.f + rx, y2 = 200.f + ry;
 		const bool different = !proche(x1, x2, 1.f) || !proche(y1, y2, 1.f);
 		char d[112];
-		snprintf(d, sizeof(d), "notre ordre (%.1f,%.1f) vs ordre inverse (%.1f,%.1f)", x1, y1, x2,
+		nkentseu::NkSnprintf(d, sizeof(d), "notre ordre (%.1f,%.1f) vs ordre inverse (%.1f,%.1f)", x1, y1, x2,
 				 y2);
 		verdict("5. miroir-puis-rotation N'EST PAS rotation-puis-miroir : l'ordre fixe dans le "
 				"fichier est une decision, pas un detail",
@@ -170,7 +170,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const bool ok = tg.deg == 30.f && tg.mh && !tg.mv && te.deg == 45.f && !te.mh && !te.mv
 						&& tp.deg == 50.f && !tp.mh && tp.mv;
 		char d[144];
-		snprintf(d, sizeof(d), "groupe %.0f/H=%d ; enfant %.0f/H=%d ; petit-fils %.0f/H=%d,V=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "groupe %.0f/H=%d ; enfant %.0f/H=%d ; petit-fils %.0f/H=%d,V=%d",
 				 tg.deg, tg.mh ? 1 : 0, te.deg, te.mh ? 1 : 0, tp.deg, tp.mh ? 1 : 0,
 				 tp.mv ? 1 : 0);
 		verdict("6. la rotation S'ACCUMULE le long des ancetres et les miroirs S'ANNULENT deux "
@@ -204,7 +204,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const float32 dd = 60.f * 0.70710678f; // 42,43 px sur chaque axe
 		const bool dansApres = NkPointDansRectTransfo(t, r, 200.f + dd, 200.f + dd);
 		char d[128];
-		snprintf(d, sizeof(d), "centre=%d, (110,200) exclu=%d, (%.0f,%.0f) inclus=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "centre=%d, (110,200) exclu=%d, (%.0f,%.0f) inclus=%d",
 				 centre ? 1 : 0, horsApres ? 1 : 0, 200.f + dd, 200.f + dd, dansApres ? 1 : 0);
 		verdict("7. le picking suit la forme TOURNEE, pas sa boite : un point de la boite en "
 				"sort, un point hors de la boite y entre",
@@ -223,7 +223,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const bool ok = proche(e.w, attendu, 0.5f) && proche(e.h, attendu, 0.5f)
 						&& proche(e.x + e.w * 0.5f, 200.f, 0.01f);
 		char d[128];
-		snprintf(d, sizeof(d), "200x40 a 45 deg -> %.1fx%.1f (attendu %.1f), centre conserve",
+		nkentseu::NkSnprintf(d, sizeof(d), "200x40 a 45 deg -> %.1fx%.1f (attendu %.1f), centre conserve",
 				 e.w, e.h, attendu);
 		verdict("8. l'englobant d'un objet tourne grandit, et son centre ne bouge pas", ok, d);
 	}
@@ -247,7 +247,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const bool enDiagonale = p0.x < r.x && p0.y < r.y && p2.x > r.x + r.w
 								 && p2.y > r.y + r.h;
 		char d[128];
-		snprintf(d, sizeof(d), "%u poignees, coin 0 a (%.0f,%.0f), coin 2 a (%.0f,%.0f)",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u poignees, coin 0 a (%.0f,%.0f), coin 2 a (%.0f,%.0f)",
 				 NkNbPoigneesRotation(), p0.x, p0.y, p2.x, p2.y);
 		verdict("9. les 4 poignees de rotation sont DEHORS et en diagonale : elles ne volent "
 				"pas le geste de redimensionnement",
@@ -266,7 +266,7 @@ static nkentseu::int32 RecetteTransfo() {
 		const bool norm = NkAngleNormalise(370.f) == 10.f && NkAngleNormalise(-90.f) == 270.f
 						  && NkAngleNormalise(0.f) == 0.f;
 		char d[128];
-		snprintf(d, sizeof(d), "0/90/45/180 = %.1f/%.1f/%.1f/%.1f ; aimant %s ; normalise %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "0/90/45/180 = %.1f/%.1f/%.1f/%.1f ; aimant %s ; normalise %s",
 				 NkAngleDeg(0.f, 0.f, 100.f, 0.f), NkAngleDeg(0.f, 0.f, 0.f, 100.f),
 				 NkAngleDeg(0.f, 0.f, 100.f, 100.f), NkAngleDeg(0.f, 0.f, -100.f, 0.f),
 				 aimant ? "ok" : "FAUX", norm ? "ok" : "FAUX");
@@ -337,7 +337,7 @@ static nkentseu::int32 RecetteTransfo() {
 				mv = d1.nodes[i].miroirV;
 			}
 		char d[176];
-		snprintf(d, sizeof(d), "sans : %s%s (%u o) | avec : %.1f deg, H=%d, V=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "sans : %s%s (%u o) | avec : %.1f deg, H=%d, V=%d",
 				 propre ? "aucune cle" : "CLE PARASITE",
 				 stable ? ", octet pour octet" : ", A BOUGE", (uint32)sans.Size(), rot,
 				 mh ? 1 : 0, mv ? 1 : 0);
@@ -368,7 +368,7 @@ static nkentseu::int32 RecetteTransfo() {
 						&& st.doc.nodes[(uint32)copie].miroirV
 						&& !st.doc.nodes[(uint32)copie].miroirH;
 		char d[112];
-		snprintf(d, sizeof(d), "copie : %.0f deg, H=%d, V=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "copie : %.0f deg, H=%d, V=%d",
 				 st.doc.IsValidIndex(copie) ? st.doc.nodes[(uint32)copie].rotation : -1.f,
 				 (st.doc.IsValidIndex(copie) && st.doc.nodes[(uint32)copie].miroirH) ? 1 : 0,
 				 (st.doc.IsValidIndex(copie) && st.doc.nodes[(uint32)copie].miroirV) ? 1 : 0);
@@ -425,7 +425,7 @@ static nkentseu::int32 RecetteTransfo() {
 		// un enfant centre) : c'est la garde qui rend le cas discriminant
 		const bool aBouge = !proche(x, cex, 1.f) || !proche(y, cey, 1.f);
 		char d[160];
-		snprintf(d, sizeof(d), "enfant (%.0f,%.0f) -> (%.0f,%.0f), attendu (%.0f,%.0f)%s", cex,
+		nkentseu::NkSnprintf(d, sizeof(d), "enfant (%.0f,%.0f) -> (%.0f,%.0f), attendu (%.0f,%.0f)%s", cex,
 				 cey, x, y, ax, ay, aBouge ? "" : " [IL N'A PAS BOUGE]");
 		verdict("14. tourner un GROUPE deplace ses enfants autour du centre DU GROUPE : il "
 				"tourne d'un bloc, il ne se disloque pas",
@@ -449,7 +449,7 @@ static nkentseu::int32 RecetteTransfo() {
 		// un point a 200 px de la, lui, n'y est pas
 		const bool dehors = !NkPointDansNoeud(st.doc, st.layout, 2, cx + 200.f, cy);
 		char d[128];
-		snprintf(d, sizeof(d), "aller-retour (%.3f,%.3f), centre dedans=%d, +200px dehors=%d", x,
+		nkentseu::NkSnprintf(d, sizeof(d), "aller-retour (%.3f,%.3f), centre dedans=%d, +200px dehors=%d", x,
 				 y, dedans ? 1 : 0, dehors ? 1 : 0);
 		verdict("15. la matrice s'inverse, et le picking d'un enfant de groupe tourne suit son "
 				"centre la ou il est parti",

@@ -261,10 +261,10 @@ namespace nkuidesign {
 					++rel.coupes;
 					const float32 debord = droite - bord;
 					if (!rel.premier[0])
-						snprintf(rel.premier, sizeof(rel.premier), "%s", t);
+						nkentseu::NkSnprintf(rel.premier, sizeof(rel.premier), "%s", t);
 					if (debord > rel.pireDebord) {
 						rel.pireDebord = debord;
-						snprintf(rel.pire, sizeof(rel.pire), "%s", t);
+						nkentseu::NkSnprintf(rel.pire, sizeof(rel.pire), "%s", t);
 					}
 				}
 			}

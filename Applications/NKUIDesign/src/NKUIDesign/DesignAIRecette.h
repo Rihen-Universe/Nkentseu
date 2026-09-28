@@ -228,7 +228,7 @@ namespace nkuidesign {
 		const NkAIResult sansReponse = ai.Ask(kAsk, doc, 0);
 		const NkString promptEcrit =
 			NkFile::Exists(kPrompt) ? NkFile::ReadAllText(kPrompt) : NkString("");
-		snprintf(buf, sizeof(buf), "verdict=%s, prompt de %u caractères",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "verdict=%s, prompt de %u caractères",
 				 NkAIVerdictName(sansReponse.verdict), (uint32)promptEcrit.Length());
 		check("1. sans réponse, le verdict est « backend muet » et le prompt est ÉCRIT",
 			  sansReponse.verdict == NkAIVerdict::BackendMuet && promptEcrit.Length() > 0, buf);
@@ -245,7 +245,7 @@ namespace nkuidesign {
 		// ou une main) — poser la reponse dans le fichier convenu.
 		NkFile::WriteAllText(kReponse, RecetteReponseConnexion());
 		const NkAIResult pose = ai.Ask(kAsk, doc, 0);
-		snprintf(buf, sizeof(buf), "verdict=%s, +%u noeud(s), %u divergence(s) au rejeu",
+		nkentseu::NkSnprintf(buf, sizeof(buf), "verdict=%s, +%u noeud(s), %u divergence(s) au rejeu",
 				 NkAIVerdictName(pose.verdict), pose.nodesAdded, pose.replayDiffs);
 		check("2. la réponse du FICHIER est validée, rejouée et POSÉE dans le document",
 			  pose.Accepted() && pose.nodesAdded == RecetteNoeudsAttendus() &&
@@ -300,7 +300,7 @@ namespace nkuidesign {
 					boutonVu = true;
 			}
 		}
-		snprintf(buf, sizeof(buf), "%u enfant(s) directs sous la greffe", enfantsDirects);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u enfant(s) directs sous la greffe", enfantsDirects);
 		check("3. l'introspection retrouve le titre, les DEUX champs et le bouton",
 			  titreVu && champ1Vu && champ2Vu && boutonVu && enfantsDirects == 6, buf);
 
@@ -313,7 +313,7 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < doc.NodeCount(); ++i)
 				if (lay.Has((int32)i))
 					++places;
-			snprintf(buf, sizeof(buf), "%u noeud(s) sur %u ont un rectangle", places,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeud(s) sur %u ont un rectangle", places,
 					 doc.NodeCount());
 			check("3b. la mise en page donne un rectangle à CHAQUE noeud, greffe comprise",
 				  places == doc.NodeCount(), buf);
@@ -324,7 +324,7 @@ namespace nkuidesign {
 		const bool racineHumaine = doc.nodes[0].prov.author == NkAuthor::Humain;
 		const bool rejouee =
 			pose.Accepted() && doc.nodes[(uint32)pose.graftedRoot].prov.verified;
-		snprintf(buf, sizeof(buf), "%u noeud(s) d'origine IA, racine %s", ia,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "%u noeud(s) d'origine IA, racine %s", ia,
 				 racineHumaine ? "humaine" : "PAS humaine");
 		check("4. le badge (auteur = ia + rejouée) couvre la greffe et RIEN d'autre",
 			  ia == RecetteNoeudsAttendus() && racineHumaine && rejouee, buf);
@@ -343,7 +343,7 @@ namespace nkuidesign {
 		const bool retire = NkDesignAI::Retract(doc, pose);
 		NkString apresRetrait;
 		doc.Save(apresRetrait);
-		snprintf(buf, sizeof(buf), "retrait=%d, %u noeud(s) restants", retire ? 1 : 0,
+		nkentseu::NkSnprintf(buf, sizeof(buf), "retrait=%d, %u noeud(s) restants", retire ? 1 : 0,
 				 doc.NodeCount());
 		check("5. Retract retire la greffe ENTIÈRE et le document redevient IDENTIQUE "
 			  "octet pour octet",
@@ -388,7 +388,7 @@ namespace nkuidesign {
 			const NkAIResult prop = ai.Propose(kAsk, doc);
 			NkString apresPropose;
 			doc.Save(apresPropose);
-			snprintf(buf, sizeof(buf), "verdict=%s, proposition de %u noeud(s)",
+			nkentseu::NkSnprintf(buf, sizeof(buf), "verdict=%s, proposition de %u noeud(s)",
 					 NkAIVerdictName(prop.verdict),
 					 ai.HasProposal() ? ai.Proposal().NodeCount() : 0u);
 			check("7. Propose valide et rejoue SANS toucher au document (octet pour octet)",
@@ -412,7 +412,7 @@ namespace nkuidesign {
 			// 7d. Proposer puis committer POSE — par la meme porte.
 			const NkAIResult prop2 = ai.Propose(kAsk, doc);
 			const NkAIResult commit = prop2.Accepted() ? ai.CommitProposal(doc, 0) : NkAIResult();
-			snprintf(buf, sizeof(buf), "+%u noeud(s) au Commit", commit.nodesAdded);
+			nkentseu::NkSnprintf(buf, sizeof(buf), "+%u noeud(s) au Commit", commit.nodesAdded);
 			check("7d. Propose puis Commit pose la greffe, badge compris",
 				  commit.Accepted() && commit.nodesAdded == RecetteNoeudsAttendus() &&
 					  doc.nodes[(uint32)commit.graftedRoot].prov.author == NkAuthor::IA &&
@@ -461,7 +461,7 @@ namespace nkuidesign {
 			NkAiRectPublie rc;
 			const uint32 id = fil.Taille() ? fil.At(0).id : 0u;
 			const bool vu = plan.Trouver(id, NkAiPiece::Texte, rc);
-			snprintf(buf, sizeof(buf), "publiee a (%.0f,%.0f) sur %.0f px", (double)rc.x,
+			nkentseu::NkSnprintf(buf, sizeof(buf), "publiee a (%.0f,%.0f) sur %.0f px", (double)rc.x,
 				  (double)rc.y, (double)rc.w);
 			check("8b. et le peintre la PUBLIE -- ce n est pas qu un etat range",
 				  vu && rc.w > 0.f && rc.h > 0.f, buf);
@@ -533,7 +533,7 @@ namespace nkuidesign {
 		NkFile::Delete(kPrompt);
 		NkFile::Delete(kReponse);
 
-		snprintf(buf, sizeof(buf), "\n=== RÉSULTAT : %d / %d ===\n", pass, total);
+		nkentseu::NkSnprintf(buf, sizeof(buf), "\n=== RÉSULTAT : %d / %d ===\n", pass, total);
 		rep.Append(buf);
 
 		fputs(rep.Data(), stdout);

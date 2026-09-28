@@ -109,7 +109,7 @@ static nkentseu::int32 RecetteSelection() {
 		NkAppliquerGeste(st.doc, st.sel, st.selected, a, NkGesteSel::Basculer);
 		const bool ok = st.sel.Count() == 1 && st.sel.Primary() == a && !st.sel.Contains(0);
 		char d[96];
-		snprintf(d, sizeof(d), "compte=%u, principal=%d (racine %s)", st.sel.Count(),
+		nkentseu::NkSnprintf(d, sizeof(d), "compte=%u, principal=%d (racine %s)", st.sel.Count(),
 				 st.sel.Primary(), st.sel.Contains(0) ? "PRESENTE" : "absente");
 		verdict("2. Maj+clic depuis l'etat de demarrage : la RACINE ne rentre pas dans la "
 				"selection",
@@ -130,7 +130,7 @@ static nkentseu::int32 RecetteSelection() {
 		NkAppliquerGeste(st.doc, st.sel, st.selected, c, NkGesteSel::Remplacer);
 		const uint32 remplace = st.sel.Count();
 		char d[96];
-		snprintf(d, sizeof(d), "ajout=%u, retrait=%u, remplacement=%u", deux, un, remplace);
+		nkentseu::NkSnprintf(d, sizeof(d), "ajout=%u, retrait=%u, remplacement=%u", deux, un, remplace);
 		verdict("3. Basculer ajoute puis RETIRE ; Remplacer ecrase (1, pas 3)",
 				deux == 2 && un == 1 && remplace == 1 && st.sel.Primary() == c, d);
 	}
@@ -141,7 +141,7 @@ static nkentseu::int32 RecetteSelection() {
 		NkAppliquerGeste(st.doc, st.sel, st.selected, a, NkGesteSel::Basculer);
 		NkAppliquerGeste(st.doc, st.sel, st.selected, c, NkGesteSel::Basculer);
 		char d[96];
-		snprintf(d, sizeof(d), "principal=%d (B=%d), compte=%u", st.selected, b,
+		nkentseu::NkSnprintf(d, sizeof(d), "principal=%d (B=%d), compte=%u", st.selected, b,
 				 st.sel.Count());
 		verdict("4. le PRINCIPAL reste le premier designe, pas le dernier",
 				st.selected == b && st.sel.Count() == 3, d);
@@ -160,7 +160,7 @@ static nkentseu::int32 RecetteSelection() {
 		const float32 x1 = (ra.x + ra.w) > (rb.x + rb.w) ? (ra.x + ra.w) : (rb.x + rb.w);
 		const float32 y1 = (ra.y + ra.h) > (rb.y + rb.h) ? (ra.y + ra.h) : (rb.y + rb.h);
 		char d[128];
-		snprintf(d, sizeof(d), "englobant (%.0f,%.0f %.0fx%.0f), attendu (%.0f,%.0f %.0fx%.0f)",
+		nkentseu::NkSnprintf(d, sizeof(d), "englobant (%.0f,%.0f %.0fx%.0f), attendu (%.0f,%.0f %.0fx%.0f)",
 				 eng.x, eng.y, eng.w, eng.h, x0, y0, x1 - x0, y1 - y0);
 		verdict("5. l'englobant de la multi-selection couvre EXACTEMENT les deux",
 				ok && eng.x == x0 && eng.y == y0 && eng.w == x1 - x0 && eng.h == y1 - y0, d);
@@ -174,7 +174,7 @@ static nkentseu::int32 RecetteSelection() {
 		const bool ok = NkRectSelection(st.doc, st.layout, st.sel, eng);
 		const NkPaintRect rb = st.layout.At(b);
 		char d[112];
-		snprintf(d, sizeof(d), "englobant (%.0f,%.0f %.0fx%.0f), B (%.0f,%.0f %.0fx%.0f)",
+		nkentseu::NkSnprintf(d, sizeof(d), "englobant (%.0f,%.0f %.0fx%.0f), B (%.0f,%.0f %.0fx%.0f)",
 				 eng.x, eng.y, eng.w, eng.h, rb.x, rb.y, rb.w, rb.h);
 		verdict("5b. l'englobant IGNORE la racine : sinon elle couvrirait toute la page et "
 				"la boite ne dirait plus rien",
@@ -195,7 +195,7 @@ static nkentseu::int32 RecetteSelection() {
 		const bool commune = NkValeurCommune(st.doc, st.sel,
 											 [](const NkUINode &n) { return n.width.value; }, w);
 		char d[112];
-		snprintf(d, sizeof(d), "largeurs differentes -> %s ; egalisees -> %s (%.0f)",
+		nkentseu::NkSnprintf(d, sizeof(d), "largeurs differentes -> %s ; egalisees -> %s (%.0f)",
 				 mixte ? "MIXTE" : "commune", commune ? "commune" : "mixte", w);
 		verdict("6. valeur commune / valeur MIXTE : l'Inspecteur saura quand ecrire un tiret",
 				mixte && commune && w == 100.f, d);
@@ -213,7 +213,7 @@ static nkentseu::int32 RecetteSelection() {
 		NkSelection loin;
 		NkPickInRect(st.doc, st.layout, {5000.f, 5000.f, 10.f, 10.f}, loin);
 		char d[112];
-		snprintf(d, sizeof(d), "effleure A -> %s ; loin de tout -> %u element(s)",
+		nkentseu::NkSnprintf(d, sizeof(d), "effleure A -> %s ; loin de tout -> %u element(s)",
 				 prisA ? "PRIS" : "rate", loin.Count());
 		verdict("7. le rectangle prend ce qu'il TOUCHE (pas ce qu'il contient), et rien "
 				"quand il est loin",
@@ -237,7 +237,7 @@ static nkentseu::int32 RecetteSelection() {
 		st.doc.Save(apres);
 		const bool dit = ancree(avant) && ancree(apres);
 		char d[112];
-		snprintf(d, sizeof(d), "document %s%s",
+		nkentseu::NkSnprintf(d, sizeof(d), "document %s%s",
 				 (avant.Compare(apres) == 0) ? "INCHANGE" : "MODIFIE",
 				 dit ? "" : ", SERIALISATION MUETTE");
 		verdict("8. CONSERVATION : selectionner, basculer, mesurer l'englobant et lire les "

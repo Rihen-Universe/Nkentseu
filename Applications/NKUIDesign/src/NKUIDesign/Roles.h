@@ -172,7 +172,7 @@ namespace nkuidesign {
 				out = NkString("");
 				char b[128];
 				// Les comptes du KIT : c est lui qui resout et qui imprime.
-				snprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
+				nkentseu::NkSnprintf(b, sizeof(b), "%u role(s) NON RESOLU(S), %u rattrape(s) par canonisation",
 						 KitFaultCount() + FaultCount(),
 						 KitRescuedCount() + RescuedCount());
 				out.Append(b);
@@ -243,7 +243,7 @@ namespace nkuidesign {
 				}
 				if (n > shown) {
 					char b[48];
-					snprintf(b, sizeof(b), " (+%u)", n - shown);
+					nkentseu::NkSnprintf(b, sizeof(b), " (+%u)", n - shown);
 					out.Append(b);
 				}
 			}

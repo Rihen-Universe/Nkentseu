@@ -101,7 +101,7 @@ static nkentseu::int32 RecetteSnap() {
 		const bool ok = s.guideV.actif && s.dx == -3.f && s.guideV.coord == rv.x
 						&& s.guideV.voisin == voisin;
 		char d[128];
-		snprintf(d, sizeof(d), "dx=%.1f (attendu -3), guide x=%.1f (bord voisin %.1f), voisin=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f (attendu -3), guide x=%.1f (bord voisin %.1f), voisin=%d",
 				 s.dx, s.guideV.coord, rv.x, s.guideV.voisin);
 		verdict("bord a 3 px du bord voisin : snap EXACT, guide sur le bord", ok, d);
 	}
@@ -122,7 +122,7 @@ static nkentseu::int32 RecetteSnap() {
 		const float32 dx = (rv.x + 33.f) - rm.x;
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tol6);
 		char d[96];
-		snprintf(d, sizeof(d), "dx=%.1f, guideV=%s", s.dx, s.guideV.actif ? "oui" : "non");
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f, guideV=%s", s.dx, s.guideV.actif ? "oui" : "non");
 		verdict("a 33 px (candidat le plus proche a 7) : RIEN ne colle, aucun guide",
 				s.dx == 0.f && !s.guideV.actif, d);
 	}
@@ -133,7 +133,7 @@ static nkentseu::int32 RecetteSnap() {
 		const float32 dx = (rv.x + 3.f) - rm.x;
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), 0.f);
 		char d[96];
-		snprintf(d, sizeof(d), "dx=%.1f, aimante=%s", s.dx, s.Aimante() ? "oui" : "non");
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f, aimante=%s", s.dx, s.Aimante() ? "oui" : "non");
 		verdict("aimant eteint (tolerance nulle) : le meme geste ne colle plus",
 				s.dx == 0.f && !s.Aimante(), d);
 	}
@@ -149,7 +149,7 @@ static nkentseu::int32 RecetteSnap() {
 			NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tolZoom4);
 		st.view.zoom = 1.f;
 		char d[112];
-		snprintf(d, sizeof(d), "tolerance zoom 4 = %.2f unites, dx=%.1f", tolZoom4, s.dx);
+		nkentseu::NkSnprintf(d, sizeof(d), "tolerance zoom 4 = %.2f unites, dx=%.1f", tolZoom4, s.dx);
 		verdict("la tolerance suit le ZOOM : 3 unites ne collent plus au zoom 4",
 				tolZoom4 == 1.5f && s.dx == 0.f, d);
 	}
@@ -163,7 +163,7 @@ static nkentseu::int32 RecetteSnap() {
 		const float32 dy = (cv + 2.f) - cm; // centre du mobile a 2 px sous celui du voisin
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, 0.f, dy), tol6);
 		char d[112];
-		snprintf(d, sizeof(d), "dy=%.1f (attendu -2), guide y=%.1f (centre voisin %.1f)", s.dy,
+		nkentseu::NkSnprintf(d, sizeof(d), "dy=%.1f (attendu -2), guide y=%.1f (centre voisin %.1f)", s.dy,
 				 s.guideH.coord, cv);
 		verdict("centre contre centre : le guide se pose sur le CENTRE du voisin",
 				s.guideH.actif && s.dy == -2.f && s.guideH.coord == cv, d);
@@ -176,7 +176,7 @@ static nkentseu::int32 RecetteSnap() {
 		const float32 dx = (rp.x + 4.f) - rm.x;
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, mobile, rectDe(mobile, dx, 0.f), tol6);
 		char d[112];
-		snprintf(d, sizeof(d), "dx=%.1f (attendu -4), voisin=%d (-1 = la page)", s.dx,
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f (attendu -4), voisin=%d (-1 = la page)", s.dx,
 				 s.guideV.voisin);
 		verdict("la PAGE aimante comme un voisin, et le guide le dit (voisin = -1)",
 				s.guideV.actif && s.dx == -4.f && s.guideV.voisin == -1, d);
@@ -204,7 +204,7 @@ static nkentseu::int32 RecetteSnap() {
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, m, st.layout.At(m), tol6);
 		const NkPaintRect rp = st.layout.At(cadre);
 		char d[144];
-		snprintf(d, sizeof(d), "dx=%.1f (attendu 4), badge=%s, ecart=%.1f (attendu 80)", s.dx,
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f (attendu 4), badge=%s, ecart=%.1f (attendu 80)", s.dx,
 				 s.guideV.badge ? "oui" : "non", s.guideV.ecart);
 		verdict("espacement EGAL : la place du milieu aimante, et l'ecart se DIT",
 				s.guideV.actif && s.dx == 4.f && s.guideV.badge && s.guideV.ecart == 80.f
@@ -252,7 +252,7 @@ static nkentseu::int32 RecetteSnap() {
 		// loin (bords a 0 et 600). Rien ne doit coller.
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, m, st.layout.At(m), tol6);
 		char d[96];
-		snprintf(d, sizeof(d), "dx=%.1f dy=%.1f, aimante=%s", s.dx, s.dy,
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f dy=%.1f, aimante=%s", s.dx, s.dy,
 				 s.Aimante() ? "oui" : "non");
 		verdict("ni soi-meme ni son enfant : au milieu de la page, rien ne colle",
 				!s.Aimante(), d);
@@ -300,7 +300,7 @@ static nkentseu::int32 RecetteSnap() {
 				if (s.mesures[i].valeur != 60.f)
 					deuxMesures = false;
 		char d[176];
-		snprintf(d, sizeof(d), "dx=%.1f (attendu -4), ecart=%.0f (attendu 60), %u mesure(s) "
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f (attendu -4), ecart=%.0f (attendu 60), %u mesure(s) "
 							   "ecrite(s) [%.0f, %.0f]",
 				 s.dx, s.guideV.ecart, s.nbMesures, s.nbMesures > 0 ? s.mesures[0].valeur : -1.f,
 				 s.nbMesures > 1 ? s.mesures[1].valeur : -1.f);
@@ -335,7 +335,7 @@ static nkentseu::int32 RecetteSnap() {
 		const NkPaintRect rp = st.layout.At(cadre);
 		const NkSnapResultat s = NkCalculerSnap(st.doc, st.layout, m, st.layout.At(m), tol6);
 		char d[144];
-		snprintf(d, sizeof(d), "dx=%.1f (attendu 3), guide x=%.0f (attendu %.0f), ecart=%.0f",
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f (attendu 3), guide x=%.0f (attendu %.0f), ecart=%.0f",
 				 s.dx, s.guideV.coord, rp.x + 340.f, s.guideV.ecart);
 		verdict("10. l'espacement repete marche AUSSI vers la gauche : on construit une serie "
 				"dans les deux sens",
@@ -377,7 +377,7 @@ static nkentseu::int32 RecetteSnap() {
 			if (s.mesures[i].valeur == 0.f)
 				aucuneMesureNulle = false;
 		char d[144];
-		snprintf(d, sizeof(d), "dx=%.1f, badge=%s, ecart=%.1f, %u mesure(s)", s.dx,
+		nkentseu::NkSnprintf(d, sizeof(d), "dx=%.1f, badge=%s, ecart=%.1f, %u mesure(s)", s.dx,
 				 s.guideV.badge ? "oui" : "non", s.guideV.ecart, s.nbMesures);
 		verdict("11. deux blocs COLLES ne fabriquent pas un motif d'espacement 0 (sinon "
 				"l'aimant devient de la glu)",

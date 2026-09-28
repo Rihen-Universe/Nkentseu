@@ -144,7 +144,7 @@ static nkentseu::int32 RecettePoints() {
 			return NkSommetsDe(st.doc.nodes[(uint32)i], st.layout.At(i), xy, 32);
 		};
 		char d[144];
-		snprintf(d, sizeof(d), "ligne=%u, triangle=%u, pentagone=%u, etoile=%u, rect=%u, "
+		nkentseu::NkSnprintf(d, sizeof(d), "ligne=%u, triangle=%u, pentagone=%u, etoile=%u, rect=%u, "
 							   "ellipse=%u, texte=%u",
 				 nb(iL), nb(iT), nb(iP), nb(iE), nb(iR), nb(iEl), nb(iX));
 		verdict("3. le compte des sommets : 2 / 3 / 5 / 10 / 4 (coins du rect) / 12 (courbe "
@@ -168,7 +168,7 @@ static nkentseu::int32 RecettePoints() {
 							 && xy[2] == r1.x + r1.w && xy[3] == r1.y + r1.h;
 		const bool monte = n2 == 2 && xu[1] == r2.y + r2.h && xu[3] == r2.y;
 		char d[112];
-		snprintf(d, sizeof(d), "line (%.0f,%.0f)->(%.0f,%.0f) ; line_up y %.0f->%.0f", xy[0],
+		nkentseu::NkSnprintf(d, sizeof(d), "line (%.0f,%.0f)->(%.0f,%.0f) ; line_up y %.0f->%.0f", xy[0],
 				 xy[1], xy[2], xy[3], xu[1], xu[3]);
 		verdict("4. les bouts d'une ligne SONT la diagonale de sa boite, et `line_up` "
 				"monte",
@@ -194,7 +194,7 @@ static nkentseu::int32 RecettePoints() {
 		NkMaterialiserSommets(st.doc.nodes[(uint32)iE]);
 		const bool idem = st.doc.nodes[(uint32)iE].sommets.Size() == 10;
 		char d[112];
-		snprintf(d, sizeof(d), "%u -> %u sommets, positions %s, 2e appel : %u", nA, nB,
+		nkentseu::NkSnprintf(d, sizeof(d), "%u -> %u sommets, positions %s, 2e appel : %u", nA, nB,
 				 memes ? "IDENTIQUES" : "DEPLACEES",
 				 (uint32)st.doc.nodes[(uint32)iE].sommets.Size());
 		verdict("5. materialiser une etoile ne DEPLACE aucun sommet, et n'est pas cumulatif",
@@ -240,7 +240,7 @@ static nkentseu::int32 RecettePoints() {
 						&& st.doc.nodes[(uint32)iIm].sommets.Empty()
 						&& st.doc.nodes[(uint32)iL].sommets.Empty() && memes;
 		char d[128];
-		snprintf(d, sizeof(d), "rect=%u, ellipse=%u, image=%u, ligne=%u | coins %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "rect=%u, ellipse=%u, image=%u, ligne=%u | coins %s",
 				 (uint32)st.doc.nodes[(uint32)iR].sommets.Size(),
 				 (uint32)st.doc.nodes[(uint32)iEl].sommets.Size(),
 				 (uint32)st.doc.nodes[(uint32)iIm].sommets.Size(),
@@ -273,7 +273,7 @@ static nkentseu::int32 RecettePoints() {
 						   && StrEq(r1.nodes[(uint32)iE].shape.Data(), "etoile")
 						   && r1.nodes[(uint32)iE].sommets.Empty();
 		char d[128];
-		snprintf(d, sizeof(d), "octets %s, cle `sommet_` %s, forme %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "octets %s, cle `sommet_` %s, forme %s",
 				 (lu1 && a1.Compare(a2) == 0) ? "IDENTIQUES" : "DIFFERENTS",
 				 sansCle ? "absente" : "APPARUE", garde ? "gardee" : "PERDUE");
 		verdict("7. une etoile REGULIERE ne gagne aucune cle de sommets et se reenregistre "
@@ -297,7 +297,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool champs = rn && rn->sommets.Size() == 10 && rn->sommets[3].x == -0.25f
 							&& rn->sommets[3].y == 0.75f;
 		char d[112];
-		snprintf(d, sizeof(d), "%u sommet(s), le 4e (%.2f, %.2f), octets %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u sommet(s), le 4e (%.2f, %.2f), octets %s",
 				 rn ? (uint32)rn->sommets.Size() : 0u, rn ? rn->sommets[3].x : -9.f,
 				 rn ? rn->sommets[3].y : -9.f,
 				 (lu2 && b1.Compare(b2) == 0) ? "IDENTIQUES" : "DIFFERENTS");
@@ -314,7 +314,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool ok = st.doc.IsValidIndex(j) && st.doc.nodes[(uint32)j].sommets.Size() == 10
 						&& st.doc.nodes[(uint32)j].sommets[0].x == 0.5f;
 		char d[96];
-		snprintf(d, sizeof(d), "%u sommet(s) copie(s)",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u sommet(s) copie(s)",
 				 st.doc.IsValidIndex(j) ? (uint32)st.doc.nodes[(uint32)j].sommets.Size() : 0u);
 		verdict("9. copier un sous-arbre emporte les sommets deplaces", ok, d);
 	}
@@ -334,7 +334,7 @@ static nkentseu::int32 RecettePoints() {
 		NkString apres;
 		st.doc.Save(apres);
 		char d[96];
-		snprintf(d, sizeof(d), "document %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "document %s",
 				 (avant.Compare(apres) == 0) ? "INCHANGE" : "MODIFIE");
 		verdict("10. CONSERVATION : lire les sommets et interroger la table n'ecrit RIEN",
 				ancree(avant) && avant.Compare(apres) == 0, d);
@@ -373,7 +373,7 @@ static nkentseu::int32 RecettePoints() {
 				autresFixes = false;
 		}
 		char d[144];
-		snprintf(d, sizeof(d), "3e sommet (%.1f,%.1f) -> (%.1f,%.1f), attendu (%.1f,%.1f) ; "
+		nkentseu::NkSnprintf(d, sizeof(d), "3e sommet (%.1f,%.1f) -> (%.1f,%.1f), attendu (%.1f,%.1f) ; "
 							   "les autres %s",
 				 avant[4], avant[5], apres[4], apres[5], attX, attY,
 				 autresFixes ? "fixes" : "ONT BOUGE");
@@ -439,7 +439,7 @@ static nkentseu::int32 RecettePoints() {
 			&& (peut(iE) == (issue(iE) == NkIssueDblClic::ModePoints))
 			&& (peut(iT) == (issue(iT) == NkIssueDblClic::ModePoints));
 		char d[128];
-		snprintf(d, sizeof(d), "rect=%d, ellipse=%d, image=%d | ligne=%d, etoile=%d, texte=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "rect=%d, ellipse=%d, image=%d | ligne=%d, etoile=%d, texte=%d",
 				 peut(iR) ? 1 : 0, peut(iEl) ? 1 : 0, peut(iIm) ? 1 : 0, peut(iL) ? 1 : 0,
 				 peut(iE) ? 1 : 0, peut(iT) ? 1 : 0);
 		verdict("13. les deux voies d'entree du mode points disent la MEME chose forme par "
@@ -489,7 +489,7 @@ static nkentseu::int32 RecettePoints() {
 				if (phrases[i] && phrases[j] && NkComponentDecl::StrEq(phrases[i], phrases[j]))
 					toutesDistinctes = false;
 		char d[96];
-		snprintf(d, sizeof(d), "%u suites, toutes %s et %s", n,
+		nkentseu::NkSnprintf(d, sizeof(d), "%u suites, toutes %s et %s", n,
 				 toutesParlent ? "parlantes" : "PAS TOUTES PARLANTES",
 				 toutesDistinctes ? "distinctes" : "PAS TOUTES DISTINCTES");
 		verdict("15. CHAQUE suite du double-clic produit une raison DITE, et deux suites ne "
@@ -554,7 +554,7 @@ static nkentseu::int32 RecettePoints() {
 						&& candB == iG && enfB < 0 && sB == NkSuiteDblClic::ForerSansEnfant
 						&& raison && *raison;
 		char d[160];
-		snprintf(d, sizeof(d), "sur l'enfant : cand=%d enfant=%d ; au corps : cand=%d enfant=%d, "
+		nkentseu::NkSnprintf(d, sizeof(d), "sur l'enfant : cand=%d enfant=%d ; au corps : cand=%d enfant=%d, "
 							   "raison %s",
 				 candA, enfA, candB, enfB, (raison && *raison) ? "DITE" : "MUETTE");
 		verdict("16. le CORPS d'un groupe n'est pas un trou : le double-clic y entre quand meme "
@@ -585,7 +585,7 @@ static nkentseu::int32 RecettePoints() {
 				coherent = false; // raison decorative
 		}
 		char d[96];
-		snprintf(d, sizeof(d), "%u entrees, chacune parlante", (uint32)menu.n);
+		nkentseu::NkSnprintf(d, sizeof(d), "%u entrees, chacune parlante", (uint32)menu.n);
 		verdict("17. menu contextuel : qui n'agit pas DIT pourquoi, et qui agit ne dit rien "
 				"d'inutile",
 				coherent, d);
@@ -616,7 +616,7 @@ static nkentseu::int32 RecettePoints() {
 				uneDifference = true;
 		}
 		char d[128];
-		snprintf(d, sizeof(d), "%u vs %u entrees, actions %s, applicabilite %s", (uint32)mt.n,
+		nkentseu::NkSnprintf(d, sizeof(d), "%u vs %u entrees, actions %s, applicabilite %s", (uint32)mt.n,
 				 (uint32)ml.n, memesActions ? "IDENTIQUES" : "DIVERGENTES",
 				 uneDifference ? "differente" : "IDENTIQUE (surfaceListe non honore)");
 		verdict("18. toile et hierarchie : MEME jeu d'entrees, applicabilite differente",
@@ -646,7 +646,7 @@ static nkentseu::int32 RecettePoints() {
 			if (NkIconeCtxAgit((NkIconeCtx)i, vide))
 				aucuneNAgit = false;
 		char d[112];
-		snprintf(d, sizeof(d), "%u icones, %s ; sur la racine : %s", n,
+		nkentseu::NkSnprintf(d, sizeof(d), "%u icones, %s ; sur la racine : %s", n,
 				 toutesParlent ? "toutes parlantes dans les 2 etats" : "UNE MUETTE",
 				 aucuneNAgit ? "aucune n'agit" : "UNE AGIT");
 		verdict("19. la rangee d'icones parle dans les DEUX etats, et son applicabilite suit le "
@@ -689,7 +689,7 @@ static nkentseu::int32 RecettePoints() {
 		const NkPaintRect g = NkRectDeTrace(100.f, 100.f, 200.f, 108.f, true, false, true);
 		const bool ligneH = g.h == 0.f && g.w == 100.f;
 		char d[176];
-		snprintf(d, sizeof(d), "nu=%d arriere=%d carre=%d centre=%d les2=%d ligneH=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "nu=%d arriere=%d carre=%d centre=%d les2=%d ligneH=%d",
 				 nu ? 1 : 0, arriere ? 1 : 0, carre ? 1 : 0, centre ? 1 : 0, lesDeux ? 1 : 0,
 				 ligneH ? 1 : 0);
 		verdict("27. le trace : glisser nu, vers l'arriere sans glisser sous la main, Maj = "
@@ -738,7 +738,7 @@ static nkentseu::int32 RecettePoints() {
 		const uint32 nbC = NkContourDe(n, r, ct, 128);
 		const bool contourBouge = nbC == nb && (ct[0] != anc[0] || ct[1] != anc[1]);
 		char d[176];
-		snprintf(d, sizeof(d), "%u ancres, pire ecart a la courbe %.4f ; boite %s ; contour %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u ancres, pire ecart a la courbe %.4f ; boite %s ; contour %s",
 				 nb, pireEcart, boiteIntacte ? "INTACTE" : "A BOUGE",
 				 contourBouge ? "a bouge" : "IDENTIQUE");
 		verdict("26. les ancres d'une ellipse sont SUR la courbe (pas aux coins de sa boite), "
@@ -774,7 +774,7 @@ static nkentseu::int32 RecettePoints() {
 			!NkModePointsArme(21, -1) && NkAQuiLaPoignee(21, -1) == NkProprioPoignee::Aucune;
 		const bool pasDeMode = !NkModePointsArme(-1, 21);
 		char d[160];
-		snprintf(d, sizeof(d), "arme(21,21)=%d ; autre selection=%d ; vide=%d ; sans mode=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "arme(21,21)=%d ; autre selection=%d ; vide=%d ; sans mode=%d",
 				 armeOk ? 1 : 0, sortSurAutreSelection ? 1 : 0, sortSurVide ? 1 : 0,
 				 pasDeMode ? 1 : 0);
 		verdict("24. le mode points n'est arme QUE sur le noeud selectionne -- changer de "
@@ -852,7 +852,7 @@ static nkentseu::int32 RecettePoints() {
 				}
 			}
 			char d[184];
-			snprintf(d, sizeof(d),
+			nkentseu::NkSnprintf(d, sizeof(d),
 					 "%u noeuds : %u textes, %u cadres, %u groupes, %u formes editables ; "
 					 "%u faute(s)",
 					 (uint32)vrai.nodes.Size(), nTexte, nCadre, nGroupe, nFormes, fautes);
@@ -910,7 +910,7 @@ static nkentseu::int32 RecettePoints() {
 				aimantCoche = m.items[i].coche;
 		}
 		char d[160];
-		snprintf(d, sizeof(d), "%u entrees, %u agissent ; grille cochee=%d, aimant coche=%d ; %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "%u entrees, %u agissent ; grille cochee=%d, aimant coche=%d ; %s",
 				 (uint32)m.n, nAgit, grilleCochee ? 1 : 0, aimantCoche ? 1 : 0,
 				 aucuneCocheFantome ? "aucune coche fantome" : "UNE COCHE SUR UNE ENTREE INERTE");
 		verdict("23. menu du VIDE : chaque entree agit ou dit pourquoi, les coches lisent "
@@ -952,7 +952,7 @@ static nkentseu::int32 RecettePoints() {
 		// et le sommet neuf est VIF : l'arrondi ne s'herite pas d'un voisin.
 		const bool vif = neuf >= 0 && st.doc.nodes[(uint32)iR].sommets[(uint32)neuf].rayon == 0.f;
 		char d[128];
-		snprintf(d, sizeof(d), "contour %u -> %u pts, ancre neuve #%d a (%.1f,%.1f), rayon %s",
+		nkentseu::NkSnprintf(d, sizeof(d), "contour %u -> %u pts, ancre neuve #%d a (%.1f,%.1f), rayon %s",
 				 cA, cB, neuf + 1, nAnc > 2 ? anc[4] : 0.f, nAnc > 2 ? anc[5] : 0.f,
 				 vif ? "0 (vif)" : "HERITE");
 		verdict("20. ajouter un sommet le pose SUR le cote, sans deformer la forme, et il "
@@ -984,7 +984,7 @@ static nkentseu::int32 RecettePoints() {
 		float32 anc[64];
 		const uint32 nAnc = NkSommetsDe(st.doc.nodes[(uint32)iR], r, anc, 32);
 		char d[128];
-		snprintf(d, sizeof(d), "contour %u -> %u pts, cycle %.0f/%.0f/%.0f/%.0f, %u ancres",
+		nkentseu::NkSnprintf(d, sizeof(d), "contour %u -> %u pts, cycle %.0f/%.0f/%.0f/%.0f, %u ancres",
 				 cVif, cRond, r1, r2, r3, r4, nAnc);
 		verdict("21. arrondir un sommet AJOUTE DES POINTS AU CONTOUR PEINT (le champ agit, il "
 				"n'est pas seulement enregistre), le cycle boucle a vif, et les 4 ancres "
@@ -1036,7 +1036,7 @@ static nkentseu::int32 RecettePoints() {
 			if (d2.nodes[i].sommets.Size() == 4)
 				relu = d2.nodes[i].sommets[1].rayon;
 		char dd[176];
-		snprintf(dd, sizeof(dd), "%ssans rayon : %s (%u o), avec rayon 12 -> relu %.0f",
+		nkentseu::NkSnprintf(dd, sizeof(dd), "%ssans rayon : %s (%u o), avec rayon 12 -> relu %.0f",
 				 aDesSommets ? "" : "AUCUN SOMMET A MATERIALISER (le rect ne stocke plus) | ",
 				 stable ? "octet pour octet" : "A BOUGE", (uint32)sansR.Size(), relu);
 		verdict("22. CONSERVATION : un trace a coins vifs se reecrit octet pour octet (le "
@@ -1098,7 +1098,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool litLeDeplace = NkLireSommet(st.doc.nodes[(uint32)iE], 3, dx, dy, dr)
 								  && dx == -0.75f && dr == 12.f;
 		char d[224];
-		snprintf(d, sizeof(d),
+		nkentseu::NkSnprintf(d, sizeof(d),
 				 "rect=%u sommets, etoile=%u ; %u octets %s ; memes nombres=%d ; sommet deplace "
 				 "relu x=%.2f r=%.0f",
 				 nbR, nbE, (uint32)avant.Size(), stable ? "octet pour octet" : "ONT BOUGE",
@@ -1177,7 +1177,7 @@ static nkentseu::int32 RecettePoints() {
 		// (d) IDEMPOTENT : recadrer une forme deja recadree ne fait RIEN.
 		const bool idem = !NkRecadrerNoeud(st.doc.nodes[(uint32)iR], true);
 		char d[224];
-		snprintf(d, sizeof(d), "boite=(%.0f,%.0f) %.0fx%.0f ; pire ecart %.5f px ; fixes=%d ; "
+		nkentseu::NkSnprintf(d, sizeof(d), "boite=(%.0f,%.0f) %.0fx%.0f ; pire ecart %.5f px ; fixes=%d ; "
 							   "2e appel change=%d",
 				 (double)n.posX, (double)n.posY, (double)n.width.value,
 				 (double)n.height.value, (double)pireEcart, fixes ? 1 : 0, idem ? 0 : 1);
@@ -1223,7 +1223,7 @@ static nkentseu::int32 RecettePoints() {
 		const float32 dy = y1 > y0 ? y1 - y0 : y0 - y1;
 		const bool stable = dx < 0.01f && dy < 0.01f;
 		char d[192];
-		snprintf(d, sizeof(d),
+		nkentseu::NkSnprintf(d, sizeof(d),
 				 "sommet 0 (jamais touche) : (%.4f,%.4f) -> (%.4f,%.4f), derive %.5f px",
 				 (double)x0, (double)y0, (double)x1, (double)y1,
 				 (double)(dx > dy ? dx : dy));
@@ -1265,7 +1265,7 @@ static nkentseu::int32 RecettePoints() {
 		st.doc.nodes[(uint32)iR2].sommets[0].x = -3.f;
 		const bool refuse = !NkRecadrerNoeud(st.doc.nodes[(uint32)iR2], false);
 		char d[192];
-		snprintf(d, sizeof(d), "plat : %.0fx%.0f, aucun NaN=%d, a recadre=%d ; parent calcule "
+		nkentseu::NkSnprintf(d, sizeof(d), "plat : %.0fx%.0f, aucun NaN=%d, a recadre=%d ; parent calcule "
 							   "refuse=%d",
 				 (double)t.width.value, (double)t.height.value, sain ? 1 : 0, aPlat ? 1 : 0,
 				 refuse ? 1 : 0);
@@ -1311,7 +1311,7 @@ static nkentseu::int32 RecettePoints() {
 		m.Quitter();
 		const bool vide = m.NbMarques() == 0 && m.sommet == -1 && m.noeud == -1;
 		char d[224];
-		snprintf(d, sizeof(d), "table=%d seul=%d trois=%d successeur(sommet=%d)=%d vide=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "table=%d seul=%d trois=%d successeur(sommet=%d)=%d vide=%d",
 				 table ? 1 : 0, seul ? 1 : 0, trois ? 1 : 0, successeurLu, successeur ? 1 : 0,
 				 vide ? 1 : 0);
 		verdict("32. la table des SOMMETS (Maj bascule, Ctrl ne fait rien -- l'ecart avec la "
@@ -1353,7 +1353,7 @@ static nkentseu::int32 RecettePoints() {
 		// (c) le NON marque n'a pas bouge d'un iota
 		const bool intact = e.sommets[3].x == ax3 && e.sommets[3].y == ay3;
 		char d[192];
-		snprintf(d, sizeof(d), "%u sommet(s) deplace(s) sur 10 ; tire exact=%d meme ecart=%d "
+		nkentseu::NkSnprintf(d, sizeof(d), "%u sommet(s) deplace(s) sur 10 ; tire exact=%d meme ecart=%d "
 							   "distincts=%d ; le non marque intact=%d",
 				 bouges, tireExact ? 1 : 0, memeEcart ? 1 : 0, distincts ? 1 : 0,
 				 intact ? 1 : 0);
@@ -1395,7 +1395,7 @@ static nkentseu::int32 RecettePoints() {
 		const float32 r4 = NkArrondirSommet(st.doc.nodes[(uint32)iC], 0);
 		const bool cycle = r1 == 8.f && r2 == 16.f && r3 == 32.f && r4 == 0.f;
 		char d[192];
-		snprintf(d, sizeof(d), "a moi=%d ailleurs=%d desarme=%d sans mode=%d ; cycle %.0f %.0f "
+		nkentseu::NkSnprintf(d, sizeof(d), "a moi=%d ailleurs=%d desarme=%d sans mode=%d ; cycle %.0f %.0f "
 							   "%.0f %.0f",
 				 aMoi ? 1 : 0, pasAilleurs ? 1 : 0, pasSiDesarme ? 1 : 0, pasSansMode ? 1 : 0,
 				 (double)r1, (double)r2, (double)r3, (double)r4);
@@ -1489,7 +1489,7 @@ static nkentseu::int32 RecettePoints() {
 		NkPoserTangente(z, 1, 0.f, 0.f);
 		const bool sain = (z.ex == z.ex) && (z.ey == z.ey) && z.ex == -0.1f;
 		char dd[272];
-		snprintf(dd, sizeof(dd), "miroir=%d ; asym long=%.4f (garde=%d) angle oppose=%d JUMELLE "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "miroir=%d ; asym long=%.4f (garde=%d) angle oppose=%d JUMELLE "
 							   "BOUGE de %.3f (=%d) ; deconnecte immobile=%d ; longueur nulle "
 							   "saine=%d",
 				 miroir ? 1 : 0, (double)lg, memeLongueur ? 1 : 0, memeAngle ? 1 : 0,
@@ -1542,7 +1542,7 @@ static nkentseu::int32 RecettePoints() {
 		const uint32 borne = NkContourDe(n, enorme, c3, 256);
 		const bool bornee = borne <= 256u && borne < zoome * 8u;
 		char dd[224];
-		snprintf(dd, sizeof(dd), "contour %u -> %u pts ; depart sur l'ancre=%d ; x4 -> %u pts ; "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "contour %u -> %u pts ; depart sur l'ancre=%d ; x4 -> %u pts ; "
 							   "x400 -> %u pts (borne=%d)",
 				 avant, apres, depart ? 1 : 0, zoome, borne, bornee ? 1 : 0);
 		verdict("36. les tangentes PEIGNENT une courbe (le contour gagne des points), la courbe "
@@ -1584,7 +1584,7 @@ static nkentseu::int32 RecettePoints() {
 				dedans = false;
 		}
 		char dd[224];
-		snprintf(dd, sizeof(dd), "boite (%.1f,%.1f) %.1fx%.1f ; elargie=%d ; %u pts de contour "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "boite (%.1f,%.1f) %.1fx%.1f ; elargie=%d ; %u pts de contour "
 							   "tous dedans=%d",
 				 (double)n.posX, (double)n.posY, (double)n.width.value,
 				 (double)n.height.value, elargie ? 1 : 0, nbC, dedans ? 1 : 0);
@@ -1637,7 +1637,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool stable = avecT.Size() == avecT2.Size()
 							&& NkComponentDecl::StrEq(avecT.Data(), avecT2.Data());
 		char dd[256];
-		snprintf(dd, sizeof(dd), "sans tangente : %u o, 2 nombres=%d, aller-retour stable=%d ; "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "sans tangente : %u o, 2 nombres=%d, aller-retour stable=%d ; "
 							   "avec : %u o, relues=%d, stable=%d",
 				 (uint32)sansT.Size(), deuxNombres ? 1 : 0, stable0 ? 1 : 0,
 				 (uint32)avecT.Size(), relues ? 1 : 0, stable ? 1 : 0);
@@ -1674,7 +1674,7 @@ static nkentseu::int32 RecettePoints() {
 		// ET LE MODELE GARDE LA VALEUR : on ignore au DESSIN, on n'efface pas.
 		const bool gardee = n.sommets[1].rayon == 10.f;
 		char dd[224];
-		snprintf(dd, sizeof(dd), "rayon seul actif=%d ; eteint par les tangentes=%d ; voisin "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "rayon seul actif=%d ; eteint par les tangentes=%d ; voisin "
 							   "courbe : peint %d -> %d ; valeur gardee=%d",
 				 rayonSeul ? 1 : 0, rayonEteint ? 1 : 0, peintAvant ? 1 : 0, peintApres ? 1 : 0,
 				 gardee ? 1 : 0);
@@ -1732,7 +1732,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool efface = p.ex == 0.f && p.ey == 0.f && p.sx == 0.f && p.sy == 0.f
 							&& !p.Courbe();
 		char dd[224];
-		snprintf(dd, sizeof(dd), "tangente gagne=%d sommet seul=%d aucune=%d pas de vol=%d ; "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "tangente gagne=%d sommet seul=%d aucune=%d pas de vol=%d ; "
 							   "modificateurs=%d ; miroir range=%d ; retour droit efface=%d",
 				 gagne ? 1 : 0, sommet ? 1 : 0, aucune ? 1 : 0, pasDeVol ? 1 : 0, mods ? 1 : 0,
 				 range ? 1 : 0, efface ? 1 : 0);
@@ -1762,7 +1762,7 @@ static nkentseu::int32 RecettePoints() {
 		// d'une tolerance d'aimantation, qui, elle, suit le zoom (recette snap 4).
 		const bool independant = NkPasClavier(false) == 1.f && NkPasClavier(true) == 10.f;
 		char d[160];
-		snprintf(d, sizeof(d), "pas nu=%.0f, avec Maj=%.0f, independant du zoom=%d",
+		nkentseu::NkSnprintf(d, sizeof(d), "pas nu=%.0f, avec Maj=%.0f, independant du zoom=%d",
 				 (double)NkPasClavier(false), (double)NkPasClavier(true),
 				 independant ? 1 : 0);
 		verdict("41. le pas du clavier vaut 1 unite de DOCUMENT (10 avec Maj), et il ne suit "
@@ -1840,7 +1840,7 @@ static nkentseu::int32 RecettePoints() {
 		//    fasse contredire quand il a tort. *Le banc a eu raison contre moi.*
 		const bool aireJuste = aireTri > 7599.f && aireTri < 7601.f;
 		char d[224];
-		snprintf(d, sizeof(d), "%u triangle(s) ; creux vide=%d plein couvert=%d ; aire %.0f "
+		nkentseu::NkSnprintf(d, sizeof(d), "%u triangle(s) ; creux vide=%d plein couvert=%d ; aire %.0f "
 							   "(attendue 7600)",
 				 (uint32)(tri.Size() / 3), creuxVide ? 1 : 0, pleinCouvert ? 1 : 0,
 				 (double)aireTri);
@@ -1893,7 +1893,7 @@ static nkentseu::int32 RecettePoints() {
 				++confondus;
 		}
 		char d[192];
-		snprintf(d, sizeof(d), "contour reel = %u points (cap 128), %u point(s) confondu(s) "
+		nkentseu::NkSnprintf(d, sizeof(d), "contour reel = %u points (cap 128), %u point(s) confondu(s) "
 							   "avec leur voisin",
 				 nbc, confondus);
 		verdict("43. le contour d'une forme ENTIEREMENT courbe tient dans le cap qu'on lui "
@@ -2000,7 +2000,7 @@ static nkentseu::int32 RecettePoints() {
 		}
 		const bool toutesCouvertes = nbAttendu == 15u;
 		char d[224];
-		snprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
+		nkentseu::NkSnprintf(d, sizeof(d), "%u combinaisons liees=%d ; touche nue inerte=%d ; inconnue "
 							   "sentinelle=%d ; %u/%u executables par le dispatcher commun ; "
 							   "table complete=%d",
 				 nbAttendu, lies ? 1 : 0, nuInerte ? 1 : 0, inconnue ? 1 : 0, executables,
@@ -2081,7 +2081,7 @@ static nkentseu::int32 RecettePoints() {
 		//     verifies, pas seulement celui de sortie.
 		const bool refusNoeuds = nkentseu::NkEarcutVers<float32>(L, 6u, nd, 5u, out, 12u) == 0u;
 		char d[208];
-		snprintf(d, sizeof(d), "%u triangles (attendu 4) ; aire %.0f ; sens inverse -> %u tri "
+		nkentseu::NkSnprintf(d, sizeof(d), "%u triangles (attendu 4) ; aire %.0f ; sens inverse -> %u tri "
 							   "aire %.0f ; refus sortie=%d refus noeuds=%d",
 				 nbT, (double)aire, nbT2, (double)aire2, refusFranc ? 1 : 0,
 				 refusNoeuds ? 1 : 0);
@@ -2151,7 +2151,7 @@ static nkentseu::int32 RecettePoints() {
 		NkPoserLiaisonSommet(n2, 2u, NkPoint2::LiaisonDroit);
 		const bool efface = !n2.sommets[2].Courbe() && n2.sommets[2].sx == 0.f;
 		char dd[240];
-		snprintf(dd, sizeof(dd), "%u sommets ; vif avant=%d ; deux poignees=%d (long %.3f / %.3f, "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "%u sommets ; vif avant=%d ; deux poignees=%d (long %.3f / %.3f, "
 							   "visables=%d) ; sain=%d ; contour %u -> %u pts=%d ; courbe gardee=%d "
 							   "; retour droit efface=%d",
 				 nbA, vifAvant ? 1 : 0, deuxPoignees ? 1 : 0, (double)le, (double)ls,
@@ -2212,7 +2212,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool revient = NkQuiTientLeSommet(n, 0, nbC, r3) == NkTenuePar::Rayon
 							 && n.sommets[0].RayonActif() && n.sommets[0].rayon == 16.f;
 		char dd[240];
-		snprintf(dd, sizeof(dd), "aucun=%d ; droit -> rayon=%d ; courbe -> poignees=%d (rayon "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "aucun=%d ; droit -> rayon=%d ; courbe -> poignees=%d (rayon "
 							   "garde=%d, inerte=%d) ; 3 phrases distinctes=%d ; retour droit "
 							   "reactive le rayon=%d",
 				 aucun ? 1 : 0, parRayon ? 1 : 0, parPoignees ? 1 : 0, rayonGarde ? 1 : 0,
@@ -2284,7 +2284,7 @@ static nkentseu::int32 RecettePoints() {
 		NkContraindreAxe(true, 20.f, 20.f, d2x, d2y);
 		const bool stable = d1x == d2x && d1y == d2y && d1y == 0.f;
 		char dd[224];
-		snprintf(dd, sizeof(dd), "libre=%d horiz=%d vert=%d ; tremble : %u image(s) obliques, "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "libre=%d horiz=%d vert=%d ; tremble : %u image(s) obliques, "
 							   "total (%.1f,%.1f) -> (%.1f,%.1f) sans derive=%d ; diagonale "
 							   "stable=%d",
 				 libre ? 1 : 0, horiz ? 1 : 0, vert ? 1 : 0, imagesObliques, (double)totX,
@@ -2335,7 +2335,7 @@ static nkentseu::int32 RecettePoints() {
 		NkRedimModifie(false, false, 1, 1, 100.f, 50.f, -500.f, -500.f, L, H, dX, dY);
 		const bool plancher = L == 8.f && H == 8.f;
 		char dd[240];
-		snprintf(dd, sizeof(dd), "nu=%d gauche=%d proportions=%d vertical commande=%d ; alt centre "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "nu=%d gauche=%d proportions=%d vertical commande=%d ; alt centre "
 							   "%.1f -> %.1f (fixe=%d) ; combine=%d ; plancher=%d",
 				 nu ? 1 : 0, gauche ? 1 : 0, proportions ? 1 : 0, verticalCommande ? 1 : 0,
 				 (double)centreAvant, (double)centreApres, centreFixe ? 1 : 0, combine ? 1 : 0,
@@ -2396,7 +2396,7 @@ static nkentseu::int32 RecettePoints() {
 			vraimentMiroir = NkLongueur2D(sx, sy) < 0.0001f;
 		}
 		char dd[224];
-		snprintf(dd, sizeof(dd), "defaut=Miroir(%d) ; simple clic -> droit=%d ; double -> "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "defaut=Miroir(%d) ; simple clic -> droit=%d ; double -> "
 							   "miroir=%d poignees=%d (%.3f/%.3f) opposees exactement=%d",
 				 defautMiroir ? 1 : 0, simpleResteDroit ? 1 : 0, doubleEstMiroir ? 1 : 0,
 				 doublePoignees ? 1 : 0,
@@ -2467,7 +2467,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool horsBornes = !NkSupprimerSommet(m, 999u)
 								&& (uint32)m.sommets.Size() == avantHb;
 		char dd[240];
-		snprintf(dd, sizeof(dd), "%u sommets ; un retire=%d ; plancher a 3 refuse=%d ; sens "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "%u sommets ; un retire=%d ; plancher a 3 refuse=%d ; sens "
 							   "descendant : le vise a disparu=%d le voisin a survecu=%d ; hors "
 							   "bornes refuse=%d",
 				 nb0, un ? 1 : 0, plancher ? 1 : 0, disparu ? 1 : 0, survivant ? 1 : 0,
@@ -2543,7 +2543,7 @@ static nkentseu::int32 RecettePoints() {
 		const bool refuse = !v.AjusterSur(NkPaintRect{0.f, 0.f, 0.f, 0.f}, 0u)
 							&& v.zoom == zAvant;
 		char dd[240];
-		snprintf(dd, sizeof(dd), "hors champ avant=%d ; ajuste -> dedans=%d marge=%d ; largeur "
+		nkentseu::NkSnprintf(dd, sizeof(dd), "hors champ avant=%d ; ajuste -> dedans=%d marge=%d ; largeur "
 							   "remplie=%d recentre=%d ; 100%% : zoom=%.3f centre derive de "
 							   "%.4f (=%d) ; rect nul refuse=%d",
 				 horsAvant ? 1 : 0, ajuste ? 1 : 0, marge ? 1 : 0, largeur ? 1 : 0,

@@ -123,7 +123,7 @@ namespace nkuidesign {
 		const bool parti = st.LancerGenerationIA(demande, pourquoi);
 		{
 			char b[320];
-			snprintf(b, sizeof(b), "demande = \"%s\"%s%s", demande,
+			nkentseu::NkSnprintf(b, sizeof(b), "demande = \"%s\"%s%s", demande,
 					 parti ? "" : " -- REFUS : ", parti ? "" : pourquoi.Data());
 			verdict("(1) la demande PART", parti, b);
 		}
@@ -154,7 +154,7 @@ namespace nkuidesign {
 		}
 		{
 			char b[200];
-			snprintf(b, sizeof(b), "%u tour(s) de l'appelant pendant l'attente "
+			nkentseu::NkSnprintf(b, sizeof(b), "%u tour(s) de l'appelant pendant l'attente "
 								   "(zero aurait voulu dire : ca a gele)", tours);
 			verdict("(2) la reponse ARRIVE sans que l'appelant s'arrete", tours > 0u, b);
 		}
@@ -163,7 +163,7 @@ namespace nkuidesign {
 		const uint32 noeudsApres = (uint32)st.doc.nodes.Size();
 		{
 			char b[320];
-			snprintf(b, sizeof(b), "noeuds %u -> %u ; message du panneau : %s",
+			nkentseu::NkSnprintf(b, sizeof(b), "noeuds %u -> %u ; message du panneau : %s",
 					 noeudsAvant, noeudsApres, st.messageIA.Data());
 			verdict("(3) LE DOCUMENT A ETE POSE (c'est la demande de Rodolf)",
 					noeudsApres > noeudsAvant, b);
@@ -185,7 +185,7 @@ namespace nkuidesign {
 			}
 			const bool peut = st.histoire.PeutAnnuler();
 			char b[220];
-			snprintf(b, sizeof(b), "l'historique a %s de pas a defaire apres la pose",
+			nkentseu::NkSnprintf(b, sizeof(b), "l'historique a %s de pas a defaire apres la pose",
 					 peut ? "AU MOINS UN" : "AUCUN");
 			verdict("(4) l'annulation VOIT ce que l'IA a pose", peut, b);
 		}

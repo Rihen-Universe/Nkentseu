@@ -182,7 +182,7 @@ namespace nkuidesign {
 		// ── ETENDUE ────────────────────────────────────────────────────────────
 		{
 			char libSel[64];
-			snprintf(libSel, sizeof(libSel), aSel ? "Sélection (%u)" : "Sélection", nSel);
+			nkentseu::NkSnprintf(libSel, sizeof(libSel), aSel ? "Sélection (%u)" : "Sélection", nSel);
 			// ② (07/09) LE PANNEAU DIT COMBIEN. Sans selection, la cible est TOUT LE
 			//    CANVAS, et le libelle porte le nombre d'elements trouves : *un panneau
 			//    qui liste sans dire combien laisse croire qu'il a tout pris.* Le
@@ -190,7 +190,7 @@ namespace nkuidesign {
 			//    `NkElementsExportables` -- la MEME fonction que `NkZoneExport` lit,
 			//    donc le panneau ne peut pas annoncer ce que l'export refuserait.
 			char libTout[72];
-			snprintf(libTout, sizeof(libTout), "Tout le canvas (%u)", c.nbExportables);
+			nkentseu::NkSnprintf(libTout, sizeof(libTout), "Tout le canvas (%u)", c.nbExportables);
 			const char *kLib[2] = {c.tout ? libTout : "Page", libSel};
 			const bool kActif[2] = {true, aSel};
 			const int32 k = rangee("Étendue", kLib, kActif, 2, c.selection ? 1 : 0);
@@ -262,19 +262,19 @@ namespace nkuidesign {
 		{
 			char phrase[220];
 			if (c.selection && c.parObjet && nSel >= 2u)
-				snprintf(phrase, sizeof(phrase), "%u fichiers, un par objet, dans le dossier choisi.", nSel);
+				nkentseu::NkSnprintf(phrase, sizeof(phrase), "%u fichiers, un par objet, dans le dossier choisi.", nSel);
 			else if (c.selection)
-				snprintf(phrase, sizeof(phrase), "un fichier : %s de la sélection%s.",
+				nkentseu::NkSnprintf(phrase, sizeof(phrase), "un fichier : %s de la sélection%s.",
 						 nSel >= 2u ? "la boîte englobante" : "l'objet", png ? "" : " (SVG : vectoriel)");
 			else if (c.tout)
 				// ① (07/09) LA PHRASE SUIT L'ETENDUE, elle aussi. Elle disait « la page »
 				//    sous une etendue « tout le canvas » -- SECOND des deux sites cales sur
 				//    la page (recensement du 07/09 : le nom propose et cette phrase).
-				snprintf(phrase, sizeof(phrase),
+				nkentseu::NkSnprintf(phrase, sizeof(phrase),
 						 "un fichier : les %u éléments du canvas, dans leur boîte englobante%s.",
 						 c.nbExportables, png ? "" : " (SVG : vectoriel)");
 			else
-				snprintf(phrase, sizeof(phrase), "un fichier : la page%s.", png ? "" : " (SVG : vectoriel)");
+				nkentseu::NkSnprintf(phrase, sizeof(phrase), "un fichier : la page%s.", png ? "" : " (SVG : vectoriel)");
 			costume::TexteTronque(dl, F.px9, z.x + 12.f, y + 4.f, phrase, z.w - 24.f, ctx.theme.textMuted);
 			y += 22.f;
 		}
@@ -312,9 +312,9 @@ namespace nkuidesign {
 		char nomFichier[220];
 		const char *ext = NkExportExtension((NkExportFormat)c.format);
 		if (c.parObjet && c.selection && nSel >= 2u)
-			snprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "objet", ext); // le dossier compte, pas ce nom
+			nkentseu::NkSnprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "objet", ext); // le dossier compte, pas ce nom
 		else
-			snprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "export", ext);
+			nkentseu::NkSnprintf(nomFichier, sizeof(nomFichier), "%s%s", c.nom[0] ? c.nom : "export", ext);
 		// ⚠️ LA MEME PORTE QUE LE MENU (`NkOuvrirSelecteurExport`). Ouvrir ici par
 		//    `OpenPickerBase` marchait -- et laissait le selecteur sans filtre
 		//    d'extension, sans vignette, sans role et sans recents, parce que ces

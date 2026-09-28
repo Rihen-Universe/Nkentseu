@@ -85,7 +85,7 @@ namespace nkuidesign {
 		};
 
 		inline void Nombre(float32 v, char *b, nkentseu::usize cap) {
-			snprintf(b, cap, "%.3f", (double)v);
+			nkentseu::NkSnprintf(b, cap, "%.3f", (double)v);
 			// les zeros de queue s'en vont : « 12.000 » -> « 12 », « 0.500 » -> « 0.5 »
 			int32 n = 0;
 			while (b[n])
@@ -143,7 +143,7 @@ namespace nkuidesign {
 			++e.notesNb;
 		}
 		inline void Hex(uint32 rgba, char *out /* 8 */) {
-			snprintf(out, 8, "#%02x%02x%02x", (unsigned)((rgba >> 24) & 0xFFu), (unsigned)((rgba >> 16) & 0xFFu),
+			nkentseu::NkSnprintf(out, 8, "#%02x%02x%02x", (unsigned)((rgba >> 24) & 0xFFu), (unsigned)((rgba >> 16) & 0xFFu),
 					 (unsigned)((rgba >> 8) & 0xFFu));
 		}
 		inline float32 Alpha(uint32 rgba) {
@@ -400,7 +400,7 @@ namespace nkuidesign {
 		// ── LES DEGRADES ─────────────────────────────────────────────────────
 		inline NkString Degrade(Ecrivain &e, const NkDegrade &g, const NkPaintRect &r) {
 			char id[24];
-			snprintf(id, sizeof(id), "deg%u", ++e.ids);
+			nkentseu::NkSnprintf(id, sizeof(id), "deg%u", ++e.ids);
 			++e.degrades;
 			const int32 genre = renderdetail::NkGenreDegrade(g);
 			NkString &d = e.defs;
@@ -423,7 +423,7 @@ namespace nkuidesign {
 					Nombre(gm.ox, a, sizeof(a));
 					Nombre(gm.oy, b, sizeof(b));
 					Nombre(gm.ry / gm.rx, c, sizeof(c));
-					snprintf(t, sizeof(t), "translate(%s %s) scale(1 %s) translate(-%s -%s)", a, b, c, a, b);
+					nkentseu::NkSnprintf(t, sizeof(t), "translate(%s %s) scale(1 %s) translate(-%s -%s)", a, b, c, a, b);
 					Ajouter(d, "gradientTransform", t);
 				}
 			} else {
@@ -490,7 +490,7 @@ namespace nkuidesign {
 			NkCacheImages::Entree &en = st.images.Charger(f.image.Data());
 			if (en.absente) {
 				char t[600];
-				snprintf(t, sizeof(t), "image introuvable, non exportée : %s", f.image.Data());
+				nkentseu::NkSnprintf(t, sizeof(t), "image introuvable, non exportée : %s", f.image.Data());
 				Note(e, t);
 				return;
 			}
@@ -548,7 +548,7 @@ namespace nkuidesign {
 			else if (cad && (StrEq(cad, "tile") || StrEq(cad, "crop"))) {
 				par = "none";
 				char t[200];
-				snprintf(t, sizeof(t), "cadrage « %s » approché par un étirement (SVG : pattern / clip non écrits)", cad);
+				nkentseu::NkSnprintf(t, sizeof(t), "cadrage « %s » approché par un étirement (SVG : pattern / clip non écrits)", cad);
 				Note(e, t);
 			}
 			Ajouter(e.corps, "preserveAspectRatio", par);
@@ -728,7 +728,7 @@ namespace nkuidesign {
 			if (e.aplatir && e.st && n.perspective && (n.inclinaisonX != 0.f || n.inclinaisonY != 0.f)) {
 				++e.textesNonProjetes;
 				char avis[220];
-				snprintf(avis, sizeof(avis),
+				nkentseu::NkSnprintf(avis, sizeof(avis),
 						 "texte NON PROJETE (ecrit droit) en mode « aplatir » : « %s » — un texte n'a pas de "
 						 "forme projetable sans les contours de ses glyphes",
 						 contenu ? contenu : "(sans texte)");
@@ -806,7 +806,7 @@ namespace nkuidesign {
 			e.corps.Append("<g");
 			{
 				char id[32];
-				snprintf(id, sizeof(id), "n%d", i);
+				nkentseu::NkSnprintf(id, sizeof(id), "n%d", i);
 				Ajouter(e.corps, "id", id);
 			}
 			if (!n.label.Empty())
@@ -837,7 +837,7 @@ namespace nkuidesign {
 					e.corps.Append("\"");
 				} else {
 					char t[160];
-					snprintf(t, sizeof(t),
+					nkentseu::NkSnprintf(t, sizeof(t),
 							 "mode de fusion « %s » sans equivalent CSS : non exporte",
 							 n.fusion.Data());
 					Note(e, t);
@@ -852,7 +852,7 @@ namespace nkuidesign {
 				Nombre(propre.d, d, sizeof(d));
 				Nombre(propre.e, f, sizeof(f));
 				Nombre(propre.f, g, sizeof(g));
-				snprintf(t, sizeof(t), "matrix(%s %s %s %s %s %s)", a, b, c, d, f, g);
+				nkentseu::NkSnprintf(t, sizeof(t), "matrix(%s %s %s %s %s %s)", a, b, c, d, f, g);
 				Ajouter(e.corps, "transform", t);
 			}
 			// les ombres portees : un filtre par noeud (feDropShadow par effet)
@@ -866,7 +866,7 @@ namespace nkuidesign {
 				}
 			if (ombre) {
 				char id[24];
-				snprintf(id, sizeof(id), "ombre%u", ++e.ids);
+				nkentseu::NkSnprintf(id, sizeof(id), "ombre%u", ++e.ids);
 				e.defs.Append("    <filter");
 				Ajouter(e.defs, "id", id);
 				Ajouter(e.defs, "x", "-50%");
@@ -893,7 +893,7 @@ namespace nkuidesign {
 				}
 				e.defs.Append("    </filter>\n");
 				char url[40];
-				snprintf(url, sizeof(url), "url(#%s)", id);
+				nkentseu::NkSnprintf(url, sizeof(url), "url(#%s)", id);
 				Ajouter(e.corps, "filter", url);
 			}
 			e.corps.Append(">\n");
@@ -1016,7 +1016,7 @@ namespace nkuidesign {
 					AjouterRole(e, "stroke", "border");
 					e.corps.Append("/>\n");
 					char t[120];
-					snprintf(t, sizeof(t), "gabarit « %s » : sa boîte seulement", shape);
+					nkentseu::NkSnprintf(t, sizeof(t), "gabarit « %s » : sa boîte seulement", shape);
 					Note(e, t);
 				} else {
 					// une forme sans dessin propre : le contour de theme, comme la toile
@@ -1052,7 +1052,7 @@ namespace nkuidesign {
 					Texte(e, t, r);
 				}
 				char t[200];
-				snprintf(t, sizeof(t), "composant « %s » approché par sa boîte et son libellé", n.component.Data());
+				nkentseu::NkSnprintf(t, sizeof(t), "composant « %s » approché par sa boîte et son libellé", n.component.Data());
 				Note(e, t);
 			}
 			for (uint32 k = 0; k < (uint32)n.children.Size(); ++k)
@@ -1086,7 +1086,7 @@ namespace nkuidesign {
 		char pourquoi[160];
 		pourquoi[0] = 0;
 		if (!NkZoneExport(st, *lay, o, noeuds, res.zone, pourquoi, sizeof(pourquoi))) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export SVG : %s — rien n'a été écrit.", pourquoi);
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export SVG : %s — rien n'a été écrit.", pourquoi);
 			return false;
 		}
 		renderdetail::NkPoserResolveur(&st.doc);
@@ -1115,7 +1115,7 @@ namespace nkuidesign {
 		svgdetail::Ajouter(svg, "height", c);
 		{
 			char vb[120];
-			snprintf(vb, sizeof(vb), "0 0 %s %s", b, c);
+			nkentseu::NkSnprintf(vb, sizeof(vb), "0 0 %s %s", b, c);
 			svgdetail::Ajouter(svg, "viewBox", vb);
 		}
 		svg.Append(">\n");
@@ -1128,7 +1128,7 @@ namespace nkuidesign {
 			svg.Append(e.notes.Data());
 		{
 			char t[120];
-			snprintf(t, sizeof(t), "translate(%s %s)", d, f);
+			nkentseu::NkSnprintf(t, sizeof(t), "translate(%s %s)", d, f);
 			svg.Append("  <g");
 			svgdetail::Ajouter(svg, "transform", t);
 			svg.Append(">\n");
@@ -1143,12 +1143,12 @@ namespace nkuidesign {
 		// ③ (palier C) LE RAPPORT DIT CE QUE LE FICHIER NE FAIT PAS : en mode « aplatir »,
 		//    le nombre de textes ecrits DROIT -- chacun deja nomme dans une note.
 		if (e.textesNonProjetes > 0u)
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 "SVG aplati : %u élément(s), %u texte(s) dont %u NON PROJETÉS (écrits droits, nommés "
 					 "dans les notes), %u dégradé(s), %u image(s), %u note(s)",
 					 e.elements, e.textes, e.textesNonProjetes, e.degrades, e.images, e.notesNb);
 		else
-			snprintf(res.message, sizeof(res.message), "SVG : %u élément(s), %u texte(s), %u dégradé(s), %u image(s), %u note(s)",
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "SVG : %u élément(s), %u texte(s), %u dégradé(s), %u image(s), %u note(s)",
 					 e.elements, e.textes, e.degrades, e.images, e.notesNb);
 		return true;
 	}
@@ -1179,7 +1179,7 @@ namespace nkuidesign {
 									   const char *chemin, NkExportResultat &res) {
 		using namespace nkentseu;
 		if (!chemin || !*chemin) {
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 "ÉCHEC d'export .nkgui : aucun chemin de destination.");
 			res.ok = false;
 			return false;
@@ -1192,13 +1192,13 @@ namespace nkuidesign {
 
 		guifmt::NkEcritRapport rap;
 		if (!guifmt::NkEcrireNkgui(st.doc, lay, chemin, rap)) {
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 "ÉCHEC d'export : le .nkgui n'a pas pu être écrit dans %s.", chemin);
 			res.ok = false;
 			return false;
 		}
 		if (!NkFile::Exists(chemin) || NkFile::GetFileSize(chemin) <= 0) {
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 "ÉCHEC d'export : %s est vide après écriture.", chemin);
 			res.ok = false;
 			return false;
@@ -1214,12 +1214,12 @@ namespace nkuidesign {
 		res.largeur = 0;
 		res.hauteur = 0;
 		if (rap.composantsSansRole > 0u)
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 ".nkgui : %u widget(s) écrit(s) (%u conteneur(s), %u feuille(s)) — "
 					 "⚠️ %u composant(s) SANS rôle équivalent, comptés et non devinés",
 					 rap.widgetsEcrits, rap.conteneurs, rap.feuilles, rap.composantsSansRole);
 		else
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 ".nkgui : %u nœud(s) vu(s), %u widget(s) écrit(s) "
 					 "(%u conteneur(s), %u feuille(s))",
 					 rap.noeudsVus, rap.widgetsEcrits, rap.conteneurs, rap.feuilles);
@@ -1231,7 +1231,7 @@ namespace nkuidesign {
 									 NkExportResultat &res) {
 		using namespace nkentseu;
 		if (!chemin || !*chemin) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export SVG : aucun chemin de destination.");
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export SVG : aucun chemin de destination.");
 			return false;
 		}
 		const NkString dossier = NkCacheImages::Dossier(chemin);
@@ -1239,13 +1239,13 @@ namespace nkuidesign {
 		if (!NkExporterSVG(st, o, dossier.Data(), svg, res))
 			return false;
 		if (!NkFile::WriteAllText(chemin, svg.Data()) || !NkFile::Exists(chemin) || NkFile::GetFileSize(chemin) <= 0) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export : le SVG n'a pas pu être écrit dans %s.", chemin);
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export : le SVG n'a pas pu être écrit dans %s.", chemin);
 			res.ok = false;
 			return false;
 		}
 		char detail[200];
-		snprintf(detail, sizeof(detail), "%s", res.message);
-		snprintf(res.message, sizeof(res.message), "Exporté : %s (%s, %s%s)", chemin, detail,
+		nkentseu::NkSnprintf(detail, sizeof(detail), "%s", res.message);
+		nkentseu::NkSnprintf(res.message, sizeof(res.message), "Exporté : %s (%s, %s%s)", chemin, detail,
 				 o.selection ? "sélection" : "page", o.embarquer ? ", images embarquées" : "");
 		return true;
 	}
@@ -1296,7 +1296,7 @@ namespace nkuidesign {
 			{ // le meme nom deux fois : ` (2)`, ` (3)`... jamais un ecrasement silencieux
 				uint32 rang = 1u;
 				char essai[240];
-				snprintf(essai, sizeof(essai), "%s", nom);
+				nkentseu::NkSnprintf(essai, sizeof(essai), "%s", nom);
 				bool prise = true;
 				while (prise) {
 					prise = false;
@@ -1314,7 +1314,7 @@ namespace nkuidesign {
 						for (usize q = 0; q < n && q + 1 < sizeof(base); ++q)
 							base[q] = nom[q];
 						base[n] = '\0';
-						snprintf(essai, sizeof(essai), "%s (%u)%s", base, rang, pt ? pt : "");
+						nkentseu::NkSnprintf(essai, sizeof(essai), "%s (%u)%s", base, rang, pt ? pt : "");
 					}
 				}
 				ecrits.PushBack(NkString(essai));
@@ -1338,7 +1338,7 @@ namespace nkuidesign {
 				++faits;
 			else {
 				++rates;
-				snprintf(dernier, sizeof(dernier), "%s", r.message);
+				nkentseu::NkSnprintf(dernier, sizeof(dernier), "%s", r.message);
 			}
 		}
 		st.sel = selAvant;
@@ -1346,9 +1346,9 @@ namespace nkuidesign {
 		st.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
 		char m[420];
 		if (rates == 0u)
-			snprintf(m, sizeof(m), "Exporté : %u fichier(s), un par objet, dans %s", faits, dossier ? dossier : "?");
+			nkentseu::NkSnprintf(m, sizeof(m), "Exporté : %u fichier(s), un par objet, dans %s", faits, dossier ? dossier : "?");
 		else
-			snprintf(m, sizeof(m), "%u fichier(s) écrit(s), %u ÉCHEC(S) — dernier : %s", faits, rates, dernier);
+			nkentseu::NkSnprintf(m, sizeof(m), "%u fichier(s) écrit(s), %u ÉCHEC(S) — dernier : %s", faits, rates, dernier);
 		message = NkString(m);
 		return faits;
 	}
@@ -1514,9 +1514,9 @@ namespace nkuidesign {
 				st.avisExport = DesignState::NkAvisExport();
 				st.avisExport.actif = true;
 				st.avisExport.chemin = NkString(c.picker.pickerResultPath);
-				snprintf(st.avisExport.titre, sizeof(st.avisExport.titre),
+				nkentseu::NkSnprintf(st.avisExport.titre, sizeof(st.avisExport.titre),
 					 "Export\u00e9 : %u fichier(s)", faits);
-				snprintf(st.avisExport.detail, sizeof(st.avisExport.detail), "%s",
+				nkentseu::NkSnprintf(st.avisExport.detail, sizeof(st.avisExport.detail), "%s",
 					 c.picker.pickerResultPath);
 			}
 			st.DireAuPied(msg.Data());

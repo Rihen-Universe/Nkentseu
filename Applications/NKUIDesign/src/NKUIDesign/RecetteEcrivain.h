@@ -149,7 +149,7 @@ namespace nkuidesign {
 			for (uint32 i = 0; i < 4u; ++i) {
 				const NkString t = NkFile::ReadAllText(kChemins[i]);
 				if (t.Size() > 0 && d.Load(t.Data())) {
-					snprintf(chemin, cap, "%s", kChemins[i]);
+					nkentseu::NkSnprintf(chemin, cap, "%s", kChemins[i]);
 					return true;
 				}
 			}
@@ -298,13 +298,13 @@ namespace nkuidesign {
 				}
 				const uint32 zero = PixelsQuiDifferent(a.Data(), b.Data(), 64u * 4u);
 				char d1[160];
-				snprintf(d1, sizeof(d1), "meme tampon -> %u pixel(s) different(s), attendu 0", zero);
+				nkentseu::NkSnprintf(d1, sizeof(d1), "meme tampon -> %u pixel(s) different(s), attendu 0", zero);
 				Check(zero == 0u, "(z0a) le compteur de pixels rend ZERO sur deux images egales", d1);
 
 				b[4 * 3 + 1] = (uint8)(b[4 * 3 + 1] ^ 0xFFu); // UN pixel, une composante
 				const uint32 un = PixelsQuiDifferent(a.Data(), b.Data(), 64u * 4u);
 				char d2[160];
-				snprintf(d2, sizeof(d2), "un seul octet change -> %u pixel(s), attendu 1", un);
+				nkentseu::NkSnprintf(d2, sizeof(d2), "un seul octet change -> %u pixel(s), attendu 1", un);
 				Check(un == 1u, "(z0b) le compteur rend UN quand UN pixel change", d2);
 
 				const uint32 incomparable = PixelsQuiDifferent(a.Data(), nullptr, 0u);
@@ -328,7 +328,7 @@ namespace nkuidesign {
 				const bool lisible =
 					NkGuiArchive::Read(texte.Data(), (uint32)texte.Size(), relu, err);
 				char d[300];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "%u widget(s) ecrit(s), fichier de %u octet(s), relu=%d ; extrait : %.40s",
 						 rv.widgetsEcrits, (uint32)texte.Size(), lisible ? 1 : 0,
 						 texte.Data() ? texte.Data() : "");
@@ -350,7 +350,7 @@ namespace nkuidesign {
 			}
 			{
 				char d[400];
-				snprintf(d, sizeof(d), "%s -- %u noeud(s)", chemin, (uint32)doc.nodes.Size());
+				nkentseu::NkSnprintf(d, sizeof(d), "%s -- %u noeud(s)", chemin, (uint32)doc.nodes.Size());
 				Check(doc.nodes.Size() > 1u, "(e2a) le document d'exemple se charge", d);
 			}
 
@@ -364,7 +364,7 @@ namespace nkuidesign {
 			const NkString texte = guifmt::NkDocumentVersTexte(doc, lay, rap);
 			{
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "%u noeud(s) vus, %u widget(s) ecrit(s) (%u conteneur(s), %u feuille(s)), "
 						 "%u apparence(s), fichier de %u octet(s)",
 						 rap.noeudsVus, rap.widgetsEcrits, rap.conteneurs, rap.feuilles,
@@ -386,7 +386,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[300];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "ecrit=%d ; %u octet(s) en memoire, %u relus du disque ; identiques=%d",
 						 ecrit ? 1 : 0, (uint32)texte.Size(), (uint32)relus.Size(),
 						 memeOctets ? 1 : 0);
@@ -403,11 +403,11 @@ namespace nkuidesign {
 				blocsRelus = ok ? guifmt::NkGCountBlocks(relu) : 0u;
 				char d[400];
 				if (ok) {
-					snprintf(d, sizeof(d), "%u bloc(s) relu(s) (dont la section `widgets` et les "
+					nkentseu::NkSnprintf(d, sizeof(d), "%u bloc(s) relu(s) (dont la section `widgets` et les "
 										   "blocs `appearance`)",
 							 blocsRelus);
 				} else {
-					snprintf(d, sizeof(d), "REFUS : %s ligne %u colonne %u : %s", err.code.Data(),
+					nkentseu::NkSnprintf(d, sizeof(d), "REFUS : %s ligne %u colonne %u : %s", err.code.Data(),
 							 (uint32)err.line, (uint32)err.column, err.message.Data());
 				}
 				Check(ok && blocsRelus > 0u,
@@ -423,7 +423,7 @@ namespace nkuidesign {
 				police.LoadEmbedded(nkentseu::NkEmbeddedFontId::DroidSans, 15.f, false);
 			{
 				char d[200];
-				snprintf(d, sizeof(d), "police embarquee chargee=%d, atlas %dx%d", policeOk ? 1 : 0,
+				nkentseu::NkSnprintf(d, sizeof(d), "police embarquee chargee=%d, atlas %dx%d", policeOk ? 1 : 0,
 						 police.atlasW, police.atlasH);
 				Check(policeOk && police.Valid(),
 					  "(e2e) la police du banc est chargee AVANT de conclure sur le texte", d);
@@ -437,7 +437,7 @@ namespace nkuidesign {
 											   mrap, pixMonteur, merr, texInconnues);
 			{
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "monte=%d ; %u section(s), %u widget(s) rencontre(s), %u monte(s), "
 						 "%u role(s) inconnu(s), %u apparence(s) lue(s), %u texture(s) inconnue(s)",
 						 monte ? 1 : 0, mrap.sections, mrap.widgets, mrap.montes, mrap.rolesInconnus,
@@ -449,7 +449,7 @@ namespace nkuidesign {
 				// recopie. Un attendu en dur se perimerait a la premiere retouche du
 				// document d'exemple et crierait rouge sur un montage correct.
 				char d[300];
-				snprintf(d, sizeof(d), "ecrits=%u, rencontres=%u, montes=%u, roles inconnus=%u",
+				nkentseu::NkSnprintf(d, sizeof(d), "ecrits=%u, rencontres=%u, montes=%u, roles inconnus=%u",
 						 rap.widgetsEcrits, mrap.widgets, mrap.montes, mrap.rolesInconnus);
 				Check(mrap.widgets == rap.widgetsEcrits && mrap.montes == rap.widgetsEcrits
 						  && mrap.rolesInconnus == 0u,
@@ -474,7 +474,7 @@ namespace nkuidesign {
 			const bool exporte = NkExporterImage(st, opts, imgEditeur, res) && imgEditeur.Pixels();
 			{
 				char d[400];
-				snprintf(d, sizeof(d), "export=%d (%s) ; %d x %d ; %u noeud(s) peint(s)",
+				nkentseu::NkSnprintf(d, sizeof(d), "export=%d (%s) ; %d x %d ; %u noeud(s) peint(s)",
 						 exporte ? 1 : 0, res.message, res.largeur, res.hauteur, res.noeuds);
 				Check(exporte, "(e3a) l'editeur rend son image, sans fenetre", d);
 			}
@@ -503,14 +503,14 @@ namespace nkuidesign {
 					if (ax <= 1.f && ay <= 1.f) {
 						++memePlace;
 					} else if (premier[0] == '\0') {
-						snprintf(premier, sizeof(premier),
+						nkentseu::NkSnprintf(premier, sizeof(premier),
 								 "1er ecart : %s (%s) editeur (%.0f, %.0f) vs monteur (%.0f, %.0f)",
 								 e.id.Data(), e.role.Data(), (double)e.x, (double)e.y,
 								 (double)m->rect.x, (double)m->rect.y);
 					}
 				}
 				char d[600];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "%u ecrit(s), %u apparie(s) par id, %u absent(s) du montage ; "
 						 "%u au MEME endroit (a 1 px) ; %s",
 						 (uint32)rap.items.Size(), apparies, absents, memePlace,
@@ -563,7 +563,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 							"zone exportee (%.0f, %.0f) %.0f x %.0f ; %u pixel(s) compare(s), %u hors du cadre "
 							"du monteur ; %u different(s) (%.1f %%)",
 							(double)res.zone.x, (double)res.zone.y, (double)res.zone.w, (double)res.zone.h,
@@ -593,12 +593,12 @@ namespace nkuidesign {
 				}
 				char d[400];
 				if (!lu) {
-					snprintf(d, sizeof(d), "le fichier ne se relit meme pas : %s", err.message.Data());
+					nkentseu::NkSnprintf(d, sizeof(d), "le fichier ne se relit meme pas : %s", err.message.Data());
 				} else if (vr.errors == 0u && vr.warnings == 0u) {
-					snprintf(d, sizeof(d), "0 erreur, 0 avertissement sur %u diagnostic(s) emis",
+					nkentseu::NkSnprintf(d, sizeof(d), "0 erreur, 0 avertissement sur %u diagnostic(s) emis",
 								(uint32)diags.Size());
 				} else {
-					snprintf(d, sizeof(d), "%u erreur(s), %u avertissement(s) ; 1re : %s",
+					nkentseu::NkSnprintf(d, sizeof(d), "%u erreur(s), %u avertissement(s) ; 1re : %s",
 								vr.errors, vr.warnings,
 								diags.Empty() ? "(aucune listee)" : diags[0].message.Data());
 				}
@@ -618,7 +618,7 @@ namespace nkuidesign {
 					vr = guifmt::NkGValidate(a, dg);
 				}
 				char d[300];
-				snprintf(d, sizeof(d), "role inconnu `Bidule` -> lu=%d, %u erreur(s) ; 1re : %s",
+				nkentseu::NkSnprintf(d, sizeof(d), "role inconnu `Bidule` -> lu=%d, %u erreur(s) ; 1re : %s",
 							lu ? 1 : 0, vr.errors,
 							dg.Empty() ? "(aucune)" : dg[0].code.Data());
 				Check(lu && vr.errors > 0u,
@@ -651,7 +651,7 @@ namespace nkuidesign {
 					Occurrences(texte, "size = ") - Occurrences(texte, "size = (");
 				const uint32 ecritsGraisse = Occurrences(texte, "weight = ");
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 							"document : %u noeud(s) a corps, %u a graisse ; fichier : %u `size = `, "
 							"%u `weight = `",
 							avecCorps, avecGraisse, ecritsCorps, ecritsGraisse);
@@ -681,7 +681,7 @@ namespace nkuidesign {
 				const uint32 c2 = Occurrences(t2, "size = ") - Occurrences(t2, "size = (");
 				const uint32 g2 = Occurrences(t2, "weight = ");
 				char d[300];
-				snprintf(d, sizeof(d), "document sans corps ni graisse -> %u `size`, %u `weight` "
+				nkentseu::NkSnprintf(d, sizeof(d), "document sans corps ni graisse -> %u `size`, %u `weight` "
 							"(attendu 0 et 0), fichier de %u octet(s)",
 							c2, g2, (uint32)t2.Size());
 				Check(c2 == 0u && g2 == 0u && t2.Size() > 0u,
@@ -740,7 +740,7 @@ namespace nkuidesign {
 				const uint32 nRel = Occurrences(tr, "sizeRel = ");
 				const uint32 nMin = Occurrences(tr, "minSize = ");
 				char dR[400];
-				snprintf(dR, sizeof(dR),
+				nkentseu::NkSnprintf(dR, sizeof(dR),
 						 "1 noeud en Fraction(0,5) et 1 en Fixed -> %u `sizeRel`, %u `minSize` "
 						 "ecrit(s) ; le rapport compte %u taille(s) relative(s), %u sans equivalent",
 						 nRel, nMin, rr.taillesRelatives, rr.taillesSansEquivalent);
@@ -759,7 +759,7 @@ namespace nkuidesign {
 				uint32 absolus = 0, flux = 0, total = 0;
 				CompterAgencements(doc, absolus, flux, total);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 							"le document place %u noeud(s) sur %u en ABSOLU (None/Free/Anchor) et "
 							"%u en FLUX (Row/Column/Grid)",
 							absolus, total, flux);
@@ -829,7 +829,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 							"corpus EN FLUX : %u widget(s) monte(s), %u feuille(s), %u places dans le "
 							"sens de leur boite (Y en colonne, X en ligne), %u hauteur(s) distincte(s) "
 							"-- le monteur empile correctement ce qui est ECRIT en flux",

@@ -70,7 +70,7 @@ namespace nkuidesign {
 				// Assez pour forcer plusieurs reallocations du vecteur interne.
 				for (int i = 0; i < 512; ++i) {
 					char buf[32];
-					snprintf(buf, sizeof(buf), "metrique_%d", i);
+					nkentseu::NkSnprintf(buf, sizeof(buf), "metrique_%d", i);
 					const char *p = pool.Intern(buf);
 					Check(SameText(p, buf), "une entree fraiche doit se relire");
 				}

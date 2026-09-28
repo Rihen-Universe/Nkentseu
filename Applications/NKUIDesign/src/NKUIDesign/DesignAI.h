@@ -609,7 +609,7 @@ namespace nkuidesign {
 							   "apparences ne sont PAS montrees");
 					if (doc.IsValidIndex(selection)) {
 						char b[96];
-						snprintf(b, sizeof(b), ", sauf pour le noeud %d, donne en entier",
+						nkentseu::NkSnprintf(b, sizeof(b), ", sauf pour le noeud %d, donne en entier",
 								 (int)selection);
 						out.Append(b);
 					}
@@ -969,7 +969,7 @@ namespace nkuidesign {
 				for (uint32 i = 0; i < n; ++i)
 					if (numeros[i] < nbCourant) {
 						char b[224];
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "la reponse cree un noeud %d alors que le document en "
 								 "compte deja %d : impossible de savoir si elle veut le "
 								 "noeud existant ou un nouveau. Rien n'a ete pose.",
@@ -999,7 +999,7 @@ namespace nkuidesign {
 							cible = p;
 						else if (cible != p) {
 							char b[224];
-							snprintf(b, sizeof(b),
+							nkentseu::NkSnprintf(b, sizeof(b),
 									 "la reponse se rattache a DEUX endroits du document "
 									 "(noeuds %d et %d). L'outil ne sait poser qu'a un seul "
 									 "endroit a la fois : rien n'a ete pose.",
@@ -1014,7 +1014,7 @@ namespace nkuidesign {
 						creeIci = (numeros[k] == p);
 					if (!creeIci) {
 						char b[192];
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "la reponse se rattache a un noeud %d qui n'existe nulle "
 								 "part. Rien n'a ete pose.", (int)p);
 						res.detail = NkString(b);
@@ -1038,7 +1038,7 @@ namespace nkuidesign {
 						   "  composant = \n  largeur = expand 1 0 0\n  hauteur = expand 1 0 0\n");
 				for (uint32 i = 0; i < n; ++i) {
 					char e[48];
-					snprintf(e, sizeof(e), "noeud %u\n", (unsigned)(i + 1));
+					nkentseu::NkSnprintf(e, sizeof(e), "noeud %u\n", (unsigned)(i + 1));
 					t.Append(e);
 					const int32 p = parents[i];
 					int32 pLocal = 0; // externe -> la racine jetable
@@ -1046,7 +1046,7 @@ namespace nkuidesign {
 						for (uint32 k = 0; k < n; ++k)
 							if (numeros[k] == p)
 								pLocal = (int32)(k + 1);
-					snprintf(e, sizeof(e), "  parent = %d\n", (int)pLocal);
+					nkentseu::NkSnprintf(e, sizeof(e), "  parent = %d\n", (int)pLocal);
 					t.Append(e);
 					t.Append(corps[i]);
 				}
@@ -1144,7 +1144,7 @@ namespace nkuidesign {
 				if (atteignables != lus) {
 					res.verdict = NkAIVerdict::TexteNonConforme;
 					char b[224];
-					snprintf(b, sizeof(b),
+					nkentseu::NkSnprintf(b, sizeof(b),
 							 "le document declare %u noeud(s), %u seulement sont relies a la "
 							 "racine : %u seraient PERDUS en silence. Refuse. (les numeros "
 							 "`noeud N` doivent suivre l'ordre d'ecriture)",

@@ -174,14 +174,14 @@ namespace nkuidesign {
 		if (cibles.Empty() && st.doc.IsValidIndex(st.selected) && st.selected != 0)
 			cibles.PushBack(st.selected);
 		if (cibles.Empty()) {
-			snprintf(r.message, sizeof(r.message), "Aligner : rien n'est sélectionné.");
+			nkentseu::NkSnprintf(r.message, sizeof(r.message), "Aligner : rien n'est sélectionné.");
 			return r;
 		}
 		// la disposition A JOUR : le geste lit des rectangles, pas des intentions
 		st.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
 		const NkLayoutResult &lay = st.layout;
 		if (NkAlignEstRepartir(g) && cibles.Size() < 3u) {
-			snprintf(r.message, sizeof(r.message),
+			nkentseu::NkSnprintf(r.message, sizeof(r.message),
 					 "Répartir : il faut au moins TROIS éléments (avec deux, il n'y a rien à répartir).");
 			return r;
 		}
@@ -193,11 +193,11 @@ namespace nkuidesign {
 			if (surDernier && cibles.Size() >= 2u) {
 				cle = cibles[(uint32)cibles.Size() - 1u];
 				if (!lay.Has(cle)) {
-					snprintf(r.message, sizeof(r.message), "Aligner : le dernier sélectionné n'a pas de boîte.");
+					nkentseu::NkSnprintf(r.message, sizeof(r.message), "Aligner : le dernier sélectionné n'a pas de boîte.");
 					return r;
 				}
 				ref = lay.At(cle);
-				snprintf(quoi, sizeof(quoi), "le dernier sélectionné");
+				nkentseu::NkSnprintf(quoi, sizeof(quoi), "le dernier sélectionné");
 			} else if (cibles.Size() >= 2u) {
 				bool premier = true;
 				for (uint32 k = 0; k < (uint32)cibles.Size(); ++k) {
@@ -219,24 +219,24 @@ namespace nkuidesign {
 					ref.h = y1 - ref.y;
 				}
 				if (premier) {
-					snprintf(r.message, sizeof(r.message), "Aligner : la sélection n'a pas de boîte.");
+					nkentseu::NkSnprintf(r.message, sizeof(r.message), "Aligner : la sélection n'a pas de boîte.");
 					return r;
 				}
-				snprintf(quoi, sizeof(quoi), "la sélection");
+				nkentseu::NkSnprintf(quoi, sizeof(quoi), "la sélection");
 			} else {
 				const int32 page = PageDe(st.doc, cibles[0]);
 				if (page < 0 || !lay.Has(page)) {
-					snprintf(r.message, sizeof(r.message),
+					nkentseu::NkSnprintf(r.message, sizeof(r.message),
 							 "Aligner : un seul élément s'aligne sur SA PAGE, et il n'en a pas.");
 					return r;
 				}
 				ref = lay.At(page);
-				snprintf(quoi, sizeof(quoi), "la page « %s »",
+				nkentseu::NkSnprintf(quoi, sizeof(quoi), "la page « %s »",
 						 st.doc.nodes[(uint32)page].label.Empty() ? "sans nom"
 																  : st.doc.nodes[(uint32)page].label.Data());
 			}
 		} else
-			snprintf(quoi, sizeof(quoi), "les centres, à intervalle égal");
+			nkentseu::NkSnprintf(quoi, sizeof(quoi), "les centres, à intervalle égal");
 
 		// ── LE DEPLACEMENT VOULU, PAR NOEUD ─────────────────────────────────
 		auto deplacer = [&](int32 i, float32 dx, float32 dy) {
@@ -286,7 +286,7 @@ namespace nkuidesign {
 				if (lay.Has(cibles[k]))
 					ordre[nb++] = cibles[k];
 			if (nb < 3u) {
-				snprintf(r.message, sizeof(r.message), "Répartir : il faut au moins trois éléments placés.");
+				nkentseu::NkSnprintf(r.message, sizeof(r.message), "Répartir : il faut au moins trois éléments placés.");
 				return r;
 			}
 			auto centre = [&](int32 i) {
@@ -314,13 +314,13 @@ namespace nkuidesign {
 		st.Recompute(NkPaintRect{0.f, 0.f, 1400.f, 900.f});
 		r.ok = r.bouges > 0u;
 		if (r.bouges == 0u && r.refuses == 0u)
-			snprintf(r.message, sizeof(r.message), "%s : rien à déplacer (tout est déjà en place).", NkAlignGesteNom(g));
+			nkentseu::NkSnprintf(r.message, sizeof(r.message), "%s : rien à déplacer (tout est déjà en place).", NkAlignGesteNom(g));
 		else if (r.refuses > 0u)
-			snprintf(r.message, sizeof(r.message),
+			nkentseu::NkSnprintf(r.message, sizeof(r.message),
 					 "%s sur %s : %u déplacé(s), %u laissé(s) — leur parent place ses enfants lui-même.",
 					 NkAlignGesteNom(g), quoi, r.bouges, r.refuses);
 		else
-			snprintf(r.message, sizeof(r.message), "%s sur %s : %u déplacé(s).", NkAlignGesteNom(g), quoi, r.bouges);
+			nkentseu::NkSnprintf(r.message, sizeof(r.message), "%s sur %s : %u déplacé(s).", NkAlignGesteNom(g), quoi, r.bouges);
 		return r;
 	}
 

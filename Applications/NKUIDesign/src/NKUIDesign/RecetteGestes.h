@@ -103,7 +103,7 @@ static nkentseu::int32 RecetteGestes() {
 		st.CollerPressePapiers();
 		st.Recompute(surface);
 		char d[128];
-		snprintf(d, sizeof(d), "copies=%u, Pere x%d, Fils x%d", nCopies, compteLabel("Pere"),
+		nkentseu::NkSnprintf(d, sizeof(d), "copies=%u, Pere x%d, Fils x%d", nCopies, compteLabel("Pere"),
 				 compteLabel("Fils"));
 		verdict("copier/coller : le sous-arbre revient ENTIER (pere + fils)",
 				nCopies == 1 && compteLabel("Pere") == 2 && compteLabel("Fils") == 2, d);
@@ -122,7 +122,7 @@ static nkentseu::int32 RecetteGestes() {
 		st.CopierSelection();
 		st.CollerPressePapiers();
 		char d[96];
-		snprintf(d, sizeof(d), "Pere x%d, Fils x%d (x4 = le doublon)", compteLabel("Pere"),
+		nkentseu::NkSnprintf(d, sizeof(d), "Pere x%d, Fils x%d (x4 = le doublon)", compteLabel("Pere"),
 				 compteLabel("Fils"));
 		verdict("copier pere+fils : le fils n'arrive PAS en double",
 				compteLabel("Pere") == 2 && compteLabel("Fils") == 2, d);
@@ -191,7 +191,7 @@ static nkentseu::int32 RecetteGestes() {
 			}
 		}
 		char d[96];
-		snprintf(d, sizeof(d), "%u vs %u octets, %s", (unsigned)(sa.Data() ? strlen(sa.Data()) : 0),
+		nkentseu::NkSnprintf(d, sizeof(d), "%u vs %u octets, %s", (unsigned)(sa.Data() ? strlen(sa.Data()) : 0),
 				 (unsigned)(sb.Data() ? strlen(sb.Data()) : 0),
 				 ok ? "serialisations IDENTIQUES" : "UN CHAMP MANQUE");
 		verdict("la copie ne perd AUCUN champ (comparaison par le format)", ok, d);
@@ -209,7 +209,7 @@ static nkentseu::int32 RecetteGestes() {
 						&& st.doc.nodes[(uint32)b].posX == st.doc.nodes[(uint32)a].posX + 10.f
 						&& st.doc.nodes[(uint32)b].posY == st.doc.nodes[(uint32)a].posY + 10.f;
 		char d[96];
-		snprintf(d, sizeof(d), "original (%.0f,%.0f) -> colle (%.0f,%.0f)",
+		nkentseu::NkSnprintf(d, sizeof(d), "original (%.0f,%.0f) -> colle (%.0f,%.0f)",
 				 st.doc.nodes[(uint32)a].posX, st.doc.nodes[(uint32)a].posY,
 				 st.doc.IsValidIndex(b) ? st.doc.nodes[(uint32)b].posX : -1.f,
 				 st.doc.IsValidIndex(b) ? st.doc.nodes[(uint32)b].posY : -1.f);
@@ -226,7 +226,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool parti = compteLabel("Coupe") == 0;
 		st.CollerPressePapiers();
 		char d[96];
-		snprintf(d, sizeof(d), "apres couper : x%d ; apres coller : x%d", parti ? 0 : 1,
+		nkentseu::NkSnprintf(d, sizeof(d), "apres couper : x%d ; apres coller : x%d", parti ? 0 : 1,
 				 compteLabel("Coupe"));
 		verdict("couper puis coller : l'original part, le contenu revient",
 				parti && compteLabel("Coupe") == 1, d);
@@ -244,7 +244,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool ok = st.doc.IsValidIndex(b) && b != a
 						&& st.doc.nodes[(uint32)b].parent == cadre && compteLabel("Bouton") == 2;
 		char d[96];
-		snprintf(d, sizeof(d), "Bouton x%d, meme parent=%s", compteLabel("Bouton"),
+		nkentseu::NkSnprintf(d, sizeof(d), "Bouton x%d, meme parent=%s", compteLabel("Bouton"),
 				 (st.doc.IsValidIndex(b) && st.doc.nodes[(uint32)b].parent == cadre) ? "oui" : "non");
 		verdict("dupliquer : la copie nait dans le MEME parent", ok, d);
 	}
@@ -283,7 +283,7 @@ static nkentseu::int32 RecetteGestes() {
 		const NkPaintRect rb1 = (ib >= 0 && st.layout.Has(ib)) ? st.layout.At(ib) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
 		const bool memePlace = ra1.x == ra0.x && ra1.y == ra0.y && rb1.x == rb0.x && rb1.y == rb0.y;
 		char d[160];
-		snprintf(d, sizeof(d), "A (%.0f,%.0f)->(%.0f,%.0f), B (%.0f,%.0f)->(%.0f,%.0f)", ra0.x,
+		nkentseu::NkSnprintf(d, sizeof(d), "A (%.0f,%.0f)->(%.0f,%.0f), B (%.0f,%.0f)->(%.0f,%.0f)", ra0.x,
 				 ra0.y, ra1.x, ra1.y, rb0.x, rb0.y, rb1.x, rb1.y);
 		verdict("grouper : les positions A L'ECRAN ne bougent pas d'un pixel",
 				fait && dedans && memePlace, d);
@@ -307,7 +307,7 @@ static nkentseu::int32 RecetteGestes() {
 		const NkPaintRect ra2 = (ja >= 0 && st.layout.Has(ja)) ? st.layout.At(ja) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
 		const NkPaintRect rb2 = (jb >= 0 && st.layout.Has(jb)) ? st.layout.At(jb) : NkPaintRect{-1.f, -1.f, 0.f, 0.f};
 		char d2[160];
-		snprintf(d2, sizeof(d2), "groupe parti=%s, A (%.0f,%.0f), B (%.0f,%.0f)",
+		nkentseu::NkSnprintf(d2, sizeof(d2), "groupe parti=%s, A (%.0f,%.0f), B (%.0f,%.0f)",
 				 groupeParti ? "oui" : "non", ra2.x, ra2.y, rb2.x, rb2.y);
 		verdict("degrouper : le groupe part, les positions ecran tiennent",
 				fait2 && groupeParti && ra2.x == ra0.x && ra2.y == ra0.y && rb2.x == rb0.x
@@ -327,7 +327,7 @@ static nkentseu::int32 RecetteGestes() {
 		st.selected = st.sel.Primary();
 		st.SupprimerSelection();
 		char d[96];
-		snprintf(d, sizeof(d), "A x%d, C x%d, Garde x%d", compteLabel("A"), compteLabel("C"),
+		nkentseu::NkSnprintf(d, sizeof(d), "A x%d, C x%d, Garde x%d", compteLabel("A"), compteLabel("C"),
 				 compteLabel("Garde"));
 		verdict("supprimer une multi-selection : les deux partent, le voisin reste",
 				compteLabel("A") == 0 && compteLabel("C") == 0 && compteLabel("Garde") == 1, d);
@@ -346,7 +346,7 @@ static nkentseu::int32 RecetteGestes() {
 		st.forageToile = cadre;
 		const uint32 n1 = st.ToutSelectionner(); // dans le cadre : les trois
 		char d[96];
-		snprintf(d, sizeof(d), "premier niveau=%u, dans le cadre=%u", n0, n1);
+		nkentseu::NkSnprintf(d, sizeof(d), "premier niveau=%u, dans le cadre=%u", n0, n1);
 		verdict("tout selectionner : au NIVEAU du forage, pas tout le document",
 				n0 == 1 && n1 == 3, d);
 	}
@@ -396,10 +396,10 @@ static nkentseu::int32 RecetteGestes() {
 			st.Annuler(); // UN SEUL
 			const bool revenu = identiques(ser(st), avant);
 			char d[96];
-			snprintf(d, sizeof(d), "le geste ecrit=%s, UN Annuler suffit=%s",
+			nkentseu::NkSnprintf(d, sizeof(d), "le geste ecrit=%s, UN Annuler suffit=%s",
 					 aChange ? "oui" : "non", revenu ? "oui" : "non");
 			char nom[96];
-			snprintf(nom, sizeof(nom), "%s : UN SEUL pas d'annulation", cas4[k].nom);
+			nkentseu::NkSnprintf(nom, sizeof(nom), "%s : UN SEUL pas d'annulation", cas4[k].nom);
 			verdict(nom, aChange && revenu, d);
 		}
 	}
@@ -437,7 +437,7 @@ static nkentseu::int32 RecetteGestes() {
 		const int32 cycle[2] = {cA, tA};
 		const int32 lca4 = NkAncetreCommun(d, cycle, 2u);
 		char det[176];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "petits-enfants->%d (page=%d) ; meme parent->%d ; seul->%d ; noeud+descendant->%d "
 				 "(pas %d)",
 				 lca1, page, lca2, lca3, lca4, cA);
@@ -501,7 +501,7 @@ static nkentseu::int32 RecetteGestes() {
 		for (uint32 i = 0; i < (uint32)fin.Size() && memeFratrie; ++i)
 			memeFratrie = d.IsValidIndex(fin[i]) && d.nodes[(uint32)fin[i]].parent == pg;
 		char det[224];
-		snprintf(det, sizeof(det), "depart=%d ; avancer=%d reculer=%d 1er plan=%d arriere=%d ; "
+		nkentseu::NkSnprintf(det, sizeof(det), "depart=%d ; avancer=%d reculer=%d 1er plan=%d arriere=%d ; "
 							   "un cran != tout au fond=%d ; refus franc=%d racine=%d ; "
 							   "fratrie conservee=%d (%u enfants)",
 				 depart ? 1 : 0, av ? 1 : 0, re ? 1 : 0, pp ? 1 : 0, ap ? 1 : 0, unCran ? 1 : 0,
@@ -621,7 +621,7 @@ static nkentseu::int32 RecetteGestes() {
 			relu.Save(stable);
 		const bool allerRetour = chargee && stable.Size() == avecS.Size();
 		char det[256];
-		snprintf(det, sizeof(det), "avant : clic->enfant=%d ; verrou : clic TRAVERSE vers le "
+		nkentseu::NkSnprintf(det, sizeof(det), "avant : clic->enfant=%d ; verrou : clic TRAVERSE vers le "
 							   "groupe=%d (visible=%d) herite=%d ; masque : %u->%u commandes (=%d) "
 							   "inattrapable=%d ; masque herite=%u cmd (=%d) ; sans cle=%d "
 							   "relues=%d stable=%d",
@@ -697,7 +697,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool cadenasOte = !ne.verrouille;
 		const bool polarite = oeilFerme && oeilOuvert && cadenasMis && cadenasOte;
 		char det[224];
-		snprintf(det, sizeof(det), "repos=%d ; drapeau propre : effectif sans herite=%d ; herite "
+		nkentseu::NkSnprintf(det, sizeof(det), "repos=%d ; drapeau propre : effectif sans herite=%d ; herite "
 							   "de l'ancetre=%d (porteur cliquable=%d) ; verrou seul (non "
 							   "cache)=%d ; polarite oeil INVERSEE + cadenas direct=%d",
 				 repos ? 1 : 0, propre ? 1 : 0, heriteEnfant ? 1 : 0, porteurCliquable ? 1 : 0,
@@ -804,7 +804,7 @@ static nkentseu::int32 RecetteGestes() {
 						  && !NkPeutModifierDeclaration(tiers, nullptr)
 						  && NkPeutModifierDeclaration(local, "rodolf");
 		char det[256];
-		snprintf(det, sizeof(det), "sans composant : aucune cle=%d octet pour octet=%d ; cle "
+		nkentseu::NkSnprintf(det, sizeof(det), "sans composant : aucune cle=%d octet pour octet=%d ; cle "
 							   "« %s »=%d ; relu : identite=%d arbre (structure)=%d instance+"
 							   "ecarts=%d stable=%d ; porte de fork=%d",
 				 aucuneCle ? 1 : 0, octetPourOctet ? 1 : 0, cle.Data(), cleJuste ? 1 : 0,
@@ -847,7 +847,7 @@ static nkentseu::int32 RecetteGestes() {
 			r.Save(avec2);
 		const bool stable = voyage && strcmp(avec2.Data(), avec.Data()) == 0;
 		char det[160];
-		snprintf(det, sizeof(det), "absente d'un document d'avant=%d ; posee -> relue=%d ; "
+		nkentseu::NkSnprintf(det, sizeof(det), "absente d'un document d'avant=%d ; posee -> relue=%d ; "
 							   "reenregistrement stable=%d",
 				 absente ? 1 : 0, voyage ? 1 : 0, stable ? 1 : 0);
 		verdict("LA CLE `unite` DES CIBLES EST RESERVEE (VR/AR/XR) : additive -- un document "
@@ -883,7 +883,7 @@ static nkentseu::int32 RecetteGestes() {
 					out.Append(n.shape.Empty() ? "-" : n.shape.Data());
 					out.Append("|");
 					char b[16];
-					snprintf(b, sizeof(b), "%u", (uint32)n.children.Size());
+					nkentseu::NkSnprintf(b, sizeof(b), "%u", (uint32)n.children.Size());
 					out.Append(b);
 					for (uint32 c = 0; c < (uint32)n.children.Size(); ++c)
 						Ecrire(d, n.children[c], out);
@@ -968,7 +968,7 @@ static nkentseu::int32 RecetteGestes() {
 		// (d) UN NŒUD ORDINAIRE NE SE DETACHE PAS : refus franc.
 		const bool refus = !d.DetacherInstance(pg) && !d.DetacherInstance(0);
 		char det[256];
-		snprintf(det, sizeof(det), "extrait=%d (declaration de %u nœuds) ; instance GARDE ses enfants "
+		nkentseu::NkSnprintf(det, sizeof(det), "extrait=%d (declaration de %u nœuds) ; instance GARDE ses enfants "
 							   "et document %u -> %u=%d ; detache=%d ; aller-retour NEUTRE=%d ; "
 							   "ecart TEXTE conserve=%d ; refus franc=%d",
 				 extrait ? 1 : 0,
@@ -1048,7 +1048,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool refuse = NkAppliquerActionCtx(sg, 0, a)
 							&& (uint32)sg.doc.declarations.Size() == avantRacine;
 		char det[256];
-		snprintf(det, sizeof(det), "Ctrl+Alt+K traite par le dispatcher=%d ; declaration creee=%d "
+		nkentseu::NkSnprintf(det, sizeof(det), "Ctrl+Alt+K traite par le dispatcher=%d ; declaration creee=%d "
 							   "nommee « %s »=%d ; le noeud est devenu une instance=%d ; local "
 							   "donc modifiable=%d ; Ctrl+Alt+D detache=%d ; la racine refuse=%d",
 				 traite ? 1 : 0, cree ? 1 : 0,
@@ -1100,7 +1100,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool refus = d.InstancierComposant(99, pg) == -1
 						   && d.InstancierComposant(decl, 9999) == -1;
 		char det[224];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "posee=%d (nœuds %u -> %u, enfants=%u) ; libelle voyage=%d ; "
 				 "detacher l'une laisse l'autre liee=%d ; refus (decl 99, parent 9999)=%d",
 				 posee ? 1 : 0, avant, (uint32)d.nodes.Size(),
@@ -1192,7 +1192,7 @@ static nkentseu::int32 RecetteGestes() {
 		const uint32 cmdBord = compter(r1);
 		const bool bordureEpouse = cmdBord > cmdQuatre + 2u;
 		char det[256];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "cle simple gardee=%d, octet pour octet=%d ; quatre rayons voyagent=%d ; "
 				 "porte (delies=false -> rayon simple)=%d ; peintre : %u cmd uniforme -> %u a "
 				 "quatre coins=%d -> %u avec bordure=%d",
@@ -1272,14 +1272,14 @@ static nkentseu::int32 RecetteGestes() {
 			if (estReserve) {
 				++reserves;
 				if (!premierRate[0])
-					snprintf(premierRate, sizeof(premierRate), "%s", dcl->name);
+					nkentseu::NkSnprintf(premierRate, sizeof(premierRate), "%s", dcl->name);
 			} else if (cmds > 0)
 				++dessines;
 			else if (!premierRate[0])
-				snprintf(premierRate, sizeof(premierRate), "%s (rien)", dcl->name);
+				nkentseu::NkSnprintf(premierRate, sizeof(premierRate), "%s (rien)", dcl->name);
 		}
 		char det[240];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "%u entree(s) au registre ; %u posee(s) sans refus ; %u DESSINEE(S) ; "
 				 "%u reserve(s)%s%s",
 				 (uint32)nReg, poses, dessines, reserves, premierRate[0] ? " -- premier : " : "",
@@ -1344,7 +1344,7 @@ static nkentseu::int32 RecetteGestes() {
 						  && d.nodes[(uint32)n1].parent == pg
 						  && d.nodes[(uint32)n1].component == NkString("bouton");
 		char det1[224];
-		snprintf(det1, sizeof(det1), "vise=%d pose=%d parent=%d compo=%s dit=%s",
+		nkentseu::NkSnprintf(det1, sizeof(det1), "vise=%d pose=%d parent=%d compo=%s dit=%s",
 				 v1.parent, n1, n1 >= 0 ? d.nodes[(uint32)n1].parent : -1,
 				 n1 >= 0 ? d.nodes[(uint32)n1].component.Data() : "-", dit1.Data());
 		verdict("glisser : lache dans une page, le composant Y est pose (pas ailleurs)",
@@ -1372,7 +1372,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool refus = !v2.possible && n2 < 0 && (uint32)d.nodes.Size() == avant
 						   && dit2 == NkString(glisser::NkRefusHorsConteneur());
 		char det2[224];
-		snprintf(det2, sizeof(det2), "possible=%d rendu=%d noeuds %u->%u dit=%s",
+		nkentseu::NkSnprintf(det2, sizeof(det2), "possible=%d rendu=%d noeuds %u->%u dit=%s",
 				 v2.possible ? 1 : 0, n2, avant, (uint32)d.nodes.Size(), dit2.Data());
 		verdict("glisser : hors conteneur, RIEN n'est cree et le refus dit LA phrase "
 				"des outils de trace",
@@ -1390,7 +1390,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool brut = sans.possible && sans.docX == vx && sans.docY == vy;
 		const bool colle = avec.possible && avec.docX == rVois.x && avec.docY == rVois.y;
 		char det3[240];
-		snprintf(det3, sizeof(det3),
+		nkentseu::NkSnprintf(det3, sizeof(det3),
 				 "voisin=(%.1f,%.1f) vise=(%.1f,%.1f) sans=(%.1f,%.1f) avec=(%.1f,%.1f)",
 				 rVois.x, rVois.y, vx, vy, sans.docX, sans.docY, avec.docX, avec.docY);
 		verdict("glisser : l'aimant colle le point au bord du voisin, et sans lui le "
@@ -1405,7 +1405,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool ecrit = n4 >= 0 && d.nodes[(uint32)n4].posX == avec.docX
 						   && d.nodes[(uint32)n4].posY == avec.docY;
 		char det4[224];
-		snprintf(det4, sizeof(det4), "vise=(%.2f,%.2f) ecrit=(%.2f,%.2f)", avec.docX,
+		nkentseu::NkSnprintf(det4, sizeof(det4), "vise=(%.2f,%.2f) ecrit=(%.2f,%.2f)", avec.docX,
 				 avec.docY, n4 >= 0 ? d.nodes[(uint32)n4].posX : -1.f,
 				 n4 >= 0 ? d.nodes[(uint32)n4].posY : -1.f);
 		verdict("glisser : le noeud pose est ECRIT au point AIMANTE -- le depot ne "
@@ -1420,7 +1420,7 @@ static nkentseu::int32 RecetteGestes() {
 						   && dit5.Data() != nullptr
 						   && strstr(dit5.Data(), "ce_composant_n_existe_pas") != nullptr;
 		char det5[224];
-		snprintf(det5, sizeof(det5), "rendu=%d noeuds %u->%u dit=%s", n5, avant5,
+		nkentseu::NkSnprintf(det5, sizeof(det5), "rendu=%d noeuds %u->%u dit=%s", n5, avant5,
 				 (uint32)d.nodes.Size(), dit5.Data());
 		verdict("glisser : un composant absent du registre est refuse, et le refus le "
 				"NOMME (jamais « impossible » tout court)",
@@ -1482,7 +1482,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool sansRenvoi =
 			st.status.Data() != nullptr && strstr(st.status.Data(), "palette du rail") == nullptr;
 		char det[240];
-		snprintf(det, sizeof(det), "compo=%s pose=%d noeuds %u->%u parent=%d (page=%d, "
+		nkentseu::NkSnprintf(det, sizeof(det), "compo=%s pose=%d noeuds %u->%u parent=%d (page=%d, "
 				 "selection=%d) dit=%s",
 				 d0 && d0->name ? d0->name : "(aucun)", pose ? 1 : 0, avant, apres,
 				 st.doc.IsValidIndex(neuf) ? st.doc.nodes[(uint32)neuf].parent : -1, pg,
@@ -1573,7 +1573,7 @@ static nkentseu::int32 RecetteGestes() {
 				++arrondis;
 		}
 		char det[200];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "%u noeud(s) a rayon 12 ; %u commande(s) ; %u contour(s) CARRE(S) ; "
 				 "%u commande(s) arrondie(s)",
 				 nSujets + 1u, (uint32)pv.cmds.Size(), carres, arrondis);
@@ -1660,7 +1660,7 @@ static nkentseu::int32 RecetteGestes() {
 				couvert = true;
 		}
 		char det[240];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "50.50 borne a %.1f sur une hauteur de 36=%d ; regle CSS (18+18 sur 30 -> "
 				 "%.1f+%.1f)=%d ; la valeur REVIENT sur une boite plus grande=%d ; le coin "
 				 "bas-droit est COUVERT (l'encoche)=%d",
@@ -1818,18 +1818,18 @@ static nkentseu::int32 RecetteGestes() {
 		const bool sePeint = cmdDeg >= cmdUni + 10u;
 
 		char det[256];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "uni : aucune cle degrade=%d, octet pour octet=%d ; deux arrets voyagent=%d ; "
 				 "reenregistrement stable=%d ; TYPE INCONNU relu ET reemis intact=%d",
 				 aucuneCle ? 1 : 0, octetPourOctet ? 1 : 0, voyage ? 1 : 0, stable ? 1 : 0,
 				 inconnuIntact ? 1 : 0);
 		{
 			char q[96];
-			snprintf(q, sizeof(q), " ; PEINT : %u commande(s) uni -> %u avec degrade=%d",
+			nkentseu::NkSnprintf(q, sizeof(q), " ; PEINT : %u commande(s) uni -> %u avec degrade=%d",
 					 cmdUni, cmdDeg, sePeint ? 1 : 0);
 			const uint32 l = (uint32)strlen(det);
 			if (l + strlen(q) + 1u < sizeof(det))
-				snprintf(det + l, sizeof(det) - l, "%s", q);
+				nkentseu::NkSnprintf(det + l, sizeof(det) - l, "%s", q);
 		}
 
 		verdict("DEGRADES (format) : la cle est ADDITIVE (un remplissage uni ne la gagne pas), "
@@ -1892,7 +1892,7 @@ static nkentseu::int32 RecetteGestes() {
 		const bool refuse = NkAppliquerActionCtx(sp, pg, a)
 							&& sp.doc.AppliquerAuComposant(pg, "") == -1;
 		char det[256];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "meme depart=%d ; Ctrl+Alt+M traite par le dispatcher=%d ; la source porte "
 				 "#00ff00=%d ; la SURCHARGEE garde #ff0000=%d ; une instance neuve SUIT=%d ; "
 				 "modifier une instance n'en touche aucune autre=%d ; refus franc=%d",
@@ -1941,7 +1941,7 @@ static nkentseu::int32 RecetteGestes() {
 		vide.status = NkString("");
 		const bool refusDit = !NkPoserComposantDocument(vide, 0) && !vide.status.Empty();
 		char det[192];
-		snprintf(det, sizeof(det),
+		nkentseu::NkSnprintf(det, sizeof(det),
 				 "sous la selection=%d ; sans selection -> premiere page=%d ; sans page : "
 				 "refus qui parle=%d (« %s »)",
 				 sousSelection ? 1 : 0, surPage ? 1 : 0, refusDit ? 1 : 0,
@@ -2002,7 +2002,7 @@ static nkentseu::int32 RecetteGestes() {
 							&& n.Surcharge(NkUINode::EcartBordures)
 							&& strcmp(n.text.Data(), "Surcharge") == 0;
 		char det[224];
-		snprintf(det, sizeof(det), "%u ecarts nommes ; noms pleins=%d bits uniques=%d ; la table "
+		nkentseu::NkSnprintf(det, sizeof(det), "%u ecarts nommes ; noms pleins=%d bits uniques=%d ; la table "
 							   "couvre l'enumeration=%d (union %u contre %u) ; masque "
 							   "independant=%d ; reinit retire le bit sans toucher la valeur=%d",
 				 nbE, nomsPleins ? 1 : 0, bitsUniques ? 1 : 0, couvre ? 1 : 0, union_, attendus,
@@ -2084,7 +2084,7 @@ static nkentseu::int32 RecetteGestes() {
 		const uint32 apres = (uint32)pv.cmds.Size();
 		const bool memeImage = decl >= 0 && inst >= 0 && apres == avant;
 		char det[224];
-		snprintf(det, sizeof(det), "declaration=%d instance=%d ; commandes emises %u avant -> %u "
+		nkentseu::NkSnprintf(det, sizeof(det), "declaration=%d instance=%d ; commandes emises %u avant -> %u "
 							   "apres extraction (identiques=%d)",
 				 decl, inst, avant, apres, memeImage ? 1 : 0);
 		verdict("UNE INSTANCE PEINT LE CONTENU DE SA DECLARATION : extraire est un geste de "
@@ -2170,7 +2170,7 @@ static nkentseu::int32 RecetteGestes() {
 		const uint32 contoursMasque = compter(nkentseu::editorkit::NkPaintOp::OutlineSharp);
 		const bool repliTenu = contoursMasque >= 1u;
 		char det[240];
-		snprintf(det, sizeof(det), "noeud propre=%d ; contours=%u (attendu 0)=%d fonds=%u "
+		nkentseu::NkSnprintf(det, sizeof(det), "noeud propre=%d ; contours=%u (attendu 0)=%d fonds=%u "
 							   "(visible=%d) ; tous remplissages masques -> contours=%u (repli "
 							   "tenu=%d)",
 				 noeudPropre ? 1 : 0, contours, sansContour ? 1 : 0, fonds, maisVisible ? 1 : 0,

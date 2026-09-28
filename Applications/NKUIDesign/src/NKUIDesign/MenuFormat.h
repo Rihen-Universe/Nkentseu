@@ -58,7 +58,7 @@ namespace nkuidesign {
 			dl.AddRectFilled(r, {1, 4, 9, 255}, 4.f);
 			dl.AddRect(r, ctx.theme.border, 1.f, 4.f);
 			char b[16];
-			snprintf(b, sizeof(b), "%d", (int32)v);
+			nkentseu::NkSnprintf(b, sizeof(b), "%d", (int32)v);
 			costume::Texte(dl, F.px11, r.x + 6.f, costume::CentrerY(F.px11, r.y, r.h), b,
 						   ctx.theme.text);
 			const nkgui::NkGuiId gid = ctx.GetId(id);
@@ -206,7 +206,7 @@ namespace nkuidesign {
 					costume::Texte(dl, F.px11, r.x + 8.f, y + 3.f, k[i].nom,
 								   actuel ? ctx.theme.onAccent : ctx.theme.text);
 					char dim[48];
-					snprintf(dim, sizeof(dim), "%d \xC3\x97 %d %s", (int32)k[i].w, (int32)k[i].h,
+					nkentseu::NkSnprintf(dim, sizeof(dim), "%d \xC3\x97 %d %s", (int32)k[i].w, (int32)k[i].h,
 							 k[i].note);
 					costume::Texte(dl, F.px9, r.x + 8.f, y + 17.f, dim,
 								   actuel ? ctx.theme.onAccent : ctx.theme.textMuted);

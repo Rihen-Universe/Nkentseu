@@ -340,7 +340,7 @@ namespace nkuidesign {
 					uneSeule && st.doc.nodes[(uint32)rc].borders[0].epaisseur == 1.f
 					&& st.doc.nodes[(uint32)rc].borders[0].position == NkBordurePos::Interieur;
 				char d1[192];
-				snprintf(d1, sizeof(d1), "poubelle visee=%d ; il reste %u bordure(s)=%d ; la "
+				nkentseu::NkSnprintf(d1, sizeof(d1), "poubelle visee=%d ; il reste %u bordure(s)=%d ; la "
 										 "survivante est la BONNE (ep=%.0f, pos=%d)=%d",
 						 vise ? 1 : 0, reste, uneSeule ? 1 : 0,
 						 uneSeule ? (double)st.doc.nodes[(uint32)rc].borders[0].epaisseur : 0.0,
@@ -372,7 +372,7 @@ namespace nkuidesign {
 				const bool bonF = resteF == 1u
 								  && st.doc.nodes[(uint32)rc].fills[0].opacite == 40.f;
 				char d2[176];
-				snprintf(d2, sizeof(d2), "poubelle visee=%d ; il reste %u remplissage(s) ; la "
+				nkentseu::NkSnprintf(d2, sizeof(d2), "poubelle visee=%d ; il reste %u remplissage(s) ; la "
 										 "survivante porte l'opacite %.0f (attendu 40)=%d",
 						 viseF ? 1 : 0, resteF,
 						 resteF == 1u ? (double)st.doc.nodes[(uint32)rc].fills[0].opacite : 0.0,
@@ -402,7 +402,7 @@ namespace nkuidesign {
 				const bool bonE = resteE == 1u
 								  && st.doc.nodes[(uint32)rc].effets[0].flou == 3.f;
 				char d3[176];
-				snprintf(d3, sizeof(d3), "poubelle visee=%d ; il reste %u effet(s) ; le survivant "
+				nkentseu::NkSnprintf(d3, sizeof(d3), "poubelle visee=%d ; il reste %u effet(s) ; le survivant "
 										 "porte le flou %.0f (attendu 3)=%d",
 						 viseE ? 1 : 0, resteE,
 						 resteE == 1u ? (double)st.doc.nodes[(uint32)rc].effets[0].flou : 0.0,
@@ -436,7 +436,7 @@ namespace nkuidesign {
 					//    table grandit.
 					const bool proportionnel = h > costume::HRangee * 2.f;
 					char d4[192];
-					snprintf(d4, sizeof(d4),
+					nkentseu::NkSnprintf(d4, sizeof(d4),
 							 "la table declare %u etat(s) ; le panneau consomme %.0f px "
 							 "(attendu >= %.0f) ; suit la table=%d ; proportionnel=%d",
 							 nbEtats, (double)h, (double)attenduMin, suit ? 1 : 0,
@@ -485,7 +485,7 @@ namespace nkuidesign {
 					const bool retire = nd.apparences.Empty()
 										&& strstr(apres.Data(), "apparence_") == nullptr;
 					char d5[224];
-					snprintf(d5, sizeof(d5),
+					nkentseu::NkSnprintf(d5, sizeof(d5),
 							 "pose (1 bloc, les autres intacts)=%d ; cle DANS le texte=%d ; "
 							 "aller-retour rend le fond=%d ; vider retire sans trace=%d",
 							 pose ? 1 : 0, dansLeTexte ? 1 : 0, voyage ? 1 : 0, retire ? 1 : 0);
@@ -540,7 +540,7 @@ namespace nkuidesign {
 					//    sont-elles videes ? Exiger `viseS` aurait fait rougir le
 					//    cas sur ma propre mesure, pas sur un defaut.
 					char d7[208];
-					snprintf(d7, sizeof(d7),
+					nkentseu::NkSnprintf(d7, sizeof(d7),
 							 "cle simple : cles videes=%d (visee=%d, non exige : le harnais "
 							 "juge sur la liste) ; derniere entree : visee=%d, liste vide=%d",
 							 videeS ? 1 : 0, viseS ? 1 : 0, viseD ? 1 : 0, videeD ? 1 : 0);
@@ -581,7 +581,7 @@ namespace nkuidesign {
 					const int32 bRemp = ChampsQuiRepondent(ctx, insp, st, 1);
 					const int32 bEffet = ChampsQuiRepondent(ctx, insp, st, 2);
 					char son[96];
-					snprintf(son, sizeof(son), "bordures=%d remplissages=%d effets=%d",
+					nkentseu::NkSnprintf(son, sizeof(son), "bordures=%d remplissages=%d effets=%d",
 						 bBord, bRemp, bEffet);
 					check("6bis. SONDE des sections voisines (diagnostic, sans exigence)",
 						  true, son);
@@ -591,7 +591,7 @@ namespace nkuidesign {
 									//    trop precis devient un banc faux.*
 									const bool repondent = bandes >= 2;
 									char d6[176];
-									snprintf(d6, sizeof(d6),
+									nkentseu::NkSnprintf(d6, sizeof(d6),
 											 "APPARENCE : %d bande(s) de champ repondent au glisser", bandes);
 									check("6. DICHOTOMIE : les champs d'APPARENCE REPONDENT au geste",
 										  repondent, d6);
@@ -620,7 +620,7 @@ namespace nkuidesign {
 									const bool relie = CliquerLier(ctx, insp, st);
 									const bool repris = relie && !nd.rayonsDelies && nd.radius == 7.f;
 									char d8[208];
-									snprintf(d8, sizeof(d8),
+									nkentseu::NkSnprintf(d8, sizeof(d8),
 											 "delier atteint par le geste=%d, neutre a l'ecran=%d ; un coin "
 											 "seul=%d ; relier atteint=%d, reprend le premier coin=%d",
 											 delie ? 1 : 0, neutre ? 1 : 0, isole ? 1 : 0, relie ? 1 : 0,

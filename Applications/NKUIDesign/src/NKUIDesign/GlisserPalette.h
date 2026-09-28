@@ -94,7 +94,7 @@ namespace nkuidesign {
 			if (!doc.IsValidIndex(v.parent)) {
 				// sous le point, une feuille ? alors c'est ELLE qui refuse, et on le dit
 				const int32 sous = NkPickSelectable(doc, screenLay, sx, sy);
-				snprintf(v.raison, sizeof(v.raison), "%s",
+				nkentseu::NkSnprintf(v.raison, sizeof(v.raison), "%s",
 						 (doc.IsValidIndex(sous) && sous != 0) ? NkRefusFeuille() : NkRefusHorsConteneur());
 				return v;
 			}
@@ -106,7 +106,7 @@ namespace nkuidesign {
 				v.docY = docY + v.snap.dy;
 			}
 			const NkUINode &p = doc.nodes[(nkentseu::uint32)v.parent];
-			snprintf(v.raison, sizeof(v.raison), "Dans « %s ».",
+			nkentseu::NkSnprintf(v.raison, sizeof(v.raison), "Dans « %s ».",
 					 p.label.Empty() ? "(sans nom)" : p.label.Data());
 			return v;
 		}
@@ -125,7 +125,7 @@ namespace nkuidesign {
 				// `AddChild` refuse un composant absent du registre plutot que
 				// d'en inventer un. On le DIT, avec son nom.
 				char b[192];
-				snprintf(b, sizeof(b), "Dépôt refusé : « %s » n'est pas au registre.",
+				nkentseu::NkSnprintf(b, sizeof(b), "Dépôt refusé : « %s » n'est pas au registre.",
 						 (composant && *composant) ? composant : "(sans nom)");
 				dire = NkString(b);
 				return -1;
@@ -136,7 +136,7 @@ namespace nkuidesign {
 			doc.MarkHumanEdit(neuf);
 			char b[256];
 			const NkUINode &p = doc.nodes[(nkentseu::uint32)v.parent];
-			snprintf(b, sizeof(b), "« %s » posé dans « %s ».", n.label.Data(),
+			nkentseu::NkSnprintf(b, sizeof(b), "« %s » posé dans « %s ».", n.label.Data(),
 					 p.label.Empty() ? "(sans nom)" : p.label.Data());
 			dire = NkString(b);
 			return neuf;

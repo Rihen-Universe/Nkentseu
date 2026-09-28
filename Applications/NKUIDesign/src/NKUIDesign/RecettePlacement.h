@@ -139,8 +139,8 @@ namespace nkuidesign {
 		/// vit pas a la racine du depot).
 		inline NkVector<uint8> LireCorpus(const char *relatif) {
 			char a[512], b[512];
-			snprintf(a, sizeof(a), "Applications/NKUIDesign/exemples/%s", relatif);
-			snprintf(b, sizeof(b), "../../../../Applications/NKUIDesign/exemples/%s", relatif);
+			nkentseu::NkSnprintf(a, sizeof(a), "Applications/NKUIDesign/exemples/%s", relatif);
+			nkentseu::NkSnprintf(b, sizeof(b), "../../../../Applications/NKUIDesign/exemples/%s", relatif);
 			NkVector<uint8> o = NkFile::ReadAllBytes(a);
 			if (o.Empty()) {
 				o = NkFile::ReadAllBytes(b);
@@ -381,7 +381,7 @@ namespace nkuidesign {
 				police.LoadEmbedded(nkentseu::NkEmbeddedFontId::DroidSans, 15.f, false);
 			{
 				char d[200];
-				snprintf(d, sizeof(d), "police embarquee=%d, atlas %dx%d", policeOk ? 1 : 0,
+				nkentseu::NkSnprintf(d, sizeof(d), "police embarquee=%d, atlas %dx%d", policeOk ? 1 : 0,
 						 police.atlasW, police.atlasH);
 				Check(policeOk && police.Valid(),
 					  "(g00) la police est chargee AVANT toute conclusion sur du texte", d);
@@ -428,7 +428,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[300];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "%u fichier(s) nomme(s), %u lisible(s) ; %u section(s) `geometry`, "
 						 "%u bloc(s) dedans -- attendu 0 et 0",
 						 n, lus, sections, formes);
@@ -453,7 +453,7 @@ namespace nkuidesign {
 							  && (b.x + b.w <= a.x + a.w + 0.5f) && (b.y + b.h <= a.y + a.h + 0.5f);
 				}
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "monte=%d ; hote (%.0f, %.0f) %.0f x %.0f ; enfant (%.0f, %.0f) %.0f x %.0f "
 						 "-- l'enfant est-il DANS l'hote ? %d",
 						 ok ? 1 : 0, hote ? (double)hote->rect.x : -1.0,
@@ -485,7 +485,7 @@ namespace nkuidesign {
 							   && (p->rect.h > 39.5f && p->rect.h < 40.5f);
 				const uint32 peints = PeintsDans(pA, W, H, 500, 300, 620, 340);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"monte=%d ; ecrit (500, 300) 120 x 40 ; monte (%.1f, %.1f) %.1f x %.1f ; "
 						"%u pixel(s) peint(s) dans ce rectangle ; %u pose(s), %u honore(s), "
 						"%u non consomme(s)",
@@ -503,7 +503,7 @@ namespace nkuidesign {
 									 || p->rect.y < 299.5f || p->rect.y > 300.5f);
 				const uint32 peints = PeintsDans(pB, W, H, 500, 300, 620, 340);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"monte=%d ; sans `pos` le bouton est en (%.1f, %.1f) ; %u pixel(s) peint(s) "
 						"dans (500, 300) 120 x 40 -- attendu 0 ; %u pose(s) comptes",
 						okB ? 1 : 0, p ? (double)p->rect.x : -1.0, p ? (double)p->rect.y : -1.0, peints,
@@ -531,7 +531,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[400];
-				snprintf(d, sizeof(d), "lu=%d ; %u erreur(s), code E-PLACEMENT=%d ; 1re : %s",
+				nkentseu::NkSnprintf(d, sizeof(d), "lu=%d ; %u erreur(s), code E-PLACEMENT=%d ; 1re : %s",
 						lu ? 1 : 0, vr.errors, bonCode ? 1 : 0,
 						dg.Empty() ? "(aucune)" : dg[0].message.Data());
 				Check(lu && vr.errors > 0u && bonCode,
@@ -557,7 +557,7 @@ namespace nkuidesign {
 				const bool place = b && (b->rect.x > 149.5f && b->rect.x < 150.5f)
 							   && (b->rect.y > 159.5f && b->rect.y < 160.5f);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"validation : %u erreur(s) ; monte=%d ; enfant a (%.1f, %.1f) -- attendu "
 						"(100+50, 100+60) = (150, 160) ; %u pose(s), %u honore(s)",
 						vr.errors, ok ? 1 : 0, b ? (double)b->rect.x : -1.0, b ? (double)b->rect.y : -1.0,
@@ -589,7 +589,7 @@ namespace nkuidesign {
 					}
 				}
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"lu=%d ; %u erreur(s) ; `placement` sur une VBox signale=%d, mode inconnu "
 						"signale=%d ; 1re : %s",
 						lu ? 1 : 0, vr.errors, surBoite ? 1 : 0, modeInconnu ? 1 : 0,
@@ -635,7 +635,7 @@ namespace nkuidesign {
 							   && (n3->rect.x >= n2->rect.x - 0.5f)
 							   && (n3->rect.y >= n2->rect.y - 0.5f);
 				char d[600];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"monte=%d ; n1 (%.0f, %.0f) > n2 (%.0f, %.0f) [attendu (60, 60)] > n3 "
 						"(%.0f, %.0f) ; t1 y=%.0f, t2 y=%.0f (flux=%d) ; b3 (%.0f, %.0f) = n3 + "
 						"(10, 10) -> %d ; emboite=%d",
@@ -678,7 +678,7 @@ namespace nkuidesign {
 						   Empreinte(px.Data(), (usize)px.Size()), r.montes);
 				}
 				char d[200];
-				snprintf(d, sizeof(d), "%u / %u fichier(s) valides montes et empreintes", montes, n);
+				nkentseu::NkSnprintf(d, sizeof(d), "%u / %u fichier(s) valides montes et empreintes", montes, n);
 				// PUBLIE, PAS JUGE ICI : la comparaison se fait ENTRE DEUX
 				// CONSTRUCTIONS, elle ne peut pas vivre dans une seule execution.
 				// Un critere qui comparerait a une constante ecrite a la main serait
@@ -696,7 +696,7 @@ namespace nkuidesign {
 				const bool memeY = ca && cb && (ca->rect.y > cb->rect.y - 0.5f)
 							   && (ca->rect.y < cb->rect.y + 0.5f);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						"le frere de la fenetre posee : y=%.1f AVEC un titre, y=%.1f SANS -- ils "
 						"doivent etre EGAUX (le titre d'une fenetre posee est peint DEDANS)",
 						ca ? (double)ca->rect.y : -1.0, cb ? (double)cb->rect.y : -1.0);
@@ -719,7 +719,7 @@ namespace nkuidesign {
 				const uint32 voileM = PeintsDans(pm, W, H, 700, 500, 780, 580);
 				const uint32 voileN = PeintsDans(pn, W, H, 700, 500, 780, 580);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "hors de la fenetre : %u pixel(s) peint(s) en MODAL, %u en NON MODAL "
 						 "-- attendu > 0 et 0 ; modales comptees=%u",
 						 voileM, voileN, rm.modales);
@@ -745,11 +745,11 @@ namespace nkuidesign {
 				}
 				char d[400];
 				if (o.Empty()) {
-					snprintf(d, sizeof(d), "le fichier du corpus est INTROUVABLE");
+					nkentseu::NkSnprintf(d, sizeof(d), "le fichier du corpus est INTROUVABLE");
 				} else if (!lu) {
-					snprintf(d, sizeof(d), "REFUS a la lecture : %s", e.message.Data());
+					nkentseu::NkSnprintf(d, sizeof(d), "REFUS a la lecture : %s", e.message.Data());
 				} else {
-					snprintf(d, sizeof(d), "%u erreur(s), %u avertissement(s) ; 1er : %s", vr.errors,
+					nkentseu::NkSnprintf(d, sizeof(d), "%u erreur(s), %u avertissement(s) ; 1er : %s", vr.errors,
 							 vr.warnings, dg.Empty() ? "(aucun)" : dg[0].message.Data());
 				}
 				Check(lu && vr.errors == 0u && vr.warnings == 0u,
@@ -779,7 +779,7 @@ namespace nkuidesign {
 										<= inte->rect.x + inte->rect.w + 0.5f);
 				}
 				char d2[500];
-				snprintf(d2, sizeof(d2),
+				nkentseu::NkSnprintf(d2, sizeof(d2),
 						 "exterieure (%.0f, %.0f) %.0f x %.0f ; interieure (%.0f, %.0f) %.0f x %.0f "
 						 "(dedans=%d) ; le bouton de l'interieure dedans=%d",
 						 ext ? (double)ext->rect.x : -1.0, ext ? (double)ext->rect.y : -1.0,
@@ -812,14 +812,14 @@ namespace nkuidesign {
 				const bool orange = ((c & 0xFFu) == 0xF7u) && (((c >> 8) & 0xFFu) == 0x9Au)
 									&& (((c >> 16) & 0xFFu) == 0x28u);
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "monte=%d ; %u forme(s) lue(s), %u peinte(s) ; pixel (660, 430) = %08X "
 						 "(attendu R=F7 G=9A B=28), sans la section = %08X",
 						 okg ? 1 : 0, rg.formes, rg.formesPeintes, c, cs);
 				Check(okg && rg.formes == 1u && rg.formesPeintes == 1u && orange,
 					  "(g4a) une `shape` posee peint EXACTEMENT ses pixels", d);
 				char d2[300];
-				snprintf(d2, sizeof(d2),
+				nkentseu::NkSnprintf(d2, sizeof(d2),
 						 "sans `geometry` : %u forme(s), pixel (660, 430) = %08X (attendu blanc)",
 						 rs.formes, cs);
 				Check(oks && rs.formes == 0u && cs == 0xFFFFFFFFu,
@@ -845,7 +845,7 @@ namespace nkuidesign {
 					vr = guifmt::NkGValidate(a, dg);
 				}
 				char d[400];
-				snprintf(d, sizeof(d),
+				nkentseu::NkSnprintf(d, sizeof(d),
 						 "lu=%d ; %u erreur(s) attendues >= 3 (bloc hors `shape`, nature inconnue, "
 						 "bloc dans une forme) ; 1re : %s",
 						 lu ? 1 : 0, vr.errors,
@@ -867,7 +867,7 @@ namespace nkuidesign {
 					vr = guifmt::NkGValidate(a, dg);
 				}
 				char d[300];
-				snprintf(d, sizeof(d), "lu=%d ; %u erreur(s), %u avertissement(s) ; 1re : %s",
+				nkentseu::NkSnprintf(d, sizeof(d), "lu=%d ; %u erreur(s), %u avertissement(s) ; 1re : %s",
 						 lu ? 1 : 0, vr.errors, vr.warnings,
 						 dg.Empty() ? "(aucune)" : dg[0].message.Data());
 				Check(lu && vr.errors == 0u && vr.warnings == 0u,
@@ -888,7 +888,7 @@ namespace nkuidesign {
 					vr = guifmt::NkGValidate(a, dg);
 				}
 				char d[300];
-				snprintf(d, sizeof(d), "lu=%d ; %u erreur(s), %u avertissement(s) ; 1re : %s",
+				nkentseu::NkSnprintf(d, sizeof(d), "lu=%d ; %u erreur(s), %u avertissement(s) ; 1re : %s",
 						 lu ? 1 : 0, vr.errors, vr.warnings,
 						 dg.Empty() ? "(aucune)" : dg[0].message.Data());
 				Check(lu && vr.errors == 0u && vr.warnings == 0u,
@@ -908,7 +908,7 @@ namespace nkuidesign {
 					vr = guifmt::NkGValidate(a, dg);
 				}
 				char d[300];
-				snprintf(d, sizeof(d), "lu=%d ; %u erreur(s) -- attendu 0 ; 1re : %s", lu ? 1 : 0,
+				nkentseu::NkSnprintf(d, sizeof(d), "lu=%d ; %u erreur(s) -- attendu 0 ; 1re : %s", lu ? 1 : 0,
 						 vr.errors, dg.Empty() ? "(aucune)" : dg[0].message.Data());
 				Check(lu && vr.errors == 0u,
 					  "(g1g) NON-REGRESSION : `Spacer { size = 12 }` reste valide", d);

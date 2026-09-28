@@ -84,13 +84,13 @@ namespace nkuidesign {
 	inline void NkEcrireFlux(nkentseu::NkString &out, const char *ecran,
 							 const nkentseu::editorkit::NkRecordingPaint &pv) {
 		char l[320];
-		snprintf(l, sizeof(l), "\n# ecran %s : %u commande(s)\n", ecran,
+		nkentseu::NkSnprintf(l, sizeof(l), "\n# ecran %s : %u commande(s)\n", ecran,
 				 (nkentseu::uint32)pv.cmds.Size());
 		out.Append(l);
 		for (nkentseu::uint32 i = 0; i < (nkentseu::uint32)pv.cmds.Size(); ++i) {
 			const nkentseu::editorkit::NkPaintCmd &c = pv.cmds[i];
 			const char *t = c.text.Data();
-			snprintf(l, sizeof(l), "%-13s %8.1f %8.1f %8.1f %8.1f  r=%-6.1f role=%-4u rgba=%08x %s\n",
+			nkentseu::NkSnprintf(l, sizeof(l), "%-13s %8.1f %8.1f %8.1f %8.1f  r=%-6.1f role=%-4u rgba=%08x %s\n",
 					 NkNomOp(c.op), (double)c.x, (double)c.y, (double)c.w, (double)c.h,
 					 (double)c.rounding, (nkentseu::uint32)c.role, c.rgba, t ? t : "");
 			out.Append(l);
@@ -209,7 +209,7 @@ namespace nkuidesign {
 				//    et il tient sur une ligne.
 				const nkgui::NkGuiDrawList &dl = ctx.dl;
 				char l[128];
-				snprintf(l, sizeof(l), "\n# ecran %s : %u commande(s), %u sommet(s)\n", noms[s],
+				nkentseu::NkSnprintf(l, sizeof(l), "\n# ecran %s : %u commande(s), %u sommet(s)\n", noms[s],
 						 (uint32)dl.cmds.Size(), (uint32)dl.vtx.Size());
 				out.Append(l);
 				for (uint32 c = 0; c < (uint32)dl.cmds.Size(); ++c) {
@@ -233,7 +233,7 @@ namespace nkuidesign {
 							y1 = p.y;
 					}
 					char b[224];
-					snprintf(b, sizeof(b),
+					nkentseu::NkSnprintf(b, sizeof(b),
 							 "cmd %-9s idx=%-5u englobant %8.1f %8.1f %8.1f %8.1f\n",
 							 cm.type == nkgui::NkGuiDrawCmdType::Triangles ? "unis" : "texture",
 							 cm.idxCount, (double)(x1 >= x0 ? x0 : 0.f),
@@ -289,7 +289,7 @@ namespace nkuidesign {
 			return 1;
 		}
 		if (!sortie[0])
-			snprintf(sortie, sizeof(sortie), "%s.flux.txt", doc);
+			nkentseu::NkSnprintf(sortie, sizeof(sortie), "%s.flux.txt", doc);
 		const NkString texte = NkFile::ReadAllText(doc);
 		NkUIDocument d;
 		if (texte.Empty() || !d.Load(texte.Data())) {

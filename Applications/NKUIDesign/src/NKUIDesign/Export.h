@@ -428,7 +428,7 @@ namespace nkuidesign {
 			NkElementsExportables(st, lay, &noeuds);
 			if (noeuds.Empty()) {
 				if (pourquoi && cap)
-					snprintf(pourquoi, cap, "le canvas ne contient aucun Ã©lÃ©ment exportable");
+					nkentseu::NkSnprintf(pourquoi, cap, "le canvas ne contient aucun Ã©lÃ©ment exportable");
 				return false;
 			}
 			bool premier = true;
@@ -471,7 +471,7 @@ namespace nkuidesign {
 					noeuds.PushBack(n);
 			}
 			if (noeuds.Empty()) {
-				snprintf(pourquoi, cap, "rien n'est sélectionné");
+				nkentseu::NkSnprintf(pourquoi, cap, "rien n'est sélectionné");
 				return false;
 			}
 			float32 x0 = 1.0e9f, y0 = 1.0e9f, x1 = -1.0e9f, y1 = -1.0e9f;
@@ -495,14 +495,14 @@ namespace nkuidesign {
 		} else {
 			const nkentseu::int32 page = o.page > 0 && st.doc.IsValidIndex(o.page) ? o.page : NkPageParDefaut(st);
 			if (page <= 0 || !lay.Has(page)) {
-				snprintf(pourquoi, cap, "aucune page à exporter");
+				nkentseu::NkSnprintf(pourquoi, cap, "aucune page à exporter");
 				return false;
 			}
 			noeuds.PushBack(page);
 			zone = lay.At(page);
 		}
 		if (zone.w <= 0.f || zone.h <= 0.f) {
-			snprintf(pourquoi, cap, "zone vide (%.0f × %.0f)", (double)zone.w, (double)zone.h);
+			nkentseu::NkSnprintf(pourquoi, cap, "zone vide (%.0f × %.0f)", (double)zone.w, (double)zone.h);
 			return false;
 		}
 		return true;
@@ -534,13 +534,13 @@ namespace nkuidesign {
 		char pourquoi[160];
 		pourquoi[0] = 0;
 		if (!NkZoneExport(st, *lay, o, noeuds, res.zone, pourquoi, sizeof(pourquoi))) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export : %s — rien n'a été écrit.", pourquoi);
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export : %s — rien n'a été écrit.", pourquoi);
 			return false;
 		}
 		const int32 W = (int32)std::ceil(res.zone.w * s - 0.001f), H = (int32)std::ceil(res.zone.h * s - 0.001f);
 		nkgui::NkGuiDrawListRaster raster;
 		if (!raster.Init(W, H)) {
-			snprintf(res.message, sizeof(res.message),
+			nkentseu::NkSnprintf(res.message, sizeof(res.message),
 					 "ÉCHEC d'export : %d × %d pixels dépasse ce que le rastériseur accepte (16384 de côté) — rien n'a été écrit.",
 					 W, H);
 			return false;
@@ -582,7 +582,7 @@ namespace nkuidesign {
 		res.largeur = W;
 		res.hauteur = H;
 		if (!out.Create((uint32)W, (uint32)H, math::NkColor(), 4) || !out.Pixels()) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export : l'image %d × %d n'a pas pu être allouée.", W, H);
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export : l'image %d × %d n'a pas pu être allouée.", W, H);
 			return false;
 		}
 		const uint8 *src = raster.Pixels();
@@ -601,16 +601,16 @@ namespace nkuidesign {
 		if (!NkExporterImage(st, o, img, res))
 			return false;
 		if (!chemin || !*chemin) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export : aucun chemin de destination.");
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export : aucun chemin de destination.");
 			res.ok = false;
 			return false;
 		}
 		if (!img.SavePNG(chemin) || !NkFile::Exists(chemin) || NkFile::GetFileSize(chemin) <= 0) {
-			snprintf(res.message, sizeof(res.message), "ÉCHEC d'export : le PNG n'a pas pu être écrit dans %s.", chemin);
+			nkentseu::NkSnprintf(res.message, sizeof(res.message), "ÉCHEC d'export : le PNG n'a pas pu être écrit dans %s.", chemin);
 			res.ok = false;
 			return false;
 		}
-		snprintf(res.message, sizeof(res.message), "Exporté : %s (%d × %d px, ×%.2g, %s%s)", chemin, res.largeur,
+		nkentseu::NkSnprintf(res.message, sizeof(res.message), "Exporté : %s (%d × %d px, ×%.2g, %s%s)", chemin, res.largeur,
 				 res.hauteur, (double)o.echelle, o.selection ? "sélection" : "page",
 				 res.texturesInconnues ? ", ⚠ textures manquantes" : "");
 		return true;
@@ -644,7 +644,7 @@ namespace nkuidesign {
 			--k; // ni espace ni point final (Windows les refuse)
 		out[k] = '\0';
 		if (!vu || k == 0)
-			snprintf(out, cap, "sans_nom");
+			nkentseu::NkSnprintf(out, cap, "sans_nom");
 	}
 
 	/// LE NOM DE CE QUI SERA EXPORTE : la page, l'objet, ou « N objets » pour une selection
@@ -691,7 +691,7 @@ namespace nkuidesign {
 			return;
 		}
 		char b[64];
-		snprintf(b, sizeof(b), "%u objets", n);
+		nkentseu::NkSnprintf(b, sizeof(b), "%u objets", n);
 		NkNomFichierAssaini(b, out, cap);
 	}
 
@@ -706,8 +706,8 @@ namespace nkuidesign {
 		char ech[16];
 		ech[0] = 0;
 		if (o.format == NkExportFormat::PNG && (o.echelle > 1.001f || o.echelle < 0.999f))
-			snprintf(ech, sizeof(ech), "@%gx", (double)o.echelle);
-		snprintf(out, cap, "%s%s.%s", base, ech, o.format == NkExportFormat::PNG ? "png" : "svg");
+			nkentseu::NkSnprintf(ech, sizeof(ech), "@%gx", (double)o.echelle);
+		nkentseu::NkSnprintf(out, cap, "%s%s.%s", base, ech, o.format == NkExportFormat::PNG ? "png" : "svg");
 	}
 
 } // namespace nkuidesign

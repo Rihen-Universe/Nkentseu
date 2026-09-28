@@ -184,7 +184,7 @@ namespace nkuidesign {
 				if (!nkgui::NkGuiIntrospectActif(ctx) || !nom || !*nom)
 					return;
 				char clef[96];
-				snprintf(clef, sizeof(clef), "panneau.%s", nom);
+				nkentseu::NkSnprintf(clef, sizeof(clef), "panneau.%s", nom);
 				nkgui::NkGuiNoter(ctx, nkgui::NkGuiNature::Panneau, ctx.GetId(clef), nom,
 								  ctx.layout.region, nkgui::NK_GUI_ETAT_AUCUN);
 				nkgui::NkGuiIntrospectCler(ctx, clef);
@@ -220,7 +220,7 @@ namespace nkuidesign {
 			if (!id || !*id)
 				return;
 			char clef[96];
-			snprintf(clef, sizeof(clef), "%s.%s", id, label ? label : "");
+			nkentseu::NkSnprintf(clef, sizeof(clef), "%s.%s", id, label ? label : "");
 			releve::Cle(ctx, clef);
 		}
 
@@ -1028,7 +1028,7 @@ namespace nkuidesign {
 						// document ici rendrait un refus « pas de ligne nkuidoc » a chaque
 						// tour de conversation, et on croirait le modele en panne.
 						char bd[192];
-						snprintf(bd, sizeof(bd),
+						nkentseu::NkSnprintf(bd, sizeof(bd),
 								 "Reponse recue en %.1f s (%u images pendant l'attente). "
 								 "C'etait une discussion : le document n'a pas bouge.",
 								 envoi.Secondes(), envoi.Images());
@@ -1042,12 +1042,12 @@ namespace nkuidesign {
 						const NkAIResult rp = ai.PoserProposition(texte.Data());
 						char bp[320];
 						if (rp.Accepted())
-							snprintf(bp, sizeof(bp),
+							nkentseu::NkSnprintf(bp, sizeof(bp),
 									 "Proposition validee et rejouee en %.1f s (%u images). "
 									 "« Appliquer » la pose, « Rejeter » la jette.",
 									 envoi.Secondes(), envoi.Images());
 						else
-							snprintf(bp, sizeof(bp), "REPONSE RECUE mais NON RETENUE — %s%s%s",
+							nkentseu::NkSnprintf(bp, sizeof(bp), "REPONSE RECUE mais NON RETENUE — %s%s%s",
 									 NkAIVerdictName(rp.verdict),
 									 rp.detail.Length() > 0 ? " : " : "",
 									 rp.detail.Length() > 0 ? rp.detail.Data() : "");
@@ -1097,7 +1097,7 @@ namespace nkuidesign {
 						//    la barre de menus et avec une AUTRE surface, aurait pose une
 						//    disposition calculee pour un rectangle qui n'est pas celui de
 						//    l'ecran -- deux verites sur la meme chose.
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "Document pose en %.1f s (%u images pendant l'attente). "
 								 "Ctrl+Z le defait.",
 								 envoi.Secondes(), envoi.Images());
@@ -1105,7 +1105,7 @@ namespace nkuidesign {
 						// Le verdict est NOMME : « le modele a repondu » et « ce qu'il a
 						// repondu n'est pas un document » sont deux choses differentes, et
 						// elles se reparent a deux endroits (le service, ou l'invite).
-						snprintf(b, sizeof(b), "REPONSE RECUE mais NON POSEE — %s%s%s",
+						nkentseu::NkSnprintf(b, sizeof(b), "REPONSE RECUE mais NON POSEE — %s%s%s",
 								 NkAIVerdictName(r.verdict),
 								 r.detail.Length() > 0 ? " : " : "",
 								 r.detail.Length() > 0 ? r.detail.Data() : "");
@@ -1115,7 +1115,7 @@ namespace nkuidesign {
 					// Aucun tour IA vide : un tour vide ferait croire que la machine
 					// a repondu « rien ».
 					char b[320];
-					snprintf(b, sizeof(b), "REFUS — %s",
+					nkentseu::NkSnprintf(b, sizeof(b), "REFUS — %s",
 							 erreur.Length() > 0 ? erreur.Data() : "raison non nommee");
 					messageIA = NkString(b);
 				}
@@ -1331,7 +1331,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char msg[64];
-				snprintf(msg, sizeof(msg), "%d élément(s) supprimé(s) — Ctrl+Z les ramène.", n);
+				nkentseu::NkSnprintf(msg, sizeof(msg), "%d élément(s) supprimé(s) — Ctrl+Z les ramène.", n);
 				status = NkString(msg);
 				return n > 0;
 			}
@@ -1358,7 +1358,7 @@ namespace nkuidesign {
 						++n;
 				pressePapiersPlein = n > 0;
 				char msg[48];
-				snprintf(msg, sizeof(msg), "Copié : %u élément(s).", n);
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Copié : %u élément(s).", n);
 				status = NkString(msg);
 				return n;
 			}
@@ -1369,7 +1369,7 @@ namespace nkuidesign {
 					return false;
 				SupprimerSelection(); // copie + suppression = UN pas d'annulation
 				char msg[48];
-				snprintf(msg, sizeof(msg), "Coupé : %u élément(s).", n);
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Coupé : %u élément(s).", n);
 				status = NkString(msg);
 				return true;
 			}
@@ -1406,7 +1406,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char msg[64];
-				snprintf(msg, sizeof(msg), "Collé : %u élément(s) (décalés de 10 px).", n);
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Collé : %u élément(s) (décalés de 10 px).", n);
 				status = NkString(msg);
 				return n > 0;
 			}
@@ -1440,7 +1440,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char msg[48];
-				snprintf(msg, sizeof(msg), "Dupliqué : %u élément(s).",
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Dupliqué : %u élément(s).",
 						 (uint32)nouveaux.Size());
 				status = NkString(msg);
 				return !nouveaux.Empty();
@@ -1525,7 +1525,7 @@ namespace nkuidesign {
 							&& 0 == strncmp(doc.nodes[i].label.Data(), "Groupe ", 7))
 							++nb;
 					char nom[32];
-					snprintf(nom, sizeof(nom), "Groupe %d", nb + 1);
+					nkentseu::NkSnprintf(nom, sizeof(nom), "Groupe %d", nb + 1);
 					NkUINode &gn = doc.nodes[(uint32)g];
 					gn.label = NkString(nom);
 					gn.genre = NkString("simple"); // ecrit des la creation : un groupe vide reste un groupe
@@ -1604,7 +1604,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char msg[48];
-				snprintf(msg, sizeof(msg), "Dégroupé : %u élément(s).", (uint32)enfants.Size());
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Dégroupé : %u élément(s).", (uint32)enfants.Size());
 				status = NkString(msg);
 				return true;
 			}
@@ -2158,9 +2158,9 @@ namespace nkuidesign {
 				NkUINode &n = doc.nodes[(uint32)page];
 				char t[96];
 				if (note && *note)
-					snprintf(t, sizeof(t), "%s %d x %d %s", nom, (int32)w, (int32)h, note);
+					nkentseu::NkSnprintf(t, sizeof(t), "%s %d x %d %s", nom, (int32)w, (int32)h, note);
 				else
-					snprintf(t, sizeof(t), "%s %d x %d", nom, (int32)w, (int32)h);
+					nkentseu::NkSnprintf(t, sizeof(t), "%s %d x %d", nom, (int32)w, (int32)h);
 				n.target = NkString(t);
 				n.width.mode = NkSizeMode::Fixed;
 				n.width.value = w;
@@ -2177,7 +2177,7 @@ namespace nkuidesign {
 					const NkUINode &c = doc.nodes[(uint32)kids[i]];
 					char b[160];
 					if (c.width.mode == NkSizeMode::Fixed && c.width.value > w) {
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "\xC2\xAB %s \xC2\xBB : largeur fixe %d > cible %d",
 								 c.label.Data(), (int32)c.width.value, (int32)w);
 						constatsTransposition.PushBack(NkString(b));
@@ -2185,14 +2185,14 @@ namespace nkuidesign {
 					if (c.posX < 0.f
 						|| (c.width.mode == NkSizeMode::Fixed && c.posX + c.width.value > w)
 						|| (c.height.mode == NkSizeMode::Fixed && c.posY + c.height.value > h)) {
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "\xC2\xAB %s \xC2\xBB : position posée hors bornes de la cible",
 								 c.label.Data());
 						constatsTransposition.PushBack(NkString(b));
 					}
 				}
 				char msg[160];
-				snprintf(msg, sizeof(msg),
+				nkentseu::NkSnprintf(msg, sizeof(msg),
 						 "Format « %s » appliqué — %d constat(s) au rapport de transposition.",
 						 nom, (int32)constatsTransposition.Size());
 				DireAuPied(msg);
@@ -2329,13 +2329,13 @@ namespace nkuidesign {
 				avisExport.actif = true;
 				avisExport.chemin = nkentseu::NkString(chemin);
 				const nkentseu::NkString nom = nkentseu::NkPath(chemin).GetFileName();
-				snprintf(avisExport.titre, sizeof(avisExport.titre), "Export\u00e9 : %s",
+				nkentseu::NkSnprintf(avisExport.titre, sizeof(avisExport.titre), "Export\u00e9 : %s",
 						 nom.Empty() ? chemin : nom.Data());
 				if (l > 0 && h > 0)
-					snprintf(avisExport.detail, sizeof(avisExport.detail), "%d \u00d7 %d \u00b7 %s", l, h,
+					nkentseu::NkSnprintf(avisExport.detail, sizeof(avisExport.detail), "%d \u00d7 %d \u00b7 %s", l, h,
 						 format ? format : "");
 				else
-					snprintf(avisExport.detail, sizeof(avisExport.detail), "%s", format ? format : "");
+					nkentseu::NkSnprintf(avisExport.detail, sizeof(avisExport.detail), "%s", format ? format : "");
 				images.base = nkentseu::NkString();
 				NkCacheImages::Entree &e = images.Charger(chemin);
 				if (!e.absente) {
@@ -2698,7 +2698,7 @@ namespace nkuidesign {
 				host.SyncTo(doc);
 				picker.synchro = 0xFFFFFFFFu;
 				char msg[640];
-				snprintf(msg, sizeof(msg), NkCacheImages::EstAbsolu(rel.Data())
+				nkentseu::NkSnprintf(msg, sizeof(msg), NkCacheImages::EstAbsolu(rel.Data())
 											   ? "Image « %s » : hors du dossier du document, chemin gardé tel quel (le document ne voyagera pas avec)."
 											   : "Image « %s », relative au document ; le fichier est référencé, pas copié.",
 						 rel.Data());
@@ -2828,7 +2828,7 @@ namespace nkuidesign {
 				host.demoModels.Clear();
 				host.SyncTo(doc);
 				char b[192];
-				snprintf(b, sizeof(b), "Document chargé : %u nœud(s), %u composant(s) inconnu(s)",
+				nkentseu::NkSnprintf(b, sizeof(b), "Document chargé : %u nœud(s), %u composant(s) inconnu(s)",
 						 doc.NodeCount(), unknown);
 				status = NkString(b);
 				if (nEnv > 0) {
@@ -2843,7 +2843,7 @@ namespace nkuidesign {
 						noms.Append(g.label.Empty() ? "(sans nom)" : g.label.Data());
 					}
 					char j[640];
-					snprintf(j, sizeof(j),
+					nkentseu::NkSnprintf(j, sizeof(j),
 							 "Ouverture de %s : %u graphique(s) à enfants ENVELOPPÉ(S) dans un groupe "
 							 "(règle §15.13 : une feuille ne contient rien) — %s. Rien n'a bougé à "
 							 "l'écran. Version d'avant conservée : %s. Rien n'est enregistré tant que "
@@ -2851,13 +2851,13 @@ namespace nkuidesign {
 							 kDocumentPath, nEnv, noms.Data(), sauvegarde.Data());
 					Consigner(j);
 					char av[200];
-					snprintf(av, sizeof(av),
+					nkentseu::NkSnprintf(av, sizeof(av),
 							 "%u graphique(s) à enfants enveloppé(s) dans un groupe à l'ouverture — "
 							 "détails dans la Console · cliquer pour fermer",
 							 nEnv);
 					avis = NkString(av);
 					char m[320];
-					snprintf(m, sizeof(m),
+					nkentseu::NkSnprintf(m, sizeof(m),
 							 " — %u graphique(s) à enfants ENVELOPPÉ(S) dans un groupe (règle §15.13 : "
 							 "une feuille ne contient rien) ; rien n'a bougé à l'écran ; version d'avant "
 							 "conservée : %s ; rien n'est enregistré tant que vous n'enregistrez pas.",
@@ -3082,7 +3082,7 @@ namespace nkuidesign {
 				// « Page N » unique (N part du compte des pages + 1).
 				char nom[32];
 				for (uint32 essai = nPages + 1; essai < nPages + 100; ++essai) {
-					snprintf(nom, sizeof(nom), "Page %u", essai);
+					nkentseu::NkSnprintf(nom, sizeof(nom), "Page %u", essai);
 					bool pris = false;
 					for (uint32 i = 0; i < (uint32)doc.nodes.Size(); ++i)
 						if (NkComponentDecl::StrEq(doc.nodes[i].label.Data(), nom))
@@ -3191,7 +3191,7 @@ namespace nkuidesign {
 					sel.Add(kids[k]);
 				selected = sel.Primary();
 				char msg[48];
-				snprintf(msg, sizeof(msg), "Sélection : %u élément(s).", sel.Count());
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Sélection : %u élément(s).", sel.Count());
 				status = NkString(msg);
 				return sel.Count();
 			}
@@ -3427,7 +3427,7 @@ namespace nkuidesign {
 				st.host.demoModels.Clear();
 				st.host.SyncTo(st.doc);
 				char b[176];
-				snprintf(b, sizeof(b), "Composant « %s » créé — ce nœud en est maintenant une "
+				nkentseu::NkSnprintf(b, sizeof(b), "Composant « %s » créé — ce nœud en est maintenant une "
 									   "instance.",
 						 st.doc.declarations[(nkentseu::uint32)d].identite.nom.Data());
 				st.status = NkString(b);
@@ -3484,7 +3484,7 @@ namespace nkuidesign {
 				}
 				st.composantVu = d;
 				char msg[200];
-				snprintf(msg, sizeof(msg), "Composant « %s » : sa hiérarchie est dans le panneau Hiérarchie (lecture seule — modifiez une instance puis « Appliquer au composant »).",
+				nkentseu::NkSnprintf(msg, sizeof(msg), "Composant « %s » : sa hiérarchie est dans le panneau Hiérarchie (lecture seule — modifiez une instance puis « Appliquer au composant »).",
 						 st.doc.declarations[(nkentseu::uint32)d].identite.nom.Data());
 				st.status = NkString(msg);
 				return true;
@@ -3511,7 +3511,7 @@ namespace nkuidesign {
 				st.host.demoModels.Clear();
 				st.host.SyncTo(st.doc);
 				char b[176];
-				snprintf(b, sizeof(b),
+				nkentseu::NkSnprintf(b, sizeof(b),
 						 "Composant mis à jour — %d instance(s) ont suivi ; les propriétés "
 						 "surchargées sont restées.",
 						 suivies);
@@ -3539,7 +3539,7 @@ namespace nkuidesign {
 				const bool actif = h ? st.doc.nodes[(nkentseu::uint32)cible].miroirH
 									 : st.doc.nodes[(nkentseu::uint32)cible].miroirV;
 				char b[112];
-				snprintf(b, sizeof(b), "Miroir %s %s.", h ? "horizontal" : "vertical",
+				nkentseu::NkSnprintf(b, sizeof(b), "Miroir %s %s.", h ? "horizontal" : "vertical",
 						 actif ? "activé" : "désactivé");
 				st.status = NkString(b);
 				return true;
@@ -3664,7 +3664,7 @@ namespace nkuidesign {
 		const int32 neuf = st.doc.AddChild(parent, nom, NkAuthor::Humain);
 		if (neuf < 0) {
 			char b[176];
-			snprintf(b, sizeof(b), "Poser : « %s » n'est pas au registre.", nom);
+			nkentseu::NkSnprintf(b, sizeof(b), "Poser : « %s » n'est pas au registre.", nom);
 			st.status = NkString(b);
 			return false;
 		}
@@ -3675,7 +3675,7 @@ namespace nkuidesign {
 		st.host.SyncTo(st.doc);
 		st.SelectSingle(neuf);
 		char b[208];
-		snprintf(b, sizeof(b), "« %s » posé dans « %s ».",
+		nkentseu::NkSnprintf(b, sizeof(b), "« %s » posé dans « %s ».",
 				 st.doc.nodes[(uint32)neuf].label.Data(),
 				 st.doc.nodes[(uint32)parent].label.Empty()
 					 ? "(sans nom)"
@@ -3707,7 +3707,7 @@ namespace nkuidesign {
 		st.host.SyncTo(st.doc);
 		st.SelectSingle(neuf);
 		char b[176];
-		snprintf(b, sizeof(b), "Instance de « %s » posée dans « %s ».",
+		nkentseu::NkSnprintf(b, sizeof(b), "Instance de « %s » posée dans « %s ».",
 				 st.doc.declarations[(uint32)decl].identite.nom.Data(),
 				 st.doc.nodes[(uint32)parent].label.Empty()
 					 ? "(sans nom)"
@@ -3844,17 +3844,17 @@ namespace nkuidesign {
 					//    phrase. Un chiffre par ligne, la cle a gauche : rien a
 					//    tronquer, et on compare deux composants d'un coup d'oeil.
 					if (designkit::Section(ctx, "Ce que ce composant déclare")) {
-						snprintf(b, sizeof(b), "%u", d->paramCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->paramCount);
 						designkit::KeyValue(ctx, "parametres", b);
-						snprintf(b, sizeof(b), "%u", d->variantCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->variantCount);
 						designkit::KeyValue(ctx, "variantes", b);
-						snprintf(b, sizeof(b), "%u", d->tokenCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->tokenCount);
 						designkit::KeyValue(ctx, "jetons", b);
-						snprintf(b, sizeof(b), "%u", d->metricCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->metricCount);
 						designkit::KeyValue(ctx, "metriques", b);
-						snprintf(b, sizeof(b), "%u", d->hookCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->hookCount);
 						designkit::KeyValue(ctx, "greffes", b);
-						snprintf(b, sizeof(b), "%u", d->eventCount);
+						nkentseu::NkSnprintf(b, sizeof(b), "%u", d->eventCount);
 						designkit::KeyValue(ctx, "evenements", b);
 					}
 					// ⚠️ `TextWrapped`, PAS `Text` : un resume de deux lignes est
@@ -3872,7 +3872,7 @@ namespace nkuidesign {
 				//    la correction a la source, pas une decoration.
 				if (NkRoleAudit::RescuedCount() > 0) {
 					ec.Separator();
-					snprintf(b, sizeof(b), "%u", NkRoleAudit::RescuedCount());
+					nkentseu::NkSnprintf(b, sizeof(b), "%u", NkRoleAudit::RescuedCount());
 					designkit::KeyValue(ctx, "roles PascalCase", b);
 					nkgui::TextWrapped(ctx, "Rattrapes par la canonisation ; a corriger a la source "
 											"(NKEditorKit). L'écran est juste, la déclaration ne "
@@ -3975,11 +3975,11 @@ namespace nkuidesign {
 					//    qui s'affichait « … 0 pose(s) par l'IA, 0… ». Une phrase se
 					//    fait couper ; deux colonnes alignees, non.
 					char b[64];
-					snprintf(b, sizeof(b), "%u", mSt->doc.NodeCount());
+					nkentseu::NkSnprintf(b, sizeof(b), "%u", mSt->doc.NodeCount());
 					designkit::KeyValue(ctx, "noeuds", b);
-					snprintf(b, sizeof(b), "%u", mSt->doc.CountByAuthor(NkAuthor::IA));
+					nkentseu::NkSnprintf(b, sizeof(b), "%u", mSt->doc.CountByAuthor(NkAuthor::IA));
 					designkit::KeyValue(ctx, "posés par l'IA", b);
-					snprintf(b, sizeof(b), "%u", mSt->doc.CountCorrected());
+					nkentseu::NkSnprintf(b, sizeof(b), "%u", mSt->doc.CountCorrected());
 					designkit::KeyValue(ctx, "corriges", b);
 					{
 						designkit::Flow f(ctx);
@@ -4013,7 +4013,7 @@ namespace nkuidesign {
 				const char *mark = n.prov.corrected				  ? " [ia/corrige]"
 								   : (n.prov.author == NkAuthor::IA) ? " [ia]"
 																	 : "";
-				snprintf(line, sizeof(line), "%s%s%s%s", indent, n.label.Data(),
+				nkentseu::NkSnprintf(line, sizeof(line), "%s%s%s%s", indent, n.label.Data(),
 						 n.IsFrame() ? " (cadre)" : "", mark);
 				// La selection de l arbre EST celle du canvas (doc 3 §11.5).
 				if (Selectable(ctx, line, mSt->sel.Contains(node)))
@@ -4251,13 +4251,13 @@ namespace nkuidesign {
 					mEditNode = mMenuNode;
 					mEditEtiquette = false;
 					const char *t0 = nm.TexteEn(mSt->langueActive.Data());
-					snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+					nkentseu::NkSnprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 					mSt->SelectSingle(mMenuNode);
 					Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
 				} else if (a == NkActionCtx::Renommer) {
 					mEditNode = mMenuNode;
 					mEditEtiquette = true;
-					snprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
+					nkentseu::NkSnprintf(mEditBuf, sizeof(mEditBuf), "%s", nm.label.Data());
 					mSt->SelectSingle(mMenuNode);
 					Dire("Renommage de la page — Entrée valide, Échap annule.", "", "");
 				} else if (NkAppliquerActionCtx(*mSt, mMenuNode, a)) {
@@ -4634,7 +4634,7 @@ namespace nkuidesign {
 						mEditNode = ne;
 						const char *t0 =
 							mSt->doc.nodes[(uint32)ne].TexteEn(mSt->langueActive.Data());
-						snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+						nkentseu::NkSnprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 						mSt->SelectSingle(ne);
 						Dire("Édition du texte — Entrée valide, Échap annule.", "", "");
 					} else
@@ -5072,11 +5072,11 @@ namespace nkuidesign {
 						}
 						char msg[160];
 						if (bouges > 0)
-							snprintf(msg, sizeof(msg), "Déplacé de %g px — Maj+flèche pour 10 px.",
+							nkentseu::NkSnprintf(msg, sizeof(msg), "Déplacé de %g px — Maj+flèche pour 10 px.",
 									 (double)(dx != 0.f ? (dx < 0 ? -dx : dx)
 													   : (dy < 0 ? -dy : dy)));
 						else
-							snprintf(msg, sizeof(msg),
+							nkentseu::NkSnprintf(msg, sizeof(msg),
 									 "Rien à déplacer : le parent place ses enfants lui-même.");
 						Dire(msg, "", "");
 					}
@@ -5208,7 +5208,7 @@ namespace nkuidesign {
 						// freres traites comme un groupe.
 						(void)NkRecadrerNoeud(ns, ParentLibre(mSt->modeForme.noeud));
 						char msg[176];
-						snprintf(msg, sizeof(msg), "%u sommet(s) supprimé(s).", retires);
+						nkentseu::NkSnprintf(msg, sizeof(msg), "%u sommet(s) supprimé(s).", retires);
 						Dire(msg, "", "");
 					} else if (refuses > 0) {
 						// ⚠️ LE REFUS SE DIT. `NkSupprimerSommet` refuse sous trois
@@ -5881,7 +5881,7 @@ namespace nkuidesign {
 					NkDesignPaint p3(ctx, mSt->theme);
 					auto badge = [&](float32 cx, float32 cy, float32 val) {
 						char t[16];
-						snprintf(t, sizeof(t), "%d", (int32)(val + 0.5f));
+						nkentseu::NkSnprintf(t, sizeof(t), "%d", (int32)(val + 0.5f));
 						const float32 w = costume::Largeur(costume::Fontes().px9, t) + 8.f;
 						p3.Fill({cx - w * 0.5f, cy - 8.f, w, 15.f}, rose, 3.f);
 						costume::Texte(ctx.dl, costume::Fontes().px9, cx - w * 0.5f + 4.f,
@@ -6020,7 +6020,7 @@ namespace nkuidesign {
 					//    Un essai a la souris aurait vise le coin de la fenetre.
 					const NkPaintRect r = screen.At((int32)i);
 					char clef[128];
-					snprintf(clef, sizeof(clef), "apercu.nœud.%s",
+					nkentseu::NkSnprintf(clef, sizeof(clef), "apercu.nœud.%s",
 							 mSt->doc.nodes[i].label.Data());
 					designkit::releve::Rect(ctx, clef, {r.x, r.y, r.w, r.h});
 				}
@@ -6248,12 +6248,12 @@ namespace nkuidesign {
 								mSt->modeForme.tire = -1;
 								char msg[128];
 								if (rr > 0.f)
-									snprintf(msg, sizeof(msg),
+									nkentseu::NkSnprintf(msg, sizeof(msg),
 											 "Sommet %d arrondi à %.0f px — double-clic à "
 											 "nouveau pour continuer le cycle.",
 											 ia + 1, rr);
 								else
-									snprintf(msg, sizeof(msg),
+									nkentseu::NkSnprintf(msg, sizeof(msg),
 											 "Sommet %d redevenu vif — le cycle boucle.",
 											 ia + 1);
 								Dire(msg, "", "");
@@ -6286,7 +6286,7 @@ namespace nkuidesign {
 									mSt->modeForme.tire = -1;
 									mSt->modeForme.MarquerSeul(neuf);
 									char msg[192];
-									snprintf(msg, sizeof(msg),
+									nkentseu::NkSnprintf(msg, sizeof(msg),
 											 "Sommet COURBE ajouté sur le côté %d (Miroir) — "
 											 "ses deux poignées sont posées, tire-les.",
 											 seg + 1);
@@ -6396,7 +6396,7 @@ namespace nkuidesign {
 									// naître, rien ne le groupe avec les autres.
 									mSt->modeForme.MarquerSeul(neuf);
 									char msg[192];
-									snprintf(msg, sizeof(msg),
+									nkentseu::NkSnprintf(msg, sizeof(msg),
 											 "Sommet ajouté sur le côté %d — la forme n'a pas "
 											 "bougé ; glisse-le, ou double-clique-le pour "
 											 "l'arrondir.",
@@ -6881,7 +6881,7 @@ namespace nkuidesign {
 									NkAngleAimante(brut, ctx.input.shiftDown));
 								mSt->doc.MarkHumanEdit(mSt->selected);
 								char msg[128];
-								snprintf(msg, sizeof(msg),
+								nkentseu::NkSnprintf(msg, sizeof(msg),
 										 "Rotation %.0f° — Maj aimante aux 15°.%s", m.rotation,
 										 NkPeintureSaitTourner(m)
 											 ? ""
@@ -6942,7 +6942,7 @@ namespace nkuidesign {
 												selC.ecarts |= NkUINode::EcartRemplissages;
 											mSt->doc.MarkHumanEdit(mSt->selected);
 											char msg[128];
-											snprintf(msg, sizeof(msg), "Recadrage : X %.0f %%, Y %.0f %%, L %.0f %%, H %.0f %% de l'image.",
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Recadrage : X %.0f %%, Y %.0f %%, L %.0f %%, H %.0f %% de l'image.",
 													 (double)(nX * 100.f), (double)(nY * 100.f), (double)(nW * 100.f), (double)(nH * 100.f));
 											mSt->status = NkString(msg);
 										}
@@ -7029,7 +7029,7 @@ namespace nkuidesign {
 													ecrire();
 												}
 											}
-											snprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Angle du dégradé : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
 										} else if (genreT == 2 && (g.arrets[(uint32)mDegDrag].position >= 0.97f || g.arrets[(uint32)mDegDrag].position <= 0.03f)) {
 											// ⑤ L'ANGULAIRE : l'extremite (0 % / 100 %, la couture) glissee le long du
 											//    cercle TOURNE l'axe -- l'origine angulaire suit le segment
@@ -7042,7 +7042,7 @@ namespace nkuidesign {
 													ecrire();
 												}
 											}
-											snprintf(msg, sizeof(msg), "Origine angulaire : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Origine angulaire : %.0f°%s", (double)g.angle, mDegAimante ? " (aimanté)" : "");
 										} else if (genreT != 0 && genreT != 2 && g.arrets[(uint32)mDegDrag].position >= 0.97f) {
 											// LE DISQUE de l'extremite d'un genre a origine : le rayon (le long de l'axe)
 											const float32 vx = mxS - pvx, vy = myS - pvy;
@@ -7053,7 +7053,7 @@ namespace nkuidesign {
 												g.rayonY = ry;
 												ecrire();
 											}
-											snprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
 										} else {
 											// LE DISQUE : l'arret glisse le long de l'axe (ou du cercle, angulaire)
 											const float32 tA = renderdetail::NkParamDegradeGenre(genreT, rs, g, mxS, myS);
@@ -7061,7 +7061,7 @@ namespace nkuidesign {
 												g.arrets[(uint32)mDegDrag].position = tA;
 												ecrire();
 											}
-											snprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Arrêt %d : %.0f %%", mDegDrag + 1, (double)(tA * 100.f));
 										}
 									} else if (mDegDrag == -3 && rs.w > 0.f && rs.h > 0.f) {
 										float32 ox = (mxS - rs.x) / rs.w, oy = (myS - rs.y) / rs.h;
@@ -7072,7 +7072,7 @@ namespace nkuidesign {
 											g.origineY = oy;
 											ecrire();
 										}
-										snprintf(msg, sizeof(msg), "Origine : %.0f %% · %.0f %%", (double)(ox * 100.f), (double)(oy * 100.f));
+										nkentseu::NkSnprintf(msg, sizeof(msg), "Origine : %.0f %% · %.0f %%", (double)(ox * 100.f), (double)(oy * 100.f));
 									} else if (genreT == 2 && (mDegDrag == -4 || mDegDrag == -5) && rs.h > 0.f) {
 										// ⑤ les carres de l'angulaire : le rayon du cercle (distance a l'origine)
 										const float32 vx = mxS - pvx, vy = myS - pvy;
@@ -7082,7 +7082,7 @@ namespace nkuidesign {
 											g.rayonY = ry;
 											ecrire();
 										}
-										snprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
+										nkentseu::NkSnprintf(msg, sizeof(msg), "Rayon : %.0f %%", (double)(ry * 100.f));
 									} else if (mDegDrag == -4 && rs.w > 0.f) {
 										float32 rx = (mxS - gm.ox) / rs.w;
 										rx = rx < 0.02f ? 0.02f : (rx > 4.f ? 4.f : rx);
@@ -7090,7 +7090,7 @@ namespace nkuidesign {
 											g.rayonX = rx;
 											ecrire();
 										}
-										snprintf(msg, sizeof(msg), "Rayon X : %.0f %%", (double)(rx * 100.f));
+										nkentseu::NkSnprintf(msg, sizeof(msg), "Rayon X : %.0f %%", (double)(rx * 100.f));
 									} else if (mDegDrag == -5 && rs.h > 0.f) {
 										float32 ry = (gm.oy - myS) / rs.h;
 										ry = ry < 0.02f ? 0.02f : (ry > 4.f ? 4.f : ry);
@@ -7098,7 +7098,7 @@ namespace nkuidesign {
 											g.rayonY = ry;
 											ecrire();
 										}
-										snprintf(msg, sizeof(msg), "Rayon Y : %.0f %%", (double)(ry * 100.f));
+										nkentseu::NkSnprintf(msg, sizeof(msg), "Rayon Y : %.0f %%", (double)(ry * 100.f));
 									}
 									if (msg[0])
 										mSt->status = NkString(msg);
@@ -7303,7 +7303,7 @@ namespace nkuidesign {
 								affiche = "Bouton";
 							const uint32 teinte = paint.ColorOf(accent);
 							char btxt[48];
-							snprintf(btxt, sizeof(btxt), "%s", affiche);
+							nkentseu::NkSnprintf(btxt, sizeof(btxt), "%s", affiche);
 							// largeur mesurée sur la vraie police 9 px du costume
 							const float32 bw = 2.f * costume::PadChamp
 											   + costume::Largeur(costume::Fontes().px9, btxt);
@@ -7427,7 +7427,7 @@ namespace nkuidesign {
 											mSt->doc.MarkHumanEdit(ni);
 											mSt->SelectSingle(ni);
 											char bb[120];
-											snprintf(bb, sizeof(bb),
+											nkentseu::NkSnprintf(bb, sizeof(bb),
 													 "Version mobile créée — %d constat(s) "
 													 "au rapport de transposition (menu "
 													 "Cible).",
@@ -7752,7 +7752,7 @@ namespace nkuidesign {
 								&& in.mouseY >= bande.y && in.mouseY < bande.y + bande.h) {
 								mEditNode = (int32)fi;
 								mEditEtiquette = true;
-								snprintf(mEditBuf, sizeof(mEditBuf), "%s", fn.label.Data());
+								nkentseu::NkSnprintf(mEditBuf, sizeof(mEditBuf), "%s", fn.label.Data());
 								mSt->SelectSingle((int32)fi);
 								Dire("Renommage de la page — Entrée valide, Échap annule.",
 									 "", "");
@@ -7845,7 +7845,7 @@ namespace nkuidesign {
 								case NkSuiteDblClic::EditerTexte: {
 									mEditNode = cand;
 									const char *t0 = cn.TexteEn(mSt->langueActive.Data());
-									snprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
+									nkentseu::NkSnprintf(mEditBuf, sizeof(mEditBuf), "%s", t0 ? t0 : "");
 									mSt->SelectSingle(cand);
 									Dire(NkRaisonDeDblClic(suite), "", "");
 									break;
@@ -8299,7 +8299,7 @@ namespace nkuidesign {
 								   : StrEq(shape, "avatar")	   ? "Avatar"
 															   : "Texte";
 				char nom[48];
-				snprintf(nom, sizeof(nom), "%s %u", base, memes + 1u);
+				nkentseu::NkSnprintf(nom, sizeof(nom), "%s %u", base, memes + 1u);
 				NkUINode &n = mSt->doc.nodes[(uint32)idx];
 				n.label = NkString(nom);
 				n.shape = NkString(shape);
@@ -9060,7 +9060,7 @@ namespace nkuidesign {
 					// `border`. Clics pris à la main — le Button du socle
 					// repeindrait son fond opaque sur le costume.
 					auto &F = costume::Fontes();
-					snprintf(zoom, sizeof(zoom), "%d%%",
+					nkentseu::NkSnprintf(zoom, sizeof(zoom), "%d%%",
 							 (int32)(mSt->view.zoom * 100.f + 0.5f));
 					const float32 wz = costume::Largeur(F.px11, zoom);
 					// [5][zoom][4][chevron 7][8][filet 1][4][22][4][22][5]
@@ -9371,22 +9371,26 @@ namespace nkuidesign {
 				const bool echap = ctx.input.KeyPressed(NkGuiKey::Escape);
 				if (ctx.input.charCount == 0 && !echap)
 					return;
-				FILE *f = fopen("nkuidesign_trace_entree.txt", "ab");
-				if (!f)
-					return;
+				// ⚠️ `NkFile::AppendAllText`, PAS `fopen(…, "ab")`. Rodolf, 28/09 :
+				//    « pourquoi je vois fopen printf dans le document pourtant on a
+				//    nkfilesystem et logger ? » — il avait raison, et l'ajout en fin
+				//    de fichier N'EXISTAIT PAS dans `NkFile` : le mode `NK_APPEND`
+				//    était déclaré, aucune porte ne l'employait. Il a demandé qu'on
+				//    l'implémente plutôt que de le contourner ; c'est fait, et ce
+				//    site en est le premier appelant.
 				char b[256];
-				int32 n = snprintf(b, sizeof(b), "chars=");
+				int32 n = nkentseu::NkSnprintf(b, sizeof(b), "chars=");
 				for (int32 k = 0; k < ctx.input.charCount && n < 200; ++k) {
 					const uint32 cp = ctx.input.chars[k];
-					n += snprintf(b + n, sizeof(b) - (size_t)n, "%c",
+					n += nkentseu::NkSnprintf(b + n, sizeof(b) - (size_t)n, "%c",
 								  (cp >= 32 && cp < 127) ? (char)cp : '?');
 				}
-				n += snprintf(b + n, sizeof(b) - (size_t)n,
+				n += nkentseu::NkSnprintf(b + n, sizeof(b) - (size_t)n,
 							  " focusChamp=%s outil=%u variante=%u trace=%d echap=%d\n",
 							  ctx.inputId == NKGUI_ID_NONE ? "aucun" : "OUI", mOutil, mVariante,
 							  (int32)mCreating, (int32)echap);
-				fwrite(b, 1, (size_t)n, f);
-				fclose(f);
+				b[(n >= 0 && n < (int32)sizeof(b)) ? n : (int32)sizeof(b) - 1] = '\0';
+				(void)nkentseu::NkFile::AppendAllText("nkuidesign_trace_entree.txt", b);
 			}
 
 			/// La puce « L × H » sous un rectangle d'écran (Lunacy). `w`/`h` sont
@@ -9398,7 +9402,7 @@ namespace nkuidesign {
 			void PuceTailleN(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h,
 							 nkentseu::uint32 n) {
 				char t[64];
-				snprintf(t, sizeof(t), "%d x %d  (%u)", (int32)(w + 0.5f), (int32)(h + 0.5f), n);
+				nkentseu::NkSnprintf(t, sizeof(t), "%d x %d  (%u)", (int32)(w + 0.5f), (int32)(h + 0.5f), n);
 				const float32 lw = 16.f + costume::Largeur(costume::Fontes().px9, t);
 				const NkPaintRect pb{rs.x + rs.w * 0.5f - lw * 0.5f, rs.y + rs.h + 6.f, lw, 18.f};
 				const uint16 accent = NkDesignResolveRole("accent_ui");
@@ -9409,7 +9413,7 @@ namespace nkuidesign {
 			/// La puce d'ANGLE (Lunacy) : « 18.6° » pres du curseur pendant la rotation.
 			void PuceAngle(NkDesignPaint &paint, float32 x, float32 y, float32 deg) {
 				char t[32];
-				snprintf(t, sizeof(t), "%.1f°", (double)deg);
+				nkentseu::NkSnprintf(t, sizeof(t), "%.1f°", (double)deg);
 				const float32 tw = paint.TextWidth(t) + 12.f;
 				const NkPaintRect pr{x, y, tw, 18.f};
 				paint.Fill(pr, NkDesignResolveRole("accent_ui"), 4.f);
@@ -9418,7 +9422,7 @@ namespace nkuidesign {
 			}
 			void PuceTaille(NkDesignPaint &paint, const NkPaintRect &rs, float32 w, float32 h) {
 				char t[48];
-				snprintf(t, sizeof(t), "%d × %d", (int32)(w + 0.5f), (int32)(h + 0.5f));
+				nkentseu::NkSnprintf(t, sizeof(t), "%d × %d", (int32)(w + 0.5f), (int32)(h + 0.5f));
 				const float32 tw = paint.TextWidth(t) + 12.f;
 				const float32 th = 18.f;
 				const NkPaintRect pr{rs.x + (rs.w - tw) * 0.5f, rs.y + rs.h + 6.f, tw, th};
@@ -9542,7 +9546,7 @@ namespace nkuidesign {
 			void DrawProvenance(NkEditorFrameContext &ec, NkGuiContext &ctx, const NkUINode &n) {
 				(void)ec;
 				char b[192];
-				snprintf(b, sizeof(b), "%s%s%s", NkAuthorName(n.prov.author),
+				nkentseu::NkSnprintf(b, sizeof(b), "%s%s%s", NkAuthorName(n.prov.author),
 						 n.prov.verified ? " · rejouée" : "", n.prov.corrected ? " · corrigée" : "");
 				designkit::KeyValue(ctx, "auteur", b);
 				if (n.prov.origin.Length() > 0)
@@ -9608,10 +9612,10 @@ namespace nkuidesign {
 				//    pixels ici ferait exister la valeur a deux endroits, et l'editeur
 				//    n'en changerait qu'un.
 				char nm[160];
-				snprintf(nm, sizeof(nm), "%s (%0.1f px)", n.spacingName.Data(),
+				nkentseu::NkSnprintf(nm, sizeof(nm), "%s (%0.1f px)", n.spacingName.Data(),
 						 mSt->doc.Metric(n.spacingName.Data()));
 				designkit::KeyValue(ctx, "espacement", nm);
-				snprintf(nm, sizeof(nm), "%s (%0.1f px)", n.padName.Data(),
+				nkentseu::NkSnprintf(nm, sizeof(nm), "%s (%0.1f px)", n.padName.Data(),
 						 mSt->doc.Metric(n.padName.Data()));
 				designkit::KeyValue(ctx, "remplissage", nm);
 				if (n.layout.kind == NkLayoutKind::Grid) {
@@ -9692,7 +9696,7 @@ namespace nkuidesign {
 				for (uint16 i = 0; i < d->tokenCount; ++i) {
 					const NkTokenDecl &td = d->tokens[i];
 					char line[192];
-					snprintf(line, sizeof(line), "%s = %s%s", td.name, n.instance.TokenRole(td.name),
+					nkentseu::NkSnprintf(line, sizeof(line), "%s = %s%s", td.name, n.instance.TokenRole(td.name),
 							 n.instance.IsTokenOverridden(td.name) ? "  (modifie)" : "");
 					ec.Text(line);
 				}
@@ -9707,12 +9711,12 @@ namespace nkuidesign {
 				for (uint16 i = 0; i < d->eventCount; ++i) {
 					const NkEventDecl &e = d->events[i];
 					char line[256];
-					int32 k = snprintf(line, sizeof(line), "%s(", e.name);
+					int32 k = nkentseu::NkSnprintf(line, sizeof(line), "%s(", e.name);
 					for (uint8 a = 0; a < e.argCount && k > 0 && k < (int32)sizeof(line); ++a)
-						k += snprintf(line + k, sizeof(line) - (uint32)k, "%s%s: %s", a ? ", " : "",
+						k += nkentseu::NkSnprintf(line + k, sizeof(line) - (uint32)k, "%s%s: %s", a ? ", " : "",
 									  e.args[a].name, NkArgTypeName(e.args[a].kind));
 					if (k > 0 && k < (int32)sizeof(line))
-						snprintf(line + k, sizeof(line) - (uint32)k, ")");
+						nkentseu::NkSnprintf(line + k, sizeof(line) - (uint32)k, ")");
 					ec.Text(line);
 				}
 				ec.Separator();
@@ -9721,7 +9725,7 @@ namespace nkuidesign {
 					Edited();
 				}
 				char b[128];
-				snprintf(b, sizeof(b), "%u écart(s) par rapport a la déclaration",
+				nkentseu::NkSnprintf(b, sizeof(b), "%u écart(s) par rapport a la déclaration",
 						 n.instance.OverrideCount());
 				ec.Text(b);
 			}
@@ -9846,7 +9850,7 @@ namespace nkuidesign {
 				}
 				for (uint32 i = 0; i < (uint32)mSt->journal.Size(); ++i) {
 					char num[16];
-					snprintf(num, sizeof(num), "%u.", i + 1u);
+					nkentseu::NkSnprintf(num, sizeof(num), "%u.", i + 1u);
 					ec.Text(num);
 					nkgui::TextWrapped(ctx, mSt->journal[i].Data() ? mSt->journal[i].Data() : "");
 					ec.Separator();
@@ -9907,7 +9911,7 @@ namespace nkuidesign {
 				if (n && !n->role.Empty()) {
 					const NkRect r = ctx.NextItemRect(-1.f, 20.f);
 					char b[96];
-					snprintf(b, sizeof(b), "Rôle : %s", n->role.Data());
+					nkentseu::NkSnprintf(b, sizeof(b), "Rôle : %s", n->role.Data());
 					costume::Texte(dl, F.px10, r.x + 12.f,
 								   costume::CentrerY(F.px10, r.y, 20.f), b,
 								   ctx.theme.textMuted);
@@ -10383,7 +10387,7 @@ namespace nkuidesign {
 				if (avecImage) {
 					if (!PreparerVision(pourquoi)) {
 						char b[320];
-						snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.", pourquoi.Data());
+						nkentseu::NkSnprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.", pourquoi.Data());
 						DireRefus(b);
 						return false;
 					}
@@ -10405,7 +10409,7 @@ namespace nkuidesign {
 				}
 				if (!parti) {
 					char b[320];
-					snprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
+					nkentseu::NkSnprintf(b, sizeof(b), "RIEN N'EST PARTI — %s.",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
 					DireRefus(b);
 					return false;
@@ -10423,7 +10427,7 @@ namespace nkuidesign {
 						l.titre = NkString("Lire");
 						char b[200];
 						const bool sel = mSt->doc.IsValidIndex(mSt->selected) && mSt->selected != 0;
-						snprintf(b, sizeof(b), "le document : %u noeud(s)%s%s%s", (unsigned)mSt->doc.nodes.Size(),
+						nkentseu::NkSnprintf(b, sizeof(b), "le document : %u noeud(s)%s%s%s", (unsigned)mSt->doc.nodes.Size(),
 								 sel ? ", selection « " : "", sel ? mSt->doc.nodes[(uint32)mSt->selected].label.Data() : "",
 								 sel ? " »" : "");
 						l.texte = NkString(b);
@@ -10815,7 +10819,7 @@ namespace nkuidesign {
 					sReglages = true;
 					if (const char *v = std::getenv("NK_AI_REGLAGES")) {
 						char b[256];
-						snprintf(b, sizeof(b), "%s", v);
+						nkentseu::NkSnprintf(b, sizeof(b), "%s", v);
 						for (char *t = strtok(b, ";"); t; t = strtok(nullptr, ";")) {
 							if (strncmp(t, "effort=", 7) == 0)
 								mPanneau.effort = (int32)std::atoi(t + 7);
@@ -10942,7 +10946,7 @@ namespace nkuidesign {
 					++n;
 					if (lignes < 12u) {
 						char l[200];
-						snprintf(l, sizeof(l), "%s+ %s · %s", t.Length() ? "\n" : "",
+						nkentseu::NkSnprintf(l, sizeof(l), "%s+ %s · %s", t.Length() ? "\n" : "",
 								 nd.label.Length() ? nd.label.Data() : "(sans nom)",
 								 nd.component.Length() ? nd.component.Data() : "cadre");
 						t.Append(l);
@@ -10969,7 +10973,7 @@ namespace nkuidesign {
 				}
 				if (n > lignes) {
 					char l[64];
-					snprintf(l, sizeof(l), "\n… et %u autre(s)", (unsigned)(n - lignes));
+					nkentseu::NkSnprintf(l, sizeof(l), "\n… et %u autre(s)", (unsigned)(n - lignes));
 					t.Append(l);
 				}
 				b.sortie = t;
@@ -11080,7 +11084,7 @@ namespace nkuidesign {
 					u.Valeur("Modele", mSt->claudeBackend.modele.Data());
 					u.Valeur("Effort envoye", mSt->claudeBackend.effort.Length() ? mSt->claudeBackend.effort.Data()
 																				 : "(defaut du CLI)");
-					snprintf(v, sizeof(v), "%u octets", (unsigned)mSt->claudeBackend.DerniereInvite().Length());
+					nkentseu::NkSnprintf(v, sizeof(v), "%u octets", (unsigned)mSt->claudeBackend.DerniereInvite().Length());
 					u.Valeur("Envoye au dernier tour", v);
 					u.Note("L'invite et le document courant quittent cette machine.");
 					if (mMotifModelesClaude.Length() > 0)
@@ -11104,27 +11108,27 @@ namespace nkuidesign {
 				else if (!charge)
 					u.Valeur("En memoire", "non : charge a la prochaine demande");
 				else {
-					snprintf(v, sizeof(v), "%.1f / %.1f Go", (double)vram / 1.0e9, (double)octets / 1.0e9);
+					nkentseu::NkSnprintf(v, sizeof(v), "%.1f / %.1f Go", (double)vram / 1.0e9, (double)octets / 1.0e9);
 					u.Barre("Memoire video", v, octets ? (float32)((double)vram / (double)octets) : 0.f);
 				}
 				u.Section("Dernier tour");
 				if (o.derniersJetons == 0u)
 					u.Note("Aucun tour mesure dans cette session.");
 				else {
-					snprintf(v, sizeof(v), "%llu", (unsigned long long)o.derniersJetons);
+					nkentseu::NkSnprintf(v, sizeof(v), "%llu", (unsigned long long)o.derniersJetons);
 					u.Valeur("Jetons generes", v);
 					if (o.derniereGenNs > 0u) {
-						snprintf(v, sizeof(v), "%.1f jetons/s",
+						nkentseu::NkSnprintf(v, sizeof(v), "%.1f jetons/s",
 								 (double)o.derniersJetons / ((double)o.derniereGenNs / 1.0e9));
 						u.Valeur("Vitesse", v);
 					}
-					snprintf(v, sizeof(v), "%.1f s", (double)o.dernierMs / 1000.0);
+					nkentseu::NkSnprintf(v, sizeof(v), "%.1f s", (double)o.dernierMs / 1000.0);
 					u.Valeur("Duree", v);
-					snprintf(v, sizeof(v), "%.1f s", (double)o.dernierChargeNs / 1.0e9);
+					nkentseu::NkSnprintf(v, sizeof(v), "%.1f s", (double)o.dernierChargeNs / 1.0e9);
 					u.Valeur("Dont chargement", v);
 				}
 				u.Section("Reglages de la prochaine requete");
-				snprintf(v, sizeof(v), "%d", (int)o.numPredict);
+				nkentseu::NkSnprintf(v, sizeof(v), "%d", (int)o.numPredict);
 				u.Valeur("num_predict", o.numPredict > 0 ? v : "(aucun plafond)");
 				u.Valeur("think", o.penser < 0 ? "(non ecrit : sans objet)" : (o.penser ? "true" : "false"));
 				u.Note("Rien n'a quitte cette machine.");
@@ -11186,7 +11190,7 @@ namespace nkuidesign {
 					const char *nom = texte + 14;
 					while (*nom == ' ')
 						++nom;
-					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "%s", *nom ? nom : "spec");
+					nkentseu::NkSnprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "%s", *nom ? nom : "spec");
 					EcrireSpec();
 				} else if (est("/affiner"))
 					AffinerSpec();
@@ -11199,7 +11203,7 @@ namespace nkuidesign {
 					Dire("Discussion effacee — le document n'a pas bouge.");
 				} else {
 					char b[160];
-					snprintf(b, sizeof(b), "« %s » n'est pas une commande : le « / » les liste.", texte);
+					nkentseu::NkSnprintf(b, sizeof(b), "« %s » n'est pas une commande : le « / » les liste.", texte);
 					DireRefus(b);
 					return false;
 				}
@@ -11213,19 +11217,19 @@ namespace nkuidesign {
 					return;
 				}
 				if (!mSt->specNomBuf[0])
-					snprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "spec");
+					nkentseu::NkSnprintf(mSt->specNomBuf, sizeof(mSt->specNomBuf), "spec");
 				NkSpecification::DepuisConversation(mSt->conversation, mSt->specNomBuf, mSt->spec);
 				NkString texte;
 				mSt->spec.Ecrire(texte);
 				char chemin[192];
-				snprintf(chemin, sizeof(chemin), "nkuidesign_%s.nkuispec", mSt->specNomBuf);
+				nkentseu::NkSnprintf(chemin, sizeof(chemin), "nkuidesign_%s.nkuispec", mSt->specNomBuf);
 				const bool ecrit = nkentseu::NkFile::WriteAllText(chemin, texte.Data());
 				// LE LIEN : `specTexte` entre dans l'invite, `specOrigine` dans la
 				// provenance de chaque noeud engendre.
 				mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
 				mSt->ai.specOrigine = mSt->spec.nom;
 				char b[352];
-				snprintf(b, sizeof(b),
+				nkentseu::NkSnprintf(b, sizeof(b),
 						 ecrit ? "Specification ecrite : %s (%u exigence(s)). Le design engendre portera origine = %s."
 							   : "ECHEC d'ecriture de %s (%u exigence(s)) — origine = %s posee quand meme en memoire.",
 						 chemin, mSt->spec.CountExigences(), mSt->spec.nom.Data() ? mSt->spec.nom.Data() : "");
@@ -11238,11 +11242,11 @@ namespace nkuidesign {
 				if (NkSpecification::Affiner(mSt->conversation, mSt->ai.Backend(), mSt->spec, pourquoi)) {
 					mSt->spec.PourLeGenerateur(mSt->ai.specTexte);
 					char b[160];
-					snprintf(b, sizeof(b), "Exigences affinees : %u.", mSt->spec.CountExigences());
+					nkentseu::NkSnprintf(b, sizeof(b), "Exigences affinees : %u.", mSt->spec.CountExigences());
 					Dire(b);
 				} else {
 					char b[320];
-					snprintf(b, sizeof(b), "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
+					nkentseu::NkSnprintf(b, sizeof(b), "AFFINAGE REFUSE — %s. Les exigences n'ont pas bouge.",
 							 pourquoi.Length() > 0 ? pourquoi.Data() : "raison non nommee");
 					DireRefus(b);
 				}
@@ -11254,7 +11258,7 @@ namespace nkuidesign {
 				if (r.Accepted() && mSt->doc.IsValidIndex(r.graftedRoot))
 					NkNormaliserGreffe(mSt->doc, r.graftedRoot);
 				if (r.Accepted()) {
-					snprintf(b, sizeof(b), "Appliquee : %u nœud(s) poses. « /retirer » l'annule en une operation.",
+					nkentseu::NkSnprintf(b, sizeof(b), "Appliquee : %u nœud(s) poses. « /retirer » l'annule en une operation.",
 							 r.nodesAdded);
 					mSt->host.SyncTo(mSt->doc);
 					mSt->selected = r.graftedRoot;
@@ -11262,7 +11266,7 @@ namespace nkuidesign {
 					mSt->cadrerApresGreffe = true;
 					Dire(b);
 				} else {
-					snprintf(b, sizeof(b), "GREFFE REFUSEE — %s. La proposition reste en attente.",
+					nkentseu::NkSnprintf(b, sizeof(b), "GREFFE REFUSEE — %s. La proposition reste en attente.",
 							 NkAIVerdictName(r.verdict));
 					DireRefus(b);
 				}
@@ -11283,7 +11287,7 @@ namespace nkuidesign {
 			void Replay() {
 				const uint32 diffs = NkDesignAI::ReplayDiffs(mSt->doc, mSt->ai.replaySurface);
 				char b[192];
-				snprintf(b, sizeof(b), "Rejeu du document : %u divergence(s)%s", diffs,
+				nkentseu::NkSnprintf(b, sizeof(b), "Rejeu du document : %u divergence(s)%s", diffs,
 						 diffs == 0 ? " — fidele." : " — NON fidele.");
 				Dire(b);
 				if (diffs == 0)
@@ -11418,7 +11422,7 @@ namespace nkuidesign {
 								   d->name, ctx.theme.text);
 					{
 						char idz[96];
-						snprintf(idz, sizeof(idz), "biblio.%s.glisser", d->name);
+						nkentseu::NkSnprintf(idz, sizeof(idz), "biblio.%s.glisser", d->name);
 						{
 							// (R20) ou est la PREMIERE ligne, pour que le banc vise sans deviner
 							static const bool kTrace = []() {
@@ -11446,7 +11450,7 @@ namespace nkuidesign {
 							++compte;
 					if (compte > 0) {
 						char b[16];
-						snprintf(b, sizeof(b), "\xC3\x97%d", compte);
+						nkentseu::NkSnprintf(b, sizeof(b), "\xC3\x97%d", compte);
 						costume::BadgePilule(dl, F.px9,
 											 r.x + 34.f + costume::Largeur(F.px11, d->name),
 											 r.y + 6.f, 14.f, b, ctx.theme.accent);
@@ -11592,7 +11596,7 @@ namespace nkuidesign {
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 24.f);
 						char t[128];
-						snprintf(t, sizeof(t), "COMPOSANT : %s", dc.identite.nom.Data() ? dc.identite.nom.Data() : "?");
+						nkentseu::NkSnprintf(t, sizeof(t), "COMPOSANT : %s", dc.identite.nom.Data() ? dc.identite.nom.Data() : "?");
 						costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, t, ctx.theme.accent, 0.4f);
 						const NkRect rx = {r.x + r.w - 26.f, r.y + 5.f, 14.f, 14.f};
 						costume::Texte(dl, F.px10, rx.x + 3.f, rx.y, "\xC3\x97", ctx.theme.textMuted);
@@ -11825,7 +11829,7 @@ namespace nkuidesign {
 							// suspect n.1 de fluidité déjà payé).
 							if (mHBasVoulu > 0.f) {
 								char v[32];
-								snprintf(v, sizeof(v), "%d", (int32)(mHBasVoulu + 0.5f));
+								nkentseu::NkSnprintf(v, sizeof(v), "%d", (int32)(mHBasVoulu + 0.5f));
 								(void)NkGfxConfigSetKey(NkGfxConfigPath(), "hier_bas", v);
 							}
 						} else {
@@ -12029,7 +12033,7 @@ namespace nkuidesign {
 							// le clic du [+] se mange dans le COMPOSANT (il tient
 							// desormais le volet « clic ailleurs » du contrat)
 							mModelePages.renameEatClick = true;
-							snprintf(mModelePages.renameBuf, sizeof(mModelePages.renameBuf),
+							nkentseu::NkSnprintf(mModelePages.renameBuf, sizeof(mModelePages.renameBuf),
 									 "%s", mSt->doc.nodes[(uint32)p].label.Data());
 							mSt->DireAuPied("Page créée — son nom est en édition (Entrée "
 											"valide) ; le format se choisit par la section "
@@ -12396,7 +12400,7 @@ namespace nkuidesign {
 					const int32 li = modele.IndexOf(modele.dragSource);
 					if (li >= 0) {
 						char idz[64];
-						snprintf(idz, sizeof(idz), "hier.%s.glisser", cle);
+						nkentseu::NkSnprintf(idz, sizeof(idz), "hier.%s.glisser", cle);
 						if (nkgui::BeginDragSource(ctx, ctx.GetId(idz), zone)) {
 							if (&modele == &mModelePages) {
 								const nkentseu::nk_uint64 idn = modele.dragSource;
@@ -12458,7 +12462,7 @@ namespace nkuidesign {
 							mSt->host.SyncTo(doc);
 							mSt->SelectSingle(src);
 							char msg[224];
-							snprintf(msg, sizeof(msg), "« %s » déplacé dans « %s ».",
+							nkentseu::NkSnprintf(msg, sizeof(msg), "« %s » déplacé dans « %s ».",
 									 nomSrc.Empty() ? "(sans nom)" : nomSrc.Data(),
 									 doc.nodes[(uint32)parent].label.Empty()
 										 ? "(sans nom)"
@@ -12537,7 +12541,7 @@ namespace nkuidesign {
 						for (uint32 k = 0; k < (uint32)modele.nodes.Size(); ++k)
 							if ((int32)modele.nodes[k].id - 1 == mHierMenuNode) {
 								modele.renaming = modele.nodes[k].id;
-								snprintf(modele.renameBuf, sizeof(modele.renameBuf), "%s",
+								nkentseu::NkSnprintf(modele.renameBuf, sizeof(modele.renameBuf), "%s",
 										 modele.nodes[k].label.CStr());
 								break;
 							}
@@ -12573,7 +12577,7 @@ namespace nkuidesign {
 					// rangee a zone.y ; scroll=max (etendue-fenetre) la derniere
 					// entiere a zone.y+zone.h.
 					char cleD[48];
-					snprintf(cleD, sizeof(cleD), "hier.defile.%s", cle);
+					nkentseu::NkSnprintf(cleD, sizeof(cleD), "hier.defile.%s", cle);
 					nkgui::NkGuiNoterMesure(ctx, cleD, modele.scroll, contentH, zone.h,
 											(float32)res.visibleCount);
 				}
@@ -13596,10 +13600,10 @@ namespace nkuidesign {
 	}
 	inline void NkEcrireNombreFr(char *b, nkentseu::uint32 n, nkentseu::float32 v, nkentseu::int32 decimales) {
 		if (decimales <= 0) {
-			snprintf(b, (size_t)n, "%d", (nkentseu::int32)(v < 0.f ? v - 0.5f : v + 0.5f));
+			nkentseu::NkSnprintf(b, (size_t)n, "%d", (nkentseu::int32)(v < 0.f ? v - 0.5f : v + 0.5f));
 			return;
 		}
-		snprintf(b, (size_t)n, "%.*f", (int)decimales, (double)v);
+		nkentseu::NkSnprintf(b, (size_t)n, "%.*f", (int)decimales, (double)v);
 		for (char *q = b; *q; ++q)
 			if (*q == '.')
 				*q = ',';
@@ -13777,7 +13781,7 @@ namespace nkuidesign {
 		//    ce n'est pas une croyance : l'essai 139 preleve un aplat de couleur
 		//    CONNUE et exige EXACTEMENT cette couleur. Si un jour le selecteur passe
 		//    au lineaire, c'est cet essai qui rougira, pas l'utilisateur.
-		snprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
+		nkentseu::NkSnprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
 				 (unsigned)((p >> 16) & 0xFFu), (unsigned)((p >> 8) & 0xFFu));
 		return true;
 	}
@@ -13853,7 +13857,7 @@ namespace nkuidesign {
 				st.picker.etat[0] = '\0'; // ① meme regle : la cible d'etat ne survit pas a l'ouvreur precedent
 				st.picker.champEtat = 0u;
 				st.picker.champNoeud = 0u;
-				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", hexBuf ? hexBuf : "");
+				nkentseu::NkSnprintf(st.picker.hex, sizeof(st.picker.hex), "%s", hexBuf ? hexBuf : "");
 			}
 		}
 		// LE RETOUR : le crochet d'overlay a bouge la couleur -> on la reprend, et
@@ -13866,7 +13870,7 @@ namespace nkuidesign {
 		//    montre : sa mutation << l'enveloppe n'ecrit plus l'effet >> restait VERTE,
 		//    parce que la ligne d'EFFETS ecrivait a sa place.
 		if (ouvertIci && st.picker.change && st.picker.genre == 0u && hexBuf && cap >= 8u) {
-			snprintf(hexBuf, (size_t)cap, "%s", st.picker.hex);
+			nkentseu::NkSnprintf(hexBuf, (size_t)cap, "%s", st.picker.hex);
 			st.picker.change = false;
 			return true;
 		}
@@ -14040,7 +14044,7 @@ namespace nkuidesign {
 		const nkentseu::uint32 p = img.Pixel(x, y);
 		if (p == 0u)
 			return false; // hors image : on ne pose rien
-		snprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
+		nkentseu::NkSnprintf(hexOut, (size_t)cap, "#%02x%02x%02x", (unsigned)((p >> 24) & 0xFFu),
 				 (unsigned)((p >> 16) & 0xFFu), (unsigned)((p >> 8) & 0xFFu));
 		return true;
 	}
@@ -14081,7 +14085,7 @@ namespace nkuidesign {
 		//    d'avant (un affichage) et laisse mourir l'aperçu avec le mode.
 		//    *Avant, << annuler >> ne pouvait rendre que ce qu'on avait pense a
 		//    retenir ; maintenant il n'y a rien a rendre.*
-		snprintf(d.hex, sizeof(d.hex), "%s", d.avant);
+		nkentseu::NkSnprintf(d.hex, sizeof(d.hex), "%s", d.avant);
 		d.annule = false;
 	}
 
@@ -14285,7 +14289,7 @@ namespace nkuidesign {
 								   (nkentseu::uint32)sizeof(lu));
 			const bool pose = !surLaFenetre && bouge && dansImage;
 			if (pose) {
-				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", lu);
+				nkentseu::NkSnprintf(st.picker.hex, sizeof(st.picker.hex), "%s", lu);
 				// ── L'APERCU EST POSE, PAS ECRIT (08/09) ────────────────────────
 				// 🔴 Il ecrivait `couleurCourante`, **une reference vers le
 				//    remplissage** : l'objet avait deja change, donc il n'y avait rien
@@ -14298,23 +14302,23 @@ namespace nkuidesign {
 					if (st.picker.champNoeud == 0u && (st.picker.etat[0] == '\0' || st.picker.champEtat == 0u)) {
 						st.host.apercuNoeud = st.picker.noeud;
 						st.host.apercuIndex = -1; // le fond effectif du nœud
-						snprintf(st.host.apercuHex, sizeof(st.host.apercuHex), "%s", lu);
+						nkentseu::NkSnprintf(st.host.apercuHex, sizeof(st.host.apercuHex), "%s", lu);
 					}
 				} else
-					snprintf(st.canvasApercu, sizeof(st.canvasApercu), "%s", lu);
+					nkentseu::NkSnprintf(st.canvasApercu, sizeof(st.canvasApercu), "%s", lu);
 			}
 			if (NkTracePipetteActive()) {
 				// on n'imprime que les CHANGEMENTS : la couleur lue, ou la raison
 				static char dernier[40] = {};
 				char etat[40];
-				snprintf(etat, sizeof(etat), "%s|%s", pose ? lu : "-",
+				nkentseu::NkSnprintf(etat, sizeof(etat), "%s|%s", pose ? lu : "-",
 						 pose			? "pose"
 						 : surLaFenetre ? "sur la fenetre du selecteur"
 						 : !bouge		? "pas encore bouge"
 						 : !st.pipetteImagePrete ? "image non prete"
 												 : "hors de l'image figee");
 				if (!NkComponentDecl::StrEq(etat, dernier)) {
-					snprintf(dernier, sizeof(dernier), "%s", etat);
+					nkentseu::NkSnprintf(dernier, sizeof(dernier), "%s", etat);
 					printf("[pipette] APERCU (%.0f, %.0f) : %s\n", (double)ctx.input.mousePos.x,
 						   (double)ctx.input.mousePos.y,
 						   pose		   ? lu
@@ -14339,13 +14343,13 @@ namespace nkuidesign {
 									| ((nkentseu::uint32)ctx.theme.bgPrimary.g << 16)
 									| ((nkentseu::uint32)ctx.theme.bgPrimary.b << 8) | 0xFFu,
 								pris, (nkentseu::uint32)sizeof(pris))) {
-				snprintf(st.picker.hex, sizeof(st.picker.hex), "%s", pris);
+				nkentseu::NkSnprintf(st.picker.hex, sizeof(st.picker.hex), "%s", pris);
 				st.picker.change = true; // la porte d'ecriture s'en saisit
 				if (NkTracePipetteActive())
 					printf("[pipette] PRELEVE %s au point (%.0f, %.0f)\n", pris,
 						   (double)st.picker.pipetteX, (double)st.picker.pipetteY);
 				char msgP[120];
-				snprintf(msgP, sizeof(msgP), "Prélevé : %s", pris);
+				nkentseu::NkSnprintf(msgP, sizeof(msgP), "Prélevé : %s", pris);
 				st.DireAuPied(msgP);
 			} else
 				st.DireAuPied("Prélèvement hors de la fenêtre : rien n'a changé.");
@@ -14510,7 +14514,7 @@ namespace nkuidesign {
 					const bool svP = NkGuiRectContains(rp, ctx.input.mousePos);
 					costume::IcPoubelle(dl, rp.x + 2.f, rp.y + 2.f, svP ? ctx.theme.text : ctx.theme.textMuted);
 					char b[16];
-					snprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
+					nkentseu::NkSnprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
 					costume::BadgePilule(dl, F.px9, rp.x - 30.f, r.y + 7.f, 14.f, b, usages ? ctx.theme.accent : ctx.theme.textMuted);
 					const NkRect rn = {sw.x + sw.w + 8.f, r.y + 4.f, rp.x - 34.f - (sw.x + sw.w + 8.f), 20.f};
 					if (mRenomme == (int32)i) {
@@ -14520,7 +14524,7 @@ namespace nkuidesign {
 					} else {
 						costume::Texte(dl, F.px11, rn.x, costume::CentrerY(F.px11, rn.y, rn.h), nom, ctx.theme.text);
 						char cle[80];
-						snprintf(cle, sizeof(cle), "@%s \xC2\xB7 %s", st.cle.Data() ? st.cle.Data() : "", st.EstTexte() ? "texte" : "calque");
+						nkentseu::NkSnprintf(cle, sizeof(cle), "@%s \xC2\xB7 %s", st.cle.Data() ? st.cle.Data() : "", st.EstTexte() ? "texte" : "calque");
 						costume::Texte(dl, F.px9, rn.x + costume::Largeur(F.px11, nom) + 6.f, costume::CentrerY(F.px9, rn.y, rn.h), cle,
 									   ctx.theme.textMuted);
 					}
@@ -14531,7 +14535,7 @@ namespace nkuidesign {
 							clicPris = true;
 							if (usages > 0u) {
 								char msg[200];
-								snprintf(msg, sizeof(msg), "« %s » est utilisé par %u calques — détachez-les d'abord (section : « Détacher »).", nom,
+								nkentseu::NkSnprintf(msg, sizeof(msg), "« %s » est utilisé par %u calques — détachez-les d'abord (section : « Détacher »).", nom,
 										 (unsigned)usages);
 								mSt->DireAuPied(msg);
 							} else
@@ -14540,7 +14544,7 @@ namespace nkuidesign {
 							clicPris = true;
 							if (mRenomme != (int32)i) {
 								mRenomme = (int32)i;
-								snprintf(mNom, sizeof(mNom), "%s", st.nom.Data() ? st.nom.Data() : "");
+								nkentseu::NkSnprintf(mNom, sizeof(mNom), "%s", st.nom.Data() ? st.nom.Data() : "");
 							}
 						}
 					}
@@ -14553,7 +14557,7 @@ namespace nkuidesign {
 					uint32 u = 0u;
 					if (doc.SupprimerStyle(cleS.Data(), &u)) {
 						char msg[160];
-						snprintf(msg, sizeof(msg), "Style « %s » (@%s) supprimé — aucun calque ne le liait.", nomS.Data() ? nomS.Data() : "",
+						nkentseu::NkSnprintf(msg, sizeof(msg), "Style « %s » (@%s) supprimé — aucun calque ne le liait.", nomS.Data() ? nomS.Data() : "",
 								 cleS.Data() ? cleS.Data() : "");
 						mSt->DireAuPied(msg);
 						mSt->Consigner(msg);
@@ -14611,7 +14615,7 @@ namespace nkuidesign {
 				{
 					const NkRect r = ctx.NextItemRect(-1.f, 24.f);
 					char m[96];
-					snprintf(m, sizeof(m), "Mode : %s", doc.modeCourant.Empty() ? "(défaut)" : doc.modeCourant.Data());
+					nkentseu::NkSnprintf(m, sizeof(m), "Mode : %s", doc.modeCourant.Empty() ? "(défaut)" : doc.modeCourant.Data());
 					costume::TexteGras(dl, F.px9, r.x + 12.f, r.y + 10.f, "VARIABLES", ctx.theme.textMuted, 0.4f);
 					costume::Texte(dl, F.px9, r.x + r.w - 12.f - costume::Largeur(F.px9, m), r.y + 10.f, m, ctx.theme.textMuted);
 				}
@@ -14643,7 +14647,7 @@ namespace nkuidesign {
 					const bool svP = NkGuiRectContains(rp, ctx.input.mousePos);
 					costume::IcPoubelle(dl, rp.x + 2.f, rp.y + 2.f, svP ? ctx.theme.text : ctx.theme.textMuted);
 					char b[16];
-					snprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
+					nkentseu::NkSnprintf(b, sizeof(b), "\xC3\x97%u", (unsigned)usages);
 					costume::BadgePilule(dl, F.px9, rp.x - 30.f, r.y + 7.f, 14.f, b, usages ? ctx.theme.accent : ctx.theme.textMuted);
 					// le nom : un champ quand on le renomme, du texte sinon ; la cle apres
 					const NkRect rn = {sw.x + sw.w + 8.f, r.y + 4.f, rp.x - 34.f - (sw.x + sw.w + 8.f), 20.f};
@@ -14654,7 +14658,7 @@ namespace nkuidesign {
 					} else {
 						costume::Texte(dl, F.px11, rn.x, costume::CentrerY(F.px11, rn.y, rn.h), nom, ctx.theme.text);
 						char cle[64];
-						snprintf(cle, sizeof(cle), "@%s", v.cle.Data() ? v.cle.Data() : "");
+						nkentseu::NkSnprintf(cle, sizeof(cle), "@%s", v.cle.Data() ? v.cle.Data() : "");
 						costume::Texte(dl, F.px9, rn.x + costume::Largeur(F.px11, nom) + 6.f, costume::CentrerY(F.px9, rn.y, rn.h), cle,
 									   ctx.theme.textMuted);
 					}
@@ -14668,7 +14672,7 @@ namespace nkuidesign {
 							dl.AddRectFilled(sm, NkCouleurDepuisHex(v.parMode[m].valeur.Data()), 2.f);
 						dl.AddRect(sm, ctx.theme.border, 1.f, 2.f);
 						char t[96];
-						snprintf(t, sizeof(t), "%s : %s", v.parMode[m].mode.Data() ? v.parMode[m].mode.Data() : "",
+						nkentseu::NkSnprintf(t, sizeof(t), "%s : %s", v.parMode[m].mode.Data() ? v.parMode[m].mode.Data() : "",
 								 v.parMode[m].valeur.Data() ? v.parMode[m].valeur.Data() : "");
 						costume::Texte(dl, F.px9, sm.x + 14.f, my, t, ctx.theme.textMuted);
 					}
@@ -14678,7 +14682,7 @@ namespace nkuidesign {
 							clicPris = true;
 							if (usages > 0u) {
 								char msg[200];
-								snprintf(msg, sizeof(msg),
+								nkentseu::NkSnprintf(msg, sizeof(msg),
 										 "« %s » est utilisée par %u remplissages — détachez-les d'abord (sélecteur : « Détacher »).", nom,
 										 (unsigned)usages);
 								mSt->DireAuPied(msg);
@@ -14688,7 +14692,7 @@ namespace nkuidesign {
 							clicPris = true;
 							if (mRenomme != (int32)i) {
 								mRenomme = (int32)i;
-								snprintf(mNom, sizeof(mNom), "%s", v.nom.Data() ? v.nom.Data() : "");
+								nkentseu::NkSnprintf(mNom, sizeof(mNom), "%s", v.nom.Data() ? v.nom.Data() : "");
 							}
 						}
 					}
@@ -14707,7 +14711,7 @@ namespace nkuidesign {
 					uint32 u = 0u;
 					if (doc.SupprimerVariable(cleS.Data(), &u)) {
 						char msg[160];
-						snprintf(msg, sizeof(msg), "Variable « %s » (@%s) supprimée — elle n'était référencée nulle part.",
+						nkentseu::NkSnprintf(msg, sizeof(msg), "Variable « %s » (@%s) supprimée — elle n'était référencée nulle part.",
 								 nomS.Data() ? nomS.Data() : "", cleS.Data() ? cleS.Data() : "");
 						mSt->DireAuPied(msg);
 						mSt->Consigner(msg);
@@ -14834,7 +14838,7 @@ namespace nkuidesign {
 					static const char *const kCote[4] = {"H", "D", "B", "G"};
 					for (uint32 kc = 0; kc < 4u; ++kc) {
 						char idc[48];
-						snprintf(idc, sizeof(idc), "insp.popover.bord.cote.%u", kc);
+						nkentseu::NkSnprintf(idc, sizeof(idc), "insp.popover.bord.cote.%u", kc);
 						const NkRect rk = {xc + (float32)(kc % 2u) * (lc + 2.f), y + 1.f + (float32)(kc / 2u) * 24.f, lc,
 										   costume::HControle};
 						float32 v = b.Cote(kc);
@@ -15038,8 +15042,8 @@ namespace nkuidesign {
 					// le selecteur edite ce que l'oeil voit ; absente, il montre la cle
 					const char *cc = couleurCourante.Data() ? couleurCourante.Data() : "";
 					const char *res = mSt->doc.ResoudreCouleur(cc);
-					snprintf(d.hex, sizeof(d.hex), "%s", res ? res : cc);
-					snprintf(d.chemin, sizeof(d.chemin), "%s", f.image.Data() ? f.image.Data() : "");
+					nkentseu::NkSnprintf(d.hex, sizeof(d.hex), "%s", res ? res : cc);
+					nkentseu::NkSnprintf(d.chemin, sizeof(d.chemin), "%s", f.image.Data() ? f.image.Data() : "");
 				}
 				// ── L'ECRITURE D'UNE COULEUR PASSE PAR UNE PORTE ────────────────────
 				// Si la couleur courante REFERENCE une variable, le selecteur edite LA
@@ -15066,14 +15070,14 @@ namespace nkuidesign {
 							mSt->host.SyncTo(mSt->doc);
 							mFillsGen = -1;
 							char msgV[220];
-							snprintf(msgV, sizeof(msgV), "Variable « %s » = %s — %u remplissage(s) suivent.",
+							nkentseu::NkSnprintf(msgV, sizeof(msgV), "Variable « %s » = %s — %u remplissage(s) suivent.",
 									 var->nom.Empty() ? var->cle.Data() : var->nom.Data(), hex, usagesV);
 							mSt->DireAuPied(msgV);
 							return;
 						}
 						if (var) { // le défaut : ce remplissage-ci se détache, la variable ne bouge pas
 							char msgD[240];
-							snprintf(msgD, sizeof(msgD),
+							nkentseu::NkSnprintf(msgD, sizeof(msgD),
 									 "Détaché de « %s » : couleur locale %s. Pour la changer partout : « Modifier la variable ».",
 									 var->nom.Empty() ? var->cle.Data() : var->nom.Data(), hex);
 							mSt->DireAuPied(msgD);
@@ -15206,7 +15210,7 @@ namespace nkuidesign {
 					if (fusionChoix > 0) {
 						char msgF[160];
 						const bool exact = renderdetail::NkFusionExacte(f.fusion) != NkComponentPaint::NkPaintBlend::Alpha;
-						snprintf(msgF, sizeof(msgF),
+						nkentseu::NkSnprintf(msgF, sizeof(msgF),
 								 exact ? "Mode de fusion « %s » : peint (état de mélange du GPU, exact) et enregistré."
 									   : "Mode de fusion « %s » enregistré (fichier, export) — pas encore peint : le peintre rend Normal.",
 								 kNkFusionLib[fusionChoix]);
@@ -15313,7 +15317,7 @@ namespace nkuidesign {
 						if (svG) {
 							const int32 kf = NkIndiceFusion(f.fusion.Data());
 							char msgG[160];
-							snprintf(msgG, sizeof(msgG), "Mode de fusion : %s — les 18 se choisissent et s'enregistrent ; Multiply, Screen, Darken, Lighten, Plus Lighter sont peints.",
+							nkentseu::NkSnprintf(msgG, sizeof(msgG), "Mode de fusion : %s — les 18 se choisissent et s'enregistrent ; Multiply, Screen, Darken, Lighten, Plus Lighter sont peints.",
 									 kf >= 0 ? kNkFusionLib[kf] : f.fusion.Data());
 							mSt->status = NkString(msgG);
 						}
@@ -15349,7 +15353,7 @@ namespace nkuidesign {
 							// ③ LA COULEUR D'AVANT, RETENUE A L'ENTREE : c'est elle que le
 							//   clic droit et Echap rendront, a l'octet pres.
 							if (d.pipette) {
-								snprintf(d.avant, sizeof(d.avant), "%s", couleurCourante.Data());
+								nkentseu::NkSnprintf(d.avant, sizeof(d.avant), "%s", couleurCourante.Data());
 								// ① CET appui-ci a arme : il ne prelevera pas.
 								d.attendRelache = true;
 								// ① ... et l'apercu attendra le premier mouvement.
@@ -15406,14 +15410,14 @@ namespace nkuidesign {
 					}
 					char legende[320];
 					if (f.image.Empty())
-						snprintf(legende, sizeof(legende), "source : aucune -- le peintre montre le damier");
+						nkentseu::NkSnprintf(legende, sizeof(legende), "source : aucune -- le peintre montre le damier");
 					else if (entree && entree->absente)
-						snprintf(legende, sizeof(legende), "INTROUVABLE : %s", f.image.Data());
+						nkentseu::NkSnprintf(legende, sizeof(legende), "INTROUVABLE : %s", f.image.Data());
 					else if (entree)
-						snprintf(legende, sizeof(legende), "%s -- %d x %d%s", f.image.Data(), entree->w, entree->h,
+						nkentseu::NkSnprintf(legende, sizeof(legende), "%s -- %d x %d%s", f.image.Data(), entree->w, entree->h,
 								 entree->handle ? "" : " (pas de texture : damier)");
 					else
-						snprintf(legende, sizeof(legende), "%s", f.image.Data());
+						nkentseu::NkSnprintf(legende, sizeof(legende), "%s", f.image.Data());
 					costume::Texte(dl, F.px9, rd.x + 6.f, rd.y + rd.h - 16.f, legende,
 								   (entree && entree->absente) ? nkgui::NkColor{220, 60, 60, 255} : ctx.theme.textMuted);
 					y += 116.f;
@@ -15479,7 +15483,7 @@ namespace nkuidesign {
 										f.cropW = c4[2];
 										f.cropH = c4[3];
 										char msgC[200];
-										snprintf(msgC, sizeof(msgC),
+										nkentseu::NkSnprintf(msgC, sizeof(msgC),
 												 "Recadrage : la fenêtre visible (%.0f %% x %.0f %% de l'image) — tire les poignées du cadre de l'image.",
 												 (double)(c4[2] * 100.f), (double)(c4[3] * 100.f));
 										mSt->DireAuPied(msgC);
@@ -15762,7 +15766,7 @@ namespace nkuidesign {
 							dl.AddRectFilled(rPast, res ? NkCouleurDepuisHex(res) : nkgui::NkColor{255, 0, 255, 255}, 3.f);
 							dl.AddRect(rPast, ctx.theme.border, 1.f, 3.f);
 							char absente[64];
-							snprintf(absente, sizeof(absente), "%s : variable absente", couleurCourante.Data());
+							nkentseu::NkSnprintf(absente, sizeof(absente), "%s : variable absente", couleurCourante.Data());
 							const char *nomVar = var ? (var->nom.Empty() ? var->cle.Data() : var->nom.Data()) : absente;
 							costume::Texte(dl, F.px10, rPast.x + rPast.w + 6.f, costume::CentrerY(F.px10, rv.y, 20.f), nomVar,
 										   var ? ctx.theme.text : nkgui::NkColor{220, 60, 60, 255});
@@ -15784,7 +15788,7 @@ namespace nkuidesign {
 								dl.AddRectFilled(rMod, svM2 ? ctx.theme.rowHover : fondM, 4.f);
 								dl.AddRect(rMod, (svM2 || mEditerVariable) ? ctx.theme.accent : ctx.theme.border, 1.f, 4.f);
 								char libM[96];
-								snprintf(libM, sizeof(libM), "%s la variable (×%u)", mEditerVariable ? "✓ Modifie" : "Modifier", usagesM);
+								nkentseu::NkSnprintf(libM, sizeof(libM), "%s la variable (×%u)", mEditerVariable ? "✓ Modifie" : "Modifier", usagesM);
 								costume::Texte(dl, F.px10, rMod.x + (rMod.w - costume::Largeur(F.px10, libM)) * 0.5f,
 											   costume::CentrerY(F.px10, rMod.y, 20.f), libM, ctx.theme.text);
 								if (svM2 && ctx.input.mouseClicked[0]) {
@@ -15792,9 +15796,9 @@ namespace nkuidesign {
 									mEditerVariable = !mEditerVariable;
 									char msgM[220];
 									if (mEditerVariable)
-										snprintf(msgM, sizeof(msgM), "Le sélecteur modifie la VARIABLE : %u remplissage(s) suivront.", usagesM);
+										nkentseu::NkSnprintf(msgM, sizeof(msgM), "Le sélecteur modifie la VARIABLE : %u remplissage(s) suivront.", usagesM);
 									else
-										snprintf(msgM, sizeof(msgM), "Le sélecteur détachera ce remplissage — la variable ne bougera pas.");
+										nkentseu::NkSnprintf(msgM, sizeof(msgM), "Le sélecteur détachera ce remplissage — la variable ne bougera pas.");
 									mSt->DireAuPied(msgM);
 								}
 							}
@@ -15872,7 +15876,7 @@ namespace nkuidesign {
 											mFiltreVars[0] = 0; // ③ la recherche repart vierge
 											touche();
 											char msg[160];
-											snprintf(msg, sizeof(msg), "Couleur liée à la variable « %s » : elle la suit désormais.",
+											nkentseu::NkSnprintf(msg, sizeof(msg), "Couleur liée à la variable « %s » : elle la suit désormais.",
 													 vv.nom.Empty() ? vv.cle.Data() : vv.nom.Data());
 											mSt->DireAuPied(msg);
 										}
@@ -15892,7 +15896,7 @@ namespace nkuidesign {
 								d.synchro = 0xFFFFFFFFu;
 								touche();
 								char msg[200];
-								snprintf(msg, sizeof(msg), "Variable « %s » créée depuis %s ; cette couleur la référence. Le rail Variables la renomme.",
+								nkentseu::NkSnprintf(msg, sizeof(msg), "Variable « %s » créée depuis %s ; cette couleur la référence. Le rail Variables la renomme.",
 										 nv.nom.Data(), val ? val : "");
 								mSt->DireAuPied(msg);
 								mSt->Consigner(msg);
@@ -16037,8 +16041,8 @@ namespace nkuidesign {
 							float32 *vy = rg == 0u ? &g.rayonY : &g.origineY;
 							const float32 mn = rg == 0u ? 2.f : 0.f, mx = rg == 0u ? 400.f : 100.f;
 							char idX[40], idY[40];
-							snprintf(idX, sizeof(idX), "insp.popover.deg.%ux", rg);
-							snprintf(idY, sizeof(idY), "insp.popover.deg.%uy", rg);
+							nkentseu::NkSnprintf(idX, sizeof(idX), "insp.popover.deg.%ux", rg);
+							nkentseu::NkSnprintf(idY, sizeof(idY), "insp.popover.deg.%uy", rg);
 							costume::Texte(dl, F.px9, x0 + 52.f, costume::CentrerY(F.px9, y + 3.f, 20.f), "X", ctx.theme.textMuted);
 							const NkRect rX = {x0 + 62.f, y + 3.f, 44.f, costume::HControle};
 							float32 pX = *vx * 100.f;
@@ -16089,7 +16093,7 @@ namespace nkuidesign {
 						if (choisi)
 							dl.AddRectFilled(ra, {ctx.theme.accent.r, ctx.theme.accent.g, ctx.theme.accent.b, 28}, 4.f);
 						char idPos[48];
-						snprintf(idPos, sizeof(idPos), "insp.pop.pos%u", ai);
+						nkentseu::NkSnprintf(idPos, sizeof(idPos), "insp.pop.pos%u", ai);
 						const NkRect rpos = {ra.x + 2.f, ra.y + 2.f, 40.f, costume::HControle};
 						float32 pc = ar.position * 100.f;
 						if (ChampNombre(ctx, idPos, rpos, pc, 1.f, 0.f, 100.f)) {
@@ -16104,7 +16108,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px9, swA.x + 22.f, costume::CentrerY(F.px9, ra.y, 24.f),
 									   ar.couleur.Data() ? ar.couleur.Data() : "", ctx.theme.text);
 						char idOpA[48];
-						snprintf(idOpA, sizeof(idOpA), "insp.pop.op%u", ai);
+						nkentseu::NkSnprintf(idOpA, sizeof(idOpA), "insp.pop.op%u", ai);
 						const NkRect ropA = {x1 - 22.f - 6.f - 36.f - 12.f, ra.y + 2.f, 36.f, costume::HControle};
 						float32 opA = ar.opacite;
 						if (ChampNombre(ctx, idOpA, ropA, opA, 1.f, 0.f, 100.f)) {
@@ -16599,7 +16603,7 @@ namespace nkuidesign {
 				if (sousTitre) {
 					costume::TexteGras(dl, F.px13, tx, r.y + 7.f, nom, ctx.theme.text, 0.4f);
 					char st[80];
-					snprintf(st, sizeof(st), "Rôle : %s", n->role.Data());
+					nkentseu::NkSnprintf(st, sizeof(st), "Rôle : %s", n->role.Data());
 					costume::Texte(dl, F.px10, tx, r.y + 26.f, st, ctx.theme.textMuted);
 				} else
 					costume::TexteGras(dl, F.px13, tx, costume::CentrerY(F.px13, r.y, h), nom,
@@ -16792,10 +16796,10 @@ namespace nkuidesign {
 				//    question à laquelle un banc répond.
 				{
 					char cle[64];
-					snprintf(cle, sizeof(cle), "insp.section.%s", titre ? titre : "?");
+					nkentseu::NkSnprintf(cle, sizeof(cle), "insp.section.%s", titre ? titre : "?");
 					designkit::releve::Rect(ctx, cle, r);
 					char cleM[80];
-					snprintf(cleM, sizeof(cleM), "%s.ouvert", cle);
+					nkentseu::NkSnprintf(cleM, sizeof(cleM), "%s.ouvert", cle);
 					nkgui::NkGuiNoterMesure(ctx, cleM, (s && s->ouvert) ? 1.f : 0.f,
 											s ? 1.f : 0.f, 0.f, 0.f);
 				}
@@ -16898,11 +16902,11 @@ namespace nkuidesign {
 				const bool uniforme = NkValeurCommune(mSt->doc, mSt->sel, lire, commune);
 				char b[32];
 				if (!uniforme)
-					snprintf(b, sizeof(b), "\xE2\x80\x94"); // « — » : valeurs mixtes
+					nkentseu::NkSnprintf(b, sizeof(b), "\xE2\x80\x94"); // « — » : valeurs mixtes
 				else if (commune == (float32)(int32)commune)
-					snprintf(b, sizeof(b), "%d", (int32)commune);
+					nkentseu::NkSnprintf(b, sizeof(b), "%d", (int32)commune);
 				else
-					snprintf(b, sizeof(b), "%.2f", (double)commune);
+					nkentseu::NkSnprintf(b, sizeof(b), "%.2f", (double)commune);
 				BoiteChamp(ctx, r, b, petit);
 				float32 v = uniforme ? commune : 0.f;
 				if (ChampDrag(ctx, id, r, v, vitesse, vmin, vmax)) {
@@ -16917,13 +16921,13 @@ namespace nkuidesign {
 							 bool tiretSiZero = false, int32 decimales = -1) {
 				char b[32];
 				if (tiretSiZero && v == 0.f)
-					snprintf(b, sizeof(b), "\xE2\x80\x94"); // « — »
+					nkentseu::NkSnprintf(b, sizeof(b), "\xE2\x80\x94"); // « — »
 				else if (decimales >= 0)
 					NkEcrireNombreFr(b, (uint32)sizeof(b), v, decimales); // ③ la virgule, les signes
 				else if (v == (float32)(int32)v)
-					snprintf(b, sizeof(b), "%d", (int32)v);
+					nkentseu::NkSnprintf(b, sizeof(b), "%d", (int32)v);
 				else
-					snprintf(b, sizeof(b), "%.2f", (double)v);
+					nkentseu::NkSnprintf(b, sizeof(b), "%.2f", (double)v);
 				// ⑨ L'IDENTIFIANT NE SE PEINT PAS (2026-09-05, capture de Rodolf
 				//    `2026-09-05_app_popover_etiquette_fuit_dans_champ.png` : la rangée RGB montrait
 				//    « 179 | 184p.pop.m2 | 100 »). `InputText` peint la partie du libellé située AVANT
@@ -16936,9 +16940,9 @@ namespace nkuidesign {
 				//    au dessin, donc `gid` et l'id interne d'`InputText` restent le même.
 				char idMasque[80];
 				if (id && id[0] == '#' && id[1] == '#')
-					snprintf(idMasque, sizeof(idMasque), "%s", id);
+					nkentseu::NkSnprintf(idMasque, sizeof(idMasque), "%s", id);
 				else
-					snprintf(idMasque, sizeof(idMasque), "##%s", id ? id : "");
+					nkentseu::NkSnprintf(idMasque, sizeof(idMasque), "##%s", id ? id : "");
 				const nkgui::NkGuiId gid = ctx.GetId(idMasque);
 				bool change = false;
 				// ② LA FRAPPE : un clic SANS glisser ouvre la saisie (Entree valide par la
@@ -16982,9 +16986,9 @@ namespace nkuidesign {
 							if (decimales >= 0)
 								NkEcrireNombreFr(mSaisieBuf, (uint32)sizeof(mSaisieBuf), v, decimales);
 							else if (v == (float32)(int32)v)
-								snprintf(mSaisieBuf, sizeof(mSaisieBuf), "%d", (int32)v);
+								nkentseu::NkSnprintf(mSaisieBuf, sizeof(mSaisieBuf), "%d", (int32)v);
 							else
-								snprintf(mSaisieBuf, sizeof(mSaisieBuf), "%.2f", (double)v);
+								nkentseu::NkSnprintf(mSaisieBuf, sizeof(mSaisieBuf), "%.2f", (double)v);
 							ctx.inputId = gid; // le focus clavier, sans second clic
 						}
 					} else {
@@ -17248,9 +17252,9 @@ namespace nkuidesign {
 				{
 					char b[96];
 					if (unSelectionne)
-						snprintf(b, sizeof(b), "Sommet %d sur %u", iSel + 1, nbS);
+						nkentseu::NkSnprintf(b, sizeof(b), "Sommet %d sur %u", iSel + 1, nbS);
 					else
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "%u sommet(s) — cliquez-en un sur la toile pour lire ses "
 								 "coordonnées.",
 								 nbS);
@@ -17439,7 +17443,7 @@ namespace nkuidesign {
 							mSt->doc.MarkHumanEdit(noeud);
 							mARecadrer = true;
 							char b[160];
-							snprintf(b, sizeof(b),
+							nkentseu::NkSnprintf(b, sizeof(b),
 									 "%u sommet(s) passé(s) en « %s »%s", touches,
 									 kTypes[choisi],
 									 choisi == 0
@@ -17739,7 +17743,7 @@ namespace nkuidesign {
 					{
 						const NkRect r = ctx.NextItemRect(-1.f, 20.f);
 						char b[160];
-						snprintf(b, sizeof(b), "Instance de « %s »", n->instanceDe.Data());
+						nkentseu::NkSnprintf(b, sizeof(b), "Instance de « %s »", n->instanceDe.Data());
 						costume::Texte(dl, F.px10, r.x + 12.f,
 									   costume::CentrerY(F.px10, r.y, 20.f), b, ctx.theme.accent);
 					}
@@ -17786,7 +17790,7 @@ namespace nkuidesign {
 												   table[k].nom, ctx.theme.accent);
 								}
 								char id[64];
-								snprintf(id, sizeof(id), "insp.compo.reinit.%u", k);
+								nkentseu::NkSnprintf(id, sizeof(id), "insp.compo.reinit.%u", k);
 								if (designkit::Button(ctx, "Réinitialiser", id)) {
 									// ⚠️ ON RETIRE LE BIT, ON NE TOUCHE PAS À LA
 									//    VALEUR : la propriété redevient HÉRITÉE,
@@ -17798,7 +17802,7 @@ namespace nkuidesign {
 									n->ecarts &= ~table[k].bit;
 									mSt->doc.MarkHumanEdit(mSt->selected);
 									char msg[96];
-									snprintf(msg, sizeof(msg), "« %s » suit à nouveau la "
+									nkentseu::NkSnprintf(msg, sizeof(msg), "« %s » suit à nouveau la "
 															   "déclaration.",
 											 table[k].nom);
 									mSt->status = NkString(msg);
@@ -17860,9 +17864,9 @@ namespace nkuidesign {
 						const bool a = n && mSt->layout.Has(mSt->selected);
 						const NkPaintRect rc = a ? mSt->layout.At(mSt->selected)
 												 : NkPaintRect{0.f, 0.f, 0.f, 0.f};
-						snprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.x);
+						nkentseu::NkSnprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.x);
 						BoiteChampAxe(ctx, rx, b, rouge);
-						snprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.y);
+						nkentseu::NkSnprintf(b, sizeof(b), a ? "%.0f" : "\xE2\x80\x94", (double)rc.y);
 						BoiteChampAxe(ctx, ry, b, vert);
 					}
 					if (bouge)
@@ -17941,9 +17945,9 @@ namespace nkuidesign {
 				}
 				char b[32];
 				if (commune == (float32)(int32)commune)
-					snprintf(b, sizeof(b), "%d", (int32)commune);
+					nkentseu::NkSnprintf(b, sizeof(b), "%d", (int32)commune);
 				else
-					snprintf(b, sizeof(b), "%.2f", (double)commune);
+					nkentseu::NkSnprintf(b, sizeof(b), "%.2f", (double)commune);
 				BoiteChampAxe(ctx, r, b, axe);
 				float32 v = commune;
 				if (ChampDrag(ctx, id, r, v, 1.f, -100000.f, 100000.f)) {
@@ -17970,9 +17974,9 @@ namespace nkuidesign {
 								const NkColor &axe) {
 				char b[32];
 				if (v == (float32)(int32)v)
-					snprintf(b, sizeof(b), "%d", (int32)v);
+					nkentseu::NkSnprintf(b, sizeof(b), "%d", (int32)v);
 				else
-					snprintf(b, sizeof(b), "%.2f", (double)v);
+					nkentseu::NkSnprintf(b, sizeof(b), "%.2f", (double)v);
 				BoiteChampAxe(ctx, r, b, axe);
 				return ChampDrag(ctx, id, r, v, 1.f, -100000.f, 100000.f);
 			}
@@ -17994,11 +17998,11 @@ namespace nkuidesign {
 				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), costume::BandeY(r.y), 96.f, costume::HControle};
 				char b[96];
 				if (metrique)
-					snprintf(b, sizeof(b), "« %s »", d.valueMetric);
+					nkentseu::NkSnprintf(b, sizeof(b), "« %s »", d.valueMetric);
 				else if (porteValeur)
-					snprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
+					nkentseu::NkSnprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
 				else
-					snprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
+					nkentseu::NkSnprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
 				BoiteChamp(ctx, rb, b);
 				costume::ChevronCombo7(dl, rb.x + rb.w - 12.f, rb.y + 8.f, ctx.theme.textMuted);
 				// LE MODE SE CHANGE (recadrage « chaque contrôle agit ») : cliquer
@@ -18026,7 +18030,7 @@ namespace nkuidesign {
 					//    de la métrique.
 					if (ctx.popupDepth == 0 && NkGuiRectContains(rb, ctx.input.mousePos)) {
 						char b[200];
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "« %s » : cette taille suit une MÉTRIQUE du document, "
 								 "elle ne se tire pas ici. Sa valeur se règle dans "
 								 "ESPACEMENT ; le chevron change le mode.",
@@ -18038,7 +18042,7 @@ namespace nkuidesign {
 											: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
 					const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
 					char id[40];
-					snprintf(id, sizeof(id), "insp.dim.%s", titre);
+					nkentseu::NkSnprintf(id, sizeof(id), "insp.dim.%s", titre);
 					float32 avant = d.value;
 					if (ChampDrag(ctx, id, rb, d.value, vitesse, 0.f, vmax) && d.value != avant)
 						mSt->doc.MarkHumanEdit(mSt->selected);
@@ -18059,9 +18063,9 @@ namespace nkuidesign {
 					const NkRect rmax = {mx1 + costume::ColMiniLabel, r2.y + 2.f,
 										 moitie - costume::ColMiniLabel, 18.f};
 					char id[48];
-					snprintf(id, sizeof(id), "insp.dmin.%s", titre);
+					nkentseu::NkSnprintf(id, sizeof(id), "insp.dmin.%s", titre);
 					bool bouge = ChampNombre(ctx, id, rmin, d.minVal, 1.f, 0.f, 4096.f, true, true);
-					snprintf(id, sizeof(id), "insp.dmax.%s", titre);
+					nkentseu::NkSnprintf(id, sizeof(id), "insp.dmax.%s", titre);
 					bouge |= ChampNombre(ctx, id, rmax, d.maxVal, 1.f, 0.f, 4096.f, true, true);
 					if (bouge)
 						mSt->doc.MarkHumanEdit(mSt->selected);
@@ -18168,7 +18172,7 @@ namespace nkuidesign {
 				bool bouge = false;
 				char id[48];
 				if (!delie) {
-					snprintf(id, sizeof(id), "%s.un", idBase);
+					nkentseu::NkSnprintf(id, sizeof(id), "%s.un", idBase);
 					if (ChampNombre(ctx, id, zone, unique, 0.5f, vmin, vmax))
 						bouge = true;
 					return bouge;
@@ -18177,7 +18181,7 @@ namespace nkuidesign {
 				const float32 wc = (zone.w - gout * 3.f) * 0.25f;
 				for (uint32 i = 0; i < 4u; ++i) {
 					const NkRect rc2 = {zone.x + (wc + gout) * (float32)i, zone.y, wc, zone.h};
-					snprintf(id, sizeof(id), "%s.%u", idBase, i);
+					nkentseu::NkSnprintf(id, sizeof(id), "%s.%u", idBase, i);
 					if (ChampNombre(ctx, id, rc2, quatre[i], 0.5f, vmin, vmax))
 						bouge = true;
 					if (ctx.popupDepth == 0 && NkGuiRectContains(rc2, ctx.input.mousePos))
@@ -18209,11 +18213,11 @@ namespace nkuidesign {
 					for (uint32 e = 0; e < nbEtats && e < kMaxEtatsUI; ++e) {
 						mEtatsTexteBuf[e][0] = '\0';
 						if (const NkApparenceEtat *a0 = NkBlocEtatSi(*n, etats[e])) {
-							snprintf(mEtatsBuf[e], sizeof(mEtatsBuf[e]), "%s",
+							nkentseu::NkSnprintf(mEtatsBuf[e], sizeof(mEtatsBuf[e]), "%s",
 									 a0->fond.Data());
-							snprintf(mEtatsTexteBuf[e], sizeof(mEtatsTexteBuf[e]), "%s",
+							nkentseu::NkSnprintf(mEtatsTexteBuf[e], sizeof(mEtatsTexteBuf[e]), "%s",
 									 a0->couleurTexte.Data());
-							snprintf(mEtatsBordBuf[e], sizeof(mEtatsBordBuf[e]), "%s",
+							nkentseu::NkSnprintf(mEtatsBordBuf[e], sizeof(mEtatsBordBuf[e]), "%s",
 									 a0->bordureCouleur.Data());
 						} else
 							mEtatsBordBuf[e][0] = '\0';
@@ -18261,7 +18265,7 @@ namespace nkuidesign {
 						if (NkComponentDecl::StrEq(etats[choix], "Normal"))
 							mSt->host.etatAffiche[0] = '\0';
 						else
-							snprintf(mSt->host.etatAffiche, sizeof(mSt->host.etatAffiche), "%s",
+							nkentseu::NkSnprintf(mSt->host.etatAffiche, sizeof(mSt->host.etatAffiche), "%s",
 									 etats[choix]);
 					}
 				}
@@ -18279,7 +18283,7 @@ namespace nkuidesign {
 					const NkRect sw = {x0 + colEtat,
 									   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 					char idPast[40];
-					snprintf(idPast, sizeof(idPast), "##insp.etat.pastille%u", e);
+					nkentseu::NkSnprintf(idPast, sizeof(idPast), "##insp.etat.pastille%u", e);
 					const bool pickerEtat =
 						NkPastilleCouleur(ctx, *mSt, idPast, sw, mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]),
 										  mSt->selected); // decrit un nœud
@@ -18294,7 +18298,7 @@ namespace nkuidesign {
 						mSt->picker.genre = 1u; // l'enveloppe complete
 						mSt->picker.noeud = mSt->selected;
 						mSt->picker.index = -1;
-						snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
+						nkentseu::NkSnprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
 						mSt->picker.champEtat = 0u; // le fond
 					}
 					// LE CHAMP HEXA DU FOND -- la moitié qui rend le geste VRAI :
@@ -18306,7 +18310,7 @@ namespace nkuidesign {
 					const float32 xChamp = sw.x + 16.f + (float32)costume::EspSerre;
 					if (e < kMaxEtatsUI) {
 						char idH[40];
-						snprintf(idH, sizeof(idH), "##insp.etat.hex%u", e);
+						nkentseu::NkSnprintf(idH, sizeof(idH), "##insp.etat.hex%u", e);
 						ctx.SetNextItemRect({xChamp, costume::BandeY(r.y),
 											 x1 - xChamp, costume::HControle});
 						if ((nkgui::InputText(ctx, idH, mEtatsBuf[e], 10) && NkPorteHex(mEtatsBuf[e], (uint32)sizeof(mEtatsBuf[e]))) || pickerEtat) {
@@ -18387,8 +18391,8 @@ namespace nkuidesign {
 									   uint32 cap, NkString &champ, uint8 champEtat) -> float32 {
 					const NkRect sw = {x, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 					char idP[48], idH[48];
-					snprintf(idP, sizeof(idP), "##insp.etat.%s%u", prefixe, e);
-					snprintf(idH, sizeof(idH), "##insp.etat.%shex%u", prefixe, e);
+					nkentseu::NkSnprintf(idP, sizeof(idP), "##insp.etat.%s%u", prefixe, e);
+					nkentseu::NkSnprintf(idH, sizeof(idH), "##insp.etat.%shex%u", prefixe, e);
 					const bool viaP = NkPastilleCouleur(ctx, *mSt, idP, sw, buf, cap, mSt->selected);
 					// ① L'ENVELOPPE, PAS LE NOYAU NU : la demande recoit le bloc d'etat qu'elle
 					//   edite ; `genre == 0` = la porte vient de l'ouvrir, on charge le
@@ -18401,7 +18405,7 @@ namespace nkuidesign {
 						mSt->picker.genre = 1u; // l'enveloppe complete
 						mSt->picker.noeud = mSt->selected;
 						mSt->picker.index = -1;
-						snprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
+						nkentseu::NkSnprintf(mSt->picker.etat, sizeof(mSt->picker.etat), "%s", etats[e]);
 						mSt->picker.champEtat = champEtat;
 					}
 					const float32 xh = sw.x + 16.f + (float32)costume::EspSerre;
@@ -18450,7 +18454,7 @@ namespace nkuidesign {
 						for (uint32 k = 0; k < 2u; ++k) {
 							const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
 							char idO[48];
-							snprintf(idO, sizeof(idO), "insp.etat.ombre%u.%u", e, k);
+							nkentseu::NkSnprintf(idO, sizeof(idO), "insp.etat.ombre%u.%u", e, k);
 							float32 nv = 0.f;
 							if (champHerite(idO, rc, vals[k], bases[k], maxs[k], nv)) {
 								(k == 0 ? poser(e).ombreFlou : poser(e).ombreOpacite) = nv;
@@ -18479,7 +18483,7 @@ namespace nkuidesign {
 						}
 						const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
 						char idE[48];
-						snprintf(idE, sizeof(idE), "insp.etat.bordep%u", e);
+						nkentseu::NkSnprintf(idE, sizeof(idE), "insp.etat.bordep%u", e);
 						float32 nv = 0.f;
 						if (champHerite(idE, rc, a ? a->bordureEpaisseur : -1.f, epBase, 64.f, nv)) {
 							poser(e).bordureEpaisseur = nv;
@@ -18523,7 +18527,7 @@ namespace nkuidesign {
 						const NkApparenceEtat *a = NkBlocEtatSi(*n, etats[e]);
 						const NkRect rc = {x, costume::BandeY(r.y), 40.f, costume::HControle};
 						char idO[48];
-						snprintf(idO, sizeof(idO), "insp.etat.opacite%u", e);
+						nkentseu::NkSnprintf(idO, sizeof(idO), "insp.etat.opacite%u", e);
 						float32 nv = 0.f;
 						if (champHerite(idO, rc, a ? a->opacite : -1.f, n->opacite, 100.f, nv)) {
 							poser(e).opacite = nv;
@@ -18558,7 +18562,7 @@ namespace nkuidesign {
 					for (uint32 i = 0; i < kMaxFillsUI; ++i)
 						mEffetsBuf[i][0] = '\0';
 					for (uint32 i = 0; i < (uint32)n->effets.Size() && i < kMaxFillsUI; ++i)
-						snprintf(mEffetsBuf[i], sizeof(mEffetsBuf[i]), "%s",
+						nkentseu::NkSnprintf(mEffetsBuf[i], sizeof(mEffetsBuf[i]), "%s",
 								 n->effets[i].couleur.Data());
 				}
 				const uint32 nb = (uint32)n->effets.Size();
@@ -18643,7 +18647,7 @@ namespace nkuidesign {
 							const NkRect rc = {x0 + (large + 6.f) * (float32)k, r.y + 2.f,
 											   large, 20.f};
 							char id[32];
-							snprintf(id, sizeof(id), "insp.effet.%d.%u", k, i);
+							nkentseu::NkSnprintf(id, sizeof(id), "insp.effet.%d.%u", k, i);
 							// ⚠️ X ET Y ACCEPTENT LE NEGATIF (une ombre peut porter
 							//    vers la gauche ou vers le haut) ; le flou et
 							//    l'etendue non — un rayon negatif n'a pas de sens.
@@ -18662,7 +18666,7 @@ namespace nkuidesign {
 						const NkRect sw = {col.pastille,
 										   r.y + (costume::HRangee - 16.f) * 0.5f, 16.f, 16.f};
 							char idPast[40];
-						snprintf(idPast, sizeof(idPast), "##insp.effet.pastille%u", i);
+						nkentseu::NkSnprintf(idPast, sizeof(idPast), "##insp.effet.pastille%u", i);
 						const bool pickerEffe =
 							NkPastilleCouleur(ctx, *mSt, idPast, sw, mEffetsBuf[i], (uint32)sizeof(mEffetsBuf[i]),
 										  mSt->selected); // decrit un nœud
@@ -18682,7 +18686,7 @@ namespace nkuidesign {
 							mSt->picker.champNoeud = 1u; // la couleur de cet effet
 						}
 						char idHex[32];
-						snprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
+						nkentseu::NkSnprintf(idHex, sizeof(idHex), "##insp.effet.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW,
 											 costume::HControle});
 						if ((nkgui::InputText(ctx, idHex, mEffetsBuf[i], 10) && NkPorteHex(mEffetsBuf[i], 10u)) || pickerEffe) {
@@ -18690,7 +18694,7 @@ namespace nkuidesign {
 							mSt->doc.MarkHumanEdit(mSt->selected);
 						}
 						char idOp[32];
-						snprintf(idOp, sizeof(idOp), "insp.effet.op%u", i);
+						nkentseu::NkSnprintf(idOp, sizeof(idOp), "insp.effet.op%u", i);
 						const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 						if (ChampNombre(ctx, idOp, ro, e.opacite, 1.f, 0.f, 100.f))
 							mSt->doc.MarkHumanEdit(mSt->selected);
@@ -19218,9 +19222,9 @@ namespace nkuidesign {
 					const bool a = mSt->layout.Has(mSt->selected);
 					const NkPaintRect rc =
 						a ? mSt->layout.At(mSt->selected) : NkPaintRect{0.f, 0.f, 0.f, 0.f};
-					snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.x);
+					nkentseu::NkSnprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.x);
 					BoiteChamp(ctx, rx, b);
-					snprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.y);
+					nkentseu::NkSnprintf(b, sizeof(b), a ? "%.0f" : "-", (double)rc.y);
 					BoiteChamp(ctx, ry, b);
 					// ⚠️ PHRASE PLEINE LARGEUR, PAS UNE CELLULE (capture du 29/08 :
 					//    coupée en colonne, elle n'expliquait plus).
@@ -19269,11 +19273,11 @@ namespace nkuidesign {
 				const NkRect rb = {x0 + ColChampsCalc(r.w - 24.f), r.y + 2.f, x1 - x0 - 56.f, 20.f};
 				char b[96];
 				if (metrique)
-					snprintf(b, sizeof(b), "métrique « %s »", d.valueMetric);
+					nkentseu::NkSnprintf(b, sizeof(b), "métrique « %s »", d.valueMetric);
 				else if (porteValeur)
-					snprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
+					nkentseu::NkSnprintf(b, sizeof(b), "%s %d", NkSizeModeName(d.mode), (int32)d.value);
 				else
-					snprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
+					nkentseu::NkSnprintf(b, sizeof(b), "%s", NkSizeModeName(d.mode));
 				BoiteChamp(ctx, rb, b);
 				// l'icône du mode, à droite dans la boîte
 				if (d.mode == NkSizeMode::Expand)
@@ -19289,7 +19293,7 @@ namespace nkuidesign {
 											: d.mode == NkSizeMode::Fraction ? 0.01f : 0.05f;
 					const float32 vmax = d.mode == NkSizeMode::Fraction ? 1.f : 4096.f;
 					char id[40];
-					snprintf(id, sizeof(id), "insp.taille.%s", titre);
+					nkentseu::NkSnprintf(id, sizeof(id), "insp.taille.%s", titre);
 					// le glisser passe par le même champ : on repose la boîte en
 					// zone de drag sans la redessiner
 					float32 avant = d.value;
@@ -19310,10 +19314,10 @@ namespace nkuidesign {
 				const NkRect rmax = {mx1 + costume::ColMiniLabel, r2.y + 2.f,
 										 moitie - costume::ColMiniLabel, 18.f};
 				char id[48];
-				snprintf(id, sizeof(id), "insp.min.%s", titre);
+				nkentseu::NkSnprintf(id, sizeof(id), "insp.min.%s", titre);
 				bool bouge = false;
 				bouge |= ChampNombre(ctx, id, rmin, d.minVal, 1.f, 0.f, 4096.f, true, true);
-				snprintf(id, sizeof(id), "insp.max.%s", titre);
+				nkentseu::NkSnprintf(id, sizeof(id), "insp.max.%s", titre);
 				bouge |= ChampNombre(ctx, id, rmax, d.maxVal, 1.f, 0.f, 4096.f, true, true);
 				if (bouge)
 					mSt->doc.MarkHumanEdit(mSt->selected);
@@ -19412,9 +19416,9 @@ namespace nkuidesign {
 										   costume::HControle};
 						char nm[80];
 						if (lignes[li].nom->Empty())
-							snprintf(nm, sizeof(nm), "\xE2\x80\x94 nommer\xE2\x80\xA6");
+							nkentseu::NkSnprintf(nm, sizeof(nm), "\xE2\x80\x94 nommer\xE2\x80\xA6");
 						else
-							snprintf(nm, sizeof(nm), "\xC2\xAB %s \xC2\xBB", lignes[li].nom->Data());
+							nkentseu::NkSnprintf(nm, sizeof(nm), "\xC2\xAB %s \xC2\xBB", lignes[li].nom->Data());
 						const bool svn = ctx.popupDepth == 0
 										 && NkGuiRectContains(rn, ctx.input.mousePos);
 						if (svn)
@@ -19438,7 +19442,7 @@ namespace nkuidesign {
 					const NkRect rv = {x1 - 48.f, costume::BandeY(r.y), 48.f, costume::HControle};
 					float32 v = mSt->doc.Metric(lignes[li].nom->Data(), 0.f);
 					char id[48];
-					snprintf(id, sizeof(id), "insp.esp.%d", li);
+					nkentseu::NkSnprintf(id, sizeof(id), "insp.esp.%d", li);
 					if (ChampNombre(ctx, id, rv, v, 0.5f, 0.f, 512.f)) {
 						mSt->doc.SetMetric(lignes[li].nom->Data(), v);
 						mSt->doc.MarkHumanEdit(mSt->selected);
@@ -19456,7 +19460,7 @@ namespace nkuidesign {
 					const uint32 combien = NoeudsNommant(lignes[li].nom->Data());
 					if (combien > 1u) {
 						char b[160];
-						snprintf(b, sizeof(b),
+						nkentseu::NkSnprintf(b, sizeof(b),
 								 "valeur du DOCUMENT : %u nœuds nomment « %s » et "
 								 "suivront ce réglage.",
 								 combien, lignes[li].nom->Data());
@@ -19649,13 +19653,13 @@ namespace nkuidesign {
 					const NkRect r = ctx.NextItemRect(-1.f, 22.f);
 					char quoi[140];
 					if (nSel == 0u)
-						snprintf(quoi, sizeof(quoi), "rien de sélectionné");
+						nkentseu::NkSnprintf(quoi, sizeof(quoi), "rien de sélectionné");
 					else if (nSel == 1u)
-						snprintf(quoi, sizeof(quoi), "1 élément — référence : sa PAGE");
+						nkentseu::NkSnprintf(quoi, sizeof(quoi), "1 élément — référence : sa PAGE");
 					else if (mAlignSurDernier)
-						snprintf(quoi, sizeof(quoi), "%u éléments — référence : le DERNIER sélectionné", nSel);
+						nkentseu::NkSnprintf(quoi, sizeof(quoi), "%u éléments — référence : le DERNIER sélectionné", nSel);
 					else
-						snprintf(quoi, sizeof(quoi), "%u éléments — référence : la SÉLECTION", nSel);
+						nkentseu::NkSnprintf(quoi, sizeof(quoi), "%u éléments — référence : la SÉLECTION", nSel);
 					costume::Texte(dl, F.px9, r.x + 12.f, costume::CentrerY(F.px9, r.y, 22.f), quoi, ctx.theme.textMuted);
 				}
 				static const char *const kNom[8] = {"Gauche", "Centre H", "Droite", "Répartir H",
@@ -19765,7 +19769,7 @@ namespace nkuidesign {
 				const bool luParLeSolveur = NkAlignementLuParLeSolveur(n->layout.kind);
 				if (!luParLeSolveur) {
 					char b[220];
-					snprintf(b, sizeof(b),
+					nkentseu::NkSnprintf(b, sizeof(b),
 							 "Enregistré, pas appliqué : un agencement « %s » place ses "
 							 "enfants autrement et ne lit pas l'alignement. La valeur est "
 							 "gardée dans le document.",
@@ -19895,7 +19899,7 @@ namespace nkuidesign {
 				//    porte (`NkPastilleCouleur`, qui dessine le meme carre, barre quand la
 				//    couleur est vide = le theme) et demande l'enveloppe.
 				char idP[64];
-				snprintf(idP, sizeof(idP), "%s.pastille", id);
+				nkentseu::NkSnprintf(idP, sizeof(idP), "%s.pastille", id);
 				const bool viaP = NkPastilleCouleur(ctx, *mSt, idP, sw, buf, cap, mSt->selected);
 				if (mSt->picker.ouvert && mSt->picker.id == ctx.GetId(idP)) {
 					if (mSt->picker.genre == 0u) {
@@ -20002,10 +20006,10 @@ namespace nkuidesign {
 				if (!ref.Empty()) {
 					const NkStyle *st = doc.TrouverStyle(ref.Data());
 					char absent[96];
-					snprintf(absent, sizeof(absent), "%s : style absent (valeurs gardées)", ref.Data());
+					nkentseu::NkSnprintf(absent, sizeof(absent), "%s : style absent (valeurs gardées)", ref.Data());
 					const bool surcharge = (n->ecarts & NkUIDocument::BitsDuGenre(texte)) != 0u;
 					char lib[160];
-					snprintf(lib, sizeof(lib), "%s%s", st ? (st->nom.Empty() ? st->cle.Data() : st->nom.Data()) : absent,
+					nkentseu::NkSnprintf(lib, sizeof(lib), "%s%s", st ? (st->nom.Empty() ? st->cle.Data() : st->nom.Data()) : absent,
 							 surcharge && st ? " (surcharge locale)" : "");
 					costume::Texte(dl, F.px10, xn, costume::CentrerY(F.px10, r.y, 24.f), lib,
 								   st ? (surcharge ? ctx.theme.accent : ctx.theme.text) : nkgui::NkColor{220, 60, 60, 255});
@@ -20029,7 +20033,7 @@ namespace nkuidesign {
 						} else if (bApp.w > 0.f && NkGuiRectContains(bApp, ctx.input.mousePos)) {
 							const int32 suivis = doc.AppliquerAuStyle(mSt->selected, texte);
 							char msg[160];
-							snprintf(msg, sizeof(msg), "Style « %s » mis à jour depuis ce calque : %d autre(s) calque(s) suivent.",
+							nkentseu::NkSnprintf(msg, sizeof(msg), "Style « %s » mis à jour depuis ce calque : %d autre(s) calque(s) suivent.",
 									 st->nom.Data() ? st->nom.Data() : "", suivis > 0 ? suivis : 0);
 							mSt->DireAuPied(msg);
 							mSt->Consigner(msg);
@@ -20061,7 +20065,7 @@ namespace nkuidesign {
 						if (NkGuiRectContains(bCr, ctx.input.mousePos)) {
 							const int32 si = doc.CreerStyleDepuis(mSt->selected, texte, nullptr);
 							char msg[160];
-							snprintf(msg, sizeof(msg), "Style « %s » créé depuis ce calque ; il le lie. Le rail Styles le renomme.",
+							nkentseu::NkSnprintf(msg, sizeof(msg), "Style « %s » créé depuis ce calque ; il le lie. Le rail Styles le renomme.",
 									 si >= 0 ? doc.styles[(uint32)si].nom.Data() : "?");
 							mSt->DireAuPied(msg);
 							mSt->Consigner(msg);
@@ -20092,7 +20096,7 @@ namespace nkuidesign {
 								doc.LierStyle(mSt->selected, st.cle.Data());
 								mStyleDeplie[g] = false;
 								char msg[160];
-								snprintf(msg, sizeof(msg), "Style « %s » lié : ce calque le suit.", st.nom.Data() ? st.nom.Data() : "");
+								nkentseu::NkSnprintf(msg, sizeof(msg), "Style « %s » lié : ce calque le suit.", st.nom.Data() ? st.nom.Data() : "");
 								mSt->DireAuPied(msg);
 								apres();
 							}
@@ -20122,15 +20126,15 @@ namespace nkuidesign {
 					for (uint32 i = 0; i < kMaxFillsUI; ++i)
 						mFillsBuf[i][0] = '\0';
 					if (n->fills.Empty())
-						snprintf(mFillsBuf[0], sizeof(mFillsBuf[0]), "%s", n->fill.Data());
+						nkentseu::NkSnprintf(mFillsBuf[0], sizeof(mFillsBuf[0]), "%s", n->fill.Data());
 					else
 						for (uint32 i = 0; i < (uint32)n->fills.Size() && i < kMaxFillsUI; ++i) {
-							snprintf(mFillsBuf[i], sizeof(mFillsBuf[i]), "%s",
+							nkentseu::NkSnprintf(mFillsBuf[i], sizeof(mFillsBuf[i]), "%s",
 									 n->fills[i].couleur.Data());
 							// les arrets suivent la meme resynchro : une
 							// annulation doit se voir dans LEURS champs aussi.
 							for (uint32 a = 0; a < (uint32)kMaxArretsUI; ++a)
-								snprintf(mArretsBuf[i][a], sizeof(mArretsBuf[i][a]), "%s",
+								nkentseu::NkSnprintf(mArretsBuf[i][a], sizeof(mArretsBuf[i][a]), "%s",
 										 a < (uint32)n->fills[i].degrade.arrets.Size()
 											 ? n->fills[i].degrade.arrets[a].couleur.Data()
 											 : "");
@@ -20163,7 +20167,7 @@ namespace nkuidesign {
 					const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
 										   16.f};
 					char idPast[40];
-					snprintf(idPast, sizeof(idPast), "##insp.fill.pastille%u", i);
+					nkentseu::NkSnprintf(idPast, sizeof(idPast), "##insp.fill.pastille%u", i);
 					const bool pickerFill =
 						NkPastilleCouleur(ctx, *mSt, idPast, sw, mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]),
 										  mSt->selected); // decrit un nœud
@@ -20229,7 +20233,7 @@ namespace nkuidesign {
 					// (« Dark Primary », comme sa capture) ; absente : dit, en rouge
 					const NkVariable *varLigne = NkEstReference(mFillsBuf[i]) ? mSt->doc.TrouverVariable(mFillsBuf[i]) : nullptr;
 					char absente[64];
-					snprintf(absente, sizeof(absente), "%s : variable absente", mFillsBuf[i]);
+					nkentseu::NkSnprintf(absente, sizeof(absente), "%s : variable absente", mFillsBuf[i]);
 					const char *nomLigne = ligneImage ? NkNomTypeRemplissage(n->fills[i])
 										   : (gApercu && gApercu->Actif() ? NkNomTypeRemplissage(n->fills[i])
 																	: (varLigne ? (varLigne->nom.Empty() ? varLigne->cle.Data() : varLigne->nom.Data())
@@ -20244,7 +20248,7 @@ namespace nkuidesign {
 					char nomFusion[96];
 					if (!simple && i < (uint32)n->fills.Size() && !n->fills[i].fusion.Empty()) {
 						const int32 kf = NkIndiceFusion(n->fills[i].fusion.Data());
-						snprintf(nomFusion, sizeof(nomFusion), "%s \xC2\xB7 %s", nomLigne, kf >= 0 ? kNkFusionLib[kf] : n->fills[i].fusion.Data());
+						nkentseu::NkSnprintf(nomFusion, sizeof(nomFusion), "%s \xC2\xB7 %s", nomLigne, kf >= 0 ? kNkFusionLib[kf] : n->fills[i].fusion.Data());
 						nomLigne = nomFusion;
 					}
 					const bool hexaEditable = !ligneImage && !(gApercu && gApercu->Actif()) && !NkEstReference(mFillsBuf[i])
@@ -20252,7 +20256,7 @@ namespace nkuidesign {
 					if (hexaEditable) {
 						// ② Lunacy : le code se tape sur la ligne aussi -- par la porte
 						char idHex[32];
-						snprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
+						nkentseu::NkSnprintf(idHex, sizeof(idHex), "##insp.fill.hex%u", i);
 						ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), col.hexW, costume::HControle});
 						if (nkgui::InputText(ctx, idHex, mFillsBuf[i], 10) && NkPorteHex(mFillsBuf[i], (uint32)sizeof(mFillsBuf[i]))) {
 							n->MaterialiserFills();
@@ -20267,7 +20271,7 @@ namespace nkuidesign {
 						costume::Texte(dl, F.px10, col.hexX, costume::CentrerBande(F.px10, r.y), nomLigne,
 									   (NkEstReference(mFillsBuf[i]) && !varLigne) ? nkgui::NkColor{220, 60, 60, 255} : encre);
 					char idOp[32];
-					snprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
+					nkentseu::NkSnprintf(idOp, sizeof(idOp), "insp.fill.op%u", i);
 					const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 					float32 op = simple ? 100.f : n->fills[i].opacite;
 					if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
@@ -20395,10 +20399,10 @@ namespace nkuidesign {
 					for (uint32 i = 0; i < kMaxFillsUI; ++i)
 						mBordsBuf[i][0] = '\0';
 					if (n->borders.Empty())
-						snprintf(mBordsBuf[0], sizeof(mBordsBuf[0]), "%s", n->borderColor.Data());
+						nkentseu::NkSnprintf(mBordsBuf[0], sizeof(mBordsBuf[0]), "%s", n->borderColor.Data());
 					else
 						for (uint32 i = 0; i < (uint32)n->borders.Size() && i < kMaxFillsUI; ++i)
-							snprintf(mBordsBuf[i], sizeof(mBordsBuf[i]), "%s",
+							nkentseu::NkSnprintf(mBordsBuf[i], sizeof(mBordsBuf[i]), "%s",
 									 n->borders[i].couleur.Data());
 				}
 				const bool rienDePose = n->borders.Empty() && n->borderColor.Empty();
@@ -20421,7 +20425,7 @@ namespace nkuidesign {
 						const NkRect sw = {col.pastille, r.y + (costume::HRangee - 16.f) * 0.5f, 16.f,
 										   16.f};
 							char idPast[40];
-						snprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
+						nkentseu::NkSnprintf(idPast, sizeof(idPast), "##insp.bord.pastille%u", i);
 						const bool pickerBord =
 							NkPastilleCouleur(ctx, *mSt, idPast, sw, mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]),
 										  mSt->selected); // decrit un nœud
@@ -20455,7 +20459,7 @@ namespace nkuidesign {
 												   : (n->borderW > 0.f ? n->borderW : 1.f);
 							const NkBordurePos posN = bd ? bd->position : NkBordurePos::Interieur;
 							char nomB[96];
-							snprintf(nomB, sizeof(nomB), "%g px \xC2\xB7 %s%s%s%s%s", (double)epN,
+							nkentseu::NkSnprintf(nomB, sizeof(nomB), "%g px \xC2\xB7 %s%s%s%s%s", (double)epN,
 									 posN == NkBordurePos::Interieur ? "intérieur"
 									 : posN == NkBordurePos::Centre  ? "centré"
 																		   : "extérieur",
@@ -20465,12 +20469,12 @@ namespace nkuidesign {
 									 (bd && !bd->extremite.Empty()) ? " \xC2\xB7 " : "");
 							if (bd && !bd->extremite.Empty()) {
 								const size_t l = strlen(nomB);
-								snprintf(nomB + l, sizeof(nomB) - l, "%s", bd->extremite.Data());
+								nkentseu::NkSnprintf(nomB + l, sizeof(nomB) - l, "%s", bd->extremite.Data());
 							}
 							// ② le code de la bordure se tape sur la ligne, par la porte ; la
 							//    description (epaisseur, position...) suit
 							char idHexB[32];
-							snprintf(idHexB, sizeof(idHexB), "##insp.bord.hex%u", i);
+							nkentseu::NkSnprintf(idHexB, sizeof(idHexB), "##insp.bord.hex%u", i);
 							const float32 wHex = col.hexW > 110.f ? 58.f : col.hexW * 0.5f;
 							ctx.SetNextItemRect({col.hexX, costume::BandeY(r.y), wHex, costume::HControle});
 							if (nkgui::InputText(ctx, idHexB, mBordsBuf[i], 10) && NkPorteHex(mBordsBuf[i], (uint32)sizeof(mBordsBuf[i]))) {
@@ -20487,7 +20491,7 @@ namespace nkuidesign {
 							dl.PopClipRect();
 						}
 						char idOp[32];
-						snprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
+						nkentseu::NkSnprintf(idOp, sizeof(idOp), "insp.bord.op%u", i);
 						const NkRect ro = {col.opacX, costume::BandeY(r.y), 30.f, costume::HControle};
 						float32 op = simple ? 100.f : n->borders[i].opacite;
 						if (ChampNombre(ctx, idOp, ro, op, 1.f, 0.f, 100.f)) {
@@ -20648,7 +20652,7 @@ namespace nkuidesign {
 					//    à un fond que personne n'a demandé : le premier état du
 					//    champ est la couleur que le thème peint en ce moment.
 					const uint32 c = (uint32)mSt->theme.Get(NkDesignResolveRole("canvas_bg"));
-					snprintf(mCanvasHex, sizeof(mCanvasHex), "#%02x%02x%02x",
+					nkentseu::NkSnprintf(mCanvasHex, sizeof(mCanvasHex), "#%02x%02x%02x",
 							 (unsigned)((c >> 24) & 0xFFu), (unsigned)((c >> 16) & 0xFFu),
 							 (unsigned)((c >> 8) & 0xFFu));
 					mSt->canvasFill.couleur = NkString(mCanvasHex);
@@ -20656,7 +20660,7 @@ namespace nkuidesign {
 				}
 				if (!mSt->canvasFill.couleur.Empty()
 					&& !NkComponentDecl::StrEq(mCanvasHex, mSt->canvasFill.couleur.Data()))
-					snprintf(mCanvasHex, sizeof(mCanvasHex), "%s", mSt->canvasFill.couleur.Data());
+					nkentseu::NkSnprintf(mCanvasHex, sizeof(mCanvasHex), "%s", mSt->canvasFill.couleur.Data());
 
 				if (!mSt->canvasFill.couleur.Empty()) {
 					const NkRect r = ctx.NextItemRect(-1.f, 26.f);
@@ -20861,9 +20865,9 @@ namespace nkuidesign {
 					if (mApparNode != mSt->selected || mApparGen != mSt->editionGeneration) {
 						mApparNode = mSt->selected;
 						mApparGen = mSt->editionGeneration;
-						snprintf(mFondBuf, sizeof(mFondBuf), "%s", n->fill.Data());
-						snprintf(mTexteColBuf, sizeof(mTexteColBuf), "%s", n->textColor.Data());
-						snprintf(mBordColBuf, sizeof(mBordColBuf), "%s", n->borderColor.Data());
+						nkentseu::NkSnprintf(mFondBuf, sizeof(mFondBuf), "%s", n->fill.Data());
+						nkentseu::NkSnprintf(mTexteColBuf, sizeof(mTexteColBuf), "%s", n->textColor.Data());
+						nkentseu::NkSnprintf(mBordColBuf, sizeof(mBordColBuf), "%s", n->borderColor.Data());
 					}
 					// (« Fond » vit desormais dans REMPLISSAGES — cf. son commentaire.)
 					if (StrEq(n->shape.Data(), "text"))
@@ -20965,7 +20969,7 @@ namespace nkuidesign {
 									n->miroirV = !n->miroirV;
 								mSt->doc.MarkHumanEdit(mSt->selected);
 								char msg[112];
-								snprintf(msg, sizeof(msg), "Miroir %s : %s.",
+								nkentseu::NkSnprintf(msg, sizeof(msg), "Miroir %s : %s.",
 										 k == 0 ? "horizontal" : "vertical",
 										 (k == 0 ? n->miroirH : n->miroirV) ? "activé"
 																			: "désactivé");
@@ -21043,7 +21047,7 @@ namespace nkuidesign {
 								champ = !champ;
 								mSt->doc.MarkHumanEdit(mSt->selected);
 								char msg[160];
-								snprintf(msg, sizeof(msg), "Refus de %s : %s — ni des parents, ni le sien.",
+								nkentseu::NkSnprintf(msg, sizeof(msg), "Refus de %s : %s — ni des parents, ni le sien.",
 										 k == 0 ? "position" : k == 1 ? "rotation" : "l'échelle",
 										 champ ? "activé" : "levé");
 								mSt->status = NkString(msg);
@@ -21082,7 +21086,7 @@ namespace nkuidesign {
 				for (uint16 t = 0; t < d->tokenCount; ++t) {
 					const char *nom = d->tokens[t].name;
 					const char *role = n->instance.TokenRole(nom);
-					snprintf(b, sizeof(b), "%s%s", role ? role : "?",
+					nkentseu::NkSnprintf(b, sizeof(b), "%s%s", role ? role : "?",
 							 n->instance.IsTokenOverridden(nom) ? "  (surchargé)" : "");
 					designkit::KeyValue(ctx, nom, b);
 				}
@@ -21105,9 +21109,9 @@ namespace nkuidesign {
 				const char *mode = NkSizeModeName(s.mode);
 				if (s.mode == NkSizeMode::Fixed || s.mode == NkSizeMode::Fraction
 					|| s.mode == NkSizeMode::Weight)
-					snprintf(out, n, "%s %.0f", mode, (double)s.value);
+					nkentseu::NkSnprintf(out, n, "%s %.0f", mode, (double)s.value);
 				else
-					snprintf(out, n, "%s", mode);
+					nkentseu::NkSnprintf(out, n, "%s", mode);
 			}
 
 			DesignState *mSt;

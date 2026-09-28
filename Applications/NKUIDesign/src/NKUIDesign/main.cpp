@@ -324,8 +324,8 @@ static void ImagePanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int32 W,
 										  &F.px13, &F.px15, &F.px16, &F.mono};
 	const nkgui::NkGuiDrawList *listes[2] = {&ui.dl, &ui.dlOverlay};
 	char c1[300], c2[300];
-	snprintf(c1, sizeof(c1), "%s.png", sChemin);
-	snprintf(c2, sizeof(c2), "%s_fenetre.png", sChemin);
+	nkentseu::NkSnprintf(c1, sizeof(c1), "%s.png", sChemin);
+	nkentseu::NkSnprintf(c2, sizeof(c2), "%s_fenetre.png", sChemin);
 	const editorkit::NkPaintRect r = gPanneauIA ? gPanneauIA->Panneau().rect : editorkit::NkPaintRect{};
 	const uint32 fond = gDesign.theme.Get(editorkit::NkRole::WindowBg);
 	const editorkit::NkAiImageResultat r1 =
@@ -1012,7 +1012,7 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 			if (nd.target.Empty())
 				continue;
 			char b[128];
-			snprintf(b, sizeof(b), "%s — %s", nd.label.Data(), nd.target.Data());
+			nkentseu::NkSnprintf(b, sizeof(b), "%s — %s", nd.label.Data(), nd.target.Data());
 			const float32 wb = nkuidesign::costume::Largeur(F.px11, b) + 20.f;
 			dl.AddRectFilled({m.x + 18.f, cy, wb, 24.f}, ctx.theme.button, 12.f);
 			nkuidesign::costume::Texte(dl, F.px11, m.x + 28.f,
@@ -1041,7 +1041,7 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 			}
 			if (horsPage > 0) {
 				char hb[96];
-				snprintf(hb, sizeof(hb),
+				nkentseu::NkSnprintf(hb, sizeof(hb),
 						 "%d élément(s) hors page — non couverts par la transposition.",
 						 horsPage);
 				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, cy, hb, ctx.theme.textMuted);
@@ -1062,7 +1062,7 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 					++manquants;
 			}
 			char lb[96];
-			snprintf(lb, sizeof(lb), "%d texte(s) sans traduction en « %s ».", manquants,
+			nkentseu::NkSnprintf(lb, sizeof(lb), "%d texte(s) sans traduction en « %s ».", manquants,
 					 gDesign.langueActive.Data());
 			nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f, cy, lb,
 									   manquants > 0 ? ctx.theme.text : ctx.theme.textMuted);
@@ -1083,7 +1083,7 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 									   ctx.theme.textMuted);
 		} else {
 			char t[96];
-			snprintf(t, sizeof(t), "%d constat(s) de la dernière transposition :",
+			nkentseu::NkSnprintf(t, sizeof(t), "%d constat(s) de la dernière transposition :",
 					 (int32)gDesign.constatsTransposition.Size());
 			nkuidesign::costume::TexteGras(dl, F.px11, m.x + 18.f, m.y + m.h - 92.f, t,
 										   ctx.theme.text, 0.3f);
@@ -1097,7 +1097,7 @@ static void EcrireReleveUI(NkEditorFrameContext &ec, void *) {
 										   gDesign.constatsTransposition[(uint32)ci].Data(),
 										   ctx.theme.textMuted);
 			if ((int32)gDesign.constatsTransposition.Size() > nAff) {
-				snprintf(t, sizeof(t), "… et %d autre(s).",
+				nkentseu::NkSnprintf(t, sizeof(t), "… et %d autre(s).",
 						 (int32)gDesign.constatsTransposition.Size() - nAff);
 				nkuidesign::costume::Texte(dl, F.px10, m.x + 18.f,
 										   m.y + m.h - 74.f + (float32)nAff * 16.f, t,
@@ -1643,7 +1643,7 @@ static void SauverEtRelire() {
 			const char *c = d.nodes[i].component.Data();
 			if (c && *c) {
 				++n;
-				k += (size_t)snprintf(buf + k, k < taille ? taille - k : 0, "%s%s", n > 1 ? "," : "", c);
+				k += (size_t)nkentseu::NkSnprintf(buf + k, k < taille ? taille - k : 0, "%s%s", n > 1 ? "," : "", c);
 			}
 		}
 		return n;
@@ -1670,9 +1670,9 @@ static const char *NkNomsPortesSonde(nkentseu::int32 p, char *buf, nkentseu::int
 	buf[0] = 0;
 	for (nkentseu::int32 i = 0; i < 6; ++i)
 		if (p & (1 << i))
-			n += snprintf(buf + n, (size_t)(taille - n > 0 ? taille - n : 0), "%s%s", n ? "+" : "", kNoms[i]);
+			n += nkentseu::NkSnprintf(buf + n, (size_t)(taille - n > 0 ? taille - n : 0), "%s%s", n ? "+" : "", kNoms[i]);
 	if (!n)
-		snprintf(buf, (size_t)taille, "aucune");
+		nkentseu::NkSnprintf(buf, (size_t)taille, "aucune");
 	return buf;
 }
 
@@ -1713,7 +1713,7 @@ static const char *SourcesOuvertesNKUIDesign(void *) {
 	int32 n = 0;
 	buf[0] = 0;
 	const auto ajouter = [&](const char *nom) {
-		n += snprintf(buf + n, (size_t)(n < (int32)sizeof(buf) ? sizeof(buf) - (size_t)n : 0), "%s%s",
+		n += nkentseu::NkSnprintf(buf + n, (size_t)(n < (int32)sizeof(buf) ? sizeof(buf) - (size_t)n : 0), "%s%s",
 					  n ? ", " : "", nom);
 	};
 	if (gShell && gShell->IsContextMenuOpen())
@@ -1739,7 +1739,7 @@ static const char *SourcesOuvertesNKUIDesign(void *) {
 	if (LauncherModalSonde().open)
 		ajouter("dialogue Nouveau projet");
 	if (!n)
-		snprintf(buf, sizeof(buf), "AUCUNE source de l'application n'est ouverte");
+		nkentseu::NkSnprintf(buf, sizeof(buf), "AUCUNE source de l'application n'est ouverte");
 	return buf;
 }
 
@@ -1871,7 +1871,7 @@ static void PortesTick(NkEditorFrameContext &ec, void *user) {
 			d.ouvert = true;
 			d.id = ctx.GetId("##nkuidesign.sonde.portes.couleur");
 			d.ancre = {(float32)ctx.viewW * 0.5f, (float32)ctx.viewH * 0.3f, 20.f, 20.f};
-			snprintf(d.hex, sizeof(d.hex), "#808080");
+			nkentseu::NkSnprintf(d.hex, sizeof(d.hex), "#808080");
 			d.noeud = -1; // le decor : la selection ne le ferme pas
 		} else if (!strcmp(src, "role") || !strcmp(src, "format")) {
 			if (!gDesign.doc.IsValidIndex(gDesign.selected) && gDesign.doc.IsValidIndex(1))
@@ -2384,7 +2384,7 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 		// sans attendre une bascule) ; l'inactif lit son ardoise.
 		const char *nomOng = actif ? gDesign.doc.title.Data() : gDesign.ouverts[i].nom.Data();
 		char libelle[64];
-		snprintf(libelle, sizeof(libelle), "%s%s", (nomOng && *nomOng) ? nomOng : "(sans nom)",
+		nkentseu::NkSnprintf(libelle, sizeof(libelle), "%s%s", (nomOng && *nomOng) ? nomOng : "(sans nom)",
 				 modif ? " \xE2\x97\x8F" : "");
 		const float32 wTxt = cos::Largeur(F.px11, libelle);
 		const float32 wX = cos::Largeur(F.px11, "\xC3\x97"); // « × »
@@ -3083,7 +3083,7 @@ int nkmain(const NkEntryState &state) {
 				const char *q = a + 21;
 				while (*q && *q != ':')
 					++q;
-				snprintf(gDispoChemin, sizeof(gDispoChemin), "%s", *q == ':' ? q + 1 : "disposition.cfg");
+				nkentseu::NkSnprintf(gDispoChemin, sizeof(gDispoChemin), "%s", *q == ':' ? q + 1 : "disposition.cfg");
 				continue;
 			}
 			if (arg.StartsWith("--sauver-document=")) {
@@ -3091,15 +3091,15 @@ int nkmain(const NkEntryState &state) {
 				const char *q = a + 18;
 				while (*q && *q != ':')
 					++q;
-				snprintf(gSauverChemin, sizeof(gSauverChemin), "%s", *q == ':' ? q + 1 : "depot_relu.nkuidoc");
+				nkentseu::NkSnprintf(gSauverChemin, sizeof(gSauverChemin), "%s", *q == ':' ? q + 1 : "depot_relu.nkuidoc");
 				continue;
 			}
 			if (arg.StartsWith("--sonde-gel=")) {
-				snprintf(gSondeGel, sizeof(gSondeGel), "%s", a + 12); // « --sonde-gel= » fait 12 caracteres
+				nkentseu::NkSnprintf(gSondeGel, sizeof(gSondeGel), "%s", a + 12); // « --sonde-gel= » fait 12 caracteres
 				continue;
 			}
 			if (arg.StartsWith("--sonde-portes=")) {
-				snprintf(gSondePortes, sizeof(gSondePortes), "%s", a + 15);
+				nkentseu::NkSnprintf(gSondePortes, sizeof(gSondePortes), "%s", a + 15);
 				continue;
 			}
 			if (arg.StartsWith("--titre-sonde")) {
@@ -3142,7 +3142,7 @@ int nkmain(const NkEntryState &state) {
 			// Ouvrir un TIROIR de rail au lancement (mise en scene, ecran 9) :
 			// --tiroir=droit:0 (cote:index).
 			if (arg.StartsWith("--panneau=")) {
-				snprintf(gPanneauInitial, sizeof(gPanneauInitial), "%s", a + 10);
+				nkentseu::NkSnprintf(gPanneauInitial, sizeof(gPanneauInitial), "%s", a + 10);
 				continue;
 			}
 			if (NkComponentDecl::StrEq(a, "--rapport-transposition")) {
@@ -3850,18 +3850,33 @@ int nkmain(const NkEntryState &state) {
 		//    « Dashboard_Admin.nkgui » ecrit ici mentait des qu'un autre
 		//    onglet devenait actif — 5e retour). Le fichier reel prime ;
 		//    un document jamais enregistre montre son titre.
+		// ═══════════════════════════════════════════════════════════════
+		//  🔴 LE TITRE ET L'ONGLET DISAIENT DEUX NOMS DIFFERENTS (28/09)
+		// ═══════════════════════════════════════════════════════════════
+		//  Rodolf : « pourquoi le titre de la fenetre n'est pas correct ? »
+		//  Capture : l'onglet actif porte « Dashboard_Admin », la barre de
+		//  titre porte « nkuidesign_document.nkuidoc ». Les deux avaient
+		//  raison chacun de leur cote -- l'onglet lit `doc.title`, le titre
+		//  lisait le CHEMIN DU FICHIER -- et l'utilisateur, lui, voyait
+		//  l'application se contredire sur ce qu'elle a ouvert.
+		//
+		//  ⚠️ UNE SEULE SOURCE, ET C'EST CELLE QUE L'ONGLET AFFICHE :
+		//     `RangerActif` fait `s.nom = doc.title`. Prendre le fichier ici
+		//     etait une SECONDE derivation du meme fait -- et deux
+		//     derivations divergent toujours. Le chemin complet, lui, reste
+		//     visible dans le bandeau bas : rien n'est perdu.
+		//
+		//  ⚠️ ET LE NOM DE L'APPLICATION MANQUAIT TOUT SIMPLEMENT. Une barre
+		//     de titre qui ne dit que « machin.nkuidoc » ne dit pas dans
+		//     QUOI on edite -- c'est la moitie du role d'un titre de fenetre,
+		//     et la barre des taches n'affiche que ca.
 		static bool dernier = false;
 		static nkentseu::NkString dernierNom;
 		char nom[160];
-		const char *base = gDesign.cheminActif.Data();
-		if (base && *base) {
-			const char *slash = base;
-			for (const char *q = base; *q; ++q)
-				if (*q == '/' || *q == '\\')
-					slash = q + 1;
-			snprintf(nom, sizeof(nom), "%s", slash);
-		} else
-			snprintf(nom, sizeof(nom), "%s", gDesign.doc.title.Data());
+		{
+			const char *t = gDesign.doc.title.Data();
+			nkentseu::NkSnprintf(nom, sizeof(nom), "%s", (t && *t) ? t : "Sans titre");
+		}
 		const bool memeNom = dernierNom.Data() && NkComponentDecl::StrEq(dernierNom.Data(), nom);
 		if (memeNom && modifie == dernier)
 			return;
@@ -3869,7 +3884,7 @@ int nkmain(const NkEntryState &state) {
 		dernierNom = nkentseu::NkString(nom);
 		gDocumentModifie = modifie; // l'onglet actif porte la meme pastille
 		char plein[256];
-		snprintf(plein, sizeof(plein), "%s%s%s", gTitreSonde ? kTitreSonde : "",
+		nkentseu::NkSnprintf(plein, sizeof(plein), "%s%s%s — NKUIDesign", gTitreSonde ? kTitreSonde : "",
 				 modifie ? "\xE2\x97\x8F " : "", nom);
 		static_cast<NkEditorShell *>(u)->SetTitleInfo(plein);
 	};
@@ -4230,11 +4245,11 @@ int nkmain(const NkEntryState &state) {
 			const NkString redir =
 				nkentseu::editorkit::NkSondeChemin(nullptr, "nkuidesign_ui.cfg");
 			if (etat && *etat)
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", etat);
+				nkentseu::NkSnprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", etat);
 			else if (!redir.Empty())
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", redir.CStr());
+				nkentseu::NkSnprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", redir.CStr());
 			else if (!gTitreSonde)
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
+				nkentseu::NkSnprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
 		}
 		// ═════════════════════════════════════════════════════════════════
 		//  LA GEOMETRIE DE LA FENETRE EST RENDUE (28/09) -- ET MESUREE
@@ -4287,9 +4302,13 @@ int nkmain(const NkEntryState &state) {
 		//    « modifie » n'ont pas bouge). Une fenetre de sonde qui n'edite rien
 		//    ne le declencherait jamais -- elle serait restee sous le titre du
 		//    produit, exactement le defaut qu'on ferme.
+		// ⚠️ MEME FORME QUE LE RAPPEL, AU MOT PRES. Deux formats pour un meme
+		//    titre, c'est un titre qui CHANGE de forme a la premiere edition --
+		//    et l'utilisateur croit que quelque chose s'est passe.
 		char titre0[256];
-		snprintf(titre0, sizeof(titre0), "%s%s", gTitreSonde ? kTitreSonde : "",
-				 gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
+		const char *t0 = gDesign.doc.title.Data();
+		nkentseu::NkSnprintf(titre0, sizeof(titre0), "%s%s — NKUIDesign", gTitreSonde ? kTitreSonde : "",
+				 (t0 && *t0) ? t0 : "Sans titre");
 		shell->SetTitleInfo(titre0);
 	}
 	// ═════════════════════════════════════════════════════════════════════════
@@ -4401,14 +4420,14 @@ int nkmain(const NkEntryState &state) {
 	// prouve que des pixels ont été lus. Un readback qui échoue (backend sans
 	// Capture, disque plein) laisse un chemin sans fichier : code 3, nommé.
 	if (gCapturePath[0]) {
-		FILE *f = fopen(gCapturePath, "rb");
-		long taille = 0;
-		if (f) {
-			fseek(f, 0, SEEK_END);
-			taille = ftell(f);
-			fclose(f);
-		}
-		if (!f || taille <= 8) {
+		// ⚠️ `NkFile`, PAS `fopen`. Le systeme de fichiers de la maison existe, et
+		//    lui seul connait les conventions de chemin du depot. `GetFileSize`
+		//    dit d'ailleurs les DEUX choses qu'on voulait savoir en une : le
+		//    fichier est la, et il n'est pas vide — un fichier absent rend -1,
+		//    qui tombe dans la meme garde. Quatre lignes en moins, et plus de
+		//    descripteur a refermer sur un chemin d'erreur.
+		const nkentseu::nk_int64 taille = nkentseu::NkFile::GetFileSize(gCapturePath);
+		if (taille <= 8) {
 			fputs("[NKUIDesign] capture EN ECHEC : fichier absent ou vide -- ", stdout);
 			puts(gCapturePath);
 			return 3;
