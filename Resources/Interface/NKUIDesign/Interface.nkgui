@@ -170,7 +170,18 @@ widgets "menu" {
       MenuItem "fichier.importerRessources" { label = "Ressources…", enabled = false }
     }
     MenuItem "design.exporter"           { label = "Exporter…", shortcut = "Ctrl+E" }
-    MenuItem "fichier.documentNkgui"     { label = "Document .nkgui", enabled = false }
+    // ⚠️ SON LIBELLÉ NE DIFFÉRAIT DE L'IMPORT QUE PAR TROIS POINTS (28/09).
+    //    « Document .nkgui » ici, « Document .nkgui… » sous Importer : deux
+    //    entrées, l'une branchée et vivante, l'autre morte — et le plan 22 a lu
+    //    la morte, pour en conclure que « l'import .nkgui est désactivé ». Il ne
+    //    l'est pas : `fichier.importerDocument` → `CmdImporterNkgui` marche
+    //    depuis ce matin. *Deux libellés qui ne se distinguent qu'à la
+    //    ponctuation trompent le lecteur avant de tromper l'utilisateur.*
+    //    Celle-ci vise autre chose : OUVRIR un `.nkgui` comme document de
+    //    travail — l'éditer et le réécrire sans perte —, ce que le modèle ne
+    //    sait pas encore faire puisqu'il ne porte que `widgets`. Le libellé le
+    //    dit désormais, au lieu de laisser croire à un doublon en panne.
+    MenuItem "fichier.documentNkgui"     { label = "Ouvrir comme document (à venir)", enabled = false }
     MenuItem "fichier.validerDocument"   { label = "Valider le document", shortcut = "Ctrl+Maj+V", enabled = false }
 
     Separator "sepF3" {}
