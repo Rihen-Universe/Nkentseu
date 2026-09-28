@@ -81,7 +81,8 @@
 
 #include "NKContainers/String/NkString.h"
 #include "NKEditorKit/NkEditorKit.h"
-#include "NKGui/Doc/NkGuiCoquille.h" // la bande partagee (tire le monteur)
+#include "NKGui/Doc/NkGuiCoquille.h"  // la bande partagee (tire le monteur)
+#include "NKGui/Doc/NkGuiCommandes.h" // libelle + raccourci d'une commande, lus du document
 
 namespace nkuidesign {
 

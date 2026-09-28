@@ -221,6 +221,58 @@ namespace nkuidesign {
 			++ko;
 		}
 
+		// ── LES COMMANDES QUE LE DOCUMENT DÉCRIT (28/09) ───────────────────
+		// 🔴 LE CRITÈRE QUI EMPÊCHE LE RACCOURCI DÉCORATIF. Depuis que le libellé
+		//    et le raccourci d'une commande viennent du `.nkgui`, rien
+		//    n'empêcherait d'y écrire un `F1` ou un `Ctrl+;` que
+		//    `NkEditorShell::TryRunShortcut` ne sait PAS composer : il
+		//    s'afficherait à droite de l'entrée et ne partirait jamais — un
+		//    paramètre déclaré qui n'est pas honoré, et ce dépôt en a déjà payé
+		//    un (`Ctrl+1`). L'énumérateur les écarte ; ce critère exige qu'il
+		//    n'ait RIEN à écarter, et les NOMME sinon.
+		//
+		// ⚠️ ET UN LIBELLÉ VIDE EST UNE COMMANDE INTROUVABLE : la palette
+		//    `Ctrl+P` cherche par le nom. Une ligne sans nom y serait une entrée
+		//    blanche, inatteignable au clavier.
+		{
+			nkgui::NkGuiCommandeDite dites[64];
+			nkgui::NkGuiCommandesRapport rc;
+			const uint32 nd = nkgui::NkGuiEnumererCommandes(coq.bande.doc, actions, nActions,
+														   dites, 64u, rc);
+			printf("  commandes du document = %u (%u raccourcis lies, %u non lies par "
+				   "declaration, %u rejetes, %u grisees, %u non servies)\n",
+				   nd, rc.raccourcisLies, rc.raccourcisNonLies, rc.raccourcisRejetes, rc.grisees,
+				   rc.nonServies);
+			if (nd == 0u) {
+				printf("     KO : le document ne decrit AUCUNE commande — la palette Ctrl+P "
+					   "serait vide\n");
+				++ko;
+			}
+			if (rc.raccourcisRejetes > 0u) {
+				printf("     KO : %u raccourci(s) ECRIT(S) que le comparateur ne peut pas "
+					   "composer (premier : %s) — affiches, jamais declenches\n",
+					   rc.raccourcisRejetes, rc.premierRejete.CStr());
+				++ko;
+			}
+			for (uint32 i = 0; i < nd; ++i) {
+				if (dites[i].libelle.Size() == 0u) {
+					printf("     KO : « %s » n'a AUCUN libelle — introuvable dans la palette\n",
+						   dites[i].id.CStr());
+					++ko;
+				}
+				// ⚠️ ET LE RACCOURCI RETENU EST RELU, pas seulement « non rejete » :
+				//    sans cette seconde lecture, une faute DANS le filtre de
+				//    l'enumerateur passerait inapercue — le critere jugerait le
+				//    chemin au lieu du resultat.
+				if (dites[i].raccourci.Size() > 0u
+					&& !nkgui::NkGuiRaccourciPeutPartir(dites[i].raccourci.CStr())) {
+					printf("     KO : « %s » garde un raccourci illisible (%s)\n",
+						   dites[i].id.CStr(), dites[i].raccourci.CStr());
+					++ko;
+				}
+			}
+		}
+
 		printf("=== %s (ko = %u) ===\n", ko == 0u ? "OK" : "KO", ko);
 		return ko == 0u ? 0 : 1;
 	}

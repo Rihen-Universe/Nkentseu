@@ -1208,9 +1208,16 @@ static void CmdVuePreferences(void *) {
 }
 #endif
 
+/// ⚠️ ELLE RETOMBE SUR `gShell`, COMME LES VINGT AUTRES `Cmd*` DE CE FICHIER.
+///    Elle prenait la coquille par son `user`, et c'etait le SEUL cas : depuis
+///    que les commandes viennent du document (28/09), leur `user` est celui que
+///    la table d'actions porte -- `nullptr` ici. Sans ce repli, « Quitter »
+///    s'afficherait, se cliquerait, et ne quitterait pas : une entree que la
+///    sonde compterait SERVIE et qui ne fait rien.
 static void CmdQuit(void *user) {
-	if (user)
-		static_cast<NkEditorShell *>(user)->RequestClose();
+	NkEditorShell *s = user ? static_cast<NkEditorShell *>(user) : gShell;
+	if (s)
+		s->RequestClose();
 }
 
 // =============================================================================
@@ -3945,55 +3952,40 @@ int nkmain(const NkEntryState &state) {
 		for (int32 i = 0; i < (int32)(sizeof(kRailDroite) / sizeof(kRailDroite[0])); ++i)
 			if (NkComponentDecl::StrEq(kRailDroite[i].panel, "Inspecteur"))
 				shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, i);
-	// (Q6) LA LARGEUR DU PANNEAU DE DROITE EST MEMORISEE par la persistance
-	// existante de la coquille (`LoadUiState` / `SaveUiState`, ligne `tiroir=`).
-	// `NK_UI_ETAT` designe un autre fichier : une sonde ne touche pas l'etat de
-	// Rodolf.
-	{
-		const char *etat = std::getenv("NK_UI_ETAT");
-		// ⚠️ UNE FENETRE DE SONDE N'ECRIT PAS DANS LE FICHIER DE RODOLF.
-		//    (25/09) LA GARDE TESTAIT `gTitreSonde` -- c'est-a-dire l'option
-		//    `--titre-sonde` -- ET PAS `NK_SONDE`. Deux noms pour la meme idee, et
-		//    ils ont diverge : une course lancee avec `NK_SONDE=1` seul passait a
-		//    travers et REECRIVAIT `logs/nkuidesign_ui.cfg`. Mesure par
-		//    `Tools/sonde_etat_utilisateur.py` : 284 octets -> 228, empreinte
-		//    changee. On demande donc au KIT, qui connait les deux signaux
-		//    (`NK_SONDE`, `NK_TOAST_PROBE`), au lieu de recopier un troisieme test.
-		//
-		// ⚠️ ET ON REDIRIGE PLUTOT QUE DE NE RIEN ECRIRE : une sonde qui n'ecrit
-		//    rien perd la largeur de son tiroir d'une course a l'autre, donc on ne
-		//    peut plus eprouver la PERSISTANCE. `NK_ETAT_SONDE` (ou son defaut,
-		//    `logs/sonde-etat/`) lui donne son propre fichier.
-		{
-			const NkString redir =
-				nkentseu::editorkit::NkSondeChemin(nullptr, "nkuidesign_ui.cfg");
-			if (etat && *etat)
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", etat);
-			else if (!redir.Empty())
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", redir.CStr());
-			else if (!gTitreSonde)
-				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
-		}
-		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
-		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
-		shell->SetUiStateGeometrie(false);
-		shell->EcrireEtatDocks("avant LoadUiState"); // (25/09) NK_DOCKS : l'etat AVANT le fichier
-		if (gCheminEtatUi[0])
-			shell->LoadUiState(gCheminEtatUi);
-		printf("[NKUIDesign] ETAT UI relu de %s : panneau de droite %.0f px\n", gCheminEtatUi,
-			   (double)shell->RailLargeur(NkEditorDockSide::NK_RIGHT));
-		// (25/09) ET L'ETAT APRES : la difference dit exactement ce que le fichier a
-		// ouvert -- c'est-a-dire ce qui est arrive par la seconde porte.
-		shell->EcrireEtatDocks("apres LoadUiState");
-	}
-	if (gTiroirCote == 'd')
-		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
-	else if (gTiroirCote == 'g')
-		shell->OuvrirTiroir(NkEditorDockSide::NK_LEFT, gTiroirIndex);
-	else if (gTiroirCote == 'b')
-		shell->OuvrirTiroir(NkEditorDockSide::NK_BOTTOM, gTiroirIndex);
-	if (gToileSeule)
-		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
+	// ═════════════════════════════════════════════════════════════════════════
+	//  🔴 CE BLOC EST REMONTE **AVANT** `LoadUiState`, ET C'EST UN CORRECTIF
+	// ═════════════════════════════════════════════════════════════════════════
+	//  Rodolf, 28/09 : « nkuidesign_panneau_document ne font que s'ajouter,
+	//  c'est quoi leur probleme ? » -- quatre onglets identiques au bas de la
+	//  fenetre, un de plus a chaque lancement.
+	//
+	//  MESURE, dans `logs/nkuidesign_ui.cfg` : QUATRE lignes
+	//  `nwin=4|nkuidesign_panneau_document` pour la MEME feuille de dock.
+	//
+	//  LA CAUSE TIENT A L'ORDRE, ET A LUI SEUL. `LoadUiState` traduit chaque
+	//  ligne du fichier en cherchant le panneau PAR SON IDENTIFIANT
+	//  (`PanneauParIdentite`) pour en prendre le TITRE, qui est ce que le moteur
+	//  hache. Le panneau du document etait enregistre PLUS BAS, donc au moment
+	//  de la relecture il n'existait pas : la coquille se rabattait sur la
+	//  chaine brute et fabriquait une fenetre fantome nommee
+	//  « nkuidesign_panneau_document ». Puis `AddPanel` en ajoutait la VRAIE,
+	//  nommee « Outils (document) ». Deux fenetres pour un panneau, et a
+	//  l'enregistrement les deux se reecrivaient sous le meme identifiant --
+	//  d'ou une ligne de plus par course.
+	//
+	//  ⚠️ ET LE FANTOME PORTAIT L'IDENTIFIANT A L'ECRAN, ce qui etait le seul
+	//     signe visible : un onglet titre `nkuidesign_panneau_document` au lieu
+	//     d'« Outils (document) ». Le nom affiche DISAIT deja la panne.
+	//
+	//  ⚠️ RIEN D'AUTRE NE BOUGE DANS CE BLOC : il a ete deplace par copie de
+	//     lignes, pas reecrit. Et il ne depend pas de l'etat d'interface -- il ne
+	//     fait que poser des crochets et enregistrer un panneau, ce qui doit
+	//     justement precede la relecture.
+	//
+	//  ⚠️ LA GARDE DU KIT RESTE NECESSAIRE, elle ne fait pas doublon : l'ordre
+	//     corrige CETTE application, la garde empeche TOUTE feuille d'accepter
+	//     deux fois la meme fenetre -- y compris quand un panneau disparait
+	//     vraiment (les quatre `#if NKUIDESIGN_ANCIENS_PANNEAUX`, par exemple).
 	shell->SetMenuBar(&DrawMenuBar, nullptr);
 	shell->SetToolbar(&DrawProjectTabs, nullptr);
 	// ═════════════════════════════════════════════════════════════════════════
@@ -4076,6 +4068,55 @@ int nkmain(const NkEntryState &state) {
 				   s_coquilleDoc.RefusTotal());
 		}
 	}
+	// (Q6) LA LARGEUR DU PANNEAU DE DROITE EST MEMORISEE par la persistance
+	// existante de la coquille (`LoadUiState` / `SaveUiState`, ligne `tiroir=`).
+	// `NK_UI_ETAT` designe un autre fichier : une sonde ne touche pas l'etat de
+	// Rodolf.
+	{
+		const char *etat = std::getenv("NK_UI_ETAT");
+		// ⚠️ UNE FENETRE DE SONDE N'ECRIT PAS DANS LE FICHIER DE RODOLF.
+		//    (25/09) LA GARDE TESTAIT `gTitreSonde` -- c'est-a-dire l'option
+		//    `--titre-sonde` -- ET PAS `NK_SONDE`. Deux noms pour la meme idee, et
+		//    ils ont diverge : une course lancee avec `NK_SONDE=1` seul passait a
+		//    travers et REECRIVAIT `logs/nkuidesign_ui.cfg`. Mesure par
+		//    `Tools/sonde_etat_utilisateur.py` : 284 octets -> 228, empreinte
+		//    changee. On demande donc au KIT, qui connait les deux signaux
+		//    (`NK_SONDE`, `NK_TOAST_PROBE`), au lieu de recopier un troisieme test.
+		//
+		// ⚠️ ET ON REDIRIGE PLUTOT QUE DE NE RIEN ECRIRE : une sonde qui n'ecrit
+		//    rien perd la largeur de son tiroir d'une course a l'autre, donc on ne
+		//    peut plus eprouver la PERSISTANCE. `NK_ETAT_SONDE` (ou son defaut,
+		//    `logs/sonde-etat/`) lui donne son propre fichier.
+		{
+			const NkString redir =
+				nkentseu::editorkit::NkSondeChemin(nullptr, "nkuidesign_ui.cfg");
+			if (etat && *etat)
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", etat);
+			else if (!redir.Empty())
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", redir.CStr());
+			else if (!gTitreSonde)
+				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
+		}
+		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
+		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
+		shell->SetUiStateGeometrie(false);
+		shell->EcrireEtatDocks("avant LoadUiState"); // (25/09) NK_DOCKS : l'etat AVANT le fichier
+		if (gCheminEtatUi[0])
+			shell->LoadUiState(gCheminEtatUi);
+		printf("[NKUIDesign] ETAT UI relu de %s : panneau de droite %.0f px\n", gCheminEtatUi,
+			   (double)shell->RailLargeur(NkEditorDockSide::NK_RIGHT));
+		// (25/09) ET L'ETAT APRES : la difference dit exactement ce que le fichier a
+		// ouvert -- c'est-a-dire ce qui est arrive par la seconde porte.
+		shell->EcrireEtatDocks("apres LoadUiState");
+	}
+	if (gTiroirCote == 'd')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_RIGHT, gTiroirIndex);
+	else if (gTiroirCote == 'g')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_LEFT, gTiroirIndex);
+	else if (gTiroirCote == 'b')
+		shell->OuvrirTiroir(NkEditorDockSide::NK_BOTTOM, gTiroirIndex);
+	if (gToileSeule)
+		shell->SetRailFooterStatus("", {0, 0, 0, 0}); // pas de bandeau bas du tout
 	// Le titre initial vient du DOCUMENT (le callback `titre` prendra le
 	// relais a la premiere mesure — meme regle : jamais un nom en dur).
 	{
@@ -4089,38 +4130,62 @@ int nkmain(const NkEntryState &state) {
 				 gDesign.doc.title.Data() ? gDesign.doc.title.Data() : "NkUIDesign");
 		shell->SetTitleInfo(titre0);
 	}
-	shell->RegisterCommand("Document: Enregistrer", &CmdSave, nullptr, "Ctrl+S");
-	// ④ CTRL+E : DECLARE UNE SEULE FOIS, ici. La toile ne le lit pas -- deux declarations
-	//    feraient deux ouvertures, exactement le defaut ① du matin (Ctrl+D).
-	shell->RegisterCommand("Fichier: Exporter…", &CmdExporter, nullptr, "Ctrl+E");
-	// L'annulation unifiée (§7) : Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z en seconde
-	// orthographe du rétablir (le standard des trois éditeurs de référence).
-	shell->RegisterCommand("Édition: Annuler", &CmdUndo, nullptr, "Ctrl+Z");
-	shell->RegisterCommand("Édition: Rétablir", &CmdRedo, nullptr, "Ctrl+Y");
+	// ═════════════════════════════════════════════════════════════════════════
+	//  LES COMMANDES VIENNENT DU DOCUMENT — LIBELLÉ ET RACCOURCI (28/09/2026)
+	// ═════════════════════════════════════════════════════════════════════════
+	//  Rodolf, devant les onze `RegisterCommand` qui étaient ici : « je croyais
+	//  qu'on passait par des fichiers .nkgui ? »
+	//
+	//  Il avait raison sur deux tiers de la ligne. Une commande colle TROIS
+	//  choses : la FONCTION (C++, c'est le Contrôleur du MVC qu'il décrit), le
+	//  LIBELLÉ et le RACCOURCI — deux textes d'interface, déjà écrits dans le
+	//  `.nkgui`. Ils y étaient donc EN DOUBLE.
+	//
+	//  🔴 ET LES DEUX VÉRITÉS AVAIENT DÉJÀ DIVERGÉ, C'EST MESURÉ :
+	//     `Ctrl+L` — le document affichait « Verrouiller », le C++ ouvrait
+	//     l'INSPECTEUR ; `Ctrl+R` et `Ctrl+Maj+Z` — le C++ les liait, le document
+	//     n'en disait rien. Un raccourci écrit à deux endroits est une promesse
+	//     d'un côté et un câblage de l'autre, sans personne pour les accorder.
+	//
+	//  ⚠️ LA FONCTION RESTE EN C++, ET CE N'EST PAS UNE CONCESSION : c'est
+	//     exactement le partage que Rodolf a posé — « une fois branché grâce à
+	//     leurs événements et callbacks on y intègre leurs fonctionnalités en
+	//     C++, d'où le MVC ». `gActionsDocument` est cette table, et elle ne
+	//     bouge pas.
+	//
+	//  ⚠️ LE PARCOURS EST DANS LE NOYAU (`NkGuiEnumererCommandes`), pas ici.
+	//     Rodolf, le même jour : « pense toujours aux utilisateurs autres que
+	//     nous ». Une application tierce n'a que ces cinq lignes à écrire.
+	{
+		nkgui::NkGuiCommandeDite dites[64];
+		nkgui::NkGuiCommandesRapport rapCmd;
+		const uint32 nd = nkgui::NkGuiEnumererCommandes(gCoquilleDoc.bande.doc, gActionsDocument,
+														gNbActionsDocument, dites, 64u, rapCmd);
+		for (uint32 i = 0; i < nd; ++i)
+			shell->RegisterCommand(dites[i].libelle.CStr(), dites[i].fn, dites[i].user,
+								   dites[i].raccourci.Size() ? dites[i].raccourci.CStr() : nullptr);
+		// ⚠️ ÇA SE DIT, MÊME QUAND TOUT VA BIEN. Un raccourci écarté en silence
+		//    est exactement le repli muet que ce dépôt refuse : l'utilisateur
+		//    verrait un `F1` affiché et n'en obtiendrait rien.
+		printf("[commandes] %u depuis le document (%u raccourcis lies, %u non lies par "
+			   "declaration, %u rejetes%s%s ; %u grisees, %u non servies)\n",
+			   nd, rapCmd.raccourcisLies, rapCmd.raccourcisNonLies, rapCmd.raccourcisRejetes,
+			   rapCmd.premierRejete.Size() ? " — premier : " : "",
+			   rapCmd.premierRejete.Size() ? rapCmd.premierRejete.CStr() : "", rapCmd.grisees,
+			   rapCmd.nonServies);
+	}
+	// ── CE QUI RESTE EN C++, ET POURQUOI CHACUN ──────────────────────────────
+	// Ctrl+Maj+Z : la SECONDE orthographe du rétablir (le standard des trois
+	// éditeurs de référence). Le document ne peut pas la porter — une entrée de
+	// menu n'affiche qu'UN raccourci, et c'est `Ctrl+Y` qu'elle doit montrer.
 	shell->RegisterCommand("Édition: Rétablir (Maj)", &CmdRedo, nullptr, "Ctrl+Shift+Z");
-	shell->RegisterCommand("Document: Recharger", &CmdLoad, nullptr, "Ctrl+R");
-	shell->RegisterCommand("Document: Nouveau", &CmdNew, nullptr, "Ctrl+N");
-	// Les gestes d'édition Lunacy qui n'ont PAS de drapeau `want*` dans NKGui
-	// (Ctrl+C/X/V/A en ont un, eux — cf. le commentaire de CmdDupliquer).
-	// 🔴 SANS RACCOURCI ICI, ET C'EST LA SECONDE MOITIE DU DEFAUT ① (2026-09-05).
-	//    Ctrl+D, Ctrl+G et Ctrl+Maj+G etaient declares DEUX FOIS : ici (la coquille les
-	//    rejoue a chaque evenement clavier) ET dans la table de la toile (`MenuContexte.h`,
-	//    lue au FRONT par `KeyPressed`). Une pression donnait donc au moins deux copies,
-	//    et une touche tenue en donnait une par evenement de repetition.
-	//    ⚠️ LES COMMANDES RESTENT (la palette Ctrl+P les liste et les execute) : seul le
-	//       RACCOURCI part. Un geste de toile a UNE porte -- celle qui connait le mode
-	//       d'edition, le popup ouvert et le renommage en cours, c'est-a-dire la toile.
-	//    Ctrl+S / Ctrl+Z / Ctrl+Y / Ctrl+N restent ici : la toile ne les lit pas.
-	// ⚠️ ET CE N'EST PAS LA REPETITION DE L'OS -- hypothese ECRITE PUIS INFIRMEE le
-	//    05/09 : j'ai d'abord accuse la coquille de rejouer le raccourci a chaque
-	//    evenement clavier. Mesure : le dorsal Win32 TRIE deja (`NkWin32EventSystem.cpp`,
-	//    `isPress && isRep` -> `NkKeyRepeatEvent`, sinon `NkKeyPressEvent`) et la coquille
-	//    n'ecoute pas la repetition. Une touche tenue n'envoie donc qu'UN `NkKeyPressEvent`.
-	//    Le compte etait exactement DEUX copies par pression, et il n'en reste qu'une.
-	shell->RegisterCommand("Édition: Dupliquer (Ctrl+D sur la toile)", &CmdDupliquer, nullptr, nullptr);
-	shell->RegisterCommand("Objet: Grouper (Ctrl+G sur la toile)", &CmdGrouper, nullptr, nullptr);
-	shell->RegisterCommand("Objet: Dégrouper (Ctrl+Maj+G sur la toile)", &CmdDegrouper, nullptr, nullptr);
-	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
+	// Hiérarchie et Inspecteur : leurs entrées de menu sont ENGENDRÉES
+	// (`Affichage ▸ Panneaux` liste les panneaux réellement enregistrés), donc
+	// aucun identifiant fixe du document ne peut les porter. Le jour où un
+	// composant paramétré remplacera ce `Host`, ces deux lignes rejoindront le
+	// document. **CONDITION DE RETRAIT : ce jour-là.**
+	shell->RegisterCommand("Vue: Hiérarchie", &CmdVueHierarchie, nullptr, "Ctrl+J");
+	shell->RegisterCommand("Vue: Inspecteur", &CmdVueInspecteur, nullptr, "Ctrl+L");
 	gShell = shell.Get();
 	// LE DETECTEUR DE GEL (NKEditorKit) NOMME LES SOURCES DE L'APPLICATION : sans ce crochet,
 	// sa ligne dirait la porte du kit sans dire QUI l'a posee. Toujours pose, rien a armer.
