@@ -308,7 +308,9 @@ d'abord juridique** : enregistrer un orchestre coûte cher ; les banques gratuit
 licences variées (certaines interdisent la redistribution dans un logiciel). **Décision
 D6** : commencer par des banques **CC0 ou sous licence de redistribution vérifiée**,
 puis enregistrer nos propres ensembles (quatuor, fanfare, chorale) au fil des
-productions.
+productions. **Le registre des sources, classées par usage, est l'annexe A**
+(`01A-registre-banques-nkngoma.md`, 28/09/2026) : socle orchestral **VSCO 2 CE**,
+**VCSL** et **Iowa MIS** (CC0).
 
 ---
 
@@ -335,6 +337,9 @@ productions.
 - **Aperçu** au tempo et à la hauteur du projet ; **glisser** dans la timeline.
 - Nos propres **enregistrements de terrain** (marchés, pluie, forêt, circulation de
   Yaoundé et Douala), avec leur fiche de provenance.
+- Le fonds de départ livrable (Kenney, Free Firearm Library, Freesound CC0, NPS, NASA)
+  et les sources **« production seulement »** (Sonniss GDC…, jamais livrées ni
+  entraînées) : annexe A §3.6 et §4.
 
 ### 7.3 Le design sonore
 
@@ -421,7 +426,8 @@ dans NkNgoma est ce que le jeu jouera* — même moteur, mêmes règles.
   impulsionnelles**, **accordages**, **gabarits de projet** (chanson afrobeat, bande
   originale, ambiance de jeu, podcast).
 - Chaque élément porte : **fiche de provenance**, **licence**, tempo et tonalité
-  détectés (`AudioAnalyzer`), étiquettes.
+  détectés (`AudioAnalyzer`), étiquettes. Les règles d'admission et la procédure
+  d'import sont à l'**annexe A** (§1, §8).
 - **Recherche** par mot, par étiquette, par tempo / tonalité **compatibles** avec le
   projet, par ressemblance (§11).
 - **Aperçu** synchronisé au projet (au tempo, dans la tonalité).
@@ -478,7 +484,9 @@ l'ont produite pour pouvoir le **refaire en variante**.
 - **Le corpus est notre bibliothèque** (§6) : enregistrements **avec consentement et
   contrat** des musiciens, fiches de provenance, droits d'entraînement **explicites**.
   *Une musique d'un tiers n'entre pas dans le corpus sans ses droits*, même si elle est
-  en ligne.
+  en ligne. Les sources tierces **entraînables** (U3 de l'annexe A : NSynth, Groove,
+  PDMX, Freesound CC0 dont l'auteur n'a pas refusé l'IA…) complètent ce corpus, avec la
+  **liste publiée** des sources.
 - **Attribution** : un motif proposé par l'IA **ne reproduit** pas un morceau existant
   reconnaissable ; un contrôle de ressemblance avec le corpus le signale.
 - **Matériel** : inférence sur le processeur au minimum (petits modèles), accélérée par
@@ -596,7 +604,7 @@ des mois et ne dépend d'aucune ligne de code.
 | D3 | l'IA | assistant complet, local, symbolique d'abord | ✅ Rodolf, 27/09 |
 | D4 | ASIO | accord propriétaire Steinberg (gratuit) ; en attendant, WASAPI exclusif | 🔴 |
 | D5 | les greffons d'instruments et d'effets tiers | nos **greffons** d'abord ; **CLAP** (licence MIT) et **VST 3** (MIT depuis le 30/10/2025) comme **hôte** ensuite — à écrire sans STL, en réimplémentant les interfaces | 🔴 |
-| D6 | les banques orchestrales | CC0 ou redistribution vérifiée, puis enregistrements maison | 🔴 |
+| D6 | les banques orchestrales | CC0 ou redistribution vérifiée, puis enregistrements maison ; **registre et décisions D-A1 à D-A7 à l'annexe A** | 🔴 |
 | D7 | le format de projet | un dossier ; un fichier texte à sections | 🔴 |
 | D8 | le partage avec NKScena | §2.2 : mix final ici, son de montage là-bas, aller-retour par la session son | 🔴 proposé, NKScena **non modifié** |
 | D9 | le corpus de l'IA | nos enregistrements, droits d'entraînement explicites ; aucun tiers sans droits | 🔴 |
