@@ -11778,128 +11778,59 @@ namespace nkuidesign {
 				CopyFiltre(mModelePages.filter, sizeof(mModelePages.filter));
 				CopyFiltre(mModeleComposants.filter, sizeof(mModeleComposants.filter));
 
-				// ── LE PARTAGE DE LA HAUTEUR ─────────────────────────────────
-				// ⚠️ MESURE QUI M'A CONTREDIT, ET C'EST POUR ÇA QU'ELLE EST ÉCRITE
-				//    ICI. Ma première version prenait `ctx.layout.region` pour la
-				//    zone visible du panneau. `--dump-ui` a rendu :
-				//        panneau.hierarchie = 48.0 84.0 219.8 1000000.0
-				//    `region.h` vaut **un million** : c'est la région de CONTENU
-				//    d'une zone défilable, volontairement sans fond. La section
-				//    basse est donc partie à y = 999 874 — hors de l'écran, et
-				//    « la Hiérarchie n'a qu'une section » aurait été le diagnostic.
+				// ── LA HAUTEUR : UNE SEULE SECTION DESORMAIS (28/09) ──────────
+				// Rodolf : « le panneau hierarchie c'est deux panneaux haut et bas
+				// donc il faut en faire deux panneaux redimensionnables au lieu d'un
+				// avec deux sections ». COMPOSANTS est parti dans son propre panneau ;
+				// PAGES prend donc tout ce qui reste.
 				//
-				//    La zone VISIBLE est celle du cadre de défilement posé par
-				//    `Begin` (`BeginScrollFrame(..., content, ...)`) : c'est
-				//    `childStack[childDepth-1].area`. On la lit là, ou nulle part.
+				// ⚠️ LA ZONE VISIBLE NE SE LIT PAS DANS `ctx.layout.region`, ET C'EST
+				//    UNE MESURE : `region.h` vaut UN MILLION (c'est la region de
+				//    CONTENU d'une zone defilable). `--dump-ui` rendait
+				//    « panneau.hierarchie = 48.0 84.0 219.8 1000000.0 ». La zone
+				//    visible est celle du cadre de defilement, et elle se demande a
+				//    `HauteurVisibleBas` -- la, ou nulle part.
+				//
+				// ⚠️ DEUX ITEMS, PLUS CINQ. La pile ne compte plus que la bande et
+				//    l'arbre ; la disposition avance de `itemSpacingY` apres CHACUN.
+				//    Retrancher cinq espacements comme avant volerait 18 px au bas de
+				//    l'arbre -- l'inverse exact du defaut paye le 01/09, ou il en
+				//    manquait trente.
 				const float32 basY = designkit::HauteurVisibleBas(ctx, "Hiérarchie");
-				// ⚠️ LA BORNE OUBLIÉE, MESURÉE (précision de Rodolf, 01/09 : « on
-				//    ne voit pas le bas du scrollbar des Composants ») : la pile
-				//    compte CINQ items (bande, arbre, poignée, bande, arbre) et la
-				//    disposition avance de `itemSpacingY` après CHACUN — 5 × 6 =
-				//    30 px que l'ancien partage ne retranchait pas (hier.bornes
-				//    rendait dépassement = +30.0). Conséquence double : le rail
-				//    des Composants sortait du panneau par le bas, ET le panneau
-				//    devenait défilable de 30 px — la molette lui volait les
-				//    crans destinés aux sections.
-				float32 restant = basY - ctx.layout.cursor.y - 5.f * ctx.layout.itemSpacingY;
-				if (restant < 80.f)
-					restant = 80.f;
-				// La hauteur MEMORISEE (3e retour du 01/09) : lue UNE fois dans
-				// nkuidesign.cfg (cle hier_bas), ecrite au relacher de la poignee.
-				if (!mHBasLu) {
-					mHBasLu = true;
-					char v[32];
-					const NkString cfg = NkFile::ReadAllText(NkPath(NkGfxConfigPath()));
-					if (!cfg.Empty() && NkGfxConfigValue(cfg.Data(), "hier_bas", v, sizeof(v)))
-						mHBasVoulu = (float32)atof(v);
-				}
-				// §11.6 : la section basse est SECONDAIRE ; elle prend le tiers,
-				// borné, pour qu'un arbre profond garde de la place.
-				float32 hBas = restant * 0.32f;
-				if (hBas > 220.f)
-					hBas = 220.f;
-				if (hBas < 90.f)
-					hBas = 90.f;
-				// La POIGNÉE (écran 10) : la part choisie a la main PRIME — sur le
-				// tiers par defaut ET sur le clamp « les sections se suivent »
-				// ci-dessous. Bornes : aucune des deux sections ne disparait
-				// (60 px chacune).
-				const float32 hBasMax = restant - 60.f - 2.f * kBandeH - kPoigneeH;
-				if (mHBasVoulu > 0.f) {
-					hBas = mHBasVoulu;
-					if (hBas > hBasMax)
-						hBas = hBasMax;
-					if (hBas < 60.f)
-						hBas = 60.f;
-				}
-				float32 hHaut = restant - hBas - 2.f * kBandeH - kPoigneeH;
-				// COSTUME BANANI : les sections SE SUIVENT — quand l'arbre tient,
-				// « COMPOSANTS » vient juste dessous (la maquette), pas au tiers
-				// bas. ⚠️ C'est un DEFAUT, pas une loi : ce clamp ne s'applique
-				// QUE tant qu'aucune hauteur n'a ete choisie a la poignee —
-				// mesure du 2e retour du 01/09 : applique apres le choix manuel,
-				// il re-ecrasait hHaut et la poignee tiree vers le bas ne bougeait
-				// pas (« pas possible de correctement modifier la hauteur »).
-				const float32 hPages = (float32)mModelePages.nodes.Size()
-										   * mInstPages.Metric("row_h", 24.f)
-									   + 6.f; // tout déplié
-				if (mHBasVoulu <= 0.f && hPages < hHaut)
-					hHaut = hPages;
-
+				float32 hHaut = basY - ctx.layout.cursor.y - 2.f * ctx.layout.itemSpacingY;
+				if (hHaut < 60.f)
+					hHaut = 60.f;
 				BandeDeSection(ctx, "PAGES", "hier.pages.plus");
 				DessinerArbre(ctx, mModelePages, mInstPages, hHaut > 60.f ? hHaut : 60.f, "pages");
+			}
 
-				// La POIGNÉE DE REDIMENSIONNEMENT à trois points (écran 10) —
-				// épaisse, entre les deux sections, et elle REDIMENSIONNE : tirer
-				// déplace la FRONTIÈRE (les deux sections suivent, bornées à
-				// 60 px chacune) ; la hauteur choisie est MÉMORISÉE dans
-				// nkuidesign.cfg au relâcher (clé hier_bas).
-				{
-					const NkRect fs = ctx.NextItemRect(-1.f, kPoigneeH);
-					auto &dlp = ctx.DL();
-					const bool sv = ctx.popupDepth == 0
-									&& NkGuiRectContains(fs, ctx.input.mousePos);
-					dlp.AddLine({fs.x, fs.y + 4.f}, {fs.x + fs.w, fs.y + 4.f},
-								sv ? ctx.theme.accent : ctx.theme.border, sv ? 2.f : 1.f);
-					const float32 cxp = fs.x + fs.w * 0.5f;
-					const NkColor cp = sv ? ctx.theme.accent : ctx.theme.textMuted;
-					for (int32 i = -1; i <= 1; ++i)
-						dlp.AddCircleFilled({cxp + (float32)i * 7.f, fs.y + 4.f}, 1.5f, cp);
-					if (sv)
-						ctx.wantCursor = nkgui::NkGuiCursor::ResizeNS;
-					if (sv && ctx.input.mouseClicked[0]) {
-						mPoigneeActive = true;
-						mPoigneeY = ctx.input.mousePos.y;
-					}
-					if (mPoigneeActive) {
-						if (!ctx.input.mouseDown[0]) {
-							mPoigneeActive = false;
-							// Le relâcher MÉMORISE (l'écriture ne tourne jamais
-							// pendant le geste — un fichier par image serait le
-							// suspect n.1 de fluidité déjà payé).
-							if (mHBasVoulu > 0.f) {
-								char v[32];
-								nkentseu::NkSnprintf(v, sizeof(v), "%d", (int32)(mHBasVoulu + 0.5f));
-								(void)NkGfxConfigSetKey(NkGfxConfigPath(), "hier_bas", v);
-							}
-						} else {
-							const float32 dy = ctx.input.mousePos.y - mPoigneeY;
-							if (dy != 0.f) {
-								mPoigneeY = ctx.input.mousePos.y;
-								float32 voulu = (mHBasVoulu > 0.f ? mHBasVoulu : hBas) - dy;
-								// bornage AU GESTE : la souris au-delà de la
-								// butée n'accumule pas un « dette » invisible
-								// qu'il faudrait re-tirer dans l'autre sens.
-								if (voulu > hBasMax)
-									voulu = hBasMax;
-								if (voulu < 60.f)
-									voulu = 60.f;
-								mHBasVoulu = voulu;
-							}
-							ctx.wantCursor = nkgui::NkGuiCursor::ResizeNS;
-						}
-					}
-				}
+			// ═══════════════════════════════════════════════════════════════
+			//  LA SECTION COMPOSANTS, DESORMAIS DANS SON PROPRE PANNEAU (28/09)
+			// ═══════════════════════════════════════════════════════════════
+			//  Rodolf : « il faut en faire deux panneaux redimensionnables au lieu
+			//  d'un avec deux sections ».
+			//
+			//  ⚠️ UNE SEULE CLASSE, DEUX PANNEAUX -- ET C'EST LE POINT.
+			//     `ComposantsPanel` ne fait qu'appeler cette methode. Deux OBJETS
+			//     auraient donne deux `SyncComposants`, deux modeles d'arbre et deux
+			//     selections, qui divergeraient au premier composant ajoute.
+			//     L'etat reste dans UN objet.
+			//
+			//  ⚠️ LA POIGNEE MAISON A DISPARU AVEC LA SECTION, et avec elle la cle
+			//     `hier_bas` de `nkuidesign.cfg` : c'est le SEPARATEUR DU DOCK qui
+			//     redimensionne desormais, et c'est lui qui memorise. Garder les deux
+			//     aurait donne deux hauteurs pour une seule frontiere.
+			void DessinerComposants(NkEditorFrameContext &ec) {
+				auto &ctx = ec.Ui();
+				designkit::releve::Zone(ctx, "composants");
+				// ⚠️ CE PANNEAU SYNCHRONISE CE QU'IL DESSINE. Laisser `SyncComposants`
+				//    dans la Hierarchie aurait fait dependre cette liste de l'ouverture
+				//    d'un AUTRE panneau : fermer la Hierarchie aurait fige les composants.
+				SyncComposants();
+				const float32 basY = designkit::HauteurVisibleBas(ctx, "Composants");
+				float32 hBas = basY - ctx.layout.cursor.y - 2.f * ctx.layout.itemSpacingY;
+				if (hBas < 60.f)
+					hBas = 60.f;
 				BandeDeSection(ctx, "COMPOSANTS", "hier.composants.plus");
 				// L'ETAT VIDE PARLE (« une entrée qui n'agit pas porte sa
 				// raison ») : ce document n'a pas encore de composant, et la
@@ -11995,10 +11926,6 @@ namespace nkuidesign {
 
 		private:
 			static constexpr float32 kBandeH = 22.f;
-			/// L'épaisseur de la poignée entre les deux sections. ⚠️ Elle DOIT
-			/// entrer dans le partage de hauteur : l'ancien « - 8.f » pour une
-			/// poignée de 9 px faisait déborder la pile d'un pixel par image.
-			static constexpr float32 kPoigneeH = 9.f;
 
 			/// La bande de titre d'une section, avec son `[+]` (planche 091913).
 			/// ⚠️ Assemblage de primitives NKGui, pas un widget de plus : un titre
@@ -13020,12 +12947,46 @@ namespace nkuidesign {
 			int32 mHierMenuNode = -1;
 			char mHierFiltre[48] = {};
 			bool mHierFiltreFocus = true;
-			float32 mHBasVoulu = -1.f;	 // la part de COMPOSANTS choisie a la poignee (ecran 10)
-			bool mHBasLu = false;		 // hier_bas deja lu dans nkuidesign.cfg ?
-			bool mPoigneeActive = false;
-			float32 mPoigneeY = 0.f;	 // œil-barré : seulement les éléments à rôle (écran 8)
+			// ⚠️ QUATRE CHAMPS ONT DISPARU ICI LE 28/09 : `mHBasVoulu`, `mHBasLu`,
+			//    `mPoigneeActive`, `mPoigneeY` -- l'etat de la poignee maison entre
+			//    PAGES et COMPOSANTS, avec la cle `hier_bas` qu'elle ecrivait. Les
+			//    deux sections sont devenues deux PANNEAUX : c'est le separateur du
+			//    dock qui redimensionne, et c'est lui qui memorise. Garder les deux
+			//    aurait donne DEUX hauteurs pour une seule frontiere.
 			bool mPlierUneFois = true;	 // repli initial des sous-conteneurs (une fois)
 			bool mCriPages = false;
+	};
+
+	// ══════════════════════════════════════════════════════════════════════
+	//  LE PANNEAU DES COMPOSANTS -- une facade, pas un second etat (28/09)
+	// ══════════════════════════════════════════════════════════════════════
+	//  Rodolf : « le panneau hierarchie c'est deux panneaux haut et bas donc il
+	//  faut en faire deux panneaux redimensionnables au lieu d'un avec deux
+	//  sections ».
+	//
+	//  ⚠️ IL NE PORTE AUCUN ETAT. Tout vit dans `HierarchyPanel` : le modele
+	//     d'arbre, l'instance de composant, la selection, la vue choisie. Cette
+	//     classe ne fait que DONNER UNE SECONDE PORTE AU DOCK -- un titre, un
+	//     onglet, un separateur. Dupliquer l'etat aurait donne deux listes de
+	//     composants qui divergent au premier ajout.
+	//
+	//  ⚠️ ET IL EXIGE SON HOTE : un panneau qui se dessinerait sans hierarchie
+	//     n'aurait rien a montrer et le tairait. Le pointeur est pose au
+	//     constructeur, jamais devine.
+	class ComposantsPanel : public NkEditorPanel {
+		public:
+			explicit ComposantsPanel(HierarchyPanel *hier)
+				: NkEditorPanel("composants", "Composants", NkEditorDockSide::NK_LEFT),
+				  mHier(hier) {
+			}
+
+			void OnUI(NkEditorFrameContext &ec) override {
+				if (mHier)
+					mHier->DessinerComposants(ec);
+			}
+
+		private:
+			HierarchyPanel *mHier = nullptr;
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════

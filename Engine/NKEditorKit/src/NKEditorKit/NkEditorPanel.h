@@ -84,6 +84,34 @@ namespace nkentseu {
 					mDefaultSide = s;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  ANCRER SOUS UN AUTRE PANNEAU, PAS À CÔTÉ (2026-09-28)
+				// ═══════════════════════════════════════════════════════════════
+				//  Rodolf : « il faut en faire deux panneaux redimensionnables au
+				//  lieu d'un avec deux sections ».
+				//
+				//  🔴 SANS ÇA, DEUX PANNEAUX DU MÊME CÔTÉ DEVIENNENT DEUX ONGLETS.
+				//     La coquille regroupe par côté : elle cherche un panneau déjà
+				//     ancré du même côté et y pose un ONGLET. On n'en voit alors
+				//     qu'un, et rien ne se redimensionne — mesuré le 28/09 :
+				//     Hiérarchie et Composants sont arrivés côte à côte dans la
+				//     même barre d'onglets.
+				//
+				//  ⚠️ LE NOM VISÉ EST UN **TITRE**, pas un identifiant : c'est par
+				//     le titre que le dock connaît une fenêtre (`GetId(Title())`).
+				//     Passer l'identifiant stable donnerait une cible introuvable,
+				//     et le panneau retomberait en silence à son côté par défaut.
+				const char *SousLePanneau() const noexcept {
+					return mSousPanneau[0] ? mSousPanneau : nullptr;
+				}
+
+				void SetSousLePanneau(const char *titre) noexcept {
+					uint32 i = 0;
+					for (; titre && titre[i] && i + 1 < (uint32)sizeof(mSousPanneau); ++i)
+						mSousPanneau[i] = titre[i];
+					mSousPanneau[i] = '\0';
+				}
+
 				// ── Contenu (implemente par l'application) ──────────────────────────
 				// Appele par le shell entre Begin/End (flottant) ou BeginDocked/EndDocked
 				// (ancre). Dessiner via les helpers de `ec` (ec.Text, ec.Button, ...).
@@ -101,6 +129,7 @@ namespace nkentseu {
 				char mId[64] = {}; ///< identifiant stable ; par defaut, le titre
 				bool mOpen = true;
 				bool mDockable = true;
+				char mSousPanneau[64] = {}; ///< titre du panneau SOUS lequel s'ancrer (vide = côté)
 				NkEditorDockSide mDefaultSide = NkEditorDockSide::NK_CENTER;
 		};
 

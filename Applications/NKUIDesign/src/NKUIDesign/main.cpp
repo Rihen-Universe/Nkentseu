@@ -3664,6 +3664,17 @@ int nkmain(const NkEntryState &state) {
 	gPanneauIA = &ai; // le banc --mesure-async le pilote ; rien d'autre ne le lit
 	gPanneauToile = &preview; // (R19) la sonde des portes ouvre ses menus
 	static nkuidesign::HierarchyPanel hierarchie(&gDesign);
+	// LA SECTION « COMPOSANTS » EST DEVENUE UN PANNEAU (28/09). Rodolf : « le
+	// panneau hierarchie c'est deux panneaux haut et bas donc il faut en faire
+	// deux panneaux redimensionnables au lieu d'un avec deux sections ».
+	// ⚠️ IL NE PORTE AUCUN ETAT : il appelle `hierarchie.DessinerComposants`.
+	//    Deux objets auraient donne deux listes de composants qui divergent.
+	static nkuidesign::ComposantsPanel composants(&hierarchie);
+	// ⚠️ SOUS la Hierarchie, PAS a cote : sans cette ligne, deux panneaux du meme
+	//    cote deviennent deux ONGLETS -- mesure du 28/09, ils sont arrives dans la
+	//    meme barre. Le nom vise est le TITRE, c'est par lui que le dock connait
+	//    une fenetre.
+	composants.SetSousLePanneau("Hiérarchie");
 	static nkuidesign::InspectorPanel inspecteur(&gDesign);
 	// LE RAIL « VARIABLES » (§15.14) : a gauche, onglet a cote de la Hierarchie --
 	// c'est la place de Lunacy (`Variables` au rail de gauche). Il se ferme avec
@@ -3704,6 +3715,11 @@ int nkmain(const NkEntryState &state) {
 	//    dock : Hierarchie d abord (elle est seule a gauche), puis le centre,
 	//    puis l Inspecteur, puis le bas.
 	shell->AddPanel(&hierarchie);
+	// ⚠️ JUSTE APRES LA HIERARCHIE, et l'ordre d'ajout decide de la place : les
+	//    deux arrivent sur la feuille GAUCHE, Composants sous Pages. Le
+	//    separateur du dock les redimensionne -- c'est lui qui remplace la
+	//    poignee maison retiree avec la section.
+	shell->AddPanel(&composants);
 	shell->AddPanel(&variables); // second onglet de la feuille gauche, apres la Hierarchie
 	shell->AddPanel(&stylesRail); // troisieme : Styles (Lunacy : Styles puis Variables ; l'ordre d'ajout decide)
 	shell->AddPanel(&preview);

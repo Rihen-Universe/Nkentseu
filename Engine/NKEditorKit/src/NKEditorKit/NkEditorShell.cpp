@@ -2206,8 +2206,34 @@ namespace nkentseu {
 					else
 						poignee = {d.x, d.y - 1.f, d.w, 2.f};
 					(void)vertical;
-					// LA POIGNEE SE VOIT au survol et pendant le glisser : un trait
-					// d'accent de 3 px (le geste est traite par `PoigneesTiroirs`).
+					// ═══════════════════════════════════════════════════════════
+					//  🔴 LA POIGNEE SE VOIT TOUJOURS, PLUS SEULEMENT AU SURVOL
+					// ═══════════════════════════════════════════════════════════
+					//  Rodolf, 28/09 : « le panneau de droite doit avoir un
+					//  separateur de redimensionnement comme celui de gauche ».
+					//
+					//  Elle existait pourtant, et elle FONCTIONNAIT : le geste est
+					//  traite par `PoigneesTiroirs` depuis le 21/09. Mais elle ne
+					//  se peignait QU'AU SURVOL -- c'est-a-dire qu'il fallait deja
+					//  savoir qu'elle etait la pour la trouver. A gauche, le
+					//  separateur du dock est permanent : les deux bords ne
+					//  disaient donc pas la meme chose.
+					//
+					//  ⚠️ UN JETON, PAS UNE COULEUR : `theme.border` au repos,
+					//     `theme.accent` sous la souris. Un trait ecrit en dur
+					//     resterait visible en theme clair et disparaitrait sur un
+					//     fond sombre -- une des 426 couleurs en dur que ce depot a
+					//     deja mesurees chez les consommateurs de NKGui.
+					{
+						NkRect trait = poignee;
+						if (slot == 2)
+							trait.h = 1.f;
+						else
+							trait.w = 1.f;
+						mUI.dlOverlay.AddRectFilled(trait, mUI.theme.border, 0.f);
+					}
+					// Au survol et pendant le glisser : le meme trait passe a
+					// l'accent et s'epaissit a 3 px.
 					if (mRailPoigneeSurvol == slot) {
 						NkRect vis = poignee;
 						if (slot == 2) {
@@ -3355,7 +3381,15 @@ namespace nkentseu {
 							break;
 						}
 					}
-					if (host)
+					// ⚠️ « SOUS UN AUTRE » PASSE AVANT LE REGROUPEMENT PAR COTE, et
+					//    c'est le seul moyen d'obtenir DEUX panneaux plutot que deux
+					//    ONGLETS : le regroupement ci-dessus trouve toujours un hote
+					//    du meme cote, et un onglet de plus n'est pas un panneau de
+					//    plus (Rodolf, 28/09).
+					const char *sous = p->SousLePanneau();
+					if (sous && DockIsWindowDocked(mUI, sous))
+						DockBuilderDockSplit(mUI, title, sous, 4); // 4 = en BAS de la cible
+					else if (host)
 						DockBuilderDockTab(mUI, title, host);
 					else
 						DockBuilderDock(mUI, title, SideToZone(side));
@@ -4481,7 +4515,17 @@ void NkEditorShell::MaximizeWindow() noexcept {
 					if (isCenter != centerPass)
 						continue;
 					const int32 zone = SideToZone(p->DefaultSide());
-					if (zone >= 0 && zone < 8 && sideFirst[zone])
+					// 🔴 « SOUS UN AUTRE » PASSE AVANT LE REGROUPEMENT EN ONGLETS.
+					//    C'est ICI que la disposition de depart se decide -- pas
+					//    dans `FocusPanel`, qui ne sert qu'aux ouvertures ulterieures.
+					//    Mesure du 28/09 : la garde posee dans `FocusPanel` seul ne
+					//    changeait RIEN a l'ecran, Hierarchie et Composants
+					//    arrivaient toujours dans la meme barre d'onglets. *Le
+					//    correctif doit vivre la ou la decision se prend.*
+					const char *sous = p->SousLePanneau();
+					if (sous && DockIsWindowDocked(mUI, sous))
+						DockBuilderDockSplit(mUI, p->Title(), sous, 4); // 4 = en BAS
+					else if (zone >= 0 && zone < 8 && sideFirst[zone])
 						DockBuilderDockTab(mUI, p->Title(), sideFirst[zone]);
 					else {
 						DockBuilderDock(mUI, p->Title(), zone);
