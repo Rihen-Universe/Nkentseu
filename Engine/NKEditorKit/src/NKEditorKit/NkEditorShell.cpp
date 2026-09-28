@@ -3018,8 +3018,25 @@ namespace nkentseu {
 		// ── Barre d'outils horizontale (sous la barre de titre, facon Visual Studio) ─
 		void NkEditorShell::DrawToolbar(NkEditorFrameContext &ec, const NkRect &rect) noexcept {
 			auto &dl = mUI.dl;
-			dl.AddRectFilled(rect, {22, 26, 32, 255});										   // gris sombre #161A20
-			dl.AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, {40, 45, 53, 255}); // separateur
+			// ═══════════════════════════════════════════════════════════════
+			//  🔴 DES JETONS, PLUS DEUX COULEURS EN DUR (28/09)
+			// ═══════════════════════════════════════════════════════════════
+			//  Rodolf : « le menu tool en light est cassé ». Il l'était : cette
+			//  bande se peignait `#161A20` et son filet `#282D35` — deux
+			//  littéraux. En thème CLAIR, toute la barre d'outils restait NOIRE,
+			//  au milieu d'une fenêtre blanche.
+			//
+			//  ⚠️ CE N'EST PAS UN GOÛT, C'EST LA RÈGLE DE LA MAISON, et le dépôt
+			//     a mesuré 426 couleurs en dur chez les consommateurs de NKGui.
+			//     Une couleur littérale ne suit aucun thème — elle est juste le
+			//     jour où on l'écrit, et fausse à chaque thème suivant.
+			//
+			//  ⚠️ `header`, PAS `panel` : c'est le jeton que la barre de MENUS
+			//     emploie déjà (`BeginMenuBar`). Les deux bandes du haut sont le
+			//     même bandeau ; leur donner deux jetons les aurait fait diverger
+			//     au premier thème qui les distingue.
+			dl.AddRectFilled(rect, mUI.theme.header);
+			dl.AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, mUI.theme.border);
 			if (!mToolbarFn)
 				return;
 			// Region de layout horizontale : l'app pose Button/Combo + SameLine().
