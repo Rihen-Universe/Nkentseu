@@ -241,8 +241,8 @@ namespace nkentseu {
 				  "Padding \"marge\" { pad = 8 }");
 				A("Aspect", F::Conteneur, "Cadrage", "Tient un rapport largeur/hauteur.",
 				  "Aspect \"rapport\" { ratio = 1.777 }");
-				A("TabBar", F::Conteneur, "Onglets", "Une barre d'onglets et son contenu.",
-				  "TabBar \"onglets\" {}");
+				A("TabBar", F::Conteneur, "Onglets", "Une barre d'onglets. `orientation` la met en colonne.",
+				  "TabBar \"onglets\" { tabs = [\"Un\", \"Deux\"], orientation = \"verticale\" }");
 				A("Table", F::Conteneur, "Listes", "Un tableau à colonnes.",
 				  "Table \"tableau\" { columns = 3 }");
 				A("ListBox", F::Conteneur, "Listes", "Une liste d'éléments sélectionnables.",

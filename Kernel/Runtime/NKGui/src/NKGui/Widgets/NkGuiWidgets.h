@@ -330,6 +330,22 @@ namespace nkentseu {
 		// (enabled peut être nullptr = tous actifs).
 		NKENTSEU_NKGUI_API int32 TabBarEx(NkGuiContext &ctx, const char *id, const char *const *labels, int32 count,
 										  const bool *enabled) noexcept;
+		/// La MÊME barre, en colonne quand `vertical` est vrai.
+		///
+		/// 🔴 UNE OPTION, PAS UNE SECONDE FONCTION. Rodolf, 28/09 : « on a déjà
+		///    des onglets horizontaux, on doit aussi avoir des onglets
+		///    verticaux ». Écrire `TabBarVertical` à côté aurait donné deux
+		///    dessins d'onglet, deux gestions de sélection et deux jeux de
+		///    couleurs — et le jour où l'onglet actif change d'apparence, une
+		///    seule des deux suivrait. *Deux chemins qui peignent le même widget.*
+		///
+		/// ⚠️ SEULES LA GÉOMÉTRIE ET LA PLACE DU LISERÉ CHANGENT : en colonne, un
+		///    onglet prend toute la largeur de la région et son liseré passe à
+		///    GAUCHE — posé en bas, il se lirait comme une séparation entre deux
+		///    onglets, pas comme un état.
+		NKENTSEU_NKGUI_API int32 TabBarOriente(NkGuiContext &ctx, const char *id,
+											   const char *const *labels, int32 count,
+											   const bool *enabled, bool vertical) noexcept;
 		// Onglets RENOMMABLES : `labels` = tableau de tampons MUTABLES (chacun de
 		// taille `labelBufSize`), double-clic sur un onglet l'édite inline. `enabled`
 		// et `allowRename` (nullptr = défauts) permettent de griser / refuser le

@@ -4325,7 +4325,17 @@ namespace nkentseu {
 							uint32 m = n > 32u ? 32u : n;
 							for (uint32 k = 0; k < m; ++k)
 								ptr[k] = libelles[k].CStr();
-							(void)TabBar(ctx, lbl, ptr, (int32)m);
+							// ⚠️ L'ORIENTATION SE DECLARE, ET LE DEFAUT NE BOUGE PAS.
+							//    Rodolf, 28/09 : « on a deja des onglets horizontaux,
+							//    on doit aussi avoir des onglets verticaux ». Un
+							//    document ecrit avant aujourd'hui n'a pas la cle et
+							//    reste horizontal, au pixel pres.
+							//    `orientation = "verticale"` (ou `"vertical"`) suffit.
+							const NkString orient = NkGTexte(w, "orientation", "");
+							const bool vertical = orient.Size() > 0u
+												  && (orient.Data()[0] == 'v'
+													  || orient.Data()[0] == 'V');
+							(void)TabBarOriente(ctx, lbl, ptr, (int32)m, nullptr, vertical);
 							break;
 						}
 						// ═══════════════════════════════════════════════════════════
