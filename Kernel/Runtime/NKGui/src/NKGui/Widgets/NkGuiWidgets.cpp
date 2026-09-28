@@ -3675,6 +3675,34 @@ namespace nkentseu {
 			DockBuilderDock(ctx, windowTitle, 4); // cible non ancrée -> dock bas
 		}
 
+		void DockBuilderDockSplit(NkGuiContext &ctx, const char *windowTitle,
+								  const char *targetTitle, int32 zone) noexcept {
+			// ⚠️ MÊME PRÉAMBULE QUE `DockBuilderDockTab`, ET C'EST VOULU : une
+			//    fenêtre doit exister dans `windowMeta` avant d'être ancrée, sinon
+			//    `DockWindow` sort sans rien faire et le panneau n'apparaît jamais.
+			const NkGuiId wid = ctx.GetId(windowTitle);
+			int32 mi;
+			NkGuiWindowMeta *m = WinFind(ctx, wid, mi);
+			if (!m) {
+				NkGuiWindowMeta nm;
+				nm.id = wid;
+				ctx.windowMeta.PushBack(nm);
+				mi = static_cast<int32>(ctx.windowMeta.Size()) - 1;
+				m = &ctx.windowMeta[mi];
+			}
+			if (m->dockNode >= 0)
+				return; // déjà ancrée : on ne déplace pas ce que l'utilisateur a rangé
+			const NkGuiId tid = ctx.GetId(targetTitle);
+			int32 ti;
+			NkGuiWindowMeta *t = WinFind(ctx, tid, ti);
+			if (t && t->dockNode >= 0) {
+				DockWindow(ctx, wid, t->dockNode, zone);
+				return;
+			}
+			// Cible non ancrée : mieux vaut un panneau mal placé qu'un panneau absent.
+			DockBuilderDock(ctx, windowTitle, zone);
+		}
+
 		bool DockFocusWindow(NkGuiContext &ctx, const char *windowTitle) noexcept {
 			const NkGuiId wid = ctx.GetId(windowTitle);
 			int32 mi;

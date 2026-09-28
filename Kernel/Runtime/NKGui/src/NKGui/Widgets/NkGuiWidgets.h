@@ -373,6 +373,21 @@ namespace nkentseu {
 		// Ancre `windowTitle` en ONGLET dans le nœud de `targetTitle` (même barre).
 		NKENTSEU_NKGUI_API void DockBuilderDockTab(NkGuiContext &ctx, const char *windowTitle,
 												   const char *targetTitle) noexcept;
+		/// Ancre `windowTitle` en **SCINDANT** le nœud de `targetTitle`, au lieu d'y
+		/// poser un onglet. `zone` : 1 = gauche, 2 = droite, 3 = haut, 4 = bas.
+		///
+		/// 🔴 ELLE MANQUAIT, ET C'EST TOUT L'ÉCART ENTRE « DEUX ONGLETS » ET « DEUX
+		///    PANNEAUX ». Rodolf, 28/09 : « il faut en faire deux panneaux
+		///    redimensionnables au lieu d'un avec deux sections ». Deux panneaux
+		///    déclarant le même côté devenaient DEUX ONGLETS — on n'en voit alors
+		///    qu'un, et rien ne se redimensionne. Le moteur savait déjà scinder
+		///    (`DockWindow(..., zone)`) ; seule la porte publique manquait.
+		///
+		/// ⚠️ SI LA CIBLE N'EST PAS ANCRÉE, on retombe sur le côté demandé plutôt
+		///    que de ne rien faire : un panneau qui n'apparaît pas est pire qu'un
+		///    panneau mal placé.
+		NKENTSEU_NKGUI_API void DockBuilderDockSplit(NkGuiContext &ctx, const char *windowTitle,
+													 const char *targetTitle, int32 zone) noexcept;
 		// Sélectionne l'ONGLET d'une fenêtre ancrée (révéler un panneau par raccourci) :
 		// la feuille qui la contient bascule son `activeTab` dessus. false si non ancrée.
 		NKENTSEU_NKGUI_API bool DockFocusWindow(NkGuiContext &ctx, const char *windowTitle) noexcept;
