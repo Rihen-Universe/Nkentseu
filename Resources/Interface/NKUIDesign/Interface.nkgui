@@ -497,22 +497,44 @@ widgets "menu" {
 
 widgets "barreOutils" {
 
+  // ═══════════════════════════════════════════════════════════════════════
+  //  DES ICÔNES, ET PLUS DE LIBELLÉS — Rodolf, 28/09
+  // ═══════════════════════════════════════════════════════════════════════
+  //  « les boutons annuler, rétablir, grouper, découper, dupliquer, enregistrer
+  //  le document, exporter — qui doivent être liés à des icônes — en plus sont
+  //  très mal placés ».
+  //
+  //  Les icônes viennent du jeu que la coquille pose (`NkEditorIcones.h`,
+  //  NKEditorKit) : les verbes d'un éditeur, tracés dans la boîte unité, sans
+  //  atlas, donc nets à toute taille.
+  //
+  //  ⚠️ `label = ""` EST OBLIGATOIRE, CE N'EST PAS UN OUBLI. Sans la clé,
+  //     `NkGLibelle` retombe sur `@t:<identifiant>` et le bouton afficherait
+  //     « design.annuler ». Et avec un libellé NON VIDE, le monteur peint
+  //     l'icône PAR-DESSUS le texte : il la pose dans le carré gauche du
+  //     rectangle du widget, là où un libellé centré arrive déjà. Icône **ou**
+  //     texte, pas les deux — tant que NKGui n'a pas de bouton qui compose les
+  //     deux, et c'est écrit ici pour qu'on ne le redécouvre pas.
+  //
+  //  ⚠️ LE `tooltip` DEVIENT DONC OBLIGATOIRE, ET IL L'ÉTAIT DÉJÀ. Une icône
+  //     sans infobulle est une devinette ; les sept en portaient une avant ce
+  //     changement, rien n'a été ajouté à la hâte.
   HBox "outils" {
     gap = 6
 
-    Button "design.annuler"   { tooltip = "Annuler la derniere action", shortcut = "Ctrl+Z" }
-    Button "design.retablir"  { tooltip = "Refaire l'action annulee",   shortcut = "Ctrl+Y" }
+    Button "design.annuler"   { label = "", icon = "annuler",   tooltip = "Annuler la dernière action", shortcut = "Ctrl+Z" }
+    Button "design.retablir"  { label = "", icon = "retablir",  tooltip = "Refaire l'action annulée",   shortcut = "Ctrl+Y" }
 
     Separator "sep_o1" {}
 
-    Button "design.grouper"   { tooltip = "Grouper la selection", shortcut = "Ctrl+G" }
-    Button "design.degrouper" { tooltip = "Degrouper la selection" }
-    Button "design.dupliquer" { tooltip = "Dupliquer la selection", shortcut = "Ctrl+D" }
+    Button "design.grouper"   { label = "", icon = "grouper",   tooltip = "Grouper la sélection", shortcut = "Ctrl+G" }
+    Button "design.degrouper" { label = "", icon = "degrouper", tooltip = "Dégrouper la sélection" }
+    Button "design.dupliquer" { label = "", icon = "dupliquer", tooltip = "Dupliquer la sélection", shortcut = "Ctrl+D" }
 
     Separator "sep_o2" {}
 
-    Button "design.enregistrer" { tooltip = "Enregistrer le document", shortcut = "Ctrl+S" }
-    Button "design.exporter"    { tooltip = "Exporter le document" }
+    Button "design.enregistrer" { label = "", icon = "enregistrer", tooltip = "Enregistrer le document", shortcut = "Ctrl+S" }
+    Button "design.exporter"    { label = "", icon = "exporter",    tooltip = "Exporter le document" }
   }
 }
 

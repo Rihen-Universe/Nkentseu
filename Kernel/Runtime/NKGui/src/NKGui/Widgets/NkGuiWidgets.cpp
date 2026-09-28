@@ -1506,6 +1506,36 @@ namespace nkentseu {
 		}
 
 		void Separator(NkGuiContext &ctx) noexcept {
+			// ═══════════════════════════════════════════════════════════════
+			//  🔴 UN SEPARATEUR SUIT L'AXE DE SON CONTENEUR
+			// ═══════════════════════════════════════════════════════════════
+			//  Mesure du 28/09, sur la barre d'outils de NKUIDesign : entre deux
+			//  groupes d'icones, `Separator` peignait une REGLE HORIZONTALE de
+			//  120 px de long — la largeur que `NextItemRect` invente en flux
+			//  horizontal quand personne ne lui en donne. Trois icones, un long
+			//  trait couche, trois icones : l'oeil y lit une barre de
+			//  progression, pas une separation.
+			//
+			//  Un separateur separe PERPENDICULAIREMENT a l'axe de lecture : en
+			//  colonne il est couche, en ligne il est debout. Ce n'est pas une
+			//  preference — couche dans une ligne, il ne separe rien.
+			//
+			//  ⚠️ LE CAS VERTICAL NE BOUGE PAS D'UN PIXEL, et c'est la condition
+			//     pour que ce soit un correctif et non une refonte : tous les
+			//     menus deroulants du depot passent par ici, et leur mesure de
+			//     hauteur (plus bas) en depend.
+			if (ctx.layout.flow == 1) {
+				const float32 h = ctx.ItemHeight();
+				const NkRect rv = ctx.NextItemRect(1.f, h);
+				// Le trait ne monte pas jusqu'aux bords : il respire de 15 %,
+				// sinon il touche les boutons voisins et se lit comme la bordure
+				// de l'un d'eux.
+				const float32 marge = h * 0.15f;
+				ctx.DL().AddRectFilled({rv.x, rv.y + marge, 1.f, h - 2.f * marge},
+									   ctx.theme.border);
+				NkGuiNoter(ctx, NkGuiNature::Separateur, NKGUI_ID_NONE, "", rv, NK_GUI_ETAT_AUCUN);
+				return;
+			}
 			const NkRect r = ctx.NextItemRect(0.f, 1.f);
 			ctx.DL().AddRectFilled({r.x, r.y, r.w, 1.f}, ctx.theme.border);
 			// Sans lui, deux groupes d'un menu se lisent comme une liste plate :

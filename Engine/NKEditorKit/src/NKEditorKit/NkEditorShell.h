@@ -813,9 +813,21 @@ namespace nkentseu {
 				/// faux = les trois zones larges historiques. `sizePx` : le côté du
 				/// bouton (13 = la maquette ; Rodolf 31/08 : « trop petits » —
 				/// l'application choisit, glyphes et zone cliquable suivent).
-				void SetWindowControlsCompact(bool v, float32 sizePx = 13.f) noexcept {
+				/// `aFleur` : les trois boutons deviennent CARRÉS à la hauteur de la
+				/// barre et se touchent, collés au bord droit — `sizePx` n'est alors
+				/// plus lu (la hauteur de la barre le remplace).
+				///
+				/// 🔴 UN PARAMÈTRE PLUTÔT QU'UN `sizePx = 0` SENTINELLE. Rodolf,
+				///    28/09 : « les boutons minimiser, maximiser et fermer doivent
+				///    prendre leur hauteur de barre et être carrés ». Le dire par un
+				///    zéro dans le champ TAILLE aurait fait d'une position une
+				///    sentinelle — le dépôt a déjà payé cette confusion le même
+				///    jour, sur la limite de la barre de menus.
+				void SetWindowControlsCompact(bool v, float32 sizePx = 13.f,
+											  bool aFleur = false) noexcept {
 					mWinControlsCompact = v;
 					mWinControlsSize = (sizePx >= 8.f && sizePx <= 28.f) ? sizePx : 13.f;
+					mWinControlsFlush = aFleur;
 				}
 
 				/// Rail bas, à DROITE : pastille d'état colorée + texte (« Prêt »).
@@ -1149,6 +1161,7 @@ namespace nkentseu {
 				nkgui::NkGuiFont *mTitleBarFont = nullptr; // police dédiée barre de titre (menus 11 px)
 				bool mWinControlsCompact = false;		   // contrôles compacts, fermer rouge permanent
 				float32 mWinControlsSize = 13.f;		   // côté du bouton compact (l'app choisit)
+				bool mWinControlsFlush = false;			   // carrés à la hauteur de barre, collés
 				bool mSideTabsVisible = true;			   // barres d'onglets des panneaux latéraux
 				char mRailStatusText[64] = {};			   // « Prêt » à droite du rail bas
 				nkgui::NkColor mRailStatusColor = {63, 185, 80, 255};

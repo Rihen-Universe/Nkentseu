@@ -2721,7 +2721,14 @@ namespace nkentseu {
 			if (mWinControlsCompact) {
 				// `mWinControlsSize` : l'application choisit le côté (Rodolf,
 				// 31/08 : les 13 px de la maquette étaient trop petits à l'usage).
-				const float32 cs = mWinControlsSize, gap = 4.f, right = 12.f;
+				//
+				// ⚠️ `mWinControlsFlush` : CARRES A LA HAUTEUR DE LA BARRE, COLLES
+				//    AU BORD (Rodolf, 28/09). Le cote ne vient alors PAS de
+				//    `mWinControlsSize` mais de `bar.h` — et `gap`/`right` tombent a
+				//    zero, sinon « colles » serait faux de 16 px.
+				const float32 cs = mWinControlsFlush ? bar.h : mWinControlsSize;
+				const float32 gap = mWinControlsFlush ? 0.f : 4.f;
+				const float32 right = mWinControlsFlush ? 0.f : 12.f;
 				const float32 cyBtn = bar.y + (bar.h - cs) * 0.5f;
 				cClose = {bar.x + bar.w - right - cs, cyBtn, cs, cs};
 				cMax = {cClose.x - gap - cs, cyBtn, cs, cs};
@@ -2767,8 +2774,16 @@ namespace nkentseu {
 				// boutons de fenetre ensuite. Le plus contraignant des deux gagne.
 				const float32 limite = (titleLx < cMin.x) ? titleLx : cMin.x;
 				BuildMenuBar(ec, {menuX, bar.y, cMin.x - menuX, bar.h}, limite);
+				// ⚠️ LE TRAIT DU BAS COURT SUR TOUTE LA BARRE, PAS SUR LA SEULE
+				//    BANDE DES MENUS. Rodolf, 28/09 : « le trait du menu doit aller
+				//    jusqu'a droite, un peu depasser le bouton fermer ».
+				//    `BeginMenuBar` le peint pour SON rectangle, qui s'arrete aux
+				//    boutons de fenetre : le bandeau semblait finir au milieu.
+				//    Celui-ci le prolonge d'un bord a l'autre — meme jeton, meme
+				//    epaisseur : il ne fait que terminer la ligne commencee.
 			} else
 				mUI.menuBarX = menuX; // pour les zones de drag
+
 
 			// Infos specifiques au centre (ex. fichier actif) = "panneau du milieu".
 			// Son rect [titleLx, titleRx] delimite aussi les zones de drag.
@@ -2804,14 +2819,21 @@ namespace nkentseu {
 				// Les GLYPHES SUIVENT LE CÔTÉ choisi (proportions de la maquette
 				// à 13 px, mises à l'échelle) — agrandir la zone cliquable sans
 				// agrandir le dessin aurait fait des boutons vides.
-				const float32 cs2 = mWinControlsSize;
+				// ⚠️ LES GLYPHES SUIVENT LE COTE REELLEMENT DESSINE, pas le reglage.
+				//    Le cote se LIT sur le rectangle deja calcule (`cClose.w`) au
+				//    lieu d'etre re-derive de `mWinControlsSize` : a fleur, le
+				//    reglage vaut 20 et le bouton 28, et deux derivations du meme
+				//    nombre divergent toujours au premier cas particulier. C'est
+				//    exactement le defaut que la note d'au-dessus decrit
+				//    (« agrandir la zone cliquable sans agrandir le dessin »).
+				const float32 cs2 = cClose.w;
 				const float32 demiTrait = cs2 * 0.27f; // 3.5/13
 				const float32 carre = cs2 * 0.46f;	   // 6/13
 				const float32 demiX = cs2 * 0.19f;
 				// Réduire.
 				{
 					const bool h = inR(cMin);
-					dl.AddRectFilled(cMin, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					dl.AddRectFilled(cMin, h ? mUI.theme.buttonHover : mUI.theme.button, mWinControlsFlush ? 0.f : 3.f);
 					const float32 gx = cMin.x + cMin.w * 0.5f, gy = cMin.y + cMin.h * 0.5f;
 					dl.AddLine({gx - demiTrait, gy}, {gx + demiTrait, gy}, mUI.theme.textDisabled,
 							   1.2f);
@@ -2820,15 +2842,44 @@ namespace nkentseu {
 						consumed = true;
 					}
 				}
-				// Agrandir / restaurer.
+				// ═══════════════════════════════════════════════════════════
+				//  🔴 AGRANDIR / RESTAURER : DEUX ETATS, ET IL N'EN CONNAISSAIT
+				//     QU'UN
+				// ═══════════════════════════════════════════════════════════
+				//  Rodolf, 28/09 : « le bouton maximiser n'a pas change quand il
+				//  est maximise ». Deux defauts, pas un :
+				//    · le GLYPHE restait un carre unique en toute circonstance ;
+				//    · le CLIC appelait toujours `Maximize()` — c'est-a-dire que
+				//      sur une fenetre deja maximisee, le bouton ne produisait
+				//      RIEN. Un controle qui ne peut donner qu'un seul resultat
+				//      n'est pas un bouton, c'est un decor.
+				//
+				//  ⚠️ ET `IsMaximized()` EXISTAIT DEPUIS TOUJOURS, avec ce
+				//     commentaire dans `NkWindow.h` : « pour barre de titre
+				//     custom ». Il attendait son appelant.
 				{
 					const bool h = inR(cMax);
-					dl.AddRectFilled(cMax, h ? mUI.theme.buttonHover : mUI.theme.button, 3.f);
+					const bool maximisee = mWindow.IsMaximized();
+					dl.AddRectFilled(cMax, h ? mUI.theme.buttonHover : mUI.theme.button, mWinControlsFlush ? 0.f : 3.f);
 					const float32 gx = cMax.x + cMax.w * 0.5f, gy = cMax.y + cMax.h * 0.5f;
-					dl.AddRect({gx - carre * 0.5f, gy - carre * 0.5f, carre, carre},
-							   mUI.theme.textDisabled, 1.2f);
+					if (maximisee) {
+						// RESTAURER : deux carres decales, la convention de tous
+						// les systemes — celui de devant est la fenetre qui
+						// redescend, celui de derriere la place qu'elle laisse.
+						const float32 p = carre * 0.74f, d = carre * 0.26f;
+						dl.AddRect({gx - p * 0.5f + d, gy - p * 0.5f - d, p, p},
+								   mUI.theme.textDisabled, 1.2f);
+						dl.AddRect({gx - p * 0.5f - d, gy - p * 0.5f + d, p, p},
+								   mUI.theme.textDisabled, 1.2f);
+					} else {
+						dl.AddRect({gx - carre * 0.5f, gy - carre * 0.5f, carre, carre},
+								   mUI.theme.textDisabled, 1.2f);
+					}
 					if (h && mUI.input.mouseClicked[0]) {
-						mWindow.Maximize();
+						if (maximisee)
+							mWindow.Restore();
+						else
+							mWindow.Maximize();
 						consumed = true;
 					}
 				}
@@ -2836,7 +2887,7 @@ namespace nkentseu {
 				{
 					const bool h = inR(cClose);
 					const NkColor rouge = {248, 81, 73, 255}; // #f85149 (Banani --color-error)
-					dl.AddRectFilled(cClose, h ? NkColor{255, 110, 102, 255} : rouge, 3.f);
+					dl.AddRectFilled(cClose, h ? NkColor{255, 110, 102, 255} : rouge, mWinControlsFlush ? 0.f : 3.f);
 					const float32 gx = cClose.x + cClose.w * 0.5f, gy = cClose.y + cClose.h * 0.5f;
 					const NkColor blanc = {255, 255, 255, 255};
 					dl.AddLine({gx - demiX, gy - demiX}, {gx + demiX, gy + demiX}, blanc, 1.4f);
@@ -2847,6 +2898,16 @@ namespace nkentseu {
 					}
 				}
 			}
+			// ⚠️ LE TRAIT DU BAS SE POSE **APRES** LES BOUTONS, ET C'EST TOUT
+			//    L'OBJET. Rodolf, 28/09 : « le trait du menu doit aller jusqu'a
+			//    droite, un peu depasser le bouton fermer ». `BeginMenuBar` le
+			//    peint pour SON rectangle, qui s'arrete aux controles de fenetre :
+			//    le bandeau semblait finir au milieu de l'ecran. Le poser AVANT
+			//    les boutons n'aurait rien change non plus -- a fleur, ils font
+			//    toute la hauteur de la barre et l'auraient recouvert.
+			//    Meme jeton, meme epaisseur : il ne fait que finir la ligne.
+			if (!mUI.appFullScreen)
+				dl.AddRectFilled({bar.x, bar.y + bar.h - 1.f, bar.w, 1.f}, mUI.theme.border);
 			// Minimiser (trait).
 			if (!mWinControlsCompact) {
 				const bool h = inR(cMin);
@@ -3708,15 +3769,69 @@ namespace nkentseu {
 				if (!mUiStateGeometrie && (StartsWith(s, "win=") || StartsWith(s, "maximized=")))
 					return;
 				if (StartsWith(s, "win=")) {
-					// Restaure la TAILLE seulement (pas la position -> pas de changement de
-					// moniteur/DPI qui désynchroniserait l'échelle). Le resize du renderer
-					// suit dans la boucle (GetSize).
+					// ═══════════════════════════════════════════════════════════
+					//  LA POSITION AUSSI, ET ELLE EST BORNEE A L'ECRAN (28/09)
+					// ═══════════════════════════════════════════════════════════
+					//  Rodolf : « la fenetre doit conserver ses dimensions et sa
+					//  position apres chaque fermeture et les recuperer apres
+					//  chaque ouverture ».
+					//
+					//  ⚠️ LA RAISON QUI FAISAIT REFUSER LA POSITION RESTE VRAIE :
+					//     une fenetre rouverte sur un moniteur DEBRANCHE est une
+					//     fenetre INTROUVABLE — l'utilisateur croit l'application
+					//     cassee. On ne renonce donc pas a la garde, on la REND
+					//     EXPLICITE : la position n'est posee que si elle laisse
+					//     une poignee visible sur l'ecran courant.
+					//
+					//  ⚠️ `kPoignee` EST CE QUI DOIT RESTER ATTRAPABLE : 120 px de
+					//     barre de titre. Une fenetre dont il ne reste qu'un pixel
+					//     est aussi perdue qu'une fenetre hors ecran.
+					//
+					//  🔴 ET LA GARDE INTERROGE TOUS LES MONITEURS, PAS L'ECRAN
+					//     COURANT. Rodolf, 28/09 : « conserver le bureau ou l'ecran
+					//     ou elle a ete fermee si on a plusieurs ecrans [...] mais
+					//     quand plusieurs ne sont pas branches, la mettre sur
+					//     l'ecran principal ». `GetDisplaySize()` ne decrit qu'UN
+					//     ecran : s'en servir aurait rejete toute position du
+					//     second moniteur — c'est-a-dire aurait ramene la fenetre
+					//     sur l'ecran principal alors meme que son ecran etait la.
+					//     `EnumerateMonitors()` recalcule a chaque appel et reflete
+					//     le branchement REEL (hot-plug compris).
 					int32 x = 0, y = 0, w = 0, h = 0;
 					if (std::sscanf(s + 4, "%d|%d|%d|%d", &x, &y, &w, &h) == 4 && w > 200 && h > 150 && w < 20000 &&
 						h < 20000) {
 						if (mWindow.IsMaximized())
 							mWindow.Restore(); // sortir de l'état maximisé AVANT de dimensionner
 						mWindow.SetSize(static_cast<uint32>(w), static_cast<uint32>(h));
+						const int32 kPoignee = 120, kHaut = 40;
+						const NkVector<NkDisplayInfo> ecrans = mWindow.EnumerateMonitors();
+						bool surUnEcran = false;
+						for (uint32 m = 0; m < (uint32)ecrans.Size(); ++m) {
+							const NkDisplayInfo &e = ecrans[m];
+							if (e.width == 0u || e.height == 0u)
+								continue;
+							// Une POIGNEE doit tomber dans ce moniteur : le coin
+							// haut-gauche peut deborder a gauche ou en haut, du
+							// moment qu'il reste de quoi attraper la barre.
+							if (x + kPoignee > e.posX && y + kHaut > e.posY
+								&& x < e.posX + (int32)e.width - kPoignee
+								&& y < e.posY + (int32)e.height - kHaut) {
+								surUnEcran = true;
+								break;
+							}
+						}
+						if (surUnEcran)
+							mWindow.SetPosition(x, y);
+						else {
+							// Son ecran n'est plus la : retour sur le PRINCIPAL,
+							// et pas a (0,0) — un coin exact recouvre la barre des
+							// taches sur certaines configurations.
+							for (uint32 m = 0; m < (uint32)ecrans.Size(); ++m)
+								if (ecrans[m].isPrimary) {
+									mWindow.SetPosition(ecrans[m].posX + 60, ecrans[m].posY + 60);
+									break;
+								}
+						}
 					}
 				} else if (StartsWith(s, "maximized=")) {
 					// Maximize()/Restore() du moteur BASCULENT (toggle) -> guarder par
@@ -4163,8 +4278,14 @@ void NkEditorShell::MaximizeWindow() noexcept {
 			// + l'état maximisé. La POSITION n'est PAS restaurée (éviterait un changement
 			// de moniteur/DPI qui désynchronise l'échelle).
 			const bool gmax = mGeomValid ? mGeomMax : mWindow.IsMaximized();
-			if (!gmax)
-				out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
+			// ⚠️ `win=` S'ECRIT MEME MAXIMISEE, ET C'EST UN CORRECTIF (28/09).
+			//    Il ne s'ecrivait que hors plein ecran : fermer une fenetre
+			//    maximisee PERDAIT donc sa taille fenetree, et la demaximiser a la
+			//    session suivante rendait une taille par defaut que l'utilisateur
+			//    n'avait jamais choisie. `mGeomX/Y/W/H` sont justement la geometrie
+			//    FENETREE mise en cache -- elle reste vraie pendant que la fenetre
+			//    est maximisee, c'est tout son interet.
+			out += NkPrintf("win=%d|%d|%d|%d\n", mGeomX, mGeomY, mGeomW, mGeomH);
 			out += gmax ? "maximized=1\n" : "maximized=0\n";
 			// (Q6) LA LARGEUR DES TIROIRS, gauche|droite|bas, en px.
 			out += NkPrintf("tiroir=%d|%d|%d\n", (int)mRailLargeur[0], (int)mRailLargeur[1], (int)mRailLargeur[2]);

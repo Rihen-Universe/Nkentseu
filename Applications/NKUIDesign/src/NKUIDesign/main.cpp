@@ -79,6 +79,7 @@
 #include "ExportDialogue.h" // ④ le dialogue d'export : un seul, deux portes
 #include "Probe.h"
 #include "NkCoquilleDocument.h" // LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT
+#include "PanneauIcones.h"      // la bibliotheque d'icones, montree et copiable (28/09)
 #include "SondeCoquille.h"      // --sonde-coquille : leur verdict, sans fenetre ni GPU
 #include "SondeLecture.h"       // --sonde-lecture  : ouvrir un .nkgui, et ce que ca coute
 #include "SondeEdition.h"       // --sonde-edition  : LE TEMOIN DE R1 -- une ligne, pas deux
@@ -89,6 +90,7 @@
 #include "NkUIDesignLangues.h"  // LA table de traduction de cette application
 #include "SondePont.h"          // --sonde-pont     : les deux vues de la toile s'accordent-elles
 #include "NKEditorKit/NkEditorImages.h" // LE chargeur d'images des .nkgui (kit : 2D comme 3D)
+#include "NKEditorKit/NkEditorIcones.h" // LE jeu d'icones des verbes d'editeur (kit, 28/09)
 #include "DesignAIRecette.h" // --recette-ia : la preuve de recette du pipeline IA
 #include "DesignIABoutEnBout.h" // --ia-bout-en-bout : taper, poser, annuler
 #include "RecetteEdition.h"	 // --recette-edition : le contrat universel d'edition, par site
@@ -925,6 +927,7 @@ struct PanneauSonde : public nkentseu::editorkit::NkEditorPanel {
 //    `DesignState::AppliquerImportNkgui`, donc par `Panels.h`, declare plus haut
 //    que cette ligne et plus bas que les includes du debut.
 #include "SondeImport.h" // --sonde-import : la PORTE de « Importer un .nkgui »
+#include "SondeBarreOutils.h" // --sonde-barre-outils : survol, clic, action
 #include "RecetteAnnulation.h"
 #include "RecetteGestes.h"
 #include "RecetteSelection.h"
@@ -2740,6 +2743,10 @@ int nkmain(const NkEntryState &state) {
 		// chainon construit et debranche jusqu'au 28/09.
 		if (NkComponentDecl::StrEq(a, "--sonde-import"))
 			return nkuidesign::SondeImport();
+		// Rodolf, 28/09 : « les boutons n'ont pas d'effet de survol ni de clic ».
+		// Trois causes tenaient debout sans mesure ; celle-ci tranche.
+		if (NkComponentDecl::StrEq(a, "--sonde-barre-outils"))
+			return nkuidesign::SondeBarreOutils(gActionsDocument, gNbActionsDocument);
 		// LE TEMOIN DE R1 (doc 5 §2.3), sans souris et sans fenetre : une
 		// propriete posee doit deplacer UNE ligne du fichier, pas une de plus.
 		if (NkComponentDecl::StrEq(a, "--sonde-edition"))
@@ -3725,7 +3732,25 @@ int nkmain(const NkEntryState &state) {
 	// ── L EN-TETE AUX COTES DE LA MAQUETTE ───────────────────────────────
 	// 28 + 28, bloc logo carre de 56 a cheval sur les deux. Ces nombres sont
 	// des PIXELS : la mesure sur la capture doit les rendre tels quels.
-	shell->SetHeaderLayout(28.f, 28.f, 56.f);
+	//
+	// ⚠️ LA BANDE PASSE DE 28 A 56 (28/09), ET C'EST DEUX RANGEES DE 28, PAS UNE
+	//    BANDE PLUS HAUTE. Rodolf : « la barre d'outils est mal placee, elle doit
+	//    etre dans les onglets juste en bas ». Les onglets de projet occupent la
+	//    rangee haute, les actions du document la rangee basse -- la cote de la
+	//    maquette (28) est conservee pour chacune. Le decoupage se fait dans le
+	//    rappel de `SetToolbar`, qui repose la region entre les deux.
+	//
+	// ⚠️ 68 ET NON 56, ET LES 12 PX DE PLUS SONT DE L'AIR. Rodolf, apres la
+	//    premiere capture a deux rangees : « on doit avoir des espaces haut et
+	//    bas entre les rangees car les boutons du tool se chevauchent ; ou le
+	//    tool doit donner des espaces internes, c'est mieux ». Il avait raison
+	//    sur les deux : a 28 px de rangee pour un widget de 28 px, la marge
+	//    verticale vaut exactement ZERO -- `ItemHeight()` vaut
+	//    `LineHeight + 2*framePadY`, et la coquille centre sur `(h - itemH)/2`,
+	//    qui est nul quand les deux sont egaux. Un bouton collait donc au bord
+	//    de sa rangee, et deux rangees collees se lisent comme une seule.
+	//    34 px par rangee = le bouton, plus `kMargeRangee` de chaque cote.
+	shell->SetHeaderLayout(28.f, 68.f, 56.f);
 	// ⚠️ DEBRANCHER, PAS DETRUIRE : la coquille garde son code de barre
 	//    d activite intact, on lui dit seulement de ne pas la poser. Le dock
 	//    reprend la largeur liberee -- c est ecrit dans `NkEditorShell.h`.
@@ -3775,7 +3800,10 @@ int nkmain(const NkEntryState &state) {
 	//    20 px, pas les 13 de la maquette : Rodolf (31/08, 2e passe) —
 	//    « les boutons reduire/agrandir/fermer sont trop petits » ;
 	//    proportionnes a la bande de titre de 28.
-	shell->SetWindowControlsCompact(true, 20.f);
+	// Rodolf, 28/09 : « les boutons minimiser, maximiser et fermer doivent prendre
+	// leur hauteur de barre et etre carres ». `aFleur` : cotes = hauteur de la
+	// barre, colles au bord droit, coins vifs.
+	shell->SetWindowControlsCompact(true, 20.f, /*aFleur=*/true);
 	// 4. Les panneaux lateraux dessinent leur propre en-tete de 34 px : la
 	//    barre d'onglets du dock disparait quand ils sont seuls.
 	shell->SetSideTabsVisible(false);
@@ -3791,6 +3819,20 @@ int nkmain(const NkEntryState &state) {
 	// desormais son renderer. Sans cet appel, un `image:` d'un `.nkgui` serait
 	// compte `sansChargeur` et hachure : visible, jamais muet.
 	nkgui::NkEditorInstallerChargeurImage(shell.Get());
+	// LE JEU D'ICONES DES VERBES D'EDITEUR (28/09), pose UNE fois.
+	//
+	// 🔴 SANS LUI, TOUTE CLE `icon = "…"` D'UN DOCUMENT EST MUETTE. Le monteur
+	//    demande `NkGuiIconesPosees()` ; il rendait `nullptr` dans les cinq
+	//    applications, si bien que chaque icone ecrite se comptait
+	//    `iconesManquantes` et ne dessinait RIEN. Le mecanisme entier attendait
+	//    ses dessins -- c'est ce que la demande de Rodolf a revele (« les
+	//    boutons [...] doivent etre lies a des icones »).
+	//
+	// ⚠️ IL VIT DANS LE KIT (`NkEditorIcones.h`), pas ici : « Annuler »,
+	//    « Enregistrer » et « Exporter » sont les verbes de TOUT editeur, pas
+	//    ceux de NKUIDesign. Les ecrire dans cette application aurait donne un
+	//    cinquieme dessin du meme « Annuler ».
+	nkentseu::editorkit::NkEditorPoserIconesStandard();
 	// ⚠️ UN SEUL BANDEAU BAS (§4/§13 ; Rodolf, 30/08 : « pourquoi il y a deux
 	//    footers ? ») : la barre d'etat VSCode se debranche, le RAIL de
 	//    pastilles est le survivant — l'aide contextuelle et les messages
@@ -4049,18 +4091,80 @@ int nkmain(const NkEntryState &state) {
 		if (luDoc) {
 			shell->SetStatusBarFn(&nkuidesign::NkCoquilleDocument::MonterBarreEtat,
 								  &s_coquilleDoc);
-			// ── LA BARRE D'OUTILS FAIT LES DEUX ─────────────────────────────
+			// ── LA BARRE D'OUTILS FAIT LES DEUX, SUR DEUX RANGEES ───────────
 			// ⚠️ `SetToolbar` N'ACCEPTE QU'UN SEUL RAPPEL, et `DrawProjectTabs`
 			//    l'occupait : il enumere les projets ouverts A L'EXECUTION, et le
 			//    format ne sait pas exprimer une liste engendree. Le remplacer aurait
 			//    SUPPRIME les onglets — on ne migre pas vers moins.
 			//
-			//    Ce rappel appelle donc les deux, dans cet ordre : les onglets
-			//    d'abord (le code qui marche), puis la racine `barre_outils`. Rien
-			//    n'est retire, et le document gagne sa place dans la bande.
+			// ═══════════════════════════════════════════════════════════════
+			//  🔴 DEUX RANGEES, ET C'EST UN CORRECTIF DEMANDE DEUX FOIS
+			// ═══════════════════════════════════════════════════════════════
+			//  Rodolf, 28/09 : « la barre d'outils est mal placee, elle doit etre
+			//  dans les onglets juste en bas » ; puis, devant la capture : « les
+			//  boutons annuler, retablir, grouper, decouper, dupliquer,
+			//  enregistrer le document, exporter [...] sont tres mal places ».
+			//
+			//  Ils l'etaient : ce rappel les posait A LA SUITE des onglets de
+			//  projet, dans la MEME bande de 28 px. Un onglet de document et une
+			//  action sur le document ne sont pas de la meme nature, et les
+			//  aligner cote a cote les fait lire comme une seule liste.
+			//
+			//  La bande passe donc a 56 px et se coupe en deux : les onglets en
+			//  haut, les actions en dessous.
+			//
+			//  ⚠️ LA REGION SE REPOSE ENTRE LES DEUX, ET SANS CA RIEN NE BOUGE.
+			//     `DrawToolbar` (coquille) pose le curseur UNE fois, au centre
+			//     vertical de la bande entiere ; les deux rappels ecriraient donc
+			//     sur la meme ligne malgre la hauteur doublee. C'est le curseur
+			//     qui decide, pas la hauteur.
 			shell->SetToolbar(
 				[](NkEditorFrameContext &ec, void *u) {
+					auto &ctx = ec.Ui();
+					const nkgui::NkRect bande = ctx.layout.region;
+					const nkentseu::float32 h = bande.h * 0.5f;
+					// ⚠️ L'AIR EST DANS LA RANGEE, PAS ENTRE LES BOUTONS. Rodolf,
+					//    28/09 : « le tool doit donner des espaces internes, c'est
+					//    mieux ». Ecarter les boutons entre eux n'aurait rien regle
+					//    -- le chevauchement etait VERTICAL.
+					//
+					// 🔴 ET LA MARGE NE S'IMPOSE PAS, ELLE SE DEDUIT. Ma premiere
+					//    version retranchait 4 px en haut ET en bas d'une rangee de
+					//    34 ; le widget, lui, fait `ItemHeight()` = 28. La region
+					//    tombait a 26 et le bouton DEBORDAIT d'un pixel de chaque
+					//    cote : une bande dont le contenu sort de sa propre region.
+					//    On laisse donc la rangee entiere, et c'est le CENTRAGE de
+					//    la coquille qui fait l'air : (34 - 28) / 2 = 3 px en haut
+					//    comme en bas, quelle que soit la police. Un nombre impose
+					//    se perime a la premiere police plus grande ; un nombre
+					//    deduit, non.
+					const nkentseu::float32 kMargeRangee = 0.f;
+					// ⚠️ LA RANGEE BASSE PART DE ZERO, LA HAUTE PAS -- ET C'EST LE
+					//    LOGO QUI DECIDE. Rodolf, 28/09 : « sur la toolbar a gauche
+					//    il y a de l'espace non utilise, la toolbar doit prendre
+					//    toute la largeur ». Il avait raison, et la cause est
+					//    geometrique : la coquille passe la bande a partir de
+					//    `logoW`, parce que le bloc logo est a cheval sur la barre
+					//    de titre et le DEBUT de la bande. Depuis que la bande fait
+					//    68 px, le logo (56) ne couvre plus que la rangee HAUTE :
+					//    sous lui, la rangee basse laissait un trou de 56 px.
+					// ⚠️ `bande.x` EST la largeur du logo -- on la DERIVE au lieu de
+					//    reecrire 56, qui se perimerait au premier changement de
+					//    `SetHeaderLayout`.
+					auto rangee = [&](nkentseu::float32 y, bool pleineLargeur) {
+						const nkentseu::float32 gx = pleineLargeur ? 0.f : bande.x;
+						const nkgui::NkRect r{gx, y + kMargeRangee, bande.w + (bande.x - gx),
+											  h - 2.f * kMargeRangee};
+						const nkentseu::float32 ih = ctx.ItemHeight();
+						ctx.layout.region = r;
+						ctx.layout.cursor = {r.x + 8.f, r.y + (r.h - ih) * 0.5f};
+						ctx.layout.lineStartX = ctx.layout.cursor.x;
+						ctx.layout.curLineH = 0.f;
+						ctx.layout.maxX = ctx.layout.cursor.x;
+					};
+					rangee(bande.y, false); // le logo occupe la gauche de celle-ci
 					DrawProjectTabs(ec, nullptr);
+					rangee(bande.y + h, true); // celle-ci passe SOUS le logo
 					nkuidesign::NkCoquilleDocument::MonterBarreOutils(ec, u);
 				},
 				&s_coquilleDoc);
@@ -4069,6 +4173,15 @@ int nkmain(const NkEntryState &state) {
 			{
 				static nkuidesign::PanneauDocument s_panneauDoc(s_coquilleDoc);
 				shell->AddPanel(&s_panneauDoc);
+			}
+			// LA BIBLIOTHEQUE D'ICONES (28/09). Rodolf : « aussi dans nkuidesign
+			// pour les bibliotheques d'icones ». Un jeu qu'on ne peut pas VOIR
+			// n'est utilisable que par celui qui l'a ecrit : pour poser
+			// `icon = "degrouper"` dans un document, encore faut-il savoir que ce
+			// nom existe et a quoi il ressemble.
+			{
+				static nkuidesign::PanneauIcones s_panneauIcones(gDesign);
+				shell->AddPanel(&s_panneauIcones);
 			}
 			// 🔴 LE MONTAGE DU MENU N'EST PLUS ICI, ET C'ETAIT LA CAUSE DU MENU
 			//    DOUBLE (Rodolf, 28/09 : « on voit bien deux panneaux qui se
@@ -4123,9 +4236,32 @@ int nkmain(const NkEntryState &state) {
 			else if (!gTitreSonde)
 				snprintf(gCheminEtatUi, sizeof(gCheminEtatUi), "%s", "logs/nkuidesign_ui.cfg");
 		}
-		// ⚠️ SANS LA GEOMETRIE DE LA FENETRE : elle grossirait de +16/+39 px a
-		//    chaque lancement (`SetSize(GetSize())` n'est pas l'identite).
-		shell->SetUiStateGeometrie(false);
+		// ═════════════════════════════════════════════════════════════════
+		//  LA GEOMETRIE DE LA FENETRE EST RENDUE (28/09) -- ET MESUREE
+		// ═════════════════════════════════════════════════════════════════
+		//  Rodolf : « la fenetre doit conserver ses dimensions et sa position
+		//  apres chaque fermeture et les recuperer apres chaque ouverture ».
+		//
+		//  ⚠️ ELLE ETAIT DEBRANCHEE POUR UNE RAISON REELLE, ET CETTE RAISON A
+		//     ETE VERIFIEE AVANT DE LA RALLUMER : le 13/09, la fenetre
+		//     grossissait de +16/+39 px a chaque lancement parce que
+		//     `SetSize(GetSize())` n'etait pas l'identite. La cause a ete
+		//     refermee depuis, cote NKWindow :
+		//     `NkWin32TailleFenetreDepuisClient` convertit client -> fenetre et
+		//     n'ajoute RIEN en mode sans cadre (« WM_NCCALCSIZE rend toute la
+		//     fenetre cliente »), ce qui est exactement le cas de cette
+		//     application.
+		//
+		//     ⚠️ ET CE N'EST PAS UNE LECTURE DE CODE QUI LE DIT : la mesure est
+		//        DEUX LANCEMENTS de suite avec `--sauver-disposition`, et la
+		//        comparaison des deux lignes `win=`. C'est exactement le scenario
+		//        que Rodolf decrit (fermer, rouvrir) ; une relecture du
+		//        convertisseur n'aurait prouve que ma comprehension du
+		//        convertisseur.
+		//
+		//  ⚠️ LA POSITION EST BORNEE A L'ECRAN par la coquille : une fenetre
+		//     rouverte sur un moniteur debranche serait introuvable.
+		shell->SetUiStateGeometrie(true);
 		shell->EcrireEtatDocks("avant LoadUiState"); // (25/09) NK_DOCKS : l'etat AVANT le fichier
 		if (gCheminEtatUi[0])
 			shell->LoadUiState(gCheminEtatUi);
