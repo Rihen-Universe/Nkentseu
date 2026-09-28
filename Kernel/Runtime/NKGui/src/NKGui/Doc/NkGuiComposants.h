@@ -345,7 +345,49 @@ namespace nkentseu {
 		 *             document de se monter : il dit qu'il se montera INCOMPLET,
 		 *             et le rapport dit où.
 		 */
-		inline bool NkGuiDevelopperComposants(NkArchive &doc, NkGuiRapportComposants &rap) noexcept;
+		// =====================================================================
+		//  LES PATRONS QUI SURVIVENT AU DÉVELOPPEMENT (2026-09-28)
+		// =====================================================================
+		//  Rodolf, 28/09 : « faire un composant qui serait appelé et rempli en
+		//  C++ — notre nkgui doit le permettre ».
+		//
+		//  🔴 ET LE FAIT QUI BLOQUAIT SE MESURE : `NkGuiDevelopperComposants`
+		//     RETIRE les définitions du document développé, et sa propre note le
+		//     revendique — « un `widgets` de définition n'est pas une vue, c'est
+		//     un patron ». Elle a raison pour le MONTAGE : sans ce retrait, le
+		//     monteur compterait des widgets qui ne sont affichés nulle part.
+		//     Mais, à l'exécution, il ne restait alors plus rien à répéter.
+		//
+		//  Les définitions sont donc RENDUES À L'APPELANT au lieu d'être
+		//  perdues. Le document développé, lui, ne change pas d'un octet.
+		//
+		//  ⚠️ CE N'EST PAS UNE LISTE DE NOMS, C'EST LE CORPS. Garder les noms
+		//     seuls aurait donné un catalogue qu'on ne peut pas instancier —
+		//     le genre de demi-mesure qui ne se découvre qu'à l'usage.
+		struct NkGuiPatrons {
+				NkVector<NkString> noms;
+				NkVector<NkArchive> corps; ///< le bloc `component` complet
+
+				uint32 Taille() const noexcept {
+					return (uint32)noms.Size();
+				}
+
+				/// Le corps d'un patron, ou `nullptr`. C'est le SEUL endroit où un
+				/// nom de patron se résout — même règle que `Find` pour les icônes.
+				const NkArchive *Trouver(const char *nom) const noexcept {
+					if (!nom || !*nom)
+						return nullptr;
+					for (uint32 i = 0; i < (uint32)noms.Size(); ++i)
+						if (noms[i].Compare(NkString(nom)) == 0)
+							return &corps[i];
+					return nullptr;
+				}
+		};
+
+		/// `patronsOut` (facultatif) reçoit les définitions AVANT leur retrait du
+		/// document. Ne rien passer = le comportement d'avant le 28/09, au bit près.
+		inline bool NkGuiDevelopperComposants(NkArchive &doc, NkGuiRapportComposants &rap,
+											  NkGuiPatrons *patronsOut = nullptr) noexcept;
 
 	} // namespace nkgui
 } // namespace nkentseu

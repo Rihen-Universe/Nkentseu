@@ -2020,6 +2020,31 @@ namespace nkentseu {
 					return false;
 				}
 
+				// ═══════════════════════════════════════════════════════════════
+				//  MONTER UN BLOC ISOLE, hors de toute section (2026-09-28)
+				// ═══════════════════════════════════════════════════════════════
+				//  C'est la porte dont `NkGuiMonterPatron` a besoin : instancier un
+				//  patron a l'execution, c'est monter UN bloc qui ne vient d'aucune
+				//  section `widgets` du document.
+				//
+				//  ⚠️ ELLE N'OUVRE RIEN DE NEUF : `MonterCorps` est exactement ce
+				//     que `Monter` appelle pour chaque section. La rendre
+				//     accessible ne change aucun chemin existant -- c'est une porte
+				//     de plus sur la meme piece, pas une seconde piece.
+				//
+				//  ⚠️ `parentAbsolu = false` PAR DEFAUT, et c'est l'inverse du choix
+				//     des sections. Une section `widgets` est absolue « par nature :
+				//     rien ne la contient ». Un patron, lui, est monte DANS quelque
+				//     chose -- une zone hote, un menu deja ouvert : il suit le flux
+				//     de son hote, sinon il se poserait a l'origine de l'ecran.
+				static void MonterBloc(NkGuiContext &ctx, const NkArchive &bloc,
+									   NkGuiMonteEtat &etat, NkGuiMonteRapport &rap,
+									   NkGuiMonteHooks *hooks = nullptr, uint32 prof = 0u,
+									   bool horizontal = false,
+									   bool parentAbsolu = false) noexcept {
+					MonterCorps(ctx, bloc, etat, rap, prof, horizontal, parentAbsolu, hooks);
+				}
+
 			private:
 				// ── phase 1 ──────────────────────────────────────────────────
 				// ── LES CALQUES (`geometry`) ─────────────────────────
