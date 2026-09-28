@@ -1929,6 +1929,24 @@ namespace nkentseu {
 					costume = true;
 			float32 curseur = costume ? 8.f : 4.f;
 
+			// ═══════════════════════════════════════════════════════════════
+			//  LE RAIL VERTICAL EST UNE BARRE D'ONGLETS (28/09)
+			// ═══════════════════════════════════════════════════════════════
+			//  Rodolf : « ce tiroir est aussi un ensemble de fenetres, dont les
+			//  onglets verticaux ont ete remplaces par les pastilles ». Exact --
+			//  et le rail refaisait a la main la geometrie, le survol, la
+			//  selection et l'infobulle d'une barre d'onglets, SANS RIEN EMETTRE
+			//  dans le releve : les pastilles n'etaient mesurables par personne.
+			//
+			//  ⚠️ LE RAIL BAS NE PASSE PAS PAR LA, et c'est delibere : ses pilules
+			//     portent un libelle, ont une largeur propre et partagent leur
+			//     bandeau avec deux textes de pied. Ce n'est pas la geometrie d'une
+			//     pastille carree ; l'y forcer aurait melange deux changements.
+			if (vertical) {
+				RailVersOnglets(slot, bar, cell, costume);
+				return;
+			}
+
 			for (int32 i = 0; i < mRailCount[slot]; ++i) {
 				const NkEditorRailItem &it = mRailItems[slot][i];
 				// (Q7) SANS SELECTION, une pastille liee a la selection est RETIREE du
@@ -2056,6 +2074,110 @@ namespace nkentseu {
 		//    survol NKGui (z-ordre des fenetres) ne donnait pas la main a un widget
 		//    pose hors de toute fenetre. La poignee lit maintenant l'entree BRUTE,
 		//    avant le dock, et CONSOMME l'appui qu'elle prend.
+		// ═══════════════════════════════════════════════════════════════════
+		//  LES PASTILLES SONT DES ONGLETS VERTICAUX
+		// ═══════════════════════════════════════════════════════════════════
+		//  ⚠️ TROIS CHOSES QUE LA BARRE D'ONGLETS A DU APPRENDRE, et aucune
+		//     n'est du confort :
+		//       ① la PASTILLE -- un carre dont l'appelant peint le contenu ;
+		//       ② le REFERMABLE -- cliquer l'onglet actif le deselectionne,
+		//          parce qu'un tiroir se referme par sa propre pastille ;
+		//       ③ la SELECTION DETENUE PAR L'APPELANT -- la coquille possede
+		//          deja `mRailOuvert` et le sauvegarde dans l'etat d'interface.
+		//          Laisser la barre tenir une seconde verite en aurait fait
+		//          deux, qui divergent au premier rechargement.
+		//
+		//  ⚠️ ET LA TABLE `versRail` N'EST PAS DU CONFORT NON PLUS. Une pastille
+		//     liee a la selection DISPARAIT du rail quand rien n'est selectionne
+		//     (Rodolf, 21/09) : l'indice d'onglet et l'indice de rail ne
+		//     coincident donc pas. Rendre l'indice d'onglet tel quel ouvrirait
+		//     le mauvais tiroir des qu'une pastille est masquee.
+		void NkEditorShell::RailVersOnglets(int32 slot, const NkRect &bar, float32 cell,
+											bool costume) noexcept {
+			const char *libelles[kRailMax] = {};
+			const char *bulles[kRailMax] = {};
+			int32 versRail[kRailMax] = {};
+			int32 n = 0;
+			for (int32 i = 0; i < mRailCount[slot] && n < kRailMax; ++i) {
+				const NkEditorRailItem &it = mRailItems[slot][i];
+				if (it.lieALaSelection && !mRailSelection)
+					continue;
+				libelles[n] = it.panel ? it.panel : "";
+				bulles[n] = (it.tooltip && *it.tooltip) ? it.tooltip : libelles[n];
+				versRail[n] = i;
+				++n;
+			}
+			if (n <= 0)
+				return;
+
+			int32 selOnglet = -1;
+			for (int32 k = 0; k < n; ++k)
+				if (versRail[k] == mRailOuvert[slot])
+					selOnglet = k;
+
+			struct Pont {
+					NkEditorShell *shell;
+					int32 slot;
+					const int32 *versRail;
+			} pont{this, slot, versRail};
+
+			nkgui::NkGuiTabBarOptions opt;
+			opt.vertical = true;
+			opt.cote = cell;
+			opt.refermable = true;
+			opt.selectionImposee = selOnglet;
+			opt.infobulles = bulles;
+			opt.iconeUser = &pont;
+			// ⚠️ LAMBDA SANS CAPTURE : elle doit se convertir en pointeur de
+			//    fonction. Tout ce dont elle a besoin passe par `user`.
+			opt.icone = [](nkgui::NkGuiContext &ui, const NkRect &r, int32 index, bool actif,
+						   bool survol, void *u) {
+				auto *p = static_cast<Pont *>(u);
+				const NkEditorRailItem &it = p->shell->mRailItems[p->slot][p->versRail[index]];
+				if (it.icone) {
+					it.icone(ui, r, actif, survol, it.iconeUser);
+					return;
+				}
+				// Faute d'atlas, une a deux lettres -- le comportement d'avant.
+				if (ui.font && ui.font->Valid() && it.glyphe && *it.glyphe) {
+					const float32 w = ui.font->MeasureWidth(it.glyphe);
+					const float32 by =
+						r.y + (r.h - ui.font->LineHeight()) * 0.5f + ui.font->Ascent();
+					ui.DL().AddText(ui.font->Face(), ui.font->TexId(),
+									{r.x + (r.w - w) * 0.5f, by}, it.glyphe,
+									actif ? ui.theme.onAccent
+										  : (survol ? ui.theme.text : ui.theme.textDisabled));
+				}
+			};
+
+			// La disposition, le temps de la colonne. ⚠️ ON LA SAUVE ET ON LA
+			// REMET : la barre d'onglets avance le curseur de l'hote, et le rail
+			// est dessine AU MILIEU du reste de la coquille.
+			const nkgui::NkGuiLayout sauve = mUI.layout;
+			mUI.BeginLayout({bar.x, bar.y + (costume ? 8.f : 4.f), cell, bar.h});
+			// L'ecart entre deux pastilles : 4 px en costume, colle sinon. Il
+			// passe par l'espacement de la disposition, parce que c'est lui que
+			// `NextItemRect` consulte en colonne.
+			mUI.layout.itemSpacingY = costume ? 4.f : 0.f;
+
+			char cle[48];
+			nkentseu::NkSnprintf(cle, sizeof(cle), "nkeditor.rail.%d", (int)slot);
+			const int32 choisi = nkgui::TabBarOpt(mUI, cle, libelles, n, nullptr, opt);
+
+			mUI.layout = sauve;
+
+			const int32 voulu = (choisi < 0 || choisi >= n) ? -1 : versRail[choisi];
+			if (voulu != mRailOuvert[slot]) {
+				// §13.3 : deplier la seconde referme la premiere. La regle reste
+				// structurelle -- `mRailOuvert` est UN entier.
+				mRailOuvert[slot] = voulu;
+				// ⚠️ LE CLIC EST CONSOMME. Sans ca, le meme clic ouvrait la
+				//    pastille PUIS la refermait par la regle du « clic ailleurs » :
+				//    elle clignotait sans jamais rester ouverte.
+				mUI.input.mouseClicked[0] = false;
+			}
+		}
+
 		void NkEditorShell::PoigneesTiroirs(const NkRect &corps) noexcept {
 			mRailPoigneeSurvol = -1;
 			const NkVec2 m = mUI.input.mousePos;

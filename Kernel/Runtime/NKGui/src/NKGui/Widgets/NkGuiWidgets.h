@@ -346,6 +346,54 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API int32 TabBarOriente(NkGuiContext &ctx, const char *id,
 											   const char *const *labels, int32 count,
 											   const bool *enabled, bool vertical) noexcept;
+
+		/// Ce qu'une barre d'onglets doit savoir en plus pour être AUSSI le rail
+		/// de pastilles d'une coquille d'éditeur.
+		///
+		/// 🔴 POURQUOI CES CHAMPS EXISTENT. Rodolf, 28/09 : « ce tiroir est aussi
+		///    un ensemble de fenêtres, dont les onglets verticaux ont été
+		///    remplacés par les pastilles ». Il a raison, et le rail le prouvait
+		///    à sa manière : il refaisait à la main la géométrie, le survol, la
+		///    sélection et l'infobulle d'une barre d'onglets — sans jamais rien
+		///    noter dans le relevé. **Les pastilles n'étaient mesurables par
+		///    personne.**
+		///
+		///    Mais une substitution directe aurait perdu trois choses que le rail
+		///    dit et qu'une barre ordinaire ne sait pas dire. Les voici, et elles
+		///    ne sont pas des options de confort :
+		struct NkGuiTabBarOptions {
+				/// En colonne plutôt qu'en ligne.
+				bool vertical = false;
+				/// ① PASTILLE : l'onglet est un CARRÉ de `cote` px et son contenu
+				///    est dessiné par l'appelant (icône vectorielle, badge…) au
+				///    lieu d'un libellé. 0 = onglet ordinaire à libellé.
+				float32 cote = 0.f;
+				void (*icone)(NkGuiContext &ui, const NkRect &r, int32 index, bool actif,
+							  bool survol, void *user) = nullptr;
+				void *iconeUser = nullptr;
+				/// ② REFERMABLE : cliquer l'onglet ACTIF le désélectionne et la
+				///    barre rend −1. Un tiroir se referme par sa propre pastille ;
+				///    une barre d'onglets ordinaire garde toujours une sélection.
+				bool refermable = false;
+				/// ③ SÉLECTION DÉTENUE PAR L'APPELANT. La coquille possède déjà
+				///    `mRailOuvert` et le sauvegarde dans l'état d'interface ;
+				///    laisser la barre tenir une SECONDE vérité en aurait fait
+				///    deux qui divergent au premier rechargement.
+				///    −2 = la barre garde la sienne ; sinon la valeur est imposée.
+				int32 selectionImposee = -2;
+				/// Infobulles par onglet (nullptr = le libellé).
+				const char *const *infobulles = nullptr;
+				/// Écart entre deux onglets, en px (0 = le défaut de l'orientation).
+				float32 ecart = 0.f;
+		};
+
+		/// La barre d'onglets COMPLÈTE — celle dont `TabBar`, `TabBarEx` et
+		/// `TabBarOriente` ne sont que des portes. Rend l'index sélectionné, ou
+		/// −1 si `refermable` et que l'onglet actif vient d'être refermé.
+		NKENTSEU_NKGUI_API int32 TabBarOpt(NkGuiContext &ctx, const char *id,
+										   const char *const *labels, int32 count,
+										   const bool *enabled,
+										   const NkGuiTabBarOptions &opt) noexcept;
 		// Onglets RENOMMABLES : `labels` = tableau de tampons MUTABLES (chacun de
 		// taille `labelBufSize`), double-clic sur un onglet l'édite inline. `enabled`
 		// et `allowRename` (nullptr = défauts) permettent de griser / refuser le

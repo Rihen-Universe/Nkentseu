@@ -1152,6 +1152,11 @@ namespace nkentseu {
 				float32 mRailGlisseX0 = 0.f, mRailGlisseL0 = 0.f;
 				int32 mRailPoigneeSurvol = -1; ///< la poignee survolee (pour la peindre)
 				void DrawRail(int32 slot, const nkgui::NkRect &bar, bool vertical) noexcept;
+				/// Le rail VERTICAL, dessine par la barre d'onglets de NKGui.
+				/// Rodolf, 28/09 : « ce tiroir est aussi un ensemble de fenetres,
+				/// dont les onglets verticaux ont ete remplaces par les pastilles ».
+				void RailVersOnglets(int32 slot, const nkgui::NkRect &bar, float32 cell,
+									 bool costume) noexcept;
 				void DrawRailDrawers(NkEditorFrameContext &ec, const nkgui::NkRect &corps) noexcept;
 				NkEditorPanel *TrouverPanneau(const char *titre) noexcept;
 
