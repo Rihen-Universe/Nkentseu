@@ -961,7 +961,11 @@ namespace nkentseu {
 				void BuildCodeSlot(int32 px) noexcept; ///< rasterise une taille dans le cache d'atlas (LRU)
 				void LoadTermFont() noexcept;		   ///< (re)charge la police du TERMINAL (taille globale fixe)
 				void DrawPreferences(NkEditorFrameContext &ec) noexcept; ///< fenetre Preferences (categories)
-				void BuildMenuBar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;
+				/// `limiteTitres` : x absolu au-delà duquel les titres de menus n'ont plus
+				/// le droit d'écrire — c'est le bord GAUCHE du titre de document centré.
+				/// Ce qui ne tient plus descend sous le « … » de NKGui (jamais masqué).
+				void BuildMenuBar(NkEditorFrameContext &ec, const nkgui::NkRect &rect,
+								  float32 limiteTitres) noexcept;
 				void DrawHeaderLogo(NkEditorFrameContext &ec, const nkgui::NkRect &r) noexcept;
 				void DrawTitleBar(NkEditorFrameContext &ec, const nkgui::NkRect &bar) noexcept;
 				void DrawToolbar(NkEditorFrameContext &ec, const nkgui::NkRect &rect) noexcept;

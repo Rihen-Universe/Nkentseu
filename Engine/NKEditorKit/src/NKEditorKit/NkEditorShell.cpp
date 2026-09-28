@@ -2732,21 +2732,47 @@ namespace nkentseu {
 				cMin = {bar.x + bar.w - bw * 3.f, bar.y, bw, bar.h};
 			}
 
+			// ── LA GEOMETRIE DU TITRE CENTRE SE CALCULE AVANT LES MENUS ──────────
+			//  🔴 ET C'EST TOUT LE CORRECTIF DU CHEVAUCHEMENT (Rodolf, 28/09 :
+			//     « eviter un chevauchement avec le titre du document [...] ca ne
+			//     doit jamais se chevaucher »). La barre recevait `cMin.x - menuX`,
+			//     c'est-a-dire TOUTE la bande jusqu'aux boutons de fenetre : le
+			//     dixieme menu s'ecrivait donc par dessus le nom du document. Le
+			//     titre etait calcule APRES, il ne pouvait rien empecher.
+			//
+			//  ⚠️ UN SEUL CALCUL, PAS DEUX. La tentation etait de mesurer la
+			//     largeur du titre une premiere fois ici pour borner les menus, et
+			//     une seconde fois plus bas pour le dessiner. Deux derivations du
+			//     meme nombre se separent au premier changement de police — ce
+			//     depot l'a deja paye. `ix`, `titleLx` et `titleRx` sont calcules
+			//     ICI et consommes par les deux usages.
+			//
+			//  ⚠️ LA BANDE PEINTE RESTE ENTIERE, seule la limite des TITRES recule.
+			//     Raccourcir le `rect` aurait laisse un trou de fond au milieu du
+			//     bandeau, entre le dernier menu et le titre.
+			float32 titleLx = bar.x + bar.w, titleRx = bar.x + bar.w; // vide par defaut
+			const char *info = mTitleCenter[0] ? mTitleCenter : mTitle;
+			const bool aTitreCentre = mUI.font && mUI.font->Face() && info[0] && !mUI.appFullScreen;
+			float32 ix = 0.f, iw = 0.f;
+			if (aTitreCentre) {
+				iw = mUI.font->MeasureWidth(info);
+				ix = bar.x + (bar.w - iw) * 0.5f;
+				titleLx = ix - mUI.S(10.f);
+				titleRx = ix + iw + mUI.S(10.f); // + petite marge
+			}
+
 			// Menus DANS la barre de titre (uniquement dans l'editeur, pas le launcher).
-			if (!mUI.appFullScreen)
-				BuildMenuBar(ec, {menuX, bar.y, cMin.x - menuX, bar.h});
-			else
+			if (!mUI.appFullScreen) {
+				// La limite cedee aux titres : le titre du document d'abord, les
+				// boutons de fenetre ensuite. Le plus contraignant des deux gagne.
+				const float32 limite = (titleLx < cMin.x) ? titleLx : cMin.x;
+				BuildMenuBar(ec, {menuX, bar.y, cMin.x - menuX, bar.h}, limite);
+			} else
 				mUI.menuBarX = menuX; // pour les zones de drag
 
 			// Infos specifiques au centre (ex. fichier actif) = "panneau du milieu".
-			// On retient son rect [titleLx, titleRx] pour delimiter les zones de drag.
-			float32 titleLx = bar.x + bar.w, titleRx = bar.x + bar.w; // vide par defaut
-			const char *info = mTitleCenter[0] ? mTitleCenter : mTitle;
-			if (mUI.font && mUI.font->Face() && info[0] && !mUI.appFullScreen) {
-				const float32 iw = mUI.font->MeasureWidth(info);
-				const float32 ix = bar.x + (bar.w - iw) * 0.5f;
-				titleLx = ix - mUI.S(10.f);
-				titleRx = ix + iw + mUI.S(10.f); // + petite marge
+			// Son rect [titleLx, titleRx] delimite aussi les zones de drag.
+			if (aTitreCentre) {
 				const float32 by = bar.y + (bar.h - mUI.font->LineHeight()) * 0.5f + mUI.font->Ascent();
 				// Costume (police de barre posée) : la pastille « ● » d'un fichier
 				// non enregistré se peint en `theme.warning` et le NOM en
@@ -3440,8 +3466,9 @@ namespace nkentseu {
 		}
 
 		// ── Barre de menus ───────────────────────────────────────────────────────
-		void NkEditorShell::BuildMenuBar(NkEditorFrameContext &ec, const NkRect &rect) noexcept {
-			if (!BeginMenuBar(mUI, rect))
+		void NkEditorShell::BuildMenuBar(NkEditorFrameContext &ec, const NkRect &rect,
+										 float32 limiteTitres) noexcept {
+			if (!BeginMenuBar(mUI, rect, limiteTitres))
 				return;
 
 			// Sur l'ecran de demarrage (launcher), PAS de menus (Fichier, etc.) : on
@@ -3815,6 +3842,25 @@ namespace nkentseu {
 								return;
 							const char *tw = pw ? pw->Title() : (b + 1);
 							const NkGuiId wid = mUI.GetId(tw);
+							// 🔴 UNE FEUILLE N'ACCEPTE PAS DEUX FOIS LA MEME FENETRE
+							//    (28/09). Rodolf : « nkuidesign_panneau_document ne
+							//    font que s'ajouter, c'est quoi leur probleme ? » --
+							//    quatre onglets identiques, un de plus par lancement.
+							//    Cette ligne poussait SANS RIEN VERIFIER : un fichier
+							//    portant N fois le meme identifiant donnait N onglets,
+							//    et l'enregistrement les recopiait tous. Le compte ne
+							//    pouvait que croitre, jamais decroitre.
+							// ⚠️ LA GARDE EST A LA RELECTURE, PAS A L'ECRITURE, et
+							//    c'est delibere : les fichiers deja gonfles existent
+							//    (celui de Rodolf en porte quatre), et ils doivent
+							//    GUERIR en se relisant. Une garde posee seulement a
+							//    l'ecriture les aurait laisses tels quels.
+							bool dejaLa = false;
+							for (int32 wq = 0; wq < L.winCount; ++wq)
+								if (L.windows[wq] == wid)
+									dejaLa = true;
+							if (dejaLa)
+								return;
 							L.windows[L.winCount++] = wid;
 							ensureMeta(wid, tw)->dockNode = idx;
 						}

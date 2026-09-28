@@ -519,6 +519,14 @@ static uint32 Empaquete(const NkColor &c) {
 // =============================================================================
 //  (b20) `Padding`, `Aspect`, `Overlay`, `Center` — quatre conteneurs de plus
 // =============================================================================
+// (b18) LA BARRE DE MENUS QUI CONNAIT SA LIMITE — dans son propre fichier.
+//
+// ⚠️ IL S'INCLUT ICI, ET PAS PARMI LES `#include` DU DEBUT. Un cas lit `Scene`,
+//    `Check`, `CheckEqU` et `CheckEqF`, declares plus haut : les remonter parmi
+//    les includes le ferait referencer du code pas encore declare. La position
+//    choisie est la premiere ou tout ce dont il depend existe.
+#include "CasBarreMenus.h"
+
 // Rodolf, 27/09 : « je pense qu'il y a encore plein de conteneurs qu'on peut
 // ajouter, donc integre-les. »
 //
@@ -3844,6 +3852,8 @@ int main(int argc, char **argv) {
 
 	CasRacineNommee();
 	CasQuatreConteneursDePlus();
+
+	CasBarreMenus();
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;

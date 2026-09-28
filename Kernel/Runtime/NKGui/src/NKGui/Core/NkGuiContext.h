@@ -424,6 +424,36 @@ namespace nkentseu {
 				float32 menuMeasureW[PopupMax] = {};
 				float32 menuMeasureH[PopupMax] = {};
 
+				// ── LE DÉPASSEMENT DE LA BARRE DE MENUS (2026-09-28) ─────────────
+				//  Rodolf : « si le menu est touffu à partir d'un niveau ou nombre
+				//  de menus on devrait avoir un bouton "…" ».
+				//
+				//  🔴 CE QUI MANQUAIT N'ÉTAIT PAS LE BOUTON, C'ÉTAIT LA LIMITE.
+				//     `BeginMenu` avançait `menuBarX` sans JAMAIS le comparer à
+				//     quoi que ce soit : une barre de dix menus écrivait donc par
+				//     dessus tout ce qui occupait le centre de la bande — c'est
+				//     exactement le chevauchement avec le titre du document.
+				//     Un bouton « … » posé sans cette limite n'aurait rien réglé :
+				//     il n'aurait eu aucun moment où se déclencher.
+				//
+				//  ⚠️ `menuBarLimite` N'EST PAS `menuBarRect.x + menuBarRect.w`, et
+				//     la différence est le tout : l'hôte pose la bande sur TOUTE la
+				//     largeur (elle peint le fond), mais ne cède aux TITRES que ce
+				//     qui précède le titre centré. Deux nombres, deux rôles.
+				//  ⚠️ DEUX RÈGLES, PARCE QUE RODOLF EN A NOMMÉ DEUX : « si le menu
+				//     est touffu à partir d'un NIVEAU **ou** d'un NOMBRE de menus ».
+				//     La largeur seule ne suffit pas — sur un grand écran, quinze
+				//     menus tiennent et restent illisibles. `menuBarMaxTitres` est
+				//     la seconde règle, et elle se DÉCLARE (document ou API).
+				float32 menuBarLimite = 0.f;			   ///< x maximal cédé aux titres
+				bool menuBarOuverte = false;			   ///< entre Begin/EndMenuBar
+				int32 menuBarMaxTitres = -1;			   ///< -1 = pas de plafond de nombre
+				int32 menuBarTitresPoses = 0;			   ///< titres réellement posés dans la bande
+				NkGuiId menuBarDebordId = NKGUI_ID_NONE;   ///< id du titre « … »
+				bool menuBarDeborde = false;			   ///< un menu au moins est tombé dedans
+				bool menuBarDebordOuvert = false;		   ///< le puits « … » est déroulé cette image
+				int32 menuBarDebordCompte = 0;			   ///< combien de menus y sont tombés
+
 				// IDs d'interaction
 				NkGuiId hotId = NKGUI_ID_NONE;	   ///< widget survolé (greedy : dernier soumis = au-dessus)
 				NkGuiId hotIdPrev = NKGUI_ID_NONE; ///< hotId de la frame précédente (résout le z-ordre)
