@@ -8700,6 +8700,46 @@ namespace nkuidesign {
 			//     comme un bouton cassé ; on cherche alors le défaut là où il n'y
 			//     en a pas. Ce qui se juge aujourd'hui est la PLACE.
 			void DessinerFlottants(NkGuiContext &ctx, const NkRect &zone) {
+				// ═══════════════════════════════════════════════════════════
+				//  🔴 LE MOBILIER FLOTTANT SE PEINT DANS LA SURIMPRESSION
+				// ═══════════════════════════════════════════════════════════
+				//  Rodolf, 28/09 : « le rectangle de sélection se pose en avant-
+				//  plan et traverse donc les éléments au-dessus ». Sur la capture :
+				//  le liseré bleu d'une page traverse la bascule
+				//  Design|Behavior|Animation|Split.
+				//
+				//  LA CAUSE EST UN ORDRE, ET L'EN-TÊTE DE CETTE FONCTION LE DIT
+				//  DÉJÀ : ces éléments sont « posés à des rectangles calculés
+				//  depuis `zone`, APRÈS le dessin du document ». Ils le sont --
+				//  mais le liseré de sélection, lui, se peint ENCORE APRÈS (« le
+				//  liseré se peint APRÈS le document et n'en fait pas partie :
+				//  c'est du mobilier d'éditeur »). Deux mobiliers, deux passes, et
+				//  le second recouvrait le premier.
+				//
+				//  ⚠️ ON NE DÉPLACE PAS L'APPEL, ON CHANGE DE COUCHE. Repousser
+				//     `DessinerFlottants` après le liseré aurait marché aujourd'hui
+				//     et se serait défait à la première passe de décor ajoutée
+				//     entre les deux -- un ordre tenu à la main se dénoue. La
+				//     surimpression (`dlOverlay`) est rastérisée APRÈS la couche
+				//     principale, quoi qu'on y ajoute ensuite ; et les popups, qui
+				//     y vivent aussi et sont soumis plus tard, restent au-dessus de
+				//     la bascule -- ce qui est l'ordre voulu.
+				//
+				//  ⚠️ LA GARDE EST UN OBJET, PAS DEUX LIGNES : cette fonction a un
+				//     `return` anticipé (modes graphe). Restaurer à la main aurait
+				//     laissé le contexte en surimpression pour tout le reste de
+				//     l'image sur ce chemin-là.
+				struct NkCoucheSurimpression {
+						NkGuiContext &c;
+						nkentseu::int32 sauve;
+						explicit NkCoucheSurimpression(NkGuiContext &cc) noexcept
+							: c(cc), sauve(cc.curPopupLevel) {
+							c.curPopupLevel = 0; // -> `ctx.DL()` rend `dlOverlay`
+						}
+						~NkCoucheSurimpression() noexcept {
+							c.curPopupLevel = sauve;
+						}
+				} coucheHaute(ctx);
 				auto &dl = ctx.DL();
 				const NkColor fond = ctx.theme.panel;
 				const NkColor bord = ctx.theme.border;
