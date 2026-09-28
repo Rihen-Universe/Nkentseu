@@ -521,6 +521,21 @@ namespace nkentseu {
 		//    attrape 10 px, on en voit 4) : c'est délibéré, et c'est la même
 		//    marge des deux côtés.
 		NKENTSEU_NKGUI_API float32 NkGuiSplitterWidth() noexcept;
+		// Réserve une BANDE FIXE en haut de la zone défilable courante : elle ne
+		// défile pas, et le contenu commence dessous. C'est ce qui fait qu'une
+		// fenêtre garde son en-tête — donc sa poignée, donc la possibilité d'être
+		// détachée. Un en-tête dessiné avec `NextItemRect` part avec le contenu.
+		//
+		// ⚠️ DEUX APPELS : la bande se peint avec SON découpage, que la fin
+		//    remplace par celui du contenu. À poser juste après `Begin`/`BeginChild`.
+		//
+		//      NkRect bande;
+		//      if (NkGuiBandeFixeDebut(ctx, 34.f, bande)) { … ; NkGuiBandeFixeFin(ctx); }
+		//
+		// Rend `false` s'il n'y a aucun cadre, ou si la bande mange toute la zone.
+		NKENTSEU_NKGUI_API bool NkGuiBandeFixeDebut(NkGuiContext &ctx, float32 hauteur,
+													   NkRect &bandeOut) noexcept;
+		NKENTSEU_NKGUI_API void NkGuiBandeFixeFin(NkGuiContext &ctx) noexcept;
 		// L'ordonnée du BAS de la zone défilable courante, en coordonnées de
 		// CONTENU — ce qu'il faut pour qu'un panneau partage sa hauteur (« la
 		// liste prend tout ce qui reste ») sans que le fond recule quand on

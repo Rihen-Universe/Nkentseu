@@ -4293,6 +4293,89 @@ namespace nkentseu {
 		// partout. Le dock et les poignees de tiroir la lisent tous les deux.
 		float32 NkGuiSplitterWidth() noexcept { return 4.f; }
 
+		// ═══════════════════════════════════════════════════════════════════
+		//  UNE BANDE FIXE EN HAUT D'UNE ZONE DEFILABLE (28/09)
+		// ═══════════════════════════════════════════════════════════════════
+		//  Rodolf, 28/09 : « le panneau n'a pas de header ». Il en avait un --
+		//  le bandeau de 34 px « Hierarchie » + oeil + loupe -- mais il etait
+		//  dessine avec `NextItemRect`, donc DANS le cadre de defilement : il
+		//  partait avec le contenu des qu'on descendait, et sortait de l'ecran.
+		//
+		//  ⚠️ UNE FENETRE GARDE SON ENTETE. C'est ce qui la rend saisissable,
+		//     donc detachable ; un entete qui defile n'est plus une poignee,
+		//     c'est du contenu qui lui ressemble.
+		//
+		//  ⚠️ DEUX APPELS, PAS UN, ET C'EST DELIBERE. La bande se peint AVEC SON
+		//     PROPRE DECOUPAGE : le cadre de defilement en a deja pousse un qui,
+		//     une fois la zone retrecie, EXCLURAIT la bande. Une fonction unique
+		//     aurait du deviner quand l'appelant a fini de peindre -- elle ne
+		//     peut pas. On ouvre, on peint, on ferme :
+		//
+		//       NkRect bande;
+		//       if (NkGuiBandeFixeDebut(ctx, 34.f, bande)) {
+		//           ... peindre dans `bande` ...
+		//           NkGuiBandeFixeFin(ctx);
+		//       }
+		//
+		//  ⚠️ A APPELER JUSTE APRES `Begin` / `BeginChild`, avant tout widget :
+		//     la fin remet la disposition en haut du contenu, et ce qui aurait
+		//     ete pose entre les deux se retrouverait recouvert.
+		bool NkGuiBandeFixeDebut(NkGuiContext &ctx, float32 hauteur, NkRect &bandeOut) noexcept {
+			if (ctx.childDepth <= 0 || hauteur <= 0.f)
+				return false;
+			NkGuiChildFrame &f = ctx.childStack[ctx.childDepth - 1];
+			// Une bande plus haute que la zone ne laisserait aucun contenu : on
+			// refuse, plutot que de rendre une zone de hauteur negative.
+			if (hauteur >= f.area.h)
+				return false;
+			bandeOut = {f.area.x, f.area.y, f.area.w, hauteur};
+			f.bandeHaute = hauteur;
+			// La marge que la disposition a posee d'elle-meme avant le premier
+			// element : on la RETIENT pour la remettre en bas de bande. Sans
+			// elle, la premiere ligne se collerait a l'en-tete alors qu'elle
+			// respire partout ailleurs -- et coder ce chiffre ici en ferait une
+			// seconde verite, fausse au premier changement de marge.
+			f.bandeMarge = ctx.layout.cursor.y - f.contentTop;
+			if (f.bandeMarge < 0.f)
+				f.bandeMarge = 0.f;
+			// Le decoupage du contenu cede la place a celui de la bande.
+			ctx.DL().PopClipRect();
+			ctx.DL().PushClipRect(bandeOut, true);
+			return true;
+		}
+
+		void NkGuiBandeFixeFin(NkGuiContext &ctx) noexcept {
+			if (ctx.childDepth <= 0)
+				return;
+			NkGuiChildFrame &f = ctx.childStack[ctx.childDepth - 1];
+			if (f.bandeHaute <= 0.f)
+				return;
+			const float32 h = f.bandeHaute;
+			f.bandeHaute = 0.f;
+
+			// La zone defilable commence SOUS la bande, et le haut du contenu la
+			// suit -- en gardant le decalage de defilement deja applique.
+			f.area.y += h;
+			f.area.h -= h;
+			f.contentTop += h;
+
+			const NkGuiScrollState st = ScrollGet(ctx, f.id);
+			const float32 gV = st.barV ? kScrollBarW : 0.f;
+			const float32 gH = (f.horizontal && st.barH) ? kScrollBarW : 0.f;
+			ctx.DL().PopClipRect(); // celui de la bande
+			ctx.DL().PushClipRect({f.area.x, f.area.y, f.area.w - gV, f.area.h - gH}, true);
+
+			// La disposition repart en haut du CONTENU. ⚠️ DE `contentTop`, PAS
+			// DE `area.y` : c'est `contentTop` qui porte le defilement, et
+			// repartir de la zone ecrirait toujours la premiere ligne en haut de
+			// l'ecran -- un contenu qui ne defilerait plus.
+			ctx.layout.cursor.y = f.contentTop + f.bandeMarge;
+			ctx.layout.cursor.x = f.contentLeft;
+			ctx.layout.lineStartX = ctx.layout.cursor.x;
+			ctx.layout.curLineH = 0.f;
+			ctx.layout.maxX = ctx.layout.cursor.x;
+		}
+
 		bool NkGuiBasVisible(NkGuiContext &ctx, float32 &basOut) noexcept {
 			if (ctx.childDepth <= 0)
 				return false;

@@ -177,6 +177,23 @@ namespace nkentseu {
 				/// dessinent pas — pour un panneau qui porte ses propres ascenseurs
 				/// et où la grande barre externe faisait doublon (NkUIDesign, 01/09).
 				bool sansBarre = false;
+				/// Hauteur de la BANDE FIXE en cours de peinture (0 = aucune).
+				/// Posée par `NkGuiBandeFixeDebut`, consommée par sa fin : c'est
+				/// ce qui permet à la fin de savoir de combien rétrécir la zone
+				/// défilable sans que l'appelant redonne le chiffre — un chiffre
+				/// redonné est un chiffre qui peut différer du premier.
+				float32 bandeHaute = 0.f;
+				/// La marge que la disposition avait posée d'elle-même avant le
+				/// premier élément, retenue à l'ouverture de la bande et remise
+				/// à sa fermeture.
+				///
+				/// ⚠️ ON LA RETIENT, ON NE L'ÉCRIT PAS. Une première version
+				///    remettait le curseur sur `contentTop` tout court : la
+				///    première ligne se collait au bas de l'en-tête, alors que
+				///    sans bande elle respirait de 10 px. Coder ce 10 ici en
+				///    aurait fait une seconde vérité, fausse le jour où la
+				///    disposition change de marge.
+				float32 bandeMarge = 0.f;
 				NkGuiLayout savedLayout;
 		};
 
