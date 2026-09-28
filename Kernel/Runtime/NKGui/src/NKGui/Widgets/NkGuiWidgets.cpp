@@ -2299,77 +2299,152 @@ namespace nkentseu {
 		//  ⚠️ ET LE COMPORTEMENT NE BOUGE PAS D'UNE LIGNE : même `ButtonBehavior`,
 		//     même `GetTabIndex`/`SetTabIndex`, mêmes jetons de thème. Un onglet
 		//     vertical est un onglet.
-		int32 TabBarOriente(NkGuiContext &ctx, const char *id, const char *const *labels,
-							int32 count, const bool *enabled, bool vertical) noexcept {
+		// ═══════════════════════════════════════════════════════════════════
+		//  LA BARRE D'ONGLETS COMPLETE -- `TabBar`, `TabBarEx` et
+		//  `TabBarOriente` ne sont que des portes vers celle-ci.
+		// ═══════════════════════════════════════════════════════════════════
+		//  Rodolf, 28/09 : « ce tiroir est aussi un ensemble de fenetres, dont
+		//  les onglets verticaux ont ete remplaces par les pastilles ».
+		//
+		//  🔴 ET LE RAIL LE PROUVAIT A SA MANIERE : il refaisait a la main la
+		//     geometrie, le survol, la selection et l'infobulle d'une barre
+		//     d'onglets -- sans jamais rien emettre dans le releve. Les
+		//     pastilles n'etaient donc mesurables par PERSONNE : ni leur etat,
+		//     ni leur place, ni laquelle etait ouverte.
+		//
+		//  ⚠️ TROIS CHOSES MANQUAIENT A LA BARRE pour pouvoir etre le rail, et
+		//     aucune n'est du confort : la PASTILLE (un carre dont l'appelant
+		//     peint le contenu), le REFERMABLE (cliquer l'actif deselectionne
+		//     -- un tiroir se referme par sa propre pastille) et la SELECTION
+		//     DETENUE PAR L'APPELANT (la coquille possede deja `mRailOuvert` et
+		//     le sauvegarde ; une seconde verite aurait diverge au premier
+		//     rechargement).
+		int32 TabBarOpt(NkGuiContext &ctx, const char *id, const char *const *labels, int32 count,
+						const bool *enabled, const NkGuiTabBarOptions &opt) noexcept {
 			if (count <= 0)
-				return 0;
+				return opt.refermable ? -1 : 0;
 			const NkGuiId bar = ctx.GetId(id);
-			int32 sel = ctx.GetTabIndex(bar);
-			if (sel < 0 || sel >= count) {
-				sel = 0;
-				ctx.SetTabIndex(bar, 0);
+			const bool pastille = (opt.cote > 0.f);
+
+			// ⚠️ LA SELECTION A DEUX PROPRIETAIRES POSSIBLES, ET UN SEUL A LA
+			//    FOIS. Quand l'appelant l'impose, la barre ne la memorise PAS :
+			//    elle lirait sa propre copie perimee a l'image suivante.
+			int32 sel;
+			if (opt.selectionImposee != -2) {
+				sel = opt.selectionImposee;
+			} else {
+				sel = ctx.GetTabIndex(bar);
+				if (sel < 0 || sel >= count) {
+					if (opt.refermable) {
+						sel = -1;
+					} else {
+						sel = 0;
+						ctx.SetTabIndex(bar, 0);
+					}
+				}
 			}
-			const float32 h = ctx.ItemHeight();
+
+			const float32 h = pastille ? opt.cote : ctx.ItemHeight();
+			const float32 ecart = (opt.ecart > 0.f) ? opt.ecart : 4.f;
 
 			for (int32 i = 0; i < count; ++i) {
 				const bool en = (enabled == nullptr) || enabled[i];
-				const float32 tw = ((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(labels[i], LabelEnd(labels[i])) : 40.f) + 22.f;
-				if (!vertical && i > 0)
-					ctx.SameLine(4.f);
+				const char *lib = labels ? labels[i] : "";
+				const float32 tw =
+					pastille ? opt.cote
+							 : (((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(lib, LabelEnd(lib)) : 40.f)
+								+ 22.f);
+				if (!opt.vertical && i > 0)
+					ctx.SameLine(ecart);
 				// En vertical on ne pose PAS de `SameLine` : chaque onglet prend
-				// sa ligne, et sa largeur est celle de la région (-1.f), pour que
-				// la colonne soit droite quel que soit le libellé.
-				const NkRect r = vertical ? ctx.NextItemRect(-1.f, h) : ctx.NextItemRect(tw, h);
-				const NkGuiId tid = NkGuiHashStr(labels[i], bar);
+				// sa ligne. Sa largeur est celle de la region (-1.f) pour que la
+				// colonne soit droite -- sauf en PASTILLE, ou elle est carree.
+				const NkRect r = (opt.vertical && !pastille) ? ctx.NextItemRect(-1.f, h)
+															 : ctx.NextItemRect(tw, h);
+				const NkGuiId tid = NkGuiHashStr(lib && *lib ? lib : id, bar + (NkGuiId)(i + 1));
 
 				bool hov = false, held = false;
 				if (en) {
 					if (ctx.ButtonBehavior(tid, r, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held)) {
-						sel = i;
-						ctx.SetTabIndex(bar, i);
+						// ⚠️ REFERMABLE : cliquer l'onglet ACTIF le deselectionne.
+						//    Sans ce test, une pastille ouverte se rouvrirait a
+						//    chaque clic et le tiroir ne se fermerait jamais.
+						const bool dejaActif = (sel == i);
+						sel = (opt.refermable && dejaActif) ? -1 : i;
+						if (opt.selectionImposee == -2)
+							ctx.SetTabIndex(bar, sel);
 					}
 				}
 				const bool selected = (i == sel);
-				const NkColor bg = selected
-									   ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
-																		: ctx.theme.panel)
-									   : (en && hov) ? ctx.theme.buttonHover : ctx.theme.button;
-				ctx.DL().AddRectFilled(r, bg, 4.f);
-				if (selected) {
-					if (vertical)
-						ctx.DL().AddRectFilled({r.x, r.y, 3.f, r.h}, ctx.theme.accent);
-					else
-						ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
-				} else
-					ctx.DL().AddRect(r, ctx.theme.border, 1.f, 4.f);
+				if (pastille) {
+					// Fond d'ETAT seulement : le contenu vient de l'appelant.
+					if (selected) {
+						NkColor voile = ctx.theme.accent;
+						voile.a = 34; // ~13 %, la pilule de la maquette
+						ctx.DL().AddRectFilled(r, voile, 4.f);
+					} else if (en && hov) {
+						ctx.DL().AddRectFilled(r, ctx.theme.buttonHover, 4.f);
+					}
+				} else {
+					const NkColor bg = selected ? (ctx.theme.tabActiveIsWindowBg ? ctx.theme.bgPrimary
+																				 : ctx.theme.panel)
+										 : (en && hov) ? ctx.theme.buttonHover
+													   : ctx.theme.button;
+					ctx.DL().AddRectFilled(r, bg, 4.f);
+					if (selected) {
+						if (opt.vertical)
+							ctx.DL().AddRectFilled({r.x, r.y, 3.f, r.h}, ctx.theme.accent);
+						else
+							ctx.DL().AddRectFilled({r.x, r.y + r.h - 3.f, r.w, 3.f}, ctx.theme.accent);
+					} else {
+						ctx.DL().AddRect(r, ctx.theme.border, 1.f, 4.f);
+					}
+				}
 				// 🔴 L'ONGLET SE NOTE, ET IL NE SE NOTAIT PAS. Mesure du 28/09 :
-				//    une sonde qui cherchait les onglets d'une `TabBar` montée
-				//    depuis un document en trouvait **ZÉRO** — la nature `Onglet`
-				//    existait dans l'énumération du relevé et **aucune ligne ne
-				//    l'émettait**. Un widget absent du relevé ne peut être mesuré
-				//    par personne : ni son orientation, ni son état, ni sa place.
-				// ⚠️ L'ÉTAT COMPLET, PAS SEULEMENT LA SÉLECTION : un onglet grisé
-				//    et un onglet non sélectionné se ressemblent au compteur, et
-				//    c'est justement la différence qu'un critère doit pouvoir
+				//    une sonde qui cherchait les onglets d'une `TabBar` montee
+				//    depuis un document en trouvait **ZERO** -- la nature
+				//    `Onglet` existait dans l'enumeration du releve et **aucune
+				//    ligne ne l'emettait**. Un widget absent du releve ne peut
+				//    etre mesure par personne : ni son orientation, ni son etat,
+				//    ni sa place. Les pastilles du rail en heritent aujourd'hui.
+				// ⚠️ L'ETAT COMPLET, PAS SEULEMENT LA SELECTION : un onglet grise
+				//    et un onglet non selectionne se ressemblent au compteur, et
+				//    c'est justement la difference qu'un critere doit pouvoir
 				//    lire.
-				NkGuiNoter(ctx, NkGuiNature::Onglet, tid, labels[i], r,
+				NkGuiNoter(ctx, NkGuiNature::Onglet, tid, lib, r,
 						   static_cast<uint16>((selected ? NK_GUI_ETAT_SELECTION : 0)
 											   | (en ? 0 : NK_GUI_ETAT_GRISE)
 											   | (hov ? NK_GUI_ETAT_SURVOLE : 0)));
-				const NkColor lc = !en		  ? ctx.theme.textDisabled
-								   : selected ? ctx.theme.text
-											  : NkColor{180, 185, 196, 255};
-				// ⚠️ EN VERTICAL LE LIBELLÉ EST À GAUCHE, PAS CENTRÉ : une colonne
-				//    de libellés centrés ne s'aligne sur rien et se lit mal dès
-				//    que les longueurs diffèrent. Il laisse la place du liseré.
-				if (vertical && ctx.font && ctx.font->Valid())
-					ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
-									 {r.x + 10.f, CenteredBaseline(ctx, r)}, labels[i], lc,
-									 r.w - 14.f, 0.f, LabelEnd(labels[i]));
-				else
-					DrawCenteredLabel(ctx, r, labels[i], lc);
+				if (opt.icone) {
+					opt.icone(ctx, r, i, selected, en && hov, opt.iconeUser);
+				} else {
+					const NkColor lc = !en		  ? ctx.theme.textDisabled
+									   : selected ? ctx.theme.text
+												  : NkColor{180, 185, 196, 255};
+					// ⚠️ EN COLONNE LE LIBELLE EST A GAUCHE, PAS CENTRE : une
+					//    colonne de libelles centres ne s'aligne sur rien et se
+					//    lit mal des que les longueurs different. Il laisse la
+					//    place du lisere.
+					if (opt.vertical && ctx.font && ctx.font->Valid())
+						ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(),
+										 {r.x + 10.f, CenteredBaseline(ctx, r)}, lib, lc, r.w - 14.f,
+										 0.f, LabelEnd(lib));
+					else
+						DrawCenteredLabel(ctx, r, lib, lc);
+				}
+				// L'infobulle, quand l'appelant en fournit une.
+				if (opt.infobulles && opt.infobulles[i] && *opt.infobulles[i] && hov)
+					SetTooltip(ctx, opt.infobulles[i]);
 			}
 			return sel;
+		}
+
+		// La porte « orientation » : elle ne fait plus que remplir les options.
+		int32 TabBarOriente(NkGuiContext &ctx, const char *id, const char *const *labels, int32 count,
+							const bool *enabled, bool vertical) noexcept {
+			NkGuiTabBarOptions opt;
+			opt.vertical = vertical;
+			return TabBarOpt(ctx, id, labels, count, enabled, opt);
 		}
 
 		int32 TabBar(NkGuiContext &ctx, const char *id, const char *const *labels, int32 count) noexcept {
