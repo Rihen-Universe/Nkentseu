@@ -70,6 +70,147 @@ namespace nkentseu {
 				void *user = nullptr;
 		};
 
+		// =====================================================================
+		//  UN COMPOSANT APPELÉ ET REMPLI EN C++ (2026-09-28)
+		// =====================================================================
+		//  Rodolf, 28/09 : « faire un composant qui serait appelé et rempli en
+		//  C++ — notre nkgui doit le permettre ». Et, le même jour, la raison :
+		//  « un document est constitué de plusieurs composants, plusieurs
+		//  pages ».
+		//
+		//  🔴 CE QUE ÇA CORRIGE. Une zone `Host` est un TROU que l'application
+		//     peint à la main : elle y rappelle `MenuItem`, `Button`… c'est-à-dire
+		//     qu'elle REDESSINE, en C++, ce que le document sait déjà décrire. Les
+		//     quatre listes engendrées de NKUIDesign (backends, thèmes, panneaux,
+		//     langues) vivaient comme ça, et leur apparence n'était donc PAS dans
+		//     le document.
+		//
+		//     Un patron instancié, lui, rend la forme au document : le `.nkgui`
+		//     dit à quoi ressemble UNE entrée, le C++ dit COMBIEN il y en a et
+		//     avec quelles valeurs. C'est le même partage que le MVC déjà posé —
+		//     le document est la Vue, l'application le Contrôleur.
+		//
+		//  ⚠️ LE PATRON DOIT AVOIR UNE SEULE RACINE, et c'est refusé sinon. Une
+		//     instance à deux racines n'a pas d'identifiant unique : le nom que
+		//     l'hôte donne irait à l'une des deux, et l'action de l'autre ne
+		//     serait servie par personne — un widget muet, exactement ce que la
+		//     sonde de coquille existe pour interdire.
+		//
+		//  ⚠️ L'IDENTIFIANT DE L'INSTANCE EST CELUI QUE L'HÔTE CHOISIT, et c'est
+		//     ce qui rend la chose utile : la racine du patron le PREND (les
+		//     descendants sont préfixés). La table d'actions de l'application sert
+		//     donc l'entrée sans rien savoir du patron.
+
+		/// Une valeur posée sur l'instance. `texte` = la valeur est une CHAÎNE
+		/// (l'archive la cite elle-même) ; sinon `lexeme` est écrit tel quel
+		/// (`true`, `12`, `#ff0000`).
+		///
+		/// ⚠️ DEUX CHAMPS PLUTÔT QU'UN, PARCE QUE CITER OU NON N'EST PAS UN
+		///    DÉTAIL : écrire `label = Vulkan` sans guillemets donnerait un jeton,
+		///    et `checked = "true"` entre guillemets donnerait une chaîne que
+		///    personne ne lit comme un booléen.
+		struct NkGuiValeurPatron {
+				const char *cle = nullptr;
+				const char *texte = nullptr;  ///< non nul : valeur chaîne
+				const char *lexeme = nullptr; ///< sinon : jeton brut
+
+				static NkGuiValeurPatron Texte(const char *c, const char *v) noexcept {
+					NkGuiValeurPatron p;
+					p.cle = c;
+					p.texte = v;
+					return p;
+				}
+				static NkGuiValeurPatron Brut(const char *c, const char *lex) noexcept {
+					NkGuiValeurPatron p;
+					p.cle = c;
+					p.lexeme = lex;
+					return p;
+				}
+				static NkGuiValeurPatron Booleen(const char *c, bool v) noexcept {
+					return Brut(c, v ? "true" : "false");
+				}
+		};
+
+		/// Monte UNE instance d'un patron, au curseur courant.
+		/// Rend faux si le patron est inconnu, sans racine unique, ou sans nom
+		/// d'instance — et ne dessine alors RIEN plutôt qu'un widget à moitié
+		/// nommé.
+		///
+		/// `activeOut` (facultatif) : vrai si CETTE instance vient d'être activée.
+		///
+		/// 🔴 IL EXISTE PARCE QU'UNE LISTE ENGENDRÉE N'A PAS DE NOM D'ACTION
+		///    STABLE. La table d'actions d'une application est écrite à la main,
+		///    une ligne par identifiant ; les instances d'un patron, elles,
+		///    naissent à l'exécution — « un dorsal par API disponible ». Les
+		///    router par la table ferait compter chaque clic dans
+		///    `actionsInconnues`.
+		///    L'hôte qui instancie sait déjà ce que sa ligne `i` désigne : on lui
+		///    rend donc l'activation, exactement comme `nkgui::MenuItem` la rend.
+		///
+		/// ⚠️ ET DANS CE CAS ON NE PASSE PAS `hooks` : les crochets de la bande
+		///    appelleraient `Declencher` sur un nom que personne ne sert. La
+		///    contrepartie est écrite : un patron monté sans crochets n'exécute
+		///    pas les `behavior` qu'il porterait. Un patron d'entrée de liste n'en
+		///    a pas ; le jour où l'un en porte, il faudra une table d'actions
+		///    dynamique, et ce sera un autre chantier.
+		inline bool NkGuiMonterPatron(NkGuiContext &ctx, const NkGuiPatrons &patrons,
+									  const char *nomPatron, const char *idInstance,
+									  const NkGuiValeurPatron *valeurs, uint32 nValeurs,
+									  NkGuiMonteEtat &etat, NkGuiMonteRapport &rap,
+									  NkGuiMonteHooks *hooks = nullptr,
+									  bool *activeOut = nullptr) noexcept {
+			if (activeOut)
+				*activeOut = false;
+			if (!idInstance || !*idInstance)
+				return false;
+			const NkArchive *def = patrons.Trouver(nomPatron);
+			if (!def)
+				return false;
+			// ⚠️ UNE COPIE PAR INSTANCE, ET C'EST ASSUMÉ. Le patron est un modèle
+			//    partagé : le modifier en place ferait que la deuxième instance
+			//    hériterait des valeurs de la première. Les listes visées comptent
+			//    quelques unités (six dorsaux, douze panneaux) — si un jour l'une
+			//    d'elles compte des milliers de lignes, c'est CETTE copie qu'il
+			//    faudra mesurer avant de la remplacer.
+			NkArchive inst = *def;
+			NkArchiveNode *corps = detail::NkGCCorpsMut(inst);
+			if (!corps || corps->array.Size() != 1u)
+				return false; // un patron = UNE racine (cf. la note ci-dessus)
+			NkArchiveNode &racineN = corps->array[0];
+			if (!racineN.IsObject() || !racineN.object)
+				return false;
+			NkArchive &racine = *racineN.object;
+
+			detail::NkGCRenommage ren;
+			detail::NkGCPoserId(racine, NkString(idInstance));
+			detail::NkGCPrefixerIds(racineN, NkString(idInstance), ren);
+
+			for (uint32 i = 0; i < nValeurs; ++i) {
+				const NkGuiValeurPatron &v = valeurs[i];
+				if (!v.cle || !*v.cle)
+					continue;
+				// L'identité ne se surcharge pas — même règle que `NkGCSurcharger`.
+				if (NkGuiArchive::IsReservedKey(NkStringView(v.cle)))
+					continue;
+				if (v.texte)
+					racine.SetString(NkStringView(v.cle), NkStringView(v.texte));
+				else if (v.lexeme)
+					NkGuiArchive::SetToken(racine, NkStringView(v.cle),
+										   NkStringView(v.lexeme));
+			}
+			NkGuiMonteur::MonterBloc(ctx, inst, etat, rap, hooks);
+			// ⚠️ LA CONDITION EST CELLE DE LA BANDE, AU MOT PRES -- relachement,
+			//    survole, non grise. Elle est ECRITE ICI parce que l'instance ne
+			//    passe PAS par `Declencher` (son nom n'est dans aucune table), et
+			//    deux conditions ecrites separement finissent par diverger : si
+			//    celle de `NkBandeDocument::Apres` change, celle-ci doit suivre.
+			//    Le patron ayant UNE seule racine, le « dernier widget soumis »
+			//    est bien l'instance.
+			if (activeOut)
+				*activeOut = ctx.IsItemHovered() && ctx.input.mouseReleased[0] && !ctx.IsDisabled();
+			return true;
+		}
+
 		// =========================================================================
 		//  UNE BANDE : un fichier, son archive, son état, son exécution
 		// =========================================================================
@@ -107,6 +248,12 @@ namespace nkentseu {
 				/// composant qu'on ne sait pas développer ne doit pas disparaître
 				/// en silence.
 				NkGuiRapportComposants composants;
+
+				/// LES PATRONS, gardes apres developpement (28/09). Ce sont eux que
+				/// `NkGuiMonterPatron` instancie a l'execution : sans cette table, un
+				/// `component` declare dans le document n'existe plus une fois le
+				/// document developpe.
+				NkGuiPatrons patrons;
 
 				/// Idem pour les `include` : combien résolus, et chaque refus nommé
 				/// (introuvable, illisible, cycle, sans provenance).
@@ -190,7 +337,8 @@ namespace nkentseu {
 					//     Le document se monte alors incomplet — et `composants`
 					//     dit où. Refuser tout le document punirait les neuf autres
 					//     instances qui, elles, sont justes.
-					NkGuiDevelopperComposants(doc, composants);
+					patrons = NkGuiPatrons();
+					NkGuiDevelopperComposants(doc, composants, &patrons);
 
 					NkGuiMonteur::Preparer(doc, etat);
 					infos.Lire(doc);

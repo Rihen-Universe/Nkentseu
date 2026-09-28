@@ -5933,7 +5933,35 @@ namespace nkuidesign {
 						badge((sx0 + sx1) * 0.5f, (sy0 + sy1) * 0.5f, m.valeur);
 					}
 				}
-				DessinerFlottants(ctx, area);
+				// ═══════════════════════════════════════════════════════════════
+				//  🔴 LE MOBILIER FLOTTANT EST DIFFERE JUSQU'A LA FIN DU PANNEAU
+				// ═══════════════════════════════════════════════════════════════
+				//  Il ne se dessine PAS ici, et ce n'est pas un oubli.
+				//
+				//  Rodolf, 28/09 : « le rectangle de selection se pose en avant-plan
+				//  et traverse donc les elements au-dessus ». Le lisere de selection
+				//  se peint plus bas dans cette meme fonction ; le mobilier, dessine
+				//  ici, passait donc dessous.
+				//
+				//  ⚠️ MA PREMIERE CORRECTION L'A MIS DANS LA SURIMPRESSION, ET ELLE
+				//     A CASSE AUTRE CHOSE -- capture de Rodolf a 07:13 : le rail
+				//     d'outils passait PAR-DESSUS le menu Fichier deroule. Les
+				//     popups vivent dans cette meme surimpression et sont soumis
+				//     PLUS TOT (barre de titre) : le mobilier, soumis apres, les
+				//     recouvrait. *Il faut trois etages -- toile, mobilier, popups --
+				//     et la surimpression n'en offre que deux.*
+				//
+				//  La solution tient dans l'ordre de la COUCHE PRINCIPALE : le
+				//  mobilier y reste, mais apres tout le decor. Les popups gardent
+				//  la surimpression, donc le dessus, sans qu'on ait rien a leur
+				//  dire.
+				//
+				//  ⚠️ ON DIFFERE PLUTOT QUE DE DEPLACER TROIS MILLE LIGNES : `OnUI`
+				//     en fait 3 249 et ne comporte AUCUNE sortie anticipee entre ce
+				//     point et sa fin (verifie : le seul `return;` de l'intervalle
+				//     est dans une lambda). Le drapeau est donc toujours honore.
+				mFlottantsZone = area;
+				mFlottantsADessiner = true;
 
 				// ── LE MENU CONTEXTUEL DE LA TOILE (Rodolf, 01/09 : « double-
 				//    cliquer pour l'édition est très compliqué — clic droit →
@@ -7546,6 +7574,15 @@ namespace nkuidesign {
 						}
 					}
 				}
+
+				// ── LE MOBILIER FLOTTANT, EN DERNIER (28/09) ─────────────
+				//    Bascule de mode, rail d'outils, grappe de zoom : ils se posent
+				//    APRES tout le decor de la toile, lisere de selection compris.
+				//    Voir la note la ou le drapeau est leve.
+				if (mFlottantsADessiner) {
+					mFlottantsADessiner = false;
+					DessinerFlottants(ctx, mFlottantsZone);
+				}
 			}
 
 		private:
@@ -8699,47 +8736,12 @@ namespace nkuidesign {
 			//     message dans le pied de fenêtre au clic. Un bouton muet se lit
 			//     comme un bouton cassé ; on cherche alors le défaut là où il n'y
 			//     en a pas. Ce qui se juge aujourd'hui est la PLACE.
+			/// ⚠️ APPELEE EN DERNIER DANS `OnUI`, jamais au fil du dessin -- voir le
+			///    drapeau `mFlottantsADessiner`. Elle peint dans la couche PRINCIPALE :
+			///    la surimpression appartient aux POPUPS, qui doivent rester au-dessus
+			///    de ce mobilier (capture du 28/09 a 07:13 : le rail d'outils passait
+			///    par-dessus le menu Fichier deroule).
 			void DessinerFlottants(NkGuiContext &ctx, const NkRect &zone) {
-				// ═══════════════════════════════════════════════════════════
-				//  🔴 LE MOBILIER FLOTTANT SE PEINT DANS LA SURIMPRESSION
-				// ═══════════════════════════════════════════════════════════
-				//  Rodolf, 28/09 : « le rectangle de sélection se pose en avant-
-				//  plan et traverse donc les éléments au-dessus ». Sur la capture :
-				//  le liseré bleu d'une page traverse la bascule
-				//  Design|Behavior|Animation|Split.
-				//
-				//  LA CAUSE EST UN ORDRE, ET L'EN-TÊTE DE CETTE FONCTION LE DIT
-				//  DÉJÀ : ces éléments sont « posés à des rectangles calculés
-				//  depuis `zone`, APRÈS le dessin du document ». Ils le sont --
-				//  mais le liseré de sélection, lui, se peint ENCORE APRÈS (« le
-				//  liseré se peint APRÈS le document et n'en fait pas partie :
-				//  c'est du mobilier d'éditeur »). Deux mobiliers, deux passes, et
-				//  le second recouvrait le premier.
-				//
-				//  ⚠️ ON NE DÉPLACE PAS L'APPEL, ON CHANGE DE COUCHE. Repousser
-				//     `DessinerFlottants` après le liseré aurait marché aujourd'hui
-				//     et se serait défait à la première passe de décor ajoutée
-				//     entre les deux -- un ordre tenu à la main se dénoue. La
-				//     surimpression (`dlOverlay`) est rastérisée APRÈS la couche
-				//     principale, quoi qu'on y ajoute ensuite ; et les popups, qui
-				//     y vivent aussi et sont soumis plus tard, restent au-dessus de
-				//     la bascule -- ce qui est l'ordre voulu.
-				//
-				//  ⚠️ LA GARDE EST UN OBJET, PAS DEUX LIGNES : cette fonction a un
-				//     `return` anticipé (modes graphe). Restaurer à la main aurait
-				//     laissé le contexte en surimpression pour tout le reste de
-				//     l'image sur ce chemin-là.
-				struct NkCoucheSurimpression {
-						NkGuiContext &c;
-						nkentseu::int32 sauve;
-						explicit NkCoucheSurimpression(NkGuiContext &cc) noexcept
-							: c(cc), sauve(cc.curPopupLevel) {
-							c.curPopupLevel = 0; // -> `ctx.DL()` rend `dlOverlay`
-						}
-						~NkCoucheSurimpression() noexcept {
-							c.curPopupLevel = sauve;
-						}
-				} coucheHaute(ctx);
 				auto &dl = ctx.DL();
 				const NkColor fond = ctx.theme.panel;
 				const NkColor bord = ctx.theme.border;
@@ -9494,6 +9496,14 @@ namespace nkuidesign {
 			static constexpr float32 kGrillePas = 20.f;
 
 			uint32 mMode = 0;  ///< Design / Behavior / Animation / Split
+			/// LE MOBILIER FLOTTANT EST DIFFERE (28/09) : sa zone est retenue au
+			/// moment ou la toile la connait, et le dessin se fait a la toute fin de
+			/// `OnUI` -- apres le lisere de selection, qui est du decor lui aussi.
+			/// ⚠️ LE DRAPEAU SE BAISSE AU DESSIN, pas a l'image suivante : une image
+			///    qui n'atteindrait pas la fin ne doit pas laisser un ordre de dessin
+			///    en attente pour la suivante.
+			NkRect mFlottantsZone{0.f, 0.f, 0.f, 0.f};
+			bool mFlottantsADessiner = false;
 			uint32 mOutil = 0; ///< famille d'outils active
 			bool mVuePosee = false; ///< la vue a-t-elle recu sa position de depart ?
 			nkentseu::int32 mVueEssais = 0; ///< frames d'attente du cadrage d'ouverture

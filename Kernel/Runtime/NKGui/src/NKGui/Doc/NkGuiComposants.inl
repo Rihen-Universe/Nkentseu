@@ -305,7 +305,8 @@ namespace nkentseu {
 
 		} // namespace detail
 
-		inline bool NkGuiDevelopperComposants(NkArchive &doc, NkGuiRapportComposants &rap) noexcept {
+		inline bool NkGuiDevelopperComposants(NkArchive &doc, NkGuiRapportComposants &rap,
+											  NkGuiPatrons *patronsOut) noexcept {
 			using namespace detail;
 
 			NkArchiveNode *corps = NkGCCorpsMut(doc);
@@ -329,6 +330,13 @@ namespace nkentseu {
 					continue;
 				}
 				rap.noms.PushBack(d.nom);
+				// LE PATRON EST RENDU A L'APPELANT AVANT SON RETRAIT du document
+				// (etape 3 plus bas). Sans ca, rien ne survit pour etre repete a
+				// l'execution -- cf. la note de `NkGuiPatrons`.
+				if (patronsOut) {
+					patronsOut->noms.PushBack(d.nom);
+					patronsOut->corps.PushBack(d.corps);
+				}
 				defs.PushBack(d);
 				++rap.definitions;
 			}

@@ -2068,7 +2068,38 @@ static bool ZoneMenuBackends(NkGuiContext &ctx, const NkRect &, void *) {
 		//    `vulkan` ferait croire que le fichier a change.
 		const bool courant = !gDesign.cfgChoice.Empty()
 							 && NkComponentDecl::StrEq(gDesign.cfgChoice.Data(), apis[i]);
-		if (nkgui::MenuItem(ctx, apis[i], nullptr, true, courant)) {
+		// ═══════════════════════════════════════════════════════════════════
+		//  🔴 LE PATRON DU DOCUMENT, INSTANCIE ICI — Rodolf, 28/09
+		// ═══════════════════════════════════════════════════════════════════
+		//  « faire un composant qui serait appelé et rempli en C++ — notre nkgui
+		//  doit le permettre ».
+		//
+		//  Cette boucle appelait `nkgui::MenuItem` : elle REDESSINAIT en C++ ce
+		//  que le document sait décrire, et l'apparence de ces entrées n'était
+		//  donc nulle part dans le `.nkgui`. Elle instancie desormais le patron
+		//  `entreeListe` : le document dit la FORME, cette boucle dit COMBIEN et
+		//  AVEC QUOI.
+		//
+		//  ⚠️ L'IDENTIFIANT EST CONSTRUIT, ET C'EST LE POINT : `design.backend.`
+		//     plus le nom de l'API. Aucune table d'actions ne peut le contenir
+		//     d'avance -- c'est pourquoi `NkGuiMonterPatron` rend l'activation au
+		//     lieu de la router par un nom.
+		//
+		//  ⚠️ ET LE REPLI EST HONNETE : si le patron manque (document ancien,
+		//     nom mal ecrit), on retombe sur l'ancien `MenuItem`. Une liste vide
+		//     aurait fait disparaitre le choix des dorsaux en silence.
+		char idEntree[128];
+		nkentseu::NkSnprintf(idEntree, sizeof(idEntree), "design.backend.%s", apis[i]);
+		const nkgui::NkGuiValeurPatron vals[2] = {
+			nkgui::NkGuiValeurPatron::Texte("label", apis[i]),
+			nkgui::NkGuiValeurPatron::Booleen("checked", courant)};
+		bool choisi = false;
+		const bool monte = nkgui::NkGuiMonterPatron(
+			ctx, gCoquilleDoc.bande.patrons, "entreeListe", idEntree, vals, 2u,
+			gCoquilleDoc.bande.etat, gCoquilleDoc.bande.rap, nullptr, &choisi);
+		if (!monte)
+			choisi = nkgui::MenuItem(ctx, apis[i], nullptr, true, courant);
+		if (choisi) {
 			const bool ok = gDesign.SetGfxConfig(apis[i]);
 			// LE RESULTAT SE DIT, ET LE REDEMARRAGE AUSSI : sans cette phrase,
 			// l'utilisateur regle, ne voit rien changer, et croit que rien n'a

@@ -221,6 +221,98 @@ namespace nkuidesign {
 			++ko;
 		}
 
+		// ── LE PATRON INSTANCIÉ DEPUIS LE C++ (28/09) ──────────────────────
+		// 🔴 TROIS CRITÈRES, ET LE PREMIER EST CELUI QUI A FAILLI MANQUER : le
+		//    patron doit SURVIVRE au développement des composants. Avant le
+		//    28/09, `NkGuiDevelopperComposants` retirait les définitions du
+		//    document — avec raison pour le montage, mais il ne restait alors
+		//    plus rien à instancier à l'exécution, et rien ne le disait.
+		//
+		// ⚠️ ET LE TROISIÈME EXIGE UN WIDGET, PAS UN APPEL QUI REND VRAI. Une
+		//    instanciation qui « réussit » sans rien monter serait un menu vide
+		//    qui se croit rempli — la forme exacte du défaut que cette sonde
+		//    existe pour attraper.
+		{
+			printf("  patrons gardes apres developpement = %u\n", coq.bande.patrons.Taille());
+			if (coq.bande.patrons.Taille() == 0u) {
+				printf("     KO : aucun patron — `component` declare mais perdu au "
+					   "developpement, rien a instancier depuis le C++\n");
+				++ko;
+			}
+			if (!coq.bande.patrons.Trouver("entreeListe")) {
+				printf("     KO : le patron « entreeListe » est introuvable\n");
+				++ko;
+			} else {
+				// ⚠️ L'INSTANCE SE MONTE DANS UN MENU RÉELLEMENT OUVERT, et ce
+				//    n'est pas du décorum de banc : le monteur écarte un
+				//    `MenuItem` posé hors d'une chaîne de menus (il le compte à
+				//    part, `elementsMenuHorsMenu`). Mesuré au premier essai —
+				//    « montée = OUI, entrées de menu = 0 » : l'instanciation
+				//    réussissait et ne dessinait rien. Le critère était juste, le
+				//    CONTEXTE était faux.
+				//
+				// ⚠️ ET PLUSIEURS IMAGES, parce qu'un menu de NKGui se MESURE une
+				//    image et s'applique à la suivante. Une seule image ne verrait
+				//    jamais un menu ouvert.
+				nkgui::NkGuiContext ctx;
+				ctx.viewW = 400;
+				ctx.viewH = 300;
+				nkgui::NkGuiIntrospectActiver(ctx, true);
+				const nkgui::NkRect bande{0.f, 0.f, 400.f, 26.f};
+				nkgui::NkGuiMonteRapport rapP;
+				bool monte = false, actif = false;
+				for (uint32 img = 0u; img < 4u; ++img) {
+					ctx.input.mousePos = {30.f, 12.f}; // sur le titre du menu
+					ctx.input.mouseDown[0] = (img == 1u);
+					ctx.BeginFrame(0.016f);
+					ctx.BeginLayout(bande);
+					ctx.DL().Reset();
+					rapP = nkgui::NkGuiMonteRapport();
+					if (nkgui::BeginMenuBar(ctx, bande)) {
+						if (nkgui::BeginMenu(ctx, "Épreuve")) {
+							const nkgui::NkGuiValeurPatron v[2] = {
+								nkgui::NkGuiValeurPatron::Texte("label", "Entrée d'épreuve"),
+								nkgui::NkGuiValeurPatron::Booleen("checked", true)};
+							monte = nkgui::NkGuiMonterPatron(
+								ctx, coq.bande.patrons, "entreeListe", "sonde.entree.1", v, 2u,
+								coq.bande.etat, rapP, nullptr, &actif);
+							nkgui::EndMenu(ctx);
+						}
+						nkgui::EndMenuBar(ctx);
+					}
+					ctx.EndFrame();
+				}
+				// 🔴 LE CRITÈRE QUI COMPTE N'EST PAS UN COMPTEUR, C'EST LE NOM.
+				//    Tout l'intérêt d'un patron instancié est que la racine PREND
+				//    l'identifiant que l'hôte donne : c'est lui que la table
+				//    d'actions sert. Un widget monté sous un autre nom serait
+				//    muet, et un compteur d'entrées ne le dirait pas.
+				const nkgui::NkGuiNote *note =
+					nkgui::NkGuiIntrospectTrouverCle(ctx, "sonde.entree.1");
+				printf("  instanciation d'un patron (dans un menu ouvert) : montee = %s, "
+					   "entrees = %u, hors menu = %u, note « sonde.entree.1 » = %s\n",
+					   monte ? "OUI" : "non", rapP.elementsMenu, rapP.elementsMenuHorsMenu,
+					   note ? "TROUVEE" : "absente");
+				if (!monte) {
+					printf("     KO : le patron existe et ne s'instancie pas\n");
+					++ko;
+				}
+				if (rapP.elementsMenu == 0u) {
+					printf("     KO : l'instanciation n'a monte AUCUNE entree — un menu vide "
+						   "qui se croit rempli\n");
+					++ko;
+				}
+				if (!note) {
+					printf("     KO : l'instance ne porte PAS l'identifiant donne par l'hote — "
+						   "son action ne serait servie par personne\n");
+					++ko;
+				} else if (note->libelle[0] == '\0') {
+					printf("     KO : l'instance n'a pas pris le libelle pose par l'hote\n");
+					++ko;
+				}
+			}
+		}
+
 		// ── LES COMMANDES QUE LE DOCUMENT DÉCRIT (28/09) ───────────────────
 		// 🔴 LE CRITÈRE QUI EMPÊCHE LE RACCOURCI DÉCORATIF. Depuis que le libellé
 		//    et le raccourci d'une commande viennent du `.nkgui`, rien

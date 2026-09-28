@@ -76,6 +76,34 @@ nkgui 0.4
 //     s'affiche et ne fait rien est un mensonge ; une entrée grisée est une
 //     promesse datée*.
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  UN PATRON, INSTANCIÉ DEPUIS LE C++ (28/09/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//  Rodolf : « faire un composant qui serait appelé et rempli en C++ — notre
+//  nkgui doit le permettre ».
+//
+//  🔴 CE QU'IL CORRIGE. Les quatre listes engendrées de cette interface — les
+//     dorsaux graphiques, les thèmes, les panneaux, les langues — sont des zones
+//     `Host` : un TROU que l'application peint à la main en rappelant `MenuItem`
+//     depuis le C++. Leur apparence n'était donc PAS dans ce document, alors que
+//     c'est exactement ce qu'un document d'interface doit dire.
+//
+//     Ce patron rend la forme au document. Le `.nkgui` dit à quoi ressemble UNE
+//     entrée ; le C++ dit COMBIEN il y en a et avec quelles valeurs. Même
+//     partage que le reste : le document est la Vue, l'application le Contrôleur.
+//
+//  ⚠️ UNE SEULE RACINE, ET C'EST UNE CONTRAINTE, PAS UN STYLE. L'hôte donne un
+//     identifiant par instance ; à deux racines, ce nom n'irait qu'à l'une des
+//     deux et l'autre serait muette.
+//
+//  ⚠️ LES VALEURS ÉCRITES ICI SONT DES DÉFAUTS VISIBLES, PAS DES EXEMPLES. Si
+//     l'hôte oublie de poser `label`, l'entrée affichera « (sans libellé) » —
+//     c'est-à-dire que l'oubli SE VERRA. Un défaut vide aurait donné une ligne
+//     blanche qu'on prend pour un séparateur.
+component "entreeListe" {
+  MenuItem "entree" { label = "(sans libellé)", checked = false }
+}
+
 widgets "menu" {
 
   // ── LE DÉPASSEMENT EST DÉCLARÉ ICI, PAS PROGRAMMÉ ──────────────────────
