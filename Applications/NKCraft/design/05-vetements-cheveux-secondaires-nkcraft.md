@@ -64,8 +64,8 @@ Tout ce qui est **porté** par un personnage et **bouge par la physique** est un
 
 **Quatre règles valent pour toutes les familles** :
 
-1. **Attaché par adresse** : un élément secondaire s'attache au corps par des
-   **adresses stables** (04 §3.2 : os, position le long de l'os, angle autour). Si le
+1. **Attaché par adresse** : un élément secondaire s'attache à la **peau** (04 §5.9) par
+   des **adresses stables** (04 §3.2 : os, position le long de l'os, angle autour). Si le
    corps change (bras plus long, créature plus grosse), l'élément **suit**.
 2. **Une couche à lui** : chaque élément est une **couche** du personnage, avec son
    auteur (humain, auto, IA) — il se régénère sans toucher au corps, et inversement.
@@ -84,6 +84,9 @@ La simulation a besoin de savoir **où est le corps**. Le générateur de créat
 
 - **capsules par os** (rapides, pour le jeu) : chaque os de C0 avec le rayon de son
   profil — **n'importe quelle créature**, pas seulement un humain ;
+- **les volumes du blockout** (04 §5.8) : ellipsoïdes, capsules, superquadriques —
+  des collisions simples **et fidèles** (un gros ventre, une épaule massive), gratuites
+  puisque l'artiste les a déjà posés ;
 - **champ de distance** du maillage skinné (`NkBodySDF`, existant) pour le film ;
 - **zones sans collision** nommées (entre les doigts, sous les aisselles quand c'est
   voulu) et **zones de friction** (épaules pour une bretelle, hanches pour une

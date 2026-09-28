@@ -23,7 +23,15 @@
 >   en l'intégrant dans les modifications — et vice versa »* ;
 > - *« R32 doit être résolu »* ;
 > - *« tu oublies les animaux marins, les animaux à ailes, les créatures à ailes ou
->   marines et inventées ? »* — ajouté au §5.7.
+>   marines et inventées ? »* — ajouté au §5.7 ;
+> - avec huit nouvelles planches (blockouts en volumes colorés, mannequins segmentés,
+>   centauresse, colosse) : *« imagine toujours l'effet paramétrique qui sort le blockout
+>   du personnage complet — la taille, les formes, les épaisseurs, les membres, pour les
+>   animaux le nombre de pieds, d'yeux, bref la totale, même chez les créatures — et une
+>   fois le blockout fait, un système appelé **peau** se pose sur ce dernier pour suivre
+>   les courbes et former la peau, sur laquelle on ajoute les cheveux, les poils, les
+>   détails »* — intégré le 28/09 : **volumes du blockout** (C1, §5.8) et **peau** (C2,
+>   §5.9).
 >
 > **Ce document complète** `01-produit-nkcraft.md` (§4.3 retopologie, §4.6 générateurs,
 > §4.7 IA) et `Tools/Genia/FORMAT_SCENE.md` (§8, R32). **Il ne les remplace pas** ; sur
@@ -38,9 +46,11 @@
 
 **Le générateur de créatures de NKCraft construit n'importe quel être — humain,
 animal de la terre, de l'air ou de l'eau, monstre, dragon, kraken, créature inventée
-à six bras ou huit pattes — à partir d'un
-squelette et de profils que l'artiste ou l'IA règle ; il en tire directement un
-maillage en quads prêt à animer, déjà riggé ; et chaque retouche humaine, en édition
+à six bras ou huit pattes — en trois temps : un **squelette** (la structure : membres,
+doigts, pattes, yeux), un **blockout en volumes** (la forme : tailles, épaisseurs,
+masses), puis une **peau** en quads construite depuis le squelette qui **se pose sur les
+volumes** et en épouse les courbes ; le résultat est prêt à animer, déjà riggé, et
+reçoit cheveux, poils et détails ; et chaque retouche humaine, en édition
 ou en sculpt, est gardée et reportée quand l'automatique ou l'IA reprend la main.**
 
 ---
@@ -113,6 +123,24 @@ On ne demande pas à un algorithme de **deviner** la topologie d'un corps : on l
 4. chaque sommet a une **adresse stable** (§3.2) : c'est ce qui permet de garder les
    retouches humaines (§10).
 
+### 2.2bis Squelette, volumes, peau — chacun son rôle
+
+La topologie vient du **squelette** ; la **forme** vient d'ailleurs : des **volumes du
+blockout**, comme dans la méthode enseignée en studio (volumes colorés des planches de
+Rodolf — ventre, poitrine, fessiers, rotules, masses d'épaule, bois de cerf). Un profil
+autour d'un os ne sait pas dire « un ventre posé devant le bassin » ; un volume, si.
+
+| rôle | qui le porte | ce qu'il décide |
+|---|---|---|
+| **structure** | le squelette (C0) | nombre de membres, doigts, pattes, yeux, têtes ; articulations ; rig |
+| **forme** | les volumes du blockout (C1) | tailles, épaisseurs, masses, muscles, ventre, cornes |
+| **surface** | la peau (C2) | une cage de quads **construite depuis le squelette** (topologie propre, adresses) qui **se pose** sur la surface lissée des volumes |
+
+⚠️ **Le piège évité** : calculer la peau **librement** sur les volumes (tout fusionner puis
+remailler) ramènerait au problème de retopologie (26,9 % aujourd'hui) et mettrait les
+boucles au mauvais endroit. Ici, la peau **garde sa topologie** et **prend la forme** des
+volumes.
+
 ### 2.3 L'état de l'art qui confirme la voie
 
 | travail | apport | code, licence |
@@ -140,8 +168,8 @@ abstraite à la plus fine ; le maillage affiché en est le **résultat**.
 | couche | contenu | qui l'écrit | survit à une régénération ? |
 |---|---|---|---|
 | **C0 — Squelette** | graphe d'os : noms, longueurs, orientations, répétitions (doigts, pattes), symétries | humain, IA | c'est la source |
-| **C1 — Forme** | profils des sections le long de chaque os ; formes des jonctions ; préréglages de style | humain, IA | c'est la source |
-| **C2 — Cage** | maillage de quads **généré** depuis C0 + C1, avec **adresses stables** | le générateur (jamais à la main) | régénérée **au bit près** (§10.6) |
+| **C1 — Volumes du blockout** | volumes nommés (ellipsoïdes, capsules, superquadriques, cônes, tores, boîtes arrondies, formes sculptées), **accrochés à un os**, avec leur mode (**fondu**, **séparé**, **creusé**) et leur rayon de fusion ; profils le long des os (le cas simple) ; préréglages de style | humain, IA | c'est la source |
+| **C2 — Peau** | cage de quads **construite depuis C0**, puis **posée** sur la surface lissée des volumes de C1 (§5.9) ; **adresses stables** | le générateur (jamais à la main) | régénérée **au bit près** (§10.6) |
 | **C3 — Opérations** | la pile R32 : coupes de boucles, extrusions (une corne ajoutée), biseaux, suppressions… **ciblées par nom, critère ou adresse** | humain, IA | **rejouée** par-dessus C2 |
 | **C4 — Sculpt** | couches de **déplacement** exprimées **dans le repère local** de la surface | humain (pinceaux), IA (couche à part) | **reportée** par les adresses |
 | **C5 — Rig** | squelette d'animation et poids, déduits de C0 et de C2 | le générateur ; ajustable dans NkAnimaEditor | recalculé, **retouches de poids gardées** |
@@ -154,7 +182,8 @@ abstraite à la plus fine ; le maillage affiché en est le **résultat**.
 Chaque sorte de retouche a **sa** couche, et chaque couche sait survivre à un
 changement des couches du dessous :
 
-- changer une **proportion** (C1) ne touche ni aux opérations (C3) ni au sculpt (C4) ;
+- changer une **proportion** ou **un volume** (C1 : un ventre plus rond, une épaule plus
+  massive) repose la peau ; ni les opérations (C3) ni le sculpt (C4) ne sont perdus ;
 - ajouter un **doigt** (C0) ajoute ses anneaux ; le sculpt des autres doigts reste sur
   eux, **par leur nom** ;
 - une **corne extrudée à la main** (C3) est rejouée sur la nouvelle tête ;
@@ -162,7 +191,7 @@ changement des couches du dessous :
 
 ### 3.2 L'adresse stable — la clé de tout
 
-Chaque sommet de la cage C2 porte une **adresse** qui ne dépend ni de sa position ni
+Chaque sommet de la peau C2 porte une **adresse** qui ne dépend ni de sa position ni
 de son indice :
 
 | lieu | adresse | exemple |
@@ -223,6 +252,17 @@ forme
   tete gabarit "reptile"  museau 0.6  machoire 0.4  orbites 2  yeux 2  narines 2
   resolution anneaux 12  boucles_articulation 3
 
+volumes                                              // C1 : le blockout
+  volume ventre        sur colonne.1  forme ellipsoide  taille 0.70 0.55 0.80  decale 0 -0.15 0.05  fondu 0.12  mou oui
+  volume poitrail      sur colonne.3  forme ellipsoide  taille 0.75 0.60 0.55  decale 0 -0.05 0.10  fondu 0.10
+  volume epaule_g      sur bras_g     forme superquadrique taille 0.30 0.28 0.35  exposants 2.5 2.0  fondu 0.08
+  volume cuisse_g      sur cuisse_g   forme capsule     rayon 0.26  fondu 0.10  muscle oui
+  volume machoire      sur tete       forme boite_arrondie taille 0.40 0.18 0.50  arrondi 0.06  fondu 0.05
+  volume orbite_g      sur tete       forme ellipsoide  taille 0.10 0.08 0.10  decale 0.12 0.10 0.30  creuse
+  volume corne_g       sur tete       forme cone        longueur 0.35  rayon 0.06  courbure -0.2 0 0.3  separe dur
+  volume epines        le_long colonne forme cone        repeter 12  taille 0.05 0.12  separe
+  miroir *_g -> *_d
+
 retouches  fichier "dragon.nkr"      // C3 : la pile R32
 sculpt     couche "muscles"  fichier "dragon.muscles.nksc"  auteur humain
 sculpt     couche "ecailles" fichier "dragon.ecailles.nksc" auteur ia
@@ -243,6 +283,12 @@ sculpt     couche "ecailles" fichier "dragon.ecailles.nksc" auteur ia
 | `tete gabarit` | `humain`, `cartoon`, `reptile`, `felin`, `canin`, `oiseau`, `insecte`, `libre` (§8) |
 | `style` | un préréglage de profils : `moyen`, `heroique`, `trapu`, `gros`, `cartoon`, `puncher` (avant-bras énormes), `elance`… — les silhouettes des planches de Rodolf |
 | `resolution` | anneaux par tour, boucles par articulation : **pairs** (§5.4) |
+| `volume <nom> sur <os>` | un volume du blockout **accroché** à un os (il suit l'os : longueur, rotation, pose), `forme` (ellipsoïde, capsule, superquadrique, cône, tore, boîte arrondie, `sculpte "fichier"`), `taille`, `decale`, `rotation` |
+| `fondu r` | le volume se **fond** dans la peau, avec un rayon de fusion r (plus r est grand, plus la jonction est douce) |
+| `separe` · `separe dur` | le volume reste un **objet à part** (bois de cerf, corne dure, armure, dent) ; `dur` = rigide dans le rig |
+| `creuse` | le volume **creuse** la peau (orbites, bouche, narines, nombril) |
+| `mou oui` · `muscle oui` | le volume devient une **zone molle** (rebond, doc 5 §7) ou un **muscle** (gonfle en pliant, plus tard) |
+| `le_long <chaine> … repeter n` | une série de volumes (épines, écailles dorsales, boules de queue) |
 | `corps fuseau / disque / radial / cloche / segmente / libre` | le **plan du corps** (§5.7) : poisson et cétacé, raie, étoile de mer, méduse, insecte et crustacé, forme inventée |
 | `nageoire caudale / dorsale / pectorale / pelvienne / anale` | une **nageoire à rayons** : des os fins (rayons) et une membrane tendue entre eux, comme une aile |
 | `aile plumes / membrane / insecte` | les trois ailes (§5.7.2) |
@@ -399,6 +445,76 @@ variation aléatoire **reproductible** (graine).
 
 ---
 
+### 5.8 Les volumes du blockout (C1)
+
+**Ce qu'ils sont** : des formes simples, **nommées**, chacune **accrochée à un os** (ou à
+une adresse de surface) avec un décalage et une rotation. Elles suivent l'os : allonger le
+bras déplace et étire ses volumes ; poser le personnage les pose.
+
+| forme | pour |
+|---|---|
+| **ellipsoïde** | ventre, poitrine, fessiers, joues, crâne |
+| **capsule** | membres, cou, doigts (le cas des profils simples) |
+| **superquadrique** (deux exposants) | épaules carrées, pectoraux, blocs de cage thoracique — du rond au cube arrondi |
+| **cône, cône courbé** | cornes, griffes, épines, becs, oreilles pointues |
+| **tore** | anneaux, lèvres épaisses, bourrelets |
+| **boîte arrondie** | mâchoire, bassin, sabots, blocs des mannequins |
+| **sculptée** | une forme libre sculptée par l'artiste, gardée comme volume réutilisable |
+
+**Trois modes** :
+
+| mode | effet | exemples des planches |
+|---|---|---|
+| **fondu** | se fond dans la peau (union lisse, rayon réglable) | ventre, poitrine, fessiers, rotules, masses d'épaule du colosse |
+| **séparé** | reste un objet à part, attaché à l'os | bois de cerf de la centauresse, cornes dures, boules de la queue si voulu, armure |
+| **creusé** | retire de la forme | orbites, bouche, narines |
+
+**Par défaut, sans volume** : chaque os a un volume implicite (sa capsule issue du profil
+du §4.2). On peut donc commencer **tout de suite** avec le squelette seul, puis ajouter des
+volumes là où la forme le demande — exactement comme un artiste pose d'abord des
+sphères, puis raffine.
+
+**L'existant** : NKTexte3D compile déjà des primitives `.nkscene` en **champ de distance**
+avec **fusion douce** (`lissage`), puis en maillage par Surface Nets. On garde le champ et
+la fusion ; on remplace seulement « maillage par Surface Nets » par « **pose de la peau** »
+(§5.9).
+
+### 5.9 La peau (C2) — se poser sur les volumes
+
+**Le principe** : la peau est la cage de quads du §5.1 à §5.7, **construite depuis le
+squelette** (topologie, boucles, adresses) ; au lieu de rester un tube à profil, elle
+**épouse** la surface **S** définie par les volumes (union lisse des volumes « fondus »,
+moins les « creusés »).
+
+**L'algorithme, en quatre temps** :
+
+1. **Champ** : on évalue le champ de distance signé des volumes (union lisse, rayon de
+   fusion par volume) — code de NKTexte3D.
+2. **Projection** : chaque sommet de la cage est déplacé **le long de sa normale** (et
+   non vers le point le plus proche, qui ferait glisser les sommets et casserait les
+   boucles) jusqu'à la surface **S**.
+3. **Relaxation** : lissage **tangent** (le sommet glisse sur **S** sans la quitter) pour
+   répartir les quads régulièrement — même taille, angles proches de 90° — en gardant
+   les **boucles d'articulation** perpendiculaires aux os ; alterner projection et
+   relaxation jusqu'à stabilité.
+4. **Garde-fous** : aucune face retournée, aucune auto-intersection (hachage spatial,
+   comme `NkCloth`) ; dans les **creux profonds** (aisselle, entrejambe, entre ventre et
+   cuisse), la peau est **retenue** par un rayon de fusion minimal plutôt que pliée ;
+   une zone qui ne converge pas est **nommée** et montrée à l'artiste.
+
+**La résolution suit la forme** : là où un volume ajoute beaucoup de surface (un gros
+ventre), la cage reçoit **plus d'anneaux** sur ce segment, choisis **pairs** (§5.4), pour
+que les quads ne s'étirent pas ; les adresses restent continues (§3.2).
+
+**Référence** : FEQ (§2.3) fait déjà ce geste — construire la cage depuis le squelette,
+puis la **recaler** sur une forme de référence (`non_rigid_registration` de GEL, MIT).
+Notre forme de référence, ce sont les volumes.
+
+**Sur la peau**, tout le reste s'accroche par adresses : visage (§8), sculpt (C4),
+ornements en semis (§5.7.4), **cheveux, poils, vêtements, chaînes** (document 5).
+
+---
+
 ## 6. Les critères de topologie — mesurés à chaque construction
 
 | critère | cible | mesure |
@@ -411,6 +527,9 @@ variation aléatoire **reproductible** (graine).
 | symétrie | exacte (écart ≤ 1e-6) | miroir des adresses |
 | déterminisme | même document → **même maillage au bit près** | empreinte |
 | déformation | chaque articulation pliée à 90° en skinning linéaire : perte de volume ≤ 15 %, aucune face retournée | banc de pose |
+| **fidélité de la peau** aux volumes | écart moyen ≤ 1 % de la hauteur de la créature, écart maximal ≤ 3 % hors des creux signalés | distance au champ des volumes |
+| **régularité de la peau** | rapport des côtés des quads ≤ 3, angles entre 45° et 135° sur ≥ 95 % des faces | mesure par face |
+| **peau propre** | aucune face retournée, aucune auto-intersection après la pose | hachage spatial |
 
 **Le catalogue d'essai** (banc `NKCreatureHarness`, sur le modèle de
 `NKEditMeshHarness`) : humain moyen · humain à 4 doigts · personnage « Puncher » ·
@@ -420,7 +539,10 @@ enfant cartoon · quadrupède · **dragon ailé** · créature à **6 bras** · 
 étoile de mer, tortue marine ·
 **ailés** : oiseau (aigle), chauve-souris, libellule, papillon, pégase, griffon ·
 **inventés** : sirène, kraken, créature radiale à 7 bras, créature-anneau (g = 1),
-créature asymétrique. Chacun passe **tous** les critères, sur les trois plateformes ;
+créature asymétrique ·
+**blockouts en volumes** (d'après les planches) : femme ronde à gros ventre, colosse aux
+masses d'épaule, centauresse aux bois de cerf et queue en boules, chat cartoon, autruche
+cartoon, chien corgi, personnage « Puncher ». Chacun passe **tous** les critères, sur les trois plateformes ;
 les semis (plumes, écailles, ventouses) sont mesurés à part.
 
 ---
@@ -477,6 +599,9 @@ Cible : les mêmes critères du §6 (≥ 95 % de valence 4).
   §4.2) sont **gardées** comme une couche, par adresse, comme le sculpt.
 - **Vérification** : le banc de pose du §6 ; aperçu en direct dans NKCraft avec le
   skinning GPU existant et l'IK (`NkIKSolver`).
+- **Les volumes** renseignent le rig : un volume `mou` devient une **zone molle** (rebond
+  dans NkAnima, doc 5 §7) ; un volume `separe dur` est **rigide** sur son os ; un volume
+  `muscle` pourra gonfler en pliant (correctif, plus tard).
 - **Par plan de corps** :
   - **tentacules, queues, cous longs** : chaînes de nombreux os, prêtes pour l'IK à
     spline de NkAnima ;
@@ -513,6 +638,7 @@ recalcul), `ia`. Le journal existe (`NkEditMesh`, lots d'annulation de
 | ce que fait l'humain | couche | comment ça survit |
 |---|---|---|
 | bouge un curseur (longueur de bras, nombre de doigts, style) | C0 / C1 | c'est la source : la régénération **l'applique** |
+| pose, déplace, redimensionne un **volume** du blockout ; en ajoute un (un ventre, une corne) | C1 | c'est la source : la peau **se repose**, les retouches C3 et C4 suivent par adresses |
 | coupe une boucle, extrude une corne, biseaute, supprime des faces | **C3** | opération R32 ciblée **par nom, critère ou adresse** (§10.4), rejouée après chaque régénération |
 | sculpte (pinceau), déplace des sommets à la main | **C4** | déplacement stocké **dans le repère local** `(normale, tangente de l'os, bitangente)` **à l'adresse** ; quand la forme change, le détail **suit** (option : absolu ou proportionnel à la taille de la section) |
 | sélection libre puis opération | **C3** | la sélection est **convertie en adresses** au moment du geste : elle survit (c'est la seule manière de désigner de `FORMAT_SCENE.md` §8 qui ne survivait pas) |
@@ -553,7 +679,8 @@ qui n'existe plus ») ; l'opération devient **orpheline**, **les autres continu
 ### 10.6 Intégrer, détacher
 
 - **Intégrer** (« absorber ») : l'humain a sculpté un bras plus épais ; il peut demander
-  d'**intégrer** : le système **ajuste les paramètres** C1 pour s'approcher de la forme
+  d'**intégrer** : le système **ajuste les paramètres** C1 (profils **et volumes** — il
+  peut en proposer un nouveau, « un volume de biceps ») pour s'approcher de la forme
   sculptée (moindres carrés sur les profils), et **seul le reste** du détail demeure
   dans C4. Les prochaines régénérations partent alors de cette forme.
 - **Détacher** : l'inverse — figer l'effet des paramètres dans une couche de sculpt
@@ -578,8 +705,8 @@ qui n'existe plus ») ; l'opération devient **orpheline**, **les autres continu
 
 | rôle | entrée | sortie | modèle | quand |
 |---|---|---|---|---|
-| **A — description → paramètres** | une phrase ou une fiche complète | un `.nkscene` v2 (C0, C1, C6) | l'IA de langage déjà branchée (`NkModelerCreation` : planifier → placer → vérifier → corriger), avec la grammaire v2 | dès le format v2 |
-| **B — images → paramètres** | 1 à N vues (face, profil, dos, 3/4) | C0, C1, C6 | un **encodeur d'images convolutif** (Conv2D existe) par vue, mise en commun des vues, tête de régression ; 5 à 20 M de paramètres | après le générateur |
+| **A — description → paramètres** | une phrase ou une fiche complète | un `.nkscene` v2 : squelette, **volumes**, tête (C0, C1, C6) | l'IA de langage déjà branchée (`NkModelerCreation` : planifier → placer → vérifier → corriger), avec la grammaire v2 | dès le format v2 |
+| **B — images → paramètres** | 1 à N vues (face, profil, dos, 3/4) | squelette, **volumes**, tête (C0, C1, C6) — les volumes rendent la silhouette bien plus fidèle que des profils seuls | un **encodeur d'images convolutif** (Conv2D existe) par vue, mise en commun des vues, tête de régression ; 5 à 20 M de paramètres | après le générateur |
 | **C — détail** | le personnage + une image ou une consigne | une couche C4 `auteur ia` (déplacements sur les adresses, cartes par partie) | réseau convolutif sur des **cartes de déplacement** par partie (la topologie étant fixe, c'est une image à prédire) | après B |
 | **D — opérations** | le personnage + une demande | des commandes C3 | l'IA de commandes existante (26 verbes, `NkModelerIA`) | existe ; à brancher sur les adresses |
 
@@ -750,7 +877,7 @@ serveur, fin de support).
 | **~8 000–10 000 €+** | **RTX PRO 5000 Blackwell 48 Go** (~8 800 $), ou 72 Go si le prix suit | neuve, garantie, 300 W ; la PRO 6000 96 Go (14 000–16 000 $) dépasse ce budget |
 
 **Recommandation** : **d'abord** corriger le bogue GPU et construire le générateur
-(§14, C0–C3) — ils ne demandent **aucun** nouveau matériel. **Ensuite**, pour
+(§14, G0–G3) — ils ne demandent **aucun** nouveau matériel. **Ensuite**, pour
 l'entraînement : une carte **48 Go** (W7900 ou A6000 d'occasion avec garantie
 vendeur), et la **location** ponctuelle (A100 80 Go ~1,4 $/h, H100 ~1,8–2,7 $/h) pour
 les grosses campagnes — en vérifiant d'abord `vulkaninfo` sur une instance à 0,30 $/h :
@@ -763,17 +890,17 @@ les images par défaut des loueurs n'activent pas Vulkan (il faut
 
 | palier | contenu | critère de fin |
 |---|---|---|
-| **C0 — les fondations** | bogue GPU corrigé (§12.3) ; **R32 codé** : adresses, sélection par nom / critère / adresse, pile C3 rejouée, orphelines, déterminisme | B=24 apprend ; les tests R32.7 passent ; une corne extrudée à la main survit à trois régénérations |
-| **C1 — tubes et capuchons** | `.nkscene` v2 (squelette, profils), tubes, boucles d'articulation, capuchons, miroir | un serpent et un bras à 3 articulations passent le §6 |
-| **C2 — jonctions** | portage de FEQ ; gabarits d'extrémité (main à n doigts, pied, aile, pince) ; repli B-Mesh | les terrestres du catalogue passent le §6 (dont dragon, 6 bras, 8 pattes) |
-| **C2b — tous les plans de corps** | fuseau, disque, radial, cloche, segmenté ; nageoires à rayons ; ailes à plumes et d'insecte ; tentacules souples ; semis ; greffe ; boucle | **le catalogue d'essai complet** passe le §6, marins, ailés et inventés compris |
-| **C3 — formes et sculpt** | profils, styles, subdivision ; **couches de sculpt en repère local** ; intégrer / détacher ; verrous | les tests du §10.7 passent |
-| **C4 — rig et visage** | `NkSkeletonDef` depuis C0, poids par construction et par diffusion de chaleur, export vers NkAnimaEditor ; gabarits de tête, orbites, blendshapes FACS | chaque créature du catalogue se pose et s'anime dans NkAnimaEditor sans retouche de poids |
-| **C5 — l'IA de description et d'images** | grammaire v2 dans `NkModelerCreation` ; pont NKImage → NKData ; rendu synthétique ; encodeur d'images | « un dragon à 4 pattes, 2 ailes, 3 cornes » donne le bon compte de tout ; une planche de face et de profil donne une silhouette à IoU ≥ 0,85 |
-| **C6 — le remailleur** | squelette extrait + cage FEQ recalée (Usai) ; QuadriFlow réimplémenté ; guides | un sculpt en dynamique de topologie revient dans le modèle en couches avec ≥ 95 % de valence 4 |
-| **C7 — l'IA de détail** | rôle C sur cartes de déplacement ; sculpts commandés | détails plausibles sans qu'aucun critère du §6 régresse |
+| **G0 — les fondations** | bogue GPU corrigé (§12.3) ; **R32 codé** : adresses, sélection par nom / critère / adresse, pile C3 rejouée, orphelines, déterminisme | B=24 apprend ; les tests R32.7 passent ; une corne extrudée à la main survit à trois régénérations |
+| **G1 — tubes et capuchons** | `.nkscene` v2 (squelette, profils), tubes, boucles d'articulation, capuchons, miroir | un serpent et un bras à 3 articulations passent le §6 |
+| **G2 — jonctions** | portage de FEQ ; gabarits d'extrémité (main à n doigts, pied, aile, pince) ; repli B-Mesh | les terrestres du catalogue passent le §6 (dont dragon, 6 bras, 8 pattes) |
+| **G2b — tous les plans de corps** | fuseau, disque, radial, cloche, segmenté ; nageoires à rayons ; ailes à plumes et d'insecte ; tentacules souples ; semis ; greffe ; boucle | **le catalogue d'essai complet** passe le §6, marins, ailés et inventés compris |
+| **G3 — volumes, peau et sculpt** | **volumes du blockout** (formes, modes fondu / séparé / creusé, rayons de fusion) ; **pose de la peau** (§5.9) ; profils, styles, subdivision ; **couches de sculpt en repère local** ; intégrer / détacher ; verrous | les tests du §10.7 passent |
+| **G4 — rig et visage** | `NkSkeletonDef` depuis C0, poids par construction et par diffusion de chaleur, export vers NkAnimaEditor ; gabarits de tête, orbites, blendshapes FACS | chaque créature du catalogue se pose et s'anime dans NkAnimaEditor sans retouche de poids |
+| **G5 — l'IA de description et d'images** | grammaire v2 dans `NkModelerCreation` ; pont NKImage → NKData ; rendu synthétique ; encodeur d'images | « un dragon à 4 pattes, 2 ailes, 3 cornes » donne le bon compte de tout ; une planche de face et de profil donne une silhouette à IoU ≥ 0,85 |
+| **G6 — le remailleur** | squelette extrait + cage FEQ recalée (Usai) ; QuadriFlow réimplémenté ; guides | un sculpt en dynamique de topologie revient dans le modèle en couches avec ≥ 95 % de valence 4 |
+| **G7 — l'IA de détail** | rôle C sur cartes de déplacement ; sculpts commandés | détails plausibles sans qu'aucun critère du §6 régresse |
 
-📌 C0 à C4 sont **du code géométrique** que Rihen maîtrise ; ils donnent déjà un
+📌 G0 à G4 sont **du code géométrique** que Rihen maîtrise ; ils donnent déjà un
 générateur utilisable **à la main et par la parole**, sans nouvel entraînement.
 
 ---
@@ -783,7 +910,12 @@ générateur utilisable **à la main et par la parole**, sans nouvel entraîneme
 - **Panneau Squelette** : l'arbre des os (renommer, répéter, miroir, ajouter un membre
   depuis un gabarit : bras, patte, aile, tentacule, queue) ; dans la vue, les os en
   **sphères reliées** qu'on tire (esprit ZSpheres).
-- **Panneau Forme** : profils par os (courbe des sections), styles, muscles nommés.
+- **Panneau Blockout** : la liste des **volumes** (nom, os, forme, mode, rayon de fusion,
+  mou / muscle), **colorés** dans la vue comme sur les planches ; poignées pour
+  déplacer, tourner, redimensionner ; bibliothèque de formes ; profils par os pour le cas
+  simple ; styles.
+- **Bouton Peau** : afficher le blockout seul, la peau seule, ou la peau en transparence
+  sur les volumes ; zones de la peau qui ne convergent pas en évidence.
 - **Panneau Couches** : C3 (opérations), C4 (couches de sculpt, auteur humain / IA,
   opacité, visibilité), verrous par partie, **orphelines** en évidence avec « Revoir »
   et « Réattacher ».
@@ -848,6 +980,7 @@ générateur utilisable **à la main et par la parole**, sans nouvel entraîneme
 | D10 | le code tiers | **porter** FEQ / GEL (MIT) et QuadriFlow (BSD-3) en les réécrivant sans STL, avec leurs notices ; GPL, AGPL et non commercial : **articles seulement** | 🔴 proposé |
 | D11 | les données d'IA | synthétique maison d'abord ; sources extérieures seulement CC0 / CC-BY sans « NoAI » ; sculpts commandés avec clause IA ; corpus existant audité | 🔴 proposé |
 | D12 | le bogue GPU | le remède du §12.3 avant toute nouvelle campagne d'entraînement | 🔴 proposé |
-| D13 | le matériel | pas de GP100 ; une carte **48 Go** (W7900 ou A6000 d'occasion garantie) après C4, location ponctuelle pour les grosses campagnes | 🔴 à décider par Rodolf (budget) |
+| D13 | le matériel | pas de GP100 ; une carte **48 Go** (W7900 ou A6000 d'occasion garantie) après G4, location ponctuelle pour les grosses campagnes | 🔴 à décider par Rodolf (budget) |
 | D14 | Quaternius, 3DBiCar | demander par écrit l'autorisation d'entraînement commercial | 🔴 à faire |
 | D15 | les plans de corps | terre, air, eau et inventé **au même rang** : fuseau, disque, radial, cloche, segmenté, ailes (membrane, plumes, insecte), nageoires, tentacules, semis, greffe (§5.7) | 🔴 proposé (Rodolf, 28/09 : « les animaux marins, les animaux à ailes, les créatures à ailes ou marines et inventées ») |
+| D22 | blockout et peau | **squelette** (structure) + **volumes du blockout** (forme) + **peau** construite depuis le squelette et **posée** sur les volumes (§2.2bis, §5.8, §5.9) | ✅ Rodolf, 28/09 (son idée) |
