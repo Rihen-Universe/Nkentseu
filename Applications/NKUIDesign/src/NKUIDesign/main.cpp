@@ -2114,10 +2114,24 @@ static bool ZoneMenuBackends(NkGuiContext &ctx, const NkRect &, void *) {
 	return true;
 }
 
+/// ⚠️ ELLE INSTANCIE LE PATRON DU DOCUMENT, comme la liste des dorsaux — voir
+///    la note detaillee dans `ZoneMenuBackends`. Le repli sur `MenuItem` reste :
+///    un theme qui disparait du menu est un theme que l'utilisateur croit perdu.
 static bool ZoneMenuThemes(NkGuiContext &ctx, const NkRect &, void *) {
 	for (uint32 i = 0; i < gThemes.Count(); ++i) {
 		const bool courant = (i == gThemes.CurrentIndex());
-		if (nkgui::MenuItem(ctx, gThemes.At(i).Name().CStr(), nullptr, true, courant))
+		char idEntree[160];
+		nkentseu::NkSnprintf(idEntree, sizeof(idEntree), "design.theme.%s",
+							 gThemes.At(i).Name().CStr());
+		const nkgui::NkGuiValeurPatron vals[2] = {
+			nkgui::NkGuiValeurPatron::Texte("label", gThemes.At(i).Name().CStr()),
+			nkgui::NkGuiValeurPatron::Booleen("checked", courant)};
+		bool choisi = false;
+		if (!nkgui::NkGuiMonterPatron(ctx, gCoquilleDoc.bande.patrons, "entreeListe", idEntree,
+									  vals, 2u, gCoquilleDoc.bande.etat, gCoquilleDoc.bande.rap,
+									  nullptr, &choisi))
+			choisi = nkgui::MenuItem(ctx, gThemes.At(i).Name().CStr(), nullptr, true, courant);
+		if (choisi)
 			AppliquerTheme(i);
 	}
 	nkgui::Separator(ctx);
@@ -2125,23 +2139,49 @@ static bool ZoneMenuThemes(NkGuiContext &ctx, const NkRect &, void *) {
 	return true;
 }
 
+/// ⚠️ LA SEULE DES QUATRE ZONES QUI RESTE UNE ZONE, ET LA RAISON EST ECRITE.
+///    Les trois autres instancient le patron `entreeListe` du document ; celle-ci
+///    ne le peut pas, parce que ce n'est pas nous qui dessinons : `DrawPanelsMenuItems`
+///    appartient au KIT, et elle porte AUSSI la logique d'ouverture/fermeture et
+///    d'ancrage (`FocusPanel`, cote par defaut). La reecrire ici pour gagner le
+///    patron donnerait une SECONDE liste de panneaux, qui divergerait de celle de
+///    la coquille au premier panneau ajoute.
+///    **CONDITION DE RETRAIT :** le jour ou le kit sait enumerer ses panneaux sans
+///    les dessiner (un `PanneauAt(i)` public), cette zone rejoindra les trois autres.
 static bool ZoneMenuPanneaux(NkGuiContext &ctx, const NkRect &, void *) {
 	// La coquille les liste ELLE-MEME : une liste ecrite ici mentirait des le
 	// premier panneau debranche.
+	(void)ctx;
 	if (gShell)
 		gShell->DrawPanelsMenuItems();
 	return true;
 }
 
 static bool ZoneMenuLangues(NkGuiContext &ctx, const NkRect &, void *) {
+	// ⚠️ MEME PATRON QUE LES DORSAUX ET LES THEMES. Trois listes engendrees,
+	//    UNE seule forme declaree dans le document : le jour ou Rodolf change
+	//    l'apparence d'une entree cochable, les trois suivent.
+	auto entree = [&](const char *id, const char *libelle, bool coche) -> bool {
+		const nkgui::NkGuiValeurPatron vals[2] = {
+			nkgui::NkGuiValeurPatron::Texte("label", libelle),
+			nkgui::NkGuiValeurPatron::Booleen("checked", coche)};
+		bool choisi = false;
+		if (!nkgui::NkGuiMonterPatron(ctx, gCoquilleDoc.bande.patrons, "entreeListe", id, vals,
+									  2u, gCoquilleDoc.bande.etat, gCoquilleDoc.bande.rap,
+									  nullptr, &choisi))
+			choisi = nkgui::MenuItem(ctx, libelle, nullptr, true, coche);
+		return choisi;
+	};
 	const bool principale = gDesign.langueActive.Empty();
-	if (nkgui::MenuItem(ctx, "Principale (texte)", nullptr, true, principale))
+	if (entree("design.langue.principale", "Principale (texte)", principale))
 		gDesign.langueActive = NkString();
 	for (uint32 li = 0; li < (uint32)gDesign.doc.langues.Size(); ++li) {
 		const char *code = gDesign.doc.langues[li].Data();
 		const bool active = !principale
 							&& NkComponentDecl::StrEq(gDesign.langueActive.Data(), code);
-		if (nkgui::MenuItem(ctx, code, nullptr, true, active))
+		char idEntree[160];
+		nkentseu::NkSnprintf(idEntree, sizeof(idEntree), "design.langue.%s", code);
+		if (entree(idEntree, code, active))
 			gDesign.langueActive = NkString(code);
 	}
 	nkgui::Separator(ctx);
