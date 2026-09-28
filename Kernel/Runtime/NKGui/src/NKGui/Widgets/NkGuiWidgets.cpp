@@ -5181,16 +5181,161 @@ namespace nkentseu {
 			ctx.menuSizes.PushBack(s);
 		}
 
+		// ── LE PUITS DE DÉPASSEMENT « … » ───────────────────────────────────
+		//  Rodolf, 28/09 : « si le menu est touffu à partir d'un niveau ou nombre
+		//  de menus on devrait avoir un bouton "…" » — et « ça ne doit jamais se
+		//  chevaucher » avec le titre du document.
+		//
+		//  🔴 LES DEUX DEMANDES N'EN FONT QU'UNE, ET C'EST LA MÊME LIGNE QUI
+		//     MANQUAIT. `BeginMenu` avançait `ctx.menuBarX` sans le comparer à
+		//     quoi que ce soit : le dixième menu s'écrivait donc là où il tombait,
+		//     titre centré compris. Poser un « … » sans borne n'aurait servi à
+		//     rien — il n'aurait eu aucun moment où se déclencher.
+		//
+		//  ⚠️ ET CE N'EST PAS « CACHER LES MENUS QUI DÉPASSENT ». Un menu qui
+		//     disparaît est une carte qui se déforme sous les pieds (§5bis.1 : une
+		//     entrée qui ne peut rien produire se GRISE, elle ne disparaît pas —
+		//     la même raison vaut ici). Les menus versés dans le puits restent
+		//     accessibles, avec leurs sous-menus, à une porte près.
+		static constexpr float32 kMenuBarDebordW = 28.f;
+
 		bool BeginMenuBar(NkGuiContext &ctx, const NkRect &rect) noexcept {
 			ctx.DL().AddRectFilled(rect, ctx.theme.header, 0.f);
 			ctx.DL().AddRectFilled({rect.x, rect.y + rect.h - 1.f, rect.w, 1.f}, ctx.theme.border);
 			ctx.menuBarRect = rect;
 			ctx.menuBarX = rect.x + 4.f;
+			// ⚠️ LA LIMITE CÉDÉE AUX TITRES N'EST PAS LA LARGEUR DE LA BANDE, et la
+			//    distinction est tout l'objet : l'hôte peint le fond sur TOUTE la
+			//    bande, mais ne cède aux titres que ce qui précède ce qu'il a mis
+			//    au centre. Par défaut, pas de centre : toute la bande.
+			ctx.menuBarLimite = rect.x + rect.w;
+			ctx.menuBarMaxTitres = -1; // la politique se REDÉCLARE à chaque bande :
+									   // une politique rémanente s'appliquerait à la
+									   // barre d'une autre fenêtre, sans que rien ne
+									   // le dise.
+			ctx.menuBarTitresPoses = 0;
+			ctx.menuBarOuverte = true;
+			ctx.menuBarDeborde = false;
+			ctx.menuBarDebordOuvert = false;
+			ctx.menuBarDebordCompte = 0;
 			NkGuiNoter(ctx, NkGuiNature::BarreMenus, ctx.GetId("##barre-menus"), "", rect, NK_GUI_ETAT_AUCUN);
 			return true;
 		}
 
-		void EndMenuBar(NkGuiContext &) noexcept {
+		void NkGuiMenuBarPolitique(NkGuiContext &ctx, float32 limiteTitres, int32 maxTitres) noexcept {
+			// 🔴 PAS DE SENTINELLE ICI, ET ELLE M'A DEJA COUTE UN CRITERE.
+			//    Ma première version lisait « `limiteTitres <= 0` = ne change
+			//    rien ». Mais une limite CALCULÉE peut légitimement être négative
+			//    — `bande.x + bande.w - reserveDroite` l'est dès que la réserve
+			//    dépasse la bande — et elle était alors silencieusement IGNORÉE :
+			//    le cas (m6) du banc, réserve 5000 sur une bande de 600, ne
+			//    posait aucun « … ». *Une sentinelle n'est pas une position.*
+			//    Qui ne veut rien changer passe `ctx.menuBarLimite` elle-même.
+			// On ne REMONTE jamais la limite au-delà de la bande : un hôte trop
+			// généreux ferait écrire les titres hors du fond qu'il vient de peindre.
+			if (limiteTitres < ctx.menuBarLimite)
+				ctx.menuBarLimite = limiteTitres;
+			// Et jamais en deçà de quoi poser le puits : une limite trop courte
+			// rendrait le « … » lui-même impossible, donc les menus INATTEIGNABLES.
+			// C'est la garde qui sépare « serré » d'« inutilisable ».
+			const float32 plancher = ctx.menuBarRect.x + 4.f + kMenuBarDebordW;
+			if (ctx.menuBarLimite < plancher)
+				ctx.menuBarLimite = plancher;
+			// ⚠️ UN PLAFOND DE ZÉRO VIDERAIT LA BANDE : on garde au moins un titre
+			//    visible, sinon la barre n'est plus qu'un « … » et l'utilisateur
+			//    n'a plus aucun repère de ce que l'application sait faire.
+			ctx.menuBarMaxTitres = (maxTitres == 0) ? 1 : maxTitres;
+		}
+
+		bool BeginMenuBar(NkGuiContext &ctx, const NkRect &rect, float32 limiteTitres) noexcept {
+			if (!BeginMenuBar(ctx, rect))
+				return false;
+			NkGuiMenuBarPolitique(ctx, limiteTitres, -1);
+			return true;
+		}
+
+		void EndMenuBar(NkGuiContext &ctx) noexcept {
+			// Le puits est OUVERT par `BeginMenu` (qui seul sait qu'un titre ne
+			// tient plus) et FERMÉ ici (seul endroit qui sait qu'il n'y en a plus).
+			//
+			// ⚠️ MÊME CLÔTURE QUE `EndMenu`, ET CE N'EST PAS UNE COPIE DÉCORATIVE :
+			//    sans le `MenuSizeSet`, le puits garderait la taille de sa toute
+			//    première image — celle d'avant toute mesure.
+			if (ctx.menuBarDebordOuvert) {
+				const int32 L = ctx.curPopupLevel;
+				if (L >= 0 && ctx.menuMeasureId[L] != NKGUI_ID_NONE) {
+					const float32 w = (ctx.menuMeasureW[L] > 60.f ? ctx.menuMeasureW[L] : 60.f) + 26.f;
+					MenuSizeSet(ctx, ctx.menuMeasureId[L], {w, ctx.menuMeasureH[L] + 10.f});
+					ctx.menuMeasureId[L] = NKGUI_ID_NONE;
+				}
+				EndPopup(ctx);
+				ctx.menuBarDebordOuvert = false;
+			}
+			ctx.menuBarDeborde = false;
+			ctx.menuBarOuverte = false;
+		}
+
+		// Ouvre le puits « … » : pose son titre dans la bande, et s'il est déroulé,
+		// entre dans son popup (niveau 0) pour que les menus suivants s'y versent
+		// en LIGNES DE SOUS-MENU. Rend vrai si le popup est entré.
+		static bool MenuBarOuvrirPuits(NkGuiContext &ctx) noexcept {
+			ctx.menuBarDeborde = true; // vrai même si le puits reste fermé : à partir
+									   // d'ici, plus aucun titre ne retourne dans la
+									   // bande — sinon un menu étroit sauterait par
+									   // dessus un large, et l'ordre mentirait.
+			const NkGuiId id = ctx.GetId("##barre-menus-debord");
+			ctx.menuBarDebordId = id;
+			const float32 h = ctx.menuBarRect.h;
+			float32 x = ctx.menuBarX;
+			if (x + kMenuBarDebordW > ctx.menuBarLimite)
+				x = ctx.menuBarLimite - kMenuBarDebordW; // il se serre, il ne sort pas
+			if (x < ctx.menuBarRect.x)
+				x = ctx.menuBarRect.x;
+			const NkRect titleR = {x, ctx.menuBarRect.y, kMenuBarDebordW, h};
+			ctx.menuBarX = x + kMenuBarDebordW;
+
+			bool hov = false, held = false;
+			(void)ctx.ButtonBehavior(id, titleR, NkGuiButtonFlags::None, -1.f, -1.f, &hov, &held);
+			const bool dejaOuvert = (ctx.popupDepth > 0 && ctx.popupStack[0] == id);
+			// MÊME RÈGLE QUE LES TITRES DE LA BANDE : ouverture au PRESS par test
+			// géométrique (pas sur le survol résolu de l'image précédente), et le
+			// survol bascule quand un autre menu de la bande est déjà déroulé.
+			const bool pressInside = ctx.input.mouseClicked[0] && NkGuiRectContains(titleR, ctx.input.mousePos);
+			if (pressInside) {
+				if (dejaOuvert)
+					ctx.ClosePopup();
+				else
+					ctx.OpenPopupLevel(id, 0);
+			} else if (hov && ctx.popupDepth > 0 && ctx.popupStack[0] != id)
+				ctx.OpenPopupLevel(id, 0);
+			const bool open = (ctx.popupDepth > 0 && ctx.popupStack[0] == id);
+
+			NkGuiNoter(ctx, NkGuiNature::Menu, id, "\xE2\x80\xA6", titleR,
+					   static_cast<uint16>((open ? NK_GUI_ETAT_OUVERT : NK_GUI_ETAT_REPLIE) |
+										   (hov ? NK_GUI_ETAT_SURVOLE : 0)));
+			if (hov || open)
+				ctx.DL().AddRectFilled(titleR, ctx.theme.buttonHover, 0.f);
+			DrawCenteredLabel(ctx, titleR, "\xE2\x80\xA6", ctx.theme.text);
+			if (!open)
+				return false;
+
+			const NkVec2 sz = MenuSizeGet(ctx, id);
+			NkRect pr = {titleR.x, titleR.y + titleR.h, sz.x, sz.y};
+			if (pr.x + pr.w > static_cast<float32>(ctx.viewW))
+				pr.x = titleR.x + titleR.w - pr.w; // rabattu à DROITE du « … »
+			if (pr.x < 0.f)
+				pr.x = 0.f;
+			if (pr.y + pr.h > static_cast<float32>(ctx.viewH))
+				pr.y = static_cast<float32>(ctx.viewH) - pr.h;
+			if (pr.y < 0.f)
+				pr.y = 0.f;
+			if (!BeginPopupLevel(ctx, id, 0, pr, ctx.menuBarRect))
+				return false;
+			ctx.menuMeasureId[0] = id;
+			ctx.menuMeasureW[0] = 0.f;
+			ctx.menuMeasureH[0] = 0.f;
+			ctx.menuBarDebordOuvert = true;
+			return true;
 		}
 
 		// Entrée de menu DÉROULANT — unifiée : dans une MenuBar (curPopupLevel<0 →
@@ -5202,6 +5347,30 @@ namespace nkentseu {
 			const bool inBar = (ctx.curPopupLevel < 0);
 			const float32 tw = (ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(label, LabelEnd(label)) : 40.f;
 
+			// ── LE TITRE TIENT-IL ? DEUX RÈGLES, ET IL DOIT PASSER LES DEUX ──
+			//  La LARGEUR (il ne mord pas sur ce que l'hôte a réservé) et le
+			//  NOMBRE (`maxMenus`, déclaré par le document ou par l'API). La
+			//  seconde n'est pas un doublon de la première : sur un grand écran,
+			//  quinze menus TIENNENT et restent illisibles.
+			if (inBar) {
+				const bool tropLarge = ctx.menuBarX + tw + 20.f > ctx.menuBarLimite;
+				const bool tropNombreux = ctx.menuBarMaxTitres >= 0
+										  && ctx.menuBarTitresPoses >= ctx.menuBarMaxTitres;
+				if (!ctx.menuBarDeborde && (tropLarge || tropNombreux))
+					MenuBarOuvrirPuits(ctx);
+				if (ctx.menuBarDeborde) {
+					++ctx.menuBarDebordCompte;
+					if (!ctx.menuBarDebordOuvert)
+						return false; // puits replié : l'appelant saute son EndMenu
+					// ⚠️ RÉCURSION D'UN SEUL TOUR, ET ELLE EST BORNÉE PAR
+					//    CONSTRUCTION : le puits vient de faire monter
+					//    `curPopupLevel` à 0, donc ce second passage voit
+					//    `inBar == false` et dessine une LIGNE DE SOUS-MENU.
+					//    Aucun troisième tour n'est atteignable.
+					return BeginMenu(ctx, label);
+				}
+			}
+
 			NkRect titleR;
 			NkVec2 popupAt;
 			NkRect anchor;
@@ -5209,6 +5378,8 @@ namespace nkentseu {
 				const float32 h = ctx.menuBarRect.h;
 				titleR = {ctx.menuBarX, ctx.menuBarRect.y, tw + 20.f, h};
 				ctx.menuBarX += tw + 20.f;
+				++ctx.menuBarTitresPoses; // ce qui COMPTE pour `maxMenus`, c'est ce
+										  // qui est réellement posé dans la bande
 				popupAt = {titleR.x, titleR.y + titleR.h}; // popup SOUS le titre
 				anchor = ctx.menuBarRect;				   // toute la barre = ancre
 			} else {

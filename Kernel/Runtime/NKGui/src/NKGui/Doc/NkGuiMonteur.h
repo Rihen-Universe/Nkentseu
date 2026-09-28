@@ -1898,6 +1898,26 @@ namespace nkentseu {
 						}
 						if (!NkGMotEgal(nom, "widgets"))
 							continue;  // geometry, controller, callback, fonts, include
+						// ⚠️ LA RACINE PORTE LA POLITIQUE QUAND L'HOTE A OUVERT LA BANDE.
+						//    Le cas est reel et c'est celui de NKUIDesign : la barre
+						//    appartient a la COQUILLE (`BuildMenuBar`), le document n'a
+						//    donc aucun noeud `MenuBar` ou accrocher `maxMenus`. Sans
+						//    cette lecture, un document monte dans une bande d'hote ne
+						//    pourrait DECLARER son plafond -- il faudrait une ligne de
+						//    C++ par application, exactement ce que Rodolf refuse
+						//    (28/09 : « pense toujours aux utilisateurs autres que nous »).
+						//    Hors bande ouverte, les deux cles sont ignorees : elles ne
+						//    veulent rien dire ailleurs.
+						if (ctx.menuBarOuverte) {
+							const float32 reserve = NkGNombre(sec, "reserveDroite", 0.f);
+							const float32 maxM = NkGNombre(sec, "maxMenus", -1.f);
+							if (reserve > 0.f || maxM >= 0.f)
+								NkGuiMenuBarPolitique(ctx,
+													  reserve > 0.f ? (ctx.menuBarRect.x
+																	   + ctx.menuBarRect.w - reserve)
+																	: ctx.menuBarLimite,
+													  maxM >= 0.f ? (int32)maxM : -1);
+						}
 						// La racine de `widgets` est ABSOLUE par nature : rien ne la contient,
 						// donc aucun conteneur ne peut y declarer son mode -- et le corpus
 						// l'atteste (`03` pose son `Window` a la racine depuis le premier jour).
@@ -4544,6 +4564,48 @@ namespace nkentseu {
 							}
 							if (!BeginMenuBar(ctx, bande))
 								break;
+							// ═══════════════════════════════════════════════════
+							//  LE DEPASSEMENT SE DECLARE, IL NE SE PROGRAMME PAS
+							// ═══════════════════════════════════════════════════
+							//  Rodolf, 28/09 : « si c'est en C++ comment les
+							//  utilisateurs peuvent reproduire ce comportement sur
+							//  leurs applications ? pense toujours aux utilisateurs
+							//  autres que nous ».
+							//
+							//  Deux cles sur le noeud `MenuBar`, et rien a ecrire :
+							//    `maxMenus`      = nombre de titres toleres dans la
+							//                      bande ; au-dela, « … ».
+							//    `reserveDroite` = pixels gardes libres a droite --
+							//                      la place d'un titre de document
+							//                      centre, d'un champ de recherche,
+							//                      de ce que l'hote y met.
+							//
+							//  ⚠️ `reserveDroite` PLUTOT QU'UN `x` ABSOLU, et c'est
+							//     delibere : un document ne connait pas la largeur de
+							//     la fenetre ou il sera monte. Une abscisse ecrite en
+							//     dur serait juste sur l'ecran de l'auteur et fausse
+							//     sur celui de l'utilisateur. La reserve se mesure
+							//     depuis le bord, donc elle voyage.
+							//
+							//  ⚠️ ABSENTES = ANCIEN COMPORTEMENT A L'IDENTIQUE.
+							//     `maxMenus` vaut -1 (pas de plafond) et la reserve
+							//     0 : un document ecrit avant aujourd'hui monte
+							//     exactement comme avant. C'est la condition pour que
+							//     ce soit un ajout et non une rupture de format.
+							{
+								const float32 reserve = NkGNombre(w, "reserveDroite", 0.f);
+								const float32 maxM = NkGNombre(w, "maxMenus", -1.f);
+								// ⚠️ « NE CHANGE RIEN » S'ECRIT AVEC LA VALEUR COURANTE,
+								//    jamais avec un zero : une limite calculee peut
+								//    valoir zero ou moins, et un zero-sentinelle
+								//    l'aurait alors avalee en silence.
+								if (reserve > 0.f || maxM >= 0.f)
+									NkGuiMenuBarPolitique(
+										ctx,
+										reserve > 0.f ? (bande.x + bande.w - reserve)
+													  : ctx.menuBarLimite,
+										maxM >= 0.f ? (int32)maxM : -1);
+							}
 							++rap.barresMenu;
 							// Les titres se posent horizontalement, et c'est `menuBarX`
 							// qui les avance -- pas le curseur de mise en page.

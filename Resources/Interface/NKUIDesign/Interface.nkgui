@@ -78,6 +78,28 @@ nkgui 0.4
 
 widgets "menu" {
 
+  // ── LE DÉPASSEMENT EST DÉCLARÉ ICI, PAS PROGRAMMÉ ──────────────────────
+  //  Rodolf, 28/09 : « si le menu est touffu à partir d'un niveau ou nombre de
+  //  menus on devrait avoir un bouton "…" », et « ça ne doit jamais se
+  //  chevaucher » avec le titre du document.
+  //
+  //  `maxMenus` = combien de titres la bande accepte avant d'ouvrir le « … ».
+  //  Neuf, parce que c'est le nombre fixé par le document 3 §5bis (20/08) —
+  //  la valeur n'est pas choisie ici, elle est CITÉE.
+  //
+  //  ⚠️ CE N'EST PAS LA SEULE RÈGLE, ET L'AUTRE N'A PAS À S'ÉCRIRE : la
+  //     coquille cède aux titres tout ce qui précède le titre du document
+  //     centré, et NKGui verse au « … » ce qui n'y tient plus. Une fenêtre
+  //     étroite déclenche donc le dépassement AVANT le neuvième menu — c'est
+  //     voulu : la largeur protège la mise en page, le nombre protège la
+  //     lecture.
+  //
+  //  ⚠️ ET LES MENUS VERSÉS NE DISPARAISSENT PAS. Même raison que §5bis.1
+  //     (« une entrée qui ne peut rien produire se grise, elle ne disparaît
+  //     pas ») : une barre dont le contenu s'évapore avec la largeur apprend
+  //     une carte qui se déforme sous les pieds.
+  maxMenus = 9
+
   // ── FICHIER ───────────────────────────────────────────────────────────
   Menu "menuFichier" {
     label = "Fichier"
@@ -95,7 +117,11 @@ widgets "menu" {
     MenuItem "design.enregistrer"        { label = "Enregistrer", shortcut = "Ctrl+S" }
     MenuItem "fichier.enregistrerSous"   { label = "Enregistrer sous…", shortcut = "Ctrl+Maj+S", enabled = false }
     MenuItem "fichier.enregistrerTout"   { label = "Enregistrer tout", shortcut = "Ctrl+Alt+S", enabled = false }
-    MenuItem "design.recharger"          { label = "Revenir à la version enregistrée" }
+    // 🔴 `Ctrl+R` EST ÉCRIT ICI DEPUIS LE 28/09, ET IL Y MANQUAIT. Le C++ le
+    //    liait (`RegisterCommand(… "Ctrl+R")`) pendant que cette entrée n'en
+    //    affichait aucun : le raccourci existait et personne ne le disait à
+    //    l'utilisateur. C'est l'une des quatre divergences mesurées ce jour-là.
+    MenuItem "design.recharger"          { label = "Revenir à la version enregistrée", shortcut = "Ctrl+R" }
 
     Separator "sepF2" {}
 
@@ -135,19 +161,37 @@ widgets "menu" {
 
     Separator "sepE1" {}
 
-    MenuItem "design.couper"             { label = "Couper", shortcut = "Ctrl+X" }
-    MenuItem "design.copier"             { label = "Copier", shortcut = "Ctrl+C" }
-    MenuItem "design.coller"             { label = "Coller", shortcut = "Ctrl+V" }
+    // ══════════════════════════════════════════════════════════════════════
+    //  🔴 `lierRaccourci = false` — AFFICHE-LE, NE LE LIE PAS
+    // ══════════════════════════════════════════════════════════════════════
+    //  Ces gestes ont UNE SEULE porte, et ce n'est pas la table de commandes :
+    //    · Ctrl+X/C/V/A          → NKGui les porte par ses drapeaux `want*` ;
+    //    · Ctrl+D, Ctrl+G, Maj+G → la TOILE, seule à connaître le mode
+    //                              d'édition, le popup ouvert, le renommage ;
+    //    · Suppr, Échap          → la toile aussi.
+    //
+    //  ⚠️ LES DÉCLARER DEUX FOIS A DÉJÀ COÛTÉ UN DÉFAUT RÉEL (05/09/2026) :
+    //     une pression de Ctrl+D donnait DEUX copies de l'objet, parce que la
+    //     coquille et la toile répondaient toutes les deux. Depuis que les
+    //     commandes viennent d'ici (28/09), l'oubli de ce drapeau rouvrirait
+    //     exactement cette porte — la mesure l'a montré au premier essai :
+    //     « 13 raccourcis liés, 0 non liés par déclaration ».
+    //
+    //  ⚠️ LE RACCOURCI RESTE AFFICHÉ, et c'est le point : l'utilisateur doit
+    //     le voir. Ce qui change, c'est QUI l'écoute.
+    MenuItem "design.couper"             { label = "Couper", shortcut = "Ctrl+X", lierRaccourci = false }
+    MenuItem "design.copier"             { label = "Copier", shortcut = "Ctrl+C", lierRaccourci = false }
+    MenuItem "design.coller"             { label = "Coller", shortcut = "Ctrl+V", lierRaccourci = false }
     MenuItem "edition.collerMemePlace"   { label = "Coller à la même place", shortcut = "Ctrl+Maj+V", enabled = false }
     MenuItem "edition.collerStyle"       { label = "Coller le style seul", shortcut = "Ctrl+Alt+V", enabled = false }
-    MenuItem "design.dupliquer"          { label = "Dupliquer", shortcut = "Ctrl+D" }
-    MenuItem "design.supprimer"          { label = "Supprimer", shortcut = "Suppr" }
+    MenuItem "design.dupliquer"          { label = "Dupliquer", shortcut = "Ctrl+D", lierRaccourci = false }
+    MenuItem "design.supprimer"          { label = "Supprimer", shortcut = "Suppr", lierRaccourci = false }
 
     Separator "sepE2" {}
 
-    MenuItem "design.toutSelectionner"   { label = "Tout sélectionner", shortcut = "Ctrl+A" }
+    MenuItem "design.toutSelectionner"   { label = "Tout sélectionner", shortcut = "Ctrl+A", lierRaccourci = false }
     MenuItem "edition.selMemeRole"       { label = "Sélectionner tous les éléments du même rôle", enabled = false }
-    MenuItem "design.deselectionner"     { label = "Désélectionner", shortcut = "Échap" }
+    MenuItem "design.deselectionner"     { label = "Désélectionner", shortcut = "Échap", lierRaccourci = false }
 
     Separator "sepE3" {}
 
@@ -171,7 +215,16 @@ widgets "menu" {
     MenuItem "affichage.grille"          { label = "Grille", shortcut = "Ctrl+'", enabled = false, checked = true }
     // La coche LIT l'état réel — elle était posée en dur, à côté d'un aimant qui
     // ne faisait rien.
-    MenuItem "design.magnetisme"         { label = "Magnétisme", shortcut = "Ctrl+;" }
+    // ⚠️ SON `Ctrl+;` EST RETIRÉ, ET C'EST UNE CORRECTION, PAS UN RECUL.
+    //    `NkEditorShell::TryRunShortcut` ne compose que « Ctrl+ » (+ « Shift+ »)
+    //    suivi d'UN caractère tiré d'un nom de touche `NK_X` : un `Ctrl+;`
+    //    s'affichait à droite de l'entrée et ne partait JAMAIS. Un raccourci
+    //    annoncé qui ne se déclenche pas est un paramètre déclaré non honoré —
+    //    le clic, lui, a toujours fonctionné.
+    //    **CONDITION DE RETRAIT DE CE COMMENTAIRE :** le jour où le comparateur
+    //    de la coquille sait nommer les touches de ponctuation et les touches de
+    //    fonction, remettre `shortcut = "Ctrl+;"` — l'énumérateur le liera seul.
+    MenuItem "design.magnetisme"         { label = "Magnétisme" }
     MenuItem "affichage.regles"          { label = "Règles", enabled = false }
     MenuItem "affichage.reperes"         { label = "Repères intelligents", enabled = false, checked = true }
 
@@ -214,8 +267,10 @@ widgets "menu" {
 
     Separator "sepO1" {}
 
-    MenuItem "design.grouper"            { label = "Grouper", shortcut = "Ctrl+G" }
-    MenuItem "design.degrouper"          { label = "Dégrouper", shortcut = "Ctrl+Maj+G" }
+    // `lierRaccourci = false` : la TOILE porte ces deux gestes (cf. le bloc du
+    // menu Édition). Deux portes = deux exécutions, et c'est mesuré.
+    MenuItem "design.grouper"            { label = "Grouper", shortcut = "Ctrl+G", lierRaccourci = false }
+    MenuItem "design.degrouper"          { label = "Dégrouper", shortcut = "Ctrl+Maj+G", lierRaccourci = false }
     MenuItem "objet.convertirComposant"  { label = "Convertir en composant", shortcut = "Ctrl+K", enabled = false }
     MenuItem "objet.detacherInstance"    { label = "Détacher l'instance", enabled = false }
     MenuItem "objet.promouvoirPartage"   { label = "Promouvoir en composant partagé", enabled = false }
@@ -397,25 +452,25 @@ widgets "menu" {
     MenuItem "aide.aPropos"              { label = "À propos de NkUIDesign", enabled = false }
   }
 
-  // ── LES DEUX MENUS PROPRES AU DOCUMENT ────────────────────────────────
-  //  Ils sont restés : ce sont les vues de l'éditeur lui-même, et leurs quatre
-  //  dernières entrées sont grisées parce que `CmdVuePalette`,
-  //  `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent sous
-  //  `#if NKUIDESIGN_ANCIENS_PANNEAUX`, qui est ÉTEINT. La construction avait
-  //  attrapé ma première version, qui les câblait.
-  Menu "menuVues" {
-    label = "@t:design.ui.menuVues"
-
-    MenuItem "design.vue.hierarchie"     { shortcut = "Ctrl+J" }
-    MenuItem "design.vue.inspecteur"     {}
-
-    Separator "sepV1" {}
-
-    MenuItem "design.vue.palette"        { enabled = false }
-    MenuItem "design.vue.composition"    { enabled = false }
-    MenuItem "design.vue.proprietes"     { enabled = false }
-    MenuItem "design.vue.preferences"    { enabled = false }
-  }
+  // ── 🔴 LE DIXIÈME MENU EST PARTI, ET IL DOUBLAIT UN AUTRE ───────────────
+  //  Rodolf, 28/09 : « plusieurs menus sont redondants ».
+  //
+  //  `menuVues` portait six entrées — Hiérarchie, Inspecteur, Palette,
+  //  Composition, Propriétés, Préférences — c'est-à-dire des PANNEAUX. Or
+  //  `affichage.panneaux` ci-dessus est un `Host` que la coquille remplit avec
+  //  les panneaux RÉELLEMENT enregistrés (`DrawPanelsMenuItems`) : la liste
+  //  écrite à la main était le sous-ensemble figé d'une liste engendrée.
+  //
+  //  ⚠️ ET QUATRE DE SES SIX NE POUVAIENT RIEN FAIRE : `CmdVuePalette`,
+  //     `CmdVueComposition`, `CmdVueProprietes` et `CmdVuePreferences` vivent
+  //     sous `#if NKUIDESIGN_ANCIENS_PANNEAUX`, qui est ÉTEINT. Un menu dont les
+  //     deux tiers sont grisés à jamais n'apprend rien : il occupe la bande.
+  //
+  //  ⚠️ RIEN N'EST PERDU, ET C'EST VÉRIFIABLE : `Ctrl+J` (Hiérarchie) et
+  //     `Ctrl+L` (Inspecteur) sont des COMMANDES enregistrées
+  //     (`RegisterCommand`, main.cpp), pas des entrées de menu — elles
+  //     répondent sans lui, et la palette `Ctrl+P` les liste toujours.
+  //     Les deux panneaux restent par ailleurs dans `Affichage ▸ Panneaux`.
 }
 
 

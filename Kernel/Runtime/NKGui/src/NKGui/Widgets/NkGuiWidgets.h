@@ -506,6 +506,44 @@ namespace nkentseu {
 		// ── Menus (barre + sous-menus imbriqués + contextuel) ─────────────────
 		// Barre de menus horizontale (titres via BeginMenu). À fermer par EndMenuBar.
 		NKENTSEU_NKGUI_API bool BeginMenuBar(NkGuiContext &ctx, const NkRect &rect) noexcept;
+		/// Même bande, mais les TITRES s'arrêtent à `limiteTitres` (x absolu) : ce
+		/// qui ne tient plus descend sous un bouton « … » déroulant, sous-menus
+		/// compris.
+		///
+		/// 🔴 POURQUOI DEUX NOMBRES PLUTÔT QU'UNE BANDE PLUS COURTE. Le `rect`
+		///    peint le FOND (il doit couvrir toute la bande, sinon un trou se voit
+		///    au milieu du bandeau) ; `limiteTitres` dit jusqu'où les titres ont le
+		///    DROIT d'aller (avant le titre du document, centré par l'hôte). Une
+		///    bande raccourcie confondrait les deux et laisserait le fond troué.
+		///
+		/// ⚠️ La limite est bornée des deux côtés : jamais au-delà de la bande,
+		///    jamais en deçà de quoi poser le « … » — une limite trop courte
+		///    rendrait les menus INATTEIGNABLES, ce qui est pire que serré.
+		NKENTSEU_NKGUI_API bool BeginMenuBar(NkGuiContext &ctx, const NkRect &rect,
+											 float32 limiteTitres) noexcept;
+		/// La politique de dépassement, à poser JUSTE APRÈS `BeginMenuBar`.
+		///
+		/// `limiteTitres` : x absolu, TOUJOURS une position — il n'y a pas de
+		///                  sentinelle. Qui ne veut pas la changer passe
+		///                  `ctx.menuBarLimite`. (Un « ≤ 0 = ne change rien »
+		///                  avalait en silence les limites légitimement
+		///                  négatives : *une sentinelle n'est pas une position*.)
+		/// `maxTitres`    : nombre de titres tolérés dans la bande (-1 = pas de
+		///                  plafond ; 0 est ramené à 1 — une bande réduite à un
+		///                  seul « … » ne dirait plus rien de l'application).
+		///
+		/// 🔴 DEUX RÈGLES, PAS UNE, ET LA SECONDE N'EST PAS UN DOUBLON : sur un
+		///    grand écran quinze menus TIENNENT en largeur et restent illisibles.
+		///    La largeur protège la mise en page, le nombre protège la lecture.
+		///
+		/// ⚠️ ELLE SE REDÉCLARE À CHAQUE BANDE. `BeginMenuBar` la remet à « pas de
+		///    plafond » : une politique rémanente s'appliquerait à la barre d'une
+		///    autre fenêtre sans que rien ne le dise.
+		///
+		/// Les documents `.nkgui` n'appellent pas ceci : leur nœud `MenuBar` porte
+		/// les clés `maxMenus` / `reserveDroite`, et le monteur les traduit ici.
+		NKENTSEU_NKGUI_API void NkGuiMenuBarPolitique(NkGuiContext &ctx, float32 limiteTitres,
+													  int32 maxTitres) noexcept;
 		NKENTSEU_NKGUI_API void EndMenuBar(NkGuiContext &ctx) noexcept;
 		// Menu déroulant. Appelé dans une MenuBar (titre) OU dans un autre menu
 		// (SOUS-MENU, flyout à droite) — imbrication à profondeur arbitraire. Si
