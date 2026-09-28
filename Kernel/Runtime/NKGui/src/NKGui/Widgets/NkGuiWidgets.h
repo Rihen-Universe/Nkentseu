@@ -462,6 +462,17 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API bool BeginChild(NkGuiContext &ctx, const char *idStr, const NkRect &rect, bool border = true,
 										   bool horizontal = false) noexcept;
 		NKENTSEU_NKGUI_API void EndChild(NkGuiContext &ctx) noexcept;
+		// La largeur VISUELLE d'un séparateur redimensionnable, en pixels.
+		//
+		// ⚠️ UN SEUL NOMBRE, PARCE QUE DEUX ONT DÉJÀ DIVERGÉ. Le séparateur du
+		//    dock se peignait sur 4 px ; la poignée d'un tiroir ancré, sur 1.
+		//    Même fonction, même geste, deux épaisseurs — Rodolf, 28/09 : « le
+		//    séparateur à droite n'est toujours pas correct ». Tout bord
+		//    redimensionnable de l'écosystème lit cette valeur, et aucun ne la
+		//    réécrit. La zone de PRÉHENSION reste plus large que le trait (on
+		//    attrape 10 px, on en voit 4) : c'est délibéré, et c'est la même
+		//    marge des deux côtés.
+		NKENTSEU_NKGUI_API float32 NkGuiSplitterWidth() noexcept;
 		// L'ordonnée du BAS de la zone défilable courante, en coordonnées de
 		// CONTENU — ce qu'il faut pour qu'un panneau partage sa hauteur (« la
 		// liste prend tout ce qui reste ») sans que le fond recule quand on
