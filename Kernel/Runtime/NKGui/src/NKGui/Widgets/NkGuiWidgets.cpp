@@ -4180,6 +4180,45 @@ namespace nkentseu {
 			EndScrollFrame(ctx);
 		}
 
+		// ═══════════════════════════════════════════════════════════════════
+		//  LE BAS D'UNE ZONE DEFILABLE -- EN COORDONNEES DE CONTENU (28/09)
+		// ═══════════════════════════════════════════════════════════════════
+		//  Un panneau qui partage sa hauteur (« la liste prend tout ce qui
+		//  reste ») doit savoir ou s'arreter. La reponse naive est le bas de
+		//  la zone a l'ECRAN : `area.y + area.h`.
+		//
+		//  🔴 ET C'EST UNE BOUCLE. Dans un cadre de defilement, le contenu
+		//     commence a `area.y - S` : le curseur remonte quand on descend.
+		//     « bas ecran - curseur » grandit donc de S, la hauteur restante
+		//     grandit de S, le contenu mesure `vue + S`, et la borne de
+		//     defilement vaut S. LA LIMITE DEVIENT EGALE AU DEFILEMENT, donc
+		//     elle ne l'arrete jamais : chaque cran en autorise un de plus.
+		//
+		//     Mesure (banc b21, (d4)) : borne 40 px au depart, 640 px apres
+		//     quinze crans -- une derive de 600 px, exactement le defilement.
+		//
+		//  ⚠️ IL FAUT ENCORE UNE AMORCE pour que la boucle s'ouvre : tant que
+		//     la borne vaut 0, la molette est ramenee a 0 avant la
+		//     disposition. C'est le contenu dessine APRES la zone qui remplit
+		//     (un etat vide, un pied) qui donne le premier pixel a defiler.
+		//     Le banc (d2), sans cette suite, reste vert sur le code fautif.
+		//
+		//  LA REPONSE JUSTE est le bas en coordonnees de CONTENU :
+		//  `contentTop + area.h`. Il descend avec le curseur, donc la hauteur
+		//  restante ne depend plus du defilement, et le contenu mesure
+		//  exactement la vue.
+		//
+		//  ⚠️ PAS DE SENTINELLE. Sans cadre de defilement, il n'y a pas de bas
+		//     visible -- et un chiffre plausible rendrait le montage
+		//     indetectable. On rend `false` ; l'appelant decide quoi en dire.
+		bool NkGuiBasVisible(NkGuiContext &ctx, float32 &basOut) noexcept {
+			if (ctx.childDepth <= 0)
+				return false;
+			const NkGuiChildFrame &f = ctx.childStack[ctx.childDepth - 1];
+			basOut = f.contentTop + f.area.h;
+			return true;
+		}
+
 		bool BeginListBox(NkGuiContext &ctx, const char *idStr, const NkRect &rect) noexcept {
 			return BeginChild(ctx, idStr, rect, true, false);
 		}

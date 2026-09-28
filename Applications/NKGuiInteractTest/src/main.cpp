@@ -528,6 +528,7 @@ static uint32 Empaquete(const NkColor &c) {
 #include "CasBarreMenus.h"
 #include "CasOngletsVerticaux.h"
 #include "CasHoteDansMenu.h"
+#include "CasDefilementFondMouvant.h"
 
 // Rodolf, 27/09 : « je pense qu'il y a encore plein de conteneurs qu'on peut
 // ajouter, donc integre-les. »
@@ -3860,6 +3861,8 @@ int main(int argc, char **argv) {
 	CasOngletsVerticaux();
 
 	CasHoteDansMenu();
+
+	CasDefilementFondMouvant();
 
 	printf("\n=== %d / %d ===\n", g_pass, g_pass + g_fail);
 	return g_fail == 0 ? 0 : 1;

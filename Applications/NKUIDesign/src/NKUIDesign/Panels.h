@@ -365,11 +365,26 @@ namespace nkuidesign {
 		///    chiffre plausible : un panneau dessiné hors fenêtre est un montage
 		///    que personne n'a prévu, et une valeur inventée le rendrait
 		///    indétectable.
+		/// ⚠️ ELLE NE CALCULE PLUS RIEN ELLE-MÊME (28/09), ET C'ÉTAIT UNE BOUCLE.
+		///    Elle rendait le bas de la zone À L'ÉCRAN (`area.y + area.h`). Mais
+		///    dans un cadre de défilement, le contenu commence à `area.y - S` :
+		///    le curseur remonte quand on descend. « bas écran − curseur »
+		///    grandissait donc de S, la hauteur restante aussi, le contenu
+		///    mesurait `vue + S`, et **la borne de défilement valait S** — donc
+		///    elle n'arrêtait jamais le défilement : chaque cran en autorisait
+		///    un de plus. Rodolf, 28/09 : « le scroll dépasse tout le contenu ».
+		///
+		///    Mesure (banc b21, critère (d4)) : borne 40 px au départ, 640 px
+		///    après quinze crans. Après correction : 40 px, dérive nulle.
+		///
+		/// ⚠️ ET LE CALCUL EST PARTI DANS NKGui (`NkGuiBasVisible`), pas resté
+		///    ici : toute application qui partage la hauteur d'un panneau ancré
+		///    tombe dans le même trou. Le corriger dans NKUIDesign seul aurait
+		///    laissé le piège armé pour le suivant.
 		inline float32 HauteurVisibleBas(NkGuiContext &ctx, const char *quiDemande) {
-			if (ctx.childDepth > 0) {
-				const NkRect &a = ctx.childStack[ctx.childDepth - 1].area;
-				return a.y + a.h;
-			}
+			float32 bas = 0.f;
+			if (nkgui::NkGuiBasVisible(ctx, bas))
+				return bas;
 			static bool criAdresse = false;
 			if (!criAdresse) {
 				criAdresse = true;

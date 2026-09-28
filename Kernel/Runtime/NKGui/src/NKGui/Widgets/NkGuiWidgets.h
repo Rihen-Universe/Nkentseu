@@ -462,6 +462,16 @@ namespace nkentseu {
 		NKENTSEU_NKGUI_API bool BeginChild(NkGuiContext &ctx, const char *idStr, const NkRect &rect, bool border = true,
 										   bool horizontal = false) noexcept;
 		NKENTSEU_NKGUI_API void EndChild(NkGuiContext &ctx) noexcept;
+		// L'ordonnée du BAS de la zone défilable courante, en coordonnées de
+		// CONTENU — ce qu'il faut pour qu'un panneau partage sa hauteur (« la
+		// liste prend tout ce qui reste ») sans que le fond recule quand on
+		// descend. Le bas ÉCRAN (`area.y + area.h`) ferait une boucle : il
+		// s'éloigne du curseur d'exactement le défilement, donc la borne de
+		// défilement suit le défilement et ne l'arrête jamais.
+		// Rend `false` s'il n'y a aucun cadre : sans cadre il n'y a pas de bas
+		// visible, et un chiffre inventé rendrait le montage indétectable.
+		// Mesuré par le banc b21 (CasDefilementFondMouvant).
+		NKENTSEU_NKGUI_API bool NkGuiBasVisible(NkGuiContext &ctx, float32 &basOut) noexcept;
 		// ListBox = cadre défilable ; l'app dessine ses Selectable()/SelectItem() dedans.
 		NKENTSEU_NKGUI_API bool BeginListBox(NkGuiContext &ctx, const char *idStr, const NkRect &rect) noexcept;
 		NKENTSEU_NKGUI_API void EndListBox(NkGuiContext &ctx) noexcept;
