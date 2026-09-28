@@ -3425,7 +3425,10 @@ namespace nkentseu {
 					DockRenderNode(ctx, node.child1);
 					const NkRect c0 = ctx.dockNodes[node.child0].rect;
 					const NkGuiId sid = static_cast<NkGuiId>(0x5D000000u) + static_cast<NkGuiId>(ni);
-					const float32 sw = 4.f; // largeur VISUELLE du splitter
+					// La largeur VISUELLE vient de `NkGuiSplitterWidth` : elle
+					// etait ecrite ici, et la poignee des tiroirs ancres en
+					// avait une AUTRE (1 px). Un seul nombre desormais.
+					const float32 sw = NkGuiSplitterWidth();
 					NkRect sbVis, sbHit;	// zone de PRÉHENSION élargie (facile à attraper)
 					if (node.vertical) {
 						sbVis = {c0.x + c0.w, node.rect.y, sw, node.rect.h};
@@ -4211,6 +4214,10 @@ namespace nkentseu {
 		//  ⚠️ PAS DE SENTINELLE. Sans cadre de defilement, il n'y a pas de bas
 		//     visible -- et un chiffre plausible rendrait le montage
 		//     indetectable. On rend `false` ; l'appelant decide quoi en dire.
+		// Voir l'en-tete : un bord redimensionnable se voit sur CETTE largeur,
+		// partout. Le dock et les poignees de tiroir la lisent tous les deux.
+		float32 NkGuiSplitterWidth() noexcept { return 4.f; }
+
 		bool NkGuiBasVisible(NkGuiContext &ctx, float32 &basOut) noexcept {
 			if (ctx.childDepth <= 0)
 				return false;

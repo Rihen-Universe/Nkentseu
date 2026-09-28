@@ -2224,28 +2224,34 @@ namespace nkentseu {
 					//     resterait visible en theme clair et disparaitrait sur un
 					//     fond sombre -- une des 426 couleurs en dur que ce depot a
 					//     deja mesurees chez les consommateurs de NKGui.
+					//  ⚠️ ET LA LARGEUR VENAIT D'ICI, PAS DU DOCK (28/09, second
+					//     retour : « le separateur a droite n'est toujours pas correct »).
+					//     Peindre la poignee en permanence ne suffisait pas : elle faisait
+					//     **1 px** la ou le separateur du dock en fait **4**. Deux bords, deux
+					//     epaisseurs, le meme geste -- on voyait bien un trait a droite, mais
+					//     pas LE MEME qu'a gauche.
+					//
+					//     `NkGuiSplitterWidth()` est desormais le seul endroit ou ce nombre
+					//     existe. Le laisser en dur des deux cotes, ce serait reparer l'ecart
+					//     d'aujourd'hui en gardant le moyen de le recreer demain.
+					const float32 sw = nkgui::NkGuiSplitterWidth();
 					{
 						NkRect trait = poignee;
 						if (slot == 2)
-							trait.h = 1.f;
+							trait.h = sw;
 						else
-							trait.w = 1.f;
-						mUI.dlOverlay.AddRectFilled(trait, mUI.theme.border, 0.f);
+							trait.w = sw;
+						mUI.dlOverlay.AddRectFilled(trait,
+													mRailPoigneeSurvol == slot ? mUI.theme.accent
+																			  : mUI.theme.border,
+													0.f);
 					}
-					// Au survol et pendant le glisser : le meme trait passe a
-					// l'accent et s'epaissit a 3 px.
-					if (mRailPoigneeSurvol == slot) {
-						NkRect vis = poignee;
-						if (slot == 2) {
-							vis.y -= 1.f;
-							vis.h = 3.f;
-						} else {
-							vis.x -= 1.f;
-							vis.w = 3.f;
-						}
-						mUI.dlOverlay.AddRectFilled(vis, mUI.theme.accent, 0.f);
+					// Au survol et pendant le glisser : LE MEME rectangle, en couleur
+					// d'accent -- exactement ce que fait le separateur du dock. Un trait
+					// plus epais au survol qu'au repos ferait bouger le bord sous la
+					// souris au moment precis ou l'on vise.
+					if (mRailPoigneeSurvol == slot)
 						clicDansUnTiroir = true;
-					}
 				}
 
 				// (Q7) LA PASTILLE A ETE RETIREE PAR LA DESELECTION : le tiroir RESTE
