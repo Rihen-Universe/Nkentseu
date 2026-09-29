@@ -38,7 +38,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkComponentPaint.h"
-#include "NK3DModeler/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerUI.h"
 
 namespace nkentseu {
 	namespace nk3d {
@@ -107,7 +107,7 @@ namespace nkentseu {
 				// ⚠️ ELLES MANQUAIENT, ET LE MANQUE NE SE VOYAIT PAS DANS UN BANC.
 				//    `Line` et `Ellipse` sont additives a DEFAUT INERTE : la classe
 				//    de base rend `false`, l'appelant peint alors un repli VISIBLE.
-				//    Resultat mesure le 14/09 sur une capture de NK3DModeler : le
+				//    Resultat mesure le 14/09 sur une capture de NKCraft : le
 				//    « + » de la bande d'onglets sortait en CARRE BLANC, pendant que
 				//    le banc rendait 104/104 et la geometrie au centieme. Aucun
 				//    critere ne pouvait le voir -- le repli est un comportement

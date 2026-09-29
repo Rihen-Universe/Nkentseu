@@ -7,7 +7,7 @@
 # de primitives et de coefficients, et elles vivent ici.
 #
 # Pour faire la votre : copiez ce fichier sous un autre nom, ici ou dans
-#   %APPDATA%\NK3DModeler\brushes\
+#   %APPDATA%\NKCraft\brushes\
 # changez la ligne « nom », et relancez. AUCUNE RECOMPILATION.
 # Un fichier de votre dossier personnel qui reprend le nom d'une brosse livree
 # la REMPLACE dans la liste -- comme pour les themes.

@@ -65,7 +65,7 @@
 //   Dette NOMMEE, pas subie.
 // =============================================================================
 
-#include "NK3DModeler/Project/NkModelerScene.h" // NkScToAbs / NkScNorm
+#include "NKCraft/Project/NkModelerScene.h" // NkScToAbs / NkScNorm
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -327,7 +327,7 @@ namespace nkentseu {
 		// ═══════════════════════════════════════════════════════════════════
 		// LA SONDE DU FORMAT — sans fenetre, sans GPU, sans un clic
 		// ═══════════════════════════════════════════════════════════════════
-		// `NK3DModeler.exe --sonde-geo` la lance et rend 0 si tout est VERT.
+		// `NKCraft.exe --sonde-geo` la lance et rend 0 si tout est VERT.
 		//
 		// POURQUOI ELLE EST ICI ET PAS AILLEURS : elle eprouve exactement le
 		// fichier qui la porte. Une sonde dans un autre fichier se met a decrire

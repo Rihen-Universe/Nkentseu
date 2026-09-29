@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCreaFamilles.h
+// @File    Applications/NKCraft/src/NKCraft/Viewport/NkCreaFamilles.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // L'ADAPTATEUR DES FAMILLES (21/09 Q8, deplace le 22/09 Q10.1).

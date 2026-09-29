@@ -14,7 +14,7 @@
 //   MESURE DU 25/09 : c'etait FAUX pour l'application. Les quatre fractions sont
 //   des membres de `NkModelerState`, jamais ecrites nulle part. Recherche faite
 //   sur tout le depot : `SaveUiState` / `LoadUiState` existent bien -- mais dans
-//   `NkEditorShell` (NKEditorKit), et NK3DModeler n'emploie PAS `NkEditorShell`.
+//   `NkEditorShell` (NKEditorKit), et NKCraft n'emploie PAS `NkEditorShell`.
 //   Ses seuls etats persistants sont la liste des recents et les themes.
 //   La phrase parlait donc de fermer un PANNEAU, pas l'application ; elle se
 //   lisait comme l'inverse. *Declarer n'est pas livrer.*
@@ -31,8 +31,9 @@
 //   mesure -- sa liste de recents a deja paye ce prix (105 entrees).
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerInput.h" // NkModelerState
+#include "NKCraft/Shell/NkModelerInput.h" // NkModelerState
 #include "NKEditorKit/NkSondeInerte.h"		  // la porte de redirection des sondes
+#include "NKCraft/NkCraftMigration.h" // (29/09) la disposition ecrite sous le nom NK3DModeler
 #include "NKPlatform/NkEnv.h"
 
 #include <cstdio>
@@ -48,19 +49,27 @@ namespace nkentseu {
 				if (*v)
 					return NkString(v);
 			{
-				const NkString red = editorkit::NkSondeChemin(nullptr, "nk3dmodeler_ui.cfg");
+				const NkString red = editorkit::NkSondeChemin(nullptr, "nkcraft_ui.cfg");
 				if (!red.Empty())
 					return red;
 			}
+			// (29/09) NK3DModeler S'APPELLE NKCRAFT : la disposition d'avant vivait
+			// dans `.nk3dmodeler_ui.cfg`. Copiee sous le nouveau nom au premier
+			// appel, l'ancienne laissee en place (NkCraftMigration.h).
 			const char *home = env::GetEnvVar("USERPROFILE");
 			if (!home || !*home)
 				home = env::GetEnvVar("HOME");
+			NkString dossier;
 			if (home && *home) {
-				NkString p(home);
-				p.Append("/.nk3dmodeler_ui.cfg");
-				return p;
+				dossier = NkString(home);
+				dossier.Append("/");
 			}
-			return NkString(".nk3dmodeler_ui.cfg");
+			NkString chemin = dossier;
+			chemin.Append(".nkcraft_ui.cfg");
+			NkString ancien = dossier;
+			ancien.Append(".nk3dmodeler_ui.cfg");
+			NkCraftReprendreFichier(ancien, chemin);
+			return chemin;
 		}
 
 		/// Bornes de TOUTES les fractions ecrites ici. Elles sont appliquees A LA
@@ -93,7 +102,7 @@ namespace nkentseu {
 			FILE *f = std::fopen(chemin.CStr(), "w");
 			if (!f)
 				return; // un profil en lecture seule n'est pas une raison de planter
-			std::fprintf(f, "# NK3DModeler — disposition. Ecrit par l'application.\n");
+			std::fprintf(f, "# NKCraft — disposition. Ecrit par l'application.\n");
 			std::fprintf(f, "left=%.4f\n", (double)st.leftFrac);
 			std::fprintf(f, "right=%.4f\n", (double)st.rightFrac);
 			std::fprintf(f, "browser=%.4f\n", (double)st.browserFrac);

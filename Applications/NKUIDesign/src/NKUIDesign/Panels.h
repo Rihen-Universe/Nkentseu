@@ -4861,7 +4861,7 @@ namespace nkuidesign {
 				//    CONTIENT des widgets (barre d'outils, cluster, bascule). La
 				//    forme sans rect s'appuie sur le dernier widget soumis ; la
 				//    forme a zone a ete ecrite exactement pour ce cas
-				//    (NK3DModeler, 2026-08-17) et ne capture NI le clic NI le
+				//    (NKCraft, 2026-08-17) et ne capture NI le clic NI le
 				//    survol des flottants poses par-dessus.
 				// ⚠️ ON NE CONDUIT PAS LE GESTE : le seuil de franchissement, le
 				//    fantome sous la souris et le suivi appartiennent a NKGui.
@@ -7847,7 +7847,7 @@ namespace nkuidesign {
 					//    s'ouvrait sous la main. La cause est dans NKGui, qui DECLARE
 					//    un double-clic des que deux clics tombent a moins de 0,40 s
 					//    au meme endroit (NkGuiInput.h) -- le meme piege que Rodolf
-					//    avait rapporte le 18/08 sur NK3DModeler, ou « en selection
+					//    avait rapporte le 18/08 sur NKCraft, ou « en selection
 					//    multiple (Ctrl+clic de carte en carte) il ouvrait un editeur
 					//    sous les doigts de l'utilisateur ». Le rayon avait ete ajoute
 					//    la-bas ; il ne suffit pas quand les deux clics sont AU MEME
@@ -9833,7 +9833,7 @@ namespace nkuidesign {
 				}
 				// ⚠️ LA REAFFECTATION D'UN JETON N'A TOUJOURS PAS DE WIDGET, et c'est
 				//    une absence NOMMEE : il faudrait un selecteur de role, qui est un
-				//    composant a part entiere (il en existe deja un dans NK3DModeler).
+				//    composant a part entiere (il en existe deja un dans NKCraft).
 				//    L'ecrire ici en serait une copie de plus. Le mecanisme, lui, est
 				//    en place et teste.
 
@@ -10114,7 +10114,7 @@ namespace nkuidesign {
 	};
 
 	// ═══════════════════════════════════════════════════════════════════════════
-	//  LE PANNEAU IA — CELUI DU KIT, LE MEME QUE NK3DMODELER ET NKCODE (21/09)
+	//  LE PANNEAU IA — CELUI DU KIT, LE MEME QUE NKCRAFT ET NKCODE (21/09)
 	// ═══════════════════════════════════════════════════════════════════════════
 	//  Rodolf, 21/09 a 04h, captures 040611 -> 040716 : « le panneau IA de
 	//  nkuidesign n'est pas le panneau demande qui est suppose etre implemente
@@ -11676,7 +11676,7 @@ namespace nkuidesign {
 				// COSTUME BANANI (31/08) : pas de filets d'indentation dans la
 				// maquette — et ses mesures de rangée : hauteur 22, marge 8,
 				// chevron 9 (+4 d'écart -> case 13), icône 11 (+4 -> case 15).
-				// METRIQUES D'INSTANCE : la déclaration partagée (NK3DModeler)
+				// METRIQUES D'INSTANCE : la déclaration partagée (NKCraft)
 				// garde les siennes — personne d'autre ne bouge.
 				mInstPages.SetParam("indent_guides", 0.f);
 				// L'œil de visibilité : la maquette ne le montre qu'AU SURVOL, à
@@ -12834,7 +12834,7 @@ namespace nkuidesign {
 					// ── L'ŒIL ET LE CADENAS (vague 2, 02/09) ────────────────
 					// 📌 LE COMPOSANT LES PORTAIT DÉJÀ — `hidden`, `locked`,
 					//    `flagsInherited`, les quatre icônes et le rappel
-					//    `onToggleFlag`. NK3DModeler avait payé la leçon à
+					//    `onToggleFlag`. NKCraft avait payé la leçon à
 					//    l'usage. *Le travail n'était pas de dessiner deux
 					//    icônes, c'était de les brancher.*
 					// ⚠️ ET LES DRAPEAUX SE DONNENT **EFFECTIFS**, comme le
@@ -12845,7 +12845,7 @@ namespace nkuidesign {
 					//    c'est ce second drapeau qui fait peindre l'icône
 					//    atténuée et REFUSER le clic. Sans lui, le refus
 					//    paraîtrait inexplicable : mot pour mot ce que
-					//    NK3DModeler a payé (« je ne peux sélectionner ni le
+					//    NKCraft a payé (« je ne peux sélectionner ni le
 					//    parent ni l'enfant »).
 					bool tCache = false, tVerr = false, tHerite = false;
 					NkDrapeauxArbre(mSt->doc, (int32)i, tCache, tVerr, tHerite);

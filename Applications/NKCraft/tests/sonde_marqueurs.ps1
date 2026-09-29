@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_marqueurs.ps1
+# @File    Applications/NKCraft/tests/sonde_marqueurs.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -54,7 +54,7 @@
 # rendu (lignes DebugTri presentes) ET qu'aucune ligne MARQ n'existe. Un
 # compteur dont le zero n'est pas un zero a deja coute une soiree ici.
 #
-# USAGE :  pwsh -File Applications/NK3DModeler/tests/sonde_marqueurs.ps1
+# USAGE :  pwsh -File Applications/NKCraft/tests/sonde_marqueurs.ps1
 # CODES :  0 tout vert · 1 au moins un rouge · 2 la mesure n'a pas pu se faire
 param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
@@ -62,7 +62,7 @@ param(
 	[string]$Sortie = ""
 )
 
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 2 }
 Write-Host ("binaire : {0}" -f (Get-Item $exe).LastWriteTime.ToString("dd/MM HH:mm:ss"))
 if (-not $Sortie) { $Sortie = [System.IO.Path]::GetTempPath() }

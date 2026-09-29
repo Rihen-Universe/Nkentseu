@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""NK3DModeler — application de modelisation 3D.
+"""NKCraft — application de modelisation 3D.
 
 SQUELETTE : la coquille de fenetre et la disposition de l'ecran A (maquette
 Banani validee) — bandes, colonnes, panneaux aux bonnes places, alimentes par
@@ -18,7 +18,7 @@ from jengaconfig import *
 import os
 
 
-with project("NK3DModeler"):
+with project("NKCraft"):
     windowedapp()
     language("C++")
     cppdialect("C++17")
@@ -47,7 +47,7 @@ with project("NK3DModeler"):
          "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
          "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKGLSlang", "NKSPIRVCross"],
-        extra_includes=["src", "src/NK3DModeler", "%{wks.location}/Integrations",
+        extra_includes=["src", "src/NKCraft", "%{wks.location}/Integrations",
                         "%{NKGlad.location}/include",
                         "%{wks.location}/Kernel/Runtime/NKGraph/src"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),

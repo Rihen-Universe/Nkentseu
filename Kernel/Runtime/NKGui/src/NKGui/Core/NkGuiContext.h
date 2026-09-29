@@ -237,7 +237,7 @@ namespace nkentseu {
 				// ── PLACEMENT EXPLICITE (2026-08-18) ──────────────────────────────
 				// Mesure : sur 114 fonctions declarees dans NkGuiWidgets.h, **12
 				// acceptent un NkRect et 102 se placent elles-memes** via
-				// NextItemRect. Une interface pilotee par rectangles (NK3DModeler)
+				// NextItemRect. Une interface pilotee par rectangles (NKCraft)
 				// ne pouvait donc appeler que 12 d'entre elles — pas par
 				// indiscipline, faute de moyen. Ces deux champs sont ce moyen : un
 				// rectangle POSE pour le PROCHAIN widget seulement, consomme par

@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerContrat.h
+// @File    Applications/NKCraft/src/NKCraft/Shell/NkModelerContrat.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
@@ -34,8 +34,8 @@
 //     meme titre que les verbes.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 
 #include <cstdio>
 
@@ -165,7 +165,7 @@ namespace nkentseu {
 			int32 np = 0;
 			np = demo::Demo3DHostOpParamCount();
 
-			fprintf(f, "# Contrat d'outils — NK3DModeler\n\n");
+			fprintf(f, "# Contrat d'outils — NKCraft\n\n");
 			fprintf(f, "AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen\n\n");
 			fprintf(f, "Ce document est ECRIT PAR L'APPLICATION, jamais a la main : chaque ligne\n");
 			fprintf(f, "vient de la table des verbes du pont ou de la table des parametres que le\n");

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_masque.ps1
+# @File    Applications/NKCraft/tests/sonde_masque.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -43,7 +43,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 $journal = Join-Path $Arbre "logs\app.log"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "nk_sonde_masque"

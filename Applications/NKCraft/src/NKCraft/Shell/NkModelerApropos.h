@@ -38,10 +38,10 @@
 //   TROUVEE — deux choses tres differentes quand une licence en depend.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/NkModelerData.h"		   // NkDataFile / NkDataRoots
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/NkModelerData.h"		   // NkDataFile / NkDataRoots
 #include "NKEditorKit/NkEditorScrollbar.h"	   // la barre MANIPULABLE du kit
 #include "NKFileSystem/NkFile.h"
 

@@ -22,10 +22,10 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerTables.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h" // NkUiCtx (presse-papier), NkHelp
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerTables.h"
+#include "NKCraft/Shell/NkModelerWidgets.h" // NkUiCtx (presse-papier), NkHelp
 #include "NKEditorKit/NkEditorScrollbar.h"	   // la barre MANIPULABLE du kit
 #include "NKLogger/NkLog.h"
 #include "NKLogger/NkSink.h"

@@ -1268,7 +1268,7 @@ namespace nkentseu {
 		//
 		//  ⚠️ LE MECANISME EXISTAIT DEJA, ET IL N'A PAS ETE ECRIT POUR CECI.
 		//     `NkGuiContext::SetNextItemRect` est la depuis le 2026-08-18, pour
-		//     NK3DModeler : « un rectangle POSE pour le PROCHAIN widget seulement,
+		//     NKCraft : « un rectangle POSE pour le PROCHAIN widget seulement,
 		//     consomme par NextItemRect ». Le FORMAT n'avait pas le mot ; NKGui
 		//     avait deja la porte. On ne construit donc pas un second placement.
 		//
@@ -1309,7 +1309,7 @@ namespace nkentseu {
 		// =====================================================================
 		//  ⚠️ POURQUOI ELLES EXISTENT, ET CE QUE MESURE L'INVENTAIRE DU 17/09 :
 		//     `pos` et `size` sont en PIXELS ABSOLUS. Un document qui decrirait
-		//     l'interface de NK3DModeler avec eux la FIGERAIT a une seule taille de
+		//     l'interface de NKCraft avec eux la FIGERAIT a une seule taille de
 		//     fenetre -- alors que sa disposition reelle est ecrite en fractions
 		//     (`NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`). C'est ce
 		//     qui separe un ecran de demonstration d'une fenetre d'editeur.
@@ -5291,7 +5291,7 @@ namespace nkentseu {
 				///    d'avant — passent par le meme code qu'hier, au pixel.
 				///
 				/// ⚠️ LA FRACTION SE RAPPORTE A LA ZONE ENTIERE, PAS AU RESTE. Deux
-				///    raisons, et la seconde est la vraie : la disposition de NK3DModeler
+				///    raisons, et la seconde est la vraie : la disposition de NKCraft
 				///    est deja ecrite ainsi (`NkLayout::Compute(W, H, fLeft = 0.16f,
 				///    fRight = 0.29f)`), et surtout une fraction du RESTE dependrait de
 				///    l'ORDRE d'ecriture des amarrages — `left 0.2` puis `right 0.2` ne

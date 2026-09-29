@@ -1,6 +1,6 @@
 // =============================================================================
 // Nogee/Panels/ContentBrowserPanel.cpp — portage NKUI -> NKGui, vise sur §9 et
-// sur la reference de cartes de NK3DModeler (cf. .h)
+// sur la reference de cartes de NKCraft (cf. .h)
 // =============================================================================
 #include "ContentBrowserPanel.h"
 #include "NKGui/NKGui.h"
@@ -14,7 +14,7 @@ namespace nkentseu {
 		using namespace nkgui;
 
 		namespace {
-			// Geometrie NK3DModeler : pied 34 px, bande de type 3 px, espacement
+			// Geometrie NKCraft : pied 34 px, bande de type 3 px, espacement
 			// 14, ombre (+2,+3) noir alpha 90.
 			constexpr float32 kFootH = 34.f;
 			constexpr float32 kBandH = 3.f;
@@ -104,7 +104,7 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		// Une carte, geometrie NK3DModeler.
+		// Une carte, geometrie NKCraft.
 		// =====================================================================
 		bool ContentBrowserPanel::RenderCard(NkGuiContext &ctx, NkAssetBrowserEntry &entry, const NkRect &card,
 											 float32 thumb) noexcept {
@@ -120,7 +120,7 @@ namespace nkentseu {
 				entry.thumbnailHandle = mAssetMgr->GetThumbnail(entry.relativePath.CStr()).id;
 			}
 
-			// Selection ACTIVE (NK3DModeler) : APLAT accent debordant de 2 px.
+			// Selection ACTIVE (NKCraft) : APLAT accent debordant de 2 px.
 			if (isSelected)
 				dl.AddRectFilled({card.x - 2.f, card.y - 2.f, card.w + 4.f, card.h + 4.f}, kAccent, 3.f);
 
@@ -128,7 +128,7 @@ namespace nkentseu {
 			dl.AddRectFilled({card.x + 2.f, card.y + 3.f, card.w, card.h}, kShadow, 3.f);
 
 			// Vignette : image si disponible, sinon aplat de la couleur de type
-			// (le damier « fond vide » de NK3DModeler demande les jetons de theme
+			// (le damier « fond vide » de NKCraft demande les jetons de theme
 			// InputBg/WindowBg — non exposes par NKGui ici ; aplat en repli).
 			const NkRect thumbR{card.x, card.y, card.w, thumb};
 			if (entry.thumbnailHandle)
@@ -143,7 +143,7 @@ namespace nkentseu {
 
 			// Pied 2 lignes : nom EDITABLE EN PLACE (clippe a la carte), type en
 			// TextMuted. La validation recopie vers l'entree — jamais par frame :
-			// une copie par frame ecraserait l'edition en cours (regle NK3DModeler,
+			// une copie par frame ecraserait l'edition en cours (regle NKCraft,
 			// payee la-bas sur le renommage des onglets).
 			const float32 footY = card.y + thumb + kBandH;
 			{
@@ -245,7 +245,7 @@ namespace nkentseu {
 			RenderBreadcrumb(ctx);
 			Separator(ctx);
 
-			// ── Grille enveloppante, largeur de carte FIXE (NK3DModeler) ─────
+			// ── Grille enveloppante, largeur de carte FIXE (NKCraft) ─────
 			const float32 thumb = mThumbnailSize;
 			const float32 cardW = thumb;
 			const float32 cardH = thumb + kBandH + kFootH;

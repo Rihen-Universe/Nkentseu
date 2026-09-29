@@ -5,7 +5,7 @@
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
 # VOIE (c) : UNE PHRASE -> UNE IMAGE -> UN MAILLAGE. La porte TEXTE du generateur
-# de NK3DModeler (NkGenerateur.h, gabarit `--invite {invite} --out {out}`).
+# de NKCraft (NkGenerateur.h, gabarit `--invite {invite} --out {out}`).
 #
 #   1. la phrase francaise devient une invite ANGLAISE d'objet isole (modele de
 #      langue LOCAL via Ollama ; les encodeurs CLIP de SD ne lisent que l'anglais).

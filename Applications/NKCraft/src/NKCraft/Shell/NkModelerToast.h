@@ -31,16 +31,16 @@
 //              `bandeau`) -- il n'y a donc rien a reutiliser, et rien a etendre ;
 //          (2) le kit est refondu EN CE MOMENT dans un autre arbre
 //              (`Nkentseu-noge`), et sa surface de dessin (`NkEditorContext`)
-//              n'est pas celle que NK3DModeler emploie pour sa couche overlay
+//              n'est pas celle que NKCraft emploie pour sa couche overlay
 //              (`NkModelerPainter` sur `ui.dlOverlay`). L'y porter ce soir
 //              serait ecrire contre une interface qu'un autre deplace.
-//          => DETTE NOMMEE, inscrite dans `Applications/NK3DModeler/ROADMAP.md`.
+//          => DETTE NOMMEE, inscrite dans `Applications/NKCraft/ROADMAP.md`.
 //
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h" // NkOvPainter : la couche peinte EN DERNIER
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerWidgets.h" // NkOvPainter : la couche peinte EN DERNIER
 #include "NKEditorKit/NkScreenLogSink.h" // (25/09) LE NEUVIEME PUITS : ce qu il depose arrive ici
 
 namespace nkentseu {

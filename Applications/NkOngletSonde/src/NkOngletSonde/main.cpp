@@ -50,7 +50,7 @@
 //  Elle pose le composant PARTAGE `tab_strip` sur la coquille et imprime la
 //  geometrie que celui-ci RAPPORTE (`NkTabStripResult::tabs`) : chaque onglet,
 //  son x, sa largeur, son rectangle de libelle. Ces nombres viennent du MEME
-//  code que NK3DModeler appelle par son propre peintre.
+//  code que NKCraft appelle par son propre peintre.
 //
 //  ⚠️ LA MUTATION SE PILOTE DE L'EXTERIEUR (`NKSONDE_MUT_PADX`) et elle passe
 //     par une `NkComponentInstance`, c'est-a-dire par la porte NORMALE des
@@ -310,7 +310,7 @@ int nkmain(const NkEntryState &state) {
 	// ── LA MUTATION, PAR LA PORTE NORMALE DES REGLAGES ──────────────────────
 	// Une `NkComponentInstance` liee a la declaration du composant : c'est ce
 	// que l'editeur NkUIDesign poserait. Muter ici prouve que la GEOMETRIE des
-	// onglets obeit a la metrique PARTAGEE — la meme que lit NK3DModeler.
+	// onglets obeit a la metrique PARTAGEE — la meme que lit NKCraft.
 	static NkComponentInstance inst;
 	if (mutPadX > 0) {
 		inst.Bind(NkTabStripDecl());

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_taux_ia.ps1
+# @File    Applications/NKCraft/tests/sonde_taux_ia.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -47,7 +47,7 @@ param(
 	[string]$Sortie = ""
 )
 
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 2 }
 Write-Host ("binaire : {0}" -f (Get-Item $exe).LastWriteTime.ToString("dd/MM HH:mm:ss"))
 if (-not $Sortie) { $Sortie = [System.IO.Path]::GetTempPath() }
@@ -74,7 +74,7 @@ Write-Host ("le contrat annonce {0} verbes" -f $verbes.Count)
 
 # ── LES DIX DEMANDES, LUES ET NON RETAPEES ─────────────────────────────────
 $demandes = @()
-$cheminSerie = Join-Path $Arbre ("Applications\NK3DModeler\tests\" + $Serie)
+$cheminSerie = Join-Path $Arbre ("Applications\NKCraft\tests\" + $Serie)
 if (-not (Test-Path $cheminSerie)) { Write-Host "ROUGE  serie introuvable : $cheminSerie"; exit 2 }
 Write-Host ("serie : {0}" -f $Serie)
 foreach ($l in Get-Content $cheminSerie) {

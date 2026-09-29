@@ -16,13 +16,13 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Shell/NkModelerTables.h"
-#include "NK3DModeler/Shell/NkModelerCommon.h"
-#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la largeur de la separation survit
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerTables.h"
+#include "NKCraft/Shell/NkModelerCommon.h"
+#include "NKCraft/Shell/NkModelerUiState.h" // (25/09) la largeur de la separation survit
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 #include "NKLogger/NkLog.h" // [MESURE Maj+clic] temporaire
 #include "NKEditorKit/NkShortcutTable.h"
 

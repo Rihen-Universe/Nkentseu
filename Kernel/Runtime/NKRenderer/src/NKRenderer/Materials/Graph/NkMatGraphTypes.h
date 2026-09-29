@@ -1611,7 +1611,7 @@ namespace nkentseu {
 			//     DEUX DOCUMENTS OUVERTS PARTAGENT LEURS GROUPES. »
 			//
 			// Ce n'est PAS une simplification acceptable, c'est un DEFAUT. Dans
-			// une application qui ouvre plusieurs documents -- NK3DModeler,
+			// une application qui ouvre plusieurs documents -- NKCraft,
 			// NKScena, Nogee -- il produit trois symptomes, et aucun ne se voit
 			// dans un banc :
 			//   1. un groupe defini dans le document A apparait dans le menu de B ;

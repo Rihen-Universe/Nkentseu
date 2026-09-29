@@ -2,7 +2,7 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # =============================================================================
 # verif_geometrie.py — compare la GEOMETRIE de deux fichiers d'asset
-# NK3DModeler (.nkmesh / .nkscene).
+# NKCraft (.nkmesh / .nkscene).
 #
 # CE QU'IL MESURE, ET POURQUOI IL EXISTE A COTE DE `--probe=geom`.
 #   La sonde interne eprouve le CODEC, sans fenetre. Celui-ci eprouve l'ALLER-

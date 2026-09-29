@@ -7,7 +7,7 @@
 # ajoutées dans les versions suivantes.
 #
 # Pour faire le vôtre : copiez ce fichier sous un autre nom dans
-#   %APPDATA%\NK3DModeler\themes\
+#   %APPDATA%\NKCraft\themes\
 # changez la ligne « nom », et gardez uniquement les rôles que vous modifiez.
 # Un fichier de votre dossier personnel qui reprend le nom d'un thème livré le
 # REMPLACE dans la liste — c'est ainsi qu'on personnalise « Sombre ».
@@ -30,6 +30,6 @@ accent_ui = #2F81F7
 # couleur chaude de l'écran, elle doit rester la même d'un thème à l'autre pour
 # que « sélectionné » se reconnaisse sans réapprentissage.
 
-# Un rôle propre à NK3DModeler. Une autre application qui lirait ce fichier
+# Un rôle propre à NKCraft. Une autre application qui lirait ce fichier
 # l'ignorerait simplement, au lieu de refuser tout le thème.
 nk3d.anneau_brosse = #FFD866CC

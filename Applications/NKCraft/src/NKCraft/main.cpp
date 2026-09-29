@@ -5,14 +5,14 @@
 // -----------------------------------------------------------------------------
 // =============================================================================
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// main.cpp — Point d'entree de NK3DModeler.
+// main.cpp — Point d'entree de NKCraft.
 //
 // L'INTERFACE EST PEINTE DIRECTEMENT, sans passer par NkEditorShell.
 //   Le shell de NKEditorKit apporte sa PROPRE chrome — barre de menus, barre
 //   d'etat, docking, palette — pensee pour un IDE. Elle est excellente pour
 //   NKCode et elle empeche de coller a une maquette au pixel pres : on passerait
 //   son temps a lutter contre une disposition qu'on ne controle pas.
-//   NK3DModeler doit ressembler EXACTEMENT a l'ecran A valide par Rihen, donc on
+//   NKCraft doit ressembler EXACTEMENT a l'ecran A valide par Rihen, donc on
 //   ouvre la fenetre, on prend la draw list, et on peint.
 //
 // CE QUI EST DEJA VRAI ET N'EST PAS DE LA MAQUETTE
@@ -31,32 +31,32 @@
 #include "NKWindow/NKMain.h"
 #include "NKEvent/NkEvent.h"
 #include "NKGui/NkEditorRHIRenderer.h" // Integrations/NKGui
-#include "NK3DModeler/Viewport/NkViewport3D.h"
-#include "NK3DModeler/Viewport/NkCursorWrapSonde.h" // (b5) sonde du rebouclage, sans fenetre
-#include "NK3DModeler/Viewport/NkCursorWarpSonde.h" // (b5 etape 3) sonde du replacement
-#include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
+#include "NKCraft/Viewport/NkViewport3D.h"
+#include "NKCraft/Viewport/NkCursorWrapSonde.h" // (b5) sonde du rebouclage, sans fenetre
+#include "NKCraft/Viewport/NkCursorWarpSonde.h" // (b5 etape 3) sonde du replacement
+#include "NKCraft/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKLogger/NkLog.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKTime/NkClock.h"
 #include "NKPlatform/NkEnv.h"
 
-#include "NK3DModeler/Shell/NkModelerTheme.h"
-#include "NK3DModeler/Shell/NkModelerScreens.h"
-#include "NK3DModeler/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
-#include "NK3DModeler/Shell/NkModelerJournal.h"
-#include "NK3DModeler/Shell/NkModelerToast.h" // le resultat d'une action, DIT A L'ECRAN
-#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
-#include "NK3DModeler/Shell/NkModelerApropos.h" // (26/09) la mention CC BY 4.0, atteignable depuis l'application
+#include "NKCraft/Shell/NkModelerTheme.h"
+#include "NKCraft/Shell/NkModelerScreens.h"
+#include "NKCraft/Shell/NkModelerChrome.h" // separateurs, dialogues, barre d etat
+#include "NKCraft/Shell/NkModelerJournal.h"
+#include "NKCraft/Shell/NkModelerToast.h" // le resultat d'une action, DIT A L'ECRAN
+#include "NKCraft/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
+#include "NKCraft/Shell/NkModelerApropos.h" // (26/09) la mention CC BY 4.0, atteignable depuis l'application
 #include "NKContainers/String/Encoding/NkBase64.h" // les messages du moteur, lisibles dans l'app
-#include "NK3DModeler/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
-#include "NK3DModeler/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
-#include "NK3DModeler/Shell/NkModelerProperties.h" // panneau de proprietes
-#include "NK3DModeler/Shell/NkModelerBrowser.h" // navigateur de contenu
-#include "NK3DModeler/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
-// La dette du 18/08 : le peintre de NK3DModeler vu comme un NkComponentPaint,
+#include "NKCraft/Shell/NkModelerHierarchy.h" // hierarchie + menus de scene
+#include "NKCraft/Shell/NkModelerViewport.h"  // vue 3D et ses surcouches
+#include "NKCraft/Shell/NkModelerProperties.h" // panneau de proprietes
+#include "NKCraft/Shell/NkModelerBrowser.h" // navigateur de contenu
+#include "NKCraft/Shell/NkModelerImport.h"  // import de fichiers 3D (bouton Importer)
+// La dette du 18/08 : le peintre de NKCraft vu comme un NkComponentPaint,
 // et le premier composant du kit rendu par lui (NK_KIT_TREE=1).
-#include "NK3DModeler/Shell/NkModelerComponentPaint.h"
+#include "NKCraft/Shell/NkModelerComponentPaint.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
@@ -64,16 +64,16 @@
 #include "NKEditorKit/NkScreenCountersView.h" // (25/09) (A) les compteurs, dans la vue
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
-#include "NK3DModeler/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
-#include "NK3DModeler/Shell/NkModelerMenus.h"
-#include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
+#include "NKCraft/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
+#include "NKCraft/Shell/NkModelerMenus.h"
+#include "NKCraft/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)   // menus deroulants
 // ECRAN D'ACCUEIL + socle PROJET (.nk3dm) : l'accueil est peint tant qu'aucun
 // projet n'est ouvert, et il porte l'execution differee des actions projet.
-#include "NK3DModeler/Shell/NkModelerWelcome.h"
-#include "NK3DModeler/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
-#include "NK3DModeler/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
-#include "NK3DModeler/Shell/NkModelerIA.h"      // le panneau APPELLE : NKConverse, asynchrone
-#include "NK3DModeler/Shell/NkModelerCreation.h" // (crea) une phrase -> un objet en parties nommees
+#include "NKCraft/Shell/NkModelerWelcome.h"
+#include "NKCraft/Genia/NkGeniaSonde.h" // --sonde-genia : la porte du generateur
+#include "NKCraft/Shell/NkModelerContrat.h" // la table des verbes, DONNEE partagee
+#include "NKCraft/Shell/NkModelerIA.h"      // le panneau APPELLE : NKConverse, asynchrone
+#include "NKCraft/Shell/NkModelerCreation.h" // (crea) une phrase -> un objet en parties nommees
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkWindowEvent.h" // focus : le confinement du curseur le relache
 #include "NKEvent/NkDropEvent.h" // NkDropFileEvent : fichiers laches depuis l'explorateur
@@ -496,7 +496,7 @@ namespace {
 						 const nkgui::NkGuiInput &in) {
 		static NkContentBrowserModel m;
 		// VIGNETTE ADAPTEE AU PANNEAU : le defaut de la declaration vise un
-		// navigateur plein ecran ; dans le bandeau bas de NK3DModeler, une carte au
+		// navigateur plein ecran ; dans le bandeau bas de NKCraft, une carte au
 		// defaut depasse le clip et son PIED (les deux libelles) disparait — on
 		// croirait l'alignement casse alors que c'est la carte qui deborde.
 		m.thumbSize = 56.f;
@@ -709,14 +709,14 @@ namespace {
 
 int nkmain(const NkEntryState &entry) {
 	// ── SONDE DU FORMAT DE GEOMETRIE, AVANT TOUT LE RESTE ───────────────────
-	// `NK3DModeler.exe --sonde-geo [dossier]` eprouve NkModelerGeom.h et SORT :
+	// `NKCraft.exe --sonde-geo [dossier]` eprouve NkModelerGeom.h et SORT :
 	// aucune fenetre, aucun device, aucun GPU pris. C'est ce qui permet de la
 	// lancer pendant qu'une autre application tient la carte -- et de la lancer
 	// sans un seul clic. Le verdict part dans `sonde_geo.txt` du dossier donne
 	// (defaut : le dossier courant), parce qu'une application fenetree n'a pas
 	// de console ou ecrire.
 	// ── LE CONTRAT D'OUTILS, ECRIT PAR L'APPLICATION ────────────────────────
-	// `NK3DModeler.exe --contrat-outils [fichier]` ecrit le contrat et SORT :
+	// `NKCraft.exe --contrat-outils [fichier]` ecrit le contrat et SORT :
 	// aucune fenetre, aucun device. C'est le document qu'on donnera a un modele
 	// distant, a Ilyana, ou a un modele de Rodolf -- arbitrage du 17/09 : « le
 	// plus important est la performance des OUTILS associes au modele ».
@@ -743,7 +743,7 @@ int nkmain(const NkEntryState &entry) {
 				std::printf("  [FAIL] %-5s %s\n", id, quoi);
 			}
 		};
-		std::printf("=== sonde messages en vue (NK3DModeler) ===\n");
+		std::printf("=== sonde messages en vue (NKCraft) ===\n");
 
 		nk3d::NkToastClear();
 		verdict("m0", nk3d::NkToasts().count == 0, "NEGATIF DE DEPART : la pile est vide");
@@ -858,7 +858,7 @@ int nkmain(const NkEntryState &entry) {
 				std::printf("  [FAIL] %-5s %s\n", id, quoi);
 			}
 		};
-		std::printf("=== sonde disposition NK3DModeler -> %s ===\n", out.CStr());
+		std::printf("=== sonde disposition NKCraft -> %s ===\n", out.CStr());
 
 		// (1) ALLER-RETOUR : une largeur choisie revient a l'identique.
 		{
@@ -1055,7 +1055,7 @@ int nkmain(const NkEntryState &entry) {
 	}
 
 	// ── SONDE DE LA PORTE DU GENERATEUR, SANS FENETRE NI CARTE ──────────────
-	// `NK3DModeler.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
+	// `NKCraft.exe --sonde-genia [dossier]` eprouve la remontee du MOTIF du
 	// sous-processus (le defaut nomme par la navette « texte vers 3D ») et la
 	// porte `GenererDepuisTexte`. Aucun device, aucun GPU : elle se lance
 	// pendant que la carte est prise -- et elle l'est.
@@ -1074,7 +1074,7 @@ int nkmain(const NkEntryState &entry) {
 	}
 
 	// ── SONDE (b5) DU REBOUCLAGE DU CURSEUR, AVANT TOUT LE RESTE ────────────
-	// `NK3DModeler.exe --sonde-wrap [dossier]` rejoue des suites de positions
+	// `NKCraft.exe --sonde-wrap [dossier]` rejoue des suites de positions
 	// ecrites a l'avance a travers `NkCursorWrapStep` et SORT : aucune fenetre,
 	// aucun device, AUCUNE INJECTION D'ENTREE. Elle peut donc tourner pendant
 	// qu'une autre application tient la carte. Verdict dans `sonde_wrap.txt`.
@@ -1118,8 +1118,15 @@ int nkmain(const NkEntryState &entry) {
 			userThemes = redThemes;
 		else if (const char *appdata = env::GetEnvVar("APPDATA")) {
 			if (*appdata) {
-				userThemes = NkString(appdata);
-				userThemes.Append("/NK3DModeler/themes");
+				// (29/09) NK3DModeler S'APPELLE NKCRAFT. Les themes deposes sous
+				// l'ancien nom restent lus TANT QUE le nouveau dossier n'existe
+				// pas : l'application ne fait que lire ce dossier, elle n'a donc
+				// rien a y copier (NkCraftMigration.h).
+				NkString nouveau(appdata);
+				nouveau.Append("/NKCraft/themes");
+				NkString ancien(appdata);
+				ancien.Append("/NK3DModeler/themes");
+				userThemes = nk3d::NkCraftDossierOuAncien(nouveau, ancien);
 			}
 		}
 	}
@@ -1165,7 +1172,7 @@ int nkmain(const NkEntryState &entry) {
 	// Directive de Rodolf du 18/08 : toute application doit laisser choisir son
 	// dorsal, avec le MEME vocabulaire partout. `NkDemoCommon.h` du modeleur
 	// portait bien un `ParseBackend` avec ses cinq mots-cles -- et pas UN SEUL
-	// appelant dans tout `Applications/NK3DModeler/src`. Declare, jamais honore.
+	// appelant dans tout `Applications/NKCraft/src`. Declare, jamais honore.
 	//
 	// ⚠️ ON N'UTILISE PAS CE `ParseBackend`-LA. Le vocabulaire canonique vit dans
 	// NKEditorKit (`NkEditorGfxApiFromName` / `...Name` / `...Choices` /
@@ -1248,7 +1255,7 @@ int nkmain(const NkEntryState &entry) {
 	// outils systeme le montrent, meme si la fenetre est sans cadre.
 	wc.title = sonde ? NkString("*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** ") +
 						   NkString(NkEditorGfxApiName(gfxApi))
-					 : NkString("NK3DModeler ") + NkString(NkEditorGfxApiName(gfxApi));
+					 : NkString("NKCraft ") + NkString(NkEditorGfxApiName(gfxApi));
 	wc.width = 1600;
 	wc.height = 900;
 	// (24/09) NK_FENETRE=<largeur>x<hauteur> : la taille de la fenetre pour la
@@ -1602,7 +1609,7 @@ int nkmain(const NkEntryState &entry) {
 	// ── PROJET ET PROJETS RECENTS ───────────────────────────────────────────
 	// Aucun projet n'est ouvert au lancement : l'ecran d'accueil est donc
 	// affiche, et il l'est tant que `st.welcome` reste vrai. Les recents sont
-	// lus depuis ~/.nk3dmodeler_recent.cfg (meme patron que l'IDE frere NKCode).
+	// lus depuis ~/.nkcraft_recent.cfg (meme patron que l'IDE frere NKCode).
 	nk3d::NkProjectState proj;
 	nk3d::NkRecentList recents;
 	// Surveillance du dossier du projet. Vit AUSSI LONGTEMPS que la boucle : son
@@ -2159,7 +2166,7 @@ int nkmain(const NkEntryState &entry) {
 		// ICI, et seulement ici, on est sur le fil d'affichage. Le puits est vide
 		// dans la meme image : rien ne s'accumule, rien ne se perd.
 		//
-		// ⚠️ LA PILE DE BANDEAUX DE NK3DModeler EST MEILLEURE QUE CELLE DU KIT
+		// ⚠️ LA PILE DE BANDEAUX DE NKCraft EST MEILLEURE QUE CELLE DU KIT
 		//    (repli du texte, croix de fermeture, couche d'incrustation). On la
 		//    NOURRIT, on ne la remplace pas : « on branche, on ne batit pas ».
 		//    Un hote qui n'en a pas (Nogee, NkAnimaEditor, NKScena) prendra
@@ -2305,7 +2312,7 @@ int nkmain(const NkEntryState &entry) {
 		// (25/09) LA PORTE D'INERTIE DE LA SONDE. Le modeleur a sa propre boucle :
 		// il appelle donc la porte du kit lui-meme, au MEME endroit que la coquille
 		// (juste avant BeginFrame). Hors `NK_SONDE`, elle ne fait rien.
-		editorkit::NkSondeFiltrerEntree(ui, "NK3DModeler");
+		editorkit::NkSondeFiltrerEntree(ui, "NKCraft");
 		ui.BeginFrame(dt);
 		// Le registre est reinitialise APRES BeginFrame : il lit les transitions
 		// que celui-ci vient de calculer.
@@ -7474,11 +7481,11 @@ int nkmain(const NkEntryState &entry) {
 								rs.Save(capPath);
 						}
 					}
-					std::printf("[NK3DModeler] Capture tutoriel -> %s : %s\n", capPath,
+					std::printf("[NKCraft] Capture tutoriel -> %s : %s\n", capPath,
 								okCap ? "ecrite" : "ECHEC");
 				}
 #else
-				std::printf("[NK3DModeler] Capture tutoriel : pas encore portee sur cette plateforme\n");
+				std::printf("[NKCraft] Capture tutoriel : pas encore portee sur cette plateforme\n");
 #endif
 			}
 		}

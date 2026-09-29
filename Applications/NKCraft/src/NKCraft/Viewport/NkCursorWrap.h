@@ -1,6 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
-// @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCursorWrap.h
+// @File    Applications/NKCraft/src/NKCraft/Viewport/NkCursorWrap.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------

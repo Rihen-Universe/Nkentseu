@@ -101,7 +101,7 @@ namespace nkentseu {
 			/// seulement le symptome.
 			Echec,
 			/// L'EFFET MESURE d'une action sur le document (`faces 6 -> 384`), et
-			/// son annulation. N'est pas dans la capture : vient de NK3DModeler, ou
+			/// son annulation. N'est pas dans la capture : vient de NKCraft, ou
 			/// il est deja livre. C'est ce qui rend l'outil essayable sans risque.
 			Effet,
 			/// La REFLEXION du modele.
@@ -148,7 +148,7 @@ namespace nkentseu {
 				/// lire.
 				bool produitProse = false;
 				/// Le porteur sait rapporter l'entree ET la sortie d'un outil.
-				/// NK3DModeler : oui, livre. NKCode : la source existe (NDJSON), le
+				/// NKCraft : oui, livre. NKCode : la source existe (NDJSON), le
 				/// bloc pas encore. NKUIDesign : non.
 				bool produitOutil = false;
 				/// Le porteur distingue un refus nomme d'une panne.
@@ -156,7 +156,7 @@ namespace nkentseu {
 				/// Le porteur rapporte un echec avec le geste qui repare.
 				bool produitEchec = false;
 				/// Le porteur MESURE l'effet d'une action sur son document, et sait
-				/// l'annuler. NK3DModeler : oui. Les deux autres : non.
+				/// l'annuler. NKCraft : oui. Les deux autres : non.
 				bool produitEffet = false;
 				/// ⚠️ Aucun porteur ne le pose aujourd'hui. Voir `NkAiBloc::Reflexion`.
 				bool produitReflexion = false;
@@ -297,7 +297,7 @@ namespace nkentseu {
 				/// ⚠️ ELLE SE CONSOMME LA OU LES BLOCS SONT PEINTS, jamais au clic.
 				///    Consommee au clic, elle marquerait « vu » un panneau que ce
 				///    clic venait peut-etre de FERMER. La lecon est celle de
-				///    `d31c127e9` (NK3DModeler, 20/09) et elle remonte ici telle
+				///    `d31c127e9` (NKCraft, 20/09) et elle remonte ici telle
 				///    quelle -- c'est le sens meme de mettre le fil en commun.
 				uint32 NonVus() const {
 					return mPousses > mVus ? mPousses - mVus : 0u;

@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# @File    Applications/NK3DModeler/tests/sonde_image_creation.ps1
+# @File    Applications/NKCraft/tests/sonde_image_creation.ps1
 # @Brief   (Q9, 21/09) L'IMAGE JOINTE ARRIVE A LA CREATION, DANS LES DEUX ORDRES,
 #          par le chemin de Rodolf : clic dans le composeur, frappe, depot du
 #          fichier sur le panneau, Entree -- rejoues par les rappels de
@@ -14,7 +14,7 @@
 # de la creation lit CETTE image.
 # -----------------------------------------------------------------------------
 param([string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-panneauia", [string]$Config = "Release")
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 $img = (Join-Path $Arbre "Build\panneau_ia\reference_inscription.png").Replace('\', '/')
 $rouges = 0
 function Lancer($nom, $joindre, $ev) {

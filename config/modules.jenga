@@ -165,7 +165,7 @@ _REGISTRY: dict = {
     #    NKRHI. Le kit expose `NkIEditorRenderer` et l'APPLICATION injecte son
     #    implementation : NkEditorCanvasRenderer (IDE 2D : NKCode, NKUIDesign,
     #    ConquerorLab) ou NkEditorRHIRenderer (3D : NkAnimaEditor, Nogee, et
-    #    NK3DModeler quand il adoptera la coquille).
+    #    NKCraft quand il adoptera la coquille).
     #
     #    Avant, NkEditorShell.cpp instanciait NKCanvas par defaut, d'ou cette
     #    ligne, d'ou NKCanvas et ses CINQ backends graphiques lies chez toute

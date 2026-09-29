@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerIA.h
+// @File    Applications/NKCraft/src/NKCraft/Shell/NkModelerIA.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
@@ -36,8 +36,8 @@
 //  porte deja `NkEnvoiAsync` : on le CONSOMME.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerContrat.h"
-#include "NK3DModeler/Shell/NkModelerInput.h" // NkModelerState, NkVpAction
+#include "NKCraft/Shell/NkModelerContrat.h"
+#include "NKCraft/Shell/NkModelerInput.h" // NkModelerState, NkVpAction
 #include "NKConverse/NkConverseChatAsync.h"
 #include "NKConverse/NkConverseClaude.h" // le dorsal DISTANT, choisi par l'onglet
 
@@ -289,7 +289,7 @@ namespace nkentseu {
 		//            -- jamais depassee sur les 8 relevés, et F est publie.
 		//            Lache (cube+sub, n=5 : reel +40, borne +120) mais du bon cote.
 		//         ⚠️ EPREUVE MESUREE : le REPLI (on marque les deux sommets d'une
-		//            arete sans poser d'intention). Ce que fait NK3DModeler pour
+		//            arete sans poser d'intention). Ce que fait NKCraft pour
 		//            designer son arete n'a pas ete verifie : **rien ici ne porte
 		//            sur ce que voit Rodolf**.
 		//      3. `extrude[:individuelles]`  **MESURE le 20/09**, et il a bien DEUX
@@ -1064,8 +1064,8 @@ namespace nkentseu {
 					//    salissent le dossier de projet de Rodolf et reapparaissent apres
 					//    chaque nettoyage. `logs/` existe deja et c'est la que vivent les
 					//    traces de l'application.
-					dorsal.invitePath = NkString("logs/nk3dmodeler_invite.txt");
-					dorsal.sortiePath = NkString("logs/nk3dmodeler_reponse.txt");
+					dorsal.invitePath = NkString("logs/nkcraft_invite.txt");
+					dorsal.sortiePath = NkString("logs/nkcraft_reponse.txt");
 					if (const char *g = std::getenv("NK_IA_CMD")) {
 						if (*g)
 							dorsal.gabarit = NkString(g);

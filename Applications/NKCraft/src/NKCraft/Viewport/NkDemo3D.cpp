@@ -1,7 +1,7 @@
 // =============================================================================
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // NkDemo3D.cpp — PORTAGE INTEGRAL de renderdemo --demo=2 (Demo3D.cpp copie
-// verbatim). Les adaptations sont balisees « PORTAGE NK3DModeler » : souris
+// verbatim). Les adaptations sont balisees « PORTAGE NKCraft » : souris
 // traduite fenetre->vue, gardes d'entree, frame rejouee (l'editeur possede
 // le device et le command buffer). L'hote est en fin de fichier.
 // Source : Applications/Sandbox/src/Demo/Demo3D.cpp — Demo 2
@@ -25,14 +25,14 @@
 #include "NKGui/NkGuiRHIBackend.h" // hote : la cible hors ecran devient une texture d'interface
 // APERCU DE MATERIAU rendu par le moteur : sa mini-scene vit a part, dans son
 // propre fichier -- ce fichier-ci en compte deja pres de dix-sept mille.
-#include "NK3DModeler/Viewport/NkMatPreview3D.h"
+#include "NKCraft/Viewport/NkMatPreview3D.h"
 // OU SONT LES DONNEES LIVREES (brosses, themes, icones, apercus, image de
 // version) : une seule convention, un seul fichier. Cf. son en-tete pour ce
 // que sa dispersion a coute le 20/09.
-#include "NK3DModeler/NkModelerData.h"
-#include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
-#include "NK3DModeler/Viewport/NkVpEditTarget.h"
-#include "NK3DModeler/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
+#include "NKCraft/NkModelerData.h"
+#include "NKCraft/Viewport/NkVpMatTypeDefaults.h"
+#include "NKCraft/Viewport/NkVpEditTarget.h"
+#include "NKCraft/Viewport/NkCursorWrap.h" // (b5) rebouclage du curseur pendant G/R/S
 #include "NKWindow/Core/NkWESystem.h" // NkEvents()
 #include "NKEvent/NkEventSystem.h"
 #include "NKEvent/NkKeyboardEvent.h"
@@ -76,7 +76,7 @@
 namespace nkentseu {
 	namespace demo {
 
-		// ══ PORTAGE NK3DModeler ═══════════════════════════════════════════
+		// ══ PORTAGE NKCraft ═══════════════════════════════════════════
 		// La demo vivait PLEIN-FENETRE dans renderdemo ; ici elle vit dans le
 		// panneau « vue 3D ». Ces cinq variables sont TOUTE la difference :
 		// l'origine de la vue (traduction souris), sa taille, deux gardes
@@ -427,7 +427,7 @@ namespace nkentseu {
 		}
 		// ── ECHELLE EXACTE (cisaillement autorise) ──────────────────────────
 		// Par DEFAUT l'echelle vit dans les axes de l'objet -- choix d'Unreal
-		// (FTransform refuse le cisaillement), retenu pour NK3DModeler, cf.
+		// (FTransform refuse le cisaillement), retenu pour NKCraft, cf.
 		// PRINCIPES_CONCEPTION.private.md. Avec l'option, un noeud memorise EN
 		// PLUS le repere MONDE dans lequel son echelle a ete appliquee : sa
 		// transform devient T * (B S Bt) * R, ce qui rend le VRAI cisaillement
@@ -5057,7 +5057,7 @@ namespace nkentseu {
 		// ──────────────────────────────────────────────────────────────────────
 		// OU SONT LES BROSSES -- meme convention que les themes et les icones,
 		// le premier trouve gagne :
-		//   1. <utilisateur>/NK3DModeler/brushes/<nom>.nkbrush  (surcharge)
+		//   1. <utilisateur>/NKCraft/brushes/<nom>.nkbrush  (surcharge)
 		//   2. <app>/data/brushes/<nom>.nkbrush                 (livre)
 		// ⚠️ LE NOYAU N'OUVRE AUCUN FICHIER : `NkBrushRegistry::AddFromText`
 		//    prend une CHAINE. C'est l'application qui sait ou sont ses dossiers,
@@ -5072,9 +5072,9 @@ namespace nkentseu {
 			// ⚠️ CE QUE CE CHARGEUR A COUTE, ET POURQUOI LA REPONSE EST AILLEURS.
 			//    Il cherchait dans « data/brushes » et « <exe>/data/brushes ».
 			//    AUCUN DES DEUX N'EXISTE : les .nkbrush vivent sous
-			//    `Applications/NK3DModeler/data/brushes`, et ni la racine de
+			//    `Applications/NKCraft/data/brushes`, et ni la racine de
 			//    l'arbre -- d'ou l'application DOIT se lancer -- ni
-			//    `Build/Bin/.../NK3DModeler` n'ont de dossier `data/`. Le catalogue
+			//    `Build/Bin/.../NKCraft` n'ont de dossier `data/`. Le catalogue
 			//    etait donc vide a tous les coups, et la sculpture refusait chaque
 			//    trait. Journal de la session de Rodolf du 20/09 a 20h08 :
 			//    « brosses chargees depuis le disque : 0 », puis « sculpture
@@ -7141,13 +7141,13 @@ namespace nkentseu {
 			// Molette souris -> zoom caméra (accumulée ici, appliquée dans Demo3D_Frame).
 			NkEvents().AddEventCallback<NkMouseWheelVerticalEvent>(
 				[st](NkMouseWheelVerticalEvent *e) {
-					// PORTAGE NK3DModeler : molette reservee a la vue survolee.
+					// PORTAGE NKCraft : molette reservee a la vue survolee.
 					if (nkvpInputOn && nkvpHover)
 						st->wheelAccum += e->GetDeltaY();
 				});
 			// Clic GAUCHE -> demande de sélection (ray-pick, traité dans Demo3D_Frame).
 			NkEvents().AddEventCallback<NkMouseButtonPressEvent>([st](NkMouseButtonPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// ⚠ LA SOURIS AUSSI APPARTIENT A LA MODALE -- mais son ANNULATION au
@@ -7169,7 +7169,7 @@ namespace nkentseu {
 						st->modalConfirmPending = true;
 					return; // ni pick, ni curseur 3D, ni outil : l'op possede la souris
 				}
-				// PORTAGE NK3DModeler : l'outil CURSEUR de la barre fait du clic
+				// PORTAGE NKCraft : l'outil CURSEUR de la barre fait du clic
 				// gauche un placement de curseur 3D (comme l'outil de Blender). Le
 				// Shift+clic droit de la demo reste valable en parallele.
 				if (nkvpCursorTool && e->GetButton() == NkMouseButton::NK_MB_LEFT) {
@@ -7274,7 +7274,7 @@ namespace nkentseu {
 				}
 			});
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -7317,7 +7317,7 @@ namespace nkentseu {
 			// Pavé numérique façon Blender : 1=FRONT (Ctrl=BACK) · 3=RIGHT (Ctrl=LEFT) ·
 			// 7=TOP (Ctrl=BOTTOM). Snap de la caméra éditeur.
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -7454,7 +7454,7 @@ namespace nkentseu {
 			//   F1=grille on/off · F2/F3/F4=grille internes/majeures/axes · F11/F12=opacité plan -/+
 			//   V=VSync
 			NkEvents().AddEventCallback<NkKeyPressEvent>([renderer, st](NkKeyPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -7504,7 +7504,7 @@ namespace nkentseu {
 					}
 					auto &g = r3d->GetInfiniteGridParams();
 					if (k == NkKey::NK_F1) {
-						// PORTAGE NK3DModeler : F1 bascule la VOLONTE (nkvpGridOn), pas
+						// PORTAGE NKCraft : F1 bascule la VOLONTE (nkvpGridOn), pas
 						// seulement l'etat moteur -- en ortho ce dernier est deja coupe.
 						bool on = !nkvpGridOn;
 						nkvpGridOn = on;
@@ -7543,7 +7543,7 @@ namespace nkentseu {
 			//   A = tout sélectionner  ·  Alt+A = tout désélectionner  ·  , = orientation (G/L/N)
 			//   (pendant un drag : X/Y/Z = verrou d'axe, Ctrl = snap)
 			NkEvents().AddEventCallback<NkKeyPressEvent>([st](NkKeyPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -8137,7 +8137,7 @@ namespace nkentseu {
 				// suivant la caméra les faisait glisser/disparaître. L'auto-fit résout les deux.
 				shadowSys->GetConfig().autoFitDirectional = true;
 				NkEvents().AddEventCallback<NkKeyPressEvent>([shadowSys, st](NkKeyPressEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -8181,7 +8181,7 @@ namespace nkentseu {
 				});
 				// Relache F5 / F6 -> stoppe l'evolution continue du bias.
 				NkEvents().AddEventCallback<NkKeyReleaseEvent>([st](NkKeyReleaseEvent *e) {
-				// PORTAGE NK3DModeler : la vue n'ecoute que si elle est concernee.
+				// PORTAGE NKCraft : la vue n'ecoute que si elle est concernee.
 				if (!nkvpInputOn || !nkvpHover)
 					return;
 				// LE CLAVIER APPARTIENT A LA MODALE tant qu'elle tourne (keymap
@@ -8939,7 +8939,7 @@ namespace nkentseu {
 				}
 			}
 
-			// PORTAGE NK3DModeler : l'EDITEUR possede la frame device et le
+			// PORTAGE NKCraft : l'EDITEUR possede la frame device et le
 			// command buffer — pas de BeginFrame ici. On rejoue ce qu'il ferait
 			// pour NOTRE renderer : reset du pool d'UBO objets, upload des
 			// materiaux, ET la reconstruction du graphe en attente — sans elle,
@@ -9136,7 +9136,7 @@ namespace nkentseu {
 					st->gizmo.Select(obj);
 					st->gizmo.SetMode(0);		  // gizmo d'édition en TRANSLATE (flèches pleines)
 					// ⚠ ET ON DIT SI LA CIBLE EST DEJA CONDAMNEE. `NK_EDIT_MODE` vise par
-					// defaut l'objet 16 de la DEMO, qui dans NK3DModeler est marque
+					// defaut l'objet 16 de la DEMO, qui dans NKCraft est marque
 					// SUPPRIME : la garde du cadenas de `HostHierarchyFrame` le
 					// desselectionne a l'image suivante, a juste titre. Le pilote
 					// « prenait » donc toujours, et le mode Edition ne s'ouvrait jamais --
@@ -9788,7 +9788,7 @@ namespace nkentseu {
 			camData.up = {0.f, 1.f, 0.f};
 			camData.fovY = 60.f;
 			camData.aspect = (float32)ctx.width / (float32)ctx.height;
-			// PORTAGE NK3DModeler : plans near/far DYNAMIQUES, comme l'ancienne
+			// PORTAGE NKCraft : plans near/far DYNAMIQUES, comme l'ancienne
 			// vue du modeleur (c'est Rihen qui a pointe vers elle). Figes a
 			// 0,1/100, la precision du tampon de profondeur s'ecrase des que la
 			// camera s'eloigne, et la grille infinie se deteriore -- visible
@@ -9838,7 +9838,7 @@ namespace nkentseu {
 			//   mettrait apres la neutralisation ; la poser aux deux appels en
 			//   ferait deux copies qui divergeraient.
 			// La regle et son attendu derive vivent dans `NkCursorWrap.h` ; elle
-			// se prouve sans fenetre par `NK3DModeler.exe --sonde-wrap`.
+			// se prouve sans fenetre par `NKCraft.exe --sonde-wrap`.
 			float32 modalMDX = frameMDX; // deltas BRUTS : reserves a l'op modale
 			float32 modalMDY = frameMDY;
 			if (modalLock) {
@@ -10309,7 +10309,7 @@ namespace nkentseu {
 					if (st->orthoView) {
 						const float32 dist = (cam.GetPosition() - cam.GetTarget()).Len();
 						cam.SetOrtho(true, dist * nkvpOrthoScale);
-						// PORTAGE NK3DModeler : la grille INFINIE est un shader concu
+						// PORTAGE NKCraft : la grille INFINIE est un shader concu
 						// pour la PERSPECTIVE (il reconstruit un rayon par pixel) ; en
 						// projection orthographique il degenere en eventail de rayures
 						// -- constate a l'ecran. En ortho on la COUPE et on trace une
@@ -16260,7 +16260,7 @@ namespace nkentseu {
 			gBoiteRefusKind = 0;
 			gBoiteSansCible = 0;
 
-			// PORTAGE NK3DModeler : ces trois axes debug sont AUSSI sous la
+			// PORTAGE NKCraft : ces trois axes debug sont AUSSI sous la
 			// bascule « Axes du plan » du shell -- la decocher les eteint.
 			if (!gridClean && nkvpAxesOn) {
 				const float32 A = 1000.f;
@@ -16301,7 +16301,7 @@ namespace nkentseu {
 			}
 
 			// ── Overlay ──────────────────────────────────────────────────────────
-			// PORTAGE NK3DModeler : le HUD passe sous la bascule « Affichage » du
+			// PORTAGE NKCraft : le HUD passe sous la bascule « Affichage » du
 			// shell — il chevauchait la barre d'outils de l'editeur.
 			// ══ DEUX HUD, DEUX GARDES -- ET UN OUTIL QUI N'EN EST PAS UN ═══════
 			// Rodolf, 25/09 : le HUD de renderdemo est peint par-dessus le produit,
@@ -16598,7 +16598,7 @@ namespace nkentseu {
 				overlay->EndOverlay();
 			}
 
-			// PORTAGE NK3DModeler : Present = executer le graphe dans le cmd de
+			// PORTAGE NKCraft : Present = executer le graphe dans le cmd de
 			// l'editeur. Il ecrit dans la cible hors ecran (SetFinalColorTarget
 			// pose par l'hote) que l'interface affiche ensuite comme une image.
 			if (nkvpCmd)
@@ -16649,7 +16649,7 @@ namespace nkentseu {
 		}
 
 
-		// ═══════════════════════ HOTE NK3DModeler ═══════════════════════════
+		// ═══════════════════════ HOTE NKCraft ═══════════════════════════
 		// Ce bloc n'existait pas dans renderdemo : c'est le pont entre la demo
 		// (portee telle quelle ci-dessus) et l'editeur. Il possede le renderer
 		// — la MEME config que --demo=2 dans le main du Sandbox —, la cible
@@ -16731,7 +16731,7 @@ namespace nkentseu {
 				// telle quelle (NkOffscreenTarget::Capture exige le tampon de
 				// relecture, cree a l'init). Cout : un staging de w*h*4 octets.
 				od.readback = true;
-				od.name = "NK3DModelerDemo3D";
+				od.name = "NKCraftDemo3D";
 				hst.rt = hst.ctx.renderer->CreateOffscreen(od);
 				if (!hst.rt || !hst.rt->IsValid()) {
 					hst.err = "cible hors ecran refusee";
@@ -17144,7 +17144,7 @@ namespace nkentseu {
 				od.hasDepth = true;
 				od.readable = true;
 				od.readback = true; // la sortie relit ses pixels
-				od.name = "NK3DModelerOutput";
+				od.name = "NKCraftOutput";
 				nkvpOutRT = hst.ctx.renderer->CreateOffscreen(od);
 				if (!nkvpOutRT || !nkvpOutRT->IsValid()) {
 					if (nkvpOutRT) {

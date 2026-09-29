@@ -55,7 +55,7 @@
 #include "NKImage/NKImage.h"
 #include "NKEditorKit/NkIEditorRenderer.h"
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
-#include "NK3DModeler/NkModelerData.h"
+#include "NKCraft/NkModelerData.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKContainers/String/NkFormat.h"
 

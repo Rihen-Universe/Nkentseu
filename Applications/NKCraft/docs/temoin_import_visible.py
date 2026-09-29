@@ -29,8 +29,8 @@
 #     clignote ou une horloge dans la barre d'etat.
 #
 # Usage :
-#   python Applications/NK3DModeler/docs/temoin_import_visible.py
-#   python Applications/NK3DModeler/docs/temoin_import_visible.py --mutation
+#   python Applications/NKCraft/docs/temoin_import_visible.py
+#   python Applications/NKCraft/docs/temoin_import_visible.py --mutation
 # depuis la racine du worktree.
 # -----------------------------------------------------------------------------
 import io
@@ -43,8 +43,8 @@ import numpy as np
 from PIL import Image
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler", "NK3DModeler.exe")
-MAIN = os.path.join(RACINE, "Applications", "NK3DModeler", "src", "NK3DModeler", "main.cpp")
+EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft", "NKCraft.exe")
+MAIN = os.path.join(RACINE, "Applications", "NKCraft", "src", "NKCraft", "main.cpp")
 CAPTURES = os.path.join(RACINE, "captures")
 FICHIER_IMPORT = "D:/Rodolf/manequin/XBot/XBot.fbx"
 
@@ -125,7 +125,7 @@ def mutation_restaurer():
 
 def construire():
     r = subprocess.run(
-        "jenga build --target NK3DModeler --config Release",
+        "jenga build --target NKCraft --config Release",
         cwd=RACINE, capture_output=True, timeout=900, shell=True,
     )
     # La sortie de jenga porte des couleurs ANSI et des caracteres hors cp1252 :

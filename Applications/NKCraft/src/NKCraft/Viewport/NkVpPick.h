@@ -9,7 +9,7 @@
 // commentaires compris : chacun de ses commentaires documente un bug corrige,
 // et les reecrire de memoire reviendrait a les reintroduire un par un.
 //
-// Ce fichier appartient a l'ilot NKRenderer de NK3DModeler : il n'est inclus
+// Ce fichier appartient a l'ilot NKRenderer de NKCraft : il n'est inclus
 // que par NkViewport3D.cpp, jamais par Shell/. Il ne depend que de NkEditMesh
 // et de la geometrie -- donc le jour ou il sera stable, il remontera tel quel
 // dans NKRenderer/Mesh/ et Sandbox pourra cesser d'en heberger sa copie.

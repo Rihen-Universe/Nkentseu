@@ -1117,7 +1117,7 @@ namespace nkentseu {
 					// (par le fichier, par le noeud) puisqu'on lui a rendu un
 					// nom. On laisse donc le champ VIDE -- c'est la verite sur
 					// le fichier -- et c'est l'appelant qui choisit son repli
-					// (NK3DModeler prend le radical du chemin, NkImpStem).
+					// (NKCraft prend le radical du chemin, NkImpStem).
 					sm.name = meshName; // vide si le fichier ne nomme rien
 					sm.firstIndex = firstIndex;
 					sm.indexCount = idxCount;

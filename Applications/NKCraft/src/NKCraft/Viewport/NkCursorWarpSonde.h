@@ -1,6 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
-// @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCursorWarpSonde.h
+// @File    Applications/NKCraft/src/NKCraft/Viewport/NkCursorWarpSonde.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
@@ -8,7 +8,7 @@
 //
 // NkCursorWarpSonde.h — SONDE DE `NkWindow::SetMousePositionClient` (b5, etape 3).
 //
-//   NK3DModeler.exe --sonde-warp     -> ecrit sonde_warp.txt et SORT.
+//   NKCraft.exe --sonde-warp     -> ecrit sonde_warp.txt et SORT.
 //     0 = tout vert · 1 = un critere rouge · 2 = la mutation a survecu
 //     3 = COURSE IMPOSSIBLE : la souris de l'utilisateur BOUGE, aucun critere
 //         n'est juge. A ne surtout pas lire comme un rouge.
@@ -26,7 +26,7 @@
 //   Windows. La question est : **la conversion client -> ecran est-elle la
 //   bonne** ? La derivation naive, celle qu'on ecrit quand on est presse, est
 //   « coin de la fenetre (`GetWindowRect`) + position client ». Elle est JUSTE
-//   sur une fenetre SANS CADRE -- et NK3DModeler est sans cadre, donc elle
+//   sur une fenetre SANS CADRE -- et NKCraft est sans cadre, donc elle
 //   aurait passe tous les essais faits sur lui -- et FAUSSE des qu'un cadre
 //   existe, de la hauteur de la barre de titre.
 //

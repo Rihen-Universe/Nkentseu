@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_bout_en_bout.ps1
+# @File    Applications/NKCraft/tests/sonde_bout_en_bout.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -37,20 +37,20 @@
 #   reconnait tout et n'execute rien rendrait le meme chiffre qu'une chaine qui
 #   execute tout et ne reconnait rien. Ce sont deux pannes opposees.
 #
-# USAGE :  pwsh -File Applications/NK3DModeler/tests/sonde_bout_en_bout.ps1
+# USAGE :  pwsh -File Applications/NKCraft/tests/sonde_bout_en_bout.ps1
 # CODES :  0 les deux taux mesurables sont a 100 % · 1 sinon
 param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
 	[string]$Config = "Release"
 )
 
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
 # Les dix demandes, LUES depuis le fichier versionne. Elles ne sont pas recopiees
 # ici : deux listes ecrites separement finissent toujours par diverger, et ce
 # banc perdrait precisement ce qui fait sa valeur -- des demandes figees avant.
-$fichier = Join-Path $Arbre "Applications\NK3DModeler\tests\demandes_ia.txt"
+$fichier = Join-Path $Arbre "Applications\NKCraft\tests\demandes_ia.txt"
 if (-not (Test-Path $fichier)) { Write-Host "ROUGE  demandes_ia.txt introuvable"; exit 1 }
 $cas = @()
 foreach ($ligne in (Get-Content $fichier -Encoding UTF8)) {

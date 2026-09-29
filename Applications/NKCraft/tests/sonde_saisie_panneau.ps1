@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# @File    Applications/NK3DModeler/tests/sonde_saisie_panneau.ps1
+# @File    Applications/NKCraft/tests/sonde_saisie_panneau.ps1
 # @Brief   (Q9, 21/09) LA SAISIE DU PANNEAU IA, PAR LE CHEMIN DE RODOLF : la
 #          souris, le clavier et le depot arrivent par les RAPPELS de
 #          l'application (NK_EVENEMENTS -> NkEvents().DispatchEvent), pas par
@@ -16,7 +16,7 @@
 #    mesure. Aucune entree n'est injectee dans le systeme d'exploitation.
 # -----------------------------------------------------------------------------
 param([string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-panneauia", [string]$Config = "Release")
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 $img = Join-Path $Arbre "Build\panneau_ia\reference_inscription.png"
 # le panneau du modeleur, 1600 x 900 : x 1278..1554, composeur en bas, fil en haut
 $ev = "60:d:1400:600;61:u:1400:600;64:t:bonjour le monde;" +

@@ -16,7 +16,7 @@
 // ⚠ LE LOGO N'EXISTE PAS. Il n'y a aucune image de marque dans le depot
 // (verifie). Le titre est donc COMPOSE typographiquement -- une marque
 // geometrique dessinee au painter (un cube isometrique, ce que fait
-// l'application) plus le mot en trois poids -- avec les ROLES DE COULEUR du
+// l'application) plus le mot en deux poids -- avec les ROLES DE COULEUR du
 // theme, jamais des valeurs en dur : un theme clair le repeint tout seul.
 // **Un vrai logo reste a fournir**, et ce commentaire doit disparaitre le jour
 // ou il arrive.
@@ -27,17 +27,18 @@
 // qu'une commande affichee fait ce qu'elle annonce.
 // =============================================================================
 
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Project/NkModelerProject.h"
-#include "NK3DModeler/Project/NkModelerScene.h"	 // lecteur HERITE (tout dans le .nk3dm)
-#include "NK3DModeler/Project/NkModelerAssets.h" // un fichier par asset (disposition 3)
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Project/NkModelerProject.h"
+#include "NKCraft/Project/NkModelerScene.h"	 // lecteur HERITE (tout dans le .nk3dm)
+#include "NKCraft/Project/NkModelerAssets.h" // un fichier par asset (disposition 3)
 #include "NKWindow/Core/NkLauncher.h" // ouvre le navigateur du systeme
 #include "NKWindow/Core/NkDialogs.h"  // selecteurs natifs DEJA presents dans le depot
 #include "NKEditorKit/NkIEditorRenderer.h"
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
-#include "NK3DModeler/NkModelerData.h"
+#include "NKCraft/NkModelerData.h"
+#include "NKCraft/NkCraftMigration.h" // (29/09) le dossier de projets de l'ancien nom
 #include "NKImage/NKImage.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -51,7 +52,7 @@ namespace nkentseu {
 		// Les adresses n'existent pas encore. Tant qu'une chaine est VIDE, son lien
 		// est grise et ne repond pas : c'est le seul comportement honnete. Remplir
 		// la chaine suffit a l'activer, il n'y a rien d'autre a toucher.
-		static const char *const kUrlSite = ""; // A RENSEIGNER — site NK3DModeler
+		static const char *const kUrlSite = ""; // A RENSEIGNER — site NKCraft
 		static const char *const kUrlTutos = ""; // A RENSEIGNER — tutoriels
 		static const char *const kUrlCommu = ""; // A RENSEIGNER — communaute
 		static const char *const kUrlDocs = ""; // A RENSEIGNER — documentation
@@ -75,7 +76,7 @@ namespace nkentseu {
 		//    -- il n'existe pas de `data/` a la racine de l'arbre, d'ou
 		//    l'application se lance. C'etait donc un piege monte : le
 		//    `data/splash/LISEZMOI.md` dit a Rodolf de deposer `splash.png` dans
-		//    `Applications/NK3DModeler/data/splash/`, et le code regardait
+		//    `Applications/NKCraft/data/splash/`, et le code regardait
 		//    ailleurs. L'image n'aurait jamais paru, et RIEN ne l'aurait dit --
 		//    l'absence d'image etant un etat normal, l'echec se confondait avec
 		//    le cas ou il n'y a simplement rien a montrer.
@@ -474,17 +475,18 @@ namespace nkentseu {
 				float32 x = pad, y = top;
 				const float32 mark = S(56.f);
 				PaintBrandMark(p, x, y, mark);
-				// Le mot en TROIS POIDS : « NK » porte l'accent d'interface, « 3D »
-				// la sarcelle, « Modeler » le texte courant. Une seule taille de
-				// police existe dans l'application -- c'est le CONTRASTE de couleur
-				// qui fait la hierarchie, pas le corps.
+				// Le mot en DEUX POIDS : « NK » porte l'accent d'interface, « Craft »
+				// le texte courant. Une seule taille de police existe dans
+				// l'application -- c'est le CONTRASTE de couleur qui fait la
+				// hierarchie, pas le corps.
+				// (29/09) Il y en avait trois du temps de NK3DModeler : « 3D » en
+				// sarcelle entre les deux. NKCraft n'a plus de syllabe du milieu.
 				{
 					const float32 tx = x + mark + S(16.f);
 					const float32 ty = y + S(10.f);
-					const float32 wNK = p.TextW("NK"), w3D = p.TextW("3D");
+					const float32 wNK = p.TextW("NK");
 					p.Text(tx, ty, "NK", NkRole::AccentUi);
-					p.Text(tx + wNK, ty, "3D", NkRole::NodeDataHeader);
-					p.Text(tx + wNK + w3D, ty, "Modeler", NkRole::Text);
+					p.Text(tx + wNK, ty, "Craft", NkRole::Text);
 					p.Text(tx, ty + p.LineH() + S(4.f), "Modelisation 3D — Nkentseu",
 						   NkRole::TextMuted);
 				}
@@ -583,7 +585,7 @@ namespace nkentseu {
 						const float32 lh = S(26.f);
 						p.Fill({br.x, br.y + br.h - lh, br.w, lh}, NkColor{0, 0, 0, 150});
 						char vbuf[64];
-						snprintf(vbuf, sizeof(vbuf), "NK3DModeler %s", kAppVersion);
+						snprintf(vbuf, sizeof(vbuf), "NKCraft %s", kAppVersion);
 						p.TextV(br.x + S(10.f), br.y + br.h - lh, lh, vbuf,
 								NkRole::TextOnAccent);
 						if (art.title[0] || art.author[0]) {
@@ -881,7 +883,7 @@ namespace nkentseu {
 				// l'action de l'utilisateur a echoue, c'est le message qui compte.
 				const bool showErr = !st.newProjOpen && st.projError[0] != 0;
 				if (!showErr)
-					p.TextV(pad, fy, S(22.f), "NK3DModeler — Nkentseu", NkRole::TextMuted);
+					p.TextV(pad, fy, S(22.f), "NKCraft — Nkentseu", NkRole::TextMuted);
 				// Rotation par le NOMBRE DE PROJETS connus : stable pendant la
 				// session (l'astuce ne saute pas d'une image a l'autre) et
 				// differente d'une ouverture a l'autre.
@@ -1008,7 +1010,7 @@ namespace nkentseu {
 				put(st.projError, (uint32)sizeof(st.projError), e.CStr());
 				if (!st.newProjOpen)
 					NkDialogs::OpenMessageBox(e.Empty() ? NkString("action impossible") : e,
-											  "NK3DModeler", 2);
+											  "NKCraft", 2);
 			};
 			auto opened = [&]() {
 				rec.Touch(proj);
@@ -1048,8 +1050,13 @@ namespace nkentseu {
 				case 1: // ouvrir la boite « Nouveau projet »
 					if (!st.newProjDir[0]) {
 						const NkString home = NkDirectory::GetHomeDirectory().ToString();
+						// (29/09) NK3DModeler S'APPELLE NKCRAFT. Le dossier PROPOSE
+						// reste `~/NK3DModeler` pour qui y range deja ses projets :
+						// un nouveau projet n'atterrit pas a cote des autres sans
+						// qu'on l'ait demande. Ce n'est qu'une proposition, rien
+						// n'est cree ni deplace ici.
 						put(st.newProjDir, (uint32)sizeof(st.newProjDir),
-							(home + "/NK3DModeler").CStr());
+							NkCraftDossierOuAncien(home + "/NKCraft", home + "/NK3DModeler").CStr());
 					}
 					if (!st.newProjName[0])
 						put(st.newProjName, (uint32)sizeof(st.newProjName), "MonProjet");
@@ -1083,7 +1090,7 @@ namespace nkentseu {
 					// titre, et NkProjectLoad refuse proprement un fichier qui
 					// n'est pas un projet. (Bug NKWindow a corriger a part.)
 					const NkDialogResult r = NkDialogs::OpenFileDialog(
-						"*.*", "Ouvrir un projet NK3DModeler (.nk3dm)");
+						"*.*", "Ouvrir un projet NKCraft (.nk3dm)");
 					if (!r.confirmed || r.path.Empty())
 						break;
 					NkArchive sc;

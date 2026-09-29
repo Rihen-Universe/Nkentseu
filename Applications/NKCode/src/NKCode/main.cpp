@@ -215,7 +215,7 @@ int nkmain(const NkEntryState &state) {
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	NkEditorShellConfig cfg;
 	// ⚠️ UNE FENETRE DE SONDE SE DENONCE (21/09) : `NK_SONDE` -- le meme marqueur
-	//    que NK3DModeler. Sans lui, pas un caractere ne change.
+	//    que NKCraft. Sans lui, pas un caractere ne change.
 	cfg.title = std::getenv("NK_SONDE") ? "*** SONDE DE MESURE - CETTE FENETRE N'EST PAS LE PRODUIT *** NKCode"
 										: "NKCode - IDE (Jenga)";
 	cfg.width = 1440; // grande fenetre centree, REDIMENSIONNABLE (pas maximisee de force)

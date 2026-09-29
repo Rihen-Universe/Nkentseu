@@ -377,7 +377,7 @@ namespace nkentseu {
 		/// 🔴 MESURE DU 20/09/2026 : le gabarit par defaut designait `python` nu et
 		///    `Tools/Genia/genia_triposr.py` RELATIF au dossier courant. Les deux
 		///    moities etaient fausses, et chacune suffisait a tout arreter :
-		///      depuis le dossier de l'exe -> can't open file '...\NK3DModeler\Tools\...'
+		///      depuis le dossier de l'exe -> can't open file '...\NKCraft\Tools\...'
 		///      depuis la racine de l'arbre -> REFUS : No module named 'torch'
 		///    (le `python` du PATH de cette machine est PyManager/pythoncore-3.14).
 		///    Et AUCUN lanceur du depot ne posait NK_GENIA_CMD : le bouton

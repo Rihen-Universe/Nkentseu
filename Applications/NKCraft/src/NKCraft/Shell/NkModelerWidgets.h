@@ -13,8 +13,8 @@
 // isolement est correct.
 // =============================================================================
 
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
 // Le champ de saisie UNIVERSEL de l'editeur : curseur placable, selection,
 // copier / couper / coller. Rihen le veut dans TOUS les champs de
 // l'application, pour qu'aucun ne se comporte differemment d'un autre.

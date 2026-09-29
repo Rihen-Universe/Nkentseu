@@ -53,13 +53,13 @@ namespace nkentseu {
 		// ⚠️ UN MOT INCONNU EST REFUSE EN LE NOMMANT (11/09). Version precedente : tout
 		// `--backend=` non reconnu retombait EN SILENCE sur OpenGL -- `--backend=DX11`
 		// ou `--backend=d3d11` lancait OpenGL, et l'on croyait tester DirectX. C'est la
-		// regle deja posee pour NK3DModeler (d4b9a1002) : on refuse, on liste les
+		// regle deja posee pour NKCraft (d4b9a1002) : on refuse, on liste les
 		// choix, l'appelant sort en code 2, AVANT d'ouvrir la fenetre.
 		// La CASSE est ignoree (« DX11 » == « dx11 ») : qui tape DX11 sait ce qu'il
 		// veut. Un AUTRE mot (« d3d11 », « vk ») n'est pas devine : refuse.
 		// ⚠️ DEUX VOCABULAIRES POUR LE MEME CHOIX : celui-ci (« sw », drapeaux -b*) et
 		// celui de NKEditorKit (NkEditorGfxApiFromName : « software », « auto ») que
-		// NK3DModeler emploie. Constate, pas unifie ici : renderdemo ne depend pas du kit.
+		// NKCraft emploie. Constate, pas unifie ici : renderdemo ne depend pas du kit.
 		// Rend false sur un mot inconnu ; `outBad` recoit alors l'argument fautif et
 		// `out` n'est PAS touche.
 		inline const char *NkDemoBackendChoices() {

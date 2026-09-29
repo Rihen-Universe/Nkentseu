@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_panneau_forme.ps1
+# @File    Applications/NKCraft/tests/sonde_panneau_forme.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -59,7 +59,7 @@
 #     restent mesures par `sonde_panneau_ia.ps1` : les redoubler ici ferait deux
 #     ecritures du meme critere, qui divergeraient a la premiere correction.
 #
-# USAGE :  pwsh -File Applications/NK3DModeler/tests/sonde_panneau_forme.ps1 [-Image]
+# USAGE :  pwsh -File Applications/NKCraft/tests/sonde_panneau_forme.ps1 [-Image]
 # CODES :  0 tout vert · 1 au moins un rouge · 3 condition non reunie
 param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
@@ -69,7 +69,7 @@ param(
 . (Join-Path $PSScriptRoot "condition.ps1")
 $script:fichiers = @()
 
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
 $script:rouges = 0

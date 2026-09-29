@@ -15,7 +15,7 @@ FIDELEMENT UNE SOURCE QUI RENDAIT ZERO.
 LA CAUSE, MESUREE (`NK_CPT_TRACE=1`) : `mStats` ET le command buffer de
 `hst.ctx.renderer` rendaient TOUS DEUX zero. Les deux a zero, c'est un defaut
 de POPULATION et non de moment -- on interrogeait un objet qui n'enregistre
-rien. La vue 3D de NK3DModeler n'enregistre pas dans son propre renderer :
+rien. La vue 3D de NKCraft n'enregistre pas dans son propre renderer :
 elle enregistre dans le command buffer DE L'EDITEUR, celui que
 `Demo3DHostFrame` recoit en argument. Le `EndFrame()` qui fige `mStats` ne
 tourne jamais pour ce chemin.
@@ -30,7 +30,7 @@ tourne jamais pour ce chemin.
    par la famille 28 de NKEditorKitTest.
 
 Usage :
-    python Applications/NK3DModeler/tests/sonde_compteurs.py
+    python Applications/NKCraft/tests/sonde_compteurs.py
     python ... --exe <binaire d'AVANT le correctif> --negatif
 """
 
@@ -42,8 +42,8 @@ import sys
 import tempfile
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE_DEFAUT = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler",
-                          "NK3DModeler.exe")
+EXE_DEFAUT = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft",
+                          "NKCraft.exe")
 gOk = 0
 gKo = 0
 
@@ -66,7 +66,7 @@ def courir(exe, etat_dir, images, ajout=None):
     #    accusaient le produit. *Un banc qui n'arme pas ce qu'il mesure mesure
     #    son propre oubli.*
     os.makedirs(etat_dir, exist_ok=True)
-    with open(os.path.join(etat_dir, "nk3dmodeler_ui.cfg"), "w", encoding="utf-8") as f:
+    with open(os.path.join(etat_dir, "nkcraft_ui.cfg"), "w", encoding="utf-8") as f:
         f.write("compteurs=1\n")
     env = dict(os.environ)
     env["NK_SONDE"] = "1"

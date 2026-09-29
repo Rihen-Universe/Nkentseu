@@ -14,8 +14,8 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Genia/NkGenerateur.h"
-#include "NK3DModeler/Shell/NkModelerImport.h" // NkImportFiles, NkImportNote, NkImpStem
+#include "NKCraft/Genia/NkGenerateur.h"
+#include "NKCraft/Shell/NkModelerImport.h" // NkImportFiles, NkImportNote, NkImpStem
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 

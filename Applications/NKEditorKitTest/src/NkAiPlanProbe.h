@@ -337,7 +337,7 @@ namespace aiplanprobe {
 
 		// 22o / 22p — L'EFFET MESURE EST SUR LA LIGNE, ET IL NE SE TRONQUE PAS.
 		//
-		// Revele par l'integration de NK3DModeler AVANT la premiere ligne de
+		// Revele par l'integration de NKCraft AVANT la premiere ligne de
 		// migration : son panneau affiche « <demande>   .   faces 6 -> 384 » -- le
 		// texte ET l'effet sur une seule ligne. Mon contrat ne savait le rendre
 		// pour AUCUN type : `Outil` ignorait `effet`, et un bloc `Effet` n'affiche
@@ -619,7 +619,7 @@ namespace aiplanprobe {
 		}
 
 		{
-			// 22w — L ECHELLE D INTERFACE. NK3DModeler passe chacune de ses
+			// 22w — L ECHELLE D INTERFACE. NKCraft passe chacune de ses
 			//       longueurs par `S(px) = px * gUiScale`. Le kit est en pixels
 			//       bruts : sans `Echelle()`, le fil resterait a 100 % pendant que
 			//       le reste du panneau grandit.

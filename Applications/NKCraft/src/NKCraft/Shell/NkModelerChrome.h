@@ -12,12 +12,12 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Shell/NkModelerTables.h"
-#include "NK3DModeler/Shell/NkModelerCommon.h"
-#include "NK3DModeler/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerTables.h"
+#include "NKCraft/Shell/NkModelerCommon.h"
+#include "NKCraft/Shell/NkModelerUiState.h" // (25/09) la disposition survit a la fermeture
 
 namespace nkentseu {
 	namespace nk3d {
@@ -261,7 +261,7 @@ namespace nkentseu {
 			const NkRect box{(W - bw) * 0.5f, (H - bh) * 0.5f, bw, bh};
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 6.f);
 			hit.Add("dlg.box", box);
-			p.TextV(box.x + S(20.f), box.y + S(14.f), S(24.f), "Quitter NK3DModeler ?");
+			p.TextV(box.x + S(20.f), box.y + S(14.f), S(24.f), "Quitter NKCraft ?");
 			// LA BOITE S'OUVRE TOUJOURS (Rihen), mais elle ne raconte pas la meme
 			// chose selon ce qu'il reste a perdre : annoncer « modifications non
 			// enregistrees » alors que tout est ecrit ferait douter d'un travail

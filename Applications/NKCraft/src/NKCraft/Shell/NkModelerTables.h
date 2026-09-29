@@ -13,8 +13,8 @@
 // @Author  Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"    // NkRect, NkModelerPainter, S()
-#include "NK3DModeler/Shell/NkModelerIcons.h" // NkIcon
+#include "NKCraft/Shell/NkModelerUI.h"    // NkRect, NkModelerPainter, S()
+#include "NKCraft/Shell/NkModelerIcons.h" // NkIcon
 
 namespace nkentseu {
 	namespace nk3d {

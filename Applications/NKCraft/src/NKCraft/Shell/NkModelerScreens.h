@@ -17,21 +17,21 @@
 // a jour en developpant.
 // =============================================================================
 
-#include "NK3DModeler/Viewport/NkViewport3D.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
-#include "NK3DModeler/Viewport/NkOutCompose.h" // formes d'incrustation : dimensions et noms
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Shell/NkModelerTables.h" // metriques, listes, catalogues
-#include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NKCraft/Viewport/NkViewport3D.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
+#include "NKCraft/Viewport/NkOutCompose.h" // formes d'incrustation : dimensions et noms
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerTables.h" // metriques, listes, catalogues
+#include "NKCraft/Shell/NkModelerCommon.h"
 // (o1) LA BANDE D'ONGLETS PARTAGEE : le composant du kit et son adaptateur de
 // peintre. Le modeleur n'utilise PAS `NkEditorShell` -- c'est `NkComponentPaint`
 // qui fait le pont, pas la coquille.
 #include "NKEditorKit/Components/NkTabStripModel.h"
-#include "NK3DModeler/Shell/NkModelerComponentPaint.h"
-#include "NK3DModeler/Shell/NkModelerViewport.h" // la vue 3D et ses surcouches
-#include "NK3DModeler/Shell/NkModelerFileDialog.h" // choix d emplacement + nom
+#include "NKCraft/Shell/NkModelerComponentPaint.h"
+#include "NKCraft/Shell/NkModelerViewport.h" // la vue 3D et ses surcouches
+#include "NKCraft/Shell/NkModelerFileDialog.h" // choix d emplacement + nom
 // DECLARATION ANTICIPEE : NkModelerAssets.h est inclus APRES cet en-tete,
 // mais le panneau Materiau a besoin d'ecrire un .nkmat sur-le-champ (bouton
 // « Nouveau »). La definition, elle, est bien vue plus loin dans la meme

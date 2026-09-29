@@ -40,7 +40,7 @@ qu'elle devait ignorer.**
    critere b1 compte des IMAGES, pas des occurrences.
 
 Usage :
-    python Applications/NK3DModeler/tests/sonde_barre_menus.py
+    python Applications/NKCraft/tests/sonde_barre_menus.py
     python ... --exe <binaire d'AVANT le correctif> --negatif
 """
 
@@ -52,8 +52,8 @@ import sys
 import tempfile
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE_DEFAUT = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler",
-                          "NK3DModeler.exe")
+EXE_DEFAUT = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft",
+                          "NKCraft.exe")
 
 # Geometrie relevee par la sonde elle-meme (NK_MENU_TRACE=2, balayage), a
 # l'echelle 1. Elles sont ECRITES ICI parce qu'elles sont MESUREES : les
@@ -158,7 +158,7 @@ def main():
     #    dans le fichier de disposition. On lit le FICHIER : c'est l'effet, pas
     #    l'intention.
     etat4 = os.path.join(base, "b4")
-    cfg = os.path.join(etat4, "nk3dmodeler_ui.cfg")
+    cfg = os.path.join(etat4, "nkcraft_ui.cfg")
     # (i) on ouvre le menu et on DEMANDE a l'application ou est l'entree ;
     repere = courir(a.exe, "60:m:196:15;80:d:196:15;82:u:196:15", 140,
                     os.path.join(base, "b4a"), trace=2)

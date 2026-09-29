@@ -1,7 +1,7 @@
 #pragma once
 // =============================================================================
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// NkModelerData.h — OU SONT LES DONNEES LIVREES DE NK3DMODELER, ecrit UNE FOIS.
+// NkModelerData.h — OU SONT LES DONNEES LIVREES DE NKCRAFT, ecrit UNE FOIS.
 //
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -34,7 +34,7 @@
 // Pour un chemin relatif `r` (ex. « data/brushes ») :
 //
 //   1. « r »                                  -- le repertoire courant.
-//   2. « Applications/NK3DModeler/r »         -- LA RACINE DE L'ARBRE, c'est-a-
+//   2. « Applications/NKCraft/r »         -- LA RACINE DE L'ARBRE, c'est-a-
 //      dire la facon dont l'application SE LANCE en developpement (`Resources/`
 //      y est relatif en six endroits ; lancee depuis le dossier de l'exe, elle
 //      charge zero icone et s'arrete sur « manque le source HLSL »). C'est la
@@ -44,7 +44,7 @@
 //      sont posees a cote du binaire. Elle n'existe pas encore ; elle existera.
 //
 // ⚠️ LA RACINE DE L'ARBRE EST DERIVEE DU CHEMIN RECU, jamais recopiee a cote de
-//    lui. Ecrire « Applications/NK3DModeler/data/brushes » en dur A COTE de
+//    lui. Ecrire « Applications/NKCraft/data/brushes » en dur A COTE de
 //    « data/brushes » fabrique deux verites pour un dossier : changer l'une
 //    laisse l'autre derriere, et c'est le genre d'ecart qui ne se voit qu'au
 //    moment ou il fait perdre une soiree.
@@ -71,7 +71,7 @@ namespace nkentseu {
 		/// Le prefixe de la racine de l'arbre. UN SEUL point d'ecriture : si
 		/// l'application demenage, cette ligne bouge et les cinq consommateurs
 		/// suivent. C'est tout l'objet de ce fichier.
-		static const char *const kNkDataTreePrefix = "Applications/NK3DModeler/";
+		static const char *const kNkDataTreePrefix = "Applications/NKCraft/";
 
 		/// Les trois candidats pour un chemin relatif, dans l'ordre de priorite.
 		/// Rend le nombre reellement rempli (3, ou 2 si le dossier de l'executable

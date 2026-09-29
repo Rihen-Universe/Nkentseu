@@ -34,13 +34,13 @@
 #include "NKEditorKit/NkFilePickerNav.h" // LE selecteur de la maison
 // ... et il est SPECIALISE pour la creation de materiau (choix du type avant
 // creation) : la classe derivee et le catalogue des types vivent a part.
-#include "NK3DModeler/Shell/NkModelerMatTypes.h"
+#include "NKCraft/Shell/NkModelerMatTypes.h"
 #include "NKEditorKit/NkAiThread.h" // LE FIL du panneau IA, commun au kit
 #include "NKEditorKit/NkAiThreadLayout.h" // et le PLAN qu'il publie
 #include "NKEditorKit/NkAiPanneau.h" // LE panneau IA du kit (21/09), commun aux trois applications
 #include "NKEditorKit/NkEditorModal.h"
 #include "NKEditorKit/NkEditorContextMenu.h" // menu contextuel du kit (grisage natif)
-#include "NK3DModeler/Shell/NkModelerFold.h"
+#include "NKCraft/Shell/NkModelerFold.h"
 #include "NKEditorKit/NkShortcutTable.h"
 #include "NKSerialization/NkArchive.h" // reglages Rendu PAR SCENE (docRendu)
 
@@ -1483,10 +1483,10 @@ namespace nkentseu {
 				//    constatait l'absence.
 				//    ⚠️ Et le nom qu'on allait chercher etait juste au MAUVAIS ETAGE :
 				//    `SaveUiState` / `LoadUiState` existent bien -- dans
-				//    `NkEditorShell` (NKEditorKit), que NK3DModeler n'emploie pas.
+				//    `NkEditorShell` (NKEditorKit), que NKCraft n'emploie pas.
 				//
 				// CE QUI EST VRAI DEPUIS : les CINQ fractions ci-dessous sont ecrites
-				// dans `~/.nk3dmodeler_ui.cfg` par `NkModelerUiState.h`, AU
+				// dans `~/.nkcraft_ui.cfg` par `NkModelerUiState.h`, AU
 				// RELACHEMENT d'un separateur -- jamais a la sortie du programme, qu'une
 				// croix de l'OS peut ne jamais atteindre. Fermer l'application et la
 				// rouvrir retrouve donc bien la disposition.

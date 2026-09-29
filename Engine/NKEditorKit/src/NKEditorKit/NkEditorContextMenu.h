@@ -57,11 +57,11 @@ namespace nkentseu {
 		//    menu (hauteur de bande, cellule carree, survol, clic, grisage,
 		//    occlusion), donc ca appartient au composant qui dessine le menu ;
 		//    l'ecrire chez l'appelant aurait fabrique une seconde geometrie de
-		//    menu a cote de celle-ci, et NK3DModeler n'en aurait rien eu.
+		//    menu a cote de celle-ci, et NKCraft n'en aurait rien eu.
 		//
 		// ⚠️ MAIS LE DESSIN DE L'ICONE RESTE A L'APPLICATION, et ce n'est pas un
 		//    compromis : il n'existe aucun atlas d'icones partage (102 SVG chez
-		//    NK3DModeler, 91 PNG chez NKCode, l'atlas NKGui en cours, un peintre
+		//    NKCraft, 91 PNG chez NKCode, l'atlas NKGui en cours, un peintre
 		//    vectoriel local chez NkUIDesign). Inventer ici un vocabulaire de
 		//    poignees en aurait fait un QUATRIEME. Le kit tient donc la place et
 		//    l'etat, l'hote peint dedans -- exactement le patron `rowOverlay` du

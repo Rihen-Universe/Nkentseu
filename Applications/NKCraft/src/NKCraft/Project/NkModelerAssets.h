@@ -45,9 +45,9 @@
 // avec leur nom et leur place, et le diront a l'ecran.
 // =============================================================================
 
-#include "NK3DModeler/Project/NkModelerScene.h" // helpers NkSc* + lecteur HERITE
-#include "NK3DModeler/Project/NkModelerGeom.h"  // la geometrie propre, a cote de l'asset
-#include "NK3DModeler/Shell/NkModelerToast.h"   // un maillage perdu se DIT a l'ecran
+#include "NKCraft/Project/NkModelerScene.h" // helpers NkSc* + lecteur HERITE
+#include "NKCraft/Project/NkModelerGeom.h"  // la geometrie propre, a cote de l'asset
+#include "NKCraft/Shell/NkModelerToast.h"   // un maillage perdu se DIT a l'ecran
 
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -93,7 +93,10 @@ namespace nkentseu {
 
 		// ── EN-TETE COMMUN ──────────────────────────────────────────────────────
 		inline void NkAsHeader(NkArchive &o, const char *nature) {
-			o.SetString("application", "NK3DModeler");
+			// (29/09) « NK3DModeler » dans les assets ecrits avant le renommage.
+			// Informatif seulement : c'est « nature » qui fait foi (NkAsNatureIs),
+			// jamais « application ».
+			o.SetString("application", "NKCraft");
 			o.SetString("nature", nature);
 			o.SetInt32("format", kAssetFormatVersion);
 		}
@@ -1473,7 +1476,7 @@ namespace nkentseu {
 				!NkDirectory::CreateRecursive(dir.CStr()))
 				return;
 			if (!demo::Demo3DHostCaptureView(abs.CStr())) {
-				printf("[NK3DModeler] Miniature %s : capture REFUSEE\n", rel.CStr());
+				printf("[NKCraft] Miniature %s : capture REFUSEE\n", rel.CStr());
 				return;
 			}
 			// Resize RETOURNE UNE NOUVELLE IMAGE, il ne modifie pas l'objet :
@@ -1487,7 +1490,7 @@ namespace nkentseu {
 					petit = im.Resize(w, h, NkResizeFilter::NK_BICUBIC);
 				if (petit.IsValid()) {
 					const bool ok = petit.Save(abs.CStr());
-					printf("[NK3DModeler] Miniature %s : %ux%u -> %ux%u (%s)\n",
+					printf("[NKCraft] Miniature %s : %ux%u -> %ux%u (%s)\n",
 						   rel.CStr(), im.Width(), im.Height(), petit.Width(),
 						   petit.Height(), ok ? "ecrite" : "REECRITURE RATEE");
 				}

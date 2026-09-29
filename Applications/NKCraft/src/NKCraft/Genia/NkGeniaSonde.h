@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Genia/NkGeniaSonde.h
+// @File    Applications/NKCraft/src/NKCraft/Genia/NkGeniaSonde.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
@@ -30,7 +30,7 @@
 //   (e) L'INVITE VIDE est refusee AVANT tout lancement.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Genia/NkGenerateur.h"
+#include "NKCraft/Genia/NkGenerateur.h"
 
 namespace nkentseu {
 	namespace nk3d {

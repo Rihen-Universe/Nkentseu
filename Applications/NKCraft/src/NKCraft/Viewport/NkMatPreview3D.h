@@ -42,11 +42,11 @@
 #include "NKLogger/NkLog.h"
 #include "NKFileSystem/NkFile.h"
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
-#include "NK3DModeler/NkModelerData.h"
+#include "NKCraft/NkModelerData.h"
 #include <cstdlib> // getenv : crochet de mesure NK_MATPREV_SHAPE
 // Pour l'identifiant de texture, partage avec le panneau (qui, lui, ne connait
 // pas NKRenderer). Ce header n'apporte aucun type NKRenderer -- c'est sa regle.
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 
 namespace nkentseu {
 	namespace nk3d {
@@ -232,7 +232,7 @@ namespace nkentseu {
 				// readback : c'est par la que la vignette d'une carte sera capturee
 				// a l'enregistrement du materiau.
 				od.readback = true;
-				od.name = "NK3DModelerMatPreview";
+				od.name = "NKCraftMatPreview";
 				s.rt = s.rd->CreateOffscreen(od);
 				if (!s.rt || !s.rt->IsValid()) {
 					s.err = "cible hors ecran d'apercu refusee";

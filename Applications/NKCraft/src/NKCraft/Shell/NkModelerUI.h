@@ -12,7 +12,7 @@
 //   d'etat, systeme de docking, palette de commandes. C'est ce qu'il faut pour un
 //   IDE, et c'est ce qui empeche de coller a une maquette au pixel pres -- on
 //   passerait son temps a lutter contre une disposition qu'on ne controle pas.
-//   NK3DModeler doit ressembler EXACTEMENT a l'ecran A : on peint donc nous-memes,
+//   NKCraft doit ressembler EXACTEMENT a l'ecran A : on peint donc nous-memes,
 //   directement dans la draw list.
 //
 // TOUTES LES COULEURS VIENNENT DU THEME. Pas un seul 0xRRGGBB dans ce fichier :
@@ -28,8 +28,8 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiFont.h"
 #include "NKEditorKit/NkTheme.h"
-#include "NK3DModeler/Shell/NkModelerTheme.h"
-#include "NK3DModeler/Shell/NkModelerIcons.h"
+#include "NKCraft/Shell/NkModelerTheme.h"
+#include "NKCraft/Shell/NkModelerIcons.h"
 
 namespace nkentseu {
 	namespace nk3d {

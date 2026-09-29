@@ -1,5 +1,5 @@
 // =============================================================================
-// Applications/NK3DModeler/src/NK3DModeler/Viewport/NkVpMatTypeDefaults.h
+// Applications/NKCraft/src/NKCraft/Viewport/NkVpMatTypeDefaults.h
 // =============================================================================
 // LA TABLE DES DEFAUTS PAR TYPE DE MATERIAU — et pourquoi elle existe.
 //
@@ -47,7 +47,7 @@
 //     shader par archetype (17 gabarits) — aucune valeur de `rough`/`metal`/...
 //   • `NkMaterial::Create` ne fait que mapper un type vers un handle de gabarit.
 //   • Recherche large `defaultparams|paramsfor|presetfor|archetypedefault|
-//     typedefaults|defaultsfor` sur `Kernel/` et `Applications/NK3DModeler/` :
+//     typedefaults|defaultsfor` sur `Kernel/` et `Applications/NKCraft/` :
 //     zero resultat (controle : `NK_GLASS` en remonte 3 sur le meme perimetre —
 //     la commande sait donc trouver).
 // CONCLUSION : le moteur n'expose AUCUN jeu de defauts numeriques par archetype.

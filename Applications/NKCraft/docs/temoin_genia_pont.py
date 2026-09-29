@@ -22,14 +22,14 @@
 #     [genia] MESURE crochet : ... -> REFUSE, 0 carte(s) nee(s)
 #     et AUCUN .glb dans <projet jetable>/Genia/
 #   EFFETS DE BORD INTERDITS :
-#     ~/.nk3dmodeler_recent.cfg identique a l'octet avant/apres (un temoin ne
+#     ~/.nkcraft_recent.cfg identique a l'octet avant/apres (un temoin ne
 #     s'inscrit pas dans les recents de Rodolf) ; NKIlyana LUE, jamais touchee.
 #
 # Aucune capture d'ecran : le temoin lit le JOURNAL, pas les pixels. La fenetre
 # du modeleur s'ouvre (c'est la sienne) et se ferme seule (NK_AGENT_EXIT).
 #
 # Usage, depuis la racine du worktree :
-#   python Applications/NK3DModeler/docs/temoin_genia_pont.py [image]
+#   python Applications/NKCraft/docs/temoin_genia_pont.py [image]
 # -----------------------------------------------------------------------------
 import glob
 import hashlib
@@ -40,11 +40,12 @@ import tempfile
 import time
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler", "NK3DModeler.exe")
+EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft", "NKCraft.exe")
 OUTILS = os.path.join(os.path.dirname(RACINE), "genia-tools")
 PYTHON_GENIA = os.path.join(OUTILS, "venv", "Scripts", "python.exe")
 IMAGE_DEFAUT = os.path.join(OUTILS, "TripoSR", "examples", "chair.png")
-RECENTS = os.path.join(os.path.expanduser("~"), ".nk3dmodeler_recent.cfg")
+# (29/09) ex-« .nk3dmodeler_recent.cfg » : NK3DModeler s'appelle NKCraft.
+RECENTS = os.path.join(os.path.expanduser("~"), ".nkcraft_recent.cfg")
 
 
 def empreinte(p):

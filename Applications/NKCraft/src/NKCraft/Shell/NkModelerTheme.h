@@ -1,7 +1,7 @@
 #pragma once
 // =============================================================================
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// NkModelerTheme.h — themes de NK3DModeler : roles propres, chargement disque.
+// NkModelerTheme.h — themes de NKCraft : roles propres, chargement disque.
 //
 // CE QUE CE FICHIER FAIT, ET POURQUOI IL EST ICI ET NON DANS NKEditorKit
 //   1. Il ENREGISTRE les roles de couleur qui n'appartiennent qu'a ce produit.
@@ -16,7 +16,7 @@
 //
 // OU SONT LES THEMES — meme convention que les icones (data/icons.cfg), le
 // premier trouve gagne :
-//   1. <utilisateur>/NK3DModeler/themes/<nom>.nktheme   (surcharge personnelle)
+//   1. <utilisateur>/NKCraft/themes/<nom>.nktheme   (surcharge personnelle)
 //   2. <app>/data/themes/<nom>.nktheme                  (livre)
 // Un theme utilisateur qui reprend le nom d'un theme livre le REMPLACE dans la
 // liste : c'est ce qu'attend quelqu'un qui personnalise « Sombre ».
@@ -24,7 +24,7 @@
 
 #include "NKEditorKit/NkTheme.h"
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
-#include "NK3DModeler/NkModelerData.h"
+#include "NKCraft/NkModelerData.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -33,7 +33,7 @@ namespace nkentseu {
 
 		using namespace nkentseu::editorkit;
 
-		// ── ROLES PROPRES A NK3DMODELER ─────────────────────────────────────────
+		// ── ROLES PROPRES A NKCRAFT ─────────────────────────────────────────
 		// Prefixes « nk3d. » : un theme portant ces lignes se charge sans erreur
 		// dans une autre application, qui les comptera simplement comme inconnues.
 		struct NkModelerRoles {

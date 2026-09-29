@@ -38,7 +38,7 @@
 // `NkModelerInput.h` (sa ligne 13, AVANT la ligne 20 qui prend ce fichier-ci) :
 // rien ne manque de son cote. Le banc, lui, s'appelle NKMeshMenuTest.
 #include "NKEditorKit/NkShortcutTable.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 
 namespace nkentseu {
 	namespace nk3d {

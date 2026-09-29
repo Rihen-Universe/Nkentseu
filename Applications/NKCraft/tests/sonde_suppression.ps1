@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_suppression.ps1
+# @File    Applications/NKCraft/tests/sonde_suppression.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -38,7 +38,7 @@
 #
 # ── POURQUOI LA CIBLE EST UN OBJET **UTILISATEUR**, ET PAS L'OBJET DE DEMO ──
 #   Mesure du 17/09. `NK_EDIT_MODE` visait par defaut l'objet 16 de la DEMO ; dans
-#   NK3DModeler cet objet est marque SUPPRIME, et la garde du cadenas de
+#   NKCraft cet objet est marque SUPPRIME, et la garde du cadenas de
 #   `HostHierarchyFrame` le desselectionne a l'image suivante -- a juste titre. Le
 #   pilote « prenait » donc toujours (ActiveIndex=16) et le mode Edition ne
 #   s'ouvrait JAMAIS. Ce n'etait pas un defaut du produit : c'etait l'instrument
@@ -62,7 +62,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
 # LE SOUS-MODE CHOISIT LE GESTE DE SELECTION, et c'est ce qui manquait : le clic

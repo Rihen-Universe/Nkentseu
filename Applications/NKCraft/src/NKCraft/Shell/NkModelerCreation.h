@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerCreation.h
+// @File    Applications/NKCraft/src/NKCraft/Shell/NkModelerCreation.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
@@ -48,14 +48,14 @@
 //  pas touchee : hors du mode Edition elle etait muette, c'est ici qu'on parle.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerIA.h"		// NKConverse, contrat, NkModelerState
-#include "NK3DModeler/Shell/NkModelerAiPanel.h" // NkAiPousser, NkAiCopie
-#include "NK3DModeler/Shell/NkModelerCommon.h"	// NkMatUniqueName
-#include "NK3DModeler/Shell/NkModelerScreens.h" // NkMarkDirty
-#include "NK3DModeler/Shell/NkModelerVertexColor.h" // (Q15) les couleurs de sommet de TripoSR
-#include "NK3DModeler/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
-#include "NK3DModeler/Viewport/NkCreaFamilles.h" // (Q8) les constructeurs par famille
+#include "NKCraft/Shell/NkModelerIA.h"		// NKConverse, contrat, NkModelerState
+#include "NKCraft/Shell/NkModelerAiPanel.h" // NkAiPousser, NkAiCopie
+#include "NKCraft/Shell/NkModelerCommon.h"	// NkMatUniqueName
+#include "NKCraft/Shell/NkModelerScreens.h" // NkMarkDirty
+#include "NKCraft/Shell/NkModelerVertexColor.h" // (Q15) les couleurs de sommet de TripoSR
+#include "NKCraft/Genia/NkGeniaImport.h"	 // voie (b) : la vue rendue devient l'entree de TripoSR
+#include "NKCraft/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkCreaFamilles.h" // (Q8) les constructeurs par famille
 #include "NKRenderer/Mesh/NkMeshFamilles.h"   // (25/09) les dimensions plausibles
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
@@ -2071,7 +2071,7 @@ namespace nkentseu {
 				snprintf(chemin, sizeof(chemin), "logs/creation_%03d.nkscene", (int)numero);
 				if (FILE *f = fopen(chemin, "wb")) {
 					fprintf(f, "# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen\n");
-					fprintf(f, "# Document ECRIT PAR LE MODELE, pose tel quel par NK3DModeler.\n");
+					fprintf(f, "# Document ECRIT PAR LE MODELE, pose tel quel par NKCraft.\n");
 					fprintf(f, "# demande %s\n%s\n", lot.demande, lot.doc);
 					fclose(f);
 				}
@@ -3002,8 +3002,8 @@ namespace nkentseu {
 				return;
 			E.prepare = true;
 			E.dorsal.nom = NkString("assistant-creation");
-			E.dorsal.invitePath = NkString("logs/nk3dmodeler_crea_invite.txt");
-			E.dorsal.sortiePath = NkString("logs/nk3dmodeler_crea_reponse.txt");
+			E.dorsal.invitePath = NkString("logs/nkcraft_crea_invite.txt");
+			E.dorsal.sortiePath = NkString("logs/nkcraft_crea_reponse.txt");
 			// ⚠️ UN BUDGET DE JETONS A PART, ET C'EST LA RAISON DE CE SECOND DORSAL.
 			//    Le dorsal des verbes borne la reponse a 64 jetons -- une ligne. Un
 			//    document de dix parties en demande ~400. Le meme gabarit, avec le
@@ -3502,8 +3502,8 @@ namespace nkentseu {
 						 (py && *py) ? py : "python", (mv && *mv) ? mv : "moondream", E.imageJointe);
 				E.vision.gabarit = NkString(g);
 				E.vision.nom = NkString("vision");
-				E.vision.invitePath = NkString("logs/nk3dmodeler_vision_invite.txt");
-				E.vision.sortiePath = NkString("logs/nk3dmodeler_vision_reponse.txt");
+				E.vision.invitePath = NkString("logs/nkcraft_vision_invite.txt");
+				E.vision.sortiePath = NkString("logs/nkcraft_vision_reponse.txt");
 				E.ongletAttente = onglet;
 				E.dorsalAttente = dorsal;
 				NkString pv;

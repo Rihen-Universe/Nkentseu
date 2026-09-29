@@ -194,8 +194,9 @@ namespace nkentseu {
 				void Remove(usize i);
 		};
 
-		/// `~/.nk3dmodeler_recent.cfg` — repli sur le dossier courant si le profil
-		/// utilisateur est introuvable.
+		/// `~/.nkcraft_recent.cfg` — repli sur le dossier courant si le profil
+		/// utilisateur est introuvable. Une liste ecrite sous l'ancien nom
+		/// (`.nk3dmodeler_recent.cfg`, avant le 29/09) y est copiee au premier appel.
 		NkString NkRecentFilePath();
 
 	} // namespace nk3d

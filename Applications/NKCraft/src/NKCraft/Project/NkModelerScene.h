@@ -86,7 +86,7 @@
 //   * le curseur 3D et la selection.
 // =============================================================================
 
-#include "NK3DModeler/Shell/NkModelerScreens.h" // NkModelerState + NkActivateTab/NkStoreSceneView
+#include "NKCraft/Shell/NkModelerScreens.h" // NkModelerState + NkActivateTab/NkStoreSceneView
 
 namespace nkentseu {
 	namespace nk3d {
@@ -99,7 +99,7 @@ namespace nkentseu {
 		inline int32 NkAsMatSlot(const NkModelerState &st, const NkString &rel);
 	} // namespace nk3d
 } // namespace nkentseu
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 #include "NKSerialization/NkArchive.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"

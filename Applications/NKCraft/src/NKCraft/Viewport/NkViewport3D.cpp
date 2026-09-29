@@ -6,7 +6,7 @@
 // Elle est seule pour une raison mecanique, pas par gout de l'isolation :
 // NKRenderer et NKCanvas declarent tous deux `renderer::NkBlendMode` et
 // `renderer::NkVertex2D`. Les melanger dans une unite ne compile pas. Le reste
-// de NK3DModeler ne voit donc que NkViewport3D.h et ses `void *`.
+// de NKCraft ne voit donc que NkViewport3D.h et ses `void *`.
 //
 // MODELE : Applications/NkAnimaEditor/src/NkAnimaEditor/AnimBridge.cpp pour la
 // composition hors ecran, et Applications/Sandbox/src/Demo/Demo3D.cpp pour
@@ -26,7 +26,7 @@
 // exacte, pas une version retriangulee.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Viewport/NkViewport3D.h"
+#include "NKCraft/Viewport/NkViewport3D.h"
 
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Core/NkRendererConfig.h"
@@ -45,7 +45,7 @@
 #include "NKRHI/Commands/NkICommandBuffer.h"
 #include "NKGui/NkGuiRHIBackend.h" // Integrations/NKGui
 #include "NKMath/NkMat.h"
-#include "NK3DModeler/Viewport/NkVpPick.h"
+#include "NKCraft/Viewport/NkVpPick.h"
 
 #include <cmath>
 #include <cstdio>
@@ -520,7 +520,7 @@ namespace nkentseu {
 													   o.triV.Data(), (uint32)o.triV.Size(),
 													   o.triI.Data(), (uint32)o.triI.Size());
 					md.keepCPU = true;
-					md.debugName = "NK3DModeler.Objet";
+					md.debugName = "NKCraft.Objet";
 					o.mesh = meshSys->Create(md);
 					o.meshOk = o.mesh.IsValid();
 				}
@@ -746,7 +746,7 @@ namespace nkentseu {
 				od.hasDepth = true;
 				od.readable = true;
 				od.readback = false;
-				od.name = "NK3DModelerViewport";
+				od.name = "NKCraftViewport";
 				g.rt = g.r3->CreateOffscreen(od);
 				if (!g.rt || !g.rt->IsValid()) {
 					g.err = "cible hors ecran refusee";

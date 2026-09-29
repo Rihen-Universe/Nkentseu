@@ -27,8 +27,8 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerScreens.h" // etat + hote + NkBrowUniqueName/NkMarkDirty
-#include "NK3DModeler/Project/NkModelerAssets.h" // NkProjectWriteCard : l'UNIQUE ecrivain de carte
+#include "NKCraft/Shell/NkModelerScreens.h" // etat + hote + NkBrowUniqueName/NkMarkDirty
+#include "NKCraft/Project/NkModelerAssets.h" // NkProjectWriteCard : l'UNIQUE ecrivain de carte
 #include "NKRenderer/Mesh/NkOBJLoader.h"
 #include "NKRenderer/Mesh/NkGLTFLoader.h"
 #include "NKRenderer/Mesh/NkFBXLoader.h"
@@ -39,7 +39,7 @@
 #include "NKRenderer/Mesh/NkSTLLoader.h"
 #include "NKRenderer/Mesh/NkUSDALoader.h"
 #include "NKLogger/NkLog.h"
-#include "NK3DModeler/Shell/NkModelerToast.h" // le resultat SE VOIT, il ne se note pas
+#include "NKCraft/Shell/NkModelerToast.h" // le resultat SE VOIT, il ne se note pas
 
 namespace nkentseu {
 	namespace nk3d {

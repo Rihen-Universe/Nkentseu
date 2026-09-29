@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerAiPanel.h
+// @File    Applications/NKCraft/src/NKCraft/Shell/NkModelerAiPanel.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 //
@@ -68,15 +68,16 @@
 //      l'ORIGINE des rectangles change, pas ce qu'ils montrent.
 // -----------------------------------------------------------------------------
 
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerCommon.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerCommon.h"
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKEditorKit/NkAiPanneau.h" // LE panneau IA, commun aux applications (21/09)
 #include "NKEditorKit/Components/NkGuiComponentPaint.h" // le peintre NKGui : polices grasse et fixe
-#include "NK3DModeler/Shell/NkModelerContrat.h" // le vocabulaire des verbes (le « / »)
+#include "NKCraft/Shell/NkModelerContrat.h" // le vocabulaire des verbes (le « / »)
 #include "NKTime/NkChrono.h" // la duree de la conversation
 #include "NKConverse/NkConverseModeles.h" // Q5 : les modeles REELS des fournisseurs
+#include "NKCraft/NkCraftMigration.h" // (29/09) recolte et chats ecrits sous le nom NK3DModeler
 
 // ⚠️ IL INCLUT CE QU'IL UTILISE. `snprintf` arrivait ici PAR CHANCE, tire par un
 //    en-tete voisin ; la recolte ajoute `fopen`/`fputs`/`FILE`, et compter sur
@@ -129,7 +130,13 @@ namespace nkentseu {
 		inline void NkAiRecolter(const char *phrase) {
 			if (!phrase || !phrase[0])
 				return;
-			std::FILE *f = std::fopen("logs/nk3dmodeler_demandes.txt", "a");
+			// (29/09) NK3DModeler S'APPELLE NKCRAFT. La recolte d'avant
+			// (`nk3dmodeler_demandes.txt`) est COPIEE sous le nouveau nom avant la
+			// premiere ligne ajoutee : le corpus reste d'un seul tenant, et
+			// l'ancien fichier reste la ou il etait.
+			NkCraftReprendreFichier(NkString("logs/nk3dmodeler_demandes.txt"),
+									NkString("logs/nkcraft_demandes.txt"));
+			std::FILE *f = std::fopen("logs/nkcraft_demandes.txt", "a");
 			if (!f)
 				return; // pas de `logs/` : on se tait, une recolte n'est pas critique
 			std::fputs(phrase, f);
@@ -645,8 +652,13 @@ namespace nkentseu {
 					const char *c = std::getenv("NK_AI_CHATS");
 					if (c && *c)
 						pan.cheminChats = NkString(c);
-					else if (!std::getenv("NK_SONDE"))
-						pan.cheminChats = NkString("logs/nk3dmodeler_ia_chats.txt");
+					else if (!std::getenv("NK_SONDE")) {
+						pan.cheminChats = NkString("logs/nkcraft_ia_chats.txt");
+						// (29/09) Les chats d'avant le renommage, relus au nouveau
+						// nom : copies une fois, l'ancien fichier laisse en place.
+						NkCraftReprendreFichier(NkString("logs/nk3dmodeler_ia_chats.txt"),
+												pan.cheminChats);
+					}
 				}
 				pan.indication = NkString("Ce que l'assistant sait faire : une phrase (« subdivise le cube deux "
 										  "fois ») ou un verbe du contrat (`subdivide:3`, `bevel:0.2:4`, `undo`). "

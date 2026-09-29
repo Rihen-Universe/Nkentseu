@@ -7,7 +7,8 @@
 // =============================================================================
 
 #include "NKEditorKit/NkSondeInerte.h" // (25/09) une sonde n'ecrit pas chez Rodolf
-#include "NK3DModeler/Project/NkModelerProject.h"
+#include "NKCraft/Project/NkModelerProject.h"
+#include "NKCraft/NkCraftMigration.h" // (29/09) l'etat ecrit sous le nom NK3DModeler
 
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -162,7 +163,11 @@ namespace nkentseu {
 							  NkString *err) {
 			NkArchive doc;
 			doc.SetInt32("version", kProjectFormatVersion);
-			doc.SetString("application", "NK3DModeler");
+			// (29/09) « NK3DModeler » dans les projets ecrits avant le renommage.
+			// Le champ est INFORMATIF -- aucun lecteur ne le teste, l'ouverture
+			// d'un .nk3dm ne depend pas de lui -- et c'est ce qui rend le
+			// changement sans risque. Un futur lecteur doit accepter les deux noms.
+			doc.SetString("application", "NKCraft");
 			doc.SetString("nom", st.name.CStr());
 			doc.SetString("creation", st.created.CStr());
 			doc.SetString("modification", st.modified.CStr());
@@ -462,16 +467,22 @@ namespace nkentseu {
 			//    `NK_RECENTS` reste pour choisir OU ; le defaut, lui, est SUR.
 			//    *Un garde-fou qu'il faut penser a armer se fera oublier.*
 			{
-				const NkString red = editorkit::NkSondeChemin(nullptr, "nk3dmodeler_recent.cfg");
+				const NkString red = editorkit::NkSondeChemin(nullptr, "nkcraft_recent.cfg");
 				if (!red.Empty())
 					return red;
 			}
+			// (29/09) NK3DModeler S'APPELLE NKCRAFT : la liste d'avant s'appelait
+			// `.nk3dmodeler_recent.cfg`. Elle est COPIEE sous le nouveau nom la
+			// premiere fois (NkCraftMigration.h), et l'ancienne reste en place.
+			// Seul le chemin par defaut est concerne : `NK_RECENTS` et la sonde
+			// sont sortis plus haut, ils n'ont rien a reprendre chez l'utilisateur.
 			const char *home = env::GetEnvVar("USERPROFILE"); // API maison (NkEnv.h)
 			if (!home || !*home)
 				home = env::GetEnvVar("HOME");
-			if (home && *home)
-				return Norm(home) + "/.nk3dmodeler_recent.cfg";
-			return NkString(".nk3dmodeler_recent.cfg");
+			const NkString dossier = (home && *home) ? Norm(home) + "/" : NkString();
+			const NkString chemin = dossier + ".nkcraft_recent.cfg";
+			NkCraftReprendreFichier(dossier + ".nk3dmodeler_recent.cfg", chemin);
+			return chemin;
 		}
 
 		// Decoupe « a|b|c|d ». Les champs manquants restent vides : un fichier

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_contrat.ps1
+# @File    Applications/NKCraft/tests/sonde_contrat.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -29,13 +29,13 @@
 # (d) LE ZERO : le contrat n'est pas vide, et il liste autant de verbes que la
 #     table -- un document tronque en silence serait le pire des deux mondes.
 #
-# USAGE :  pwsh -File Applications/NK3DModeler/tests/sonde_contrat.ps1
+# USAGE :  pwsh -File Applications/NKCraft/tests/sonde_contrat.ps1
 # CODES :  0 tout vert · 1 au moins un rouge
 param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
 	[string]$Config = "Release"
 )
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
 $script:rouges = 0

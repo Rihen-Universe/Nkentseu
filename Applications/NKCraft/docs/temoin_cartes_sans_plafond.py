@@ -38,8 +38,8 @@ import subprocess
 import sys
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler", "NK3DModeler.exe")
-ETAT = os.path.join(RACINE, "Applications", "NK3DModeler", "src", "NK3DModeler",
+EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft", "NKCraft.exe")
+ETAT = os.path.join(RACINE, "Applications", "NKCraft", "src", "NKCraft",
                     "Shell", "NkModelerInput.h")
 JOURNAL = os.path.join(RACINE, "logs", "app.log")
 PROJET = os.path.expanduser("~/NK3DModeler/AgentTest").replace("\\", "/")
@@ -83,7 +83,7 @@ def importer():
 
 
 def construire():
-    r = subprocess.run("jenga build --target NK3DModeler --config Release",
+    r = subprocess.run("jenga build --target NKCraft --config Release",
                        cwd=RACINE, capture_output=True, timeout=900, shell=True)
     s = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
     return "SUCCESS" in s

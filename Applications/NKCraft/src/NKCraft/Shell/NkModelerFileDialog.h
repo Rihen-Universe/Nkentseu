@@ -5,7 +5,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // =============================================================================
-// NkModelerFileDialog.h — NK3DModeler (Shell/)
+// NkModelerFileDialog.h — NKCraft (Shell/)
 //
 // CE QUE CE FICHIER CONTIENT : un dialogue de choix d'emplacement, propre au
 // projet — arborescence des dossiers, champ de nom, creation de dossier — et
@@ -24,12 +24,12 @@
 // REGLE INTANGIBLE : on ne sort JAMAIS de la racine du projet. Un dialogue
 // interne n'a pas a donner acces au disque entier.
 // =============================================================================
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
 // L'unicite d'un nom de materiau se verifie sur les emplacements eux-memes, pas
 // sur les cartes du navigateur. Voir plus bas.
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 
 namespace nkentseu {
 	namespace nk3d {

@@ -1,6 +1,6 @@
 #pragma once
 // -----------------------------------------------------------------------------
-// @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCursorWrapSonde.h
+// @File    Applications/NKCraft/src/NKCraft/Viewport/NkCursorWrapSonde.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
@@ -11,9 +11,9 @@
 // (canal `modeleur-blender.questions.md`, R16) a travers `NkCursorWrapStep` —
 // LA MEME fonction que le produit appelle, pas une copie.
 //
-//   NK3DModeler.exe --sonde-wrap [dossier]
+//   NKCraft.exe --sonde-wrap [dossier]
 //       -> ecrit `sonde_wrap.txt` et SORT. Code 0 si tout est vert.
-//   NK_WRAP_NOFIX=1 NK3DModeler.exe --sonde-wrap [dossier]
+//   NK_WRAP_NOFIX=1 NKCraft.exe --sonde-wrap [dossier]
 //       -> LA MUTATION : la correction est retiree, le reste est intact.
 //          La sonde DOIT alors rendre 1. Si elle reste verte, elle ne teste rien.
 //
@@ -22,7 +22,7 @@
 //   ne prouverait pas qu'il compte ce qu'on croit.
 // =============================================================================
 
-#include "NK3DModeler/Viewport/NkCursorWrap.h"
+#include "NKCraft/Viewport/NkCursorWrap.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

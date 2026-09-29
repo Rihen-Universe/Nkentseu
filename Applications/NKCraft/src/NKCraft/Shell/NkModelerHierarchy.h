@@ -11,12 +11,12 @@
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Shell/NkModelerTables.h"
-#include "NK3DModeler/Shell/NkModelerCommon.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerTables.h"
+#include "NKCraft/Shell/NkModelerCommon.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 #include "NKEditorKit/NkShortcutTable.h"
 
 namespace nkentseu {

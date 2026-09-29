@@ -2534,7 +2534,7 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 		//    peint dans `dlOverlay` ; un Button ordinaire ecrirait dans `dl`,
 		//    soumise AVANT -- il serait DERRIERE la boite, cliquable mais
 		//    invisible. C est le meme piege que le contenu de modale de
-		//    NK3DModeler, resolu ici par la couche prevue (`PushOverlay`).
+		//    NKCraft, resolu ici par la couche prevue (`PushOverlay`).
 		PushOverlay(ctx);
 		ctx.BeginLayout({fr.content.x, fr.content.y, fr.content.w, fr.content.h});
 
@@ -2574,7 +2574,7 @@ static void DrawProjectTabs(NkEditorFrameContext &ec, void *) {
 //    agent a livre le cablage sans pouvoir montrer le resultat, faute d'un
 //    levier pour derouler un menu. Le meme manque a laisse partir trois etapes
 //    livrees sans que personne ne voie la fenetre, et un menu contextuel de
-//    NK3DModeler invisible un tour entier. Ce n'est pas une panne de
+//    NKCraft invisible un tour entier. Ce n'est pas une panne de
 //    l'application : c'est l'instrument qui manquait.
 //
 // ⚠️ UNE AFFIRMATION A CORRIGER, ET ELLE VENAIT DE MOI : « --dump-ui fonctionne
@@ -4038,7 +4038,7 @@ int nkmain(const NkEntryState &state) {
 		//    son tiroir ne pouvait qu'ecrire « deja ancre ». Le rail bas garde sa
 		//    pilule. A sa place, les panneaux qui etaient ANCRES a droite ou a
 		//    gauche : Rodolf veut UN panneau de droite dont le contenu change selon
-		//    la pastille, comme NK3DModeler.
+		//    la pastille, comme NKCraft.
 		{"Inspecteur", "Inspecteur — propriétés de l'élément sélectionné", "I",
 		 [](nkgui::NkGuiContext &ui, const nkgui::NkRect &r, bool ouvert, bool survol, void *) {
 			 nkuidesign::costume::IcInspecteur(ui.dl, r.x + (r.w - 14.f) * 0.5f, r.y + (r.h - 14.f) * 0.5f,

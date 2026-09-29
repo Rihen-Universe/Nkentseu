@@ -1,7 +1,7 @@
 #pragma once
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerVertexColor.h
+// @File    Applications/NKCraft/src/NKCraft/Shell/NkModelerVertexColor.h
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // LES COULEURS PAR SOMMET, ET POURQUOI UN MATERIAU POSE NE SE VOYAIT PAS (Q15).
@@ -35,7 +35,7 @@
 // Le cout est une reecriture de tampon par bascule -- un geste rare, decide par
 // l'utilisateur -- contre un risque de parite permanent.
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 #include "NKContainers/Sequential/NkVector.h"
 
 #include <cstdio>

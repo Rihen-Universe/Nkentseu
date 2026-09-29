@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @File    Applications/NK3DModeler/src/NK3DModeler/Viewport/NkCreaFamilles.cpp
+// @File    Applications/NKCraft/src/NKCraft/Viewport/NkCreaFamilles.cpp
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 // L'ADAPTATEUR : de la GEOMETRIE des familles aux NOEUDS de la scene.
@@ -15,8 +15,8 @@
 // par piece, rendre la liste. Si un jour il en fait plus, la coupure aura ete
 // refaite dans le mauvais sens.
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Viewport/NkCreaFamilles.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkCreaFamilles.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 #include "NKRenderer/Mesh/NkMeshFamilles.h"
 #include "NKLogger/NkLog.h"
 

@@ -20,17 +20,17 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "NKEditorKit/NkShortcutTable.h"
-#include "NK3DModeler/Shell/NkModelerUI.h"
-#include "NK3DModeler/Shell/NkModelerInput.h"
-#include "NK3DModeler/Shell/NkModelerWidgets.h"
-#include "NK3DModeler/Shell/NkModelerTables.h"
-#include "NK3DModeler/Shell/NkModelerCommon.h"
-#include "NK3DModeler/Shell/NkModelerAiPanel.h" // (b9) l'assistant
-#include "NK3DModeler/Shell/NkModelerViewport.h"
-#include "NK3DModeler/Shell/NkModelerFileDialog.h"
-#include "NK3DModeler/Viewport/NkViewport3D.h"
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
-#include "NK3DModeler/Viewport/NkOutCompose.h"
+#include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerInput.h"
+#include "NKCraft/Shell/NkModelerWidgets.h"
+#include "NKCraft/Shell/NkModelerTables.h"
+#include "NKCraft/Shell/NkModelerCommon.h"
+#include "NKCraft/Shell/NkModelerAiPanel.h" // (b9) l'assistant
+#include "NKCraft/Shell/NkModelerViewport.h"
+#include "NKCraft/Shell/NkModelerFileDialog.h"
+#include "NKCraft/Viewport/NkViewport3D.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkOutCompose.h"
 
 namespace nkentseu {
 	namespace nk3d {

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_marqueurs_cause.ps1
+# @File    Applications/NKCraft/tests/sonde_marqueurs_cause.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -47,7 +47,7 @@ param(
 	[string]$Sortie = ""
 )
 
-$exeMod = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exeMod = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 $exeEta = Join-Path $Arbre "Build\Bin\$Config-Windows\renderdemo\renderdemo.exe"
 foreach ($e in @($exeMod, $exeEta)) {
 	if (-not (Test-Path $e)) { Write-Host "ROUGE  binaire introuvable : $e"; exit 2 }

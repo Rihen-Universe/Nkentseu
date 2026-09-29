@@ -32,7 +32,7 @@
 // du CALCUL PUR, donc mesurable en console, sans fenetre. Le banc est
 // `NKMeshMenuTest`.
 // -----------------------------------------------------------------------------
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
 
 namespace nkentseu {
 	namespace nk3d {

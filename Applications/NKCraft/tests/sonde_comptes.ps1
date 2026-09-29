@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# @File    Applications/NK3DModeler/tests/sonde_comptes.ps1
+# @File    Applications/NKCraft/tests/sonde_comptes.ps1
 # @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
@@ -33,7 +33,7 @@
 #   -Mutation        NK_VERT_COINS=1 : les comptes redeviennent des coins.
 #                    (b10) doit alors rougir, et Euler redire 18.
 #
-# USAGE :  pwsh -File Applications/NK3DModeler/tests/sonde_comptes.ps1 [-Mutation]
+# USAGE :  pwsh -File Applications/NKCraft/tests/sonde_comptes.ps1 [-Mutation]
 # CODES :  0 tout vert · 1 au moins un rouge · 2 la mutation n'a pas pris
 param(
 	[string]$Arbre = "D:\Projets\2026\Nkentseu\Nkentseu-actifs",
@@ -47,7 +47,7 @@ param(
 . (Join-Path $PSScriptRoot "condition.ps1")
 $script:fichiers = @()
 
-$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\$Config-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Host "ROUGE  binaire introuvable : $exe"; exit 1 }
 
 $script:rouges = 0

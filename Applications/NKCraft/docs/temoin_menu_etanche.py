@@ -47,8 +47,8 @@ import subprocess
 import sys
 
 RACINE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NK3DModeler", "NK3DModeler.exe")
-SRC = os.path.join(RACINE, "Applications", "NK3DModeler", "src", "NK3DModeler")
+EXE = os.path.join(RACINE, "Build", "Bin", "Release-Windows", "NKCraft", "NKCraft.exe")
+SRC = os.path.join(RACINE, "Applications", "NKCraft", "src", "NKCraft")
 MAIN = os.path.join(SRC, "main.cpp")
 MENUS = os.path.join(SRC, "Shell", "NkModelerMenus.h")
 
@@ -85,7 +85,7 @@ def course(menu):
 
 
 def construire():
-    r = subprocess.run("jenga build --target NK3DModeler --config Release",
+    r = subprocess.run("jenga build --target NKCraft --config Release",
                        cwd=RACINE, capture_output=True, timeout=900, shell=True)
     s = (r.stdout or b"").decode("utf-8", "replace") + (r.stderr or b"").decode("utf-8", "replace")
     return "SUCCESS" in s
