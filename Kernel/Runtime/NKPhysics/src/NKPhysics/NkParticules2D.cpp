@@ -203,6 +203,24 @@ namespace nkentseu {
 			mCasseesPurgeables = 0;
 			mGrilleValide = false;
 			stats = NkStatsP2D{};
+			// Le jeu (2026-09-29) : parties, attaches, saisies par pointeur, contacts.
+			parties.Clear();
+			partiesParticules.Clear();
+			attaches.Clear();
+			mPointeurs.Clear();
+			mPtrId.Clear();
+			mPtrParticule.Clear();
+			mPtrDecalage.Clear();
+			mContactNature.Clear();
+			mContactNormale.Clear();
+			mContactRigide.Clear();
+			mContactMou.Clear();
+			mPairesPas.Clear();
+			mPairesPrec.Clear();
+			mDebuts.Clear();
+			mFins.Clear();
+			mZones.Clear();
+			mAttacheRigide.Clear();
 		}
 
 		NkParamsFluide2D NkParticules2D::ParamsFluide(NkMateriauP2D m) const noexcept {
@@ -483,14 +501,25 @@ namespace nkentseu {
 			stats.contacts = 0;
 			stats.contactsRigides = 0;
 			stats.soudures = 0;
+			stats.rupturesAttaches = 0;
 			const int32 n = reglages.sousPas < 1 ? 1 : (reglages.sousPas > 40 ? 40 : reglages.sousPas);
 			const float32 dtEff = dt * reglages.echelleTemps;
 			const float32 h = dtEff / static_cast<float32>(n);
 			if (h <= 0.f || particules.Size() == 0) {
 				stats.energieCinetique = 0.f;
+				// Le jeu : un monde VIDE n'a plus de contacts -- ceux du pas d'avant
+				// finissent. Un monde EN PAUSE (h = 0) garde les siens, sans evenement.
+				mDebuts.Clear();
+				mFins.Clear();
+				if (particules.Size() == 0) {
+					mPairesPas.Clear();
+					FermerEvenementsDuPas();
+				}
 				return;
 			}
+			OuvrirContactsDuPas();
 			PreparerRigides(rigides);
+			PreparerAttaches(rigides);
 			for (int32 k = 0; k < n; ++k) {
 				SousPas(h, k);
 			}
@@ -498,6 +527,11 @@ namespace nkentseu {
 			if (mCasseesPurgeables > 512) {
 				PurgerLiens();
 			}
+			// Le jeu : les zones se jugent sur les positions FINALES du pas, puis
+			// les paires du pas deviennent des DEBUT / FIN. AVANT la compaction :
+			// un corps qui tombe hors du monde a encore son id ici.
+			DetecterZones();
+			FermerEvenementsDuPas();
 
 			// Ce qui est tombe hors du monde disparait.
 			const NkLimites2D &L = reglages.limites;
@@ -537,6 +571,10 @@ namespace nkentseu {
 			ResoudreForme();
 			ResoudreParticules();
 			ResoudreRigides(h, h * static_cast<float32>(k + 1));
+			// 2026-09-29 : les attaches apres les contacts rigides, avec les memes
+			// poses extrapolees (voir NkParticules2DJeu.cpp).
+			ResoudreAttaches(h, h * static_cast<float32>(k + 1),
+							 reglages.sousPas < 1 ? 1 : (reglages.sousPas > 40 ? 40 : reglages.sousPas));
 			ResoudreLimites();
 			MajVitesses(h);
 			Viscosite();
@@ -583,6 +621,7 @@ namespace nkentseu {
 					p.pos += (cible - p.pos) * 0.35f;
 				}
 			}
+			ResoudreSaisiesPointeurs(); // 2026-09-29 : les saisies par pointeur, meme regle
 		}
 
 		void NkParticules2D::ResoudreLiens(float32 h) noexcept {
@@ -797,6 +836,13 @@ namespace nkentseu {
 					const NkVec2f n = d / r;
 					a.pos -= n * (D * a.invMasse / w);
 					b.pos += n * (D * b.invMasse / w);
+					// Le jeu : deux fluides de corps DIFFERENTS qui se touchent (un blob
+					// dans l'eau, deux blobs) -- au contact de leurs rayons seulement.
+					if (a.corps != b.corps && r < a.rayon + b.rayon) {
+						NoterContact(i, NK_P2D_CONTACT_MOU, NkVec2f(-n.x, -n.y), cb.id);
+						NoterContact(j, NK_P2D_CONTACT_MOU, n, ca.id);
+						NoterPaire(ca.id, cb.id, NkGenreEvenementP2D::NK_CORPS_MOU);
+					}
 					return;
 				}
 				if (!collisions) {
@@ -816,6 +862,11 @@ namespace nkentseu {
 				a.pos -= n * (prof * a.invMasse / w);
 				b.pos += n * (prof * b.invMasse / w);
 				++contacts;
+				if (a.corps != b.corps) {
+					NoterContact(i, NK_P2D_CONTACT_MOU, NkVec2f(-n.x, -n.y), cb.id);
+					NoterContact(j, NK_P2D_CONTACT_MOU, n, ca.id);
+					NoterPaire(ca.id, cb.id, NkGenreEvenementP2D::NK_CORPS_MOU);
+				}
 
 				// Frottement de Coulomb en positions (Macklin 2014) : le glissement
 				// relatif est annule tant qu'il reste sous mu * profondeur.
@@ -839,6 +890,7 @@ namespace nkentseu {
 		// =====================================================================
 		void NkParticules2D::PreparerRigides(NkPhysicsWorld *monde) noexcept {
 			mRigides.Clear();
+			mZones.Clear();
 			if (monde == nullptr) {
 				return;
 			}
@@ -846,12 +898,14 @@ namespace nkentseu {
 			NkVector<NkRigidBody> &corpsR = monde->Bodies();
 			for (uint32 i = 0; i < corpsR.Size(); ++i) {
 				NkRigidBody &b = corpsR[i];
-				if ((b.flags & NK_BODY_TRIGGER) != 0u) {
-					continue;
-				}
+				// 2026-09-29 : un declencheur n'est toujours pas REPOUSSANT, mais il
+				// est garde a part pour les ZONES (DetecterZones).
+				const bool zone = (b.flags & NK_BODY_TRIGGER) != 0u;
 				const collision::NkShape s = NkTransformShape(b.restShape, b.position, b.orientation);
 				Rigide r;
 				r.corps = &b;
+				r.id = b.id;
+				r.angleCorps = 2.f * math::NkAtan2(b.orientation.z, b.orientation.w);
 				r.type = static_cast<uint8>(b.type);
 				switch (s.type) {
 					case collision::NkShapeType::NK_CIRCLE2D:
@@ -876,6 +930,23 @@ namespace nkentseu {
 						break;
 					default:
 						continue; // formes 3D et polygones : non couples (dit dans l'en-tete)
+				}
+				if (zone) {
+					r.posCorps = NkVec2f(b.position.x, b.position.y);
+					// Sa boite englobante, sans marge de mouvement : une zone se juge
+					// sur les positions finales du pas (DetecterZones).
+					float32 extZ = r.rayon;
+					if (r.forme == 1) {
+						extZ = Len(r.demi);
+					} else if (r.forme == 2) {
+						extZ = Len(r.b - r.a) * 0.5f + r.rayon;
+					}
+					r.mnx = r.centre.x - extZ;
+					r.mny = r.centre.y - extZ;
+					r.mxx = r.centre.x + extZ;
+					r.mxy = r.centre.y + extZ;
+					mZones.PushBack(r);
+					continue;
 				}
 				r.posCorps = NkVec2f(b.position.x, b.position.y);
 				const bool dyn = b.type == NkBodyType::DYNAMIC;
@@ -939,6 +1010,15 @@ namespace nkentseu {
 				NkRigidBody *corpsR = static_cast<NkRigidBody *>(r.corps);
 
 				r.contacts = 0;
+				if (r.forme == 3) {
+					r.contactsPrec = 1u;
+					continue; // rigide present pour ses ATTACHES seulement (forme non couplee)
+				}
+				// Le jeu : la nature du contact, par le type du corps.
+				const uint8 nature = r.type == static_cast<uint8>(NkBodyType::STATIC)
+										 ? static_cast<uint8>(NK_P2D_CONTACT_STATIQUE)
+										 : (r.type == static_cast<uint8>(NkBodyType::KINEMATIC) ? static_cast<uint8>(NK_P2D_CONTACT_CINEMATIQUE)
+																								 : static_cast<uint8>(NK_P2D_CONTACT_DYNAMIQUE));
 				PourCellules(r.mnx, r.mny, r.mxx, r.mxy, [&](uint32 i) {
 					NkParticule2D &p = particules[i];
 					if (p.invMasse == 0.f) {
@@ -1035,6 +1115,8 @@ namespace nkentseu {
 					p.contact = true;
 					p.normale = n;
 					stats.contactsRigides++;
+					NoterContact(i, nature, n, r.id);
+					NoterPaire(cp.id, r.id, NkGenreEvenementP2D::NK_RIGIDE);
 
 					// Frottement de la particule, relatif au point du corps.
 					const NkVec2f vPoint = r.vitesse + Perp(bras) * r.omega;
@@ -1080,6 +1162,7 @@ namespace nkentseu {
 			p.pos += n * profondeur;
 			p.contact = true;
 			p.normale = n;
+			NoterContact(static_cast<uint32>(&p - particules.Data()), NK_P2D_CONTACT_LIMITES, n, 0u);
 			const float32 mu = friction * 1.5f;
 			if (mu <= 0.f) {
 				return;
@@ -1354,6 +1437,10 @@ namespace nkentseu {
 				l.corps = remapC[l.corps] == NK_P2D_AUCUN ? particules[l.a].corps : remapC[l.corps];
 			}
 
+			// Le jeu (2026-09-29) : attaches, parties, saisies par pointeur et
+			// contacts du pas SUIVENT leurs particules ; la saisie historique, elle,
+			// est lachee comme avant (ligne suivante).
+			RemapperJeu(remap);
 			SaisirFin();
 			mGrilleValide = false;
 			RecalculerPlages();

@@ -45,10 +45,17 @@
 //   7. Particules  double relaxation de densite (Clavet 2005) + collisions,
 //                  frottement de Coulomb en positions (Macklin 2014 §6.1)
 //   8. Rigides     contacts avec les corps de NkPhysicsWorld (voir plus haut)
+//  8b. Attaches    particules tenues a un point d'un rigide (2026-09-29)
 //   9. Limites     sol, murs, plafond (facultatifs)
 //  10. Vitesses    v = (x - x_prec) / h, restitution
 //  11. Viscosite   XSPH, moyenne ponderee (stable a toute viscosite <= 0,5)
 //  12. Amortisseurs le long des liens (corps mous qui ne doivent pas rebondir)
+//
+// ET POUR LE JEU (2026-09-29, NkParticules2DJeu.cpp) : poussee AJOUTEE, contacts
+// tenus sur le PAS ENTIER (le drapeau `contact` d'une particule, lui, meurt a
+// chaque sous-pas), evenements DEBUT / FIN (rigides, zones, autres corps mous),
+// parties nommees, attaches, saisies par pointeur, corps relies. Les zones
+// (corps rigides NK_BODY_TRIGGER) se jugent une fois par pas, apres les sous-pas.
 //
 // UNITES : le metre, la seconde, le kilogramme — comme NkPhysicsWorld. Y vers le
 // HAUT. La raideur est une COMPLIANCE (XPBD) : elle ne depend ni du pas ni du
@@ -199,6 +206,84 @@ namespace nkentseu {
 				uint32 ruptures = 0; ///< liaisons rompues pendant le DERNIER pas
 				uint32 soudures = 0;
 				float32 energieCinetique = 0.f; ///< J
+				uint32 rupturesAttaches = 0; ///< attaches particule <-> rigide rompues pendant le DERNIER pas (2026-09-29)
+		};
+
+		// ---------------------------------------------------------------------
+		// LE JEU (2026-09-29) : ce qu'il faut pour qu'un corps mou soit un
+		// PERSONNAGE. Voir Applications/UnkenyEditor/design/00, § 4 (demande R15),
+		// et NkParticules2DJeu.cpp, ou tout ceci est ecrit.
+		// ---------------------------------------------------------------------
+
+		/// Contre quoi une particule a touche. Un OU de ces bits par particule.
+		enum NkNatureContactP2D : uint8 {
+			NK_P2D_CONTACT_STATIQUE = 1u << 0,	  ///< corps rigide STATIQUE (sol, mur)
+			NK_P2D_CONTACT_CINEMATIQUE = 1u << 1, ///< corps rigide cinematique (plateforme mobile)
+			NK_P2D_CONTACT_DYNAMIQUE = 1u << 2,	  ///< corps rigide dynamique (caisse)
+			NK_P2D_CONTACT_LIMITES = 1u << 3,	  ///< la boite du monde (NkLimites2D)
+			NK_P2D_CONTACT_MOU = 1u << 4,		  ///< un AUTRE corps de particules
+		};
+
+		/// Resume des contacts d'un corps (ou d'une partie) sur le DERNIER PAS
+		/// ENTIER, tous sous-pas reunis.
+		/// ⚠️ POURQUOI « PAS ENTIER » : le drapeau `NkParticule2D::contact` est
+		/// remis a faux a la fin de CHAQUE sous-pas (MajVitesses) -- apres Pas(),
+		/// il n'en reste rien, et un jeu ne pouvait pas savoir qu'une gelee touchait
+		/// le sol. Ce resume, lui, est tenu jusqu'au Pas suivant.
+		struct NkContactCorpsP2D {
+				uint32 particules = 0; ///< particules qui ont touche (et passent le filtre de pente)
+				NkVec2f normale;	   ///< moyenne unitaire des normales, VERS le corps ((0, 1) = pose sur un sol)
+				uint8 natures = 0;	   ///< OU des NkNatureContactP2D rencontrees
+				uint32 statique = 0;   ///< particules par nature (une particule peut compter deux fois)
+				uint32 cinematique = 0;
+				uint32 dynamique = 0;
+				uint32 limites = 0;
+				uint32 mou = 0;
+				NkBodyId rigide = 0; ///< le corps rigide le plus touche (0 = aucun)
+				uint32 autreCorps = 0; ///< l'id STABLE de l'autre corps mou le plus touche (0 = aucun)
+				bool Touche() const noexcept {
+					return particules > 0u;
+				}
+		};
+
+		/// Un DEBUT ou une FIN de contact d'un corps mou, pour les evenements de jeu.
+		enum class NkGenreEvenementP2D : uint8 {
+			NK_RIGIDE = 0, ///< `autre` = NkBodyId d'un corps rigide solide
+			NK_ZONE,	   ///< `autre` = NkBodyId d'un corps rigide DECLENCHEUR (NK_BODY_TRIGGER)
+			NK_CORPS_MOU   ///< `autre` = id STABLE d'un autre corps mou (`corps` < `autre`)
+		};
+		struct NkEvenementP2D {
+				uint32 corps = 0; ///< id STABLE du corps mou
+				uint32 autre = 0;
+				NkGenreEvenementP2D genre = NkGenreEvenementP2D::NK_RIGIDE;
+		};
+
+		/// Une PARTIE NOMMEE d'un corps : un sous-ensemble de ses particules (la
+		/// tete, un bras, les pieds), poussee et lue separement.
+		/// ⚠️ Les particules sont tenues par INDEX, remappe a chaque compaction : une
+		/// partie survit a la disparition d'un AUTRE corps, et perd seulement les
+		/// particules gommees d'elle-meme.
+		struct NkPartieP2D {
+				uint32 id = 0;	  ///< identifiant STABLE de la partie
+				uint32 corps = 0; ///< id STABLE du corps
+				char nom[24] = {};
+				uint32 debut = 0; ///< dans NkParticules2D::partiesParticules
+				uint32 nombre = 0;
+		};
+
+		/// Une particule ATTACHEE a un point d'un corps rigide (des parties molles
+		/// sur un personnage rigide). Resolue a chaque sous-pas apres les contacts
+		/// rigides ; le rigide recoit les impulses en retour (les deux sens).
+		struct NkAttacheP2D {
+				uint32 corps = 0;	  ///< id STABLE du corps mou (verification)
+				uint32 particule = 0; ///< INDEX, remappe a chaque compaction
+				NkBodyId rigide = 0;
+				NkVec2f ancre;			///< point dans le REPERE du rigide (position + angle)
+				float32 raideur = 1.f;	///< [0,1] comme les liens (compliance XPBD)
+				float32 rupture = 0.f;	///< m : au-dela de cet ecart, l'attache CASSE. 0 = incassable
+				float32 ecart = 0.f;	///< ecart particule / ancre qui RESTE apres correction, dernier sous-pas (m)
+				float32 tension = 0.f;	///< ecart AVANT correction, dernier sous-pas (m) : ce que la matiere a tire
+				bool casse = false;
 		};
 
 		struct NkParamsFluide2D {
@@ -272,6 +357,117 @@ namespace nkentseu {
 					return mCibleSaisie;
 				}
 
+				// =============================================================
+				// LE JEU (2026-09-29) — NkParticules2DJeu.cpp
+				// Tout ce qui suit AJOUTE ; rien de ce qui precede ne change de sens.
+				// =============================================================
+
+				// --- Pousser SANS ecraser (manque M5b) -------------------------
+				// ⚠️ AppliquerVitesse REMPLACE la vitesse de chaque particule : appelee a
+				// chaque pas pour marcher, elle annule la gravite et fige la forme.
+				// Celles-ci AJOUTENT : la deformation et la gravite sont gardees.
+				/// v += dv pour chaque particule libre du corps.
+				void AjouterVitesse(uint32 corps, const NkVec2f &dv) noexcept;
+				/// Une FORCE totale (N) repartie selon la masse : chaque particule libre
+				/// recoit l'acceleration F / M. A appeler a chaque pas, avec son dt.
+				void AppliquerForce(uint32 corps, const NkVec2f &force, float32 dt) noexcept;
+				/// Une acceleration (m/s^2) uniforme, quelle que soit la masse.
+				void AppliquerAcceleration(uint32 corps, const NkVec2f &acceleration, float32 dt) noexcept;
+				/// Un COUPLE (N.m) autour du centre de masse : le corps ROULE.
+				void AppliquerCouple(uint32 corps, float32 couple, float32 dt) noexcept;
+				/// La vitesse angulaire d'ensemble (rad/s, sens trigonometrique) :
+				/// moment cinetique / moment d'inertie, autour du centre de masse.
+				float32 VitesseAngulaireCorps(uint32 corps) const noexcept;
+				/// Retire la part `fraction` [0,1] de la rotation d'ensemble, sans
+				/// toucher a la translation ni a la deformation. C'est ce qui empeche un
+				/// personnage mou pousse sur un sol qui frotte de ROULER -- et de
+				/// rebondir sur ses coins (mesure du banc Gelee, 2026-09-29).
+				void FreinerRotation(uint32 corps, float32 fraction) noexcept;
+
+				// --- Parties nommees (decision de Rihen du 2026-09-29) ---------
+				/// Cree une partie du corps `corps` (INDEX) avec les particules
+				/// `relatives` (0 = premiere particule du corps). Rend son id (0 = refus :
+				/// corps inconnu, nom vide ou deja pris, aucune particule valide).
+				uint32 CreerPartie(uint32 corps, const char *nom, const uint32 *relatives, uint32 nombre) noexcept;
+				/// Les particules du corps dans le disque (centre, rayon).
+				uint32 CreerPartieZone(uint32 corps, const char *nom, const NkVec2f &centre, float32 rayon) noexcept;
+				/// Les particules du corps dans la boite [mn, mx].
+				uint32 CreerPartieBoite(uint32 corps, const char *nom, const NkVec2f &mn, const NkVec2f &mx) noexcept;
+				void SupprimerPartie(uint32 partie) noexcept;
+				/// L'id de la partie `nom` du corps d'id STABLE `corpsId`, ou 0.
+				uint32 TrouverPartie(uint32 corpsId, const char *nom) const noexcept;
+				int32 IndexPartie(uint32 partie) const noexcept;
+				void AjouterVitessePartie(uint32 partie, const NkVec2f &dv) noexcept;
+				void AppliquerForcePartie(uint32 partie, const NkVec2f &force, float32 dt) noexcept;
+				NkVec2f CentrePartie(uint32 partie) const noexcept;
+				NkVec2f VitessePartie(uint32 partie) const noexcept;
+
+				// --- Contacts tenus sur le pas (manque M5a) --------------------
+				/// Les contacts du corps pendant le DERNIER Pas. `normaleYMin` filtre par
+				/// pente : 0,7 ne garde que ce qui porte (sol a moins de 45 degres) ;
+				/// -2 (defaut) garde tout, murs et plafond compris.
+				NkContactCorpsP2D ContactCorps(uint32 corps, float32 normaleYMin = -2.f) const noexcept;
+				NkContactCorpsP2D ContactPartie(uint32 partie, float32 normaleYMin = -2.f) const noexcept;
+
+				// --- Evenements DEBUT / FIN (manque M5e) -----------------------
+				/// Les paires (corps mou, autre) qui ont COMMENCE, ou CESSE, de se
+				/// toucher pendant le dernier Pas : rigides, zones (declencheurs),
+				/// autres corps mous. Un corps disparu donne sa FIN au Pas suivant.
+				const NkVector<NkEvenementP2D> &ContactsDebut() const noexcept {
+					return mDebuts;
+				}
+				const NkVector<NkEvenementP2D> &ContactsFin() const noexcept {
+					return mFins;
+				}
+				/// Les paires en contact au dernier Pas (la « photo » dont sont tires
+				/// DEBUT et FIN).
+				const NkVector<NkEvenementP2D> &ContactsEnCours() const noexcept {
+					return mPairesPrec;
+				}
+
+				// --- Attache particule <-> rigide (manque M5f) ------------------
+				/// Attache la particule `particule` (INDEX) au rigide `rigide` du monde,
+				/// a l'endroit OU ELLE EST. Rend l'index de l'attache, ou -1.
+				int32 Attacher(uint32 particule, const NkPhysicsWorld &monde, NkBodyId rigide, float32 raideur = 1.f,
+							   float32 rupture = 0.f) noexcept;
+				/// Attache chaque particule du corps a moins de `rayon` de `point`.
+				uint32 AttacherZone(uint32 corps, const NkVec2f &point, float32 rayon, const NkPhysicsWorld &monde,
+									NkBodyId rigide, float32 raideur = 1.f, float32 rupture = 0.f) noexcept;
+				/// Retire toutes les attaches vers ce rigide (0 = toutes).
+				uint32 Detacher(NkBodyId rigide) noexcept;
+				uint32 AttachesActives() const noexcept;
+				/// Les rigides ont ete REFAITS (photo restauree, scene rechargee) : leurs
+				/// ids ont change. `anciens[i]` devient `nouveaux[i]`, tous a la fois --
+				/// un remplacement un par un confondrait un ancien id et un nouveau.
+				void RemapperRigides(const NkBodyId *anciens, const NkBodyId *nouveaux, uint32 n) noexcept;
+
+				// --- Relier deux corps (decision de Rihen, 2026-09-29) ---------
+				/// Relie chaque particule du corps `a` a la particule du corps `b` la
+				/// plus proche, si elle est a moins de `portee` : des liens DYNAMIQUES
+				/// (NK_LIAISON, par Relier), qui prennent les parametres du corps `a`
+				/// (raideur, resistance). Rend le nombre de liens poses.
+				/// ⚠️ Pas AjouterLien : un lien de structure pose apres coup casse la
+				/// contiguite des liens d'une grille (gelee, tissu), dont le rendu se sert.
+				uint32 RelierCorps(uint32 a, uint32 b, float32 portee) noexcept;
+
+				// --- Saisie PAR POINTEUR (manque M5d) --------------------------
+				// ⚠️ SaisirDebut/Vers/Fin ne tiennent qu'UNE saisie, pour tous les corps a
+				// la fois. Celles-ci en tiennent une par POINTEUR (doigts, souris,
+				// manettes), restreintes a un corps si demande, sans jamais voler une
+				// particule deja tenue. Les deux coexistent.
+				/// `corps` : INDEX du seul corps a prendre, ou -1 pour tous. Rend le
+				/// nombre de particules prises (0 = rien sous le pointeur).
+				uint32 SaisirPointeurDebut(uint32 pointeur, const NkVec2f &p, float32 rayon, int32 corps = -1) noexcept;
+				void SaisirPointeurVers(uint32 pointeur, const NkVec2f &p) noexcept;
+				void SaisirPointeurFin(uint32 pointeur) noexcept;
+				void SaisirPointeursFin() noexcept;
+				bool EnSaisiePointeur(uint32 pointeur) const noexcept;
+				uint32 PointeursEnSaisie() const noexcept {
+					return static_cast<uint32>(mPointeurs.Size());
+				}
+				/// Combien de particules le pointeur tient.
+				uint32 ParticulesSaisies(uint32 pointeur) const noexcept;
+
 				// --- Etat ------------------------------------------------------
 				NkVector<NkParticule2D> particules;
 				NkVector<NkLien2D> liens;
@@ -280,6 +476,12 @@ namespace nkentseu {
 				NkStatsP2D stats;
 				uint32 rupturesTotal = 0;
 				uint32 prochainId = 1;
+				// Ajoutes le 2026-09-29 (le jeu). Publics comme `liens` : la sauvegarde
+				// et un editeur les lisent tels quels.
+				NkVector<NkPartieP2D> parties;
+				NkVector<uint32> partiesParticules; ///< INDEX de particules, bout a bout
+				uint32 prochainIdPartie = 1;
+				NkVector<NkAttacheP2D> attaches;
 
 			private:
 				struct Rigide {
@@ -303,6 +505,8 @@ namespace nkentseu {
 						uint32 contacts = 0;	  ///< contacts du sous-pas courant
 						uint32 contactsPrec = 1;  ///< ceux du sous-pas precedent (partage de masse)
 						float32 mnx = 0.f, mny = 0.f, mxx = 0.f, mxy = 0.f; ///< boite englobante (etendue)
+						NkBodyId id = 0;		  ///< 2026-09-29 : pour les contacts et les attaches
+						float32 angleCorps = 0.f; ///< angle du corps au debut du pas (ancres des attaches)
 				};
 
 				void SousPas(float32 h, int32 k) noexcept;
@@ -351,6 +555,47 @@ namespace nkentseu {
 				NkParamsFluide2D mFluide[static_cast<int32>(NkMateriauP2D::NK_COUNT)];
 				uint32 mAlea = 0x9E3779B9u;
 				uint32 mCasseesPurgeables = 0;
+
+				// --- Le jeu (2026-09-29), NkParticules2DJeu.cpp ---------------
+				/// Contacts accumules sur le pas, PAR PARTICULE (remappes a la
+				/// compaction) : bits de nature, somme des normales, dernier rigide et
+				/// dernier autre corps touches.
+				NkVector<uint8> mContactNature;
+				NkVector<NkVec2f> mContactNormale;
+				NkVector<uint32> mContactRigide;
+				NkVector<uint32> mContactMou;
+				void NoterContact(uint32 i, uint8 nature, const NkVec2f &n, uint32 autre) noexcept;
+				void OuvrirContactsDuPas() noexcept;
+				/// Paires du pas en cours, du pas precedent, et ce qui en sort.
+				NkVector<NkEvenementP2D> mPairesPas;
+				NkVector<NkEvenementP2D> mPairesPrec;
+				NkVector<NkEvenementP2D> mDebuts;
+				NkVector<NkEvenementP2D> mFins;
+				void NoterPaire(uint32 corpsId, uint32 autre, NkGenreEvenementP2D genre) noexcept;
+				void FermerEvenementsDuPas() noexcept;
+				/// Les rigides DECLENCHEURS du pas (formes 0, 1, 2 comme Rigide).
+				NkVector<Rigide> mZones;
+				void DetecterZones() noexcept;
+				/// Rigide de chaque attache pour ce pas (index dans mRigides, -1 = absent).
+				NkVector<int32> mAttacheRigide;
+				void PreparerAttaches(NkPhysicsWorld *monde) noexcept;
+				void ResoudreAttaches(float32 h, float32 t, int32 sousPas) noexcept;
+				/// Pose d'un rigide au temps t du pas (voir ResoudreRigides).
+				void PoseRigide(const Rigide &r, float32 t, NkVec2f &pivot, float32 &dA) const noexcept;
+				/// Saisies par pointeur : une entree par pointeur, puis les particules
+				/// tenues, bout a bout (pointeur, particule, decalage).
+				struct Pointeur {
+						uint32 id = 0;
+						NkVec2f cible;
+				};
+				NkVector<Pointeur> mPointeurs;
+				NkVector<uint32> mPtrId;
+				NkVector<uint32> mPtrParticule;
+				NkVector<NkVec2f> mPtrDecalage;
+				void ResoudreSaisiesPointeurs() noexcept;
+				/// Suit les particules a travers une compaction (`remap` : ancien index
+				/// -> nouveau, NK_P2D_AUCUN = disparue).
+				void RemapperJeu(const NkVector<uint32> &remap) noexcept;
 
 				float32 Alea() noexcept; ///< [-1, 1), deterministe (xorshift32)
 		};
