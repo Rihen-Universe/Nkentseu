@@ -99,7 +99,17 @@ Deux repères pour ce jour-là, tirés de l'état de l'art :
 | `DataTable` (10) | **`.nkdata`** | table de données |
 | `Map` (11) / `World` (12) | **`.nkmap`** / **`.nkworld`** | niveau / monde |
 | `Script` (16) | **`.nkscript`** | script |
+| `Scene` (17) | **`.nkscene`** | une scène (entités, hiérarchie, état de la simulation) — ajouté le 2026-09-29 |
+| `SaveGame` (18) | **`.nksave`** | une sauvegarde de PARTIE — ajouté le 2026-09-29 |
 | `Custom` (255) | **`.nkasset`** | nature non standard |
+
+**`Scene` et `SaveGame` (2026-09-29).** `.nkscene` était déjà l'extension des scènes
+d'Unkeny (JSON « `unkeny.scene` »), sans type d'asset pour la dire : un navigateur
+ne pouvait ni l'icôner ni la filtrer par la table. Une **sauvegarde de partie** n'est
+pas une scène qu'on édite — on ne la dépose pas au même endroit, on ne l'ouvre pas
+dans le même outil — d'où sa propre extension (règle du § 1). Un `.nkscene` ou un
+`.nksave` écrit en JSON porte sa nature dans son champ `format`, comme un asset
+binaire la porte dans son en-tête : c'est lui la vérité.
 
 **`.nkasset` reste accepté EN LECTURE** (compatibilité avec l'existant), mais
 n'est **plus écrit** — sauf pour `Custom`, dont c'est justement la nature.
