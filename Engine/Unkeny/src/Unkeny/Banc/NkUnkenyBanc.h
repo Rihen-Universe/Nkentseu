@@ -20,5 +20,9 @@
 namespace nkentseu {
 	namespace unkeny {
 		int32 NkUnkenyLancerBanc();
+		/// La STRUCTURE de scene (hierarchie, identites, sauvegarde v2, prefabs,
+		/// 2026-09-29) : NkUnkenyBancStructure.cpp. NkUnkenyLancerBanc la lance
+		/// APRES ses propres temoins, et rend un echec si elle en a un.
+		int32 NkUnkenyLancerBancStructure();
 	} // namespace unkeny
 } // namespace nkentseu

@@ -763,7 +763,10 @@ namespace nkentseu {
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,
 						gEchecs, gEchecs > 1 ? "s" : "");
-			return gEchecs == 0 ? 0 : 1;
+			// La structure de scene (2026-09-29) a son propre compte : les temoins
+			// d'avant restent lisibles tels quels, a cote de ceux qui s'ajoutent.
+			const int32 structure = NkUnkenyLancerBancStructure();
+			return gEchecs == 0 && structure == 0 ? 0 : 1;
 		}
 
 	} // namespace unkeny
