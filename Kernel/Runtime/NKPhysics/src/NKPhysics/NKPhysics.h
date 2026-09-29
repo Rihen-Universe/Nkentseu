@@ -23,3 +23,5 @@
 #include "NKPhysics/NkMannequin.h" // corps skinne : capsules par os, point-dans-maillage (2026-09-05)
 #include "NKPhysics/NkBodySDF.h"  // champ de distance signe du corps skinne (2026-09-05, lot 2)
 #include "NKPhysics/NkGarment.h"   // vetements proceduraux sur squelette (2026-09-05)
+#include "NKPhysics/NkParticules2D.h"         // solveur unifie 2D : corps mous, fluides, couplage rigide (2026-09-29)
+#include "NKPhysics/NkParticules2DFabrique.h" // presets mesures et geometries

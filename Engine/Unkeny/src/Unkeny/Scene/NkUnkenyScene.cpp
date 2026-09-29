@@ -84,10 +84,37 @@ namespace nkentseu {
 				// chercher le defaut ailleurs pendant des heures.
 				logger.Info("[unkeny] scene SANS physique (NkSceneConfig::physique = false)");
 			}
+			if (mConfig.particules) {
+				if (mPhysique == nullptr) {
+					// Des particules sans monde rigide ne toucheraient AUCUN sol pose en
+					// corps statique : on cree le monde plutot que de rendre une scene
+					// ou tout tombe a travers le decor. Et on le dit.
+					logger.Warn("[unkeny] particules demandees SANS physique : le monde physique est cree quand meme");
+					mConfig.physique = true;
+					mPhysique = memory::NkGetDefaultAllocator().New<physics::NkPhysicsWorld>();
+					if (mPhysique == nullptr) {
+						return false;
+					}
+					mPhysique->SetGravity(math::NkVec3f(mConfig.gravite.x, mConfig.gravite.y, 0.f));
+				}
+				mParticules = memory::NkGetDefaultAllocator().New<physics::NkParticules2D>();
+				if (mParticules == nullptr) {
+					logger.Error("[unkeny] creation du monde de particules IMPOSSIBLE");
+					return false;
+				}
+				mParticules->reglages.gravite = mConfig.gravite;
+				// Le sol d'un jeu est un corps statique : pas de boite implicite.
+				mParticules->reglages.limites.actif = false;
+				logger.Info("[unkeny] scene avec particules (corps mous, fluides), couplees aux rigides");
+			}
 			return true;
 		}
 
 		void NkScene::Liberer() {
+			if (mParticules != nullptr) {
+				memory::NkGetDefaultAllocator().Delete(mParticules);
+				mParticules = nullptr;
+			}
 			if (mPhysique != nullptr) {
 				memory::NkGetDefaultAllocator().Delete(mPhysique);
 				mPhysique = nullptr;
@@ -133,6 +160,15 @@ namespace nkentseu {
 					}
 				}
 			}
+			// Meme regle pour un corps mou : sa matiere disparait avec lui.
+			if (mParticules != nullptr) {
+				if (const NkCorpsMou2D *m = mMonde.Get<NkCorpsMou2D>(id)) {
+					const int32 ci = mParticules->IndexCorps(m->corpsId);
+					if (ci >= 0) {
+						mParticules->SupprimerCorps(static_cast<uint32>(ci));
+					}
+				}
+			}
 			mMonde.Destroy(id);
 		}
 
@@ -163,6 +199,9 @@ namespace nkentseu {
 			def.linearDamping = corps.amortissementLineaire;
 			def.angularDamping = corps.amortissementAngulaire;
 			def.gravityScale = corps.echelleGravite;
+			def.material.dynamicFriction = corps.friction;
+			def.material.staticFriction = corps.friction * 1.2f;
+			def.material.restitution = corps.rebond;
 			def.layer = col->couche;
 			def.mask = col->masque;
 			if (corps.rotationBloquee) {
@@ -178,6 +217,16 @@ namespace nkentseu {
 				return false;
 			}
 
+			// La MASSE demandee. Le solveur la deduit de la densite et de l'aire
+			// (une caisse de 60 cm pesait 0,36 kg, et un filet d'eau la faisait
+			// voler) : on la pose, et l'inertie suit dans la meme proportion.
+			if (physics::NkRigidBody *b = mPhysique->GetBody(bid)) {
+				if (b->type == physics::NkBodyType::DYNAMIC && corps.masse > 0.f && b->invMass > 0.f) {
+					const float32 k = (1.f / b->invMass) / corps.masse; // ancienne / nouvelle
+					b->invMass = 1.f / corps.masse;
+					b->invInertiaDiag = b->invInertiaDiag * k;
+				}
+			}
 			NkCorps2D copie = corps;
 			copie.corpsId = bid;
 			// ⚠️ Add, PAS Set. `Set<T>` ecrit dans un composant EXISTANT ; sur
@@ -223,6 +272,14 @@ namespace nkentseu {
 			if (mPhysique != nullptr) {
 				if (const NkCorps2D *c = mMonde.Get<NkCorps2D>(id)) {
 					mPhysique->SetLinearVelocity(c->corpsId, math::NkVec3f(vitesse.x, vitesse.y, 0.f));
+					// ⚠️ ET LE REVEILLER. SetLinearVelocity ne touche pas au
+					// sommeil : une caisse endormie gardait la vitesse ecrite
+					// sans jamais l'integrer — saisie a la souris, elle ne
+					// bougeait pas.
+					if (physics::NkRigidBody *b = mPhysique->GetBody(c->corpsId)) {
+						b->flags &= ~static_cast<uint32>(physics::NK_BODY_SLEEPING);
+						b->sleepTimer = 0.f;
+					}
 					return;
 				}
 			}
@@ -256,6 +313,11 @@ namespace nkentseu {
 			if (mPhysique != nullptr && mConfig.pasFixe > 0.f) {
 				mAccumulateur += deltaTime;
 				while (mAccumulateur >= mConfig.pasFixe && mDernierNbPas < mConfig.pasMaxParTrame) {
+					// Les particules AVANT les rigides : leurs impulses sont integrees
+					// par le solveur rigide dans le meme pas (NkParticules2D.h).
+					if (mParticules != nullptr) {
+						mParticules->Pas(mConfig.pasFixe, mPhysique);
+					}
 					mPhysique->Step(mConfig.pasFixe);
 					mAccumulateur -= mConfig.pasFixe;
 					++mDernierNbPas;
@@ -268,6 +330,7 @@ namespace nkentseu {
 					mAccumulateur = 0.f;
 				}
 				SynchroniserDepuisPhysique();
+				SynchroniserCorpsMous();
 			}
 
 			AppliquerVitessesManuelles(deltaTime);
@@ -296,6 +359,189 @@ namespace nkentseu {
 					t.position.y += v.lineaire.y * dt;
 					t.rotation += v.angulaire * dt;
 				});
+		}
+
+		ecs::NkEntityId NkScene::CreerCorpsMou(const char *nom, int32 indexCorps, uint32 couleur) {
+			if (mParticules == nullptr || indexCorps < 0 || indexCorps >= static_cast<int32>(mParticules->corps.Size())) {
+				logger.Warn("[unkeny] CreerCorpsMou refuse : {0}",
+							mParticules == nullptr ? "la scene n'a pas de particules" : "index de corps invalide");
+				return ecs::NkEntityId::Invalid();
+			}
+			const math::NkVec2f centre = mParticules->CentreCorps(static_cast<uint32>(indexCorps));
+			const ecs::NkEntityId id = Creer(nom, centre);
+			physics::NkCorpsP2D &c = mParticules->corps[static_cast<uint32>(indexCorps)];
+			NkCorpsMou2D m;
+			m.corpsId = c.id;
+			m.couleur = couleur;
+			mMonde.Add<NkCorpsMou2D>(id, m);
+			c.utilisateur = id.Pack();
+			return id;
+		}
+
+		ecs::NkEntityId NkScene::EntiteDuCorpsMou(uint32 corpsId) const noexcept {
+			if (mParticules == nullptr) {
+				return ecs::NkEntityId::Invalid();
+			}
+			const int32 ci = mParticules->IndexCorps(corpsId);
+			if (ci < 0) {
+				return ecs::NkEntityId::Invalid();
+			}
+			return ecs::NkEntityId::Unpack(mParticules->corps[static_cast<uint32>(ci)].utilisateur);
+		}
+
+		void NkScene::SynchroniserCorpsMous() {
+			if (mParticules == nullptr) {
+				return;
+			}
+			physics::NkParticules2D *p = mParticules;
+			NkVector<ecs::NkEntityId> orphelines;
+			mMonde.Query<NkTransform2D, NkCorpsMou2D>().ForEach(
+				[p, &orphelines](ecs::NkEntityId id, NkTransform2D &t, NkCorpsMou2D &m) {
+					const int32 ci = p->IndexCorps(m.corpsId);
+					if (ci < 0) {
+						orphelines.PushBack(id); // plus de matiere : l'entite n'a plus d'objet
+						return;
+					}
+					t.position = p->CentreCorps(static_cast<uint32>(ci));
+				});
+			// Hors de l'iteration : detruire PENDANT un Query invalide les iterateurs.
+			for (uint32 i = 0; i < orphelines.Size(); ++i) {
+				mMonde.Destroy(orphelines[i]);
+			}
+		}
+
+		void NkScene::Entites(NkVector<ecs::NkEntityId> &out) {
+			out.Clear();
+			mMonde.Query<NkTransform2D>().ForEach([&out](ecs::NkEntityId id, NkTransform2D &) { out.PushBack(id); });
+		}
+
+		void NkScene::Photographier(NkPhoto &photo) {
+			photo.entites.Clear();
+			NkVector<ecs::NkEntityId> ids;
+			Entites(ids);
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				const ecs::NkEntityId id = ids[i];
+				NkPhotoEntite e;
+				e.transform = *mMonde.Get<NkTransform2D>(id);
+				if (const NkEtiquette *x = mMonde.Get<NkEtiquette>(id)) {
+					e.etiquette = *x;
+					e.aEtiquette = true;
+				}
+				if (const NkSprite2D *x = mMonde.Get<NkSprite2D>(id)) {
+					e.sprite = *x;
+					e.aSprite = true;
+				}
+				if (const NkCollisionneur2D *x = mMonde.Get<NkCollisionneur2D>(id)) {
+					e.collisionneur = *x;
+					e.aCollisionneur = true;
+				}
+				if (const NkCorps2D *x = mMonde.Get<NkCorps2D>(id)) {
+					e.corps = *x;
+					e.aCorps = true;
+					if (mPhysique != nullptr) {
+						if (const physics::NkRigidBody *b = mPhysique->GetBody(x->corpsId)) {
+							e.etatRigide = *b;
+						}
+					}
+				}
+				if (const NkCorpsMou2D *x = mMonde.Get<NkCorpsMou2D>(id)) {
+					e.mou = *x;
+					e.aMou = true;
+				}
+				// Les composants du jeu declares par PhotographierAussi.
+				uint32 total = 0;
+				for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
+					total += mCopieurs[k].taille;
+				}
+				if (total > 0u) {
+					e.extra.Resize(total);
+					uint32 decalage = 0;
+					for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
+						if (mCopieurs[k].lire(mMonde, id, e.extra.Data() + decalage)) {
+							e.extraPresents |= 1u << k;
+						}
+						decalage += mCopieurs[k].taille;
+					}
+				}
+				photo.entites.PushBack(e);
+			}
+			if (mParticules != nullptr) {
+				photo.particules = *mParticules;
+			}
+			photo.valide = true;
+		}
+
+		void NkScene::Restaurer(const NkPhoto &photo) {
+			if (!photo.valide) {
+				return;
+			}
+			// 1. Tout detruire. Les corps mous ne sont PAS supprimes un par un : le
+			//    monde de particules est remplace en bloc juste apres.
+			NkVector<ecs::NkEntityId> ids;
+			Entites(ids);
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				if (mPhysique != nullptr) {
+					if (NkCorps2D *c = mMonde.Get<NkCorps2D>(ids[i])) {
+						mPhysique->DestroyBody(c->corpsId);
+					}
+				}
+				mMonde.Destroy(ids[i]);
+			}
+			if (mParticules != nullptr) {
+				*mParticules = photo.particules;
+			}
+			// 2. Tout refaire.
+			for (uint32 i = 0; i < photo.entites.Size(); ++i) {
+				const NkPhotoEntite &e = photo.entites[i];
+				const ecs::NkEntityId id = mMonde.CreateEntity();
+				mMonde.Add<NkTransform2D>(id, e.transform);
+				if (e.aEtiquette) {
+					mMonde.Add<NkEtiquette>(id, e.etiquette);
+				}
+				{
+					uint32 decalage = 0;
+					for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
+						// Un copieur declare APRES la photo ne trouve rien a rendre :
+						// on s'arrete au bout de ce qui a ete ecrit.
+						if (decalage + mCopieurs[k].taille > e.extra.Size()) {
+							break;
+						}
+						if ((e.extraPresents & (1u << k)) != 0u) {
+							mCopieurs[k].ecrire(mMonde, id, e.extra.Data() + decalage);
+						}
+						decalage += mCopieurs[k].taille;
+					}
+				}
+				if (e.aSprite) {
+					mMonde.Add<NkSprite2D>(id, e.sprite);
+				}
+				if (e.aCollisionneur) {
+					mMonde.Add<NkCollisionneur2D>(id, e.collisionneur);
+				}
+				if (e.aCorps && e.aCollisionneur && mPhysique != nullptr) {
+					NkCorps2D c = e.corps;
+					c.corpsId = 0;
+					if (AjouterCorps(id, c)) {
+						const NkCorps2D *nc = mMonde.Get<NkCorps2D>(id);
+						if (physics::NkRigidBody *b = mPhysique->GetBody(nc->corpsId)) {
+							// L'ETAT, pas l'identite : id et collisionId sont neufs.
+							b->position = e.etatRigide.position;
+							b->orientation = e.etatRigide.orientation;
+							b->linearVelocity = e.etatRigide.linearVelocity;
+							b->angularVelocity = e.etatRigide.angularVelocity;
+							b->sleepTimer = 0.f;
+						}
+					}
+				}
+				if (e.aMou && mParticules != nullptr) {
+					mMonde.Add<NkCorpsMou2D>(id, e.mou);
+					const int32 ci = mParticules->IndexCorps(e.mou.corpsId);
+					if (ci >= 0) {
+						mParticules->corps[static_cast<uint32>(ci)].utilisateur = id.Pack();
+					}
+				}
+			}
+			mAccumulateur = 0.f;
 		}
 
 	} // namespace unkeny

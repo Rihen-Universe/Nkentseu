@@ -1980,8 +1980,9 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NkLudo/NkLudo.jenga"):
         pass
 
-    # Physic2D : editeur de simulation physique 2D facon UE5, sur la coquille
-    # NkCanvasApp et le dessin NKGui (corps mous, blobs, fluides, cristaux).
+    # Physic2D : la demo de simulation 2D d'Unkeny (corps mous, blobs,
+    # fluides, cristaux, rigides couples). Le solveur est NKPhysics, la scene
+    # Unkeny ; l'editeur facon UE5 est UnkenyEditor, juste en dessous.
     with include("Applications/Physic2D/Physic2D.jenga"):
         pass
 

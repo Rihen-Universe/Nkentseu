@@ -110,10 +110,29 @@ namespace nkentseu {
 				float32 amortissementAngulaire = 0.05f;
 				float32 echelleGravite = 1.f;
 				bool rotationBloquee = false; ///< un personnage de plateforme ne bascule pas
+				/// Materiau de contact (2026-09-29). Avant, AjouterCorps ne les
+				/// transmettait PAS : tout corps frottait a 0,4 et ne rebondissait
+				/// jamais, quoi que demande le jeu.
+				float32 friction = 0.5f;
+				float32 rebond = 0.f;
 
 				/// Rempli par la scene a la creation. 0 = pas encore enregistre.
 				/// ⚠️ Ne pas l'ecrire a la main : c'est le lien vers le solveur.
 				uint32 corpsId = 0;
+		};
+
+		/// Un CORPS MOU, un FLUIDE, du sable, un cristal, un tissu, une corde : tout
+		/// ce que simule `physics::NkParticules2D` (2026-09-29).
+		///
+		/// ⚠️ MEME REGLE QUE NkCorps2D : il ne stocke PAS la matiere. Ses
+		/// particules, ses liens et ses parametres appartiennent au monde de
+		/// particules, une seule fois ; le composant n'en tient que l'IDENTIFIANT
+		/// stable (`NkCorpsP2D::id`). La scene recopie le centre du corps dans
+		/// NkTransform2D apres chaque pas -- sens unique, comme pour les rigides.
+		struct NkCorpsMou2D {
+				uint32 corpsId = 0; ///< 0 = pas encore enregistre
+				uint32 couleur = 0xFFFFFFFFu; ///< RGBA, pour le rendu
+				bool visible = true;
 		};
 
 		/// Un nom lisible. Sert a l'editeur, aux journaux et au debogage — pas au

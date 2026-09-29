@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Physic2D.jenga — Editeur de simulation physique 2D facon UE5 (corps mous, blobs visqueux,
-                 fluides, sable, cristaux atomiques, tissus, cordes), sur NKCanvas + NKGui.
+Physic2D.jenga — Demo de simulation physique 2D d'UNKENY (corps mous, blobs visqueux,
+                 fluides, sable, cristaux atomiques, tissus, cordes, corps rigides couples).
+                 Le solveur est dans NKPhysics (NkParticules2D), la scene dans Unkeny.
 ==========================================================================
 Plateformes couvertes :
   PC     : Windows (Win32), Linux (XLib), macOS (Cocoa)
@@ -54,7 +55,7 @@ with project("Physic2D"):
     files(["src/**.cpp"])
 
     # AUCUN dossier assets : Physic2D ne charge aucun fichier a l'execution.
-    # Le plateau et les pieces sont dessines par geometrie, et la police est
+    # La scene et l'interface sont dessinees par geometrie, et la police est
     # EMBARQUEE (NkFontEmbedded). C'est ce qui lui permet de demarrer a
     # l'identique sur les six plateformes sans chaine de copie d'assets.
     # Le jour ou des sons ou des niveaux arrivent : creer Applications/Physic2D/assets,
@@ -63,7 +64,11 @@ with project("Physic2D"):
     nkentseudependson(
         ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio"],
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
+         # La simulation : Unkeny compose NKECS (entites), NKCollision et
+         # NKPhysics (rigides + NkParticules2D). Declares EXPLICITEMENT, comme
+         # dans UnkenyEditor : l'ordre de liaison ne se devine pas.
+         "NKECS", "NKCollision", "NKPhysics", "Unkeny"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous

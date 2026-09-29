@@ -23,6 +23,7 @@ int RunClothTests(int &pass, int &fail); // test_cloth.cpp
 int RunEauTests(int &pass, int &fail);   // test_eau.cpp (2026-09-06, §6.6)
 int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur mannequin, 2026-09-05)
 int RunCouplageTests(int &pass, int &fail); // test_eau_couplage.cpp (2026-09-14, les corps et l eau s influencent)
+int RunParticules2DTests(int &pass, int &fail); // test_particules2d.cpp (2026-09-29, corps mous et fluides 2D)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
@@ -674,6 +675,7 @@ int main() {
 	// LES CORPS ET L EAU S INFLUENCENT (2026-09-14) : flottabilite (moitie A) et
 	// perturbation de la surface par les corps (moitie B) -- test_eau_couplage.cpp.
 	RunCouplageTests(g_pass, g_fail);
+	RunParticules2DTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

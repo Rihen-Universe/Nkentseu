@@ -1,22 +1,23 @@
 // =============================================================================
 // Physic2D — point d'entree, et RIEN D'AUTRE
 //
-// Tout ce qui a une nature differente a son fichier :
+// La demo de simulation 2D d'Unkeny. Ce qu'elle simule vit plus bas :
 //
-//   Physic2D/Physique/NkPhysMath.h          vecteur 2D, hasard deterministe
-//   Physic2D/Physique/NkPhysMonde.{h,cpp}   le moteur (sans dessin ni fenetre)
-//   Physic2D/Physique/NkPhysFabrique.{h,cpp} les acteurs et les niveaux
-//   Physic2D/Physique/NkPhysBanc.{h,cpp}    le banc : --selftest
-//   Physic2D/Editeur/NkUE5Theme.h           les couleurs — la seule source
-//   Physic2D/Editeur/NkUE5Ui.{h,cpp}        widgets et icones facon UE5 (sur NKGui)
-//   Physic2D/Editeur/NkPhysRendu.{h,cpp}    le dessin du monde dans la vue
-//   Physic2D/Editeur/Physic2D.{h,cpp}       l'application : etats, entrees, outils
-//   Physic2D/Editeur/Physic2DPanneaux.cpp   les panneaux de l'editeur
+//   NKPhysics/NkParticules2D          corps mous, blobs, fluides, atomes (XPBD)
+//   NKPhysics/NkPhysicsWorld          corps rigides, couples aux particules
+//   Unkeny/Scene/NkUnkenyScene        les entites NKECS qui portent les deux
+//   Unkeny/Rendu/*                    le dessin des corps mous, de la grille
 //
-// Lancer :   Physic2D                 l'editeur
+// Ce qui est propre a la demo :
+//
+//   Physic2D/Physic2D.{h,cpp}         etats (edition / jeu / pause), entrees, outils
+//   Physic2D/Physic2DEcran.cpp        mise en page et dessin
+//   Physic2D/Physic2DActeurs.{h,cpp}  les acteurs et les niveaux
+//   Physic2D/Physic2DBanc.{h,cpp}     le banc de l'integration : --selftest
+//
+// Lancer :   Physic2D                 la demo
 //            Physic2D --niveau=1      directement sur "Bac a slime"
-//            Physic2D --selftest      le banc du moteur, sans fenetre
-//            Physic2D --capture=a.png une image de la trame 30, puis sortie
+//            Physic2D --selftest      le banc, sans fenetre (code de sortie = verdict)
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -36,7 +37,7 @@
 #include "NKMath/NkColor.h"
 #include "NKTime/NkTime.h"
 
-#include "Physic2D/Editeur/Physic2D.h"
+#include "Physic2D/Physic2D.h"
 
 NKENTSEU_DEFINE_APP_DATA(([]() {
 	nkentseu::NkAppData d{};
