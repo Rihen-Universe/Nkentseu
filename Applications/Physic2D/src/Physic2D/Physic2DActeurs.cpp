@@ -280,7 +280,7 @@ namespace nkentseu {
 		void NkChargerNiveau(NkScene &s, int32 i) {
 			// Le marqueur de decor doit survivre a Jouer / Arreter : sans lui,
 			// le sol restaure devient effacable a la gomme.
-			s.PhotographierAussi<NkDecor2D>();
+			s.PhotographierAussi<NkDecor2D>("physic2d.NkDecor2D");
 			NkVector<ecs::NkEntityId> ids;
 			s.Entites(ids);
 			for (uint32 k = 0; k < ids.Size(); ++k) {

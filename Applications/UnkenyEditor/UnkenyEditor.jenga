@@ -75,7 +75,7 @@ with project("UnkenyEditor"):
         ["NKEditorKit", "NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
-         "NKECS", "NKCollision", "NKPhysics", "Unkeny"],
+         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous

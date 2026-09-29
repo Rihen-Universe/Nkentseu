@@ -70,8 +70,8 @@ namespace nkentseu {
 			mConfig = config;
 			// Les composants d'Unkeny que NkPhotoEntite ne nomme pas passent par
 			// le meme chemin que ceux d'un jeu.
-			PhotographierAussi<NkAnimSprite2D>();
-			PhotographierAussi<NkVitesse2D>();
+			PhotographierAussi<NkAnimSprite2D>("NkAnimSprite2D");
+			PhotographierAussi<NkVitesse2D>("NkVitesse2D");
 
 			if (mConfig.physique) {
 				// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur
@@ -116,6 +116,16 @@ namespace nkentseu {
 		}
 
 		void NkScene::Liberer() {
+			// Les ENTITES aussi : leurs NkCorps2D designent des corps du monde
+			// physique qu'on va detruire. Un Init() sur une scene deja remplie
+			// laissait des entites dont le corpsId pointait dans le vide.
+			{
+				NkVector<ecs::NkEntityId> ids;
+				Entites(ids);
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					mMonde.Destroy(ids[i]);
+				}
+			}
 			if (mParticules != nullptr) {
 				memory::NkGetDefaultAllocator().Delete(mParticules);
 				mParticules = nullptr;

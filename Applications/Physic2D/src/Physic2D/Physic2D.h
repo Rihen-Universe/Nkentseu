@@ -86,7 +86,9 @@ namespace nkentseu {
 				CMD_VUE,
 				CMD_GRILLE,
 				CMD_CADRER,
-				CMD_PANNEAU
+				CMD_PANNEAU,
+				CMD_SAUVER,
+				CMD_OUVRIR
 			};
 			struct NkCible {
 					NkRect r;
@@ -120,6 +122,11 @@ namespace nkentseu {
 			void Commande(int32 cmd);
 			void Regler(int32 reglage, bool plus);
 			void AnnulerGeste();
+			void AlignerGravite();
+			void Sauver();
+			void Ouvrir();
+			void Annoncer(const char *texte, bool erreur);
+			const char *CheminSauvegarde();
 
 			// --- Outils -----------------------------------------------------
 			void GesteDebut(const NkVec2f &ecran);
@@ -195,6 +202,12 @@ namespace nkentseu {
 			};
 			NkEclair mEclairs[4];
 			uint32 mSelection = 0; ///< id STABLE du corps de particules selectionne (0 = aucun)
+
+			// Le bandeau d'annonce (enregistre, ouvert, erreur), en bas de la vue.
+			NkString mAnnonce;
+			float32 mAnnonceAge = 99.f;
+			bool mAnnonceErreur = false;
+			NkString mChemin;
 
 			// Mesures.
 			float32 mMsParPas = 0.f;

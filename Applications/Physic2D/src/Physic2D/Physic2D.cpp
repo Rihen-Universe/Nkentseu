@@ -19,6 +19,8 @@
 #include "NKPhysics/NkParticules2DFabrique.h"
 
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkPath.h"
 
 #include <chrono>
 #include <cstdio>
@@ -184,16 +186,66 @@ namespace nkentseu {
 		AnnulerGeste();
 		if (mPhoto.valide) {
 			mScene.Restaurer(mPhoto);
-			// La photo rend les reglages des particules, pas ceux du monde
-			// rigide : on realigne la gravite, qui doit rester UNE.
-			if (mScene.MondePhysique() != nullptr && mScene.Particules() != nullptr) {
-				const NkVec2f g = mScene.Particules()->reglages.gravite;
-				mScene.MondePhysique()->SetGravity(math::NkVec3f(g.x, g.y, 0.f));
-			}
+			AlignerGravite();
 		}
 		mPhoto.valide = false;
 		mSelection = 0;
 		mEtat = NkEtat::NK_EDITION;
+	}
+
+	void Physic2D::AlignerGravite() {
+		// La photo et le fichier rendent les reglages des PARTICULES, pas ceux du
+		// monde rigide : on realigne la gravite, qui doit rester UNE.
+		if (mScene.MondePhysique() != nullptr && mScene.Particules() != nullptr) {
+			const NkVec2f g = mScene.Particules()->reglages.gravite;
+			mScene.MondePhysique()->SetGravity(math::NkVec3f(g.x, g.y, 0.f));
+		}
+	}
+
+	const char *Physic2D::CheminSauvegarde() {
+		if (mChemin.Empty()) {
+			// Le dossier de l'application (%APPDATA% sous Windows, ~/.config
+			// ailleurs). S'il n'existe pas (plateforme sans HOME), le dossier
+			// courant.
+			const NkPath base = NkDirectory::GetAppDataDirectory();
+			if (!base.ToString().Empty()) {
+				const NkPath dossier = base / "Physic2D";
+				NkDirectory::CreateRecursive(dossier);
+				mChemin = (dossier / "sauvegarde.nkscene").ToString();
+			} else {
+				mChemin = "physic2d.nkscene";
+			}
+		}
+		return mChemin.CStr();
+	}
+
+	void Physic2D::Annoncer(const char *texte, bool erreur) {
+		mAnnonce = texte;
+		mAnnonceAge = 0.f;
+		mAnnonceErreur = erreur;
+	}
+
+	void Physic2D::Sauver() {
+		AnnulerGeste();
+		if (NkSauverSceneFichier(mScene, CheminSauvegarde(), &mTextures)) {
+			Annoncer("Scène enregistrée", false);
+		} else {
+			Annoncer("Enregistrement impossible", true);
+		}
+	}
+
+	void Physic2D::Ouvrir() {
+		AnnulerGeste();
+		NkString erreur;
+		if (NkChargerSceneFichier(mScene, CheminSauvegarde(), &mTextures, &erreur)) {
+			AlignerGravite();
+			mPhoto.valide = false;
+			mSelection = 0;
+			mEtat = NkEtat::NK_PAUSE; // on retrouve la scene figee : a l'utilisateur de relancer
+			Annoncer("Scène ouverte — en pause", false);
+		} else {
+			Annoncer(erreur.Empty() ? "Aucune sauvegarde" : erreur.CStr(), true);
+		}
 	}
 
 	void Physic2D::UnPas() {
@@ -232,6 +284,12 @@ namespace nkentseu {
 			case CMD_CADRER:
 				mCameraTouchee = false;
 				Cadrer();
+				break;
+			case CMD_SAUVER:
+				Sauver();
+				break;
+			case CMD_OUVRIR:
+				Ouvrir();
 				break;
 			case CMD_PANNEAU:
 				mDetailsOuvert = !mDetailsOuvert;
@@ -302,6 +360,7 @@ namespace nkentseu {
 
 		// Ce qui s'efface avec le temps.
 		mTraceAge += h;
+		mAnnonceAge += h;
 		if (!mGeste && mTraceAge > 0.35f) {
 			mTraceN = 0;
 		}
@@ -507,6 +566,12 @@ namespace nkentseu {
 				return true;
 			case NkKey::NK_R:
 				Charger(mNiveau);
+				return true;
+			case NkKey::NK_S:
+				Sauver();
+				return true;
+			case NkKey::NK_O:
+				Ouvrir();
 				return true;
 			default:
 				break;

@@ -39,7 +39,10 @@ with project("Unkeny"):
         ["NKPlatform", "NKCore", "NKMemory", "NKContainers", "NKMath",
          "NKLogger", "NKTime", "NKStream", "NKFileSystem", "NKEvent",
          "NKWindow", "NKCanvas", "NKFont", "NKImage", "NKGui",
-         "NKECS", "NKCollision", "NKPhysics"],
+         "NKECS", "NKCollision", "NKPhysics",
+         # Sauvegarde des scenes (.nkscene, JSON) : NkArchive + NkJSONWriter.
+         # NKReflection vient avec NKSerialization, qui en depend.
+         "NKReflection", "NKSerialization"],
         selfexport="Unkeny",
         extra_includes=["src"],
     )

@@ -18,12 +18,25 @@
 //         l'evenement ne dure qu'UNE trame
 //   (t8)  la photo de la scene garde l'animation (temps, clip)
 //   (t9)  Reteleverser renvoie tout ; garderPixels = false libere les pixels
+//   (s1)  une scene (sol, caisse en vol, blob, sprite texture et anime, un
+//         composant du jeu nomme) ecrite en JSON puis relue dans une AUTRE
+//         scene rend : les memes entites, l'etat de la caisse, chaque particule
+//         et chaque lien, la texture retrouvee PAR SON NOM, l'animation, le
+//         composant du jeu ; (s1n) un composant jamais declare n'y est pas
+//   (s2)  les deux scenes, avancees d'1 s, restent ensemble (centre du blob a
+//         moins d'1 cm, caisse a moins d'1 mm) : c'est la MEME simulation
+//   (s3)  un fichier qui n'est pas une scene, une version future, un tableau
+//         de particules tronque : refuses, et la scene cible est INTACTE
+//   (s4)  aller-retour par un vrai fichier sur disque
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 
+#include "NKFileSystem/NkFile.h"
+#include "NKPhysics/NkParticules2DFabrique.h"
+#include "Unkeny/Scene/NkUnkenySauvegarde.h"
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
@@ -45,6 +58,15 @@ namespace nkentseu {
 				std::printf("  [%s] %-66s %10.4f\n", ok ? " OK " : "ECHEC", quoi, static_cast<double>(valeur));
 				(ok ? gReussis : gEchecs)++;
 			}
+
+			// Deux composants "du jeu" pour la sauvegarde.
+			struct NkBancMarque {
+					uint32 code = 0;
+					float32 valeur = 0.f;
+			};
+			struct NkBancSecret {
+					uint32 x = 0;
+			};
 
 			// Un faux rendu : il garde la derniere image recue.
 			struct Recepteur {
@@ -314,6 +336,160 @@ namespace nkentseu {
 				leger.Brancher(&Recevoir, &r);
 				const uint32 id = leger.Creer(quatre, 2, 2, "c");
 				Temoin(leger.Pixels(id) == nullptr && leger.EnAttente() == 0u, "(t9) garderPixels = false : pixels liberes apres envoi", 0.f);
+			}
+
+			// (s1) .. (s4) sauvegarde
+			{
+				auto Remplir = [&](NkScene &s, NkTextures2D &tex) {
+					NkSceneConfig cfg;
+					cfg.physique = true;
+					cfg.particules = true;
+					s.Init(cfg);
+					s.PhotographierAussi<NkBancMarque>("banc.NkBancMarque");
+					s.PhotographierAussi<NkBancSecret>(); // SANS nom : memoire seulement
+					const ecs::NkEntityId sol = s.Creer("Sol", NkVec2f(0.f, -0.5f));
+					NkCollisionneur2D cs;
+					cs.demiTaille = NkVec2f(20.f, 0.5f);
+					s.Monde().Add<NkCollisionneur2D>(sol, cs);
+					NkCorps2D ks;
+					ks.type = NkTypeCorps::NK_STATIQUE;
+					s.AjouterCorps(sol, ks);
+					const ecs::NkEntityId caisse = s.Creer("Caisse", NkVec2f(-2.f, 3.f));
+					NkCollisionneur2D cc;
+					cc.demiTaille = NkVec2f(0.3f, 0.3f);
+					s.Monde().Add<NkCollisionneur2D>(caisse, cc);
+					NkCorps2D kc;
+					kc.masse = 12.f;
+					kc.friction = 0.7f;
+					s.AjouterCorps(caisse, kc);
+					s.PoserVitesse(caisse, NkVec2f(1.5f, 2.f));
+					NkSprite2D sp = tex.Sprite(tex.Trouver("quatre"), 1.f);
+					s.Monde().Add<NkSprite2D>(caisse, sp);
+					NkAnimSprite2D an;
+					an.nbClips = 1;
+					an.clips[0].nombre = 4;
+					an.colonnes = 4;
+					an.temps = 0.3f;
+					s.Monde().Add<NkAnimSprite2D>(caisse, an);
+					s.Monde().Add<NkBancMarque>(caisse, NkBancMarque{42u, 2.5f});
+					s.Monde().Add<NkBancSecret>(caisse, NkBancSecret{7u});
+					const int32 ci = physics::NkCreerBlobP2D(*s.Particules(), NkVec2f(1.f, 1.2f), 0.4f, physics::NkPresetP2D::NK_BLOB);
+					s.CreerCorpsMou("Blob", ci, 0x7CE64CFFu);
+					s.Particules()->reglages.limites.actif = false;
+					for (int32 k = 0; k < 20; ++k) {
+						s.Pas(1.f / 60.f); // un etat EN MOUVEMENT, pas celui de la creation
+					}
+				};
+				auto Caisse = [](NkScene &s) {
+					ecs::NkEntityId trouve = ecs::NkEntityId::Invalid();
+					s.Monde().Query<NkCorps2D>().ForEach([&](ecs::NkEntityId id, NkCorps2D &k) {
+						if (k.type == NkTypeCorps::NK_DYNAMIQUE) {
+							trouve = id;
+						}
+					});
+					return trouve;
+				};
+				auto Blob = [](NkScene &s) {
+					const physics::NkParticules2D *p = s.Particules();
+					return p != nullptr && p->corps.Size() > 0 ? p->CentreCorps(0) : NkVec2f(-99.f, -99.f);
+				};
+
+				NkTextures2D tex;
+				tex.Creer(quatre, 2, 2, "quatre");
+				NkScene a;
+				Remplir(a, tex);
+				NkString json;
+				const bool ecrit = NkSauverSceneJSON(a, json, &tex);
+
+				NkScene b;
+				b.PhotographierAussi<NkBancMarque>("banc.NkBancMarque");
+				b.PhotographierAussi<NkBancSecret>();
+				NkString err;
+				const bool lu = ecrit && NkChargerSceneJSON(b, json.View(), &tex, &err);
+				if (!lu) {
+					std::printf("    erreur : %s\n", err.CStr());
+				}
+				NkVector<ecs::NkEntityId> ea, eb;
+				a.Entites(ea);
+				b.Entites(eb);
+				const physics::NkParticules2D &pa = *a.Particules();
+				const physics::NkParticules2D *pb = b.Particules();
+				float32 ecart = 0.f;
+				bool memes = pb != nullptr && pb->particules.Size() == pa.particules.Size() && pb->liens.Size() == pa.liens.Size() &&
+							 pb->corps.Size() == pa.corps.Size();
+				for (uint32 i = 0; memes && i < pa.particules.Size(); ++i) {
+					const NkVec2f d = pa.particules[i].pos - pb->particules[i].pos;
+					const NkVec2f dv = pa.particules[i].vit - pb->particules[i].vit;
+					ecart = math::NkMax(ecart, math::NkMax(math::NkAbs(d.x) + math::NkAbs(d.y), math::NkAbs(dv.x) + math::NkAbs(dv.y)));
+					memes = memes && pa.particules[i].nbVoisins == pb->particules[i].nbVoisins;
+				}
+				for (uint32 i = 0; memes && i < pa.liens.Size(); ++i) {
+					memes = pa.liens[i].a == pb->liens[i].a && pa.liens[i].b == pb->liens[i].b && pa.liens[i].repos == pb->liens[i].repos;
+				}
+				Temoin(lu && ea.Size() == eb.Size() && memes && ecart < 1.0e-6f,
+					   "(s1) memes entites, chaque particule et chaque lien (ecart max m, m/s)", ecart);
+				const ecs::NkEntityId ca = Caisse(a), cb = Caisse(b);
+				const physics::NkRigidBody *ra = a.MondePhysique()->GetBody(a.Monde().Get<NkCorps2D>(ca)->corpsId);
+				const physics::NkRigidBody *rb = lu && cb.IsValid() ? b.MondePhysique()->GetBody(b.Monde().Get<NkCorps2D>(cb)->corpsId) : nullptr;
+				Temoin(rb != nullptr && ra->position.x == rb->position.x && ra->position.y == rb->position.y &&
+						   ra->linearVelocity.y == rb->linearVelocity.y && rb->invMass > 0.08f && rb->invMass < 0.0834f,
+					   "(s1) caisse : position, vitesse et masse (12 kg) a l'identique", rb != nullptr ? rb->linearVelocity.y : -1.f);
+				const NkSprite2D *sb = lu && cb.IsValid() ? b.Monde().Get<NkSprite2D>(cb) : nullptr;
+				const NkAnimSprite2D *ab = lu && cb.IsValid() ? b.Monde().Get<NkAnimSprite2D>(cb) : nullptr;
+				Temoin(sb != nullptr && sb->texId == tex.Trouver("quatre") && ab != nullptr && ab->clips[0].nombre == 4,
+					   "(s1) texture retrouvee par son nom, animation relue", sb != nullptr ? static_cast<float32>(sb->texId - NkTextures2D::kPremierId) : -1.f);
+				const NkBancMarque *mb = lu && cb.IsValid() ? b.Monde().Get<NkBancMarque>(cb) : nullptr;
+				Temoin(mb != nullptr && mb->code == 42u && mb->valeur == 2.5f, "(s1) le composant du jeu NOMME est relu", mb != nullptr ? mb->valeur : -1.f);
+				Temoin(lu && cb.IsValid() && !b.Monde().Has<NkBancSecret>(cb), "(s1n) le composant SANS nom n'est pas dans le fichier", 0.f);
+
+				// (s2) la meme simulation
+				for (int32 k = 0; k < 60; ++k) {
+					a.Pas(1.f / 60.f);
+					b.Pas(1.f / 60.f);
+				}
+				const NkVec2f da = Blob(a) - Blob(b);
+				const float32 dBlob = math::NkSqrt(da.x * da.x + da.y * da.y);
+				const NkTransform2D *ta = a.Monde().Get<NkTransform2D>(ca);
+				const NkTransform2D *tb = lu && cb.IsValid() ? b.Monde().Get<NkTransform2D>(cb) : nullptr;
+				const float32 dCaisse = tb != nullptr ? math::NkAbs(ta->position.x - tb->position.x) + math::NkAbs(ta->position.y - tb->position.y) : 99.f;
+				Temoin(dBlob < 0.01f && dCaisse < 0.001f, "(s2) apres 1 s : meme simulation (ecart du centre du blob m)", dBlob);
+
+				// (s3) refus, scene intacte
+				NkScene c;
+				Remplir(c, tex);
+				NkVector<ecs::NkEntityId> avant;
+				c.Entites(avant);
+				const uint32 n0 = static_cast<uint32>(c.Particules()->particules.Size());
+				NkString faux = json;
+				bool refus1 = !NkChargerSceneJSON(c, "{\"format\": \"autre.chose\"}", &tex, &err);
+				bool refus2 = !NkChargerSceneJSON(c, "{\"format\": \"unkeny.scene\", \"version\": 999}", &tex, &err);
+				// Tronquer le tableau des positions : il manque des nombres.
+				const char *cle = "\"pos\": \"";
+				const char *debut = std::strstr(faux.CStr(), cle);
+				bool refus3 = false;
+				if (debut != nullptr) {
+					const usize at = static_cast<usize>(debut - faux.CStr()) + std::strlen(cle);
+					NkString tronque(faux.CStr(), at);
+					tronque.Append("1 2 3\"");
+					const char *fin = std::strchr(faux.CStr() + at, '"');
+					tronque.Append(fin + 1);
+					refus3 = !NkChargerSceneJSON(c, tronque.View(), &tex, &err);
+				}
+				NkVector<ecs::NkEntityId> apres;
+				c.Entites(apres);
+				Temoin(refus1 && refus2 && refus3 && apres.Size() == avant.Size() && c.Particules()->particules.Size() == n0,
+					   "(s3) format, version, tableau tronque : refuses, scene intacte", static_cast<float32>(refus1 + refus2 + refus3));
+
+				// (s4) fichier
+				const char *chemin = "unkeny_banc_scene.nkscene";
+				NkScene d;
+				const bool fichier = NkSauverSceneFichier(a, chemin, &tex) && NkChargerSceneFichier(d, chemin, &tex, &err);
+				NkVector<ecs::NkEntityId> ed;
+				d.Entites(ed);
+				const NkString contenu = NkFile::ReadAllText(chemin);
+				std::remove(chemin);
+				Temoin(fichier && ed.Size() == ea.Size() && d.Particules()->particules.Size() == pa.particules.Size(),
+					   "(s4) aller-retour par un fichier (taille en ko)", static_cast<float32>(contenu.Length()) / 1024.f);
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,

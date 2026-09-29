@@ -68,7 +68,7 @@ with project("Physic2D"):
          # La simulation : Unkeny compose NKECS (entites), NKCollision et
          # NKPhysics (rigides + NkParticules2D). Declares EXPLICITEMENT, comme
          # dans UnkenyEditor : l'ordre de liaison ne se devine pas.
-         "NKECS", "NKCollision", "NKPhysics", "Unkeny"],
+         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous

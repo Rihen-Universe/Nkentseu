@@ -20,6 +20,9 @@
 //   (u7)  un corps dont toute la matiere est gommee perd son entite au pas suivant
 //   (u8)  la masse et le materiau de NkCorps2D arrivent au solveur rigide
 //   (u9)  chaque niveau tourne 5 s sans NaN ni particule perdue sous le sol
+//   (u10) [ajoute le 2026-09-29] chaque niveau, joue 1 s, enregistre en JSON puis
+//         relu dans une autre scene : memes particules, decor intact (4 sols),
+//         et il tourne encore 2 s sans NaN
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -203,6 +206,41 @@ namespace nkentseu {
 				char quoi[96];
 				std::snprintf(quoi, sizeof(quoi), "(u9) %s : 5 s sains (ms par pas)", NkNiveauNom(niv));
 				Temoin(sain, quoi, ms);
+			}
+
+			// (u10) sauvegarde de chaque niveau
+			for (int32 niv = 0; niv < NK_NB_NIVEAUX; ++niv) {
+				NkScene s;
+				Scene(s, true, true);
+				NkChargerNiveau(s, niv);
+				Avancer(s, 1.f);
+				NkString json;
+				const bool ecrit = NkSauverSceneJSON(s, json);
+				NkScene r;
+				r.PhotographierAussi<NkDecor2D>("physic2d.NkDecor2D");
+				NkString err;
+				const bool lu = ecrit && NkChargerSceneJSON(r, json.View(), nullptr, &err);
+				bool sain = lu && r.Particules() != nullptr && r.Particules()->particules.Size() == s.Particules()->particules.Size();
+				NkVector<ecs::NkEntityId> ids;
+				r.Entites(ids);
+				int32 sols = 0;
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					const NkDecor2D *d = r.Monde().Get<NkDecor2D>(ids[i]);
+					sols += (d != nullptr && d->sol) ? 1 : 0;
+				}
+				if (sain) {
+					Avancer(r, 2.f);
+					for (uint32 i = 0; i < r.Particules()->particules.Size(); ++i) {
+						const NkVec2f &q = r.Particules()->particules[i].pos;
+						sain = sain && q.x == q.x && q.y > -0.05f;
+					}
+				}
+				char quoi[96];
+				std::snprintf(quoi, sizeof(quoi), "(u10) %s : enregistre, relu, rejoue (ko)", NkNiveauNom(niv));
+				Temoin(sain && sols == 4, quoi, static_cast<float32>(json.Length()) / 1024.f);
+				if (!lu) {
+					std::printf("    erreur : %s\n", err.CStr());
+				}
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC REUSSI" : "BANC EN ECHEC", gReussis, gEchecs,

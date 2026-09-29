@@ -194,6 +194,18 @@ namespace nkentseu {
 				};
 				void Photographier(NkPhoto &photo);
 
+				/// Les composants declares par PhotographierAussi, dans l'ordre de
+				/// leur declaration — celui des octets de NkPhotoEntite::extra.
+				uint32 NbComposantsPhoto() const noexcept {
+					return static_cast<uint32>(mCopieurs.Size());
+				}
+				const char *NomComposantPhoto(uint32 i) const noexcept {
+					return i < mCopieurs.Size() ? mCopieurs[i].nom : nullptr;
+				}
+				uint32 TailleComposantPhoto(uint32 i) const noexcept {
+					return i < mCopieurs.Size() ? mCopieurs[i].taille : 0u;
+				}
+
 				/// Declare un composant PROPRE AU JEU que la photo doit porter.
 				///
 				/// ⚠️ POURQUOI CECI EXISTE — mesure du 2026-09-29. L'en-tete disait
@@ -206,7 +218,12 @@ namespace nkentseu {
 				///
 				/// T doit etre copiable bit a bit (pas de pointeur possede, pas de
 				/// chaine allouee) : il est recopie tel quel. 32 types au plus.
-				template <typename T> void PhotographierAussi() {
+				///
+				/// `nom` : sous ce nom, le composant est AUSSI ecrit dans les fichiers
+				/// de scene (NkUnkenySauvegarde.h). Sans nom, il ne vit que dans les
+				/// photos en memoire. Le nom est la cle du fichier : le changer rend
+				/// les anciennes sauvegardes muettes sur ce composant.
+				template <typename T> void PhotographierAussi(const char *nom = nullptr) {
 					static_assert(std::is_trivially_copyable<T>::value,
 								  "un composant photographie doit etre copiable bit a bit");
 					static const char cle = 0; // une adresse par type T
@@ -220,6 +237,7 @@ namespace nkentseu {
 					}
 					NkCopieurPhoto k;
 					k.cle = &cle;
+					k.nom = nom;
 					k.taille = static_cast<uint32>(sizeof(T));
 					k.lire = [](ecs::NkWorld &w, ecs::NkEntityId id, uint8 *dst) {
 						const T *x = w.Get<T>(id);
@@ -249,6 +267,7 @@ namespace nkentseu {
 			private:
 				struct NkCopieurPhoto {
 						const void *cle = nullptr;
+						const char *nom = nullptr; ///< chaine STATIQUE (litteral) : jamais copiee
 						uint32 taille = 0;
 						bool (*lire)(ecs::NkWorld &, ecs::NkEntityId, uint8 *) = nullptr;
 						void (*ecrire)(ecs::NkWorld &, ecs::NkEntityId, const uint8 *) = nullptr;

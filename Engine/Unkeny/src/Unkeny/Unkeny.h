@@ -59,6 +59,8 @@
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Ui/NkUnkenyGeometrie.h"
 #include "Unkeny/Ui/NkUnkenyTheme.h"
 #include "Unkeny/Ui/NkUnkenyWidgets.h"

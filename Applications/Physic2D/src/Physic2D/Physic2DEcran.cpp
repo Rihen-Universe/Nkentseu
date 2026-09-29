@@ -228,6 +228,9 @@ namespace nkentseu {
 		commande(wVue, CMD_VUE);
 		commande(NkTexteLargeur(FontSmall(), "Grille") + P.ligne * 1.2f, CMD_GRILLE);
 		commande(NkTexteLargeur(FontSmall(), "Cadrer") + P.ligne * 1.2f, CMD_CADRER);
+		x += m * 2.f;
+		commande(NkTexteLargeur(FontSmall(), "Enregistrer") + P.ligne * 1.2f, CMD_SAUVER);
+		commande(NkTexteLargeur(FontSmall(), "Ouvrir") + P.ligne * 1.2f, CMD_OUVRIR);
 		if (P.detailsFlottant) {
 			commande(NkTexteLargeur(FontSmall(), "Détails") + P.ligne * 1.2f, CMD_PANNEAU);
 		}
@@ -557,6 +560,16 @@ namespace nkentseu {
 		if (mEtat != NkEtat::NK_EDITION) {
 			dl.AddRect(v, Alpha(col, 150), 2.f);
 		}
+
+		// L'annonce : 2,5 s, puis elle s'efface en 0,5 s.
+		if (mAnnonceAge < 3.f && !mAnnonce.Empty()) {
+			const float32 t = mAnnonceAge < 2.5f ? 1.f : 1.f - (mAnnonceAge - 2.5f) / 0.5f;
+			const float32 wa = NkTexteLargeur(FontSmall(), mAnnonce.CStr()) + mPlan.ligne * 1.6f;
+			const NkRect r{v.x + (v.w - wa) * 0.5f, v.y + v.h - mPlan.ligne * 2.6f, wa, mPlan.ligne * 1.6f};
+			dl.AddRectFilled(r, NkColor(12, 12, 14, static_cast<uint8>(220.f * t)), r.h * 0.3f);
+			dl.AddRect(r, Alpha(mAnnonceErreur ? mTheme.alerte : mTheme.accent, static_cast<uint8>(255.f * t)), 1.5f, r.h * 0.3f);
+			NkTexteDansBoite(dl, FontSmall(), r, mAnnonce.CStr(), Alpha(mTheme.texte, static_cast<uint8>(255.f * t)));
+		}
 	}
 
 	void Physic2D::DessinerBarre(NkGuiDrawList &dl) {
@@ -607,6 +620,12 @@ namespace nkentseu {
 					break;
 				case CMD_CADRER:
 					NkBouton(dl, c.r, FontSmall(), "Cadrer", mTheme, survol);
+					break;
+				case CMD_SAUVER:
+					NkBouton(dl, c.r, FontSmall(), "Enregistrer", mTheme, survol);
+					break;
+				case CMD_OUVRIR:
+					NkBouton(dl, c.r, FontSmall(), "Ouvrir", mTheme, survol);
 					break;
 				case CMD_PANNEAU:
 					NkBouton(dl, c.r, FontSmall(), "Détails", mTheme, mDetailsOuvert);
