@@ -1258,6 +1258,17 @@ with workspace("Nkentseu", location="."):
 
         pass
 
+    # R32 (G0 du generateur de creatures, NKCraft doc 04) : adresses stables et
+    # pile d'operations rejouee. Banc console, calcul pur.
+    with include("Applications/NKR32Harness/NKR32Harness.jenga"):
+
+        pass
+
+    # Generateur de creatures (NKCraft doc 04) : criteres du §6 par palier (G1+).
+    with include("Applications/NKCreatureHarness/NKCreatureHarness.jenga"):
+
+        pass
+
     with include("Applications/NKUVUnwrapTest/NKUVUnwrapTest.jenga"):
         pass
     with include("Applications/NKGeniaTemoin/NKGeniaTemoin.jenga"):

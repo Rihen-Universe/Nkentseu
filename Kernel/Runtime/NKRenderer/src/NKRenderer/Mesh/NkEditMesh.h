@@ -479,6 +479,8 @@ namespace nkentseu {
 						// LE TRAIT, cote FACE. Il voyage par `FaceAttrib`, comme le materiau et
 						// l'ombrage, et pour la meme raison : une seule table de parente.
 						uint8 trait = 0;
+						// L'ORIGINE D'ADRESSE (R32, 29/09, Rihen). Voir FaceAttrib::origine.
+						uint32 origine = 0;
 				};
 
 				// ── SLOTS DE MATERIAU DU MAILLAGE ────────────────────────────────────
@@ -547,6 +549,23 @@ namespace nkentseu {
 						// jour-la il faudra une table de zones NOMMEES -- un vrai lot, pas un
 						// ajout. Tant qu'on trace puis qu'on agit, 0 ou 1 suffit.
 						uint8 trait = 0;
+						// ── L'ORIGINE D'ADRESSE (R32, 29/09, Rihen) ─────────────────────
+						// Le CINQUIEME attribut annonce ci-dessus : il s'ajoute ici et suit
+						// la meme parente. 0 = aucune origine. Sinon, un identifiant OPAQUE
+						// que seul l'appelant sait lire (NkMeshR32 : « cette face descend de
+						// la face (os, s, a) de la peau C2, par telle operation »).
+						//
+						// ⚠️ POURQUOI IL EST ICI ET PAS DANS UN TABLEAU A COTE : toute
+						//    operation renumerote les faces (ToPolygons -> BuildFromPolygons).
+						//    Un tableau indexe par numero de face serait faux des la premiere
+						//    extrusion, SANS rien dire -- « un indice n'est pas un nom ». La
+						//    parente, elle, est deja calculee par chaque operation pour le
+						//    materiau : l'origine la suit gratuitement.
+						// ⚠️ UNE FACE SANS MERE (bande de biseau, pont de coupe) recoit 0 :
+						//    aucune adresse plutot qu'une adresse inventee. Meme choix que le
+						//    trait, pour la meme raison -- l'origine ne grandit pas toute
+						//    seule.
+						uint32 origine = 0;
 				};
 
 				NkVector<Vert> verts;
@@ -1930,12 +1949,19 @@ namespace nkentseu {
 		//      qui survivent au reordonnancement de la pile.
 		// C'est pour cela que `name` ne doit JAMAIS etre renomme une fois publie : ce
 		// n'est pas un libelle, c'est une CLE. `label` est la, lui, pour l'affichage.
-		enum class NkModParamType : uint8 { Bool = 0, Int, Float, Vec3 };
+		// (29/09, Rihen) Valeurs nommees `Nk_<Type sans Nk>_<Valeur>` (decision de
+		// Rodolf : distinguer une valeur d'enumeration d'une macro `NK_...`). Elles
+		// s'appelaient `Bool, Int, Float, Vec3` : X11 definit `#define Bool int`
+		// (Xlib.h, amene sous XLib par NkDeviceInitInfo.h) et la ligne devenait
+		// `{ int = 0, ... }` -- NKRenderer ne compilait plus sous Linux. Le prefixe
+		// regle la collision sans toucher a la macro, dont X11 se sert comme TYPE.
+		// Les valeurs numeriques ne changent pas : rien de persiste ne bouge.
+		enum class NkModParamType : uint8 { Nk_ModParamType_Bool = 0, Nk_ModParamType_Int, Nk_ModParamType_Float, Nk_ModParamType_Vec3 };
 
 		struct NkModParam {
 				const char *name = "";	// CLE stable (animation, rejeu, serialisation)
 				const char *label = ""; // libelle affichable, librement modifiable
-				NkModParamType type = NkModParamType::Float;
+				NkModParamType type = NkModParamType::Nk_ModParamType_Float;
 				uint32 offset = 0;			   // position du champ dans NkMeshModifier
 				float32 minV = 0.f, maxV = 0.f; // bornes indicatives (0/0 = libre)
 		};

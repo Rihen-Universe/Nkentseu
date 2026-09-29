@@ -1212,7 +1212,7 @@ namespace nkentseu {
 		XFlush(mData.mDisplay);
 	}
 
-	void NkWindow::CaptureMouse(bool) {
+	void NkWindow::CaptureMouse(bool capture) {
 		// ⚠️ CE CORPS ETAIT ENTIEREMENT VIDE -- pas meme un `(void)capture;`.
 		//    Et il l'etait sur ce dorsal SEUL : `ShowMouse` et
 		//    `ClipMouseToClient` y sont, eux, implementes. C'est pourquoi

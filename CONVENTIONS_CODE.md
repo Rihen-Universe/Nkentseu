@@ -216,9 +216,18 @@ Le `#pragma once` **et** la garde nommée : les deux, pas l'un ou l'autre.
 | Membre | `mPascalCase` | `mClipStack` |
 | Variable locale | `camelCase` | `edgeCount` |
 | Constante, macro | `UPPER_SNAKE_CASE` | `NK_PDF_STREAM` |
+| Valeur d'énumération | `Nk_<Type sans Nk>_<Valeur>` | `NkR32Statut::Nk_R32Statut_Orpheline` |
 | Fonction DSL utilisateur (Jenga) | `minuscules` | `consoleapp()` |
 
 **Pas de `snake_case`** pour les fonctions et les types, en C++ comme en Python.
+
+**Valeurs d'énumération — décision de Rodolf, 29/09/2026.** Elles s'écrivent
+`Nk_<Type sans Nk>_<Valeur>` pour se distinguer d'un coup d'œil des macros et
+constantes (`NK_…`) et des types (`NkPascal`). Effet de bord utile : une valeur
+préfixée ne peut plus entrer en collision avec une macro système (`Bool`, `None`,
+`Status` de X11 — c'est ce qui cassait NKRenderer sous Linux). Cette forme remplace
+`NK_<VALEUR>` (guide `NOMENCLATURE_ET_DOCUMENTATION.md` §1.2.6) pour le code neuf ;
+l'existant se met en conformité **seulement là où on le touche** (§6).
 
 ---
 
