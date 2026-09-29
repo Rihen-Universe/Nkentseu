@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurApp.h"
 
+#include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurViseur.h"
 #include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKLogger/NkLog.h"
@@ -31,24 +32,59 @@ namespace nkentseu {
 				}
 			}
 
+			NkEditeurModele &M(void *u) {
+				return *static_cast<NkEditeurModele *>(u);
+			}
 			void CmdSupprimer(void *u) {
-				if (u == nullptr) {
-					return;
+				if (u != nullptr) {
+					NkEditeurSupprimerSelection(M(u));
 				}
-				NkEditeurModele &m = *static_cast<NkEditeurModele *>(u);
-				if (!m.aSelection) {
-					return;
+			}
+			void CmdDupliquer(void *u) {
+				if (u != nullptr) {
+					NkEditeurDupliquer(M(u));
 				}
-				m.scene.Detruire(m.selection);
-				m.aSelection = false;
-				m.deplace = false;
+			}
+			void CmdNouvelleEntite(void *u) {
+				if (u != nullptr) {
+					NkEditeurCreerEntite(M(u), "Entite", M(u).scene.Camera().Centre());
+				}
+			}
+			void CmdJouerPause(void *u) {
+				if (u != nullptr) {
+					M(u).etat == NkEtatJeu::NK_JEU ? NkEditeurPause(M(u)) : NkEditeurJouer(M(u));
+				}
+			}
+			void CmdArreter(void *u) {
+				if (u != nullptr) {
+					NkEditeurArreter(M(u));
+				}
+			}
+			void CmdPas(void *u) {
+				if (u != nullptr) {
+					NkEditeurUnPas(M(u));
+				}
+			}
+			void CmdNouveau(void *u) {
+				if (u != nullptr) {
+					NkEditeurNouvelleScene(M(u));
+				}
+			}
+			void CmdEnregistrer(void *u) {
+				if (u != nullptr) {
+					NkEditeurSauver(M(u));
+				}
+			}
+			void CmdOuvrir(void *u) {
+				if (u != nullptr) {
+					NkEditeurOuvrir(M(u));
+				}
 			}
 
-			void CmdBasculerSimulation(void *u) {
-				if (u != nullptr) {
-					NkEditeurModele &m = *static_cast<NkEditeurModele *>(u);
-					m.simuler = !m.simuler;
-				}
+			/// Le relais de televersement de NkTextures2D vers le rendu du kit.
+			bool TeleverserVersKit(void *rendu, uint32 texId, const uint8 *rgba, int32 w, int32 h) {
+				return rendu != nullptr &&
+					   static_cast<editorkit::NkIEditorRenderer *>(rendu)->UploadImageRGBA(texId, rgba, w, h);
 			}
 
 			void CmdAppareilSuivant(void *u) {
@@ -68,7 +104,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		NkEditeurApp::NkEditeurApp() noexcept
-			: mViseur(mModele), mHierarchie(mModele), mInspecteur(mModele), mOutils(mModele) {
+			: mViseur(mModele), mHierarchie(mModele), mActeurs(mModele), mInspecteur(mModele), mMonde(mModele), mOutils(mModele) {
 		}
 
 		// =====================================================================
@@ -92,8 +128,12 @@ namespace nkentseu {
 					// appartient a Unkeny. Jusqu'au 2026-09-29, Unkeny n'avait pas
 					// de banc et celui-ci rendait INDETERMINE plutot qu'un faux
 					// vert. Le moteur en a un desormais : on le lance.
-					logger.Infof("[banc] l'editeur n'a pas de banc propre : on lance celui d'Unkeny.\n");
-					return NkOptional<int>(unkeny::NkUnkenyLancerBanc());
+					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
+					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
+					// sa source, pas dans ses consequences.
+					const int32 moteur = unkeny::NkUnkenyLancerBanc();
+					const int32 editeur = NkEditeurLancerBanc();
+					return NkOptional<int>((moteur != 0 || editeur != 0) ? 1 : 0);
 				}
 			}
 			return NkOptional<int>();
@@ -102,18 +142,16 @@ namespace nkentseu {
 		// =====================================================================
 		bool NkEditeurApp::Init() {
 			// ── La scene ─────────────────────────────────────────────────────
-			NkSceneConfig cfg;
-			cfg.physique = true; // l'editeur exerce la physique : c'est son role
-			cfg.gravite = NkVec2f(0.f, -9.81f);
-			if (!mModele.scene.Init(cfg)) {
-				logger.Error("[unkeny-editeur] la scene a refuse de s'initialiser");
-				return false;
-			}
+			// Les textures des acteurs sont FABRIQUEES maintenant ; elles partent
+			// au rendu quand le shell en a un (Brancher, plus bas).
+			NkCreerRessourcesSim(mModele.ressources, &mModele.textures, nullptr);
+			NkEditeurNouvelleScene(mModele);
 			mModele.carte.Creer(40, 24, 1.f);
 			mModele.carte.AjouterCouche(0, 1.f);
 			mModele.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
-
-			ConstruireSceneExemple();
+			if (mModele.simuler) {
+				NkEditeurJouer(mModele);
+			}
 			mViseur.CadrerSurTout();
 
 			// ── La coquille ──────────────────────────────────────────────────
@@ -142,21 +180,34 @@ namespace nkentseu {
 				return false;
 			}
 
+			// Le rendu existe : les textures en attente y partent.
+			mModele.textures.Brancher(&TeleverserVersKit, mShell->Renderer());
+
 			// ── Les panneaux ─────────────────────────────────────────────────
 			// Le shell les ancre, les ferme, les rouvre, et sauve la disposition.
 			// C'est exactement ce que ma version precedente calculait a la main.
 			mShell->AddPanel(&mViseur);
 			mShell->AddPanel(&mHierarchie);
+			mShell->AddPanel(&mActeurs);
 			mShell->AddPanel(&mOutils);
 			mShell->AddPanel(&mInspecteur);
+			mShell->AddPanel(&mMonde);
+			mShell->SetToolbar(&NkBarreOutilsEditeur, &mModele);
 
 			// ── Les commandes ────────────────────────────────────────────────
 			// Elles arrivent gratuitement dans la palette (Ctrl+Maj+P) : une
 			// action atteignable au clavier ET a la souris, sans avoir a dessiner
 			// un bouton pour chacune.
 			mShell->RegisterCommand("Vue: Cadrer sur tout", &CmdCadrer, &mViseur, "F");
+			mShell->RegisterCommand("Scene: Nouvelle entite", &CmdNouvelleEntite, &mModele, "Ctrl+E");
+			mShell->RegisterCommand("Edition: Dupliquer", &CmdDupliquer, &mModele, "Ctrl+D");
 			mShell->RegisterCommand("Edition: Supprimer la selection", &CmdSupprimer, &mModele, "Suppr");
-			mShell->RegisterCommand("Simulation: Demarrer / arreter", &CmdBasculerSimulation, &mModele, "Espace");
+			mShell->RegisterCommand("Simulation: Jouer / pause", &CmdJouerPause, &mModele, "Espace");
+			mShell->RegisterCommand("Simulation: Arreter", &CmdArreter, &mModele, "Echap");
+			mShell->RegisterCommand("Simulation: Un pas", &CmdPas, &mModele);
+			mShell->RegisterCommand("Fichier: Nouvelle scene", &CmdNouveau, &mModele, "Ctrl+N");
+			mShell->RegisterCommand("Fichier: Ouvrir", &CmdOuvrir, &mModele, "Ctrl+O");
+			mShell->RegisterCommand("Fichier: Enregistrer", &CmdEnregistrer, &mModele, "Ctrl+S");
 			mShell->RegisterCommand("Appareil: Profil suivant", &CmdAppareilSuivant, &mModele);
 			mShell->RegisterCommand("Application: Quitter", &CmdQuitter, mShell.Get(), "Ctrl+Q");
 
@@ -166,57 +217,6 @@ namespace nkentseu {
 		// =====================================================================
 		int NkEditeurApp::Run() {
 			return mShell ? mShell->Run() : -1;
-		}
-
-		// =====================================================================
-		// Une scene d'exemple. Elle n'est pas decorative : elle EXERCE la scene,
-		// les composants, la physique et le rendu des le premier lancement.
-		// Un editeur qui s'ouvre sur le vide ne prouve rien du moteur.
-		// =====================================================================
-		void NkEditeurApp::ConstruireSceneExemple() {
-			NkScene &scene = mModele.scene;
-
-			// Le sol : statique, large, sous l'origine.
-			{
-				const ecs::NkEntityId sol = scene.Creer("Sol", NkVec2f(0.f, -4.f));
-				NkSprite2D s;
-				s.taille = NkVec2f(20.f, 1.f);
-				s.couleur = 0x3E4756FFu;
-				s.couche = -10;
-				scene.Monde().Add<NkSprite2D>(sol, s);
-
-				NkCollisionneur2D c;
-				c.forme = NkForme2D::NK_BOITE;
-				c.demiTaille = NkVec2f(10.f, 0.5f);
-				scene.Monde().Add<NkCollisionneur2D>(sol, c);
-
-				NkCorps2D b;
-				b.type = NkTypeCorps::NK_STATIQUE;
-				scene.AjouterCorps(sol, b);
-			}
-
-			// Quelques caisses qui tombent : elles rendent la physique VISIBLE
-			// des l'ouverture, sans qu'on ait rien a faire.
-			for (int32 i = 0; i < 6; ++i) {
-				NkString nom = NkString::Format("Caisse %d", i + 1);
-				const float32 x = -3.f + static_cast<float32>(i) * 1.2f;
-				const float32 y = 1.f + static_cast<float32>(i % 3) * 1.6f;
-				const ecs::NkEntityId e = scene.Creer(nom.Data(), NkVec2f(x, y));
-
-				NkSprite2D s;
-				s.taille = NkVec2f(0.9f, 0.9f);
-				s.couleur = (i % 2 == 0) ? 0xE2B028FFu : 0x3C7ACAFFu;
-				scene.Monde().Add<NkSprite2D>(e, s);
-
-				NkCollisionneur2D c;
-				c.forme = NkForme2D::NK_BOITE;
-				c.demiTaille = NkVec2f(0.45f, 0.45f);
-				scene.Monde().Add<NkCollisionneur2D>(e, c);
-
-				NkCorps2D b;
-				b.type = NkTypeCorps::NK_DYNAMIQUE;
-				scene.AjouterCorps(e, b);
-			}
 		}
 
 	} // namespace editeur

@@ -68,7 +68,6 @@ namespace nkentseu {
 				int Run();
 
 			private:
-				void ConstruireSceneExemple();
 
 				// ⚠️ L ORDRE DE DECLARATION EST L ORDRE DE CONSTRUCTION, ET SON
 				// INVERSE EST L ORDRE DE DESTRUCTION. Il est donc porteur de
@@ -87,7 +86,9 @@ namespace nkentseu {
 
 				NkPanneauViseur mViseur;
 				NkPanneauHierarchie mHierarchie;
+				NkPanneauActeurs mActeurs;
 				NkPanneauInspecteur mInspecteur;
+				NkPanneauMonde mMonde;
 				NkPanneauOutils mOutils;
 
 				memory::NkUniquePtr<editorkit::NkEditorShell> mShell;

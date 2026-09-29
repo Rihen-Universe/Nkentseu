@@ -28,7 +28,12 @@ namespace nkentseu {
 		using namespace nkentseu::unkeny;
 
 		/// L'outil courant. Il decide de ce que fait un clic dans le viseur.
-		enum class NkOutil : uint8 { NK_SELECTION = 0, NK_POSER, NK_EFFACER };
+		/// SAISIR et COUTEAU agissent sur la matiere : ils servent en JEU.
+		enum class NkOutil : uint8 { NK_SELECTION = 0, NK_POSER, NK_EFFACER, NK_SAISIR, NK_COUTEAU };
+
+		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
+		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).
+		enum class NkEtatJeu : uint8 { NK_EDITION = 0, NK_JEU, NK_PAUSE };
 
 		/// L'etat partage de l'editeur.
 		struct NkEditeurModele {
@@ -44,7 +49,32 @@ namespace nkentseu {
 				/// ⚠️ FAUX PAR DEFAUT, ET C'EST DELIBERE. Un editeur qui simule en
 				/// permanence ne permet pas de POSER quoi que ce soit : l'objet
 				/// tombe avant qu'on ait lache le bouton.
-				bool simuler = false;
+				bool simuler = false; ///< --simuler : ouvrir directement en JEU
+
+				NkEtatJeu etat = NkEtatJeu::NK_EDITION;
+				/// La scene d'avant « Jouer ». Valide tant qu'on n'a pas « Arrete ».
+				NkScene::NkPhoto photo;
+
+				// --- Ce que « Poser » pose ------------------------------------
+				/// Un acteur du catalogue de simulation (Unkeny/Simulation), ou —
+				/// `acteurSimple` — l'entite elementaire d'origine (sprite + boite).
+				NkActeurSim acteur = NkActeurSim::NK_BLOB;
+				bool acteurSimple = false;
+				/// Pinceau de fluide en cours (maintenir pour verser, en JEU).
+				ecs::NkEntityId pinceau;
+				uint32 graine = 20260929u;
+
+				// --- Ressources ----------------------------------------------
+				NkTextures2D textures;
+				NkRessourcesSim ressources;
+
+				// --- Affichage de la matiere -----------------------------------
+				NkOptionsRenduParticules rendu;
+
+				// --- Fichier ---------------------------------------------------
+				NkString chemin;	 ///< vide = dossier de l'application / scene.nkscene
+				NkString message;	 ///< derniere annonce (enregistre, erreur...)
+				float32 messageAge = 99.f;
 
 				bool voirCollisionneurs = true;
 				bool voirGrille = true;
@@ -63,7 +93,6 @@ namespace nkentseu {
 				NkVec2f dernierPointeur{0.f, 0.f};
 
 				NkStatsRendu stats;
-				uint32 graine = 20260901u;
 
 				/// Le theme des couleurs du VISEUR (celui d Unkeny, pas celui du
 				/// kit). Le chrome de l editeur est peint par NKEditorKit ; ce

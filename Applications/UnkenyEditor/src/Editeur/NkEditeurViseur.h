@@ -22,10 +22,11 @@ namespace nkentseu {
 		/// Dessine le viseur en entier. Rend les mesures du rendu, pour que le
 		/// pied de page les affiche : sans compteur, « est-ce que le hors-champ
 		/// fonctionne » n'a pas de reponse.
-		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const nkgui::NkRect &viseur,
-									  const nkgui::NkRect &appareil, const NkTheme &th,
-									  const NkProfilAppareil &profil, bool grille, bool collisionneurs,
-									  const ecs::NkEntityId *selection);
+		struct NkEditeurModele;
+		/// Dessine la scene du modele dans le viseur : formes, sprites, matiere,
+		/// selection, zone sure de l'appareil simule. Il DESSINE, il ne modifie rien.
+		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+									  const nkgui::NkRect &appareil);
 
 		/// L'aire d'APPAREIL SIMULE, a l'interieur du viseur.
 		///

@@ -47,29 +47,6 @@ namespace nkentseu {
 			return math::NkSqrt(v.x * v.x + v.y * v.y);
 		}
 
-		/// Distance signee d'un point a la forme d'un collisionneur (negatif = dedans).
-		float32 DistanceForme(const NkTransform2D &t, const NkCollisionneur2D &c, const NkVec2f &p) {
-			// Dans le repere local de la forme.
-			const float32 co = math::NkCos(-t.rotation);
-			const float32 si = math::NkSin(-t.rotation);
-			const NkVec2f d(p.x - t.position.x - c.decalage.x, p.y - t.position.y - c.decalage.y);
-			const NkVec2f l(d.x * co - d.y * si, d.x * si + d.y * co);
-			switch (c.forme) {
-				case NkForme2D::NK_CERCLE:
-					return Longueur(l) - c.rayon;
-				case NkForme2D::NK_CAPSULE: {
-					const float32 x = math::NkClamp(l.x, -c.demiTaille.x, c.demiTaille.x);
-					return Longueur(NkVec2f(l.x - x, l.y)) - c.rayon;
-				}
-				default: {
-					const float32 qx = math::NkAbs(l.x) - c.demiTaille.x;
-					const float32 qy = math::NkAbs(l.y) - c.demiTaille.y;
-					const float32 ex = qx > 0.f ? qx : 0.f;
-					const float32 ey = qy > 0.f ? qy : 0.f;
-					return Longueur(NkVec2f(ex, ey)) + math::NkMin(math::NkMax(qx, qy), 0.f);
-				}
-			}
-		}
 	} // namespace
 
 	Physic2D::Physic2D() {
@@ -627,7 +604,7 @@ namespace nkentseu {
 				if (corps.type != NkTypeCorps::NK_DYNAMIQUE && !(decorAussi && d != nullptr && !d->sol)) {
 					return; // le sol et les murs ne s'attrapent ni ne se gomment
 				}
-				const float32 dist = DistanceForme(t, c, m);
+				const float32 dist = NkDistanceForme2D(t, c, m);
 				if (dist < meilleur) {
 					meilleur = dist;
 					trouve = id;

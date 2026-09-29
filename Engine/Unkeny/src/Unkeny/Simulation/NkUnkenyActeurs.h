@@ -89,6 +89,11 @@ namespace nkentseu {
 		ecs::NkEntityId NkPoserActeurSim(NkScene &scene, NkActeurSim a, const NkVec2f &pos,
 										 const NkRessourcesSim *ressources = nullptr, float32 plafond = 1.0e30f);
 
+		/// La MATIERE seule d'un acteur non rigide : le corps de particules, sans
+		/// entite. Rend son index (ou -1). Pour AttacherCorpsMou sur une entite
+		/// qui existe deja (« Ajouter un composant » d'un editeur).
+		int32 NkCreerMatiereSim(NkScene &scene, NkActeurSim a, const NkVec2f &pos, float32 plafond = 1.0e30f);
+
 		/// Pinceau de fluide : un corps VIDE, pret a recevoir NkVerserSim.
 		ecs::NkEntityId NkOuvrirPinceauSim(NkScene &scene, NkActeurSim a);
 		/// Verse jusqu'a `n` particules dans le corps de l'entite `e`. false si ce

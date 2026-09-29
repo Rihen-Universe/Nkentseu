@@ -215,31 +215,10 @@ namespace nkentseu {
 			if (p == nullptr && !rigide) {
 				return ecs::NkEntityId::Invalid();
 			}
+			if (!rigide) {
+				return Mou(s, a, NkCreerMatiereSim(s, a, pos, plafond));
+			}
 			switch (a) {
-				case NkActeurSim::NK_BALLON:
-					return Mou(s, a, physics::NkCreerBallonP2D(*p, pos));
-				case NkActeurSim::NK_BLOB:
-					return Mou(s, a, physics::NkCreerBlobP2D(*p, pos, 0.42f, NkPresetP2D::NK_BLOB));
-				case NkActeurSim::NK_SLIME:
-					return Mou(s, a, physics::NkCreerBlobP2D(*p, pos, 0.78f, NkPresetP2D::NK_SLIME));
-				case NkActeurSim::NK_GELEE:
-					return Mou(s, a, physics::NkCreerGeleeP2D(*p, pos));
-				case NkActeurSim::NK_EAU:
-					return Mou(s, a, physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_EAU));
-				case NkActeurSim::NK_MIEL:
-					return Mou(s, a, physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_MIEL));
-				case NkActeurSim::NK_SABLE:
-					return Mou(s, a, physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_SABLE));
-				case NkActeurSim::NK_CRISTAL:
-					return Mou(s, a, physics::NkCreerCristalP2D(*p, pos, false));
-				case NkActeurSim::NK_DISQUE:
-					return Mou(s, a, physics::NkCreerCristalP2D(*p, pos, true));
-				case NkActeurSim::NK_TISSU:
-					return Mou(s, a, physics::NkCreerTissuP2D(*p, NkVec2f(pos.x, math::NkMin(pos.y + 1.f, plafond))));
-				case NkActeurSim::NK_CORDE:
-					return Mou(s, a, physics::NkCreerCordeP2D(*p, NkVec2f(pos.x, math::NkMin(pos.y + 1.5f, plafond))));
-				case NkActeurSim::NK_PONT:
-					return NkPoserPontSim(s, pos - NkVec2f(1.7f, 0.f), pos + NkVec2f(1.7f, 0.f));
 				case NkActeurSim::NK_CAISSE:
 				case NkActeurSim::NK_BALLE: {
 					if (!s.PhysiqueActive()) {
@@ -273,6 +252,41 @@ namespace nkentseu {
 				}
 				default:
 					return ecs::NkEntityId::Invalid();
+			}
+		}
+
+		int32 NkCreerMatiereSim(NkScene &s, NkActeurSim a, const NkVec2f &pos, float32 plafond) {
+			physics::NkParticules2D *p = s.Particules();
+			if (p == nullptr) {
+				return -1;
+			}
+			switch (a) {
+				case NkActeurSim::NK_BALLON:
+					return physics::NkCreerBallonP2D(*p, pos);
+				case NkActeurSim::NK_BLOB:
+					return physics::NkCreerBlobP2D(*p, pos, 0.42f, NkPresetP2D::NK_BLOB);
+				case NkActeurSim::NK_SLIME:
+					return physics::NkCreerBlobP2D(*p, pos, 0.78f, NkPresetP2D::NK_SLIME);
+				case NkActeurSim::NK_GELEE:
+					return physics::NkCreerGeleeP2D(*p, pos);
+				case NkActeurSim::NK_EAU:
+					return physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_EAU);
+				case NkActeurSim::NK_MIEL:
+					return physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_MIEL);
+				case NkActeurSim::NK_SABLE:
+					return physics::NkCreerFluideP2D(*p, pos, 0.22f, NkPresetP2D::NK_SABLE);
+				case NkActeurSim::NK_CRISTAL:
+					return physics::NkCreerCristalP2D(*p, pos, false);
+				case NkActeurSim::NK_DISQUE:
+					return physics::NkCreerCristalP2D(*p, pos, true);
+				case NkActeurSim::NK_TISSU:
+					return physics::NkCreerTissuP2D(*p, NkVec2f(pos.x, math::NkMin(pos.y + 1.f, plafond)));
+				case NkActeurSim::NK_CORDE:
+					return physics::NkCreerCordeP2D(*p, NkVec2f(pos.x, math::NkMin(pos.y + 1.5f, plafond)));
+				case NkActeurSim::NK_PONT:
+					return physics::NkCreerPontP2D(*p, pos - NkVec2f(1.7f, 0.f), pos + NkVec2f(1.7f, 0.f));
+				default:
+					return -1; // les rigides n'ont pas de matiere
 			}
 		}
 

@@ -153,6 +153,29 @@ namespace nkentseu {
 				/// pas activee ou si les composants manquent.
 				bool AjouterCorps(ecs::NkEntityId id, const NkCorps2D &corps);
 
+				/// Applique au solveur un NkCorps2D MODIFIE (type, masse, friction,
+				/// rebond, amortissements, gravite, rotation bloquee) ou un
+				/// collisionneur modifie. Le corps est refait ; sa position, son
+				/// orientation et ses vitesses sont gardees.
+				///
+				/// ⚠️ Ecrire dans le composant ne suffit PAS : NkCorps2D est la
+				/// DESCRIPTION, le corps vit dans NKPhysics (regle du fichier : les
+				/// composants portent des identifiants, pas l'etat). Un inspecteur
+				/// qui oublie cet appel montre une masse que le solveur n'a pas.
+				bool ActualiserCorps(ecs::NkEntityId id);
+
+				/// Retire le corps RIGIDE d'une entite (le composant et le corps du
+				/// solveur). L'entite reste, avec son transform et le reste.
+				bool RetirerCorps(ecs::NkEntityId id);
+
+				/// Donne a une entite EXISTANTE la matiere du corps de particules
+				/// `indexCorps` (fabrique par NKPhysics/NkParticules2DFabrique). C'est
+				/// le « Ajouter un composant > Corps mou » d'un editeur ; CreerCorpsMou
+				/// fait la meme chose en creant l'entite.
+				bool AttacherCorpsMou(ecs::NkEntityId id, int32 indexCorps, uint32 couleur);
+				/// Retire le corps mou (sa matiere disparait), l'entite reste.
+				bool RetirerCorpsMou(ecs::NkEntityId id);
+
 				/// Deplace une entite SANS que le solveur l'interprete comme une
 				/// vitesse. C'est le seul sens autorise transform -> physique.
 				void TeleporterEntite(ecs::NkEntityId id, const NkVec2f &position);

@@ -6,7 +6,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurViseur.h"
-#include "Editeur/NkEditeurApp.h"
+#include "Editeur/NkEditeurActions.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -36,53 +36,52 @@ namespace nkentseu {
 			return nkgui::NkRect{viseur.x + (viseur.w - aw) * 0.5f, viseur.y + (viseur.h - ah) * 0.5f, aw, ah};
 		}
 
-		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkScene &scene, const nkgui::NkRect &viseur,
-									  const nkgui::NkRect &appareil, const NkTheme &th,
-									  const NkProfilAppareil &profil, bool grille, bool collisionneurs,
-									  const ecs::NkEntityId *selection) {
+		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+									  const nkgui::NkRect &appareil) {
+			NkScene &scene = m.scene;
+			const NkTheme &th = m.theme;
+			const NkProfilAppareil profil = m.ProfilCourant();
 			NkStatsRendu stats;
-
 			// Le fond du viseur, puis l'aire d'appareil : deux tons distincts,
 			// pour qu'on voie du premier coup d'oeil ce qui est DANS l'ecran
 			// simule et ce qui est autour.
 			dl.AddRectFilled(viseur, NkColor(10, 12, 17));
 			dl.AddRectFilled(appareil, NkColor(20, 23, 31));
-
 			// ⚠️ DECOUPE OBLIGATOIRE sur l'aire d'appareil. Sans elle, une scene
 			// plus grande que l'ecran simule deborde sur les panneaux — et on
 			// juge une mise en page mobile sur une image qui montre plus que ce
 			// que le telephone montrerait.
 			dl.PushClipRect(appareil, true);
-
-			if (grille) {
+			if (m.voirGrille) {
 				NkDessinerGrille(dl, scene.Camera(), 1.f);
 			}
+			// L'ordre : les FORMES (decor, rigides sans texture), puis les sprites,
+			// puis la MATIERE par-dessus — elle coule sur tout le reste.
+			NkOptionsFormes formes;
+			formes.couleurDecor = [](ecs::NkWorld &w, ecs::NkEntityId id, void *) -> uint32 {
+				const NkSprite2D *s = w.Get<NkSprite2D>(id);
+				return s != nullptr ? s->couleur : 0u; // le sprite (cache) garde la couleur du decor
+			};
+			NkDessinerFormes(dl, scene, formes);
 			stats = NkDessinerScene(dl, scene);
-			if (collisionneurs) {
+			NkDessinerCorpsMous(dl, scene, m.rendu);
+			if (m.voirCollisionneurs) {
 				NkDessinerCollisionneurs(dl, scene, 0x00E07AC0u);
 			}
-
-			// La selection : un cadre autour de sa boite, en MONDE converti.
-			if (selection != nullptr) {
-				const NkTransform2D *t = scene.Monde().Get<NkTransform2D>(*selection);
-				const NkSprite2D *s = scene.Monde().Get<NkSprite2D>(*selection);
-				if (t != nullptr) {
-					const float32 w = (s != nullptr) ? s->taille.x * t->echelle.x : 1.f;
-					const float32 h = (s != nullptr) ? s->taille.y * t->echelle.y : 1.f;
-					const NkVec2f hg = scene.Camera().MondeVersEcran(NkVec2f(t->position.x - w * 0.5f,
-																			t->position.y + h * 0.5f));
-					const NkVec2f bd = scene.Camera().MondeVersEcran(NkVec2f(t->position.x + w * 0.5f,
-																			t->position.y - h * 0.5f));
-					dl.AddRect(NkRect{hg.x, hg.y, bd.x - hg.x, bd.y - hg.y}, th.accent, 2.f);
-					// Une croix au centre : elle dit ou est l'ORIGINE de
-					// l'entite, qui n'est pas forcement au milieu de son sprite
-					// (voir NkSprite2D::pivot).
-					const NkVec2f c = scene.Camera().MondeVersEcran(t->position);
-					dl.AddLine(NkVec2f(c.x - 6.f, c.y), NkVec2f(c.x + 6.f, c.y), th.accent, 1.5f);
-					dl.AddLine(NkVec2f(c.x, c.y - 6.f), NkVec2f(c.x, c.y + 6.f), th.accent, 1.5f);
+			// La selection : un cadre d'accent autour de sa boite, et son nom.
+			NkVec2f mn, mx;
+			if (NkEditeurBoiteSelection(m, mn, mx)) {
+				const NkVec2f hg = scene.Camera().MondeVersEcran(NkVec2f(mn.x - 0.05f, mx.y + 0.05f));
+				const NkVec2f bd = scene.Camera().MondeVersEcran(NkVec2f(mx.x + 0.05f, mn.y - 0.05f));
+				dl.AddRect(NkRect{hg.x, hg.y, bd.x - hg.x, bd.y - hg.y}, th.or_, 2.f, 3.f);
+				NkVec2f c;
+				if (NkEditeurCentreSelection(m, c)) {
+					// Une croix au centre : elle dit ou est l'ORIGINE de l'entite.
+					const NkVec2f e = scene.Camera().MondeVersEcran(c);
+					dl.AddLine(NkVec2f(e.x - 6.f, e.y), NkVec2f(e.x + 6.f, e.y), th.or_, 1.5f);
+					dl.AddLine(NkVec2f(e.x, e.y - 6.f), NkVec2f(e.x, e.y + 6.f), th.or_, 1.5f);
 				}
 			}
-
 			dl.PopClipRect();
 
 			// --- LA ZONE SURE SIMULEE ------------------------------------
@@ -120,8 +119,11 @@ namespace nkentseu {
 								  appareil.h - hHaut - hBas},
 						   trait, 1.f);
 			}
-			// Le bord de l'appareil, toujours visible.
-			dl.AddRect(appareil, th.bord, 2.f, 6.f);
+			// Le bord de l'appareil, toujours visible — VERT en jeu, AMBRE en
+			// pause : on sait d'un regard si ce qu'on voit est la scene editee
+			// ou un instant de simulation.
+			const NkColor bordEtat = m.etat == NkEtatJeu::NK_JEU ? th.succes : (m.etat == NkEtatJeu::NK_PAUSE ? th.or_ : th.bord);
+			dl.AddRect(appareil, bordEtat, 2.f, 6.f);
 			return stats;
 		}
 

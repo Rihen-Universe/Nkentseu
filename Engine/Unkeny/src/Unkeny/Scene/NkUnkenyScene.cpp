@@ -190,6 +190,42 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		bool NkScene::ActualiserCorps(ecs::NkEntityId id) {
+			if (mPhysique == nullptr) {
+				return false;
+			}
+			NkCorps2D *c = mMonde.Get<NkCorps2D>(id);
+			if (c == nullptr) {
+				return false;
+			}
+			physics::NkRigidBody etat;
+			bool avaitEtat = false;
+			if (const physics::NkRigidBody *b = mPhysique->GetBody(c->corpsId)) {
+				etat = *b;
+				avaitEtat = true;
+				mPhysique->DestroyBody(c->corpsId);
+			}
+			NkCorps2D copie = *c;
+			copie.corpsId = physics::NK_INVALID_BODY;
+			if (!AjouterCorps(id, copie)) {
+				return false;
+			}
+			if (avaitEtat) {
+				const NkCorps2D *n = mMonde.Get<NkCorps2D>(id);
+				if (physics::NkRigidBody *b = mPhysique->GetBody(n->corpsId)) {
+					b->position = etat.position;
+					b->orientation = etat.orientation;
+					if (b->type == physics::NkBodyType::DYNAMIC) {
+						b->linearVelocity = etat.linearVelocity;
+						b->angularVelocity = etat.angularVelocity;
+					}
+					b->sleepTimer = 0.f;
+				}
+			}
+			return true;
+		}
+
+		// =====================================================================
 		bool NkScene::AjouterCorps(ecs::NkEntityId id, const NkCorps2D &corps) {
 			if (mPhysique == nullptr) {
 				logger.Warn("[unkeny] AjouterCorps refuse : la scene n'a pas de physique");
@@ -520,6 +556,53 @@ namespace nkentseu {
 			mMonde.Add<NkCorpsMou2D>(id, m);
 			c.utilisateur = id.Pack();
 			return id;
+		}
+
+		bool NkScene::AttacherCorpsMou(ecs::NkEntityId id, int32 indexCorps, uint32 couleur) {
+			if (mParticules == nullptr || indexCorps < 0 || indexCorps >= static_cast<int32>(mParticules->corps.Size()) ||
+				!mMonde.IsAlive(id) || mMonde.Has<NkCorpsMou2D>(id)) {
+				return false;
+			}
+			physics::NkCorpsP2D &c = mParticules->corps[static_cast<uint32>(indexCorps)];
+			NkCorpsMou2D m;
+			m.corpsId = c.id;
+			m.couleur = couleur;
+			mMonde.Add<NkCorpsMou2D>(id, m);
+			c.utilisateur = id.Pack();
+			if (NkTransform2D *t = mMonde.Get<NkTransform2D>(id)) {
+				t->position = mParticules->CentreCorps(static_cast<uint32>(indexCorps));
+			}
+			return true;
+		}
+
+		bool NkScene::RetirerCorpsMou(ecs::NkEntityId id) {
+			const NkCorpsMou2D *m = mMonde.Get<NkCorpsMou2D>(id);
+			if (m == nullptr) {
+				return false;
+			}
+			const uint32 corpsId = m->corpsId;
+			// Le composant D'ABORD : SynchroniserCorpsMous detruit l'entite d'un
+			// corps mou dont la matiere a disparu — on veut garder l'entite.
+			mMonde.Remove<NkCorpsMou2D>(id);
+			if (mParticules != nullptr) {
+				const int32 ci = mParticules->IndexCorps(corpsId);
+				if (ci >= 0) {
+					mParticules->SupprimerCorps(static_cast<uint32>(ci));
+				}
+			}
+			return true;
+		}
+
+		bool NkScene::RetirerCorps(ecs::NkEntityId id) {
+			NkCorps2D *c = mMonde.Get<NkCorps2D>(id);
+			if (c == nullptr) {
+				return false;
+			}
+			if (mPhysique != nullptr && c->corpsId != physics::NK_INVALID_BODY) {
+				mPhysique->DestroyBody(c->corpsId);
+			}
+			mMonde.Remove<NkCorps2D>(id);
+			return true;
 		}
 
 		ecs::NkEntityId NkScene::EntiteDuCorpsMou(uint32 corpsId) const noexcept {

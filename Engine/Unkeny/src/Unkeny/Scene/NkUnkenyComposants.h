@@ -95,6 +95,35 @@ namespace nkentseu {
 				bool declencheur = false;
 		};
 
+		/// Distance SIGNEE d'un point (monde) a la forme d'un collisionneur :
+		/// negative dedans. Rotation et echelle 1 du transform prises en compte.
+		/// C'est le test de « ce qui est sous le curseur » pour les formes sans
+		/// sprite (decor, balles, obstacles) — partage par la demo et l'editeur.
+		inline float32 NkDistanceForme2D(const NkTransform2D &t, const NkCollisionneur2D &c, const NkVec2f &p) noexcept {
+			const float32 co = math::NkCos(-t.rotation);
+			const float32 si = math::NkSin(-t.rotation);
+			const float32 dx = p.x - t.position.x - c.decalage.x;
+			const float32 dy = p.y - t.position.y - c.decalage.y;
+			const float32 lx = dx * co - dy * si;
+			const float32 ly = dx * si + dy * co;
+			switch (c.forme) {
+				case NkForme2D::NK_CERCLE:
+					return math::NkSqrt(lx * lx + ly * ly) - c.rayon;
+				case NkForme2D::NK_CAPSULE: {
+					const float32 x = math::NkClamp(lx, -c.demiTaille.x, c.demiTaille.x);
+					return math::NkSqrt((lx - x) * (lx - x) + ly * ly) - c.rayon;
+				}
+				default: {
+					const float32 qx = math::NkAbs(lx) - c.demiTaille.x;
+					const float32 qy = math::NkAbs(ly) - c.demiTaille.y;
+					const float32 ex = qx > 0.f ? qx : 0.f;
+					const float32 ey = qy > 0.f ? qy : 0.f;
+					const float32 dedans = qx > qy ? qx : qy;
+					return math::NkSqrt(ex * ex + ey * ey) + (dedans < 0.f ? dedans : 0.f);
+				}
+			}
+		}
+
 		enum class NkTypeCorps : uint8 {
 			NK_STATIQUE = 0, ///< ne bouge jamais : murs, sol
 			NK_CINEMATIQUE,	 ///< bouge, mais rien ne le pousse : plateforme mobile

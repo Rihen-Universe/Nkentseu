@@ -69,9 +69,6 @@ namespace nkentseu {
 		out = clip;
 		return true;
 	}
-		out = clip;
-		return true;
-	}
 
 	bool NkWindow::HasClipboardImage() const {
 		return NkInternalClipboardImage().IsValid();
