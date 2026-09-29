@@ -106,6 +106,18 @@ namespace nkentseu {
 					return mTrigExit;
 				}
 
+				// Contacts entre corps SOLIDES (ni l'un ni l'autre trigger), calcules
+				// par Step. `trigger` y designe simplement le premier corps de la
+				// paire. Ajoute le 2026-09-29 : les triggers avaient leurs
+				// evenements, pas les chocs — un jeu ne pouvait pas savoir qu'une
+				// balle avait touche un mur sans interroger chaque paire lui-meme.
+				const NkVector<NkTriggerEvent> &ContactEnter() const noexcept {
+					return mContactEnter;
+				}
+				const NkVector<NkTriggerEvent> &ContactExit() const noexcept {
+					return mContactExit;
+				}
+
 				// ── Validation « physiquement correct » (M10) ────────────────
 				// Requêtes sur les corps DYNAMIQUES filtrés par `layerMask` (passer le `group`
 				// d'un ragdoll pour ne mesurer que lui). Base de la validation type Cascadeur.
@@ -171,6 +183,7 @@ namespace nkentseu {
 				NkVector<NkWarmEntry> mWarm;							   // cache d'impulses (frame précédente)
 				NkVector<NkJoint> mJoints;								   // articulations (M7)
 				NkVector<NkTriggerEvent> mTrigEnter, mTrigStay, mTrigExit; // M13
+				NkVector<NkTriggerEvent> mContactEnter, mContactExit;	   // chocs entre solides
 				float32 mAccumulator = 0.f;								   // pas fixe (M12)
 				NkBodyId mNextId = 1u;
 				NkJointId mNextJointId = 1u;
