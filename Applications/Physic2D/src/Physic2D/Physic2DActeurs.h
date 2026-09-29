@@ -68,6 +68,10 @@ namespace nkentseu {
 		/// Sans cet appel (banc, rendu absent), ils restent des aplats.
 		void NkCreerTexturesActeurs(unkeny::NkTextures2D &textures);
 
+		/// Fabrique les bruitages de la demo (pose, explosion, coupe) par
+		/// synthese — aucun fichier, comme les textures.
+		void NkCreerSonsActeurs(unkeny::NkSons2D &sons, uint32 &pose, uint32 &explosion, uint32 &coupe);
+
 		struct NkDecor2D {
 				bool sol = false; ///< sol et murs : non gommables
 		};

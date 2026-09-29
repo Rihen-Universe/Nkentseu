@@ -42,7 +42,9 @@ with project("Unkeny"):
          "NKECS", "NKCollision", "NKPhysics",
          # Sauvegarde des scenes (.nkscene, JSON) : NkArchive + NkJSONWriter.
          # NKReflection vient avec NKSerialization, qui en depend.
-         "NKReflection", "NKSerialization"],
+         "NKReflection", "NKSerialization",
+         # Le son (Son/NkUnkenySon) : NKAudio, deja lie par chaque jeu Unkeny.
+         "NKAudio"],
         selfexport="Unkeny",
         extra_includes=["src"],
     )

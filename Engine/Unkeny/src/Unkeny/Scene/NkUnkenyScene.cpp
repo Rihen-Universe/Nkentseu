@@ -13,6 +13,7 @@
 // -----------------------------------------------------------------------------
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Son/NkUnkenySon.h"
 
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"
@@ -72,6 +73,7 @@ namespace nkentseu {
 			// le meme chemin que ceux d'un jeu.
 			PhotographierAussi<NkAnimSprite2D>("NkAnimSprite2D");
 			PhotographierAussi<NkVitesse2D>("NkVitesse2D");
+			PhotographierAussi<NkSource2D>("NkSource2D");
 
 			if (mConfig.physique) {
 				// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur

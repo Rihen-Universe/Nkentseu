@@ -128,6 +128,10 @@ namespace nkentseu {
 		// Les textures AVANT le premier niveau : ses acteurs rigides les portent.
 		mTextures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
 		physic2d::NkCreerTexturesActeurs(mTextures);
+		// Le son : facultatif. Sans peripherique, la demo continue en silence.
+		if (mSons.Demarrer()) {
+			physic2d::NkCreerSonsActeurs(mSons, mSonPose, mSonExplosion, mSonCoupe);
+		}
 		Charger(mNiveau);
 		Planifier();
 		Cadrer();
@@ -361,6 +365,8 @@ namespace nkentseu {
 		// Ce qui s'efface avec le temps.
 		mTraceAge += h;
 		mAnnonceAge += h;
+		mCoupeAge += h;
+		mSons.Avancer(mScene); // les NkSource2D : apres Pas, comme le veut Unkeny
 		if (!mGeste && mTraceAge > 0.35f) {
 			mTraceN = 0;
 		}
@@ -371,6 +377,18 @@ namespace nkentseu {
 		if (mSelection != 0u && (mScene.Particules() == nullptr || mScene.Particules()->IndexCorps(mSelection) < 0)) {
 			mSelection = 0u;
 		}
+	}
+
+	// Le son se coupe quand l'application part en arriere-plan : sinon il
+	// continue par-dessus ce que l'utilisateur fait ensuite (NkCanvasApp.h).
+	void Physic2D::OnPause() {
+		mSons.PoserMuet(true);
+	}
+	void Physic2D::OnResume() {
+		mSons.PoserMuet(false);
+	}
+	void Physic2D::OnShutdown() {
+		mSons.Arreter();
 	}
 
 	// =========================================================================
@@ -649,6 +667,7 @@ namespace nkentseu {
 				} else if (mActeur != NkActeur::NK_PONT) {
 					// Le pont se TRACE : il nait au relache. Le reste nait au clic.
 					const ecs::NkEntityId e = physic2d::NkPoserActeur(mScene, mActeur, m);
+					mSons.JouerA(mSonPose, m, mScene.Camera(), 0.6f);
 					if (const NkCorpsMou2D *mou = mScene.Monde().Get<NkCorpsMou2D>(e)) {
 						mSelection = mou->corpsId;
 					}
@@ -668,6 +687,7 @@ namespace nkentseu {
 				break;
 			case NkOutil::NK_EXPLOSION: {
 				p->Explosion(m, kRayonExplosion, kVitesseExplosion);
+				mSons.JouerA(mSonExplosion, m, mScene.Camera(), 1.f);
 				// Les rigides aussi : le souffle ne choisit pas.
 				mScene.Monde().Query<NkTransform2D, NkCorps2D>().ForEach(
 					[&](ecs::NkEntityId id, NkTransform2D &t, NkCorps2D &c) {
@@ -716,7 +736,10 @@ namespace nkentseu {
 				break;
 			case NkOutil::NK_COUTEAU:
 				if (p != nullptr && Longueur(m - mGestePrec) > 1.0e-3f) {
-					p->Couper(mGestePrec, m);
+					if (p->Couper(mGestePrec, m) > 0u && mCoupeAge > 0.12f) {
+						mSons.JouerA(mSonCoupe, m, mScene.Camera(), 0.5f);
+						mCoupeAge = 0.f;
+					}
 					if (mTraceN == kTrace) {
 						for (int32 i = 1; i < kTrace; ++i) {
 							mTrace[i - 1] = mTrace[i];

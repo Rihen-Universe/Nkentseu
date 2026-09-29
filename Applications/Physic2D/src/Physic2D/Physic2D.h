@@ -69,6 +69,9 @@ namespace nkentseu {
 			bool OnEvent(const NkEvent &e) override;
 			bool OnPointer(const NkPointer &p) override;
 			bool OnKeyPress(const NkKeyPressEvent &e) override;
+			void OnPause() override;
+			void OnResume() override;
+			void OnShutdown() override;
 
 		private:
 			friend class Physic2DBancVisuel;
@@ -154,6 +157,9 @@ namespace nkentseu {
 			// --- Donnees ----------------------------------------------------
 			unkeny::NkScene mScene;
 			unkeny::NkTextures2D mTextures;
+			unkeny::NkSons2D mSons;
+			uint32 mSonPose = 0, mSonExplosion = 0, mSonCoupe = 0;
+			float32 mCoupeAge = 99.f; ///< le son du couteau ne se rejoue pas a chaque trame
 			unkeny::NkScene::NkPhoto mPhoto;
 			unkeny::NkTheme mTheme;
 			unkeny::NkOptionsRenduParticules mRendu;

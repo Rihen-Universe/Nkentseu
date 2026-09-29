@@ -209,6 +209,49 @@ namespace nkentseu {
 			gTexBalle = textures.Creer(px, N, N, "physic2d/balle");
 		}
 
+		void NkCreerSonsActeurs(NkSons2D &sons, uint32 &pose, uint32 &explosion, uint32 &coupe) {
+			const int32 f = 44100;
+			NkVector<float32> b;
+			uint32 graine = 0x1234567u;
+			auto bruit = [&]() {
+				graine ^= graine << 13;
+				graine ^= graine >> 17;
+				graine ^= graine << 5;
+				return static_cast<float32>(graine & 0xFFFFu) / 32768.f - 1.f;
+			};
+			// Pose : un « plop » — sinus qui descend de 520 a 180 Hz en 90 ms.
+			b.Resize(static_cast<usize>(f * 0.09f));
+			float32 phase = 0.f;
+			for (uint32 i = 0; i < b.Size(); ++i) {
+				const float32 t = static_cast<float32>(i) / static_cast<float32>(b.Size());
+				phase += 6.2831853f * (520.f - 340.f * t) / static_cast<float32>(f);
+				b[i] = 0.5f * math::NkSin(phase) * (1.f - t) * (1.f - t);
+			}
+			pose = sons.Creer(b.Data(), b.Size(), f, "physic2d/pose");
+			// Explosion : bruit filtre qui s'assourdit, et un grondement a 55 Hz.
+			b.Resize(static_cast<usize>(f * 0.8f));
+			float32 bas = 0.f;
+			phase = 0.f;
+			for (uint32 i = 0; i < b.Size(); ++i) {
+				const float32 t = static_cast<float32>(i) / static_cast<float32>(b.Size());
+				const float32 k = 0.25f - 0.22f * t; // le filtre se ferme : le souffle devient sourd
+				bas += (bruit() - bas) * k;
+				phase += 6.2831853f * 55.f / static_cast<float32>(f);
+				b[i] = (0.9f * bas + 0.5f * math::NkSin(phase)) * math::NkExp(-5.f * t);
+			}
+			explosion = sons.Creer(b.Data(), b.Size(), f, "physic2d/explosion");
+			// Coupe : un souffle bref et aigu.
+			b.Resize(static_cast<usize>(f * 0.07f));
+			float32 prec = 0.f;
+			for (uint32 i = 0; i < b.Size(); ++i) {
+				const float32 t = static_cast<float32>(i) / static_cast<float32>(b.Size());
+				const float32 n = bruit();
+				b[i] = 0.35f * (n - prec) * math::NkSin(3.1415926f * t); // passe-haut grossier
+				prec = n;
+			}
+			coupe = sons.Creer(b.Data(), b.Size(), f, "physic2d/coupe");
+		}
+
 		ecs::NkEntityId NkOuvrirPinceau(NkScene &s, NkActeur a) {
 			physics::NkParticules2D *p = s.Particules();
 			if (p == nullptr || !NkActeurInfo(a).pinceau) {

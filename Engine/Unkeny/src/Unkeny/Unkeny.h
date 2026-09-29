@@ -35,6 +35,7 @@
 //   Vues/      plusieurs vues d'une meme scene, miniatures hors ecran
 //   Entree/    actions — le jeu parle d'actions, jamais de touches
 //   Anim/      images de sprite, et interpolation de deplacement
+//   Son/       sons charges ou fabriques, sources placees dans le monde
 //   Ui/        mise en page ancree sur la zone sure, widgets
 //   Jeu/       vocabulaire de GENRE (jeux a tours) — facultatif
 //
@@ -60,6 +61,7 @@
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Son/NkUnkenySon.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Ui/NkUnkenyGeometrie.h"
 #include "Unkeny/Ui/NkUnkenyTheme.h"

@@ -28,6 +28,15 @@
 //   (s3)  un fichier qui n'est pas une scene, une version future, un tableau
 //         de particules tronque : refuses, et la scene cible est INTACTE
 //   (s4)  aller-retour par un vrai fichier sur disque
+//   (a1)  spatialisation : au centre pan 0 / gain 1 ; au bord droit pan 0,8 ;
+//         a mi-portee hors champ gain 0,25 ; au-dela de la portee, 0
+//   (a2)  un son fabrique : meme nom meme id, duree juste
+//   (a3)  SANS moteur audio : Jouer rend 0, Avancer calcule pan et gain, rien
+//         ne casse
+//   (a4)  avec un moteur a sortie NULLE : une boucle auDemarrage joue ; son
+//         entite detruite, la voix est COUPEE a la trame suivante
+//   (a5)  `demande` joue une fois, `arret` coupe
+//   (a6)  apres Photographier / Restaurer, la boucle d'ambiance revit
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -37,6 +46,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKPhysics/NkParticules2DFabrique.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Son/NkUnkenySon.h"
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
@@ -44,7 +54,9 @@
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
+#include <chrono>
 #include <cstdio>
+#include <thread>
 #include <cstring>
 
 namespace nkentseu {
@@ -57,6 +69,18 @@ namespace nkentseu {
 			void Temoin(bool ok, const char *quoi, float32 valeur) {
 				std::printf("  [%s] %-66s %10.4f\n", ok ? " OK " : "ECHEC", quoi, static_cast<double>(valeur));
 				(ok ? gReussis : gEchecs)++;
+			}
+
+			/// Attend (au plus 1 s) que la voix se taise : les coupures sont des
+			/// fondus, que le mixeur termine sur son propre fil.
+			bool AttendreSilence(const NkSons2D &sons, uint32 voix) {
+				for (int32 k = 0; k < 100; ++k) {
+					if (!sons.Joue(voix)) {
+						return true;
+					}
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				}
+				return !sons.Joue(voix);
 			}
 
 			// Deux composants "du jeu" pour la sauvegarde.
@@ -490,6 +514,111 @@ namespace nkentseu {
 				std::remove(chemin);
 				Temoin(fichier && ed.Size() == ea.Size() && d.Particules()->particules.Size() == pa.particules.Size(),
 					   "(s4) aller-retour par un fichier (taille en ko)", static_cast<float32>(contenu.Length()) / 1024.f);
+			}
+
+			// (a1) .. (a6) son
+			{
+				NkVue2D cam;
+				cam.PoserViseur(NkRect{0.f, 0.f, 200.f, 100.f});
+				cam.PoserCentre(NkVec2f(0.f, 0.f));
+				cam.PoserZoom(10.f); // champ : x [-10, 10], y [-5, 5]
+				float32 p0, g0, p1, g1, p2, g2, p3, g3;
+				NkSons2D::Spatialiser(NkVec2f(0.f, 0.f), cam, 8.f, p0, g0);
+				NkSons2D::Spatialiser(NkVec2f(10.f, 0.f), cam, 8.f, p1, g1);
+				NkSons2D::Spatialiser(NkVec2f(14.f, 0.f), cam, 8.f, p2, g2);
+				NkSons2D::Spatialiser(NkVec2f(-30.f, 0.f), cam, 8.f, p3, g3);
+				Temoin(p0 == 0.f && g0 == 1.f && p1 > 0.79f && p1 < 0.81f && g1 == 1.f && g2 > 0.24f && g2 < 0.26f && p3 < -0.79f && g3 == 0.f,
+					   "(a1) centre, bord, mi-portee, hors portee (gain a mi-portee)", g2);
+
+				NkVector<float32> bip;
+				bip.Resize(24000);
+				for (uint32 i = 0; i < bip.Size(); ++i) {
+					bip[i] = 0.2f * math::NkSin(static_cast<float32>(i) * 0.0572f);
+				}
+				{
+					NkSons2D sons;
+					const uint32 a = sons.Creer(bip.Data(), bip.Size(), 48000, "bip");
+					Temoin(a != 0u && sons.Creer(bip.Data(), bip.Size(), 48000, "bip") == a && sons.Duree(a) > 0.499f && sons.Duree(a) < 0.501f,
+						   "(a2) son fabrique : meme nom meme id, 0,5 s", sons.Duree(a));
+
+					// (a3) sans moteur
+					NkScene s;
+					NkSceneConfig cfg;
+					s.Init(cfg);
+					s.Camera().PoserViseur(NkRect{0.f, 0.f, 200.f, 100.f});
+					s.Camera().PoserZoom(10.f);
+					const ecs::NkEntityId e = s.Creer(NkVec2f(10.f, 0.f));
+					NkSource2D src;
+					src.son = a;
+					src.auDemarrage = true;
+					src.boucle = true;
+					s.Monde().Add<NkSource2D>(e, src);
+					const uint32 v = sons.Jouer(a);
+					sons.Avancer(s);
+					const NkSource2D *r = s.Monde().Get<NkSource2D>(e);
+					Temoin(!sons.Actif() && v == 0u && r->voix == 0u && r->pan > 0.79f && r->gain == 1.f,
+						   "(a3) sans moteur : rien ne joue, pan et gain calcules", r->pan);
+				}
+
+				NkSons2D sons;
+				const bool moteur = sons.Demarrer(true);
+				const uint32 a = sons.Creer(bip.Data(), bip.Size(), 48000, "bip");
+				NkScene s;
+				NkSceneConfig cfg;
+				s.Init(cfg);
+				s.Camera().PoserViseur(NkRect{0.f, 0.f, 200.f, 100.f});
+				s.Camera().PoserZoom(10.f);
+				const ecs::NkEntityId e = s.Creer(NkVec2f(-4.f, 0.f));
+				NkSource2D src;
+				src.son = a;
+				src.auDemarrage = true;
+				src.boucle = true;
+				s.Monde().Add<NkSource2D>(e, src);
+				sons.Avancer(s);
+				const uint32 v1 = s.Monde().Get<NkSource2D>(e)->voix;
+				const bool joue1 = sons.Joue(v1);
+				s.Detruire(e);
+				sons.Avancer(s);
+				// La coupure est un FONDU de 50 ms (sans lui, un claquement) : on
+				// laisse au mixeur le temps de le finir.
+				const bool coupee1 = AttendreSilence(sons, v1);
+				Temoin(moteur && v1 != 0u && joue1 && coupee1, "(a4) boucle lancee, puis coupee a la destruction de l'entite",
+					   static_cast<float32>(v1));
+
+				const ecs::NkEntityId f = s.Creer(NkVec2f(0.f, 0.f));
+				NkSource2D coup;
+				coup.son = a;
+				s.Monde().Add<NkSource2D>(f, coup);
+				sons.Avancer(s);
+				const bool rienAvant = s.Monde().Get<NkSource2D>(f)->voix == 0u;
+				s.Monde().Get<NkSource2D>(f)->demande = true;
+				sons.Avancer(s);
+				const uint32 v2 = s.Monde().Get<NkSource2D>(f)->voix;
+				const bool joue2 = sons.Joue(v2);
+				s.Monde().Get<NkSource2D>(f)->arret = true;
+				sons.Avancer(s);
+				Temoin(rienAvant && v2 != 0u && joue2 && AttendreSilence(sons, v2) && s.Monde().Get<NkSource2D>(f)->voix == 0u,
+					   "(a5) demande joue une fois, arret coupe", static_cast<float32>(v2));
+
+				const ecs::NkEntityId g = s.Creer(NkVec2f(0.f, 0.f));
+				NkSource2D amb = src;
+				s.Monde().Add<NkSource2D>(g, amb);
+				sons.Avancer(s);
+				NkScene::NkPhoto photo;
+				s.Photographier(photo);
+				s.Restaurer(photo);
+				sons.Avancer(s);
+				NkVector<ecs::NkEntityId> ids;
+				s.Entites(ids);
+				uint32 vivantes = 0;
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					const NkSource2D *q = s.Monde().Get<NkSource2D>(ids[i]);
+					if (q != nullptr && q->boucle && sons.Joue(q->voix)) {
+						++vivantes;
+					}
+				}
+				Temoin(vivantes == 1u, "(a6) apres Restaurer, la boucle d'ambiance revit (voix actives)", static_cast<float32>(vivantes));
+				sons.Arreter();
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,
