@@ -117,6 +117,29 @@ namespace nkentseu {
 					return mLogoCompletPret ? NkRihenLogoTexId() : 0u;
 				}
 
+				/// Televerse une image RGBA (4 octets par pixel, lignes jointives)
+				/// sous `texId`, pour AddImage / AddImagePolygon.
+				///
+				/// ⚠️ AJOUTE LE 2026-09-29. Le backend est un membre PRIVE : une
+				/// application qui voulait dessiner une image devait en creer un
+				/// second (Mou le fait) — deux backends, deux jeux de textures.
+				/// Rend false avant OnGuiInit (aucun rendu) ou si le rendu refuse.
+				bool TeleverserImage(uint32 texId, const uint8 *rgba, int32 w, int32 h) noexcept {
+					return mGuiReady && mGuiBackend.UploadImageRGBA(texId, rgba, w, h);
+				}
+
+				/// Le meme relais, en fonction LIBRE : `app` est l'application.
+				/// C'est la forme qu'attend unkeny::NkTextures2D::Brancher, qui ne
+				/// connait pas NKCanvas :
+				///     mTextures.Brancher(&NkCanvasGuiApp::RelaisTeleversement,
+				///                        static_cast<NkCanvasGuiApp *>(this));
+				/// ⚠️ Le static_cast n'est pas decoratif : passer `this` d'une classe
+				/// derivee a heritage multiple donnerait une adresse decalee, et ce
+				/// relais la relirait comme un NkCanvasGuiApp.
+				static bool RelaisTeleversement(void *app, uint32 texId, const uint8 *rgba, int32 w, int32 h) noexcept {
+					return app != nullptr && static_cast<NkCanvasGuiApp *>(app)->TeleverserImage(texId, rgba, w, h);
+				}
+
 				// =============================================================
 				// AIDES DE TEXTE — DES RELAIS, plus des implementations.
 				//
