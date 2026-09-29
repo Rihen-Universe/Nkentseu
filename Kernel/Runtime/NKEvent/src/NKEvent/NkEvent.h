@@ -314,6 +314,14 @@ namespace nkentseu {
 				// -----------------------------------------------------------------
 				NK_CUSTOM, ///< Événement défini par l'utilisateur (type générique)
 
+				// -----------------------------------------------------------------
+				// AJOUTES APRES NK_CUSTOM (29/09), ET C'EST VOULU : un type insere
+				// dans son groupe decalerait la valeur de tous ceux qui le suivent,
+				// et une session enregistree ou une table indexee par type
+				// relirait faux. Ici, aucune valeur existante ne bouge.
+				// -----------------------------------------------------------------
+				NK_TEXT_COMPOSITION, ///< Composition IME en cours (NkTextCompositionEvent)
+
 				/// @brief Sentinelle finale — doit toujours rester en dernière position
 				/// Utilisée pour la validation de plage et l'itération sécurisée
 				NK_EVENT_COUNT

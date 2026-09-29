@@ -140,6 +140,37 @@ namespace nkentseu {
 					wheelPending += delta;
 				}
 
+				// ── LA COMPOSITION IME EN COURS (29/09) ──────────────────────────
+				// Posee par l'application depuis NkTextCompositionEvent, effacee a
+				// sa FIN. Elle n'est PAS videe a chaque image : l'IME ne la renvoie
+				// que quand elle change. Le champ focalise la dessine SOULIGNEE a
+				// son curseur ; le texte VALIDE, lui, arrive toujours par PushChar.
+				// Vide (le defaut) : aucun effet, comme avant ce jour.
+				static constexpr int32 CompositionCapacity = 256;
+				char composition[CompositionCapacity] = {};
+				int32 compositionCursor = 0; ///< en CODE POINTS depuis le debut de la composition
+
+				void SetComposition(const char *utf8, int32 cursor) noexcept {
+					int32 n = 0;
+					if (utf8 != nullptr) {
+						while (utf8[n] != '\0' && n < CompositionCapacity - 1) {
+							composition[n] = utf8[n];
+							++n;
+						}
+					}
+					composition[n] = '\0';
+					compositionCursor = cursor < 0 ? 0 : cursor;
+				}
+
+				void ClearComposition() noexcept {
+					composition[0] = '\0';
+					compositionCursor = 0;
+				}
+
+				bool HasComposition() const noexcept {
+					return composition[0] != '\0';
+				}
+
 				// Vrai à l'appui PUIS en répétition au maintien (flèches, backspace…).
 				bool KeyPressedRepeat(NkGuiKey k, float32 delay = 0.30f, float32 rate = 0.04f) const noexcept {
 					const int32 i = static_cast<int32>(k);
