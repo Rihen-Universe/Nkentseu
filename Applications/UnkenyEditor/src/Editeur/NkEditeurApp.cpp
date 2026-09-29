@@ -298,7 +298,8 @@ namespace nkentseu {
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
-			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur);
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur, occupe);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
 			// fermer le viseur mettait la simulation en pause. La coquille a un
@@ -382,7 +383,8 @@ namespace nkentseu {
 		bool NkEditeurApp::OnEvent(const NkEvent &event) {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
-			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur)) {
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
 			nkgui::NkGuiInput &in = Gui().input;

@@ -65,13 +65,15 @@ namespace nkentseu {
 		/// Un evenement. Rend true si le JEU le prend : l'editeur ne doit alors
 		/// pas le donner a NKGui.
 		/// @param viseur le rectangle du viseur, en pixels client
+		/// @param editeurOccupe une boite modale ou un menu est ouvert : l'editeur
+		///        a besoin du clavier (Entree, Echap), le jeu rend la main
 		bool NkEditeurEntreesEvenement(NkEditeurEntrees &e, NkEtatJeu etat, const NkEvent &evenement,
-									   const nkgui::NkRect &viseur);
+									   const nkgui::NkRect &viseur, bool editeurOccupe = false);
 
 		/// Une trame : suit l'etat du jeu, puis calcule les actions (a appeler
 		/// AVANT le pas de la scene).
 		void NkEditeurEntreesTrame(NkEditeurEntrees &e, NkEtatJeu etat, const NkGamepadSystem *manettes,
-								   const nkgui::NkRect &viseur);
+								   const nkgui::NkRect &viseur, bool editeurOccupe = false);
 
 		/// Le bandeau du viseur quand le jeu a la main, avec les actions non
 		/// nulles (la « surimpression des actions en jeu » de la feuille de
@@ -79,7 +81,7 @@ namespace nkentseu {
 		void NkEditeurDessinerEntrees(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *police, const NkEditeurEntrees &e,
 									  const nkgui::NkRect &viseur);
 
-		/// (e25..e30), lance par `--selftest` apres le banc de l'editeur.
+		/// (e25..e31), lance par `--selftest` apres le banc de l'editeur.
 		int32 NkEditeurLancerBancEntrees();
 
 	} // namespace editeur

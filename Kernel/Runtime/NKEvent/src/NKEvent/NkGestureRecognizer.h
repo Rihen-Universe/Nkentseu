@@ -192,6 +192,7 @@ namespace nkentseu {
 
 			uint64 mEmitted = 0;
 			uint32 mEmittedThisCall = 0;
+			bool mDansAppel = false; ///< garde contre la reentree (voir OnTouchEvent)
 	};
 
 } // namespace nkentseu

@@ -28,6 +28,8 @@
 //         doigt est ignore sans rien casser
 //   (g10) un doigt qui reste pose pendant qu'un second tape ne fait PAS de
 //         tape (la session dure tant qu'un doigt reste)
+//   (g11) ajoute apres coup, a la relecture : un destinataire qui pose un
+//         contact pendant la livraison d'une tape ne corrompt rien
 // =============================================================================
 
 #include <Unitest/Unitest.h>
@@ -364,4 +366,34 @@ TEST_CASE(NKEventGestes, G10_UnDoigtResteNePasTaper) {
 	b.Lever(2, 300.f, 100.f, 80.0);
 	ASSERT_EQUAL(0u, b.Compter(TAP));
 	ASSERT_EQUAL(1u, b.r.GetActiveContactCount());
+}
+
+// (g11) un destinataire qui POSE un contact pendant qu'on lui livre une tape :
+// le contact reentrant n'est pas lu (pas de corruption), et le reconnaisseur
+// reste coherent.
+TEST_CASE(NKEventGestes, G11_PasDeReentree) {
+	NkGestureRecognizer r;
+	uint32 taps = 0;
+	r.SetSink([&](NkEvent &e) {
+		if (e.GetType() != NkEventType::NK_GESTURE_TAP) {
+			return;
+		}
+		++taps;
+		NkTouchPoint p;
+		p.id = 99;
+		p.clientX = 10.f;
+		p.clientY = 10.f;
+		NkTouchBeginEvent reentrant(&p, 1);
+		r.OnTouchEvent(reentrant, 150.0);
+	});
+	NkTouchPoint p;
+	p.id = 1;
+	p.clientX = 50.f;
+	p.clientY = 50.f;
+	NkTouchBeginEvent pose(&p, 1);
+	NkTouchEndEvent leve(&p, 1);
+	r.OnTouchEvent(pose, 0.0);
+	r.OnTouchEvent(leve, 100.0);
+	ASSERT_EQUAL(1u, taps);
+	ASSERT_EQUAL(0u, r.GetActiveContactCount());
 }

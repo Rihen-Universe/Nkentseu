@@ -18,6 +18,8 @@
 //   (e29) la manette de banc : Sud -> Sauter quand le jeu a la main ; ignoree
 //         quand il ne l'a pas
 //   (e30) Arreter (EDITION) : la main revient a l'editeur, tout est relache
+//   (e31) ajoute a la relecture : une boite modale ou un menu ouvert reprend la
+//         main (Entree et Echap sont a la boite, pas au jeu)
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -88,8 +90,11 @@ namespace nkentseu {
 		}
 
 		bool NkEditeurEntreesEvenement(NkEditeurEntrees &e, NkEtatJeu etat, const NkEvent &ev,
-									   const nkgui::NkRect &viseur) {
-			if (etat != NkEtatJeu::NK_JEU) {
+									   const nkgui::NkRect &viseur, bool editeurOccupe) {
+			// ⚠️ UNE BOITE OU UN MENU OUVERT EST A L'EDITEUR : sans cette ligne, la
+			//    boite « scene non enregistree » ouverte en jeu ne recevait ni
+			//    Entree ni Echap, que le jeu gardait pour lui.
+			if (etat != NkEtatJeu::NK_JEU || editeurOccupe) {
 				if (e.jeuALaMain) {
 					RendreLaMain(e);
 				}
@@ -141,11 +146,14 @@ namespace nkentseu {
 		}
 
 		void NkEditeurEntreesTrame(NkEditeurEntrees &e, NkEtatJeu etat, const NkGamepadSystem *manettes,
-								   const nkgui::NkRect &viseur) {
+								   const nkgui::NkRect &viseur, bool editeurOccupe) {
+			if (editeurOccupe && e.jeuALaMain) {
+				RendreLaMain(e);
+			}
 			if (etat != e.etatVu) {
 				// Jouer (depuis l'edition ou la pause) donne la main au jeu ;
 				// tout autre changement la lui reprend.
-				if (etat == NkEtatJeu::NK_JEU) {
+				if (etat == NkEtatJeu::NK_JEU && !editeurOccupe) {
 					PrendreLaMain(e);
 				} else if (e.jeuALaMain) {
 					RendreLaMain(e);
@@ -309,6 +317,19 @@ namespace nkentseu {
 								!e.jeu.ToucheTenue(NkKey::NK_D) && m.etat == NkEtatJeu::NK_EDITION;
 			const bool plusRien = !NkEditeurEntreesEvenement(e, m.etat, espace, viseur);
 			Temoin(avant && arrete && plusRien, "(e30) Arreter : main a l'editeur, tout relache", 0.f);
+
+			// ── (e31) ──
+			NkEditeurJouer(m);
+			NkEditeurEntreesTrame(e, m.etat, &pads, viseur);
+			const bool reprise31 = e.jeuALaMain;
+			const NkKeyPressEvent entree(NkKey::NK_ENTER);
+			const bool entreeALaBoite = !NkEditeurEntreesEvenement(e, m.etat, entree, viseur, true);
+			NkEditeurEntreesTrame(e, m.etat, &pads, viseur, true);
+			const bool rendue31 = !e.jeuALaMain;
+			NkEditeurArreter(m);
+			NkEditeurEntreesTrame(e, m.etat, &pads, viseur);
+			Temoin(reprise31 && entreeALaBoite && rendue31, "(e31) boite ou menu ouvert : le clavier revient a l'editeur",
+				   0.f);
 
 			alloc.Delete(pe);
 			alloc.Delete(pm);
