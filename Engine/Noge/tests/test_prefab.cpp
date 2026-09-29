@@ -53,6 +53,12 @@ TEST_CASE(NogePrefab, ComposantsPosesAInstanciation) {
 	const ecs::NkEntityId e = orc.Instantiate(monde, "orc1");
 	const NkBancPrefabVie *v = monde.Get<NkBancPrefabVie>(e);
 	ASSERT_NOT_NULL(v);
+	// ASSERT_NOT_NULL signale sans quitter le cas : sans ce retour, un composant
+	// absent (le defaut d'avant) se lirait par un pointeur nul et ferait TOMBER la
+	// suite au lieu de la faire rougir (mesure par la contre-epreuve).
+	if (v == nullptr) {
+		return;
+	}
 	ASSERT_EQUAL(50, static_cast<int>(v->pv));
 	ASSERT_NEAR(2.5f, v->vitesse, 0.0001f);
 }
@@ -67,6 +73,9 @@ TEST_CASE(NogePrefab, ComposantDecritEnJson) {
 	const ecs::NkEntityId e = gob.Instantiate(monde, nullptr);
 	const NkBancPrefabVie *v = monde.Get<NkBancPrefabVie>(e);
 	ASSERT_NOT_NULL(v);
+	if (v == nullptr) {
+		return;
+	}
 	ASSERT_EQUAL(7, static_cast<int>(v->pv));
 	ASSERT_NEAR(1.5f, v->vitesse, 0.0001f);
 
