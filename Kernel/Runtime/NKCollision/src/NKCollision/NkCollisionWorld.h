@@ -82,7 +82,18 @@ namespace nkentseu {
 
 				// Raycast : renvoie le hit le PLUS PROCHE (filtré par mask de layers).
 				bool Raycast3D(const NkRay3D &ray, NkRayHit3D &hit, uint32 mask = 0xFFFFFFFFu) const;
+				// ⚠️ EXACT depuis le 2026-09-29 pour toutes les formes 2D (NkColRay2D.h)
+				// et parcouru par le DBVH ; `hit.bodyId` est rempli. Avant, seul le
+				// cercle etait exact : boite, capsule, polygone... etaient touches sur
+				// leur boite ENGLOBANTE -- un rayon passait « dans » le coin vide d'une
+				// boite tournee. L'ancien calcul reste sous Raycast2DBoites.
 				bool Raycast2D(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask = 0xFFFFFFFFu) const;
+				// Meme rayon, en ignorant les zones (`trigger`) si demande et le corps
+				// `ignorer` (0 = aucun) : « qu'y a-t-il sous mes pieds, a part moi ».
+				bool Raycast2D(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask, bool ignorerZones, uint32 ignorer) const;
+				// L'ANCIEN Raycast2D, garde tel quel : cercle exact, toute autre forme
+				// touchee sur sa boite englobante, sans DBVH, sans bodyId.
+				bool Raycast2DBoites(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask = 0xFFFFFFFFu) const;
 
 				// Requête d'overlap : tous les corps qui chevauchent la forme `s`
 				// (broadphase AABB + narrowphase). Remplit `out` avec leurs ids, renvoie le nombre.
