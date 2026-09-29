@@ -17,7 +17,9 @@ Extrait de NKRenderer/Tools/Animation le 2026-08-14, bloc de décision
 « SUBSTRATS ANIMATION ET COMPORTEMENT » (CLAUDE.md du répertoire parent).
 
 Contenu (src/NKAnima/) :
-  NkAnimation.*        => clips, keyframes, player, blend 1D/2D, HFSM
+  NkAnimation.*        => clips, keyframes, player, blend 1D/2D, HFSM (sous-machines,
+                          any-state par niveau, déclencheurs, priorités, .nkanim v3 —
+                          hiérarchique pour de vrai depuis le 2026-09-29)
   NkAnimRetarget.*     => rejouer un clip sur un AUTRE squelette
   NkAnimationEditor.*  => modèle d'édition de pose-clés + annuler/refaire
   NkMotionPath.*       => spline Catmull-Rom + suivi de trajectoire
@@ -43,7 +45,8 @@ binaire). Ne pas « optimiser » en le sortant : le coût mesuré est zéro.
 Dépendances : Foundation seule (NKCore/NKMemory/NKMath/NKContainers) + NKLogger,
 NKFileSystem (sauvegarde .nkanim).
 Consommateurs : NKRenderer (façade + debug-draw), Noge, NkAnimaEditor, Sandbox,
-NKCraft, NkAnimPhysTest, NkLocomotionDemo.
+NKCraft, NkAnimPhysTest, NkLocomotionDemo, et Unkeny (moteur 2D : sa
+machine à états d'animation, Anim/NkUnkenyAnimateur — depuis le 2026-09-29).
 
 Depuis le 2026-09-04, le module CONTIENT l'ex-NKAnimPhysics (src/NKAnima/Physics/ :
 masse/COM, équilibre, appuis, auto-pose, passe d'équilibre de clip), même espace

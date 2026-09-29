@@ -392,6 +392,16 @@ Détail cible (fusion corpus IA 2026-07-09) :
   - **✅ `NkAnimStateMachine`** — HFSM : états (clip OU blend tree 1D/2D),
     transitions par condition (bool / seuil float), crossfade bone-local
     `fadeDur`, callback début/fin de transition, any-state transitions (from=-1).
+    > ⚠️ **CORRECTION DU 2026-09-29 — « HFSM » était FAUX.** Ce qui est décrit
+    > juste au-dessus est exact, et c'est précisément une machine **plate** : un
+    > niveau, trois conditions, aucune sous-machine. Le « H » n'existait pas.
+    > Il existe depuis le commit `d0cb1cedc` (branche `comble/nkanima-hfsm`) :
+    > sous-machines et état d'entrée, any-state par niveau, déclencheurs
+    > consommés, conditions combinées, priorités, fondu entre niveaux,
+    > paramètres partagés, `.nkanim` v3 — détail dans `ROADMAP.md` (bloc du
+    > 29/09). Les lignes datées de ce document qui disent « HFSM » (l'état
+    > honnête du 23/07, le tableau du 14/08) décrivaient donc une promesse ;
+    > elles restent telles quelles, comme tout journal.
   Self-tests headless dans `Applications/Sandbox/src/Demo/DemoAnim.cpp`
   (gate `NK_ANIM_SMTEST`, nécessite un modèle multi-anim type Fox) : state
   machine idle→walk→retour idle + comptage d'événements OK, blend 2D mix/exact

@@ -154,7 +154,10 @@ _REGISTRY: dict = {
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKStream", "NKFileSystem", "NKEvent", "NKWindow",
                                                     "NKCanvas", "NKFont", "NKImage", "NKGui",
-                                                    "NKECS", "NKCollision", "NKPhysics"]),
+                                                    "NKECS", "NKCollision", "NKPhysics",
+                                                    # Anim/NkUnkenyAnimateur : la HFSM de NKAnima (2026-09-29).
+                                                    # Foundation seule, aucun GPU : l'exclusivite NKCanvas tient.
+                                                    "NKAnima"]),
     "Noge"           : _m("NKENTSEU_NOGE",         ["NKPlatform", "NKCore", "NKMemory", "NKContainers",
                                                     "NKMath", "NKThreading", "NKLogger", "NKTime",
                                                     "NKEvent", "NKWindow", "NKCanvas", "NKRHI", "NKRenderer", "NKSL",
