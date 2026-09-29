@@ -72,7 +72,10 @@ namespace nkentseu {
 			NK_AJOUTER,
 			NK_APPAREIL,
 			NK_REGLAGES,
-			NK_COMPOSANT
+			NK_COMPOSANT,
+			NK_CTX_ENTITE,	 ///< clic droit sur une entite
+			NK_CTX_VIDE,	 ///< clic droit dans le vide
+			NK_AJOUTER_ICI	 ///< sous-menu « Ajouter ici » : pose au point du clic droit
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -105,6 +108,12 @@ namespace nkentseu {
 			NK_A_RACCOURCIS,
 			NK_A_ARMER_SIMPLE,			///< arme « Poser » sur l'entite simple (sprite + boite)
 			NK_A_FERMER_SCENE,			///< la ✕ de l'onglet de scene
+			NK_A_RENOMMER,				///< le champ Nom des Details, focalise, texte choisi
+			NK_A_CADRER_SELECTION,		///< la vue se centre sur la selection
+			NK_A_ENTITE_ICI,			///< une entite vide au point du clic droit
+			NK_A_SIMPLE_ICI,			///< l'entite simple (sprite + boite) au point du clic droit
+			NK_A_ACCROCHAGE,			///< l'accrochage des gizmos, allume / eteint
+			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
 			NK_A_APPAREIL = 300,		///< + indice de profil
@@ -121,6 +130,8 @@ namespace nkentseu {
 				bool coche = false;
 				bool actif = true;
 				bool separateur = false;
+				/// Le survol de l'entree ouvre CE menu a sa droite (« Ajouter ▸ »).
+				NkMenuEditeur sousMenu = NkMenuEditeur::NK_AUCUN;
 		};
 
 		/// Les couleurs du chrome, LUES dans le theme du kit : aucune n'est en dur.
@@ -174,6 +185,12 @@ namespace nkentseu {
 				/// Le rectangle du menu, gardé d'une trame a l'autre : c'est lui
 				/// qui decide, AVANT le dessin du corps, si la souris est dessus.
 				nkgui::NkRect menuRect{0.f, 0.f, 0.f, 0.f};
+				/// Le sous-menu ouvert depuis une entree du menu (un seul niveau).
+				NkMenuEditeur sousMenu = NkMenuEditeur::NK_AUCUN;
+				nkgui::NkRect sousMenuLigne{0.f, 0.f, 0.f, 0.f}; ///< l'entree qui l'a ouvert
+				nkgui::NkRect sousMenuRect{0.f, 0.f, 0.f, 0.f};
+				/// Le point du MONDE ou le clic droit a eu lieu : « Ajouter ici » y pose.
+				NkVec2f pointContexte{0.f, 0.f};
 
 				// --- Les onglets ------------------------------------------------
 				int32 ongletDroite = 0; ///< 0 Details, 1 Monde
@@ -200,11 +217,48 @@ namespace nkentseu {
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
+				/// « Renommer » (menu, F2) : le champ prend le focus, texte choisi,
+				/// A LA TRAME OU IL SE DESSINE -- la selection vient peut-etre de
+				/// changer, et le champ remet son focus a zero quand elle change.
+				bool renommerDemande = false;
 				float32 defilDetails = 0.f;
 
 				// --- Le viseur --------------------------------------------------
 				NkVec2f precMonde{0.f, 0.f}; ///< point precedent du couteau et du pinceau
 				bool geste = false;			 ///< saisie, coupe ou pinceau en cours
+				/// Le clic gauche a touche une entite : le glisser la deplacera au-dela
+				/// du seuil. En deca, c'etait un clic -- il a deja selectionne.
+				bool glisserArme = false;
+				NkVec2f appuiEcran{0.f, 0.f};
+
+				// --- Les gizmos --------------------------------------------------
+				/// La poignee tenue : 0 aucune, 1 axe X, 2 axe Y, 3 plan XY (deplacer)
+				/// ou uniforme (echelle), 4 anneau (tourner).
+				int32 gizmoTenu = 0;
+				int32 gizmoSurvol = 0;	 ///< la poignee sous le curseur (pour la peindre)
+				NkVec2f gizmoCentre0{0.f, 0.f}; ///< le centre de l'entite a la saisie
+				NkVec2f gizmoMonde0{0.f, 0.f};	///< le point saisi, en metres
+				NkVec2f gizmoEcran0{0.f, 0.f};	///< le point saisi, en pixels
+				float32 gizmoAngle = 0.f;		///< rotation deja appliquee (rad)
+				NkVec2f gizmoEchelle{1.f, 1.f};	///< facteur deja applique
+				/// L'accrochage : ACTIF par defaut, Ctrl l'inverse le temps du geste.
+				bool accrochage = true;
+				float32 pasGrille = 0.25f;	 ///< metres
+				float32 pasAngle = 15.f;	 ///< degres
+				float32 pasEchelle = 0.1f;	 ///< facteur
+
+				/// Le cadrage anime (F, double-clic de l'Outliner) : la camera va de
+				/// son etat courant a la cible en `cadrageDuree` secondes.
+				bool cadrageAnime = false;
+				float32 cadrageT = 0.f;
+				NkVec2f cadrageCentre0{0.f, 0.f};
+				float32 cadrageZoom0 = 1.f;
+				NkVec2f cadrageCentre1{0.f, 0.f};
+				float32 cadrageZoom1 = 1.f;
+				/// La zone du cadrage demande, en metres (0 = rien a cadrer). Le zoom
+				/// cible se calcule A LA TRAME DU VISEUR, qui seule connait sa taille.
+				NkVec2f cadrageZone{0.f, 0.f};
+				bool cadrageDemande = false;
 				/// Cadrer demande la taille du viseur : on cadre a la PREMIERE trame
 				/// ou il l'a, sinon le zoom sort d'un viseur de 1 x 1.
 				bool cadrageEnAttente = true;
@@ -247,6 +301,7 @@ namespace nkentseu {
 				// --- Divers -----------------------------------------------------
 				float32 ips = 0.f;
 				float32 temps = 0.f;			///< secondes depuis le lancement (journal)
+				float32 dt = 1.f / 60.f;		///< le pas de la trame (cadrage anime)
 				NkString derniereAnnonce;		///< la derniere recopiee au journal
 				bool demandeQuitter = false;
 				/// L'ordre de l'Outliner, garde d'une trame a l'autre : l'ECS range ses
@@ -326,6 +381,10 @@ namespace nkentseu {
 		void NkEditeurDessinerDetails(NkEditeurCadre &c);
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c);
 		void NkEditeurDessinerVue(NkEditeurCadre &c);
+		/// Mene la camera, EN DOUCEUR, sur la selection -- ou sur toute la scene
+		/// si `toutLaScene` ou si rien n'est selectionne (NkEditeurZoneACadrer).
+		/// Meme si la selection est hors du cadre : c'est tout l'interet.
+		void NkEditeurDemanderCadrage(NkEditeurCadre &c, bool toutLaScene);
 
 	} // namespace editeur
 } // namespace nkentseu

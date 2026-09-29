@@ -29,7 +29,25 @@ namespace nkentseu {
 
 		/// L'outil courant. Il decide de ce que fait un clic dans le viseur.
 		/// SAISIR et COUTEAU agissent sur la matiere : ils servent en JEU.
-		enum class NkOutil : uint8 { NK_SELECTION = 0, NK_POSER, NK_EFFACER, NK_SAISIR, NK_COUTEAU };
+		/// DEPLACER / TOURNER / ECHELLE (2026-09-29) : la selection, plus le
+		/// gizmo du meme nom sur l'entite choisie (W / E / R, comme UE5).
+		/// AJOUTES A LA FIN : les valeurs existantes ne bougent pas.
+		enum class NkOutil : uint8 {
+			NK_SELECTION = 0,
+			NK_POSER,
+			NK_EFFACER,
+			NK_SAISIR,
+			NK_COUTEAU,
+			NK_DEPLACER,
+			NK_TOURNER,
+			NK_ECHELLE
+		};
+
+		/// L'outil choisit-il comme la Selection (clic = choisir, glisser = deplacer) ?
+		inline bool NkOutilSelectionne(NkOutil o) noexcept {
+			return o == NkOutil::NK_SELECTION || o == NkOutil::NK_DEPLACER || o == NkOutil::NK_TOURNER ||
+				   o == NkOutil::NK_ECHELLE;
+		}
 
 		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
 		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).

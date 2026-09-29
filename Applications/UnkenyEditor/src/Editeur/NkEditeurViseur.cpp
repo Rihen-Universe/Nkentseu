@@ -52,6 +52,18 @@ namespace nkentseu {
 			dl.PushClipRect(viseur, true);
 			if (m.voirGrille) {
 				NkDessinerGrille(dl, scene.Camera(), 1.f);
+				// L'ORIGINE DU MONDE (2026-09-29) : ses deux axes, plus marques que la
+				// grille et dans les couleurs du gizmo (X rouge, Y vert), et le point
+				// (0, 0). Sans eux, rien ne dit ou est zero -- et une position lue
+				// dans les Details ne se retrouve pas a l'oeil.
+				const NkVec2f o = scene.Camera().MondeVersEcran(NkVec2f(0.f, 0.f));
+				if (o.y >= viseur.y && o.y <= viseur.y + viseur.h) {
+					dl.AddLine(NkVec2f(viseur.x, o.y), NkVec2f(viseur.x + viseur.w, o.y), NkColor(210, 75, 75, 170), 1.5f);
+				}
+				if (o.x >= viseur.x && o.x <= viseur.x + viseur.w) {
+					dl.AddLine(NkVec2f(o.x, viseur.y), NkVec2f(o.x, viseur.y + viseur.h), NkColor(85, 190, 95, 170), 1.5f);
+				}
+				dl.AddCircleFilled(o, 3.5f, NkColor(235, 235, 235, 230));
 			}
 			// L'ordre : les FORMES (decor, rigides sans texture), puis les sprites,
 			// puis la MATIERE par-dessus — elle coule sur tout le reste.

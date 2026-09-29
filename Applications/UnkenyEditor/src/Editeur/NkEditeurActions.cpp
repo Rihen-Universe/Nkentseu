@@ -280,6 +280,202 @@ namespace nkentseu {
 			return true;
 		}
 
+		bool NkEditeurCliquerSelection(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
+			if (NkEditeurChoisirSous(m, monde, centre)) {
+				return true;
+			}
+			// ⚠️ ChoisirSous LAISSE la selection en place quand il ne trouve rien :
+			//    c'est juste pour « Poser » et « Saisir », faux pour un clic de
+			//    selection, ou le vide veut dire « plus rien ».
+			m.aSelection = false;
+			m.deplace = false;
+			return false;
+		}
+
+		bool NkEditeurPeutDeplacer(const NkEditeurModele &m) noexcept {
+			return m.etat == NkEtatJeu::NK_EDITION;
+		}
+
+		bool NkEditeurCadrerSelection(NkEditeurModele &m) {
+			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
+				return false;
+			}
+			NkVec2f centre;
+			NkVec2f taille;
+			if (!NkEditeurZoneACadrer(m, centre, taille)) {
+				return false;
+			}
+			m.scene.Camera().Cadrer(centre, taille);
+			return true;
+		}
+
+		bool NkEditeurZoneACadrer(NkEditeurModele &m, NkVec2f &centre, NkVec2f &taille) {
+			NkVec2f mn(0.f, 0.f);
+			NkVec2f mx(0.f, 0.f);
+			bool ok = false;
+			if (m.aSelection && m.scene.Monde().IsAlive(m.selection)) {
+				ok = NkEditeurBoiteSelection(m, mn, mx);
+			} else {
+				// TOUTE LA SCENE : l'union des boites de chaque entite, par la meme
+				// fonction que le cadre de selection -- une seule idee de « la
+				// boite d'une entite », matiere comprise.
+				const ecs::NkEntityId garde = m.selection;
+				const bool avait = m.aSelection;
+				NkVector<ecs::NkEntityId> ids;
+				m.scene.Entites(ids);
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					m.selection = ids[i];
+					m.aSelection = true;
+					NkVec2f a(0.f, 0.f);
+					NkVec2f b(0.f, 0.f);
+					if (!NkEditeurBoiteSelection(m, a, b)) {
+						continue;
+					}
+					if (!ok) {
+						mn = a;
+						mx = b;
+						ok = true;
+						continue;
+					}
+					mn.x = a.x < mn.x ? a.x : mn.x;
+					mn.y = a.y < mn.y ? a.y : mn.y;
+					mx.x = b.x > mx.x ? b.x : mx.x;
+					mx.y = b.y > mx.y ? b.y : mx.y;
+				}
+				m.selection = garde;
+				m.aSelection = avait;
+			}
+			if (!ok) {
+				return false;
+			}
+			centre = NkVec2f((mn.x + mx.x) * 0.5f, (mn.y + mx.y) * 0.5f);
+			// La marge : 30 % autour, et jamais moins de 3 m -- une entite d'un
+			// centimetre cadree « bord a bord » remplirait l'ecran d'un pixel.
+			const float32 w = (mx.x - mn.x) * 1.3f;
+			const float32 h = (mx.y - mn.y) * 1.3f;
+			taille = NkVec2f(w > 3.f ? w : 3.f, h > 3.f ? h : 3.f);
+			return true;
+		}
+
+		bool NkEditeurTourner(NkEditeurModele &m, float32 delta) {
+			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
+				return false;
+			}
+			ecs::NkWorld &w = m.scene.Monde();
+			const ecs::NkEntityId id = m.selection;
+			const float32 co = math::NkCos(delta);
+			const float32 si = math::NkSin(delta);
+			if (const NkCorpsMou2D *mou = w.Get<NkCorpsMou2D>(id)) {
+				physics::NkParticules2D *p = m.scene.Particules();
+				const int32 ci = p != nullptr ? p->IndexCorps(mou->corpsId) : -1;
+				if (ci < 0) {
+					return false;
+				}
+				NkVec2f c(0.f, 0.f);
+				NkEditeurCentreSelection(m, c);
+				const physics::NkCorpsP2D &corps = p->corps[static_cast<uint32>(ci)];
+				auto tourne = [&](const NkVec2f &v) {
+					return NkVec2f(v.x * co - v.y * si, v.x * si + v.y * co);
+				};
+				for (uint32 i = corps.debut; i < corps.debut + corps.nombre; ++i) {
+					physics::NkParticule2D &q = p->particules[i];
+					const NkVec2f r = tourne(q.pos - c);
+					const NkVec2f rp = tourne(q.prec - c);
+					q.pos = c + r;
+					q.prec = c + rp;
+					q.vit = tourne(q.vit);
+				}
+				return true;
+			}
+			NkTransform2D *t = w.Get<NkTransform2D>(id);
+			if (t == nullptr) {
+				return false;
+			}
+			t->rotation += delta;
+			if (w.Has<NkCorps2D>(id)) {
+				m.scene.ActualiserCorps(id); // le corps prend la nouvelle orientation
+			}
+			return true;
+		}
+
+		bool NkEditeurMettreAEchelle(NkEditeurModele &m, const NkVec2f &f) {
+			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection) || f.x <= 0.f || f.y <= 0.f) {
+				return false;
+			}
+			ecs::NkWorld &w = m.scene.Monde();
+			const ecs::NkEntityId id = m.selection;
+			if (const NkCorpsMou2D *mou = w.Get<NkCorpsMou2D>(id)) {
+				physics::NkParticules2D *p = m.scene.Particules();
+				const int32 ci = p != nullptr ? p->IndexCorps(mou->corpsId) : -1;
+				if (ci < 0) {
+					return false;
+				}
+				NkVec2f c(0.f, 0.f);
+				NkEditeurCentreSelection(m, c);
+				physics::NkCorpsP2D &corps = p->corps[static_cast<uint32>(ci)];
+				for (uint32 i = corps.debut; i < corps.debut + corps.nombre; ++i) {
+					physics::NkParticule2D &q = p->particules[i];
+					q.pos = NkVec2f(c.x + (q.pos.x - c.x) * f.x, c.y + (q.pos.y - c.y) * f.y);
+					q.prec = NkVec2f(c.x + (q.prec.x - c.x) * f.x, c.y + (q.prec.y - c.y) * f.y);
+					q.repos = NkVec2f(q.repos.x * f.x, q.repos.y * f.y);
+				}
+				// Les LONGUEURS DE REPOS suivent, lien par lien : un lien horizontal
+				// s'allonge de f.x, un vertical de f.y, un oblique entre les deux.
+				for (uint32 k = 0; k < p->liens.Size(); ++k) {
+					physics::NkLien2D &l = p->liens[k];
+					if (l.corps != static_cast<uint32>(ci)) {
+						continue;
+					}
+					const NkVec2f d = p->particules[l.b].pos - p->particules[l.a].pos;
+					// `d` est deja a la nouvelle echelle : on retrouve la direction d'avant.
+					const float32 ax = d.x / f.x;
+					const float32 ay = d.y / f.y;
+					const float32 avant = math::NkSqrt(ax * ax + ay * ay);
+					const float32 apres = math::NkSqrt(d.x * d.x + d.y * d.y);
+					if (avant > 1.0e-6f) {
+						const float32 k2 = apres / avant;
+						l.repos *= k2;
+						l.reposInitial *= k2;
+					}
+				}
+				corps.aireRepos *= f.x * f.y; // la pression d'un ballon vise sa nouvelle aire
+				return true;
+			}
+			if (NkSprite2D *s = w.Get<NkSprite2D>(id)) {
+				s->taille = NkVec2f(s->taille.x * f.x, s->taille.y * f.y);
+			}
+			if (NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id)) {
+				col->decalage = NkVec2f(col->decalage.x * f.x, col->decalage.y * f.y);
+				switch (col->forme) {
+					case NkForme2D::NK_BOITE:
+						col->demiTaille = NkVec2f(col->demiTaille.x * f.x, col->demiTaille.y * f.y);
+						break;
+					case NkForme2D::NK_CAPSULE:
+						col->demiTaille.x *= f.x;
+						col->rayon *= f.y;
+						break;
+					default:
+						// Un cercle reste un cercle : il prend la moyenne GEOMETRIQUE,
+						// qui vaut le facteur exact quand il est uniforme.
+						col->rayon *= math::NkSqrt(f.x * f.y);
+						break;
+				}
+				if (w.Has<NkCorps2D>(id)) {
+					m.scene.ActualiserCorps(id); // la forme vit aussi dans le solveur
+				}
+			}
+			return true;
+		}
+
+		float32 NkEditeurAccrocher(float32 v, float32 pas) noexcept {
+			if (pas <= 0.f) {
+				return v;
+			}
+			const float32 q = v / pas;
+			const float32 arrondi = static_cast<float32>(static_cast<int64>(q < 0.f ? q - 0.5f : q + 0.5f));
+			return arrondi * pas;
+		}
+
 		void NkEditeurSupprimerSelection(NkEditeurModele &m) {
 			if (!m.aSelection) {
 				return;

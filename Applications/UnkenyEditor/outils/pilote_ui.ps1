@@ -8,7 +8,10 @@
 #      composants, Jouer / Arreter, cloisons, champ Nom, recherche de
 #      l'Outliner, double-clic (cadrer), onglet Monde, glisser d'une carte du
 #      tiroir vers la vue, croix de l'onglet de scene (boite « non
-#      enregistree »), Enregistrer / Ouvrir, croix de la fenetre.
+#      enregistree »), Enregistrer / Ouvrir, croix de la fenetre ; et les
+#      gestes du viseur : clic (choisir / deselectionner), menus du clic droit
+#      (entite, vide, « Ajouter ici »), gizmos W / E / R, F (cadrer), molette
+#      pressee (deplacer la vue).
 #    On regarde ensuite les images : c'est un temoin VISUEL, pas un banc qui
 #    rend un verdict. Le banc, lui, est `UnkenyEditor.exe --selftest`.
 #
@@ -74,6 +77,8 @@ $P = @{
 	Outil = @(154, 73); Ajouter = @(262, 73); Jouer = @(332, 73); Arreter = @(390, 73)
 	Appareil = @(543, 73); Reglages = @(690, 73)
 	OutilsLigne1 = 100; OutilsLigne2 = 120                      # y des entrees d'un menu de la barre d'outils
+	# Menu Outil : Selection, Deplacer, Tourner, Echelle, (trait), Poser, Effacer...
+	OutilPoser = 187
 	# Outliner (x 0..250, y 90..)
 	PlusEntite = @(224, 103); Recherche = @(125, 130)
 	LigneSol = @(90, 197); LigneCaisse1 = @(90, 263)
@@ -82,7 +87,9 @@ $P = @{
 	ChampNom = @(1073, 134); AjouterComposant = @(1236, 134)
 	ComposantLigne1 = 160; ComposantLigne2 = 180                # Sprite, puis Corps rigide
 	# Vue, tiroir, cloisons
-	Vue = @(595, 300); OngletJournal = @(91, 501); CarteCaisse = @(461, 640)
+	Vue = @(595, 300); OngletJournal = @(91, 501); OngletActeurs = @(31, 501); CarteCaisse = @(461, 640)
+	# Caisse_1 dans la vue, cadrage de depart (toute la scene, ~22 px/m) ; le vide au-dessus
+	Caisse1Vue = @(463, 379); VideVue = @(600, 200)
 	CloisonGauche = @(252, 300); CloisonTiroir = @(640, 486)
 	# Boite « modifications non enregistrees »
 	BoiteEnregistrer = @(611, 371); BoiteSans = @(700, 371); BoiteAnnuler = @(819, 371)
@@ -142,6 +149,24 @@ function Glisser($de, $vers) {
 	Start-Sleep -Milliseconds 150
 	[W]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 400
 }
+function Survol($pos) {
+	[W]::SetCursorPos($o.X + $pos[0], $o.Y + $pos[1]) | Out-Null; Start-Sleep -Milliseconds 350
+}
+function ClicDroit($pos) {
+	[W]::SetCursorPos($o.X + $pos[0], $o.Y + $pos[1]) | Out-Null; Start-Sleep -Milliseconds 120
+	[W]::mouse_event(0x08, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 90
+	[W]::mouse_event(0x10, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 350
+}
+function GlisserMilieu($de, $vers) {
+	# La molette PRESSEE : le seul geste qui deplace la vue.
+	[W]::SetCursorPos($o.X + $de[0], $o.Y + $de[1]) | Out-Null; Start-Sleep -Milliseconds 150
+	[W]::mouse_event(0x20, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 120
+	for ($k = 1; $k -le 12; $k++) {
+		$x = [int]($de[0] + ($vers[0] - $de[0]) * $k / 12); $y = [int]($de[1] + ($vers[1] - $de[1]) * $k / 12)
+		[W]::SetCursorPos($o.X + $x, $o.Y + $y) | Out-Null; Start-Sleep -Milliseconds 40
+	}
+	[W]::mouse_event(0x40, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 400
+}
 function Molette($pos, [int]$d) {
 	[W]::SetCursorPos($o.X + $pos[0], $o.Y + $pos[1]) | Out-Null; Start-Sleep -Milliseconds 120
 	[W]::mouse_event(0x0800, 0, 0, [uint32]$d, [UIntPtr]::Zero); Start-Sleep -Milliseconds 300
@@ -176,8 +201,9 @@ ClicP $P.Fichier; Photo "p01_menu_fichier.png"; Touche 0x1B
 ClicP $P.Edition; Photo "p02_menu_edition.png"; Touche 0x1B
 ClicP $P.Fenetre; Clic 180 $P.MenuLigne1; Photo "p03_sans_outliner.png"
 ClicP $P.Fenetre; Clic 180 $P.MenuLigne1                        # l'Outliner revient
-ClicP $P.Aide; Clic 240 $P.MenuLigne1; Photo "p04_raccourcis.png"
-ClicP $P.Outil; Clic 150 $P.OutilsLigne2; Photo "p05_outil_poser.png"   # la barre ne bouge pas
+ClicP $P.Aide; Clic 240 $P.MenuLigne1; Photo "p04_raccourcis.png"     # l'aide s'ecrit au Journal
+ClicP $P.OngletActeurs                                          # le tiroir revient aux Acteurs
+ClicP $P.Outil; Clic 150 $P.OutilPoser; Photo "p05_outil_poser.png"     # la barre ne bouge pas
 ClicP $P.Outil; Clic 150 $P.OutilsLigne1                        # retour a Selection
 ClicP $P.Appareil; Clic 560 $P.OutilsLigne2; Photo "p06_telephone.png"  # surimpression de l'appareil
 ClicP $P.Appareil; Clic 560 $P.OutilsLigne1                     # retour au Bureau
@@ -186,6 +212,24 @@ ClicP $P.Ajouter; Photo "p08_menu_ajouter.png"; Touche 0x1B
 Molette $P.Vue 120; Molette $P.Vue 120
 Start-Sleep -Milliseconds 1300
 Photo "p09_zoom_sans_point.png"                               # regarder ne modifie pas la scene
+# ── Les gestes du viseur ─────────────────────────────────────────────────────
+# F sans selection : la vue revient sur TOUTE la scene -- le cadrage de depart,
+# celui ou $P.Caisse1Vue est juste.
+Touche 0x46; Start-Sleep -Milliseconds 600
+ClicP $P.Caisse1Vue; Photo "p09a_caisse_choisie.png"
+ClicP $P.VideVue; Photo "p09b_vide_deselectionne.png"         # le vide deselectionne
+ClicDroit $P.Caisse1Vue; Survol @(540, 500); Photo "p09c_menu_entite.png"   # « Ajouter un composant ▸ »
+Touche 0x1B
+ClicDroit $P.VideVue; Survol @(650, 214); Photo "p09d_menu_vide.png"        # « Ajouter ici ▸ »
+Clic 850 234; Photo "p09e_entite_simple_ici.png"               # posee au point du clic droit
+ClicP $P.Caisse1Vue; Touche 0x57                               # W : gizmo Deplacer
+Glisser @(($P.Caisse1Vue[0] + 45), $P.Caisse1Vue[1]) @(($P.Caisse1Vue[0] + 105), $P.Caisse1Vue[1])
+Photo "p09f_gizmo_deplacer.png"                                # sur X seulement, accroche a 0,25 m
+Touche 0x45; Photo "p09g_gizmo_tourner.png"                    # E
+Touche 0x52; Photo "p09h_gizmo_echelle.png"                    # R
+Touche 0x51                                                    # Q : Selection
+Touche 0x46; Start-Sleep -Milliseconds 600; Photo "p09i_cadrer_selection.png"   # F
+GlisserMilieu @(600, 300) @(680, 300); Photo "p09j_vue_deplacee.png"
 ClicP $P.PlusEntite
 ClicP $P.AjouterComposant; Photo "p10_menu_composants.png"
 Clic 1150 $P.ComposantLigne1                                  # Sprite

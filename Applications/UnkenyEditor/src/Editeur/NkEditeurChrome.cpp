@@ -58,6 +58,9 @@ namespace nkentseu {
 					case NkOutil::NK_EFFACER: return "Effacer";
 					case NkOutil::NK_SAISIR:  return "Saisir";
 					case NkOutil::NK_COUTEAU: return "Couteau";
+					case NkOutil::NK_DEPLACER: return "Déplacer";
+					case NkOutil::NK_TOURNER: return "Tourner";
+					case NkOutil::NK_ECHELLE: return "Échelle";
 					default:                  return "Sélection";
 				}
 			}
@@ -189,6 +192,31 @@ namespace nkentseu {
 				return e;
 			}
 
+			/// Une entree qui ouvre un sous-menu a sa droite (« Ajouter ▸ »).
+			NkEntreeMenu SousMenu(const char *libelle, NkMenuEditeur sous) {
+				NkEntreeMenu e;
+				e.libelle = NkString(libelle);
+				e.sousMenu = sous;
+				return e;
+			}
+
+			/// Le catalogue des acteurs, rubrique par rubrique, chaque entree
+			/// portant `base + NkActeurSim`. Partage par « + Ajouter » (pose au
+			/// centre de la vue) et « Ajouter ici » (pose au point du clic droit).
+			void EntreesCatalogue(NkVector<NkEntreeMenu> &out, int32 base) {
+				for (int32 k = 0; k < static_cast<int32>(NkCategorieActeur::NK_COUNT); ++k) {
+					const NkCategorieActeur cat = static_cast<NkCategorieActeur>(k);
+					out.PushBack(Separateur());
+					out.PushBack(Intitule(NkCategorieActeurNom(cat)));
+					for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+						const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+						if (info.categorie == cat) {
+							out.PushBack(Entree(info.nom, base + i));
+						}
+					}
+				}
+			}
+
 			/// Le contenu d'un menu, relu A CHAQUE TRAME : une coche ou une entree
 			/// grisee suit l'etat sans qu'aucun code n'ait a la remettre a jour.
 			void RemplirMenu(NkEditeurCadre &c, NkMenuEditeur menu, NkVector<NkEntreeMenu> &out) {
@@ -207,8 +235,10 @@ namespace nkentseu {
 						out.PushBack(Entree("Nouvelle entité", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Dupliquer", NK_A_DUPLIQUER, "Ctrl+D", false, m.aSelection));
 						out.PushBack(Entree("Supprimer", NK_A_SUPPRIMER, "Suppr", false, m.aSelection));
+						out.PushBack(Entree("Renommer", NK_A_RENOMMER, "F2", false, m.aSelection));
 						out.PushBack(Separateur());
-						out.PushBack(Entree("Cadrer la vue", NK_A_CADRER, "F"));
+						out.PushBack(Entree("Cadrer la sélection", NK_A_CADRER_SELECTION, "F"));
+						out.PushBack(Entree("Cadrer tout", NK_A_CADRER));
 						break;
 					case NkMenuEditeur::NK_FENETRE:
 						out.PushBack(Entree("Outliner", NK_A_VOIR_OUTLINER, "", c.ui.voirOutliner));
@@ -221,26 +251,63 @@ namespace nkentseu {
 						out.PushBack(Entree("Raccourcis clavier", NK_A_RACCOURCIS));
 						out.PushBack(Entree("À propos d'UnkenyEditor", NK_A_APROPOS));
 						break;
-					case NkMenuEditeur::NK_OUTIL:
-						for (int32 k = 0; k <= static_cast<int32>(NkOutil::NK_COUTEAU); ++k) {
+					case NkMenuEditeur::NK_OUTIL: {
+						// La selection et ses trois gizmos d'abord, avec les touches
+						// d'UE5 ; puis les outils de la matiere.
+						struct NkLigneOutil {
+								NkOutil outil;
+								const char *touche;
+						};
+						static const NkLigneOutil kLignes[4] = {
+							{NkOutil::NK_SELECTION, "Q"},
+							{NkOutil::NK_DEPLACER, "W"},
+							{NkOutil::NK_TOURNER, "E"},
+							{NkOutil::NK_ECHELLE, "R"},
+						};
+						for (int32 k = 0; k < 4; ++k) {
+							const NkOutil o = kLignes[k].outil;
+							out.PushBack(Entree(NomOutil(o), NK_A_OUTIL + static_cast<int32>(o), kLignes[k].touche, m.outil == o));
+						}
+						out.PushBack(Separateur());
+						for (int32 k = static_cast<int32>(NkOutil::NK_POSER); k <= static_cast<int32>(NkOutil::NK_COUTEAU); ++k) {
 							const NkOutil o = static_cast<NkOutil>(k);
 							out.PushBack(Entree(NomOutil(o), NK_A_OUTIL + k, "", m.outil == o));
 						}
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Accrochage (Ctrl l'inverse)", NK_A_ACCROCHAGE, "", c.ui.accrochage));
 						break;
+					}
 					case NkMenuEditeur::NK_AJOUTER:
 						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Entité simple (sprite + boîte) : poser", NK_A_ARMER_SIMPLE));
-						for (int32 k = 0; k < static_cast<int32>(NkCategorieActeur::NK_COUNT); ++k) {
-							const NkCategorieActeur cat = static_cast<NkCategorieActeur>(k);
-							out.PushBack(Separateur());
-							out.PushBack(Intitule(NkCategorieActeurNom(cat)));
-							for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
-								const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
-								if (info.categorie == cat) {
-									out.PushBack(Entree(info.nom, NK_A_POSER_ACTEUR + i));
-								}
+						EntreesCatalogue(out, NK_A_POSER_ACTEUR);
+						break;
+					case NkMenuEditeur::NK_CTX_ENTITE: {
+						// Le clic droit a CHOISI l'entite : ces actions la visent.
+						NkString nom("(entité)");
+						if (m.aSelection) {
+							if (const NkEtiquette *e = m.scene.Monde().Get<NkEtiquette>(m.selection)) {
+								nom = NkString(e->nom);
 							}
 						}
+						out.PushBack(Intitule(nom.CStr()));
+						out.PushBack(Entree("Renommer", NK_A_RENOMMER, "F2"));
+						out.PushBack(Entree("Dupliquer", NK_A_DUPLIQUER, "Ctrl+D"));
+						out.PushBack(Entree("Supprimer", NK_A_SUPPRIMER, "Suppr"));
+						out.PushBack(Entree("Cadrer", NK_A_CADRER_SELECTION, "F"));
+						out.PushBack(Separateur());
+						out.PushBack(SousMenu("Ajouter un composant", NkMenuEditeur::NK_COMPOSANT));
+						break;
+					}
+					case NkMenuEditeur::NK_CTX_VIDE:
+						out.PushBack(SousMenu("Ajouter ici", NkMenuEditeur::NK_AJOUTER_ICI));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Cadrer tout", NK_A_CADRER, "F"));
+						break;
+					case NkMenuEditeur::NK_AJOUTER_ICI:
+						out.PushBack(Entree("Entité vide", NK_A_ENTITE_ICI));
+						out.PushBack(Entree("Entité simple (sprite + boîte)", NK_A_SIMPLE_ICI));
+						EntreesCatalogue(out, NK_A_POSER_ICI);
 						break;
 					case NkMenuEditeur::NK_APPAREIL:
 						for (int32 k = 0; k < NkNbProfils(); ++k) {
@@ -450,9 +517,11 @@ namespace nkentseu {
 			}
 			c.ui.menu = menu;
 			c.ui.menuAncre = ancre;
+			c.ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			// Le rectangle est recalcule au dessin ; en attendant, l'ancre
 			// suffit a ce que le masquage de la trame suivante sache ou il est.
 			c.ui.menuRect = NkRect{ancre.x, ancre.y + ancre.h, 1.f, 1.f};
+			c.ui.sousMenuRect = NkRect{0.f, 0.f, 0.f, 0.f};
 		}
 
 		// =====================================================================
@@ -622,6 +691,24 @@ namespace nkentseu {
 			}
 		}
 
+		namespace {
+
+			/// Pose un acteur (ou l'entite simple) en `point` SANS changer ce que
+			/// l'outil Poser a d'arme : poser depuis un menu n'est pas choisir un
+			/// pinceau, et le tiroir, qui montre l'acteur arme, ne doit pas changer
+			/// de carte sous les yeux.
+			void PoserSansArmer(NkEditeurModele &m, bool simple, NkActeurSim acteur, const NkVec2f &point) {
+				const NkActeurSim acteurArme = m.acteur;
+				const bool simpleArme = m.acteurSimple;
+				m.acteur = acteur;
+				m.acteurSimple = simple;
+				NkEditeurPoser(m, point);
+				m.acteur = acteurArme;
+				m.acteurSimple = simpleArme;
+			}
+
+		} // namespace
+
 		// =====================================================================
 		// LA TABLE D'ACTIONS
 		// =====================================================================
@@ -629,6 +716,10 @@ namespace nkentseu {
 			NkEditeurModele &m = c.m;
 			NkEditeurInterface &ui = c.ui;
 			// Les plages d'abord : leur indice est ajoute a la base.
+			if (action >= NK_A_POSER_ICI && action < NK_A_POSER_ICI + static_cast<int32>(NkActeurSim::NK_COUNT)) {
+				PoserSansArmer(m, false, static_cast<NkActeurSim>(action - NK_A_POSER_ICI), ui.pointContexte);
+				return;
+			}
 			if (action >= NK_A_CORPS_MOU && action < NK_A_CORPS_MOU + static_cast<int32>(NkActeurSim::NK_COUNT)) {
 				if (m.aSelection) {
 					const NkActeurSim matiere = static_cast<NkActeurSim>(action - NK_A_CORPS_MOU);
@@ -653,12 +744,10 @@ namespace nkentseu {
 			if (action >= NK_A_POSER_ACTEUR && action < NK_A_POSER_ACTEUR + static_cast<int32>(NkActeurSim::NK_COUNT)) {
 				// « + Ajouter » POSE : au centre de la vue, la ou l'on regarde. Le
 				// tiroir, lui, ARME l'outil (clic) ou pose au point de depot (glisser).
-				m.acteur = static_cast<NkActeurSim>(action - NK_A_POSER_ACTEUR);
-				m.acteurSimple = false;
-				NkEditeurPoser(m, m.scene.Camera().Centre());
+				PoserSansArmer(m, false, static_cast<NkActeurSim>(action - NK_A_POSER_ACTEUR), m.scene.Camera().Centre());
 				return;
 			}
-			if (action >= NK_A_OUTIL && action <= NK_A_OUTIL + static_cast<int32>(NkOutil::NK_COUTEAU)) {
+			if (action >= NK_A_OUTIL && action <= NK_A_OUTIL + static_cast<int32>(NkOutil::NK_ECHELLE)) {
 				m.outil = static_cast<NkOutil>(action - NK_A_OUTIL);
 				return;
 			}
@@ -690,7 +779,27 @@ namespace nkentseu {
 					}
 					break;
 				case NK_A_CADRER:
-					ui.cadrageEnAttente = true;
+					NkEditeurDemanderCadrage(c, true);
+					break;
+				case NK_A_CADRER_SELECTION:
+					// Sans selection, F cadre toute la scene : NkEditeurZoneACadrer.
+					NkEditeurDemanderCadrage(c, false);
+					break;
+				case NK_A_RENOMMER:
+					if (m.aSelection) {
+						ui.voirDetails = true;
+						ui.ongletDroite = 0;
+						ui.renommerDemande = true;
+					}
+					break;
+				case NK_A_ENTITE_ICI:
+					NkEditeurCreerEntite(m, "Entite", ui.pointContexte);
+					break;
+				case NK_A_SIMPLE_ICI:
+					PoserSansArmer(m, true, m.acteur, ui.pointContexte);
+					break;
+				case NK_A_ACCROCHAGE:
+					ui.accrochage = !ui.accrochage;
 					break;
 				case NK_A_JOUER:
 					if (m.etat == NkEtatJeu::NK_JEU) {
@@ -743,10 +852,27 @@ namespace nkentseu {
 					ui.largeurDetails = 340.f;
 					ui.hauteurTiroir = 250.f;
 					break;
-				case NK_A_RACCOURCIS:
-					NkEditeurAnnoncer(m, "Ctrl+N/O/S fichier  -  Ctrl+E entité  -  Ctrl+D dupliquer  -  Suppr  -  "
-										 "Espace jouer/pause  -  Échap arrêter  -  F cadrer  -  Ctrl+Q quitter");
+				case NK_A_RACCOURCIS: {
+					// Trop de gestes pour une barre d'etat : ils s'ecrivent au
+					// JOURNAL, une ligne chacun, et l'onglet s'ouvre.
+					static const char *kAide[] = {
+						"Raccourcis et gestes du viseur :",
+						"  Clic gauche : choisir (dans le vide : plus rien)  -  glisser une entite : la deplacer (en edition)",
+						"  Molette : zoom sous le curseur  -  molette PRESSEE + glisser : deplacer la vue",
+						"  Clic droit : menu (Renommer, Dupliquer, Supprimer, Cadrer, Ajouter ici...)",
+						"  Q selection  -  W deplacer  -  E tourner  -  R echelle  (Ctrl inverse l'accrochage)",
+						"  F cadrer la selection (sans selection : toute la scene)  -  F2 renommer",
+						"  Ctrl+N / O / S fichier  -  Ctrl+E entite  -  Ctrl+D dupliquer  -  Suppr",
+						"  Espace jouer / pause  -  Echap arreter  -  Ctrl+Q quitter",
+					};
+					for (const char *ligne : kAide) {
+						ui.journal.PushBack(NkString(ligne));
+					}
+					ui.voirTiroir = true;
+					ui.ongletTiroir = 1;
+					NkEditeurAnnoncer(m, "Raccourcis : voir le Journal");
 					break;
+				}
 				case NK_A_APROPOS:
 					NkEditeurAnnoncer(m, "UnkenyEditor : l'éditeur du moteur 2D Unkeny (Rihen)");
 					break;
@@ -891,6 +1017,7 @@ namespace nkentseu {
 					dl.AddLine(NkVec2{cx - 5.f, cy - 5.f}, NkVec2{cx + 5.f, cy + 5.f}, t, 1.2f);
 					dl.AddLine(NkVec2{cx + 5.f, cy - 5.f}, NkVec2{cx - 5.f, cy + 5.f}, t, 1.2f);
 				}
+				if (survol && in.mouseClicked[0]) { std::printf("[trace] clic bouton fenetre i=%d menu=%d\n", i, (int)ui.menu); std::fflush(stdout); }
 				if (survol && in.mouseClicked[0] && ui.menu == NkMenuEditeur::NK_AUCUN) {
 					if (i == 0) {
 						ui.reduireDemande = true;
@@ -908,6 +1035,7 @@ namespace nkentseu {
 			const bool dansBarre = NkEditeurDans(b, in.mousePos);
 			if (dansBarre && !surElement && ui.menu == NkMenuEditeur::NK_AUCUN) {
 				if (in.mouseDoubleClicked[0]) {
+					std::printf("[trace] double-clic barre\n"); std::fflush(stdout);
 					ui.titreArme = false;
 					ui.agrandirDemande = true;
 				} else if (in.mouseClicked[0]) {
@@ -1012,7 +1140,7 @@ namespace nkentseu {
 			// de leurs libelles possibles. La barre ne bouge plus quand on change
 			// d'outil ou d'appareil.
 			float32 largeurOutil = 0.f;
-			for (int32 k = 0; k <= static_cast<int32>(NkOutil::NK_COUTEAU); ++k) {
+			for (int32 k = 0; k <= static_cast<int32>(NkOutil::NK_ECHELLE); ++k) {
 				const NkString s = NkString::Format("Outil : %s", NomOutil(static_cast<NkOutil>(k)));
 				const float32 w = renderer::NkTexteLargeur(c.police, s.CStr()) + 30.f;
 				largeurOutil = w > largeurOutil ? w : largeurOutil;
@@ -1130,94 +1258,162 @@ namespace nkentseu {
 		// =====================================================================
 		// LE MENU OUVERT, dans dlOverlay
 		// =====================================================================
+		namespace {
+
+			/// Ce que la peinture d'une liste de menu rapporte.
+			struct NkListeMenu {
+					NkRect cadre{0.f, 0.f, 0.f, 0.f};
+					int32 choisie = NK_A_AUCUNE;
+					/// L'entree survolee ouvre ce sous-menu (NK_AUCUN sinon).
+					NkMenuEditeur sousSurvole = NkMenuEditeur::NK_AUCUN;
+					NkRect ligneSous{0.f, 0.f, 0.f, 0.f};
+					/// Une entree SANS sous-menu est survolee : le sous-menu ouvert se ferme.
+					bool survolSimple = false;
+			};
+
+			/// Mesure, place (bornee a l'ecran) et peint une liste de menu en (x, y).
+			/// Si elle deborde a droite, elle se pose a gauche de `xRepli` (un
+			/// sous-menu passe alors a gauche de son parent) ; `xRepli` < 0 :
+			/// simplement ramenee dans l'ecran.
+			NkListeMenu PeindreListe(NkEditeurCadre &c, const NkVector<NkEntreeMenu> &entrees, float32 x, float32 y,
+									 float32 largeurMin, NkMenuEditeur sousOuvert, float32 xRepli) {
+				NkListeMenu res;
+				const nkgui::NkGuiInput &in = c.ctx.input;
+				auto &dl = c.ctx.dlOverlay;
+				const NkRect &ecran = c.ui.ecran;
+				const float32 ligneH = renderer::NkTexteHauteurLigne(c.police, 16.f) + 7.f;
+				const float32 sepH = 7.f;
+
+				// La largeur : le plus long libelle, son raccourci, la coche, la fleche.
+				float32 largeur = largeurMin > 190.f ? largeurMin : 190.f;
+				float32 hauteur = 8.f;
+				for (uint32 i = 0; i < entrees.Size(); ++i) {
+					const NkEntreeMenu &e = entrees[i];
+					if (e.separateur) {
+						hauteur += sepH;
+						continue;
+					}
+					const float32 w = renderer::NkTexteLargeur(c.police, e.libelle.CStr()) +
+									  renderer::NkTexteLargeur(c.petite, e.raccourci) + 64.f;
+					largeur = w > largeur ? w : largeur;
+					hauteur += ligneH;
+				}
+				if (x + largeur > ecran.w - 2.f) {
+					x = xRepli >= 0.f ? xRepli - largeur : ecran.w - 2.f - largeur;
+				}
+				if (y + hauteur > ecran.h - 2.f) {
+					y = ecran.h - 2.f - hauteur;
+				}
+				x = x < 0.f ? 0.f : x;
+				y = y < 0.f ? 0.f : y;
+				const NkRect cadre{x, y, largeur, hauteur};
+				res.cadre = cadre;
+
+				dl.AddRectFilled(NkRect{cadre.x + 3.f, cadre.y + 4.f, cadre.w, cadre.h}, NkColor{0, 0, 0, 90}, 3.f);
+				dl.AddRectFilled(cadre, c.pal.entete, 2.f);
+				dl.AddRect(cadre, c.pal.bord, 1.f, 2.f);
+
+				float32 ly = cadre.y + 4.f;
+				for (uint32 i = 0; i < entrees.Size(); ++i) {
+					const NkEntreeMenu &e = entrees[i];
+					if (e.separateur) {
+						dl.AddRectFilled(NkRect{cadre.x + 8.f, ly + sepH * 0.5f, cadre.w - 16.f, 1.f}, c.pal.bord);
+						ly += sepH;
+						continue;
+					}
+					const NkRect r{cadre.x + 3.f, ly, cadre.w - 6.f, ligneH};
+					const bool aSous = e.sousMenu != NkMenuEditeur::NK_AUCUN;
+					const bool cliquable = e.actif && (e.action != NK_A_AUCUNE || aSous);
+					const bool survol = cliquable && NkEditeurDans(r, in.mousePos);
+					// L'entree d'un sous-menu OUVERT reste surlignee pendant qu'on
+					// va vers lui : sinon on ne sait plus de quoi il est la suite.
+					const bool eclairee = survol || (aSous && sousOuvert == e.sousMenu);
+					if (eclairee) {
+						dl.AddRectFilled(r, c.pal.accent, 2.f);
+					}
+					if (survol && aSous) {
+						res.sousSurvole = e.sousMenu;
+						res.ligneSous = r;
+					} else if (survol) {
+						res.survolSimple = true;
+					}
+					const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
+					NkColor t = cliquable ? c.pal.texte : c.pal.attenue;
+					if (eclairee) {
+						t = c.pal.surAccent;
+					}
+					if (e.coche) {
+						Coche(dl, r.x + 12.f, r.y + r.h * 0.5f, t);
+					}
+					renderer::NkTexte(dl, c.police, r.x + 26.f, ty, e.libelle.CStr(), t);
+					if (aSous) {
+						// La fleche « ▸ », tracee : la police embarquee ne la porte pas.
+						const float32 fx = r.x + r.w - 12.f;
+						const float32 fy = r.y + r.h * 0.5f;
+						dl.AddTriangleFilled(NkVec2{fx - 2.5f, fy - 4.f}, NkVec2{fx - 2.5f, fy + 4.f}, NkVec2{fx + 2.5f, fy}, t);
+					} else if (e.raccourci != nullptr && e.raccourci[0] != '\0') {
+						const float32 tyP = r.y + (r.h - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f;
+						renderer::NkTexteADroite(dl, c.petite, r.x + r.w - 8.f, tyP, e.raccourci,
+												 eclairee ? c.pal.surAccent : c.pal.attenue);
+					}
+					if (survol && !aSous && in.mouseClicked[0]) {
+						res.choisie = e.action;
+					}
+					ly += ligneH;
+				}
+				return res;
+			}
+
+		} // namespace
+
 		void NkEditeurDessinerMenuOuvert(NkEditeurCadre &c, NkMenuEditeur menuDebut) {
 			NkEditeurInterface &ui = c.ui;
 			if (ui.menu == NkMenuEditeur::NK_AUCUN) {
+				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 				return;
 			}
+			const nkgui::NkGuiInput &in = c.ctx.input;
 			NkVector<NkEntreeMenu> entrees;
 			RemplirMenu(c, ui.menu, entrees);
-			const nkgui::NkGuiInput &in = c.ctx.input;
-			auto &dl = c.ctx.dlOverlay;
-			const float32 ligneH = renderer::NkTexteHauteurLigne(c.police, 16.f) + 7.f;
-			const float32 sepH = 7.f;
-
-			// La largeur : le plus long libelle, son raccourci, la place de la coche.
-			float32 largeur = ui.menuAncre.w > 190.f ? ui.menuAncre.w : 190.f;
-			float32 hauteur = 8.f;
-			for (uint32 i = 0; i < entrees.Size(); ++i) {
-				const NkEntreeMenu &e = entrees[i];
-				if (e.separateur) {
-					hauteur += sepH;
-					continue;
-				}
-				const float32 w = renderer::NkTexteLargeur(c.police, e.libelle.CStr()) +
-								  renderer::NkTexteLargeur(c.petite, e.raccourci) + 64.f;
-				largeur = w > largeur ? w : largeur;
-				hauteur += ligneH;
+			const NkListeMenu principal = PeindreListe(c, entrees, ui.menuAncre.x, ui.menuAncre.y + ui.menuAncre.h,
+													   ui.menuAncre.w, ui.sousMenu, -1.f);
+			ui.menuRect = principal.cadre;
+			// Le sous-menu suit le SURVOL : il s'ouvre sur son entree, et se ferme
+			// quand on en survole une autre. Rester dessus (ou sur le vide entre les
+			// deux) le garde ouvert.
+			if (principal.sousSurvole != NkMenuEditeur::NK_AUCUN) {
+				ui.sousMenu = principal.sousSurvole;
+				ui.sousMenuLigne = principal.ligneSous;
+			} else if (principal.survolSimple) {
+				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			}
-			float32 x = ui.menuAncre.x;
-			float32 y = ui.menuAncre.y + ui.menuAncre.h;
-			if (x + largeur > ui.ecran.w - 2.f) {
-				x = ui.ecran.w - 2.f - largeur;
-			}
-			if (y + hauteur > ui.ecran.h - 2.f) {
-				y = ui.ecran.h - 2.f - hauteur;
-			}
-			x = x < 0.f ? 0.f : x;
-			y = y < 0.f ? 0.f : y;
-			const NkRect cadre{x, y, largeur, hauteur};
-			ui.menuRect = cadre;
-
-			dl.AddRectFilled(NkRect{cadre.x + 3.f, cadre.y + 4.f, cadre.w, cadre.h}, NkColor{0, 0, 0, 90}, 3.f);
-			dl.AddRectFilled(cadre, c.pal.entete, 2.f);
-			dl.AddRect(cadre, c.pal.bord, 1.f, 2.f);
-
-			int32 choisie = NK_A_AUCUNE;
-			float32 ly = cadre.y + 4.f;
-			for (uint32 i = 0; i < entrees.Size(); ++i) {
-				const NkEntreeMenu &e = entrees[i];
-				if (e.separateur) {
-					dl.AddRectFilled(NkRect{cadre.x + 8.f, ly + sepH * 0.5f, cadre.w - 16.f, 1.f}, c.pal.bord);
-					ly += sepH;
-					continue;
-				}
-				const NkRect r{cadre.x + 3.f, ly, cadre.w - 6.f, ligneH};
-				const bool cliquable = e.actif && e.action != NK_A_AUCUNE;
-				const bool survol = cliquable && NkEditeurDans(r, in.mousePos);
-				if (survol) {
-					dl.AddRectFilled(r, c.pal.accent, 2.f);
-				}
-				const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
-				NkColor t = cliquable ? c.pal.texte : c.pal.attenue;
-				if (survol) {
-					t = c.pal.surAccent;
-				}
-				if (e.coche) {
-					Coche(dl, r.x + 12.f, r.y + r.h * 0.5f, t);
-				}
-				renderer::NkTexte(dl, c.police, r.x + 26.f, ty, e.libelle.CStr(), t);
-				if (e.raccourci != nullptr && e.raccourci[0] != '\0') {
-					const float32 tyP = r.y + (r.h - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f;
-					renderer::NkTexteADroite(dl, c.petite, r.x + r.w - 8.f, tyP, e.raccourci,
-											 survol ? c.pal.surAccent : c.pal.attenue);
-				}
-				if (survol && in.mouseClicked[0]) {
-					choisie = e.action;
-				}
-				ly += ligneH;
+			NkListeMenu sous;
+			if (ui.sousMenu != NkMenuEditeur::NK_AUCUN) {
+				NkVector<NkEntreeMenu> sousEntrees;
+				RemplirMenu(c, ui.sousMenu, sousEntrees);
+				sous = PeindreListe(c, sousEntrees, principal.cadre.x + principal.cadre.w - 2.f, ui.sousMenuLigne.y - 4.f,
+									170.f, NkMenuEditeur::NK_AUCUN, principal.cadre.x + 2.f);
+				ui.sousMenuRect = sous.cadre;
+			} else {
+				ui.sousMenuRect = NkRect{0.f, 0.f, 0.f, 0.f};
 			}
 
+			const int32 choisie = principal.choisie != NK_A_AUCUNE ? principal.choisie : sous.choisie;
 			if (choisie != NK_A_AUCUNE) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
+				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 				NkEditeurExecuter(c, choisie);
 				return;
 			}
-			// Un clic HORS du menu le ferme -- sauf si ce menu vient de s'ouvrir
-			// sur ce clic meme (il n'etait pas celui du debut de trame).
+			// Un clic HORS du menu (et de son sous-menu) le ferme -- sauf si ce menu
+			// vient de s'ouvrir sur ce clic meme (il n'etait pas celui du debut de
+			// trame : c'est le cas du clic droit qui ouvre le menu contextuel).
 			const bool clic = in.mouseClicked[0] || in.mouseClicked[1] || in.mouseClicked[2];
-			if (clic && ui.menu == menuDebut && !NkEditeurDans(cadre, in.mousePos)) {
+			const bool dedans = NkEditeurDans(principal.cadre, in.mousePos) ||
+								(ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, in.mousePos));
+			if (clic && ui.menu == menuDebut && !dedans) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
+				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			}
 		}
 

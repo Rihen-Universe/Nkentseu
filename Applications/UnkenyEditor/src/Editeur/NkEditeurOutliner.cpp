@@ -64,10 +64,8 @@ namespace nkentseu {
 				}
 				c.m.selection = e;
 				c.m.aSelection = true;
-				NkVec2f centre;
-				if (NkEditeurCentreSelection(c.m, centre)) {
-					c.m.scene.Camera().PoserCentre(centre);
-				}
+				// Le MEME cadrage que F : la vue va sur l'entite, meme hors du cadre.
+				NkEditeurDemanderCadrage(c, false);
 			}
 
 			void PreparerReglages(NkEditeurInterface &ui) {

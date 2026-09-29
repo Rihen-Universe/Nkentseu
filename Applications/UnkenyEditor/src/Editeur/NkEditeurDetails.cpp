@@ -348,6 +348,13 @@ namespace nkentseu {
 				if (in.mouseClicked[0]) {
 					ui.nomFocus = NkEditeurDans(r, in.mousePos);
 				}
+				// « Renommer » (menu contextuel, F2) : le focus, et tout le texte
+				// choisi -- taper remplace le nom, comme partout.
+				if (ui.renommerDemande) {
+					ui.renommerDemande = false;
+					ui.nomFocus = true;
+					c.ctx.input.wantSelectAll = true;
+				}
 				if (ui.nomFocus && (in.KeyPressed(nkgui::NkGuiKey::Enter) || in.KeyPressed(nkgui::NkGuiKey::Escape))) {
 					ui.nomFocus = false;
 				}

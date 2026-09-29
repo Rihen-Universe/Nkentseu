@@ -22,6 +22,7 @@
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include <cstdio>
 
 namespace nkentseu {
 	namespace editeur {
@@ -193,6 +194,24 @@ namespace nkentseu {
 					m.simuler = true;
 					continue;
 				}
+				// --outil= et --selection= : pour qu'une capture d'un GIZMO soit
+				// reproductible (--capture=), comme --profil= l'est pour l'appareil.
+				// Sans elles, montrer un gizmo demande une souris -- et donc quelqu'un.
+				if (args[i].StartsWith("--outil=")) {
+					static const char *kNoms[] = {"selection", "poser", "effacer", "saisir", "couteau", "deplacer",
+												  "tourner", "echelle"};
+					const NkString nom(args[i].SubStr(8));
+					for (int32 k = 0; k < 8; ++k) {
+						if (nom == NkString(kNoms[k])) {
+							m.outil = static_cast<NkOutil>(k);
+						}
+					}
+					continue;
+				}
+				if (args[i].StartsWith("--selection=")) {
+					mSelectionDepart = NkString(args[i].SubStr(12));
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -241,6 +260,20 @@ namespace nkentseu {
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
 			NkEditeurRetenirEmpreinte(m, *mUi);
+			if (!mSelectionDepart.Empty()) {
+				// La premiere entite dont l'etiquette COMMENCE par ce nom.
+				const char *voulu = mSelectionDepart.CStr();
+				m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					usize k = 0;
+					while (voulu[k] != '\0' && e.nom[k] == voulu[k]) {
+						++k;
+					}
+					if (voulu[k] == '\0' && !m.aSelection) {
+						m.selection = id;
+						m.aSelection = true;
+					}
+				});
+			}
 			if (m.simuler) {
 				NkEditeurJouer(m);
 			}
@@ -252,6 +285,7 @@ namespace nkentseu {
 		void NkEditeurApp::OnTick(float32 deltaTime) {
 			mDernierDt = deltaTime;
 			mUi->temps += deltaTime;
+			mUi->dt = deltaTime;
 			// AU DEBUT de la trame, avant tout dessin : c'est ici que les boucles
 			// modales de l'OS (deplacer, redimensionner) peuvent tourner sans
 			// reentrer dans une trame a moitie peinte.
@@ -287,6 +321,7 @@ namespace nkentseu {
 				fenetre.Minimize();
 			}
 			if (ui.agrandirDemande) {
+				std::printf("[trace] agrandir applique, etait agrandie=%d\n", fenetre.IsMaximized() ? 1 : 0); std::fflush(stdout);
 				ui.agrandirDemande = false;
 				if (fenetre.IsMaximized()) {
 					fenetre.Restore();
@@ -347,6 +382,7 @@ namespace nkentseu {
 				const int32 b = IndiceBouton(e->GetButton());
 				if (b >= 0) {
 					in.mouseDown[b] = true;
+					std::printf("[trace] appui b=%d a (%d,%d)\n", b, (int)e->GetX(), (int)e->GetY()); std::fflush(stdout);
 					mAppuiNonVu[b] = true;
 				}
 				in.ctrlDown = e->GetModifiers().ctrl;
@@ -455,17 +491,27 @@ namespace nkentseu {
 				}
 				return;
 			}
-			if (in.KeyPressed(NkGuiKey::Delete)) {
-				NkEditeurExecuter(c, NK_A_SUPPRIMER);
-			}
-			if (in.KeyPressed(NkGuiKey::Space)) {
-				NkEditeurExecuter(c, NK_A_JOUER);
-			}
-			if (in.KeyPressed(NkGuiKey::Escape)) {
-				NkEditeurExecuter(c, NK_A_ARRETER);
-			}
-			if (in.KeyPressed(NkGuiKey::F)) {
-				NkEditeurExecuter(c, NK_A_CADRER);
+			// Une touche, une action : la table d'aiguillage, comme pour Ctrl.
+			// Q / W / E / R sont ceux d'UE5 (selection, deplacer, tourner, echelle).
+			struct NkTouche {
+					NkGuiKey touche;
+					int32 action;
+			};
+			static const NkTouche kSimples[] = {
+				{NkGuiKey::Delete, NK_A_SUPPRIMER},
+				{NkGuiKey::Space, NK_A_JOUER},
+				{NkGuiKey::Escape, NK_A_ARRETER},
+				{NkGuiKey::F, NK_A_CADRER_SELECTION},
+				{NkGuiKey::F2, NK_A_RENOMMER},
+				{NkGuiKey::Q, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_SELECTION)},
+				{NkGuiKey::W, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_DEPLACER)},
+				{NkGuiKey::E, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_TOURNER)},
+				{NkGuiKey::R, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_ECHELLE)},
+			};
+			for (const NkTouche &t : kSimples) {
+				if (in.KeyPressed(t.touche)) {
+					NkEditeurExecuter(c, t.action);
+				}
 			}
 		}
 
@@ -513,7 +559,8 @@ namespace nkentseu {
 			if (modale) {
 				Neutraliser(ctx.input, true);
 			} else if (menuDebut != NkMenuEditeur::NK_AUCUN) {
-				Neutraliser(ctx.input, NkEditeurDans(ui.menuRect, vrais.position));
+				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
+				Neutraliser(ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
 			}
 			NkEditeurDessinerVue(c);
 			NkEditeurDessinerOutliner(c);

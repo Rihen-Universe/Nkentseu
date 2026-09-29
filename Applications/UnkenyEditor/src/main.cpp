@@ -7,12 +7,18 @@
 //
 // LANCER
 //   UnkenyEditor.exe [--profil=N] [--paysage] [--simuler] [--selftest]
+//                    [--outil=NOM] [--selection=NOM] [--capture=IMAGE.png]
 //
-//   --profil=N   l'appareil simule (0 = bureau, puis du plus contraint au moins)
-//   --paysage    tourne l'appareil
-//   --simuler    demarre avec la physique active
-//   --selftest   rend INDETERMINE : l'editeur n'a pas de regles a lui, elles
-//                vivent dans Unkeny. Un banc vide est pire qu'un banc absent.
+//   --profil=N      l'appareil simule (0 = bureau, puis du plus contraint au moins)
+//   --paysage       tourne l'appareil
+//   --simuler       demarre avec la physique active
+//   --selftest      le banc d'Unkeny, puis celui des actions de l'editeur ;
+//                   code de sortie 0 = tout tient
+//   --outil=NOM     selection, deplacer, tourner, echelle, poser, effacer,
+//                   saisir, couteau
+//   --selection=NOM choisit au depart l'entite dont le nom commence par NOM
+//   --capture=...   (la coquille NKCanvas) ecrit une image et sort ; avec les
+//                   deux precedentes, une capture de GIZMO sans souris
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 

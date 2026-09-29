@@ -49,6 +49,43 @@ namespace nkentseu {
 		/// La boite, en metres, de la selection — pour son cadre dans le viseur.
 		bool NkEditeurBoiteSelection(NkEditeurModele &m, NkVec2f &mn, NkVec2f &mx);
 		void NkEditeurSupprimerSelection(NkEditeurModele &m);
+		/// Le clic de l'outil Selection (2026-09-29) : choisit ce qui est sous
+		/// `monde` comme NkEditeurChoisirSous, et VIDE la selection s'il n'y a
+		/// rien -- cliquer dans le vide deselectionne, comme partout.
+		bool NkEditeurCliquerSelection(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre = nullptr);
+		/// Le glisser d'une entite la deplace-t-il ? En EDITION seulement.
+		/// ⚠️ PAS EN JEU NI EN PAUSE, et c'est une decision : la scene qui tourne
+		///    est un instant de simulation, que « Arreter » jette de toute facon.
+		///    Deplacer la y ferait croire a une modification qui disparaitra, et
+		///    teleporter un corps contre le solveur fausse la simulation qu'on
+		///    regarde. Pour attraper la matiere en jeu : l'outil Saisir.
+		bool NkEditeurPeutDeplacer(const NkEditeurModele &m) noexcept;
+		/// Centre la vue sur la selection, et la fait tenir dans le viseur. false
+		/// sans selection (rien ne bouge).
+		bool NkEditeurCadrerSelection(NkEditeurModele &m);
+		/// La zone a cadrer : la boite de la selection, ou celle de TOUTE la
+		/// scene quand rien n'est selectionne. `taille` porte deja sa marge.
+		/// false si la scene est vide. C'est « F » (et le double-clic de
+		/// l'Outliner) ; l'interface y mene la camera en douceur.
+		bool NkEditeurZoneACadrer(NkEditeurModele &m, NkVec2f &centre, NkVec2f &taille);
+
+		// --- Les gizmos (deplacer / tourner / mettre a l'echelle) ------------
+		/// Tourne la selection de `delta` radians autour de son centre. Rigide :
+		/// son corps prend l'orientation (ActualiserCorps) ; matiere : chaque
+		/// particule tourne, vitesse comprise.
+		bool NkEditeurTourner(NkEditeurModele &m, float32 delta);
+		/// Multiplie les dimensions de la selection par `facteur` autour de son
+		/// centre : sprite, collisionneur (le corps est refait), ou matiere
+		/// (positions ET longueurs de repos des liens -- sans elles, le ressort
+		/// ramenerait aussitot la matiere a sa taille d'avant).
+		/// ⚠️ L'ECHELLE EST CUITE DANS LES COMPOSANTS, pas posee dans
+		///    `NkTransform2D::echelle` : la physique ne lit pas cette echelle (le
+		///    collisionneur a ses propres dimensions), et un sprite agrandi sur
+		///    une boite de collision inchangee mentirait sur ce qui se touche.
+		bool NkEditeurMettreAEchelle(NkEditeurModele &m, const NkVec2f &facteur);
+		/// L'accrochage : `v` ramene au multiple de `pas` le plus proche.
+		/// `pas` <= 0 : `v` inchange.
+		float32 NkEditeurAccrocher(float32 v, float32 pas) noexcept;
 		bool NkEditeurEffacerSous(NkEditeurModele &m, const NkVec2f &monde);
 
 		// --- Entites et composants (la facon d'UE5 / Unity) ------------------
