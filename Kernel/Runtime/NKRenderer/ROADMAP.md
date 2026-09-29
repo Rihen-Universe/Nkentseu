@@ -943,7 +943,7 @@ n'existe pas. Ne pas le déplacer vers rien.
 Le chantier XR (`Kernel/Runtime/NKXR`, `XR_MISSION_IA.md`, branche de travail
 worktree `Nkentseu-xr`) a livré son étage 0 (validé par Rihen le 2026-08-10) :
 la démo `NKXRDemo` rend déjà la stéréo côte à côte **sans toucher aux passes**
-— un `NkRenderer` complet PAR ŒIL en offscreen partagé (patron NK3DModeler),
+— un `NkRenderer` complet PAR ŒIL en offscreen partagé (patron NKCraft),
 c'est la « V1 deux passes vers deux cibles » prévue par la mission. L'étage 1
 demande maintenant DE la coordination, d'où cette note. Interlocuteur : agent
 NKXR ; rien ici ne sera fait sans elle.
@@ -2510,7 +2510,7 @@ et ça tombe sans cas particulier : rien ne peut sortir d'un puits.
   bruit procédural sur `roughness` est gratuit à écrire et cher à rendre. Ce
   n'est pas une raison de l'interdire, c'est une raison de savoir le mesurer.
 
-⚠️ **Coordination** : `NkVpMatTypeDefaults.h` (NK3DModeler) est **la même donnée
+⚠️ **Coordination** : `NkVpMatTypeDefaults.h` (NKCraft) est **la même donnée
 vue d'un troisième bout**. Sa note dit qu'elle doit disparaître le jour où le
 graphe porte les défauts. **Ce jour n'est pas encore arrivé** — les prototypes
 déclarent la forme des prises, pas encore leurs valeurs — mais il se rapproche,
@@ -2984,7 +2984,7 @@ sans quoi on pourrait retirer le second sans que rien ne le dise.
 partagent leurs groupes.** Défaut connu, correction planifiée.
 
 Ce n'est pas une simplification acceptable. Dans une application qui ouvre
-plusieurs documents — NK3DModeler, NKScena, Nogee — il produit trois symptômes, et
+plusieurs documents — NKCraft, NKScena, Nogee — il produit trois symptômes, et
 **aucun ne se voit dans un banc** :
 
 1. un groupe défini dans le document A apparaît dans le menu de B ;
