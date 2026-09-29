@@ -131,7 +131,7 @@
        triangles. (Export OBJ gère quads + tris.)
      - ✅ **QEM** (quadric error) — `renderer::NkMeshDecimate` (NKRenderer/Mesh, 31/07) :
        contraction d'arêtes avec condition de lien, anti-retournement, rétention des bords
-       et plafond d'erreur. Posé sur `NkEditMesh` (la structure de NK3DModeler), pas sur
+       et plafond d'erreur. Posé sur `NkEditMesh` (la structure de NKCraft), pas sur
        `gen::NkMesh` — s'y brancher via OBJ ou indexed en attendant un pont direct.
        Preuves : plan 128→19 tris à erreur **exactement nulle** ; cube subdivisé 768→268
        fermé/manifold (batteries `decim/` du NKEditMeshHarness).

@@ -880,7 +880,7 @@ actions rejouables et apprenables.
 
 | domaine | vocabulaire d'actions | où c'est déjà |
 |---|---|---|
-| Modéliser | `NkMeshEditCommand`, journal `.nkmec` | NK3DModeler, `NKMeshAITest` ✅ |
+| Modéliser | `NkMeshEditCommand`, journal `.nkmec` | NKCraft, `NKMeshAITest` ✅ |
 | Animer | commandes de pose / IK | `Applications/NkAnimaEditor` |
 | Parler | synthèse vocale | `Kernel/AI/NKSpeech`, NKTTS (LJSpeech + Griffin-Lim) |
 | Interface 2D | `NkUIComponent` (donnée, pas code) | Engine/Noge |
@@ -891,7 +891,7 @@ actions rejouables et apprenables.
 rejoue, s'annule et s'apprend. Du texte libre ne se vérifie pas — et une IA qui
 agit sans qu'on puisse contrôler son action est exactement ce qu'on ne veut pas.
 
-### 5bis. L'intégrer dans NKCode, NkAnima, NK3DModeler, NKCinema, PV3DE, Noge
+### 5bis. L'intégrer dans NKCode, NkAnima, NKCraft, NKCinema, PV3DE, Noge
 
 Question posée par Rihen le 2026-08-12 : « on pourra facilement l'intégrer
 partout, pour qu'elle manipule directement depuis les binaires ? » Réponse
@@ -906,7 +906,7 @@ mesurée sur le code existant, en séparant ce qui est acquis de ce qui reste.
 - **NKCode a son point de branchement** : `NkAiPanel.h` a un sélecteur de
   fournisseur dont l'entrée **`2 = IA maison (NkAI)`** existe déjà à côté de
   Claude et Ollama.
-- **NK3DModeler a son vocabulaire d'actions** : `NkMeshEditOp::{Extrude,
+- **NKCraft a son vocabulaire d'actions** : `NkMeshEditOp::{Extrude,
   ExtrudeEdges, ExtrudeVerts, Delete, Merge, MakeFace, Subdivide, LoopCut,
   Bevel, Inset, Dissolve, Move}` — annulables, rejouables, journalisables.
 
@@ -938,7 +938,7 @@ mesurée sur le code existant, en séparant ce qui est acquis de ce qui reste.
 (2) extraire un `NkIlyanaAgent` partagé (charge le modèle, expose
 `Observer/Proposer`) ; (3) le brancher d'abord sur **NKCode** (son panneau
 attend déjà le fournisseur « IA maison », et le texte y est la sortie
-naturelle) ; (4) puis **NK3DModeler**, première application à ACTION, avec son
+naturelle) ; (4) puis **NKCraft**, première application à ACTION, avec son
 vocabulaire déjà écrit ; (5) les autres suivent le même moule.
 
 ---

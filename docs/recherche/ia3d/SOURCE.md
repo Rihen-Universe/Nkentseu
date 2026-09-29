@@ -9,7 +9,7 @@
   `C:\Users\Rihen\Documents\revu\Survey-and-Evaluation-of-Neural-3D-Shape-Classification-Approaches-accepted-version.pdf` (24 p.)
   et `...-supplementary.pdf`.
 - **Objet pour Nkentseu** : carte du domaine des représentations 3D neuronales, en préparation du
-  chantier « modélisation par IA » de NK3DModeler (cible finale : image-to-3D et text-to-3D).
+  chantier « modélisation par IA » de NKCraft (cible finale : image-to-3D et text-to-3D).
 
 ---
 
@@ -52,7 +52,7 @@ offrent le meilleur rapport précision/coût côté volumétrique ; (e) un datas
 surtout aux réseaux multi-vues (+1,7 pp), les petits modèles (octree-adaptive, kdnet) saturent ;
 (f) l'alignement rotationnel des modèles aide surtout les réseaux à nuages de points (+2 pp).
 
-## 2. Ce que ça apporte au chantier IA de NK3DModeler
+## 2. Ce que ça apporte au chantier IA de NKCraft
 
 **Ce que ça apporte :**
 
@@ -61,7 +61,7 @@ surtout aux réseaux multi-vues (+1,7 pp), les petits modèles (octree-adaptive,
   ou des champs implicites. Comprendre les forces/faiblesses recensées ici (mémoire cubique des
   voxels, absence de connectivité des points, irrégularité des maillages, perte d'information par
   occlusion des vues) permet de juger les sorties des futurs modèles génératifs et de choisir la
-  représentation d'échange avec le moteur (NK3DModeler vit dans le monde du maillage : toute chaîne
+  représentation d'échange avec le moteur (NKCraft vit dans le monde du maillage : toute chaîne
   IA finira par une conversion vers maillage).
 - **Une culture du pipeline de conversion** directement réutilisable : voxelisation (OpenVDB, octrees),
   rendu multi-vues, échantillonnage de surface (uniform/Lloyd/Poisson/Sobol) — briques dont un
@@ -111,7 +111,7 @@ vérifiées au moment du sourcing — je n'en invente aucune ici) :
 5. **Rendu différentiable** : rastérisation/ray-marching différentiables — l'outil transversal qui
    relie 2D et 3D dans presque toutes les méthodes ci-dessus.
 6. **Extraction et remaillage** : marching cubes et équivalents différentiables, décimation,
-   re-topologie — indispensable pour livrer un maillage propre à NK3DModeler.
+   re-topologie — indispensable pour livrer un maillage propre à NKCraft.
 7. **Génération de texture et de matériaux** (UV, PBR) pour que la sortie soit utilisable dans le
    moteur, pas seulement une géométrie grise.
 8. **Datasets 3D à grande échelle et leurs licences** (ShapeNet exige un accord d'utilisation ;

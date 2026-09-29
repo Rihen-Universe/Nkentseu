@@ -15,7 +15,7 @@
 //
 //     | site | lignes | pile |
 //     |---|---|---|
-//     | `NK3DModeler/Shell/NkModelerHierarchy.h` | 1 642 | peintre maison |
+//     | `NKCraft/Shell/NkModelerHierarchy.h` | 1 642 | peintre maison |
 //     | `Nogee/Panels/WorldOutlinerPanel.{h,cpp}` | 512 | NKGui |
 //     | `Nogee/Panels/SceneTreePanel.{h,cpp}` + son modele | 344 | NKUI |
 //     | `NKCode/Shell/NkExplorer.h` (arbre de fichiers) | 1 846 | peintre maison |
@@ -72,11 +72,11 @@
 //
 //  | venu de | quoi |
 //  |---|---|
-//  | NK3DModeler | la plage **Maj+clic** avec son ancre (absente des deux copies Nogee) |
-//  | NK3DModeler | **seul le chevron plie** — le clic de ligne pliait aussi, « trop sensible et genant pour renommer » (Rihen) |
-//  | NK3DModeler | zone de chevron **large** : « le pliage doit etre aise » (Rihen) |
-//  | NK3DModeler | l'**oeil** et le **cadenas** par ligne, en etat EFFECTIF (herite d'un ancetre) |
-//  | NK3DModeler | la recherche bascule en **liste plate** — devenue ici une VARIANTE, pas un mode cache |
+//  | NKCraft | la plage **Maj+clic** avec son ancre (absente des deux copies Nogee) |
+//  | NKCraft | **seul le chevron plie** — le clic de ligne pliait aussi, « trop sensible et genant pour renommer » (Rihen) |
+//  | NKCraft | zone de chevron **large** : « le pliage doit etre aise » (Rihen) |
+//  | NKCraft | l'**oeil** et le **cadenas** par ligne, en etat EFFECTIF (herite d'un ancetre) |
+//  | NKCraft | la recherche bascule en **liste plate** — devenue ici une VARIANTE, pas un mode cache |
 //  | Nogee | la **garde anti-cycle** au reparentage (`SetParent` n'en a aucune) |
 //  | Nogee | la colonne optionnelle **Layer** — devenue ici un point de greffe |
 //  | Nogee | le reparentage **DIFFERE** : appliquer pendant le parcours modifie ce qu'on parcourt |
@@ -147,7 +147,7 @@ namespace nkentseu {
 				// ── DEUX DRAPEAUX, ET ILS SONT EFFECTIFS ────────────────────────
 				// ⚠️ « EFFECTIF » veut dire : deja compose avec les ancetres par
 				//    l'application. Un enfant dont le parent est cache est cache.
-				//    NK3DModeler a paye cette lecon a l'usage (Rihen : « je ne peux
+				//    NKCraft a paye cette lecon a l'usage (Rihen : « je ne peux
 				//    selectionner ni le parent ni l'enfant ») et affiche l'etat
 				//    HERITE en teinte attenuee, faute de quoi le refus parait
 				//    inexplicable. Le composant ne compose PAS lui-meme : il ne
@@ -226,7 +226,7 @@ namespace nkentseu {
 				//    c'est pour ca qu'il merite dix lignes :
 				//      - `NkSceneTreeModel::mOpenNodes` (Nogee) liste les noeuds
 				//        OUVERTS -> un arbre neuf est entierement REPLIE ;
-				//      - `NkModelerState::hierFold` (NK3DModeler) est un champ de
+				//      - `NkModelerState::hierFold` (NKCraft) est un champ de
 				//        bits des noeuds PLIES -> un arbre neuf est entierement
 				//        DEPLIE.
 				//    Les deux ont raison pour leur cas. Trancher pour tout le monde
@@ -252,7 +252,7 @@ namespace nkentseu {
 				NkVector<nk_uint64> chosen;
 
 				/// Ancre de la plage Maj+clic. Posee par tout clic nu. Venue de
-				/// NK3DModeler (`hierAnchor`), absente des deux copies Nogee.
+				/// NKCraft (`hierAnchor`), absente des deux copies Nogee.
 				nk_uint64 anchor = 0;
 
 				// ── LE RENOMMAGE EN PLACE ───────────────────────────────────────
@@ -339,7 +339,7 @@ namespace nkentseu {
 				//    ne vient pas de cet arbre ». Un lacher avec une source nulle est
 				//    RELAYE quand meme, avec un `source` vide : c'est le cas d'un
 				//    asset lache depuis le navigateur de contenu sur un noeud de
-				//    scene, que NK3DModeler fait deja. Refuser ce cas aurait supprime
+				//    scene, que NKCraft fait deja. Refuser ce cas aurait supprime
 				//    une fonction existante sans que rien ne le signale.
 				nk_uint64 dragSource = 0;
 
@@ -446,7 +446,7 @@ namespace nkentseu {
 		//    du dessin. C'est la condition C2 du critere d'echec.
 		//
 		//    `FlatList` n'est pas une invention : c'est EXACTEMENT ce que
-		//    NK3DModeler fait deja quand on tape dans sa recherche (`searching` ->
+		//    NKCraft fait deja quand on tape dans sa recherche (`searching` ->
 		//    liste plate, indentation fixe, aucun chevron, `NkModelerHierarchy.h`).
 		//    La difference est qu'il en a fait un MODE CACHE, declenche par un autre
 		//    champ ; ici c'est une variante que l'application — ou l'utilisateur —
@@ -565,7 +565,7 @@ namespace nkentseu {
 
 				/// Colonnes supplementaires. C'est litteralement la colonne « Layer »
 				/// de `WorldOutlinerPanel`, portee en point de greffe : Nogee l'a,
-				/// NK3DModeler ne l'a pas, et aucune des deux n'a a l'imposer a
+				/// NKCraft ne l'a pas, et aucune des deux n'a a l'imposer a
 				/// l'autre.
 				int32 extraColumnCount = 0;
 				const char *(*extraColumnHeader)(void *user, int32 col) = nullptr;
@@ -582,7 +582,7 @@ namespace nkentseu {
 				///    chaine de parents sous les yeux — Nogee a du l'ecrire a la main
 				///    parce que `SetParent` n'a aucune garde interne.
 				///    Ce crochet couvre ce que le composant NE PEUT PAS savoir :
-				///    « un maillage ne se depose pas sur un maillage » (NK3DModeler,
+				///    « un maillage ne se depose pas sur un maillage » (NKCraft,
 				///    `NkParentTargetAllowed`), « ce dossier est en lecture seule »...
 				///    A `nullptr`, seule la garde generique s'applique.
 				bool (*acceptDrop)(void *user, const NkTreeNode &source, const NkTreeNode &target,
@@ -756,7 +756,7 @@ namespace nkentseu {
 				{"tree", "Arbre", "indentation, chevrons, enfants caches quand le noeud est replie"},
 				{"flat_list", "Liste plate",
 				 "tout ce qui passe le filtre, indentation fixe, aucun chevron — le mode "
-				 "recherche de NK3DModeler, devenu une representation"},
+				 "recherche de NKCraft, devenu une representation"},
 			};
 
 			// ⚠️ TOUS LES PARAMETRES SONT DES BASCULES, ET C'EST UN FAIT SUR LA
@@ -776,7 +776,7 @@ namespace nkentseu {
 				{"show_type", "Colonne type", NkParamKind::Bool, 0.f, 0.f, 0.f, nullptr, 0},
 				// ⚠️ DEFAUT PASSE DE 0 A 1 LE 2026-08-30, SUR UNE MESURE A DEUX
 				//    CONSOMMATEURS : NkUIDesign le posait explicitement a 1, et le
-				//    premier consommateur externe (NK3DModeler) a failli accuser son
+				//    premier consommateur externe (NKCraft) a failli accuser son
 				//    adaptateur pour un parametre... a son defaut. Quand les deux
 				//    seuls consommateurs veulent 1, le defaut 0 n'est pas un choix,
 				//    c'est un piege -- chacun le paie a son premier arbre.
@@ -784,7 +784,7 @@ namespace nkentseu {
 				// La divergence mesuree entre les deux copies, devenue un reglage.
 				{"default_open", "Noeuds deplies par defaut", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr,
 				 0},
-				// ⚠️ LECON PAYEE PAR NK3DModeler, gardee telle quelle : « le clic de
+				// ⚠️ LECON PAYEE PAR NKCraft, gardee telle quelle : « le clic de
 				//    ligne pliait aussi, trop sensible et genant pour renommer »
 				//    (Rihen). C'est un reglage et non une constante parce que
 				//    l'inverse se defend pour un arbre de dossiers, ou l'on ne

@@ -16,7 +16,7 @@
 //     doit changer la bande des DEUX hotes. Si un seul bouge, le partage est une
 //     fiction — et c'est exactement le temoin que le canal exige.
 //
-//  ETAT DE L'ART QUE CECI CORRIGE : `PaintTabsI` (NK3DModeler) ecrit `S(10.f)`,
+//  ETAT DE L'ART QUE CECI CORRIGE : `PaintTabsI` (NKCraft) ecrit `S(10.f)`,
 //  `S(44.f)`, `S(24.f)`, `S(20.f)`, `S(7.f)`, `3.f`, `2.f`, `S(5.f)`, `S(6.f)`,
 //  `S(8.f)`, `S(4.f)`, `S(32.f)`, `10.f`, `12.f` — quatorze litteraux disperses
 //  dans 130 lignes. Ici il y en a vingt-et-un, tous dans `kMetrics`.

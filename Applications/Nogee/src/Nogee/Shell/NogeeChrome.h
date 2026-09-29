@@ -9,7 +9,7 @@
 // Nogee, posees sur les trois points d'accrochage du shell.
 //
 // POURQUOI CE FICHIER N'EST PAS UN PEINTRE
-//   NK3DModeler peint ses trois barres lui-meme (`PaintMenuBarI`,
+//   NKCraft peint ses trois barres lui-meme (`PaintMenuBarI`,
 //   `PaintToolbar`, `PaintStatus`) parce qu'il n'utilise PAS `NkEditorShell` :
 //   il ouvre la fenetre et prend la draw list. Nogee, lui, passe par le shell,
 //   et le shell offre exactement les trois prises qu'il faut :
@@ -32,7 +32,7 @@
 //   `echanges/` et les messages de commit ; l'interface d'un produit
 //   francophone porte ses accents (meme regle que NKUIDesign, dont la cause de
 //   l'absence avait ete mesuree : la source, jamais la police). Les libelles du
-//   modeleur sont ecrits sans accents ; je ne touche pas a NK3DModeler, mais je
+//   modeleur sont ecrits sans accents ; je ne touche pas a NKCraft, mais je
 //   ne reproduis pas sa dette ici.
 //
 // ⚠️ UNE ENTREE SANS ACTION SE GRISE, ELLE NE DISPARAIT PAS.
@@ -101,7 +101,7 @@ namespace nkentseu {
 			}
 
 			// ── LES FRACTIONS DU MODELEUR ────────────────────────────────────
-			// NK3DModeler donne a ses zones une fraction de la FENETRE :
+			// NKCraft donne a ses zones une fraction de la FENETRE :
 			// `fLeft = 0.16f`, `fRight = 0.29f`, `fBrowser = 0.22f`
 			// (`NkLayout::Compute`, NkModelerUI.h). Le dock de NKGui, lui, ne
 			// connait que des ratios de SPLIT : chaque panneau de bord enveloppe la
@@ -186,7 +186,7 @@ namespace nkentseu {
 			}
 
 			// ── LA BARRE DE MENUS ────────────────────────────────────────────
-			// Structure reprise de `NkMenus()` (NK3DModeler/Shell/NkModelerBrowser.h) :
+			// Structure reprise de `NkMenus()` (NKCraft/Shell/NkModelerBrowser.h) :
 			// Fichier, Edition, Fenetre, Outils, Selection, Objet, Aide — dans cet
 			// ordre, qui est celui de la barre du modeleur.
 			//
@@ -538,7 +538,7 @@ namespace nkentseu {
 			//     aurait fait une CINQUIEME copie (le recensement est en tete de
 			//     `NkTabStripModel.h` : quatre, 764 lignes, zero partage). La
 			//     reponse est le composant `tab_strip`, descendu dans le kit, que
-			//     NK3DModeler appelle par son peintre et la coquille par le sien.
+			//     NKCraft appelle par son peintre et la coquille par le sien.
 			//
 			//  ⚠️ CE QUI EST MONTRE EST CE QUI EXISTE. Nogee n'a pas de systeme de
 			//     documents multiples : son projet porte une LISTE DE SCENES

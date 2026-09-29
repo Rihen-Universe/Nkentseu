@@ -100,7 +100,7 @@ namespace nkentseu {
 			public:
 				WorldOutlinerPanel() noexcept
 					: editorkit::NkEditorPanel("World Outliner", editorkit::NkEditorDockSide::NK_LEFT) {
-					// ⚠️ GAUCHE, et ce n'est pas un gout : NK3DModeler peint sa
+					// ⚠️ GAUCHE, et ce n'est pas un gout : NKCraft peint sa
 					// hierarchie dans `lay.left` (NkModelerUI.h, `NkLayout::Compute`),
 					// c'est-a-dire a x=0. Ancre a droite, ce panneau partageait sa
 					// barre d'onglets avec Details (mesure : meme noeud de dock, meme

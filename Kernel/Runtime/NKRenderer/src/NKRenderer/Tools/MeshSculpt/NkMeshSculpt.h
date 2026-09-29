@@ -18,7 +18,7 @@
 //
 // ⚠️ POURQUOI CE MODULE VIT DANS NKRenderer ET NON DANS Noge
 //    `Engine/Noge/src/Noge/Sculpt/NkSculpting.h` decrit deja cette sculpture --
-//    mais contre `Noge::NkEditableMesh`, et NK3DModeler ne depend pas de Noge
+//    mais contre `Noge::NkEditableMesh`, et NKCraft ne depend pas de Noge
 //    (mesure du 19/09 : zero `#include "Noge/` dans toute l'application).
 //    L'autorite de topologie du modeleur est `renderer::NkEditMesh`. Un module
 //    de sculpture qui ne touche pas la structure que l'outil edite ne sert a

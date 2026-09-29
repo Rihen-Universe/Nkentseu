@@ -24,7 +24,7 @@ Créé le 2026-09-13.
 > **NKScena est l'application qui pose le TEMPS sur une scène que d'autres ont
 > construite : elle n'édite ni maillage ni squelette, elle ouvre une scène Noge,
 > y place des pistes, des clés et des plans caméra sur une timeline, et rend la
-> séquence en fichiers — elle est au temps ce que NK3DModeler est à la forme et
+> séquence en fichiers — elle est au temps ce que NKCraft est à la forme et
 > NkAnimaEditor au mouvement d'un personnage.**
 
 Formulée le 2026-09-13, au vu de ce que Noge et NkAnimaEditor font **déjà**, et
@@ -34,7 +34,7 @@ validée par le coordinateur le même jour.
 
 | NKScena ne fait PAS | qui le fait déjà |
 |---|---|
-| éditer une géométrie, des UV, une topologie | **NK3DModeler** |
+| éditer une géométrie, des UV, une topologie | **NKCraft** |
 | poser un squelette, corriger une pose, juger un équilibre | **NkAnimaEditor** |
 | écrire un cinquième viewport de zéro | **Nogee** — son viewport affiche enfin sa scène, et `NKRenderer/Core/NkGizmo.h` (2 009 l.) s'emprunte |
 | inventer un format de scène | la sérialisation de Noge |
@@ -57,7 +57,7 @@ outils existent**. L'outil de NKScena, c'est le séquenceur.
 | `Engine/Noge/src/Noge/Sequencer/NkSequencer.cpp` | **451 l., écrit le 2026-09-13** — les 16 corps manquants |
 | `Applications/NkSequenceCheck` | le banc : clés → pose ECS → PNG numérotés, **sans fenêtre ni GPU** |
 | `NKMedia/Video/NkImageSequenceWriter` | 205 l. — écrit `frame_0001.png`, **aucune dépendance GPU** |
-| `NKRenderer/Tools/Offscreen/NkOffscreenTarget` | 351 l. — `ReadbackPixels` + `Capture(path)`, **tourne déjà** dans NK3DModeler |
+| `NKRenderer/Tools/Offscreen/NkOffscreenTarget` | 351 l. — `ReadbackPixels` + `Capture(path)`, **tourne déjà** dans NKCraft |
 | pistes NLA, sérialisation de séquence | **déclarées, pas livrées** — voir `Engine/Noge/ROADMAP.md` |
 
 > **Condition de naissance de l'application** : quand une séquence se sauve et se

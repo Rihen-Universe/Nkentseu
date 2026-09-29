@@ -16,7 +16,7 @@
 //  composants qui ne doivent pas laisser traverser les evenements. »
 //
 //  C'est la troisieme occurrence : les dialogues de NkUIDesign, les menus du
-//  menu principal de NK3DModeler, puis ce menu-ci. A chaque fois le meme
+//  menu principal de NKCraft, puis ce menu-ci. A chaque fois le meme
 //  correctif local, a chaque fois un composant de plus qui ne l'a pas.
 //
 //  ⚠️ LA CAUSE N'EST PAS L'ETOURDERIE : reclamer demandait TROIS gestes

@@ -39,7 +39,7 @@
 //  `ctx.BeginLayout(region)` »). **Rien à ajouter au kit.**
 //
 //  ⚠️ ET C'EST POURQUOI ON NE DÉMÉNAGE RIEN. La première idée était de faire
-//     descendre la coquille de NK3DModeler (30 fichiers, 33 857 lignes) dans
+//     descendre la coquille de NKCraft (30 fichiers, 33 857 lignes) dans
 //     `NKEditorKit`. Elle aurait figé dans du code ce que Rodolf veut pouvoir
 //     redessiner — et un autre agent travaille dans ce shell.
 //

@@ -589,7 +589,7 @@ namespace nkentseu {
 
 					// ── OEIL ET CADENAS ─────────────────────────────────────────
 					// L'ICONE MONTRE L'ETAT EFFECTIF, pas le drapeau propre : lecon
-					// payee par NK3DModeler (Rihen : « je ne peux selectionner ni le
+					// payee par NKCraft (Rihen : « je ne peux selectionner ni le
 					// parent ni l'enfant »). Un drapeau HERITE se peint attenue — on
 					// voit qu'il vient d'un ancetre et qu'il ne s'ouvre pas ici.
 					if (showVis) {
@@ -786,7 +786,7 @@ namespace nkentseu {
 				const char *path = Path(n);
 
 				// 1. LE CHEVRON — la seule commande de pliage quand
-				//    `chevron_only_fold` est vrai. Lecon de NK3DModeler : le clic de
+				//    `chevron_only_fold` est vrai. Lecon de NKCraft : le clic de
 				//    ligne pliait aussi, « trop sensible et genant pour renommer »
 				//    (Rihen). Le clic qui plie ne selectionne pas.
 				// ④ (05/09, v5) UN EN-TETE DE SECTION PLIE SUR TOUTE SA BANDE.
@@ -829,7 +829,7 @@ namespace nkentseu {
 					if (rangeSel && in.shift && m.anchor != 0 && m.anchor != n.id &&
 						anchorOrdinal >= 0 && hitOrdinal >= 0) {
 						// PLAGE MAJ+CLIC, additive facon Blender : elle ETEND la
-						// selection sans rien deselectionner. Venue de NK3DModeler,
+						// selection sans rien deselectionner. Venue de NKCraft,
 						// absente des deux copies Nogee. On rejoue le MEME parcours
 						// que le dessin — c'est pour ca qu'il est ecrit une seule
 						// fois.
@@ -892,7 +892,7 @@ namespace nkentseu {
 				}
 
 				// 4. LE MENU CONTEXTUEL — toute la largeur de la ligne, chevron et
-				//    icones compris : les zones fines volaient le clic (NK3DModeler).
+				//    icones compris : les zones fines volaient le clic (NKCraft).
 				if (in.rightPressed && hooks.onContextMenu)
 					hooks.onContextMenu(hooks.user, hitIndex, in.mouseX, in.mouseY);
 
@@ -902,7 +902,7 @@ namespace nkentseu {
 					bool ok = true;
 					// GARDE ANTI-CYCLE, GENERIQUE ET GRATUITE : le composant a la
 					// chaine de parents sous les yeux. Nogee a du l'ecrire a la main
-					// parce que `SetParent` n'a aucune garde interne ; NK3DModeler ne
+					// parce que `SetParent` n'a aucune garde interne ; NKCraft ne
 					// l'a pas du tout. Ici elle est rendue une fois pour tous.
 					if (srcIdx >= 0) {
 						if (srcIdx == hitIndex)
@@ -949,7 +949,7 @@ namespace nkentseu {
 					if (hooks.onSelect)
 						hooks.onSelect(hooks.user, -1, "");
 				}
-				// LACHER DANS LE VIDE = DEPARENTER (NK3DModeler). La cible est la
+				// LACHER DANS LE VIDE = DEPARENTER (NKCraft). La cible est la
 				// racine, donc un chemin vide et une position `Into`.
 				if (in.dragReleased && m.dragSource != 0) {
 					res.dropAccepted = true;

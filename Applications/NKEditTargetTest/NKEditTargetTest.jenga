@@ -31,7 +31,7 @@ with project("NKEditTargetTest"):
          "NKRHI", "NKSL", "NKWindow", "NKGlad", "NKMath", "NKTime", "NKStream",
          "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
-        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src", "%{NKGlad.location}/include"]
+        extra_includes=["src", "%{wks.location}/Applications/NKCraft/src", "%{NKGlad.location}/include"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
     )

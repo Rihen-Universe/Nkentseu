@@ -43,7 +43,7 @@
 // `nkgui::Text` et `nkgui::Separator`. Elle sert donc **les applications qui
 // dessinent avec le vocabulaire de widgets de NKGui** : NkUIDesign et Nogee.
 //
-// ⚠️ NK3DModeler N'EST PAS SERVI, ET CE N'EST PAS UN OUBLI. Mesure du
+// ⚠️ NKCraft N'EST PAS SERVI, ET CE N'EST PAS UN OUBLI. Mesure du
 //    2026-08-29 -- et elle corrige une idee fausse qui circulait :
 //
 //      il PASSE bien par NkGuiContext : 33 occurrences dans 12 fichiers sur 36
@@ -88,7 +88,7 @@
 //    « libelle / valeur » n'a pas la meme forme dans les trois applications :
 //      - NkUIDesign l'affiche en LECTURE SEULE -- regle de Rodolf du 18/08,
 //        « la position est un RESULTAT, pas une donnee » ;
-//      - NK3DModeler a besoin de champs EDITABLES ;
+//      - NKCraft a besoin de champs EDITABLES ;
 //      - Nogee affiche la rotation en lecture seule PARCE QU'une conversion
 //        quaternion vers euler produirait des valeurs fausses -- c'est ecrit
 //        chez lui.
@@ -414,7 +414,7 @@ namespace nkentseu {
 		//   CE QUI N'ENTRE PAS, ET QUI NE DOIT PAS ENTRER
 		//     - `RenderVec3Row` (ligne X/Y/Z a libelles colores, cadenas
 		//       d'echelle uniforme) : c'est une LIGNE. NkUIDesign n'en a pas
-		//       l'usage et l'afficherait en lecture seule ; NK3DModeler la veut
+		//       l'usage et l'afficherait en lecture seule ; NKCraft la veut
 		//       editable. Elle reste chez Nogee.
 		//     - `PassesFilter` : une regle de filtrage propre a la cible. La
 		//       charpente ne filtre pas -- `sectionsDe` rend deja la table que

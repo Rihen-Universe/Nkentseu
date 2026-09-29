@@ -8,7 +8,7 @@
 //   - deux yeux séparés d'un IPD réel, souris = tête, ZQSD/WASD = déplacement ;
 //   - les entrées par ACTIONS (clic gauche = « sélectionner » teinte le cube).
 //
-// Architecture rendu (patron éprouvé NK3DModeler/NkAnimaEditor — AUCUNE passe
+// Architecture rendu (patron éprouvé NKCraft/NkAnimaEditor — AUCUNE passe
 // de NKRenderer modifiée, c'est la contrainte de l'étage 0) :
 //   rMain (For2D)   : possède la frame — BeginFrame/Present/EndFrame, compose
 //                     les deux yeux côte à côte via Render2D::DrawImage ;
@@ -794,7 +794,7 @@ int nkmain(const NkEntryState &state) {
 				// Vraies mains : une petite sphère par articulation, au rayon
 				// que donne le runtime — un « squelette de perles » suffit à
 				// prouver le suivi ; le maillage skinné viendra avec un
-				// modèle de main (NK3DModeler).
+				// modèle de main (NKCraft).
 				for (uint32 h = 0; h < 2u; ++h) {
 					if (!haveHandJoints[h]) {
 						continue;

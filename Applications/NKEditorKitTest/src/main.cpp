@@ -483,7 +483,7 @@ static void Famille4_BackendGraphique() {
 //
 //  ⚠️ CE QUE CETTE FAMILLE NE MESURE PAS : que la couleur arrive a l'ecran.
 //     Aucun banc sans fenetre ne peut le dire. C'est la sonde `NK_THEME_PROBE`
-//     de NK3DModeler qui le tient, au pixel, et son releve est dans le canal.
+//     de NKCraft qui le tient, au pixel, et son releve est dans le canal.
 static void Famille15_RolesAlerte() {
 	printf("\n[Famille 6] roles d'alerte et repli declare\n");
 
@@ -934,7 +934,7 @@ static void Famille21_ContratDuFil() {
 //  ⚠️ ET CE QU'IL NE PROUVE PAS EST DIT : il ne montre aucun pixel. Le temoin
 //     visuel de la bande existe ailleurs (`NkOngletSonde`, captures
 //     `sonde_onglets/captures/`), et il est pris avec le peintre NKGui de la
-//     coquille — pas avec celui de NK3DModeler, dont l'application ne compile
+//     coquille — pas avec celui de NKCraft, dont l'application ne compile
 //     pas sur cette branche pour des raisons ANTERIEURES a ce lot (merge
 //     `e249d7151` ; 12 erreurs dans `main.cpp`, `NkModelerImport.h` et
 //     `NkDemo3D.cpp`, aucune dans un fichier de ce lot). Cf. le canal.

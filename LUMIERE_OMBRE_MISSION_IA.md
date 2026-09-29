@@ -1,5 +1,14 @@
 # MISSION IA — Vérifier et corriger l'éclairage et les ombres de NK3DModeler
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+> **Pour exécuter cette mission aujourd'hui**, lire chaque chemin et chaque
+> commande avec le nouveau nom.
+
 > Document de passation destiné à **une IA quelconque** (pas nécessairement Claude).
 > Il contient : la carte complète des codes concernés, les faits déjà prouvés
 > (à ne PAS refaire), les problèmes ouverts, les pièges qui coûtent des heures,

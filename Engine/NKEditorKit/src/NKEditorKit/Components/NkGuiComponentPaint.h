@@ -42,7 +42,7 @@
 // ⚠️ CE QU'IL NE SAIT PAS FAIRE, ET C'EST DIT PLUTOT QUE DECOUVERT :
 //   - **`Icon` NE DESSINE AUCUNE ICONE.** Il n'existe aucune notion d'icone
 //     dans NKGui, et les 193 glyphes du depot sont definis DEUX FOIS (102 en
-//     SVG chez NK3DModeler, 91 en PNG chez NKCode), a raison d'une texture GPU
+//     SVG chez NKCraft, 91 en PNG chez NKCode), a raison d'une texture GPU
 //     par glyphe. L'atlas appartient a l'agent NKGui et figure dans sa liste.
 //     En attendant, `Icon` peint un **carre plein du role demande** : la place
 //     est prise, la couleur est juste, le glyphe manque. Un composant qui

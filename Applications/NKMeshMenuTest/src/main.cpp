@@ -39,8 +39,8 @@
 //   * l'etat dans lequel Rodolf se trouve (viseur hors edition) : cet etat n'est
 //     pas une propriete du menu, il se mesure dans la vue.
 // =============================================================================
-#include "NK3DModeler/Shell/NkModelerMeshMenu.h"
-#include "NK3DModeler/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)
+#include "NKCraft/Shell/NkModelerMeshMenu.h"
+#include "NKCraft/Shell/NkModelerDeleteMenu.h" // le menu X (Blender)
 
 #include <stdio.h>
 #include <string.h>

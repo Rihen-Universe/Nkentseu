@@ -642,7 +642,7 @@ static nkentseu::int32 RecetteGestes() {
 	//
 	// 📌 LE COMPOSANT D'ARBRE PORTAIT DEJA TOUT : `hidden`, `locked`,
 	//    `flagsInherited`, les quatre icones et le rappel `onToggleFlag`.
-	//    NK3DModeler avait paye la lecon a l'usage. Le travail n'etait pas de
+	//    NKCraft avait paye la lecon a l'usage. Le travail n'etait pas de
 	//    dessiner deux icones, c'etait de les BRANCHER -- d'ou ce cas, qui ne
 	//    mesure QUE les deux endroits ou le branchement peut se tromper.
 	{
@@ -664,7 +664,7 @@ static nkentseu::int32 RecetteGestes() {
 		// (c) ⚠️ LE DRAPEAU VIENT DE L'ANCETRE : effectif ET herite. C'est ce
 		//     second bit qui fait peindre l'icone ATTENUEE et refuser le clic ;
 		//     sans lui le refus parait inexplicable, et c'est mot pour mot ce que
-		//     NK3DModeler a paye (« je ne peux selectionner ni le parent ni
+		//     NKCraft a paye (« je ne peux selectionner ni le parent ni
 		//     l'enfant »).
 		d.nodes[(uint32)grp].masque = true;
 		NkDrapeauxArbre(d, enf, c1, v1, h1);

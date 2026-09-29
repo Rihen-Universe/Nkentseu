@@ -289,7 +289,7 @@ namespace nkentseu {
 			///    (`NkGuiContext.h` : {120,124,134,255}), et `NkCtxMenu` du kit
 			///    l'emploie deja pour griser ses entrees. Le vocabulaire de ROLES,
 			///    lui, ne l'avait pas : une application qui peint par roles -- donc
-			///    NK3DModeler, Nogee, NkAnimaEditor -- n'avait aucun moyen de dire
+			///    NKCraft, Nogee, NkAnimaEditor -- n'avait aucun moyen de dire
 			///    « desactive » et se rabattait sur `TextMuted`. On complete un
 			///    vocabulaire qui a deja son equivalent ailleurs.
 			///    Precedent exact : *« Theme : un seul role manquait »* (31/08) --
@@ -340,7 +340,7 @@ namespace nkentseu {
 		static const uint16 NK_ROLE_INVALID = 0xFFFFu;
 
 		// ── ROLES D'APPLICATION ─────────────────────────────────────────────────
-		// LE GARDE-FOU N.1 DE NKGRAPH, APPLIQUE ICI. NK3DModeler aura besoin d'un
+		// LE GARDE-FOU N.1 DE NKGRAPH, APPLIQUE ICI. NKCraft aura besoin d'un
 		// « anneau de brosse », NkAnima d'une « cle d'animation », Nogee d'autre
 		// chose encore. Les mettre dans l'enumeration COMMUNE ferait trainer a
 		// Nogee des roles de sculpt qui ne le concernent pas -- et l'enumeration
@@ -351,7 +351,7 @@ namespace nkentseu {
 		// coeur restent indexes par enumeration (rapides, verifies a la
 		// compilation) ; ceux des applications vivent dans une table d'extension.
 		//
-		// Consequence recherchee : un fichier de theme ecrit pour NK3DModeler se
+		// Consequence recherchee : un fichier de theme ecrit pour NKCraft se
 		// charge SANS ERREUR dans Nogee -- ses roles inconnus sont comptes, pas
 		// rejetes. Convention de nommage : « nk3d.anneau_brosse ».
 		class NkRoleRegistry {

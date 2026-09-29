@@ -28,7 +28,7 @@
 //   BUILD si la struct grandit sans que la recopie suive. Un echec de build est
 //   un cran plus fort qu'un banc rouge — il ne peut pas etre ignore.
 // =============================================================================
-#include "NK3DModeler/Viewport/NkVpMatTypeDefaults.h"
+#include "NKCraft/Viewport/NkVpMatTypeDefaults.h"
 
 #include <cstdio>
 #include <cstring>
