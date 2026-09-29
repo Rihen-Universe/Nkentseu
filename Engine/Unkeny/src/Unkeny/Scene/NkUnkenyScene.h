@@ -75,6 +75,44 @@ namespace nkentseu {
 				int32 pasMaxParTrame = 5;
 		};
 
+		class NkScene;
+
+		// =====================================================================
+		// La logique de jeu : SYSTEMES et CONTACTS
+		//
+		// ⚠️ POURQUOI PAS ecs::NkScheduler (mesure du 2026-09-29, apres la
+		//    recherche que la regle du depot impose)
+		//   NKECS porte un ordonnanceur complet (DAG, conflits lecture/ecriture,
+		//   execution parallele). Il demarre TOUJOURS au moins un fil
+		//   (NkJobPool : hardware_concurrency - 1, minimum 1) et repose sur
+		//   std::function / std::thread. Une NkScene par niveau, une par
+		//   miniature d'editeur : autant de fils. Et le Web d'Unkeny tourne sans
+		//   fils (ASYNCIFY, pas de SharedArrayBuffer). Unkeny garde donc un
+		//   planificateur SEQUENTIEL et sans allocation par trame ; un jeu qui
+		//   veut le parallele peut toujours faire tourner un NkScheduler sur
+		//   scene.Monde() — c'est le meme NkWorld.
+		// =====================================================================
+		enum class NkPhaseSysteme : uint8 {
+			NK_PAS_FIXE = 0, ///< a chaque pas fixe, AVANT la physique (forces, commandes)
+			NK_TRAME		 ///< une fois par Pas, APRES physique, synchro et animations
+		};
+
+		using NkFonctionSysteme = void (*)(NkScene &scene, float32 dt, void *donnees);
+
+		enum class NkPhaseContact : uint8 {
+			NK_DEBUT = 0, ///< les deux corps viennent de se toucher
+			NK_FIN		  ///< ils viennent de se separer
+		};
+
+		/// Un choc ou une entree de zone, en ENTITES. `declencheur` : `a` est une
+		/// zone (collisionneur `declencheur`), `b` ce qui y entre ou en sort.
+		struct NkContact2D {
+				ecs::NkEntityId a;
+				ecs::NkEntityId b;
+				NkPhaseContact phase = NkPhaseContact::NK_DEBUT;
+				bool declencheur = false;
+		};
+
 		class NkScene {
 			public:
 				NkScene() = default;
@@ -151,6 +189,29 @@ namespace nkentseu {
 				/// Avance la scene de `deltaTime` secondes : physique a pas fixe,
 				/// puis recopie des positions, puis vitesses manuelles.
 				void Pas(float32 deltaTime);
+
+				// --- Logique de jeu --------------------------------------------
+				/// Ajoute un systeme. Ils tournent par phase, dans l'ordre croissant
+				/// d'`ordre` puis d'ajout. Rend un identifiant (jamais 0).
+				/// `nom` : chaine STATIQUE, pour le debogage et l'editeur.
+				uint32 AjouterSysteme(const char *nom, NkPhaseSysteme phase, NkFonctionSysteme fonction,
+									  void *donnees = nullptr, int32 ordre = 0);
+				bool RetirerSysteme(uint32 id);
+				void ActiverSysteme(uint32 id, bool actif);
+				uint32 NbSystemes() const noexcept {
+					return static_cast<uint32>(mSystemes.Size());
+				}
+				const char *NomSysteme(uint32 index) const noexcept {
+					return index < mSystemes.Size() ? mSystemes[index].nom : nullptr;
+				}
+
+				/// Les chocs et entrees de zone du DERNIER Pas (tous ses pas fixes
+				/// reunis). Lus par un systeme NK_TRAME, ou par le jeu apres Pas.
+				/// ⚠️ Une entite detruite PENDANT le pas peut y figurer : tester
+				/// Monde().IsAlive avant de s'en servir.
+				const NkVector<NkContact2D> &Contacts() const noexcept {
+					return mContacts;
+				}
 
 				NkVue2D &Camera() noexcept {
 					return mCamera;
@@ -279,6 +340,27 @@ namespace nkentseu {
 				/// entites dont le corps a disparu (tombe hors du monde, gomme).
 				void SynchroniserCorpsMous();
 				void AppliquerVitessesManuelles(float32 dt);
+
+				struct NkSysteme {
+						uint32 id = 0;
+						const char *nom = nullptr;
+						NkPhaseSysteme phase = NkPhaseSysteme::NK_TRAME;
+						NkFonctionSysteme fonction = nullptr;
+						void *donnees = nullptr;
+						int32 ordre = 0;
+						bool actif = true;
+				};
+				void LancerSystemes(NkPhaseSysteme phase, float32 dt);
+				void Relever();
+
+				NkVector<NkSysteme> mSystemes;
+				uint32 mProchainSysteme = 1;
+				NkVector<NkContact2D> mContacts;
+				struct NkCorpsEntite {
+						uint32 corps = 0;
+						ecs::NkEntityId entite;
+				};
+				NkVector<NkCorpsEntite> mCorpsEntite; ///< refait a chaque releve qui a des evenements
 
 				NkSceneConfig mConfig;
 				ecs::NkWorld mMonde;

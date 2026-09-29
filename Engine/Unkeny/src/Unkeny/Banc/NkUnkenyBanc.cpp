@@ -37,6 +37,14 @@
 //         entite detruite, la voix est COUPEE a la trame suivante
 //   (a5)  `demande` joue une fois, `arret` coupe
 //   (a6)  apres Photographier / Restaurer, la boucle d'ambiance revit
+//   (j1)  les systemes tournent par ordre croissant, puis par ordre d'ajout
+//   (j2)  a 30 i/s pour un pas fixe de 1/60 : NK_PAS_FIXE deux fois (dt 1/60),
+//         NK_TRAME une fois (dt 1/30) — et sans monde physique aussi
+//   (j3)  un systeme desactive ne tourne pas ; un systeme qui se RETIRE
+//         pendant le parcours ne casse rien et ne saute pas le suivant
+//   (j4)  une balle lachee sur le sol : UN contact DEBUT balle/sol, en entites ;
+//         (j4n) la meme balle lachee dans le vide : aucun
+//   (j5)  une zone declencheur traversee : DEBUT puis FIN, `a` = la zone
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -619,6 +627,138 @@ namespace nkentseu {
 				}
 				Temoin(vivantes == 1u, "(a6) apres Restaurer, la boucle d'ambiance revit (voix actives)", static_cast<float32>(vivantes));
 				sons.Arreter();
+			}
+
+			// (j1) .. (j5) logique de jeu
+			{
+				struct Journal {
+						char trace[64] = {};
+						int32 n = 0;
+						float32 dtFixe = 0.f, dtTrame = 0.f;
+						int32 fixes = 0, trames = 0;
+						uint32 aRetirer = 0;
+				};
+				static Journal j;
+				j = Journal{};
+				auto A = [](NkScene &, float32, void *) { j.trace[j.n++] = 'a'; };
+				auto B = [](NkScene &, float32, void *) { j.trace[j.n++] = 'b'; };
+				auto C = [](NkScene &, float32, void *) { j.trace[j.n++] = 'c'; };
+				NkScene s;
+				NkSceneConfig cfg; // SANS physique
+				s.Init(cfg);
+				s.AjouterSysteme("a", NkPhaseSysteme::NK_TRAME, A, nullptr, 5);
+				s.AjouterSysteme("b", NkPhaseSysteme::NK_TRAME, B, nullptr, 0);
+				s.AjouterSysteme("c", NkPhaseSysteme::NK_TRAME, C, nullptr, 0);
+				s.Pas(1.f / 60.f);
+				Temoin(std::strcmp(j.trace, "bca") == 0, "(j1) ordre croissant puis ordre d'ajout (b, c, a)", static_cast<float32>(j.n));
+
+				NkScene t;
+				t.Init(cfg);
+				t.AjouterSysteme("fixe", NkPhaseSysteme::NK_PAS_FIXE, [](NkScene &, float32 dt, void *) { j.fixes++; j.dtFixe = dt; });
+				t.AjouterSysteme("trame", NkPhaseSysteme::NK_TRAME, [](NkScene &, float32 dt, void *) { j.trames++; j.dtTrame = dt; });
+				t.Pas(1.f / 30.f);
+				Temoin(j.fixes == 2 && j.trames == 1 && math::NkAbs(j.dtFixe - 1.f / 60.f) < 1.0e-6f && math::NkAbs(j.dtTrame - 1.f / 30.f) < 1.0e-6f,
+					   "(j2) 2 pas fixes (1/60) et 1 trame (1/30), sans physique", static_cast<float32>(j.fixes));
+
+				j = Journal{};
+				NkScene u;
+				u.Init(cfg);
+				const uint32 off = u.AjouterSysteme("off", NkPhaseSysteme::NK_TRAME, A);
+				u.ActiverSysteme(off, false);
+				j.aRetirer = u.AjouterSysteme("seul", NkPhaseSysteme::NK_TRAME, [](NkScene &sc, float32, void *) {
+					j.trace[j.n++] = 'r';
+					sc.RetirerSysteme(j.aRetirer);
+				});
+				u.AjouterSysteme("apres", NkPhaseSysteme::NK_TRAME, C);
+				u.Pas(1.f / 60.f);
+				u.Pas(1.f / 60.f);
+				// Trame 1 : r (qui se retire) puis c. Trame 2 : c seul. Jamais a.
+				Temoin(std::strcmp(j.trace, "rcc") == 0 && u.NbSystemes() == 2u, "(j3) desactive muet ; retrait en cours de route sans saut",
+					   static_cast<float32>(j.n));
+				if (std::strcmp(j.trace, "rcc") != 0) {
+					std::printf("    trace : %s\n", j.trace);
+				}
+
+				// (j4) contacts
+				auto Chute = [&](NkScene &sc, float32 hauteur, ecs::NkEntityId &balle, ecs::NkEntityId &sol, ecs::NkEntityId *zone) {
+					NkSceneConfig c2;
+					c2.physique = true;
+					sc.Init(c2);
+					sol = sc.Creer("Sol", NkVec2f(0.f, -0.5f));
+					NkCollisionneur2D cs;
+					cs.demiTaille = NkVec2f(10.f, 0.5f);
+					sc.Monde().Add<NkCollisionneur2D>(sol, cs);
+					NkCorps2D ks;
+					ks.type = NkTypeCorps::NK_STATIQUE;
+					sc.AjouterCorps(sol, ks);
+					if (zone != nullptr) {
+						*zone = sc.Creer("Zone", NkVec2f(0.f, 3.f));
+						NkCollisionneur2D cz;
+						cz.demiTaille = NkVec2f(2.f, 0.5f);
+						cz.declencheur = true;
+						sc.Monde().Add<NkCollisionneur2D>(*zone, cz);
+						NkCorps2D kz;
+						kz.type = NkTypeCorps::NK_STATIQUE;
+						sc.AjouterCorps(*zone, kz);
+					}
+					balle = sc.Creer("Balle", NkVec2f(hauteur > 50.f ? 40.f : 0.f, hauteur));
+					NkCollisionneur2D cb;
+					cb.forme = NkForme2D::NK_CERCLE;
+					cb.rayon = 0.25f;
+					sc.Monde().Add<NkCollisionneur2D>(balle, cb);
+					NkCorps2D kb;
+					sc.AjouterCorps(balle, kb);
+				};
+				int32 debuts = 0, autres = 0;
+				{
+					NkScene w;
+					ecs::NkEntityId balle, sol;
+					Chute(w, 5.f, balle, sol, nullptr);
+					for (int32 k = 0; k < 150; ++k) {
+						w.Pas(1.f / 60.f);
+						for (uint32 i = 0; i < w.Contacts().Size(); ++i) {
+							const NkContact2D &ct = w.Contacts()[i];
+							const bool paire = (ct.a == balle && ct.b == sol) || (ct.a == sol && ct.b == balle);
+							if (paire && ct.phase == NkPhaseContact::NK_DEBUT && !ct.declencheur) {
+								++debuts;
+							} else {
+								++autres;
+							}
+						}
+					}
+				}
+				Temoin(debuts >= 1 && autres == 0, "(j4) balle sur le sol : un DEBUT balle/sol, en entites", static_cast<float32>(debuts));
+				int32 rien = 0;
+				{
+					NkScene w;
+					ecs::NkEntityId balle, sol;
+					Chute(w, 100.f, balle, sol, nullptr);
+					for (int32 k = 0; k < 60; ++k) {
+						w.Pas(1.f / 60.f);
+						rien += static_cast<int32>(w.Contacts().Size());
+					}
+				}
+				Temoin(rien == 0, "(j4n) balle dans le vide : aucun contact", static_cast<float32>(rien));
+				int32 entre = -1, sort = -1, pas = 0;
+				{
+					NkScene w;
+					ecs::NkEntityId balle, sol, zone;
+					Chute(w, 5.f, balle, sol, &zone);
+					for (int32 k = 0; k < 150; ++k, ++pas) {
+						w.Pas(1.f / 60.f);
+						for (uint32 i = 0; i < w.Contacts().Size(); ++i) {
+							const NkContact2D &ct = w.Contacts()[i];
+							if (ct.declencheur && ct.a == zone && ct.b == balle) {
+								if (ct.phase == NkPhaseContact::NK_DEBUT && entre < 0) {
+									entre = pas;
+								} else if (ct.phase == NkPhaseContact::NK_FIN && sort < 0) {
+									sort = pas;
+								}
+							}
+						}
+					}
+				}
+				Temoin(entre >= 0 && sort > entre, "(j5) zone traversee : DEBUT puis FIN (pas de l'entree)", static_cast<float32>(entre));
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,

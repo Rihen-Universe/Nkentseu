@@ -327,15 +327,23 @@ namespace nkentseu {
 		// =====================================================================
 		void NkScene::Pas(float32 deltaTime) {
 			mDernierNbPas = 0;
-			if (mPhysique != nullptr && mConfig.pasFixe > 0.f) {
+			mContacts.Clear();
+			if (mConfig.pasFixe > 0.f) {
 				mAccumulateur += deltaTime;
 				while (mAccumulateur >= mConfig.pasFixe && mDernierNbPas < mConfig.pasMaxParTrame) {
-					// Les particules AVANT les rigides : leurs impulses sont integrees
-					// par le solveur rigide dans le meme pas (NkParticules2D.h).
-					if (mParticules != nullptr) {
-						mParticules->Pas(mConfig.pasFixe, mPhysique);
+					// La logique de jeu AVANT la physique : une force posee ici est
+					// integree dans ce pas, pas dans le suivant.
+					LancerSystemes(NkPhaseSysteme::NK_PAS_FIXE, mConfig.pasFixe);
+					if (mPhysique != nullptr) {
+						// Les particules AVANT les rigides : leurs impulses sont
+						// integrees par le solveur rigide dans le meme pas
+						// (NkParticules2D.h).
+						if (mParticules != nullptr) {
+							mParticules->Pas(mConfig.pasFixe, mPhysique);
+						}
+						mPhysique->Step(mConfig.pasFixe);
+						Relever();
 					}
-					mPhysique->Step(mConfig.pasFixe);
 					mAccumulateur -= mConfig.pasFixe;
 					++mDernierNbPas;
 				}
@@ -346,14 +354,130 @@ namespace nkentseu {
 				if (mAccumulateur > mConfig.pasFixe * static_cast<float32>(mConfig.pasMaxParTrame)) {
 					mAccumulateur = 0.f;
 				}
-				SynchroniserDepuisPhysique();
-				SynchroniserCorpsMous();
+				if (mPhysique != nullptr) {
+					SynchroniserDepuisPhysique();
+					SynchroniserCorpsMous();
+				}
 			}
 
 			AppliquerVitessesManuelles(deltaTime);
 			// Les animations suivent le temps de la TRAME, pas le pas fixe : une
 			// marche a 12 images/s ne doit pas dependre de la physique.
 			NkAvancerAnimations(mMonde, deltaTime);
+			LancerSystemes(NkPhaseSysteme::NK_TRAME, deltaTime);
+		}
+
+		// =====================================================================
+		// Systemes
+		// =====================================================================
+		uint32 NkScene::AjouterSysteme(const char *nom, NkPhaseSysteme phase, NkFonctionSysteme fonction, void *donnees,
+									   int32 ordre) {
+			if (fonction == nullptr) {
+				return 0u;
+			}
+			NkSysteme s;
+			s.id = mProchainSysteme++;
+			s.nom = nom;
+			s.phase = phase;
+			s.fonction = fonction;
+			s.donnees = donnees;
+			s.ordre = ordre;
+			// Insertion TRIEE par ordre, stable : a ordre egal, l'ordre d'ajout.
+			uint32 at = static_cast<uint32>(mSystemes.Size());
+			while (at > 0u && mSystemes[at - 1u].ordre > ordre) {
+				--at;
+			}
+			mSystemes.PushBack(s);
+			for (uint32 i = static_cast<uint32>(mSystemes.Size()) - 1u; i > at; --i) {
+				mSystemes[i] = mSystemes[i - 1u];
+			}
+			mSystemes[at] = s;
+			return s.id;
+		}
+
+		bool NkScene::RetirerSysteme(uint32 id) {
+			for (uint32 i = 0; i < mSystemes.Size(); ++i) {
+				if (mSystemes[i].id == id) {
+					// Pas de trou et pas de reordonnancement : on decale.
+					for (uint32 k = i; k + 1u < mSystemes.Size(); ++k) {
+						mSystemes[k] = mSystemes[k + 1u];
+					}
+					mSystemes.PopBack();
+					return true;
+				}
+			}
+			return false;
+		}
+
+		void NkScene::ActiverSysteme(uint32 id, bool actif) {
+			for (uint32 i = 0; i < mSystemes.Size(); ++i) {
+				if (mSystemes[i].id == id) {
+					mSystemes[i].actif = actif;
+				}
+			}
+		}
+
+		void NkScene::LancerSystemes(NkPhaseSysteme phase, float32 dt) {
+			// ⚠️ Par INDEX et en relisant la taille : un systeme peut en retirer
+			// ou en ajouter un autre (ou lui-meme) pendant qu'on les parcourt.
+			// Apres chaque appel, on REPREND juste apres le systeme qui vient de
+			// tourner, retrouve par son id : s'il s'est retire, le suivant a pris
+			// sa place (sans cela il etait saute — mesure du banc, j3) ; si un
+			// systeme a ete insere avant lui, il ne tourne pas deux fois.
+			uint32 i = 0;
+			while (i < mSystemes.Size()) {
+				const NkSysteme s = mSystemes[i];
+				if (!(s.actif && s.phase == phase)) {
+					++i;
+					continue;
+				}
+				s.fonction(*this, dt, s.donnees);
+				uint32 j = 0;
+				while (j < mSystemes.Size() && mSystemes[j].id != s.id) {
+					++j;
+				}
+				i = j < mSystemes.Size() ? j + 1u : (i < mSystemes.Size() ? i : static_cast<uint32>(mSystemes.Size()));
+			}
+		}
+
+		void NkScene::Relever() {
+			const NkVector<physics::NkTriggerEvent> *listes[4] = {&mPhysique->ContactEnter(), &mPhysique->ContactExit(),
+																  &mPhysique->TriggerEnter(), &mPhysique->TriggerExit()};
+			bool vide = true;
+			for (int32 k = 0; k < 4; ++k) {
+				vide = vide && listes[k]->Size() == 0u;
+			}
+			if (vide) {
+				return;
+			}
+			// Corps -> entite : refait ici, seulement quand il y a quelque chose a
+			// traduire. Un index tenu a jour a chaque AjouterCorps / Detruire
+			// serait plus rapide et deux fois plus fragile.
+			mCorpsEntite.Clear();
+			mMonde.Query<NkCorps2D>().ForEach([this](ecs::NkEntityId id, NkCorps2D &c) {
+				mCorpsEntite.PushBack(NkCorpsEntite{c.corpsId, id});
+			});
+			auto entite = [this](physics::NkBodyId b) {
+				for (uint32 i = 0; i < mCorpsEntite.Size(); ++i) {
+					if (mCorpsEntite[i].corps == b) {
+						return mCorpsEntite[i].entite;
+					}
+				}
+				return ecs::NkEntityId::Invalid();
+			};
+			for (int32 k = 0; k < 4; ++k) {
+				for (uint32 i = 0; i < listes[k]->Size(); ++i) {
+					const physics::NkTriggerEvent &ev = (*listes[k])[i];
+					NkContact2D c;
+					c.a = entite(ev.trigger);
+					c.b = entite(ev.other);
+					c.phase = (k % 2 == 0) ? NkPhaseContact::NK_DEBUT : NkPhaseContact::NK_FIN;
+					c.declencheur = k >= 2;
+					if (c.a.IsValid() && c.b.IsValid()) {
+						mContacts.PushBack(c);
+					}
+				}
+			}
 		}
 
 		void NkScene::SynchroniserDepuisPhysique() {

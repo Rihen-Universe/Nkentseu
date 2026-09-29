@@ -243,7 +243,10 @@ namespace nkentseu {
 			mTrigEnter.Clear();
 			mTrigStay.Clear();
 			mTrigExit.Clear();
-			auto mapEvents = [&](const NkVector<collision::NkCollisionEvent> &evs, NkVector<NkTriggerEvent> &out) {
+			mContactEnter.Clear();
+			mContactExit.Clear();
+			auto mapEvents = [&](const NkVector<collision::NkCollisionEvent> &evs, NkVector<NkTriggerEvent> &out,
+								 NkVector<NkTriggerEvent> *solides) {
 				for (uint32 i = 0; i < (uint32)evs.Size(); ++i) {
 					NkRigidBody *A = FindByCollisionId(evs[i].a);
 					NkRigidBody *B = FindByCollisionId(evs[i].b);
@@ -253,11 +256,13 @@ namespace nkentseu {
 						out.PushBack(NkTriggerEvent{A->id, B->id});
 					else if (B->flags & NK_BODY_TRIGGER)
 						out.PushBack(NkTriggerEvent{B->id, A->id});
+					else if (solides != nullptr)
+						solides->PushBack(NkTriggerEvent{A->id, B->id});
 				}
 			};
-			mapEvents(mCollision.EnterEvents(), mTrigEnter);
-			mapEvents(mCollision.StayEvents(), mTrigStay);
-			mapEvents(mCollision.ExitEvents(), mTrigExit);
+			mapEvents(mCollision.EnterEvents(), mTrigEnter, &mContactEnter);
+			mapEvents(mCollision.StayEvents(), mTrigStay, nullptr);
+			mapEvents(mCollision.ExitEvents(), mTrigExit, &mContactExit);
 		}
 
 		// ── Articulations (M7) ───────────────────────────────────────────────
