@@ -4,7 +4,7 @@
   toile d'un maillage. Motif frequent des arts des Grassfields (Bamileke, Bamoum).
   MEME dessin que Shell/NkModelerBrand.h (painter) et Resources/gen_icon.ps1
   (icone d'application) : les trois changent ensemble. Repere 100 x 100.
-  Couleurs : bleu d'etat #1177D1, ambre de selection #F2980E, fond #141414.
+  Couleurs : bleu d'etat #1177D1, ambre de selection #F2980E, fond #141414. Version SOMBRE ; la version CLAIRE est nkcraft_araignee_clair.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
   <rect width="100" height="100" rx="19" fill="#141414"/>
