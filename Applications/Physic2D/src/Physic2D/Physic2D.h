@@ -158,7 +158,6 @@ namespace nkentseu {
 			unkeny::NkScene mScene;
 			unkeny::NkTextures2D mTextures;
 			unkeny::NkSons2D mSons;
-			uint32 mSonPose = 0, mSonExplosion = 0, mSonCoupe = 0;
 			float32 mCoupeAge = 99.f; ///< le son du couteau ne se rejoue pas a chaque trame
 			unkeny::NkScene::NkPhoto mPhoto;
 			unkeny::NkTheme mTheme;

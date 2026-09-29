@@ -36,6 +36,7 @@
 //   Entree/    actions — le jeu parle d'actions, jamais de touches
 //   Anim/      images de sprite, et interpolation de deplacement
 //   Son/       sons charges ou fabriques, sources placees dans le monde
+//   Simulation/ le catalogue des acteurs (corps mous, fluides, atomes, tissus)
 //   Ui/        mise en page ancree sur la zone sure, widgets
 //   Jeu/       vocabulaire de GENRE (jeux a tours) — facultatif
 //
@@ -62,6 +63,7 @@
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 #include "Unkeny/Son/NkUnkenySon.h"
+#include "Unkeny/Simulation/NkUnkenyActeurs.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Ui/NkUnkenyGeometrie.h"
 #include "Unkeny/Ui/NkUnkenyTheme.h"

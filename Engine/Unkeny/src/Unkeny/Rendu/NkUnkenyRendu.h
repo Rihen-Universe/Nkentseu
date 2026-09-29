@@ -57,6 +57,28 @@ namespace nkentseu {
 		/// avec.
 		void NkDessinerCollisionneurs(nkgui::NkGuiDrawList &dl, NkScene &scene, uint32 couleur = 0x00E07AC0u);
 
+		/// Les FORMES pleines : chaque entite a collisionneur dessinee depuis sa
+		/// forme (boite, cercle, capsule), rotation comprise — ce qu'on voit est
+		/// exactement ce qui touche. Les corps DYNAMIQUES prennent la couleur de
+		/// leur sprite et des details qui disent le mouvement (le reflet et le
+		/// repere d'une balle qui roule, le cadre d'une caisse) ; les autres sont
+		/// du decor. Un corps dont le sprite est TEXTURE et visible est laisse a
+		/// NkDessinerScene.
+		///
+		/// Ajoute le 2026-09-29, depuis la demo Physic2D : NkDessinerScene ne
+		/// dessine que des sprites carres (une balle y serait un carre) et
+		/// NkDessinerCollisionneurs que des contours. L'editeur en avait besoin
+		/// a son tour.
+		struct NkOptionsFormes {
+				uint32 decor = 0x606472FFu;		  ///< RGBA des statiques et cinematiques
+				uint32 decorBord = 0x969CACFFu;
+				/// Couleur propre d'un decor (le sol plus sombre que les obstacles).
+				/// Rendre 0 garde `decor`. Facultatif.
+				uint32 (*couleurDecor)(ecs::NkWorld &monde, ecs::NkEntityId id, void *donnees) = nullptr;
+				void *donnees = nullptr;
+		};
+		void NkDessinerFormes(nkgui::NkGuiDrawList &dl, NkScene &scene, const NkOptionsFormes &options = NkOptionsFormes());
+
 		/// Une grille de reperage en coordonnees de MONDE. Elle dit ou est
 		/// l'origine et quelle taille fait une unite — les deux questions qu'on
 		/// se pose devant une scene qui ne s'affiche pas ou l'on croyait.

@@ -156,6 +156,84 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		void NkDessinerFormes(nkgui::NkGuiDrawList &dl, NkScene &scene, const NkOptionsFormes &o) {
+			const NkVue2D &cam = scene.Camera();
+			ecs::NkWorld &monde = scene.Monde();
+			auto Mix = [](const NkColor &a, const NkColor &b, float32 t) {
+				auto m = [t](uint8 x, uint8 y) {
+					return static_cast<uint8>(static_cast<float32>(x) + (static_cast<float32>(y) - static_cast<float32>(x)) * t);
+				};
+				return NkColor(m(a.r, b.r), m(a.g, b.g), m(a.b, b.b), m(a.a, b.a));
+			};
+			auto Max1 = [](float32 v) { return v > 1.f ? v : 1.f; };
+			monde.Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
+				const NkCorps2D *corps = monde.Get<NkCorps2D>(id);
+				const NkSprite2D *sp = monde.Get<NkSprite2D>(id);
+				const bool rigide = corps != nullptr && corps->type == NkTypeCorps::NK_DYNAMIQUE;
+				if (sp != nullptr && sp->visible && sp->texId != 0u) {
+					return; // texture : c'est NkDessinerScene qui le dessine
+				}
+				NkColor fond, bord;
+				if (rigide) {
+					fond = sp != nullptr ? Couleur(sp->couleur) : NkColor(180, 180, 190);
+					bord = Mix(fond, NkColor(0, 0, 0), 0.55f);
+				} else {
+					const uint32 propre = o.couleurDecor != nullptr ? o.couleurDecor(monde, id, o.donnees) : 0u;
+					fond = Couleur(propre != 0u ? propre : o.decor);
+					bord = propre != 0u ? Mix(fond, NkColor(255, 255, 255), 0.25f) : Couleur(o.decorBord);
+				}
+				auto E = [&](float32 lx, float32 ly) {
+					return cam.MondeVersEcran(t.VersMonde(NkVec2f(lx + c.decalage.x, ly + c.decalage.y)));
+				};
+				switch (c.forme) {
+					case NkForme2D::NK_CERCLE: {
+						const NkVec2f e = E(0.f, 0.f);
+						const float32 r = cam.LongueurVersEcran(c.rayon);
+						dl.AddCircleFilled(e, r, fond);
+						if (rigide) {
+							// Un reflet et un repere : sans eux, une balle qui roule
+							// ne se distingue pas d'une balle qui glisse.
+							dl.AddCircleFilled(NkVec2f(e.x - r * 0.3f, e.y - r * 0.3f), r * 0.35f, Mix(fond, NkColor(255, 255, 255), 0.45f));
+							dl.AddLine(e, E(c.rayon * 0.85f, 0.f), bord, Max1(r * 0.12f));
+						}
+						dl.AddCircle(e, r, bord, Max1(r * 0.08f));
+						break;
+					}
+					case NkForme2D::NK_CAPSULE: {
+						const NkVec2f a = E(-c.demiTaille.x, 0.f), b = E(c.demiTaille.x, 0.f);
+						const float32 r = cam.LongueurVersEcran(c.rayon);
+						const NkVec2f d = b - a;
+						const float32 l = math::NkSqrt(d.x * d.x + d.y * d.y);
+						const NkVec2f n = l > 1.0e-4f ? NkVec2f(-d.y / l, d.x / l) : NkVec2f(0.f, 1.f);
+						NkVec2f q[4] = {a + n * r, b + n * r, b - n * r, a - n * r};
+						dl.AddConvexPolyFilled(q, 4, fond);
+						dl.AddCircleFilled(a, r, fond);
+						dl.AddCircleFilled(b, r, fond);
+						dl.AddLine(q[0], q[1], bord, 1.2f); // l'arete eclairee
+						break;
+					}
+					default: {
+						const float32 hx = c.demiTaille.x, hy = c.demiTaille.y;
+						NkVec2f q[4] = {E(-hx, -hy), E(hx, -hy), E(hx, hy), E(-hx, hy)};
+						dl.AddConvexPolyFilled(q, 4, fond);
+						if (rigide) {
+							// Une caisse : un cadre et une traverse.
+							const float32 k = 0.78f;
+							NkVec2f in[4] = {E(-hx * k, -hy * k), E(hx * k, -hy * k), E(hx * k, hy * k), E(-hx * k, hy * k)};
+							const float32 e = Max1(cam.LongueurVersEcran(hx) * 0.08f);
+							dl.AddPolyline(in, 4, bord, e, true);
+							dl.AddLine(in[0], in[2], bord, e);
+							dl.AddPolyline(q, 4, bord, e * 1.2f, true);
+						} else {
+							dl.AddLine(q[3], q[2], bord, 1.5f); // le dessus
+						}
+						break;
+					}
+				}
+			});
+		}
+
+		// =====================================================================
 		void NkDessinerGrille(nkgui::NkGuiDrawList &dl, const NkVue2D &camera, float32 pas, uint32 couleur,
 							  uint32 couleurAxes) {
 			if (pas <= 0.f) {

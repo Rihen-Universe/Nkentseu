@@ -384,80 +384,18 @@ namespace nkentseu {
 		dl.PopClipRect();
 	}
 
-	/// Le decor et les corps rigides, dessines depuis leur COLLISIONNEUR : ce
-	/// qu'on voit est exactement ce qui touche. (NkDessinerScene dessine des
-	/// sprites carres ; une balle y serait un carre.)
+	/// Le decor et les corps rigides : NkDessinerFormes d'Unkeny, avec la
+	/// couleur propre de la BOITE des niveaux (le sol plus sombre que les
+	/// obstacles poses).
 	void Physic2D::DessinerFormes(NkGuiDrawList &dl) {
-		const NkVue2D &cam = mScene.Camera();
-		mScene.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach(
-			[&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
-				const NkCorps2D *corps = mScene.Monde().Get<NkCorps2D>(id);
-				const physic2d::NkDecor2D *decor = mScene.Monde().Get<physic2d::NkDecor2D>(id);
-				const NkSprite2D *sp = mScene.Monde().Get<NkSprite2D>(id);
-				const bool rigide = corps != nullptr && corps->type == NkTypeCorps::NK_DYNAMIQUE;
-				if (rigide && sp != nullptr && sp->visible && sp->texId != 0u) {
-					return; // texture : c'est NkDessinerScene qui le dessine
-				}
-				NkColor fond, bord;
-				if (rigide) {
-					fond = sp != nullptr ? Rgba(sp->couleur) : NkColor(180, 180, 190);
-					bord = Mix(fond, NkColor(0, 0, 0), 0.55f);
-				} else if (decor != nullptr && decor->sol) {
-					fond = NkColor(46, 47, 53);
-					bord = NkColor(78, 80, 90);
-				} else {
-					fond = NkColor(96, 100, 114);
-					bord = NkColor(150, 156, 172);
-				}
-				auto E = [&](float32 lx, float32 ly) {
-					return cam.MondeVersEcran(t.VersMonde(NkVec2f(lx + c.decalage.x, ly + c.decalage.y)));
-				};
-				switch (c.forme) {
-					case NkForme2D::NK_CERCLE: {
-						const NkVec2f e = E(0.f, 0.f);
-						const float32 r = cam.LongueurVersEcran(c.rayon);
-						dl.AddCircleFilled(e, r, fond);
-						if (rigide) {
-							// Un reflet et un repere : sans eux, une balle qui roule
-							// ne se distingue pas d'une balle qui glisse.
-							dl.AddCircleFilled(NkVec2f(e.x - r * 0.3f, e.y - r * 0.3f), r * 0.35f, Mix(fond, NkColor(255, 255, 255), 0.45f));
-							dl.AddLine(e, E(c.rayon * 0.85f, 0.f), bord, Maxf(1.f, r * 0.12f));
-						}
-						dl.AddCircle(e, r, bord, Maxf(1.f, r * 0.08f));
-						break;
-					}
-					case NkForme2D::NK_CAPSULE: {
-						const NkVec2f a = E(-c.demiTaille.x, 0.f), b = E(c.demiTaille.x, 0.f);
-						const float32 r = cam.LongueurVersEcran(c.rayon);
-						const NkVec2f d = b - a;
-						const float32 l = math::NkSqrt(d.x * d.x + d.y * d.y);
-						const NkVec2f n = l > 1.0e-4f ? NkVec2f(-d.y / l, d.x / l) : NkVec2f(0.f, 1.f);
-						NkVec2f q[4] = {a + n * r, b + n * r, b - n * r, a - n * r};
-						dl.AddConvexPolyFilled(q, 4, fond);
-						dl.AddCircleFilled(a, r, fond);
-						dl.AddCircleFilled(b, r, fond);
-						dl.AddLine(q[0], q[1], bord, 1.2f); // l'arete eclairee
-						break;
-					}
-					default: {
-						const float32 hx = c.demiTaille.x, hy = c.demiTaille.y;
-						NkVec2f q[4] = {E(-hx, -hy), E(hx, -hy), E(hx, hy), E(-hx, hy)};
-						dl.AddConvexPolyFilled(q, 4, fond);
-						if (rigide) {
-							// Une caisse : un cadre et une traverse.
-							const float32 k = 0.78f;
-							NkVec2f in[4] = {E(-hx * k, -hy * k), E(hx * k, -hy * k), E(hx * k, hy * k), E(-hx * k, hy * k)};
-							const float32 e = Maxf(1.f, cam.LongueurVersEcran(hx) * 0.08f);
-							dl.AddPolyline(in, 4, bord, e, true);
-							dl.AddLine(in[0], in[2], bord, e);
-							dl.AddPolyline(q, 4, bord, e * 1.2f, true);
-						} else {
-							dl.AddLine(q[3], q[2], bord, 1.5f); // le dessus du sol
-						}
-						break;
-					}
-				}
-			});
+		NkOptionsFormes o;
+		o.decor = 0x606472FFu;
+		o.decorBord = 0x969CACFFu;
+		o.couleurDecor = [](ecs::NkWorld &monde, ecs::NkEntityId id, void *) -> uint32 {
+			const physic2d::NkDecor2D *d = monde.Get<physic2d::NkDecor2D>(id);
+			return (d != nullptr && d->sol) ? 0x2E2F35FFu : 0u;
+		};
+		NkDessinerFormes(dl, mScene, o);
 	}
 
 	void Physic2D::DessinerSurimpressions(NkGuiDrawList &dl) {
