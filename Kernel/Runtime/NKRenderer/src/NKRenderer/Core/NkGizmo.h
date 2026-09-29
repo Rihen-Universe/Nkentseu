@@ -632,7 +632,7 @@ namespace nkentseu {
 					// LE DEFAUT QU'ELLE CORRIGE, mesure a la ligne pres le 25/09 :
 					//   [SEL-JALON] actif 9 -> -1 · entre 'juste avant emptyGizmo.Update'
 					//                              et 'juste apres emptyGizmo.Update'
-					// L'appelant (NK3DModeler, gizmo des EMPTIES) pose `pickRadius = 0` et
+					// L'appelant (NKCraft, gizmo des EMPTIES) pose `pickRadius = 0` et
 					// `localHalf = 0` sur toutes ses cibles -- « pas de pick : la
 					// hierarchie selectionne » -- ET lui transmet le clic. Aucune cible
 					// n'etant designable, `DoPick` tombait forcement dans la branche

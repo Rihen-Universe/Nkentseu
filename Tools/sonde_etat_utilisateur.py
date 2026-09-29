@@ -35,19 +35,27 @@ import sys
 # ── CE QUI APPARTIENT A RODOLF, ET QU'UNE COURSE NE DOIT PAS TOUCHER ─────────
 # Chaque entree porte son application et sa PORTE de redirection, pour que le
 # rouge dise quoi faire au lieu de seulement dire que c'est casse.
+# (29/09) NK3DModeler s'appelle NKCraft. Les noms d'AVANT restent surveilles :
+# NKCraft les lit et les copie sous le nouveau nom (NkCraftMigration.h), et il
+# n'a JAMAIS le droit de les modifier -- c'est la version d'avant qui les relira.
 ETATS = [
-    ("~/.nk3dmodeler_recent.cfg",        "NK3DModeler", "NK_RECENTS"),
+    ("~/.nkcraft_recent.cfg",            "NKCraft",     "NK_RECENTS"),
+    ("~/.nkcraft_ui.cfg",                "NKCraft",     "NK_UI_ETAT"),
+    ("~/.nk3dmodeler_recent.cfg",        "NKCraft",     "NK_RECENTS (ancien nom)"),
+    ("~/.nk3dmodeler_ui.cfg",            "NKCraft",     "NK_UI_ETAT (ancien nom)"),
     ("~/.nkcode_recent.cfg",             "NKCode",      "(aucune porte -- a ecrire)"),
     ("~/.nkcode_recent_names.cfg",       "NKCode",      "(aucune porte -- a ecrire)"),
     ("~/.nkcode/window.cfg",             "NKCode",      "(aucune porte -- a ecrire)"),
-    ("~/AppData/Roaming/NK3DModeler",    "NK3DModeler", "(themes utilisateur)"),
+    ("~/AppData/Roaming/NKCraft",        "NKCraft",     "(themes utilisateur)"),
+    ("~/AppData/Roaming/NK3DModeler",    "NKCraft",     "(themes utilisateur, ancien nom)"),
 ]
 
 # Les etats RELATIFS a l'arbre de travail : ils ne sont pas « chez Rodolf » au
 # sens du profil, mais ils sont a lui quand il lance l'application lui-meme.
 ETATS_ARBRE = [
     ("logs/nkuidesign_ui.cfg",           "NKUIDesign",  "NK_UI_ETAT"),
-    ("logs/nk3dmodeler_ia_chats.txt",    "NK3DModeler", "NK_AI_CHATS (+ garde NK_SONDE)"),
+    ("logs/nkcraft_ia_chats.txt",        "NKCraft",     "NK_AI_CHATS (+ garde NK_SONDE)"),
+    ("logs/nk3dmodeler_ia_chats.txt",    "NKCraft",     "NK_AI_CHATS (ancien nom)"),
     ("logs/nkuidesign_ia_chats.txt",     "NKUIDesign",  "NK_AI_CHATS (+ garde NK_SONDE)"),
 ]
 

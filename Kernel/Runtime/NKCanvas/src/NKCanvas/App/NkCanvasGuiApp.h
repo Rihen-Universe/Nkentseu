@@ -36,7 +36,7 @@
 //      Trois jeux de plus en auraient fait six. Elles vivent ici desormais.
 //
 //   📌 LEUR PLACE DEFINITIVE RESTE NKGUI, pas NKCanvas : une application qui
-//   utilise NKGui SANS NKCanvas (NKCode, NK3DModeler) ne les voit toujours pas.
+//   utilise NKGui SANS NKCanvas (NKCode, NKCraft) ne les voit toujours pas.
 //   Le jour ou quelqu'un ouvre NKGui pour autre chose, elles descendent d'un
 //   etage sous le nom NkGuiDrawText.h et cet en-tete les re-exporte. Tant que
 //   ce n'est pas fait, ce fichier evite au moins que le compte monte.

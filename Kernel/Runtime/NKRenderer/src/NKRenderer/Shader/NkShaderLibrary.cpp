@@ -198,7 +198,7 @@ namespace nkentseu {
 		// (NkSLCodeGenHLSL.cpp et NkSLCodeGenHLSLDX12.cpp) — sans ce palier, le
 		// correctif reste INVISIBLE. Mesuré sur la machine de Rodolf, cache intact
 		// entre les deux : correctif seul, palier g4 → `error X3004: undeclared
-		// identifier 'gl_fragcoord'` TOUJOURS présente au démarrage de NK3DModeler
+		// identifier 'gl_fragcoord'` TOUJOURS présente au démarrage de NKCraft
 		// (183 .nksc en cache, dont un qui contient littéralement le HLSL cassé) ;
 		// correctif + palier g5 → zéro erreur de nuanceur. Le commentaire ci-dessus
 		// annonçait exactement ça depuis le début ; il n'avait simplement jamais été

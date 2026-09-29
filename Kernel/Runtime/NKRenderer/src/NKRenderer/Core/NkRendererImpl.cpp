@@ -85,7 +85,7 @@ namespace nkentseu {
 			// POURQUOI (A) ET PAS (B) « le renderer DESSINE le panneau ». Mesure du
 			// 27/08 : DrawStats est appele par 18 sites, TOUS dans les applications,
 			// et le renderer ne dessine JAMAIS le panneau lui-meme. ForEditor() a un
-			// seul appelant, NK3DModeler, qui dessine DEJA ses stats
+			// seul appelant, NKCraft, qui dessine DEJA ses stats
 			// (NkDemo3D.cpp:10755). (B) lui aurait donne DEUX panneaux superposes.
 			// Le panneau appartient a l application, pas au moteur.
 			//
@@ -949,7 +949,7 @@ namespace nkentseu {
 				// C'est cette passe qui efface la cible en rendu DIFFERE :
 				// figee, elle rendait SetBackgroundColor sans effet des que le
 				// differe etait actif, et interdisait tout fond transparent
-				// puisque son alpha valait 1 (constate sur NK3DModeler, dont la
+				// puisque son alpha valait 1 (constate sur NKCraft, dont la
 				// sortie « fond transparent » produisait un aplat opaque).
 				// La valeur qui etait ecrite ici est justement le DEFAUT de
 				// mClearColor : rien ne change tant qu'on ne demande pas autre

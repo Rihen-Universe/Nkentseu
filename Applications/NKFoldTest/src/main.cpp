@@ -33,7 +33,7 @@
 //   * le negatif « deplie puis replie rend EXACTEMENT la hauteur de depart » :
 //     il se verifie a l'image, pas ici.
 // =============================================================================
-#include "NK3DModeler/Shell/NkModelerFold.h"
+#include "NKCraft/Shell/NkModelerFold.h"
 
 #include <stdio.h>
 
