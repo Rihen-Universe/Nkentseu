@@ -12,7 +12,7 @@
 // sagesse et a la divination.
 //
 // MEME DESSIN PARTOUT. Les coordonnees sont celles du SVG maitre
-// (data/brand/nkcraft_araignee.svg, repere 100 x 100) et de l'icone
+// (data/brand/nkcraft_araignee_{sombre,clair}.svg, repere 100 x 100) et de l'icone
 // d'application (Resources/gen_icon.ps1) : changer le logo, c'est changer ces
 // trois endroits ensemble.
 //

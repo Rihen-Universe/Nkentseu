@@ -70,7 +70,7 @@ with project("NKCraft"):
     # Icone d'application (cross-platform) : l'araignee, logo PROVISOIRE choisi
     # par Rihen le 29/09/2026 en attendant le designer. Generee par
     # Resources/gen_icon.ps1 (meme dessin que Shell/NkModelerBrand.h et
-    # data/brand/nkcraft_araignee.svg). Jenga en tire .ico / mipmaps / favicon ;
+    # data/brand/nkcraft_araignee_{sombre,clair}.svg). Jenga en tire .ico / mipmaps / favicon ;
     # il lui faut Pillow.
     appicon("Resources/nkcraft_icon.png")
 
