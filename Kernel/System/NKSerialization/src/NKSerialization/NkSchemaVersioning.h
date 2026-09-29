@@ -86,11 +86,11 @@ namespace nkentseu {
 	 *
 	 * @example Génération d'un NkTypeId
 	 * @code
-	 * constexpr nkentseu::NkTypeId playerTypeId = nkentseu::NkTypeOf<PlayerData>();
-	 * constexpr nkentseu::NkTypeId enemyTypeId  = nkentseu::NkTypeOf<EnemyData>();
+	 * const nkentseu::NkTypeId playerTypeId = nkentseu::NkTypeOf<PlayerData>();
+	 * const nkentseu::NkTypeId enemyTypeId  = nkentseu::NkTypeOf<EnemyData>();
 	 *
-	 * // Les deux IDs sont garantis différents à la compilation
-	 * static_assert(playerTypeId != enemyTypeId, "Type IDs must be unique");
+	 * // Les deux IDs sont garantis différents (à l'exécution : voir NkTypeOf)
+	 * NKENTSEU_ASSERT(playerTypeId != enemyTypeId);
 	 * @endcode
 	 */
 	using NkTypeId = nk_uint64;
@@ -100,7 +100,7 @@ namespace nkentseu {
 	// DESCRIPTION : Génération d'un NkTypeId unique pour un type C++ donné
 	// =============================================================================
 	/**
-	 * @brief Génère un identifiant unique constexpr pour un type C++
+	 * @brief Génère un identifiant unique pour un type C++
 	 * @tparam T Type pour lequel générer l'ID
 	 * @return NkTypeId unique et constant pour le type T
 	 * @ingroup SerializationUtilities
@@ -111,7 +111,10 @@ namespace nkentseu {
 	 *  - L'adresse est convertie en entier 64-bit pour usage comme clé
 	 *
 	 * Garanties :
-	 *  - constexpr : évaluable à la compilation
+	 *  - PAS constexpr : une adresse convertie par reinterpret_cast n'est jamais
+	 *    une expression constante, et une variable statique dans une fonction
+	 *    constexpr est une extension C++23 (-Wc++23-extensions sous clang). Le
+	 *    « constexpr » d'avant ne promettait donc rien qu'on puisse tenir.
 	 *  - noexcept : garantie de non-levée d'exception
 	 *  - Unique : deux types différents produisent toujours des IDs différents
 	 *  - Stable : le même type produit toujours le même ID dans une compilation
@@ -128,14 +131,14 @@ namespace nkentseu {
 	 * class PlayerData { /\* ... *\/ };
 	 * class EnemyData  { /\* ... *\/ };
 	 *
-	 * constexpr auto playerId = nkentseu::NkTypeOf<PlayerData>();
-	 * constexpr auto enemyId  = nkentseu::NkTypeOf<EnemyData>();
+	 * const auto playerId = nkentseu::NkTypeOf<PlayerData>();
+	 * const auto enemyId  = nkentseu::NkTypeOf<EnemyData>();
 	 *
 	 * // Utilisation dans le registry
 	 * nkentseu::NkSchemaRegistry::SetCurrentVersion(playerId, {1, 0, 0});
 	 * @endcode
 	 */
-	template <typename T> [[nodiscard]] constexpr NkTypeId NkTypeOf() noexcept {
+	template <typename T> [[nodiscard]] inline NkTypeId NkTypeOf() noexcept {
 		// Variable statique locale : adresse unique par instantiation de template
 		static const char s_tag = 0;
 		// Conversion de l'adresse en entier 64-bit pour usage comme clé
@@ -890,8 +893,9 @@ namespace nkentseu {
 				}
 
 				// Étape 5 : Mise à jour des méta-données avec la version finale
+				// `__meta__` absent : on part d'un objet vide, qu'on cree juste apres.
 				NkArchive metaArc;
-				archive.GetObject("__meta__", metaArc);
+				(void)archive.GetObject("__meta__", metaArc);
 				metaArc.SetString("schema_version", current.ToString().View());
 				archive.SetObject("__meta__", metaArc);
 
