@@ -13,13 +13,11 @@
 //   2. les deux actions, Nouveau et Ouvrir ;
 //   3. les liens externes.
 //
-// ⚠ LE LOGO N'EXISTE PAS. Il n'y a aucune image de marque dans le depot
-// (verifie). Le titre est donc COMPOSE typographiquement -- une marque
-// geometrique dessinee au painter (un cube isometrique, ce que fait
-// l'application) plus le mot en deux poids -- avec les ROLES DE COULEUR du
-// theme, jamais des valeurs en dur : un theme clair le repeint tout seul.
-// **Un vrai logo reste a fournir**, et ce commentaire doit disparaitre le jour
-// ou il arrive.
+// LA MARQUE : l'araignee, logo PROVISOIRE choisi par Rihen le 29/09/2026 en
+// attendant le designer (voir NkModelerBrand.h). Elle est dessinee au painter,
+// suivie du mot en deux poids, avec les ROLES DE COULEUR du theme, jamais des
+// valeurs en dur : un theme clair la repeint toute seule. Le jour ou le logo
+// definitif arrive, c'est NkModelerBrand.h qu'on remplace.
 //
 // ⚠ LES URL N'EXISTENT PAS ENCORE. Elles sont declarees vides ci-dessous, en
 // tete de fichier, marquees « a renseigner ». Un lien dont l'URL est vide
@@ -28,6 +26,7 @@
 // =============================================================================
 
 #include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerBrand.h" // la marque : l'araignee (PaintBrandMark)
 #include "NKCraft/Shell/NkModelerInput.h"
 #include "NKCraft/Shell/NkModelerWidgets.h"
 #include "NKCraft/Project/NkModelerProject.h"
@@ -212,34 +211,8 @@ namespace nkentseu {
 			}
 		}
 
-		// ── LA MARQUE, COMPOSEE AU PAINTER ──────────────────────────────────────
-		// Un cube isometrique : trois losanges, trois valeurs. C'est ce que fait
-		// l'application, et c'est reconnaissable a n'importe quelle taille sans
-		// dependre d'une image. Les couleurs viennent des roles du theme --
-		// la sarcelle des noeuds de donnees et les deux accents.
-		inline void PaintBrandMark(NkModelerPainter &p, float32 x, float32 y, float32 s) {
-			const float32 hx = s * 0.5f, qy = s * 0.25f;
-			const NkVec2 top{x + hx, y};
-			const NkVec2 rgt{x + s, y + qy};
-			const NkVec2 lft{x, y + qy};
-			const NkVec2 mid{x + hx, y + qy * 2.f};
-			const NkVec2 bot{x + hx, y + s};
-			const NkVec2 rgb{x + s, y + qy * 3.f};
-			const NkVec2 lfb{x, y + qy * 3.f};
-
-			const NkColor cTop = p.C(NkRole::NodeDataHeader); // sarcelle : la face eclairee
-			const NkColor cLft = p.C(NkRole::AccentUi);
-			const NkColor cRgt = p.C(NkRole::AccentSel);
-			// Chaque losange = deux triangles ; le painter n'expose que le triangle
-			// tricolore, ce qui suffit et evite d'ajouter une primitive pour un
-			// seul dessin.
-			p.TriColor(top, rgt, mid, cTop, cTop, cTop);
-			p.TriColor(top, mid, lft, cTop, cTop, cTop);
-			p.TriColor(lft, mid, bot, cLft, cLft, cLft);
-			p.TriColor(lft, bot, lfb, cLft, cLft, cLft);
-			p.TriColor(mid, rgt, rgb, cRgt, cRgt, cRgt);
-			p.TriColor(mid, rgb, bot, cRgt, cRgt, cRgt);
-		}
+		// La marque (PaintBrandMark) vit dans NkModelerBrand.h : l'accueil et la
+		// barre de menus dessinent la meme.
 
 		// ── UN CHAMP DE SAISIE DE BOITE MODALE ──────────────────────────────────
 		// Le champ en place de NkModelerWidgets s'ouvre au DOUBLE-clic, ce qui a du

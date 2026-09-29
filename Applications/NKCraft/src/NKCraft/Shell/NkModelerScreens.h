@@ -21,6 +21,7 @@
 #include "NKCraft/Viewport/NkDemo3DHost.h" // PORTAGE INTEGRAL de --demo=2
 #include "NKCraft/Viewport/NkOutCompose.h" // formes d'incrustation : dimensions et noms
 #include "NKCraft/Shell/NkModelerUI.h"
+#include "NKCraft/Shell/NkModelerBrand.h" // la marque : l'araignee (PaintBrandMark)
 #include "NKCraft/Shell/NkModelerInput.h"
 #include "NKCraft/Shell/NkModelerWidgets.h"
 #include "NKCraft/Shell/NkModelerTables.h" // metriques, listes, catalogues
@@ -67,11 +68,12 @@ namespace nkentseu {
 			// les boutons pour qu'ils la recouvrent.
 			hit.Add("win.drag", r);
 
+			// La marque (l'araignee, NkModelerBrand.h) remplace la pastille « NK »
+			// du temps ou il n'y avait pas de logo. Elle se pose sur la barre :
+			// ses aretes prennent la couleur de PanelHeader.
 			const float32 logo = S(22.f);
 			const float32 ly = r.y + (r.h - logo) * 0.5f;
-			p.Fill({S(10.f), ly, logo, logo}, NkRole::AccentUi, 4.f);
-			const float32 nkW = p.TextW("NK");
-			p.TextV(S(10.f) + (logo - nkW) * 0.5f, ly, logo, "NK", NkRole::TextOnAccent);
+			PaintBrandMark(p, S(10.f), ly, logo, NkRole::PanelHeader);
 
 			float32 x = S(10.f) + logo + S(16.f);
 			static const char *const kMenus[] = {"Fichier", "Edition", "Fenetre", "Outils",
