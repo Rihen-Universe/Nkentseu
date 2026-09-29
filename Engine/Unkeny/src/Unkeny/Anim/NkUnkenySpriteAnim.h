@@ -22,8 +22,10 @@
 // OU AJOUTER LA PROCHAINE CHOSE
 //   - un mode de lecture (aller-retour, aleatoire) -> NkModeLecture
 //   - un evenement a une image donnee (pas, coup)  -> NkClipSprite::imageEvent
-//   - une machine a etats d'animation              -> PAS ici : NKAnimation
-//     porte deja une HFSM et du blending. Unkeny ne la reecrit pas.
+//   - une machine a etats d'animation              -> PAS ici : NKAnima porte
+//     la HFSM (anim::NkAnimStateMachine), et Unkeny s'en sert par
+//     NkAnimateur2D (Anim/NkUnkenyAnimateur.h), qui choisit le clip de CE
+//     composant. Unkeny ne la reecrit pas.
 // =============================================================================
 #pragma once
 

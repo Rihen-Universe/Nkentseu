@@ -22,6 +22,7 @@
 //   roguelike y trouvent leur compte :
 //     tuiles et parallaxe  -> Monde/    (RPG, plateforme, roguelike)
 //     animation par images -> Anim/     (tout ce qui bouge)
+//     machine a etats      -> Anim/     (NkAnimateur2D : la HFSM de NKAnima)
 //     actions d'entree     -> Entree/   (tout ce qui se joue en temps reel)
 //     vues et miniatures   -> Vues/     (ecran partage, minicarte, vignette)
 //     physique et collision-> Scene/    (facultative, voir NkSceneConfig)
@@ -49,6 +50,7 @@
 // =============================================================================
 #pragma once
 
+#include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenyChemin.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Entree/NkUnkenyActions.h"
