@@ -1,6 +1,11 @@
 # NKAudio — Roadmap
 
-État actuel (mai 2026) : moteur audio AAA STL-free livré avec pool de 256 voix, mixage temps réel, spatialisation 3D + HRTF (mesuré et synthétique), buses hiérarchiques style FMOD/Wwise, sidechain/ducking, streaming via ring buffer, effets DSP (delay, reverb FDN, compressor, limiter, biquad, EQ 3-bandes, distortion, chorus), codecs WAV/MP3/OGG Vorbis/FLAC (MP3 = port complet minimp3 Layer 3), backends WASAPI/DirectSound/CoreAudio/ALSA/AAudio/OpenSL ES/WebAudio/Null. Opus, capture micro et streaming incrémental restent absents.
+État actuel (mai 2026) : moteur audio AAA STL-free livré avec pool de 256 voix, mixage temps réel, spatialisation 3D + HRTF (mesuré et synthétique), buses hiérarchiques style FMOD/Wwise, sidechain/ducking, streaming via ring buffer, effets DSP (delay, reverb FDN, compressor, limiter, biquad, EQ 3-bandes, distortion, chorus), codecs WAV/MP3/OGG Vorbis/FLAC (MP3 = port complet minimp3 Layer 3), backends WASAPI/DirectSound/CoreAudio/ALSA/AAudio/OpenSL ES/WebAudio/Null.
+
+> **Mise à jour du 2026-09-29** — la phrase de mai « Opus, capture micro et streaming incrémental restent absents » contredisait le reste de ce document ; voici l'état qu'il décrit lui-même :
+> - **Opus : livré** (2026-07-12 / 07-22) — `.opus` Ogg-Opus et Opus-dans-WebM, mono et stéréo, par le décodeur de NKMedia (tableau ci-dessous et § Opus). Multicanal > 2 refusé proprement.
+> - **Capture micro : V1 livrée** (2026-07-09 / 07-10) — `NkAudioCapture`, backends réels WASAPI, ALSA, AAudio, getUserMedia, OHAudio ; **CoreAudio non livré** (pas de chaîne Apple), permissions micro mobiles/Web encore à câbler, validation sur appareil à faire (§ Capture vocale).
+> - **Streaming : partiel** — WAV et AIFF par blocs, conteneurs vidéo, `AudioStreamPlayer` (anneau + fil de travail) livrés ; FLAC/MP3/OGG sont encore décodés en entier en mémoire (lignes « Streaming réel FLAC/MP3/OGG » et « MP3 streaming incrémental + seek »).
 
 ---
 
@@ -61,7 +66,7 @@
 | Backend WebAudio (Emscripten via ScriptProcessor) | Livré | — | — |
 | Backend WebAudio AudioWorklet (latence basse) | TODO | M | P3 |
 | AudioBackendFactory + auto-register | Livré | — | — |
-| Capture micro / input device | TODO | L | P1 |
+| Capture micro / input device (V1 livrée 2026-07-09 : WASAPI/ALSA/AAudio/Web/OHAudio ; CoreAudio et permissions mobiles manquent) | Partiel | M | P1 |
 | Voice chat / VoIP (Opus + jitter buffer) | TODO | L | P3 |
 | Convolution reverb (impulse responses) | TODO | L | P3 |
 | Tests unitaires | Partiel | M | P2 |

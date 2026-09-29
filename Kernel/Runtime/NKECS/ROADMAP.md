@@ -4,7 +4,7 @@
 
 > **Bloquants standalone corrigés (2026-06)** : alias morts `NkOnButtonClicked/NkOnSliderChanged` retirés de `NKECS.h` (l'umbrella compile désormais) ; `NKECS.jenga` ré-écrit (était une copie non adaptée de `NKFont.jenga` : docstring, `includedirs(["src/NKFont"])`, et `links` de tests faux) ; `NkArchetype::mPoolIndex` désormais initialisé à `kInvalidPoolIndex` (était non initialisé). `NkArchetypeGraph` et `NkEntityIndex` ont reçu un vrai move (anti double-free) ; `NkWorld` est marqué `move=delete` explicitement (le `NkMutex` de l'EventBus rend NkWorld non-déplaçable — le `=default` antérieur mentait sur l'API).
 >
-> **Rouille build** : NKECS n'est PAS branché dans le workspace racine `Nkentseu.jenga` (aucun `include(...)` pour `Kernel/Runtime/NKECS/NKECS.jenga`) — la cible n'apparaît donc pas dans `jenga build --target NKECS`. À brancher (CI/workspace). En attendant, la compilation a été prouvée hors-workspace (clang + libs Debug des dépendances).
+> **Build (vérifié le 2026-09-29)** : NKECS EST branché dans le workspace racine — `include("Kernel/Runtime/NKECS/NKECS.jenga")` à `Nkentseu.jenga` l.1692, avant Noge qui en dépend, depuis 3240b1ae4 (2026-06-29). `jenga build --target NKECS` réussit (11 projets, Windows clang-mingw Debug) et `jenga test --project NKECS_ReflectBridge_Tests` / `NKECS_EntitySerialization_Tests` passent tous deux. La note qui disait « pas branché, cible absente » datait d'avant ce commit.
 
 ---
 
