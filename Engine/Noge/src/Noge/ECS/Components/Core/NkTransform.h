@@ -14,6 +14,7 @@
 
 #include "NKECS/NkECSDefines.h"
 #include "NKECS/Core/NkTypeRegistry.h"
+#include "NKECS/Hierarchy/NkHierarchy.h" // ecs::NkParent (descendu de ce fichier)
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
@@ -108,10 +109,10 @@ namespace nkentseu {
 		// =====================================================================
 		// NkParent — hiérarchie : référence vers le parent ECS
 		// =====================================================================
-		struct NkParent {
-				NkEntityId entity = NkEntityId::Invalid(); ///< Invalid() = racine
-		};
-		NK_COMPONENT(NkParent)
+		// (2026-09-29) DESCENDU dans NKECS (NKECS/Hierarchy/NkHierarchy.h), a
+		// l'identique — meme nom, meme champ, meme espace de noms — pour qu'Unkeny
+		// et tout moteur sur NKECS partagent le meme lien. Rien ne change ici :
+		// l'inclusion en tete de fichier le definit.
 
 		// =====================================================================
 		// NkChildren — hiérarchie : liste inline des enfants directs (max 64)
