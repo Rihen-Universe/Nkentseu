@@ -1,4 +1,22 @@
-# NK3DModeler — Feuille de route
+# NKCraft — Feuille de route
+
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026** (Rihen : « NKCraft =
+> NK3DModeler en fait »). Le titre et le tableau ci-dessous suivent ; **le corps
+> garde le nom de son époque** — ce sont des mesures, des décisions et des
+> journaux datés, et les réécrire ferait mentir leur date. Pour les suivre :
+>
+> | écrit avant le 29/09 | aujourd'hui |
+> |---|---|
+> | `Applications/NK3DModeler/`, `src/NK3DModeler/` | `Applications/NKCraft/`, `src/NKCraft/` |
+> | `NK3DModeler.jenga`, `jenga build --target NK3DModeler` | `NKCraft.jenga`, `jenga build --target NKCraft` |
+> | `Build/Bin/<cfg>-Windows/NK3DModeler/NK3DModeler.exe` | `Build/Bin/<cfg>-Windows/NKCraft/NKCraft.exe` |
+> | `~/.nk3dmodeler_recent.cfg`, `~/.nk3dmodeler_ui.cfg`, `logs/nk3dmodeler_*.txt` | `~/.nkcraft_recent.cfg`, `~/.nkcraft_ui.cfg`, `logs/nkcraft_*.txt` — **copiés depuis l'ancien nom au premier lancement**, l'ancien fichier reste en place (`src/NKCraft/NkCraftMigration.h`) |
+> | `%APPDATA%\NK3DModeler\themes\` | `%APPDATA%\NKCraft\themes\` — l'ancien reste lu tant que le nouveau n'existe pas |
+>
+> **Inchangés, et c'est voulu** : l'extension `.nk3dm` (un format, pas le nom du
+> produit — CONVENTIONS_FICHIERS.md §5), le namespace `nk3d`, le préfixe
+> `NkModeler*` des fichiers. Le dossier de projets proposé reste `~/NK3DModeler`
+> s'il existe et que `~/NKCraft` n'existe pas, pour ne pas disperser les projets.
 
 > Document **suivi par git** (contrairement à `CARNET.private.md`, qui garde le
 > journal détaillé et les idées écartées). Il dit **ce qui reste à faire** et
@@ -12,7 +30,7 @@ distinctes**, communiquant **par fichiers** —
 
 | application | domaine |
 |---|---|
-| **NK3DModeler** | **modélisation et sculpture** — et rien d'autre |
+| **NKCraft** (ex-NK3DModeler) | **modélisation et sculpture** — et rien d'autre |
 | **NkAnima** | animation et VFX |
 | **NKScena** | mise en scène |
 

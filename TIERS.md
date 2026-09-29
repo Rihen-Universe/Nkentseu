@@ -5,7 +5,7 @@
 
 ---
 
-## vscode-codicons — 62 icônes de `Applications/NK3DModeler/data/icons/`
+## vscode-codicons — 62 icônes de `Applications/NKCraft/data/icons/`
 
 | élément exigé par CC BY 4.0 | valeur |
 |---|---|

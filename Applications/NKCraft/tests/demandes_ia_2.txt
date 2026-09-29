@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# @File    Applications/NK3DModeler/tests/demandes_ia_2.txt
+# @File    Applications/NKCraft/tests/demandes_ia_2.txt
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
 #

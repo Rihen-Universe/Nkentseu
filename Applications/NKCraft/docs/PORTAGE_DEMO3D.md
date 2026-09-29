@@ -1,5 +1,14 @@
 # Portage de `Sandbox --demo=2` (Demo3D) vers NK3DModeler
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+> Dans le code, la balise « PORTAGE NK3DModeler » s'écrit désormais
+> « PORTAGE NKCraft » (`Viewport/NkDemo3D.cpp`).
+
 Inventaire de travail. `Demo3D.cpp` fait 6907 lignes ; l'édition de maillage en
 représente environ 35 %, le reste étant de la démo de rendu (GI voxel, ombres
 virtuelles, cookies, enregistrement vidéo, 86 objets figés en dur) qui n'a pas

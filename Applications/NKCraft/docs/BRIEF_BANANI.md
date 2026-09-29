@@ -1,5 +1,12 @@
 # NK3DModeler — Prompts Banani (esquisses d'écrans)
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+
 > Compagnon de `UI_SPEC.md`. Ce document ne décrit pas le comportement (déjà fait
 > dans la spécification d'interface) — il traduit chaque écran en **prompt image**
 > détaillé, prêt à copier-coller dans Banani, pour obtenir des maquettes visuelles

@@ -148,11 +148,20 @@ MonProjet/
 
 **Pourquoi `.nk3dm` et pas `.nkproj`** (arbitrage du 5 août, Rihen laissait le
 choix) : c'est la règle de ce document appliquée à elle-même — *identifiable
-sans ouvrir*. Un projet de NK3DModeler et un projet de NKCode n'ouvrent pas le
+sans ouvrir*. Un projet de NKCraft et un projet de NKCode n'ouvrent pas le
 même logiciel ; leur donner la même extension obligerait à lire le fichier
 pour savoir quoi en faire, et empêcherait l'association par double-clic.
 `.nkproj` reste le nom **générique** de `ARCHITECTURE.md` pour les projets
 d'autres applications.
+
+**L'extension ne suit pas le renommage de l'application** (29/09/2026 :
+NK3DModeler s'appelle désormais NKCraft). `.nk3dm` est un **format**, pas le nom
+du produit : le changer rendrait chaque projet existant méconnaissable à
+l'œil, casserait l'association par double-clic, et n'apporterait rien — la
+règle « identifiable sans ouvrir » est tenue par l'extension, quelle que soit la
+façon dont l'application s'appelle. Le champ `"application"` du JSON, lui,
+passe de `"NK3DModeler"` à `"NKCraft"` ; il est informatif, aucun lecteur ne le
+teste, et un lecteur futur doit accepter les deux.
 
 ### Import : COPIER, en gardant l'origine
 

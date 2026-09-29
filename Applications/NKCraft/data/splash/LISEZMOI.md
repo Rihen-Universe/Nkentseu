@@ -25,7 +25,7 @@ TSATA TAKO
   ne montre rien.
 - `splash.txt` est **facultatif** : une image sans crédit s'affiche quand même,
   mais un crédit ne s'invente pas.
-- La version (`NK3DModeler 0.1.0`) et le crédit se posent **sur** l'image, dans
+- La version (`NKCraft 0.1.0`) et le crédit se posent **sur** l'image, dans
   un bandeau sombre en pied — lisible quelle que soit l'œuvre.
 - L'image est **bornée à un quart de la hauteur** de la fenêtre : au-delà, elle
   repousserait les projets récents sous la ligne de flottaison, et ce sont eux
@@ -44,6 +44,6 @@ pas — ils restent donc hors de l'écran tant qu'ils ne fonctionnent pas
 ## À la prochaine version
 
 Remplacer les deux fichiers, et mettre à jour **`kAppVersion`** dans
-`src/NK3DModeler/Shell/NkModelerWelcome.h` **en même temps que**
-`appversion(...)` dans `NK3DModeler.jenga` — deux numéros différents sur le
+`src/NKCraft/Shell/NkModelerWelcome.h` **en même temps que**
+`appversion(...)` dans `NKCraft.jenga` — deux numéros différents sur le
 même binaire feraient mentir l'un des deux.

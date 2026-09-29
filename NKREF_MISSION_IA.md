@@ -1,5 +1,14 @@
 # MISSION IA — NkRef : le tableau de références (type PureRef) sur NKCanvas + NKGui
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+> La référence d'usage citée plus bas vit donc sous
+> `Applications/NKCraft/src/NKCraft/Shell/`.
+
 > Document de passation destiné à **une IA quelconque**. Demandé par Rihen le
 > 10 août 2026. Dépôt principal : `D:\Projets\2026\Nkentseu\Nkentseu` — mais
 > CET AGENT TRAVAILLE DANS UN WORKTREE (voir §2, règle absolue).

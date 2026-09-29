@@ -325,7 +325,7 @@ recette : « livré » se mesure, il ne se déclare pas.*
   **créer un dossier**, enregistrer sous), NkUIDesign a basculé ses deux sites
   et l'ancien reste appelable (sonde 103).
   ⚠️ **Aucune autre application ne bascule toute seule** — chacune possède son
-  appel de dessin. Deux lignes pour NK3DModeler (`main.cpp:1781` et le type de
+  appel de dessin. Deux lignes pour NKCraft (`main.cpp:1781` et le type de
   son état) ; NKCode demande d'abord de décider ce que devient son panneau
   supplémentaire.
 - **Le sélecteur, après la deuxième passe de Rodolf** (05/09, nuit — « c'est mal

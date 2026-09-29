@@ -149,7 +149,7 @@ session **ne sont pas** des défauts d'interface, et aucun socle UI ne les aurai
 
 Les cas réels sont consignés, avec leur cause et leur correction, dans
 `CARNET.private.md` à la racine (vagues 40 à 42) et dans
-`Applications/NK3DModeler/ROADMAP.md`. Ils valent mieux qu'une description
+`Applications/NKCraft/ROADMAP.md` (ex-NK3DModeler). Ils valent mieux qu'une description
 abstraite : chacun a un symptôme observable et une cause identifiée.
 
 Contrainte de travail du dépôt : **zéro STL**, français dans les commentaires,

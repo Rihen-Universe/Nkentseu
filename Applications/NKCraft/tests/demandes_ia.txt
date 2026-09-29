@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# @File    Applications/NK3DModeler/tests/demandes_ia.txt
+# @File    Applications/NKCraft/tests/demandes_ia.txt
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
 #
@@ -39,6 +39,6 @@
 8 | biseaute l arete du haut | - | HORS PORTEE : la DESIGNATION. La selection est un vecteur
       d indices, et rien ne sait traduire « du haut ». Doit se refuser, pas deviner.
 9 | fais-en un cylindre | - | HORS PORTEE : ce n est pas une operation sur le maillage
-      existant, c est de la GENERATION -- et un autre agent la traite, hors NK3DModeler.
+      existant, c est de la GENERATION -- et un autre agent la traite, hors NKCraft.
 10 | rends ce modele plus beau | - | HORS PORTEE : aucune operation ne correspond. C est le
       cas qui compte le plus : une IA complaisante inventerait quelque chose.

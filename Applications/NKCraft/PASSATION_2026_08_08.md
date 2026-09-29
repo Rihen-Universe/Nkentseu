@@ -1,5 +1,12 @@
 # NK3DModeler — passation du 8 août 2026
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+
 Document destiné à **l'agent qui reprend le chantier**. Il dit ce qui a été fait,
 ce qui est **cassé et pourquoi**, et ce qui reste — sauvegarde de fichiers,
 matériaux, modélisation. Écrit après une session où Rihen a **perdu du travail

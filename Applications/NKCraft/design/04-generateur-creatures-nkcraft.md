@@ -73,7 +73,7 @@ ou en sculpt, est gardée et reportée quand l'automatique ou l'IA reprend la ma
 | images : PNG, JPEG, WebP sans perte, EXR, BMP, TGA, GIF, QOI, HDR, SVG… | ✅ `NkImage::LoadFromFile` | `NKImage` |
 | vidéo → images RGBA | ✅ `media::NkVideoReader` | `NKMedia` |
 | pont images → entraînement (NKData) | ❌ NKData ne lit que MNIST et du texte | `Kernel/AI/NKData` |
-| visage : unités d'action FACS → poids de blendshapes | ✅ `anim::NkFaceController`, employé par PV3DE et NK3DModeler | `NKAnima/Face/` |
+| visage : unités d'action FACS → poids de blendshapes | ✅ `anim::NkFaceController`, employé par PV3DE et NKCraft | `NKAnima/Face/` |
 | paramètres de visage procédural (`NkProcFaceParams`), `NkFacialRig` | 📝 déclarations sans implémentation | `Engine/Noge/.../Facial/NkFacialRig.h` |
 | squelette, skinning GPU, IK, reciblage | ✅ | `NKAnima` (`NkSkeletonDef`, `NkAnimRetarget`), `NkIKSolver` |
 | placement automatique du squelette, calcul des poids, peinture de poids | ❌ (spécifiés pour NkAnima : `07-produit-nkanima.md` §4.1-4.2) | — |
