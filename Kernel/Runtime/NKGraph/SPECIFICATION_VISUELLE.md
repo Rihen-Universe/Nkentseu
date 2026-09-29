@@ -3124,7 +3124,7 @@ l'est pas**, et ce paragraphe explique pourquoi c'est une question, pas un oubli
 | ce qui existe | où | état |
 |---|---|---|
 | `NkSequence`, `NkTrack`, `NkClipOnTrack`, `NkKeyframeSet`, `NkPlaybackCtrl`, `NkNLATrack`, `NkCameraShot`, `NkMarker`, `NkRenderOutput` | `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` (416 lignes) | 🔴 **en-tête seul : 0 `.cpp`, 0 consommateur** |
-| `NkKeyframe<T>`, `NkAnimationTrack<T>`, et un `NkAnimationClip` qui porte **déjà** `cameraPosition / cameraTarget / cameraFOV / cameraDOFFocus`, les pistes de lumière et de post-traitement | `Kernel/Runtime/NKAnimation/` | ✅ **livré et exercé** |
+| `NkKeyframe<T>`, `NkAnimationTrack<T>`, et un `NkAnimationClip` qui porte **déjà** `cameraPosition / cameraTarget / cameraFOV / cameraDOFFocus`, les pistes de lumière et de post-traitement | `Kernel/Runtime/NKAnima/` (ex-`NKAnimation`, renommé le 02/09) | ✅ **livré et exercé** |
 | une ligne de temps qui **tourne** — playhead, losanges de clés, scrubbing, glisser, annuler/refaire | `NkAnimationEditor.h` + `Applications/NkAnimaEditor/…/Panels.h` | ✅ **le seul widget de ligne de temps écrit du dépôt** |
 | un format de séquence | — | ❌ **aucun.** `.nkanim` est un **clip**, pas une séquence. `NkSequence::SaveToFile/LoadFromFile` sont déclarés **sans corps** |
 
