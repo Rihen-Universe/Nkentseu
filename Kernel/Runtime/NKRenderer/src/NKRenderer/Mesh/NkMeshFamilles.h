@@ -7,10 +7,10 @@
 // LES FAMILLES D'OBJETS, EN BIBLIOTHEQUE PARTAGEE (22/09, Q10.1)
 //
 // POURQUOI ELLES ONT DEMENAGE. Ecrites le 21/09, elles vivaient dans
-// `Applications/NK3DModeler/.../NkCreaFamilles.cpp` : Noge, Nogee et NKScena ne
+// `Applications/NKCraft/.../NkCreaFamilles.cpp` : Noge, Nogee et NKScena ne
 // pouvaient pas construire une table sans passer par le modeleur. Or une table
 // n'est pas une affaire de modeleur, c'est de la GEOMETRIE. Elles sont donc ici,
-// a cote de `NkEditMesh` dont elles se servent, et NK3DModeler n'est plus qu'un
+// a cote de `NkEditMesh` dont elles se servent, et NKCraft n'est plus qu'un
 // appelant parmi d'autres.
 //
 // ⚠️ CE MODULE NE CONNAIT PAS LA SCENE, ET C'EST LA COUPURE QUI COMPTE. L'ancien

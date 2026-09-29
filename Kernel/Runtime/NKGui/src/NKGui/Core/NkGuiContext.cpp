@@ -33,7 +33,7 @@ namespace nkentseu {
 			viewH = height;
 			// ⚠️ L'INTROSPECTION S'ALLUME SANS RECOMPILER, et elle reste MUETTE
 			//    tant que personne ne le demande. Même modèle que NK_MENU_TRACE
-			//    sur le chantier NK3DModeler : un instrument qui parle tout le
+			//    sur le chantier NKCraft : un instrument qui parle tout le
 			//    temps finit désactivé, donc débranché le jour où il servirait.
 			//    ⚠️ « 0 » ÉTEINT EXPLICITEMENT. Sans ce cas, `NK_GUI_INTROSPECT=0`
 			//       — la façon dont tout le monde écrit « non » — allumerait

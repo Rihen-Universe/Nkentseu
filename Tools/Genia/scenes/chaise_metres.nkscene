@@ -1,5 +1,5 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# Temoin de l'OUTIL de creation (NK3DModeler, NK_CREA_DOC) : ecrit a la main, en metres.
+# Temoin de l'OUTIL de creation (NKCraft, NK_CREA_DOC) : ecrit a la main, en metres.
 # Pose le 21/09 : 6 parties, 0 flottante, boite 0,45 x 0,92 x 0,45 m, annule en un geste.
 scene chaise
 partie assise forme cube taille 0.45 0.04 0.45 matiere bambou

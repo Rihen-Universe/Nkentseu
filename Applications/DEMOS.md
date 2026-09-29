@@ -28,7 +28,7 @@ cette démo le prouve depuis une application **qui n'est pas PV3DE**, sans copie
 
 ### Comment la lancer
 
-1. lancer `NK3DModeler` ;
+1. lancer `NKCraft` ;
 2. **Ajouter** un objet (un cube suffit), puis **TAB** pour entrer en Édition ;
 3. panneau **Propriétés** (à droite), faire défiler jusqu'au groupe **« Facial (éprouvette) »**,
    le déplier ;
@@ -121,18 +121,18 @@ sont déjà branchés sans une ligne à écrire chez eux.
 | l'erreur disparaît **avant** l'avertissement | la durée ne suit pas le niveau |
 
 La démo emploie `NkEcranLogVue`, **la vue du kit** — pas la pile de bandeaux de
-NK3DModeler. Elle prouve donc en même temps que l'affichage marche chez un hôte
+NKCraft. Elle prouve donc en même temps que l'affichage marche chez un hôte
 qui n'a aucune pile à lui : ce sera le cas de **Nogee, NkAnimaEditor et
 NKScena**.
 
 ---
 
-## Dans NK3DModeler — deux gestes, pas de démo à part
+## Dans NKCraft — deux gestes, pas de démo à part
 
 | quoi faire | ce qu'on doit voir | ce qui prouverait que c'est cassé |
 |---|---|---|
 | **Les messages en vue.** Provoquer un refus d'import : importer un modèle **sans avoir ouvert de scène**. | Le bandeau apparaît **dans la vue**, une seule fois, en rouge, et il ne s'efface pas tout seul. | • Le refus n'apparaît que dans la console ou `logs/app.log`.<br>• Il apparaît **deux fois**, en rouge **et** en ambre → la marque « je viens du journal » ne tient plus (`NkImportNote` pose le bandeau *et* journalise le même texte).<br>• Il **disparaît** au bout de douze secondes → la durée est relue sur l'écho au lieu du bandeau existant. |
-| **Le navigateur de contenu.** L'ouvrir (panneau du bas), **tirer la séparation** entre l'arbre des dossiers (gauche) et la grille des vignettes (droite). Puis **fermer l'application et la rouvrir**. | Le curseur devient une **double flèche** au survol du trait, le trait **s'éclaire**, la séparation suit la souris — et la largeur est **encore là** après réouverture. | • Le curseur ne change pas → la poignée n'est pas déclarée, ou une autre zone lui vole le clic.<br>• L'arbre **ou** la grille disparaît quand on tire à fond → une borne manque.<br>• La largeur revient à celle d'origine après réouverture → `~/.nk3dmodeler_ui.cfg` n'est pas écrit. Il l'est **au relâchement** de la poignée, jamais à la sortie du programme : une application fermée par la croix de l'OS n'écrirait rien. |
+| **Le navigateur de contenu.** L'ouvrir (panneau du bas), **tirer la séparation** entre l'arbre des dossiers (gauche) et la grille des vignettes (droite). Puis **fermer l'application et la rouvrir**. | Le curseur devient une **double flèche** au survol du trait, le trait **s'éclaire**, la séparation suit la souris — et la largeur est **encore là** après réouverture. | • Le curseur ne change pas → la poignée n'est pas déclarée, ou une autre zone lui vole le clic.<br>• L'arbre **ou** la grille disparaît quand on tire à fond → une borne manque.<br>• La largeur revient à celle d'origine après réouverture → `~/.nkcraft_ui.cfg` n'est pas écrit. Il l'est **au relâchement** de la poignée, jamais à la sortie du programme : une application fermée par la croix de l'OS n'écrirait rien. |
 
 | **Les compteurs de rendu.** Menu **Fenêtre → Compteurs de rendu**. | Un petit panneau apparaît **en haut à droite de la vue 3D** : Draw, Tris, Sommets, Lots, Écartés, Lumières, Ombreurs, GPU, CPU, dt, FPS — et le nom du dorsal en titre (« Vulkan », « OpenGL »…). L'entrée de menu porte une **coche**. Refermer et rouvrir l'application les retrouve **allumés**. | • Ils sont **allumés au premier lancement** → le défaut n'est plus « éteint », et c'est ce qui polluait chaque capture.<br>• **« GPU 0.00 ms »** alors qu'aucune mesure GPU n'a encore répondu → un zéro qui n'est pas un zéro ; la vue doit écrire **« -- »**.<br>• Les chiffres restent **figés** pendant qu'on tourne la caméra → ils ne viennent plus de `NkRenderer::GetStats()`.<br>• Ils apparaissent **sur l'écran d'accueil** → la garde `!st.welcome` est tombée.<br>• Un clic dessus **tourne la caméra** → la zone n'est pas réclamée, et l'affichage laisse passer. |
 
@@ -148,14 +148,14 @@ mesure de provenance, pour rester vrai quand une icône naîtra. Un texte en dur
 se périmerait au premier ajout — et mentirait alors sur une licence.
 
 **Identité de construction** : `jenga build --config Release` (jamais
-`rebuild`), puis `python Applications/NK3DModeler/tests/sonde_barre_menus.py`
+`rebuild`), puis `python Applications/NKCraft/tests/sonde_barre_menus.py`
 → **13/13**, dont `b10` (dégrisée), `b11` (elle reste ouverte) et `b12` (le menu
 se referme).
 
 ⚠️ **Les compteurs n'ont pas de démo à part, et c'est délibéré :** leur sujet est
 de **relayer** les chiffres d'un vrai rendu. Une démo qui les alimenterait avec
 des nombres inventés montrerait un relais de rien du tout — elle aurait l'air de
-marcher quel que soit l'état du câblage. NK3DModeler est le seul endroit où le
+marcher quel que soit l'état du câblage. NKCraft est le seul endroit où le
 geste prouve quelque chose.
 
 | **La barre de menus.** Cliquer **Fichier**, puis **Fenêtre**, puis **Fichier** de nouveau. | Chaque menu **se déroule et reste ouvert** ; un second clic sur un autre titre y passe ; un second clic sur le même le referme. | • Rien ne se déroule → le défaut du 25/09 est revenu : le même clic est lu deux fois dans l'image, et la seconde lecture referme ce que la première vient d'ouvrir.<br>• Le menu clignote → même cause, à une image près. |
@@ -167,11 +167,11 @@ geste prouve quelque chose.
 ### Pour les bancs (sans souris, sans fenêtre)
 
 ```
-NK3DModeler.exe --sonde-messages              -> 9/9   (le chemin logger -> bandeau)
-NK3DModeler.exe --sonde-ui-etat <fichier>     -> 14/14 (l'aller-retour, les bornes,
+NKCraft.exe --sonde-messages                  -> 9/9   (le chemin logger -> bandeau)
+NKCraft.exe --sonde-ui-etat <fichier>         -> 14/14 (l'aller-retour, les bornes,
                                                         et l'interrupteur des compteurs)
 NKEditorKitTest.exe                           -> 226/226 (familles 27 et 28 comprises)
-python Applications/NK3DModeler/tests/sonde_barre_menus.py -> 13/13 (la barre, l entree grisee, et A propos)
+python Applications/NKCraft/tests/sonde_barre_menus.py -> 13/13 (la barre, l entree grisee, et A propos)
 ```
 
 Les deux appellent **les fonctions du produit** (`NkToastDrainerJournal`,
@@ -359,7 +359,7 @@ devait faire dans le `NkUVEditor` qui n'a jamais eu de corps.
 
 | démo | ce qu'on doit voir |
 |---|---|
-| **l'éditeur UV** | on ouvre, on déplace un îlot, la texture suit sur l'objet. Pas encore écrit : les opérations doivent d'abord vivre dans `NKRenderer/Mesh/` sur `NkEditMesh`, et le panneau dans `NKEditorKit` pour que NK3DModeler, NkAnimaEditor et NKScena l'hébergent à l'identique. |
+| **l'éditeur UV** | on ouvre, on déplace un îlot, la texture suit sur l'objet. Pas encore écrit : les opérations doivent d'abord vivre dans `NKRenderer/Mesh/` sur `NkEditMesh`, et le panneau dans `NKEditorKit` pour que NKCraft, NkAnimaEditor et NKScena l'hébergent à l'identique. |
 
 
 ---
@@ -454,7 +454,7 @@ sur du code — c'est la démonstration même du chantier.
 
 ### ⚠️ Ce que cette démo n'est PAS
 
-**Ce n'est pas « NkAnimaEditor a l'interface de NK3DModeler ».** Trois bandes viennent d'un document ;
+**Ce n'est pas « NkAnimaEditor a l'interface de NKCraft ».** Trois bandes viennent d'un document ;
 la coquille (docking, titre, rails, menus) reste celle de `NKEditorKit`. **La barre de menu n'est pas
 branchée, et c'est mesuré :** le format connaît `MenuBar`, `Menu`, `MenuItem` et `ContextMenu`, mais
 le monteur n'en monte **aucun** — un document de menu valide à **0 erreur** et monte **0 widget pour

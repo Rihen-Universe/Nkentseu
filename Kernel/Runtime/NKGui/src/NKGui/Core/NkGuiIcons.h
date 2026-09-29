@@ -7,7 +7,7 @@
 // ── POURQUOI CE FICHIER EXISTE ───────────────────────────────────────────────
 // Mesure du 2026-08-18 : il n'existait AUCUN moyen de dessiner un pictogramme
 // dans NKGui. Consequences payees deux fois :
-//   - NK3DModeler tient 102 glyphes (`NkIcon`, une texture PAR icone) ;
+//   - NKCraft tient 102 glyphes (`NkIcon`, une texture PAR icone) ;
 //   - NKCode en tient 91 autres, de son cote ;
 //   - `Nogee/Panels/AssetBrowser.cpp` dessine `AddRectFilled(iconRect, ...)` —
 //     un rectangle colore LA OU LA PLANCHE MONTRE UN PICTOGRAMME.
@@ -29,7 +29,7 @@
 // Un glyphe est de l'une ou l'autre nature, et l'appelant ne s'en occupe pas :
 //
 //   Bitmap  une decoupe d'un atlas deja rasterise. C'est ce qui EXISTE
-//           aujourd'hui (NK3DModeler, NKCode) — le mecanisme doit l'accepter,
+//           aujourd'hui (NKCraft, NKCode) — le mecanisme doit l'accepter,
 //           sinon rien ne migre.
 //   Path    des CONTOURS vectoriels, exprimes dans une boite unite [0,1]^2 et
 //           mis a l'echelle du rect demande au moment du dessin.
@@ -130,7 +130,7 @@ namespace nkentseu {
 				/// est vide, la region degeneree, ou hors de l'atlas.
 				/// `texId` = 0 : la region utilise la texture du jeu. Une texture
 				/// par region est permise — c'est le modele « une texture par
-				/// icone » de NK3DModeler, qui passe donc sans rien changer.
+				/// icone » de NKCraft, qui passe donc sans rien changer.
 				/// Un nom deja present est REMPLACE, poignee conservee : recharger
 				/// un jeu n'invalide pas ce que l'application tient.
 				NkGuiIconHandle AddBitmap(const char *name, int32 x, int32 y, int32 w, int32 h,

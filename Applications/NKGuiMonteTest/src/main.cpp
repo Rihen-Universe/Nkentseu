@@ -1528,7 +1528,7 @@ int main(int argc, char **argv) {
 	printf("\n-- (m6) LES TAILLES RELATIVES : le MEME document, DEUX fenetres, DEUX dispositions justes\n");
 	{
 		// ⚠️ C'EST LE MANQUE STRUCTUREL DE L'INVENTAIRE DU 17/09. `pos` et `size` sont en
-		//    pixels absolus : un document qui decrirait NK3DModeler avec eux le figerait a
+		//    pixels absolus : un document qui decrirait NKCraft avec eux le figerait a
 		//    UNE taille de fenetre, alors que sa disposition reelle est en fractions
 		//    (0,16 et 0,29). Le critere est donc : le meme fichier, deux fenetres, et les
 		//    largeurs suivent -- avec le PLANCHER qui mord dans la petite.

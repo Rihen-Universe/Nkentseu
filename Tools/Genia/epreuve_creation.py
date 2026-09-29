@@ -8,7 +8,7 @@
 #
 # Il lit DEUX choses, et rien d'autre :
 #   - le jeu d'epreuve (epreuve_creation.txt), ecrit AVANT le code ;
-#   - le journal de mesure que NK3DModeler ecrit (logs/crea_mesure.txt), une
+#   - le journal de mesure que NKCraft ecrit (logs/crea_mesure.txt), une
 #     copie par demande : des BOITES MONDE relues a l'hote apres la pose.
 # ⚠️ IL NE LIT PAS LE VERDICT DE L'APPLICATION. Il recalcule chaque critere sur
 #    les boites. Un juge qui recopierait le « 0 flottante » du fil ne mesurerait

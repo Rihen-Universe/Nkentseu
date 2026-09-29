@@ -211,7 +211,7 @@ granularité par défaut **sans que rien ne le lui dise**.
 Forcer la résolution ne rend pas seulement les 60 img/s : **elle supprime la
 dispersion**. C'est l'origine du plancher de bruit de ±33 % qui empêchait deux
 bancs d'essai distincts de conclure (le mien sur le coût du journal, celui de
-NK3DModeler sur les captures).
+NKCraft sur les captures).
 
 ### ✅ TRANCHÉ ET LIVRÉ — `NkChrono::BeginPreciseTiming()` (Rodolf, 2026-08-16)
 

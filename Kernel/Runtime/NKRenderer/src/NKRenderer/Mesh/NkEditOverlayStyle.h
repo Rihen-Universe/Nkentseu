@@ -12,7 +12,7 @@
 //  des aretes du mode Edition.
 //
 //  ⚠️ POURQUOI CE FICHIER EXISTE. Ces valeurs etaient ecrites DEUX FOIS : dans
-//     `Applications/NK3DModeler/.../NkDemo3D.cpp` et dans
+//     `Applications/NKCraft/.../NkDemo3D.cpp` et dans
 //     `Applications/Sandbox/src/Demo/Demo3D.cpp`. Elles etaient IDENTIQUES,
 //     par portage verbatim -- et c'est precisement ce qui rendait la
 //     divergence invisible : rien ne signalait qu'il y en avait deux. Le jour

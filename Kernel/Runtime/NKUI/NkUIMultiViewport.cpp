@@ -300,7 +300,7 @@ namespace nkentseu {
 				// Swapchain resize si nécessaire. MINIMISEE = on saute : une
 				// fenetre reduite garde un rect placeholder (~160x28), jamais
 				// nul -- ce rect partait en OnResize et cassait les cibles du
-				// rendu (defaut 4.3 NK3DModeler, mort a la restauration).
+				// rendu (defaut 4.3 NKCraft, mort a la restauration).
 				if (vp.osWindow.IsMinimized())
 					continue;
 				const uint32 fbW = vp.osWindow.GetSize().width;
