@@ -27,6 +27,7 @@
 #include "NkCustomEvent.h"
 #include "NkTransferEvent.h"
 #include "NkEventDispatcher.h" // NkActionManager, NkAxisManager, NkInputCode
+#include "NkGestureRecognizer.h" // les gestes, reconnus ici pour toutes les plateformes
 #include "NkGenericHidEvent.h"
 #include "NkGenericHidMapper.h"
 #include "NkGraphicsEvent.h"
@@ -506,6 +507,42 @@ namespace nkentseu {
 			///       avant un pas de physique tres long.
 			void RefreshAxes();
 
+			// ── LES GESTES, RECONNUS ICI POUR TOUTES LES PLATEFORMES (29/09) ──
+			//
+			// NkTouchEvent.h declarait tape, appui long, pan, pincer, tourner et
+			// balayer ; AUCUN dorsal ne les emettait (grep du 29/09 : zero
+			// emetteur, zero consommateur). Le reconnaisseur lit chaque contact
+			// qui passe par la file (Enqueue / PostEvent) et y remet les gestes,
+			// juste derriere le contact qui les a fait naitre.
+			//
+			// ⚠️ ACTIF PAR DEFAUT, parce que rien ne change pour qui ne les lit
+			//    pas : les contacts bruts partent exactement comme avant, et les
+			//    gestes sont des evenements EN PLUS. Win32 n'emet aucun contact
+			//    tactile : sous Windows, rien ne change du tout.
+			// ⚠️ DispatchEvent (le chemin direct) NE les produit PAS : il ne passe
+			//    ni par la file ni par l'etat, et ce n'est pas a lui de commencer.
+			NkGestureRecognizer &GetGestureRecognizer() noexcept {
+				return mGestures;
+			}
+
+			const NkGestureRecognizer &GetGestureRecognizer() const noexcept {
+				return mGestures;
+			}
+
+			/// Coupe (ou rend) la reconnaissance. Coupee, le geste en cours est
+			/// oublie : le rallumer au milieu d'un pincement n'en emettrait que
+			/// la fin.
+			void SetGestureRecognition(bool e) noexcept {
+				mGesturesEnabled = e;
+				if (!e) {
+					mGestures.Reset();
+				}
+			}
+
+			bool GetGestureRecognition() const noexcept {
+				return mGesturesEnabled;
+			}
+
 			// Injection de dependance -- appele par NkSystem::Initialise()
 			void SetGamepadSystem(NkGamepadSystem *gp) noexcept {
 				mGamepadSystem = gp;
@@ -604,6 +641,13 @@ namespace nkentseu {
 			// Actions et axes nommes, partages par toute l'application.
 			NkActionManager mActionManager;
 			NkAxisManager mAxisManager;
+
+			// Les gestes (voir GetGestureRecognizer). Nourri dans
+			// DeliverOnPumpThread, avance dans PollEvents / PollEvent.
+			NkGestureRecognizer mGestures;
+			bool mGesturesEnabled = true;
+			void FeedGestures(const NkEvent &evt) noexcept;
+			void TickGestures() noexcept;
 
 			// Point 3 : ring buffer à la place d'une deque dynamique
 			NkEventRingBuffer mEventQueue;
