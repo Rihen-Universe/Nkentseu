@@ -1167,3 +1167,14 @@ Rien n'a été compilé ni exécuté pour ce document. En particulier :
 | Q4 | UnkenyEditor gagne un **projet** (dossier + fichier) — prérequis du C++. Quelle extension ? | À nommer au premier octet écrit (règle de `CONVENTIONS_FICHIERS.md`), « identifiable sans ouvrir » comme `.nk3dm`. |
 | Q5 | « Jouer isolé » par défaut dès qu'un module C++ est chargé ? | **Non** au début (itération plus rapide, comme UE5) ; N1–N2 dès S5 ; N3 en S7, ou avant si Rihen le veut par défaut. |
 | Q6 | Un personnage mou : des **parties nommées** d'un corps, ou **plusieurs corps reliés** ? | **Parties nommées** pour grilles et anneaux (stables) ; plusieurs corps seulement après vérification de `Relier` entre corps (§ 12, point 11). |
+
+### Décisions de Rihen (29/09/2026)
+
+| # | décision | ce que ça change |
+|---|---|---|
+| Q1 | **Plusieurs scripts par entité** (façon Unity), et non un seul comme la proposition. | Le composant script porte une **liste ordonnée** de scripts ; l'ordre d'exécution est celui de la liste (affiché et réordonnable dans Détails) ; chaque script a ses propres variables sauvées sous son nom ; un événement (Début, Tick, Contact…) est livré à chaque script de la liste, dans l'ordre. À reporter dans § 5 (composant) et dans les bancs b*/c* (deux scripts sur une même entité, ordre respecté, variables séparées). |
+| Q2 | Proposition adoptée (VM dans Unkeny d'abord). | — |
+| Q3 | Proposition adoptée (graphe et module dans le même `.nkbp`). | — |
+| Q4 | Projet UnkenyEditor : extension **`.nkunk`**. | Premier octet écrit selon `CONVENTIONS_FICHIERS.md`. |
+| Q5 | **Non** au début : pas de « Jouer isolé » par défaut. | N1–N2 dès S5, N3 en S7. |
+| Q6 | **Les deux** : parties nommées d'abord, corps reliés ensuite quand `Relier` entre corps est prouvé. | Transmis au chantier `comble/physique-2d-jeu`. |
