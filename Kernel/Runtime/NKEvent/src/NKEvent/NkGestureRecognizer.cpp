@@ -20,6 +20,17 @@ namespace nkentseu {
 
 		constexpr float32 kDegParRad = 57.29577951308232f;
 
+		/// Leve le drapeau le temps d'un appel, et le baisse a TOUTES les sorties.
+		struct NkGardeAppel {
+				bool &drapeau;
+				explicit NkGardeAppel(bool &d) noexcept : drapeau(d) {
+					drapeau = true;
+				}
+				~NkGardeAppel() {
+					drapeau = false;
+				}
+		};
+
 		float32 Distance(float32 ax, float32 ay, float32 bx, float32 by) noexcept {
 			const float32 dx = bx - ax;
 			const float32 dy = by - ay;
@@ -244,6 +255,10 @@ namespace nkentseu {
 	}
 
 	uint32 NkGestureRecognizer::Update(float64 timeMs) noexcept {
+		if (mDansAppel) {
+			return 0;
+		}
+		const NkGardeAppel garde(mDansAppel);
 		mEmittedThisCall = 0;
 		CheckLongPress(timeMs);
 		return mEmittedThisCall;
@@ -409,6 +424,14 @@ namespace nkentseu {
 	// =========================================================================
 
 	uint32 NkGestureRecognizer::OnTouchEvent(const NkEvent &event, float64 timeMs) noexcept {
+		// ⚠️ PAS DE REENTREE : le destinataire d'un geste peut lui-meme POSER des
+		//    contacts (un banc, un rejeu). Les lire au milieu de la fin d'une
+		//    session corromprait les contacts qu'on est en train de parcourir ;
+		//    ils passent donc sans etre lus comme gestes.
+		if (mDansAppel) {
+			return 0;
+		}
+		const NkGardeAppel garde(mDansAppel);
 		mEmittedThisCall = 0;
 		const NkEventType::Value type = event.GetType();
 		if (type != NkEventType::NK_TOUCH_BEGIN && type != NkEventType::NK_TOUCH_MOVE &&
