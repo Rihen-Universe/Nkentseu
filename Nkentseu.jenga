@@ -1980,6 +1980,11 @@ with workspace("Nkentseu", location="."):
     with include("Applications/NkLudo/NkLudo.jenga"):
         pass
 
+    # Physic2D : editeur de simulation physique 2D facon UE5, sur la coquille
+    # NkCanvasApp et le dessin NKGui (corps mous, blobs, fluides, cristaux).
+    with include("Applications/Physic2D/Physic2D.jenga"):
+        pass
+
     # L'editeur d'Unkeny. Il vit ici, pas dans Engine : un moteur ne
     # contient pas son outil.
     with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):

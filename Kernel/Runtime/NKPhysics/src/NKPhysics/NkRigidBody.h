@@ -135,6 +135,15 @@ namespace nkentseu {
 					s.p0 = pos + q * rest.p0;
 					s.orientation = q * rest.orientation;
 					break;
+				case T::NK_BOX2D:
+					// 2026-09-29 (Physic2D) : la boite 2D porte son angle dans `rotation`,
+					// PAS dans `orientation` -- c'est ce champ que lit NkOBB2DvsOBB2D. Sans
+					// cette ligne elle tombait dans `default` et gardait l'angle de sa
+					// creation : mesure, une caisse posee inclinee de 0,6 rad reposait
+					// en equilibre sur un coin, a y = demi-cote, pendant 10 s.
+					s.p0 = pos + q * rest.p0;
+					s.rotation = rest.rotation + 2.f * nkentseu::math::NkAtan2(q.z, q.w);
+					break;
 				case T::NK_CAPSULE3D:
 				case T::NK_SEGMENT2D:
 				case T::NK_CAPSULE2D:
