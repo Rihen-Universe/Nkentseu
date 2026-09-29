@@ -68,7 +68,12 @@ with project("Physic2D"):
          # La simulation : Unkeny compose NKECS (entites), NKCollision et
          # NKPhysics (rigides + NkParticules2D). Declares EXPLICITEMENT, comme
          # dans UnkenyEditor : l'ordre de liaison ne se devine pas.
-         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny"],
+         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny",
+         # NKMedia : NKAudio en depend (decodeur Opus, NkOpusCodec.cpp) et le lien
+         # Windows (clang + ld de msys2) ne le tire pas tout seul : sans lui,
+         # « undefined reference to media::NkOpusFile::Decode » (mesure du
+         # 2026-09-29, la meme que pour UnkenyEditor).
+         "NKMedia"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous
@@ -104,6 +109,12 @@ with project("Physic2D"):
         if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
+        # PILE DE 32 Mo, pour la meme raison qu'UnkenyEditor : en Debug, le
+        # prologue de unkeny::NkUnkenyLancerBanc reserve 11,1 Mo (0xA9D408), et
+        # `--selftest` tombait des l'entree en STATUS_STACK_OVERFLOW (0xC00000FD,
+        # mesure du 2026-09-29 avec la pile par defaut de 2 Mo), sans une ligne
+        # de sortie. Chaine clang-mingw (ld de msys2), d'ou -Wl,--stack.
+        ldflags(["-Wl,--stack,33554432"])
 
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
         windowedapp()
