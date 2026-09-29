@@ -12,7 +12,7 @@ l'étage du haut ne connaît pas l'étage du bas.
 **`Vue d'ensemble — synthèse (voir Documentation, section « Raccordement au reste du moteur »)`**
 
 ```
-   Application  (NKGuiDemo, NKCode, NK3DModeler…)
+   Application  (NKGuiDemo, NKCode, NKCraft…)
         |  cree une NkWindow, pompe les NKEvent -> remplit ctx.input
         |  declare ses widgets entre BeginFrame / EndFrame
         v

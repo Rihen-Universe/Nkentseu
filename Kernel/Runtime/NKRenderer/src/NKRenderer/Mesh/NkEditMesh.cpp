@@ -2611,7 +2611,7 @@ namespace nkentseu {
 				//    `EM_ToWeldedPolygons`. Les deux ne designent donc PAS le meme
 				//    ensemble a partir de la meme selection de sommets.
 				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
-				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose
+				//    d'intention de face (`SetFaceSelection`). NKCraft la pose
 				//    -- c'est le sens du commentaire de `NkDemo3D.cpp`, « sans
 				//    cette ligne, l'ecran disait 2 et l'extrusion en prenait 6 » --
 				//    donc l'application ne rencontre pas la divergence.
@@ -3025,7 +3025,7 @@ namespace nkentseu {
 		//   le travail. C'est Rodolf qui l'a signale.
 		//
 		// ⚠ LA REGLE EST POSEE ICI, DANS LE MOTEUR, ET PAS DANS LE MODELEUR. Tous
-		//   les hotes (NK3DModeler, NkAnimaEditor, Nogee...) passent par cette
+		//   les hotes (NKCraft, NkAnimaEditor, Nogee...) passent par cette
 		//   fonction ; une regle posee dans un seul appelant aurait ete vraie a un
 		//   seul endroit, et fausse partout ailleurs sans que rien ne le dise.
 		//
@@ -5278,7 +5278,7 @@ namespace nkentseu {
 				//    polygones bruts). Les deux ne designent donc PAS le meme
 				//    ensemble a partir de la meme selection de sommets.
 				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
-				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose,
+				//    d'intention de face (`SetFaceSelection`). NKCraft la pose,
 				//    donc l'application ne rencontre pas la divergence -- ne pas
 				//    lire ce paragraphe comme un defaut d'usage, c'en etait un dans
 				//    une premiere redaction et c'etait faux.

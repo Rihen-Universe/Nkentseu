@@ -161,7 +161,7 @@ namespace nkanima {
 		// ═══════════════════════════════════════════════════════════════════
 		//  LA TABLE — fermée, et son compte se DÉDUIT
 		// ═══════════════════════════════════════════════════════════════════
-		//  ⚠️ LE NOMBRE NE SE RECOPIE PAS. NK3DModeler a payé exactement ça :
+		//  ⚠️ LE NOMBRE NE SE RECOPIE PAS. NKCraft a payé exactement ça :
 		//     ajouter « Enregistrer tout » à un menu sans toucher le compte
 		//     écrit à la main a fait DISPARAÎTRE « Quitter ». Ici le compte est
 		//     calculé au même endroit que la table, et l'accesseur est le seul

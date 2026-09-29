@@ -29,7 +29,7 @@
 //   et reste hors de portee d'un banc console — il faudra une capture.
 //   ⚠️ Le dire ici plutot que de laisser croire que « le mode edition est teste ».
 // =============================================================================
-#include "NK3DModeler/Viewport/NkVpEditTarget.h"
+#include "NKCraft/Viewport/NkVpEditTarget.h"
 
 #include <stdio.h>
 

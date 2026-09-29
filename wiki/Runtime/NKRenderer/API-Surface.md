@@ -129,7 +129,7 @@ délibérément la façade. Rien n'est perdu : `mCfg.wireframe` n'est de toute f
 `NkDemo3D.cpp:5708`, `NkMatPreview3D.h:374`, `NKXRDemo/main.cpp:729`.
 
 🔴 **Les 2 autres ne l'appellent pas** — 0 occurrence dans tout le fichier :
-`NK3DModeler/.../Viewport/NkViewport3D.cpp` et `NkAnimaEditor/.../AnimBridge.cpp`. Dans ces deux
+`NKCraft/.../Viewport/NkViewport3D.cpp` et `NkAnimaEditor/.../AnimBridge.cpp`. Dans ces deux
 éditeurs, activer SSAO / bloom / FXAA / TAA depuis un panneau **ne fait rien** : c'est le défaut du
 9 août, corrigé à un seul endroit. Décompte complet, chronologie et scores de conformité :
 [Frame-Contract.md § Flux C](Frame-Contract.md).

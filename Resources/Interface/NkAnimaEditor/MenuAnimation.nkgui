@@ -11,11 +11,11 @@ nkgui 0.4
 //  NkAnimaEditor n'est pas un lecteur de clips : c'est un ATELIER D'ANIMATION
 //  3D — squelette, courbes, VFX, animation non squelettique — de la famille
 //  Blender / Cascadeur / iClone. Les menus portent donc la forme de cet
-//  atelier, calquée sur les sept menus de NK3DModeler (Fichier, Édition,
+//  atelier, calquée sur les sept menus de NKCraft (Fichier, Édition,
 //  Fenêtre, Outils, Sélection, Objet, Aide).
 //
 //  ⚠️ ET CE QUI N'EXISTE PAS EST GRISÉ, PAS OMIS. C'est la règle de
-//     NK3DModeler, tenue entrée par entrée : CÂBLER quand la fonction existe,
+//     NKCraft, tenue entrée par entrée : CÂBLER quand la fonction existe,
 //     GRISER quand elle n'existe pas — avec sa raison écrite ici — et RETIRER
 //     quand l'entrée n'a plus d'objet.
 //
@@ -126,7 +126,7 @@ widgets {
     }
 
     // ⚠️ GRISÉE : aucune fonction d'inversion dans `AnimBridge.h`. Même
-    //    constat que dans NK3DModeler — ni `Invert`, ni `Inverse` dans toute
+    //    constat que dans NKCraft — ni `Invert`, ni `Inverse` dans toute
     //    la façade. L'écrire serait du neuf.
     MenuItem "anim.selection_inverser" {
       label = "Inverser la selection"
@@ -303,8 +303,8 @@ widgets {
     label = "Aide"
 
     // ⚠️ GRISÉES : aucun écran ne les affiche. Même constat que dans
-    //    NK3DModeler avant le 26/09 — la table des raccourcis existe, mais
-    //    rien ne la PEINT en plein écran. NK3DModeler a désormais son écran
+    //    NKCraft avant le 26/09 — la table des raccourcis existe, mais
+    //    rien ne la PEINT en plein écran. NKCraft a désormais son écran
     //    « À propos » (`NkModelerApropos.h`) ; NkAnimaEditor, non.
     MenuItem "anim.aide_raccourcis" {
       label = "Raccourcis clavier"

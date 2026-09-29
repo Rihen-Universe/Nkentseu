@@ -478,7 +478,7 @@ int main() {
 	// L'empreinte par contenu rend la recuisson automatique. Ces deux gestes
 	// couvrent ce qu'elle ne couvre pas : un cache abime, ou l'envie de repartir
 	// propre. C'est ce que declenche « Outils > Recuire les textures » dans
-	// NK3DModeler.
+	// NKCraft.
 	//
 	// ⚠️ L'ENTREE DE MENU ELLE-MEME N'EST PAS EPROUVEE ICI : elle demande un vrai
 	// clic, et je ne pilote ni souris ni clavier. Ce banc prouve la MECANIQUE que

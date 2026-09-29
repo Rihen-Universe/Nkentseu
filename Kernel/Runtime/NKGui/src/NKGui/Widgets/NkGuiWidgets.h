@@ -52,7 +52,7 @@ namespace nkentseu {
 		// True si un glisser survole le dernier widget soumis (la bibliotheque
 		// surligne le rect en accent). Le TYPE se verifie a l'acceptation.
 		NKENTSEU_NKGUI_API bool BeginDropTarget(NkGuiContext &ctx) noexcept;
-		// CIBLE EXPLICITE (2026-08-17, NK3DModeler) : pour une ZONE qui n'est pas
+		// CIBLE EXPLICITE (2026-08-17, NKCraft) : pour une ZONE qui n'est pas
 		// un widget -- un panneau entier, un fond de liste -- et qui contient deja
 		// des widgets. `ButtonBehavior` sur une telle zone capturerait le clic
 		// (soumis avant eux : activeId bloque leur ItemHoverable) ou volerait

@@ -46,7 +46,7 @@
 //
 //  ⚠️ OU CE CODE DEVRAIT VIVRE, ET IL NE VIT PAS ICI PAR CHOIX. Le bon foyer de
 //     (a) est `NkRoleRegistry::Find` (`NKEditorKit/NkTheme.inl`) : la canoniser
-//     LA la rendrait vraie pour Nogee, NK3DModeler, NkAnimaEditor et PV3DE, qui
+//     LA la rendrait vraie pour Nogee, NKCraft, NkAnimaEditor et PV3DE, qui
 //     vont tous rencontrer ce magenta. `NkTheme` n'est pas le perimetre de cet
 //     agent -- la fonction est donc ecrite ici, PURE et EPROUVEE (famille 33 de
 //     la sonde), et proposee telle quelle au canal pour etre deplacee. Tant

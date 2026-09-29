@@ -420,7 +420,7 @@ namespace nkentseu {
 
 		/// LES BOUTONS D'UN BLOC. Un seul bloc a la fois peut en porter, et c'est
 		/// l'HOTE qui dit lequel : il est seul a savoir ce que sa pile d'annulation
-		/// sait defaire. NK3DModeler : « Annuler cette action » sur la DERNIERE
+		/// sait defaire. NKCraft : « Annuler cette action » sur la DERNIERE
 		/// operation (sa pile a un cran). NKCode : « Autoriser » / « Refuser » sur
 		/// la demande de permission du CLI.
 		struct NkAiActionsFil {

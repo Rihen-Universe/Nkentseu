@@ -1066,7 +1066,7 @@ int nkmain(const NkEntryState &state) {
 	//  L'HABILLAGE DE LA COQUILLE — ON APPELLE, ON NE REDESSINE PAS
 	// ═══════════════════════════════════════════════════════════════════════
 	//  Demande de Rodolf : NkAnimaEditor doit porter « exactement la meme
-	//  interface » que NK3DModeler. Mesure prealable (canal chrome, lot 1) :
+	//  interface » que NKCraft. Mesure prealable (canal chrome, lot 1) :
 	//  cette application montait la coquille NUE -- AddPanel x2,
 	//  RegisterCommand x4, et AUCUN des ~30 points d'extension de chrome.
 	//
@@ -1096,7 +1096,7 @@ int nkmain(const NkEntryState &state) {
 	//  pourquoi.
 	//
 	//  `ApplyTheme` est le point de synchronisation des deux objets theme
-	//  (roles editeur -> jetons de dessin). NK3DModeler part de
+	//  (roles editeur -> jetons de dessin). NKCraft part de
 	//  `NkTheme::Dark()` (NkModelerTheme.h:111) ; « exactement la meme
 	//  interface » exige donc la meme source. Applique APRES le bloc en dur, il
 	//  le remplace.

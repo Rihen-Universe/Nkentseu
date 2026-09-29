@@ -1,4 +1,4 @@
-# JEU D'EPREUVE -- « une phrase -> un objet en parties nommees », dans NK3DModeler
+# JEU D'EPREUVE -- « une phrase -> un objet en parties nommees », dans NKCraft
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #
 # ⚠️ ECRIT LE 21/09/2026 AVANT LA PREMIERE LIGNE DU LOT ET AVANT TOUT REGLAGE

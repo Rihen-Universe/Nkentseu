@@ -1,11 +1,11 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-# INSTRUMENT VERSIONNE — l'inventaire « NKUIDesign peut-il decrire NK3DModeler ? ».
+# INSTRUMENT VERSIONNE — l'inventaire « NKUIDesign peut-il decrire NKCraft ? ».
 # Trois mesures, dans cet ordre :
 #   1. le tableau DIT / MONTE / POSABLE (inventaire_nkgui.py) ;
 #   2. la VALIDATION REELLE d'un corpus de sonde : un fichier .nkgui par element de chrome,
 #      plus TROIS NEGATIFS (TitleBar, Rail, StatusBar) dont le refus prouve que les
 #      acceptations veulent dire quelque chose ;
-#   3. le compte de la peinture directe de NK3DModeler -- ce qu'un document devrait remplacer.
+#   3. le compte de la peinture directe de NKCraft -- ce qu'un document devrait remplacer.
 #
 # ⚠️ Le verdict de la validation N'EST PAS a la console : il part dans
 #    `nkuidesign_validation.txt`, a la racine du repertoire de travail.
@@ -35,12 +35,12 @@ if (Test-Path $corpus) {
 }
 
 Write-Output ''
-Write-Output '=== 3. LA PEINTURE DIRECTE DE NK3DModeler (ce qu''un document devrait remplacer) ==='
+Write-Output '=== 3. LA PEINTURE DIRECTE DE NKCraft (ce qu''un document devrait remplacer) ==='
 # ⚠️ DEUX SILENCES INVENTES PAYES ICI, et c'est pour cela que le compte se verifie contre
 #    une reponse connue (1299 / 48 le 2026-09-17) :
 #      - une profondeur ECRITE A LA MAIN (`*\*\*.h`) rendait 1298 : elle manquait un dossier ;
 #      - `Get-ChildItem -Path <dossier> -Recurse -Include *.h` SANS `\*` final rend ZERO.
-$src = Join-Path $R 'Applications\NK3DModeler\src'
+$src = Join-Path $R 'Applications\NKCraft\src'
 $fichiers = @(Get-ChildItem -Path (Join-Path $src '*') -Recurse -Include *.h, *.cpp -File)
 if ($fichiers.Count -eq 0) { Write-Output 'AUCUN FICHIER BALAYE -- ROUGE (le filtre ment)'; exit 2 }
 $appels = (Select-String -Path $fichiers.FullName -Pattern '\bp\.[A-Z][A-Za-z]*\(' -AllMatches |

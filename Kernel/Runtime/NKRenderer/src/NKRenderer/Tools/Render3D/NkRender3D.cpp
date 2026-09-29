@@ -1761,7 +1761,7 @@ namespace nkentseu {
 				// coute une, le 25/09, sur `nkdemodepliageuv`.
 				//
 				// MESURE AVANT CHANGEMENT (26/09/2026) : 0 soumission concernee sur
-				// 7 797 dans NK3DModeler, 0 sur 2 999 dans NkAnimaEditor. Le piege
+				// 7 797 dans NKCraft, 0 sur 2 999 dans NkAnimaEditor. Le piege
 				// etait donc REEL MAIS DORMANT -- ce garde-fou ne change aucune
 				// image d'aujourd'hui, il protege les 110 fichiers qui appellent
 				// `Submit` et ceux qui viendront.

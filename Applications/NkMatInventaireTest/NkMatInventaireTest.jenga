@@ -16,7 +16,7 @@ couvrent PAS.
 
 Application et non test unitest() : aucun des 26 dossiers tests/ du depot
 n'ouvre de device. Voir la dette « les bancs GPU sont des tests declares en
-applications » dans Applications/NK3DModeler/ROADMAP.md."""
+applications » dans Applications/NKCraft/ROADMAP.md."""
 from Jenga import *
 from jengaconfig import *
 import os
@@ -45,7 +45,7 @@ with project("NkMatInventaireTest"):
          "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
          "NKThreading", "NKGLSlang", "NKSPIRVCross"],
         extra_includes=["src",
-                        "%{wks.location}/Applications/NK3DModeler/src",
+                        "%{wks.location}/Applications/NKCraft/src",
                         "%{NKGlad.location}/include"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],

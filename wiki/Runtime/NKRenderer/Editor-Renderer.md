@@ -17,12 +17,12 @@ et ne peut pas couvrir l'autre sans casser la règle de couches du dépôt.
 > l'éditeur **soumet et présente** dans `EndFrame()`, celui de la façade **non**
 > ([Frame-Contract.md](Frame-Contract.md)). Personne ne risque de fondre les deux classes par
 > accident ; en revanche **tout le monde risque de lire l'une pour l'autre** — c'est déjà arrivé :
-> `NK3DModeler` a été lu comme « un troisième motif de `NkRenderer` » alors que c'est une autre
+> `NKCraft` a été lu comme « un troisième motif de `NkRenderer` » alors que c'est une autre
 > classe, et la conclusion qu'on en tirait aurait fait « corriger » du code correct.
 >
 > Le coût du remède est connu et petit — renommer les points d'entrée de l'un des deux
 > (§ 5.1) : **2 implémentations, 2 sites d'injection, 1 usage direct.** Le coût de ne rien faire est
-> une relecture erronée de plus, à chaque fois qu'un nouvel arrivant ouvre `NK3DModeler/main.cpp`.
+> une relecture erronée de plus, à chaque fois qu'un nouvel arrivant ouvre `NKCraft/main.cpp`.
 
 ---
 
@@ -51,7 +51,7 @@ Et `NkEditorRHIRenderer` **n'inclut jamais `NKRenderer/NkRenderer.h`** : son en-
 | Application | Implémentation |
 |---|---|
 | NKCode (l'IDE), NKUIDesign, ConquerorLab, NKEditorKitDemo | **NKCanvas** (chemin par défaut, `NkEditorShell.cpp:143`) |
-| NkAnimaEditor, Nogee, NK3DModeler | **NKRHI** |
+| NkAnimaEditor, Nogee, NKCraft | **NKRHI** |
 
 **4 applications tournent sur le chemin NKCanvas.** Fondre `NkIEditorRenderer` dans `NkRenderer`
 (qui prend un `NkIDevice*`, `NkRenderer.h:55` — objet qui **n'existe pas** dans NKCanvas)
@@ -127,7 +127,7 @@ atteignable que si un render graph tourne — ce qui n'est pas le cas du chemin 
 `NkEditorRHIRenderer::GetDevice()` (`:268`) donne son `NkIDevice` à `NkRenderer::Create` pour les
 viewports 3D offscreen — `NkViewport3D.cpp:735`, `AnimBridge.cpp:697` — et `SetPreUI()` (`:280`)
 ouvre un créneau dans le command buffer de l'éditeur pour cette passe 3D. C'est la règle
-« une fenêtre = une pile » (`NK3DModeler.jenga:63-67`). **C'est exactement le flux C**
+« une fenêtre = une pile » (`NKCraft.jenga:63-67`). **C'est exactement le flux C**
 ([Frame-Contract.md](Frame-Contract.md)).
 
 ---
@@ -139,11 +139,11 @@ Puisque la réponse est « nécessaire », ce qui compte est que la séparation 
 1. 🔴 **Le vrai risque n'est pas la fusion, c'est la collision de vocabulaire.** Les deux interfaces
    ont un `BeginFrame`/`EndFrame` **aux sémantiques opposées** — celui de l'éditeur soumet et
    présente dans `EndFrame`, celui de la façade non ([Frame-Contract.md](Frame-Contract.md)).
-   C'est précisément ce qui a fait lire `NK3DModeler` comme un « troisième motif de `NkRenderer` »
+   C'est précisément ce qui a fait lire `NKCraft` comme un « troisième motif de `NkRenderer` »
    alors que c'est une autre classe. **Renommer les points d'entrée de l'un des deux** (par exemple
    `NkIEditorRenderer::EndFrame` → `EndAndPresentFrame`) supprimerait la confusion à la racine, pour
    le coût d'un renommage sur **2 implémentations et 2 sites d'injection** (`NkAnimaEditor/main.cpp:79`,
-   `NogeeShell.cpp:683`) plus l'usage direct de `NK3DModeler/main.cpp:2018`.
+   `NogeeShell.cpp:683`) plus l'usage direct de `NKCraft/main.cpp:2018`.
 2. **Garder la dépendance à 0 et la rendre vérifiable.** Les 5 compteurs du §2 valent 0 aujourd'hui ;
    un contrôle de build qui échoue si l'un devient non nul coûte quelques lignes et fige l'acquis.
 3. ⚠️ **Une justification du code est déjà périmée** — à corriger pour éviter qu'elle serve d'argument

@@ -92,7 +92,7 @@ lui-même) :
 |---|---|
 | Kernel | `NKRenderer/Core/NkRendererImpl.h`, `NKRenderer/Mesh/NkGLTFAnimBake.h`, `NKRenderer/Tools/Animation/NkAnimationSystem.h`, `NKRenderer/Tools/IK/NkIKSystem.cpp` |
 | Engine | `Noge/Anim/NkLocomotion.h` |
-| Applications | `DemoRW`, `NK3DModeler/Viewport/NkDemoRenderer.h`, `NkAnimaEditor/AnimBridge.cpp`, `NkAnimPhysTest`, `NkLocomotionDemo`, `Sandbox/DemoAnim.cpp`, `Sandbox/DemoAnimIK.cpp`, `Sandbox/NkRenderer.h` |
+| Applications | `DemoRW`, `NKCraft/Viewport/NkDemoRenderer.h`, `NkAnimaEditor/AnimBridge.cpp`, `NkAnimPhysTest`, `NkLocomotionDemo`, `Sandbox/DemoAnim.cpp`, `Sandbox/DemoAnimIK.cpp`, `Sandbox/NkRenderer.h` |
 
 ⚠️ **`NKRenderer/Tools/Animation/` n'a PAS été vidé le 14/08** — vérifié
 aujourd'hui, 4 fichiers, **492 lignes** : `NkAnimationSystem.{h,cpp}` (la façade

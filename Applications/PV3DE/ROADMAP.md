@@ -25,7 +25,7 @@
   (`SetUIOverlayCallback`, patron Nogee/UILayer) ; `ReleaseGpu()` appelé par
   `OnShutdown` AVANT la destruction du device (la LayerStack meurt après).
   Pont NKEvent→NkGuiInput complet (souris, molette accumulée, double-clic,
-  texte, touches d'édition, Ctrl C/X/V/A — table de NK3DModeler/main.cpp).
+  texte, touches d'édition, Ctrl C/X/V/A — table de NKCraft/main.cpp).
 - **Témoin renforcé (2026-08-18, Release, OpenGL, 1280×720)** : c'est la
   PREMIÈRE fois que l'UI médicale s'affiche (la v2 NKUI n'a jamais été attachée).
   Captures garde-PID (scratchpad session b7dabf70, `temoins/pv3de_apres/`) :

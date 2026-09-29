@@ -39,7 +39,7 @@ console est posé dans le `.jenga` **du logger**, pas dans le sien. Mettre `cons
 | Le chemin natif de Jenga n'émet **aucun** `/SUBSYSTEM` ni `-mwindows` sur Windows | ligne de lien relevée en `--verbose` : `clang++ -o …exe …objs … --target=x86_64-w64-windows-gnu -static-libstdc++ -static-libgcc -static -Wl,-Bstatic -lpthread` |
 | `CONSOLE_APP` / `WINDOWED_APP` n'apparaissent dans `Builders/Windows.py` que pour l'**extension** du binaire et pour l'**icône** | `grep` : aucune occurrence liée au sous-système |
 | Le sous-système n'est traité que par les **générateurs** (`jenga gen` → `.vcxproj`, CMake), jamais par `jenga build` | `Gen.py:1137` et `Gen.py:432` |
-| Conséquence : **tous** les exécutables du dépôt sont en sous-système **CONSOLE (3)**, y compris ceux déclarés `windowedapp()` | `NK3DModeler.exe`, `renderdemo.exe`, `Nogee.exe`, `PV3DE.exe`, `NKUIDesign.exe` : `Subsystem=3` lu dans l'en-tête PE |
+| Conséquence : **tous** les exécutables du dépôt sont en sous-système **CONSOLE (3)**, y compris ceux déclarés `windowedapp()` | `NKCraft.exe`, `renderdemo.exe`, `Nogee.exe`, `PV3DE.exe`, `NKUIDesign.exe` : `Subsystem=3` lu dans l'en-tête PE |
 
 **Donc, sur Windows : une console est attachée dès qu'on lance depuis un terminal, et
 `consoleapp()` n'y est pour rien.** L'hypothèse « aucune console attachée » est **réfutée** pour ce

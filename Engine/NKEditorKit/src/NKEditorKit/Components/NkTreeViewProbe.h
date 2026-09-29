@@ -551,7 +551,7 @@ namespace nkentseu {
 				}
 
 				// ── 14. LE CHEVRON PLIE, ET NE SELECTIONNE PAS ──────────────────
-				// Lecon de NK3DModeler, gardee en parametre (`chevron_only_fold`) :
+				// Lecon de NKCraft, gardee en parametre (`chevron_only_fold`) :
 				// « le clic de ligne pliait aussi, trop sensible et genant pour
 				// renommer » (Rihen).
 				{
@@ -596,7 +596,7 @@ namespace nkentseu {
 				}
 
 				// ── 16. MAJ+CLIC SELECTIONNE LA PLAGE AFFICHEE ──────────────────
-				// Venue de NK3DModeler, absente des deux copies Nogee. La plage suit
+				// Venue de NKCraft, absente des deux copies Nogee. La plage suit
 				// l'ordre AFFICHE : c'est pourquoi le parcours n'est ecrit qu'une
 				// fois dans le dessin.
 				{
@@ -630,7 +630,7 @@ namespace nkentseu {
 				// ── 17. LE CYCLE EST REFUSE — ET LE RESTE EST ACCEPTE ───────────
 				// Garde generique, gratuite parce que le composant a la chaine de
 				// parents sous les yeux. Nogee a du l'ecrire a la main (`SetParent`
-				// n'en a aucune) ; NK3DModeler ne l'a pas.
+				// n'en a aucune) ; NKCraft ne l'a pas.
 				{
 					NkTreeViewModel m;
 					FillDemo(m);

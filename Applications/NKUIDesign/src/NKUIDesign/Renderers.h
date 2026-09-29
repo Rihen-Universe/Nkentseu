@@ -17,7 +17,7 @@
 //
 //  ⚠️ CONSEQUENCE, ET ELLE EST A SURVEILLER : **chaque hote doit tenir sa
 //     propre table nom -> fonction.** Aujourd'hui il y a un hote et une entree,
-//     donc ca ne coute rien. A quatre hotes (Nogee, NK3DModeler, NkAnimaEditor,
+//     donc ca ne coute rien. A quatre hotes (Nogee, NKCraft, NkAnimaEditor,
 //     PV3DE) et huit composants, ce sera quatre tables a tenir a jour, et la
 //     troisieme oubliera une entree — le composant sera declare, visible dans
 //     toutes les palettes, et invisible a l'ecran dans une application.

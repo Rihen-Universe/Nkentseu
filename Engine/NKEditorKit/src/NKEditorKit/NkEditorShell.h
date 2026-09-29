@@ -591,7 +591,7 @@ namespace nkentseu {
 				// ═══════════════════════════════════════════════════════════════
 				//  ⚠️ LA COQUILLE NE DESSINE PAS D'ONGLET ELLE-MEME. Elle POSE le
 				//     composant partage `tab_strip` (`Components/NkTabStripModel.h`)
-				//     — le meme que NK3DModeler appelle par son propre peintre. Si
+				//     — le meme que NKCraft appelle par son propre peintre. Si
 				//     elle en redessinait une version a elle, on aurait cinq copies
 				//     au lieu de quatre, et « les onglets de Nogee et ceux du
 				//     modeleur viennent du meme code » serait faux.

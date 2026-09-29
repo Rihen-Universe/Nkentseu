@@ -791,7 +791,7 @@ with workspace("Nkentseu", location="."):
 
 
 
-    with include("Applications/NK3DModeler/NK3DModeler.jenga"):
+    with include("Applications/NKCraft/NKCraft.jenga"):
 
         pass
 

@@ -12,7 +12,7 @@
 //   le rectangle de chaque panneau, en pixels ET en fraction de la fenetre. Elle
 //   ne compare a RIEN et ne rend aucun verdict : la comparaison est faite par
 //   `scratchpad/agent-panneaux/verdict_disposition.py`, qui lit les attendus
-//   DANS `NK3DModeler/Shell/NkModelerUI.h` (NkLayout::Compute) a chaque
+//   DANS `NKCraft/Shell/NkModelerUI.h` (NkLayout::Compute) a chaque
 //   execution. Un attendu recopie ici se perimerait le jour ou Rodolf changerait
 //   une fraction du modeleur, et crierait rouge sur un montage correct.
 //

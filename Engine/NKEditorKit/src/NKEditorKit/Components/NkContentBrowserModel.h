@@ -7,13 +7,13 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // ⚠️ ETAT (2026-08-30) : DEUX CONSOMMATEURS REELS — NkUIDesign (document de
-//    demonstration + sonde) et NK3DModeler (via `NkModelerComponentPaint.h`,
+//    demonstration + sonde) et NKCraft (via `NkModelerComponentPaint.h`,
 //    derriere `NK_KIT_BROWSER=1`). La note d'origine « inclus par aucune
 //    application » est PERIMEE depuis le 29/08. Directive de Rodolf du 30/08 :
 //    la variante par defaut est LE MIXTE Unreal + Aetherion ; la bascule par
 //    defaut chez les applications reste SUSPENDUE tant que la parite avec le
-//    navigateur historique de NK3DModeler n'est pas atteinte ET validee sur
-//    capture. Les navigateurs existants (`NK3DModeler/Shell/NkModelerBrowser.h`,
+//    navigateur historique de NKCraft n'est pas atteinte ET validee sur
+//    capture. Les navigateurs existants (`NKCraft/Shell/NkModelerBrowser.h`,
 //    `Nogee/Panels/ContentBrowserPanel.cpp`, `Nogee/Panels/AssetBrowser.cpp`)
 //    restent intacts.
 //
@@ -21,7 +21,7 @@
 //   C'est le composant deja ecrit TROIS fois, et celui dont la maquette est la
 //   plus complete : deux captures completes du 18/08 + le contrat de props §4.2
 //   de `Applications/Nogee/design/02-specification-claude.md`. La mesure d'ecart
-//   de NK3DModeler (18 divergences) conclut que **6 d'entre elles seront ecrites
+//   de NKCraft (18 divergences) conclut que **6 d'entre elles seront ecrites
 //   deux fois** si elles ne montent pas. Voir `ROADMAP.md`.
 //
 // LE TEST QUI GOUVERNE CE FICHIER : « compile-t-il sans NKGui ? »
@@ -60,7 +60,7 @@ namespace nkentseu {
 		// Le peintre du kit : DECLARE, jamais defini ici. C'est lui qui portera
 		// `Fill(rect, jeton)`, `Text`, `Icon`, `Outline` — c'est-a-dire ce que
 		// `NkModelerPainter` (NkModelerUI.h:168-521) fait deja aujourd'hui pour la
-		// seule application NK3DModeler.
+		// seule application NKCraft.
 		class NkComponentPaint;
 
 		// ── UNE ENTREE ──────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ namespace nkentseu {
 
 				// LA NATURE DE L'ASSET N'EST PAS UNE ENUMERATION DU COMPOSANT, et
 				// c'est la decision qui rend le composant reutilisable par quatre
-				// editeurs. NK3DModeler a « procedural » et « dataset », Nogee a
+				// editeurs. NKCraft a « procedural » et « dataset », Nogee a
 				// « font », PV3DE aura ses natures medicales : une enumeration
 				// commune obligerait chaque nouvelle nature a modifier le kit.
 				//
@@ -122,7 +122,7 @@ namespace nkentseu {
 		// Les puces de filtre du mixte (Aetherion : « Mesh / Material / Texture /
 		// Blueprint / Sound », combinables). ⚠️ LA LISTE NE VIT PAS DANS LE KIT,
 		// et c'est la meme decision que `kindRole` : NkUIDesign n'a pas les memes
-		// natures que NK3DModeler (« procedural », « dataset »), et PV3DE aura les
+		// natures que NKCraft (« procedural », « dataset »), et PV3DE aura les
 		// siennes. L'application DECLARE ses natures dans le modele ; le composant
 		// les peint et les combine sans savoir ce qu'elles sont.
 		struct NkBrowserKind {
@@ -599,7 +599,7 @@ namespace nkentseu {
 		//
 		// ETAT (2026-08-18, seconde passe) : DEFINIE, dans
 		//   `NkContentBrowserDraw.cpp`. Elle ne depend PAS du peintre de
-		//   NK3DModeler — elle depend de l'INTERFACE `NkComponentPaint`, que ce
+		//   NKCraft — elle depend de l'INTERFACE `NkComponentPaint`, que ce
 		//   peintre satisfera a son arrivee. C'est ce qui a permis de livrer la
 		//   tranche sans prendre a l'agent NK3DModeler un travail qui est le sien.
 		NkContentBrowserResult NkDrawContentBrowser(NkComponentPaint &p, const NkComponentInput &in,
@@ -638,7 +638,7 @@ namespace nkentseu {
 				{"show_status", "Barre d'état basse", NkParamKind::Bool, 1.f, 0.f, 0.f, nullptr, 0},
 				// ② (2026-09-05) DEUX INTERRUPTEURS DE PLUS, ajoutes A LA FIN. Ils
 				// valent 1 par defaut : le rendu d'aujourd'hui ne bouge pas d'un pixel
-				// pour les consommateurs existants (NkUIDesign, NK3DModeler), et la
+				// pour les consommateurs existants (NkUIDesign, NKCraft), et la
 				// sonde le verifie plutot que de l'affirmer.
 				{"show_header", "Bande de tête (titre du panneau)", NkParamKind::Bool, 1.f, 0.f, 0.f,
 				 nullptr, 0},

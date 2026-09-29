@@ -583,10 +583,10 @@ texte libre) ; cache + fallback règles si indisponible.
 utilisé dans NKCode).
 
 **📋 DIRECTIVE DE RODOLF (2026-08-17) — l'interface de NkAnimaEditor se conforme
-à la facture Nogee / NK3DModeler.** File d'ordre APRÈS le chantier XBot (verdict
+à la facture Nogee / NKCraft.** File d'ordre APRÈS le chantier XBot (verdict
 + parité FBX/glb) :
 1. Le shell est déjà monté (120 l. dans `main.cpp`) mais il n'y a que 2 panneaux
-   (Timeline, Preview). Cible : barre de titre style NK3DModeler, panneaux
+   (Timeline, Preview). Cible : barre de titre style NKCraft, panneaux
    ancrés, barre d'état via les hooks du kit (`SetFooter`/`SetFooterLights`,
    `SetStatusBarFn`).
 2. **Les planches de `Applications/Nogee/design/` sont la cible visuelle

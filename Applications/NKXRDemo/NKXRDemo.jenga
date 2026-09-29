@@ -5,7 +5,7 @@ NKRenderer rendue en STÉRÉO SIMULÉE via le module NKXR et son backend
 simulateur desktop (souris = tête, ZQSD/WASD, stéréo côte à côte).
 
 Architecture : un renderer compositeur (For2D) qui possède la frame + un
-renderer ForGame PAR ŒIL en rendu offscreen partagé (patron NK3DModeler /
+renderer ForGame PAR ŒIL en rendu offscreen partagé (patron NKCraft /
 NkAnimaEditor) — aucune passe de NKRenderer modifiée. Crochets d'agent :
 NK_XR_SIM_POSE (pose figée), NK_XR_SHOT (captures par œil), NK_XR_EXIT.
 """

@@ -3004,7 +3004,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 
 | application | mode(s) | domaine du graphe | nœuds qui lui sont propres | état réel |
 |---|---|---|---|---|
-| **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
+| **NKCraft** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
 | **NkAnima** | **FLOT**, et la machine à états est **un NŒUD** dedans (§ 19.9) | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
 | **NKScena** | ✅ **PAS nodale** (tranché 23/08) — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
@@ -3481,7 +3481,7 @@ séparation à faire avec soin, pas un `git mv` de trente secondes.**
 canevas que les matériaux, avec des nœuds différents — ou deux éditeurs
 distincts ? »*
 
-Le tableau y répond, et pas par goût : **NK3DModeler ouvre déjà deux
+Le tableau y répond, et pas par goût : **NKCraft ouvre déjà deux
 bibliothèques dans un seul canevas, et NkAnima en imbrique deux modes dans un
 seul écran.** Faire deux éditeurs obligerait à en faire quatre, puis six. ✅ **Un
 seul canevas, plusieurs bibliothèques, et un MODE par graphe** — c'est le mode,

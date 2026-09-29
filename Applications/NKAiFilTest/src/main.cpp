@@ -4,7 +4,7 @@
 // =============================================================================
 // POURQUOI CE PROGRAMME EXISTE
 // -----------------------------------------------------------------------------
-// Le fil du panneau IA de NK3DModeler designe ses blocs PAR LEUR POSITION :
+// Le fil du panneau IA de NKCraft designe ses blocs PAR LEUR POSITION :
 //
 //     snprintf(cle, sizeof(cle), "ai.b%d", (int)i);   // NkModelerAiPanel.h
 //
@@ -50,7 +50,7 @@
 // meme forme de banc : un programme console par defaut mesure.
 // =============================================================================
 
-#include "NK3DModeler/Shell/NkModelerAiPanel.h"
+#include "NKCraft/Shell/NkModelerAiPanel.h"
 #include "NKEditorKit/NkAiThread.h"
 #include <stdio.h>
 
@@ -88,7 +88,7 @@ int main() {
 	printf("=== BANC NKAiFilTest — designer un bloc du fil IA ===\n\n");
 
 	// ─────────────────────────────────────────────────────────────────────────
-	//  A. LE FIL DE NK3DModeler, TEL QU'IL EST AUJOURD'HUI
+	//  A. LE FIL DE NKCraft, TEL QU'IL EST AUJOURD'HUI
 	printf("[A] le fil du modeleur, MIGRE -- designe par l'IDENTIFIANT\n");
 	{
 		// ⚠️ CETTE FAMILLE A CHANGE AVEC LA MIGRATION, ET C'EST VOULU.

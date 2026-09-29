@@ -24,7 +24,7 @@
 # POURQUOI LE .OBJ AVEC « o <nom> », ET POURQUOI C'EST DEJA LA BONNE PORTE :
 # `NkOBJLoader.cpp` lit `o` (ligne 339) et `g` (ligne 347) et produit un
 # `NkSubMesh` NOMME par groupe -- verifie en ouvrant LE LECTEUR, pas les
-# fichiers. Et l'import de NK3DModeler coupe sur `o` et ECLATE les objets. Tout
+# fichiers. Et l'import de NKCraft coupe sur `o` et ECLATE les objets. Tout
 # l'aval existe donc deja : il ne manquait que la coupe.
 #
 # L'ALGORITHME, ET SA DERIVATION. On suit les sections horizontales du BAS vers
@@ -231,7 +231,7 @@ def ecrire_obj(chemin, maillage, labelFace):
         f.write("# Maillage SEGMENTE en parties manipulables.\n")
         f.write("# AUTEUR : TEUGUIA TADJUIDJE Rodolf Sederis - Rihen\n")
         f.write("# Chaque « o » est une partie : NkOBJLoader en fait un NkSubMesh nomme,\n")
-        f.write("# et l'import de NK3DModeler les eclate en objets distincts.\n")
+        f.write("# et l'import de NKCraft les eclate en objets distincts.\n")
         # ⚠️ Les sommets sont ecrits UNE fois, dans leur ordre d'origine, et
         # AUCUN n'est deplace : une segmentation qui bouge un sommet n'est plus
         # une segmentation, c'est une modification.

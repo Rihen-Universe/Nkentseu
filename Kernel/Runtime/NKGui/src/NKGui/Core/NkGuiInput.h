@@ -213,7 +213,7 @@ namespace nkentseu {
 						// SetDoubleClick (consommée puis remise à 0).
 						//
 						// ⚠️ LE RAYON MANQUAIT, et il a coûté un défaut d'interface
-						// (rapporté par Rodolf le 18/08/2026, NK3DModeler). La condition
+						// (rapporté par Rodolf le 18/08/2026, NKCraft). La condition
 						// était TEMPORELLE PURE : deux clics à moins de 0,40 s d'écart
 						// formaient un double-clic *où qu'ils soient sur l'écran*. Or
 						// personne ne consomme `mouseDoubleClicked` seul — tous le

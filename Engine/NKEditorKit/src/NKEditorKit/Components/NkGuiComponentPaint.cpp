@@ -97,7 +97,7 @@ namespace nkentseu {
 		void NkGuiComponentPaint::Icon(const NkPaintRect &r, uint16 iconHandle, uint16 role) {
 			// ⚠️ AUCUNE ICONE N'EST DESSINEE ICI, ET CE N'EST PAS UN OUBLI.
 			//    NKGui n'a AUCUNE notion d'icone ; les 193 glyphes du depot sont
-			//    definis deux fois (102 SVG chez NK3DModeler, 91 PNG chez NKCode),
+			//    definis deux fois (102 SVG chez NKCraft, 91 PNG chez NKCode),
 			//    a raison d'une texture GPU par glyphe. L'atlas appartient a
 			//    l'agent NKGui et figure dans la liste qui lui a ete passee.
 			//
