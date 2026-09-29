@@ -21,7 +21,9 @@
 #include "Editeur/NkEditeurActions.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancEntrees.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -156,7 +158,8 @@ namespace nkentseu {
 		// =====================================================================
 		NkEditeurApp::NkEditeurApp()
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
-			  mTheme(editorkit::NkTheme::Dark()) {
+			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mTheme(editorkit::NkTheme::Dark()) {
+			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
 			renderer::NkCanvasAppConfig &cfg = Config();
 			cfg.title = "Unkeny — éditeur";
@@ -218,7 +221,11 @@ namespace nkentseu {
 					// sa source, pas dans ses consequences.
 					const int32 moteur = unkeny::NkUnkenyLancerBanc();
 					const int32 editeur = NkEditeurLancerBanc();
-					return NkOptional<int>((moteur != 0 || editeur != 0) ? 1 : 0);
+					// Les entrees (29/09) : APRES, et comptees a part, pour que les
+					// deux bancs d'avant gardent leurs comptes.
+					const int32 entrees = unkeny::NkUnkenyLancerBancEntrees();
+					const int32 jouer = NkEditeurLancerBancEntrees();
+					return NkOptional<int>((moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0) ? 1 : 0);
 				}
 			}
 			return NkOptional<int>();
@@ -290,6 +297,8 @@ namespace nkentseu {
 			// modales de l'OS (deplacer, redimensionner) peuvent tourner sans
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
+			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
+			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
 			// fermer le viseur mettait la simulation en pause. La coquille a un
@@ -371,6 +380,11 @@ namespace nkentseu {
 		}
 
 		bool NkEditeurApp::OnEvent(const NkEvent &event) {
+			// La vue active EN JEU : le clavier, la manette et le doigt sont au
+			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
+			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur)) {
+				return false;
+			}
 			nkgui::NkGuiInput &in = Gui().input;
 			if (const auto *e = event.As<NkMouseMoveEvent>()) {
 				in.mousePos = nkgui::NkVec2{static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
@@ -572,6 +586,8 @@ namespace nkentseu {
 			// Les onglets sont sous la barre de titre, donc SOUS ses menus
 			// deroulants : ils suivent le masquage du corps.
 			NkEditeurDessinerOnglets(c);
+			// Le bandeau « le jeu a la main » : SOUS les menus, qui passent dessus.
+			NkEditeurDessinerEntrees(ctx.dl, FontSmall(), *mEntrees, ui.viseur);
 
 			// ── 2. LES MENUS, avec l'entree reelle (sauf sous la boite) ──────
 			if (!modale) {
