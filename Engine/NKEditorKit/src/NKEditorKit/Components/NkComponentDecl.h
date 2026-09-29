@@ -128,6 +128,16 @@
 // n'inclut lui-meme que `NKCore/NkTypes.h` : le banc de neutralite tient.
 #include "NKEditorKit/Components/NkComponentLayout.h"
 
+// ⚠️ X11 (Xlib.h) definit `#define Bool int`. Sous Linux/XLib, un fichier qui
+// inclut la fenetre AVANT le kit voyait `NkParamKind::Bool` devenir
+// `NkParamKind::int` : UnkenyEditor ne compilait plus (mesure du 2026-09-29).
+// Meme remede que NKSL/Frontend/NkSLSymbolTable.h. Le kit n'utilise pas le
+// `Bool` de X11 ; le code X11 vit dans les .cpp de NKWindow, qui n'incluent
+// pas le kit.
+#if defined(Bool)
+#undef Bool
+#endif
+
 namespace nkentseu {
 	namespace editorkit {
 
