@@ -1848,11 +1848,11 @@ namespace nkentseu {
 			const uint8 *base = (const uint8 *)&A->mods.modifiers[index];
 			const void *field = base + ps[p].offset;
 			switch (ps[p].type) {
-				case NkModParamType::Bool:
+				case NkModParamType::Nk_ModParamType_Bool:
 					return *(const bool *)field ? 1.f : 0.f;
-				case NkModParamType::Int:
+				case NkModParamType::Nk_ModParamType_Int:
 					return (float32)(*(const int32 *)field);
-				case NkModParamType::Vec3:
+				case NkModParamType::Nk_ModParamType_Vec3:
 					return ((const NkVec3f *)field)->x;
 				default:
 					return *(const float32 *)field;
@@ -1870,13 +1870,13 @@ namespace nkentseu {
 			uint8 *base = (uint8 *)&A->mods.modifiers[index];
 			void *field = base + ps[p].offset;
 			switch (ps[p].type) {
-				case NkModParamType::Bool:
+				case NkModParamType::Nk_ModParamType_Bool:
 					*(bool *)field = (v != 0.f);
 					break;
-				case NkModParamType::Int:
+				case NkModParamType::Nk_ModParamType_Int:
 					*(int32 *)field = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
 					break;
-				case NkModParamType::Vec3:
+				case NkModParamType::Nk_ModParamType_Vec3:
 					((NkVec3f *)field)->x = v;
 					break;
 				default:

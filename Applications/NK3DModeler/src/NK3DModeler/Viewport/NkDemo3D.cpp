@@ -6673,7 +6673,7 @@ namespace nkentseu {
 			// réel avance d'un centième de sa plage (ou de 0,05 si la plage est libre).
 			// Sans cette règle, un même geste ferait passer un compteur de 1 à 2 et une
 			// distance de 0,001 à 1,001 — l'un utilisable, l'autre pas.
-			if (p->type == renderer::NkModParamType::Vec3) {
+			if (p->type == renderer::NkModParamType::Nk_ModParamType_Vec3) {
 				NkVec3f v{0.f, 0.f, 0.f};
 				m.GetParamVec3(p->name, v);
 				const float32 stepv = 0.25f * (float32)dir;
@@ -6684,10 +6684,10 @@ namespace nkentseu {
 				float32 v = 0.f;
 				m.GetParam(p->name, v);
 				float32 step = 1.f;
-				if (p->type == renderer::NkModParamType::Bool)
+				if (p->type == renderer::NkModParamType::Nk_ModParamType_Bool)
 					v = (v >= 0.5f) ? 0.f : 1.f;
 				else {
-					if (p->type == renderer::NkModParamType::Float)
+					if (p->type == renderer::NkModParamType::Nk_ModParamType_Float)
 						step = (p->maxV > p->minV) ? (p->maxV - p->minV) * 0.01f : 0.05f;
 					v += step * (float32)dir;
 				}
@@ -20366,11 +20366,11 @@ namespace nkentseu {
 			const uint8 *base = (const uint8 *)&st->editModifiers.modifiers[index];
 			const void *field = base + ps[p].offset;
 			switch (ps[p].type) {
-				case renderer::NkModParamType::Bool:
+				case renderer::NkModParamType::Nk_ModParamType_Bool:
 					return *(const bool *)field ? 1.f : 0.f;
-				case renderer::NkModParamType::Int:
+				case renderer::NkModParamType::Nk_ModParamType_Int:
 					return (float32)(*(const int32 *)field);
-				case renderer::NkModParamType::Vec3:
+				case renderer::NkModParamType::Nk_ModParamType_Vec3:
 					return ((const NkVec3f *)field)->x;
 				default:
 					return *(const float32 *)field;
@@ -20388,13 +20388,13 @@ namespace nkentseu {
 			uint8 *base = (uint8 *)&st->editModifiers.modifiers[index];
 			void *field = base + ps[p].offset;
 			switch (ps[p].type) {
-				case renderer::NkModParamType::Bool:
+				case renderer::NkModParamType::Nk_ModParamType_Bool:
 					*(bool *)field = (v != 0.f);
 					break;
-				case renderer::NkModParamType::Int:
+				case renderer::NkModParamType::Nk_ModParamType_Int:
 					*(int32 *)field = (int32)(v + (v < 0.f ? -0.5f : 0.5f));
 					break;
-				case renderer::NkModParamType::Vec3:
+				case renderer::NkModParamType::Nk_ModParamType_Vec3:
 					((NkVec3f *)field)->x = v;
 					break;
 				default:
