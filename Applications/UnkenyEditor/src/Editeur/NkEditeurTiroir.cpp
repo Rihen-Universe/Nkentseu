@@ -1,0 +1,342 @@
+//
+// NkEditeurTiroir.cpp
+// =============================================================================
+// Description :
+//   Le tiroir de contenu, en bas sur toute la largeur, en deux onglets :
+//     Acteurs  le catalogue de simulation d'Unkeny en CARTES, rangees par
+//              categorie (NkDrawContentBrowser du kit)
+//     Journal  les annonces de l'editeur (enregistre, erreur...), datees
+//
+// Caracteristiques :
+//   - Les categories sont les DOSSIERS du navigateur (le rail de gauche) ET ses
+//     puces de filtre ; la barre de couleur d'une carte dit sa categorie.
+//   - Clic sur une carte : l'outil « Poser » est arme sur cet acteur, le clic
+//     suivant dans la vue le pose. Glisser une carte vers la vue : il est pose
+//     au point de depot.
+//   - Le composant ne pose rien : il rend ce qui a ete choisi, glisse, lache.
+//     C'est l'editeur qui appelle NkEditeurPoser (meme partage que partout).
+//
+// Auteur   : Rihen
+// Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
+// =============================================================================
+
+#include "Editeur/NkEditeurInterface.h"
+
+#include "NKCanvas/App/NkCanvasTexte.h"
+#include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/NkEditorScrollbar.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+namespace nkentseu {
+	namespace editeur {
+
+		using editorkit::NkRole;
+		using nkgui::NkColor;
+		using nkgui::NkRect;
+
+		namespace {
+
+			constexpr int32 NB_CATEGORIES = static_cast<int32>(NkCategorieActeur::NK_COUNT);
+
+			/// La couleur d'une categorie : un ROLE du theme, jamais un litteral.
+			/// Les roles « Type* » sont justement ceux que le kit reserve aux
+			/// natures d'actifs (UI_SPEC §3.4).
+			NkRole RoleCategorie(int32 k) noexcept {
+				switch (static_cast<NkCategorieActeur>(k)) {
+					case NkCategorieActeur::NK_CORPS_MOUS: return NkRole::TypeMat;
+					case NkCategorieActeur::NK_FLUIDES:    return NkRole::TypeTex;
+					case NkCategorieActeur::NK_ATOMES:     return NkRole::TypeAnim;
+					case NkCategorieActeur::NK_TISSUS:     return NkRole::TypeMesh;
+					default:                               return NkRole::AccentSel;
+				}
+			}
+
+			constexpr const char *CHEMIN_RACINE = "Acteurs";
+			constexpr const char *CHEMIN_SIMPLE = "simple";
+
+			/// « acteur:7 » -> 7 ; « simple » -> -2 ; autre -> -1.
+			int32 ActeurDuChemin(const char *chemin) noexcept {
+				if (chemin == nullptr) {
+					return -1;
+				}
+				if (std::strcmp(chemin, CHEMIN_SIMPLE) == 0) {
+					return -2;
+				}
+				if (std::strncmp(chemin, "acteur:", 7) != 0) {
+					return -1;
+				}
+				const int32 i = std::atoi(chemin + 7);
+				return (i >= 0 && i < static_cast<int32>(NkActeurSim::NK_COUNT)) ? i : -1;
+			}
+
+			void Armer(NkEditeurModele &m, int32 acteur) {
+				if (acteur == -2) {
+					m.acteurSimple = true;
+					m.outil = NkOutil::NK_POSER;
+				} else if (acteur >= 0) {
+					m.acteur = static_cast<NkActeurSim>(acteur);
+					m.acteurSimple = false;
+					m.outil = NkOutil::NK_POSER;
+				}
+			}
+
+			void SurSelection(void *user, int32 index, const char *chemin) {
+				(void)index;
+				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				Armer(c.m, ActeurDuChemin(chemin));
+			}
+
+			void SurNavigation(void *user, const char *chemin) {
+				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				c.ui.categorie = -1;
+				for (int32 k = 0; k < NB_CATEGORIES && chemin != nullptr; ++k) {
+					if (std::strcmp(chemin, NkCategorieActeurNom(static_cast<NkCategorieActeur>(k))) == 0) {
+						c.ui.categorie = k;
+					}
+				}
+			}
+
+			/// La pastille de couleur de l'acteur, sur sa carte : c'est la couleur
+			/// qu'il aura dans la scene, ce qu'une icone generique ne dit pas.
+			void SurCarte(void *user, editorkit::NkComponentPaint &p, int32 index, float32 x, float32 y, float32 w,
+						  float32 h) {
+				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size())) {
+					return;
+				}
+				const int32 a = ActeurDuChemin(c.ui.contenu.entries[static_cast<uint32>(index)].path.CStr());
+				uint32 couleur = 0xB0B0B0FFu;
+				if (a >= 0) {
+					couleur = NkActeurSimInfo(static_cast<NkActeurSim>(a)).couleur;
+				}
+				const float32 cote = (w < h ? w : h) * 0.30f;
+				const editorkit::NkPaintRect r{x + (w - cote) * 0.5f, y + h * 0.30f - cote * 0.5f, cote, cote};
+				p.FillColor(r, couleur | 0xFFu, cote * 0.5f);
+			}
+
+			void PreparerReglages(NkEditeurInterface &ui) {
+				if (ui.contenuPret) {
+					return;
+				}
+				ui.contenuPret = true;
+				ui.contenuReglages.Bind(editorkit::NkContentBrowserDecl());
+				// La tete du panneau est l'onglet « Acteurs » ; les boutons
+				// Creer / Importer / Tout enregistrer n'ont pas de sens pour un
+				// catalogue fixe : ils seraient des decors.
+				ui.contenuReglages.SetParam("show_header", 0.f);
+				ui.contenuReglages.SetParam("show_actions", 0.f);
+				ui.contenuReglages.SetParam("show_select_all", 0.f);
+				ui.contenuReglages.SetParam("show_sort", 0.f);
+				ui.contenuReglages.SetParam("multi_select", 0.f);
+				// Sa barre d'etat (« Aucune selection » / « N acteurs ») repetait la
+				// rangee d'information juste au-dessus, et prenait aux cartes une
+				// hauteur qu'un tiroir de bas d'ecran n'a pas.
+				ui.contenuReglages.SetParam("show_status", 0.f);
+				// Le badge dit le FORMAT d'un fichier ; un acteur n'en a pas, et sa
+				// categorie est deja dans le pied de carte. Allume, il la recopiait
+				// sur la vignette -- seulement quand elle tenait (« Eau », pas
+				// « Corps rigides »), d'ou des cartes qui ne se ressemblaient pas.
+				ui.contenuReglages.SetParam("show_badge", 0.f);
+				ui.contenuReglages.SetParam("tree_width", 0.15f);
+				ui.contenu.thumbSize = 60.f;
+				for (int32 k = 0; k < NB_CATEGORIES; ++k) {
+					editorkit::NkBrowserKind kind;
+					kind.label = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
+					kind.role = static_cast<uint16>(RoleCategorie(k));
+					ui.contenu.kinds.PushBack(kind);
+				}
+			}
+
+			void Reconstruire(NkEditeurCadre &c) {
+				NkEditeurInterface &ui = c.ui;
+				editorkit::NkContentBrowserModel &m = ui.contenu;
+
+				// ── Les dossiers : la racine, puis une categorie par dossier ─
+				m.folders.nodes.Clear();
+				editorkit::NkTreeNode racine;
+				racine.id = 1u;
+				racine.parent = -1;
+				racine.label = NkString(CHEMIN_RACINE);
+				racine.path = NkString(CHEMIN_RACINE);
+				m.folders.nodes.PushBack(racine);
+				for (int32 k = 0; k < NB_CATEGORIES; ++k) {
+					editorkit::NkTreeNode n;
+					n.id = static_cast<nk_uint64>(k) + 2u;
+					n.parent = 0;
+					n.label = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
+					n.path = n.label;
+					n.kindRole = static_cast<uint16>(RoleCategorie(k));
+					m.folders.nodes.PushBack(n);
+				}
+				m.folders.active = ui.categorie >= 0 ? static_cast<nk_uint64>(ui.categorie) + 2u : 1u;
+				m.folders.chosen.Clear();
+				m.folders.chosen.PushBack(m.folders.active);
+				m.breadcrumb.Clear();
+				m.breadcrumb.PushBack(NkString(CHEMIN_RACINE));
+				if (ui.categorie >= 0) {
+					m.breadcrumb.PushBack(NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(ui.categorie))));
+				}
+
+				// ── Les cartes : l'entite simple, puis les acteurs du catalogue ─
+				m.entries.Clear();
+				int32 arme = -1;
+				if (ui.categorie < 0) {
+					editorkit::NkAssetEntry e;
+					e.name = NkString("Entité simple");
+					e.path = NkString(CHEMIN_SIMPLE);
+					e.kindLabel = "Entité";
+					e.kindRole = static_cast<uint16>(NkRole::TextMuted);
+					if (c.m.outil == NkOutil::NK_POSER && c.m.acteurSimple) {
+						arme = static_cast<int32>(m.entries.Size());
+					}
+					m.entries.PushBack(e);
+				}
+				for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+					const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+					const int32 k = static_cast<int32>(info.categorie);
+					if (ui.categorie >= 0 && k != ui.categorie) {
+						continue;
+					}
+					editorkit::NkAssetEntry e;
+					e.name = NkString(info.nom);
+					char chemin[24];
+					std::snprintf(chemin, sizeof(chemin), "acteur:%d", i);
+					e.path = NkString(chemin);
+					e.kindLabel = NkCategorieActeurNom(info.categorie);
+					e.kindRole = static_cast<uint16>(RoleCategorie(k));
+					e.userTag = static_cast<uint32>(i);
+					if (c.m.outil == NkOutil::NK_POSER && !c.m.acteurSimple && c.m.acteur == static_cast<NkActeurSim>(i)) {
+						arme = static_cast<int32>(m.entries.Size());
+					}
+					m.entries.PushBack(e);
+				}
+				// La carte ACTIVE est l'acteur ARME : ce que le prochain clic posera.
+				m.active = arme;
+				m.chosen.Clear();
+				if (arme >= 0) {
+					m.chosen.PushBack(arme);
+				}
+				m.statusRight = NkString::Format("%u acteur(s)", static_cast<uint32>(m.entries.Size()));
+			}
+
+			void OngletActeurs(NkEditeurCadre &c, const NkRect &zone) {
+				NkEditeurInterface &ui = c.ui;
+				PreparerReglages(ui);
+				Reconstruire(c);
+
+				editorkit::NkContentBrowserStyle s;
+				s.values = &ui.contenuReglages;
+				s.panelBg = static_cast<uint16>(NkRole::PanelBg);
+				s.headerBg = static_cast<uint16>(NkRole::PanelHeader);
+				s.border = static_cast<uint16>(NkRole::Border);
+				s.text = static_cast<uint16>(NkRole::Text);
+				s.textMuted = static_cast<uint16>(NkRole::TextMuted);
+				s.cardBg = static_cast<uint16>(NkRole::InputBg);
+				s.cardFooterBg = static_cast<uint16>(NkRole::PanelHeader);
+				s.activeMark = static_cast<uint16>(NkRole::AccentUi);
+				s.chosenMark = static_cast<uint16>(NkRole::AccentUi);
+				s.folderTint = static_cast<uint16>(NkRole::TypeFolder);
+				s.chipBg = static_cast<uint16>(NkRole::InputBg);
+				s.badgeText = static_cast<uint16>(NkRole::PanelBg);
+				s.statusBg = static_cast<uint16>(NkRole::PanelHeader);
+
+				editorkit::NkContentBrowserHooks hooks;
+				hooks.user = &c;
+				hooks.onSelect = &SurSelection;
+				hooks.onNavigate = &SurNavigation;
+				hooks.cardOverlay = &SurCarte;
+
+				const editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
+				editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
+				const editorkit::NkContentBrowserResult res = editorkit::NkDrawContentBrowser(
+					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
+
+				if (res.defilContenu > res.defilVue && res.defilW > 0.f && res.defilH > 0.f) {
+					editorkit::NkVScrollbar(c.ctx, c.ctx.dl, NkRect{res.defilX, res.defilY, res.defilW, res.defilH},
+											ui.contenu.scroll, res.defilContenu, res.defilVue, c.ctx.GetId("tiroir.defil"),
+											res.defilPas);
+				}
+
+				const nkgui::NkGuiInput &in = c.ctx.input;
+				auto &over = c.ctx.dlOverlay;
+				if (!res.glisserChemin.Empty()) {
+					if (in.mouseReleased[0]) {
+						// LE DEPOT DANS LA VUE : le composant l'a vu lache « dans le
+						// vide » (hors de ses volets) ; pour l'editeur, c'est une pose.
+						if (NkEditeurDans(ui.viseur, in.mousePos)) {
+							Armer(c.m, ActeurDuChemin(res.glisserChemin.CStr()));
+							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
+							NkEditeurPoser(c.m, monde);
+						}
+					} else {
+						// Le fantome : ce qu'on emporte, sous le curseur.
+						const char *lib = res.glisserLibelle.Empty() ? res.glisserChemin.CStr() : res.glisserLibelle.CStr();
+						const float32 w = renderer::NkTexteLargeur(c.police, lib) + 16.f;
+						const NkRect g{in.mousePos.x + 12.f, in.mousePos.y + 10.f, w, 22.f};
+						over.AddRectFilled(g, c.pal.entete, 2.f);
+						over.AddRect(g, c.pal.accent, 1.f, 2.f);
+						renderer::NkTexteDansBoite(over, c.police, g, lib, c.pal.texte);
+					}
+				}
+				// L'infobulle, relevee par le composant et peinte par l'hote, au-dessus.
+				if (!res.infobulle.Empty() && res.glisserChemin.Empty()) {
+					const float32 w = renderer::NkTexteLargeur(c.petite, res.infobulle.CStr()) + 14.f;
+					float32 x = res.infobulleX;
+					if (x + w > ui.ecran.w - 4.f) {
+						x = ui.ecran.w - 4.f - w;
+					}
+					const float32 h = 20.f;
+					const NkRect b{x, res.infobulleY - h - 4.f, w, h};
+					over.AddRectFilled(b, c.pal.entete, 2.f);
+					over.AddRect(b, c.pal.bord, 1.f, 2.f);
+					renderer::NkTexteDansBoite(over, c.petite, b, res.infobulle.CStr(), c.pal.texte);
+				}
+			}
+
+			void OngletJournal(NkEditeurCadre &c, const NkRect &zone) {
+				NkEditeurInterface &ui = c.ui;
+				auto &dl = c.ctx.dl;
+				dl.AddRectFilled(zone, c.pal.panneau);
+				if (ui.journal.Empty()) {
+					renderer::NkTexteCentre(dl, c.police, zone.x + zone.w * 0.5f, zone.y + zone.h * 0.4f,
+											"Le journal est vide : les annonces de l'éditeur s'y inscrivent.",
+											c.pal.attenue);
+					return;
+				}
+				// Le plus RECENT en haut : c'est lui qu'on vient chercher, et il ne
+				// doit pas falloir defiler pour le lire.
+				const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f) + 3.f;
+				dl.PushClipRect(zone, true);
+				float32 y = zone.y + 6.f;
+				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0 && y < zone.y + zone.h; --i) {
+					renderer::NkTexte(dl, c.police, zone.x + 10.f, y, ui.journal[static_cast<uint32>(i)].CStr(),
+									  i + 1 == static_cast<int32>(ui.journal.Size()) ? c.pal.texte : c.pal.attenue);
+					y += lh;
+				}
+				dl.PopClipRect();
+			}
+
+		} // namespace
+
+		void NkEditeurDessinerTiroir(NkEditeurCadre &c) {
+			NkEditeurInterface &ui = c.ui;
+			const NkRect zone = ui.tiroir;
+			if (!ui.voirTiroir || zone.w < 8.f || zone.h < 40.f) {
+				return;
+			}
+			static const char *kOnglets[2] = {"Acteurs", "Journal"};
+			const float32 ongletsH = 26.f;
+			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 2, ui.ongletTiroir);
+			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
+			if (ui.ongletTiroir == 0) {
+				OngletActeurs(c, contenu);
+			} else {
+				OngletJournal(c, contenu);
+			}
+		}
+
+	} // namespace editeur
+} // namespace nkentseu

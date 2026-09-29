@@ -669,6 +669,16 @@ namespace nkentseu {
 				// ⚠️ DEFAUT 1 : le navigateur d'assets garde sa selection multiple.
 				{"multi_select", "Ctrl+clic ajoute à la sélection", NkParamKind::Bool, 1.f, 0.f, 0.f,
 				 nullptr, 0},
+				// (29/09) LE BADGE DE TYPE SUR LA VIGNETTE. Il dit le FORMAT d'un fichier
+				// (pastille coloree si reconnu, extension en texte attenue sinon). Un hote
+				// dont les entrees n'ont PAS de format -- le catalogue d'acteurs
+				// d'UnkenyEditor : une categorie, rien d'autre -- y voyait sa categorie
+				// ecrite DEUX FOIS, sur la vignette et dans le pied de carte, et seulement
+				// sur les cartes ou le libelle tenait (« Eau », pas « Corps rigides »).
+				// ⚠️ DEFAUT 1 : le selecteur de fichiers et le navigateur d'assets ne
+				//    bougent pas d'un pixel.
+				{"show_badge", "Badge de type sur la vignette", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "panel_bg", "fond du panneau"},

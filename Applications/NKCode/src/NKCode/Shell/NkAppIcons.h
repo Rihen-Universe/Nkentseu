@@ -340,6 +340,8 @@ namespace nkentseu {
 					// 100 Claude (vrai logo), 101 Codex, 102 Assistant (Maison), 103 NkAI (etincelle)
 					const uint32 R[4] = {ic.claude, ic.codeC, ic.accueil, ic.sparkles};
 					shell->SetActivityIcons(L, 7, ic.gear, R, 4);
+					// Les barres d'activite sont opt-in dans le kit : NKCode les demande.
+					shell->SetActivityBars(true, true);
 				}
 				// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 

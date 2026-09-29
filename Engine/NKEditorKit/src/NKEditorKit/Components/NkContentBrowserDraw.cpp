@@ -579,6 +579,7 @@ namespace nkentseu {
 
 			const bool showTree = P("show_tree") > 0.5f && !m.treeCollapsed;
 			const bool showFooter = P("show_footer") > 0.5f;
+			const bool showBadge = P("show_badge") > 0.5f; // cf. la declaration
 			const bool showFilters = !minimal && P("show_filters") > 0.5f;
 			const bool showStatus = !minimal && P("show_status") > 0.5f;
 			// ② (05/09) La bande de tete et les trois boutons d'action se taisent sur
@@ -1168,7 +1169,7 @@ namespace nkentseu {
 					//    avoir un design specifique. » Un INCONNU garde son extension, mais en
 					//    TEXTE ATTENUE, sans pastille : la pastille coloree annonce une FAMILLE,
 					//    et l'ignorance n'en est pas une.
-					if (!minimal && !e.isFolder && e.kindLabel && e.kindLabel[0]) {
+					if (showBadge && !minimal && !e.isFolder && e.kindLabel && e.kindLabel[0]) {
 						const bool connu = (NkAssetIcone)e.icone != NkAssetIcone::Inconnu
 										   && (NkAssetIcone)e.icone != NkAssetIcone::Auto;
 						const float32 bh = M("badge_h");

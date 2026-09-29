@@ -1,0 +1,1225 @@
+//
+// NkEditeurChrome.cpp
+// =============================================================================
+// Description :
+//   Le chrome de l'editeur : barre de menus et onglet de scene, barre d'outils,
+//   barre d'etat, cloisons entre colonnes, menus deroulants. Et la TABLE
+//   D'ACTIONS, par laquelle passent menus, boutons et raccourcis.
+//
+// Caracteristiques :
+//   - Aucune couleur en dur : tout vient de NkPaletteEditeur, donc du theme.
+//   - Boutons PLATS, coins de 2 px, rangees denses (UI_SPEC §3.3).
+//   - Les glyphes de lecture (▶ ⏸ ⏹ ⏭) sont DESSINES : la police embarquee
+//     ne les porte pas, et un carre vide a la place de « Jouer » ne se
+//     remarque qu'une fois le logiciel livre.
+//
+// Auteur   : Rihen
+// Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
+// =============================================================================
+
+#include "Editeur/NkEditeurInterface.h"
+
+#include "NKCanvas/App/NkCanvasTexte.h"
+#include "NKEditorKit/NkThemeToGui.h"
+
+namespace nkentseu {
+	namespace editeur {
+
+		using editorkit::NkRole;
+		using nkgui::NkColor;
+		using nkgui::NkRect;
+		using nkgui::NkVec2;
+
+		namespace {
+
+			constexpr float32 HAUTEUR_MENUS = 30.f;   ///< la barre de titre, menus compris
+			constexpr float32 HAUTEUR_ONGLETS = 26.f; ///< les onglets de scene, dessous
+			constexpr float32 HAUTEUR_OUTILS = 34.f;
+			constexpr float32 HAUTEUR_STATUT = 22.f;
+			constexpr float32 HAUTEUR_BARRE_VUE = 28.f;
+			constexpr float32 EPAISSEUR_CLOISON = 4.f;
+
+			float32 Borne(float32 v, float32 lo, float32 hi) noexcept {
+				if (hi < lo) {
+					return lo;
+				}
+				if (v < lo) {
+					return lo;
+				}
+				if (v > hi) {
+					return hi;
+				}
+				return v;
+			}
+
+			const char *NomOutil(NkOutil o) noexcept {
+				switch (o) {
+					case NkOutil::NK_POSER:   return "Poser";
+					case NkOutil::NK_EFFACER: return "Effacer";
+					case NkOutil::NK_SAISIR:  return "Saisir";
+					case NkOutil::NK_COUTEAU: return "Couteau";
+					default:                  return "Sélection";
+				}
+			}
+
+			/// Le nom de la scene pour l'onglet : le fichier, sans son dossier.
+			NkString NomScene(const NkEditeurModele &m) {
+				if (m.chemin.Empty()) {
+					return NkString("Scene_01");
+				}
+				const char *s = m.chemin.CStr();
+				const char *nom = s;
+				for (const char *p = s; *p != '\0'; ++p) {
+					if (*p == '/' || *p == '\\') {
+						nom = p + 1;
+					}
+				}
+				return NkString(nom);
+			}
+
+			/// Un petit triangle pointe en bas : la marque d'un bouton deroulant.
+			void Chevron(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, const NkColor &c) {
+				dl.AddTriangleFilled(NkVec2{cx - 3.5f, cy - 1.5f}, NkVec2{cx + 3.5f, cy - 1.5f}, NkVec2{cx, cy + 2.5f}, c);
+			}
+
+			/// Une coche, tracee (deux traits) : meme raison que les glyphes de lecture.
+			void Coche(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, const NkColor &c) {
+				dl.AddLine(NkVec2{cx - 4.f, cy}, NkVec2{cx - 1.f, cy + 3.f}, c, 1.6f);
+				dl.AddLine(NkVec2{cx - 1.f, cy + 3.f}, NkVec2{cx + 4.5f, cy - 3.5f}, c, 1.6f);
+			}
+
+			/// Un separateur vertical de groupe dans la barre d'outils.
+			float32 Trait(NkEditeurCadre &c, float32 x) {
+				const NkRect &b = c.ui.barreOutils;
+				c.ctx.dl.AddRectFilled(NkRect{x + 6.f, b.y + 7.f, 1.f, b.h - 14.f}, c.pal.bord);
+				return x + 13.f;
+			}
+
+			/// Un bouton de la barre d'outils, a la largeur de son libelle.
+			/// `deroulant` : il ouvre `menu` sous lui.
+			/// `largeurMin` : la place reservee quand le libelle VARIE (« Outil :
+			/// Selection » / « Outil : Poser »). Sans elle, changer d'outil
+			/// decalait toute la barre, et le bouton vise la seconde d'avant
+			/// n'etait plus sous le curseur (mesure du 2026-09-29).
+			float32 BoutonOutil(NkEditeurCadre &c, float32 x, const char *texte, NkMenuEditeur menu, int32 action,
+								float32 largeurMin = 0.f) {
+				const NkRect &b = c.ui.barreOutils;
+				const bool deroulant = menu != NkMenuEditeur::NK_AUCUN;
+				float32 w = renderer::NkTexteLargeur(c.police, texte) + (deroulant ? 30.f : 20.f);
+				w = w < largeurMin ? largeurMin : w;
+				const NkRect r{x, b.y + 4.f, w, b.h - 8.f};
+				const bool ouvert = deroulant && c.ui.menu == menu;
+				const NkRect texteR{r.x, r.y, deroulant ? r.w - 10.f : r.w, r.h};
+				const bool clic = NkEditeurBouton(c, r, "", ouvert);
+				renderer::NkTexteDansBoite(c.ctx.dl, c.police, texteR, texte, ouvert ? c.pal.surAccent : c.pal.texte);
+				if (deroulant) {
+					Chevron(c.ctx.dl, r.x + r.w - 11.f, r.y + r.h * 0.5f, ouvert ? c.pal.surAccent : c.pal.attenue);
+				}
+				if (clic) {
+					if (deroulant) {
+						NkEditeurOuvrirMenu(c, menu, r);
+					} else {
+						NkEditeurExecuter(c, action);
+					}
+				}
+				return x + w + 4.f;
+			}
+
+			/// Les quatre boutons de lecture, glyphes dessines.
+			float32 BoutonsLecture(NkEditeurCadre &c, float32 x) {
+				const NkRect &b = c.ui.barreOutils;
+				const float32 cote = b.h - 8.f;
+				const NkEtatJeu etat = c.m.etat;
+				auto &dl = c.ctx.dl;
+				for (int32 k = 0; k < 4; ++k) {
+					const NkRect r{x, b.y + 4.f, cote, cote};
+					const bool enfonce = (k == 0 && etat == NkEtatJeu::NK_JEU) || (k == 1 && etat == NkEtatJeu::NK_PAUSE);
+					const bool actif = !(k == 2 && etat == NkEtatJeu::NK_EDITION);
+					const bool clic = NkEditeurBouton(c, r, "", enfonce, actif);
+					const NkColor g = enfonce ? c.pal.surAccent : (actif ? c.pal.texte : c.pal.attenue);
+					const float32 cx = r.x + r.w * 0.5f;
+					const float32 cy = r.y + r.h * 0.5f;
+					switch (k) {
+						case 0: // Jouer : un triangle
+							dl.AddTriangleFilled(NkVec2{cx - 4.f, cy - 6.f}, NkVec2{cx - 4.f, cy + 6.f}, NkVec2{cx + 6.f, cy}, g);
+							break;
+						case 1: // Pause : deux barres
+							dl.AddRectFilled(NkRect{cx - 5.f, cy - 6.f, 3.5f, 12.f}, g);
+							dl.AddRectFilled(NkRect{cx + 1.5f, cy - 6.f, 3.5f, 12.f}, g);
+							break;
+						case 2: // Arreter : un carre
+							dl.AddRectFilled(NkRect{cx - 5.f, cy - 5.f, 10.f, 10.f}, g);
+							break;
+						default: // Un pas : triangle + barre
+							dl.AddTriangleFilled(NkVec2{cx - 5.f, cy - 6.f}, NkVec2{cx - 5.f, cy + 6.f}, NkVec2{cx + 3.f, cy}, g);
+							dl.AddRectFilled(NkRect{cx + 3.5f, cy - 6.f, 2.5f, 12.f}, g);
+							break;
+					}
+					if (clic) {
+						static const int32 kActions[4] = {NK_A_JOUER, NK_A_PAUSE, NK_A_ARRETER, NK_A_PAS};
+						NkEditeurExecuter(c, kActions[k]);
+					}
+					x += cote + 3.f;
+				}
+				return x + 2.f;
+			}
+
+			NkEntreeMenu Entree(const char *libelle, int32 action, const char *raccourci = "", bool coche = false,
+								bool actif = true) {
+				NkEntreeMenu e;
+				e.libelle = NkString(libelle);
+				e.action = action;
+				e.raccourci = raccourci;
+				e.coche = coche;
+				e.actif = actif;
+				return e;
+			}
+
+			NkEntreeMenu Separateur() {
+				NkEntreeMenu e;
+				e.separateur = true;
+				return e;
+			}
+
+			/// Un intitule de groupe : ni cliquable ni coche, en attenue.
+			NkEntreeMenu Intitule(const char *libelle) {
+				NkEntreeMenu e;
+				e.libelle = NkString(libelle);
+				e.actif = false;
+				return e;
+			}
+
+			/// Le contenu d'un menu, relu A CHAQUE TRAME : une coche ou une entree
+			/// grisee suit l'etat sans qu'aucun code n'ait a la remettre a jour.
+			void RemplirMenu(NkEditeurCadre &c, NkMenuEditeur menu, NkVector<NkEntreeMenu> &out) {
+				NkEditeurModele &m = c.m;
+				out.Clear();
+				switch (menu) {
+					case NkMenuEditeur::NK_FICHIER:
+						out.PushBack(Entree("Nouvelle scène", NK_A_NOUVEAU, "Ctrl+N"));
+						out.PushBack(Entree("Ouvrir", NK_A_OUVRIR, "Ctrl+O"));
+						out.PushBack(Entree("Enregistrer", NK_A_ENREGISTRER, "Ctrl+S"));
+						out.PushBack(Entree("Fermer la scène", NK_A_FERMER_SCENE));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
+						break;
+					case NkMenuEditeur::NK_EDITION:
+						out.PushBack(Entree("Nouvelle entité", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
+						out.PushBack(Entree("Dupliquer", NK_A_DUPLIQUER, "Ctrl+D", false, m.aSelection));
+						out.PushBack(Entree("Supprimer", NK_A_SUPPRIMER, "Suppr", false, m.aSelection));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Cadrer la vue", NK_A_CADRER, "F"));
+						break;
+					case NkMenuEditeur::NK_FENETRE:
+						out.PushBack(Entree("Outliner", NK_A_VOIR_OUTLINER, "", c.ui.voirOutliner));
+						out.PushBack(Entree("Détails", NK_A_VOIR_DETAILS, "", c.ui.voirDetails));
+						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
+						break;
+					case NkMenuEditeur::NK_AIDE:
+						out.PushBack(Entree("Raccourcis clavier", NK_A_RACCOURCIS));
+						out.PushBack(Entree("À propos d'UnkenyEditor", NK_A_APROPOS));
+						break;
+					case NkMenuEditeur::NK_OUTIL:
+						for (int32 k = 0; k <= static_cast<int32>(NkOutil::NK_COUTEAU); ++k) {
+							const NkOutil o = static_cast<NkOutil>(k);
+							out.PushBack(Entree(NomOutil(o), NK_A_OUTIL + k, "", m.outil == o));
+						}
+						break;
+					case NkMenuEditeur::NK_AJOUTER:
+						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
+						out.PushBack(Entree("Entité simple (sprite + boîte) : poser", NK_A_ARMER_SIMPLE));
+						for (int32 k = 0; k < static_cast<int32>(NkCategorieActeur::NK_COUNT); ++k) {
+							const NkCategorieActeur cat = static_cast<NkCategorieActeur>(k);
+							out.PushBack(Separateur());
+							out.PushBack(Intitule(NkCategorieActeurNom(cat)));
+							for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+								const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+								if (info.categorie == cat) {
+									out.PushBack(Entree(info.nom, NK_A_POSER_ACTEUR + i));
+								}
+							}
+						}
+						break;
+					case NkMenuEditeur::NK_APPAREIL:
+						for (int32 k = 0; k < NkNbProfils(); ++k) {
+							out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
+						}
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Paysage", NK_A_PAYSAGE, "", m.paysage));
+						break;
+					case NkMenuEditeur::NK_REGLAGES: {
+						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
+						out.PushBack(Entree("Collisionneurs", NK_A_COLLISIONNEURS, "", m.voirCollisionneurs));
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Matière"));
+						out.PushBack(Entree("Liens", NK_A_LIENS, "", m.rendu.liens));
+						out.PushBack(Entree("Particules", NK_A_PARTICULES, "", m.rendu.particules));
+						out.PushBack(Entree("Vitesses", NK_A_VITESSES, "", m.rendu.vitesses));
+						out.PushBack(Separateur());
+						static const char *kModes[4] = {"Éclairé", "Filaire", "Contraintes", "Vitesse"};
+						for (int32 k = 0; k < 4; ++k) {
+							const bool coche = static_cast<int32>(m.rendu.mode) == k;
+							out.PushBack(Entree(kModes[k], NK_A_MODE_RENDU + k, "", coche));
+						}
+						break;
+					}
+					case NkMenuEditeur::NK_COMPOSANT: {
+						if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
+							out.PushBack(Intitule("(aucune sélection)"));
+							break;
+						}
+						// Ne s'y trouve que ce qui PEUT s'ajouter : un composant deja
+						// present, ou un corps rigide sur de la matiere, n'y figure pas.
+						for (int32 k = 0; k < static_cast<int32>(NkComposantEditeur::NK_COUNT); ++k) {
+							const NkComposantEditeur comp = static_cast<NkComposantEditeur>(k);
+							if (!NkEditeurPeutAjouter(m, m.selection, comp)) {
+								continue;
+							}
+							if (comp != NkComposantEditeur::NK_CORPS_MOU) {
+								out.PushBack(Entree(NkComposantEditeurNom(comp), NK_A_COMPOSANT + k));
+								continue;
+							}
+							// Un corps mou est une MATIERE : on la choisit ici.
+							out.PushBack(Separateur());
+							out.PushBack(Intitule("Corps mou"));
+							for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+								const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+								if (!info.rigide) {
+									out.PushBack(Entree(info.nom, NK_A_CORPS_MOU + i));
+								}
+							}
+						}
+						if (out.Empty()) {
+							out.PushBack(Intitule("(tous les composants possibles sont là)"));
+						}
+						break;
+					}
+					default:
+						break;
+				}
+			}
+
+		} // namespace
+
+		// =====================================================================
+		// OUTILS COMMUNS
+		// =====================================================================
+		NkPaletteEditeur NkEditeurPalette(const editorkit::NkTheme &t) {
+			auto R = [&t](NkRole r) {
+				return editorkit::NkThemeUnpack(t.Get(r));
+			};
+			NkPaletteEditeur p;
+			p.fond = R(NkRole::WindowBg);
+			p.panneau = R(NkRole::PanelBg);
+			p.entete = R(NkRole::PanelHeader);
+			p.bord = R(NkRole::Border);
+			p.champ = R(NkRole::InputBg);
+			p.texte = R(NkRole::Text);
+			p.attenue = R(NkRole::TextMuted);
+			p.accent = R(NkRole::AccentUi);
+			p.selection = R(NkRole::AccentSel);
+			p.surAccent = R(NkRole::TextOnAccent);
+			p.bouton = editorkit::NkThemeUnpack(t.GetOuRepli(NkRole::ButtonBg, NkRole::PanelHeader));
+			// La MEME regle que la conversion du kit (NkThemeVersGui) : un survol
+			// est une fonction des roles, pas une couleur de plus.
+			p.boutonSurvol = editorkit::NkThemeMix(p.bouton, p.accent, 0.20f);
+			return p;
+		}
+
+		bool NkEditeurDans(const NkRect &r, const NkVec2 &p) noexcept {
+			return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
+		}
+
+		editorkit::NkComponentInput NkEditeurEntreeComposant(const nkgui::NkGuiContext &ctx) {
+			// La meme traduction que NkEditorShell::DrawTabStrip : l'echelle vient
+			// de la surface, les gestes de l'entree NKGui de CETTE trame.
+			const nkgui::NkGuiInput &in = ctx.input;
+			editorkit::NkComponentInput ci;
+			ci.surfaceScale = ctx.scale;
+			ci.mouseX = in.mousePos.x;
+			ci.mouseY = in.mousePos.y;
+			ci.wheel = in.wheel;
+			ci.mouseDown = in.mouseDown[0];
+			ci.mousePressed = in.mouseClicked[0];
+			ci.mouseReleased = in.mouseReleased[0];
+			ci.doubleClick = in.mouseDoubleClicked[0];
+			ci.rightPressed = in.mouseClicked[1];
+			ci.ctrl = in.ctrlDown;
+			ci.shift = in.shiftDown;
+			ci.alt = in.altDown;
+			return ci;
+		}
+
+		bool NkEditeurBouton(NkEditeurCadre &c, const NkRect &r, const char *texte, bool enfonce, bool actif,
+							 nkgui::NkGuiDrawList *dl) {
+			nkgui::NkGuiDrawList &liste = dl != nullptr ? *dl : c.ctx.dl;
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			const bool survol = actif && NkEditeurDans(r, in.mousePos);
+			NkColor fond = c.pal.bouton;
+			if (enfonce) {
+				fond = c.pal.accent;
+			} else if (survol) {
+				fond = c.pal.boutonSurvol;
+			}
+			liste.AddRectFilled(r, fond, 2.f);
+			liste.AddRect(r, c.pal.bord, 1.f, 2.f);
+			if (texte != nullptr && texte[0] != '\0') {
+				NkColor t = c.pal.texte;
+				if (!actif) {
+					t = c.pal.attenue;
+				} else if (enfonce) {
+					t = c.pal.surAccent;
+				}
+				renderer::NkTexteDansBoite(liste, c.police, r, texte, t);
+			}
+			return survol && in.mouseClicked[0];
+		}
+
+		bool NkEditeurOnglets(NkEditeurCadre &c, const NkRect &bande, const char *const *noms, int32 n, int32 &actif) {
+			auto &dl = c.ctx.dl;
+			dl.AddRectFilled(bande, c.pal.entete);
+			dl.AddRectFilled(NkRect{bande.x, bande.y + bande.h - 1.f, bande.w, 1.f}, c.pal.bord);
+			bool change = false;
+			float32 x = bande.x;
+			for (int32 i = 0; i < n; ++i) {
+				const float32 w = renderer::NkTexteLargeur(c.police, noms[i]) + 24.f;
+				const NkRect r{x, bande.y, w, bande.h};
+				const bool survol = NkEditeurDans(r, c.ctx.input.mousePos);
+				if (i == actif) {
+					// L'onglet actif prend la couleur du panneau qu'il ouvre, et
+					// un filet d'accent : c'est ainsi qu'UE5 le distingue.
+					dl.AddRectFilled(r, c.pal.panneau);
+					dl.AddRectFilled(NkRect{r.x, r.y, r.w, 2.f}, c.pal.accent);
+				} else if (survol) {
+					dl.AddRectFilled(r, c.pal.boutonSurvol);
+				}
+				renderer::NkTexteDansBoite(dl, c.police, r, noms[i], i == actif ? c.pal.texte : c.pal.attenue);
+				if (survol && c.ctx.input.mouseClicked[0] && i != actif) {
+					actif = i;
+					change = true;
+				}
+				x += w;
+			}
+			return change;
+		}
+
+		void NkEditeurPlanifier(NkEditeurInterface &ui, float32 largeur, float32 hauteur) {
+			const float32 W = largeur;
+			const float32 H = hauteur;
+			ui.ecran = NkRect{0.f, 0.f, W, H};
+			ui.barreMenus = NkRect{0.f, 0.f, W, HAUTEUR_MENUS};
+			ui.barreOnglets = NkRect{0.f, HAUTEUR_MENUS, W, HAUTEUR_ONGLETS};
+			ui.barreOutils = NkRect{0.f, HAUTEUR_MENUS + HAUTEUR_ONGLETS, W, HAUTEUR_OUTILS};
+			ui.statut = NkRect{0.f, H - HAUTEUR_STATUT, W, HAUTEUR_STATUT};
+			const float32 corpsHaut = HAUTEUR_MENUS + HAUTEUR_ONGLETS + HAUTEUR_OUTILS;
+			const float32 corpsBas = H - HAUTEUR_STATUT;
+			const float32 corpsH = corpsBas - corpsHaut > 0.f ? corpsBas - corpsHaut : 0.f;
+
+			// ⚠️ LES BORNES SONT RE-APPLIQUEES A CHAQUE TRAME, pas au glisser seul :
+			//    une fenetre retrecie apres coup doit rendre la place au viseur, sinon
+			//    un Outliner de 250 px mange un ecran de 400.
+			float32 tiroirH = 0.f;
+			if (ui.voirTiroir) {
+				tiroirH = Borne(ui.hauteurTiroir, 90.f, corpsH - 160.f);
+			}
+			ui.tiroir = NkRect{0.f, corpsBas - tiroirH, W, tiroirH};
+			const float32 colonnesBas = corpsBas - tiroirH - (ui.voirTiroir ? EPAISSEUR_CLOISON : 0.f);
+			const float32 colonnesH = colonnesBas - corpsHaut > 0.f ? colonnesBas - corpsHaut : 0.f;
+
+			const float32 L = ui.voirOutliner ? Borne(ui.largeurOutliner, 150.f, W * 0.35f) : 0.f;
+			const float32 R = ui.voirDetails ? Borne(ui.largeurDetails, 240.f, W * 0.42f) : 0.f;
+			ui.outliner = NkRect{0.f, corpsHaut, L, colonnesH};
+			ui.details = NkRect{W - R, corpsHaut, R, colonnesH};
+			const float32 vx = L + (L > 0.f ? EPAISSEUR_CLOISON : 0.f);
+			float32 vw = W - R - (R > 0.f ? EPAISSEUR_CLOISON : 0.f) - vx;
+			if (vw < 0.f) {
+				vw = 0.f;
+			}
+			ui.vue = NkRect{vx, corpsHaut, vw, colonnesH};
+			ui.barreVue = NkRect{vx, corpsHaut, vw, HAUTEUR_BARRE_VUE};
+			const float32 viseurH = colonnesH - HAUTEUR_BARRE_VUE > 0.f ? colonnesH - HAUTEUR_BARRE_VUE : 0.f;
+			ui.viseur = NkRect{vx, corpsHaut + HAUTEUR_BARRE_VUE, vw, viseurH};
+		}
+
+		void NkEditeurOuvrirMenu(NkEditeurCadre &c, NkMenuEditeur menu, const NkRect &ancre) {
+			if (c.ui.menu == menu) {
+				c.ui.menu = NkMenuEditeur::NK_AUCUN;
+				return;
+			}
+			c.ui.menu = menu;
+			c.ui.menuAncre = ancre;
+			// Le rectangle est recalcule au dessin ; en attendant, l'ancre
+			// suffit a ce que le masquage de la trame suivante sache ou il est.
+			c.ui.menuRect = NkRect{ancre.x, ancre.y + ancre.h, 1.f, 1.f};
+		}
+
+		// =====================================================================
+		// LES MODIFICATIONS NON ENREGISTREES
+		// =====================================================================
+		uint64 NkEditeurEmpreinte(NkEditeurModele &m) {
+			// ⚠️ LA CAMERA EST NEUTRALISEE LE TEMPS DE L'EMPREINTE. La sauvegarde
+			//    ecrit le centre, le zoom et la rotation de la vue : sans cela, le
+			//    cadrage de la premiere trame suffisait a « modifier » une scene a
+			//    peine ouverte (mesure du 2026-09-29 : le point de l'onglet
+			//    s'allumait au demarrage), et chaque coup de molette aussi. Regarder
+			//    une scene ne la change pas.
+			NkVue2D &cam = m.scene.Camera();
+			const NkVec2f centre = cam.Centre();
+			const float32 zoom = cam.Zoom();
+			const float32 rotation = cam.Rotation();
+			cam.PoserCentre(NkVec2f(0.f, 0.f));
+			cam.PoserZoom(1.f);
+			cam.PoserRotation(0.f);
+			NkString json;
+			const bool ok = NkSauverSceneJSON(m.scene, json, &m.textures);
+			cam.PoserCentre(centre);
+			cam.PoserZoom(zoom);
+			cam.PoserRotation(rotation);
+			if (!ok) {
+				return 0u;
+			}
+			// FNV-1a 64 : une collision ferait croire « rien n'a change » ; sur
+			// 2^64 valeurs et des scenes d'un editeur, c'est un risque assume.
+			uint64 h = 14695981039346656037ull;
+			const char *s = json.CStr();
+			const usize n = json.Length();
+			for (usize i = 0; i < n; ++i) {
+				h ^= static_cast<uint8>(s[i]);
+				h *= 1099511628211ull;
+			}
+			return h;
+		}
+
+		void NkEditeurRetenirEmpreinte(NkEditeurModele &m, NkEditeurInterface &ui) {
+			ui.empreinteEnregistree = NkEditeurEmpreinte(m);
+			ui.modifiee = false;
+			ui.ageEmpreinte = 0.f;
+		}
+
+		void NkEditeurSuivreModifications(NkEditeurModele &m, NkEditeurInterface &ui, float32 dt) {
+			ui.ageEmpreinte += dt;
+			if (ui.ageEmpreinte < 1.f || m.etat != NkEtatJeu::NK_EDITION) {
+				return;
+			}
+			ui.ageEmpreinte = 0.f;
+			ui.modifiee = NkEditeurEmpreinte(m) != ui.empreinteEnregistree;
+		}
+
+		namespace {
+
+			/// L'action, sans plus rien demander.
+			void Accomplir(NkEditeurCadre &c, int32 action) {
+				NkEditeurModele &m = c.m;
+				NkEditeurInterface &ui = c.ui;
+				switch (action) {
+					case NK_A_NOUVEAU:
+					case NK_A_FERMER_SCENE:
+						NkEditeurNouvelleScene(m);
+						// L'onglet redevient « Scene_01 » : la scene neuve n'est pas
+						// encore un fichier. Le prochain Enregistrer choisira le chemin.
+						m.chemin = NkString();
+						NkEditeurAnnoncer(m, action == NK_A_NOUVEAU ? "Nouvelle scene" : "Scene fermee");
+						ui.cadrageEnAttente = true;
+						NkEditeurRetenirEmpreinte(m, ui);
+						break;
+					case NK_A_OUVRIR:
+						if (NkEditeurOuvrir(m)) {
+							NkEditeurRetenirEmpreinte(m, ui);
+						}
+						break;
+					case NK_A_QUITTER:
+						ui.demandeQuitter = true;
+						break;
+					default:
+						break;
+				}
+			}
+
+			/// Pose la question si la scene a change ; sinon, agit tout de suite.
+			void Demander(NkEditeurCadre &c, int32 action) {
+				NkEditeurModele &m = c.m;
+				// En jeu, la scene editee est la PHOTO d'avant « Jouer » : Arreter la
+				// rend, et c'est elle qu'on compare -- pas un instant de simulation.
+				// Chacun de ces gestes quitte de toute facon le jeu.
+				if (m.etat != NkEtatJeu::NK_EDITION) {
+					NkEditeurArreter(m);
+				}
+				c.ui.modifiee = NkEditeurEmpreinte(m) != c.ui.empreinteEnregistree;
+				if (!c.ui.modifiee) {
+					Accomplir(c, action);
+					return;
+				}
+				c.ui.confirmation = action;
+			}
+
+		} // namespace
+
+		void NkEditeurDessinerConfirmation(NkEditeurCadre &c) {
+			NkEditeurInterface &ui = c.ui;
+			if (ui.confirmation == NK_A_AUCUNE) {
+				return;
+			}
+			auto &dl = c.ctx.dlOverlay;
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			// Le voile : tout le reste attend la reponse.
+			dl.AddRectFilled(ui.ecran, NkColor{0, 0, 0, 110});
+			const float32 w = 460.f;
+			const float32 h = 132.f;
+			const NkRect boite{(ui.ecran.w - w) * 0.5f, (ui.ecran.h - h) * 0.42f, w, h};
+			dl.AddRectFilled(NkRect{boite.x + 4.f, boite.y + 6.f, boite.w, boite.h}, NkColor{0, 0, 0, 110}, 3.f);
+			dl.AddRectFilled(boite, c.pal.entete, 3.f);
+			dl.AddRect(boite, c.pal.bord, 1.f, 3.f);
+			dl.AddRectFilled(NkRect{boite.x, boite.y, boite.w, 2.f}, c.pal.selection);
+
+			const char *verbe = "fermer la scène";
+			if (ui.confirmation == NK_A_NOUVEAU) {
+				verbe = "créer une nouvelle scène";
+			} else if (ui.confirmation == NK_A_OUVRIR) {
+				verbe = "ouvrir la scène enregistrée";
+			} else if (ui.confirmation == NK_A_QUITTER) {
+				verbe = "quitter";
+			}
+			const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f);
+			renderer::NkTexte(dl, c.police, boite.x + 16.f, boite.y + 14.f, "Modifications non enregistrées", c.pal.texte);
+			renderer::NkTexte(dl, c.petite, boite.x + 16.f, boite.y + 20.f + lh,
+							  "La scène a changé depuis son dernier enregistrement.", c.pal.attenue);
+			const NkString suite = NkString::Format("L'enregistrer avant de %s ?", verbe);
+			renderer::NkTexte(dl, c.petite, boite.x + 16.f, boite.y + 38.f + lh, suite.CStr(), c.pal.attenue);
+
+			// Trois reponses, la sure a droite, comme partout.
+			const float32 bh = 26.f;
+			const float32 by = boite.y + boite.h - bh - 12.f;
+			const float32 wEnr = renderer::NkTexteLargeur(c.police, "Enregistrer") + 28.f;
+			const float32 wSans = renderer::NkTexteLargeur(c.police, "Ne pas enregistrer") + 28.f;
+			const float32 wAnn = renderer::NkTexteLargeur(c.police, "Annuler") + 28.f;
+			const NkRect rAnn{boite.x + boite.w - 12.f - wAnn, by, wAnn, bh};
+			const NkRect rSans{rAnn.x - 8.f - wSans, by, wSans, bh};
+			const NkRect rEnr{rSans.x - 8.f - wEnr, by, wEnr, bh};
+			const int32 action = ui.confirmation;
+			if (NkEditeurBouton(c, rEnr, "Enregistrer", true, true, &dl) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+				ui.confirmation = NK_A_AUCUNE;
+				const bool enregistree = NkEditeurSauver(c.m);
+				// Au journal MAINTENANT : l'action qui suit annonce aussi (« Scene
+				// fermee »), et une seule annonce survit a la trame.
+				NkEditeurJournaliser(c.m, ui);
+				if (enregistree) {
+					NkEditeurRetenirEmpreinte(c.m, ui);
+					Accomplir(c, action);
+				}
+				// Un enregistrement rate ne ferme RIEN : le travail serait perdu
+				// sur un message d'erreur que personne n'aurait le temps de lire.
+				return;
+			}
+			if (NkEditeurBouton(c, rSans, "Ne pas enregistrer", false, true, &dl)) {
+				ui.confirmation = NK_A_AUCUNE;
+				Accomplir(c, action);
+				return;
+			}
+			if (NkEditeurBouton(c, rAnn, "Annuler", false, true, &dl) || in.KeyPressed(nkgui::NkGuiKey::Escape)) {
+				ui.confirmation = NK_A_AUCUNE;
+			}
+		}
+
+		// =====================================================================
+		// LA TABLE D'ACTIONS
+		// =====================================================================
+		void NkEditeurExecuter(NkEditeurCadre &c, int32 action) {
+			NkEditeurModele &m = c.m;
+			NkEditeurInterface &ui = c.ui;
+			// Les plages d'abord : leur indice est ajoute a la base.
+			if (action >= NK_A_CORPS_MOU && action < NK_A_CORPS_MOU + static_cast<int32>(NkActeurSim::NK_COUNT)) {
+				if (m.aSelection) {
+					const NkActeurSim matiere = static_cast<NkActeurSim>(action - NK_A_CORPS_MOU);
+					NkEditeurAjouterComposant(m, m.selection, NkComposantEditeur::NK_CORPS_MOU, matiere);
+				}
+				return;
+			}
+			if (action >= NK_A_COMPOSANT && action < NK_A_COMPOSANT + static_cast<int32>(NkComposantEditeur::NK_COUNT)) {
+				if (m.aSelection) {
+					NkEditeurAjouterComposant(m, m.selection, static_cast<NkComposantEditeur>(action - NK_A_COMPOSANT));
+				}
+				return;
+			}
+			if (action >= NK_A_MODE_RENDU && action < NK_A_MODE_RENDU + 4) {
+				m.rendu.mode = static_cast<NkModeRenduParticules>(action - NK_A_MODE_RENDU);
+				return;
+			}
+			if (action >= NK_A_APPAREIL && action < NK_A_APPAREIL + NkNbProfils()) {
+				m.profil = action - NK_A_APPAREIL;
+				return;
+			}
+			if (action >= NK_A_POSER_ACTEUR && action < NK_A_POSER_ACTEUR + static_cast<int32>(NkActeurSim::NK_COUNT)) {
+				// « + Ajouter » POSE : au centre de la vue, la ou l'on regarde. Le
+				// tiroir, lui, ARME l'outil (clic) ou pose au point de depot (glisser).
+				m.acteur = static_cast<NkActeurSim>(action - NK_A_POSER_ACTEUR);
+				m.acteurSimple = false;
+				NkEditeurPoser(m, m.scene.Camera().Centre());
+				return;
+			}
+			if (action >= NK_A_OUTIL && action <= NK_A_OUTIL + static_cast<int32>(NkOutil::NK_COUTEAU)) {
+				m.outil = static_cast<NkOutil>(action - NK_A_OUTIL);
+				return;
+			}
+			switch (action) {
+				case NK_A_NOUVEAU:
+				case NK_A_OUVRIR:
+				case NK_A_QUITTER:
+				case NK_A_FERMER_SCENE:
+					// Les quatre gestes qui PERDENT la scene editee : ils passent par
+					// la question « enregistrer ? » quand elle a change.
+					Demander(c, action);
+					break;
+				case NK_A_ENREGISTRER:
+					if (NkEditeurSauver(m)) {
+						NkEditeurRetenirEmpreinte(m, ui);
+					}
+					break;
+				case NK_A_NOUVELLE_ENTITE:
+					NkEditeurCreerEntite(m, "Entite", m.scene.Camera().Centre());
+					break;
+				case NK_A_DUPLIQUER:
+					if (m.aSelection) {
+						NkEditeurDupliquer(m);
+					}
+					break;
+				case NK_A_SUPPRIMER:
+					if (m.aSelection) {
+						NkEditeurSupprimerSelection(m);
+					}
+					break;
+				case NK_A_CADRER:
+					ui.cadrageEnAttente = true;
+					break;
+				case NK_A_JOUER:
+					if (m.etat == NkEtatJeu::NK_JEU) {
+						NkEditeurPause(m);
+					} else {
+						NkEditeurJouer(m);
+					}
+					break;
+				case NK_A_PAUSE:
+					NkEditeurPause(m);
+					break;
+				case NK_A_ARRETER:
+					NkEditeurArreter(m);
+					break;
+				case NK_A_PAS:
+					NkEditeurUnPas(m);
+					break;
+				case NK_A_GRILLE:
+					m.voirGrille = !m.voirGrille;
+					break;
+				case NK_A_COLLISIONNEURS:
+					m.voirCollisionneurs = !m.voirCollisionneurs;
+					break;
+				case NK_A_LIENS:
+					m.rendu.liens = !m.rendu.liens;
+					break;
+				case NK_A_PARTICULES:
+					m.rendu.particules = !m.rendu.particules;
+					break;
+				case NK_A_VITESSES:
+					m.rendu.vitesses = !m.rendu.vitesses;
+					break;
+				case NK_A_PAYSAGE:
+					m.paysage = !m.paysage;
+					break;
+				case NK_A_VOIR_OUTLINER:
+					ui.voirOutliner = !ui.voirOutliner;
+					break;
+				case NK_A_VOIR_DETAILS:
+					ui.voirDetails = !ui.voirDetails;
+					break;
+				case NK_A_VOIR_TIROIR:
+					ui.voirTiroir = !ui.voirTiroir;
+					break;
+				case NK_A_DISPOSITION:
+					ui.voirOutliner = true;
+					ui.voirDetails = true;
+					ui.voirTiroir = true;
+					ui.largeurOutliner = 250.f;
+					ui.largeurDetails = 340.f;
+					ui.hauteurTiroir = 250.f;
+					break;
+				case NK_A_RACCOURCIS:
+					NkEditeurAnnoncer(m, "Ctrl+N/O/S fichier  -  Ctrl+E entité  -  Ctrl+D dupliquer  -  Suppr  -  "
+										 "Espace jouer/pause  -  Échap arrêter  -  F cadrer  -  Ctrl+Q quitter");
+					break;
+				case NK_A_APROPOS:
+					NkEditeurAnnoncer(m, "UnkenyEditor : l'éditeur du moteur 2D Unkeny (Rihen)");
+					break;
+				case NK_A_ARMER_SIMPLE:
+					m.acteurSimple = true;
+					m.outil = NkOutil::NK_POSER;
+					break;
+				default:
+					break;
+			}
+		}
+
+		// =====================================================================
+		// LES BORDS DE LA FENETRE SANS CADRE
+		// =====================================================================
+		void NkEditeurBordsFenetre(NkEditeurCadre &c) {
+			NkEditeurInterface &ui = c.ui;
+			// Agrandie, la fenetre n'a pas de bord a saisir : c'est la regle de
+			// toutes les fenetres du systeme.
+			if (ui.fenetreAgrandie) {
+				return;
+			}
+			nkgui::NkGuiInput &in = c.ctx.input;
+			const float32 W = ui.ecran.w;
+			const float32 H = ui.ecran.h;
+			const float32 bande = 5.f;
+			const NkVec2 p = in.mousePos;
+			if (p.x < 0.f || p.y < 0.f || p.x >= W || p.y >= H) {
+				return; // la sentinelle « nulle part » n'est pas un bord
+			}
+			// Masque : 1 gauche, 2 droite, 4 haut, 8 bas -- le code de NkEditorShell.
+			int32 bords = 0;
+			bords |= p.x < bande ? 1 : 0;
+			bords |= p.x >= W - bande ? 2 : 0;
+			bords |= p.y < bande ? 4 : 0;
+			bords |= p.y >= H - bande ? 8 : 0;
+			if (bords == 0) {
+				return;
+			}
+			c.ctx.wantCursor = (bords & 3) != 0 ? nkgui::NkGuiCursor::ResizeEW : nkgui::NkGuiCursor::ResizeNS;
+			if (!in.mouseClicked[0]) {
+				return;
+			}
+			// Les valeurs de NkWindow::NkResizeEdge : Left, Right, Top, Bottom,
+			// TopLeft, TopRight, BottomLeft, BottomRight.
+			int32 bord = -1;
+			switch (bords) {
+				case 1:     bord = 0; break;
+				case 2:     bord = 1; break;
+				case 4:     bord = 2; break;
+				case 8:     bord = 3; break;
+				case 1 | 4: bord = 4; break;
+				case 2 | 4: bord = 5; break;
+				case 1 | 8: bord = 6; break;
+				case 2 | 8: bord = 7; break;
+				default:    break;
+			}
+			if (bord >= 0) {
+				ui.redimDemande = bord;
+				// Le clic est au bord, pas a ce qui est dessous : un redimensionnement
+				// ne doit pas, en plus, ouvrir un menu ou poser un acteur.
+				in.mouseClicked[0] = false;
+			}
+		}
+
+		// =====================================================================
+		// LA BARRE DE TITRE : menus, titre, boutons de fenetre
+		// La fenetre est SANS CADRE (NkCanvasAppConfig::frame = false), comme
+		// NK3DModeler : le menu principal est sur la ligne du titre.
+		// =====================================================================
+		void NkEditeurDessinerBarreMenus(NkEditeurCadre &c) {
+			auto &dl = c.ctx.dl;
+			NkEditeurInterface &ui = c.ui;
+			const NkRect &b = ui.barreMenus;
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			dl.AddRectFilled(b, c.pal.fond);
+			// Rien sous la souris qui soit un element : c'est la poignee.
+			bool surElement = false;
+
+			// ── Les menus, a gauche ───────────────────────────────────────────
+			static const char *kNoms[4] = {"Fichier", "Édition", "Fenêtre", "Aide"};
+			float32 x = b.x + 8.f;
+			for (int32 i = 0; i < 4; ++i) {
+				const NkMenuEditeur menu = static_cast<NkMenuEditeur>(i);
+				const float32 w = renderer::NkTexteLargeur(c.police, kNoms[i]) + 18.f;
+				const NkRect r{x, b.y + 4.f, w, b.h - 8.f};
+				const bool survol = NkEditeurDans(r, in.mousePos);
+				surElement = surElement || survol;
+				const bool ouvert = ui.menu == menu;
+				if (ouvert) {
+					dl.AddRectFilled(r, c.pal.accent, 2.f);
+				} else if (survol) {
+					dl.AddRectFilled(r, c.pal.boutonSurvol, 2.f);
+				}
+				renderer::NkTexteDansBoite(dl, c.police, r, kNoms[i], ouvert ? c.pal.surAccent : c.pal.texte);
+				if (survol && in.mouseClicked[0]) {
+					NkEditeurOuvrirMenu(c, menu, r);
+				} else if (survol && !ouvert && ui.menu >= NkMenuEditeur::NK_FICHIER &&
+						   ui.menu <= NkMenuEditeur::NK_AIDE) {
+					// Un menu de la barre est deja ouvert : le survol d'un voisin
+					// le remplace, comme dans tout logiciel de bureau.
+					ui.menu = menu;
+					ui.menuAncre = r;
+				}
+				x += w + 2.f;
+			}
+
+			// ── Le titre, au centre : l'application, et ce qu'on edite ───────
+			const NkString titre = NkString::Format("Unkeny  —  %s%s", NomScene(c.m).CStr(), ui.modifiee ? " *" : "");
+			const float32 ty = b.y + (b.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
+			renderer::NkTexteCentre(dl, c.police, b.x + b.w * 0.5f, ty, titre.CStr(), c.pal.attenue);
+
+			// ── Reduire / agrandir / fermer, a droite ─────────────────────────
+			// Dessines au trait : aucun glyphe de la police n'est suppose.
+			const float32 bw = 44.f;
+			for (int32 i = 0; i < 3; ++i) {
+				const NkRect r{b.x + b.w - static_cast<float32>(3 - i) * bw, b.y, bw, b.h};
+				const bool survol = NkEditeurDans(r, in.mousePos);
+				surElement = surElement || survol;
+				if (survol) {
+					// La fermeture rougit au survol : c'est le seul bouton qui perd
+					// quelque chose, et on le voit avant de cliquer.
+					dl.AddRectFilled(r, i == 2 ? c.ctx.theme.danger : c.pal.boutonSurvol);
+				}
+				const NkColor t = survol ? c.pal.texte : c.pal.attenue;
+				const float32 cx = r.x + r.w * 0.5f;
+				const float32 cy = r.y + r.h * 0.5f;
+				if (i == 0) {
+					dl.AddLine(NkVec2{cx - 5.f, cy + 0.5f}, NkVec2{cx + 5.f, cy + 0.5f}, t, 1.2f);
+				} else if (i == 1) {
+					// Deux etats, deux dessins : un carre pour agrandir, deux carres
+					// decales pour restaurer. Le meme dessin dans les deux cas
+					// obligerait a se souvenir de ce qu'on a fait.
+					if (ui.fenetreAgrandie) {
+						dl.AddRect(NkRect{cx - 3.f, cy - 5.f, 8.f, 8.f}, t, 1.f);
+						dl.AddRectFilled(NkRect{cx - 5.f, cy - 3.f, 8.f, 8.f}, survol ? c.pal.boutonSurvol : c.pal.fond);
+						dl.AddRect(NkRect{cx - 5.f, cy - 3.f, 8.f, 8.f}, t, 1.f);
+					} else {
+						dl.AddRect(NkRect{cx - 5.f, cy - 5.f, 10.f, 10.f}, t, 1.f);
+					}
+				} else {
+					dl.AddLine(NkVec2{cx - 5.f, cy - 5.f}, NkVec2{cx + 5.f, cy + 5.f}, t, 1.2f);
+					dl.AddLine(NkVec2{cx + 5.f, cy - 5.f}, NkVec2{cx - 5.f, cy + 5.f}, t, 1.2f);
+				}
+				if (survol && in.mouseClicked[0] && ui.menu == NkMenuEditeur::NK_AUCUN) {
+					if (i == 0) {
+						ui.reduireDemande = true;
+					} else if (i == 1) {
+						ui.agrandirDemande = true;
+					} else {
+						// La MEME politique que Fichier > Quitter et la croix de l'OS :
+						// une scene modifiee pose la question.
+						NkEditeurExecuter(c, NK_A_QUITTER);
+					}
+				}
+			}
+
+			// ── La poignee : tout ce qui n'est pas un element ────────────────
+			const bool dansBarre = NkEditeurDans(b, in.mousePos);
+			if (dansBarre && !surElement && ui.menu == NkMenuEditeur::NK_AUCUN) {
+				if (in.mouseDoubleClicked[0]) {
+					ui.titreArme = false;
+					ui.agrandirDemande = true;
+				} else if (in.mouseClicked[0]) {
+					ui.titreArme = true;
+					ui.titreAppui = in.mousePos;
+				}
+			}
+			if (ui.titreArme) {
+				if (!in.mouseDown[0]) {
+					ui.titreArme = false;
+				} else {
+					const float32 dx = in.mousePos.x - ui.titreAppui.x;
+					const float32 dy = in.mousePos.y - ui.titreAppui.y;
+					if (dx * dx + dy * dy > 9.f) {
+						ui.titreArme = false;
+						ui.deplacerDemande = true;
+						const float32 w = b.w > 1.f ? b.w : 1.f;
+						ui.deplacerFractionX = Borne((ui.titreAppui.x - b.x) / w, 0.f, 1.f);
+					}
+				}
+			}
+		}
+
+		// =====================================================================
+		// LES ONGLETS DE SCENE, sous la barre de titre
+		// =====================================================================
+		void NkEditeurDessinerOnglets(NkEditeurCadre &c) {
+			auto &dl = c.ctx.dl;
+			const NkRect &b = c.ui.barreOnglets;
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			dl.AddRectFilled(b, c.pal.fond);
+			dl.AddRectFilled(NkRect{b.x, b.y + b.h - 1.f, b.w, 1.f}, c.pal.bord);
+
+			// [ ● Scene_01  ✕ ] : le point (ambre) dit « modifiee depuis
+			// l'enregistrement » ; la croix ferme, et pose la question si le point
+			// est la.
+			const NkString nom = NomScene(c.m);
+			// ⚠️ LA PLACE DU POINT EST TOUJOURS RESERVEE. Elle ne l'etait que
+			//    scene modifiee : l'onglet s'elargissait de 14 px a la premiere
+			//    modification, et la croix visee l'instant d'avant n'etait plus
+			//    sous le curseur (mesure du 2026-09-29, le clic tombait a cote).
+			const float32 point = 14.f;
+			const float32 croix = 20.f;
+			const float32 tw = renderer::NkTexteLargeur(c.police, nom.CStr());
+			const float32 w = 12.f + point + tw + 8.f + croix;
+			const NkRect onglet{b.x + 8.f, b.y + 3.f, w, b.h - 3.f};
+			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
+			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
+			if (c.ui.modifiee) {
+				dl.AddCircleFilled(nkgui::NkVec2{onglet.x + 12.f + 4.f, onglet.y + onglet.h * 0.5f}, 3.5f, c.pal.selection);
+			}
+			renderer::NkTexte(dl, c.police, onglet.x + 12.f + point, ty, nom.CStr(), c.pal.texte);
+			const NkRect fermer{onglet.x + onglet.w - croix - 4.f, onglet.y + (onglet.h - 16.f) * 0.5f, 16.f, 16.f};
+			const bool survolX = NkEditeurDans(fermer, in.mousePos);
+			if (survolX) {
+				dl.AddRectFilled(fermer, c.pal.boutonSurvol, 2.f);
+			}
+			// La croix est TRACEE : deux traits, jamais un glyphe que la police
+			// embarquee n'aurait peut-etre pas.
+			const NkColor teinteX = survolX ? c.pal.texte : c.pal.attenue;
+			const float32 x0 = fermer.x + 4.5f;
+			const float32 y0 = fermer.y + 4.5f;
+			const float32 x1 = fermer.x + fermer.w - 4.5f;
+			const float32 y1 = fermer.y + fermer.h - 4.5f;
+			dl.AddLine(nkgui::NkVec2{x0, y0}, nkgui::NkVec2{x1, y1}, teinteX, 1.4f);
+			dl.AddLine(nkgui::NkVec2{x1, y0}, nkgui::NkVec2{x0, y1}, teinteX, 1.4f);
+			if (survolX && in.mouseClicked[0]) {
+				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
+			}
+		}
+
+		// =====================================================================
+		// LE JOURNAL
+		// =====================================================================
+		void NkEditeurJournaliser(NkEditeurModele &m, NkEditeurInterface &ui) {
+			// Une annonce neuve remet son age a zero. Deux annonces dans la MEME
+			// trame (« Scene enregistree » puis « Scene fermee ») ont toutes deux
+			// l'age zero : la seconde se reconnait a son texte.
+			const bool rajeunie = m.messageAge < ui.agePrecedent;
+			const bool autreTexte = m.messageAge <= 0.f && !(m.message == ui.derniereAnnonce);
+			if ((rajeunie || autreTexte) && !m.message.Empty()) {
+				const int32 s = static_cast<int32>(ui.temps);
+				ui.journal.PushBack(NkString::Format("[%02d:%02d]  %s", s / 60, s % 60, m.message.CStr()));
+				ui.derniereAnnonce = m.message;
+				if (ui.journal.Size() > 200u) {
+					ui.journal.RemoveAt(0);
+				}
+			}
+			ui.agePrecedent = m.messageAge;
+		}
+
+		// =====================================================================
+		// LA BARRE D'OUTILS
+		// Enregistrer | Outil | + Ajouter | lecture | Appareil | Reglages
+		// =====================================================================
+		void NkEditeurDessinerBarreOutils(NkEditeurCadre &c) {
+			const NkRect &b = c.ui.barreOutils;
+			c.ctx.dl.AddRectFilled(b, c.pal.entete);
+			c.ctx.dl.AddRectFilled(NkRect{b.x, b.y + b.h - 1.f, b.w, 1.f}, c.pal.bord);
+			// La place des deux boutons dont le libelle varie : celle du PLUS LONG
+			// de leurs libelles possibles. La barre ne bouge plus quand on change
+			// d'outil ou d'appareil.
+			float32 largeurOutil = 0.f;
+			for (int32 k = 0; k <= static_cast<int32>(NkOutil::NK_COUTEAU); ++k) {
+				const NkString s = NkString::Format("Outil : %s", NomOutil(static_cast<NkOutil>(k)));
+				const float32 w = renderer::NkTexteLargeur(c.police, s.CStr()) + 30.f;
+				largeurOutil = w > largeurOutil ? w : largeurOutil;
+			}
+			float32 largeurAppareil = 0.f;
+			for (int32 k = 0; k < NkNbProfils(); ++k) {
+				const NkString s = NkString::Format("Appareil : %s", NkProfil(k).nom);
+				const float32 w = renderer::NkTexteLargeur(c.police, s.CStr()) + 30.f;
+				largeurAppareil = w > largeurAppareil ? w : largeurAppareil;
+			}
+			float32 x = b.x + 8.f;
+			x = BoutonOutil(c, x, "Enregistrer", NkMenuEditeur::NK_AUCUN, NK_A_ENREGISTRER);
+			x = Trait(c, x);
+			const NkString outil = NkString::Format("Outil : %s", NomOutil(c.m.outil));
+			x = BoutonOutil(c, x, outil.CStr(), NkMenuEditeur::NK_OUTIL, NK_A_AUCUNE, largeurOutil);
+			x = Trait(c, x);
+			x = BoutonOutil(c, x, "+ Ajouter", NkMenuEditeur::NK_AJOUTER, NK_A_AUCUNE);
+			x = Trait(c, x);
+			x = BoutonsLecture(c, x);
+			x = Trait(c, x);
+			const NkString appareil = NkString::Format("Appareil : %s", c.m.ProfilCourant().nom);
+			x = BoutonOutil(c, x, appareil.CStr(), NkMenuEditeur::NK_APPAREIL, NK_A_AUCUNE, largeurAppareil);
+			x = Trait(c, x);
+			BoutonOutil(c, x, "Réglages", NkMenuEditeur::NK_REGLAGES, NK_A_AUCUNE);
+		}
+
+		// =====================================================================
+		// LA BARRE D'ETAT : l'etat de jeu, l'annonce, les compteurs
+		// =====================================================================
+		void NkEditeurDessinerStatut(NkEditeurCadre &c) {
+			auto &dl = c.ctx.dl;
+			const NkRect &b = c.ui.statut;
+			dl.AddRectFilled(b, c.pal.entete);
+			dl.AddRectFilled(NkRect{b.x, b.y, b.w, 1.f}, c.pal.bord);
+
+			// L'etat de jeu, en PASTILLE : c'est la chose a ne jamais confondre.
+			// En jeu, les modifications disparaitront a l'arret.
+			const char *etat = "ÉDITION";
+			NkColor fond = c.pal.bouton;
+			NkColor texte = c.pal.texte;
+			if (c.m.etat == NkEtatJeu::NK_JEU) {
+				etat = "EN JEU";
+				fond = c.pal.accent;
+				texte = c.pal.surAccent;
+			} else if (c.m.etat == NkEtatJeu::NK_PAUSE) {
+				etat = "EN PAUSE";
+				fond = c.pal.selection;
+				texte = c.pal.fond;
+			}
+			const float32 pw = renderer::NkTexteLargeur(c.petite, etat) + 16.f;
+			const NkRect pastille{b.x + 6.f, b.y + 3.f, pw, b.h - 6.f};
+			dl.AddRectFilled(pastille, fond, 2.f);
+			renderer::NkTexteDansBoite(dl, c.petite, pastille, etat, texte);
+
+			const float32 ligneY = b.y + (b.h - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f;
+			if (c.m.messageAge < 4.f && !c.m.message.Empty()) {
+				renderer::NkTexte(dl, c.petite, pastille.x + pastille.w + 10.f, ligneY, c.m.message.CStr(), c.pal.texte,
+								  b.w * 0.55f);
+			}
+
+			NkVector<ecs::NkEntityId> ids;
+			c.m.scene.Entites(ids);
+			// ⚠️ VUS et DESSINES : l'ecart entre les deux EST la mesure du hors-champ.
+			const NkString compteurs =
+				NkString::Format("%u entités   ·   sprites vus %d / dessinés %d   ·   %.0f ips",
+								 static_cast<uint32>(ids.Size()), c.m.stats.entitesVues, c.m.stats.entitesDessinees,
+								 static_cast<double>(c.ui.ips));
+			renderer::NkTexteADroite(dl, c.petite, b.x + b.w - 10.f, ligneY, compteurs.CStr(), c.pal.attenue);
+		}
+
+		// =====================================================================
+		// LES CLOISONS
+		// =====================================================================
+		void NkEditeurCloisons(NkEditeurCadre &c) {
+			NkEditeurInterface &ui = c.ui;
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			NkRect cloisons[3] = {
+				NkRect{ui.outliner.x + ui.outliner.w, ui.outliner.y, EPAISSEUR_CLOISON, ui.outliner.h},
+				NkRect{ui.details.x - EPAISSEUR_CLOISON, ui.details.y, EPAISSEUR_CLOISON, ui.details.h},
+				NkRect{0.f, ui.tiroir.y - EPAISSEUR_CLOISON, ui.ecran.w, EPAISSEUR_CLOISON},
+			};
+			const bool visibles[3] = {ui.voirOutliner, ui.voirDetails, ui.voirTiroir};
+
+			if (ui.cloisonTenue >= 0) {
+				if (!in.mouseDown[0]) {
+					ui.cloisonTenue = -1;
+				} else if (ui.cloisonTenue == 0) {
+					ui.largeurOutliner = in.mousePos.x;
+				} else if (ui.cloisonTenue == 1) {
+					ui.largeurDetails = ui.ecran.w - in.mousePos.x;
+				} else {
+					ui.hauteurTiroir = ui.statut.y - in.mousePos.y;
+				}
+			}
+			for (int32 k = 0; k < 3; ++k) {
+				if (!visibles[k]) {
+					continue;
+				}
+				// La zone de saisie deborde de 2 px de chaque cote : 4 px se
+				// visent mal, et le trait visible n'a pas a grossir pour autant.
+				const NkRect prise = k < 2 ? NkRect{cloisons[k].x - 2.f, cloisons[k].y, cloisons[k].w + 4.f, cloisons[k].h}
+										   : NkRect{cloisons[k].x, cloisons[k].y - 2.f, cloisons[k].w, cloisons[k].h + 4.f};
+				const bool survol = NkEditeurDans(prise, in.mousePos);
+				const bool tenue = ui.cloisonTenue == k;
+				c.ctx.dl.AddRectFilled(cloisons[k], (survol || tenue) ? c.pal.accent : c.pal.fond);
+				if (survol || tenue) {
+					c.ctx.wantCursor = k < 2 ? nkgui::NkGuiCursor::ResizeEW : nkgui::NkGuiCursor::ResizeNS;
+				}
+				if (survol && in.mouseClicked[0] && ui.cloisonTenue < 0) {
+					ui.cloisonTenue = k;
+				}
+			}
+		}
+
+		// =====================================================================
+		// LE MENU OUVERT, dans dlOverlay
+		// =====================================================================
+		void NkEditeurDessinerMenuOuvert(NkEditeurCadre &c, NkMenuEditeur menuDebut) {
+			NkEditeurInterface &ui = c.ui;
+			if (ui.menu == NkMenuEditeur::NK_AUCUN) {
+				return;
+			}
+			NkVector<NkEntreeMenu> entrees;
+			RemplirMenu(c, ui.menu, entrees);
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			auto &dl = c.ctx.dlOverlay;
+			const float32 ligneH = renderer::NkTexteHauteurLigne(c.police, 16.f) + 7.f;
+			const float32 sepH = 7.f;
+
+			// La largeur : le plus long libelle, son raccourci, la place de la coche.
+			float32 largeur = ui.menuAncre.w > 190.f ? ui.menuAncre.w : 190.f;
+			float32 hauteur = 8.f;
+			for (uint32 i = 0; i < entrees.Size(); ++i) {
+				const NkEntreeMenu &e = entrees[i];
+				if (e.separateur) {
+					hauteur += sepH;
+					continue;
+				}
+				const float32 w = renderer::NkTexteLargeur(c.police, e.libelle.CStr()) +
+								  renderer::NkTexteLargeur(c.petite, e.raccourci) + 64.f;
+				largeur = w > largeur ? w : largeur;
+				hauteur += ligneH;
+			}
+			float32 x = ui.menuAncre.x;
+			float32 y = ui.menuAncre.y + ui.menuAncre.h;
+			if (x + largeur > ui.ecran.w - 2.f) {
+				x = ui.ecran.w - 2.f - largeur;
+			}
+			if (y + hauteur > ui.ecran.h - 2.f) {
+				y = ui.ecran.h - 2.f - hauteur;
+			}
+			x = x < 0.f ? 0.f : x;
+			y = y < 0.f ? 0.f : y;
+			const NkRect cadre{x, y, largeur, hauteur};
+			ui.menuRect = cadre;
+
+			dl.AddRectFilled(NkRect{cadre.x + 3.f, cadre.y + 4.f, cadre.w, cadre.h}, NkColor{0, 0, 0, 90}, 3.f);
+			dl.AddRectFilled(cadre, c.pal.entete, 2.f);
+			dl.AddRect(cadre, c.pal.bord, 1.f, 2.f);
+
+			int32 choisie = NK_A_AUCUNE;
+			float32 ly = cadre.y + 4.f;
+			for (uint32 i = 0; i < entrees.Size(); ++i) {
+				const NkEntreeMenu &e = entrees[i];
+				if (e.separateur) {
+					dl.AddRectFilled(NkRect{cadre.x + 8.f, ly + sepH * 0.5f, cadre.w - 16.f, 1.f}, c.pal.bord);
+					ly += sepH;
+					continue;
+				}
+				const NkRect r{cadre.x + 3.f, ly, cadre.w - 6.f, ligneH};
+				const bool cliquable = e.actif && e.action != NK_A_AUCUNE;
+				const bool survol = cliquable && NkEditeurDans(r, in.mousePos);
+				if (survol) {
+					dl.AddRectFilled(r, c.pal.accent, 2.f);
+				}
+				const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
+				NkColor t = cliquable ? c.pal.texte : c.pal.attenue;
+				if (survol) {
+					t = c.pal.surAccent;
+				}
+				if (e.coche) {
+					Coche(dl, r.x + 12.f, r.y + r.h * 0.5f, t);
+				}
+				renderer::NkTexte(dl, c.police, r.x + 26.f, ty, e.libelle.CStr(), t);
+				if (e.raccourci != nullptr && e.raccourci[0] != '\0') {
+					const float32 tyP = r.y + (r.h - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f;
+					renderer::NkTexteADroite(dl, c.petite, r.x + r.w - 8.f, tyP, e.raccourci,
+											 survol ? c.pal.surAccent : c.pal.attenue);
+				}
+				if (survol && in.mouseClicked[0]) {
+					choisie = e.action;
+				}
+				ly += ligneH;
+			}
+
+			if (choisie != NK_A_AUCUNE) {
+				ui.menu = NkMenuEditeur::NK_AUCUN;
+				NkEditeurExecuter(c, choisie);
+				return;
+			}
+			// Un clic HORS du menu le ferme -- sauf si ce menu vient de s'ouvrir
+			// sur ce clic meme (il n'etait pas celui du debut de trame).
+			const bool clic = in.mouseClicked[0] || in.mouseClicked[1] || in.mouseClicked[2];
+			if (clic && ui.menu == menuDebut && !NkEditeurDans(cadre, in.mousePos)) {
+				ui.menu = NkMenuEditeur::NK_AUCUN;
+			}
+		}
+
+	} // namespace editeur
+} // namespace nkentseu

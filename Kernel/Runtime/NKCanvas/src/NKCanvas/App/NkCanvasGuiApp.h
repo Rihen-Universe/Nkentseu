@@ -79,6 +79,20 @@ namespace nkentseu {
 					(void)deltaTime;
 				}
 
+				/// La taille du corps de texte, en pixels, pour cette mise en page.
+				/// Relue a chaque OnLayout : la police se recharge si elle change
+				/// de plus de 1,5 px.
+				///
+				/// ⚠️ AJOUTE LE 2026-09-29 POUR LES EDITEURS. Le defaut suit
+				/// l'ecran (petit cote x 0,036), ce qui est juste pour un JEU
+				/// qu'on lit a bout de bras sur un telephone -- et donne 27 px
+				/// sur un bureau de 760 px de haut : bien trop gros pour un
+				/// editeur dense (UnkenyEditor veut ~13 px). Le defaut ne change
+				/// pas : aucun jeu existant ne bouge tant qu'il ne le redefinit pas.
+				virtual float32 TaillePoliceCorps(const NkLayoutInfo &lay) const noexcept {
+					return SuggestedBodyPx(lay);
+				}
+
 				// --- Services -------------------------------------------------
 				nkgui::NkGuiContext &Gui() noexcept {
 					return mGuiContext;
@@ -194,7 +208,7 @@ namespace nkentseu {
 						return false;
 					}
 
-					LoadFonts(SuggestedBodyPx(lay));
+					LoadFonts(TaillePoliceCorps(lay));
 					mGuiContext.font = &mFontBody;
 					mGuiReady = true;
 					return OnGuiInit();
@@ -222,7 +236,7 @@ namespace nkentseu {
 					if (!mGuiReady) {
 						return; // OnInit n'a pas encore tourne : rien a recharger
 					}
-					const float32 wanted = SuggestedBodyPx(layout);
+					const float32 wanted = TaillePoliceCorps(layout);
 					const float32 ecart = wanted > mLoadedPx ? wanted - mLoadedPx : mLoadedPx - wanted;
 					if (ecart < 1.5f) {
 						return; // sous ce seuil le rechargement ne se voit pas

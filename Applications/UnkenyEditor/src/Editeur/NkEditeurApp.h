@@ -1,98 +1,105 @@
+//
+// NkEditeurApp.h
 // =============================================================================
-// NkEditeurApp.h — l'assemblage de l'editeur d'Unkeny
+// Description :
+//   L'assemblage de l'editeur d'Unkeny : la fenetre (NkCanvasGuiApp), le
+//   modele (la scene), l'interface (NkEditeurInterface.h) et l'entree.
 //
-// ⚠️ REECRIT LE 2026-09-01 : DE `NkCanvasApp` VERS `NkEditorShell`
-//   La premiere version batissait l'editeur sur `NkCanvasApp` -- la coquille
-//   d'APPLICATION de NKCanvas -- et redessinait a la main une barre d'outils,
-//   des colonnes, un inspecteur et une barre d'etat. NKEditorKit porte tout
-//   cela, et la regle du depot est explicite : on cherche dans le kit AVANT
-//   d'ecrire un element d'interface. Je ne l'avais pas fait.
+// Caracteristiques :
+//   - Bati sur renderer::NkCanvasGuiApp (NKCanvas) : fenetre, NKGui, polices,
+//     et le cycle de vie mobile que NkEditorShell n'avait pas.
+//   - L'entree NKGui est REMPLIE ICI, dans OnEvent, avec les correspondances de
+//     NkEditorShell::HookEvents / MapEditKey. Sans shell, personne d'autre ne
+//     le fait : pas une touche n'atteindrait un champ de saisie.
+//   - `--selftest` repond AVANT toute fenetre (OnCommandLine).
 //
-// ⚠️ POURQUOI IL FALLAIT CHOISIR, ET NON COMBINER
-//   `NkCanvasApp` et `NkEditorShell` possedent TOUTES DEUX la fenetre et la
-//   boucle. Deux coquilles ne coexistent pas dans une fenetre -- c'est la meme
-//   exclusivite que NKCanvas/NKRenderer. Mesure du 2026-09-01, sur sept axes :
-//
-//     NkEditorShell : ancrage, palette de commandes, barres d'activite ;
-//                     ZERO cycle de vie mobile, zone sure, pointeur tactile
-//     NkCanvasApp   : exactement l'inverse
-//
-//   Pour un EDITEUR DE BUREAU, c'est le shell qui gagne : l'ancrage et la
-//   palette servent tous les jours, le cycle de vie mobile ne sert jamais. Ce
-//   qu'on garde de l'autre monde -- la simulation de ZONE SURE -- est un DESSIN
-//   dans le viseur, pas un service de la coquille : il traverse intact.
-//
-// CE QUE L'EDITEUR EST, ET POURQUOI IL EXISTE
-//   Le premier consommateur d'Unkeny. Un moteur sans consommateur ne se prouve
-//   pas : chaque panneau ici EXERCE quelque chose du moteur -- la scene, l'ECS,
-//   la physique, le rendu, le hors-champ.
+// ⚠️ REECRIT LE 2026-09-29 : DE `NkEditorShell` VERS `NkCanvasGuiApp`
+//   Le 2026-09-01, l'editeur avait quitte NkCanvasApp pour NkEditorShell, pour
+//   son ancrage et sa palette. Le prix s'est mesure a l'ecran : toute
+//   application batie sur le shell heritait du chrome de NKCode (barres
+//   d'activite gauche et droite, onglets lateraux, indicateur de zoom), et la
+//   disposition d'UE5 ne pouvait pas s'y dessiner. NK3DModeler avait deja fait
+//   le choix inverse (docs/UI_SPEC.md §0) : on peint la disposition, et on ne
+//   prend dans NKEditorKit que des PIECES (theme, arbre, navigateur de
+//   contenu, champ de saisie). C'est ce que fait desormais l'editeur.
 //
 // OU AJOUTER LA PROCHAINE CHOSE
-//   - un panneau        -> NkEditeurPanneaux.h, puis `AddPanel` dans Init()
-//   - une commande      -> `RegisterCommand` dans Init() (palette Ctrl+Maj+P)
-//   - un etat partage   -> NkEditeurModele.h
+//   - une commande      -> NkActionEditeur + NkEditeurExecuter (Chrome.cpp)
+//   - un panneau        -> une fonction NkEditeurDessiner*, appelee dans OnDraw
+//   - un etat partage   -> NkEditeurModele.h (scene) ou NkEditeurInterface.h
+//
+// Auteur   : Rihen
+// Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
+
 #pragma once
 
-#include "Editeur/NkEditeurModele.h"
-#include "Editeur/NkEditeurPanneaux.h"
+#ifndef __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
+#define __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
 
+#include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurModele.h"
+
+#include "NKCanvas/App/NkCanvasGuiApp.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkOptional.h"
-#include "NKEditorKit/NkEditorShell.h"
+#include "NKEditorKit/NkTheme.h"
+#include "NKEvent/NkKeyboardEvent.h"
 #include "NKMemory/NKMemory.h"
 
 namespace nkentseu {
 	namespace editeur {
 
-		class NkEditeurApp {
+		class NkEditeurApp : public renderer::NkCanvasGuiApp {
 			public:
-				NkEditeurApp() noexcept;
+				NkEditeurApp();
 
-				/// Lit les arguments de la ligne de commande.
-				///
-				/// Rend un code de sortie quand l'application ne doit PAS
-				/// demarrer (`--selftest`), et rien sinon.
+			protected:
+				/// `--profil=N`, `--paysage`, `--simuler`, `--selftest`.
 				///
 				/// ⚠️ `--profil=` et `--paysage` existent pour qu'une capture
-				/// d'ecran soit REPRODUCTIBLE, donc comparable d'une version a
-				/// l'autre : un reglage qu'on ne peut atteindre qu'a la souris ne
-				/// se verifie jamais en automatique.
-				NkOptional<int> LireArguments(const NkVector<NkString> &args);
-
-				/// Cree la fenetre, la scene et les panneaux.
-				bool Init();
-
-				/// La boucle du shell. Bloquante ; rend le code de sortie.
-				int Run();
+				/// d'ecran soit REPRODUCTIBLE (avec `--capture=` de la coquille) :
+				/// un reglage qu'on ne peut atteindre qu'a la souris ne se verifie
+				/// jamais en automatique.
+				NkOptional<int> OnCommandLine(const NkVector<NkString> &args) override;
+				bool OnGuiInit() override;
+				void OnTick(float32 deltaTime) override;
+				void OnDraw(nkgui::NkGuiDrawList &dl) override;
+				bool OnEvent(const NkEvent &event) override;
+				/// La croix de la fenetre, Alt+F4 : on ne ferme pas une scene
+				/// modifiee sans demander (la boite de NkEditeurDessinerConfirmation).
+				bool OnCloseRequested() override;
+				/// ~13 px : un editeur dense, pas un jeu lu a bout de bras.
+				float32 TaillePoliceCorps(const renderer::NkLayoutInfo &lay) const noexcept override;
 
 			private:
+				/// Touche OS -> touche NKGui (enfoncee / relachee).
+				void MapperTouche(NkKey touche, bool enfoncee) noexcept;
+				/// Les raccourcis globaux, APRES le dessin : un champ de saisie
+				/// focalise les a vus passer et les garde pour lui.
+				void Raccourcis(NkEditeurCadre &cadre);
+				/// Les demandes de la barre de titre (reduire, agrandir, deplacer,
+				/// redimensionner), consommees HORS du dessin : voir NkEditeurInterface.h.
+				void AppliquerDemandesFenetre();
 
-				// ⚠️ L ORDRE DE DECLARATION EST L ORDRE DE CONSTRUCTION, ET SON
-				// INVERSE EST L ORDRE DE DESTRUCTION. Il est donc porteur de
-				// sens ici, et pas seulement de style :
-				//
-				//   construction : modele -> panneaux -> shell
-				//   destruction  : shell  -> panneaux -> modele
-				//
-				// Les panneaux tiennent une REFERENCE au modele, et le shell
-				// tient des POINTEURS vers les panneaux. Chacun meurt donc avant
-				// ce dont il depend. Declarer le shell en premier inverserait la
-				// destruction et le laisserait pointer vers des panneaux morts --
-				// erreur que j ai faite en ecrivant ce fichier, et que le
-				// compilateur n aurait jamais signalee.
-				NkEditeurModele mModele;
-
-				NkPanneauViseur mViseur;
-				NkPanneauHierarchie mHierarchie;
-				NkPanneauActeurs mActeurs;
-				NkPanneauInspecteur mInspecteur;
-				NkPanneauMonde mMonde;
-				NkPanneauOutils mOutils;
-
-				memory::NkUniquePtr<editorkit::NkEditorShell> mShell;
+				// ⚠️ SUR LE TAS, ET CE N'EST PAS UN DETAIL : `Run<T>` construit
+				// l'application SUR LA PILE, et le modele contient une scene, un
+				// monde ECS et un monde physique. Ici l'objet reste petit.
+				memory::NkUniquePtr<NkEditeurModele> mModele;
+				memory::NkUniquePtr<NkEditeurInterface> mUi;
+				editorkit::NkTheme mTheme;
+				NkPaletteEditeur mPalette;
+				float32 mDernierDt = 1.f / 60.f;
+				float32 mTempsIps = 0.f; ///< temps ecoule depuis le dernier releve d'ips
+				int32 mTramesIps = 0;	 ///< trames comptees depuis ce releve
+				/// Appui recu depuis la derniere trame, pas encore vu par NKGui.
+				bool mAppuiNonVu[3] = {};
+				/// Relachement retenu parce que son appui n'avait pas ete vu.
+				bool mRelacheDiffere[3] = {};
 		};
 
 	} // namespace editeur
 } // namespace nkentseu
+
+#endif // __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__

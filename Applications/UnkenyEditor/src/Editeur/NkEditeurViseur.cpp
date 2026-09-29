@@ -42,16 +42,14 @@ namespace nkentseu {
 			const NkTheme &th = m.theme;
 			const NkProfilAppareil profil = m.ProfilCourant();
 			NkStatsRendu stats;
-			// Le fond du viseur, puis l'aire d'appareil : deux tons distincts,
-			// pour qu'on voie du premier coup d'oeil ce qui est DANS l'ecran
-			// simule et ce qui est autour.
-			dl.AddRectFilled(viseur, NkColor(10, 12, 17));
-			dl.AddRectFilled(appareil, NkColor(20, 23, 31));
-			// ⚠️ DECOUPE OBLIGATOIRE sur l'aire d'appareil. Sans elle, une scene
-			// plus grande que l'ecran simule deborde sur les panneaux — et on
-			// juge une mise en page mobile sur une image qui montre plus que ce
-			// que le telephone montrerait.
-			dl.PushClipRect(appareil, true);
+			// ⚠️ LE MONDE REMPLIT TOUT LE VISEUR (Rihen, 2026-09-29). La scene
+			// etait dessinee dans le rectangle de l'appareil simule, centre dans le
+			// panneau : un cadre dans le cadre, et une part de la vue perdue. Le
+			// profil d'appareil reste un REGLAGE ; il se voit en surimpression
+			// discrete, plus bas, et seulement s'il n'est pas le bureau lui-meme.
+			dl.AddRectFilled(viseur, NkColor(20, 23, 31));
+			// Decoupe sur le viseur : la scene ne deborde pas sur les panneaux.
+			dl.PushClipRect(viseur, true);
 			if (m.voirGrille) {
 				NkDessinerGrille(dl, scene.Camera(), 1.f);
 			}
@@ -84,12 +82,30 @@ namespace nkentseu {
 			}
 			dl.PopClipRect();
 
+			// Le bord du viseur dit l'ETAT — VERT en jeu, AMBRE en pause : on sait
+			// d'un regard si ce qu'on voit est la scene editee ou un instant de
+			// simulation. En edition, rien : le viseur n'a pas a s'encadrer.
+			if (m.etat != NkEtatJeu::NK_EDITION) {
+				const NkColor bordEtat = m.etat == NkEtatJeu::NK_JEU ? th.succes : th.or_;
+				dl.AddRect(viseur, bordEtat, 2.f);
+			}
+
+			// --- L'APPAREIL SIMULE, EN SURIMPRESSION ----------------------
+			// Le bureau n'a ni encoche ni indicateur de geste, et son ecran EST
+			// la vue : il n'y a rien a surimprimer.
+			if (m.profil == 0) {
+				return stats;
+			}
+			// Un contour fin : ce que l'ecran de l'appareil montrerait, a son
+			// rapport, sans rien masquer du monde autour.
+			dl.AddRect(appareil, NkColor(200, 205, 215, 120), 1.f, 6.f);
+
 			// --- LA ZONE SURE SIMULEE ------------------------------------
 			// Elle est dessinee APRES la decoupe : c'est une surcouche de
 			// l'editeur, pas un element de la scene.
 			//
-			// ⚠️ C'est la raison d'etre de tout ce panneau. Ce qui tombe dans les
-			// bandes hachurees est INATTEIGNABLE sur l'appareil — pas mal place :
+			// ⚠️ C'est la raison d'etre de ce reglage. Ce qui tombe dans les
+			// bandes est INATTEIGNABLE sur l'appareil — pas mal place :
 			// inatteignable. Et cela ne se voit JAMAIS depuis une machine de
 			// bureau.
 			const float32 ex = appareil.w / static_cast<float32>(profil.largeur);
@@ -119,11 +135,6 @@ namespace nkentseu {
 								  appareil.h - hHaut - hBas},
 						   trait, 1.f);
 			}
-			// Le bord de l'appareil, toujours visible — VERT en jeu, AMBRE en
-			// pause : on sait d'un regard si ce qu'on voit est la scene editee
-			// ou un instant de simulation.
-			const NkColor bordEtat = m.etat == NkEtatJeu::NK_JEU ? th.succes : (m.etat == NkEtatJeu::NK_PAUSE ? th.or_ : th.bord);
-			dl.AddRect(appareil, bordEtat, 2.f, 6.f);
 			return stats;
 		}
 

@@ -64,18 +64,22 @@ with project("UnkenyEditor"):
     # remettre dependfiles(["assets"]) ici ET androidassets(["assets"]) plus bas.
 
     nkentseudependson(
-        # NKEditorKit AJOUTE le 2026-09-01 : l editeur est bati sur la coquille
-        # du kit (ancrage, palette de commandes, panneaux) au lieu de redessiner
-        # a la main une barre d outils, des colonnes et un inspecteur.
+        # NKEditorKit : depuis le 2026-09-29, l editeur n utilise plus sa coquille
+        # (NkEditorShell imposait le chrome de NKCode : barres d activite, onglets
+        # lateraux). Il en prend des PIECES : NkTheme, l arbre, le navigateur de
+        # contenu, le champ de saisie, la barre de defilement.
         #
-        # ⚠️ NKCanvas reste declare ICI, et c est desormais NECESSAIRE : depuis
-        # que le kit n instancie plus de renderer par defaut, c est
-        # l application qui inclut NkEditorCanvasRenderer.h et l injecte. Le kit
-        # ne tire donc plus NKCanvas tout seul.
+        # ⚠️ NKCanvas est la BASE de la fenetre (renderer::NkCanvasGuiApp, en-tete
+        # seul) : il porte la fenetre, NKGui, les polices et le cycle de vie.
         ["NKEditorKit", "NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
-         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny"],
+         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny",
+         # NKMedia : NKAudio en depend (decodeur Opus, NkOpusCodec.cpp) et le lien
+         # Windows (clang + ld de msys2) ne le tire pas tout seul : sans lui,
+         # « undefined reference to media::NkOpusFile::Decode » (mesure du
+         # 2026-09-29). GemCrush le declare de la meme facon.
+         "NKMedia"],
         extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous
@@ -111,6 +115,14 @@ with project("UnkenyEditor"):
         if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
+        # PILE DE 32 Mo. MESURE du 2026-09-29 : en Debug, le prologue de
+        # unkeny::NkUnkenyLancerBanc reserve 0xA9D408 octets (11,1 Mo : chaque
+        # NkScene du banc a sa place, clang -O0 ne les partage pas). La pile
+        # par defaut de Windows (1 Mo) tombait donc des l'entree de
+        # `--selftest` : STATUS_STACK_OVERFLOW (0xC00000FD), sans une ligne de
+        # sortie -- le banc semblait « muet ». La chaine Windows est
+        # clang-mingw (ld de msys2), d'ou la forme -Wl,--stack.
+        ldflags(["-Wl,--stack,33554432"])
 
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
         windowedapp()

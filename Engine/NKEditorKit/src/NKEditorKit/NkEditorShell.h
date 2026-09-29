@@ -498,6 +498,9 @@ namespace nkentseu {
 						mRailOuvert[slot] = index;
 				}
 
+				/// Les barres d activite (icones de vues a gauche, IA a droite).
+				/// ⚠️ FAUSSES PAR DEFAUT depuis le 2026-09-29 : c est le chrome de NKCode,
+				/// pas celui du kit. Une application qui les veut les DEMANDE.
 				void SetActivityBars(bool left, bool right) noexcept {
 					mActivityBarLeft = left;
 					mActivityBarRight = right;
@@ -1172,8 +1175,11 @@ namespace nkentseu {
 				nkgui::NkColor mRailStatusColor = {63, 185, 80, 255};
 
 				bool mFooterZoom = true;					  // cf. SetFooterZoomIndicator
-				bool mActivityBarLeft = true;				  // cf. SetActivityBars
-				bool mActivityBarRight = true;
+				// OPT-IN : faux par defaut. Seul NKCode s'en sert (il les demande par
+				// SetActivityBars(true, true)) ; les autres applis devaient les retirer
+				// une a une, ce qui etait un defaut du kit et non un choix de l'appli.
+				bool mActivityBarLeft = false;				  // cf. SetActivityBars
+				bool mActivityBarRight = false;
 				bool mMaskBodyOnPopup = true;				  // cf. SetMaskBodyOnPopup
 				uint32 mActTexL[8] = {};					  // textures vues gauche (0 = trait)
 				uint32 mActTexR[4] = {};					  // textures IA droite

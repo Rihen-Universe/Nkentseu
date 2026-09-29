@@ -30,24 +30,16 @@ NKENTSEU_DEFINE_APP_DATA(([]() {
 })());
 
 int nkmain(const nkentseu::NkEntryState &state) {
-	// ⚠️ L'application est allouee sur le TAS : elle contient une scene, un
-	// monde ECS et quatre panneaux. Sur la pile, elle depasserait la limite par
-	// defaut sur plusieurs plateformes — et le plantage sortirait au demarrage,
-	// sans rapport visible avec sa cause.
-	auto app = nkentseu::memory::NkMakeUnique<nkentseu::editeur::NkEditeurApp>();
-	if (!app) {
-		return -1;
-	}
-
-	// Les arguments d'abord : `--selftest` doit pouvoir repondre SANS ouvrir de
-	// fenetre, sinon il ne sert a rien en automatique.
-	const nkentseu::NkOptional<int> sortie = app->LireArguments(state.args);
-	if (sortie.HasValue()) {
-		return sortie.Value();
-	}
-
-	if (!app->Init()) {
-		return -1;
-	}
-	return app->Run();
+	// La coquille (NkCanvasGuiApp) lit les arguments AVANT toute fenetre :
+	// `--selftest` repond donc sans ecran ni GPU (NkEditeurApp::OnCommandLine).
+	// ⚠️ `Run<T>` construit l'application sur la PILE : c'est pourquoi la scene
+	// et l'interface, elles, vivent sur le tas (voir NkEditeurApp.h).
+#if defined(_WIN32)
+	// LA CONSOLE EN UTF-8, avant toute sortie : `--selftest` ecrit « Unkeny — banc
+	// du moteur », et une console Windows laissee en page OEM l'affichait
+	// « Unkeny ÔÇö banc » (vu par Rihen le 2026-09-29). Ici plutot que dans le
+	// banc : c'est l'APPLICATION qui possede sa console, pas le moteur.
+	SetConsoleOutputCP(CP_UTF8);
+#endif
+	return nkentseu::renderer::NkCanvasApp::Run<nkentseu::editeur::NkEditeurApp>(state);
 }
