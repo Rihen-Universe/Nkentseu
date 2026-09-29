@@ -37,6 +37,7 @@
 #ifndef __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
 #define __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
 
+#include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
 
@@ -88,6 +89,8 @@ namespace nkentseu {
 				// monde ECS et un monde physique. Ici l'objet reste petit.
 				memory::NkUniquePtr<NkEditeurModele> mModele;
 				memory::NkUniquePtr<NkEditeurInterface> mUi;
+				/// « Jouer » : qui recoit le clavier, la manette et le doigt (29/09).
+				memory::NkUniquePtr<NkEditeurEntrees> mEntrees;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;
