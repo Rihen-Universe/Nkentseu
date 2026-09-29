@@ -930,20 +930,70 @@ namespace nkentseu {
 				} else {
 					caretW = ctx.font->Face()->CalcTextSizeX(buf, buf + caret);
 				}
+
+				// ── LA COMPOSITION IME (29/09) : inseree AU CURSEUR, soulignee ──
+				// Elle n'est PAS dans `buf` : elle n'y entrera que validee, par
+				// PushChar. On l'affiche donc dans une copie. Sans composition
+				// (le cas de toujours), `draw` et `caretW` restent ceux d'avant.
+				// ⚠️ PAS en mot de passe ni en lecture seule : afficher en clair ce
+				//    qu'on compose dans un champ masque trahirait le mot de passe.
+				const char *comp = ctx.input.composition;
+				const bool composing = focused && !pw && !readOnly && ctx.input.HasComposition();
+				static char shown[2048];
+				float32 compW = 0.f;
+				float32 caretDispW = caretW;
+				if (composing) {
+					int32 compLen = 0;
+					while (comp[compLen] != '\0') {
+						++compLen;
+					}
+					if (len + compLen < static_cast<int32>(sizeof(shown))) {
+						::memcpy(shown, buf, static_cast<usize>(caret));
+						::memcpy(shown + caret, comp, static_cast<usize>(compLen));
+						::memcpy(shown + caret + compLen, buf + caret, static_cast<usize>(len - caret));
+						shown[len + compLen] = '\0';
+						draw = shown;
+						compW = ctx.font->Face()->CalcTextSizeX(comp, comp + compLen);
+						// Le curseur de l'IME compte des CODE POINTS ; on le ramene
+						// en octets pour mesurer.
+						int32 octets = 0;
+						int32 cps = 0;
+						while (octets < compLen && cps < ctx.input.compositionCursor) {
+							++octets;
+							while (octets < compLen && (static_cast<unsigned char>(comp[octets]) & 0xC0u) == 0x80u) {
+								++octets;
+							}
+							++cps;
+						}
+						caretDispW = caretW + ctx.font->Face()->CalcTextSizeX(comp, comp + octets);
+					}
+				}
+
 				if (focused) {
 					const float32 viewW = clip.w;
-					if (caretW - ctx.inputScroll > viewW)
-						ctx.inputScroll = caretW - viewW;
-					if (caretW - ctx.inputScroll < 0.f)
-						ctx.inputScroll = caretW;
+					if (caretDispW - ctx.inputScroll > viewW)
+						ctx.inputScroll = caretDispW - viewW;
+					if (caretDispW - ctx.inputScroll < 0.f)
+						ctx.inputScroll = caretDispW;
 					if (ctx.inputScroll < 0.f)
 						ctx.inputScroll = 0.f;
 				}
 				const float32 tx = clip.x - (focused ? ctx.inputScroll : 0.f);
 				const NkColor tc = readOnly ? ctx.theme.textDisabled : ctx.theme.text;
 				ctx.DL().AddText(ctx.font->Face(), ctx.font->TexId(), {tx, baseY}, draw, tc);
-				if (focused && (static_cast<int32>(ctx.time * 2.f) & 1) == 0) {
-					ctx.DL().AddRectFilled({tx + caretW, field.y + 5.f, 1.5f, field.h - 10.f}, tc);
+				if (composing && compW > 0.f) {
+					// Le soulignement est la convention de TOUS les systemes : il
+					// dit « ceci n'est pas encore ecrit ».
+					ctx.DL().AddRectFilled({tx + caretW, baseY + 2.f, compW, 1.f}, tc);
+				}
+				if (focused && (composing || (static_cast<int32>(ctx.time * 2.f) & 1) == 0)) {
+					ctx.DL().AddRectFilled({tx + caretDispW, field.y + 5.f, 1.5f, field.h - 10.f}, tc);
+				}
+				if (focused) {
+					// Ou l'IME doit ouvrir sa composition et ses candidats : au
+					// debut de la composition, sur toute sa largeur.
+					ctx.imeZoneValid = true;
+					ctx.imeZone = {tx + caretW, field.y, compW > 1.5f ? compW : 1.5f, field.h};
 				}
 			}
 			ctx.DL().PopClipRect();

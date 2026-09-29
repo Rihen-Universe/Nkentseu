@@ -19,6 +19,7 @@
 #include "NkApplicationEvent.h"
 #include "NkWindowEvent.h"
 #include "NkKeyboardEvent.h"
+#include "NkTextCompositionEvent.h" // composition IME (ajout du 29/09)
 #include "NkMouseEvent.h"
 #include "NkTouchEvent.h"
 #include "NkGamepadEvent.h"
