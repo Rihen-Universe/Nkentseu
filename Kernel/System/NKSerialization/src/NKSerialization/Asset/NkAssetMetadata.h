@@ -221,6 +221,10 @@ namespace nkentseu {
 		Font = 14,
 		Shader = 15,
 		Script = 16,
+		// AJOUTES le 2026-09-29, a la fin : les valeurs d'avant ne bougent pas
+		// (elles sont ecrites dans l'en-tete des assets deja sur disque).
+		Scene = 17,	   ///< une scene : entites, hierarchie, etat de simulation (.nkscene)
+		SaveGame = 18, ///< une sauvegarde de PARTIE (.nksave) — pas une scene qu'on edite
 		Custom = 255,
 	};
 
@@ -258,6 +262,10 @@ namespace nkentseu {
 				return "Shader";
 			case NkAssetType::Script:
 				return "Script";
+			case NkAssetType::Scene:
+				return "Scene";
+			case NkAssetType::SaveGame:
+				return "SaveGame";
 			case NkAssetType::Custom:
 				return "Custom";
 			default:
@@ -316,6 +324,10 @@ namespace nkentseu {
 				return "nkshader";
 			case NkAssetType::Script:
 				return "nkscript";
+			case NkAssetType::Scene:
+				return "nkscene";
+			case NkAssetType::SaveGame:
+				return "nksave";
 			case NkAssetType::Custom:
 			default:
 				// `.nkasset` reste la nature « non standard » — et reste accepte
@@ -356,6 +368,7 @@ namespace nkentseu {
 			{"nkmap", NkAssetType::Map},			   {"nkworld", NkAssetType::World},
 			{"nkprefab", NkAssetType::Prefab},		   {"nkfont", NkAssetType::Font},
 			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
+			{"nkscene", NkAssetType::Scene},		   {"nksave", NkAssetType::SaveGame},
 			{"nkasset", NkAssetType::Custom},
 		};
 		for (const Paire &p : kTable)
