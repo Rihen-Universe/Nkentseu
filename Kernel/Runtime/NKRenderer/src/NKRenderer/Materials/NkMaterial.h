@@ -114,7 +114,7 @@ namespace nkentseu {
 				// LECTURE DES PARAMETRES DE SURFACE
 				// Dix setters existaient pour ZERO getter. Consequence mesuree : les
 				// applications ne pouvaient pas RELIRE ce qu elles avaient pose, donc
-				// elles doublaient l etat de leur cote -- NK3DModeler tient sa propre
+				// elles doublaient l etat de leur cote -- NKCraft tient sa propre
 				// table nkvpProjMats et la repousse par le draw call a chaque image.
 				// Un etat double finit toujours par diverger, et c est alors le mauvais
 				// qui est lu.

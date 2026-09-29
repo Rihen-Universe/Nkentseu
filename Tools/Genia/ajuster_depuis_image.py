@@ -4,7 +4,7 @@
 # @File    Tools/Genia/ajuster_depuis_image.py
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
-# L'AJUSTEMENT PAR PROJECTION, TEL QUE L'APPLICATION L'APPELLE (Q17 dans NK3DModeler).
+# L'AJUSTEMENT PAR PROJECTION, TEL QUE L'APPLICATION L'APPELLE (Q17 dans NKCraft).
 #
 # Rodolf : « il faut que ca passe, car je veux deja tester la PERTINENCE du
 # systeme de generation 3D. » L'ajustement vivait dans un outil de mesure ; il
