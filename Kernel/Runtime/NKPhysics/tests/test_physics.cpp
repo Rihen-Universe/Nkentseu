@@ -28,6 +28,7 @@ int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur ma
 int RunCouplageTests(int &pass, int &fail); // test_eau_couplage.cpp (2026-09-14, les corps et l eau s influencent)
 int RunParticules2DTests(int &pass, int &fail); // test_particules2d.cpp (2026-09-29, corps mous et fluides 2D)
 int RunRigides2DTests(int &pass, int &fail);	// test_rigides2d.cpp (2026-09-29, plan, polygones, rayons, joints)
+int RunParticules2DJeuTests(int &pass, int &fail); // test_particules2d_jeu.cpp (2026-09-29, un corps mou personnage)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
@@ -42,6 +43,7 @@ int main() {
 	if (filtre != nullptr && std::strcmp(filtre, "2d") == 0) {
 		RunParticules2DTests(g_pass, g_fail);
 		RunRigides2DTests(g_pass, g_fail);
+		RunParticules2DJeuTests(g_pass, g_fail);
 		logger.Info("=== NKPhysics (2d seulement) : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 		return g_fail == 0 ? 0 : 1;
 	}
@@ -691,6 +693,7 @@ int main() {
 	RunCouplageTests(g_pass, g_fail);
 	RunParticules2DTests(g_pass, g_fail);
 	RunRigides2DTests(g_pass, g_fail);
+	RunParticules2DJeuTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;
