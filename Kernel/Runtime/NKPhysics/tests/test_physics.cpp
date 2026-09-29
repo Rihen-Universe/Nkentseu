@@ -5,6 +5,9 @@
 #include "NKPhysics/NKPhysics.h"
 #include "NKLogger/NkLog.h"
 
+#include <cstdlib>
+#include <cstring>
+
 using namespace nkentseu;
 using namespace nkentseu::physics;
 
@@ -24,6 +27,7 @@ int RunEauTests(int &pass, int &fail);   // test_eau.cpp (2026-09-06, §6.6)
 int RunGarmentTests(int &pass, int &fail); // test_garment.cpp (vetements sur mannequin, 2026-09-05)
 int RunCouplageTests(int &pass, int &fail); // test_eau_couplage.cpp (2026-09-14, les corps et l eau s influencent)
 int RunParticules2DTests(int &pass, int &fail); // test_particules2d.cpp (2026-09-29, corps mous et fluides 2D)
+int RunRigides2DTests(int &pass, int &fail);	// test_rigides2d.cpp (2026-09-29, plan, polygones, rayons, joints)
 
 static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 	float32 d = a - b;
@@ -31,6 +35,16 @@ static bool Near(float32 a, float32 b, float32 eps = 1e-3f) {
 }
 
 int main() {
+	// NKPHYSICS_TESTS=2d : les seuls blocs 2D. La suite entiere dure ~9 min en
+	// Debug (les vetements) ; ce filtre sert a iterer, JAMAIS a mesurer un
+	// avant / apres -- celui-ci se fait toujours sur la suite complete.
+	const char *filtre = std::getenv("NKPHYSICS_TESTS");
+	if (filtre != nullptr && std::strcmp(filtre, "2d") == 0) {
+		RunParticules2DTests(g_pass, g_fail);
+		RunRigides2DTests(g_pass, g_fail);
+		logger.Info("=== NKPhysics (2d seulement) : {0} passes, {1} echecs ===\n", g_pass, g_fail);
+		return g_fail == 0 ? 0 : 1;
+	}
 	// ── M0 : chute libre (Euler semi-implicite) ─────────────────────────────
 	{
 		NkPhysicsWorld world(NkPhysicsConfig{/*gravity*/ {0.f, -9.81f, 0.f}});
@@ -676,6 +690,7 @@ int main() {
 	// perturbation de la surface par les corps (moitie B) -- test_eau_couplage.cpp.
 	RunCouplageTests(g_pass, g_fail);
 	RunParticules2DTests(g_pass, g_fail);
+	RunRigides2DTests(g_pass, g_fail);
 
 	logger.Info("=== NKPhysics : {0} passes, {1} echecs ===\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;
