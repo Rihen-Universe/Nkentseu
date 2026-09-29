@@ -29,6 +29,9 @@
 //   (k12) champ NKGui focalise + composition IME « abc » : la zone IME est
 //         publiee, des pixels de plus sont peints, et le tampon N'EST PAS
 //         touche ; (k12n) en mot de passe, rien n'est affiche en clair
+//   (k13) navigation au focus NKGui, ALLUMEE : Bas, Bas, Sud sur trois boutons
+//         -> « Deux » active, lui seul ; (k13n) ETEINTE (le defaut) : la meme
+//         suite ne clique rien et ne touche pas au pointeur
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -43,6 +46,7 @@
 #include "NKGui/Core/NkGuiContext.h"
 #include "NKGui/Core/NkGuiDrawListRaster.h"
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKGui/Core/NkGuiNavigation.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include "NKImage/Core/NkImage.h"
@@ -521,6 +525,57 @@ namespace nkentseu {
 				Temoin(mdpAvec == mdpSans, "(k12n) mot de passe : la composition n'est pas montree en clair",
 					   static_cast<float32>(mdpAvec) - static_cast<float32>(mdpSans));
 				memory::NkGetDefaultAllocator().Delete(pc);
+			}
+
+			// ── (k13) la navigation au focus dans NKGui (manette) ─────────────
+			{
+				struct NkMenuDeBanc {
+						nkgui::NkGuiContext ctx;
+						nkgui::NkGuiNavigation nav;
+						int32 clics[3] = {};
+
+						void Image(nkgui::NkGuiNavDirection d, bool activer) {
+							nkgui::NkGuiNavAvancer(ctx, nav, d, activer, false);
+							ctx.BeginFrame(1.f / 60.f);
+							ctx.BeginLayout(nkgui::NkRect{0.f, 0.f, 200.f, 200.f});
+							static const char *kNoms[3] = {"Un", "Deux", "Trois"};
+							for (int32 i = 0; i < 3; ++i) {
+								if (nkgui::Button(ctx, kNoms[i])) {
+									++clics[i];
+								}
+							}
+							nkgui::NkGuiNavDessiner(ctx, nav);
+							ctx.EndFrame();
+						}
+
+						/// Bas, Bas, puis Sud : quatre images pour que le clic complet
+						/// (viser, appuyer, relacher) ait lieu.
+						void Suite() {
+							Image(nkgui::NkGuiNavDirection::Aucune, false);
+							Image(nkgui::NkGuiNavDirection::Bas, false);
+							Image(nkgui::NkGuiNavDirection::Bas, false);
+							for (int32 k = 0; k < 4; ++k) {
+								Image(nkgui::NkGuiNavDirection::Aucune, k == 0);
+							}
+						}
+				};
+				NkMenuDeBanc *pm = memory::NkGetDefaultAllocator().New<NkMenuDeBanc>();
+				NkMenuDeBanc &m = *pm;
+				m.ctx.Init(200, 200);
+				m.ctx.input.mousePos = nkgui::NkVec2{-1000.f, -1000.f};
+				// ETEINTE (le defaut) : la meme suite de gestes ne fait RIEN.
+				m.Suite();
+				const bool inerte = m.clics[0] + m.clics[1] + m.clics[2] == 0 && m.ctx.input.mousePos.x == -1000.f;
+				// ALLUMEE : premier geste = montrer « Un », second = descendre sur
+				// « Deux », puis activer.
+				m.nav.actif = true;
+				m.Image(nkgui::NkGuiNavDirection::Aucune, false); // le releve commence
+				m.Suite();
+				Temoin(inerte, "(k13n) navigation eteinte (defaut) : aucun clic, pointeur intact", 0.f);
+				Temoin(m.clics[1] == 1 && m.clics[0] == 0 && m.clics[2] == 0,
+					   "(k13) manette dans NKGui : Bas, Bas, Sud -> « Deux » active, lui seul",
+					   static_cast<float32>(m.clics[1]));
+				memory::NkGetDefaultAllocator().Delete(pm);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pe);
