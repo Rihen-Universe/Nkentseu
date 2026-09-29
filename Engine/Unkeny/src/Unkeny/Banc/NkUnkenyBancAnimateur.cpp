@@ -35,6 +35,7 @@
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace nkentseu {
@@ -163,6 +164,12 @@ namespace nkentseu {
 			{
 				NkString json;
 				const bool ecrit = NkSauverSceneJSON(s, json);
+				// Pour VOIR l'animateur dans l'editeur sans souris : la scene de ce
+				// temoin (Heros en Sol/marche, Garde en idle), ecrite A LA DEMANDE,
+				// puis `UnkenyEditor --scene=<fichier> --selection=Heros`.
+				if (const char *sortie = std::getenv("NK_UNKENY_BANC_SCENE")) {
+					NkFile::WriteAllText(sortie, json.CStr());
+				}
 				NkScene b;
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(b, json.View(), nullptr, &err);

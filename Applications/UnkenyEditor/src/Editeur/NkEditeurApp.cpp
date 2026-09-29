@@ -212,6 +212,14 @@ namespace nkentseu {
 					mSelectionDepart = NkString(args[i].SubStr(12));
 					continue;
 				}
+				// --scene= : ouvrir un .nkscene donne, sans passer par le fichier
+				// de l'utilisateur (AppData). Avec --selection= et --capture=,
+				// c'est la capture d'un panneau Details sans souris (2026-09-29 :
+				// celui de l'Animateur, qu'aucune scene neuve ne porte).
+				if (args[i].StartsWith("--scene=")) {
+					mSceneDepart = NkString(args[i].SubStr(8));
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -257,6 +265,13 @@ namespace nkentseu {
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
+			if (!mSceneDepart.Empty()) {
+				// ⚠️ Le chemin DEVIENT celui de la scene : « Enregistrer » y
+				// ecrira, comme apres un Ouvrir. Un echec garde la scene neuve,
+				// et l'annonce le dit.
+				m.chemin = mSceneDepart;
+				NkEditeurOuvrir(m);
+			}
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
 			NkEditeurRetenirEmpreinte(m, *mUi);
