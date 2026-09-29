@@ -103,8 +103,21 @@ namespace nkentseu {
 				// Deux triangles : c'est la seule primitive qui accepte un quad
 				// TOURNE. AddRectFilled resterait aligne aux axes et la rotation
 				// serait perdue en silence.
-				dl.AddTriangleFilled(c0, c1, c2, col);
-				dl.AddTriangleFilled(c0, c2, c3, col);
+				if (s.texId != 0u) {
+					// TEXTURE (ajoute le 2026-09-29 : `texId` existait, rien ne le
+					// lisait). La couleur TEINTE l'image, blanc = telle quelle.
+					// c0 est le coin HAUT-gauche a l'ecran, et le v des UV descend
+					// comme les lignes d'une image : (uv0.x, uv0.y) va donc en c0.
+					// Un miroir se fait par l'echelle negative du transform, pas
+					// en inversant les UV.
+					const NkVec2f pts[4] = {c0, c1, c2, c3};
+					const NkVec2f uvs[4] = {NkVec2f(s.uv0.x, s.uv0.y), NkVec2f(s.uv1.x, s.uv0.y),
+											NkVec2f(s.uv1.x, s.uv1.y), NkVec2f(s.uv0.x, s.uv1.y)};
+					dl.AddImagePolygon(s.texId, pts, uvs, 4, col);
+				} else {
+					dl.AddTriangleFilled(c0, c1, c2, col);
+					dl.AddTriangleFilled(c0, c2, c3, col);
+				}
 				++stats.entitesDessinees;
 			}
 			return stats;

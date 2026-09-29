@@ -10,6 +10,7 @@
 #include "Editeur/NkEditeurViseur.h"
 #include "NKEditorKit/NkEditorCanvasRenderer.h"
 #include "NKLogger/NkLog.h"
+#include "Unkeny/Banc/NkUnkenyBanc.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -87,13 +88,12 @@ namespace nkentseu {
 					continue;
 				}
 				if (args[i] == "--selftest") {
-					// ⚠️ L'editeur n'a pas de regles a lui : ce qu'il y aurait a
-					// verifier appartient a Unkeny. On le DIT plutot que de
-					// rendre un vert qui ne mesure rien -- un banc vide est pire
-					// qu'un banc absent, parce qu'on lui fait confiance.
-					logger.Infof("[banc] l'editeur n'a pas de banc propre : ses regles vivent dans Unkeny.\n");
-					logger.Infof("[banc] INDETERMINE (aucun cas)\n");
-					return NkOptional<int>(0);
+					// L'editeur n'a pas de regles a lui : ce qu'il y a a verifier
+					// appartient a Unkeny. Jusqu'au 2026-09-29, Unkeny n'avait pas
+					// de banc et celui-ci rendait INDETERMINE plutot qu'un faux
+					// vert. Le moteur en a un desormais : on le lance.
+					logger.Infof("[banc] l'editeur n'a pas de banc propre : on lance celui d'Unkeny.\n");
+					return NkOptional<int>(unkeny::NkUnkenyLancerBanc());
 				}
 			}
 			return NkOptional<int>();

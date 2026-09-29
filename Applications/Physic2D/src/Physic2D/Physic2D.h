@@ -146,6 +146,7 @@ namespace nkentseu {
 
 			// --- Donnees ----------------------------------------------------
 			unkeny::NkScene mScene;
+			unkeny::NkTextures2D mTextures;
 			unkeny::NkScene::NkPhoto mPhoto;
 			unkeny::NkTheme mTheme;
 			unkeny::NkOptionsRenduParticules mRendu;

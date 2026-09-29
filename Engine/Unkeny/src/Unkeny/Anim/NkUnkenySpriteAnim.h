@@ -31,6 +31,9 @@
 #include "NKMath/NKMath.h"
 
 namespace nkentseu {
+	namespace ecs {
+		class NkWorld;
+	}
 	namespace unkeny {
 
 		using math::NkVec2f;
@@ -53,7 +56,8 @@ namespace nkentseu {
 				NkModeLecture mode = NkModeLecture::NK_BOUCLE;
 
 				/// Image a laquelle un evenement se declenche (impact, pas au sol).
-				/// 0xFFFF = aucun. Le systeme le signale, il ne le traite pas :
+				/// Compte depuis la premiere image DU CLIP. 0xFFFF = aucun.
+				/// Le systeme le signale, il ne le traite pas :
 				/// ce que l'evenement DECLENCHE appartient au jeu.
 				uint16 imageEvent = 0xFFFFu;
 		};
@@ -147,6 +151,18 @@ namespace nkentseu {
 					uv1 = NkVec2f(uv0.x + w, uv0.y + h);
 				}
 		};
+
+		/// LE SYSTEME : avance le temps de chaque NkAnimSprite2D et ecrit la
+		/// region courante dans les UV du NkSprite2D de la meme entite.
+		///
+		/// ⚠️ Promis par l'en-tete de ce fichier depuis le 2026-09-01, et ABSENT
+		/// jusqu'au 2026-09-29 : le composant existait, rien ne le faisait
+		/// tourner. NkScene::Pas l'appelle desormais ; un jeu n'a rien a faire.
+		///
+		/// `evenementAtteint` vaut vrai pendant UNE trame : celle ou l'image
+		/// `imageEvent` du clip devient l'image courante. `imageEvent` compte
+		/// DANS le clip (0 = sa premiere image), pas dans l'atlas.
+		void NkAvancerAnimations(ecs::NkWorld &monde, float32 dt);
 
 	} // namespace unkeny
 } // namespace nkentseu

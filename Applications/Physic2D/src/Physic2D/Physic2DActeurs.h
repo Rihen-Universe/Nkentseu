@@ -62,6 +62,12 @@ namespace nkentseu {
 		ecs::NkEntityId NkPoserObstacle(unkeny::NkScene &scene, const NkVec2f &a, const NkVec2f &b, float32 rayon);
 
 		/// Marqueur des obstacles et du decor (pour les dessiner et les gommer).
+		/// Fabrique les textures des acteurs RIGIDES (caisse en planches, balle
+		/// a quartiers) par programme — aucun fichier, comme le reste de la
+		/// demo — et les enregistre. Les acteurs poses ENSUITE les portent.
+		/// Sans cet appel (banc, rendu absent), ils restent des aplats.
+		void NkCreerTexturesActeurs(unkeny::NkTextures2D &textures);
+
 		struct NkDecor2D {
 				bool sol = false; ///< sol et murs : non gommables
 		};

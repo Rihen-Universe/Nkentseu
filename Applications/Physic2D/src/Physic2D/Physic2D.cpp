@@ -18,7 +18,10 @@
 #include "Physic2D/Physic2DBanc.h"
 #include "NKPhysics/NkParticules2DFabrique.h"
 
+#include "Unkeny/Banc/NkUnkenyBanc.h"
+
 #include <chrono>
+#include <cstdio>
 
 namespace nkentseu {
 
@@ -93,7 +96,12 @@ namespace nkentseu {
 	NkOptional<int> Physic2D::OnCommandLine(const NkVector<NkString> &args) {
 		for (uint32 i = 0; i < args.Size(); ++i) {
 			if (args[i] == "--selftest") {
-				return NkOptional<int>(physic2d::NkPhysic2DLancerBanc());
+				// Le banc du MOTEUR d'abord, puis celui de l'integration : un echec
+				// d'Unkeny se lit ainsi a sa source, pas dans ses consequences.
+				const int32 moteur = unkeny::NkUnkenyLancerBanc();
+				std::printf("\n");
+				const int32 demo = physic2d::NkPhysic2DLancerBanc();
+				return NkOptional<int>((moteur != 0 || demo != 0) ? 1 : 0);
 			}
 			if (args[i].StartsWith("--niveau=")) {
 				const NkString v = args[i].SubStr(9);
@@ -115,6 +123,9 @@ namespace nkentseu {
 		if (!mScene.Init(cfg)) {
 			return false;
 		}
+		// Les textures AVANT le premier niveau : ses acteurs rigides les portent.
+		mTextures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
+		physic2d::NkCreerTexturesActeurs(mTextures);
 		Charger(mNiveau);
 		Planifier();
 		Cadrer();

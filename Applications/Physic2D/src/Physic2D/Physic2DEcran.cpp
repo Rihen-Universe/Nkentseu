@@ -375,6 +375,7 @@ namespace nkentseu {
 			NkDessinerGrille(dl, mScene.Camera(), 1.f, 0xFFFFFF0Du, 0xFFFFFF26u);
 		}
 		DessinerFormes(dl);
+		NkDessinerScene(dl, mScene); // les sprites textures (caisses, balles)
 		NkDessinerCorpsMous(dl, mScene, mRendu);
 		DessinerSurimpressions(dl);
 		dl.PopClipRect();
@@ -391,6 +392,9 @@ namespace nkentseu {
 				const physic2d::NkDecor2D *decor = mScene.Monde().Get<physic2d::NkDecor2D>(id);
 				const NkSprite2D *sp = mScene.Monde().Get<NkSprite2D>(id);
 				const bool rigide = corps != nullptr && corps->type == NkTypeCorps::NK_DYNAMIQUE;
+				if (rigide && sp != nullptr && sp->visible && sp->texId != 0u) {
+					return; // texture : c'est NkDessinerScene qui le dessine
+				}
 				NkColor fond, bord;
 				if (rigide) {
 					fond = sp != nullptr ? Rgba(sp->couleur) : NkColor(180, 180, 190);

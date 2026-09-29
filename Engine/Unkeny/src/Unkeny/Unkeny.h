@@ -55,6 +55,7 @@
 #include "Unkeny/Vues/NkUnkenyVues.h"
 #include "Unkeny/Rendu/NkUnkenyRendu.h"
 #include "Unkeny/Rendu/NkUnkenyRenduParticules.h"
+#include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"

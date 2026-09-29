@@ -36,6 +36,8 @@ namespace nkentseu {
 			// clang-format on
 
 			uint32 gCompteurs[static_cast<int32>(NkActeur::NK_COUNT)] = {};
+			uint32 gTexCaisse = 0u; ///< 0 = pas de texture : aplat, dessine par le collisionneur
+			uint32 gTexBalle = 0u;
 
 			void Nommer(char *out, usize taille, NkActeur a) {
 				const uint32 n = ++gCompteurs[static_cast<int32>(a)];
@@ -124,7 +126,12 @@ namespace nkentseu {
 					s.Monde().Add<NkCollisionneur2D>(e, col);
 					NkSprite2D sp;
 					sp.taille = caisse ? NkVec2f(0.66f, 0.66f) : NkVec2f(0.5f, 0.5f);
-					sp.couleur = NkActeurInfo(a).couleur;
+					sp.texId = caisse ? gTexCaisse : gTexBalle;
+					// Texture : l'image telle quelle (blanc). Sans texture, le sprite
+					// est CACHE : la demo dessine alors la forme du collisionneur, et
+					// un carre de couleur par-dessus une balle serait faux.
+					sp.couleur = sp.texId != 0u ? 0xFFFFFFFFu : NkActeurInfo(a).couleur;
+					sp.visible = sp.texId != 0u;
 					s.Monde().Add<NkSprite2D>(e, sp);
 					NkCorps2D c;
 					c.type = NkTypeCorps::NK_DYNAMIQUE;
@@ -137,6 +144,69 @@ namespace nkentseu {
 				default:
 					return ecs::NkEntityId::Invalid();
 			}
+		}
+
+		void NkCreerTexturesActeurs(NkTextures2D &textures) {
+			// --- La caisse : 32 x 32, planches horizontales, cadre, croisillon ---
+			const int32 N = 32;
+			uint8 px[N * N * 4];
+			auto poser = [&](int32 x, int32 y, uint8 r, uint8 g, uint8 b, uint8 al) {
+				uint8 *p = px + (y * N + x) * 4;
+				p[0] = r;
+				p[1] = g;
+				p[2] = b;
+				p[3] = al;
+			};
+			for (int32 y = 0; y < N; ++y) {
+				for (int32 x = 0; x < N; ++x) {
+					// Le bois : un veinage qui ondule, plus sombre entre les planches.
+					const int32 planche = y / 8;
+					const float32 veine = math::NkSin(static_cast<float32>(x) * 0.45f + static_cast<float32>(planche) * 1.7f +
+													  static_cast<float32>(y % 8) * 0.3f);
+					float32 k = 0.86f + 0.07f * veine;
+					if (y % 8 == 0) {
+						k = 0.55f; // le joint
+					}
+					const bool cadre = x < 3 || x >= N - 3 || y < 3 || y >= N - 3;
+					const int32 d1 = x - y, d2 = x - (N - 1 - y);
+					const bool croix = (d1 >= -2 && d1 <= 2) || (d2 >= -2 && d2 <= 2);
+					if (cadre || croix) {
+						k = (x == 0 || y == 0 || x == N - 1 || y == N - 1) ? 0.45f : 0.72f + 0.05f * veine;
+					}
+					poser(x, y, static_cast<uint8>(182.f * k), static_cast<uint8>(126.f * k), static_cast<uint8>(72.f * k), 255);
+				}
+			}
+			// Les clous, aux quatre coins du cadre.
+			const int32 clous[4][2] = {{1, 1}, {N - 3, 1}, {1, N - 3}, {N - 3, N - 3}};
+			for (const auto &c : clous) {
+				for (int32 dy = 0; dy < 2; ++dy) {
+					for (int32 dx = 0; dx < 2; ++dx) {
+						poser(c[0] + dx, c[1] + dy, 60, 58, 56, 255);
+					}
+				}
+			}
+			gTexCaisse = textures.Creer(px, N, N, "physic2d/caisse");
+
+			// --- La balle : disque a quartiers (on VOIT qu'elle roule) ----------
+			for (int32 y = 0; y < N; ++y) {
+				for (int32 x = 0; x < N; ++x) {
+					const float32 dx = (static_cast<float32>(x) + 0.5f) / static_cast<float32>(N) * 2.f - 1.f;
+					const float32 dy = (static_cast<float32>(y) + 0.5f) / static_cast<float32>(N) * 2.f - 1.f;
+					const float32 r = math::NkSqrt(dx * dx + dy * dy);
+					// Bord adouci sur un pixel : sans lui, la balle crenele en tournant.
+					const float32 a = math::NkClamp((1.f - r) * static_cast<float32>(N) * 0.5f, 0.f, 1.f);
+					const bool quartier = (dx > 0.f) == (dy > 0.f);
+					float32 k = quartier ? 0.95f : 0.30f;
+					k *= 1.f - 0.35f * r * r;										// ombre vers le bord
+					const float32 reflet = math::NkMax(0.f, 1.f - ((dx + 0.35f) * (dx + 0.35f) + (dy + 0.4f) * (dy + 0.4f)) * 9.f);
+					k = math::NkMin(1.f, k + reflet * 0.5f);
+					const uint8 v = static_cast<uint8>(255.f * k);
+					poser(x, y, v, quartier ? v : static_cast<uint8>(static_cast<float32>(v) * 0.4f + 60.f),
+						  quartier ? static_cast<uint8>(static_cast<float32>(v) * 0.9f) : static_cast<uint8>(180.f * k + 40.f),
+						  static_cast<uint8>(255.f * a));
+				}
+			}
+			gTexBalle = textures.Creer(px, N, N, "physic2d/balle");
 		}
 
 		ecs::NkEntityId NkOuvrirPinceau(NkScene &s, NkActeur a) {

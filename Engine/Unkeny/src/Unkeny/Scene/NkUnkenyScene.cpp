@@ -12,6 +12,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"
@@ -67,6 +68,10 @@ namespace nkentseu {
 		bool NkScene::Init(const NkSceneConfig &config) {
 			Liberer();
 			mConfig = config;
+			// Les composants d'Unkeny que NkPhotoEntite ne nomme pas passent par
+			// le meme chemin que ceux d'un jeu.
+			PhotographierAussi<NkAnimSprite2D>();
+			PhotographierAussi<NkVitesse2D>();
 
 			if (mConfig.physique) {
 				// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur
@@ -334,6 +339,9 @@ namespace nkentseu {
 			}
 
 			AppliquerVitessesManuelles(deltaTime);
+			// Les animations suivent le temps de la TRAME, pas le pas fixe : une
+			// marche a 12 images/s ne doit pas dependre de la physique.
+			NkAvancerAnimations(mMonde, deltaTime);
 		}
 
 		void NkScene::SynchroniserDepuisPhysique() {
