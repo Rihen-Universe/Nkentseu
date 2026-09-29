@@ -4,7 +4,9 @@
 // Description :
 //   La colonne de droite, en deux onglets :
 //     Details  les COMPOSANTS de l'entite selectionnee (nom, « + Ajouter »,
-//              une section repliable par composant, « Retirer »)
+//              une section repliable par composant, « Retirer »). L'Animateur
+//              (2026-09-29) n'a ni « Retirer » ni place dans « + Ajouter » :
+//              voir sa section.
 //     Monde    les proprietes de la SCENE (gravite, temperature, affichage
 //              de la matiere)
 //
@@ -334,6 +336,78 @@ namespace nkentseu {
 				nkgui::Checkbox(ctx, "en pause", a->enPause);
 			}
 
+			/// L'animateur : la machine a etats de NKAnima qui choisit le clip.
+			///
+			/// ⚠️ SANS « Retirer », DELIBEREMENT : ce bouton, et « + Ajouter »,
+			/// passent par NkComposantEditeur (NkEditeurActions) — une enumeration
+			/// que d'autres chantiers modifient. Un animateur vient donc d'une
+			/// scene ouverte ou d'un jeu ; l'ajouter depuis l'editeur est le pas
+			/// suivant, et il est ecrit dans la feuille de route.
+			void Animateur(NkEditeurCadre &c, ecs::NkEntityId id) {
+				NkGuiContext &ctx = c.ctx;
+				NkAnimateur2D *a = c.m.scene.Monde().Get<NkAnimateur2D>(id);
+				if (a == nullptr) {
+					return;
+				}
+				nkgui::Separator(ctx);
+				if (!Section(ctx, "Animateur (NKAnima)")) {
+					return;
+				}
+				ctx.PushId("animateur");
+				Ligne(ctx, "modele", NkString(a->modele[0] != '\0' ? a->modele : "(aucun)"));
+				const anim::NkAnimStateMachine *m = NkModeleAnimateur(a->modele);
+				if (m == nullptr) {
+					nkgui::Text(ctx, "(modele non enregistre : NkEnregistrerModeleAnimateur)");
+					ctx.PopId();
+					return;
+				}
+				const NkString etat = NkEtatAnimateur2D(*a);
+				Ligne(ctx, "etat", etat.Empty() ? NkString("(pas encore demarre)") : etat);
+				// Les etats, un par ligne, indentes par niveau ; le chemin actif
+				// est marque. C'est le graphe en texte : l'editeur de graphe
+				// (NKGraph) viendra, pas un second modele d'etats ici.
+				nkgui::Text(ctx, "etats :");
+				for (int32 s = 0; s < m->GetStateCount(); ++s) {
+					bool actif = false;
+					for (int32 k = a->execution.current; k >= 0; k = m->GetStateParent(k)) {
+						actif = actif || k == s;
+					}
+					NkString ligne(actif ? "  > " : "    ");
+					for (int32 d = 0; d < m->GetStateDepth(s); ++d) {
+						ligne.Append("   ");
+					}
+					ligne.Append(m->GetStateName(s).CStr());
+					if (m->IsSubMachine(s)) {
+						ligne.Append("/");
+					} else {
+						ligne.Append(NkString::Format("  (clip %d)", m->GetStateTag(s)).CStr());
+					}
+					nkgui::Text(ctx, ligne.CStr());
+				}
+				// Les parametres se REGLENT ici : en pause comme en jeu, c'est la
+				// maniere la plus directe de voir la machine basculer.
+				nkgui::Text(ctx, "parametres :");
+				for (int32 i = 0; i < a->nbParams; ++i) {
+					NkParamAnimateur2D &p = a->params[i];
+					if (p.genre == NkGenreParamAnim::NK_BOOL) {
+						bool v = p.valeur != 0.f;
+						if (nkgui::Checkbox(ctx, p.nom, v)) {
+							p.valeur = v ? 1.f : 0.f;
+						}
+					} else if (p.genre == NkGenreParamAnim::NK_DECLENCHEUR) {
+						if (nkgui::Button(ctx, p.nom)) {
+							p.valeur = 1.f;
+						}
+						ctx.SameLine();
+						nkgui::Text(ctx, p.valeur != 0.f ? "(pose)" : "(consomme)");
+					} else {
+						nkgui::DragFloat(ctx, p.nom, p.valeur, 0.05f);
+					}
+				}
+				nkgui::Checkbox(ctx, "animateur en pause", a->enPause);
+				ctx.PopId();
+			}
+
 			/// Le champ Nom, en haut des Details. Le renommage est IMMEDIAT : il
 			/// n'y a pas de « valider » a oublier, l'Outliner suit a la frappe.
 			void ChampNom(NkEditeurCadre &c, ecs::NkEntityId id, const NkRect &r) {
@@ -430,6 +504,9 @@ namespace nkentseu {
 				}
 				if (c.m.scene.Monde().Has<NkAnimSprite2D>(id)) {
 					Animation(c, id);
+				}
+				if (c.m.scene.Monde().Has<NkAnimateur2D>(id)) {
+					Animateur(c, id);
 				}
 				ctx.PopId();
 				nkgui::EndChild(ctx);

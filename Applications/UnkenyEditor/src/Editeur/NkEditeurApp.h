@@ -94,6 +94,7 @@ namespace nkentseu {
 				float32 mTempsIps = 0.f; ///< temps ecoule depuis le dernier releve d'ips
 				int32 mTramesIps = 0;	 ///< trames comptees depuis ce releve
 				NkString mSelectionDepart; ///< --selection= : l'entite choisie au demarrage
+				NkString mSceneDepart;	   ///< --scene= : la scene ouverte au demarrage, au lieu de la scene neuve
 				/// Appui recu depuis la derniere trame, pas encore vu par NKGui.
 				bool mAppuiNonVu[3] = {};
 				/// Relachement retenu parce que son appui n'avait pas ete vu.

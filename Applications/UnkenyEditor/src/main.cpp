@@ -8,6 +8,7 @@
 // LANCER
 //   UnkenyEditor.exe [--profil=N] [--paysage] [--simuler] [--selftest]
 //                    [--outil=NOM] [--selection=NOM] [--capture=IMAGE.png]
+//                    [--scene=FICHIER.nkscene]
 //
 //   --profil=N      l'appareil simule (0 = bureau, puis du plus contraint au moins)
 //   --paysage       tourne l'appareil
@@ -19,6 +20,8 @@
 //   --selection=NOM choisit au depart l'entite dont le nom commence par NOM
 //   --capture=...   (la coquille NKCanvas) ecrit une image et sort ; avec les
 //                   deux precedentes, une capture de GIZMO sans souris
+//   --scene=...     ouvre ce .nkscene au lieu de la scene neuve (et Enregistrer
+//                   y ecrira)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 
