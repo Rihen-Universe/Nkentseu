@@ -154,11 +154,14 @@ namespace nkentseu {
 			// =================================================================
 			/// Un gizmo se montre sur la selection, avec l'outil du meme nom, et
 			/// seulement en EDITION : en jeu, la simulation possede les positions
-			/// (meme regle que le glisser, NkEditeurPeutDeplacer).
-			bool GizmoVisible(NkEditeurCadre &c) noexcept {
+			/// (meme regle que le glisser, NkEditeurPeutDeplacer). Ni sur une
+			/// entite VERROUILLEE (le cadenas interdit de la bouger dans la vue),
+			/// ni sur une entite CACHEE (l'oeil ferme ne laisse rien a viser).
+			bool GizmoVisible(NkEditeurCadre &c) {
 				const NkOutil o = c.m.outil;
 				const bool mode = o == NkOutil::NK_DEPLACER || o == NkOutil::NK_TOURNER || o == NkOutil::NK_ECHELLE;
-				return mode && c.m.aSelection && c.m.scene.Monde().IsAlive(c.m.selection) && NkEditeurPeutDeplacer(c.m);
+				return mode && c.m.aSelection && c.m.scene.Monde().IsAlive(c.m.selection) && NkEditeurPeutDeplacer(c.m) &&
+					   !NkEditeurEstVerrouille(c.m, c.m.selection) && !NkEditeurCacheDansLaVue(c.m, c.m.selection);
 			}
 
 			/// Le centre du gizmo, a l'ecran : le centre de l'entite.

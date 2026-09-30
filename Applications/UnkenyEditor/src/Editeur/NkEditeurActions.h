@@ -37,9 +37,9 @@ namespace nkentseu {
 		/// Pose l'acteur choisi (ou l'entite simple) en `monde`. Selectionne ce
 		/// qu'il a pose.
 		ecs::NkEntityId NkEditeurPoser(NkEditeurModele &m, const NkVec2f &monde);
-		/// Choisit ce qui est sous `monde` : d'abord la matiere (corps mous),
-		/// puis les sprites, puis les formes sans sprite. `centre` recoit le
-		/// point de reference de ce qui est choisi (pour le glisser sans saut).
+		/// Choisit ce qui est sous `monde` (NkEditeurPrendreSous) et le
+		/// selectionne. `centre` recoit le point de reference de ce qui est
+		/// choisi (pour le glisser sans saut). Rien dessous : plus de selection.
 		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre = nullptr);
 		/// Amene la selection a `centre` : un rigide est TELEPORTE (le solveur
 		/// suit), un corps mou est TRANSLATE particule par particule.
@@ -49,10 +49,44 @@ namespace nkentseu {
 		/// La boite, en metres, de la selection — pour son cadre dans le viseur.
 		bool NkEditeurBoiteSelection(NkEditeurModele &m, NkVec2f &mn, NkVec2f &mx);
 		void NkEditeurSupprimerSelection(NkEditeurModele &m);
-		/// Le clic de l'outil Selection (2026-09-29) : choisit ce qui est sous
-		/// `monde` comme NkEditeurChoisirSous, et VIDE la selection s'il n'y a
-		/// rien -- cliquer dans le vide deselectionne, comme partout.
+		/// A combien de PIXELS d'un objet un clic le prend encore. Au-dela, un
+		/// clic a cote d'un objet est un clic dans le vide (il deselectionne).
+		constexpr float32 NK_PRISE_TOLERANCE_PX = 6.f;
+		/// Le rayon, en pixels, du marqueur d'une entite SANS visuel (ni sprite,
+		/// ni forme, ni matiere) : le viseur le dessine, la prise le vise.
+		constexpr float32 NK_MARQUEUR_RAYON_PX = 7.f;
+		/// La PRISE au clic dans la vue (2026-09-30) : ce que l'utilisateur VOIT
+		/// sous le curseur, a NK_PRISE_TOLERANCE_PX pres (converti en metres par
+		/// le zoom de la camera de la scene -- celle du viseur).
+		///   1. Un COUP AU BUT (le point est DANS ce qui est dessine) l'emporte,
+		///      dans l'ordre du dessin : marqueurs, matiere, sprites (la couche la
+		///      plus haute), formes ; a egalite, le plus PETIT (il est pose sur
+		///      l'autre, sinon on ne le verrait pas).
+		///   2. Sinon, l'objet le PLUS PROCHE dans la tolerance.
+		/// Les entites verrouillees, et les cachees en EDITION, ne se prennent pas.
+		/// Ne touche PAS a la selection.
+		/// ⚠️ POURQUOI ELLE REMPLACE L'ANCIENNE -- mesure du 30/09 (temoin e41).
+		///    L'ancienne avait des marges FIXES en metres : 0,25 m autour de
+		///    chaque particule, 0,1 m autour des formes, 0 autour des sprites, et
+		///    elle testait la matiere AVANT tout le reste. Resultat : a fort zoom,
+		///    un clic sur une caisse posee contre un blob prenait le blob (0,25 m,
+		///    c'est 30 px a 122 px/m) ; a faible zoom, un clic a 3 px du bord d'une
+		///    caisse texturee ne prenait rien ; et le milieu d'un ballon (a plus de
+		///    0,25 m de son anneau) ne se prenait pas du tout.
+		bool NkEditeurPrendreSous(NkEditeurModele &m, const NkVec2f &monde, ecs::NkEntityId &sortie, NkVec2f *centre = nullptr);
+		/// Le clic de l'outil Selection : NkEditeurChoisirSous, et `deplace` est
+		/// coupe s'il n'y a rien -- cliquer dans le vide deselectionne, comme partout.
 		bool NkEditeurCliquerSelection(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre = nullptr);
+		/// Une entite sans rien a dessiner : le viseur lui donne un marqueur.
+		bool NkEditeurSansVisuel(NkEditeurModele &m, ecs::NkEntityId id);
+
+		// --- L'oeil et le cadenas de l'Outliner (NkDrapeauxEditeur) ----------
+		bool NkEditeurEstCache(NkEditeurModele &m, ecs::NkEntityId id);
+		bool NkEditeurEstVerrouille(NkEditeurModele &m, ecs::NkEntityId id);
+		/// Cachee ET dans l'etat ou l'oeil compte (EDITION) : ni dessinee, ni prise.
+		bool NkEditeurCacheDansLaVue(NkEditeurModele &m, ecs::NkEntityId id);
+		void NkEditeurCacher(NkEditeurModele &m, ecs::NkEntityId id, bool cache);
+		void NkEditeurVerrouiller(NkEditeurModele &m, ecs::NkEntityId id, bool verrou);
 		/// Le glisser d'une entite la deplace-t-il ? En EDITION seulement.
 		/// ⚠️ PAS EN JEU NI EN PAUSE, et c'est une decision : la scene qui tourne
 		///    est un instant de simulation, que « Arreter » jette de toute facon.

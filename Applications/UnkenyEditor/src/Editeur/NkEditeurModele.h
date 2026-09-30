@@ -49,6 +49,20 @@ namespace nkentseu {
 				   o == NkOutil::NK_ECHELLE;
 		}
 
+		/// Les drapeaux d'EDITEUR d'une entite : l'oeil et le cadenas de l'Outliner
+		/// (2026-09-30). Ils ne changent RIEN au jeu :
+		///   cache   l'entite n'est pas dessinee dans la vue en EDITION (en jeu, le
+		///           jeu montre tout -- l'oeil d'UE5 est celui de l'editeur, pas
+		///           « cache en jeu ») ; elle ne se prend pas au clic ;
+		///   verrou  elle ne se prend ni ne se deplace dans la vue ; l'Outliner et
+		///           les Details la choisissent et la modifient toujours.
+		/// Sauves avec la scene par NkScene::PhotographierAussi (objet « jeu » du
+		/// fichier) : un ancien fichier, qui ne les porte pas, se relit tel quel.
+		struct NkDrapeauxEditeur {
+				bool cache = false;
+				bool verrou = false;
+		};
+
 		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
 		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).
 		enum class NkEtatJeu : uint8 { NK_EDITION = 0, NK_JEU, NK_PAUSE };

@@ -35,13 +35,30 @@
 //         pas nul laisse la valeur intacte
 //   (e19) « Zone a cadrer » : centree sur la selection ; sans selection, elle
 //         couvre TOUTE la scene (le sol y est)
+//   (e40) la souris (NkEditeurSouris) contre un VRAI NkGuiInput : un appui et
+//         son relachement entre deux trames font un clic ; un relachement puis
+//         un appui entre deux trames font un relachement PUIS un clic.
+//         Contre-epreuve : l'etat brut ecrit tel quel perd les deux.
+//   (e41) la prise au clic (NkEditeurPrendreSous), chaque cas contre l'ANCIENNE
+//         prise recopiee ici : petit sprite a 3 px de son bord (22 px/m) ;
+//         planche tournee, prise sur elle et pas dans sa boite droite ; sprites
+//         superposes (la couche du dessus, le petit sur le grand) ; caisse
+//         collee a un blob a 122 px/m (la caisse, pas le blob) ; tissu pris
+//         entre ses particules, pas dans une maille dechiree ; milieu d'un
+//         ballon ; bord du sol a 3 px ; entite vide (son marqueur) ; le vide ;
+//         cadenas et oeil (cache en EDITION seulement)
+//   (e42) l'oeil et le cadenas survivent a Jouer / Arreter et a Enregistrer /
+//         Ouvrir ; un fichier qui ne les porte pas (celui d'avant) se relit
+//         tel quel, sans drapeau
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurSouris.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
 	namespace editeur {
@@ -69,6 +86,86 @@ namespace nkentseu {
 					}
 				});
 				return t;
+			}
+
+			/// L'ANCIENNE prise (NkEditeurChoisirSous et NkEntiteSous jusqu'au
+			/// 29/09), recopiee telle quelle pour la CONTRE-EPREUVE de e41 : des
+			/// marges fixes en metres, la matiere avant tout, les sprites dans leur
+			/// boite droite.
+			bool AnciennePrise(NkScene &s, const NkVec2f &monde, ecs::NkEntityId &sortie) {
+				if (physics::NkParticules2D *p = s.Particules()) {
+					const int32 i = p->ParticuleProche(monde, 0.25f);
+					if (i >= 0) {
+						const uint32 id = p->corps[p->particules[static_cast<uint32>(i)].corps].id;
+						const ecs::NkEntityId e = s.EntiteDuCorpsMou(id);
+						if (e.IsValid()) {
+							sortie = e;
+							return true;
+						}
+					}
+				}
+				bool trouve = false;
+				int32 meilleureCouche = -1000000;
+				s.Monde().Query<NkTransform2D, NkSprite2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &sp) {
+					if (!sp.visible) {
+						return;
+					}
+					const float32 hw = sp.taille.x * math::NkAbs(t.echelle.x) * 0.5f;
+					const float32 hh = sp.taille.y * math::NkAbs(t.echelle.y) * 0.5f;
+					if (monde.x < t.position.x - hw || monde.x > t.position.x + hw || monde.y < t.position.y - hh ||
+						monde.y > t.position.y + hh) {
+						return;
+					}
+					if (sp.couche >= meilleureCouche) {
+						meilleureCouche = sp.couche;
+						sortie = id;
+						trouve = true;
+					}
+				});
+				if (trouve) {
+					return true;
+				}
+				float32 meilleur = 0.1f;
+				s.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
+					const float32 d = NkDistanceForme2D(t, col, monde);
+					if (d < meilleur) {
+						meilleur = d;
+						sortie = id;
+						trouve = true;
+					}
+				});
+				return trouve;
+			}
+
+			/// Le fichier contient-il ce texte ? (La cle d'un composant dans une
+			/// scene enregistree.)
+			bool FichierContient(const char *chemin, const char *texte) {
+				std::FILE *f = std::fopen(chemin, "rb");
+				if (f == nullptr) {
+					return false;
+				}
+				NkVector<char> octets;
+				char tampon[4096];
+				usize lus = 0;
+				while ((lus = std::fread(tampon, 1, sizeof(tampon), f)) > 0) {
+					for (usize i = 0; i < lus; ++i) {
+						octets.PushBack(tampon[i]);
+					}
+				}
+				std::fclose(f);
+				const usize n = std::strlen(texte);
+				for (usize i = 0; n > 0 && i + n <= octets.Size(); ++i) {
+					if (std::memcmp(octets.Data() + i, texte, n) == 0) {
+						return true;
+					}
+				}
+				return false;
+			}
+
+			uint32 NbDrapeaux(NkScene &s) {
+				uint32 n = 0;
+				s.Monde().Query<NkDrapeauxEditeur>().ForEach([&](ecs::NkEntityId, NkDrapeauxEditeur &) { ++n; });
+				return n;
 			}
 		} // namespace
 
@@ -332,6 +429,230 @@ namespace nkentseu {
 			const bool couvreSol = zTout && tSol != nullptr && math::NkAbs(tSol->position.x - zc.x) < zt.x * 0.5f &&
 								   math::NkAbs(tSol->position.y - zc.y) < zt.y * 0.5f && !m.aSelection;
 			Temoin(surSel && couvreSol, "(e19) zone a cadrer : la selection ; sans elle, toute la scene", zt.x);
+
+			// (e40) la souris, sans clic perdu. Une trame = NewFrame (ce que NKGui
+			// lit), puis FinDeTrame. La contre-epreuve ecrit l'etat brut, comme
+			// l'editeur le faisait avant.
+			{
+				auto clicSec = [](bool retenue) {
+					nkgui::NkGuiInput in;
+					NkEditeurSouris s;
+					in.NewFrame();
+					// Appui ET relachement entre deux trames (clic sec, pave tactile).
+					if (retenue) {
+						s.Appui(in, 0);
+						s.Relache(in, 0);
+					} else {
+						in.mouseDown[0] = true;
+						in.mouseDown[0] = false;
+					}
+					in.NewFrame();
+					const bool clic = in.mouseClicked[0];
+					s.FinDeTrame(in);
+					in.NewFrame();
+					return clic && in.mouseReleased[0];
+				};
+				auto reappui = [](bool retenue) {
+					nkgui::NkGuiInput in;
+					NkEditeurSouris s;
+					// Le bouton tenu, vu par une trame.
+					if (retenue) {
+						s.Appui(in, 0);
+					} else {
+						in.mouseDown[0] = true;
+					}
+					in.NewFrame();
+					s.FinDeTrame(in);
+					// Relachement PUIS appui entre deux trames (le 29/09, apres une
+					// restauration de la fenetre).
+					if (retenue) {
+						s.Relache(in, 0);
+						s.Appui(in, 0);
+					} else {
+						in.mouseDown[0] = false;
+						in.mouseDown[0] = true;
+					}
+					in.NewFrame();
+					const bool relache = in.mouseReleased[0];
+					s.FinDeTrame(in);
+					in.NewFrame();
+					return relache && in.mouseClicked[0];
+				};
+				const bool avec = clicSec(true) && reappui(true);
+				const bool sans = !clicSec(false) && !reappui(false);
+				Temoin(avec && sans, "(e40) souris : clic sec et re-appui vus (brut : perdus)", static_cast<float32>(avec + sans));
+			}
+
+			// (e41) la prise au clic, sur une scene NEUVE : chaque cas mesure la
+			// nouvelle prise ET l'ancienne (la contre-epreuve).
+			NkEditeurNouvelleScene(m);
+			{
+				ecs::NkWorld &w21 = m.scene.Monde();
+				NkVue2D &cam = m.scene.Camera();
+				physics::NkParticules2D *p21 = m.scene.Particules();
+				auto prend = [&](const NkVec2f &q, ecs::NkEntityId attendu) {
+					ecs::NkEntityId e;
+					return NkEditeurPrendreSous(m, q, e) && e == attendu;
+				};
+				auto rien = [&](const NkVec2f &q) {
+					ecs::NkEntityId e;
+					return !NkEditeurPrendreSous(m, q, e);
+				};
+				auto ancien = [&](const NkVec2f &q, ecs::NkEntityId attendu) {
+					ecs::NkEntityId e;
+					return AnciennePrise(m.scene, q, e) && e == attendu;
+				};
+
+				// (a) petit sprite, vue eloignee : un clic a 3 px de son bord.
+				cam.PoserZoom(22.f);
+				const ecs::NkEntityId petit = m.scene.Creer("Petit", NkVec2f(0.f, 20.f));
+				NkSprite2D sp;
+				sp.taille = NkVec2f(0.2f, 0.2f);
+				w21.Add<NkSprite2D>(petit, sp);
+				const NkVec2f a3(0.1f + 3.f / 22.f, 20.f);
+				Temoin(prend(a3, petit) && !ancien(a3, petit), "(e41a) petit sprite, 22 px/m : pris a 3 px du bord (ancienne : non)", 3.f);
+
+				// (b) une planche tournee de 45 degres : sur elle, et pas dans sa boite droite.
+				const ecs::NkEntityId planche = m.scene.Creer("Planche", NkVec2f(6.f, 20.f));
+				sp.taille = NkVec2f(2.f, 0.2f);
+				w21.Add<NkSprite2D>(planche, sp);
+				w21.Get<NkTransform2D>(planche)->rotation = 0.78539816f;
+				const NkVec2f bout(6.f + 0.9f * 0.70710678f, 20.f + 0.9f * 0.70710678f);
+				const NkVec2f fantome(6.9f, 20.05f);
+				Temoin(prend(bout, planche) && rien(fantome) && !ancien(bout, planche) && ancien(fantome, planche),
+					   "(e41b) planche tournee : prise sur elle, pas a cote (ancienne : l'inverse)", 45.f);
+
+				// (c) superposes : la couche du dessus ; a couche egale, le petit sur le grand.
+				const ecs::NkEntityId fond = m.scene.Creer("Fond", NkVec2f(12.f, 20.f));
+				sp.taille = NkVec2f(2.f, 2.f);
+				sp.couche = -5;
+				w21.Add<NkSprite2D>(fond, sp);
+				const ecs::NkEntityId dessus = m.scene.Creer("Dessus", NkVec2f(12.3f, 20.f));
+				sp.taille = NkVec2f(0.4f, 0.4f);
+				sp.couche = 3;
+				w21.Add<NkSprite2D>(dessus, sp);
+				const ecs::NkEntityId grand = m.scene.Creer("Grand", NkVec2f(16.f, 20.f));
+				sp.taille = NkVec2f(2.f, 2.f);
+				sp.couche = 0;
+				w21.Add<NkSprite2D>(grand, sp);
+				const ecs::NkEntityId pose = m.scene.Creer("Pose", NkVec2f(16.2f, 20.f));
+				sp.taille = NkVec2f(0.3f, 0.3f);
+				w21.Add<NkSprite2D>(pose, sp);
+				Temoin(prend(NkVec2f(12.3f, 20.f), dessus) && prend(NkVec2f(11.5f, 20.f), fond) && prend(NkVec2f(16.2f, 20.f), pose) &&
+						   prend(NkVec2f(15.5f, 20.f), grand),
+					   "(e41c) superposes : couche du dessus ; a egalite, le petit", 3.f);
+
+				// (d) une caisse collee a un blob, vue rapprochee : le clic DANS la
+				// caisse la prend. L'ancienne prenait le blob (0,25 m = 30 px ici).
+				cam.PoserZoom(122.f);
+				const ecs::NkEntityId blob = NkPoserActeurSim(m.scene, NkActeurSim::NK_BLOB, NkVec2f(-6.f, 20.f), &m.ressources);
+				const physics::NkCorpsP2D *cb = &p21->corps[static_cast<uint32>(p21->IndexCorps(w21.Get<NkCorpsMou2D>(blob)->corpsId))];
+				float32 droite = -1e9f;
+				float32 yDroite = 20.f;
+				for (uint32 i = cb->debut; i < cb->debut + cb->nombre; ++i) {
+					const float32 x = p21->particules[i].pos.x + p21->particules[i].rayon * 1.45f;
+					if (x > droite) {
+						droite = x;
+						yDroite = p21->particules[i].pos.y;
+					}
+				}
+				const ecs::NkEntityId caisse41 = NkPoserActeurSim(m.scene, NkActeurSim::NK_CAISSE, NkVec2f(droite + 0.1f + 0.33f, yDroite), &m.ressources);
+				const NkVec2f dansCaisse(droite + 0.1f + 0.05f, yDroite);
+				Temoin(prend(dansCaisse, caisse41) && ancien(dansCaisse, blob), "(e41d) caisse contre un blob, 122 px/m : la caisse (ancienne : le blob)",
+					   (dansCaisse.x - droite) * 122.f);
+
+				// (e) le tissu : entre ses particules, oui ; dans une maille DECHIREE, non.
+				const ecs::NkEntityId tissu = Par(m.scene, "Tissu");
+				const physics::NkCorpsP2D &ct = p21->corps[static_cast<uint32>(p21->IndexCorps(w21.Get<NkCorpsMou2D>(tissu)->corpsId))];
+				const int32 nx = ct.nx;
+				const int32 ny = ct.ny;
+				const uint32 attendus = static_cast<uint32>(ny * (nx - 1) + (ny - 1) * nx);
+				bool tissuOk = nx >= 3 && ny >= 3 && ct.lienNombre >= attendus;
+				NkVec2f maille(0.f, 0.f);
+				if (tissuOk) {
+					const uint32 i = 1u;
+					const uint32 j = 1u;
+					const uint32 n = static_cast<uint32>(nx);
+					maille = p21->particules[ct.debut + j * n + i].pos + p21->particules[ct.debut + j * n + i + 1u].pos +
+							 p21->particules[ct.debut + (j + 1u) * n + i].pos + p21->particules[ct.debut + (j + 1u) * n + i + 1u].pos;
+					maille = NkVec2f(maille.x * 0.25f, maille.y * 0.25f);
+					const bool entier = prend(maille, tissu);
+					// On dechire la maille (1, 1) : son lien horizontal du haut.
+					p21->liens[ct.lienDebut + j * (n - 1u) + i].casse = true;
+					tissuOk = entier && rien(maille) && ancien(maille, tissu);
+				}
+				Temoin(tissuOk, "(e41e) tissu : entre ses points oui, maille dechiree non (ancienne : oui)", maille.y);
+
+				// (f) le MILIEU d'un ballon : plein a l'ecran, a plus de 0,25 m de son anneau.
+				const ecs::NkEntityId ballon = Par(m.scene, "Ballon");
+				const int32 ciBallon = p21->IndexCorps(w21.Get<NkCorpsMou2D>(ballon)->corpsId);
+				const NkVec2f milieu = p21->CentreCorps(static_cast<uint32>(ciBallon));
+				Temoin(prend(milieu, ballon) && !ancien(milieu, ballon), "(e41f) milieu d'un ballon : pris (ancienne : non)", milieu.x);
+
+				// (g) le bord du sol, 3 px au-dessus, vue eloignee.
+				cam.PoserZoom(22.f);
+				const ecs::NkEntityId sol = Par(m.scene, "Sol");
+				const NkVec2f auBord(-3.f, -4.f + 3.f / 22.f);
+				Temoin(prend(auBord, sol) && !ancien(auBord, sol), "(e41g) bord du sol a 3 px, 22 px/m : pris (ancienne : non)", 3.f);
+
+				// (h) une entite VIDE : son marqueur se prend ; le vide, rien.
+				const ecs::NkEntityId vide = NkEditeurCreerEntite(m, "Vide", NkVec2f(20.f, 20.f));
+				const NkVec2f surMarqueur(20.f + 4.f / 22.f, 20.f);
+				ecs::NkEntityId aucun;
+				Temoin(prend(surMarqueur, vide) && !ancien(surMarqueur, vide) && rien(NkVec2f(0.f, 40.f)) &&
+						   !AnciennePrise(m.scene, NkVec2f(0.f, 40.f), aucun),
+					   "(e41h) entite vide : son marqueur (ancienne : rien) ; le vide : rien", 4.f);
+
+				// (i) le cadenas : la caisse ne se prend plus ; l'oeil ferme : le
+				// blob non plus en EDITION, mais en jeu si (le jeu montre tout).
+				cam.PoserZoom(122.f);
+				NkEditeurVerrouiller(m, caisse41, true);
+				const bool verrou = rien(dansCaisse);
+				NkEditeurVerrouiller(m, caisse41, false);
+				const bool rendu = prend(dansCaisse, caisse41);
+				const NkVec2f cBlob21 = p21->CentreCorps(static_cast<uint32>(p21->IndexCorps(w21.Get<NkCorpsMou2D>(blob)->corpsId)));
+				NkEditeurCacher(m, blob, true);
+				const bool cacheEdition = rien(cBlob21);
+				m.etat = NkEtatJeu::NK_JEU;
+				const bool vuEnJeu = prend(cBlob21, blob);
+				m.etat = NkEtatJeu::NK_EDITION;
+				NkEditeurCacher(m, blob, false);
+				Temoin(verrou && rendu && cacheEdition && vuEnJeu && !w21.Has<NkDrapeauxEditeur>(blob),
+					   "(e41i) cadenas : pas pris ; oeil ferme : pas en EDITION, si en jeu", static_cast<float32>(verrou + rendu + cacheEdition + vuEnJeu));
+			}
+
+			// (e42) l'oeil et le cadenas voyagent avec la scene.
+			{
+				NkEditeurVerrouiller(m, Par(m.scene, "Sol"), true);
+				NkEditeurCacher(m, Par(m.scene, "Ballon"), true);
+				NkEditeurJouer(m);
+				NkEditeurAvancer(m, 1.f / 60.f);
+				NkEditeurArreter(m); // les identifiants changent : on retrouve par le nom
+				const bool photo = NkEditeurEstVerrouille(m, Par(m.scene, "Sol")) && NkEditeurEstCache(m, Par(m.scene, "Ballon")) &&
+								   NbDrapeaux(m.scene) == 2u;
+				const char *chemin = "unkeny_editeur_banc_drapeaux.nkscene";
+				m.chemin = chemin;
+				const bool sauve = NkEditeurSauver(m);
+				const bool avecCle = FichierContient(chemin, "UnkenyEditor.Drapeaux");
+				NkEditeurNouvelleScene(m);
+				const bool neuve = NbDrapeaux(m.scene) == 0u;
+				const bool ouvert = NkEditeurOuvrir(m);
+				const bool relu = ouvert && NkEditeurEstVerrouille(m, Par(m.scene, "Sol")) && !NkEditeurEstCache(m, Par(m.scene, "Sol")) &&
+								  NkEditeurEstCache(m, Par(m.scene, "Ballon")) && !NkEditeurEstVerrouille(m, Par(m.scene, "Ballon")) &&
+								  NbDrapeaux(m.scene) == 2u;
+				// Un fichier SANS drapeaux -- ce qu'ecrivait l'editeur d'avant : relu tel quel.
+				NkEditeurVerrouiller(m, Par(m.scene, "Sol"), false);
+				NkEditeurCacher(m, Par(m.scene, "Ballon"), false);
+				const uint32 nE = NbEntites(m.scene);
+				NkEditeurSauver(m);
+				const bool sansCle = !FichierContient(chemin, "UnkenyEditor.Drapeaux");
+				NkEditeurNouvelleScene(m);
+				const bool rouvert = NkEditeurOuvrir(m);
+				std::remove(chemin);
+				const bool ancienRelu = rouvert && NbEntites(m.scene) == nE && NbDrapeaux(m.scene) == 0u;
+				Temoin(photo && sauve && avecCle && neuve && relu && sansCle && ancienRelu,
+					   "(e42) oeil et cadenas : Jouer/Arreter, fichier ; sans eux, relu tel quel", static_cast<float32>(nE));
+			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC EDITEUR REUSSI" : "BANC EDITEUR EN ECHEC", gR, gE, gE > 1 ? "s" : "");

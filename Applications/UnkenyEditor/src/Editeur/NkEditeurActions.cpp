@@ -25,6 +25,14 @@ namespace nkentseu {
 				}
 			}
 
+			/// L'oeil et le cadenas voyagent avec la scene : dans la photo de
+			/// « Jouer » (Arreter les rend) et dans le fichier, objet « jeu ».
+			/// ⚠️ LE NOM EST LA CLE DU FICHIER : le changer rend les scenes deja
+			///    enregistrees muettes sur leurs drapeaux.
+			void DeclarerDrapeaux(NkScene &s) {
+				s.PhotographierAussi<NkDrapeauxEditeur>("UnkenyEditor.Drapeaux");
+			}
+
 			ecs::NkEntityId Statique(NkScene &s, const char *nom, const NkVec2f &c, const NkVec2f &demi, uint32 couleur) {
 				const ecs::NkEntityId e = s.Creer(nom, c);
 				NkSprite2D sp;
@@ -51,6 +59,7 @@ namespace nkentseu {
 			cfg.particules = true; // et la matiere : corps mous, fluides, atomes
 			cfg.gravite = NkVec2f(0.f, -9.81f);
 			m.scene.Init(cfg);
+			DeclarerDrapeaux(m.scene);
 			NkRemettreNomsSim();
 			m.etat = NkEtatJeu::NK_EDITION;
 			m.photo.valide = false;
@@ -168,57 +177,399 @@ namespace nkentseu {
 			return false;
 		}
 
-		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
-			NkScene &s = m.scene;
-			// 1. La matiere : c'est elle qui est dessinee PAR-DESSUS le decor.
-			if (physics::NkParticules2D *p = s.Particules()) {
-				const int32 i = p->ParticuleProche(monde, 0.25f);
-				if (i >= 0) {
-					const uint32 id = p->corps[p->particules[static_cast<uint32>(i)].corps].id;
-					const ecs::NkEntityId e = s.EntiteDuCorpsMou(id);
-					if (e.IsValid()) {
-						m.selection = e;
-						m.aSelection = true;
-						if (centre != nullptr) {
-							NkEditeurCentreSelection(m, *centre);
+		// =====================================================================
+		// La prise au clic
+		// =====================================================================
+		namespace {
+			/// Un candidat a la prise : l'entite, OU elle se dessine (niveau, puis
+			/// couche), et sa distance au point -- negative ou nulle : DEDANS.
+			struct CandidatPrise {
+					ecs::NkEntityId id;
+					int32 niveau = 0; ///< l'ordre du viseur : 0 formes, 1 sprites, 2 matiere, 3 marqueurs
+					int32 couche = 0; ///< sprites : NkSprite2D::couche
+					float32 distance = 0.f;
+					float32 aire = 0.f;
+					NkVec2f centre{0.f, 0.f};
+			};
+
+			/// `a` est-il dessine PAR-DESSUS `b` ?
+			bool Devant(const CandidatPrise &a, const CandidatPrise &b) noexcept {
+				if (a.niveau != b.niveau) {
+					return a.niveau > b.niveau;
+				}
+				if (a.couche != b.couche) {
+					return a.couche > b.couche;
+				}
+				// A egalite, le plus PETIT : pose sur le grand, il ne se verrait
+				// pas s'il etait dessous.
+				return a.aire < b.aire;
+			}
+
+			/// Le meilleur coup au but, et le plus proche des autres.
+			struct Prise {
+					float32 tolerance = 0.f;
+					CandidatPrise dedans;
+					CandidatPrise proche;
+					bool aDedans = false;
+					bool aProche = false;
+
+					void Proposer(const CandidatPrise &c) noexcept {
+						if (c.distance <= 0.f) {
+							if (!aDedans || Devant(c, dedans)) {
+								dedans = c;
+								aDedans = true;
+							}
+							return;
 						}
-						return true;
+						if (c.distance > tolerance) {
+							return;
+						}
+						if (!aProche || c.distance < proche.distance || (c.distance == proche.distance && Devant(c, proche))) {
+							proche = c;
+							aProche = true;
+						}
 					}
+			};
+
+			float32 Longueur(float32 x, float32 y) noexcept {
+				return math::NkSqrt(x * x + y * y);
+			}
+
+			float32 DistanceSegment(const NkVec2f &p, const NkVec2f &a, const NkVec2f &b) noexcept {
+				const float32 vx = b.x - a.x;
+				const float32 vy = b.y - a.y;
+				const float32 l2 = vx * vx + vy * vy;
+				float32 t = l2 > 0.f ? ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2 : 0.f;
+				t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+				return Longueur(p.x - (a.x + vx * t), p.y - (a.y + vy * t));
+			}
+
+			/// Le point est-il dans le triangle, quel que soit son sens ?
+			/// ⚠️ Un triangle PLAT (maille ecrasee) ne contient rien : sans ce
+			///    garde, ses trois produits sont nuls et tout point y « tombe ».
+			bool DansTriangle(const NkVec2f &p, const NkVec2f &a, const NkVec2f &b, const NkVec2f &c) noexcept {
+				const float32 aire = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+				if (aire > -1e-9f && aire < 1e-9f) {
+					return false;
+				}
+				const float32 d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
+				const float32 d2 = (p.x - c.x) * (b.y - c.y) - (b.x - c.x) * (p.y - c.y);
+				const float32 d3 = (p.x - a.x) * (c.y - a.y) - (c.x - a.x) * (p.y - a.y);
+				const bool negatif = d1 < 0.f || d2 < 0.f || d3 < 0.f;
+				const bool positif = d1 > 0.f || d2 > 0.f || d3 > 0.f;
+				return !(negatif && positif);
+			}
+
+			/// La regle du rendu (NkUnkenyRenduParticules.cpp, CelluleDechiree) :
+			/// une maille de tissu dont un lien a casse n'est plus dessinee, donc
+			/// plus prise.
+			bool MailleDechiree(const physics::NkParticules2D &p, const physics::NkCorpsP2D &c, int32 i, int32 j) noexcept {
+				const int32 nx = c.nx;
+				const int32 ny = c.ny;
+				const uint32 attendus = static_cast<uint32>(ny * (nx - 1) + (ny - 1) * nx);
+				if (c.lienNombre < attendus) {
+					return false;
+				}
+				const uint32 h0 = c.lienDebut + static_cast<uint32>(j * (nx - 1) + i);
+				const uint32 h1 = c.lienDebut + static_cast<uint32>((j + 1) * (nx - 1) + i);
+				const uint32 base = c.lienDebut + static_cast<uint32>(ny * (nx - 1));
+				const uint32 v0 = base + static_cast<uint32>(j * nx + i);
+				const uint32 v1 = base + static_cast<uint32>(j * nx + i + 1);
+				return p.liens[h0].casse || p.liens[h1].casse || p.liens[v0].casse || p.liens[v1].casse;
+			}
+
+			/// La distance du point a la MATIERE du corps `ci` TELLE QUE LE VISEUR
+			/// LA PEINT (NkDessinerCorpsMous) : l'interieur d'un ballon et les
+			/// mailles d'une grille sont pleins, pas seulement leurs particules.
+			/// `pixel` : la taille d'un pixel en metres (les traits ont une
+			/// epaisseur minimale a l'ecran).
+			float32 DistanceMatiere(const physics::NkParticules2D &p, uint32 ci, const NkVec2f &q, float32 pixel) noexcept {
+				using physics::NkMateriauP2D;
+				const physics::NkCorpsP2D &c = p.corps[ci];
+				float32 d = 1e30f;
+				if (c.nombre == 0u) {
+					return d;
+				}
+				// Les particules, au rayon DESSINE : un fluide se peint 1,45 fois
+				// plus large que sa particule (son halo translucide ne compte pas).
+				// ⚠️ UN CORPS MAILLE (ballon, gelee, tissu) NE PEINT PAS SES
+				//    PARTICULES : son bord passe par leurs CENTRES. Compter leur
+				//    disque ferait « toucher » 4 cm hors du tissu, et le milieu d'une
+				//    maille dechiree (7,8 cm des coins, 4 cm une fois les disques
+				//    retires : 4,6 px a 122 px/m) serait pris comme s'il etait plein.
+				const bool maille = c.mat == NkMateriauP2D::NK_BALLON || physics::NkEstGrilleP2D(c.mat);
+				float32 facteur = maille ? 0.f : 1.f;
+				if (physics::NkEstFluideP2D(c.mat)) {
+					facteur = 1.45f;
+				} else if (c.mat == NkMateriauP2D::NK_SABLE) {
+					facteur = 1.05f;
+				}
+				for (uint32 i = c.debut; i < c.debut + c.nombre; ++i) {
+					const physics::NkParticule2D &a = p.particules[i];
+					const float32 di = Longueur(q.x - a.pos.x, q.y - a.pos.y) - a.rayon * facteur;
+					d = di < d ? di : d;
+				}
+				switch (c.mat) {
+					case NkMateriauP2D::NK_BALLON: {
+						// PLEIN : le rendu le peint en eventail depuis son centre.
+						if (c.nombre < 3u) {
+							break;
+						}
+						const NkVec2f centre = p.CentreCorps(ci);
+						for (uint32 k = 0; k < c.nombre; ++k) {
+							const NkVec2f &a = p.particules[c.debut + k].pos;
+							const NkVec2f &b = p.particules[c.debut + (k + 1u) % c.nombre].pos;
+							if (DansTriangle(q, centre, a, b)) {
+								return d < 0.f ? d : 0.f;
+							}
+						}
+						break;
+					}
+					case NkMateriauP2D::NK_GELEE:
+					case NkMateriauP2D::NK_TISSU: {
+						// Les MAILLES : un clic entre quatre particules de tissu est
+						// sur le tissu, pas dans le vide.
+						const int32 nx = c.nx;
+						const int32 ny = c.ny;
+						if (nx < 2 || ny < 2 || c.nombre != static_cast<uint32>(nx * ny)) {
+							break;
+						}
+						const bool tissu = c.mat == NkMateriauP2D::NK_TISSU;
+						for (int32 j = 0; j + 1 < ny; ++j) {
+							for (int32 i = 0; i + 1 < nx; ++i) {
+								if (tissu && MailleDechiree(p, c, i, j)) {
+									continue;
+								}
+								const NkVec2f &pa = p.particules[c.debut + static_cast<uint32>(j * nx + i)].pos;
+								const NkVec2f &pb = p.particules[c.debut + static_cast<uint32>(j * nx + i + 1)].pos;
+								const NkVec2f &pc = p.particules[c.debut + static_cast<uint32>((j + 1) * nx + i + 1)].pos;
+								const NkVec2f &pd = p.particules[c.debut + static_cast<uint32>((j + 1) * nx + i)].pos;
+								if (DansTriangle(q, pa, pb, pc) || DansTriangle(q, pa, pc, pd)) {
+									return d < 0.f ? d : 0.f;
+								}
+							}
+						}
+						break;
+					}
+					case NkMateriauP2D::NK_CORDE: {
+						// Le TRAIT : une planche de pont a l'epaisseur de ses
+						// particules, une corde au moins 3,5 px (ou 8 cm).
+						const bool pont = p.particules[c.debut].rayon > 0.06f;
+						const float32 demiCorde = 1.75f * pixel > 0.04f ? 1.75f * pixel : 0.04f;
+						for (uint32 i = c.debut; i + 1u < c.debut + c.nombre; ++i) {
+							const physics::NkParticule2D &a = p.particules[i];
+							const physics::NkParticule2D &b = p.particules[i + 1u];
+							const float32 demi = pont ? a.rayon + pixel : demiCorde;
+							const float32 ds = DistanceSegment(q, a.pos, b.pos) - demi;
+							d = ds < d ? ds : d;
+						}
+						break;
+					}
+					default:
+						break;
+				}
+				return d;
+			}
+
+			/// La distance au sprite tel que NkDessinerScene le peint : pivot,
+			/// rotation ET echelle du transform. (L'ancienne prise ignorait pivot
+			/// et rotation : une planche tournee de 45 degres se prenait dans sa
+			/// boite droite, a cote de ce qu'on voyait.)
+			float32 DistanceSprite(const NkTransform2D &t, const NkSprite2D &s, const NkVec2f &q) noexcept {
+				const float32 co = math::NkCos(-t.rotation);
+				const float32 si = math::NkSin(-t.rotation);
+				const float32 dx = q.x - t.position.x;
+				const float32 dy = q.y - t.position.y;
+				const float32 lx = dx * co - dy * si;
+				const float32 ly = dx * si + dy * co;
+				// Le rectangle du rendu, [-pivot, 1 - pivot] * taille, a l'echelle.
+				float32 x0 = -s.pivot.x * s.taille.x * t.echelle.x;
+				float32 x1 = (1.f - s.pivot.x) * s.taille.x * t.echelle.x;
+				float32 y0 = -s.pivot.y * s.taille.y * t.echelle.y;
+				float32 y1 = (1.f - s.pivot.y) * s.taille.y * t.echelle.y;
+				if (x0 > x1) {
+					const float32 x = x0;
+					x0 = x1;
+					x1 = x;
+				}
+				if (y0 > y1) {
+					const float32 y = y0;
+					y0 = y1;
+					y1 = y;
+				}
+				const float32 qx = math::NkAbs(lx - (x0 + x1) * 0.5f) - (x1 - x0) * 0.5f;
+				const float32 qy = math::NkAbs(ly - (y0 + y1) * 0.5f) - (y1 - y0) * 0.5f;
+				const float32 ex = qx > 0.f ? qx : 0.f;
+				const float32 ey = qy > 0.f ? qy : 0.f;
+				const float32 dedans = qx > qy ? qx : qy;
+				return Longueur(ex, ey) + (dedans < 0.f ? dedans : 0.f);
+			}
+
+			float32 AireForme(const NkCollisionneur2D &c) noexcept {
+				switch (c.forme) {
+					case NkForme2D::NK_CERCLE:
+						return 3.14159265f * c.rayon * c.rayon;
+					case NkForme2D::NK_CAPSULE:
+						return 4.f * c.demiTaille.x * c.rayon + 3.14159265f * c.rayon * c.rayon;
+					default:
+						return 4.f * c.demiTaille.x * c.demiTaille.y;
 				}
 			}
-			// 2. Les sprites visibles (le plus haut dessine gagne).
-			ecs::NkEntityId trouve;
-			NkVec2f c;
-			if (NkEntiteSous(s, monde, trouve, c)) {
-				m.selection = trouve;
-				m.aSelection = true;
-				if (centre != nullptr) {
-					*centre = c;
+
+			void PoserDrapeau(NkEditeurModele &m, ecs::NkEntityId id, bool NkDrapeauxEditeur::*champ, bool valeur) {
+				ecs::NkWorld &w = m.scene.Monde();
+				if (!w.IsAlive(id)) {
+					return;
 				}
-				return true;
+				NkDrapeauxEditeur d;
+				if (const NkDrapeauxEditeur *x = w.Get<NkDrapeauxEditeur>(id)) {
+					d = *x;
+				}
+				d.*champ = valeur;
+				// Les deux a faux : le composant s'en va. Une scene dont personne n'a
+				// touche l'oeil ni le cadenas s'enregistre comme avant.
+				if (!d.cache && !d.verrou) {
+					if (w.Has<NkDrapeauxEditeur>(id)) {
+						w.Remove<NkDrapeauxEditeur>(id);
+					}
+					return;
+				}
+				w.Add<NkDrapeauxEditeur>(id, d);
 			}
-			// 3. Les formes sans sprite visible : balles, obstacles, sol.
-			float32 meilleur = 0.1f;
-			bool aucun = true;
-			s.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
-				const float32 d = NkDistanceForme2D(t, col, monde);
-				if (d < meilleur) {
-					meilleur = d;
-					trouve = id;
-					c = t.position;
-					aucun = false;
+		} // namespace
+
+		bool NkEditeurEstCache(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkDrapeauxEditeur *d = m.scene.Monde().Get<NkDrapeauxEditeur>(id);
+			return d != nullptr && d->cache;
+		}
+
+		bool NkEditeurEstVerrouille(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkDrapeauxEditeur *d = m.scene.Monde().Get<NkDrapeauxEditeur>(id);
+			return d != nullptr && d->verrou;
+		}
+
+		bool NkEditeurCacheDansLaVue(NkEditeurModele &m, ecs::NkEntityId id) {
+			// En jeu et en pause, le jeu montre TOUT : l'oeil est celui de
+			// l'editeur, pas un « cache en jeu » (NkDrapeauxEditeur).
+			return m.etat == NkEtatJeu::NK_EDITION && NkEditeurEstCache(m, id);
+		}
+
+		void NkEditeurCacher(NkEditeurModele &m, ecs::NkEntityId id, bool cache) {
+			PoserDrapeau(m, id, &NkDrapeauxEditeur::cache, cache);
+		}
+
+		void NkEditeurVerrouiller(NkEditeurModele &m, ecs::NkEntityId id, bool verrou) {
+			PoserDrapeau(m, id, &NkDrapeauxEditeur::verrou, verrou);
+		}
+
+		bool NkEditeurSansVisuel(NkEditeurModele &m, ecs::NkEntityId id) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (w.Has<NkCorpsMou2D>(id) || w.Has<NkCollisionneur2D>(id)) {
+				return false;
+			}
+			const NkSprite2D *s = w.Get<NkSprite2D>(id);
+			return s == nullptr || !s->visible;
+		}
+
+		bool NkEditeurPrendreSous(NkEditeurModele &m, const NkVec2f &monde, ecs::NkEntityId &sortie, NkVec2f *centre) {
+			NkScene &s = m.scene;
+			ecs::NkWorld &w = s.Monde();
+			// Un pixel en metres : la camera de la scene EST celle du viseur, et
+			// son zoom n'est jamais nul (NkVue2D::PoserZoom).
+			const float32 pixel = 1.f / s.Camera().Zoom();
+			Prise prise;
+			prise.tolerance = NK_PRISE_TOLERANCE_PX * pixel;
+			auto exclue = [&](ecs::NkEntityId id) { return NkEditeurEstVerrouille(m, id) || NkEditeurCacheDansLaVue(m, id); };
+
+			// La matiere (niveau 2).
+			if (const physics::NkParticules2D *p = s.Particules()) {
+				w.Query<NkCorpsMou2D>().ForEach([&](ecs::NkEntityId id, NkCorpsMou2D &mou) {
+					if (!mou.visible || exclue(id)) {
+						return;
+					}
+					const int32 ci = p->IndexCorps(mou.corpsId);
+					if (ci < 0) {
+						return;
+					}
+					const uint32 k = static_cast<uint32>(ci);
+					CandidatPrise c;
+					c.id = id;
+					c.niveau = 2;
+					c.distance = DistanceMatiere(*p, k, monde, pixel);
+					NkVec2f mn, mx;
+					p->BoiteCorps(k, mn, mx);
+					c.aire = (mx.x - mn.x) * (mx.y - mn.y);
+					c.centre = p->CentreCorps(k);
+					prise.Proposer(c);
+				});
+			}
+			// Les sprites visibles (niveau 1, par couche).
+			w.Query<NkTransform2D, NkSprite2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &sp) {
+				if (!sp.visible || exclue(id)) {
+					return;
 				}
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 1;
+				c.couche = sp.couche;
+				c.distance = DistanceSprite(t, sp, monde);
+				c.aire = math::NkAbs(sp.taille.x * t.echelle.x * sp.taille.y * t.echelle.y);
+				c.centre = t.position;
+				prise.Proposer(c);
 			});
-			if (!aucun) {
-				m.selection = trouve;
-				m.aSelection = true;
-				if (centre != nullptr) {
-					*centre = c;
+			// Les formes (niveau 0) : ce que NkDessinerFormes peint, soit toute
+			// entite a collisionneur SAUF celle qu'un sprite texture remplace.
+			w.Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
+				const NkSprite2D *sp = w.Get<NkSprite2D>(id);
+				if ((sp != nullptr && sp->visible && sp->texId != 0u) || exclue(id)) {
+					return;
 				}
-				return true;
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 0;
+				c.distance = NkDistanceForme2D(t, col, monde);
+				c.aire = AireForme(col);
+				c.centre = t.position;
+				prise.Proposer(c);
+			});
+			// Les marqueurs des entites sans visuel (niveau 3) : le viseur ne les
+			// dessine qu'en EDITION.
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				const float32 rayon = NK_MARQUEUR_RAYON_PX * pixel;
+				w.Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t) {
+					if (!NkEditeurSansVisuel(m, id) || exclue(id)) {
+						return;
+					}
+					CandidatPrise c;
+					c.id = id;
+					c.niveau = 3;
+					c.distance = Longueur(monde.x - t.position.x, monde.y - t.position.y) - rayon;
+					c.aire = rayon * rayon;
+					c.centre = t.position;
+					prise.Proposer(c);
+				});
 			}
-			m.aSelection = false;
-			return false;
+
+			const CandidatPrise *choix = prise.aDedans ? &prise.dedans : (prise.aProche ? &prise.proche : nullptr);
+			if (choix == nullptr) {
+				return false;
+			}
+			sortie = choix->id;
+			if (centre != nullptr) {
+				*centre = choix->centre;
+			}
+			return true;
+		}
+
+		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
+			ecs::NkEntityId trouve;
+			if (!NkEditeurPrendreSous(m, monde, trouve, centre)) {
+				m.aSelection = false;
+				return false;
+			}
+			m.selection = trouve;
+			m.aSelection = true;
+			return true;
 		}
 
 		void NkEditeurDeplacer(NkEditeurModele &m, const NkVec2f &cible) {
@@ -284,9 +635,7 @@ namespace nkentseu {
 			if (NkEditeurChoisirSous(m, monde, centre)) {
 				return true;
 			}
-			// ⚠️ ChoisirSous LAISSE la selection en place quand il ne trouve rien :
-			//    c'est juste pour « Poser » et « Saisir », faux pour un clic de
-			//    selection, ou le vide veut dire « plus rien ».
+			// Le vide veut dire « plus rien » : ni selection, ni glisser en cours.
 			m.aSelection = false;
 			m.deplace = false;
 			return false;
@@ -747,6 +1096,8 @@ namespace nkentseu {
 
 		bool NkEditeurOuvrir(NkEditeurModele &m) {
 			NkString erreur;
+			// AVANT la lecture : un composant non declare serait saute en silence.
+			DeclarerDrapeaux(m.scene);
 			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), &m.textures, &erreur);
 			if (ok) {
 				Aligner(m);

@@ -40,14 +40,10 @@ namespace nkentseu {
 		/// calculee d'avance a qui poser la question.
 		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept;
 
-		/// L'entite dont la boite contient ce point du MONDE. Rend aussi son
-		/// centre, pour que l'appelant calcule le decalage de saisie.
-		///
-		/// ⚠️ On parcourt et on garde la DERNIERE trouvee : c'est celle qui est
-		/// dessinee en dernier, donc celle du dessus. Prendre la premiere
-		/// selectionnerait ce qui est CACHE — et l'utilisateur ne comprendrait
-		/// pas pourquoi son clic attrape autre chose.
-		bool NkEntiteSous(NkScene &scene, const NkVec2f &monde, ecs::NkEntityId &sortie, NkVec2f &centre);
+		// Ce qui est sous le curseur : NkEditeurPrendreSous (NkEditeurActions.h),
+		// qui suit l'ordre de dessin de NkDessinerViseur (30/09). L'ancien
+		// NkEntiteSous, boite droite des seuls sprites, n'existe plus que dans
+		// le banc, pour la contre-epreuve du temoin e41.
 
 	} // namespace editeur
 } // namespace nkentseu

@@ -408,11 +408,8 @@ namespace nkentseu {
 			if (const auto *e = event.As<NkMouseButtonPressEvent>()) {
 				// Convention NKGui : [0] gauche, [1] droit, [2] milieu.
 				in.mousePos = nkgui::NkVec2{static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
-				const int32 b = IndiceBouton(e->GetButton());
-				if (b >= 0) {
-					in.mouseDown[b] = true;
-					mAppuiNonVu[b] = true;
-				}
+				// Aucun clic ne se perd entre deux trames : NkEditeurSouris.h.
+				mBoutons.Appui(in, IndiceBouton(e->GetButton()));
 				in.ctrlDown = e->GetModifiers().ctrl;
 				in.shiftDown = e->GetModifiers().shift;
 				in.altDown = e->GetModifiers().alt;
@@ -423,17 +420,9 @@ namespace nkentseu {
 				if (b < 0) {
 					return false;
 				}
-				// ⚠️ LE CLIC PLUS COURT QU'UNE TRAME. NKGui derive le clic de la
-				//    transition de `mouseDown` d'une trame a l'autre : un appui ET son
-				//    relachement arrives entre deux trames (pave tactile, clic sec)
-				//    laissaient `mouseDown` a faux des deux cotes -- le clic
-				//    n'existait pas. Le relachement attend donc que la trame ait VU
-				//    l'appui ; il est applique a la fin de OnDraw.
-				if (mAppuiNonVu[b]) {
-					mRelacheDiffere[b] = true;
-				} else {
-					in.mouseDown[b] = false;
-				}
+				// ⚠️ LE CLIC PLUS COURT QU'UNE TRAME : le relachement attend que la
+				//    trame ait VU l'appui (NkEditeurSouris.h, cas 1).
+				mBoutons.Relache(in, b);
 				return false;
 			}
 			if (const auto *e = event.As<NkMouseDoubleClickEvent>()) {
@@ -634,14 +623,9 @@ namespace nkentseu {
 				dl.AddRect(ui.ecran, mPalette.bord, 1.f);
 			}
 			// La trame a VU les appuis ; les relachements retenus partent pour la
-			// suivante (voir OnEvent).
-			for (int32 b = 0; b < 3; ++b) {
-				mAppuiNonVu[b] = false;
-				if (mRelacheDiffere[b]) {
-					mRelacheDiffere[b] = false;
-					ctx.input.mouseDown[b] = false;
-				}
-			}
+			// suivante (voir OnEvent). Et la trame a vu le RELACHEMENT : l'appui
+			// retenu derriere lui peut partir a son tour.
+			mBoutons.FinDeTrame(ctx.input);
 			if (ui.demandeQuitter) {
 				ui.demandeQuitter = false;
 				Quit();
