@@ -1,6 +1,6 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # Ecrit le CORPUS DE SONDE de l'inventaire : un fichier .nkgui par element de la chrome de
-# NK3DModeler, plus TROIS NEGATIFS dont le refus prouve que les acceptations veulent dire
+# NKCraft, plus TROIS NEGATIFS dont le refus prouve que les acceptations veulent dire
 # quelque chose. Le corpus est une TRACE (il vit dans Build/, non versionne) ; ce script,
 # lui, est l'instrument, et il se commite.
 $R = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path

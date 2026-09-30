@@ -2117,7 +2117,7 @@ namespace nkentseu {
 			// réel avance d'un centième de sa plage (ou de 0,05 si la plage est libre).
 			// Sans cette règle, un même geste ferait passer un compteur de 1 à 2 et une
 			// distance de 0,001 à 1,001 — l'un utilisable, l'autre pas.
-			if (p->type == renderer::NkModParamType::Vec3) {
+			if (p->type == renderer::NkModParamType::Nk_ModParamType_Vec3) {
 				NkVec3f v{0.f, 0.f, 0.f};
 				m.GetParamVec3(p->name, v);
 				const float32 stepv = 0.25f * (float32)dir;
@@ -2128,10 +2128,10 @@ namespace nkentseu {
 				float32 v = 0.f;
 				m.GetParam(p->name, v);
 				float32 step = 1.f;
-				if (p->type == renderer::NkModParamType::Bool)
+				if (p->type == renderer::NkModParamType::Nk_ModParamType_Bool)
 					v = (v >= 0.5f) ? 0.f : 1.f;
 				else {
-					if (p->type == renderer::NkModParamType::Float)
+					if (p->type == renderer::NkModParamType::Nk_ModParamType_Float)
 						step = (p->maxV > p->minV) ? (p->maxV - p->minV) * 0.01f : 0.05f;
 					v += step * (float32)dir;
 				}

@@ -21,7 +21,7 @@ La TUI : un modèle **NER spaCy** (`en_core_web_lg` affiné ~51 min sur **500 ph
 
 ## Ce qu'on peut en tirer pour Nkentseu
 
-Le cœur exploitable pour le chantier **Matériaux** de NK3DModeler, c'est le PGWM comme **générateur de textures PBR de bois** : on évalue le modèle dans un shader (ou un passe de calcul) hors écran et on **cuit** le résultat en triplet **albedo / normal / ORM** — exactement le format de nos matériaux :
+Le cœur exploitable pour le chantier **Matériaux** de NKCraft, c'est le PGWM comme **générateur de textures PBR de bois** : on évalue le modèle dans un shader (ou un passe de calcul) hors écran et on **cuit** le résultat en triplet **albedo / normal / ORM** — exactement le format de nos matériaux :
 - **Albedo** : la couleur RGBA du modèle (duramen/aubier, cernes, vaisseaux, rayons, nœuds).
 - **Normal** : dérivées partielles de la carte de hauteur (éq. 10–12) — trivial dans notre pipeline, c'est un simple filtre sur la hauteur cuite.
 - **ORM** : R = la rugosité du papier (mappage [0.3, 0.7] earlywood/latewood) ; M = 0 (le bois n'est pas métallique) ; O (occlusion) n'est pas traité par l'article — mettre 1.0 ou dériver une AO faible de la hauteur.
@@ -30,7 +30,7 @@ L'**aperçu hors écran** existant du chantier Matériaux est précisément l'en
 
 **Implémentable depuis l'article seul** : la totalité du PGWM — cernes (dent de scie + easing), masques duramen/aubier/moelle, vaisseaux (Voronoï + fonctions par morceaux de la Table 1), rayons (cylindres elliptiques), nœuds (cônes courbés + Bézier explicite), points d'influence, brushiness, normales, rugosité. Toutes les formules et constantes nécessaires figurent dans le papier.
 
-**Exige des données ou modèles qu'on n'a pas** : (1) le **jeu de configurations par essence** (le JSON des auteurs n'est pas publié ni licencié — il faudrait construire nos propres presets, p. ex. 5–10 essences, à partir des sources qu'ils citent ou à l'œil) ; (2) la **TUI NLP** (les 500 phrases annotées et le modèle spaCy affiné ne sont pas fournis — il faudrait créer notre propre corpus). Pour NK3DModeler, une interface à curseurs/valeurs dans le panneau Matériaux rend la TUI **facultative** : c'est l'ergonomie du papier, pas sa substance.
+**Exige des données ou modèles qu'on n'a pas** : (1) le **jeu de configurations par essence** (le JSON des auteurs n'est pas publié ni licencié — il faudrait construire nos propres presets, p. ex. 5–10 essences, à partir des sources qu'ils citent ou à l'œil) ; (2) la **TUI NLP** (les 500 phrases annotées et le modèle spaCy affiné ne sont pas fournis — il faudrait créer notre propre corpus). Pour NKCraft, une interface à curseurs/valeurs dans le panneau Matériaux rend la TUI **facultative** : c'est l'ergonomie du papier, pas sa substance.
 
 ## Ce qu'il faut et comment faire
 
@@ -41,7 +41,7 @@ L'**aperçu hors écran** existant du chantier Matériaux est précisément l'en
 4. **Distorsions** : brushiness (Perlin imbriqués étirés en Z), puis points d'influence (liste de points, force/rayon).
 5. **Rayons** puis **nœuds** (les deux morceaux les plus techniques ; les nœuds demandent le cône courbé + la Bézier de fusion).
 6. **Presets d'essences** : notre propre petit JSON de configurations (pin, noyer, chêne...), réglées à la main sur photos.
-7. *(Optionnel, plus tard)* interface texte — sans intérêt immédiat pour NK3DModeler, à ignorer.
+7. *(Optionnel, plus tard)* interface texte — sans intérêt immédiat pour NKCraft, à ignorer.
 
 **Dépendances** : aucune bibliothèque externe — Voronoï et Perlin s'écrivent en shader (ou existent déjà dans le moteur) ; GPU requis mais c'est notre contexte normal (DX11 et consorts) ; pas de données tierces obligatoires ; spaCy/Python seulement si on faisait la TUI (on ne la fait pas). La cuisson réutilise l'aperçu hors écran existant.
 

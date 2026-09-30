@@ -12,7 +12,7 @@
 // le theme est pousse ». Deux choses clochaient :
 //
 //   1. ca confond LE LIEU DE L APPEL et LE LIEU DE LA VERITE ;
-//   2. ca ne pouvait pas couvrir NK3DModeler, qui **n utilise deliberement pas
+//   2. ca ne pouvait pas couvrir NKCraft, qui **n utilise deliberement pas
 //      `NkEditorShell`** (`NkModelerUI.h:5` : la coquille apporte son propre
 //      chrome, ce qui empeche de coller a la maquette au pixel pres).
 //
@@ -26,7 +26,7 @@
 //    etait ecrite -- et **enfermee dans un `namespace {}` anonyme de
 //    `NkEditorShell.cpp`**. Ce n est pas « pas encore extrait » : c est
 //    INACCESSIBLE, au sens de l editeur de liens, pour toute application qui n a
-//    pas de coquille. NK3DModeler ne pouvait donc pas l appeler meme en le
+//    pas de coquille. NKCraft ne pouvait donc pas l appeler meme en le
 //    voulant, et sa seule sortie etait d en ecrire une seconde. C est le
 //    mecanisme exact des deux registres de roles homonymes et des deux objets
 //    theme payes cette semaine : **la deuxieme copie n est presque jamais un
@@ -106,7 +106,7 @@ namespace nkentseu {
 		/// Traduit un theme d editeur en theme de widgets NKGui.
 		///
 		/// ⚠️ LA SIGNATURE NE DEMANDE NI COQUILLE NI CONTEXTE, et c est ce qui la
-		///    rend utilisable par NK3DModeler. Elle ne prend que ce qu elle
+		///    rend utilisable par NKCraft. Elle ne prend que ce qu elle
 		///    ecrit et ce qu elle lit.
 		NKENTSEU_FORCE_INLINE void NkThemeVersGui(nkgui::NkGuiTheme &g, const NkTheme &t) noexcept {
 			auto R = [&t](NkRole r) { return NkThemeUnpack(t.Get(r)); };

@@ -8,7 +8,7 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI CE FICHIER, ET POURQUOI ICI
-//   Sans UV, aucune peinture de texture n'est possible — ni dans NK3DModeler, ni
+//   Sans UV, aucune peinture de texture n'est possible — ni dans NKCraft, ni
 //   dans Noge, ni dans NKScena. Les trois attendent la meme operation, donc elle
 //   vit dans le noyau, a cote du maillage qu'elle deplie, et PAS dans une
 //   application.

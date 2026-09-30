@@ -51,7 +51,7 @@ namespace nkentseu {
 		// demande « le meme nom d'option et la meme variable d'environnement dans
 		// toutes les applications, pas un vocabulaire par application ». Mesure du
 		// 18/08 : quatre applications, quatre vocabulaires — `--gfx=` chez
-		// NKUIDesign, `-b<backend>` chez NkAnimaEditor, rien chez NK3DModeler ni
+		// NKUIDesign, `-b<backend>` chez NkAnimaEditor, rien chez NKCraft ni
 		// chez Nogee. Le vocabulaire vit donc ICI, avec l'enumeration qu'il nomme.
 		//
 		// `Auto` n'est pas une API : c'est une DELEGATION. Elle a quand meme un nom,

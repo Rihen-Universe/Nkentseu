@@ -7,6 +7,7 @@
 #include "NKCollision/NkColConcave.h" // décomposition des concaves (trimesh/heightfield/chain)
 #include "NKCollision/NkColCast.h"	  // casts génériques (ray-convexe, shape cast) par CA
 #include "NKCollision/NkColClip.h"	  // manifolds multi-points 2D (clipping polygones)
+#include "NKCollision/NkColRay2D.h"	  // rayons 2D exacts (2026-09-29)
 
 namespace nkentseu {
 	namespace collision {
@@ -458,8 +459,46 @@ namespace nkentseu {
 			return found;
 		}
 
-		// ── Raycast 2D ───────────────────────────────────────────────────────
+		// ── Raycast 2D exact (2026-09-29) ────────────────────────────────────
 		bool NkWorld::Raycast2D(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask) const {
+			return Raycast2D(ray, hit, mask, false, 0u);
+		}
+
+		bool NkWorld::Raycast2D(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask, bool ignorerZones, uint32 ignorer) const {
+			bool found = false;
+			NkRayHit2D best;
+			best.t = ray.maxT;
+			// Le DBVH tient les formes 2D en tranches fines autour de z = 0 : un
+			// rayon du plan (z = 0, dz = 0) les traverse comme en 3D.
+			NkRay3D r3;
+			r3.origin = {ray.origin.x, ray.origin.y, 0.f};
+			r3.dir = {ray.dir.x, ray.dir.y, 0.f};
+			r3.maxT = ray.maxT;
+			NkVector<uint32> cand;
+			mTree.RayCast(r3, cand);
+			for (uint32 i = 0; i < (uint32)cand.Size(); ++i) {
+				const NkBody *bp = GetBody(cand[i]);
+				if (!bp || !bp->active || !NkShapeIs2D(bp->shape.type) || !(bp->layer & mask))
+					continue;
+				if ((ignorerZones && bp->trigger) || (ignorer != 0u && bp->id == ignorer))
+					continue;
+				NkRay2D r = ray;
+				r.maxT = best.t; // le plus proche seulement : on raccourcit au fil des touches
+				NkRayHit2D h;
+				const bool ok = NkRayShape2D(r, bp->shape, h);
+				if (ok && h.t <= best.t) {
+					h.bodyId = bp->id;
+					best = h;
+					found = true;
+				}
+			}
+			if (found)
+				hit = best;
+			return found;
+		}
+
+		// ── Raycast 2D par boites englobantes (l'ancien Raycast2D, garde) ─────
+		bool NkWorld::Raycast2DBoites(const NkRay2D &ray, NkRayHit2D &hit, uint32 mask) const {
 			bool found = false;
 			NkRayHit2D best;
 			best.t = ray.maxT;

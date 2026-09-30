@@ -44,7 +44,7 @@
 //
 //  ⚠️ CE QUE CA EVITE, ET C'EST LE MOTIF QUE CE DEPOT A DEJA PAYE : inventer ici
 //     un vocabulaire de poignees partage ferait **un quatrieme jeu d'icones**
-//     (102 SVG chez NK3DModeler, 91 PNG chez NKCode, l'atlas NKGui en cours).
+//     (102 SVG chez NKCraft, 91 PNG chez NKCode, l'atlas NKGui en cours).
 //     Rien de ce fichier n'est partageable, et c'est voulu : il ne declare que
 //     ce dont NkUIDesign a besoin, il ne touche a aucun fichier commun, et **il
 //     disparait le jour ou l'atlas NKGui arrive** — la table ci-dessous devient

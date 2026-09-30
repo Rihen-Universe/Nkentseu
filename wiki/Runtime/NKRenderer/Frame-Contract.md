@@ -66,7 +66,7 @@ C'est **elle qui fait tout le travail GPU**, malgré son nom.
 ### `SubmitDrawList` / `SubmitRenderGraph` — **cherché, absents de cette façade**
 
 `NkRenderer.h` **ne déclare ni `SubmitDrawList` ni `SubmitRenderGraph`**. Les 211 lignes du header
-ont été lues intégralement. Le `SubmitDrawList` que l'on trouve dans NK3DModeler appartient à une
+ont été lues intégralement. Le `SubmitDrawList` que l'on trouve dans NKCraft appartient à une
 **autre classe** — voir le flux B ci-dessous. La soumission au render graph se fait via
 `GetRenderGraph()->Execute(cmd)` ou, en flux normal, à l'intérieur de `Present()`.
 
@@ -133,9 +133,9 @@ if (auto *graph = r3->GetRenderGraph()) graph->Execute(cmd);
 
 | Site | Fichier | Bloc de rejeu | `graph->Execute(cmd)` |
 |---|---|---|---|
-| A | `NK3DModeler/.../Viewport/NkDemo3D.cpp` | 5697-5711 | 10940-10941 |
-| B | `NK3DModeler/.../Viewport/NkMatPreview3D.h` | 372-377 | 561-562 |
-| C | `NK3DModeler/.../Viewport/NkViewport3D.cpp` | 2106-2109 | 2622-2623 |
+| A | `NKCraft/.../Viewport/NkDemo3D.cpp` | 5697-5711 | 10940-10941 |
+| B | `NKCraft/.../Viewport/NkMatPreview3D.h` | 372-377 | 561-562 |
+| C | `NKCraft/.../Viewport/NkViewport3D.cpp` | 2106-2109 | 2622-2623 |
 | D | `NKXRDemo/src/NKXRDemo/main.cpp` (les 2 rendus **par œil**) | 726-733 | 796-797 |
 | E | `NkAnimaEditor/.../AnimBridge.cpp` | 883-886 | 1038-1039 |
 
@@ -194,7 +194,7 @@ un seul endroit**.
 #### ⚠️ La suppression annoncée de `NkViewport3D.cpp` ne règle pas le problème
 
 `NkViewport3D.cpp` doit être supprimé et `NkDemo3D` renommé en `NkViewport3D`. Mesuré :
-`NK3DModeler.jenga:43` compile `src/**.cpp` — **`NkDemo3D.cpp` et `NkViewport3D.cpp` coexistent
+`NKCraft.jenga:43` compile `src/**.cpp` — **`NkDemo3D.cpp` et `NkViewport3D.cpp` coexistent
 aujourd'hui dans le même binaire**, ce sont deux sites indépendants, pas un fichier et sa copie.
 
 Si `NkViewport3D.cpp` disparaît : **4 sites subsistent** (A, B, D, E). Les sites sans S6 passent de
@@ -223,7 +223,7 @@ sortie anticipée avec un appel du corps principal.
 |---|---|---|
 | **A** — façade, ordre **correct** (`Present` → `EndFrame`) | **25** | **44** |
 | **A** — façade, ordre **inversé** (`EndFrame` → `Present`) | **3** | **3** |
-| **B** — coquille éditeur (`NkIEditorRenderer`, 2 points d'entrée) | 1 (`NK3DModeler/main.cpp`) | 1 boucle |
+| **B** — coquille éditeur (`NkIEditorRenderer`, 2 points d'entrée) | 1 (`NKCraft/main.cpp`) | 1 boucle |
 | **C** — mode partagé (aucun des trois appelé) | **5** *(corrigé le 27/08 ; 2 annoncés le 24/08)* | 5 |
 
 ### Les trois sites réellement fautifs

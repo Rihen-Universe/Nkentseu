@@ -1,6 +1,6 @@
 nkgui 0.3
 
-// LES TAILLES RELATIVES, avec les cotes REELLES de NK3DModeler : sa disposition
+// LES TAILLES RELATIVES, avec les cotes REELLES de NKCraft : sa disposition
 // est ecrite en fractions (`NkLayout::Compute(W, H, fLeft = 0.16f, fRight = 0.29f)`).
 // Le meme document doit donner DEUX dispositions justes dans DEUX fenetres.
 //

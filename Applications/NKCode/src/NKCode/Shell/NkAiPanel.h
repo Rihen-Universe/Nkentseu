@@ -10,7 +10,7 @@
 //   Non-streaming pour ce 1er jet (réponse complète). Parsing JSON minimal.
 //
 //   ⚠️ 21/09/2026 : LA VUE DE CONVERSATION EST LE PANNEAU DU KIT
-//      (`NKEditorKit/NkAiPanneau.h`, le meme que NK3DModeler et NKUIDesign),
+//      (`NKEditorKit/NkAiPanneau.h`, le meme que NKCraft et NKUIDesign),
 //      rempli par `DessinerKit`. L'en-tete a pilule, la barre de session, les
 //      bulles et la barre Mode/Portee/Edition ne se dessinent plus pour la
 //      conversation ; tout ce que ce fichier sait FAIRE (CLI, comptes, file,

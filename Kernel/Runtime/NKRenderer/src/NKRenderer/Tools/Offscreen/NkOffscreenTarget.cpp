@@ -67,7 +67,7 @@ namespace nkentseu {
 			// Une texture fraichement creee contient de la MEMOIRE GPU RECYCLEE.
 			// Tant que rien n'y a ete rendu, la relire ramene ce que le pilote y
 			// avait laisse -- concretement, des morceaux d'AUTRES APPLICATIONS.
-			// Constate sur NK3DModeler : des images d'un enregistrement video
+			// Constate sur NKCraft : des images d'un enregistrement video
 			// laissaient voir une fenetre tierce, alors meme qu'elle etait
 			// DERRIERE la fenetre capturee -- preuve qu'il ne s'agissait pas
 			// d'une capture d'ecran mais bien de memoire non initialisee.

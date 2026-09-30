@@ -194,7 +194,7 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		// Pont NKEvent -> NkGuiInput. Même table que NK3DModeler/main.cpp
+		// Pont NKEvent -> NkGuiInput. Même table que NKCraft/main.cpp
 		// (touches d'ÉDITION + drapeaux copier/coller + saisie texte) : c'est le
 		// pont de référence — sans lui, les InputText ne reçoivent rien.
 		void MedicalUILayer::UpdateInput(NkEvent *e) noexcept {

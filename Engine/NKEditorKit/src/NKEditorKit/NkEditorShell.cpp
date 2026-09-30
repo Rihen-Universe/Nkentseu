@@ -302,7 +302,7 @@ namespace nkentseu {
 		//  dessinee dans un panneau, cela transforme « le corps repond une image sur deux »
 		//  en « le corps ne repond plus du tout ». La regle a donc ete ECRITE, MESUREE, et
 		//  RETIREE. ⚠️ Deux applications sont encore dans ce cas par LECTURE, non mesurees :
-		//  NKCode (NkCodeEditor.h:4829 et 4856) et NK3DModeler (NkModelerViewport.h:1917 et
+		//  NKCode (NkCodeEditor.h:4829 et 4856) et NKCraft (NkModelerViewport.h:1917 et
 		//  1983) dessinent un menu contextuel DANS un panneau.
 
 		void NkEditorShell::JournalPortesBilan(const char *etiquette) const noexcept {
@@ -2691,7 +2691,7 @@ namespace nkentseu {
 		//    visible que partout ailleurs, et il se lit comme la marque.
 		//
 		// ⚠️ ET IL EST DANS LE KIT, PAS DANS L APPLICATION. Toutes les
-		//    applications Rihen (NKCode, NK3DModeler, Nogee, NkAnimaEditor,
+		//    applications Rihen (NKCode, NKCraft, Nogee, NkAnimaEditor,
 		//    NkUIDesign, PV3DE) portent la MEME marque. La definir dans chaque
 		//    application, ce serait six dessins qui divergent des la premiere
 		//    retouche — exactement le raisonnement qui met les themes ici.
@@ -2714,7 +2714,7 @@ namespace nkentseu {
 		// ⚠️ CE N ETAIT PAS UN « POINT DE SYNCHRONISATION », C ETAIT UNE
 		//    CONVERSION -- et elle vivait ICI, dans un `namespace {}` anonyme,
 		//    donc **inaccessible a l editeur de liens** pour toute application
-		//    sans coquille. NK3DModeler n utilise deliberement pas
+		//    sans coquille. NKCraft n utilise deliberement pas
 		//    `NkEditorShell` (`NkModelerUI.h:5`) : sa seule sortie etait d en
 		//    ecrire une seconde. C est le mecanisme des deux registres de roles
 		//    homonymes et des deux objets theme payes cette semaine -- **la
@@ -3184,7 +3184,7 @@ namespace nkentseu {
 		//     FONCTION, ET C'EST LE POINT. Tout ce qu'elle fait : convertir
 		//     l'entree NKGui en `NkComponentInput`, deriver les roles, appeler
 		//     `NkDrawTabStrip`, router ce qu'il rapporte. Le jour ou l'on change
-		//     un nombre dans `NkTabStripModel.h`, Nogee ET NK3DModeler changent —
+		//     un nombre dans `NkTabStripModel.h`, Nogee ET NKCraft changent —
 		//     c'est le temoin que le canal exige, et il n'est verifiable que si
 		//     cette fonction reste vide de geometrie.
 		void NkEditorShell::DrawTabStrip(const NkRect &rect) noexcept {
@@ -3837,7 +3837,7 @@ namespace nkentseu {
 		//
 		// ⚠️ CETTE PORTE NE CORRIGE RIEN. Elle ECRIT ce qui est, pour qu'on sache
 		//    par quelle porte chaque panneau est arrive AVANT de toucher au docking
-		//    -- qui est partage par NK3DModeler, NKUIDesign, NKCode et tout hote de
+		//    -- qui est partage par NKCraft, NKUIDesign, NKCode et tout hote de
 		//    la coquille. Un correctif de docking sans instrument, c'est la faute
 		//    que ce chantier vient de payer deux fois.
 		//

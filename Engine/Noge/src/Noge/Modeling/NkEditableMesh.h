@@ -58,7 +58,7 @@
 //   Le contrat initial (26/07) disait « CCW » et contredisait le code (31/07,
 //   16/08) ; c'est le contrat et le test qui ont été corrigés, pas le code —
 //   retourner le produit vectoriel aurait inversé toutes les normales du
-//   modeleur NK3DModeler (faces arrière, éclairage, sens des extrusions).
+//   modeleur NKCraft (faces arrière, éclairage, sens des extrusions).
 //
 // USAGE TYPIQUE :
 //   NkEditableMesh em;

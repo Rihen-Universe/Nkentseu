@@ -8,11 +8,11 @@
 // @License Proprietary - All Rights Reserved (see LICENSE)
 //
 // POURQUOI ICI ET PAS DANS UNE APPLICATION
-//   NK3DModeler, Nogee, NkAnimaEditor et NKScena ont le meme besoin. Ce qui sert
+//   NKCraft, Nogee, NkAnimaEditor et NKScena ont le meme besoin. Ce qui sert
 //   plusieurs hotes descend sous eux, une fois, au debut. Ce fichier est ecrit
 //   contre `NkComponentPaint` -- l'abstraction de peinture du kit, deja
 //   implementee trois fois (`NkGuiComponentPaint` pour NKGui,
-//   `NkModelerComponentPaint` dans NK3DModeler, `NkRecordingPaint` pour les
+//   `NkModelerComponentPaint` dans NKCraft, `NkRecordingPaint` pour les
 //   bancs). Il ne connait donc ni NKGui, ni NKCanvas, ni NKRHI.
 //
 // ⚠️ C'EST `NkRecordingPaint` QUI REND CE FICHIER PROUVABLE SANS ECRAN
@@ -23,7 +23,7 @@
 //   (A) les compteurs (Draw/Tris/FPS) : continus, sous interrupteur -- PAS ICI.
 //   (B) les messages : transitoires, declenches par un evenement -- ICI.
 //   (C) le journal : persistant, ouvert par l'utilisateur -- PAS ICI
-//       (NK3DModeler a deja le sien, `NkModelerJournal.h`).
+//       (NKCraft a deja le sien, `NkModelerJournal.h`).
 //   Les confondre a deja coute une fois dans ce depot : une seule garde
 //   couvrait le labo, l'aide produit ET le rectangle de selection.
 // -----------------------------------------------------------------------------

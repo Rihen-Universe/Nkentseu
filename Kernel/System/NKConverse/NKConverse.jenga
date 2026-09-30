@@ -32,7 +32,7 @@ conversation portee par des fichiers ou par un processus est un transport.
     utilise (NKFileSystem, NKThreading et NKTime sont en System).
   - Kernel/AI est exclu PAR LA MESURE : NKAgent declare NKTensor, NKRL et
     NKInfer. Y loger la conversation aurait fait tirer tout le moteur
-    d'inference dans NK3DModeler, qui n'a besoin que de lire un fichier.
+    d'inference dans NKCraft, qui n'a besoin que de lire un fichier.
   - Runtime est exclu : rien ici ne parle d'images, de son ni de scene.
 
 ⚠️ REGLE 2 — NKThreading ET NKTime SONT DECLARES ICI, PAS TIRES EN DOUCE.

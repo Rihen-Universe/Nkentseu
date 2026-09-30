@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKR32Harness -- le banc de R32 (G0 du generateur de creatures de NKCraft).
+
+AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+
+Specification : Applications/NKCraft/design/04-generateur-creatures-nkcraft.md
+§3.2bis et §14 (G0). Sur le modele de NKEditMeshHarness : console, sans fenetre
+ni device -- NkEditMesh et NkMeshR32 sont du CALCUL PUR.
+
+CE QU'IL MESURE : le taux de survie d'une retouche a trois regenerations, sur
+trois chaines (ecraser / rejeu par indices / R32) ; les cinq cas du §3.2bis ;
+les criteres R32.7. Code de sortie 1 au premier critere rouge.
+
+IL DOIT POUVOIR ECHOUER : NK_R32_MUTE=1..4 (voir NkMeshR32.h) doit le faire
+rougir. Un banc qui reste vert sous mutation ne prouve rien.
+
+PLATEFORMES : Windows, Linux, macOS -- le gabarit des bancs console du depot
+(NKEditMeshHarness, NKMeshMenuTest). iOS, Android, Web et HarmonyOS n'ont pas de
+banc console ; NkMeshR32 s'y compile avec NKRenderer, sans y etre MESURE.
+"""
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+_GLSLANG_LIBS_WINDOWS = [
+    "glslang", "SPIRV", "MachineIndependent", "GenericCodeGen",
+    "glslang-default-resource-limits",
+]
+_IS_MINGW = "mingw" in TC_WINDOWS.lower()
+
+with project("NKR32Harness"):
+    consoleapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+    files(["src/main.cpp"])
+
+    # Meme chaine de liaison que NKEditMeshHarness : NkMeshR32 vit dans NKRenderer.
+    nkentseudependson(
+        ["NKRenderer", "NKRHI", "NKSL", "NKWindow", "NKEvent", "NKFont", "NKImage",
+         "NKFileSystem", "NKSerialization", "NKReflection", "NKGlad", "NKMath", "NKTime",
+         "NKStream", "NKLogger", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKThreading", "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "%{NKGlad.location}/include"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "NKGLSlang", "NKSPIRVCross",
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "uuid", "ole32", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+            if not _IS_MINGW:
+                _WIN_LINKS.extend(_GLSLANG_LIBS_WINDOWS)
+        links(_WIN_LINKS)
+
+    with filter("system:macOS"):
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL"])

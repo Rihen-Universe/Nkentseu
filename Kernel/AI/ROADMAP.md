@@ -191,7 +191,7 @@ jamais les remplacer d'emblée. Cohérent avec « technique solide d'abord, IA g
 #### Effet de bord vertueux (à garder en tête)
 
 Chaque opération ajoutée au modeleur (bevel, inset, spin, dissolve, loop cut…) **élargit l'espace
-d'actions** de l'agent, donc la complexité des modèles atteignables. NK3DModeler n'est pas
+d'actions** de l'agent, donc la complexité des modèles atteignables. NKCraft n'est pas
 seulement un outil pour l'utilisateur : c'est aussi **l'environnement d'entraînement** de la
 modélisation par IA. C'est ce qui justifie l'exigence « toute opération doit être une commande
 typée, avec undo et topologie cohérente » — sans quoi les trajectoires ne seraient ni rejouables

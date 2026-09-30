@@ -476,6 +476,21 @@ namespace nkentseu {
 			// true si le clavier logiciel est actuellement affich� par cette fen�tre.
 			bool IsSoftKeyboardVisible() const;
 
+			// --- Composition IME (29/09) ---
+			// La zone ou le texte se saisit, en PIXELS CLIENT : l'IME y ouvre sa
+			// composition et place sa liste de candidats JUSTE DESSOUS, sans la
+			// recouvrir. A rappeler quand le curseur du champ bouge.
+			// IMPLEMENTEE SUR WIN32 (IMM32) ; ailleurs, un refus NOMME au journal,
+			// une seule fois (NkWindowRefuserMethode). La composition elle-meme
+			// arrive par NkTextCompositionEvent (NKEvent/NkTextCompositionEvent.h).
+			void SetTextInputArea(int32 x, int32 y, int32 width, int32 height);
+			// true : l'APPLICATION dessine la composition dans son champ (NKGui le
+			// sait), et l'IME n'affiche plus la sienne. false (DEFAUT) : l'IME
+			// garde sa fenetre de composition, comme avant ce jour -- une
+			// application qui ne lit pas NkTextCompositionEvent ne perd rien.
+			void SetImeInlineComposition(bool inlineComposition);
+			bool GetImeInlineComposition() const;
+
 			// --- Web / WASM ---
 			void SetWebInputOptions(const NkWebInputOptions &options);
 			NkWebInputOptions GetWebInputOptions() const;

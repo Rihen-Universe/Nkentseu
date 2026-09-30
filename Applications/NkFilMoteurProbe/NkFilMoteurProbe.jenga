@@ -29,7 +29,7 @@ with project("NkFilMoteurProbe"):
         # ⚠️ NKGLSlang et NKSPIRVCross : NkEngineLayer.cpp tire NKRenderer, qui
         #    tire NKSL, qui appelle glslang. Sans eux, le lien rend une
         #    quinzaine de « undefined reference to `glslang::... ». Liste
-        #    reprise d'un projet qui construit (NK3DModeler), pas devinee.
+        #    reprise d'un projet qui construit (NKCraft), pas devinee.
         ["Noge", "NKRenderer", "NKRHI", "NKSL", "NKGLSlang", "NKSPIRVCross",
          "NKCollision", "NKPhysics",
          "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKStream", "NKGlad",

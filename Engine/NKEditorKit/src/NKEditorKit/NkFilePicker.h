@@ -447,7 +447,7 @@ namespace nkentseu {
 				// PORTE DE SORTIE UNIQUE du selecteur : confirmation, bouton Annuler
 				// et touche Echap y passent tous. VIRTUELLE pour que l'app y desarme
 				// le mode de SA specialisation (ex. l'assistant « nouveau materiau »
-				// de NK3DModeler) : sans cela, Echap fermait le selecteur en laissant
+				// de NKCraft) : sans cela, Echap fermait le selecteur en laissant
 				// le mode arme, et le selecteur SUIVANT -- ouvrir un projet, choisir
 				// une texture -- se serait ouvert avec l'assistant d'un autre sujet.
 				// Un mode qui survit a la fermeture de sa fenetre est un piege a

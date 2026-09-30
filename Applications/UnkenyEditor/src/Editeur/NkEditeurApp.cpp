@@ -21,7 +21,9 @@
 #include "Editeur/NkEditeurActions.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancEntrees.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -156,7 +158,8 @@ namespace nkentseu {
 		// =====================================================================
 		NkEditeurApp::NkEditeurApp()
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
-			  mTheme(editorkit::NkTheme::Dark()) {
+			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mTheme(editorkit::NkTheme::Dark()) {
+			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
 			renderer::NkCanvasAppConfig &cfg = Config();
 			cfg.title = "Unkeny — éditeur";
@@ -212,12 +215,15 @@ namespace nkentseu {
 					mSelectionDepart = NkString(args[i].SubStr(12));
 					continue;
 				}
-				// --ouvrir= (2026-09-29) : une scene precise au demarrage, et c'est
-				// elle qu'« Enregistrer » ecrira. Ce qui rend une capture d'une
-				// hierarchie reproductible (--capture=) sans souris.
-				if (args[i].StartsWith("--ouvrir=")) {
-					m.chemin = NkString(args[i].SubStr(9));
-					mOuvrirDepart = true;
+				// --scene= : ouvrir un .nkscene donne, sans passer par le fichier
+				// de l'utilisateur (AppData). Avec --selection= et --capture=,
+				// c'est la capture d'un panneau Details sans souris (2026-09-29 :
+				// celui de l'Animateur, qu'aucune scene neuve ne porte).
+				// --ouvrir= (branche hierarchie, meme jour, meme besoin : capturer
+				// l'Outliner en arbre) en est un ALIAS a la fusion — un seul chemin
+				// d'ouverture au demarrage, deux noms pour ne casser aucun usage ecrit.
+				if (args[i].StartsWith("--scene=") || args[i].StartsWith("--ouvrir=")) {
+					mSceneDepart = NkString(args[i].SubStr(args[i].StartsWith("--scene=") ? 8 : 9));
 					continue;
 				}
 				if (args[i] == "--selftest") {
@@ -226,7 +232,11 @@ namespace nkentseu {
 					// sa source, pas dans ses consequences.
 					const int32 moteur = unkeny::NkUnkenyLancerBanc();
 					const int32 editeur = NkEditeurLancerBanc();
-					return NkOptional<int>((moteur != 0 || editeur != 0) ? 1 : 0);
+					// Les entrees (29/09) : APRES, et comptees a part, pour que les
+					// deux bancs d'avant gardent leurs comptes.
+					const int32 entrees = unkeny::NkUnkenyLancerBancEntrees();
+					const int32 jouer = NkEditeurLancerBancEntrees();
+					return NkOptional<int>((moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0) ? 1 : 0);
 				}
 			}
 			return NkOptional<int>();
@@ -262,12 +272,16 @@ namespace nkentseu {
 			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
 			m.textures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
 			NkEditeurNouvelleScene(m);
-			if (mOuvrirDepart) {
-				NkEditeurOuvrir(m); // un echec le dit (annonce) et garde la scene neuve
-			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
+			if (!mSceneDepart.Empty()) {
+				// ⚠️ Le chemin DEVIENT celui de la scene : « Enregistrer » y
+				// ecrira, comme apres un Ouvrir. Un echec garde la scene neuve,
+				// et l'annonce le dit.
+				m.chemin = mSceneDepart;
+				NkEditeurOuvrir(m);
+			}
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
 			NkEditeurRetenirEmpreinte(m, *mUi);
@@ -301,6 +315,9 @@ namespace nkentseu {
 			// modales de l'OS (deplacer, redimensionner) peuvent tourner sans
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
+			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur, occupe);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
 			// fermer le viseur mettait la simulation en pause. La coquille a un
@@ -382,6 +399,12 @@ namespace nkentseu {
 		}
 
 		bool NkEditeurApp::OnEvent(const NkEvent &event) {
+			// La vue active EN JEU : le clavier, la manette et le doigt sont au
+			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
+				return false;
+			}
 			nkgui::NkGuiInput &in = Gui().input;
 			if (const auto *e = event.As<NkMouseMoveEvent>()) {
 				in.mousePos = nkgui::NkVec2{static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
@@ -583,6 +606,8 @@ namespace nkentseu {
 			// Les onglets sont sous la barre de titre, donc SOUS ses menus
 			// deroulants : ils suivent le masquage du corps.
 			NkEditeurDessinerOnglets(c);
+			// Le bandeau « le jeu a la main » : SOUS les menus, qui passent dessus.
+			NkEditeurDessinerEntrees(ctx.dl, FontSmall(), *mEntrees, ui.viseur);
 
 			// ── 2. LES MENUS, avec l'entree reelle (sauf sous la boite) ──────
 			if (!modale) {

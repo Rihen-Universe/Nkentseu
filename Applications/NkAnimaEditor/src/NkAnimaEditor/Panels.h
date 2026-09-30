@@ -6,7 +6,7 @@
 // =============================================================================
 #include "NKEditorKit/NkEditorKit.h"
 #include "AnimBridge.h"
-#include "NKEditorKit/NkScreenCountersView.h" // (26/09) les compteurs, la MEME vue que NK3DModeler
+#include "NKEditorKit/NkScreenCountersView.h" // (26/09) les compteurs, la MEME vue que NKCraft
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include <cmath>
 #include <cstdio>
@@ -240,7 +240,7 @@ namespace nkanima {
 				dl.AddRect(area, AnimInPoseEdit() ? NkColor{0, 212, 255, 255} : NkColor{40, 42, 48, 255}, 1.f);
 
 				// ── (26/09) LES COMPTEURS DE RENDU, EN HAUT A DROITE DE LA VUE ──
-				// LA MEME VUE QUE NK3DModeler (`NKEditorKit/NkScreenCountersView.h`,
+				// LA MEME VUE QUE NKCraft (`NKEditorKit/NkScreenCountersView.h`,
 				// ecrite contre `NkComponentPaint`) : c'est tout l'interet de
 				// l'avoir mise dans le kit -- cet hote n'ecrit aucune ligne de
 				// dessin, il fournit un peintre et des chiffres.

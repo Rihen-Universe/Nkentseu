@@ -67,15 +67,29 @@ deux, c'est confondre une photo et l'appareil photo.
 
 Les extensions décidées ici — `.nkmat`, `.nkmati`, `.nk3dm` — le sont parce que
 **ces formats s'écrivent maintenant**. Les noms des formats à venir (géométrie
-procédurale, machine à états d'animation, motion) **restent ouverts jusqu'à leur
-chantier** : un nom choisi avant de savoir ce que le fichier contiendra vraiment
-est précisément le nom qu'on regrette.
+procédurale, motion) **restent ouverts jusqu'à leur chantier** : un nom choisi
+avant de savoir ce que le fichier contiendra vraiment est précisément le nom
+qu'on regrette.
+
+**La machine à états d'animation a eu son chantier, et son nom** (décision de
+Rihen, 30 septembre 2026) : **`.nkanimctl`**, « contrôleur d'animation ».
+L'extension dit l'**usage** — ce qui pilote l'animation d'un personnage — et
+non l'implémentation (« hfsm », « graph ») ; et c'est la règle ci-dessus
+appliquée : un clip et un contrôleur ne se déposent pas au même endroit avec le
+même effet (l'un est **joué**, l'autre **choisit** ce qui est joué), donc ils
+ne partagent pas d'extension. Pendant un jour (29 → 30/09), la machine s'est
+écrite en `.nkanim` v3 : ces fichiers se relisent toujours comme machine, et un
+lecteur de clip les refuse en le disant.
 
 Deux repères pour ce jour-là, tirés de l'état de l'art :
 - **l'animation** — Unity (Animator Controller) et Unreal (Animation Blueprint)
   mettent **états ET mélangeurs dans un seul fichier**, parce qu'une machine à
   états *contient* des mélangeurs dans ses états ; les séparer forcerait deux
   fichiers pour une logique indivisible. Un clip reste `.nkanim`, distinct ;
+  → appliqué le 30/09 : `.nkanimctl` porte les états, la hiérarchie, les
+  transitions et les paramètres. ⚠️ Limite assumée : les clips et les blend
+  trees y sont désignés par leur **nom** (ils appartiennent à l'appelant, qui
+  les retrouve au chargement), pas recopiés dedans ;
 - **la texture procédurale** ne mérite pas d'extension propre : elle produit une
   image *à l'intérieur* d'un matériau. Réutilisable seule, elle devient un
   matériau sans sortie de surface — pas un nouveau format.
@@ -91,6 +105,7 @@ Deux repères pour ce jour-là, tirés de l'état de l'art :
 | `StaticMesh` (1) | **`.nkmesh`** | maillage statique |
 | `SkeletalMesh` (2) | **`.nkskel`** | maillage à squelette |
 | `Animation` (8) | **`.nkanim`** | clip d'animation |
+| `AnimationController` (17) | **`.nkanimctl`** | contrôleur d'animation : machine à états (états, sous-machines, transitions, paramètres) — décision de Rihen du 30/09/2026 |
 | `Sound` (7) | **`.nksnd`** | son compilé |
 | `Font` (14) | **`.nkfont`** | police compilée (atlas + métriques) |
 | `Shader` (15) | **`.nkshader`** | shader compilé |
@@ -99,8 +114,8 @@ Deux repères pour ce jour-là, tirés de l'état de l'art :
 | `DataTable` (10) | **`.nkdata`** | table de données |
 | `Map` (11) / `World` (12) | **`.nkmap`** / **`.nkworld`** | niveau / monde |
 | `Script` (16) | **`.nkscript`** | script |
-| `Scene` (17) | **`.nkscene`** | une scène (entités, hiérarchie, état de la simulation) — ajouté le 2026-09-29 |
-| `SaveGame` (18) | **`.nksave`** | une sauvegarde de PARTIE — ajouté le 2026-09-29 |
+| `Scene` (18) | **`.nkscene`** | une scène (entités, hiérarchie, état de la simulation) — ajouté le 2026-09-29 (17 à l'origine, passé à 18 à la fusion : `AnimationController` avait pris 17 ; aucun fichier n'écrivait ce numéro) |
+| `SaveGame` (19) | **`.nksave`** | une sauvegarde de PARTIE — ajouté le 2026-09-29 |
 | `Custom` (255) | **`.nkasset`** | nature non standard |
 
 **`Scene` et `SaveGame` (2026-09-29).** `.nkscene` était déjà l'extension des scènes
@@ -113,6 +128,12 @@ binaire la porte dans son en-tête : c'est lui la vérité.
 
 **`.nkasset` reste accepté EN LECTURE** (compatibilité avec l'existant), mais
 n'est **plus écrit** — sauf pour `Custom`, dont c'est justement la nature.
+
+⚠️ **`.nkanim` et `.nkanimctl` ne suivent pas (encore) le format commun** : ils
+ont leur propre en-tête, magic `NKAN` pour un clip, `NKAC` pour un contrôleur,
+parce que NKAnima ne tire pas NKSerialization. La règle « l'en-tête est la
+vérité » vaut pour eux par leur magic ; leur ligne de la table ci-dessus est,
+elle, la seule correspondance type ↔ extension.
 
 ### Distinct des formats de PROJET (déjà dans `ARCHITECTURE.md` §8)
 
@@ -158,11 +179,20 @@ MonProjet/
 
 **Pourquoi `.nk3dm` et pas `.nkproj`** (arbitrage du 5 août, Rihen laissait le
 choix) : c'est la règle de ce document appliquée à elle-même — *identifiable
-sans ouvrir*. Un projet de NK3DModeler et un projet de NKCode n'ouvrent pas le
+sans ouvrir*. Un projet de NKCraft et un projet de NKCode n'ouvrent pas le
 même logiciel ; leur donner la même extension obligerait à lire le fichier
 pour savoir quoi en faire, et empêcherait l'association par double-clic.
 `.nkproj` reste le nom **générique** de `ARCHITECTURE.md` pour les projets
 d'autres applications.
+
+**L'extension ne suit pas le renommage de l'application** (29/09/2026 :
+NK3DModeler s'appelle désormais NKCraft). `.nk3dm` est un **format**, pas le nom
+du produit : le changer rendrait chaque projet existant méconnaissable à
+l'œil, casserait l'association par double-clic, et n'apporterait rien — la
+règle « identifiable sans ouvrir » est tenue par l'extension, quelle que soit la
+façon dont l'application s'appelle. Le champ `"application"` du JSON, lui,
+passe de `"NK3DModeler"` à `"NKCraft"` ; il est informatif, aucun lecteur ne le
+teste, et un lecteur futur doit accepter les deux.
 
 ### Import : COPIER, en gardant l'origine
 

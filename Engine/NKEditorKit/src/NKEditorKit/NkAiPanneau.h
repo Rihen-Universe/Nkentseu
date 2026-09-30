@@ -3,7 +3,7 @@
 // @File    Engine/NKEditorKit/src/NKEditorKit/NkAiPanneau.h
 // @Author  TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// @Brief   LE PANNEAU IA, UN SEUL, pour NKCode, NK3DModeler, NKUIDesign et les
+// @Brief   LE PANNEAU IA, UN SEUL, pour NKCode, NKCraft, NKUIDesign et les
 //          suivantes : en-tete, fil, composeur, menus, et UNE conversation par
 //          assistant. Les applications le REMPLISSENT ; elles ne le dessinent pas.
 // @License Proprietary - All Rights Reserved (see LICENSE)
@@ -404,7 +404,7 @@ namespace nkentseu {
 				}
 
 				// ── LA CONVERSATION VIVANTE ─────────────────────────────────────
-				/// ⚠️ LE FIL VIVANT PEUT APPARTENIR A L'HOTE. NK3DModeler ecrit dans
+				/// ⚠️ LE FIL VIVANT PEUT APPARTENIR A L'HOTE. NKCraft ecrit dans
 				///    `st.aiFil` depuis quarante sites (boucle, recolte, sondes) : le
 				///    deplacer ici toucherait le code d'un autre chantier. `Lier` dit
 				///    au panneau « la conversation ACTIVE vit la » ; changer d'assistant

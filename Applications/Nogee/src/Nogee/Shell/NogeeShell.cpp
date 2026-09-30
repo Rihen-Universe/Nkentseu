@@ -856,7 +856,7 @@ namespace nkentseu {
 			// la racine (NkGuiWidgets.cpp:3560-3577). Le dernier ancre est donc
 			// celui qui traverse la fenetre de bord a bord.
 			//
-			// Chez NK3DModeler, le navigateur de contenu est PLEINE LARGEUR : il
+			// Chez NKCraft, le navigateur de contenu est PLEINE LARGEUR : il
 			// passe SOUS les trois colonnes (`browser = {0, y, W, browserH}`,
 			// NkLayout::Compute). La Console etait ici enregistree EN PREMIER, donc
 			// ancree la plus profond : la bande du bas se retrouvait coincee entre
@@ -996,7 +996,7 @@ namespace nkentseu {
 			// sont vrais -- et ils le sont par defaut. Nogee n'y pose AUCUNE
 			// icone : aucun `SetActivityIcons` dans tout ce montage. Ce sont donc
 			// 96 px sur 1600, six pour cent de la largeur, occupes par deux bandes
-			// vides. NK3DModeler n'a rien de tel : sa hierarchie commence a x=0.
+			// vides. NKCraft n'a rien de tel : sa hierarchie commence a x=0.
 			// La porte existe et elle est ecrite pour ce cas exact (« une app sans
 			// vues a basculer les desactive et le dock recupere la place »).
 			shell->SetActivityBars(false, false);
@@ -1006,7 +1006,7 @@ namespace nkentseu {
 			// zoom de la POLICE DE CODE du shell (`ActiveCodeSize`), utile a
 			// NKCode et a personne d'autre -- l'en-tete du kit le dit lui-meme :
 			// « une application sans editeur de code le masque ». Nogee n'en a
-			// pas. NK3DModeler, lui, met a droite l'etat de sa scene ; la place
+			// pas. NKCraft, lui, met a droite l'etat de sa scene ; la place
 			// est donc rendue a ce qui la merite.
 			shell->SetFooterZoomIndicator(false);
 
@@ -1017,7 +1017,7 @@ namespace nkentseu {
 			// Le theme : `ApplyTheme` n'etait appele NULLE PART chez Nogee. C'est
 			// le point de synchronisation des deux objets theme (roles editeur ->
 			// jetons de dessin) ; sans lui, une partie du dessin lit un theme que
-			// personne n'a pose. NK3DModeler part de `NkTheme::Dark()`
+			// personne n'a pose. NKCraft part de `NkTheme::Dark()`
 			// (NkModelerTheme.h:111) : Nogee part du meme endroit.
 			//
 			// `NOGEE_THEME=light` sert la MESURE (deux themes doivent donner deux
@@ -1072,7 +1072,7 @@ namespace nkentseu {
 				// ═══════════════════════════════════════════════════════════
 				//  ⚠️ DEUX APPELS, ZERO DESSIN. La bande vient du composant
 				//     partage `tab_strip` du kit — le MEME code que
-				//     NK3DModeler appelle. Le prouver plutot que le dire :
+				//     NKCraft appelle. Le prouver plutot que le dire :
 				//     changer un nombre dans `NkTabStripModel.h` doit
 				//     deplacer les onglets des DEUX applications ; s'il n'y
 				//     en a qu'une qui bouge, le partage est une fiction.

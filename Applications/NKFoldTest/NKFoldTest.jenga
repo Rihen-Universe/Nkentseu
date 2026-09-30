@@ -33,7 +33,7 @@ with project("NKFoldTest"):
     # et c'est exactement ce qui rend la regle mesurable.
     nkentseudependson(
         ["NKCore", "NKPlatform", "NKMemory", "NKContainers", "NKLogger", "NKStream"],
-        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src"],
+        extra_includes=["src", "%{wks.location}/Applications/NKCraft/src"],
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

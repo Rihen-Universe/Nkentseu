@@ -1,10 +1,132 @@
 # GenIA 3D — état de reprise
 
+> 🏷️ **NK3DModeler s'appelle NKCraft depuis le 29/09/2026.** Ce document est
+> antérieur et garde le nom de son époque : on n'y réécrit pas l'histoire.
+> Les chemins `Applications/NK3DModeler/…` et `src/NK3DModeler/…` sont devenus
+> `Applications/NKCraft/…` et `src/NKCraft/…`, l'exécutable `NKCraft.exe`
+> (`jenga build --target NKCraft`). Correspondance complète, fichiers
+> d'état compris : en tête de `Applications/NKCraft/ROADMAP.md`.
+
 **AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen**
 Écrit le 2026-09-18 à 06 h 15, avant l'extinction de 07 h 00.
 **Pour quelqu'un qui n'a aucune mémoire de cette session.** Branche `feat/genia-3d`.
 
 ---
+
+## 0Y. G1 CODE (TUBES, ARCS DE CONGE, CAPUCHONS) -- LINUX ANNONCE, WINDOWS MESURE LE 29/09
+
+Code : `Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkCreatureScene.{h,cpp}` (lecteur
+`.nkscene 2`), `NkCreaturePeau.{h,cpp}` (la peau G1, `generateur = 2`),
+`NkCreatureMesures.{h,cpp}` (les chiffres du §6 ; les seuils dans `NkCreatureCriteres`,
+a un seul endroit). Banc : `Applications/NKCreatureHarness`
+(`jenga build --target NKCreatureHarness`). Specification : doc 04 §5.1-5.4, §6, §14 G1.
+
+**CE QUE G1 CONSTRUIT** : un tube continu par CHAINE d'os (un os qui en porte deux =
+jonction, REFUSEE nommement : G2) ; 3 boucles par articulation (2 refusees en G1) ; des
+anneaux espaces comme le pas autour de l'os (`densite 0`, quads proches du carre) ; a
+chaque bout de chaine un capuchon en GRILLE n x m (100 % quads, 4 sommets de valence 3,
+Σ(4 - val) = 8 par chaine) ; le miroir `*_g -> *_d`.
+
+**L'ARC DE CONGE** (`NkCreaturePeau.cpp`, « 1b ») : a chaque joint la ligne centrale
+quitte le parent a t avant le joint, tourne sur un arc de rayon R tangent aux deux os, et
+rejoint l'enfant a t apres, t = R tan(theta/2) ; les anneaux de l'arc sont
+PERPENDICULAIRES a la ligne centrale. t = max(bande de pose, arc) : bande = `bande_pli`
+rayons moyens (1,1 par defaut, au plus 0,3 os) ; arc : R >= 2 r_max, ce qui borne a 3 le
+rapport cote exterieur / cote interieur (le seuil de regularite du §6). Budget : les deux
+arcs d'un os dans 90 % de sa longueur ; au-dela ils se resserrent jusqu'a R = 1,25 r_max,
+puis la peau est REFUSEE (« l'os ... est trop court pour les arcs de ses joints ») plutot
+que de se replier. Joint replie au-dela de 3 rad : refus.
+
+**CE QUE LE BANC MESURE** (le §6, sur un serpent de 24 os, un bras a 3 articulations en
+miroir, et une patte en zigzag de VALIDATION construite apres les reglages) : quads
+100 % ; valence 4 >= 95 % sur la cage subdivisee une fois ; Σ(4 - val) = 8 - 8g ;
+variete (non-manifold, bord, auto-intersections) ; 2 a 3 boucles par articulation ;
+aucun pole a moins de 2 anneaux d'un pli ; symetrie <= 1e-6 ; regularite (cotes <= 3,
+angles 45-135) sur >= 95 % des faces ; chaque articulation pliee a 90 degres : perte de
+volume <= 15 %, aucune pliure -- JUGE EN QUATERNIONS DUAUX (decision du 29/09 proposee
+sous delegation, a confirmer ; le lineaire du moteur est affiche, pas juge) ; empreinte
+identique sur deux constructions. Sept temoins (pole pres d'un pli, auto-intersection,
+epingle refusee, asymetrie, N < 20 I, quads etires, peau G0 refusee par la mesure) et
+neuf criteres du lecteur (dont `extremite` -> G2, `volumes` -> G3, `tete` -> G4).
+⚠️ **La fidelite aux volumes n'est PAS mesuree** (pas de volumes avant G3) : le banc
+l'imprime au lieu de l'omettre.
+
+**R32 SUR LA PEAU G1** : `NK_R32_GENERATEUR=2 NKR32Harness` rejoue le MEME banc G0 sur la
+peau G1. Le juge de hauteur compare desormais a la peau de BASE du generateur, plus au
+tube analytique (sinon l'anneau du joint torse -> cou, 0,087 sous le tube du torse,
+faisait rougir le creux sans defaut de R32).
+
+| mesure | Linux (ANNONCE par l'auteur, pas refait ici) | Windows (MESURE le 29/09) |
+|---|---|---|
+| `NKCreatureHarness` | 45/45 | **0 rouge sur 45** |
+| `NKR32Harness` (generateur 1, G0) | 38/38 ; survie 0/9 · 1/9 · 9/9 | **0 rouge sur 38** ; survie ecraser **0/9** · indices **1/9** (8 pertes silencieuses) · R32 **9/9** |
+| `NKR32Harness` (`NK_R32_GENERATEUR=2`, G1) | 38/38 | **0 rouge sur 38** ; survie ecraser **0/9** · indices **2/9** (7 pertes silencieuses) · R32 **9/9** |
+| `NK_R32_MUTE=1..4` | chacune rougit (annonce pour le generateur 1, §0Z ; rien d'annonce pour le 2) | generateur 1 : 3 / 2 / 4 / 1 rouges ; generateur 2 : 3 / 4 / 4 / 1 rouges (code 1 a chaque fois) |
+
+Windows, detail de `NKCreatureHarness` (Debug, toolchain `clang-mingw`) :
+
+| creature | faces | valence 4 | regularite (rapport max) | pli 90 : QD (pire) | lineaire, affiche | poids rigides (temoin) | empreinte |
+|---|---|---|---|---|---|---|---|
+| serpent (24 os) | 1122 | 99,82 % | 99,29 % (1,60) | 5,2 % `corps.2`, 0 pliure | 23,6 % | 16,0 %, 101 faces retournees | `8f7e05ff143fac25` |
+| bras 3 articulations x 2 | 1092 | 99,63 % | 98,53 % (1,59) | 1,3 % `avant_bras_g`, 0 pliure | 13,0 % | 5,4 %, 28 | `ba69be6c67cf6d16` |
+| patte zigzag (validation) x 2 | 1280 | 99,69 % | 98,75 % (2,20) | 6,2 % `doigts_g`, 0 pliure | 18,0 % | 12,9 %, 36 | `992daa0dbd3c25c2` |
+
+Symetrie : 1,38e-07 (bras), 2,38e-07 (patte). Empreintes de la base R32 sous Windows :
+`2a5205037477bc72` (generateur 1), `e473af6ad495f980` (generateur 2).
+
+⚠️ **CE QUI RESTE A ETABLIR** : les chiffres Linux detailles ne sont pas consignes, donc
+**le determinisme au bit ENTRE Linux et Windows n'est pas verifie** (il faut comparer les
+empreintes ci-dessus a celles d'un build Linux) ; la perte en quaternions duaux monte a
+6,2 % sur la patte (la note de `NkCreatureMesures.h` dit « 2 a 5 % », mesuree avant la
+patte) -- sous le seuil de 15 %, mais a ne pas citer comme « 2 a 5 % » ; MSVC n'a pas ete
+essaye (le Windows du depot compile en `clang-mingw`) ; Release non essaye ; macOS, iOS,
+Android, Web, HarmonyOS : NON MESURES. Le moteur ne fait que du skinning LINEAIRE : porter
+le DQS au GPU (NkAnima) est une tache de G4. L'adresse d'une face de capuchon ne porte que
+(os, bout).
+
+## 0Z. R32 CODE (G0 DU GENERATEUR DE CREATURES) -- MESURE LE 29/09, LINUX SEULEMENT
+
+**AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen**
+
+Code : `Kernel/Runtime/NKRenderer/src/NKRenderer/Mesh/NkMeshR32.{h,cpp}`. Banc :
+`Applications/NKR32Harness` (`jenga build --target NKR32Harness`). Specification :
+`Applications/NKCraft/design/04-generateur-creatures-nkcraft.md` §3.2bis, §14 G0.
+
+**LE TAUX DE SURVIE, sur 3 retouches a la main (corne extrudee, bosse, creux) x 3
+regenerations cumulees (proportions, resolution, pose), juge par la GEOMETRIE :**
+
+| chaine | survie | remarque |
+|---|---|---|
+| ecraser (regenerer sans pile) | **0/9** | c'est le zero du §1 -- ⚠️ MESURE SUR UNE EMULATION du comportement decrit ci-dessous (l.131-140), pas en faisant tourner NK3DModeler |
+| rejouer le journal classique (`NkMeshEditRecorder`, cibles en INDICES) | **1/9** | et **8 retouches perdues ou deplacees SANS AUCUNE ERREUR** : les 6 commandes se disent « appliquees » |
+| **R32** (designation par adresse / groupe) | **9/9** | la corne survit aux 3 regenerations : **critere G0 tenu** |
+
+Les cinq cas du §3.2bis passent (renomme a confirmer / confirme / refuse ; coupe a 0,5
+et a 0,3 ; fusion avec collision SIGNALEE ; reorientation versionnee reportee AVEC
+alerte ; reference changee hors version = REFUS, rien de pose ; os disparu = orpheline
+gardee, les autres continuent). R32.7 : pile vide = base au bit, deterministe, refus
+nommes, une orpheline n'annule pas les autres. **38 criteres, 0 rouge.**
+
+**LE BANC SAIT ROUGIR** : `NK_R32_MUTE=1..4` le font rougir chacune (1 : garde de
+reference retiree -> la corne se pose a 90 degres et se dit « appliquee » ; 2 : coupe sans
+renormaliser ; 3 : une orpheline arrete tout ; 4 : renommage sans confirmation). Chaque
+juge a un temoin qui rougit sur un decalage d'UNE face.
+
+⚠️ **CE QUE LE BANC A ATTRAPE AVANT D'ETRE VERT** (a ne pas refaire) : peau entierement
+retournee (sens des faces deduit « sur le papier ») ; anneaux confondus apres une coupe
+(adjacence positionnelle -> soudure) ; « centre de face dans la boite » qui echoue quand la
+resolution grossit ; collision de deux retouches sur LA MEME FACE apres fusion, non
+signalee ; et, trouve par une relecture independante, la version de reference suivie par
+OPERATION au lieu de par BOITE (coupe puis double reorientation : moitie de bosse
+tournee d'un quart de tour, statut « reportee »).
+
+⚠️ **CE QUI N'EST PAS FAIT** : la peau est MINIMALE (un tube par os, bouts en n-gones, ni
+jonctions ni volumes -- G1 a G3 ; **mise a jour : la peau G1 existe, voir §0Y**) ; `zone:` et `boucle:` refusees nommement ; fusion
+d'os NON alignes refusee (G2) ; une coupe change la resolution locale (la retouche
+reechantillonnee grossit, a un tiers de face pres) ; determinisme au bit prouve sur UNE
+plateforme (libm). **Windows, macOS, iOS, Android, Web, HarmonyOS : NON MESURES.**
+**Mise a jour (29/09) : Windows MESURE, memes chiffres (38 criteres, 0 rouge ; 0/9 · 1/9 ·
+9/9) -- voir §0Y ; le determinisme au bit Linux / Windows reste a comparer.**
 
 ## 0AA. POUR CELUI QUI REPREND -- LES DEUX PARAGRAPHES A LIRE D'ABORD (20/09)
 

@@ -3057,7 +3057,7 @@ namespace nkentseu {
 		// SOUS 32 px : refuse (meme garde que DX11). Une fenetre minimisee
 		// annonce un rect placeholder (~160x28), jamais nul -- ce rect cassait
 		// les cibles derivees du rendu et tuait l'application a la restauration
-		// (defaut 4.3 NK3DModeler).
+		// (defaut 4.3 NKCraft).
 		if (w < 32 || h < 32)
 			return;
 		// NE PAS poser mWidth/mHeight ici : ResizeSwapchain les compare à w/h pour son no-op

@@ -4,9 +4,9 @@
 // =============================================================================
 // PORTAGE 4/4 (2026-08-17) — le navigateur d'assets, ecrit sur NKGui/NKEditorKit
 // au lieu de NKUI, vise sur la CIBLE (§9 « Content Browser ») et sur la
-// REFERENCE DES CARTES ecrite par NK3DModeler dans sa ROADMAP (section
+// REFERENCE DES CARTES ecrite par NKCraft dans sa ROADMAP (section
 // « CARTES D'ASSETS DU NAVIGATEUR DE CONTENU », decision de Rihen du 17/08 :
-// s'inspirer de NK3DModeler, en lisant la description, pas une capture).
+// s'inspirer de NKCraft, en lisant la description, pas une capture).
 //
 // Meme regle de nom que les portages 2 et 3 : vocabulaire de la cible
 // (« Content Browser »), pas celui du code (« AssetBrowser »). Le panneau NKUI
@@ -20,12 +20,12 @@
 //        convention du panneau d'ORIGINE, conservee)
 //   ✅ slider de taille des miniatures ........ fait (vignette variable ;
 //        LARGEUR DE CARTE FIXE pendant un rendu, le nombre de colonnes varie —
-//        c'est la regle NK3DModeler, et elle est compatible avec le slider)
+//        c'est la regle NKCraft, et elle est compatible avec le slider)
 //   ✅ grille de cartes ....................... fait (grille enveloppante :
 //        une carte qui depasserait la marge droite part a la ligne)
 //   ✅ nom sous la carte, type en dessous ..... fait (pied 2 lignes, clippe)
 //   ✅ selection = marque accent .............. fait (aplat deborde de 2 px —
-//        etat ACTIVE de NK3DModeler ; l'etat CHOISIES n'existe pas ici, la
+//        etat ACTIVE de NKCraft ; l'etat CHOISIES n'existe pas ici, la
 //        selection de Nogee est simple)
 //   ✅ double-clic dossier = entrer ........... fait
 //   ✅ vignettes paresseuses .................. fait (budget partage du modele)
@@ -47,19 +47,19 @@
 //        AssetManager, pas un bouton).
 //
 // -----------------------------------------------------------------------------
-// LA REFERENCE NK3DMODELER, ET CE QUI EN EST REPRIS ICI
+// LA REFERENCE NKCRAFT, ET CE QUI EN EST REPRIS ICI
 // -----------------------------------------------------------------------------
 //   Repris tel quel : geometrie de carte (vignette carree + BANDE DE TYPE 3 px
 //   + pied 34 px, deux lignes), ombre portee (+2,+3) noir alpha 90, espacement
 //   14, grille enveloppante a largeur de carte fixe, selection ACTIVE en aplat
 //   debordant de 2 px, nom EDITABLE EN PLACE dans le pied (valide a la fin,
 //   jamais copie par frame), damier de fond « ce fond est vide ».
-//   NON repris : la table de couleurs `NkAssetColor` de NK3DModeler — elle vit
+//   NON repris : la table de couleurs `NkAssetColor` de NKCraft — elle vit
 //   dans `NkModelerUI.h`, une AUTRE application ; l'inclure creerait une
 //   dependance inter-applications. Nogee a donc SA table locale, en UN point
 //   (`AssetColor`/`AssetKindName` ci-dessous), meme principe de point de
 //   passage unique. Les natures different aussi (Nogee n'a ni procedural ni
-//   dataset ; NK3DModeler n'a ni Font).
+//   dataset ; NKCraft n'a ni Font).
 // =============================================================================
 
 #include "NKCore/NkTypes.h"
@@ -132,7 +132,7 @@ namespace nkentseu {
 				void RenderBreadcrumb(nkgui::NkGuiContext &ctx) noexcept;
 
 				// Point de passage UNIQUE couleur/nom de type pour Nogee (meme
-				// principe que NkAssetColor/NkAssetKindName chez NK3DModeler —
+				// principe que NkAssetColor/NkAssetKindName chez NKCraft —
 				// table locale, cf. en-tete).
 				static nkgui::NkColor AssetColor(NkAssetType t, bool isDirectory) noexcept;
 				static const char *AssetKindName(NkAssetType t, bool isDirectory) noexcept;

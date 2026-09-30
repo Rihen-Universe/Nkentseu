@@ -37,6 +37,7 @@
 #ifndef __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
 #define __NKENTSEU_UNKENYEDITOR_NKEDITEURAPP_H__
 
+#include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
 
@@ -88,13 +89,15 @@ namespace nkentseu {
 				// monde ECS et un monde physique. Ici l'objet reste petit.
 				memory::NkUniquePtr<NkEditeurModele> mModele;
 				memory::NkUniquePtr<NkEditeurInterface> mUi;
+				/// « Jouer » : qui recoit le clavier, la manette et le doigt (29/09).
+				memory::NkUniquePtr<NkEditeurEntrees> mEntrees;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;
 				float32 mTempsIps = 0.f; ///< temps ecoule depuis le dernier releve d'ips
 				int32 mTramesIps = 0;	 ///< trames comptees depuis ce releve
 				NkString mSelectionDepart; ///< --selection= : l'entite choisie au demarrage
-				bool mOuvrirDepart = false; ///< --ouvrir= : ouvrir cette scene au demarrage (2026-09-29)
+				NkString mSceneDepart;	   ///< --scene= : la scene ouverte au demarrage, au lieu de la scene neuve
 				/// Appui recu depuis la derniere trame, pas encore vu par NKGui.
 				bool mAppuiNonVu[3] = {};
 				/// Relachement retenu parce que son appui n'avait pas ete vu.

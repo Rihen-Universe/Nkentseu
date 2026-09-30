@@ -11,7 +11,7 @@
 //    `AcceptDragPayload`, avec le fantome dessine par la bibliotheque sous la
 //    souris, le surlignage de la cible, et le meme seuil de ~4 px. Il existe
 //    meme une `BeginDropTarget(ctx, id, rect)` a ZONE EXPLICITE, ecrite le
-//    2026-08-17 pour NK3DModeler, faite exactement pour une zone qui contient
+//    2026-08-17 pour NKCraft, faite exactement pour une zone qui contient
 //    deja des widgets — c'est-a-dire pour la toile.
 //    *Le seuil de 4 px que j'avais « choisi » etait le seuil de la
 //    bibliotheque, redecouvert et reecrit.* C'est la deuxieme fois ce

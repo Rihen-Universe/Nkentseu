@@ -806,8 +806,14 @@ namespace nkentseu {
 								   std::strcmp(NkAssetExtensionFor(NkAssetType::SaveGame), "nksave") == 0;
 				const bool retour = NkAssetTypeFromExtension(".nkscene") == NkAssetType::Scene &&
 									NkAssetTypeFromExtension("NKSAVE") == NkAssetType::SaveGame;
+				// La fusion avec l'animation (30/09) : AnimationController a pris 17,
+				// Scene et SaveGame sont 18 et 19 ; aucun ne marche sur un autre.
 				const bool avant = NkAssetTypeFromExtension("nkprefab") == NkAssetType::Prefab &&
 								   static_cast<uint32>(NkAssetType::Script) == 16u &&
+								   static_cast<uint32>(NkAssetType::AnimationController) == 17u &&
+								   static_cast<uint32>(NkAssetType::Scene) == 18u &&
+								   static_cast<uint32>(NkAssetType::SaveGame) == 19u &&
+								   NkAssetTypeFromExtension("nkanimctl") == NkAssetType::AnimationController &&
 								   static_cast<uint32>(NkAssetType::Custom) == 255u &&
 								   std::strcmp(NkAssetTypeName(NkAssetType::SaveGame), "SaveGame") == 0;
 				Temoin(aller && retour && avant, "(x1) types d'asset Scene (.nkscene) et SaveGame (.nksave)",

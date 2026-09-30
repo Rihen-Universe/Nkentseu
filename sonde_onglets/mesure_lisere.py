@@ -15,7 +15,7 @@ CE QUE CE SCRIPT MESURE, ET POURQUOI CETTE CIBLE-LA
 
 ⚠️ LA COULEUR N'EST PAS ECRITE ICI. On cherche la plus longue suite horizontale
    de pixels FRANCHEMENT BLEUS (b nettement superieur a r et g) dans la bande
-   d'onglets. NK3DModeler et Nogee partent tous deux de `NkTheme::Dark()`, dont
+   d'onglets. NKCraft et Nogee partent tous deux de `NkTheme::Dark()`, dont
    l'accent est le meme bleu -- mais le script ne le suppose pas : il rapporte
    la couleur qu'il a trouvee, et c'est a la lecture de juger.
 

@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""NKCraft — application de modelisation 3D.
+
+SQUELETTE : la coquille de fenetre et la disposition de l'ecran A (maquette
+Banani validee) — bandes, colonnes, panneaux aux bonnes places, alimentes par
+NkTheme et NkShortcutTable. Le contenu reel (vue 3D, pile de modificateurs,
+navigateur de projet) vient ensuite, panneau par panneau.
+
+Calque sur NKCode.jenga, MOINS ce dont un modeleur n'a pas besoin : ni Python
+embarque (NKCode integre jenga in-process), ni NKAudio/NKMedia. En revanche il
+LIE NKRenderer, que NKCode n'utilise pas : c'est la que vivent NkEditMesh, les
+modificateurs, la decimation QEM et la retopologie.
+"""
+
+from Jenga import *
+from jengaconfig import *
+import os
+
+
+with project("NKCraft"):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # NKMedia ajoute pour l'ENREGISTREMENT VIDEO de la sortie (NkVideoWriter,
+    # NkImageSequenceWriter) : filmer la session de modelisation et les
+    # tutoriels. Le commentaire d'en-tete disait le modeleur sans NKMedia --
+    # c'etait vrai tant qu'il ne produisait que des images fixes.
+    nkentseudependson(
+        ["NKEditorKit", "NKRenderer",
+         # NKAnima : le CALCUL FACIAL (Action Units -> poids de blendshapes) y est
+         # descendu le 25/09. Le modeleur le consomme pour prouver le fil complet
+         # calcul -> deformation SANS copier une ligne de PV3DE -- c'est le critere
+         # pose par Rodolf : "ca doit vivre ou tous peuvent en profiter".
+         "NKAnima", "NKRHI", "NKSL", "NKCanvas", "NKGui",
+         "NKMedia",
+         # NKConverse : le PANNEAU IA appelle un modele par le module PARTAGE.
+         # On consomme son interface et son envoi asynchrone ; aucun dorsal
+         # n'est ecrit ici -- deux dorsaux seraient la dette des trois
+         # exemplaires, rouverte le lendemain de son remboursement.
+         "NKConverse",
+         "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage", "NKFileSystem",
+         "NKSerialization", "NKReflection", "NKThreading", "NKLogger", "NKMath",
+         "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform",
+         "NKGLSlang", "NKSPIRVCross"],
+        extra_includes=["src", "src/NKCraft", "%{wks.location}/Integrations",
+                        "%{NKGlad.location}/include",
+                        "%{wks.location}/Kernel/Runtime/NKGraph/src"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],
+    )
+
+    # Backend UI NKGui -> NKRHI. La vue 3D impose la regle « une fenetre = une
+    # pile » : NKRenderer vit sur NKRHI, donc l'interface doit y vivre aussi. On
+    # quitte NKCanvas pour NkEditorRHIRenderer, qui presente exactement la meme
+    # interface NkIEditorRenderer -- et qui, lui, expose son device.
+    dependson(["NKGuiIntegration"])
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion("0.1.0")
+    licensefile("../../LICENSE")
+
+    # Icone d'application (cross-platform) : l'araignee, logo PROVISOIRE choisi
+    # par Rihen le 29/09/2026 en attendant le designer. Generee par
+    # Resources/gen_icon.ps1 (meme dessin que Shell/NkModelerBrand.h et
+    # data/brand/nkcraft_araignee_{sombre,clair}.svg). Jenga en tire .ico / mipmaps / favicon ;
+    # il lui faut Pillow.
+    appicon("Resources/nkcraft_icon.png")
+
+    # ===== Windows ============================================================
+    with filter("system:Windows && !options:windows-runtime=uwp"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE"])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32", "comdlg32",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "winmm",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+
+    # ===== Linux ==============================================================
+    with filter("system:Linux"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY"])
+        links(["pthread", "X11", "Xext", "GL", "m"])
+
+    # ===== macOS ==============================================================
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Foundation"])
