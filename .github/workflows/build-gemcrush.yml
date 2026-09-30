@@ -42,7 +42,9 @@ name: build-gemcrush
 on:
   workflow_dispatch:
   push:
-    branches: [main, "feat/**", "refonte-**"]
+    # "!feat/macos-**" : ces branches ont leur propre CI (macos-noyau.yml),
+    # voir build-jeux-plateau.yml.
+    branches: [main, "feat/**", "refonte-**", "!feat/macos-**"]
     paths:
       - "Applications/Gemcrush/**"
       - "Kernel/**"

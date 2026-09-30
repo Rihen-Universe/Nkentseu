@@ -1,0 +1,337 @@
+# =============================================================================
+# macos-noyau.yml — Nkentseu COMPILE ET TOURNE sur macOS, cible apres cible.
+#
+# POURQUOI (demande de Rihen, 2026-09-30) : un etudiant fait l'exercice « la
+# fenetre » sur un MacBook Air Apple Silicon, avec le NKWindow de Nkentseu.
+# « Tout ce qui est Nkentseu doit passer sur Mac. » Aucune machine de Rihen
+# n'est un Mac : ce runner (macos-latest, arm64) est la seule machine Apple.
+#
+# CE QUE CHAQUE JOB PROUVE, du plus petit au plus gros :
+#   fenetre    Tuto01Fenetre (l'equivalent de l'exercice) + NKWindow_Tests
+#   tutoriels  Tuto02Renderer .. Tuto05Meshes (NKRHI, NKRenderer)
+#   unkeny     UnkenyEditor --selftest, Physic2D --selftest
+#   nkcraft    NKCraft (sondes sans fenetre)
+# Chaque application fenetree est ensuite LANCEE quelques secondes : un
+# binaire qui se lie n'est pas un binaire qui demarre (NSApplication, la
+# premiere NSWindow, le calque Metal se jouent a l'execution).
+#
+# ⚠️ LES JOURNAUX SE LISENT SANS COMPTE. Le journal d'un run n'est lisible
+#    qu'authentifie, meme sur un depot public ; les annotations, elles, sont
+#    publiques. .github/scripts/construire.sh publie donc les premieres erreurs
+#    du compilateur et du lieur en annotations. Journaux complets, captures et
+#    rapports de plantage : dans l'artefact de chaque job.
+#
+# ⚠️ `if: ${{ !cancelled() }}` et NON `continue-on-error` : une etape en echec
+#    doit RESTER rouge (sa conclusion est ce que l'on lit), mais ne doit pas
+#    empecher les cibles suivantes du meme job d'etre construites.
+#
+# Configuration : Debug par defaut, parce que c'est ce que construit
+# `jenga build` sans --config, donc ce que construira l'etudiant.
+# =============================================================================
+name: macos-noyau
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Configuration"
+        required: true
+        type: choice
+        options: [Debug, Release]
+        default: "Debug"
+  push:
+    branches: ["feat/macos-**"]
+
+# Un nouveau poussage rend l'ancien run caduc : on ne garde que le dernier.
+concurrency:
+  group: macos-noyau-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONFIG: ${{ inputs.config || 'Debug' }}
+  JOURNAUX: journaux
+
+jobs:
+  # ===========================================================================
+  # FENETRE — l'exercice de l'etudiant
+  # ===========================================================================
+  fenetre:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION (voir build-macos.yml).
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Machine
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          clang --version
+          python3 --version
+          chmod +x .github/scripts/*.sh
+
+      - name: Construire Tuto01Fenetre
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto01Fenetre "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto01Fenetre (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto01Fenetre.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto01Fenetre.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: NKWindow_Tests (construire + lancer)
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh test NKWindow_Tests "$CONFIG" "$JOURNAUX"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-fenetre-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # TUTORIELS 2 a 5 — la meme fenetre, plus NKRHI et NKRenderer
+  # ===========================================================================
+  tutoriels:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire Tuto02Renderer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto02Renderer "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto02Renderer (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto03Scene
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto03Scene "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto03Scene (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto04Camera
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto04Camera "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto04Camera (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto04Camera.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto04Camera.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto05Meshes
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto05Meshes "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto05Meshes (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto05Meshes.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto05Meshes.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-tutoriels-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # UNKENY — l'editeur et la demo 2D ; leurs bancs tournent SANS fenetre
+  # ===========================================================================
+  unkeny:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire UnkenyEditor
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build UnkenyEditor "$CONFIG" "$JOURNAUX"
+
+      - name: UnkenyEditor --selftest
+        if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
+        run: |
+          # Le shell par defaut d'une etape est `bash -e` : sans `set +e`, un
+          # banc rouge arreterait l'etape AVANT que son verdict soit publie.
+          set +e
+          set -o pipefail
+          "$(cat "$JOURNAUX/UnkenyEditor.chemin")" --selftest 2>&1 | tee "$JOURNAUX/selftest-UnkenyEditor.log"
+          CODE=$?
+          RESUME=$(tail -n 12 "$JOURNAUX/selftest-UnkenyEditor.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
+          if [ "$CODE" -ne 0 ]; then echo "::error title=UnkenyEditor selftest code $CODE::$RESUME"; exit "$CODE"; fi
+          echo "::notice title=UnkenyEditor selftest vert::$RESUME"
+
+      - name: Lancer UnkenyEditor (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution"
+
+      - name: Construire Physic2D
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Physic2D "$CONFIG" "$JOURNAUX"
+
+      - name: Physic2D --selftest
+        if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
+        run: |
+          # Le shell par defaut d'une etape est `bash -e` : sans `set +e`, un
+          # banc rouge arreterait l'etape AVANT que son verdict soit publie.
+          set +e
+          set -o pipefail
+          "$(cat "$JOURNAUX/Physic2D.chemin")" --selftest 2>&1 | tee "$JOURNAUX/selftest-Physic2D.log"
+          CODE=$?
+          RESUME=$(tail -n 12 "$JOURNAUX/selftest-Physic2D.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
+          if [ "$CODE" -ne 0 ]; then echo "::error title=Physic2D selftest code $CODE::$RESUME"; exit "$CODE"; fi
+          echo "::notice title=Physic2D selftest vert::$RESUME"
+
+      - name: Lancer Physic2D (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Physic2D.chemin")" 10 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-unkeny-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # NKCRAFT — le modeleur ; ses sondes geometrie et curseur tournent sans GPU
+  # ===========================================================================
+  nkcraft:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire NKCraft
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build NKCraft "$CONFIG" "$JOURNAUX"
+
+      - name: NKCraft --sonde-geo et --sonde-wrap (sans fenetre)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: |
+          set +e
+          BIN="$(cat "$JOURNAUX/NKCraft.chemin")"
+          mkdir -p "$JOURNAUX/sondes"
+          VERDICT=0
+          for SONDE in --sonde-geo --sonde-wrap; do
+            "$BIN" "$SONDE" "$JOURNAUX/sondes" > "$JOURNAUX/sondes/$SONDE.log" 2>&1
+            CODE=$?
+            RESUME=$(tail -n 10 "$JOURNAUX/sondes/$SONDE.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
+            if [ "$CODE" -ne 0 ]; then
+              echo "::error title=NKCraft $SONDE code $CODE::$RESUME"
+              VERDICT=1
+            else
+              echo "::notice title=NKCraft $SONDE vert::$RESUME"
+            fi
+          done
+          exit "$VERDICT"
+
+      - name: Lancer NKCraft (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-nkcraft-journaux
+          path: journaux/
+          if-no-files-found: warn
