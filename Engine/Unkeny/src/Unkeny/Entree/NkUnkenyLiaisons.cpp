@@ -69,6 +69,7 @@ namespace nkentseu {
 				++k;
 			}
 			mNoms[action][k] = '\0';
+			++mVersion;
 			return true;
 		}
 
@@ -123,6 +124,7 @@ namespace nkentseu {
 				mLiaisons[mNombre].zoneMorte = 0.95f;
 			}
 			++mNombre;
+			++mVersion;
 			return mNombre - 1;
 		}
 
@@ -205,6 +207,7 @@ namespace nkentseu {
 				return false;
 			}
 			mLiaisons[indice].code = entree;
+			++mVersion;
 			return true;
 		}
 
@@ -219,6 +222,7 @@ namespace nkentseu {
 				mLiaisons[i] = mLiaisons[i + 1];
 			}
 			--mNombre;
+			++mVersion;
 			return true;
 		}
 
@@ -237,7 +241,74 @@ namespace nkentseu {
 
 		void NkLiaisons::Vider() noexcept {
 			mNombre = 0;
+			++mVersion;
 		}
+
+		void NkLiaisons::RemplirCarte(NkInputMap &carte, int32 contexte, int32 joueur, NkVector<int32> *origine) const {
+			NkInputContext *ctx = carte.Context(contexte);
+			if (ctx == nullptr) {
+				return;
+			}
+			// Les 32 actions d'Unkeny, dans l'ordre de leurs indices : l'action a
+			// d'Unkeny est l'action a de la carte.
+			while (carte.ActionCount() < NK_UNKENY_ACTIONS_MAX) {
+				char nom[8];
+				std::snprintf(nom, sizeof(nom), "#%d", carte.ActionCount());
+				carte.DeclareAction(nom, NkInputValueType::NK_INPUT_AXIS1D);
+			}
+			ctx->bindings.Clear();
+			if (origine != nullptr) {
+				origine->Clear();
+			}
+			for (int32 i = 0; i < mNombre; ++i) {
+				const NkLiaison &l = mLiaisons[i];
+				if (l.joueur != joueur && l.joueur != NK_UNKENY_TOUS_LES_JOUEURS) {
+					continue;
+				}
+				NkInputBinding b;
+				switch (l.nature) {
+					case NkNatureLiaison::NK_ENTREE: {
+						b = NkInputBinding::Code(l.action, l.code).WithScale(l.echelle);
+						// La zone morte d'Unkeny ne vaut que pour un axe : radiale sur un
+						// stick (son jumeau mesure la longueur), axiale ailleurs.
+						if (l.code.device == NkInputDevice::NK_GAMEPAD_AXIS && l.zoneMorte > 0.f) {
+							const NkGamepadAxis a = static_cast<NkGamepadAxis>(l.code.code);
+							const bool stick = a == NkGamepadAxis::NK_GP_AXIS_LX || a == NkGamepadAxis::NK_GP_AXIS_LY ||
+											   a == NkGamepadAxis::NK_GP_AXIS_RX || a == NkGamepadAxis::NK_GP_AXIS_RY;
+							b = b.WithDeadZone(stick ? NkInputDeadZone::NK_INPUT_DEADZONE_RADIAL
+													 : NkInputDeadZone::NK_INPUT_DEADZONE_AXIAL,
+											   l.zoneMorte);
+						}
+						break;
+					}
+					case NkNatureLiaison::NK_ZONE_BOUTON:
+						b = NkInputBinding::ScreenButton(l.action, l.zone.x, l.zone.y, l.zone.l, l.zone.h)
+								.WithScale(l.echelle);
+						break;
+					case NkNatureLiaison::NK_ZONE_STICK_X:
+					case NkNatureLiaison::NK_ZONE_STICK_Y: {
+						b = NkInputBinding::ScreenStick(l.action, l.zone.x, l.zone.y, l.zone.l, l.zone.h, l.rayon);
+						if (l.zoneMorte > 0.f) {
+							b = b.WithDeadZone(NkInputDeadZone::NK_INPUT_DEADZONE_RADIAL, l.zoneMorte);
+						}
+						if (l.nature == NkNatureLiaison::NK_ZONE_STICK_Y) {
+							// L'echelle PUIS la permutation : c'est le Y mis a l'echelle
+							// qui devient la valeur de l'axe 1D.
+							b = b.WithScale(1.f, l.echelle).SwappedXY();
+						} else {
+							b = b.WithScale(l.echelle, 1.f);
+						}
+						break;
+					}
+				}
+				ctx->bindings.PushBack(b);
+				if (origine != nullptr) {
+					origine->PushBack(i);
+				}
+			}
+			carte.BindingsChanged();
+		}
+
 
 		int32 NkLiaisons::Trouver(int32 action, const NkInputCode &entree) const noexcept {
 			for (int32 i = 0; i < mNombre; ++i) {

@@ -32,6 +32,10 @@
 //   (k13) navigation au focus NKGui, ALLUMEE : Bas, Bas, Sud sur trois boutons
 //         -> « Deux » active, lui seul ; (k13n) ETEINTE (le defaut) : la meme
 //         suite ne clique rien et ne touche pas au pointeur
+//   (k14) (30/09) la table passe par le NOYAU : la carte du joueur 1 porte ses
+//         liaisons et celles de TOUS, pas celles du joueur 2 ; un declencheur
+//         du noyau (maintenu 0,5 s) pose dans un AUTRE contexte arrive a
+//         l'action Unkeny -- rien a 0,4 s, enfoncee a 0,5 s
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -576,6 +580,36 @@ namespace nkentseu {
 					   "(k13) manette dans NKGui : Bas, Bas, Sud -> « Deux » active, lui seul",
 					   static_cast<float32>(m.clics[1]));
 				memory::NkGetDefaultAllocator().Delete(pm);
+			}
+
+			// ── (k14) la table d'Unkeny passe par le noyau ────────────────────
+			{
+				NkEntreesJeu *pn = memory::NkGetDefaultAllocator().New<NkEntreesJeu>();
+				NkEntreesJeu &n = *pn;
+				Nommer(n.Liaisons());
+				n.Liaisons().LierTouche(A_SAUTER, NkKey::NK_SPACE);
+				n.Liaisons().LierBouton(A_SAUTER, NkGamepadButton::NK_GP_SOUTH); // TOUS
+				n.Liaisons().LierTouche(A_TIRER, NkKey::NK_F, 1.f, 1);			   // joueur 2 seul
+				NkInputMap &c0 = n.Carte(0);
+				NkInputMap &c1 = n.Carte(1);
+				const bool j1 = c0.Context(c0.FindContext("Unkeny"))->Count() == 2;
+				// Joueur 2 : Sud (TOUS) et F (le sien) ; pas Espace (joueur 1).
+				const bool j2 = c1.Context(c1.FindContext("Unkeny"))->Count() == 2;
+				const int32 extra = c0.AddContext("Extra", 5, false);
+				c0.Context(extra)->Add(
+					NkInputBinding::Key(A_SCRIPT, NkKey::NK_E).WithTrigger(NkInputTriggerKind::NK_INPUT_TRIGGER_HOLD, 0.5f));
+				Touche(n, NkKey::NK_E, true);
+				for (int32 k = 0; k < 21; ++k) {
+					n.Trame(nullptr, 0.02f); // l'appui, puis 0,40 s
+				}
+				const bool pasEncore = !n.Actions(0).Enfoncee(A_SCRIPT);
+				for (int32 k = 0; k < 5; ++k) {
+					n.Trame(nullptr, 0.02f);
+				}
+				const bool tenu = n.Actions(0).Enfoncee(A_SCRIPT);
+				Temoin(j1 && j2 && pasEncore && tenu,
+					   "(k14) le noyau : cartes par joueur, et un « maintenu 0,5 s » du noyau", 0.f);
+				memory::NkGetDefaultAllocator().Delete(pn);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pe);

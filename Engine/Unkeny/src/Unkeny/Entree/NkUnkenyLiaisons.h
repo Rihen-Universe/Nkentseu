@@ -28,6 +28,11 @@
 //   fichier ne decide que des entrees, jamais de ce qui existe. Meme regle que
 //   NkLoadBindings.
 //
+// ⚠️ DEPUIS LE 30/09, UNE DESCRIPTION SUR LE NOYAU : RemplirCarte traduit la
+//    table en liaisons de NkInputMap (NKEvent), qui fait le calcul pour Unkeny
+//    comme pour Noge. La table, son API et son texte ne changent pas ; Version()
+//    dit aux cartes quand se remplir a nouveau.
+//
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
@@ -41,6 +46,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
 #include "NKEvent/NkEventDispatcher.h"
+#include "NKEvent/NkInputMap.h"
 #include "Unkeny/Entree/NkUnkenyActions.h"
 
 namespace nkentseu {
@@ -151,6 +157,18 @@ namespace nkentseu {
 				/// considerer l'evenement comme CONSOMME par le jeu)
 				bool Concerne(const NkInputCode &entree) const noexcept;
 
+				// --- Le noyau ----------------------------------------------------
+				/// Grandit a chaque modification de la table (lier, relier, retirer,
+				/// lire, nommer) : une carte sait ainsi qu'elle doit se remplir.
+				uint32 Version() const noexcept {
+					return mVersion;
+				}
+				/// Ecrit dans le contexte `contexte` de `carte` les liaisons du joueur
+				/// `joueur` (les siennes et celles de TOUS), traduites pour NkInputMap.
+				/// Les actions « #0 » a « #31 » (axes 1D) y sont declarees au besoin.
+				/// @param origine recoit, pour chaque liaison ecrite, son indice ici.
+				void RemplirCarte(NkInputMap &carte, int32 contexte, int32 joueur, NkVector<int32> *origine) const;
+
 				// --- Le texte ----------------------------------------------------
 				NkString Ecrire() const;
 				/// @param viderAvant false : ajoute aux liaisons existantes.
@@ -159,6 +177,7 @@ namespace nkentseu {
 			private:
 				NkLiaison mLiaisons[NK_UNKENY_LIAISONS_MAX];
 				int32 mNombre = 0;
+				uint32 mVersion = 0;
 				char mNoms[NK_UNKENY_ACTIONS_MAX][NK_UNKENY_NOM_ACTION_MAX] = {};
 		};
 

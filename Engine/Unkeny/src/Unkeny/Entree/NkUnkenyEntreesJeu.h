@@ -27,6 +27,13 @@
 //     le prochain bouton ou le prochain axe franchement pousse devient
 //     l'entree de la liaison i.
 //
+// ⚠️ DEPUIS LE 30/09, UNE FINE COUCHE SUR LE NOYAU. Le calcul (sources, zone
+//    morte, somme bornee, joystick flottant, capture) est celui de NkInputMap
+//    (NKEvent/NkInputMap.h), partage avec Noge : UNE carte par joueur, remplie
+//    depuis la table de liaisons chaque fois qu'elle change (NkLiaisons::
+//    Version). L'API ci-dessous n'a pas bouge ; Carte(j) donne en plus acces au
+//    noyau (declencheurs, actions 2D, contextes) a qui en a besoin.
+//
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
@@ -38,6 +45,7 @@
 
 #include "NKEvent/NkEvent.h"
 #include "NKEvent/NkGamepadSystem.h"
+#include "NKEvent/NkInputMap.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
@@ -83,6 +91,16 @@ namespace nkentseu {
 				/// ⚠️ UNE FOIS PAR TRAME, avant la logique du jeu -- la regle de
 				///    NkActions::NouvelleTrame.
 				void Trame(const NkGamepadSystem *manettes) noexcept;
+				/// La meme, avec la duree de l'image (les declencheurs et le lissage
+				/// du noyau la lisent ; la forme sans duree suppose 1/60 s).
+				void Trame(const NkGamepadSystem *manettes, float32 dt) noexcept;
+
+				/// La carte du NOYAU du joueur (0..3) : pour lire une action 2D, poser
+				/// un declencheur ou un contexte que la table d'Unkeny ne sait pas
+				/// dire. ⚠️ Son contexte « Unkeny » est REECRIT depuis Liaisons() a
+				/// chaque changement de la table : y ajouter une liaison a la main,
+				/// c'est la perdre au prochain changement -- utiliser un AUTRE contexte.
+				NkInputMap &Carte(int32 joueur = 0) noexcept;
 
 				/// Relache tout : touches tenues, doigts, actions. A appeler quand le
 				/// jeu perd la main (fenetre quittee, « Arreter », Echap) : sinon
@@ -97,48 +115,30 @@ namespace nkentseu {
 				bool CaptureEnCours() const noexcept {
 					return mCapture >= 0;
 				}
+				/// Abandonne la capture en cours : la liaison garde son entree.
+				void AnnulerCapture() noexcept;
 
 				bool ToucheTenue(NkKey touche) const noexcept;
 				uint32 DoigtsSuivis() const noexcept;
 
 			private:
-				struct NkDoigt {
-						uint64 id = 0;
-						bool actif = false;
-						float32 u = 0.f;  ///< position normalisee dans la surface
-						float32 v = 0.f;
-						float32 u0 = 0.f; ///< point d'appui (origine du joystick flottant)
-						float32 v0 = 0.f;
-						int32 stick = -1; ///< liaison (X) du joystick qui l'a capture, ou -1
-				};
-
-				float32 Valeur(const NkLiaison &l, int32 joueur, const NkGamepadSystem *manettes) const noexcept;
-				float32 ValeurStick(const NkLiaison &l) const noexcept;
-				void Normaliser(float32 x, float32 y, float32 &u, float32 &v) const noexcept;
-				int32 StickSous(float32 u, float32 v) const noexcept;
-				void Capturer(const NkInputCode &code) noexcept;
-				void CapturerManettes(const NkGamepadSystem *manettes) noexcept;
+				/// Recopie la table dans les cartes si elle a change depuis la
+				/// derniere fois (Lire comme Trame : un doigt pose AVANT la premiere
+				/// trame doit deja trouver son joystick).
+				void Synchroniser() noexcept;
+				void TerminerCapture() noexcept;
 
 				NkLiaisons mLiaisons;
 				NkActions mActions[NK_UNKENY_JOUEURS_MAX];
 				int32 mManetteDe[NK_UNKENY_JOUEURS_MAX];
+				NkInputMap mCartes[NK_UNKENY_JOUEURS_MAX];
+				/// Pour chaque carte, l'indice Unkeny de chacune de ses liaisons.
+				NkVector<int32> mOrigine[NK_UNKENY_JOUEURS_MAX];
+				uint32 mVersionVue = 0xFFFFFFFFu;
+				int32 mContexte = -1; ///< le contexte « Unkeny », le meme indice dans chaque carte
 
-				bool mTouches[static_cast<uint32>(NkKey::NK_KEY_MAX)];
-				bool mSouris[static_cast<uint32>(NkMouseButton::NK_MOUSE_BUTTON_MAX)];
-				float32 mMolette = 0.f;
-				float32 mMoletteH = 0.f;
-
-				NkDoigt mDoigts[NK_MAX_TOUCH_POINTS];
-				float32 mSurfX = 0.f;
-				float32 mSurfY = 0.f;
-				float32 mSurfL = 0.f;
-				float32 mSurfH = 0.f;
-
-				int32 mCapture = -1;
-				/// Ce que les manettes avaient a la trame d'avant : la capture ne
-				/// prend qu'un bouton qui VIENT d'etre enfonce, pas un bouton tenu
-				/// depuis l'ouverture du menu.
-				bool mCaptureBoutonsAvant[NK_MAX_GAMEPADS][static_cast<uint32>(NkGamepadButton::NK_GAMEPAD_BUTTON_MAX)];
+				int32 mCapture = -1;	   ///< liaison Unkeny en capture, -1 sinon
+				int32 mCaptureCarte = -1;  ///< la carte qui la capture
 		};
 
 	} // namespace unkeny
