@@ -46,6 +46,7 @@
 #define __NKENTSEU_UNKENYEDITOR_NKEDITEURINTERFACE_H__
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurModele.h"
 
 #include "NKContainers/Sequential/NkVector.h"
@@ -161,7 +162,9 @@ namespace nkentseu {
 			NK_A_CONTENU_POSER = 1300, ///< l'acteur vise, pose au centre de la vue
 			NK_A_CONTENU_ARMER,		   ///< l'acteur vise arme « Poser » (comme un clic sur sa carte)
 			NK_A_CONTENU_OUVRIR,	   ///< le dossier vise s'ouvre
-			NK_A_CONTENU_RACINE		   ///< retour a la racine du navigateur
+			NK_A_CONTENU_RACINE,	   ///< retour a la racine du navigateur (ou de « Contenu »)
+			NK_A_CONTENU_IMPORTER,	   ///< « Importer… » : le dialogue, puis la copie dans le Contenu
+			NK_A_CONTENU_EXPORTER	   ///< « Exporter… » : les assets choisis, vers un dossier de l'OS
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -270,6 +273,32 @@ namespace nkentseu {
 				/// d'entree (vide = hors champ), releve par le crochet `cardOverlay` du kit :
 				/// seul le composant connait sa grille. Le banc y vise ses clics.
 				NkVector<nkgui::NkRect> contenuCartes;
+				/// (2026-09-30, lot 1) LE CONTENU DU PROJET (NkEditeurContenu.h) : un
+				/// second dossier du rail, « Contenu », a cote du catalogue « Acteurs ».
+				bool contenuProjet = false;	   ///< le navigateur montre le Contenu, pas le catalogue
+				NkString contenuDossier;	   ///< le dossier courant, RELATIF a Contenu (« » = sa racine)
+				/// Les assets CHOISIS (chemins du navigateur, Ctrl+clic) : ce qu'exporte
+				/// « Exporter… ». Des chemins : les cartes sont reconstruites a chaque trame.
+				NkVector<NkString> contenuChoisis;
+				/// Le dossier courant et le rail, relus du DISQUE au plus une fois par
+				/// seconde, et aussitot apres un import ou un changement de dossier.
+				NkVector<NkElementContenu> contenuListe;
+				NkVector<NkString> contenuSousDossiers;
+				NkString contenuListeDe;
+				float32 contenuListeAge = 99.f;
+				bool contenuPerime = true;
+				/// Les puces de filtre de L'AUTRE section (natures du Contenu, ou
+				/// categories du catalogue) : echangees quand la section change.
+				NkVector<editorkit::NkBrowserKind> pucesAutres;
+				bool pucesContenu = false;
+				/// « Importer… » / « Exporter… » : des DEMANDES, consommees au debut de
+				/// la trame suivante (le dialogue de l'OS est une boucle modale, comme
+				/// BeginDragMove : voir plus bas).
+				bool importDemande = false;
+				bool exportDemande = false;
+				NkString importCible;		   ///< le dossier (chemin du navigateur) ou importer ; vide = le courant
+				nkgui::NkRect boutonImporter{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonExporter{0.f, 0.f, 0.f, 0.f};
 				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
@@ -503,6 +532,20 @@ namespace nkentseu {
 		/// Les actions du menu du navigateur (NK_A_CONTENU_*), sur l'element du
 		/// clic droit (NkEditeurInterface::contenuMenuChemin) -- NkEditeurTiroir.cpp.
 		void NkEditeurActionContenu(NkEditeurCadre &c, int32 action);
+		/// Importe `sources` (chemins de l'OS) dans le dossier du Contenu `relatif`
+		/// (nul = le dossier courant du navigateur, ou la racine du Contenu), puis
+		/// MONTRE le resultat : le navigateur passe sur ce dossier, les fichiers
+		/// crees choisis. Le bouton, le menu et le depot de l'OS passent tous ici.
+		NkRapportImport NkEditeurImporterIci(NkEditeurModele &m, NkEditeurInterface &ui, const NkVector<NkString> &sources,
+											 const char *relatif = nullptr);
+		/// Le DEPOT de fichiers de l'OS (NkDropFileEvent), au point (x, y) de la
+		/// fenetre : sur une carte de dossier du Contenu, dans ce dossier ; sinon,
+		/// comme « Importer… » (le dossier courant).
+		NkRapportImport NkEditeurDeposerFichiers(NkEditeurModele &m, NkEditeurInterface &ui, const NkVector<NkString> &sources,
+												 float32 x, float32 y);
+		/// Exporte les assets choisis (NkEditeurInterface::contenuChoisis) vers le
+		/// dossier ABSOLU `destination`.
+		NkRapportExport NkEditeurExporterChoisis(NkEditeurModele &m, NkEditeurInterface &ui, const char *destination);
 		void NkEditeurDessinerVue(NkEditeurCadre &c);
 		/// Mene la camera, EN DOUCEUR, sur la selection -- ou sur toute la scene
 		/// si `toutLaScene` ou si rien n'est selectionne (NkEditeurZoneACadrer).

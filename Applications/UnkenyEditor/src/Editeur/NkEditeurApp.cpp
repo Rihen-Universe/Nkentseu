@@ -22,7 +22,9 @@
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
+#include "NKEvent/NkDropEvent.h"
 #include "NKEvent/NkMouseEvent.h"
+#include "NKWindow/Core/NkDialogs.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
@@ -429,6 +431,28 @@ namespace nkentseu {
 			// modales de l'OS (deplacer, redimensionner) peuvent tourner sans
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
+			// « Importer… » / « Exporter… » (2026-09-30) : le DIALOGUE de l'OS
+			// (NkDialogs, NKWindow), HORS du dessin pour la meme raison -- c'est une
+			// boucle modale. Elle mange le relachement du bouton qui l'a demandee.
+			if (mUi->importDemande) {
+				mUi->importDemande = false;
+				const NkDialogResult r = NkDialogs::OpenFileDialog(NkEditeurFiltreImport(), "Importer dans le Contenu du projet");
+				Gui().input.mouseDown[0] = false;
+				if (r.confirmed && !r.path.Empty()) {
+					NkVector<NkString> sources;
+					sources.PushBack(r.path);
+					const NkString rel = NkEditeurRelatifContenu(mUi->importCible.CStr());
+					NkEditeurImporterIci(*mModele, *mUi, sources, mUi->importCible.Empty() ? nullptr : rel.CStr());
+				}
+			}
+			if (mUi->exportDemande) {
+				mUi->exportDemande = false;
+				const NkDialogResult r = NkDialogs::OpenFolderDialog("Exporter la sélection vers…");
+				Gui().input.mouseDown[0] = false;
+				if (r.confirmed && !r.path.Empty()) {
+					NkEditeurExporterChoisis(*mModele, *mUi, r.path.CStr());
+				}
+			}
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
 								mUi->panneauEntrees || mConstruction->ouverte;
@@ -560,6 +584,12 @@ namespace nkentseu {
 				if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 					in.SetDoubleClick(0);
 				}
+				return false;
+			}
+			// Des fichiers deposes depuis l'OS (2026-09-30) : exactement « Importer… »,
+			// dans le dossier de la carte visee s'il y en a une (NkEditeurDeposerFichiers).
+			if (const auto *e = event.As<NkDropFileEvent>()) {
+				NkEditeurDeposerFichiers(*mModele, *mUi, e->data.paths, static_cast<float32>(e->data.x), static_cast<float32>(e->data.y));
 				return false;
 			}
 			if (const auto *e = event.As<NkMouseWheelVerticalEvent>()) {

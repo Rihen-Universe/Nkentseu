@@ -231,6 +231,10 @@ namespace nkentseu {
 						out.PushBack(Entree("Enregistrer", NK_A_ENREGISTRER, "Ctrl+S"));
 						out.PushBack(Entree("Fermer la scène", NK_A_FERMER_SCENE));
 						out.PushBack(Separateur());
+						// (2026-09-30) Le Contenu du projet : les memes que la barre du navigateur.
+						out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
+						out.PushBack(Entree("Exporter la sélection…", NK_A_CONTENU_EXPORTER, "", false, !c.ui.contenuChoisis.Empty()));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Construire…", NK_A_CONSTRUIRE));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
@@ -361,19 +365,37 @@ namespace nkentseu {
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Cadrer tout", NK_A_CADRER));
 						break;
-					case NkMenuEditeur::NK_CTX_CONTENU:
+					case NkMenuEditeur::NK_CTX_CONTENU: {
 						out.PushBack(Intitule(c.ui.contenuMenuNom.CStr()));
+						const bool projet = NkEditeurCheminEstContenu(c.ui.contenuMenuChemin.CStr());
 						if (c.ui.contenuMenuDossier) {
 							out.PushBack(Entree("Ouvrir", NK_A_CONTENU_OUVRIR));
+							if (projet) {
+								out.PushBack(Entree("Importer ici…", NK_A_CONTENU_IMPORTER));
+							}
+						} else if (projet) {
+							// Un asset du projet : sa nature, et l'export.
+							out.PushBack(Intitule(NkEditeurNatureFichier(c.ui.contenuMenuChemin.CStr()).libelle));
+							out.PushBack(Entree("Exporter…", NK_A_CONTENU_EXPORTER));
 						} else {
 							out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER));
 							out.PushBack(Entree("Armer « Poser » (clic dans la vue)", NK_A_CONTENU_ARMER));
 						}
 						break;
+					}
 					case NkMenuEditeur::NK_CTX_CONTENU_VIDE:
-						out.PushBack(Intitule(c.ui.categorie >= 0 ? NkCategorieActeurNom(static_cast<NkCategorieActeur>(c.ui.categorie))
-																   : "Acteurs"));
-						out.PushBack(Entree("Revenir à « Acteurs »", NK_A_CONTENU_RACINE, "", false, c.ui.categorie >= 0));
+						if (c.ui.contenuProjet) {
+							out.PushBack(Intitule(c.ui.contenuDossier.Empty() ? NK_CONTENU_RACINE : c.ui.contenuDossier.CStr()));
+							out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
+							out.PushBack(Entree("Exporter la sélection…", NK_A_CONTENU_EXPORTER, "", false, !c.ui.contenuChoisis.Empty()));
+							out.PushBack(Separateur());
+							out.PushBack(Entree("Revenir à « Contenu »", NK_A_CONTENU_RACINE, "", false, !c.ui.contenuDossier.Empty()));
+						} else {
+							out.PushBack(Intitule(c.ui.categorie >= 0 ? NkCategorieActeurNom(static_cast<NkCategorieActeur>(c.ui.categorie))
+																	   : "Acteurs"));
+							out.PushBack(Entree("Revenir à « Acteurs »", NK_A_CONTENU_RACINE, "", false, c.ui.categorie >= 0));
+							out.PushBack(Entree("Importer dans le Contenu…", NK_A_CONTENU_IMPORTER));
+						}
 						break;
 					case NkMenuEditeur::NK_CARTE: {
 						const int32 k = c.ui.carteMenu;
@@ -1088,6 +1110,8 @@ namespace nkentseu {
 				case NK_A_CONTENU_ARMER:
 				case NK_A_CONTENU_OUVRIR:
 				case NK_A_CONTENU_RACINE:
+				case NK_A_CONTENU_IMPORTER:
+				case NK_A_CONTENU_EXPORTER:
 					// Le navigateur connait ses chemins (NkEditeurTiroir.cpp).
 					NkEditeurActionContenu(c, action);
 					break;
@@ -1679,6 +1703,13 @@ namespace nkentseu {
 				choisie = premiere;
 			}
 			if (choisie != NK_A_AUCUNE) {
+				// Le menu du NAVIGATEUR vise l'element de son clic droit ; tout autre
+				// menu (Fichier > Importer…) vise le navigateur tel qu'il est -- pas
+				// un element d'un clic droit oublie.
+				if (ui.menu != NkMenuEditeur::NK_CTX_CONTENU && ui.menu != NkMenuEditeur::NK_CTX_CONTENU_VIDE) {
+					ui.contenuMenuChemin = NkString();
+					ui.contenuMenuDossier = false;
+				}
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 				NkEditeurExecuter(c, choisie);
