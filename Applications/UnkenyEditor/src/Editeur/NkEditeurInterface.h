@@ -240,6 +240,7 @@ namespace nkentseu {
 				editorkit::NkComponentInstance contenuReglages;
 				bool contenuPret = false;
 				int32 categorie = -1; ///< -1 = toutes les categories
+				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;

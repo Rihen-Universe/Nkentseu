@@ -15,6 +15,15 @@
 //     au point de depot.
 //   - Le composant ne pose rien : il rend ce qui a ete choisi, glisse, lache.
 //     C'est l'editeur qui appelle NkEditeurPoser (meme partage que partout).
+//   - A LA MANIERE D'UE5 (2026-09-30) : a gauche l'arbre des dossiers (icone
+//     de dossier, chevron), a droite leur CONTENU -- a la racine, les dossiers
+//     eux-memes en grandes vignettes (double-clic : on y entre) ; le fil
+//     d'Ariane au-dessus ; la cloison entre les deux se TIRE ; la recherche
+//     cherche dans TOUS les dossiers.
+//   - ⚠️ LA RECHERCHE NE MARCHAIT PAS : le kit reserve la boite et en rapporte
+//     le rectangle, mais c'est a l'HOTE d'y ecrire (NkComponentInput n'a pas de
+//     clavier). Personne n'y ecrivait : la boite prenait le focus, et la frappe
+//     partait dans le vide. Le champ du kit (NkOverlayTextField) y est pose.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -24,7 +33,9 @@
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
+#include "NKEditorKit/Components/NkSilhouettes.h"
 #include "NKEditorKit/NkEditorScrollbar.h"
+#include "NKEditorKit/NkEditorTextField.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -89,6 +100,27 @@ namespace nkentseu {
 				Armer(c.m, ActeurDuChemin(chemin));
 			}
 
+			/// La categorie d'un chemin de dossier (son nom), -1 pour la racine.
+			int32 CategorieDuChemin(const char *chemin) noexcept {
+				for (int32 k = 0; k < NB_CATEGORIES && chemin != nullptr; ++k) {
+					if (std::strcmp(chemin, NkCategorieActeurNom(static_cast<NkCategorieActeur>(k))) == 0) {
+						return k;
+					}
+				}
+				return -1;
+			}
+
+			/// Double-clic sur un DOSSIER de la grille : on y entre (UE5).
+			void SurDoubleClic(void *user, int32 index, const char *chemin) {
+				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size()) ||
+					!c.ui.contenu.entries[static_cast<uint32>(index)].isFolder) {
+					return;
+				}
+				c.ui.categorie = CategorieDuChemin(chemin);
+				c.ui.contenu.scroll = 0.f;
+			}
+
 			void SurNavigation(void *user, const char *chemin) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
 				c.ui.categorie = -1;
@@ -97,6 +129,7 @@ namespace nkentseu {
 						c.ui.categorie = k;
 					}
 				}
+				c.ui.contenu.scroll = 0.f;
 			}
 
 			/// La pastille de couleur de l'acteur, sur sa carte : c'est la couleur
@@ -104,8 +137,9 @@ namespace nkentseu {
 			void SurCarte(void *user, editorkit::NkComponentPaint &p, int32 index, float32 x, float32 y, float32 w,
 						  float32 h) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
-				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size())) {
-					return;
+				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size()) ||
+					c.ui.contenu.entries[static_cast<uint32>(index)].isFolder) {
+					return; // un dossier a sa silhouette, pas de pastille
 				}
 				const int32 a = ActeurDuChemin(c.ui.contenu.entries[static_cast<uint32>(index)].path.CStr());
 				uint32 couleur = 0xB0B0B0FFu;
@@ -126,6 +160,8 @@ namespace nkentseu {
 				// La tete du panneau est l'onglet « Acteurs » ; les boutons
 				// Creer / Importer / Tout enregistrer n'ont pas de sens pour un
 				// catalogue fixe : ils seraient des decors.
+				// La bande de TITRE (« Contenu ») repeterait l'onglet « Acteurs » ; le
+				// fil d'Ariane et la recherche ont leur propre rangee, gardee.
 				ui.contenuReglages.SetParam("show_header", 0.f);
 				ui.contenuReglages.SetParam("show_actions", 0.f);
 				ui.contenuReglages.SetParam("show_select_all", 0.f);
@@ -161,6 +197,7 @@ namespace nkentseu {
 				racine.parent = -1;
 				racine.label = NkString(CHEMIN_RACINE);
 				racine.path = NkString(CHEMIN_RACINE);
+				racine.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
 				m.folders.nodes.PushBack(racine);
 				for (int32 k = 0; k < NB_CATEGORIES; ++k) {
 					editorkit::NkTreeNode n;
@@ -169,6 +206,7 @@ namespace nkentseu {
 					n.label = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
 					n.path = n.label;
 					n.kindRole = static_cast<uint16>(RoleCategorie(k));
+					n.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
 					m.folders.nodes.PushBack(n);
 				}
 				m.folders.active = ui.categorie >= 0 ? static_cast<nk_uint64>(ui.categorie) + 2u : 1u;
@@ -180,9 +218,25 @@ namespace nkentseu {
 					m.breadcrumb.PushBack(NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(ui.categorie))));
 				}
 
-				// ── Les cartes : l'entite simple, puis les acteurs du catalogue ─
+				// ── Les cartes ──────────────────────────────────────────────
+				// A la RACINE : les dossiers en vignettes, puis l'entite simple
+				// (elle n'est d'aucune categorie). Dans un dossier : ses acteurs.
+				// Une RECHERCHE en cours : tous les acteurs, de tous les dossiers --
+				// chercher « eau » depuis la racine doit trouver l'eau.
 				m.entries.Clear();
 				int32 arme = -1;
+				const bool cherche = m.filter[0] != '\0';
+				if (ui.categorie < 0 && !cherche) {
+					for (int32 k = 0; k < NB_CATEGORIES; ++k) {
+						editorkit::NkAssetEntry d;
+						d.name = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
+						d.path = d.name;
+						d.isFolder = true;
+						d.kindLabel = "Dossier";
+						d.kindRole = static_cast<uint16>(RoleCategorie(k));
+						m.entries.PushBack(d);
+					}
+				}
 				if (ui.categorie < 0) {
 					editorkit::NkAssetEntry e;
 					e.name = NkString("Entité simple");
@@ -197,7 +251,9 @@ namespace nkentseu {
 				for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
 					const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
 					const int32 k = static_cast<int32>(info.categorie);
-					if (ui.categorie >= 0 && k != ui.categorie) {
+					// La racine sans recherche ne montre que ses dossiers ;
+					// un dossier, que les siens.
+					if ((ui.categorie < 0 && !cherche) || (ui.categorie >= 0 && !cherche && k != ui.categorie)) {
 						continue;
 					}
 					editorkit::NkAssetEntry e;
@@ -219,7 +275,7 @@ namespace nkentseu {
 				if (arme >= 0) {
 					m.chosen.PushBack(arme);
 				}
-				m.statusRight = NkString::Format("%u acteur(s)", static_cast<uint32>(m.entries.Size()));
+				m.statusRight = NkString::Format("%u élément(s)", static_cast<uint32>(m.entries.Size()));
 			}
 
 			void OngletActeurs(NkEditeurCadre &c, const NkRect &zone) {
@@ -247,6 +303,7 @@ namespace nkentseu {
 				hooks.user = &c;
 				hooks.onSelect = &SurSelection;
 				hooks.onNavigate = &SurNavigation;
+				hooks.onDoubleClick = &SurDoubleClic;
 				hooks.cardOverlay = &SurCarte;
 
 				const editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
@@ -261,13 +318,57 @@ namespace nkentseu {
 				}
 
 				const nkgui::NkGuiInput &in = c.ctx.input;
+				// ── La recherche : le composant a pose le focus, l'hote a le clavier ─
+				if (res.rechercheW > 0.f && ui.contenu.searchFocused) {
+					if (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+						ui.contenu.searchFocused = false;
+					}
+					editorkit::NkOverlayFieldStyle st;
+					st.fond = false;
+					st.bord = false;
+					st.texte = c.pal.texte;
+					const NkRect champ{res.rechercheX + 4.f, res.rechercheY, res.rechercheW - 6.f, res.rechercheH};
+					// Le fond de la boite, par-dessus le texte que le kit y a peint :
+					// c'est le champ, desormais, qui l'affiche avec son curseur.
+					c.ctx.dl.AddRectFilled(NkRect{champ.x + 1.f, champ.y + 1.f, champ.w - 2.f, champ.h - 2.f}, c.pal.champ);
+					editorkit::NkOverlayTextField(c.ctx, c.ctx.dl, c.police, champ, ui.contenu.filter,
+												  static_cast<int32>(sizeof(ui.contenu.filter)), ui.contenu.searchFocused, &st);
+				}
+				// ── La CLOISON dossiers | cartes, qui se tire (UE5) ───────────────
+				if (res.panneauxH > 0.f && !ui.contenu.treeCollapsed) {
+					const float32 frac = ui.contenuReglages.Param("tree_width");
+					const float32 x = zone.x + zone.w * frac;
+					const NkRect poignee{x - 3.f, res.panneauxY, 6.f, res.panneauxH};
+					const bool survol = NkEditeurDans(poignee, in.mousePos) && res.glisserChemin.Empty();
+					if (survol && in.mouseClicked[0]) {
+						ui.cloisonContenu = true;
+					}
+					if (ui.cloisonContenu) {
+						if (in.mouseDown[0]) {
+							// Bornes de la declaration du kit : 10 % a 45 %.
+							float32 f = (in.mousePos.x - zone.x) / (zone.w > 1.f ? zone.w : 1.f);
+							f = f < 0.10f ? 0.10f : (f > 0.45f ? 0.45f : f);
+							ui.contenuReglages.SetParam("tree_width", f);
+						} else {
+							ui.cloisonContenu = false;
+						}
+					}
+					if (survol || ui.cloisonContenu) {
+						c.ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+						c.ctx.dl.AddRectFilled(NkRect{x - 1.f, res.panneauxY, 2.f, res.panneauxH}, c.pal.accent);
+					}
+				}
+
 				auto &over = c.ctx.dlOverlay;
 				if (!res.glisserChemin.Empty()) {
 					if (in.mouseReleased[0]) {
 						// LE DEPOT DANS LA VUE : le composant l'a vu lache « dans le
 						// vide » (hors de ses volets) ; pour l'editeur, c'est une pose.
-						if (NkEditeurDans(ui.viseur, in.mousePos)) {
-							Armer(c.m, ActeurDuChemin(res.glisserChemin.CStr()));
+						// Un DOSSIER lache dans la vue ne pose rien (il poserait
+						// l'acteur arme avant lui, sans qu'on l'ait demande).
+						const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
+						if (NkEditeurDans(ui.viseur, in.mousePos) && acteur != -1) {
+							Armer(c.m, acteur);
 							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
 							NkEditeurPoser(c.m, monde);
 						}
