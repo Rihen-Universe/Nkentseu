@@ -77,10 +77,15 @@ namespace nkentseu {
 			PhotographierAussi<NkVitesse2D>("NkVitesse2D");
 			PhotographierAussi<NkSource2D>("NkSource2D");
 
+			// Le monde d'Unkeny est PLAN : NkPhysicsConfig::enable2D, lu par
+			// NKPhysics depuis le 2026-09-29, y ramene tout ce qui en sortirait
+			// (rien, aujourd'hui : c'est une garde, pas un changement de calcul).
+			physics::NkPhysicsConfig cfgPhysique;
+			cfgPhysique.enable2D = true;
 			if (mConfig.physique) {
 				// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur
 				// maison et le tas CRT corrompt le tas sous Windows (c0000374).
-				mPhysique = memory::NkGetDefaultAllocator().New<physics::NkPhysicsWorld>();
+				mPhysique = memory::NkGetDefaultAllocator().New<physics::NkPhysicsWorld>(cfgPhysique);
 				if (mPhysique == nullptr) {
 					logger.Error("[unkeny] creation du monde physique IMPOSSIBLE");
 					return false;
@@ -100,7 +105,7 @@ namespace nkentseu {
 					// ou tout tombe a travers le decor. Et on le dit.
 					logger.Warn("[unkeny] particules demandees SANS physique : le monde physique est cree quand meme");
 					mConfig.physique = true;
-					mPhysique = memory::NkGetDefaultAllocator().New<physics::NkPhysicsWorld>();
+					mPhysique = memory::NkGetDefaultAllocator().New<physics::NkPhysicsWorld>(cfgPhysique);
 					if (mPhysique == nullptr) {
 						return false;
 					}
@@ -381,6 +386,7 @@ namespace nkentseu {
 						}
 						mPhysique->Step(mConfig.pasFixe);
 						Relever();
+						ReleverCorpsMous();
 					}
 					mAccumulateur -= mConfig.pasFixe;
 					++mDernierNbPas;
@@ -514,6 +520,58 @@ namespace nkentseu {
 					c.b = entite(ev.other);
 					c.phase = (k % 2 == 0) ? NkPhaseContact::NK_DEBUT : NkPhaseContact::NK_FIN;
 					c.declencheur = k >= 2;
+					if (c.a.IsValid() && c.b.IsValid()) {
+						mContacts.PushBack(c);
+					}
+				}
+			}
+		}
+
+		void NkScene::ReleverCorpsMous() {
+			if (mParticules == nullptr) {
+				return;
+			}
+			const NkVector<physics::NkEvenementP2D> *listes[2] = {&mParticules->ContactsDebut(), &mParticules->ContactsFin()};
+			if (listes[0]->Size() == 0u && listes[1]->Size() == 0u) {
+				return;
+			}
+			// Meme table corps rigide -> entite que Relever, refaite ici pour la meme
+			// raison : seulement quand il y a quelque chose a traduire.
+			mCorpsEntite.Clear();
+			mMonde.Query<NkCorps2D>().ForEach([this](ecs::NkEntityId id, NkCorps2D &c) {
+				mCorpsEntite.PushBack(NkCorpsEntite{c.corpsId, id});
+			});
+			auto rigide = [this](uint32 b) {
+				for (uint32 i = 0; i < mCorpsEntite.Size(); ++i) {
+					if (mCorpsEntite[i].corps == b) {
+						return mCorpsEntite[i].entite;
+					}
+				}
+				return ecs::NkEntityId::Invalid();
+			};
+			for (int32 k = 0; k < 2; ++k) {
+				for (uint32 i = 0; i < listes[k]->Size(); ++i) {
+					const physics::NkEvenementP2D &ev = (*listes[k])[i];
+					NkContact2D c;
+					c.phase = k == 0 ? NkPhaseContact::NK_DEBUT : NkPhaseContact::NK_FIN;
+					// Une FIN peut concerner un corps mou qui vient de DISPARAITRE (tombe,
+					// gomme) : il n'a plus d'entite, l'evenement est tu.
+					const ecs::NkEntityId mou = EntiteDuCorpsMou(ev.corps);
+					switch (ev.genre) {
+						case physics::NkGenreEvenementP2D::NK_ZONE:
+							c.a = rigide(ev.autre);
+							c.b = mou;
+							c.declencheur = true;
+							break;
+						case physics::NkGenreEvenementP2D::NK_CORPS_MOU:
+							c.a = mou;
+							c.b = EntiteDuCorpsMou(ev.autre);
+							break;
+						default:
+							c.a = mou;
+							c.b = rigide(ev.autre);
+							break;
+					}
 					if (c.a.IsValid() && c.b.IsValid()) {
 						mContacts.PushBack(c);
 					}
@@ -680,6 +738,14 @@ namespace nkentseu {
 					e.mou = *x;
 					e.aMou = true;
 				}
+				if (const NkControleRigide2D *x = mMonde.Get<NkControleRigide2D>(id)) {
+					e.controleRigide = *x;
+					e.aControleRigide = true;
+				}
+				if (const NkControleMou2D *x = mMonde.Get<NkControleMou2D>(id)) {
+					e.controleMou = *x;
+					e.aControleMou = true;
+				}
 				// Les composants du jeu declares par PhotographierAussi.
 				uint32 total = 0;
 				for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
@@ -722,6 +788,11 @@ namespace nkentseu {
 			if (mParticules != nullptr) {
 				*mParticules = photo.particules;
 			}
+			// Les corps rigides vont renaitre sous des ids NEUFS : les attaches des
+			// particules (et leurs paires de contact en cours) designent les
+			// anciens. On note les deux, puis on remappe tout d'un coup (2026-09-29).
+			NkVector<physics::NkBodyId> anciensIds;
+			NkVector<physics::NkBodyId> nouveauxIds;
 			// 2. Tout refaire.
 			for (uint32 i = 0; i < photo.entites.Size(); ++i) {
 				const NkPhotoEntite &e = photo.entites[i];
@@ -763,7 +834,17 @@ namespace nkentseu {
 							b->angularVelocity = e.etatRigide.angularVelocity;
 							b->sleepTimer = 0.f;
 						}
+						if (e.corps.corpsId != physics::NK_INVALID_BODY) {
+							anciensIds.PushBack(e.corps.corpsId);
+							nouveauxIds.PushBack(nc->corpsId);
+						}
 					}
+				}
+				if (e.aControleRigide) {
+					mMonde.Add<NkControleRigide2D>(id, e.controleRigide);
+				}
+				if (e.aControleMou) {
+					mMonde.Add<NkControleMou2D>(id, e.controleMou);
 				}
 				if (e.aMou && mParticules != nullptr) {
 					mMonde.Add<NkCorpsMou2D>(id, e.mou);
@@ -772,6 +853,9 @@ namespace nkentseu {
 						mParticules->corps[static_cast<uint32>(ci)].utilisateur = id.Pack();
 					}
 				}
+			}
+			if (mParticules != nullptr && anciensIds.Size() > 0u) {
+				mParticules->RemapperRigides(anciensIds.Data(), nouveauxIds.Data(), static_cast<uint32>(anciensIds.Size()));
 			}
 			mAccumulateur = 0.f;
 		}

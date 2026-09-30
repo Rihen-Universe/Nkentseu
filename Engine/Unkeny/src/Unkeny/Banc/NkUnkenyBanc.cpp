@@ -770,7 +770,11 @@ namespace nkentseu {
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,
 						gEchecs, gEchecs > 1 ? "s" : "");
-			return gEchecs == 0 ? 0 : 1;
+			// Le banc du jeu imprime son PROPRE bilan : celui-ci reste comparable
+			// d'une version a l'autre (37 temoins au 29/09/2026).
+			const int32 echecs = gEchecs;
+			const int32 jeu = NkUnkenyLancerBancJeu();
+			return (echecs == 0 && jeu == 0) ? 0 : 1;
 		}
 
 	} // namespace unkeny
