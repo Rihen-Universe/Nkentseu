@@ -22,6 +22,7 @@
 #include "NKEvent/NkWindowEvent.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKPlatform/NkPlatformDetect.h"
+#include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
@@ -114,7 +115,11 @@ namespace nkentseu {
 					continue;
 				}
 				if (args[i] == "--selftest") {
-					return NkOptional<int>(unkeny::NkUnkenyLancerBancLivraison() == 0 ? 0 : 1);
+					// La livraison, puis les entrees du joueur (Espace fait sauter
+					// le heros de Gelee) : les deux bilans s'impriment.
+					const int32 livraison = unkeny::NkUnkenyLancerBancLivraison();
+					const int32 entrees = NkJoueurLancerBancEntrees();
+					return NkOptional<int>(livraison == 0 && entrees == 0 ? 0 : 1);
 				}
 			}
 			if (verifier) {
@@ -139,6 +144,13 @@ namespace nkentseu {
 			unkeny::NkChargerJeu(mDossier.CStr(), p.scene, p.textures, son ? &p.sons : nullptr, p.jeu);
 			if (p.jeu.Jouable()) {
 				p.zoomRelu = p.scene.Camera().Zoom();
+				// Les entrees cuites avec le jeu (sinon les standard), puis les
+				// controleurs de personnage branches sur leurs actions.
+				const unkeny::NkRapportLiaisons r = NkJoueurEntreesLire(p.entrees, p.jeu.entrees);
+				if (!r.Ok()) {
+					p.jeu.manquantes.PushBack(NkString("entrees : ") + r.erreurs[0]);
+				}
+				NkJoueurEntreesBrancher(p.entrees, p.scene);
 			}
 			if (!p.jeu.nom.Empty()) {
 				Window().SetTitle(p.jeu.nom);
@@ -160,7 +172,10 @@ namespace nkentseu {
 
 		void NkJoueurApp::OnTick(float32 deltaTime) {
 			NkPartieJouee &p = *mPartie;
-			NkJoueurEntreesTrame(p.entrees);
+			// Pause est une ACTION du jeu (P, Start) : la manette aussi la bascule.
+			if (NkJoueurEntreesTrame(p.entrees, &NkWESystem::Gamepads(), deltaTime) == NkDemandeJoueur::NK_BASCULER_PAUSE) {
+				p.pause = !p.pause;
+			}
 			if (!p.jeu.Jouable() || p.pause) {
 				return;
 			}
@@ -173,6 +188,7 @@ namespace nkentseu {
 			const renderer::NkLayoutInfo &lay = Layout();
 			const NkRect ecran{0.f, 0.f, static_cast<float32>(lay.width), static_cast<float32>(lay.height)};
 			dl.AddRectFilled(ecran, kFond);
+			NkJoueurEntreesSurface(p.entrees, ecran.w, ecran.h);
 			if (p.jeu.Jouable()) {
 				unkeny::NkVue2D &cam = p.scene.Camera();
 				cam.PoserViseur(ecran);
@@ -190,7 +206,7 @@ namespace nkentseu {
 			if (p.pause) {
 				const float32 haut = lay.safeArea.top + 16.f;
 				renderer::NkTexteCentre(dl, FontTitle(), ecran.w * 0.5f, haut, "Pause", NkColor(235, 235, 240));
-				renderer::NkTexteCentre(dl, FontSmall(), ecran.w * 0.5f, haut + 40.f, "P pour reprendre, Echap pour quitter",
+				renderer::NkTexteCentre(dl, FontSmall(), ecran.w * 0.5f, haut + 40.f, "P ou Start pour reprendre, Echap pour quitter",
 										NkColor(180, 184, 196));
 			}
 			DessinerManques(dl, ecran);

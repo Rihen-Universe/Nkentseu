@@ -35,19 +35,24 @@
 #include "NKEvent/NkEvent.h"
 #include "NKEvent/NkGamepadSystem.h"
 #include "NKGui/Core/NkGuiContext.h"
+#include "Unkeny/Entree/NkUnkenyActionsStandard.h"
 #include "Unkeny/Entree/NkUnkenyEntreesJeu.h"
 
 namespace nkentseu {
 	namespace editeur {
 
-		/// Les actions du jeu joue dans l'editeur. Le jour ou la scene porte ses
-		/// propres actions (contoleur de plateforme, U2), c'est elle qui les
-		/// nommera ; d'ici la, l'editeur joue avec celles-ci.
+		/// Les actions du jeu joue dans l'editeur : les actions STANDARD d'Unkeny
+		/// (Unkeny/Entree/NkUnkenyActionsStandard.h), celles que lisent les
+		/// controleurs de personnage et le joueur autonome. ⚠️ Jusqu'au 30/09
+		/// l'editeur numerotait les siennes (Sauter en 2) et les controleurs
+		/// lisaient Sauter en 1 : Espace ne faisait pas sauter le heros. Ces noms
+		/// restent, leurs VALEURS viennent de l'unique table.
 		enum NkActionJeuEditeur : int32 {
-			NK_JEU_AVANCER = 0, ///< -1 gauche .. +1 droite
-			NK_JEU_MONTER,		///< -1 bas .. +1 haut
-			NK_JEU_SAUTER,
-			NK_JEU_ACTION
+			NK_JEU_AVANCER = unkeny::NK_ACTION_AVANCER, ///< -1 gauche .. +1 droite
+			NK_JEU_SAUTER = unkeny::NK_ACTION_SAUTER,
+			NK_JEU_MONTER = unkeny::NK_ACTION_MONTER, ///< -1 bas .. +1 haut
+			NK_JEU_ACTION = unkeny::NK_ACTION_ACTION,
+			NK_JEU_PAUSE = unkeny::NK_ACTION_PAUSE
 		};
 
 		struct NkEditeurEntrees {
@@ -65,10 +70,22 @@ namespace nkentseu {
 				bool modifiees = false;	 ///< des liaisons ont change depuis le dernier fichier
 				NkString cheminVu;		 ///< la scene dont le fichier d'entrees a ete lu
 				NkString message;		 ///< la derniere annonce du panneau
+
+				// --- Les controleurs de la scene (30/09) --------------------------
+				const void *sceneBranchee = nullptr; ///< la scene dont les controleurs lisent `jeu`
+				uint32 systemeControleurs = 0;		 ///< leur systeme sur cette scene (0 = aucun)
 		};
 
-		/// ZQSD / WASD et fleches, stick gauche et croix, Espace / Sud, E / Ouest.
+		/// Les liaisons STANDARD (unkeny::NkLiaisonsStandard) : ZQSD / WASD et
+		/// fleches, stick gauche et croix, Espace / Sud, E / Ouest, P / Start.
 		void NkEditeurEntreesParDefaut(NkEditeurEntrees &e);
+
+		/// Les controleurs de personnage de la scene (NkControleRigide2D,
+		/// NkControleMou2D) lisent les actions du joueur 1 de `e` : leur systeme
+		/// est pose UNE fois par scene (il vit au travers de Init, Restaurer et
+		/// des chargements). A appeler avant le pas de la scene ; ne fait rien
+		/// si c'est deja fait. Rend l'identifiant du systeme (0 = refus).
+		uint32 NkEditeurEntreesBrancher(NkEditeurEntrees &e, unkeny::NkScene &scene);
 
 		/// Un evenement. Rend true si le JEU le prend : l'editeur ne doit alors
 		/// pas le donner a NKGui.
@@ -118,7 +135,7 @@ namespace nkentseu {
 		/// defaut. Ne dessine rien si `c.ui.panneauEntrees` est faux.
 		void NkEditeurDessinerPanneauEntrees(NkEditeurCadre &c, NkEditeurEntrees &e);
 
-		/// (e25..e35), lance par `--selftest` apres le banc de l'editeur.
+		/// (e25..e36), lance par `--selftest` apres le banc de l'editeur.
 		int32 NkEditeurLancerBancEntrees();
 
 	} // namespace editeur

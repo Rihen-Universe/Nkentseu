@@ -36,6 +36,15 @@
 //         liaisons et celles de TOUS, pas celles du joueur 2 ; un declencheur
 //         du noyau (maintenu 0,5 s) pose dans un AUTRE contexte arrive a
 //         l'action Unkeny -- rien a 0,4 s, enfoncee a 0,5 s
+//   (k15) (30/09) les actions STANDARD : noms et indices s'aller-retournent ;
+//         Sauter et Avancer par leur NOM sont les indices par defaut des
+//         controleurs (NkReglagesControle2D) ; une action du jeu (« Voler »)
+//         se trouve par son nom, une inconnue rend -1 ; avec les liaisons
+//         standard, Espace pose l'action Sauter DES CONTROLEURS (pas Monter),
+//         P l'action Pause
+//   (k16) les entrees voyagent avec le jeu CUIT : entrees.nkentrees est ecrit
+//         et cite, relu tel quel (K fait Sauter, Espace non) ; efface, c'est un
+//         manque NOMME ; sans entrees demandees, ni fichier ni manque
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -55,7 +64,15 @@
 #include "NKImage/Codecs/PNG/NkPNGCodec.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKMemory/NkAllocator.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h"
+#include "Unkeny/Entree/NkUnkenyActionsStandard.h"
 #include "Unkeny/Entree/NkUnkenyEntreesJeu.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
+#include "Unkeny/Rendu/NkUnkenyTextures.h"
+#include "Unkeny/Scene/NkUnkenyControles.h"
+#include "Unkeny/Scene/NkUnkenyScene.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -610,6 +627,86 @@ namespace nkentseu {
 				Temoin(j1 && j2 && pasEncore && tenu,
 					   "(k14) le noyau : cartes par joueur, et un « maintenu 0,5 s » du noyau", 0.f);
 				memory::NkGetDefaultAllocator().Delete(pn);
+			}
+
+			// ── (k15) les actions standard : UNE table, cherchee par nom ─────
+			{
+				NkEntreesJeu *pn = memory::NkGetDefaultAllocator().New<NkEntreesJeu>();
+				NkEntreesJeu &n = *pn;
+				NkLiaisonsStandard(n.Liaisons());
+				const NkReglagesControle2D defaut;
+				bool noms = true;
+				for (int32 a = 0; a < NK_ACTIONS_STANDARD; ++a) {
+					noms = noms && NkActionStandardParNom(NkNomActionStandard(a)) == a &&
+						   std::strcmp(n.Liaisons().NomAction(a), NkNomActionStandard(a)) == 0;
+				}
+				n.Liaisons().NommerAction(NK_ACTIONS_STANDARD, "Voler");
+				const bool parNom = NkIndiceAction(n.Liaisons(), "Sauter") == defaut.actionSauter &&
+									NkIndiceAction(n.Liaisons(), "Avancer") == defaut.actionX &&
+									NkIndiceAction(n.Liaisons(), "Voler") == NK_ACTIONS_STANDARD &&
+									NkIndiceAction(n.Liaisons(), "Nager") == -1;
+				Touche(n, NkKey::NK_SPACE, true);
+				n.Trame(nullptr, 1.f / 60.f);
+				const bool espace = n.Actions(0).Enfoncee(defaut.actionSauter) && !n.Actions(0).Enfoncee(NK_ACTION_MONTER);
+				Touche(n, NkKey::NK_SPACE, false);
+				Touche(n, NkKey::NK_P, true);
+				n.Trame(nullptr, 1.f / 60.f);
+				const bool pause = n.Actions(0).VientDEtrePressee(NK_ACTION_PAUSE);
+				Temoin(noms && parNom && espace && pause,
+					   "(k15) actions standard : Espace -> l'action Sauter des controleurs ; noms", 0.f);
+				memory::NkGetDefaultAllocator().Delete(pn);
+			}
+
+			// ── (k16) les entrees voyagent avec le jeu cuit ───────────────────
+			{
+				auto &tas = memory::NkGetDefaultAllocator();
+				const NkString dossier = (NkDirectory::GetTempDirectory() / "unkeny_banc_entrees_cuites").ToString() + "/";
+				NkDirectory::Delete(dossier.CStr(), true);
+				NkScene *ps = tas.New<NkScene>();
+				NkTextures2D *pt = tas.New<NkTextures2D>();
+				NkSceneConfig cfg;
+				ps->Init(cfg);
+				NkLiaisons *pl = tas.New<NkLiaisons>();
+				NkLiaisonsStandard(*pl);
+				pl->Relier(pl->Trouver(NK_ACTION_SAUTER, NkInputCode::Key(NkKey::NK_SPACE)), NkInputCode::Key(NkKey::NK_K));
+				NkDemandeCuisson d;
+				d.dossier = dossier;
+				d.nomJeu = "BancEntrees";
+				d.entrees = pl->Ecrire();
+				NkRapportCuisson rc;
+				const bool cuit = NkCuireJeu(*ps, *pt, d, rc);
+				bool cite = false;
+				for (usize i = 0; i < rc.fichiers.Size(); ++i) {
+					cite = cite || rc.fichiers[i] == NK_LIVRAISON_ENTREES;
+				}
+				NkJeuCharge jeu;
+				const bool relu = NkChargerJeu(dossier.CStr(), *ps, *pt, nullptr, jeu);
+				NkLiaisons *pl2 = tas.New<NkLiaisons>();
+				NkNommerActionsStandard(*pl2);
+				const NkRapportLiaisons rl = pl2->Lire(jeu.entrees);
+				const bool k = rl.Ok() && pl2->Trouver(NK_ACTION_SAUTER, NkInputCode::Key(NkKey::NK_K)) >= 0 &&
+							   pl2->Trouver(NK_ACTION_SAUTER, NkInputCode::Key(NkKey::NK_SPACE)) < 0;
+				// Citees par le sommaire mais effacees : un manque NOMME.
+				NkFile::Delete((dossier + NK_LIVRAISON_ENTREES).CStr());
+				NkJeuCharge sans;
+				const bool reluSans = NkChargerJeu(dossier.CStr(), *ps, *pt, nullptr, sans);
+				const bool manque = reluSans && sans.entrees.Empty() && sans.manquantes.Size() == 1u &&
+									sans.manquantes[0].Find("entrees") != NkString::npos;
+				// Sans entrees demandees : ni fichier, ni manque (sommaire d'avant).
+				d.entrees = NkString();
+				NkRapportCuisson rc2;
+				NkCuireJeu(*ps, *pt, d, rc2);
+				NkJeuCharge nu;
+				const bool reluNu = NkChargerJeu(dossier.CStr(), *ps, *pt, nullptr, nu);
+				const bool rien = reluNu && nu.entrees.Empty() && nu.manquantes.Empty() &&
+								  !NkFile::Exists((dossier + NK_LIVRAISON_ENTREES).CStr());
+				Temoin(cuit && cite && relu && k && manque && rien,
+					   "(k16) les entrees cuites avec le jeu, relues ; effacees = manque nomme", 0.f);
+				NkDirectory::Delete(dossier.CStr(), true);
+				tas.Delete(pl2);
+				tas.Delete(pl);
+				tas.Delete(pt);
+				tas.Delete(ps);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pe);

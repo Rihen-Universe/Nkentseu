@@ -12,6 +12,8 @@
 //         scene.nkscene            la scene, telle que l'editeur l'enregistre
 //         textures/<nom>.nktex     chaque texture que la scene NOMME
 //         sons/<nom>.nksnd         chaque son demande
+//         entrees.nkentrees        les liaisons du jeu (NkLiaisons::Ecrire),
+//                                  si l'editeur en donne (30/09)
 //     Les extensions sont celles de CONVENTIONS_FICHIERS.md § 2, tirees de
 //     NkAssetExtensionFor : la table n'est jamais recopiee.
 //   - Une texture cuite est un actif ordinaire (NkAssetIO) dont le payload est
@@ -68,6 +70,10 @@ namespace nkentseu {
 		constexpr const char *NK_LIVRAISON_SOMMAIRE = "jeu.json";
 		/// La version du sommaire ecrit. Une lecture accepte toute version <=.
 		constexpr int32 NK_LIVRAISON_VERSION = 1;
+		/// Les entrees du jeu, a la racine du dossier cuit (texte de NkLiaisons).
+		/// Le champ "entrees" du sommaire est FACULTATIF : un sommaire de la
+		/// version 1 ecrit sans lui se relit tel quel (liaisons standard).
+		constexpr const char *NK_LIVRAISON_ENTREES = "entrees.nkentrees";
 
 		// --- L'empreinte -----------------------------------------------------
 		/// FNV-1a 64 d'un texte.
@@ -99,6 +105,9 @@ namespace nkentseu {
 				float32 vueLargeur = 0.f;
 				float32 vueHauteur = 0.f;
 				NkVector<NkSonACuire> sons;
+				/// Les liaisons du jeu, en texte (NkLiaisons::Ecrire). Vide : aucun
+				/// fichier, le joueur prend les liaisons standard.
+				NkString entrees;
 		};
 
 		struct NkRapportCuisson {
@@ -130,6 +139,9 @@ namespace nkentseu {
 				float32 vueHauteur = 0.f;
 				uint32 textures = 0u; ///< textures relues
 				uint32 sons = 0u;	  ///< sons relus
+				/// Le texte des entrees cuites (a donner a NkLiaisons::Lire). Vide :
+				/// le jeu n'en a pas emporte -- liaisons standard.
+				NkString entrees;
 				/// Chaque ressource absente ou illisible, NOMMEE (temoin l2).
 				NkVector<NkString> manquantes;
 				/// Ce qui empeche de jouer : sommaire ou scene introuvable. Vide =

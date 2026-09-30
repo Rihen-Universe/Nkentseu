@@ -101,6 +101,9 @@ namespace nkentseu {
 				bool executableSombre = true;
 				/// Le dossier PARENT : le jeu va dans `<sortie>/<Projet>/`.
 				NkString sortie;
+				/// Les liaisons du jeu en texte (NkLiaisons::Ecrire) : le joueur les
+				/// relit. Vide : il prend les liaisons standard.
+				NkString entrees;
 		};
 
 		/// Une commande a lancer, et ce qu'elle dit d'elle-meme au Journal.

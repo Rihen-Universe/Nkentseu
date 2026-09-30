@@ -26,6 +26,7 @@
 #include "Livraison/NkEditeurConstruire.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurEntrees.h"
 #include "Livraison/NkEditeurProcessus.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -643,6 +644,7 @@ namespace nkentseu {
 			cuisson.nomJeu = demande.nom.Empty() ? plan.projet : demande.nom;
 			cuisson.vueLargeur = vueLargeur;
 			cuisson.vueHauteur = vueHauteur;
+			cuisson.entrees = demande.entrees;
 			unkeny::NkRapportCuisson rapport;
 			const bool cuit = unkeny::NkCuireJeu(m.scene, m.textures, cuisson, rapport);
 			for (usize i = 0; i < rapport.erreurs.Size(); ++i) {
@@ -874,6 +876,13 @@ namespace nkentseu {
 					std::printf("SCENE ILLISIBLE : %s (%s)\n", scene.CStr(), m.message.CStr());
 					memory::NkGetDefaultAllocator().Delete(pm);
 					return 4;
+				}
+				// Les entrees de la scene, a cote d'elle (.nkentrees), comme
+				// l'editeur les relirait ; sans fichier, le joueur prend les
+				// liaisons standard.
+				const NkString entrees = NkEditeurEntreesFichier(scene.CStr());
+				if (NkFile::Exists(entrees.CStr())) {
+					d.entrees = NkFile::ReadAllText(entrees.CStr());
 				}
 			}
 			NkPlanConstruction plan;

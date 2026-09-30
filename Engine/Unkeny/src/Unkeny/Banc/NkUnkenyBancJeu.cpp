@@ -56,6 +56,7 @@
 #include "NKPhysics/NkParticules2DFabrique.h"
 #include "Unkeny/Entree/NkUnkenyActions.h"
 #include "Unkeny/Jeu/NkUnkenyControleurs.h"
+#include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
@@ -78,8 +79,9 @@ namespace nkentseu {
 				return v < 0.f ? -v : v;
 			}
 
-			// Les actions du jeu de ce banc : ses propres index.
-			enum : int32 { AXE_X = 0, SAUTER = 1 };
+			// Les actions du jeu de ce banc : les actions STANDARD (celles de l'editeur
+			// et du joueur autonome, Entree/NkUnkenyActionsStandard.h).
+			enum : int32 { AXE_X = NK_ACTION_AVANCER, SAUTER = NK_ACTION_SAUTER };
 
 			void Scene(NkScene &s) {
 				NkSceneConfig cfg;
@@ -636,31 +638,11 @@ namespace nkentseu {
 			}
 
 			// --- (G) le jalon « Gelee » ---------------------------------------
-			// Le niveau : trois plates-formes, deux trous de 1,5 m, la seconde
-			// plate-forme 0,5 m plus haut ; la zone de fin au bout.
-			struct Niveau {
-					ecs::NkEntityId plateformes[3];
-					NkVec2f mn[3];
-					NkVec2f mx[3];
-					ecs::NkEntityId fin;
-			};
-
-			void Construire(NkScene &s, Niveau &n) {
-				const NkVec2f c[3] = {NkVec2f(1.f, -0.5f), NkVec2f(7.9f, 0.f), NkVec2f(13.9f, 0.f)};
-				const NkVec2f d[3] = {NkVec2f(3.f, 0.5f), NkVec2f(2.1f, 0.5f), NkVec2f(2.1f, 0.5f)};
-				for (int32 i = 0; i < 3; ++i) {
-					n.plateformes[i] = Boite(s, "Plateforme", c[i], d[i]);
-					n.mn[i] = c[i] - d[i];
-					n.mx[i] = c[i] + d[i];
-				}
-				// Plates-formes : [-2 ; 4] haut 0, [5,8 ; 10] haut 0,5, [11,8 ; 16] haut 0,5 :
-				// deux trous de 1,8 m, le premier a franchir en MONTANT de 0,5 m.
-				// ⚠️ Premiere version : trous de 1,5 m et troisieme plate-forme plus
-				// BASSE -- la gelee les franchissait SANS sauter (G1n rouge) : poussee a
-				// 3 m/s, elle roulait et REBONDISSAIT sur ses coins (vy +1,75 m/s sans
-				// saut), et une descente de 0,5 m sur 1,5 m se passe de saut.
-				n.fin = Boite(s, "Fin", NkVec2f(15.f, 1.5f), NkVec2f(0.5f, 1.f), NkTypeCorps::NK_STATIQUE, true);
-			}
+			// Le niveau : trois plates-formes, deux trous de 1,8 m, la seconde
+			// plate-forme 0,5 m plus haut ; la zone de fin au bout. Il vit dans
+			// Jeu/NkUnkenyNiveauGelee.h depuis le 30/09 : l'editeur et le joueur
+			// autonome rejouent CE niveau (Espace doit y faire sauter le heros).
+			using Niveau = NkNiveauGelee;
 
 			/// Le « joueur » du banc : il ne lit QUE la position du heros (comme un
 			/// joueur lit l'ecran), jamais l'etat du controleur. Il saute devant
@@ -708,22 +690,8 @@ namespace nkentseu {
 				NkScene s;
 				Scene(s);
 				Niveau n;
-				Construire(s, n);
-				ecs::NkEntityId h;
-				if (mou) {
-					h = Gelee(s, NkVec2f(-1.f, 0.4f));
-					NkControleMou2D ctl;
-					ctl.reglages.vitesseMax = 3.f;
-					ctl.reglages.vitesseSaut = 6.f;
-					ctl.redressement = 0.5f; // qu'il ne roule pas (voir NkControleMou2D)
-					s.Monde().Add<NkControleMou2D>(h, ctl);
-				} else {
-					h = Rigide(s, NkVec2f(-1.f, 0.45f));
-					NkControleRigide2D ctl;
-					ctl.reglages.vitesseMax = 3.f;
-					ctl.reglages.vitesseSaut = 6.f;
-					s.Monde().Add<NkControleRigide2D>(h, ctl);
-				}
+				NkConstruireNiveauGelee(s, n, mou);
+				const ecs::NkEntityId h = n.heros;
 				NkActions a;
 				NkAjouterControleurs2D(s, &a);
 				float32 horsSol = 0.f;

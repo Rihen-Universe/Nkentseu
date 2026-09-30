@@ -290,6 +290,17 @@ namespace nkentseu {
 				++rapport.sons;
 			}
 
+			// ── 3 bis. Les entrees du jeu (30/09) ────────────────────────────
+			bool entreesEcrites = false;
+			if (!demande.entrees.Empty()) {
+				entreesEcrites = NkFile::WriteAllText((racine + NK_LIVRAISON_ENTREES).CStr(), demande.entrees.CStr());
+				if (entreesEcrites) {
+					rapport.fichiers.PushBack(NkString(NK_LIVRAISON_ENTREES));
+				} else {
+					rapport.erreurs.PushBack(NkString("entrees : ecriture impossible de ") + racine + NK_LIVRAISON_ENTREES);
+				}
+			}
+
 			// ── 4. Le sommaire, en dernier : il ne cite que ce qui est ecrit ──
 			NkArchive s;
 			s.SetString(V("format"), V("unkeny.jeu"));
@@ -301,6 +312,9 @@ namespace nkentseu {
 			s.SetString(V("vue"), vue.View());
 			s.SetObjectArray(V("textures"), tableTextures);
 			s.SetObjectArray(V("sons"), tableSons);
+			if (entreesEcrites) {
+				s.SetString(V("entrees"), V(NK_LIVRAISON_ENTREES));
+			}
 			NkString texte;
 			if (!NkJSONWriter::WriteArchive(s, texte, true, 1) ||
 				!NkFile::WriteAllText((racine + NK_LIVRAISON_SOMMAIRE).CStr(), texte.CStr())) {
@@ -359,6 +373,17 @@ namespace nkentseu {
 				char *fin = nullptr;
 				sortie.vueLargeur = std::strtof(t.CStr(), &fin);
 				sortie.vueHauteur = std::strtof(fin, nullptr);
+			}
+
+			// ── 1 bis. Les entrees (facultatives) : citees mais absentes, c'est
+			//    une ressource MANQUANTE nommee ; le jeu joue alors aux liaisons
+			//    standard.
+			NkString fichierEntrees;
+			if (s.GetString(V("entrees"), fichierEntrees) && !fichierEntrees.Empty()) {
+				sortie.entrees = NkFile::ReadAllText((racine + fichierEntrees).CStr());
+				if (sortie.entrees.Empty()) {
+					sortie.manquantes.PushBack(NkString::Format("entrees : fichier %s absent ou illisible (liaisons standard)", fichierEntrees.CStr()));
+				}
 			}
 
 			// ── 2. Les textures, sous leur nom d'origine ──────────────────────

@@ -27,6 +27,12 @@
 //         remis, relu -> K revient ; sans fichier -> les defauts, et c'est dit
 //   (e35) une AUTRE scene relit SES entrees ; la meme scene ne relit rien (un
 //         changement non enregistre n'est pas ecrase)
+//   (e36) 30/09 : EN JOUER, Espace fait sauter le heros du jalon « Gelee »
+//         (Unkeny/Jeu/NkUnkenyNiveauGelee.h) : l'evenement pose par le banc
+//         passe par NkEditeurEntreesEvenement, le controleur mou accorde UN
+//         saut et le heros monte d'au moins 30 cm ; (e36n) sans Espace, aucun
+//         saut, il ne monte pas de 10 cm. Un second Brancher ne pose pas un
+//         second systeme.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -43,6 +49,8 @@
 #include "NKEvent/NkKeyboardEvent.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkTouchEvent.h"
+#include "Unkeny/Jeu/NkUnkenyControleurs.h"
+#include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
 
 #include <cstdio>
 
@@ -80,34 +88,17 @@ namespace nkentseu {
 		} // namespace
 
 		void NkEditeurEntreesParDefaut(NkEditeurEntrees &e) {
-			unkeny::NkLiaisons &l = e.jeu.Liaisons();
-			l.Vider();
-			l.NommerAction(NK_JEU_AVANCER, "Avancer");
-			l.NommerAction(NK_JEU_MONTER, "Monter");
-			l.NommerAction(NK_JEU_SAUTER, "Sauter");
-			l.NommerAction(NK_JEU_ACTION, "Action");
-			// Clavier : ZQSD en AZERTY et WASD en QWERTY sont les MEMES touches
-			// physiques, et NkKey les nomme par leur position QWERTY.
-			l.LierTouche(NK_JEU_AVANCER, NkKey::NK_D, 1.f);
-			l.LierTouche(NK_JEU_AVANCER, NkKey::NK_A, -1.f);
-			l.LierTouche(NK_JEU_AVANCER, NkKey::NK_RIGHT, 1.f);
-			l.LierTouche(NK_JEU_AVANCER, NkKey::NK_LEFT, -1.f);
-			l.LierTouche(NK_JEU_MONTER, NkKey::NK_W, 1.f);
-			l.LierTouche(NK_JEU_MONTER, NkKey::NK_S, -1.f);
-			l.LierTouche(NK_JEU_MONTER, NkKey::NK_UP, 1.f);
-			l.LierTouche(NK_JEU_MONTER, NkKey::NK_DOWN, -1.f);
-			l.LierTouche(NK_JEU_SAUTER, NkKey::NK_SPACE);
-			l.LierTouche(NK_JEU_ACTION, NkKey::NK_E);
-			// Manette : pour TOUS les joueurs, chacun sur la sienne.
-			l.LierAxe(NK_JEU_AVANCER, NkGamepadAxis::NK_GP_AXIS_LX, 1.f, 0.2f);
-			l.LierAxe(NK_JEU_MONTER, NkGamepadAxis::NK_GP_AXIS_LY, 1.f, 0.2f);
-			l.LierBouton(NK_JEU_AVANCER, NkGamepadButton::NK_GP_DPAD_RIGHT, 1.f);
-			l.LierBouton(NK_JEU_AVANCER, NkGamepadButton::NK_GP_DPAD_LEFT, -1.f);
-			l.LierBouton(NK_JEU_SAUTER, NkGamepadButton::NK_GP_SOUTH);
-			l.LierBouton(NK_JEU_ACTION, NkGamepadButton::NK_GP_WEST);
-			// Doigt : joystick virtuel a gauche, Sauter en bas a droite.
-			l.LierStick(NK_JEU_AVANCER, NK_JEU_MONTER, unkeny::NkZoneEcran{0.f, 0.35f, 0.45f, 0.65f}, 0.08f, 0.15f);
-			l.LierZone(NK_JEU_SAUTER, unkeny::NkZoneEcran{0.7f, 0.55f, 0.3f, 0.45f});
+			// Les MEMES que le joueur autonome : une seule table, dans Unkeny.
+			unkeny::NkLiaisonsStandard(e.jeu.Liaisons());
+		}
+
+		uint32 NkEditeurEntreesBrancher(NkEditeurEntrees &e, unkeny::NkScene &scene) {
+			if (e.sceneBranchee == &scene && e.systemeControleurs != 0u) {
+				return e.systemeControleurs;
+			}
+			e.systemeControleurs = unkeny::NkAjouterControleurs2D(scene, &e.jeu.Actions(0));
+			e.sceneBranchee = e.systemeControleurs != 0u ? &scene : nullptr;
+			return e.systemeControleurs;
 		}
 
 		bool NkEditeurEntreesEvenement(NkEditeurEntrees &e, NkEtatJeu etat, const NkEvent &ev,
@@ -441,7 +432,7 @@ namespace nkentseu {
 			const unkeny::NkActions &a = e.jeu.Actions(0);
 			const unkeny::NkLiaisons &l = e.jeu.Liaisons();
 			NkString ligne = "LE JEU A LA MAIN  ·  Échap la rend à l'éditeur";
-			for (int32 k = NK_JEU_AVANCER; k <= NK_JEU_ACTION; ++k) {
+			for (int32 k = 0; k < unkeny::NK_ACTIONS_STANDARD; ++k) {
 				if (a.Valeur(k) != 0.f) {
 					ligne += NkString::Format("   %s %.2f", l.NomAction(k), static_cast<double>(a.Valeur(k)));
 				}
@@ -649,6 +640,60 @@ namespace nkentseu {
 			const bool autre35 = e.jeu.Liaisons()[iEspace].code == NkInputCode::Key(NkKey::NK_SPACE);
 			Temoin(lue35 && garde35 && autre35, "(e35) une autre scene relit ses entrees ; la meme ne relit rien", 0.f);
 			NkFile::Delete(fichier34.CStr());
+
+			// ── (e36) ──
+			// Le niveau du jalon, dans la scene de l'editeur (vide : la scene
+			// neuve a un mur a x = 11,5 et des caisses, qui ne sont pas du jalon).
+			{
+				NkEditeurArreter(m);
+				NkSceneConfig cfg36;
+				cfg36.physique = true;
+				cfg36.particules = true;
+				cfg36.gravite = NkVec2f(0.f, -9.81f);
+				const float32 dt = 1.f / 60.f;
+				float32 montee[2] = {0.f, 0.f};
+				uint32 sauts[2] = {0u, 0u};
+				bool pris36 = false;
+				bool unSeul = false;
+				for (int32 essai = 0; essai < 2; ++essai) {
+					const bool avecEspace = essai == 0;
+					m.scene.Init(cfg36);
+					m.photo.valide = false;
+					unkeny::NkNiveauGelee n;
+					NkConstruireNiveauGelee(m.scene, n, true);
+					NkEditeurEntreesParDefaut(e);
+					const uint32 id = NkEditeurEntreesBrancher(e, m.scene);
+					unSeul = unSeul || (id != 0u && NkEditeurEntreesBrancher(e, m.scene) == id);
+					NkEditeurJouer(m);
+					// Qu'elle se pose (la main passe au jeu a la premiere trame).
+					for (int32 i = 0; i < 40; ++i) {
+						NkEditeurEntreesTrame(e, m.etat, &pads, viseur);
+						NkEditeurAvancer(m, dt);
+					}
+					const float32 y0 = NkPositionHerosGelee(m.scene, n).y;
+					if (avecEspace) {
+						pris36 = e.jeuALaMain && NkEditeurEntreesEvenement(e, m.etat, espace, viseur);
+					}
+					float32 yMax = y0;
+					for (int32 i = 0; i < 24; ++i) {
+						NkEditeurEntreesTrame(e, m.etat, &pads, viseur);
+						NkEditeurAvancer(m, dt);
+						yMax = math::NkMax(yMax, NkPositionHerosGelee(m.scene, n).y);
+					}
+					NkEditeurEntreesEvenement(e, m.etat, espaceLache, viseur);
+					const unkeny::NkEtatControle2D *c = NkEtatHerosGelee(m.scene, n);
+					sauts[essai] = c != nullptr ? c->sauts : 999u;
+					montee[essai] = yMax - y0;
+					NkEditeurArreter(m);
+					NkEditeurEntreesTrame(e, m.etat, &pads, viseur);
+				}
+				std::printf("        Espace : %u saut(s), montee %.2f m ; sans : %u saut(s), %.2f m\n", sauts[0],
+							static_cast<double>(montee[0]), sauts[1], static_cast<double>(montee[1]));
+				Temoin(pris36 && unSeul && sauts[0] == 1u && montee[0] >= 0.3f,
+					   "(e36) en Jouer, Espace fait sauter le heros de Gelee (montee m)", montee[0]);
+				Temoin(sauts[1] == 0u && montee[1] < 0.1f, "(e36n) sans Espace : aucun saut, il ne monte pas (m)", montee[1]);
+				NkEditeurNouvelleScene(m);
+			}
 
 			alloc.Delete(pe);
 			alloc.Delete(pm);

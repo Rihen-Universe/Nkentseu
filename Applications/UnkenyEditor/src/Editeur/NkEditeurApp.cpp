@@ -356,6 +356,9 @@ namespace nkentseu {
 			// quand la scene change de chemin (Ouvrir).
 			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
 			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur, occupe);
+			// Les controleurs de personnage de la scene lisent CES actions (une
+			// fois par scene ; rien ensuite).
+			NkEditeurEntreesBrancher(*mEntrees, mModele->scene);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
 			// fermer le viseur mettait la simulation en pause. La coquille a un
@@ -608,6 +611,9 @@ namespace nkentseu {
 			if (ui.construireDemande) {
 				ui.construireDemande = false;
 				NkEditeurOuvrirConstruire(*mConstruction, *mModele);
+				// Le jeu construit emporte les entrees TELLES QU'EDITEES (comme la
+				// scene), enregistrees ou non.
+				mConstruction->demande.entrees = mEntrees->jeu.Liaisons().Ecrire();
 			}
 			if (ui.confirmation == NK_A_AUCUNE && !mConstruction->ouverte) {
 				NkEditeurBordsFenetre(c);

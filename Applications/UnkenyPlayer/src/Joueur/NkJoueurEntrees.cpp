@@ -2,8 +2,8 @@
 // NkJoueurEntrees.cpp
 // =============================================================================
 // Description :
-//   Le relais clavier -> actions du joueur autonome (voir l'en-tete : il cede
-//   la place a unkeny::NkEntreesJeu a la fusion de comble/entrees-jeu).
+//   Les entrees du joueur autonome (voir l'en-tete) : une facade sur
+//   unkeny::NkEntreesJeu, qui calcule tout sur la carte du noyau.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -12,63 +12,58 @@
 #include "Joueur/NkJoueurEntrees.h"
 
 #include "NKEvent/NkKeyboardEvent.h"
+#include "Unkeny/Jeu/NkUnkenyControleurs.h"
 
 namespace nkentseu {
 	namespace joueur {
 
-		namespace {
-			bool Tenue(const NkJoueurEntrees &e, NkKey k) noexcept {
-				const uint32 i = static_cast<uint32>(k);
-				return i < 512u && e.tenues[i];
-			}
+		NkJoueurEntrees::NkJoueurEntrees() noexcept {
+			unkeny::NkLiaisonsStandard(jeu.Liaisons());
+		}
 
-			void Poser(NkJoueurEntrees &e, NkKey k, bool bas) noexcept {
-				const uint32 i = static_cast<uint32>(k);
-				if (i < 512u) {
-					e.tenues[i] = bas;
-				}
+		unkeny::NkRapportLiaisons NkJoueurEntreesLire(NkJoueurEntrees &e, const NkString &texte) {
+			unkeny::NkLiaisons &l = e.jeu.Liaisons();
+			if (texte.Empty()) {
+				unkeny::NkLiaisonsStandard(l);
+				e.pause = NK_JOUEUR_PAUSE;
+				return unkeny::NkRapportLiaisons();
 			}
-		} // namespace
+			unkeny::NkNommerActionsStandard(l);
+			const unkeny::NkRapportLiaisons r = l.Lire(texte);
+			// Pause par son NOM : un jeu qui l'a renommee ou deplacee reste pausable.
+			const int32 p = unkeny::NkIndiceAction(l, "Pause");
+			e.pause = p >= 0 ? p : NK_JOUEUR_PAUSE;
+			return r;
+		}
+
+		uint32 NkJoueurEntreesBrancher(NkJoueurEntrees &e, unkeny::NkScene &scene) {
+			return unkeny::NkAjouterControleurs2D(scene, &e.jeu.Actions(0));
+		}
+
+		void NkJoueurEntreesSurface(NkJoueurEntrees &e, float32 largeur, float32 hauteur) {
+			e.jeu.PoserSurface(0.f, 0.f, largeur, hauteur);
+		}
 
 		NkDemandeJoueur NkJoueurEntreesEvenement(NkJoueurEntrees &e, const NkEvent &evenement) {
+			// La touche de la COQUILLE : elle ne va pas au jeu. Echap quitte sur
+			// ordinateur ; sur Android, le « retour » non consomme quitte deja
+			// (NkCanvasApp), il n'y a rien a ajouter.
 			if (const auto *p = evenement.As<NkKeyPressEvent>()) {
-				const NkKey k = p->GetKey();
-				Poser(e, k, true);
-				// Les touches de la COQUILLE : elles ne vont pas au jeu. Echap
-				// quitte sur ordinateur ; sur Android, le « retour » non consomme
-				// quitte deja (NkCanvasApp), il n'y a rien a ajouter.
-				if (k == NkKey::NK_ESCAPE) {
+				if (p->GetKey() == NkKey::NK_ESCAPE) {
 					return NkDemandeJoueur::NK_QUITTER;
 				}
-				if (k == NkKey::NK_P) {
-					return NkDemandeJoueur::NK_BASCULER_PAUSE;
-				}
-				return NkDemandeJoueur::NK_RIEN;
 			}
-			if (const auto *r = evenement.As<NkKeyReleaseEvent>()) {
-				Poser(e, r->GetKey(), false);
-			}
+			(void)e.jeu.Lire(evenement);
 			return NkDemandeJoueur::NK_RIEN;
 		}
 
-		void NkJoueurEntreesTrame(NkJoueurEntrees &e) {
-			unkeny::NkActions &a = e.actions;
-			a.NouvelleTrame();
-			const bool gauche = Tenue(e, NkKey::NK_A) || Tenue(e, NkKey::NK_LEFT);
-			const bool droite = Tenue(e, NkKey::NK_D) || Tenue(e, NkKey::NK_RIGHT);
-			const bool bas = Tenue(e, NkKey::NK_S) || Tenue(e, NkKey::NK_DOWN);
-			const bool haut = Tenue(e, NkKey::NK_W) || Tenue(e, NkKey::NK_UP);
-			a.PoserAxe(NK_JOUEUR_AVANCER, gauche, droite);
-			a.PoserAxe(NK_JOUEUR_MONTER, bas, haut);
-			a.Poser(NK_JOUEUR_SAUTER, Tenue(e, NkKey::NK_SPACE) ? 1.f : 0.f);
-			a.Poser(NK_JOUEUR_ACTION, Tenue(e, NkKey::NK_E) ? 1.f : 0.f);
+		NkDemandeJoueur NkJoueurEntreesTrame(NkJoueurEntrees &e, const NkGamepadSystem *manettes, float32 dt) {
+			e.jeu.Trame(manettes, dt);
+			return e.jeu.Actions(0).VientDEtrePressee(e.pause) ? NkDemandeJoueur::NK_BASCULER_PAUSE : NkDemandeJoueur::NK_RIEN;
 		}
 
 		void NkJoueurEntreesRelacher(NkJoueurEntrees &e) {
-			for (uint32 i = 0; i < 512u; ++i) {
-				e.tenues[i] = false;
-			}
-			e.actions.ToutRelacher();
+			e.jeu.ToutRelacher();
 		}
 
 	} // namespace joueur

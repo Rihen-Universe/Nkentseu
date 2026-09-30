@@ -34,6 +34,7 @@
 
 #include "NKCore/NkTypes.h"
 #include "NKMath/NKMath.h"
+#include "Unkeny/Entree/NkUnkenyActionsStandard.h"
 
 namespace nkentseu {
 	namespace unkeny {
@@ -41,12 +42,13 @@ namespace nkentseu {
 		using math::NkVec2f;
 
 		/// Les reglages communs aux deux controleurs.
-		/// ⚠️ LES INDEX D'ACTION SONT CEUX DU JEU : le moteur ne connait aucune
-		/// action par son nom. 0 et 1 par defaut, comme un jeu qui commence par
-		/// « axe horizontal » puis « sauter ».
+		/// ⚠️ LES INDEX D'ACTION SONT CEUX DU JEU. Par defaut, les actions STANDARD
+		/// (Entree/NkUnkenyActionsStandard.h, le seul endroit qui fixe leurs
+		/// indices) : Avancer (0) et Sauter (1), les valeurs que les .nkscene
+		/// ecrits avant le 30/09 portent deja.
 		struct NkReglagesControle2D {
-				int32 actionX = 0;			 ///< action d'AXE horizontal (-1..1)
-				int32 actionSauter = 1;		 ///< action de saut (bouton)
+				int32 actionX = NK_ACTION_AVANCER;	 ///< action d'AXE horizontal (-1..1)
+				int32 actionSauter = NK_ACTION_SAUTER; ///< action de saut (bouton)
 				float32 vitesseMax = 5.f;	 ///< m/s visee par l'axe a fond
 				float32 acceleration = 40.f; ///< m/s^2 vers la vitesse visee, au sol
 				float32 freinage = 40.f;	 ///< m/s^2 quand l'axe est relache, au sol
