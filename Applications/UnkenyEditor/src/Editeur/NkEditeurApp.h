@@ -39,6 +39,7 @@
 
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
+#include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "NKCanvas/App/NkCanvasGuiApp.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -88,6 +89,8 @@ namespace nkentseu {
 				// monde ECS et un monde physique. Ici l'objet reste petit.
 				memory::NkUniquePtr<NkEditeurModele> mModele;
 				memory::NkUniquePtr<NkEditeurInterface> mUi;
+				/// La fenetre « Construire » et la construction en cours (U5).
+				memory::NkUniquePtr<NkEditeurConstruction> mConstruction;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;

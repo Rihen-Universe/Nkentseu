@@ -119,7 +119,8 @@ namespace nkentseu {
 			NK_A_APPAREIL = 300,		///< + indice de profil
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
-			NK_A_CORPS_MOU = 600		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CONSTRUIRE = 900		///< Fichier > Construire… (U5, Livraison/)
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -279,6 +280,9 @@ namespace nkentseu {
 				/// La croix de la FENETRE a ete cliquee : la question se pose a la
 				/// prochaine trame (OnCloseRequested ne dessine pas).
 				bool fermetureDemandee = false;
+				/// Fichier > Construire… : la fenetre s'ouvre a la trame suivante
+				/// (son etat est a l'application, Livraison/NkEditeurFenetreConstruire.h).
+				bool construireDemande = false;
 
 				// --- La fenetre (barre de titre maison) -------------------------
 				// ⚠️ DES DEMANDES, PAS DES APPELS. BeginDragMove et BeginResize

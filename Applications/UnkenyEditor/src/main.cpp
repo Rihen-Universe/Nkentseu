@@ -19,6 +19,10 @@
 //   --selection=NOM choisit au depart l'entite dont le nom commence par NOM
 //   --capture=...   (la coquille NKCanvas) ecrit une image et sort ; avec les
 //                   deux precedentes, une capture de GIZMO sans souris
+//   --construire=PLATEFORME [--scene= --sortie= --nom= --profil= ...]
+//                   construit le jeu SANS fenetre (Livraison/NkEditeurConstruire.h)
+//   --fenetre=construire[-auto] [--sortie= --nom=]
+//                   ouvre la fenetre Construire (-auto : et la lance seule)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 
