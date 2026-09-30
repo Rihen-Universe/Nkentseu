@@ -40,6 +40,7 @@
 #include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
+#include "Editeur/NkEditeurSouris.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "NKCanvas/App/NkCanvasGuiApp.h"
@@ -101,12 +102,12 @@ namespace nkentseu {
 				int32 mTramesIps = 0;	 ///< trames comptees depuis ce releve
 				NkString mSelectionDepart; ///< --selection= : l'entite choisie au demarrage
 				NkString mSceneDepart;	   ///< --scene= : la scene ouverte au demarrage, au lieu de la scene neuve
+				NkString mCacherDepart;	   ///< --cacher= : les entites dont l'oeil est ferme au demarrage
+				NkString mVerrouDepart;	   ///< --verrouiller= : celles dont le cadenas est ferme
+				/// Les boutons de la souris, sans clic perdu entre deux trames.
+				NkEditeurSouris mBoutons;
 				bool mExempleNuit = false; ///< --exemple=nuit : la nuit au feu de camp (NkEditeurLumiere.h)
 				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
-				/// Appui recu depuis la derniere trame, pas encore vu par NKGui.
-				bool mAppuiNonVu[3] = {};
-				/// Relachement retenu parce que son appui n'avait pas ete vu.
-				bool mRelacheDiffere[3] = {};
 		};
 
 	} // namespace editeur

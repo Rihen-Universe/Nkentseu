@@ -292,6 +292,10 @@ namespace nkentseu {
 			float32 meilleur = r * r;
 			bool trouve = false;
 			auto Tester = [&](ecs::NkEntityId id) {
+				// L'oeil ferme de l'Outliner : une icone cachee ne se vise pas.
+				if (NkEditeurCacheDansLaVue(m, id)) {
+					return;
+				}
 				const NkVec2f p = Position(m, id);
 				const float32 dx = p.x - monde.x;
 				const float32 dy = p.y - monde.y;
@@ -396,6 +400,9 @@ namespace nkentseu {
 			const NkVue2D &cam = m.scene.Camera();
 			const NkColor contour(20, 22, 30, 220);
 			m.scene.Monde().Query<NkTransform2D, NkLumiere2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &, NkLumiere2D &l) {
+				if (NkEditeurCacheDansLaVue(m, id)) {
+					return; // l'oeil ferme de l'Outliner ne laisse RIEN dans la vue
+				}
 				const NkVec2f e = cam.MondeVersEcran(Position(m, id));
 				const NkColor c = Couleur(l.couleur, l.actif ? 255 : 110);
 				// Un soleil : un disque et huit rayons.
@@ -408,6 +415,9 @@ namespace nkentseu {
 				dl.AddCircle(e, 4.5f, contour, 1.f, 12);
 			});
 			m.scene.Monde().Query<NkTransform2D, NkEmetteur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &, NkEmetteur2D &em) {
+				if (NkEditeurCacheDansLaVue(m, id)) {
+					return;
+				}
 				const NkVec2f e = cam.MondeVersEcran(Position(m, id));
 				const NkColor c = Couleur(em.additif ? 0xFF9A3CFFu : 0xB8C0D0FFu, em.actif ? 255 : 110);
 				// Une goutte / une flamme : un losange pointe en haut.
@@ -479,7 +489,8 @@ namespace nkentseu {
 				const float32 dy = monde.y - centre.y;
 				float32 d = math::NkSqrt(dx * dx + dy * dy);
 				// Ctrl inverse l'accrochage, comme pour les autres gizmos.
-				if (c.ui.accrochage != in.ctrlDown) {
+				// (L'accrochage des DEPLACEMENTS : une portee est une longueur.)
+				if (c.ui.accrocheGrille != in.ctrlDown) {
 					d = NkEditeurAccrocher(d, c.ui.pasGrille);
 				}
 				NkEditeurPoserPortee(m, m.selection, d);
@@ -487,7 +498,9 @@ namespace nkentseu {
 			}
 			const NkVec2f o = cam.MondeVersEcran(centre);
 			const float32 r = cam.LongueurVersEcran(NkEditeurPortee(m, m.selection));
-			const bool dessus = math::NkAbs(p.x - (o.x + r)) <= POIGNEE_PX + 2.f && math::NkAbs(p.y - o.y) <= POIGNEE_PX + 2.f;
+			// Pas sous la barre flottante du viseur : un clic sur elle est a elle.
+			const bool dessus = !NkEditeurDans(c.ui.barreFlottante, in.mousePos) && math::NkAbs(p.x - (o.x + r)) <= POIGNEE_PX + 2.f &&
+								math::NkAbs(p.y - o.y) <= POIGNEE_PX + 2.f;
 			gPrise.survol = dessus && NkEditeurDans(aire, in.mousePos);
 			if (gPrise.survol && in.mouseClicked[0]) {
 				gPrise.tenue = true;

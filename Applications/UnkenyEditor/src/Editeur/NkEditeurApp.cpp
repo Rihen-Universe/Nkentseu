@@ -219,6 +219,20 @@ namespace nkentseu {
 					mSelectionDepart = NkString(args[i].SubStr(12));
 					continue;
 				}
+				// --cacher= / --verrouiller= / --renommer : l'oeil, le cadenas et le
+				// renommage en place de l'Outliner, capturables sans souris.
+				if (args[i].StartsWith("--cacher=")) {
+					mCacherDepart = NkString(args[i].SubStr(9));
+					continue;
+				}
+				if (args[i].StartsWith("--verrouiller=")) {
+					mVerrouDepart = NkString(args[i].SubStr(14));
+					continue;
+				}
+				if (args[i] == "--renommer") {
+					mUi->renommerEnPlace = true;
+					continue;
+				}
 				// --scene= : ouvrir un .nkscene donne, sans passer par le fichier
 				// de l'utilisateur (AppData). Avec --selection= et --capture=,
 				// c'est la capture d'un panneau Details sans souris (2026-09-29 :
@@ -332,6 +346,31 @@ namespace nkentseu {
 				m.chemin = mSceneDepart;
 				NkEditeurOuvrir(m);
 			}
+			// --cacher= / --verrouiller= : l'oeil et le cadenas de l'Outliner, pour
+			// une capture reproductible (meme regle de nom que --selection=).
+			auto parNom = [&](const NkString &voulu, void (*poser)(NkEditeurModele &, ecs::NkEntityId, bool)) {
+				if (voulu.Empty()) {
+					return;
+				}
+				// ⚠️ RELEVER, PUIS POSER : poser un drapeau AJOUTE un composant, donc
+				//    change l'archetype de l'entite -- pendant le parcours, cela
+				//    invaliderait la requete (NkWorld::Remove / Add, meme mise en garde).
+				NkVector<ecs::NkEntityId> trouvees;
+				m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					usize k = 0;
+					while (voulu.CStr()[k] != '\0' && e.nom[k] == voulu.CStr()[k]) {
+						++k;
+					}
+					if (voulu.CStr()[k] == '\0') {
+						trouvees.PushBack(id);
+					}
+				});
+				for (uint32 i = 0; i < trouvees.Size(); ++i) {
+					poser(m, trouvees[i], true);
+				}
+			};
+			parNom(mCacherDepart, &NkEditeurCacher);
+			parNom(mVerrouDepart, &NkEditeurVerrouiller);
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
 			NkEditeurRetenirEmpreinte(m, *mUi);
@@ -405,7 +444,6 @@ namespace nkentseu {
 				fenetre.Minimize();
 			}
 			if (ui.agrandirDemande) {
-				std::printf("[trace] agrandir applique, etait agrandie=%d\n", fenetre.IsMaximized() ? 1 : 0); std::fflush(stdout);
 				ui.agrandirDemande = false;
 				if (fenetre.IsMaximized()) {
 					fenetre.Restore();
@@ -469,12 +507,8 @@ namespace nkentseu {
 			if (const auto *e = event.As<NkMouseButtonPressEvent>()) {
 				// Convention NKGui : [0] gauche, [1] droit, [2] milieu.
 				in.mousePos = nkgui::NkVec2{static_cast<float32>(e->GetX()), static_cast<float32>(e->GetY())};
-				const int32 b = IndiceBouton(e->GetButton());
-				if (b >= 0) {
-					in.mouseDown[b] = true;
-					std::printf("[trace] appui b=%d a (%d,%d)\n", b, (int)e->GetX(), (int)e->GetY()); std::fflush(stdout);
-					mAppuiNonVu[b] = true;
-				}
+				// Aucun clic ne se perd entre deux trames : NkEditeurSouris.h.
+				mBoutons.Appui(in, IndiceBouton(e->GetButton()));
 				in.ctrlDown = e->GetModifiers().ctrl;
 				in.shiftDown = e->GetModifiers().shift;
 				in.altDown = e->GetModifiers().alt;
@@ -485,17 +519,9 @@ namespace nkentseu {
 				if (b < 0) {
 					return false;
 				}
-				// ⚠️ LE CLIC PLUS COURT QU'UNE TRAME. NKGui derive le clic de la
-				//    transition de `mouseDown` d'une trame a l'autre : un appui ET son
-				//    relachement arrives entre deux trames (pave tactile, clic sec)
-				//    laissaient `mouseDown` a faux des deux cotes -- le clic
-				//    n'existait pas. Le relachement attend donc que la trame ait VU
-				//    l'appui ; il est applique a la fin de OnDraw.
-				if (mAppuiNonVu[b]) {
-					mRelacheDiffere[b] = true;
-				} else {
-					in.mouseDown[b] = false;
-				}
+				// ⚠️ LE CLIC PLUS COURT QU'UNE TRAME : le relachement attend que la
+				//    trame ait VU l'appui (NkEditeurSouris.h, cas 1).
+				mBoutons.Relache(in, b);
 				return false;
 			}
 			if (const auto *e = event.As<NkMouseDoubleClickEvent>()) {
@@ -562,7 +588,9 @@ namespace nkentseu {
 			}
 			// Un champ de saisie focalise garde ses touches : Suppr efface une
 			// lettre, pas l'entite ; Espace s'ecrit, il ne lance pas la scene.
-			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus) {
+			// La recherche du menu des composants a le clavier, elle aussi.
+			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0 ||
+				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
 				return;
 			}
 			if (in.ctrlDown) {
@@ -648,6 +676,11 @@ namespace nkentseu {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
 				ui.filtreFocus = false;
+				// Le renommage en place se VALIDE (ce qui est tape est garde) :
+				// Entree et Echap sont a la boite.
+				if (ui.arbre.renaming != 0) {
+					ui.arbre.renameCommit = true;
+				}
 			}
 			const NkMenuEditeur menuDebut = ui.menu;
 			const NkGestesSouris vrais = Sauver(ctx.input);
@@ -702,14 +735,9 @@ namespace nkentseu {
 				dl.AddRect(ui.ecran, mPalette.bord, 1.f);
 			}
 			// La trame a VU les appuis ; les relachements retenus partent pour la
-			// suivante (voir OnEvent).
-			for (int32 b = 0; b < 3; ++b) {
-				mAppuiNonVu[b] = false;
-				if (mRelacheDiffere[b]) {
-					mRelacheDiffere[b] = false;
-					ctx.input.mouseDown[b] = false;
-				}
-			}
+			// suivante (voir OnEvent). Et la trame a vu le RELACHEMENT : l'appui
+			// retenu derriere lui peut partir a son tour.
+			mBoutons.FinDeTrame(ctx.input);
 			if (ui.demandeQuitter) {
 				ui.demandeQuitter = false;
 				Quit();

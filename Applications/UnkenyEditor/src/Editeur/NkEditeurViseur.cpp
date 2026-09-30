@@ -67,6 +67,48 @@ namespace nkentseu {
 				}
 				dl.AddCircleFilled(o, 3.5f, NkColor(235, 235, 235, 230));
 			}
+			// L'ordre : les FORMES (decor, rigides sans texture), puis les sprites,
+			// puis la MATIERE par-dessus — elle coule sur tout le reste.
+			NkOptionsFormes formes;
+			formes.couleurDecor = [](ecs::NkWorld &w, ecs::NkEntityId id, void *) -> uint32 {
+				const NkSprite2D *s = w.Get<NkSprite2D>(id);
+				return s != nullptr ? s->couleur : 0u; // le sprite (cache) garde la couleur du decor
+			};
+			// L'OEIL de l'Outliner (NkDrapeauxEditeur::cache), en EDITION : les
+			// entites cachees sont ECARTEES le temps du dessin, puis rendues.
+			// ⚠️ POURQUOI ECARTER, ET NON « NE PAS DESSINER » : ces dessins sont
+			//    ceux d'Unkeny (NkDessinerScene, NkDessinerFormes...), qui ne
+			//    connaissent pas l'editeur, et une forme n'a pas de drapeau
+			//    « visible ». Le transform est rendu tel quel avant la fin de la
+			//    fonction, et aucun pas de simulation ne tourne entre les deux (on
+			//    est en EDITION) : la scene ne voit rien passer.
+			struct NkEcartee {
+					ecs::NkEntityId id;
+					NkVec2f position{0.f, 0.f};
+					bool aTransform = false;
+					bool mouVisible = false;
+			};
+			NkVector<NkEcartee> ecartees;
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				// Elle, OU un ancetre : un parent cache cache sa descendance.
+				scene.Monde().Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &) {
+					if (!NkEditeurCacheDansLaVue(m, id)) {
+						return;
+					}
+					NkEcartee e;
+					e.id = id;
+					if (NkTransform2D *t = scene.Monde().Get<NkTransform2D>(id)) {
+						e.position = t->position;
+						e.aTransform = true;
+						t->position = NkVec2f(1.0e6f, 1.0e6f); // hors de toute vue : le hors-champ l'ecarte
+					}
+					if (NkCorpsMou2D *mou = scene.Monde().Get<NkCorpsMou2D>(id)) {
+						e.mouVisible = mou->visible;
+						mou->visible = false; // la matiere ne suit pas le transform
+					}
+					ecartees.PushBack(e);
+				});
+			}
 			// L'IMAGE DU JEU -- formes, sprites, matiere -- par la fonction que
 			// dessine aussi le joueur autonome (Unkeny/Partie) : ce que montre le
 			// viseur est ce que montrera le jeu construit.
@@ -81,9 +123,42 @@ namespace nkentseu {
 			if (m.voirCollisionneurs) {
 				NkDessinerCollisionneurs(dl, scene, 0x00E07AC0u);
 			}
+			for (uint32 i = 0; i < ecartees.Size(); ++i) {
+				const NkEcartee &e = ecartees[i];
+				if (e.aTransform) {
+					if (NkTransform2D *t = scene.Monde().Get<NkTransform2D>(e.id)) {
+						t->position = e.position;
+					}
+				}
+				if (NkCorpsMou2D *mou = scene.Monde().Get<NkCorpsMou2D>(e.id)) {
+					mou->visible = e.mouVisible;
+				}
+			}
+			// Les entites SANS VISUEL (un transform, un nom, une source sonore...) :
+			// un losange, en EDITION, comme les icones d'acteurs d'UE5. Sans lui,
+			// une entite vide posee dans la scene ne se voit ni ne se clique
+			// (NkEditeurPrendreSous vise ce meme losange).
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				const NkColor fondMarqueur(150, 160, 185, 90);
+				const NkColor bordMarqueur(200, 208, 225, 230);
+				scene.Monde().Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t) {
+					if (!NkEditeurSansVisuel(m, id) || NkEditeurCacheDansLaVue(m, id)) {
+						return;
+					}
+					const NkVec2f e = scene.Camera().MondeVersEcran(t.position);
+					const float32 r = NK_MARQUEUR_RAYON_PX;
+					const NkVec2f pts[4] = {NkVec2f(e.x, e.y - r), NkVec2f(e.x + r, e.y), NkVec2f(e.x, e.y + r), NkVec2f(e.x - r, e.y)};
+					dl.AddTriangleFilled(pts[0], pts[1], pts[2], fondMarqueur);
+					dl.AddTriangleFilled(pts[0], pts[2], pts[3], fondMarqueur);
+					dl.AddPolyline(pts, 4, bordMarqueur, 1.5f, true);
+					dl.AddCircleFilled(e, 1.5f, bordMarqueur);
+				});
+			}
 			// La selection : un cadre d'accent autour de sa boite, et son nom.
+			// Pas pour une entite cachee : l'oeil ferme ne laisse RIEN dans la vue.
 			NkVec2f mn, mx;
-			if (NkEditeurBoiteSelection(m, mn, mx)) {
+			const bool selectionCachee = m.aSelection && NkEditeurCacheDansLaVue(m, m.selection);
+			if (!selectionCachee && NkEditeurBoiteSelection(m, mn, mx)) {
 				const NkVec2f hg = scene.Camera().MondeVersEcran(NkVec2f(mn.x - 0.05f, mx.y + 0.05f));
 				const NkVec2f bd = scene.Camera().MondeVersEcran(NkVec2f(mx.x + 0.05f, mn.y - 0.05f));
 				dl.AddRect(NkRect{hg.x, hg.y, bd.x - hg.x, bd.y - hg.y}, th.or_, 2.f, 3.f);
@@ -152,43 +227,6 @@ namespace nkentseu {
 						   trait, 1.f);
 			}
 			return stats;
-		}
-
-		// =====================================================================
-		bool NkEntiteSous(NkScene &scene, const NkVec2f &monde, ecs::NkEntityId &sortie, NkVec2f &centre) {
-			bool trouve = false;
-			ecs::NkEntityId candidat;
-			NkVec2f c(0.f, 0.f);
-			int32 meilleureCouche = -1000000;
-
-			scene.Monde().Query<NkTransform2D, NkSprite2D>().ForEach(
-				[&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &s) {
-					if (!s.visible) {
-						return;
-					}
-					const float32 hw = s.taille.x * math::NkAbs(t.echelle.x) * 0.5f;
-					const float32 hh = s.taille.y * math::NkAbs(t.echelle.y) * 0.5f;
-					if (monde.x < t.position.x - hw || monde.x > t.position.x + hw || monde.y < t.position.y - hh ||
-						monde.y > t.position.y + hh) {
-						return;
-					}
-					// ⚠️ On garde la couche la PLUS HAUTE : c'est celle qui est
-					// dessinee au-dessus, donc celle que l'utilisateur voit et
-					// croit cliquer. Garder la premiere trouvee selectionnerait
-					// ce qui est CACHE.
-					if (s.couche >= meilleureCouche) {
-						meilleureCouche = s.couche;
-						candidat = id;
-						c = t.position;
-						trouve = true;
-					}
-				});
-
-			if (trouve) {
-				sortie = candidat;
-				centre = c;
-			}
-			return trouve;
 		}
 
 	} // namespace editeur
