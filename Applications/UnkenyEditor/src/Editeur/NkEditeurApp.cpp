@@ -25,6 +25,7 @@
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
+#include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -205,6 +206,12 @@ namespace nkentseu {
 					mUi->panneauEntrees = true;
 					continue;
 				}
+				// --niveau=gelee : la scene de depart est le niveau du jalon Gelee
+				// (heros mou et son controleur) : Jouer, puis Espace le fait sauter.
+				if (args[i] == "--niveau=gelee") {
+					mNiveauGelee = true;
+					continue;
+				}
 				// --outil= et --selection= : pour qu'une capture d'un GIZMO soit
 				// reproductible (--capture=), comme --profil= l'est pour l'appareil.
 				// Sans elles, montrer un gizmo demande une souris -- et donc quelqu'un.
@@ -315,6 +322,14 @@ namespace nkentseu {
 				// et l'annonce le dit.
 				m.chemin = mSceneDepart;
 				NkEditeurOuvrir(m);
+			} else if (mNiveauGelee) {
+				NkSceneConfig cfg;
+				cfg.physique = true;
+				cfg.particules = true;
+				cfg.gravite = NkVec2f(0.f, -9.81f);
+				m.scene.Init(cfg);
+				unkeny::NkNiveauGelee niveau;
+				unkeny::NkConstruireNiveauGelee(m.scene, niveau, true);
 			}
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
