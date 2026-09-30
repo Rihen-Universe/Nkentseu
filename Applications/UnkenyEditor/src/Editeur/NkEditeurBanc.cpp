@@ -35,11 +35,19 @@
 //         pas nul laisse la valeur intacte
 //   (e19) « Zone a cadrer » : centree sur la selection ; sans selection, elle
 //         couvre TOUTE la scene (le sol y est)
+//   (eh1) (2026-09-29) « Rattacher » (le glisser de l'Outliner) : l'enfant ne
+//         bouge pas, une boucle est refusee ; en EDITION, deplacer le parent
+//         emporte l'enfant a la trame suivante
+//   (ep1) « Creer un prefab » : le .nkprefab est ecrit a cote de la scene, une
+//         instance nait avec son enfant ; apres Enregistrer / Ouvrir, les deux
+//         instances (la source et la copie) sont reliees au prefab et la
+//         hierarchie est la
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "NKFileSystem/NkFile.h"
 
 #include <cstdio>
 
@@ -332,6 +340,39 @@ namespace nkentseu {
 			const bool couvreSol = zTout && tSol != nullptr && math::NkAbs(tSol->position.x - zc.x) < zt.x * 0.5f &&
 								   math::NkAbs(tSol->position.y - zc.y) < zt.y * 0.5f && !m.aSelection;
 			Temoin(surSel && couvreSol, "(e19) zone a cadrer : la selection ; sans elle, toute la scene", zt.x);
+
+			// (eh1) la hierarchie dans l'editeur (2026-09-29)
+			const ecs::NkEntityId pere = NkEditeurCreerEntite(m, "Pere", NkVec2f(20.f, 20.f));
+			const ecs::NkEntityId fils = NkEditeurCreerEntite(m, "Fils", NkVec2f(21.f, 20.f));
+			const bool rattache = NkEditeurRattacher(m, fils, pere);
+			const bool boucleRefusee = !NkEditeurRattacher(m, pere, fils);
+			w.Get<NkTransform2D>(pere)->position = NkVec2f(25.f, 20.f); // le geste d'un gizmo
+			NkEditeurAvancer(m, 1.f / 60.f);							 // en EDITION : rien ne fait Pas
+			const NkVec2f pFils = w.Get<NkTransform2D>(fils)->position;
+			Temoin(m.etat == NkEtatJeu::NK_EDITION && rattache && boucleRefusee && math::NkAbs(pFils.x - 26.f) < 1.0e-4f &&
+					   math::NkAbs(pFils.y - 20.f) < 1.0e-4f,
+				   "(eh1) rattacher (boucle refusee) ; en EDITION le parent emporte l'enfant", pFils.x);
+
+			// (ep1) « Creer un prefab » depuis la selection, instancier, enregistrer, rouvrir
+			m.chemin = "unkeny_editeur_banc_h.nkscene";
+			m.selection = pere;
+			m.aSelection = true;
+			const uint32 idPrefab = NkEditeurCreerPrefab(m);
+			const NkString cheminPrefab = NkEditeurCheminPrefab(m, "Pere");
+			const bool fichierPrefab = !NkFile::ReadAllText(cheminPrefab.CStr()).Empty();
+			const ecs::NkEntityId inst = m.prefabs.Instancier(m.scene, idPrefab, NkVec2f(30.f, 20.f));
+			NkVector<ecs::NkEntityId> enfantsInst;
+			m.scene.Enfants(inst, enfantsInst);
+			const bool sauveH = NkEditeurSauver(m);
+			const bool ouvertH = NkEditeurOuvrir(m);
+			NkVector<ecs::NkEntityId> instances;
+			m.prefabs.Instances(m.scene, idPrefab, instances);
+			const ecs::NkEntityId fils2 = Par(m.scene, "Fils");
+			std::remove("unkeny_editeur_banc_h.nkscene");
+			std::remove(cheminPrefab.CStr());
+			Temoin(idPrefab != 0u && fichierPrefab && enfantsInst.Size() == 1u && sauveH && ouvertH && instances.Size() == 2u &&
+					   fils2.IsValid() && m.scene.Parent(fils2).IsValid(),
+				   "(ep1) prefab de la selection : fichier, instance, et lien rouvert", static_cast<float32>(instances.Size()));
 
 			memory::NkGetDefaultAllocator().Delete(pm);
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC EDITEUR REUSSI" : "BANC EDITEUR EN ECHEC", gR, gE, gE > 1 ? "s" : "");

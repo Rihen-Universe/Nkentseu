@@ -370,6 +370,8 @@ namespace nkentseu {
 				return "NK_TRANSFER";
 			case NK_CUSTOM:
 				return "NK_CUSTOM";
+			case NK_TEXT_COMPOSITION:
+				return "NK_TEXT_COMPOSITION";
 
 			// -----------------------------------------------------------------
 			// Fallback : valeur hors plage ou non définie
@@ -538,6 +540,9 @@ namespace nkentseu {
 		}
 		if (str == "NK_CUSTOM") {
 			return NK_CUSTOM;
+		}
+		if (str == "NK_TEXT_COMPOSITION") {
+			return NK_TEXT_COMPOSITION;
 		}
 
 		// Fallback : retourne NK_NONE pour toute chaîne non reconnue

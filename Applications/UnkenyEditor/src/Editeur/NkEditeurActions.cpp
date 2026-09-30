@@ -5,10 +5,12 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
 
@@ -77,6 +79,9 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
+				// depend pas de la duree de l'apercu en edition.
+				m.scene.Effets().Vider();
 			}
 			m.etat = NkEtatJeu::NK_JEU;
 		}
@@ -96,6 +101,10 @@ namespace nkentseu {
 			m.etat = NkEtatJeu::NK_EDITION;
 			// Les identifiants d'entite ont change (Restaurer) : une selection
 			// retenue designerait une entite morte.
+			// (2026-09-29) Son IDENTITE, elle, traverse Restaurer
+			// (m.scene.EntiteParUid) : la garder serait possible. Ce n'est PAS
+			// fait — le banc (e5) tient « Arreter oublie la selection », et changer
+			// ce comportement est une decision de Rihen, pas un ajout.
 			m.aSelection = false;
 			m.deplace = false;
 			m.pinceau = ecs::NkEntityId::Invalid();
@@ -111,8 +120,23 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
-			if (m.etat == NkEtatJeu::NK_JEU && dt > 0.f) {
-				m.scene.Pas(dt < 0.05f ? dt : 0.05f);
+			if (m.etat == NkEtatJeu::NK_JEU) {
+				// LA trame du jeu, celle que joue aussi le joueur autonome
+				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde
+				// dt > 0 et le plafond de trame, et Pas propage la hierarchie.
+				NkAvancerPartie(m.scene, dt);
+			} else {
+				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
+				// pourtant emporter ses enfants a l'ecran, a cette trame.
+				m.scene.PropagerHierarchie();
+				if (m.etat == NkEtatJeu::NK_EDITION && dt > 0.f) {
+					// L'APERCU des effets en edition (2026-09-30) : un feu pose brule
+					// deja. Les particules visuelles ne touchent a rien de la scene
+					// (temoin f6) ; ni corps, ni matiere, ni transform ne bougent.
+					// APRES la hierarchie : un feu porte par un parent deplace nait
+					// la ou il est.
+					m.scene.Effets().Avancer(m.scene, dt < 0.05f ? dt : 0.05f);
+				}
 			}
 			// Une selection dont l'entite a disparu (matiere gommee, tombee) : oubliee.
 			if (m.aSelection && !m.scene.Monde().IsAlive(m.selection)) {
@@ -170,6 +194,20 @@ namespace nkentseu {
 
 		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
 			NkScene &s = m.scene;
+			// 0. Les ICONES des lumieres et des emetteurs (2026-09-30) : elles sont
+			//    peintes par-dessus tout, et une lumiere n'a souvent rien d'autre
+			//    a cliquer.
+			{
+				ecs::NkEntityId icone;
+				if (NkEditeurIconeSous(m, monde, 10.f, icone)) {
+					m.selection = icone;
+					m.aSelection = true;
+					if (centre != nullptr) {
+						NkEditeurCentreSelection(m, *centre);
+					}
+					return true;
+				}
+			}
 			// 1. La matiere : c'est elle qui est dessinee PAR-DESSUS le decor.
 			if (physics::NkParticules2D *p = s.Particules()) {
 				const int32 i = p->ParticuleProche(monde, 0.25f);
@@ -557,6 +595,18 @@ namespace nkentseu {
 				c.lance = false;
 				w.Add<NkSource2D>(e, c);
 			}
+			if (const NkLumiere2D *s = w.Get<NkLumiere2D>(src)) {
+				NkLumiere2D c = *s;
+				w.Add<NkLumiere2D>(e, c);
+			}
+			if (const NkEmetteur2D *s = w.Get<NkEmetteur2D>(src)) {
+				NkEmetteur2D c = *s;
+				// Une autre graine : une copie qui brulerait a l'unisson de
+				// l'original se verrait comme un defaut.
+				m.graine = m.graine * 1664525u + 1013904223u;
+				c.graine = m.graine;
+				w.Add<NkEmetteur2D>(e, c);
+			}
 			if (const NkCorps2D *s = w.Get<NkCorps2D>(src)) {
 				NkCorps2D c = *s;
 				c.corpsId = 0;
@@ -581,6 +631,10 @@ namespace nkentseu {
 					return "Source sonore";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
+				case NkComposantEditeur::NK_LUMIERE:
+					return "Lumière 2D";
+				case NkComposantEditeur::NK_EMETTEUR:
+					return "Émetteur de particules";
 				default:
 					return "";
 			}
@@ -601,6 +655,10 @@ namespace nkentseu {
 					return w.Has<NkSource2D>(id);
 				case NkComposantEditeur::NK_ANIMATION:
 					return w.Has<NkAnimSprite2D>(id);
+				case NkComposantEditeur::NK_LUMIERE:
+					return w.Has<NkLumiere2D>(id);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return w.Has<NkEmetteur2D>(id);
 				default:
 					return false;
 			}
@@ -670,6 +728,10 @@ namespace nkentseu {
 					w.Add<NkAnimSprite2D>(id, a);
 					return true;
 				}
+				case NkComposantEditeur::NK_LUMIERE:
+					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
 				default:
 					return false;
 			}
@@ -699,6 +761,14 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANIMATION:
 					w.Remove<NkAnimSprite2D>(id);
 					return true;
+				case NkComposantEditeur::NK_LUMIERE:
+					w.Remove<NkLumiere2D>(id);
+					return true;
+				case NkComposantEditeur::NK_EMETTEUR:
+					// Ses particules finissent leur vie : retirer un feu ne fait pas
+					// disparaitre d'un coup les flammeches deja en l'air.
+					w.Remove<NkEmetteur2D>(id);
+					return true;
 				default:
 					return false;
 			}
@@ -712,6 +782,50 @@ namespace nkentseu {
 				return c->type == NkTypeCorps::NK_DYNAMIQUE ? "rigide" : "decor";
 			}
 			return "entite";
+		}
+
+		// =====================================================================
+		// Hierarchie et prefabs
+		// =====================================================================
+		bool NkEditeurRattacher(NkEditeurModele &m, ecs::NkEntityId enfant, ecs::NkEntityId parent) {
+			if (!m.scene.Rattacher(enfant, parent, true)) {
+				NkEditeurAnnoncer(m, "Rattachement refuse : une entite ne descend pas d'elle-meme");
+				return false;
+			}
+			return true;
+		}
+
+		bool NkEditeurDetacher(NkEditeurModele &m, ecs::NkEntityId enfant) {
+			return m.scene.Detacher(enfant, true);
+		}
+
+		NkString NkEditeurCheminPrefab(NkEditeurModele &m, const char *nom) {
+			// A cote de la scene. ⚠️ Un chemin ABSOLU tant que l'editeur n'a pas de
+			// PROJET (palier U1) : CONVENTIONS_FICHIERS.md § 5 veut des chemins
+			// relatifs au dossier du projet, et il n'y a pas encore de dossier.
+			const NkString scene(NkEditeurChemin(m));
+			usize fin = 0;
+			for (usize i = 0; i < static_cast<usize>(scene.Length()); ++i) {
+				if (scene.CStr()[i] == '/' || scene.CStr()[i] == '\\') {
+					fin = i + 1u;
+				}
+			}
+			NkString chemin(scene.CStr(), fin);
+			chemin.Append(nom != nullptr && nom[0] != '\0' ? nom : "Prefab");
+			chemin.Append(".nkprefab");
+			return chemin;
+		}
+
+		uint32 NkEditeurCreerPrefab(NkEditeurModele &m) {
+			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection) || m.etat != NkEtatJeu::NK_EDITION) {
+				return 0u;
+			}
+			const NkEtiquette *e = m.scene.Monde().Get<NkEtiquette>(m.selection);
+			const NkString chemin = NkEditeurCheminPrefab(m, e != nullptr && e->nom[0] != '\0' ? e->nom : "Prefab");
+			const uint32 id = m.prefabs.Creer(m.scene, m.selection, chemin.CStr());
+			const bool ecrit = id != 0u && m.prefabs.Enregistrer(m.scene, id, chemin.CStr(), m.RessourcesScene());
+			NkEditeurAnnoncer(m, ecrit ? "Prefab cree" : "Prefab impossible a ecrire");
+			return ecrit ? id : 0u;
 		}
 
 		// =====================================================================
@@ -740,14 +854,14 @@ namespace nkentseu {
 			if (m.etat != NkEtatJeu::NK_EDITION) {
 				NkEditeurArreter(m);
 			}
-			const bool ok = NkSauverSceneFichier(m.scene, NkEditeurChemin(m), &m.textures);
+			const bool ok = NkSauverSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene());
 			NkEditeurAnnoncer(m, ok ? "Scene enregistree" : "Enregistrement impossible");
 			return ok;
 		}
 
 		bool NkEditeurOuvrir(NkEditeurModele &m) {
 			NkString erreur;
-			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), &m.textures, &erreur);
+			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene(), &erreur);
 			if (ok) {
 				Aligner(m);
 				m.etat = NkEtatJeu::NK_EDITION;

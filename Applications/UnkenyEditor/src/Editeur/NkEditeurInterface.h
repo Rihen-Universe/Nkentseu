@@ -113,13 +113,24 @@ namespace nkentseu {
 			NK_A_ENTITE_ICI,			///< une entite vide au point du clic droit
 			NK_A_SIMPLE_ICI,			///< l'entite simple (sprite + boite) au point du clic droit
 			NK_A_ACCROCHAGE,			///< l'accrochage des gizmos, allume / eteint
+			NK_A_CREER_PREFAB,			///< un prefab de la selection (2026-09-29)
+			NK_A_DETACHER,				///< la selection devient une racine, a sa place
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
 			NK_A_APPAREIL = 300,		///< + indice de profil
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
-			NK_A_CORPS_MOU = 600		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CONSTRUIRE = 900,		///< Fichier > Construire… (U5, Livraison/)
+			// 2026-09-30 (NkEditeurLumiere.h) : quatre plages de moins de 10 valeurs,
+			// AU-DESSUS de 999. Les numeros 800-999 sont laisses libres : la branche
+			// de livraison y a pris NK_A_CONSTRUIRE = 900 (comble/livrer-u5), et deux
+			// chantiers qui se partagent une centaine finissent par s'y rencontrer.
+			NK_A_LUMIERE = 1000,		///< + NkTypeLumiere2D : une lumiere sur la selection
+			NK_A_EMETTEUR = 1050,		///< + NkPresetEffet2D : un emetteur sur la selection
+			NK_A_LUMIERE_ICI = 1100,	///< + NkTypeLumiere2D : une lumiere au point du clic droit
+			NK_A_EMETTEUR_ICI = 1150	///< + NkPresetEffet2D : un effet au point du clic droit
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -279,6 +290,9 @@ namespace nkentseu {
 				/// La croix de la FENETRE a ete cliquee : la question se pose a la
 				/// prochaine trame (OnCloseRequested ne dessine pas).
 				bool fermetureDemandee = false;
+				/// Fichier > Construire… : la fenetre s'ouvre a la trame suivante
+				/// (son etat est a l'application, Livraison/NkEditeurFenetreConstruire.h).
+				bool construireDemande = false;
 
 				// --- La fenetre (barre de titre maison) -------------------------
 				// ⚠️ DES DEMANDES, PAS DES APPELS. BeginDragMove et BeginResize
@@ -307,6 +321,12 @@ namespace nkentseu {
 				/// L'ordre de l'Outliner, garde d'une trame a l'autre : l'ECS range ses
 				/// entites par archetype, et ajouter un composant en deplacait une.
 				NkVector<ecs::NkEntityId> ordreArbre;
+				/// Le glisser d'une ligne de l'Outliner (2026-09-29) : il ne COMMENCE
+				/// qu'au-dela de quelques pixels, sans quoi chaque clic de selection
+				/// serait un depot sur soi-meme.
+				bool glisseArbre = false;
+				bool appuiArbre = false; ///< l'appui qui a commence le geste etait DANS l'arbre
+				nkgui::NkVec2 departGlisseArbre{0.f, 0.f};
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

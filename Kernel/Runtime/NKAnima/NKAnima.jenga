@@ -18,8 +18,8 @@ Extrait de NKRenderer/Tools/Animation le 2026-08-14, bloc de décision
 
 Contenu (src/NKAnima/) :
   NkAnimation.*        => clips, keyframes, player, blend 1D/2D, HFSM (sous-machines,
-                          any-state par niveau, déclencheurs, priorités, .nkanim v3 —
-                          hiérarchique pour de vrai depuis le 2026-09-29)
+                          any-state par niveau, déclencheurs, priorités — hiérarchique
+                          pour de vrai depuis le 2026-09-29), sauvegardée en .nkanimctl
   NkAnimRetarget.*     => rejouer un clip sur un AUTRE squelette
   NkAnimationEditor.*  => modèle d'édition de pose-clés + annuler/refaire
   NkMotionPath.*       => spline Catmull-Rom + suivi de trajectoire
@@ -43,7 +43,7 @@ aucun consommateur qui ne s'en sert pas ne le paie (l'objet n'entre pas dans le
 binaire). Ne pas « optimiser » en le sortant : le coût mesuré est zéro.
 
 Dépendances : Foundation seule (NKCore/NKMemory/NKMath/NKContainers) + NKLogger,
-NKFileSystem (sauvegarde .nkanim).
+NKFileSystem (sauvegarde .nkanim pour un clip, .nkanimctl pour une machine à états).
 Consommateurs : NKRenderer (façade + debug-draw), Noge, NkAnimaEditor, Sandbox,
 NKCraft, NkAnimPhysTest, NkLocomotionDemo, et Unkeny (moteur 2D : sa
 machine à états d'animation, Anim/NkUnkenyAnimateur — depuis le 2026-09-29).

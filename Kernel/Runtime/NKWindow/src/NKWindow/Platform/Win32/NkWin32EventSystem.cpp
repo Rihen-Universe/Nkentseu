@@ -41,6 +41,7 @@
 #endif
 
 #include "NKWindow/Platform/Win32/NkWin32EventSystem.h"
+#include "NKWindow/Platform/Win32/NkWin32Ime.h" // composition IME (29/09)
 
 namespace nkentseu {
 	using namespace math;
@@ -151,6 +152,7 @@ namespace nkentseu {
 			// Point 2 : via fonction d'accès
 			NkWin32UnregisterWindow(hwnd);
 			SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+			NkWin32ImeOublier(hwnd); // les proprietes posees par SetTextInputArea
 			return DefWindowProcW(hwnd, msg, wp, lp);
 		}
 
@@ -733,10 +735,86 @@ namespace nkentseu {
 
 			case WM_CHAR: {
 				UINT cp = (UINT)wp;
+				// ⚠️ WM_CHAR PORTE DES UNITES UTF-16, PAS DES CARACTERES (29/09).
+				//    Un emoji, ou un ideogramme hors du plan de base valide par
+				//    l'IME, arrive en DEUX messages (demi-codes D800-DBFF puis
+				//    DC00-DFFF). Les emettre tels quels donnait deux
+				//    NkTextInputEvent qui ne sont pas des caracteres, et un champ
+				//    NKGui y ecrivait deux losanges. On garde la premiere moitie,
+				//    et c'est la paire qui part. Tout le plan de base (le seul qui
+				//    passait correctement jusqu'ici) est inchange.
+				static UINT sDemiHaut = 0;
+				if (cp >= 0xD800u && cp <= 0xDBFFu) {
+					sDemiHaut = cp;
+					break;
+				}
+				if (cp >= 0xDC00u && cp <= 0xDFFFu) {
+					if (sDemiHaut == 0) {
+						break; // moitie basse orpheline : rien a emettre
+					}
+					cp = 0x10000u + ((sDemiHaut - 0xD800u) << 10) + (cp - 0xDC00u);
+				}
+				sDemiHaut = 0;
 				if (cp >= 32 && cp != 127) {
 					NkTextInputEvent evt(cp, winId);
 					EnqueueForWindow(evt);
 				}
+				break;
+			}
+
+				// =====================================================================
+				// IME — la composition EN COURS (29/09)
+				//
+				// Le texte VALIDE continue d'arriver par WM_CHAR (DefWindowProc
+				// transforme le resultat en WM_IME_CHAR puis WM_CHAR) : rien ne
+				// change pour une application qui ignore la composition. Ce qui
+				// est AJOUTE, ce sont les NkTextCompositionEvent : debut, chaque
+				// etat de la chaine en cours avec son curseur, fin.
+				// =====================================================================
+
+			case WM_IME_SETCONTEXT: {
+				// L'application dessine la composition elle-meme : l'IME ne
+				// doit pas en afficher une seconde par-dessus. Sinon, rien ne
+				// change : son affichage reste celui de toujours.
+				if (wp == TRUE && NkWin32ImeEstInline(hwnd)) {
+					lp &= ~static_cast<LPARAM>(ISC_SHOWUICOMPOSITIONWINDOW);
+					result = DefWindowProcW(hwnd, msg, wp, lp);
+					suppressDefaultProc = true;
+				}
+				break;
+			}
+
+			case WM_IME_STARTCOMPOSITION: {
+				NkWin32ImeAppliquerZone(hwnd);
+				NkTextCompositionEvent e(NkCompositionPhase::NK_COMPOSITION_BEGIN, "", 0, winId);
+				EnqueueForWindow(e);
+				// En mode « dessinee par l'application », ne pas laisser l'IME
+				// ouvrir sa fenetre de composition (recette de Chromium et SDL).
+				if (NkWin32ImeEstInline(hwnd)) {
+					suppressDefaultProc = true;
+				}
+				break;
+			}
+
+			case WM_IME_COMPOSITION: {
+				// lp == 0 : certains IME effacent la composition sans drapeau.
+				// C'est une mise a jour vers le vide, pas un silence.
+				if ((lp & GCS_COMPSTR) != 0 || lp == 0) {
+					char texte[NkTextCompositionEvent::TEXT_CAPACITY];
+					int32 curseur = 0;
+					NkWin32ImeLireComposition(hwnd, texte, sizeof(texte), curseur);
+					NkTextCompositionEvent e(NkCompositionPhase::NK_COMPOSITION_UPDATE, texte, curseur, winId);
+					EnqueueForWindow(e);
+				}
+				NkWin32ImeAppliquerZone(hwnd);
+				// PAS de suppressDefaultProc : c'est DefWindowProc qui fait du
+				// resultat (GCS_RESULTSTR) les WM_CHAR que toute application lit.
+				break;
+			}
+
+			case WM_IME_ENDCOMPOSITION: {
+				NkTextCompositionEvent e(NkCompositionPhase::NK_COMPOSITION_END, "", 0, winId);
+				EnqueueForWindow(e);
 				break;
 			}
 

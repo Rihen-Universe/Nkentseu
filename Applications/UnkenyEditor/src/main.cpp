@@ -8,7 +8,7 @@
 // LANCER
 //   UnkenyEditor.exe [--profil=N] [--paysage] [--simuler] [--selftest]
 //                    [--outil=NOM] [--selection=NOM] [--capture=IMAGE.png]
-//                    [--scene=FICHIER.nkscene]
+//                    [--scene=FICHIER.nkscene] [--exemple=nuit] [--eclairage=off]
 //
 //   --profil=N      l'appareil simule (0 = bureau, puis du plus contraint au moins)
 //   --paysage       tourne l'appareil
@@ -22,6 +22,13 @@
 //                   deux precedentes, une capture de GIZMO sans souris
 //   --scene=...     ouvre ce .nkscene au lieu de la scene neuve (et Enregistrer
 //                   y ecrira)
+//   --exemple=nuit  la nuit au feu de camp (eclairage 2D, effets) au lieu de
+//                   la scene neuve
+//   --eclairage=off la scene de depart, son eclairage ETEINT (capture « avant »)
+//   --construire=PLATEFORME [--scene= --sortie= --nom= --profil= ...]
+//                   construit le jeu SANS fenetre (Livraison/NkEditeurConstruire.h)
+//   --fenetre=construire[-auto] [--sortie= --nom=]
+//                   ouvre la fenetre Construire (-auto : et la lance seule)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 

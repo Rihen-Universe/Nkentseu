@@ -104,6 +104,9 @@ namespace nkentseu {
 			NK_CORPS_MOU, ///< matiere (le materiau est choisi a l'ajout)
 			NK_SOURCE,	  ///< source sonore
 			NK_ANIMATION,
+			// 2026-09-30, AJOUTES A LA FIN : les valeurs d'avant ne bougent pas.
+			NK_LUMIERE,	 ///< lumiere 2D (le type se choisit a l'ajout)
+			NK_EMETTEUR, ///< emetteur de particules (le preset se choisit a l'ajout)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;
@@ -120,6 +123,19 @@ namespace nkentseu {
 		/// « mou », « rigide », « decor », « entite » : l'etiquette de type que
 		/// montrent la hierarchie et l'inspecteur.
 		const char *NkEditeurTypeDe(NkScene &scene, ecs::NkEntityId id);
+
+		// --- Hierarchie et prefabs (2026-09-29) ------------------------------
+		/// Rattache `enfant` a `parent` sans qu'il bouge a l'ecran (le glisser de
+		/// l'Outliner). Refuse une boucle, et le dit.
+		bool NkEditeurRattacher(NkEditeurModele &m, ecs::NkEntityId enfant, ecs::NkEntityId parent);
+		/// En fait une racine, a sa place.
+		bool NkEditeurDetacher(NkEditeurModele &m, ecs::NkEntityId enfant);
+		/// Fait un prefab de la selection (et de sa descendance) et l'ecrit a cote
+		/// de la scene, sous « <nom>.nkprefab ». La selection en devient la
+		/// premiere instance. Rend l'identifiant du prefab, 0 en cas d'echec.
+		uint32 NkEditeurCreerPrefab(NkEditeurModele &m);
+		/// Le chemin du .nkprefab de `nom`, dans le dossier de la scene.
+		NkString NkEditeurCheminPrefab(NkEditeurModele &m, const char *nom);
 
 		// --- Fichier ---------------------------------------------------------
 		const char *NkEditeurChemin(NkEditeurModele &m);

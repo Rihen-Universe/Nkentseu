@@ -56,6 +56,26 @@ applications qui n'utilisent pas Unkeny. Unkeny les re-exporte simplement.
 dépôt a déjà payée trois fois. **La règle : avant d'écrire un mécanisme ici,
 chercher qui le porte déjà — et commencer par la couche du dessous.**
 
+## Éclairage 2D et effets — facultatifs (2026-09-30)
+
+Demande de Rihen : *« on doit aussi pouvoir ajouter l'éclairage mais facultatif
+en fonction du type de jeu, le feu aussi »*. Recherche faite avant d'écrire :
+`NKVFX` et le `NkRender2D` de NKRenderer (lumières 2D, ombres) tirent
+NKRenderer, interdit ici ; les émetteurs de Pong (`std::rand`) et de Mou
+(420 particules figées) sont des copies de jeu. D'où, dans Unkeny :
+
+| brique | fichier | ce qu'elle fait |
+|---|---|---|
+| composants | `Scene/NkUnkenyComposants.h` | `NkLumiere2D` (ponctuelle, cône, directionnelle), `NkEmetteur2D` (la recette), `NkEclairage2D` (réglage de scène) |
+| particules | `Effets/NkUnkenyEffets.h` | la vie des particules visuelles : graine par émetteur, pas fixe, deux plafonds, six préréglages (feu, fumée, étincelles, pluie, neige, explosion) |
+| carte de lumière | `Rendu/NkUnkenyEclairage.h` | calculée au **processeur** sur une maille d'écran adaptative, posée en `MULTIPLY` ; ombres des collisionneurs ; repli « voile » |
+| dessin des effets | `Rendu/NkUnkenyRenduEffets.h` | passe alpha (sous la lumière), passe additive (par-dessus) |
+
+**Éteint par défaut** : une scène sans lumière se dessine au pixel près comme
+avant, et se réécrit à l'octet près (`Banc/NkUnkenyBancLumiere.cpp`, L1 et S2).
+Aucune cible hors écran, aucun shader : seul le mode de mélange `MULTIPLY` est
+demandé au dorsal. Pas de normal map (il faudrait un calcul par pixel).
+
 ## Sur les `.cpp`
 
 Unkeny **a** des `.cpp`, contrairement à `NkCanvasGuiApp.h` et
