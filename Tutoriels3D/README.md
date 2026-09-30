@@ -18,8 +18,8 @@ guidée du code, et des pistes concrètes pour enrichir l'application à ce nive
 
 ## Plateformes
 
-Le même code source tourne sur **Windows, Linux, Web (Emscripten), Android et
-HarmonyOS** (zéro `#ifdef` dans les tutos) :
+Le même code source tourne sur **Windows, Linux, macOS, Web (Emscripten),
+Android et HarmonyOS** (zéro `#ifdef` dans les tutos) :
 
 ```
 jenga build --target Tuto03Scene --config Release                      # Windows
@@ -27,7 +27,15 @@ jenga build --target Tuto03Scene --config Release --platform linux    # Linux (o
 jenga build --target Tuto03Scene --config Release --platform web      # Web (wasm)
 jenga build --target Tuto03Scene --config Release --platform android  # APK Android
 jenga build --target Tuto03Scene --config Release --platform harmonyos
+jenga build --target Tuto03Scene                                      # macOS, SUR le Mac
 ```
+
+> 🍎 **macOS** (vérifié sur la CI Apple Silicon, `.github/workflows/macos-noyau.yml`) :
+> les cinq étapes se construisent, s'ouvrent et se ferment proprement. Les
+> étapes 2 à 5 y rendent **en logiciel** pour l'instant : le device Metal de
+> NKRHI s'initialise, mais NKRenderer ne lui fournit pas encore de nuanceurs MSL
+> (voir `NkDeviceFactory.cpp`, ordre macOS). Binaire :
+> `./Build/Bin/Debug-macOS/Tuto03Scene/Tuto03Scene`.
 
 Sur mobile : orientation paysage, contrôles tactiles (étapes 4-5) et panneaux
 décalés par la **safe area** (`NkWindow::GetSafeAreaInsets`) pour éviter

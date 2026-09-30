@@ -1293,6 +1293,51 @@ typedef unsigned __int128 NKENTSEU_uint128;
 #endif
 #endif
 
+// =========================================================================
+// SECTION 16 : ARITHMÉTIQUE FLOTTANTE REPRODUCTIBLE — PAS DE CONTRACTION FMA
+// =========================================================================
+// DÉCISION DE RIHEN (2026-09-30) : la MÊME simulation doit donner les MÊMES
+// nombres sur Windows x86_64 et sur Apple ARM — rejeux, jeu en réseau. Ce
+// n'est pas un contournement de banc, c'est un besoin.
+//
+// ⚠️ CE QUI SE PASSAIT. clang contracte `a*b + c` en une seule instruction
+//    FMA (-ffp-contract=on par défaut) partout où la cible en a une : ARM64
+//    toujours, x86_64 seulement avec -mfma — donc JAMAIS dans nos binaires
+//    Windows. Un FMA n'arrondit qu'une fois au lieu de deux : quelques ulp
+//    d'écart par opération, qu'une simulation instable amplifie. MESURE, CI
+//    macOS arm64 du 2026-09-30 : `Physic2D --selftest` (u3), un blob lâché pile
+//    au centre d'une caisse plus étroite que lui, restait dessus sous Windows
+//    et glissait au sol sur Mac (centre 0,41 m au lieu de > 0,66). Reconstruit
+//    SANS contraction sur le même Mac : vert.
+//
+// POURQUOI ICI, ET POUR TOUT CE QUI INCLUT NKENTSEU, pas seulement NKPhysics :
+//    1. les calculs de la physique passent par les fonctions INLINE de NKMath
+//       (produits scalaires, matrices), compilées dans CHAQUE unité qui les
+//       appelle. Si le moteur de rendu les compilait avec contraction et la
+//       physique sans, l'éditeur de liens ne garderait qu'UNE copie, au hasard
+//       — et en Debug, où rien n'est inliné, la physique pourrait appeler la
+//       version contractée. Le réglage doit donc être le même PARTOUT où
+//       NKMath est compilé ;
+//    2. Jenga 2.8.6 ne transmet PAS les cxxflags d'un projet sur macOS, Linux
+//       ni Web (Macos.py, Linux.py et Emscripten.py ne lisent que ceux de la
+//       chaîne) : un `-ffp-contract=off` posé dans les .jenga n'aurait agi que
+//       sous Windows, où il ne change rien. Le pragma, lui, suit le code sur
+//       toutes les plateformes. Ce fichier est inclus par NkPlatformExport.h,
+//       donc avant tout calcul de NKCore et de NKMath.
+//
+// COÛT : négligeable hors des boucles de calcul serrées ; Windows x86_64 ne
+// change pas d'un bit (il ne contractait déjà pas). Le pragma vaut jusqu'à la
+// fin de l'unité de compilation.
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(_MSC_VER)
+#pragma fp_contract(off)
+#elif defined(__GNUC__)
+// GCC ignore `#pragma STDC FP_CONTRACT` et contracte par défaut
+// (-ffp-contract=fast) : aucune chaîne du dépôt ne l'emploie aujourd'hui ;
+// si cela change, c'est -ffp-contract=off qu'il faudra passer à cette chaîne.
+#endif
+
 #endif // NKENTSEU_PLATFORM_NKCOMPILERDETECT_H
 
 // =============================================================================

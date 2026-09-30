@@ -64,7 +64,10 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: |
           python3 --version
-          python3 -m Jenga build --target NkRef --config Release
+          # construire.sh publie les erreurs en ANNOTATIONS (lisibles sans
+          # compte) : du 26/09 au 30/09, ce job ne disait que « exit code 1 ».
+          chmod +x .github/scripts/*.sh
+          .github/scripts/construire.sh build NkRef Release journaux
 
       - name: Empaqueter (tar.gz pour testeurs)
         run: |
@@ -126,7 +129,8 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: |
           python3 --version
-          python3 -m Jenga build --target NkRef --config Release
+          chmod +x .github/scripts/*.sh
+          .github/scripts/construire.sh build NkRef Release journaux
 
       - name: Empaqueter (tar.gz pour testeurs)
         run: |

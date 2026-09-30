@@ -221,6 +221,74 @@ float4 PSMain(PSIn i) : SV_Target {
 }
 )HLSL";
 
+        // ── METAL (MSL) ─────────────────────────────────────────────────────────
+        // ⚠️ IL N'Y EN AVAIT PAS, et le device Metal ne sait lire que du MSL (ou un
+        //    metallib) : sans ces deux sources, CreateShader ne produisait aucune
+        //    fonction, le pipeline etait refuse et NKCraft --backend=metal
+        //    s'arretait a l'ouverture (CI macOS du 2026-09-30).
+        // Conventions du device Metal de NKRHI (NkMetalCommandBuffer.mm) :
+        //   - tampon de sommets de la liaison 0 -> [[buffer(0)]], lu par
+        //     [[stage_in]] selon le vertex descriptor du pipeline ;
+        //   - une entree de descripteur de liaison N -> buffer(N), texture(N) et
+        //     sampler(N), pour les deux etages. D'ou les macros ci-dessus, lues
+        //     ici comme par les six autres nuanceurs.
+        // `main` est un nom RESERVE en MSL : les points d'entree s'appellent
+        // nkgui_vs / nkgui_fs et sont passes explicitement a AddMSL.
+        // NDC : Y vers le haut, comme DX -- d'ou le meme `-ndc.y` que le HLSL.
+        static constexpr const char* kVertMsl = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+struct NkGuiVsIn {
+    float2 pos [[attribute(0)]];
+    float2 uv  [[attribute(1)]];
+    uint   col [[attribute(2)]];
+};
+struct NkGuiVsOut {
+    float4 pos [[position]];
+    float2 uv;
+    float4 col;
+};
+struct NkGuiViewport {
+    float2 uViewport;
+    float2 _pad;
+};
+vertex NkGuiVsOut nkgui_vs(NkGuiVsIn v [[stage_in]],
+)MSL"
+"                          constant NkGuiViewport& vpb [[buffer(" NKGUI_STR(NKGUI_BINDING_UBO) ")]]) {"
+R"MSL(
+    NkGuiVsOut o;
+    o.col = float4(float((v.col >>  0u) & 0xFFu),
+                   float((v.col >>  8u) & 0xFFu),
+                   float((v.col >> 16u) & 0xFFu),
+                   float((v.col >> 24u) & 0xFFu)) / 255.0;
+    o.uv = v.uv;
+    float2 ndc = (v.pos / vpb.uViewport) * 2.0 - 1.0;
+    o.pos = float4(ndc.x, -ndc.y, 0.0, 1.0);
+    return o;
+}
+)MSL";
+
+        static constexpr const char* kFragMsl = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+struct NkGuiVsOut {
+    float4 pos [[position]];
+    float2 uv;
+    float4 col;
+};
+fragment float4 nkgui_fs(NkGuiVsOut i [[stage_in]],
+)MSL"
+"                        texture2d<float> uTex [[texture(" NKGUI_STR(NKGUI_BINDING_TEX) ")]],"
+"                        sampler uSampler [[sampler(" NKGUI_STR(NKGUI_BINDING_TEX) ")]]) {"
+R"MSL(
+    float4 tc = float4(1.0);
+    if (i.uv.x >= 0.0 && i.uv.y >= 0.0) {
+        tc = uTex.sample(uSampler, i.uv);
+    }
+    return i.col * tc;
+}
+)MSL";
+
         // SPIR-V PRÉ-COMPILÉ de kVertVk/kFragVk (glslangValidator). Utilisé au lieu de
         // CompileVkSpirv : la compilation glslang au RUNTIME corrompt le heap sous
         // clang-mingw (crash Vulkan à l'init de ce backend — reproduit par la démo
@@ -384,6 +452,9 @@ float4 PSMain(PSIn i) : SV_Target {
             } else if (mApi == NkGraphicsApi::NK_GFX_API_DX12) {
                 shaderDesc.AddHLSL(NkShaderStage::NK_VERTEX,   kVertHlslDx12, "VSMain");
                 shaderDesc.AddHLSL(NkShaderStage::NK_FRAGMENT, kFragHlslDx12, "PSMain");
+            } else if (mApi == NkGraphicsApi::NK_GFX_API_METAL) {
+                shaderDesc.AddMSL(NkShaderStage::NK_VERTEX,   kVertMsl, "nkgui_vs");
+                shaderDesc.AddMSL(NkShaderStage::NK_FRAGMENT, kFragMsl, "nkgui_fs");
             } else if (mApi == NkGraphicsApi::NK_GFX_API_VULKAN) {
                 // SPIR-V PRÉ-COMPILÉ (kVertVk/kFragVk) : la compilation glslang au
                 // runtime corrompt le heap sous clang-mingw (crash Vulkan). (void) sur

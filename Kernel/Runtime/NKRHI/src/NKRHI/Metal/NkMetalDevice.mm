@@ -264,7 +264,33 @@ namespace nkentseu {
 		// Headless / compute-only : pas de CAMetalLayer -> on cree juste le MTLDevice
 		// + la queue (Metal n'exige pas de surface pour le compute). Sinon, la layer
 		// est FOURNIE par l'appelant (NKRHI ne connait pas la couche fenetrage).
-		const bool headless = (desc.metalLayer == nullptr);
+		//
+		// ⚠️ LA LAYER ARRIVE PAR DEUX PORTES, et seule la premiere etait lue.
+		//    CreateMetalFromLayer la pose dans context.metal ; mais tous les
+		//    autres appelants (NkEditorRHIRenderer, les tutoriels, NkRenderer)
+		//    passent `init.surface = window.GetSurfaceDesc()`, dont le dorsal
+		//    Cocoa remplit `metalLayer`. Sans ce repli, ils obtenaient un device
+		//    « HEADLESS » qui ne presentait rien (NKCraft --backend=metal, CI macOS
+		//    du 2026-09-30).
+		void *layerFournie = desc.metalLayer;
+		if (!layerFournie) {
+			layerFournie = (__bridge void *)init.surface.metalLayer;
+		}
+		const bool headless = (layerFournie == nullptr);
+
+		// Format de presentation : celui DEMANDE (UNORM par defaut, comme GL, DX
+		// et Vulkan). Il etait code en dur en sRGB : l'interface NKGui, ecrite pour
+		// une chaine non sRGB, serait sortie delavee sur Metal seulement.
+		switch (init.context.swapchainFormat) {
+			case NkSwapchainFormat::NK_SWAPCHAIN_BGRA8_SRGB:
+			case NkSwapchainFormat::NK_SWAPCHAIN_RGBA8_SRGB:
+				mSwapFormat = NkGPUFormat::NK_BGRA8_SRGB;
+				break;
+			default:
+				// CAMetalLayer n'accepte pas RGBA8 : BGRA8 est son equivalent.
+				mSwapFormat = NkGPUFormat::NK_BGRA8_UNORM;
+				break;
+		}
 
 		// Device : prefere celui fourni, sinon le device systeme par defaut.
 		if (desc.preferredDevice) {
@@ -288,9 +314,9 @@ namespace nkentseu {
 			return true;
 		}
 
-		mLayer = (__bridge CAMetalLayer *)desc.metalLayer;
+		mLayer = (__bridge CAMetalLayer *)layerFournie;
 		mLayer.device = mDevice;
-		mLayer.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB; // cf CreateSwapchainObjects (NK_BGRA8_SRGB)
+		mLayer.pixelFormat = ToMTLFormat(mSwapFormat); // meme format que CreateSwapchainObjects
 
 		// Dimensions : la layer est la source de verite (drawableSize, sinon bounds*scale).
 		CGSize ds = mLayer.drawableSize;
@@ -317,7 +343,7 @@ namespace nkentseu {
 
 		// Render pass metadata
 		NkRenderPassDesc rpd;
-		rpd.AddColor(NkAttachmentDesc::Color(NkGPUFormat::NK_BGRA8_SRGB)).SetDepth(NkAttachmentDesc::Depth());
+		rpd.AddColor(NkAttachmentDesc::Color(mSwapFormat)).SetDepth(NkAttachmentDesc::Depth());
 		mSwapchainRP = CreateRenderPass(rpd);
 
 		// Framebuffer swapchain (la color attachment sera remplacée à chaque frame)
@@ -473,7 +499,7 @@ namespace nkentseu {
 			desc.mipLevels == 0
 				? (NSUInteger)(floor(log2((double)(desc.width > desc.height ? desc.width : desc.height))) + 1)
 				: desc.mipLevels;
-		td.arrayLength = desc.arrayLayers;
+		td.arrayLength = desc.arrayLayers > 0 ? desc.arrayLayers : 1;
 		td.sampleCount = (NSUInteger)desc.samples;
 		td.storageMode = MTLStorageModePrivate;
 
@@ -490,9 +516,17 @@ namespace nkentseu {
 			td.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
 
 		switch (desc.type) {
-			case NkTextureType::NK_CUBE:
-				td.textureType = MTLTextureTypeCube;
+			case NkTextureType::NK_CUBE: {
+				// ⚠️ Les six faces d'un cube NE SONT PAS des couches en Metal :
+				//    arrayLength compte des CUBES. Recopier arrayLayers (6) donnait
+				//    « MTLTextureTypeCube requires that arrayLength is 1 » -- une
+				//    assertion qui arretait le processus a l'initialisation de
+				//    l'environnement de NKRenderer (CI macOS du 2026-09-30).
+				const NSUInteger faces = desc.arrayLayers > 6 ? desc.arrayLayers : 6;
+				td.arrayLength = faces / 6;
+				td.textureType = (td.arrayLength > 1) ? MTLTextureTypeCubeArray : MTLTextureTypeCube;
 				break;
+			}
 			case NkTextureType::NK_TEX3D:
 				td.textureType = MTLTextureType3D;
 				break;
@@ -675,6 +709,34 @@ namespace nkentseu {
 			const char *entry = s.entryPoint ? s.entryPoint : "main";
 			NSString *fn = [NSString stringWithUTF8String:entry];
 			id<MTLFunction> func = [lib newFunctionWithName:fn];
+			// ⚠️ `main` N'EXISTE PAS EN MSL : c'est un nom reserve. Chaque
+			//    generateur en choisit un autre -- `main0` pour SPIRV-Cross,
+			//    `main_entry` pour le generateur MSL de NKSL -- et les appelants
+			//    passent `main` par habitude GLSL. Si le nom demande manque, on
+			//    prend la SEULE fonction de la bibliotheque qui a le bon etage
+			//    (vertex / fragment / kernel) ; s'il y en a plusieurs, on refuse
+			//    plutot que de deviner.
+			if (!func) {
+				MTLFunctionType voulu = MTLFunctionTypeVertex;
+				if (s.stage == NkShaderStage::NK_FRAGMENT)
+					voulu = MTLFunctionTypeFragment;
+				else if (s.stage == NkShaderStage::NK_COMPUTE)
+					voulu = MTLFunctionTypeKernel;
+				id<MTLFunction> trouvee = nil;
+				uint32 candidates = 0;
+				for (NSString *nom in lib.functionNames) {
+					id<MTLFunction> f = [lib newFunctionWithName:nom];
+					if (f && f.functionType == voulu) {
+						++candidates;
+						trouvee = f;
+					}
+				}
+				if (candidates == 1) {
+					func = trouvee;
+					NK_MTL_LOG("Fonction '%s' absente : etage trouve sous le nom '%s'\n", entry,
+							   [trouvee.name UTF8String]);
+				}
+			}
 			if (!func) {
 				NK_MTL_ERR("Fonction '%s' introuvable dans le shader\n", entry);
 				continue;
@@ -728,6 +790,18 @@ namespace nkentseu {
 			return {};
 		auto &sh = *sit;
 
+		// REFUS NOMME : sans fonction de sommets, Metal ne rend pas une erreur,
+		// il ARRETE le processus (« validateWithDevice: failed assertion
+		// vertexFunction must not be nil »). C'est ce qui tuait Tuto02..05 sur la
+		// CI macOS du 2026-09-30 : CreateShader avait recu du SPIR-V sans MSL et
+		// n'avait donc produit aucune fonction. Un pipeline invalide se rattrape ;
+		// un abort, non.
+		if (!sh.vert) {
+			NK_MTL_ERR("Pipeline refuse : le shader n'a pas de fonction de sommets (aucune source MSL "
+					   "fournie, ou compilation MSL en echec -- voir les erreurs Shader ci-dessus)\n");
+			return {};
+		}
+
 		MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
 		if (sh.vert)
 			pd.vertexFunction = (__bridge id<MTLFunction>)sh.vert;
@@ -761,7 +835,7 @@ namespace nkentseu {
 			if (rpit->desc.hasDepth)
 				pd.depthAttachmentPixelFormat = ToMTLFormat(rpit->desc.depthAttachment.format);
 		} else {
-			pd.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
+			pd.colorAttachments[0].pixelFormat = ToMTLFormat(mSwapFormat);
 			pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 		}
 
@@ -1045,7 +1119,7 @@ namespace nkentseu {
 		NkMetalTexture swt{};
 		swt.tex = (__bridge_retained void *)mCurrentDrawable.texture;
 		swt.isSwapchain = true;
-		swt.desc = NkTextureDesc::RenderTarget(mWidth, mHeight, NkGPUFormat::NK_BGRA8_SRGB);
+		swt.desc = NkTextureDesc::RenderTarget(mWidth, mHeight, mSwapFormat);
 		mTextures[colorId] = swt;
 
 		// Mettre à jour le framebuffer
