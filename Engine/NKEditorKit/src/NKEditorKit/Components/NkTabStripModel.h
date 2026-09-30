@@ -21,7 +21,7 @@
 //
 //  | site | fonction | lignes | pile | ce qu'elle a en propre |
 //  |---|---|---|---|---|
-//  | `NK3DModeler/Shell/NkModelerScreens.h` | `PaintTabsI` l.477-606 | 130 | peintre maison | liseret de NATURE, renommage en place, pastille/croix au MEME endroit |
+//  | `NKCraft/Shell/NkModelerScreens.h` | `PaintTabsI` l.477-606 | 130 | peintre maison | liseret de NATURE, renommage en place, pastille/croix au MEME endroit |
 //  | `NKCode/Shell/Panels.h` | `DrawFileTabs` l.1097-1541 | 445 | NkGuiDrawList | multi-rangees, epinglage, defilement+molette, cycle MRU, homonymes desambigues |
 //  | `NKUIDesign/main.cpp` | `DrawProjectTabs` l.7804-7955 | 152 | NKGui + `SetNextItemRect` | double signal actif (fond + lisere BAS), `+` qui ouvre un modal |
 //  | `NKCode/Shell/NkAiPanel.h` | `DrawViewTabs` l.1820-1856 | 37 | NkGuiDrawList | onglets de VUE (segmente), pas de document |
@@ -35,7 +35,7 @@
 // =============================================================================
 //  CE QUI REND LE PARTAGE POSSIBLE ICI, ET IL FALLAIT LE MESURER
 // =============================================================================
-//  ⚠️ **NK3DModeler N'UTILISE PAS `NkEditorShell`** (mesure : il n'inclut pas
+//  ⚠️ **NKCraft N'UTILISE PAS `NkEditorShell`** (mesure : il n'inclut pas
 //     `NkEditorShell.h` ; les consommateurs de la coquille sont NKCode,
 //     NKUIDesign, Nogee, UnkenyEditor, ConquerorLab). Poser la bande sur la
 //     coquille SEULE l'aurait donc rendue inatteignable a l'application meme

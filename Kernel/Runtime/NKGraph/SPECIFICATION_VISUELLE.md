@@ -3004,7 +3004,7 @@ erreur coûteuse — un graphe d'états ne « s'exécute » pas de gauche à dro
 
 | application | mode(s) | domaine du graphe | nœuds qui lui sont propres | état réel |
 |---|---|---|---|---|
-| **NK3DModeler** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
+| **NKCraft** | **FLOT** ×2 (deux bibliothèques, un seul canevas) | ① modélisation par opérations · ② matériaux | ① `Cube`, `Extruder`, `Chanfrein`, `Nombre`, `Résultat` — fil **maillage** cyan, fil **nombre** vert · ② les 26 nœuds de matériau du catalogue | 52 795 lignes qui tournent ; **le graphe reste à écrire** |
 | **NkAnima** | **FLOT**, et la machine à états est **un NŒUD** dedans (§ 19.9) | pose d'animation, et machine à états qui la choisit | **AnimGraph** (flot, type *pose*) : `Blend Poses by Bool`, `Layered Blend per Bone`, `State Machine`, `Output Pose` (final, non supprimable) · **sous-graphe d'états** : les états eux-mêmes, `Entry` non supprimable | runtime **livré** (`NkAnimStateMachine`, `NkBlendTree1D/2D`) ; **éditeur = embryon**, AnimGraph = 0 ligne |
 | **NKScena** | ✅ **PAS nodale** (tranché 23/08) — une ligne de temps à pistes dont les marqueurs entrent dans un graphe d'EXÉCUTION (§ 19.8) | ✅ **la mise en scène cinématographique** (Rodolf, 23/08) : plans, caméras, déclenchements, enchaînements | ce qui existe n'est pas nodal : `NkSequence`, `NkTrack`, `NkCameraShot`, `NkMarker` — des **pistes**, pas des nœuds | `Applications/NKScena/` **n'existe pas**. `NkSequencer.h` = 416 lignes, **0 `.cpp`, 0 consommateur** |
 | **Nogee** | **FLOT** (matériaux) **+ EXÉCUTION** (Blueprint) | ① matériaux → NkSL · ② logique gameplay / ECS · ③ VFX | ① Material Output, non supprimable · ② `EventBeginPlay`, `EventCustom`, `PrintString`, `SwitchInt`, `AddFloat`, `Raycast`, `SpawnActor`, familles *Events · FlowControl · Math · Physics · Structs* · ③ Bruit de Perlin, Courbe, Collision, Force, Attribut de particule | coquille ; **`NkBlueprint.h` porte un vrai interpréteur, ~15 nœuds — et zéro consommateur** |
@@ -3124,7 +3124,7 @@ l'est pas**, et ce paragraphe explique pourquoi c'est une question, pas un oubli
 | ce qui existe | où | état |
 |---|---|---|
 | `NkSequence`, `NkTrack`, `NkClipOnTrack`, `NkKeyframeSet`, `NkPlaybackCtrl`, `NkNLATrack`, `NkCameraShot`, `NkMarker`, `NkRenderOutput` | `Engine/Noge/src/Noge/Sequencer/NkSequencer.h` (416 lignes) | 🔴 **en-tête seul : 0 `.cpp`, 0 consommateur** |
-| `NkKeyframe<T>`, `NkAnimationTrack<T>`, et un `NkAnimationClip` qui porte **déjà** `cameraPosition / cameraTarget / cameraFOV / cameraDOFFocus`, les pistes de lumière et de post-traitement | `Kernel/Runtime/NKAnimation/` | ✅ **livré et exercé** |
+| `NkKeyframe<T>`, `NkAnimationTrack<T>`, et un `NkAnimationClip` qui porte **déjà** `cameraPosition / cameraTarget / cameraFOV / cameraDOFFocus`, les pistes de lumière et de post-traitement | `Kernel/Runtime/NKAnima/` (ex-`NKAnimation`, renommé le 02/09) | ✅ **livré et exercé** |
 | une ligne de temps qui **tourne** — playhead, losanges de clés, scrubbing, glisser, annuler/refaire | `NkAnimationEditor.h` + `Applications/NkAnimaEditor/…/Panels.h` | ✅ **le seul widget de ligne de temps écrit du dépôt** |
 | un format de séquence | — | ❌ **aucun.** `.nkanim` est un **clip**, pas une séquence. `NkSequence::SaveToFile/LoadFromFile` sont déclarés **sans corps** |
 
@@ -3481,7 +3481,7 @@ séparation à faire avec soin, pas un `git mv` de trente secondes.**
 canevas que les matériaux, avec des nœuds différents — ou deux éditeurs
 distincts ? »*
 
-Le tableau y répond, et pas par goût : **NK3DModeler ouvre déjà deux
+Le tableau y répond, et pas par goût : **NKCraft ouvre déjà deux
 bibliothèques dans un seul canevas, et NkAnima en imbrique deux modes dans un
 seul écran.** Faire deux éditeurs obligerait à en faire quatre, puis six. ✅ **Un
 seul canevas, plusieurs bibliothèques, et un MODE par graphe** — c'est le mode,

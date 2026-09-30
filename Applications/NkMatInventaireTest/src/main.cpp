@@ -5,7 +5,7 @@
 // OU IL S'ARRETE, exactement
 // --------------------------
 // 118 symboles `nkentseu::demo::Demo3DHost*` non resolus. Ils sont definis dans
-// `NkDemo3D.cpp` (17 620 lignes), qui appartient au projet NK3DModeler. Pour que
+// `NkDemo3D.cpp` (17 620 lignes), qui appartient au projet NKCraft. Pour que
 // ce banc linke, il faut COMPILER les sources du modeleur dans sa cible.
 //
 // POURQUOI ON S'EST ARRETE LA PLUTOT QUE DE LE FAIRE
@@ -30,7 +30,7 @@
 // --------------------------------------------------------
 // Le jour ou `Demo3DHost` sera une bibliotheque au lieu d'un .cpp d'application,
 // ce fichier linke sans une ligne de plus. C'est la dette « charger un .nkmat
-// ecrit dans l'hote » dans Applications/NK3DModeler/ROADMAP.md — et le chantier
+// ecrit dans l'hote » dans Applications/NKCraft/ROADMAP.md — et le chantier
 // de l'asset rendu la forcera.
 //
 // CE QU'IL A RAPPORTE SANS JAMAIS TOURNER
@@ -89,8 +89,8 @@
 #include "NKImage/Core/NkImage.h"
 #include "NKFileSystem/NkDirectory.h"
 
-#include "NK3DModeler/Viewport/NkDemo3DHost.h"
-#include "NK3DModeler/Project/NkModelerAssets.h"
+#include "NKCraft/Viewport/NkDemo3DHost.h"
+#include "NKCraft/Project/NkModelerAssets.h"
 
 #include <cstdio>
 #include <cstring>

@@ -237,7 +237,7 @@ namespace nkentseu {
 				// ── PLACEMENT EXPLICITE (2026-08-18) ──────────────────────────────
 				// Mesure : sur 114 fonctions declarees dans NkGuiWidgets.h, **12
 				// acceptent un NkRect et 102 se placent elles-memes** via
-				// NextItemRect. Une interface pilotee par rectangles (NK3DModeler)
+				// NextItemRect. Une interface pilotee par rectangles (NKCraft)
 				// ne pouvait donc appeler que 12 d'entre elles — pas par
 				// indiscipline, faute de moyen. Ces deux champs sont ce moyen : un
 				// rectangle POSE pour le PROCHAIN widget seulement, consomme par
@@ -518,6 +518,13 @@ namespace nkentseu {
 				bool inputDrag = false;		 ///< glissement souris en cours (étend la sélection)
 				float32 inputScroll = 0.f;		 ///< défilement horizontal du champ focalisé
 				bool inputClickConsumed = false; ///< un champ a-t-il pris le clic cette frame ?
+				/// (29/09) La ZONE DE SAISIE du champ focalise, en pixels : la ou
+				/// l'IME doit ouvrir sa composition et sa liste de candidats. Posee
+				/// par le champ a chaque image ou il a le focus, remise a faux par
+				/// BeginFrame. L'application la transmet a
+				/// NkWindow::SetTextInputArea ; NKGui ne connait pas la fenetre.
+				bool imeZoneValid = false;
+				NkRect imeZone = {0.f, 0.f, 0.f, 0.f};
 
 				// Renommage inline (F2 / double-clic sur un item) : id de l'item édité
 				// + sauvegarde du libellé pour annuler (Échap).

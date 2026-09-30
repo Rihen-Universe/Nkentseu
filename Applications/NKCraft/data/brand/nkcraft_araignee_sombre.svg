@@ -1,0 +1,29 @@
+<!--
+  NKCraft : logo PROVISOIRE, l'araignee (choix de Rihen, 29/09/2026), en attendant
+  le designer. Corps = cube en isometrie, pattes = aretes, bouts = sommets, fil =
+  toile d'un maillage. Motif frequent des arts des Grassfields (Bamileke, Bamoum).
+  MEME dessin que Shell/NkModelerBrand.h (painter) et Resources/gen_icon.ps1
+  (icone d'application) : les trois changent ensemble. Repere 100 x 100.
+  Couleurs : bleu d'etat #1177D1, ambre de selection #F2980E, fond #141414. Version SOMBRE ; la version CLAIRE est nkcraft_araignee_clair.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+  <rect width="100" height="100" rx="19" fill="#141414"/>
+  <g transform="translate(8 8) scale(0.84)">
+    <g fill="none" stroke="#A2A6AD" stroke-width="1.4">
+      <polyline points="16,22 8,44 8,58 16,80"/>
+      <polyline points="84,22 92,44 92,58 84,80"/>
+    </g>
+    <g fill="none" stroke="#F5F5F5" stroke-width="4" stroke-linejoin="round" stroke-linecap="round">
+      <polyline points="42,43 28,26 16,22"/><polyline points="40,48 22,40 8,44"/>
+      <polyline points="40,53 22,60 8,58"/><polyline points="42,58 28,74 16,80"/>
+      <polyline points="58,43 72,26 84,22"/><polyline points="60,48 78,40 92,44"/>
+      <polyline points="60,53 78,60 92,58"/><polyline points="58,58 72,74 84,80"/>
+    </g>
+    <polygon points="50,36 62,43 62,57 50,64 38,57 38,43" fill="#F2980E"/>
+    <path d="M38,43 L50,50 L62,43 M50,50 V64" fill="none" stroke="#141414" stroke-width="3"/>
+    <g fill="#1177D1">
+      <circle cx="16" cy="22" r="4"/><circle cx="8" cy="44" r="4"/><circle cx="8" cy="58" r="4"/><circle cx="16" cy="80" r="4"/>
+      <circle cx="84" cy="22" r="4"/><circle cx="92" cy="44" r="4"/><circle cx="92" cy="58" r="4"/><circle cx="84" cy="80" r="4"/>
+    </g>
+  </g>
+</svg>

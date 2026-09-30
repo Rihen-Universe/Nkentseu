@@ -894,7 +894,7 @@ namespace nkanima {
 		//    sa frame (BeginFrame/Present) : l'editeur possede la frame device ».
 		//    Donc `g.r3->GetStats()` ne sera JAMAIS alimente -- c'est
 		//    `NkRendererImpl::EndFrame()` qui fige ces compteurs, et il ne tourne
-		//    pas pour ce chemin. Meme structure que NK3DModeler, meme piege : *un
+		//    pas pour ce chemin. Meme structure que NKCraft, meme piege : *un
 		//    instrument qui observe la mauvaise population rend zero*.
 		//    (Nogee, lui, pilote une frame complete -- son relais serait
 		//    `GetStats()` en direct. Deux hotes, deux relais : c'est la mesure qui
@@ -1083,7 +1083,7 @@ namespace nkanima {
 			g.cptTris = (c1.triangles >= avT) ? (c1.triangles - avT) : c1.triangles;
 			g.cptSommets = (c1.vertices >= avV) ? (c1.vertices - avV) : c1.vertices;
 			g.cptValide = true;
-			// NK_CPT_TRACE=1 : la MEME trace que NK3DModeler, et pour la meme
+			// NK_CPT_TRACE=1 : la MEME trace que NKCraft, et pour la meme
 			// raison -- « la structure est identique » est une INFERENCE, pas une
 			// mesure. Ce depot punit exactement ca.
 			static const bool kTrA = (std::getenv("NK_CPT_TRACE") != nullptr);

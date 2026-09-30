@@ -37,6 +37,40 @@
 > repos est absorbée une fois à l'import (`FromLocalBind`), le local se dérive.
 > Les mentions de `NkRetargetSkeleton` plus bas décrivent l'état **avant** cette
 > date — on ne corrige pas un journal, on le date.
+>
+> 🌳 **2026-09-29 — la machine à états est ENFIN hiérarchique.** Le tableau
+> « Contenu mesuré » ci-dessous (mesure du 17/08) écrit `NkAnimStateMachine`
+> **(HFSM)** : c'était **faux** à cette date, et l'est resté jusqu'au 29/09 — la
+> machine était **plate** (un niveau, un état = un clip ou un blend tree, trois
+> conditions BOOL_TRUE / FLOAT_GREATER / FLOAT_LESS, aucune sous-machine). Aucun
+> des manques du § 2 ne le disait. Depuis le commit `d0cb1cedc`, **par ajout**,
+> l'API plate rendant les mêmes choix (témoin différentiel contre l'ancienne
+> implémentation, `tests/test_hfsm.cpp` h0b) :
+> - sous-machines (`AddSubMachine`, `AddState(parent, ...)`, `AddEmptyState`),
+>   état d'entrée (`SetEntryState`), transitions **vers** un composite (on
+>   descend à sa feuille d'entrée) et **depuis** un composite ;
+> - any-state **à chaque niveau** (`AddAnyStateTransition(scope, ...)`) ;
+> - conditions combinées (`AddTransitionEx` + `AddCondition`, ET), priorités ;
+>   à priorité égale le niveau englobant, puis l'ordre d'ajout ;
+> - `NkCondKind` étendu **après** ses trois valeurs : `BOOL_FALSE`, `TRIGGER`
+>   (déclencheur **consommé** au tir), `TIME_IN_STATE` ;
+> - fondu entre **feuilles** de niveaux différents ; paramètres partagés par
+>   tous les niveaux et entre machines (`ShareParametersWith`) ;
+> - état d'exécution séparé de la définition (`NkRuntime`, copiable bit à
+>   bit) : une définition, N personnages — c'est ainsi qu'Unkeny s'en sert
+>   (`Engine/Unkeny/src/Unkeny/Anim/NkUnkenyAnimateur.h`, premier consommateur
+>   2D du module) ;
+> - **`.nkanim` v3** = le corps v2 d'un clip + des sections étiquetées, dont
+>   `'HFSM'`. Un **clip** s'écrit toujours en **v2**, octet pour octet ; v1/v2
+>   se relisent ; une section inconnue est sautée.
+>
+> Les deux `NkHashMap` de paramètres cités au § Dettes 1 (`mBools`, `mFloats`)
+> **n'existent plus** : les paramètres sont une liste déclarée (nom, genre,
+> défaut), ce qu'exigeaient la sauvegarde et l'inspecteur. Restent
+> `customFloats` / `customVec4s`. Suite : `NKAnima_Tests` **19/19** (8 avant).
+> Reste à faire, et nommé : l'éditeur visuel de la machine (NKGraph, cf. § 2),
+> et la condition « fin de clip » (temps normalisé) — `TIME_IN_STATE` compte en
+> secondes.
 
 ## Ce que le module EST
 
@@ -92,7 +126,7 @@ lui-même) :
 |---|---|
 | Kernel | `NKRenderer/Core/NkRendererImpl.h`, `NKRenderer/Mesh/NkGLTFAnimBake.h`, `NKRenderer/Tools/Animation/NkAnimationSystem.h`, `NKRenderer/Tools/IK/NkIKSystem.cpp` |
 | Engine | `Noge/Anim/NkLocomotion.h` |
-| Applications | `DemoRW`, `NK3DModeler/Viewport/NkDemoRenderer.h`, `NkAnimaEditor/AnimBridge.cpp`, `NkAnimPhysTest`, `NkLocomotionDemo`, `Sandbox/DemoAnim.cpp`, `Sandbox/DemoAnimIK.cpp`, `Sandbox/NkRenderer.h` |
+| Applications | `DemoRW`, `NKCraft/Viewport/NkDemoRenderer.h`, `NkAnimaEditor/AnimBridge.cpp`, `NkAnimPhysTest`, `NkLocomotionDemo`, `Sandbox/DemoAnim.cpp`, `Sandbox/DemoAnimIK.cpp`, `Sandbox/NkRenderer.h` |
 
 ⚠️ **`NKRenderer/Tools/Animation/` n'a PAS été vidé le 14/08** — vérifié
 aujourd'hui, 4 fichiers, **492 lignes** : `NkAnimationSystem.{h,cpp}` (la façade

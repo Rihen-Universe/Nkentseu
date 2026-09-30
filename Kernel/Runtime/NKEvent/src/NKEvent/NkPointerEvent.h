@@ -14,7 +14,7 @@
 //
 // POURQUOI IL EXISTE — mesure du 2026-09-01, pas une impression
 //   NEUF applications du depot traduisaient elles-memes souris+doigt vers un
-//   geste unique : Gemcrush, Mou, Nkoung, NK3DModeler, NKPA, RihenDefi,
+//   geste unique : Gemcrush, Mou, Nkoung, NKCraft, NKPA, RihenDefi,
 //   NkVideoPlayer, NkAudioPlayer, Songoo. Neuf copies d'une fonction de
 //   quarante lignes, qui divergent des qu'une seule est corrigee.
 //   Le Kernel n'en portait rien : `grep NkPointer Kernel/` ne rendait que les

@@ -1132,7 +1132,7 @@ static uint32 GroupesIntacts(const NkEditMesh &mesh) {
 }
 
 int main(int argc, char **argv) {
-	const char *brushDir = "Applications/NK3DModeler/data/brushes";
+	const char *brushDir = "Applications/NKCraft/data/brushes";
 	// Les sujets reels vivent HORS du depot (sorties de la chaine 3D).
 	const char *subjectDir = "D:/Rihen/Livraisons/Resultats_3D/retopologie";
 	for (int i = 1; i < argc; ++i) {

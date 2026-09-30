@@ -17,7 +17,7 @@ pour le système **sans recompiler l'application entière**.
   le substrat **NKGraph** (les nœuds comme unité d'extension).
 - Surface exposée : quoi au juste ? (outils d'édition, importeurs/exporteurs,
   modificateurs, nœuds de matériaux, panneaux.)
-- Découverte : dossier `<utilisateur>/NK3DModeler/plugins/` — même convention
+- Découverte : dossier `<utilisateur>/NKCraft/plugins/` — même convention
   premier-trouvé-gagne que les thèmes et `data/icons.cfg`.
 - Sécurité et versionnage : un plugin compilé contre une vieille interface ne
   doit pas planter l'application — numéro de version d'interface vérifié au

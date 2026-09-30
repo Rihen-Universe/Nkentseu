@@ -4,7 +4,7 @@
 
 AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 
-Le fil du panneau IA de NK3DModeler construit ses cles de clic avec l'INDICE
+Le fil du panneau IA de NKCraft construit ses cles de clic avec l'INDICE
 (`ai.b%d`) au-dessus d'une FENETRE GLISSANTE. Des qu'un bloc entre dans un fil
 plein, tout se decale et la cle ne designe plus le meme bloc : Rodolf deplie un
 bloc, une reponse arrive, un AUTRE se deplie.
@@ -46,7 +46,7 @@ with project("NKAiFilTest"):
     # regle y avait ete SORTIE du panneau. Ici le producteur mesure vit encore
     # dans le panneau : c'est le prix de mesurer l'existant plutot qu'une copie.
     nkentseudependson(
-        # Reprise TELLE QUELLE de la liste de NK3DModeler : `NkModelerAiPanel.h`
+        # Reprise TELLE QUELLE de la liste de NKCraft : `NkModelerAiPanel.h`
         # tire sa coquille, donc il tire ses dependances. Les deviner une par une
         # au fil des erreurs de compilation aurait produit une liste qui marche
         # aujourd'hui et casse au premier include ajoute en amont.
@@ -54,7 +54,7 @@ with project("NKAiFilTest"):
          "NKConverse", "NKWindow", "NKEvent", "NKGlad", "NKFont", "NKImage",
          "NKFileSystem", "NKSerialization", "NKReflection", "NKThreading", "NKLogger",
          "NKMath", "NKTime", "NKStream", "NKContainers", "NKMemory", "NKCore", "NKPlatform"],
-        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src",
+        extra_includes=["src", "%{wks.location}/Applications/NKCraft/src",
                         "%{NKGlad.location}/include"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         extra_defines=[f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"],

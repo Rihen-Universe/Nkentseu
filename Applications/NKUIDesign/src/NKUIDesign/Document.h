@@ -5187,7 +5187,7 @@ namespace nkuidesign {
 	/// ancetre ? ». Le composant d'arbre exige des drapeaux deja composes avec
 	/// les ancetres (il ne connait pas notre semantique d'heritage), et il a
 	/// besoin de `herite` pour peindre l'icone ATTENUEE et REFUSER le clic --
-	/// sans quoi le refus parait inexplicable. NK3DModeler a paye cette lecon a
+	/// sans quoi le refus parait inexplicable. NKCraft a paye cette lecon a
 	/// l'usage.
 	inline void NkDrapeauxArbre(const NkUIDocument &doc, nkentseu::int32 i, bool &cache,
 								bool &verrouille, bool &herite) {

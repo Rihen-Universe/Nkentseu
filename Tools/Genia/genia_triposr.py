@@ -4,8 +4,8 @@
 #
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 #
-# Ce script est le PROCESSUS EXTERNE que NK3DModeler lance derriere l'interface
-# NkIGenerateur (Applications/NK3DModeler/src/NK3DModeler/Genia/NkGenerateur.h).
+# Ce script est le PROCESSUS EXTERNE que NKCraft lance derriere l'interface
+# NkIGenerateur (Applications/NKCraft/src/NKCraft/Genia/NkGenerateur.h).
 # Python n'est PAS une dependance du build C++ : le modeleur lance ce script,
 # attend, et lit le fichier au chemin `--out`. Rien d'autre ne traverse.
 #
@@ -54,7 +54,7 @@ def _refus(msg, code=2):
 def _alpha_reel(image):
     """Le canal alpha DETOURE-t-il vraiment l'objet ?
     ⚠️ CORRIGE LE 21/09 : le test etait « un seul pixel sous 255 ». Une vue
-    rendue par NK3DModeler porte un alpha a 229..255 sur 0,05 % des pixels
+    rendue par NKCraft porte un alpha a 229..255 sur 0,05 % des pixels
     (bords anticreneles) : le test la declarait detouree, le detourage etait
     SAUTE, et TripoSR recevait le sol et le ciel comme faisant partie de
     l'objet. Un alpha reel met au moins 1 % des pixels sous 128."""

@@ -24,7 +24,7 @@ pour le zero et l'annulation, SIGNE de la variation de volume pour la direction
 nombre de bords pour la topologie. Un chiffre grave se perime, et en vert.
 
 NE MESURE PAS : le rendu (ni GPU ni image), ni la sculpture 2.5D (espace ecran,
-dossier Tools/PixolSculpt), ni le branchement dans NK3DModeler.
+dossier Tools/PixolSculpt), ni le branchement dans NKCraft.
 """
 from Jenga import *
 from jengaconfig import *

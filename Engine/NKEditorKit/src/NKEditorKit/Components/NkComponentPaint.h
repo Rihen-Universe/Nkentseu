@@ -10,7 +10,7 @@
 //  ⚠️ CE FICHIER N'EST PAS LE PEINTRE. C'EST LE CONTRAT DE SA RECEPTION.
 // =============================================================================
 //  Le peintre partage (palier 1 de `ROADMAP.md` §6) est extrait par l'agent
-//  NK3DModeler depuis `NkModelerUI.h` (`NkModelerPainter`, 571 l.). Je le
+//  NKCraft depuis `NkModelerUI.h` (`NkModelerPainter`, 571 l.). Je le
 //  RECOIS, je ne le prends pas — c'est la sequence acceptee le 18/08.
 //
 //  Ce fichier est donc ce qui manquait pour que la reception ait un sens : une
@@ -20,7 +20,7 @@
 //  arrivera — seule la classe passee en argument changera.
 //
 //  ⚠️ LE DECLENCHEUR EST ADVENU — 2026-08-30, ET VOICI CE QU'IL A DONNE.
-//     Le peintre de NK3DModeler est ARRIVE : `NkModelerComponentPaint.h`
+//     Le peintre de NKCraft est ARRIVE : `NkModelerComponentPaint.h`
 //     (147 l., commit `6f62e114`, branche `refonte-interface-nk3dmodeler`),
 //     les 13 virtuelles couvertes, et `tree_view` + `content_browser` rendent
 //     deja chez lui derriere `NK_KIT_TREE=1` / `NK_KIT_BROWSER=1`, nourris par
@@ -28,12 +28,12 @@
 //
 //     ⚠️ MAIS LA PHRASE D'ORIGINE — « si elle est meilleure, l'adaptateur
 //     s'efface » — ETAIT FAUSSE, et la mesure du 30/08 dit pourquoi : le
-//     peintre de NK3DModeler exige un `NkModelerPainter`, que NkUIDesign n'a
+//     peintre de NKCraft exige un `NkModelerPainter`, que NkUIDesign n'a
 //     pas et n'aura jamais. Il ne peut donc pas remplacer
 //     `NkGuiComponentPaint` : il s'y AJOUTE. La realite advenue est TROIS
 //     implementations perennes, une par monde :
 //        NkGuiComponentPaint      le monde NkGuiDrawList (NkUIDesign)
-//        NkModelerComponentPaint  le monde NkModelerPainter (NK3DModeler)
+//        NkModelerComponentPaint  le monde NkModelerPainter (NKCraft)
 //        NkRecordingPaint         les essais (lit ce qui est emis)
 //     Et « il ne doit pas grossir » reste vrai pour chacune : une decision de
 //     rendu se prend dans le COMPOSANT, jamais dans un peintre.
@@ -51,7 +51,7 @@
 //     toujours.
 //
 //     **Le diagnostic etait bon, le remede etait faux**, et c'est l'arbitrage
-//     du 18/08 (canal NK3DModeler) qui l'a montre sur une mesure que je n'avais
+//     du 18/08 (canal NKCraft) qui l'a montre sur une mesure que je n'avais
 //     pas faite : `S(px)` est appelee dans `NkLayout::Compute` et
 //     `NkModelerTables.h` — **du code qui ne peint pas**. Faire circuler un
 //     peintre jusque-la aurait cree un couplage pire que celui qu'on repare.
@@ -74,7 +74,7 @@
 //        remplacer.
 //
 //  B. UNE ICONE EST UNE POIGNEE OPAQUE (`uint16`), JAMAIS UNE ENUMERATION.
-//     `NkIcon` est le vocabulaire de NK3DModeler (102 glyphes) ; NKCode en a 91
+//     `NkIcon` est le vocabulaire de NKCraft (102 glyphes) ; NKCode en a 91
 //     autres, en PNG. Si le kit connaissait l'enumeration d'une application, il
 //     ne servirait qu'a elle. Le peintre resout la poignee ; le composant ne
 //     sait pas ce qu'il dessine, et c'est ce qui le rend partageable.
@@ -433,7 +433,7 @@ namespace nkentseu {
 				//    quand l'implementation ne sait pas les dessiner — l'appelant
 				//    peint alors un REPLI VISIBLE au lieu d'un vide silencieux.
 				//    Additives avec defaut : AUCUNE des trois implementations (les
-				//    deux de cet arbre, l'adaptateur de NK3DModeler) ne casse a la
+				//    deux de cet arbre, l'adaptateur de NKCraft) ne casse a la
 				//    compilation ; chacune les comble quand son monde le permet.
 				/// Ellipse PLEINE inscrite dans `r`. Vrai si dessinee.
 				virtual bool Ellipse(const NkPaintRect &r, uint16 role) {
@@ -474,7 +474,7 @@ namespace nkentseu {
 				/// avec un corps de police demande en px (0 = celui du peintre) et
 				/// une graisse indicative (0 = normale). ⚠️ DEFAUT QUI REPLIE SUR
 				/// LE ROLE : une implementation qui ne sait ni la couleur ni le
-				/// corps (le peintre ENREGISTREUR, l'adaptateur NK3DModeler) rend
+				/// corps (le peintre ENREGISTREUR, l'adaptateur NKCraft) rend
 				/// le meme texte par `Text(role)` — la geometrie et le contenu
 				/// restent justes, seul le costume manque, et il manque pareil a
 				/// chaque passe (le banc de neutralite ne bouge pas).

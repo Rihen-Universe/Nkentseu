@@ -12,6 +12,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Unkeny/Scene/NkUnkenyScene.h"
+#include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
@@ -72,6 +73,7 @@ namespace nkentseu {
 			// Les composants d'Unkeny que NkPhotoEntite ne nomme pas passent par
 			// le meme chemin que ceux d'un jeu.
 			PhotographierAussi<NkAnimSprite2D>("NkAnimSprite2D");
+			PhotographierAussi<NkAnimateur2D>("NkAnimateur2D");
 			PhotographierAussi<NkVitesse2D>("NkVitesse2D");
 			PhotographierAussi<NkSource2D>("NkSource2D");
 
@@ -405,6 +407,9 @@ namespace nkentseu {
 			AppliquerVitessesManuelles(deltaTime);
 			// Les animations suivent le temps de la TRAME, pas le pas fixe : une
 			// marche a 12 images/s ne doit pas dependre de la physique.
+			// L'animateur (machine a etats de NKAnima) AVANT : le clip qu'il
+			// choisit a cette trame est avance a cette trame.
+			NkAvancerAnimateurs(mMonde, deltaTime);
 			NkAvancerAnimations(mMonde, deltaTime);
 			LancerSystemes(NkPhaseSysteme::NK_TRAME, deltaTime);
 		}

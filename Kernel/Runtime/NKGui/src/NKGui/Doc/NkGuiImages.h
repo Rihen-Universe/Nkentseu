@@ -24,7 +24,7 @@
 // =============================================================================
 //  Laisser chaque application decoder, mettre en cache et allouer ses `texId`
 //  aurait donne QUATRE implementations du meme mecanisme -- NKUIDesign,
-//  NkAnimaEditor, NK3DModeler, Nogee -- dont trois finiraient par diverger de la
+//  NkAnimaEditor, NKCraft, Nogee -- dont trois finiraient par diverger de la
 //  premiere. C'est la faute que ce depot paie le plus souvent.
 //
 //  ⚠️ MAIS LE DECODAGE NE PEUT PAS VIVRE ICI, ET LA MESURE L'A TRANCHE CONTRE MOI.

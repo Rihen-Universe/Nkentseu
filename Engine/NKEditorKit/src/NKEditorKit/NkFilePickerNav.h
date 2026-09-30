@@ -337,7 +337,7 @@ namespace nkentseu {
 				//   - le DOCUMENT : range dans le fichier, il voyage avec lui.
 				// Ici, une seule liste ORDONNEE (le plus recent d'abord) que l'hote remplit
 				// dans l'ordre qu'il veut -- deux vecteurs dans le kit auraient impose sa
-				// semantique a NK3DModeler et NKCode, qui n'ont pas la meme notion.
+				// semantique a NKCraft et NKCode, qui n'ont pas la meme notion.
 				NkVector<NkString> recents;
 
 				/// ⑥ (05/09, nuit) LE DOSSIER COURANT -- LA TETE DES RECENTS, et rien d'autre.

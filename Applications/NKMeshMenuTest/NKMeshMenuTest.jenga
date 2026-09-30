@@ -39,7 +39,7 @@ with project("NKMeshMenuTest"):
         ["NKEditorKit", "NKGui", "NKWindow", "NKFont", "NKImage", "NKFileSystem",
          "NKEvent", "NKMath", "NKTime", "NKStream", "NKLogger",
          "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading"],
-        extra_includes=["src", "%{wks.location}/Applications/NK3DModeler/src"],
+        extra_includes=["src", "%{wks.location}/Applications/NKCraft/src"],
     )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

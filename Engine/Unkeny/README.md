@@ -47,6 +47,7 @@ applications qui n'utilisent pas Unkeny. Unkeny les re-exporte simplement.
 | collision 2D | `Kernel/Runtime/NKCollision` (2D+3D, 13 vagues, 107 cas) |
 | physique 2D | `Kernel/Runtime/NKPhysics` (2D+3D, complet M0→M13) |
 | son | `Kernel/Runtime/NKAudio` |
+| machine à états d'animation | `Kernel/Runtime/NKAnima` (HFSM) — Unkeny n'en a que le pont, `Anim/NkUnkenyAnimateur` (2026-09-29) |
 | images, polices | `NKImage`, `NKFont` |
 | fenêtre, boucle, cycle de vie mobile | `NKCanvas/App/NkCanvasApp` |
 | graphe de nœuds | `Kernel/Runtime/NKGraph` |
