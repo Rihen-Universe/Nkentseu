@@ -1613,7 +1613,7 @@ JPEG pour `DCTDecode`), **NKFont** (glyphes des polices embarquées),
 Consommateurs **réels**, relevés le 14/08 en cherchant qui inclut `"NKMedia/…"` :
 - côté moteur, un seul — **NKAudio** (codecs audio) ;
 - côté applications — **NKCode** (afficheur PDF), **NKIlyana** (corpus PDF et
-  documents), **NkVideoPlayer**, **NK3DModeler**, **NKViewportDemo**, **DemoRW**,
+  documents), **NkVideoPlayer**, **NKCraft**, **NKViewportDemo**, **DemoRW**,
   **Sandbox**, plus les bancs `NKMediaTest` / `NKVideoTest` / `NkVideoReadTest` /
   `NKOpusRef`.
 

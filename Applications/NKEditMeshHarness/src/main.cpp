@@ -2954,7 +2954,7 @@ static void ThemeBattery() {
 	}
 
 	// 6) ROLES D'APPLICATION. Le garde-fou n.1 de NKGraph applique aux themes :
-	//    NK3DModeler enregistre SES roles, NKEditorKit n'a pas a les connaitre.
+	//    NKCraft enregistre SES roles, NKEditorKit n'a pas a les connaitre.
 	//    LE PIEGE est l'enregistrement : une sauvegarde qui ne parcourrait que
 	//    l'enumeration du coeur perdrait ces roles EN SILENCE, et le fichier
 	//    paraitrait pourtant complet. On verifie donc l'aller-retour, pas la
@@ -4064,7 +4064,7 @@ static void SixOpsBattery() {
 
 // ── LES FAMILLES, CONSTRUITES SANS APPLICATION (22/09, Q10.1) ──────────────
 // CE QUE CE BANC PROUVE, ET POURQUOI IL FALLAIT LE PROUVER
-// Les constructeurs de familles ont quitte NK3DModeler pour NKRenderer, afin que
+// Les constructeurs de familles ont quitte NKCraft pour NKRenderer, afin que
 // Noge, Nogee et NKScena puissent s'en servir. « Ils ont demenage » est une
 // phrase ; ce banc est la mesure. Il tourne dans un binaire de CONSOLE : aucune
 // fenetre, aucun GPU, aucun noeud de scene, aucun `Demo3DHost*`. S'il construit
@@ -10745,7 +10745,7 @@ static void LoiInsetLigne(const char *op, bool triangule, int32 indiv, uint32 nD
 //       repli soude en designe donc SIX. D'ou le +24.
 //
 //  ⚠️ CE BANC NE POSE AUCUNE INTENTION DE FACE (il ecrit `verts[].sel` a la
-//     main) : il tombe TOUJOURS dans le repli. NK3DModeler, lui, appelle
+//     main) : il tombe TOUJOURS dans le repli. NKCraft, lui, appelle
 //     `SetFaceSelection` -- et le commentaire de `NkDemo3D.cpp` porte, mot pour
 //     mot, le defaut que je croyais decouvrir : « Sans cette ligne, l'ecran
 //     disait 2 et l'extrusion en prenait 6 ». **Il a deja ete trouve et corrige
@@ -10837,7 +10837,7 @@ static int32 LoiInstrument() {
 //  ⚠️ QUELLE EPREUVE : `LoopCutFromSelectedEdge` part d'une ARETE selectionnee.
 //     On marque les deux sommets d'une arete A LA MAIN, sans poser d'intention :
 //     c'est le chemin de REPLI. **Aucune conclusion de ce banc ne porte sur ce
-//     que voit Rodolf** tant qu'on n'a pas verifie comment NK3DModeler designe
+//     que voit Rodolf** tant qu'on n'a pas verifie comment NKCraft designe
 //     son arete. C'est la faute commise sur `inset` -- un vrai desaccord attribue
 //     a un chemin que le produit n'emprunte pas.
 //

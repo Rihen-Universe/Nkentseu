@@ -1194,7 +1194,7 @@ namespace nkentseu {
 		// Une fenetre REDUITE n'a plus de surface de rendu utile, mais Windows
 		// lui laisse un rect de placeholder (~160x28) : tester la taille ne
 		// detecte donc JAMAIS la minimisation. C'est ce rect qui partait en
-		// ResizeSwapchain et tuait NK3DModeler a la restauration (defaut 4.3).
+		// ResizeSwapchain et tuait NKCraft a la restauration (defaut 4.3).
 		return mData.mHwnd && IsIconic(mData.mHwnd) != 0;
 	}
 

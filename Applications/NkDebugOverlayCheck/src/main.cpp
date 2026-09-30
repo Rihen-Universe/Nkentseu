@@ -171,7 +171,7 @@ int main() {
 		printf("   l application -- DrawStats est appele par 18 sites applicatifs et le\n");
 		printf("   renderer ne le dessine jamais lui-meme. C est la lecture (A) qui a ete\n");
 		printf("   tranchee, et (B) « le renderer dessine » a ete ecartee : elle aurait\n");
-		printf("   donne deux panneaux superposes chez NK3DModeler.\n");
+		printf("   donne deux panneaux superposes chez NKCraft.\n");
 	}
 	return gFail == 0 ? 0 : 1;
 }

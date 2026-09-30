@@ -27,7 +27,7 @@
 //     besoin de l'inverse, c'est le CONSOMMATEUR qui compose, pas le module
 //     qui monte d'une couche. Mesure qui l'impose : `Kernel/AI/NKAgent`
 //     declare NKTensor, NKRL et NKInfer — y loger la conversation aurait
-//     fait tirer tout le moteur d'inference dans NK3DModeler, qui n'a
+//     fait tirer tout le moteur d'inference dans NKCraft, qui n'a
 //     besoin que de lire un fichier.
 //  2. NKThreading ET NKTime SONT DECLARES dans `NKConverse.jenga`, et un
 //     en-tete inclut ce qu'il utilise. C'est la faute exacte qui a casse
@@ -201,7 +201,7 @@ namespace nkentseu::converse {
 
 	// -- BACKEND PAR PROCESSUS EXTERNE ---------------------------------------
 	// ATTENTION : C'EST LA MEME FORME QUE LE PONT 3D DU MODELEUR, ET C'EST VOULU.
-	//    `NK3DModeler/Genia/NkGenerateur.h` ne connait ni TripoSR ni PyTorch :
+	//    `NKCraft/Genia/NkGenerateur.h` ne connait ni TripoSR ni PyTorch :
 	//    il connait un GABARIT de ligne de commande a deux trous, `{image}` et
 	//    `{out}`, et une regle -- « code 0 et le fichier existe, ou un refus
 	//    nomme ». Le jour ou un modele entraine chez Rihen remplace TripoSR,

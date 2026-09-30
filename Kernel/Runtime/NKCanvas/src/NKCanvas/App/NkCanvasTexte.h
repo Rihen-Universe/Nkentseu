@@ -24,7 +24,7 @@
 //   Ce fichier n'en a pas, et ne doit pas en avoir.
 //
 // 📌 SA PLACE DEFINITIVE RESTE NKGUI, pas NKCanvas : une application qui utilise
-//   NKGui SANS NKCanvas (NKCode, NK3DModeler) ne les voit toujours pas. Le jour
+//   NKGui SANS NKCanvas (NKCode, NKCraft) ne les voit toujours pas. Le jour
 //   ou quelqu'un ouvre NKGui pour autre chose, ce fichier y descend sous le nom
 //   NkGuiDrawText.h et celui-ci le re-exporte. Tant que ce n'est pas fait, il
 //   evite au moins que le compte monte.

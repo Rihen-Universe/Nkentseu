@@ -602,7 +602,7 @@ namespace nkentseu {
 			// chemin qui lie le maillage PUIS PBR_BlendBack PUIS PBR_Blend -- d'ou le
 			// seuil exact dc.alpha < 0.999f de NkRender3D::Submit. Repro minimal : un
 			// cube sans materiau ni ombre, seul dans la scene, sain a 0.9995 et tombe
-			// a 0.998. OpenGL etant le dorsal par defaut de NK3DModeler, tout objet
+			// a 0.998. OpenGL etant le dorsal par defaut de NKCraft, tout objet
 			// semi-opaque -- verre, fondu, apercu -- faisait tomber l'outil.
 			//
 			// On memorise donc ce que l'appelant a demande, pour le lui rendre apres

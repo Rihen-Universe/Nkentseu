@@ -15,7 +15,7 @@ Trois pertes mesurées la même semaine, toutes de la même cause :
 - trois étapes de NkUIDesign livrées sans que personne ne voie la fenêtre —
   c'est Rodolf qui a découvert, en lançant le binaire, qu'il n'y avait **rien**
   à l'écran ;
-- sur NK3DModeler, un menu contextuel câblé, compilé, 25 raccourcis sans
+- sur NKCraft, un menu contextuel câblé, compilé, 25 raccourcis sans
   conflit — **invisible un tour entier** ;
 - le sous-menu des six backends de NkUIDesign, **jamais photographié ouvert**,
   deux tours de suite.
@@ -99,7 +99,7 @@ sous-menu des backends n'a jamais été relevé :
    elle rend **structurellement impossible** le critère « un contrôle câblé
    mais invisible doit se voir ». Le relevé confond « absent » et « invisible ».
 3. 🔴 **Ça vit dans UNE application.** Deux fichiers, tous deux dans
-   NKUIDesign. NK3DModeler, Nogee, NKCode, NKScena n'en héritent pas.
+   NKUIDesign. NKCraft, Nogee, NKCode, NKScena n'en héritent pas.
 
 > **Le geste n'est pas de réécrire `UiRects` : c'est de le PROMOUVOIR** — même
 > principe (lire ce qui a été *émis*, jamais des pixels), au bon étage, avec
@@ -215,7 +215,7 @@ lue une fois à `Init` — même modèle que `NK_MENU_TRACE=1` sur l'autre chant
 
 ⚠️ **`NK_MENU_TRACE` n'existe pas dans cet arbre** (0 résultat, contrôle
 positif fait sur `NK_GUI_INTROSPECT` après écriture). Il vit sur le chantier
-NK3DModeler. C'est un modèle cité, pas une dépendance.
+NKCraft. C'est un modèle cité, pas une dépendance.
 
 ### 3.5 Ce que l'instrument NE fait PAS, et pourquoi c'est écrit ici
 
@@ -343,7 +343,7 @@ le plus : `dx12` est **cablee, compilee, soumise a NKGui — et invisible**.
 `UiRects` n'aurait rien montre du tout (sa garde `region.w < 4` la refusait), et
 le releve aurait fait croire a une entree absente. Ici elle est **la**, marquee
 `hors-vue,vide`. C'est exactement le cas qui a coute un tour entier a
-NK3DModeler et trois etapes a NkUIDesign.
+NKCraft et trois etapes a NkUIDesign.
 
 ### 4.4 Le releve est-il stable ?
 

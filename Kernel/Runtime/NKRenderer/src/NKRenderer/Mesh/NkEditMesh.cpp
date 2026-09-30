@@ -1323,6 +1323,7 @@ namespace nkentseu {
 					a.smooth = faces[f].smooth;
 					a.sel = faces[f].sel;
 					a.trait = faces[f].trait;
+					a.origine = faces[f].origine; // R32 : l'adresse suit la meme parente
 					ofaceAttrib->PushBack(a);
 				}
 			}
@@ -1521,6 +1522,7 @@ namespace nkentseu {
 					// la distinction que ce fichier a deja payee sur `smooth`, et qui ne se
 					// voit pas tant qu'on ne l'exerce pas.
 					fc.trait = faceAttrib[f].trait;
+					fc.origine = faceAttrib[f].origine; // R32 : meme parente que le trait
 				}
 				faces.PushBack(fc);
 			}
@@ -2424,6 +2426,7 @@ namespace nkentseu {
 				const uint16 mat = faces[f].material;
 				const uint8 sm = faces[f].smooth;
 				const uint8 tr = faces[f].trait; // LE TRAIT SUIT LA MERE, comme le reste
+				const uint32 org = faces[f].origine; // R32 : l'origine aussi
 				const uint32 b = selStart[s], e = selStart[s + 1], n = e - b;
 				for (uint32 k = 0; k < n; ++k) {
 					const uint32 a = selVerts[b + k], c = selVerts[b + (k + 1u) % n];
@@ -2449,6 +2452,7 @@ namespace nkentseu {
 					fa.material = mat; // heritage de la face MERE, comme le chemin actuel
 					fa.smooth = sm;
 					fa.trait = tr;
+					fa.origine = org;
 					faces.PushBack(fa);
 				}
 			}
@@ -2607,7 +2611,7 @@ namespace nkentseu {
 				//    `EM_ToWeldedPolygons`. Les deux ne designent donc PAS le meme
 				//    ensemble a partir de la meme selection de sommets.
 				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
-				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose
+				//    d'intention de face (`SetFaceSelection`). NKCraft la pose
 				//    -- c'est le sens du commentaire de `NkDemo3D.cpp`, « sans
 				//    cette ligne, l'ecran disait 2 et l'extrusion en prenait 6 » --
 				//    donc l'application ne rencontre pas la divergence.
@@ -3021,7 +3025,7 @@ namespace nkentseu {
 		//   le travail. C'est Rodolf qui l'a signale.
 		//
 		// ⚠ LA REGLE EST POSEE ICI, DANS LE MOTEUR, ET PAS DANS LE MODELEUR. Tous
-		//   les hotes (NK3DModeler, NkAnimaEditor, Nogee...) passent par cette
+		//   les hotes (NKCraft, NkAnimaEditor, Nogee...) passent par cette
 		//   fonction ; une regle posee dans un seul appelant aurait ete vraie a un
 		//   seul endroit, et fausse partout ailleurs sans que rien ne le dise.
 		//
@@ -5009,6 +5013,10 @@ namespace nkentseu {
 				if (f != NK_EM_INVALID && f < (NkEmId)W.faces.Size() && W.faces[f].alive) {
 					a.material = W.faces[f].material;
 					a.smooth = W.faces[f].smooth;
+					// R32 : une face d'origine du biseau EST sa mere (coins remplaces) ;
+					// elle garde donc son adresse. Les bandes, elles, n'ont pas de mere
+					// et restent a 0 (EM_AttribFromNeighbours).
+					a.origine = W.faces[f].origine;
 				}
 				return a;
 			};
@@ -5270,7 +5278,7 @@ namespace nkentseu {
 				//    polygones bruts). Les deux ne designent donc PAS le meme
 				//    ensemble a partir de la meme selection de sommets.
 				//    QUAND CA SE VOIT : seulement chez un appelant qui NE POSE PAS
-				//    d'intention de face (`SetFaceSelection`). NK3DModeler la pose,
+				//    d'intention de face (`SetFaceSelection`). NKCraft la pose,
 				//    donc l'application ne rencontre pas la divergence -- ne pas
 				//    lire ce paragraphe comme un defaut d'usage, c'en etait un dans
 				//    une premiere redaction et c'etait faux.
@@ -7836,80 +7844,80 @@ namespace nkentseu {
 		// Les noms sont des CLES : ne jamais les renommer une fois publies, une courbe
 		// d'animation ou un fichier enregistre les designerait encore.
 		static const NkModParam kParamsMirror[] = {
-			{"mirror_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, mirrorAxis), 0.f, 2.f},
-			{"mirror_merge", "Souder au plan", NkModParamType::Bool, offsetof(NkMeshModifier, mirrorMerge), 0.f, 1.f},
-			{"mirror_merge_dist", "Distance de soudure", NkModParamType::Float,
+			{"mirror_axis", "Axe", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, mirrorAxis), 0.f, 2.f},
+			{"mirror_merge", "Souder au plan", NkModParamType::Nk_ModParamType_Bool, offsetof(NkMeshModifier, mirrorMerge), 0.f, 1.f},
+			{"mirror_merge_dist", "Distance de soudure", NkModParamType::Nk_ModParamType_Float,
 			 offsetof(NkMeshModifier, mirrorMergeDist), 0.f, 1.f},
 		};
 		static const NkModParam kParamsArray[] = {
-			{"array_count", "Nombre", NkModParamType::Int, offsetof(NkMeshModifier, arrayCount), 1.f, 256.f},
-			{"array_offset", "Decalage", NkModParamType::Vec3, offsetof(NkMeshModifier, arrayOffset), 0.f, 0.f},
+			{"array_count", "Nombre", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, arrayCount), 1.f, 256.f},
+			{"array_offset", "Decalage", NkModParamType::Nk_ModParamType_Vec3, offsetof(NkMeshModifier, arrayOffset), 0.f, 0.f},
 		};
 		static const NkModParam kParamsSubsurf[] = {
-			{"subsurf_levels", "Niveaux", NkModParamType::Int, offsetof(NkMeshModifier, subsurfLevels), 0.f, 6.f},
-			{"subsurf_simple", "Simple (lineaire)", NkModParamType::Bool, offsetof(NkMeshModifier, subsurfSimple), 0.f,
+			{"subsurf_levels", "Niveaux", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, subsurfLevels), 0.f, 6.f},
+			{"subsurf_simple", "Simple (lineaire)", NkModParamType::Nk_ModParamType_Bool, offsetof(NkMeshModifier, subsurfSimple), 0.f,
 			 1.f},
 		};
 
 		static const NkModParam kParamsSolidify[] = {
-			{"solidify_thickness", "Epaisseur", NkModParamType::Float, offsetof(NkMeshModifier, solidifyThickness),
+			{"solidify_thickness", "Epaisseur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, solidifyThickness),
 			 0.f, 2.f},
-			{"solidify_offset", "Decalage", NkModParamType::Float, offsetof(NkMeshModifier, solidifyOffset), -1.f, 1.f},
-			{"solidify_rim", "Fermer le bord", NkModParamType::Bool, offsetof(NkMeshModifier, solidifyRim), 0.f, 1.f},
+			{"solidify_offset", "Decalage", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, solidifyOffset), -1.f, 1.f},
+			{"solidify_rim", "Fermer le bord", NkModParamType::Nk_ModParamType_Bool, offsetof(NkMeshModifier, solidifyRim), 0.f, 1.f},
 		};
 		static const NkModParam kParamsTriangulate[] = {
-			{"triangulate_min_verts", "Cotes minimum", NkModParamType::Int,
+			{"triangulate_min_verts", "Cotes minimum", NkModParamType::Nk_ModParamType_Int,
 			 offsetof(NkMeshModifier, triangulateMinVerts), 3.f, 16.f},
 		};
 		static const NkModParam kParamsWeld[] = {
-			{"weld_distance", "Distance", NkModParamType::Float, offsetof(NkMeshModifier, weldDistance), 0.f, 1.f},
+			{"weld_distance", "Distance", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, weldDistance), 0.f, 1.f},
 		};
 		static const NkModParam kParamsBevel[] = {
-			{"bevel_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, bevelWidth), 0.f, 1.f},
-			{"bevel_segments", "Segments", NkModParamType::Int, offsetof(NkMeshModifier, bevelSegments), 1.f, 12.f},
+			{"bevel_width", "Largeur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, bevelWidth), 0.f, 1.f},
+			{"bevel_segments", "Segments", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, bevelSegments), 1.f, 12.f},
 		};
 		static const NkModParam kParamsScrew[] = {
-			{"screw_steps", "Pas", NkModParamType::Int, offsetof(NkMeshModifier, screwSteps), 2.f, 128.f},
-			{"screw_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, screwAngle), -720.f, 720.f},
-			{"screw_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, screwHeight), -10.f, 10.f},
-			{"screw_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, screwAxis), 0.f, 2.f},
+			{"screw_steps", "Pas", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, screwSteps), 2.f, 128.f},
+			{"screw_angle", "Angle", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, screwAngle), -720.f, 720.f},
+			{"screw_height", "Hauteur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, screwHeight), -10.f, 10.f},
+			{"screw_axis", "Axe", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, screwAxis), 0.f, 2.f},
 		};
 		static const NkModParam kParamsEdgeSplit[] = {
-			{"edge_split_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, edgeSplitAngle), 0.f, 180.f},
+			{"edge_split_angle", "Angle", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, edgeSplitAngle), 0.f, 180.f},
 		};
 		static const NkModParam kParamsDecimate[] = {
-			{"decimate_angle", "Angle planaire", NkModParamType::Float, offsetof(NkMeshModifier, decimateAngle), 0.f,
+			{"decimate_angle", "Angle planaire", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, decimateAngle), 0.f,
 			 90.f},
 		};
 		static const NkModParam kParamsBuild[] = {
-			{"build_ratio", "Proportion", NkModParamType::Float, offsetof(NkMeshModifier, buildRatio), 0.f, 1.f},
+			{"build_ratio", "Proportion", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, buildRatio), 0.f, 1.f},
 		};
 		static const NkModParam kParamsMask[] = {
-			{"mask_invert", "Inverser", NkModParamType::Bool, offsetof(NkMeshModifier, maskInvert), 0.f, 1.f},
+			{"mask_invert", "Inverser", NkModParamType::Nk_ModParamType_Bool, offsetof(NkMeshModifier, maskInvert), 0.f, 1.f},
 		};
 		static const NkModParam kParamsCast[] = {
-			{"cast_type", "Forme", NkModParamType::Int, offsetof(NkMeshModifier, castType), 0.f, 2.f},
-			{"cast_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, castFactor), -2.f, 2.f},
-			{"cast_radius", "Rayon", NkModParamType::Float, offsetof(NkMeshModifier, castRadius), 0.f, 10.f},
+			{"cast_type", "Forme", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, castType), 0.f, 2.f},
+			{"cast_factor", "Facteur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, castFactor), -2.f, 2.f},
+			{"cast_radius", "Rayon", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, castRadius), 0.f, 10.f},
 		};
 		static const NkModParam kParamsSimpleDeform[] = {
-			{"deform_mode", "Mode", NkModParamType::Int, offsetof(NkMeshModifier, deformMode), 0.f, 3.f},
-			{"deform_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, deformAngle), -360.f, 360.f},
-			{"deform_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, deformFactor), -2.f, 2.f},
-			{"deform_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, deformAxis), 0.f, 2.f},
+			{"deform_mode", "Mode", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, deformMode), 0.f, 3.f},
+			{"deform_angle", "Angle", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, deformAngle), -360.f, 360.f},
+			{"deform_factor", "Facteur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, deformFactor), -2.f, 2.f},
+			{"deform_axis", "Axe", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, deformAxis), 0.f, 2.f},
 		};
 		static const NkModParam kParamsSmooth[] = {
-			{"smooth_factor", "Facteur", NkModParamType::Float, offsetof(NkMeshModifier, smoothFactor), 0.f, 1.f},
-			{"smooth_repeat", "Repetitions", NkModParamType::Int, offsetof(NkMeshModifier, smoothRepeat), 1.f, 20.f},
+			{"smooth_factor", "Facteur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, smoothFactor), 0.f, 1.f},
+			{"smooth_repeat", "Repetitions", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, smoothRepeat), 1.f, 20.f},
 		};
 		static const NkModParam kParamsWave[] = {
-			{"wave_height", "Hauteur", NkModParamType::Float, offsetof(NkMeshModifier, waveHeight), -2.f, 2.f},
-			{"wave_width", "Largeur", NkModParamType::Float, offsetof(NkMeshModifier, waveWidth), 0.01f, 10.f},
-			{"wave_phase", "Phase", NkModParamType::Float, offsetof(NkMeshModifier, wavePhase), -100.f, 100.f},
-			{"wave_axis", "Axe", NkModParamType::Int, offsetof(NkMeshModifier, waveAxis), 0.f, 2.f},
+			{"wave_height", "Hauteur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, waveHeight), -2.f, 2.f},
+			{"wave_width", "Largeur", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, waveWidth), 0.01f, 10.f},
+			{"wave_phase", "Phase", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, wavePhase), -100.f, 100.f},
+			{"wave_axis", "Axe", NkModParamType::Nk_ModParamType_Int, offsetof(NkMeshModifier, waveAxis), 0.f, 2.f},
 		};
 		static const NkModParam kParamsAutoSmooth[] = {
-			{"auto_smooth_angle", "Angle", NkModParamType::Float, offsetof(NkMeshModifier, autoSmoothAngle), 0.f,
+			{"auto_smooth_angle", "Angle", NkModParamType::Nk_ModParamType_Float, offsetof(NkMeshModifier, autoSmoothAngle), 0.f,
 			 180.f},
 		};
 
@@ -8004,19 +8012,19 @@ namespace nkentseu {
 
 		bool NkMeshModifier::GetParam(const char *name, float32 &out) const {
 			const NkModParam *p = FindParam(name);
-			if (!p || p->type == NkModParamType::Vec3)
+			if (!p || p->type == NkModParamType::Nk_ModParamType_Vec3)
 				return false;
 			const uint8 *base = (const uint8 *)this + p->offset;
 			switch (p->type) {
-				case NkModParamType::Bool: out = (*(const bool *)base) ? 1.f : 0.f; return true;
-				case NkModParamType::Int: out = (float32)(*(const int32 *)base); return true;
+				case NkModParamType::Nk_ModParamType_Bool: out = (*(const bool *)base) ? 1.f : 0.f; return true;
+				case NkModParamType::Nk_ModParamType_Int: out = (float32)(*(const int32 *)base); return true;
 				default: out = *(const float32 *)base; return true;
 			}
 		}
 
 		bool NkMeshModifier::SetParam(const char *name, float32 v) {
 			const NkModParam *p = FindParam(name);
-			if (!p || p->type == NkModParamType::Vec3)
+			if (!p || p->type == NkModParamType::Nk_ModParamType_Vec3)
 				return false;
 			// Ecretage sur les bornes PUBLIEES : une courbe d'animation depasse
 			// facilement (interpolation, rebond), et un arrayCount negatif ou un niveau
@@ -8029,17 +8037,17 @@ namespace nkentseu {
 			}
 			uint8 *base = (uint8 *)this + p->offset;
 			switch (p->type) {
-				case NkModParamType::Bool: *(bool *)base = (v >= 0.5f); return true;
+				case NkModParamType::Nk_ModParamType_Bool: *(bool *)base = (v >= 0.5f); return true;
 				// Arrondi au plus proche et non troncature : une courbe qui passe par
 				// 2,999 vise 3, pas 2.
-				case NkModParamType::Int: *(int32 *)base = (int32)(v < 0.f ? v - 0.5f : v + 0.5f); return true;
+				case NkModParamType::Nk_ModParamType_Int: *(int32 *)base = (int32)(v < 0.f ? v - 0.5f : v + 0.5f); return true;
 				default: *(float32 *)base = v; return true;
 			}
 		}
 
 		bool NkMeshModifier::GetParamVec3(const char *name, NkVec3f &out) const {
 			const NkModParam *p = FindParam(name);
-			if (!p || p->type != NkModParamType::Vec3)
+			if (!p || p->type != NkModParamType::Nk_ModParamType_Vec3)
 				return false;
 			out = *(const NkVec3f *)((const uint8 *)this + p->offset);
 			return true;
@@ -8047,7 +8055,7 @@ namespace nkentseu {
 
 		bool NkMeshModifier::SetParamVec3(const char *name, const NkVec3f &v) {
 			const NkModParam *p = FindParam(name);
-			if (!p || p->type != NkModParamType::Vec3)
+			if (!p || p->type != NkModParamType::Nk_ModParamType_Vec3)
 				return false;
 			*(NkVec3f *)((uint8 *)this + p->offset) = v;
 			return true;

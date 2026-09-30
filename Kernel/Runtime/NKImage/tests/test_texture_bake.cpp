@@ -580,7 +580,7 @@ int main() {
 								 {"Resources/NKRenderer/Textures/Defaults/test_pattern.png", nullptr}};
 
 	// Un materiau PBR complet du depot — ce que charge une scene du moteur des
-	// qu'elle porte un vrai materiau (et ce que NK3DModeler importe).
+	// qu'elle porte un vrai materiau (et ce que NKCraft importe).
 	static const Lot lotPBR = {"materiau PBR rusted_iron (5 cartes)",
 							   {"Resources/Textures/PBR/rusted_iron/albedo.png",
 								"Resources/Textures/PBR/rusted_iron/normal.png",
