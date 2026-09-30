@@ -227,13 +227,10 @@ namespace nkentseu {
 
 			void OnResize(uint32 w, uint32 h) override;
 
-			void *GetNativeDevice() const override {
-				return mDevice;
-			}
-
-			void *GetNativeCommandQueue() const override {
-				return mQueue;
-			}
+			// Hors ligne (NkMetalDevice.mm) : en Objective-C++ sous ARC, rendre un
+			// id<MTLDevice> en void* demande un __bridge, que le C++ ne connait pas.
+			void *GetNativeDevice() const override;
+			void *GetNativeCommandQueue() const override;
 
 			// Accès interne
 			NkMTLDevice MtlDevice() const {

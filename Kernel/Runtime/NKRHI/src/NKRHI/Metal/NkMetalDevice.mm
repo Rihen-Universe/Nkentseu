@@ -253,6 +253,14 @@ namespace nkentseu {
 	}
 
 	// =============================================================================
+	void *NkMetalDevice::GetNativeDevice() const {
+		return (__bridge void *)mDevice;
+	}
+
+	void *NkMetalDevice::GetNativeCommandQueue() const {
+		return (__bridge void *)mQueue;
+	}
+
 	NkMetalDevice::~NkMetalDevice() {
 		if (mIsValid)
 			Shutdown();
@@ -1064,7 +1072,7 @@ namespace nkentseu {
 	void NkMetalDevice::SubmitAndPresent(NkICommandBuffer *cb) {
 		auto *m = dynamic_cast<NkMetalCommandBuffer *>(cb);
 		if (m)
-			m->CommitAndPresent(mCurrentDrawable);
+			m->CommitAndPresent((__bridge void *)mCurrentDrawable);
 		mCurrentDrawable = nil;
 	}
 

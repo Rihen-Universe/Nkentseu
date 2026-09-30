@@ -24,7 +24,9 @@
 namespace nkentseu {
 
 	bool NkOpenGLContext::InitNSGL(const NkSurfaceDesc &surf, const NkOpenGLDesc &gl) {
-		NSView *view = (__bridge NSView *)surf.view;
+		// surf.view est deja un NSView* en .mm (NkSurface.h) : pas de __bridge,
+		// refuse sous ARC entre deux types Objective-C.
+		NSView *view = surf.view;
 		if (!view) {
 			NK_GL_ERR("NSView is null\n");
 			return false;
