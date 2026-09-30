@@ -30,6 +30,20 @@ namespace nkentseu {
 				NkBodyId other = NK_INVALID_BODY;
 		};
 
+		// Un contact d'un corps donne, lu dans les paires du dernier pas (2026-09-29).
+		// C'est la requete « suis-je au sol » d'un controleur de personnage : elle
+		// vaut pour toute forme, sans lancer de rayon.
+		struct NkBodyContact {
+				NkBodyId other = NK_INVALID_BODY;
+				NkVec3f normal{};	  ///< unitaire, de l'AUTRE corps VERS le corps demande (sol -> (0, 1, 0))
+				float32 depth = 0.f;  ///< penetration la plus forte de la paire
+				int32 points = 0;
+		};
+
+		// Nombre maximal de sommets d'un polygone 2D DYNAMIQUE (copie tenue par le
+		// monde). NkColClip n'en lit deja que 8 ; au-dela, le polygone est tronque.
+		static constexpr uint32 NK_SOMMETS_2D_MAX = 16u;
+
 		class NkPhysicsWorld {
 			public:
 				explicit NkPhysicsWorld(const NkPhysicsConfig &cfg = {}) noexcept;
@@ -92,6 +106,19 @@ namespace nkentseu {
 				// Tous les corps chevauchant la forme `s` -> ids physiques.
 				uint32 OverlapShape(const collision::NkShape &s, NkVector<NkBodyId> &out,
 									uint32 layerMask = 0xFFFFFFFFu) const;
+				// Rayon 2D EXACT (NKCollision, 2026-09-29), dans le plan XY : rend le
+				// corps touche. `direction` est normalisee ici. Les zones (triggers)
+				// sont ignorees par defaut, et `ignorer` (le corps qui tire) aussi.
+				bool Raycast2D(const NkVec2f &origin, const NkVec2f &direction, float32 maxDistance, NkBodyId &outBody,
+							   collision::NkRayHit2D &hit, uint32 layerMask = 0xFFFFFFFFu, bool ignoreTriggers = true,
+							   NkBodyId ignore = NK_INVALID_BODY) const;
+				// Les contacts du corps `id` au DERNIER sous-pas (paires de NKCollision,
+				// zones exclues), normale orientee vers lui. Rend leur nombre.
+				uint32 BodyContacts(NkBodyId id, NkVector<NkBodyContact> &out) const;
+				// Meme requete dans un tableau de l'appelant (au plus `max`), sans
+				// allocation : celle d'un controleur, a chaque pas fixe. Rend le
+				// nombre ECRIT.
+				uint32 BodyContacts(NkBodyId id, NkBodyContact *out, uint32 max) const;
 
 				// Événements de trigger (zones) calculés par Step (corps flag NK_BODY_TRIGGER).
 				const NkVector<NkTriggerEvent> &TriggerEnter() const noexcept {
@@ -163,7 +190,31 @@ namespace nkentseu {
 						float32 n = 0.f, t1 = 0.f, t2 = 0.f;
 				};
 
+				// ── Polygones 2D (2026-09-29) ───────────────────────────────────
+				// ⚠️ LE DEFAUT QUE CECI CORRIGE, MESURE : NkShape::Polygon2D ne
+				// POSSEDE pas ses sommets (pointeur vers ceux de l'appelant, en
+				// MONDE), et NkTransformShape ne transforme que p0. Un polygone
+				// dynamique gardait donc sa forme de collision a l'endroit de sa
+				// creation : lache de 2 m, il traversait le sol et se trouvait a
+				// y = -42 m apres 3 s (test_rigides2d, r2, avant correctif).
+				// Le monde tient desormais une COPIE des sommets (repere local +
+				// monde) et recalcule les sommets monde a chaque sous-pas.
+				struct NkSommets2D {
+						NkBodyId corps = NK_INVALID_BODY;
+						uint32 nombre = 0;
+						NkVec3f local[NK_SOMMETS_2D_MAX];
+						NkVec3f monde[NK_SOMMETS_2D_MAX];
+				};
+				NkVector<NkSommets2D> mSommets2D;
+				NkSommets2D *Sommets2D(NkBodyId id) noexcept;
+				// Refait les sommets monde de chaque polygone et repointe sa forme de
+				// collision : le tableau `mSommets2D` peut avoir ete REALLOUE.
+				void SynchroniserSommets2D() noexcept;
+				// enable2D : vitesses, pose et orientation ramenees au plan XY.
+				void ContraindrePlan(NkRigidBody &b) const noexcept;
+
 				NkRigidBody *FindByCollisionId(uint32 cid) noexcept;
+				const NkRigidBody *FindByCollisionId(uint32 cid) const noexcept;
 				void SolveContacts(float32 dt); // M1..M3 : impulses séquentielles + warm-start
 				void CorrectPositions();		// M4 : split-impulse (projection positionnelle)
 				void WakeContacts();			// M6 : réveiller les corps touchés par un perturbateur
