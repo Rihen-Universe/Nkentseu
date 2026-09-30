@@ -266,7 +266,7 @@ namespace nkentseu {
 			return meshSys.GetCone();
 		if (n == "capsule")
 			return meshSys.GetCapsule();
-		logger.Warnf("[NkRenderSystem] primitive inconnue : '{0}' (cube, sphere, icosphere, plane, quad, "
+		logger.Warnf("[NkRenderSystem] primitive inconnue : '%s' (cube, sphere, icosphere, plane, quad, "
 					 "cylinder, cone, capsule)\n",
 					 name);
 		return NkMeshHandle{};

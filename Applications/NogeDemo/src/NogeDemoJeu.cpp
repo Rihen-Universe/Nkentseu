@@ -372,7 +372,7 @@ namespace nkentseu {
 			// Lire D'ABORD : un fichier illisible laisse le monde tel quel.
 			NkArchive archive;
 			if (!s.ReadArchiveFile(chemin, archive)) {
-				logger.Warnf("[NogeDemo] scene illisible : {0} (le monde reste tel quel)\n", chemin);
+				logger.Warnf("[NogeDemo] scene illisible : %s (le monde reste tel quel)\n", chemin);
 				return false;
 			}
 			NogeDemoViderMonde(w, physique);

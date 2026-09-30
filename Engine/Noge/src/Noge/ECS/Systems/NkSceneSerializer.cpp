@@ -69,7 +69,7 @@ namespace nkentseu {
 			if (reg.count < Registry::kMax) {
 				reg.entries[reg.count++] = cs;
 			} else {
-				logger.Errorf("[NkSceneSerializer] Registre plein — max {} composants\n", Registry::kMax);
+				logger.Errorf("[NkSceneSerializer] Registre plein — max %u composants\n", (unsigned)Registry::kMax);
 			}
 		}
 
@@ -80,10 +80,10 @@ namespace nkentseu {
 				return false;
 
 			if (!WriteArchiveToFile(archive, path, mFormat)) {
-				logger.Errorf("[NkSceneSerializer] Écriture échouée: {}\n", path);
+				logger.Errorf("[NkSceneSerializer] Écriture échouée: %s\n", path);
 				return false;
 			}
-			logger.Infof("[NkSceneSerializer] Scène sauvegardée: {}\n", path);
+			logger.Infof("[NkSceneSerializer] Scène sauvegardée: %s\n", path);
 			return true;
 		}
 
@@ -144,7 +144,7 @@ namespace nkentseu {
 		bool NkSceneSerializer::Load(NkSceneGraph &scene, const char *path) const noexcept {
 			NkArchive archive;
 			if (!ReadArchiveFromFile(archive, path, mFormat)) {
-				logger.Errorf("[NkSceneSerializer] Lecture échouée: {}\n", path);
+				logger.Errorf("[NkSceneSerializer] Lecture échouée: %s\n", path);
 				return false;
 			}
 			return LoadFromArchive(scene, archive);
@@ -162,7 +162,7 @@ namespace nkentseu {
 				DeserializeEntity(scene, entityArc);
 			}
 
-			logger.Infof("[NkSceneSerializer] {} entités chargées depuis archive\n", entityCount);
+			logger.Infof("[NkSceneSerializer] %lld entités chargées depuis archive\n", (long long)entityCount);
 			return true;
 		}
 

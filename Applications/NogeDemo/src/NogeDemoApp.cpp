@@ -137,7 +137,7 @@ namespace nkentseu {
 			}
 			NkString erreur;
 			if (!NogeDemoDeclarerEntrees(carte, mEtat, texte.CStr(), &erreur)) {
-				logger.Errorf("[NogeDemo] entrees refusees ({0}) : {1} -- le texte par defaut est pris\n", chemin,
+				logger.Errorf("[NogeDemo] entrees refusees (%s) : %s -- le texte par defaut est pris\n", chemin,
 							  erreur.CStr());
 				carte.Clear();
 				(void)NogeDemoDeclarerEntrees(carte, mEtat, NogeDemoTexteEntrees(), nullptr);
