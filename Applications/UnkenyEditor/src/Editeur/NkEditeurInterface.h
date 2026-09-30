@@ -203,6 +203,15 @@ namespace nkentseu {
 				/// L'entite de chaque noeud, par indice de noeud (-1 : la racine).
 				NkVector<ecs::NkEntityId> arbreEntites;
 				bool filtreFocus = false;
+				/// « Renommer » (F2, menus) : la saisie s'ouvre EN PLACE, sur la
+				/// ligne de la selection, a la trame ou l'Outliner se dessine.
+				bool renommerEnPlace = false;
+				/// Le clic LENT (a la maniere d'UE5) : un clic sur le nom d'une
+				/// ligne DEJA choisie arme le renommage ; il part si aucun second
+				/// clic (le double-clic cadre) ni glisser ne suit dans la demi-seconde.
+				nk_uint64 clicLentNoeud = 0;
+				float32 clicLentAge = 0.f;
+				NkVec2f clicLentPos{0.f, 0.f};
 
 				// --- Le tiroir --------------------------------------------------
 				editorkit::NkContentBrowserModel contenu;

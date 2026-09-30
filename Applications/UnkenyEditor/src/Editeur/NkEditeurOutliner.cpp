@@ -3,7 +3,8 @@
 // =============================================================================
 // Description :
 //   L'Outliner : la scene et ses entites, en ARBRE DU KIT (NkDrawTreeView),
-//   colonnes Nom | Type, champ de recherche, pied « N entites (1 sel.) ».
+//   colonnes Oeil | Cadenas | Nom | Type, champ de recherche, pied
+//   « N entites (1 sel.) ».
 //
 // Caracteristiques :
 //   - Le modele d'arbre est RECONSTRUIT a chaque trame depuis la scene : il
@@ -12,7 +13,15 @@
 //     l'identifiant d'un noeud est celui de l'entite.
 //   - La selection est celle du MODELE : cliquer dans le viseur la change ici,
 //     cliquer ici la change dans le viseur.
-//   - Double-clic sur une entite : la vue se centre dessus.
+//   - Double-clic sur une entite : la vue se centre dessus (comme UE5).
+//   - L'OEIL et le CADENAS (2026-09-30) : NkDrapeauxEditeur, sauves dans la
+//     scene. Oeil ferme = ni dessinee ni prise dans la vue en EDITION ;
+//     cadenas = ni prise ni deplacee dans la vue. L'Outliner et les Details
+//     choisissent et modifient TOUJOURS l'entite (sinon on ne pourrait plus
+//     rouvrir l'oeil d'un objet cache, ni lire les proprietes d'un decor fige).
+//   - Le RENOMMAGE EN PLACE (2026-09-30) : F2, « Renommer » des menus, ou le
+//     clic LENT sur le nom d'une ligne deja choisie. Entree valide, Echap
+//     annule, un clic ailleurs valide (contrat du kit).
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -24,6 +33,10 @@
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKEditorKit/NkEditorTextField.h"
+#include "NKEditorKit/NkThemeToGui.h"
+
+#include <cmath>
+#include <cstdio>
 
 namespace nkentseu {
 	namespace editeur {
@@ -38,6 +51,20 @@ namespace nkentseu {
 			/// du composant (« aucun »), 1 est la scene, les entites commencent a 2.
 			constexpr nk_uint64 ID_RACINE = 1u;
 
+			/// Le clic LENT : au-dela d'un double-clic (0,40 s chez NKGui), en deca
+			/// de l'impatience.
+			constexpr float32 CLIC_LENT_DELAI = 0.5f;
+
+			// ── LES POIGNEES D'ICONE DE L'OUTLINER ─────────────────────────────
+			// Le kit ne dessine aucune icone (NkGuiComponentPaint::Icon peint un
+			// carre) : NkPeintreOutliner, plus bas, les TRACE.
+			constexpr uint16 ICONE_OEIL = 0x10u;
+			constexpr uint16 ICONE_CADENAS = 0x11u;
+			/// La NATURE d'une entite ET ses deux drapeaux, dans la poignee de son
+			/// icone : 0x100 | nature << 2 | cache << 1 | verrou.
+			constexpr uint16 ICONE_NATURE = 0x100u;
+			enum : uint16 { NATURE_ENTITE = 0, NATURE_RIGIDE, NATURE_DECOR, NATURE_MOU };
+
 			nk_uint64 IdNoeud(ecs::NkEntityId e) noexcept {
 				return static_cast<nk_uint64>(e.Pack()) + 2u;
 			}
@@ -51,21 +78,256 @@ namespace nkentseu {
 				return NkString::Format("Entite %u", static_cast<uint32>(id.index));
 			}
 
+			uint16 NatureDe(NkScene &scene, ecs::NkEntityId id) {
+				if (scene.Monde().Has<NkCorpsMou2D>(id)) {
+					return NATURE_MOU;
+				}
+				if (const NkCorps2D *c = scene.Monde().Get<NkCorps2D>(id)) {
+					return c->type == NkTypeCorps::NK_DYNAMIQUE ? NATURE_RIGIDE : NATURE_DECOR;
+				}
+				return NATURE_ENTITE;
+			}
+
+			/// Peint les icones de l'Outliner : oeil, cadenas, nature.
+			///
+			/// ⚠️ L'OEIL ET LE CADENAS SONT PEINTS A L'APPEL DE L'ICONE DE NATURE,
+			///    pas au leur. Le kit choisit la poignee du cadenas par
+			///    `NkTreeNode::locked` -- mais `locked`, pour lui, rend aussi la
+			///    ligne INSELECTIONNABLE (NkTreeViewDraw.cpp), alors que le cadenas
+			///    de l'editeur ne fige que la VUE. On ne pose donc jamais `locked` :
+			///    le kit appelle, dans chaque ligne, l'oeil, le cadenas puis la
+			///    nature ; le peintre retient les deux rectangles, et la poignee de
+			///    nature, qui porte les deux drapeaux, les peint dans le bon etat.
+			class NkPeintreOutliner : public editorkit::NkGuiComponentPaint {
+				public:
+					NkPeintreOutliner(nkgui::NkGuiContext &ctx, const editorkit::NkTheme &theme, const char *tamponRenommage) noexcept
+						: NkGuiComponentPaint(ctx, theme), mCtxO(ctx), mTampon(tamponRenommage) {}
+
+					void Icon(const editorkit::NkPaintRect &r, uint16 poignee, uint16 role) override {
+						if (poignee == ICONE_OEIL) {
+							mOeil = r;
+							mAOeil = true;
+							return;
+						}
+						if (poignee == ICONE_CADENAS) {
+							mCadenas = r;
+							mACadenas = true;
+							return;
+						}
+						if (poignee >= ICONE_NATURE) {
+							if (mAOeil) {
+								Oeil(mOeil, (poignee & 2u) != 0u);
+							}
+							if (mACadenas) {
+								Cadenas(mCadenas, (poignee & 1u) != 0u);
+							}
+							Nature(r, static_cast<uint16>((poignee >> 2) & 0x3Fu), role);
+							// Le NOM commence apres cette icone : le clic lent le demande.
+							const nkgui::NkVec2 s = mCtxO.input.mousePos;
+							if (s.y >= r.y && s.y < r.y + r.h) {
+								mLibelleX = r.x + r.w;
+							}
+						}
+						// La racine (poignee 0) n'a ni oeil ni cadenas.
+						mAOeil = false;
+						mACadenas = false;
+					}
+
+					/// Le kit dessine le texte en cours de renommage avec LE tampon du
+					/// modele : son rectangle est celui ou poser le champ de saisie.
+					void Text(const editorkit::NkPaintRect &r, const char *s, uint16 role, editorkit::NkTextAlign align) override {
+						if (s != nullptr && s == mTampon) {
+							mSaisie = r;
+							mASaisie = true;
+						}
+						NkGuiComponentPaint::Text(r, s, role, align);
+					}
+
+					float32 LibelleX() const noexcept {
+						return mLibelleX;
+					}
+					bool Saisie(NkRect &r) const noexcept {
+						r = NkRect{mSaisie.x, mSaisie.y, mSaisie.w, mSaisie.h};
+						return mASaisie;
+					}
+
+				private:
+					NkColor Couleur(NkRole role, uint8 alpha = 255) const {
+						NkColor c = editorkit::NkThemeUnpack(ColorOf(static_cast<uint16>(role)));
+						c.a = static_cast<uint8>((static_cast<uint32>(c.a) * alpha) / 255u);
+						return c;
+					}
+
+					/// Ouvert : discret. Ferme : une paupiere et trois cils, plus VIFS --
+					/// une entite cachee doit se voir dans la liste.
+					void Oeil(const editorkit::NkPaintRect &r, bool cache) {
+						nkgui::NkGuiDrawList &dl = mCtxO.DL();
+						const float32 cx = r.x + r.w * 0.5f;
+						const float32 cy = r.y + r.h * 0.5f;
+						const float32 a = 6.f;
+						const float32 b = 3.4f;
+						constexpr float32 PI = 3.14159265f;
+						if (!cache) {
+							const NkColor col = Couleur(NkRole::TextMuted, 200);
+							nkgui::NkVec2 pts[18];
+							for (int32 k = 0; k < 9; ++k) {
+								const float32 t = static_cast<float32>(k) / 8.f;
+								pts[k] = nkgui::NkVec2{cx - a + 2.f * a * t, cy - b * std::sin(PI * t)};
+								pts[9 + k] = nkgui::NkVec2{cx + a - 2.f * a * t, cy + b * std::sin(PI * t)};
+							}
+							dl.AddPolyline(pts, 18, col, 1.2f, true);
+							dl.AddCircleFilled(nkgui::NkVec2{cx, cy}, 1.8f, col);
+							return;
+						}
+						const NkColor col = Couleur(NkRole::Text);
+						nkgui::NkVec2 paupiere[9];
+						for (int32 k = 0; k < 9; ++k) {
+							const float32 t = static_cast<float32>(k) / 8.f;
+							paupiere[k] = nkgui::NkVec2{cx - a + 2.f * a * t, cy - 1.f + b * 0.7f * std::sin(PI * t)};
+						}
+						dl.AddPolyline(paupiere, 9, col, 1.4f, false);
+						for (int32 k = 1; k <= 3; ++k) {
+							const float32 t = static_cast<float32>(k) / 4.f;
+							const float32 x = cx - a + 2.f * a * t;
+							const float32 y = cy - 1.f + b * 0.7f * std::sin(PI * t);
+							dl.AddLine(nkgui::NkVec2{x, y}, nkgui::NkVec2{x + (t - 0.5f) * 2.f, y + 2.6f}, col, 1.2f);
+						}
+					}
+
+					/// Ouvert : l'anse levee, discret. Ferme : le corps plein, vif.
+					void Cadenas(const editorkit::NkPaintRect &r, bool verrou) {
+						nkgui::NkGuiDrawList &dl = mCtxO.DL();
+						const float32 cx = r.x + r.w * 0.5f;
+						const float32 cy = r.y + r.h * 0.5f;
+						const NkColor col = verrou ? Couleur(NkRole::Text) : Couleur(NkRole::TextMuted, 150);
+						const NkRect corps{cx - 4.f, cy - 0.5f, 8.f, 6.f};
+						const float32 leve = verrou ? 0.f : 2.5f;
+						const float32 ra = 2.6f;
+						const float32 haut = cy - 0.5f - leve;
+						nkgui::NkVec2 anse[9];
+						constexpr float32 PI = 3.14159265f;
+						for (int32 k = 0; k < 9; ++k) {
+							const float32 ang = PI * static_cast<float32>(k) / 8.f;
+							anse[k] = nkgui::NkVec2{cx - ra * std::cos(ang), haut - ra * std::sin(ang) - 0.5f};
+						}
+						dl.AddPolyline(anse, 9, col, 1.3f, false);
+						// Les deux jambes de l'anse ; ouverte, la droite reste en l'air.
+						dl.AddLine(nkgui::NkVec2{cx - ra, haut - 0.5f}, nkgui::NkVec2{cx - ra, cy - 0.5f}, col, 1.3f);
+						if (verrou) {
+							dl.AddLine(nkgui::NkVec2{cx + ra, haut - 0.5f}, nkgui::NkVec2{cx + ra, cy - 0.5f}, col, 1.3f);
+							dl.AddRectFilled(corps, col, 1.5f);
+						} else {
+							dl.AddRect(corps, col, 1.f, 1.5f);
+						}
+					}
+
+					/// La nature de l'entite, en une forme : bulle (matiere), carre
+					/// (rigide), bande (decor), losange (entite nue).
+					void Nature(const editorkit::NkPaintRect &r, uint16 nature, uint16 role) {
+						nkgui::NkGuiDrawList &dl = mCtxO.DL();
+						const float32 cx = r.x + r.w * 0.5f;
+						const float32 cy = r.y + r.h * 0.5f;
+						const NkColor col = editorkit::NkThemeUnpack(ColorOf(role));
+						switch (nature) {
+							case NATURE_MOU:
+								dl.AddCircleFilled(nkgui::NkVec2{cx - 1.f, cy + 1.f}, 4.f, col);
+								dl.AddCircleFilled(nkgui::NkVec2{cx + 2.4f, cy - 1.8f}, 2.4f, col);
+								break;
+							case NATURE_RIGIDE:
+								dl.AddRectFilled(NkRect{cx - 4.f, cy - 4.f, 8.f, 8.f}, col, 1.5f);
+								break;
+							case NATURE_DECOR:
+								dl.AddRectFilled(NkRect{cx - 5.5f, cy + 0.5f, 11.f, 3.5f}, col, 1.f);
+								dl.AddLine(nkgui::NkVec2{cx - 4.f, cy - 2.5f}, nkgui::NkVec2{cx + 4.f, cy - 2.5f}, col, 1.f);
+								break;
+							default: {
+								const nkgui::NkVec2 pts[4] = {nkgui::NkVec2{cx, cy - 4.5f}, nkgui::NkVec2{cx + 4.5f, cy}, nkgui::NkVec2{cx, cy + 4.5f},
+															  nkgui::NkVec2{cx - 4.5f, cy}};
+								dl.AddPolyline(pts, 4, col, 1.3f, true);
+								break;
+							}
+						}
+					}
+
+					nkgui::NkGuiContext &mCtxO;
+					const char *mTampon;
+					editorkit::NkPaintRect mOeil{};
+					editorkit::NkPaintRect mCadenas{};
+					editorkit::NkPaintRect mSaisie{};
+					bool mAOeil = false;
+					bool mACadenas = false;
+					bool mASaisie = false;
+					float32 mLibelleX = 1.0e9f;
+			};
+
+			NkEditeurCadre &Cadre(void *user) {
+				return *static_cast<NkEditeurCadre *>(user);
+			}
+
+			/// L'entite de la ligne `index`, ou Invalid (la racine, hors bornes).
+			ecs::NkEntityId EntiteDeLigne(NkEditeurCadre &c, int32 index) {
+				if (index <= 0 || index >= static_cast<int32>(c.ui.arbreEntites.Size())) {
+					return ecs::NkEntityId::Invalid();
+				}
+				const ecs::NkEntityId e = c.ui.arbreEntites[static_cast<uint32>(index)];
+				return c.m.scene.Monde().IsAlive(e) ? e : ecs::NkEntityId::Invalid();
+			}
+
 			/// Double-clic : la vue se centre sur l'entite.
 			void SurActivation(void *user, int32 index, const char *id) {
 				(void)id;
-				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
-				if (index < 0 || index >= static_cast<int32>(c.ui.arbreEntites.Size())) {
-					return;
-				}
-				const ecs::NkEntityId e = c.ui.arbreEntites[static_cast<uint32>(index)];
-				if (!c.m.scene.Monde().IsAlive(e)) {
+				NkEditeurCadre &c = Cadre(user);
+				const ecs::NkEntityId e = EntiteDeLigne(c, index);
+				if (!e.IsValid()) {
 					return;
 				}
 				c.m.selection = e;
 				c.m.aSelection = true;
 				// Le MEME cadrage que F : la vue va sur l'entite, meme hors du cadre.
 				NkEditeurDemanderCadrage(c, false);
+			}
+
+			/// L'oeil ou le cadenas d'une ligne. La valeur du kit (tiree de
+			/// `hidden` / `locked`, que l'on ne pose pas) est ignoree : on BASCULE
+			/// l'etat de la scene.
+			void SurDrapeau(void *user, int32 index, const char *id, uint8 drapeau, bool valeur) {
+				(void)id;
+				(void)valeur;
+				NkEditeurCadre &c = Cadre(user);
+				const ecs::NkEntityId e = EntiteDeLigne(c, index);
+				if (!e.IsValid()) {
+					return;
+				}
+				if (drapeau == static_cast<uint8>(editorkit::NkTreeFlag::Visible)) {
+					NkEditeurCacher(c.m, e, !NkEditeurEstCache(c.m, e));
+				} else {
+					NkEditeurVerrouiller(c.m, e, !NkEditeurEstVerrouille(c.m, e));
+				}
+			}
+
+			/// Le kit rend le nom valide (et different) : il va dans l'etiquette.
+			void SurRenommage(void *user, int32 index, const char *id, const char *ancien, const char *nouveau) {
+				(void)id;
+				(void)ancien;
+				NkEditeurCadre &c = Cadre(user);
+				const ecs::NkEntityId e = EntiteDeLigne(c, index);
+				// Un nom VIDE n'est pas un nom : la ligne afficherait « Entite 12 ».
+				if (e.IsValid() && nouveau != nullptr && nouveau[0] != '\0') {
+					NkEditeurRenommer(c.m, e, nouveau);
+				}
+			}
+
+			/// Clic droit sur une ligne : elle est choisie, et son menu s'ouvre --
+			/// le meme que dans la vue (Renommer, Dupliquer, Supprimer...).
+			void SurMenu(void *user, int32 index, float32 x, float32 y) {
+				NkEditeurCadre &c = Cadre(user);
+				const ecs::NkEntityId e = EntiteDeLigne(c, index);
+				if (!e.IsValid()) {
+					return;
+				}
+				c.m.selection = e;
+				c.m.aSelection = true;
+				NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_CTX_ENTITE, NkRect{x, y, 0.f, 0.f});
 			}
 
 			void PreparerReglages(NkEditeurInterface &ui) {
@@ -80,13 +342,14 @@ namespace nkentseu {
 				ui.arbreReglages.SetParam("show_header", 0.f);
 				ui.arbreReglages.SetParam("show_search", 0.f);
 				ui.arbreReglages.SetParam("show_footer", 0.f);
-				ui.arbreReglages.SetParam("show_visibility", 0.f);
+				ui.arbreReglages.SetParam("show_visibility", 1.f);
+				ui.arbreReglages.SetParam("show_lock", 1.f);
 				ui.arbreReglages.SetParam("show_type", 1.f);
 				ui.arbreReglages.SetParam("indent_guides", 0.f);
 				ui.arbreReglages.SetParam("multi_select", 0.f);
 				ui.arbreReglages.SetParam("range_select", 0.f);
-				// Le renommage vit dans les Details (le champ Nom) : le double-clic
-				// ACTIVE, il n'ouvre pas une seconde saisie du meme nom.
+				// Le double-clic CADRE (UE5) ; le renommage est F2, le menu, ou le
+				// clic lent -- ouverts par l'Outliner, pas par le kit.
 				ui.arbreReglages.SetParam("activate_on_double_click", 1.f);
 				ui.arbreReglages.SetMetric("row_h", 22.f);
 			}
@@ -148,7 +411,14 @@ namespace nkentseu {
 					// ⚠️ Chaine STATIQUE (NkEditeurTypeDe rend un litteral) : le
 					//    noeud ne garde qu'un pointeur, il ne copie pas.
 					n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
-					n.kindRole = static_cast<uint16>(NkRole::TextMuted);
+					const uint16 nature = NatureDe(c.m.scene, ids[i]);
+					n.kindRole = static_cast<uint16>(nature == NATURE_MOU ? NkRole::AxisZ : NkRole::TextMuted);
+					const bool cache = NkEditeurEstCache(c.m, ids[i]);
+					const bool verrou = NkEditeurEstVerrouille(c.m, ids[i]);
+					n.icon = static_cast<uint16>(ICONE_NATURE | (nature << 2) | (cache ? 2u : 0u) | (verrou ? 1u : 0u));
+					// `hidden` ne change que l'icone chez le kit : on le pose, pour
+					// qui lirait le modele. `locked` JAMAIS (voir NkPeintreOutliner).
+					n.hidden = cache;
 					n.userTag = i + 1u;
 					ui.arbre.nodes.PushBack(n);
 					ui.arbreEntites.PushBack(ids[i]);
@@ -162,6 +432,27 @@ namespace nkentseu {
 				} else {
 					ui.arbre.active = 0;
 				}
+			}
+
+			/// Ouvre la saisie en place sur le noeud `noeud`, tout le nom choisi :
+			/// la premiere touche le remplace, comme partout.
+			void OuvrirRenommage(NkEditeurCadre &c, nk_uint64 noeud) {
+				NkEditeurInterface &ui = c.ui;
+				const int32 k = ui.arbre.IndexOf(noeud);
+				if (k <= 0) {
+					return;
+				}
+				ui.arbre.renaming = noeud;
+				std::snprintf(ui.arbre.renameBuf, sizeof(ui.arbre.renameBuf), "%s", ui.arbre.nodes[static_cast<uint32>(k)].label.CStr());
+				ui.arbre.renameCommit = false;
+				ui.arbre.renameCancel = false;
+				// Aucun clic n'ouvre cette saisie A CETTE TRAME (F2, le menu d'une
+				// trame passee, le clic lent d'il y a une demi-seconde) : le kit n'a
+				// rien a manger.
+				ui.arbre.renameEatClick = false;
+				c.ctx.input.wantSelectAll = true;
+				ui.nomFocus = false;
+				ui.filtreFocus = false;
 			}
 
 			/// Le champ de recherche. Sa couleur vient du theme ; le champ du kit
@@ -202,6 +493,17 @@ namespace nkentseu {
 			dl.AddRectFilled(zone, c.pal.panneau);
 			PreparerReglages(ui);
 			Reconstruire(c);
+
+			// « Renommer » (F2, menus) : la saisie s'ouvre AVANT le dessin, pour que
+			// le kit la peigne des cette trame.
+			if (ui.renommerEnPlace) {
+				ui.renommerEnPlace = false;
+				if (c.m.aSelection && c.m.scene.Monde().IsAlive(c.m.selection)) {
+					OuvrirRenommage(c, IdNoeud(c.m.selection));
+				}
+			}
+			// La ligne choisie AVANT ce clic : le clic lent ne vise qu'elle.
+			const nk_uint64 activeAvant = ui.arbre.active;
 
 			// ── L'en-tete : le nom du panneau, et « + Entite » ────────────────
 			const float32 enteteH = 26.f;
@@ -253,12 +555,21 @@ namespace nkentseu {
 			s.dropMark = static_cast<uint16>(NkRole::AccentUi);
 			s.iconTint = static_cast<uint16>(NkRole::TextMuted);
 			s.dimTint = static_cast<uint16>(NkRole::TextMuted);
+			// Les deux etats de chaque colonne ont la MEME poignee : c'est l'icone
+			// de nature qui porte l'etat (voir NkPeintreOutliner).
+			s.icons.eyeOpen = ICONE_OEIL;
+			s.icons.eyeClosed = ICONE_OEIL;
+			s.icons.lockOpen = ICONE_CADENAS;
+			s.icons.lockClosed = ICONE_CADENAS;
 			editorkit::NkTreeViewHooks hooks;
 			hooks.user = &c;
 			hooks.onActivate = &SurActivation;
+			hooks.onToggleFlag = &SurDrapeau;
+			hooks.onRename = &SurRenommage;
+			hooks.onContextMenu = &SurMenu;
 
 			const editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
-			editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
+			NkPeintreOutliner peintre(c.ctx, c.theme, ui.arbre.renameBuf);
 			const editorkit::NkTreeViewResult res = editorkit::NkDrawTreeView(
 				peintre, ci, editorkit::NkPaintRect{arbreR.x, arbreR.y, arbreR.w, arbreR.h}, ui.arbre, s, hooks);
 
@@ -277,6 +588,61 @@ namespace nkentseu {
 			if (res.defilContenu > res.defilVue && res.defilW > 0.f && res.defilH > 0.f) {
 				editorkit::NkVScrollbar(c.ctx, dl, NkRect{res.defilX, res.defilY, res.defilW, res.defilH}, ui.arbre.scroll,
 										res.defilContenu, res.defilVue, c.ctx.GetId("outliner.defil"), res.defilPas);
+			}
+
+			// ── Le renommage en place : la SAISIE, par-dessus la boite du kit ──
+			// Le kit dessine la boite et ne sait pas taper (NkTreeViewModel.h,
+			// « contournement assume ») : le champ du kit -- caret, selection,
+			// copier-coller -- se pose sur la meme ligne et ecrit dans le meme
+			// tampon. Entree valide, Echap annule ; un clic ailleurs valide (le kit).
+			const nkgui::NkGuiInput &in = c.ctx.input;
+			if (ui.arbre.renaming != 0) {
+				NkRect saisie;
+				if (peintre.Saisie(saisie)) {
+					editorkit::NkOverlayFieldStyle st;
+					st.texte = c.pal.texte;
+					const NkRect champ{saisie.x - 5.f, saisie.y + 2.f, saisie.w + 10.f, saisie.h - 4.f};
+					// 32 : la taille de NkEtiquette::nom. Taper au-dela serait perdu
+					// en silence au moment de valider.
+					editorkit::NkOverlayTextField(c.ctx, dl, c.police, champ, ui.arbre.renameBuf, 32, true, &st);
+				}
+				if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+					ui.arbre.renameCommit = true;
+				} else if (in.KeyPressed(nkgui::NkGuiKey::Escape)) {
+					ui.arbre.renameCancel = true;
+				}
+			}
+
+			// ── Le clic LENT : un clic sur le NOM d'une ligne deja choisie ─────
+			// Il part apres CLIC_LENT_DELAI si rien ne l'annule : un second clic
+			// (c'est un double-clic : il cadre), un glisser, une autre selection.
+			const NkVec2f souris(in.mousePos.x, in.mousePos.y);
+			if (in.mouseDoubleClicked[0]) {
+				ui.clicLentNoeud = 0;
+			} else if (in.mouseClicked[0]) {
+				const bool surNom = res.survoleIndex > 0 && ui.arbre.renaming == 0 && activeAvant != 0 &&
+									ui.arbre.nodes[static_cast<uint32>(res.survoleIndex)].id == activeAvant &&
+									souris.x >= peintre.LibelleX();
+				ui.clicLentNoeud = surNom ? activeAvant : 0;
+				ui.clicLentAge = 0.f;
+				ui.clicLentPos = souris;
+			}
+			if (ui.clicLentNoeud != 0) {
+				ui.clicLentAge += ui.dt;
+				const float32 dx = souris.x - ui.clicLentPos.x;
+				const float32 dy = souris.y - ui.clicLentPos.y;
+				if (dx * dx + dy * dy > 16.f || ui.arbre.active != ui.clicLentNoeud || ui.arbre.renaming != 0) {
+					ui.clicLentNoeud = 0;
+				} else if (ui.clicLentAge >= CLIC_LENT_DELAI && !in.mouseDown[0]) {
+					// Ouvert a la trame SUIVANTE, AVANT le dessin, comme F2.
+					// ⚠️ Pas ici : `wantSelectAll` est efface en fin de trame
+					//    (NkGuiContext::EndFrame), et le champ de saisie est deja
+					//    passe -- le nom ne serait pas choisi, et la frappe s'y
+					//    ajouterait au lieu de le remplacer. (Le noeud vise est la
+					//    ligne active, donc la selection.)
+					ui.renommerEnPlace = true;
+					ui.clicLentNoeud = 0;
+				}
 			}
 
 			// ── Le pied : le compte, et la selection ──────────────────────────

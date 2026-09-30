@@ -786,7 +786,11 @@ namespace nkentseu {
 					NkEditeurDemanderCadrage(c, false);
 					break;
 				case NK_A_RENOMMER:
-					if (m.aSelection) {
+					// EN PLACE dans l'Outliner (F2 d'UE5) ; le champ Nom des Details
+					// quand l'Outliner est ferme.
+					if (m.aSelection && ui.voirOutliner) {
+						ui.renommerEnPlace = true;
+					} else if (m.aSelection) {
 						ui.voirDetails = true;
 						ui.ongletDroite = 0;
 						ui.renommerDemande = true;

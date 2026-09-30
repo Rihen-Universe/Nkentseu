@@ -50,12 +50,21 @@
 //   (e42) l'oeil et le cadenas survivent a Jouer / Arreter et a Enregistrer /
 //         Ouvrir ; un fichier qui ne les porte pas (celui d'avant) se relit
 //         tel quel, sans drapeau
+//   (e43) l'Outliner, dessine dans un VRAI NkGuiContext, gestes rejoues : F2
+//         ouvre la saisie en place, nom choisi, la frappe le REMPLACE, Entree
+//         l'ecrit ; Echap l'abandonne ; le clic LENT sur le nom de la ligne
+//         choisie l'ouvre, le double-clic non (il cadre) ; l'oeil et le cadenas
+//         basculent au clic, et une entite verrouillee se choisit TOUJOURS dans
+//         l'Outliner
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurSouris.h"
+
+#include "NKGui/Core/NkGuiFont.h"
 
 #include <cstdio>
 #include <cstring>
@@ -652,6 +661,143 @@ namespace nkentseu {
 				const bool ancienRelu = rouvert && NbEntites(m.scene) == nE && NbDrapeaux(m.scene) == 0u;
 				Temoin(photo && sauve && avecCle && neuve && relu && sansCle && ancienRelu,
 					   "(e42) oeil et cadenas : Jouer/Arreter, fichier ; sans eux, relu tel quel", static_cast<float32>(nE));
+			}
+
+			// (e43) l'Outliner, gestes rejoues dans un vrai NkGuiContext.
+			{
+				NkEditeurNouvelleScene(m);
+				memory::NkAllocator &alloc = memory::NkGetDefaultAllocator();
+				NkEditeurInterface *pui = alloc.New<NkEditeurInterface>(); // gros : sur le tas
+				nkgui::NkGuiContext *pctx = alloc.New<nkgui::NkGuiContext>();
+				nkgui::NkGuiFont *police = alloc.New<nkgui::NkGuiFont>();
+				NkEditeurInterface &ui = *pui;
+				nkgui::NkGuiContext &ctx = *pctx;
+				const bool policeOk = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false);
+				ctx.Init(300, 520);
+				ctx.font = policeOk ? police : nullptr;
+				const editorkit::NkTheme theme = editorkit::NkTheme::Dark();
+				const NkPaletteEditeur pal = NkEditeurPalette(theme);
+				NkEditeurCadre c{ctx, m, ui, theme, pal, police, police};
+				ui.outliner = nkgui::NkRect{0.f, 0.f, 300.f, 520.f};
+				ui.voirOutliner = true;
+				ctx.input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				auto trame = [&](float32 dt) {
+					ui.dt = dt;
+					ctx.BeginFrame(dt);
+					ctx.BeginLayout(nkgui::NkRect{0.f, 0.f, 300.f, 520.f});
+					ctx.DL().Reset();
+					ctx.dlOverlay.Reset();
+					NkEditeurDessinerOutliner(c);
+					ctx.EndFrame();
+				};
+				auto touche = [&](nkgui::NkGuiKey k) {
+					ctx.input.SetKey(k, true);
+					trame(1.f / 60.f);
+					ctx.input.SetKey(k, false);
+					trame(1.f / 60.f);
+				};
+				auto taper = [&](const char *s) {
+					for (const char *q = s; *q != '\0'; ++q) {
+						ctx.input.PushChar(static_cast<uint32>(*q));
+					}
+					trame(1.f / 60.f);
+				};
+				auto noeud = [](ecs::NkEntityId e) { return static_cast<nk_uint64>(e.Pack()) + 2u; };
+				auto nom = [&](ecs::NkEntityId e) {
+					const NkEtiquette *et = m.scene.Monde().Get<NkEtiquette>(e);
+					return NkString(et != nullptr ? et->nom : "");
+				};
+				// Le centre de la ligne de l'entite, a l'ecran : l'en-tete, la
+				// recherche et les colonnes font 74 px, une ligne 22 (la racine est
+				// la ligne 0).
+				auto ligneY = [&](ecs::NkEntityId e) {
+					for (uint32 k = 0; k < ui.arbreEntites.Size(); ++k) {
+						if (ui.arbreEntites[k] == e) {
+							return 74.f + static_cast<float32>(k) * 22.f + 11.f;
+						}
+					}
+					return -100.f;
+				};
+				auto cliquer = [&](float32 x, float32 y) {
+					ctx.input.mousePos = nkgui::NkVec2{x, y};
+					ctx.input.mouseDown[0] = true;
+					trame(1.f / 60.f);
+					ctx.input.mouseDown[0] = false;
+					trame(1.f / 60.f);
+				};
+
+				const ecs::NkEntityId blob = Par(m.scene, "Blob");
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse");
+				trame(1.f / 60.f);
+
+				// (a) F2 : la saisie en place, le nom choisi ; la frappe le REMPLACE.
+				m.selection = blob;
+				m.aSelection = true;
+				const NkString nomBlob = nom(blob);
+				NkEditeurExecuter(c, NK_A_RENOMMER);
+				trame(1.f / 60.f);
+				const bool ouverte = ui.arbre.renaming == noeud(blob) && NkString(ui.arbre.renameBuf) == nomBlob;
+				taper("Gros");
+				const bool remplace = NkString(ui.arbre.renameBuf) == NkString("Gros");
+				touche(nkgui::NkGuiKey::Enter);
+				trame(1.f / 60.f);
+				const bool ecrit = nom(blob) == NkString("Gros") && ui.arbre.renaming == 0;
+
+				// (b) Echap : rien n'est ecrit.
+				m.selection = caisse;
+				const NkString nomCaisse = nom(caisse);
+				NkEditeurExecuter(c, NK_A_RENOMMER);
+				trame(1.f / 60.f);
+				taper("Zut");
+				touche(nkgui::NkGuiKey::Escape);
+				trame(1.f / 60.f);
+				const bool abandonne = nom(caisse) == nomCaisse && ui.arbre.renaming == 0;
+				Temoin(ouverte && remplace && ecrit && abandonne, "(e43a) F2 : saisie en place, frappe remplace, Entree ecrit, Echap non",
+					   static_cast<float32>(ouverte + remplace + ecrit + abandonne));
+
+				// (c) le clic LENT sur le nom de la ligne choisie : la saisie s'ouvre.
+				const float32 yCaisse = ligneY(caisse);
+				cliquer(200.f, yCaisse);
+				for (int32 k = 0; k < 7; ++k) {
+					trame(0.1f);
+				}
+				const bool lent = ui.arbre.renaming == noeud(caisse);
+				touche(nkgui::NkGuiKey::Escape);
+				// ... le DOUBLE-clic, non : il cadre (contre-epreuve du meme geste, plus vite).
+				ui.cadrageDemande = false;
+				cliquer(200.f, yCaisse);
+				cliquer(200.f, yCaisse);
+				for (int32 k = 0; k < 7; ++k) {
+					trame(0.1f);
+				}
+				const bool doubleCadre = ui.arbre.renaming == 0 && ui.cadrageDemande;
+				Temoin(lent && doubleCadre, "(e43b) clic lent sur le nom : renommer ; double-clic : cadrer", static_cast<float32>(lent + doubleCadre));
+
+				// (d) l'oeil et le cadenas, a LEUR colonne : apres le chevron, a la
+				// profondeur 1 (la regle de NkTreeViewDraw.cpp).
+				editorkit::NkTreeViewStyle st;
+				st.values = &ui.arbreReglages;
+				const float32 xOeil = editorkit::NkTreeMetric(st, "row_pad") + editorkit::NkTreeMetric(st, "indent_step") +
+									  editorkit::NkTreeMetric(st, "chevron_w") + editorkit::NkTreeMetric(st, "icon_w") * 0.5f;
+				const float32 xCadenas = xOeil + editorkit::NkTreeMetric(st, "icon_w");
+				m.selection = blob;
+				trame(1.f / 60.f);
+				cliquer(xOeil, yCaisse);
+				const bool cachee = NkEditeurEstCache(m, caisse) && m.selection == blob; // l'oeil ne choisit pas
+				cliquer(xOeil, yCaisse);
+				const bool revue = !NkEditeurEstCache(m, caisse);
+				cliquer(xCadenas, yCaisse);
+				const bool figee = NkEditeurEstVerrouille(m, caisse);
+				// Verrouillee, elle se choisit TOUJOURS ici (le cadenas ne fige que la vue).
+				cliquer(200.f, yCaisse);
+				const bool choisie = m.aSelection && m.selection == caisse;
+				cliquer(xCadenas, yCaisse);
+				Temoin(cachee && revue && figee && choisie && !NkEditeurEstVerrouille(m, caisse),
+					   "(e43c) oeil et cadenas au clic ; verrouillee, choisie quand meme", xOeil);
+
+				alloc.Delete(police);
+				alloc.Delete(pctx);
+				alloc.Delete(pui);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

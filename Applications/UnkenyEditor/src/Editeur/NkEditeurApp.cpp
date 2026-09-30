@@ -214,6 +214,20 @@ namespace nkentseu {
 					mSelectionDepart = NkString(args[i].SubStr(12));
 					continue;
 				}
+				// --cacher= / --verrouiller= / --renommer : l'oeil, le cadenas et le
+				// renommage en place de l'Outliner, capturables sans souris.
+				if (args[i].StartsWith("--cacher=")) {
+					mCacherDepart = NkString(args[i].SubStr(9));
+					continue;
+				}
+				if (args[i].StartsWith("--verrouiller=")) {
+					mVerrouDepart = NkString(args[i].SubStr(14));
+					continue;
+				}
+				if (args[i] == "--renommer") {
+					mUi->renommerEnPlace = true;
+					continue;
+				}
 				// --scene= : ouvrir un .nkscene donne, sans passer par le fichier
 				// de l'utilisateur (AppData). Avec --selection= et --capture=,
 				// c'est la capture d'un panneau Details sans souris (2026-09-29 :
@@ -278,6 +292,31 @@ namespace nkentseu {
 				m.chemin = mSceneDepart;
 				NkEditeurOuvrir(m);
 			}
+			// --cacher= / --verrouiller= : l'oeil et le cadenas de l'Outliner, pour
+			// une capture reproductible (meme regle de nom que --selection=).
+			auto parNom = [&](const NkString &voulu, void (*poser)(NkEditeurModele &, ecs::NkEntityId, bool)) {
+				if (voulu.Empty()) {
+					return;
+				}
+				// ⚠️ RELEVER, PUIS POSER : poser un drapeau AJOUTE un composant, donc
+				//    change l'archetype de l'entite -- pendant le parcours, cela
+				//    invaliderait la requete (NkWorld::Remove / Add, meme mise en garde).
+				NkVector<ecs::NkEntityId> trouvees;
+				m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					usize k = 0;
+					while (voulu.CStr()[k] != '\0' && e.nom[k] == voulu.CStr()[k]) {
+						++k;
+					}
+					if (voulu.CStr()[k] == '\0') {
+						trouvees.PushBack(id);
+					}
+				});
+				for (uint32 i = 0; i < trouvees.Size(); ++i) {
+					poser(m, trouvees[i], true);
+				}
+			};
+			parNom(mCacherDepart, &NkEditeurCacher);
+			parNom(mVerrouDepart, &NkEditeurVerrouiller);
 			// La scene de depart est la reference « enregistree » : rien n'a
 			// encore change, la fermer ne doit rien demander.
 			NkEditeurRetenirEmpreinte(m, *mUi);
@@ -489,7 +528,7 @@ namespace nkentseu {
 			}
 			// Un champ de saisie focalise garde ses touches : Suppr efface une
 			// lettre, pas l'entite ; Espace s'ecrit, il ne lance pas la scene.
-			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus) {
+			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0) {
 				return;
 			}
 			if (in.ctrlDown) {
@@ -570,6 +609,11 @@ namespace nkentseu {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
 				ui.filtreFocus = false;
+				// Le renommage en place se VALIDE (ce qui est tape est garde) :
+				// Entree et Echap sont a la boite.
+				if (ui.arbre.renaming != 0) {
+					ui.arbre.renameCommit = true;
+				}
 			}
 			const NkMenuEditeur menuDebut = ui.menu;
 			const NkGestesSouris vrais = Sauver(ctx.input);

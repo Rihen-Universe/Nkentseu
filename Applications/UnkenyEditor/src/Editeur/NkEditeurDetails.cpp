@@ -432,6 +432,12 @@ namespace nkentseu {
 				if (ui.nomFocus && (in.KeyPressed(nkgui::NkGuiKey::Enter) || in.KeyPressed(nkgui::NkGuiKey::Escape))) {
 					ui.nomFocus = false;
 				}
+				// Hors saisie, le tampon SUIT l'entite. ⚠️ Sans cela, un nom change
+				// ailleurs (l'Outliner, en place) etait RECRIT a l'ancien des la trame
+				// suivante par la ligne du bas, qui ecrit le tampon dans l'entite.
+				if (!ui.nomFocus) {
+					std::snprintf(ui.nom, sizeof(ui.nom), "%s", NomDe(c.m.scene, id).CStr());
+				}
 				c.ctx.dl.AddRectFilled(r, c.pal.champ, 2.f);
 				c.ctx.dl.AddRect(r, ui.nomFocus ? c.pal.accent : c.pal.bord, 1.f, 2.f);
 				editorkit::NkOverlayFieldStyle st;

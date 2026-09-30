@@ -99,6 +99,8 @@ namespace nkentseu {
 				int32 mTramesIps = 0;	 ///< trames comptees depuis ce releve
 				NkString mSelectionDepart; ///< --selection= : l'entite choisie au demarrage
 				NkString mSceneDepart;	   ///< --scene= : la scene ouverte au demarrage, au lieu de la scene neuve
+				NkString mCacherDepart;	   ///< --cacher= : les entites dont l'oeil est ferme au demarrage
+				NkString mVerrouDepart;	   ///< --verrouiller= : celles dont le cadenas est ferme
 				/// Les boutons de la souris, sans clic perdu entre deux trames.
 				NkEditeurSouris mBoutons;
 		};
