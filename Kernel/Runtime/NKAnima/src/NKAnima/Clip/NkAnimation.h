@@ -34,7 +34,7 @@
 //                       depuis un composite, any-state a chaque niveau, declencheurs
 //                       consommes, conditions combinees, priorites, crossfade entre
 //                       feuilles de niveaux differents, parametres partages,
-//                       sauvegarde .nkanim v3 (section 'HFSM')
+//                       sauvegarde .nkanimctl (« controleur d'animation »)
 //
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
 // =============================================================================
@@ -844,14 +844,19 @@ namespace nkentseu {
 				// machine de son entree plutot que de lire n'importe quoi.
 				void SetRuntime(const NkRuntime &rt);
 
-				// ── Sauvegarde .nkanim v3 (2026-09-29) ──────────────────────────
-				// Un .nkanim v3 = le corps d'un clip v2 (ici un clip VIDE) puis des
-				// sections etiquetees ; la section 'HFSM' porte la machine : etats,
-				// hierarchie, entrees, etiquettes, parametres et leurs defauts,
-				// transitions et conditions. Les clips et blend trees sont designes
-				// par leur NOM : `resolver` les retrouve au chargement (un nom non
-				// resolu laisse l'etat vide, et le dit). Les v1/v2 sont des clips
-				// seuls : LoadBinary les refuse proprement (NkAnimationClip les lit).
+				// ── Sauvegarde .nkanimctl (2026-09-30) ──────────────────────────
+				// La machine a SON format et SON extension, `.nkanimctl` (« controleur
+				// d'animation », decision de Rihen du 30/09 : un clip et une machine
+				// ne se deposent pas au meme endroit avec le meme effet). Le fichier
+				// se reconnait a son magic 'NKAC' ; l'appelant le NOMME en .nkanimctl
+				// (NkAssetExtensionFor(NkAssetType::AnimationController), dans
+				// NKSerialization — NKAnima ne tire pas ce module).
+				// Contenu, section 'HFSM' : etats, hierarchie, entrees, etiquettes,
+				// parametres et leurs defauts, transitions et conditions. Les clips et
+				// blend trees sont designes par leur NOM : `resolver` les retrouve au
+				// chargement (un nom non resolu laisse l'etat vide, et le dit).
+				// LoadBinary relit AUSSI le .nkanim v3 du 29/09 (meme contenu, ancien
+				// emballage) ; il refuse proprement un .nkanim v1/v2, qui est un clip.
 				struct NkResolver {
 						NkFunction<const NkAnimationClip *(const NkString &)> clip;
 						NkFunction<NkBlendTree1D *(const NkString &)> tree1D;
