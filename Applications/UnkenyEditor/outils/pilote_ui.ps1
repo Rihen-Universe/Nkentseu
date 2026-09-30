@@ -84,10 +84,16 @@ $P = @{
 	LigneSol = @(90, 197); LigneCaisse1 = @(90, 263)
 	# Details (x 940..1280)
 	OngletDetails = @(968, 103); OngletMonde = @(1038, 103)
-	ChampNom = @(1073, 134); AjouterComposant = @(1236, 134)
-	ComposantLigne1 = 160; ComposantLigne2 = 180                # Sprite, puis Corps rigide
+	# (30/09) « Ajouter un composant » est EN BAS des cartes (Unity) ; le menu se CHERCHE :
+	# on tape, Entree prend la premiere ligne. Sous une entite vide (Transform + Hierarchie) :
+	ChampNom = @(1109, 134); AjouterComposant = @(1109, 423)
+	# ... une fois la zone des cartes defilee jusqu'en bas, le bouton est au pied du panneau
+	CartesDetails = @(1109, 300); AjouterEnBas = @(1109, 457)
 	# Vue, tiroir, cloisons
-	Vue = @(595, 300); OngletJournal = @(91, 501); OngletActeurs = @(31, 501); CarteCaisse = @(461, 640)
+	Vue = @(595, 300); OngletJournal = @(91, 501); OngletActeurs = @(31, 501)
+	# (30/09) La racine du navigateur montre ses DOSSIERS : on entre dans « Corps rigides »
+	# (double-clic), ou la Caisse est la 2e carte (Balle, Caisse).
+	DossierRigides = @(384, 645); CarteCaisse = @(308, 640)
 	# Caisse_1 dans la vue, cadrage de depart (toute la scene, ~22 px/m) ; le vide au-dessus
 	Caisse1Vue = @(463, 379); VideVue = @(600, 200)
 	CloisonGauche = @(252, 300); CloisonTiroir = @(640, 486)
@@ -232,8 +238,9 @@ Touche 0x46; Start-Sleep -Milliseconds 600; Photo "p09i_cadrer_selection.png"   
 GlisserMilieu @(600, 300) @(680, 300); Photo "p09j_vue_deplacee.png"
 ClicP $P.PlusEntite
 ClicP $P.AjouterComposant; Photo "p10_menu_composants.png"
-Clic 1150 $P.ComposantLigne1                                  # Sprite
-ClicP $P.AjouterComposant; Clic 1150 $P.ComposantLigne2       # Corps rigide
+Taper "sprite"; Photo "p10b_menu_filtre.png"; Touche 0x0D    # la recherche, puis Entree
+Molette $P.CartesDetails -960                                  # jusqu'en bas des cartes
+ClicP $P.AjouterEnBas; Taper "corps rigide"; Touche 0x0D       # Corps rigide
 Photo "p11_composants.png"
 ClicP $P.Jouer; Start-Sleep -Milliseconds 1500; Photo "p12_en_jeu.png"
 ClicP $P.Arreter; Start-Sleep -Milliseconds 400; Photo "p13_arrete.png"
@@ -243,7 +250,8 @@ Photo "p15_renomme.png"
 ClicP $P.Recherche; Taper "cai"; Photo "p16_recherche.png"; Ctrl 0x41; Touche 0x08; Touche 0x1B
 DoubleClic $P.LigneCaisse1; Photo "p17_double_clic_cadre.png"
 ClicSec $P.OngletMonde; Photo "p18_monde_clic_sec.png"; ClicP $P.OngletDetails
-Glisser @($P.CarteCaisse[0], ($P.CarteCaisse[1] - 68)) @(560, 250); Photo "p19_carte_glissee.png"   # tiroir releve de 66 px
+DoubleClic @($P.DossierRigides[0], ($P.DossierRigides[1] - 68))   # dans « Corps rigides » (tiroir releve de 66 px)
+Glisser @($P.CarteCaisse[0], ($P.CarteCaisse[1] - 68)) @(560, 250); Photo "p19_carte_glissee.png"
 Start-Sleep -Milliseconds 1300
 Photo "p20_point_modifiee.png"
 ClicP $P.CroixOnglet; Photo "p21_boite.png"
