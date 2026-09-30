@@ -333,3 +333,69 @@ jobs:
           name: macos-nkcraft-journaux
           path: journaux/
           if-no-files-found: warn
+
+  # ===========================================================================
+  # EXPERIENCE — le vrai backend manette Apple (GameController), ALLUME ICI
+  # SEULEMENT
+  #
+  # NkAppleGameController.{h,mm} est ETEINT par defaut (NKENTSEU_GAMECONTROLLER_REEL
+  # non defini) : il a ete ecrit sans chaine Apple. Ce job l'allume sur la copie
+  # du runner -- les trois gestes de NkAppleGameController.h, appliques par perl
+  # a NKWindow.jenga, jamais commites -- et dit s'il COMPILE, s'il se LIE, et si
+  # NKWindow_Tests et Tuto01Fenetre tiennent avec lui. Sans manette branchee, il
+  # ne peut rien prouver de plus : la lecture des axes reste a verifier a la main.
+  # ===========================================================================
+  manette-apple:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Allumer GameController dans NKWindow.jenga (copie du runner)
+        run: |
+          chmod +x .github/scripts/*.sh
+          F=Kernel/Runtime/NKWindow/NKWindow.jenga
+          perl -0pi -e 's|("src/NKWindow/EntryPoints/NkCocoaMain.mm",)|$1\n            "src/NKWindow/Platform/Cocoa/NkAppleGameController.mm",|' "$F"
+          perl -0pi -e 's|frameworks\(\["Cocoa", "QuartzCore", "OpenGL", "Metal"\]\)|frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "GameController"])\n        defines(["NKENTSEU_GAMECONTROLLER_REEL"])|' "$F"
+          grep -n "NkAppleGameController.mm\|GAMECONTROLLER_REEL\|\"GameController\"" "$F"
+          test "$(grep -c 'NkAppleGameController.mm\|GAMECONTROLLER_REEL' "$F")" -ge 2 || { echo "::error::le patch de NKWindow.jenga n'a pas pris"; exit 1; }
+
+      - name: NKWindow_Tests avec GameController
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh test NKWindow_Tests "$CONFIG" "$JOURNAUX"
+
+      - name: Construire Tuto01Fenetre avec GameController
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto01Fenetre "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto01Fenetre avec GameController (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto01Fenetre.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto01Fenetre.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-manette-apple-journaux
+          path: journaux/
+          if-no-files-found: warn
