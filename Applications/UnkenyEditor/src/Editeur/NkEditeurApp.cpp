@@ -212,6 +212,14 @@ namespace nkentseu {
 					mSelectionDepart = NkString(args[i].SubStr(12));
 					continue;
 				}
+				// --ouvrir= (2026-09-29) : une scene precise au demarrage, et c'est
+				// elle qu'« Enregistrer » ecrira. Ce qui rend une capture d'une
+				// hierarchie reproductible (--capture=) sans souris.
+				if (args[i].StartsWith("--ouvrir=")) {
+					m.chemin = NkString(args[i].SubStr(9));
+					mOuvrirDepart = true;
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -254,6 +262,9 @@ namespace nkentseu {
 			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
 			m.textures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
 			NkEditeurNouvelleScene(m);
+			if (mOuvrirDepart) {
+				NkEditeurOuvrir(m); // un echec le dit (annonce) et garde la scene neuve
+			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
