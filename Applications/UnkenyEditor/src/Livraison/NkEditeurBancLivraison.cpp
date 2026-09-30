@@ -133,7 +133,14 @@ namespace nkentseu {
 				presents += (cite && NkFile::Exists((plan.depot + modules[i]).CStr())) ? 1u : 0u;
 			}
 			const NkString joueur = NkFile::ReadAllText((plan.depot + "Applications/UnkenyPlayer/UnkenyPlayer.jenga").CStr());
-			const NkVector<NkString> deps = DependancesDuJoueur(joueur);
+			NkVector<NkString> deps = DependancesDuJoueur(joueur);
+			// ... ET celles d'Unkeny, que le joueur tire sans les nommer : c'est
+			// par la qu'est arrive NKAnima (30/09), invisible au seul joueur.
+			const NkString moteur = NkFile::ReadAllText((plan.depot + "Engine/Unkeny/Unkeny.jenga").CStr());
+			const NkVector<NkString> depsMoteur = DependancesDuJoueur(moteur);
+			for (usize i = 0; i < depsMoteur.Size(); ++i) {
+				deps.PushBack(depsMoteur[i]);
+			}
 			uint32 couvertes = 0u;
 			for (usize i = 0; i < deps.Size(); ++i) {
 				const NkString fichier = NkString("/") + deps[i] + ".jenga";

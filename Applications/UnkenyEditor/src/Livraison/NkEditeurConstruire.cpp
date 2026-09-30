@@ -351,11 +351,14 @@ namespace nkentseu {
 		}
 
 		const NkVector<NkString> &NkModulesDuJoueur() {
-			// La FERMETURE des dependances du joueur (UnkenyPlayer.jenga), dans
-			// l'ordre de Nkentseu.jenga. ⚠️ Un module oublie ici n'est pas une
-			// erreur de Jenga : sa dependance est retiree SANS BRUIT du graphe
-			// (DependencyResolver) et c'est l'edition de liens qui tombe. Le
-			// banc de l'editeur (lg2) compare cette liste au .jenga du joueur.
+			// La FERMETURE des dependances du joueur (UnkenyPlayer.jenga) ET du
+			// moteur qu'il tire (Engine/Unkeny/Unkeny.jenga), dans l'ordre de
+			// Nkentseu.jenga. ⚠️ Un module oublie ici n'est pas une erreur de
+			// Jenga : sa dependance est retiree SANS BRUIT du graphe
+			// (DependencyResolver) et c'est la compilation ou l'edition de liens
+			// qui tombe. Le banc de l'editeur (lg2) compare cette liste aux DEUX
+			// .jenga : une dependance ajoutee a Unkeny sans etre ajoutee ici le
+			// fait rougir.
 			static NkVector<NkString> liste;
 			if (liste.Empty()) {
 				static const char *kModules[] = {
@@ -375,6 +378,11 @@ namespace nkentseu {
 					"Kernel/System/NKFileSystem/NKFileSystem.jenga",
 					"Kernel/System/NKReflection/NKReflection.jenga",
 					"Kernel/System/NKSerialization/NKSerialization.jenga",
+					// (30/09) Unkeny en depend depuis NkUnkenyAnimateur (HFSM de
+					// NKAnima). Oublie ici, la construction d'un jeu tombait sur
+					// « NKAnima/Clip/NkAnimation.h file not found » alors que tous
+					// les bancs etaient verts : (lg2) ne regardait que le joueur.
+					"Kernel/Runtime/NKAnima/NKAnima.jenga",
 					"Externals/Libs/NKGlad/NKGlad.jenga",
 					"Kernel/Runtime/NKEvent/NKEvent.jenga",
 					"Kernel/Runtime/NKWindow/NKWindow.jenga",
