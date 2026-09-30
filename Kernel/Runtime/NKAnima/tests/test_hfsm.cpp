@@ -21,11 +21,14 @@
 //   (h5)  fondu entre FEUILLES de niveaux differents (0 -> niveau 2) : a mi-fondu
 //         l'os est a mi-chemin, poids 0,5 ; apres, la feuille cible est courante
 //   (h6)  parametres PARTAGES : par tous les niveaux, et entre deux machines
+//   (h7b) un clip qui annonce un milliard d'os (ou de cles) est refuse, et vite
 //   (h7)  un .nkanim v1 et un v2 ecrits A LA MAIN se relisent ; un clip
 //         s'ecrit toujours en v2, octet pour octet
-//   (h8)  .nkanim v3 : la machine fait l'aller-retour et se comporte pareil ;
-//         une section inconnue est sautee ; v2 refuse par la machine, v3 lu
-//         par le clip (clip vide)
+//   (h8)  .nkanimctl (decision de Rihen du 30/09) : magic 'NKAC', la machine
+//         fait l'aller-retour et se comporte pareil ; une section inconnue est
+//         sautee ; lu comme CLIP, il est refuse (et le clip reste intact)
+//   (h8b) le .nkanim v3 que la machine ecrivait le 29/09 se RELIT toujours ;
+//         le clip le refuse en le nommant ; un magic etranger est refuse
 //   (h9)  UNE definition, deux personnages (GetRuntime / SetRuntime) : chacun
 //         avance comme s'il avait sa propre machine
 //
@@ -706,33 +709,121 @@ TEST_CASE(NKAnima, NKANIM_h7_AncienFormatRelu) {
 	const NkVector<nk_uint8> v2 = NkanimALaMain(2);
 	SM sm;
 	ASSERT_FALSE(sm.LoadFromBytes(v2.Data(), v2.Size()));
+	// (h7b) Un clip qui ANNONCE plus qu'il ne contient (un milliard d'os, puis
+	// un milliard de cles) est refuse, et vite : le compte est borne par ce qui
+	// reste a lire. Avant le 30/09, ce fichier bloquait le lecteur.
+	for (int32 cas = 0; cas < 2; ++cas) {
+		NkVector<nk_uint8> faux;
+		PoserU32(faux, 0x4E414B4Eu);
+		PoserU32(faux, 2);
+		PoserStr(faux, "menteur");
+		PoserF32(faux, 1.f);
+		PoserF32(faux, 30.f);
+		faux.PushBack(1);
+		if (cas == 0) {
+			PoserU32(faux, 1000000000u); // os
+		} else {
+			PoserU32(faux, 1);
+			PoserStr(faux, "os0");
+			faux.PushBack(1);
+			PoserU32(faux, 1000000000u); // cles
+		}
+		ASSERT_TRUE(NkFile::WriteAllBytes("nkanima_test_menteur.nkanim", faux));
+		anim::NkAnimationClip c;
+		ASSERT_FALSE(c.LoadBinary("nkanima_test_menteur.nkanim"));
+		NkFile::Delete("nkanima_test_menteur.nkanim");
+	}
 }
 
-// (h8)
-TEST_CASE(NKAnima, NKANIM_h8_MachineV3AllerRetour) {
-	anim::NkAnimationClip ca = ClipX("clipA", 0.f);
-	anim::NkAnimationClip cb = ClipX("clipB", 4.f);
-	SM src;
-	const int32 grp = src.AddSubMachine("grp");
-	src.AddState(grp, "a", &ca);
-	const int32 b = src.AddState(grp, "b", &cb);
-	src.SetEntryState(grp, b);
-	src.SetStateTag(b, 7);
-	const int32 z = src.AddEmptyState("z");
-	src.DeclareParam("seuil", SM::NkParamKind::FLOAT, 0.25f);
-	int32 t = src.AddTransitionEx(grp, z, 0.f, 3);
-	src.AddCondition(t, "go", Kind::TRIGGER);
-	src.AddCondition(t, "seuil", Kind::FLOAT_GREATER, 0.5f);
-	t = src.AddAnyStateTransition(grp, b, 0.1f, 2);
-	src.AddCondition(t, "retour", Kind::BOOL_FALSE);
+namespace {
+	// La machine des temoins (h8) et (h8b) : un groupe {a, b} d'entree b
+	// (etiquette 7), un etat z, un parametre declare, une transition a deux
+	// conditions et une any-state de portee « grp ».
+	struct MachineDeReference {
+			anim::NkAnimationClip ca = ClipX("clipA", 0.f);
+			anim::NkAnimationClip cb = ClipX("clipB", 4.f);
+			SM src;
+			SM::NkResolver res;
+			int32 grp = -1, b = -1, z = -1;
 
+			MachineDeReference() {
+				grp = src.AddSubMachine("grp");
+				src.AddState(grp, "a", &ca);
+				b = src.AddState(grp, "b", &cb);
+				src.SetEntryState(grp, b);
+				src.SetStateTag(b, 7);
+				z = src.AddEmptyState("z");
+				src.DeclareParam("seuil", SM::NkParamKind::FLOAT, 0.25f);
+				int32 t = src.AddTransitionEx(grp, z, 0.f, 3);
+				src.AddCondition(t, "go", Kind::TRIGGER);
+				src.AddCondition(t, "seuil", Kind::FLOAT_GREATER, 0.5f);
+				t = src.AddAnyStateTransition(grp, b, 0.1f, 2);
+				src.AddCondition(t, "retour", Kind::BOOL_FALSE);
+				res.clip = [this](const NkString &n) -> const anim::NkAnimationClip * {
+					return n == "clipA" ? &ca : (n == "clipB" ? &cb : nullptr);
+				};
+			}
+
+			// La machine relue se comporte-t-elle comme l'originale ? Rend le
+			// nombre d'ecarts (0 = oui).
+			int32 Ecarts(SM &lu) const {
+				int32 e = 0;
+				e += lu.GetStateCount() != src.GetStateCount();
+				e += lu.GetTransitionCount() != src.GetTransitionCount();
+				e += lu.GetParamCount() != src.GetParamCount();
+				e += lu.GetEntryState(grp) != b;
+				e += lu.GetStateTag(b) != 7;
+				e += lu.GetCurrentState() != b;
+				e += (lu.GetFloat("seuil") != 0.25f); // le DEFAUT est relu
+				lu.Update(0.1f);
+				const float32 x = OsX(lu);
+				e += (x < 3.999f || x > 4.001f); // le clip retrouve par son nom
+				lu.SetTrigger("go");
+				lu.Update(0.1f);
+				e += lu.GetCurrentState() != b; // seuil 0,25 < 0,5 : la conjonction ne tient pas
+				lu.SetFloat("seuil", 0.9f);
+				lu.Update(0.1f);
+				e += lu.GetCurrentState() != z;
+				return e;
+			}
+	};
+
+	// Un .nkanim v3 tel que la machine l'ecrivait du 29 au 30/09 : [NKAN][3],
+	// un corps de clip VIDE ecrit a la main d'apres le commentaire de format
+	// (30 octets), puis les sections. Celles-ci n'ont pas change : on les prend
+	// du .nkanimctl d'aujourd'hui, a partir de son compteur (octet 8).
+	NkVector<nk_uint8> NkanimV3DuVingtNeuf(const NkVector<nk_uint8> &ctl) {
+		NkVector<nk_uint8> b;
+		PoserU32(b, 0x4E414B4Eu); // 'NKAN'
+		PoserU32(b, 3);
+		PoserStr(b, "");   // nom
+		PoserF32(b, 0.f);  // duration
+		PoserF32(b, 30.f); // fps
+		b.PushBack(1);	   // loop
+		PoserU32(b, 0);	   // boneCount
+		b.PushBack(0);	   // skeletalLocal
+		PoserU32(b, 0);	   // jointParent
+		PoserU32(b, 0);	   // inverseBind
+		PoserU32(b, 0);	   // topo
+		for (usize i = 8; i < ctl.Size(); ++i) {
+			b.PushBack(ctl[i]);
+		}
+		return b;
+	}
+} // namespace
+
+// (h8)
+TEST_CASE(NKAnima, NKANIMCTL_h8_MachineAllerRetour) {
+	MachineDeReference ref;
 	NkVector<nk_uint8> octets;
-	src.SaveToBytes(octets);
+	ref.src.SaveToBytes(octets);
+	// Le fichier se reconnait a son MAGIC : 'NKAC', version 1.
+	ASSERT_TRUE(octets.Size() > 12u && octets[0] == 'N' && octets[1] == 'K' && octets[2] == 'A' && octets[3] == 'C');
+	ASSERT_EQUAL(1u, (uint32)octets[4]);
 	// Une section INCONNUE glissee avant 'HFSM' : un lecteur d'aujourd'hui doit
-	// la sauter. Le corps de clip vide fait 30 octets : le compteur de
-	// sections est a 8 + 30.
+	// la sauter. Le compteur de sections est a l'octet 8.
 	NkVector<nk_uint8> avecInconnue;
-	for (usize i = 0; i < 38; ++i) {
+	for (usize i = 0; i < 8; ++i) {
 		avecInconnue.PushBack(octets[i]);
 	}
 	PoserU32(avecInconnue, 2);
@@ -741,43 +832,50 @@ TEST_CASE(NKAnima, NKANIM_h8_MachineV3AllerRetour) {
 	avecInconnue.PushBack(9);
 	avecInconnue.PushBack(9);
 	avecInconnue.PushBack(9);
-	for (usize i = 42; i < octets.Size(); ++i) {
+	for (usize i = 12; i < octets.Size(); ++i) {
 		avecInconnue.PushBack(octets[i]);
 	}
-	SM::NkResolver res;
-	res.clip = [&](const NkString &n) -> const anim::NkAnimationClip * {
-		return n == "clipA" ? &ca : (n == "clipB" ? &cb : nullptr);
-	};
 	SM lu;
-	ASSERT_TRUE(lu.LoadFromBytes(avecInconnue.Data(), avecInconnue.Size(), res));
-	ASSERT_EQUAL(src.GetStateCount(), lu.GetStateCount());
-	ASSERT_EQUAL(src.GetTransitionCount(), lu.GetTransitionCount());
-	ASSERT_EQUAL(b, lu.GetEntryState(grp));
-	ASSERT_EQUAL(7, lu.GetStateTag(b));
-	ASSERT_EQUAL(b, lu.GetCurrentState());
-	ASSERT_EQUAL(src.GetParamCount(), lu.GetParamCount());
-	ASSERT_NEAR(0.25f, lu.GetFloat("seuil"), 1e-6f); // le DEFAUT est relu
-	lu.Update(0.1f);
-	ASSERT_NEAR(4.f, OsX(lu), 1e-4f); // le clip a ete retrouve par son nom
-	lu.SetTrigger("go");
-	lu.Update(0.1f);
-	ASSERT_EQUAL(b, lu.GetCurrentState()); // seuil 0,25 < 0,5 : la conjonction ne tient pas
-	lu.SetFloat("seuil", 0.9f);
-	lu.Update(0.1f);
-	ASSERT_EQUAL(z, lu.GetCurrentState());
+	ASSERT_TRUE(lu.LoadFromBytes(avecInconnue.Data(), avecInconnue.Size(), ref.res));
+	ASSERT_EQUAL(0, ref.Ecarts(lu));
 
-	// Fichier : ecrit, relu par la machine ; relu par un CLIP, c'est un clip vide.
-	ASSERT_TRUE(src.SaveBinary("nkanima_test_v3.nkanim"));
+	// Fichier .nkanimctl : ecrit, relu par la machine ; lu comme CLIP, refuse.
+	ASSERT_TRUE(ref.src.SaveBinary("nkanima_test.nkanimctl"));
 	SM f;
-	ASSERT_TRUE(f.LoadBinary("nkanima_test_v3.nkanim", res));
-	ASSERT_EQUAL(src.GetStateCount(), f.GetStateCount());
+	ASSERT_TRUE(f.LoadBinary("nkanima_test.nkanimctl", ref.res));
+	ASSERT_EQUAL(0, ref.Ecarts(f));
 	anim::NkAnimationClip commeClip;
-	ASSERT_TRUE(commeClip.LoadBinary("nkanima_test_v3.nkanim"));
-	ASSERT_EQUAL(0u, commeClip.boneCount);
-	NkFile::Delete("nkanima_test_v3.nkanim");
+	commeClip.name = "intact";
+	ASSERT_FALSE(commeClip.LoadBinary("nkanima_test.nkanimctl"));
+	ASSERT_TRUE(commeClip.name == "intact"); // refuse AVANT de toucher au clip
+	NkFile::Delete("nkanima_test.nkanimctl");
 	// Tronque : refuse.
 	SM court;
-	ASSERT_FALSE(court.LoadFromBytes(octets.Data(), octets.Size() - 5, res));
+	ASSERT_FALSE(court.LoadFromBytes(octets.Data(), octets.Size() - 5, ref.res));
+}
+
+// (h8b)
+TEST_CASE(NKAnima, NKANIMCTL_h8b_AncienNkanimV3Relu) {
+	MachineDeReference ref;
+	NkVector<nk_uint8> ctl;
+	ref.src.SaveToBytes(ctl);
+	const NkVector<nk_uint8> v3 = NkanimV3DuVingtNeuf(ctl);
+	ASSERT_TRUE(NkFile::WriteAllBytes("nkanima_test_machine_v3.nkanim", v3));
+	// La machine RELIT l'ancien emballage, et se comporte pareil.
+	SM lu;
+	ASSERT_TRUE(lu.LoadBinary("nkanima_test_machine_v3.nkanim", ref.res));
+	ASSERT_EQUAL(0, ref.Ecarts(lu));
+	// Le clip le REFUSE en le nommant (il le lisait comme un clip vide).
+	anim::NkAnimationClip commeClip;
+	commeClip.name = "intact";
+	ASSERT_FALSE(commeClip.LoadBinary("nkanima_test_machine_v3.nkanim"));
+	ASSERT_TRUE(commeClip.name == "intact");
+	NkFile::Delete("nkanima_test_machine_v3.nkanim");
+	// Un magic etranger : refuse, ni machine ni clip.
+	NkVector<nk_uint8> etranger = ctl;
+	etranger[3] = 'X';
+	SM x;
+	ASSERT_FALSE(x.LoadFromBytes(etranger.Data(), etranger.Size(), ref.res));
 }
 
 // (h9)

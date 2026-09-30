@@ -221,6 +221,16 @@ namespace nkentseu {
 		Font = 14,
 		Shader = 15,
 		Script = 16,
+		// Ajout du 2026-09-30 (decision de Rihen) : la machine a etats
+		// d'animation (NKAnima) a sa nature et son extension, `.nkanimctl`. Un
+		// clip reste `Animation` / `.nkanim`. Valeur APRES les existantes : un
+		// numero deja ecrit dans un fichier ne change jamais de sens.
+		AnimationController = 17,
+		// AJOUTES le 2026-09-29, apres AnimationController (arrive le premier a
+		// la fusion) : aucun fichier n'ecrivait encore 17 ni 18 pour une scene
+		// (.nkscene est du JSON qui porte son "format"), rien ne change de sens.
+		Scene = 18,	   ///< une scene : entites, hierarchie, etat de simulation (.nkscene)
+		SaveGame = 19, ///< une sauvegarde de PARTIE (.nksave) — pas une scene qu'on edite
 		Custom = 255,
 	};
 
@@ -258,6 +268,12 @@ namespace nkentseu {
 				return "Shader";
 			case NkAssetType::Script:
 				return "Script";
+			case NkAssetType::AnimationController:
+				return "AnimationController";
+			case NkAssetType::Scene:
+				return "Scene";
+			case NkAssetType::SaveGame:
+				return "SaveGame";
 			case NkAssetType::Custom:
 				return "Custom";
 			default:
@@ -316,6 +332,12 @@ namespace nkentseu {
 				return "nkshader";
 			case NkAssetType::Script:
 				return "nkscript";
+			case NkAssetType::AnimationController:
+				return "nkanimctl";
+			case NkAssetType::Scene:
+				return "nkscene";
+			case NkAssetType::SaveGame:
+				return "nksave";
 			case NkAssetType::Custom:
 			default:
 				// `.nkasset` reste la nature « non standard » — et reste accepte
@@ -356,6 +378,8 @@ namespace nkentseu {
 			{"nkmap", NkAssetType::Map},			   {"nkworld", NkAssetType::World},
 			{"nkprefab", NkAssetType::Prefab},		   {"nkfont", NkAssetType::Font},
 			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
+			{"nkanimctl", NkAssetType::AnimationController},
+			{"nkscene", NkAssetType::Scene},		   {"nksave", NkAssetType::SaveGame},
 			{"nkasset", NkAssetType::Custom},
 		};
 		for (const Paire &p : kTable)

@@ -107,7 +107,89 @@ namespace nkentseu {
 			return s;
 		}
 
+		// Masse et inertie EXACTES d'un polygone 2D, autour de l'origine du corps
+		// (sommets donnes relativement a elle). Eventail de triangles (0, a, b) :
+		// aire = cross(a, b) / 2, inertie = rho * cross(a, b) / 12 * (a.a + a.b + b.b).
+		// ⚠️ Le solveur prend la POSITION du corps pour centre de masse : un
+		// polygone dont le centroide n'est pas a la position tourne autour d'un
+		// point faux. A l'appelant de le centrer (c'est ce que fait une caisse).
+		static void NkMassePolygone2D(const NkVec3f *local, uint32 n, float32 density, uint32 flags, float32 &invMass,
+									  NkVec3f &invInertiaDiag) noexcept {
+			float32 aire = 0.f;
+			float32 inertie = 0.f;
+			for (uint32 i = 0; i < n; ++i) {
+				const NkVec3f &a = local[i];
+				const NkVec3f &b = local[(i + 1u) % n];
+				const float32 c = a.x * b.y - a.y * b.x;
+				aire += 0.5f * c;
+				inertie += c * (a.x * a.x + a.y * a.y + a.x * b.x + a.y * b.y + b.x * b.x + b.y * b.y) / 12.f;
+			}
+			// Sommets en sens horaire : les deux sommes changent de signe ensemble.
+			aire = aire < 0.f ? -aire : aire;
+			inertie = inertie < 0.f ? -inertie : inertie;
+			float32 masse = density * aire;
+			if (masse < 1e-6f)
+				masse = 1e-6f;
+			invMass = 1.f / masse;
+			const float32 iz = density * inertie;
+			const bool fixedRot = (flags & NK_BODY_FIXED_ROT) != 0;
+			invInertiaDiag = fixedRot ? NkVec3f{0, 0, 0} : NkVec3f{1.f, 1.f, iz > 1e-12f ? 1.f / iz : 0.f};
+		}
+
 		NkPhysicsWorld::NkPhysicsWorld(const NkPhysicsConfig &cfg) noexcept : mConfig(cfg) {
+		}
+
+		NkPhysicsWorld::NkSommets2D *NkPhysicsWorld::Sommets2D(NkBodyId id) noexcept {
+			for (uint32 i = 0; i < (uint32)mSommets2D.Size(); ++i)
+				if (mSommets2D[i].corps == id)
+					return &mSommets2D[i];
+			return nullptr;
+		}
+
+		void NkPhysicsWorld::SynchroniserSommets2D() noexcept {
+			for (uint32 i = 0; i < (uint32)mSommets2D.Size(); ++i) {
+				NkSommets2D &s = mSommets2D[i];
+				NkRigidBody *b = GetBody(s.corps);
+				if (b == nullptr)
+					continue;
+				for (uint32 k = 0; k < s.nombre; ++k) {
+					NkVec3f p = b->position + b->orientation * s.local[k];
+					p.z = 0.f;
+					s.monde[k] = p;
+				}
+				// La forme de repos pointe sur la copie LOCALE, la forme du monde de
+				// collision sur la copie MONDE : les deux vivent ici, pas chez
+				// l'appelant.
+				b->restShape.verts = s.local;
+				if (collision::NkBody *cb = mCollision.GetBody(b->collisionId)) {
+					collision::NkShape monde = cb->shape;
+					monde.verts = s.monde;
+					monde.vertCount = s.nombre;
+					mCollision.SetShape(b->collisionId, monde);
+				}
+			}
+		}
+
+		void NkPhysicsWorld::ContraindrePlan(NkRigidBody &b) const noexcept {
+			b.linearVelocity.z = 0.f;
+			b.angularVelocity.x = 0.f;
+			b.angularVelocity.y = 0.f;
+			b.position.z = 0.f;
+			// La part de l'orientation autour de Z (decomposition « twist ») : on
+			// garde (0, 0, z, w) renormalise.
+			// ⚠️ SEULEMENT si elle a quitte le plan : renormaliser un quaternion deja
+			// plan change ses derniers bits, et une simulation qui ne sortait pas du
+			// plan divergeait de l'ancienne (mesure, blob sur caisse de Physic2D,
+			// u3 : 0,8459 -> 0,8144 m). Sans sortie du plan, enable2D ne change RIEN.
+			if (b.orientation.x == 0.f && b.orientation.y == 0.f)
+				return;
+			const float32 l = math::NkSqrt(b.orientation.z * b.orientation.z + b.orientation.w * b.orientation.w);
+			if (l > 1e-9f) {
+				b.orientation.x = 0.f;
+				b.orientation.y = 0.f;
+				b.orientation.z = b.orientation.z / l;
+				b.orientation.w = b.orientation.w / l;
+			}
 		}
 
 		NkBodyId NkPhysicsWorld::CreateBody(const NkBodyDef &def, const collision::NkShape &shape) {
@@ -127,10 +209,35 @@ namespace nkentseu {
 			b.layer = def.layer;
 			NkComputeMassProps(shape, def.material.density, def.type, def.flags, b.invMass, b.invInertiaDiag);
 			b.restShape = NkComputeRestShape(shape, def.position, def.orientation); // forme locale (pour la synchro)
-			b.collisionId = mCollision.AddBody(shape, def.layer, def.mask, def.user);
+			if (mConfig.enable2D)
+				ContraindrePlan(b);
+			// Polygone ou triangle 2D : le monde en garde une COPIE (voir NkSommets2D).
+			const bool polygone = (shape.type == NkShapeType::NK_POLYGON2D || shape.type == NkShapeType::NK_TRIANGLE2D) &&
+								  shape.verts != nullptr && shape.vertCount >= 3u;
+			if (polygone) {
+				NkSommets2D s;
+				s.corps = b.id;
+				s.nombre = shape.vertCount < NK_SOMMETS_2D_MAX ? shape.vertCount : NK_SOMMETS_2D_MAX;
+				const NkQuatf cq = def.orientation.Conjugate();
+				for (uint32 k = 0; k < s.nombre; ++k) {
+					NkVec3f w = shape.verts[k];
+					w.z = 0.f;
+					s.monde[k] = w;
+					s.local[k] = cq * (w - def.position);
+				}
+				if (def.type == NkBodyType::DYNAMIC)
+					NkMassePolygone2D(s.local, s.nombre, def.material.density, def.flags, b.invMass, b.invInertiaDiag);
+				mSommets2D.PushBack(s);
+			}
+			collision::NkShape formeMonde = shape;
+			if (polygone)
+				formeMonde.verts = nullptr; // repointee juste apres, sur la copie
+			b.collisionId = mCollision.AddBody(formeMonde, def.layer, def.mask, def.user);
 			if (def.flags & NK_BODY_TRIGGER)
 				mCollision.SetTrigger(b.collisionId, true);
 			mBodies.PushBack(b);
+			if (polygone)
+				SynchroniserSommets2D(); // aussi pour les AUTRES : le tableau a pu etre realloue
 			return b.id;
 		}
 
@@ -139,6 +246,14 @@ namespace nkentseu {
 				if (mBodies[i].id == id) {
 					mCollision.RemoveBody(mBodies[i].collisionId);
 					mBodies.RemoveAt(i);
+					break;
+				}
+			for (uint32 i = 0; i < (uint32)mSommets2D.Size(); ++i)
+				if (mSommets2D[i].corps == id) {
+					mSommets2D.RemoveAt(i);
+					// Les suivants ont GLISSE d'une case : leurs formes pointaient a
+					// cote.
+					SynchroniserSommets2D();
 					return;
 				}
 		}
@@ -371,6 +486,71 @@ namespace nkentseu {
 				if (mBodies[i].collisionId == cid)
 					return &mBodies[i];
 			return nullptr;
+		}
+
+		const NkRigidBody *NkPhysicsWorld::FindByCollisionId(uint32 cid) const noexcept {
+			for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
+				if (mBodies[i].collisionId == cid)
+					return &mBodies[i];
+			return nullptr;
+		}
+
+		// ── Requetes 2D (2026-09-29) ──────────────────────────────────────────
+		bool NkPhysicsWorld::Raycast2D(const NkVec2f &origin, const NkVec2f &direction, float32 maxDistance, NkBodyId &outBody,
+									   collision::NkRayHit2D &hit, uint32 layerMask, bool ignoreTriggers, NkBodyId ignore) const {
+			outBody = NK_INVALID_BODY;
+			const float32 l = math::NkSqrt(direction.x * direction.x + direction.y * direction.y);
+			if (l < 1e-9f || maxDistance <= 0.f)
+				return false;
+			collision::NkRay2D r;
+			r.origin = origin;
+			r.dir = NkVec2f(direction.x / l, direction.y / l);
+			r.maxT = maxDistance;
+			uint32 ignoreCid = 0u;
+			if (ignore != NK_INVALID_BODY)
+				if (const NkRigidBody *b = GetBody(ignore))
+					ignoreCid = b->collisionId;
+			if (!mCollision.Raycast2D(r, hit, layerMask, ignoreTriggers, ignoreCid))
+				return false;
+			if (const NkRigidBody *b = FindByCollisionId(hit.bodyId))
+				outBody = b->id;
+			return true;
+		}
+
+		uint32 NkPhysicsWorld::BodyContacts(NkBodyId id, NkVector<NkBodyContact> &out) const {
+			out.Clear();
+			NkBodyContact tampon[32];
+			const uint32 n = BodyContacts(id, tampon, 32u);
+			for (uint32 i = 0; i < n; ++i)
+				out.PushBack(tampon[i]);
+			return n;
+		}
+
+		uint32 NkPhysicsWorld::BodyContacts(NkBodyId id, NkBodyContact *out, uint32 max) const {
+			uint32 ecrits = 0;
+			const NkRigidBody *self = GetBody(id);
+			if (self == nullptr || out == nullptr)
+				return 0u;
+			const auto &pairs = mCollision.Pairs();
+			for (uint32 i = 0; i < (uint32)pairs.Size() && ecrits < max; ++i) {
+				const collision::NkCollisionPair &p = pairs[i];
+				const bool estA = p.a == self->collisionId;
+				if (!estA && p.b != self->collisionId)
+					continue;
+				const NkRigidBody *autre = FindByCollisionId(estA ? p.b : p.a);
+				if (autre == nullptr || (autre->flags & NK_BODY_TRIGGER) || (self->flags & NK_BODY_TRIGGER))
+					continue;
+				NkBodyContact c;
+				c.other = autre->id;
+				// Normale du manifold : de A vers B. Vers le corps demande, donc
+				// inversee s'il est A.
+				c.normal = estA ? p.manifold.normal * -1.f : p.manifold.normal;
+				c.points = p.manifold.count;
+				for (int32 k = 0; k < p.manifold.count; ++k)
+					c.depth = math::NkMax(c.depth, p.manifold.points[k].depth);
+				out[ecrits++] = c;
+			}
+			return ecrits;
 		}
 
 		// Inertie inverse en repère MONDE appliquée à un vecteur (torque -> accel ang.) :
@@ -837,6 +1017,13 @@ namespace nkentseu {
 			SolveContacts(dt);
 			// 3b) solveur d'articulations (joints) + warm-start
 			SolveJoints(dt);
+			// 3c) enable2D (lu depuis le 2026-09-29 ; avant, il n'etait lu NULLE
+			//     part) : tout ce que forces, contacts et joints ont mis hors du
+			//     plan XY en est retire AVANT l'integration des positions.
+			if (mConfig.enable2D)
+				for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
+					if (mBodies[i].type != NkBodyType::STATIC)
+						ContraindrePlan(mBodies[i]);
 			// 4) vitesses -> positions (DYNAMIC + KINEMATIC) avec CCD anti-tunneling
 			for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
 				NkRigidBody &b = mBodies[i];
@@ -871,6 +1058,10 @@ namespace nkentseu {
 			}
 			// 5) correction positionnelle (split-impulse) — n'affecte que les invMass>0
 			CorrectPositions();
+			if (mConfig.enable2D)
+				for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i)
+					if (mBodies[i].type != NkBodyType::STATIC)
+						ContraindrePlan(mBodies[i]);
 			// 6) re-synchroniser les shapes de collision sur la pose finale
 			for (uint32 i = 0; i < (uint32)mBodies.Size(); ++i) {
 				NkRigidBody &b = mBodies[i];
@@ -881,6 +1072,11 @@ namespace nkentseu {
 					mCollision.SetShape(b.collisionId, NkTransformShape(b.restShape, b.position, b.orientation));
 				}
 			}
+			// 6b) polygones 2D : NkTransformShape ne sait pas deplacer des sommets
+			//     (il n'en possede pas) ; le monde les refait, et repointe la forme
+			//     que la ligne precedente vient de poser sur la copie LOCALE.
+			if (mSommets2D.Size() > 0)
+				SynchroniserSommets2D();
 			// 7) mise en sommeil des corps immobiles
 			UpdateSleep(dt);
 		}

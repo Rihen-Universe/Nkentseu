@@ -14,6 +14,7 @@
 
 #include <cmath> // fabsf / sqrtf : include manquant (2026-09-04)
 #include <cstdio>
+#include <cstdlib> // std::getenv : dossier temporaire de la plateforme
 #include <cstring>
 
 using namespace nkentseu;
@@ -187,12 +188,23 @@ static void TestAudioLoader() {
 	AudioSample original = AudioGenerator::GenerateTone(440.0f, 0.1f);
 	NKENTSEU_ASSERT_TRUE(original.IsValid());
 
-	// Sauvegarder
-	bool saved = AudioLoader::SaveWAV("/tmp/nk_test_audio.wav", original);
+	// Sauvegarder -- (30/09) dans le dossier temporaire de la PLATEFORME : le
+	// « /tmp » d'avant n'existe pas sous Windows, et ce test y echouait depuis
+	// toujours (« saved » faux), sans rapport avec le code audio.
+	char cheminWav[1024];
+	{
+		const char *dossier = std::getenv("TEMP");
+		if (!dossier || !*dossier)
+			dossier = std::getenv("TMPDIR");
+		if (!dossier || !*dossier)
+			dossier = "/tmp";
+		std::snprintf(cheminWav, sizeof(cheminWav), "%s/nk_test_audio.wav", dossier);
+	}
+	bool saved = AudioLoader::SaveWAV(cheminWav, original);
 	NKENTSEU_ASSERT_TRUE(saved);
 
 	// Recharger
-	AudioSample loaded = AudioLoader::Load("/tmp/nk_test_audio.wav");
+	AudioSample loaded = AudioLoader::Load(cheminWav);
 	NKENTSEU_ASSERT_TRUE(loaded.IsValid());
 	NKENTSEU_ASSERT_TRUE(loaded.channels == 1);
 	NKENTSEU_ASSERT_NEAR((float32)loaded.sampleRate, (float32)original.sampleRate, 1.0f);
@@ -612,6 +624,32 @@ static void TestAudioEngine() {
 	NK_END_TEST()
 
 	NK_TEST("Shutdown")
+	AudioEngine::Instance().Shutdown();
+	NKENTSEU_ASSERT_TRUE(!AudioEngine::Instance().IsInitialized());
+	NK_END_TEST()
+
+	// (30/09) Shutdown ne remettait pas les voix a FREE : un second Initialize
+	// dans le meme processus retrouvait des voix « en lecture » pointant sur
+	// des echantillons deja liberes, et le mixage plantait
+	// (NkAudioEngineCore.cpp, lecture de s.data). Trouve par le banc (l3) de la
+	// livraison d'Unkeny, qui demarrait le moteur apres un autre banc.
+	NK_TEST("Shutdown puis Initialize : aucune voix de l'ancienne session")
+	AudioEngineConfig cfg;
+	cfg.backend = AudioBackendType::NULL_OUTPUT;
+	cfg.sampleRate = 48000;
+	cfg.channels = 2;
+	cfg.bufferSize = 256;
+	NKENTSEU_ASSERT_TRUE(AudioEngine::Instance().Initialize(cfg));
+	AudioSample s = AudioGenerator::GenerateTone(440.0f, 5.0f);
+	AudioHandle h = AudioEngine::Instance().Play(s);
+	NKENTSEU_ASSERT_TRUE(AudioEngine::Instance().IsPlaying(h));
+	AudioEngine::Instance().Shutdown();
+	AudioLoader::Free(s); // l'echantillon meurt AVANT la session suivante
+	NKENTSEU_ASSERT_TRUE(AudioEngine::Instance().Initialize(cfg));
+	NKENTSEU_ASSERT_TRUE(!AudioEngine::Instance().IsPlaying(h));
+	NKENTSEU_ASSERT_TRUE(AudioEngine::Instance().GetActiveVoices() == 0);
+	float32 tampon[256 * 2] = {};
+	AudioEngine::Instance().RenderToBuffer(tampon, 256, 2); // ne lit plus s.data
 	AudioEngine::Instance().Shutdown();
 	NKENTSEU_ASSERT_TRUE(!AudioEngine::Instance().IsInitialized());
 	NK_END_TEST()
