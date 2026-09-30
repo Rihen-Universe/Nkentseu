@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -452,6 +453,10 @@ namespace nkentseu {
 
 				// ── Le gizmo passe AVANT tout : une poignee visee est a lui ──────
 				if (GizmoSouris(c, aire)) {
+					return;
+				}
+				// ── Puis la poignee de PORTEE d'une lumiere (2026-09-30) ─────────
+				if (NkEditeurGizmoPorteeSouris(c, aire)) {
 					return;
 				}
 

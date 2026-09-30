@@ -7,6 +7,8 @@
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurViseur.h"
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -107,9 +109,17 @@ namespace nkentseu {
 					ecartees.PushBack(e);
 				});
 			}
-			NkDessinerFormes(dl, scene, formes);
-			stats = NkDessinerScene(dl, scene);
-			NkDessinerCorpsMous(dl, scene, m.rendu);
+			// L'IMAGE DU JEU -- formes, sprites, matiere -- par la fonction que
+			// dessine aussi le joueur autonome (Unkeny/Partie) : ce que montre le
+			// viseur est ce que montrera le jeu construit.
+			// Les effets (fumee sous la lumiere, feu par-dessus) et la carte de
+			// lumiere en font PARTIE depuis le 2026-09-30 : un jeu construit a
+			// son feu et sa nuit. L'editeur n'en retient que les chiffres (barre
+			// d'etat, onglet Monde) ; les surcouches viennent apres, non eclairees.
+			NkStatsEclairage2D eclairage;
+			int32 particules = 0;
+			stats = NkDessinerPartie(dl, scene, m.rendu, &eclairage, &particules);
+			NkEditeurRetenirChiffresLumiere(eclairage, particules);
 			if (m.voirCollisionneurs) {
 				NkDessinerCollisionneurs(dl, scene, 0x00E07AC0u);
 			}
@@ -160,6 +170,7 @@ namespace nkentseu {
 					dl.AddLine(NkVec2f(e.x, e.y - 6.f), NkVec2f(e.x, e.y + 6.f), th.or_, 1.5f);
 				}
 			}
+			NkEditeurDessinerIconesLumiere(dl, m);
 			dl.PopClipRect();
 
 			// Le bord du viseur dit l'ETAT — VERT en jeu, AMBRE en pause : on sait

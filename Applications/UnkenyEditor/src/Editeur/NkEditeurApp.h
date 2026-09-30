@@ -41,6 +41,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
 #include "Editeur/NkEditeurSouris.h"
+#include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "NKCanvas/App/NkCanvasGuiApp.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -92,6 +93,8 @@ namespace nkentseu {
 				memory::NkUniquePtr<NkEditeurInterface> mUi;
 				/// « Jouer » : qui recoit le clavier, la manette et le doigt (29/09).
 				memory::NkUniquePtr<NkEditeurEntrees> mEntrees;
+				/// La fenetre « Construire » et la construction en cours (U5).
+				memory::NkUniquePtr<NkEditeurConstruction> mConstruction;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;
@@ -103,6 +106,8 @@ namespace nkentseu {
 				NkString mVerrouDepart;	   ///< --verrouiller= : celles dont le cadenas est ferme
 				/// Les boutons de la souris, sans clic perdu entre deux trames.
 				NkEditeurSouris mBoutons;
+				bool mExempleNuit = false; ///< --exemple=nuit : la nuit au feu de camp (NkEditeurLumiere.h)
+				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
 		};
 
 	} // namespace editeur

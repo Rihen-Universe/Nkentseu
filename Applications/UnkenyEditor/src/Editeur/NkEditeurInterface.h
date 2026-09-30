@@ -127,16 +127,25 @@ namespace nkentseu {
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
 			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CONSTRUIRE = 900,		///< Fichier > Construire… (U5, Livraison/)
+			// 2026-09-30 (NkEditeurLumiere.h) : quatre plages de moins de 10 valeurs,
+			// AU-DESSUS de 999. Les numeros 800-999 sont laisses libres : la branche
+			// de livraison y a pris NK_A_CONSTRUIRE = 900 (comble/livrer-u5), et deux
+			// chantiers qui se partagent une centaine finissent par s'y rencontrer.
+			NK_A_LUMIERE = 1000,		///< + NkTypeLumiere2D : une lumiere sur la selection
+			NK_A_EMETTEUR = 1050,		///< + NkPresetEffet2D : un emetteur sur la selection
+			NK_A_LUMIERE_ICI = 1100,	///< + NkTypeLumiere2D : une lumiere au point du clic droit
+			NK_A_EMETTEUR_ICI = 1150,	///< + NkPresetEffet2D : un effet au point du clic droit
 			// La barre flottante du viseur (2026-09-30).
-			NK_A_ACCROCHE_GRILLE = 900, ///< l'accrochage des DEPLACEMENTS, allume / eteint
+			NK_A_ACCROCHE_GRILLE = 1200, ///< l'accrochage des DEPLACEMENTS, allume / eteint
 			NK_A_ACCROCHE_ANGLE,		///< celui des ROTATIONS
 			NK_A_ACCROCHE_ECHELLE,		///< celui des ECHELLES
 			NK_A_REPERE_LOCAL,			///< le gizmo Deplacer : axes de l'entite / du monde
-			NK_A_PAS_GRILLE = 920,		///< + indice dans NkPasGrille
-			NK_A_PAS_ANGLE = 940,		///< + indice dans NkPasAngle
-			NK_A_PAS_ECHELLE = 960,		///< + indice dans NkPasEchelle
+			NK_A_PAS_GRILLE = 1220,		///< + indice dans NkPasGrille
+			NK_A_PAS_ANGLE = 1240,		///< + indice dans NkPasAngle
+			NK_A_PAS_ECHELLE = 1260,		///< + indice dans NkPasEchelle
 			// Le menu « ⋮ » d'une carte (NkEditeurInterface::carteMenu).
-			NK_A_CARTE_REINIT = 980,
+			NK_A_CARTE_REINIT = 1280,
 			NK_A_CARTE_RETIRER,
 			NK_A_CARTE_MONTER,
 			NK_A_CARTE_DESCENDRE,
@@ -260,7 +269,7 @@ namespace nkentseu {
 				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
 				/// le changent pour toutes les entites : NKECS ne range pas les
 				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
-				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
 				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
 				/// Le libelle d'un nombre qu'on FROTTE (Unity : tirer sur le libelle).
@@ -337,6 +346,9 @@ namespace nkentseu {
 				/// La croix de la FENETRE a ete cliquee : la question se pose a la
 				/// prochaine trame (OnCloseRequested ne dessine pas).
 				bool fermetureDemandee = false;
+				/// Fichier > Construire… : la fenetre s'ouvre a la trame suivante
+				/// (son etat est a l'application, Livraison/NkEditeurFenetreConstruire.h).
+				bool construireDemande = false;
 
 				// --- La fenetre (barre de titre maison) -------------------------
 				// ⚠️ DES DEMANDES, PAS DES APPELS. BeginDragMove et BeginResize

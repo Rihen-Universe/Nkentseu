@@ -18,9 +18,10 @@
 //       "config":   { physique, particules, gravite, pasFixe, pasMaxParTrame },
 //       "camera":   "cx cy zoom rotation",
 //       "entites":  [ { uid, parent, local, nom, transform, sprite{texture},
-//                       collisionneur, corps{etat}, mou,
+//                       collisionneur, corps{etat}, mou, lumiere, emetteur,
 //                       jeu{ NomComposant: { champ: valeur... } | "octets hex" } } ],
-//       "particules": { reglages, corps[], p{...}, l{...} }
+//       "particules": { reglages, corps[], p{...}, l{...} },
+//       "eclairage":  { actif, ambiante, ombres, masqueOcculteurs, mode, maille }
 //     }
 //
 // LES VERSIONS — une lecture accepte toute version <= NK_UNKENY_SCENE_VERSION
@@ -33,8 +34,15 @@
 //      est ignore : on relit une sauvegarde faite avant l'ajout d'un champ, et
 //      sur une autre ABI. Un composant NON decrit reste en octets (inchange).
 //
+//   ⚠️ « lumiere », « emetteur » et « eclairage » (2026-09-30) ne sont ECRITS
+//   que s'ils existent (l'eclairage : s'il differe du defaut), champ par champ,
+//   et se LISENT dans les deux versions : un fichier sans eux se relit tel
+//   quel et se reecrit a l'octet pres. Un moteur qui ne les connait pas les
+//   ignore (ses lumieres disparaissent, rien ne casse).
+//
 // CE QUI EST SAUVE
-//   - les composants d'Unkeny, un par un, champ par champ ;
+//   - les composants d'Unkeny, un par un, champ par champ (lumieres et
+//     emetteurs compris, 2026-09-30) ;
 //   - l'ETAT des corps rigides (position, orientation, vitesses) ;
 //   - tout le monde de particules (corps, particules, liens, reglages) ;
 //   - l'IDENTITE de chaque entite et sa HIERARCHIE (v2) ;

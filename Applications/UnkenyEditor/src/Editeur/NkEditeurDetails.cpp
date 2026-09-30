@@ -20,6 +20,9 @@
 //     l'ancien inspecteur, repris rangee par rangee.
 //   - « Ajouter un composant », en bas, ouvre le menu des composants AVEC SA
 //     RECHERCHE (on tape, il filtre : NkEditeurDessinerMenuOuvert).
+//   - Les cartes Lumiere 2D et Emetteur (2026-09-30) reprennent, rangee par
+//     rangee, les sections de NkEditeurLumiere.cpp (la case de l'en-tete
+//     allume / active ; les preregrages de l'emetteur sont des boutons).
 //   - La carte Hierarchie : parent, enfants, prefab et surcharges, Detacher et
 //     Creer un prefab (les actions de la branche hierarchie). L'Animateur
 //     (NKAnima) est une carte comme les autres, sans Retirer ni Reinitialiser :
@@ -34,6 +37,8 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurLumiere.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -154,6 +159,21 @@ namespace nkentseu {
 						dl.AddLine(P(cx - 4.f, cy - 3.f), P(cx + 4.f, cy + 3.f), col, 1.2f);
 						dl.AddLine(P(cx - 4.f, cy - 3.f), P(cx + 4.f, cy - 3.f), col, 1.f);
 						break;
+					case NkCarteEditeur::NK_LUMIERE:
+						// Un soleil, comme l'icone du viseur.
+						for (int32 k = 0; k < 8; ++k) {
+							const float32 a = 0.785398f * static_cast<float32>(k);
+							dl.AddLine(P(cx + std::cos(a) * 4.f, cy + std::sin(a) * 4.f), P(cx + std::cos(a) * 7.f, cy + std::sin(a) * 7.f), col, 1.2f);
+						}
+						dl.AddCircleFilled(P(cx, cy), 3.f, col);
+						break;
+					case NkCarteEditeur::NK_EMETTEUR: {
+						// Une flamme : un losange pointe en haut.
+						const NkVec2 pts[4] = {P(cx, cy - 7.f), P(cx + 4.5f, cy + 1.f), P(cx, cy + 6.f), P(cx - 4.5f, cy + 1.f)};
+						dl.AddTriangleFilled(pts[0], pts[1], pts[2], col);
+						dl.AddTriangleFilled(pts[0], pts[2], pts[3], col);
+						break;
+					}
 					case NkCarteEditeur::NK_HIERARCHIE:
 						dl.AddRectFilled(NkRect{cx - 6.f, cy - 6.f, 5.f, 4.f}, col);
 						dl.AddLine(P(cx - 3.5f, cy - 2.f), P(cx - 3.5f, cy + 4.f), col, 1.2f);
@@ -793,6 +813,146 @@ namespace nkentseu {
 				Fin(I);
 			}
 
+			/// Une valeur en degres, stockee en radians.
+			bool Angle(NkInspecteur &I, const char *libelle, float32 &radians, float32 mini, float32 maxi) {
+				float32 d = radians * 57.2957795f;
+				if (!Glissiere(I, libelle, d, mini, maxi)) {
+					return false;
+				}
+				radians = d / 57.2957795f;
+				return true;
+			}
+
+			/// La lumiere 2D (NkEditeurLumiere.h, 2026-09-30) : la case de l'en-tete
+			/// l'ALLUME. Un rappel quand l'eclairage de la scene est eteint : une
+			/// lumiere sans lui ne fait rien, et un reglage sans effet visible passe
+			/// pour une panne.
+			void CarteLumiere(NkInspecteur &I) {
+				NkEditeurModele &m = I.c.m;
+				NkLumiere2D *l = m.scene.Monde().Get<NkLumiere2D>(I.id);
+				if (!Entete(I, NkCarteEditeur::NK_LUMIERE, &l->actif)) {
+					return;
+				}
+				if (!m.scene.Eclairage().actif) {
+					Ligne(I, "L'éclairage de la scène est éteint : cette lumière n'a pas d'effet.");
+					if (Boutons(I, "Activer l'éclairage de la scène") == 0) {
+						m.scene.Eclairage().actif = true;
+						NkEditeurAnnoncer(m, "Eclairage 2D de la scene active");
+					}
+				}
+				static const char *kTypes[3] = {"Ponctuelle", "Cône", "Direction."};
+				int32 type = static_cast<int32>(l->type);
+				if (Choix(I, "Type", kTypes, 3, type)) {
+					l->type = static_cast<NkTypeLumiere2D>(type);
+				}
+				Teinte(I, "Couleur", l->couleur);
+				Glissiere(I, "Intensité", l->intensite, 0.f, 4.f);
+				if (l->type == NkTypeLumiere2D::NK_DIRECTIONNELLE) {
+					Nombre(I, "Longueur des ombres (m)", l->portee, 0.05f, 0.5f, 50.f);
+				} else {
+					Nombre(I, "Portée (m)", l->portee, 0.05f, 0.1f, 30.f);
+					Glissiere(I, "Atténuation", l->attenuation, 0.2f, 4.f);
+				}
+				if (l->type != NkTypeLumiere2D::NK_PONCTUELLE) {
+					Angle(I, "Direction (°)", l->direction, -180.f, 180.f);
+				}
+				if (l->type == NkTypeLumiere2D::NK_SPOT) {
+					Angle(I, "Ouverture (°)", l->ouverture, 1.f, 180.f);
+					Glissiere(I, "Douceur du bord", l->douceur, 0.f, 1.f);
+				}
+				Glissiere(I, "Halo additif", l->halo, 0.f, 1.f);
+				Case(I, "Porte des ombres", l->ombres);
+				Fin(I);
+			}
+
+			/// L'emetteur de particules visuelles : la case de l'en-tete l'active ;
+			/// ses preregrages en boutons, puis la recette, rangee par rangee.
+			void CarteEmetteur(NkInspecteur &I) {
+				NkEditeurModele &m = I.c.m;
+				NkEmetteur2D *e = m.scene.Monde().Get<NkEmetteur2D>(I.id);
+				if (!Entete(I, NkCarteEditeur::NK_EMETTEUR, &e->actif)) {
+					return;
+				}
+				Info(I, "Préréglage", NkNomPresetEffet2D(e->preset));
+				// Les preregrages, deux par rangee (0 est « aucun »).
+				const int32 n = static_cast<int32>(NkPresetEffet2D::NK_COUNT);
+				for (int32 p = 1; p < n; p += 2) {
+					const char *a = NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p));
+					const char *b = p + 1 < n ? NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p + 1)) : nullptr;
+					const int32 k = Boutons(I, a, b);
+					if (k >= 0) {
+						NkEditeurAppliquerPreset(m, I.id, static_cast<NkPresetEffet2D>(p + k));
+						e = m.scene.Monde().Get<NkEmetteur2D>(I.id);
+					}
+				}
+				uint32 vivantes = 0u;
+				const NkVector<NkParticuleEffet2D> &ps = m.scene.Effets().Particules();
+				for (uint32 i = 0; i < ps.Size(); ++i) {
+					vivantes += ps[i].emetteur == I.id.Pack() ? 1u : 0u;
+				}
+				Info(I, "Particules vivantes", NkString::Format("%u / %u", vivantes, e->maxParticules).CStr());
+				Case(I, "En boucle", e->boucle);
+				if (Boutons(I, "Rejouer") == 0) {
+					m.scene.Effets().Rejouer(I.id.Pack());
+				}
+				if (!e->boucle) {
+					Glissiere(I, "Durée d'émission (s)", e->duree, 0.f, 10.f);
+				}
+				int32 rafale = static_cast<int32>(e->rafale);
+				if (Entier(I, "Rafale au départ", rafale, 0, 4096)) {
+					e->rafale = static_cast<uint32>(rafale);
+				}
+				Glissiere(I, "Débit (par s)", e->debit, 0.f, 500.f);
+				Paire(I, "Vie (s)", e->vieMin, e->vieMax, 0.01f, 0.02f, 60.f, "min", "max");
+				e->vieMax = e->vieMax < e->vieMin ? e->vieMin : e->vieMax;
+				Paire(I, "Vitesse (m/s)", e->vitesseMin, e->vitesseMax, 0.02f, 0.f, 100.f, "min", "max");
+				Angle(I, "Direction (°)", e->direction, -180.f, 180.f);
+				Angle(I, "Dispersion (°)", e->dispersion, 0.f, 180.f);
+				Paire(I, "Gravité (m/s²)", e->gravite.x, e->gravite.y, 0.05f);
+				Glissiere(I, "Frein de l'air (1/s)", e->frein, 0.f, 5.f);
+				Paire(I, "Taille (m)", e->tailleDebut, e->tailleFin, 0.01f, 0.01f, 3.f, "déb", "fin");
+				Teinte(I, "Couleur au début", e->couleurDebut);
+				Teinte(I, "Couleur à mi-vie", e->couleurMilieu);
+				Teinte(I, "Couleur à la fin", e->couleurFin);
+				Case(I, "Additif (émet de la lumière)", e->additif);
+				static const char *kFormes[3] = {"Douce", "Trait", "Pleine"};
+				int32 forme = static_cast<int32>(e->forme);
+				if (Choix(I, "Forme", kFormes, 3, forme)) {
+					e->forme = static_cast<NkFormeParticule2D>(forme);
+				}
+				static const char *kZones[3] = {"Point", "Disque", "Ligne"};
+				int32 zone = static_cast<int32>(e->zone);
+				if (Choix(I, "Zone d'émission", kZones, 3, zone)) {
+					e->zone = static_cast<NkZoneEmission2D>(zone);
+				}
+				if (e->zone == NkZoneEmission2D::NK_DISQUE) {
+					Glissiere(I, "Rayon de la zone (m)", e->rayonZone, 0.f, 10.f);
+				} else if (e->zone == NkZoneEmission2D::NK_LIGNE) {
+					Glissiere(I, "Largeur de la zone (m)", e->largeurZone, 0.f, 60.f);
+				}
+				int32 graine = static_cast<int32>(e->graine);
+				if (Entier(I, "Graine", graine, 0, 2147483000)) {
+					e->graine = static_cast<uint32>(graine);
+					m.scene.Effets().Rejouer(I.id.Pack()); // une autre graine : un autre effet, depuis le debut
+				}
+				int32 maxi = static_cast<int32>(e->maxParticules);
+				if (Entier(I, "Plafond de particules", maxi, 1, 8192)) {
+					e->maxParticules = static_cast<uint32>(maxi);
+				}
+				Case(I, "Éclaire (lumière liée)", e->eclaire);
+				if (e->eclaire) {
+					if (!m.scene.Eclairage().actif) {
+						Ligne(I, "(sans effet tant que l'éclairage de la scène est éteint)");
+					}
+					Teinte(I, "Couleur de la lumière", e->couleurLumiere);
+					Glissiere(I, "Intensité de la lumière", e->intensiteLumiere, 0.f, 4.f);
+					Nombre(I, "Portée de la lumière (m)", e->porteeLumiere, 0.05f, 0.1f, 30.f);
+					Glissiere(I, "Vacillement", e->scintillement, 0.f, 1.f);
+					Case(I, "La lumière porte des ombres", e->ombresLumiere);
+				}
+				Fin(I);
+			}
+
 			void DessinerCarte(NkInspecteur &I, NkCarteEditeur carte) {
 				switch (carte) {
 					case NkCarteEditeur::NK_TRANSFORM:
@@ -821,6 +981,12 @@ namespace nkentseu {
 						break;
 					case NkCarteEditeur::NK_HIERARCHIE:
 						CarteHierarchie(I);
+						break;
+					case NkCarteEditeur::NK_LUMIERE:
+						CarteLumiere(I);
+						break;
+					case NkCarteEditeur::NK_EMETTEUR:
+						CarteEmetteur(I);
 						break;
 					default:
 						break;
@@ -1014,6 +1180,7 @@ namespace nkentseu {
 				nkgui::Checkbox(ctx, "liens", m.rendu.liens);
 				nkgui::Checkbox(ctx, "particules", m.rendu.particules);
 				nkgui::Checkbox(ctx, "vitesses", m.rendu.vitesses);
+				NkEditeurSectionEclairageMonde(c); // 2026-09-30 : NkEditeurLumiere.cpp
 				nkgui::Separator(ctx);
 				// L'appareil simule : ce que la zone sure du viseur represente.
 				const NkProfilAppareil pa = m.ProfilCourant();

@@ -177,6 +177,145 @@ namespace nkentseu {
 			}
 
 			// =================================================================
+			// Eclairage et effets (2026-09-30) : ECRITS SEULEMENT S'ILS SONT LA.
+			// Une scene sans lumiere ni emetteur ressort a l'octet pres comme
+			// avant eux : aucune cle de plus, pas meme vide.
+			// =================================================================
+			NkArchive EcrireLumiere(const NkLumiere2D &l) {
+				NkArchive o;
+				o.SetUInt32(V("type"), static_cast<uint32>(l.type));
+				o.SetUInt32(V("couleur"), l.couleur);
+				o.SetFloat32(V("intensite"), l.intensite);
+				o.SetFloat32(V("portee"), l.portee);
+				o.SetFloat32(V("attenuation"), l.attenuation);
+				o.SetFloat32(V("direction"), l.direction);
+				o.SetFloat32(V("ouverture"), l.ouverture);
+				o.SetFloat32(V("douceur"), l.douceur);
+				o.SetString(V("decalage"), NkNombres().V2(l.decalage).Texte().View());
+				o.SetFloat32(V("halo"), l.halo);
+				o.SetBool(V("ombres"), l.ombres);
+				o.SetBool(V("actif"), l.actif);
+				return o;
+			}
+
+			bool LireLumiere(const NkArchive &o, NkLumiere2D &l, NkString &erreur) {
+				uint32 type = 0;
+				LireU(o, "type", type);
+				if (type > static_cast<uint32>(NkTypeLumiere2D::NK_DIRECTIONNELLE)) {
+					erreur = "type de lumiere inconnu";
+					return false;
+				}
+				l.type = static_cast<NkTypeLumiere2D>(type);
+				LireU(o, "couleur", l.couleur);
+				LireF(o, "intensite", l.intensite);
+				LireF(o, "portee", l.portee);
+				LireF(o, "attenuation", l.attenuation);
+				LireF(o, "direction", l.direction);
+				LireF(o, "ouverture", l.ouverture);
+				LireF(o, "douceur", l.douceur);
+				LireV2(o, "decalage", l.decalage);
+				LireF(o, "halo", l.halo);
+				LireB(o, "ombres", l.ombres);
+				LireB(o, "actif", l.actif);
+				return true;
+			}
+
+			NkArchive EcrireEmetteur(const NkEmetteur2D &e) {
+				NkArchive o;
+				o.SetUInt32(V("preset"), static_cast<uint32>(e.preset));
+				o.SetBool(V("actif"), e.actif);
+				o.SetBool(V("boucle"), e.boucle);
+				o.SetFloat32(V("duree"), e.duree);
+				o.SetUInt32(V("rafale"), e.rafale);
+				o.SetFloat32(V("debit"), e.debit);
+				o.SetString(V("vie"), NkNombres().F(e.vieMin).F(e.vieMax).Texte().View());
+				o.SetString(V("vitesse"), NkNombres().F(e.vitesseMin).F(e.vitesseMax).Texte().View());
+				o.SetFloat32(V("direction"), e.direction);
+				o.SetFloat32(V("dispersion"), e.dispersion);
+				o.SetString(V("gravite"), NkNombres().V2(e.gravite).Texte().View());
+				o.SetFloat32(V("frein"), e.frein);
+				o.SetString(V("taille"), NkNombres().F(e.tailleDebut).F(e.tailleFin).Texte().View());
+				o.SetString(V("couleurs"), NkNombres().U(e.couleurDebut).U(e.couleurMilieu).U(e.couleurFin).Texte().View());
+				o.SetBool(V("additif"), e.additif);
+				o.SetUInt32(V("forme"), static_cast<uint32>(e.forme));
+				o.SetUInt32(V("zone"), static_cast<uint32>(e.zone));
+				o.SetFloat32(V("rayonZone"), e.rayonZone);
+				o.SetFloat32(V("largeurZone"), e.largeurZone);
+				o.SetString(V("decalage"), NkNombres().V2(e.decalage).Texte().View());
+				o.SetUInt32(V("graine"), e.graine);
+				o.SetUInt32(V("max"), e.maxParticules);
+				o.SetBool(V("eclaire"), e.eclaire);
+				o.SetUInt32(V("couleurLumiere"), e.couleurLumiere);
+				o.SetFloat32(V("intensiteLumiere"), e.intensiteLumiere);
+				o.SetFloat32(V("porteeLumiere"), e.porteeLumiere);
+				o.SetFloat32(V("scintillement"), e.scintillement);
+				o.SetBool(V("ombresLumiere"), e.ombresLumiere);
+				return o;
+			}
+
+			bool LireEmetteur(const NkArchive &o, NkEmetteur2D &e, NkString &erreur) {
+				uint32 preset = 0;
+				uint32 forme = 0;
+				uint32 zone = 0;
+				LireU(o, "preset", preset);
+				LireU(o, "forme", forme);
+				LireU(o, "zone", zone);
+				if (preset >= static_cast<uint32>(NkPresetEffet2D::NK_COUNT) ||
+					forme > static_cast<uint32>(NkFormeParticule2D::NK_PLEINE) ||
+					zone > static_cast<uint32>(NkZoneEmission2D::NK_LIGNE)) {
+					erreur = "emetteur de particules illisible (preset, forme ou zone inconnus)";
+					return false;
+				}
+				e.preset = static_cast<NkPresetEffet2D>(preset);
+				e.forme = static_cast<NkFormeParticule2D>(forme);
+				e.zone = static_cast<NkZoneEmission2D>(zone);
+				LireB(o, "actif", e.actif);
+				LireB(o, "boucle", e.boucle);
+				LireF(o, "duree", e.duree);
+				LireU(o, "rafale", e.rafale);
+				LireF(o, "debit", e.debit);
+				NkString s;
+				if (o.GetString(V("vie"), s)) {
+					NkLecteur l(s);
+					l.F(e.vieMin);
+					l.F(e.vieMax);
+				}
+				if (o.GetString(V("vitesse"), s)) {
+					NkLecteur l(s);
+					l.F(e.vitesseMin);
+					l.F(e.vitesseMax);
+				}
+				LireF(o, "direction", e.direction);
+				LireF(o, "dispersion", e.dispersion);
+				LireV2(o, "gravite", e.gravite);
+				LireF(o, "frein", e.frein);
+				if (o.GetString(V("taille"), s)) {
+					NkLecteur l(s);
+					l.F(e.tailleDebut);
+					l.F(e.tailleFin);
+				}
+				if (o.GetString(V("couleurs"), s)) {
+					NkLecteur l(s);
+					l.U(e.couleurDebut);
+					l.U(e.couleurMilieu);
+					l.U(e.couleurFin);
+				}
+				LireB(o, "additif", e.additif);
+				LireF(o, "rayonZone", e.rayonZone);
+				LireF(o, "largeurZone", e.largeurZone);
+				LireV2(o, "decalage", e.decalage);
+				LireU(o, "graine", e.graine);
+				LireU(o, "max", e.maxParticules);
+				LireB(o, "eclaire", e.eclaire);
+				LireU(o, "couleurLumiere", e.couleurLumiere);
+				LireF(o, "intensiteLumiere", e.intensiteLumiere);
+				LireF(o, "porteeLumiere", e.porteeLumiere);
+				LireF(o, "scintillement", e.scintillement);
+				LireB(o, "ombresLumiere", e.ombresLumiere);
+				return true;
+			}
+
+			// =================================================================
 			// Les noms des ressources (2026-09-29)
 			// =================================================================
 			/// Les registres, en LECTURE : ecrire ne charge rien.
@@ -755,6 +894,12 @@ namespace nkentseu {
 					o.SetBool(V("visible"), e.mou.visible);
 					a.SetObject(V("mou"), o);
 				}
+				if (e.aLumiere) {
+					a.SetObject(V("lumiere"), EcrireLumiere(e.lumiere));
+				}
+				if (e.aEmetteur) {
+					a.SetObject(V("emetteur"), EcrireEmetteur(e.emetteur));
+				}
 				if (e.aControleRigide) {
 					a.SetObject(V("controleRigide"), EcrireReglagesControle(e.controleRigide.reglages));
 				}
@@ -915,6 +1060,18 @@ namespace nkentseu {
 					LireU(o, "corpsId", e.mou.corpsId);
 					LireU(o, "couleur", e.mou.couleur);
 					LireB(o, "visible", e.mou.visible);
+				}
+				if (a.GetObject(V("lumiere"), o)) {
+					e.aLumiere = true;
+					if (!LireLumiere(o, e.lumiere, erreur)) {
+						return false;
+					}
+				}
+				if (a.GetObject(V("emetteur"), o)) {
+					e.aEmetteur = true;
+					if (!LireEmetteur(o, e.emetteur, erreur)) {
+						return false;
+					}
 				}
 				if (a.GetObject(V("controleRigide"), o)) {
 					e.aControleRigide = true;
@@ -1366,6 +1523,19 @@ namespace nkentseu {
 			if (scene.Particules() != nullptr) {
 				sortie.SetObject(V("particules"), EcrireParticules(*scene.Particules()));
 			}
+			// L'eclairage de la scene, seulement s'il n'est pas celui par defaut :
+			// un fichier ecrit avant lui se reecrit a l'identique.
+			const NkEclairage2D &ec = scene.Eclairage();
+			if (!NkEclairageParDefaut(ec)) {
+				NkArchive o;
+				o.SetBool(V("actif"), ec.actif);
+				o.SetUInt32(V("ambiante"), ec.ambiante);
+				o.SetBool(V("ombres"), ec.ombres);
+				o.SetUInt32(V("masqueOcculteurs"), ec.masqueOcculteurs);
+				o.SetUInt32(V("mode"), static_cast<uint32>(ec.mode));
+				o.SetFloat32(V("maille"), ec.maille);
+				sortie.SetObject(V("eclairage"), o);
+			}
 			return true;
 		}
 
@@ -1421,6 +1591,21 @@ namespace nkentseu {
 			}
 
 			NkScene::NkPhoto photo;
+			NkArchive ea;
+			if (entree.GetObject(V("eclairage"), ea)) {
+				NkEclairage2D &ec = photo.eclairage;
+				uint32 mode = 0;
+				LireB(ea, "actif", ec.actif);
+				LireU(ea, "ambiante", ec.ambiante);
+				LireB(ea, "ombres", ec.ombres);
+				LireU(ea, "masqueOcculteurs", ec.masqueOcculteurs);
+				LireU(ea, "mode", mode);
+				LireF(ea, "maille", ec.maille);
+				if (mode > static_cast<uint32>(NkModeEclairage2D::NK_VOILE)) {
+					return echec("mode d'eclairage inconnu");
+				}
+				ec.mode = static_cast<NkModeEclairage2D>(mode);
+			}
 			NkArchive pa;
 			const bool aParticules = entree.GetObject(V("particules"), pa);
 			if (aParticules && !LireParticules(pa, photo.particules, err)) {

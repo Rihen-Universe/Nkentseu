@@ -5,10 +5,12 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
 #include <cstring>
@@ -87,6 +89,9 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
+				// depend pas de la duree de l'apercu en edition.
+				m.scene.Effets().Vider();
 			}
 			m.etat = NkEtatJeu::NK_JEU;
 		}
@@ -125,12 +130,23 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
-			if (m.etat == NkEtatJeu::NK_JEU && dt > 0.f) {
-				m.scene.Pas(dt < 0.05f ? dt : 0.05f);
+			if (m.etat == NkEtatJeu::NK_JEU) {
+				// LA trame du jeu, celle que joue aussi le joueur autonome
+				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde
+				// dt > 0 et le plafond de trame, et Pas propage la hierarchie.
+				NkAvancerPartie(m.scene, dt);
 			} else {
 				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
 				// pourtant emporter ses enfants a l'ecran, a cette trame.
 				m.scene.PropagerHierarchie();
+				if (m.etat == NkEtatJeu::NK_EDITION && dt > 0.f) {
+					// L'APERCU des effets en edition (2026-09-30) : un feu pose brule
+					// deja. Les particules visuelles ne touchent a rien de la scene
+					// (temoin f6) ; ni corps, ni matiere, ni transform ne bougent.
+					// APRES la hierarchie : un feu porte par un parent deplace nait
+					// la ou il est.
+					m.scene.Effets().Avancer(m.scene, dt < 0.05f ? dt : 0.05f);
+				}
 			}
 			// Une selection dont l'entite a disparu (matiere gommee, tombee) : oubliee.
 			if (m.aSelection && !m.scene.Monde().IsAlive(m.selection)) {
@@ -194,7 +210,7 @@ namespace nkentseu {
 			/// couche), et sa distance au point -- negative ou nulle : DEDANS.
 			struct CandidatPrise {
 					ecs::NkEntityId id;
-					int32 niveau = 0; ///< l'ordre du viseur : 0 formes, 1 sprites, 2 matiere, 3 marqueurs
+					int32 niveau = 0; ///< l'ordre du viseur : 0 formes, 1 sprites, 2 matiere, 3 marqueurs, 4 icones
 					int32 couche = 0; ///< sprites : NkSprite2D::couche
 					float32 distance = 0.f;
 					float32 aire = 0.f;
@@ -505,7 +521,9 @@ namespace nkentseu {
 
 		bool NkEditeurSansVisuel(NkEditeurModele &m, ecs::NkEntityId id) {
 			ecs::NkWorld &w = m.scene.Monde();
-			if (w.Has<NkCorpsMou2D>(id) || w.Has<NkCollisionneur2D>(id)) {
+			// Une lumiere, un emetteur ont LEUR icone (NkEditeurLumiere.h) : pas de
+			// losange par-dessus.
+			if (w.Has<NkCorpsMou2D>(id) || w.Has<NkCollisionneur2D>(id) || w.Has<NkLumiere2D>(id) || w.Has<NkEmetteur2D>(id)) {
 				return false;
 			}
 			const NkSprite2D *s = w.Get<NkSprite2D>(id);
@@ -589,6 +607,23 @@ namespace nkentseu {
 					c.centre = t.position;
 					prise.Proposer(c);
 				});
+			}
+
+			// Les ICONES des lumieres et des emetteurs (niveau 4, 2026-09-30) : peintes
+			// par-dessus tout, et une lumiere n'a souvent rien d'autre a cliquer. Le
+			// rayon est celui de NkEditeurIconeSous, qui ne les montre qu'hors jeu.
+			{
+				ecs::NkEntityId icone;
+				if (NkEditeurIconeSous(m, monde, 10.f, icone) && !exclue(icone)) {
+					CandidatPrise c;
+					c.id = icone;
+					c.niveau = 4;
+					c.distance = 0.f;
+					if (const NkTransform2D *t = w.Get<NkTransform2D>(icone)) {
+						c.centre = t->position;
+					}
+					prise.Proposer(c);
+				}
 			}
 
 			const CandidatPrise *choix = prise.aDedans ? &prise.dedans : (prise.aProche ? &prise.proche : nullptr);
@@ -947,6 +982,18 @@ namespace nkentseu {
 				c.lance = false;
 				w.Add<NkSource2D>(e, c);
 			}
+			if (const NkLumiere2D *s = w.Get<NkLumiere2D>(src)) {
+				NkLumiere2D c = *s;
+				w.Add<NkLumiere2D>(e, c);
+			}
+			if (const NkEmetteur2D *s = w.Get<NkEmetteur2D>(src)) {
+				NkEmetteur2D c = *s;
+				// Une autre graine : une copie qui brulerait a l'unisson de
+				// l'original se verrait comme un defaut.
+				m.graine = m.graine * 1664525u + 1013904223u;
+				c.graine = m.graine;
+				w.Add<NkEmetteur2D>(e, c);
+			}
 			if (const NkCorps2D *s = w.Get<NkCorps2D>(src)) {
 				NkCorps2D c = *s;
 				c.corpsId = 0;
@@ -971,6 +1018,10 @@ namespace nkentseu {
 					return "Source sonore";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
+				case NkComposantEditeur::NK_LUMIERE:
+					return "Lumière 2D";
+				case NkComposantEditeur::NK_EMETTEUR:
+					return "Émetteur de particules";
 				default:
 					return "";
 			}
@@ -991,6 +1042,10 @@ namespace nkentseu {
 					return w.Has<NkSource2D>(id);
 				case NkComposantEditeur::NK_ANIMATION:
 					return w.Has<NkAnimSprite2D>(id);
+				case NkComposantEditeur::NK_LUMIERE:
+					return w.Has<NkLumiere2D>(id);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return w.Has<NkEmetteur2D>(id);
 				default:
 					return false;
 			}
@@ -1060,6 +1115,10 @@ namespace nkentseu {
 					w.Add<NkAnimSprite2D>(id, a);
 					return true;
 				}
+				case NkComposantEditeur::NK_LUMIERE:
+					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
 				default:
 					return false;
 			}
@@ -1089,6 +1148,14 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANIMATION:
 					w.Remove<NkAnimSprite2D>(id);
 					return true;
+				case NkComposantEditeur::NK_LUMIERE:
+					w.Remove<NkLumiere2D>(id);
+					return true;
+				case NkComposantEditeur::NK_EMETTEUR:
+					// Ses particules finissent leur vie : retirer un feu ne fait pas
+					// disparaitre d'un coup les flammeches deja en l'air.
+					w.Remove<NkEmetteur2D>(id);
+					return true;
 				default:
 					return false;
 			}
@@ -1097,6 +1164,22 @@ namespace nkentseu {
 		// =====================================================================
 		// Les cartes de l'inspecteur
 		// =====================================================================
+		bool NkComposantDeCarte(NkCarteEditeur c, NkComposantEditeur &sortie) noexcept {
+			if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
+				sortie = static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u);
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_LUMIERE) {
+				sortie = NkComposantEditeur::NK_LUMIERE;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_EMETTEUR) {
+				sortie = NkComposantEditeur::NK_EMETTEUR;
+				return true;
+			}
+			return false;
+		}
+
 		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept {
 			switch (c) {
 				case NkCarteEditeur::NK_TRANSFORM:
@@ -1105,11 +1188,10 @@ namespace nkentseu {
 					return "Animateur";
 				case NkCarteEditeur::NK_HIERARCHIE:
 					return "Hiérarchie";
-				default:
-					if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
-						return NkComposantEditeurNom(static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u));
-					}
-					return "";
+				default: {
+					NkComposantEditeur comp;
+					return NkComposantDeCarte(c, comp) ? NkComposantEditeurNom(comp) : "";
+				}
 			}
 		}
 
@@ -1125,17 +1207,17 @@ namespace nkentseu {
 					return w.Has<NkAnimateur2D>(id);
 				case NkCarteEditeur::NK_HIERARCHIE:
 					return true;
-				default:
-					if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
-						return NkEditeurAUnComposant(m, id, static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u));
-					}
-					return false;
+				default: {
+					NkComposantEditeur comp;
+					return NkComposantDeCarte(c, comp) && NkEditeurAUnComposant(m, id, comp);
+				}
 			}
 		}
 
 		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept {
 			return c == NkCarteEditeur::NK_TRANSFORM || c == NkCarteEditeur::NK_SPRITE || c == NkCarteEditeur::NK_COLLISIONNEUR ||
-				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION;
+				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION ||
+				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR;
 		}
 
 		namespace {
@@ -1237,6 +1319,18 @@ namespace nkentseu {
 					*a = d;
 					return true;
 				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					// Les valeurs par defaut de SON type : une lumiere cone reste un cone.
+					NkLumiere2D *l = w.Get<NkLumiere2D>(id);
+					NkLumiere2D d;
+					d.type = l->type;
+					d.actif = l->actif;
+					*l = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_EMETTEUR:
+					// Un emetteur se remet a SA recette (graine et etat gardes).
+					return NkEditeurAppliquerPreset(m, id, w.Get<NkEmetteur2D>(id)->preset);
 				default:
 					return false;
 			}
@@ -1274,6 +1368,10 @@ namespace nkentseu {
 					return CopierOctets<NkSource2D>(w, id, c, pp);
 				case NkCarteEditeur::NK_ANIMATION:
 					return CopierOctets<NkAnimSprite2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_LUMIERE:
+					return CopierOctets<NkLumiere2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_EMETTEUR:
+					return CopierOctets<NkEmetteur2D>(w, id, c, pp);
 				default:
 					return false;
 			}
@@ -1354,6 +1452,27 @@ namespace nkentseu {
 						return false;
 					}
 					*w.Get<NkAnimSprite2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					NkLumiere2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkLumiere2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_EMETTEUR: {
+					NkEmetteur2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					// SA graine : deux feux colles l'un sur l'autre ne bruleraient pas
+					// a l'unisson (la meme regle que Dupliquer).
+					NkEmetteur2D *cur = w.Get<NkEmetteur2D>(id);
+					v.graine = cur->graine;
+					*cur = v;
+					m.scene.Effets().Rejouer(id.Pack());
 					return true;
 				}
 				default:

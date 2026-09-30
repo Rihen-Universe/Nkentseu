@@ -71,12 +71,16 @@
 //         caisse sur une autre donne la masse au SOLVEUR sans lui prendre son
 //         corps ; coller sur une entite sans ce composant est refuse ; le Transform colle
 //         teleporte le corps ; « Monter » saute les cartes que l'entite n'a pas
+//   (e46) l'icone d'une LUMIERE posee sur une caisse l'emporte sur la caisse
+//         (elle est peinte par-dessus) ; cachee, on prend la caisse dessous ;
+//         une lumiere n'a pas de losange « entite vide » en plus de son icone
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurSouris.h"
 
 #include "NKFileSystem/NkFile.h"
@@ -940,6 +944,22 @@ namespace nkentseu {
 				memory::NkGetDefaultAllocator().Delete(pui);
 				Temoin(reinit && copie && colle && corpsGarde && solveur && refuse && teleporte && monte && transformEnTete,
 					   "(e45) cartes : reinit, copier/coller (solveur, identite), ordre", rb45 != nullptr ? rb45->invMass : -1.f);
+			}
+
+			// (e46) les icones des lumieres, avec la nouvelle prise.
+			{
+				NkEditeurNouvelleScene(m);
+				m.scene.Camera().PoserZoom(40.f);
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse_1");
+				const NkVec2f pc = m.scene.Monde().Get<NkTransform2D>(caisse)->position;
+				const ecs::NkEntityId lampe = NkEditeurPoserLumiere(m, pc, NkTypeLumiere2D::NK_PONCTUELLE);
+				ecs::NkEntityId e;
+				const bool icone = NkEditeurPrendreSous(m, pc, e) && e == lampe;
+				NkEditeurCacher(m, lampe, true);
+				const bool dessous = NkEditeurPrendreSous(m, pc, e) && e == caisse;
+				NkEditeurCacher(m, lampe, false);
+				Temoin(icone && dessous && !NkEditeurSansVisuel(m, lampe), "(e46) icone de lumiere sur une caisse : l'icone ; cachee : la caisse",
+					   static_cast<float32>(icone + dessous));
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

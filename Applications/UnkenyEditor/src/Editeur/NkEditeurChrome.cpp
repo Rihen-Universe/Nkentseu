@@ -18,9 +18,11 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -229,6 +231,8 @@ namespace nkentseu {
 						out.PushBack(Entree("Enregistrer", NK_A_ENREGISTRER, "Ctrl+S"));
 						out.PushBack(Entree("Fermer la scène", NK_A_FERMER_SCENE));
 						out.PushBack(Separateur());
+						out.PushBack(Entree("Construire…", NK_A_CONSTRUIRE));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
 						break;
 					case NkMenuEditeur::NK_EDITION:
@@ -315,6 +319,15 @@ namespace nkentseu {
 						out.PushBack(Entree("Entité vide", NK_A_ENTITE_ICI));
 						out.PushBack(Entree("Entité simple (sprite + boîte)", NK_A_SIMPLE_ICI));
 						EntreesCatalogue(out, NK_A_POSER_ICI);
+						// 2026-09-30 : lumieres et effets, au point du clic droit.
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Lumière et effets"));
+						out.PushBack(Entree("Lumière ponctuelle ici", NK_A_LUMIERE_ICI + static_cast<int32>(NkTypeLumiere2D::NK_PONCTUELLE)));
+						out.PushBack(Entree("Projecteur (cône) ici", NK_A_LUMIERE_ICI + static_cast<int32>(NkTypeLumiere2D::NK_SPOT)));
+						for (int32 p = 1; p < static_cast<int32>(NkPresetEffet2D::NK_COUNT); ++p) {
+							out.PushBack(Entree(NkString::Format("%s ici", NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p))).CStr(),
+												NK_A_EMETTEUR_ICI + p));
+						}
 						break;
 					case NkMenuEditeur::NK_APPAREIL:
 						for (int32 k = 0; k < NkNbProfils(); ++k) {
@@ -346,7 +359,8 @@ namespace nkentseu {
 						}
 						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(k);
 						const bool copie = NkEditeurCarteSeCopie(carte);
-						const bool composant = carte > NkCarteEditeur::NK_TRANSFORM && carte < NkCarteEditeur::NK_ANIMATEUR;
+						NkComposantEditeur comp;
+						const bool composant = NkComposantDeCarte(carte, comp);
 						const bool mobile = carte != NkCarteEditeur::NK_TRANSFORM;
 						out.PushBack(Intitule(NkCarteEditeurNom(carte)));
 						out.PushBack(Entree("Réinitialiser", NK_A_CARTE_REINIT, "", false, copie));
@@ -393,6 +407,25 @@ namespace nkentseu {
 						for (int32 k = 0; k < static_cast<int32>(NkComposantEditeur::NK_COUNT); ++k) {
 							const NkComposantEditeur comp = static_cast<NkComposantEditeur>(k);
 							if (!NkEditeurPeutAjouter(m, m.selection, comp)) {
+								continue;
+							}
+							// 2026-09-30 : une lumiere se choisit par son TYPE, un emetteur
+							// par son PRESET, comme un corps mou par sa matiere.
+							if (comp == NkComposantEditeur::NK_LUMIERE) {
+								static const char *kTypes[3] = {"ponctuelle", "projecteur (cône)", "directionnelle (lune, soleil)"};
+								out.PushBack(Separateur());
+								out.PushBack(Intitule("Lumière 2D"));
+								for (int32 t = 0; t < 3; ++t) {
+									out.PushBack(Entree(kTypes[t], NK_A_LUMIERE + t));
+								}
+								continue;
+							}
+							if (comp == NkComposantEditeur::NK_EMETTEUR) {
+								out.PushBack(Separateur());
+								out.PushBack(Intitule("Émetteur de particules"));
+								for (int32 p = 1; p < static_cast<int32>(NkPresetEffet2D::NK_COUNT); ++p) {
+									out.PushBack(Entree(NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p)), NK_A_EMETTEUR + p));
+								}
 								continue;
 							}
 							if (comp != NkComposantEditeur::NK_CORPS_MOU) {
@@ -601,16 +634,9 @@ namespace nkentseu {
 			if (!ok) {
 				return 0u;
 			}
-			// FNV-1a 64 : une collision ferait croire « rien n'a change » ; sur
-			// 2^64 valeurs et des scenes d'un editeur, c'est un risque assume.
-			uint64 h = 14695981039346656037ull;
-			const char *s = json.CStr();
-			const usize n = json.Length();
-			for (usize i = 0; i < n; ++i) {
-				h ^= static_cast<uint8>(s[i]);
-				h *= 1099511628211ull;
-			}
-			return h;
+			// FNV-1a 64, celle du moteur : la MEME que l'empreinte de livraison
+			// (temoin l1), pour qu'il n'y ait qu'une idee de « la meme scene ».
+			return NkEmpreinteTexte(json.CStr(), static_cast<usize>(json.Length()));
 		}
 
 		void NkEditeurRetenirEmpreinte(NkEditeurModele &m, NkEditeurInterface &ui) {
@@ -768,6 +794,27 @@ namespace nkentseu {
 			NkEditeurModele &m = c.m;
 			NkEditeurInterface &ui = c.ui;
 			// Les plages d'abord : leur indice est ajoute a la base.
+			// 2026-09-30 : lumieres et emetteurs (NkEditeurLumiere.h).
+			if (action >= NK_A_LUMIERE && action < NK_A_LUMIERE + 3) {
+				if (m.aSelection) {
+					NkEditeurAjouterLumiere(m, m.selection, static_cast<NkTypeLumiere2D>(action - NK_A_LUMIERE));
+				}
+				return;
+			}
+			if (action >= NK_A_EMETTEUR && action < NK_A_EMETTEUR + static_cast<int32>(NkPresetEffet2D::NK_COUNT)) {
+				if (m.aSelection) {
+					NkEditeurAjouterEffet(m, m.selection, static_cast<NkPresetEffet2D>(action - NK_A_EMETTEUR));
+				}
+				return;
+			}
+			if (action >= NK_A_LUMIERE_ICI && action < NK_A_LUMIERE_ICI + 3) {
+				NkEditeurPoserLumiere(m, ui.pointContexte, static_cast<NkTypeLumiere2D>(action - NK_A_LUMIERE_ICI));
+				return;
+			}
+			if (action >= NK_A_EMETTEUR_ICI && action < NK_A_EMETTEUR_ICI + static_cast<int32>(NkPresetEffet2D::NK_COUNT)) {
+				NkEditeurPoserEffet(m, ui.pointContexte, static_cast<NkPresetEffet2D>(action - NK_A_EMETTEUR_ICI));
+				return;
+			}
 			if (action >= NK_A_POSER_ICI && action < NK_A_POSER_ICI + static_cast<int32>(NkActeurSim::NK_COUNT)) {
 				PoserSansArmer(m, false, static_cast<NkActeurSim>(action - NK_A_POSER_ICI), ui.pointContexte);
 				return;
@@ -839,6 +886,11 @@ namespace nkentseu {
 						NkEditeurRetenirEmpreinte(m, ui);
 					}
 					break;
+				case NK_A_CONSTRUIRE:
+					// Une DEMANDE, comme la fermeture : la fenetre (et son etat,
+					// processus compris) appartient a l'application.
+					ui.construireDemande = true;
+					break;
 				case NK_A_NOUVELLE_ENTITE:
 					NkEditeurCreerEntite(m, "Entite", m.scene.Camera().Centre());
 					break;
@@ -897,8 +949,11 @@ namespace nkentseu {
 							NkEditeurCopierCarte(m, m.selection, carte, ui.pressePapier);
 						} else if (action == NK_A_CARTE_COLLER) {
 							NkEditeurCollerCarte(m, m.selection, ui.pressePapier);
-						} else if (carte > NkCarteEditeur::NK_TRANSFORM && carte < NkCarteEditeur::NK_ANIMATEUR) {
-							NkEditeurRetirerComposant(m, m.selection, static_cast<NkComposantEditeur>(ui.carteMenu - 1));
+						} else {
+							NkComposantEditeur comp;
+							if (NkComposantDeCarte(carte, comp)) {
+								NkEditeurRetirerComposant(m, m.selection, comp);
+							}
 						}
 					}
 					break;
@@ -1329,10 +1384,20 @@ namespace nkentseu {
 			NkVector<ecs::NkEntityId> ids;
 			c.m.scene.Entites(ids);
 			// ⚠️ VUS et DESSINES : l'ecart entre les deux EST la mesure du hors-champ.
+			// 2026-09-30 : les particules d'effet (vivantes / plafond) et les
+			// lumieres, SEULEMENT s'il y en a -- une scene sans elles garde sa barre.
+			NkString effets;
+			const NkEffets2D &fx = c.m.scene.Effets();
+			if (fx.NbParticules() > 0u || c.m.scene.Eclairage().actif) {
+				effets = NkString::Format("   ·   effets %u / %u", fx.NbParticules(), fx.plafond);
+				if (c.m.scene.Eclairage().actif) {
+					effets.Append(NkString::Format("   ·   lumières %d", NkEditeurDerniersChiffresLumiere().lumieres).CStr());
+				}
+			}
 			const NkString compteurs =
-				NkString::Format("%u entités   ·   sprites vus %d / dessinés %d   ·   %.0f ips",
+				NkString::Format("%u entités   ·   sprites vus %d / dessinés %d%s   ·   %.0f ips",
 								 static_cast<uint32>(ids.Size()), c.m.stats.entitesVues, c.m.stats.entitesDessinees,
-								 static_cast<double>(c.ui.ips));
+								 effets.CStr(), static_cast<double>(c.ui.ips));
 			renderer::NkTexteADroite(dl, c.petite, b.x + b.w - 10.f, ligneY, compteurs.CStr(), c.pal.attenue);
 		}
 

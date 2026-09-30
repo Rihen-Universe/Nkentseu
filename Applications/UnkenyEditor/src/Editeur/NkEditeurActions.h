@@ -145,6 +145,9 @@ namespace nkentseu {
 			NK_CORPS_MOU, ///< matiere (le materiau est choisi a l'ajout)
 			NK_SOURCE,	  ///< source sonore
 			NK_ANIMATION,
+			// 2026-09-30, AJOUTES A LA FIN : les valeurs d'avant ne bougent pas.
+			NK_LUMIERE,	 ///< lumiere 2D (le type se choisit a l'ajout)
+			NK_EMETTEUR, ///< emetteur de particules (le preset se choisit a l'ajout)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;
@@ -160,7 +163,8 @@ namespace nkentseu {
 
 		// --- Les CARTES de l'inspecteur (2026-09-30, a la maniere d'Unity) ------
 		/// Une carte des Details : le Transform, chaque composant, l'Animateur et
-		/// la Hierarchie. Les six du milieu SUIVENT NkComposantEditeur (carte - 1).
+		/// la Hierarchie. Sprite..Animation SUIVENT NkComposantEditeur (carte - 1) ;
+		/// Lumiere et Emetteur, venus apres, passent par NkComposantDeCarte.
 		/// AJOUTES A LA FIN : les valeurs existantes ne bougent pas.
 		enum class NkCarteEditeur : uint8 {
 			NK_TRANSFORM = 0,
@@ -172,8 +176,12 @@ namespace nkentseu {
 			NK_ANIMATION,
 			NK_ANIMATEUR,
 			NK_HIERARCHIE,
+			NK_LUMIERE,	 ///< NkComposantEditeur::NK_LUMIERE (2026-09-30, eclairage 2D)
+			NK_EMETTEUR, ///< NkComposantEditeur::NK_EMETTEUR (effets)
 			NK_COUNT
 		};
+		/// Le composant d'une carte (false : Transform, Animateur, Hierarchie).
+		bool NkComposantDeCarte(NkCarteEditeur c, NkComposantEditeur &sortie) noexcept;
 		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept;
 		/// L'entite porte-t-elle ce qu'affiche la carte ? (La hierarchie : toujours.)
 		bool NkEditeurAUneCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c);
