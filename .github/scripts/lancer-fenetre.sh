@@ -15,7 +15,8 @@
 #                                           de plantage macOS en annotation)
 #     2. a-t-elle une fenetre a l'ecran ?  (CoreGraphics, par PID)
 #     3. a quoi ressemble l'ecran ?        (capture, si l'autorisation existe)
-#   puis il l'arrete.
+#     4. sait-elle QUITTER ?               (« quit » comme Cmd+Q : elle doit
+#                                           sortir d'elle-meme et rendre 0)
 #
 # USAGE
 #   lancer-fenetre.sh <binaire> <secondes> <dossier-sortie> [arguments...]
@@ -95,10 +96,31 @@ else
     echo "capture refusee : $(cat "$SORTIE/$NOM-capture.err")"
 fi
 
-kill -TERM "$PID" 2>/dev/null
-sleep 2
-kill -KILL "$PID" 2>/dev/null || true
-wait "$PID" 2>/dev/null || true
+# ── La fermeture PROPRE : « Quitter », comme Cmd+Q (quitter-proprement.swift) ──
+# L'application doit fermer sa fenetre, sortir de sa boucle et RENDRE SON CODE.
+# SIGTERM ne prouve rien de tout ca ; il ne sert plus que de dernier recours.
+FERMETURE="non essayee"
+if swift "$ICI/quitter-proprement.swift" "$PID"; then
+    ATTENTE=0
+    while [ "$ATTENTE" -lt 15 ] && kill -0 "$PID" 2>/dev/null; do
+        sleep 1
+        ATTENTE=$((ATTENTE + 1))
+    done
+    if kill -0 "$PID" 2>/dev/null; then
+        FERMETURE="REFUSEE : toujours vivant ${ATTENTE} s apres la demande"
+    else
+        wait "$PID"
+        FERMETURE="propre en ${ATTENTE} s, code $?"
+    fi
+fi
+if kill -0 "$PID" 2>/dev/null; then
+    kill -TERM "$PID" 2>/dev/null
+    sleep 2
+    kill -KILL "$PID" 2>/dev/null || true
+    wait "$PID" 2>/dev/null || true
+fi
+echo "fermeture : $FERMETURE"
+JOURNAL_APP=$(tail -n 8 logs/app.log 2>/dev/null | cut -c1-300)
 
 echo "--- sortie du programme (fin) ---"
 tail -n 40 "$JOURNAL"
@@ -106,9 +128,13 @@ cp -R logs "$SORTIE/" 2>/dev/null || true
 
 if [ "$FEN_CODE" -eq 0 ]; then
     printf '::notice title=%s demarre::%s\n' "$NOM" \
-        "$( { echo "vivant apres ${SECONDES} s"; echo "$FENETRES"; tail -n 15 "$JOURNAL" | cut -c1-300; } | Echapper)"
+        "$( { echo "vivant apres ${SECONDES} s ; fermeture $FERMETURE"; echo "$FENETRES"; tail -n 15 "$JOURNAL" | cut -c1-300; echo '--- logs/app.log ---'; echo "$JOURNAL_APP"; } | Echapper)"
 else
     printf '::warning title=%s sans fenetre visible::%s\n' "$NOM" \
-        "$( { echo "vivant apres ${SECONDES} s mais aucune fenetre d'application listee"; echo "$FENETRES"; tail -n 15 "$JOURNAL" | cut -c1-300; } | Echapper)"
+        "$( { echo "vivant apres ${SECONDES} s mais aucune fenetre d'application listee ; fermeture $FERMETURE"; echo "$FENETRES"; tail -n 15 "$JOURNAL" | cut -c1-300; } | Echapper)"
 fi
+case "$FERMETURE" in
+    propre*) ;;
+    *) printf '::warning title=%s fermeture::%s\n' "$NOM" "$FERMETURE" ;;
+esac
 exit 0
