@@ -18,6 +18,8 @@
 //     (h6) un enfant a corps STATIQUE est porte (son corps suit) ; un enfant
 //          DYNAMIQUE ne l'est pas
 //     (h7) parents et locaux traversent Photographier/Restaurer et le fichier
+//     (h8) un fichier RETOUCHE A LA MAIN (le parent deplace, pas ses enfants) :
+//          a la relecture, l'enfant revient a (parent o local)
 //     (i1) identites : distinctes, les memes apres Restaurer (les poignees non) ;
 //          (i1n) une identite detruite ne resert jamais
 //     (i2) les memes identites apres un aller-retour par fichier
@@ -86,6 +88,29 @@ namespace nkentseu {
 					}
 				});
 				return trouve;
+			}
+			/// Le sprite de `id`, ou un sprite VIDE (jamais nul) : un temoin qui
+			/// echoue doit ROUGIR, pas faire tomber le banc (mesure par la
+			/// contre-epreuve M4, ou le prefab ne se relisait plus).
+			NkSprite2D *SpriteDe(NkScene &s, ecs::NkEntityId id) {
+				static NkSprite2D vide;
+				NkSprite2D *x = s.Monde().IsAlive(id) ? s.Monde().Get<NkSprite2D>(id) : nullptr;
+				if (x == nullptr) {
+					vide = NkSprite2D();
+					vide.couleur = 0u;
+					return &vide;
+				}
+				return x;
+			}
+			NkCorps2D *CorpsDe(NkScene &s, ecs::NkEntityId id) {
+				static NkCorps2D vide;
+				NkCorps2D *x = s.Monde().IsAlive(id) ? s.Monde().Get<NkCorps2D>(id) : nullptr;
+				if (x == nullptr) {
+					vide = NkCorps2D();
+					vide.masse = -1.f;
+					return &vide;
+				}
+				return x;
 			}
 			const char *NomDe(NkScene &s, ecs::NkEntityId id) {
 				const NkEtiquette *e = s.Monde().IsAlive(id) ? s.Monde().Get<NkEtiquette>(id) : nullptr;
@@ -488,6 +513,36 @@ namespace nkentseu {
 				if (!lu) {
 					std::printf("    erreur : %s\n", err.CStr());
 				}
+
+				// (h8) le fichier RETOUCHE A LA MAIN : le parent deplace de 3 m, pas
+				//      ses enfants. L'enfant doit revenir a (parent o local).
+				const NkTransform2D tb = *s.Monde().Get<NkTransform2D>(s.EntiteParUid(ub));
+				char avant[128];
+				char apres[128];
+				std::snprintf(avant, sizeof(avant), "\"transform\": \"%.9g %.9g %.9g %.9g %.9g\"",
+							  static_cast<double>(tb.position.x), static_cast<double>(tb.position.y),
+							  static_cast<double>(tb.rotation), static_cast<double>(tb.echelle.x),
+							  static_cast<double>(tb.echelle.y));
+				std::snprintf(apres, sizeof(apres), "\"transform\": \"%.9g %.9g %.9g %.9g %.9g\"",
+							  static_cast<double>(tb.position.x + 3.f), static_cast<double>(tb.position.y),
+							  static_cast<double>(tb.rotation), static_cast<double>(tb.echelle.x),
+							  static_cast<double>(tb.echelle.y));
+				const char *at = std::strstr(json.CStr(), avant);
+				NkString retouche;
+				if (at != nullptr) {
+					retouche = NkString(json.CStr(), static_cast<usize>(at - json.CStr()));
+					retouche.Append(apres);
+					retouche.Append(at + std::strlen(avant));
+				}
+				NkScene u;
+				DeclarerBanc(u);
+				const bool lu4 = at != nullptr && NkChargerSceneJSON(u, retouche.View(), static_cast<NkTextures2D *>(nullptr), &err);
+				const ecs::NkEntityId c4 = u.EntiteParUid(uc);
+				const NkTransform2D *tc4 = lu4 ? u.Monde().Get<NkTransform2D>(c4) : nullptr;
+				Temoin(tc4 != nullptr && PresV(tc4->position, NkVec2f(mondeC.x + 3.f, mondeC.y), 1.0e-4f) &&
+						   PresV(u.Local(c4)->position, NkVec2f(1.f, 0.f)),
+					   "(h8) fichier retouche (parent deplace) : l'enfant suit son local (x)",
+					   tc4 != nullptr ? tc4->position.x : -1.f);
 			}
 
 			// (v1) le fichier version 1 fige
@@ -638,13 +693,13 @@ namespace nkentseu {
 					places = enfants.Size() == 1u &&
 							 PresV(s.Monde().Get<NkTransform2D>(enfants[0])->position,
 								   NkVec2f(static_cast<float32>(i) * 2.f + 0.5f, 5.f)) &&
-							 s.Monde().Get<NkSprite2D>(poses[i])->couleur == 0xFF0000FFu && s.Uid(poses[i]) != s.Uid(racine);
+							 SpriteDe(s, poses[i])->couleur == 0xFF0000FFu && s.Uid(poses[i]) != s.Uid(racine);
 				}
 				// UNE surcharge, a la main, sur l'instance 7.
-				s.Monde().Get<NkSprite2D>(poses[7])->couleur = 0x00FF00FFu;
+				SpriteDe(s, poses[7])->couleur = 0x00FF00FFu;
 				// Le modele change : couleur, masse, et un enfant de plus.
-				s.Monde().Get<NkSprite2D>(racine)->couleur = 0x0000FFFFu;
-				s.Monde().Get<NkCorps2D>(racine)->masse = 3.f;
+				SpriteDe(s, racine)->couleur = 0x0000FFFFu;
+				CorpsDe(s, racine)->masse = 3.f;
 				s.ActualiserCorps(racine);
 				const ecs::NkEntityId nouveau = s.Creer("Nouveau", NkVec2f(0.f, 1.f));
 				s.Rattacher(nouveau, racine, true);
@@ -653,7 +708,7 @@ namespace nkentseu {
 				uint32 masses = 0;
 				uint32 nouveaux = 0;
 				for (uint32 i = 0; i < poses.Size(); ++i) {
-					if (s.Monde().Get<NkSprite2D>(poses[i])->couleur == 0x0000FFFFu) {
+					if (SpriteDe(s, poses[i])->couleur == 0x0000FFFFu) {
 						++bleues;
 					}
 					const NkCorps2D *kc = s.Monde().Get<NkCorps2D>(poses[i]);
@@ -678,7 +733,7 @@ namespace nkentseu {
 				for (uint32 i = 0; i < sur.Size(); ++i) {
 					listee = listee || sur[i] == "NkSprite2D.couleur";
 				}
-				Temoin(s.Monde().Get<NkSprite2D>(poses[7])->couleur == 0x00FF00FFu && listee && sur.Size() == 1u,
+				Temoin(SpriteDe(s, poses[7])->couleur == 0x00FF00FFu && listee && sur.Size() == 1u,
 					   "(p1) la surcharge de l'instance 7 est GARDEE, et elle seule listee", static_cast<float32>(sur.Size()));
 
 				// (p2) le fichier .nkprefab
@@ -698,8 +753,8 @@ namespace nkentseu {
 				NkVector<ecs::NkEntityId> enfants2;
 				s2.Enfants(i1, enfants2);
 				const ecs::NkEntityId i2 = lu ? pf2.Instancier(s2, id2, NkVec2f(9.f, 1.f)) : ecs::NkEntityId::Invalid();
-				Temoin(lu && s2.Monde().IsAlive(i1) && s2.Monde().Get<NkSprite2D>(i1)->couleur == 0x0000FFFFu &&
-						   enfants2.Size() == 2u && s2.Monde().Get<NkCorps2D>(i1)->masse == 3.f,
+				Temoin(lu && s2.Monde().IsAlive(i1) && SpriteDe(s2, i1)->couleur == 0x0000FFFFu &&
+						   enfants2.Size() == 2u && CorpsDe(s2, i1)->masse == 3.f,
 					   "(p2) .nkprefab ecrit, relu ailleurs, instancie a l'identique", static_cast<float32>(enfants2.Size()));
 				if (!lu) {
 					std::printf("    erreur : %s\n", err.CStr());
@@ -720,11 +775,11 @@ namespace nkentseu {
 						modifie = nouv;
 					}
 				}
-				s2.Monde().Get<NkSprite2D>(i2)->couleur = 0x123456FFu; // surcharge sur i2
+				SpriteDe(s2, i2)->couleur = 0x123456FFu; // surcharge sur i2
 				uint32 id3 = 0;
 				const bool relu = pf2.ChargerJSON(s2, "Prefabs/Piece.nkprefab", modifie.View(), r2, id3, &err);
-				Temoin(relu && id3 == id2 && s2.Monde().Get<NkSprite2D>(i1)->couleur == 0xFFFF00FFu &&
-						   s2.Monde().Get<NkSprite2D>(i2)->couleur == 0x123456FFu,
+				Temoin(relu && id3 == id2 && SpriteDe(s2, i1)->couleur == 0xFFFF00FFu &&
+						   SpriteDe(s2, i2)->couleur == 0x123456FFu,
 					   "(p2) fichier modifie et relu : les instances suivent, surcharge gardee", 0.f);
 
 				// (p3) une instance dans un .nkscene retrouve son prefab par NOM

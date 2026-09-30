@@ -937,8 +937,74 @@ namespace nkentseu {
 				l.parentProduit = *mMonde.Get<NkTransform2D>(parent);
 				mMonde.Add<NkLocal2D>(faites[i], l);
 			}
+			// 4. Un fichier RETOUCHE A LA MAIN peut deplacer un parent sans ses
+			//    enfants : un monde qui ne vaut pas (parent o local) est recale sur
+			//    le local, parents d'abord. Une photo est toujours coherente : ce
+			//    pas n'y change rien, et la restauration reste exacte au bit pres.
+			RecalerEnfants(faites);
 			if (crees != nullptr) {
 				*crees = faites;
+			}
+		}
+
+		void NkScene::RecalerEnfants(const NkVector<ecs::NkEntityId> &ids) {
+			struct NkAPlacer {
+					ecs::NkEntityId id;
+					uint32 profondeur = 0;
+			};
+			NkVector<NkAPlacer> enfants;
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				if (Parent(ids[i]).IsValid() && mMonde.Has<NkLocal2D>(ids[i])) {
+					NkAPlacer a;
+					a.id = ids[i];
+					a.profondeur = ecs::NkHierarchyDepth(mMonde, ids[i]);
+					enfants.PushBack(a);
+				}
+			}
+			for (uint32 i = 1; i < enfants.Size(); ++i) {
+				const NkAPlacer x = enfants[i];
+				uint32 j = i;
+				while (j > 0u && enfants[j - 1u].profondeur > x.profondeur) {
+					enfants[j] = enfants[j - 1u];
+					--j;
+				}
+				enfants[j] = x;
+			}
+			auto proche = [](float32 a, float32 b, float32 tol) {
+				const float32 d = a > b ? a - b : b - a;
+				const float32 m = (a > 0.f ? a : -a) > 1.f ? (a > 0.f ? a : -a) : 1.f;
+				return d <= tol * m;
+			};
+			NkVector<ecs::NkEntityId> recales;
+			for (uint32 i = 0; i < enfants.Size(); ++i) {
+				const ecs::NkEntityId id = enfants[i].id;
+				const ecs::NkEntityId parent = Parent(id);
+				if (MeneParPhysique(id)) {
+					continue; // la physique mene : son monde est la verite
+				}
+				bool parentRecale = false;
+				for (uint32 k = 0; k < recales.Size() && !parentRecale; ++k) {
+					parentRecale = recales[k] == parent;
+				}
+				const NkTransform2D p = *mMonde.Get<NkTransform2D>(parent);
+				const NkTransform2D m = *mMonde.Get<NkTransform2D>(id);
+				NkTransform2D attendu = NkComposer2D(p, mMonde.Get<NkLocal2D>(id)->local);
+				const bool coherent = proche(attendu.position.x, m.position.x, 1.0e-4f) &&
+									  proche(attendu.position.y, m.position.y, 1.0e-4f) &&
+									  proche(attendu.rotation, m.rotation, 1.0e-4f) &&
+									  proche(attendu.echelle.x, m.echelle.x, 1.0e-4f) &&
+									  proche(attendu.echelle.y, m.echelle.y, 1.0e-4f);
+				if (coherent && !parentRecale) {
+					continue;
+				}
+				if (mMonde.Has<NkCorps2D>(id)) {
+					attendu.rotation = PorterCorps(id, attendu);
+				}
+				*mMonde.Get<NkTransform2D>(id) = attendu;
+				NkLocal2D *l = mMonde.Get<NkLocal2D>(id);
+				l->produit = attendu;
+				l->parentProduit = p;
+				recales.PushBack(id);
 			}
 		}
 

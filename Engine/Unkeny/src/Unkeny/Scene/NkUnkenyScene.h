@@ -537,6 +537,9 @@ namespace nkentseu {
 				float32 PorterCorps(ecs::NkEntityId id, const NkTransform2D &m);
 				/// Le corps de l'entite est-il mene par la physique (dynamique, mou) ?
 				bool MeneParPhysique(ecs::NkEntityId id) const noexcept;
+				/// Les enfants de `ids` dont le monde ne vaut pas (parent o local) —
+				/// un fichier retouche a la main — sont recales sur leur local.
+				void RecalerEnfants(const NkVector<ecs::NkEntityId> &ids);
 
 				void SynchroniserDepuisPhysique();
 				/// Centre des corps mous -> NkTransform2D, et destruction des
