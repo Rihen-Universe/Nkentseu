@@ -398,7 +398,8 @@ Détail cible (fusion corpus IA 2026-07-09) :
     > Il existe depuis le commit `d0cb1cedc` (branche `comble/nkanima-hfsm`) :
     > sous-machines et état d'entrée, any-state par niveau, déclencheurs
     > consommés, conditions combinées, priorités, fondu entre niveaux,
-    > paramètres partagés, `.nkanim` v3 — détail dans `ROADMAP.md` (bloc du
+    > paramètres partagés, `.nkanim` v3 (devenu `.nkanimctl` le 30/09, décision
+    > de Rihen : la machine a son extension) — détail dans `ROADMAP.md` (bloc du
     > 29/09). Les lignes datées de ce document qui disent « HFSM » (l'état
     > honnête du 23/07, le tableau du 14/08) décrivaient donc une promesse ;
     > elles restent telles quelles, comme tout journal.

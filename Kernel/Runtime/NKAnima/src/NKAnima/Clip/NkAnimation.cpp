@@ -121,18 +121,33 @@ namespace nkentseu {
 		// (Section os uniquement en v1 — le header versionné permet d'ajouter
 		//  morph/transform/material plus tard sans casser les fichiers.)
 		//
-		// v3 (2026-09-29) : le corps v2 À L'IDENTIQUE, puis [nbSections(u32)] et
-		// des sections [étiquette(u32)][taille(u32)][contenu]. La première est
-		// 'HFSM' (NkAnimStateMachine, voir sa sauvegarde). Un lecteur de clip lit
-		// le corps et ignore les sections ; un lecteur de machine saute le corps.
 		// ⚠️ Un CLIP s'écrit toujours en v2, octet pour octet comme avant : un
 		// moteur d'avant le 2026-09-29 continue de lire les clips qu'on écrit.
+		//
+		// LA MACHINE À ÉTATS N'EST PAS UN CLIP, ET N'EST PLUS UN .nkanim
+		// (décision de Rihen du 2026-09-30). Elle s'écrit dans SON format,
+		// `.nkanimctl` — « contrôleur d'animation » : l'extension dit l'usage.
+		// Règle de CONVENTIONS_FICHIERS.md §1 : deux fichiers qu'on dépose au même
+		// endroit avec le même effet partagent leur extension, sinon ils en
+		// changent. Le fichier se reconnaît à son MAGIC, 'NKAC', pas à son nom :
+		//   [magic 'NKAC'(u32)] [version(u32)=1] [nbSections(u32)]
+		//     par section : [étiquette(u32)] [taille(u32)] [contenu]
+		// La section 'HFSM' porte la machine (voir NkAnimStateMachine::SaveToBytes).
+		//
+		// Le .nkanim v3 (29/09 → 30/09) : un corps de clip VIDE puis les mêmes
+		// sections. C'est ainsi que la machine s'écrivait pendant un jour ; la
+		// machine le RELIT toujours, le clip le REFUSE en le nommant.
+		// ⚠️ Ni .nkanim ni .nkanimctl ne passent par NkAssetFileHeader : NKAnima
+		// ne tire pas NKSerialization. La correspondance type <-> extension, elle,
+		// est dans NKSerialization (NkAssetType::Animation / AnimationController,
+		// NkAssetExtensionFor) — et nulle part ici.
 		// =====================================================================
 		namespace {
 			constexpr uint32 kNkAnimMagic = 0x4E414B4E; // 'NKAN' (little-endian)
 			constexpr uint32 kNkAnimVersion = 2;		// v2 : + section squelette (mode local) — version ÉCRITE pour un clip
-			constexpr uint32 kNkAnimVersionSections = 3; // v3 : corps v2 + sections étiquetées (machine à états)
-			constexpr uint32 kNkAnimVersionMax = 3;		 // la plus haute version LUE
+			constexpr uint32 kNkAnimVersionSections = 3; // v3 : corps v2 + sections (machine, 29/09 -> 30/09), relu par la machine
+			constexpr uint32 kNkAnimCtlMagic = 0x43414B4E;	 // 'NKAC' (little-endian) : .nkanimctl, contrôleur d'animation
+			constexpr uint32 kNkAnimCtlVersion = 1;
 			constexpr uint32 kNkAnimSectionHFSM = 0x4D534648; // 'HFSM' (little-endian)
 
 			struct ByteWriter {
@@ -242,8 +257,8 @@ namespace nkentseu {
 			};
 
 			// Le CORPS d'un clip : tout ce qui suit [magic][version]. Extrait de
-			// SaveBinary / LoadBinary le 2026-09-29, sans changer un octet, pour
-			// que la machine à états écrive le même corps (vide) en tête de v3.
+			// SaveBinary / LoadBinary le 2026-09-29, sans changer un octet. La
+			// machine le SAUTE encore quand elle relit un .nkanim v3.
 			void WriteClipBody(ByteWriter &w, const NkAnimationClip &c) {
 				w.str(c.name);
 				w.f32(c.duration);
@@ -278,11 +293,24 @@ namespace nkentseu {
 			// Lit le corps d'un clip de version `ver` (1, 2 ou 3). Rend le nombre
 			// d'os lus ; l'appelant juge `r.ok`.
 			uint32 ReadClipBody(ByteReader &r, uint32 ver, NkAnimationClip &c) {
+				// ⚠️ Tout COMPTE lu du fichier est borne par ce qui reste a lire
+				// (`taille` = octets minimum d'un element). Sans cette borne, un
+				// fichier etranger ou abime annoncait des milliards d'os : Resize
+				// geant, puis une boucle sans fin — mesure du 30/09, un .nkanimctl
+				// mal etiquete lu comme clip bloquait le banc vingt minutes. Un
+				// fichier valide n'est jamais touche par la borne.
+				auto borne = [&r](uint32 compte, usize taille) -> uint32 {
+					if (!r.ok || compte > (r.n - r.off) / taille) {
+						r.ok = false;
+						return 0u;
+					}
+					return compte;
+				};
 				c.name = r.str();
 				c.duration = r.f32();
 				c.fps = r.f32();
 				c.loop = (r.u8() != 0);
-				uint32 nb = r.u32();
+				uint32 nb = borne(r.u32(), 9); // nom vide (4) + drapeau (1) + nombre de cles (4)
 				c.boneTracks.Clear();
 				c.boneTracks.Resize(nb);
 				c.boneCount = nb;
@@ -290,7 +318,7 @@ namespace nkentseu {
 					NkAnimationTrack<NkMat4f> &tr = c.boneTracks[b];
 					tr.name = r.str();
 					tr.enabled = (r.u8() != 0);
-					uint32 nk = r.u32();
+					uint32 nk = borne(r.u32(), 4 + 16 * sizeof(float32) + 1); // temps + matrice + interp
 					for (uint32 k = 0; k < nk; ++k) {
 						float32 t = r.f32();
 						NkMat4f m = r.mat();
@@ -305,15 +333,15 @@ namespace nkentseu {
 				c.jointTopo.Clear();
 				if (ver >= 2) {
 					c.skeletalLocal = (r.u8() != 0);
-					uint32 np = r.u32();
+					uint32 np = borne(r.u32(), 4);
 					c.jointParent.Resize(np);
 					for (uint32 j = 0; j < np; ++j)
 						c.jointParent[j] = r.i32();
-					uint32 ni = r.u32();
+					uint32 ni = borne(r.u32(), 16 * sizeof(float32));
 					c.jointInverseBind.Resize(ni);
 					for (uint32 j = 0; j < ni; ++j)
 						c.jointInverseBind[j] = r.mat();
-					uint32 nt = r.u32();
+					uint32 nt = borne(r.u32(), 4);
 					c.jointTopo.Resize(nt);
 					for (uint32 j = 0; j < nt; ++j)
 						c.jointTopo[j] = r.u32();
@@ -344,16 +372,28 @@ namespace nkentseu {
 			}
 			ByteReader r(bytes.Data(), bytes.Size());
 			uint32 magic = r.u32(), ver = r.u32();
+			// Un fichier d'une AUTRE nature se refuse en la NOMMANT : « magic
+			// invalide » enverrait chercher une corruption qui n'existe pas.
+			if (magic == kNkAnimCtlMagic) {
+				logger.Errorf("[NkAnimClip] %s est un CONTROLEUR d'animation (.nkanimctl, machine a etats), pas un "
+							  "clip : NkAnimStateMachine::LoadBinary le lit\n",
+							  path.CStr());
+				return false;
+			}
 			if (magic != kNkAnimMagic) {
 				logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr());
 				return false;
 			}
-			if (ver < 1 || ver > kNkAnimVersionMax) {
+			if (ver == kNkAnimVersionSections) {
+				logger.Errorf("[NkAnimClip] %s est une machine a etats ecrite en .nkanim v3 (format du 29/09, remplace "
+							  "par .nkanimctl), pas un clip : NkAnimStateMachine::LoadBinary le lit\n",
+							  path.CStr());
+				return false;
+			}
+			if (ver < 1 || ver > kNkAnimVersion) {
 				logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr());
 				return false;
 			}
-			// v3 : le corps est celui d'un v2 ; les sections qui suivent (machine
-			// à états...) ne concernent pas le clip et ne sont pas lues ici.
 			const uint32 nb = ReadClipBody(r, ver, *this);
 			if (!r.ok) {
 				logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr());
@@ -1808,9 +1848,11 @@ namespace nkentseu {
 			}
 		}
 
-		// ── Sauvegarde .nkanim v3 ────────────────────────────────────────────────
-		// [corps de clip v2 : clip VIDE] [nbSections(u32)]
+		// ── Sauvegarde .nkanimctl ────────────────────────────────────────────────
+		// [magic 'NKAC'(u32)] [version(u32)=1] [nbSections(u32)]
 		//   par section : [etiquette(u32)] [taille(u32)] [contenu]
+		// (Le .nkanim v3 du 29/09 avait [magic 'NKAN'][3][corps de clip VIDE] en
+		// tete, puis exactement les memes sections : c'est ce qui le rend relisible.)
 		// Section 'HFSM' (contenu, version interne 1) :
 		//   [version(u32)=1] [nbEtats(u32)]
 		//     par etat : [nom] [parent(i32)] [genre(u8) 0 vide 1 clip 2 arbre1D
@@ -1823,12 +1865,8 @@ namespace nkentseu {
 		// lecteur de 2026 lira un fichier de 2027 qui aura ajoute une section.
 		void NkAnimStateMachine::SaveToBytes(NkVector<nk_uint8> &out) const {
 			ByteWriter w;
-			w.u32(kNkAnimMagic);
-			w.u32(kNkAnimVersionSections);
-			// Corps de clip vide : un lecteur de clip qui ouvre ce fichier obtient
-			// un clip sans os, pas une erreur de lecture.
-			NkAnimationClip vide;
-			WriteClipBody(w, vide);
+			w.u32(kNkAnimCtlMagic);
+			w.u32(kNkAnimCtlVersion);
 			w.u32(1); // une section
 			ByteWriter s;
 			s.u32(1); // version de la section HFSM
@@ -1882,22 +1920,26 @@ namespace nkentseu {
 			ByteReader r(data, size);
 			const uint32 magic = r.u32();
 			const uint32 ver = r.u32();
-			if (magic != kNkAnimMagic) {
-				logger.Errorf("[NkAnimSM] magic invalide (0x%08X)\n", magic);
+			if (magic == kNkAnimCtlMagic) {
+				if (ver != kNkAnimCtlVersion) {
+					logger.Errorf("[NkAnimSM] .nkanimctl v%u non supporte\n", ver);
+					return false;
+				}
+			} else if (magic == kNkAnimMagic) {
+				if (ver != kNkAnimVersionSections) {
+					// v1/v2 : un clip seul. Ce n'est pas un fichier casse, c'est un
+					// fichier d'une autre nature — NkAnimationClip::LoadBinary le lit.
+					logger.Errorf("[NkAnimSM] .nkanim v%u = clip seul, sans machine a etats\n", ver);
+					return false;
+				}
+				// Le .nkanim v3 du 29/09 : on saute son corps de clip vide, les
+				// sections qui suivent sont celles d'un .nkanimctl.
+				NkAnimationClip ignore;
+				ReadClipBody(r, ver, ignore);
+			} else {
+				logger.Errorf("[NkAnimSM] magic invalide (0x%08X) : ni .nkanimctl ni .nkanim\n", magic);
 				return false;
 			}
-			if (ver < kNkAnimVersionSections) {
-				// v1/v2 : un clip seul. Ce n'est pas un fichier casse, c'est un
-				// fichier d'une autre nature — NkAnimationClip::LoadBinary le lit.
-				logger.Errorf("[NkAnimSM] .nkanim v%u = clip seul, sans machine a etats\n", ver);
-				return false;
-			}
-			if (ver > kNkAnimVersionMax) {
-				logger.Errorf("[NkAnimSM] version %u non supportee\n", ver);
-				return false;
-			}
-			NkAnimationClip ignore;
-			ReadClipBody(r, ver, ignore);
 			const uint32 nbSections = r.u32();
 			bool trouve = false;
 			NkAnimStateMachine lu;
@@ -1998,11 +2040,11 @@ namespace nkentseu {
 				trouve = true;
 			}
 			if (!r.ok) {
-				logger.Errorf("[NkAnimSM] .nkanim v3 tronque\n");
+				logger.Errorf("[NkAnimSM] fichier de machine tronque\n");
 				return false;
 			}
 			if (!trouve) {
-				logger.Errorf("[NkAnimSM] aucune section HFSM dans ce .nkanim\n");
+				logger.Errorf("[NkAnimSM] aucune section HFSM dans ce fichier\n");
 				return false;
 			}
 			// La definition remplace l'ancienne ; le rappel et le partage de
