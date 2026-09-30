@@ -57,9 +57,12 @@ struct OHNativeWindow; // forward declaration minimale
 #import <AppKit/AppKit.h> // NSOpenGLContext, NSOpenGLPixelFormat
 #import <OpenGL/OpenGL.h> // CGL
 #else
-// Forward declarations pour compilation C++ pure
-struct NSOpenGLContext;
-struct NSOpenGLPixelFormat;
+// Forward declarations pour compilation C++ pure. Alias vers objc_object,
+// comme partout ailleurs dans le moteur (NkSurface.h, NkDeviceInitInfo.h) :
+// `struct NSOpenGLContext;` et un alias du même nom dans la même unité, c'est
+// l'erreur « struct vs type alias ».
+using NSOpenGLContext = struct objc_object;
+using NSOpenGLPixelFormat = struct objc_object;
 struct CGLContextObj;
 #endif
 #endif
