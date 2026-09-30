@@ -21,6 +21,11 @@
 
 namespace nkentseu {
 
+	// Depth24Unorm_Stencil8 n'existe pas sur les GPU Apple (Apple Silicon) : on le
+	// sait a l'initialisation du device (depth24Stencil8PixelFormatSupported).
+	// Demande quand meme, la texture n'etait pas creee (nil) et la passe non plus.
+	static bool sNkMtlDepth24Stencil8 = true;
+
 	// =============================================================================
 	static MTLPixelFormat ToMTLFormat(NkGPUFormat f) {
 		switch (f) {
@@ -62,7 +67,7 @@ namespace nkentseu {
 				return MTLPixelFormatDepth32Float;
 			case NkGPUFormat::NK_D24_UNORM_S8_UINT:
 #if TARGET_OS_OSX
-				return MTLPixelFormatDepth24Unorm_Stencil8;
+				return sNkMtlDepth24Stencil8 ? MTLPixelFormatDepth24Unorm_Stencil8 : MTLPixelFormatDepth32Float_Stencil8;
 #else
 				return MTLPixelFormatDepth32Float_Stencil8;
 #endif
@@ -311,6 +316,9 @@ namespace nkentseu {
 			return false;
 		}
 		mQueue = [mDevice newCommandQueue];
+#if TARGET_OS_OSX
+		sNkMtlDepth24Stencil8 = mDevice.depth24Stencil8PixelFormatSupported;
+#endif
 
 		if (headless) {
 			mLayer = nil;
@@ -390,20 +398,32 @@ namespace nkentseu {
 	NkBufferHandle NkMetalDevice::CreateBuffer(const NkBufferDesc &desc) {
 		threading::NkScopedLockMutex lock(mMutex);
 		MTLResourceOptions opts = MTLResourceStorageModeShared; // CPU+GPU visible
-		switch (desc.usage) {
-			case NkResourceUsage::NK_DEFAULT:
-				opts = MTLResourceStorageModePrivate;
-				break;
-			default:
-				break;
-		}
+		// Memoire unifiee (Apple Silicon, et le GPU paravirtualise de la CI) : un
+		// tampon partage ne coute rien de plus, et MapBuffer marche dessus. Le
+		// stockage prive ne sert qu'aux GPU a memoire dediee.
+		if (desc.usage == NkResourceUsage::NK_DEFAULT && !mDevice.hasUnifiedMemory)
+			opts = MTLResourceStorageModePrivate;
 
 		id<MTLBuffer> buf = [mDevice newBufferWithLength:(NSUInteger)desc.sizeBytes options:opts];
 		if (!buf)
 			return {};
 
-		if (desc.initialData && opts != MTLResourceStorageModePrivate)
-			memcpy(buf.contents, desc.initialData, (size_t)desc.sizeBytes);
+		if (desc.initialData) {
+			if (opts != MTLResourceStorageModePrivate) {
+				memcpy(buf.contents, desc.initialData, (size_t)desc.sizeBytes);
+			} else {
+				// Tampon prive : les donnees initiales n'etaient JAMAIS copiees.
+				id<MTLBuffer> stage = [mDevice newBufferWithBytes:desc.initialData
+														   length:(NSUInteger)desc.sizeBytes
+														  options:MTLResourceStorageModeShared];
+				id<MTLCommandBuffer> cmd = [mQueue commandBuffer];
+				id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+				[blit copyFromBuffer:stage sourceOffset:0 toBuffer:buf destinationOffset:0 size:(NSUInteger)desc.sizeBytes];
+				[blit endEncoding];
+				[cmd commit];
+				[cmd waitUntilCompleted];
+			}
+		}
 
 		if (desc.debugName)
 			buf.label = [NSString stringWithUTF8String:desc.debugName];
@@ -760,6 +780,17 @@ namespace nkentseu {
 					break;
 				case NkShaderStage::NK_COMPUTE:
 					sh.comp = retained;
+					// Taille de groupe : « // nk_threadgroup X Y Z », ecrit en tete du
+					// MSL par NkShaderConverter::SpirvToMsl (LocalSize du SPIR-V).
+					if (s.mslSource) {
+						const char *wg = strstr(s.mslSource, "// nk_threadgroup ");
+						unsigned gx = 1, gy = 1, gz = 1;
+						if (wg && sscanf(wg, "// nk_threadgroup %u %u %u", &gx, &gy, &gz) == 3) {
+							sh.tgX = gx ? gx : 1;
+							sh.tgY = gy ? gy : 1;
+							sh.tgZ = gz ? gz : 1;
+						}
+					}
 					break;
 				default:
 					CFRelease(retained);
@@ -817,22 +848,37 @@ namespace nkentseu {
 			pd.fragmentFunction = (__bridge id<MTLFunction>)sh.frag;
 		pd.sampleCount = (NSUInteger)d.samples;
 
-		// Vertex descriptor
+		// Vertex descriptor. La liaison de sommets B vit en buffer(26 + B)
+		// (NkMslConventions.h) : en buffer(B), elle ecrasait le tampon de camera
+		// (binding 0) que BindDescriptorSet venait de poser.
 		if (d.vertexLayout.attributes.Size() > 0) {
 			MTLVertexDescriptor *vd = [[MTLVertexDescriptor alloc] init];
 			for (uint32 i = 0; i < d.vertexLayout.attributes.Size(); i++) {
 				auto &a = d.vertexLayout.attributes[i];
 				vd.attributes[a.location].format = ToMTLVertexFormat(a.format);
 				vd.attributes[a.location].offset = a.offset;
-				vd.attributes[a.location].bufferIndex = a.binding;
+				vd.attributes[a.location].bufferIndex = kNkMslVertexBufferBase + a.binding;
 			}
 			for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); i++) {
 				auto &b = d.vertexLayout.bindings[i];
-				vd.layouts[b.binding].stride = b.stride;
-				vd.layouts[b.binding].stepFunction =
+				const uint32 idx = kNkMslVertexBufferBase + b.binding;
+				vd.layouts[idx].stride = b.stride;
+				vd.layouts[idx].stepFunction =
 					b.perInstance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
 			}
 			pd.vertexDescriptor = vd;
+		}
+		switch (d.topology) {
+			case NkPrimitiveTopology::NK_POINT_LIST:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassPoint;
+				break;
+			case NkPrimitiveTopology::NK_LINE_LIST:
+			case NkPrimitiveTopology::NK_LINE_STRIP:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassLine;
+				break;
+			default:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+				break;
 		}
 
 		// Render target formats
@@ -840,8 +886,18 @@ namespace nkentseu {
 		if (rpit) {
 			for (uint32 i = 0; i < rpit->desc.colorAttachments.Size(); i++)
 				pd.colorAttachments[i].pixelFormat = ToMTLFormat(rpit->desc.colorAttachments[i].format);
-			if (rpit->desc.hasDepth)
-				pd.depthAttachmentPixelFormat = ToMTLFormat(rpit->desc.depthAttachment.format);
+			if (rpit->desc.hasDepth) {
+				const MTLPixelFormat df = ToMTLFormat(rpit->desc.depthAttachment.format);
+				pd.depthAttachmentPixelFormat = df;
+				// Un format profondeur+stencil doit AUSSI etre declare en stencil,
+				// sinon le pipeline ne correspond pas a la passe.
+				if (df == MTLPixelFormatDepth32Float_Stencil8
+#if TARGET_OS_OSX
+					|| df == MTLPixelFormatDepth24Unorm_Stencil8
+#endif
+				)
+					pd.stencilAttachmentPixelFormat = df;
+			}
 		} else {
 			pd.colorAttachments[0].pixelFormat = ToMTLFormat(mSwapFormat);
 			pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
@@ -892,6 +948,7 @@ namespace nkentseu {
 		p.rpso = (__bridge_retained void *)rpso;
 		p.dss = (__bridge_retained void *)dss;
 		p.isCompute = false;
+		p.primitive = (uint32)ToMTLTopology(d.topology);
 		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
 		p.cullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	 ? 0
 					 : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? 1
@@ -924,6 +981,9 @@ namespace nkentseu {
 		NkMetalPipeline p;
 		p.cpso = (__bridge_retained void *)cpso;
 		p.isCompute = true;
+		p.tgX = sit->tgX;
+		p.tgY = sit->tgY;
+		p.tgZ = sit->tgZ;
 		uint64 hid = NextId();
 		mPipelines[hid] = p;
 		NkPipelineHandle h;
@@ -973,6 +1033,7 @@ namespace nkentseu {
 		fb.depthAttachment = d.depthAttachment;
 		fb.w = d.width;
 		fb.h = d.height;
+		fb.renderPassId = d.renderPass.id;
 		uint64 hid = NextId();
 		mFramebuffers[hid] = fb;
 		NkFramebufferHandle h;
@@ -1122,8 +1183,16 @@ namespace nkentseu {
 		if (!mCurrentDrawable)
 			return false;
 
-		// Mettre à jour le framebuffer swapchain avec le drawable courant
-		uint64 colorId = NextId();
+		// Mettre à jour le framebuffer swapchain avec le drawable courant. UNE
+		// entree, reutilisee : la texture de l'image precedente est relachee ici.
+		if (mSwapColorId == 0)
+			mSwapColorId = NextId();
+		const uint64 colorId = mSwapColorId;
+		{
+			auto *ancienne = mTextures.Find(colorId);
+			if (ancienne && ancienne->tex)
+				CFRelease(ancienne->tex);
+		}
 		NkMetalTexture swt{};
 		swt.tex = (__bridge_retained void *)mCurrentDrawable.texture;
 		swt.isSwapchain = true;
@@ -1228,6 +1297,15 @@ namespace nkentseu {
 
 	const NkMetalFramebuffer *NkMetalDevice::GetFBO(uint64 id) const {
 		return mFramebuffers.Find(id);
+	}
+
+	const NkMetalRenderPass *NkMetalDevice::GetRenderPass(uint64 id) const {
+		return mRenderPasses.Find(id);
+	}
+
+	uint32 NkMetalDevice::GetTextureBytesPerPixel(uint64 id) const {
+		auto *it = mTextures.Find(id);
+		return it ? NkFormatBytesPerPixel(it->desc.format) : 4u;
 	}
 
 } // namespace nkentseu

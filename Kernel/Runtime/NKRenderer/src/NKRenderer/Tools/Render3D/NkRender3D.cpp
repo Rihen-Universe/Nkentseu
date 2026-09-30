@@ -2052,7 +2052,9 @@ namespace nkentseu {
 			//   VK : sample sans flip, NDC Y = +(uv*2-1) (pas de negate VS en SPIRV)
 			//   DX : sample FLIPPE,   NDC Y = -(uv*2-1) (VS HLSL negate Y)
 			const NkGraphicsApi dApi = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool dIsVK = (dApi == NkGraphicsApi::NK_GFX_API_VULKAN);
+			// Metal = Vulkan : memes shaders (meme SPIR-V), memes conventions
+			// (viewport reproduit par NkMetalCommandBuffer, 2026-09-30).
+			const bool dIsVK = (dApi == NkGraphicsApi::NK_GFX_API_VULKAN || dApi == NkGraphicsApi::NK_GFX_API_METAL);
 			const bool dIsDX =
 				(dApi == NkGraphicsApi::NK_GFX_API_DX11) || (dApi == NkGraphicsApi::NK_GFX_API_DX12);
 			// VK valide capture : memes conventions que DX (sample flippe +
@@ -2673,10 +2675,13 @@ namespace nkentseu {
 			// était rejetée par le sol -> invisible en avant-plan sur GL alors que
 			// correcte sur VK). Même famille de bug que les ombres GL.
 			const auto _depthApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
+			// Metal aussi (profondeur NDC [0,1]) : il manquait, la moitie proche
+			// de la scene aurait ete rognee.
 			if (_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
 				_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
 				_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12 ||
-				_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL) {
+				_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL ||
+				_depthApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_METAL) {
 				NkMat4f clipZ01 = NkMat4f::Identity();
 				clipZ01[2][2] = 0.5f;
 				clipZ01[3][2] = 0.5f;
@@ -2879,6 +2884,7 @@ namespace nkentseu {
 			// skybox ; les ombres au sol ne dépendent PAS de yFlipNDC.)
 			const auto _yApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
 			const bool origineEnHaut = (_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+										_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_METAL ||
 										_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
 										_yApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12);
 			cb.yFlipNDC = origineEnHaut ? +1.f : -1.f;
@@ -2887,7 +2893,8 @@ namespace nkentseu {
 			// ou inversé sur Vulkan/DX). Identity en l'absence de reflet planaire.
 			cb.mirrorViewProj = mCtx.mirrorViewProj;
 			const auto reflApi = mDevice ? mDevice->GetApi() : ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;
-			if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN) {
+			if (reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+				reflApi == ::nkentseu::NkGraphicsApi::NK_GFX_API_METAL) {
 				NkMat4f vkClip = NkMat4f::Identity();
 				vkClip[2][2] = 0.5f;
 				vkClip[3][2] = 0.5f;

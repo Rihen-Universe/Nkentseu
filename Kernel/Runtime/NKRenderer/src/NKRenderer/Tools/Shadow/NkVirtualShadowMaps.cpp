@@ -133,6 +133,7 @@ namespace nkentseu {
 			// de l'atlas -> ombres manquantes/dépendantes de la hauteur (bug GL only ;
 			// VK/DX11/DX12 corrects). On bake donc clipZ01 + depthRemap=0 sur GL aussi.
 			return api == ::nkentseu::NkGraphicsApi::NK_GFX_API_VULKAN ||
+				   api == ::nkentseu::NkGraphicsApi::NK_GFX_API_METAL ||
 				   api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX11 ||
 				   api == ::nkentseu::NkGraphicsApi::NK_GFX_API_DX12 ||
 				   api == ::nkentseu::NkGraphicsApi::NK_GFX_API_OPENGL;

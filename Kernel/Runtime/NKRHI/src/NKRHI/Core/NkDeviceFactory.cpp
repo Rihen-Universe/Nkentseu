@@ -6,6 +6,8 @@
 #include "NKMemory/NkAllocator.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKRHI/Software/NkSoftwareDevice.h"
+#include <cstdlib>
+#include <cstring>
 
 // iOS = Metal uniquement. Le device OpenGL desktop (GLAD/Mesa) et Vulkan ne sont
 // ni compilables ni utilisables sur iOS : on les exclut du build (voir NKRHI.jenga
@@ -203,18 +205,17 @@ namespace nkentseu {
 		order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-		// ⚠️ LOGICIEL D'ABORD, ET C'EST PROVISOIRE (CI macOS du 2026-09-30).
-		//    Le device Metal s'initialise, mais le rendu qui suit ne tient pas :
-		//    NkShaderLibrary::CompileVF ne lui donne que du SPIR-V (aucune source
-		//    MSL), les points d'entree MSL generes s'appellent `main_entry` et non
-		//    `main`, et CreateTexture pose arrayLength = 6 sur un cube (assertion
-		//    Metal). Choisi en premier, Metal tuait Tuto02..05 a l'initialisation
-		//    du renderer. L'OpenGL de NKRHI n'a pas de chemin Apple (refus nomme,
-		//    NkOpenglDevice.cpp). Le rendu logiciel, lui, tourne : mesure sur
-		//    NKCraft --backend=software (graphe 3D complet, fermeture propre).
-		//    A REMETTRE Metal en tete quand ces trois points seront tenus.
-		order.PushBack(NkGraphicsApi::NK_GFX_API_SOFTWARE);
+		// METAL D'ABORD (2026-09-30). Les trois points qui l'avaient fait passer
+		// derriere le rendu logiciel sont tenus : CompileVF donne enfin du MSL
+		// (mslSource), le device retrouve l'entree de chaque etage, et un cube
+		// n'a plus arrayLength = 6. Le MSL suit la convention de liaison du device
+		// (NKSL/ShaderConvert/NkMslConventions.h).
+		// Repli : OpenGL, puis le rendu logiciel (ajoute a la fin pour tous). Sur
+		// Apple, l'OpenGL de NKRHI REFUSE de s'initialiser (refus nomme,
+		// NkOpenglDevice.cpp) : le repli effectif d'un Metal en echec est donc le
+		// rendu logiciel, qui tourne (NKCraft --backend=software).
 		order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
+		order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
 
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
 		// Vulkan offre les meilleures perfs et la meilleure portabilité multi-GPU.
@@ -261,8 +262,45 @@ namespace nkentseu {
 		return apis;
 	}
 
+	// NK_GFX_BACKEND=<metal|opengl|vulkan|dx11|dx12|software> : l'API essayee EN
+	// PREMIER par CreateAutoDetect, l'ordre de la plateforme servant de repli.
+	// Meme variable que NkCanvasApp et NKCraft. Sert a la CI (le meme tutoriel
+	// capture en Metal et en logiciel) et a qui teste un Mac a la main.
+	static NkGraphicsApi NkApiDepuisEnvironnement() {
+		const char *v = getenv("NK_GFX_BACKEND");
+		if (!v || !*v)
+			return NkGraphicsApi::NK_GFX_API_NONE;
+		char n[16] = {0};
+		for (uint32 i = 0; i < 15 && v[i]; ++i)
+			n[i] = (char)((v[i] >= 'A' && v[i] <= 'Z') ? v[i] + 32 : v[i]);
+		if (!strcmp(n, "metal") || !strcmp(n, "mtl"))
+			return NkGraphicsApi::NK_GFX_API_METAL;
+		if (!strcmp(n, "opengl") || !strcmp(n, "gl"))
+			return NkGraphicsApi::NK_GFX_API_OPENGL;
+		if (!strcmp(n, "vulkan") || !strcmp(n, "vk"))
+			return NkGraphicsApi::NK_GFX_API_VULKAN;
+		if (!strcmp(n, "dx11") || !strcmp(n, "d3d11"))
+			return NkGraphicsApi::NK_GFX_API_DX11;
+		if (!strcmp(n, "dx12") || !strcmp(n, "d3d12"))
+			return NkGraphicsApi::NK_GFX_API_DX12;
+		if (!strcmp(n, "software") || !strcmp(n, "sw") || !strcmp(n, "logiciel"))
+			return NkGraphicsApi::NK_GFX_API_SOFTWARE;
+		logger_src.Infof("[NkDeviceFactory] NK_GFX_BACKEND=%s inconnu : ordre de la plateforme\n", v);
+		return NkGraphicsApi::NK_GFX_API_NONE;
+	}
+
 	NkIDevice *NkDeviceFactory::CreateAutoDetect(NkDeviceInitInfo &init) {
 		NkVector<NkGraphicsApi> order = GetPlatformPriorityOrder();
+		const NkGraphicsApi voulu = NkApiDepuisEnvironnement();
+		if (voulu != NkGraphicsApi::NK_GFX_API_NONE) {
+			NkVector<NkGraphicsApi> avecVoulu;
+			avecVoulu.PushBack(voulu);
+			for (uint32 i = 0; i < (uint32)order.Size(); ++i)
+				if (order[i] != voulu)
+					avecVoulu.PushBack(order[i]);
+			order = avecVoulu;
+			logger_src.Infof("[NkDeviceFactory] NK_GFX_BACKEND : %s essaye en premier\n", NkGraphicsApiName(voulu));
+		}
 
 		for (uint32 i = 0; i < (uint32)order.Size(); ++i) {
 			NkGraphicsApi api = order[i];

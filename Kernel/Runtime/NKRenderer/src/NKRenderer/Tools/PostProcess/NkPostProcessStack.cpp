@@ -1101,7 +1101,8 @@ void main() {
 			// reparer DX11.
 			const bool versEcran = (cible == NkBlitCible::NK_VERS_ECRAN);
 			const bool pasOpenGL = mDevice && mDevice->GetApi() != NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool estVulkan = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			const bool estVulkan = mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN ||
+											   mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_METAL);
 
 			struct PC {
 					float invResW, invResH, yFlipUV, _pad;
@@ -1178,7 +1179,10 @@ void main() {
 			// ramenait l'historique inverse dans la plage locale) mais AUCUN
 			// antialiasing — l'indicateur d'escalier montait a 51,9 % au lieu de
 			// descendre a ~42 %, soit exactement le niveau du jitter sans accumulation.
-			pc.yFlipUV = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : +1.f;
+			pc.yFlipUV = (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN ||
+						  mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_METAL)
+							 ? -1.f
+							 : +1.f;
 			pc._pad = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
 			cmd->Draw(3, 1, 0, 0);
@@ -1268,7 +1272,8 @@ void main() {
 			// natif). Sinon bloomMip storage decale par rapport au HDR storage
 			// -> tonemap sample bloom et HDR a des conventions differentes ->
 			// bloom mal positionne. En VK le storage est Y-down natif, flip OK.
-			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			bool isVK = mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN ||
+									mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_METAL); // Metal = conventions VK
 			pc.yFlipUV = isVK ? -1.f : +1.f;
 			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
 			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
@@ -1326,7 +1331,8 @@ void main() {
 			pc.invH = srcH > 0 ? 1.0f / (float)srcH : 0.f;
 			pc.strength = strength;
 			// Sub-passes bloom : pas de flip en GL (cf. DrawBloomDownPass).
-			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			bool isVK = mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN ||
+									mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_METAL); // Metal = conventions VK
 			pc.yFlipUV = isVK ? -1.f : +1.f;
 			// ── CE SIGNE EST MESURE, PAS SEULEMENT HERITE (17/09/2026) ───────────
 			// Ce site porte l'ancienne forme `isVK ? -1 : +1` avec un `isVK` qui
@@ -1393,7 +1399,8 @@ void main() {
 			//   ndcYSign (FS) : signe reliant vUV.y au NDC Y pour reconstruire la
 			//                   position depuis la profondeur. DX +1, GL/VK -1.
 			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
-			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN ||
+							   api == NkGraphicsApi::NK_GFX_API_METAL); // Metal = conventions VK
 			const bool isDX = (api == NkGraphicsApi::NK_GFX_API_DX11 || api == NkGraphicsApi::NK_GFX_API_DX12);
 
 			// Miroir exact du bloc push_constant des shaders (128 octets).
@@ -1449,7 +1456,8 @@ void main() {
 			cmd->BindGraphicsPipeline(mPipeSSAOBlur);
 			cmd->BindDescriptorSet(set, 0);
 
-			bool isVK = mDevice && mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN;
+			bool isVK = mDevice && (mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_VULKAN ||
+									mDevice->GetApi() == NkGraphicsApi::NK_GFX_API_METAL); // Metal = conventions VK
 
 			struct PC {
 					float invW, invH, yFlipUV, _pad;
@@ -1884,7 +1892,7 @@ void main() {
 			// l'orientation de la TEXTURE LUE, et c'est un transient du graphe,
 			// exactement comme ToneLDR. VK retourne, les autres non.
 			const NkGraphicsApi api = mDevice ? mDevice->GetApi() : NkGraphicsApi::NK_GFX_API_OPENGL;
-			pc.yFlipUV = (api == NkGraphicsApi::NK_GFX_API_VULKAN) ? -1.f : 1.f;
+			pc.yFlipUV = (api == NkGraphicsApi::NK_GFX_API_VULKAN || api == NkGraphicsApi::NK_GFX_API_METAL) ? -1.f : 1.f;
 			pc.pad0 = 0.f;
 			pc.pad1 = 0.f;
 			cmd->PushConstants(::nkentseu::NkShaderStage::NK_ALL_GRAPHICS, 0, sizeof(pc), &pc);
@@ -1981,7 +1989,8 @@ void main() {
 			// ce signe. Une correction en bloc des cinq sites casserait le TAA sur
 			// DX11, et la mesure ci-dessus est la pour le prouver a qui essaiera.
 			// NK_TAA_YFLIP permet de la refaire en une commande.
-			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN);
+			const bool isVK = (api == NkGraphicsApi::NK_GFX_API_VULKAN ||
+							   api == NkGraphicsApi::NK_GFX_API_METAL); // Metal = conventions VK
 			pc.yFlipUV = isVK ? -1.f : 1.f;
 			pc.ndcYSign = isDX ? 1.f : -1.f;
 			// Overrides de diagnostic : ces deux signes ne se VOIENT pas separement a

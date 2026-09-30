@@ -603,6 +603,12 @@ namespace nkentseu {
 			}
 			res.bytecode.Resize(mslSrc.Size() + 1);
 			memcpy(res.bytecode.Data(), mslSrc.CStr(), mslSrc.Size() + 1);
+			// MSL = cible TEXTE, comme le HLSL de DX11/DX12 : exposee aussi via
+			// preprocessed. C'est la que NkShaderLibrary la prend pour mslSource,
+			// et ce que le cache disque (IsTextTarget) garde. Sans elle, le MSL ne
+			// vivait que dans bytecode, que CompileVF envoyait en spirvBinary --
+			// refuse par NkMetalDevice (« SPIR-V non supporte »).
+			res.preprocessed = mslSrc;
 			return res;
 		}
 

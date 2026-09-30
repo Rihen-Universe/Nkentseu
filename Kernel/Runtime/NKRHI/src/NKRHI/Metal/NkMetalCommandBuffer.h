@@ -44,8 +44,21 @@ namespace nkentseu {
 			void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32 *off, uint32 cnt) override;
 			void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void *data) override;
 
-			void UpdateBuffer(NkBufferHandle, uint64, uint64, const void *) override {
-			} // TODO: blit encoder
+			void UpdateBuffer(NkBufferHandle buf, uint64 off, uint64 size, const void *data) override;
+
+			// Clear dynamique (comme Vulkan) : la couleur/profondeur de la PROCHAINE
+			// passe dont l'attachement est en NK_CLEAR.
+			void SetClearColor(float32 r, float32 g, float32 b, float32 a = 1.f) override {
+				mClearColor[0] = r;
+				mClearColor[1] = g;
+				mClearColor[2] = b;
+				mClearColor[3] = a;
+			}
+
+			void SetClearDepth(float32 depth = 1.f, uint32 stencil = 0) override {
+				mClearDepth = depth;
+				mClearStencil = stencil;
+			}
 
 			void BindVertexBuffer(uint32 b, NkBufferHandle buf, uint64 off) override;
 			void BindVertexBuffers(uint32 first, const NkBufferHandle *bufs, const uint64 *offs, uint32 n) override;
@@ -86,6 +99,14 @@ namespace nkentseu {
 			uint64 mIndexOffset = 0;
 			bool mIndexUint32 = true;
 			MTLPrimitiveType mPrimitive = MTLPrimitiveTypeTriangle;
+
+			float32 mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
+			float32 mClearDepth = 1.f;
+			uint32 mClearStencil = 0;
+			// Taille de la passe en cours : Metal refuse un scissor qui deborde.
+			uint32 mPassW = 0, mPassH = 0;
+			// Taille de groupe du pipeline compute lie (Dispatch).
+			uint32 mTgX = 1, mTgY = 1, mTgZ = 1;
 	};
 
 } // namespace nkentseu
