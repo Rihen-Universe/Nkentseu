@@ -851,6 +851,17 @@ namespace nkentseu {
 				mImpl->backend = nullptr;
 			}
 
+			// Les VOIX aussi, une fois le fil audio arrete (backend Stop ci-dessus).
+			// (30/09) Sans cela un second Initialize dans le meme processus
+			// retrouvait des voix PLAYING dont `sample` et `bus` pointaient sur
+			// des donnees deja liberees (buses detruits plus bas, echantillons
+			// liberes par l'appelant) : le mixage suivant plantait. Temoin :
+			// « Shutdown puis Initialize » dans tests/NkAudioTests.cpp.
+			for (int32 i = 0; i < AUDIO_MAX_VOICES; ++i) {
+				mImpl->voices[i].Reset();
+			}
+			mImpl->activeCount = 0; // le compteur qu'expose GetActiveVoices()
+
 			// Libere l'auto-limiter master (cree par Initialize)
 			if (mImpl->autoMasterLimiter) {
 				// Retirer du tableau masterEffects pour eviter use-after-free
