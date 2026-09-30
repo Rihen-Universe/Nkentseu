@@ -1,0 +1,10 @@
+# TEMPORAIRE (2026-09-30) — la ref de Jenga que les CI macOS recuperent A LA
+# PLACE du tag v<JENGA_VERSION> (voir .github/scripts/ref-jenga.sh).
+#
+# Sert a eprouver sur un vrai Mac une branche de Jenga AVANT sa release :
+# ici fix/macos-2.8.8 (frameworks des bibliotheques statiques au lien,
+# objcarc(), usetoolchain("clang-native") sur l'hote).
+#
+# ⚠️ A SUPPRIMER des que Jenga 2.8.8 est publie et que
+#    Applications/NKCode/JENGA_VERSION porte 2.8.8.
+fix/macos-2.8.8

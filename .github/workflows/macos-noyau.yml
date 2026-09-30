@@ -39,6 +39,11 @@ on:
         type: choice
         options: [Debug, Release]
         default: "Debug"
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
   push:
     branches: ["feat/macos-**"]
 
@@ -50,6 +55,8 @@ concurrency:
 env:
   CONFIG: ${{ inputs.config || 'Debug' }}
   JOURNAUX: journaux
+  # Derogation TEMPORAIRE au tag de Jenga (voir .github/scripts/ref-jenga.sh).
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
 
 jobs:
   # ===========================================================================
@@ -71,13 +78,15 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
           echo "Jenga exige par NKCode : $V"
 
       - name: Depot Jenga (public, la source EST le build system)
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Machine
@@ -130,12 +139,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -145,6 +156,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build Tuto02Renderer "$CONFIG" "$JOURNAUX"
+
+      # Jenga 2.8.8 : les frameworks() des bibliotheques STATIQUES arrivent au
+      # lien de l'executable. MetalKit n'est declare QUE par NKRHI.jenga (pas
+      # par Tutoriels3D.jenga) : sa presence dans otool -L le prouve.
+      - name: Frameworks des statiques au lien (Tuto02Renderer)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/frameworks-au-lien.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" MetalKit
 
       - name: Lancer Tuto02Renderer (8 s)
         if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
@@ -206,12 +224,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -283,12 +303,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -298,6 +320,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build NKCraft "$CONFIG" "$JOURNAUX"
+
+      - name: Frameworks des statiques au lien (NKCraft)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/frameworks-au-lien.sh "$(cat "$JOURNAUX/NKCraft.chemin")" MetalKit
 
       - name: NKCraft --sonde-geo (sans fenetre)
         if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
@@ -360,12 +386,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Allumer GameController dans NKWindow.jenga (copie du runner)

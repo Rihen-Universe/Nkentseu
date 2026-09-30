@@ -167,6 +167,9 @@ with project("NKRHI"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "MetalKit"])
+        # Metal/*.mm est ecrit pour ARC (__bridge_retained + CFRelease) :
+        # voir nkobjcarc() dans config/toolchain.jenga.
+        nkobjcarc()
         # Backend Metal RHI actif : NkMetalDevice.mm recoit la CAMetalLayer via
         # init.context.metal.metalLayer (aucune dependance a NKCanvas).
         defines(["NK_RHI_METAL_ENABLED"])

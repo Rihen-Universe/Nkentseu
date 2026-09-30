@@ -16,13 +16,26 @@ name: build-desktop
 
 on:
   workflow_dispatch:
+    inputs:
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
   push:
     branches: [main, "feat/**"]
     paths:
       - "Kernel/**"
       - "Applications/NkRef/**"
       - "Nkentseu.jenga"
+      - "config/**"
       - ".github/workflows/build-macos.yml"
+      - ".github/JENGA_REF"
+      - ".github/scripts/ref-jenga.sh"
+
+env:
+  # Derogation TEMPORAIRE au tag de Jenga (voir .github/scripts/ref-jenga.sh).
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
 
 jobs:
   nkref-macos:
@@ -45,6 +58,8 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
           echo "Jenga exige par NKCode : $V"
 
       - name: Depot Jenga (public, la source EST le build system)
@@ -54,8 +69,9 @@ jobs:
           # Epingle sur le TAG de la release, lu dans JENGA_VERSION.
           # Ne JAMAIS remettre un nom de branche ici : c'est ainsi que
           # la CI a construit avec Jenga 2.4.0 pendant que NKCode en
-          # exigeait 2.8.0.
-          ref: v${{ steps.jenga-version.outputs.version }}
+          # exigeait 2.8.0. La SEULE derogation passe par .github/JENGA_REF
+          # (temporaire, annoncee en avertissement : voir ref-jenga.sh).
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Builder NkRef (Release)
@@ -106,6 +122,8 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
           echo "Jenga exige par NKCode : $V"
 
       - name: Depot Jenga (public, la source EST le build system)
@@ -115,8 +133,9 @@ jobs:
           # Epingle sur le TAG de la release, lu dans JENGA_VERSION.
           # Ne JAMAIS remettre un nom de branche ici : c'est ainsi que
           # la CI a construit avec Jenga 2.4.0 pendant que NKCode en
-          # exigeait 2.8.0.
-          ref: v${{ steps.jenga-version.outputs.version }}
+          # exigeait 2.8.0. La SEULE derogation passe par .github/JENGA_REF
+          # (temporaire, annoncee en avertissement : voir ref-jenga.sh).
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Dependances systeme (XLib + GL, le chemin prouve sous WSL2)
