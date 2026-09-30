@@ -196,6 +196,12 @@ jobs:
         if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-metal.png') != '' }}
         run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference "$JOURNAUX/captures/tuto03-software.png" --regles tuto03 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
 
+      # DIAGNOSTIC (ne decide pas du verdict) : la couche de validation Metal en
+      # mode journal, et le MSL de chaque nuanceur, publies en artefact.
+      - name: Tuto03Scene - validation Metal (diagnostic)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/diagnostic-metal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 15 "$JOURNAUX/diagnostic-metal"
+
       - name: Tuto02Renderer - capture hors ecran Metal
         if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
         run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" metal 20 "$JOURNAUX/captures/tuto02-metal.png" "$JOURNAUX/captures"
@@ -236,6 +242,7 @@ jobs:
           path: |
             journaux/captures/*.png
             journaux/captures/*.txt
+            journaux/diagnostic-metal/
           if-no-files-found: warn
 
   # ===========================================================================

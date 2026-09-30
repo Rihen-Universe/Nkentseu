@@ -21,7 +21,7 @@ set -u
 
 BIN="${1:?binaire manquant}"
 API="${2:?api manquante}"
-IMAGE="${3:?numero d'image manquant}"
+IMAGE="${3:?numero de l image manquant}"
 PNG="${4:?png manquant}"
 SORTIE="${5:?dossier de sortie manquant}"
 
