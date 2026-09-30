@@ -131,6 +131,14 @@ if swift "$ICI/quitter-proprement.swift" "$PID"; then
     fi
 fi
 if kill -0 "$PID" 2>/dev/null; then
+    # Refus de quitter : OU est-il bloque ? `sample` photographie la pile de
+    # chaque fil pendant 2 s (outil macOS, sans debogueur). Le fil principal
+    # en tete de l'annotation : c'est lui qui devait sortir de la boucle.
+    if sample "$PID" 2 -file "$SORTIE/$NOM-sample.txt" > /dev/null 2>&1; then
+        PILE=$(awk '/Thread_[0-9]+.*DispatchQueue_1|Thread_[0-9]+ .*com.apple.main-thread/ {p=1} p && NR<400 {print} /^$/ && p {exit}' "$SORTIE/$NOM-sample.txt" | grep -E "^[ +!:|]*[0-9]+ " | head -n 40 | cut -c1-200)
+        FERMETURE="$FERMETURE ; pile du fil principal :
+$PILE"
+    fi
     kill -TERM "$PID" 2>/dev/null
     sleep 2
     kill -KILL "$PID" 2>/dev/null || true
@@ -152,6 +160,6 @@ else
 fi
 case "$FERMETURE" in
     propre*) ;;
-    *) printf '::warning title=%s fermeture::%s\n' "$NOM" "$FERMETURE" ;;
+    *) printf '::warning title=%s fermeture::%s\n' "$NOM" "$(printf '%s' "$FERMETURE" | Echapper)" ;;
 esac
 exit 0

@@ -333,6 +333,11 @@ namespace nkentseu {
 		mLayer = (__bridge CAMetalLayer *)layerFournie;
 		mLayer.device = mDevice;
 		mLayer.pixelFormat = ToMTLFormat(mSwapFormat); // meme format que CreateSwapchainObjects
+		// OPAQUE : sans lui, un pixel d'alpha 0 laisse voir le fond BLANC de la
+		// fenetre -- la scene 3D (sortie tonemap en alpha 0) disparaissait, seul
+		// l'overlay 2D restait visible (CI macOS du 2026-09-30). Les autres API
+		// ignorent l'alpha de la chaine d'echange ; Metal non, si on le laisse.
+		mLayer.opaque = YES;
 
 		// Dimensions : la layer est la source de verite (drawableSize, sinon bounds*scale).
 		CGSize ds = mLayer.drawableSize;
@@ -716,7 +721,8 @@ namespace nkentseu {
 				NSString *src = [NSString stringWithUTF8String:s.mslSource];
 				lib = [mDevice newLibraryWithSource:src options:nil error:&err];
 				if (err)
-					NK_MTL_ERR("Shader MSL: %s\n", [err.localizedDescription UTF8String]);
+					NK_MTL_ERR("Shader MSL '%s' : %s\n", desc.debugName ? desc.debugName : "?",
+							   [err.localizedDescription UTF8String]);
 			} else if (!s.spirvBinary.Empty()) {
 				// Metal ne lit pas nativement le SPIR-V : conversion en MSL requise
 				// (SPIRV-Cross) en pré-build.
@@ -919,7 +925,7 @@ namespace nkentseu {
 		NSError *err = nil;
 		id<MTLRenderPipelineState> rpso = [mDevice newRenderPipelineStateWithDescriptor:pd error:&err];
 		if (err) {
-			NK_MTL_ERR("Pipeline: %s\n", [err.localizedDescription UTF8String]);
+			NK_MTL_ERR("Pipeline '%s' : %s\n", d.debugName ? d.debugName : "?", [err.localizedDescription UTF8String]);
 			return {};
 		}
 

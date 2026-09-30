@@ -294,6 +294,17 @@ namespace nkentseu {
 			// SPIRV-Cross nomme l'entree `main0` (`main` est reserve en MSL) ; le
 			// device retrouve de lui-meme toute autre entree unique de l'etage.
 			st.entryPoint = "main0";
+			// NK_DUMP_MSL=<dossier> : chaque MSL envoye au device, pour le relire
+			// (la CI le publie en artefact).
+			if (const char *dossier = getenv("NK_DUMP_MSL")) {
+				if (dossier[0]) {
+					const char *etage = st.stage == ::nkentseu::NkShaderStage::NK_VERTEX	   ? "vert"
+										: st.stage == ::nkentseu::NkShaderStage::NK_FRAGMENT ? "frag"
+																							 : "autre";
+					NkString chemin = NkString(dossier) + "/" + nom + "." + etage + ".metal";
+					WriteStringToFile(chemin.CStr(), src);
+				}
+			}
 			return true;
 		}
 
