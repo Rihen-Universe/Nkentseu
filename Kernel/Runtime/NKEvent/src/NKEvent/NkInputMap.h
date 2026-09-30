@@ -437,6 +437,7 @@ namespace nkentseu {
 			void ResetBindingStates() noexcept;
 			bool AnyBindingUses(const NkInputCode &code) const noexcept;
 			bool AnyGestureBinding(NkInputGesture gesture) const noexcept;
+			bool AnyKindBinding(NkInputSourceKind kind) const noexcept;
 			bool FingerStick(const NkFinger &f, const NkInputSource *&source) const noexcept;
 			void SortedContexts(int32 *order, int32 &count) const noexcept;
 

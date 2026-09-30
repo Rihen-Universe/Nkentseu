@@ -337,6 +337,9 @@ TEST_CASE(NKEventInputMap, M7_Joueurs) {
 	ASSERT_EQUAL(1, joueurs.Update(&pads.sys, NkGamepadButton::NK_GP_START));
 	ASSERT_EQUAL(2, k2.GetGamepad());
 	ASSERT_EQUAL(1, joueurs.PlayerForGamepad(2));
+	// Sans systeme de manettes, personne ne perd la sienne.
+	ASSERT_EQUAL(-1, joueurs.Update(nullptr));
+	ASSERT_EQUAL(2, k2.GetGamepad());
 }
 
 TEST_CASE(NKEventInputMap, M8_Capture) {
@@ -483,7 +486,7 @@ TEST_CASE(NKEventInputMap, M11_Souris) {
 	m.Context(c)->Add(NkInputBinding::Code(zoom, NkInputCode::Wheel(false)));
 	NkMouseMoveEvent e1(10, 10, 0, 0, 20, 0);
 	NkMouseMoveEvent e2(20, 10, 0, 0, 30, -10);
-	m.Read(e1);
+	ASSERT_TRUE(m.Read(e1)); // une liaison lit le deplacement : l'evenement est pris
 	m.Read(e2);
 	NkMouseWheelVerticalEvent w(1.0);
 	m.Read(w);
@@ -567,4 +570,13 @@ TEST_CASE(NKEventInputMap, M14_ValeurParProgramme) {
 	m.Update(kDt, nullptr);
 	ASSERT_TRUE(m.IsDown(libre));
 	ASSERT_FALSE(m.IsDown(liee));
+	// Un nom de contexte a espace devient UN mot (sinon Save/Load le couperait).
+	NkInputMap t;
+	const int32 mini = t.AddContext("Mini jeu");
+	ASSERT_TRUE(t.FindContext("Mini_jeu") >= 0);
+	// ... et le redeclarer sous le meme nom rend LE MEME contexte (idem action).
+	ASSERT_EQUAL(mini, t.AddContext("Mini jeu"));
+	const NkInputActionId sauter = t.DeclareAction("Grand saut", NkInputValueType::NK_INPUT_BUTTON);
+	ASSERT_EQUAL(sauter, t.DeclareAction("Grand saut", NkInputValueType::NK_INPUT_BUTTON));
+	ASSERT_EQUAL(sauter, t.FindAction("Grand_saut"));
 }

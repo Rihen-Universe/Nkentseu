@@ -259,16 +259,18 @@ namespace nkentseu {
 		if (name == nullptr || name[0] == '\0') {
 			return NK_INPUT_ACTION_INVALID;
 		}
-		const NkInputActionId existing = FindAction(name);
-		if (existing != NK_INPUT_ACTION_INVALID) {
-			return existing;
-		}
 		NkActionDef def;
 		int32 k = 0;
 		while (name[k] != '\0' && k < static_cast<int32>(sizeof(def.name)) - 1) {
 			// Un nom est UN mot du texte : une espace le couperait en deux.
 			def.name[k] = (name[k] == ' ' || name[k] == '\t') ? '_' : name[k];
 			++k;
+		}
+		// Cherche sous le nom RETENU : « Mini jeu » declare deux fois reste UNE
+		// action (« Mini_jeu »).
+		const NkInputActionId existing = FindAction(def.name);
+		if (existing != NK_INPUT_ACTION_INVALID) {
+			return existing;
 		}
 		def.type = type;
 		mDefs.PushBack(def);
@@ -324,12 +326,19 @@ namespace nkentseu {
 	}
 
 	int32 NkInputMap::AddContext(const char *name, int32 priority, bool consume) {
-		const int32 existing = FindContext(name);
+		NkInputContext c;
+		c.name = NkString(name != nullptr && name[0] != '\0' ? name : "Defaut");
+		// Un nom est UN mot du texte : une espace le couperait en deux a la
+		// relecture (Save puis Load).
+		for (uint32 k = 0; k < c.name.Length(); ++k) {
+			if (c.name[k] == ' ' || c.name[k] == '\t') {
+				c.name[k] = '_';
+			}
+		}
+		const int32 existing = FindContext(c.name.CStr());
 		if (existing >= 0) {
 			return existing;
 		}
-		NkInputContext c;
-		c.name = NkString(name != nullptr ? name : "Defaut");
 		c.priority = priority;
 		c.consume = consume;
 		mContexts.PushBack(c);
@@ -493,6 +502,18 @@ namespace nkentseu {
 		return false;
 	}
 
+	bool NkInputMap::AnyKindBinding(NkInputSourceKind kind) const noexcept {
+		for (uint32 c = 0; c < mContexts.Size(); ++c) {
+			const NkInputContext &ctx = mContexts[c];
+			for (uint32 i = 0; ctx.enabled && i < ctx.bindings.Size(); ++i) {
+				if (ctx.bindings[i].source.kind == kind) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	bool NkInputMap::AnyGestureBinding(NkInputGesture gesture) const noexcept {
 		for (uint32 c = 0; c < mContexts.Size(); ++c) {
 			const NkInputContext &ctx = mContexts[c];
@@ -625,7 +646,7 @@ namespace nkentseu {
 			}
 			mMouseDX += static_cast<float32>(m->GetDeltaX());
 			mMouseDY += static_cast<float32>(m->GetDeltaY());
-			return false;
+			return AnyKindBinding(NkInputSourceKind::NK_INPUT_SRC_MOUSE_DELTA);
 		}
 		if (const auto *w = e.As<NkMouseWheelVerticalEvent>()) {
 			if (!mAcceptKeyboardMouse) {
@@ -1500,6 +1521,11 @@ namespace nkentseu {
 
 	int32 NkInputPlayers::Update(const NkGamepadSystem *pads, NkGamepadButton joinButton) noexcept {
 		int32 joined = -1;
+		// Sans systeme de manettes, on ne sait RIEN : ce n'est pas « toutes
+		// debranchees », et personne ne perd sa manette pour autant.
+		if (pads == nullptr) {
+			return joined;
+		}
 		for (uint32 p = 0; p < NK_MAX_GAMEPADS; ++p) {
 			const bool connected = pads != nullptr && pads->IsConnected(p);
 			for (uint32 b = 1; b < kNbPadButtons; ++b) {
