@@ -26,6 +26,7 @@
 #include <spirv_cross/spirv_hlsl.hpp>
 #include <spirv_cross/spirv_msl.hpp>
 #endif
+#include "NKSL/ShaderConvert/NkMslConventions.h"
 
 // ── Platform: file removal ────────────────────────────────────────────────────
 #ifdef _WIN32
@@ -593,6 +594,11 @@ namespace nkentseu {
 	// NkShaderConverter::SpirvToMsl
 	// =============================================================================
 
+	// (2026-09-30) Le MSL sort dans la convention de NkMslConventions.h, celle que
+	// NkMetalDevice lie. Avant, SPIRV-Cross numerotait chaque classe de ressource
+	// dans l'ordre de decouverte (tampon de camera en buffer(0), sur le tampon de
+	// sommets ; push constants au premier index libre, pas en 30 ; samplers
+	// compactes) : aucun shader converti ne tombait sur ce que le device liait.
 	NkShaderConvertResult NkShaderConverter::SpirvToMsl(const uint32 *spirvWords, uint32 wordCount,
 														NkSLStage /*stage*/) {
 		NkShaderConvertResult out;
@@ -600,10 +606,68 @@ namespace nkentseu {
 #ifdef NK_RHI_SPIRVCROSS_ENABLED
 		try {
 			spirv_cross::CompilerMSL compiler(spirvWords, wordCount);
-			spirv_cross::CompilerMSL::Options opts;
-			opts.msl_version = spirv_cross::CompilerMSL::Options::make_msl_version(2, 0);
+			spirv_cross::CompilerMSL::Options opts = compiler.get_msl_options();
+#if defined(NKENTSEU_PLATFORM_IOS)
+			opts.platform = spirv_cross::CompilerMSL::Options::iOS;
+#else
+			opts.platform = spirv_cross::CompilerMSL::Options::macOS;
+#endif
+			opts.msl_version = spirv_cross::CompilerMSL::Options::make_msl_version(2, 1);
+			// binding N -> buffer(N) / texture(N) / sampler(N), l'ensemble ignore.
+			opts.enable_decoration_binding = true;
+			// Une sortie float/float2 vers une cible RGBA : Metal veut 4 composantes.
+			opts.pad_fragment_output_components = true;
 			compiler.set_msl_options(opts);
-			out.source = NkString(compiler.compile().c_str());
+
+			// Push constants : toujours buffer(30), la ou NkMetalCommandBuffer les pose.
+			spirv_cross::MSLResourceBinding pc;
+			pc.stage = compiler.get_execution_model();
+			pc.desc_set = spirv_cross::kPushConstDescSet;
+			pc.binding = spirv_cross::kPushConstBinding;
+			pc.msl_buffer = kNkMslPushConstantBuffer;
+			compiler.add_msl_resource_binding(pc);
+
+			// Samplers au-dela des 16 cases de Metal : constexpr dans le shader. Le
+			// PBR en declare une trentaine (IBL, cookies, atlas d'ombre...).
+			const spirv_cross::ShaderResources ressources = compiler.get_shader_resources();
+			auto horsTable = [&](const spirv_cross::Resource &r) {
+				const spirv_cross::SPIRType &type = compiler.get_type(r.type_id);
+				if (!type.array.empty())
+					return; // un tableau de samplers ne peut pas etre constexpr
+				const uint32 binding = compiler.get_decoration(r.id, spv::DecorationBinding);
+				if (binding < kNkMslMaxSamplerSlots)
+					return;
+				const spirv_cross::SPIRType &base = compiler.get_type(r.base_type_id);
+				spirv_cross::MSLConstexprSampler s;
+				s.min_filter = spirv_cross::MSL_SAMPLER_FILTER_LINEAR;
+				s.mag_filter = spirv_cross::MSL_SAMPLER_FILTER_LINEAR;
+				s.mip_filter = spirv_cross::MSL_SAMPLER_MIP_FILTER_LINEAR;
+				s.s_address = spirv_cross::MSL_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+				s.t_address = spirv_cross::MSL_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+				s.r_address = spirv_cross::MSL_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+				if (base.basetype == spirv_cross::SPIRType::SampledImage && base.image.depth) {
+					s.compare_enable = true;
+					s.compare_func = spirv_cross::MSL_SAMPLER_COMPARE_FUNC_LESS_EQUAL;
+				}
+				compiler.remap_constexpr_sampler(r.id, s);
+			};
+			for (const auto &r : ressources.sampled_images)
+				horsTable(r);
+			for (const auto &r : ressources.separate_samplers)
+				horsTable(r);
+
+			std::string msl = compiler.compile();
+			// Compute : Metal demande la taille de groupe a CHAQUE dispatch, le MSL
+			// ne l'impose pas. On l'ecrit en tete ; NkMetalDevice::CreateShader la lit.
+			if (compiler.get_execution_model() == spv::ExecutionModelGLCompute) {
+				char entete[96];
+				snprintf(entete, sizeof(entete), "// nk_threadgroup %u %u %u\n",
+						 compiler.get_execution_mode_argument(spv::ExecutionModeLocalSize, 0),
+						 compiler.get_execution_mode_argument(spv::ExecutionModeLocalSize, 1),
+						 compiler.get_execution_mode_argument(spv::ExecutionModeLocalSize, 2));
+				msl = std::string(entete) + msl;
+			}
+			out.source = NkString(msl.c_str());
 			out.success = true;
 		} catch (const std::exception &e) {
 			out.success = false;

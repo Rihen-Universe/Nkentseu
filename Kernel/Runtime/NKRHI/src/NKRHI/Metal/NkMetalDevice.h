@@ -9,6 +9,9 @@
 #include "NKThreading/NkMutex.h"
 #include "NKCore/NkAtomic.h"
 #include "NKContainers/Sequential/NkVector.h"
+// Ou vont tampons, textures, samplers, sommets et push constants en MSL : la
+// convention que NKSL ecrit et que ce device lie (2026-09-30).
+#include "NKSL/ShaderConvert/NkMslConventions.h"
 
 #ifdef NK_RHI_METAL_ENABLED
 #ifdef __OBJC__
@@ -71,6 +74,10 @@ namespace nkentseu {
 			void *vert = nullptr; // id<MTLFunction>
 			void *frag = nullptr;
 			void *comp = nullptr;
+			// Taille de groupe du compute, lue dans le MSL (gl_WorkGroupSize de
+			// SPIRV-Cross) : Metal la demande a CHAQUE dispatch, le shader ne
+			// l'impose pas. Dispatcher en 1x1x1 ne calculait qu'un fil par groupe.
+			uint32 tgX = 1, tgY = 1, tgZ = 1;
 	};
 
 	struct NkMetalPipeline {
@@ -83,6 +90,10 @@ namespace nkentseu {
 			int cullMode = 0; // 0=none,1=front,2=back
 			bool depthClip = true;
 			float depthBiasConst = 0, depthBiasSlope = 0, depthBiasClamp = 0;
+			// MTLPrimitiveType du pipeline (NkGraphicsPipelineDesc::topology) : le
+			// command buffer dessinait TOUT en triangles, lignes de debug comprises.
+			uint32 primitive = 3; // MTLPrimitiveTypeTriangle
+			uint32 tgX = 1, tgY = 1, tgZ = 1; // compute
 	};
 
 	struct NkMetalRenderPass {
@@ -94,6 +105,9 @@ namespace nkentseu {
 			uint32 colorCount = 0;
 			NkTextureHandle depthAttachment;
 			uint32 w = 0, h = 0;
+			// Passe de rendu donnee a la creation : BeginRenderPass(rp nul, fb) la
+			// reprend (convention Vulkan de NKRHI), ses load/store ops aussi.
+			uint64 renderPassId = 0;
 	};
 
 	struct NkMetalDescSetLayout {
@@ -177,7 +191,10 @@ namespace nkentseu {
 			}
 
 			NkGPUFormat GetSwapchainFormat() const override {
-				return NkGPUFormat::NK_BGRA8_SRGB;
+				// Le format REEL de la CAMetalLayer (UNORM par defaut). Rendre sRGB en
+				// dur faisait creer au renderer des pipelines d'un autre format que la
+				// passe qui les execute.
+				return mSwapFormat;
 			}
 
 			NkGPUFormat GetSwapchainDepthFormat() const override {
@@ -248,6 +265,9 @@ namespace nkentseu {
 			const NkMetalPipeline *GetPipeline(uint64 id) const;
 			const NkMetalDescSet *GetDescSet(uint64 id) const;
 			const NkMetalFramebuffer *GetFBO(uint64 id) const;
+			const NkMetalRenderPass *GetRenderPass(uint64 id) const;
+			// Octets par pixel d'une texture (pas de ligne implicite des copies).
+			uint32 GetTextureBytesPerPixel(uint64 id) const;
 
 			NkCAMetalDrawable CurrentDrawable() const {
 				return mCurrentDrawable;
@@ -271,6 +291,10 @@ namespace nkentseu {
 			NkFramebufferHandle mSwapchainFB;
 			NkRenderPassHandle mSwapchainRP;
 			NkTextureHandle mDepthTex;
+			// Entree UNIQUE de mTextures pour la texture du drawable courant. Avant,
+			// chaque image en ajoutait une (retenue, jamais liberee) : la table et
+			// les textures des drawables grossissaient a chaque image.
+			uint64 mSwapColorId = 0;
 			// Format de la chaine d'echange, lu dans init.context.swapchainFormat
 			// (UNORM par defaut, comme GL/DX/VK) : il etait code en dur en sRGB.
 			NkGPUFormat mSwapFormat = NkGPUFormat::NK_BGRA8_UNORM;

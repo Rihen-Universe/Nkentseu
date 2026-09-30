@@ -178,6 +178,28 @@ jobs:
         if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 8 "$JOURNAUX/execution"
 
+      # METAL VERIFIE PAR L'IMAGE (2026-09-30). NKRHI choisit Metal en premier
+      # sur macOS ; le lancement ci-dessus prouve que Tuto03 tient debout, pas
+      # que son image est juste. La scene est rendue UNE fois hors ecran et
+      # ecrite en PNG (Tutoriels3D/Commun/NkTutoCapture.h), en Metal puis en
+      # rendu logiciel (reference), et quelques pixels sont compares
+      # (comparer-captures.py). Les PNG sont publies en artefact.
+      - name: Tuto03Scene - capture hors ecran Metal
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" metal 30 "$JOURNAUX/captures/tuto03-metal.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - capture hors ecran logiciel (reference)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" software 30 "$JOURNAUX/captures/tuto03-software.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - pixels de l'image Metal
+        if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-metal.png') != '' }}
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference "$JOURNAUX/captures/tuto03-software.png" --regles tuto03 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
+
+      - name: Tuto02Renderer - capture hors ecran Metal
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" metal 20 "$JOURNAUX/captures/tuto02-metal.png" "$JOURNAUX/captures"
+
       - name: Construire Tuto04Camera
         if: ${{ !cancelled() }}
         env:
@@ -204,6 +226,16 @@ jobs:
         with:
           name: macos-tutoriels-journaux
           path: journaux/
+          if-no-files-found: warn
+
+      - name: Captures Metal (PNG)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-captures-metal
+          path: |
+            journaux/captures/*.png
+            journaux/captures/*.txt
           if-no-files-found: warn
 
   # ===========================================================================

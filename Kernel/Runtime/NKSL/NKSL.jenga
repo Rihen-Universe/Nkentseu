@@ -83,6 +83,12 @@ with project("NKSL"):
             _MAC_LINKS.append("NKSPIRVCross")
         if _MAC_LINKS:
             links(_MAC_LINKS)
+        # NkSL -> MSL par SPIR-V + SPIRV-Cross (NkSLCodeGenMSLSpirvCross.cpp) au
+        # lieu du generateur MSL natif : c'est ce MSL-la que NkMetalDevice sait
+        # lier (NkMslConventions.h). Il faut les DEUX : glslang pour le SPIR-V,
+        # SPIRV-Cross pour le MSL.
+        if USE_NKGLSLANG and USE_NKSPIRVCROSS:
+            defines(["NKSL_HAS_SPIRV_CROSS"])
 
     with filter("system:Android"):
         usetoolchain("android-ndk")
