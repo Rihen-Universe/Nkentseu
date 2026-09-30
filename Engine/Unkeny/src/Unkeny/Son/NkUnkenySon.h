@@ -92,6 +92,10 @@ namespace nkentseu {
 				/// Un son fabrique : `frames` echantillons MONO a `frequence` Hz.
 				uint32 Creer(const float32 *mono, usize frames, int32 frequence, const char *nom);
 				uint32 Trouver(const char *nom) const noexcept;
+				/// Le NOM d'un son (son chemin, ou le nom donne a Creer) ; "" s'il est
+				/// inconnu. C'est ce que la sauvegarde ecrit a la place de
+				/// l'identifiant, qui ne vaut que pour cette session (2026-09-29).
+				const char *Nom(uint32 son) const noexcept;
 				float32 Duree(uint32 son) const noexcept; ///< secondes
 				uint32 Nombre() const noexcept {
 					return static_cast<uint32>(mSons.Size());

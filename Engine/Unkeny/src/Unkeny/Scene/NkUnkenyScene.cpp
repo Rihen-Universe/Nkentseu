@@ -14,6 +14,7 @@
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
 #include "NKLogger/NkLog.h"
@@ -60,6 +61,59 @@ namespace nkentseu {
 						return collision::NkShape::Box2D(c, col.demiTaille, 0.f);
 				}
 			}
+
+			// ---- Les champs des composants d'Unkeny que la photo porte ----------
+			// (2026-09-29) Avant, ils allaient au fichier en OCTETS : illisibles sur
+			// une autre ABI, decales au premier champ ajoute, et `NkSource2D::son`
+			// y designait « le n-ieme son charge » — un autre son a la reouverture.
+			const NkChampSauve kChampsAnim[] = {
+				NK_UNKENY_CHAMP_TABLEAU(NkAnimSprite2D, clips, NkClipSprite, premiere, NkTypeChamp::NK_U16,
+										"clips.premiere"),
+				NK_UNKENY_CHAMP_TABLEAU(NkAnimSprite2D, clips, NkClipSprite, nombre, NkTypeChamp::NK_U16,
+										"clips.nombre"),
+				NK_UNKENY_CHAMP_TABLEAU(NkAnimSprite2D, clips, NkClipSprite, imagesParSeconde, NkTypeChamp::NK_F32,
+										"clips.imagesParSeconde"),
+				NK_UNKENY_CHAMP_TABLEAU(NkAnimSprite2D, clips, NkClipSprite, mode, NkTypeChamp::NK_U8, "clips.mode"),
+				NK_UNKENY_CHAMP_TABLEAU(NkAnimSprite2D, clips, NkClipSprite, imageEvent, NkTypeChamp::NK_U16,
+										"clips.imageEvent"),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, nbClips, NkTypeChamp::NK_U8),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, clipCourant, NkTypeChamp::NK_U8),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, temps, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, enPause, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, termine, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, evenementAtteint, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, colonnes, NkTypeChamp::NK_U16),
+				NK_UNKENY_CHAMP(NkAnimSprite2D, lignes, NkTypeChamp::NK_U16),
+			};
+			const NkChampSauve kChampsVitesse[] = {
+				NK_UNKENY_CHAMP(NkVitesse2D, lineaire, NkTypeChamp::NK_VEC2),
+				NK_UNKENY_CHAMP(NkVitesse2D, angulaire, NkTypeChamp::NK_F32),
+			};
+			const NkChampSauve kChampsSource[] = {
+				NK_UNKENY_CHAMP(NkSource2D, son, NkTypeChamp::NK_SON),
+				NK_UNKENY_CHAMP(NkSource2D, volume, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkSource2D, pitch, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkSource2D, portee, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkSource2D, boucle, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkSource2D, auDemarrage, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkSource2D, spatial, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkSource2D, demande, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkSource2D, arret, NkTypeChamp::NK_BOOL),
+				// Ecrits par le systeme : une voix NKAudio n'a aucun sens dans une
+				// autre session (elle designerait la voix d'un autre son).
+				NK_UNKENY_CHAMP_TRANSITOIRE(NkSource2D, voix, NkTypeChamp::NK_U32),
+				NK_UNKENY_CHAMP_TRANSITOIRE(NkSource2D, pan, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP_TRANSITOIRE(NkSource2D, gain, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkSource2D, lance, NkTypeChamp::NK_BOOL),
+			};
+			const NkChampSauve kChampsInstance[] = {
+				NK_UNKENY_CHAMP(NkInstancePrefab2D, prefab, NkTypeChamp::NK_PREFAB),
+				NK_UNKENY_CHAMP(NkInstancePrefab2D, noeud, NkTypeChamp::NK_U32),
+				NK_UNKENY_CHAMP(NkInstancePrefab2D, racine, NkTypeChamp::NK_ENTITE),
+			};
+			template <typename T, uint32 N> constexpr uint32 NbChamps(const T (&)[N]) noexcept {
+				return N;
+			}
 		} // namespace
 
 		// =====================================================================
@@ -70,12 +124,21 @@ namespace nkentseu {
 		bool NkScene::Init(const NkSceneConfig &config) {
 			Liberer();
 			mConfig = config;
+			// Une scene neuve numerote ses identites depuis 1.
+			mProchainUid = 1;
+			mCacheUid.Clear();
 			// Les composants d'Unkeny que NkPhotoEntite ne nomme pas passent par
-			// le meme chemin que ceux d'un jeu.
-			PhotographierAussi<NkAnimSprite2D>("NkAnimSprite2D");
+			// le meme chemin que ceux d'un jeu — DECRITS depuis le 2026-09-29.
+			PhotographierAussi<NkAnimSprite2D>("NkAnimSprite2D", kChampsAnim, NbChamps(kChampsAnim));
+			// NkAnimateur2D (branche animation) : en octets, comme sa branche l'a
+			// declare — le decrire champ par champ reste a faire.
 			PhotographierAussi<NkAnimateur2D>("NkAnimateur2D");
-			PhotographierAussi<NkVitesse2D>("NkVitesse2D");
-			PhotographierAussi<NkSource2D>("NkSource2D");
+			PhotographierAussi<NkVitesse2D>("NkVitesse2D", kChampsVitesse, NbChamps(kChampsVitesse));
+			PhotographierAussi<NkSource2D>("NkSource2D", kChampsSource, NbChamps(kChampsSource));
+			// Le lien d'une instance a son prefab (NkUnkenyPrefab.h) : declare ICI,
+			// pour qu'une scene relue retrouve ses instances meme si le jeu n'a
+			// encore touche aucun prefab.
+			PhotographierAussi<NkInstancePrefab2D>("NkInstancePrefab2D", kChampsInstance, NbChamps(kChampsInstance));
 
 			// Le monde d'Unkeny est PLAN : NkPhysicsConfig::enable2D, lu par
 			// NKPhysics depuis le 2026-09-29, y ramene tout ce qui en sortirait
@@ -153,6 +216,11 @@ namespace nkentseu {
 			NkTransform2D t;
 			t.position = position;
 			mMonde.Add<NkTransform2D>(id, t);
+			// L'identite stable, des la naissance (voir NkUnkenyHierarchie.h).
+			NkIdentite2D ident;
+			ident.uid = mProchainUid++;
+			mMonde.Add<NkIdentite2D>(id, ident);
+			mCacheUid.Insert(ident.uid, id);
 			return id;
 		}
 
@@ -191,6 +259,16 @@ namespace nkentseu {
 					if (ci >= 0) {
 						mParticules->SupprimerCorps(static_cast<uint32>(ci));
 					}
+				}
+			}
+			// Les enfants restent, a leur place : un lien vers une entite morte se
+			// lirait « racine » quand meme (NkHierarchy.h), mais leur NkLocal2D
+			// resterait exprime dans un repere qui n'existe plus.
+			{
+				NkVector<ecs::NkEntityId> enfants;
+				Enfants(id, enfants);
+				for (uint32 i = 0; i < enfants.Size(); ++i) {
+					Detacher(enfants[i], true);
 				}
 			}
 			mMonde.Destroy(id);
@@ -405,6 +483,9 @@ namespace nkentseu {
 			}
 
 			AppliquerVitessesManuelles(deltaTime);
+			// La hierarchie APRES tout ce qui ecrit le monde (physique, vitesses) :
+			// un enfant voit son parent la ou il est a cette trame.
+			PropagerHierarchie();
 			// Les animations suivent le temps de la TRAME, pas le pas fixe : une
 			// marche a 12 images/s ne doit pas dependre de la physique.
 			// L'animateur (machine a etats de NKAnima) AVANT : le clip qu'il
@@ -709,64 +790,92 @@ namespace nkentseu {
 			photo.entites.Clear();
 			NkVector<ecs::NkEntityId> ids;
 			Entites(ids);
+			// Toutes les identites D'ABORD : un composant peut designer une entite
+			// qui vient apres lui, et sa reference doit trouver un uid.
 			for (uint32 i = 0; i < ids.Size(); ++i) {
-				const ecs::NkEntityId id = ids[i];
+				AssurerUid(ids[i]);
+			}
+			for (uint32 i = 0; i < ids.Size(); ++i) {
 				NkPhotoEntite e;
-				e.transform = *mMonde.Get<NkTransform2D>(id);
-				if (const NkEtiquette *x = mMonde.Get<NkEtiquette>(id)) {
-					e.etiquette = *x;
-					e.aEtiquette = true;
-				}
-				if (const NkSprite2D *x = mMonde.Get<NkSprite2D>(id)) {
-					e.sprite = *x;
-					e.aSprite = true;
-				}
-				if (const NkCollisionneur2D *x = mMonde.Get<NkCollisionneur2D>(id)) {
-					e.collisionneur = *x;
-					e.aCollisionneur = true;
-				}
-				if (const NkCorps2D *x = mMonde.Get<NkCorps2D>(id)) {
-					e.corps = *x;
-					e.aCorps = true;
-					if (mPhysique != nullptr) {
-						if (const physics::NkRigidBody *b = mPhysique->GetBody(x->corpsId)) {
-							e.etatRigide = *b;
-						}
-					}
-				}
-				if (const NkCorpsMou2D *x = mMonde.Get<NkCorpsMou2D>(id)) {
-					e.mou = *x;
-					e.aMou = true;
-				}
-				if (const NkControleRigide2D *x = mMonde.Get<NkControleRigide2D>(id)) {
-					e.controleRigide = *x;
-					e.aControleRigide = true;
-				}
-				if (const NkControleMou2D *x = mMonde.Get<NkControleMou2D>(id)) {
-					e.controleMou = *x;
-					e.aControleMou = true;
-				}
-				// Les composants du jeu declares par PhotographierAussi.
-				uint32 total = 0;
-				for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
-					total += mCopieurs[k].taille;
-				}
-				if (total > 0u) {
-					e.extra.Resize(total);
-					uint32 decalage = 0;
-					for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
-						if (mCopieurs[k].lire(mMonde, id, e.extra.Data() + decalage)) {
-							e.extraPresents |= 1u << k;
-						}
-						decalage += mCopieurs[k].taille;
-					}
-				}
+				PhotographierEntite(ids[i], e);
 				photo.entites.PushBack(e);
 			}
 			if (mParticules != nullptr) {
 				photo.particules = *mParticules;
 			}
+			photo.prochainUid = mProchainUid;
 			photo.valide = true;
+		}
+
+		bool NkScene::PhotographierEntite(ecs::NkEntityId id, NkPhotoEntite &e) {
+			e = NkPhotoEntite();
+			if (!mMonde.IsAlive(id) || !mMonde.Has<NkTransform2D>(id)) {
+				return false;
+			}
+			e.transform = *mMonde.Get<NkTransform2D>(id);
+			// L'identite et la place dans la hierarchie (2026-09-29).
+			e.uid = AssurerUid(id);
+			const ecs::NkEntityId parent = Parent(id);
+			if (parent.IsValid()) {
+				e.parentUid = AssurerUid(parent);
+				if (const NkLocal2D *l = mMonde.Get<NkLocal2D>(id)) {
+					e.local = l->local;
+				} else {
+					e.local = NkDecomposer2D(*mMonde.Get<NkTransform2D>(parent), e.transform);
+				}
+			}
+			if (const NkEtiquette *x = mMonde.Get<NkEtiquette>(id)) {
+				e.etiquette = *x;
+				e.aEtiquette = true;
+			}
+			if (const NkSprite2D *x = mMonde.Get<NkSprite2D>(id)) {
+				e.sprite = *x;
+				e.aSprite = true;
+			}
+			if (const NkCollisionneur2D *x = mMonde.Get<NkCollisionneur2D>(id)) {
+				e.collisionneur = *x;
+				e.aCollisionneur = true;
+			}
+			if (const NkCorps2D *x = mMonde.Get<NkCorps2D>(id)) {
+				e.corps = *x;
+				e.aCorps = true;
+				if (mPhysique != nullptr) {
+					if (const physics::NkRigidBody *b = mPhysique->GetBody(x->corpsId)) {
+						e.etatRigide = *b;
+					}
+				}
+			}
+			if (const NkCorpsMou2D *x = mMonde.Get<NkCorpsMou2D>(id)) {
+				e.mou = *x;
+				e.aMou = true;
+			}
+			// Les controleurs de personnage (branche physique, 2026-09-29).
+			if (const NkControleRigide2D *x = mMonde.Get<NkControleRigide2D>(id)) {
+				e.controleRigide = *x;
+				e.aControleRigide = true;
+			}
+			if (const NkControleMou2D *x = mMonde.Get<NkControleMou2D>(id)) {
+				e.controleMou = *x;
+				e.aControleMou = true;
+			}
+			// Les composants du jeu declares par PhotographierAussi.
+			uint32 total = 0;
+			for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
+				total += mCopieurs[k].taille;
+			}
+			if (total > 0u) {
+				e.extra.Resize(total);
+				uint32 decalage = 0;
+				for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
+					if (mCopieurs[k].lire(mMonde, id, e.extra.Data() + decalage)) {
+						e.extraPresents |= 1u << k;
+						// Une reference a une entite voyage par IDENTITE.
+						ConvertirEntites(k, e.extra.Data() + decalage, true);
+					}
+					decalage += mCopieurs[k].taille;
+				}
+			}
+			return true;
 		}
 
 		void NkScene::Restaurer(const NkPhoto &photo) {
@@ -785,19 +894,63 @@ namespace nkentseu {
 				}
 				mMonde.Destroy(ids[i]);
 			}
+			mCacheUid.Clear();
 			if (mParticules != nullptr) {
 				*mParticules = photo.particules;
 			}
+			// 2. Tout refaire. Le compteur ne RECULE jamais : une identite donnee
+			//    apres la photo (entite detruite depuis) ne resservira pas.
+			if (photo.prochainUid > mProchainUid) {
+				mProchainUid = photo.prochainUid;
+			}
+			RefaireEntites(photo.entites, nullptr);
+			mAccumulateur = 0.f;
+		}
+
+		void NkScene::RefaireEntites(const NkVector<NkPhotoEntite> &entites, NkVector<ecs::NkEntityId> *crees,
+									 bool nouvellesIdentites) {
+			// ⚠️ TROIS PASSES, et c'est ce qui rend les references justes : un
+			//    composant peut designer une entite qui vient APRES lui dans la
+			//    photo, et un enfant peut preceder son parent.
+			// 1. Les entites, leur transform et leur identite.
+			NkVector<ecs::NkEntityId> faites;
+			faites.Resize(entites.Size());
+			NkUnorderedMap<uint64, ecs::NkEntityId> lot;
 			// Les corps rigides vont renaitre sous des ids NEUFS : les attaches des
 			// particules (et leurs paires de contact en cours) designent les
-			// anciens. On note les deux, puis on remappe tout d'un coup (2026-09-29).
+			// anciens. On note les deux, puis on remappe tout d'un coup (2026-09-29,
+			// branche physique ; ici depuis la fusion, pour Restaurer, le fichier et
+			// tout ajout de photo). Un noeud de prefab porte corpsId = 0 : rien a
+			// remapper, ses attaches ne sortent pas du prefab.
 			NkVector<physics::NkBodyId> anciensIds;
 			NkVector<physics::NkBodyId> nouveauxIds;
-			// 2. Tout refaire.
-			for (uint32 i = 0; i < photo.entites.Size(); ++i) {
-				const NkPhotoEntite &e = photo.entites[i];
+			for (uint32 i = 0; i < entites.Size(); ++i) {
+				const NkPhotoEntite &e = entites[i];
 				const ecs::NkEntityId id = mMonde.CreateEntity();
 				mMonde.Add<NkTransform2D>(id, e.transform);
+				NkIdentite2D ident;
+				ident.uid = e.uid;
+				// Une identite deja portee par une entite VIVANTE (une photo qu'on
+				// AJOUTE a une scene qui l'a deja) en recoit une neuve : deux
+				// entites sous un meme uid rendraient EntiteParUid ambigu. Le lot
+				// garde l'ancienne pour rebrancher ce que la photo y rattachait.
+				if (nouvellesIdentites || ident.uid == 0u || EntiteParUid(ident.uid).IsValid()) {
+					ident.uid = mProchainUid++;
+				} else if (ident.uid >= mProchainUid) {
+					mProchainUid = ident.uid + 1u;
+				}
+				mMonde.Add<NkIdentite2D>(id, ident);
+				mCacheUid.Insert(ident.uid, id);
+				if (e.uid != 0u) {
+					lot.Insert(e.uid, id);
+				}
+				faites[i] = id;
+			}
+			// 2. Les composants, dans l'ordre d'avant.
+			NkVector<uint8> tampon;
+			for (uint32 i = 0; i < entites.Size(); ++i) {
+				const NkPhotoEntite &e = entites[i];
+				const ecs::NkEntityId id = faites[i];
 				if (e.aEtiquette) {
 					mMonde.Add<NkEtiquette>(id, e.etiquette);
 				}
@@ -810,7 +963,11 @@ namespace nkentseu {
 							break;
 						}
 						if ((e.extraPresents & (1u << k)) != 0u) {
-							mCopieurs[k].ecrire(mMonde, id, e.extra.Data() + decalage);
+							// Une COPIE : la photo reste rejouable (identites intactes).
+							tampon.Resize(mCopieurs[k].taille);
+							std::memcpy(tampon.Data(), e.extra.Data() + decalage, mCopieurs[k].taille);
+							ConvertirEntites(k, tampon.Data(), false, &lot);
+							mCopieurs[k].ecrire(mMonde, id, tampon.Data());
 						}
 						decalage += mCopieurs[k].taille;
 					}
@@ -857,7 +1014,205 @@ namespace nkentseu {
 			if (mParticules != nullptr && anciensIds.Size() > 0u) {
 				mParticules->RemapperRigides(anciensIds.Data(), nouveauxIds.Data(), static_cast<uint32>(anciensIds.Size()));
 			}
-			mAccumulateur = 0.f;
+			// 3. Les parents. Le monde de la photo est deja le bon : on pose le
+			//    local SANS recalculer (produit = ce monde), pour que rien ne bouge
+			//    d'un arrondi a la trame suivante.
+			for (uint32 i = 0; i < entites.Size(); ++i) {
+				const NkPhotoEntite &e = entites[i];
+				if (e.parentUid == 0u) {
+					continue;
+				}
+				const ecs::NkEntityId parent = Resoudre(e.parentUid, &lot);
+				if (!parent.IsValid() || !ecs::NkSetParent(mMonde, faites[i], parent)) {
+					continue; // parent absent de la photo et de la scene : l'enfant reste racine
+				}
+				NkLocal2D l;
+				l.local = e.local;
+				l.produit = e.transform;
+				l.parentProduit = *mMonde.Get<NkTransform2D>(parent);
+				mMonde.Add<NkLocal2D>(faites[i], l);
+			}
+			// 4. Un fichier RETOUCHE A LA MAIN peut deplacer un parent sans ses
+			//    enfants : un monde qui ne vaut pas (parent o local) est recale sur
+			//    le local, parents d'abord. Une photo est toujours coherente : ce
+			//    pas n'y change rien, et la restauration reste exacte au bit pres.
+			RecalerEnfants(faites);
+			if (crees != nullptr) {
+				*crees = faites;
+			}
+		}
+
+		void NkScene::RecalerEnfants(const NkVector<ecs::NkEntityId> &ids) {
+			struct NkAPlacer {
+					ecs::NkEntityId id;
+					uint32 profondeur = 0;
+			};
+			NkVector<NkAPlacer> enfants;
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				if (Parent(ids[i]).IsValid() && mMonde.Has<NkLocal2D>(ids[i])) {
+					NkAPlacer a;
+					a.id = ids[i];
+					a.profondeur = ecs::NkHierarchyDepth(mMonde, ids[i]);
+					enfants.PushBack(a);
+				}
+			}
+			for (uint32 i = 1; i < enfants.Size(); ++i) {
+				const NkAPlacer x = enfants[i];
+				uint32 j = i;
+				while (j > 0u && enfants[j - 1u].profondeur > x.profondeur) {
+					enfants[j] = enfants[j - 1u];
+					--j;
+				}
+				enfants[j] = x;
+			}
+			auto proche = [](float32 a, float32 b, float32 tol) {
+				const float32 d = a > b ? a - b : b - a;
+				const float32 m = (a > 0.f ? a : -a) > 1.f ? (a > 0.f ? a : -a) : 1.f;
+				return d <= tol * m;
+			};
+			NkVector<ecs::NkEntityId> recales;
+			for (uint32 i = 0; i < enfants.Size(); ++i) {
+				const ecs::NkEntityId id = enfants[i].id;
+				const ecs::NkEntityId parent = Parent(id);
+				if (MeneParPhysique(id)) {
+					continue; // la physique mene : son monde est la verite
+				}
+				bool parentRecale = false;
+				for (uint32 k = 0; k < recales.Size() && !parentRecale; ++k) {
+					parentRecale = recales[k] == parent;
+				}
+				const NkTransform2D p = *mMonde.Get<NkTransform2D>(parent);
+				const NkTransform2D m = *mMonde.Get<NkTransform2D>(id);
+				NkTransform2D attendu = NkComposer2D(p, mMonde.Get<NkLocal2D>(id)->local);
+				const bool coherent = proche(attendu.position.x, m.position.x, 1.0e-4f) &&
+									  proche(attendu.position.y, m.position.y, 1.0e-4f) &&
+									  proche(attendu.rotation, m.rotation, 1.0e-4f) &&
+									  proche(attendu.echelle.x, m.echelle.x, 1.0e-4f) &&
+									  proche(attendu.echelle.y, m.echelle.y, 1.0e-4f);
+				if (coherent && !parentRecale) {
+					continue;
+				}
+				if (mMonde.Has<NkCorps2D>(id)) {
+					attendu.rotation = PorterCorps(id, attendu);
+				}
+				*mMonde.Get<NkTransform2D>(id) = attendu;
+				NkLocal2D *l = mMonde.Get<NkLocal2D>(id);
+				l->produit = attendu;
+				l->parentProduit = p;
+				recales.PushBack(id);
+			}
+		}
+
+		// =====================================================================
+		// Les champs decrits (NkUnkenyChamps.h)
+		// =====================================================================
+		void NkScene::PoserChamps(const void *cle, const char *nom, const NkChampSauve *champs, uint32 nbChamps) {
+			for (uint32 i = 0; i < mCopieurs.Size(); ++i) {
+				if (mCopieurs[i].cle != cle) {
+					continue;
+				}
+				for (uint32 c = 0; c < nbChamps; ++c) {
+					if (!NkChampValide(champs[c], mCopieurs[i].taille)) {
+						// Tout ou rien : une description a moitie juste ecrirait un
+						// fichier a moitie faux, sans que personne le voie.
+						logger.Warn("[unkeny] description de {0} REFUSEE : champ {1} ({2}) incoherent — le "
+									"composant reste ecrit en octets",
+									nom != nullptr ? nom : "?", c, champs[c].nom != nullptr ? champs[c].nom : "?");
+						return;
+					}
+				}
+				mCopieurs[i].champs = champs;
+				mCopieurs[i].nbChamps = nbChamps;
+				return;
+			}
+		}
+
+		void NkScene::ConvertirEntites(uint32 copieur, uint8 *octets, bool versUid,
+									   const NkUnorderedMap<uint64, ecs::NkEntityId> *lot) {
+			if (copieur >= mCopieurs.Size() || mCopieurs[copieur].champs == nullptr) {
+				return;
+			}
+			const NkCopieurPhoto &k = mCopieurs[copieur];
+			for (uint32 c = 0; c < k.nbChamps; ++c) {
+				const NkChampSauve &ch = k.champs[c];
+				if (ch.type != NkTypeChamp::NK_ENTITE) {
+					continue;
+				}
+				for (uint32 n = 0; n < ch.nombre; ++n) {
+					uint8 *p = octets + ch.decalage + n * ch.Pas();
+					if (versUid) {
+						ecs::NkEntityId e;
+						std::memcpy(&e, p, sizeof(e));
+						const uint64 uid = Uid(e);
+						std::memcpy(p, &uid, sizeof(uid));
+					} else {
+						uint64 uid = 0;
+						std::memcpy(&uid, p, sizeof(uid));
+						const ecs::NkEntityId e = uid != 0u ? Resoudre(uid, lot) : ecs::NkEntityId::Invalid();
+						std::memcpy(p, &e, sizeof(e));
+					}
+				}
+			}
+		}
+
+		bool NkScene::EcrireComposantPhoto(uint32 i, ecs::NkEntityId id, const uint8 *octets) {
+			if (i >= mCopieurs.Size() || octets == nullptr || !mMonde.IsAlive(id)) {
+				return false;
+			}
+			NkVector<uint8> tampon;
+			tampon.Resize(mCopieurs[i].taille);
+			std::memcpy(tampon.Data(), octets, mCopieurs[i].taille);
+			ConvertirEntites(i, tampon.Data(), false, nullptr);
+			mCopieurs[i].ecrire(mMonde, id, tampon.Data());
+			return true;
+		}
+
+		bool NkScene::RetirerComposantPhoto(uint32 i, ecs::NkEntityId id) {
+			if (i >= mCopieurs.Size() || mCopieurs[i].retirer == nullptr || !mMonde.IsAlive(id)) {
+				return false;
+			}
+			mCopieurs[i].retirer(mMonde, id);
+			return true;
+		}
+
+		ecs::NkEntityId NkScene::Resoudre(uint64 uid, const NkUnorderedMap<uint64, ecs::NkEntityId> *lot) {
+			if (lot != nullptr) {
+				if (const ecs::NkEntityId *e = lot->Find(uid)) {
+					if (mMonde.IsAlive(*e)) {
+						return *e;
+					}
+				}
+			}
+			return EntiteParUid(uid);
+		}
+
+		// =====================================================================
+		// Le pont 2D <-> 3D pour un enfant porte (NkUnkenyHierarchie.cpp)
+		// =====================================================================
+		float32 NkScene::PorterCorps(ecs::NkEntityId id, const NkTransform2D &m) {
+			if (mPhysique == nullptr) {
+				return m.rotation;
+			}
+			const NkCorps2D *c = mMonde.Get<NkCorps2D>(id);
+			physics::NkRigidBody *b = c != nullptr ? mPhysique->GetBody(c->corpsId) : nullptr;
+			if (b == nullptr) {
+				return m.rotation;
+			}
+			b->position = math::NkVec3f(m.position.x, m.position.y, 0.f);
+			b->orientation = DepuisAngleZ(m.rotation);
+			b->sleepTimer = 0.f;
+			// LA rotation que SynchroniserDepuisPhysique relira : sans elle, l'arrondi
+			// de l'aller-retour ferait croire a un geste a chaque trame.
+			return AngleZ(b->orientation);
+		}
+
+		bool NkScene::MeneParPhysique(ecs::NkEntityId id) const noexcept {
+			if (mMonde.Has<NkCorpsMou2D>(id)) {
+				return true;
+			}
+			const NkCorps2D *c = mMonde.Get<NkCorps2D>(id);
+			return c != nullptr && c->type == NkTypeCorps::NK_DYNAMIQUE && mPhysique != nullptr &&
+				   mPhysique->GetBody(c->corpsId) != nullptr;
 		}
 
 	} // namespace unkeny

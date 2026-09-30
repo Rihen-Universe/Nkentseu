@@ -157,3 +157,19 @@ with project("NKECS"):
                 "NKMath",
                 "NKPlatform",
             ])
+        # La hierarchie parent / enfant (NKECS/Hierarchy, 2026-09-29).
+        with test("Hierarchy"):
+            testfiles(["tests/test_hierarchy.cpp"])
+            testownmain()
+            links([
+                "NKECS",
+                "NKReflection",
+                "NKSerialization",
+                "NKThreading",
+                "NKContainers",
+                "NKCore",
+                "NKMemory",
+                "NKLogger",
+                "NKMath",
+                "NKPlatform",
+            ])

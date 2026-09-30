@@ -221,8 +221,11 @@ namespace nkentseu {
 				// de l'utilisateur (AppData). Avec --selection= et --capture=,
 				// c'est la capture d'un panneau Details sans souris (2026-09-29 :
 				// celui de l'Animateur, qu'aucune scene neuve ne porte).
-				if (args[i].StartsWith("--scene=")) {
-					mSceneDepart = NkString(args[i].SubStr(8));
+				// --ouvrir= (branche hierarchie, meme jour, meme besoin : capturer
+				// l'Outliner en arbre) en est un ALIAS a la fusion — un seul chemin
+				// d'ouverture au demarrage, deux noms pour ne casser aucun usage ecrit.
+				if (args[i].StartsWith("--scene=") || args[i].StartsWith("--ouvrir=")) {
+					mSceneDepart = NkString(args[i].SubStr(args[i].StartsWith("--scene=") ? 8 : 9));
 					continue;
 				}
 				if (args[i] == "--selftest") {

@@ -67,6 +67,7 @@ with project("Noge"):
         "%{NKImage.location}/src",
         "%{NKStream.location}/src",   # NKIResource.h via NkImage.h
         "%{NKECS.location}/src",
+        "%{NKReflection.location}/src",  # NKECS/Serialization (NkPrefab : ajout type-erased, 2026-09-29)
         "%{NKUI.location}/src",
         "%{NKGlad.location}/include",
         "%{NKAudio.location}/src",    # NKAudio/NkAudio.h (pont ECS NkAudioSystem)
@@ -87,7 +88,7 @@ with project("Noge"):
     # dependant de Noge.
     # NKVFX ajoute le 2026-09-12 (NkWaterSystem) ; ordre de construction seulement,
     # dependson ne lie pas.
-    _DEPS = ["NKGlad", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKVFX", "NKRenderer", "NKAnima", "NKCanvas", "NKCollision", "NKPhysics", "NKNavigation", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
+    _DEPS = ["NKGlad", "NKMath", "NKTime", "NKLogger", "NKEvent", "NKWindow", "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKRHI", "NKSL", "NKVFX", "NKRenderer", "NKAnima", "NKCanvas", "NKCollision", "NKPhysics", "NKNavigation", "NKReflection", "NKSerialization", "NKFileSystem", "NKFont", "NKImage", "NKECS", "NKRL", "NKAgent", "NKAudio", "NKMedia", "NKNetwork"]
    
     dependson(_DEPS)
     _RENDERER_DEFINES = [

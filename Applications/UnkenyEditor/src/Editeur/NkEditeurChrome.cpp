@@ -300,6 +300,12 @@ namespace nkentseu {
 						out.PushBack(Entree("Cadrer", NK_A_CADRER_SELECTION, "F"));
 						out.PushBack(Separateur());
 						out.PushBack(SousMenu("Ajouter un composant", NkMenuEditeur::NK_COMPOSANT));
+						// (2026-09-29) La hierarchie et les prefabs.
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Créer un prefab", NK_A_CREER_PREFAB, "", false,
+											m.aSelection && m.etat == NkEtatJeu::NK_EDITION));
+						out.PushBack(Entree("Détacher du parent", NK_A_DETACHER, "", false,
+											m.aSelection && m.scene.Parent(m.selection).IsValid()));
 						break;
 					}
 					case NkMenuEditeur::NK_CTX_VIDE:
@@ -801,6 +807,14 @@ namespace nkentseu {
 					break;
 				case NK_A_ACCROCHAGE:
 					ui.accrochage = !ui.accrochage;
+					break;
+				case NK_A_CREER_PREFAB:
+					NkEditeurCreerPrefab(m);
+					break;
+				case NK_A_DETACHER:
+					if (m.aSelection) {
+						NkEditeurDetacher(m, m.selection);
+					}
 					break;
 				case NK_A_JOUER:
 					if (m.etat == NkEtatJeu::NK_JEU) {

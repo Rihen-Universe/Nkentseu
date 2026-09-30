@@ -20,6 +20,10 @@
 namespace nkentseu {
 	namespace unkeny {
 		int32 NkUnkenyLancerBanc();
+		/// La STRUCTURE de scene (hierarchie, identites, sauvegarde v2, prefabs,
+		/// 2026-09-29) : NkUnkenyBancStructure.cpp. NkUnkenyLancerBanc la lance
+		/// APRES ses propres temoins, et rend un echec si elle en a un.
+		int32 NkUnkenyLancerBancStructure();
 		/// Le banc du JEU (2026-09-29, NkUnkenyBancJeu.cpp) : corps mous dans les
 		/// contacts, controleurs de personnage, jalon « Gelee ». Lance a la fin de
 		/// NkUnkenyLancerBanc, qui rend 1 si l'un des deux rougit.
