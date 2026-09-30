@@ -221,6 +221,11 @@ namespace nkentseu {
 		Font = 14,
 		Shader = 15,
 		Script = 16,
+		// Ajout du 2026-09-30 (decision de Rihen) : la machine a etats
+		// d'animation (NKAnima) a sa nature et son extension, `.nkanimctl`. Un
+		// clip reste `Animation` / `.nkanim`. Valeur APRES les existantes : un
+		// numero deja ecrit dans un fichier ne change jamais de sens.
+		AnimationController = 17,
 		Custom = 255,
 	};
 
@@ -258,6 +263,8 @@ namespace nkentseu {
 				return "Shader";
 			case NkAssetType::Script:
 				return "Script";
+			case NkAssetType::AnimationController:
+				return "AnimationController";
 			case NkAssetType::Custom:
 				return "Custom";
 			default:
@@ -316,6 +323,8 @@ namespace nkentseu {
 				return "nkshader";
 			case NkAssetType::Script:
 				return "nkscript";
+			case NkAssetType::AnimationController:
+				return "nkanimctl";
 			case NkAssetType::Custom:
 			default:
 				// `.nkasset` reste la nature « non standard » — et reste accepte
@@ -356,6 +365,7 @@ namespace nkentseu {
 			{"nkmap", NkAssetType::Map},			   {"nkworld", NkAssetType::World},
 			{"nkprefab", NkAssetType::Prefab},		   {"nkfont", NkAssetType::Font},
 			{"nkshader", NkAssetType::Shader},		   {"nkscript", NkAssetType::Script},
+			{"nkanimctl", NkAssetType::AnimationController},
 			{"nkasset", NkAssetType::Custom},
 		};
 		for (const Paire &p : kTable)
