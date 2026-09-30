@@ -79,7 +79,8 @@ namespace nkentseu {
 			// La barre flottante du viseur (2026-09-30) : les pas d'accrochage.
 			NK_PAS_GRILLE,
 			NK_PAS_ANGLE,
-			NK_PAS_ECHELLE
+			NK_PAS_ECHELLE,
+			NK_CARTE ///< le menu « ⋮ » d'une carte de l'inspecteur (2026-09-30)
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -133,7 +134,14 @@ namespace nkentseu {
 			NK_A_REPERE_LOCAL,			///< le gizmo Deplacer : axes de l'entite / du monde
 			NK_A_PAS_GRILLE = 920,		///< + indice dans NkPasGrille
 			NK_A_PAS_ANGLE = 940,		///< + indice dans NkPasAngle
-			NK_A_PAS_ECHELLE = 960		///< + indice dans NkPasEchelle
+			NK_A_PAS_ECHELLE = 960,		///< + indice dans NkPasEchelle
+			// Le menu « ⋮ » d'une carte (NkEditeurInterface::carteMenu).
+			NK_A_CARTE_REINIT = 980,
+			NK_A_CARTE_RETIRER,
+			NK_A_CARTE_MONTER,
+			NK_A_CARTE_DESCENDRE,
+			NK_A_CARTE_COPIER,
+			NK_A_CARTE_COLLER
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -245,6 +253,20 @@ namespace nkentseu {
 				/// changer, et le champ remet son focus a zero quand elle change.
 				bool renommerDemande = false;
 				float32 defilDetails = 0.f;
+				/// Les cartes REPLIEES, par nature (bit = NkCarteEditeur) : replier le
+				/// Collisionneur le replie pour toutes les entites, comme Unity.
+				uint32 cartesRepliees = 0u;
+				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
+				/// le changent pour toutes les entites : NKECS ne range pas les
+				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
+				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
+				/// Le libelle d'un nombre qu'on FROTTE (Unity : tirer sur le libelle).
+				uint32 frotteId = 0u;
+				float32 frotteX = 0.f;
+				/// La recherche du menu « Ajouter un composant » : on tape, il filtre.
+				char menuFiltre[32] = {};
 
 				// --- Le viseur --------------------------------------------------
 				NkVec2f precMonde{0.f, 0.f}; ///< point precedent du couteau et du pinceau
@@ -386,6 +408,9 @@ namespace nkentseu {
 		void NkEditeurExecuter(NkEditeurCadre &c, int32 action);
 		/// Ouvre un menu deroulant sous `ancre` (le ferme s'il etait deja ouvert).
 		void NkEditeurOuvrirMenu(NkEditeurCadre &c, NkMenuEditeur menu, const nkgui::NkRect &ancre);
+		/// Monte (sens -1) ou descend (+1) la carte `carteMenu` d'un cran PARMI
+		/// celles que la selection affiche (NkEditeurDetails.cpp).
+		void NkEditeurDeplacerCarte(NkEditeurCadre &c, int32 sens);
 		/// Un bouton PLAT (UI_SPEC §3.3) : bordure discrete, rempli au survol,
 		/// bleu plein quand `enfonce`. Rend true au clic.
 		/// `dl` : la liste ou peindre (nul = la couche principale ; la boite de

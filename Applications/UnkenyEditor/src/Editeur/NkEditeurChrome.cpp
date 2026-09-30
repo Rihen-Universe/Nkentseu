@@ -339,6 +339,26 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_CARTE: {
+						const int32 k = c.ui.carteMenu;
+						if (k < 0 || k >= static_cast<int32>(NkCarteEditeur::NK_COUNT) || !m.aSelection) {
+							break;
+						}
+						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(k);
+						const bool copie = NkEditeurCarteSeCopie(carte);
+						const bool composant = carte > NkCarteEditeur::NK_TRANSFORM && carte < NkCarteEditeur::NK_ANIMATEUR;
+						const bool mobile = carte != NkCarteEditeur::NK_TRANSFORM;
+						out.PushBack(Intitule(NkCarteEditeurNom(carte)));
+						out.PushBack(Entree("Réinitialiser", NK_A_CARTE_REINIT, "", false, copie));
+						out.PushBack(Entree("Retirer le composant", NK_A_CARTE_RETIRER, "", false, composant));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Monter", NK_A_CARTE_MONTER, "", false, mobile));
+						out.PushBack(Entree("Descendre", NK_A_CARTE_DESCENDRE, "", false, mobile));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Copier les valeurs", NK_A_CARTE_COPIER, "", false, copie));
+						out.PushBack(Entree("Coller les valeurs", NK_A_CARTE_COLLER, "", false, copie && c.ui.pressePapier.carte == k));
+						break;
+					}
 					case NkMenuEditeur::NK_PAS_GRILLE:
 					case NkMenuEditeur::NK_PAS_ANGLE:
 					case NkMenuEditeur::NK_PAS_ECHELLE: {
@@ -548,6 +568,7 @@ namespace nkentseu {
 			}
 			c.ui.menu = menu;
 			c.ui.menuAncre = ancre;
+			c.ui.menuFiltre[0] = '\0';
 			c.ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			// Le rectangle est recalcule au dessin ; en attendant, l'ancre
 			// suffit a ce que le masquage de la trame suivante sache ou il est.
@@ -863,6 +884,29 @@ namespace nkentseu {
 						ui.accrocheAngle = !un;
 						ui.accrocheEchelle = !un;
 					}
+					break;
+				case NK_A_CARTE_REINIT:
+				case NK_A_CARTE_RETIRER:
+				case NK_A_CARTE_COPIER:
+				case NK_A_CARTE_COLLER:
+					if (m.aSelection && ui.carteMenu >= 0 && ui.carteMenu < static_cast<int32>(NkCarteEditeur::NK_COUNT)) {
+						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(ui.carteMenu);
+						if (action == NK_A_CARTE_REINIT) {
+							NkEditeurReinitialiserCarte(m, m.selection, carte);
+						} else if (action == NK_A_CARTE_COPIER) {
+							NkEditeurCopierCarte(m, m.selection, carte, ui.pressePapier);
+						} else if (action == NK_A_CARTE_COLLER) {
+							NkEditeurCollerCarte(m, m.selection, ui.pressePapier);
+						} else if (carte > NkCarteEditeur::NK_TRANSFORM && carte < NkCarteEditeur::NK_ANIMATEUR) {
+							NkEditeurRetirerComposant(m, m.selection, static_cast<NkComposantEditeur>(ui.carteMenu - 1));
+						}
+					}
+					break;
+				case NK_A_CARTE_MONTER:
+					NkEditeurDeplacerCarte(c, -1);
+					break;
+				case NK_A_CARTE_DESCENDRE:
+					NkEditeurDeplacerCarte(c, 1);
 					break;
 				case NK_A_ACCROCHE_GRILLE:
 					ui.accrocheGrille = !ui.accrocheGrille;
@@ -1456,6 +1500,59 @@ namespace nkentseu {
 			const nkgui::NkGuiInput &in = c.ctx.input;
 			NkVector<NkEntreeMenu> entrees;
 			RemplirMenu(c, ui.menu, entrees);
+			// « Ajouter un composant » se CHERCHE (Unity) : on tape, la liste filtre,
+			// Entree prend la premiere ligne restante.
+			int32 premiere = NK_A_AUCUNE;
+			if (ui.menu == NkMenuEditeur::NK_COMPOSANT && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
+				usize n = 0;
+				while (ui.menuFiltre[n] != '\0') {
+					++n;
+				}
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 cp = in.chars[i];
+					if (cp >= 32u && cp < 127u && n + 1u < sizeof(ui.menuFiltre)) {
+						ui.menuFiltre[n++] = static_cast<char>(cp);
+						ui.menuFiltre[n] = '\0';
+					}
+				}
+				if (in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace) && n > 0u) {
+					ui.menuFiltre[--n] = '\0';
+				}
+				auto minuscule = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
+				auto contient = [&](const char *texte) {
+					if (n == 0u) {
+						return true;
+					}
+					for (const char *t = texte; *t != '\0'; ++t) {
+						usize k = 0;
+						while (k < n && t[k] != '\0' && minuscule(t[k]) == minuscule(ui.menuFiltre[k])) {
+							++k;
+						}
+						if (k == n) {
+							return true;
+						}
+					}
+					return false;
+				};
+				NkVector<NkEntreeMenu> gardees;
+				gardees.PushBack(Intitule(n > 0u ? NkString::Format("Rechercher : %s_", ui.menuFiltre).CStr() : "Rechercher : tapez un nom"));
+				gardees.PushBack(Separateur());
+				for (uint32 i = 0; i < entrees.Size(); ++i) {
+					const NkEntreeMenu &e = entrees[i];
+					// Filtre pose, seules restent les lignes qui AGISSENT et qui y repondent.
+					if (n > 0u && (e.separateur || e.action == NK_A_AUCUNE || !contient(e.libelle.CStr()))) {
+						continue;
+					}
+					if (premiere == NK_A_AUCUNE && e.action != NK_A_AUCUNE && e.actif) {
+						premiere = e.action;
+					}
+					gardees.PushBack(e);
+				}
+				if (n > 0u && premiere == NK_A_AUCUNE) {
+					gardees.PushBack(Intitule("(aucun composant de ce nom)"));
+				}
+				entrees = gardees;
+			}
 			const NkListeMenu principal = PeindreListe(c, entrees, ui.menuAncre.x, ui.menuAncre.y + ui.menuAncre.h,
 													   ui.menuAncre.w, ui.sousMenu, -1.f);
 			ui.menuRect = principal.cadre;
@@ -1479,7 +1576,10 @@ namespace nkentseu {
 				ui.sousMenuRect = NkRect{0.f, 0.f, 0.f, 0.f};
 			}
 
-			const int32 choisie = principal.choisie != NK_A_AUCUNE ? principal.choisie : sous.choisie;
+			int32 choisie = principal.choisie != NK_A_AUCUNE ? principal.choisie : sous.choisie;
+			if (choisie == NK_A_AUCUNE && premiere != NK_A_AUCUNE && in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+				choisie = premiere;
+			}
 			if (choisie != NK_A_AUCUNE) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.sousMenu = NkMenuEditeur::NK_AUCUN;

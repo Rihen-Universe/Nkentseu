@@ -11,6 +11,7 @@
 #include "NKFileSystem/NkPath.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
 	namespace editeur {
@@ -1088,6 +1089,273 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANIMATION:
 					w.Remove<NkAnimSprite2D>(id);
 					return true;
+				default:
+					return false;
+			}
+		}
+
+		// =====================================================================
+		// Les cartes de l'inspecteur
+		// =====================================================================
+		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept {
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM:
+					return "Transform";
+				case NkCarteEditeur::NK_ANIMATEUR:
+					return "Animateur";
+				case NkCarteEditeur::NK_HIERARCHIE:
+					return "Hiérarchie";
+				default:
+					if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
+						return NkComposantEditeurNom(static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u));
+					}
+					return "";
+			}
+		}
+
+		bool NkEditeurAUneCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!w.IsAlive(id)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM:
+					return w.Has<NkTransform2D>(id);
+				case NkCarteEditeur::NK_ANIMATEUR:
+					return w.Has<NkAnimateur2D>(id);
+				case NkCarteEditeur::NK_HIERARCHIE:
+					return true;
+				default:
+					if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
+						return NkEditeurAUnComposant(m, id, static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u));
+					}
+					return false;
+			}
+		}
+
+		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept {
+			return c == NkCarteEditeur::NK_TRANSFORM || c == NkCarteEditeur::NK_SPRITE || c == NkCarteEditeur::NK_COLLISIONNEUR ||
+				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION;
+		}
+
+		namespace {
+			/// Deplace `id` comme le fait le gizmo (NkEditeurDeplacer vise la
+			/// selection) : un rigide TELEPORTE, une matiere TRANSLATEE.
+			void DeplacerEntite(NkEditeurModele &m, ecs::NkEntityId id, const NkVec2f &cible) {
+				const ecs::NkEntityId avant = m.selection;
+				const bool avait = m.aSelection;
+				m.selection = id;
+				m.aSelection = true;
+				NkEditeurDeplacer(m, cible);
+				m.selection = avant;
+				m.aSelection = avait;
+			}
+
+			template <typename T> bool CopierOctets(ecs::NkWorld &w, ecs::NkEntityId id, NkCarteEditeur c, NkPressePapierComposant &pp) {
+				static_assert(sizeof(T) <= sizeof(NkPressePapierComposant::octets), "composant trop gros pour le presse-papiers");
+				const T *x = w.Get<T>(id);
+				if (x == nullptr) {
+					return false;
+				}
+				std::memcpy(pp.octets, x, sizeof(T));
+				pp.taille = static_cast<uint32>(sizeof(T));
+				pp.carte = static_cast<int32>(c);
+				return true;
+			}
+
+			template <typename T> bool LireOctets(const NkPressePapierComposant &pp, T &sortie) {
+				if (pp.taille != sizeof(T)) {
+					return false;
+				}
+				std::memcpy(&sortie, pp.octets, sizeof(T));
+				return true;
+			}
+		} // namespace
+
+		bool NkEditeurReinitialiserCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					DeplacerEntite(m, id, NkVec2f(0.f, 0.f));
+					NkTransform2D *t = w.Get<NkTransform2D>(id);
+					if (t != nullptr && !w.Has<NkCorpsMou2D>(id)) {
+						t->rotation = 0.f;
+						t->echelle = NkVec2f(1.f, 1.f);
+						if (w.Has<NkCorps2D>(id)) {
+							m.scene.ActualiserCorps(id);
+						}
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE: {
+					NkSprite2D *s = w.Get<NkSprite2D>(id);
+					NkSprite2D d;
+					d.texId = s->texId;
+					d.uv0 = s->uv0;
+					d.uv1 = s->uv1;
+					d.visible = s->visible;
+					*s = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR: {
+					NkCollisionneur2D d;
+					// A la taille du sprite, comme a l'ajout : ce qu'on voit touche.
+					if (const NkSprite2D *s = w.Get<NkSprite2D>(id)) {
+						d.demiTaille = NkVec2f(s->taille.x * 0.5f, s->taille.y * 0.5f);
+					}
+					*w.Get<NkCollisionneur2D>(id) = d;
+					if (w.Has<NkCorps2D>(id)) {
+						m.scene.ActualiserCorps(id);
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_CORPS: {
+					NkCorps2D *b = w.Get<NkCorps2D>(id);
+					NkCorps2D d;
+					d.corpsId = b->corpsId;
+					*b = d;
+					m.scene.ActualiserCorps(id);
+					return true;
+				}
+				case NkCarteEditeur::NK_SOURCE: {
+					NkSource2D *s = w.Get<NkSource2D>(id);
+					NkSource2D d;
+					d.son = s->son;
+					d.voix = s->voix;
+					d.lance = s->lance;
+					*s = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					NkAnimSprite2D *a = w.Get<NkAnimSprite2D>(id);
+					NkAnimSprite2D d;
+					d.nbClips = 1;
+					d.enPause = a->enPause;
+					*a = d;
+					return true;
+				}
+				default:
+					return false;
+			}
+		}
+
+		bool NkEditeurCopierCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, NkPressePapierComposant &pp) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					// La position COURANTE, matiere comprise (son centre, pas un
+					// transform qui la suit en retard).
+					NkTransform2D t = *w.Get<NkTransform2D>(id);
+					const ecs::NkEntityId avant = m.selection;
+					const bool avait = m.aSelection;
+					m.selection = id;
+					m.aSelection = true;
+					NkEditeurCentreSelection(m, t.position);
+					m.selection = avant;
+					m.aSelection = avait;
+					std::memcpy(pp.octets, &t, sizeof(t));
+					pp.taille = static_cast<uint32>(sizeof(t));
+					pp.carte = static_cast<int32>(c);
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE:
+					return CopierOctets<NkSprite2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_COLLISIONNEUR:
+					return CopierOctets<NkCollisionneur2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_CORPS:
+					return CopierOctets<NkCorps2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_SOURCE:
+					return CopierOctets<NkSource2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_ANIMATION:
+					return CopierOctets<NkAnimSprite2D>(w, id, c, pp);
+				default:
+					return false;
+			}
+		}
+
+		bool NkEditeurCollerCarte(NkEditeurModele &m, ecs::NkEntityId id, const NkPressePapierComposant &pp) {
+			if (pp.carte < 0 || pp.carte >= static_cast<int32>(NkCarteEditeur::NK_COUNT)) {
+				return false;
+			}
+			const NkCarteEditeur c = static_cast<NkCarteEditeur>(pp.carte);
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					NkTransform2D t;
+					if (!LireOctets(pp, t)) {
+						return false;
+					}
+					DeplacerEntite(m, id, t.position);
+					NkTransform2D *cur = w.Get<NkTransform2D>(id);
+					if (cur != nullptr && !w.Has<NkCorpsMou2D>(id)) {
+						cur->rotation = t.rotation;
+						cur->echelle = t.echelle;
+						if (w.Has<NkCorps2D>(id)) {
+							m.scene.ActualiserCorps(id);
+						}
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE: {
+					NkSprite2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkSprite2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR: {
+					NkCollisionneur2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkCollisionneur2D>(id) = v;
+					if (w.Has<NkCorps2D>(id)) {
+						m.scene.ActualiserCorps(id);
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_CORPS: {
+					NkCorps2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					NkCorps2D *cur = w.Get<NkCorps2D>(id);
+					v.corpsId = cur->corpsId; // SON corps, pas celui de la source
+					*cur = v;
+					m.scene.ActualiserCorps(id);
+					return true;
+				}
+				case NkCarteEditeur::NK_SOURCE: {
+					NkSource2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					NkSource2D *cur = w.Get<NkSource2D>(id);
+					v.voix = cur->voix;
+					v.lance = cur->lance;
+					v.demande = false;
+					v.arret = false;
+					*cur = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					NkAnimSprite2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkAnimSprite2D>(id) = v;
+					return true;
+				}
 				default:
 					return false;
 			}

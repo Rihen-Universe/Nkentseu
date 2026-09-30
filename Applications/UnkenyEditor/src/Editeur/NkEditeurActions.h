@@ -158,6 +158,45 @@ namespace nkentseu {
 		/// Retirer un collisionneur retire aussi le corps rigide qui s'y appuie.
 		bool NkEditeurRetirerComposant(NkEditeurModele &m, ecs::NkEntityId id, NkComposantEditeur c);
 
+		// --- Les CARTES de l'inspecteur (2026-09-30, a la maniere d'Unity) ------
+		/// Une carte des Details : le Transform, chaque composant, l'Animateur et
+		/// la Hierarchie. Les six du milieu SUIVENT NkComposantEditeur (carte - 1).
+		/// AJOUTES A LA FIN : les valeurs existantes ne bougent pas.
+		enum class NkCarteEditeur : uint8 {
+			NK_TRANSFORM = 0,
+			NK_SPRITE,
+			NK_COLLISIONNEUR,
+			NK_CORPS,
+			NK_CORPS_MOU,
+			NK_SOURCE,
+			NK_ANIMATION,
+			NK_ANIMATEUR,
+			NK_HIERARCHIE,
+			NK_COUNT
+		};
+		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept;
+		/// L'entite porte-t-elle ce qu'affiche la carte ? (La hierarchie : toujours.)
+		bool NkEditeurAUneCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c);
+		/// « Copier les valeurs » : les octets du composant, et sa carte.
+		struct NkPressePapierComposant {
+				int32 carte = -1; ///< NkCarteEditeur ; -1 = vide
+				uint32 taille = 0;
+				uint8 octets[512] = {};
+		};
+		/// Ce que Reinitialiser, Copier et Coller savent faire : ni la matiere
+		/// (ses reglages sont ceux de SON materiau), ni l'animateur (son modele est
+		/// un fichier), ni la hierarchie (ce n'est pas un composant).
+		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept;
+		/// « Reinitialiser » : les valeurs par defaut, SANS toucher a ce qui fait
+		/// l'identite du composant -- le corps du solveur, la texture, le son, et la
+		/// case « actif » de l'en-tete (Unity ne la remet pas non plus).
+		bool NkEditeurReinitialiserCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c);
+		bool NkEditeurCopierCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, NkPressePapierComposant &pp);
+		/// Colle sur la carte de MEME nature (false sinon). Le corps du solveur et
+		/// la voix d'une source restent ceux de l'entite : on colle des VALEURS,
+		/// pas une identite -- deux caisses ne partagent pas un corps.
+		bool NkEditeurCollerCarte(NkEditeurModele &m, ecs::NkEntityId id, const NkPressePapierComposant &pp);
+
 		/// « mou », « rigide », « decor », « entite » : l'etiquette de type que
 		/// montrent la hierarchie et l'inspecteur.
 		const char *NkEditeurTypeDe(NkScene &scene, ecs::NkEntityId id);

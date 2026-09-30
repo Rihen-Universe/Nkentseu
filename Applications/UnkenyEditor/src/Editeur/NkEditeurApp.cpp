@@ -531,7 +531,9 @@ namespace nkentseu {
 			}
 			// Un champ de saisie focalise garde ses touches : Suppr efface une
 			// lettre, pas l'entite ; Espace s'ecrit, il ne lance pas la scene.
-			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0) {
+			// La recherche du menu des composants a le clavier, elle aussi.
+			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0 ||
+				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
 				return;
 			}
 			if (in.ctrlDown) {

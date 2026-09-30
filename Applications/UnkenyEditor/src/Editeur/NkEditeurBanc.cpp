@@ -66,6 +66,11 @@
 //   (e44) la hierarchie : un parent CACHE cache son enfant dans la vue, un
 //         parent VERROUILLE le fige -- sans toucher aux drapeaux de l'enfant ;
 //         rouverts, l'enfant se reprend
+//   (e45) les cartes de l'inspecteur : « Reinitialiser » le sprite d'une caisse
+//         rend 1 x 1 m et GARDE sa texture ; « Copier / Coller » le corps d'une
+//         caisse sur une autre donne la masse au SOLVEUR sans lui prendre son
+//         corps ; coller sur une entite sans ce composant est refuse ; le Transform colle
+//         teleporte le corps ; « Monter » saute les cartes que l'entite n'a pas
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -869,6 +874,72 @@ namespace nkentseu {
 				const bool repris = NkEditeurPrendreSous(m, surFils, e) && e == fils;
 				Temoin(rattache && prisAvant && cacheParPere && figeParPere && repris,
 					   "(e44) parent cache / verrouille : l'enfant aussi, sans son drapeau", 0.f);
+			}
+
+			// (e45) les cartes de l'inspecteur.
+			{
+				NkEditeurNouvelleScene(m);
+				ecs::NkWorld &w45 = m.scene.Monde();
+				const ecs::NkEntityId a = Par(m.scene, "Caisse_1");
+				const ecs::NkEntityId b = Par(m.scene, "Caisse_2");
+				// Reinitialiser : les valeurs, pas l'identite.
+				NkSprite2D *sa = w45.Get<NkSprite2D>(a);
+				const uint32 tex = sa->texId;
+				sa->taille = NkVec2f(3.f, 2.f);
+				sa->couche = 7;
+				const bool reinit = NkEditeurReinitialiserCarte(m, a, NkCarteEditeur::NK_SPRITE) && sa->taille.x == 1.f && sa->taille.y == 1.f &&
+									sa->couche == 0 && sa->texId == tex && tex != 0u;
+				// Copier / Coller le corps : la masse part, le corps reste.
+				NkCorps2D *ca = w45.Get<NkCorps2D>(a);
+				ca->masse = 50.f;
+				m.scene.ActualiserCorps(a);
+				const NkVec2f posB = w45.Get<NkTransform2D>(b)->position;
+				NkPressePapierComposant pp;
+				const bool copie = NkEditeurCopierCarte(m, a, NkCarteEditeur::NK_CORPS, pp);
+				const bool colle = NkEditeurCollerCarte(m, b, pp);
+				const physics::NkRigidBody *rb45 = m.scene.MondePhysique()->GetBody(w45.Get<NkCorps2D>(b)->corpsId);
+				// SON corps : distinct de celui de la source, et toujours a SA place.
+				// (ActualiserCorps refait le corps : son numero peut changer, pas lui.)
+				const bool corpsGarde = rb45 != nullptr && w45.Get<NkCorps2D>(b)->corpsId != w45.Get<NkCorps2D>(a)->corpsId &&
+										math::NkAbs(rb45->position.x - posB.x) < 1.0e-4f && math::NkAbs(rb45->position.y - posB.y) < 1.0e-4f;
+				const bool solveur = rb45 != nullptr && math::NkAbs(rb45->invMass - 0.02f) < 1.0e-5f;
+				// Sur une entite qui n'a pas ce composant : refuse (coller ne l'AJOUTE pas).
+				NkPressePapierComposant ps;
+				NkEditeurCopierCarte(m, a, NkCarteEditeur::NK_SPRITE, ps);
+				const ecs::NkEntityId nue = NkEditeurCreerEntite(m, "Nue45", NkVec2f(0.f, 30.f));
+				const bool refuse = ps.carte == static_cast<int32>(NkCarteEditeur::NK_SPRITE) && !NkEditeurCollerCarte(m, nue, ps) &&
+									!w45.Has<NkSprite2D>(nue);
+				// Le Transform : coller teleporte le corps (le solveur suit).
+				NkPressePapierComposant pt;
+				w45.Get<NkTransform2D>(a)->rotation = 0.5f;
+				m.scene.ActualiserCorps(a);
+				NkEditeurCopierCarte(m, a, NkCarteEditeur::NK_TRANSFORM, pt);
+				const NkVec2f pa = w45.Get<NkTransform2D>(a)->position;
+				const bool colleT = NkEditeurCollerCarte(m, b, pt);
+				const physics::NkRigidBody *rbT = m.scene.MondePhysique()->GetBody(w45.Get<NkCorps2D>(b)->corpsId);
+				const bool teleporte = colleT && rbT != nullptr && math::NkAbs(rbT->position.x - pa.x) < 1.0e-4f &&
+									   math::NkAbs(rbT->position.y - pa.y) < 1.0e-4f && math::NkAbs(w45.Get<NkTransform2D>(b)->rotation - 0.5f) < 1.0e-6f;
+				// Monter : la caisse n'a ni matiere, ni source, ni animation, ni
+				// animateur ; le Corps (3) monte au-dessus du Collisionneur (2).
+				NkEditeurInterface *pui = memory::NkGetDefaultAllocator().New<NkEditeurInterface>();
+				nkgui::NkGuiContext *pctx = memory::NkGetDefaultAllocator().New<nkgui::NkGuiContext>();
+				const editorkit::NkTheme theme = editorkit::NkTheme::Dark();
+				const NkPaletteEditeur pal = NkEditeurPalette(theme);
+				NkEditeurCadre c45{*pctx, m, *pui, theme, pal, nullptr, nullptr};
+				m.selection = a;
+				m.aSelection = true;
+				pui->carteMenu = static_cast<int32>(NkCarteEditeur::NK_CORPS);
+				NkEditeurDeplacerCarte(c45, -1);
+				const bool monte = pui->ordreCartes[2] == static_cast<uint8>(NkCarteEditeur::NK_CORPS) &&
+								   pui->ordreCartes[3] == static_cast<uint8>(NkCarteEditeur::NK_COLLISIONNEUR);
+				// ... le Sprite (1) ne monte pas au-dessus du Transform (0).
+				pui->carteMenu = static_cast<int32>(NkCarteEditeur::NK_SPRITE);
+				NkEditeurDeplacerCarte(c45, -1);
+				const bool transformEnTete = pui->ordreCartes[0] == 0u && pui->ordreCartes[1] == static_cast<uint8>(NkCarteEditeur::NK_SPRITE);
+				memory::NkGetDefaultAllocator().Delete(pctx);
+				memory::NkGetDefaultAllocator().Delete(pui);
+				Temoin(reinit && copie && colle && corpsGarde && solveur && refuse && teleporte && monte && transformEnTete,
+					   "(e45) cartes : reinit, copier/coller (solveur, identite), ordre", rb45 != nullptr ? rb45->invMass : -1.f);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);
