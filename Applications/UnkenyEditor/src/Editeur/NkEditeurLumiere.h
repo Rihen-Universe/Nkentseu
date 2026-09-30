@@ -61,9 +61,10 @@ namespace nkentseu {
 		bool NkEditeurIconeSous(NkEditeurModele &m, const NkVec2f &monde, float32 rayonPx, ecs::NkEntityId &sortie);
 
 		// --- Dessin dans le viseur --------------------------------------------
-		/// Les effets en alpha, la carte de lumiere, les effets emissifs. A
-		/// appeler apres la matiere, avant les surcouches d'editeur.
-		void NkEditeurDessinerEffetsEtLumiere(nkgui::NkGuiDrawList &dl, NkEditeurModele &m);
+		/// Les chiffres de l'image que NkDessinerPartie (Unkeny/Partie) vient de
+		/// poser : c'est elle qui dessine effets et lumiere depuis la fusion avec
+		/// la livraison (2026-09-30), pour que le jeu construit les ait aussi.
+		void NkEditeurRetenirChiffresLumiere(const NkStatsEclairage2D &st, int32 particulesDessinees);
 		/// Les icones des lumieres et emetteurs, et le cercle de portee de la
 		/// selection (avec sa poignee). Surcouche d'editeur : jamais eclairee.
 		void NkEditeurDessinerIconesLumiere(nkgui::NkGuiDrawList &dl, NkEditeurModele &m);

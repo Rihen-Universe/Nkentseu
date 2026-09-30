@@ -25,6 +25,10 @@
 //   --exemple=nuit  la nuit au feu de camp (eclairage 2D, effets) au lieu de
 //                   la scene neuve
 //   --eclairage=off la scene de depart, son eclairage ETEINT (capture « avant »)
+//   --construire=PLATEFORME [--scene= --sortie= --nom= --profil= ...]
+//                   construit le jeu SANS fenetre (Livraison/NkEditeurConstruire.h)
+//   --fenetre=construire[-auto] [--sortie= --nom=]
+//                   ouvre la fenetre Construire (-auto : et la lance seule)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 

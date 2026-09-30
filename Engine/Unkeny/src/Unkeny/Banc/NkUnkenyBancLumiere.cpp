@@ -25,6 +25,10 @@
 //   (L8)  repli VOILE : aucune commande MULTIPLY, pas d'ecran noir (le sprite
 //         blanc a l'ambiante), et une lumiere l'eclaircit
 //   (L9)  cout : une nuit sans lumiere tient en une bande par ligne de maille
+//   (L10) [fusion avec la livraison] NkDessinerPartie -- l'image que dessinent
+//         AUSSI le joueur autonome et le jeu construit -- porte la carte de
+//         lumiere (MULTIPLY) et le feu (additif) ; eteinte et sans emetteur, elle
+//         rend exactement la liste d'avant (formes, sprites, matiere)
 //   (P1)  determinisme : meme graine = memes particules au bit pres (120 pas) ;
 //         (P1n) autre graine, autres particules ; (P1c) avance a 30 i/s ou a
 //         60 i/s : les memes (pas fixe interne)
@@ -57,6 +61,7 @@
 // =============================================================================
 
 #include "Unkeny/Banc/NkUnkenyBancLumiere.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiContext.h"
@@ -451,6 +456,48 @@ namespace nkentseu {
 				const uint32 clair = im->Px(0.8f, 0.5f);
 				Temoin(!multiply && Proche(sombre, 0x4C4C4CFFu, 3) && Canal(clair, 0) > 150,
 					   "(L8) voile : sans MULTIPLY, l'ambiante, et la lumiere eclaircit", static_cast<float32>(Canal(sombre, 0)));
+			}
+
+			uint32 CouleurDuSprite(ecs::NkWorld &w, ecs::NkEntityId id, void *) {
+				const NkSprite2D *s = w.Get<NkSprite2D>(id);
+				return s != nullptr ? s->couleur : 0u;
+			}
+
+			void BancPartie() {
+				NkSceneTas s;
+				FondBlanc(*s);
+				Boite(*s, NkVec2f(-1.f, -1.f), NkVec2f(0.6f, 0.2f));
+				PoserCamera(*s);
+				const NkOptionsRenduParticules rendu;
+				// Eteinte et sans emetteur : la liste d'AVANT, appel par appel.
+				nkgui::NkGuiDrawList avant;
+				NkOptionsFormes formes;
+				formes.couleurDecor = &CouleurDuSprite;
+				NkDessinerFormes(avant, *s, formes);
+				NkDessinerScene(avant, *s);
+				NkDessinerCorpsMous(avant, *s, rendu);
+				nkgui::NkGuiDrawList partie;
+				NkDessinerPartie(partie, *s, rendu);
+				const bool memes = MemesListes(avant, partie);
+				// Allumee, un feu : la carte (MULTIPLY) et les flammes (additif).
+				Eclairer(*s, 0x202020FFu);
+				const ecs::NkEntityId feu = s->Creer("Feu", NkVec2f(0.f, 0.f));
+				s->Monde().Add<NkEmetteur2D>(feu, NkPresetEmetteur2D(NkPresetEffet2D::NK_FEU));
+				for (int32 k = 0; k < 20; ++k) {
+					s->Effets().Pas(*s);
+				}
+				nkgui::NkGuiDrawList nuit;
+				NkStatsEclairage2D st;
+				int32 n = 0;
+				NkDessinerPartie(nuit, *s, rendu, &st, &n);
+				bool multiply = false;
+				bool additif = false;
+				for (uint32 i = 0; i < nuit.cmds.Size(); ++i) {
+					multiply = multiply || nuit.cmds[i].blend == nkgui::NkGuiBlend::Multiply;
+					additif = additif || nuit.cmds[i].blend == nkgui::NkGuiBlend::PlusLighter;
+				}
+				Temoin(memes && multiply && additif && st.lumieres >= 1 && n > 0,
+					   "(L10) NkDessinerPartie (le jeu construit) : lumiere et feu ; eteinte, rien", static_cast<float32>(n));
 			}
 
 			// =================================================================
@@ -946,6 +993,7 @@ namespace nkentseu {
 			BancOmbres();
 			BancConeDirectionnelleLanterne();
 			BancVoileEtCout();
+			BancPartie();
 			BancDeterminisme();
 			BancPlafonds();
 			BancPresets();

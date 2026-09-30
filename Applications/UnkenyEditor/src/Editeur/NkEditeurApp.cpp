@@ -26,6 +26,7 @@
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
 #include "Unkeny/Banc/NkUnkenyBancLumiere.h"
+#include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -160,7 +161,8 @@ namespace nkentseu {
 		// =====================================================================
 		NkEditeurApp::NkEditeurApp()
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
-			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mTheme(editorkit::NkTheme::Dark()) {
+			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mConstruction(memory::NkMakeUnique<NkEditeurConstruction>()),
+			  mTheme(editorkit::NkTheme::Dark()) {
 			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
 			renderer::NkCanvasAppConfig &cfg = Config();
@@ -254,8 +256,34 @@ namespace nkentseu {
 					// L'eclairage et les effets (30/09) : APRES, comptes a part aussi.
 					const int32 lumiere = unkeny::NkUnkenyLancerBancLumiere();
 					const int32 lumiereEditeur = NkEditeurLancerBancLumiere();
-					return NkOptional<int>(
-						(moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 || lumiereEditeur != 0) ? 1 : 0);
+					// La livraison (U5), comptee a part elle aussi : cuire et relire
+					// (moteur), puis preparer une construction (editeur).
+					const int32 livraison = unkeny::NkUnkenyLancerBancLivraison();
+					const int32 construction = NkEditeurLancerBancLivraison();
+					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
+									   lumiereEditeur != 0 || livraison != 0 || construction != 0;
+					return NkOptional<int>(echec ? 1 : 0);
+				}
+				// La fenetre « Construire » ouverte des le depart : pour qu'une
+				// capture (--capture=) la montre sans souris, comme --outil=.
+				if (args[i] == "--fenetre=construire" || args[i] == "--fenetre=construire-auto") {
+					mUi->construireDemande = true;
+					// « -auto » : le bouton se presse seul, trois trames plus tard.
+					mConstruction->lancementAuto = args[i].EndsWith("-auto") ? 3 : 0;
+					continue;
+				}
+				if (args[i].StartsWith("--sortie=")) {
+					std::snprintf(mConstruction->sortie, sizeof(mConstruction->sortie), "%s", NkString(args[i].SubStr(9)).CStr());
+					continue;
+				}
+				if (args[i].StartsWith("--nom=")) {
+					std::snprintf(mConstruction->nom, sizeof(mConstruction->nom), "%s", NkString(args[i].SubStr(6)).CStr());
+					continue;
+				}
+				// `--construire=PLATEFORME ...` : la construction de la fenetre
+				// « Construire », sans fenetre (Livraison/NkEditeurConstruire.h).
+				if (args[i].StartsWith("--construire")) {
+					return NkOptional<int>(NkEditeurConstruireEnLigne(args));
 				}
 			}
 			return NkOptional<int>();
@@ -341,7 +369,7 @@ namespace nkentseu {
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
-			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN || mConstruction->ouverte;
 			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur, occupe);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
@@ -349,6 +377,9 @@ namespace nkentseu {
 			// pas de temps a elle : la scene avance, vue ouverte ou non.
 			NkEditeurAvancer(*mModele, deltaTime);
 			NkEditeurSuivreModifications(*mModele, *mUi, deltaTime);
+			// La construction en cours : les lignes de Jenga au Journal, l'etape
+			// suivante quand une etape finit (Livraison/NkEditeurFenetreConstruire).
+			NkEditeurAvancerConstruction(*mConstruction, *mModele, *mUi);
 			// Images COMPTEES sur une demi-seconde. ⚠️ Pas une moyenne glissante
 			// de 1/dt : la premiere trame rend un dt quasi nul, et sa valeur
 			// (des centaines de milliers) restait visible pendant des secondes
@@ -426,7 +457,7 @@ namespace nkentseu {
 		bool NkEditeurApp::OnEvent(const NkEvent &event) {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
-			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN || mConstruction->ouverte;
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -588,7 +619,11 @@ namespace nkentseu {
 			// ── 0. LES BORDS DE LA FENETRE, avant tout, avec l'entree reelle ─
 			// Un clic au bord redimensionne, et n'atteint rien d'autre : la
 			// fonction le consomme avant que le corps et les menus ne le lisent.
-			if (ui.confirmation == NK_A_AUCUNE) {
+			if (ui.construireDemande) {
+				ui.construireDemande = false;
+				NkEditeurOuvrirConstruire(*mConstruction, *mModele);
+			}
+			if (ui.confirmation == NK_A_AUCUNE && !mConstruction->ouverte) {
 				NkEditeurBordsFenetre(c);
 			}
 
@@ -607,7 +642,8 @@ namespace nkentseu {
 			//    RIEN d'autre ne recoit la souris -- ni le corps, ni les menus. Et
 			//    les champs perdent le focus : sinon Entree validerait le nom en
 			//    meme temps que la boite.
-			const bool modale = ui.confirmation != NK_A_AUCUNE;
+			// La fenetre « Construire » est modale de la meme facon.
+			const bool modale = ui.confirmation != NK_A_AUCUNE || mConstruction->ouverte;
 			if (modale) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
@@ -645,6 +681,7 @@ namespace nkentseu {
 			Rendre(ctx.input, vrais);
 			if (modale) {
 				NkEditeurDessinerConfirmation(c);
+				NkEditeurDessinerConstruire(c, *mConstruction);
 			} else {
 				// Le clavier, apres tout ce qui pouvait le prendre. Sous la boite,
 				// Entree et Echap sont a elle.

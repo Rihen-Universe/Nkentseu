@@ -380,14 +380,7 @@ namespace nkentseu {
 			return gChiffres;
 		}
 
-		void NkEditeurDessinerEffetsEtLumiere(nkgui::NkGuiDrawList &dl, NkEditeurModele &m) {
-			// ⚠️ L'ORDRE PORTE LE SENS : la fumee (alpha) AVANT la carte, que la
-			//    nuit l'assombrisse ; le feu (additif) APRES, qu'il brille.
-			//    Eclairage eteint et aucune particule : aucun de ces appels n'ecrit
-			//    dans la liste (temoin L1 du banc d'Unkeny).
-			int32 n = NkDessinerEffets(dl, m.scene, NkPasseEffets2D::NK_EFFETS_ECLAIRES);
-			const NkStatsEclairage2D st = NkDessinerEclairage(dl, m.scene);
-			n += NkDessinerEffets(dl, m.scene, NkPasseEffets2D::NK_EFFETS_EMISSIFS);
+		void NkEditeurRetenirChiffresLumiere(const NkStatsEclairage2D &st, int32 n) {
 			gChiffres.lumieres = st.lumieres;
 			gChiffres.ignorees = st.ignorees;
 			gChiffres.occulteurs = st.occulteurs;

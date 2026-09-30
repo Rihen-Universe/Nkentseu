@@ -10,6 +10,7 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
 
@@ -119,8 +120,11 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
-			if (m.etat == NkEtatJeu::NK_JEU && dt > 0.f) {
-				m.scene.Pas(dt < 0.05f ? dt : 0.05f);
+			if (m.etat == NkEtatJeu::NK_JEU) {
+				// LA trame du jeu, celle que joue aussi le joueur autonome
+				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde
+				// dt > 0 et le plafond de trame, et Pas propage la hierarchie.
+				NkAvancerPartie(m.scene, dt);
 			} else {
 				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
 				// pourtant emporter ses enfants a l'ecran, a cette trame.

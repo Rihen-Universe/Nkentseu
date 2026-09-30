@@ -122,6 +122,7 @@ namespace nkentseu {
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
 			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CONSTRUIRE = 900,		///< Fichier > Construire… (U5, Livraison/)
 			// 2026-09-30 (NkEditeurLumiere.h) : quatre plages de moins de 10 valeurs,
 			// AU-DESSUS de 999. Les numeros 800-999 sont laisses libres : la branche
 			// de livraison y a pris NK_A_CONSTRUIRE = 900 (comble/livrer-u5), et deux
@@ -289,6 +290,9 @@ namespace nkentseu {
 				/// La croix de la FENETRE a ete cliquee : la question se pose a la
 				/// prochaine trame (OnCloseRequested ne dessine pas).
 				bool fermetureDemandee = false;
+				/// Fichier > Construire… : la fenetre s'ouvre a la trame suivante
+				/// (son etat est a l'application, Livraison/NkEditeurFenetreConstruire.h).
+				bool construireDemande = false;
 
 				// --- La fenetre (barre de titre maison) -------------------------
 				// ⚠️ DES DEMANDES, PAS DES APPELS. BeginDragMove et BeginResize
