@@ -275,11 +275,11 @@ namespace nkentseu {
 			}
 			mAccumulateur += dt;
 			int32 n = 0;
-			// ⚠️ UNE TOLERANCE D'UN MILLIEME DE PAS. En float32, 1/30 - 1/60 vaut
-			//    0,016666667 et 1/60 vaut 0,016666668 : sans elle, une trame de
-			//    1/30 s ne jouait qu'UN pas sur deux attendus, et 60 trames a
-			//    30 i/s donnaient 119 pas au lieu de 120 (temoin P1c).
-			while (mAccumulateur + pasFixe * 1.0e-3f >= pasFixe && n < 8) {
+			// La meme boucle que NkScene::Pas. (Une tolerance d'un millieme de pas
+			// a ete essayee le 30/09 contre une derive supposee a 30 i/s : la
+			// contre-epreuve l'a montree inutile -- 1/30 vaut exactement deux fois
+			// 1/60 en float32 -- et elle a ete retiree. P1c le garde.)
+			while (mAccumulateur >= pasFixe && n < 8) {
 				Pas(scene);
 				mAccumulateur -= pasFixe;
 				++n;
