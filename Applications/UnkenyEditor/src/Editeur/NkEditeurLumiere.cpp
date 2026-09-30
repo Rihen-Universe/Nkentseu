@@ -337,7 +337,10 @@ namespace nkentseu {
 			Decor(s, "Souche", NkVec2f(-2.6f, -3.6f), NkVec2f(0.35f, 0.4f), 0x6E4A30FFu);
 			Decor(s, "Mur", NkVec2f(6.5f, -2.5f), NkVec2f(0.3f, 1.5f), 0x8A8070FFu);
 			Decor(s, "Tronc", NkVec2f(-7.f, -2.2f), NkVec2f(0.3f, 1.8f), 0x5A3C28FFu);
-			Decor(s, "Feuillage", NkVec2f(-7.f, 0.2f), NkVec2f(1.4f, 0.9f), 0x2E5A34FFu);
+			// « Houppier » et non « Feuillage » : --selection= choisit la PREMIERE
+			// entite dont le nom commence par ce qu'on donne, et « Feu » tombait
+			// sur le feuillage (vu sur la capture du 30/09).
+			Decor(s, "Houppier", NkVec2f(-7.f, 0.2f), NkVec2f(1.4f, 0.9f), 0x2E5A34FFu);
 			NkPoserActeurSim(s, NkActeurSim::NK_CAISSE, NkVec2f(-4.6f, -3.7f), &m.ressources);
 			NkPoserActeurSim(s, NkActeurSim::NK_CAISSE, NkVec2f(-4.6f, -3.1f), &m.ressources);
 			// Le feu de camp : des buches (sans collisionneur : elles n'ombrent pas
@@ -357,7 +360,11 @@ namespace nkentseu {
 			}
 			const ecs::NkEntityId reverbere = NkEditeurPoserLumiere(m, NkVec2f(9.5f, 0.5f), NkTypeLumiere2D::NK_SPOT);
 			if (NkLumiere2D *l = s.Monde().Get<NkLumiere2D>(reverbere)) {
-				l->portee = 6.f;
+				// Le sol est a 4,5 m sous la lampe : a 6 m de portee et en
+				// decroissance douce, il n'en recevait que 6 % (capture du 30/09).
+				l->portee = 6.5f;
+				l->attenuation = 1.f;
+				l->intensite = 1.4f;
 				l->ouverture = 0.45f;
 				l->halo = 0.2f;
 			}
