@@ -61,11 +61,13 @@ namespace nkentseu {
 
 		// CAMetalLayer
 		CAMetalLayer *layer = nil;
+		// surf.view / surf.metalLayer sont DEJA des pointeurs Objective-C en .mm
+		// (NkSurface.h) : un __bridge entre deux types ObjC est refuse sous ARC.
 		if (surf.metalLayer) {
-			layer = (__bridge CAMetalLayer *)surf.metalLayer;
+			layer = surf.metalLayer;
 		} else {
 #if defined(NKENTSEU_PLATFORM_MACOS)
-			NSView *view = (__bridge NSView *)surf.view;
+			NSView *view = surf.view;
 			if (!view) {
 				NK_MTL_ERR("nsView is null\n");
 				return false;
@@ -75,7 +77,7 @@ namespace nkentseu {
 			view.wantsLayer = YES;
 			view.layer = layer;
 #else
-			UIView *view = (__bridge UIView *)surf.view;
+			UIView *view = surf.view;
 			if (!view) {
 				NK_MTL_ERR("uiView is null\n");
 				return false;
