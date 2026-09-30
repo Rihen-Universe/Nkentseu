@@ -21,6 +21,7 @@
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -229,6 +230,8 @@ namespace nkentseu {
 						out.PushBack(Entree("Enregistrer", NK_A_ENREGISTRER, "Ctrl+S"));
 						out.PushBack(Entree("Fermer la scène", NK_A_FERMER_SCENE));
 						out.PushBack(Separateur());
+						out.PushBack(Entree("Construire…", NK_A_CONSTRUIRE));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
 						break;
 					case NkMenuEditeur::NK_EDITION:
@@ -298,6 +301,12 @@ namespace nkentseu {
 						out.PushBack(Entree("Cadrer", NK_A_CADRER_SELECTION, "F"));
 						out.PushBack(Separateur());
 						out.PushBack(SousMenu("Ajouter un composant", NkMenuEditeur::NK_COMPOSANT));
+						// (2026-09-29) La hierarchie et les prefabs.
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Créer un prefab", NK_A_CREER_PREFAB, "", false,
+											m.aSelection && m.etat == NkEtatJeu::NK_EDITION));
+						out.PushBack(Entree("Détacher du parent", NK_A_DETACHER, "", false,
+											m.aSelection && m.scene.Parent(m.selection).IsValid()));
 						break;
 					}
 					case NkMenuEditeur::NK_CTX_VIDE:
@@ -550,16 +559,9 @@ namespace nkentseu {
 			if (!ok) {
 				return 0u;
 			}
-			// FNV-1a 64 : une collision ferait croire « rien n'a change » ; sur
-			// 2^64 valeurs et des scenes d'un editeur, c'est un risque assume.
-			uint64 h = 14695981039346656037ull;
-			const char *s = json.CStr();
-			const usize n = json.Length();
-			for (usize i = 0; i < n; ++i) {
-				h ^= static_cast<uint8>(s[i]);
-				h *= 1099511628211ull;
-			}
-			return h;
+			// FNV-1a 64, celle du moteur : la MEME que l'empreinte de livraison
+			// (temoin l1), pour qu'il n'y ait qu'une idee de « la meme scene ».
+			return NkEmpreinteTexte(json.CStr(), static_cast<usize>(json.Length()));
 		}
 
 		void NkEditeurRetenirEmpreinte(NkEditeurModele &m, NkEditeurInterface &ui) {
@@ -766,6 +768,11 @@ namespace nkentseu {
 						NkEditeurRetenirEmpreinte(m, ui);
 					}
 					break;
+				case NK_A_CONSTRUIRE:
+					// Une DEMANDE, comme la fermeture : la fenetre (et son etat,
+					// processus compris) appartient a l'application.
+					ui.construireDemande = true;
+					break;
 				case NK_A_NOUVELLE_ENTITE:
 					NkEditeurCreerEntite(m, "Entite", m.scene.Camera().Centre());
 					break;
@@ -801,6 +808,14 @@ namespace nkentseu {
 					break;
 				case NK_A_ACCROCHAGE:
 					ui.accrochage = !ui.accrochage;
+					break;
+				case NK_A_CREER_PREFAB:
+					NkEditeurCreerPrefab(m);
+					break;
+				case NK_A_DETACHER:
+					if (m.aSelection) {
+						NkEditeurDetacher(m, m.selection);
+					}
 					break;
 				case NK_A_JOUER:
 					if (m.etat == NkEtatJeu::NK_JEU) {

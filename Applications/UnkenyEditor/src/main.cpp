@@ -22,6 +22,10 @@
 //                   deux precedentes, une capture de GIZMO sans souris
 //   --scene=...     ouvre ce .nkscene au lieu de la scene neuve (et Enregistrer
 //                   y ecrira)
+//   --construire=PLATEFORME [--scene= --sortie= --nom= --profil= ...]
+//                   construit le jeu SANS fenetre (Livraison/NkEditeurConstruire.h)
+//   --fenetre=construire[-auto] [--sortie= --nom=]
+//                   ouvre la fenetre Construire (-auto : et la lance seule)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 

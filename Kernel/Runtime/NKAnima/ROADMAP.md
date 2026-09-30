@@ -63,6 +63,14 @@
 > - **`.nkanim` v3** = le corps v2 d'un clip + des sections étiquetées, dont
 >   `'HFSM'`. Un **clip** s'écrit toujours en **v2**, octet pour octet ; v1/v2
 >   se relisent ; une section inconnue est sautée.
+>   📌 **30/09 — la machine a SA propre extension, `.nkanimctl`** (« contrôleur
+>   d'animation », décision de Rihen, `CONVENTIONS_FICHIERS.md` §1 : un clip et
+>   une machine ne se déposent pas au même endroit avec le même effet). Magic
+>   `'NKAC'`, version 1, puis les mêmes sections ; `NkAssetType::AnimationController`
+>   (17) ↔ `nkanimctl` dans NKSerialization. Le `.nkanim` v3 d'un jour se
+>   **relit** toujours comme machine ; lu comme **clip**, il est désormais
+>   **refusé en le nommant** (il donnait un clip vide), comme un `.nkanimctl`.
+>   Témoins h8 et h8b ; `NKAnima_Tests` **20/20**.
 >
 > Les deux `NkHashMap` de paramètres cités au § Dettes 1 (`mBools`, `mFloats`)
 > **n'existent plus** : les paramètres sont une liste déclarée (nom, genre,

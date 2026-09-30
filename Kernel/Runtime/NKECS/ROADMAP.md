@@ -34,9 +34,9 @@
 | Macro `NK_COMPONENT` opt-in | Livré | — | — |
 | Benchmarks / stress tests | Partiel | S | P2 |
 | Scripting Python / C# | TODO | L | P3 |
-| Prefabs (déclarés mais absents du module) | TODO | M | P0 |
+| Prefabs (déclarés mais absents du module) — 2026-09-29 : livrés dans Unkeny (`NkUnkenyPrefab`, surcharges par champ), et ceux de Noge posent enfin leurs composants (`NkPrefab::Instantiate`) ; NKECS lui-même n'en porte toujours pas | TODO | M | P0 |
 | Visual Script / Blueprint runtime | TODO | L | P2 |
-| Hiérarchie / parent-child native ECS | TODO | M | P1 |
+| Hiérarchie / parent-child native ECS (topologie : `NkParent`, garde anti-boucle, enfants/descendants, destruction récursive — `Hierarchy/NkHierarchy.h`, suite `NKECS_Hierarchy_Tests`) | Livré (2026-09-29) | — | — |
 | Replication / NetWorld | TODO | L | P3 |
 
 Légende : Livré · Partiel · En cours · TODO · Abandonné
@@ -100,8 +100,12 @@ Légende : Livré · Partiel · En cours · TODO · Abandonné
 - `NkReflect` définit les types mais aucune génération automatique de `FieldInfo[]` pour les composants utilisateurs (pas de codegen, pas de macros `NK_FIELD(...)` opérationnelles vérifiées).
 - Manque de pont avec NKUI Inspector (rendre les champs éditables via `NkUIWidgets`).
 
-### Hiérarchie native (P1)
-- Aucun composant `Parent/Children` officiel dans NKECS — la hiérarchie est gérée par Noge (`NkSceneGraph`). Évaluer si un composant `NkHierarchy` léger doit descendre dans NKECS pour les usages génériques.
+### Hiérarchie native — LIVRÉE (2026-09-29, branche `comble/hierarchie-prefabs`)
+- `Hierarchy/NkHierarchy.h` (en-tête seul) : `ecs::NkParent` — **descendu de Noge à l'identique** (même nom, même champ `entity`, même espace de noms ; `Noge/ECS/Components/Core/NkTransform.h` l'inclut désormais) — et, autour de lui : `NkGetParent`, `NkSetParent` (refuse soi-même et toute boucle), `NkIsDescendantOf`, `NkHierarchyDepth`, `NkCollectChildren`, `NkCollectDescendants` (parents avant enfants), `NkDestroyRecursive`.
+- **Une seule vérité** : le lien porté par l'enfant ; les enfants se déduisent (requête, O(n)). Aucun plafond d'enfants (le `NkChildren` de Noge, 64 au plus, reste le cache **de Noge**, entretenu par `NkSceneGraph`).
+- Les TRANSFORMATIONS ne sont pas ici : chaque moteur compose les siennes (Unkeny : `NkUnkenyHierarchie`, Noge : `NkSceneGraph`).
+- Suite `tests/test_hierarchy.cpp` (h1..h6), au registre `dutc`/`dute` de `Nkentseu.jenga`.
+- Reste : faire passer `NkSceneGraph` de Noge par ces fonctions (sa garde anti-boucle manque) — chantier de Noge, non fait.
 
 ### Free-list (P2)
 - `NkEntityIndex::FreeList` capacité fixe 256 : au-delà, les indices libérés sont perdus (commentaire explicite). À remplacer par une free-list extensible ou par un chaînage intrusif dans `Entry`.

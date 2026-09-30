@@ -16,7 +16,7 @@
 //   Skeleton/  la structure de squelette du moteur (topologie + repos, monde)
 //   Clip/      les clips : clés, pistes, échantillonnage, mélange, HFSM (vraie
 //              depuis le 2026-09-29 : sous-machines, any-state par niveau,
-//              déclencheurs, priorités, .nkanim v3), et le
+//              déclencheurs, priorités, fichier .nkanimctl), et le
 //              REGISTRE qui rend un `clipHandle` résoluble (il désigne, il ne
 //              possède pas — les applications gardent leurs clips)
 //   Retarget/  rejouer un clip d'un squelette sur un autre

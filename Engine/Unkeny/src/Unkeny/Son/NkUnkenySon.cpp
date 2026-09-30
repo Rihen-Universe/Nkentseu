@@ -182,6 +182,13 @@ namespace nkentseu {
 			return 0u;
 		}
 
+		const char *NkSons2D::Nom(uint32 son) const noexcept {
+			if (son == 0u || son > mSons.Size()) {
+				return "";
+			}
+			return mSons[son - 1u].nom;
+		}
+
 		float32 NkSons2D::Duree(uint32 son) const noexcept {
 			if (son == 0u || son > mSons.Size()) {
 				return 0.f;
