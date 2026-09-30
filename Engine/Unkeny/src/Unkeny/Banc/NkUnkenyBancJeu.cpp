@@ -598,6 +598,10 @@ namespace nkentseu {
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId caisse = Boite(s, "Caisse", NkVec2f(0.f, 0.3f), NkVec2f(0.4f, 0.3f), NkTypeCorps::NK_DYNAMIQUE);
+					// ⚠️ La caisse est REFAITE ici (son id passe de 2 a 3) : sans cela, la
+					// scene relue redonnait le meme id 2 par hasard, et le temoin restait
+					// vert meme sans rebranchement (mesure par contre-epreuve).
+					s.ActualiserCorps(caisse);
 					const ecs::NkEntityId g = Gelee(s, NkVec2f(0.72f, 0.4f));
 					const int32 ci = Index(s, g);
 					const uint32 bas[5] = {0u, 1u, 2u, 3u, 4u};
