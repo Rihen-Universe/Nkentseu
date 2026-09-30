@@ -39,6 +39,11 @@
 //     (p2) .nkprefab : ecrit, relu ailleurs, instancie a l'identique ; le fichier
 //          modifie et relu : les instances suivent
 //     (p3) une instance sauvee dans un .nkscene retrouve son prefab PAR NOM
+//     (f1) FUSION (30/09) : un enfant a corps, une gelee ATTACHEE a lui, deux
+//          controleurs : parent, attache rebranchee sur le corps refait et
+//          reglages traversent Photographier/Restaurer ET le fichier v2
+//     (f2) le meme fichier tel que l'ecrivait la branche physique (v1, "id"
+//          sous "corps", sans identite) : attaches et controleurs relus
 //     (x1) NkAssetType::Scene <-> .nkscene et SaveGame <-> .nksave, dans les deux
 //          sens ; les types d'avant ne bougent pas
 //
@@ -50,6 +55,11 @@
 
 #include "NKECS/Hierarchy/NkHierarchy.h"
 #include "NKSerialization/Asset/NkAssetMetadata.h"
+#include "NKPhysics/NkParticules2DFabrique.h"
+#include "NKSerialization/JSON/NkJSONReader.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
+#include "NKSerialization/NkArchive.h"
+#include "Unkeny/Scene/NkUnkenyControles.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
@@ -543,6 +553,142 @@ namespace nkentseu {
 						   PresV(u.Local(c4)->position, NkVec2f(1.f, 0.f)),
 					   "(h8) fichier retouche (parent deplace) : l'enfant suit son local (x)",
 					   tc4 != nullptr ? tc4->position.x : -1.f);
+			}
+
+			// (f1) (f2) LA FUSION du 30/09 avec la physique : hierarchie, attache
+			//      particule-rigide et controleur, ENSEMBLE
+			{
+				NkScene s;
+				NkSceneConfig cfg;
+				cfg.physique = true;
+				cfg.particules = true;
+				s.Init(cfg);
+				s.Particules()->reglages.limites.actif = false;
+				const ecs::NkEntityId porteur = s.Creer("Porteur", NkVec2f(0.f, 0.f));
+				const ecs::NkEntityId caisse = s.Creer("CaisseF", NkVec2f(0.f, 0.3f));
+				NkCollisionneur2D cc;
+				cc.demiTaille = NkVec2f(0.4f, 0.3f);
+				s.Monde().Add<NkCollisionneur2D>(caisse, cc);
+				NkCorps2D kc;
+				kc.type = NkTypeCorps::NK_STATIQUE;
+				s.AjouterCorps(caisse, kc);
+				// Le corps est REFAIT trois fois : son id ne vaut plus celui qu'un monde
+				// neuf lui donnerait, et un rebranchement « par hasard » ne passe plus.
+				s.ActualiserCorps(caisse);
+				s.ActualiserCorps(caisse);
+				s.ActualiserCorps(caisse);
+				s.Rattacher(caisse, porteur, true);
+				const int32 ci = physics::NkCreerBlobP2D(*s.Particules(), NkVec2f(0.72f, 0.4f), 0.3f, physics::NkPresetP2D::NK_BLOB);
+				const ecs::NkEntityId gelee = s.CreerCorpsMou("GeleeF", ci, 0x7CE64CFFu);
+				const uint32 bas[3] = {0u, 1u, 2u};
+				s.Particules()->CreerPartie(static_cast<uint32>(ci), "pieds", bas, 3u);
+				const uint32 nAtt = s.Particules()->AttacherZone(static_cast<uint32>(ci), NkVec2f(0.47f, 0.4f), 0.15f,
+																 *s.MondePhysique(), s.Monde().Get<NkCorps2D>(caisse)->corpsId);
+				const ecs::NkEntityId heros = s.Creer("HerosF", NkVec2f(-3.f, 0.4f));
+				NkCollisionneur2D ch;
+				ch.forme = NkForme2D::NK_CERCLE;
+				ch.rayon = 0.25f;
+				s.Monde().Add<NkCollisionneur2D>(heros, ch);
+				NkCorps2D kh;
+				s.AjouterCorps(heros, kh);
+				NkControleRigide2D cr;
+				cr.reglages.vitesseMax = 7.25f;
+				cr.reglages.actionSauter = 7;
+				s.Monde().Add<NkControleRigide2D>(heros, cr);
+				NkControleMou2D cm;
+				cm.reglages.vitesseSaut = 4.5f;
+				std::snprintf(cm.partieSol, sizeof(cm.partieSol), "%s", "pieds");
+				s.Monde().Add<NkControleMou2D>(gelee, cm);
+				const uint64 uCaisse = s.Uid(caisse);
+				const uint64 uPorteur = s.Uid(porteur);
+				const uint64 uHeros = s.Uid(heros);
+				const uint64 uGelee = s.Uid(gelee);
+				const uint32 idAvant = s.Monde().Get<NkCorps2D>(caisse)->corpsId;
+
+				// Tout ce que la fusion doit garder, sur une scene `t` (les
+				// identites sont celles de `s` si `avecIdentites`).
+				auto Verifier = [&](NkScene &t, bool avecIdentites, NkString &quoi) {
+					const ecs::NkEntityId c2 = avecIdentites ? t.EntiteParUid(uCaisse) : ParNom(t, "CaisseF");
+					const ecs::NkEntityId p2 = avecIdentites ? t.EntiteParUid(uPorteur) : ParNom(t, "Porteur");
+					const ecs::NkEntityId h2 = avecIdentites ? t.EntiteParUid(uHeros) : ParNom(t, "HerosF");
+					const ecs::NkEntityId g2 = avecIdentites ? t.EntiteParUid(uGelee) : ParNom(t, "GeleeF");
+					if (!c2.IsValid() || !h2.IsValid() || !g2.IsValid()) {
+						quoi = "entites";
+						return false;
+					}
+					if (avecIdentites && !(t.Parent(c2) == p2)) {
+						quoi = "parent";
+						return false;
+					}
+					const NkCorps2D *k = t.Monde().Get<NkCorps2D>(c2);
+					const physics::NkParticules2D *p = t.Particules();
+					if (k == nullptr || p == nullptr || nAtt == 0u || p->attaches.Size() != nAtt || p->parties.Size() != 1u) {
+						quoi = "attaches / parties";
+						return false;
+					}
+					for (uint32 i = 0; i < p->attaches.Size(); ++i) {
+						if (p->attaches[i].rigide != k->corpsId) {
+							quoi = "attache non rebranchee";
+							return false;
+						}
+					}
+					const NkControleRigide2D *r2 = t.Monde().Get<NkControleRigide2D>(h2);
+					const NkControleMou2D *m2 = t.Monde().Get<NkControleMou2D>(g2);
+					if (r2 == nullptr || r2->reglages.vitesseMax != 7.25f || r2->reglages.actionSauter != 7 || m2 == nullptr ||
+						m2->reglages.vitesseSaut != 4.5f || std::strcmp(m2->partieSol, "pieds") != 0) {
+						quoi = "controleurs";
+						return false;
+					}
+					return true;
+				};
+
+				NkString json;
+				NkSauverSceneJSON(s, json, static_cast<const NkTextures2D *>(nullptr));
+				NkScene::NkPhoto photo;
+				s.Photographier(photo);
+				s.Restaurer(photo);
+				NkString quoi1;
+				const bool okPhoto = Verifier(s, true, quoi1);
+				NkScene t;
+				NkString err;
+				const bool lu = NkChargerSceneJSON(t, json.View(), static_cast<NkTextures2D *>(nullptr), &err);
+				NkString quoi2;
+				const bool okFichier = lu && Verifier(t, true, quoi2);
+				Temoin(okPhoto && okFichier,
+					   "(f1) fusion : parent, attache rebranchee, controleurs (photo et v2)",
+					   static_cast<float32>(nAtt));
+				if (!okPhoto || !okFichier) {
+					std::printf("    ecart : photo[%s] fichier[%s] %s\n", quoi1.CStr(), quoi2.CStr(), err.CStr());
+				}
+
+				// (f2) le meme fichier tel que l'ECRIVAIT la branche physique : version
+				//      1, pas d'identite, "id" sous "corps". Ramene ici depuis la v2
+				//      (memes cles pour le reste : c'est le meme code d'ecriture).
+				NkArchive a;
+				NkJSONReader::ReadArchive(json.View(), a, nullptr);
+				a.SetInt32(NkStringView("version"), 1);
+				a.Remove(NkStringView("prochainUid"));
+				NkVector<NkArchive> entites;
+				a.GetObjectArray(NkStringView("entites"), entites);
+				for (uint32 i = 0; i < entites.Size(); ++i) {
+					entites[i].Remove(NkStringView("uid"));
+					entites[i].Remove(NkStringView("parent"));
+					entites[i].Remove(NkStringView("local"));
+				}
+				a.SetObjectArray(NkStringView("entites"), entites);
+				NkString physiqueV1;
+				NkJSONWriter::WriteArchive(a, physiqueV1, true, 1);
+				NkScene u;
+				const bool lu2 = NkChargerSceneJSON(u, physiqueV1.View(), static_cast<NkTextures2D *>(nullptr), &err);
+				NkString quoi3;
+				const bool okV1 = lu2 && Verifier(u, false, quoi3) &&
+								  std::strstr(physiqueV1.CStr(), "\"version\": 1") != nullptr &&
+								  std::strstr(physiqueV1.CStr(), "\"uid\"") == nullptr &&
+								  u.Monde().Get<NkCorps2D>(ParNom(u, "CaisseF"))->corpsId != idAvant;
+				Temoin(okV1, "(f2) fichier de la physique (v1, \"id\") : attaches et controleurs relus", 0.f);
+				if (!okV1) {
+					std::printf("    ecart : %s %s\n", quoi3.CStr(), err.CStr());
+				}
 			}
 
 			// (v1) le fichier version 1 fige
