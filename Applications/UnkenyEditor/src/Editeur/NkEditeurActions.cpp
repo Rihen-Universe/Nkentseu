@@ -9,6 +9,7 @@
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
 
@@ -111,8 +112,10 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
-			if (m.etat == NkEtatJeu::NK_JEU && dt > 0.f) {
-				m.scene.Pas(dt < 0.05f ? dt : 0.05f);
+			if (m.etat == NkEtatJeu::NK_JEU) {
+				// LA trame du jeu, celle que joue aussi le joueur autonome
+				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu.
+				NkAvancerPartie(m.scene, dt);
 			}
 			// Une selection dont l'entite a disparu (matiere gommee, tombee) : oubliee.
 			if (m.aSelection && !m.scene.Monde().IsAlive(m.selection)) {

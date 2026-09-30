@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurViseur.h"
 #include "Editeur/NkEditeurActions.h"
+#include "Unkeny/Partie/NkUnkenyPartie.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -65,16 +66,10 @@ namespace nkentseu {
 				}
 				dl.AddCircleFilled(o, 3.5f, NkColor(235, 235, 235, 230));
 			}
-			// L'ordre : les FORMES (decor, rigides sans texture), puis les sprites,
-			// puis la MATIERE par-dessus — elle coule sur tout le reste.
-			NkOptionsFormes formes;
-			formes.couleurDecor = [](ecs::NkWorld &w, ecs::NkEntityId id, void *) -> uint32 {
-				const NkSprite2D *s = w.Get<NkSprite2D>(id);
-				return s != nullptr ? s->couleur : 0u; // le sprite (cache) garde la couleur du decor
-			};
-			NkDessinerFormes(dl, scene, formes);
-			stats = NkDessinerScene(dl, scene);
-			NkDessinerCorpsMous(dl, scene, m.rendu);
+			// L'IMAGE DU JEU -- formes, sprites, matiere -- par la fonction que
+			// dessine aussi le joueur autonome (Unkeny/Partie) : ce que montre le
+			// viseur est ce que montrera le jeu construit.
+			stats = NkDessinerPartie(dl, scene, m.rendu);
 			if (m.voirCollisionneurs) {
 				NkDessinerCollisionneurs(dl, scene, 0x00E07AC0u);
 			}
