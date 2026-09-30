@@ -80,6 +80,14 @@
 //         collisionneur eteint = couche et masque a 0, rallume = rendus ; corps
 //         eteint = cinematique sans gravite, rallume = dynamique ; et l'etat
 //         eteint traverse Jouer / Arreter
+//   (e48) (lot 1) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame :
+//         tous les panneaux, l'entree passee par NkEditeurSouris) : une ligne
+//         de l'Outliner ouvre SON menu au point du clic et reste choisie ; le
+//         vide et la racine, le menu de la scene ; le viseur, le sien ; son
+//         menu ouvert, un clic droit sur une ligne OUVRE celui de la ligne (un
+//         clic gauche ferme sans traverser) ; le navigateur : une carte, un
+//         dossier, le fond, chacun son menu, jamais celui du viseur, et ses
+//         actions agissent (poser au centre, ouvrir le dossier)
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -88,6 +96,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurSouris.h"
+#include "Editeur/NkEditeurTrame.h"
 
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiFont.h"
@@ -1006,6 +1015,159 @@ namespace nkentseu {
 										  m.scene.Monde().Get<NkCorps2D>(c2)->echelleGravite == 1.f && !m.scene.Monde().Has<NkEteintsEditeur>(c2);
 				Temoin(double2 && gizmo && rendu && colEteint && colRallume && corpsEteint && traverse && corpsRallume,
 					   "(e47) echelle cuite et relue ; cases : collisionneur, corps, Jouer/Arreter", e2.x);
+			}
+
+			// (e48) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame) :
+			// tous les panneaux, dans l'ordre de l'ecran, l'entree passee par
+			// NkEditeurSouris comme depuis l'OS.
+			{
+				NkEditeurNouvelleScene(m);
+				memory::NkAllocator &alloc = memory::NkGetDefaultAllocator();
+				NkEditeurInterface *pui = alloc.New<NkEditeurInterface>();
+				nkgui::NkGuiContext *pctx = alloc.New<nkgui::NkGuiContext>();
+				nkgui::NkGuiFont *police = alloc.New<nkgui::NkGuiFont>();
+				NkEditeurEntrees *pent = alloc.New<NkEditeurEntrees>();
+				NkEditeurConstruction *pcons = alloc.New<NkEditeurConstruction>();
+				NkEditeurEntreesParDefaut(*pent);
+				NkEditeurInterface &ui = *pui;
+				nkgui::NkGuiContext &ctx = *pctx;
+				const bool policeOk = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false);
+				const float32 W = 1280.f, H = 760.f;
+				ctx.Init(static_cast<int32>(W), static_cast<int32>(H));
+				ctx.font = policeOk ? police : nullptr;
+				const editorkit::NkTheme theme = editorkit::NkTheme::Dark();
+				const NkPaletteEditeur pal = NkEditeurPalette(theme);
+				NkEditeurCadre c{ctx, m, ui, theme, pal, police, police};
+				NkEditeurSouris souris;
+				ctx.input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+				auto trame = [&]() {
+					ui.dt = 1.f / 60.f;
+					NkEditeurPlanifier(ui, W, H);
+					ctx.BeginFrame(1.f / 60.f);
+					ctx.BeginLayout(nkgui::NkRect{0.f, 0.f, W, H});
+					NkEditeurDessinerTrame(c, *pent, *pcons);
+					ctx.EndFrame();
+					souris.FinDeTrame(ctx.input);
+				};
+				// Un clic comme l'OS le livre : appui, une trame, relachement, une trame.
+				auto clic = [&](int32 b, float32 x, float32 y) {
+					ctx.input.mousePos = nkgui::NkVec2{x, y};
+					souris.Appui(ctx.input, b);
+					trame();
+					souris.Relache(ctx.input, b);
+					trame();
+				};
+				auto fermer = [&]() {
+					ui.menu = NkMenuEditeur::NK_AUCUN;
+					ui.sousMenu = NkMenuEditeur::NK_AUCUN;
+					ctx.input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+					trame();
+				};
+				auto ancreEn = [&](float32 x, float32 y) {
+					return math::NkAbs(ui.menuAncre.x - x) < 0.5f && math::NkAbs(ui.menuAncre.y - y) < 0.5f;
+				};
+				trame();
+				trame();
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse");
+				float32 yCaisse = -100.f;
+				for (uint32 k = 0; k < ui.arbreEntites.Size(); ++k) {
+					if (ui.arbreEntites[k] == caisse) {
+						yCaisse = ui.outliner.y + 74.f + static_cast<float32>(k) * 22.f + 11.f;
+					}
+				}
+				const float32 xArbre = ui.outliner.x + ui.outliner.w * 0.6f;
+				const float32 xVue = ui.viseur.x + 40.f, yVue = ui.viseur.y + 40.f;
+
+				// (a) une ligne de l'Outliner : elle est choisie, SON menu s'ouvre au
+				// point du clic, et il tient apres le relachement.
+				m.aSelection = false;
+				clic(1, xArbre, yCaisse);
+				const bool arbreMenu = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && m.aSelection && m.selection == caisse &&
+									   ancreEn(xArbre, yCaisse);
+				trame();
+				const bool arbreTient = ui.menu == NkMenuEditeur::NK_CTX_ENTITE;
+				fermer();
+				// ... le vide sous les lignes et la racine « Scene » : le menu de la scene.
+				clic(1, xArbre, ui.outliner.y + ui.outliner.h - 40.f);
+				const bool arbreVide = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				fermer();
+				clic(1, xArbre, ui.outliner.y + 74.f + 11.f);
+				const bool arbreRacine = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				fermer();
+				// (b) le viseur : son menu, toujours.
+				m.aSelection = false;
+				clic(1, xVue, yVue);
+				const bool vueMenu = (ui.menu == NkMenuEditeur::NK_CTX_VIDE || ui.menu == NkMenuEditeur::NK_CTX_ENTITE) && ancreEn(xVue, yVue);
+				// ... et, ce menu OUVERT, un clic droit sur une ligne de l'Outliner
+				// ouvre le SIEN la (il ne fait plus que fermer celui du viseur).
+				clic(1, xArbre, yCaisse);
+				const bool rouvre = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && ancreEn(xArbre, yCaisse) && m.selection == caisse;
+				fermer();
+				// ... un clic GAUCHE hors du menu, lui, ferme sans traverser.
+				clic(1, xVue, yVue);
+				m.aSelection = false;
+				clic(0, xArbre, yCaisse);
+				const bool gaucheFerme = ui.menu == NkMenuEditeur::NK_AUCUN && !m.aSelection;
+				fermer();
+				Temoin(arbreMenu && arbreTient && arbreVide && arbreRacine && vueMenu && rouvre && gaucheFerme,
+					   "(e48a) clic droit Outliner (ligne, vide, racine), viseur, et menu rouvert",
+					   static_cast<float32>(arbreMenu + arbreTient + arbreVide + arbreRacine + vueMenu + rouvre + gaucheFerme));
+
+				// (c) le navigateur : une carte, son menu (avec son chemin) ; le fond,
+				// le sien ; jamais celui du viseur a la place.
+				ui.ongletTiroir = 0;
+				ui.categorie = -1;
+				trame();
+				int32 kDossier = -1, kSimple = -1;
+				for (uint32 k = 0; k < ui.contenuCartes.Size() && k < ui.contenu.entries.Size(); ++k) {
+					if (ui.contenuCartes[k].w <= 0.f) {
+						continue;
+					}
+					if (ui.contenu.entries[k].isFolder && kDossier < 0) {
+						kDossier = static_cast<int32>(k);
+					}
+					if (ui.contenu.entries[k].path == NkString("simple")) {
+						kSimple = static_cast<int32>(k);
+					}
+				}
+				bool carteMenu = false, carteDossier = false, fondMenu = false, pasLeViseur = true, ouvre = false, pose = false;
+				if (kDossier >= 0 && kSimple >= 0) {
+					const nkgui::NkRect rs = ui.contenuCartes[static_cast<uint32>(kSimple)];
+					const NkVec2f contexte0 = ui.pointContexte;
+					clic(1, rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					carteMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuChemin == NkString("simple") &&
+								!ui.contenuMenuDossier && ancreEn(rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					pasLeViseur = ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					// « Poser au centre de la vue » : une entite de plus, l'outil intact.
+					const uint32 avant = NbEntites(m.scene);
+					const NkOutil outilAvant = m.outil;
+					NkEditeurExecuter(c, NK_A_CONTENU_POSER);
+					pose = NbEntites(m.scene) == avant + 1u && m.outil == outilAvant;
+					fermer();
+					const nkgui::NkRect rd = ui.contenuCartes[static_cast<uint32>(kDossier)];
+					const NkString cheminDossier = ui.contenu.entries[static_cast<uint32>(kDossier)].path;
+					clic(1, rd.x + rd.w * 0.5f, rd.y + rd.h * 0.5f);
+					carteDossier = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuDossier && ui.contenuMenuChemin == cheminDossier;
+					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+					ouvre = ui.categorie >= 0;
+					fermer();
+					ui.categorie = -1;
+					trame();
+					// Le fond : a droite de la derniere carte de la rangee.
+					clic(1, ui.tiroir.x + ui.tiroir.w - 60.f, rs.y + rs.h * 0.5f);
+					fondMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU_VIDE && ui.contenuMenuChemin.Empty();
+					pasLeViseur = pasLeViseur && ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					fermer();
+				}
+				Temoin(carteMenu && carteDossier && fondMenu && pasLeViseur && ouvre && pose,
+					   "(e48b) clic droit navigateur : carte, dossier, fond ; ni le viseur ; ses actions",
+					   static_cast<float32>(carteMenu + carteDossier + fondMenu + pasLeViseur + ouvre + pose));
+
+				alloc.Delete(pcons);
+				alloc.Delete(pent);
+				alloc.Delete(police);
+				alloc.Delete(pctx);
+				alloc.Delete(pui);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

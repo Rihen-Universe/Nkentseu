@@ -353,6 +353,28 @@ namespace nkentseu {
 						}
 						break;
 					}
+					// (2026-09-30, lot 1) Le clic droit hors d'une entite.
+					case NkMenuEditeur::NK_CTX_ARBRE:
+						out.PushBack(Intitule("Scène"));
+						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
+						out.PushBack(SousMenu("Ajouter", NkMenuEditeur::NK_AJOUTER));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Cadrer tout", NK_A_CADRER));
+						break;
+					case NkMenuEditeur::NK_CTX_CONTENU:
+						out.PushBack(Intitule(c.ui.contenuMenuNom.CStr()));
+						if (c.ui.contenuMenuDossier) {
+							out.PushBack(Entree("Ouvrir", NK_A_CONTENU_OUVRIR));
+						} else {
+							out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER));
+							out.PushBack(Entree("Armer « Poser » (clic dans la vue)", NK_A_CONTENU_ARMER));
+						}
+						break;
+					case NkMenuEditeur::NK_CTX_CONTENU_VIDE:
+						out.PushBack(Intitule(c.ui.categorie >= 0 ? NkCategorieActeurNom(static_cast<NkCategorieActeur>(c.ui.categorie))
+																   : "Acteurs"));
+						out.PushBack(Entree("Revenir à « Acteurs »", NK_A_CONTENU_RACINE, "", false, c.ui.categorie >= 0));
+						break;
 					case NkMenuEditeur::NK_CARTE: {
 						const int32 k = c.ui.carteMenu;
 						if (k < 0 || k >= static_cast<int32>(NkCarteEditeur::NK_COUNT) || !m.aSelection) {
@@ -1061,6 +1083,13 @@ namespace nkentseu {
 				}
 				case NK_A_APROPOS:
 					NkEditeurAnnoncer(m, "UnkenyEditor : l'éditeur du moteur 2D Unkeny (Rihen)");
+					break;
+				case NK_A_CONTENU_POSER:
+				case NK_A_CONTENU_ARMER:
+				case NK_A_CONTENU_OUVRIR:
+				case NK_A_CONTENU_RACINE:
+					// Le navigateur connait ses chemins (NkEditeurTiroir.cpp).
+					NkEditeurActionContenu(c, action);
 					break;
 				case NK_A_ARMER_SIMPLE:
 					m.acteurSimple = true;

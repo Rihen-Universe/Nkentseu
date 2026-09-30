@@ -80,7 +80,11 @@ namespace nkentseu {
 			NK_PAS_GRILLE,
 			NK_PAS_ANGLE,
 			NK_PAS_ECHELLE,
-			NK_CARTE ///< le menu « ⋮ » d'une carte de l'inspecteur (2026-09-30)
+			NK_CARTE, ///< le menu « ⋮ » d'une carte de l'inspecteur (2026-09-30)
+			// Le clic droit hors d'une entite (2026-09-30, lot 1) : AJOUTES A LA FIN.
+			NK_CTX_ARBRE,		///< l'Outliner hors d'une ligne d'entite (la racine, le vide)
+			NK_CTX_CONTENU,		///< une carte ou un dossier du navigateur de contenu
+			NK_CTX_CONTENU_VIDE ///< le fond du navigateur de contenu
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -151,7 +155,13 @@ namespace nkentseu {
 			NK_A_CARTE_MONTER,
 			NK_A_CARTE_DESCENDRE,
 			NK_A_CARTE_COPIER,
-			NK_A_CARTE_COLLER
+			NK_A_CARTE_COLLER,
+			// Le menu du navigateur de contenu (2026-09-30, lot 1) : il vise
+			// l'element du clic droit (NkEditeurInterface::contenuMenuChemin).
+			NK_A_CONTENU_POSER = 1300, ///< l'acteur vise, pose au centre de la vue
+			NK_A_CONTENU_ARMER,		   ///< l'acteur vise arme « Poser » (comme un clic sur sa carte)
+			NK_A_CONTENU_OUVRIR,	   ///< le dossier vise s'ouvre
+			NK_A_CONTENU_RACINE		   ///< retour a la racine du navigateur
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -250,6 +260,16 @@ namespace nkentseu {
 				editorkit::NkComponentInstance contenuReglages;
 				bool contenuPret = false;
 				int32 categorie = -1; ///< -1 = toutes les categories
+				/// Le clic droit du navigateur (2026-09-30) : le CHEMIN de ce qu'il visait
+				/// (« acteur:7 », « simple », un dossier ; vide = le fond) et son nom. Un
+				/// chemin, pas un indice : les cartes sont reconstruites a chaque trame.
+				NkString contenuMenuChemin;
+				NkString contenuMenuNom;
+				bool contenuMenuDossier = false;
+				/// Le rectangle de chaque carte A L'ECRAN a la derniere trame, par indice
+				/// d'entree (vide = hors champ), releve par le crochet `cardOverlay` du kit :
+				/// seul le composant connait sa grille. Le banc y vise ses clics.
+				NkVector<nkgui::NkRect> contenuCartes;
 				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
@@ -480,6 +500,9 @@ namespace nkentseu {
 		void NkEditeurDessinerOutliner(NkEditeurCadre &c);
 		void NkEditeurDessinerDetails(NkEditeurCadre &c);
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c);
+		/// Les actions du menu du navigateur (NK_A_CONTENU_*), sur l'element du
+		/// clic droit (NkEditeurInterface::contenuMenuChemin) -- NkEditeurTiroir.cpp.
+		void NkEditeurActionContenu(NkEditeurCadre &c, int32 action);
 		void NkEditeurDessinerVue(NkEditeurCadre &c);
 		/// Mene la camera, EN DOUCEUR, sur la selection -- ou sur toute la scene
 		/// si `toutLaScene` ou si rien n'est selectionne (NkEditeurZoneACadrer).

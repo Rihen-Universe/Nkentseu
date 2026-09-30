@@ -23,7 +23,10 @@
 //   - ⚠️ LA RECHERCHE NE MARCHAIT PAS : le kit reserve la boite et en rapporte
 //     le rectangle, mais c'est a l'HOTE d'y ecrire (NkComponentInput n'a pas de
 //     clavier). Personne n'y ecrivait : la boite prenait le focus, et la frappe
-//     partait dans le vide. Le champ du kit (NkOverlayTextField) y est pose.
+///     partait dans le vide. Le champ du kit (NkOverlayTextField) y est pose.
+//   - LE CLIC DROIT (2026-09-30, lot 1) : une carte d'acteur (poser au centre,
+//     armer), un dossier (ouvrir), le fond (revenir a la racine). Le kit le
+//     rapportait (NkContentBrowserResult::menuIndex) ; l'hote ne le lisait pas.
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -137,6 +140,11 @@ namespace nkentseu {
 			void SurCarte(void *user, editorkit::NkComponentPaint &p, int32 index, float32 x, float32 y, float32 w,
 						  float32 h) {
 				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				// Le rectangle de la carte, dossier compris : le composant est le seul
+				// a connaitre sa grille (NkEditeurInterface::contenuCartes).
+				if (index >= 0 && index < static_cast<int32>(c.ui.contenuCartes.Size())) {
+					c.ui.contenuCartes[static_cast<uint32>(index)] = NkRect{x, y, w, h};
+				}
 				if (index < 0 || index >= static_cast<int32>(c.ui.contenu.entries.Size()) ||
 					c.ui.contenu.entries[static_cast<uint32>(index)].isFolder) {
 					return; // un dossier a sa silhouette, pas de pastille
@@ -276,6 +284,12 @@ namespace nkentseu {
 					m.chosen.PushBack(arme);
 				}
 				m.statusRight = NkString::Format("%u élément(s)", static_cast<uint32>(m.entries.Size()));
+				// Les rectangles des cartes : remis a zero, le dessin les releve.
+				ui.contenuCartes.Clear();
+				ui.contenuCartes.Resize(m.entries.Size());
+				for (uint32 i = 0; i < ui.contenuCartes.Size(); ++i) {
+					ui.contenuCartes[i] = NkRect{0.f, 0.f, 0.f, 0.f};
+				}
 			}
 
 			void OngletActeurs(NkEditeurCadre &c, const NkRect &zone) {
@@ -315,6 +329,30 @@ namespace nkentseu {
 					editorkit::NkVScrollbar(c.ctx, c.ctx.dl, NkRect{res.defilX, res.defilY, res.defilW, res.defilH},
 											ui.contenu.scroll, res.defilContenu, res.defilVue, c.ctx.GetId("tiroir.defil"),
 											res.defilPas);
+				}
+
+				// ── Le clic DROIT (2026-09-30, lot 1) ────────────────────────────
+				// ⚠️ LE KIT LE RAPPORTAIT, PERSONNE NE L'ECOUTAIT : ni `onContextMenu`
+				//    ni `menuIndex` n'etaient lus, et le clic droit du navigateur « ne
+				//    faisait rien ». On lit le RESULTAT plutot que le crochet : il
+				//    couvre aussi le rail des dossiers (`menuCheminRail`), que le
+				//    crochet ne voit pas. -2 = aucun clic droit a cette trame.
+				if (res.menuIndex != -2) {
+					ui.contenuMenuChemin = NkString();
+					ui.contenuMenuNom = NkString();
+					ui.contenuMenuDossier = false;
+					if (!res.menuCheminRail.Empty()) {
+						ui.contenuMenuChemin = res.menuCheminRail;
+						ui.contenuMenuNom = res.menuCheminRail;
+						ui.contenuMenuDossier = true;
+					} else if (res.menuIndex >= 0 && res.menuIndex < static_cast<int32>(ui.contenu.entries.Size())) {
+						const editorkit::NkAssetEntry &e = ui.contenu.entries[static_cast<uint32>(res.menuIndex)];
+						ui.contenuMenuChemin = e.path;
+						ui.contenuMenuNom = e.name;
+						ui.contenuMenuDossier = e.isFolder;
+					}
+					NkEditeurOuvrirMenu(c, ui.contenuMenuChemin.Empty() ? NkMenuEditeur::NK_CTX_CONTENU_VIDE : NkMenuEditeur::NK_CTX_CONTENU,
+										NkRect{res.menuX, res.menuY, 0.f, 0.f});
 				}
 
 				const nkgui::NkGuiInput &in = c.ctx.input;
@@ -421,6 +459,46 @@ namespace nkentseu {
 			}
 
 		} // namespace
+
+		void NkEditeurActionContenu(NkEditeurCadre &c, int32 action) {
+			NkEditeurModele &m = c.m;
+			NkEditeurInterface &ui = c.ui;
+			const char *chemin = ui.contenuMenuChemin.CStr();
+			switch (action) {
+				case NK_A_CONTENU_POSER: {
+					// Pose SANS armer : l'outil arme reste celui d'avant (la meme
+					// regle que « + Ajouter », qui pose au centre de la vue).
+					const int32 a = ActeurDuChemin(chemin);
+					if (a == -1) {
+						return;
+					}
+					const NkActeurSim acteurArme = m.acteur;
+					const bool simpleArme = m.acteurSimple;
+					m.acteurSimple = a == -2;
+					if (a >= 0) {
+						m.acteur = static_cast<NkActeurSim>(a);
+					}
+					NkEditeurPoser(m, m.scene.Camera().Centre());
+					m.acteur = acteurArme;
+					m.acteurSimple = simpleArme;
+					break;
+				}
+				case NK_A_CONTENU_ARMER:
+					Armer(m, ActeurDuChemin(chemin));
+					break;
+				case NK_A_CONTENU_OUVRIR:
+					// La racine (« Acteurs ») est un dossier comme un autre.
+					ui.categorie = CategorieDuChemin(chemin);
+					ui.contenu.scroll = 0.f;
+					break;
+				case NK_A_CONTENU_RACINE:
+					ui.categorie = -1;
+					ui.contenu.scroll = 0.f;
+					break;
+				default:
+					break;
+			}
+		}
 
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;

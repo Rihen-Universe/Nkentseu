@@ -17,7 +17,8 @@
 //   - (2026-09-29) C'est un ARBRE : chaque entite sous son parent (la
 //     hierarchie de la scene). Glisser une ligne sur une autre l'y RATTACHE,
 //     sans qu'elle bouge a l'ecran ; la lacher dans le vide la detache. Clic
-//     droit : le menu de l'entite (dont « Creer un prefab »).
+//     droit : le menu de l'entite (dont « Creer un prefab ») ; hors d'une ligne
+//     (la racine, le vide), celui de la scene (2026-09-30, lot 1).
 //   - L'OEIL et le CADENAS (2026-09-30) : NkDrapeauxEditeur, sauves dans la
 //     scene. Oeil ferme = ni dessinee ni prise dans la vue en EDITION ;
 //     cadenas = ni prise ni deplacee dans la vue. L'Outliner et les Details
@@ -371,10 +372,15 @@ namespace nkentseu {
 
 			/// Clic droit sur une ligne : elle est choisie, et son menu s'ouvre --
 			/// le meme que dans la vue (Renommer, Dupliquer, Supprimer...).
+			/// ⚠️ (2026-09-30, lot 1) HORS D'UNE LIGNE D'ENTITE -- la racine « Scene »,
+			///    le vide sous les lignes --, la fonction RENDAIT SANS RIEN FAIRE : c'est
+			///    justement la qu'on clique pour creer (UE5), et le clic « ne faisait
+			///    rien ». Le menu de la scene s'y ouvre (NK_CTX_ARBRE).
 			void SurMenu(void *user, int32 index, float32 x, float32 y) {
 				NkEditeurCadre &c = Cadre(user);
 				const ecs::NkEntityId e = EntiteDeLigne(c, index);
 				if (!e.IsValid()) {
+					NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_CTX_ARBRE, NkRect{x, y, 0.f, 0.f});
 					return;
 				}
 				c.m.selection = e;
