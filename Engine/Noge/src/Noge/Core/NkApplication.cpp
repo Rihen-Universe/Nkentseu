@@ -249,6 +249,26 @@ namespace nkentseu {
 				DispatchToLayers(e);
 		});
 
+		// ── Doigts et gestes (30/09) ─────────────────────────────────────────
+		// Ils n'atteignaient AUCUNE couche : la carte d'entree de NkEngineLayer
+		// (zones d'ecran, joystick virtuel, gestes) n'en aurait rien su. Meme
+		// chemin que la souris : le bus d'abord, les couches ensuite.
+		auto versLesCouches = [this](NkEvent *e) {
+			bool consumed = NkEventBus::DispatchRaw(static_cast<nk_uint32>(e->GetType()), e);
+			if (!consumed)
+				DispatchToLayers(e);
+		};
+		events.AddEventCallback<NkTouchBeginEvent>([versLesCouches](NkTouchBeginEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkTouchMoveEvent>([versLesCouches](NkTouchMoveEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkTouchEndEvent>([versLesCouches](NkTouchEndEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkTouchCancelEvent>([versLesCouches](NkTouchCancelEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGestureTapEvent>([versLesCouches](NkGestureTapEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGestureLongPressEvent>([versLesCouches](NkGestureLongPressEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGestureSwipeEvent>([versLesCouches](NkGestureSwipeEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGesturePinchEvent>([versLesCouches](NkGesturePinchEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGestureRotateEvent>([versLesCouches](NkGestureRotateEvent *e) { versLesCouches(e); });
+		events.AddEventCallback<NkGesturePanEvent>([versLesCouches](NkGesturePanEvent *e) { versLesCouches(e); });
+
 		logger.Infof("[Application] Fenêtre créée: {0}x{1}\n", mConfig.windowConfig.width, mConfig.windowConfig.height);
 		return true;
 	}

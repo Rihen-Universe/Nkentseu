@@ -12,6 +12,8 @@
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
 #include "Noge/ECS/Scripting/NkScriptSystem.h"
 #include "NKLogger/NkLog.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKWindow/Core/NkWESystem.h"
 
 namespace nkentseu {
 
@@ -61,6 +63,12 @@ namespace nkentseu {
 	void NkEngineLayer::OnUpdate(float dt) {
 		NK_PROFILE_SCOPE("NkEngineLayer::Update");
 
+		// Les entrees AVANT les systemes : un systeme de deplacement lit l'action
+		// de CETTE image, pas celle de la precedente. Les manettes sont celles de
+		// NkWESystem (sondees par la boucle d'evenements) ; sans fenetre, elles
+		// sont simplement debranchees.
+		mInput.Update(dt, &NkWESystem::Gamepads());
+
 		// Mise à jour du scheduler (tous les groupes sauf Render et FixedUpdate)
 		mScheduler.Run(mWorld, dt);
 
@@ -104,9 +112,34 @@ namespace nkentseu {
 	// OnEvent
 	// =========================================================================
 	bool NkEngineLayer::OnEvent(NkEvent *event) {
-		(void)event;
-		// Future: dispatch vers NkUISystem, NkInputSystem
+		// La carte d'entree lit tout ce qui lui parvient. Elle NE consomme PAS :
+		// une couche placee sous celle-ci recoit l'evenement comme avant, et
+		// une couche placee au-dessus (interface) a deja pu le prendre.
+		if (event != nullptr) {
+			mInput.Read(*event);
+		}
+		// Future: dispatch vers NkUISystem
 		return false;
+	}
+
+	// =========================================================================
+	// Entrees : fichier texte
+	// =========================================================================
+	NkInputMapReport NkEngineLayer::LoadInputFile(const char *path) {
+		NkInputMapReport r;
+		if (path == nullptr || !NkFile::Exists(path)) {
+			r.errors.PushBack(NkString::Fmt("fichier d'entrees absent : {0}", NkString(path != nullptr ? path : "")));
+			return r;
+		}
+		return mInput.Load(NkFile::ReadAllText(path));
+	}
+
+	bool NkEngineLayer::SaveInputFile(const char *path) const {
+		if (path == nullptr) {
+			return false;
+		}
+		const NkString texte = mInput.Save();
+		return NkFile::WriteAllText(path, texte.CStr());
 	}
 
 	// =========================================================================

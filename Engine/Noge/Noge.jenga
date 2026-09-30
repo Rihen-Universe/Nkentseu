@@ -203,6 +203,10 @@ with project("Noge"):
             # (le lib produit par ce module s'appelle "Noge", cf. project("Noge")
             # plus haut) — jenga test echouait au link avant ce correctif.
             _TEST_LINKS = ["Noge", "NKCanvas", "NKWindow", "NKTime"]
+            # 2026-09-30 : test_noge_entrees.cpp attache NkEngineLayer, qui tire
+            # NKRenderer -> NKSL -> glslang / SPIRV-Cross (comme NkFilMoteurProbe).
+            # Sans ces deux-la, le lien du banc echoue sur leurs symboles.
+            _TEST_LINKS += ["NKGLSlang", "NKSPIRVCross"]
             if _USE_NKGLAD:
                 _TEST_LINKS.append("NKGlad")
             links(_TEST_LINKS)

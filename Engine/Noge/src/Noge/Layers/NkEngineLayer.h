@@ -6,7 +6,7 @@
 //
 // CYCLE DE VIE :
 //   OnAttach()      → Init dans l'ordre : Assets, Renderer, Scheduler, Scènes
-//   OnUpdate(dt)    → mScheduler.Run(world, dt) + mSceneMgr.Update(dt)
+//   OnUpdate(dt)    → mInput.Update + mScheduler.Run(world, dt) + mSceneMgr.Update(dt)
 //   OnFixedUpdate() → mScheduler.RunFixed(world, fdt) [physique]
 //   OnRender()      → NkRenderSystem exécuté via Scheduler groupe Render
 //   OnDetach()      → Shutdown propre dans l'ordre inverse
@@ -23,6 +23,16 @@
 //       eng.LoadScene("Main");
 //     }
 //   };
+//
+// ENTREES DU JEU (30/09) :
+//   La couche porte la carte d'entree du joueur 1 (NkInputMap, NKEvent) : le
+//   MEME systeme qu'Unkeny. Elle la nourrit (OnEvent) et l'avance (OnUpdate,
+//   AVANT les systemes : ils lisent l'entree de CETTE image). Un jeu declare
+//   ses actions et ses liaisons, en code ou par un fichier texte :
+//       auto &in = NkEngineLayer::Get().GetInput();
+//       in.Load(texte);   // ou LoadInputFile("entrees.nkinput")
+//       if (in.WasPressed(in.FindAction("Sauter"))) { ... }
+//   Les joueurs 2..4 sont d'autres NkInputMap, que le jeu nourrit de meme.
 // =============================================================================
 
 #include "../Core/NkLayer.h"
@@ -39,6 +49,7 @@
 #include "NKRenderer/NkRenderer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/String/NkString.h"
+#include "NKEvent/NkInputMap.h"
 
 namespace nkentseu {
 
@@ -91,6 +102,17 @@ namespace nkentseu {
 			[[nodiscard]] renderer::NkRenderer *GetRenderer() noexcept {
 				return mRenderer;
 			}
+
+			/// La carte d'entree du joueur 1 (voir « ENTREES DU JEU » en tete).
+			[[nodiscard]] NkInputMap &GetInput() noexcept {
+				return mInput;
+			}
+
+			/// Lit un fichier texte d'entrees (format de NkInputMap::Load). Rend
+			/// le rapport : un fichier absent est une erreur NOMMEE, pas un silence.
+			NkInputMapReport LoadInputFile(const char *path);
+			/// Ecrit la carte (NkInputMap::Save). false si l'ecriture echoue.
+			bool SaveInputFile(const char *path) const;
 
 			// ── Raccourcis scène ──────────────────────────────────────────
 			/**
@@ -146,6 +168,7 @@ namespace nkentseu {
 			ecs::NkScheduler mScheduler;
 			ecs::NkSceneManager mSceneMgr;
 
+			NkInputMap mInput; ///< entrees du joueur 1, nourries par OnEvent, avancees par OnUpdate
 			renderer::NkRenderer *mRenderer = nullptr; // EMPRUNTÉ à NkApplication (non possédé)
 			NkRenderSystem mRenderSystem;
 
