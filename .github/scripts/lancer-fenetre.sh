@@ -70,6 +70,23 @@ if ! kill -0 "$PID" 2>/dev/null; then
     # Le serveur de rapports ecrit le .ips une ou deux secondes apres la mort.
     sleep 3
     RAPPORT=$(RapportDePlantage)
+    # Sur un SIGNAL, la pile : le runner n'ecrit pas toujours de .ips (NKCraft,
+    # 2026-09-30 : « aucun rapport »). lldb relance et s'arrete sur la faute ;
+    # borne a 40 s, au cas ou le programme ne plante plus sous le debogueur.
+    if [ "$CODE" -gt 128 ]; then
+        lldb --batch -o "run" -k "bt 30" -k "quit 1" -- "$BIN" "$@" > "$SORTIE/$NOM-lldb.log" 2>&1 &
+        LLDB=$!
+        BORNE=0
+        while [ "$BORNE" -lt 40 ] && kill -0 "$LLDB" 2>/dev/null; do
+            sleep 1
+            BORNE=$((BORNE + 1))
+        done
+        kill -KILL "$LLDB" 2>/dev/null || true
+        pkill -KILL -x "$NOM" 2>/dev/null || true
+        RAPPORT="$RAPPORT
+--- pile lldb ---
+$(grep -A30 'stop reason' "$SORTIE/$NOM-lldb.log" | head -n 32 | cut -c1-250)"
+    fi
     echo "$RAPPORT" > "$SORTIE/$NOM-plantage.txt"
     echo "== $NOM est MORT apres ${ECOULE} s, code $CODE"
     echo "--- sortie du programme (fin) ---"
