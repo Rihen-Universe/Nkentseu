@@ -526,7 +526,11 @@ namespace nkentseu {
 
 				// (h8) le fichier RETOUCHE A LA MAIN : le parent deplace de 3 m, pas
 				//      ses enfants. L'enfant doit revenir a (parent o local).
-				const NkTransform2D tb = *s.Monde().Get<NkTransform2D>(s.EntiteParUid(ub));
+				// Jamais de pointeur nul lu sans garde : sous la contre-epreuve MF2
+				// (identites neuves a Restaurer) cette entite n'existe plus, et le
+				// banc TOMBAIT au lieu de rougir.
+				const NkTransform2D *ptb = s.Monde().Get<NkTransform2D>(s.EntiteParUid(ub));
+				const NkTransform2D tb = ptb != nullptr ? *ptb : NkTransform2D();
 				char avant[128];
 				char apres[128];
 				std::snprintf(avant, sizeof(avant), "\"transform\": \"%.9g %.9g %.9g %.9g %.9g\"",
@@ -550,7 +554,7 @@ namespace nkentseu {
 				const ecs::NkEntityId c4 = u.EntiteParUid(uc);
 				const NkTransform2D *tc4 = lu4 ? u.Monde().Get<NkTransform2D>(c4) : nullptr;
 				Temoin(tc4 != nullptr && PresV(tc4->position, NkVec2f(mondeC.x + 3.f, mondeC.y), 1.0e-4f) &&
-						   PresV(u.Local(c4)->position, NkVec2f(1.f, 0.f)),
+						   u.Local(c4) != nullptr && PresV(u.Local(c4)->position, NkVec2f(1.f, 0.f)),
 					   "(h8) fichier retouche (parent deplace) : l'enfant suit son local (x)",
 					   tc4 != nullptr ? tc4->position.x : -1.f);
 			}
