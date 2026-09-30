@@ -728,6 +728,18 @@ namespace nkentseu {
 			return {};
 		auto &sh = *sit;
 
+		// REFUS NOMME : sans fonction de sommets, Metal ne rend pas une erreur,
+		// il ARRETE le processus (« validateWithDevice: failed assertion
+		// vertexFunction must not be nil »). C'est ce qui tuait Tuto02..05 sur la
+		// CI macOS du 2026-09-30 : CreateShader avait recu du SPIR-V sans MSL et
+		// n'avait donc produit aucune fonction. Un pipeline invalide se rattrape ;
+		// un abort, non.
+		if (!sh.vert) {
+			NK_MTL_ERR("Pipeline refuse : le shader n'a pas de fonction de sommets (aucune source MSL "
+					   "fournie, ou compilation MSL en echec -- voir les erreurs Shader ci-dessus)\n");
+			return {};
+		}
+
 		MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
 		if (sh.vert)
 			pd.vertexFunction = (__bridge id<MTLFunction>)sh.vert;

@@ -917,6 +917,18 @@ namespace nkentseu {
 		// log le nom de la fonction + programme/VAO courants via les pointeurs
 		// BRUTS glad_* pour ne pas re-passer par le wrapper debug).
 		gladSetGLES2PostCallback(&NkWebGladPostCallback);
+
+#elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+		// ── REFUS NOMME sur les plateformes Apple ───────────────────────────────
+		// Ce device n'a AUCUN chemin de contexte Apple (ni NSGL ni EAGL), et il
+		// exige OpenGL 4.3 quand macOS plafonne a 4.1 : meme ecrit, le contexte
+		// serait refuse par la verification juste en dessous. Sans ce refus, les
+		// pointeurs glad restaient nuls et le premier glGetIntegerv plantait le
+		// processus (« GLAD: ERROR glGetIntegerv is NULL! », NKCraft sur la CI
+		// macOS du 2026-09-30). Sur Apple, le GPU passe par Metal.
+		NK_GL_ERR("OpenGL (NKRHI) indisponible sur macOS/iOS : aucun chemin de contexte, et 4.3 "
+				  "exige quand macOS plafonne a 4.1 -- utiliser Metal\n");
+		return false;
 #endif
 
 		// Vérifier GL 4.3 minimum (compute shaders) ou OpenGL ES 3.1+
