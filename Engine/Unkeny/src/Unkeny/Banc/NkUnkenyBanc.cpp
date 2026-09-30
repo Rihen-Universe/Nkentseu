@@ -45,6 +45,7 @@
 //   (j4)  une balle lachee sur le sol : UN contact DEBUT balle/sol, en entites ;
 //         (j4n) la meme balle lachee dans le vide : aucun
 //   (j5)  une zone declencheur traversee : DEBUT puis FIN, `a` = la zone
+//   (n1..n10) l'animateur (la HFSM de NKAnima) : NkUnkenyBancAnimateur.cpp
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -69,6 +70,9 @@
 
 namespace nkentseu {
 	namespace unkeny {
+
+		// Dans son propre fichier : il compte avec ce banc, par le meme Temoin.
+		void NkUnkenyBancAnimateur(void (*temoin)(bool, const char *, float32));
 
 		namespace {
 			int32 gEchecs = 0;
@@ -761,9 +765,16 @@ namespace nkentseu {
 				Temoin(entre >= 0 && sort > entre, "(j5) zone traversee : DEBUT puis FIN (pas de l'entree)", static_cast<float32>(entre));
 			}
 
+			// (n1) .. (n10)
+			NkUnkenyBancAnimateur(&Temoin);
+
 			std::printf("\n%s : %d reussis, %d echec%s\n", gEchecs == 0 ? "BANC UNKENY REUSSI" : "BANC UNKENY EN ECHEC", gReussis,
 						gEchecs, gEchecs > 1 ? "s" : "");
-			return gEchecs == 0 ? 0 : 1;
+			// Le banc du jeu imprime son PROPRE bilan : celui-ci reste comparable
+			// d'une version a l'autre (37 temoins au 29/09/2026).
+			const int32 echecs = gEchecs;
+			const int32 jeu = NkUnkenyLancerBancJeu();
+			return (echecs == 0 && jeu == 0) ? 0 : 1;
 		}
 
 	} // namespace unkeny

@@ -55,6 +55,9 @@ namespace nkentseu {
 			// atteint) ne doit pas s'appliquer a la frame suivante.
 			nextItemRectSet = false;
 			input.NewFrame();	   // transitions clic/relâche
+			// La zone IME est celle du champ focalise CETTE image : un champ qui
+			// n'est plus dessine ne doit plus retenir la liste de candidats.
+			imeZoneValid = false;
 
 
 			// ── Glisser-deposer : cycle de vie (2026-08-17) ───────────────────

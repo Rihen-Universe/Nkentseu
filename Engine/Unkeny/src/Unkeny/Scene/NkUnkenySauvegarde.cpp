@@ -167,6 +167,49 @@ namespace nkentseu {
 			}
 
 			// =================================================================
+			// Controleurs de personnage (2026-09-29) : champ par champ, par NOM.
+			// Un fichier ancien n'a pas ces objets : l'entite n'a pas de
+			// controleur, rien d'autre ne change. Un champ absent garde sa valeur
+			// par defaut (Lire* tolerants, plus haut).
+			// =================================================================
+			NkArchive EcrireReglagesControle(const NkReglagesControle2D &r) {
+				NkArchive o;
+				o.SetInt32(V("actionX"), r.actionX);
+				o.SetInt32(V("actionSauter"), r.actionSauter);
+				o.SetFloat32(V("vitesseMax"), r.vitesseMax);
+				o.SetFloat32(V("acceleration"), r.acceleration);
+				o.SetFloat32(V("freinage"), r.freinage);
+				o.SetFloat32(V("controleAir"), r.controleAir);
+				o.SetFloat32(V("vitesseSaut"), r.vitesseSaut);
+				o.SetFloat32(V("coyote"), r.coyote);
+				o.SetFloat32(V("tamponSaut"), r.tamponSaut);
+				o.SetFloat32(V("penteMax"), r.penteMax);
+				o.SetBool(V("actif"), r.actif);
+				return o;
+			}
+
+			void LireReglagesControle(const NkArchive &o, NkReglagesControle2D &r) {
+				LireI(o, "actionX", r.actionX);
+				LireI(o, "actionSauter", r.actionSauter);
+				LireF(o, "vitesseMax", r.vitesseMax);
+				LireF(o, "acceleration", r.acceleration);
+				LireF(o, "freinage", r.freinage);
+				LireF(o, "controleAir", r.controleAir);
+				LireF(o, "vitesseSaut", r.vitesseSaut);
+				LireF(o, "coyote", r.coyote);
+				LireF(o, "tamponSaut", r.tamponSaut);
+				LireF(o, "penteMax", r.penteMax);
+				LireB(o, "actif", r.actif);
+			}
+
+			void LireNomCourt(const NkArchive &o, const char *cle, char *dst, uint32 taille) {
+				NkString s;
+				if (o.GetString(V(cle), s)) {
+					std::snprintf(dst, taille, "%s", s.CStr());
+				}
+			}
+
+			// =================================================================
 			// Entites
 			// =================================================================
 			struct NkEntiteLue {
@@ -219,6 +262,10 @@ namespace nkentseu {
 					o.SetBool(V("rotationBloquee"), c.rotationBloquee);
 					o.SetFloat32(V("friction"), c.friction);
 					o.SetFloat32(V("rebond"), c.rebond);
+					// L'id du corps AU MOMENT de l'ecriture (2026-09-29) : ce n'est pas
+					// une identite (le corps renait sous un id neuf), c'est la cle qui
+					// permet de rebrancher les attaches des particules sur lui.
+					o.SetUInt32(V("id"), c.corpsId);
 					const physics::NkRigidBody &b = e.etatRigide;
 					o.SetString(V("etat"), NkNombres()
 											   .F(b.position.x).F(b.position.y).F(b.position.z)
@@ -234,6 +281,16 @@ namespace nkentseu {
 					o.SetUInt32(V("couleur"), e.mou.couleur);
 					o.SetBool(V("visible"), e.mou.visible);
 					a.SetObject(V("mou"), o);
+				}
+				if (e.aControleRigide) {
+					a.SetObject(V("controleRigide"), EcrireReglagesControle(e.controleRigide.reglages));
+				}
+				if (e.aControleMou) {
+					NkArchive o = EcrireReglagesControle(e.controleMou.reglages);
+					o.SetString(V("partiePoussee"), V(e.controleMou.partiePoussee));
+					o.SetString(V("partieSol"), V(e.controleMou.partieSol));
+					o.SetFloat32(V("redressement"), e.controleMou.redressement);
+					a.SetObject(V("controleMou"), o);
 				}
 				// Les composants declares, sous LEUR nom. Sans nom : memoire seulement.
 				NkArchive jeu;
@@ -327,6 +384,9 @@ namespace nkentseu {
 					LireF(o, "friction", c.friction);
 					LireF(o, "rebond", c.rebond);
 					c.corpsId = 0;
+					// L'ancien id (absent d'un fichier d'avant le 2026-09-29 : reste 0) :
+					// Restaurer s'en sert pour rebrancher les attaches, jamais comme id.
+					LireU(o, "id", c.corpsId);
 					physics::NkRigidBody &b = e.etatRigide;
 					// Par defaut, l'etat suit le transform : un fichier ecrit a la
 					// main peut omettre "etat".
@@ -352,6 +412,17 @@ namespace nkentseu {
 					LireU(o, "corpsId", e.mou.corpsId);
 					LireU(o, "couleur", e.mou.couleur);
 					LireB(o, "visible", e.mou.visible);
+				}
+				if (a.GetObject(V("controleRigide"), o)) {
+					e.aControleRigide = true;
+					LireReglagesControle(o, e.controleRigide.reglages);
+				}
+				if (a.GetObject(V("controleMou"), o)) {
+					e.aControleMou = true;
+					LireReglagesControle(o, e.controleMou.reglages);
+					LireNomCourt(o, "partiePoussee", e.controleMou.partiePoussee, sizeof(e.controleMou.partiePoussee));
+					LireNomCourt(o, "partieSol", e.controleMou.partieSol, sizeof(e.controleMou.partieSol));
+					LireF(o, "redressement", e.controleMou.redressement);
 				}
 				// "jeu" : relu apres Init, par les noms que la scene connait alors
 				// (un nom inconnu est ignore — c'est un composant d'un autre jeu,
@@ -449,6 +520,44 @@ namespace nkentseu {
 				li.SetString(V("repos"), lr.Texte().View());
 				li.SetString(V("genre"), lg.Texte().View());
 				a.SetObject(V("l"), li);
+
+				// Parties nommees et attaches (2026-09-29) : ecrites seulement s'il y
+				// en a -- un monde qui n'en a pas s'ecrit exactement comme avant.
+				if (p.parties.Size() > 0u) {
+					NkVector<NkArchive> parties;
+					for (uint32 i = 0; i < p.parties.Size(); ++i) {
+						const physics::NkPartieP2D &q = p.parties[i];
+						NkArchive o;
+						o.SetUInt32(V("id"), q.id);
+						o.SetUInt32(V("corps"), q.corps);
+						o.SetString(V("nom"), V(q.nom));
+						NkNombres idx;
+						for (uint32 k = q.debut; k < q.debut + q.nombre; ++k) {
+							idx.U(p.partiesParticules[k]);
+						}
+						o.SetUInt32(V("n"), q.nombre);
+						o.SetString(V("particules"), idx.Texte().View());
+						parties.PushBack(o);
+					}
+					a.SetObjectArray(V("parties"), parties);
+					a.SetUInt32(V("prochainIdPartie"), p.prochainIdPartie);
+				}
+				if (p.attaches.Size() > 0u) {
+					NkVector<NkArchive> attaches;
+					for (uint32 i = 0; i < p.attaches.Size(); ++i) {
+						const physics::NkAttacheP2D &t = p.attaches[i];
+						NkArchive o;
+						o.SetUInt32(V("corps"), t.corps);
+						o.SetUInt32(V("particule"), t.particule);
+						o.SetUInt32(V("rigide"), t.rigide);
+						o.SetString(V("ancre"), NkNombres().V2(t.ancre).Texte().View());
+						o.SetFloat32(V("raideur"), t.raideur);
+						o.SetFloat32(V("rupture"), t.rupture);
+						o.SetBool(V("casse"), t.casse);
+						attaches.PushBack(o);
+					}
+					a.SetObjectArray(V("attaches"), attaches);
+				}
 				return a;
 			}
 
@@ -584,6 +693,57 @@ namespace nkentseu {
 					if (!lab.Ok() || !lc.Ok() || !lr.Ok() || !lg.Ok()) {
 						erreur = "tableau de liens tronque";
 						return false;
+					}
+				}
+
+				// Parties et attaches (2026-09-29). Absentes d'un fichier ancien : rien.
+				NkVector<NkArchive> parties;
+				if (a.GetObjectArray(V("parties"), parties)) {
+					for (uint32 i = 0; i < parties.Size(); ++i) {
+						physics::NkPartieP2D q;
+						LireU(parties[i], "id", q.id);
+						LireU(parties[i], "corps", q.corps);
+						LireNomCourt(parties[i], "nom", q.nom, sizeof(q.nom));
+						uint32 nb = 0;
+						LireU(parties[i], "n", nb);
+						NkString s;
+						(void)parties[i].GetString(V("particules"), s);
+						NkLecteur l(s);
+						q.debut = static_cast<uint32>(p.partiesParticules.Size());
+						for (uint32 k = 0; k < nb; ++k) {
+							uint32 idx = 0;
+							l.U(idx);
+							if (idx >= n) {
+								erreur = "partie vers une particule absente";
+								return false;
+							}
+							p.partiesParticules.PushBack(idx);
+						}
+						if (!l.Ok()) {
+							erreur = "partie tronquee";
+							return false;
+						}
+						q.nombre = nb;
+						p.parties.PushBack(q);
+					}
+					LireU(a, "prochainIdPartie", p.prochainIdPartie);
+				}
+				NkVector<NkArchive> attaches;
+				if (a.GetObjectArray(V("attaches"), attaches)) {
+					for (uint32 i = 0; i < attaches.Size(); ++i) {
+						physics::NkAttacheP2D t;
+						LireU(attaches[i], "corps", t.corps);
+						LireU(attaches[i], "particule", t.particule);
+						LireU(attaches[i], "rigide", t.rigide);
+						LireV2(attaches[i], "ancre", t.ancre);
+						LireF(attaches[i], "raideur", t.raideur);
+						LireF(attaches[i], "rupture", t.rupture);
+						LireB(attaches[i], "casse", t.casse);
+						if (t.particule >= n) {
+							erreur = "attache vers une particule absente";
+							return false;
+						}
+						p.attaches.PushBack(t);
 					}
 				}
 				return true;

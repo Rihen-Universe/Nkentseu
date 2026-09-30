@@ -44,7 +44,10 @@ with project("Unkeny"):
          # NKReflection vient avec NKSerialization, qui en depend.
          "NKReflection", "NKSerialization",
          # Le son (Son/NkUnkenySon) : NKAudio, deja lie par chaque jeu Unkeny.
-         "NKAudio"],
+         "NKAudio",
+         # La machine a etats d'animation (Anim/NkUnkenyAnimateur) : la HFSM
+         # de NKAnima. Foundation seule, aucun GPU : NKCanvas reste seul au rendu.
+         "NKAnima"],
         selfexport="Unkeny",
         extra_includes=["src"],
     )

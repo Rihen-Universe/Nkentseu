@@ -120,10 +120,35 @@ namespace nkentseu {
 		//            par clé : [time(f32)] [mat(16*f32)] [interp(u8)]
 		// (Section os uniquement en v1 — le header versionné permet d'ajouter
 		//  morph/transform/material plus tard sans casser les fichiers.)
+		//
+		// ⚠️ Un CLIP s'écrit toujours en v2, octet pour octet comme avant : un
+		// moteur d'avant le 2026-09-29 continue de lire les clips qu'on écrit.
+		//
+		// LA MACHINE À ÉTATS N'EST PAS UN CLIP, ET N'EST PLUS UN .nkanim
+		// (décision de Rihen du 2026-09-30). Elle s'écrit dans SON format,
+		// `.nkanimctl` — « contrôleur d'animation » : l'extension dit l'usage.
+		// Règle de CONVENTIONS_FICHIERS.md §1 : deux fichiers qu'on dépose au même
+		// endroit avec le même effet partagent leur extension, sinon ils en
+		// changent. Le fichier se reconnaît à son MAGIC, 'NKAC', pas à son nom :
+		//   [magic 'NKAC'(u32)] [version(u32)=1] [nbSections(u32)]
+		//     par section : [étiquette(u32)] [taille(u32)] [contenu]
+		// La section 'HFSM' porte la machine (voir NkAnimStateMachine::SaveToBytes).
+		//
+		// Le .nkanim v3 (29/09 → 30/09) : un corps de clip VIDE puis les mêmes
+		// sections. C'est ainsi que la machine s'écrivait pendant un jour ; la
+		// machine le RELIT toujours, le clip le REFUSE en le nommant.
+		// ⚠️ Ni .nkanim ni .nkanimctl ne passent par NkAssetFileHeader : NKAnima
+		// ne tire pas NKSerialization. La correspondance type <-> extension, elle,
+		// est dans NKSerialization (NkAssetType::Animation / AnimationController,
+		// NkAssetExtensionFor) — et nulle part ici.
 		// =====================================================================
 		namespace {
 			constexpr uint32 kNkAnimMagic = 0x4E414B4E; // 'NKAN' (little-endian)
-			constexpr uint32 kNkAnimVersion = 2;		// v2 : + section squelette (mode local)
+			constexpr uint32 kNkAnimVersion = 2;		// v2 : + section squelette (mode local) — version ÉCRITE pour un clip
+			constexpr uint32 kNkAnimVersionSections = 3; // v3 : corps v2 + sections (machine, 29/09 -> 30/09), relu par la machine
+			constexpr uint32 kNkAnimCtlMagic = 0x43414B4E;	 // 'NKAC' (little-endian) : .nkanimctl, contrôleur d'animation
+			constexpr uint32 kNkAnimCtlVersion = 1;
+			constexpr uint32 kNkAnimSectionHFSM = 0x4D534648; // 'HFSM' (little-endian)
 
 			struct ByteWriter {
 					NkVector<nk_uint8> buf;
@@ -230,40 +255,106 @@ namespace nkentseu {
 						return m;
 					}
 			};
+
+			// Le CORPS d'un clip : tout ce qui suit [magic][version]. Extrait de
+			// SaveBinary / LoadBinary le 2026-09-29, sans changer un octet. La
+			// machine le SAUTE encore quand elle relit un .nkanim v3.
+			void WriteClipBody(ByteWriter &w, const NkAnimationClip &c) {
+				w.str(c.name);
+				w.f32(c.duration);
+				w.f32(c.fps);
+				w.u8(c.loop ? 1 : 0);
+				w.u32((uint32)c.boneTracks.Size());
+				for (uint32 b = 0; b < (uint32)c.boneTracks.Size(); ++b) {
+					const NkAnimationTrack<NkMat4f> &tr = c.boneTracks[b];
+					w.str(tr.name);
+					w.u8(tr.enabled ? 1 : 0);
+					w.u32(tr.KeyCount());
+					for (uint32 k = 0; k < tr.KeyCount(); ++k) {
+						const NkKeyframe<NkMat4f> &kf = tr.GetKey(k);
+						w.f32(kf.time);
+						w.mat(kf.value);
+						w.u8((uint8)kf.interp);
+					}
+				}
+				// Section squelette (v2) : mode local + hiérarchie + inverseBind + topo.
+				w.u8(c.skeletalLocal ? 1 : 0);
+				w.u32((uint32)c.jointParent.Size());
+				for (uint32 j = 0; j < (uint32)c.jointParent.Size(); ++j)
+					w.i32(c.jointParent[j]);
+				w.u32((uint32)c.jointInverseBind.Size());
+				for (uint32 j = 0; j < (uint32)c.jointInverseBind.Size(); ++j)
+					w.mat(c.jointInverseBind[j]);
+				w.u32((uint32)c.jointTopo.Size());
+				for (uint32 j = 0; j < (uint32)c.jointTopo.Size(); ++j)
+					w.u32(c.jointTopo[j]);
+			}
+
+			// Lit le corps d'un clip de version `ver` (1, 2 ou 3). Rend le nombre
+			// d'os lus ; l'appelant juge `r.ok`.
+			uint32 ReadClipBody(ByteReader &r, uint32 ver, NkAnimationClip &c) {
+				// ⚠️ Tout COMPTE lu du fichier est borne par ce qui reste a lire
+				// (`taille` = octets minimum d'un element). Sans cette borne, un
+				// fichier etranger ou abime annoncait des milliards d'os : Resize
+				// geant, puis une boucle sans fin — mesure du 30/09, un .nkanimctl
+				// mal etiquete lu comme clip bloquait le banc vingt minutes. Un
+				// fichier valide n'est jamais touche par la borne.
+				auto borne = [&r](uint32 compte, usize taille) -> uint32 {
+					if (!r.ok || compte > (r.n - r.off) / taille) {
+						r.ok = false;
+						return 0u;
+					}
+					return compte;
+				};
+				c.name = r.str();
+				c.duration = r.f32();
+				c.fps = r.f32();
+				c.loop = (r.u8() != 0);
+				uint32 nb = borne(r.u32(), 9); // nom vide (4) + drapeau (1) + nombre de cles (4)
+				c.boneTracks.Clear();
+				c.boneTracks.Resize(nb);
+				c.boneCount = nb;
+				for (uint32 b = 0; b < nb; ++b) {
+					NkAnimationTrack<NkMat4f> &tr = c.boneTracks[b];
+					tr.name = r.str();
+					tr.enabled = (r.u8() != 0);
+					uint32 nk = borne(r.u32(), 4 + 16 * sizeof(float32) + 1); // temps + matrice + interp
+					for (uint32 k = 0; k < nk; ++k) {
+						float32 t = r.f32();
+						NkMat4f m = r.mat();
+						uint8 interp = r.u8();
+						tr.AddKey(t, m, (NkInterpMode)interp);
+					}
+				}
+				// Section squelette (v2+).
+				c.skeletalLocal = false;
+				c.jointParent.Clear();
+				c.jointInverseBind.Clear();
+				c.jointTopo.Clear();
+				if (ver >= 2) {
+					c.skeletalLocal = (r.u8() != 0);
+					uint32 np = borne(r.u32(), 4);
+					c.jointParent.Resize(np);
+					for (uint32 j = 0; j < np; ++j)
+						c.jointParent[j] = r.i32();
+					uint32 ni = borne(r.u32(), 16 * sizeof(float32));
+					c.jointInverseBind.Resize(ni);
+					for (uint32 j = 0; j < ni; ++j)
+						c.jointInverseBind[j] = r.mat();
+					uint32 nt = borne(r.u32(), 4);
+					c.jointTopo.Resize(nt);
+					for (uint32 j = 0; j < nt; ++j)
+						c.jointTopo[j] = r.u32();
+				}
+				return nb;
+			}
 		} // namespace
 
 		bool NkAnimationClip::SaveBinary(const NkString &path) const {
 			ByteWriter w;
 			w.u32(kNkAnimMagic);
 			w.u32(kNkAnimVersion);
-			w.str(name);
-			w.f32(duration);
-			w.f32(fps);
-			w.u8(loop ? 1 : 0);
-			w.u32((uint32)boneTracks.Size());
-			for (uint32 b = 0; b < (uint32)boneTracks.Size(); ++b) {
-				const NkAnimationTrack<NkMat4f> &tr = boneTracks[b];
-				w.str(tr.name);
-				w.u8(tr.enabled ? 1 : 0);
-				w.u32(tr.KeyCount());
-				for (uint32 k = 0; k < tr.KeyCount(); ++k) {
-					const NkKeyframe<NkMat4f> &kf = tr.GetKey(k);
-					w.f32(kf.time);
-					w.mat(kf.value);
-					w.u8((uint8)kf.interp);
-				}
-			}
-			// Section squelette (v2) : mode local + hiérarchie + inverseBind + topo.
-			w.u8(skeletalLocal ? 1 : 0);
-			w.u32((uint32)jointParent.Size());
-			for (uint32 j = 0; j < (uint32)jointParent.Size(); ++j)
-				w.i32(jointParent[j]);
-			w.u32((uint32)jointInverseBind.Size());
-			for (uint32 j = 0; j < (uint32)jointInverseBind.Size(); ++j)
-				w.mat(jointInverseBind[j]);
-			w.u32((uint32)jointTopo.Size());
-			for (uint32 j = 0; j < (uint32)jointTopo.Size(); ++j)
-				w.u32(jointTopo[j]);
+			WriteClipBody(w, *this);
 			if (!NkFile::WriteAllBytes(path.CStr(), w.buf)) {
 				logger.Errorf("[NkAnimClip] SaveBinary echec : %s\n", path.CStr());
 				return false;
@@ -281,54 +372,29 @@ namespace nkentseu {
 			}
 			ByteReader r(bytes.Data(), bytes.Size());
 			uint32 magic = r.u32(), ver = r.u32();
+			// Un fichier d'une AUTRE nature se refuse en la NOMMANT : « magic
+			// invalide » enverrait chercher une corruption qui n'existe pas.
+			if (magic == kNkAnimCtlMagic) {
+				logger.Errorf("[NkAnimClip] %s est un CONTROLEUR d'animation (.nkanimctl, machine a etats), pas un "
+							  "clip : NkAnimStateMachine::LoadBinary le lit\n",
+							  path.CStr());
+				return false;
+			}
 			if (magic != kNkAnimMagic) {
 				logger.Errorf("[NkAnimClip] magic invalide (0x%08X) : %s\n", magic, path.CStr());
+				return false;
+			}
+			if (ver == kNkAnimVersionSections) {
+				logger.Errorf("[NkAnimClip] %s est une machine a etats ecrite en .nkanim v3 (format du 29/09, remplace "
+							  "par .nkanimctl), pas un clip : NkAnimStateMachine::LoadBinary le lit\n",
+							  path.CStr());
 				return false;
 			}
 			if (ver < 1 || ver > kNkAnimVersion) {
 				logger.Errorf("[NkAnimClip] version %u non supportee : %s\n", ver, path.CStr());
 				return false;
 			}
-			name = r.str();
-			duration = r.f32();
-			fps = r.f32();
-			loop = (r.u8() != 0);
-			uint32 nb = r.u32();
-			boneTracks.Clear();
-			boneTracks.Resize(nb);
-			boneCount = nb;
-			for (uint32 b = 0; b < nb; ++b) {
-				NkAnimationTrack<NkMat4f> &tr = boneTracks[b];
-				tr.name = r.str();
-				tr.enabled = (r.u8() != 0);
-				uint32 nk = r.u32();
-				for (uint32 k = 0; k < nk; ++k) {
-					float32 t = r.f32();
-					NkMat4f m = r.mat();
-					uint8 interp = r.u8();
-					tr.AddKey(t, m, (NkInterpMode)interp);
-				}
-			}
-			// Section squelette (v2+).
-			skeletalLocal = false;
-			jointParent.Clear();
-			jointInverseBind.Clear();
-			jointTopo.Clear();
-			if (ver >= 2) {
-				skeletalLocal = (r.u8() != 0);
-				uint32 np = r.u32();
-				jointParent.Resize(np);
-				for (uint32 j = 0; j < np; ++j)
-					jointParent[j] = r.i32();
-				uint32 ni = r.u32();
-				jointInverseBind.Resize(ni);
-				for (uint32 j = 0; j < ni; ++j)
-					jointInverseBind[j] = r.mat();
-				uint32 nt = r.u32();
-				jointTopo.Resize(nt);
-				for (uint32 j = 0; j < nt; ++j)
-					jointTopo[j] = r.u32();
-			}
+			const uint32 nb = ReadClipBody(r, ver, *this);
 			if (!r.ok) {
 				logger.Errorf("[NkAnimClip] LoadBinary tronque : %s\n", path.CStr());
 				return false;
@@ -1001,67 +1067,550 @@ namespace nkentseu {
 
 		// =========================================================================
 		// NkAnimStateMachine
+		// -------------------------------------------------------------------------
+		// HIERARCHIQUE depuis le 2026-09-29. Jusque-la, la doc disait « HFSM » et
+		// le code etait PLAT : un niveau, trois conditions, aucune sous-machine.
+		// Les ajouts ne touchent pas le chemin plat : un etat de la racine, une
+		// transition a une condition et de priorite 0 donnent les memes choix,
+		// dans le meme ordre, que l'ancien Update (voir PickTransition).
 		// =========================================================================
-		int32 NkAnimStateMachine::AddState(const NkString &name, const NkAnimationClip *clip) {
-			State s;
-			s.name = name;
-			s.clip = clip;
-			mStates.PushBack(s);
-			if (mCurrent < 0)
-				mCurrent = (int32)mStates.Size() - 1;
-			return (int32)mStates.Size() - 1;
+
+		// ── Parametres ───────────────────────────────────────────────────────────
+		NkVector<NkAnimStateMachine::Param> &NkAnimStateMachine::Params() {
+			return mParamOwner ? mParamOwner->mParams : mParams;
 		}
 
-		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree1D *tree) {
-			State s;
-			s.name = name;
-			s.tree = tree;
-			mStates.PushBack(s);
-			if (mCurrent < 0)
-				mCurrent = (int32)mStates.Size() - 1;
-			return (int32)mStates.Size() - 1;
+		const NkVector<NkAnimStateMachine::Param> &NkAnimStateMachine::Params() const {
+			return mParamOwner ? mParamOwner->mParams : mParams;
 		}
 
-		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree2D *tree2d) {
-			State s;
-			s.name = name;
-			s.tree2d = tree2d;
-			mStates.PushBack(s);
-			if (mCurrent < 0)
-				mCurrent = (int32)mStates.Size() - 1;
-			return (int32)mStates.Size() - 1;
+		NkAnimStateMachine::Param *NkAnimStateMachine::FindParamPtr(const NkString &name, NkParamKind kind) {
+			NkVector<Param> &ps = Params();
+			for (uint32 i = 0; i < (uint32)ps.Size(); ++i) {
+				if (ps[i].kind == kind && ps[i].name == name) {
+					return &ps[i];
+				}
+			}
+			return nullptr;
 		}
 
-		void NkAnimStateMachine::AddTransition(int32 from, int32 to, const NkString &paramName, NkCondKind kind,
-											   float32 threshold, float32 fadeDur) {
-			Transition tr;
-			tr.from = from;
-			tr.to = to;
-			tr.param = paramName;
-			tr.kind = kind;
-			tr.threshold = threshold;
-			tr.fadeDur = fadeDur;
-			mTransitions.PushBack(tr);
+		const NkAnimStateMachine::Param *NkAnimStateMachine::FindParamPtr(const NkString &name, NkParamKind kind) const {
+			const NkVector<Param> &ps = Params();
+			for (uint32 i = 0; i < (uint32)ps.Size(); ++i) {
+				if (ps[i].kind == kind && ps[i].name == name) {
+					return &ps[i];
+				}
+			}
+			return nullptr;
+		}
+
+		NkAnimStateMachine::Param &NkAnimStateMachine::DeclareParamRef(const NkString &name, NkParamKind kind) {
+			if (Param *p = FindParamPtr(name, kind)) {
+				return *p;
+			}
+			Param p;
+			p.name = name;
+			p.kind = kind;
+			Params().PushBack(p);
+			return Params()[Params().Size() - 1];
+		}
+
+		void NkAnimStateMachine::DeclareParam(const NkString &name, NkParamKind kind, float32 defaultValue) {
+			Param &p = DeclareParamRef(name, kind);
+			p.defaultValue = defaultValue;
+			p.value = defaultValue;
 		}
 
 		void NkAnimStateMachine::SetBool(const NkString &name, bool v) {
-			mBools[name] = v;
+			DeclareParamRef(name, NkParamKind::BOOL).value = v ? 1.f : 0.f;
 		}
 
 		void NkAnimStateMachine::SetFloat(const NkString &name, float32 v) {
-			mFloats[name] = v;
+			DeclareParamRef(name, NkParamKind::FLOAT).value = v;
 		}
 
 		float32 NkAnimStateMachine::GetFloat(const NkString &name) const {
-			const float32 *p = mFloats.Find(name);
-			return p ? *p : 0.f;
+			const Param *p = FindParamPtr(name, NkParamKind::FLOAT);
+			return p ? p->value : 0.f;
+		}
+
+		bool NkAnimStateMachine::GetBool(const NkString &name) const {
+			const Param *p = FindParamPtr(name, NkParamKind::BOOL);
+			return p && p->value != 0.f;
+		}
+
+		void NkAnimStateMachine::SetTrigger(const NkString &name) {
+			DeclareParamRef(name, NkParamKind::TRIGGER).value = 1.f;
+		}
+
+		void NkAnimStateMachine::ResetTrigger(const NkString &name) {
+			if (Param *p = FindParamPtr(name, NkParamKind::TRIGGER)) {
+				p->value = 0.f;
+			}
+		}
+
+		bool NkAnimStateMachine::GetTrigger(const NkString &name) const {
+			const Param *p = FindParamPtr(name, NkParamKind::TRIGGER);
+			return p && p->value != 0.f;
+		}
+
+		uint32 NkAnimStateMachine::GetParamCount() const {
+			return (uint32)Params().Size();
+		}
+
+		const NkString &NkAnimStateMachine::GetParamName(uint32 i) const {
+			static NkString sEmpty;
+			return i < (uint32)Params().Size() ? Params()[i].name : sEmpty;
+		}
+
+		NkAnimStateMachine::NkParamKind NkAnimStateMachine::GetParamKind(uint32 i) const {
+			return i < (uint32)Params().Size() ? Params()[i].kind : NkParamKind::FLOAT;
+		}
+
+		float32 NkAnimStateMachine::GetParamValue(uint32 i) const {
+			return i < (uint32)Params().Size() ? Params()[i].value : 0.f;
+		}
+
+		void NkAnimStateMachine::SetParamValue(uint32 i, float32 v) {
+			if (i < (uint32)Params().Size()) {
+				Params()[i].value = v;
+			}
+		}
+
+		int32 NkAnimStateMachine::FindParam(const NkString &name, NkParamKind kind) const {
+			const NkVector<Param> &ps = Params();
+			for (uint32 i = 0; i < (uint32)ps.Size(); ++i) {
+				if (ps[i].kind == kind && ps[i].name == name) {
+					return (int32)i;
+				}
+			}
+			return -1;
+		}
+
+		void NkAnimStateMachine::ResetParams() {
+			NkVector<Param> &ps = Params();
+			for (uint32 i = 0; i < (uint32)ps.Size(); ++i) {
+				ps[i].value = ps[i].defaultValue;
+			}
+		}
+
+		bool NkAnimStateMachine::ShareParametersWith(NkAnimStateMachine *owner) {
+			if (owner == nullptr) {
+				mParamOwner = nullptr;
+				return true;
+			}
+			// On remonte au VRAI proprietaire : une chaine a -> b -> c lirait
+			// sinon les parametres de b, qui ne sont plus les siens.
+			NkAnimStateMachine *root = owner->mParamOwner ? owner->mParamOwner : owner;
+			if (root == this) {
+				logger.Errorf("[NkAnimSM] ShareParametersWith refuse : cycle de partage\n");
+				return false;
+			}
+			mParamOwner = root;
+			return true;
+		}
+
+		// ── Structure ────────────────────────────────────────────────────────────
+		bool NkAnimStateMachine::ValidParent(int32 parent) const {
+			if (parent == NK_ROOT) {
+				return true;
+			}
+			return parent >= 0 && parent < (int32)mStates.Size() && mStates[(uint32)parent].composite;
+		}
+
+		int32 NkAnimStateMachine::AddStateImpl(int32 parent, const NkString &name, bool composite) {
+			if (!ValidParent(parent)) {
+				logger.Errorf("[NkAnimSM] '%s' refuse : le parent %d n'est pas une sous-machine\n", name.CStr(), parent);
+				return -1;
+			}
+			const int32 depth = (parent == NK_ROOT) ? 0 : mStates[(uint32)parent].depth + 1;
+			if (depth >= NK_MAX_DEPTH) {
+				logger.Errorf("[NkAnimSM] '%s' refuse : profondeur %d > NK_MAX_DEPTH\n", name.CStr(), depth);
+				return -1;
+			}
+			State s;
+			s.name = name;
+			s.parent = parent;
+			s.depth = depth;
+			s.composite = composite;
+			mStates.PushBack(s);
+			const int32 idx = (int32)mStates.Size() - 1;
+			// Tant que rien n'a demarre, la feuille courante SUIT la definition :
+			// c'est ce que faisait l'ancien « premier AddState = etat courant »,
+			// generalise a une racine dont le premier etat est une sous-machine.
+			if (!mStarted) {
+				mCurrent = ResolveLeaf(NK_ROOT);
+			}
+			return idx;
+		}
+
+		int32 NkAnimStateMachine::AddState(const NkString &name, const NkAnimationClip *clip) {
+			return AddState(NK_ROOT, name, clip);
+		}
+
+		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree1D *tree) {
+			return AddState(NK_ROOT, name, tree);
+		}
+
+		int32 NkAnimStateMachine::AddState(const NkString &name, NkBlendTree2D *tree2d) {
+			return AddState(NK_ROOT, name, tree2d);
+		}
+
+		int32 NkAnimStateMachine::AddState(int32 parent, const NkString &name, const NkAnimationClip *clip) {
+			const int32 idx = AddStateImpl(parent, name, false);
+			if (idx >= 0) {
+				mStates[(uint32)idx].clip = clip;
+				mStates[(uint32)idx].refKind = 1;
+				mStates[(uint32)idx].ref = clip ? clip->name : NkString();
+			}
+			return idx;
+		}
+
+		int32 NkAnimStateMachine::AddState(int32 parent, const NkString &name, NkBlendTree1D *tree) {
+			const int32 idx = AddStateImpl(parent, name, false);
+			if (idx >= 0) {
+				mStates[(uint32)idx].tree = tree;
+				mStates[(uint32)idx].refKind = 2;
+				mStates[(uint32)idx].ref = tree ? tree->name : NkString();
+			}
+			return idx;
+		}
+
+		int32 NkAnimStateMachine::AddState(int32 parent, const NkString &name, NkBlendTree2D *tree2d) {
+			const int32 idx = AddStateImpl(parent, name, false);
+			if (idx >= 0) {
+				mStates[(uint32)idx].tree2d = tree2d;
+				mStates[(uint32)idx].refKind = 3;
+				mStates[(uint32)idx].ref = tree2d ? tree2d->name : NkString();
+			}
+			return idx;
+		}
+
+		int32 NkAnimStateMachine::AddEmptyState(const NkString &name, int32 parent) {
+			return AddStateImpl(parent, name, false);
+		}
+
+		int32 NkAnimStateMachine::AddSubMachine(const NkString &name, int32 parent) {
+			return AddStateImpl(parent, name, true);
+		}
+
+		bool NkAnimStateMachine::SetEntryState(int32 machine, int32 state) {
+			if (!ValidParent(machine) || state < 0 || state >= (int32)mStates.Size() ||
+				mStates[(uint32)state].parent != machine) {
+				logger.Errorf("[NkAnimSM] SetEntryState refuse : %d n'est pas un enfant direct de %d\n", state, machine);
+				return false;
+			}
+			if (machine == NK_ROOT) {
+				mRootEntry = state;
+			} else {
+				mStates[(uint32)machine].entry = state;
+			}
+			if (!mStarted) {
+				mCurrent = ResolveLeaf(NK_ROOT);
+			}
+			return true;
+		}
+
+		int32 NkAnimStateMachine::EntryOf(int32 machine) const {
+			const int32 explicitEntry = (machine == NK_ROOT)
+											? mRootEntry
+											: ((machine >= 0 && machine < (int32)mStates.Size()) ? mStates[(uint32)machine].entry : -1);
+			if (explicitEntry >= 0 && explicitEntry < (int32)mStates.Size() &&
+				mStates[(uint32)explicitEntry].parent == machine) {
+				return explicitEntry;
+			}
+			for (uint32 i = 0; i < (uint32)mStates.Size(); ++i) {
+				if (mStates[i].parent == machine) {
+					return (int32)i;
+				}
+			}
+			return -1;
+		}
+
+		int32 NkAnimStateMachine::GetEntryState(int32 machine) const {
+			return ValidParent(machine) ? EntryOf(machine) : -1;
+		}
+
+		int32 NkAnimStateMachine::ResolveLeaf(int32 state) const {
+			int32 s = (state == NK_ROOT) ? EntryOf(NK_ROOT) : state;
+			// La descente est bornee par la profondeur : une definition qu'on
+			// aurait corrompue (entree qui remonte) ne peut pas boucler.
+			for (int32 guard = 0; guard <= NK_MAX_DEPTH; ++guard) {
+				if (s < 0 || s >= (int32)mStates.Size() || !mStates[(uint32)s].composite) {
+					return s;
+				}
+				const int32 e = EntryOf(s);
+				if (e < 0) {
+					return s; // sous-machine vide : elle tient lieu d'etat vide
+				}
+				s = e;
+			}
+			return s;
+		}
+
+		void NkAnimStateMachine::SetStateTag(int32 state, int32 tag) {
+			if (state >= 0 && state < (int32)mStates.Size()) {
+				mStates[(uint32)state].tag = tag;
+			}
+		}
+
+		int32 NkAnimStateMachine::GetStateTag(int32 state) const {
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].tag : 0;
+		}
+
+		const NkString &NkAnimStateMachine::GetStateName(int32 state) const {
+			static NkString sEmpty;
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].name : sEmpty;
+		}
+
+		int32 NkAnimStateMachine::GetStateParent(int32 state) const {
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].parent : NK_ROOT;
+		}
+
+		int32 NkAnimStateMachine::GetStateDepth(int32 state) const {
+			return (state >= 0 && state < (int32)mStates.Size()) ? mStates[(uint32)state].depth : -1;
+		}
+
+		bool NkAnimStateMachine::IsSubMachine(int32 state) const {
+			return state >= 0 && state < (int32)mStates.Size() && mStates[(uint32)state].composite;
+		}
+
+		int32 NkAnimStateMachine::FindState(const NkString &nameOrPath) const {
+			const char *p = nameOrPath.CStr();
+			bool chemin = false;
+			for (const char *q = p; *q; ++q) {
+				if (*q == '/') {
+					chemin = true;
+					break;
+				}
+			}
+			if (!chemin) {
+				for (uint32 i = 0; i < (uint32)mStates.Size(); ++i) {
+					if (mStates[i].name == nameOrPath) {
+						return (int32)i;
+					}
+				}
+				return -1;
+			}
+			// Un chemin : chaque segment est cherche parmi les enfants du precedent.
+			int32 parent = NK_ROOT;
+			int32 found = -1;
+			while (*p) {
+				const char *fin = p;
+				while (*fin && *fin != '/') {
+					++fin;
+				}
+				const NkString seg(p, (usize)(fin - p));
+				found = -1;
+				for (uint32 i = 0; i < (uint32)mStates.Size(); ++i) {
+					if (mStates[i].parent == parent && mStates[i].name == seg) {
+						found = (int32)i;
+						break;
+					}
+				}
+				if (found < 0) {
+					return -1;
+				}
+				parent = found;
+				p = *fin ? fin + 1 : fin;
+			}
+			return found;
+		}
+
+		// ── Transitions ──────────────────────────────────────────────────────────
+		void NkAnimStateMachine::AddTransition(int32 from, int32 to, const NkString &paramName, NkCondKind kind,
+											   float32 threshold, float32 fadeDur) {
+			// L'API plate est UNE transition a UNE condition, de priorite 0. Tout
+			// from < 0 etait « depuis n'importe ou » (le test etait from >= 0) :
+			// on le garde tel quel, -2 compris.
+			const int32 t = AddTransitionEx(from, to, fadeDur, 0);
+			AddCondition(t, paramName, kind, threshold);
+		}
+
+		int32 NkAnimStateMachine::AddTransitionEx(int32 from, int32 to, float32 fadeDur, int32 priority) {
+			Transition tr;
+			tr.from = from;
+			tr.to = to;
+			tr.any = from < 0;
+			tr.scope = NK_ROOT;
+			tr.fadeDur = fadeDur;
+			tr.priority = priority;
+			mTransitions.PushBack(tr);
+			return (int32)mTransitions.Size() - 1;
+		}
+
+		int32 NkAnimStateMachine::AddAnyStateTransition(int32 scope, int32 to, float32 fadeDur, int32 priority) {
+			if (!ValidParent(scope)) {
+				logger.Errorf("[NkAnimSM] AddAnyStateTransition refuse : %d n'est pas une sous-machine\n", scope);
+				return -1;
+			}
+			Transition tr;
+			tr.from = -1;
+			tr.to = to;
+			tr.any = true;
+			tr.scope = scope;
+			tr.fadeDur = fadeDur;
+			tr.priority = priority;
+			mTransitions.PushBack(tr);
+			return (int32)mTransitions.Size() - 1;
+		}
+
+		bool NkAnimStateMachine::AddCondition(int32 transition, const NkString &param, NkCondKind kind, float32 threshold) {
+			if (transition < 0 || transition >= (int32)mTransitions.Size()) {
+				return false;
+			}
+			Condition c;
+			c.param = param;
+			c.kind = kind;
+			c.threshold = threshold;
+			mTransitions[(uint32)transition].conds.PushBack(c);
+			switch (kind) {
+				case NkCondKind::BOOL_TRUE:
+				case NkCondKind::BOOL_FALSE:
+					DeclareParamRef(param, NkParamKind::BOOL);
+					break;
+				case NkCondKind::FLOAT_GREATER:
+				case NkCondKind::FLOAT_LESS:
+					DeclareParamRef(param, NkParamKind::FLOAT);
+					break;
+				case NkCondKind::TRIGGER:
+					DeclareParamRef(param, NkParamKind::TRIGGER);
+					break;
+				case NkCondKind::TIME_IN_STATE:
+					break; // aucun parametre : c'est l'horloge de la machine
+			}
+			return true;
+		}
+
+		bool NkAnimStateMachine::CondTrue(const Condition &c, int32 source) const {
+			switch (c.kind) {
+				case NkCondKind::BOOL_TRUE: {
+					const Param *p = FindParamPtr(c.param, NkParamKind::BOOL);
+					return p && p->value != 0.f;
+				}
+				case NkCondKind::BOOL_FALSE: {
+					const Param *p = FindParamPtr(c.param, NkParamKind::BOOL);
+					return !(p && p->value != 0.f);
+				}
+				case NkCondKind::TRIGGER: {
+					const Param *p = FindParamPtr(c.param, NkParamKind::TRIGGER);
+					return p && p->value != 0.f;
+				}
+				case NkCondKind::TIME_IN_STATE: {
+					const float32 t = GetTimeInState(source);
+					return t >= 0.f && t >= c.threshold;
+				}
+				default: {
+					const Param *p = FindParamPtr(c.param, NkParamKind::FLOAT);
+					const float32 v = p ? p->value : 0.f;
+					return (c.kind == NkCondKind::FLOAT_GREATER) ? (v > c.threshold) : (v < c.threshold);
+				}
+			}
+		}
+
+		// ── Chemin actif ─────────────────────────────────────────────────────────
+		int32 NkAnimStateMachine::BuildPath(int32 leaf, int32 *path) const {
+			if (leaf < 0 || leaf >= (int32)mStates.Size()) {
+				return 0;
+			}
+			const int32 n = mStates[(uint32)leaf].depth + 1;
+			int32 s = leaf;
+			for (int32 d = n - 1; d >= 0 && s >= 0; --d) {
+				path[d] = s;
+				s = mStates[(uint32)s].parent;
+			}
+			return n;
+		}
+
+		bool NkAnimStateMachine::IsInState(int32 state) const {
+			if (state < 0 || state >= (int32)mStates.Size()) {
+				return false;
+			}
+			int32 path[NK_MAX_DEPTH];
+			const int32 n = BuildPath(mCurrent, path);
+			const int32 d = mStates[(uint32)state].depth;
+			return d < n && path[d] == state;
+		}
+
+		float32 NkAnimStateMachine::GetTimeInState(int32 state) const {
+			if (!IsInState(state)) {
+				return -1.f;
+			}
+			return mClock - mEnteredAt[mStates[(uint32)state].depth];
+		}
+
+		NkString NkAnimStateMachine::GetCurrentPath() const {
+			int32 path[NK_MAX_DEPTH];
+			const int32 n = BuildPath(mCurrent, path);
+			NkString out;
+			for (int32 d = 0; d < n; ++d) {
+				if (d > 0) {
+					out.Append("/");
+				}
+				out.Append(mStates[(uint32)path[d]].name.CStr());
+			}
+			return out;
+		}
+
+		void NkAnimStateMachine::MarkEntered(int32 from, int32 to) {
+			int32 pa[NK_MAX_DEPTH];
+			int32 pb[NK_MAX_DEPTH];
+			const int32 na = BuildPath(from, pa);
+			const int32 nb = BuildPath(to, pb);
+			// Les niveaux communs aux deux chemins n'ont pas change d'etat : leur
+			// temps continue (passer de idle a marche ne remet pas « Sol » a zero).
+			int32 d = 0;
+			while (d < na && d < nb && pa[d] == pb[d]) {
+				++d;
+			}
+			for (; d < NK_MAX_DEPTH; ++d) {
+				mEnteredAt[d] = mClock;
+			}
+		}
+
+		void NkAnimStateMachine::EnsureStarted() {
+			if (mStarted && mCurrent >= 0 && mCurrent < (int32)mStates.Size()) {
+				return;
+			}
+			const int32 leaf = (mCurrent >= 0 && mCurrent < (int32)mStates.Size()) ? ResolveLeaf(mCurrent) : ResolveLeaf(NK_ROOT);
+			mCurrent = leaf;
+			if (mCurrent < 0) {
+				return;
+			}
+			mStarted = true;
+			for (int32 d = 0; d < NK_MAX_DEPTH; ++d) {
+				mEnteredAt[d] = mClock;
+			}
 		}
 
 		void NkAnimStateMachine::ForceState(int32 idx) {
 			if (idx >= 0 && idx < (int32)mStates.Size()) {
-				mCurrent = idx;
+				const int32 prev = mCurrent;
+				mCurrent = ResolveLeaf(idx);
 				mNext = -1;
 				mFadeT = 0.f;
+				if (!mStarted) {
+					mStarted = true;
+					for (int32 d = 0; d < NK_MAX_DEPTH; ++d) {
+						mEnteredAt[d] = mClock;
+					}
+				} else {
+					MarkEntered(prev, mCurrent);
+				}
+			}
+		}
+
+		void NkAnimStateMachine::Reset() {
+			mNext = -1;
+			mFadeT = 0.f;
+			mFadeDur = 0.f;
+			mCurrent = ResolveLeaf(NK_ROOT);
+			mStarted = mCurrent >= 0;
+			for (int32 d = 0; d < NK_MAX_DEPTH; ++d) {
+				mEnteredAt[d] = mClock;
+			}
+			if (mCurrent >= 0) {
+				mStates[(uint32)mCurrent].time = 0.f;
 			}
 		}
 
@@ -1070,14 +1619,66 @@ namespace nkentseu {
 			return (mCurrent >= 0 && mCurrent < (int32)mStates.Size()) ? mStates[(uint32)mCurrent].name : sEmpty;
 		}
 
-		bool NkAnimStateMachine::CondTrue(const Transition &tr) const {
-			if (tr.kind == NkCondKind::BOOL_TRUE) {
-				const bool *b = mBools.Find(tr.param);
-				return b && *b;
+		float32 NkAnimStateMachine::GetFadeWeight() const {
+			if (mNext < 0 || mFadeDur <= 0.f) {
+				return 0.f;
 			}
-			const float32 *f = mFloats.Find(tr.param);
-			const float32 v = f ? *f : 0.f;
-			return (tr.kind == NkCondKind::FLOAT_GREATER) ? (v > tr.threshold) : (v < tr.threshold);
+			return 1.f - (mFadeT > 0.f ? mFadeT / mFadeDur : 0.f);
+		}
+
+		int32 NkAnimStateMachine::PickTransition() const {
+			int32 path[NK_MAX_DEPTH];
+			const int32 n = BuildPath(mCurrent, path);
+			auto onPath = [&](int32 s) {
+				if (s < 0 || s >= (int32)mStates.Size()) {
+					return false;
+				}
+				const int32 d = mStates[(uint32)s].depth;
+				return d < n && path[d] == s;
+			};
+			int32 best = -1;
+			int32 bestPrio = 0;
+			int32 bestDepth = 0;
+			for (uint32 i = 0; i < (uint32)mTransitions.Size(); i++) {
+				const Transition &tr = mTransitions[i];
+				// Cible hors bornes, ou deja active (l'ancien « tr.to == mCurrent »,
+				// etendu aux ancetres : une any-state vers « Air » ne doit pas
+				// re-entrer dans Air a chaque trame passee dedans).
+				if (tr.to < 0 || tr.to >= (int32)mStates.Size() || onPath(tr.to)) {
+					continue;
+				}
+				int32 depth = 0;
+				int32 source = mCurrent;
+				if (tr.any) {
+					if (tr.scope != NK_ROOT && !onPath(tr.scope)) {
+						continue;
+					}
+					depth = (tr.scope == NK_ROOT) ? 0 : mStates[(uint32)tr.scope].depth + 1;
+					source = depth < n ? path[depth] : mCurrent;
+				} else {
+					if (!onPath(tr.from)) {
+						continue;
+					}
+					depth = mStates[(uint32)tr.from].depth;
+					source = tr.from;
+				}
+				// Strictement meilleure seulement : a egalite, la premiere ajoutee
+				// garde la place — c'est le `break` de l'ancienne boucle.
+				if (best >= 0 && !(tr.priority > bestPrio || (tr.priority == bestPrio && depth < bestDepth))) {
+					continue;
+				}
+				bool ok = true;
+				for (uint32 k = 0; k < (uint32)tr.conds.Size() && ok; ++k) {
+					ok = CondTrue(tr.conds[k], source);
+				}
+				if (!ok) {
+					continue;
+				}
+				best = (int32)i;
+				bestPrio = tr.priority;
+				bestDepth = depth;
+			}
+			return best;
 		}
 
 		void NkAnimStateMachine::EvalState(int32 idx, float32 dt, NkAnimationState &out, NkVector<NkMat4f> &outLocal,
@@ -1124,27 +1725,34 @@ namespace nkentseu {
 		}
 
 		void NkAnimStateMachine::Update(float32 dt) {
+			EnsureStarted();
 			if (mCurrent < 0 || mCurrent >= (int32)mStates.Size())
 				return;
+			mClock += dt;
 
 			// Transitions (pas de re-trigger pendant un fondu).
 			if (mNext < 0) {
-				for (uint32 i = 0; i < (uint32)mTransitions.Size(); i++) {
-					const Transition &tr = mTransitions[i];
-					if (tr.to < 0 || tr.to >= (int32)mStates.Size() || tr.to == mCurrent)
-						continue;
-					if (tr.from >= 0 && tr.from != mCurrent)
-						continue;
-					if (!CondTrue(tr))
-						continue;
-					mNext = tr.to;
-					mFadeDur = tr.fadeDur > 1e-3f ? tr.fadeDur : 1e-3f;
-					mFadeT = mFadeDur;
-					mStates[(uint32)mNext].time = 0.f; // repart du debut
-					if (mTransitionCb)
-						mTransitionCb(mStates[(uint32)mCurrent].name, mStates[(uint32)mNext].name,
-									  /*finished=*/false);
-					break;
+				const int32 t = PickTransition();
+				if (t >= 0) {
+					const Transition &tr = mTransitions[(uint32)t];
+					// Les declencheurs de CETTE transition sont consommes, et eux
+					// seuls : un « saut » pose en meme temps qu'un « attaque » ne
+					// perd pas l'attaque.
+					for (uint32 k = 0; k < (uint32)tr.conds.Size(); ++k) {
+						if (tr.conds[k].kind == NkCondKind::TRIGGER) {
+							ResetTrigger(tr.conds[k].param);
+						}
+					}
+					const int32 target = ResolveLeaf(tr.to);
+					if (target >= 0 && target != mCurrent) {
+						mNext = target;
+						mFadeDur = tr.fadeDur > 1e-3f ? tr.fadeDur : 1e-3f;
+						mFadeT = mFadeDur;
+						mStates[(uint32)mNext].time = 0.f; // repart du debut
+						if (mTransitionCb)
+							mTransitionCb(mStates[(uint32)mCurrent].name, mStates[(uint32)mNext].name,
+										  /*finished=*/false);
+					}
 				}
 			}
 
@@ -1187,11 +1795,299 @@ namespace nkentseu {
 					const int32 prev = mCurrent;
 					mCurrent = mNext;
 					mNext = -1;
+					MarkEntered(prev, mCurrent);
 					if (mTransitionCb)
 						mTransitionCb(mStates[(uint32)prev].name, mStates[(uint32)mCurrent].name,
 									  /*finished=*/true);
 				}
 			}
+		}
+
+		// ── Etat d'execution ─────────────────────────────────────────────────────
+		NkAnimStateMachine::NkRuntime NkAnimStateMachine::GetRuntime() const {
+			NkRuntime rt;
+			rt.current = mStarted ? mCurrent : -1;
+			rt.next = mNext;
+			rt.fadeT = mFadeT;
+			rt.fadeDur = mFadeDur;
+			rt.clock = mClock;
+			rt.currentTime = (mCurrent >= 0 && mCurrent < (int32)mStates.Size()) ? mStates[(uint32)mCurrent].time : 0.f;
+			rt.nextTime = (mNext >= 0 && mNext < (int32)mStates.Size()) ? mStates[(uint32)mNext].time : 0.f;
+			for (int32 d = 0; d < NK_MAX_DEPTH; ++d) {
+				rt.enteredAt[d] = mEnteredAt[d];
+			}
+			return rt;
+		}
+
+		void NkAnimStateMachine::SetRuntime(const NkRuntime &rt) {
+			const int32 n = (int32)mStates.Size();
+			const bool curOK = rt.current >= 0 && rt.current < n && !mStates[(uint32)rt.current].composite;
+			const bool nextOK = rt.next < 0 || (rt.next < n && !mStates[(uint32)rt.next].composite);
+			mClock = rt.clock;
+			for (int32 d = 0; d < NK_MAX_DEPTH; ++d) {
+				mEnteredAt[d] = rt.enteredAt[d];
+			}
+			if (!curOK || !nextOK) {
+				// Pas demarree, ou un etat que le modele n'a plus : on repart de
+				// l'entree. Lire un index perime donnerait un etat quelconque.
+				mStarted = false;
+				mCurrent = ResolveLeaf(NK_ROOT);
+				mNext = -1;
+				mFadeT = 0.f;
+				mFadeDur = 0.f;
+				return;
+			}
+			mStarted = true;
+			mCurrent = rt.current;
+			mNext = rt.next;
+			mFadeT = rt.fadeT;
+			mFadeDur = rt.fadeDur;
+			mStates[(uint32)mCurrent].time = rt.currentTime;
+			if (mNext >= 0) {
+				mStates[(uint32)mNext].time = rt.nextTime;
+			}
+		}
+
+		// ── Sauvegarde .nkanimctl ────────────────────────────────────────────────
+		// [magic 'NKAC'(u32)] [version(u32)=1] [nbSections(u32)]
+		//   par section : [etiquette(u32)] [taille(u32)] [contenu]
+		// (Le .nkanim v3 du 29/09 avait [magic 'NKAN'][3][corps de clip VIDE] en
+		// tete, puis exactement les memes sections : c'est ce qui le rend relisible.)
+		// Section 'HFSM' (contenu, version interne 1) :
+		//   [version(u32)=1] [nbEtats(u32)]
+		//     par etat : [nom] [parent(i32)] [genre(u8) 0 vide 1 clip 2 arbre1D
+		//                3 arbre2D 4 sous-machine] [ref] [etiquette(i32)] [entree(i32)]
+		//   [entreeRacine(i32)] [nbParams(u32)] par param : [nom] [genre(u8)] [defaut(f32)]
+		//   [nbTransitions(u32)] par transition : [from(i32)] [to(i32)] [any(u8)]
+		//     [portee(i32)] [fondu(f32)] [priorite(i32)] [nbConds(u32)]
+		//     par condition : [param] [genre(u8)] [seuil(f32)]
+		// Une etiquette de section inconnue est SAUTEE grace a sa taille : un
+		// lecteur de 2026 lira un fichier de 2027 qui aura ajoute une section.
+		void NkAnimStateMachine::SaveToBytes(NkVector<nk_uint8> &out) const {
+			ByteWriter w;
+			w.u32(kNkAnimCtlMagic);
+			w.u32(kNkAnimCtlVersion);
+			w.u32(1); // une section
+			ByteWriter s;
+			s.u32(1); // version de la section HFSM
+			s.u32((uint32)mStates.Size());
+			for (uint32 i = 0; i < (uint32)mStates.Size(); ++i) {
+				const State &st = mStates[i];
+				s.str(st.name);
+				s.i32(st.parent);
+				// Le genre est celui de la DECLARATION, pas celui du pointeur : un
+				// clip non resolu au chargement reste un etat-clip a la sauvegarde.
+				s.u8(st.composite ? (uint8)4 : st.refKind);
+				s.str(st.ref);
+				s.i32(st.tag);
+				s.i32(st.entry);
+			}
+			s.i32(mRootEntry);
+			const NkVector<Param> &ps = Params();
+			s.u32((uint32)ps.Size());
+			for (uint32 i = 0; i < (uint32)ps.Size(); ++i) {
+				s.str(ps[i].name);
+				s.u8((uint8)ps[i].kind);
+				s.f32(ps[i].defaultValue);
+			}
+			s.u32((uint32)mTransitions.Size());
+			for (uint32 i = 0; i < (uint32)mTransitions.Size(); ++i) {
+				const Transition &tr = mTransitions[i];
+				s.i32(tr.from);
+				s.i32(tr.to);
+				s.u8(tr.any ? 1 : 0);
+				s.i32(tr.scope);
+				s.f32(tr.fadeDur);
+				s.i32(tr.priority);
+				s.u32((uint32)tr.conds.Size());
+				for (uint32 k = 0; k < (uint32)tr.conds.Size(); ++k) {
+					s.str(tr.conds[k].param);
+					s.u8((uint8)tr.conds[k].kind);
+					s.f32(tr.conds[k].threshold);
+				}
+			}
+			w.u32(kNkAnimSectionHFSM);
+			w.u32((uint32)s.buf.Size());
+			w.raw(s.buf.Data(), s.buf.Size());
+			out = w.buf;
+		}
+
+		bool NkAnimStateMachine::LoadFromBytes(const nk_uint8 *data, usize size, const NkResolver &resolver) {
+			if (data == nullptr || size == 0) {
+				logger.Errorf("[NkAnimSM] LoadFromBytes : rien a lire\n");
+				return false;
+			}
+			ByteReader r(data, size);
+			const uint32 magic = r.u32();
+			const uint32 ver = r.u32();
+			if (magic == kNkAnimCtlMagic) {
+				if (ver != kNkAnimCtlVersion) {
+					logger.Errorf("[NkAnimSM] .nkanimctl v%u non supporte\n", ver);
+					return false;
+				}
+			} else if (magic == kNkAnimMagic) {
+				if (ver != kNkAnimVersionSections) {
+					// v1/v2 : un clip seul. Ce n'est pas un fichier casse, c'est un
+					// fichier d'une autre nature — NkAnimationClip::LoadBinary le lit.
+					logger.Errorf("[NkAnimSM] .nkanim v%u = clip seul, sans machine a etats\n", ver);
+					return false;
+				}
+				// Le .nkanim v3 du 29/09 : on saute son corps de clip vide, les
+				// sections qui suivent sont celles d'un .nkanimctl.
+				NkAnimationClip ignore;
+				ReadClipBody(r, ver, ignore);
+			} else {
+				logger.Errorf("[NkAnimSM] magic invalide (0x%08X) : ni .nkanimctl ni .nkanim\n", magic);
+				return false;
+			}
+			const uint32 nbSections = r.u32();
+			bool trouve = false;
+			NkAnimStateMachine lu;
+			for (uint32 sct = 0; sct < nbSections && r.ok; ++sct) {
+				const uint32 tag = r.u32();
+				const uint32 taille = r.u32();
+				if (!r.need(taille)) {
+					break;
+				}
+				if (tag != kNkAnimSectionHFSM || trouve) {
+					r.off += taille; // section inconnue : sautee, pas refusee
+					continue;
+				}
+				ByteReader s(r.p + r.off, taille);
+				r.off += taille;
+				const uint32 sv = s.u32();
+				if (sv != 1) {
+					logger.Errorf("[NkAnimSM] section HFSM v%u non supportee\n", sv);
+					return false;
+				}
+				const uint32 ns = s.u32();
+				for (uint32 i = 0; i < ns && s.ok; ++i) {
+					State st;
+					st.name = s.str();
+					st.parent = s.i32();
+					const uint8 genre = s.u8();
+					st.ref = s.str();
+					st.tag = s.i32();
+					st.entry = s.i32();
+					st.composite = genre == 4;
+					st.refKind = genre <= 3 ? genre : (uint8)0;
+					// Le parent doit PRECEDER l'enfant (c'est l'ordre d'ecriture) :
+					// sinon profondeur et chemin seraient faux sans le dire.
+					if (st.parent != NK_ROOT &&
+						(st.parent < 0 || st.parent >= (int32)i || !lu.mStates[(uint32)st.parent].composite)) {
+						logger.Errorf("[NkAnimSM] etat %u : parent %d invalide\n", i, st.parent);
+						return false;
+					}
+					st.depth = (st.parent == NK_ROOT) ? 0 : lu.mStates[(uint32)st.parent].depth + 1;
+					if (st.depth >= NK_MAX_DEPTH) {
+						logger.Errorf("[NkAnimSM] etat %u : trop profond\n", i);
+						return false;
+					}
+					if (genre == 1 && !st.ref.Empty()) {
+						st.clip = resolver.clip ? resolver.clip(st.ref) : nullptr;
+					} else if (genre == 2 && !st.ref.Empty()) {
+						st.tree = resolver.tree1D ? resolver.tree1D(st.ref) : nullptr;
+					} else if (genre == 3 && !st.ref.Empty()) {
+						st.tree2d = resolver.tree2D ? resolver.tree2D(st.ref) : nullptr;
+					}
+					if (genre >= 1 && genre <= 3 && !st.ref.Empty() && !st.clip && !st.tree && !st.tree2d) {
+						logger.Warn("[NkAnimSM] etat '{0}' : '{1}' non resolu, l'etat reste vide\n", st.name.CStr(),
+									st.ref.CStr());
+					}
+					lu.mStates.PushBack(st);
+				}
+				lu.mRootEntry = s.i32();
+				const uint32 np = s.u32();
+				for (uint32 i = 0; i < np && s.ok; ++i) {
+					Param p;
+					p.name = s.str();
+					p.kind = (NkParamKind)s.u8();
+					p.defaultValue = s.f32();
+					p.value = p.defaultValue;
+					if ((uint8)p.kind > (uint8)NkParamKind::TRIGGER) {
+						logger.Errorf("[NkAnimSM] parametre '%s' : genre inconnu\n", p.name.CStr());
+						return false;
+					}
+					lu.mParams.PushBack(p);
+				}
+				const uint32 nt = s.u32();
+				for (uint32 i = 0; i < nt && s.ok; ++i) {
+					Transition tr;
+					tr.from = s.i32();
+					tr.to = s.i32();
+					tr.any = s.u8() != 0;
+					tr.scope = s.i32();
+					tr.fadeDur = s.f32();
+					tr.priority = s.i32();
+					const uint32 nc = s.u32();
+					for (uint32 k = 0; k < nc && s.ok; ++k) {
+						Condition c;
+						c.param = s.str();
+						c.kind = (NkCondKind)s.u8();
+						c.threshold = s.f32();
+						if ((uint8)c.kind > (uint8)NkCondKind::TIME_IN_STATE) {
+							logger.Errorf("[NkAnimSM] condition de genre inconnu\n");
+							return false;
+						}
+						tr.conds.PushBack(c);
+					}
+					lu.mTransitions.PushBack(tr);
+				}
+				if (!s.ok) {
+					logger.Errorf("[NkAnimSM] section HFSM tronquee\n");
+					return false;
+				}
+				trouve = true;
+			}
+			if (!r.ok) {
+				logger.Errorf("[NkAnimSM] fichier de machine tronque\n");
+				return false;
+			}
+			if (!trouve) {
+				logger.Errorf("[NkAnimSM] aucune section HFSM dans ce fichier\n");
+				return false;
+			}
+			// La definition remplace l'ancienne ; le rappel et le partage de
+			// parametres, qui sont du CABLAGE et non de la definition, restent.
+			mStates = lu.mStates;
+			mTransitions = lu.mTransitions;
+			mParams = lu.mParams;
+			if (mParamOwner) {
+				// Parametres partages : la declaration va chez le proprietaire,
+				// sinon les conditions liraient des noms qu'il ne connait pas.
+				for (uint32 i = 0; i < (uint32)lu.mParams.Size(); ++i) {
+					if (!FindParamPtr(lu.mParams[i].name, lu.mParams[i].kind)) {
+						DeclareParam(lu.mParams[i].name, lu.mParams[i].kind, lu.mParams[i].defaultValue);
+					}
+				}
+			}
+			mRootEntry = lu.mRootEntry;
+			mNext = -1;
+			mFadeT = 0.f;
+			mFadeDur = 0.f;
+			mClock = 0.f;
+			mStarted = false;
+			mCurrent = ResolveLeaf(NK_ROOT);
+			return true;
+		}
+
+		bool NkAnimStateMachine::SaveBinary(const NkString &path) const {
+			NkVector<nk_uint8> bytes;
+			SaveToBytes(bytes);
+			if (!NkFile::WriteAllBytes(path.CStr(), bytes)) {
+				logger.Errorf("[NkAnimSM] SaveBinary echec : %s\n", path.CStr());
+				return false;
+			}
+			return true;
+		}
+
+		bool NkAnimStateMachine::LoadBinary(const NkString &path, const NkResolver &resolver) {
+			NkVector<nk_uint8> bytes = NkFile::ReadAllBytes(path.CStr());
+			if (bytes.Empty()) {
+				logger.Errorf("[NkAnimSM] LoadBinary vide/absent : %s\n", path.CStr());
+				return false;
+			}
+			return LoadFromBytes(bytes.Data(), bytes.Size(), resolver);
 		}
 
 	} // namespace anim

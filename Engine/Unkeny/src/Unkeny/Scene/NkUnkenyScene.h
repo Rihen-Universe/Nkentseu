@@ -43,6 +43,7 @@
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
+#include "Unkeny/Scene/NkUnkenyControles.h"
 
 #include <cstring>
 #include <type_traits>
@@ -232,6 +233,9 @@ namespace nkentseu {
 				/// reunis). Lus par un systeme NK_TRAME, ou par le jeu apres Pas.
 				/// ⚠️ Une entite detruite PENDANT le pas peut y figurer : tester
 				/// Monde().IsAlive avant de s'en servir.
+				/// Depuis le 2026-09-29, les CORPS MOUS y sont aussi : mou / rigide
+				/// (a = le corps mou), zone / mou (a = la zone, `declencheur`), mou /
+				/// mou. Avant, un corps mou qui traversait une zone ne declenchait rien.
 				const NkVector<NkContact2D> &Contacts() const noexcept {
 					return mContacts;
 				}
@@ -266,6 +270,11 @@ namespace nkentseu {
 						physics::NkRigidBody etatRigide;
 						NkCorpsMou2D mou;
 						bool aEtiquette = false, aSprite = false, aCollisionneur = false, aCorps = false, aMou = false;
+						/// Controleurs de personnage (2026-09-29, Scene/NkUnkenyControles.h),
+						/// ecrits champ par champ dans .nkscene -- pas en octets bruts.
+						NkControleRigide2D controleRigide;
+						NkControleMou2D controleMou;
+						bool aControleRigide = false, aControleMou = false;
 						/// Les composants declares par PhotographierAussi, bout a bout,
 						/// et le masque de ceux que l'entite portait (bit i = copieur i).
 						NkVector<uint8> extra;
@@ -375,6 +384,9 @@ namespace nkentseu {
 				};
 				void LancerSystemes(NkPhaseSysteme phase, float32 dt);
 				void Relever();
+				/// Les DEBUT / FIN des corps mous (NkParticules2D::ContactsDebut/Fin)
+				/// traduits en NkContact2D, comme ceux des rigides (2026-09-29).
+				void ReleverCorpsMous();
 
 				NkVector<NkSysteme> mSystemes;
 				uint32 mProchainSysteme = 1;

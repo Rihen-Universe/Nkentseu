@@ -42,7 +42,10 @@ namespace nkentseu {
 				float32 sleepTime = 0.5f;			// durée sous seuil avant sommeil (s)
 				float32 baumgarte = 0.2f;			// facteur de correction positionnelle
 				float32 slop = 0.005f;				// pénétration tolérée (anti-jitter)
-				bool enable2D = false;				// true => simulation contrainte au plan XY
+				// true => simulation contrainte au plan XY. ⚠️ LU depuis le 2026-09-29
+				// seulement (NkPhysicsWorld::ContraindrePlan) : avant, rien ne le lisait,
+				// et un corps pousse hors du plan en sortait (1 m en 1 s a 1 m/s).
+				bool enable2D = false;
 				int32 subSteps = 1;					// sous-pas internes par Step (chaînes de joints raides)
 				float32 fixedTimeStep = 1.f / 60.f; // pas fixe pour Advance() (déterminisme)
 				int32 maxSubSteps = 8;				// garde-fou Advance (anti spirale de la mort)
