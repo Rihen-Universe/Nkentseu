@@ -62,27 +62,33 @@ namespace nkentseu {
 	// Fonction utilitaire pour convertir un filtre utilisateur (ex: "*.png;*.jpg")
 	// en chaÃ®ne pour OPENFILENAME (double null-terminated avec des paires description|pattern)
 	static NkString Win32PrepareFilter(const NkString &userFilter) {
-		if (userFilter.Empty() || userFilter == "*.*")
-			return "All Files\0*.*\0";
-
-		// On va construire un filtre simple : on prend l'extension et on met un libellÃ©
-		// Exemple : "*.png;*.jpg" -> "Image Files (*.png;*.jpg)\0*.png;*.jpg\0"
+		// ⚠️ (2026-09-30, UnkenyEditor lot 1) LES ZEROS SONT POSES UN PAR UN.
+		//    L'ancien corps ecrivait `result += ")\0"` : un litteral C s'arrete au
+		//    premier zero, le separateur n'etait jamais ecrit, et OPENFILENAME
+		//    recevait une description SANS motif -- un selecteur qui ne montrait
+		//    rien des qu'on passait un vrai filtre (NKCraft s'en gardait en
+		//    passant « *.* », cf. NkModelerWelcome.h). Meme defaut pour le cas
+		//    « *.* » : `return "All Files\0*.*\0"` ne gardait que « All Files ».
+		//    Append(char) garde les zeros (la longueur compte, pas strlen).
+		//    Forme rendue : « description \0 motif \0 » + le zero final de la
+		//    chaine = la double terminaison attendue. Les « ; » du motif restent :
+		//    OPENFILENAME les accepte dans UN motif (« *.png;*.jpg »).
+		const bool tous = userFilter.Empty() || userFilter == "*.*";
 		NkString result;
-		result.Reserve(userFilter.Size() + 32);
-
-		// CrÃ©er une description basÃ©e sur l'extension
-		result += "Fichiers (";
-		result += userFilter;
-		result += ")\0";
-		result += userFilter;
-		result += "\0";
-
-		// Remplacer les ';' par des '\0' dans la partie pattern (OPENFILENAME attend des patterns sÃ©parÃ©s par des
-		// '\0') Mais la chaÃ®ne doit avoir des '\0' entre chaque pattern et un double '\0' Ã  la fin. Pour simplifier,
-		// on ne gÃ¨re pas les patterns multiples ; on les laisse tels quels, l'utilisateur peut passer "*.png;*.jpg" et
-		// Ã§a fonctionnera avec l'API Windows? En rÃ©alitÃ©, OPENFILENAME attend une liste de patterns sÃ©parÃ©s par
-		// ';' dans une seule chaÃ®ne, donc "*.png;*.jpg" est correct. On ajoute juste un double null Ã  la fin.
-		result.PushBack('\0'); // dÃ©jÃ  un null de la fin de la chaÃ®ne prÃ©cÃ©dente, mais on en ajoute un pour doubler
+		result.Reserve(userFilter.Size() * 2u + 32u);
+		const char *description = tous ? "Tous les fichiers (*.*)" : "Fichiers (";
+		for (const char *c = description; *c != '\0'; ++c)
+			result.Append(*c);
+		if (!tous) {
+			for (usize k = 0; k < userFilter.Size(); ++k)
+				result.Append(userFilter[k]);
+			result.Append(')');
+		}
+		result.Append('\0');
+		const char *motif = tous ? "*.*" : userFilter.CStr();
+		for (const char *c = motif; *c != '\0'; ++c)
+			result.Append(*c);
+		result.Append('\0');
 		return result;
 	}
 
