@@ -14,6 +14,10 @@
 //   - La selection est celle du MODELE : cliquer dans le viseur la change ici,
 //     cliquer ici la change dans le viseur.
 //   - Double-clic sur une entite : la vue se centre dessus (comme UE5).
+//   - (2026-09-29) C'est un ARBRE : chaque entite sous son parent (la
+//     hierarchie de la scene). Glisser une ligne sur une autre l'y RATTACHE,
+//     sans qu'elle bouge a l'ecran ; la lacher dans le vide la detache. Clic
+//     droit : le menu de l'entite (dont « Creer un prefab »).
 //   - L'OEIL et le CADENAS (2026-09-30) : NkDrapeauxEditeur, sauves dans la
 //     scene. Oeil ferme = ni dessinee ni prise dans la vue en EDITION ;
 //     cadenas = ni prise ni deplacee dans la vue. L'Outliner et les Details
@@ -60,8 +64,8 @@ namespace nkentseu {
 			// carre) : NkPeintreOutliner, plus bas, les TRACE.
 			constexpr uint16 ICONE_OEIL = 0x10u;
 			constexpr uint16 ICONE_CADENAS = 0x11u;
-			/// La NATURE d'une entite ET ses deux drapeaux, dans la poignee de son
-			/// icone : 0x100 | nature << 2 | cache << 1 | verrou.
+			/// La NATURE d'une entite ET ses drapeaux, dans la poignee de son icone :
+			/// 0x100 | nature << 4 | cacheHerite << 3 | verrouHerite << 2 | cache << 1 | verrou.
 			constexpr uint16 ICONE_NATURE = 0x100u;
 			enum : uint16 { NATURE_ENTITE = 0, NATURE_RIGIDE, NATURE_DECOR, NATURE_MOU };
 
@@ -116,12 +120,12 @@ namespace nkentseu {
 						}
 						if (poignee >= ICONE_NATURE) {
 							if (mAOeil) {
-								Oeil(mOeil, (poignee & 2u) != 0u);
+								Oeil(mOeil, (poignee & 2u) != 0u, (poignee & 8u) != 0u);
 							}
 							if (mACadenas) {
-								Cadenas(mCadenas, (poignee & 1u) != 0u);
+								Cadenas(mCadenas, (poignee & 1u) != 0u, (poignee & 4u) != 0u);
 							}
-							Nature(r, static_cast<uint16>((poignee >> 2) & 0x3Fu), role);
+							Nature(r, static_cast<uint16>((poignee >> 4) & 0xFu), role);
 							// Le NOM commence apres cette icone : le clic lent le demande.
 							const nkgui::NkVec2 s = mCtxO.input.mousePos;
 							if (s.y >= r.y && s.y < r.y + r.h) {
@@ -159,15 +163,18 @@ namespace nkentseu {
 					}
 
 					/// Ouvert : discret. Ferme : une paupiere et trois cils, plus VIFS --
-					/// une entite cachee doit se voir dans la liste.
-					void Oeil(const editorkit::NkPaintRect &r, bool cache) {
+					/// une entite cachee doit se voir dans la liste. Ferme par un
+					/// PARENT (`herite`) : la paupiere, ATTENUEE -- on voit qu'elle est
+					/// cachee, et que ce n'est pas ici que ca se rouvre (lecon de
+					/// NKCraft, NkTreeViewModel.h).
+					void Oeil(const editorkit::NkPaintRect &r, bool cache, bool herite) {
 						nkgui::NkGuiDrawList &dl = mCtxO.DL();
 						const float32 cx = r.x + r.w * 0.5f;
 						const float32 cy = r.y + r.h * 0.5f;
 						const float32 a = 6.f;
 						const float32 b = 3.4f;
 						constexpr float32 PI = 3.14159265f;
-						if (!cache) {
+						if (!cache && !herite) {
 							const NkColor col = Couleur(NkRole::TextMuted, 200);
 							nkgui::NkVec2 pts[18];
 							for (int32 k = 0; k < 9; ++k) {
@@ -179,7 +186,7 @@ namespace nkentseu {
 							dl.AddCircleFilled(nkgui::NkVec2{cx, cy}, 1.8f, col);
 							return;
 						}
-						const NkColor col = Couleur(NkRole::Text);
+						const NkColor col = cache ? Couleur(NkRole::Text) : Couleur(NkRole::TextMuted, 150);
 						nkgui::NkVec2 paupiere[9];
 						for (int32 k = 0; k < 9; ++k) {
 							const float32 t = static_cast<float32>(k) / 8.f;
@@ -194,12 +201,14 @@ namespace nkentseu {
 						}
 					}
 
-					/// Ouvert : l'anse levee, discret. Ferme : le corps plein, vif.
-					void Cadenas(const editorkit::NkPaintRect &r, bool verrou) {
+					/// Ouvert : l'anse levee, discret. Ferme : le corps plein, vif ;
+					/// ferme par un parent (`herite`) : plein, mais ATTENUE.
+					void Cadenas(const editorkit::NkPaintRect &r, bool propre, bool herite) {
 						nkgui::NkGuiDrawList &dl = mCtxO.DL();
 						const float32 cx = r.x + r.w * 0.5f;
 						const float32 cy = r.y + r.h * 0.5f;
-						const NkColor col = verrou ? Couleur(NkRole::Text) : Couleur(NkRole::TextMuted, 150);
+						const bool verrou = propre || herite;
+						const NkColor col = propre ? Couleur(NkRole::Text) : Couleur(NkRole::TextMuted, 150);
 						const NkRect corps{cx - 4.f, cy - 0.5f, 8.f, 6.f};
 						const float32 leve = verrou ? 0.f : 2.5f;
 						const float32 ra = 2.6f;
@@ -273,6 +282,16 @@ namespace nkentseu {
 				return c.m.scene.Monde().IsAlive(e) ? e : ecs::NkEntityId::Invalid();
 			}
 
+			/// L'entite d'un noeud (0 et la racine : aucune).
+			ecs::NkEntityId EntiteDuNoeud(const NkEditeurInterface &ui, nk_uint64 id) {
+				for (uint32 i = 1; i < ui.arbre.nodes.Size() && i < ui.arbreEntites.Size(); ++i) {
+					if (ui.arbre.nodes[i].id == id) {
+						return ui.arbreEntites[i];
+					}
+				}
+				return ecs::NkEntityId::Invalid();
+			}
+
 			/// Double-clic : la vue se centre sur l'entite.
 			void SurActivation(void *user, int32 index, const char *id) {
 				(void)id;
@@ -298,9 +317,20 @@ namespace nkentseu {
 				if (!e.IsValid()) {
 					return;
 				}
+				// ⚠️ UN ETAT HERITE NE SE BASCULE PAS SUR L'ENFANT : poser son propre
+				//    drapeau ne rouvrirait rien (le parent le tient toujours), et le
+				//    clic paraitrait sans effet. On le DIT.
 				if (drapeau == static_cast<uint8>(editorkit::NkTreeFlag::Visible)) {
+					if (!NkEditeurEstCache(c.m, e) && NkEditeurCacheHerite(c.m, e)) {
+						NkEditeurAnnoncer(c.m, "Cachee par un parent : c'est son oeil qu'il faut rouvrir");
+						return;
+					}
 					NkEditeurCacher(c.m, e, !NkEditeurEstCache(c.m, e));
 				} else {
+					if (!NkEditeurEstVerrouille(c.m, e) && NkEditeurVerrouHerite(c.m, e)) {
+						NkEditeurAnnoncer(c.m, "Verrouillee par un parent : c'est son cadenas qu'il faut ouvrir");
+						return;
+					}
 					NkEditeurVerrouiller(c.m, e, !NkEditeurEstVerrouille(c.m, e));
 				}
 			}
@@ -351,6 +381,10 @@ namespace nkentseu {
 				// Le double-clic CADRE (UE5) ; le renommage est F2, le menu, ou le
 				// clic lent -- ouverts par l'Outliner, pas par le kit.
 				ui.arbreReglages.SetParam("activate_on_double_click", 1.f);
+				// Les freres n'ont pas d'ordre a la main (celui de l'Outliner est
+				// l'ordre d'arrivee) : proposer « avant / apres » promettrait un geste
+				// qui n'existe pas. Deposer, c'est RATTACHER.
+				ui.arbreReglages.SetParam("drop_into_only", 1.f);
 				ui.arbreReglages.SetMetric("row_h", 22.f);
 			}
 
@@ -385,6 +419,44 @@ namespace nkentseu {
 				ui.ordreArbre = sortie;
 			}
 
+			/// Pose le noeud de `ids[i]` sous `parentNoeud`, puis ses enfants.
+			void Placer(NkEditeurCadre &c, const NkVector<ecs::NkEntityId> &ids, const NkVector<ecs::NkEntityId> &parents,
+						uint32 i, int32 parentNoeud, uint32 profondeur) {
+				NkEditeurInterface &ui = c.ui;
+				editorkit::NkTreeNode n;
+				n.id = IdNoeud(ids[i]);
+				n.parent = parentNoeud;
+				n.label = NomDe(c.m.scene, ids[i]);
+				// ⚠️ Chaine STATIQUE (NkEditeurTypeDe rend un litteral) : le
+				//    noeud ne garde qu'un pointeur, il ne copie pas.
+				n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
+				const uint16 nature = NatureDe(c.m.scene, ids[i]);
+				n.kindRole = static_cast<uint16>(nature == NATURE_MOU ? NkRole::AxisZ : NkRole::TextMuted);
+				const bool cache = NkEditeurEstCache(c.m, ids[i]);
+				const bool verrou = NkEditeurEstVerrouille(c.m, ids[i]);
+				const bool cacheHerite = NkEditeurCacheHerite(c.m, ids[i]);
+				const bool verrouHerite = NkEditeurVerrouHerite(c.m, ids[i]);
+				n.icon = static_cast<uint16>(ICONE_NATURE | (nature << 4) | (cacheHerite ? 8u : 0u) | (verrouHerite ? 4u : 0u) |
+											 (cache ? 2u : 0u) | (verrou ? 1u : 0u));
+				// `hidden` ne change que l'icone chez le kit : on le pose, pour qui
+				// lirait le modele. `locked` JAMAIS (voir NkPeintreOutliner).
+				n.hidden = cache;
+				n.userTag = i + 1u;
+				const int32 moi = static_cast<int32>(ui.arbre.nodes.Size());
+				ui.arbre.nodes.PushBack(n);
+				ui.arbreEntites.PushBack(ids[i]);
+				// Le composant borne sa profondeur (kMaxDepth) : au-dela, les enfants
+				// seraient mal ranges — ils restent dans la scene, pas dans l'arbre.
+				if (profondeur + 2u >= static_cast<uint32>(editorkit::NkTreeViewModel::kMaxDepth)) {
+					return;
+				}
+				for (uint32 k = 0; k < ids.Size(); ++k) {
+					if (parents[k] == ids[i]) {
+						Placer(c, ids, parents, k, moi, profondeur + 1u);
+					}
+				}
+			}
+
 			void Reconstruire(NkEditeurCadre &c) {
 				NkEditeurInterface &ui = c.ui;
 				NkVector<ecs::NkEntityId> brut;
@@ -403,25 +475,19 @@ namespace nkentseu {
 				ui.arbre.nodes.PushBack(racine);
 				ui.arbreEntites.PushBack(ecs::NkEntityId::Invalid());
 
+				// (2026-09-29) L'ARBRE. Le composant veut ses noeuds en ordre PREFIXE
+				// (un parent, puis toute sa descendance) : on place chaque racine, puis
+				// ses enfants dans l'ordre stable de l'Outliner, recursivement.
+				NkVector<ecs::NkEntityId> parents;
+				parents.Resize(ids.Size());
 				for (uint32 i = 0; i < ids.Size(); ++i) {
-					editorkit::NkTreeNode n;
-					n.id = IdNoeud(ids[i]);
-					n.parent = 0;
-					n.label = NomDe(c.m.scene, ids[i]);
-					// ⚠️ Chaine STATIQUE (NkEditeurTypeDe rend un litteral) : le
-					//    noeud ne garde qu'un pointeur, il ne copie pas.
-					n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
-					const uint16 nature = NatureDe(c.m.scene, ids[i]);
-					n.kindRole = static_cast<uint16>(nature == NATURE_MOU ? NkRole::AxisZ : NkRole::TextMuted);
-					const bool cache = NkEditeurEstCache(c.m, ids[i]);
-					const bool verrou = NkEditeurEstVerrouille(c.m, ids[i]);
-					n.icon = static_cast<uint16>(ICONE_NATURE | (nature << 2) | (cache ? 2u : 0u) | (verrou ? 1u : 0u));
-					// `hidden` ne change que l'icone chez le kit : on le pose, pour
-					// qui lirait le modele. `locked` JAMAIS (voir NkPeintreOutliner).
-					n.hidden = cache;
-					n.userTag = i + 1u;
-					ui.arbre.nodes.PushBack(n);
-					ui.arbreEntites.PushBack(ids[i]);
+					const ecs::NkEntityId p = c.m.scene.Parent(ids[i]);
+					parents[i] = Contient(ids, p) ? p : ecs::NkEntityId::Invalid();
+				}
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					if (!parents[i].IsValid()) {
+						Placer(c, ids, parents, i, 0, 0u);
+					}
 				}
 
 				// La selection du MODELE est celle que l'arbre montre.
@@ -568,10 +634,53 @@ namespace nkentseu {
 			hooks.onRename = &SurRenommage;
 			hooks.onContextMenu = &SurMenu;
 
-			const editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
+			editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
+			// ── Le glisser d'une ligne (2026-09-29) ──────────────────────────────
+			// Le composant sait QUELLE ligne est saisie (dragSource) ; c'est l'hote
+			// qui dit qu'un glisser est en cours. Il ne commence qu'au-dela de 4 px
+			// et seulement si l'appui etait DANS l'arbre : sinon un clic de selection
+			// serait un depot, et un glisser parti du viseur reparenterait.
+			{
+				const nkgui::NkGuiInput &in = c.ctx.input;
+				if (in.mouseClicked[0]) {
+					ui.appuiArbre = NkEditeurDans(arbreR, in.mousePos);
+					ui.departGlisseArbre = in.mousePos;
+					ui.glisseArbre = false;
+				}
+				if (in.mouseDown[0] && ui.appuiArbre && !ui.glisseArbre && ui.arbre.dragSource != 0) {
+					const float32 dx = in.mousePos.x - ui.departGlisseArbre.x;
+					const float32 dy = in.mousePos.y - ui.departGlisseArbre.y;
+					ui.glisseArbre = dx * dx + dy * dy > 16.f;
+				}
+				if (ui.glisseArbre) {
+					ci.dragType = "unkeny.entite";
+					ci.dragReleased = in.mouseReleased[0];
+				}
+			}
 			NkPeintreOutliner peintre(c.ctx, c.theme, ui.arbre.renameBuf);
 			const editorkit::NkTreeViewResult res = editorkit::NkDrawTreeView(
 				peintre, ci, editorkit::NkPaintRect{arbreR.x, arbreR.y, arbreR.w, arbreR.h}, ui.arbre, s, hooks);
+
+			// Le depot : APRES le dessin, jamais pendant (NkTreeViewResult).
+			if (res.dropAccepted && ui.glisseArbre) {
+				const ecs::NkEntityId source = EntiteDuNoeud(ui, res.dropSource);
+				const ecs::NkEntityId cible = EntiteDuNoeud(ui, res.dropTarget);
+				if (c.m.scene.Monde().IsAlive(source)) {
+					if (c.m.scene.Monde().IsAlive(cible)) {
+						NkEditeurRattacher(c.m, source, cible);
+					} else {
+						NkEditeurDetacher(c.m, source); // la racine « Scene », ou le vide
+					}
+				}
+			}
+			if (res.dropRefusedCycle && ui.glisseArbre) {
+				NkEditeurAnnoncer(c.m, "Rattachement refuse : une entite ne descend pas d'elle-meme");
+			}
+			if (c.ctx.input.mouseReleased[0]) {
+				ui.glisseArbre = false;
+				ui.appuiArbre = false;
+				ui.arbre.dragSource = 0;
+			}
 
 			if (res.selectionChanged) {
 				const int32 k = ui.arbre.IndexOf(ui.arbre.active);

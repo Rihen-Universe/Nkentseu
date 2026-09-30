@@ -88,8 +88,9 @@ namespace nkentseu {
 			};
 			NkVector<NkEcartee> ecartees;
 			if (m.etat == NkEtatJeu::NK_EDITION) {
-				scene.Monde().Query<NkDrapeauxEditeur>().ForEach([&](ecs::NkEntityId id, NkDrapeauxEditeur &d) {
-					if (!d.cache) {
+				// Elle, OU un ancetre : un parent cache cache sa descendance.
+				scene.Monde().Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &) {
+					if (!NkEditeurCacheDansLaVue(m, id)) {
 						return;
 					}
 					NkEcartee e;

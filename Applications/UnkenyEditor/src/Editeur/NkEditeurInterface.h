@@ -113,6 +113,8 @@ namespace nkentseu {
 			NK_A_ENTITE_ICI,			///< une entite vide au point du clic droit
 			NK_A_SIMPLE_ICI,			///< l'entite simple (sprite + boite) au point du clic droit
 			NK_A_ACCROCHAGE,			///< l'accrochage des gizmos, allume / eteint
+			NK_A_CREER_PREFAB,			///< un prefab de la selection (2026-09-29)
+			NK_A_DETACHER,				///< la selection devient une racine, a sa place
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -316,6 +318,12 @@ namespace nkentseu {
 				/// L'ordre de l'Outliner, garde d'une trame a l'autre : l'ECS range ses
 				/// entites par archetype, et ajouter un composant en deplacait une.
 				NkVector<ecs::NkEntityId> ordreArbre;
+				/// Le glisser d'une ligne de l'Outliner (2026-09-29) : il ne COMMENCE
+				/// qu'au-dela de quelques pixels, sans quoi chaque clic de selection
+				/// serait un depot sur soi-meme.
+				bool glisseArbre = false;
+				bool appuiArbre = false; ///< l'appui qui a commence le geste etait DANS l'arbre
+				nkgui::NkVec2 departGlisseArbre{0.f, 0.f};
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

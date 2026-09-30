@@ -30,7 +30,8 @@
 //   tours). Il est facultatif comme le reste : un RPG ne l'inclut jamais.
 //
 // LES ETAGES, du plus bas au plus haut
-//   Scene/     entites, composants, vue, monde physique
+//   Scene/     entites, composants, vue, monde physique ; identite stable,
+//              hierarchie, prefabs, sauvegarde
 //   Monde/     cartes de tuiles, couches, parallaxe
 //   Rendu/     dessin des sprites, des collisionneurs, de la grille
 //   Vues/      plusieurs vues d'une meme scene, miniatures hors ecran
@@ -64,8 +65,10 @@
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
+#include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 #include "Unkeny/Simulation/NkUnkenyActeurs.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"

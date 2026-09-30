@@ -161,7 +161,7 @@ namespace nkentseu {
 				const NkOutil o = c.m.outil;
 				const bool mode = o == NkOutil::NK_DEPLACER || o == NkOutil::NK_TOURNER || o == NkOutil::NK_ECHELLE;
 				return mode && c.m.aSelection && c.m.scene.Monde().IsAlive(c.m.selection) && NkEditeurPeutDeplacer(c.m) &&
-					   !NkEditeurEstVerrouille(c.m, c.m.selection) && !NkEditeurCacheDansLaVue(c.m, c.m.selection);
+					   !NkEditeurVerrouilleDansLaVue(c.m, c.m.selection) && !NkEditeurCacheDansLaVue(c.m, c.m.selection);
 			}
 
 			/// Le centre du gizmo, a l'ecran : le centre de l'entite.
