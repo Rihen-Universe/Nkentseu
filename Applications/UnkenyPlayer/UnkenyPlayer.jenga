@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+UnkenyPlayer.jenga — le JOUEUR AUTONOME d'Unkeny (palier U5 : livrer).
+=====================================================================
+L'application qu'on livre : elle relit un jeu CUIT par UnkenyEditor
+(Fichier > Construire) et le joue, avec le code meme de « Jouer » dans
+l'editeur (Engine/Unkeny/src/Unkeny/Partie/NkUnkenyPartie.h).
+
+CE FICHIER DECLARE LE PROJET DU JOUEUR UNE SEULE FOIS, pour deux usages :
+
+1. Inclus par Nkentseu.jenga : le joueur GENERIQUE, sans donnees a lui.
+
+       UnkenyPlayer.exe --jeu=CHEMIN/assets [--verifier]
+       UnkenyPlayer.exe --selftest
+
+2. Inclus par le workspace d'un JEU CONSTRUIT (<Jeu>.jenga, ECRIT par
+   l'editeur dans le dossier de sortie). Ce workspace definit, AVANT d'inclure
+   ce fichier, le dictionnaire UNKENY_JEU -- visible ici parce que Jenga
+   propage les globales du workspace racine a chaque fichier inclus
+   (Jenga/Core/Api.py, include._CreateExecContext) :
+
+       UNKENY_JEU = {
+           "projet":  "Gelee",                 # nom du projet et de l'executable
+           "donnees": "D:/Jeux/Gelee/assets",  # le dossier cuit (jeu.json, scene, textures...)
+           "icone":   "D:/.../icone_sombre.png",   # dans l'executable, l'APK, le favicon
+           "icone_livree": "D:/.../icone_claire.png",  # l'autre version, livree a cote (R17)
+           "id":      "com.unkeny.gelee",       # Android / HarmonyOS / iOS
+           "version": "1.0.0",
+       }
+
+   ⚠️ POURQUOI PAS UNE COPIE DE CE PROJET DANS LE FICHIER GENERE
+   Deux declarations du meme joueur (dependances, liens, drapeaux par
+   plateforme) divergeraient au premier correctif, et « le jeu construit ne
+   lie plus » n'apparaitrait que chez celui qui construit. Le workspace genere
+   ne porte donc que ce qui est PROPRE AU JEU.
+
+Emplacement : Applications/UnkenyPlayer/UnkenyPlayer.jenga
+"""
+
+from Jenga import *
+from jengaconfig import *
+from Jenga.Core.Api import androidallowrotation
+
+
+_VK_ON  = f"NKENTSEU_ENABLE_VULKAN_BACKEND={1 if WANT_VULKAN else 0}"
+_VK_OFF = "NKENTSEU_ENABLE_VULKAN_BACKEND=0"
+
+# Le jeu construit, s'il y en a un (voir l'en-tete). None : le joueur generique.
+_JEU = globals().get("UNKENY_JEU")
+_PROJET = _JEU["projet"] if _JEU else "UnkenyPlayer"
+_ID = _JEU["id"] if _JEU else "com.nkentseu.unkenyplayer"
+
+
+with project(_PROJET):
+    windowedapp()
+    language("C++")
+    cppdialect("C++17")
+    location(".")
+
+    files(["src/**.cpp"])
+
+    # Les dependances de l'editeur MOINS NKEditorKit : le joueur n'a ni
+    # panneaux ni arbre. NKMedia : NKAudio en depend (Opus) et le lien Windows
+    # ne le tire pas seul (mesure de l'editeur, 2026-09-29).
+    # ⚠️ Toute dependance ajoutee ici doit l'etre aussi a la liste des modules
+    #    du workspace genere (kModulesDuJoueur, NkEditeurConstruire.cpp) : le
+    #    banc de l'editeur (lg2) compare les deux.
+    nkentseudependson(
+        ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
+         "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
+         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
+         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny", "NKMedia"],
+        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
+                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+    )
+
+    objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+    targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
+
+    apppublisher("Rihen Universe")
+    appversion(_JEU["version"] if _JEU else "0.1.0")
+    licensefile("../../LICENSE")
+
+    if _JEU:
+        # L'icone SOMBRE dans l'executable (comme NKCraft, c7b1f814c) ; la
+        # CLAIRE est livree a cote : Jenga n'a qu'une icone par cible.
+        appicon(_JEU["icone"])
+        # « src => dest » : sans destination, un dossier hors du workspace
+        # serait APLATI dans le paquet (Package._CollectDependFiles). Pour un
+        # FICHIER, la destination est un DOSSIER : « => icone_claire.png »
+        # rangeait icone_claire.png/icone_claire.png (mesure du 2026-09-30) ;
+        # une destination VIDE le pose a la racine, a cote de l'executable.
+        dependfiles([_JEU["donnees"] + " => assets",
+                     _JEU["icone_livree"] + " => "])
+
+    with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
+        windowedapp()
+        usetoolchain(TC_WINDOWS)
+        defines(["WIN32_LEAN_AND_MEAN", "_UNICODE", "UNICODE", _VK_ON])
+        if VULKAN_LIB:
+            libdirs([VULKAN_LIB])
+        _WIN_LINKS = [
+            "user32", "gdi32", "opengl32", "dwmapi", "shell32",
+            "mf", "mfplat", "mfreadwrite", "mfuuid",
+            "uuid", "ole32", "dinput8", "dxguid",
+            "d3d11", "d3d12", "dxgi", "d3dcompiler",
+            "avrt", "winmm",
+        ]
+        if WANT_VULKAN:
+            _WIN_LINKS.append("vulkan-1")
+        links(_WIN_LINKS)
+        # 8 Mo de pile : la scene vit sur le tas, mais clang -O0 reserve large
+        # dans les prologues (11 Mo mesures pour le banc du moteur,
+        # UnkenyEditor.jenga).
+        ldflags(["-Wl,--stack,8388608"])
+
+    with filter("system:Linux"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines(["NKENTSEU_FORCE_WINDOWING_XLIB_ONLY", _VK_OFF])
+        links(["pthread", "X11", "Xext", "Xrandr", "GL", "asound"])
+
+    with filter("system:macOS"):
+        windowedapp()
+        usetoolchain("clang-native")
+        defines([_VK_OFF])
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal",
+                    "AudioToolbox", "CoreAudio", "AudioUnit"])
+
+    with filter("system:Android"):
+        windowedapp()
+        usetoolchain("android-ndk")
+        androidapplicationid(_ID)
+        androidisgame(True)
+        androidminsdk(24)
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["arm64-v8a", "x86_64"])
+        androidnativeactivity(True)
+        androidscreenorientation("landscape")
+        androidallowrotation(True)
+        androidstl("c++_shared")
+        defines([_VK_OFF])
+        links(["android", "log", "EGL", "GLESv3", "dl", "OpenSLES"])
+
+    if _JEU:
+        # Le CONTENU du dossier cuit a la racine des assets de l'APK : le
+        # joueur y lit « jeu.json » sans prefixe (NkDossierDuJeuParDefaut).
+        # ⚠️ androidassets n'est pas sensible aux filtres : il est donc pose
+        #    ici, hors filtre, et ne sert qu'a la construction Android.
+        androidassets([_JEU["donnees"]])
+
+    with filter("system:iOS"):
+        windowedapp()
+        frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation", "Metal",
+                    "AudioToolbox", "CoreAudio"])
+        iosbundleid(_ID)
+        iosversion("1.0")
+        iosminsdk("14.0")
+        iosbuildnumber(1)
+        defines([_VK_OFF])
+
+    with filter("system:HarmonyOS"):
+        windowedapp()
+        usetoolchain("ohos-ndk")
+        harmonybundlename(_ID)
+        harmonyminsdk(12)
+        harmonytargetapi(12)
+        harmonyorientation("landscape")
+        defines([_VK_OFF])
+        links(["hilog_ndk.z", "EGL", "GLESv3"])
+
+    with filter("system:Web"):
+        consoleapp()
+        usetoolchain("emscripten")
+        defines(["NKENTSEU_ENABLE_EMSCRIPTEN", _VK_OFF])
+        emscriptencanvasid("canvas")
+        emscripteninitialmemory(64)
+        _WEB = [
+            "-s", "ASYNCIFY",
+            "-s", "ALLOW_MEMORY_GROWTH=1",
+            "-s", "FULL_ES3=1",
+            "-s", "USE_WEBGL2=1",
+            "-s", "NO_EXIT_RUNTIME=1",
+        ]
+        if _JEU:
+            # Rien n'est embarque pour le Web sans --preload-file, et emcc veut
+            # un chemin ABSOLU. Monte en /assets : le joueur lit « assets/ ».
+            _WEB += ["--preload-file", _JEU["donnees"] + "@/assets"]
+        emscriptenextraflags(_WEB)
+
+    with filter("config:Debug"):
+        defines(["_DEBUG", "DEBUG"])
+        optimize("Off")
+        symbols(True)
+
+    with filter("config:Release"):
+        defines(["NDEBUG"])
+        optimize("Speed")
+        symbols(False)
