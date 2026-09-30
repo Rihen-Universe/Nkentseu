@@ -38,12 +38,17 @@
 #pragma once
 
 #include "NKCollision/NkCollisionWorld.h"
+#include "NKContainers/Associative/NkUnorderedMap.h"
+#include "NKECS/Hierarchy/NkHierarchy.h"
 #include "NKECS/World/NkWorld.h"
 #include "NKPhysics/NkParticules2D.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "Unkeny/Effets/NkUnkenyEffets.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
+#include "Unkeny/Scene/NkUnkenyChamps.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
+#include "Unkeny/Scene/NkUnkenyHierarchie.h"
+#include "Unkeny/Scene/NkUnkenyControles.h"
 
 #include <cstring>
 #include <type_traits>
@@ -135,6 +140,9 @@ namespace nkentseu {
 				/// Detruit l'entite ET son corps physique s'il en a un. Detruire
 				/// l'entite seule laisserait un corps orphelin qui continue de
 				/// collisionner avec du vide — defaut invisible et couteux.
+				/// Ses ENFANTS ne sont pas detruits : ils deviennent des racines, a
+				/// leur place dans le monde (comme UE5). DetruireAvecEnfants pour
+				/// la cascade.
 				void Detruire(ecs::NkEntityId id);
 
 				/// Le monde d'entites, en acces direct. Un jeu ecrit ses propres
@@ -233,6 +241,9 @@ namespace nkentseu {
 				/// reunis). Lus par un systeme NK_TRAME, ou par le jeu apres Pas.
 				/// ⚠️ Une entite detruite PENDANT le pas peut y figurer : tester
 				/// Monde().IsAlive avant de s'en servir.
+				/// Depuis le 2026-09-29, les CORPS MOUS y sont aussi : mou / rigide
+				/// (a = le corps mou), zone / mou (a = la zone, `declencheur`), mou /
+				/// mou. Avant, un corps mou qui traversait une zone ne declenchait rien.
 				const NkVector<NkContact2D> &Contacts() const noexcept {
 					return mContacts;
 				}
@@ -272,6 +283,60 @@ namespace nkentseu {
 				/// celles que la scene a creees. Pour un Outliner, un inspecteur.
 				void Entites(NkVector<ecs::NkEntityId> &out);
 
+				// --- Identite stable (2026-09-29, NkUnkenyHierarchie.cpp) --------
+				// La poignee ecs::NkEntityId CHANGE a Restaurer et au chargement ;
+				// l'identite, non. C'est elle que le fichier, les prefabs, la
+				// hierarchie et les references entre entites (NK_ENTITE) ecrivent.
+				// Creer la donne ; une entite faite a la main par Monde() la recoit
+				// au premier AssurerUid (Photographier le fait pour toutes).
+
+				/// L'identite de `id`, 0 s'il n'en a pas (ou s'il est mort).
+				uint64 Uid(ecs::NkEntityId id) const noexcept;
+				/// L'identite de `id`, donnee maintenant s'il n'en avait pas.
+				uint64 AssurerUid(ecs::NkEntityId id);
+				/// L'entite VIVANTE qui porte `uid`, ou Invalid(). Un uid ne sert
+				/// jamais deux fois dans la vie d'une scene : une entite detruite
+				/// ne se fait pas remplacer par une autre sous le meme numero.
+				ecs::NkEntityId EntiteParUid(uint64 uid);
+				uint64 ProchainUid() const noexcept {
+					return mProchainUid;
+				}
+
+				// --- Hierarchie (2026-09-29, NkUnkenyHierarchie.cpp) ------------
+				// NkTransform2D reste le MONDE (le rendu, la physique, les gizmos n'y
+				// voient aucune difference). Un enfant porte en plus ecs::NkParent et
+				// NkLocal2D ; PropagerHierarchie recalcule son monde. Voir
+				// NkUnkenyHierarchie.h pour la regle « qui gagne ».
+				//
+				// ⚠️ UN ENFANT A CORPS DYNAMIQUE OU MOU N'EST PAS PORTE : c'est la
+				//    physique qui le mene (comme un Rigidbody enfant chez Unity) ; son
+				//    local suit son monde. Un corps STATIQUE ou CINEMATIQUE, lui, est
+				//    porte — son corps est deplace avec lui.
+
+				/// Rattache `enfant` a `parent`. `garderMonde` : il ne bouge pas a
+				/// l'ecran (son local est calcule) ; sinon son transform actuel
+				/// DEVIENT son local. Refuse (false) : entite morte, soi-meme, boucle.
+				bool Rattacher(ecs::NkEntityId enfant, ecs::NkEntityId parent, bool garderMonde = true);
+				/// En fait une racine. `garderMonde` : il reste ou il est ; sinon son
+				/// local devient son monde.
+				bool Detacher(ecs::NkEntityId enfant, bool garderMonde = true);
+				/// Le parent vivant, ou Invalid() pour une racine.
+				ecs::NkEntityId Parent(ecs::NkEntityId id) const noexcept;
+				void Enfants(ecs::NkEntityId id, NkVector<ecs::NkEntityId> &out);
+				/// Toute la descendance, parents AVANT enfants.
+				void Descendants(ecs::NkEntityId id, NkVector<ecs::NkEntityId> &out);
+				/// Le local d'un enfant, ou nul pour une racine.
+				const NkTransform2D *Local(ecs::NkEntityId id) const noexcept;
+				/// Pose le local d'un enfant (le monde suit a la propagation, faite
+				/// ici). false pour une racine : son local EST son monde.
+				bool PoserLocal(ecs::NkEntityId enfant, const NkTransform2D &local);
+				/// Detruit l'entite ET toute sa descendance (corps compris).
+				void DetruireAvecEnfants(ecs::NkEntityId id);
+				/// Recalcule le monde de chaque enfant, parents d'abord. Pas() l'appelle ;
+				/// un editeur qui ne JOUE pas l'appelle a chaque trame, pour que
+				/// deplacer un parent emporte ses enfants a l'ecran.
+				void PropagerHierarchie();
+
 				// --- Photo (Jouer / Arreter d'un editeur) ----------------------
 				/// Ce qu'il faut pour REFAIRE la scene a l'identique : les
 				/// composants d'Unkeny de chaque entite, l'etat de chaque corps
@@ -287,6 +352,11 @@ namespace nkentseu {
 						physics::NkRigidBody etatRigide;
 						NkCorpsMou2D mou;
 						bool aEtiquette = false, aSprite = false, aCollisionneur = false, aCorps = false, aMou = false;
+						/// Controleurs de personnage (2026-09-29, Scene/NkUnkenyControles.h),
+						/// ecrits champ par champ dans .nkscene -- pas en octets bruts.
+						NkControleRigide2D controleRigide;
+						NkControleMou2D controleMou;
+						bool aControleRigide = false, aControleMou = false;
 						// 2026-09-30 : ecrits champ par champ dans le fichier (pas en octets).
 						NkLumiere2D lumiere;
 						NkEmetteur2D emetteur;
@@ -294,16 +364,40 @@ namespace nkentseu {
 						bool aEmetteur = false;
 						/// Les composants declares par PhotographierAussi, bout a bout,
 						/// et le masque de ceux que l'entite portait (bit i = copieur i).
+						/// ⚠️ Un champ NK_ENTITE d'un composant DECRIT y porte l'IDENTITE
+						///    (uid, 8 octets) de sa cible, pas sa poignee : c'est ce qui
+						///    lui permet de survivre a Restaurer et au fichier.
 						NkVector<uint8> extra;
 						uint32 extraPresents = 0u;
+						// --- Ajoutes le 2026-09-29 (identite et hierarchie) ---------
+						uint64 uid = 0;		  ///< NkIdentite2D ; 0 = en donner une neuve
+						uint64 parentUid = 0; ///< identite du parent ; 0 = racine
+						NkTransform2D local;  ///< NkLocal2D::local, si parentUid != 0
 				};
 				struct NkPhoto {
 						NkVector<NkPhotoEntite> entites;
 						physics::NkParticules2D particules;
 						NkEclairage2D eclairage; ///< 2026-09-30 : un cycle jour / nuit joue revient a l'arret
 						bool valide = false;
+						uint64 prochainUid = 0; ///< le compteur d'identites (2026-09-29)
 				};
 				void Photographier(NkPhoto &photo);
+
+				/// AJOUTE a la scene les entites d'une photo, SANS rien detruire —
+				/// Restaurer, c'est « tout detruire » puis ceci. Les identites de la
+				/// photo sont reprises telles quelles (0 = une neuve) : l'appelant qui
+				/// en veut de nouvelles (un prefab qu'on instancie) les renumerote
+				/// avant. Les parents et les champs NK_ENTITE sont rebranches par
+				/// identite, APRES que toutes les entites existent.
+				/// `crees` : les entites faites, dans l'ordre de la photo.
+				/// `nouvellesIdentites` : chaque entite recoit une identite NEUVE (une
+				/// instance de prefab, une copie) ; celles de la photo ne servent plus
+				/// qu'a rebrancher parents et references ENTRE entites de la photo.
+				void RefaireEntites(const NkVector<NkPhotoEntite> &entites, NkVector<ecs::NkEntityId> *crees = nullptr,
+									bool nouvellesIdentites = false);
+				/// La photo d'UNE entite (celle que Photographier prend pour chacune).
+				/// false si elle est morte ou n'a pas de transform.
+				bool PhotographierEntite(ecs::NkEntityId id, NkPhotoEntite &e);
 
 				/// Les composants declares par PhotographierAussi, dans l'ordre de
 				/// leur declaration — celui des octets de NkPhotoEntite::extra.
@@ -337,9 +431,9 @@ namespace nkentseu {
 				template <typename T> void PhotographierAussi(const char *nom = nullptr) {
 					static_assert(std::is_trivially_copyable<T>::value,
 								  "un composant photographie doit etre copiable bit a bit");
-					static const char cle = 0; // une adresse par type T
+					const void *cle = CleType<T>(); // une adresse par type T
 					for (uint32 i = 0; i < mCopieurs.Size(); ++i) {
-						if (mCopieurs[i].cle == &cle) {
+						if (mCopieurs[i].cle == cle) {
 							return; // deja declare
 						}
 					}
@@ -347,7 +441,7 @@ namespace nkentseu {
 						return;
 					}
 					NkCopieurPhoto k;
-					k.cle = &cle;
+					k.cle = cle;
 					k.nom = nom;
 					k.taille = static_cast<uint32>(sizeof(T));
 					k.lire = [](ecs::NkWorld &w, ecs::NkEntityId id, uint8 *dst) {
@@ -362,10 +456,68 @@ namespace nkentseu {
 						std::memcpy(&v, src, sizeof(T));
 						w.Add<T>(id, v);
 					};
+					k.defaut = [](uint8 *dst) {
+						const T v{};
+						std::memcpy(dst, &v, sizeof(T));
+					};
+					k.retirer = [](ecs::NkWorld &w, ecs::NkEntityId id) {
+						if (w.Has<T>(id)) {
+							w.Remove<T>(id);
+						}
+					};
 					mCopieurs.PushBack(k);
 				}
+
+				/// La meme declaration, AVEC la description de ses champs
+				/// (NkUnkenyChamps.h) : le composant est alors ecrit CHAMP PAR CHAMP
+				/// dans le fichier (portable, et relu apres l'ajout d'un champ), ses
+				/// references (entite, son, texture, prefab) sont ecrites par
+				/// identite ou par nom, et un prefab le fusionne champ par champ.
+				/// Sans description, rien ne change : les octets, comme avant.
+				///
+				/// `champs` : tableau STATIQUE (il n'est pas copie). Un champ faux
+				/// (genre et taille en desaccord, hors du composant) fait refuser TOUTE
+				/// la description — et le dit : le composant reste en octets.
+				/// Un composant deja declare sans description la recoit ici.
+				template <typename T> void PhotographierAussi(const char *nom, const NkChampSauve *champs, uint32 nbChamps) {
+					PhotographierAussi<T>(nom);
+					PoserChamps(CleType<T>(), nom, champs, nbChamps);
+				}
+
+				/// La description des champs du copieur `i` (nul s'il n'en a pas).
+				const NkChampSauve *ChampsComposantPhoto(uint32 i, uint32 &nombre) const noexcept {
+					nombre = i < mCopieurs.Size() ? mCopieurs[i].nbChamps : 0u;
+					return i < mCopieurs.Size() ? mCopieurs[i].champs : nullptr;
+				}
+				/// Ecrit dans `dst` (TailleComposantPhoto(i) octets) la valeur par
+				/// DEFAUT du composant `i` : la base d'une relecture champ par champ,
+				/// ou un champ absent du fichier garde sa valeur par defaut.
+				bool DefautComposantPhoto(uint32 i, uint8 *dst) const noexcept {
+					if (i >= mCopieurs.Size() || mCopieurs[i].defaut == nullptr) {
+						return false;
+					}
+					mCopieurs[i].defaut(dst);
+					return true;
+				}
+				/// Pose sur `id` le composant `i` depuis ses octets DE PHOTO (champs
+				/// NK_ENTITE en identites : ils sont rebranches ici). C'est le geste
+				/// qu'un prefab fait sur ses instances.
+				bool EcrireComposantPhoto(uint32 i, ecs::NkEntityId id, const uint8 *octets);
+				/// Retire de `id` le composant `i`.
+				bool RetirerComposantPhoto(uint32 i, ecs::NkEntityId id);
+				/// L'indice du copieur declare sous `nom`, ou -1.
+				int32 IndexComposantPhoto(const char *nom) const noexcept {
+					for (uint32 i = 0; nom != nullptr && i < mCopieurs.Size(); ++i) {
+						if (mCopieurs[i].nom != nullptr && std::strcmp(mCopieurs[i].nom, nom) == 0) {
+							return static_cast<int32>(i);
+						}
+					}
+					return -1;
+				}
 				/// Detruit toutes les entites et les refait depuis la photo. Les
-				/// identifiants d'entite CHANGENT ; ceux des corps mous, non.
+				/// POIGNEES d'entite (ecs::NkEntityId) CHANGENT ; ceux des corps mous,
+				/// non — et depuis le 2026-09-29 les IDENTITES (Uid) non plus, ni les
+				/// parents, ni les references NK_ENTITE des composants decrits.
 				void Restaurer(const NkPhoto &photo);
 
 				/// Nombre de pas fixes joues a la derniere trame. Zero est normal
@@ -382,8 +534,48 @@ namespace nkentseu {
 						uint32 taille = 0;
 						bool (*lire)(ecs::NkWorld &, ecs::NkEntityId, uint8 *) = nullptr;
 						void (*ecrire)(ecs::NkWorld &, ecs::NkEntityId, const uint8 *) = nullptr;
+						// --- 2026-09-29 : la description champ par champ ------------
+						void (*defaut)(uint8 *) = nullptr;
+						void (*retirer)(ecs::NkWorld &, ecs::NkEntityId) = nullptr;
+						const NkChampSauve *champs = nullptr; ///< tableau STATIQUE, ou nul
+						uint32 nbChamps = 0;
 				};
 				NkVector<NkCopieurPhoto> mCopieurs;
+
+				/// Une adresse par type T : la cle d'un copieur.
+				template <typename T> static const void *CleType() noexcept {
+					static const char cle = 0;
+					return &cle;
+				}
+				void PoserChamps(const void *cle, const char *nom, const NkChampSauve *champs, uint32 nbChamps);
+				/// Dans les octets d'un composant decrit : poignee -> identite
+				/// (`versUid`), ou identite -> poignee (l'inverse), pour chaque champ
+				/// NK_ENTITE. C'est ce qui garde une reference juste a travers
+				/// Restaurer et le fichier.
+				/// `lot` : les identites d'un RefaireEntites en cours, cherchees AVANT
+				/// celles de la scene (une photo peut reprendre un uid deja vivant).
+				void ConvertirEntites(uint32 copieur, uint8 *octets, bool versUid,
+									  const NkUnorderedMap<uint64, ecs::NkEntityId> *lot = nullptr);
+				ecs::NkEntityId Resoudre(uint64 uid, const NkUnorderedMap<uint64, ecs::NkEntityId> *lot);
+
+				// --- Identite (NkUnkenyHierarchie.cpp) ---------------------------
+				uint64 mProchainUid = 1;
+				/// uid -> entite, refait quand une recherche tombe sur une entree
+				/// perimee. Jamais cru sans verification : une entree n'est rendue
+				/// que si l'entite vit ET porte toujours cet uid.
+				NkUnorderedMap<uint64, ecs::NkEntityId> mCacheUid;
+				void RefaireCacheUid();
+				/// Un enfant a corps STATIQUE ou CINEMATIQUE suit son parent : son
+				/// corps est pose au monde `m` (le pont 2D <-> 3D vit dans
+				/// NkUnkenyScene.cpp). Rend la rotation EXACTE que la synchronisation
+				/// physique reecrira, pour que la propagation suivante ne prenne pas
+				/// l'arrondi de l'aller-retour angle -> quaternion pour un geste.
+				float32 PorterCorps(ecs::NkEntityId id, const NkTransform2D &m);
+				/// Le corps de l'entite est-il mene par la physique (dynamique, mou) ?
+				bool MeneParPhysique(ecs::NkEntityId id) const noexcept;
+				/// Les enfants de `ids` dont le monde ne vaut pas (parent o local) —
+				/// un fichier retouche a la main — sont recales sur leur local.
+				void RecalerEnfants(const NkVector<ecs::NkEntityId> &ids);
 
 				void SynchroniserDepuisPhysique();
 				/// Centre des corps mous -> NkTransform2D, et destruction des
@@ -402,6 +594,9 @@ namespace nkentseu {
 				};
 				void LancerSystemes(NkPhaseSysteme phase, float32 dt);
 				void Relever();
+				/// Les DEBUT / FIN des corps mous (NkParticules2D::ContactsDebut/Fin)
+				/// traduits en NkContact2D, comme ceux des rigides (2026-09-29).
+				void ReleverCorpsMous();
 
 				NkVector<NkSysteme> mSystemes;
 				uint32 mProchainSysteme = 1;

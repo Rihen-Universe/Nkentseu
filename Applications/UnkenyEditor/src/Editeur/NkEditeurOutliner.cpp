@@ -13,6 +13,10 @@
 //   - La selection est celle du MODELE : cliquer dans le viseur la change ici,
 //     cliquer ici la change dans le viseur.
 //   - Double-clic sur une entite : la vue se centre dessus.
+//   - (2026-09-29) C'est un ARBRE : chaque entite sous son parent (la
+//     hierarchie de la scene). Glisser une ligne sur une autre l'y RATTACHE,
+//     sans qu'elle bouge a l'ecran ; la lacher dans le vide la detache. Clic
+//     droit : le menu de l'entite (dont « Creer un prefab »).
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -49,6 +53,32 @@ namespace nkentseu {
 					return NkString(e->nom);
 				}
 				return NkString::Format("Entite %u", static_cast<uint32>(id.index));
+			}
+
+			/// Clic droit sur une ligne : le MEME menu que dans le viseur. Le menu est
+			/// seulement demande ici (etat de l'interface) ; il se dessine plus tard.
+			void SurMenu(void *user, int32 index, float32 x, float32 y) {
+				NkEditeurCadre &c = *static_cast<NkEditeurCadre *>(user);
+				if (index <= 0 || index >= static_cast<int32>(c.ui.arbreEntites.Size())) {
+					return;
+				}
+				const ecs::NkEntityId e = c.ui.arbreEntites[static_cast<uint32>(index)];
+				if (!c.m.scene.Monde().IsAlive(e)) {
+					return;
+				}
+				c.m.selection = e;
+				c.m.aSelection = true;
+				NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_CTX_ENTITE, NkRect{x, y, 0.f, 0.f});
+			}
+
+			/// L'entite d'un noeud (0 et la racine : aucune).
+			ecs::NkEntityId EntiteDuNoeud(const NkEditeurInterface &ui, nk_uint64 id) {
+				for (uint32 i = 1; i < ui.arbre.nodes.Size() && i < ui.arbreEntites.Size(); ++i) {
+					if (ui.arbre.nodes[i].id == id) {
+						return ui.arbreEntites[i];
+					}
+				}
+				return ecs::NkEntityId::Invalid();
 			}
 
 			/// Double-clic : la vue se centre sur l'entite.
@@ -88,6 +118,10 @@ namespace nkentseu {
 				// Le renommage vit dans les Details (le champ Nom) : le double-clic
 				// ACTIVE, il n'ouvre pas une seconde saisie du meme nom.
 				ui.arbreReglages.SetParam("activate_on_double_click", 1.f);
+				// Les freres n'ont pas d'ordre a la main (celui de l'Outliner est
+				// l'ordre d'arrivee) : proposer « avant / apres » promettrait un geste
+				// qui n'existe pas. Deposer, c'est RATTACHER.
+				ui.arbreReglages.SetParam("drop_into_only", 1.f);
 				ui.arbreReglages.SetMetric("row_h", 22.f);
 			}
 
@@ -122,6 +156,34 @@ namespace nkentseu {
 				ui.ordreArbre = sortie;
 			}
 
+			/// Pose le noeud de `ids[i]` sous `parentNoeud`, puis ses enfants.
+			void Placer(NkEditeurCadre &c, const NkVector<ecs::NkEntityId> &ids, const NkVector<ecs::NkEntityId> &parents,
+						uint32 i, int32 parentNoeud, uint32 profondeur) {
+				NkEditeurInterface &ui = c.ui;
+				editorkit::NkTreeNode n;
+				n.id = IdNoeud(ids[i]);
+				n.parent = parentNoeud;
+				n.label = NomDe(c.m.scene, ids[i]);
+				// ⚠️ Chaine STATIQUE (NkEditeurTypeDe rend un litteral) : le
+				//    noeud ne garde qu'un pointeur, il ne copie pas.
+				n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
+				n.kindRole = static_cast<uint16>(NkRole::TextMuted);
+				n.userTag = i + 1u;
+				const int32 moi = static_cast<int32>(ui.arbre.nodes.Size());
+				ui.arbre.nodes.PushBack(n);
+				ui.arbreEntites.PushBack(ids[i]);
+				// Le composant borne sa profondeur (kMaxDepth) : au-dela, les enfants
+				// seraient mal ranges — ils restent dans la scene, pas dans l'arbre.
+				if (profondeur + 2u >= static_cast<uint32>(editorkit::NkTreeViewModel::kMaxDepth)) {
+					return;
+				}
+				for (uint32 k = 0; k < ids.Size(); ++k) {
+					if (parents[k] == ids[i]) {
+						Placer(c, ids, parents, k, moi, profondeur + 1u);
+					}
+				}
+			}
+
 			void Reconstruire(NkEditeurCadre &c) {
 				NkEditeurInterface &ui = c.ui;
 				NkVector<ecs::NkEntityId> brut;
@@ -140,18 +202,19 @@ namespace nkentseu {
 				ui.arbre.nodes.PushBack(racine);
 				ui.arbreEntites.PushBack(ecs::NkEntityId::Invalid());
 
+				// (2026-09-29) L'ARBRE. Le composant veut ses noeuds en ordre PREFIXE
+				// (un parent, puis toute sa descendance) : on place chaque racine, puis
+				// ses enfants dans l'ordre stable de l'Outliner, recursivement.
+				NkVector<ecs::NkEntityId> parents;
+				parents.Resize(ids.Size());
 				for (uint32 i = 0; i < ids.Size(); ++i) {
-					editorkit::NkTreeNode n;
-					n.id = IdNoeud(ids[i]);
-					n.parent = 0;
-					n.label = NomDe(c.m.scene, ids[i]);
-					// ⚠️ Chaine STATIQUE (NkEditeurTypeDe rend un litteral) : le
-					//    noeud ne garde qu'un pointeur, il ne copie pas.
-					n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
-					n.kindRole = static_cast<uint16>(NkRole::TextMuted);
-					n.userTag = i + 1u;
-					ui.arbre.nodes.PushBack(n);
-					ui.arbreEntites.PushBack(ids[i]);
+					const ecs::NkEntityId p = c.m.scene.Parent(ids[i]);
+					parents[i] = Contient(ids, p) ? p : ecs::NkEntityId::Invalid();
+				}
+				for (uint32 i = 0; i < ids.Size(); ++i) {
+					if (!parents[i].IsValid()) {
+						Placer(c, ids, parents, i, 0, 0u);
+					}
 				}
 
 				// La selection du MODELE est celle que l'arbre montre.
@@ -256,11 +319,55 @@ namespace nkentseu {
 			editorkit::NkTreeViewHooks hooks;
 			hooks.user = &c;
 			hooks.onActivate = &SurActivation;
+			hooks.onContextMenu = &SurMenu;
 
-			const editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
+			editorkit::NkComponentInput ci = NkEditeurEntreeComposant(c.ctx);
+			// ── Le glisser d'une ligne (2026-09-29) ──────────────────────────────
+			// Le composant sait QUELLE ligne est saisie (dragSource) ; c'est l'hote
+			// qui dit qu'un glisser est en cours. Il ne commence qu'au-dela de 4 px
+			// et seulement si l'appui etait DANS l'arbre : sinon un clic de selection
+			// serait un depot, et un glisser parti du viseur reparenterait.
+			{
+				const nkgui::NkGuiInput &in = c.ctx.input;
+				if (in.mouseClicked[0]) {
+					ui.appuiArbre = NkEditeurDans(arbreR, in.mousePos);
+					ui.departGlisseArbre = in.mousePos;
+					ui.glisseArbre = false;
+				}
+				if (in.mouseDown[0] && ui.appuiArbre && !ui.glisseArbre && ui.arbre.dragSource != 0) {
+					const float32 dx = in.mousePos.x - ui.departGlisseArbre.x;
+					const float32 dy = in.mousePos.y - ui.departGlisseArbre.y;
+					ui.glisseArbre = dx * dx + dy * dy > 16.f;
+				}
+				if (ui.glisseArbre) {
+					ci.dragType = "unkeny.entite";
+					ci.dragReleased = in.mouseReleased[0];
+				}
+			}
 			editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 			const editorkit::NkTreeViewResult res = editorkit::NkDrawTreeView(
 				peintre, ci, editorkit::NkPaintRect{arbreR.x, arbreR.y, arbreR.w, arbreR.h}, ui.arbre, s, hooks);
+
+			// Le depot : APRES le dessin, jamais pendant (NkTreeViewResult).
+			if (res.dropAccepted && ui.glisseArbre) {
+				const ecs::NkEntityId source = EntiteDuNoeud(ui, res.dropSource);
+				const ecs::NkEntityId cible = EntiteDuNoeud(ui, res.dropTarget);
+				if (c.m.scene.Monde().IsAlive(source)) {
+					if (c.m.scene.Monde().IsAlive(cible)) {
+						NkEditeurRattacher(c.m, source, cible);
+					} else {
+						NkEditeurDetacher(c.m, source); // la racine « Scene », ou le vide
+					}
+				}
+			}
+			if (res.dropRefusedCycle && ui.glisseArbre) {
+				NkEditeurAnnoncer(c.m, "Rattachement refuse : une entite ne descend pas d'elle-meme");
+			}
+			if (c.ctx.input.mouseReleased[0]) {
+				ui.glisseArbre = false;
+				ui.appuiArbre = false;
+				ui.arbre.dragSource = 0;
+			}
 
 			if (res.selectionChanged) {
 				const int32 k = ui.arbre.IndexOf(ui.arbre.active);

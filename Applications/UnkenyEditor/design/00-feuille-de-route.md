@@ -138,8 +138,8 @@ sous Windows 11, clang-mingw, Debug (message de `b1c5e0643`).
 | **Composants** | `Scene/NkUnkenyComposants.h` | `NkTransform2D`, `NkSprite2D` (atlas, couche), `NkCollisionneur2D` (cercle, boîte, capsule ; couches et masque ; déclencheur), `NkCorps2D` (identifiant, jamais la position), `NkCorpsMou2D`, `NkEtiquette`, `NkVitesse2D` | idem | ✅ |
 | **Logique de jeu** | `NkScene::AjouterSysteme` | planificateur **séquentiel** à deux phases (`NK_PAS_FIXE` avant la physique, `NK_TRAME` après) ; **pas** `ecs::NkScheduler`, qui impose des fils incompatibles avec le Web | (j1)–(j3) | ✅ |
 | **Contacts et zones** | `NkScene::Contacts()` | chocs et entrées / sorties de zone du dernier pas, **en entités** | (j4), (j5) | ✅ pour les **rigides seulement** (§ 4) |
-| **Photo** (Jouer / Arrêter) | `NkScene::Photographier`, `Restaurer`, `PhotographierAussi<T>` | refait la scène à l'identique ; un composant du jeu y entre par déclaration (32 types au plus) | (u5), (u5d), (e5) | ✅ ; ⚠️ les identifiants d'entité **changent** à la restauration |
-| **Sauvegarde** `.nkscene` | `Scene/NkUnkenySauvegarde.h` | JSON par NKSerialization ; composants d'Unkeny champ par champ ; état des rigides ; tout le monde de particules ; textures **par leur nom** | (s1)–(s4), Physic2D (u10), (e7) | ✅ ; ⚠️ composants du jeu écrits **en octets bruts** (non portables, § 7) |
+| **Photo** (Jouer / Arrêter) | `NkScene::Photographier`, `Restaurer`, `PhotographierAussi<T>` | refait la scène à l'identique ; un composant du jeu y entre par déclaration (32 types au plus) | (u5), (u5d), (e5) | ✅ ; les POIGNÉES d'entité changent à la restauration, mais depuis le 30/09 l'**identité stable** (`NkIdentite2D`, `Uid` / `EntiteParUid`), les parents et les références `NK_ENTITE` la traversent — témoins (i1), (h7), (i3) |
+| **Sauvegarde** `.nkscene` | `Scene/NkUnkenySauvegarde.h` | JSON par NKSerialization ; composants d'Unkeny champ par champ ; état des rigides ; tout le monde de particules ; textures **par leur nom** | (s1)–(s4), Physic2D (u10), (e7) | ✅ ; **version 2** depuis le 30/09 : identités, hiérarchie, composants du jeu DÉCRITS écrits champ par champ (portables, relus après l'ajout d'un champ), sons / textures / prefabs par leur nom ; un composant non décrit reste en octets ; la v1 se relit à l'identique (témoins (v1), (r1), (a7)) |
 | **Rendu** | `Rendu/NkUnkenyRendu.h` | sprites triés par couche, hors-champ non dessiné, compteurs ; formes pleines ; contours des collisionneurs ; grille et axes | (t4)–(t6) | ✅ |
 | **Rendu de la matière** | `Rendu/NkUnkenyRenduParticules.h` | ballon, gelée, tissu, fluides, sable, atomes, corde ; modes éclairé, filaire, contraintes, vitesse | Physic2D, éditeur (à l'œil) | 🔶 aucun témoin d'image |
 | **Textures** | `Rendu/NkUnkenyTextures.h` | NKImage → RGBA → téléverseur branché par l'appli ; chargement sans GPU ; renvoi après perte de contexte | (t1)–(t3), (t9) | ✅ |
@@ -155,7 +155,7 @@ sous Windows 11, clang-mingw, Debug (message de `b1c5e0643`).
 | **Vues posées, miniature** | `Vues/NkUnkenyVues.h` | suivi amorti **indépendant du pas** (`NkUnkenyVues.cpp:21-27`), bornes de carte, miniature hors écran | zéro appelant, zéro témoin ; pas de secousse ; `NkUnkenyCameraReelle.h`, cité à `:31`, **n'existe pas** | **U2** (suivi), **U7** (miniature de sauvegarde) |
 | **Carte de tuiles** | `Monde/NkUnkenyTuiles.h` | couches, parallaxe, nature des tuiles, conversions case ↔ monde | dessin, sauvegarde, corps statiques, édition, témoins | **U3** |
 | **Sièges** | `Jeu/NkUnkenySieges.h` | humain / IA par place, modes comme raccourcis jamais stockés ; `NK_RESEAU` prévu | zéro appelant | **U6** (et U10 pour le réseau) |
-| **Machine à états d'animation** | `Anim/NkUnkenyAnimateur.h` (2026-09-29) | `NkAnimateur2D` : paramètres (vitesse, au sol, saut…) → la **HFSM de NKAnima** choisit l'état → le clip de `NkAnimSprite2D` ; un modèle partagé, l'état de chaque entité dans son composant ; modèle « plateforme » fourni (Sol : idle / marche, Air : saut / chute) ; photographié et sauvé (`.nkscene`, clé `NkAnimateur2D`) ; modèles lisibles d'un `.nkanim` v3 | (n1)…(n9) | ✅ ; section Détails en lecture (état, paramètres modifiables) ; ni « + Ajouter », ni éditeur de graphe |
+| **Machine à états d'animation** | `Anim/NkUnkenyAnimateur.h` (2026-09-29) | `NkAnimateur2D` : paramètres (vitesse, au sol, saut…) → la **HFSM de NKAnima** choisit l'état → le clip de `NkAnimSprite2D` ; un modèle partagé, l'état de chaque entité dans son composant ; modèle « plateforme » fourni (Sol : idle / marche, Air : saut / chute) ; photographié et sauvé (`.nkscene`, clé `NkAnimateur2D`) ; modèles lisibles d'un `.nkanimctl` (extension du 30/09, décision de Rihen) | (n1)…(n10) | ✅ ; section Détails en lecture (état, paramètres modifiables) ; ni « + Ajouter », ni éditeur de graphe |
 | **Chemin animé** | `Anim/NkUnkenyChemin.h` | déplacement le long d'étapes, état immédiat et animation purement visuelle | zéro appelant ; trois copies vivent dans les jeux de plateau | **U6** |
 | **Mise en page, widgets** | `Ui/NkUnkenyGeometrie.h`, `NkUnkenyWidgets.h` | `NkPlanEcran` (bandeau + carré + bandes), `NkPlanGrille`, boutons, voile de fin de partie | zéro appelant hors Unkeny | **U6**, **U7** |
 
@@ -174,7 +174,7 @@ d'Unkeny, « 14/14 » au commit ; (e13)–(e18) s'y ajoutent dans l'arbre de tra
 | domaine | ce qui existe | état |
 |---|---|---|
 | **Chrome** | fenêtre sans cadre, menus Fichier / Édition / Fenêtre / Aide sur la ligne du titre, boutons de fenêtre ; onglets de scène dessous (✕, point « modifiée ») ; barre d'outils ; barre d'état ; cloisons déplaçables ; menus peints dans `dlOverlay` | ✅ (déplacement et redimensionnement de la fenêtre non essayés) |
-| **Outliner** | arbre du kit (`NkTreeViewModel`), ordre stable, type de chaque entité, recherche | ✅ ; ⚠️ **plat** : une racine et des entités, aucune hiérarchie (`NkEditeurOutliner.cpp:138-148`) |
+| **Outliner** | arbre du kit (`NkTreeViewModel`), ordre stable, type de chaque entité, recherche | ✅ ; **arbre** depuis le 30/09 : chaque entité sous son parent, glisser pour rattacher, lâcher dans le vide pour détacher, clic droit = menu de l'entité (dont « Créer un prefab ») — glisser NON essayé à la vraie souris |
 | **Détails / Monde** | une section par composant (Transform, Sprite, Collisionneur, Corps rigide, Corps mou, Source sonore, Animation, et depuis le 2026-09-29 Animateur — sans « Retirer » ni place dans « + Ajouter »), retirable ; « + Ajouter » ; le Monde règle gravité, température, vent, frein de l'air, sous-pas | ✅ |
 | **Tiroir** | Acteurs (le catalogue de simulation, glisser vers la vue) et Journal | ✅ ; ce n'est **pas** un navigateur de fichiers de projet |
 | **Viseur** | viseur plein, grille, collisionneurs, liens, particules, vitesses ; profils d'appareils (6) et zone sûre en surimpression, paysage | ✅ |
@@ -182,7 +182,7 @@ d'Unkeny, « 14/14 » au commit ; (e13)–(e18) s'y ajoutent dans l'arbre de tra
 | **Gestes UE5** | clic de sélection, glisser, menu contextuel, gizmos Q/W/E/R, accrochage, origine du monde | 🔶 en cours (tableau des demandes) |
 | **Jouer** | Jouer / Pause / Un pas / Arrêter (la photo rend la scène d'avant) | ✅ ; ⚠️ en jeu, **aucune entrée n'arrive au jeu** : les touches vont à NKGui (`NkEditeurApp.cpp:329`), la souris aux outils |
 | **Fichier** | Nouveau, Ouvrir, Enregistrer **un** `scene.nkscene` dans le dossier de l'application ; confirmation « non enregistrée » par empreinte FNV-1a | 🔶 pas de projet, pas de « Enregistrer sous », pas de choix de fichier |
-| **Absent** | annuler / refaire (aucune trace, grep), multi-sélection, hiérarchie, prefabs, import d'images, éditeur de tuiles, d'animation, d'UI, de graphes, construction et empaquetage | 🔴 |
+| **Absent** | annuler / refaire (aucune trace, grep), multi-sélection, import d'images, éditeur de tuiles, d'animation, d'UI, de graphes, construction et empaquetage | 🔴 |
 
 ### 2.4 Les modules du dépôt, pour « la totale »
 
@@ -215,7 +215,7 @@ d'Unkeny, « 14/14 » au commit ; (e13)–(e18) s'y ajoutent dans l'arbre de tra
 | **NKAudio** | `Kernel/Runtime/NKAudio` (≈ 21 k lignes) | 256 voix, bus Master / SFX / Music / Voice / UI avec effets et ducking, fondu enchaîné de musique, HRTF, Doppler, WAV / MP3 / OGG / FLAC / Opus, 7 backends dont WebAudio | 114 TEST ; NkAudioDemo, NkAudioECSDemo | ✅ lecture ; 🔴 bus, musique, flux |
 | **NKNetwork** | `Kernel/System/NKNetwork` (≈ 19–20 k lignes) | sockets UDP / TCP, UDP fiable (4 canaux), RPC, lobby et découverte LAN, HTTP(S), `NkNetWorld` (instantanés delta, entrées séquencées, interpolation) | SandboxNKNetwork (67 vérifications, boucle locale), NkNetWorldDemo ; Pong l'utilise | 🔴 ; **ni prédiction, ni rollback, ni lockstep, ni client WebSocket navigateur** |
 | **NKSerialization** | `Kernel/System/NKSerialization` (≈ 24 k lignes) | JSON, XML, YAML, binaire, NkNative ; `NkArchive` ; format d'asset ; **`NkAssetExtensionFor` existe déjà** (`NkAssetMetadata.h:285` : `nkprefab`, `nkdata`, `nkmap`…) ; `NkSchemaVersioning` partiel | 15 tests smoke + suites de réflexion | ✅ JSON ; 🔴 versionnage, format d'asset |
-| **NKECS** | `Kernel/Runtime/NKECS` (≈ 8 k lignes) | archétypes, requêtes, opérations différées, `NkGameplayEventBus` (`Subscribe` / `Emit`), `NkEntitySerialization` par réflexion | tests 42/42 et 29/0 | ✅ requêtes ; 🔴 bus d'événements, réflexion ; **hiérarchie et prefabs : TODO** |
+| **NKECS** | `Kernel/Runtime/NKECS` (≈ 8 k lignes) | archétypes, requêtes, opérations différées, `NkGameplayEventBus` (`Subscribe` / `Emit`), `NkEntitySerialization` par réflexion | tests 42/42 et 29/0 | ✅ requêtes ; 🔴 bus d'événements, réflexion ; **hiérarchie livrée le 30/09** (`Hierarchy/NkHierarchy.h`, `NkParent` descendu de Noge, suite 26/0) ; prefabs : absents de NKECS, livrés dans Unkeny (`NkUnkenyPrefab`) |
 | **Entrées** | `NKEvent`, `NKWindow/Platform/*` | manette (102 boutons, 54 axes, vibration, correspondances à la SDL) ; tactile 32 points ; clavier virtuel ; zone sûre | backends manette réels Win32, Xbox, Linux, Android, Web ; **bouchons** macOS, iOS, UWP, HarmonyOS ; gestes déclarés **sans émetteur** ; IME sans composition | 🔴 dans Unkeny |
 | **Localisation** | `NKGui/Doc/NkGuiLangues.h` | clé → texte, bascule à chaud, surcharges `.lang` | NKCode, NKUIDesign | 🔴 ; 8 langues figées, ni pluriels ni droite-à-gauche |
 | **NKEditorKit** | `Engine/NKEditorKit` (≈ 40 k lignes) | arbre, navigateur de contenu, onglets, composants décrits, inspecteur par NKReflection, sélecteur de fichiers, menu contextuel, modale, champ, raccourcis, thème | `NkFormProbe.cpp`, NKEditorKitTest ; 5 éditeurs le consomment | ✅ pièces utilisées ; ⚠️ **ni éditeur de graphe, ni frise temporelle, ni pile annuler / refaire** |
@@ -320,10 +320,11 @@ Et ce que **tous** demandent, chacun à son palier :
    les deux sens (la gelée tire le tronc). Lier deux corps mous entre eux
    (`AjouterLien` entre particules de corps différents) n'est **pas vérifié** : les
    liens portent un `corps` et la compaction réordonne les plages.
-5. **Pas de hiérarchie d'entités.** `NkTransform2D` n'a pas de parent et
-   l'Outliner est plat : un personnage en plusieurs parties est aujourd'hui
-   plusieurs entités **sans lien**. Il faut la hiérarchie (U4) — ou, au minimum
-   pour U2, un composant « groupe de personnage » qui désigne ses parties.
+5. ~~**Pas de hiérarchie d'entités.**~~ **Comblé le 30/09** (branche
+   `comble/hierarchie-prefabs`) : `NkScene::Rattacher` / `Detacher`, local et
+   monde propagés, Outliner en arbre. ⚠️ Un enfant à corps DYNAMIQUE ou MOU
+   n'est pas porté par son parent (la physique le mène) : des parties molles liées
+   entre elles passent toujours par les attaches, pas par la hiérarchie.
 6. **Aucune entrée n'arrive au jeu.** `NkActions` n'a aucune source ; en
    « Jouer », l'éditeur envoie le clavier à NKGui et la souris aux outils. La
    manette n'est lue par **aucune** application du dépôt hors Sandbox.
@@ -571,20 +572,20 @@ posée 20 fois, modifiée une fois.
 - **Événements de jeu** exposés aux deux langages : contacts, zones (rigides
   **et** corps mous, U2), actions, minuteries, événement d'image d'animation
   (`imageEvent`) — `NkGameplayEventBus` de NKECS est un candidat à évaluer.
-- **Hiérarchie** parent / enfant (transform local et monde) — TODO aussi dans
-  NKECS ; nécessaire aux personnages à parties (R15).
-- **Prefabs** `.nkprefab` (l'extension est déjà dans `NkAssetExtensionFor`) :
-  instance, surcharges, propagation. ⚠️ Les prefabs de Noge désérialisent sans
-  attacher les composants (`NkPrefab.cpp:101`) : ne pas les reprendre tels quels.
-- **Composants du jeu écrits champ par champ par réflexion** (NKReflection /
-  `NkEntitySerialization`) au lieu des octets bruts de `PhotographierAussi` : c'est
-  la condition de U5 (même niveau sur PC et téléphone) et de U7 (sauvegardes qui
-  survivent à une mise à jour du jeu).
+- ✅ (30/09) **Hiérarchie** parent / enfant (transform local et monde) —
+  NKECS porte la topologie (`NkParent`), Unkeny les transformations.
+- ✅ (30/09) **Prefabs** `.nkprefab` : instance, surcharges VUES champ par champ,
+  propagation. Les prefabs de Noge posent enfin leurs composants.
+- ✅ (30/09) **Composants du jeu écrits champ par champ** — par une description
+  explicite (`NkUnkenyChamps.h`), pas par NKReflection : son pont perd `NkVec2f`
+  et les tableaux fixes et ne sait rien des références (raisons dans l'en-tête).
+  Reste : décrire `NkAnimateur2D` (encore en octets).
 
 **Briques éditeur.** Éditeur de graphes (le canevas de NKGraph n'existe pas, et
 NKEditorKit n'a pas d'éditeur de nœuds) ; débogueur (point d'arrêt, valeurs) ;
-Outliner **hiérarchique** (glisser un enfant) ; créer un prefab depuis la
-sélection, instancier, surcharger ; Détails **génériques** par réflexion pour les
+Outliner **hiérarchique** (glisser un enfant) ✅ ; créer un prefab depuis la
+sélection ✅, instancier, surcharger (moteur ✅, pas encore d'interface pour
+instancier ni voir les surcharges) ; Détails **génériques** par réflexion pour les
 composants du jeu (`NkEditorInspector` du kit s'appuie déjà sur NKReflection).
 
 **Bancs et témoins.** Ceux du document 01 ; plus
@@ -870,8 +871,8 @@ empreinte des deux côtés.
 
 | risque | effet | parade | palier |
 |---|---|---|---|
-| **Composants du jeu en octets bruts** dans `.nkscene` | un niveau fait sur PC peut se relire faux sur une autre ABI (armeabi-v7a 32 bits) ; toute sauvegarde casse au premier champ ajouté | réflexion champ par champ | U4, avant U5 et U7 |
-| **`Restaurer` change les identifiants d'entité** | un annuler par photo perd la sélection ; un composant qui tient une entité pointe faux | commandes pour annuler ; identifiants stables à étudier | U1, U4 |
+| ~~**Composants du jeu en octets bruts** dans `.nkscene`~~ **comblé le 30/09** pour tout composant DÉCRIT (`.nkscene` v2) | reste : un composant non décrit (dont `NkAnimateur2D`) voyage encore en octets | décrire ses champs à `PhotographierAussi` | U4, avant U5 et U7 |
+| **`Restaurer` change les POIGNÉES d'entité** — **identité stable livrée le 30/09** | un composant décrit qui tient une entité ne pointe plus faux (`NK_ENTITE`) ; « Arrêter » oublie encore la sélection (témoin (e5)), la retrouver par son uid est une décision à prendre | commandes pour annuler ; `EntiteParUid` | U1, U4 |
 | **NKPhysics 3D dans l'âme** | tunnels (pas de CCD 2D), joints 2D inconnus, masse approchée hors cercle et boîte | témoins 2D dédiés avant de s'appuyer dessus | U2, U9 |
 | **Briques dormantes** | se lisent comme livrées ; divergent au premier vrai appelant | § 2.2 : brancher ou retirer | U2, U3, U6, U7 |
 | **L'IA tire NKTensor → NKRHI / NKSL** | poids et plateformes d'un jeu 2D | garder l'apprentissage côté éditeur et banc ; NKEvolve pour le léger | U8 |

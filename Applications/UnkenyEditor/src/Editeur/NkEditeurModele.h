@@ -85,6 +85,17 @@ namespace nkentseu {
 				// --- Ressources ----------------------------------------------
 				NkTextures2D textures;
 				NkRessourcesSim ressources;
+				/// Les prefabs de la session (2026-09-29). Une scene enregistree
+				/// designe les siens par leur NOM (le chemin du .nkprefab).
+				NkPrefabs2D prefabs;
+
+				/// Ce que la sauvegarde resout par nom : textures et prefabs.
+				NkRessourcesScene RessourcesScene() noexcept {
+					NkRessourcesScene r;
+					r.textures = &textures;
+					r.prefabs = &prefabs;
+					return r;
+				}
 
 				// --- Affichage de la matiere -----------------------------------
 				NkOptionsRenduParticules rendu;

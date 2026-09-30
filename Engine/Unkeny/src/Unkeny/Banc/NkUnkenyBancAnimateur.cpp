@@ -20,7 +20,8 @@
 //         « jeu » nomme) se relit, composant compris
 //   (n8)  un modele inconnu : rien ne casse, le sprite n'est pas touche, et
 //         l'animateur le sait (modeleAbsent)
-//   (n9)  un modele relu d'un .nkanim v3 se comporte comme l'original
+//   (n9)  un modele relu d'un .nkanimctl se comporte comme l'original (le nom
+//         du fichier vient de NkAssetExtensionFor, pas d'un litteral)
 //   (n10) le modele est PARTAGE : un parametre qu'une entite n'a pas ne
 //         fuit pas de la precedente (le « saut » non consomme de l'une ne
 //         fait pas sauter l'autre)
@@ -29,6 +30,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "NKFileSystem/NkFile.h"
+#include "NKSerialization/Asset/NkAssetMetadata.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
@@ -228,9 +230,13 @@ namespace nkentseu {
 					   "(n8) modele inconnu : rien ne casse, le sprite garde son clip", Clip(u, e));
 			}
 
-			// (n9) le modele relu d'un .nkanim v3
+			// (n9) le modele relu d'un .nkanimctl
 			{
-				const char *chemin = "unkeny_banc_plateforme.nkanim";
+				// L'extension vient du POINT DE PASSAGE UNIQUE (CONVENTIONS_FICHIERS
+				// §3), jamais d'une copie : « unkeny_banc_plateforme.nkanimctl ».
+				const NkString nomFichier =
+					NkString("unkeny_banc_plateforme.") + NkAssetExtensionFor(NkAssetType::AnimationController);
+				const char *chemin = nomFichier.CStr();
 				const bool ecrit = NkModeleAnimateur("plateforme") != nullptr &&
 								   NkModeleAnimateur("plateforme")->SaveBinary(NkString(chemin));
 				const bool lu = ecrit && NkChargerModeleAnimateur("plateforme.fichier", chemin);
@@ -245,7 +251,7 @@ namespace nkentseu {
 				f.Monde().Get<NkAnimateur2D>(e)->Declencher("saut");
 				f.Pas(dt);
 				Temoin(lu && idle && Est(f, e, "Air/saut", 2) && f.Monde().Get<NkAnimateur2D>(e)->nbParams == 4,
-					   "(n9) modele relu d'un .nkanim v3 : idle, puis saut", Clip(f, e));
+					   "(n9) modele relu d'un .nkanimctl : idle, puis saut", Clip(f, e));
 			}
 
 			// (n10) pas de fuite de parametres entre entites du meme modele

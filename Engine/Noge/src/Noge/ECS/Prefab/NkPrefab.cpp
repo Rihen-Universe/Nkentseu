@@ -6,6 +6,9 @@
 #include "NkPrefab.h"
 #include "NKCore/Text/NkSnprintf.h"
 #include "NKECS/Reflect/NkReflect.h"
+#include "NKECS/Serialization/NkEntitySerialization.h" // ajout type-erased d'un composant (2026-09-29)
+#include "NKSerialization/JSON/NkJSONReader.h"
+#include "NKSerialization/JSON/NkJSONWriter.h"
 #include "Noge/ECS/Components/SceneComponent/NkSceneComponent.h" // NkSceneComponent
 #include "NKContainers/String/NkFormat.h"						 // NkFormat
 #include <cstdio>
@@ -88,41 +91,57 @@ namespace nkentseu {
 		world.Add<NkChildren>(rootId);
 		world.Add<NkBehaviourHost>(rootId);
 
-		// 2. Application des composants définis dans le prefab
+		// 2. Application des composants définis dans le prefab.
+		//
+		// (2026-09-29) CÂBLÉ — c'était le TODO « dispatcher générique manquant ».
+		// L'ajout type-erased d'un composant EXISTAIT déjà dans NKECS :
+		// `serialization::AddComponentByIdRaw` (NkEntitySerialization.h), celui que
+		// DeserializeEntity emploie. Le composant naît construit par défaut DANS
+		// l'archétype, puis il est rempli ; le chemin vivant de la réflexion
+		// (ComponentMeta::deserialize, branché par NkRegisterComponentReflection<T>)
+		// lit une NkArchive. Mesure qui l'a imposé : NkTypeInfo::deserialize, que
+		// l'ancien code attendait, n'est rempli NULLE PART dans le dépôt — la
+		// boucle ne faisait donc rien, même désérialisée.
 		for (const auto &[typeName, data] : components) {
-			// Recherche du type via le registre de réflexion
+			const NkComponentId cid = serialization::FindComponentIdByName(typeName.CStr());
+			const ComponentMeta *meta = cid != kInvalidComponentId ? NkTypeRegistry::Global().Get(cid) : nullptr;
+			if (meta == nullptr) {
+				continue; // type jamais enregistré dans ce binaire : rien à attacher
+			}
+			if (meta->deserialize != nullptr) {
+				NkArchive ar;
+				if (!NkJSONReader::ReadArchive(NkStringView(data.jsonValue.CStr()), ar, nullptr)) {
+					continue; // JSON illisible : le composant n'est pas posé à moitié
+				}
+				if (void *comp = serialization::AddComponentByIdRaw(world, rootId, cid)) {
+					meta->deserialize(comp, ar);
+				}
+				continue;
+			}
+			// L'ancien chemin (NkTypeInfo::deserialize, JSON brut), gardé pour qui le
+			// remplirait. Désérialisé d'abord dans un objet CONSTRUIT (le défaut que
+			// l'ancien code sautait), puis copié : un échec ne pose rien.
 			const reflect::NkTypeInfo *info = reflect::NkReflectRegistry::Global().GetByName(typeName.CStr());
-			if (info && info->deserialize) {
-				// Allocation temporaire pour désérialiser
-				void *buffer = std::malloc(info->size);
-				if (buffer) {
-					std::memset(buffer, 0, info->size);
-					if (info->deserialize(buffer, data.jsonValue.CStr())) {
-						// TODO [dispatcher générique manquant] : le composant est désérialisé
-						// avec succès dans `buffer` mais n'est PAS attaché à `rootId`. NkWorld::Add<T>()
-						// est un template qui exige le type concret à la compilation ; NkTypeInfo (voir
-						// NKECS/Reflect/NkReflect.h) n'expose aucun pointeur de fonction type-erased du
-						// genre `void(*)(NkWorld&, NkEntityId, const void*)` permettant d'insérer un
-						// composant à partir d'un NkComponentId + buffer brut, et NkWorld n'a pas non
-						// plus d'API `AddRaw(id, componentId, data)`. Pour compléter ce chemin il faut :
-						//   1. ajouter un tel champ (ex. `AddInstanceFn addInstance`) à NkTypeInfo,
-						//   2. le générer/enregistrer dans NK_REFLECT_END() (ou NK_COMPONENT) pour
-						//      chaque type réflexif,
-						//   3. l'appeler ici : info->addInstance(world, rootId, buffer);
-						// Tant que ce n'est pas fait, les composants d'un prefab ne sont PAS appliqués
-						// à l'entité instanciée (seuls NkName/NkTag/NkTransform/... ajoutés plus haut le
-						// sont). Ne pas supprimer ce commentaire sans avoir réellement câblé l'ajout.
-					}
-					// Le buffer est toujours libéré, que la désérialisation ait réussi ou non :
-					// avant ce correctif, le cas d'échec fuyait `buffer` (std::free() n'était
-					// appelé que dans le bloc de succès). NB : ni defaultCtor ni dtor ne sont
-					// invoqués ici (comportement préexistant) — `deserialize()` est supposé
-					// remplir directement la mémoire brute ; ne pas ajouter d'appel à info->dtor
-					// sans s'assurer d'abord que info->defaultCtor est appelé avant deserialize,
-					// sous peine de détruire un objet jamais construit pour les types non-POD.
-					std::free(buffer);
+			if (info == nullptr || info->deserialize == nullptr || meta->size == 0u || meta->defaultConstruct == nullptr ||
+				meta->copyConstruct == nullptr || meta->destruct == nullptr) {
+				continue;
+			}
+			void *tampon = std::malloc(meta->size + meta->align);
+			if (tampon == nullptr) {
+				continue;
+			}
+			const nk_usize brut = reinterpret_cast<nk_usize>(tampon);
+			const nk_usize align = meta->align > 0u ? meta->align : 1u;
+			void *objet = reinterpret_cast<void *>((brut + align - 1u) / align * align);
+			meta->defaultConstruct(objet, 1u);
+			if (info->deserialize(objet, data.jsonValue.CStr())) {
+				if (void *comp = serialization::AddComponentByIdRaw(world, rootId, cid)) {
+					meta->destruct(comp, 1u);
+					meta->copyConstruct(comp, objet, 1u);
 				}
 			}
+			meta->destruct(objet, 1u);
+			std::free(tampon);
 		}
 
 		// 3. Construction du GameObject
@@ -168,6 +187,36 @@ namespace nkentseu {
 		go.SetActive(true);
 
 		return rootId; // contrat header : Instantiate() retourne l'entité (bas niveau)
+	}
+
+	// ============================================================================
+	// NkPrefab::SerializeComponent — (2026-09-29) enfin DÉFINI
+	// ============================================================================
+	// Déclaré dans NkPrefab.h et appelé par WithComponent<T>(), il n'était écrit
+	// NULLE PART : le premier appel à WithComponent aurait été une erreur
+	// d'édition de liens. Il passe par le même pont que Instantiate (le hook
+	// serialize de ComponentMeta), dans l'autre sens.
+	bool NkPrefab::SerializeComponent(void *data, NkComponentId cid, char *outJson, uint32 bufSize) noexcept {
+		if (!data || !outJson || bufSize == 0u) {
+			return false;
+		}
+		outJson[0] = '\0';
+		const ComponentMeta *meta = NkTypeRegistry::Global().Get(cid);
+		if (!meta || !meta->serialize) {
+			return false; // composant non réfléchi : rien à écrire
+		}
+		NkArchive ar;
+		meta->serialize(data, ar);
+		NkString json;
+		if (!NkJSONWriter::WriteArchive(ar, json, false)) {
+			return false;
+		}
+		// Tronquer écrirait un JSON FAUX, relu plus tard sans erreur visible.
+		if (static_cast<uint32>(json.Length()) + 1u > bufSize) {
+			return false;
+		}
+		std::memcpy(outJson, json.CStr(), static_cast<size_t>(json.Length()) + 1u);
+		return true;
 	}
 
 	// ============================================================================

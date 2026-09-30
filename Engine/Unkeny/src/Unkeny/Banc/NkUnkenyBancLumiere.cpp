@@ -46,6 +46,11 @@
 //   (S3)  photo (Jouer / Arreter) : ambiante, lumiere et emetteur modifies en
 //         jeu reviennent ; les particules repartent de zero
 //   (S4)  un emetteur illisible (preset 99) : refuse, la scene est intacte
+//   (S5)  [fusion avec physic2d-editeur-ue5, format v2] un fichier VERSION 1
+//         portant lumiere, emetteur et eclairage (ce qu'ecrivait cette branche
+//         avant la fusion) se relit, champ par champ
+//   (S6)  un fichier VERSION 2 sans eclairage (ecrit par le moteur fusionne) se
+//         relit eteint, avec ses entites, et ne gagne aucune des nouvelles cles
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -812,6 +817,63 @@ namespace nkentseu {
 					refuse = refuse && apresIds.Size() == avantIds.Size() && ParNom(*c, "Caisse").IsValid();
 				}
 				Temoin(refuse, "(S4) emetteur illisible (preset 99) : refuse, scene intacte", 0.f);
+
+				// (S5) un fichier v1 AVEC eclairage : ce que la branche ecrivait avant
+				//      de rencontrer le format v2 (memes cles, memes ecritures).
+				static const char *kV1Lumiere =
+					"{\"format\":\"unkeny.scene\",\"version\":1,"
+					"\"config\":{\"physique\":false,\"particules\":false,\"gravite\":\"0 -9.81000042\","
+					"\"pasFixe\":0.016666667535901070,\"pasMaxParTrame\":5},\"camera\":\"0 0 32 0\","
+					"\"entites\":[{\"nom\":\"Lampe\",\"transform\":\"1 2 0 1 1\",\"lumiere\":{\"type\":1,"
+					"\"couleur\":287454020,\"intensite\":1.75,\"portee\":6.5,\"attenuation\":1.5,"
+					"\"direction\":0.125,\"ouverture\":0.30000001192092896,\"douceur\":0.60000002384185791,"
+					"\"decalage\":\"0.100000001 -0.200000003\",\"halo\":0.40000000596046448,\"ombres\":false,"
+					"\"actif\":false}},{\"nom\":\"Feu\",\"transform\":\"0 0 0 1 1\",\"emetteur\":{\"preset\":1,"
+					"\"actif\":true,\"boucle\":true,\"duree\":1,\"rafale\":0,\"debit\":70,\"vie\":\"0.449999988 0.899999976\","
+					"\"vitesse\":\"0.5 1.20000005\",\"direction\":1.5707963705062866,\"dispersion\":0.31999999284744263,"
+					"\"gravite\":\"0 1.60000002\",\"frein\":1.2000000476837158,\"taille\":\"0.419999987 0.0799999982\","
+					"\"couleurs\":\"4293959935 4286193352 1846804480\",\"additif\":true,\"forme\":0,\"zone\":1,"
+					"\"rayonZone\":0.18000000715255737,\"largeurZone\":0,\"decalage\":\"0 0\",\"graine\":4242,"
+					"\"max\":160,\"eclaire\":true,\"couleurLumiere\":4288301311,\"intensiteLumiere\":1.25,"
+					"\"porteeLumiere\":5,\"scintillement\":0.30000001192092896,\"ombresLumiere\":true}}],"
+					"\"eclairage\":{\"actif\":true,\"ambiante\":270544960,\"ombres\":false,\"masqueOcculteurs\":3,"
+					"\"mode\":1,\"maille\":16}}";
+				NkSceneTas v1;
+				const bool luV1 = NkChargerSceneJSON(*v1, NkStringView(kV1Lumiere), nullptr, &err);
+				const ecs::NkEntityId lampe = ParNom(*v1, "Lampe");
+				const ecs::NkEntityId feuV1 = ParNom(*v1, "Feu");
+				const NkLumiere2D *l1 = lampe.IsValid() ? v1->Monde().Get<NkLumiere2D>(lampe) : nullptr;
+				const NkEmetteur2D *e1 = feuV1.IsValid() ? v1->Monde().Get<NkEmetteur2D>(feuV1) : nullptr;
+				const NkEclairage2D &ec1 = v1->Eclairage();
+				Temoin(luV1 && l1 != nullptr && l1->type == NkTypeLumiere2D::NK_SPOT && l1->couleur == 0x11223344u &&
+						   l1->portee == 6.5f && !l1->actif && e1 != nullptr && e1->graine == 4242u && e1->maxParticules == 160u &&
+						   e1->zone == NkZoneEmission2D::NK_DISQUE && ec1.actif && ec1.ambiante == 0x10203040u &&
+						   ec1.mode == NkModeEclairage2D::NK_VOILE && ec1.maille == 16.f,
+					   "(S5) fichier v1 AVEC eclairage : lumiere, emetteur et reglage relus", 0.f);
+				if (!luV1) {
+					std::printf("    erreur : %s\n", err.CStr());
+				}
+
+				// (S6) un fichier v2 SANS eclairage, ecrit par le moteur fusionne.
+				NkSceneTas v2a;
+				const ecs::NkEntityId sp2 = v2a->Creer("Caisse", NkVec2f(1.f, 1.f));
+				NkSprite2D sp2s;
+				sp2s.couleur = 0x336699FFu;
+				v2a->Monde().Add<NkSprite2D>(sp2, sp2s);
+				v2a->Creer("Vide", NkVec2f(-1.f, 0.f));
+				NkString jsonV2;
+				NkSauverSceneJSON(*v2a, jsonV2);
+				NkSceneTas v2b;
+				const bool luV2 = NkChargerSceneJSON(*v2b, jsonV2.View(), nullptr, &err);
+				NkString jsonV2b;
+				NkSauverSceneJSON(*v2b, jsonV2b);
+				NkVector<ecs::NkEntityId> ids2;
+				v2b->Entites(ids2);
+				const bool estV2 = std::strstr(jsonV2.CStr(), "\"version\": 2") != nullptr ||
+								   std::strstr(jsonV2.CStr(), "\"version\":2") != nullptr;
+				Temoin(estV2 && luV2 && !v2b->Eclairage().actif && ids2.Size() == 2u && ParNom(*v2b, "Caisse").IsValid() &&
+						   SansNouvellesCles(jsonV2) && SansNouvellesCles(jsonV2b),
+					   "(S6) fichier v2 SANS eclairage : relu eteint, aucune nouvelle cle", static_cast<float32>(jsonV2.Length()));
 			}
 
 			void BancPhoto() {
