@@ -55,8 +55,8 @@
 //   dans les photos (Jouer / Arreter) et dans les .nkscene, sous le nom
 //   « NkAnimateur2D ». Un fichier ecrit avant le 2026-09-29 n'a pas cette cle :
 //   il se relit tel quel. Les MODELES ne sont pas dans la scene : ce sont des
-//   definitions, enregistrees par le jeu ou lues d'un .nkanim v3
-//   (NkChargerModeleAnimateur).
+//   definitions, enregistrees par le jeu ou lues d'un .nkanimctl (le fichier
+//   de « controleur d'animation » de NKAnima, NkChargerModeleAnimateur).
 //   ⚠️ Comme tout composant photographie, il est ecrit EN OCTETS : changer sa
 //   taille rend les sauvegardes precedentes muettes sur lui (relues sans lui,
 //   pas corrompues — NkChargerScene compare la taille).
@@ -134,7 +134,11 @@ namespace nkentseu {
 		/// garde la sienne. Les entites en cours gardent leur etat ; un etat que
 		/// le nouveau modele n'a plus repart de l'entree (NkRuntime le garantit).
 		bool NkEnregistrerModeleAnimateur(const char *nom, const anim::NkAnimStateMachine &machine);
-		/// Lit un modele d'un .nkanim v3 (section 'HFSM') et l'enregistre.
+		/// Lit un modele d'un .nkanimctl et l'enregistre. Un .nkanim v3 de machine
+		/// (ecrit du 29 au 30/09) se lit aussi ; un .nkanim de CLIP est refuse.
+		/// L'extension a donner au fichier : NkAssetExtensionFor(
+		/// NkAssetType::AnimationController) — le fichier, lui, se reconnait a
+		/// son magic, pas a son nom.
 		bool NkChargerModeleAnimateur(const char *nom, const char *chemin);
 		/// Le modele, ou nul. « plateforme » existe toujours.
 		anim::NkAnimStateMachine *NkModeleAnimateur(const char *nom);
