@@ -85,6 +85,13 @@ namespace nkentseu {
 						default:
 #if defined(NKENTSEU_PLATFORM_WINDOWS)
 							di.api = NkGraphicsApi::NK_GFX_API_DX11;
+#elif defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
+							// Sur Apple, l'OpenGL de NKRHI n'existe pas (refus nomme) et
+							// le device Metal n'a pas encore de MSL pour NKGui : `auto`
+							// y retombait sur OpenGL et NKCraft refusait de s'ouvrir. Le
+							// rendu logiciel est le seul dorsal qui tient aujourd'hui
+							// (CI macOS du 2026-09-30, voir NkDeviceFactory.cpp).
+							di.api = NkGraphicsApi::NK_GFX_API_SOFTWARE;
 #else
 							di.api = NkGraphicsApi::NK_GFX_API_OPENGL;
 #endif

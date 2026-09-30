@@ -44,7 +44,10 @@ name: build-jeux-plateau
 on:
   workflow_dispatch:
   push:
-    branches: [main, "feat/**", "refonte-**"]
+    # "!feat/macos-**" : ces branches ont leur propre CI (macos-noyau.yml).
+    # Sans l'exclusion, chaque poussage y lancait aussi six jobs Apple de plus,
+    # qui attendaient leur tour devant ceux qu'on etait venu lire.
+    branches: [main, "feat/**", "refonte-**", "!feat/macos-**"]
     paths:
       - "Kernel/**"
       - "Applications/NkDames/**"

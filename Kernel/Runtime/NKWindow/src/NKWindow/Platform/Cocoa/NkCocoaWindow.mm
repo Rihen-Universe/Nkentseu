@@ -24,13 +24,145 @@
 #include <cstring>
 
 // =============================================================================
-// NkCocoaWindowDelegate — captures live-resize lifecycle events
+// NkCocoaContentView — la vue de contenu : premier répondeur, et SILENCIEUSE
+// =============================================================================
+// Les touches sont LUES par NkEventSystem::PumpOS, avant [NSApp sendEvent:].
+// Mais sendEvent les fait ensuite descendre la chaîne des répondeurs : une
+// NSView ordinaire les refuse, elles remontent jusqu'à NSWindow, qui ne sait
+// pas quoi en faire et fait « bip » — À CHAQUE TOUCHE. D'où cette vue, qui les
+// accepte et n'en fait rien : le traitement a déjà eu lieu.
+//
+// Elle porte aussi la zone de suivi sans laquelle AppKit n'envoie JAMAIS
+// NSEventTypeMouseEntered / MouseExited : les NkMouseEnter/LeaveEvent du
+// dorsal étaient écrits, mais rien ne pouvait les déclencher.
+@interface NkCocoaContentView : NSView
+@end
+
+@implementation NkCocoaContentView
+
+- (instancetype)initWithFrame:(NSRect)frame {
+	self = [super initWithFrame:frame];
+	if (self) {
+		// InVisibleRect : AppKit fait suivre la zone à la partie visible de la
+		// vue, redimensionnement compris — une seule zone, créée une fois.
+		const NSTrackingAreaOptions options =
+			NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect;
+		NSTrackingArea *zone = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+															options:options
+															  owner:self
+														   userInfo:nil];
+		[self addTrackingArea:zone];
+#if !__has_feature(objc_arc)
+		// Jenga compile les .mm SANS -fobjc-arc : addTrackingArea retient la
+		// zone, notre alloc la retient aussi — on rend la nôtre.
+		[zone release];
+#endif
+	}
+	return self;
+}
+
+- (BOOL)acceptsFirstResponder {
+	return YES;
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+	(void)event;
+	return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+	(void)event;
+}
+
+- (void)keyUp:(NSEvent *)event {
+	(void)event;
+}
+
+- (void)flagsChanged:(NSEvent *)event {
+	(void)event;
+}
+
+@end
+
+// =============================================================================
+// NkCocoaWindowDelegate — cycle de vie de la fenêtre (fermeture, focus,
+// redimensionnement, déplacement, réduction)
 // =============================================================================
 @interface NkCocoaWindowDelegate : NSObject <NSWindowDelegate>
 @property(nonatomic, assign) nkentseu::NkWindow *nkWindow;
 @end
 
 @implementation NkCocoaWindowDelegate
+
+// La croix rouge DEMANDE, l'application DECIDE — exactement WM_CLOSE sous
+// Win32 (NkWin32EventSystem.cpp : NkWindowCloseEvent, DefWindowProc supprimé).
+// Sans cette méthode, AppKit fermait la NSWindow tout seul : aucun
+// NkWindowCloseEvent n'arrivait, `window.IsOpen()` restait vrai, et la boucle
+// de l'application tournait sans fenêtre.
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+	(void)sender;
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return YES;
+	nkentseu::NkWindowCloseEvent e(false);
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+	return NO;
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+	(void)notification;
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	nkentseu::NkWindowFocusGainedEvent e;
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification {
+	(void)notification;
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	nkentseu::NkWindowFocusLostEvent e;
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+// Passage d'un ecran Retina a un ecran externe (ou l'inverse) : l'echelle du
+// calque Metal doit suivre, et l'application doit le savoir (tailles en pixels).
+- (void)windowDidChangeBackingProperties:(NSNotification *)notification {
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	NSWindow *nswin = win->mData.mNSWindow;
+	if (!nswin)
+		return;
+	const CGFloat echelle = nswin.backingScaleFactor;
+	NSNumber *ancienne = notification.userInfo[NSBackingPropertyOldScaleFactorKey];
+	const float prec = ancienne ? static_cast<float>(ancienne.doubleValue) : static_cast<float>(echelle);
+	if (win->mData.mMetalLayer) {
+		win->mData.mMetalLayer.contentsScale = echelle;
+	}
+	nkentseu::NkWindowDpiEvent e(static_cast<float>(echelle), prec, static_cast<nkentseu::uint32>(echelle * 96.0));
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+	(void)notification;
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	nkentseu::NkWindowMinimizeEvent e;
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
+
+- (void)windowDidDeminiaturize:(NSNotification *)notification {
+	(void)notification;
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	nkentseu::NkWindowRestoreEvent e;
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
 
 - (void)windowWillStartLiveResize:(NSNotification *)notification {
 	(void)notification;
@@ -303,10 +435,20 @@ namespace nkentseu {
 					return false;
 				}
 
-				view = [[NSView alloc] initWithFrame:frame];
+				// La vue commence à l'origine de la FENÊTRE, pas de l'écran :
+				// `frame` porte la position de la fenêtre sur l'écran.
+				view = [[NkCocoaContentView alloc]
+					initWithFrame:NSMakeRect(0.0, 0.0, frame.size.width, frame.size.height)];
 				metalLayer = EnsureCocoaMetalLayer(view);
 
 				[window setContentView:view];
+				[window makeFirstResponder:view];
+				// Le calque Metal doit connaitre l'echelle de l'ecran : sinon son
+				// drawable est en POINTS quand GetSize() rend des PIXELS, et sur
+				// Retina l'image Metal serait deux fois trop petite.
+				if (metalLayer) {
+					metalLayer.contentsScale = window.backingScaleFactor;
+				}
 				[window setReleasedWhenClosed:NO];
 				[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				[window setAcceptsMouseMovedEvents:YES];

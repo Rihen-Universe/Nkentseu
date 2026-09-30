@@ -102,4 +102,9 @@ with project("NKCraft"):
     with filter("system:macOS"):
         windowedapp()
         usetoolchain("clang-native")
-        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Foundation"])
+        # Metal : MESURE sur l'edition de liens de la CI macOS du 2026-09-30
+        # (MTLCreateSystemDefaultDevice, MTL*Descriptor, appeles par
+        # NKRHI/Metal/NkMetalDevice.mm). NKRHI.jenga declare bien Metal, mais
+        # Jenga ne propage pas les frameworks d'une bibliotheque statique au
+        # lien de l'executable : c'est a l'application de les redire.
+        frameworks(["Cocoa", "QuartzCore", "OpenGL", "Foundation", "Metal"])

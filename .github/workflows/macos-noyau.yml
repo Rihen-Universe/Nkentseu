@@ -1,0 +1,401 @@
+# =============================================================================
+# macos-noyau.yml — Nkentseu COMPILE ET TOURNE sur macOS, cible apres cible.
+#
+# POURQUOI (demande de Rihen, 2026-09-30) : un etudiant fait l'exercice « la
+# fenetre » sur un MacBook Air Apple Silicon, avec le NKWindow de Nkentseu.
+# « Tout ce qui est Nkentseu doit passer sur Mac. » Aucune machine de Rihen
+# n'est un Mac : ce runner (macos-latest, arm64) est la seule machine Apple.
+#
+# CE QUE CHAQUE JOB PROUVE, du plus petit au plus gros :
+#   fenetre    Tuto01Fenetre (l'equivalent de l'exercice) + NKWindow_Tests
+#   tutoriels  Tuto02Renderer .. Tuto05Meshes (NKRHI, NKRenderer)
+#   unkeny     UnkenyEditor --selftest, Physic2D --selftest
+#   nkcraft    NKCraft (sondes sans fenetre)
+# Chaque application fenetree est ensuite LANCEE quelques secondes : un
+# binaire qui se lie n'est pas un binaire qui demarre (NSApplication, la
+# premiere NSWindow, le calque Metal se jouent a l'execution).
+#
+# ⚠️ LES JOURNAUX SE LISENT SANS COMPTE. Le journal d'un run n'est lisible
+#    qu'authentifie, meme sur un depot public ; les annotations, elles, sont
+#    publiques. .github/scripts/construire.sh publie donc les premieres erreurs
+#    du compilateur et du lieur en annotations. Journaux complets, captures et
+#    rapports de plantage : dans l'artefact de chaque job.
+#
+# ⚠️ `if: ${{ !cancelled() }}` et NON `continue-on-error` : une etape en echec
+#    doit RESTER rouge (sa conclusion est ce que l'on lit), mais ne doit pas
+#    empecher les cibles suivantes du meme job d'etre construites.
+#
+# Configuration : Debug par defaut, parce que c'est ce que construit
+# `jenga build` sans --config, donc ce que construira l'etudiant.
+# =============================================================================
+name: macos-noyau
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Configuration"
+        required: true
+        type: choice
+        options: [Debug, Release]
+        default: "Debug"
+  push:
+    branches: ["feat/macos-**"]
+
+# Un nouveau poussage rend l'ancien run caduc : on ne garde que le dernier.
+concurrency:
+  group: macos-noyau-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONFIG: ${{ inputs.config || 'Debug' }}
+  JOURNAUX: journaux
+
+jobs:
+  # ===========================================================================
+  # FENETRE — l'exercice de l'etudiant
+  # ===========================================================================
+  fenetre:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          # SOURCE UNIQUE : Applications/NKCode/JENGA_VERSION (voir build-macos.yml).
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Jenga exige par NKCode : $V"
+
+      - name: Depot Jenga (public, la source EST le build system)
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Machine
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+          clang --version
+          python3 --version
+          chmod +x .github/scripts/*.sh
+
+      - name: Construire Tuto01Fenetre
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto01Fenetre "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto01Fenetre (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto01Fenetre.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto01Fenetre.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: NKWindow_Tests (construire + lancer)
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh test NKWindow_Tests "$CONFIG" "$JOURNAUX"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-fenetre-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # TUTORIELS 2 a 5 — la meme fenetre, plus NKRHI et NKRenderer
+  # ===========================================================================
+  tutoriels:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire Tuto02Renderer
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto02Renderer "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto02Renderer (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto03Scene
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto03Scene "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto03Scene (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto04Camera
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto04Camera "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto04Camera (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto04Camera.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto04Camera.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Construire Tuto05Meshes
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto05Meshes "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto05Meshes (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto05Meshes.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto05Meshes.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-tutoriels-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # UNKENY — l'editeur et la demo 2D ; leurs bancs tournent SANS fenetre
+  # ===========================================================================
+  unkeny:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire UnkenyEditor
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build UnkenyEditor "$CONFIG" "$JOURNAUX"
+
+      - name: UnkenyEditor --selftest
+        if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
+        run: .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" "UnkenyEditor selftest" "$JOURNAUX/bancs" --selftest
+
+      - name: Lancer UnkenyEditor (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution"
+
+      # NKCanvas a son propre dorsal Metal (NkMetalContext.mm) ; NkCanvasApp le
+      # prend sur --backend=metal. Le defaut macOS reste OpenGL, qui tient.
+      # ⚠️ SONDE D'UN MANQUE CONNU, d'ou continue-on-error (et SEULEMENT ici) :
+      #    le contexte Metal de NKCanvas s'ouvre, mais NkRenderer2DFactory n'a
+      #    pas de rendu 2D Metal (« Metal 2D renderer not yet implemented », run
+      #    36672650442). L'annotation d'erreur reste publiee ; le verdict du job
+      #    garde son sens pour ce qui DOIT marcher. Retirer continue-on-error le
+      #    jour ou ce rendu existe.
+      - name: Lancer UnkenyEditor --backend=metal (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
+        continue-on-error: true
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution-metal" --backend=metal
+
+      - name: Construire Physic2D
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Physic2D "$CONFIG" "$JOURNAUX"
+
+      - name: Physic2D --selftest
+        if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
+        run: .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/Physic2D.chemin")" "Physic2D selftest" "$JOURNAUX/bancs" --selftest
+
+      - name: Lancer Physic2D (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Physic2D.chemin")" 10 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-unkeny-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # NKCRAFT — le modeleur ; ses sondes geometrie et curseur tournent sans GPU
+  # ===========================================================================
+  nkcraft:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire NKCraft
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build NKCraft "$CONFIG" "$JOURNAUX"
+
+      - name: NKCraft --sonde-geo (sans fenetre)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: |
+          mkdir -p "$JOURNAUX/sondes"
+          .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/NKCraft.chemin")" "NKCraft sonde-geo" "$JOURNAUX/bancs" --sonde-geo "$JOURNAUX/sondes"
+
+      - name: NKCraft --sonde-wrap (sans fenetre)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: |
+          mkdir -p "$JOURNAUX/sondes"
+          .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/NKCraft.chemin")" "NKCraft sonde-wrap" "$JOURNAUX/bancs" --sonde-wrap "$JOURNAUX/sondes"
+
+      - name: Lancer NKCraft (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution"
+
+      # Le dorsal par defaut de NKCraft passe par l'OpenGL de NKRHI, qui n'a
+      # pas de chemin Apple (refus nomme depuis le 2026-09-30). Les deux dorsaux
+      # qui EXISTENT sur macOS sont donc eprouves a part, chacun sa sortie.
+      - name: Lancer NKCraft --backend=metal (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution-metal" --backend=metal
+
+      - name: Lancer NKCraft --backend=software (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution-software" --backend=software
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-nkcraft-journaux
+          path: journaux/
+          if-no-files-found: warn
+
+  # ===========================================================================
+  # EXPERIENCE — le vrai backend manette Apple (GameController), ALLUME ICI
+  # SEULEMENT
+  #
+  # NkAppleGameController.{h,mm} est ETEINT par defaut (NKENTSEU_GAMECONTROLLER_REEL
+  # non defini) : il a ete ecrit sans chaine Apple. Ce job l'allume sur la copie
+  # du runner -- les trois gestes de NkAppleGameController.h, appliques par perl
+  # a NKWindow.jenga, jamais commites -- et dit s'il COMPILE, s'il se LIE, et si
+  # NKWindow_Tests et Tuto01Fenetre tiennent avec lui. Sans manette branchee, il
+  # ne peut rien prouver de plus : la lecture des axes reste a verifier a la main.
+  # ===========================================================================
+  manette-apple:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Allumer GameController dans NKWindow.jenga (copie du runner)
+        run: |
+          chmod +x .github/scripts/*.sh
+          F=Kernel/Runtime/NKWindow/NKWindow.jenga
+          perl -0pi -e 's|("src/NKWindow/EntryPoints/NkCocoaMain.mm",)|$1\n            "src/NKWindow/Platform/Cocoa/NkAppleGameController.mm",|' "$F"
+          perl -0pi -e 's|frameworks\(\["Cocoa", "QuartzCore", "OpenGL", "Metal"\]\)|frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "GameController"])\n        defines(["NKENTSEU_GAMECONTROLLER_REEL"])|' "$F"
+          grep -n "NkAppleGameController.mm\|GAMECONTROLLER_REEL\|\"GameController\"" "$F"
+          test "$(grep -c 'NkAppleGameController.mm\|GAMECONTROLLER_REEL' "$F")" -ge 2 || { echo "::error::le patch de NKWindow.jenga n'a pas pris"; exit 1; }
+
+      - name: NKWindow_Tests avec GameController
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh test NKWindow_Tests "$CONFIG" "$JOURNAUX"
+
+      - name: Construire Tuto01Fenetre avec GameController
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build Tuto01Fenetre "$CONFIG" "$JOURNAUX"
+
+      - name: Lancer Tuto01Fenetre avec GameController (8 s)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto01Fenetre.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto01Fenetre.chemin")" 8 "$JOURNAUX/execution"
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-manette-apple-journaux
+          path: journaux/
+          if-no-files-found: warn

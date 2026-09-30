@@ -163,6 +163,10 @@ with project("Physic2D"):
         # COMPILENT sans ces frameworks : seul le lien final tombe.
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal",
                     "AudioToolbox", "CoreAudio", "AudioUnit"])
+        # PILE DE 32 Mo, comme sous Windows et comme UnkenyEditor : le banc
+        # d'Unkeny demande ~11 Mo de pile en Debug, le fil principal macOS en a
+        # 8 (EXC_BAD_ACCESS dans ___chkstk_darwin, CI macOS du 2026-09-30).
+        ldflags(["-Wl,-stack_size,0x2000000"])
 
     with filter("system:Android"):
         windowedapp()

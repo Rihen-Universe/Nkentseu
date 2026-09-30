@@ -171,6 +171,13 @@ with project("UnkenyEditor"):
         # COMPILENT sans ces frameworks : seul le lien final tombe.
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal",
                     "AudioToolbox", "CoreAudio", "AudioUnit"])
+        # PILE DE 32 Mo, POUR LA MEME RAISON QUE SOUS WINDOWS (voir plus haut) :
+        # le prologue Debug de unkeny::NkUnkenyLancerBanc reserve ~11 Mo, et la
+        # pile du fil principal macOS en fait 8. MESURE, CI macOS du 2026-09-30 :
+        # `--selftest` mourait en 0,5 s sur EXC_BAD_ACCESS dans ___chkstk_darwin,
+        # a l'entree du banc (pile lldb). ld64 ne regle que le fil PRINCIPAL,
+        # c'est celui de nkmain (NkCocoaMain.mm).
+        ldflags(["-Wl,-stack_size,0x2000000"])
 
     with filter("system:Android"):
         windowedapp()

@@ -2,7 +2,7 @@
 
 > **Cible jenga** : `Tuto01Fenetre` · **Source** : [main.cpp](main.cpp) (~60 lignes)
 > **Modules découverts** : NKWindow · NKEvent · NKTime · NKLogger
-> **Plateformes** : Windows, Linux, Web, Android, HarmonyOS
+> **Plateformes** : Windows, Linux, macOS, Web, Android, HarmonyOS
 
 Toute application graphique commence pareil : une fenêtre, et une boucle qui
 réagit à ce que fait l'utilisateur. Dans ce premier tutoriel, on n'affiche
@@ -167,7 +167,19 @@ jenga build --target Tuto01Fenetre --config Release --platform web
 
 # Android (produit un APK universel signé debug)
 jenga build --target Tuto01Fenetre --config Release --platform android
+
+# macOS (Apple Silicon ou Intel) — sur le Mac lui-même : Jenga refuse de
+# construire pour macOS depuis Windows. Il faut les outils Apple
+# (`xcode-select --install` suffit) et Python 3.
+jenga build --target Tuto01Fenetre
+./Build/Bin/Debug-macOS/Tuto01Fenetre/Tuto01Fenetre
 ```
+
+> 🍎 **macOS** : la croix rouge et `Cmd+Q` envoient tous deux un
+> `NkWindowCloseEvent` — c'est votre boucle qui décide de s'arrêter, comme
+> sous Windows. Vérifié sur la CI macOS (`.github/workflows/macos-noyau.yml`) :
+> la fenêtre s'ouvre, reste debout, et l'application rend `0` quand on lui
+> demande de quitter.
 
 ## Pour aller plus loin (exercices)
 

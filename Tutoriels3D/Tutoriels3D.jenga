@@ -157,7 +157,11 @@ def tutoproject(name, sources):
         with filter("system:macOS"):
             windowedapp()
             usetoolchain("clang-native")
-            frameworks(["Cocoa", "QuartzCore", "OpenGL"])
+            # Metal : le backend Metal de NKRHI (NkMetalDevice.mm) est dans la
+            # pile de chaque etape. NKRHI.jenga le declare, mais Jenga ne
+            # propage pas les frameworks d'une bibliotheque statique au lien de
+            # l'executable (meme mesure que NKCraft, CI macOS du 2026-09-30).
+            frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal"])
 
         # ===== Android ============================================================
         with filter("system:Android"):
