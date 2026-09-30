@@ -313,7 +313,7 @@ namespace {
 	//
 	// Elle doit rendre EXACTEMENT l'ancien style. NKWindow est partage par
 	// toutes les applications ; si ce critere tombe, ce n'est pas une propriete
-	// qui manque, c'est NK3DModeler, Nogee, NKUIDesign, NKCode et NkAnimaEditor
+	// qui manque, c'est NKCraft, Nogee, NKUIDesign, NKCode et NkAnimaEditor
 	// dont la fenetre a change sans qu'on le demande.
 	//
 	// ⚠️ Ce critere ne s'inverse PAS en mode negatif : la mutation remet
@@ -507,7 +507,7 @@ namespace {
 	//      inapercu, dix rendent +16/+39 par tour parfaitement visibles.
 	//
 	// ⚠️ LA FENETRE SANS CADRE EST LE CAS QUI ECHOUAIT, pas celle a cadre. Les
-	//    editeurs (NKUIDesign, Nogee, NkAnimaEditor, NKCode, NK3DModeler) ont
+	//    editeurs (NKUIDesign, Nogee, NkAnimaEditor, NKCode, NKCraft) ont
 	//    une barre de titre a eux, donc `frame = false` : leur style garde
 	//    WS_CAPTION et WS_THICKFRAME pendant que WM_NCCALCSIZE rend toute la
 	//    fenetre cliente. `AdjustWindowRectEx` y ajoutait un cadre qui n'existe

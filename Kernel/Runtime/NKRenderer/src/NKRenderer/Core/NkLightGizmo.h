@@ -19,7 +19,7 @@
 //   ponctuelle, c'est voir sa portee changer.
 //
 // POURQUOI ICI ET PAS DANS LA DEMO
-//   NK3DModeler, NkAnima et l'editeur Noge ont tous besoin des memes widgets.
+//   NKCraft, NkAnima et l'editeur Noge ont tous besoin des memes widgets.
 //   Header-only, sans etat, sans dependance au peripherique : on passe deux
 //   callbacks de dessin (meme convention que NkGizmo3D::Draw), l'appelant les
 //   branche sur DrawDebugLine / DrawDebugTriangle.

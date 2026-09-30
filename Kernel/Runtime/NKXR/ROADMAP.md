@@ -695,7 +695,7 @@ la retourner.
 | `XR_KHR_visibility_mask` : ne pas rendre les pixels invisibles à travers la lentille (~15-25 % des pixels) — meilleur gain/risque vers le 72 Hz | ❌ | M | P1 |
 | `XR_META_performance_metrics` : timings CPU/GPU du compositeur (mesurer au lieu de deviner) | ❌ | S | P2 |
 | `XR_FB_display_refresh_rate` : choisir 72/80/90 Hz au lieu de la subir | ❌ | S | P2 |
-| Accessoires en main : maillage quelconque sur AIM/GRIP (arme, gant, levier) — boucle NK3DModeler → VR | ❌ | S | P3 |
+| Accessoires en main : maillage quelconque sur AIM/GRIP (arme, gant, levier) — boucle NKCraft → VR | ❌ | S | P3 |
 | Actions → profils d'interaction (traduction usage → chemins, DANS le backend) | ❌ | M | P2 |
 | APK Quest 2 via la chaîne jenga Android existante | ❌ | M | P1 |
 | Pico (même code, second runtime = preuve de portabilité) | ❌ | S | P3 |
@@ -764,7 +764,7 @@ du cas « EndFrame avec image encore acquise »).
   horodaté 64 échantillons + latence simulée (`NK_XR_SIM_LATENCY_MS`), pose
   scriptable (`NK_XR_SIM_POSE`) pour les captures déterministes.
 - `Applications/NKXRDemo/` — compositeur For2D (possède la frame) + un renderer
-  ForGame PAR ŒIL en offscreen partagé (patron NK3DModeler/NkAnimaEditor,
+  ForGame PAR ŒIL en offscreen partagé (patron NKCraft/NkAnimaEditor,
   AUCUNE passe NKRenderer modifiée), composition côte à côte par
   `Render2D::DrawImage`, boucle de frame XR complète, action « sélectionner »
   branchée (clic gauche → le cube rougit). Crochets : `NK_XR_SHOT`,

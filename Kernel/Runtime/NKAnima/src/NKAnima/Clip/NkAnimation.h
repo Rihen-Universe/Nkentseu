@@ -4,6 +4,8 @@
 // NKAnima/NkAnimation.h — modele d'animation, substrat autonome
 // -----------------------------------------------------------------------------
 // Clips, echantillonnage, lecture, melange 1D/2D et machine a etats hierarchique.
+// (HIERARCHIQUE pour de vrai depuis le 2026-09-29 : jusque-la ces lignes disaient
+// « HFSM » d'une machine PLATE -- un niveau, trois conditions, aucune sous-machine.)
 // AUCUN GPU, AUCUN peripherique, AUCUN format : ce fichier ne connait que
 // Foundation. C'est ce qui permet a NkAnima, PV3DE, Noge et NKScena d'animer
 // sans tirer le renderer -- et a une application 2D d'animer tout court, ce que
@@ -28,7 +30,11 @@
 //   NkAnimationPlayer — joue un clip, maintient le temps courant
 //   NkAnimationState  — snapshot evalue a un instant t
 //   NkBlendTree1D/2D  — melange de clips, bone-local, AVANT la FK
-//   NkAnimStateMachine— HFSM : etats, transitions, crossfade
+//   NkAnimStateMachine— HFSM : sous-machines et etat d'entree, transitions vers et
+//                       depuis un composite, any-state a chaque niveau, declencheurs
+//                       consommes, conditions combinees, priorites, crossfade entre
+//                       feuilles de niveaux differents, parametres partages,
+//                       sauvegarde .nkanimctl (« controleur d'animation »)
 //
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen — LICENCE : usage regi par le fichier LICENSE a la racine du depot
 // =============================================================================
@@ -605,45 +611,199 @@ namespace nkentseu {
 		};
 
 		// =========================================================================
-		// NkAnimStateMachine — machine a etats d'animation (idle -> walk -> jump).
-		// Chaque etat = un clip OU un blend tree (1D/2D). Les transitions sont
-		// declenchees par des parametres (bool / seuil float) et font un
-		// crossfade sur `fadeDur` secondes — BONE-LOCAL (blend TRS par os puis
-		// un seul FK, correct sur les rotations) quand les deux etats exposent
-		// leur pose locale sur le meme squelette, sinon fallback matriciel
-		// (fondus courts). Evenements de transition via SetTransitionCallback.
-		// Update(dt) : evalue l'etat courant, teste les transitions, avance le
-		// fondu. GetState() = pose finale a soumettre au renderer.
+		// NkAnimStateMachine — machine a etats HIERARCHIQUE d'animation (HFSM).
+		// -------------------------------------------------------------------------
+		// Un etat FEUILLE porte un clip, un blend tree (1D/2D) ou rien (etat vide,
+		// utile quand le consommateur lit l'ETIQUETTE de l'etat — Unkeny y range
+		// le clip de sprite a jouer). Un etat COMPOSITE est une sous-machine : il
+		// contient d'autres etats et entre par son etat d'entree (le premier
+		// ajoute, ou celui de SetEntryState). Les poses ne viennent que des
+		// feuilles ; une transition vers un composite descend jusqu'a sa feuille
+		// d'entree, et le fondu se fait entre FEUILLES, quel que soit leur niveau.
+		//
+		// Les transitions sont declenchees par des parametres PARTAGES par tous
+		// les niveaux (une sous-machine n'a pas de parametres a elle) : bool,
+		// seuil float, declencheur CONSOMME au tir, temps passe dans l'etat. Une
+		// transition peut porter plusieurs conditions (ET) ; pour un OU, deux
+		// transitions. Le crossfade dure `fadeDur` secondes — BONE-LOCAL (blend
+		// TRS par os puis un seul FK, correct sur les rotations) quand les deux
+		// feuilles exposent leur pose locale sur le meme squelette, sinon
+		// fallback matriciel (fondus courts). Evenements via SetTransitionCallback.
+		//
+		// ⚠️ ORDRE DE CHOIX, et il est ecrit parce qu'il decide des conflits :
+		//   a chaque Update (hors fondu), parmi les transitions APPLICABLES —
+		//   celles dont l'etat source est sur le chemin actif (la feuille courante
+		//   ou l'un de ses ancetres), et les « any-state » dont la portee est sur
+		//   ce chemin (la racine l'est toujours) — dont la cible n'est pas deja
+		//   active et dont toutes les conditions tiennent, on prend :
+		//     1. la plus haute `priority` ;
+		//     2. a priorite egale, le niveau le plus ENGLOBANT (quitter « Sol »
+		//        l'emporte sur passer de « idle » a « marche » a l'interieur) ;
+		//     3. a egalite encore, la premiere ajoutee.
+		//   L'API plate d'avant le 2026-09-29 (tout a la racine, priorite 0) tombe
+		//   donc exactement sur son ancienne regle : la premiere transition vraie
+		//   dans l'ordre d'ajout.
+		//
+		// Update(dt) : teste les transitions, evalue la feuille courante, avance
+		// le fondu. GetState() = pose finale a soumettre au renderer.
 		// =========================================================================
 		class NkAnimStateMachine {
 			public:
-				// Etats (retourne l'index de l'etat). Un seul des pointeurs.
+				// La racine n'est pas un etat : c'est le conteneur implicite de tout
+				// ce qu'on ajoute sans parent. -1 la designe partout ou un parent ou
+				// une portee est attendu — la valeur du `from = -1` de l'API plate,
+				// qui voulait deja dire « depuis n'importe ou ».
+				static constexpr int32 NK_ROOT = -1;
+
+				// Profondeur maximale (les etats de la racine sont au niveau 0).
+				// Bornee pour que l'etat d'execution (NkRuntime) reste une valeur de
+				// taille FIXE, copiable bit a bit : c'est ce qui permet a Unkeny de
+				// le ranger dans un composant, donc de le sauvegarder.
+				static constexpr int32 NK_MAX_DEPTH = 8;
+
+				// ── Etats de la racine (API plate, inchangee) ───────────────────
+				// Retourne l'index de l'etat. Un seul des pointeurs.
 				int32 AddState(const NkString &name, const NkAnimationClip *clip);
 				int32 AddState(const NkString &name, NkBlendTree1D *tree);
 				int32 AddState(const NkString &name, NkBlendTree2D *tree2d);
 
+				// ── Hierarchie (2026-09-29) ─────────────────────────────────────
+				// `parent` = NK_ROOT ou l'index d'une sous-machine. Rend -1 (et le
+				// journalise) si le parent n'est pas une sous-machine ou si la
+				// profondeur depasserait NK_MAX_DEPTH. Les index restent GLOBAUX :
+				// une seule numerotation pour tous les niveaux.
+				int32 AddSubMachine(const NkString &name, int32 parent = NK_ROOT);
+				int32 AddState(int32 parent, const NkString &name, const NkAnimationClip *clip);
+				int32 AddState(int32 parent, const NkString &name, NkBlendTree1D *tree);
+				int32 AddState(int32 parent, const NkString &name, NkBlendTree2D *tree2d);
+				// Etat sans pose : le consommateur lit son etiquette (SetStateTag).
+				int32 AddEmptyState(const NkString &name, int32 parent = NK_ROOT);
+
+				// Etat d'entree d'une sous-machine (ou de la racine, NK_ROOT). Par
+				// defaut : son premier enfant. `state` doit etre un enfant DIRECT.
+				bool SetEntryState(int32 machine, int32 state);
+				int32 GetEntryState(int32 machine) const;
+
+				// Etiquette libre d'un etat (0 par defaut). La machine ne la lit
+				// pas ; elle la rend. Unkeny : l'index du clip de sprite a jouer.
+				void SetStateTag(int32 state, int32 tag);
+				int32 GetStateTag(int32 state) const;
+
+				// ── Transitions ─────────────────────────────────────────────────
 				// Transition from -> to declenchee quand :
 				//   - param bool `paramName` == true (kind BOOL), ou
 				//   - param float `paramName` >  threshold (kind FLOAT_GREATER), ou
 				//   - param float `paramName` <  threshold (kind FLOAT_LESS).
 				// from = -1 : depuis N'IMPORTE quel etat (any-state transition).
-				enum class NkCondKind : uint8 { BOOL_TRUE, FLOAT_GREATER, FLOAT_LESS };
+				//
+				// ⚠️ Les trois premieres valeurs sont figees (0, 1, 2) : ce sont
+				// celles des appelants existants ET du fichier .nkanim v3. Les
+				// ajouts du 2026-09-29 viennent APRES, jamais entre.
+				enum class NkCondKind : uint8 {
+					BOOL_TRUE,
+					FLOAT_GREATER,
+					FLOAT_LESS,
+					BOOL_FALSE,	   // param bool == false (absent = false : la condition tient)
+					TRIGGER,	   // declencheur pose par SetTrigger, CONSOMME quand la transition tire
+					TIME_IN_STATE, // l'etat source est actif depuis au moins `threshold` s
+				};
 				void AddTransition(int32 from, int32 to, const NkString &paramName, NkCondKind kind,
 								   float32 threshold = 0.f, float32 fadeDur = 0.25f);
 
-				// Parametres pilotes par le gameplay.
+				// Transition SANS condition, a completer par AddCondition (toutes
+				// doivent tenir : ET). Sans aucune condition, elle tire des que son
+				// etat source est actif. `from` peut etre une sous-machine : elle
+				// tient alors tant que la feuille courante est dedans. from < 0 :
+				// any-state de la racine, comme dans l'API plate. Rend son index.
+				int32 AddTransitionEx(int32 from, int32 to, float32 fadeDur = 0.25f, int32 priority = 0);
+				// « Depuis n'importe quel etat » de la sous-machine `scope` (NK_ROOT
+				// = de partout). Applicable tant que la feuille courante est dans
+				// `scope`. Rend son index, ou -1 si `scope` n'est pas une sous-machine.
+				int32 AddAnyStateTransition(int32 scope, int32 to, float32 fadeDur = 0.25f, int32 priority = 0);
+				// Ajoute une condition a la transition `transition` (index rendu par
+				// AddTransitionEx / AddAnyStateTransition). Le parametre est declare
+				// au passage, du genre que la condition implique.
+				bool AddCondition(int32 transition, const NkString &param, NkCondKind kind, float32 threshold = 0.f);
+
+				uint32 GetTransitionCount() const {
+					return (uint32)mTransitions.Size();
+				}
+
+				// ── Parametres pilotes par le gameplay ──────────────────────────
+				// Un nom peut exister comme bool ET comme float (deux parametres
+				// distincts) : c'etait deja le cas avec les deux tables d'avant.
+				enum class NkParamKind : uint8 { BOOL, FLOAT, TRIGGER };
+
 				void SetBool(const NkString &name, bool v);
 				void SetFloat(const NkString &name, float32 v);
 				float32 GetFloat(const NkString &name) const;
+				bool GetBool(const NkString &name) const;
 
-				// Force un etat sans transition (init / teleport).
+				// Un declencheur reste pose jusqu'a ce qu'une transition le
+				// CONSOMME (ou ResetTrigger) : poser « saut » pendant un fondu ne
+				// le perd pas, il tirera a la fin du fondu.
+				void SetTrigger(const NkString &name);
+				void ResetTrigger(const NkString &name);
+				bool GetTrigger(const NkString &name) const;
+
+				// Declaration explicite (valeur par defaut, genre). Facultative :
+				// Set* et AddCondition declarent aussi. Sert a la sauvegarde et a
+				// l'inspecteur, qui veulent la liste complete.
+				void DeclareParam(const NkString &name, NkParamKind kind, float32 defaultValue = 0.f);
+				uint32 GetParamCount() const;
+				const NkString &GetParamName(uint32 i) const;
+				NkParamKind GetParamKind(uint32 i) const;
+				// bool / declencheur : 0 ou 1.
+				float32 GetParamValue(uint32 i) const;
+				void SetParamValue(uint32 i, float32 v);
+				int32 FindParam(const NkString &name, NkParamKind kind) const;
+				// Toutes les valeurs reviennent a leur defaut (declencheurs baisses).
+				void ResetParams();
+
+				// PARTAGE entre machines : cette machine lit et ecrit desormais les
+				// parametres de `owner` (couches haut du corps / locomotion d'un
+				// meme personnage). nullptr = revenir aux siens. Refuse un cycle.
+				// ⚠️ Un declencheur partage est consomme par la PREMIERE machine qui
+				// tire dessus.
+				bool ShareParametersWith(NkAnimStateMachine *owner);
+
+				// ── Etat courant ────────────────────────────────────────────────
+				// Force un etat sans transition (init / teleport). Une sous-machine
+				// y entre par son etat d'entree.
 				void ForceState(int32 idx);
+				// Retour a l'entree de la racine, sans fondu (parametres gardes).
+				void Reset();
 
+				// La FEUILLE courante (pendant un fondu : celle qu'on quitte).
 				int32 GetCurrentState() const {
 					return mCurrent;
 				}
 
 				const NkString &GetCurrentStateName() const;
+				// La feuille visee pendant un fondu, -1 sinon.
+				int32 GetNextState() const {
+					return mNext;
+				}
+				// Avancement du fondu, 0 -> 1 ; 0 hors fondu.
+				float32 GetFadeWeight() const;
+				// Vrai si `state` est la feuille courante OU l'un de ses ancetres.
+				bool IsInState(int32 state) const;
+				// "Sol/marche" : les noms du chemin actif, de la racine a la feuille.
+				NkString GetCurrentPath() const;
+				// Temps passe dans `state` s'il est actif, -1 sinon.
+				float32 GetTimeInState(int32 state) const;
+
+				// ── Lecture de la structure (inspecteur, sauvegarde) ────────────
+				int32 GetStateCount() const {
+					return (int32)mStates.Size();
+				}
+
+				const NkString &GetStateName(int32 state) const;
+				int32 GetStateParent(int32 state) const;
+				int32 GetStateDepth(int32 state) const;
+				bool IsSubMachine(int32 state) const;
+				// Par nom ("marche") ou par chemin ("Sol/marche"). -1 si absent.
+				int32 FindState(const NkString &nameOrPath) const;
 
 				void Update(float32 dt);
 
@@ -653,12 +813,60 @@ namespace nkentseu {
 
 				// Evenements de transition : appele au DECLENCHEMENT (finished=false)
 				// puis a la FIN du fondu (finished=true). Sert au gameplay (sons de
-				// pas, verrous d'input pendant une action, etc.).
+				// pas, verrous d'input pendant une action, etc.). Les noms sont ceux
+				// des FEUILLES.
 				using TransitionFn = NkFunction<void(const NkString &from, const NkString &to, bool finished)>;
 
 				void SetTransitionCallback(TransitionFn fn) {
 					mTransitionCb = fn;
 				}
+
+				// ── Etat d'EXECUTION, separe de la DEFINITION ───────────────────
+				// Tout ce qui change pendant Update, et rien d'autre : une valeur de
+				// taille fixe, copiable bit a bit. Sert a sauvegarder une partie, et
+				// a faire tourner UNE definition pour N personnages (Unkeny : un
+				// modele partage, l'etat de chacun dans son composant).
+				// ⚠️ Les parametres n'y sont PAS (le consommateur les tient), ni
+				// l'horloge interne des blend trees, qui appartiennent a l'appelant.
+				struct NkRuntime {
+						int32 current = -1; // -1 = pas encore demarree : entrera par la racine
+						int32 next = -1;
+						float32 fadeT = 0.f;
+						float32 fadeDur = 0.f;
+						float32 clock = 0.f;
+						float32 currentTime = 0.f; // temps local du clip de la feuille courante
+						float32 nextTime = 0.f;
+						float32 enteredAt[NK_MAX_DEPTH] = {}; // horloge a l'entree de l'etat actif de chaque niveau
+				};
+
+				NkRuntime GetRuntime() const;
+				// Un index hors bornes (modele change depuis) fait repartir la
+				// machine de son entree plutot que de lire n'importe quoi.
+				void SetRuntime(const NkRuntime &rt);
+
+				// ── Sauvegarde .nkanimctl (2026-09-30) ──────────────────────────
+				// La machine a SON format et SON extension, `.nkanimctl` (« controleur
+				// d'animation », decision de Rihen du 30/09 : un clip et une machine
+				// ne se deposent pas au meme endroit avec le meme effet). Le fichier
+				// se reconnait a son magic 'NKAC' ; l'appelant le NOMME en .nkanimctl
+				// (NkAssetExtensionFor(NkAssetType::AnimationController), dans
+				// NKSerialization — NKAnima ne tire pas ce module).
+				// Contenu, section 'HFSM' : etats, hierarchie, entrees, etiquettes,
+				// parametres et leurs defauts, transitions et conditions. Les clips et
+				// blend trees sont designes par leur NOM : `resolver` les retrouve au
+				// chargement (un nom non resolu laisse l'etat vide, et le dit).
+				// LoadBinary relit AUSSI le .nkanim v3 du 29/09 (meme contenu, ancien
+				// emballage) ; il refuse proprement un .nkanim v1/v2, qui est un clip.
+				struct NkResolver {
+						NkFunction<const NkAnimationClip *(const NkString &)> clip;
+						NkFunction<NkBlendTree1D *(const NkString &)> tree1D;
+						NkFunction<NkBlendTree2D *(const NkString &)> tree2D;
+				};
+
+				bool SaveBinary(const NkString &path) const;
+				bool LoadBinary(const NkString &path, const NkResolver &resolver = NkResolver());
+				void SaveToBytes(NkVector<nk_uint8> &out) const;
+				bool LoadFromBytes(const nk_uint8 *data, usize size, const NkResolver &resolver = NkResolver());
 
 			private:
 				struct State {
@@ -667,15 +875,37 @@ namespace nkentseu {
 						NkBlendTree1D *tree = nullptr;	 // possede par l'appelant
 						NkBlendTree2D *tree2d = nullptr; // possede par l'appelant
 						float32 time = 0.f;				 // temps local (clips)
+						// Hierarchie (2026-09-29).
+						int32 parent = NK_ROOT;
+						int32 depth = 0;
+						int32 entry = -1; // sous-machine : etat d'entree explicite (-1 = premier enfant)
+						int32 tag = 0;
+						bool composite = false;
+						uint8 refKind = 0; // 0 vide, 1 clip, 2 arbre 1D, 3 arbre 2D (sauvegarde)
+						NkString ref;	   // nom du clip / de l'arbre, garde pour la sauvegarde
+				};
+
+				struct Condition {
+						NkString param;
+						NkCondKind kind = NkCondKind::BOOL_TRUE;
+						float32 threshold = 0.f;
 				};
 
 				struct Transition {
 						int32 from = -1;
 						int32 to = -1;
-						NkString param;
-						NkCondKind kind = NkCondKind::BOOL_TRUE;
-						float32 threshold = 0.f;
+						bool any = false;		// « depuis n'importe ou » dans `scope`
+						int32 scope = NK_ROOT;	// portee d'une any-state
+						NkVector<Condition> conds;
 						float32 fadeDur = 0.25f;
+						int32 priority = 0;
+				};
+
+				struct Param {
+						NkString name;
+						NkParamKind kind = NkParamKind::FLOAT;
+						float32 value = 0.f;
+						float32 defaultValue = 0.f;
 				};
 
 				// Evalue l'etat : avance son horloge, remplit `out` (bones finaux +
@@ -684,16 +914,37 @@ namespace nkentseu {
 				// squelette — sinon outLocal reste vide (fallback matriciel).
 				void EvalState(int32 idx, float32 dt, NkAnimationState &out, NkVector<NkMat4f> &outLocal,
 							   const NkAnimationClip *&outSkel);
-				bool CondTrue(const Transition &tr) const;
+				bool CondTrue(const Condition &c, int32 source) const;
+
+				int32 AddStateImpl(int32 parent, const NkString &name, bool composite);
+				bool ValidParent(int32 parent) const;
+				int32 EntryOf(int32 machine) const;
+				int32 ResolveLeaf(int32 state) const;
+				// Remplit path[0..n-1] (niveau 0 -> feuille) ; rend n.
+				int32 BuildPath(int32 leaf, int32 *path) const;
+				// Note l'entree dans les niveaux ou `to` quitte le chemin de `from`.
+				void MarkEntered(int32 from, int32 to);
+				void EnsureStarted();
+				int32 PickTransition() const;
+
+				NkVector<Param> &Params();
+				const NkVector<Param> &Params() const;
+				Param *FindParamPtr(const NkString &name, NkParamKind kind);
+				const Param *FindParamPtr(const NkString &name, NkParamKind kind) const;
+				Param &DeclareParamRef(const NkString &name, NkParamKind kind);
 
 				NkVector<State> mStates;
 				NkVector<Transition> mTransitions;
-				NkHashMap<NkString, bool> mBools;
-				NkHashMap<NkString, float32> mFloats;
+				NkVector<Param> mParams;
+				NkAnimStateMachine *mParamOwner = nullptr; // non nul : parametres partages (ShareParametersWith)
+				int32 mRootEntry = -1;
 				int32 mCurrent = -1;
 				int32 mNext = -1;	  // etat cible pendant un fondu (-1 = aucun)
 				float32 mFadeT = 0.f; // temps restant du fondu
 				float32 mFadeDur = 0.f;
+				float32 mClock = 0.f;
+				float32 mEnteredAt[NK_MAX_DEPTH] = {};
+				bool mStarted = false; // faux tant qu'aucun Update / ForceState n'a fixe l'etat
 				NkAnimationState mState;
 				NkAnimationState mNextState;
 				NkVector<NkMat4f> mLocalA, mLocalB; // poses locales pour crossfade bone-local

@@ -49,7 +49,7 @@ KIT = "Engine/NKEditorKit/src/NKEditorKit/Components/NkComponentPaint.h"
 PEINTRES = {
     "NkGuiComponentPaint": "Engine/NKEditorKit/src/NKEditorKit/Components/NkGuiComponentPaint.h",
     "NkRecordingPaint": "Engine/NKEditorKit/src/NKEditorKit/Components/NkRecordingPaint.h",
-    "NkModelerComponentPaint": "Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerComponentPaint.h",
+    "NkModelerComponentPaint": "Applications/NKCraft/src/NKCraft/Shell/NkModelerComponentPaint.h",
 }
 
 # Ce qu'on EXIGE de retrouver : des primitives PURES, donc forcement surchargees
@@ -176,7 +176,7 @@ def main():
             if g not in s:
                 echecs.append(f"{pn} devrait surcharger `{g}` (primitive PURE) et le script ne le voit pas")
     # ── GARDE NEGATIVE ──────────────────────────────────────────────────────
-    rel = "Applications/NK3DModeler/src/NK3DModeler/Shell/NkModelerComponentPaint.h"
+    rel = "Applications/NKCraft/src/NKCraft/Shell/NkModelerComponentPaint.h"
     av = surcharges_texte(version_git("2ba91d68e~1", rel))
     ap = surcharges_texte(version_git("2ba91d68e", rel))
     for g in ("Line", "Ellipse"):

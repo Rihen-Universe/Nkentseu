@@ -4,7 +4,7 @@
 # @File    Tools/Genia/comparer_assemblage_triposr.py
 # @License Proprietary - All Rights Reserved (see LICENSE)
 # -----------------------------------------------------------------------------
-# VOIE (b) : texte -> ASSEMBLAGE de parties -> rendu par NK3DModeler -> TripoSR.
+# VOIE (b) : texte -> ASSEMBLAGE de parties -> rendu par NKCraft -> TripoSR.
 # La question de Rodolf (21/09) : quand on ne recoit que du texte, la chaine
 # doit CREER les vues manquantes -- toutes. L'assemblage donne la silhouette et
 # les proportions ; TripoSR est cense monter en detail par-dessus.
@@ -85,7 +85,7 @@ def main():
         if os.path.isfile(p):
             V, F, g = charger_obj(p)
             ass[c] = (V, F, g)
-    print("VOIE (b) : assemblage -> vue 3/4 rendue par NK3DModeler -> TripoSR")
+    print("VOIE (b) : assemblage -> vue 3/4 rendue par NKCraft -> TripoSR")
     print("%-11s | %-6s %-6s %-6s | %-13s | %-13s | %-9s %-9s | %s" % (
         "cle", "IoU", "planch", "haute", "H/L ass->tsr", "l/L ass->tsr", "parties", "morceaux", "sommets ass->tsr"))
     cles_ass = [c for c in cles if c in ass]

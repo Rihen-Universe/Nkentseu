@@ -7,6 +7,19 @@
 
 #if defined(NKENTSEU_PLATFORM_MACOS)
 
+#if defined(NKENTSEU_GAMECONTROLLER_REEL)
+// ⚠️ NON COMPILE, NON VERIFIE (30/09) : le backend GameController reel, ETEINT
+//    par defaut. Voir NkAppleGameController.h pour l'activer sur un Mac.
+#include "NKWindow/Platform/Cocoa/NkAppleGameController.h"
+
+namespace nkentseu {
+
+	class NkCocoaGamepad final : public NkAppleGameController {};
+
+} // namespace nkentseu
+
+#else // le bouchon d'avant, inchange : aucune manette
+
 #include "NKEvent/NkGamepadSystem.h"
 
 namespace nkentseu {
@@ -60,5 +73,7 @@ namespace nkentseu {
 	};
 
 } // namespace nkentseu
+
+#endif // NKENTSEU_GAMECONTROLLER_REEL
 
 #endif // NKENTSEU_PLATFORM_MACOS

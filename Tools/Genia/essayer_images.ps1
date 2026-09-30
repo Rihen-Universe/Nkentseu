@@ -30,7 +30,7 @@ param(
     [int]$Max = 0
 )
 
-$exe = Join-Path $Arbre "Build\Bin\Release-Windows\NK3DModeler\NK3DModeler.exe"
+$exe = Join-Path $Arbre "Build\Bin\Release-Windows\NKCraft\NKCraft.exe"
 if (-not (Test-Path $exe)) { Write-Error "binaire introuvable : $exe"; exit 2 }
 $base = Join-Path $Arbre $Sortie
 New-Item -ItemType Directory -Force $base | Out-Null

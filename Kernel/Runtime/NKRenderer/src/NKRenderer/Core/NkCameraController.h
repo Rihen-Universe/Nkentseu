@@ -163,7 +163,7 @@ namespace nkentseu {
 				// (T' = T + f (d - D), et P = T + D u = T' + d u puisque f = -u).
 				// Pan et Zoom se reglent sur mDistance : apres un cadrage large puis une
 				// approche, cette distance est la PROFONDEUR PERIMEE de la cible (pan
-				// 46x trop rapide, zoom vers un point derriere l'objet, NK3DModeler
+				// 46x trop rapide, zoom vers un point derriere l'objet, NKCraft
 				// 12/09). L'appelant lui donne la profondeur de ce qu'on regarde.
 				// Ne touche pas l'etat de Recenter, contrairement a SetCenter.
 				void RefocusAt(float32 distance) {

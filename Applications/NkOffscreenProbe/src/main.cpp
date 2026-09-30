@@ -11,7 +11,7 @@
 // question qu'aucune lecture ne tranche :
 //
 //   `NkOffscreenTarget` et le mode « headless » de NKRHI tournent aujourd'hui —
-//   mais dans des applications QUI ONT UNE FENÊTRE (NK3DModeler, Sandbox).
+//   mais dans des applications QUI ONT UNE FENÊTRE (NKCraft, Sandbox).
 //   Qu'un appel existe ne dit pas qu'il s'exécute ; qu'il s'exécute AVEC une
 //   fenêtre ne dit pas qu'il s'exécute SANS.
 //

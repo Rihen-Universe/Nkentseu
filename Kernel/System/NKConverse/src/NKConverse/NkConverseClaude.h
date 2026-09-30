@@ -24,7 +24,7 @@
 //
 //  ⚠️ POURQUOI ON NE FAIT PAS `#include "NKCode/Shell/NkAiAccounts.h"` : ce
 //     fichier vit dans une APPLICATION et inclut `NkOpenWs.h` et `NkShell.h`.
-//     Une application n'est pas une bibliotheque ; NK3DModeler ne peut pas
+//     Une application n'est pas une bibliotheque ; NKCraft ne peut pas
 //     dependre de NKCode. On reprend donc le MECANISME, pas le fichier -- et on
 //     lit LE MEME DOSSIER SUR LE DISQUE, `~/.nkcode/accounts`, pour que les
 //     comptes connectes dans NKCode soient ceux d'ici.
