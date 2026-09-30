@@ -43,6 +43,64 @@ namespace nkentseu {
 		return m;
 	}
 
+	// ── Coordonnées : le contrat de NkMouseEvent, pas celui d'AppKit ──
+	// NkMouseMoveEvent promet des PIXELS de la zone client, origine en HAUT à
+	// gauche (Win32, X11, Wayland font ainsi). AppKit donne des POINTS, origine
+	// en BAS à gauche. Sans conversion, sur l'écran Retina d'un MacBook, le clic
+	// arrivait à la moitié de sa position et renversé de haut en bas.
+	static NSPoint CocoaClientPx(NSEvent *ev) {
+		NSWindow *w = [ev window];
+		const NSPoint p = [ev locationInWindow];
+		if (!w) {
+			return p;
+		}
+		NSView *v = [w contentView];
+		const NSPoint local = v ? [v convertPoint:p fromView:nil] : p;
+		const CGFloat hauteur = v ? v.bounds.size.height : [w contentRectForFrameRect:w.frame].size.height;
+		const CGFloat echelle = w.backingScaleFactor;
+		const CGFloat y = (v && v.isFlipped) ? local.y : (hauteur - local.y);
+		return NSMakePoint(local.x * echelle, y * echelle);
+	}
+
+	// Même contrat pour l'écran : origine en haut à gauche de l'écran PRINCIPAL
+	// (celui de la barre de menus, [NSScreen screens][0]), en pixels.
+	static NSPoint CocoaScreenPx() {
+		const NSPoint p = [NSEvent mouseLocation];
+		NSArray<NSScreen *> *ecrans = [NSScreen screens];
+		NSScreen *principal = ecrans.count > 0 ? ecrans[0] : [NSScreen mainScreen];
+		if (!principal) {
+			return p;
+		}
+		const CGFloat echelle = principal.backingScaleFactor;
+		return NSMakePoint(p.x * echelle, (principal.frame.size.height - p.y) * echelle);
+	}
+
+	static CGFloat CocoaEchelle(NSEvent *ev) {
+		NSWindow *w = [ev window];
+		return w ? w.backingScaleFactor : 1.0;
+	}
+
+	// ── Touches de modification seules (Maj, Ctrl, Option, Cmd, Verr. Maj) ──
+	// AppKit ne les envoie PAS en KeyDown/KeyUp mais en FlagsChanged, sans dire
+	// si la touche descend ou remonte : on le lit dans les bits « par côté »
+	// des drapeaux (NX_DEVICE*KEYMASK de IOKit, stables depuis 10.0). Sans ce
+	// cas, appuyer sur Maj seul n'émettait rien.
+	static bool CocoaModificateurEnfonce(unsigned short macKC, NSEventModifierFlags flags) {
+		const NSUInteger bits = static_cast<NSUInteger>(flags);
+		switch (macKC) {
+			case 0x38: return (bits & 0x00000002u) != 0;  // Maj gauche
+			case 0x3C: return (bits & 0x00000004u) != 0;  // Maj droite
+			case 0x3B: return (bits & 0x00000001u) != 0;  // Ctrl gauche
+			case 0x3E: return (bits & 0x00002000u) != 0;  // Ctrl droite
+			case 0x3A: return (bits & 0x00000020u) != 0;  // Option gauche
+			case 0x3D: return (bits & 0x00000040u) != 0;  // Option droite
+			case 0x37: return (bits & 0x00000008u) != 0;  // Cmd gauche
+			case 0x36: return (bits & 0x00000010u) != 0;  // Cmd droite
+			case 0x39: return (flags & NSEventModifierFlagCapsLock) != 0;
+			default:   return false;
+		}
+	}
+
 	static NkWindowId FindWindowForNSWindow(NSWindow *nswin) {
 		if (!nswin)
 			return NK_INVALID_WINDOW_ID;
@@ -137,15 +195,50 @@ namespace nkentseu {
 						}
 
 						// Texte saisi
-						if ([ev type] == NSEventTypeKeyDown) {
+						// ⚠️ Deux filtres que Win32 fait sans qu'on le voie (WM_CHAR) :
+						//    - les touches de fonction et les flèches portent un
+						//      caractère de la zone privée 0xF700-0xF8FF
+						//      (NSUpArrowFunctionKey…) : sans filtre, chaque flèche
+						//      tapait un glyphe invisible dans les champs de texte ;
+						//    - Cmd+C n'est pas la lettre « c » : un raccourci ne
+						//      saisit rien.
+						const NSEventModifierFlags drapeaux = [ev modifierFlags];
+						const bool raccourci =
+							(drapeaux & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0;
+						if ([ev type] == NSEventTypeKeyDown && !raccourci) {
 							NSString *chars = [ev characters];
-							if (chars && [chars length] > 0) {
-								unichar c = [chars characterAtIndex:0];
-								if (c >= 0x20 && c != 0x7F) {
+							const NSUInteger n = chars ? [chars length] : 0;
+							for (NSUInteger i = 0; i < n; ++i) {
+								const unichar c = [chars characterAtIndex:i];
+								const bool fonction = (c >= 0xF700 && c <= 0xF8FF);
+								if (c >= 0x20 && c != 0x7F && !fonction) {
 									NkTextInputEvent e(static_cast<uint32>(c));
 									Enqueue(e, winId);
 								}
 							}
+						}
+						break;
+					}
+
+					// ----------------------------------------------------------------
+					// Touches de modification seules
+					// ----------------------------------------------------------------
+					case NSEventTypeFlagsChanged: {
+						const unsigned short macKC = [ev keyCode];
+						const NkScancode sc = NkScancodeFromMac(macKC);
+						NkKey key = NkScancodeToKey(sc);
+						if (key == NkKey::NK_UNKNOWN)
+							key = NkKeycodeMap::NkKeyFromMacKeyCode(macKC);
+						if (key == NkKey::NK_UNKNOWN)
+							break;
+						const NkModifierState mods = CocoaNsMods([ev modifierFlags]);
+						const uint32 nativeKey = static_cast<uint32>(macKC);
+						if (CocoaModificateurEnfonce(macKC, [ev modifierFlags])) {
+							NkKeyPressEvent e(key, sc, mods, nativeKey);
+							Enqueue(e, winId);
+						} else {
+							NkKeyReleaseEvent e(key, sc, mods, nativeKey);
+							Enqueue(e, winId);
 						}
 						break;
 					}
@@ -157,8 +250,11 @@ namespace nkentseu {
 					case NSEventTypeLeftMouseDragged:
 					case NSEventTypeRightMouseDragged:
 					case NSEventTypeOtherMouseDragged: {
-						NSPoint p = [ev locationInWindow];
-						NSPoint screen = [NSEvent mouseLocation];
+						const NSPoint p = CocoaClientPx(ev);
+						const NSPoint screen = CocoaScreenPx();
+						// deltaY d'un mouvement est deja « vers le bas positif »
+						// (repere Quartz) : seule l'echelle manque.
+						const CGFloat echelle = CocoaEchelle(ev);
 						NkMouseButtons btns;
 						NSUInteger pb = [NSEvent pressedMouseButtons];
 						if (pb & (1u << 0))
@@ -167,8 +263,9 @@ namespace nkentseu {
 							btns.Set(NkMouseButton::NK_MB_RIGHT);
 						if (pb & (1u << 2))
 							btns.Set(NkMouseButton::NK_MB_MIDDLE);
-						NkMouseMoveEvent e((int32)p.x, (int32)p.y, (int32)screen.x, (int32)screen.y, (int32)[ev deltaX],
-										   (int32)[ev deltaY], btns, CocoaNsMods([ev modifierFlags]));
+						NkMouseMoveEvent e((int32)p.x, (int32)p.y, (int32)screen.x, (int32)screen.y,
+										   (int32)([ev deltaX] * echelle), (int32)([ev deltaY] * echelle), btns,
+										   CocoaNsMods([ev modifierFlags]));
 						Enqueue(e, winId);
 						break;
 					}
@@ -198,8 +295,8 @@ namespace nkentseu {
 								btn = NkMouseButton::NK_MB_FORWARD;
 						}
 						if (btn != NkMouseButton::NK_MB_UNKNOWN) {
-							NSPoint p = [ev locationInWindow];
-							NSPoint screen = [NSEvent mouseLocation];
+							const NSPoint p = CocoaClientPx(ev);
+							const NSPoint screen = CocoaScreenPx();
 							NkModifierState mods = CocoaNsMods([ev modifierFlags]);
 							uint32 clicks = (uint32)[ev clickCount];
 							bool isDown = (t == NSEventTypeLeftMouseDown || t == NSEventTypeRightMouseDown ||
@@ -221,7 +318,7 @@ namespace nkentseu {
 					// Molette
 					// ----------------------------------------------------------------
 					case NSEventTypeScrollWheel: {
-						NSPoint p = [ev locationInWindow];
+						const NSPoint p = CocoaClientPx(ev);
 						NkModifierState mods = CocoaNsMods([ev modifierFlags]);
 						bool precise = ([ev hasPreciseScrollingDeltas] == YES);
 						double dy = [ev scrollingDeltaY];

@@ -107,6 +107,13 @@ namespace nkentseu {
 			return false;
 		}
 
+		// ⚠️ RETINA : sans ce drapeau, le tampon d'image d'une NSView est en
+		//    POINTS, alors que NkWindow::GetSize() rend des PIXELS (points x
+		//    backingScaleFactor, NkCocoaWindow.mm). Sur l'ecran d'un MacBook
+		//    (facteur 2), un glViewport a la taille de la fenetre couvrait donc
+		//    quatre fois le tampon : seul un quart de l'image restait visible.
+		//    Le runner de CI est en facteur 1 et ne pouvait pas le montrer.
+		view.wantsBestResolutionOpenGLSurface = YES;
 		[ctx setView:view];
 		[ctx makeCurrentContext];
 
