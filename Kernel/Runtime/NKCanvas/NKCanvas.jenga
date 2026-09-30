@@ -120,7 +120,10 @@ with project("NKCanvas"):
         #      "undefined reference to D3D11CreateDevice / CreateDXGIFactory1"
         #      des qu'ils referencaient un symbole DX. Maintenant linkes par defaut.)
         #   - vulkan-1 : optionnel via NK_ENABLE_VULKAN ou VULKAN_SDK detecte.
-        _WIN_LINKS = ["gdi32", "user32", "d3d11", "d3d12", "dxgi", "dxguid"]
+        #   - d3dcompiler : NkDX11/NkDX12Renderer2D appellent D3DCompile. Chaque
+        #     application de Nkentseu le liait elle-meme, ce qui masquait l'oubli ;
+        #     un kit extrait (jenga kit) ne l'annoncait donc pas au consommateur.
+        _WIN_LINKS = ["gdi32", "user32", "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler"]
         if WANT_VULKAN:
             _WIN_LINKS.append("vulkan-1")
         links(_WIN_LINKS)
@@ -263,6 +266,6 @@ with project("NKCanvas"):
                     "user32", "gdi32", "opengl32", "dwmapi", "shell32",
                     "mf", "mfplat", "mfreadwrite", "mfuuid",
                     "uuid", "ole32", "dinput8",
-                    "d3d11", "d3d12", "dxgi", "dxguid",
+                    "d3d11", "d3d12", "dxgi", "dxguid", "d3dcompiler",
                     "vulkan-1"
                 ])
