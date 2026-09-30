@@ -26,13 +26,17 @@
 //     actions d'entree     -> Entree/   (tout ce qui se joue en temps reel)
 //     vues et miniatures   -> Vues/     (ecran partage, minicarte, vignette)
 //     physique et collision-> Scene/    (facultative, voir NkSceneConfig)
+//     eclairage 2D, ombres -> Rendu/    (facultatif, eteint : NkEclairage2D)
+//     feu, fumee, pluie    -> Effets/   (particules visuelles, NkEmetteur2D)
 //   Le module Jeu/ porte du vocabulaire de GENRE (sieges humain/IA d'un jeu a
 //   tours). Il est facultatif comme le reste : un RPG ne l'inclut jamais.
 //
 // LES ETAGES, du plus bas au plus haut
 //   Scene/     entites, composants, vue, monde physique
 //   Monde/     cartes de tuiles, couches, parallaxe
-//   Rendu/     dessin des sprites, des collisionneurs, de la grille
+//   Rendu/     dessin des sprites, des collisionneurs, de la grille ; la
+//              carte de lumiere et les particules d'effet
+//   Effets/    la vie des particules visuelles (feu, fumee, etincelles...)
 //   Vues/      plusieurs vues d'une meme scene, miniatures hors ecran
 //   Entree/    actions — le jeu parle d'actions, jamais de touches
 //   Anim/      images de sprite, et interpolation de deplacement
@@ -53,13 +57,16 @@
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenyChemin.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Effets/NkUnkenyEffets.h"
 #include "Unkeny/Entree/NkUnkenyActions.h"
 #include "Unkeny/Entree/NkUnkenyEntreesJeu.h"
 #include "Unkeny/Entree/NkUnkenyLiaisons.h"
 #include "Unkeny/Jeu/NkUnkenySieges.h"
 #include "Unkeny/Monde/NkUnkenyTuiles.h"
 #include "Unkeny/Vues/NkUnkenyVues.h"
+#include "Unkeny/Rendu/NkUnkenyEclairage.h"
 #include "Unkeny/Rendu/NkUnkenyRendu.h"
+#include "Unkeny/Rendu/NkUnkenyRenduEffets.h"
 #include "Unkeny/Rendu/NkUnkenyRenduParticules.h"
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"

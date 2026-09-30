@@ -41,6 +41,7 @@
 #include "NKECS/World/NkWorld.h"
 #include "NKPhysics/NkParticules2D.h"
 #include "NKPhysics/NkPhysicsWorld.h"
+#include "Unkeny/Effets/NkUnkenyEffets.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 
@@ -247,6 +248,26 @@ namespace nkentseu {
 					return mConfig;
 				}
 
+				// --- Eclairage et effets (2026-09-30) --------------------------
+				/// Les reglages d'eclairage de la scene. ETEINT par defaut : voir
+				/// NkEclairage2D. Modifiable en jeu (un cycle jour / nuit) ; la
+				/// photo le garde, « Arreter » le rend.
+				NkEclairage2D &Eclairage() noexcept {
+					return mEclairage;
+				}
+				const NkEclairage2D &Eclairage() const noexcept {
+					return mEclairage;
+				}
+				/// Les particules visuelles vivantes. Avancees par Pas() ; un editeur
+				/// qui veut un APERCU hors jeu appelle Effets().Avancer lui-meme :
+				/// elles ne changent rien a la simulation.
+				NkEffets2D &Effets() noexcept {
+					return mEffets;
+				}
+				const NkEffets2D &Effets() const noexcept {
+					return mEffets;
+				}
+
 				/// Toutes les entites qui ont un transform -- c'est-a-dire toutes
 				/// celles que la scene a creees. Pour un Outliner, un inspecteur.
 				void Entites(NkVector<ecs::NkEntityId> &out);
@@ -266,6 +287,11 @@ namespace nkentseu {
 						physics::NkRigidBody etatRigide;
 						NkCorpsMou2D mou;
 						bool aEtiquette = false, aSprite = false, aCollisionneur = false, aCorps = false, aMou = false;
+						// 2026-09-30 : ecrits champ par champ dans le fichier (pas en octets).
+						NkLumiere2D lumiere;
+						NkEmetteur2D emetteur;
+						bool aLumiere = false;
+						bool aEmetteur = false;
 						/// Les composants declares par PhotographierAussi, bout a bout,
 						/// et le masque de ceux que l'entite portait (bit i = copieur i).
 						NkVector<uint8> extra;
@@ -274,6 +300,7 @@ namespace nkentseu {
 				struct NkPhoto {
 						NkVector<NkPhotoEntite> entites;
 						physics::NkParticules2D particules;
+						NkEclairage2D eclairage; ///< 2026-09-30 : un cycle jour / nuit joue revient a l'arret
 						bool valide = false;
 				};
 				void Photographier(NkPhoto &photo);
@@ -390,6 +417,8 @@ namespace nkentseu {
 				physics::NkPhysicsWorld *mPhysique = nullptr;
 				physics::NkParticules2D *mParticules = nullptr;
 				NkVue2D mCamera;
+				NkEclairage2D mEclairage;
+				NkEffets2D mEffets;
 				float32 mAccumulateur = 0.f;
 				int32 mDernierNbPas = 0;
 		};

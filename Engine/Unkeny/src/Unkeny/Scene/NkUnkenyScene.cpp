@@ -140,6 +140,10 @@ namespace nkentseu {
 			}
 			mAccumulateur = 0.f;
 			mDernierNbPas = 0;
+			// Une scene refaite repart eteinte et sans particules : l'eclairage
+			// d'un niveau ne doit pas survivre dans le suivant.
+			mEclairage = NkEclairage2D();
+			mEffets.Vider();
 		}
 
 		// =====================================================================
@@ -405,6 +409,9 @@ namespace nkentseu {
 			// choisit a cette trame est avance a cette trame.
 			NkAvancerAnimateurs(mMonde, deltaTime);
 			NkAvancerAnimations(mMonde, deltaTime);
+			// Les particules VISUELLES apres la synchro : elles naissent la ou le
+			// corps est a cette trame. Une scene sans emetteur n'y paie qu'un test.
+			mEffets.Avancer(*this, deltaTime);
 			LancerSystemes(NkPhaseSysteme::NK_TRAME, deltaTime);
 		}
 
@@ -680,6 +687,14 @@ namespace nkentseu {
 					e.mou = *x;
 					e.aMou = true;
 				}
+				if (const NkLumiere2D *x = mMonde.Get<NkLumiere2D>(id)) {
+					e.lumiere = *x;
+					e.aLumiere = true;
+				}
+				if (const NkEmetteur2D *x = mMonde.Get<NkEmetteur2D>(id)) {
+					e.emetteur = *x;
+					e.aEmetteur = true;
+				}
 				// Les composants du jeu declares par PhotographierAussi.
 				uint32 total = 0;
 				for (uint32 k = 0; k < mCopieurs.Size(); ++k) {
@@ -700,6 +715,7 @@ namespace nkentseu {
 			if (mParticules != nullptr) {
 				photo.particules = *mParticules;
 			}
+			photo.eclairage = mEclairage;
 			photo.valide = true;
 		}
 
@@ -722,6 +738,11 @@ namespace nkentseu {
 			if (mParticules != nullptr) {
 				*mParticules = photo.particules;
 			}
+			// Les particules VISUELLES ne sont pas dans la photo : ce sont des
+			// images, et les identifiants d'entite vont changer. L'effet repart de
+			// sa graine — ce qui rend « Jouer » reproductible.
+			mEffets.Vider();
+			mEclairage = photo.eclairage;
 			// 2. Tout refaire.
 			for (uint32 i = 0; i < photo.entites.Size(); ++i) {
 				const NkPhotoEntite &e = photo.entites[i];
@@ -771,6 +792,12 @@ namespace nkentseu {
 					if (ci >= 0) {
 						mParticules->corps[static_cast<uint32>(ci)].utilisateur = id.Pack();
 					}
+				}
+				if (e.aLumiere) {
+					mMonde.Add<NkLumiere2D>(id, e.lumiere);
+				}
+				if (e.aEmetteur) {
+					mMonde.Add<NkEmetteur2D>(id, e.emetteur);
 				}
 			}
 			mAccumulateur = 0.f;

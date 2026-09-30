@@ -18,12 +18,21 @@
 //       "config":   { physique, particules, gravite, pasFixe, pasMaxParTrame },
 //       "camera":   "cx cy zoom rotation",
 //       "entites":  [ { nom, transform, sprite{texture}, collisionneur,
-//                       corps{etat}, mou, jeu{ NomComposant: "octets hex" } } ],
-//       "particules": { reglages, corps[], p{...}, l{...} }
+//                       corps{etat}, mou, lumiere, emetteur,
+//                       jeu{ NomComposant: "octets hex" } } ],
+//       "particules": { reglages, corps[], p{...}, l{...} },
+//       "eclairage":  { actif, ambiante, ombres, masqueOcculteurs, mode, maille }
 //     }
 //
+//   ⚠️ « lumiere », « emetteur » et « eclairage » (2026-09-30) ne sont ECRITS
+//   que s'ils existent (l'eclairage : s'il differe du defaut). Un fichier
+//   d'avant se relit tel quel, et se reecrit a l'octet pres. La version reste
+//   1 : un moteur plus ancien lit un fichier plus recent en ignorant ces cles
+//   (ses lumieres disparaissent, rien ne casse).
+//
 // CE QUI EST SAUVE
-//   - les composants d'Unkeny, un par un, champ par champ ;
+//   - les composants d'Unkeny, un par un, champ par champ (lumieres et
+//     emetteurs compris, 2026-09-30) ;
 //   - l'ETAT des corps rigides (position, orientation, vitesses) ;
 //   - tout le monde de particules (corps, particules, liens, reglages) ;
 //   - les composants declares par NkScene::PhotographierAussi<T>("Nom") —
