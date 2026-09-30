@@ -127,6 +127,25 @@
 	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
 }
 
+// Passage d'un ecran Retina a un ecran externe (ou l'inverse) : l'echelle du
+// calque Metal doit suivre, et l'application doit le savoir (tailles en pixels).
+- (void)windowDidChangeBackingProperties:(NSNotification *)notification {
+	nkentseu::NkWindow *win = self.nkWindow;
+	if (!win)
+		return;
+	NSWindow *nswin = win->mData.mNSWindow;
+	if (!nswin)
+		return;
+	const CGFloat echelle = nswin.backingScaleFactor;
+	NSNumber *ancienne = notification.userInfo[NSBackingPropertyOldScaleFactorKey];
+	const float prec = ancienne ? static_cast<float>(ancienne.doubleValue) : static_cast<float>(echelle);
+	if (win->mData.mMetalLayer) {
+		win->mData.mMetalLayer.contentsScale = echelle;
+	}
+	nkentseu::NkWindowDpiEvent e(static_cast<float>(echelle), prec, static_cast<nkentseu::uint32>(echelle * 96.0));
+	nkentseu::NkWESystem::Events().Enqueue_Public(e, win->GetId());
+}
+
 - (void)windowDidMiniaturize:(NSNotification *)notification {
 	(void)notification;
 	nkentseu::NkWindow *win = self.nkWindow;
@@ -424,6 +443,12 @@ namespace nkentseu {
 
 				[window setContentView:view];
 				[window makeFirstResponder:view];
+				// Le calque Metal doit connaitre l'echelle de l'ecran : sinon son
+				// drawable est en POINTS quand GetSize() rend des PIXELS, et sur
+				// Retina l'image Metal serait deux fois trop petite.
+				if (metalLayer) {
+					metalLayer.contentsScale = window.backingScaleFactor;
+				}
 				[window setReleasedWhenClosed:NO];
 				[window setTitle:[NSString stringWithUTF8String:config.title.CStr()]];
 				[window setAcceptsMouseMovedEvents:YES];

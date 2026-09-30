@@ -274,6 +274,9 @@ namespace nkentseu {
 			NkFramebufferHandle mSwapchainFB;
 			NkRenderPassHandle mSwapchainRP;
 			NkTextureHandle mDepthTex;
+			// Format de la chaine d'echange, lu dans init.context.swapchainFormat
+			// (UNORM par defaut, comme GL/DX/VK) : il etait code en dur en sRGB.
+			NkGPUFormat mSwapFormat = NkGPUFormat::NK_BGRA8_UNORM;
 
 			// Tables de ressources GPU (handle -> objet natif), API NkUnorderedMap du
 			// moteur (Find()/Erase()/Insert()/ForEach()), cohérent avec NkVulkanDevice.
