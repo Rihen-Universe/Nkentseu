@@ -203,8 +203,18 @@ namespace nkentseu {
 		order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
+		// ⚠️ LOGICIEL D'ABORD, ET C'EST PROVISOIRE (CI macOS du 2026-09-30).
+		//    Le device Metal s'initialise, mais le rendu qui suit ne tient pas :
+		//    NkShaderLibrary::CompileVF ne lui donne que du SPIR-V (aucune source
+		//    MSL), les points d'entree MSL generes s'appellent `main_entry` et non
+		//    `main`, et CreateTexture pose arrayLength = 6 sur un cube (assertion
+		//    Metal). Choisi en premier, Metal tuait Tuto02..05 a l'initialisation
+		//    du renderer. L'OpenGL de NKRHI n'a pas de chemin Apple (refus nomme,
+		//    NkOpenglDevice.cpp). Le rendu logiciel, lui, tourne : mesure sur
+		//    NKCraft --backend=software (graphe 3D complet, fermeture propre).
+		//    A REMETTRE Metal en tete quand ces trois points seront tenus.
+		order.PushBack(NkGraphicsApi::NK_GFX_API_SOFTWARE);
 		order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
-		order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
 
 #elif defined(NKENTSEU_PLATFORM_WINDOWS)
 		// Vulkan offre les meilleures perfs et la meilleure portabilité multi-GPU.
