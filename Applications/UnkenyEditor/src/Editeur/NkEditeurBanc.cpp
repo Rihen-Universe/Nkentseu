@@ -74,6 +74,12 @@
 //   (e46) l'icone d'une LUMIERE posee sur une caisse l'emporte sur la caisse
 //         (elle est peinte par-dessus) ; cachee, on prend la caisse dessous ;
 //         une lumiere n'a pas de losange « entite vide » en plus de son icone
+//   (e47) le Transform d'Unreal : l'echelle 2 x 2 double sprite ET collisionneur
+//         et se relit 2 x 2 ; le gizmo x1,5 la porte a 3 ; remise a 1, les
+//         dimensions reviennent et le composant d'echelle s'en va. Les cases :
+//         collisionneur eteint = couche et masque a 0, rallume = rendus ; corps
+//         eteint = cinematique sans gravite, rallume = dynamique ; et l'etat
+//         eteint traverse Jouer / Arreter
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -960,6 +966,46 @@ namespace nkentseu {
 				NkEditeurCacher(m, lampe, false);
 				Temoin(icone && dessous && !NkEditeurSansVisuel(m, lampe), "(e46) icone de lumiere sur une caisse : l'icone ; cachee : la caisse",
 					   static_cast<float32>(icone + dessous));
+			}
+
+			// (e47) le Transform d'Unreal et les cases des cartes.
+			{
+				NkEditeurNouvelleScene(m);
+				ecs::NkWorld &w47 = m.scene.Monde();
+				const ecs::NkEntityId c = Par(m.scene, "Caisse_1");
+				const NkVec2f t0 = w47.Get<NkSprite2D>(c)->taille;
+				const NkVec2f d0 = w47.Get<NkCollisionneur2D>(c)->demiTaille;
+				const bool pose = NkEditeurPoserEchelle(m, c, NkVec2f(2.f, 2.f));
+				const NkVec2f e2 = NkEditeurEchelle(m, c);
+				const bool double2 = pose && math::NkAbs(w47.Get<NkSprite2D>(c)->taille.x - t0.x * 2.f) < 1.0e-4f &&
+									 math::NkAbs(w47.Get<NkCollisionneur2D>(c)->demiTaille.y - d0.y * 2.f) < 1.0e-4f &&
+									 math::NkAbs(e2.x - 2.f) < 1.0e-4f && math::NkAbs(e2.y - 2.f) < 1.0e-4f;
+				m.selection = c;
+				m.aSelection = true;
+				NkEditeurMettreAEchelle(m, NkVec2f(1.5f, 1.5f)); // le gizmo R
+				const bool gizmo = math::NkAbs(NkEditeurEchelle(m, c).x - 3.f) < 1.0e-4f;
+				NkEditeurPoserEchelle(m, c, NkVec2f(1.f, 1.f));
+				const bool rendu = math::NkAbs(w47.Get<NkSprite2D>(c)->taille.x - t0.x) < 1.0e-4f && !w47.Has<NkEchelleEditeur>(c);
+				// Les cases.
+				const uint32 masque0 = w47.Get<NkCollisionneur2D>(c)->masque;
+				NkEditeurActiverCarte(m, c, NkCarteEditeur::NK_COLLISIONNEUR, false);
+				const bool colEteint = w47.Get<NkCollisionneur2D>(c)->masque == 0u && w47.Get<NkCollisionneur2D>(c)->couche == 0u &&
+									   !NkEditeurCarteActive(m, c, NkCarteEditeur::NK_COLLISIONNEUR);
+				NkEditeurActiverCarte(m, c, NkCarteEditeur::NK_COLLISIONNEUR, true);
+				const bool colRallume = w47.Get<NkCollisionneur2D>(c)->masque == masque0 && masque0 != 0u;
+				NkEditeurActiverCarte(m, c, NkCarteEditeur::NK_CORPS, false);
+				const bool corpsEteint = w47.Get<NkCorps2D>(c)->type == NkTypeCorps::NK_CINEMATIQUE && w47.Get<NkCorps2D>(c)->echelleGravite == 0.f;
+				// Jouer / Arreter : l'etat eteint (et ce qu'il garde) revient.
+				NkEditeurJouer(m);
+				NkEditeurAvancer(m, 1.f / 60.f);
+				NkEditeurArreter(m);
+				const ecs::NkEntityId c2 = Par(m.scene, "Caisse_1");
+				const bool traverse = !NkEditeurCarteActive(m, c2, NkCarteEditeur::NK_CORPS);
+				NkEditeurActiverCarte(m, c2, NkCarteEditeur::NK_CORPS, true);
+				const bool corpsRallume = m.scene.Monde().Get<NkCorps2D>(c2)->type == NkTypeCorps::NK_DYNAMIQUE &&
+										  m.scene.Monde().Get<NkCorps2D>(c2)->echelleGravite == 1.f && !m.scene.Monde().Has<NkEteintsEditeur>(c2);
+				Temoin(double2 && gizmo && rendu && colEteint && colRallume && corpsEteint && traverse && corpsRallume,
+					   "(e47) echelle cuite et relue ; cases : collisionneur, corps, Jouer/Arreter", e2.x);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

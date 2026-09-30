@@ -403,12 +403,36 @@ namespace nkentseu {
 
 			/// Deux nombres sur une rangee (position, taille...), chacun avec sa
 			/// lettre -- rouge X, verte Y, comme les axes -- qui se TIRE elle aussi.
+			/// Le bouton « remettre » au bout d'une rangee (la fleche d'Unreal) ; il
+			/// prend sa place a DROITE du champ, qui retrecit d'autant.
+			bool Remettre(NkInspecteur &I, NkRect &champ) {
+				const NkRect r{champ.x + champ.w - 20.f, champ.y, 20.f, champ.h};
+				champ.w -= 24.f;
+				const bool clic = NkEditeurBouton(I.c, r, "", false, NkEditeurDans(I.zone, I.c.ctx.input.mousePos), &I.c.ctx.DL());
+				// Une fleche qui revient : un arc et sa pointe.
+				auto &dl = I.c.ctx.DL();
+				const float32 cx = r.x + r.w * 0.5f;
+				const float32 cy = r.y + r.h * 0.5f;
+				NkVec2 arc[10];
+				for (int32 k = 0; k < 10; ++k) {
+					const float32 t = 0.6f + 4.6f * static_cast<float32>(k) / 9.f;
+					arc[k] = NkVec2{cx + 5.f * std::cos(t), cy - 5.f * std::sin(t)};
+				}
+				dl.AddPolyline(arc, 10, I.c.pal.attenue, 1.3f, false);
+				dl.AddTriangleFilled(NkVec2{arc[0].x - 3.5f, arc[0].y - 1.f}, NkVec2{arc[0].x + 1.5f, arc[0].y - 3.5f},
+									 NkVec2{arc[0].x + 1.f, arc[0].y + 2.f}, I.c.pal.attenue);
+				return clic;
+			}
+
 			bool Paire(NkInspecteur &I, const char *libelle, float32 &a, float32 &b, float32 pas, float32 vmin = -1.0e9f,
-					   float32 vmax = 1.0e9f, const char *la = "X", const char *lb = "Y") {
+					   float32 vmax = 1.0e9f, const char *la = "X", const char *lb = "Y", bool *remise = nullptr) {
 				NkGuiContext &ctx = I.c.ctx;
 				auto &dl = ctx.DL();
 				NkRect champ, lib;
 				Rangee(I, libelle, RANG_H, champ, lib);
+				if (remise != nullptr) {
+					*remise = Remettre(I, champ);
+				}
 				ctx.PushId(libelle);
 				bool change = false;
 				const float32 moitie = (champ.w - 4.f) * 0.5f;
@@ -424,6 +448,26 @@ namespace nkentseu {
 					change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
 					ctx.PopId();
 				}
+				ctx.PopId();
+				return change;
+			}
+
+			/// UNE composante avec sa lettre coloree -- la rotation d'un Transform :
+			/// Z, bleue, comme l'axe qui sort de l'ecran.
+			bool Unique(NkInspecteur &I, const char *libelle, float32 &v, float32 pas, float32 vmin, float32 vmax, const char *lettre,
+						const NkColor &couleur, bool *remise) {
+				NkGuiContext &ctx = I.c.ctx;
+				NkRect champ, lib;
+				Rangee(I, libelle, RANG_H, champ, lib);
+				if (remise != nullptr) {
+					*remise = Remettre(I, champ);
+				}
+				ctx.PushId(libelle);
+				const NkRect rl{champ.x, champ.y, 14.f, champ.h};
+				renderer::NkTexteDansBoite(ctx.DL(), I.c.petite, rl, lettre, couleur);
+				bool change = Frotter(I, rl, v, pas, vmin, vmax);
+				ctx.SetNextItemRect(NkRect{champ.x + 15.f, champ.y, champ.w - 15.f, champ.h});
+				change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
 				ctx.PopId();
 				return change;
 			}
@@ -491,31 +535,53 @@ namespace nkentseu {
 			// =================================================================
 			// LES CARTES
 			// =================================================================
+			/// Le Transform a la maniere d'Unreal : Position, Rotation, Echelle, une
+			/// rangee chacune, chaque composante dans son champ derriere sa lettre
+			/// coloree (X rouge, Y vert, Z bleu) qui se TIRE, et la fleche qui remet
+			/// la rangee a zero (a 1 pour l'echelle).
 			void CarteTransform(NkInspecteur &I) {
 				NkEditeurModele &m = I.c.m;
-				NkTransform2D *t = m.scene.Monde().Get<NkTransform2D>(I.id);
-				if (t == nullptr || !Entete(I, NkCarteEditeur::NK_TRANSFORM, nullptr)) {
+				if (!m.scene.Monde().Has<NkTransform2D>(I.id) || !Entete(I, NkCarteEditeur::NK_TRANSFORM, nullptr)) {
 					return;
 				}
 				// ⚠️ La position passe par l'action Deplacer : un rigide est
 				// TELEPORTE (sinon le solveur le ramene), un corps mou TRANSLATE.
+				NkTransform2D *t = m.scene.Monde().Get<NkTransform2D>(I.id);
 				NkVec2f centre = t->position;
 				NkEditeurCentreSelection(m, centre);
 				float32 x = centre.x;
 				float32 y = centre.y;
-				if (Paire(I, "Position (m)", x, y, 0.02f)) {
+				bool remise = false;
+				if (Paire(I, "Position (m)", x, y, 0.02f, -1.0e9f, 1.0e9f, "X", "Y", &remise)) {
 					NkEditeurDeplacer(m, NkVec2f(x, y));
 				}
+				if (remise) {
+					NkEditeurDeplacer(m, NkVec2f(0.f, 0.f));
+				}
+				t = m.scene.Monde().Get<NkTransform2D>(I.id);
 				if (!m.scene.Monde().Has<NkCorpsMou2D>(I.id)) {
 					float32 rot = t->rotation * 57.2957795f;
-					if (Nombre(I, "Rotation (deg)", rot, 0.5f, -360.f, 360.f)) {
-						t->rotation = rot / 57.2957795f;
+					remise = false;
+					const bool tourne = Unique(I, "Rotation (°)", rot, 0.5f, -360.f, 360.f, "Z", NkColor{95, 150, 235, 255}, &remise);
+					if (tourne || remise) {
+						t->rotation = remise ? 0.f : rot / 57.2957795f;
 						if (m.scene.Monde().Has<NkCorps2D>(I.id)) {
 							m.scene.ActualiserCorps(I.id); // le corps prend la nouvelle orientation
 						}
 					}
 				} else {
-					Info(I, "Rotation", "(par particule)");
+					Info(I, "Rotation (°)", "(par particule)");
+				}
+				// L'ECHELLE est cuite dans les composants (NkEchelleEditeur) : la
+				// taper, c'est ce que fait le gizmo R. En DERNIER : elle peut ajouter
+				// un composant a l'entite, ce qui deplace ses donnees.
+				NkVec2f e = NkEditeurEchelle(m, I.id);
+				remise = false;
+				if (Paire(I, "Échelle", e.x, e.y, 0.01f, 0.05f, 100.f, "X", "Y", &remise)) {
+					NkEditeurPoserEchelle(m, I.id, e);
+				}
+				if (remise) {
+					NkEditeurPoserEchelle(m, I.id, NkVec2f(1.f, 1.f));
 				}
 				Fin(I);
 			}
@@ -535,9 +601,16 @@ namespace nkentseu {
 
 			void CarteCollisionneur(NkInspecteur &I) {
 				NkEditeurModele &m = I.c.m;
+				bool actif = NkEditeurCarteActive(m, I.id, NkCarteEditeur::NK_COLLISIONNEUR);
+				const bool ouverte = Entete(I, NkCarteEditeur::NK_COLLISIONNEUR, &actif);
+				NkEditeurActiverCarte(m, I.id, NkCarteEditeur::NK_COLLISIONNEUR, actif);
+				// APRES la case : l'eteindre ajoute un composant a l'entite.
 				NkCollisionneur2D *col = m.scene.Monde().Get<NkCollisionneur2D>(I.id);
-				if (!Entete(I, NkCarteEditeur::NK_COLLISIONNEUR, nullptr)) {
+				if (!ouverte) {
 					return;
+				}
+				if (!actif) {
+					Ligne(I, "Éteint : il ne touche plus rien (couche et masque à 0).");
 				}
 				bool change = false;
 				static const char *kFormes[3] = {"Cercle", "Boîte", "Capsule"};
@@ -565,9 +638,15 @@ namespace nkentseu {
 
 			void CarteCorps(NkInspecteur &I) {
 				NkEditeurModele &m = I.c.m;
+				bool actif = NkEditeurCarteActive(m, I.id, NkCarteEditeur::NK_CORPS);
+				const bool ouverte = Entete(I, NkCarteEditeur::NK_CORPS, &actif);
+				NkEditeurActiverCarte(m, I.id, NkCarteEditeur::NK_CORPS, actif);
 				NkCorps2D *b = m.scene.Monde().Get<NkCorps2D>(I.id);
-				if (!Entete(I, NkCarteEditeur::NK_CORPS, nullptr)) {
+				if (!ouverte) {
 					return;
+				}
+				if (!actif) {
+					Ligne(I, "Éteint : cinématique, sans gravité (« Simulated » décoché).");
 				}
 				bool change = false;
 				static const char *kTypes[3] = {"Statique", "Cinématique", "Dynamique"};
@@ -645,9 +724,16 @@ namespace nkentseu {
 			}
 
 			void CarteSource(NkInspecteur &I) {
-				NkSource2D *s = I.c.m.scene.Monde().Get<NkSource2D>(I.id);
-				if (!Entete(I, NkCarteEditeur::NK_SOURCE, nullptr)) {
+				NkEditeurModele &m = I.c.m;
+				bool actif = NkEditeurCarteActive(m, I.id, NkCarteEditeur::NK_SOURCE);
+				const bool ouverte = Entete(I, NkCarteEditeur::NK_SOURCE, &actif);
+				NkEditeurActiverCarte(m, I.id, NkCarteEditeur::NK_SOURCE, actif);
+				NkSource2D *s = m.scene.Monde().Get<NkSource2D>(I.id);
+				if (!ouverte) {
 					return;
+				}
+				if (!actif) {
+					Ligne(I, "Éteinte : muette.");
 				}
 				int32 son = static_cast<int32>(s->son);
 				if (Entier(I, "Son (id)", son, 0, 100000)) {

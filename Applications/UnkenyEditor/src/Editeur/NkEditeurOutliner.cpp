@@ -67,7 +67,7 @@ namespace nkentseu {
 			/// La NATURE d'une entite ET ses drapeaux, dans la poignee de son icone :
 			/// 0x100 | nature << 4 | cacheHerite << 3 | verrouHerite << 2 | cache << 1 | verrou.
 			constexpr uint16 ICONE_NATURE = 0x100u;
-			enum : uint16 { NATURE_ENTITE = 0, NATURE_RIGIDE, NATURE_DECOR, NATURE_MOU };
+			enum : uint16 { NATURE_ENTITE = 0, NATURE_RIGIDE, NATURE_DECOR, NATURE_MOU, NATURE_LUMIERE, NATURE_EMETTEUR };
 
 			nk_uint64 IdNoeud(ecs::NkEntityId e) noexcept {
 				return static_cast<nk_uint64>(e.Pack()) + 2u;
@@ -88,6 +88,13 @@ namespace nkentseu {
 				}
 				if (const NkCorps2D *c = scene.Monde().Get<NkCorps2D>(id)) {
 					return c->type == NkTypeCorps::NK_DYNAMIQUE ? NATURE_RIGIDE : NATURE_DECOR;
+				}
+				// Une lumiere, un emetteur : l'icone qu'ils ont dans le viseur.
+				if (scene.Monde().Has<NkLumiere2D>(id)) {
+					return NATURE_LUMIERE;
+				}
+				if (scene.Monde().Has<NkEmetteur2D>(id)) {
+					return NATURE_EMETTEUR;
 				}
 				return NATURE_ENTITE;
 			}
@@ -245,6 +252,21 @@ namespace nkentseu {
 							case NATURE_RIGIDE:
 								dl.AddRectFilled(NkRect{cx - 4.f, cy - 4.f, 8.f, 8.f}, col, 1.5f);
 								break;
+							case NATURE_LUMIERE:
+								for (int32 k = 0; k < 8; ++k) {
+									const float32 a = 0.785398f * static_cast<float32>(k);
+									dl.AddLine(nkgui::NkVec2{cx + std::cos(a) * 3.5f, cy + std::sin(a) * 3.5f},
+											   nkgui::NkVec2{cx + std::cos(a) * 6.f, cy + std::sin(a) * 6.f}, col, 1.1f);
+								}
+								dl.AddCircleFilled(nkgui::NkVec2{cx, cy}, 2.6f, col);
+								break;
+							case NATURE_EMETTEUR: {
+								const nkgui::NkVec2 f[4] = {nkgui::NkVec2{cx, cy - 6.f}, nkgui::NkVec2{cx + 4.f, cy + 1.f}, nkgui::NkVec2{cx, cy + 5.f},
+															nkgui::NkVec2{cx - 4.f, cy + 1.f}};
+								dl.AddTriangleFilled(f[0], f[1], f[2], col);
+								dl.AddTriangleFilled(f[0], f[2], f[3], col);
+								break;
+							}
 							case NATURE_DECOR:
 								dl.AddRectFilled(NkRect{cx - 5.5f, cy + 0.5f, 11.f, 3.5f}, col, 1.f);
 								dl.AddLine(nkgui::NkVec2{cx - 4.f, cy - 2.5f}, nkgui::NkVec2{cx + 4.f, cy - 2.5f}, col, 1.f);
@@ -431,7 +453,9 @@ namespace nkentseu {
 				//    noeud ne garde qu'un pointeur, il ne copie pas.
 				n.kindLabel = NkEditeurTypeDe(c.m.scene, ids[i]);
 				const uint16 nature = NatureDe(c.m.scene, ids[i]);
-				n.kindRole = static_cast<uint16>(nature == NATURE_MOU ? NkRole::AxisZ : NkRole::TextMuted);
+				n.kindRole = static_cast<uint16>(nature == NATURE_MOU	   ? NkRole::AxisZ
+												 : nature == NATURE_LUMIERE || nature == NATURE_EMETTEUR ? NkRole::AccentSel
+																										 : NkRole::TextMuted);
 				const bool cache = NkEditeurEstCache(c.m, ids[i]);
 				const bool verrou = NkEditeurEstVerrouille(c.m, ids[i]);
 				const bool cacheHerite = NkEditeurCacheHerite(c.m, ids[i]);

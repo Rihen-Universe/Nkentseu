@@ -34,6 +34,8 @@ namespace nkentseu {
 			///    enregistrees muettes sur leurs drapeaux.
 			void DeclarerDrapeaux(NkScene &s) {
 				s.PhotographierAussi<NkDrapeauxEditeur>("UnkenyEditor.Drapeaux");
+				s.PhotographierAussi<NkEchelleEditeur>("UnkenyEditor.Echelle");
+				s.PhotographierAussi<NkEteintsEditeur>("UnkenyEditor.Eteints");
 			}
 
 			ecs::NkEntityId Statique(NkScene &s, const char *nom, const NkVec2f &c, const NkVec2f &demi, uint32 couleur) {
@@ -823,7 +825,51 @@ namespace nkentseu {
 			return true;
 		}
 
+		namespace {
+			bool CuireEchelle(NkEditeurModele &m, const NkVec2f &f);
+		} // namespace
+
+		NkVec2f NkEditeurEchelle(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkEchelleEditeur *e = m.scene.Monde().Get<NkEchelleEditeur>(id);
+			return e != nullptr ? e->facteur : NkVec2f(1.f, 1.f);
+		}
+
 		bool NkEditeurMettreAEchelle(NkEditeurModele &m, const NkVec2f &f) {
+			if (!CuireEchelle(m, f)) {
+				return false;
+			}
+			// Le CUMUL que lit le Transform. Revenu a 1 x 1, le composant s'en va :
+			// une scene qu'on n'a pas mise a l'echelle s'enregistre comme avant.
+			ecs::NkWorld &w = m.scene.Monde();
+			const NkVec2f e = NkEditeurEchelle(m, m.selection);
+			NkEchelleEditeur n;
+			n.facteur = NkVec2f(e.x * f.x, e.y * f.y);
+			const bool unite = math::NkAbs(n.facteur.x - 1.f) < 1.0e-4f && math::NkAbs(n.facteur.y - 1.f) < 1.0e-4f;
+			if (unite) {
+				if (w.Has<NkEchelleEditeur>(m.selection)) {
+					w.Remove<NkEchelleEditeur>(m.selection);
+				}
+			} else {
+				w.Add<NkEchelleEditeur>(m.selection, n);
+			}
+			return true;
+		}
+
+		bool NkEditeurPoserEchelle(NkEditeurModele &m, ecs::NkEntityId id, const NkVec2f &facteur) {
+			const NkVec2f cible(facteur.x < 0.05f ? 0.05f : facteur.x, facteur.y < 0.05f ? 0.05f : facteur.y);
+			const NkVec2f e = NkEditeurEchelle(m, id);
+			const ecs::NkEntityId avant = m.selection;
+			const bool avait = m.aSelection;
+			m.selection = id;
+			m.aSelection = true;
+			const bool ok = NkEditeurMettreAEchelle(m, NkVec2f(cible.x / e.x, cible.y / e.y));
+			m.selection = avant;
+			m.aSelection = avait;
+			return ok;
+		}
+
+		namespace {
+		bool CuireEchelle(NkEditeurModele &m, const NkVec2f &f) {
 			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection) || f.x <= 0.f || f.y <= 0.f) {
 				return false;
 			}
@@ -891,6 +937,8 @@ namespace nkentseu {
 			}
 			return true;
 		}
+
+		} // namespace
 
 		float32 NkEditeurAccrocher(float32 v, float32 pas) noexcept {
 			if (pas <= 0.f) {
@@ -1270,6 +1318,8 @@ namespace nkentseu {
 							m.scene.ActualiserCorps(id);
 						}
 					}
+					// L'echelle AFFICHEE (cuite) revient a 1 x 1, comme dans Unreal.
+					NkEditeurPoserEchelle(m, id, NkVec2f(1.f, 1.f));
 					return true;
 				}
 				case NkCarteEditeur::NK_SPRITE: {
@@ -1478,6 +1528,134 @@ namespace nkentseu {
 				default:
 					return false;
 			}
+		}
+
+		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept {
+			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c < NkCarteEditeur::NK_COUNT;
+		}
+
+		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			switch (c) {
+				case NkCarteEditeur::NK_SPRITE: {
+					const NkSprite2D *s = w.Get<NkSprite2D>(id);
+					return s != nullptr && s->visible;
+				}
+				case NkCarteEditeur::NK_CORPS_MOU: {
+					const NkCorpsMou2D *s = w.Get<NkCorpsMou2D>(id);
+					return s != nullptr && s->visible;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					const NkAnimSprite2D *s = w.Get<NkAnimSprite2D>(id);
+					return s != nullptr && !s->enPause;
+				}
+				case NkCarteEditeur::NK_ANIMATEUR: {
+					const NkAnimateur2D *s = w.Get<NkAnimateur2D>(id);
+					return s != nullptr && !s->enPause;
+				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					const NkLumiere2D *s = w.Get<NkLumiere2D>(id);
+					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_EMETTEUR: {
+					const NkEmetteur2D *s = w.Get<NkEmetteur2D>(id);
+					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR:
+				case NkCarteEditeur::NK_CORPS:
+				case NkCarteEditeur::NK_SOURCE: {
+					const NkEteintsEditeur *e = w.Get<NkEteintsEditeur>(id);
+					return e == nullptr || (e->bits & (1u << static_cast<uint32>(c))) == 0u;
+				}
+				default:
+					return true;
+			}
+		}
+
+		bool NkEditeurActiverCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, bool actif) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurCarteAUneCase(c) || !NkEditeurAUneCarte(m, id, c) || NkEditeurCarteActive(m, id, c) == actif) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_SPRITE:
+					w.Get<NkSprite2D>(id)->visible = actif;
+					return true;
+				case NkCarteEditeur::NK_CORPS_MOU:
+					w.Get<NkCorpsMou2D>(id)->visible = actif;
+					return true;
+				case NkCarteEditeur::NK_ANIMATION:
+					w.Get<NkAnimSprite2D>(id)->enPause = !actif;
+					return true;
+				case NkCarteEditeur::NK_ANIMATEUR:
+					w.Get<NkAnimateur2D>(id)->enPause = !actif;
+					return true;
+				case NkCarteEditeur::NK_LUMIERE:
+					w.Get<NkLumiere2D>(id)->actif = actif;
+					return true;
+				case NkCarteEditeur::NK_EMETTEUR:
+					w.Get<NkEmetteur2D>(id)->actif = actif;
+					return true;
+				default:
+					break;
+			}
+			// Ceux qui n'ont pas de drapeau : on change ce qui les rend effectifs,
+			// et on garde ce qu'ils avaient.
+			NkEteintsEditeur e;
+			if (const NkEteintsEditeur *x = w.Get<NkEteintsEditeur>(id)) {
+				e = *x;
+			}
+			const uint32 bit = 1u << static_cast<uint32>(c);
+			if (c == NkCarteEditeur::NK_COLLISIONNEUR) {
+				NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id);
+				if (!actif) {
+					e.couche = col->couche;
+					e.masque = col->masque;
+					col->couche = 0u;
+					col->masque = 0u;
+				} else {
+					col->couche = e.couche;
+					col->masque = e.masque;
+				}
+				if (w.Has<NkCorps2D>(id)) {
+					m.scene.ActualiserCorps(id);
+				}
+			} else if (c == NkCarteEditeur::NK_CORPS) {
+				NkCorps2D *b = w.Get<NkCorps2D>(id);
+				if (!actif) {
+					e.typeCorps = static_cast<uint8>(b->type);
+					e.echelleGravite = b->echelleGravite;
+					b->type = NkTypeCorps::NK_CINEMATIQUE;
+					b->echelleGravite = 0.f;
+				} else {
+					b->type = static_cast<NkTypeCorps>(e.typeCorps);
+					b->echelleGravite = e.echelleGravite;
+				}
+				m.scene.ActualiserCorps(id);
+				if (!actif) {
+					m.scene.PoserVitesse(id, NkVec2f(0.f, 0.f));
+				}
+			} else if (c == NkCarteEditeur::NK_SOURCE) {
+				NkSource2D *so = w.Get<NkSource2D>(id);
+				if (!actif) {
+					e.volume = so->volume;
+					so->volume = 0.f;
+					so->arret = true;
+				} else {
+					so->volume = e.volume;
+				}
+			} else {
+				return false;
+			}
+			e.bits = actif ? (e.bits & ~bit) : (e.bits | bit);
+			if (e.bits == 0u) {
+				if (w.Has<NkEteintsEditeur>(id)) {
+					w.Remove<NkEteintsEditeur>(id);
+				}
+			} else {
+				w.Add<NkEteintsEditeur>(id, e);
+			}
+			return true;
 		}
 
 		const char *NkEditeurTypeDe(NkScene &scene, ecs::NkEntityId id) {

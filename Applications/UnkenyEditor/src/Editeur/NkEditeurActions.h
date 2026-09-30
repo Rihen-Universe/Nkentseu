@@ -124,6 +124,11 @@ namespace nkentseu {
 		///    collisionneur a ses propres dimensions), et un sprite agrandi sur
 		///    une boite de collision inchangee mentirait sur ce qui se touche.
 		bool NkEditeurMettreAEchelle(NkEditeurModele &m, const NkVec2f &facteur);
+		/// L'echelle affichee (NkEchelleEditeur) ; 1 x 1 sans composant.
+		NkVec2f NkEditeurEchelle(NkEditeurModele &m, ecs::NkEntityId id);
+		/// Amene l'echelle affichee a `facteur` (chaque axe >= 0,05) en CUISANT le
+		/// rapport dans les composants, comme le gizmo.
+		bool NkEditeurPoserEchelle(NkEditeurModele &m, ecs::NkEntityId id, const NkVec2f &facteur);
 		/// L'accrochage : `v` ramene au multiple de `pas` le plus proche.
 		/// `pas` <= 0 : `v` inchange.
 		float32 NkEditeurAccrocher(float32 v, float32 pas) noexcept;
@@ -204,6 +209,14 @@ namespace nkentseu {
 		/// la voix d'une source restent ceux de l'entite : on colle des VALEURS,
 		/// pas une identite -- deux caisses ne partagent pas un corps.
 		bool NkEditeurCollerCarte(NkEditeurModele &m, ecs::NkEntityId id, const NkPressePapierComposant &pp);
+		/// La case « actif » de l'en-tete d'une carte : les composants qui ont
+		/// leur drapeau (sprite et matiere visibles, animation et animateur qui
+		/// jouent, lumiere et emetteur actifs) le suivent ; les autres s'eteignent
+		/// par NkEteintsEditeur. Le Transform et la Hierarchie ne s'eteignent pas
+		/// (ce ne sont pas des composants qu'on retire du jeu).
+		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept;
+		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c);
+		bool NkEditeurActiverCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, bool actif);
 
 		/// « mou », « rigide », « decor », « entite » : l'etiquette de type que
 		/// montrent la hierarchie et l'inspecteur.
