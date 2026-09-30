@@ -57,6 +57,14 @@ namespace nkentseu {
 				/// L'etat vu a la trame precedente : c'est la TRANSITION vers le
 				/// jeu qui donne la main, pas l'etat lui-meme.
 				NkEtatJeu etatVu = NkEtatJeu::NK_EDITION;
+
+				// --- Le panneau Entrees (30/09) ------------------------------------
+				nkgui::NkRect panneauRect{0.f, 0.f, 0.f, 0.f}; ///< celui de la trame d'avant
+				int32 panneauDefil = 0;	 ///< premiere ligne affichee
+				int32 capturee = -1;	 ///< la liaison en capture, -1 sinon
+				bool modifiees = false;	 ///< des liaisons ont change depuis le dernier fichier
+				NkString cheminVu;		 ///< la scene dont le fichier d'entrees a ete lu
+				NkString message;		 ///< la derniere annonce du panneau
 		};
 
 		/// ZQSD / WASD et fleches, stick gauche et croix, Espace / Sud, E / Ouest.
@@ -81,7 +89,36 @@ namespace nkentseu {
 		void NkEditeurDessinerEntrees(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *police, const NkEditeurEntrees &e,
 									  const nkgui::NkRect &viseur);
 
-		/// (e25..e31), lance par `--selftest` apres le banc de l'editeur.
+		// --- Le panneau Entrees : ses gestes, sans fenetre ----------------------
+		/// « Changer » : la prochaine touche ou le prochain bouton de manette
+		/// devient l'entree de la liaison `indice` -- meme en EDITION.
+		bool NkEditeurEntreesChanger(NkEditeurEntrees &e, int32 indice);
+		void NkEditeurEntreesAnnulerChangement(NkEditeurEntrees &e);
+		/// La liaison, en clair : « Sauter  <-  Key:SPACE », « Avancer  <-  zone ».
+		NkString NkEditeurEntreesDecrire(const NkEditeurEntrees &e, int32 indice);
+		/// Le fichier des entrees d'une scene : a cote d'elle, meme nom,
+		/// extension .nkentrees (le texte de NkLiaisons::Ecrire).
+		NkString NkEditeurEntreesFichier(const char *cheminScene);
+		/// Le chemin de la scene, SANS l'ecrire dans le modele (NkEditeurChemin,
+		/// lui, l'y ecrit, et le titre de l'onglet le lit : l'appeler a chaque
+		/// trame changeait le titre d'une scene jamais enregistree).
+		NkString NkEditeurEntreesCheminScene(const NkEditeurModele &m);
+		bool NkEditeurEntreesEnregistrer(NkEditeurEntrees &e, const char *cheminScene);
+		/// Relit le fichier de la scene ; sans fichier, les liaisons par defaut.
+		/// Rend vrai si un fichier a ete lu sans erreur.
+		bool NkEditeurEntreesCharger(NkEditeurEntrees &e, const char *cheminScene);
+		/// A chaque trame : si la scene a change de chemin (Ouvrir), ses entrees
+		/// sont relues. C'est ce qui « sauve dans la scene » sans toucher au
+		/// format .nkscene.
+		void NkEditeurEntreesSuivreScene(NkEditeurEntrees &e, const char *cheminScene);
+
+		struct NkEditeurCadre;
+		/// Le panneau « Entrees du jeu » (Fenetre > Entrees du jeu) : les actions,
+		/// leurs liaisons, « Changer » par capture, Enregistrer / Recharger / Par
+		/// defaut. Ne dessine rien si `c.ui.panneauEntrees` est faux.
+		void NkEditeurDessinerPanneauEntrees(NkEditeurCadre &c, NkEditeurEntrees &e);
+
+		/// (e25..e35), lance par `--selftest` apres le banc de l'editeur.
 		int32 NkEditeurLancerBancEntrees();
 
 	} // namespace editeur

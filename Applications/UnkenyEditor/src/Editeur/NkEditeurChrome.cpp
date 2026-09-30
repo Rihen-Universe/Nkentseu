@@ -244,6 +244,7 @@ namespace nkentseu {
 						out.PushBack(Entree("Outliner", NK_A_VOIR_OUTLINER, "", c.ui.voirOutliner));
 						out.PushBack(Entree("Détails", NK_A_VOIR_DETAILS, "", c.ui.voirDetails));
 						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
+						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Disposition par défaut", NK_A_DISPOSITION));
 						break;
@@ -843,6 +844,9 @@ namespace nkentseu {
 					break;
 				case NK_A_VOIR_TIROIR:
 					ui.voirTiroir = !ui.voirTiroir;
+					break;
+				case NK_A_ENTREES:
+					ui.panneauEntrees = !ui.panneauEntrees;
 					break;
 				case NK_A_DISPOSITION:
 					ui.voirOutliner = true;

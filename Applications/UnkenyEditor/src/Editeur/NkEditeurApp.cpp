@@ -197,6 +197,12 @@ namespace nkentseu {
 					m.simuler = true;
 					continue;
 				}
+				// --panneau=entrees : le panneau Entrees ouvert au depart, pour
+				// qu'une capture (--capture=) le montre sans souris.
+				if (args[i] == "--panneau=entrees") {
+					mUi->panneauEntrees = true;
+					continue;
+				}
 				// --outil= et --selection= : pour qu'une capture d'un GIZMO soit
 				// reproductible (--capture=), comme --profil= l'est pour l'appareil.
 				// Sans elles, montrer un gizmo demande une souris -- et donc quelqu'un.
@@ -313,7 +319,11 @@ namespace nkentseu {
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
-			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
+								mUi->panneauEntrees;
+			// Les entrees de la scene vivent a cote d'elle (.nkentrees) : relues
+			// quand la scene change de chemin (Ouvrir).
+			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
 			NkEditeurEntreesTrame(*mEntrees, mModele->etat, &NkWESystem::Gamepads(), mUi->viseur, occupe);
 			// ── LE PAS DE SIMULATION VIT ICI ─────────────────────────────────
 			// Avec le shell, il vivait dans le dessin du panneau viseur, et
@@ -398,7 +408,8 @@ namespace nkentseu {
 		bool NkEditeurApp::OnEvent(const NkEvent &event) {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
-			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN;
+			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
+								mUi->panneauEntrees;
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -592,6 +603,10 @@ namespace nkentseu {
 			} else if (menuDebut != NkMenuEditeur::NK_AUCUN) {
 				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
 				Neutraliser(ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
+			} else if (ui.panneauEntrees && NkEditeurDans(mEntrees->panneauRect, vrais.position)) {
+				// Le panneau Entrees flotte au-dessus du corps : un clic sur lui
+				// ne doit pas choisir l'entite qui est dessous.
+				Neutraliser(ctx.input, true);
 			}
 			NkEditeurDessinerVue(c);
 			NkEditeurDessinerOutliner(c);
@@ -610,6 +625,9 @@ namespace nkentseu {
 			if (!modale) {
 				Rendre(ctx.input, vrais);
 			}
+			// Le panneau Entrees, SOUS les menus deroulants (il ne prend aucun clic
+			// tant qu'un menu est ouvert).
+			NkEditeurDessinerPanneauEntrees(c, *mEntrees);
 			NkEditeurDessinerBarreMenus(c);
 			NkEditeurDessinerMenuOuvert(c, menuDebut);
 

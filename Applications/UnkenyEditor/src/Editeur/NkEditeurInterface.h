@@ -113,6 +113,7 @@ namespace nkentseu {
 			NK_A_ENTITE_ICI,			///< une entite vide au point du clic droit
 			NK_A_SIMPLE_ICI,			///< l'entite simple (sprite + boite) au point du clic droit
 			NK_A_ACCROCHAGE,			///< l'accrochage des gizmos, allume / eteint
+			NK_A_ENTREES,				///< le panneau Entrees (liaisons du jeu), ouvert / ferme
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -307,6 +308,9 @@ namespace nkentseu {
 				/// L'ordre de l'Outliner, garde d'une trame a l'autre : l'ECS range ses
 				/// entites par archetype, et ajouter un composant en deplacait une.
 				NkVector<ecs::NkEntityId> ordreArbre;
+				/// Le panneau Entrees (NkEditeurEntrees.cpp) : ouvert par Fenetre >
+				/// Entrees, ferme par sa croix.
+				bool panneauEntrees = false;
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.
