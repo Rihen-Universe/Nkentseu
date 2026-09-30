@@ -47,6 +47,11 @@ namespace nkentseu {
 			mTypedCallbacks.Insert(type, NkVector<NkEventCallback>{});
 			mTypedCallbacksWithToken.Insert(type, NkVector<TokenizedCallback>{});
 		}
+
+		// Un geste reconnu repart par le MEME chemin qu'un evenement du dorsal :
+		// callbacks, etat, file. Il suit donc dans la file le contact qui l'a
+		// fait naitre, et PollEvent le rend au meme tour.
+		mGestures.SetSink([this](NkEvent &geste) { DeliverOnPumpThread(geste, geste.GetWindowId()); });
 	}
 
 	NkEventSystem::~NkEventSystem() {
@@ -245,6 +250,38 @@ namespace nkentseu {
 			NkScopedSpinLock lock(mQueueMutex);
 			mEventQueue.Push(traits::NkMove(clone), prio);
 		}
+
+		// APRES la file, et hors verrou : le geste doit sortir derriere son
+		// contact, et le reconnaisseur rappelle DeliverOnPumpThread lui-meme.
+		FeedGestures(evt);
+	}
+
+	// =============================================================================
+	// Les gestes — nourris par les contacts, avances par le temps
+	// =============================================================================
+
+	void NkEventSystem::FeedGestures(const NkEvent &evt) noexcept {
+		if (!mGesturesEnabled) {
+			return;
+		}
+		const NkEventType::Value type = evt.GetType();
+		if (type != NkEventType::NK_TOUCH_BEGIN && type != NkEventType::NK_TOUCH_MOVE &&
+			type != NkEventType::NK_TOUCH_END && type != NkEventType::NK_TOUCH_CANCEL) {
+			return;
+		}
+		// L'horodatage de l'EVENEMENT, pas l'heure de livraison : un contact
+		// venu d'un thread etranger est livre en retard, et le mesurer a sa
+		// livraison allongerait la tape au point d'en faire un appui long.
+		mGestures.OnTouchEvent(evt, static_cast<float64>(evt.GetTimestamp()));
+	}
+
+	void NkEventSystem::TickGestures() noexcept {
+		if (!mGesturesEnabled || mGestures.GetActiveContactCount() == 0) {
+			return;
+		}
+		// Meme horloge que NkEvent::GetCurrentTimestamp : les deux bases
+		// doivent coincider, sinon l'appui long partirait trop tot ou jamais.
+		mGestures.Update(static_cast<float64>(NkChrono::Now().milliseconds));
 	}
 
 	// =============================================================================
@@ -383,6 +420,7 @@ namespace nkentseu {
 
 		PumpOS();
 		RefreshAxes(); // un axe se relit une fois par tour, il ne s'attend pas
+		TickGestures(); // un doigt immobile n'emet rien : l'appui long, c'est le temps
 
 #if defined(NKENTSEU_PLATFORM_EMSCRIPTEN) && defined(__EMSCRIPTEN__)
 		// Web cooperative yielding is done by the application frame loop.
@@ -415,6 +453,9 @@ namespace nkentseu {
 		// restaient en attente indefiniment, et l'ecran repondait a un doigt qui
 		// touchait bien la dalle mais dont personne n'entendait parler.
 		DrainForeignEvents();
+		// Meme raison pour l'appui long : Pong et Mou ne passent jamais par
+		// PollEvents(), et un doigt immobile n'y produirait rien.
+		TickGestures();
 
 		// Tenter de dÃ©piler un event dÃ©jÃ  en queue
 		// CORRECTION 2 : mCurrentEvent garde la propriÃ©tÃ© unique_ptr ; le pointeur
