@@ -320,3 +320,62 @@ jobs:
           name: macos-nkcraft-journaux
           path: journaux/
           if-no-files-found: warn
+
+  # ===========================================================================
+  # EXPERIENCE — Physic2D sans contraction FMA
+  #
+  # Sur ce runner (arm64), `Physic2D --selftest` rend 21/22 : (u3) « blob lache
+  # sur la caisse : il reste dessus » voit le blob glisser au sol (centre
+  # 0,41 m au lieu de > 0,66). Le meme banc est vert sous Windows x86_64.
+  # HYPOTHESE : clang contracte a*b+c en FMA sur arm64 (-ffp-contract=on par
+  # defaut), pas sur x86_64 sans -mfma ; un blob lache pile au centre d'une
+  # caisse plus etroite que lui est un equilibre INSTABLE, et l'arrondi choisit
+  # le cote. Ce job reconstruit SANS contraction pour trancher.
+  #
+  # CCC_OVERRIDE_OPTIONS (pilote clang) ajoute l'option a CHAQUE compilation :
+  # Jenga 2.8.6 ignore les cxxflags d'un projet sur macOS (Macos.py,
+  # _GetCompilerFlags), il n'y a donc pas d'autre porte.
+  # ===========================================================================
+  physic2d-sans-fma:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Depot Nkentseu (+ sous-modules Externals)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version de Jenga exigee par NKCode
+        id: jenga-version
+        run: |
+          V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
+          test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Depot Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v${{ steps.jenga-version.outputs.version }}
+          path: jenga-src
+
+      - name: Scripts executables
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Construire Physic2D (-ffp-contract=off)
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+          CCC_OVERRIDE_OPTIONS: "# +-ffp-contract=off"
+        run: .github/scripts/construire.sh build Physic2D "$CONFIG" "$JOURNAUX"
+
+      - name: Physic2D --selftest (sans FMA)
+        if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
+        run: .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/Physic2D.chemin")" "Physic2D selftest sans FMA" "$JOURNAUX/bancs" --selftest
+
+      - name: Journaux
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-physic2d-sans-fma-journaux
+          path: journaux/
+          if-no-files-found: warn
