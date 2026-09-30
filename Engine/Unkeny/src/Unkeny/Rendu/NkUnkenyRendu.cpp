@@ -43,8 +43,9 @@ namespace nkentseu {
 
 			NkVector<Aplat> aplats;
 			scene.Monde().Query<NkTransform2D, NkSprite2D>().ForEach(
-				[&](ecs::NkEntityId, NkTransform2D &t, NkSprite2D &s) {
-					if (!s.visible) {
+				[&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &s) {
+					// Une entite ETEINTE (NkUnkenyActif.h) n'est pas rendue.
+					if (!s.visible || !scene.EstActive(id)) {
 						return;
 					}
 					++stats.entitesVues;
@@ -129,7 +130,10 @@ namespace nkentseu {
 			const NkColor col = Couleur(couleur);
 
 			scene.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach(
-				[&](ecs::NkEntityId, NkTransform2D &t, NkCollisionneur2D &c) {
+				[&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
+					if (!scene.EstActive(id)) {
+						return; // eteint : son collisionneur ne touche rien, il ne se montre pas
+					}
 					const NkVec2f centre(t.position.x + c.decalage.x, t.position.y + c.decalage.y);
 					const NkVec2f e = cam.MondeVersEcran(centre);
 					switch (c.forme) {
@@ -167,6 +171,9 @@ namespace nkentseu {
 			};
 			auto Max1 = [](float32 v) { return v > 1.f ? v : 1.f; };
 			monde.Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
+				if (!NkEntiteActive(monde, id)) {
+					return; // une entite ETEINTE n'est pas rendue (NkUnkenyActif.h)
+				}
 				const NkCorps2D *corps = monde.Get<NkCorps2D>(id);
 				const NkSprite2D *sp = monde.Get<NkSprite2D>(id);
 				const bool rigide = corps != nullptr && corps->type == NkTypeCorps::NK_DYNAMIQUE;

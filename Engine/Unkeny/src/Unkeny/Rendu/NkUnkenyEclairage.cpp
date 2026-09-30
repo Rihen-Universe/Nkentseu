@@ -235,8 +235,9 @@ namespace nkentseu {
 					void RecueillirLumieres(NkScene &scene, const NkVec2f &centre, float32 rayon) {
 						const bool ombresScene = scene.Eclairage().ombres;
 						scene.Monde().Query<NkTransform2D, NkLumiere2D>().ForEach(
-							[&](ecs::NkEntityId, NkTransform2D &t, NkLumiere2D &src) {
-								if (!src.actif || src.intensite <= 0.f) {
+							[&](ecs::NkEntityId id, NkTransform2D &t, NkLumiere2D &src) {
+								// Une entite ETEINTE (NkUnkenyActif.h) n'eclaire pas.
+								if (!src.actif || src.intensite <= 0.f || !scene.EstActive(id)) {
 									return;
 								}
 								NkLumiereCalc l;
@@ -267,7 +268,7 @@ namespace nkentseu {
 						const NkEffets2D &fx = scene.Effets();
 						scene.Monde().Query<NkTransform2D, NkEmetteur2D>().ForEach(
 							[&](ecs::NkEntityId id, NkTransform2D &t, NkEmetteur2D &e) {
-								if (!e.eclaire) {
+								if (!e.eclaire || !scene.EstActive(id)) {
 									return;
 								}
 								const float32 k = fx.FacteurLumiere(id.Pack(), e) * e.intensiteLumiere;
@@ -312,8 +313,9 @@ namespace nkentseu {
 
 					void RecueillirOcculteurs(NkScene &scene, uint32 masque, const NkVec2f &centre, float32 rayon) {
 						scene.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach(
-							[&](ecs::NkEntityId, NkTransform2D &t, NkCollisionneur2D &c) {
-								if (c.declencheur || (c.couche & masque) == 0u) {
+							[&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &c) {
+								// Une entite ETEINTE ne porte pas d'ombre.
+								if (c.declencheur || (c.couche & masque) == 0u || !scene.EstActive(id)) {
 									return;
 								}
 								// Le meme repere que NkDistanceForme2D et NkDessinerFormes :

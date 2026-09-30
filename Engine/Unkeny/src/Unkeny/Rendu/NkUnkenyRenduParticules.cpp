@@ -391,11 +391,12 @@ namespace nkentseu {
 				couleur[c] = 0xC8C8C8FFu;
 				visible[c] = 1;
 			}
-			scene.Monde().Query<NkCorpsMou2D>().ForEach([&](ecs::NkEntityId, NkCorpsMou2D &m) {
+			scene.Monde().Query<NkCorpsMou2D>().ForEach([&](ecs::NkEntityId id, NkCorpsMou2D &m) {
 				const int32 ci = p.IndexCorps(m.corpsId);
 				if (ci >= 0) {
 					couleur[static_cast<uint32>(ci)] = m.couleur;
-					visible[static_cast<uint32>(ci)] = m.visible ? 1u : 0u;
+					// Une entite ETEINTE (NkUnkenyActif.h) : sa matiere n'est pas rendue.
+					visible[static_cast<uint32>(ci)] = (m.visible && scene.EstActive(id)) ? 1u : 0u;
 				}
 			});
 

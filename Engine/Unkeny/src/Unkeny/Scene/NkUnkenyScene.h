@@ -44,6 +44,7 @@
 #include "NKPhysics/NkParticules2D.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "Unkeny/Effets/NkUnkenyEffets.h"
+#include "Unkeny/Scene/NkUnkenyActif.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyChamps.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
@@ -337,6 +338,29 @@ namespace nkentseu {
 				/// deplacer un parent emporte ses enfants a l'ecran.
 				void PropagerHierarchie();
 
+				// --- Activite (2026-09-30, NkUnkenyActif.h) ----------------------
+				// Une entite ETEINTE et sa descendance ne sont ni rendues, ni simulees,
+				// ni animees : voir l'en-tete de NkUnkenyActif.h.
+
+				/// Active EN EFFET : ni elle ni un ancetre n'est eteint.
+				bool EstActive(ecs::NkEntityId id) const noexcept {
+					return NkEntiteActive(mMonde, id);
+				}
+				/// Son PROPRE drapeau (la case des Details), sans les ancetres.
+				bool EstActiveSoi(ecs::NkEntityId id) const noexcept {
+					const NkActif2D *a = mMonde.Get<NkActif2D>(id);
+					return a == nullptr || a->actif;
+				}
+				/// Allume ou eteint l'entite (et donc, en effet, sa descendance), et
+				/// l'applique AUSSITOT : corps rigides sortis ou remis au solveur,
+				/// corps mous geles ou degeles. false : entite morte.
+				bool Activer(ecs::NkEntityId id, bool actif);
+				/// Met le solveur et la matiere en accord avec l'activite de chaque
+				/// entite. Pas() l'appelle (un enfant rattache a un parent eteint
+				/// s'eteint au pas suivant), ainsi que RefaireEntites (Restaurer,
+				/// fichier, prefab) ; Activer aussi.
+				void AppliquerActivite();
+
 				// --- Photo (Jouer / Arreter d'un editeur) ----------------------
 				/// Ce qu'il faut pour REFAIRE la scene a l'identique : les
 				/// composants d'Unkeny de chaque entite, l'etat de chaque corps
@@ -564,6 +588,10 @@ namespace nkentseu {
 				/// perimee. Jamais cru sans verification : une entree n'est rendue
 				/// que si l'entite vit ET porte toujours cet uid.
 				NkUnorderedMap<uint64, ecs::NkEntityId> mCacheUid;
+				/// Les corps rigides SORTIS du solveur par l'activite : entite (Pack)
+				/// -> ancien identifiant, pour rebrancher les attaches des particules
+				/// sur le corps neuf quand l'entite se rallume.
+				NkUnorderedMap<uint64, physics::NkBodyId> mCorpsEteints;
 				void RefaireCacheUid();
 				/// Un enfant a corps STATIQUE ou CINEMATIQUE suit son parent : son
 				/// corps est pose au monde `m` (le pont 2D <-> 3D vit dans
