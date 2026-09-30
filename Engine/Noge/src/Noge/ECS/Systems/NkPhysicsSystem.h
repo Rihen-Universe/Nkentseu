@@ -9,6 +9,21 @@
 //   - Avance la simulation à pas fixe (groupe FixedUpdate), puis SYNCHRONISE :
 //       • dynamique : corps -> NkTransform (+ vélocités vers le composant)
 //       • cinématique : NkTransform -> corps (avant le step)
+//
+// LE GAMEPLAY PARLE AU CORPS PAR LE COMPOSANT (2026-09-30) :
+//   NkRigidbody3D::AddForce / AddImpulse / AddTorque / SetVelocity / Stop
+//   existaient et n'avaient AUCUN effet : le pont ecrasait `velocity` apres
+//   chaque pas et ignorait `force` / `torque`. Desormais, avant le pas :
+//       • une `velocity` (ou `angularVelocity`) qui n'est plus celle que le pont
+//         a recopiee du corps au pas d'avant a ete ecrite par le jeu : elle
+//         PASSE au corps (le jeu gagne) ;
+//       • `force` et `torque` accumules passent au corps, puis sont remis a 0 ;
+//       • le corps touche est reveille.
+//   freezeRotX && freezeRotY && freezeRotZ -> NK_BODY_FIXED_ROT (inertie
+//   inverse nulle : le corps glisse sans basculer). Un gel PARTIEL n'est pas
+//   tenu (il le serait sur des axes locaux, pas monde) ; `freezePos*` et
+//   `mass` ne sont pas tenus non plus (la masse vient de la densite du
+//   materiau) -- voir Engine/Noge/ETAT_2026-09-30.md.
 // =============================================================================
 
 #include "NKECS/System/NkSystem.h"
@@ -48,6 +63,19 @@ namespace nkentseu {
 				return mWorld;
 			}
 
+			/// Rend au monde physique TOUS les corps que portent les
+			/// collisionneurs de `world` et remet leur `physicsBodyId` a 0 (le
+			/// prochain pas les recree). A appeler AVANT de detruire les entites
+			/// d'une scene : sinon leurs corps restent dans le monde physique,
+			/// sans entite, et continuent de heurter ce qui arrive ensuite.
+			/// Rend le nombre de corps rendus.
+			uint32 ReleaseBodies(ecs::NkWorld &world) noexcept;
+
+			/// Nombre de corps crees depuis le debut (diagnostic, bancs).
+			[[nodiscard]] uint32 BodiesCreated() const noexcept {
+				return mBodiesCreated;
+			}
+
 		private:
 			// Crée le corps physique d'une entité depuis ses composants.
 			physics::NkBodyId CreateBodyFor(const ecs::NkRigidbody3D &rb, const ecs::NkCollider3D &col,
@@ -85,7 +113,12 @@ namespace nkentseu {
 				}
 			}
 
+			// Le jeu a-t-il ecrit dans le composant depuis le dernier pas ? Pousse
+			// vitesses / forces vers le corps (voir l'en-tete).
+			static void PushGameplayToBody(ecs::NkRigidbody3D &rb, physics::NkRigidBody &body) noexcept;
+
 			physics::NkPhysicsWorld mWorld; // monde physique POSSÉDÉ (gravité par défaut)
+			uint32 mBodiesCreated = 0;
 	};
 
 } // namespace nkentseu

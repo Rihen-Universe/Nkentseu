@@ -68,8 +68,10 @@ namespace nkentseu {
 		// NkWESystem (sondees par la boucle d'evenements) ; sans fenetre, elles
 		// sont simplement debranchees.
 		mInput.Update(dt, &NkWESystem::Gamepads());
+		mLastDt = dt;
 
-		// Mise à jour du scheduler (tous les groupes sauf Render et FixedUpdate)
+		// Mise à jour du scheduler (tous les groupes sauf FixedUpdate). Le rendu
+		// 3D n'y est plus : voir OnRender.
 		mScheduler.Run(mWorld, dt);
 
 		// Transitions de scène (fade, chargement)
@@ -101,9 +103,17 @@ namespace nkentseu {
 		// Mise à jour du command buffer courant dans le système de rendu
 		mRenderSystem.SetCommandBuffer(cmd);
 
-		// Le NkRenderSystem est exécuté par le scheduler groupe Render
-		// Il a déjà été appellé dans mScheduler.Run() si le groupe Render est inclus
-		// Ici on s'assure que les stats sont disponibles après coup
+		// ⚠️ LE RENDU 3D S'EXECUTE ICI (30/09), ENTRE BeginFrame ET Present.
+		//    Il etait enregistre dans l'ordonnanceur (groupe Render), donc
+		//    execute par mScheduler.Run dans OnUpdate -- AVANT BeginFrame, avec le
+		//    command buffer de l'image d'avant -- et il flushait lui-meme hors de
+		//    toute passe. Aucune application ne l'avait jamais fait tourner avec
+		//    une fenetre : rien ne s'affichait, et rien ne le disait. C'est
+		//    maintenant l'instance MEMBRE (celle que rend GetRenderSystem) qui
+		//    tourne : ses reglages (SetViewMode, SetAmbientIntensity...) portent.
+		mRenderSystem.Execute(mWorld, mLastDt);
+
+		// Stats disponibles après coup (overlay debug)
 		const auto &stats = mRenderSystem.GetStats();
 		(void)stats; // Utilisé par l'overlay debug
 	}
@@ -201,6 +211,7 @@ namespace nkentseu {
 
 		// FixedUpdate — Physique rigide (pont ECS -> NKCollision/NKPhysics)
 		NkPhysicsSystem &phys = mScheduler.AddSystem<NkPhysicsSystem>();
+		mPhysics = &phys; // adresse STABLE (voir la note de l'IK ci-dessous)
 
 		// PostUpdate — IK des pieds. ⚠️ IL LIT LE MONDE PHYSIQUE DE LA LIGNE
 		//    AU-DESSUS, et personne ne le lui donnait : `SetPhysicsWorld`
@@ -225,13 +236,13 @@ namespace nkentseu {
 		mScheduler.AddSystem<ecs::NkScriptSystem>();
 
 		// Render + VFX — ponts ECS → NKRenderer (si renderer disponible).
+		// ⚠️ NkRenderSystem N'EST PLUS DANS L'ORDONNANCEUR (30/09) : c'est le
+		//    MEMBRE mRenderSystem (Init dans InitRenderer) que OnRender execute,
+		//    entre BeginFrame et Present. L'instance de l'ordonnanceur tournait
+		//    dans OnUpdate, hors image (voir OnRender).
 		// AddSystem<T>() retourne l'instance OWNED par le scheduler : c'est ELLE
 		// qu'il faut Init (et non un membre séparé) pour qu'elle s'exécute.
 		if (mRendererInitialized && mRenderer) {
-			NkICommandBuffer *cmd = NkApplication::Get().GetCmd();
-			NkRenderSystem &rs = mScheduler.AddSystem<NkRenderSystem>();
-			rs.Init(mRenderer, cmd);
-
 			NkParticleSystem &ps = mScheduler.AddSystem<NkParticleSystem>();
 			ps.Init(mRenderer);
 

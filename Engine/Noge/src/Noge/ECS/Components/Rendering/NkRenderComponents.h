@@ -96,6 +96,16 @@ namespace nkentseu {
 		struct NkMaterialSlot {
 				nk_uint64 materialHandle = 0;
 				NkString materialPath;
+				// ── Materiau PBR SIMPLE, sans fichier (2026-09-30) ──────────────
+				// NkRenderSystem donne CES valeurs au draw call (tint, alpha,
+				// metallic, roughness) : c'est le canal que le nuanceur PBR lit pour
+				// l'albedo (pbr.frag.nksl). C'est ce qui permet a une scene de
+				// montrer un cube rouge sans fichier .nkmat -- le chemin
+				// `materialPath`, lui, n'est toujours resolu par personne (voir
+				// Engine/Noge/ETAT_2026-09-30.md).
+				NkColor4 albedo = NkColor4::White();
+				float32 metallic = 0.f;
+				float32 roughness = 0.6f;
 		};
 
 		struct NkMaterialComponent {
@@ -107,6 +117,21 @@ namespace nkentseu {
 					if (slot < kMaxSlots) {
 						slots[slot].materialPath = path;
 						slots[slot].materialHandle = 0;
+						if (slot >= slotCount)
+							slotCount = slot + 1;
+					}
+				}
+
+				/// Un materiau PBR simple de cette couleur sur le slot (sans fichier).
+				/// Le chemin et le handle sont remis a vide : le rendu prend la couleur.
+				void SetColor(nk_uint32 slot, const NkColor4 &color, float32 metallic = 0.f,
+							  float32 roughness = 0.6f) noexcept {
+					if (slot < kMaxSlots) {
+						slots[slot].materialPath.Clear();
+						slots[slot].materialHandle = 0;
+						slots[slot].albedo = color;
+						slots[slot].metallic = metallic;
+						slots[slot].roughness = roughness;
 						if (slot >= slotCount)
 							slotCount = slot + 1;
 					}
