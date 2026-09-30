@@ -2002,6 +2002,11 @@ with workspace("Nkentseu", location="."):
     with include("Applications/UnkenyEditor/UnkenyEditor.jenga"):
         pass
 
+    # Le joueur autonome d'Unkeny (U5) : ce que l'editeur livre. Un jeu
+    # construit compile ses sources dans un workspace genere a part.
+    with include("Applications/UnkenyPlayer/UnkenyPlayer.jenga"):
+        pass
+
     # Le four a textures : outil en ligne de commande, sans GPU ni fenetre.
     with include("Tools/NkTexBake/NkTexBake.jenga"):
         pass
