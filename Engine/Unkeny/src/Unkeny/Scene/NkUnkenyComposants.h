@@ -178,5 +178,173 @@ namespace nkentseu {
 				float32 angulaire = 0.f;
 		};
 
+		// =====================================================================
+		// ECLAIRAGE 2D ET EFFETS (2026-09-30) — FACULTATIFS, ETEINTS PAR DEFAUT
+		//
+		// Demande de Rihen : « on doit aussi pouvoir ajouter l'eclairage mais
+		// facultatif en fonction du type de jeu, le feu aussi ». Un jeu de dames
+		// n'a que faire d'une nuit ; un jeu de plateforme dans une grotte en vit.
+		// D'ou la regle : une scene SANS lumiere se dessine exactement comme
+		// avant (NkEclairage2D::actif vaut faux), et une entite sans ces
+		// composants ne paie rien. Le dessin est dans Rendu/NkUnkenyEclairage.h,
+		// la simulation des particules dans Effets/NkUnkenyEffets.h.
+		// =====================================================================
+
+		/// Les trois natures d'une lumiere 2D.
+		enum class NkTypeLumiere2D : uint8 {
+			NK_PONCTUELLE = 0, ///< lampe, torche : un disque de rayon `portee`
+			NK_SPOT,		   ///< projecteur : le disque restreint a un cone
+			NK_DIRECTIONNELLE  ///< soleil, lune : partout, venue d'une direction
+		};
+
+		/// Une lumiere portee par une entite. Donnees pures, comme le reste.
+		struct NkLumiere2D {
+				NkTypeLumiere2D type = NkTypeLumiere2D::NK_PONCTUELLE;
+				uint32 couleur = 0xFFE2B8FFu; ///< RGBA ; l'alpha n'est pas lu
+				float32 intensite = 1.f;	  ///< multiplie la couleur ; 0 = eteinte
+				/// En metres. Ponctuelle et spot : au-dela, la lumiere ne donne
+				/// RIEN (la decroissance s'annule exactement au bord, voir
+				/// `attenuation`). Directionnelle : la longueur maximale des ombres.
+				float32 portee = 5.f;
+				/// Exposant de (1 - d / portee) : 1 = lineaire, 2 = douce. C'est la
+				/// loi du shader 2D de NKRenderer (render2d.frag.nksl), en exposant
+				/// libre : un bord qui tombe a zero, et non une queue infinie en
+				/// 1/d² qu'il faudrait couper au hasard.
+				float32 attenuation = 2.f;
+				/// Radians, sens OU VA la lumiere (spot, directionnelle), dans le
+				/// repere de l'entite : il tourne avec son transform.
+				float32 direction = -1.5707963f;
+				float32 ouverture = 0.6f; ///< radians, demi-angle du cone (spot)
+				float32 douceur = 0.25f;  ///< part du bord du cone en fondu (0 = bord net)
+				NkVec2f decalage{0.f, 0.f}; ///< par rapport au transform
+				/// Eclat ADDITIF autour de la source (0..1) : ce que le mode
+				/// multiplie ne peut pas donner, une zone PLUS claire que la
+				/// couleur de l'objet eclaire.
+				float32 halo = 0.f;
+				bool ombres = true; ///< porte des ombres, si la scene les permet
+				bool actif = true;
+		};
+
+		/// Comment la carte de lumiere est composee sur l'image.
+		enum class NkModeEclairage2D : uint8 {
+			/// L'image est MULTIPLIEE par la carte (ambiante + lumieres) : ce qui
+			/// est hors de toute lumiere prend la teinte ambiante, exactement.
+			NK_MULTIPLIE = 0,
+			/// Le repli, pour un dorsal qui ne saurait pas multiplier : un VOILE
+			/// sombre en melange alpha (exact pour une lumiere blanche) et des
+			/// halos additifs pour la couleur. Jamais un ecran noir.
+			NK_VOILE
+		};
+
+		/// Les reglages d'eclairage d'une SCENE (l'onglet Monde de l'editeur).
+		///
+		/// ⚠️ ETEINT PAR DEFAUT, ET C'EST LA REGLE DU CHANTIER : `actif` a faux,
+		/// le dessin n'emet pas un sommet de plus qu'avant — une scene ancienne se
+		/// dessine au pixel pres comme hier, et se reecrit a l'octet pres.
+		struct NkEclairage2D {
+				bool actif = false;
+				/// La lumiere de ce qui n'est eclaire par rien. Une NUIT par defaut :
+				/// on n'allume l'eclairage que pour avoir de l'ombre, et une
+				/// ambiante blanche n'en laisserait voir aucune.
+				uint32 ambiante = 0x2A3148FFu;
+				bool ombres = true; ///< les ombres de TOUTES les lumieres (faux : aucune)
+				/// Les collisionneurs dont `couche & masqueOcculteurs` est non nul
+				/// portent ombre ; les declencheurs, jamais.
+				uint32 masqueOcculteurs = 0xFFFFFFFFu;
+				NkModeEclairage2D mode = NkModeEclairage2D::NK_MULTIPLIE;
+				/// Taille de la maille de la carte, en PIXELS d'ecran (4 a 16).
+				/// La maille est affinee jusqu'a 2 px la ou une ombre passe.
+				float32 maille = 8.f;
+		};
+
+		/// Vrai si `e` est le reglage par defaut : la sauvegarde ne l'ecrit alors
+		/// pas, et un fichier ancien ressort a l'octet pres.
+		inline bool NkEclairageParDefaut(const NkEclairage2D &e) noexcept {
+			const NkEclairage2D d;
+			return e.actif == d.actif && e.ambiante == d.ambiante && e.ombres == d.ombres &&
+				   e.masqueOcculteurs == d.masqueOcculteurs && e.mode == d.mode && e.maille == d.maille;
+		}
+
+		/// D'ou part un emetteur (informatif : les parametres font foi).
+		enum class NkPresetEffet2D : uint8 {
+			NK_PERSONNALISE = 0,
+			NK_FEU,
+			NK_FUMEE,
+			NK_ETINCELLES,
+			NK_PLUIE,
+			NK_NEIGE,
+			NK_EXPLOSION,
+			NK_COUNT
+		};
+
+		/// L'allure d'une particule a l'ecran.
+		enum class NkFormeParticule2D : uint8 {
+			NK_DOUCE = 0, ///< disque au bord fondu : flamme, fumee, neige
+			NK_TRAIT,	  ///< trait le long de la vitesse : etincelle, goutte de pluie
+			NK_PLEINE	  ///< disque net : debris, confettis
+		};
+
+		/// Ou naissent les particules, dans le repere de l'entite.
+		enum class NkZoneEmission2D : uint8 {
+			NK_POINT = 0,
+			NK_DISQUE, ///< rayon `rayonZone`
+			NK_LIGNE   ///< segment horizontal de `largeurZone` (pluie, neige)
+		};
+
+		/// Un EMETTEUR de particules VISUELLES : feu, fumee, etincelles, pluie,
+		/// neige, explosion.
+		///
+		/// ⚠️ A NE PAS CONFONDRE AVEC NkCorpsMou2D. Les particules de NKPhysics
+		/// (NkParticules2D) sont de la MATIERE : elles pesent, poussent et se
+		/// touchent. Celles-ci ne touchent rien et ne changent rien a la
+		/// simulation (temoin f6 de la feuille de route) : ce sont des images.
+		/// Leur etat (positions, ages) vit dans NkEffets2D, pas ici : ce
+		/// composant ne porte que la RECETTE.
+		struct NkEmetteur2D {
+				NkPresetEffet2D preset = NkPresetEffet2D::NK_PERSONNALISE;
+				bool actif = true;
+				bool boucle = true;
+				float32 duree = 1.f;  ///< s : sans boucle, combien de temps il emet
+				uint32 rafale = 0u;	  ///< particules lachees d'un coup au depart
+				float32 debit = 20.f; ///< particules par seconde
+				float32 vieMin = 0.6f;
+				float32 vieMax = 1.f;
+				float32 vitesseMin = 0.5f; ///< m/s
+				float32 vitesseMax = 1.5f;
+				float32 direction = 1.5707963f; ///< radians, repere de l'entite (vers le haut)
+				float32 dispersion = 0.3f;		///< radians, demi-angle autour de `direction`
+				/// m/s², PROPRE aux particules : une flamme monte (y > 0), une
+				/// etincelle retombe (y < 0). Pas la gravite de la scene : la fumee
+				/// n'a aucune raison d'obeir a celle des caisses.
+				NkVec2f gravite{0.f, 0.f};
+				float32 frein = 0.f;		///< 1/s : la resistance de l'air
+				float32 tailleDebut = 0.2f; ///< m, diametre a la naissance
+				float32 tailleFin = 0.05f;	///< m, diametre a la mort
+				/// La couleur sur la vie : debut -> milieu (a mi-vie) -> fin, RGBA.
+				uint32 couleurDebut = 0xFFFFFFFFu;
+				uint32 couleurMilieu = 0xFFFFFF80u;
+				uint32 couleurFin = 0xFFFFFF00u;
+				/// ADDITIF = la particule EMET (feu, etincelles) : elle s'ajoute a
+				/// l'image et la nuit ne l'assombrit pas. Sinon, melange alpha : la
+				/// fumee cache ce qui est derriere, et la nuit l'assombrit.
+				bool additif = false;
+				NkFormeParticule2D forme = NkFormeParticule2D::NK_DOUCE;
+				NkZoneEmission2D zone = NkZoneEmission2D::NK_POINT;
+				float32 rayonZone = 0.f;
+				float32 largeurZone = 0.f;
+				NkVec2f decalage{0.f, 0.f};
+				/// La GRAINE : meme graine, memes particules (les bancs en vivent).
+				uint32 graine = 1u;
+				uint32 maxParticules = 256u; ///< plafond de CET emetteur
+				// --- La lumiere liee (un feu eclaire) ------------------------------
+				// Lue seulement si l'eclairage de la scene est actif.
+				bool eclaire = false;
+				uint32 couleurLumiere = 0xFF9A48FFu;
+				float32 intensiteLumiere = 1.f;
+				float32 porteeLumiere = 4.f;
+				float32 scintillement = 0.f; ///< 0..1 : amplitude du vacillement
+				bool ombresLumiere = true;
+		};
+
 	} // namespace unkeny
 } // namespace nkentseu

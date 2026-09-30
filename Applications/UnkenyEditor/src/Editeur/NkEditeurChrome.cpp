@@ -18,6 +18,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
@@ -278,7 +279,8 @@ namespace nkentseu {
 							out.PushBack(Entree(NomOutil(o), NK_A_OUTIL + k, "", m.outil == o));
 						}
 						out.PushBack(Separateur());
-						out.PushBack(Entree("Accrochage (Ctrl l'inverse)", NK_A_ACCROCHAGE, "", c.ui.accrochage));
+						out.PushBack(Entree("Accrochage (Ctrl l'inverse)", NK_A_ACCROCHAGE, "",
+											c.ui.accrocheGrille || c.ui.accrocheAngle || c.ui.accrocheEchelle));
 						break;
 					}
 					case NkMenuEditeur::NK_AJOUTER:
@@ -318,6 +320,15 @@ namespace nkentseu {
 						out.PushBack(Entree("Entité vide", NK_A_ENTITE_ICI));
 						out.PushBack(Entree("Entité simple (sprite + boîte)", NK_A_SIMPLE_ICI));
 						EntreesCatalogue(out, NK_A_POSER_ICI);
+						// 2026-09-30 : lumieres et effets, au point du clic droit.
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Lumière et effets"));
+						out.PushBack(Entree("Lumière ponctuelle ici", NK_A_LUMIERE_ICI + static_cast<int32>(NkTypeLumiere2D::NK_PONCTUELLE)));
+						out.PushBack(Entree("Projecteur (cône) ici", NK_A_LUMIERE_ICI + static_cast<int32>(NkTypeLumiere2D::NK_SPOT)));
+						for (int32 p = 1; p < static_cast<int32>(NkPresetEffet2D::NK_COUNT); ++p) {
+							out.PushBack(Entree(NkString::Format("%s ici", NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p))).CStr(),
+												NK_A_EMETTEUR_ICI + p));
+						}
 						break;
 					case NkMenuEditeur::NK_APPAREIL:
 						for (int32 k = 0; k < NkNbProfils(); ++k) {
@@ -342,6 +353,51 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_CARTE: {
+						const int32 k = c.ui.carteMenu;
+						if (k < 0 || k >= static_cast<int32>(NkCarteEditeur::NK_COUNT) || !m.aSelection) {
+							break;
+						}
+						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(k);
+						const bool copie = NkEditeurCarteSeCopie(carte);
+						NkComposantEditeur comp;
+						const bool composant = NkComposantDeCarte(carte, comp);
+						const bool mobile = carte != NkCarteEditeur::NK_TRANSFORM;
+						out.PushBack(Intitule(NkCarteEditeurNom(carte)));
+						out.PushBack(Entree("Réinitialiser", NK_A_CARTE_REINIT, "", false, copie));
+						out.PushBack(Entree("Retirer le composant", NK_A_CARTE_RETIRER, "", false, composant));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Monter", NK_A_CARTE_MONTER, "", false, mobile));
+						out.PushBack(Entree("Descendre", NK_A_CARTE_DESCENDRE, "", false, mobile));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Copier les valeurs", NK_A_CARTE_COPIER, "", false, copie));
+						out.PushBack(Entree("Coller les valeurs", NK_A_CARTE_COLLER, "", false, copie && c.ui.pressePapier.carte == k));
+						break;
+					}
+					case NkMenuEditeur::NK_PAS_GRILLE:
+					case NkMenuEditeur::NK_PAS_ANGLE:
+					case NkMenuEditeur::NK_PAS_ECHELLE: {
+						// Les pas de la barre flottante : la valeur courante cochee.
+						int32 n = 0;
+						const float32 *pas = menu == NkMenuEditeur::NK_PAS_GRILLE  ? NkPasGrille(n)
+											 : menu == NkMenuEditeur::NK_PAS_ANGLE ? NkPasAngle(n)
+																				   : NkPasEchelle(n);
+						const float32 courant = menu == NkMenuEditeur::NK_PAS_GRILLE  ? c.ui.pasGrille
+												: menu == NkMenuEditeur::NK_PAS_ANGLE ? c.ui.pasAngle
+																					  : c.ui.pasEchelle;
+						const int32 base = menu == NkMenuEditeur::NK_PAS_GRILLE  ? NK_A_PAS_GRILLE
+										   : menu == NkMenuEditeur::NK_PAS_ANGLE ? NK_A_PAS_ANGLE
+																				 : NK_A_PAS_ECHELLE;
+						for (int32 k = 0; k < n; ++k) {
+							const NkString t = menu == NkMenuEditeur::NK_PAS_GRILLE
+												   ? NkString::Format("%g m", static_cast<double>(pas[k]))
+												   : (menu == NkMenuEditeur::NK_PAS_ANGLE ? NkString::Format("%g°", static_cast<double>(pas[k]))
+																						  : NkString::Format("x %g", static_cast<double>(pas[k])));
+							const float32 ecart = pas[k] - courant;
+							out.PushBack(Entree(t.CStr(), base + k, "", ecart > -1.0e-5f && ecart < 1.0e-5f));
+						}
+						break;
+					}
 					case NkMenuEditeur::NK_COMPOSANT: {
 						if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
 							out.PushBack(Intitule("(aucune sélection)"));
@@ -352,6 +408,25 @@ namespace nkentseu {
 						for (int32 k = 0; k < static_cast<int32>(NkComposantEditeur::NK_COUNT); ++k) {
 							const NkComposantEditeur comp = static_cast<NkComposantEditeur>(k);
 							if (!NkEditeurPeutAjouter(m, m.selection, comp)) {
+								continue;
+							}
+							// 2026-09-30 : une lumiere se choisit par son TYPE, un emetteur
+							// par son PRESET, comme un corps mou par sa matiere.
+							if (comp == NkComposantEditeur::NK_LUMIERE) {
+								static const char *kTypes[3] = {"ponctuelle", "projecteur (cône)", "directionnelle (lune, soleil)"};
+								out.PushBack(Separateur());
+								out.PushBack(Intitule("Lumière 2D"));
+								for (int32 t = 0; t < 3; ++t) {
+									out.PushBack(Entree(kTypes[t], NK_A_LUMIERE + t));
+								}
+								continue;
+							}
+							if (comp == NkComposantEditeur::NK_EMETTEUR) {
+								out.PushBack(Separateur());
+								out.PushBack(Intitule("Émetteur de particules"));
+								for (int32 p = 1; p < static_cast<int32>(NkPresetEffet2D::NK_COUNT); ++p) {
+									out.PushBack(Entree(NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p)), NK_A_EMETTEUR + p));
+								}
 								continue;
 							}
 							if (comp != NkComposantEditeur::NK_CORPS_MOU) {
@@ -527,6 +602,7 @@ namespace nkentseu {
 			}
 			c.ui.menu = menu;
 			c.ui.menuAncre = ancre;
+			c.ui.menuFiltre[0] = '\0';
 			c.ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			// Le rectangle est recalcule au dessin ; en attendant, l'ancre
 			// suffit a ce que le masquage de la trame suivante sache ou il est.
@@ -719,6 +795,27 @@ namespace nkentseu {
 			NkEditeurModele &m = c.m;
 			NkEditeurInterface &ui = c.ui;
 			// Les plages d'abord : leur indice est ajoute a la base.
+			// 2026-09-30 : lumieres et emetteurs (NkEditeurLumiere.h).
+			if (action >= NK_A_LUMIERE && action < NK_A_LUMIERE + 3) {
+				if (m.aSelection) {
+					NkEditeurAjouterLumiere(m, m.selection, static_cast<NkTypeLumiere2D>(action - NK_A_LUMIERE));
+				}
+				return;
+			}
+			if (action >= NK_A_EMETTEUR && action < NK_A_EMETTEUR + static_cast<int32>(NkPresetEffet2D::NK_COUNT)) {
+				if (m.aSelection) {
+					NkEditeurAjouterEffet(m, m.selection, static_cast<NkPresetEffet2D>(action - NK_A_EMETTEUR));
+				}
+				return;
+			}
+			if (action >= NK_A_LUMIERE_ICI && action < NK_A_LUMIERE_ICI + 3) {
+				NkEditeurPoserLumiere(m, ui.pointContexte, static_cast<NkTypeLumiere2D>(action - NK_A_LUMIERE_ICI));
+				return;
+			}
+			if (action >= NK_A_EMETTEUR_ICI && action < NK_A_EMETTEUR_ICI + static_cast<int32>(NkPresetEffet2D::NK_COUNT)) {
+				NkEditeurPoserEffet(m, ui.pointContexte, static_cast<NkPresetEffet2D>(action - NK_A_EMETTEUR_ICI));
+				return;
+			}
 			if (action >= NK_A_POSER_ICI && action < NK_A_POSER_ICI + static_cast<int32>(NkActeurSim::NK_COUNT)) {
 				PoserSansArmer(m, false, static_cast<NkActeurSim>(action - NK_A_POSER_ICI), ui.pointContexte);
 				return;
@@ -729,6 +826,28 @@ namespace nkentseu {
 					NkEditeurAjouterComposant(m, m.selection, NkComposantEditeur::NK_CORPS_MOU, matiere);
 				}
 				return;
+			}
+			{
+				// Les pas de la barre flottante.
+				int32 n = 0;
+				const float32 *pg = NkPasGrille(n);
+				if (action >= NK_A_PAS_GRILLE && action < NK_A_PAS_GRILLE + n) {
+					ui.pasGrille = pg[action - NK_A_PAS_GRILLE];
+					ui.accrocheGrille = true;
+					return;
+				}
+				const float32 *pa = NkPasAngle(n);
+				if (action >= NK_A_PAS_ANGLE && action < NK_A_PAS_ANGLE + n) {
+					ui.pasAngle = pa[action - NK_A_PAS_ANGLE];
+					ui.accrocheAngle = true;
+					return;
+				}
+				const float32 *pe = NkPasEchelle(n);
+				if (action >= NK_A_PAS_ECHELLE && action < NK_A_PAS_ECHELLE + n) {
+					ui.pasEchelle = pe[action - NK_A_PAS_ECHELLE];
+					ui.accrocheEchelle = true;
+					return;
+				}
 			}
 			if (action >= NK_A_COMPOSANT && action < NK_A_COMPOSANT + static_cast<int32>(NkComposantEditeur::NK_COUNT)) {
 				if (m.aSelection) {
@@ -794,7 +913,11 @@ namespace nkentseu {
 					NkEditeurDemanderCadrage(c, false);
 					break;
 				case NK_A_RENOMMER:
-					if (m.aSelection) {
+					// EN PLACE dans l'Outliner (F2 d'UE5) ; le champ Nom des Details
+					// quand l'Outliner est ferme.
+					if (m.aSelection && ui.voirOutliner) {
+						ui.renommerEnPlace = true;
+					} else if (m.aSelection) {
 						ui.voirDetails = true;
 						ui.ongletDroite = 0;
 						ui.renommerDemande = true;
@@ -807,7 +930,51 @@ namespace nkentseu {
 					PoserSansArmer(m, true, m.acteur, ui.pointContexte);
 					break;
 				case NK_A_ACCROCHAGE:
-					ui.accrochage = !ui.accrochage;
+					{
+						// Le menu garde UN interrupteur : tout eteint si l'un est allume.
+						const bool un = ui.accrocheGrille || ui.accrocheAngle || ui.accrocheEchelle;
+						ui.accrocheGrille = !un;
+						ui.accrocheAngle = !un;
+						ui.accrocheEchelle = !un;
+					}
+					break;
+				case NK_A_CARTE_REINIT:
+				case NK_A_CARTE_RETIRER:
+				case NK_A_CARTE_COPIER:
+				case NK_A_CARTE_COLLER:
+					if (m.aSelection && ui.carteMenu >= 0 && ui.carteMenu < static_cast<int32>(NkCarteEditeur::NK_COUNT)) {
+						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(ui.carteMenu);
+						if (action == NK_A_CARTE_REINIT) {
+							NkEditeurReinitialiserCarte(m, m.selection, carte);
+						} else if (action == NK_A_CARTE_COPIER) {
+							NkEditeurCopierCarte(m, m.selection, carte, ui.pressePapier);
+						} else if (action == NK_A_CARTE_COLLER) {
+							NkEditeurCollerCarte(m, m.selection, ui.pressePapier);
+						} else {
+							NkComposantEditeur comp;
+							if (NkComposantDeCarte(carte, comp)) {
+								NkEditeurRetirerComposant(m, m.selection, comp);
+							}
+						}
+					}
+					break;
+				case NK_A_CARTE_MONTER:
+					NkEditeurDeplacerCarte(c, -1);
+					break;
+				case NK_A_CARTE_DESCENDRE:
+					NkEditeurDeplacerCarte(c, 1);
+					break;
+				case NK_A_ACCROCHE_GRILLE:
+					ui.accrocheGrille = !ui.accrocheGrille;
+					break;
+				case NK_A_ACCROCHE_ANGLE:
+					ui.accrocheAngle = !ui.accrocheAngle;
+					break;
+				case NK_A_ACCROCHE_ECHELLE:
+					ui.accrocheEchelle = !ui.accrocheEchelle;
+					break;
+				case NK_A_REPERE_LOCAL:
+					ui.repereLocal = !ui.repereLocal;
 					break;
 				case NK_A_CREER_PREFAB:
 					NkEditeurCreerPrefab(m);
@@ -1036,7 +1203,6 @@ namespace nkentseu {
 					dl.AddLine(NkVec2{cx - 5.f, cy - 5.f}, NkVec2{cx + 5.f, cy + 5.f}, t, 1.2f);
 					dl.AddLine(NkVec2{cx + 5.f, cy - 5.f}, NkVec2{cx - 5.f, cy + 5.f}, t, 1.2f);
 				}
-				if (survol && in.mouseClicked[0]) { std::printf("[trace] clic bouton fenetre i=%d menu=%d\n", i, (int)ui.menu); std::fflush(stdout); }
 				if (survol && in.mouseClicked[0] && ui.menu == NkMenuEditeur::NK_AUCUN) {
 					if (i == 0) {
 						ui.reduireDemande = true;
@@ -1054,7 +1220,6 @@ namespace nkentseu {
 			const bool dansBarre = NkEditeurDans(b, in.mousePos);
 			if (dansBarre && !surElement && ui.menu == NkMenuEditeur::NK_AUCUN) {
 				if (in.mouseDoubleClicked[0]) {
-					std::printf("[trace] double-clic barre\n"); std::fflush(stdout);
 					ui.titreArme = false;
 					ui.agrandirDemande = true;
 				} else if (in.mouseClicked[0]) {
@@ -1223,10 +1388,20 @@ namespace nkentseu {
 			NkVector<ecs::NkEntityId> ids;
 			c.m.scene.Entites(ids);
 			// ⚠️ VUS et DESSINES : l'ecart entre les deux EST la mesure du hors-champ.
+			// 2026-09-30 : les particules d'effet (vivantes / plafond) et les
+			// lumieres, SEULEMENT s'il y en a -- une scene sans elles garde sa barre.
+			NkString effets;
+			const NkEffets2D &fx = c.m.scene.Effets();
+			if (fx.NbParticules() > 0u || c.m.scene.Eclairage().actif) {
+				effets = NkString::Format("   ·   effets %u / %u", fx.NbParticules(), fx.plafond);
+				if (c.m.scene.Eclairage().actif) {
+					effets.Append(NkString::Format("   ·   lumières %d", NkEditeurDerniersChiffresLumiere().lumieres).CStr());
+				}
+			}
 			const NkString compteurs =
-				NkString::Format("%u entités   ·   sprites vus %d / dessinés %d   ·   %.0f ips",
+				NkString::Format("%u entités   ·   sprites vus %d / dessinés %d%s   ·   %.0f ips",
 								 static_cast<uint32>(ids.Size()), c.m.stats.entitesVues, c.m.stats.entitesDessinees,
-								 static_cast<double>(c.ui.ips));
+								 effets.CStr(), static_cast<double>(c.ui.ips));
 			renderer::NkTexteADroite(dl, c.petite, b.x + b.w - 10.f, ligneY, compteurs.CStr(), c.pal.attenue);
 		}
 
@@ -1394,6 +1569,59 @@ namespace nkentseu {
 			const nkgui::NkGuiInput &in = c.ctx.input;
 			NkVector<NkEntreeMenu> entrees;
 			RemplirMenu(c, ui.menu, entrees);
+			// « Ajouter un composant » se CHERCHE (Unity) : on tape, la liste filtre,
+			// Entree prend la premiere ligne restante.
+			int32 premiere = NK_A_AUCUNE;
+			if (ui.menu == NkMenuEditeur::NK_COMPOSANT && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
+				usize n = 0;
+				while (ui.menuFiltre[n] != '\0') {
+					++n;
+				}
+				for (int32 i = 0; i < in.charCount; ++i) {
+					const uint32 cp = in.chars[i];
+					if (cp >= 32u && cp < 127u && n + 1u < sizeof(ui.menuFiltre)) {
+						ui.menuFiltre[n++] = static_cast<char>(cp);
+						ui.menuFiltre[n] = '\0';
+					}
+				}
+				if (in.KeyPressedRepeat(nkgui::NkGuiKey::Backspace) && n > 0u) {
+					ui.menuFiltre[--n] = '\0';
+				}
+				auto minuscule = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
+				auto contient = [&](const char *texte) {
+					if (n == 0u) {
+						return true;
+					}
+					for (const char *t = texte; *t != '\0'; ++t) {
+						usize k = 0;
+						while (k < n && t[k] != '\0' && minuscule(t[k]) == minuscule(ui.menuFiltre[k])) {
+							++k;
+						}
+						if (k == n) {
+							return true;
+						}
+					}
+					return false;
+				};
+				NkVector<NkEntreeMenu> gardees;
+				gardees.PushBack(Intitule(n > 0u ? NkString::Format("Rechercher : %s_", ui.menuFiltre).CStr() : "Rechercher : tapez un nom"));
+				gardees.PushBack(Separateur());
+				for (uint32 i = 0; i < entrees.Size(); ++i) {
+					const NkEntreeMenu &e = entrees[i];
+					// Filtre pose, seules restent les lignes qui AGISSENT et qui y repondent.
+					if (n > 0u && (e.separateur || e.action == NK_A_AUCUNE || !contient(e.libelle.CStr()))) {
+						continue;
+					}
+					if (premiere == NK_A_AUCUNE && e.action != NK_A_AUCUNE && e.actif) {
+						premiere = e.action;
+					}
+					gardees.PushBack(e);
+				}
+				if (n > 0u && premiere == NK_A_AUCUNE) {
+					gardees.PushBack(Intitule("(aucun composant de ce nom)"));
+				}
+				entrees = gardees;
+			}
 			const NkListeMenu principal = PeindreListe(c, entrees, ui.menuAncre.x, ui.menuAncre.y + ui.menuAncre.h,
 													   ui.menuAncre.w, ui.sousMenu, -1.f);
 			ui.menuRect = principal.cadre;
@@ -1417,7 +1645,10 @@ namespace nkentseu {
 				ui.sousMenuRect = NkRect{0.f, 0.f, 0.f, 0.f};
 			}
 
-			const int32 choisie = principal.choisie != NK_A_AUCUNE ? principal.choisie : sous.choisie;
+			int32 choisie = principal.choisie != NK_A_AUCUNE ? principal.choisie : sous.choisie;
+			if (choisie == NK_A_AUCUNE && premiere != NK_A_AUCUNE && in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+				choisie = premiere;
+			}
 			if (choisie != NK_A_AUCUNE) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.sousMenu = NkMenuEditeur::NK_AUCUN;

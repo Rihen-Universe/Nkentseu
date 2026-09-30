@@ -49,6 +49,46 @@ namespace nkentseu {
 				   o == NkOutil::NK_ECHELLE;
 		}
 
+		/// Les drapeaux d'EDITEUR d'une entite : l'oeil et le cadenas de l'Outliner
+		/// (2026-09-30). Ils ne changent RIEN au jeu :
+		///   cache   l'entite n'est pas dessinee dans la vue en EDITION (en jeu, le
+		///           jeu montre tout -- l'oeil d'UE5 est celui de l'editeur, pas
+		///           « cache en jeu ») ; elle ne se prend pas au clic ;
+		///   verrou  elle ne se prend ni ne se deplace dans la vue ; l'Outliner et
+		///           les Details la choisissent et la modifient toujours.
+		/// Sauves avec la scene par NkScene::PhotographierAussi (objet « jeu » du
+		/// fichier) : un ancien fichier, qui ne les porte pas, se relit tel quel.
+		struct NkDrapeauxEditeur {
+				bool cache = false;
+				bool verrou = false;
+		};
+
+		/// L'ECHELLE que montre le Transform (2026-09-30, a la maniere d'Unreal).
+		/// ⚠️ ELLE EST CUITE DANS LES COMPOSANTS (NkEditeurMettreAEchelle) : la
+		///    physique ne lit pas NkTransform2D::echelle. Ce facteur est le CUMUL
+		///    de ce qui a ete cuit -- par le gizmo ou par le champ -- garde pour
+		///    etre lu, retape et remis a 1. Absent : 1 x 1.
+		struct NkEchelleEditeur {
+				NkVec2f facteur{1.f, 1.f};
+		};
+
+		/// Les composants ETEINTS par la case de leur carte (2026-09-30). Un
+		/// composant qui n'a pas de drapeau « actif » a lui est eteint en changeant
+		/// ce qui le rend EFFECTIF ; ce qu'il avait est garde ici pour le rallumer :
+		///   collisionneur  couche et masque a 0 : il ne touche plus rien ;
+		///   corps rigide   cinematique, sans vitesse ni gravite (« Simulated »
+		///                  decoche d'Unity) : il ne bouge plus ;
+		///   source sonore  muette (volume 0, arretee).
+		/// Sauve avec la scene : un composant eteint le reste a la reouverture.
+		struct NkEteintsEditeur {
+				uint32 bits = 0u; ///< bit = NkCarteEditeur
+				uint32 couche = 0u;
+				uint32 masque = 0u;
+				uint8 typeCorps = 0u;
+				float32 echelleGravite = 1.f;
+				float32 volume = 1.f;
+		};
+
 		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
 		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).
 		enum class NkEtatJeu : uint8 { NK_EDITION = 0, NK_JEU, NK_PAUSE };

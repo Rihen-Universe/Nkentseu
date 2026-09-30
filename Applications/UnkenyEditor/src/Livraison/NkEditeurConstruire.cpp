@@ -27,6 +27,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurEntrees.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Livraison/NkEditeurProcessus.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -808,6 +809,7 @@ namespace nkentseu {
 				std::printf("UnkenyEditor --construire=PLATEFORME [options]\n");
 				std::printf("  PLATEFORME          windows, android, web, harmonyos, linux, macos, ios\n");
 				std::printf("  --scene=FICHIER     la scene .nkscene a construire (defaut : la scene neuve de l'editeur)\n");
+				std::printf("  --exemple=nuit      la nuit au feu de camp de l'editeur (eclairage 2D, effets)\n");
 				std::printf("  --sortie=DOSSIER    le dossier parent du jeu (defaut : Documents/Unkeny/Jeux)\n");
 				std::printf("  --nom=NOM           le nom du jeu (defaut : MonJeu)\n");
 				std::printf("  --profil=P          developpement (Debug) ou expedition (Release + paquet)\n");
@@ -821,6 +823,7 @@ namespace nkentseu {
 			NkDemandeConstruction d;
 			d.nom = NkString("MonJeu");
 			NkString scene;
+			bool nuit = false;
 			NkString plateforme;
 			float32 vueL = 1280.f;
 			float32 vueH = 720.f;
@@ -830,6 +833,10 @@ namespace nkentseu {
 					plateforme = NkString(a.SubStr(13));
 				} else if (a.StartsWith("--scene=")) {
 					scene = NkString(a.SubStr(8));
+				} else if (a == "--exemple=nuit") {
+					// 2026-09-30 : la nuit au feu de camp (NkEditeurLumiere.h), pour
+					// construire un jeu ECLAIRE sans passer par un fichier.
+					nuit = true;
 				} else if (a.StartsWith("--sortie=")) {
 					d.sortie = NkString(a.SubStr(9));
 				} else if (a.StartsWith("--nom=")) {
@@ -868,7 +875,9 @@ namespace nkentseu {
 			NkEditeurModele *pm = memory::NkGetDefaultAllocator().New<NkEditeurModele>();
 			NkEditeurModele &m = *pm;
 			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
-			if (scene.Empty()) {
+			if (nuit) {
+				NkEditeurSceneNuit(m);
+			} else if (scene.Empty()) {
 				NkEditeurNouvelleScene(m);
 			} else {
 				m.chemin = scene;

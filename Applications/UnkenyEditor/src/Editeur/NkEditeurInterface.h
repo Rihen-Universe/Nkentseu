@@ -75,7 +75,12 @@ namespace nkentseu {
 			NK_COMPOSANT,
 			NK_CTX_ENTITE,	 ///< clic droit sur une entite
 			NK_CTX_VIDE,	 ///< clic droit dans le vide
-			NK_AJOUTER_ICI	 ///< sous-menu « Ajouter ici » : pose au point du clic droit
+			NK_AJOUTER_ICI,	 ///< sous-menu « Ajouter ici » : pose au point du clic droit
+			// La barre flottante du viseur (2026-09-30) : les pas d'accrochage.
+			NK_PAS_GRILLE,
+			NK_PAS_ANGLE,
+			NK_PAS_ECHELLE,
+			NK_CARTE ///< le menu « ⋮ » d'une carte de l'inspecteur (2026-09-30)
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -123,7 +128,30 @@ namespace nkentseu {
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
 			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
-			NK_A_CONSTRUIRE = 900		///< Fichier > Construire… (U5, Livraison/)
+			NK_A_CONSTRUIRE = 900,		///< Fichier > Construire… (U5, Livraison/)
+			// 2026-09-30 (NkEditeurLumiere.h) : quatre plages de moins de 10 valeurs,
+			// AU-DESSUS de 999. Les numeros 800-999 sont laisses libres : la branche
+			// de livraison y a pris NK_A_CONSTRUIRE = 900 (comble/livrer-u5), et deux
+			// chantiers qui se partagent une centaine finissent par s'y rencontrer.
+			NK_A_LUMIERE = 1000,		///< + NkTypeLumiere2D : une lumiere sur la selection
+			NK_A_EMETTEUR = 1050,		///< + NkPresetEffet2D : un emetteur sur la selection
+			NK_A_LUMIERE_ICI = 1100,	///< + NkTypeLumiere2D : une lumiere au point du clic droit
+			NK_A_EMETTEUR_ICI = 1150,	///< + NkPresetEffet2D : un effet au point du clic droit
+			// La barre flottante du viseur (2026-09-30).
+			NK_A_ACCROCHE_GRILLE = 1200, ///< l'accrochage des DEPLACEMENTS, allume / eteint
+			NK_A_ACCROCHE_ANGLE,		///< celui des ROTATIONS
+			NK_A_ACCROCHE_ECHELLE,		///< celui des ECHELLES
+			NK_A_REPERE_LOCAL,			///< le gizmo Deplacer : axes de l'entite / du monde
+			NK_A_PAS_GRILLE = 1220,		///< + indice dans NkPasGrille
+			NK_A_PAS_ANGLE = 1240,		///< + indice dans NkPasAngle
+			NK_A_PAS_ECHELLE = 1260,		///< + indice dans NkPasEchelle
+			// Le menu « ⋮ » d'une carte (NkEditeurInterface::carteMenu).
+			NK_A_CARTE_REINIT = 1280,
+			NK_A_CARTE_RETIRER,
+			NK_A_CARTE_MONTER,
+			NK_A_CARTE_DESCENDRE,
+			NK_A_CARTE_COPIER,
+			NK_A_CARTE_COLLER
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -207,12 +235,22 @@ namespace nkentseu {
 				/// L'entite de chaque noeud, par indice de noeud (-1 : la racine).
 				NkVector<ecs::NkEntityId> arbreEntites;
 				bool filtreFocus = false;
+				/// « Renommer » (F2, menus) : la saisie s'ouvre EN PLACE, sur la
+				/// ligne de la selection, a la trame ou l'Outliner se dessine.
+				bool renommerEnPlace = false;
+				/// Le clic LENT (a la maniere d'UE5) : un clic sur le nom d'une
+				/// ligne DEJA choisie arme le renommage ; il part si aucun second
+				/// clic (le double-clic cadre) ni glisser ne suit dans la demi-seconde.
+				nk_uint64 clicLentNoeud = 0;
+				float32 clicLentAge = 0.f;
+				NkVec2f clicLentPos{0.f, 0.f};
 
 				// --- Le tiroir --------------------------------------------------
 				editorkit::NkContentBrowserModel contenu;
 				editorkit::NkComponentInstance contenuReglages;
 				bool contenuPret = false;
 				int32 categorie = -1; ///< -1 = toutes les categories
+				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;
@@ -226,6 +264,20 @@ namespace nkentseu {
 				/// changer, et le champ remet son focus a zero quand elle change.
 				bool renommerDemande = false;
 				float32 defilDetails = 0.f;
+				/// Les cartes REPLIEES, par nature (bit = NkCarteEditeur) : replier le
+				/// Collisionneur le replie pour toutes les entites, comme Unity.
+				uint32 cartesRepliees = 0u;
+				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
+				/// le changent pour toutes les entites : NKECS ne range pas les
+				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
+				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
+				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
+				/// Le libelle d'un nombre qu'on FROTTE (Unity : tirer sur le libelle).
+				uint32 frotteId = 0u;
+				float32 frotteX = 0.f;
+				/// La recherche du menu « Ajouter un composant » : on tape, il filtre.
+				char menuFiltre[32] = {};
 
 				// --- Le viseur --------------------------------------------------
 				NkVec2f precMonde{0.f, 0.f}; ///< point precedent du couteau et du pinceau
@@ -246,7 +298,19 @@ namespace nkentseu {
 				float32 gizmoAngle = 0.f;		///< rotation deja appliquee (rad)
 				NkVec2f gizmoEchelle{1.f, 1.f};	///< facteur deja applique
 				/// L'accrochage : ACTIF par defaut, Ctrl l'inverse le temps du geste.
-				bool accrochage = true;
+				/// UN PAR GESTE (2026-09-30, barre flottante d'UE5) : deplacer sur la
+				/// grille sans forcer les angles ronds, ou l'inverse.
+				bool accrocheGrille = true;
+				bool accrocheAngle = true;
+				bool accrocheEchelle = true;
+				/// Le gizmo Deplacer suit les axes de l'ENTITE (sa rotation) au lieu
+				/// de ceux du monde. L'echelle, elle, est toujours locale : elle est
+				/// cuite dans les dimensions propres de l'entite (NkEditeurMettreAEchelle).
+				bool repereLocal = false;
+				float32 gizmoRot0 = 0.f; ///< la rotation de l'entite a la saisie (rad)
+				/// Le rectangle de la barre flottante, garde d'une trame a l'autre :
+				/// le viseur ne prend pas un clic qui tombe dessus.
+				nkgui::NkRect barreFlottante{0.f, 0.f, 0.f, 0.f};
 				float32 pasGrille = 0.25f;	 ///< metres
 				float32 pasAngle = 15.f;	 ///< degres
 				float32 pasEchelle = 0.1f;	 ///< facteur
@@ -336,6 +400,23 @@ namespace nkentseu {
 				nkgui::NkGuiFont *petite;
 		};
 
+		// --- Les pas d'accrochage proposes par la barre flottante -------------
+		inline const float32 *NkPasGrille(int32 &n) noexcept {
+			static const float32 k[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f, 2.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+		inline const float32 *NkPasAngle(int32 &n) noexcept {
+			static const float32 k[] = {1.f, 5.f, 10.f, 15.f, 30.f, 45.f, 90.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+		inline const float32 *NkPasEchelle(int32 &n) noexcept {
+			static const float32 k[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+
 		// --- Outils communs (NkEditeurChrome.cpp) -----------------------------
 		NkPaletteEditeur NkEditeurPalette(const editorkit::NkTheme &theme);
 		/// Place toutes les zones. Aucune n'est calculee ailleurs.
@@ -344,6 +425,9 @@ namespace nkentseu {
 		void NkEditeurExecuter(NkEditeurCadre &c, int32 action);
 		/// Ouvre un menu deroulant sous `ancre` (le ferme s'il etait deja ouvert).
 		void NkEditeurOuvrirMenu(NkEditeurCadre &c, NkMenuEditeur menu, const nkgui::NkRect &ancre);
+		/// Monte (sens -1) ou descend (+1) la carte `carteMenu` d'un cran PARMI
+		/// celles que la selection affiche (NkEditeurDetails.cpp).
+		void NkEditeurDeplacerCarte(NkEditeurCadre &c, int32 sens);
 		/// Un bouton PLAT (UI_SPEC §3.3) : bordure discrete, rempli au survol,
 		/// bleu plein quand `enfonce`. Rend true au clic.
 		/// `dl` : la liste ou peindre (nul = la couche principale ; la boite de

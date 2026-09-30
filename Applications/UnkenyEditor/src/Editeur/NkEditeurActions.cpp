@@ -5,6 +5,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -12,6 +13,7 @@
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace nkentseu {
 	namespace editeur {
@@ -24,6 +26,16 @@ namespace nkentseu {
 					const NkVec2f g = m.scene.Particules()->reglages.gravite;
 					m.scene.MondePhysique()->SetGravity(math::NkVec3f(g.x, g.y, 0.f));
 				}
+			}
+
+			/// L'oeil et le cadenas voyagent avec la scene : dans la photo de
+			/// « Jouer » (Arreter les rend) et dans le fichier, objet « jeu ».
+			/// ⚠️ LE NOM EST LA CLE DU FICHIER : le changer rend les scenes deja
+			///    enregistrees muettes sur leurs drapeaux.
+			void DeclarerDrapeaux(NkScene &s) {
+				s.PhotographierAussi<NkDrapeauxEditeur>("UnkenyEditor.Drapeaux");
+				s.PhotographierAussi<NkEchelleEditeur>("UnkenyEditor.Echelle");
+				s.PhotographierAussi<NkEteintsEditeur>("UnkenyEditor.Eteints");
 			}
 
 			ecs::NkEntityId Statique(NkScene &s, const char *nom, const NkVec2f &c, const NkVec2f &demi, uint32 couleur) {
@@ -52,6 +64,7 @@ namespace nkentseu {
 			cfg.particules = true; // et la matiere : corps mous, fluides, atomes
 			cfg.gravite = NkVec2f(0.f, -9.81f);
 			m.scene.Init(cfg);
+			DeclarerDrapeaux(m.scene);
 			NkRemettreNomsSim();
 			m.etat = NkEtatJeu::NK_EDITION;
 			m.photo.valide = false;
@@ -78,6 +91,9 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
+				// depend pas de la duree de l'apercu en edition.
+				m.scene.Effets().Vider();
 			}
 			m.etat = NkEtatJeu::NK_JEU;
 		}
@@ -125,6 +141,14 @@ namespace nkentseu {
 				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
 				// pourtant emporter ses enfants a l'ecran, a cette trame.
 				m.scene.PropagerHierarchie();
+				if (m.etat == NkEtatJeu::NK_EDITION && dt > 0.f) {
+					// L'APERCU des effets en edition (2026-09-30) : un feu pose brule
+					// deja. Les particules visuelles ne touchent a rien de la scene
+					// (temoin f6) ; ni corps, ni matiere, ni transform ne bougent.
+					// APRES la hierarchie : un feu porte par un parent deplace nait
+					// la ou il est.
+					m.scene.Effets().Avancer(m.scene, dt < 0.05f ? dt : 0.05f);
+				}
 			}
 			// Une selection dont l'entite a disparu (matiere gommee, tombee) : oubliee.
 			if (m.aSelection && !m.scene.Monde().IsAlive(m.selection)) {
@@ -180,57 +204,450 @@ namespace nkentseu {
 			return false;
 		}
 
-		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
-			NkScene &s = m.scene;
-			// 1. La matiere : c'est elle qui est dessinee PAR-DESSUS le decor.
-			if (physics::NkParticules2D *p = s.Particules()) {
-				const int32 i = p->ParticuleProche(monde, 0.25f);
-				if (i >= 0) {
-					const uint32 id = p->corps[p->particules[static_cast<uint32>(i)].corps].id;
-					const ecs::NkEntityId e = s.EntiteDuCorpsMou(id);
-					if (e.IsValid()) {
-						m.selection = e;
-						m.aSelection = true;
-						if (centre != nullptr) {
-							NkEditeurCentreSelection(m, *centre);
+		// =====================================================================
+		// La prise au clic
+		// =====================================================================
+		namespace {
+			/// Un candidat a la prise : l'entite, OU elle se dessine (niveau, puis
+			/// couche), et sa distance au point -- negative ou nulle : DEDANS.
+			struct CandidatPrise {
+					ecs::NkEntityId id;
+					int32 niveau = 0; ///< l'ordre du viseur : 0 formes, 1 sprites, 2 matiere, 3 marqueurs, 4 icones
+					int32 couche = 0; ///< sprites : NkSprite2D::couche
+					float32 distance = 0.f;
+					float32 aire = 0.f;
+					NkVec2f centre{0.f, 0.f};
+			};
+
+			/// `a` est-il dessine PAR-DESSUS `b` ?
+			bool Devant(const CandidatPrise &a, const CandidatPrise &b) noexcept {
+				if (a.niveau != b.niveau) {
+					return a.niveau > b.niveau;
+				}
+				if (a.couche != b.couche) {
+					return a.couche > b.couche;
+				}
+				// A egalite, le plus PETIT : pose sur le grand, il ne se verrait
+				// pas s'il etait dessous.
+				return a.aire < b.aire;
+			}
+
+			/// Le meilleur coup au but, et le plus proche des autres.
+			struct Prise {
+					float32 tolerance = 0.f;
+					CandidatPrise dedans;
+					CandidatPrise proche;
+					bool aDedans = false;
+					bool aProche = false;
+
+					void Proposer(const CandidatPrise &c) noexcept {
+						if (c.distance <= 0.f) {
+							if (!aDedans || Devant(c, dedans)) {
+								dedans = c;
+								aDedans = true;
+							}
+							return;
 						}
+						if (c.distance > tolerance) {
+							return;
+						}
+						if (!aProche || c.distance < proche.distance || (c.distance == proche.distance && Devant(c, proche))) {
+							proche = c;
+							aProche = true;
+						}
+					}
+			};
+
+			float32 Longueur(float32 x, float32 y) noexcept {
+				return math::NkSqrt(x * x + y * y);
+			}
+
+			float32 DistanceSegment(const NkVec2f &p, const NkVec2f &a, const NkVec2f &b) noexcept {
+				const float32 vx = b.x - a.x;
+				const float32 vy = b.y - a.y;
+				const float32 l2 = vx * vx + vy * vy;
+				float32 t = l2 > 0.f ? ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2 : 0.f;
+				t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+				return Longueur(p.x - (a.x + vx * t), p.y - (a.y + vy * t));
+			}
+
+			/// Le point est-il dans le triangle, quel que soit son sens ?
+			/// ⚠️ Un triangle PLAT (maille ecrasee) ne contient rien : sans ce
+			///    garde, ses trois produits sont nuls et tout point y « tombe ».
+			bool DansTriangle(const NkVec2f &p, const NkVec2f &a, const NkVec2f &b, const NkVec2f &c) noexcept {
+				const float32 aire = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+				if (aire > -1e-9f && aire < 1e-9f) {
+					return false;
+				}
+				const float32 d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
+				const float32 d2 = (p.x - c.x) * (b.y - c.y) - (b.x - c.x) * (p.y - c.y);
+				const float32 d3 = (p.x - a.x) * (c.y - a.y) - (c.x - a.x) * (p.y - a.y);
+				const bool negatif = d1 < 0.f || d2 < 0.f || d3 < 0.f;
+				const bool positif = d1 > 0.f || d2 > 0.f || d3 > 0.f;
+				return !(negatif && positif);
+			}
+
+			/// La regle du rendu (NkUnkenyRenduParticules.cpp, CelluleDechiree) :
+			/// une maille de tissu dont un lien a casse n'est plus dessinee, donc
+			/// plus prise.
+			bool MailleDechiree(const physics::NkParticules2D &p, const physics::NkCorpsP2D &c, int32 i, int32 j) noexcept {
+				const int32 nx = c.nx;
+				const int32 ny = c.ny;
+				const uint32 attendus = static_cast<uint32>(ny * (nx - 1) + (ny - 1) * nx);
+				if (c.lienNombre < attendus) {
+					return false;
+				}
+				const uint32 h0 = c.lienDebut + static_cast<uint32>(j * (nx - 1) + i);
+				const uint32 h1 = c.lienDebut + static_cast<uint32>((j + 1) * (nx - 1) + i);
+				const uint32 base = c.lienDebut + static_cast<uint32>(ny * (nx - 1));
+				const uint32 v0 = base + static_cast<uint32>(j * nx + i);
+				const uint32 v1 = base + static_cast<uint32>(j * nx + i + 1);
+				return p.liens[h0].casse || p.liens[h1].casse || p.liens[v0].casse || p.liens[v1].casse;
+			}
+
+			/// La distance du point a la MATIERE du corps `ci` TELLE QUE LE VISEUR
+			/// LA PEINT (NkDessinerCorpsMous) : l'interieur d'un ballon et les
+			/// mailles d'une grille sont pleins, pas seulement leurs particules.
+			/// `pixel` : la taille d'un pixel en metres (les traits ont une
+			/// epaisseur minimale a l'ecran).
+			float32 DistanceMatiere(const physics::NkParticules2D &p, uint32 ci, const NkVec2f &q, float32 pixel) noexcept {
+				using physics::NkMateriauP2D;
+				const physics::NkCorpsP2D &c = p.corps[ci];
+				float32 d = 1e30f;
+				if (c.nombre == 0u) {
+					return d;
+				}
+				// Les particules, au rayon DESSINE : un fluide se peint 1,45 fois
+				// plus large que sa particule (son halo translucide ne compte pas).
+				// ⚠️ UN CORPS MAILLE (ballon, gelee, tissu) NE PEINT PAS SES
+				//    PARTICULES : son bord passe par leurs CENTRES. Compter leur
+				//    disque ferait « toucher » 4 cm hors du tissu, et le milieu d'une
+				//    maille dechiree (7,8 cm des coins, 4 cm une fois les disques
+				//    retires : 4,6 px a 122 px/m) serait pris comme s'il etait plein.
+				const bool maille = c.mat == NkMateriauP2D::NK_BALLON || physics::NkEstGrilleP2D(c.mat);
+				float32 facteur = maille ? 0.f : 1.f;
+				if (physics::NkEstFluideP2D(c.mat)) {
+					facteur = 1.45f;
+				} else if (c.mat == NkMateriauP2D::NK_SABLE) {
+					facteur = 1.05f;
+				}
+				for (uint32 i = c.debut; i < c.debut + c.nombre; ++i) {
+					const physics::NkParticule2D &a = p.particules[i];
+					const float32 di = Longueur(q.x - a.pos.x, q.y - a.pos.y) - a.rayon * facteur;
+					d = di < d ? di : d;
+				}
+				switch (c.mat) {
+					case NkMateriauP2D::NK_BALLON: {
+						// PLEIN : le rendu le peint en eventail depuis son centre.
+						if (c.nombre < 3u) {
+							break;
+						}
+						const NkVec2f centre = p.CentreCorps(ci);
+						for (uint32 k = 0; k < c.nombre; ++k) {
+							const NkVec2f &a = p.particules[c.debut + k].pos;
+							const NkVec2f &b = p.particules[c.debut + (k + 1u) % c.nombre].pos;
+							if (DansTriangle(q, centre, a, b)) {
+								return d < 0.f ? d : 0.f;
+							}
+						}
+						break;
+					}
+					case NkMateriauP2D::NK_GELEE:
+					case NkMateriauP2D::NK_TISSU: {
+						// Les MAILLES : un clic entre quatre particules de tissu est
+						// sur le tissu, pas dans le vide.
+						const int32 nx = c.nx;
+						const int32 ny = c.ny;
+						if (nx < 2 || ny < 2 || c.nombre != static_cast<uint32>(nx * ny)) {
+							break;
+						}
+						const bool tissu = c.mat == NkMateriauP2D::NK_TISSU;
+						for (int32 j = 0; j + 1 < ny; ++j) {
+							for (int32 i = 0; i + 1 < nx; ++i) {
+								if (tissu && MailleDechiree(p, c, i, j)) {
+									continue;
+								}
+								const NkVec2f &pa = p.particules[c.debut + static_cast<uint32>(j * nx + i)].pos;
+								const NkVec2f &pb = p.particules[c.debut + static_cast<uint32>(j * nx + i + 1)].pos;
+								const NkVec2f &pc = p.particules[c.debut + static_cast<uint32>((j + 1) * nx + i + 1)].pos;
+								const NkVec2f &pd = p.particules[c.debut + static_cast<uint32>((j + 1) * nx + i)].pos;
+								if (DansTriangle(q, pa, pb, pc) || DansTriangle(q, pa, pc, pd)) {
+									return d < 0.f ? d : 0.f;
+								}
+							}
+						}
+						break;
+					}
+					case NkMateriauP2D::NK_CORDE: {
+						// Le TRAIT : une planche de pont a l'epaisseur de ses
+						// particules, une corde au moins 3,5 px (ou 8 cm).
+						const bool pont = p.particules[c.debut].rayon > 0.06f;
+						const float32 demiCorde = 1.75f * pixel > 0.04f ? 1.75f * pixel : 0.04f;
+						for (uint32 i = c.debut; i + 1u < c.debut + c.nombre; ++i) {
+							const physics::NkParticule2D &a = p.particules[i];
+							const physics::NkParticule2D &b = p.particules[i + 1u];
+							const float32 demi = pont ? a.rayon + pixel : demiCorde;
+							const float32 ds = DistanceSegment(q, a.pos, b.pos) - demi;
+							d = ds < d ? ds : d;
+						}
+						break;
+					}
+					default:
+						break;
+				}
+				return d;
+			}
+
+			/// La distance au sprite tel que NkDessinerScene le peint : pivot,
+			/// rotation ET echelle du transform. (L'ancienne prise ignorait pivot
+			/// et rotation : une planche tournee de 45 degres se prenait dans sa
+			/// boite droite, a cote de ce qu'on voyait.)
+			float32 DistanceSprite(const NkTransform2D &t, const NkSprite2D &s, const NkVec2f &q) noexcept {
+				const float32 co = math::NkCos(-t.rotation);
+				const float32 si = math::NkSin(-t.rotation);
+				const float32 dx = q.x - t.position.x;
+				const float32 dy = q.y - t.position.y;
+				const float32 lx = dx * co - dy * si;
+				const float32 ly = dx * si + dy * co;
+				// Le rectangle du rendu, [-pivot, 1 - pivot] * taille, a l'echelle.
+				float32 x0 = -s.pivot.x * s.taille.x * t.echelle.x;
+				float32 x1 = (1.f - s.pivot.x) * s.taille.x * t.echelle.x;
+				float32 y0 = -s.pivot.y * s.taille.y * t.echelle.y;
+				float32 y1 = (1.f - s.pivot.y) * s.taille.y * t.echelle.y;
+				if (x0 > x1) {
+					const float32 x = x0;
+					x0 = x1;
+					x1 = x;
+				}
+				if (y0 > y1) {
+					const float32 y = y0;
+					y0 = y1;
+					y1 = y;
+				}
+				const float32 qx = math::NkAbs(lx - (x0 + x1) * 0.5f) - (x1 - x0) * 0.5f;
+				const float32 qy = math::NkAbs(ly - (y0 + y1) * 0.5f) - (y1 - y0) * 0.5f;
+				const float32 ex = qx > 0.f ? qx : 0.f;
+				const float32 ey = qy > 0.f ? qy : 0.f;
+				const float32 dedans = qx > qy ? qx : qy;
+				return Longueur(ex, ey) + (dedans < 0.f ? dedans : 0.f);
+			}
+
+			float32 AireForme(const NkCollisionneur2D &c) noexcept {
+				switch (c.forme) {
+					case NkForme2D::NK_CERCLE:
+						return 3.14159265f * c.rayon * c.rayon;
+					case NkForme2D::NK_CAPSULE:
+						return 4.f * c.demiTaille.x * c.rayon + 3.14159265f * c.rayon * c.rayon;
+					default:
+						return 4.f * c.demiTaille.x * c.demiTaille.y;
+				}
+			}
+
+			void PoserDrapeau(NkEditeurModele &m, ecs::NkEntityId id, bool NkDrapeauxEditeur::*champ, bool valeur) {
+				ecs::NkWorld &w = m.scene.Monde();
+				if (!w.IsAlive(id)) {
+					return;
+				}
+				NkDrapeauxEditeur d;
+				if (const NkDrapeauxEditeur *x = w.Get<NkDrapeauxEditeur>(id)) {
+					d = *x;
+				}
+				d.*champ = valeur;
+				// Les deux a faux : le composant s'en va. Une scene dont personne n'a
+				// touche l'oeil ni le cadenas s'enregistre comme avant.
+				if (!d.cache && !d.verrou) {
+					if (w.Has<NkDrapeauxEditeur>(id)) {
+						w.Remove<NkDrapeauxEditeur>(id);
+					}
+					return;
+				}
+				w.Add<NkDrapeauxEditeur>(id, d);
+			}
+		} // namespace
+
+		bool NkEditeurEstCache(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkDrapeauxEditeur *d = m.scene.Monde().Get<NkDrapeauxEditeur>(id);
+			return d != nullptr && d->cache;
+		}
+
+		bool NkEditeurEstVerrouille(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkDrapeauxEditeur *d = m.scene.Monde().Get<NkDrapeauxEditeur>(id);
+			return d != nullptr && d->verrou;
+		}
+
+		namespace {
+			/// Un ANCETRE porte-t-il ce drapeau ? Borne : une hierarchie mal
+			/// formee (une boucle que Rattacher aurait laissee passer) ne fige pas
+			/// l'editeur.
+			bool Herite(NkEditeurModele &m, ecs::NkEntityId id, bool NkDrapeauxEditeur::*champ) {
+				ecs::NkEntityId p = m.scene.Parent(id);
+				for (int32 k = 0; k < 64 && p.IsValid(); ++k) {
+					const NkDrapeauxEditeur *d = m.scene.Monde().Get<NkDrapeauxEditeur>(p);
+					if (d != nullptr && d->*champ) {
 						return true;
 					}
+					p = m.scene.Parent(p);
 				}
+				return false;
 			}
-			// 2. Les sprites visibles (le plus haut dessine gagne).
-			ecs::NkEntityId trouve;
-			NkVec2f c;
-			if (NkEntiteSous(s, monde, trouve, c)) {
-				m.selection = trouve;
-				m.aSelection = true;
-				if (centre != nullptr) {
-					*centre = c;
-				}
-				return true;
+		} // namespace
+
+		bool NkEditeurCacheHerite(NkEditeurModele &m, ecs::NkEntityId id) {
+			return Herite(m, id, &NkDrapeauxEditeur::cache);
+		}
+
+		bool NkEditeurVerrouHerite(NkEditeurModele &m, ecs::NkEntityId id) {
+			return Herite(m, id, &NkDrapeauxEditeur::verrou);
+		}
+
+		bool NkEditeurCacheDansLaVue(NkEditeurModele &m, ecs::NkEntityId id) {
+			// En jeu et en pause, le jeu montre TOUT : l'oeil est celui de
+			// l'editeur, pas un « cache en jeu » (NkDrapeauxEditeur). Un parent
+			// cache cache sa descendance, comme dans UE5.
+			return m.etat == NkEtatJeu::NK_EDITION && (NkEditeurEstCache(m, id) || NkEditeurCacheHerite(m, id));
+		}
+
+		bool NkEditeurVerrouilleDansLaVue(NkEditeurModele &m, ecs::NkEntityId id) {
+			// Un parent fige fige ses enfants : les deplacer a la main ferait
+			// mentir le cadenas du parent, qui les emporte avec lui.
+			return NkEditeurEstVerrouille(m, id) || NkEditeurVerrouHerite(m, id);
+		}
+
+		void NkEditeurCacher(NkEditeurModele &m, ecs::NkEntityId id, bool cache) {
+			PoserDrapeau(m, id, &NkDrapeauxEditeur::cache, cache);
+		}
+
+		void NkEditeurVerrouiller(NkEditeurModele &m, ecs::NkEntityId id, bool verrou) {
+			PoserDrapeau(m, id, &NkDrapeauxEditeur::verrou, verrou);
+		}
+
+		bool NkEditeurSansVisuel(NkEditeurModele &m, ecs::NkEntityId id) {
+			ecs::NkWorld &w = m.scene.Monde();
+			// Une lumiere, un emetteur ont LEUR icone (NkEditeurLumiere.h) : pas de
+			// losange par-dessus.
+			if (w.Has<NkCorpsMou2D>(id) || w.Has<NkCollisionneur2D>(id) || w.Has<NkLumiere2D>(id) || w.Has<NkEmetteur2D>(id)) {
+				return false;
 			}
-			// 3. Les formes sans sprite visible : balles, obstacles, sol.
-			float32 meilleur = 0.1f;
-			bool aucun = true;
-			s.Monde().Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
-				const float32 d = NkDistanceForme2D(t, col, monde);
-				if (d < meilleur) {
-					meilleur = d;
-					trouve = id;
-					c = t.position;
-					aucun = false;
+			const NkSprite2D *s = w.Get<NkSprite2D>(id);
+			return s == nullptr || !s->visible;
+		}
+
+		bool NkEditeurPrendreSous(NkEditeurModele &m, const NkVec2f &monde, ecs::NkEntityId &sortie, NkVec2f *centre) {
+			NkScene &s = m.scene;
+			ecs::NkWorld &w = s.Monde();
+			// Un pixel en metres : la camera de la scene EST celle du viseur, et
+			// son zoom n'est jamais nul (NkVue2D::PoserZoom).
+			const float32 pixel = 1.f / s.Camera().Zoom();
+			Prise prise;
+			prise.tolerance = NK_PRISE_TOLERANCE_PX * pixel;
+			auto exclue = [&](ecs::NkEntityId id) { return NkEditeurVerrouilleDansLaVue(m, id) || NkEditeurCacheDansLaVue(m, id); };
+
+			// La matiere (niveau 2).
+			if (const physics::NkParticules2D *p = s.Particules()) {
+				w.Query<NkCorpsMou2D>().ForEach([&](ecs::NkEntityId id, NkCorpsMou2D &mou) {
+					if (!mou.visible || exclue(id)) {
+						return;
+					}
+					const int32 ci = p->IndexCorps(mou.corpsId);
+					if (ci < 0) {
+						return;
+					}
+					const uint32 k = static_cast<uint32>(ci);
+					CandidatPrise c;
+					c.id = id;
+					c.niveau = 2;
+					c.distance = DistanceMatiere(*p, k, monde, pixel);
+					NkVec2f mn, mx;
+					p->BoiteCorps(k, mn, mx);
+					c.aire = (mx.x - mn.x) * (mx.y - mn.y);
+					c.centre = p->CentreCorps(k);
+					prise.Proposer(c);
+				});
+			}
+			// Les sprites visibles (niveau 1, par couche).
+			w.Query<NkTransform2D, NkSprite2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkSprite2D &sp) {
+				if (!sp.visible || exclue(id)) {
+					return;
 				}
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 1;
+				c.couche = sp.couche;
+				c.distance = DistanceSprite(t, sp, monde);
+				c.aire = math::NkAbs(sp.taille.x * t.echelle.x * sp.taille.y * t.echelle.y);
+				c.centre = t.position;
+				prise.Proposer(c);
 			});
-			if (!aucun) {
-				m.selection = trouve;
-				m.aSelection = true;
-				if (centre != nullptr) {
-					*centre = c;
+			// Les formes (niveau 0) : ce que NkDessinerFormes peint, soit toute
+			// entite a collisionneur SAUF celle qu'un sprite texture remplace.
+			w.Query<NkTransform2D, NkCollisionneur2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t, NkCollisionneur2D &col) {
+				const NkSprite2D *sp = w.Get<NkSprite2D>(id);
+				if ((sp != nullptr && sp->visible && sp->texId != 0u) || exclue(id)) {
+					return;
 				}
-				return true;
+				CandidatPrise c;
+				c.id = id;
+				c.niveau = 0;
+				c.distance = NkDistanceForme2D(t, col, monde);
+				c.aire = AireForme(col);
+				c.centre = t.position;
+				prise.Proposer(c);
+			});
+			// Les marqueurs des entites sans visuel (niveau 3) : le viseur ne les
+			// dessine qu'en EDITION.
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				const float32 rayon = NK_MARQUEUR_RAYON_PX * pixel;
+				w.Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t) {
+					if (!NkEditeurSansVisuel(m, id) || exclue(id)) {
+						return;
+					}
+					CandidatPrise c;
+					c.id = id;
+					c.niveau = 3;
+					c.distance = Longueur(monde.x - t.position.x, monde.y - t.position.y) - rayon;
+					c.aire = rayon * rayon;
+					c.centre = t.position;
+					prise.Proposer(c);
+				});
 			}
-			m.aSelection = false;
-			return false;
+
+			// Les ICONES des lumieres et des emetteurs (niveau 4, 2026-09-30) : peintes
+			// par-dessus tout, et une lumiere n'a souvent rien d'autre a cliquer. Le
+			// rayon est celui de NkEditeurIconeSous, qui ne les montre qu'hors jeu.
+			{
+				ecs::NkEntityId icone;
+				if (NkEditeurIconeSous(m, monde, 10.f, icone) && !exclue(icone)) {
+					CandidatPrise c;
+					c.id = icone;
+					c.niveau = 4;
+					c.distance = 0.f;
+					if (const NkTransform2D *t = w.Get<NkTransform2D>(icone)) {
+						c.centre = t->position;
+					}
+					prise.Proposer(c);
+				}
+			}
+
+			const CandidatPrise *choix = prise.aDedans ? &prise.dedans : (prise.aProche ? &prise.proche : nullptr);
+			if (choix == nullptr) {
+				return false;
+			}
+			sortie = choix->id;
+			if (centre != nullptr) {
+				*centre = choix->centre;
+			}
+			return true;
+		}
+
+		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
+			ecs::NkEntityId trouve;
+			if (!NkEditeurPrendreSous(m, monde, trouve, centre)) {
+				m.aSelection = false;
+				return false;
+			}
+			m.selection = trouve;
+			m.aSelection = true;
+			return true;
 		}
 
 		void NkEditeurDeplacer(NkEditeurModele &m, const NkVec2f &cible) {
@@ -296,9 +713,7 @@ namespace nkentseu {
 			if (NkEditeurChoisirSous(m, monde, centre)) {
 				return true;
 			}
-			// ⚠️ ChoisirSous LAISSE la selection en place quand il ne trouve rien :
-			//    c'est juste pour « Poser » et « Saisir », faux pour un clic de
-			//    selection, ou le vide veut dire « plus rien ».
+			// Le vide veut dire « plus rien » : ni selection, ni glisser en cours.
 			m.aSelection = false;
 			m.deplace = false;
 			return false;
@@ -410,7 +825,51 @@ namespace nkentseu {
 			return true;
 		}
 
+		namespace {
+			bool CuireEchelle(NkEditeurModele &m, const NkVec2f &f);
+		} // namespace
+
+		NkVec2f NkEditeurEchelle(NkEditeurModele &m, ecs::NkEntityId id) {
+			const NkEchelleEditeur *e = m.scene.Monde().Get<NkEchelleEditeur>(id);
+			return e != nullptr ? e->facteur : NkVec2f(1.f, 1.f);
+		}
+
 		bool NkEditeurMettreAEchelle(NkEditeurModele &m, const NkVec2f &f) {
+			if (!CuireEchelle(m, f)) {
+				return false;
+			}
+			// Le CUMUL que lit le Transform. Revenu a 1 x 1, le composant s'en va :
+			// une scene qu'on n'a pas mise a l'echelle s'enregistre comme avant.
+			ecs::NkWorld &w = m.scene.Monde();
+			const NkVec2f e = NkEditeurEchelle(m, m.selection);
+			NkEchelleEditeur n;
+			n.facteur = NkVec2f(e.x * f.x, e.y * f.y);
+			const bool unite = math::NkAbs(n.facteur.x - 1.f) < 1.0e-4f && math::NkAbs(n.facteur.y - 1.f) < 1.0e-4f;
+			if (unite) {
+				if (w.Has<NkEchelleEditeur>(m.selection)) {
+					w.Remove<NkEchelleEditeur>(m.selection);
+				}
+			} else {
+				w.Add<NkEchelleEditeur>(m.selection, n);
+			}
+			return true;
+		}
+
+		bool NkEditeurPoserEchelle(NkEditeurModele &m, ecs::NkEntityId id, const NkVec2f &facteur) {
+			const NkVec2f cible(facteur.x < 0.05f ? 0.05f : facteur.x, facteur.y < 0.05f ? 0.05f : facteur.y);
+			const NkVec2f e = NkEditeurEchelle(m, id);
+			const ecs::NkEntityId avant = m.selection;
+			const bool avait = m.aSelection;
+			m.selection = id;
+			m.aSelection = true;
+			const bool ok = NkEditeurMettreAEchelle(m, NkVec2f(cible.x / e.x, cible.y / e.y));
+			m.selection = avant;
+			m.aSelection = avait;
+			return ok;
+		}
+
+		namespace {
+		bool CuireEchelle(NkEditeurModele &m, const NkVec2f &f) {
 			if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection) || f.x <= 0.f || f.y <= 0.f) {
 				return false;
 			}
@@ -478,6 +937,8 @@ namespace nkentseu {
 			}
 			return true;
 		}
+
+		} // namespace
 
 		float32 NkEditeurAccrocher(float32 v, float32 pas) noexcept {
 			if (pas <= 0.f) {
@@ -569,6 +1030,18 @@ namespace nkentseu {
 				c.lance = false;
 				w.Add<NkSource2D>(e, c);
 			}
+			if (const NkLumiere2D *s = w.Get<NkLumiere2D>(src)) {
+				NkLumiere2D c = *s;
+				w.Add<NkLumiere2D>(e, c);
+			}
+			if (const NkEmetteur2D *s = w.Get<NkEmetteur2D>(src)) {
+				NkEmetteur2D c = *s;
+				// Une autre graine : une copie qui brulerait a l'unisson de
+				// l'original se verrait comme un defaut.
+				m.graine = m.graine * 1664525u + 1013904223u;
+				c.graine = m.graine;
+				w.Add<NkEmetteur2D>(e, c);
+			}
 			if (const NkCorps2D *s = w.Get<NkCorps2D>(src)) {
 				NkCorps2D c = *s;
 				c.corpsId = 0;
@@ -593,6 +1066,10 @@ namespace nkentseu {
 					return "Source sonore";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
+				case NkComposantEditeur::NK_LUMIERE:
+					return "Lumière 2D";
+				case NkComposantEditeur::NK_EMETTEUR:
+					return "Émetteur de particules";
 				default:
 					return "";
 			}
@@ -613,6 +1090,10 @@ namespace nkentseu {
 					return w.Has<NkSource2D>(id);
 				case NkComposantEditeur::NK_ANIMATION:
 					return w.Has<NkAnimSprite2D>(id);
+				case NkComposantEditeur::NK_LUMIERE:
+					return w.Has<NkLumiere2D>(id);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return w.Has<NkEmetteur2D>(id);
 				default:
 					return false;
 			}
@@ -682,6 +1163,10 @@ namespace nkentseu {
 					w.Add<NkAnimSprite2D>(id, a);
 					return true;
 				}
+				case NkComposantEditeur::NK_LUMIERE:
+					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
 				default:
 					return false;
 			}
@@ -711,9 +1196,466 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_ANIMATION:
 					w.Remove<NkAnimSprite2D>(id);
 					return true;
+				case NkComposantEditeur::NK_LUMIERE:
+					w.Remove<NkLumiere2D>(id);
+					return true;
+				case NkComposantEditeur::NK_EMETTEUR:
+					// Ses particules finissent leur vie : retirer un feu ne fait pas
+					// disparaitre d'un coup les flammeches deja en l'air.
+					w.Remove<NkEmetteur2D>(id);
+					return true;
 				default:
 					return false;
 			}
+		}
+
+		// =====================================================================
+		// Les cartes de l'inspecteur
+		// =====================================================================
+		bool NkComposantDeCarte(NkCarteEditeur c, NkComposantEditeur &sortie) noexcept {
+			if (c > NkCarteEditeur::NK_TRANSFORM && c < NkCarteEditeur::NK_ANIMATEUR) {
+				sortie = static_cast<NkComposantEditeur>(static_cast<uint8>(c) - 1u);
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_LUMIERE) {
+				sortie = NkComposantEditeur::NK_LUMIERE;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_EMETTEUR) {
+				sortie = NkComposantEditeur::NK_EMETTEUR;
+				return true;
+			}
+			return false;
+		}
+
+		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept {
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM:
+					return "Transform";
+				case NkCarteEditeur::NK_ANIMATEUR:
+					return "Animateur";
+				case NkCarteEditeur::NK_HIERARCHIE:
+					return "Hiérarchie";
+				default: {
+					NkComposantEditeur comp;
+					return NkComposantDeCarte(c, comp) ? NkComposantEditeurNom(comp) : "";
+				}
+			}
+		}
+
+		bool NkEditeurAUneCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!w.IsAlive(id)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM:
+					return w.Has<NkTransform2D>(id);
+				case NkCarteEditeur::NK_ANIMATEUR:
+					return w.Has<NkAnimateur2D>(id);
+				case NkCarteEditeur::NK_HIERARCHIE:
+					return true;
+				default: {
+					NkComposantEditeur comp;
+					return NkComposantDeCarte(c, comp) && NkEditeurAUnComposant(m, id, comp);
+				}
+			}
+		}
+
+		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept {
+			return c == NkCarteEditeur::NK_TRANSFORM || c == NkCarteEditeur::NK_SPRITE || c == NkCarteEditeur::NK_COLLISIONNEUR ||
+				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION ||
+				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR;
+		}
+
+		namespace {
+			/// Deplace `id` comme le fait le gizmo (NkEditeurDeplacer vise la
+			/// selection) : un rigide TELEPORTE, une matiere TRANSLATEE.
+			void DeplacerEntite(NkEditeurModele &m, ecs::NkEntityId id, const NkVec2f &cible) {
+				const ecs::NkEntityId avant = m.selection;
+				const bool avait = m.aSelection;
+				m.selection = id;
+				m.aSelection = true;
+				NkEditeurDeplacer(m, cible);
+				m.selection = avant;
+				m.aSelection = avait;
+			}
+
+			template <typename T> bool CopierOctets(ecs::NkWorld &w, ecs::NkEntityId id, NkCarteEditeur c, NkPressePapierComposant &pp) {
+				static_assert(sizeof(T) <= sizeof(NkPressePapierComposant::octets), "composant trop gros pour le presse-papiers");
+				const T *x = w.Get<T>(id);
+				if (x == nullptr) {
+					return false;
+				}
+				std::memcpy(pp.octets, x, sizeof(T));
+				pp.taille = static_cast<uint32>(sizeof(T));
+				pp.carte = static_cast<int32>(c);
+				return true;
+			}
+
+			template <typename T> bool LireOctets(const NkPressePapierComposant &pp, T &sortie) {
+				if (pp.taille != sizeof(T)) {
+					return false;
+				}
+				std::memcpy(&sortie, pp.octets, sizeof(T));
+				return true;
+			}
+		} // namespace
+
+		bool NkEditeurReinitialiserCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					DeplacerEntite(m, id, NkVec2f(0.f, 0.f));
+					NkTransform2D *t = w.Get<NkTransform2D>(id);
+					if (t != nullptr && !w.Has<NkCorpsMou2D>(id)) {
+						t->rotation = 0.f;
+						t->echelle = NkVec2f(1.f, 1.f);
+						if (w.Has<NkCorps2D>(id)) {
+							m.scene.ActualiserCorps(id);
+						}
+					}
+					// L'echelle AFFICHEE (cuite) revient a 1 x 1, comme dans Unreal.
+					NkEditeurPoserEchelle(m, id, NkVec2f(1.f, 1.f));
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE: {
+					NkSprite2D *s = w.Get<NkSprite2D>(id);
+					NkSprite2D d;
+					d.texId = s->texId;
+					d.uv0 = s->uv0;
+					d.uv1 = s->uv1;
+					d.visible = s->visible;
+					*s = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR: {
+					NkCollisionneur2D d;
+					// A la taille du sprite, comme a l'ajout : ce qu'on voit touche.
+					if (const NkSprite2D *s = w.Get<NkSprite2D>(id)) {
+						d.demiTaille = NkVec2f(s->taille.x * 0.5f, s->taille.y * 0.5f);
+					}
+					*w.Get<NkCollisionneur2D>(id) = d;
+					if (w.Has<NkCorps2D>(id)) {
+						m.scene.ActualiserCorps(id);
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_CORPS: {
+					NkCorps2D *b = w.Get<NkCorps2D>(id);
+					NkCorps2D d;
+					d.corpsId = b->corpsId;
+					*b = d;
+					m.scene.ActualiserCorps(id);
+					return true;
+				}
+				case NkCarteEditeur::NK_SOURCE: {
+					NkSource2D *s = w.Get<NkSource2D>(id);
+					NkSource2D d;
+					d.son = s->son;
+					d.voix = s->voix;
+					d.lance = s->lance;
+					*s = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					NkAnimSprite2D *a = w.Get<NkAnimSprite2D>(id);
+					NkAnimSprite2D d;
+					d.nbClips = 1;
+					d.enPause = a->enPause;
+					*a = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					// Les valeurs par defaut de SON type : une lumiere cone reste un cone.
+					NkLumiere2D *l = w.Get<NkLumiere2D>(id);
+					NkLumiere2D d;
+					d.type = l->type;
+					d.actif = l->actif;
+					*l = d;
+					return true;
+				}
+				case NkCarteEditeur::NK_EMETTEUR:
+					// Un emetteur se remet a SA recette (graine et etat gardes).
+					return NkEditeurAppliquerPreset(m, id, w.Get<NkEmetteur2D>(id)->preset);
+				default:
+					return false;
+			}
+		}
+
+		bool NkEditeurCopierCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, NkPressePapierComposant &pp) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					// La position COURANTE, matiere comprise (son centre, pas un
+					// transform qui la suit en retard).
+					NkTransform2D t = *w.Get<NkTransform2D>(id);
+					const ecs::NkEntityId avant = m.selection;
+					const bool avait = m.aSelection;
+					m.selection = id;
+					m.aSelection = true;
+					NkEditeurCentreSelection(m, t.position);
+					m.selection = avant;
+					m.aSelection = avait;
+					std::memcpy(pp.octets, &t, sizeof(t));
+					pp.taille = static_cast<uint32>(sizeof(t));
+					pp.carte = static_cast<int32>(c);
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE:
+					return CopierOctets<NkSprite2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_COLLISIONNEUR:
+					return CopierOctets<NkCollisionneur2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_CORPS:
+					return CopierOctets<NkCorps2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_SOURCE:
+					return CopierOctets<NkSource2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_ANIMATION:
+					return CopierOctets<NkAnimSprite2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_LUMIERE:
+					return CopierOctets<NkLumiere2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_EMETTEUR:
+					return CopierOctets<NkEmetteur2D>(w, id, c, pp);
+				default:
+					return false;
+			}
+		}
+
+		bool NkEditeurCollerCarte(NkEditeurModele &m, ecs::NkEntityId id, const NkPressePapierComposant &pp) {
+			if (pp.carte < 0 || pp.carte >= static_cast<int32>(NkCarteEditeur::NK_COUNT)) {
+				return false;
+			}
+			const NkCarteEditeur c = static_cast<NkCarteEditeur>(pp.carte);
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurAUneCarte(m, id, c) || !NkEditeurCarteSeCopie(c)) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_TRANSFORM: {
+					NkTransform2D t;
+					if (!LireOctets(pp, t)) {
+						return false;
+					}
+					DeplacerEntite(m, id, t.position);
+					NkTransform2D *cur = w.Get<NkTransform2D>(id);
+					if (cur != nullptr && !w.Has<NkCorpsMou2D>(id)) {
+						cur->rotation = t.rotation;
+						cur->echelle = t.echelle;
+						if (w.Has<NkCorps2D>(id)) {
+							m.scene.ActualiserCorps(id);
+						}
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_SPRITE: {
+					NkSprite2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkSprite2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR: {
+					NkCollisionneur2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkCollisionneur2D>(id) = v;
+					if (w.Has<NkCorps2D>(id)) {
+						m.scene.ActualiserCorps(id);
+					}
+					return true;
+				}
+				case NkCarteEditeur::NK_CORPS: {
+					NkCorps2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					NkCorps2D *cur = w.Get<NkCorps2D>(id);
+					v.corpsId = cur->corpsId; // SON corps, pas celui de la source
+					*cur = v;
+					m.scene.ActualiserCorps(id);
+					return true;
+				}
+				case NkCarteEditeur::NK_SOURCE: {
+					NkSource2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					NkSource2D *cur = w.Get<NkSource2D>(id);
+					v.voix = cur->voix;
+					v.lance = cur->lance;
+					v.demande = false;
+					v.arret = false;
+					*cur = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					NkAnimSprite2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkAnimSprite2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					NkLumiere2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkLumiere2D>(id) = v;
+					return true;
+				}
+				case NkCarteEditeur::NK_EMETTEUR: {
+					NkEmetteur2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					// SA graine : deux feux colles l'un sur l'autre ne bruleraient pas
+					// a l'unisson (la meme regle que Dupliquer).
+					NkEmetteur2D *cur = w.Get<NkEmetteur2D>(id);
+					v.graine = cur->graine;
+					*cur = v;
+					m.scene.Effets().Rejouer(id.Pack());
+					return true;
+				}
+				default:
+					return false;
+			}
+		}
+
+		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept {
+			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c < NkCarteEditeur::NK_COUNT;
+		}
+
+		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
+			ecs::NkWorld &w = m.scene.Monde();
+			switch (c) {
+				case NkCarteEditeur::NK_SPRITE: {
+					const NkSprite2D *s = w.Get<NkSprite2D>(id);
+					return s != nullptr && s->visible;
+				}
+				case NkCarteEditeur::NK_CORPS_MOU: {
+					const NkCorpsMou2D *s = w.Get<NkCorpsMou2D>(id);
+					return s != nullptr && s->visible;
+				}
+				case NkCarteEditeur::NK_ANIMATION: {
+					const NkAnimSprite2D *s = w.Get<NkAnimSprite2D>(id);
+					return s != nullptr && !s->enPause;
+				}
+				case NkCarteEditeur::NK_ANIMATEUR: {
+					const NkAnimateur2D *s = w.Get<NkAnimateur2D>(id);
+					return s != nullptr && !s->enPause;
+				}
+				case NkCarteEditeur::NK_LUMIERE: {
+					const NkLumiere2D *s = w.Get<NkLumiere2D>(id);
+					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_EMETTEUR: {
+					const NkEmetteur2D *s = w.Get<NkEmetteur2D>(id);
+					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_COLLISIONNEUR:
+				case NkCarteEditeur::NK_CORPS:
+				case NkCarteEditeur::NK_SOURCE: {
+					const NkEteintsEditeur *e = w.Get<NkEteintsEditeur>(id);
+					return e == nullptr || (e->bits & (1u << static_cast<uint32>(c))) == 0u;
+				}
+				default:
+					return true;
+			}
+		}
+
+		bool NkEditeurActiverCarte(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c, bool actif) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!NkEditeurCarteAUneCase(c) || !NkEditeurAUneCarte(m, id, c) || NkEditeurCarteActive(m, id, c) == actif) {
+				return false;
+			}
+			switch (c) {
+				case NkCarteEditeur::NK_SPRITE:
+					w.Get<NkSprite2D>(id)->visible = actif;
+					return true;
+				case NkCarteEditeur::NK_CORPS_MOU:
+					w.Get<NkCorpsMou2D>(id)->visible = actif;
+					return true;
+				case NkCarteEditeur::NK_ANIMATION:
+					w.Get<NkAnimSprite2D>(id)->enPause = !actif;
+					return true;
+				case NkCarteEditeur::NK_ANIMATEUR:
+					w.Get<NkAnimateur2D>(id)->enPause = !actif;
+					return true;
+				case NkCarteEditeur::NK_LUMIERE:
+					w.Get<NkLumiere2D>(id)->actif = actif;
+					return true;
+				case NkCarteEditeur::NK_EMETTEUR:
+					w.Get<NkEmetteur2D>(id)->actif = actif;
+					return true;
+				default:
+					break;
+			}
+			// Ceux qui n'ont pas de drapeau : on change ce qui les rend effectifs,
+			// et on garde ce qu'ils avaient.
+			NkEteintsEditeur e;
+			if (const NkEteintsEditeur *x = w.Get<NkEteintsEditeur>(id)) {
+				e = *x;
+			}
+			const uint32 bit = 1u << static_cast<uint32>(c);
+			if (c == NkCarteEditeur::NK_COLLISIONNEUR) {
+				NkCollisionneur2D *col = w.Get<NkCollisionneur2D>(id);
+				if (!actif) {
+					e.couche = col->couche;
+					e.masque = col->masque;
+					col->couche = 0u;
+					col->masque = 0u;
+				} else {
+					col->couche = e.couche;
+					col->masque = e.masque;
+				}
+				if (w.Has<NkCorps2D>(id)) {
+					m.scene.ActualiserCorps(id);
+				}
+			} else if (c == NkCarteEditeur::NK_CORPS) {
+				NkCorps2D *b = w.Get<NkCorps2D>(id);
+				if (!actif) {
+					e.typeCorps = static_cast<uint8>(b->type);
+					e.echelleGravite = b->echelleGravite;
+					b->type = NkTypeCorps::NK_CINEMATIQUE;
+					b->echelleGravite = 0.f;
+				} else {
+					b->type = static_cast<NkTypeCorps>(e.typeCorps);
+					b->echelleGravite = e.echelleGravite;
+				}
+				m.scene.ActualiserCorps(id);
+				if (!actif) {
+					m.scene.PoserVitesse(id, NkVec2f(0.f, 0.f));
+				}
+			} else if (c == NkCarteEditeur::NK_SOURCE) {
+				NkSource2D *so = w.Get<NkSource2D>(id);
+				if (!actif) {
+					e.volume = so->volume;
+					so->volume = 0.f;
+					so->arret = true;
+				} else {
+					so->volume = e.volume;
+				}
+			} else {
+				return false;
+			}
+			e.bits = actif ? (e.bits & ~bit) : (e.bits | bit);
+			if (e.bits == 0u) {
+				if (w.Has<NkEteintsEditeur>(id)) {
+					w.Remove<NkEteintsEditeur>(id);
+				}
+			} else {
+				w.Add<NkEteintsEditeur>(id, e);
+			}
+			return true;
 		}
 
 		const char *NkEditeurTypeDe(NkScene &scene, ecs::NkEntityId id) {
@@ -803,6 +1745,8 @@ namespace nkentseu {
 
 		bool NkEditeurOuvrir(NkEditeurModele &m) {
 			NkString erreur;
+			// AVANT la lecture : un composant non declare serait saute en silence.
+			DeclarerDrapeaux(m.scene);
 			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene(), &erreur);
 			if (ok) {
 				Aligner(m);

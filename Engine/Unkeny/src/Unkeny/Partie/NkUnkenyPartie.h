@@ -10,9 +10,11 @@
 // Caracteristiques :
 //   - NkAvancerPartie : une trame de simulation, bornee (un retour de veille
 //     ou une fenetre deplacee ne fait pas traverser les murs).
-//   - NkDessinerPartie : formes, sprites, matiere, dans cet ordre, et RIEN
-//     d'autre -- ni grille, ni collisionneurs, ni selection : ce que l'editeur
-//     ajoute par-dessus est a lui, ce qui est ici est ce que le joueur voit.
+//   - NkDessinerPartie : formes, sprites, matiere, effets en alpha, carte de
+//     lumiere, effets additifs, dans cet ordre, et RIEN d'autre -- ni grille,
+//     ni collisionneurs, ni selection : ce que l'editeur ajoute par-dessus est
+//     a lui, ce qui est ici est ce que le joueur voit. (Effets et lumiere :
+//     2026-09-30 ; eteints et absents, ils n'ecrivent rien dans la liste.)
 //
 // ⚠️ POURQUOI CE FICHIER EXISTE (2026-09-30)
 //   Ces lignes vivaient dans l'editeur (NkEditeurAvancer, NkDessinerViseur).
@@ -32,7 +34,9 @@
 #define __NKENTSEU_UNKENY_NKUNKENYPARTIE_H__
 
 #include "NKGui/Core/NkGuiDrawList.h"
+#include "Unkeny/Rendu/NkUnkenyEclairage.h"
 #include "Unkeny/Rendu/NkUnkenyRendu.h"
+#include "Unkeny/Rendu/NkUnkenyRenduEffets.h"
 #include "Unkeny/Rendu/NkUnkenyRenduParticules.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
@@ -53,8 +57,13 @@ namespace nkentseu {
 		/// rigides sans texture), puis les sprites, puis la matiere par-dessus
 		/// -- elle coule sur tout le reste. Un decor prend la couleur de son
 		/// sprite, meme cache : c'est la que l'editeur range la teinte du sol.
-		/// Rend les compteurs du rendu des sprites.
-		NkStatsRendu NkDessinerPartie(nkgui::NkGuiDrawList &dl, NkScene &scene, const NkOptionsRenduParticules &rendu);
+		/// Puis les particules d'effet en alpha (la nuit les assombrit), la carte
+		/// de lumiere si l'eclairage de la scene est actif, et les particules
+		/// additives (elles emettent). Rend les compteurs du rendu des sprites ;
+		/// `eclairage` et `particules`, facultatifs, recoivent ceux de la lumiere
+		/// et le nombre de particules d'effet dessinees.
+		NkStatsRendu NkDessinerPartie(nkgui::NkGuiDrawList &dl, NkScene &scene, const NkOptionsRenduParticules &rendu,
+									  NkStatsEclairage2D *eclairage = nullptr, int32 *particules = nullptr);
 
 	} // namespace unkeny
 } // namespace nkentseu
