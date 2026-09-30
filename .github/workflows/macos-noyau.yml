@@ -224,16 +224,7 @@ jobs:
 
       - name: UnkenyEditor --selftest
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
-        run: |
-          # Le shell par defaut d'une etape est `bash -e` : sans `set +e`, un
-          # banc rouge arreterait l'etape AVANT que son verdict soit publie.
-          set +e
-          set -o pipefail
-          "$(cat "$JOURNAUX/UnkenyEditor.chemin")" --selftest 2>&1 | tee "$JOURNAUX/selftest-UnkenyEditor.log"
-          CODE=$?
-          RESUME=$(tail -n 12 "$JOURNAUX/selftest-UnkenyEditor.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
-          if [ "$CODE" -ne 0 ]; then echo "::error title=UnkenyEditor selftest code $CODE::$RESUME"; exit "$CODE"; fi
-          echo "::notice title=UnkenyEditor selftest vert::$RESUME"
+        run: .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" "UnkenyEditor selftest" "$JOURNAUX/bancs" --selftest
 
       - name: Lancer UnkenyEditor (10 s)
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
@@ -247,16 +238,7 @@ jobs:
 
       - name: Physic2D --selftest
         if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
-        run: |
-          # Le shell par defaut d'une etape est `bash -e` : sans `set +e`, un
-          # banc rouge arreterait l'etape AVANT que son verdict soit publie.
-          set +e
-          set -o pipefail
-          "$(cat "$JOURNAUX/Physic2D.chemin")" --selftest 2>&1 | tee "$JOURNAUX/selftest-Physic2D.log"
-          CODE=$?
-          RESUME=$(tail -n 12 "$JOURNAUX/selftest-Physic2D.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
-          if [ "$CODE" -ne 0 ]; then echo "::error title=Physic2D selftest code $CODE::$RESUME"; exit "$CODE"; fi
-          echo "::notice title=Physic2D selftest vert::$RESUME"
+        run: .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/Physic2D.chemin")" "Physic2D selftest" "$JOURNAUX/bancs" --selftest
 
       - name: Lancer Physic2D (10 s)
         if: ${{ !cancelled() && hashFiles('journaux/Physic2D.chemin') != '' }}
@@ -304,25 +286,17 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build NKCraft "$CONFIG" "$JOURNAUX"
 
-      - name: NKCraft --sonde-geo et --sonde-wrap (sans fenetre)
+      - name: NKCraft --sonde-geo (sans fenetre)
         if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
         run: |
-          set +e
-          BIN="$(cat "$JOURNAUX/NKCraft.chemin")"
           mkdir -p "$JOURNAUX/sondes"
-          VERDICT=0
-          for SONDE in --sonde-geo --sonde-wrap; do
-            "$BIN" "$SONDE" "$JOURNAUX/sondes" > "$JOURNAUX/sondes/$SONDE.log" 2>&1
-            CODE=$?
-            RESUME=$(tail -n 10 "$JOURNAUX/sondes/$SONDE.log" | perl -pe 's/%/%25/g; s/\n/%0A/g')
-            if [ "$CODE" -ne 0 ]; then
-              echo "::error title=NKCraft $SONDE code $CODE::$RESUME"
-              VERDICT=1
-            else
-              echo "::notice title=NKCraft $SONDE vert::$RESUME"
-            fi
-          done
-          exit "$VERDICT"
+          .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/NKCraft.chemin")" "NKCraft sonde-geo" "$JOURNAUX/bancs" --sonde-geo "$JOURNAUX/sondes"
+
+      - name: NKCraft --sonde-wrap (sans fenetre)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: |
+          mkdir -p "$JOURNAUX/sondes"
+          .github/scripts/lancer-banc.sh "$(cat "$JOURNAUX/NKCraft.chemin")" "NKCraft sonde-wrap" "$JOURNAUX/bancs" --sonde-wrap "$JOURNAUX/sondes"
 
       - name: Lancer NKCraft (12 s)
         if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}

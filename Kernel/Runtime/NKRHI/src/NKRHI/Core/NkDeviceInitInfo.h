@@ -82,9 +82,14 @@ using PFNWGLSWAPINTERVALEXTPROC = BOOL(WINAPI *)(int);
 #ifdef __OBJC__
 #import <AppKit/AppKit.h>
 #else
-struct NSOpenGLContext;
-struct NSOpenGLPixelFormat;
-struct NSView;
+// Aligné sur NkSurface.h et NkCocoaWindow.h (using = objc_object), comme la
+// branche iOS ci-dessous et NKCanvas/NkOpenGLContextData.h : `struct NSView;`
+// entrait en conflit « struct vs type alias » dans toute unité .cpp non-ObjC
+// qui incluait aussi NkSurface.h — c'est-à-dire tout NKRHI (CI macOS du
+// 2026-09-30 : NkSoftwareDevice.cpp, NkGrid3D.cpp, …).
+using NSOpenGLContext = struct objc_object;
+using NSOpenGLPixelFormat = struct objc_object;
+using NSView = struct objc_object;
 #endif
 
 #elif defined(NKENTSEU_PLATFORM_IOS)
