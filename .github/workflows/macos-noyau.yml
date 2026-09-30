@@ -302,6 +302,17 @@ jobs:
         if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution"
 
+      # Le dorsal par defaut de NKCraft passe par l'OpenGL de NKRHI, qui n'a
+      # pas de chemin Apple (refus nomme depuis le 2026-09-30). Les deux dorsaux
+      # qui EXISTENT sur macOS sont donc eprouves a part, chacun sa sortie.
+      - name: Lancer NKCraft --backend=metal (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution-metal" --backend=metal
+
+      - name: Lancer NKCraft --backend=software (12 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NKCraft.chemin")" 12 "$JOURNAUX/execution-software" --backend=software
+
       - name: Journaux
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
