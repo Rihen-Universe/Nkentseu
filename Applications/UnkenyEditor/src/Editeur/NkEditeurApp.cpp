@@ -24,7 +24,6 @@
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
-#include <cstdio>
 
 namespace nkentseu {
 	namespace editeur {
@@ -346,7 +345,6 @@ namespace nkentseu {
 				fenetre.Minimize();
 			}
 			if (ui.agrandirDemande) {
-				std::printf("[trace] agrandir applique, etait agrandie=%d\n", fenetre.IsMaximized() ? 1 : 0); std::fflush(stdout);
 				ui.agrandirDemande = false;
 				if (fenetre.IsMaximized()) {
 					fenetre.Restore();
@@ -413,7 +411,6 @@ namespace nkentseu {
 				const int32 b = IndiceBouton(e->GetButton());
 				if (b >= 0) {
 					in.mouseDown[b] = true;
-					std::printf("[trace] appui b=%d a (%d,%d)\n", b, (int)e->GetX(), (int)e->GetY()); std::fflush(stdout);
 					mAppuiNonVu[b] = true;
 				}
 				in.ctrlDown = e->GetModifiers().ctrl;

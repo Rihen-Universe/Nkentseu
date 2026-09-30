@@ -1017,7 +1017,6 @@ namespace nkentseu {
 					dl.AddLine(NkVec2{cx - 5.f, cy - 5.f}, NkVec2{cx + 5.f, cy + 5.f}, t, 1.2f);
 					dl.AddLine(NkVec2{cx + 5.f, cy - 5.f}, NkVec2{cx - 5.f, cy + 5.f}, t, 1.2f);
 				}
-				if (survol && in.mouseClicked[0]) { std::printf("[trace] clic bouton fenetre i=%d menu=%d\n", i, (int)ui.menu); std::fflush(stdout); }
 				if (survol && in.mouseClicked[0] && ui.menu == NkMenuEditeur::NK_AUCUN) {
 					if (i == 0) {
 						ui.reduireDemande = true;
@@ -1035,7 +1034,6 @@ namespace nkentseu {
 			const bool dansBarre = NkEditeurDans(b, in.mousePos);
 			if (dansBarre && !surElement && ui.menu == NkMenuEditeur::NK_AUCUN) {
 				if (in.mouseDoubleClicked[0]) {
-					std::printf("[trace] double-clic barre\n"); std::fflush(stdout);
 					ui.titreArme = false;
 					ui.agrandirDemande = true;
 				} else if (in.mouseClicked[0]) {
