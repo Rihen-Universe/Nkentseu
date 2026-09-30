@@ -75,7 +75,11 @@ namespace nkentseu {
 			NK_COMPOSANT,
 			NK_CTX_ENTITE,	 ///< clic droit sur une entite
 			NK_CTX_VIDE,	 ///< clic droit dans le vide
-			NK_AJOUTER_ICI	 ///< sous-menu « Ajouter ici » : pose au point du clic droit
+			NK_AJOUTER_ICI,	 ///< sous-menu « Ajouter ici » : pose au point du clic droit
+			// La barre flottante du viseur (2026-09-30) : les pas d'accrochage.
+			NK_PAS_GRILLE,
+			NK_PAS_ANGLE,
+			NK_PAS_ECHELLE
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -121,7 +125,15 @@ namespace nkentseu {
 			NK_A_APPAREIL = 300,		///< + indice de profil
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
-			NK_A_CORPS_MOU = 600		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			// La barre flottante du viseur (2026-09-30).
+			NK_A_ACCROCHE_GRILLE = 900, ///< l'accrochage des DEPLACEMENTS, allume / eteint
+			NK_A_ACCROCHE_ANGLE,		///< celui des ROTATIONS
+			NK_A_ACCROCHE_ECHELLE,		///< celui des ECHELLES
+			NK_A_REPERE_LOCAL,			///< le gizmo Deplacer : axes de l'entite / du monde
+			NK_A_PAS_GRILLE = 920,		///< + indice dans NkPasGrille
+			NK_A_PAS_ANGLE = 940,		///< + indice dans NkPasAngle
+			NK_A_PAS_ECHELLE = 960		///< + indice dans NkPasEchelle
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -253,7 +265,19 @@ namespace nkentseu {
 				float32 gizmoAngle = 0.f;		///< rotation deja appliquee (rad)
 				NkVec2f gizmoEchelle{1.f, 1.f};	///< facteur deja applique
 				/// L'accrochage : ACTIF par defaut, Ctrl l'inverse le temps du geste.
-				bool accrochage = true;
+				/// UN PAR GESTE (2026-09-30, barre flottante d'UE5) : deplacer sur la
+				/// grille sans forcer les angles ronds, ou l'inverse.
+				bool accrocheGrille = true;
+				bool accrocheAngle = true;
+				bool accrocheEchelle = true;
+				/// Le gizmo Deplacer suit les axes de l'ENTITE (sa rotation) au lieu
+				/// de ceux du monde. L'echelle, elle, est toujours locale : elle est
+				/// cuite dans les dimensions propres de l'entite (NkEditeurMettreAEchelle).
+				bool repereLocal = false;
+				float32 gizmoRot0 = 0.f; ///< la rotation de l'entite a la saisie (rad)
+				/// Le rectangle de la barre flottante, garde d'une trame a l'autre :
+				/// le viseur ne prend pas un clic qui tombe dessus.
+				nkgui::NkRect barreFlottante{0.f, 0.f, 0.f, 0.f};
 				float32 pasGrille = 0.25f;	 ///< metres
 				float32 pasAngle = 15.f;	 ///< degres
 				float32 pasEchelle = 0.1f;	 ///< facteur
@@ -336,6 +360,23 @@ namespace nkentseu {
 				nkgui::NkGuiFont *police;
 				nkgui::NkGuiFont *petite;
 		};
+
+		// --- Les pas d'accrochage proposes par la barre flottante -------------
+		inline const float32 *NkPasGrille(int32 &n) noexcept {
+			static const float32 k[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f, 2.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+		inline const float32 *NkPasAngle(int32 &n) noexcept {
+			static const float32 k[] = {1.f, 5.f, 10.f, 15.f, 30.f, 45.f, 90.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
+		inline const float32 *NkPasEchelle(int32 &n) noexcept {
+			static const float32 k[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f};
+			n = static_cast<int32>(sizeof(k) / sizeof(k[0]));
+			return k;
+		}
 
 		// --- Outils communs (NkEditeurChrome.cpp) -----------------------------
 		NkPaletteEditeur NkEditeurPalette(const editorkit::NkTheme &theme);

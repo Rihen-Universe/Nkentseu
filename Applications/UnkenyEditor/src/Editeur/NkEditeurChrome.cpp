@@ -274,7 +274,8 @@ namespace nkentseu {
 							out.PushBack(Entree(NomOutil(o), NK_A_OUTIL + k, "", m.outil == o));
 						}
 						out.PushBack(Separateur());
-						out.PushBack(Entree("Accrochage (Ctrl l'inverse)", NK_A_ACCROCHAGE, "", c.ui.accrochage));
+						out.PushBack(Entree("Accrochage (Ctrl l'inverse)", NK_A_ACCROCHAGE, "",
+											c.ui.accrocheGrille || c.ui.accrocheAngle || c.ui.accrocheEchelle));
 						break;
 					}
 					case NkMenuEditeur::NK_AJOUTER:
@@ -335,6 +336,30 @@ namespace nkentseu {
 						for (int32 k = 0; k < 4; ++k) {
 							const bool coche = static_cast<int32>(m.rendu.mode) == k;
 							out.PushBack(Entree(kModes[k], NK_A_MODE_RENDU + k, "", coche));
+						}
+						break;
+					}
+					case NkMenuEditeur::NK_PAS_GRILLE:
+					case NkMenuEditeur::NK_PAS_ANGLE:
+					case NkMenuEditeur::NK_PAS_ECHELLE: {
+						// Les pas de la barre flottante : la valeur courante cochee.
+						int32 n = 0;
+						const float32 *pas = menu == NkMenuEditeur::NK_PAS_GRILLE  ? NkPasGrille(n)
+											 : menu == NkMenuEditeur::NK_PAS_ANGLE ? NkPasAngle(n)
+																				   : NkPasEchelle(n);
+						const float32 courant = menu == NkMenuEditeur::NK_PAS_GRILLE  ? c.ui.pasGrille
+												: menu == NkMenuEditeur::NK_PAS_ANGLE ? c.ui.pasAngle
+																					  : c.ui.pasEchelle;
+						const int32 base = menu == NkMenuEditeur::NK_PAS_GRILLE  ? NK_A_PAS_GRILLE
+										   : menu == NkMenuEditeur::NK_PAS_ANGLE ? NK_A_PAS_ANGLE
+																				 : NK_A_PAS_ECHELLE;
+						for (int32 k = 0; k < n; ++k) {
+							const NkString t = menu == NkMenuEditeur::NK_PAS_GRILLE
+												   ? NkString::Format("%g m", static_cast<double>(pas[k]))
+												   : (menu == NkMenuEditeur::NK_PAS_ANGLE ? NkString::Format("%g°", static_cast<double>(pas[k]))
+																						  : NkString::Format("x %g", static_cast<double>(pas[k])));
+							const float32 ecart = pas[k] - courant;
+							out.PushBack(Entree(t.CStr(), base + k, "", ecart > -1.0e-5f && ecart < 1.0e-5f));
 						}
 						break;
 					}
@@ -733,6 +758,28 @@ namespace nkentseu {
 				}
 				return;
 			}
+			{
+				// Les pas de la barre flottante.
+				int32 n = 0;
+				const float32 *pg = NkPasGrille(n);
+				if (action >= NK_A_PAS_GRILLE && action < NK_A_PAS_GRILLE + n) {
+					ui.pasGrille = pg[action - NK_A_PAS_GRILLE];
+					ui.accrocheGrille = true;
+					return;
+				}
+				const float32 *pa = NkPasAngle(n);
+				if (action >= NK_A_PAS_ANGLE && action < NK_A_PAS_ANGLE + n) {
+					ui.pasAngle = pa[action - NK_A_PAS_ANGLE];
+					ui.accrocheAngle = true;
+					return;
+				}
+				const float32 *pe = NkPasEchelle(n);
+				if (action >= NK_A_PAS_ECHELLE && action < NK_A_PAS_ECHELLE + n) {
+					ui.pasEchelle = pe[action - NK_A_PAS_ECHELLE];
+					ui.accrocheEchelle = true;
+					return;
+				}
+			}
 			if (action >= NK_A_COMPOSANT && action < NK_A_COMPOSANT + static_cast<int32>(NkComposantEditeur::NK_COUNT)) {
 				if (m.aSelection) {
 					NkEditeurAjouterComposant(m, m.selection, static_cast<NkComposantEditeur>(action - NK_A_COMPOSANT));
@@ -809,7 +856,25 @@ namespace nkentseu {
 					PoserSansArmer(m, true, m.acteur, ui.pointContexte);
 					break;
 				case NK_A_ACCROCHAGE:
-					ui.accrochage = !ui.accrochage;
+					{
+						// Le menu garde UN interrupteur : tout eteint si l'un est allume.
+						const bool un = ui.accrocheGrille || ui.accrocheAngle || ui.accrocheEchelle;
+						ui.accrocheGrille = !un;
+						ui.accrocheAngle = !un;
+						ui.accrocheEchelle = !un;
+					}
+					break;
+				case NK_A_ACCROCHE_GRILLE:
+					ui.accrocheGrille = !ui.accrocheGrille;
+					break;
+				case NK_A_ACCROCHE_ANGLE:
+					ui.accrocheAngle = !ui.accrocheAngle;
+					break;
+				case NK_A_ACCROCHE_ECHELLE:
+					ui.accrocheEchelle = !ui.accrocheEchelle;
+					break;
+				case NK_A_REPERE_LOCAL:
+					ui.repereLocal = !ui.repereLocal;
 					break;
 				case NK_A_CREER_PREFAB:
 					NkEditeurCreerPrefab(m);
