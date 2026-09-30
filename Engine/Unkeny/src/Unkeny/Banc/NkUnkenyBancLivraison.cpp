@@ -168,15 +168,19 @@ namespace nkentseu {
 			Temoin(jouable && relu->jeu.manquantes.Empty(), "(l2n) jeu complet : aucun manque",
 				   static_cast<float32>(relu->jeu.manquantes.Size()));
 
-			// (l3) le son, relu sous son nom (moteur a sortie nulle : pas de carte)
+			// (l3) le son, relu sous son nom.
+			// ⚠️ SANS DEMARRER NKAUDIO, et c'est voulu (mesure du 2026-09-30) :
+			//    Creer, Trouver et Duree n'en ont pas besoin, et un SECOND
+			//    demarrage dans le meme processus -- le banc du moteur (a4..a6) a
+			//    deja eu le sien -- fait mixer par le nouveau fil les voix que
+			//    AudioEngine::Shutdown a laissees dans son reservoir, sur des
+			//    echantillons deja liberes (SIGSEGV, NkAudioEngineCore.cpp:539).
 			NkBancJeu *avecSon = tas.New<NkBancJeu>();
-			const bool moteur = avecSon->sons.Demarrer(true);
 			NkChargerJeu(dossier.CStr(), avecSon->scene, avecSon->textures, &avecSon->sons, avecSon->jeu);
 			const uint32 idSon = avecSon->sons.Trouver("banc/bip");
 			const float32 duree = idSon != 0u ? avecSon->sons.Duree(idSon) : 0.f;
-			Temoin(moteur && avecSon->jeu.sons == 1u && idSon != 0u && math::NkAbs(duree - 0.1f) < 1.0e-4f,
+			Temoin(avecSon->jeu.sons == 1u && idSon != 0u && math::NkAbs(duree - 0.1f) < 1.0e-4f,
 				   "(l3) son cuit puis relu : trouve sous son nom, meme duree (s)", duree);
-			avecSon->sons.Arreter();
 			tas.Delete(avecSon);
 
 			// (l4) les extensions et la nature des fichiers
