@@ -678,10 +678,22 @@ namespace {
 				Temoin(vq > 0.5f && vt > 0.5f, "(m7n) la meme poussee sur le corps entier : les deux partent (vx tete)", vt);
 			}
 		}
+		const uint32 idGelee = p.corps[g].id;
 		const NkVec2f cH = p.CentrePartie(idHaut);
 		p.SupprimerCorps(static_cast<uint32>(avant));
-		const NkVec2f cH2 = p.CentrePartie(idHaut);
-		Temoin(Absf(cH.x - cH2.x) + Absf(cH.y - cH2.y) < 1.0e-5f && p.IndexPartie(idHaut) >= 0,
+		// ⚠️ Chaque index D'ABORD, le centre ensuite -- mesure par contre-epreuve :
+		// des index NON remappes pointent au-dela du tableau compacte, et
+		// CentrePartie y lisait hors bornes (assertion de NkVector en Debug : le
+		// banc s'arretait au lieu de rougir). Rangee du haut = relatifs 28..34.
+		const int32 gi = p.IndexCorps(idGelee);
+		const int32 pi = p.IndexPartie(idHaut);
+		bool enPlace = gi >= 0 && pi >= 0 && p.parties[static_cast<uint32>(pi)].nombre == 7u;
+		for (uint32 k = 0; enPlace && k < 7u; ++k) {
+			const uint32 idx = p.partiesParticules[p.parties[static_cast<uint32>(pi)].debut + k];
+			enPlace = idx < p.particules.Size() && idx - p.corps[static_cast<uint32>(gi)].debut == 28u + k;
+		}
+		const NkVec2f cH2 = enPlace ? p.CentrePartie(idHaut) : NkVec2f(99.f, 99.f);
+		Temoin(Absf(cH.x - cH2.x) + Absf(cH.y - cH2.y) < 1.0e-5f && enPlace,
 			   "(m7) la partie survit a la suppression d'un AUTRE corps (ecart m)", Absf(cH.x - cH2.x) + Absf(cH.y - cH2.y));
 	}
 
@@ -745,6 +757,20 @@ namespace {
 					}
 				}
 				Temoin(justes && croises == n, "(m8) apres compaction : chaque lien croise relie encore a et b (liens)", static_cast<float32>(croises));
+				// La contiguite des liens de GRILLE se juge APRES un recalcul des plages
+				// (la compaction en fait un) : avant, lienDebut / lienNombre ne sont
+				// pas relus. Mesure par contre-epreuve : poser les liens croises par
+				// AjouterLien laissait ce temoin vert quand il etait juge avant la
+				// compaction.
+				const physics::NkCorpsP2D &ga = p.corps[static_cast<uint32>(ia)];
+				bool grilleContigue = ga.lienNombre == lienNombreA;
+				for (uint32 i = ga.lienDebut; grilleContigue && i < ga.lienDebut + ga.lienNombre; ++i) {
+					grilleContigue = p.liens[i].corps == static_cast<uint32>(ia) && p.liens[i].genre != NkGenreLien2D::NK_LIAISON &&
+							   p.particules[p.liens[i].a].corps == static_cast<uint32>(ia) &&
+							   p.particules[p.liens[i].b].corps == static_cast<uint32>(ia);
+				}
+				Temoin(grilleContigue, "(m8) apres compaction : les liens de grille de la gelee restent contigus (liens)",
+					   static_cast<float32>(ga.lienNombre));
 			} else {
 				// Sans lien : on pousse b vers la droite, elles se separent.
 				for (int32 i = 0; i < 30; ++i) {
