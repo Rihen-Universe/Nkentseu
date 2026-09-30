@@ -19,11 +19,13 @@
 #include "Editeur/NkEditeurApp.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
+#include "Unkeny/Banc/NkUnkenyBancLumiere.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -223,6 +225,19 @@ namespace nkentseu {
 					mSceneDepart = NkString(args[i].SubStr(8));
 					continue;
 				}
+				// --exemple=nuit (2026-09-30) : la scene de nuit au feu de camp
+				// (NkEditeurSceneNuit) au lieu de la scene neuve. Avec --capture=,
+				// c'est l'image de l'eclairage sans souris.
+				if (args[i] == "--exemple=nuit") {
+					mExempleNuit = true;
+					continue;
+				}
+				// --eclairage=off : la meme scene, eclairage de scene ETEINT -- la
+				// capture « avant » d'une paire avant / apres, sans souris.
+				if (args[i] == "--eclairage=off") {
+					mEclairageEteint = true;
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -233,7 +248,11 @@ namespace nkentseu {
 					// deux bancs d'avant gardent leurs comptes.
 					const int32 entrees = unkeny::NkUnkenyLancerBancEntrees();
 					const int32 jouer = NkEditeurLancerBancEntrees();
-					return NkOptional<int>((moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0) ? 1 : 0);
+					// L'eclairage et les effets (30/09) : APRES, comptes a part aussi.
+					const int32 lumiere = unkeny::NkUnkenyLancerBancLumiere();
+					const int32 lumiereEditeur = NkEditeurLancerBancLumiere();
+					return NkOptional<int>(
+						(moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 || lumiereEditeur != 0) ? 1 : 0);
 				}
 			}
 			return NkOptional<int>();
@@ -269,6 +288,9 @@ namespace nkentseu {
 			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
 			m.textures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
 			NkEditeurNouvelleScene(m);
+			if (mExempleNuit) {
+				NkEditeurSceneNuit(m);
+			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
 			m.carte.PoserNature(1, NkNatureTuile::NK_SOLIDE);
@@ -295,6 +317,9 @@ namespace nkentseu {
 						m.aSelection = true;
 					}
 				});
+			}
+			if (mEclairageEteint) {
+				m.scene.Eclairage().actif = false;
 			}
 			if (m.simuler) {
 				NkEditeurJouer(m);

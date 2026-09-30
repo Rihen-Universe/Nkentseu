@@ -104,6 +104,9 @@ namespace nkentseu {
 			NK_CORPS_MOU, ///< matiere (le materiau est choisi a l'ajout)
 			NK_SOURCE,	  ///< source sonore
 			NK_ANIMATION,
+			// 2026-09-30, AJOUTES A LA FIN : les valeurs d'avant ne bougent pas.
+			NK_LUMIERE,	 ///< lumiere 2D (le type se choisit a l'ajout)
+			NK_EMETTEUR, ///< emetteur de particules (le preset se choisit a l'ajout)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;

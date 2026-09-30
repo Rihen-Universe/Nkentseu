@@ -119,7 +119,12 @@ namespace nkentseu {
 			NK_A_APPAREIL = 300,		///< + indice de profil
 			NK_A_MODE_RENDU = 400,		///< + NkModeRenduParticules
 			NK_A_COMPOSANT = 500,		///< + NkComposantEditeur, sur la selection
-			NK_A_CORPS_MOU = 600		///< + NkActeurSim : la matiere du corps mou ajoute
+			NK_A_CORPS_MOU = 600,		///< + NkActeurSim : la matiere du corps mou ajoute
+			// 2026-09-30 (NkEditeurLumiere.h) : quatre plages de moins de 10 valeurs.
+			NK_A_LUMIERE = 800,			///< + NkTypeLumiere2D : une lumiere sur la selection
+			NK_A_EMETTEUR = 850,		///< + NkPresetEffet2D : un emetteur sur la selection
+			NK_A_LUMIERE_ICI = 900,		///< + NkTypeLumiere2D : une lumiere au point du clic droit
+			NK_A_EMETTEUR_ICI = 950		///< + NkPresetEffet2D : un effet au point du clic droit
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.

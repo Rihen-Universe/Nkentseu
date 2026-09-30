@@ -5,6 +5,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -77,6 +78,9 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
+				// depend pas de la duree de l'apercu en edition.
+				m.scene.Effets().Vider();
 			}
 			m.etat = NkEtatJeu::NK_JEU;
 		}
@@ -113,6 +117,11 @@ namespace nkentseu {
 			m.messageAge += dt;
 			if (m.etat == NkEtatJeu::NK_JEU && dt > 0.f) {
 				m.scene.Pas(dt < 0.05f ? dt : 0.05f);
+			} else if (m.etat == NkEtatJeu::NK_EDITION && dt > 0.f) {
+				// L'APERCU des effets en edition (2026-09-30) : un feu pose brule
+				// deja. Les particules visuelles ne touchent a rien de la scene
+				// (temoin f6) ; ni corps, ni matiere, ni transform ne bougent.
+				m.scene.Effets().Avancer(m.scene, dt < 0.05f ? dt : 0.05f);
 			}
 			// Une selection dont l'entite a disparu (matiere gommee, tombee) : oubliee.
 			if (m.aSelection && !m.scene.Monde().IsAlive(m.selection)) {
@@ -170,6 +179,20 @@ namespace nkentseu {
 
 		bool NkEditeurChoisirSous(NkEditeurModele &m, const NkVec2f &monde, NkVec2f *centre) {
 			NkScene &s = m.scene;
+			// 0. Les ICONES des lumieres et des emetteurs (2026-09-30) : elles sont
+			//    peintes par-dessus tout, et une lumiere n'a souvent rien d'autre
+			//    a cliquer.
+			{
+				ecs::NkEntityId icone;
+				if (NkEditeurIconeSous(m, monde, 10.f, icone)) {
+					m.selection = icone;
+					m.aSelection = true;
+					if (centre != nullptr) {
+						NkEditeurCentreSelection(m, *centre);
+					}
+					return true;
+				}
+			}
 			// 1. La matiere : c'est elle qui est dessinee PAR-DESSUS le decor.
 			if (physics::NkParticules2D *p = s.Particules()) {
 				const int32 i = p->ParticuleProche(monde, 0.25f);
@@ -557,6 +580,18 @@ namespace nkentseu {
 				c.lance = false;
 				w.Add<NkSource2D>(e, c);
 			}
+			if (const NkLumiere2D *s = w.Get<NkLumiere2D>(src)) {
+				NkLumiere2D c = *s;
+				w.Add<NkLumiere2D>(e, c);
+			}
+			if (const NkEmetteur2D *s = w.Get<NkEmetteur2D>(src)) {
+				NkEmetteur2D c = *s;
+				// Une autre graine : une copie qui brulerait a l'unisson de
+				// l'original se verrait comme un defaut.
+				m.graine = m.graine * 1664525u + 1013904223u;
+				c.graine = m.graine;
+				w.Add<NkEmetteur2D>(e, c);
+			}
 			if (const NkCorps2D *s = w.Get<NkCorps2D>(src)) {
 				NkCorps2D c = *s;
 				c.corpsId = 0;
@@ -581,6 +616,10 @@ namespace nkentseu {
 					return "Source sonore";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
+				case NkComposantEditeur::NK_LUMIERE:
+					return "Lumière 2D";
+				case NkComposantEditeur::NK_EMETTEUR:
+					return "Émetteur de particules";
 				default:
 					return "";
 			}
@@ -601,6 +640,10 @@ namespace nkentseu {
 					return w.Has<NkSource2D>(id);
 				case NkComposantEditeur::NK_ANIMATION:
 					return w.Has<NkAnimSprite2D>(id);
+				case NkComposantEditeur::NK_LUMIERE:
+					return w.Has<NkLumiere2D>(id);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return w.Has<NkEmetteur2D>(id);
 				default:
 					return false;
 			}
@@ -670,6 +713,10 @@ namespace nkentseu {
 					w.Add<NkAnimSprite2D>(id, a);
 					return true;
 				}
+				case NkComposantEditeur::NK_LUMIERE:
+					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
+				case NkComposantEditeur::NK_EMETTEUR:
+					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
 				default:
 					return false;
 			}
@@ -698,6 +745,14 @@ namespace nkentseu {
 					return true;
 				case NkComposantEditeur::NK_ANIMATION:
 					w.Remove<NkAnimSprite2D>(id);
+					return true;
+				case NkComposantEditeur::NK_LUMIERE:
+					w.Remove<NkLumiere2D>(id);
+					return true;
+				case NkComposantEditeur::NK_EMETTEUR:
+					// Ses particules finissent leur vie : retirer un feu ne fait pas
+					// disparaitre d'un coup les flammeches deja en l'air.
+					w.Remove<NkEmetteur2D>(id);
 					return true;
 				default:
 					return false;

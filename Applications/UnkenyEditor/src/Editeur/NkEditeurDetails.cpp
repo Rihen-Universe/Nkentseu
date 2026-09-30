@@ -28,6 +28,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurLumiere.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -508,6 +509,13 @@ namespace nkentseu {
 				if (c.m.scene.Monde().Has<NkAnimateur2D>(id)) {
 					Animateur(c, id);
 				}
+				// 2026-09-30 : les sections vivent dans NkEditeurLumiere.cpp.
+				if (c.m.scene.Monde().Has<NkLumiere2D>(id)) {
+					NkEditeurSectionLumiere(c, id);
+				}
+				if (c.m.scene.Monde().Has<NkEmetteur2D>(id)) {
+					NkEditeurSectionEmetteur(c, id);
+				}
 				ctx.PopId();
 				nkgui::EndChild(ctx);
 			}
@@ -560,6 +568,7 @@ namespace nkentseu {
 				nkgui::Checkbox(ctx, "liens", m.rendu.liens);
 				nkgui::Checkbox(ctx, "particules", m.rendu.particules);
 				nkgui::Checkbox(ctx, "vitesses", m.rendu.vitesses);
+				NkEditeurSectionEclairageMonde(c); // 2026-09-30 : NkEditeurLumiere.cpp
 				nkgui::Separator(ctx);
 				// L'appareil simule : ce que la zone sure du viseur represente.
 				const NkProfilAppareil pa = m.ProfilCourant();

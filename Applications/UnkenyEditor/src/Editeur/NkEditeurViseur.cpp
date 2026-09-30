@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurViseur.h"
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurLumiere.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -75,6 +76,10 @@ namespace nkentseu {
 			NkDessinerFormes(dl, scene, formes);
 			stats = NkDessinerScene(dl, scene);
 			NkDessinerCorpsMous(dl, scene, m.rendu);
+			// Les effets et la carte de lumiere (2026-09-30) : APRES tout ce que la
+			// lumiere eclaire, AVANT les surcouches d'editeur (collisionneurs,
+			// selection), qui ne doivent pas s'assombrir la nuit.
+			NkEditeurDessinerEffetsEtLumiere(dl, m);
 			if (m.voirCollisionneurs) {
 				NkDessinerCollisionneurs(dl, scene, 0x00E07AC0u);
 			}
@@ -92,6 +97,7 @@ namespace nkentseu {
 					dl.AddLine(NkVec2f(e.x, e.y - 6.f), NkVec2f(e.x, e.y + 6.f), th.or_, 1.5f);
 				}
 			}
+			NkEditeurDessinerIconesLumiere(dl, m);
 			dl.PopClipRect();
 
 			// Le bord du viseur dit l'ETAT — VERT en jeu, AMBRE en pause : on sait
