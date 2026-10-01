@@ -26,6 +26,14 @@
 //        puis Jouer : la scene ANIME l'entite (NkClipProprietes2D) ; Arreter la rend
 //   (a8) ENREGISTRER : Contenu/Animations/Heros.nkanim ; RELU dans une autre
 //        interface, la piste et ses cles reviennent
+//   SEQUENCE (2026-10-01 soir : la frise facon UE5 et le melange)
+//   (c1) les conversions : une piste de CLIPS (deux clips qui se chevauchent),
+//        une piste MUETTE, une tangente a la main font l'aller-retour
+//        frise -> clip -> frise
+//   (c2) le jeu joue la SEQUENCE : a 0,75 s, mi-fondu entre A (x 0) et B (x 1),
+//        la position est a 0,5 ; l'apercu d'une trame ne laisse rien
+//   (c3) « + Piste » propose d'abord une piste de clips ; son « + » ouvre le
+//        choix des animations ; un clic y pose le clip au curseur
 //   PAGE ANIMATEUR
 //   (b1) Fenetre > Animateur : « + Reel », puis deux double-clics sur la toile =
 //        deux etats aux points du clic
@@ -490,12 +498,138 @@ namespace nkentseu {
 				memory::NkGetDefaultAllocator().Delete(pm);
 				NkDirectory::Delete("banc_animateur", true);
 			}
+			// =================================================================
+			// (01/10 soir) LA SEQUENCE : pistes de clips, muet, tangentes
+			// =================================================================
+			anim::NkAnimationClip ClipPosition(const char *nom, float32 x) {
+				anim::NkAnimationClip c;
+				c.name = nom;
+				c.duration = 1.f;
+				anim::NkAnimationClip::NkPropertyTrack &p =
+					c.AddPropertyTrack("", "Transform.position", anim::NkAnimationClip::NkPropertyKind::NK_VEC2);
+				p.curve.AddKey(0.f, math::NkVec4f(x, 0.f, 0.f, 0.f));
+				p.curve.AddKey(1.f, math::NkVec4f(x, 0.f, 0.f, 0.f));
+				return c;
+			}
+
+			void BancPageSequence() {
+				// (c1) les conversions.
+				{
+					editorkit::NkTimelineModel f;
+					f.duration = 2.f;
+					f.AddTrack(1, "", "Transform.rotation", editorkit::NkTimelineValueKind::Nombre, 1);
+					const float32 a[4] = {0.f}, b[4] = {90.f}, z[4] = {0.f};
+					f.SetKey(1, 0.f, a, (uint8)editorkit::NkTimelineInterp::Courbe);
+					f.SetKey(1, 1.f, b, (uint8)editorkit::NkTimelineInterp::Courbe);
+					f.SetKey(1, 2.f, z);
+					f.Track(1)->keys[1].tangent = (uint8)editorkit::NkTimelineTangent::Unifiee;
+					f.Track(1)->keys[1].tanIn[0] = f.Track(1)->keys[1].tanOut[0] = 40.f;
+					f.Track(1)->muted = true;
+					f.AddTrack(2, "", "Clips", editorkit::NkTimelineValueKind::Clips, 1);
+					const nk_uint64 ca = f.AddClip(2, "banc_seq_a", 0.f, 1.f);
+					const nk_uint64 cb = f.AddClip(2, "banc_seq_b", 0.5f, 1.f);
+					f.Clip(2, ca)->blendOut = 0.5f;
+					f.Clip(2, cb)->blendIn = 0.5f;
+					anim::NkAnimationClip clip;
+					NkClipDepuisFrise(f, clip);
+					const bool versClip = clip.clipTracks.Size() == 1u && clip.clipTracks[0].strips.Size() == 2u &&
+										  Pres(clip.clipTracks[0].strips[1].blendIn, 0.5f) && clip.propertyTracks.Size() == 1u &&
+										  !clip.propertyTracks[0].curve.enabled && clip.propertyTracks[0].tangents.Size() == 3u &&
+										  clip.propertyTracks[0].tangents[1].mode == anim::NkTangentMode::NK_USER;
+					editorkit::NkTimelineModel g;
+					NkFriseDepuisClip(clip, g);
+					const editorkit::NkTimelineTrack *pc = g.tracks.Size() == 2u ? &g.tracks[1] : nullptr;
+					const bool versFrise = pc != nullptr && pc->kind == editorkit::NkTimelineValueKind::Clips && pc->clips.Size() == 2u &&
+										   Pres(pc->clips[1].start, 0.5f) && g.tracks[0].muted &&
+										   g.tracks[0].keys[1].tangent == (uint8)editorkit::NkTimelineTangent::Unifiee &&
+										   Pres(g.tracks[0].keys[1].tanOut[0], 40.f);
+					Temoin(versClip && versFrise, "(c1) piste de clips, piste muette, tangente : frise -> clip -> frise");
+				}
+				// (c2) et (c3) dans la page.
+				unkeny::NkEnregistrerClipProprietes("banc_seq_a", ClipPosition("banc_seq_a", 0.f));
+				unkeny::NkEnregistrerClipProprietes("banc_seq_b", ClipPosition("banc_seq_b", 1.f));
+				NkEditeurModele *pm = NouveauModele("banc_seq");
+				NkEditeurModele &m = *pm;
+				const ecs::NkEntityId heros = PoserHeros(m);
+				const NkVec2f p0 = PositionDe(m, heros);
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				Agrandir(T);
+				NkEditeurInterface &ui = T.Ui();
+				T.Trame();
+				NkEditeurCadre cadre = T.Cadre();
+				NkEditeurExecuter(cadre, NK_A_ANIM_ANIMATION);
+				T.Trame();
+				T.Trame();
+				NkDocAnim *d = NkEditeurDocAnimActif(ui);
+				if (d == nullptr) {
+					Temoin(false, "(c2) la page Animation s'ouvre");
+					memory::NkGetDefaultAllocator().Delete(pt);
+					memory::NkGetDefaultAllocator().Delete(pm);
+					return;
+				}
+				// (c3) « + Piste » -> « Piste de clips » -> son « + » -> un clip.
+				const editorkit::NkPaintRect ajout = ui.pagesAnim.frise.buttons[(uint8)editorkit::NkTimelineButton::AddTrack];
+				T.Clic(0, Centre(ajout).x, Centre(ajout).y);
+				T.Trame();
+				const bool premiere = !d->propositions.Empty() && d->propositions[0].pisteClips;
+				if (premiere) {
+					const nkgui::NkRect r = d->propositions[0].rect;
+					T.Clic(0, Centre(r).x, Centre(r).y);
+				}
+				T.Trame();
+				const editorkit::NkTimelineTrack *pc = d->frise.tracks.Empty() ? nullptr : &d->frise.tracks[0];
+				const bool piste = pc != nullptr && pc->kind == editorkit::NkTimelineValueKind::Clips;
+				const editorkit::NkTimelineRow *ligne = piste ? Ligne(ui, pc->id) : nullptr;
+				int32 kA = -1;
+				if (ligne != nullptr) {
+					T.Clic(0, Centre(ligne->keyButton).x, Centre(ligne->keyButton).y);
+					T.Trame();
+					for (uint32 i = 0; i < (uint32)d->propositions.Size(); ++i) {
+						if (d->propositions[i].clip == NkString("banc_seq_a")) {
+							kA = (int32)i;
+						}
+					}
+				}
+				const bool choixClips = d->choix && d->choixClips && kA >= 0;
+				if (kA >= 0) {
+					const nkgui::NkRect r = d->propositions[(uint32)kA].rect;
+					T.Clic(0, Centre(r).x, Centre(r).y);
+				}
+				T.Trame();
+				pc = d->frise.tracks.Empty() ? nullptr : &d->frise.tracks[0];
+				const bool pose = pc != nullptr && pc->clips.Size() == 1u && pc->clips[0].name == NkString("banc_seq_a") &&
+								  Pres(pc->clips[0].length, 1.f) && !d->choix;
+				Temoin(premiere && piste && choixClips && pose,
+					   "(c3) « + Piste » : piste de clips ; son « + » propose les animations ; un clic pose", (float32)d->propositions.Size());
+				// (c2) le second clip, en fondu croise, puis le jeu et l'apercu.
+				if (pc != nullptr && pose) {
+					const nk_uint64 idA = pc->clips[0].id;
+					const nk_uint64 idB = d->frise.AddClip(pc->id, "banc_seq_b", 0.5f, 1.f, 1.f);
+					d->frise.Clip(pc->id, idA)->blendOut = 0.5f;
+					d->frise.Clip(pc->id, idB)->blendIn = 0.5f;
+					d->frise.Touch();
+				}
+				d->frise.SetCursor(0.75f);
+				T.Trame();
+				T.Trame();
+				const NkVec2f apresTrame = PositionDe(m, heros);
+				NkClipDepuisFrise(d->frise, d->clip);
+				unkeny::NkAppliquerClipProprietes(m.scene, heros, d->clip, 0.75f);
+				const NkVec2f joue = PositionDe(m, heros);
+				Temoin(Pres(apresTrame.x, p0.x) && Pres(joue.x, 0.5f, 0.01f) && d->clip.clipTracks.Size() == 1u,
+					   "(c2) la sequence en jeu : mi-fondu a 0,75 s (x 0,5) ; l'apercu ne laisse rien", joue.x);
+				memory::NkGetDefaultAllocator().Delete(pt);
+				memory::NkGetDefaultAllocator().Delete(pm);
+				NkDirectory::Delete("banc_seq", true);
+			}
 		} // namespace
 
 		int32 NkEditeurLancerBancAnimation() {
 			gE = gR = 0;
 			std::printf("\nUnkenyEditor — banc des pages Animation et Animateur (01/10)\n\n");
 			BancPageAnimation();
+			BancPageSequence();
 			BancPageAnimateur();
 			std::printf("\nBANC ANIMATION %s : %d reussis, %d echec\n", gE == 0 ? "REUSSI" : "ECHOUE", gR, gE);
 			return gE == 0 ? 0 : 1;

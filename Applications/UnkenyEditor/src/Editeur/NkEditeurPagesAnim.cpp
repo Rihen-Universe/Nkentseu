@@ -41,6 +41,9 @@ namespace nkentseu {
 						  (uint8)editorkit::NkTimelineInterp::Lineaire == (uint8)anim::NkInterpMode::NK_LINEAR &&
 						  (uint8)editorkit::NkTimelineInterp::Recul == (uint8)anim::NkInterpMode::NK_BACK,
 					  "NkTimelineInterp doit suivre anim::NkInterpMode");
+		static_assert((uint8)editorkit::NkTimelineTangent::Cassee == (uint8)anim::NkTangentMode::NK_BREAK &&
+						  (uint8)editorkit::NkTimelineTangent::Plate == (uint8)anim::NkTangentMode::NK_FLAT,
+					  "NkTimelineTangent doit suivre anim::NkTangentMode");
 		static_assert((uint8)editorkit::NkGraphCondOp::Greater == (uint8)anim::NkAnimStateMachine::NkCondKind::FLOAT_GREATER &&
 						  (uint8)editorkit::NkGraphCondOp::TimeInState ==
 							  (uint8)anim::NkAnimStateMachine::NkCondKind::TIME_IN_STATE &&
@@ -148,7 +151,50 @@ namespace nkentseu {
 					key.v[2] = kf.value.z;
 					key.v[3] = kf.value.w;
 					key.interp = (uint8)kf.interp;
+					// (01/10 soir) la tangente posee a la main, s'il y en a une.
+					if (k < (uint32)p.tangents.Size()) {
+						const anim::NkAnimationClip::NkPropertyTangent &tg = p.tangents[k];
+						key.tangent = (uint8)tg.mode;
+						for (uint32 c = 0; c < 4; ++c) {
+							key.tanIn[c] = tg.in[c];
+							key.tanOut[c] = tg.out[c];
+						}
+					}
 					t.keys.PushBack(key);
+				}
+				t.muted = !p.curve.enabled;
+				frise.tracks.PushBack(t);
+			}
+			// (01/10 soir) Les pistes de CLIPS (NLA) : apres les proprietes.
+			frise.nextClipId = 1;
+			for (uint32 i = 0; i < (uint32)clip.clipTracks.Size(); ++i) {
+				const anim::NkClipStripTrack &st = clip.clipTracks[i];
+				editorkit::NkTimelineTrack t;
+				t.id = (nk_uint64)(clip.propertyTracks.Size() + i + 1);
+				t.object = NkString();
+				t.property = st.name.Empty() ? NkString("Clips") : st.name;
+				t.label = t.property;
+				t.kind = editorkit::NkTimelineValueKind::Clips;
+				t.weight = st.weight;
+				t.additive = st.additive;
+				t.muted = st.muted;
+				t.mask = st.mask;
+				for (uint32 k = 0; k < (uint32)st.strips.Size(); ++k) {
+					const anim::NkClipStrip &s = st.strips[k];
+					editorkit::NkTimelineClip c;
+					c.id = frise.nextClipId++;
+					c.name = s.clip;
+					c.start = s.start;
+					c.length = s.length;
+					c.offset = s.offset;
+					c.rate = s.rate;
+					c.blendIn = s.blendIn;
+					c.blendOut = s.blendOut;
+					c.weight = s.weight;
+					c.loop = s.loop;
+					const anim::NkAnimationClip *src = unkeny::NkClipProprietesEnregistre(s.clip.CStr());
+					c.sourceLength = src != nullptr && src->duration > 1e-3f ? src->duration : s.length;
+					t.clips.PushBack(c);
 				}
 				frise.tracks.PushBack(t);
 			}
@@ -159,8 +205,34 @@ namespace nkentseu {
 		void NkClipDepuisFrise(const editorkit::NkTimelineModel &frise, anim::NkAnimationClip &clip) {
 			using PK = anim::NkAnimationClip::NkPropertyKind;
 			clip.propertyTracks.Clear();
+			clip.clipTracks.Clear();
 			for (uint32 i = 0; i < (uint32)frise.tracks.Size(); ++i) {
 				const editorkit::NkTimelineTrack &t = frise.tracks[i];
+				if (t.kind == editorkit::NkTimelineValueKind::Clips) {
+					// (01/10 soir) une piste de CLIPS -> une NkClipStripTrack de NKAnima.
+					anim::NkClipStripTrack st;
+					st.name = t.property;
+					st.weight = t.weight;
+					st.additive = t.additive;
+					st.muted = t.muted;
+					st.mask = t.mask;
+					for (uint32 k = 0; k < (uint32)t.clips.Size(); ++k) {
+						const editorkit::NkTimelineClip &c = t.clips[k];
+						anim::NkClipStrip s;
+						s.clip = c.name;
+						s.start = c.start;
+						s.length = c.length;
+						s.offset = c.offset;
+						s.rate = c.rate;
+						s.blendIn = c.blendIn;
+						s.blendOut = c.blendOut;
+						s.weight = c.weight;
+						s.loop = c.loop;
+						st.strips.PushBack(s);
+					}
+					clip.clipTracks.PushBack(st);
+					continue;
+				}
 				PK genre = PK::NK_NUMBER;
 				if (t.kind == editorkit::NkTimelineValueKind::Couleur) {
 					genre = PK::NK_COLOR;
@@ -178,6 +250,22 @@ namespace nkentseu {
 					const editorkit::NkTimelineKey &key = t.keys[k];
 					p.curve.AddKey(key.time, math::NkVec4f(key.v[0], key.v[1], key.v[2], key.v[3]),
 								   (anim::NkInterpMode)(key.interp < (uint8)editorkit::NkTimelineInterp::Count ? key.interp : 1u));
+				}
+				// (01/10 soir) muet = piste desactivee ; les tangentes posees a la main.
+				p.curve.enabled = !t.muted;
+				bool tangentes = false;
+				for (uint32 k = 0; k < (uint32)t.keys.Size(); ++k) {
+					tangentes = tangentes || t.keys[k].tangent != (uint8)editorkit::NkTimelineTangent::Auto;
+				}
+				p.tangents.Clear();
+				for (uint32 k = 0; tangentes && k < (uint32)t.keys.Size(); ++k) {
+					anim::NkAnimationClip::NkPropertyTangent tg;
+					tg.mode = (anim::NkTangentMode)(t.keys[k].tangent < (uint8)editorkit::NkTimelineTangent::Count ? t.keys[k].tangent : 0u);
+					for (uint32 c = 0; c < 4; ++c) {
+						tg.in[c] = t.keys[k].tanIn[c];
+						tg.out[c] = t.keys[k].tanOut[c];
+					}
+					p.tangents.PushBack(tg);
 				}
 			}
 			clip.fps = frise.fps;

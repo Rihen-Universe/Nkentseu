@@ -930,6 +930,14 @@ namespace nkentseu {
 			return NkEnregistrerClipProprietes(nom, c);
 		}
 
+		uint32 NkNbClipsProprietes() {
+			return (uint32)Clips().clips.Size();
+		}
+
+		const char *NkNomClipProprietes(uint32 i) {
+			return i < (uint32)Clips().clips.Size() ? Clips().clips[i].nom : nullptr;
+		}
+
 		const anim::NkAnimationClip *NkClipProprietesEnregistre(const char *nom) {
 			const NkClipNomme *c = TrouverClip(nom);
 			return c != nullptr ? c->clip : nullptr;

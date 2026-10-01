@@ -117,6 +117,9 @@ namespace nkentseu {
 		/// Lit un .nkanim et l'enregistre sous `nom`.
 		bool NkChargerClipProprietes(const char *nom, const char *chemin);
 		const anim::NkAnimationClip *NkClipProprietesEnregistre(const char *nom);
+		/// (01/10 soir) Les clips enregistres, pour les proposer (pistes de clips).
+		uint32 NkNbClipsProprietes();
+		const char *NkNomClipProprietes(uint32 i);
 
 		/// LE SYSTEME : avance chaque NkClipProprietes2D et applique son clip a son
 		/// entite. NkScene::Pas l'appelle apres les animations de sprites.
