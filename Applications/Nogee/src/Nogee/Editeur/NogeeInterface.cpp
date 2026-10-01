@@ -12,10 +12,12 @@
 
 #include "Noge/Core/NkApplication.h"
 #include "Noge/Layers/NkEngineLayer.h"
+#include "NKEditorKit/NkFilePickerNav.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKLogger/NkLog.h"
 #include "NKRenderer/NkRenderer.h" // SetUIOverlayCallback (passe Overlay2D)
 #include "NKWindow/Core/NkWindow.h"
+#include "NKFileSystem/NkDirectory.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -60,7 +62,8 @@ namespace nkentseu {
 		// LA COUCHE
 		// =====================================================================
 		NogeeInterface::NogeeInterface(const NogeeHote &hote) noexcept
-			: NkOverlay("NogeeInterface"), mHote(hote), mTheme(NkTheme::Dark()) {
+			: NkOverlay("NogeeInterface"), mHote(hote), mSelecteur(memory::NkMakeUnique<NkFilePickerNavState>()),
+			  mTheme(NkTheme::Dark()) {
 			mPal = NkFamillePaletteDe(mTheme);
 		}
 
@@ -244,6 +247,14 @@ namespace nkentseu {
 			// d'avant : un clic hors du menu le ferme et ne traverse pas.
 			int32 menuDebut = mMenus.menu;
 			const NkFamilleGestes vrais = NkFamilleSauverGestes(in);
+			// LE SELECTEUR DE FICHIERS EST MODAL : tant qu'il est ouvert, ni le corps
+			// ni les menus ne recoivent la souris (UnkenyEditor, NkEditeurTrame).
+			const bool modal = mSelecteur && mSelecteur->pickerOpen;
+			if (modal) {
+				mMenus.Fermer();
+				menuDebut = -1;
+				NkFamilleNeutraliserGestes(in, true);
+			}
 			if (menuDebut >= 0 && vrais.clic[1] && !mMenus.Contient(vrais.position)) {
 				mMenus.Fermer();
 				menuDebut = -1;
@@ -262,11 +273,41 @@ namespace nkentseu {
 			OngletsScene(c);
 
 			// ── 2. Les menus, avec l'entree reelle ───────────────────────────
-			NkFamilleRendreGestes(in, vrais);
+			if (!modal) {
+				NkFamilleRendreGestes(in, vrais);
+			}
 			BarreTitre(c);
 			const int32 action = NkFamilleDessinerMenu(c, mPlan.ecran, mMenus, menuDebut, &RemplirMenu, this);
 			if (action != NOGEE_A_AUCUNE) {
 				Executer(action);
+			}
+			// ── 3. Le selecteur, par-dessus tout, avec l'entree reelle ───────
+			if (modal) {
+				NkFamilleRendreGestes(in, vrais);
+				(void)NkDrawSelecteur(mCtx, *mSelecteur, mTheme);
+				if (mSelecteur->pickerCancelled) {
+					mSelecteur->pickerCancelled = false;
+					mUsageSelecteur = 0;
+				}
+				if (mSelecteur->pickerConfirmed) {
+					mSelecteur->pickerConfirmed = false;
+					NkString chemin(mSelecteur->pickerResultPath);
+					NogeeModele &m = M();
+					if (mUsageSelecteur == 1) {
+						if (m.etat != NogeeEtatJeu::Edition) {
+							m.Arreter();
+						}
+						(void)m.Ouvrir(chemin.CStr());
+					} else if (mUsageSelecteur == 2) {
+						if (!chemin.EndsWith(".nkscene")) {
+							chemin.Append(".nkscene");
+						}
+						m.chemin = chemin;
+						(void)m.Enregistrer();
+					}
+					mUsageSelecteur = 0;
+				}
+				return; // pas de raccourcis sous une fenetre modale
 			}
 
 			// ── 3. Les raccourcis, APRES le dessin (un champ garde ses touches) ─
@@ -474,9 +515,11 @@ namespace nkentseu {
 			switch (menu) {
 				case NOGEE_MENU_FICHIER:
 					out.PushBack(NkFamilleLigneMenu("Nouvelle scène", NOGEE_A_NOUVEAU, "Ctrl+N"));
-					out.PushBack(NkFamilleLigneMenu("Ouvrir la scène enregistrée", NOGEE_A_OUVRIR, "Ctrl+O"));
+					out.PushBack(NkFamilleLigneMenu("Ouvrir…", NOGEE_A_OUVRIR_FICHIER, "Ctrl+O"));
+					out.PushBack(NkFamilleLigneMenu("Rouvrir la scène enregistrée", NOGEE_A_OUVRIR));
 					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Enregistrer", NOGEE_A_ENREGISTRER, "Ctrl+S", false, edition));
+					out.PushBack(NkFamilleLigneMenu("Enregistrer sous…", NOGEE_A_ENREGISTRER_SOUS, "", false, edition));
 					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Quitter", NOGEE_A_QUITTER, "Ctrl+Q"));
 					break;
@@ -677,6 +720,19 @@ namespace nkentseu {
 				case NOGEE_A_ENREGISTRER:
 					(void)m.Enregistrer();
 					break;
+				case NOGEE_A_OUVRIR_FICHIER:
+				case NOGEE_A_ENREGISTRER_SOUS:
+					if (mSelecteur && !mSelecteur->pickerOpen) {
+						const bool ouvrir = a == NOGEE_A_OUVRIR_FICHIER;
+						mUsageSelecteur = ouvrir ? 1 : 2;
+						mTamponSelecteur[0] = '\0';
+						mSelecteur->selectionMultiple = false;
+						mSelecteur->OuvrirNav(ouvrir ? NkSelecteurOuvrirFichier : NkSelecteurEnregistrer,
+											  NkDirectory::Exists("Build/Nogee") ? "Build/Nogee" : ".", ".nkscene",
+											  ouvrir ? nullptr : Fichier(m.chemin), mTamponSelecteur,
+											  static_cast<int32>(sizeof(mTamponSelecteur)));
+					}
+					break;
 				case NOGEE_A_QUITTER:
 					mDemandeQuitter = true;
 					break;
@@ -855,7 +911,7 @@ namespace nkentseu {
 						int32 action;
 				};
 				static const NkRaccourci kCtrl[] = {
-					{NkGuiKey::Y, NOGEE_A_REFAIRE},			 {NkGuiKey::N, NOGEE_A_NOUVEAU}, {NkGuiKey::O, NOGEE_A_OUVRIR},
+					{NkGuiKey::Y, NOGEE_A_REFAIRE},			 {NkGuiKey::N, NOGEE_A_NOUVEAU}, {NkGuiKey::O, NOGEE_A_OUVRIR_FICHIER},
 					{NkGuiKey::S, NOGEE_A_ENREGISTRER},		 {NkGuiKey::D, NOGEE_A_DUPLIQUER}, {NkGuiKey::E, NOGEE_A_NOUVELLE_ENTITE},
 					{NkGuiKey::Q, NOGEE_A_QUITTER},
 				};

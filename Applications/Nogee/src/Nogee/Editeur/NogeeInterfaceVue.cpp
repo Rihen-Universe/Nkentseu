@@ -510,7 +510,10 @@ namespace nkentseu {
 			const bool dansVue = NkFamilleDans(v, in.mousePos) && !NkFamilleDans(mBarre, in.mousePos);
 			const bool gizmo = Gizmo(c, dl, dansVue && !mOrbite && !mPan);
 			// Le repere d'axes du coin bas gauche, depuis la camera qui filme.
-			if (const NkCameraComponent *cam = m.Monde().Get<NkCameraComponent>(m.cameraEditeur)) {
+			const NkEntityId filme = mHote.moteur != nullptr && mHote.moteur->GetRenderSystem().GetActiveCamera().IsValid()
+										 ? mHote.moteur->GetRenderSystem().GetActiveCamera()
+										 : m.cameraEditeur;
+			if (const NkCameraComponent *cam = m.Monde().Get<NkCameraComponent>(filme)) {
 				const NkMat4f &vm = cam->viewMatrix;
 				NkVec2 axes[3];
 				for (int32 k = 0; k < 3; ++k) {

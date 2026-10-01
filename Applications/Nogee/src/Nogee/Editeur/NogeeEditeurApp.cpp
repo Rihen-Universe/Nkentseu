@@ -127,6 +127,9 @@ namespace nkentseu {
 			if (mOptions.jouer) {
 				mModele.Jouer();
 			}
+			if (mOptions.selecteur) {
+				mUi->Executer(NOGEE_A_OUVRIR_FICHIER);
+			}
 		}
 
 		void NogeeEditeurApp::OnUpdate(float dt) {

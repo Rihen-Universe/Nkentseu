@@ -45,6 +45,7 @@ namespace nkentseu {
 				int32 tiroir = -1;		///< --tiroir=contenu|journal|terminal
 				bool clair = false;		///< --theme=clair
 				bool jouer = false;		///< --jouer : lancer le jeu au depart (la capture le montre en cours)
+				bool selecteur = false; ///< --selecteur : Fichier > Ouvrir… au depart (le selecteur du kit, captures)
 		};
 
 		/// Le moteur, avec la physique tenue par l'etat de jeu de l'editeur.

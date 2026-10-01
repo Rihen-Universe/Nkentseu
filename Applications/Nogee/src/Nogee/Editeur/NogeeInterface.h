@@ -26,9 +26,14 @@
 #include "NKGui/NKGui.h"
 #include "NKGui/NkGuiRHIBackend.h"
 #include "NKRHI/Core/NkIDevice.h"
+#include "NKMemory/NkUniquePtr.h"
 #include "Nogee/Editeur/NogeeModele.h"
 
 namespace nkentseu {
+
+	namespace editorkit {
+		struct NkFilePickerNavState;
+	}
 
 	class NkEngineLayer;
 	class NkWindow;
@@ -106,6 +111,8 @@ namespace nkentseu {
 			NOGEE_A_FILAIRE,
 			NOGEE_A_NOUVELLE_ENTITE,
 			NOGEE_A_RETIRER_COMPOSANT,
+			NOGEE_A_OUVRIR_FICHIER,	   ///< le selecteur de fichiers du kit
+			NOGEE_A_ENREGISTRER_SOUS, ///< le selecteur de fichiers du kit
 			NOGEE_A_OUTIL = 200,		///< + NogeeOutil
 			NOGEE_A_PAS_GRILLE = 300,	///< + indice du pas
 			NOGEE_A_PAS_ANGLE = 320,
@@ -243,6 +250,11 @@ namespace nkentseu {
 				editorkit::NkFamilleContenu mContenu;
 				editorkit::NkFamilleJournal mJournal;
 				editorkit::NkTerminalPanneau mTerminal;
+				/// LE selecteur de fichiers de NKEditorKit (celui d'UnkenyEditor),
+				/// modal : Ouvrir…, Enregistrer sous…
+				memory::NkUniquePtr<editorkit::NkFilePickerNavState> mSelecteur;
+				int32 mUsageSelecteur = 0; ///< 1 ouvrir, 2 enregistrer sous
+				char mTamponSelecteur[512] = {};
 				int32 mOngletDroite = 0; ///< 0 Details, 1 Monde
 				int32 mOngletTiroir = 0; ///< 0 Contenu, 1 Journal, 2 Terminal
 

@@ -639,7 +639,7 @@ namespace nkentseu {
 			if (NkCameraComponent *c = mMonde->Get<NkCameraComponent>(cameraEditeur)) {
 				c->priority = -1000; // la camera de la scene filme
 			}
-			Annoncer("Jeu lancé : la physique tourne (Échap ou ■ pour arrêter)");
+			Annoncer("Jeu lancé : la physique tourne (Échap ou le carré Stop pour arrêter)");
 		}
 
 		void NogeeModele::Pause() {

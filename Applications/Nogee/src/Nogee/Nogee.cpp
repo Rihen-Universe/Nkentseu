@@ -22,9 +22,10 @@
 //   ./Build/Bin/Debug-Windows/Nogee/Nogee.exe
 //       [--scene=F.nkscene] [--contenu=DOSSIER] [--theme=clair]
 //       [--selection=NOM] [--outil=deplacer|tourner|echelle]
-//       [--tiroir=contenu|journal|terminal] [--jouer]
+//       [--tiroir=contenu|journal|terminal] [--jouer] [--selecteur]
 //       [--capture=IMAGE.png [--temps-capture=S]]   (fenetre HORS ECRAN, puis sortie)
 //       [--ancienne-coquille]
+//       [--selftest]   le banc de l'editeur (le modele, sans fenetre) ; 0 = tout tient
 // =============================================================================
 #include "Noge/Core/NkApplication.h"
 #include "Nogee/UkConfig.h"
@@ -46,6 +47,12 @@ nkentseu::NkAppData appData = [] {
 	return d;
 }();
 NKENTSEU_APP_DATA_DEFINED(appData);
+
+namespace nkentseu {
+	namespace nogee {
+		int32 NogeeLancerBanc(); // Nogee/Editeur/NogeeBanc.cpp
+	} // namespace nogee
+} // namespace nkentseu
 
 namespace {
 
@@ -129,6 +136,11 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	}
 
 	AllerALaRacine();
+	for (const auto &a : state.GetArgs()) {
+		if (a == "--selftest") {
+			return NogeeLancerBanc();
+		}
+	}
 	NogeeOptions options;
 	for (const auto &a : state.GetArgs()) {
 		if (a.StartsWith("--capture=")) {
@@ -151,6 +163,8 @@ int nkmain(const nkentseu::NkEntryState &state) {
 			options.clair = true;
 		} else if (a == "--jouer") {
 			options.jouer = true;
+		} else if (a == "--selecteur") {
+			options.selecteur = true;
 		}
 	}
 
