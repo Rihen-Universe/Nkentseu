@@ -206,7 +206,8 @@ jobs:
         env:
           NK_CAPTURE: "20"
           NK_CAPTURE_PATH: journaux/captures/tuto03-defaut.png
-        run: .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" "$JOURNAUX/dorsal" "Vulkan ecarte : non compile" "API selectionnee = Metal" --
+        run: |
+          .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" "$JOURNAUX/dorsal" "Vulkan ecarte : non compile" "API selectionnee = Metal" --
 
       # DIAGNOSTIC (ne decide pas du verdict) : la couche de validation Metal en
       # mode journal, et le MSL de chaque nuanceur, publies en artefact.
@@ -323,7 +324,8 @@ jobs:
       # doit ecarter Vulkan (avec sa raison) et retenir Metal.
       - name: NkDames - dorsal par defaut (sans Vulkan, Metal attendu)
         if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
-        run: .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/NkDames.chemin")" "$JOURNAUX/dorsal" "dorsal Vulkan ecarte : non compile" "Metal retenu" "backend graphique retenu = Metal" -- --capture="$JOURNAUX/captures/nkdames-defaut.png" --capture-frame=30
+        run: |
+          .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/NkDames.chemin")" "$JOURNAUX/dorsal" "dorsal Vulkan ecarte : non compile" "Metal retenu" "backend graphique retenu = Metal" -- --capture="$JOURNAUX/captures/nkdames-defaut.png" --capture-frame=30
 
       - name: NkDames - capture Metal
         if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
