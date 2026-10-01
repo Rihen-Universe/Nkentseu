@@ -8,6 +8,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKSL/NKSL.h"
 #include "NkShaderIncludeResolver.h"
+#include "NKRenderer/Core/NkRendererResourcePath.h" // la 3e racine : remonter depuis l'executable
 #include "NKMemory/NkAllocator.h"
 #include <cstdio>
 #include <sys/stat.h>
@@ -49,7 +50,8 @@ namespace nkentseu {
 		static void TestCrossApiConversion() {
 			// Tente de charger un VRAI shader pour stress-test. Si fichier introuvable,
 			// fallback sur un shader trivial inline.
-			const char *kPbrPath = "Resources/NKRenderer/Shaders/PBR/VK/pbr.frag.vk.glsl";
+			const NkString kPbrResolu = NkRendererResolvePath("Resources/NKRenderer/Shaders/PBR/VK/pbr.frag.vk.glsl");
+			const char *kPbrPath = kPbrResolu.CStr();
 			NkString src;
 			NkString name;
 			if (ReadFileToString(kPbrPath, src) && !src.Empty()) {
@@ -723,8 +725,11 @@ namespace nkentseu {
 					matLower[i] = (char)(c + 32);
 			}
 
-			NkString basePath = "Resources/NKRenderer/Shaders/";
-			basePath += materialName;
+			// (2026-10-01) LE DOSSIER DU MATERIAU EST RESOLU, PAS SUPPOSE : tel quel
+			// (repertoire courant, comme avant) puis sous la racine trouvee en
+			// REMONTANT depuis l'executable (NkRendererResourcePath.h). C'est cette
+			// troisieme racine qui manquait a NKCraft lance depuis son dossier.
+			NkString basePath = NkRendererResolvePath(NkString("Resources/NKRenderer/Shaders/") + materialName);
 			basePath += "/";
 
 			// ── Opt-in NkSL par-shader ────────────────────────────────────────
@@ -839,11 +844,13 @@ namespace nkentseu {
 			} else if (vSrc.Empty() || fSrc.Empty()) {
 				logger.Errorf("[NkShaderLibrary] '%s' INTROUVABLE -- ce n'est PAS un shader invalide, c'est un "
 							  "FICHIER ABSENT, et aucune source embarquee ne le remplace.\n"
-							  "    cherche (1) %s   [relatif au repertoire courant]\n"
+							  "    cherche (1) %s   [repertoire courant, ou racine ci-dessous]\n"
 							  "    cherche (2) <dossier de l'executable>/Resources/NKRenderer/Shaders/%s/VK/\n"
-							  "    -> lancer depuis un repertoire d'ou 'Resources/NKRenderer/Shaders' est "
-							  "visible, ou deployer ce dossier a cote du binaire.\n",
-							  materialName.CStr(), vsPath.CStr(), materialName.CStr());
+							  "    cherche (3) %s\n"
+							  "    -> deployer 'Resources/NKRenderer' a cote du binaire ou dans un dossier "
+							  "parent.\n",
+							  materialName.CStr(), vsPath.CStr(), materialName.CStr(),
+							  NkRendererResourceSearchReport().CStr());
 			} else {
 				logger.Warnf("[NkShaderLibrary] '%s' : fichier absent (%s), repli sur la source EMBARQUEE. "
 							 "Elle peut etre ecrite pour un autre backend que le tien -- si la compilation "
