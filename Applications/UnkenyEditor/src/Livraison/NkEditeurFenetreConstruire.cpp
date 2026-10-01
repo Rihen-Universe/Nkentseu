@@ -17,15 +17,18 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
+#include "NKEditorKit/NkThemeToGui.h"
 #include "NKEditorKit/NkEditorTextField.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 
+#include <cmath>
 #include <cstdio>
 
 namespace nkentseu {
 	namespace editeur {
 
+		using editorkit::NkRole;
 		using nkgui::NkColor;
 		using nkgui::NkRect;
 
@@ -59,20 +62,6 @@ namespace nkentseu {
 				std::snprintf(dst, taille, "%s", src != nullptr ? src : "");
 			}
 
-			void LancerEtape(NkEditeurConstruction &k, NkEditeurInterface &ui) {
-				const NkEtapeConstruction &e = k.plan.etapes[k.etape];
-				JournalDate(ui, NkString("[etape] ") + e.libelle);
-				Journal(ui, NkString("  ") + e.commande);
-				AuFichier(k, NkString("[etape] ") + e.commande);
-				k.annonce = e.libelle + "...";
-				k.processus.Environnement("JENGA_NO_IDE_CONFIG", NK_CONSTRUIRE_SANS_IDE);
-				if (!k.processus.Lancer(e.commande, k.plan.dossierJeu)) {
-					k.etat = NkEtatConstruction::NK_ECHOUEE;
-					k.annonce = NkString("lancement impossible : ") + e.commande;
-					JournalDate(ui, k.annonce);
-				}
-			}
-
 			void Echec(NkEditeurConstruction &k, NkEditeurModele &m, NkEditeurInterface &ui, const NkString &pourquoi) {
 				k.etat = NkEtatConstruction::NK_ECHOUEE;
 				k.annonce = pourquoi + " -- journal complet : " + k.plan.journal;
@@ -103,6 +92,40 @@ namespace nkentseu {
 				st.bord = false;
 				st.texte = c.pal.texte;
 				editorkit::NkOverlayTextField(c.ctx, dl, c.police, NkRect{r.x + 6.f, r.y, r.w - 8.f, r.h}, tampon, taille, focus, &st);
+			}
+			/// Le pied de l'onglet Journal : ou est le texte brut, et les boutons
+			/// (Reglages, Construire de nouveau, Arreter / Fermer).
+			void PiedJournal(NkEditeurCadre &c, NkEditeurConstruction &k, const NkRect &boite, float32 by, float32 bh, bool occupe) {
+				auto &dl = c.ctx.dlOverlay;
+				const char *lReglages = "Réglages";
+				const char *lFermer = occupe ? "Arrêter" : "Fermer";
+				const float32 wR = renderer::NkTexteLargeur(c.police, lReglages) + 28.f;
+				const float32 wC = renderer::NkTexteLargeur(c.police, "Construire") + 28.f;
+				const float32 wF = renderer::NkTexteLargeur(c.police, lFermer) + 28.f;
+				const NkRect rFermer{boite.x + boite.w - 12.f - wF, by, wF, bh};
+				const NkRect rConstruire{rFermer.x - 8.f - wC, by, wC, bh};
+				const NkRect rReglages{rConstruire.x - 8.f - wR, by, wR, bh};
+				if (!k.plan.journal.Empty()) {
+					const NkString brut = NkString("Texte brut complet : ") + k.plan.journal;
+					renderer::NkTexte(dl, c.petite, boite.x + 16.f, by + 6.f, brut.CStr(), c.pal.attenue, rReglages.x - 12.f - (boite.x + 16.f));
+				}
+				if (NkEditeurBouton(c, rReglages, lReglages, false, true, &dl)) {
+					k.onglet = 0;
+				}
+				const bool peut = !occupe && k.dispo[static_cast<int32>(k.demande.plateforme)].disponible;
+				if (NkEditeurBouton(c, rConstruire, "Construire", peut, peut, &dl) && peut) {
+					NkEditeurLancerConstruction(k, c.m, c.ui);
+				}
+				if (NkEditeurBouton(c, rFermer, lFermer, false, true, &dl)) {
+					if (occupe) {
+						k.deroulement.Arreter();
+					} else {
+						k.ouverte = false;
+					}
+				}
+				if (!occupe && c.ctx.input.KeyPressed(nkgui::NkGuiKey::Escape)) {
+					k.ouverte = false;
+				}
 			}
 		} // namespace
 
@@ -153,80 +176,61 @@ namespace nkentseu {
 			const bool pret = NkPreparerConstruction(m, k.demande, ui.viseur.w, ui.viseur.h, k.plan, lignes);
 			for (usize i = 0; i < lignes.Size(); ++i) {
 				JournalDate(ui, lignes[i]);
-				AuFichier(k, lignes[i]);
 			}
 			if (!pret || k.plan.etapes.Empty()) {
+				// Le refus va AUSSI a l'onglet Journal, en rouge : on y regarde.
+				k.deroulement.journal.Vider();
+				for (usize i = 0; i < lignes.Size(); ++i) {
+					AuFichier(k, lignes[i]);
+					k.deroulement.journal.Annonce(lignes[i], NkJournalConstruction::NiveauDe(lignes[i]), 0.f);
+				}
+				k.lignesVues = k.deroulement.journal.lignes.Size();
+				k.onglet = 1;
 				Echec(k, m, ui, lignes.Empty() ? NkString("rien a construire") : lignes[lignes.Size() - 1u]);
 				return false;
 			}
-			k.etape = 0;
+			// Le MEME deroulement que `--construire=` : commandes, verrou et sceau
+			// du moteur, rangement, verification.
+			k.deroulement.Commencer(k.demande, k.plan, lignes);
+			k.lignesVues = k.deroulement.journal.lignes.Size();
 			k.etat = NkEtatConstruction::NK_EN_COURS;
-			LancerEtape(k, ui);
-			return k.etat == NkEtatConstruction::NK_EN_COURS;
+			k.annonce = NkString("construction...");
+			// La fenetre montre le Journal, colle a la derniere ligne.
+			k.onglet = 1;
+			k.filtre = 0;
+			k.suivre = true;
+			return true;
 		}
 
 		void NkEditeurAvancerConstruction(NkEditeurConstruction &k, NkEditeurModele &m, NkEditeurInterface &ui) {
 			if (k.etat != NkEtatConstruction::NK_EN_COURS && k.etat != NkEtatConstruction::NK_VERIFIE) {
 				return;
 			}
-			// EnCours AVANT la recolte : le fil pousse toutes ses lignes avant de
-			// se dire fini, donc une recolte faite apres un « fini » a tout.
-			const bool encore = k.processus.EnCours();
-			NkVector<NkString> lignes;
-			k.processus.Recolter(lignes);
-			for (usize i = 0; i < lignes.Size(); ++i) {
-				AuFichier(k, lignes[i]);
-				const NkString propre = NkLigneDeJenga(lignes[i]);
-				if (!propre.Empty()) {
-					Journal(ui, NkString("  ") + propre);
+			const bool encore = k.deroulement.Avancer();
+			// Le tiroir Journal de l'editeur recoit les lignes comme avant (il ne
+			// garde que la fin) ; l'onglet Journal de la fenetre a tout.
+			const NkVector<NkLigneJournal> &lignes = k.deroulement.journal.lignes;
+			for (; k.lignesVues < lignes.Size(); ++k.lignesVues) {
+				const NkLigneJournal &l = lignes[k.lignesVues];
+				if (l.niveau == NkNiveauLigne::NK_ETAPE) {
+					JournalDate(ui, l.texte);
+				} else {
+					Journal(ui, NkString("  ") + l.texte);
 				}
 			}
+			k.annonce = k.deroulement.annonce;
 			if (encore) {
+				k.etat = k.deroulement.Verification() ? NkEtatConstruction::NK_VERIFIE : NkEtatConstruction::NK_EN_COURS;
 				return;
 			}
-			const int32 code = k.processus.Code();
-			if (k.etat == NkEtatConstruction::NK_VERIFIE) {
-				if (code != 0) {
-					Echec(k, m, ui, NkString::Format("le jeu construit ne relit pas la scene de l'editeur (code %d)", code));
-					return;
-				}
+			if (k.deroulement.Reussi()) {
 				k.etat = NkEtatConstruction::NK_REUSSIE;
-				k.annonce = NkString("Construit et verifie : ") + k.plan.resultat;
-				JournalDate(ui, k.annonce);
 				NkEditeurAnnoncer(m, "Jeu construit : voir le Journal");
 				return;
 			}
-			if (code != 0) {
-				Echec(k, m, ui, NkString::Format("echec de l'etape « %s » (code %d)", k.plan.etapes[k.etape].libelle.CStr(), code));
-				return;
-			}
-			++k.etape;
-			if (k.etape < k.plan.etapes.Size()) {
-				LancerEtape(k, ui);
-				return;
-			}
-			NkVector<NkString> fin;
-			const bool range = NkAcheverConstruction(k.demande, k.plan, fin);
-			for (usize i = 0; i < fin.Size(); ++i) {
-				JournalDate(ui, fin[i]);
-				AuFichier(k, fin[i]);
-			}
-			if (!range) {
-				Echec(k, m, ui, fin.Empty() ? NkString("rien de produit") : fin[fin.Size() - 1u]);
-				return;
-			}
-			if (!k.plan.verification.Empty() && k.processus.Lancer(k.plan.verification, k.plan.dossierJeu)) {
-				// Le jeu produit relit SES donnees sans fenetre (temoin l1 sur le
-				// vrai produit) : c'est la derniere etape.
-				k.etat = NkEtatConstruction::NK_VERIFIE;
-				k.annonce = NkString("le jeu construit relit ses donnees...");
-				JournalDate(ui, NkString("[verifier] ") + k.plan.verification);
-				return;
-			}
-			k.etat = NkEtatConstruction::NK_REUSSIE;
-			k.annonce = NkString("Construit : ") + k.plan.resultat;
-			JournalDate(ui, k.annonce);
-			NkEditeurAnnoncer(m, "Jeu construit : voir le Journal");
+			k.etat = NkEtatConstruction::NK_ECHOUEE;
+			k.annonce = k.deroulement.annonce + " -- journal complet : " + k.plan.journal;
+			NkEditeurAnnoncer(m, "Construction en echec : voir le Journal");
 		}
 
 		// =====================================================================
@@ -246,8 +250,12 @@ namespace nkentseu {
 			}
 
 			dl.AddRectFilled(ui.ecran, NkColor{0, 0, 0, 120});
-			const float32 w = ui.ecran.w - 40.f < 660.f ? ui.ecran.w - 40.f : 660.f;
-			const float32 h = ui.ecran.h - 40.f < 540.f ? ui.ecran.h - 40.f : 540.f;
+			// Le Journal (2026-10-01) veut de la place : les phases, la barre et
+			// des lignes de compilateur entieres.
+			const float32 wMax = k.onglet == 1 ? 1100.f : 660.f;
+			const float32 hMax = k.onglet == 1 ? 720.f : 620.f;
+			const float32 w = ui.ecran.w - 40.f < wMax ? ui.ecran.w - 40.f : wMax;
+			const float32 h = ui.ecran.h - 40.f < hMax ? ui.ecran.h - 40.f : hMax;
 			const NkRect boite{(ui.ecran.w - w) * 0.5f, (ui.ecran.h - h) * 0.45f, w, h};
 			dl.AddRectFilled(NkRect{boite.x + 4.f, boite.y + 6.f, boite.w, boite.h}, NkColor{0, 0, 0, 110}, 3.f);
 			dl.AddRectFilled(boite, c.pal.entete, 3.f);
@@ -264,6 +272,52 @@ namespace nkentseu {
 			renderer::NkTexte(dl, c.petite, gauche, y,
 							  "Le joueur autonome d'Unkeny et la scène cuite, compilés par Jenga.", c.pal.attenue, boite.w - 32.f);
 			y += lh + 10.f;
+
+			// ── Les onglets (2026-10-01) : Reglages, Journal ──────────────────
+			{
+				static const char *kOnglets[2] = {"Réglages", "Journal"};
+				const float32 hb = lh + 10.f;
+				dl.AddRectFilled(NkRect{boite.x + 1.f, y + hb - 1.f, boite.w - 2.f, 1.f}, c.pal.bord);
+				float32 x = gauche;
+				for (int32 o = 0; o < 2; ++o) {
+					const float32 wo = renderer::NkTexteLargeur(c.police, kOnglets[o]) + 28.f + (o == 1 ? 16.f : 0.f);
+					const NkRect r{x, y, wo, hb};
+					const bool actif = k.onglet == o;
+					const bool survol = NkEditeurDans(r, in.mousePos);
+					if (actif) {
+						dl.AddRectFilled(r, c.pal.panneau, 3.f);
+						dl.AddRectFilled(NkRect{r.x, r.y, r.w, 2.f}, c.pal.accent);
+					} else if (survol) {
+						dl.AddRectFilled(r, c.pal.boutonSurvol, 3.f);
+					}
+					renderer::NkTexte(dl, c.police, r.x + 14.f, r.y + 5.f, kOnglets[o], actif ? c.pal.texte : c.pal.attenue);
+					if (o == 1 && k.etat != NkEtatConstruction::NK_REPOS) {
+						// La pastille du Journal dit l'etat sans l'ouvrir : bleu qui
+						// bat (en cours), rouge (echec), vert (construit).
+						NkColor p = c.pal.accent;
+						if (k.etat == NkEtatConstruction::NK_ECHOUEE) {
+							p = editorkit::NkThemeUnpack(c.theme.GetOuRepli(NkRole::StatusErr, NkRole::AccentSel));
+						} else if (k.etat == NkEtatConstruction::NK_REUSSIE) {
+							p = editorkit::NkThemeUnpack(c.theme.GetOuRepli(NkRole::StatusOk, NkRole::AccentUi));
+						} else {
+							p.a = static_cast<uint8>(150.f + 105.f * std::sin(ui.temps * 5.f));
+						}
+						dl.AddCircleFilled(nkgui::NkVec2{r.x + r.w - 14.f, r.y + hb * 0.5f}, 4.f, p);
+					}
+					if (in.mouseClicked[0] && survol) {
+						k.onglet = o;
+					}
+					x += wo + 4.f;
+				}
+				y += hb + 12.f;
+			}
+			if (k.onglet == 1) {
+				const float32 bh = 26.f;
+				const float32 by = boite.y + boite.h - bh - 12.f;
+				NkEditeurDessinerJournalConstruction(c, k, NkRect{gauche, y, boite.w - 32.f, by - 12.f - y});
+				PiedJournal(c, k, boite, by, bh, occupe);
+				return;
+			}
 
 			// ── La plateforme : TOUTES, chacune avec sa raison ──────────────────
 			renderer::NkTexte(dl, c.police, gauche, y, "Plateforme", c.pal.texte);
@@ -300,6 +354,25 @@ namespace nkentseu {
 				renderer::NkTexte(dl, c.petite, rExp.x + bw + 10.f, y + 4.f,
 								  dev ? "Debug, l'exécutable seul" : "Release, et le paquet (zip, apk...)", c.pal.attenue,
 								  boite.x + boite.w - 16.f - (rExp.x + bw + 10.f));
+			}
+			y += lh + 16.f;
+
+			// ── Le moteur (2026-10-01) : precompile, ou depuis les sources ────
+			renderer::NkTexte(dl, c.police, gauche, y + 3.f, "Moteur", c.pal.texte);
+			{
+				const float32 bw = 130.f;
+				const NkRect rKit{colonne, y, bw, lh + 8.f};
+				const NkRect rSrc{colonne + bw + 8.f, y, bw, lh + 8.f};
+				const bool kit = k.demande.moteur == NkModeMoteur::NK_PRECOMPILE;
+				if (NkEditeurBouton(c, rKit, "Précompilé", kit, !occupe, &dl)) {
+					k.demande.moteur = NkModeMoteur::NK_PRECOMPILE;
+				}
+				if (NkEditeurBouton(c, rSrc, "Sources", !kit, !occupe, &dl)) {
+					k.demande.moteur = NkModeMoteur::NK_SOURCES;
+				}
+				renderer::NkTexte(dl, c.petite, rSrc.x + bw + 10.f, y + 4.f,
+								  kit ? "compilé une fois, partagé par tous les jeux" : "recompilé dans le dossier du jeu",
+								  c.pal.attenue, boite.x + boite.w - 16.f - (rSrc.x + bw + 10.f));
 			}
 			y += lh + 16.f;
 
@@ -369,7 +442,7 @@ namespace nkentseu {
 			}
 			if (NkEditeurBouton(c, rFermer, occupe ? "Arrêter" : "Fermer", false, true, &dl)) {
 				if (occupe) {
-					k.processus.Arreter();
+					k.deroulement.Arreter();
 				} else {
 					k.ouverte = false;
 				}
