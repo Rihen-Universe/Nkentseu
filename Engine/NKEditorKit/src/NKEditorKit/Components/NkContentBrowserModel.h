@@ -16,6 +16,10 @@
 //    capture. Les navigateurs existants (`NKCraft/Shell/NkModelerBrowser.h`,
 //    `Nogee/Panels/ContentBrowserPanel.cpp`, `Nogee/Panels/AssetBrowser.cpp`)
 //    restent intacts.
+// ⚠️ (2026-10-01) TROISIEME CONSOMMATEUR : UnkenyEditor, son tiroir « Contenu »,
+//    par la variante `Unreal` (document 02 §3 d'UnkenyEditor : les sept zones
+//    d'Unreal 5). Dessin dans `NkContentBrowserUnreal.cpp`, gestes sur le disque
+//    dans `NkContentBrowserDisque.h`. Les variantes d'avant n'ont pas bouge.
 //
 // POURQUOI CELUI-LA D'ABORD
 //   C'est le composant deja ecrit TROIS fois, et celui dont la maquette est la
@@ -738,7 +742,15 @@ namespace nkentseu {
 				/// Le nombre d'entrees VISIBLES (apres recherche et puces) : la ligne
 				/// d'etat le dit, le banc le lit.
 				int32 nbVisibles = 0;
+				/// Les boutons precedent / suivant (w == 0 : non dessines).
+				float32 precedentX = 0.f, precedentY = 0.f, precedentW = 0.f, precedentH = 0.f;
+				float32 suivantX = 0.f, suivantY = 0.f, suivantW = 0.f, suivantH = 0.f;
 		};
+
+		/// (2026-10-01) LA LIGNE D'ETAT d'Unreal, en francais et accordee :
+		/// « 1 élément », « 5 éléments (2 sélectionnés) ». Publique pour que le banc
+		/// lise LE texte que la variante peint, pas une copie. Rend la longueur.
+		uint32 NkContentBrowserTexteEtat(char *out, uint32 cap, uint32 elements, uint32 choisis);
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
 		// C'est la forme proposee pour TOUS les composants de la bibliotheque :

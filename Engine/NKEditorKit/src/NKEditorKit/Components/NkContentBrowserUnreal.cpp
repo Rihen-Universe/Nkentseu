@@ -257,6 +257,19 @@ namespace nkentseu {
 
 		} // namespace
 
+		uint32 NkContentBrowserTexteEtat(char *t, uint32 cap, uint32 n, uint32 c) {
+			if (!t || cap == 0u)
+				return 0u;
+			uint32 at = PutUInt(t, cap, 0, n);
+			at = PutStr(t, cap, at, n == 1u ? " élément" : " éléments");
+			if (c > 0u) {
+				at = PutStr(t, cap, at, " (");
+				at = PutUInt(t, cap, at, c);
+				at = PutStr(t, cap, at, c == 1u ? " sélectionné)" : " sélectionnés)");
+			}
+			return at;
+		}
+
 		NkContentBrowserResult NkDrawContentBrowserUnreal(NkComponentPaint &p, const NkComponentInput &in,
 														  const NkPaintRect &rect, NkContentBrowserModel &m,
 														  const NkContentBrowserStyle &s,
@@ -404,6 +417,17 @@ namespace nkentseu {
 					if (possible && Survole(r))
 						p.Fill({r.x - ep, r.y - ep, r.w + 2.f * ep, r.h + 2.f * ep}, rHover, r.w);
 					FlecheRonde(p, r, possible ? s.text : s.textMuted, (possible && Survole(r)) ? rHover : s.headerBg, gauche, ep);
+					if (gauche) {
+						res.precedentX = r.x;
+						res.precedentY = r.y;
+						res.precedentW = r.w;
+						res.precedentH = r.h;
+					} else {
+						res.suivantX = r.x;
+						res.suivantY = r.y;
+						res.suivantW = r.w;
+						res.suivantH = r.h;
+					}
 					if (possible && Clic(r)) {
 						m.historiquePos += gauche ? -1 : 1;
 						res.allerA = m.historique[(uint32)m.historiquePos];
@@ -1265,15 +1289,7 @@ namespace nkentseu {
 			{
 				p.Fill(st, s.panelBg);
 				char t[96];
-				const uint32 n = (uint32)vis.Size();
-				uint32 at = PutUInt(t, sizeof(t), 0, n);
-				at = PutStr(t, sizeof(t), at, n == 1u ? " élément" : " éléments");
-				const uint32 c = (uint32)m.chosen.Size();
-				if (c > 0u) {
-					at = PutStr(t, sizeof(t), at, " (");
-					at = PutUInt(t, sizeof(t), at, c);
-					PutStr(t, sizeof(t), at, c == 1u ? " sélectionné)" : " sélectionnés)");
-				}
+				NkContentBrowserTexteEtat(t, sizeof(t), (uint32)vis.Size(), (uint32)m.chosen.Size());
 				p.Text({st.x + pad, st.y, st.w * 0.6f, st.h}, t, s.textMuted);
 				const char *droite = m.statusRight.Data();
 				if (droite && droite[0])
