@@ -93,11 +93,12 @@ with project("UnkenyEditor"):
     appversion("0.1.0")
     licensefile("../../LICENSE")
 
-    # PAS d'appicon : Applications/Gemcrush/Resources/ n'existe pas encore.
-    # Declarer une icone absente fait echouer la generation de l'APK Android
-    # (res/mipmap-*) alors que le build desktop, lui, ne dit rien.
-    # A remettre des que l'icone du jeu est dessinee :
-    #     appicon("Resources/unkenyeditor_icon.png")
+    # L'icone d'Unkeny (« Rebond sur les tuiles », choisie le 01/10/2026),
+    # version sombre ; la claire est a cote (unkenyeditor_icon_clair.png, R17).
+    # Sources vectorielles : data/brand/unkeny_icone_{sombre,clair}.svg.
+    # (Avant elle, pas d'appicon : declarer une icone absente fait echouer
+    # l'APK Android, res/mipmap-*, sans que le build desktop ne dise rien.)
+    appicon("Resources/unkenyeditor_icon.png")
 
     with filter("system:Windows && !options:windows-runtime=uwp && !system:XboxSeries && !system:XboxOne"):
         windowedapp()
