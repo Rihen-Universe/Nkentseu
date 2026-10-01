@@ -760,6 +760,8 @@ namespace {
 				++v;
 			ui.input.mousePos = {(float32)std::atof(ms), *v ? (float32)std::atof(v + 1) : 0.f};
 		}
+		// La page, la vue, la recherche du lanceur : NK_LANCEUR_* (kit).
+		editorkit::NkLanceurEtatDepuisEnv(nk3d::NkWelcomeLanceur());
 		// DEUX images : la premiere installe l'etat que l'accueil calcule a la
 		// volee (etat des fichiers, survols), la seconde est photographiee.
 		for (int32 k = 0; k < 2; ++k) {
@@ -5326,6 +5328,14 @@ int nkmain(const NkEntryState &entry) {
 			}
 		}
 
+		// (01/10) Le bouton de theme du lanceur : la bascule se fait ICI, ou vit
+		// la bibliotheque de themes, avant que quiconque ne lise le theme courant.
+		if (st.themeBascule) {
+			st.themeBascule = false;
+			const bool sombre = themes.Current().IsDark();
+			const bool ok = themes.SetCurrent(sombre ? "Clair" : "Sombre");
+			std::printf("[theme] lanceur : bascule -> %s (%s)\n", themes.Current().Name().CStr(), ok ? "ok" : "refuse");
+		}
 		const NkTheme &theme = themes.Current();
 		NkModelerPainter p(ui.dl, font, theme, roles, icons);
 		// Le peintre de la couche OVERLAY : meme theme, meme jeu d'icones, mais il

@@ -274,6 +274,17 @@ namespace nkentseu {
 					mChasseFixe = chasseFixe;
 					mNormale = (normale && normale->Valid()) ? normale : nullptr;
 				}
+				/// (2026-10-01, lanceur de projets) TROIS TAILLES DE PLUS : le TITRE
+				/// de page (police 3), l'INTERTITRE de section (4) et le PETIT texte des
+				/// metadonnees (5). Memes regles que `PoserPolices` : pretees, pas
+				/// detenues ; `nullptr` = la police normale. Le titre et l'intertitre
+				/// sont ecrits en faux gras (deux passes), comme la police 1 sans graisse.
+				void PoserPolicesLanceur(const nkgui::NkGuiFont *titre, const nkgui::NkGuiFont *intertitre,
+										 const nkgui::NkGuiFont *petite) noexcept {
+					mTitre = (titre && titre->Valid()) ? titre : nullptr;
+					mIntertitre = (intertitre && intertitre->Valid()) ? intertitre : nullptr;
+					mPetite = (petite && petite->Valid()) ? petite : nullptr;
+				}
 				/// ⚠️ LE GRAS SANS POLICE GRASSE EST APPROXIME PAR DEUX PASSES, decalees
 				///    de 0,6 px -- la meme approximation que `costume::TexteGras` de
 				///    NkUIDesign. Aucune graisse n'est embarquee dans le depot ; le dire
@@ -289,7 +300,7 @@ namespace nkentseu {
 					const float32 baseY = r.y + (r.h - lh) * 0.5f + f->Ascent();
 					const nkgui::NkColor col = C(role);
 					mCtx.DL().AddText(f->Face(), f->TexId(), {Px(r.x), Px(baseY)}, s, col, -1.f, 0.f, fin);
-					if (police == 1u && !mGrasse)
+					if (FauxGras(police))
 						mCtx.DL().AddText(f->Face(), f->TexId(), {Px(r.x) + 0.6f, Px(baseY)}, s, col, -1.f,
 										  0.f, fin);
 				}
@@ -299,7 +310,7 @@ namespace nkentseu {
 						return 0.f;
 					const float32 w = fin ? f->MeasureWidth(s, fin) : f->MeasureWidth(s);
 					// le second passage du faux gras elargit le mot de 0,6 px
-					return (police == 1u && !mGrasse && w > 0.f) ? w + 0.6f : w;
+					return (FauxGras(police) && w > 0.f) ? w + 0.6f : w;
 				}
 				float32 HauteurPolice(uint8 police) const override {
 					const nkgui::NkGuiFont *f = PoliceDe(police);
@@ -638,7 +649,18 @@ namespace nkentseu {
 					return Unpack(mTheme.Get(role));
 				}
 
+				/// Le second passage decale : le gras sans police grasse, et les deux
+				/// tailles de titre du lanceur.
+				bool FauxGras(uint8 police) const noexcept {
+					return (police == 1u && !mGrasse) || police == 3u || police == 4u;
+				}
 				const nkgui::NkGuiFont *PoliceDe(uint8 police) const noexcept {
+					if (police == 3u && mTitre)
+						return mTitre;
+					if (police == 4u && mIntertitre)
+						return mIntertitre;
+					if (police == 5u && mPetite)
+						return mPetite;
 					if (police == 1u && mGrasse)
 						return mGrasse;
 					if (police == 2u && mChasseFixe)
@@ -651,6 +673,9 @@ namespace nkentseu {
 				const nkgui::NkGuiFont *mGrasse = nullptr;
 				const nkgui::NkGuiFont *mChasseFixe = nullptr;
 				const nkgui::NkGuiFont *mNormale = nullptr;
+				const nkgui::NkGuiFont *mTitre = nullptr;
+				const nkgui::NkGuiFont *mIntertitre = nullptr;
+				const nkgui::NkGuiFont *mPetite = nullptr;
 		};
 
 	} // namespace editorkit
