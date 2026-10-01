@@ -83,6 +83,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKGui/Doc/NkGuiCoquille.h"  // la bande partagee (tire le monteur)
 #include "NKGui/Doc/NkGuiCommandes.h" // libelle + raccourci d'une commande, lus du document
+#include "NKFileSystem/NkPath.h"	  // LocateResource : le dossier, quel que soit le dossier de lancement
 
 namespace nkuidesign {
 
@@ -127,8 +128,16 @@ namespace nkuidesign {
 			NkString dossier;
 
 			/// Lit le document unique. Rend faux s'il manque.
+			///
+			/// ⚠️ (2026-10-01) LE DOSSIER EST TROUVE, PAS SUPPOSE : relatif
+			///    (« Resources/Interface/NKUIDesign »), il est cherche dans le
+			///    dossier courant, puis a cote de l'exe, puis en remontant
+			///    (NkPath::LocateResource). Lance depuis Build/Bin/..., l'atelier
+			///    perdait sinon son menu et sa barre d'etat. Introuvable : le
+			///    chemin donne reste tel quel, et le refus nomme est inchange.
 			bool ChargerDepuisDossier(const char *dossierDocuments) noexcept {
-				dossier = NkString(dossierDocuments);
+				const NkString trouve = nkentseu::NkPath::LocateResource(dossierDocuments);
+				dossier = trouve.Empty() ? NkString(dossierDocuments) : trouve;
 				return bande.ChargerDepuisFichier(Joindre("Interface.nkgui").CStr());
 			}
 

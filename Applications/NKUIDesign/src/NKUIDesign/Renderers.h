@@ -186,12 +186,19 @@ namespace nkuidesign {
 				demoTrees.Clear();
 				// La demo vient des RESSOURCES (voir les chargeurs ci-dessous) ;
 				// si elles manquent, les modeles restent vides et ca se VOIT.
+				// (2026-10-01) Chemins TROUVES (dossier courant, a cote de l'exe, puis
+				// en remontant : NkPath::LocateResource), pas supposes relatifs a la
+				// racine du depot.
+				auto ressource = [](const char *relatif) -> NkString {
+					const NkString t = nkentseu::NkPath::LocateResource(relatif);
+					return t.Empty() ? NkString(relatif) : t;
+				};
 				NkContentBrowserModel m0;
 				NkChargerContenuDemo(
-					m0, "Applications/NKUIDesign/design/mises_en_scene/demo_contenu.txt");
+					m0, ressource("Applications/NKUIDesign/design/mises_en_scene/demo_contenu.txt").Data());
 				NkTreeViewModel t0;
 				NkChargerArbreDemo(
-					t0, "Applications/NKUIDesign/design/mises_en_scene/demo_arbre.txt");
+					t0, ressource("Applications/NKUIDesign/design/mises_en_scene/demo_arbre.txt").Data());
 				for (uint32 i = 0; i < n; ++i) {
 					demoModels.PushBack(m0);
 					demoTrees.PushBack(t0);

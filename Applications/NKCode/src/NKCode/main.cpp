@@ -213,6 +213,11 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 
 int nkmain(const NkEntryState &state) {
 	(void)state;
+	// (2026-10-01) --ressources : ou sont les donnees livrees (data/), SANS
+	// fenetre -- le temoin d'un lancement depuis n'importe quel dossier.
+	for (usize i = 1; i < state.args.Size(); ++i)
+		if (state.args[i] == "--ressources")
+			return nkcode::NkCodeVerifierDonnees();
 
 	// ── Dossier de l'EXECUTABLE, calcule EN PREMIER ──────────────────────────
 	// Demande a l'OS (GetModuleFileNameW / /proc/self/exe / _NSGetExecutablePath),
