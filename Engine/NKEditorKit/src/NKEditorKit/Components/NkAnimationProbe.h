@@ -450,10 +450,272 @@ namespace nkentseu {
 				Note(b, a != nullptr && bouge && annule, "g7 un etat glisse (a l'echelle du zoom) ; annuler le remet");
 			}
 
+			// ── (01/10 soir) LA FRISE « UNREAL 5 / BLENDER » ─────────────────────
+			//  PRE-ENREGISTREMENT (ecrit avant le premier lancement) :
+			//   t8  l'ARBRE : « Bras/Main » sous « Bras » sous la racine ; replier
+			//       « Bras » cache ses pistes ET celles de « Bras/Main »
+			//   t9  muet / solo / verrou : TrackActive, et le clic sur « M » d'une ligne
+			//   t10 la PLAGE de lecture : la boucle y tient ; image suivante ; Debut
+			//   t11 copier / coller : les cles copiees retombent a partir du curseur,
+			//       sur leurs pistes, choisies ; annuler les retire
+			//   t12 GESTE : le bord droit de la boite de transformation met a l'echelle
+			//   t13 tangentes : auto bornee (plate sur un sommet), Hermite du repli, a
+			//       la main ; GESTE : tirer une poignee rend la tangente unifiee
+			//   t14 clips (NLA) : poids des fondus, temps local en boucle ; GESTE : un
+			//       clip glisse de 10 images, son bord droit le rallonge ; annulable
+			//   t15 marqueurs : « ⚑ » en pose un au curseur ; GESTE : glisse ; Suppr. l'ote
+			//   t16 hostKeys : « + Cle » et Annuler sont RAPPORTES, le modele ne bouge pas
+			//   t17 le zoom ADOUCI : la molette pose une cible que la vue rejoint
+			inline NkTimelineModel FriseArbre() {
+				NkTimelineModel m;
+				m.fps = 30.f;
+				m.duration = 2.f;
+				m.AddTrack(1, "", "Transform.position", NkTimelineValueKind::Nombre, 2);
+				m.AddTrack(2, "Bras", "Transform.rotation", NkTimelineValueKind::Nombre, 1);
+				m.AddTrack(3, "Bras/Main", "Transform.rotation", NkTimelineValueKind::Nombre, 1);
+				const float32 a[4] = {0.f}, b[4] = {1.f};
+				m.SetKey(2, 0.f, a);
+				m.SetKey(2, 1.f, b);
+				m.undoStack.Clear();
+				m.FrameAll();
+				return m;
+			}
+
+			inline void FamilleFriseUE5(Bilan &b) {
+				std::printf("  -- frise : Unreal 5 / Blender --\n");
+				{
+					NkTimelineModel m = FriseArbre();
+					HoteFrise h;
+					h.Trame(m);
+					// en-tete « », piste 1, en-tete « Bras », piste 2, en-tete « Main », piste 3
+					const bool ordre = h.r.rows.Size() == 6 && h.r.rows[2].track == 0 && h.r.rows[2].object == NkString("Bras") &&
+									   h.r.rows[2].depth == 1 && h.r.rows[4].object == NkString("Bras/Main") &&
+									   h.r.rows[5].track == 3 && h.r.rows[5].depth == 3;
+					m.ToggleCollapsed("Bras");
+					h.Trame(m);
+					const bool replie = h.r.rows.Size() == 3 && m.IsHidden("Bras/Main") && !m.IsHidden("");
+					Note(b, ordre && replie && NkTimelineModel::ParentObject("Bras/Main") == NkString("Bras"),
+						 "t8 l'arbre : Bras/Main sous Bras sous la racine ; replier Bras cache les deux");
+				}
+				{
+					NkTimelineModel m = FriseArbre();
+					const bool tous = m.TrackActive(*m.Track(1)) && m.TrackActive(*m.Track(2));
+					m.ToggleSolo(2);
+					const bool solo = !m.TrackActive(*m.Track(1)) && m.TrackActive(*m.Track(2));
+					m.ToggleSolo(2);
+					HoteFrise h;
+					h.Trame(m);
+					NkPaintRect muet;
+					for (uint32 k = 0; k < (uint32)h.r.rows.Size(); ++k) {
+						if (h.r.rows[k].track == 2) {
+							muet = h.r.rows[k].muteButton;
+						}
+					}
+					// Le resultat est celui de la trame de l'APPUI (Clic en fait deux).
+					h.Appui(m, muet.x + muet.w * 0.5f, muet.y + muet.h * 0.5f);
+					const bool rapporte = h.r.flagsChanged;
+					h.Relache(m);
+					const bool clic = m.Track(2)->muted && !m.TrackActive(*m.Track(2)) && rapporte;
+					m.ToggleLock(2);
+					m.SelectKey(2, 0, false);
+					const bool verrou = m.SelectionCount() == 0;
+					const bool annule = m.Undo() && !m.Track(2)->locked;
+					Note(b, tous && solo && muet.w > 0.f && clic && verrou && annule,
+						 "t9 muet / solo / verrou : qui joue, le clic sur M, une piste verrouillee ne se choisit pas");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.SetPlayRange(0.5f, 1.f);
+					m.playing = true;
+					m.loop = true;
+					m.SetCursor(0.9f);
+					m.Advance(0.2f);
+					const bool boucle = Pres(m.cursor, 0.6f, 1e-3f);
+					HoteFrise h;
+					m.playing = false;
+					m.SetCursor(0.5f);
+					h.Trame(m);
+					const NkPaintRect s = h.r.buttons[(uint8)NkTimelineButton::NextFrame];
+					h.Clic(m, s.x + s.w * 0.5f, s.y + s.h * 0.5f);
+					const bool suiv = m.FrameOf(m.cursor) == 16;
+					const NkPaintRect d = h.r.buttons[(uint8)NkTimelineButton::First];
+					h.Clic(m, d.x + d.w * 0.5f, d.y + d.h * 0.5f);
+					Note(b, boucle && s.w > 0.f && suiv && Pres(m.cursor, 0.5f, 1e-3f),
+						 "t10 la plage de lecture : la boucle y tient ; image suivante ; Debut = debut de plage");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.SelectKey(1, 0, false);
+					m.SelectKey(1, 1, true);
+					const uint32 n = m.CopySelection();
+					const bool colle = m.PasteAt(1.5f);
+					const NkTimelineTrack *tr = m.Track(1);
+					const int32 k = m.KeyAt(*tr, 2.5f);
+					const bool place = tr->keys.Size() == 4 && m.KeyAt(*tr, 1.5f) >= 0 && k >= 0 &&
+									   Pres(tr->keys[(uint32)k].v[0], 10.f) && tr->keys[(uint32)k].selected && m.duration >= 2.5f;
+					const bool choisies = m.SelectionCount() == 2;
+					const bool annule = m.Undo() && m.Track(1)->keys.Size() == 2;
+					Note(b, n == 2 && colle && place && choisies && annule,
+						 "t11 copier / coller au curseur, sur leurs pistes, choisies ; annuler");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.SelectKey(1, 0, false);
+					m.SelectKey(1, 1, true);
+					HoteFrise h;
+					h.Trame(m);
+					const float32 y = h.YLigne(1);
+					const float32 x1 = NkTimelineTimeToX(m, h.r.area, 1.f);
+					const float32 bord = x1 + NkTimelineDecl().Metric("key_r") + NkTimelineDecl().Metric("button_gap") * 2.f;
+					const float32 x2 = NkTimelineTimeToX(m, h.r.area, 2.f);
+					h.Appui(m, bord, y);
+					for (int32 q = 1; q <= 4; ++q) {
+						h.Aller(m, bord + (x2 - x1) * (float32)q / 4.f, y);
+					}
+					h.Relache(m);
+					const NkTimelineTrack *tr = m.Track(1);
+					const bool echelle = tr->keys.Size() == 2 && Pres(tr->keys[0].time, 0.f) && Pres(tr->keys[1].time, 2.f, 0.02f);
+					const bool annule = m.Undo() && Pres(m.Track(1)->keys[1].time, 1.f);
+					Note(b, echelle && annule, "t12 le bord de la boite de transformation met les cles a l'echelle (annulable)");
+				}
+				{
+					NkTimelineModel m;
+					m.fps = 30.f;
+					m.duration = 2.f;
+					m.AddTrack(1, "", "x", NkTimelineValueKind::Nombre, 1);
+					const float32 a[4] = {0.f}, s[4] = {10.f}, z[4] = {4.f};
+					m.SetKey(1, 0.f, a, (uint8)NkTimelineInterp::Courbe);
+					m.SetKey(1, 1.f, s, (uint8)NkTimelineInterp::Courbe);
+					m.SetKey(1, 2.f, z, (uint8)NkTimelineInterp::Courbe);
+					float32 pin, pout;
+					m.KeySlopes(*m.Track(1), 1, 0, pin, pout);
+					const bool sommet = Pres(pin, 0.f) && Pres(pout, 0.f); // 0 -> 10 -> 4 : un sommet, plate
+					float32 o[4];
+					m.EvaluateFallback(*m.Track(1), 0.5f, o);
+					const bool hermite = Pres(o[0], 5.f, 1e-3f); // pentes nulles aux deux bouts : 5 au milieu
+					m.SelectKey(1, 1, false);
+					m.SetSelectionTangent((uint8)NkTimelineTangent::Unifiee);
+					m.Track(1)->keys[1].tanIn[0] = m.Track(1)->keys[1].tanOut[0] = 8.f;
+					m.EvaluateFallback(*m.Track(1), 0.5f, o);
+					const bool main = o[0] < 5.f - 0.5f; // arriver en montant creuse la courbe avant
+					// GESTE : tirer la poignee de sortie de la cle a 0 s vers le haut.
+					m.SetSelectionTangent((uint8)NkTimelineTangent::Auto);
+					m.SelectKey(1, 0, false);
+					m.curveMode = true;
+					HoteFrise h;
+					h.Trame(m);
+					h.Trame(m);
+					const float32 L = NkTimelineDecl().Metric("tangent_len");
+					const float32 x0 = NkTimelineTimeToX(m, h.r.area, 0.f), y0 = NkTimelineValueToY(m, h.r.area, 0.f);
+					h.Appui(m, x0 + L, y0);
+					h.Aller(m, x0 + L, y0 - L * 0.5f);
+					h.Aller(m, x0 + L, y0 - L);
+					h.Relache(m);
+					const NkTimelineKey &k0 = m.Track(1)->keys[0];
+					const bool geste = k0.tangent == (uint8)NkTimelineTangent::Unifiee && k0.tanOut[0] > 1.f;
+					Note(b, sommet && hermite && main && geste,
+						 "t13 tangentes : auto bornee, Hermite du repli, a la main ; tirer une poignee la rend unifiee");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.AddTrack(7, "", "Clips", NkTimelineValueKind::Clips, 1);
+					const nk_uint64 cl = m.AddClip(7, "marche", 0.f, 1.f, 0.5f);
+					NkTimelineClip *c = m.Clip(7, cl);
+					c->blendIn = 0.2f;
+					const bool poids = Pres(NkTimelineModel::ClipWeightAt(*c, 0.1f), 0.5f) &&
+									   Pres(NkTimelineModel::ClipWeightAt(*c, 0.5f), 1.f) &&
+									   Pres(NkTimelineModel::ClipWeightAt(*c, 1.5f), 0.f);
+					const bool boucle = Pres(NkTimelineModel::ClipLocalTime(*c, 0.7f), 0.2f, 1e-3f);
+					m.undoStack.Clear();
+					HoteFrise h;
+					h.Trame(m);
+					const float32 y = h.YLigne(7);
+					const float32 x = NkTimelineTimeToX(m, h.r.area, 0.5f);
+					const float32 x2 = NkTimelineTimeToX(m, h.r.area, 0.5f + 10.f / 30.f);
+					h.Appui(m, x, y);
+					for (int32 q = 1; q <= 4; ++q) {
+						h.Aller(m, x + (x2 - x) * (float32)q / 4.f, y);
+					}
+					h.Relache(m);
+					c = m.Clip(7, cl);
+					const bool glisse = c != nullptr && Pres(c->start, 10.f / 30.f, 1e-3f);
+					// Son bord droit, tire de 10 images : il s'allonge.
+					const float32 xe = NkTimelineTimeToX(m, h.r.area, c->End());
+					h.Appui(m, xe, y);
+					for (int32 q = 1; q <= 4; ++q) {
+						h.Aller(m, xe + (x2 - x) * (float32)q / 4.f, y);
+					}
+					h.Relache(m);
+					c = m.Clip(7, cl);
+					const bool rallonge = c != nullptr && Pres(c->length, 1.f + 10.f / 30.f, 1e-3f);
+					const bool annule = m.Undo() && m.Undo() && Pres(m.Clip(7, cl)->start, 0.f);
+					Note(b, poids && boucle && y > 0.f && glisse && rallonge && annule,
+						 "t14 clips : fondu, boucle ; un clip glisse de 10 images, son bord le rallonge ; annuler");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.SetCursor(0.5f);
+					HoteFrise h;
+					h.Trame(m);
+					const NkPaintRect bt = h.r.buttons[(uint8)NkTimelineButton::AddMarker];
+					h.Appui(m, bt.x + bt.w * 0.5f, bt.y + bt.h * 0.5f);
+					const bool pose = m.markers.Size() == 1 && Pres(m.markers[0].time, 0.5f) && h.r.markersChanged;
+					h.Relache(m);
+					const float32 x = NkTimelineTimeToX(m, h.r.area, 0.5f), x2 = NkTimelineTimeToX(m, h.r.area, 1.f);
+					const float32 yh = h.r.ruler.y + h.r.ruler.h * 0.25f;
+					h.Appui(m, x + 1.f, yh);
+					for (int32 q = 1; q <= 4; ++q) {
+						h.Aller(m, x + 1.f + (x2 - x) * (float32)q / 4.f, yh);
+					}
+					h.Relache(m);
+					const bool glisse = Pres(m.markers[0].time, 1.f, 1e-3f) && m.markers[0].selected;
+					const bool ote = m.DeleteSelection() && m.markers.Empty();
+					Note(b, bt.w > 0.f && pose && glisse && ote, "t15 marqueurs : poses au curseur, glisses, supprimes");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					m.hostKeys = true;
+					m.hostCanUndo = true;
+					m.activeTrack = 1;
+					m.SetCursor(1.5f);
+					HoteFrise h;
+					h.Trame(m);
+					const NkPaintRect k = h.r.buttons[(uint8)NkTimelineButton::AddKey];
+					h.Appui(m, k.x + k.w * 0.5f, k.y + k.h * 0.5f);
+					const bool cle = h.r.keyRequested && h.r.requestTrack == 1 && Pres(h.r.requestTime, 1.5f) &&
+									 m.Track(1)->keys.Size() == 2;
+					h.Relache(m);
+					const NkPaintRect u = h.r.buttons[(uint8)NkTimelineButton::Undo];
+					h.Appui(m, u.x + u.w * 0.5f, u.y + u.h * 0.5f);
+					const bool annuler = h.r.undoRequested && !h.r.undone;
+					h.Relache(m);
+					Note(b, cle && annuler, "t16 hostKeys : + Cle et Annuler sont rapportes a l'hote");
+				}
+				{
+					NkTimelineModel m = FriseDeReference();
+					HoteFrise h;
+					h.Trame(m);
+					const float32 span0 = m.viewEnd - m.viewStart;
+					h.in.mouseX = h.r.area.x + h.r.area.w * 0.5f;
+					h.in.mouseY = h.r.area.y + h.r.area.h * 0.5f;
+					h.in.wheel = 1.f;
+					h.Trame(m);
+					const float32 span1 = m.viewEnd - m.viewStart;
+					for (int32 q = 0; q < 40; ++q) {
+						h.Trame(m);
+					}
+					const float32 span2 = m.viewEnd - m.viewStart;
+					const float32 cible = span0 * NkTimelineDecl().Metric("wheel_zoom");
+					Note(b, span1 > cible + 1e-4f && span1 < span0 && Pres(span2, cible, 1e-3f) && !m.viewGlide,
+						 "t17 le zoom adouci : la vue rejoint sa cible en quelques images");
+				}
+			}
+
 			inline Bilan Sonder() {
 				Bilan b;
 				FamilleFriseModele(b);
 				FamilleFriseGestes(b);
+				FamilleFriseUE5(b);
 				FamilleGrapheModele(b);
 				FamilleGrapheGestes(b);
 				return b;

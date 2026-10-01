@@ -104,6 +104,13 @@ namespace nkentseu {
 				s.channel[3] = (uint16)NkRole::TextMuted;
 				s.buttonBg = (uint16)NkRole::ButtonBg;
 				s.inputBg = (uint16)NkRole::InputBg;
+				// (01/10 soir) la frise « UE5 » : plage, marqueurs, clips, tangentes.
+				s.rangeIn = (uint16)NkRole::StatusOk;
+				s.rangeOut = (uint16)NkRole::StatusErr;
+				s.marker = (uint16)NkRole::AccentSel;
+				s.clip = (uint16)NkRole::TypeAnim;
+				s.clipAlt = (uint16)NkRole::NodeActionHeader;
+				s.tangent = (uint16)NkRole::AccentSel;
 				return s;
 			}
 
@@ -481,6 +488,8 @@ namespace nkentseu {
 			hooks.readLive = &LireVivant;
 			editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 			const editorkit::NkTimelineStyle style = StyleFrise();
+			// La racine de l'arbre des pistes porte le nom de l'entite animee.
+			d.frise.rootLabel = m.scene.Monde().IsAlive(cible) ? NomDe(m, cible) : NkString();
 			pa.frise = editorkit::NkDrawTimeline(peintre, ci, editorkit::NkPaintRect{frise.x, frise.y, frise.w, frise.h}, d.frise,
 												  style, hooks);
 			if (pa.frise.changed) {
@@ -500,7 +509,7 @@ namespace nkentseu {
 			if (d.frise.tracks.Empty() && !d.choix) {
 				const NkRect aide{pa.frise.area.x, pa.frise.area.y + 30.f, pa.frise.area.w, 40.f};
 				renderer::NkTexteDansBoite(dl, c.police, aide,
-										   "« + Propriété » : une piste (position, rotation, couleur, image…). Double-clic : une clé.",
+										   "« + Piste » : une propriété (position, rotation, couleur, image…). Double-clic : une clé.",
 										   c.pal.attenue);
 			}
 		}
