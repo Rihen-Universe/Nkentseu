@@ -665,6 +665,12 @@ namespace nkentseu {
 			} else {
 				++erreurs;
 			}
+			// Les REGLAGES DU PROJET : les calques nommes de l'exemple et la matrice.
+			ui.aimant = false;
+			ui.reglagesCollision = true;
+			T.Aller(-100.f, -100.f);
+			T.Aller(-100.f, -100.f);
+			erreurs += EcrirePng(T, NkString::Format("%s/05_reglages_calques.png", dossier).CStr()) ? 0 : 1;
 			memory::NkGetDefaultAllocator().Delete(pt);
 			memory::NkGetDefaultAllocator().Delete(pm);
 			return erreurs == 0 ? 0 : 1;
