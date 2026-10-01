@@ -16,27 +16,9 @@ namespace nkentseu {
 		using nkgui::NkColor;
 		using nkgui::NkRect;
 
-		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept {
-			const float32 rapport = static_cast<float32>(profil.largeur) / static_cast<float32>(profil.hauteur);
-			const float32 marge = 24.f;
-			float32 aw = viseur.w - marge * 2.f;
-			float32 ah = aw / rapport;
-			if (ah > viseur.h - marge * 2.f) {
-				ah = viseur.h - marge * 2.f;
-				aw = ah * rapport;
-			}
-			// ⚠️ Un panneau peut etre reduit a presque rien par l'ancrage. Sans
-			// ce plancher, l'aire devient negative, la camera recoit un viseur
-			// vide, et la division par sa largeur rend des coordonnees infinies
-			// -- une panne qui sort loin d'ici, dans la conversion ecran/monde.
-			if (aw < 1.f) {
-				aw = 1.f;
-			}
-			if (ah < 1.f) {
-				ah = 1.f;
-			}
-			return nkgui::NkRect{viseur.x + (viseur.w - aw) * 0.5f, viseur.y + (viseur.h - ah) * 0.5f, aw, ah};
-		}
+		// NkAireAppareil vit avec le cadre, dans NkEditeurCadreAppareil.cpp
+		// (2026-10-01) : la place reservee au cadre et son dessin ne doivent pas
+		// diverger.
 
 		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
 									  const nkgui::NkRect &appareil) {
@@ -187,45 +169,9 @@ namespace nkentseu {
 			if (m.profil == 0) {
 				return stats;
 			}
-			// Un contour fin : ce que l'ecran de l'appareil montrerait, a son
-			// rapport, sans rien masquer du monde autour.
-			dl.AddRect(appareil, NkColor(200, 205, 215, 120), 1.f, 6.f);
-
-			// --- LA ZONE SURE SIMULEE ------------------------------------
-			// Elle est dessinee APRES la decoupe : c'est une surcouche de
-			// l'editeur, pas un element de la scene.
-			//
-			// ⚠️ C'est la raison d'etre de ce reglage. Ce qui tombe dans les
-			// bandes est INATTEIGNABLE sur l'appareil — pas mal place :
-			// inatteignable. Et cela ne se voit JAMAIS depuis une machine de
-			// bureau.
-			const float32 ex = appareil.w / static_cast<float32>(profil.largeur);
-			const float32 ey = appareil.h / static_cast<float32>(profil.hauteur);
-			const NkColor voile(220, 90, 90, 46);
-			const NkColor trait(235, 120, 120, 190);
-
-			auto bande = [&](const NkRect &r) {
-				if (r.w <= 0.f || r.h <= 0.f) {
-					return;
-				}
-				dl.AddRectFilled(r, voile);
-			};
-			const float32 hHaut = profil.zoneSure.top * ey;
-			const float32 hBas = profil.zoneSure.bottom * ey;
-			const float32 lG = profil.zoneSure.left * ex;
-			const float32 lD = profil.zoneSure.right * ex;
-			bande(NkRect{appareil.x, appareil.y, appareil.w, hHaut});
-			bande(NkRect{appareil.x, appareil.y + appareil.h - hBas, appareil.w, hBas});
-			bande(NkRect{appareil.x, appareil.y, lG, appareil.h});
-			bande(NkRect{appareil.x + appareil.w - lD, appareil.y, lD, appareil.h});
-
-			// Le cadre de la zone SURE elle-meme : c'est dedans qu'un bouton doit
-			// tenir.
-			if (hHaut > 0.f || hBas > 0.f || lG > 0.f || lD > 0.f) {
-				dl.AddRect(NkRect{appareil.x + lG, appareil.y + hHaut, appareil.w - lG - lD,
-								  appareil.h - hHaut - hBas},
-						   trait, 1.f);
-			}
+			// (2026-10-01) Le CADRE en vecteurs, la zone sure, la decoupe : selon
+			// les interrupteurs du menu Appareil (document 03, §2.4).
+			NkDessinerAppareil(dl, profil, appareil, m.appareil, viseur);
 			return stats;
 		}
 

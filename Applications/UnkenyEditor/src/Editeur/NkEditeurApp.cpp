@@ -23,6 +23,7 @@
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
@@ -201,6 +202,20 @@ namespace nkentseu {
 				// comme avant. --orientation= : les quatre (document 03).
 				if (args[i] == "--paysage") {
 					m.orientation = NkOrientation::NK_PAYSAGE_GAUCHE;
+					continue;
+				}
+				// --appareil=FICHIER.nkappareil : un appareil (personnalise ou non)
+				// relu d'un fichier, pour une capture ou pour le partager.
+				if (args[i].StartsWith("--appareil=")) {
+					const NkString chemin(args[i].SubStr(11));
+					if (!NkLireAppareil(NkFile::ReadAllText(chemin.CStr()), m.profil, m.orientation, m.appareil)) {
+						std::printf("[editeur] --appareil=%s : fichier absent ou sans entete unkeny.appareil\n", chemin.CStr());
+					}
+					continue;
+				}
+				// --onglet=monde : l'onglet Monde des Details (la section Appareil).
+				if (args[i] == "--onglet=monde") {
+					mUi->ongletDroite = 1;
 					continue;
 				}
 				if (args[i].StartsWith("--orientation=")) {
