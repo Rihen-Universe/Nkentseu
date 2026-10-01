@@ -3,10 +3,14 @@
 // NkOuvrirArgument.h — CE QUE NKCODE OUVRE QUAND ON LUI DONNE UN CHEMIN (01/10).
 //
 //   NKCode.exe [<workspace>] [<fichier>]
-//     <workspace> : un DOSSIER (celui d'un workspace), un fichier .jenga (ce
-//                   workspace precis), ou un FICHIER quelconque : NKCode remonte
-//                   alors de son dossier jusqu'au premier qui porte un workspace
-//                   (.jenga avec 'with workspace'), et ouvre le fichier dedans.
+//     <workspace> : un DOSSIER (avec ou sans workspace : sans, il s'ouvre en
+//                   edition simple, comme dans VS Code), un .jenga de WORKSPACE (ce
+//                   workspace precis), ou un FICHIER quelconque -- un .jenga qui
+//                   n'est PAS un workspace (un projet seul) en est un : NKCode
+//                   remonte alors de son dossier jusqu'au premier qui porte un
+//                   workspace (.jenga avec 'with workspace') et ouvre le fichier
+//                   dedans ; s'il n'y en a aucun, il ouvre le dossier du fichier
+//                   en edition simple, et le fichier dans un onglet.
 //     <fichier>   : le fichier a ouvrir dans le workspace (un onglet actif).
 //
 // POURQUOI : UnkenyEditor lancait « NKCode.exe <script.cpp> ». Le premier
@@ -90,7 +94,12 @@ namespace nkentseu {
 									  (p.CStr()[n - 2] == 'g' || p.CStr()[n - 2] == 'G') &&
 									  (p.CStr()[n - 1] == 'a' || p.CStr()[n - 1] == 'A');
 				const NkString parent = NkArgParent(p);
-				if (estJenga) {
+				// (02/10) Un .jenga qui ne DECLARE PAS de workspace (un projet seul) est
+				// un fichier comme un autre : il s'ouvrait en dossier vide, sans onglet.
+				// Mutation de banc NK_NKCODE_MUTATION=jenga-fichier : l'ancien traitement.
+				const bool workspace =
+					estJenga && (NkCodeState::EstWorkspaceJenga(p.CStr()) || NkCodeState::MutationNkCode("jenga-fichier"));
+				if (workspace) {
 					o.dossier = parent;
 					// Le choisir n'a de sens que si le dossier en porte plusieurs (sinon
 					// le choix ouvrirait en plus le .jenga dans un onglet).
@@ -108,6 +117,9 @@ namespace nkentseu {
 			}
 			if (b && *b)
 				o.fichier = NkArgPropre(b);
+			// Mutation de banc NK_NKCODE_MUTATION=fichier : le fichier n'est pas ouvert.
+			if (NkCodeState::MutationNkCode("fichier"))
+				o.fichier = NkString();
 			return o;
 		}
 

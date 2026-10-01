@@ -5803,6 +5803,113 @@ namespace nkentseu {
 					return !wsPaths.Empty();
 				}
 
+				// ── (02/10) EDITION SIMPLE, FACON VS CODE ───────────────────────────────
+				// Un dossier, un fichier, un .jenga qui n'est pas un workspace s'ouvrent
+				// tous ; seuls Construire / Executer demandent un workspace, et le DISENT.
+
+				/// (Bancs) une mutation nommee est-elle demandee ? NK_NKCODE_MUTATION.
+				static bool MutationNkCode(const char *nom) {
+					const char *v = env::GetEnvVar("NK_NKCODE_MUTATION");
+					return v && nom && StrEq(v, nom);
+				}
+
+				/// Le meme critere que ScanWorkspaces : le fichier declare un workspace.
+				static bool EstWorkspaceJenga(const char *chemin) {
+					const NkString txt = NkFile::ReadAllText(NkPath(chemin));
+					return Contains(txt.CStr(), "with workspace") || Contains(txt.CStr(), "workspace(");
+				}
+
+				/// Pourquoi Construire / Executer sont grises (barre d'outils, barre d'etat).
+				static const char *MessageSansWorkspace() {
+					return "Construire et Executer passent par un workspace Jenga (.jenga avec "
+						   "« with workspace »). Ce dossier n'en a pas : NKCode l'ouvre en edition "
+						   "simple, comme VS Code. « Creer un workspace Jenga ici » en ecrit un.";
+				}
+
+				/// « Creer un workspace Jenga ici » : `<Dossier>.jenga` a la racine ouverte, un
+				/// workspace minimal (et un projet si le dossier a des sources C/C++), puis
+				/// rechargement : Construire / Executer s'activent. Ne remplace JAMAIS un
+				/// fichier existant. Rend le chemin ecrit (vide : refus, `status` dit pourquoi).
+				NkString CreerWorkspaceIci() {
+					if (HasWorkspace()) {
+						status = NkString("Ce dossier a deja un workspace Jenga");
+						return NkString();
+					}
+					if (!NkDirectory::Exists(root.ToString().CStr())) {
+						status = NkString("Aucun dossier ouvert : ouvrez d'abord un dossier");
+						return NkString();
+					}
+					// Le nom : lettres et chiffres du nom du dossier (un identifiant Python sur).
+					const NkString dossier = root.GetFileName();
+					NkString nom;
+					for (usize i = 0; i < dossier.Length(); ++i) {
+						const char c = dossier.CStr()[i];
+						if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
+							nom += c;
+					}
+					if (nom.Empty() || (nom.CStr()[0] >= '0' && nom.CStr()[0] <= '9'))
+						nom = NkString("Workspace") + nom;
+					const NkPath chemin = root / (nom + ".jenga").CStr();
+					if (NkFile::Exists(chemin)) {
+						status = NkString("Existe deja (laisse tel quel) : ") + chemin.ToString().CStr();
+						return NkString();
+					}
+					// Des sources C/C++ ? (hors Build/, dossiers caches)
+					bool cpp = false, c = false;
+					{
+						NkVector<NkDirectoryEntry> e =
+							NkDirectory::GetEntries(root, "*", NkSearchOption::NK_ALL_DIRECTORIES);
+						for (usize i = 0; i < e.Size() && !(cpp && c); ++i) {
+							if (e[i].IsDirectory)
+								continue;
+							const NkString fp = e[i].FullPath.ToString();
+							if (Contains(fp.CStr(), "/Build/") || Contains(fp.CStr(), "\\Build\\") ||
+								Contains(fp.CStr(), "/.") || Contains(fp.CStr(), "\\."))
+								continue;
+							cpp = cpp || EndsWithI(e[i].Name.CStr(), ".cpp") || EndsWithI(e[i].Name.CStr(), ".cc");
+							c = c || EndsWithI(e[i].Name.CStr(), ".c");
+						}
+					}
+					NkString j;
+					j += "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n";
+					j += NkPrintf("# %s.jenga -- workspace Jenga cree par NKCode (« Creer un workspace Jenga ici »).\n",
+								  nom.CStr());
+					j += "# Un workspace minimal : completez-le (un projet par programme ou bibliotheque).\n";
+					j += "from Jenga import *\n";
+					j += "from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains\n\n";
+					j += NkPrintf("with workspace(\"%s\"):\n", nom.CStr());
+					j += "    RegisterJengaGlobalToolchains()\n";
+					j += "    configurations([\"Debug\", \"Release\"])\n";
+					j += "    targetoses([TargetOS.WINDOWS, TargetOS.LINUX, TargetOS.MACOS])\n";
+					j += "    targetarchs([TargetArch.X86_64, TargetArch.ARM64])\n";
+					if (cpp || c) {
+						j += "\n    # Les sources trouvees dans ce dossier, en une application console.\n";
+						j += NkPrintf("    with project(\"%s\"):\n", nom.CStr());
+						j += "        consoleapp()\n";
+						j += cpp ? "        language(\"C++\")\n        cppdialect(\"C++17\")\n" : "        language(\"C\")\n";
+						j += cpp && c ? "        files([\"**.cpp\", \"**.cc\", \"**.c\"])\n"
+									  : (cpp ? "        files([\"**.cpp\", \"**.cc\"])\n" : "        files([\"**.c\"])\n");
+						j += "        excludefiles([\"Build/**\"])\n";
+					} else {
+						j += "\n    # Aucun source C/C++ ici pour l'instant. Un projet, par exemple :\n";
+						j += "    #     with project(\"App\"):\n";
+						j += "    #         consoleapp()\n";
+						j += "    #         files([\"src/**.cpp\"])\n";
+					}
+					if (!NkFile::WriteAllText(chemin, j)) {
+						status = NkString("Ecriture impossible : ") + chemin.ToString().CStr();
+						return NkString();
+					}
+					mWsScanned = false;
+					ScanWorkspaces();
+					mLastJengaMtime = 0;
+					RequestReload();
+					OpenPath(chemin);
+					status = NkString("Workspace Jenga cree : ") + chemin.ToString().CStr() +
+							 " -- Construire et Executer sont actives";
+					return chemin.ToString();
+				}
+
 				// Scanne un dossier ARBITRAIRE pour ses workspaces (sans toucher a la racine).
 				// Sert au panneau « Charger » du launcher (apercu avant chargement).
 				static void ScanWorkspacesIn(const NkPath &folder, NkVector<NkString> &outPaths,
@@ -6842,7 +6949,7 @@ namespace nkentseu {
 				// verb = "build" (Construire) ou "rebuild" (Recompiler de zero).
 				void DoBuildAction(const char *verb) {
 					if (!HasWorkspace()) {
-						status = NkString("(aucun workspace)");
+						status = NkString(MessageSansWorkspace());
 						return;
 					}
 					// Distribution LEGERE (testeur) : compilateur par defaut absent ->
@@ -7010,7 +7117,7 @@ namespace nkentseu {
 
 				void DoRun() {
 					if (!HasWorkspace()) {
-						status = NkString("(aucun workspace)");
+						status = NkString(MessageSansWorkspace());
 						return;
 					}
 					// ── Quelle cible EXECUTER ? ─────────────────────────────────────
@@ -7480,10 +7587,18 @@ namespace nkentseu {
 					// Signature = max(date de modif) des .jenga racine. Si elle augmente -> reload.
 					int64 mx = 0;
 					int32 nJenga = 0;
+					// (02/10) nJenga ne compte que les .jenga qui DECLARENT un workspace : un
+					// projet seul (« with project » sans workspace) dans un dossier ouvert en
+					// edition simple faisait recharger toutes les 1,5 s et afficher « Workspace
+					// Jenga detecte » -- faux. Mutation de banc NK_NKCODE_MUTATION=veille :
+					// l'ancien compte (tout .jenga).
+					static const bool sVeilleMutee = MutationNkCode("veille");
 					NkVector<NkDirectoryEntry> entries =
 						NkDirectory::GetEntries(root, "*.jenga", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
 					for (usize i = 0; i < entries.Size(); ++i) {
 						if (entries[i].IsDirectory)
+							continue;
+						if (!sVeilleMutee && !EstWorkspaceJenga(entries[i].FullPath.ToString().CStr()))
 							continue;
 						++nJenga;
 						const int64 t = static_cast<int64>(entries[i].ModificationTime);

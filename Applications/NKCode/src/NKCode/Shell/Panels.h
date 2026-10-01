@@ -1746,7 +1746,9 @@ namespace nkentseu {
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
-					mS->PollBuild();
+					// (02/10) PollBuild() n'est plus appele ICI : la barre d'outils le fait a
+					// chaque image (Toolbar.h). Ce panneau n'est dessine que s'il est
+					// l'onglet visible -- la construction restait sinon sans suivi.
 					// L'ETAT n'a pas le shell : il DEPOSE ici le panneau a faire remonter
 					// (ex. « Demarrer » sur une app console -> onglet terminal dedie).
 					if (mShell && !mS->focusPanelReq.Empty()) {

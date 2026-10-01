@@ -30,6 +30,7 @@
 #include "NKCode/Shell/NkAppCommands.h"
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
 #include "NKCode/Shell/NkOuvrirArgument.h" // (01/10) un dossier, un .jenga ou un FICHIER en argument
+#include "NKCode/Shell/NkCodeBanc.h"		 // (02/10) `NKCode --selftest`, sans fenetre
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
@@ -214,6 +215,10 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 
 int nkmain(const NkEntryState &state) {
 	(void)state;
+	// (02/10) LE BANC, AVANT TOUTE FENETRE : `NKCode --selftest` (Shell/NkCodeBanc.h).
+	for (usize ai = 1; ai < state.args.Size(); ++ai)
+		if (state.args[ai] == "--selftest")
+			return nkcode::NkCodeLancerBanc();
 
 	// ── Dossier de l'EXECUTABLE, calcule EN PREMIER ──────────────────────────
 	// Demande a l'OS (GetModuleFileNameW / /proc/self/exe / _NSGetExecutablePath),
@@ -422,13 +427,8 @@ int nkmain(const NkEntryState &state) {
 				positionnels.PushBack(state.args[ai]);
 		}
 		if (!positionnels.Empty()) {
-			const nkcode::NkArgOuverture o = nkcode::NkResoudreArgument(
+			const nkcode::NkArgOuverture o = g_dialogs.OuvrirChemin(
 				positionnels[0].CStr(), positionnels.Size() > 1u ? positionnels[1].CStr() : nullptr);
-			g_dialogs.DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
-			// LoadFolder est synchrone (session comprise) : le fichier s'ouvre APRES
-			// les onglets restaures, et devient l'onglet actif.
-			if (!g_dialogs.loading.error && !o.fichier.Empty() && NkFile::Exists(o.fichier.CStr()))
-				g_state.OpenPath(NkPath(o.fichier.CStr()));
 			printf("[nkcode] argument : workspace « %s »%s%s%s\n", o.dossier.CStr(), o.jenga.Empty() ? "" : " (",
 				   o.jenga.CStr(), o.jenga.Empty() ? "" : ")");
 			if (!o.fichier.Empty())

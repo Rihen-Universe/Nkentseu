@@ -58,6 +58,15 @@ namespace nkentseu {
 					errHint = NkString();
 					folder = f;
 					// Étape 0 : lecture réelle du .jenga.
+					// Mutation de banc NK_NKCODE_MUTATION=exige-jenga : l'ancienne exigence
+					// d'un workspace (avant la PR #54) -- le temoin (o1) doit rougir.
+					if (NkCodeState::MutationNkCode("exige-jenga") && st->LoadFolder(f) && !st->HasWorkspace()) {
+						active = true;
+						error = true;
+						wsName = f.GetFileName();
+						errLine = NkT("load.err.nows");
+						return;
+					}
 					if (!st->LoadFolder(f)) {
 						// LoadFolder ne refuse QUE un chemin qui n'est pas un dossier (un
 						// dossier sans .jenga s'ouvre en edition simple) : le dire tel quel.
