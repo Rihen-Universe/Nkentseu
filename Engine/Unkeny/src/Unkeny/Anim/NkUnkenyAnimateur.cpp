@@ -10,6 +10,7 @@
 #include "NKLogger/NkLog.h"
 #include "NKMemory/NKMemory.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Scene/NkUnkenyActif.h"
 
 #include <cstring>
 
@@ -290,7 +291,8 @@ namespace nkentseu {
 		// =====================================================================
 		void NkAvancerAnimateurs(ecs::NkWorld &monde, float32 dt) {
 			monde.Query<NkAnimateur2D>().ForEach([&](ecs::NkEntityId id, NkAnimateur2D &a) {
-				if (a.enPause) {
+				// Une entite ETEINTE (NkUnkenyActif.h) ne s'anime pas.
+				if (a.enPause || !NkEntiteActive(monde, id)) {
 					return;
 				}
 				NkAnimStateMachine *m = NkModeleAnimateur(a.modele);

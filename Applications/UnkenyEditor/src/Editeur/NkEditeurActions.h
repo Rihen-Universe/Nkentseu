@@ -139,6 +139,26 @@ namespace nkentseu {
 		/// ensuite ses composants. Selectionnee.
 		ecs::NkEntityId NkEditeurCreerEntite(NkEditeurModele &m, const char *nom, const NkVec2f &position);
 		bool NkEditeurRenommer(NkEditeurModele &m, ecs::NkEntityId id, const char *nom);
+
+		// --- L'historique (2026-10-01, NkHistoriqueEditeur) ----------------------
+		/// Photographie la scene AVANT un geste : il devient annulable. Vide
+		/// « refaire » (une nouvelle branche). Rien hors EDITION.
+		void NkEditeurRetenir(NkEditeurModele &m);
+		/// Ctrl+Z : rend la scene d'avant le dernier geste retenu ; la selection
+		/// suit par identite (les poignees changent a la restauration).
+		bool NkEditeurAnnuler(NkEditeurModele &m);
+		/// Ctrl+Y : rend celle que Ctrl+Z a quittee.
+		bool NkEditeurRefaire(NkEditeurModele &m);
+		/// Oublie l'historique (nouvelle scene, ouverture).
+		void NkEditeurOublierHistorique(NkEditeurModele &m);
+
+		// --- L'entite active (2026-10-01, la case de l'en-tete des Details) -------
+		/// Allume / eteint l'entite DANS LE JEU (NkScene::Activer, NkUnkenyActif.h) :
+		/// elle et sa descendance ne sont plus ni rendues, ni simulees, ni animees,
+		/// en edition comme en jeu, et c'est sauve. Retenu : Ctrl+Z l'annule.
+		/// ⚠️ CE N'EST PAS L'OEIL DE L'OUTLINER (NkEditeurCacher) : l'oeil ne cache
+		///    qu'en EDITION et ne touche pas au jeu ; les deux coexistent.
+		bool NkEditeurActiverEntite(NkEditeurModele &m, ecs::NkEntityId id, bool actif);
 		/// Copie une entite et ses composants, decalee de 0,5 m. La MATIERE d'un
 		/// corps mou n'est pas recopiee (rend Invalid et l'annonce).
 		ecs::NkEntityId NkEditeurDupliquer(NkEditeurModele &m);
