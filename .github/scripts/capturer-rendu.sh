@@ -12,8 +12,11 @@
 #   l'image a ete ecrite ET avec quelle API elle a ete rendue.
 #
 # USAGE
-#   capturer-rendu.sh <binaire> <api> <image-n> <png> <dossier-sortie>
+#   capturer-rendu.sh <binaire> <api> <image-n> <png> <dossier-sortie> [--canvas]
 #     api : metal | software | ... (NK_GFX_BACKEND)
+#     --canvas : application NKCanvas (NkCanvasApp) : la capture passe par
+#                --backend=<api> --capture=<png> --capture-frame=<n>, et
+#                l'application se ferme d'elle-meme une fois l'image ecrite.
 #   Sortie 0 : PNG ecrit, rendu par l'API demandee. Sortie 1 sinon.
 # =============================================================================
 
@@ -24,6 +27,7 @@ API="${2:?api manquante}"
 IMAGE="${3:?numero de l image manquant}"
 PNG="${4:?png manquant}"
 SORTIE="${5:?dossier de sortie manquant}"
+MODE="${6:-}"
 
 NOM=$(basename "$BIN")
 mkdir -p "$SORTIE" "$(dirname "$PNG")"
@@ -32,7 +36,11 @@ rm -f "$PNG"
 
 echo "== capture : $NOM, API $API, image $IMAGE -> $PNG"
 AVANT=$(wc -l < logs/app.log 2>/dev/null || echo 0)
-NK_GFX_BACKEND="$API" NK_CAPTURE="$IMAGE" NK_CAPTURE_PATH="$PNG" "$BIN" > "$JOURNAL" 2>&1 &
+if [ "$MODE" = "--canvas" ]; then
+    "$BIN" --backend="$API" --capture="$PNG" --capture-frame="$IMAGE" > "$JOURNAL" 2>&1 &
+else
+    NK_GFX_BACKEND="$API" NK_CAPTURE="$IMAGE" NK_CAPTURE_PATH="$PNG" "$BIN" > "$JOURNAL" 2>&1 &
+fi
 PID=$!
 ECOULE=0
 while [ "$ECOULE" -lt 120 ] && kill -0 "$PID" 2>/dev/null; do
@@ -57,8 +65,8 @@ Echapper() {
 # on n'en garde que les lignes de CE lancement.
 APPLOG="$SORTIE/$NOM-app-$API.log"
 tail -n +$((AVANT + 1)) logs/app.log > "$APPLOG" 2>/dev/null || true
-CHOISIE=$(grep -a -h -o "API selectionnee = [A-Za-z0-9 ]*" "$JOURNAL" "$APPLOG" 2>/dev/null | tail -1)
-LIGNE_CAPTURE=$(grep -a -h "NkTutoCapture" "$JOURNAL" "$APPLOG" 2>/dev/null | tail -1 | cut -c1-300)
+CHOISIE=$(grep -a -h -o "API selectionnee = [A-Za-z0-9 ]*\|backend graphique retenu = [A-Za-z0-9 ]*" "$JOURNAL" "$APPLOG" 2>/dev/null | tail -1)
+LIGNE_CAPTURE=$(grep -a -h "NkTutoCapture\|capture vers" "$JOURNAL" "$APPLOG" 2>/dev/null | tail -1 | cut -c1-300)
 echo "code : $CODE ; $CHOISIE"
 echo "$LIGNE_CAPTURE"
 

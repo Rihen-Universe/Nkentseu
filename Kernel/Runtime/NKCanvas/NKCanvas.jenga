@@ -182,6 +182,7 @@ with project("NKCanvas"):
         files([
             "src/NKCanvas/Backend/Metal/NkMetalContext.mm",
             "src/NKCanvas/Backend/Metal/NkMetalComputeContext.mm",
+            "src/NKCanvas/Backend/Metal/NkMetalRenderer2D.mm",
             "src/NKCanvas/Backend/OpenGL/NkOpenGLContextMacOS.mm",
         ])
 

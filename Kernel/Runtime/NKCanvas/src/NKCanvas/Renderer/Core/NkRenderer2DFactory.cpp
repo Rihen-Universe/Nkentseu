@@ -18,8 +18,8 @@
 #endif
 
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
-// Metal 2D renderer — forward declaration (implemented in NkMetalRenderer2D.mm)
-// #include "NKCanvas/Backend/Metal/NkMetalRenderer2D.h"
+// Rendu 2D Metal (2026-09-30) : NkMetalRenderer2D.mm, en-tete C++ pur.
+#include "NKCanvas/Backend/Metal/NkMetalRenderer2D.h"
 #endif
 
 #define NK_R2D_FACTORY_LOG(...) logger.Infof("[NkRenderer2DFactory] " __VA_ARGS__)
@@ -84,9 +84,8 @@ namespace nkentseu {
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 				// ── Metal ─────────────────────────────────────────────────────────────
 				case NkGraphicsApi::NK_GFX_API_METAL:
-					// r2d = new NkMetalRenderer2D();
-					NK_R2D_FACTORY_ERR("Metal 2D renderer not yet implemented");
-					return nullptr;
+					r2d = alloc.New<NkMetalRenderer2D>();
+					break;
 #endif
 
 				default:
@@ -135,7 +134,7 @@ namespace nkentseu {
 #endif
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 				case NkGraphicsApi::NK_GFX_API_METAL:
-					return false; // not yet implemented
+					return true; // NkMetalRenderer2D (2026-09-30)
 #endif
 				default:
 					return false;
