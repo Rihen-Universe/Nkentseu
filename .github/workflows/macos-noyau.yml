@@ -292,17 +292,12 @@ jobs:
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution"
 
-      # NKCanvas a son propre dorsal Metal (NkMetalContext.mm) ; NkCanvasApp le
-      # prend sur --backend=metal. Le defaut macOS reste OpenGL, qui tient.
-      # ⚠️ SONDE D'UN MANQUE CONNU, d'ou continue-on-error (et SEULEMENT ici) :
-      #    le contexte Metal de NKCanvas s'ouvre, mais NkRenderer2DFactory n'a
-      #    pas de rendu 2D Metal (« Metal 2D renderer not yet implemented », run
-      #    36672650442). L'annotation d'erreur reste publiee ; le verdict du job
-      #    garde son sens pour ce qui DOIT marcher. Retirer continue-on-error le
-      #    jour ou ce rendu existe.
+      # NKCanvas en Metal : NkMetalContext.mm + NkMetalRenderer2D.mm (rendu 2D
+      # Metal depuis le 2026-10-01) ; NkCanvasApp le prend sur --backend=metal.
+      # Le defaut macOS reste OpenGL. Plus de continue-on-error : ce rendu
+      # existe, il doit tenir.
       - name: Lancer UnkenyEditor --backend=metal (10 s)
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
-        continue-on-error: true
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution-metal" --backend=metal
 
       # NKCANVAS EN METAL, VERIFIE PAR L'IMAGE (2026-09-30) : NkDames (plateau +
