@@ -203,6 +203,7 @@ namespace nkentseu {
 			FenetreAgrandir,
 			FenetreFermer,
 			FenetreGlisser, ///< appui dans la barre de titre (fenetres sans cadre)
+			ActionHote,		///< le bouton propre a l'application (`actionHote`)
 		};
 
 		struct NkProjectLauncherModel {
@@ -226,6 +227,14 @@ namespace nkentseu {
 				/// Le bouton « Ouvrir... » existe (faux : l'application n'ouvre
 				/// pas de fichier, ex. un lanceur de moteur sans projet).
 				bool ouvrirPossible = true;
+				/// La COLONNE de navigation (marque, pages, theme). Faux : le lanceur
+				/// s'INCRUSTE dans une application qui a deja la sienne (NKCode et
+				/// son accueil) ; seule la page courante est peinte.
+				bool colonne = true;
+				/// UN bouton propre a l'application, a gauche de « Ouvrir... »
+				/// (vide = aucun) : rend `NkLanceurAction::ActionHote`.
+				NkString actionHote;
+				NkLanceurGlyphe glypheActionHote = NkLanceurGlyphe::Reglages;
 
 				// ── ETAT (ecrit par le composant, garde par l'hote) ─────────────
 				int32 page = 0;

@@ -227,6 +227,16 @@ int nkmain(const NkEntryState &state) {
 		nkcode::NkOpenWsState::ExeDir() = exeDir;
 	}
 
+	// (2026-10-01) LA PHOTO DU LANCEUR (accueil partage), sans fenetre ni GPU :
+	// --capture-lanceur=FICHIER.png [--theme-lanceur=clair]
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)state.args.Size(), state.args.Data(), &clair);
+		if (!capture.Empty())
+			return nkcode::NkHomeLanceurCapturer(capture, clair);
+	}
+
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
 
 	nkcode::NkSynInitDefaultLangs(); // coloration data-driven (CSS, JS, Lua, Rust…)

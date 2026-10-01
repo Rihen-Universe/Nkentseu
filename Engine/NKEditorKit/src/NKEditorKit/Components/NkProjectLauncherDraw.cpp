@@ -740,7 +740,9 @@ namespace nkentseu {
 				colW = S(220.f);
 			if (colW > S(264.f))
 				colW = S(264.f);
-			{
+			if (!m.colonne)
+				colW = 0.f; // incruste : l'application a deja sa colonne
+			if (m.colonne) {
 				const NkPaintRect col{r.x, haut, colW, bas - haut};
 				p.FillColor(col, cCol, 0.f);
 				p.VLine(r.x + colW - 1.f, haut, bas - haut, s.bord);
@@ -871,6 +873,13 @@ namespace nkentseu {
 					if (PeindreBouton(p, e, in, b2, lo, NkLanceurGlyphe::Ouvrir, false, acc, s, k, res))
 						res.action = NkLanceurAction::Ouvrir;
 					droiteBoutons = b2.x;
+				}
+				if (!m.actionHote.Empty()) {
+					const float32 w3 = e.W(m.actionHote.CStr(), 0) + S(56.f);
+					const NkPaintRect b3{droiteBoutons - S(10.f) - w3, b1.y, w3, bh};
+					if (PeindreBouton(p, e, in, b3, m.actionHote.CStr(), m.glypheActionHote, false, acc, s, k, res))
+						res.action = NkLanceurAction::ActionHote;
+					droiteBoutons = b3.x;
 				}
 			}
 			{
@@ -1068,8 +1077,11 @@ namespace nkentseu {
 						cols = 1;
 					if (cols > 6)
 						cols = 6;
-					if (cols > nMod)
-						cols = nMod < 3 ? 3 : nMod; // peu de modeles : des cartes de taille sage
+					// Peu de modeles : la grille GARDE ses colonnes (au moins quatre), les
+					// cartes restent a taille de carte et s'alignent a gauche -- trois
+					// modeles etires sur toute la largeur faisaient des affiches.
+					if (cols > nMod && cols > 4)
+						cols = nMod > 4 ? nMod : 4;
 					const float32 tw = (cw - gap * (float32)(cols - 1)) / (float32)cols;
 					const float32 ih = tw * 0.52f;
 					const float32 ipad = S(14.f);
