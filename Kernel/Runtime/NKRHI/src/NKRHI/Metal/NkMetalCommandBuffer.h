@@ -3,6 +3,7 @@
 // NkMetalCommandBuffer.h — MTLCommandBuffer + encoders Metal
 // =============================================================================
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRHI/Metal/NkMetalDevice.h" // NkMetalPassFormats
 #ifdef NK_RHI_METAL_ENABLED
 #ifdef __OBJC__
 #import <Metal/Metal.h>
@@ -22,8 +23,10 @@ namespace nkentseu {
 			void End() override;
 			void Reset() override;
 
+			// Le MTLCommandBuffer est cree a Begin (ou a la premiere commande) et
+			// rendu des qu'il est soumis : voir NkMetalCommandBuffer.mm.
 			bool IsValid() const override {
-				return mCmdBuf != nullptr;
+				return mDev != nullptr;
 			}
 
 			NkCommandBufferType GetType() const override {
@@ -86,6 +89,8 @@ namespace nkentseu {
 
 		private:
 			void EndCurrentEncoder();
+			bool AssurerCmdBuf();
+			void RendreCmdBuf();
 
 			NkMetalDevice *mDev = nullptr;
 			NkCommandBufferType mType;
@@ -107,6 +112,9 @@ namespace nkentseu {
 			uint32 mPassW = 0, mPassH = 0;
 			// Taille de groupe du pipeline compute lie (Dispatch).
 			uint32 mTgX = 1, mTgY = 1, mTgZ = 1;
+			// Formats de la passe en cours : choisissent la variante du pipeline.
+			NkMetalPassFormats mFormats;
+			bool mPipelineValide = false;
 	};
 
 } // namespace nkentseu
