@@ -67,6 +67,12 @@ with project(_PROJET):
     location(".")
 
     files(["src/**.cpp"])
+    # Les SCRIPTS C++ du jeu (2026-10-01, document 01 § 5.6) : les sources du
+    # projet et le registre genere par l'editeur, lies EN STATIQUE -- les memes
+    # sources que la DLL rechargee a chaud dans l'editeur.
+    if _JEU and _JEU.get("scripts"):
+        files(_JEU["scripts"])
+        defines(["NK_UNKENY_SCRIPTS_STATIQUES"])
 
     # Les dependances de l'editeur MOINS NKEditorKit : le joueur n'a ni
     # panneaux ni arbre. NKMedia : NKAudio en depend (Opus) et le lien Windows

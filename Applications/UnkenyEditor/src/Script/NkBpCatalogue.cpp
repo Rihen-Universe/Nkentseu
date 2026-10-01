@@ -774,26 +774,28 @@ namespace nkentseu {
 		void NkBpGraphePorte(graph::NkNodeGraph &g, const char *porte) {
 			g.Clear();
 			NkBpEnregistrerTypes(g);
+			// Quatre colonnes : l'evenement et ses valeurs, la condition, le Si et
+			// la porte, les gestes (de haut en bas, dans l'ordre d'execution).
 			const graph::NkNodeId ev = NkBpCreerNoeud(g, "bp.ev.zone_entree", 0.f, 0.f);
-			const graph::NkNodeId nomEst = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.nom_est", 40.f, 170.f);
+			const graph::NkNodeId nomEst = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.nom_est", 0.f, 130.f);
 			NkBpPoserDefaut(g, nomEst, "nom", "Joueur");
-			const graph::NkNodeId et = NkBpCreerNoeud(g, "bp.math.et", 300.f, 120.f);
 			// « ouverte » : une variable du Blueprint (montree et sauvee dans les Details).
-			const graph::NkNodeId lire = NkBpCreerNoeud(g, "bp.var.lire.booleen", 40.f, 320.f);
+			const graph::NkNodeId lire = NkBpCreerNoeud(g, "bp.var.lire.booleen", 0.f, 260.f);
 			NkBpPoserDefaut(g, lire, "nom", "ouverte");
-			const graph::NkNodeId non = NkBpCreerNoeud(g, "bp.math.non", 300.f, 320.f);
-			const graph::NkNodeId et2 = NkBpCreerNoeud(g, "bp.math.et", 420.f, 220.f);
-			const graph::NkNodeId si = NkBpCreerNoeud(g, "bp.si", 640.f, 0.f);
-			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 640.f, 260.f);
+			const graph::NkNodeId et = NkBpCreerNoeud(g, "bp.math.et", 250.f, 110.f);
+			const graph::NkNodeId non = NkBpCreerNoeud(g, "bp.math.non", 250.f, 260.f);
+			const graph::NkNodeId et2 = NkBpCreerNoeud(g, "bp.math.et", 250.f, 360.f);
+			const graph::NkNodeId si = NkBpCreerNoeud(g, "bp.si", 500.f, 0.f);
+			const graph::NkNodeId parNom = NkBpCreerNoeud(g, "bp.natif:unkeny.entite.par_nom", 500.f, 150.f);
 			NkBpPoserDefaut(g, parNom, "nom", porte != nullptr ? porte : "Porte");
-			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 900.f, 300.f);
-			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 1140.f, 280.f);
+			const graph::NkNodeId pos = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.position", 500.f, 250.f);
+			const graph::NkNodeId add = NkBpCreerNoeud(g, "bp.math.add_v", 500.f, 350.f);
 			NkBpPoserDefaut(g, add, "b", "0 2");
-			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 1380.f, 0.f);
-			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 1640.f, 0.f);
-			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 1900.f, 0.f);
+			const graph::NkNodeId tel = NkBpCreerNoeud(g, "bp.natif:unkeny.transform.teleporter", 750.f, 0.f);
+			const graph::NkNodeId eff = NkBpCreerNoeud(g, "bp.natif:unkeny.effet.jouer", 750.f, 130.f);
+			const graph::NkNodeId aff = NkBpCreerNoeud(g, "bp.natif:unkeny.journal.afficher", 750.f, 240.f);
 			NkBpPoserDefaut(g, aff, "texte", "La porte s'ouvre (Blueprint)");
-			const graph::NkNodeId ecrire = NkBpCreerNoeud(g, "bp.var.ecrire.booleen", 2160.f, 0.f);
+			const graph::NkNodeId ecrire = NkBpCreerNoeud(g, "bp.var.ecrire.booleen", 750.f, 350.f);
 			NkBpPoserDefaut(g, ecrire, "nom", "ouverte");
 			NkBpPoserDefaut(g, ecrire, "valeur", "vrai");
 			Fil(g, ev, "suite", si, "exec");

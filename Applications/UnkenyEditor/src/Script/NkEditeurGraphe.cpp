@@ -169,6 +169,11 @@ namespace nkentseu {
 				e.erreur = true;
 				e.canevas.enErreur = err.noeud;
 				const graph::NkNode *n = e.graphe.Find(err.noeud);
+				// La vue va au noeud fautif : on VOIT l'erreur, entouree de rouge.
+				if (n != nullptr && e.zoneCanevas.w > 0.f && e.canevas.zoom > 0.f) {
+					e.canevas.vueX = n->x - e.zoneCanevas.w / e.canevas.zoom * 0.3f;
+					e.canevas.vueY = n->y - e.zoneCanevas.h / e.canevas.zoom * 0.3f;
+				}
 				e.message = n != nullptr ? NkString::Format("Erreur sur « %s » : %s", n->label.CStr(), err.message.CStr())
 										 : NkString::Format("Erreur : %s", err.message.CStr());
 				s.journal.PushBack(NkString::Format("[Blueprint] %s : %s", e.ref.CStr(), e.message.CStr()));
@@ -230,7 +235,7 @@ namespace nkentseu {
 			}
 
 			// ── La palette, a gauche ──
-			const float32 lp = 230.f;
+			const float32 lp = 200.f;
 			const float32 hs = 26.f;
 			const NkRect palette{page.x, page.y + hb, lp, page.h - hb - hs};
 			dl.AddRectFilled(palette, c.pal.panneau);

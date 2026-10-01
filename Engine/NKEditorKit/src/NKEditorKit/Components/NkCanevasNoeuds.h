@@ -128,7 +128,8 @@ namespace nkentseu {
 		/// La position A L'ECRAN de la prise `k` de `n`. false : pas de prise k.
 		bool NkCanevasPrise(const NkEtatCanevas &e, const nkgui::NkRect &zone, const graph::NkNode &n, int32 k,
 							const NkStyleCanevas &s, nkgui::NkVec2 &sortie) noexcept;
-		/// Cadre tout le graphe dans la zone (zoom borne a [0,4 ; 1,25]).
+		/// Cadre le graphe dans la zone (zoom borne a [0,7 ; 1,25] : lisible ; plus
+		/// grand que la vue, il part de son coin haut-gauche).
 		void NkCanevasCadrer(NkEtatCanevas &e, const nkgui::NkRect &zone, const graph::NkNodeGraph &g,
 							 const NkStyleCanevas &s) noexcept;
 

@@ -14,6 +14,11 @@
 //         sons/<nom>.nksnd         chaque son demande
 //         entrees.nkentrees        les liaisons du jeu (NkLiaisons::Ecrire),
 //                                  si l'editeur en donne (30/09)
+//         scripts/<nom>.nkbp       (2026-10-01) chaque Blueprint que la scene
+//                                  NOMME, DEPOUILLE de son graphe (le module
+//                                  seul : le jeu n'a ni NKGraph ni compilateur).
+//                                  Les scripts C++, eux, sont LIES au joueur
+//                                  (le workspace genere les compile avec lui).
 //     Les extensions sont celles de CONVENTIONS_FICHIERS.md § 2, tirees de
 //     NkAssetExtensionFor : la table n'est jamais recopiee.
 //   - Une texture cuite est un actif ordinaire (NkAssetIO) dont le payload est
@@ -65,6 +70,7 @@ namespace nkentseu {
 
 		class NkTextures2D;
 		class NkSons2D;
+		class NkScripts2D;
 
 		/// Le nom du sommaire, a la racine du dossier cuit.
 		constexpr const char *NK_LIVRAISON_SOMMAIRE = "jeu.json";
@@ -111,6 +117,10 @@ namespace nkentseu {
 				/// Les liaisons du jeu, en texte (NkLiaisons::Ecrire). Vide : aucun
 				/// fichier, le joueur prend les liaisons standard.
 				NkString entrees;
+				/// (2026-10-01) Le dossier du PROJET (barre finale) : les Blueprints
+				/// que la scene nomme (« Contenu/Scripts/Porte.nkbp ») y sont lus.
+				/// Vide : aucun Blueprint cuit (et c'est dit si la scene en nomme).
+				NkString projet;
 		};
 
 		struct NkRapportCuisson {
@@ -121,6 +131,7 @@ namespace nkentseu {
 				uint64 empreinte = 0u;
 				uint32 textures = 0u;
 				uint32 sons = 0u;
+				uint32 scripts = 0u; ///< Blueprints cuits (2026-10-01)
 		};
 
 		/// Ecrit le jeu dans `demande.dossier` : la scene, ses textures, les
@@ -144,6 +155,7 @@ namespace nkentseu {
 				NkRegleCamera regleCamera = NkRegleCamera::NK_TOUT_MONTRER;
 				uint32 textures = 0u; ///< textures relues
 				uint32 sons = 0u;	  ///< sons relus
+				uint32 scripts = 0u;  ///< Blueprints relus et verifies (2026-10-01)
 				/// Le texte des entrees cuites (a donner a NkLiaisons::Lire). Vide :
 				/// le jeu n'en a pas emporte -- liaisons standard.
 				NkString entrees;
@@ -166,7 +178,12 @@ namespace nkentseu {
 		/// lu dans l'APK). `sons` peut etre nul : les sons du sommaire ne sont
 		/// alors pas lus (`sortie.sons` reste a 0), sans que ce soit une absence.
 		/// Rend Jouable().
-		bool NkChargerJeu(const char *dossier, NkScene &scene, NkTextures2D &textures, NkSons2D *sons, NkJeuCharge &sortie);
+		bool NkChargerJeu(const char *dossier, NkScene &scene, NkTextures2D &textures, NkSons2D *sons, NkJeuCharge &sortie,
+						  NkScripts2D *scripts = nullptr);
+		/// (2026-10-01) Les scripts que la scene CHARGEE nomme et que `scripts`
+		/// ne sait pas faire tourner (inconnus, refuses) : ajoutes a
+		/// `sortie.manquantes`, par leur nom. Rend leur nombre.
+		uint32 NkVerifierScriptsDuJeu(NkScene &scene, const NkScripts2D &scripts, NkJeuCharge &sortie);
 
 		/// Le nom du jeu (« Gelée »), lu au sommaire SANS rien charger d'autre :
 		/// la fenetre doit porter son titre des sa creation, avant que la scene

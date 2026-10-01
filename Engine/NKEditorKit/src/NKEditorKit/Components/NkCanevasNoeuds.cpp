@@ -167,10 +167,15 @@ namespace nkentseu {
 			float32 z = (zone.w - 2.f * marge) / (x1 - x0);
 			const float32 zy = (zone.h - 2.f * marge) / (y1 - y0);
 			z = zy < z ? zy : z;
-			z = z < 0.4f ? 0.4f : (z > 1.25f ? 1.25f : z);
+			// Lisible d'abord : en dessous de 0,7 le texte des noeuds ne se lit plus.
+			// Un graphe plus grand que la vue part de son coin haut-gauche (on se
+			// deplace ensuite, bouton du milieu ou droit).
+			z = z < 0.7f ? 0.7f : (z > 1.25f ? 1.25f : z);
 			e.zoom = z;
-			e.vueX = x0 - (zone.w / z - (x1 - x0)) * 0.5f;
-			e.vueY = y0 - (zone.h / z - (y1 - y0)) * 0.5f;
+			const float32 libreX = zone.w / z - (x1 - x0);
+			const float32 libreY = zone.h / z - (y1 - y0);
+			e.vueX = libreX > 0.f ? x0 - libreX * 0.5f : x0 - marge / z;
+			e.vueY = libreY > 0.f ? y0 - libreY * 0.5f : y0 - marge / z;
 		}
 
 		void NkCanevasNoeuds(nkgui::NkGuiDrawList &dl, nkgui::NkGuiInput &in, nkgui::NkGuiFont *police, const NkRect &zone,

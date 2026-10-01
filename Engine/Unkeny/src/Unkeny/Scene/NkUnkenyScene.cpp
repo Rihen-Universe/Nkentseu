@@ -520,9 +520,20 @@ namespace nkentseu {
 			// l'ancienne position et l'objet revient d'un coup au pas suivant.
 			if (mPhysique != nullptr) {
 				if (const NkCorps2D *c = mMonde.Get<NkCorps2D>(id)) {
+					bool statique = false;
 					if (physics::NkRigidBody *b = mPhysique->GetBody(c->corpsId)) {
 						b->position = math::NkVec3f(position.x, position.y, 0.f);
 						b->linearVelocity = math::NkVec3f(0.f, 0.f, 0.f);
+						statique = b->type == physics::NkBodyType::STATIC;
+					}
+					// ⚠️ (2026-10-01, mesure du banc des scripts : la porte « ouverte »
+					//    par un script bloquait toujours le Joueur) UN CORPS STATIQUE
+					//    N'EST JAMAIS RESYNCHRONISE par le solveur (NkPhysicsWorld::
+					//    Substep, etape 6) : sa forme de collision restait a l'ancienne
+					//    place, invisible. Il est REFAIT a la nouvelle (sa position et
+					//    son orientation sont gardees par ActualiserCorps).
+					if (statique) {
+						ActualiserCorps(id);
 					}
 				}
 			}

@@ -157,6 +157,9 @@ namespace nkentseu {
 		/// Le banc des scripts de l'editeur (Script/NkEditeurBancScripts.cpp) :
 		/// lance par --selftest. 0 = tout tient (un temoin INDETERMINE n'echoue pas).
 		int32 NkEditeurLancerBancScripts();
+		/// `--captures-scripts=DOSSIER` : les captures HORS ECRAN des scripts
+		/// (page du graphe, erreur sur son noeud, Details, jeu, Journal, menu).
+		int32 NkEditeurCapturesScripts(const char *dossier);
 
 	} // namespace editeur
 } // namespace nkentseu

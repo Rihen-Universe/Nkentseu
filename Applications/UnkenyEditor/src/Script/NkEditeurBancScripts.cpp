@@ -212,6 +212,9 @@ namespace nkentseu {
 				Temoin(Absf(dRouge - 2.f) < 0.01f && Journal(s, journal, "La porte rouge s'ouvre (C++)"),
 					   "(e13) puis dans la zone rouge : le C++ ouvre la porte rouge", dRouge);
 			}
+			// La porte ouverte LAISSE PASSER (sa collision a suivi : un corps statique
+			// teleporte est refait, NkScene::TeleporterEntite).
+			Temoin(xGauche < -8.6f && X(m.scene, "Joueur") > 8.6f, "(e13) le Joueur PASSE sous les deux portes ouvertes", xGauche);
 			const ecs::NkEntityId zb = ParNom(m.scene, "Zone bleue");
 			const NkVarScript *vo = zb.IsValid() ? NkScriptVariable(*m.scene.Monde().Get<NkScript2D>(zb), 0, "ouverte") : nullptr;
 			Temoin(vo != nullptr && vo->valeur.x == 1.f, "(e13) la variable « ouverte » du Blueprint vaut vrai", vo != nullptr ? vo->valeur.x : -1.f);

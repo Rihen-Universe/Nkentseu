@@ -61,6 +61,48 @@ namespace nkentseu {
 				}
 				return NkString(NK_SCRIPTS_DOSSIER);
 			}
+			/// Une variable que la definition d'un script DECLARE.
+			struct VarDeclaree {
+					NkString nom;
+					unkeny::NkTypeVarScript type = unkeny::NkTypeVarScript::NK_REEL;
+					NkVec2f defaut{0.f, 0.f};
+			};
+			void Declarees(const unkeny::NkDefinitionScript *d, NkVector<VarDeclaree> &sortie) {
+				if (d == nullptr) {
+					return;
+				}
+				if (d->classe != nullptr) {
+					for (uint32 i = 0; i < d->classe->nbVariables; ++i) {
+						VarDeclaree v;
+						v.nom = d->classe->variables[i].nom;
+						v.type = static_cast<unkeny::NkTypeVarScript>(d->classe->variables[i].type);
+						v.defaut = NkVec2f(d->classe->variables[i].x, d->classe->variables[i].y);
+						sortie.PushBack(v);
+					}
+				} else if (d->programme != nullptr) {
+					const unkeny::NkModuleBp &m = d->programme->module;
+					for (uint32 i = 0; i < m.variables.Size(); ++i) {
+						const unkeny::NkVariableBp &x = m.variables[i];
+						if (!x.exposee) {
+							continue;
+						}
+						VarDeclaree v;
+						v.nom = x.nom;
+						v.defaut = NkVec2f(x.defaut.x, x.defaut.y);
+						if (x.type == unkeny::NkTypeBp::NK_ENTIER) {
+							v.type = unkeny::NkTypeVarScript::NK_ENTIER;
+							v.defaut = NkVec2f(static_cast<float32>(x.defaut.i), 0.f);
+						} else if (x.type == unkeny::NkTypeBp::NK_BOOLEEN) {
+							v.type = unkeny::NkTypeVarScript::NK_BOOLEEN;
+							v.defaut = NkVec2f(x.defaut.i != 0 ? 1.f : 0.f, 0.f);
+						} else if (x.type == unkeny::NkTypeBp::NK_VEC2) {
+							v.type = unkeny::NkTypeVarScript::NK_VEC2;
+						}
+						sortie.PushBack(v);
+					}
+				}
+			}
+
 			const char *Statut(NkEditeurScripts &s, ecs::NkEntityId id, uint32 k, const char *ref, NkString &detail) {
 				const unkeny::NkDefinitionScript *d = s.registre.Definition(s.registre.Trouver(ref));
 				if (d == nullptr) {
@@ -134,38 +176,62 @@ namespace nkentseu {
 				if (nkgui::Button(ctx, "Retirer")) {
 					geste = 4;
 				}
-				// Les VARIABLES de ce script (sauvees par nom, modifiables en jeu).
-				for (uint32 v = 0; v < unkeny::NK_UNKENY_SCRIPT_VARS_MAX && geste == 0; ++v) {
-					unkeny::NkVarScript &x = sc->vars[v];
-					if (x.nom[0] == '\0' || x.script != k) {
-						continue;
+				// Les VARIABLES de ce script (sauvees par nom, modifiables en jeu) : celles
+				// que la DEFINITION declare (classe C++ ou module Blueprint), avec leur
+				// defaut tant que le composant ne les porte pas -- une valeur n'est
+				// ecrite dans l'entite que si on la change -- puis celles du composant
+				// que la definition ne connait plus (gardees, sauvees).
+				NkVector<VarDeclaree> decl;
+				Declarees(s.registre.Definition(s.registre.Trouver(sc->refs[k])), decl);
+				for (uint32 v = 0; v < unkeny::NK_UNKENY_SCRIPT_VARS_MAX; ++v) {
+					const unkeny::NkVarScript &x = sc->vars[v];
+					bool connue = false;
+					for (uint32 q = 0; q < decl.Size(); ++q) {
+						connue = connue || decl[q].nom == x.nom;
 					}
-					ctx.PushId(x.nom);
-					switch (static_cast<unkeny::NkTypeVarScript>(x.type)) {
+					if (x.nom[0] != '\0' && x.script == k && !connue) {
+						VarDeclaree d;
+						d.nom = x.nom;
+						d.type = static_cast<unkeny::NkTypeVarScript>(x.type);
+						decl.PushBack(d);
+					}
+				}
+				for (uint32 q = 0; q < decl.Size() && geste == 0; ++q) {
+					const VarDeclaree &d = decl[q];
+					const unkeny::NkVarScript *x = unkeny::NkScriptVariable(*sc, k, d.nom.CStr());
+					NkVec2f val = x != nullptr ? x->valeur : d.defaut;
+					bool change = false;
+					ctx.PushId(d.nom.CStr());
+					switch (d.type) {
 						case unkeny::NkTypeVarScript::NK_ENTIER: {
-							int32 i = static_cast<int32>(x.valeur.x);
-							if (nkgui::DragInt(ctx, x.nom, i)) {
-								x.valeur.x = static_cast<float32>(i);
+							int32 i = static_cast<int32>(val.x);
+							if (nkgui::DragInt(ctx, d.nom.CStr(), i)) {
+								val.x = static_cast<float32>(i);
+								change = true;
 							}
 							break;
 						}
 						case unkeny::NkTypeVarScript::NK_BOOLEEN: {
-							bool b = x.valeur.x != 0.f;
-							if (nkgui::Checkbox(ctx, x.nom, b)) {
-								x.valeur.x = b ? 1.f : 0.f;
+							bool b = val.x != 0.f;
+							if (nkgui::Checkbox(ctx, d.nom.CStr(), b)) {
+								val.x = b ? 1.f : 0.f;
+								change = true;
 							}
 							break;
 						}
 						case unkeny::NkTypeVarScript::NK_VEC2: {
-							nkgui::DragFloat(ctx, NkString::Format("%s.x", x.nom).CStr(), x.valeur.x, 0.05f);
-							nkgui::DragFloat(ctx, NkString::Format("%s.y", x.nom).CStr(), x.valeur.y, 0.05f);
+							change = nkgui::DragFloat(ctx, NkString::Format("%s.x", d.nom.CStr()).CStr(), val.x, 0.05f) || change;
+							change = nkgui::DragFloat(ctx, NkString::Format("%s.y", d.nom.CStr()).CStr(), val.y, 0.05f) || change;
 							break;
 						}
 						default:
-							nkgui::DragFloat(ctx, x.nom, x.valeur.x, 0.05f);
+							change = nkgui::DragFloat(ctx, d.nom.CStr(), val.x, 0.05f);
 							break;
 					}
 					ctx.PopId();
+					if (change) {
+						unkeny::NkScriptPoserVariable(*sc, k, d.nom.CStr(), d.type, val);
+					}
 				}
 				ctx.PopId();
 				if (geste == 1 || geste == 2) {

@@ -49,7 +49,7 @@ ne l'efface pas.
 | **R11** | **repère d'axes en bas à gauche** du viseur | U1 | 🔴 aucune trace trouvée (grep) au moment de la lecture |
 | **R12** | **axes et origine du monde** visibles | U1 | 🔶 `NkDessinerGrille` trace déjà des axes ; « l'origine du monde » arrive dans `NkEditeurViseur.cpp:55`, non commité |
 | **R13** | **F = cadrer la sélection, même hors cadre** | U1 | 🔶 `NkEditeurCadrerSelection` (e14) **centre sans changer le zoom** : une sélection plus grande que la vue ne sera pas « cadrée » — à décider (§ 5, U1) |
-| **R14** | **deux langages de script** : Blueprint **et** C++ rechargé à chaud | U4 | 🔶 conception dans le document 01 |
+| **R14** | **deux langages de script** : Blueprint **et** C++ rechargé à chaud | U4 | 🔶 S0–S2 faits le 01/10 (composant multi-scripts, hôte, table C, VM, compilateur, page du graphe, C++ rechargé à chaud, livraison) : document 01 § 14 ; restent S3, S4 complet, S6 mobile/Web, S7 |
 | **R15** | **les corps mous peuvent être des personnages, ou des parties de personnage**, déplaçables **à la souris, au clavier, à la manette ou au tactile** | U2 | 🔴 la souris seule existe (saisie en jeu) ; analyse au § 4 |
 | **R16** | **une fois le jeu terminé, le construire pour la bonne plateforme depuis l'éditeur** (Windows, Android, Web, puis HarmonyOS, Linux, macOS / iOS) — demande du 30/09 | U5 | 🔶 fondations lancées le 30/09 (branche `comble/livrer-u5` : joueur autonome + fenêtre Construire) |
 | **R17** | **tout logo existe en version sombre ET en version claire** (NKCraft, et l'icône de chaque jeu construit) — demande du 30/09 | U5 | 🔶 fait pour NKCraft (`c7b1f814c`) ; à appliquer à l'icône des jeux construits |

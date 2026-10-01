@@ -433,6 +433,9 @@ namespace nkentseu {
 					continue;
 				}
 				// (2026-10-01) Des captures HORS ECRAN, sans fenetre (NkEditeurPlacer.h).
+				if (args[i].StartsWith("--captures-scripts=")) {
+					return NkOptional<int>(NkEditeurCapturesScripts(NkString(args[i].SubStr(19)).CStr()));
+				}
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}
