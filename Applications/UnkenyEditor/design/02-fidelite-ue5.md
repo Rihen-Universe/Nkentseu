@@ -191,6 +191,20 @@ Lumières, Formes, Effets, Volumes, Tout**, avec recherche, liste à icônes,
   « utiliser la sélection ».
 - **Avancé** repliable sous chaque catégorie.
 
+> **État au 01/10 (étape 2, branche `ue5/navigateur-corrections-details`)** — fait :
+> en-tête (icône de l'acteur, case « active », nom, `+ Ajouter` au plus vert) ;
+> **arbre des composants** (« Caisse (Instance) » puis ses composants : un clic
+> n'affiche que lui) ; **recherche** dans les propriétés ; **pastilles** Général,
+> Acteur, Physique, Rendu, Animation, Audio, Tout ; catégories repliables au titre
+> en gras sur une bande plus claire ; rythme de 24 px ; colonne des noms alignée,
+> sa **cloison se tire** ; colonne des flèches de remise réservée partout, la
+> flèche ne paraît que sur une valeur **modifiée** ; **liserés** rouge X / vert Y /
+> bleu Z collés au bord gauche des champs ; **verrou** de l'échelle ; **référence
+> d'asset** de la texture d'un sprite (vignette, liste filtrée et cherchable,
+> « utiliser la sélection », « parcourir », glisser sur le champ ou sur le sprite
+> de la vue, Ctrl+Z). Sombre et clair. Témoins u4, u5, u9 (`NkEditeurBancUe5.cpp`).
+> **Pas encore** : liste relatif / absolu du Transform, *Mobilité*, « Avancé ».
+
 ## 6. Méthode
 
 - Une étape à la fois, dans cet ordre : **3** (Content Browser), **5** (Détails, y

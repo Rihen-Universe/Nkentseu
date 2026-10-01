@@ -21,6 +21,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurTerminal.h"
+#include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
@@ -317,6 +318,43 @@ namespace nkentseu {
 					mExempleHud = true;
 					continue;
 				}
+				// --exemple=journal (2026-10-01) : le tiroir sur son JOURNAL, avec des
+				// lignes de chaque niveau (une construction typique) -- la capture de
+				// l'Output Log sans lancer Jenga.
+				if (args[i] == "--exemple=journal") {
+					mUi->voirTiroir = true;
+					mUi->ongletTiroir = 1;
+					static const char *kLignes[] = {
+						"[00:01]  Scene ouverte : Niveau1.nkscene",
+						"[00:04]  Construire « Niveau1 » pour Windows (Developpement)",
+						"Compiling NkUnkenyScene.cpp",
+						"Engine/Unkeny/src/Unkeny/Scene/NkUnkenyScene.cpp:212:15: warning: unused variable 'pas' [-Wunused-variable]",
+						"Compiling NkEditeurJeu.cpp",
+						"Applications/UnkenyPlayer/src/main.cpp:48:9: error: use of undeclared identifier 'NkJouer'",
+						"Build Failed : 1 erreur, 1 avertissement",
+						"[00:31]  Correction : main.cpp",
+						"Build Successful",
+						"[00:52]  Jeu construit : Construit/Niveau1/Niveau1.exe",
+					};
+					for (const char *l : kLignes) {
+						mUi->journal.PushBack(NkString(l));
+					}
+					continue;
+				}
+				// --theme=clair (2026-10-01) : le theme CLAIR du kit (le logo du coin
+				// passe en version claire) -- une capture sans souris.
+				// --details=NOM (2026-10-01) : le composant NOM (« Sprite »...) choisi
+				// dans l'arbre des Details au depart -- une capture sans souris.
+				if (args[i].StartsWith("--details=")) {
+					mUi->demDetails = NkString(args[i].SubStr(10));
+					continue;
+				}
+				if (args[i] == "--theme=clair") {
+					mTheme = editorkit::NkTheme::Light();
+					mPalette = NkEditeurPalette(mTheme);
+					Config().clearColor = renderer::NkColor2D{mPalette.fond.r, mPalette.fond.g, mPalette.fond.b, 255};
+					continue;
+				}
 				if (args[i] == "--exemple=nuit") {
 					mExempleNuit = true;
 					continue;
@@ -344,6 +382,11 @@ namespace nkentseu {
 				}
 				if (args[i].StartsWith("--contenu-menu=")) {
 					mUi->demMenu = NkString(args[i].SubStr(15));
+					continue;
+				}
+				// --contenu-renommer=CHEMIN : le renommage en place ouvert, le nom choisi.
+				if (args[i].StartsWith("--contenu-renommer=")) {
+					mUi->demRenommer = NkString(args[i].SubStr(19));
 					continue;
 				}
 				if (args[i].StartsWith("--contenu-deposer=")) {
@@ -385,9 +428,11 @@ namespace nkentseu {
 					// Le terminal partage (01/10) : un VRAI shell -- sur la CI macOS,
 					// c'est lui qui execute le moteur POSIX.
 					const int32 terminal = NkEditeurLancerBancTerminal();
+					// L'etape 2 d'Unreal (01/10, document 02) : a part, a la fin.
+					const int32 ue5 = NkEditeurLancerBancUe5();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0 || terminal != 0;
+									   ecran != 0 || terminal != 0 || ue5 != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -400,6 +445,7 @@ namespace nkentseu {
 				}
 				if (args[i].StartsWith("--sortie=")) {
 					std::snprintf(mConstruction->sortie, sizeof(mConstruction->sortie), "%s", NkString(args[i].SubStr(9)).CStr());
+					mConstruction->sortieImposee = true;
 					continue;
 				}
 				if (args[i].StartsWith("--nom=")) {
@@ -778,12 +824,13 @@ namespace nkentseu {
 			// lettre, pas l'entite ; Espace s'ecrit, il ne lance pas la scene.
 			// La recherche du menu des composants a le clavier, elle aussi.
 			if (ctx.inputId != nkgui::NKGUI_ID_NONE || c.ui.filtreFocus || c.ui.nomFocus || c.ui.arbre.renaming != 0 ||
-				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
+				c.ui.menu == NkMenuEditeur::NK_COMPOSANT || c.ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE) {
 				return;
 			}
 			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,
 			// renommage en place) gardent leurs touches : Suppr efface une lettre.
-			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty()) {
+			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty() ||
+				c.ui.journalRechercheFocus || c.ui.detailsRechercheFocus || c.ui.toucheChamp) {
 				return;
 			}
 			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.
@@ -855,6 +902,7 @@ namespace nkentseu {
 		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction,
 									NkEditeurSelecteurEtat *selecteur) {
 			NkEditeurInterface &ui = c.ui;
+			ui.toucheChamp = false;
 			// ── Les DEMANDES du selecteur de fichiers (Importer…, Exporter…) : il
 			//    s'ouvre ICI, avant le dessin -- modal des cette trame.
 			if (selecteur != nullptr && !selecteur->pickerOpen) {
@@ -864,6 +912,11 @@ namespace nkentseu {
 					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_EXPORTER, nullptr);
 				}
 			}
+			// « Parcourir… » du dossier de sortie de « Construire » (2026-10-01).
+			if (selecteur != nullptr && !selecteur->pickerOpen && construction.parcourirDemande) {
+				NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_DOSSIER_SORTIE, construction.sortie);
+			}
+			construction.parcourirDemande = false;
 			ui.importDemande = false;
 			ui.exportDemande = false;
 			const bool choix = NkEditeurSelecteurOuvert(selecteur);
@@ -977,6 +1030,11 @@ namespace nkentseu {
 						NkEditeurImporterIci(c.m, ui, selecteur->resultatsMultiples, ui.importCible.Empty() ? nullptr : rel.CStr());
 					} else if (usage == NkUsageSelecteur::NK_EXPORTER) {
 						NkEditeurExporterChoisis(c.m, ui, selecteur->pickerResultPath);
+					} else if (usage == NkUsageSelecteur::NK_DOSSIER_SORTIE) {
+						// Le dossier choisi va au champ, et le projet le RETIENT.
+						std::snprintf(construction.sortie, sizeof(construction.sortie), "%s", selecteur->pickerResultPath);
+						construction.sortieDe = NkEditeurDossierProjet(c.m);
+						NkEditeurRetenirSortie(c.m, construction.sortie);
 					}
 				}
 			} else {

@@ -54,6 +54,15 @@ namespace nkentseu {
 				char iconeSombre[320] = {};
 				char iconeClaire[320] = {};
 				int32 focus = -1; ///< 0 nom, 1 sortie, 2 icone sombre, 3 icone claire
+				/// (2026-10-01, retour 6 de Rihen) Le dossier de sortie est RETENU PAR
+				/// PROJET (NkEditeurProjet.h) : `sortieDe` est le projet dont `sortie`
+				/// vient ; `--sortie=` l'IMPOSE (garde la priorite a l'ouverture).
+				bool sortieImposee = false;
+				NkString sortieDe;
+				/// « Parcourir… » : une DEMANDE, lue par la trame, qui ouvre LE
+				/// selecteur de l'editeur en mode dossier (NK_DOSSIER_SORTIE).
+				bool parcourirDemande = false;
+				nkgui::NkRect boutonParcourir{0.f, 0.f, 0.f, 0.f}; ///< le banc y vise
 				/// `--fenetre=construire-auto` : « Construire » est presse tout seul
 				/// apres ce nombre de trames (le viseur a alors cadre la scene).
 				/// C'est ce qui eprouve la fenetre SANS souris. 0 = jamais.
@@ -84,7 +93,7 @@ namespace nkentseu {
 
 		/// Ouvre la fenetre, avec les reglages precedents ou ceux par defaut, et
 		/// refait la detection des chaines (elles ont pu etre installees).
-		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, const NkEditeurModele &m);
+		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, NkEditeurModele &m);
 
 		/// Lance la construction avec les reglages de la fenetre : cuisson et
 		/// workspace tout de suite, puis la premiere etape Jenga. Le viseur de
@@ -104,6 +113,24 @@ namespace nkentseu {
 		/// erreurs, puis le journal ligne par ligne, colore et filtre -- a la
 		/// maniere de l'Output Log d'Unreal Engine 5.
 		void NkEditeurDessinerJournalConstruction(NkEditeurCadre &c, NkEditeurConstruction &k, const nkgui::NkRect &zone);
+
+		// ── Les pieces de l'Output Log, PARTAGEES (2026-10-01) ────────────────
+		// L'onglet Journal de « Construire » et le tiroir « Journal » de l'editeur
+		// (NkEditeurTiroir.cpp) les emploient tous deux : rien n'est recopie.
+		/// Le filtre : 0 tout, 1 avertissements et erreurs, 2 erreurs seules.
+		bool NkEditeurNiveauMontre(NkNiveauLigne n, int32 filtre) noexcept;
+		/// La couleur d'une ligne de ce niveau (roles StatusErr, StatusWarn,
+		/// StatusOk du theme ; la palette de l'editeur pour le reste).
+		nkgui::NkColor NkEditeurCouleurNiveau(const NkEditeurCadre &c, NkNiveauLigne n);
+		/// Le fond d'une ligne d'erreur ou d'avertissement : un voile de sa
+		/// couleur et un trait de 2 px a gauche. Rien pour les autres niveaux.
+		void NkEditeurBandeNiveau(const NkEditeurCadre &c, nkgui::NkGuiDrawList &dl, const nkgui::NkRect &r, NkNiveauLigne n);
+		/// Les trois puces « Tout N », « Avertissements N », « Erreurs N », a
+		/// partir de (x, y), hauteur `h` ; un clic change `filtre` (et `*change`).
+		/// `rects` (3, facultatif) recoit leurs rectangles. Rend le x d'apres.
+		float32 NkEditeurPucesNiveau(NkEditeurCadre &c, nkgui::NkGuiDrawList &dl, float32 x, float32 y, float32 h, int32 tout,
+									 int32 avertissements, int32 erreurs, int32 &filtre, bool *change = nullptr,
+									 nkgui::NkRect *rects = nullptr);
 
 	} // namespace editeur
 } // namespace nkentseu

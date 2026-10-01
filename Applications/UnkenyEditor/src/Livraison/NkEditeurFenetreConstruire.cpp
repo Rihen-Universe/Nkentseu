@@ -16,6 +16,7 @@
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurProjet.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -130,15 +131,20 @@ namespace nkentseu {
 		} // namespace
 
 		// =====================================================================
-		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, const NkEditeurModele &m) {
+		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, NkEditeurModele &m) {
 			if (k.nom[0] == '\0') {
 				// Le nom de la scene ouverte (« niveau1.nkscene » -> niveau1), sinon
 				// MonJeu : une scene jamais enregistree n'a pas de nom a proposer.
 				const NkString stem = m.chemin.Empty() ? NkString() : NkPath(m.chemin.CStr()).GetFileNameWithoutExtension();
 				Copier(k.nom, sizeof(k.nom), stem.Empty() || stem == NkString("scene") ? "MonJeu" : stem.CStr());
 			}
-			if (k.sortie[0] == '\0') {
-				Copier(k.sortie, sizeof(k.sortie), NkSortieParDefaut().CStr());
+			// Le dossier de sortie RETENU PAR CE PROJET (sinon <projet>/Construit,
+			// sinon Documents/Unkeny/Jeux) ; un autre projet ouvert entre-temps
+			// reprend le sien. `--sortie=` garde la priorite.
+			const NkString projet = NkEditeurDossierProjet(m);
+			if (!k.sortieImposee && (k.sortie[0] == '\0' || !(k.sortieDe == projet))) {
+				Copier(k.sortie, sizeof(k.sortie), NkEditeurSortieDuProjet(m).CStr());
+				k.sortieDe = projet;
 			}
 			NkDetecterPlateformes(k.dispo);
 			// La plateforme choisie doit etre construisible : sinon la premiere
@@ -165,6 +171,12 @@ namespace nkentseu {
 			}
 			k.demande.nom = NkString(k.nom);
 			k.demande.sortie = NkString(k.sortie);
+			// Le dossier choisi est RETENU par le projet (son prochain « Construire »
+			// y repart). Pas celui impose par --sortie= : c'est une commande, pas
+			// un choix.
+			if (!k.sortieImposee) {
+				NkEditeurRetenirSortie(m, k.sortie);
+			}
 			k.demande.iconeSombre = NkString(k.iconeSombre);
 			k.demande.iconeClaire = NkString(k.iconeClaire);
 			ui.voirTiroir = true;
@@ -408,7 +420,15 @@ namespace nkentseu {
 
 			// ── La sortie ────────────────────────────────────────────────────
 			renderer::NkTexte(dl, c.police, gauche, y + 3.f, "Dossier de sortie", c.pal.texte);
-			Champ(c, k, 1, NkRect{colonne, y, largeurChamp, lh + 8.f}, k.sortie, static_cast<int32>(sizeof(k.sortie)));
+			// « Parcourir… » a droite du champ : LE selecteur de l'editeur, en mode
+			// dossier (NkEditeurSelecteur.h, celui de NKEditorKit).
+			const float32 wP = renderer::NkTexteLargeur(c.police, "Parcourir…") + 20.f;
+			k.boutonParcourir = NkRect{colonne + largeurChamp - wP, y, wP, lh + 8.f};
+			Champ(c, k, 1, NkRect{colonne, y, largeurChamp - wP - 6.f, lh + 8.f}, k.sortie, static_cast<int32>(sizeof(k.sortie)));
+			if (NkEditeurBouton(c, k.boutonParcourir, "Parcourir…", false, !occupe, &dl)) {
+				k.focus = -1;
+				k.parcourirDemande = true;
+			}
 			y += lh + 10.f;
 			const NkString ou = NkString("le jeu ira dans : ") + k.sortie + "/" + id + "/";
 			renderer::NkTexte(dl, c.petite, colonne, y, ou.CStr(), c.pal.attenue, largeurChamp);

@@ -921,7 +921,11 @@ namespace nkentseu {
 			const float32 g = M("card_gap") * 0.5f; // Unreal serre ses cartes
 			float32 thumb = (m.thumbSize > 0.f ? m.thumbSize : P("thumb_size")) * in.surfaceScale;
 			const float32 bande = M("type_band");
-			const float32 piedH = bande + pad * 0.25f + 3.f * lh + pad * 0.25f; // nom (2 lignes) + type
+			// (2026-10-01, retour de Rihen) Un nom LONG se confondait avec sa nature :
+			// la seconde ligne du nom touchait le type gris. Un ECART NET, un filet
+			// fin en son milieu, les separe ; le nom garde deux lignes au plus.
+			const float32 ecartNom = pad * 0.75f;
+			const float32 piedH = bande + pad * 0.25f + 2.f * lh + ecartNom + lh + pad * 0.25f; // nom (2 lignes) | type
 			// En bande courte, la vignette cede (le pied porte l'information) ;
 			// plancher d'une ligne et demie.
 			if (!liste && thumb + piedH + 2.f * g > area.h) {
@@ -1066,6 +1070,9 @@ namespace nkentseu {
 					} else {
 						DeuxLignes(p, rn, Label(e), texteNom, false, lh);
 					}
+					// le FILET entre le nom et la nature, au milieu de l'ecart
+					const uint32 teinteFilet = Alpha(p.ColorOf(choisi ? rSurBleu : s.textMuted), 0x48u);
+					p.FillColor({pied.x + pad * 0.5f, rn.y + rn.h + ecartNom * 0.5f - 0.5f, pied.w - pad, 1.f}, teinteFilet);
 					p.Text({pied.x + pad * 0.5f, pied.y + pied.h - lh - pad * 0.25f, pied.w - pad, lh},
 						   e.kindLabel ? e.kindLabel : "", choisi ? rSurBleu : s.textMuted);
 					if (choisi && !actif)
@@ -1093,7 +1100,15 @@ namespace nkentseu {
 			// =================================================================
 			//  LES GESTES DE LA VUE -- un seul endroit, apres le dessin
 			// =================================================================
-			if (in.mousePressed && dansZone) {
+			// ⚠️ (2026-10-01, retour de Rihen) LE CHAMP DU RENOMMAGE EST A L'HOTE :
+			//    la souris y place le curseur, y choisit du texte (glisser,
+			//    double-clic = un mot). Sans cette garde, l'appui dans le champ
+			//    ARMAIT le glisser de la carte (on tirait l'asset au lieu de choisir
+			//    des lettres), le double-clic OUVRAIT l'asset et le clic droit
+			//    ouvrait son menu : « ce n'est pas un vrai champ ».
+			const bool dansRenommage = m.renomme >= 0 && res.renommeW > 0.f &&
+									   NkPaintRect{res.renommeX, res.renommeY, res.renommeW, res.renommeH}.Contains(in.mouseX, in.mouseY);
+			if (in.mousePressed && dansZone && !dansRenommage) {
 				if (hit >= 0) {
 					const NkAssetEntry &e = m.entries[(uint32)hit];
 					if (in.shift && multi) {
@@ -1209,13 +1224,13 @@ namespace nkentseu {
 				m.reduireAuRelache = -1;
 			}
 			// ── DOUBLE-CLIC : ouvrir (le composant signale) ──
-			if (in.doubleClick && dansZone && hit >= 0) {
+			if (in.doubleClick && dansZone && hit >= 0 && !dansRenommage) {
 				res.activatedIndex = hit;
 				if (hooks.onDoubleClick)
 					hooks.onDoubleClick(hooks.user, hit, m.entries[(uint32)hit].path.Data() ? m.entries[(uint32)hit].path.Data() : "");
 			}
 			// ── CLIC DROIT : la carte (choisie si elle ne l'etait pas), ou le vide ──
-			if (in.rightPressed && dansZone) {
+			if (in.rightPressed && dansZone && !dansRenommage) {
 				if (hit >= 0) {
 					if (!m.IsChosen(hit)) {
 						m.chosen.Clear();

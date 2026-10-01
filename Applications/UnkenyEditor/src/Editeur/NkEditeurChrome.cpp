@@ -20,6 +20,8 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurMarque.h"
+#include "Editeur/NkEditeurReferences.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkThemeToGui.h"
@@ -633,6 +635,23 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_TEXTURE_SPRITE: {
+						// (2026-10-01) La liste deroulante de la reference de texture
+						// (Details) : « Aucune », puis les IMAGES du Contenu (filtre
+						// par type), relevees a l'ouverture ; la texture du sprite cochee.
+						const NkSprite2D *s = m.aSelection && m.scene.Monde().IsAlive(m.selection) ? m.scene.Monde().Get<NkSprite2D>(m.selection)
+																							   : nullptr;
+						const NkString actuelle = s != nullptr ? NkEditeurNavDeTexture(m, s->texId) : NkString();
+						out.PushBack(Entree("Aucune", NK_A_TEXTURE_SPRITE, "", s != nullptr && s->texId == 0u));
+						out.PushBack(Separateur());
+						out.PushBack(Intitule(c.ui.texturesProposees.Empty() ? "(aucune image dans le Contenu)" : "Images du Contenu"));
+						for (uint32 k = 0; k < c.ui.texturesProposees.Size() && k < 99u; ++k) {
+							const NkString &nav = c.ui.texturesProposees[k];
+							out.PushBack(Entree(NkEditeurRelatifContenu(nav.CStr()).CStr(), NK_A_TEXTURE_SPRITE + 1 + static_cast<int32>(k), "",
+												nav == actuelle));
+						}
+						break;
+					}
 					case NkMenuEditeur::NK_COMPOSANT: {
 						if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
 							out.PushBack(Intitule("(aucune sélection)"));
@@ -798,6 +817,7 @@ namespace nkentseu {
 			ui.ecran = NkRect{0.f, 0.f, W, H};
 			ui.barreMenus = NkRect{0.f, 0.f, W, HAUTEUR_MENUS};
 			ui.barreOnglets = NkRect{0.f, HAUTEUR_MENUS, W, HAUTEUR_ONGLETS};
+			ui.logo = NkRect{0.f, 0.f, HAUTEUR_MENUS + HAUTEUR_ONGLETS, HAUTEUR_MENUS + HAUTEUR_ONGLETS};
 			ui.barreOutils = NkRect{0.f, HAUTEUR_MENUS + HAUTEUR_ONGLETS, W, HAUTEUR_OUTILS};
 			ui.statut = NkRect{0.f, H - HAUTEUR_STATUT, W, HAUTEUR_STATUT};
 			const float32 corpsHaut = HAUTEUR_MENUS + HAUTEUR_ONGLETS + HAUTEUR_OUTILS;
@@ -916,6 +936,10 @@ namespace nkentseu {
 						// La scene du navigateur DEVIENT la scene de l'editeur ; un
 						// echec rend l'ancien chemin (on n'enregistrera pas ailleurs).
 						const NkString avant = m.chemin;
+						// (2026-10-01, retour 3 de Rihen) Le projet est RETENU : la scene
+						// ouverte depuis le navigateur ne le change pas -- ni la racine
+						// du Contenu, ni le dossier courant (NkEditeurDossierProjet).
+						m.projet = NkEditeurDossierProjet(m);
 						m.chemin = ui.sceneAOuvrir;
 						ui.sceneAOuvrir = NkString();
 						if (NkEditeurOuvrir(m)) {
@@ -1169,6 +1193,16 @@ namespace nkentseu {
 			}
 			if (action >= NK_A_OUTIL && action <= NK_A_OUTIL + static_cast<int32>(NkOutil::NK_ECHELLE)) {
 				m.outil = static_cast<NkOutil>(action - NK_A_OUTIL);
+				return;
+			}
+			// (2026-10-01) La liste deroulante de la texture d'un sprite (Details).
+			if (action >= NK_A_TEXTURE_SPRITE && action < NK_A_TEXTURE_SPRITE + 100) {
+				const int32 k = action - NK_A_TEXTURE_SPRITE;
+				if (k == 0) {
+					NkEditeurSansTexture(m, m.selection);
+				} else if (static_cast<uint32>(k - 1) < ui.texturesProposees.Size()) {
+					NkEditeurTextureSprite(m, m.selection, ui.texturesProposees[static_cast<uint32>(k - 1)].CStr());
+				}
 				return;
 			}
 			switch (action) {
@@ -1478,7 +1512,8 @@ namespace nkentseu {
 
 			// ── Les menus, a gauche ───────────────────────────────────────────
 			static const char *kNoms[4] = {"Fichier", "Édition", "Fenêtre", "Aide"};
-			float32 x = b.x + 8.f;
+			// A DROITE du logo (le carre du coin couvre les deux lignes).
+			float32 x = b.x + ui.logo.w + 2.f;
 			for (int32 i = 0; i < 4; ++i) {
 				const NkMenuEditeur menu = static_cast<NkMenuEditeur>(i);
 				const float32 w = renderer::NkTexteLargeur(c.police, kNoms[i]) + 18.f;
@@ -1503,6 +1538,14 @@ namespace nkentseu {
 				}
 				x += w + 2.f;
 			}
+
+			// ── LE LOGO, coin haut gauche (2026-10-01, retour 8 de Rihen) : un carre
+			//    sur la ligne des menus ET celle des onglets, comme celui d'Unreal ;
+			//    dessine en VECTEURS (NkEditeurMarque.h), sombre ou clair selon le
+			//    fond. Le carre est peint du fond : le trait bas des onglets ne passe
+			//    pas sous lui.
+			dl.AddRectFilled(ui.logo, c.pal.fond);
+			NkDessinerMarque(dl, ui.logo.x, ui.logo.y, ui.logo.w, NkFondSombre(c.pal.fond));
 
 			// ── Le titre, au centre : l'application, et ce qu'on edite ───────
 			const NkString titre = NkString::Format("Unkeny  —  %s%s", NomScene(c.m).CStr(), ui.modifiee ? " *" : "");
@@ -1603,7 +1646,9 @@ namespace nkentseu {
 			const float32 croix = 20.f;
 			const float32 tw = renderer::NkTexteLargeur(c.police, nom.CStr());
 			const float32 w = 12.f + point + tw + 8.f + croix;
-			const NkRect onglet{b.x + 8.f, b.y + 3.f, w, b.h - 3.f};
+			// A DROITE du logo, qui tient le coin sur les deux lignes.
+			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
+			c.ui.ongletScene = onglet;
 			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
 			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
@@ -1910,7 +1955,9 @@ namespace nkentseu {
 			// « Ajouter un composant » se CHERCHE (Unity) : on tape, la liste filtre,
 			// Entree prend la premiere ligne restante.
 			int32 premiere = NK_A_AUCUNE;
-			if (ui.menu == NkMenuEditeur::NK_COMPOSANT && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
+			// (2026-10-01) La liste des TEXTURES d'un sprite se cherche de meme.
+			const bool cherchable = ui.menu == NkMenuEditeur::NK_COMPOSANT || ui.menu == NkMenuEditeur::NK_TEXTURE_SPRITE;
+			if (cherchable && ui.sousMenu == NkMenuEditeur::NK_AUCUN) {
 				usize n = 0;
 				while (ui.menuFiltre[n] != '\0') {
 					++n;
@@ -1956,7 +2003,7 @@ namespace nkentseu {
 					gardees.PushBack(e);
 				}
 				if (n > 0u && premiere == NK_A_AUCUNE) {
-					gardees.PushBack(Intitule("(aucun composant de ce nom)"));
+					gardees.PushBack(Intitule(ui.menu == NkMenuEditeur::NK_COMPOSANT ? "(aucun composant de ce nom)" : "(aucune image de ce nom)"));
 				}
 				entrees = gardees;
 			}

@@ -60,7 +60,16 @@ namespace nkentseu {
 		/// projet reste la verite ; l'extension est un indice).
 		NkNatureContenu NkEditeurNatureFichier(const char *chemin) noexcept;
 
-		/// Le dossier « Contenu » du projet : a cote de la scene (NkEditeurChemin).
+		/// Le DOSSIER DU PROJET, avec son separateur final (« ./ » au pire) : celui
+		/// qui porte le dossier « Contenu ». Dans l'ordre :
+		///   1. le projet RETENU (`m.projet`) tant que la scene est dedans -- une
+		///      scene ouverte depuis le navigateur ne change pas de projet ;
+		///   2. une scene RANGEE dans un Contenu (« P/Contenu/Scenes/n.nkscene ») :
+		///      le dossier au-dessus de son dernier segment « Contenu » (P/) ;
+		///   3. le dossier de la scene (l'historique : la scene a la racine).
+		NkString NkEditeurDossierProjet(NkEditeurModele &m);
+
+		/// Le dossier « Contenu » du projet (NkEditeurDossierProjet + « Contenu »).
 		/// Sans separateur final ; PAS cree (l'import le cree).
 		NkString NkEditeurDossierContenu(NkEditeurModele &m);
 

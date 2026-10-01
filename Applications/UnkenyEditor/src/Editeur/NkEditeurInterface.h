@@ -94,7 +94,9 @@ namespace nkentseu {
 			NK_CONTENU_DEPOSER,	   ///< apres un glisser : « Deplacer ici / Copier ici »
 			NK_CONTENU_COULEUR,	   ///< sous-menu « Couleur du dossier »
 			NK_CONTENU_COLLECTION, ///< sous-menu « Ajouter a la collection »
-			NK_CTX_COLLECTION	   ///< clic droit sur une collection
+			NK_CTX_COLLECTION,	   ///< clic droit sur une collection
+			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
+			NK_TEXTURE_SPRITE ///< la liste deroulante de la texture d'un sprite (Details)
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -210,7 +212,10 @@ namespace nkentseu {
 			NK_A_CONTENU_COULEUR = 1340,		 ///< + indice de NkCouleursDossier (0 = celle par defaut)
 			NK_A_CONTENU_TAILLE = 1352,			 ///< + indice de taille (petite, moyenne, grande, enorme)
 			NK_A_CONTENU_TRI = 1360,			 ///< + NkBrowserTri
-			NK_A_CONTENU_COLLECTION = 1370		 ///< + indice de collection : la selection y entre
+			NK_A_CONTENU_COLLECTION = 1370,		 ///< + indice de collection : la selection y entre
+			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
+			// loin des autres (des branches paralleles ajoutent les leurs).
+			NK_A_TEXTURE_SPRITE = 2100 ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -251,6 +256,12 @@ namespace nkentseu {
 				nkgui::NkRect barreMenus{0.f, 0.f, 0.f, 0.f};
 				/// Les onglets de scene, JUSTE SOUS la barre de titre.
 				nkgui::NkRect barreOnglets{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, retour 8 de Rihen) LE LOGO d'Unkeny, en haut a gauche :
+				/// un CARRE qui couvre la ligne des menus ET celle des onglets, comme
+				/// le logo rond d'Unreal ; menus et onglets commencent a sa droite.
+				nkgui::NkRect logo{0.f, 0.f, 0.f, 0.f};
+				/// L'onglet de la scene a l'ecran (le banc y vise).
+				nkgui::NkRect ongletScene{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect barreOutils{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect outliner{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect vue{0.f, 0.f, 0.f, 0.f};		 ///< la colonne centrale entiere
@@ -370,6 +381,11 @@ namespace nkentseu {
 				NkString deposeCible;
 				/// Le RENOMMAGE en place : le chemin vise (vide = aucun).
 				NkString renommeChemin;
+				/// (2026-10-01) Le nom entier CHOISI a l'ouverture du champ (Unreal :
+				/// F2 surligne le nom, la frappe le remplace) ; consomme au dessin.
+				bool renommeToutChoisir = false;
+				/// Le champ du renommage A L'ECRAN (le banc y vise ses clics).
+				nkgui::NkRect contenuRenommeRect{0.f, 0.f, 0.f, 0.f};
 				/// La memoire du navigateur (couleurs, favoris, collections), relue
 				/// quand elle est perimee (NkContentBrowserDisque.h).
 				editorkit::NkDisqueMeta contenuMeta;
@@ -390,6 +406,7 @@ namespace nkentseu {
 				NkString demChoisir;
 				NkString demMenu;
 				NkString demDeposer;
+				NkString demRenommer; ///< --contenu-renommer= : le champ du renommage ouvert
 				int32 demTrame = 0;
 				bool demFiltres = false; ///< --contenu-filtres : la rangee des puces ouverte au depart
 				/// Supprimer = vers la CORBEILLE de l'OS (recuperable). Le banc le met a
@@ -401,8 +418,46 @@ namespace nkentseu {
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;
+				/// Le tiroir « Journal » a la maniere de l'Output Log d'Unreal
+				/// (2026-10-01, retour 7 de Rihen) : le filtre (0 tout, 1 avertissements
+				/// et erreurs, 2 erreurs), la recherche, et ce que le banc vise.
+				int32 journalFiltre = 0;
+				char journalRecherche[96] = {};
+				bool journalRechercheFocus = false;
+				nkgui::NkRect journalPuces[3] = {};
+				nkgui::NkRect journalRechercheRect{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect journalCopier{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect journalEffacer{0.f, 0.f, 0.f, 0.f};
+				/// Les lignes MONTREES a cette trame (nettoyees, filtrees), de la plus
+				/// recente a la plus ancienne, et leur niveau (NkNiveauLigne).
+				NkVector<NkString> journalMontrees;
+				NkVector<uint8> journalNiveaux;
+				NkString journalRetour; ///< « 3 ligne(s) copiée(s) », un instant
+				float32 journalRetourJusqua = 0.f;
+
+				/// (2026-10-01) Ce que le Content Browser TRAINE a cette trame (chemin du
+				/// navigateur ; vide = rien) : les cibles de depot (la reference de
+				/// texture des Details, un sprite de la vue) s'eclairent.
+				NkString contenuGlisse;
 
 				// --- Les Details ------------------------------------------------
+				/// La reference de TEXTURE du sprite (Unreal) : les images proposees
+				/// par sa liste deroulante, et son rectangle a l'ecran (cible du
+				/// glisser depuis le Content Browser ; le banc y vise).
+				NkVector<NkString> texturesProposees;
+				nkgui::NkRect detailsTexture{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
+				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »
+				nkgui::NkRect detailsTextureParcourir{0.f, 0.f, 0.f, 0.f}; ///< « parcourir »
+				/// Les LISERES d'axe des champs de vecteurs (Unreal : rouge X, vert Y,
+				/// bleu Z, colles au bord gauche du champ, toute sa hauteur), releves
+				/// a chaque trame : le liseré, son champ, sa couleur (0xRRGGBBAA).
+				struct NkLisereAxe {
+						nkgui::NkRect lisere;
+						nkgui::NkRect champ;
+						uint32 couleur = 0u;
+				};
+				NkVector<NkLisereAxe> detailsLiseres;
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
@@ -420,6 +475,41 @@ namespace nkentseu {
 				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
 				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
+				/// LES DETAILS D'UNREAL, etape 2 (2026-10-01, document 02 §5) :
+				/// la colonne des NOMS (fraction de la largeur, sa cloison se tire) ;
+				/// le composant choisi dans l'ARBRE (-1 : l'acteur entier) ; la
+				/// RECHERCHE dans les proprietes ; la PASTILLE de categorie (0 Tout,
+				/// 1 General, 2 Acteur, 3 Physique, 4 Rendu, 5 Animation, 6 Audio) ;
+				/// le VERROU de l'echelle (proportions gardees).
+				float32 detailsColonne = 0.40f;
+				bool detailsCloison = false;
+				int32 detailsComposant = -1;
+				int32 detailsArbreDefil = 0; ///< la premiere ligne montree de l'arbre (molette)
+				NkString demDetails; ///< --details=NOM : le composant choisi dans l'arbre au depart
+				/// (2026-10-01) Un CHAMP a pris Echap ou Entree a cette trame (il s'est
+				/// ferme en la prenant) : les raccourcis ne la voient pas. Sans cela, Echap
+				/// qui vide une recherche « Arretait » aussi -- et la selection tombait.
+				bool toucheChamp = false;
+				char detailsRecherche[64] = {};
+				bool detailsRechercheFocus = false;
+				int32 detailsCategorie = 0;
+				bool echelleVerrou = false;
+				/// Les cartes qui ont montre une rangee pour la recherche `detailsRechercheVue`
+				/// (bit = NkCarteEditeur) : une carte sans rangee qui repond se tait.
+				uint32 detailsCartesTrouvees = 0xFFFFFFFFu;
+				NkString detailsRechercheVue;
+				/// Releves pour le banc : l'en-tete (« + Ajouter »), les lignes de l'arbre
+				/// (la 0 = l'acteur), les pastilles, la recherche, le verrou, la
+				/// cloison ; les cartes dessinees, les fleches de remise MONTREES.
+				nkgui::NkRect detailsAjouter{0.f, 0.f, 0.f, 0.f};
+				NkVector<nkgui::NkRect> detailsArbre;
+				NkVector<int32> detailsArbreCartes;
+				nkgui::NkRect detailsPastilles[7] = {};
+				nkgui::NkRect detailsRechercheRect{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect detailsVerrou{0.f, 0.f, 0.f, 0.f};
+				float32 detailsCloisonX = 0.f;
+				uint32 detailsCartesDessinees = 0u;
+				uint32 detailsRemises = 0u;
 				/// Le libelle d'un nombre qu'on FROTTE (Unity : tirer sur le libelle).
 				uint32 frotteId = 0u;
 				float32 frotteX = 0.f;
@@ -652,6 +742,13 @@ namespace nkentseu {
 		/// dedans) : Ctrl+C / X / V / D / A, F2, Suppr. Rend vrai si une touche a
 		/// ete prise -- la scene ne la recoit pas aussi.
 		bool NkEditeurContenuAuClavier(NkEditeurCadre &c);
+		/// (2026-10-01) « Parcourir » d'une reference d'asset (Unreal « Browse to
+		/// Asset ») : le tiroir montre le Content Browser, sur le dossier de `nav`,
+		/// l'asset choisi.
+		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav);
+		/// `texte` contient-il `motif`, sans tenir compte de la casse ASCII ? (Le
+		/// journal du tiroir et la recherche des Details.)
+		bool NkEditeurContientSansCasse(const char *texte, const char *motif);
 		/// La palette des couleurs de dossier (Unreal « Set Color ») : son nom et sa
 		/// couleur (0 = celle du theme).
 		int32 NkEditeurNbCouleursDossier() noexcept;

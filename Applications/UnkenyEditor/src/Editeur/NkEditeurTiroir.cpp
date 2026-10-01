@@ -38,6 +38,8 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurTerminal.h"
+#include "Editeur/NkEditeurReferences.h"
+#include "Livraison/NkEditeurFenetreConstruire.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
@@ -945,6 +947,7 @@ namespace nkentseu {
 				const usize lPied = nom.Length() - ext.Length();
 				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%.*s", static_cast<int32>(lPied), nom.CStr());
 				ui.contenu.focus = true;
+				ui.renommeToutChoisir = true;
 			}
 
 			/// Valide (ou abandonne) le renommage en cours.
@@ -1040,7 +1043,8 @@ namespace nkentseu {
 
 			void DemandesDemarrage(NkEditeurCadre &c) {
 				NkEditeurInterface &ui = c.ui;
-				if (ui.demContenu.Empty() && ui.demChoisir.Empty() && ui.demMenu.Empty() && ui.demDeposer.Empty()) {
+				if (ui.demContenu.Empty() && ui.demChoisir.Empty() && ui.demMenu.Empty() && ui.demDeposer.Empty() &&
+					ui.demRenommer.Empty()) {
 					return;
 				}
 				++ui.demTrame;
@@ -1102,10 +1106,18 @@ namespace nkentseu {
 						}
 					}
 				}
+				// --contenu-renommer= : le champ du renommage ouvert, le nom choisi.
+				if (!ui.demRenommer.Empty()) {
+					ui.contenuChoisis.Clear();
+					ui.contenuChoisis.PushBack(ui.demRenommer);
+					ui.contenuActif = ui.demRenommer;
+					CommencerRenommage(c.m, ui, ui.demRenommer);
+				}
 				ui.demContenu = NkString();
 				ui.demChoisir = NkString();
 				ui.demMenu = NkString();
 				ui.demDeposer = NkString();
+				ui.demRenommer = NkString();
 			}
 
 			// ── L'ONGLET « CONTENU » ────────────────────────────────────────────
@@ -1163,6 +1175,8 @@ namespace nkentseu {
 				editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 				const editorkit::NkContentBrowserResult res = editorkit::NkDrawContentBrowser(
 					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
+				// Ce qu'on TRAINE : les cibles de depot hors du tiroir s'eclairent.
+				ui.contenuGlisse = res.glisserChemin;
 				ui.boutonImporter = NkRect{res.importerX, res.importerY, res.importerW, res.importerH};
 				ui.contenuPrecedent = NkRect{res.precedentX, res.precedentY, res.precedentW, res.precedentH};
 				ui.contenuSuivant = NkRect{res.suivantX, res.suivantY, res.suivantW, res.suivantH};
@@ -1264,6 +1278,7 @@ namespace nkentseu {
 				if (res.rechercheW > 0.f && ui.contenu.searchFocused) {
 					if (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 						ui.contenu.searchFocused = false;
+						ui.toucheChamp = true;
 					}
 					const NkRect champ{res.rechercheX, res.rechercheY, res.rechercheW - 4.f, res.rechercheH};
 					c.ctx.dl.AddRectFilled(NkRect{champ.x, champ.y + 1.f, champ.w, champ.h - 2.f}, c.pal.fond);
@@ -1274,6 +1289,7 @@ namespace nkentseu {
 				if (res.sourcesRechercheW > 0.f && res.sourcesTampon != nullptr && ui.contenu.sourcesRechercheFocus) {
 					if (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 						ui.contenu.sourcesRechercheFocus = false;
+						ui.toucheChamp = true;
 					}
 					const NkRect champ{res.sourcesRechercheX, res.sourcesRechercheY, res.sourcesRechercheW, res.sourcesRechercheH};
 					c.ctx.dl.AddRectFilled(NkRect{champ.x, champ.y + 1.f, champ.w, champ.h - 2.f}, c.pal.fond);
@@ -1281,17 +1297,33 @@ namespace nkentseu {
 												  ui.contenu.sourcesRechercheFocus, &st);
 				}
 				// ── Le RENOMMAGE en place (F2) : le champ sur le nom de la carte ──
+				ui.contenuRenommeRect = NkRect{0.f, 0.f, 0.f, 0.f};
 				if (!ui.renommeChemin.Empty()) {
 					if (res.renommeW > 0.f) {
 						const NkRect champ{res.renommeX, res.renommeY, res.renommeW, res.renommeH};
+						ui.contenuRenommeRect = champ;
 						c.ctx.dl.AddRectFilled(champ, c.pal.champ, 2.f);
 						c.ctx.dl.AddRect(champ, c.pal.accent, 1.f, 2.f);
+						// (2026-10-01, retour de Rihen : « pas un vrai champ ») Le VRAI
+						// champ du kit, regle comme un nom de fichier d'Unreal : le nom
+						// entier choisi a l'ouverture, double-clic = un mot, les accents
+						// s'ecrivent. Curseur, Maj+fleches, Origine / Fin, Ctrl+A / C /
+						// X / V sont ceux du champ ; Echap et Entree, juste dessous.
+						editorkit::NkOverlayFieldStyle stNom = st;
+						stNom.motAuDoubleClic = true;
+						stNom.utf8 = true;
+						if (ui.renommeToutChoisir) {
+							ui.renommeToutChoisir = false;
+							c.ctx.input.wantSelectAll = true;
+						}
 						editorkit::NkOverlayTextField(c.ctx, c.ctx.dl, c.police, champ, ui.contenu.renommeTampon,
-													  static_cast<int32>(sizeof(ui.contenu.renommeTampon)), true, &st);
+													  static_cast<int32>(sizeof(ui.contenu.renommeTampon)), true, &stNom);
 						if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 							FinirRenommage(c, true);
+							ui.toucheChamp = true;
 						} else if (in.KeyPressed(nkgui::NkGuiKey::Escape)) {
 							FinirRenommage(c, false);
+							ui.toucheChamp = true;
 						} else if ((in.mouseClicked[0] || in.mouseClicked[1]) && !NkEditeurDans(champ, in.mousePos)) {
 							// Un clic AILLEURS valide (Unreal) : ce qui est tape est garde.
 							FinirRenommage(c, true);
@@ -1326,12 +1358,31 @@ namespace nkentseu {
 				}
 
 				auto &over = c.ctx.dlOverlay;
+				// (2026-10-01, retour 4 de Rihen) Une IMAGE trainee vise aussi un
+				// SPRITE : la reference de texture des Details, ou le sprite sous le
+				// curseur dans la vue (Unreal pose un materiau ainsi).
+				const bool image = !res.glisserChemin.Empty() && NkEditeurEstImage(res.glisserChemin.CStr());
+				const bool surDetails = image && c.m.aSelection && NkEditeurDans(ui.detailsTexture, in.mousePos);
+				ecs::NkEntityId spriteVise;
+				if (image && !surDetails && NkEditeurDans(ui.viseur, in.mousePos)) {
+					const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
+					ecs::NkEntityId e;
+					if (NkEditeurPrendreSous(c.m, monde, e) && c.m.scene.Monde().Has<NkSprite2D>(e)) {
+						spriteVise = e;
+					}
+				}
 				if (!res.glisserChemin.Empty()) {
 					if (in.mouseReleased[0]) {
 						// LE DEPOT DANS LA VUE : lache hors des volets du composant. Un
 						// acteur du catalogue s'y pose ; un PREFAB s'y instancie ; une
-						// IMAGE y devient un sprite. Un dossier ne pose rien.
-						if (NkEditeurDans(ui.viseur, in.mousePos)) {
+						// IMAGE y devient un sprite -- ou, lachee SUR un sprite (ou sur
+						// la reference de texture des Details), devient SA texture. Un
+						// dossier ne pose rien.
+						if (surDetails) {
+							NkEditeurTextureSprite(c.m, c.m.selection, res.glisserChemin.CStr());
+						} else if (spriteVise.IsValid()) {
+							NkEditeurTextureSprite(c.m, spriteVise, res.glisserChemin.CStr());
+						} else if (NkEditeurDans(ui.viseur, in.mousePos)) {
 							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
 							const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
 							if (acteur != -1) {
@@ -1343,8 +1394,14 @@ namespace nkentseu {
 							}
 						}
 					} else {
-						// Le fantome : ce qu'on emporte, sous le curseur.
-						const char *lib = res.glisserLibelle.Empty() ? res.glisserChemin.CStr() : res.glisserLibelle.CStr();
+						// Le fantome : ce qu'on emporte, sous le curseur -- et ce qu'il
+						// deviendra s'il vise un sprite.
+						NkString libelle = res.glisserLibelle.Empty() ? res.glisserChemin : res.glisserLibelle;
+						if (surDetails || spriteVise.IsValid()) {
+							const NkEtiquette *et = c.m.scene.Monde().Get<NkEtiquette>(surDetails ? c.m.selection : spriteVise);
+							libelle.Append(NkString::Format("  →  texture de « %s »", et != nullptr ? et->nom : "").CStr());
+						}
+						const char *lib = libelle.CStr();
 						const float32 w = renderer::NkTexteLargeur(c.police, lib) + 16.f;
 						const NkRect g{in.mousePos.x + 12.f, in.mousePos.y + 10.f, w, 22.f};
 						over.AddRectFilled(g, c.pal.entete, 2.f);
@@ -1368,23 +1425,135 @@ namespace nkentseu {
 				DemandesDemarrage(c);
 			}
 
+			/// LE JOURNAL DU TIROIR, a la maniere de l'Output Log d'Unreal (2026-10-01,
+			/// retour 7 de Rihen : « le Journal du bas n'a pas de filtres ») : les
+			/// puces Tout / Avertissements / Erreurs avec leurs comptes, la recherche,
+			/// « Copier » et « Effacer » ; chaque ligne nettoyee de ses codes ANSI
+			/// (NkSansAnsi), classee (NkJournalConstruction::NiveauDe) et coloree par
+			/// niveau -- les MEMES pieces que l'onglet Journal de « Construire »
+			/// (NkEditeurFenetreConstruire.h), pas une copie.
 			void OngletJournal(NkEditeurCadre &c, const NkRect &zone) {
 				NkEditeurInterface &ui = c.ui;
 				auto &dl = c.ctx.dl;
+				const nkgui::NkGuiInput &in = c.ctx.input;
 				dl.AddRectFilled(zone, c.pal.panneau);
-				if (ui.journal.Empty()) {
-					renderer::NkTexteCentre(dl, c.police, zone.x + zone.w * 0.5f, zone.y + zone.h * 0.4f,
-											"Le journal est vide : les annonces de l'éditeur s'y inscrivent.", c.pal.attenue);
+				ui.journalMontrees.Clear();
+				ui.journalNiveaux.Clear();
+				// ── Le classement : une fois par trame (le journal est borne) ──
+				NkVector<NkString> propres;
+				NkVector<uint8> niveaux;
+				int32 nAvt = 0, nErr = 0;
+				for (uint32 i = 0; i < ui.journal.Size(); ++i) {
+					const NkString p = NkSansAnsi(ui.journal[i].CStr());
+					const NkNiveauLigne n = NkJournalConstruction::NiveauDe(p);
+					nAvt += n == NkNiveauLigne::NK_AVERTISSEMENT ? 1 : 0;
+					nErr += n == NkNiveauLigne::NK_ERREUR ? 1 : 0;
+					propres.PushBack(p);
+					niveaux.PushBack(static_cast<uint8>(n));
+				}
+				// ── La barre : puces, recherche, Copier, Effacer ──
+				const float32 bh = 22.f;
+				const float32 by = zone.y + 5.f;
+				float32 x = NkEditeurPucesNiveau(c, dl, zone.x + 8.f, by, bh, static_cast<int32>(ui.journal.Size()), nAvt, nErr,
+												 ui.journalFiltre, nullptr, ui.journalPuces);
+				const float32 wE = renderer::NkTexteLargeur(c.petite, "Effacer") + 22.f;
+				const float32 wC = renderer::NkTexteLargeur(c.petite, "Copier") + 22.f;
+				ui.journalEffacer = NkRect{zone.x + zone.w - 8.f - wE, by, wE, bh};
+				ui.journalCopier = NkRect{ui.journalEffacer.x - 6.f - wC, by, wC, bh};
+				const float32 xr = x + 6.f;
+				ui.journalRechercheRect = NkRect{xr, by, ui.journalCopier.x - 10.f - xr, bh};
+				const NkRect &rr = ui.journalRechercheRect;
+				if (rr.w > 40.f) {
+					if (in.mouseClicked[0]) {
+						ui.journalRechercheFocus = NkEditeurDans(rr, in.mousePos);
+					}
+					if (ui.journalRechercheFocus && (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter))) {
+						ui.journalRechercheFocus = false;
+						ui.toucheChamp = true;
+					}
+					dl.AddRectFilled(rr, c.pal.champ, 2.f);
+					dl.AddRect(rr, ui.journalRechercheFocus ? c.pal.accent : c.pal.bord, 1.f, 2.f);
+					// la loupe
+					const float32 lx = rr.x + 11.f, ly = rr.y + bh * 0.5f - 1.f;
+					dl.AddCircle(nkgui::NkVec2{lx, ly}, 4.f, c.pal.attenue, 1.3f);
+					dl.AddLine(nkgui::NkVec2{lx + 3.f, ly + 3.f}, nkgui::NkVec2{lx + 6.f, ly + 6.f}, c.pal.attenue, 1.5f);
+					if (ui.journalRecherche[0] == '\0' && !ui.journalRechercheFocus) {
+						renderer::NkTexte(dl, c.petite, rr.x + 22.f, rr.y + (bh - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f,
+										  "Rechercher dans le journal", c.pal.attenue);
+					}
+					editorkit::NkOverlayFieldStyle st;
+					st.fond = false;
+					st.bord = false;
+					st.texte = c.pal.texte;
+					st.utf8 = true;
+					editorkit::NkOverlayTextField(c.ctx, dl, c.police, NkRect{rr.x + 18.f, rr.y, rr.w - 20.f, rr.h}, ui.journalRecherche,
+												  static_cast<int32>(sizeof(ui.journalRecherche)), ui.journalRechercheFocus, &st);
+				}
+				// ── Les lignes MONTREES : le plus RECENT en haut (c'est lui qu'on
+				//    vient chercher, sans defiler) ──
+				NkVector<uint32> montrees;
+				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0; --i) {
+					const uint32 k = static_cast<uint32>(i);
+					if (NkEditeurNiveauMontre(static_cast<NkNiveauLigne>(niveaux[k]), ui.journalFiltre) &&
+						NkEditeurContientSansCasse(propres[k].CStr(), ui.journalRecherche)) {
+						montrees.PushBack(k);
+						ui.journalMontrees.PushBack(propres[k]);
+						ui.journalNiveaux.PushBack(niveaux[k]);
+					}
+				}
+				if (NkEditeurBouton(c, ui.journalCopier, "Copier", false, !montrees.Empty())) {
+					// Dans l'ordre du temps : c'est ainsi qu'on colle un journal.
+					NkString tout;
+					for (int32 i = static_cast<int32>(montrees.Size()) - 1; i >= 0; --i) {
+						tout += propres[montrees[static_cast<uint32>(i)]] + "\n";
+					}
+					c.ctx.SetClipboard(tout.CStr());
+					ui.journalRetour = NkString::Format("%u ligne(s) copiée(s)", static_cast<unsigned>(montrees.Size()));
+					ui.journalRetourJusqua = ui.temps + 2.5f;
+				}
+				if (NkEditeurBouton(c, ui.journalEffacer, "Effacer", false, !ui.journal.Empty())) {
+					ui.journal.Clear();
+					ui.defilJournal = 0.f;
+					ui.journalMontrees.Clear();
+					ui.journalNiveaux.Clear();
+					montrees.Clear();
+				}
+				// ── La liste ──
+				const NkRect liste{zone.x, by + bh + 6.f, zone.w, zone.y + zone.h - (by + bh + 6.f)};
+				const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f) + 3.f;
+				if (NkEditeurDans(liste, in.mousePos) && in.wheel != 0.f) {
+					ui.defilJournal -= in.wheel * 3.f;
+				}
+				const float32 maxi = static_cast<float32>(montrees.Size()) - liste.h / lh + 1.f;
+				ui.defilJournal = ui.defilJournal > maxi ? maxi : ui.defilJournal;
+				ui.defilJournal = ui.defilJournal < 0.f ? 0.f : ui.defilJournal;
+				if (!ui.journalRetour.Empty() && ui.temps < ui.journalRetourJusqua) {
+					renderer::NkTexteADroite(dl, c.petite, ui.journalCopier.x - 10.f,
+											 by + (bh - renderer::NkTexteHauteurLigne(c.petite, 12.f)) * 0.5f, ui.journalRetour.CStr(),
+											 NkEditeurCouleurNiveau(c, NkNiveauLigne::NK_SUCCES));
+				}
+				if (montrees.Empty()) {
+					const char *vide = ui.journal.Empty()					  ? "Le journal est vide : les annonces de l'éditeur s'y inscrivent."
+									   : ui.journalRecherche[0] != '\0' ? "Aucune ligne ne correspond à la recherche."
+									   : ui.journalFiltre == 1			  ? "Aucun avertissement."
+																		  : "Aucune erreur.";
+					renderer::NkTexteCentre(dl, c.police, liste.x + liste.w * 0.5f, liste.y + liste.h * 0.4f, vide, c.pal.attenue);
 					return;
 				}
-				// Le plus RECENT en haut : c'est lui qu'on vient chercher, et il ne
-				// doit pas falloir defiler pour le lire.
-				const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f) + 3.f;
-				dl.PushClipRect(zone, true);
-				float32 y = zone.y + 6.f;
-				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0 && y < zone.y + zone.h; --i) {
-					renderer::NkTexte(dl, c.police, zone.x + 10.f, y, ui.journal[static_cast<uint32>(i)].CStr(),
-									  i + 1 == static_cast<int32>(ui.journal.Size()) ? c.pal.texte : c.pal.attenue);
+				dl.PushClipRect(liste, true);
+				float32 y = liste.y + 2.f;
+				for (uint32 i = static_cast<uint32>(ui.defilJournal); i < montrees.Size() && y < liste.y + liste.h; ++i) {
+					const uint32 k = montrees[i];
+					const NkNiveauLigne n = static_cast<NkNiveauLigne>(niveaux[k]);
+					NkEditeurBandeNiveau(c, dl, NkRect{liste.x + 4.f, y - 1.f, liste.w - 8.f, lh}, n);
+					// Une ligne SIMPLE garde l'usage d'avant : la plus recente vive, les
+					// autres attenuees ; un niveau (erreur, avertissement, succes) a sa
+					// couleur.
+					NkColor teinte = NkEditeurCouleurNiveau(c, n);
+					if (n == NkNiveauLigne::NK_INFO) {
+						teinte = k + 1u == ui.journal.Size() ? c.pal.texte : c.pal.attenue;
+					}
+					renderer::NkTexte(dl, c.police, liste.x + 10.f, y, propres[k].CStr(), teinte);
 					y += lh;
 				}
 				dl.PopClipRect();
@@ -1899,6 +2068,40 @@ namespace nkentseu {
 				}
 			}
 			return NkEditeurExporter(m, fichiers, destination);
+		}
+
+		/// `texte` contient-il `motif` (sans tenir compte de la casse ASCII) ?
+		bool NkEditeurContientSansCasse(const char *texte, const char *motif) {
+			auto bas = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
+			if (motif == nullptr || motif[0] == '\0') {
+				return true;
+			}
+			for (const char *t = texte; *t != '\0'; ++t) {
+				usize k = 0;
+				while (motif[k] != '\0' && t[k] != '\0' && bas(t[k]) == bas(motif[k])) {
+				++k;
+				}
+				if (motif[k] == '\0') {
+				return true;
+				}
+			}
+			return false;
+		}
+
+		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav) {
+			// Unreal « Browse to Asset » : meme verrouille, le navigateur y va -- c'est
+			// une demande explicite.
+			if (!NkEditeurCheminEstContenu(nav.CStr()) || Rel(nav).Empty()) {
+				return;
+			}
+			ui.voirTiroir = true;
+			ui.ongletTiroir = 0;
+			AllerContenu(ui, editorkit::NkDisqueParent(Rel(nav).CStr()));
+			ui.contenuChoisis.Clear();
+			ui.contenuChoisis.PushBack(nav);
+			ui.contenuActif = nav;
+			ui.contenuAncre = nav;
+			ui.contenu.focus = true;
 		}
 
 		void NkEditeurDessinerTiroir(NkEditeurCadre &c) {

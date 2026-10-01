@@ -268,21 +268,58 @@ namespace nkentseu {
 			return n;
 		}
 
-		NkString NkEditeurDossierContenu(NkEditeurModele &m) {
-			// A cote de la scene, comme ses prefabs (NkEditeurCheminPrefab). ⚠️ Tant
-			// que l'editeur n'a pas de PROJET (palier U1), le dossier de la scene en
-			// tient lieu : CONVENTIONS_FICHIERS.md § 5.
+		NkString NkEditeurDossierProjet(NkEditeurModele &m) {
+			// ⚠️ (2026-10-01, retour 3 de Rihen) LE PROJET N'EST PAS LE DOSSIER VOISIN
+			//    DE LA SCENE OUVERTE. Il l'etait : un double-clic sur
+			//    « Contenu/Scenes/Niveau1.nkscene » faisait du dossier « Scenes » le
+			//    projet, son « Contenu » (inexistant) la racine du navigateur -- et
+			//    tout le Content Browser se vidait, a gauche comme a droite.
+			// ⚠️ Tant que l'editeur n'a pas de fichier de PROJET (palier U1), la scene
+			//    en tient lieu : CONVENTIONS_FICHIERS.md § 5.
 			const NkString scene(NkEditeurChemin(m));
+			auto Normal = [](const NkString &s) {
+				NkString n;
+				for (usize i = 0; i < static_cast<usize>(s.Length()); ++i) {
+					n.Append(Separateur(s.CStr()[i]) ? '/' : s.CStr()[i]);
+				}
+				return n;
+			};
+			const NkString sceneN = Normal(scene);
+			// 1. Le projet RETENU, tant que la scene est dedans.
+			if (!m.projet.Empty()) {
+				const NkString projetN = Normal(m.projet);
+				if (sceneN.Length() > projetN.Length() && std::strncmp(sceneN.CStr(), projetN.CStr(), projetN.Length()) == 0) {
+					return m.projet;
+				}
+			}
 			usize fin = 0;
 			for (usize i = 0; i < static_cast<usize>(scene.Length()); ++i) {
 				if (Separateur(scene.CStr()[i])) {
 					fin = i + 1u;
 				}
 			}
+			// 2. Une scene RANGEE dans un Contenu : au-dessus du DERNIER « Contenu/ »
+			//    de son dossier (« Contenu/ » en tete compris, chemin relatif).
+			const usize n = std::strlen(NK_CONTENU_RACINE);
+			for (usize i = fin; i-- > 0;) {
+				const bool debut = i == 0u || sceneN.CStr()[i - 1u] == '/';
+				if (debut && i + n < fin && std::strncmp(sceneN.CStr() + i, NK_CONTENU_RACINE, n) == 0 && sceneN.CStr()[i + n] == '/') {
+					fin = i;
+					break;
+				}
+			}
+			// 3. Sinon le dossier de la scene (l'historique).
 			NkString dossier(scene.CStr(), fin);
 			if (dossier.Empty()) {
 				dossier = NkString("./");
 			}
+			return dossier;
+		}
+
+		NkString NkEditeurDossierContenu(NkEditeurModele &m) {
+			// Dans le dossier du PROJET (NkEditeurDossierProjet), qui porte aussi les
+			// prefabs de la scene a sa racine (NkEditeurCheminPrefab).
+			NkString dossier = NkEditeurDossierProjet(m);
 			dossier.Append(NK_CONTENU_RACINE);
 			// PAS cree ici : regarder le navigateur ne doit rien ecrire sur le
 			// disque. L'import cree le dossier qu'il remplit.

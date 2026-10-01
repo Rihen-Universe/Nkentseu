@@ -165,6 +165,10 @@ namespace nkentseu {
 
 				// --- Fichier ---------------------------------------------------
 				NkString chemin;	 ///< vide = dossier de l'application / scene.nkscene
+				/// Le DOSSIER DU PROJET retenu (2026-10-01, avec separateur final) :
+				/// celui qui porte `Contenu`. Vide = deduit de la scene
+				/// (NkEditeurDossierProjet) ; ignore si la scene n'est pas dedans.
+				NkString projet;
 				NkString message;	 ///< derniere annonce (enregistre, erreur...)
 				float32 messageAge = 99.f;
 
