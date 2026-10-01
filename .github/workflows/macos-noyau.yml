@@ -199,6 +199,15 @@ jobs:
         # PBR complet), reste publie a cote mais ne sert pas d'etalon.
         run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
 
+      # DORSAL PAR DEFAUT de NKRenderer (NkDeviceFactory::CreateAutoDetect) :
+      # meme ordre que NKCanvas sur macOS ; sans SDK Vulkan, Metal attendu.
+      - name: Tuto03Scene - dorsal par defaut (sans Vulkan, Metal attendu)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        env:
+          NK_CAPTURE: "20"
+          NK_CAPTURE_PATH: journaux/captures/tuto03-defaut.png
+        run: .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" "$JOURNAUX/dorsal" "Vulkan ecarte : non compile" "API selectionnee = Metal" --
+
       # DIAGNOSTIC (ne decide pas du verdict) : la couche de validation Metal en
       # mode journal, et le MSL de chaque nuanceur, publies en artefact.
       - name: Tuto03Scene - validation Metal (diagnostic)
@@ -308,6 +317,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build NkDames "$CONFIG" "$JOURNAUX"
+
+      # DORSAL PAR DEFAUT (decision du 2026-10-01) : Vulkan si disponible ->
+      # Metal -> OpenGL -> logiciel. Le runner n'a pas de SDK Vulkan : le journal
+      # doit ecarter Vulkan (avec sa raison) et retenir Metal.
+      - name: NkDames - dorsal par defaut (sans Vulkan, Metal attendu)
+        if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
+        run: .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/NkDames.chemin")" "$JOURNAUX/dorsal" "dorsal Vulkan ecarte : non compile" "Metal retenu" "backend graphique retenu = Metal" -- --capture="$JOURNAUX/captures/nkdames-defaut.png" --capture-frame=30
 
       - name: NkDames - capture Metal
         if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
