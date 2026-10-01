@@ -10,6 +10,7 @@
 #include "NKRenderer/Mesh/NkFBXLoader.h" // routage .fbx (chantier FBX, 2026-08-17)
 // ── Viewport 3D : moteur de rendu complet (TU isolé) ────────────────────────
 #include "NKRenderer/NkRenderer.h"
+#include "NKRenderer/Core/NkRendererResourcePath.h" // (01/10) AnimCheminRessource
 #include "NKRenderer/Core/NkRendererConfig.h"
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Core/NkSceneContext.h"
@@ -150,6 +151,10 @@ namespace nkanima {
 					g.topo.PushBack(j);
 		}
 	} // namespace
+
+	nkentseu::NkString AnimCheminRessource(const char *relatif) {
+		return nkentseu::renderer::NkRendererResolvePath(nkentseu::NkString(relatif ? relatif : ""));
+	}
 
 	bool AnimInit(const char *modelPath) {
 		// Routage par extension (insensible a la casse — meme critere que

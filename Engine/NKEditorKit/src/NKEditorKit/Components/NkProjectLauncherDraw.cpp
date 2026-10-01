@@ -678,6 +678,19 @@ namespace nkentseu {
 			const uint32 cDiscret = p.ColorOf(s.texteDiscret), cSurAcc = p.ColorOf(s.texteSurAccent);
 			const uint32 cSurvol = p.ColorOf(s.carteSurvol), cChamp = p.ColorOf(s.champ);
 
+			// UN TEXTE A LA COULEUR LIBRE (l'accent de l'application, la teinte d'un
+			// modele) : le peintre n'ecrit que par ROLE, alors on ecrit dans le
+			// blanc de `texteSurAccent` sous la TEINTE du peintre (`tint`, le
+			// multiplicateur qu'il applique a tout) -- blanc x couleur = couleur.
+			// En theme clair, l'encre est assombrie d'un quart pour rester lisible.
+			auto TexteCouleur = [&](float32 x, float32 y, const char *t, uint32 rgba, uint8 pol,
+									const char *fin = nullptr) {
+				const uint32 avant = p.tint;
+				p.tint = m.themeSombre ? rgba : Mix(rgba, kNoir, 0.28f);
+				e.T(x, y, t, s.texteSurAccent, pol, fin);
+				p.tint = avant;
+			};
+
 			// Les pages : sans page declaree, une seule page « Projets ».
 			NkLanceurPage pageDefaut;
 			pageDefaut.libelle = NkString("Projets");
@@ -755,7 +768,7 @@ namespace nkentseu {
 				const char *nom = m.identite.nom.CStr();
 				const usize np = m.identite.prefixe.Size();
 				if (np > 0u && m.identite.nom.Size() >= np) {
-					e.T(nx, ny, nom, s.accent, pI, nom + np);
+					TexteCouleur(nx, ny, nom, acc, pI, nom + np);
 					e.T(nx + e.W(nom, pI, nom + np), ny, nom + np, s.texte, pI);
 				} else
 					e.T(nx, ny, nom, s.texte, pI);
@@ -1111,7 +1124,7 @@ namespace nkentseu {
 							}
 							float32 ty = cr.y + ih + ipad;
 							if (!md.categorie.Empty())
-								e.T(cr.x + ipad, ty, md.categorie.CStr(), s.accent, pP);
+								TexteCouleur(cr.x + ipad, ty, md.categorie.CStr(), teinte, pP);
 							ty += e.H(pP) + S(4.f);
 							const int32 a = Couper(p, md.nom.CStr(), tw - ipad * 2.f, pG, ln, 2, false);
 							ty += e.Lignes(cr.x + ipad, ty, ln, a, s.texte, pG, S(1.f)) + S(6.f) +

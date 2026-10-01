@@ -34,6 +34,7 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKContainers/String/NkString.h"
+#include "NKTime/NkDate.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -247,6 +248,14 @@ namespace nkentseu {
 			if (clair)
 				*clair = themeClair;
 			return chemin;
+		}
+
+		/// La date du jour, au format des recents (« 2026-10-01 »).
+		inline NkString NkLanceurAujourdhui() {
+			const NkDate d = NkDate::GetCurrent();
+			char b[16];
+			snprintf(b, sizeof(b), "%04d-%02d-%02d", (int)d.GetYear(), (int)d.GetMonth(), (int)d.GetDay());
+			return NkString(b);
 		}
 
 		// ── LES RECENTS SUR DISQUE (pour qui n'en avait pas) ────────────────────
