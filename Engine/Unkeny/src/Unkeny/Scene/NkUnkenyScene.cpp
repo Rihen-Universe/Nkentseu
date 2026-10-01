@@ -13,6 +13,7 @@
 // -----------------------------------------------------------------------------
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
+#include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
@@ -168,6 +169,15 @@ namespace nkentseu {
 				NK_UNKENY_CHAMP(NkAncrageEcran2D, decalage, NkTypeChamp::NK_VEC2),
 				NK_UNKENY_CHAMP(NkAncrageEcran2D, zoneSure, NkTypeChamp::NK_BOOL),
 			};
+			// (2026-10-01) Le clip de PROPRIETES qui joue (Anim/NkUnkenyProprietes.h).
+			const NkChampSauve kChampsClipProprietes[] = {
+				NK_UNKENY_CHAMP(NkClipProprietes2D, clip, NkTypeChamp::NK_TEXTE),
+				NK_UNKENY_CHAMP(NkClipProprietes2D, temps, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkClipProprietes2D, vitesse, NkTypeChamp::NK_F32),
+				NK_UNKENY_CHAMP(NkClipProprietes2D, enPause, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkClipProprietes2D, boucle, NkTypeChamp::NK_BOOL),
+				NK_UNKENY_CHAMP(NkClipProprietes2D, termine, NkTypeChamp::NK_BOOL),
+			};
 			const NkChampSauve kChampsInstance[] = {
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, prefab, NkTypeChamp::NK_PREFAB),
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, noeud, NkTypeChamp::NK_U32),
@@ -213,6 +223,10 @@ namespace nkentseu {
 				const NkChampSauve *champs = NkChampsRenduForme2D(n);
 				PhotographierAussi<NkRenduForme2D>("NkRenduForme2D", champs, n);
 			}
+			// Le clip de proprietes (2026-10-01, pages Animation) : APRES les formes,
+			// meme raison.
+			PhotographierAussi<NkClipProprietes2D>("NkClipProprietes2D", kChampsClipProprietes,
+												   NbChamps(kChampsClipProprietes));
 			// Les calques de collision repartent de « tout touche tout ».
 			mCalques = NkCalquesCollision2D();
 			mCorpsEteints.Clear();
@@ -609,6 +623,9 @@ namespace nkentseu {
 			// choisit a cette trame est avance a cette trame.
 			NkAvancerAnimateurs(mMonde, deltaTime);
 			NkAvancerAnimations(mMonde, deltaTime);
+			// (2026-10-01) Les clips de PROPRIETES apres les images : une piste
+			// « Sprite.image » ou « Sprite.couleur » a le dernier mot.
+			NkAvancerClipsProprietes(*this, deltaTime);
 			// Les particules VISUELLES apres la synchro : elles naissent la ou le
 			// corps est a cette trame. Une scene sans emetteur n'y paie qu'un test.
 			mEffets.Avancer(*this, deltaTime);
