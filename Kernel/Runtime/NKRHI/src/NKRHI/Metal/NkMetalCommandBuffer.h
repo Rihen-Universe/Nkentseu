@@ -3,6 +3,7 @@
 // NkMetalCommandBuffer.h — MTLCommandBuffer + encoders Metal
 // =============================================================================
 #include "NKRHI/Commands/NkICommandBuffer.h"
+#include "NKRHI/Metal/NkMetalDevice.h" // NkMetalPassFormats
 #ifdef NK_RHI_METAL_ENABLED
 #ifdef __OBJC__
 #import <Metal/Metal.h>
@@ -22,8 +23,10 @@ namespace nkentseu {
 			void End() override;
 			void Reset() override;
 
+			// Le MTLCommandBuffer est cree a Begin (ou a la premiere commande) et
+			// rendu des qu'il est soumis : voir NkMetalCommandBuffer.mm.
 			bool IsValid() const override {
-				return mCmdBuf != nullptr;
+				return mDev != nullptr;
 			}
 
 			NkCommandBufferType GetType() const override {
@@ -44,8 +47,21 @@ namespace nkentseu {
 			void BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32 *off, uint32 cnt) override;
 			void PushConstants(NkShaderStage stages, uint32 offset, uint32 size, const void *data) override;
 
-			void UpdateBuffer(NkBufferHandle, uint64, uint64, const void *) override {
-			} // TODO: blit encoder
+			void UpdateBuffer(NkBufferHandle buf, uint64 off, uint64 size, const void *data) override;
+
+			// Clear dynamique (comme Vulkan) : la couleur/profondeur de la PROCHAINE
+			// passe dont l'attachement est en NK_CLEAR.
+			void SetClearColor(float32 r, float32 g, float32 b, float32 a = 1.f) override {
+				mClearColor[0] = r;
+				mClearColor[1] = g;
+				mClearColor[2] = b;
+				mClearColor[3] = a;
+			}
+
+			void SetClearDepth(float32 depth = 1.f, uint32 stencil = 0) override {
+				mClearDepth = depth;
+				mClearStencil = stencil;
+			}
 
 			void BindVertexBuffer(uint32 b, NkBufferHandle buf, uint64 off) override;
 			void BindVertexBuffers(uint32 first, const NkBufferHandle *bufs, const uint64 *offs, uint32 n) override;
@@ -73,6 +89,9 @@ namespace nkentseu {
 
 		private:
 			void EndCurrentEncoder();
+			bool AssurerCmdBuf();
+			void RendreCmdBuf();
+			void AppliquerDescripteurs();
 
 			NkMetalDevice *mDev = nullptr;
 			NkCommandBufferType mType;
@@ -86,6 +105,23 @@ namespace nkentseu {
 			uint64 mIndexOffset = 0;
 			bool mIndexUint32 = true;
 			MTLPrimitiveType mPrimitive = MTLPrimitiveTypeTriangle;
+
+			float32 mClearColor[4] = {0.f, 0.f, 0.f, 1.f};
+			float32 mClearDepth = 1.f;
+			uint32 mClearStencil = 0;
+			// Taille de la passe en cours : Metal refuse un scissor qui deborde.
+			uint32 mPassW = 0, mPassH = 0;
+			// Taille de groupe du pipeline compute lie (Dispatch).
+			uint32 mTgX = 1, mTgY = 1, mTgZ = 1;
+			// Formats de la passe en cours : choisissent la variante du pipeline.
+			NkMetalPassFormats mFormats;
+			bool mPipelineValide = false;
+			// Ensembles de descripteurs lies, par index d'ensemble ; appliques au
+			// prochain dessin / dispatch, filtres par ce que le pipeline lit.
+			static constexpr uint32 kEnsembles = 8;
+			uint64 mEnsembles[kEnsembles] = {};
+			uint64 mPipelineCourant = 0;
+			bool mDescripteursSales = false;
 	};
 
 } // namespace nkentseu

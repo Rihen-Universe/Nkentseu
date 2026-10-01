@@ -27,6 +27,7 @@
 // =============================================================================
 
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
@@ -58,7 +59,7 @@ namespace nkentseu {
 			/// Tout ce qu'une partie relue demande. Sur le TAS : deux scenes et
 			/// leurs mondes physiques ne tiennent pas dans une pile de 1 Mo.
 			struct NkBancJeu {
-					NkScene scene;
+					NK_BANC_SUR_TAS(NkScene, scene);
 					NkTextures2D textures;
 					NkSons2D sons;
 					NkJeuCharge jeu;

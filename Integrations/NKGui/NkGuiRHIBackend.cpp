@@ -227,8 +227,10 @@ float4 PSMain(PSIn i) : SV_Target {
         //    fonction, le pipeline etait refuse et NKCraft --backend=metal
         //    s'arretait a l'ouverture (CI macOS du 2026-09-30).
         // Conventions du device Metal de NKRHI (NkMetalCommandBuffer.mm) :
-        //   - tampon de sommets de la liaison 0 -> [[buffer(0)]], lu par
-        //     [[stage_in]] selon le vertex descriptor du pipeline ;
+        //   - tampon de sommets de la liaison 0 -> buffer(26) depuis le
+        //     2026-09-30 (NKSL/ShaderConvert/NkMslConventions.h), lu par
+        //     [[stage_in]] selon le vertex descriptor du pipeline : le MSL
+        //     ci-dessous ne le nomme pas, il n'a donc pas change ;
         //   - une entree de descripteur de liaison N -> buffer(N), texture(N) et
         //     sampler(N), pour les deux etages. D'ou les macros ci-dessus, lues
         //     ici comme par les six autres nuanceurs.

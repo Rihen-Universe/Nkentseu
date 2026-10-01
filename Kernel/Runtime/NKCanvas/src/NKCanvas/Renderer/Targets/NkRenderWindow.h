@@ -124,6 +124,12 @@ namespace nkentseu {
 				/// A appeler apres Display(). Cf. NkRenderWindowCapture.cpp.
 				bool Capture(const char *path) const override;
 
+				/// A appeler AVANT l'image a capturer (au moins une image avant) : les
+				/// dorsaux qui ne gardent pas l'image presentee s'y preparent (Metal :
+				/// copie CPU de chaque image presentee a partir de la). Sans effet
+				/// ailleurs. NkCanvasApp --capture et NK_CAPTURE_IMAGE l'appellent.
+				void PrepareCapture();
+
 				/// Capture le backbuffer présenté DANS `out` (RGBA32, en mémoire) au lieu d'un fichier —
 				/// pour enregistrer une vidéo du rendu (cf. NKMedia NkVideoRecorder). DX11 pour l'instant.
 				bool CaptureToImage(NkImage &out) const;

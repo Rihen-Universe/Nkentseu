@@ -21,6 +21,11 @@
 
 namespace nkentseu {
 
+	// Depth24Unorm_Stencil8 n'existe pas sur les GPU Apple (Apple Silicon) : on le
+	// sait a l'initialisation du device (depth24Stencil8PixelFormatSupported).
+	// Demande quand meme, la texture n'etait pas creee (nil) et la passe non plus.
+	static bool sNkMtlDepth24Stencil8 = true;
+
 	// =============================================================================
 	static MTLPixelFormat ToMTLFormat(NkGPUFormat f) {
 		switch (f) {
@@ -62,7 +67,7 @@ namespace nkentseu {
 				return MTLPixelFormatDepth32Float;
 			case NkGPUFormat::NK_D24_UNORM_S8_UINT:
 #if TARGET_OS_OSX
-				return MTLPixelFormatDepth24Unorm_Stencil8;
+				return sNkMtlDepth24Stencil8 ? MTLPixelFormatDepth24Unorm_Stencil8 : MTLPixelFormatDepth32Float_Stencil8;
 #else
 				return MTLPixelFormatDepth32Float_Stencil8;
 #endif
@@ -245,14 +250,47 @@ namespace nkentseu {
 				return MTLVertexFormatChar4Normalized;
 			case NkVertexFormat::NK_R32_UINT:
 				return MTLVertexFormatUInt;
+			case NkVertexFormat::NK_RG32_UINT:
+				return MTLVertexFormatUInt2;
+			case NkVertexFormat::NK_RGB32_UINT:
+				return MTLVertexFormatUInt3;
 			case NkVertexFormat::NK_RGBA32_UINT:
 				return MTLVertexFormatUInt4;
+			case NkVertexFormat::NK_R32_SINT:
+				return MTLVertexFormatInt;
+			case NkVertexFormat::NK_RG32_SINT:
+				return MTLVertexFormatInt2;
+			case NkVertexFormat::NK_RGBA32_SINT:
+				return MTLVertexFormatInt4;
+			case NkVertexFormat::NK_RGBA16_UINT:
+				return MTLVertexFormatUShort4;
+			case NkVertexFormat::NK_RGBA8_UINT:
+				return MTLVertexFormatUChar4;
+			case NkVertexFormat::NK_RGBA8_SINT:
+				return MTLVertexFormatChar4;
+			case NkVertexFormat::NK_RG8_UNORM:
+				return MTLVertexFormatUChar2Normalized;
+			case NkVertexFormat::NK_R16_FLOAT:
+				return MTLVertexFormatHalf;
+			case NkVertexFormat::NK_A2B10G10R10_UNORM:
+				return MTLVertexFormatUInt1010102Normalized;
 			default:
+				// Un format non traduit se DIT : Float3 en silence donnait des
+				// sommets decales, sans erreur.
+				NK_MTL_ERR("format de sommet %u non traduit : Float3 par defaut\n", (unsigned)f);
 				return MTLVertexFormatFloat3;
 		}
 	}
 
 	// =============================================================================
+	void *NkMetalDevice::GetNativeDevice() const {
+		return (__bridge void *)mDevice;
+	}
+
+	void *NkMetalDevice::GetNativeCommandQueue() const {
+		return (__bridge void *)mQueue;
+	}
+
 	NkMetalDevice::~NkMetalDevice() {
 		if (mIsValid)
 			Shutdown();
@@ -302,7 +340,12 @@ namespace nkentseu {
 			NK_MTL_ERR("MTLDevice indisponible\n");
 			return false;
 		}
-		mQueue = [mDevice newCommandQueue];
+		// 256 command buffers en vol au plus (64 par defaut) : de la marge pour
+		// les envois synchrones (WriteTexture...) d'une meme image.
+		mQueue = [mDevice newCommandQueueWithMaxCommandBufferCount:256];
+#if TARGET_OS_OSX
+		sNkMtlDepth24Stencil8 = mDevice.depth24Stencil8PixelFormatSupported;
+#endif
 
 		if (headless) {
 			mLayer = nil;
@@ -317,6 +360,11 @@ namespace nkentseu {
 		mLayer = (__bridge CAMetalLayer *)layerFournie;
 		mLayer.device = mDevice;
 		mLayer.pixelFormat = ToMTLFormat(mSwapFormat); // meme format que CreateSwapchainObjects
+		// OPAQUE : sans lui, un pixel d'alpha 0 laisse voir le fond BLANC de la
+		// fenetre -- la scene 3D (sortie tonemap en alpha 0) disparaissait, seul
+		// l'overlay 2D restait visible (CI macOS du 2026-09-30). Les autres API
+		// ignorent l'alpha de la chaine d'echange ; Metal non, si on le laisse.
+		mLayer.opaque = YES;
 
 		// Dimensions : la layer est la source de verite (drawableSize, sinon bounds*scale).
 		CGSize ds = mLayer.drawableSize;
@@ -382,20 +430,32 @@ namespace nkentseu {
 	NkBufferHandle NkMetalDevice::CreateBuffer(const NkBufferDesc &desc) {
 		threading::NkScopedLockMutex lock(mMutex);
 		MTLResourceOptions opts = MTLResourceStorageModeShared; // CPU+GPU visible
-		switch (desc.usage) {
-			case NkResourceUsage::NK_DEFAULT:
-				opts = MTLResourceStorageModePrivate;
-				break;
-			default:
-				break;
-		}
+		// Memoire unifiee (Apple Silicon, et le GPU paravirtualise de la CI) : un
+		// tampon partage ne coute rien de plus, et MapBuffer marche dessus. Le
+		// stockage prive ne sert qu'aux GPU a memoire dediee.
+		if (desc.usage == NkResourceUsage::NK_DEFAULT && !mDevice.hasUnifiedMemory)
+			opts = MTLResourceStorageModePrivate;
 
 		id<MTLBuffer> buf = [mDevice newBufferWithLength:(NSUInteger)desc.sizeBytes options:opts];
 		if (!buf)
 			return {};
 
-		if (desc.initialData && opts != MTLResourceStorageModePrivate)
-			memcpy(buf.contents, desc.initialData, (size_t)desc.sizeBytes);
+		if (desc.initialData) {
+			if (opts != MTLResourceStorageModePrivate) {
+				memcpy(buf.contents, desc.initialData, (size_t)desc.sizeBytes);
+			} else {
+				// Tampon prive : les donnees initiales n'etaient JAMAIS copiees.
+				id<MTLBuffer> stage = [mDevice newBufferWithBytes:desc.initialData
+														   length:(NSUInteger)desc.sizeBytes
+														  options:MTLResourceStorageModeShared];
+				id<MTLCommandBuffer> cmd = [mQueue commandBuffer];
+				id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+				[blit copyFromBuffer:stage sourceOffset:0 toBuffer:buf destinationOffset:0 size:(NSUInteger)desc.sizeBytes];
+				[blit endEncoding];
+				[cmd commit];
+				[cmd waitUntilCompleted];
+			}
+		}
 
 		if (desc.debugName)
 			buf.label = [NSString stringWithUTF8String:desc.debugName];
@@ -688,7 +748,8 @@ namespace nkentseu {
 				NSString *src = [NSString stringWithUTF8String:s.mslSource];
 				lib = [mDevice newLibraryWithSource:src options:nil error:&err];
 				if (err)
-					NK_MTL_ERR("Shader MSL: %s\n", [err.localizedDescription UTF8String]);
+					NK_MTL_ERR("Shader MSL '%s' : %s\n", desc.debugName ? desc.debugName : "?",
+							   [err.localizedDescription UTF8String]);
 			} else if (!s.spirvBinary.Empty()) {
 				// Metal ne lit pas nativement le SPIR-V : conversion en MSL requise
 				// (SPIRV-Cross) en pré-build.
@@ -706,6 +767,22 @@ namespace nkentseu {
 
 			if (!lib)
 				continue;
+			// Ressources lues (ensemble, binding), ecrites par SpirvToMsl.
+			if (s.mslSource) {
+				const char *p = s.mslSource;
+				while ((p = strstr(p, "// nk_rsrc ")) != nullptr) {
+					unsigned ens = 0, bnd = 0;
+					if (sscanf(p, "// nk_rsrc %u %u", &ens, &bnd) == 2) {
+						const uint32 cle = (ens << 16) | (bnd & 0xFFFFu);
+						bool deja = false;
+						for (uint32 k = 0; k < sh.ressources.Size(); ++k)
+							deja = deja || sh.ressources[k] == cle;
+						if (!deja)
+							sh.ressources.PushBack(cle);
+					}
+					p += 11;
+				}
+			}
 			const char *entry = s.entryPoint ? s.entryPoint : "main";
 			NSString *fn = [NSString stringWithUTF8String:entry];
 			id<MTLFunction> func = [lib newFunctionWithName:fn];
@@ -752,6 +829,17 @@ namespace nkentseu {
 					break;
 				case NkShaderStage::NK_COMPUTE:
 					sh.comp = retained;
+					// Taille de groupe : « // nk_threadgroup X Y Z », ecrit en tete du
+					// MSL par NkShaderConverter::SpirvToMsl (LocalSize du SPIR-V).
+					if (s.mslSource) {
+						const char *wg = strstr(s.mslSource, "// nk_threadgroup ");
+						unsigned gx = 1, gy = 1, gz = 1;
+						if (wg && sscanf(wg, "// nk_threadgroup %u %u %u", &gx, &gy, &gz) == 3) {
+							sh.tgX = gx ? gx : 1;
+							sh.tgY = gy ? gy : 1;
+							sh.tgZ = gz ? gz : 1;
+						}
+					}
 					break;
 				default:
 					CFRelease(retained);
@@ -802,62 +890,13 @@ namespace nkentseu {
 			return {};
 		}
 
-		MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
-		if (sh.vert)
-			pd.vertexFunction = (__bridge id<MTLFunction>)sh.vert;
-		if (sh.frag)
-			pd.fragmentFunction = (__bridge id<MTLFunction>)sh.frag;
-		pd.sampleCount = (NSUInteger)d.samples;
-
-		// Vertex descriptor
-		if (d.vertexLayout.attributes.Size() > 0) {
-			MTLVertexDescriptor *vd = [[MTLVertexDescriptor alloc] init];
-			for (uint32 i = 0; i < d.vertexLayout.attributes.Size(); i++) {
-				auto &a = d.vertexLayout.attributes[i];
-				vd.attributes[a.location].format = ToMTLVertexFormat(a.format);
-				vd.attributes[a.location].offset = a.offset;
-				vd.attributes[a.location].bufferIndex = a.binding;
-			}
-			for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); i++) {
-				auto &b = d.vertexLayout.bindings[i];
-				vd.layouts[b.binding].stride = b.stride;
-				vd.layouts[b.binding].stepFunction =
-					b.perInstance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
-			}
-			pd.vertexDescriptor = vd;
-		}
-
-		// Render target formats
-		auto *rpit = mRenderPasses.Find(d.renderPass.id);
-		if (rpit) {
-			for (uint32 i = 0; i < rpit->desc.colorAttachments.Size(); i++)
-				pd.colorAttachments[i].pixelFormat = ToMTLFormat(rpit->desc.colorAttachments[i].format);
-			if (rpit->desc.hasDepth)
-				pd.depthAttachmentPixelFormat = ToMTLFormat(rpit->desc.depthAttachment.format);
-		} else {
-			pd.colorAttachments[0].pixelFormat = ToMTLFormat(mSwapFormat);
-			pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-		}
-
-		// Blend
-		for (uint32 i = 0; i < d.blend.attachments.Size() && i < 8; i++) {
-			auto &a = d.blend.attachments[i];
-			pd.colorAttachments[i].blendingEnabled = a.blendEnable;
-			pd.colorAttachments[i].sourceRGBBlendFactor = ToMTLBlend(a.srcColor);
-			pd.colorAttachments[i].destinationRGBBlendFactor = ToMTLBlend(a.dstColor);
-			pd.colorAttachments[i].rgbBlendOperation = ToMTLBlendOp(a.colorOp);
-			pd.colorAttachments[i].sourceAlphaBlendFactor = ToMTLBlend(a.srcAlpha);
-			pd.colorAttachments[i].destinationAlphaBlendFactor = ToMTLBlend(a.dstAlpha);
-			pd.colorAttachments[i].alphaBlendOperation = ToMTLBlendOp(a.alphaOp);
-			pd.colorAttachments[i].writeMask = a.colorWriteMask & 0xF;
-		}
-
-		NSError *err = nil;
-		id<MTLRenderPipelineState> rpso = [mDevice newRenderPipelineStateWithDescriptor:pd error:&err];
-		if (err) {
-			NK_MTL_ERR("Pipeline: %s\n", [err.localizedDescription UTF8String]);
+		// Etat de base : formats de la passe DONNEE (sinon ceux de la chaine
+		// d'echange). D'autres viendront a la liaison (ResolveRenderPipeline).
+		const NkMetalPassFormats base = FormatsDeLaPasse(d.renderPass);
+		void *rpsoBase = BuildRenderPipeline(d, sh.vert, sh.frag, base);
+		if (!rpsoBase)
 			return {};
-		}
+		id<MTLRenderPipelineState> rpso = (__bridge_transfer id<MTLRenderPipelineState>)rpsoBase;
 
 		// Depth-stencil state
 		MTLDepthStencilDescriptor *dsd = [[MTLDepthStencilDescriptor alloc] init];
@@ -884,7 +923,19 @@ namespace nkentseu {
 		p.rpso = (__bridge_retained void *)rpso;
 		p.dss = (__bridge_retained void *)dss;
 		p.isCompute = false;
-		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		p.primitive = (uint32)ToMTLTopology(d.topology);
+		p.desc = d;
+		p.baseSig = base.Signature();
+		p.ressources = sh.ressources;
+		p.vert = sh.vert ? (void *)CFRetain(sh.vert) : nullptr;
+		p.frag = sh.frag ? (void *)CFRetain(sh.frag) : nullptr;
+		// frontFace est donne dans la convention du moteur (NDC, comme OpenGL) ;
+		// Metal, comme D3D et le Vulkan au viewport retourne, juge l'enroulement A
+		// L'ECRAN, ou il s'inverse. Vulkan (NkVulkanDevice, « effectiveFace ») et
+		// DX11/DX12 (FrontCounterClockwise = !CCW) l'inversent deja ; sans cela,
+		// Metal cullait les faces AVANT : on voyait l'interieur des objets, eclaire
+		// par en dessous (CI du 2026-10-01, sphere de Tuto03).
+		p.frontFaceCCW = d.rasterizer.frontFace != NkFrontFace::NK_CCW;
 		p.cullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	 ? 0
 					 : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? 1
 																	 : 2;
@@ -897,6 +948,126 @@ namespace nkentseu {
 		NkPipelineHandle h;
 		h.id = hid;
 		return h;
+	}
+
+	// Formats d'une passe declaree (NkRenderPassDesc) ; passe inconnue : ceux de
+	// la chaine d'echange.
+	NkMetalPassFormats NkMetalDevice::FormatsDeLaPasse(NkRenderPassHandle rp) const {
+		NkMetalPassFormats f;
+		const NkMetalRenderPass *rpit = rp.IsValid() ? mRenderPasses.Find(rp.id) : nullptr;
+		if (rpit) {
+			f.colorCount = rpit->desc.colorAttachments.Size() < 8 ? rpit->desc.colorAttachments.Size() : 8;
+			for (uint32 i = 0; i < f.colorCount; ++i)
+				f.color[i] = (uint32)ToMTLFormat(rpit->desc.colorAttachments[i].format);
+			if (f.colorCount > 0)
+				f.samples = (uint32)rpit->desc.colorAttachments[0].samples;
+			if (rpit->desc.hasDepth) {
+				const MTLPixelFormat df = ToMTLFormat(rpit->desc.depthAttachment.format);
+				f.depth = (uint32)df;
+				if (df == MTLPixelFormatDepth32Float_Stencil8
+#if TARGET_OS_OSX
+					|| df == MTLPixelFormatDepth24Unorm_Stencil8
+#endif
+				)
+					f.stencil = (uint32)df;
+			}
+		} else {
+			f.colorCount = 1;
+			f.color[0] = (uint32)ToMTLFormat(mSwapFormat);
+			f.depth = (uint32)MTLPixelFormatDepth32Float;
+		}
+		if (f.samples == 0)
+			f.samples = 1;
+		return f;
+	}
+
+	void *NkMetalDevice::BuildRenderPipeline(const NkGraphicsPipelineDesc &d, void *vert, void *frag,
+											 const NkMetalPassFormats &f) {
+		MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
+		pd.vertexFunction = (__bridge id<MTLFunction>)vert;
+		if (frag)
+			pd.fragmentFunction = (__bridge id<MTLFunction>)frag;
+		pd.sampleCount = f.samples > 0 ? f.samples : 1;
+
+		// Vertex descriptor. La liaison de sommets B vit en buffer(26 + B)
+		// (NkMslConventions.h) : en buffer(B), elle ecrasait le tampon de camera
+		// (binding 0) que BindDescriptorSet venait de poser.
+		if (d.vertexLayout.attributes.Size() > 0) {
+			MTLVertexDescriptor *vd = [[MTLVertexDescriptor alloc] init];
+			for (uint32 i = 0; i < d.vertexLayout.attributes.Size(); i++) {
+				auto &a = d.vertexLayout.attributes[i];
+				vd.attributes[a.location].format = ToMTLVertexFormat(a.format);
+				vd.attributes[a.location].offset = a.offset;
+				vd.attributes[a.location].bufferIndex = kNkMslVertexBufferBase + a.binding;
+			}
+			for (uint32 i = 0; i < d.vertexLayout.bindings.Size(); i++) {
+				auto &b = d.vertexLayout.bindings[i];
+				const uint32 idx = kNkMslVertexBufferBase + b.binding;
+				vd.layouts[idx].stride = b.stride;
+				vd.layouts[idx].stepFunction =
+					b.perInstance ? MTLVertexStepFunctionPerInstance : MTLVertexStepFunctionPerVertex;
+			}
+			pd.vertexDescriptor = vd;
+		}
+		switch (d.topology) {
+			case NkPrimitiveTopology::NK_POINT_LIST:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassPoint;
+				break;
+			case NkPrimitiveTopology::NK_LINE_LIST:
+			case NkPrimitiveTopology::NK_LINE_STRIP:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassLine;
+				break;
+			default:
+				pd.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+				break;
+		}
+
+		// Formats des cibles : ceux de la passe, EXACTEMENT (Metal refuse de
+		// dessiner avec un pipeline d'un autre format que l'attachement).
+		for (uint32 i = 0; i < f.colorCount && i < 8; i++)
+			pd.colorAttachments[i].pixelFormat = (MTLPixelFormat)f.color[i];
+		pd.depthAttachmentPixelFormat = (MTLPixelFormat)f.depth;
+		pd.stencilAttachmentPixelFormat = (MTLPixelFormat)f.stencil;
+
+		// Blend (seulement sur les attachements qui existent)
+		for (uint32 i = 0; i < d.blend.attachments.Size() && i < f.colorCount && i < 8; i++) {
+			auto &a = d.blend.attachments[i];
+			pd.colorAttachments[i].blendingEnabled = a.blendEnable;
+			pd.colorAttachments[i].sourceRGBBlendFactor = ToMTLBlend(a.srcColor);
+			pd.colorAttachments[i].destinationRGBBlendFactor = ToMTLBlend(a.dstColor);
+			pd.colorAttachments[i].rgbBlendOperation = ToMTLBlendOp(a.colorOp);
+			pd.colorAttachments[i].sourceAlphaBlendFactor = ToMTLBlend(a.srcAlpha);
+			pd.colorAttachments[i].destinationAlphaBlendFactor = ToMTLBlend(a.dstAlpha);
+			pd.colorAttachments[i].alphaBlendOperation = ToMTLBlendOp(a.alphaOp);
+			pd.colorAttachments[i].writeMask = a.colorWriteMask & 0xF;
+		}
+
+		NSError *err = nil;
+		id<MTLRenderPipelineState> rpso = [mDevice newRenderPipelineStateWithDescriptor:pd error:&err];
+		if (!rpso) {
+			NK_MTL_ERR("Pipeline '%s' : %s\n", d.debugName ? d.debugName : "?",
+					   err ? [err.localizedDescription UTF8String] : "?");
+			return nullptr;
+		}
+		return (__bridge_retained void *)rpso;
+	}
+
+	void *NkMetalDevice::ResolveRenderPipeline(uint64 id, const NkMetalPassFormats &f) {
+		threading::NkScopedLockMutex lock(mMutex);
+		auto *pipe = mPipelines.Find(id);
+		if (!pipe || pipe->isCompute)
+			return nullptr;
+		const uint64 sig = f.Signature();
+		if (sig == pipe->baseSig)
+			return pipe->rpso;
+		for (uint32 i = 0; i < pipe->variantes.Size(); ++i)
+			if (pipe->variantes[i].sig == sig)
+				return pipe->variantes[i].rpso; // nullptr si la construction a echoue : ne pas reessayer
+		NkMetalPipeline::Variante v;
+		v.sig = sig;
+		v.rpso = pipe->vert ? BuildRenderPipeline(pipe->desc, pipe->vert, pipe->frag, f) : nullptr;
+		pipe->variantes.PushBack(v);
+		return v.rpso;
 	}
 
 	NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDesc &d) {
@@ -916,6 +1087,10 @@ namespace nkentseu {
 		NkMetalPipeline p;
 		p.cpso = (__bridge_retained void *)cpso;
 		p.isCompute = true;
+		p.ressources = sit->ressources;
+		p.tgX = sit->tgX;
+		p.tgY = sit->tgY;
+		p.tgZ = sit->tgZ;
 		uint64 hid = NextId();
 		mPipelines[hid] = p;
 		NkPipelineHandle h;
@@ -934,6 +1109,13 @@ namespace nkentseu {
 			CFRelease(it->cpso);
 		if (it->dss)
 			CFRelease(it->dss);
+		if (it->vert)
+			CFRelease(it->vert);
+		if (it->frag)
+			CFRelease(it->frag);
+		for (uint32 i = 0; i < it->variantes.Size(); ++i)
+			if (it->variantes[i].rpso)
+				CFRelease(it->variantes[i].rpso);
 		mPipelines.Erase(h.id);
 		h.id = 0;
 	}
@@ -965,6 +1147,7 @@ namespace nkentseu {
 		fb.depthAttachment = d.depthAttachment;
 		fb.w = d.width;
 		fb.h = d.height;
+		fb.renderPassId = d.renderPass.id;
 		uint64 hid = NextId();
 		mFramebuffers[hid] = fb;
 		NkFramebufferHandle h;
@@ -1020,7 +1203,7 @@ namespace nkentseu {
 			auto *sit = mDescSets.Find(w.set.id);
 			if (!sit)
 				continue;
-			NkMetalDescSet::Binding b{w.binding, w.type, w.buffer.id, w.texture.id, w.sampler.id};
+			NkMetalDescSet::Binding b{w.binding, w.type, w.buffer.id, w.texture.id, w.sampler.id, w.bufferOffset};
 			bool found = false;
 			for (uint32 j = 0; j < sit->bindings.Size(); j++)
 				if (sit->bindings[j].slot == w.binding) {
@@ -1064,7 +1247,7 @@ namespace nkentseu {
 	void NkMetalDevice::SubmitAndPresent(NkICommandBuffer *cb) {
 		auto *m = dynamic_cast<NkMetalCommandBuffer *>(cb);
 		if (m)
-			m->CommitAndPresent(mCurrentDrawable);
+			m->CommitAndPresent((__bridge void *)mCurrentDrawable);
 		mCurrentDrawable = nil;
 	}
 
@@ -1114,8 +1297,16 @@ namespace nkentseu {
 		if (!mCurrentDrawable)
 			return false;
 
-		// Mettre à jour le framebuffer swapchain avec le drawable courant
-		uint64 colorId = NextId();
+		// Mettre à jour le framebuffer swapchain avec le drawable courant. UNE
+		// entree, reutilisee : la texture de l'image precedente est relachee ici.
+		if (mSwapColorId == 0)
+			mSwapColorId = NextId();
+		const uint64 colorId = mSwapColorId;
+		{
+			auto *ancienne = mTextures.Find(colorId);
+			if (ancienne && ancienne->tex)
+				CFRelease(ancienne->tex);
+		}
 		NkMetalTexture swt{};
 		swt.tex = (__bridge_retained void *)mCurrentDrawable.texture;
 		swt.isSwapchain = true;
@@ -1220,6 +1411,15 @@ namespace nkentseu {
 
 	const NkMetalFramebuffer *NkMetalDevice::GetFBO(uint64 id) const {
 		return mFramebuffers.Find(id);
+	}
+
+	const NkMetalRenderPass *NkMetalDevice::GetRenderPass(uint64 id) const {
+		return mRenderPasses.Find(id);
+	}
+
+	uint32 NkMetalDevice::GetTextureBytesPerPixel(uint64 id) const {
+		auto *it = mTextures.Find(id);
+		return it ? NkFormatBytesPerPixel(it->desc.format) : 4u;
 	}
 
 } // namespace nkentseu

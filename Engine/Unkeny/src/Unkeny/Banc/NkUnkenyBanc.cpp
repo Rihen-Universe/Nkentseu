@@ -51,6 +51,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 
 #include "NKFileSystem/NkFile.h"
 #include "NKPhysics/NkParticules2DFabrique.h"
@@ -254,7 +255,7 @@ namespace nkentseu {
 
 			// (t4) (t5) (t6) dessin texture
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				s.Init(cfg);
 				NkTextures2D tex;
@@ -304,7 +305,7 @@ namespace nkentseu {
 
 			// (t7) (t8) animation
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				s.Init(cfg);
 				NkSprite2D sp;
@@ -346,7 +347,7 @@ namespace nkentseu {
 					   static_cast<float32>(an->ImageCourante()));
 
 				// (t8)
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				s.Monde().Get<NkAnimSprite2D>(e)->Jouer(0);
 				s.Restaurer(photo);
@@ -432,12 +433,12 @@ namespace nkentseu {
 
 				NkTextures2D tex;
 				tex.Creer(quatre, 2, 2, "quatre");
-				NkScene a;
+				NK_BANC_SUR_TAS(NkScene, a);
 				Remplir(a, tex);
 				NkString json;
 				const bool ecrit = NkSauverSceneJSON(a, json, &tex);
 
-				NkScene b;
+				NK_BANC_SUR_TAS(NkScene, b);
 				b.PhotographierAussi<NkBancMarque>("banc.NkBancMarque");
 				b.PhotographierAussi<NkBancSecret>();
 				NkString err;
@@ -491,7 +492,7 @@ namespace nkentseu {
 				Temoin(dBlob < 0.01f && dCaisse < 0.001f, "(s2) apres 1 s : meme simulation (ecart du centre du blob m)", dBlob);
 
 				// (s3) refus, scene intacte
-				NkScene c;
+				NK_BANC_SUR_TAS(NkScene, c);
 				Remplir(c, tex);
 				NkVector<ecs::NkEntityId> avant;
 				c.Entites(avant);
@@ -518,7 +519,7 @@ namespace nkentseu {
 
 				// (s4) fichier
 				const char *chemin = "unkeny_banc_scene.nkscene";
-				NkScene d;
+				NK_BANC_SUR_TAS(NkScene, d);
 				const bool fichier = NkSauverSceneFichier(a, chemin, &tex) && NkChargerSceneFichier(d, chemin, &tex, &err);
 				NkVector<ecs::NkEntityId> ed;
 				d.Entites(ed);
@@ -554,7 +555,7 @@ namespace nkentseu {
 						   "(a2) son fabrique : meme nom meme id, 0,5 s", sons.Duree(a));
 
 					// (a3) sans moteur
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					NkSceneConfig cfg;
 					s.Init(cfg);
 					s.Camera().PoserViseur(NkRect{0.f, 0.f, 200.f, 100.f});
@@ -575,7 +576,7 @@ namespace nkentseu {
 				NkSons2D sons;
 				const bool moteur = sons.Demarrer(true);
 				const uint32 a = sons.Creer(bip.Data(), bip.Size(), 48000, "bip");
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				s.Init(cfg);
 				s.Camera().PoserViseur(NkRect{0.f, 0.f, 200.f, 100.f});
@@ -616,7 +617,7 @@ namespace nkentseu {
 				NkSource2D amb = src;
 				s.Monde().Add<NkSource2D>(g, amb);
 				sons.Avancer(s);
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				s.Restaurer(photo);
 				sons.Avancer(s);
@@ -647,7 +648,7 @@ namespace nkentseu {
 				auto A = [](NkScene &, float32, void *) { j.trace[j.n++] = 'a'; };
 				auto B = [](NkScene &, float32, void *) { j.trace[j.n++] = 'b'; };
 				auto C = [](NkScene &, float32, void *) { j.trace[j.n++] = 'c'; };
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg; // SANS physique
 				s.Init(cfg);
 				s.AjouterSysteme("a", NkPhaseSysteme::NK_TRAME, A, nullptr, 5);
@@ -656,7 +657,7 @@ namespace nkentseu {
 				s.Pas(1.f / 60.f);
 				Temoin(std::strcmp(j.trace, "bca") == 0, "(j1) ordre croissant puis ordre d'ajout (b, c, a)", static_cast<float32>(j.n));
 
-				NkScene t;
+				NK_BANC_SUR_TAS(NkScene, t);
 				t.Init(cfg);
 				t.AjouterSysteme("fixe", NkPhaseSysteme::NK_PAS_FIXE, [](NkScene &, float32 dt, void *) { j.fixes++; j.dtFixe = dt; });
 				t.AjouterSysteme("trame", NkPhaseSysteme::NK_TRAME, [](NkScene &, float32 dt, void *) { j.trames++; j.dtTrame = dt; });
@@ -665,7 +666,7 @@ namespace nkentseu {
 					   "(j2) 2 pas fixes (1/60) et 1 trame (1/30), sans physique", static_cast<float32>(j.fixes));
 
 				j = Journal{};
-				NkScene u;
+				NK_BANC_SUR_TAS(NkScene, u);
 				u.Init(cfg);
 				const uint32 off = u.AjouterSysteme("off", NkPhaseSysteme::NK_TRAME, A);
 				u.ActiverSysteme(off, false);
@@ -715,7 +716,7 @@ namespace nkentseu {
 				};
 				int32 debuts = 0, autres = 0;
 				{
-					NkScene w;
+					NK_BANC_SUR_TAS(NkScene, w);
 					ecs::NkEntityId balle, sol;
 					Chute(w, 5.f, balle, sol, nullptr);
 					for (int32 k = 0; k < 150; ++k) {
@@ -734,7 +735,7 @@ namespace nkentseu {
 				Temoin(debuts >= 1 && autres == 0, "(j4) balle sur le sol : un DEBUT balle/sol, en entites", static_cast<float32>(debuts));
 				int32 rien = 0;
 				{
-					NkScene w;
+					NK_BANC_SUR_TAS(NkScene, w);
 					ecs::NkEntityId balle, sol;
 					Chute(w, 100.f, balle, sol, nullptr);
 					for (int32 k = 0; k < 60; ++k) {
@@ -745,7 +746,7 @@ namespace nkentseu {
 				Temoin(rien == 0, "(j4n) balle dans le vide : aucun contact", static_cast<float32>(rien));
 				int32 entre = -1, sort = -1, pas = 0;
 				{
-					NkScene w;
+					NK_BANC_SUR_TAS(NkScene, w);
 					ecs::NkEntityId balle, sol, zone;
 					Chute(w, 5.f, balle, sol, &zone);
 					for (int32 k = 0; k < 150; ++k, ++pas) {

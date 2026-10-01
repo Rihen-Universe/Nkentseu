@@ -61,6 +61,7 @@
 // =============================================================================
 
 #include "Unkeny/Banc/NkUnkenyBancLumiere.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include "NKFileSystem/NkFile.h"
@@ -931,7 +932,7 @@ namespace nkentseu {
 				const ecs::NkEntityId ee = Emetteur(*s, NkVec2f(1.f, 0.f), NkPresetEmetteur2D(NkPresetEffet2D::NK_FEU));
 				(void)el;
 				(void)ee;
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s->Photographier(photo);
 				// « En jeu » : la nuit tombe, la lampe baisse, le feu s'eteint.
 				s->Eclairage().ambiante = 0x000000FFu;

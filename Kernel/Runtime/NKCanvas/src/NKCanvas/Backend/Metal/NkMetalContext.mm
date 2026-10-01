@@ -61,11 +61,13 @@ namespace nkentseu {
 
 		// CAMetalLayer
 		CAMetalLayer *layer = nil;
+		// surf.view / surf.metalLayer sont DEJA des pointeurs Objective-C en .mm
+		// (NkSurface.h) : un __bridge entre deux types ObjC est refuse sous ARC.
 		if (surf.metalLayer) {
-			layer = (__bridge CAMetalLayer *)surf.metalLayer;
+			layer = surf.metalLayer;
 		} else {
 #if defined(NKENTSEU_PLATFORM_MACOS)
-			NSView *view = (__bridge NSView *)surf.view;
+			NSView *view = surf.view;
 			if (!view) {
 				NK_MTL_ERR("nsView is null\n");
 				return false;
@@ -75,7 +77,7 @@ namespace nkentseu {
 			view.wantsLayer = YES;
 			view.layer = layer;
 #else
-			UIView *view = (__bridge UIView *)surf.view;
+			UIView *view = surf.view;
 			if (!view) {
 				NK_MTL_ERR("uiView is null\n");
 				return false;
@@ -186,6 +188,14 @@ namespace nkentseu {
 			CFBridgingRelease(mData.commandQueue);
 			mData.commandQueue = nullptr;
 		}
+		if (mReadback) {
+			CFBridgingRelease(mReadback);
+			mReadback = nullptr;
+		}
+		if (mHorsEcran) {
+			CFBridgingRelease(mHorsEcran);
+			mHorsEcran = nullptr;
+		}
 		if (mData.device) {
 			CFBridgingRelease(mData.device);
 			mData.device = nullptr;
@@ -201,12 +211,37 @@ namespace nkentseu {
 			return false;
 		CAMetalLayer *layer = (__bridge CAMetalLayer *)mData.layer;
 
-		id<CAMetalDrawable> drawable = [layer nextDrawable];
-		if (!drawable) {
-			NK_MTL_ERR("nextDrawable returned nil (likely minimized)\n");
-			return false;
+		id<MTLTexture> cible = nil;
+		if (mKeepLast) {
+			// Mode capture : texture hors ecran, au format et a la taille de la surface.
+			id<MTLTexture> he = (__bridge id<MTLTexture>)mHorsEcran;
+			if (!he || he.width != mData.width || he.height != mData.height) {
+				if (mHorsEcran)
+					CFBridgingRelease(mHorsEcran);
+				id<MTLDevice> device = (__bridge id<MTLDevice>)mData.device;
+				MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:layer.pixelFormat
+																							   width:mData.width
+																							  height:mData.height
+																						   mipmapped:NO];
+				td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+				td.storageMode = MTLStorageModePrivate;
+				he = [device newTextureWithDescriptor:td];
+				mHorsEcran = he ? (void *)CFBridgingRetain(he) : nullptr;
+			}
+			cible = he;
+			if (!cible) {
+				NK_MTL_ERR("texture hors ecran %ux%u impossible\n", mData.width, mData.height);
+				return false;
+			}
+		} else {
+			id<CAMetalDrawable> drawable = [layer nextDrawable];
+			if (!drawable) {
+				NK_MTL_ERR("nextDrawable returned nil (likely minimized)\n");
+				return false;
+			}
+			mData.currentDrawable = (void *)CFBridgingRetain(drawable);
+			cible = drawable.texture;
 		}
-		mData.currentDrawable = (void *)CFBridgingRetain(drawable);
 
 		id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)mData.commandQueue;
 		id<MTLCommandBuffer> cmdb = [queue commandBuffer];
@@ -214,10 +249,10 @@ namespace nkentseu {
 
 		// Render pass descriptor
 		MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-		rpd.colorAttachments[0].texture = drawable.texture;
+		rpd.colorAttachments[0].texture = cible;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
 		rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
-		rpd.colorAttachments[0].clearColor = MTLClearColorMake(0.1, 0.1, 0.1, 1.0);
+		rpd.colorAttachments[0].clearColor = MTLClearColorMake(mClear[0], mClear[1], mClear[2], mClear[3]);
 
 		if (mData.depthTexture) {
 			id<MTLTexture> depth = (__bridge id<MTLTexture>)mData.depthTexture;
@@ -250,10 +285,81 @@ namespace nkentseu {
 			return;
 		id<MTLCommandBuffer> cmdb = (__bridge_transfer id<MTLCommandBuffer>)mData.commandBuffer;
 		id<CAMetalDrawable> drw = (__bridge_transfer id<CAMetalDrawable>)mData.currentDrawable;
-		[cmdb presentDrawable:drw];
-		[cmdb commit];
 		mData.commandBuffer = nullptr;
 		mData.currentDrawable = nullptr;
+		if (!cmdb)
+			return; // BeginFrame avait echoue (fenetre minimisee) : rien a presenter
+
+		// Mode capture : copie de la texture hors ecran dans un tampon partage.
+		id<MTLBuffer> lecture = nil;
+		uint32 w = 0, h = 0;
+		if (mKeepLast && mHorsEcran) {
+			id<MTLTexture> tex = (__bridge id<MTLTexture>)mHorsEcran;
+			w = (uint32)tex.width;
+			h = (uint32)tex.height;
+			const NSUInteger taille = (NSUInteger)w * h * 4u;
+			lecture = (__bridge id<MTLBuffer>)mReadback;
+			if (!lecture || lecture.length < taille) {
+				if (mReadback)
+					CFBridgingRelease(mReadback);
+				id<MTLDevice> device = (__bridge id<MTLDevice>)mData.device;
+				lecture = [device newBufferWithLength:taille options:MTLResourceStorageModeShared];
+				mReadback = lecture ? (void *)CFBridgingRetain(lecture) : nullptr;
+			}
+			if (lecture) {
+				id<MTLBlitCommandEncoder> blit = [cmdb blitCommandEncoder];
+				[blit copyFromTexture:tex
+							 sourceSlice:0
+							 sourceLevel:0
+							sourceOrigin:MTLOriginMake(0, 0, 0)
+							  sourceSize:MTLSizeMake(w, h, 1)
+								toBuffer:lecture
+					   destinationOffset:0
+				  destinationBytesPerRow:(NSUInteger)w * 4u
+				destinationBytesPerImage:(NSUInteger)w * h * 4u];
+				[blit endEncoding];
+			}
+		}
+
+		if (drw)
+			[cmdb presentDrawable:drw];
+		[cmdb commit];
+
+		if (lecture) {
+			[cmdb waitUntilCompleted];
+			// BGRA (format de la CAMetalLayer) -> RGBA.
+			mLast.Resize((usize)w * h * 4u);
+			const uint8 *src = (const uint8 *)lecture.contents;
+			uint8 *dst = mLast.Data();
+			for (usize i = 0; i < (usize)w * h; ++i) {
+				dst[i * 4 + 0] = src[i * 4 + 2];
+				dst[i * 4 + 1] = src[i * 4 + 1];
+				dst[i * 4 + 2] = src[i * 4 + 0];
+				dst[i * 4 + 3] = src[i * 4 + 3];
+			}
+			mLastW = w;
+			mLastH = h;
+		}
+	}
+
+	void NkMetalContext::SetClearColor(float r, float g, float b, float a) {
+		mClear[0] = r;
+		mClear[1] = g;
+		mClear[2] = b;
+		mClear[3] = a;
+	}
+
+	void NkMetalContext::KeepLastFrame(bool keep) {
+		mKeepLast = keep;
+	}
+
+	bool NkMetalContext::ReadLastFrame(NkVector<uint8> &rgba, uint32 &width, uint32 &height) const {
+		if (mLastW == 0 || mLastH == 0 || mLast.Size() < (usize)mLastW * mLastH * 4u)
+			return false;
+		rgba = mLast;
+		width = mLastW;
+		height = mLastH;
+		return true;
 	}
 
 	// =============================================================================
@@ -311,6 +417,10 @@ namespace nkentseu {
 		i.version = "Metal";
 		i.vramMB = mData.vramMB;
 		i.computeSupported = true;
+		// Taille de la surface en PIXELS (drawableSize) : le renderer 2D en tire
+		// sa vue et son viewport initiaux. Laissee a 0, il partait en 800x600.
+		i.windowWidth = mData.width;
+		i.windowHeight = mData.height;
 		return i;
 	}
 

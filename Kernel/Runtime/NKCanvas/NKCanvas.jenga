@@ -166,8 +166,21 @@ with project("NKCanvas"):
     # ===== macOS ==================================================================
     with filter("system:macOS"):
         usetoolchain("clang-native")
-        defines([_VK_OFF] + _GLAD_DEF_OTHER)
+        # Vulkan sur macOS = MoltenVK (2026-10-01) : compile seulement si un SDK
+        # Vulkan est la au build (WANT_VULKAN, config/graphics.jenga). NkCanvasApp
+        # l'essaie alors EN PREMIER (Vulkan -> Metal -> OpenGL -> logiciel) ; sans
+        # pilote a l'execution, il passe au suivant. Surface : vkCreateMetalSurfaceEXT.
+        defines([_VK_ON] + _GLAD_DEF_OTHER)
+        if WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_METAL_EXT"])
+            if VULKAN_SDK:
+                libdirs([NormPath(os.path.join(VULKAN_SDK, "lib"))])
+            links(["vulkan"])
         frameworks(["Metal", "QuartzCore", "OpenGL", "AppKit"])
+        # Metal/*.mm et NkOpenGLContextMacOS.mm sont ecrits pour ARC
+        # (CFBridgingRetain / __bridge_transfer) : voir nkobjcarc() dans
+        # config/toolchain.jenga.
+        nkobjcarc()
         # Les backends Metal sont des .mm : le files() global ("**.cpp") ne les
         # attrape pas — la factory les référence, le link macOS échouait
         # (vtable NkMetalContext manquante, CI 2026-08-11).
@@ -178,6 +191,7 @@ with project("NKCanvas"):
         files([
             "src/NKCanvas/Backend/Metal/NkMetalContext.mm",
             "src/NKCanvas/Backend/Metal/NkMetalComputeContext.mm",
+            "src/NKCanvas/Backend/Metal/NkMetalRenderer2D.mm",
             "src/NKCanvas/Backend/OpenGL/NkOpenGLContextMacOS.mm",
         ])
 

@@ -30,6 +30,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "NKFileSystem/NkFile.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
@@ -93,7 +94,7 @@ namespace nkentseu {
 
 		void NkUnkenyBancAnimateur(FnTemoin Temoin) {
 			const float32 dt = 1.f / 60.f;
-			NkScene s;
+			NK_BANC_SUR_TAS(NkScene, s);
 			NkSceneConfig cfg;
 			s.Init(cfg);
 			const ecs::NkEntityId h = Heros(s, "Heros", "plateforme");
@@ -133,7 +134,7 @@ namespace nkentseu {
 			Temoin(Est(s, h, "Air/chute", 3), "(n4) vy < 0 : Air/chute, clip 3", Clip(s, h));
 
 			// (n6) la photo, prise en l'air
-			NkScene::NkPhoto photo;
+			NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 			s.Photographier(photo);
 
 			// (n5)
@@ -172,7 +173,7 @@ namespace nkentseu {
 				if (const char *sortie = std::getenv("NK_UNKENY_BANC_SCENE")) {
 					NkFile::WriteAllText(sortie, json.CStr());
 				}
-				NkScene b;
+				NK_BANC_SUR_TAS(NkScene, b);
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(b, json.View(), nullptr, &err);
 				const ecs::NkEntityId hb = lu ? ParNom(b, "Heros") : ecs::NkEntityId::Invalid();
@@ -182,7 +183,7 @@ namespace nkentseu {
 					   "(n7) .nkscene : l'animateur fait l'aller-retour (etat, parametres)",
 					   hb.IsValid() ? Clip(b, hb) : -1.f);
 
-				NkScene nu;
+				NK_BANC_SUR_TAS(NkScene, nu);
 				nu.Init(cfg);
 				nu.Creer("Caisse", NkVec2f(1.f, 2.f));
 				NkString jsonNu;
@@ -202,7 +203,7 @@ namespace nkentseu {
 					" \"sprite\": {\"taille\": \"1 1\", \"pivot\": \"0.5 0.5\", \"couleur\": 4294967295,"
 					" \"uv\": \"0 0 1 1\", \"couche\": 0, \"visible\": true},"
 					" \"jeu\": {\"NkVitesse2D\": \"0000c03f000000000000803e\"}}]}";
-				NkScene c;
+				NK_BANC_SUR_TAS(NkScene, c);
 				const bool luAncien = NkChargerSceneJSON(c, ancien, nullptr, &err);
 				const ecs::NkEntityId ec = luAncien ? ParNom(c, "Ancien") : ecs::NkEntityId::Invalid();
 				const NkVitesse2D *v = ec.IsValid() ? c.Monde().Get<NkVitesse2D>(ec) : nullptr;
@@ -219,7 +220,7 @@ namespace nkentseu {
 
 			// (n8) modele inconnu
 			{
-				NkScene u;
+				NK_BANC_SUR_TAS(NkScene, u);
 				u.Init(cfg);
 				const ecs::NkEntityId e = Heros(u, "Perdu", "modele-qui-n-existe-pas");
 				u.Monde().Get<NkAnimSprite2D>(e)->Jouer(3);
@@ -241,7 +242,7 @@ namespace nkentseu {
 								   NkModeleAnimateur("plateforme")->SaveBinary(NkString(chemin));
 				const bool lu = ecrit && NkChargerModeleAnimateur("plateforme.fichier", chemin);
 				std::remove(chemin);
-				NkScene f;
+				NK_BANC_SUR_TAS(NkScene, f);
 				f.Init(cfg);
 				const ecs::NkEntityId e = Heros(f, "Relu", "plateforme.fichier");
 				f.Pas(dt);
@@ -256,7 +257,7 @@ namespace nkentseu {
 
 			// (n10) pas de fuite de parametres entre entites du meme modele
 			{
-				NkScene q;
+				NK_BANC_SUR_TAS(NkScene, q);
 				q.Init(cfg);
 				const ecs::NkEntityId ea = Heros(q, "Sauteur", "plateforme");
 				const ecs::NkEntityId eb = q.Creer("Sobre", NkVec2f(2.f, 0.f));

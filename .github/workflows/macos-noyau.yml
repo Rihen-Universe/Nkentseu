@@ -39,6 +39,11 @@ on:
         type: choice
         options: [Debug, Release]
         default: "Debug"
+      jenga_ref:
+        description: "Ref de Jenga a la place du tag v<JENGA_VERSION> (vide = .github/JENGA_REF, sinon le tag)"
+        required: false
+        type: string
+        default: ""
   push:
     branches: ["feat/macos-**"]
 
@@ -50,6 +55,8 @@ concurrency:
 env:
   CONFIG: ${{ inputs.config || 'Debug' }}
   JOURNAUX: journaux
+  # Derogation TEMPORAIRE au tag de Jenga (voir .github/scripts/ref-jenga.sh).
+  JENGA_REF_FORCEE: ${{ inputs.jenga_ref || '' }}
 
 jobs:
   # ===========================================================================
@@ -71,13 +78,15 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
           echo "Jenga exige par NKCode : $V"
 
       - name: Depot Jenga (public, la source EST le build system)
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Machine
@@ -130,12 +139,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -145,6 +156,13 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build Tuto02Renderer "$CONFIG" "$JOURNAUX"
+
+      # Jenga 2.8.8 : les frameworks() des bibliotheques STATIQUES arrivent au
+      # lien de l'executable. MetalKit n'est declare QUE par NKRHI.jenga (pas
+      # par Tutoriels3D.jenga) : sa presence dans otool -L le prouve.
+      - name: Frameworks des statiques au lien (Tuto02Renderer)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/frameworks-au-lien.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" MetalKit
 
       - name: Lancer Tuto02Renderer (8 s)
         if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
@@ -159,6 +177,66 @@ jobs:
       - name: Lancer Tuto03Scene (8 s)
         if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 8 "$JOURNAUX/execution"
+
+      # METAL VERIFIE PAR L'IMAGE (2026-09-30). NKRHI choisit Metal en premier
+      # sur macOS ; le lancement ci-dessus prouve que Tuto03 tient debout, pas
+      # que son image est juste. La scene est rendue UNE fois hors ecran et
+      # ecrite en PNG (Tutoriels3D/Commun/NkTutoCapture.h), en Metal puis en
+      # rendu logiciel (reference), et quelques pixels sont compares
+      # (comparer-captures.py). Les PNG sont publies en artefact.
+      - name: Tuto03Scene - capture hors ecran Metal
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" metal 30 "$JOURNAUX/captures/tuto03-metal.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - capture hors ecran logiciel (reference)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" software 30 "$JOURNAUX/captures/tuto03-software.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - pixels de l'image Metal
+        if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-metal.png') != '' }}
+        # Reference : la meme scene rendue par DX11 sous Windows (GPU, meme PBR),
+        # docs/captures-reference/. Le rendu logiciel, simplifie (pas d'IBL ni de
+        # PBR complet), reste publie a cote mais ne sert pas d'etalon.
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
+
+      # OPENGL 4.1 CORE VERIFIE PAR L'IMAGE (2026-10-01). macOS plafonne a
+      # OpenGL 4.1 : contexte NSOpenGL (NkOpenglContexteApple.mm), doublures des
+      # fonctions 4.2-4.5 (NkOpenglCompat41.cpp), shaders adaptes en GLSL 410.
+      # Avant, NKRHI refusait OpenGL sur Apple et le repli apres Metal etait le
+      # rendu logiciel. Meme scene, meme etalon DX11 que Metal.
+      # La VM n'accorde a OpenGL que le rendu LOGICIEL d'Apple (« Apple Software
+      # Renderer », mesure du 2026-10-01 : ~100 s pour la 1re image, ~20 s pour
+      # les suivantes) : capture de l'image 2 (deja conforme sous Windows des
+      # l'image 1), delai porte a 420 s.
+      - name: Tuto03Scene - capture hors ecran OpenGL 4.1
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        env:
+          NK_CAPTURE_DELAI: "420"
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" opengl 2 "$JOURNAUX/captures/tuto03-opengl.png" "$JOURNAUX/captures"
+
+      - name: Tuto03Scene - pixels de l'image OpenGL
+        if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-opengl.png') != '' }}
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-opengl.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-opengl-comparaison.txt"
+
+      # DORSAL PAR DEFAUT de NKRenderer (NkDeviceFactory::CreateAutoDetect) :
+      # meme ordre que NKCanvas sur macOS ; sans SDK Vulkan, Metal attendu.
+      - name: Tuto03Scene - dorsal par defaut (sans Vulkan, Metal attendu)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        env:
+          NK_CAPTURE: "20"
+          NK_CAPTURE_PATH: journaux/captures/tuto03-defaut.png
+        run: |
+          .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" "$JOURNAUX/dorsal" "Vulkan ecarte : non compile" "API selectionnee = Metal" --
+
+      # DIAGNOSTIC (ne decide pas du verdict) : la couche de validation Metal en
+      # mode journal, et le MSL de chaque nuanceur, publies en artefact.
+      - name: Tuto03Scene - validation Metal (diagnostic)
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
+        run: .github/scripts/diagnostic-metal.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" 15 "$JOURNAUX/diagnostic-metal"
+
+      - name: Tuto02Renderer - capture hors ecran Metal
+        if: ${{ !cancelled() && hashFiles('journaux/Tuto02Renderer.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto02Renderer.chemin")" metal 20 "$JOURNAUX/captures/tuto02-metal.png" "$JOURNAUX/captures"
 
       - name: Construire Tuto04Camera
         if: ${{ !cancelled() }}
@@ -188,6 +266,17 @@ jobs:
           path: journaux/
           if-no-files-found: warn
 
+      - name: Captures Metal (PNG)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-captures-metal
+          path: |
+            journaux/captures/*.png
+            journaux/captures/*.txt
+            journaux/diagnostic-metal/
+          if-no-files-found: warn
+
   # ===========================================================================
   # UNKENY — l'editeur et la demo 2D ; leurs bancs tournent SANS fenetre
   # ===========================================================================
@@ -206,12 +295,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -230,18 +321,46 @@ jobs:
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution"
 
-      # NKCanvas a son propre dorsal Metal (NkMetalContext.mm) ; NkCanvasApp le
-      # prend sur --backend=metal. Le defaut macOS reste OpenGL, qui tient.
-      # ⚠️ SONDE D'UN MANQUE CONNU, d'ou continue-on-error (et SEULEMENT ici) :
-      #    le contexte Metal de NKCanvas s'ouvre, mais NkRenderer2DFactory n'a
-      #    pas de rendu 2D Metal (« Metal 2D renderer not yet implemented », run
-      #    36672650442). L'annotation d'erreur reste publiee ; le verdict du job
-      #    garde son sens pour ce qui DOIT marcher. Retirer continue-on-error le
-      #    jour ou ce rendu existe.
+      # NKCanvas en Metal : NkMetalContext.mm + NkMetalRenderer2D.mm (rendu 2D
+      # Metal depuis le 2026-10-01) ; NkCanvasApp le prend sur --backend=metal.
+      # Le defaut macOS reste OpenGL. Plus de continue-on-error : ce rendu
+      # existe, il doit tenir.
       - name: Lancer UnkenyEditor --backend=metal (10 s)
         if: ${{ !cancelled() && hashFiles('journaux/UnkenyEditor.chemin') != '' }}
-        continue-on-error: true
         run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/UnkenyEditor.chemin")" 10 "$JOURNAUX/execution-metal" --backend=metal
+
+      # NKCANVAS EN METAL, VERIFIE PAR L'IMAGE (2026-09-30) : NkDames (plateau +
+      # textes, aucun fichier a charger) capture hors ecran en Metal puis en
+      # rendu logiciel, pixels compares. NkCanvasApp ecrit l'image et se ferme.
+      - name: Construire NkDames
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/jenga-src
+        run: .github/scripts/construire.sh build NkDames "$CONFIG" "$JOURNAUX"
+
+      # DORSAL PAR DEFAUT (decision du 2026-10-01) : Vulkan si disponible ->
+      # Metal -> OpenGL -> logiciel. Le runner n'a pas de SDK Vulkan : le journal
+      # doit ecarter Vulkan (avec sa raison) et retenir Metal.
+      - name: NkDames - dorsal par defaut (sans Vulkan, Metal attendu)
+        if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
+        run: |
+          .github/scripts/verifier-dorsal.sh "$(cat "$JOURNAUX/NkDames.chemin")" "$JOURNAUX/dorsal" "dorsal Vulkan ecarte : non compile" "Metal retenu" "backend graphique retenu = Metal" -- --capture="$JOURNAUX/captures/nkdames-defaut.png" --capture-frame=30
+
+      - name: NkDames - capture Metal
+        if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/NkDames.chemin")" metal 30 "$JOURNAUX/captures/nkdames-metal.png" "$JOURNAUX/captures" --canvas
+
+      - name: NkDames - capture logiciel (reference)
+        if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/NkDames.chemin")" software 30 "$JOURNAUX/captures/nkdames-software.png" "$JOURNAUX/captures" --canvas
+
+      - name: NkDames - pixels de l'image Metal
+        if: ${{ !cancelled() && hashFiles('journaux/captures/nkdames-metal.png') != '' }}
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/nkdames-metal.png" --reference "$JOURNAUX/captures/nkdames-software.png" --rapport "$JOURNAUX/captures/nkdames-comparaison.txt"
+
+      - name: Lancer NkDames --backend=metal (10 s)
+        if: ${{ !cancelled() && hashFiles('journaux/NkDames.chemin') != '' }}
+        run: .github/scripts/lancer-fenetre.sh "$(cat "$JOURNAUX/NkDames.chemin")" 10 "$JOURNAUX/execution-metal" --backend=metal
 
       - name: Construire Physic2D
         if: ${{ !cancelled() }}
@@ -265,6 +384,16 @@ jobs:
           path: journaux/
           if-no-files-found: warn
 
+      - name: Captures NKCanvas Metal (PNG)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-captures-nkcanvas-metal
+          path: |
+            journaux/captures/*.png
+            journaux/captures/*.txt
+          if-no-files-found: warn
+
   # ===========================================================================
   # NKCRAFT — le modeleur ; ses sondes geometrie et curseur tournent sans GPU
   # ===========================================================================
@@ -283,12 +412,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Scripts executables
@@ -298,6 +429,10 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/jenga-src
         run: .github/scripts/construire.sh build NKCraft "$CONFIG" "$JOURNAUX"
+
+      - name: Frameworks des statiques au lien (NKCraft)
+        if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
+        run: .github/scripts/frameworks-au-lien.sh "$(cat "$JOURNAUX/NKCraft.chemin")" MetalKit
 
       - name: NKCraft --sonde-geo (sans fenetre)
         if: ${{ !cancelled() && hashFiles('journaux/NKCraft.chemin') != '' }}
@@ -360,12 +495,14 @@ jobs:
           V=$(grep -v '^#' Applications/NKCode/JENGA_VERSION | tr -d '[:space:]')
           test -n "$V" || { echo "::error::JENGA_VERSION vide ou introuvable"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Tag v$V, SAUF derogation temporaire (.github/JENGA_REF) : ref-jenga.sh.
+          bash .github/scripts/ref-jenga.sh "$V" "${JENGA_REF_FORCEE:-}"
 
       - name: Depot Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v${{ steps.jenga-version.outputs.version }}
+          ref: ${{ steps.jenga-version.outputs.ref }}
           path: jenga-src
 
       - name: Allumer GameController dans NKWindow.jenga (copie du runner)

@@ -15,17 +15,22 @@ using CAMetalLayer = struct objc_object;
 
 #include "NKWindow/Core/NkTypes.h"
 #include "NKWindow/Core/NkSurfaceHint.h"
+#include "NKWindow/Core/NkSurface.h" // NK_OBJC_NON_RETENU
 
 namespace nkentseu {
 
+	// Membres Objective-C en NK_OBJC_NON_RETENU (voir NkSurface.h) : NkWindow
+	// est inclus par des unites ARC (NKCanvas, NKRHI) ; ses donnees doivent y
+	// garder la MEME definition triviale que dans NKWindow (retain/release
+	// manuel, ou ce sont ces membres qui portent les references).
 	struct NkWindowData {
-			NSWindow *mNSWindow = nullptr;
-			NSView *mNSView = nullptr;
-			CAMetalLayer *mMetalLayer = nullptr;
-			NSWindow *mParentWindow = nullptr;
+			NSWindow *NK_OBJC_NON_RETENU mNSWindow = nullptr;
+			NSView *NK_OBJC_NON_RETENU mNSView = nullptr;
+			CAMetalLayer *NK_OBJC_NON_RETENU mMetalLayer = nullptr;
+			NSWindow *NK_OBJC_NON_RETENU mParentWindow = nullptr;
 #ifdef __OBJC__
-			id mDelegate = nil;		  // NkCocoaWindowDelegate*
-			id mScreenObserver = nil; // token NSNotificationCenter (hot-plug écrans)
+			id NK_OBJC_NON_RETENU mDelegate = nil;		  // NkCocoaWindowDelegate*
+			id NK_OBJC_NON_RETENU mScreenObserver = nil; // token NSNotificationCenter (hot-plug écrans)
 #else
 			void *mDelegate = nullptr;
 			void *mScreenObserver = nullptr;
