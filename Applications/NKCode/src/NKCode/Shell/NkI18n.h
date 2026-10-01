@@ -20,6 +20,7 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
+#include "NKCode/Shell/NkAppData.h" // NkCodeDataDir : data/lang quel que soit le dossier de lancement
 
 namespace nkentseu {
 	namespace nkcode {
@@ -2942,10 +2943,13 @@ namespace nkentseu {
 			if (!h || !*h)
 				h = env::GetEnvVar("HOME");
 			const NkString home = h ? h : "";
+			// Les langues LIVREES (data/lang), cherchees une fois : dossier courant,
+			// a cote de l'exe (paquet), puis en remontant jusqu'au depot (NkAppData.h).
+			const NkString langDir = NkCodeDataDir("lang");
 			for (int32 l = 0; l < NK_I18N_LANGS; ++l) {
 				const NkString f = NkString(NkI18nCode(l)) + ".lang";
-				NkI18nLoadFileInto((NkPath("data") / "lang" / f.CStr()).ToString(), l);
-				NkI18nLoadFileInto((NkPath("Applications/NKCode/data") / "lang" / f.CStr()).ToString(), l);
+				if (!langDir.Empty())
+					NkI18nLoadFileInto(langDir + f, l);
 				if (!home.Empty())
 					NkI18nLoadFileInto((NkPath(home.CStr()) / ".nkcode" / "lang" / f.CStr()).ToString(), l);
 			}
