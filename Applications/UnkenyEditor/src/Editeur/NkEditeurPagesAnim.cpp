@@ -14,6 +14,7 @@
 #include "Editeur/NkEditeurPagesAnim.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -596,6 +597,8 @@ namespace nkentseu {
 					if (survolX) {
 						fermer = d.id;
 					} else if (survol) {
+						pa.actif = d.id;
+						NkEditeurActiverOnglet(c, -1); // (fusion du 02/10) l'asset passe derriere
 						pa.actif = d.id;
 					}
 				}

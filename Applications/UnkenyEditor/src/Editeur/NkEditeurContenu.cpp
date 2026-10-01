@@ -722,7 +722,12 @@ namespace nkentseu {
 			const NkEtiquette *e = m.scene.Monde().Get<NkEtiquette>(m.selection);
 			NkString nom(e != nullptr && e->nom[0] != 0 ? e->nom : "Prefab");
 			nom.Append(".nkprefab");
-			const NkString chemin = editorkit::NkDisqueCheminLibre(dossier.CStr(), nom.CStr());
+			// (2026-10-01, R33) Le NOM du prefab est son chemin ABSOLU NORMALISE, celui
+			// que posent le glisser (PoserAsset) et l'onglet du prefab
+			// (NkEditeurCheminContenuAbsolu) : sinon la source et les instances
+			// glissees seraient deux prefabs, et une seule suivrait l'enregistrement.
+			const NkString libre = editorkit::NkDisqueCheminLibre(dossier.CStr(), nom.CStr());
+			const NkString chemin = libre.Empty() ? libre : AbsoluNormal(libre.CStr());
 			const uint32 id = chemin.Empty() ? 0u : m.prefabs.Creer(m.scene, m.selection, chemin.CStr());
 			const bool ok = id != 0u && m.prefabs.Enregistrer(m.scene, id, chemin.CStr(), m.RessourcesScene());
 			const NkString nav = ok ? NkEditeurNavigateurDe(m, chemin.CStr()) : NkString();

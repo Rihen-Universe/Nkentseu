@@ -195,6 +195,15 @@ namespace nkentseu {
 				/// Panoramique du viseur (clic dans le vide, ou bouton droit).
 				bool panoramique = false;
 				NkVec2f dernierPointeur{0.f, 0.f};
+				// --- JOUER DANS L'EDITEUR, comme le PIE d'Unreal (2026-10-01) ------
+				/// La camera de l'EDITEUR avant « Jouer » : « Arreter » la rend.
+				NkVue2D cameraAvantJeu;
+				bool cameraAvantJeuValide = false;
+				/// EJECTE (bouton Ejecter, F8) : en jeu, la vue redevient celle de
+				/// l'editeur (camera libre, molette, panoramique, selection) ; la
+				/// camera du JEU continue a part (`cameraJeu`) et revient au retour.
+				bool ejecte = false;
+				NkVue2D cameraJeu;
 
 				NkStatsRendu stats;
 

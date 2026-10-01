@@ -19,6 +19,7 @@
 #include "Editeur/NkEditeurApp.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurProjet.h"
@@ -443,6 +444,10 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-animation=")) {
 					return NkOptional<int>(NkEditeurCapturesAnimation(NkString(args[i].SubStr(21)).CStr()));
 				}
+				// (2026-10-01) Celles des cartes, assets et effets (R33 / R34).
+				if (args[i].StartsWith("--captures-assets=")) {
+					return NkOptional<int>(NkEditeurCapturesAssets(NkString(args[i].SubStr(18)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -476,10 +481,12 @@ namespace nkentseu {
 					const int32 animation = NkEditeurLancerBancAnimation();
 					// Les SCRIPTS (01/10, document 01 : S0-S2) : le moteur, puis l'editeur.
 					const int32 scripts = unkeny::NkUnkenyLancerBancScripts() | NkEditeurLancerBancScripts();
+					// Les cartes, assets, prefabs et effets (01/10, R33 / R34) : a part.
+					const int32 assets = NkEditeurLancerBancAssets();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
 									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0 ||
-									   scripts != 0;
+									   scripts != 0 || assets != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -931,6 +938,7 @@ namespace nkentseu {
 				{NkGuiKey::Delete, NK_A_SUPPRIMER},
 				{NkGuiKey::Space, NK_A_JOUER},
 				{NkGuiKey::Escape, NK_A_ARRETER},
+				{NkGuiKey::F8, NK_A_EJECTER}, // (2026-10-01) le PIE d'Unreal
 				{NkGuiKey::F, NK_A_CADRER_SELECTION},
 				{NkGuiKey::F2, NK_A_RENOMMER},
 				{NkGuiKey::Q, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_SELECTION)},
@@ -1049,13 +1057,18 @@ namespace nkentseu {
 				Neutraliser(c.ctx.input, true);
 			}
 			// (2026-10-01) Un onglet Animation / Animateur au premier plan occupe le
-			// corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux, et un
-			// Blueprint ouvert prend la place du viseur (Script/NkEditeurGraphe.h).
+			// corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux. (R33) Un
+			// onglet d'asset actif (texture, police, son, controleur) prend la place de
+			// la vue ; un prefab garde la vue (il s'edite comme une scene) et y pose son
+			// bandeau ; un Blueprint ouvert prend la place du viseur (Script/NkEditeurGraphe.h).
 			if (!NkEditeurDessinerPageAnim(c)) {
-				if (NkEditeurGrapheOuvert(c.m)) {
+				if (NkEditeurAssetALaPlaceDeLaVue(ui)) {
+					NkEditeurDessinerAsset(c);
+				} else if (NkEditeurGrapheOuvert(c.m)) {
 					NkEditeurDessinerGraphe(c);
 				} else {
 					NkEditeurDessinerVue(c);
+					NkEditeurDessinerAsset(c);
 				}
 				NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 				NkEditeurDessinerOutliner(c);
@@ -1129,6 +1142,11 @@ namespace nkentseu {
 			ui.fenetreAgrandie = Window().IsMaximized();
 			// Le corps de la trame, sans rien de la fenetre (NkEditeurTrame.h).
 			NkEditeurDessinerTrame(c, *mEntrees, *mConstruction, mSelecteur.Get());
+			// (2026-10-01, R33) L'apercu d'une police ouverte dans son onglet.
+			if (ui.policeApercuSale && ui.policeApercu != nullptr) {
+				TeleverserPolice(*ui.policeApercu);
+				ui.policeApercuSale = false;
+			}
 
 			// ── 4. Ce que la trame laisse a l'OS et a la suivante ────────────
 			// Le curseur que les widgets ont demande (cloisons, champs, DragFloat).

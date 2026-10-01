@@ -283,7 +283,8 @@ namespace nkentseu {
 											const math::NkVec2f &taille);
 		bool NkEditeurAncrerSelection(NkEditeurModele &m);
 		void NkEditeurExempleHud(NkEditeurModele &m);
-		void NkEditeurBlocAncrage(NkEditeurCadre &c, ecs::NkEntityId id);
+		// (2026-10-01, R33) NkEditeurBlocAncrage est devenu la CARTE « Ancrage a
+		// l'ecran » des Details (NkEditeurDetails.cpp, CarteAncrage).
 
 		/// `--selftest` : le banc des appareils (NkEditeurBancAppareils.cpp),
 		/// compte a part. 0 quand tout tient.

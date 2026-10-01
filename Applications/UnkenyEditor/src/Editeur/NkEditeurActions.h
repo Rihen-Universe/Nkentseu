@@ -30,6 +30,13 @@ namespace nkentseu {
 		void NkEditeurPause(NkEditeurModele &m);
 		void NkEditeurArreter(NkEditeurModele &m); ///< rend la scene d'avant Jouer
 		void NkEditeurUnPas(NkEditeurModele &m);
+		/// (2026-10-01) EJECTER, comme le PIE d'Unreal (F8) : en jeu, detache une
+		/// camera libre de l'editeur (la camera du jeu continue a part), ou la
+		/// rattache (la vue revient a la camera du jeu). Rend false en edition.
+		bool NkEditeurEjecter(NkEditeurModele &m);
+		/// La vue est-elle AU JEU (en jeu ou en pause, non ejectee) ? Ses gestes
+		/// d'editeur (molette, panoramique, selection, menu) sont alors coupes.
+		bool NkEditeurVueAuJeu(const NkEditeurModele &m) noexcept;
 		/// Une trame : la scene avance si l'on JOUE ; l'annonce vieillit.
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt);
 
@@ -173,6 +180,11 @@ namespace nkentseu {
 			// 2026-09-30, AJOUTES A LA FIN : les valeurs d'avant ne bougent pas.
 			NK_LUMIERE,	 ///< lumiere 2D (le type se choisit a l'ajout)
 			NK_EMETTEUR, ///< emetteur de particules (le preset se choisit a l'ajout)
+			// 2026-10-01 (R33, retours de Rihen) : les composants qui n'avaient
+			// qu'un BLOC sous les cartes, et l'animateur, qu'on ne pouvait pas ajouter.
+			NK_FORME,	  ///< forme 2D dessinee (le genre se choisit dans sa carte)
+			NK_ANIMATEUR, ///< controleur d'animation de NKAnima (.nkanimctl ou modele enregistre)
+			NK_ANCRAGE,	  ///< ancrage a l'ecran (HUD, document 03)
 			NK_COUNT
 		};
 		const char *NkComposantEditeurNom(NkComposantEditeur c) noexcept;
@@ -185,6 +197,12 @@ namespace nkentseu {
 									   NkActeurSim matiere = NkActeurSim::NK_BLOB);
 		/// Retirer un collisionneur retire aussi le corps rigide qui s'y appuie.
 		bool NkEditeurRetirerComposant(NkEditeurModele &m, ecs::NkEntityId id, NkComposantEditeur c);
+		/// (2026-10-01, R33) Un ANIMATEUR de modele `modele` sur `id` (le remplace
+		/// s'il y en a un). `fichier` : un .nkanimctl du Contenu, lu et enregistre
+		/// sous `modele` d'abord (NkChargerModeleAnimateur) ; nul : un modele deja
+		/// enregistre (« plateforme »). Ajoute l'animation de sprites qu'il pilote
+		/// si elle manque. Le menu « Ajouter un composant > Animateur » l'appelle.
+		bool NkEditeurAjouterAnimateur(NkEditeurModele &m, ecs::NkEntityId id, const char *modele, const char *fichier);
 
 		// --- Les CARTES de l'inspecteur (2026-09-30, a la maniere d'Unity) ------
 		/// Une carte des Details : le Transform, chaque composant, l'Animateur et
@@ -203,9 +221,16 @@ namespace nkentseu {
 			NK_HIERARCHIE,
 			NK_LUMIERE,	 ///< NkComposantEditeur::NK_LUMIERE (2026-09-30, eclairage 2D)
 			NK_EMETTEUR, ///< NkComposantEditeur::NK_EMETTEUR (effets)
+			// 2026-10-01 (R33) : rien hors cadre dans les Details.
+			NK_FORME,	///< NkComposantEditeur::NK_FORME (categorie Rendu)
+			NK_ANCRAGE, ///< NkComposantEditeur::NK_ANCRAGE (categorie Acteur)
+			// 2026-10-02 (fusion) : les SCRIPTS de l'entite (unkeny::NkScript2D), en
+			// carte comme les autres -- plus de bloc brut sous les cartes.
+			NK_SCRIPTS, ///< categorie Acteur ; « Retirer le composant » retire NkScript2D
 			NK_COUNT
 		};
-		/// Le composant d'une carte (false : Transform, Animateur, Hierarchie).
+		/// Le composant d'une carte (false : Transform, Hierarchie). (2026-10-01)
+		/// L'Animateur en est un : « Retirer le composant » le retire.
 		bool NkComposantDeCarte(NkCarteEditeur c, NkComposantEditeur &sortie) noexcept;
 		const char *NkCarteEditeurNom(NkCarteEditeur c) noexcept;
 		/// L'entite porte-t-elle ce qu'affiche la carte ? (La hierarchie : toujours.)
@@ -272,6 +297,11 @@ namespace nkentseu {
 		/// Le banc de l'etape 2 d'Unreal (document 02 ; u1..), compte a part :
 		/// les retours de Rihen du 01/10 (NkEditeurBancUe5.cpp).
 		int32 NkEditeurLancerBancUe5();
+		/// Le banc des retours du 01/10 sur les cartes, les assets, les prefabs et
+		/// les effets (R33 / R34 ; a1..), compte a part (NkEditeurBancAssets.cpp).
+		int32 NkEditeurLancerBancAssets();
+		/// Ses captures HORS ECRAN, rasterisees sans fenetre (--captures-assets=).
+		int32 NkEditeurCapturesAssets(const char *dossier);
 
 	} // namespace editeur
 } // namespace nkentseu

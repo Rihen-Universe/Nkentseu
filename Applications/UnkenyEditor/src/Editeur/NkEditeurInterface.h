@@ -97,8 +97,16 @@ namespace nkentseu {
 			NK_CONTENU_COLLECTION, ///< sous-menu « Ajouter a la collection »
 			NK_CTX_COLLECTION,	   ///< clic droit sur une collection
 			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
-			NK_TEXTURE_SPRITE ///< la liste deroulante de la texture d'un sprite (Details)
+			NK_TEXTURE_SPRITE, ///< la liste deroulante de la texture d'un sprite (Details)
+			// R33 (2026-10-01) : AJOUTES A LA FIN.
+			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
 		};
+
+		/// La largeur de « Placer des acteurs » REPLIE : sa colonne d'onglets.
+		static constexpr float32 NK_PLACER_REPLIE_L = 58.f;
+
+		struct NkOngletAsset; // NkEditeurAssets.h
+		struct NkModePrefab;  // NkEditeurAssets.h
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
 		/// (outil, acteur, profil...) ajoute a leur base.
@@ -140,6 +148,9 @@ namespace nkentseu {
 			NK_A_DETACHER,				///< la selection devient une racine, a sa place
 			NK_A_ANNULER,				///< Ctrl+Z (2026-10-01, NkHistoriqueEditeur)
 			NK_A_REFAIRE,				///< Ctrl+Y / Ctrl+Maj+Z
+			NK_A_ECLAIRAGE,				///< l'eclairage 2D de la SCENE, allume / eteint (2026-10-01, R33)
+			NK_A_EJECTER,				///< en jeu : camera libre de l'editeur / camera du jeu (F8, PIE d'Unreal)
+			NK_A_RECADRER_APPAREIL,		///< l'appareil simule reprend sa taille ajustee a la vue
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -230,12 +241,30 @@ namespace nkentseu {
 			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
 			// loin des autres (des branches paralleles ajoutent les leurs).
 			NK_A_TEXTURE_SPRITE = 2100, ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			// ── LES PLAGES AU-DESSUS DE 2000 (fusion du 02/10) ─────────────────────
+			// Chacune a SA centaine ; deux chantiers qui se partagent une centaine
+			// finissent par s'y rencontrer. C'est arrive : la branche des assets
+			// avait pris 2200 pour l'Animateur, deja tenu par les scripts -- le
+			// premier `if` de NkEditeurExecuter aurait mange les actions de l'autre.
+			//   2100-2199  la texture d'un sprite (Details)
+			//   2200-2299  les scripts (Script/NkEditeurScriptsUi.h)
+			//   2300-2399  « Ajouter un composant > Animateur » (R33)
+			//   2400-2449  les pages Animation et Animateur (NkEditeurPagesAnim.h)
+			//   2450-...   LIBRES
 			// Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) : 2400-2449.
 			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
 			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
 			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
-			NK_A_SCRIPT = 2200 ///< + NkActionScript
+			NK_A_SCRIPT = 2200, ///< + NkActionScript
+			// « Ajouter un composant > Animateur » (2026-10-01, R33) : la plage 2300-2399.
+			NK_A_ANIMATEUR = 2300,		  ///< + i (< 50) : le modele enregistre NkNomModeleAnimateur(i)
+			NK_A_ANIMATEUR_FICHIER = 2350 ///< + k (< 50) : le controleur controleursProposes[k] (.nkanimctl)
 		};
+		// Les plages ne se chevauchent pas : verifie a la compilation, la ou elles
+		// sont declarees.
+		static_assert(NK_A_TEXTURE_SPRITE + 100 <= NK_A_SCRIPT && NK_A_SCRIPT + 100 <= NK_A_ANIMATEUR &&
+						  NK_A_ANIMATEUR + 50 <= NK_A_ANIMATEUR_FICHIER && NK_A_ANIMATEUR_FICHIER + 50 <= NK_A_ANIM_ANIMATION,
+					  "deux plages d'actions se chevauchent (NkEditeurInterface.h)");
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
 		struct NkEntreeMenu {
@@ -359,6 +388,19 @@ namespace nkentseu {
 				/// Le dossier courant et le rail, relus du DISQUE au plus une fois par
 				/// seconde, et aussitot apres un import ou un changement de dossier.
 				NkVector<NkElementContenu> contenuListe;
+				/// (2026-10-01) Ce que CONTIENT chaque dossier de `contenuListe` (releve
+				/// avec elle, au plus une fois par seconde) : plein ou vide, et jusqu'a
+				/// quatre elements -- la carte du dossier les montre sur sa feuille.
+				struct NkApercuDossier {
+						NkString relatif;
+						uint8 contenu = 0; ///< editorkit::NkContenuDossier
+						uint8 n = 0;
+						NkString enfants[4];
+						uint8 icones[4] = {0, 0, 0, 0};
+						uint16 roles[4] = {0, 0, 0, 0};
+						bool images[4] = {false, false, false, false};
+				};
+				NkVector<NkApercuDossier> contenuApercus;
 				NkVector<NkString> contenuSousDossiers;
 				NkString contenuListeDe;
 				float32 contenuListeAge = 99.f;
@@ -464,6 +506,54 @@ namespace nkentseu {
 				/// par sa liste deroulante, et son rectangle a l'ecran (cible du
 				/// glisser depuis le Content Browser ; le banc y vise).
 				NkVector<NkString> texturesProposees;
+				/// (2026-10-01, R33) Les controleurs d'animation (.nkanimctl) du Contenu
+				/// que propose « Ajouter un composant > Animateur », releves a la
+				/// premiere peinture du menu apres son ouverture (`controleursFrais`).
+				NkVector<NkString> controleursProposes;
+				bool controleursFrais = false;
+				/// (2026-10-02) Les scripts du projet que propose « Ajouter un composant
+				/// > Script : ... » (pas deja sur la selection), releves quand le menu
+				/// se peint ; l'action NK_A_SCRIPT + NK_SCRIPT_AJOUTER + k y lit.
+				NkVector<NkString> scriptsProposes;
+				/// Les lignes des menus PEINTES a cette trame (menu et sous-menu) :
+				/// libelle, action, rectangle. Les bancs y visent comme un oeil lit.
+				struct NkLigneMenuPeinte {
+						NkString libelle;
+						int32 action = 0;
+						nkgui::NkRect r;
+				};
+				NkVector<NkLigneMenuPeinte> menuLignes;
+
+				// --- Les ONGLETS D'ASSETS (2026-10-01, R33, NkEditeurAssets.h) ----
+				/// Les assets ouverts (texture, police, son, prefab, controleur),
+				/// a droite de l'onglet de la scene ; -1 = la scene est active.
+				NkVector<NkOngletAsset *> onglets;
+				/// Le double-clic sur un asset a onglet, ouvert au relachement.
+				NkString assetEnAttente;
+				nkgui::NkVec2 assetAttente{0.f, 0.f}; ///< ou l'appui du double-clic est tombe
+				NkString appuiCarte; ///< la carte sous le dernier appui (chemin), vide sinon
+				int32 ongletActif = -1;
+				nkgui::NkRect ongletSceneRect{0.f, 0.f, 0.f, 0.f};
+				NkVector<nkgui::NkRect> ongletsRects;
+				NkVector<nkgui::NkRect> ongletsFermer;
+				/// La scene mise de cote pendant qu'un prefab s'edite (nul sinon).
+				NkModePrefab *modePrefab = nullptr;
+				/// Les sons des onglets (demarre au premier son ouvert) ; `sonsMuets` :
+				/// sans peripherique (bancs).
+				NkSons2D *sonsApercu = nullptr;
+				bool sonsMuets = false;
+				/// La police de l'onglet actif, a televerser par l'application.
+				nkgui::NkGuiFont *policeApercu = nullptr;
+				bool policeApercuSale = false;
+				/// Ce que l'editeur d'asset a peint a cette trame (les bancs y visent).
+				nkgui::NkRect assetApercu{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetFiltrage{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetPivot{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetLire{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetEnregistrer{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetRevenir{0.f, 0.f, 0.f, 0.f};
+				int32 assetTailles = 0;
+				int32 assetEtats = 0;
 				nkgui::NkRect detailsTexture{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
 				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »
@@ -477,6 +567,15 @@ namespace nkentseu {
 						uint32 couleur = 0u;
 				};
 				NkVector<NkLisereAxe> detailsLiseres;
+				/// (2026-10-01, R33) Les RANGEES dessinees a cette trame, par carte :
+				/// leur libelle et le rectangle de leur valeur. Les bancs y trouvent
+				/// « Type » du Collisionneur, comme un oeil trouve la ligne a l'ecran.
+				struct NkRangeeDetails {
+						int32 carte = -1; ///< NkCarteEditeur
+						NkString libelle;
+						nkgui::NkRect champ;
+				};
+				NkVector<NkRangeeDetails> detailsRangees;
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
@@ -491,7 +590,9 @@ namespace nkentseu {
 				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
 				/// le changent pour toutes les entites : NKECS ne range pas les
 				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
-				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 7, 12, 13, 8};
+				// (2026-10-01, R33) Forme 2D et Ancrage AJOUTES vers la fin : les places
+				// 0..3 ne bougent pas (le banc e45 de Monter / Descendre les lit).
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
 				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
 				/// LES DETAILS D'UNREAL, etape 2 (2026-10-01, document 02 §5) :
@@ -649,6 +750,35 @@ namespace nkentseu {
 				nkgui::NkRect placer{0.f, 0.f, 0.f, 0.f};
 				float32 largeurPlacer = 236.f;
 				bool voirPlacer = true;
+				/// (2026-10-01, R33 point 5) REPLIE comme un tiroir : il ne garde que sa
+				/// colonne d'onglets verticaux (NK_PLACER_REPLIE_L), la vue prend le
+				/// reste. Le chevron de son en-tete le replie / deplie ; un onglet
+				/// clique, replie, le deplie sur cet onglet. Sa largeur est gardee.
+				bool placerReplie = false;
+				nkgui::NkRect placerChevron{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, R33 point 6) Les deux INTERRUPTEURS de l'eclairage de la
+				/// scene : celui de la barre de la vue, celui de l'onglet Monde.
+				/// (R34) Les boutons Jouer / Pause / Arreter de la carte Emetteur, en jeu.
+				nkgui::NkRect effetJouer{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect effetPause{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect effetArreter{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonEjecter{0.f, 0.f, 0.f, 0.f}; ///< (PIE) le cinquieme bouton de lecture
+				/// (2026-10-01) L'APPAREIL SIMULE EST POSE DANS LE MONDE : son ecran
+				/// couvre un rectangle du monde (centre, taille en m), fixe a sa pose
+				/// (le premier dessin, un autre appareil, une autre orientation,
+				/// « Recadrer l'appareil ») ; le zoom et le panoramique de l'editeur
+				/// agrandissent, reduisent et deplacent ALORS L'APPAREIL ENTIER (cadre,
+				/// ecran, contenu). En Jouer, il se recadre une fois, entier dans la
+				/// vue : le jeu y est montre a sa camera (ce rectangle). `appareilEcran`
+				/// : son ecran a cette trame.
+				bool appareilAncre = false;
+				uint32 appareilCle = 0u;
+				NkVec2f appareilCentre{0.f, 0.f};
+				NkVec2f appareilTaille{0.f, 0.f};
+				bool appareilAjusteJeu = false;
+				nkgui::NkRect appareilEcran{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonEclairageVue{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonEclairageMonde{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture
 				char placerFiltre[32] = {};
 				bool placerFiltreFocus = false;

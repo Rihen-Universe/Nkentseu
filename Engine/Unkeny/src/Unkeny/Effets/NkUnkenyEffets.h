@@ -37,6 +37,7 @@
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKCore/NkTypes.h"
+#include "NKECS/NkECSDefines.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 
 namespace nkentseu {
@@ -63,6 +64,11 @@ namespace nkentseu {
 				bool additif = false;
 		};
 
+		/// (2026-10-01, R34) Ou en est un effet EN JEU : il joue, il est arrete
+		/// (n'emet plus ; ses particules finissent leur vie), ou en pause (lui et
+		/// ses particules figes).
+		enum class NkLectureEffet2D : uint8 { NK_JOUE = 0, NK_ARRETE, NK_PAUSE };
+
 		/// L'horloge d'un emetteur. Refaite (a la graine) si l'entite change
 		/// d'identifiant : apres Restaurer, un effet repart de zero.
 		struct NkEtatEmetteur2D {
@@ -74,6 +80,9 @@ namespace nkentseu {
 				uint32 vivantes = 0u;		///< recompte a chaque pas
 				bool rafaleFaite = false;
 				bool vu = false;
+				/// A la naissance de l'horloge : NK_JOUE si l'emetteur joue au
+				/// demarrage, NK_ARRETE sinon. Puis Jouer / Arreter / Pause.
+				NkLectureEffet2D lecture = NkLectureEffet2D::NK_JOUE;
 		};
 
 		class NkEffets2D {
@@ -83,6 +92,10 @@ namespace nkentseu {
 				/// Le pas interne. Fixe : c'est ce qui rend l'effet independant de
 				/// la cadence d'affichage, et le banc reproductible.
 				float32 pasFixe = 1.f / 60.f;
+				/// (2026-10-01, R34) L'EDITEUR avance l'apercu : seuls les emetteurs
+				/// `apercuEdition` tournent, et les particules des autres s'effacent.
+				/// Faux (le jeu, UnkenyPlayer) : chaque emetteur suit sa LECTURE.
+				bool edition = false;
 
 				/// Oublie toutes les particules et toutes les horloges.
 				void Vider();
@@ -96,6 +109,19 @@ namespace nkentseu {
 
 				/// Rejoue l'effet d'une entite depuis le debut (rafale comprise).
 				void Rejouer(uint64 entite);
+
+				// --- PILOTER UN EFFET (2026-10-01, R34 ; les scripts viendront) ---
+				/// JOUE l'effet de `id` : arrete, il repart DU DEBUT (rafale, graine) ;
+				/// en pause, il REPREND ; deja en cours, rien. Rend false si `id` n'a
+				/// pas d'emetteur.
+				bool Jouer(NkScene &scene, ecs::NkEntityId id);
+				/// ARRETE l'effet : il n'emet plus ; ses particules finissent leur vie,
+				/// ou disparaissent tout de suite si `vider`.
+				bool Arreter(NkScene &scene, ecs::NkEntityId id, bool vider = false);
+				/// Met l'effet en PAUSE (lui et ses particules figes), ou l'en sort.
+				bool Pause(NkScene &scene, ecs::NkEntityId id, bool pause = true);
+				/// Sa lecture (un effet jamais avance : celle de son depart).
+				NkLectureEffet2D Lecture(NkScene &scene, ecs::NkEntityId id) const;
 
 				const NkVector<NkParticuleEffet2D> &Particules() const noexcept {
 					return mParticules;
@@ -117,7 +143,7 @@ namespace nkentseu {
 				float32 FacteurLumiere(uint64 entite, const NkEmetteur2D &e) const noexcept;
 
 			private:
-				NkEtatEmetteur2D &EtatDe(uint64 entite, uint32 graine);
+				NkEtatEmetteur2D &EtatDe(uint64 entite, uint32 graine, bool demarre = true);
 				void Naitre(NkEtatEmetteur2D &etat, const NkEmetteur2D &e, const NkTransform2D &t);
 
 				NkVector<NkParticuleEffet2D> mParticules;

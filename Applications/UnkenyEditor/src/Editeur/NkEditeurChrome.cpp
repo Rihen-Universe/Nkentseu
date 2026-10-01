@@ -18,6 +18,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurMarque.h"
@@ -141,10 +142,16 @@ namespace nkentseu {
 				const float32 cote = b.h - 8.f;
 				const NkEtatJeu etat = c.m.etat;
 				auto &dl = c.ctx.dl;
-				for (int32 k = 0; k < 4; ++k) {
+				// (2026-10-01) Le CINQUIEME : « Ejecter » (F8), actif en jeu, enfonce
+				// quand la vue est ejectee. Sa place est gardee en edition.
+				for (int32 k = 0; k < 5; ++k) {
 					const NkRect r{x, b.y + 4.f, cote, cote};
-					const bool enfonce = (k == 0 && etat == NkEtatJeu::NK_JEU) || (k == 1 && etat == NkEtatJeu::NK_PAUSE);
-					const bool actif = !(k == 2 && etat == NkEtatJeu::NK_EDITION);
+					const bool enfonce = (k == 0 && etat == NkEtatJeu::NK_JEU) || (k == 1 && etat == NkEtatJeu::NK_PAUSE) ||
+										 (k == 4 && c.m.ejecte);
+					const bool actif = !((k == 2 || k == 4) && etat == NkEtatJeu::NK_EDITION);
+					if (k == 4) {
+						c.ui.boutonEjecter = r;
+					}
 					const bool clic = NkEditeurBouton(c, r, "", enfonce, actif);
 					const NkColor g = enfonce ? c.pal.surAccent : (actif ? c.pal.texte : c.pal.attenue);
 					const float32 cx = r.x + r.w * 0.5f;
@@ -160,13 +167,17 @@ namespace nkentseu {
 						case 2: // Arreter : un carre
 							dl.AddRectFilled(NkRect{cx - 5.f, cy - 5.f, 10.f, 10.f}, g);
 							break;
+						case 4: // Ejecter : un triangle sur une barre (le glyphe d'ejection)
+							dl.AddTriangleFilled(NkVec2{cx - 6.f, cy + 1.f}, NkVec2{cx + 6.f, cy + 1.f}, NkVec2{cx, cy - 6.f}, g);
+							dl.AddRectFilled(NkRect{cx - 6.f, cy + 3.5f, 12.f, 2.5f}, g);
+							break;
 						default: // Un pas : triangle + barre
 							dl.AddTriangleFilled(NkVec2{cx - 5.f, cy - 6.f}, NkVec2{cx - 5.f, cy + 6.f}, NkVec2{cx + 3.f, cy}, g);
 							dl.AddRectFilled(NkRect{cx + 3.5f, cy - 6.f, 2.5f, 12.f}, g);
 							break;
 					}
 					if (clic) {
-						static const int32 kActions[4] = {NK_A_JOUER, NK_A_PAUSE, NK_A_ARRETER, NK_A_PAS};
+						static const int32 kActions[5] = {NK_A_JOUER, NK_A_PAUSE, NK_A_ARRETER, NK_A_PAS, NK_A_EJECTER};
 						NkEditeurExecuter(c, kActions[k]);
 					}
 					x += cote + 3.f;
@@ -387,6 +398,7 @@ namespace nkentseu {
 							}
 						}
 						out.PushBack(Separateur());
+						out.PushBack(Entree("Recadrer l'appareil dans la vue", NK_A_RECADRER_APPAREIL, "", false, m.profil != 0));
 						out.PushBack(Entree("Personnalisé", NK_A_APPAREIL + NkNbProfils(), "", m.ProfilPersonnalise()));
 						out.PushBack(Entree("Personnaliser cet appareil",
 											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_PERSONNALISER), "",
@@ -429,6 +441,7 @@ namespace nkentseu {
 					case NkMenuEditeur::NK_REGLAGES: {
 						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
 						out.PushBack(Entree("Collisionneurs", NK_A_COLLISIONNEURS, "", m.voirCollisionneurs));
+						out.PushBack(Entree("Éclairage de la scène", NK_A_ECLAIRAGE, "", m.scene.Eclairage().actif));
 						out.PushBack(Separateur());
 						out.PushBack(Intitule("Matière"));
 						out.PushBack(Entree("Liens", NK_A_LIENS, "", m.rendu.liens));
@@ -484,7 +497,11 @@ namespace nkentseu {
 							out.PushBack(Intitule(nature.libelle));
 							if (nature.type == NkAssetType::Scene) {
 								out.PushBack(Entree("Ouvrir la scène", NK_A_CONTENU_OUVRIR_ASSET));
-							} else if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
+							} else if (NkEditeurGenreAsset(cible.CStr()) != NkGenreAsset::NK_AUCUN) {
+								// (2026-10-01, R33) Chaque asset s'ouvre dans son onglet.
+								out.PushBack(Entree("Ouvrir (onglet de réglages)", NK_A_CONTENU_OUVRIR_ASSET, "double-clic"));
+							}
+							if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
 								out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER_ASSET));
 							}
 							out.PushBack(Separateur());
@@ -614,7 +631,8 @@ namespace nkentseu {
 						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(k);
 						const bool copie = NkEditeurCarteSeCopie(carte);
 						NkComposantEditeur comp;
-						const bool composant = NkComposantDeCarte(carte, comp);
+						// (2026-10-02) Les Scripts se retirent aussi : leur composant entier.
+						const bool composant = NkComposantDeCarte(carte, comp) || carte == NkCarteEditeur::NK_SCRIPTS;
 						const bool mobile = carte != NkCarteEditeur::NK_TRANSFORM;
 						out.PushBack(Intitule(NkCarteEditeurNom(carte)));
 						out.PushBack(Entree("Réinitialiser", NK_A_CARTE_REINIT, "", false, copie));
@@ -668,54 +686,97 @@ namespace nkentseu {
 						}
 						break;
 					}
+					case NkMenuEditeur::NK_COMPOSANT_MOU:
+						for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
+							const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
+							if (!info.rigide) {
+								out.PushBack(Entree(info.nom, NK_A_CORPS_MOU + i));
+							}
+						}
+						break;
 					case NkMenuEditeur::NK_COMPOSANT: {
 						if (!m.aSelection || !m.scene.Monde().IsAlive(m.selection)) {
 							out.PushBack(Intitule("(aucune sélection)"));
 							break;
 						}
-						// Ne s'y trouve que ce qui PEUT s'ajouter : un composant deja
-						// present, ou un corps rigide sur de la matiere, n'y figure pas.
-						for (int32 k = 0; k < static_cast<int32>(NkComposantEditeur::NK_COUNT); ++k) {
-							const NkComposantEditeur comp = static_cast<NkComposantEditeur>(k);
-							if (!NkEditeurPeutAjouter(m, m.selection, comp)) {
-								continue;
-							}
-							// 2026-09-30 : une lumiere se choisit par son TYPE, un emetteur
-							// par son PRESET, comme un corps mou par sa matiere.
-							if (comp == NkComposantEditeur::NK_LUMIERE) {
-								static const char *kTypes[3] = {"ponctuelle", "projecteur (cône)", "directionnelle (lune, soleil)"};
-								out.PushBack(Separateur());
-								out.PushBack(Intitule("Lumière 2D"));
-								for (int32 t = 0; t < 3; ++t) {
-									out.PushBack(Entree(kTypes[t], NK_A_LUMIERE + t));
+						// (2026-10-01, R33) RANGE PAR CATEGORIE, comme le « Add Component »
+						// d'Unreal et les pastilles des Details : Physique, Rendu,
+						// Animation, Audio, Acteur. UNE ligne par composant -- son type
+						// (collisionneur, lumiere), son genre (forme) ou son preset
+						// (emetteur) se choisit ensuite DANS SA CARTE. Seuls la matiere
+						// d'un corps mou (elle ne change plus) et le modele d'un
+						// animateur se choisissent ici. Ne s'y trouve que ce qui PEUT
+						// s'ajouter (deja present, ou rigide sur de la matiere : absent).
+						const ecs::NkEntityId id = m.selection;
+						ecs::NkWorld &w = m.scene.Monde();
+						auto Peut = [&](NkComposantEditeur k) { return NkEditeurPeutAjouter(m, id, k); };
+						auto Section = [&](const char *titre, bool rien) {
+							if (!rien) {
+								if (!out.Empty()) {
+									out.PushBack(Separateur());
 								}
-								continue;
+								out.PushBack(Intitule(titre));
 							}
-							if (comp == NkComposantEditeur::NK_EMETTEUR) {
-								out.PushBack(Separateur());
-								out.PushBack(Intitule("Émetteur de particules"));
-								for (int32 p = 1; p < static_cast<int32>(NkPresetEffet2D::NK_COUNT); ++p) {
-									out.PushBack(Entree(NkNomPresetEffet2D(static_cast<NkPresetEffet2D>(p)), NK_A_EMETTEUR + p));
-								}
-								continue;
+						};
+						auto Ligne = [&](NkComposantEditeur k, const char *libelle) {
+							if (Peut(k)) {
+								out.PushBack(Entree(libelle, NK_A_COMPOSANT + static_cast<int32>(k)));
 							}
-							if (comp != NkComposantEditeur::NK_CORPS_MOU) {
-								out.PushBack(Entree(NkComposantEditeurNom(comp), NK_A_COMPOSANT + k));
-								continue;
+						};
+						// ── Physique ──
+						const bool collision = !w.Has<NkCollisionneur2D>(id) && !w.Has<NkCorpsMou2D>(id);
+						Section("Physique", !collision && !Peut(NkComposantEditeur::NK_CORPS) && !Peut(NkComposantEditeur::NK_CORPS_MOU));
+						if (collision) {
+							// A la taille de ce qu'on voit (NkEditeurAjouterCollision).
+							out.PushBack(Entree("Collisionneur (boîte, cercle, capsule, polygone…)",
+												NK_A_COLLISION + static_cast<int32>(NkCollisionEditeur::NK_BOITE)));
+						}
+						Ligne(NkComposantEditeur::NK_CORPS, "Corps rigide");
+						if (Peut(NkComposantEditeur::NK_CORPS_MOU)) {
+							// Un corps mou est une MATIERE (elle ne change plus) : on la
+							// choisit dans son sous-menu.
+							out.PushBack(SousMenu("Corps mou (matière)", NkMenuEditeur::NK_COMPOSANT_MOU));
+						}
+						// ── Rendu ──
+						Section("Rendu", !Peut(NkComposantEditeur::NK_SPRITE) && !Peut(NkComposantEditeur::NK_FORME) &&
+											 !Peut(NkComposantEditeur::NK_LUMIERE) && !Peut(NkComposantEditeur::NK_EMETTEUR));
+						Ligne(NkComposantEditeur::NK_SPRITE, "Sprite");
+						Ligne(NkComposantEditeur::NK_FORME, "Forme 2D (rectangle, cercle, étoile…)");
+						Ligne(NkComposantEditeur::NK_LUMIERE, "Lumière (ponctuelle, cône, directionnelle)");
+						Ligne(NkComposantEditeur::NK_EMETTEUR, "Émetteur (effets : feu, étincelles, fumée…)");
+						// ── Animation ──
+						const bool animateur = Peut(NkComposantEditeur::NK_ANIMATEUR);
+						Section("Animation", !Peut(NkComposantEditeur::NK_ANIMATION) && !animateur);
+						Ligne(NkComposantEditeur::NK_ANIMATION, "Animation (sprites)");
+						if (animateur) {
+							// Les modeles enregistres (« plateforme » toujours), puis les
+							// controleurs .nkanimctl du Contenu (releves a l'ouverture).
+							for (uint32 i = 0; i < NkNbModelesAnimateur() && i < 50u; ++i) {
+								out.PushBack(Entree(NkString::Format("Animateur : %s", NkNomModeleAnimateur(i)).CStr(),
+													NK_A_ANIMATEUR + static_cast<int32>(i)));
 							}
-							// Un corps mou est une MATIERE : on la choisit ici.
-							out.PushBack(Separateur());
-							out.PushBack(Intitule("Corps mou"));
-							for (int32 i = 0; i < static_cast<int32>(NkActeurSim::NK_COUNT); ++i) {
-								const NkInfoActeurSim &info = NkActeurSimInfo(static_cast<NkActeurSim>(i));
-								if (!info.rigide) {
-									out.PushBack(Entree(info.nom, NK_A_CORPS_MOU + i));
-								}
+							if (!c.ui.controleursFrais) {
+								NkEditeurAssetsDuContenu(m, NkAssetType::AnimationController, c.ui.controleursProposes, 50u);
+								c.ui.controleursFrais = true;
+							}
+							for (uint32 k = 0; k < c.ui.controleursProposes.Size() && k < 50u; ++k) {
+								out.PushBack(Entree(NkString::Format("Animateur : %s", NkEditeurRelatifContenu(c.ui.controleursProposes[k].CStr()).CStr())
+														.CStr(),
+													NK_A_ANIMATEUR_FICHIER + static_cast<int32>(k)));
 							}
 						}
-						// 2026-10-01 : un collisionneur (boite... depuis la forme / le
-						// sprite) et une forme 2D, comme Unreal propose ses composants.
-						NkEditeurMenuCollisions(c, out);
+						// ── Audio, Acteur ──
+						Section("Audio", !Peut(NkComposantEditeur::NK_SOURCE));
+						Ligne(NkComposantEditeur::NK_SOURCE, "Son");
+						// (2026-10-02) Les SCRIPTS du projet (Blueprints, classes C++) : ceux
+						// que l'entite n'a pas encore ; ils vont dans sa carte « Scripts ».
+						NkEditeurScriptsAAjouter(m, id, c.ui.scriptsProposes);
+						Section("Acteur", !Peut(NkComposantEditeur::NK_ANCRAGE) && c.ui.scriptsProposes.Empty());
+						Ligne(NkComposantEditeur::NK_ANCRAGE, "Ancrage à l'écran (HUD)");
+						for (uint32 k = 0; k < c.ui.scriptsProposes.Size() && k < 90u; ++k) {
+							out.PushBack(Entree(NkString::Format("Script : %s", c.ui.scriptsProposes[k].CStr()).CStr(),
+												NK_A_SCRIPT + NK_SCRIPT_AJOUTER + static_cast<int32>(k)));
+						}
 						if (out.Empty()) {
 							out.PushBack(Intitule("(tous les composants possibles sont là)"));
 						}
@@ -856,7 +917,8 @@ namespace nkentseu {
 
 			// (2026-10-01) « Placer des acteurs » A GAUCHE DE TOUT, comme UE5
 			// (NkEditeurPlacer.h) ; l'Outliner glisse d'autant.
-			const float32 P = ui.voirPlacer ? Borne(ui.largeurPlacer, 170.f, W * 0.25f) : 0.f;
+			// Replie (2026-10-01, R33 point 5), il ne garde que sa colonne d'onglets.
+			const float32 P = !ui.voirPlacer ? 0.f : (ui.placerReplie ? NK_PLACER_REPLIE_L : Borne(ui.largeurPlacer, 170.f, W * 0.25f));
 			const float32 x0 = P + (P > 0.f ? EPAISSEUR_CLOISON : 0.f);
 			ui.placer = NkRect{0.f, corpsHaut, P, colonnesH};
 			const float32 L = ui.voirOutliner ? Borne(ui.largeurOutliner, 150.f, W * 0.35f) : 0.f;
@@ -882,6 +944,7 @@ namespace nkentseu {
 			c.ui.menu = menu;
 			c.ui.menuAncre = ancre;
 			c.ui.menuFiltre[0] = '\0';
+			c.ui.controleursFrais = false; // le Contenu a pu changer depuis
 			c.ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 			// Le rectangle est recalcule au dessin ; en attendant, l'ancre
 			// suffit a ce que le masquage de la trame suivante sache ou il est.
@@ -1160,6 +1223,24 @@ namespace nkentseu {
 				}
 				return;
 			}
+			// (2026-10-01, R33) « Ajouter un composant > Animateur : ... » : un modele
+			// enregistre, ou un controleur .nkanimctl du Contenu (nomme par son fichier).
+			if (action >= NK_A_ANIMATEUR && action < NK_A_ANIMATEUR + 50) {
+				const uint32 i = static_cast<uint32>(action - NK_A_ANIMATEUR);
+				if (m.aSelection && i < NkNbModelesAnimateur()) {
+					NkEditeurRetenir(m);
+					NkEditeurAjouterAnimateur(m, m.selection, NkNomModeleAnimateur(i), nullptr);
+				}
+				return;
+			}
+			if (action >= NK_A_ANIMATEUR_FICHIER && action < NK_A_ANIMATEUR_FICHIER + 50) {
+				const uint32 k = static_cast<uint32>(action - NK_A_ANIMATEUR_FICHIER);
+				if (m.aSelection && k < ui.controleursProposes.Size()) {
+					NkEditeurRetenir(m);
+					NkEditeurAjouterControleur(m, m.selection, ui.controleursProposes[k].CStr());
+				}
+				return;
+			}
 			if (action >= NK_A_MODE_RENDU && action < NK_A_MODE_RENDU + 4) {
 				m.rendu.mode = static_cast<NkModeRenduParticules>(action - NK_A_MODE_RENDU);
 				return;
@@ -1237,6 +1318,19 @@ namespace nkentseu {
 				}
 				return;
 			}
+			// (2026-10-01, R33) LE MODE PREFAB : Enregistrer ecrit le PREFAB ; les
+			// gestes qui changent de scene, ou la jouent, rendent d'abord la scene
+			// mise de cote (NkEditeurAssets.h).
+			if (ui.modePrefab != nullptr) {
+				if (action == NK_A_ENREGISTRER) {
+					NkEditeurEnregistrerPrefabOuvert(c);
+					return;
+				}
+				if (action == NK_A_NOUVEAU || action == NK_A_OUVRIR || action == NK_A_QUITTER || action == NK_A_FERMER_SCENE ||
+					action == NK_A_JOUER || action == NK_A_PAS) {
+					NkEditeurActiverOnglet(c, -1);
+				}
+			}
 			switch (action) {
 				case NK_A_NOUVEAU:
 				case NK_A_OUVRIR:
@@ -1251,6 +1345,22 @@ namespace nkentseu {
 						NkEditeurRetenirEmpreinte(m, ui);
 					}
 					break;
+				case NK_A_EJECTER:
+					NkEditeurEjecter(m);
+					break;
+				case NK_A_RECADRER_APPAREIL:
+					ui.appareilAncre = false; // repose a la prochaine trame, ajuste a la vue
+					break;
+				case NK_A_ECLAIRAGE: {
+					// (2026-10-01, R33 point 6) L'interrupteur de l'eclairage de la scene :
+					// retenu (Ctrl+Z le remet), sauve avec la scene.
+					NkEditeurRetenir(m);
+					NkEclairage2D &ec = m.scene.Eclairage();
+					ec.actif = !ec.actif;
+					NkEditeurAnnoncer(m, ec.actif ? "Éclairage de la scène allumé (ambiance, lumières, ombres)"
+												  : "Éclairage de la scène éteint : la scène se dessine sans lumière ni ombre");
+					break;
+				}
 				case NK_A_CONSTRUIRE:
 					// Une DEMANDE, comme la fermeture : la fenetre (et son etat,
 					// processus compris) appartient a l'application.
@@ -1314,6 +1424,10 @@ namespace nkentseu {
 							NkEditeurCopierCarte(m, m.selection, carte, ui.pressePapier);
 						} else if (action == NK_A_CARTE_COLLER) {
 							NkEditeurCollerCarte(m, m.selection, ui.pressePapier);
+						} else if (carte == NkCarteEditeur::NK_SCRIPTS) {
+							// (2026-10-02) Les scripts de l'entite, tous (Ctrl+Z les rend).
+							NkEditeurRetenir(m);
+							m.scene.Monde().Remove<unkeny::NkScript2D>(m.selection);
 						} else {
 							NkComposantEditeur comp;
 							if (NkComposantDeCarte(carte, comp)) {
@@ -1683,11 +1797,12 @@ namespace nkentseu {
 			// A DROITE du logo, qui tient le coin sur les deux lignes.
 			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
 			c.ui.ongletScene = onglet;
-			// (2026-10-01) Une page Animation / Animateur au premier plan : la scene
-			// devient un onglet comme les autres (NkEditeurPagesAnim.h).
-			const bool scenePremierPlan = !NkEditeurPageAnimOuverte(c.ui);
-			dl.AddRectFilled(onglet, scenePremierPlan ? c.pal.panneau : c.pal.fond, 2.f);
-			if (scenePremierPlan) {
+			// (2026-10-01) La scene n'est au premier plan (son liseré) que si aucune
+			// page Animation / Animateur (NkEditeurPagesAnim.h) ni aucun onglet d'asset
+			// (R33) ne l'est ; un clic la reprend.
+			const bool sceneActive = !NkEditeurPageAnimOuverte(c.ui) && c.ui.ongletActif < 0;
+			dl.AddRectFilled(onglet, sceneActive ? c.pal.panneau : c.pal.fond, 2.f);
+			if (sceneActive) {
 				dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
 			}
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
@@ -1711,8 +1826,17 @@ namespace nkentseu {
 			dl.AddLine(nkgui::NkVec2{x1, y0}, nkgui::NkVec2{x0, y1}, teinteX, 1.4f);
 			if (survolX && in.mouseClicked[0]) {
 				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
+			} else if (!sceneActive && NkEditeurDans(onglet, in.mousePos) && in.mouseClicked[0]) {
+				NkEditeurActiverOnglet(c, -1);
 			}
 			NkEditeurDessinerOngletsAnim(c); // les documents d'animation, a sa droite
+			// Les onglets des assets ouverts, a la suite.
+			float32 xAssets = onglet.x + onglet.w + 2.f;
+			for (uint32 k = 0; k < c.ui.pagesAnim.onglets.Size(); ++k) {
+				const NkRect &r = c.ui.pagesAnim.onglets[k];
+				xAssets = r.x + r.w + 2.f > xAssets ? r.x + r.w + 2.f : xAssets;
+			}
+			NkEditeurDessinerOngletsAssets(c, xAssets);
 		}
 
 		// =====================================================================
@@ -1976,6 +2100,11 @@ namespace nkentseu {
 					if (survol && !aSous && in.mouseClicked[0]) {
 						res.choisie = e.action;
 					}
+					NkEditeurInterface::NkLigneMenuPeinte lp;
+					lp.libelle = e.libelle;
+					lp.action = e.action;
+					lp.r = r;
+					c.ui.menuLignes.PushBack(lp);
 					ly += ligneH;
 				}
 				return res;
@@ -1985,6 +2114,7 @@ namespace nkentseu {
 
 		void NkEditeurDessinerMenuOuvert(NkEditeurCadre &c, NkMenuEditeur menuDebut) {
 			NkEditeurInterface &ui = c.ui;
+			ui.menuLignes.Clear();
 			if (ui.menu == NkMenuEditeur::NK_AUCUN) {
 				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 				return;
@@ -2031,10 +2161,17 @@ namespace nkentseu {
 				NkVector<NkEntreeMenu> gardees;
 				gardees.PushBack(Intitule(n > 0u ? NkString::Format("Rechercher : %s_", ui.menuFiltre).CStr() : "Rechercher : tapez un nom"));
 				gardees.PushBack(Separateur());
+				// (2026-10-01, R33) Une ligne repond aussi par sa SECTION : « anim »
+				// garde « Animation (sprites) » et tous les « Animateur : ... »,
+				// « physique » garde collisionneur et corps.
+				NkString section;
 				for (uint32 i = 0; i < entrees.Size(); ++i) {
 					const NkEntreeMenu &e = entrees[i];
+					if (!e.separateur && e.action == NK_A_AUCUNE) {
+						section = e.libelle;
+					}
 					// Filtre pose, seules restent les lignes qui AGISSENT et qui y repondent.
-					if (n > 0u && (e.separateur || e.action == NK_A_AUCUNE || !contient(e.libelle.CStr()))) {
+					if (n > 0u && (e.separateur || e.action == NK_A_AUCUNE || (!contient(e.libelle.CStr()) && !contient(section.CStr())))) {
 						continue;
 					}
 					if (premiere == NK_A_AUCUNE && e.action != NK_A_AUCUNE && e.actif) {

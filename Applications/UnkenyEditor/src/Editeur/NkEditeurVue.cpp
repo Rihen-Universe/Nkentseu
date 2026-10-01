@@ -125,17 +125,40 @@ namespace nkentseu {
 				};
 				// L'accrochage n'est plus ici : il est dans la barre flottante du
 				// viseur, avec un interrupteur et un pas PAR GESTE (UE5).
-				const NkBouton boutons[3] = {
+				// (2026-10-01, R33 point 6) « Éclairage » : l'INTERRUPTEUR de l'eclairage
+				// 2D de la scene, enfonce quand il est allume (Rihen ne savait pas
+				// l'eteindre : seule une lumiere savait l'allumer).
+				const bool eclaire = c.m.scene.Eclairage().actif;
+				const NkBouton boutons[4] = {
 					{NkString("Cadrer"), NK_A_CADRER_SELECTION, false},
 					{NkString("Grille"), NK_A_GRILLE, c.m.voirGrille},
 					{NkString("Collisionneurs"), NK_A_COLLISIONNEURS, c.m.voirCollisionneurs},
+					{NkString(eclaire ? "Éclairage : allumé" : "Éclairage : éteint"), NK_A_ECLAIRAGE, eclaire},
 				};
-				for (int32 i = 0; i < 3; ++i) {
-					const float32 w = renderer::NkTexteLargeur(c.petite, boutons[i].texte.CStr()) + 16.f;
+				for (int32 i = 0; i < 4; ++i) {
+					const bool lampe = boutons[i].action == NK_A_ECLAIRAGE;
+					const float32 w = renderer::NkTexteLargeur(c.petite, boutons[i].texte.CStr()) + 16.f + (lampe ? 16.f : 0.f);
 					const NkRect r{x, b.y + 4.f, w, b.h - 8.f};
 					const bool clic = NkEditeurBouton(c, r, "", boutons[i].enfonce);
-					renderer::NkTexteDansBoite(dl, c.petite, r, boutons[i].texte.CStr(),
-											   boutons[i].enfonce ? c.pal.surAccent : c.pal.texte);
+					const NkColor ct = boutons[i].enfonce ? c.pal.surAccent : c.pal.texte;
+					if (lampe) {
+						// Un soleil trace, plein allume, creux eteint.
+						c.ui.boutonEclairageVue = r;
+						const float32 sx = r.x + 12.f, sy = r.y + r.h * 0.5f;
+						for (int32 k = 0; k < 8; ++k) {
+							const float32 a = 0.785398f * static_cast<float32>(k);
+							dl.AddLine(NkVec2{sx + math::NkCos(a) * 4.5f, sy + math::NkSin(a) * 4.5f},
+									   NkVec2{sx + math::NkCos(a) * 6.5f, sy + math::NkSin(a) * 6.5f}, ct, 1.2f);
+						}
+						if (eclaire) {
+							dl.AddCircleFilled(NkVec2{sx, sy}, 3.f, ct);
+						} else {
+							dl.AddCircle(NkVec2{sx, sy}, 3.f, ct, 1.2f);
+						}
+						renderer::NkTexteDansBoite(dl, c.petite, NkRect{r.x + 16.f, r.y, r.w - 16.f, r.h}, boutons[i].texte.CStr(), ct);
+					} else {
+						renderer::NkTexteDansBoite(dl, c.petite, r, boutons[i].texte.CStr(), ct);
+					}
 					if (clic) {
 						NkEditeurExecuter(c, boutons[i].action);
 					}
@@ -466,10 +489,17 @@ namespace nkentseu {
 					return;
 				}
 
+				// (2026-10-01, PIE d'Unreal) EN JEU, LA VUE EST AU JEU : la molette, le
+				// panoramique, le menu et la selection de l'editeur sont COUPES (les
+				// entrees vont au jeu). « Ejecter » (F8) rend une camera libre.
+				const bool auJeu = NkEditeurVueAuJeu(m);
+				if (auJeu) {
+					m.panoramique = false;
+				}
 				// ── Molette : zoom autour du curseur ─────────────────────────────
 				// Le point du monde sous le curseur ne bouge pas : c'est lui qu'on
 				// regarde, c'est lui qu'on grossit.
-				if (dedans && in.wheel != 0.f) {
+				if (dedans && in.wheel != 0.f && !auJeu) {
 					ui.cadrageAnime = false; // la main reprend la camera
 					const NkVec2f avant = cam.EcranVersMonde(pos);
 					const float32 z = cam.Zoom() * (in.wheel > 0.f ? 1.15f : 1.f / 1.15f);
@@ -481,7 +511,7 @@ namespace nkentseu {
 				// ⚠️ LE SEUL panoramique (2026-09-29) : le bouton droit ouvre le menu,
 				//    et le clic gauche dans le vide deselectionne au lieu de tirer la
 				//    vue.
-				if (dedans && in.mouseClicked[2]) {
+				if (dedans && in.mouseClicked[2] && !auJeu) {
 					ui.cadrageAnime = false;
 					m.panoramique = true;
 					m.dernierPointeur = pos;
@@ -499,7 +529,7 @@ namespace nkentseu {
 				// ── Clic droit : le menu contextuel ──────────────────────────────
 				// Il CHOISIT d'abord ce qui est sous le curseur (comme UE5) : le menu
 				// d'une entite vise celle-la, pas la selection d'avant.
-				if (dedans && in.mouseClicked[1]) {
+				if (dedans && in.mouseClicked[1] && !auJeu) {
 					ui.pointContexte = monde;
 					const bool surEntite = NkEditeurCliquerSelection(m, monde);
 					NkEditeurOuvrirMenu(c, surEntite ? NkMenuEditeur::NK_CTX_ENTITE : NkMenuEditeur::NK_CTX_VIDE,
@@ -542,6 +572,10 @@ namespace nkentseu {
 							// SELECTION, et les trois gizmos hors de leurs poignees : le clic
 							// choisit, le vide deselectionne. Le glisser est ARME, pas encore
 							// parti : il ne partira qu'au-dela du seuil.
+							// (PIE) Au jeu, le clic est au JEU : rien n'est choisi.
+							if (auJeu) {
+								break;
+							}
 							NkVec2f centre;
 							if (NkEditeurCliquerSelection(m, monde, &centre)) {
 								ui.glisserArme = true;
@@ -904,6 +938,50 @@ namespace nkentseu {
 
 		} // namespace
 
+		namespace {
+			/// L'APPAREIL POSE DANS LE MONDE (2026-10-01, retour de Rihen : « le zoom
+			/// doit agrandir l'appareil entier, pas la scene derriere un cadre fige »).
+			/// Son ecran est un rectangle du MONDE, pose la ou l'aire ajustee tombe a
+			/// sa pose ; il suit ensuite la camera comme le reste de la scene.
+			NkRect AppareilDansLeMonde(NkEditeurCadre &c, NkVue2D &cam, const NkRect &ajuste) {
+				NkEditeurInterface &ui = c.ui;
+				NkEditeurModele &m = c.m;
+				const uint32 cle = static_cast<uint32>(m.profil) * 64u + static_cast<uint32>(m.orientation) * 2u + (m.appareil.voirCadre ? 1u : 0u);
+				if (!ui.appareilAncre || ui.appareilCle != cle) {
+					const NkVec2f a = cam.EcranVersMonde(NkVec2f(ajuste.x, ajuste.y));
+					const NkVec2f b = cam.EcranVersMonde(NkVec2f(ajuste.x + ajuste.w, ajuste.y + ajuste.h));
+					ui.appareilCentre = NkVec2f((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+					ui.appareilTaille = NkVec2f(math::NkAbs(b.x - a.x), math::NkAbs(b.y - a.y));
+					ui.appareilAncre = ui.appareilTaille.x > 1.0e-4f && ui.appareilTaille.y > 1.0e-4f;
+					ui.appareilCle = cle;
+					if (!ui.appareilAncre) {
+						return ajuste;
+					}
+				}
+				auto Ecran = [&]() {
+					const NkVec2f p0 = cam.MondeVersEcran(
+						NkVec2f(ui.appareilCentre.x - ui.appareilTaille.x * 0.5f, ui.appareilCentre.y - ui.appareilTaille.y * 0.5f));
+					const NkVec2f p1 = cam.MondeVersEcran(
+						NkVec2f(ui.appareilCentre.x + ui.appareilTaille.x * 0.5f, ui.appareilCentre.y + ui.appareilTaille.y * 0.5f));
+					return NkRect{p0.x < p1.x ? p0.x : p1.x, p0.y < p1.y ? p0.y : p1.y, math::NkAbs(p1.x - p0.x), math::NkAbs(p1.y - p0.y)};
+				};
+				// EN JEU, une fois : la vue se recadre sur l'appareil entier (le jeu y
+				// est montre a sa camera) ; Arreter rend la camera d'edition.
+				if (m.etat == NkEtatJeu::NK_EDITION) {
+					ui.appareilAjusteJeu = false;
+				} else if (!ui.appareilAjusteJeu && !m.ejecte) {
+					ui.appareilAjusteJeu = true;
+					const NkRect r = Ecran();
+					if (r.w > 1.f) {
+						cam.PoserZoom(cam.Zoom() * ajuste.w / r.w);
+						const NkVec2f d = cam.EcranVersMonde(NkVec2f(ajuste.x + ajuste.w * 0.5f, ajuste.y + ajuste.h * 0.5f)) - ui.appareilCentre;
+						cam.PoserCentre(cam.Centre() - d);
+					}
+				}
+				return Ecran();
+			}
+		} // namespace
+
 		void NkEditeurDemanderCadrage(NkEditeurCadre &c, bool toutLaScene) {
 			NkEditeurModele &m = c.m;
 			const bool avait = m.aSelection;
@@ -933,7 +1011,7 @@ namespace nkentseu {
 				return;
 			}
 			auto &dl = c.ctx.dl;
-			const NkRect appareil = NkAireAppareil(aire, c.m.ProfilCourant(), c.m.appareil.voirCadre);
+			const NkRect ajuste = NkAireAppareil(aire, c.m.ProfilCourant(), c.m.appareil.voirCadre);
 			// ⚠️ LE VISEUR DE LA CAMERA EST TOUTE L'AIRE (2026-09-29). Il etait
 			//    l'aire d'appareil : le monde ne se voyait que dans un rectangle
 			//    centre. L'appareil n'est plus qu'une surimpression (NkDessinerViseur).
@@ -954,8 +1032,11 @@ namespace nkentseu {
 				}
 				c.m.aSelection = avait;
 				cam.Cadrer(centre, taille);
+				ui.appareilAncre = false; // une autre scene : l'appareil se repose
 			}
 			AnimerCadrage(c, cam, aire);
+			const NkRect appareil = c.m.profil != 0 ? AppareilDansLeMonde(c, cam, ajuste) : ajuste;
+			ui.appareilEcran = appareil;
 			dl.PushClipRect(aire, true);
 			c.m.stats = NkDessinerViseur(dl, c.m, aire, appareil);
 			DessinerGizmo(c, dl);
@@ -966,6 +1047,15 @@ namespace nkentseu {
 			// souris du viseur (un clic sur elle ne choisit rien dessous).
 			BarreFlottante(c, aire);
 			Souris(c, aire);
+			// (2026-10-01, PIE) Ce que montre la vue en jeu, en clair.
+			if (c.m.etat != NkEtatJeu::NK_EDITION) {
+				const char *t = c.m.ejecte ? "Éjecté : caméra libre de l'éditeur  ·  F8 : revenir au jeu"
+										   : "Caméra du jeu  ·  les entrées vont au jeu  ·  F8 : éjecter";
+				const float32 w = renderer::NkTexteLargeur(c.petite, t) + 16.f;
+				const NkRect r{aire.x + 8.f, aire.y + aire.h - 30.f, w, 22.f};
+				dl.AddRectFilled(r, c.m.ejecte ? NkColor{120, 90, 30, 220} : NkColor{30, 90, 50, 220}, 3.f);
+				renderer::NkTexteDansBoite(dl, c.petite, r, t, NkColor{235, 240, 235, 255});
+			}
 		}
 
 	} // namespace editeur
