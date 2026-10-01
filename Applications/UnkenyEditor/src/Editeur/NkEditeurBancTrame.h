@@ -177,6 +177,15 @@ namespace nkentseu {
 					pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
 					Trame();
 				}
+				/// Le centre du bouton de CONFIRMATION du selecteur ouvert : la geometrie
+				/// du kit, celle que son dessin appelle aussi.
+				nkgui::NkVec2 Confirmer() const {
+					const float32 lt = police->MeasureWidth(psel->PickerConfirmLabel());
+					const editorkit::NkGeomSelecteur g =
+						editorkit::NkGeometrieSelecteur(W, H, pctx->S(1.f), false, true, psel->pickerWinOffX, psel->pickerWinOffY,
+														!psel->messageCreation.Empty(), lt);
+					return nkgui::NkVec2{g.confirmer.x + g.confirmer.w * 0.5f, g.confirmer.y + g.confirmer.h * 0.5f};
+				}
 				/// L'indice de la carte dont le chemin est `chemin` (a l'ecran), -1 sinon.
 				int32 Carte(const char *chemin) {
 					for (uint32 k = 0; k < pui->contenu.entries.Size() && k < pui->contenuCartes.Size(); ++k) {

@@ -54,6 +54,15 @@ namespace nkentseu {
 				char iconeSombre[320] = {};
 				char iconeClaire[320] = {};
 				int32 focus = -1; ///< 0 nom, 1 sortie, 2 icone sombre, 3 icone claire
+				/// (2026-10-01, retour 6 de Rihen) Le dossier de sortie est RETENU PAR
+				/// PROJET (NkEditeurProjet.h) : `sortieDe` est le projet dont `sortie`
+				/// vient ; `--sortie=` l'IMPOSE (garde la priorite a l'ouverture).
+				bool sortieImposee = false;
+				NkString sortieDe;
+				/// « Parcourir… » : une DEMANDE, lue par la trame, qui ouvre LE
+				/// selecteur de l'editeur en mode dossier (NK_DOSSIER_SORTIE).
+				bool parcourirDemande = false;
+				nkgui::NkRect boutonParcourir{0.f, 0.f, 0.f, 0.f}; ///< le banc y vise
 				/// `--fenetre=construire-auto` : « Construire » est presse tout seul
 				/// apres ce nombre de trames (le viseur a alors cadre la scene).
 				/// C'est ce qui eprouve la fenetre SANS souris. 0 = jamais.
@@ -84,7 +93,7 @@ namespace nkentseu {
 
 		/// Ouvre la fenetre, avec les reglages precedents ou ceux par defaut, et
 		/// refait la detection des chaines (elles ont pu etre installees).
-		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, const NkEditeurModele &m);
+		void NkEditeurOuvrirConstruire(NkEditeurConstruction &k, NkEditeurModele &m);
 
 		/// Lance la construction avec les reglages de la fenetre : cuisson et
 		/// workspace tout de suite, puis la premiere etape Jenga. Le viseur de

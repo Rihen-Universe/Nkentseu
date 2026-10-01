@@ -30,6 +30,11 @@
 //   (u5)  le TRANSFORM d'Unreal : chaque composante d'axe porte un LISERE de
 //         sa couleur (rouge X, vert Y, bleu Z) colle au bord gauche de son
 //         champ, de toute sa hauteur, au lieu d'une lettre
+//   (u6)  CONSTRUIRE : un projet sans reglages sort dans <projet>/Construit ;
+//         « Parcourir… » ouvre LE selecteur du kit en mode dossier ; le dossier
+//         choisi va au champ et le projet le RETIENT (relatif, `.nkprojet`) ;
+//         un autre projet reprend le sien ; --sortie= garde la priorite ; une
+//         cle inconnue du fichier survit a la reecriture
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -37,6 +42,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
+#include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurReferences.h"
 
 #include "NKEditorKit/Components/NkRecordingPaint.h"
@@ -466,6 +472,92 @@ namespace nkentseu {
 				// en ajoute (taille L / H, pivot X / Y).
 				Temoin(n >= 5u && colles == n && rouges >= 2u && verts >= 2u && bleus >= 1u,
 					   "(u5) Transform : liseres rouge X / vert Y / bleu Z colles au bord gauche du champ (nombre)", static_cast<float32>(n));
+			}
+
+			// (u6) CONSTRUIRE : « Parcourir… », le dossier de sortie RETENU PAR PROJET
+			// (retour 6 de Rihen : « pas de bouton pour choisir le dossier de
+			// generation du jeu »).
+			{
+				NkDirectory::Delete("banc_u6", true);
+				NkDirectory::CreateRecursive("banc_u6/projet/Contenu");
+				NkDirectory::CreateRecursive("banc_u6/projet/Jeux");
+				NkDirectory::CreateRecursive("banc_u6/autre/Contenu");
+				NkEditeurNouvelleScene(m);
+				m.projet = NkString();
+				m.chemin = NkString("banc_u6/autre/scene.nkscene");
+				const bool e1 = NkEditeurSauver(m);
+				m.chemin = NkString("banc_u6/projet/scene.nkscene");
+				const bool e2 = NkEditeurSauver(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurConstruction &k = *t.pcons;
+				NkEditeurSelecteurEtat &sel = *t.psel;
+				auto Normal = [](const char *s) {
+					NkString n;
+					for (const char *p = s; *p != '\0'; ++p) {
+						n.Append(*p == '\\' ? '/' : *p);
+					}
+					return n;
+				};
+				auto Finit = [&](const char *s, const char *fin) {
+					const NkString n = Normal(s);
+					const usize l = std::strlen(fin);
+					return n.Length() >= l && std::strcmp(n.CStr() + n.Length() - l, fin) == 0;
+				};
+				auto Ouvrir = [&]() {
+					k.ouverte = false;
+					ui.construireDemande = true;
+					t.Trame();
+					t.Trame();
+				};
+				// (a) un projet SANS reglages (d'avant) : <projet>/Construit
+				Ouvrir();
+				const bool defaut = k.ouverte && Finit(k.sortie, "banc_u6/projet/Construit") && !NkFile::Exists("banc_u6/projet/.nkprojet");
+				// (b) « Parcourir… » ouvre LE selecteur, en mode dossier
+				t.Clic(0, k.boutonParcourir.x + k.boutonParcourir.w * 0.5f, k.boutonParcourir.y + k.boutonParcourir.h * 0.5f);
+				const bool ouvre = k.boutonParcourir.w > 0.f && sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_DOSSIER_SORTIE &&
+								   sel.pickerFor == editorkit::NkSelecteurOuvrirDossier && k.ouverte;
+				// (c) « Choisir ce dossier » : le champ le prend, le PROJET le retient
+				// (relatif : il est dedans)
+				sel.AllerA("banc_u6/projet/Jeux");
+				t.Trame();
+				{
+					const nkgui::NkVec2 ok = t.Confirmer();
+					t.Clic(0, ok.x, ok.y);
+				}
+				const bool choisi = !sel.pickerOpen && Finit(k.sortie, "banc_u6/projet/Jeux") && k.ouverte &&
+									NkEditeurProjetLire(m, NK_PROJET_SORTIE) == NkString("Jeux");
+				// (d) un AUTRE projet reprend le sien ; (e) le premier, le sien
+				m.chemin = NkString("banc_u6/autre/scene.nkscene");
+				Ouvrir();
+				const bool autre = Finit(k.sortie, "banc_u6/autre/Construit");
+				m.chemin = NkString("banc_u6/projet/scene.nkscene");
+				Ouvrir();
+				const bool retenu = Finit(k.sortie, "banc_u6/projet/Jeux");
+				// (f) --sortie= garde la priorite
+				k.sortieImposee = true;
+				std::snprintf(k.sortie, sizeof(k.sortie), "%s", "banc_u6/impose");
+				m.chemin = NkString("banc_u6/autre/scene.nkscene");
+				Ouvrir();
+				const bool impose = NkString(k.sortie) == NkString("banc_u6/impose");
+				k.sortieImposee = false;
+				// (g) retro-compatible : une cle INCONNUE (version future) survit a la
+				// reecriture
+				m.chemin = NkString("banc_u6/projet/scene.nkscene");
+				NkFile::WriteAllText("banc_u6/projet/.nkprojet", "futur.cle=42\nconstruire.sortie=Jeux\n");
+				const bool reecrit = NkEditeurRetenirSortie(m, "banc_u6/projet/Construit") &&
+									 NkEditeurProjetLire(m, "futur.cle") == NkString("42") &&
+									 NkEditeurProjetLire(m, NK_PROJET_SORTIE) == NkString("Construit");
+				const bool ok = e1 && e2 && defaut && ouvre && choisi && autre && retenu && impose && reecrit;
+				if (!ok) {
+					std::printf("        ecrits %d%d defaut %d ouvre %d choisi %d autre %d retenu %d impose %d reecrit %d ; sortie « %s » ; retenue « %s »\n",
+								e1, e2, defaut, ouvre, choisi, autre, retenu, impose, reecrit, k.sortie, NkEditeurProjetLire(m, NK_PROJET_SORTIE).CStr());
+				}
+				Temoin(ok, "(u6) Construire : Parcourir… (selecteur du kit), sortie retenue par projet, --sortie= prioritaire",
+					   static_cast<float32>(defaut + ouvre + choisi + autre + retenu + impose + reecrit));
+				k.ouverte = false;
+				m.projet = NkString();
+				NkDirectory::Delete("banc_u6", true);
 			}
 
 			m.chemin = cheminAvant;

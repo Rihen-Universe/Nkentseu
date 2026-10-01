@@ -20,6 +20,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
@@ -393,6 +394,7 @@ namespace nkentseu {
 				}
 				if (args[i].StartsWith("--sortie=")) {
 					std::snprintf(mConstruction->sortie, sizeof(mConstruction->sortie), "%s", NkString(args[i].SubStr(9)).CStr());
+					mConstruction->sortieImposee = true;
 					continue;
 				}
 				if (args[i].StartsWith("--nom=")) {
@@ -849,6 +851,11 @@ namespace nkentseu {
 					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_EXPORTER, nullptr);
 				}
 			}
+			// « Parcourir… » du dossier de sortie de « Construire » (2026-10-01).
+			if (selecteur != nullptr && !selecteur->pickerOpen && construction.parcourirDemande) {
+				NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_DOSSIER_SORTIE, construction.sortie);
+			}
+			construction.parcourirDemande = false;
 			ui.importDemande = false;
 			ui.exportDemande = false;
 			const bool choix = NkEditeurSelecteurOuvert(selecteur);
@@ -962,6 +969,11 @@ namespace nkentseu {
 						NkEditeurImporterIci(c.m, ui, selecteur->resultatsMultiples, ui.importCible.Empty() ? nullptr : rel.CStr());
 					} else if (usage == NkUsageSelecteur::NK_EXPORTER) {
 						NkEditeurExporterChoisis(c.m, ui, selecteur->pickerResultPath);
+					} else if (usage == NkUsageSelecteur::NK_DOSSIER_SORTIE) {
+						// Le dossier choisi va au champ, et le projet le RETIENT.
+						std::snprintf(construction.sortie, sizeof(construction.sortie), "%s", selecteur->pickerResultPath);
+						construction.sortieDe = NkEditeurDossierProjet(c.m);
+						NkEditeurRetenirSortie(c.m, construction.sortie);
 					}
 				}
 			} else {
