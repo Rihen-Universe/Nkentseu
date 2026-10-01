@@ -363,7 +363,14 @@ namespace nkentseu {
 					// seulement si le second appui ne devient pas un glisser (cliquer
 					// une carte puis la trainer aussitot n'ouvre rien).
 					if (NkEditeurGenreAsset(chemin) != NkGenreAsset::NK_AUCUN) {
+						// Les DEUX appuis sur la meme carte : une carte qui a glisse sous
+						// le curseur entre les deux (le Contenu a change) n'est pas un
+						// double-clic sur elle.
+						if (!(c.ui.appuiCarte == NkString(chemin))) {
+							return;
+						}
 						c.ui.assetEnAttente = NkString(chemin);
+						c.ui.assetAttente = c.ctx.input.mousePos;
 						return;
 					}
 					c.ui.contenuMenuChemin = NkString(chemin);
@@ -1185,10 +1192,22 @@ namespace nkentseu {
 					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
 				// Ce qu'on TRAINE : les cibles de depot hors du tiroir s'eclairent.
 				ui.contenuGlisse = res.glisserChemin;
+				// La carte sous chaque APPUI (SurDoubleClic compare le second au premier).
+				if (c.ctx.input.mouseClicked[0]) {
+					ui.appuiCarte = NkString();
+					for (uint32 k = 0; k < ui.contenu.entries.Size() && k < ui.contenuCartes.Size(); ++k) {
+						if (ui.contenuCartes[k].w > 0.f && NkEditeurDans(ui.contenuCartes[k], c.ctx.input.mousePos)) {
+							ui.appuiCarte = ui.contenu.entries[k].path;
+						}
+					}
+				}
 				// Le double-clic en attente (SurDoubleClic) : un glisser l'annule, le
 				// relachement l'ouvre.
 				if (!ui.assetEnAttente.Empty()) {
-					if (!res.glisserChemin.Empty()) {
+					// La souris a BOUGE (plus de 4 px) depuis l'appui : c'est un glisser.
+					const float32 dx = c.ctx.input.mousePos.x - ui.assetAttente.x;
+					const float32 dy = c.ctx.input.mousePos.y - ui.assetAttente.y;
+					if (!res.glisserChemin.Empty() || dx * dx + dy * dy > 16.f) {
 						ui.assetEnAttente = NkString();
 					} else if (!c.ctx.input.mouseDown[0]) {
 						ui.contenuMenuChemin = ui.assetEnAttente;
@@ -1391,6 +1410,25 @@ namespace nkentseu {
 						spriteVise = e;
 					}
 				}
+				// (2026-10-01, R33 point 4) L'OUTLINER est une cible de depot, comme la
+				// vue : ce qui s'y lache nait au centre de la vue (Unreal le pose dans
+				// le niveau). Une vue remplacee par un onglet d'asset ne recoit rien.
+				const bool vueLibre = !NkEditeurAssetALaPlaceDeLaVue(ui);
+				const bool surVue = vueLibre && NkEditeurDans(ui.viseur, in.mousePos);
+				const bool surOutliner = ui.outliner.w > 0.f && NkEditeurDans(ui.outliner, in.mousePos);
+				const bool posable = !res.glisserChemin.Empty() &&
+									 (ActeurDuChemin(res.glisserChemin.CStr()) != -1 ||
+									  (NkEditeurCheminEstContenu(res.glisserChemin.CStr()) &&
+									   !NkDirectory::Exists(NkEditeurCheminContenu(c.m, res.glisserChemin.CStr()).CStr())));
+				auto Poser = [&](const NkVec2f &monde) {
+					const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
+					if (acteur != -1) {
+						Armer(c.m, acteur);
+						NkEditeurPoser(c.m, monde);
+					} else if (posable) {
+						PoserAsset(c.m, res.glisserChemin, monde);
+					}
+				};
 				if (!res.glisserChemin.Empty()) {
 					if (in.mouseReleased[0]) {
 						// LE DEPOT DANS LA VUE : lache hors des volets du composant. Un
@@ -1402,24 +1440,24 @@ namespace nkentseu {
 							NkEditeurTextureSprite(c.m, c.m.selection, res.glisserChemin.CStr());
 						} else if (spriteVise.IsValid()) {
 							NkEditeurTextureSprite(c.m, spriteVise, res.glisserChemin.CStr());
-						} else if (NkEditeurDans(ui.viseur, in.mousePos)) {
-							const NkVec2f monde = c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y));
-							const int32 acteur = ActeurDuChemin(res.glisserChemin.CStr());
-							if (acteur != -1) {
-								Armer(c.m, acteur);
-								NkEditeurPoser(c.m, monde);
-							} else if (NkEditeurCheminEstContenu(res.glisserChemin.CStr()) &&
-									   !NkDirectory::Exists(NkEditeurCheminContenu(c.m, res.glisserChemin.CStr()).CStr())) {
-								PoserAsset(c.m, res.glisserChemin, monde);
-							}
+						} else if (surVue) {
+							Poser(c.m.scene.Camera().EcranVersMonde(NkVec2f(in.mousePos.x, in.mousePos.y)));
+						} else if (surOutliner) {
+							Poser(c.m.scene.Camera().Centre());
 						}
 					} else {
+						// L'Outliner vise : il s'eclaire, et le fantome dit ou ca nait.
+						if (surOutliner && posable) {
+							over.AddRect(ui.outliner, c.pal.accent, 2.f, 2.f);
+						}
 						// Le fantome : ce qu'on emporte, sous le curseur -- et ce qu'il
 						// deviendra s'il vise un sprite.
 						NkString libelle = res.glisserLibelle.Empty() ? res.glisserChemin : res.glisserLibelle;
 						if (surDetails || spriteVise.IsValid()) {
 							const NkEtiquette *et = c.m.scene.Monde().Get<NkEtiquette>(surDetails ? c.m.selection : spriteVise);
 							libelle.Append(NkString::Format("  →  texture de « %s »", et != nullptr ? et->nom : "").CStr());
+						} else if (surOutliner && posable) {
+							libelle.Append("  →  dans la scène (centre de la vue)");
 						}
 						const char *lib = libelle.CStr();
 						const float32 w = renderer::NkTexteLargeur(c.police, lib) + 16.f;

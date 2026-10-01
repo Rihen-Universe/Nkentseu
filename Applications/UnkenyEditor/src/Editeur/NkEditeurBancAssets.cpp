@@ -33,6 +33,10 @@
 //         mode prefab (la scene de cote, le prefab seul, sa racine choisie) ; sa
 //         teinte changee puis « Enregistrer » et « Revenir a la scene » : la
 //         scene revient ENTIERE et son instance a la nouvelle teinte
+//   (m4)  PREFABS GLISSES : un vrai prefab (« Nouveau prefab » de la selection)
+//         glisse du Content Browser dans l'OUTLINER nait au centre de la vue ;
+//         glisse dans la VUE, au point lache ; les deux sont des instances du
+//         prefab, visibles dans l'Outliner ; la Ctrl+Z retire la derniere
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -473,6 +477,74 @@ namespace nkentseu {
 				NkDirectory::Delete("banc_m3", true);
 			}
 
+			// (m4) PREFABS GLISSES DANS L'OUTLINER ET DANS LA VUE (retour 4 de Rihen).
+			{
+				NkDirectory::Delete("banc_m4", true);
+				NkDirectory::CreateRecursive("banc_m4/projet/Contenu");
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				m.chemin = NkString("banc_m4/projet/scene.nkscene");
+				m.projet = NkString();
+				const ecs::NkEntityId caisse = m.scene.Creer("Tonneau", NkVec2f(-2.f, 1.f));
+				NkSprite2D sp;
+				sp.couleur = 0x6A4A2AFFu;
+				m.scene.Monde().Add<NkSprite2D>(caisse, sp);
+				m.selection = caisse;
+				m.aSelection = true;
+				const NkString prefab = NkEditeurNouveauPrefabContenu(m, "Contenu");
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.hauteurTiroir = 240.f;
+				t.Trame();
+				t.Trame();
+				auto Instance = [&](ecs::NkEntityId e) {
+					const NkInstancePrefab2D *ip = e.IsValid() ? m.scene.Monde().Get<NkInstancePrefab2D>(e) : nullptr;
+					const NkInstancePrefab2D *is = m.scene.Monde().Get<NkInstancePrefab2D>(caisse);
+					return ip != nullptr && is != nullptr && ip->prefab == is->prefab;
+				};
+				auto DansOutliner = [&](ecs::NkEntityId e) {
+					for (uint32 k = 0; k < ui.arbreEntites.Size(); ++k) {
+						if (ui.arbreEntites[k] == e) {
+							return true;
+						}
+					}
+					return false;
+				};
+				const int32 k = t.Carte(prefab.CStr());
+				bool outliner = false, vue = false, annule = false;
+				if (k >= 0) {
+					const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+					// Dans l'OUTLINER : au centre de la vue.
+					const uint32 n0 = NbEntites(m.scene);
+					t.Glisser(r.x + r.w * 0.5f, r.y + r.h * 0.3f, ui.outliner.x + ui.outliner.w * 0.5f, ui.outliner.y + ui.outliner.h * 0.6f, 8);
+					t.Trame();
+					const ecs::NkEntityId a = m.aSelection ? m.selection : ecs::NkEntityId::Invalid();
+					const NkTransform2D *ta = a.IsValid() ? m.scene.Monde().Get<NkTransform2D>(a) : nullptr;
+					const NkVec2f centre = m.scene.Camera().Centre();
+					outliner = NbEntites(m.scene) == n0 + 1u && a != caisse && Instance(a) && DansOutliner(a) && ta != nullptr &&
+							   math::NkAbs(ta->position.x - centre.x) < 0.01f && math::NkAbs(ta->position.y - centre.y) < 0.01f;
+					// Dans la VUE : au point lache.
+					const nkgui::NkVec2 p{ui.viseur.x + ui.viseur.w * 0.7f, ui.viseur.y + ui.viseur.h * 0.4f};
+					const NkVec2f monde = m.scene.Camera().EcranVersMonde(NkVec2f(p.x, p.y));
+					t.Glisser(r.x + r.w * 0.5f, r.y + r.h * 0.3f, p.x, p.y, 8);
+					t.Trame();
+					const ecs::NkEntityId b = m.aSelection ? m.selection : ecs::NkEntityId::Invalid();
+					const NkTransform2D *tb = b.IsValid() ? m.scene.Monde().Get<NkTransform2D>(b) : nullptr;
+					vue = NbEntites(m.scene) == n0 + 2u && b != a && Instance(b) && DansOutliner(b) && tb != nullptr &&
+						  math::NkAbs(tb->position.x - monde.x) < 0.05f && math::NkAbs(tb->position.y - monde.y) < 0.05f;
+					// Ctrl+Z : la derniere instance s'en va.
+					NkEditeurAnnuler(m);
+					annule = NbEntites(m.scene) == n0 + 1u;
+				}
+				const bool ok = !prefab.Empty() && k >= 0 && outliner && vue && annule;
+				if (!ok) {
+					std::printf("        prefab '%s' carte %d outliner %d vue %d annule %d%c", prefab.CStr(), k, outliner, vue, annule, 10);
+				}
+				Temoin(ok, "(m4) prefab glisse : dans l'Outliner (centre de la vue) et dans la vue (point lache)",
+					   static_cast<float32>(outliner + vue + annule));
+				NkDirectory::Delete("banc_m4", true);
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -621,6 +693,38 @@ namespace nkentseu {
 					}
 					(void)pJoueur;
 					NkEditeurFermerTousOnglets(cadre);
+					// 04 : le VRAI prefab glisse du dossier Prefabs dans l'Outliner, puis
+					// dans la vue.
+					{
+						const int32 kd = T.Carte("Contenu/Prefabs");
+						if (kd >= 0) {
+							const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(kd)];
+							T.DoubleClic(r.x + r.w * 0.5f, r.y + r.h * 0.3f);
+							T.Trame();
+							T.Trame();
+						}
+						const int32 kp = pCaisse.Empty() ? -1 : T.Carte(pCaisse.CStr());
+						if (kp >= 0) {
+							const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(kp)];
+							const float32 x0 = r.x + r.w * 0.5f, y0 = r.y + r.h * 0.3f;
+							const float32 x1 = ui.outliner.x + ui.outliner.w * 0.5f, y1 = ui.outliner.y + ui.outliner.h * 0.55f;
+							T.pctx->input.mousePos = nkgui::NkVec2{x0, y0};
+							T.souris.Appui(T.pctx->input, 0);
+							T.Trame();
+							for (int32 s = 1; s <= 8; ++s) {
+								const float32 f = static_cast<float32>(s) / 8.f;
+								T.pctx->input.mousePos = nkgui::NkVec2{x0 + (x1 - x0) * f, y0 + (y1 - y0) * f};
+								T.Trame();
+							}
+							erreurs += EcrirePng(T, NkString::Format("%s/04a_prefab_glisse_outliner.png", dossier).CStr()) ? 0 : 1;
+							T.souris.Relache(T.pctx->input, 0);
+							T.Trame();
+							const float32 x2 = ui.viseur.x + ui.viseur.w * 0.72f, y2 = ui.viseur.y + ui.viseur.h * 0.35f;
+							T.Glisser(x0, y0, x2, y2, 8);
+							T.Fermer();
+							erreurs += EcrirePng(T, NkString::Format("%s/04b_prefab_instances.png", dossier).CStr()) ? 0 : 1;
+						}
+					}
 					memory::NkGetDefaultAllocator().Delete(pt);
 				}
 			}

@@ -486,6 +486,8 @@ namespace nkentseu {
 				NkVector<NkOngletAsset *> onglets;
 				/// Le double-clic sur un asset a onglet, ouvert au relachement.
 				NkString assetEnAttente;
+				nkgui::NkVec2 assetAttente{0.f, 0.f}; ///< ou l'appui du double-clic est tombe
+				NkString appuiCarte; ///< la carte sous le dernier appui (chemin), vide sinon
 				int32 ongletActif = -1;
 				nkgui::NkRect ongletSceneRect{0.f, 0.f, 0.f, 0.f};
 				NkVector<nkgui::NkRect> ongletsRects;
