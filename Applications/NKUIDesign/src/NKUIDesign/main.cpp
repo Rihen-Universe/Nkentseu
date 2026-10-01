@@ -76,6 +76,7 @@
 #include "NkGuiRoundTrip.h"
 #include "NkDocPoolControls.h"
 #include "Panels.h"
+#include "Lanceur.h" // (01/10) le lanceur de projets partage, avec la touche de l'atelier
 #include "ExportDialogue.h" // ④ le dialogue d'export : un seul, deux portes
 #include "Probe.h"
 #include "NkCoquilleDocument.h" // LE MENU « Design » ET LA BARRE D'ETAT VIENNENT D'UN DOCUMENT
@@ -2791,6 +2792,16 @@ int nkmain(const NkEntryState &state) {
 	//    Posee plus bas, la table leur aurait manque, et leurs libelles seraient
 	//    retombes sur leur cle -- un releve qui accuse le document pour un simple
 	//    ordre d'appel.
+	// (01/10) LA PHOTO DU LANCEUR, sans fenetre ni GPU, AVANT toute autre
+	// lecture d'arguments : --capture-lanceur=FICHIER.png [--theme-lanceur=clair]
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)state.args.Size(), state.args.Data(), &clair);
+		if (!capture.Empty())
+			return nkuidesign::CapturerLanceur(capture, clair, nkuidesign::kDocumentPath);
+	}
+
 	nkuidesign::NkUIDesignPoserLangues();
 
 	for (uint32 i = 0; i < argCount; ++i) {
@@ -4506,6 +4517,22 @@ int nkmain(const NkEntryState &state) {
 	// La palette se ferme par l'execution d'une commande ; celle-ci ne fait que se compter.
 	if (gSondePortes[0] && !shell->RegisterCommand("Sonde : rien", +[](void *) { ++gSondeRienExecutee; }, nullptr, nullptr))
 		printf("[sonde-portes] la commande sans effet n'a PAS pu etre enregistree\n");
+	// (01/10) LE LANCEUR AU LANCEMENT INTERACTIF (aucun argument) : il montre
+	// le document de travail, les gabarits, les recents ; tout ce qu'il ouvre
+	// passe par les portes de l'atelier (Lanceur.h). Avec des arguments
+	// (sondes, recettes, mises en scene), rien ne change.
+	if (rawCount <= 1u) {
+		static editorkit::NkLanceurCoquille lanceur;
+		nkuidesign::RemplirLanceur(lanceur.modele);
+		nkuidesign::EtatLanceur().recents.Charger("NKUIDesign");
+		lanceur.agir = [](void *, editorkit::NkLanceurCoquille &l, const editorkit::NkProjectLauncherResult &r) {
+			return nkuidesign::AgirLanceur(gDesign, l, r);
+		};
+		lanceur.rafraichir = [](void *, editorkit::NkLanceurCoquille &l) {
+			nkuidesign::RafraichirLanceur(l.modele, nkuidesign::kDocumentPath);
+		};
+		lanceur.Brancher(*shell);
+	}
 	const int codeShell = shell->Run();
 	// (Q6) LA LARGEUR SURVIT AU RELANCEMENT : ecrite par la persistance existante.
 	if (gCheminEtatUi[0] && !gToileSeule) {
