@@ -20,7 +20,10 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
+#include "NKEvent/NkDropEvent.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
@@ -28,6 +31,7 @@
 #include "Unkeny/Banc/NkUnkenyBancLumiere.h"
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -163,6 +167,7 @@ namespace nkentseu {
 		NkEditeurApp::NkEditeurApp()
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
 			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mConstruction(memory::NkMakeUnique<NkEditeurConstruction>()),
+			  mSelecteur(memory::NkMakeUnique<NkEditeurSelecteurEtat>()),
 			  mTheme(editorkit::NkTheme::Dark()) {
 			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
@@ -188,14 +193,49 @@ namespace nkentseu {
 				return NkOptional<int>(-1);
 			}
 			NkEditeurModele &m = *mModele;
+			NkString cuire;
 			for (uint32 i = 0; i < args.Size(); ++i) {
+				// --cuire=DOSSIER (2026-10-01) : cuit les DONNEES du jeu (scene,
+				// textures, regle de camera) sans rien construire, pour les jouer
+				// aussitot : UnkenyPlayer --jeu=DOSSIER. Avec --exemple=hud,
+				// --scene=, --appareil= ; le viseur de reference est 1280x720.
+				if (args[i].StartsWith("--cuire=")) {
+					cuire = NkString(args[i].SubStr(8));
+					continue;
+				}
 				if (args[i].StartsWith("--profil=")) {
 					const int32 n = NkString(args[i].SubStr(9)).ToInt32();
 					m.profil = (n >= 0 && n < NkNbProfils()) ? n : 0;
 					continue;
 				}
+				// --paysage : le paysage GAUCHE (le haut de l'appareil a gauche),
+				// comme avant. --orientation= : les quatre (document 03).
 				if (args[i] == "--paysage") {
-					m.paysage = true;
+					m.orientation = NkOrientation::NK_PAYSAGE_GAUCHE;
+					continue;
+				}
+				// --appareil=FICHIER.nkappareil : un appareil (personnalise ou non)
+				// relu d'un fichier, pour une capture ou pour le partager.
+				if (args[i].StartsWith("--appareil=")) {
+					const NkString chemin(args[i].SubStr(11));
+					if (!NkLireAppareil(NkFile::ReadAllText(chemin.CStr()), m.profil, m.orientation, m.appareil)) {
+						std::printf("[editeur] --appareil=%s : fichier absent ou sans entete unkeny.appareil\n", chemin.CStr());
+					}
+					continue;
+				}
+				// --onglet=monde : l'onglet Monde des Details (la section Appareil).
+				if (args[i] == "--onglet=monde") {
+					mUi->ongletDroite = 1;
+					continue;
+				}
+				if (args[i].StartsWith("--orientation=")) {
+					static const char *kNoms[4] = {"portrait", "paysage-gauche", "portrait-inverse", "paysage-droite"};
+					const NkString nom(args[i].SubStr(14));
+					for (int32 k = 0; k < 4; ++k) {
+						if (nom == NkString(kNoms[k])) {
+							m.orientation = static_cast<NkOrientation>(k);
+						}
+					}
 					continue;
 				}
 				if (args[i] == "--simuler") {
@@ -260,6 +300,12 @@ namespace nkentseu {
 				// --exemple=nuit (2026-09-30) : la scene de nuit au feu de camp
 				// (NkEditeurSceneNuit) au lieu de la scene neuve. Avec --capture=,
 				// c'est l'image de l'eclairage sans souris.
+				// --exemple=hud : quatre elements d'interface ancres aux coins de la
+				// zone sure (document 03, §2.5), pour une capture.
+				if (args[i] == "--exemple=hud") {
+					mExempleHud = true;
+					continue;
+				}
 				if (args[i] == "--exemple=nuit") {
 					mExempleNuit = true;
 					continue;
@@ -268,6 +314,40 @@ namespace nkentseu {
 				// capture « avant » d'une paire avant / apres, sans souris.
 				if (args[i] == "--eclairage=off") {
 					mEclairageEteint = true;
+					continue;
+				}
+				// (2026-10-01) Le NAVIGATEUR DE CONTENU, capturable sans souris :
+				// --contenu=Contenu/Textures   le dossier montre au depart
+				// --contenu-choisir=a;b;c      des chemins choisis (selection multiple)
+				// --contenu-menu=CHEMIN        sa carte choisie et son clic droit ouvert
+				// --contenu-deposer=A>B        le menu « Deplacer ici / Copier ici »
+				// --contenu-filtres            la rangee des puces de type ouverte
+				// --tiroir=H                   la hauteur du tiroir, en pixels
+				if (args[i].StartsWith("--contenu=")) {
+					mUi->demContenu = NkString(args[i].SubStr(10));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-choisir=")) {
+					mUi->demChoisir = NkString(args[i].SubStr(18));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-menu=")) {
+					mUi->demMenu = NkString(args[i].SubStr(15));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-deposer=")) {
+					mUi->demDeposer = NkString(args[i].SubStr(18));
+					continue;
+				}
+				if (args[i] == "--contenu-filtres") {
+					mUi->demFiltres = true;
+					continue;
+				}
+				if (args[i].StartsWith("--tiroir=")) {
+					const int32 h = NkString(args[i].SubStr(9)).ToInt32();
+					if (h > 80) {
+						mUi->hauteurTiroir = static_cast<float32>(h);
+					}
 					continue;
 				}
 				if (args[i] == "--selftest") {
@@ -287,8 +367,13 @@ namespace nkentseu {
 					// (moteur), puis preparer une construction (editeur).
 					const int32 livraison = unkeny::NkUnkenyLancerBancLivraison();
 					const int32 construction = NkEditeurLancerBancLivraison();
+					// Les appareils et la zone sure (01/10, document 03) : a part.
+					const int32 appareils = NkEditeurLancerBancAppareils();
+					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
+					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
-									   lumiereEditeur != 0 || livraison != 0 || construction != 0;
+									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
+									   ecran != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -313,7 +398,46 @@ namespace nkentseu {
 					return NkOptional<int>(NkEditeurConstruireEnLigne(args));
 				}
 			}
+			if (!cuire.Empty()) {
+				return NkOptional<int>(CuireSeulement(cuire));
+			}
 			return NkOptional<int>();
+		}
+
+		int32 NkEditeurApp::CuireSeulement(const NkString &dossier) {
+			NkEditeurModele &m = *mModele;
+			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
+			NkEditeurNouvelleScene(m);
+			if (!mSceneDepart.Empty()) {
+				m.chemin = mSceneDepart;
+				if (!NkEditeurOuvrir(m)) {
+					std::printf("[editeur] --cuire : scene illisible %s\n", mSceneDepart.CStr());
+					return 4;
+				}
+			}
+			if (mExempleHud) {
+				NkEditeurExempleHud(m);
+			}
+			// Le viseur de reference, cadre sur toute la scene, comme a l'ouverture.
+			NkVue2D &cam = m.scene.Camera();
+			cam.PoserViseur(NkRect{0.f, 0.f, 1280.f, 720.f});
+			NkVec2f centre(0.f, 0.f);
+			NkVec2f taille(24.f, 11.f);
+			m.aSelection = false;
+			if (NkEditeurZoneACadrer(m, centre, taille)) {
+				cam.Cadrer(centre, taille);
+			}
+			unkeny::NkDemandeCuisson d;
+			d.dossier = dossier.EndsWith("/") || dossier.EndsWith("\\") ? dossier : dossier + "/";
+			d.nomJeu = "Essai";
+			d.vueLargeur = 1280.f;
+			d.vueHauteur = 720.f;
+			d.regleCamera = m.appareil.regleCamera;
+			unkeny::NkRapportCuisson rapport;
+			const bool ok = unkeny::NkCuireJeu(m.scene, m.textures, d, rapport);
+			std::printf("[editeur] --cuire : %s dans %s (%u fichier(s), camera %s)\n", ok ? "cuit" : "ECHEC", d.dossier.CStr(),
+						static_cast<unsigned>(rapport.fichiers.Size()), unkeny::NkNomRegleCamera(d.regleCamera));
+			return ok ? 0 : 1;
 		}
 
 		// =====================================================================
@@ -348,6 +472,9 @@ namespace nkentseu {
 			NkEditeurNouvelleScene(m);
 			if (mExempleNuit) {
 				NkEditeurSceneNuit(m);
+			}
+			if (mExempleHud) {
+				NkEditeurExempleHud(m);
 			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);
@@ -429,8 +556,11 @@ namespace nkentseu {
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
+			// (2026-09-30) Le selecteur de fichiers ouvert occupe l'editeur, comme
+			// la boite et la fenetre Construire.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte;
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
+								!mUi->contenuASupprimer.Empty();
 			// Les entrees de la scene vivent a cote d'elle (.nkentrees) : relues
 			// quand la scene change de chemin (Ouvrir).
 			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
@@ -524,7 +654,8 @@ namespace nkentseu {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte;
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
+								!mUi->contenuASupprimer.Empty();
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -559,6 +690,12 @@ namespace nkentseu {
 				if (e->GetButton() == NkMouseButton::NK_MB_LEFT) {
 					in.SetDoubleClick(0);
 				}
+				return false;
+			}
+			// Des fichiers deposes depuis l'OS (2026-09-30) : exactement « Importer… »,
+			// dans le dossier de la carte visee s'il y en a une (NkEditeurDeposerFichiers).
+			if (const auto *e = event.As<NkDropFileEvent>()) {
+				NkEditeurDeposerFichiers(*mModele, *mUi, e->data.paths, static_cast<float32>(e->data.x), static_cast<float32>(e->data.y));
 				return false;
 			}
 			if (const auto *e = event.As<NkMouseWheelVerticalEvent>()) {
@@ -608,8 +745,8 @@ namespace nkentseu {
 			return false;
 		}
 
-		void NkEditeurApp::Raccourcis(NkEditeurCadre &c) {
-			nkgui::NkGuiContext &ctx = Gui();
+		void NkEditeurRaccourcis(NkEditeurCadre &c) {
+			nkgui::NkGuiContext &ctx = c.ctx;
 			const nkgui::NkGuiInput &in = ctx.input;
 			if (in.KeyPressed(NkGuiKey::Escape) && c.ui.menu != NkMenuEditeur::NK_AUCUN) {
 				c.ui.menu = NkMenuEditeur::NK_AUCUN;
@@ -622,7 +759,25 @@ namespace nkentseu {
 				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
 				return;
 			}
+			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,
+			// renommage en place) gardent leurs touches : Suppr efface une lettre.
+			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty()) {
+				return;
+			}
+			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.
+			if (NkEditeurContenuAuClavier(c)) {
+				return;
+			}
 			if (in.ctrlDown) {
+				// Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z (2026-10-01, NkHistoriqueEditeur).
+				if (in.KeyPressed(NkGuiKey::Z)) {
+					NkEditeurExecuter(c, in.shiftDown ? NK_A_REFAIRE : NK_A_ANNULER);
+					return;
+				}
+				if (in.KeyPressed(NkGuiKey::Y)) {
+					NkEditeurExecuter(c, NK_A_REFAIRE);
+					return;
+				}
 				struct NkRaccourci {
 						NkGuiKey touche;
 						int32 action;
@@ -662,28 +817,45 @@ namespace nkentseu {
 			}
 		}
 
+		void NkEditeurApp::Raccourcis(NkEditeurCadre &c) {
+			// Une couche mince : le corps est une fonction libre (NkEditeurTrame.h),
+			// que le banc joue sans fenetre.
+			NkEditeurRaccourcis(c);
+		}
+
 		// =====================================================================
-		// LA TRAME
+		// LE CORPS DE LA TRAME (NkEditeurTrame.h)
 		// =====================================================================
-		void NkEditeurApp::OnDraw(nkgui::NkGuiDrawList &dl) {
-			nkgui::NkGuiContext &ctx = Gui();
-			NkEditeurInterface &ui = *mUi;
-			const renderer::NkLayoutInfo &lay = Layout();
-			NkEditeurPlanifier(ui, static_cast<float32>(lay.width), static_cast<float32>(lay.height));
-			NkEditeurCadre c{ctx, *mModele, ui, mTheme, mPalette, FontBody(), FontSmall()};
-			dl.AddRectFilled(ui.ecran, mPalette.fond);
-			ui.fenetreAgrandie = Window().IsMaximized();
+		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction) {
+			NkEditeurDessinerTrame(c, entrees, construction, nullptr);
+		}
+
+		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction,
+									NkEditeurSelecteurEtat *selecteur) {
+			NkEditeurInterface &ui = c.ui;
+			// ── Les DEMANDES du selecteur de fichiers (Importer…, Exporter…) : il
+			//    s'ouvre ICI, avant le dessin -- modal des cette trame.
+			if (selecteur != nullptr && !selecteur->pickerOpen) {
+				if (ui.importDemande) {
+					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_IMPORTER, nullptr);
+				} else if (ui.exportDemande) {
+					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_EXPORTER, nullptr);
+				}
+			}
+			ui.importDemande = false;
+			ui.exportDemande = false;
+			const bool choix = NkEditeurSelecteurOuvert(selecteur);
 			// ── 0. LES BORDS DE LA FENETRE, avant tout, avec l'entree reelle ─
 			// Un clic au bord redimensionne, et n'atteint rien d'autre : la
 			// fonction le consomme avant que le corps et les menus ne le lisent.
 			if (ui.construireDemande) {
 				ui.construireDemande = false;
-				NkEditeurOuvrirConstruire(*mConstruction, *mModele);
+				NkEditeurOuvrirConstruire(construction, c.m);
 				// Le jeu construit emporte les entrees TELLES QU'EDITEES (comme la
 				// scene), enregistrees ou non.
-				mConstruction->demande.entrees = mEntrees->jeu.Liaisons().Ecrire();
+				construction.demande.entrees = entrees.jeu.Liaisons().Ecrire();
 			}
-			if (ui.confirmation == NK_A_AUCUNE && !mConstruction->ouverte) {
+			if (ui.confirmation == NK_A_AUCUNE && !construction.ouverte && !choix && ui.contenuASupprimer.Empty()) {
 				NkEditeurBordsFenetre(c);
 			}
 
@@ -703,7 +875,8 @@ namespace nkentseu {
 			//    les champs perdent le focus : sinon Entree validerait le nom en
 			//    meme temps que la boite.
 			// La fenetre « Construire » est modale de la meme facon.
-			const bool modale = ui.confirmation != NK_A_AUCUNE || mConstruction->ouverte;
+			// Le selecteur de fichiers (NkEditeurSelecteur.h) aussi.
+			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix || !ui.contenuASupprimer.Empty();
 			if (modale) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
@@ -714,17 +887,31 @@ namespace nkentseu {
 					ui.arbre.renameCommit = true;
 				}
 			}
-			const NkMenuEditeur menuDebut = ui.menu;
-			const NkGestesSouris vrais = Sauver(ctx.input);
+			NkMenuEditeur menuDebut = ui.menu;
+			const NkGestesSouris vrais = Sauver(c.ctx.input);
+			// ⚠️ (2026-09-30, lot 1) UN CLIC DROIT HORS DU MENU OUVERT EN OUVRE UN
+			//    AUTRE, LA OU IL TOMBE. Masque comme un clic gauche, il ne faisait que
+			//    FERMER le menu : le menu du viseur ouvert, un clic droit sur une ligne
+			//    de l'Outliner « ne faisait rien » (mesure du banc, e48b). Windows et
+			//    UE5 rouvrent le menu sous le curseur ; le clic gauche, lui, ferme
+			//    toujours sans traverser.
+			if (!modale && menuDebut != NkMenuEditeur::NK_AUCUN && vrais.clic[1]) {
+				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
+				if (!NkEditeurDans(ui.menuRect, vrais.position) && !surSous) {
+					ui.menu = NkMenuEditeur::NK_AUCUN;
+					ui.sousMenu = NkMenuEditeur::NK_AUCUN;
+					menuDebut = NkMenuEditeur::NK_AUCUN;
+				}
+			}
 			if (modale) {
-				Neutraliser(ctx.input, true);
+				Neutraliser(c.ctx.input, true);
 			} else if (menuDebut != NkMenuEditeur::NK_AUCUN) {
 				const bool surSous = ui.sousMenu != NkMenuEditeur::NK_AUCUN && NkEditeurDans(ui.sousMenuRect, vrais.position);
-				Neutraliser(ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
-			} else if (ui.panneauEntrees && NkEditeurDans(mEntrees->panneauRect, vrais.position)) {
+				Neutraliser(c.ctx.input, NkEditeurDans(ui.menuRect, vrais.position) || surSous);
+			} else if (ui.panneauEntrees && NkEditeurDans(entrees.panneauRect, vrais.position)) {
 				// Le panneau Entrees flotte au-dessus du corps : un clic sur lui
 				// ne doit pas choisir l'entite qui est dessous.
-				Neutraliser(ctx.input, true);
+				Neutraliser(c.ctx.input, true);
 			}
 			NkEditeurDessinerVue(c);
 			NkEditeurDessinerOutliner(c);
@@ -737,29 +924,60 @@ namespace nkentseu {
 			// deroulants : ils suivent le masquage du corps.
 			NkEditeurDessinerOnglets(c);
 			// Le bandeau « le jeu a la main » : SOUS les menus, qui passent dessus.
-			NkEditeurDessinerEntrees(ctx.dl, FontSmall(), *mEntrees, ui.viseur);
+			NkEditeurDessinerEntrees(c.ctx.dl, c.petite, entrees, ui.viseur);
 
 			// ── 2. LES MENUS, avec l'entree reelle (sauf sous la boite) ──────
 			if (!modale) {
-				Rendre(ctx.input, vrais);
+				Rendre(c.ctx.input, vrais);
 			}
 			// Le panneau Entrees, SOUS les menus deroulants (il ne prend aucun clic
 			// tant qu'un menu est ouvert).
-			NkEditeurDessinerPanneauEntrees(c, *mEntrees);
+			NkEditeurDessinerPanneauEntrees(c, entrees);
 			NkEditeurDessinerBarreMenus(c);
 			NkEditeurDessinerMenuOuvert(c, menuDebut);
 
 			// ── 3. La boite, par-dessus tout, avec l'entree reelle ───────────
-			Rendre(ctx.input, vrais);
+			Rendre(c.ctx.input, vrais);
 			if (modale) {
+				// Le selecteur passe PAR-DESSUS la boite et Construire : tant qu'il
+				// est ouvert, elles sont dessinees sans souris.
+				if (choix) {
+					Neutraliser(c.ctx.input, true);
+				}
 				NkEditeurDessinerConfirmation(c);
-				NkEditeurDessinerConstruire(c, *mConstruction);
+				NkEditeurDessinerSuppressionContenu(c);
+				NkEditeurDessinerConstruire(c, construction);
+				if (choix) {
+					Rendre(c.ctx.input, vrais);
+					const NkUsageSelecteur usage = NkEditeurDessinerSelecteur(c, *selecteur);
+					if (usage == NkUsageSelecteur::NK_IMPORTER) {
+						const NkString rel = NkEditeurRelatifContenu(ui.importCible.CStr());
+						NkEditeurImporterIci(c.m, ui, selecteur->resultatsMultiples, ui.importCible.Empty() ? nullptr : rel.CStr());
+					} else if (usage == NkUsageSelecteur::NK_EXPORTER) {
+						NkEditeurExporterChoisis(c.m, ui, selecteur->pickerResultPath);
+					}
+				}
 			} else {
 				// Le clavier, apres tout ce qui pouvait le prendre. Sous la boite,
 				// Entree et Echap sont a elle.
-				Raccourcis(c);
+				NkEditeurRaccourcis(c);
 			}
-			NkEditeurJournaliser(*mModele, ui);
+			NkEditeurJournaliser(c.m, ui);
+		}
+
+		// =====================================================================
+		// LA TRAME
+		// =====================================================================
+		void NkEditeurApp::OnDraw(nkgui::NkGuiDrawList &dl) {
+			nkgui::NkGuiContext &ctx = Gui();
+			NkEditeurInterface &ui = *mUi;
+			const renderer::NkLayoutInfo &lay = Layout();
+			NkEditeurPlanifier(ui, static_cast<float32>(lay.width), static_cast<float32>(lay.height));
+			NkEditeurCadre c{ctx, *mModele, ui, mTheme, mPalette, FontBody(), FontSmall()};
+			dl.AddRectFilled(ui.ecran, mPalette.fond);
+			ui.fenetreAgrandie = Window().IsMaximized();
+			// Le corps de la trame, sans rien de la fenetre (NkEditeurTrame.h).
+			NkEditeurDessinerTrame(c, *mEntrees, *mConstruction, mSelecteur.Get());
 
 			// ── 4. Ce que la trame laisse a l'OS et a la suivante ────────────
 			// Le curseur que les widgets ont demande (cloisons, champs, DragFloat).

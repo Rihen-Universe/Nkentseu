@@ -44,11 +44,13 @@
 #include "NKPhysics/NkParticules2D.h"
 #include "NKPhysics/NkPhysicsWorld.h"
 #include "Unkeny/Effets/NkUnkenyEffets.h"
+#include "Unkeny/Scene/NkUnkenyActif.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyChamps.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyControles.h"
+#include "Unkeny/Scene/NkUnkenyEcran.h"
 
 #include <cstring>
 #include <type_traits>
@@ -255,6 +257,18 @@ namespace nkentseu {
 					return mCamera;
 				}
 
+				/// L'ECRAN du jeu et sa ZONE SURE (2026-10-01, NkUnkenyEcran.h).
+				/// Pose a chaque trame par celui qui affiche la scene : le joueur
+				/// (NKWindow, par NKCanvas), l'editeur (l'appareil simule). Le jeu
+				/// le LIT : NkZoneSure(scene.Ecran()) est le rectangle ou poser un
+				/// bouton. Invalide tant que personne ne l'a pose.
+				const NkEcranDuJeu &Ecran() const noexcept {
+					return mEcran;
+				}
+				void PoserEcran(const NkEcranDuJeu &e) noexcept {
+					mEcran = e;
+				}
+
 				const NkSceneConfig &Config() const noexcept {
 					return mConfig;
 				}
@@ -336,6 +350,29 @@ namespace nkentseu {
 				/// un editeur qui ne JOUE pas l'appelle a chaque trame, pour que
 				/// deplacer un parent emporte ses enfants a l'ecran.
 				void PropagerHierarchie();
+
+				// --- Activite (2026-09-30, NkUnkenyActif.h) ----------------------
+				// Une entite ETEINTE et sa descendance ne sont ni rendues, ni simulees,
+				// ni animees : voir l'en-tete de NkUnkenyActif.h.
+
+				/// Active EN EFFET : ni elle ni un ancetre n'est eteint.
+				bool EstActive(ecs::NkEntityId id) const noexcept {
+					return NkEntiteActive(mMonde, id);
+				}
+				/// Son PROPRE drapeau (la case des Details), sans les ancetres.
+				bool EstActiveSoi(ecs::NkEntityId id) const noexcept {
+					const NkActif2D *a = mMonde.Get<NkActif2D>(id);
+					return a == nullptr || a->actif;
+				}
+				/// Allume ou eteint l'entite (et donc, en effet, sa descendance), et
+				/// l'applique AUSSITOT : corps rigides sortis ou remis au solveur,
+				/// corps mous geles ou degeles. false : entite morte.
+				bool Activer(ecs::NkEntityId id, bool actif);
+				/// Met le solveur et la matiere en accord avec l'activite de chaque
+				/// entite. Pas() l'appelle (un enfant rattache a un parent eteint
+				/// s'eteint au pas suivant), ainsi que RefaireEntites (Restaurer,
+				/// fichier, prefab) ; Activer aussi.
+				void AppliquerActivite();
 
 				// --- Photo (Jouer / Arreter d'un editeur) ----------------------
 				/// Ce qu'il faut pour REFAIRE la scene a l'identique : les
@@ -564,6 +601,10 @@ namespace nkentseu {
 				/// perimee. Jamais cru sans verification : une entree n'est rendue
 				/// que si l'entite vit ET porte toujours cet uid.
 				NkUnorderedMap<uint64, ecs::NkEntityId> mCacheUid;
+				/// Les corps rigides SORTIS du solveur par l'activite : entite (Pack)
+				/// -> ancien identifiant, pour rebrancher les attaches des particules
+				/// sur le corps neuf quand l'entite se rallume.
+				NkUnorderedMap<uint64, physics::NkBodyId> mCorpsEteints;
 				void RefaireCacheUid();
 				/// Un enfant a corps STATIQUE ou CINEMATIQUE suit son parent : son
 				/// corps est pose au monde `m` (le pont 2D <-> 3D vit dans
@@ -612,6 +653,7 @@ namespace nkentseu {
 				physics::NkPhysicsWorld *mPhysique = nullptr;
 				physics::NkParticules2D *mParticules = nullptr;
 				NkVue2D mCamera;
+				NkEcranDuJeu mEcran;
 				NkEclairage2D mEclairage;
 				NkEffets2D mEffets;
 				float32 mAccumulateur = 0.f;

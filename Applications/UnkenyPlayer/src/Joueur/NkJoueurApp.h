@@ -19,10 +19,13 @@
 //
 // LANCER
 //   UnkenyPlayer [--jeu=DOSSIER] [--verifier] [--selftest] [--capture=IMAGE.png]
+//                [--zone-sure] [--marges=H,B,G,D]
 //     --jeu=DOSSIER  le dossier des donnees (celui qui contient jeu.json)
 //     --verifier     relit le jeu SANS fenetre, dit ce qui manque et si
 //                    l'empreinte est celle de l'editeur ; code 0 = tout tient
 //     --selftest     le banc de la livraison (Unkeny/Banc/NkUnkenyBancLivraison)
+//     --zone-sure    surimpression de la zone sure que NKWindow donne au jeu
+//     --marges=...   des marges d'ESSAI (pixels) a la place de celles de NKWindow
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -89,6 +92,10 @@ namespace nkentseu {
 
 				memory::NkUniquePtr<NkPartieJouee> mPartie;
 				NkString mDossier;
+				/// --zone-sure, --marges= (2026-10-01) : voir OnCommandLine.
+				bool mVoirZoneSure = false;
+				bool mAMargesEssai = false;
+				NkSafeAreaInsets mMargesEssai;
 		};
 
 		/// `--verifier` : relit le jeu du dossier sans fenetre ni GPU, ecrit le

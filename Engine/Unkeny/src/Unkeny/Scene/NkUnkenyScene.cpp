@@ -106,6 +106,16 @@ namespace nkentseu {
 				NK_UNKENY_CHAMP_TRANSITOIRE(NkSource2D, gain, NkTypeChamp::NK_F32),
 				NK_UNKENY_CHAMP(NkSource2D, lance, NkTypeChamp::NK_BOOL),
 			};
+			// (2026-09-30) L'activite d'une entite (NkUnkenyActif.h), champ par champ.
+			const NkChampSauve kChampsActif[] = {
+				NK_UNKENY_CHAMP(NkActif2D, actif, NkTypeChamp::NK_BOOL),
+			};
+			// (2026-10-01) L'ancrage d'une entite d'interface a l'ecran (NkUnkenyEcran.h).
+			const NkChampSauve kChampsAncrage[] = {
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, ancre, NkTypeChamp::NK_U8),
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, decalage, NkTypeChamp::NK_VEC2),
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, zoneSure, NkTypeChamp::NK_BOOL),
+			};
 			const NkChampSauve kChampsInstance[] = {
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, prefab, NkTypeChamp::NK_PREFAB),
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, noeud, NkTypeChamp::NK_U32),
@@ -139,6 +149,12 @@ namespace nkentseu {
 			// pour qu'une scene relue retrouve ses instances meme si le jeu n'a
 			// encore touche aucun prefab.
 			PhotographierAussi<NkInstancePrefab2D>("NkInstancePrefab2D", kChampsInstance, NbChamps(kChampsInstance));
+			// L'activite (2026-09-30) : DECLAREE APRES les autres, pour que leurs
+			// indices de copieur ne bougent pas. ABSENTE d'un fichier = active.
+			PhotographierAussi<NkActif2D>("NkActif2D", kChampsActif, NbChamps(kChampsActif));
+			// L'ancrage a l'ecran (2026-10-01) : APRES l'activite, meme raison.
+			PhotographierAussi<NkAncrageEcran2D>("NkAncrageEcran2D", kChampsAncrage, NbChamps(kChampsAncrage));
+			mCorpsEteints.Clear();
 
 			// Le monde d'Unkeny est PLAN : NkPhysicsConfig::enable2D, lu par
 			// NKPhysics depuis le 2026-09-29, y ramene tout ce qui en sortirait
@@ -287,6 +303,11 @@ namespace nkentseu {
 			if (c == nullptr) {
 				return false;
 			}
+			// Eteinte (NkUnkenyActif.h) : le solveur n'a rien d'elle ; la
+			// DESCRIPTION est la verite, elle y entrera au rallumage.
+			if (!EstActive(id)) {
+				return true;
+			}
 			physics::NkRigidBody etat;
 			bool avaitEtat = false;
 			if (const physics::NkRigidBody *b = mPhysique->GetBody(c->corpsId)) {
@@ -328,6 +349,18 @@ namespace nkentseu {
 				logger.Warn("[unkeny] AjouterCorps refuse : il manque {0}",
 							t == nullptr ? "NkTransform2D" : "NkCollisionneur2D");
 				return false;
+			}
+			// ETEINTE (NkUnkenyActif.h) : la description est gardee, le corps
+			// n'entre au solveur qu'au rallumage (AppliquerActivite).
+			if (!EstActive(id)) {
+				NkCorps2D copie = corps;
+				copie.corpsId = physics::NK_INVALID_BODY;
+				if (mMonde.Has<NkCorps2D>(id)) {
+					mMonde.Set<NkCorps2D>(id, copie);
+				} else {
+					mMonde.Add<NkCorps2D>(id, copie);
+				}
+				return true;
 			}
 
 			physics::NkBodyDef def;
@@ -453,6 +486,9 @@ namespace nkentseu {
 		void NkScene::Pas(float32 deltaTime) {
 			mDernierNbPas = 0;
 			mContacts.Clear();
+			// L'activite AVANT tout : un enfant rattache a un parent eteint depuis
+			// le dernier pas sort du solveur avant de toucher quoi que ce soit.
+			AppliquerActivite();
 			if (mConfig.pasFixe > 0.f) {
 				mAccumulateur += deltaTime;
 				while (mAccumulateur >= mConfig.pasFixe && mDernierNbPas < mConfig.pasMaxParTrame) {
@@ -685,7 +721,10 @@ namespace nkentseu {
 
 		void NkScene::AppliquerVitessesManuelles(float32 dt) {
 			mMonde.Query<NkTransform2D, NkVitesse2D>().ForEach(
-				[dt](ecs::NkEntityId, NkTransform2D &t, NkVitesse2D &v) {
+				[this, dt](ecs::NkEntityId id, NkTransform2D &t, NkVitesse2D &v) {
+					if (!EstActive(id)) {
+						return; // eteinte : ni simulee (NkUnkenyActif.h)
+					}
 					t.position.x += v.lineaire.x * dt;
 					t.position.y += v.lineaire.y * dt;
 					t.rotation += v.angulaire * dt;
@@ -913,6 +952,7 @@ namespace nkentseu {
 				mMonde.Destroy(ids[i]);
 			}
 			mCacheUid.Clear();
+			mCorpsEteints.Clear();
 			if (mParticules != nullptr) {
 				*mParticules = photo.particules;
 			}
@@ -1069,6 +1109,9 @@ namespace nkentseu {
 			if (crees != nullptr) {
 				*crees = faites;
 			}
+			// 5. L'activite (2026-09-30) : les parents ne sont connus qu'ici, et un
+			//    enfant d'un parent eteint a recu son corps a la passe 2.
+			AppliquerActivite();
 		}
 
 		void NkScene::RecalerEnfants(const NkVector<ecs::NkEntityId> &ids) {

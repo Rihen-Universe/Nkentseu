@@ -40,6 +40,7 @@
 #include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
+#include "Editeur/NkEditeurSelecteur.h"
 #include "Editeur/NkEditeurSouris.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
@@ -60,6 +61,8 @@ namespace nkentseu {
 
 			protected:
 				/// `--profil=N`, `--paysage`, `--simuler`, `--selftest`.
+				/// (2026-10-01, document 03) `--orientation=`, `--appareil=F.nkappareil`,
+				/// `--onglet=monde`, `--exemple=hud`, `--cuire=DOSSIER`.
 				///
 				/// ⚠️ `--profil=` et `--paysage` existent pour qu'une capture
 				/// d'ecran soit REPRODUCTIBLE (avec `--capture=` de la coquille) :
@@ -95,6 +98,8 @@ namespace nkentseu {
 				memory::NkUniquePtr<NkEditeurEntrees> mEntrees;
 				/// La fenetre « Construire » et la construction en cours (U5).
 				memory::NkUniquePtr<NkEditeurConstruction> mConstruction;
+				/// LE selecteur de fichiers (NKEditorKit) : Importer, Exporter, Parcourir.
+				memory::NkUniquePtr<NkEditeurSelecteurEtat> mSelecteur;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;
@@ -108,6 +113,9 @@ namespace nkentseu {
 				/// Les boutons de la souris, sans clic perdu entre deux trames.
 				NkEditeurSouris mBoutons;
 				bool mExempleNuit = false; ///< --exemple=nuit : la nuit au feu de camp (NkEditeurLumiere.h)
+				/// --cuire=DOSSIER : les donnees du jeu seulement (voir OnCommandLine).
+				int32 CuireSeulement(const NkString &dossier);
+				bool mExempleHud = false;  ///< --exemple=hud : quatre elements ancres a la zone sure (document 03)
 				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
 		};
 

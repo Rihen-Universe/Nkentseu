@@ -207,6 +207,12 @@ namespace nkentseu {
 				bool flagsInherited = false;
 
 				uint32 userTag = 0; ///< libre a l'application (index, drapeaux)
+
+				/// (2026-10-01) La COULEUR CHOISIE d'un dossier (Unreal : « Set Color »),
+				/// 0xRRGGBBAA. La meme donnee que `NkAssetEntry::couleur` : un dossier
+				/// teint dans la grille l'est aussi dans le rail. 0 = `kindRole`, le
+				/// dessin d'avant, pour tous les arbres existants.
+				uint32 couleur = 0;
 		};
 
 		// ── LE MODELE ───────────────────────────────────────────────────────────

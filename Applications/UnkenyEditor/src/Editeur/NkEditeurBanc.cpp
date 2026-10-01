@@ -80,6 +80,61 @@
 //         collisionneur eteint = couche et masque a 0, rallume = rendus ; corps
 //         eteint = cinematique sans gravite, rallume = dynamique ; et l'etat
 //         eteint traverse Jouer / Arreter
+//   (e48) (lot 1) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame :
+//         tous les panneaux, l'entree passee par NkEditeurSouris) : une ligne
+//         de l'Outliner ouvre SON menu au point du clic et reste choisie ; le
+//         vide et la racine, le menu de la scene ; le viseur, le sien ; son
+//         menu ouvert, un clic droit sur une ligne OUVRE celui de la ligne (un
+//         clic gauche ferme sans traverser) ; le navigateur : une carte, un
+//         dossier, le fond, chacun son menu, jamais celui du viseur, et ses
+//         actions agissent (poser au centre, ouvrir le dossier)
+//   (e49) (lot 1) le CONTENU DU PROJET, sur de vrais fichiers (banc_e49/,
+//         efface a la fin) : importer une image, un son, une police et un
+//         format inconnu = trois copies dans « Contenu », un refus, la nature
+//         de chacun, le navigateur montre le Contenu avec les trois choisis ;
+//         un nom deja pris n'est JAMAIS ecrase (« caisse_2.png ») ; le rail a
+//         « Contenu » et ses sous-dossiers ; un DEPOT de l'OS sur la carte d'un
+//         dossier y importe, ailleurs dans le dossier courant ; Ctrl+clic
+//         choisit deux assets, « Exporter » les copie (un second export ne
+//         remplace rien) ; les boutons de la barre et le clic droit d'un asset
+//         DEMANDENT le dialogue (ouvert par l'application, pas le banc)
+//   (e50) (2026-10-01) la case « active » de l'en-tete des Details, dans la
+//         vraie trame : la, des qu'une entite est choisie ; un clic l'eteint
+//         (corps hors du solveur, plus prise dans la vue), l'oeil intact ;
+//         Ctrl+Z la rallume (selection suivie), Ctrl+Y la reeteint ; cacher a
+//         l'oeil n'eteint pas
+//   (e51) (2026-10-01, document 02 §3.1) le DISQUE du navigateur (NKEditorKit,
+//         NkContentBrowserDisque.h) sur banc_e51/ : « .. » ne sort pas du
+//         Contenu, la racine ne se supprime ni ne se renomme, un nom n'est pas
+//         un chemin ; « a_2 », « a_3 », jamais d'ecrasement ; un dossier ne va
+//         pas dans lui-meme ; un DOSSIER de l'OS s'importe avec son arborescence
+//         (l'inconnu refuse) ; la memoire (couleur, favori, collection) suit un
+//         renommage et un oubli
+//   (e52) la VARIANTE UNREAL du kit, peinte par NkRecordingPaint : ses zones
+//         (Ajouter, Importer, Tout enregistrer, Reglages, Favoris, le projet,
+//         Collections, precedent, recherche), le nom sur DEUX lignes coupe au
+//         separateur, la BANDE du type, le dossier a SA couleur (sa carte ET
+//         sa rangee du rail, peinte par le tree_view), « 5 elements
+//         (3 selectionnes) » et « 1 element », l'ETAT VIDE ; contre-epreuve : le
+//         mixte d'avant (NKCraft, NKUIDesign) ne peint rien de cela
+//   (e53) la SELECTION d'Unreal dans la vraie trame : un DOSSIER se choisit,
+//         Ctrl ajoute, Maj prend la plage dans l'ordre visible, le vide efface,
+//         le CADRE prend ce qu'il touche ; double-clic entre ; precedent revient,
+//         suivant repart
+//   (e54) le CLAVIER du navigateur qui a le focus : Ctrl+C / Ctrl+V copie,
+//         Ctrl+X / Ctrl+V deplace (et vide le presse-papiers), Ctrl+D double, F2
+//         edite le nom EN PLACE (l'extension reste), Suppr DEMANDE (Echap garde,
+//         Entree supprime) -- et la scene n'en recoit rien (ni entite dupliquee
+//         ni supprimee) ; hors du focus, Ctrl+C ne touche plus au navigateur
+//   (e55) le GLISSER : une carte lachee sur un dossier ouvre « Deplacer ici /
+//         Copier ici », toute la selection voyage ; un DOSSIER de l'OS depose sur
+//         une carte de dossier y est importe entier ; une IMAGE glissee dans le
+//         viseur devient un sprite texture, un PREFAB une instance
+//   (e56) creer : clic droit dans le vide, « Nouveau dossier » (son nom s'edite
+//         aussitot, Entree le valide), scene vide, controleur d'animation ; la
+//         COULEUR d'un dossier (sa carte ET le rail, gardee dans .nknavigateur),
+//         les FAVORIS, une COLLECTION et son compteur ; RENOMMER un dossier
+//         depuis le rail : la grille saute sur son parent, le champ s'ouvre
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -88,7 +143,12 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurSouris.h"
+#include "Editeur/NkEditeurTrame.h"
 
+#include "NKEditorKit/Components/NkContentBrowserDisque.h"
+#include "NKEditorKit/Components/NkRecordingPaint.h"
+
+#include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKGui/Core/NkGuiFont.h"
 
@@ -201,6 +261,113 @@ namespace nkentseu {
 				uint32 n = 0;
 				s.Monde().Query<NkDrapeauxEditeur>().ForEach([&](ecs::NkEntityId, NkDrapeauxEditeur &) { ++n; });
 				return n;
+			}
+
+			/// LA VRAIE TRAME, sans fenetre (e48, e49) : un NkGuiContext, une police,
+			/// l'interface, les entrees du jeu et la fenetre « Construire », et la
+			/// souris passee par NkEditeurSouris comme depuis l'OS. Sur le tas : tout
+			/// cela est gros.
+			struct NkBancTrame {
+					memory::NkAllocator &alloc = memory::NkGetDefaultAllocator();
+					NkEditeurModele &m;
+					NkEditeurInterface *pui;
+					nkgui::NkGuiContext *pctx;
+					nkgui::NkGuiFont *police;
+					NkEditeurEntrees *pent;
+					NkEditeurConstruction *pcons;
+					/// LE selecteur de fichiers de l'editeur (NkEditeurSelecteur.h), comme l'application.
+					NkEditeurSelecteurEtat *psel;
+					editorkit::NkTheme theme = editorkit::NkTheme::Dark();
+					NkPaletteEditeur pal;
+					NkEditeurSouris souris;
+					float32 W = 1280.f, H = 760.f;
+
+					explicit NkBancTrame(NkEditeurModele &modele) : m(modele) {
+						pui = alloc.New<NkEditeurInterface>();
+						pctx = alloc.New<nkgui::NkGuiContext>();
+						police = alloc.New<nkgui::NkGuiFont>();
+						pent = alloc.New<NkEditeurEntrees>();
+						pcons = alloc.New<NkEditeurConstruction>();
+						psel = alloc.New<NkEditeurSelecteurEtat>();
+						NkEditeurEntreesParDefaut(*pent);
+						const bool policeOk = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false);
+						pctx->Init(static_cast<int32>(W), static_cast<int32>(H));
+						pctx->font = policeOk ? police : nullptr;
+						pal = NkEditeurPalette(theme);
+						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+					}
+					~NkBancTrame() {
+						alloc.Delete(psel);
+						alloc.Delete(pcons);
+						alloc.Delete(pent);
+						alloc.Delete(police);
+						alloc.Delete(pctx);
+						alloc.Delete(pui);
+					}
+					NkEditeurInterface &Ui() {
+						return *pui;
+					}
+					nkgui::NkGuiContext &Ctx() {
+						return *pctx;
+					}
+					NkEditeurCadre Cadre() {
+						return NkEditeurCadre{*pctx, m, *pui, theme, pal, police, police};
+					}
+					void Trame() {
+						pui->dt = 1.f / 60.f;
+						NkEditeurPlanifier(*pui, W, H);
+						pctx->BeginFrame(1.f / 60.f);
+						pctx->BeginLayout(nkgui::NkRect{0.f, 0.f, W, H});
+						NkEditeurCadre c = Cadre();
+						NkEditeurDessinerTrame(c, *pent, *pcons, psel);
+						pctx->EndFrame();
+						souris.FinDeTrame(pctx->input);
+					}
+					/// Un clic comme l'OS le livre : appui, une trame, relachement, une trame.
+					void Clic(int32 b, float32 x, float32 y) {
+						pctx->input.mousePos = nkgui::NkVec2{x, y};
+						souris.Appui(pctx->input, b);
+						Trame();
+						souris.Relache(pctx->input, b);
+						Trame();
+					}
+					void Fermer() {
+						pui->menu = NkMenuEditeur::NK_AUCUN;
+						pui->sousMenu = NkMenuEditeur::NK_AUCUN;
+						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+						Trame();
+					}
+					/// Le centre du bouton de CONFIRMATION du selecteur ouvert : la
+					/// geometrie du kit, celle que son dessin appelle aussi.
+					nkgui::NkVec2 Confirmer() const {
+						const float32 lt = police->MeasureWidth(psel->PickerConfirmLabel());
+						const editorkit::NkGeomSelecteur g = editorkit::NkGeometrieSelecteur(
+							W, H, pctx->S(1.f), false, true, psel->pickerWinOffX, psel->pickerWinOffY,
+							!psel->messageCreation.Empty(), lt);
+						return nkgui::NkVec2{g.confirmer.x + g.confirmer.w * 0.5f, g.confirmer.y + g.confirmer.h * 0.5f};
+					}
+					/// L'indice de l'entree `nom` dans le volet du selecteur, -1 sinon.
+					int32 EntreeSelecteur(const char *nom) const {
+						for (uint32 k = 0; k < psel->vue.entries.Size(); ++k) {
+							if (psel->vue.entries[k].name == NkString(nom)) {
+								return static_cast<int32>(k);
+							}
+						}
+						return -1;
+					}
+					bool AncreEn(float32 x, float32 y) const {
+						return math::NkAbs(pui->menuAncre.x - x) < 0.5f && math::NkAbs(pui->menuAncre.y - y) < 0.5f;
+					}
+			};
+
+			/// L'indice de la carte dont le chemin est `chemin` (a l'ecran), -1 sinon.
+			int32 CarteDe(NkEditeurInterface &ui, const char *chemin) {
+				for (uint32 k = 0; k < ui.contenu.entries.Size() && k < ui.contenuCartes.Size(); ++k) {
+					if (ui.contenu.entries[k].path == NkString(chemin) && ui.contenuCartes[k].w > 0.f) {
+						return static_cast<int32>(k);
+					}
+				}
+				return -1;
 			}
 		} // namespace
 
@@ -1006,6 +1173,890 @@ namespace nkentseu {
 										  m.scene.Monde().Get<NkCorps2D>(c2)->echelleGravite == 1.f && !m.scene.Monde().Has<NkEteintsEditeur>(c2);
 				Temoin(double2 && gizmo && rendu && colEteint && colRallume && corpsEteint && traverse && corpsRallume,
 					   "(e47) echelle cuite et relue ; cases : collisionneur, corps, Jouer/Arreter", e2.x);
+			}
+
+			// (e48) le clic DROIT dans la VRAIE trame (NkEditeurDessinerTrame) :
+			// tous les panneaux, dans l'ordre de l'ecran, l'entree passee par
+			// NkEditeurSouris comme depuis l'OS.
+			{
+				NkEditeurNouvelleScene(m);
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				t.Trame();
+				t.Trame();
+				const ecs::NkEntityId caisse = Par(m.scene, "Caisse");
+				float32 yCaisse = -100.f;
+				for (uint32 k = 0; k < ui.arbreEntites.Size(); ++k) {
+					if (ui.arbreEntites[k] == caisse) {
+						yCaisse = ui.outliner.y + 74.f + static_cast<float32>(k) * 22.f + 11.f;
+					}
+				}
+				const float32 xArbre = ui.outliner.x + ui.outliner.w * 0.6f;
+				const float32 xVue = ui.viseur.x + 40.f, yVue = ui.viseur.y + 40.f;
+
+				// (a) une ligne de l'Outliner : elle est choisie, SON menu s'ouvre au
+				// point du clic, et il tient apres le relachement.
+				m.aSelection = false;
+				t.Clic(1, xArbre, yCaisse);
+				const bool arbreMenu = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && m.aSelection && m.selection == caisse &&
+									   t.AncreEn(xArbre, yCaisse);
+				t.Trame();
+				const bool arbreTient = ui.menu == NkMenuEditeur::NK_CTX_ENTITE;
+				t.Fermer();
+				// ... le vide sous les lignes et la racine « Scene » : le menu de la scene.
+				t.Clic(1, xArbre, ui.outliner.y + ui.outliner.h - 40.f);
+				const bool arbreVide = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				t.Fermer();
+				t.Clic(1, xArbre, ui.outliner.y + 74.f + 11.f);
+				const bool arbreRacine = ui.menu == NkMenuEditeur::NK_CTX_ARBRE;
+				t.Fermer();
+				// (b) le viseur : son menu, toujours.
+				m.aSelection = false;
+				t.Clic(1, xVue, yVue);
+				const bool vueMenu = (ui.menu == NkMenuEditeur::NK_CTX_VIDE || ui.menu == NkMenuEditeur::NK_CTX_ENTITE) && t.AncreEn(xVue, yVue);
+				// ... et, ce menu OUVERT, un clic droit sur une ligne de l'Outliner
+				// ouvre le SIEN la (il ne fait plus que fermer celui du viseur).
+				t.Clic(1, xArbre, yCaisse);
+				const bool rouvre = ui.menu == NkMenuEditeur::NK_CTX_ENTITE && t.AncreEn(xArbre, yCaisse) && m.selection == caisse;
+				t.Fermer();
+				// ... un clic GAUCHE hors du menu, lui, ferme sans traverser.
+				t.Clic(1, xVue, yVue);
+				m.aSelection = false;
+				t.Clic(0, xArbre, yCaisse);
+				const bool gaucheFerme = ui.menu == NkMenuEditeur::NK_AUCUN && !m.aSelection;
+				t.Fermer();
+				Temoin(arbreMenu && arbreTient && arbreVide && arbreRacine && vueMenu && rouvre && gaucheFerme,
+					   "(e48a) clic droit Outliner (ligne, vide, racine), viseur, et menu rouvert",
+					   static_cast<float32>(arbreMenu + arbreTient + arbreVide + arbreRacine + vueMenu + rouvre + gaucheFerme));
+
+				// (c) le navigateur : une carte, son menu (avec son chemin) ; le fond,
+				// le sien ; jamais celui du viseur a la place.
+				ui.ongletTiroir = 0;
+				ui.categorie = -1;
+				// (2026-10-01) Le navigateur s'ouvre sur le CONTENU (Unreal : /Content) ;
+				// ce temoin vise le CATALOGUE, son dossier virtuel « Acteurs ».
+				ui.contenuProjet = false;
+				t.Trame();
+				int32 kDossier = -1;
+				for (uint32 k = 0; k < ui.contenuCartes.Size() && k < ui.contenu.entries.Size(); ++k) {
+					if (ui.contenuCartes[k].w > 0.f && ui.contenu.entries[k].isFolder && kDossier < 0) {
+						kDossier = static_cast<int32>(k);
+					}
+				}
+				const int32 kSimple = CarteDe(ui, "simple");
+				bool carteMenu = false, carteDossier = false, fondMenu = false, pasLeViseur = true, ouvre = false, pose = false;
+				if (kDossier >= 0 && kSimple >= 0) {
+					const nkgui::NkRect rs = ui.contenuCartes[static_cast<uint32>(kSimple)];
+					const NkVec2f contexte0 = ui.pointContexte;
+					t.Clic(1, rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					carteMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuChemin == NkString("simple") &&
+								!ui.contenuMenuDossier && t.AncreEn(rs.x + rs.w * 0.5f, rs.y + rs.h * 0.5f);
+					pasLeViseur = ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					// « Poser au centre de la vue » : une entite de plus, l'outil intact.
+					const uint32 avant = NbEntites(m.scene);
+					const NkOutil outilAvant = m.outil;
+					NkEditeurExecuter(c, NK_A_CONTENU_POSER);
+					pose = NbEntites(m.scene) == avant + 1u && m.outil == outilAvant;
+					t.Fermer();
+					const nkgui::NkRect rd = ui.contenuCartes[static_cast<uint32>(kDossier)];
+					const NkString cheminDossier = ui.contenu.entries[static_cast<uint32>(kDossier)].path;
+					t.Clic(1, rd.x + rd.w * 0.5f, rd.y + rd.h * 0.5f);
+					carteDossier = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuDossier && ui.contenuMenuChemin == cheminDossier;
+					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+					ouvre = ui.categorie >= 0;
+					t.Fermer();
+					ui.categorie = -1;
+					t.Trame();
+					// Le fond : a droite de la derniere carte de la rangee.
+					t.Clic(1, ui.tiroir.x + ui.tiroir.w - 60.f, rs.y + rs.h * 0.5f);
+					fondMenu = ui.menu == NkMenuEditeur::NK_CTX_CONTENU_VIDE && ui.contenuMenuChemin.Empty();
+					pasLeViseur = pasLeViseur && ui.pointContexte.x == contexte0.x && ui.pointContexte.y == contexte0.y;
+					t.Fermer();
+				}
+				Temoin(carteMenu && carteDossier && fondMenu && pasLeViseur && ouvre && pose,
+					   "(e48b) clic droit navigateur : carte, dossier, fond ; ni le viseur ; ses actions",
+					   static_cast<float32>(carteMenu + carteDossier + fondMenu + pasLeViseur + ouvre + pose));
+			}
+
+			// (e49) le CONTENU DU PROJET : importer, deposer, choisir, exporter -- de
+			// vrais fichiers, dans un dossier du banc qu'il efface a la fin.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkDirectory::CreateRecursive("banc_e49/projet");
+				NkDirectory::CreateRecursive("banc_e49/sources");
+				NkDirectory::CreateRecursive("banc_e49/export");
+				m.chemin = NkString("banc_e49/projet/scene.nkscene");
+				NkFile::WriteAllText("banc_e49/sources/caisse.png", "image");
+				NkFile::WriteAllText("banc_e49/sources/bruit.wav", "son");
+				NkFile::WriteAllText("banc_e49/sources/titre.ttf", "police");
+				NkFile::WriteAllText("banc_e49/sources/notes.xyz", "inconnu");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				t.Trame();
+
+				// (a) importer trois fichiers connus et un inconnu : trois copies, un
+				// refus ; le navigateur MONTRE le Contenu, les trois choisis.
+				NkVector<NkString> sources;
+				sources.PushBack(NkString("banc_e49/sources/caisse.png"));
+				sources.PushBack(NkString("banc_e49/sources/bruit.wav"));
+				sources.PushBack(NkString("banc_e49/sources/titre.ttf"));
+				sources.PushBack(NkString("banc_e49/sources/notes.xyz"));
+				const NkRapportImport r1 = NkEditeurImporterIci(m, ui, sources);
+				const bool copies = r1.importes == 3u && r1.refuses == 1u && NkFile::Exists("banc_e49/projet/Contenu/caisse.png") &&
+									NkFile::Exists("banc_e49/projet/Contenu/bruit.wav") && NkFile::Exists("banc_e49/projet/Contenu/titre.ttf") &&
+									!NkFile::Exists("banc_e49/projet/Contenu/notes.xyz");
+				const bool montre = ui.contenuProjet && ui.contenuDossier.Empty() && ui.contenuChoisis.Size() == 3u && ui.ongletTiroir == 0;
+				const bool natures = NkEditeurNatureFichier("a/caisse.png").type == NkAssetType::Texture2D &&
+									 NkEditeurNatureFichier("bruit.WAV").type == NkAssetType::Sound &&
+									 NkEditeurNatureFichier("titre.ttf").type == NkAssetType::Font &&
+									 NkEditeurNatureFichier("s.nkscene").type == NkAssetType::Scene &&
+									 NkEditeurNatureFichier("p.nkprefab").type == NkAssetType::Prefab &&
+									 NkEditeurNatureFichier("dessin.svg").importable && !NkEditeurNatureFichier("notes.xyz").importable;
+				// (b) un nom deja pris n'est JAMAIS ecrase : « caisse_2.png », l'original intact.
+				NkFile::WriteAllText("banc_e49/sources/caisse.png", "autre image");
+				NkVector<NkString> encore;
+				encore.PushBack(NkString("banc_e49/sources/caisse.png"));
+				const NkRapportImport r2 = NkEditeurImporterIci(m, ui, encore);
+				const bool sansEcraser = r2.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/caisse_2.png") &&
+										 NkFile::ReadAllText("banc_e49/projet/Contenu/caisse.png") == NkString("image") &&
+										 r2.crees.Size() == 1u && r2.crees[0] == NkString("Contenu/caisse_2.png");
+				Temoin(copies && montre && natures && sansEcraser, "(e49a) importer : copie, nature, refus de l'inconnu, jamais d'ecrasement",
+					   static_cast<float32>(r1.importes));
+
+				// (c) le rail : « Contenu » et son sous-dossier ; le DEPOT de l'OS sur la
+				// carte du dossier y importe, ailleurs dans le dossier courant.
+				NkDirectory::CreateRecursive("banc_e49/projet/Contenu/Textures");
+				ui.contenuPerime = true;
+				t.Trame();
+				t.Trame();
+				bool railContenu = false, railSous = false;
+				for (uint32 k = 0; k < ui.contenu.folders.nodes.Size(); ++k) {
+					railContenu = railContenu || (ui.contenu.folders.nodes[k].path == NkString("Contenu") && ui.contenu.folders.nodes[k].parent == -1);
+					railSous = railSous || ui.contenu.folders.nodes[k].path == NkString("Contenu/Textures");
+				}
+				const int32 kTex = CarteDe(ui, "Contenu/Textures");
+				bool deposeDossier = false;
+				if (kTex >= 0) {
+					const nkgui::NkRect rt = ui.contenuCartes[static_cast<uint32>(kTex)];
+					NkVector<NkString> depot;
+					depot.PushBack(NkString("banc_e49/sources/caisse.png"));
+					const NkRapportImport r3 = NkEditeurDeposerFichiers(m, ui, depot, rt.x + rt.w * 0.5f, rt.y + rt.h * 0.5f);
+					deposeDossier = r3.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/Textures/caisse.png") &&
+									ui.contenuDossier == NkString("Textures");
+				}
+				NkVector<NkString> ailleurs;
+				ailleurs.PushBack(NkString("banc_e49/sources/bruit.wav"));
+				const NkRapportImport r4 = NkEditeurDeposerFichiers(m, ui, ailleurs, ui.viseur.x + 50.f, ui.viseur.y + 50.f);
+				const bool deposeCourant = r4.importes == 1u && NkFile::Exists("banc_e49/projet/Contenu/Textures/bruit.wav");
+				Temoin(railContenu && railSous && deposeDossier && deposeCourant, "(e49b) rail du Contenu ; depot de l'OS : sur le dossier vise, sinon le courant",
+					   static_cast<float32>(railContenu + railSous + deposeDossier + deposeCourant));
+
+				// (d) choisir a plusieurs (Ctrl+clic) a la racine, puis EXPORTER ; un
+				// second export ne remplace rien.
+				ui.contenuProjet = true;
+				ui.contenuDossier = NkString();
+				ui.contenuChoisis.Clear();
+				ui.contenuPerime = true;
+				t.Trame();
+				t.Trame();
+				const int32 kPng = CarteDe(ui, "Contenu/caisse.png");
+				const int32 kWav = CarteDe(ui, "Contenu/bruit.wav");
+				bool deux = false;
+				if (kPng >= 0 && kWav >= 0) {
+					const nkgui::NkRect a = ui.contenuCartes[static_cast<uint32>(kPng)];
+					const nkgui::NkRect b = ui.contenuCartes[static_cast<uint32>(kWav)];
+					t.Clic(0, a.x + a.w * 0.5f, a.y + a.h * 0.3f);
+					t.Ctx().input.ctrlDown = true;
+					t.Clic(0, b.x + b.w * 0.5f, b.y + b.h * 0.3f);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+					deux = ui.contenuChoisis.Size() == 2u;
+				}
+				const NkRapportExport x1 = NkEditeurExporterChoisis(m, ui, "banc_e49/export");
+				const NkRapportExport x2 = NkEditeurExporterChoisis(m, ui, "banc_e49/export");
+				const bool exporte = deux && x1.exportes == 2u && NkFile::Exists("banc_e49/export/caisse.png") &&
+									 NkFile::Exists("banc_e49/export/bruit.wav") && x2.exportes == 2u &&
+									 NkFile::Exists("banc_e49/export/caisse_2.png");
+				// (e) les boutons de la barre ouvrent LE selecteur de NKEditorKit
+				// (NkEditeurSelecteur.h) -- plusieurs fichiers pour importer, un dossier
+				// pour exporter -- et sa confirmation importe / exporte ; le clic droit
+				// sur un asset l'exporte seul.
+				NkEditeurSelecteurEtat &sel = *t.psel;
+				t.Clic(0, ui.boutonImporter.x + ui.boutonImporter.w * 0.5f, ui.boutonImporter.y + ui.boutonImporter.h * 0.5f);
+				const bool ouvreImport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_IMPORTER && sel.selectionMultiple &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirFichier;
+				// Modal : un clic sur une carte du tiroir, dessous, ne choisit rien.
+				const uint32 choisisAvant = ui.contenuChoisis.Size();
+				t.Clic(0, ui.tiroir.x + 40.f, ui.tiroir.y + 120.f);
+				const bool modal = ui.contenuChoisis.Size() == choisisAvant && sel.pickerOpen;
+				sel.AllerA("banc_e49/sources");
+				t.Trame();
+				t.Trame();
+				bool importeParLeSelecteur = false;
+				{
+					const int32 kp = t.EntreeSelecteur("caisse.png");
+					const int32 kw = t.EntreeSelecteur("bruit.wav");
+					if (kp >= 0 && kw >= 0) {
+						sel.vue.chosen.Clear();
+						sel.vue.chosen.PushBack(kp);
+						sel.vue.chosen.PushBack(kw);
+						sel.vue.active = kp;
+						const nkgui::NkVec2 ok = t.Confirmer();
+						t.Clic(0, ok.x, ok.y);
+						importeParLeSelecteur = !sel.pickerOpen && NkFile::Exists("banc_e49/projet/Contenu/caisse_3.png") &&
+												NkFile::Exists("banc_e49/projet/Contenu/bruit_2.wav") && ui.contenuChoisis.Size() == 2u;
+					}
+				}
+				const bool demandeImport = ouvreImport && modal && importeParLeSelecteur;
+				NkDirectory::CreateRecursive("banc_e49/export2");
+				t.Clic(0, ui.boutonExporter.x + ui.boutonExporter.w * 0.5f, ui.boutonExporter.y + ui.boutonExporter.h * 0.5f);
+				const bool ouvreExport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirDossier;
+				sel.AllerA("banc_e49/export2");
+				t.Trame();
+				{
+					const nkgui::NkVec2 ok = t.Confirmer();
+					t.Clic(0, ok.x, ok.y);
+				}
+				const bool demandeExport = ouvreExport && !sel.pickerOpen && NkFile::Exists("banc_e49/export2/caisse_3.png") &&
+										   NkFile::Exists("banc_e49/export2/bruit_2.wav");
+				bool menuAsset = false;
+				const int32 kTtf = CarteDe(ui, "Contenu/titre.ttf");
+				if (kTtf >= 0) {
+					const nkgui::NkRect rf = ui.contenuCartes[static_cast<uint32>(kTtf)];
+					t.Clic(1, rf.x + rf.w * 0.5f, rf.y + rf.h * 0.5f);
+					const bool ouvert = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuChemin == NkString("Contenu/titre.ttf");
+					NkEditeurExecuter(c, NK_A_CONTENU_EXPORTER);
+					menuAsset = ouvert && ui.exportDemande && ui.contenuChoisis.Size() == 1u &&
+								ui.contenuChoisis[0] == NkString("Contenu/titre.ttf");
+					t.Fermer();
+					// La demande a ouvert le selecteur ; Annuler (Echap) le referme sans rien faire.
+					const bool ouvertParMenu = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER;
+					sel.PickerCancel();
+					t.Trame();
+					menuAsset = menuAsset && ouvertParMenu && !sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_AUCUN;
+				}
+				Temoin(exporte && demandeImport && demandeExport && menuAsset, "(e49c) Ctrl+clic, exporter ; boutons et menu : le selecteur du kit",
+					   static_cast<float32>(exporte + demandeImport + demandeExport + menuAsset));
+
+				NkDirectory::Delete("banc_e49", true);
+				m.chemin = cheminAvant;
+			}
+
+			// (e50) (2026-10-01) la case « active » de l'EN-TETE des Details, dans la
+			// vraie trame : visible des qu'une entite est choisie ; decochee, l'entite
+			// sort du jeu (corps hors du solveur, plus prise dans la vue) sans toucher
+			// a l'oeil ; Ctrl+Z la rallume, Ctrl+Y la reeteint.
+			{
+				NkEditeurNouvelleScene(m);
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				const ecs::NkEntityId caisse0 = Par(m.scene, "Caisse");
+				const NkVec2f pos = m.scene.Monde().Get<NkTransform2D>(caisse0)->position;
+				m.selection = caisse0;
+				m.aSelection = true;
+				t.Trame();
+				const bool visible = ui.caseActif.w > 0.f && NkEditeurDans(ui.details, nkgui::NkVec2{ui.caseActif.x, ui.caseActif.y});
+				t.Clic(0, ui.caseActif.x + ui.caseActif.w * 0.5f, ui.caseActif.y + ui.caseActif.h * 0.5f);
+				auto corpsDe = [&](ecs::NkEntityId e) {
+					const NkCorps2D *k = m.scene.Monde().IsAlive(e) ? m.scene.Monde().Get<NkCorps2D>(e) : nullptr;
+					return k != nullptr ? k->corpsId : 0xFFFFFFFFu;
+				};
+				ecs::NkEntityId pris;
+				const bool eteinte = !m.scene.EstActive(caisse0) && corpsDe(caisse0) == physics::NK_INVALID_BODY &&
+									 !NkEditeurEstCache(m, caisse0) && !(NkEditeurPrendreSous(m, pos, pris) && pris == caisse0) &&
+									 m.historique.annuler.Size() == 1u;
+				auto ctrl = [&](nkgui::NkGuiKey k) {
+					t.Ctx().input.ctrlDown = true;
+					t.Ctx().input.SetKey(k, true);
+					t.Trame();
+					t.Ctx().input.SetKey(k, false);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+				};
+				ctrl(nkgui::NkGuiKey::Z);
+				const ecs::NkEntityId caisse1 = m.selection;
+				const bool annulee = m.aSelection && Par(m.scene, "Caisse") == caisse1 && m.scene.EstActive(caisse1) &&
+									 corpsDe(caisse1) != physics::NK_INVALID_BODY && corpsDe(caisse1) != 0xFFFFFFFFu;
+				ctrl(nkgui::NkGuiKey::Y);
+				const bool retablie = m.aSelection && !m.scene.EstActive(m.selection) && corpsDe(m.selection) == physics::NK_INVALID_BODY;
+				// L'oeil, lui, ne touche pas au jeu : cacher n'eteint pas.
+				NkEditeurCacher(m, Par(m.scene, "Sol"), true);
+				const bool oeilDistinct = m.scene.EstActive(Par(m.scene, "Sol"));
+				NkEditeurCacher(m, Par(m.scene, "Sol"), false);
+				Temoin(visible && eteinte && annulee && retablie && oeilDistinct,
+					   "(e50) case active des Details : eteint le jeu, pas l'oeil ; Ctrl+Z / Ctrl+Y",
+					   static_cast<float32>(visible + eteinte + annulee + retablie + oeilDistinct));
+			}
+
+			// =================================================================
+			// LE NAVIGATEUR DE CONTENU D'UNREAL 5 (2026-10-01, document 02 §3, §3.1)
+			// =================================================================
+			// (e51) LE DISQUE du navigateur (NKEditorKit, NkContentBrowserDisque.h),
+			// sur un dossier temporaire : confine au Contenu, jamais d'ecrasement,
+			// pas de cycle, les DOSSIERS s'importent, la memoire suit.
+			{
+				using namespace editorkit;
+				NkDirectory::Delete("banc_e51", true);
+				NkDirectory::CreateRecursive("banc_e51/projet/Contenu/Decor/Sous");
+				NkDirectory::CreateRecursive("banc_e51/src/Pack/Sons");
+				NkFile::WriteAllText("banc_e51/projet/Contenu/a.png", "A");
+				NkFile::WriteAllText("banc_e51/dehors.txt", "secret");
+				NkFile::WriteAllText("banc_e51/src/Pack/x.png", "X");
+				NkFile::WriteAllText("banc_e51/src/Pack/notes.xyz", "?");
+				NkFile::WriteAllText("banc_e51/src/Pack/Sons/z.wav", "Z");
+				const char *R = "banc_e51/projet/Contenu";
+				// (a) le confinement : « .. » ne sort pas, la racine ne bouge pas, un
+				// nom n'est pas un chemin.
+				const bool sous = NkDisqueSous(R, "banc_e51/projet/Contenu/Decor") &&
+								  !NkDisqueSous(R, "banc_e51/projet/Contenu/../../dehors.txt") && !NkDisqueSous(R, "banc_e51/projet/Contenu2");
+				const bool refusDehors = NkDisqueCopier(R, "banc_e51/dehors.txt", R).Empty() &&
+										 !NkDisqueSupprimer(R, "banc_e51/dehors.txt", false) && NkFile::Exists("banc_e51/dehors.txt");
+				const bool refusRacine = !NkDisqueSupprimer(R, R, false) && NkDirectory::Exists(R) && NkDisqueRenommer(R, R, "X").Empty();
+				const bool refusNom = NkDisqueRenommer(R, "banc_e51/projet/Contenu/a.png", "../a.png").Empty() &&
+									  NkDisqueRenommer(R, "banc_e51/projet/Contenu/a.png", "b:c.png").Empty();
+				// (b) jamais d'ecrasement : « a_2 », « a_3 », l'existant intact ; un
+				// renommage vers un nom pris est REFUSE.
+				const NkString c1 = NkDisqueDupliquer(R, "banc_e51/projet/Contenu/a.png");
+				const NkString c2 = NkDisqueCopier(R, "banc_e51/projet/Contenu/a.png", R);
+				NkFile::WriteAllText("banc_e51/projet/Contenu/Decor/a.png", "D");
+				const NkString c3 = NkDisqueCopier(R, "banc_e51/projet/Contenu/a.png", "banc_e51/projet/Contenu/Decor");
+				const bool suffixes = NkDisqueNom(c1.CStr()) == NkString("a_2.png") && NkDisqueNom(c2.CStr()) == NkString("a_3.png") &&
+									  NkDisqueNom(c3.CStr()) == NkString("a_2.png") &&
+									  NkFile::ReadAllText("banc_e51/projet/Contenu/Decor/a.png") == NkString("D") &&
+									  NkDisqueRenommer(R, c1.CStr(), "a.png").Empty() && NkFile::Exists(c1.CStr());
+				// (c) un dossier ne va pas dans lui-meme ni dans un descendant
+				const bool cycles = NkDisqueDeplacer(R, "banc_e51/projet/Contenu/Decor", "banc_e51/projet/Contenu/Decor/Sous").Empty() &&
+									NkDisqueCopier(R, "banc_e51/projet/Contenu/Decor", "banc_e51/projet/Contenu/Decor").Empty() &&
+									NkDirectory::Exists("banc_e51/projet/Contenu/Decor/Sous");
+				// (d) deplacer, renommer, nouveau dossier (suffixe s'il est pris)
+				const NkString dep = NkDisqueDeplacer(R, c2.CStr(), "banc_e51/projet/Contenu/Decor/Sous");
+				const NkString ren = NkDisqueRenommer(R, "banc_e51/projet/Contenu/Decor/Sous", "Profond");
+				const NkString nd1 = NkDisqueNouveauDossier(R, R, "Nouveau dossier");
+				const NkString nd2 = NkDisqueNouveauDossier(R, R, "Nouveau dossier");
+				const bool gestes = !dep.Empty() && !NkFile::Exists(c2.CStr()) && NkFile::Exists("banc_e51/projet/Contenu/Decor/Profond/a_3.png") &&
+									!ren.Empty() && NkDirectory::Exists(nd1.CStr()) && NkDisqueNom(nd2.CStr()) == NkString("Nouveau dossier_2");
+				// (e) importer un DOSSIER de l'OS : son arborescence, l'inconnu refuse
+				NkVector<NkString> srcs;
+				srcs.PushBack(NkString("banc_e51/src/Pack"));
+				bool (*accepte)(void *, const char *) = [](void *, const char *f) {
+					return NkEditeurNatureFichier(f).importable;
+				};
+				const NkDisqueRapport ri = NkDisqueImporter(R, R, srcs, accepte, nullptr);
+				const bool importe = ri.fichiers == 2u && ri.refuses == 1u && ri.dossiers == 2u && ri.crees.Size() == 1u &&
+									 NkFile::Exists("banc_e51/projet/Contenu/Pack/Sons/z.wav") && !NkFile::Exists("banc_e51/projet/Contenu/Pack/notes.xyz");
+				// (f) la memoire (couleur, favori, collection) suit un renommage, un oubli
+				NkDisqueMeta meta;
+				meta.PoserCouleur(NkString("Decor"), 0x3FB950FFu);
+				meta.BasculerFavori(NkString("Decor/Profond"));
+				NkDisqueCollection col;
+				col.nom = NkString("Mes assets");
+				col.elements.PushBack(NkString("Decor/a.png"));
+				meta.collections.PushBack(col);
+				NkDisqueMetaEcrire(R, meta);
+				NkDisqueMeta lu;
+				NkDisqueMetaLire(R, lu);
+				lu.Renommer(NkString("Decor"), NkString("Fond"));
+				const bool memoire = lu.Couleur(NkString("Fond")) == 0x3FB950FFu && lu.EstFavori(NkString("Fond/Profond")) &&
+									 lu.collections.Size() == 1u && lu.collections[0].elements.Size() == 1u &&
+									 lu.collections[0].elements[0] == NkString("Fond/a.png") && lu.Couleur(NkString("Decor")) == 0u;
+				lu.Oublier(NkString("Fond"));
+				const bool oubli = lu.couleursCles.Empty() && lu.favoris.Empty() && lu.collections[0].elements.Empty();
+				Temoin(sous && refusDehors && refusRacine && refusNom && suffixes && cycles && gestes && importe && memoire && oubli,
+					   "(e51) disque du navigateur : confine, jamais d'ecrasement, sans cycle, dossiers importes, memoire suivie",
+					   static_cast<float32>(sous + refusDehors + refusRacine + refusNom + suffixes + cycles + gestes + importe + memoire + oubli));
+				NkDirectory::Delete("banc_e51", true);
+			}
+
+			// (e52) LA VARIANTE UNREAL DU KIT, peinte (NkRecordingPaint) : les sept
+			// zones, le nom sur DEUX lignes, la BANDE du type, le dossier a SA couleur,
+			// la ligne d'etat accordee, l'ETAT VIDE ; et le mixte d'avant, intact.
+			{
+				using namespace editorkit;
+				NkComponentInstance inst(NkContentBrowserDecl());
+				inst.SetVariantByName("unreal");
+				NkContentBrowserStyle st;
+				st.values = &inst;
+				st.panelBg = 1;
+				st.headerBg = 2;
+				st.border = 3;
+				st.text = 4;
+				st.textMuted = 6;
+				st.cardBg = 7;
+				st.cardFooterBg = 8;
+				st.activeMark = 9;
+				st.chosenMark = 10;
+				st.folderTint = 11;
+				NkContentBrowserModel mod;
+				mod.nomProjet = NkString("MonProjet");
+				mod.thumbSize = 160.f;
+				NkAssetEntry d;
+				d.name = NkString("Decor");
+				d.path = NkString("Contenu/Decor");
+				d.isFolder = true;
+				d.couleur = 0x3FB950FFu;
+				mod.entries.PushBack(d);
+				NkAssetEntry f;
+				f.name = NkString("Advanced_Lighting_BuiltData");
+				f.path = NkString("Contenu/Advanced_Lighting_BuiltData.png");
+				f.kindRole = 5;
+				f.kindLabel = "Image";
+				mod.entries.PushBack(f);
+				NkTreeNode noeud;
+				noeud.id = 7u;
+				noeud.parent = -1;
+				noeud.label = NkString("Sons");
+				noeud.path = NkString("Contenu/Sons");
+				noeud.silhouette = static_cast<uint8>(NkAssetIcone::Dossier);
+				noeud.couleur = 0xA371F7FFu;
+				mod.folders.nodes.PushBack(noeud);
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkRecordingPaint rp;
+				const NkPaintRect rect{0.f, 0.f, 1000.f, 400.f};
+				NkContentBrowserResult r = NkDrawContentBrowser(rp, in, rect, mod, st, h);
+				auto Texte = [&](const char *t) {
+					for (uint32 i = 0; i < rp.cmds.Size(); ++i) {
+						if (rp.cmds[i].op == NkPaintOp::Text && rp.cmds[i].text == NkString(t)) {
+							return true;
+						}
+					}
+					return false;
+				};
+				const bool zones = Texte("Ajouter") && Texte("Importer") && Texte("Tout enregistrer") && Texte("Réglages") && Texte("Favoris") &&
+								   Texte("MonProjet") && Texte("Collections") && r.precedentW > 0.f && r.rechercheW > 0.f;
+				const bool deuxLignes = Texte("Advanced_Lighting_") && Texte("BuiltData") && Texte("Image");
+				bool bande = false, teinte = false, rail = false;
+				for (uint32 i = 0; i < rp.cmds.Size(); ++i) {
+					const NkPaintCmd &k = rp.cmds[i];
+					bande = bande || (k.op == NkPaintOp::Fill && k.role == 5 && k.h > 0.f && k.h <= NkContentBrowserDecl().Metric("type_band") + 0.01f);
+					teinte = teinte || (k.op == NkPaintOp::FillColor && k.rgba == 0x3FB950FFu);
+					rail = rail || (k.op == NkPaintOp::FillColor && k.rgba == 0xA371F7FFu);
+				}
+				char etat[64];
+				NkContentBrowserTexteEtat(etat, sizeof(etat), 5u, 3u);
+				char un[32];
+				NkContentBrowserTexteEtat(un, sizeof(un), 1u, 0u);
+				const bool ligne = Texte("2 éléments") && NkString(etat) == NkString("5 éléments (3 sélectionnés)") && NkString(un) == NkString("1 élément") &&
+								   r.nbVisibles == 2 && !r.vide;
+				// L'etat vide d'Unreal.
+				mod.entries.Clear();
+				rp.Reset();
+				r = NkDrawContentBrowser(rp, in, rect, mod, st, h);
+				const bool vide = r.vide && Texte("Aucun résultat.") && Texte("Déposez des fichiers ici ou faites un clic droit pour créer du contenu.");
+				// CONTRE-EPREUVE : le MIXTE d'avant (la variante de NKCraft et de
+				// NKUIDesign) ne peint rien de tout cela -- il n'a pas bouge.
+				inst.SetVariantByName("grid");
+				rp.Reset();
+				r = NkDrawContentBrowser(rp, in, rect, mod, st, h);
+				const bool mixte = !Texte("Réglages") && !Texte("Aucun résultat.") && Texte("Créer") && r.precedentW == 0.f;
+				Temoin(zones && deuxLignes && bande && teinte && rail && ligne && vide && mixte,
+					   "(e52) variante Unreal : sept zones, nom sur deux lignes, bande du type, dossier colore (grille et rail), etat vide ; le mixte intact",
+					   static_cast<float32>(zones + deuxLignes + bande + teinte + rail + ligne + vide + mixte));
+			}
+
+			// (e53) LA SELECTION D'UNREAL dans la VRAIE trame : un DOSSIER se choisit
+			// (Rihen, 01/10), Ctrl ajoute, Maj prend la PLAGE, le vide efface, le
+			// CADRE choisit ce qu'il touche ; double-clic entre ; precedent / suivant.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkDirectory::Delete("banc_e53", true);
+				NkDirectory::CreateRecursive("banc_e53/projet/Contenu/Decor");
+				NkDirectory::CreateRecursive("banc_e53/projet/Contenu/Sons");
+				NkFile::WriteAllText("banc_e53/projet/Contenu/a.png", "a");
+				NkFile::WriteAllText("banc_e53/projet/Contenu/b.png", "b");
+				NkFile::WriteAllText("banc_e53/projet/Contenu/c.wav", "c");
+				m.chemin = NkString("banc_e53/projet/scene.nkscene");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.contenuCorbeille = false;
+				t.Trame();
+				t.Trame();
+				auto Centre = [&](const char *chemin) {
+					const int32 k = CarteDe(ui, chemin);
+					if (k < 0) {
+						return nkgui::NkVec2{-1.f, -1.f};
+					}
+					const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+					return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.3f};
+				};
+				const nkgui::NkVec2 pDecor = Centre("Contenu/Decor"), pA = Centre("Contenu/a.png"), pB = Centre("Contenu/b.png"),
+									pC = Centre("Contenu/c.wav");
+				const bool cartes = ui.contenuProjet && pDecor.x > 0.f && pA.x > 0.f && pB.x > 0.f && pC.x > 0.f;
+				// (a) un DOSSIER se choisit, et le navigateur prend le focus
+				t.Clic(0, pDecor.x, pDecor.y);
+				const bool dossier = ui.contenuChoisis.Size() == 1u && ui.contenuChoisis[0] == NkString("Contenu/Decor") && ui.contenu.focus;
+				// (b) Ctrl ajoute
+				t.Ctx().input.ctrlDown = true;
+				t.Clic(0, pA.x, pA.y);
+				t.Ctx().input.ctrlDown = false;
+				const bool ctrl = ui.contenuChoisis.Size() == 2u;
+				// (c) Maj : la PLAGE depuis l'ancre (a.png) jusqu'a c.wav, dans l'ordre visible
+				t.Ctx().input.shiftDown = true;
+				t.Clic(0, pC.x, pC.y);
+				t.Ctx().input.shiftDown = false;
+				auto Choisi = [&](const char *p) {
+					for (uint32 i = 0; i < ui.contenuChoisis.Size(); ++i) {
+						if (ui.contenuChoisis[i] == NkString(p)) {
+							return true;
+						}
+					}
+					return false;
+				};
+				const bool plage = ui.contenuChoisis.Size() == 3u && Choisi("Contenu/a.png") && Choisi("Contenu/b.png") && Choisi("Contenu/c.wav");
+				// (d) un clic dans le VIDE efface
+				const nkgui::NkRect zv = ui.contenuZone;
+				const float32 xVide = zv.x + zv.w - 60.f;
+				t.Clic(0, xVide, pA.y);
+				const bool vide = ui.contenuChoisis.Empty();
+				// (e) le CADRE, tire du vide vers b.png : il prend b.png et c.wav
+				t.Ctx().input.mousePos = nkgui::NkVec2{xVide, pB.y - 6.f};
+				t.souris.Appui(t.Ctx().input, 0);
+				t.Trame();
+				t.Ctx().input.mousePos = nkgui::NkVec2{(xVide + pB.x) * 0.5f, pB.y};
+				t.Trame();
+				t.Ctx().input.mousePos = nkgui::NkVec2{pB.x, pB.y + 6.f};
+				t.Trame();
+				t.souris.Relache(t.Ctx().input, 0);
+				t.Trame();
+				const bool cadre = ui.contenuChoisis.Size() == 2u && Choisi("Contenu/b.png") && Choisi("Contenu/c.wav");
+				// (f) double-clic sur un dossier : on y entre
+				t.Ctx().input.SetDoubleClick(0);
+				t.Clic(0, pDecor.x, pDecor.y);
+				t.Trame();
+				const bool entre = ui.contenuProjet && ui.contenuDossier == NkString("Decor");
+				// (g) precedent revient, suivant repart
+				t.Clic(0, ui.contenuPrecedent.x + ui.contenuPrecedent.w * 0.5f, ui.contenuPrecedent.y + ui.contenuPrecedent.h * 0.5f);
+				t.Trame();
+				const bool precedent = ui.contenuProjet && ui.contenuDossier.Empty();
+				t.Clic(0, ui.contenuSuivant.x + ui.contenuSuivant.w * 0.5f, ui.contenuSuivant.y + ui.contenuSuivant.h * 0.5f);
+				t.Trame();
+				const bool suivant = ui.contenuDossier == NkString("Decor");
+				Temoin(cartes && dossier && ctrl && plage && vide && cadre && entre && precedent && suivant,
+					   "(e53) selection d'Unreal : dossier, Ctrl, Maj (plage), vide, cadre ; double-clic entre ; precedent / suivant",
+					   static_cast<float32>(cartes + dossier + ctrl + plage + vide + cadre + entre + precedent + suivant));
+				m.chemin = cheminAvant;
+				NkDirectory::Delete("banc_e53", true);
+			}
+
+			// (e54) LE CLAVIER DU NAVIGATEUR (focus) : Ctrl+C / Ctrl+V copie, Ctrl+X /
+			// Ctrl+V deplace, Ctrl+D duplique, F2 renomme EN PLACE, Suppr DEMANDE
+			// (Annuler garde, Supprimer supprime) -- et la scene n'en recoit rien.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkEditeurNouvelleScene(m);
+				NkDirectory::Delete("banc_e54", true);
+				NkDirectory::CreateRecursive("banc_e54/projet/Contenu/Decor");
+				NkFile::WriteAllText("banc_e54/projet/Contenu/a.png", "a");
+				NkFile::WriteAllText("banc_e54/projet/Contenu/b.png", "b");
+				NkFile::WriteAllText("banc_e54/projet/Contenu/c.wav", "c");
+				m.chemin = NkString("banc_e54/projet/scene.nkscene");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.contenuCorbeille = false;
+				t.Trame();
+				t.Trame();
+				auto Touche = [&](nkgui::NkGuiKey k, bool ctrl) {
+					t.Ctx().input.ctrlDown = ctrl;
+					t.Ctx().input.SetKey(k, true);
+					t.Trame();
+					t.Ctx().input.SetKey(k, false);
+					t.Ctx().input.ctrlDown = false;
+					t.Trame();
+				};
+				auto Cliquer = [&](const char *chemin) {
+					const int32 k = CarteDe(ui, chemin);
+					if (k >= 0) {
+						const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+						t.Clic(0, r.x + r.w * 0.5f, r.y + r.h * 0.3f);
+					}
+					return k >= 0;
+				};
+				const uint32 entites = NbEntites(m.scene);
+				const bool aVu = Cliquer("Contenu/a.png");
+				// (a) Ctrl+C, puis dans « Decor » Ctrl+V : une COPIE, l'original reste
+				Touche(nkgui::NkGuiKey::C, true);
+				ui.contenuMenuChemin = NkString();
+				NkEditeurCadre c = t.Cadre();
+				ui.contenuMenuChemin = NkString("Contenu/Decor");
+				ui.contenuMenuDossier = true;
+				NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+				t.Trame();
+				t.Clic(0, ui.contenuZone.x + ui.contenuZone.w - 60.f, ui.contenuZone.y + 120.f); // le focus, dans le vide
+				Touche(nkgui::NkGuiKey::V, true);
+				const bool copie = NkFile::Exists("banc_e54/projet/Contenu/Decor/a.png") && NkFile::Exists("banc_e54/projet/Contenu/a.png");
+				// (b) Ctrl+X sur b.png a la racine, Ctrl+V dans Decor : DEPLACE
+				ui.contenuMenuChemin = NkString();
+				NkEditeurExecuter(c, NK_A_CONTENU_RACINE);
+				t.Trame();
+				Cliquer("Contenu/b.png");
+				Touche(nkgui::NkGuiKey::X, true);
+				ui.contenuMenuChemin = NkString("Contenu/Decor");
+				ui.contenuMenuDossier = true;
+				NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+				t.Trame();
+				t.Clic(0, ui.contenuZone.x + ui.contenuZone.w - 60.f, ui.contenuZone.y + 120.f);
+				Touche(nkgui::NkGuiKey::V, true);
+				const bool deplace = NkFile::Exists("banc_e54/projet/Contenu/Decor/b.png") && !NkFile::Exists("banc_e54/projet/Contenu/b.png") &&
+									 ui.pressePapierContenu.Empty();
+				// (c) Ctrl+D : un double a cote
+				ui.contenuMenuChemin = NkString();
+				NkEditeurExecuter(c, NK_A_CONTENU_RACINE);
+				t.Trame();
+				Cliquer("Contenu/a.png");
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = true;
+				Touche(nkgui::NkGuiKey::D, true);
+				const bool double_ = NkFile::Exists("banc_e54/projet/Contenu/a_2.png") && NbEntites(m.scene) == entites;
+				// (d) F2 : le nom s'edite EN PLACE ; Entree le valide (l'extension reste)
+				t.Trame();
+				Cliquer("Contenu/a.png");
+				Touche(nkgui::NkGuiKey::F2, false);
+				const bool champ = ui.renommeChemin == NkString("Contenu/a.png") && NkString(ui.contenu.renommeTampon) == NkString("a");
+				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%s", "caisse");
+				Touche(nkgui::NkGuiKey::Enter, false);
+				const bool renomme = champ && NkFile::Exists("banc_e54/projet/Contenu/caisse.png") && !NkFile::Exists("banc_e54/projet/Contenu/a.png") &&
+									 ui.renommeChemin.Empty();
+				// (e) Suppr DEMANDE ; Annuler garde ; Supprimer supprime. La scene
+				// n'a rien perdu (Suppr n'est pas alle a l'entite choisie).
+				t.Trame();
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = true;
+				Cliquer("Contenu/c.wav");
+				Touche(nkgui::NkGuiKey::Delete, false);
+				const bool demande = ui.contenuASupprimer.Size() == 1u && NkFile::Exists("banc_e54/projet/Contenu/c.wav");
+				Touche(nkgui::NkGuiKey::Escape, false);
+				const bool annule = ui.contenuASupprimer.Empty() && NkFile::Exists("banc_e54/projet/Contenu/c.wav");
+				Touche(nkgui::NkGuiKey::Delete, false);
+				Touche(nkgui::NkGuiKey::Enter, false);
+				const bool supprime = !NkFile::Exists("banc_e54/projet/Contenu/c.wav") && NbEntites(m.scene) == entites && m.aSelection;
+				// (f) HORS DU FOCUS (un clic dans le viseur), Ctrl+C ne touche plus au
+				// presse-papiers du navigateur.
+				ui.pressePapierContenu.Clear();
+				t.Clic(0, ui.viseur.x + 30.f, ui.viseur.y + 30.f);
+				Touche(nkgui::NkGuiKey::C, true);
+				const bool horsFocus = !ui.contenu.focus && ui.pressePapierContenu.Empty();
+				Temoin(aVu && copie && deplace && double_ && renomme && demande && annule && supprime && horsFocus,
+					   "(e54) clavier du navigateur : copier, couper/coller, dupliquer, F2 en place, Suppr confirme ; la scene intacte",
+					   static_cast<float32>(aVu + copie + deplace + double_ + renomme + demande + annule + supprime + horsFocus));
+				m.chemin = cheminAvant;
+				NkDirectory::Delete("banc_e54", true);
+			}
+
+			// (e55) LE GLISSER d'Unreal : une carte (ou toute la selection) lachee sur
+			// un dossier ouvre « Deplacer ici / Copier ici » ; un DOSSIER de l'OS
+			// depose sur une carte de dossier s'y importe avec son arborescence ; une
+			// image et un prefab glisses dans le VISEUR s'y posent.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkEditeurNouvelleScene(m);
+				NkDirectory::Delete("banc_e55", true);
+				NkDirectory::CreateRecursive("banc_e55/projet/Contenu/Decor");
+				NkDirectory::CreateRecursive("banc_e55/projet/Contenu/Sons");
+				NkDirectory::CreateRecursive("banc_e55/os/Pack/Sous");
+				NkFile::WriteAllText("banc_e55/projet/Contenu/a.png", "a");
+				NkFile::WriteAllText("banc_e55/projet/Contenu/b.wav", "b");
+				NkFile::WriteAllText("banc_e55/projet/Contenu/c.wav", "c");
+				NkFile::WriteAllText("banc_e55/os/Pack/x.png", "x");
+				NkFile::WriteAllText("banc_e55/os/Pack/Sous/y.wav", "y");
+				NkFile::WriteAllText("banc_e55/os/Pack/inconnu.xyz", "?");
+				// Une VRAIE image (1 x 1, rouge) : le sprite pose prend sa texture.
+				static const uint8 kPng[] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+											 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+											 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+											 0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+											 0x44, 0xAE, 0x42, 0x60, 0x82};
+				NkVector<nk_uint8> octets;
+				for (uint32 i = 0; i < sizeof(kPng); ++i) {
+					octets.PushBack(kPng[i]);
+				}
+				NkFile::WriteAllBytes("banc_e55/projet/Contenu/rouge.png", octets);
+				m.chemin = NkString("banc_e55/projet/scene.nkscene");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				ui.contenuCorbeille = false;
+				t.Trame();
+				t.Trame();
+				auto Centre = [&](const char *chemin) {
+					const int32 k = CarteDe(ui, chemin);
+					if (k < 0) {
+						return nkgui::NkVec2{-1.f, -1.f};
+					}
+					const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+					return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.3f};
+				};
+				auto Glisser = [&](nkgui::NkVec2 de, nkgui::NkVec2 a) {
+					t.Ctx().input.mousePos = de;
+					t.souris.Appui(t.Ctx().input, 0);
+					t.Trame();
+					t.Ctx().input.mousePos = nkgui::NkVec2{(de.x + a.x) * 0.5f, (de.y + a.y) * 0.5f + 3.f};
+					t.Trame();
+					t.Ctx().input.mousePos = a;
+					t.Trame();
+					t.souris.Relache(t.Ctx().input, 0);
+					t.Trame();
+				};
+				// (a) a.png lache sur « Decor » : le MENU, puis « Deplacer ici »
+				Glisser(Centre("Contenu/a.png"), Centre("Contenu/Decor"));
+				const bool menu = ui.menu == NkMenuEditeur::NK_CONTENU_DEPOSER && ui.deposeSources.Size() == 1u &&
+								  ui.deposeSources[0] == NkString("Contenu/a.png") && ui.deposeCible == NkString("Contenu/Decor") &&
+								  NkFile::Exists("banc_e55/projet/Contenu/a.png");
+				NkEditeurExecuter(c, NK_A_CONTENU_DEPLACER_ICI);
+				t.Fermer();
+				t.Trame();
+				const bool deplace = NkFile::Exists("banc_e55/projet/Contenu/Decor/a.png") && !NkFile::Exists("banc_e55/projet/Contenu/a.png");
+				// (b) DEUX cartes choisies (Ctrl), trainees ensemble sur « Sons » :
+				// « Copier ici » les copie toutes deux, les originaux restent.
+				const nkgui::NkVec2 pb = Centre("Contenu/b.wav"), pc = Centre("Contenu/c.wav");
+				t.Clic(0, pb.x, pb.y);
+				t.Ctx().input.ctrlDown = true;
+				t.Clic(0, pc.x, pc.y);
+				t.Ctx().input.ctrlDown = false;
+				Glisser(pb, Centre("Contenu/Sons"));
+				const bool deux = ui.menu == NkMenuEditeur::NK_CONTENU_DEPOSER && ui.deposeSources.Size() == 2u;
+				NkEditeurExecuter(c, NK_A_CONTENU_COPIER_ICI);
+				t.Fermer();
+				const bool copies = deux && NkFile::Exists("banc_e55/projet/Contenu/Sons/b.wav") && NkFile::Exists("banc_e55/projet/Contenu/Sons/c.wav") &&
+									NkFile::Exists("banc_e55/projet/Contenu/b.wav");
+				// (c) un DOSSIER de l'OS depose sur la carte « Sons » : importe ENTIER,
+				// l'inconnu refuse (il etait refuse en bloc avant le 01/10).
+				t.Trame();
+				const nkgui::NkVec2 ps = Centre("Contenu/Sons");
+				NkVector<NkString> depot;
+				depot.PushBack(NkString("banc_e55/os/Pack"));
+				const NkRapportImport ri = NkEditeurDeposerFichiers(m, ui, depot, ps.x, ps.y);
+				const bool dossierOs = ri.importes == 2u && ri.refuses == 1u && ri.dossiers == 2u &&
+									   NkFile::Exists("banc_e55/projet/Contenu/Sons/Pack/Sous/y.wav") && ui.contenuDossier == NkString("Sons") &&
+									   ri.crees.Size() == 1u && ri.crees[0] == NkString("Contenu/Sons/Pack");
+				// (d) l'IMAGE glissee dans le viseur : un sprite, sa texture, annulable
+				ui.contenuMenuChemin = NkString();
+				NkEditeurExecuter(c, NK_A_CONTENU_RACINE);
+				t.Trame();
+				t.Trame();
+				const uint32 avant = NbEntites(m.scene);
+				Glisser(Centre("Contenu/rouge.png"), nkgui::NkVec2{ui.viseur.x + ui.viseur.w * 0.5f, ui.viseur.y + ui.viseur.h * 0.5f});
+				const ecs::NkEntityId spr = Par(m.scene, "rouge");
+				const NkSprite2D *sp = spr.IsValid() ? m.scene.Monde().Get<NkSprite2D>(spr) : nullptr;
+				const bool image = NbEntites(m.scene) == avant + 1u && sp != nullptr && sp->texId != 0u;
+				// (e) un PREFAB du Contenu (fait de la Caisse) glisse dans le viseur :
+				// une instance de plus.
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = true;
+				const NkString prefab = NkEditeurNouveauPrefabContenu(m, "Contenu");
+				ui.renommeChemin = NkString();
+				ui.contenuPerime = true;
+				t.Trame();
+				t.Trame();
+				const uint32 avantP = NbEntites(m.scene);
+				Glisser(Centre(prefab.CStr()), nkgui::NkVec2{ui.viseur.x + ui.viseur.w * 0.3f, ui.viseur.y + ui.viseur.h * 0.5f});
+				const bool instance = !prefab.Empty() && NbEntites(m.scene) > avantP;
+				Temoin(menu && deplace && copies && dossierOs && image && instance,
+					   "(e55) glisser : Deplacer / Copier ici (selection entiere) ; dossier de l'OS importe ; image et prefab poses",
+					   static_cast<float32>(menu + deplace + copies + dossierOs + image + instance));
+				m.chemin = cheminAvant;
+				NkDirectory::Delete("banc_e55", true);
+			}
+
+			// (e56) LES CREATIONS ET LA MEMOIRE : clic droit dans le vide -> Nouveau
+			// dossier (le nom s'edite aussitot), scene, controleur ; la COULEUR d'un
+			// dossier (grille ET rail), les FAVORIS, une COLLECTION et son compteur.
+			{
+				const NkString cheminAvant = m.chemin;
+				NkEditeurNouvelleScene(m);
+				NkDirectory::Delete("banc_e56", true);
+				NkDirectory::CreateRecursive("banc_e56/projet/Contenu/Decor");
+				NkFile::WriteAllText("banc_e56/projet/Contenu/a.png", "a");
+				m.chemin = NkString("banc_e56/projet/scene.nkscene");
+				NkBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				NkEditeurCadre c = t.Cadre();
+				ui.contenuCorbeille = false;
+				t.Trame();
+				t.Trame();
+				// (a) le VIDE : son menu, puis « Nouveau dossier » -- cree, choisi, son
+				// nom ouvert a l'edition ; Entree valide le nom tape.
+				t.Clic(1, ui.contenuZone.x + ui.contenuZone.w - 60.f, ui.contenuZone.y + 120.f);
+				const bool menuVide = ui.menu == NkMenuEditeur::NK_CTX_CONTENU_VIDE;
+				NkEditeurExecuter(c, NK_A_CONTENU_NOUVEAU_DOSSIER);
+				t.Fermer();
+				const bool cree = NkDirectory::Exists("banc_e56/projet/Contenu/Nouveau dossier") &&
+								  ui.renommeChemin == NkString("Contenu/Nouveau dossier");
+				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%s", "Niveaux");
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, true);
+				t.Trame();
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, false);
+				t.Trame();
+				const bool nomme = NkDirectory::Exists("banc_e56/projet/Contenu/Niveaux") && !NkDirectory::Exists("banc_e56/projet/Contenu/Nouveau dossier");
+				// (b) une scene vide et un controleur d'animation, la ou l'on est
+				NkEditeurExecuter(c, NK_A_CONTENU_NOUVELLE_SCENE);
+				ui.renommeChemin = NkString();
+				NkEditeurExecuter(c, NK_A_CONTENU_NOUVEAU_CONTROLEUR);
+				ui.renommeChemin = NkString();
+				const bool fichiers = NkFile::Exists("banc_e56/projet/Contenu/NouvelleScene.nkscene") &&
+									  NkFile::Exists("banc_e56/projet/Contenu/NouveauControleur.nkanimctl");
+				// (c) la COULEUR de « Decor » (clic droit, puis Vert) : sur sa carte ET
+				// dans le rail, et gardee a cote du contenu
+				t.Trame();
+				t.Trame();
+				const int32 kD = CarteDe(ui, "Contenu/Decor");
+				bool couleur = false, favori = false;
+				if (kD >= 0) {
+					const nkgui::NkRect rd = ui.contenuCartes[static_cast<uint32>(kD)];
+					t.Clic(1, rd.x + rd.w * 0.5f, rd.y + rd.h * 0.4f);
+					const bool choisi = ui.menu == NkMenuEditeur::NK_CTX_CONTENU && ui.contenuMenuDossier && ui.contenuChoisis.Size() == 1u &&
+										ui.contenuChoisis[0] == NkString("Contenu/Decor");
+					NkEditeurExecuter(c, NK_A_CONTENU_COULEUR + 4); // « Vert »
+					NkEditeurExecuter(c, NK_A_CONTENU_FAVORI);
+					t.Fermer();
+					t.Trame();
+					uint32 vert = 0u;
+					NkEditeurCouleurDossier(4, vert);
+					const int32 k2 = CarteDe(ui, "Contenu/Decor");
+					bool rail = false;
+					for (uint32 n = 0; n < ui.contenu.folders.nodes.Size(); ++n) {
+						rail = rail || (ui.contenu.folders.nodes[n].path == NkString("Contenu/Decor") && ui.contenu.folders.nodes[n].couleur == vert);
+					}
+					couleur = choisi && vert != 0u && k2 >= 0 && ui.contenu.entries[static_cast<uint32>(k2)].couleur == vert && rail &&
+							  NkFile::Exists("banc_e56/projet/Contenu/.nknavigateur");
+					favori = ui.contenu.favoris.Size() == 1u && ui.contenu.favoris[0] == NkString("Contenu/Decor");
+				}
+				// (d) une COLLECTION avec l'asset choisi : son compteur dit 1
+				const int32 kA = CarteDe(ui, "Contenu/a.png");
+				bool collection = false;
+				if (kA >= 0) {
+					const nkgui::NkRect ra = ui.contenuCartes[static_cast<uint32>(kA)];
+					t.Clic(0, ra.x + ra.w * 0.5f, ra.y + ra.h * 0.3f);
+					ui.contenuMenuChemin = NkString();
+					NkEditeurExecuter(c, NK_A_CONTENU_NOUVELLE_COLLECTION);
+					t.Trame();
+					collection = ui.contenu.collections.Size() == 1u && ui.contenu.collections[0].compte == 1u;
+				}
+				// (e) RENOMMER un dossier depuis le RAIL alors que la grille montre la
+				// racine : la vue saute sur son parent, le champ s'ouvre sur sa carte.
+				NkDirectory::CreateRecursive("banc_e56/projet/Contenu/Decor/Profond");
+				ui.contenuPerime = true;
+				t.Trame();
+				ui.contenuMenuChemin = NkString("Contenu/Decor/Profond");
+				ui.contenuMenuDossier = true;
+				NkEditeurExecuter(c, NK_A_CONTENU_RENOMMER);
+				t.Trame();
+				t.Trame();
+				const bool vueParent = ui.contenuDossier == NkString("Decor") && ui.renommeChemin == NkString("Contenu/Decor/Profond") &&
+									   ui.contenu.renomme >= 0;
+				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%s", "Grottes");
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, true);
+				t.Trame();
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, false);
+				t.Trame();
+				const bool depuisRail = vueParent && NkDirectory::Exists("banc_e56/projet/Contenu/Decor/Grottes");
+				Temoin(menuVide && cree && nomme && fichiers && couleur && favori && collection && depuisRail,
+					   "(e56) creer : dossier (nom en place), scene, controleur ; couleur (grille et rail), favori, collection ; renommer depuis le rail",
+					   static_cast<float32>(menuVide + cree + nomme + fichiers + couleur + favori + collection + depuisRail));
+				m.chemin = cheminAvant;
+				NkDirectory::Delete("banc_e56", true);
 			}
 
 			memory::NkGetDefaultAllocator().Delete(pm);

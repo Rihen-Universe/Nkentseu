@@ -87,10 +87,15 @@ namespace nkentseu {
 					strcasecmp(ext, "tga") == 0 || strcasecmp(ext, "bmp") == 0 || strcasecmp(ext, "hdr") == 0 ||
 					strcasecmp(ext, "exr") == 0 || strcasecmp(ext, "dds") == 0)
 					return NkAssetType::Texture2D;
+				// (2026-09-30) Les autres formats que NKImage decode (Codecs/) : ils
+				// tombaient en Custom, et l'import de l'editeur les refusait.
+				if (strcasecmp(ext, "gif") == 0 || strcasecmp(ext, "svg") == 0 || strcasecmp(ext, "webp") == 0 ||
+					strcasecmp(ext, "qoi") == 0 || strcasecmp(ext, "ico") == 0 || strcasecmp(ext, "ppm") == 0)
+					return NkAssetType::Texture2D;
 
 				// Sons
 				if (strcasecmp(ext, "wav") == 0 || strcasecmp(ext, "ogg") == 0 || strcasecmp(ext, "mp3") == 0 ||
-					strcasecmp(ext, "flac") == 0)
+					strcasecmp(ext, "flac") == 0 || strcasecmp(ext, "opus") == 0)
 					return NkAssetType::Sound;
 
 				// Shaders

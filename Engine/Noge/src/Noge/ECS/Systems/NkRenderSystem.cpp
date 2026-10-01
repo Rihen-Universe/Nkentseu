@@ -12,6 +12,7 @@
 #include "Noge/ECS/Components/Core/NkTag.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Render3D/NkRender3D.h" // type complet (Submit/Flush)
+#include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 
@@ -46,12 +47,23 @@ namespace nkentseu {
 		mSceneCtx.time += dt;
 		mSceneCtx.viewMode = mViewMode; // mode de rendu (Solid/Wireframe/...)
 
-		// 5. Envoi GPU : BeginScene -> Submit* -> Flush
+		// 5. Envoi : BeginScene -> Submit*.
+		// ⚠️ PAS DE Flush ICI (2026-09-30). Le Flush appartient a la passe
+		//    « Geometry » du render graph, qui l'appelle DANS sa passe au
+		//    Present() (NkRendererImpl.cpp, `geom.Execute(... mRender3D->Flush
+		//    (cmd))`). L'appeler ici le jouait hors de toute passe et REMETTAIT
+		//    `mInScene` a faux : la passe Geometry, ensuite, ne trouvait plus
+		//    rien a dessiner. C'est le patron de Demo3D (Sandbox), qui dessine :
+		//    BeginScene + Submit entre BeginFrame et Present, rien d'autre.
+		//    `SetManualFlush(true)` rend l'ancien comportement a qui le demande.
 		r3d->BeginScene(mSceneCtx);
 		for (const auto &dc : mOpaqueCalls) {
 			r3d->Submit(dc);
 		}
-		r3d->Flush(mCmd);
+		if (mManualFlush) {
+			r3d->Flush(mCmd);
+		}
+		mLastSubmitted = static_cast<nk_uint32>(mOpaqueCalls.Size());
 	}
 
 	// =========================================================================
@@ -77,7 +89,13 @@ namespace nkentseu {
 
 				cam.viewMatrix = NkMat4f::LookAt(pos, pos + fwd, up);
 
-				const float32 aspect = (cam.aspect > 0.f) ? cam.aspect : (16.f / 9.f);
+				// aspect <= 0 : celui de la SORTIE du renderer (la fenetre), repli 16/9.
+				float32 aspect = 16.f / 9.f;
+				if (cam.aspect > 0.f) {
+					aspect = cam.aspect;
+				} else if (mRenderer && mRenderer->GetWidth() > 0 && mRenderer->GetHeight() > 0) {
+					aspect = static_cast<float32>(mRenderer->GetWidth()) / static_cast<float32>(mRenderer->GetHeight());
+				}
 				if (cam.projection == NkCameraProjection::Perspective) {
 					// Perspective prend un NkAngle (le ctor NkAngle prend des degrés).
 					cam.projMatrix = NkMat4f::Perspective(math::NkAngle(cam.fovDeg), aspect, cam.nearClip, cam.farClip);
@@ -149,32 +167,52 @@ namespace nkentseu {
 					return;
 
 				// Résolution / lazy-load du mesh GPU.
+				// « primitive:<nom> » (2026-09-30) : une primitive du NkMeshSystem
+				// (cube, sphere, plan...), SANS fichier -- et un nom qui se
+				// sauvegarde, contrairement au handle.
 				NkMeshHandle meshHandle{mesh.meshHandle};
 				if (!meshHandle.IsValid() && !mesh.meshPath.Empty()) {
-					meshHandle = meshSys->Import(mesh.meshPath);
+					meshHandle = mesh.meshPath.StartsWith(kPrimitivePrefix)
+									 ? ResolvePrimitive(*meshSys, mesh.meshPath.CStr() + kPrimitivePrefixLen)
+									 : meshSys->Import(mesh.meshPath);
 					const_cast<NkMeshComponent &>(mesh).meshHandle = meshHandle.id;
 				}
 				if (!meshHandle.IsValid())
 					return;
 
 				// Frustum culling (AABB monde vs viewProj).
-				NkAABB worldAABB = meshSys->GetBounds(meshHandle);
-				const NkVec3f wpos = tf.GetWorldPosition();
-				worldAABB.min = worldAABB.min + wpos;
-				worldAABB.max = worldAABB.max + wpos;
+				// ⚠️ LA BOITE PASSE PAR LA MATRICE MONDE ENTIERE (2026-09-30), pas
+				//    par la seule position : un sol de 20 m (cube unite a l'echelle
+				//    20) gardait une boite d'un metre, et disparaissait des que son
+				//    centre sortait du champ.
+				const NkAABB worldAABB = TransformAABB(meshSys->GetBounds(meshHandle), tf.worldMatrix);
 				if (!IsVisible(worldAABB))
 					return;
 
 				// Matériau GPU (instance) depuis le slot du composant.
 				NkMatInstHandle matHandle;
+				const NkMaterialSlot *slotLu = nullptr;
 				if (mat.slotCount > 0) {
 					const uint32 slot = (mesh.subMeshIndex < mat.slotCount) ? mesh.subMeshIndex : 0;
-					matHandle.id = mat.slots[slot].materialHandle;
+					slotLu = &mat.slots[slot];
+					matHandle.id = slotLu->materialHandle;
 				}
 
 				NkDrawCall3D dc;
 				dc.mesh = meshHandle;
 				dc.material = matHandle;
+				// La COULEUR du slot (NkMaterialComponent::SetColor) passe par le
+				// canal PAR DRAW CALL : c'est lui que le nuanceur PBR lit pour
+				// l'albedo, le metallic et la rugosite (pbr.frag.nksl, « albedo (via
+				// uObj.tint), metallic et roughness RESTENT sur uObj »), une instance
+				// de materiau n'y changerait rien. Mesure du 30/09 : sans ces trois
+				// lignes, le cube « rouge » de NogeDemo sortait BLANC a la capture.
+				if (slotLu != nullptr) {
+					dc.tint = NkVec3f{slotLu->albedo.r, slotLu->albedo.g, slotLu->albedo.b};
+					dc.alpha = slotLu->albedo.a;
+					dc.metallic = slotLu->metallic;
+					dc.roughness = slotLu->roughness;
+				}
 				dc.transform = tf.worldMatrix;
 				dc.castShadow = mesh.castShadow;
 				dc.aabb = worldAABB;
@@ -203,6 +241,59 @@ namespace nkentseu {
 				dc.castShadow = smesh.castShadow;
 				mOpaqueCalls.PushBack(dc);
 			});
+	}
+
+	// =========================================================================
+	// ResolvePrimitive — « primitive:cube » -> maillage built-in du NkMeshSystem
+	// =========================================================================
+	NkMeshHandle NkRenderSystem::ResolvePrimitive(NkMeshSystem &meshSys, const char *name) noexcept {
+		if (name == nullptr)
+			return NkMeshHandle{};
+		const NkString n(name);
+		if (n == "cube")
+			return meshSys.GetCube();
+		if (n == "sphere")
+			return meshSys.GetSphere();
+		if (n == "icosphere")
+			return meshSys.GetIcosphere();
+		if (n == "plane")
+			return meshSys.GetPlane();
+		if (n == "quad")
+			return meshSys.GetQuad();
+		if (n == "cylinder")
+			return meshSys.GetCylinder();
+		if (n == "cone")
+			return meshSys.GetCone();
+		if (n == "capsule")
+			return meshSys.GetCapsule();
+		logger.Warnf("[NkRenderSystem] primitive inconnue : '%s' (cube, sphere, icosphere, plane, quad, "
+					 "cylinder, cone, capsule)\n",
+					 name);
+		return NkMeshHandle{};
+	}
+
+	// =========================================================================
+	// TransformAABB — les 8 coins de la boite locale, par la matrice monde
+	// =========================================================================
+	NkAABB NkRenderSystem::TransformAABB(const NkAABB &local, const NkMat4f &m) noexcept {
+		NkAABB out;
+		for (int32 i = 0; i < 8; ++i) {
+			const float32 x = (i & 1) ? local.max.x : local.min.x;
+			const float32 y = (i & 2) ? local.max.y : local.min.y;
+			const float32 z = (i & 4) ? local.max.z : local.min.z;
+			// Colonnes : m[col][ligne] (la translation est m[3][0..2]).
+			const NkVec3f p{m[0][0] * x + m[1][0] * y + m[2][0] * z + m[3][0],
+							m[0][1] * x + m[1][1] * y + m[2][1] * z + m[3][1],
+							m[0][2] * x + m[1][2] * y + m[2][2] * z + m[3][2]};
+			if (i == 0) {
+				out.min = p;
+				out.max = p;
+			} else {
+				out.min = NkVec3f{NkMin(out.min.x, p.x), NkMin(out.min.y, p.y), NkMin(out.min.z, p.z)};
+				out.max = NkVec3f{NkMax(out.max.x, p.x), NkMax(out.max.y, p.y), NkMax(out.max.z, p.z)};
+			}
+		}
+		return out;
 	}
 
 	// =========================================================================

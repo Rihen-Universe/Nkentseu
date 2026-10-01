@@ -7,6 +7,7 @@
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 
 #include "NKECS/World/NkWorld.h"
+#include "Unkeny/Scene/NkUnkenyActif.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 
 namespace nkentseu {
@@ -15,7 +16,8 @@ namespace nkentseu {
 		void NkAvancerAnimations(ecs::NkWorld &monde, float32 dt) {
 			monde.Query<NkAnimSprite2D>().ForEach([&](ecs::NkEntityId id, NkAnimSprite2D &a) {
 				a.evenementAtteint = false;
-				if (a.nbClips == 0) {
+				// Une entite ETEINTE (NkUnkenyActif.h) ne s'anime pas.
+				if (a.nbClips == 0 || !NkEntiteActive(monde, id)) {
 					return;
 				}
 				const uint16 avant = a.ImageCourante();

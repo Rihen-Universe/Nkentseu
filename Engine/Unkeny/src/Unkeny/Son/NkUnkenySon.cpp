@@ -297,6 +297,18 @@ namespace nkentseu {
 						s.voix = 0u;
 					}
 				}
+				// Une entite ETEINTE (NkUnkenyActif.h) se tait : sa voix est coupee,
+				// rien n'est lance. `lance` reste : un son « au demarrage » repart
+				// quand elle se rallume (comme un PlayOnAwake).
+				if (!NkEntiteActive(monde, id)) {
+					if (s.voix != 0u) {
+						Couper(s.voix, 0.05f);
+						s.voix = 0u;
+					}
+					s.lance = false;
+					s.demande = false;
+					return;
+				}
 				if (s.arret) {
 					s.arret = false;
 					Couper(s.voix, 0.05f);

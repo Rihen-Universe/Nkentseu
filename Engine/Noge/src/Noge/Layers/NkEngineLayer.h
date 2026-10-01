@@ -8,7 +8,10 @@
 //   OnAttach()      → Init dans l'ordre : Assets, Renderer, Scheduler, Scènes
 //   OnUpdate(dt)    → mInput.Update + mScheduler.Run(world, dt) + mSceneMgr.Update(dt)
 //   OnFixedUpdate() → mScheduler.RunFixed(world, fdt) [physique]
-//   OnRender()      → NkRenderSystem exécuté via Scheduler groupe Render
+//   OnRender()      → NkRenderSystem::Execute, ENTRE BeginFrame et Present
+//                     (30/09 : il tournait dans l'ordonnanceur, groupe Render,
+//                     donc dans OnUpdate -- AVANT BeginFrame -- et rien ne
+//                     s'affichait ; voir OnRender dans le .cpp)
 //   OnDetach()      → Shutdown propre dans l'ordre inverse
 //
 // ACCÈS GLOBAL :
@@ -46,6 +49,7 @@
 #include "Noge/ECS/Entities/NkBehaviourSystem.h"
 #include "Noge/ECS/Scripting/NkScriptSystem.h"
 #include "Noge/ECS/Systems/NkRenderSystem.h"
+#include "Noge/ECS/Systems/NkPhysicsSystem.h"
 #include "NKRenderer/NkRenderer.h"
 #include "NKRHI/Core/NkIDevice.h"
 #include "NKContainers/String/NkString.h"
@@ -101,6 +105,13 @@ namespace nkentseu {
 
 			[[nodiscard]] renderer::NkRenderer *GetRenderer() noexcept {
 				return mRenderer;
+			}
+
+			/// Le pont physique enregistre par la couche (son monde : raycast,
+			/// gravite ; ReleaseBodies avant de vider une scene). Toujours
+			/// present une fois la couche attachee.
+			[[nodiscard]] NkPhysicsSystem *GetPhysicsSystem() noexcept {
+				return mPhysics;
 			}
 
 			/// La carte d'entree du joueur 1 (voir « ENTREES DU JEU » en tete).
@@ -170,7 +181,9 @@ namespace nkentseu {
 
 			NkInputMap mInput; ///< entrees du joueur 1, nourries par OnEvent, avancees par OnUpdate
 			renderer::NkRenderer *mRenderer = nullptr; // EMPRUNTÉ à NkApplication (non possédé)
-			NkRenderSystem mRenderSystem;
+			NkRenderSystem mRenderSystem;			   ///< execute par OnRender (pas par l'ordonnanceur)
+			NkPhysicsSystem *mPhysics = nullptr;	   ///< possede par l'ordonnanceur (adresse stable)
+			float32 mLastDt = 0.f;					   ///< le dt du dernier OnUpdate, donne au rendu
 
 			bool mRendererInitialized = false;
 			nk_uint32 mResizeW = 1280;

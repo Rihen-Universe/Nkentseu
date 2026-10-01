@@ -56,11 +56,15 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
+#include "NKEditorKit/Components/NkContentBrowserInterne.h"
 
 namespace nkentseu {
 	namespace editorkit {
 
-		namespace {
+		// (2026-10-01) NOMME, ET PLUS ANONYME : la variante Unreal (`NkContentBrowserUnreal.cpp`)
+		// reprend ces aides par `NkContentBrowserInterne.h` -- une seule copie de chacune,
+		// pas une seconde qui deriverait au premier ajout. Rien n'y change de comportement.
+		namespace cbi {
 
 			/// ⑦ DEUX CHEMINS DESIGNENT-ILS LA MEME CHOSE ? Les deux separateurs sont
 			/// equivalents, la casse ASCII est ignoree (Windows), une barre finale ne
@@ -370,13 +374,14 @@ namespace nkentseu {
 			// qui couvre les trois quarts bas, et un liseré d'un ton en haut de l'avant.
 			// Une SEULE teinte, trois nuances -- l'onglet n'est plus une couleur a lui.
 			void Silhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre, uint16 role,
-							uint8 contenu = 0) {
+							uint8 contenu, uint32 rgba) {
 				if (r.w <= 4.f || r.h <= 4.f)
 					return;
 				// un carre centre : une icone etiree ne ressemble plus a ce qu'elle designe
 				const float32 c = r.w < r.h ? r.w : r.h;
 				const NkPaintRect b{r.x + (r.w - c) * 0.5f, r.y + (r.h - c) * 0.5f, c, c};
-				const uint32 vif = p.ColorOf(role);
+				// (2026-10-01) une couleur CHOISIE (un dossier colore) prime sur le role
+				const uint32 vif = rgba ? rgba : p.ColorOf(role);
 				const uint32 sombre = Teinter(vif, -0.22f); // le rabat ARRIERE et la patte
 				const uint32 clair = Teinter(vif, 0.14f);	// le liseré du rabat avant
 				const uint32 pale = Teinter(vif, -0.35f);	// les signes poses DANS la forme
@@ -503,13 +508,6 @@ namespace nkentseu {
 				return e.isFolder ? NkAssetIcone::Dossier : NkAssetIcone::Inconnu;
 			}
 
-			/// Le pont des evenements de l'arbre embarque vers ceux du navigateur :
-			/// une selection de dossier EST une navigation.
-			struct TreeBridge {
-					NkContentBrowserResult *res = nullptr;
-					const NkContentBrowserHooks *hooks = nullptr;
-					const NkTreeViewModel *folders = nullptr;
-			};
 			void TreeOnSelect(void *user, int32 index, const char *id) {
 				TreeBridge *b = (TreeBridge *)user;
 				b->res->navigated = true;
@@ -534,7 +532,8 @@ namespace nkentseu {
 				b->res->menuIndex = -1;
 			}
 
-		} // namespace
+		} // namespace cbi
+		using namespace cbi;
 
 		// ② LA SILHOUETTE, EXPOSEE. Le RAIL du selecteur (un `tree_view`) appelle CETTE
 		//    fonction-la, exactement comme la grille : une seule fonction, deux volets.
@@ -542,6 +541,13 @@ namespace nkentseu {
 		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
 								  uint16 role, uint8 contenu) {
 			Silhouette(p, r, genre, role, contenu);
+		}
+
+		// (2026-10-01) LA MEME, TEINTE PAR UNE COULEUR CHOISIE : la grille d'Unreal et le rail
+		// peignent un dossier colore avec CETTE fonction-ci, pas avec une copie.
+		void NkDessinerSilhouetteCouleur(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
+										 uint16 role, uint32 rgba, uint8 contenu) {
+			Silhouette(p, r, genre, role, contenu, rgba);
 		}
 		
 
@@ -552,6 +558,12 @@ namespace nkentseu {
 			NkContentBrowserResult res;
 			if (rect.w <= 0.f || rect.h <= 0.f)
 				return res;
+
+			// (2026-10-01) LA VARIANTE UNREAL A SON PROPRE DESSIN, dans son fichier
+			// (`NkContentBrowserUnreal.cpp`) : sept zones qui ne se superposent pas a
+			// celles du mixte. Meme modele, memes greffes, memes aides (cbi).
+			if (NkBrowserEffectiveVariant(s) == NkBrowserVariant::Unreal)
+				return NkDrawContentBrowserUnreal(p, in, rect, m, s, hooks);
 
 			// ── LES NOMBRES, TOUS, VIENNENT D'ICI ───────────────────────────────
 			// `M` est l'unique porte. Elle lit l'instance si l'application en a

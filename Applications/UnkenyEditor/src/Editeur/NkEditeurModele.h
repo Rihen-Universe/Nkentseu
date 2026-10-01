@@ -89,6 +89,19 @@ namespace nkentseu {
 				float32 volume = 1.f;
 		};
 
+		/// L'HISTORIQUE de l'editeur (2026-10-01) : Ctrl+Z / Ctrl+Y. Une PHOTO de la
+		/// scene (NkScene::NkPhoto, celle de Jouer / Arreter) prise AVANT chaque
+		/// geste qui la retient (NkEditeurRetenir) ; annuler la rend, refaire rend
+		/// celle d'apres. En EDITION seulement : en jeu, « Arreter » rend deja la
+		/// scene d'avant. Borne : les plus vieilles s'en vont.
+		/// ⚠️ SEULS LES GESTES QUI APPELLENT NkEditeurRetenir S'ANNULENT. A ce jour :
+		///    la case « active » des Details. Les autres l'appelleront un par un.
+		struct NkHistoriqueEditeur {
+				NkVector<unkeny::NkScene::NkPhoto> annuler; ///< la plus recente a la fin
+				NkVector<unkeny::NkScene::NkPhoto> refaire;
+				uint32 maximum = 32u;
+		};
+
 		/// Les etats d'UE5 : on EDITE une scene figee, on la JOUE, on la met en
 		/// PAUSE. « Arreter » rend la scene d'avant le lancement (la photo).
 		enum class NkEtatJeu : uint8 { NK_EDITION = 0, NK_JEU, NK_PAUSE };
@@ -99,8 +112,16 @@ namespace nkentseu {
 				NkCarteTuiles carte;
 
 				NkOutil outil = NkOutil::NK_SELECTION;
+				/// L'appareil simule : un indice du catalogue (NkProfil), ou
+				/// NkNbProfils() pour l'appareil PERSONNALISE (`appareil.perso`).
 				int32 profil = 0;
-				bool paysage = false;
+				/// (2026-10-01) Quatre orientations, et non plus un booleen
+				/// « paysage » : le portrait inverse et le SENS du paysage changent
+				/// la zone sure (document 03, §2.3).
+				NkOrientation orientation = NkOrientation::NK_PORTRAIT;
+				/// Interrupteurs du viseur et appareil personnalise : enregistres
+				/// avec la scene (`<scene>.nkappareil`, NkEditeurAppareilEnregistrer).
+				NkReglagesAppareil appareil;
 
 				/// La physique tourne-t-elle ?
 				///
@@ -112,6 +133,8 @@ namespace nkentseu {
 				NkEtatJeu etat = NkEtatJeu::NK_EDITION;
 				/// La scene d'avant « Jouer ». Valide tant qu'on n'a pas « Arrete ».
 				NkScene::NkPhoto photo;
+				/// Ctrl+Z / Ctrl+Y (NkHistoriqueEditeur).
+				NkHistoriqueEditeur historique;
 
 				// --- Ce que « Poser » pose ------------------------------------
 				/// Un acteur du catalogue de simulation (Unkeny/Simulation), ou —
@@ -168,9 +191,17 @@ namespace nkentseu {
 				/// theme-ci ne sert qu au contenu 2D dessine dans le viseur.
 				NkTheme theme;
 
-				/// Le profil effectif, rotation comprise.
+				/// Le profil effectif, rotation comprise (NkOrienter : la rotation
+				/// exacte, marges selon les regles du systeme).
 				NkProfilAppareil ProfilCourant() const noexcept {
-					return paysage ? NkTourner(NkProfil(profil)) : NkProfil(profil);
+					return NkOrienter(ProfilDeBase(), orientation);
+				}
+				/// Le profil choisi, EN PORTRAIT : du catalogue, ou le personnalise.
+				NkProfilAppareil ProfilDeBase() const noexcept {
+					return profil == NkNbProfils() ? appareil.perso : NkProfil(profil);
+				}
+				bool ProfilPersonnalise() const noexcept {
+					return profil == NkNbProfils();
 				}
 
 				/// Le pointeur de selection attendu par les fonctions de dessin

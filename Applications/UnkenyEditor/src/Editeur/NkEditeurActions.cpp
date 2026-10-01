@@ -9,6 +9,7 @@
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 
@@ -59,6 +60,7 @@ namespace nkentseu {
 
 		// =====================================================================
 		void NkEditeurNouvelleScene(NkEditeurModele &m) {
+			NkEditeurOublierHistorique(m);
 			NkSceneConfig cfg;
 			cfg.physique = true;   // l'editeur exerce la physique : c'est son role
 			cfg.particules = true; // et la matiere : corps mous, fluides, atomes
@@ -540,7 +542,11 @@ namespace nkentseu {
 			const float32 pixel = 1.f / s.Camera().Zoom();
 			Prise prise;
 			prise.tolerance = NK_PRISE_TOLERANCE_PX * pixel;
-			auto exclue = [&](ecs::NkEntityId id) { return NkEditeurVerrouilleDansLaVue(m, id) || NkEditeurCacheDansLaVue(m, id); };
+			// (2026-10-01) Une entite ETEINTE n'est pas rendue : elle ne se prend pas
+			// non plus dans la vue (l'Outliner la choisit toujours).
+			auto exclue = [&](ecs::NkEntityId id) {
+				return NkEditeurVerrouilleDansLaVue(m, id) || NkEditeurCacheDansLaVue(m, id) || !s.EstActive(id);
+			};
 
 			// La matiere (niveau 2).
 			if (const physics::NkParticules2D *p = s.Particules()) {
@@ -1727,6 +1733,77 @@ namespace nkentseu {
 			return m.chemin.CStr();
 		}
 
+		// =====================================================================
+		// L'HISTORIQUE (2026-10-01)
+		// =====================================================================
+		void NkEditeurOublierHistorique(NkEditeurModele &m) {
+			m.historique.annuler.Clear();
+			m.historique.refaire.Clear();
+		}
+
+		void NkEditeurRetenir(NkEditeurModele &m) {
+			if (m.etat != NkEtatJeu::NK_EDITION) {
+				return;
+			}
+			NkHistoriqueEditeur &h = m.historique;
+			NkScene::NkPhoto photo;
+			m.scene.Photographier(photo);
+			if (h.annuler.Size() >= h.maximum && h.annuler.Size() > 0u) {
+				h.annuler.RemoveAt(0);
+			}
+			h.annuler.PushBack(photo);
+			h.refaire.Clear();
+		}
+
+		namespace {
+			/// Rend `photo` a la scene ; la selection suit par IDENTITE.
+			void RendrePhoto(NkEditeurModele &m, const NkScene::NkPhoto &photo) {
+				const uint64 uid = m.aSelection ? m.scene.Uid(m.selection) : 0u;
+				m.scene.Restaurer(photo);
+				const ecs::NkEntityId e = uid != 0u ? m.scene.EntiteParUid(uid) : ecs::NkEntityId::Invalid();
+				m.aSelection = e.IsValid();
+				m.selection = e;
+			}
+
+			bool Basculer(NkEditeurModele &m, NkVector<NkScene::NkPhoto> &depuis, NkVector<NkScene::NkPhoto> &vers,
+						  const char *rien, const char *fait) {
+				if (m.etat != NkEtatJeu::NK_EDITION) {
+					NkEditeurAnnoncer(m, "En jeu, Arreter rend la scene d'avant : l'historique est celui de l'edition");
+					return false;
+				}
+				if (depuis.Empty()) {
+					NkEditeurAnnoncer(m, rien);
+					return false;
+				}
+				NkScene::NkPhoto maintenant;
+				m.scene.Photographier(maintenant);
+				vers.PushBack(maintenant);
+				const NkScene::NkPhoto photo = depuis[depuis.Size() - 1u];
+				depuis.PopBack();
+				RendrePhoto(m, photo);
+				NkEditeurAnnoncer(m, fait);
+				return true;
+			}
+		} // namespace
+
+		bool NkEditeurAnnuler(NkEditeurModele &m) {
+			return Basculer(m, m.historique.annuler, m.historique.refaire, "Rien a annuler", "Annule");
+		}
+
+		bool NkEditeurRefaire(NkEditeurModele &m) {
+			return Basculer(m, m.historique.refaire, m.historique.annuler, "Rien a retablir", "Retabli");
+		}
+
+		bool NkEditeurActiverEntite(NkEditeurModele &m, ecs::NkEntityId id, bool actif) {
+			if (!m.scene.Monde().IsAlive(id) || m.scene.EstActiveSoi(id) == actif) {
+				return false;
+			}
+			NkEditeurRetenir(m);
+			const bool ok = m.scene.Activer(id, actif);
+			NkEditeurAnnoncer(m, actif ? "Entite activee" : "Entite desactivee : ni rendue, ni simulee, ni animee (Ctrl+Z annule)");
+			return ok;
+		}
+
 		void NkEditeurAnnoncer(NkEditeurModele &m, const char *texte) {
 			m.message = texte;
 			m.messageAge = 0.f;
@@ -1739,8 +1816,28 @@ namespace nkentseu {
 				NkEditeurArreter(m);
 			}
 			const bool ok = NkSauverSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene());
+			// L'appareil simule part AVEC la scene (document 03, §2.2) : un
+			// fichier a cote, comme les entrees (.nkentrees).
+			if (ok) {
+				NkEditeurAppareilEnregistrer(m, NkEditeurChemin(m));
+			}
 			NkEditeurAnnoncer(m, ok ? "Scene enregistree" : "Enregistrement impossible");
 			return ok;
+		}
+
+		bool NkEditeurAppareilEnregistrer(const NkEditeurModele &m, const char *cheminScene) {
+			const NkString chemin = NkFichierAppareil(cheminScene);
+			return NkFile::WriteAllText(chemin.CStr(), NkEcrireAppareil(m.profil, m.orientation, m.appareil).CStr());
+		}
+
+		bool NkEditeurAppareilCharger(NkEditeurModele &m, const char *cheminScene) {
+			// ⚠️ ABSENT = RIEN NE CHANGE : une scene d'avant le 01/10 n'a pas ce
+			// fichier, et l'ouvrir ne doit pas jeter l'appareil qu'on regardait.
+			const NkString chemin = NkFichierAppareil(cheminScene);
+			if (!NkFile::Exists(chemin.CStr())) {
+				return false;
+			}
+			return NkLireAppareil(NkFile::ReadAllText(chemin.CStr()), m.profil, m.orientation, m.appareil);
 		}
 
 		bool NkEditeurOuvrir(NkEditeurModele &m) {
@@ -1749,6 +1846,8 @@ namespace nkentseu {
 			DeclarerDrapeaux(m.scene);
 			const bool ok = NkChargerSceneFichier(m.scene, NkEditeurChemin(m), m.RessourcesScene(), &erreur);
 			if (ok) {
+				NkEditeurAppareilCharger(m, NkEditeurChemin(m));
+				NkEditeurOublierHistorique(m);
 				Aligner(m);
 				m.etat = NkEtatJeu::NK_EDITION;
 				m.photo.valide = false;

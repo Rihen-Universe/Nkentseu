@@ -124,8 +124,9 @@ namespace nkentseu {
 			// --- Rigides ----------------------------------------------------
 			if (physics::NkPhysicsWorld *monde = scene.MondePhysique()) {
 				scene.Monde().Query<NkControleRigide2D, NkCorps2D>().ForEach(
-					[&](ecs::NkEntityId, NkControleRigide2D &c, NkCorps2D &k) {
-						if (!c.reglages.actif) {
+					[&](ecs::NkEntityId id, NkControleRigide2D &c, NkCorps2D &k) {
+						// Une entite ETEINTE (NkUnkenyActif.h) n'est pas pilotee.
+						if (!c.reglages.actif || !scene.EstActive(id)) {
 							return;
 						}
 						physics::NkRigidBody *b = monde->GetBody(k.corpsId);
@@ -176,8 +177,8 @@ namespace nkentseu {
 			if (p == nullptr) {
 				return;
 			}
-			scene.Monde().Query<NkControleMou2D, NkCorpsMou2D>().ForEach([&](ecs::NkEntityId, NkControleMou2D &c, NkCorpsMou2D &mou) {
-				if (!c.reglages.actif) {
+			scene.Monde().Query<NkControleMou2D, NkCorpsMou2D>().ForEach([&](ecs::NkEntityId id, NkControleMou2D &c, NkCorpsMou2D &mou) {
+				if (!c.reglages.actif || !scene.EstActive(id)) {
 					return;
 				}
 				const int32 ci = p->IndexCorps(mou.corpsId);

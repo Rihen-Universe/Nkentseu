@@ -109,6 +109,11 @@ namespace nkentseu {
 		///        renseignent pas gardent EXACTEMENT le dessin d'avant.
 		void NkDessinerSilhouette(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
 								  uint16 role, uint8 contenu = 0);
+		/// (2026-10-01) La MEME silhouette, teinte par une COULEUR choisie (un dossier
+		/// que l'utilisateur a colore, Unreal « Set Color ») plutot que par un role.
+		/// `rgba == 0` : exactement `NkDessinerSilhouette(role)`.
+		void NkDessinerSilhouetteCouleur(NkComponentPaint &p, const NkPaintRect &r, NkAssetIcone genre,
+										 uint16 role, uint32 rgba, uint8 contenu = 0);
 
 	} // namespace editorkit
 } // namespace nkentseu

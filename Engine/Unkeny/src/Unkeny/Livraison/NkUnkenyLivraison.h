@@ -104,6 +104,9 @@ namespace nkentseu {
 				/// fenetre d'une autre taille. 0 = garder le zoom tel quel.
 				float32 vueLargeur = 0.f;
 				float32 vueHauteur = 0.f;
+				/// (2026-10-01) La camera du jeu sur un autre ecran (NkUnkenyEcran.h).
+				/// « tout montrer » par defaut : le comportement d'avant.
+				NkRegleCamera regleCamera = NkRegleCamera::NK_TOUT_MONTRER;
 				NkVector<NkSonACuire> sons;
 				/// Les liaisons du jeu, en texte (NkLiaisons::Ecrire). Vide : aucun
 				/// fichier, le joueur prend les liaisons standard.
@@ -137,6 +140,8 @@ namespace nkentseu {
 				uint64 empreinteLue = 0u;	   ///< celle de la scene relue
 				float32 vueLargeur = 0.f;
 				float32 vueHauteur = 0.f;
+				/// Absente d'un jeu cuit avant le 01/10 : « tout montrer ».
+				NkRegleCamera regleCamera = NkRegleCamera::NK_TOUT_MONTRER;
 				uint32 textures = 0u; ///< textures relues
 				uint32 sons = 0u;	  ///< sons relus
 				/// Le texte des entrees cuites (a donner a NkLiaisons::Lire). Vide :

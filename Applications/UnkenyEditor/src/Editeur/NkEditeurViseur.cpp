@@ -9,6 +9,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
+#include "Unkeny/Partie/NkUnkenyZoneSure.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -16,26 +17,48 @@ namespace nkentseu {
 		using nkgui::NkColor;
 		using nkgui::NkRect;
 
-		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept {
-			const float32 rapport = static_cast<float32>(profil.largeur) / static_cast<float32>(profil.hauteur);
-			const float32 marge = 24.f;
-			float32 aw = viseur.w - marge * 2.f;
-			float32 ah = aw / rapport;
-			if (ah > viseur.h - marge * 2.f) {
-				ah = viseur.h - marge * 2.f;
-				aw = ah * rapport;
+		// NkAireAppareil vit avec le cadre, dans NkEditeurCadreAppareil.cpp
+		// (2026-10-01) : la place reservee au cadre et son dessin ne doivent pas
+		// diverger.
+
+		void NkEditeurPoserEcranDuJeu(NkEditeurModele &m, const nkgui::NkRect &viseur, const nkgui::NkRect &appareil) {
+			if (m.profil == 0) {
+				renderer::NkLayoutInfo bureau;
+				bureau.width = static_cast<uint32>(viseur.w > 1.f ? viseur.w : 1.f);
+				bureau.height = static_cast<uint32>(viseur.h > 1.f ? viseur.h : 1.f);
+				m.scene.PoserEcran(NkEcranDepuisLayout(bureau, viseur, true));
+				return;
 			}
-			// ⚠️ Un panneau peut etre reduit a presque rien par l'ancrage. Sans
-			// ce plancher, l'aire devient negative, la camera recoit un viseur
-			// vide, et la division par sa largeur rend des coordonnees infinies
-			// -- une panne qui sort loin d'ici, dans la conversion ecran/monde.
-			if (aw < 1.f) {
-				aw = 1.f;
-			}
-			if (ah < 1.f) {
-				ah = 1.f;
-			}
-			return nkgui::NkRect{viseur.x + (viseur.w - aw) * 0.5f, viseur.y + (viseur.h - ah) * 0.5f, aw, ah};
+			m.scene.PoserEcran(NkEcranDepuisLayout(NkLayoutSimule(m.ProfilCourant()), appareil, true));
+		}
+
+		NkCadrageCamera NkEditeurDessinerApercuJeu(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+												   const nkgui::NkRect &appareil) {
+			NkScene &scene = m.scene;
+			NkVue2D &cam = scene.Camera();
+			const NkRect viseurAvant = cam.Viseur();
+			const float32 zoomAvant = cam.Zoom();
+			const NkCadrageCamera cad = NkCadrerCamera(m.appareil.regleCamera, viseur.w, viseur.h, zoomAvant, appareil);
+			// Les bandes (s'il y en a) sont noires ; l'ecran du jeu a le fond du viseur.
+			dl.AddRectFilled(appareil, NkColor(0, 0, 0));
+			dl.AddRectFilled(cad.vue, NkColor(20, 23, 31));
+			cam.PoserViseur(cad.vue);
+			cam.PoserZoom(cad.zoom);
+			// L'ecran du jeu se restreint a l'image (les bandes), comme dans le
+			// joueur ; il est rendu ensuite.
+			const NkEcranDuJeu ecranAvant = scene.Ecran();
+			scene.PoserEcran(NkEcranDansVue(ecranAvant, cad.vue));
+			// Le HUD se repose pour CETTE camera (sa position monde en depend).
+			NkVector<NkPositionAncree> ancrees;
+			NkAppliquerAncrages(scene, m.etat == NkEtatJeu::NK_EDITION ? &ancrees : nullptr);
+			dl.PushClipRect(cad.vue, true);
+			NkDessinerPartie(dl, scene, m.rendu);
+			dl.PopClipRect();
+			NkRendreAncrages(scene, ancrees);
+			scene.PoserEcran(ecranAvant);
+			cam.PoserViseur(viseurAvant);
+			cam.PoserZoom(zoomAvant);
+			return cad;
 		}
 
 		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
@@ -88,6 +111,17 @@ namespace nkentseu {
 					bool aTransform = false;
 					bool mouVisible = false;
 			};
+			// --- L'ECRAN DU JEU (2026-10-01, document 03 §2.5) ------------------
+			// Le jeu lit la zone sure dans scene.Ecran() : ici, celle de
+			// l'appareil SIMULE (NkLayoutSimule, la structure de NKCanvas), posee
+			// sur l'ecran de l'appareil dans le viseur ; le bureau (profil 0) n'a
+			// pas de marge, son ecran est le viseur entier. Les entites ancrees a
+			// l'ecran (HUD) y sont posees AVANT les ecartees : une entite cachee
+			// et ancree reste cachee. En EDITION leurs positions sont RENDUES
+			// apres le dessin : la scene editee ne bouge pas.
+			NkEditeurPoserEcranDuJeu(m, viseur, appareil);
+			NkVector<NkPositionAncree> ancrees;
+			NkAppliquerAncrages(scene, m.etat == NkEtatJeu::NK_EDITION ? &ancrees : nullptr);
 			NkVector<NkEcartee> ecartees;
 			if (m.etat == NkEtatJeu::NK_EDITION) {
 				// Elle, OU un ancetre : un parent cache cache sa descendance.
@@ -142,7 +176,7 @@ namespace nkentseu {
 				const NkColor fondMarqueur(150, 160, 185, 90);
 				const NkColor bordMarqueur(200, 208, 225, 230);
 				scene.Monde().Query<NkTransform2D>().ForEach([&](ecs::NkEntityId id, NkTransform2D &t) {
-					if (!NkEditeurSansVisuel(m, id) || NkEditeurCacheDansLaVue(m, id)) {
+					if (!NkEditeurSansVisuel(m, id) || NkEditeurCacheDansLaVue(m, id) || !scene.EstActive(id)) {
 						return;
 					}
 					const NkVec2f e = scene.Camera().MondeVersEcran(t.position);
@@ -172,6 +206,7 @@ namespace nkentseu {
 			}
 			NkEditeurDessinerIconesLumiere(dl, m);
 			dl.PopClipRect();
+			NkRendreAncrages(scene, ancrees);
 
 			// Le bord du viseur dit l'ETAT — VERT en jeu, AMBRE en pause : on sait
 			// d'un regard si ce qu'on voit est la scene editee ou un instant de
@@ -187,45 +222,16 @@ namespace nkentseu {
 			if (m.profil == 0) {
 				return stats;
 			}
-			// Un contour fin : ce que l'ecran de l'appareil montrerait, a son
-			// rapport, sans rien masquer du monde autour.
-			dl.AddRect(appareil, NkColor(200, 205, 215, 120), 1.f, 6.f);
-
-			// --- LA ZONE SURE SIMULEE ------------------------------------
-			// Elle est dessinee APRES la decoupe : c'est une surcouche de
-			// l'editeur, pas un element de la scene.
-			//
-			// ⚠️ C'est la raison d'etre de ce reglage. Ce qui tombe dans les
-			// bandes est INATTEIGNABLE sur l'appareil — pas mal place :
-			// inatteignable. Et cela ne se voit JAMAIS depuis une machine de
-			// bureau.
-			const float32 ex = appareil.w / static_cast<float32>(profil.largeur);
-			const float32 ey = appareil.h / static_cast<float32>(profil.hauteur);
-			const NkColor voile(220, 90, 90, 46);
-			const NkColor trait(235, 120, 120, 190);
-
-			auto bande = [&](const NkRect &r) {
-				if (r.w <= 0.f || r.h <= 0.f) {
-					return;
-				}
-				dl.AddRectFilled(r, voile);
-			};
-			const float32 hHaut = profil.zoneSure.top * ey;
-			const float32 hBas = profil.zoneSure.bottom * ey;
-			const float32 lG = profil.zoneSure.left * ex;
-			const float32 lD = profil.zoneSure.right * ex;
-			bande(NkRect{appareil.x, appareil.y, appareil.w, hHaut});
-			bande(NkRect{appareil.x, appareil.y + appareil.h - hBas, appareil.w, hBas});
-			bande(NkRect{appareil.x, appareil.y, lG, appareil.h});
-			bande(NkRect{appareil.x + appareil.w - lD, appareil.y, lD, appareil.h});
-
-			// Le cadre de la zone SURE elle-meme : c'est dedans qu'un bouton doit
-			// tenir.
-			if (hHaut > 0.f || hBas > 0.f || lG > 0.f || lD > 0.f) {
-				dl.AddRect(NkRect{appareil.x + lG, appareil.y + hHaut, appareil.w - lG - lD,
-								  appareil.h - hHaut - hBas},
-						   trait, 1.f);
+			// (2026-10-01) L'APERCU DE LA CAMERA DU JEU (document 03, §2.6) : dans
+			// l'ecran de l'appareil, ce que le joueur montrerait, selon la regle
+			// du projet -- la reference est CE viseur et CE zoom, ceux que
+			// Construire cuirait maintenant.
+			if (m.appareil.apercuJeu) {
+				NkEditeurDessinerApercuJeu(dl, m, viseur, appareil);
 			}
+			// Le CADRE en vecteurs, la zone sure, la decoupe : selon les
+			// interrupteurs du menu Appareil (document 03, §2.4).
+			NkDessinerAppareil(dl, profil, appareil, m.appareil, viseur);
 			return stats;
 		}
 

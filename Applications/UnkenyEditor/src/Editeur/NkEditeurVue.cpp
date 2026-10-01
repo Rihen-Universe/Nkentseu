@@ -911,7 +911,7 @@ namespace nkentseu {
 				return;
 			}
 			auto &dl = c.ctx.dl;
-			const NkRect appareil = NkAireAppareil(aire, c.m.ProfilCourant());
+			const NkRect appareil = NkAireAppareil(aire, c.m.ProfilCourant(), c.m.appareil.voirCadre);
 			// ⚠️ LE VISEUR DE LA CAMERA EST TOUTE L'AIRE (2026-09-29). Il etait
 			//    l'aire d'appareil : le monde ne se voyait que dans un rectangle
 			//    centre. L'appareil n'est plus qu'une surimpression (NkDessinerViseur).

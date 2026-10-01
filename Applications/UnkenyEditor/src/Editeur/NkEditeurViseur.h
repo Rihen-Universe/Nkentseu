@@ -38,7 +38,30 @@ namespace nkentseu {
 		/// avec NKEditorKit, le viseur est un panneau ancre qui apprend son
 		/// rectangle au moment ou il se dessine. Il n'y a plus de disposition
 		/// calculee d'avance a qui poser la question.
-		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil) noexcept;
+		///
+		/// (2026-10-01) `avecCadre` : la place du CADRE (bordure, boutons, pied)
+		/// est reservee, tournee avec l'appareil. Rend toujours l'ECRAN seul.
+		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil,
+									 bool avecCadre = false) noexcept;
+
+		/// L'ECRAN DU JEU dans l'editeur (document 03, §2.5) : la zone sure de
+		/// l'appareil simule (NkLayoutSimule), sur son ecran dans le viseur, posee
+		/// dans m.scene (NkScene::PoserEcran). Le bureau : le viseur, sans marge.
+		void NkEditeurPoserEcranDuJeu(NkEditeurModele &m, const nkgui::NkRect &viseur, const nkgui::NkRect &appareil);
+
+		/// L'APERCU de la camera du jeu (document 03, §2.6) : dans l'ecran de
+		/// l'appareil, la scene telle que le joueur la montrerait selon la regle
+		/// du projet (NkCadrerCamera), reference = ce viseur et ce zoom. La camera
+		/// de l'editeur est rendue intacte. Rend le cadrage employe.
+		NkCadrageCamera NkEditeurDessinerApercuJeu(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+												   const nkgui::NkRect &appareil);
+
+		/// Le cadre de l'appareil simule, en vecteurs (NkEditeurCadreAppareil.cpp) :
+		/// bordure, coins, boutons, decoupe, zone sure, marge conseillee, selon
+		/// les interrupteurs de `r`. `ecran` vient de NkAireAppareil ; ce qui est
+		/// hors de l'appareil, dans `viseur`, est voile quand le cadre est montre.
+		void NkDessinerAppareil(nkgui::NkGuiDrawList &dl, const NkProfilAppareil &p, const nkgui::NkRect &ecran,
+								const NkReglagesAppareil &r, const nkgui::NkRect &viseur);
 
 		// Ce qui est sous le curseur : NkEditeurPrendreSous (NkEditeurActions.h),
 		// qui suit l'ordre de dessin de NkDessinerViseur (30/09). L'ancien

@@ -18,6 +18,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -231,11 +232,18 @@ namespace nkentseu {
 						out.PushBack(Entree("Enregistrer", NK_A_ENREGISTRER, "Ctrl+S"));
 						out.PushBack(Entree("Fermer la scène", NK_A_FERMER_SCENE));
 						out.PushBack(Separateur());
+						// (2026-09-30) Le Contenu du projet : les memes que la barre du navigateur.
+						out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
+						out.PushBack(Entree("Exporter la sélection…", NK_A_CONTENU_EXPORTER, "", false, !c.ui.contenuChoisis.Empty()));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Construire…", NK_A_CONSTRUIRE));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Quitter", NK_A_QUITTER, "Ctrl+Q"));
 						break;
 					case NkMenuEditeur::NK_EDITION:
+						out.PushBack(Entree("Annuler", NK_A_ANNULER, "Ctrl+Z", false, !m.historique.annuler.Empty()));
+						out.PushBack(Entree("Rétablir", NK_A_REFAIRE, "Ctrl+Y", false, !m.historique.refaire.Empty()));
+						out.PushBack(Separateur());
 						out.PushBack(Entree("Nouvelle entité", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Dupliquer", NK_A_DUPLIQUER, "Ctrl+D", false, m.aSelection));
 						out.PushBack(Entree("Supprimer", NK_A_SUPPRIMER, "Suppr", false, m.aSelection));
@@ -286,6 +294,10 @@ namespace nkentseu {
 					case NkMenuEditeur::NK_AJOUTER:
 						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Entité simple (sprite + boîte) : poser", NK_A_ARMER_SIMPLE));
+						// (2026-10-01) Un element d'interface ancre dans la zone sure.
+						out.PushBack(Entree("Élément d'interface (HUD ancré)",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_AJOUTER_HUD), "",
+											false, m.etat == NkEtatJeu::NK_EDITION));
 						EntreesCatalogue(out, NK_A_POSER_ACTEUR);
 						break;
 					case NkMenuEditeur::NK_CTX_ENTITE: {
@@ -309,6 +321,11 @@ namespace nkentseu {
 											m.aSelection && m.etat == NkEtatJeu::NK_EDITION));
 						out.PushBack(Entree("Détacher du parent", NK_A_DETACHER, "", false,
 											m.aSelection && m.scene.Parent(m.selection).IsValid()));
+						out.PushBack(Entree("Ancrer à l'écran (HUD)",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_ANCRER_SELECTION), "",
+											false,
+											m.aSelection && m.etat == NkEtatJeu::NK_EDITION &&
+												!m.scene.Monde().Has<NkAncrageEcran2D>(m.selection)));
 						break;
 					}
 					case NkMenuEditeur::NK_CTX_VIDE:
@@ -330,13 +347,71 @@ namespace nkentseu {
 												NK_A_EMETTEUR_ICI + p));
 						}
 						break;
-					case NkMenuEditeur::NK_APPAREIL:
-						for (int32 k = 0; k < NkNbProfils(); ++k) {
-							out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
+					case NkMenuEditeur::NK_APPAREIL: {
+						// (2026-10-01) Le catalogue PAR FAMILLE : 21 appareils en vrac ne
+						// se parcourent pas. Les indices, eux, ne bougent pas.
+						struct NkGroupe {
+								const char *titre;
+								NkFamilleAppareil a;
+								NkFamilleAppareil b;
+						};
+						static const NkGroupe kGroupes[] = {
+							{"Téléphones", NkFamilleAppareil::NK_TELEPHONE, NkFamilleAppareil::NK_TELEPHONE},
+							{"Tablettes et pliables", NkFamilleAppareil::NK_TABLETTE, NkFamilleAppareil::NK_PLIABLE},
+							{"Bureau, navigateur, TV", NkFamilleAppareil::NK_BUREAU, NkFamilleAppareil::NK_TV},
+							{"Consoles, montre", NkFamilleAppareil::NK_CONSOLE, NkFamilleAppareil::NK_MONTRE},
+						};
+						for (const NkGroupe &g : kGroupes) {
+							out.PushBack(Intitule(g.titre));
+							for (int32 k = 0; k < NkNbProfils(); ++k) {
+								const NkFamilleAppareil f = NkProfil(k).famille;
+								const bool dedans = (f == g.a || f == g.b) ||
+													(g.a == NkFamilleAppareil::NK_BUREAU && f == NkFamilleAppareil::NK_NAVIGATEUR);
+								if (dedans) {
+									out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
+								}
+							}
 						}
 						out.PushBack(Separateur());
-						out.PushBack(Entree("Paysage", NK_A_PAYSAGE, "", m.paysage));
+						out.PushBack(Entree("Personnalisé", NK_A_APPAREIL + NkNbProfils(), "", m.ProfilPersonnalise()));
+						out.PushBack(Entree("Personnaliser cet appareil",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_PERSONNALISER), "",
+											false, !m.ProfilPersonnalise()));
+						out.PushBack(Separateur());
+						// (2026-10-01) Les QUATRE orientations : le sens du paysage
+						// change le cote de la decoupe (document 03, §2.3).
+						{
+							const NkProfilAppareil base = NkProfil(m.profil);
+							const bool naturelPaysage = base.largeur > base.hauteur;
+							for (int32 k = 0; k < static_cast<int32>(NkOrientation::NK_COUNT); ++k) {
+								const NkOrientation o = static_cast<NkOrientation>(k);
+								out.PushBack(Entree(NkNomOrientation(o, naturelPaysage), NK_A_ORIENTATION + k, "",
+													m.orientation == o));
+							}
+						}
+						out.PushBack(Separateur());
+						{
+							static const char *kOptions[5] = {"Cadre", "Zone sûre", "Découpe de caméra", "Cadre clair",
+															  "Aperçu de la caméra du jeu"};
+							const bool etats[5] = {m.appareil.voirCadre, m.appareil.voirZoneSure, m.appareil.voirDecoupe,
+												   m.appareil.cadreClair, m.appareil.apercuJeu};
+							for (int32 k = 0; k < 5; ++k) {
+								out.PushBack(Entree(kOptions[k], NK_A_OPTION_APPAREIL + k, "", etats[k]));
+							}
+						}
+						// (2026-10-01) La camera du JEU sur un autre ecran (document 03, §2.6).
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Caméra du jeu selon l'écran"));
+						{
+							static const char *kRegles[5] = {"Tout montrer", "Hauteur fixe", "Largeur fixe",
+															  "Tout montrer, avec bandes", "Remplir (rogner)"};
+							for (int32 k = 0; k < 5; ++k) {
+								out.PushBack(Entree(kRegles[k], NK_A_REGLE_CAMERA + k, "",
+													static_cast<int32>(m.appareil.regleCamera) == k));
+							}
+						}
 						break;
+					}
 					case NkMenuEditeur::NK_REGLAGES: {
 						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
 						out.PushBack(Entree("Collisionneurs", NK_A_COLLISIONNEURS, "", m.voirCollisionneurs));
@@ -353,6 +428,166 @@ namespace nkentseu {
 						}
 						break;
 					}
+					// (2026-09-30, lot 1) Le clic droit hors d'une entite.
+					case NkMenuEditeur::NK_CTX_ARBRE:
+						out.PushBack(Intitule("Scène"));
+						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
+						out.PushBack(SousMenu("Ajouter", NkMenuEditeur::NK_AJOUTER));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Cadrer tout", NK_A_CADRER));
+						break;
+					case NkMenuEditeur::NK_CTX_CONTENU: {
+						// (2026-10-01, document 02 §3.1) LE CLIC DROIT D'UNREAL, complet, sur
+						// un asset ou un dossier du Contenu ; celui du catalogue reste le sien.
+						const NkString &cible = c.ui.contenuMenuChemin;
+						out.PushBack(Intitule(editorkit::NkDisqueNom(c.ui.contenuMenuNom.CStr()).CStr()));
+						const bool projet = NkEditeurCheminEstContenu(cible.CStr());
+						const bool racine = projet && NkEditeurRelatifContenu(cible.CStr()).Empty();
+						const bool colle = !c.ui.pressePapierContenu.Empty();
+						const uint32 n = c.ui.contenuChoisis.Size() > 1u ? static_cast<uint32>(c.ui.contenuChoisis.Size()) : 1u;
+						if (c.ui.contenuMenuDossier) {
+							out.PushBack(Entree("Ouvrir", NK_A_CONTENU_OUVRIR));
+							if (projet) {
+								out.PushBack(Entree("Nouveau dossier", NK_A_CONTENU_NOUVEAU_DOSSIER));
+								out.PushBack(Entree("Importer ici…", NK_A_CONTENU_IMPORTER));
+								out.PushBack(Separateur());
+								out.PushBack(Entree("Couper", NK_A_CONTENU_COUPER, "Ctrl+X", false, !racine));
+								out.PushBack(Entree("Copier", NK_A_CONTENU_COPIER, "Ctrl+C", false, !racine));
+								out.PushBack(Entree("Coller ici", NK_A_CONTENU_COLLER, "Ctrl+V", false, colle));
+								out.PushBack(Entree("Dupliquer", NK_A_CONTENU_DUPLIQUER, "Ctrl+D", false, !racine));
+								out.PushBack(Entree("Renommer", NK_A_CONTENU_RENOMMER, "F2", false, !racine && n == 1u));
+								out.PushBack(Entree(n > 1u ? NkString::Format("Supprimer (%u)", n).CStr() : "Supprimer", NK_A_CONTENU_SUPPRIMER,
+													"Suppr", false, !racine));
+								out.PushBack(Separateur());
+								out.PushBack(SousMenu("Couleur du dossier", NkMenuEditeur::NK_CONTENU_COULEUR));
+								const bool favori = c.ui.contenuMeta.EstFavori(NkEditeurRelatifContenu(cible.CStr()));
+								out.PushBack(Entree(favori ? "Retirer des Favoris" : "Ajouter aux Favoris", NK_A_CONTENU_FAVORI));
+								out.PushBack(Entree("Copier le chemin", NK_A_CONTENU_COPIER_CHEMIN));
+							}
+						} else if (projet) {
+							// Un asset du projet : sa nature, puis les gestes d'Unreal.
+							const NkNatureContenu nature = NkEditeurNatureFichier(cible.CStr());
+							out.PushBack(Intitule(nature.libelle));
+							if (nature.type == NkAssetType::Scene) {
+								out.PushBack(Entree("Ouvrir la scène", NK_A_CONTENU_OUVRIR_ASSET));
+							} else if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
+								out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER_ASSET));
+							}
+							out.PushBack(Separateur());
+							out.PushBack(Entree("Couper", NK_A_CONTENU_COUPER, "Ctrl+X"));
+							out.PushBack(Entree("Copier", NK_A_CONTENU_COPIER, "Ctrl+C"));
+							out.PushBack(Entree("Coller", NK_A_CONTENU_COLLER, "Ctrl+V", false, colle));
+							out.PushBack(Entree("Dupliquer", NK_A_CONTENU_DUPLIQUER, "Ctrl+D"));
+							out.PushBack(Entree("Renommer", NK_A_CONTENU_RENOMMER, "F2", false, n == 1u));
+							out.PushBack(Entree(n > 1u ? NkString::Format("Supprimer (%u)", n).CStr() : "Supprimer", NK_A_CONTENU_SUPPRIMER,
+												"Suppr"));
+							out.PushBack(Separateur());
+							if (!c.ui.contenuMeta.collections.Empty()) {
+								out.PushBack(SousMenu("Ajouter à une collection", NkMenuEditeur::NK_CONTENU_COLLECTION));
+							} else {
+								out.PushBack(Entree("Nouvelle collection avec la sélection", NK_A_CONTENU_NOUVELLE_COLLECTION));
+							}
+							if (c.ui.contenuCollection >= 0) {
+								out.PushBack(Entree("Retirer de la collection", NK_A_CONTENU_RETIRER_COLLECTION));
+							}
+							out.PushBack(Entree("Exporter…", NK_A_CONTENU_EXPORTER));
+							out.PushBack(Entree("Copier le chemin", NK_A_CONTENU_COPIER_CHEMIN));
+						} else {
+							out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER));
+							out.PushBack(Entree("Armer « Poser » (clic dans la vue)", NK_A_CONTENU_ARMER));
+						}
+						break;
+					}
+					case NkMenuEditeur::NK_CTX_CONTENU_VIDE:
+						if (c.ui.contenuProjet || c.ui.contenuCollection >= 0) {
+							out.PushBack(Intitule(c.ui.contenuDossier.Empty() ? NK_CONTENU_RACINE : c.ui.contenuDossier.CStr()));
+							if (c.ui.contenuProjet) {
+								out.PushBack(Entree("Nouveau dossier", NK_A_CONTENU_NOUVEAU_DOSSIER));
+								out.PushBack(Separateur());
+								out.PushBack(Intitule("Créer ici"));
+								out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
+								out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
+								out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+								out.PushBack(Separateur());
+								out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
+								out.PushBack(Entree("Coller", NK_A_CONTENU_COLLER, "Ctrl+V", false, !c.ui.pressePapierContenu.Empty()));
+							}
+							out.PushBack(Entree("Tout sélectionner", NK_A_CONTENU_TOUT_SELECTIONNER, "Ctrl+A"));
+							out.PushBack(Entree("Exporter la sélection…", NK_A_CONTENU_EXPORTER, "", false, !c.ui.contenuChoisis.Empty()));
+							out.PushBack(Separateur());
+							out.PushBack(Entree("Revenir à « Contenu »", NK_A_CONTENU_RACINE, "", false, !c.ui.contenuDossier.Empty()));
+						} else {
+							out.PushBack(Intitule(c.ui.categorie >= 0 ? NkCategorieActeurNom(static_cast<NkCategorieActeur>(c.ui.categorie))
+																	   : "Acteurs"));
+							out.PushBack(Entree("Revenir à « Acteurs »", NK_A_CONTENU_RACINE, "", false, c.ui.categorie >= 0));
+							out.PushBack(Entree("Importer dans le Contenu…", NK_A_CONTENU_IMPORTER));
+						}
+						break;
+					// ── Le navigateur a la maniere d'UE5 (2026-10-01) ──
+					case NkMenuEditeur::NK_CONTENU_AJOUTER:
+						out.PushBack(Intitule("Créer dans le dossier courant"));
+						out.PushBack(Entree("Nouveau dossier", NK_A_CONTENU_NOUVEAU_DOSSIER));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
+						out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
+						out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
+						break;
+					case NkMenuEditeur::NK_CONTENU_REGLAGES: {
+						out.PushBack(Intitule("Taille des vignettes"));
+						static const char *kTailles[4] = {"Petite", "Moyenne", "Grande", "Énorme"};
+						static const float32 kPx[4] = {48.f, 72.f, 112.f, 160.f};
+						for (int32 k = 0; k < 4; ++k) {
+							const float32 t = c.ui.contenu.thumbSize;
+							const bool coche = t >= (k == 0 ? 0.f : (kPx[k - 1] + kPx[k]) * 0.5f) && (k == 3 || t < (kPx[k] + kPx[k + 1]) * 0.5f);
+							out.PushBack(Entree(kTailles[k], NK_A_CONTENU_TAILLE + k, k == 0 ? "Ctrl+molette" : "", coche));
+						}
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Afficher"));
+						out.PushBack(Entree("Les dossiers", NK_A_CONTENU_AFFICHER_DOSSIERS, "", c.ui.contenu.montrerDossiers));
+						out.PushBack(Entree("Les filtres par type", NK_A_CONTENU_FILTRES, "", c.ui.contenu.filtresOuverts));
+						out.PushBack(Entree("En liste", NK_A_CONTENU_VUE_LISTE, "", c.ui.contenu.viewMode == 1));
+						break;
+					}
+					case NkMenuEditeur::NK_CONTENU_TRI: {
+						out.PushBack(Intitule("Trier par"));
+						static const char *kCles[4] = {"Nom", "Date", "Taille", "Type"};
+						for (int32 k = 0; k < 4; ++k) {
+							out.PushBack(Entree(kCles[k], NK_A_CONTENU_TRI + k, "", c.ui.contenu.sortCle == k));
+						}
+						out.PushBack(Separateur());
+						out.PushBack(Entree(c.ui.contenu.sortAsc ? "Ordre : croissant" : "Ordre : décroissant", NK_A_CONTENU_TRI_SENS));
+						break;
+					}
+					case NkMenuEditeur::NK_CONTENU_DEPOSER:
+						// Le menu du GLISSER d'Unreal (« Move Here / Copy Here »).
+						out.PushBack(Intitule(NkString::Format("%u élément(s) vers %s", static_cast<uint32>(c.ui.deposeSources.Size()),
+															   editorkit::NkDisqueNom(c.ui.deposeCible.CStr()).CStr())
+												  .CStr()));
+						out.PushBack(Entree("Déplacer ici", NK_A_CONTENU_DEPLACER_ICI, "", false, !c.ui.deposeSources.Empty()));
+						out.PushBack(Entree("Copier ici", NK_A_CONTENU_COPIER_ICI, "", false, !c.ui.deposeSources.Empty()));
+						break;
+					case NkMenuEditeur::NK_CONTENU_COULEUR:
+						for (int32 k = 0; k < NkEditeurNbCouleursDossier(); ++k) {
+							uint32 rgba = 0u;
+							const char *nom = NkEditeurCouleurDossier(k, rgba);
+							out.PushBack(Entree(nom, NK_A_CONTENU_COULEUR + k));
+						}
+						break;
+					case NkMenuEditeur::NK_CONTENU_COLLECTION:
+						for (uint32 k = 0; k < c.ui.contenuMeta.collections.Size() && k < 20u; ++k) {
+							out.PushBack(Entree(c.ui.contenuMeta.collections[k].nom.CStr(), NK_A_CONTENU_COLLECTION + static_cast<int32>(k)));
+						}
+						out.PushBack(Separateur());
+						out.PushBack(Entree("Nouvelle collection", NK_A_CONTENU_NOUVELLE_COLLECTION));
+						break;
+					case NkMenuEditeur::NK_CTX_COLLECTION:
+						if (c.ui.collectionMenu >= 0 && static_cast<uint32>(c.ui.collectionMenu) < c.ui.contenuMeta.collections.Size()) {
+							out.PushBack(Intitule(c.ui.contenuMeta.collections[static_cast<uint32>(c.ui.collectionMenu)].nom.CStr()));
+						}
+						out.PushBack(Entree("Supprimer la collection (les fichiers restent)", NK_A_CONTENU_SUPPRIMER_COLLECTION));
+						break;
 					case NkMenuEditeur::NK_CARTE: {
 						const int32 k = c.ui.carteMenu;
 						if (k < 0 || k >= static_cast<int32>(NkCarteEditeur::NK_COUNT) || !m.aSelection) {
@@ -677,6 +912,20 @@ namespace nkentseu {
 							NkEditeurRetenirEmpreinte(m, ui);
 						}
 						break;
+					case NK_A_CONTENU_OUVRIR_ASSET: {
+						// La scene du navigateur DEVIENT la scene de l'editeur ; un
+						// echec rend l'ancien chemin (on n'enregistrera pas ailleurs).
+						const NkString avant = m.chemin;
+						m.chemin = ui.sceneAOuvrir;
+						ui.sceneAOuvrir = NkString();
+						if (NkEditeurOuvrir(m)) {
+							NkEditeurRetenirEmpreinte(m, ui);
+							ui.cadrageEnAttente = true;
+						} else {
+							m.chemin = avant;
+						}
+						break;
+					}
 					case NK_A_QUITTER:
 						ui.demandeQuitter = true;
 						break;
@@ -859,8 +1108,57 @@ namespace nkentseu {
 				m.rendu.mode = static_cast<NkModeRenduParticules>(action - NK_A_MODE_RENDU);
 				return;
 			}
-			if (action >= NK_A_APPAREIL && action < NK_A_APPAREIL + NkNbProfils()) {
+			// <= : l'indice NkNbProfils() est l'appareil PERSONNALISE.
+			if (action >= NK_A_APPAREIL && action <= NK_A_APPAREIL + NkNbProfils()) {
 				m.profil = action - NK_A_APPAREIL;
+				return;
+			}
+			if (action >= NK_A_OPTION_APPAREIL && action < NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_COUNT)) {
+				NkReglagesAppareil &r = m.appareil;
+				switch (static_cast<NkOptionAppareil>(action - NK_A_OPTION_APPAREIL)) {
+					case NkOptionAppareil::NK_CADRE:
+						r.voirCadre = !r.voirCadre;
+						break;
+					case NkOptionAppareil::NK_ZONE_SURE:
+						r.voirZoneSure = !r.voirZoneSure;
+						break;
+					case NkOptionAppareil::NK_DECOUPE:
+						r.voirDecoupe = !r.voirDecoupe;
+						break;
+					case NkOptionAppareil::NK_CADRE_CLAIR:
+						r.cadreClair = !r.cadreClair;
+						break;
+					case NkOptionAppareil::NK_APERCU_JEU:
+						r.apercuJeu = !r.apercuJeu;
+						break;
+					case NkOptionAppareil::NK_AJOUTER_HUD:
+						if (m.etat == NkEtatJeu::NK_EDITION) {
+							NkEditeurAjouterHud(m, NkAncre::NK_HAUT_DROITE, "Interface", 0xE0A030FFu, NkVec2f(1.2f, 0.6f));
+						}
+						break;
+					case NkOptionAppareil::NK_ANCRER_SELECTION:
+						NkEditeurAncrerSelection(m);
+						break;
+					case NkOptionAppareil::NK_PERSONNALISER:
+						// Une copie modifiable de l'appareil regarde, qui devient
+						// l'appareil courant (Details > Monde pour la modifier).
+						if (!m.ProfilPersonnalise()) {
+							r.persoBase = m.profil;
+							r.perso = NkPersonnaliser(NkProfil(m.profil));
+							m.profil = NkNbProfils();
+						}
+						break;
+					default:
+						break;
+				}
+				return;
+			}
+			if (action >= NK_A_REGLE_CAMERA && action < NK_A_REGLE_CAMERA + static_cast<int32>(NkRegleCamera::NK_COUNT)) {
+				m.appareil.regleCamera = static_cast<NkRegleCamera>(action - NK_A_REGLE_CAMERA);
+				return;
+			}
+			if (action >= NK_A_ORIENTATION && action < NK_A_ORIENTATION + static_cast<int32>(NkOrientation::NK_COUNT)) {
+				m.orientation = static_cast<NkOrientation>(action - NK_A_ORIENTATION);
 				return;
 			}
 			if (action >= NK_A_POSER_ACTEUR && action < NK_A_POSER_ACTEUR + static_cast<int32>(NkActeurSim::NK_COUNT)) {
@@ -979,6 +1277,25 @@ namespace nkentseu {
 				case NK_A_CREER_PREFAB:
 					NkEditeurCreerPrefab(m);
 					break;
+				case NK_A_ANNULER:
+				case NK_A_REFAIRE: {
+					// L'ordre de l'Outliner suit par IDENTITE : la restauration change
+					// les poignees, et l'ordre perdu remettrait les lignes en vrac.
+					NkVector<uint64> ordre;
+					for (uint32 i = 0; i < ui.ordreArbre.Size(); ++i) {
+						ordre.PushBack(m.scene.Uid(ui.ordreArbre[i]));
+					}
+					if (action == NK_A_ANNULER ? NkEditeurAnnuler(m) : NkEditeurRefaire(m)) {
+						ui.ordreArbre.Clear();
+						for (uint32 i = 0; i < ordre.Size(); ++i) {
+							const ecs::NkEntityId e = ordre[i] != 0u ? m.scene.EntiteParUid(ordre[i]) : ecs::NkEntityId::Invalid();
+							if (e.IsValid()) {
+								ui.ordreArbre.PushBack(e);
+							}
+						}
+					}
+					break;
+				}
 				case NK_A_DETACHER:
 					if (m.aSelection) {
 						NkEditeurDetacher(m, m.selection);
@@ -1015,8 +1332,8 @@ namespace nkentseu {
 				case NK_A_VITESSES:
 					m.rendu.vitesses = !m.rendu.vitesses;
 					break;
-				case NK_A_PAYSAGE:
-					m.paysage = !m.paysage;
+				case NK_A_PAYSAGE: // portrait <-> paysage gauche, comme avant
+					m.orientation = NkEstPaysage(m.orientation) ? NkOrientation::NK_PORTRAIT : NkOrientation::NK_PAYSAGE_GAUCHE;
 					break;
 				case NK_A_VOIR_OUTLINER:
 					ui.voirOutliner = !ui.voirOutliner;
@@ -1062,11 +1379,32 @@ namespace nkentseu {
 				case NK_A_APROPOS:
 					NkEditeurAnnoncer(m, "UnkenyEditor : l'éditeur du moteur 2D Unkeny (Rihen)");
 					break;
+				case NK_A_CONTENU_POSER:
+				case NK_A_CONTENU_ARMER:
+				case NK_A_CONTENU_OUVRIR:
+				case NK_A_CONTENU_RACINE:
+				case NK_A_CONTENU_IMPORTER:
+				case NK_A_CONTENU_EXPORTER:
+					// Le navigateur connait ses chemins (NkEditeurTiroir.cpp).
+					NkEditeurActionContenu(c, action);
+					break;
+				case NK_A_CONTENU_OUVRIR_ASSET:
+					// (2026-10-01) Une SCENE du Contenu s'ouvre -- apres la question
+					// « non enregistree », comme Fichier > Ouvrir.
+					NkEditeurActionContenu(c, action);
+					if (!c.ui.sceneAOuvrir.Empty()) {
+						Demander(c, NK_A_CONTENU_OUVRIR_ASSET);
+					}
+					break;
 				case NK_A_ARMER_SIMPLE:
 					m.acteurSimple = true;
 					m.outil = NkOutil::NK_POSER;
 					break;
 				default:
+					// (2026-10-01) Les gestes du navigateur : 1306 a 1399.
+					if (action >= NK_A_CONTENU_NOUVEAU_DOSSIER && action < 1400) {
+						NkEditeurActionContenu(c, action);
+					}
 					break;
 			}
 		}
@@ -1650,6 +1988,13 @@ namespace nkentseu {
 				choisie = premiere;
 			}
 			if (choisie != NK_A_AUCUNE) {
+				// Le menu du NAVIGATEUR vise l'element de son clic droit ; tout autre
+				// menu (Fichier > Importer…) vise le navigateur tel qu'il est -- pas
+				// un element d'un clic droit oublie.
+				if (ui.menu != NkMenuEditeur::NK_CTX_CONTENU && ui.menu != NkMenuEditeur::NK_CTX_CONTENU_VIDE) {
+					ui.contenuMenuChemin = NkString();
+					ui.contenuMenuDossier = false;
+				}
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.sousMenu = NkMenuEditeur::NK_AUCUN;
 				NkEditeurExecuter(c, choisie);

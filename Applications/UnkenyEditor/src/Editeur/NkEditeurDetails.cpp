@@ -1152,6 +1152,7 @@ namespace nkentseu {
 			void OngletDetails(NkEditeurCadre &c, const NkRect &zone) {
 				NkGuiContext &ctx = c.ctx;
 				auto &dl = ctx.dl;
+				c.ui.caseActif = NkRect{0.f, 0.f, 0.f, 0.f};
 				if (!c.m.aSelection || !c.m.scene.Monde().IsAlive(c.m.selection)) {
 					// Un etat vide qui PARLE (UI_SPEC §0, regle 3) : il dit quoi faire.
 					const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f);
@@ -1165,13 +1166,44 @@ namespace nkentseu {
 				}
 				const ecs::NkEntityId id = c.m.selection;
 
-				// ── Le nom, sur toute la largeur ; la nature dessous ─────────
+				// ── La case « active », le nom ; la nature dessous ───────────
 				// « Ajouter » est en BAS des cartes, comme dans Unity : on ajoute
 				// apres avoir vu ce que l'entite porte deja.
 				const float32 rangeeH = 24.f;
-				const NkRect nomR{zone.x + 6.f, zone.y + 6.f, zone.w - 12.f, rangeeH};
+				// (2026-10-01) LA CASE « ACTIVE », a gauche du nom (GameObject.active
+				// de Unity) : decochee, l'entite et sa descendance ne sont ni rendues,
+				// ni simulees, ni animees -- en edition comme en jeu, sauve dans la
+				// scene et les prefabs (NkUnkenyActif.h). Ctrl+Z l'annule.
+				// ⚠️ CE N'EST PAS L'OEIL DE L'OUTLINER : l'oeil ne cache qu'en EDITION et
+				//    le jeu montre tout ; la case, elle, change LE JEU. Les deux restent.
+				const NkRect caseR{zone.x + 8.f, zone.y + 6.f + (rangeeH - 16.f) * 0.5f, 16.f, 16.f};
+				c.ui.caseActif = caseR;
+				{
+					const bool soi = c.m.scene.EstActiveSoi(id);
+					const bool enEffet = c.m.scene.EstActive(id);
+					const bool survol = NkEditeurDans(caseR, ctx.input.mousePos);
+					dl.AddRectFilled(caseR, c.pal.champ, 2.f);
+					dl.AddRect(caseR, survol ? c.pal.accent : c.pal.bord, 1.f, 2.f);
+					if (soi) {
+						// Cochee mais eteinte PAR UN PARENT : la coche, attenuee -- on voit
+						// qu'elle est a soi, et que ce n'est pas ici que ca se rallume.
+						const NkColor coche = enEffet ? c.pal.accent : c.pal.attenue;
+						const float32 cy = caseR.y + caseR.h * 0.5f;
+						dl.AddLine(NkVec2{caseR.x + 3.f, cy}, NkVec2{caseR.x + 6.5f, cy + 3.5f}, coche, 2.f);
+						dl.AddLine(NkVec2{caseR.x + 6.5f, cy + 3.5f}, NkVec2{caseR.x + 12.5f, cy - 3.5f}, coche, 2.f);
+					}
+					if (survol && ctx.input.mouseClicked[0]) {
+						NkEditeurActiverEntite(c.m, id, !soi);
+					}
+				}
+				const NkRect nomR{caseR.x + caseR.w + 6.f, zone.y + 6.f, zone.x + zone.w - 6.f - (caseR.x + caseR.w + 6.f), rangeeH};
 				ChampNom(c, id, nomR);
-				const NkString type = NkString::Format("type : %s", NkEditeurTypeDe(c.m.scene, id));
+				NkString type = NkString::Format("type : %s", NkEditeurTypeDe(c.m.scene, id));
+				if (!c.m.scene.EstActiveSoi(id)) {
+					type.Append("  —  désactivée (ni rendue, ni simulée)");
+				} else if (!c.m.scene.EstActive(id)) {
+					type.Append("  —  désactivée par un parent");
+				}
 				renderer::NkTexte(dl, c.petite, zone.x + 8.f, nomR.y + rangeeH + 5.f, type.CStr(), c.pal.attenue);
 
 				// ── Les cartes, dans une zone defilable ──────────────────────
@@ -1203,6 +1235,8 @@ namespace nkentseu {
 					DessinerCarte(I, carte);
 					ctx.PopId();
 				}
+				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp).
+				NkEditeurBlocAncrage(c, id);
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
 				const NkRect r0 = ctx.NextItemRect(0.f, 28.f);
@@ -1268,13 +1302,9 @@ namespace nkentseu {
 				nkgui::Checkbox(ctx, "vitesses", m.rendu.vitesses);
 				NkEditeurSectionEclairageMonde(c); // 2026-09-30 : NkEditeurLumiere.cpp
 				nkgui::Separator(ctx);
-				// L'appareil simule : ce que la zone sure du viseur represente.
-				const NkProfilAppareil pa = m.ProfilCourant();
-				nkgui::Text(ctx, "Appareil simulé");
-				nkgui::Text(ctx, NkString::Format("%s  %ux%u", pa.nom, pa.largeur, pa.hauteur).CStr());
-				nkgui::Text(ctx, NkString::Format("zone sure  h:%.0f b:%.0f g:%.0f d:%.0f", pa.zoneSure.top,
-												  pa.zoneSure.bottom, pa.zoneSure.left, pa.zoneSure.right)
-									 .CStr());
+				// L'appareil simule : orientation, interrupteurs, provenance, et
+				// l'appareil personnalise (2026-10-01, NkEditeurAppareilsUi.cpp).
+				NkEditeurSectionAppareil(c);
 				nkgui::EndChild(ctx);
 			}
 
