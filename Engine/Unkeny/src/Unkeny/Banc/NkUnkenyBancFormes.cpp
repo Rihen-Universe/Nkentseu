@@ -127,8 +127,10 @@ namespace nkentseu {
 					}
 			};
 
+			/// Un canal (0 rouge, 1 vert, 2 bleu) d'un pixel 0xRRGGBBFF (math::NkColor).
 			int32 Canal(uint32 px, int32 k) {
-				return static_cast<int32>((px >> (24 - 8 * k)) & 0xFFu);
+				const nkgui::NkColor c(px);
+				return k == 0 ? c.r : (k == 1 ? c.g : c.b);
 			}
 
 			bool Proche(uint32 a, uint32 b, int32 tol = 24) {

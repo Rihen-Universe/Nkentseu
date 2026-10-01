@@ -39,6 +39,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurPlacer.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -613,9 +614,10 @@ namespace nkentseu {
 					Ligne(I, "Éteint : il ne touche plus rien (couche et masque à 0).");
 				}
 				bool change = false;
-				static const char *kFormes[3] = {"Cercle", "Boîte", "Capsule"};
+				// (2026-10-01) Polygone et chaine : leurs sommets dans le bloc Collision.
+				static const char *kFormes[5] = {"Cercle", "Boîte", "Capsule", "Polyg.", "Chaîne"};
 				int32 f = static_cast<int32>(col->forme);
-				if (Choix(I, "Forme", kFormes, 3, f)) {
+				if (Choix(I, "Forme", kFormes, 5, f)) {
 					col->forme = static_cast<NkForme2D>(f);
 					change = true;
 				}
@@ -1237,6 +1239,9 @@ namespace nkentseu {
 				}
 				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp).
 				NkEditeurBlocAncrage(c, id);
+				// La forme 2D et la collision (2026-10-01, NkEditeurPlacer.h).
+				NkEditeurBlocForme(c, id);
+				NkEditeurBlocCollision(c, id);
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
 				const NkRect r0 = ctx.NextItemRect(0.f, 28.f);
@@ -1305,6 +1310,8 @@ namespace nkentseu {
 				// L'appareil simule : orientation, interrupteurs, provenance, et
 				// l'appareil personnalise (2026-10-01, NkEditeurAppareilsUi.cpp).
 				NkEditeurSectionAppareil(c);
+				// Les calques de collision (2026-10-01, NkEditeurPlacer.h).
+				NkEditeurSectionCalques(c);
 				nkgui::EndChild(ctx);
 			}
 

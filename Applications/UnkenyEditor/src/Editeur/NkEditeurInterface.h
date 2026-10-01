@@ -210,7 +210,18 @@ namespace nkentseu {
 			NK_A_CONTENU_COULEUR = 1340,		 ///< + indice de NkCouleursDossier (0 = celle par defaut)
 			NK_A_CONTENU_TAILLE = 1352,			 ///< + indice de taille (petite, moyenne, grande, enorme)
 			NK_A_CONTENU_TRI = 1360,			 ///< + NkBrowserTri
-			NK_A_CONTENU_COLLECTION = 1370		 ///< + indice de collection : la selection y entre
+			NK_A_CONTENU_COLLECTION = 1370,		 ///< + indice de collection : la selection y entre
+			// Placer des acteurs, formes 2D et collisions (2026-10-01, NkEditeurPlacer.h) :
+			// la plage 1500-1599 est A CE CHANTIER (1400-1499 : les appareils).
+			NK_A_FORME = 1500,			  ///< + NkGenreForme2D : une forme au centre de la vue
+			NK_A_FORME_ICI = 1510,		  ///< + NkGenreForme2D : au point du clic droit
+			NK_A_FORME_SELECTION = 1520,  ///< + NkGenreForme2D : la forme 2D de la selection
+			NK_A_COLLISION = 1530,		  ///< + NkCollisionEditeur : le collisionneur de la selection
+			NK_A_VOLUME_ICI = 1537,		  ///< + NkCollisionEditeur (0..3) : un volume bloquant au clic droit
+			NK_A_DECLENCHEUR_ICI = 1541,  ///< une zone declencheur au clic droit
+			NK_A_VOIR_PLACER = 1542,	  ///< Fenetre > Placer des acteurs
+			NK_A_EDITER_COLLISION = 1543, ///< les poignees du collisionneur dans la vue, allumees / eteintes
+			NK_A_PLACER = 1550			  ///< + indice du catalogue du panneau : au centre de la vue
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -534,6 +545,36 @@ namespace nkentseu {
 				bool glisseArbre = false;
 				bool appuiArbre = false; ///< l'appui qui a commence le geste etait DANS l'arbre
 				nkgui::NkVec2 departGlisseArbre{0.f, 0.f};
+
+				// --- Placer des acteurs (2026-10-01, document 02 §4 ; NkEditeurPlacer.h) ---
+				/// La colonne de GAUCHE, comme Place Actors d'UE5 (NkEditeurPlanifier).
+				nkgui::NkRect placer{0.f, 0.f, 0.f, 0.f};
+				float32 largeurPlacer = 236.f;
+				bool voirPlacer = true;
+				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture
+				char placerFiltre[32] = {};
+				bool placerFiltreFocus = false;
+				float32 placerDefil = 0.f;
+				/// L'element sous l'APPUI (indice du catalogue), -1 sinon ; le glisser
+				/// ne part qu'au-dela de quelques pixels (sinon c'est un clic).
+				int32 placerAppui = -1;
+				bool placerGlisse = false;
+				nkgui::NkVec2 placerDepart{0.f, 0.f};
+				bool placerCloison = false; ///< la cloison panneau | Outliner est tenue
+				NkVector<int32> placerRecents; ///< les derniers poses, le plus recent en tete
+				uint64 placerFavoris = 0u;	   ///< bit = indice du catalogue
+				/// Le rectangle de chaque element a l'ecran (indice du catalogue, vide =
+				/// hors champ) et de chaque onglet : le banc y vise ses gestes.
+				NkVector<nkgui::NkRect> placerRects;
+				nkgui::NkRect placerOngletsRects[8] = {};
+				// --- La collision dans la vue (NkEditeurPlacer.h) ---------------------
+				/// Les POIGNEES du collisionneur de la selection : taille, rayon,
+				/// sommets, decalage, rotation (Fenetre... ou les Details).
+				bool editionCollision = false;
+				int32 poigneeTenue = -1;  ///< -1 aucune ; voir NkEditeurPoignees
+				int32 poigneeSurvol = -1;
+				NkVec2f poigneeLocal0{0.f, 0.f}; ///< le point saisi, repere du collisionneur
+				bool calquesTous = false; ///< l'onglet Monde montre les 16 calques (8 sinon)
 		};
 
 		/// Ce qu'une fonction de dessin recoit. Rien ne s'y recalcule.

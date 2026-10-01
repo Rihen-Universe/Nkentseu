@@ -31,6 +31,7 @@
 
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -457,6 +458,10 @@ namespace nkentseu {
 				}
 				// ── Puis la poignee de PORTEE d'une lumiere (2026-09-30) ─────────
 				if (NkEditeurGizmoPorteeSouris(c, aire)) {
+					return;
+				}
+				// ── Puis les poignees du COLLISIONNEUR (2026-10-01, NkEditeurPlacer.h) ─
+				if (NkEditeurPoigneesCollisionSouris(c, aire)) {
 					return;
 				}
 
@@ -937,6 +942,7 @@ namespace nkentseu {
 			dl.PushClipRect(aire, true);
 			c.m.stats = NkDessinerViseur(dl, c.m, aire, appareil);
 			DessinerGizmo(c, dl);
+			NkEditeurDessinerPoigneesCollision(c, dl); // 2026-10-01
 			Repere(c, dl, aire);
 			dl.PopClipRect();
 			// La barre flottante APRES la scene (elle passe dessus) et AVANT la

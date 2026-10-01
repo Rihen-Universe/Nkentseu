@@ -46,8 +46,9 @@ namespace nkentseu {
 				if (n < 2u) {
 					return;
 				}
-				const NkColor fond = Opacite(Couleur(f.remplissage), f.opacite);
-				const NkColor bord = Opacite(Couleur(f.couleurContour), f.opacite);
+				// 0xRRGGBBAA : le constructeur de math::NkColor (NKMath/NkColor.h).
+				const NkColor fond = Opacite(NkColor(f.remplissage), f.opacite);
+				const NkColor bord = Opacite(NkColor(f.couleurContour), f.opacite);
 				const float32 contour = f.epaisseurContour > 0.f ? math::NkMax(f.epaisseurContour * pxParM, 1.f) : 0.f;
 				if (!ferme) {
 					// Une LIGNE : son contour d'abord (plus large), puis le trait ;

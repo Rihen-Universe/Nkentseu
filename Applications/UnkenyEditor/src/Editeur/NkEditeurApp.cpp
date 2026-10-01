@@ -20,6 +20,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
@@ -371,8 +372,9 @@ namespace nkentseu {
 					const int32 appareils = NkEditeurLancerBancAppareils();
 					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
-					// Les formes 2D, les collisionneurs et les calques (01/10) : a part.
-					const int32 formes = unkeny::NkUnkenyLancerBancFormes();
+					// Les formes 2D, les collisionneurs et les calques (01/10) : a part,
+					// le moteur puis l'editeur (Placer des acteurs, Details, poignees).
+					const int32 formes = unkeny::NkUnkenyLancerBancFormes() | NkEditeurLancerBancFormes();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
 									   ecran != 0 || formes != 0;
@@ -916,6 +918,7 @@ namespace nkentseu {
 				Neutraliser(c.ctx.input, true);
 			}
 			NkEditeurDessinerVue(c);
+			NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 			NkEditeurDessinerOutliner(c);
 			NkEditeurDessinerDetails(c);
 			NkEditeurDessinerTiroir(c);
