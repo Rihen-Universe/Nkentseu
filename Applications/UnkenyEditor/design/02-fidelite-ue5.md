@@ -68,6 +68,24 @@
    vignettes réglable.
 7. **Réglages** de la vue (taille, colonnes, afficher les dossiers…).
 
+### 3.1 Les cartes de fichiers et de dossiers
+
+Rihen, 01/10 : *« même les cartes de fichier et de dossier doivent tendre vers
+Unreal, avec nos propres touches »*. Références d'images à venir de Rihen (dossier
+hors dépôt : `C:\Users\rihen\Documents\Projects\References\UE5\`).
+
+- **Carte d'asset (Unreal)** : vignette carrée sur fond sombre, **bande fine de la
+  couleur du type** juste sous la vignette, nom sur deux lignes au plus (coupé
+  proprement), type en petit et en gris en bas ; survol = fond éclairci ;
+  sélection = fond bleu plein ; plusieurs tailles de vignette.
+- **Carte de dossier (Unreal)** : grande icône de dossier (sa **couleur se choisit**
+  par dossier, comme Unreal), nom dessous ; même survol, même sélection.
+- **Nos touches** : les couleurs de la famille (bleu d'état, ambre pour la
+  sélection secondaire et le glisser), le logo et les icônes de types d'Unkeny
+  (scène, prefab, contrôleur d'animation, image, son, police, matériau 2D), des
+  coins à peine arrondis, et de **vrais aperçus** : l'image elle-même, la première
+  image d'une animation, une miniature rendue de la scène ou du prefab.
+
 **Gestes obligatoires** : sélectionner fichiers **et dossiers** ; **couper / copier
 / coller** (Ctrl+X / C / V) ; **dupliquer** ; **renommer** (F2) ; **supprimer**
 (Suppr, avec confirmation et références) ; **glisser-déposer** d'un dossier vers un
