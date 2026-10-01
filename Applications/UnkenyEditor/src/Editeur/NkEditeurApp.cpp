@@ -335,6 +335,11 @@ namespace nkentseu {
 					mUi->demMenu = NkString(args[i].SubStr(15));
 					continue;
 				}
+				// --contenu-renommer=CHEMIN : le renommage en place ouvert, le nom choisi.
+				if (args[i].StartsWith("--contenu-renommer=")) {
+					mUi->demRenommer = NkString(args[i].SubStr(19));
+					continue;
+				}
 				if (args[i].StartsWith("--contenu-deposer=")) {
 					mUi->demDeposer = NkString(args[i].SubStr(18));
 					continue;
@@ -371,9 +376,11 @@ namespace nkentseu {
 					const int32 appareils = NkEditeurLancerBancAppareils();
 					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
+					// L'etape 2 d'Unreal (01/10, document 02) : a part, a la fin.
+					const int32 ue5 = NkEditeurLancerBancUe5();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0;
+									   ecran != 0 || ue5 != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une

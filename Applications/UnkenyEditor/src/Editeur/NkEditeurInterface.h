@@ -370,6 +370,11 @@ namespace nkentseu {
 				NkString deposeCible;
 				/// Le RENOMMAGE en place : le chemin vise (vide = aucun).
 				NkString renommeChemin;
+				/// (2026-10-01) Le nom entier CHOISI a l'ouverture du champ (Unreal :
+				/// F2 surligne le nom, la frappe le remplace) ; consomme au dessin.
+				bool renommeToutChoisir = false;
+				/// Le champ du renommage A L'ECRAN (le banc y vise ses clics).
+				nkgui::NkRect contenuRenommeRect{0.f, 0.f, 0.f, 0.f};
 				/// La memoire du navigateur (couleurs, favoris, collections), relue
 				/// quand elle est perimee (NkContentBrowserDisque.h).
 				editorkit::NkDisqueMeta contenuMeta;
@@ -390,6 +395,7 @@ namespace nkentseu {
 				NkString demChoisir;
 				NkString demMenu;
 				NkString demDeposer;
+				NkString demRenommer; ///< --contenu-renommer= : le champ du renommage ouvert
 				int32 demTrame = 0;
 				bool demFiltres = false; ///< --contenu-filtres : la rangee des puces ouverte au depart
 				/// Supprimer = vers la CORBEILLE de l'OS (recuperable). Le banc le met a

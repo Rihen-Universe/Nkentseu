@@ -1093,7 +1093,15 @@ namespace nkentseu {
 			// =================================================================
 			//  LES GESTES DE LA VUE -- un seul endroit, apres le dessin
 			// =================================================================
-			if (in.mousePressed && dansZone) {
+			// ⚠️ (2026-10-01, retour de Rihen) LE CHAMP DU RENOMMAGE EST A L'HOTE :
+			//    la souris y place le curseur, y choisit du texte (glisser,
+			//    double-clic = un mot). Sans cette garde, l'appui dans le champ
+			//    ARMAIT le glisser de la carte (on tirait l'asset au lieu de choisir
+			//    des lettres), le double-clic OUVRAIT l'asset et le clic droit
+			//    ouvrait son menu : « ce n'est pas un vrai champ ».
+			const bool dansRenommage = m.renomme >= 0 && res.renommeW > 0.f &&
+									   NkPaintRect{res.renommeX, res.renommeY, res.renommeW, res.renommeH}.Contains(in.mouseX, in.mouseY);
+			if (in.mousePressed && dansZone && !dansRenommage) {
 				if (hit >= 0) {
 					const NkAssetEntry &e = m.entries[(uint32)hit];
 					if (in.shift && multi) {
@@ -1209,13 +1217,13 @@ namespace nkentseu {
 				m.reduireAuRelache = -1;
 			}
 			// ── DOUBLE-CLIC : ouvrir (le composant signale) ──
-			if (in.doubleClick && dansZone && hit >= 0) {
+			if (in.doubleClick && dansZone && hit >= 0 && !dansRenommage) {
 				res.activatedIndex = hit;
 				if (hooks.onDoubleClick)
 					hooks.onDoubleClick(hooks.user, hit, m.entries[(uint32)hit].path.Data() ? m.entries[(uint32)hit].path.Data() : "");
 			}
 			// ── CLIC DROIT : la carte (choisie si elle ne l'etait pas), ou le vide ──
-			if (in.rightPressed && dansZone) {
+			if (in.rightPressed && dansZone && !dansRenommage) {
 				if (hit >= 0) {
 					if (!m.IsChosen(hit)) {
 						m.chosen.Clear();

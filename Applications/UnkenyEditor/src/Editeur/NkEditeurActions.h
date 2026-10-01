@@ -269,6 +269,9 @@ namespace nkentseu {
 		/// Le banc de l'editeur (e1..), lance par `--selftest` APRES celui
 		/// d'Unkeny. 0 = tout tient.
 		int32 NkEditeurLancerBanc();
+		/// Le banc de l'etape 2 d'Unreal (document 02 ; u1..), compte a part :
+		/// les retours de Rihen du 01/10 (NkEditeurBancUe5.cpp).
+		int32 NkEditeurLancerBancUe5();
 
 	} // namespace editeur
 } // namespace nkentseu

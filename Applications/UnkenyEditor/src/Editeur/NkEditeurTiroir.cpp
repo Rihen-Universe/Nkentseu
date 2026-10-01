@@ -944,6 +944,7 @@ namespace nkentseu {
 				const usize lPied = nom.Length() - ext.Length();
 				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%.*s", static_cast<int32>(lPied), nom.CStr());
 				ui.contenu.focus = true;
+				ui.renommeToutChoisir = true;
 			}
 
 			/// Valide (ou abandonne) le renommage en cours.
@@ -1039,7 +1040,8 @@ namespace nkentseu {
 
 			void DemandesDemarrage(NkEditeurCadre &c) {
 				NkEditeurInterface &ui = c.ui;
-				if (ui.demContenu.Empty() && ui.demChoisir.Empty() && ui.demMenu.Empty() && ui.demDeposer.Empty()) {
+				if (ui.demContenu.Empty() && ui.demChoisir.Empty() && ui.demMenu.Empty() && ui.demDeposer.Empty() &&
+					ui.demRenommer.Empty()) {
 					return;
 				}
 				++ui.demTrame;
@@ -1101,10 +1103,18 @@ namespace nkentseu {
 						}
 					}
 				}
+				// --contenu-renommer= : le champ du renommage ouvert, le nom choisi.
+				if (!ui.demRenommer.Empty()) {
+					ui.contenuChoisis.Clear();
+					ui.contenuChoisis.PushBack(ui.demRenommer);
+					ui.contenuActif = ui.demRenommer;
+					CommencerRenommage(c.m, ui, ui.demRenommer);
+				}
 				ui.demContenu = NkString();
 				ui.demChoisir = NkString();
 				ui.demMenu = NkString();
 				ui.demDeposer = NkString();
+				ui.demRenommer = NkString();
 			}
 
 			// ── L'ONGLET « CONTENU » ────────────────────────────────────────────
@@ -1280,13 +1290,27 @@ namespace nkentseu {
 												  ui.contenu.sourcesRechercheFocus, &st);
 				}
 				// ── Le RENOMMAGE en place (F2) : le champ sur le nom de la carte ──
+				ui.contenuRenommeRect = NkRect{0.f, 0.f, 0.f, 0.f};
 				if (!ui.renommeChemin.Empty()) {
 					if (res.renommeW > 0.f) {
 						const NkRect champ{res.renommeX, res.renommeY, res.renommeW, res.renommeH};
+						ui.contenuRenommeRect = champ;
 						c.ctx.dl.AddRectFilled(champ, c.pal.champ, 2.f);
 						c.ctx.dl.AddRect(champ, c.pal.accent, 1.f, 2.f);
+						// (2026-10-01, retour de Rihen : « pas un vrai champ ») Le VRAI
+						// champ du kit, regle comme un nom de fichier d'Unreal : le nom
+						// entier choisi a l'ouverture, double-clic = un mot, les accents
+						// s'ecrivent. Curseur, Maj+fleches, Origine / Fin, Ctrl+A / C /
+						// X / V sont ceux du champ ; Echap et Entree, juste dessous.
+						editorkit::NkOverlayFieldStyle stNom = st;
+						stNom.motAuDoubleClic = true;
+						stNom.utf8 = true;
+						if (ui.renommeToutChoisir) {
+							ui.renommeToutChoisir = false;
+							c.ctx.input.wantSelectAll = true;
+						}
 						editorkit::NkOverlayTextField(c.ctx, c.ctx.dl, c.police, champ, ui.contenu.renommeTampon,
-													  static_cast<int32>(sizeof(ui.contenu.renommeTampon)), true, &st);
+													  static_cast<int32>(sizeof(ui.contenu.renommeTampon)), true, &stNom);
 						if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 							FinirRenommage(c, true);
 						} else if (in.KeyPressed(nkgui::NkGuiKey::Escape)) {

@@ -33,7 +33,28 @@ namespace nkentseu {
 				int32 align = 0;	   ///< 0 gauche, 1 centre, 2 droite — l'alignement du NOEUD
 				float32 echelle = 1.f; ///< corps affiche = police x echelle (texte zoome)
 				NkColor texte = {230, 237, 243, 255};
+				/// (2026-10-01, retour de Rihen sur le renommage du Content Browser)
+				/// Le double-clic choisit le MOT sous le curseur (Windows, Unreal),
+				/// pas tout le texte. false = l'historique (double-clic = tout).
+				bool motAuDoubleClic = false;
+				/// Les lettres HORS ASCII (« é », « ç ») s'ecrivent, en UTF-8. false =
+				/// l'historique : un champ d'identifiant (NKCode) n'en veut pas.
+				bool utf8 = false;
 		};
+
+		/// Un octet de SUITE UTF-8 (10xxxxxx) : jamais une frontiere de caractere.
+		/// Le curseur et l'effacement sautent ces octets — sans effet sur un texte
+		/// ASCII (il n'en a pas), et un « é » colle ne se coupe plus en deux.
+		inline bool NkOctetDeSuite(char c) {
+			return ((unsigned char)c & 0xC0u) == 0x80u;
+		}
+
+		/// Une lettre de MOT pour le double-clic : lettre, chiffre, « _ », ou tout
+		/// caractere non ASCII (un « é » est dans le mot).
+		inline bool NkLettreDeMot(char c) {
+			const unsigned char u = (unsigned char)c;
+			return u >= 0x80u || (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z') || u == '_';
+		}
 
 		// ── Champ de saisie mono-ligne minimal pour l'overlay (positionne en absolu) ──
 		// Edite `buf` quand `focused` ; renvoie via les codepoints tapes + Backspace.
@@ -142,7 +163,8 @@ namespace nkentseu {
 						acc[an] = '\0';
 						const float32 wv = measW(acc);
 						const float32 d = wv > target ? wv - target : target - wv;
-						if (d < bestd) {
+						// jamais AU MILIEU d'un caractere UTF-8
+						if (d < bestd && !NkOctetDeSuite(buf[i])) {
 							bestd = d;
 							best = i;
 						}
@@ -152,10 +174,40 @@ namespace nkentseu {
 					}
 					return best;
 				};
-				// Double-clic -> tout ; appui -> ancre ; glisser -> etend ; clic simple -> curseur + deselection.
+				// Le caractere d'avant / d'apres, en sautant les octets de suite UTF-8.
+				auto precedent = [&](int32 i) -> int32 {
+					if (i > 0)
+						--i;
+					while (i > 0 && NkOctetDeSuite(buf[i]))
+						--i;
+					return i;
+				};
+				auto suivant = [&](int32 i) -> int32 {
+					if (i < len)
+						++i;
+					while (i < len && NkOctetDeSuite(buf[i]))
+						++i;
+					return i;
+				};
+				// Double-clic -> tout (ou le MOT, si le style le demande) ; appui ->
+				// ancre ; glisser -> etend ; clic simple -> curseur + deselection.
 				if (hit && in.mouseDoubleClicked[0]) {
 					s_anchor = 0;
 					s_caret = len;
+					if (st.motAuDoubleClic) {
+						// Le mot sous le curseur ; sur un separateur, la suite de
+						// separateurs (Windows fait de meme).
+						const int32 c = caretAtMouse();
+						const int32 k = c < len ? c : (c > 0 ? c - 1 : 0);
+						const bool mot = len > 0 && NkLettreDeMot(buf[k]);
+						int32 lo = k, hi = k;
+						while (lo > 0 && NkLettreDeMot(buf[lo - 1]) == mot)
+							--lo;
+						while (hi < len && NkLettreDeMot(buf[hi]) == mot)
+							++hi;
+						s_anchor = lo;
+						s_caret = hi;
+					}
 					s_drag = false;
 					s_blink = 0.f;
 				} else if (hit && in.mouseClicked[0]) {
@@ -173,13 +225,12 @@ namespace nkentseu {
 				if (in.KeyPressedRepeat(NkGuiKey::Left)) {
 					if (shift) {
 						startSel();
-						if (s_caret > 0)
-							--s_caret;
+						s_caret = precedent(s_caret);
 					} else {
 						if (hasSel())
 							s_caret = selLo();
-						else if (s_caret > 0)
-							--s_caret;
+						else
+							s_caret = precedent(s_caret);
 						s_anchor = -1;
 					}
 					s_blink = 0.f;
@@ -187,13 +238,12 @@ namespace nkentseu {
 				if (in.KeyPressedRepeat(NkGuiKey::Right)) {
 					if (shift) {
 						startSel();
-						if (s_caret < len)
-							++s_caret;
+						s_caret = suivant(s_caret);
 					} else {
 						if (hasSel())
 							s_caret = selHi();
-						else if (s_caret < len)
-							++s_caret;
+						else
+							s_caret = suivant(s_caret);
 						s_anchor = -1;
 					}
 					s_blink = 0.f;
@@ -237,10 +287,9 @@ namespace nkentseu {
 					if (hasSel())
 						delSel();
 					else if (s_caret > 0) {
-						for (int32 k = s_caret - 1; k < len; ++k)
-							buf[k] = buf[k + 1];
-						--s_caret;
-						--len;
+						// un CARACTERE entier (ses octets de suite UTF-8 avec lui)
+						s_anchor = precedent(s_caret);
+						delSel();
 					}
 					s_blink = 0.f;
 				}
@@ -248,9 +297,8 @@ namespace nkentseu {
 					if (hasSel())
 						delSel();
 					else if (s_caret < len) {
-						for (int32 k = s_caret; k < len; ++k)
-							buf[k] = buf[k + 1];
-						--len;
+						s_anchor = suivant(s_caret);
+						delSel();
 					}
 					s_blink = 0.f;
 				}
@@ -258,31 +306,62 @@ namespace nkentseu {
 					if (hasSel())
 						delSel();
 					const NkString cb = ctx.GetClipboard();
-					for (const char *s = cb.CStr(); *s; ++s) {
-						if ((unsigned char)*s < 32 || len + 1 >= cap)
+					for (const char *s = cb.CStr(); *s;) {
+						// Un caractere UTF-8 entier, ou rien : jamais une moitie
+						// d'accent en bout de tampon.
+						int32 n = 1;
+						while (NkOctetDeSuite(s[n]))
+							++n;
+						if ((unsigned char)*s < 32 || len + n >= cap) {
+							s += n;
 							continue;
+						}
 						for (int32 k = len; k >= s_caret; --k)
-							buf[k + 1] = buf[k];
-						buf[s_caret] = *s;
-						++s_caret;
-						++len;
+							buf[k + n] = buf[k];
+						for (int32 k = 0; k < n; ++k)
+							buf[s_caret + k] = s[k];
+						s_caret += n;
+						len += n;
+						s += n;
 					}
 					in.wantPaste = false;
 					s_blink = 0.f;
 				}
 				for (int32 i = 0; i < in.charCount; ++i) {
 					const uint32 cp = in.chars[i];
-					if (cp < 32 || cp >= 127)
+					if (cp < 32 || cp == 127 || (cp > 127 && !st.utf8) || cp > 0x10FFFFu)
 						continue;
+					// Le caractere en UTF-8 (1 a 4 octets ; ASCII = 1, l'historique).
+					char u8[4];
+					int32 n = 1;
+					if (cp < 0x80u) {
+						u8[0] = (char)cp;
+					} else if (cp < 0x800u) {
+						u8[0] = (char)(0xC0u | (cp >> 6));
+						u8[1] = (char)(0x80u | (cp & 0x3Fu));
+						n = 2;
+					} else if (cp < 0x10000u) {
+						u8[0] = (char)(0xE0u | (cp >> 12));
+						u8[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+						u8[2] = (char)(0x80u | (cp & 0x3Fu));
+						n = 3;
+					} else {
+						u8[0] = (char)(0xF0u | (cp >> 18));
+						u8[1] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+						u8[2] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+						u8[3] = (char)(0x80u | (cp & 0x3Fu));
+						n = 4;
+					}
 					if (hasSel())
 						delSel();
-					if (len + 1 >= cap)
+					if (len + n >= cap)
 						break;
 					for (int32 k = len; k >= s_caret; --k)
-						buf[k + 1] = buf[k];
-					buf[s_caret] = (char)cp;
-					++s_caret;
-					++len;
+						buf[k + n] = buf[k];
+					for (int32 k = 0; k < n; ++k)
+						buf[s_caret + k] = u8[k];
+					s_caret += n;
+					len += n;
 					// Taper EFFONDRE toujours la selection. Sans cette ligne,
 					// l'ancre survivait a la frappe et une selection FANTOME
 					// apparaissait.
