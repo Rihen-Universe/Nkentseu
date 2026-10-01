@@ -1257,3 +1257,37 @@ commentaires, copier/coller et la recherche de nœud depuis une prise tirée du
 canevas (S4) ; Linux/macOS (chemin `dlopen` écrit, non éprouvé) ; Web,
 Android, iOS (le statique est écrit, non construit) ; « Jouer isolé » (N3) et
 l'attrapeur de dernier recours (N2).
+
+### 14.4 Les témoins et leurs contre-épreuves
+
+| garantie | témoin | mutation qui le fait rougir |
+|---|---|---|
+| ordre des scripts d'une entité | x1 | liste parcourue à l'envers |
+| état privé gardé au rechargement | r1 (moteur), c4 (éditeur, clang réel) | `Relire` sauté ; DLL compilée non rechargée |
+| vérificateur | b2 | cibles de saut non vérifiées |
+| `Validate` connaît la famille (G1) | `exec/validate-connait-la-famille` | branche exec neutralisée |
+| les valeurs saisies sur les nœuds | e13 (porte bleue), e16 | vec2 saisi ignoré par le compilateur |
+| la porte ouverte laisse passer | e13 « le Joueur PASSE » | corps statique non refait à la téléportation |
+| le jeu construit fait pareil | `Portes.exe --verifier` (complet), `--essai-scripts` (les deux portes à +2 m, le Joueur à x = 13,1) | — (le même code que l'éditeur) |
+
+### 14.5 Le premier script de Rihen, pas à pas
+
+1. `UnkenyEditor --exemple=portes` : le projet d'exemple s'écrit dans
+   `Documents/Unkeny/Exemples/Portes/` et s'ouvre. ▶ **Jouer**, flèches ou
+   A / D pour marcher, Espace pour sauter : à gauche la porte **bleue**
+   (Blueprint) s'ouvre, à droite la **rouge** (C++).
+2. **C++** : dans le Contenu, double-clic sur `Scripts/PorteCpp.cpp` (NKCode ou
+   l'éditeur du système). Pendant Jouer, changez le texte d'`Afficher` ou la
+   hauteur, **enregistrez** : le Journal dit « recompilés et rechargés à
+   chaud » ; une faute de frappe y apparaît en rouge (fichier:ligne), l'ancienne
+   version continue.
+3. **Blueprint** : double-clic sur `Scripts/PorteBlueprint.nkbp` : la page du
+   graphe remplace la vue. Changez « 0 2 » dans le nœud `+ (vec2)`, ou ajoutez
+   un nœud (clic droit dans le vide, puis la palette), tirez un fil d'une
+   prise à l'autre, **Compiler et enregistrer** ; une erreur entoure son nœud
+   en rouge. **Fermer** rend la vue.
+4. **Le vôtre** : Contenu > **+ Ajouter > Script C++** (le modèle commenté
+   s'ouvre) ou **Blueprint** ; choisissez une entité, Détails > **Scripts** >
+   « + cpp:NouveauScript » ou « + Contenu/Scripts/NouveauBlueprint.nkbp ».
+5. **Le jeu** : Fichier > Construire… : les Blueprints sont cuits, le C++ est
+   lié au joueur ; `Portes.exe --essai-scripts` le rejoue sans fenêtre.
