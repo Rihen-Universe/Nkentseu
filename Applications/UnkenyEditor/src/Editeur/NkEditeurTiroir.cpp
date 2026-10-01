@@ -595,6 +595,7 @@ namespace nkentseu {
 					ui.contenu.kinds.PushBack(kind);
 				}
 				ui.pucesContenu = true;
+				ui.contenu.folders.toggled.PushBack(1u);
 			}
 
 			// ── LE CONTENU DU PROJET (lu du disque) ────────────────────────────
@@ -687,10 +688,27 @@ namespace nkentseu {
 				}
 			}
 
+			/// L'extension d'un nom de fichier (le point compris), « » s'il n'en a pas.
+			NkString ExtensionDe(const NkString &nom) {
+				const char *ext = nullptr;
+				for (const char *q = nom.CStr(); *q != 0; ++q) {
+					if (*q == '.' && q != nom.CStr()) {
+						ext = q;
+					}
+				}
+				return ext != nullptr ? NkString(ext) : NkString();
+			}
+
 			/// Une carte du Contenu (fichier ou dossier), avec sa nature, sa couleur.
 			editorkit::NkAssetEntry EntreeDe(const NkEditeurInterface &ui, const NkElementContenu &e) {
 				editorkit::NkAssetEntry a;
 				a.name = e.nom;
+				if (!e.dossier) {
+					// Sans EXTENSION, comme Unreal : le type est ecrit dessous et la
+					// bande de couleur le redit. Le chemin, lui, la garde.
+					const NkString ext = ExtensionDe(e.nom);
+					a.name = NkString(e.nom.CStr(), e.nom.Length() - ext.Length());
+				}
 				a.path = CheminNavigateur(e.relatif);
 				a.isFolder = e.dossier;
 				// ⚠️ Chaines STATIQUES : l'entree ne garde qu'un pointeur.
@@ -730,9 +748,13 @@ namespace nkentseu {
 				NkEditeurInterface &ui = c.ui;
 				editorkit::NkContentBrowserModel &m = ui.contenu;
 
-				// ── Le rail : « Acteurs » (le catalogue) et « Contenu » (le projet),
-				//    deux racines ─────────────────────────────────────────────────
+				// ── Le rail : « Contenu » (le projet) PUIS « Acteurs » (le catalogue),
+				//    deux racines -- l'ordre d'Unreal, ou /Content vient en tete et
+				//    « C++ Classes » apres ─────────────────────────────────────────
 				m.folders.nodes.Clear();
+				RelireContenu(c);
+				DossiersContenu(c);
+				const int32 iActeurs = static_cast<int32>(m.folders.nodes.Size());
 				editorkit::NkTreeNode racine;
 				racine.id = 1u;
 				racine.parent = -1;
@@ -744,15 +766,13 @@ namespace nkentseu {
 				for (int32 k = 0; k < NB_CATEGORIES; ++k) {
 					editorkit::NkTreeNode n;
 					n.id = static_cast<nk_uint64>(k) + 2u;
-					n.parent = 0;
+					n.parent = iActeurs;
 					n.label = NkString(NkCategorieActeurNom(static_cast<NkCategorieActeur>(k)));
 					n.path = NkString::Format("%s/%s", CHEMIN_RACINE, n.label.CStr());
 					n.kindRole = static_cast<uint16>(RoleCategorie(k));
 					n.silhouette = static_cast<uint8>(editorkit::NkAssetIcone::Dossier);
 					m.folders.nodes.PushBack(n);
 				}
-				RelireContenu(c);
-				DossiersContenu(c);
 				m.folders.active = 0u;
 				if (ui.contenuProjet) {
 					m.folders.active = IdDossierContenu(ui, ui.contenuDossier);
@@ -903,17 +923,6 @@ namespace nkentseu {
 			}
 
 			// ── LE RENOMMAGE EN PLACE (F2) ─────────────────────────────────────
-			/// L'extension d'un nom de fichier (le point compris), « » pour un dossier.
-			NkString ExtensionDe(const NkString &nom) {
-				const char *ext = nullptr;
-				for (const char *q = nom.CStr(); *q != 0; ++q) {
-					if (*q == '.' && q != nom.CStr()) {
-						ext = q;
-					}
-				}
-				return ext != nullptr ? NkString(ext) : NkString();
-			}
-
 			void CommencerRenommage(NkEditeurModele &m, NkEditeurInterface &ui, const NkString &chemin) {
 				if (!NkEditeurCheminEstContenu(chemin.CStr()) || Rel(chemin).Empty()) {
 					return;

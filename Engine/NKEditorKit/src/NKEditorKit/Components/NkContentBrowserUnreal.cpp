@@ -261,7 +261,8 @@ namespace nkentseu {
 			if (!t || cap == 0u)
 				return 0u;
 			uint32 at = PutUInt(t, cap, 0, n);
-			at = PutStr(t, cap, at, n == 1u ? " élément" : " éléments");
+			// « 0 element » : zero s'accorde au singulier, comme un.
+			at = PutStr(t, cap, at, n <= 1u ? " élément" : " éléments");
 			if (c > 0u) {
 				at = PutStr(t, cap, at, " (");
 				at = PutUInt(t, cap, at, c);
