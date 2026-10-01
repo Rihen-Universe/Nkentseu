@@ -230,10 +230,16 @@ namespace nkentseu {
 				// precedente — un decalage d'une trame qui ne se voit pas sur une
 				// image fixe et fausse tout ce qui bouge.
 				++mFrameIndex;
+				// Une image peut ne pas avoir ete presentee (Metal : pas de drawable
+				// tant que la fenetre n'est pas a l'ecran, CI du 2026-10-01) : on
+				// reessaie a chaque image, 300 au plus, avant de declarer l'echec.
 				if (mCapturePath.Size() > 0 && mFrameIndex >= mCaptureFrame) {
 					const bool ok = mTarget->Capture(mCapturePath.Data());
-					logger.Info("[nkcanvasapp] capture vers {0} : {1}", mCapturePath.Data(), ok ? "ok" : "ECHEC");
-					mRunning = false;
+					if (ok || mFrameIndex >= mCaptureFrame + 300) {
+						logger.Info("[nkcanvasapp] capture vers {0} (image {1}) : {2}", mCapturePath.Data(),
+									mFrameIndex, ok ? "ok" : "ECHEC");
+						mRunning = false;
+					}
 				}
 			}
 

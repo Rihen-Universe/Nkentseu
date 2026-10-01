@@ -88,7 +88,7 @@ namespace nkentseu {
 		}
 
 		layer.pixelFormat = m.srgb ? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatBGRA8Unorm;
-		layer.framebufferOnly = mKeepLast ? NO : YES;
+		layer.framebufferOnly = YES;
 		layer.drawableSize = CGSizeMake((CGFloat)surf.width, (CGFloat)surf.height);
 #if defined(NKENTSEU_PLATFORM_MACOS)
 		layer.displaySyncEnabled = m.vsync; // propriété CAMetalLayer macOS uniquement
@@ -192,6 +192,10 @@ namespace nkentseu {
 			CFBridgingRelease(mReadback);
 			mReadback = nullptr;
 		}
+		if (mHorsEcran) {
+			CFBridgingRelease(mHorsEcran);
+			mHorsEcran = nullptr;
+		}
 		if (mData.device) {
 			CFBridgingRelease(mData.device);
 			mData.device = nullptr;
@@ -207,12 +211,37 @@ namespace nkentseu {
 			return false;
 		CAMetalLayer *layer = (__bridge CAMetalLayer *)mData.layer;
 
-		id<CAMetalDrawable> drawable = [layer nextDrawable];
-		if (!drawable) {
-			NK_MTL_ERR("nextDrawable returned nil (likely minimized)\n");
-			return false;
+		id<MTLTexture> cible = nil;
+		if (mKeepLast) {
+			// Mode capture : texture hors ecran, au format et a la taille de la surface.
+			id<MTLTexture> he = (__bridge id<MTLTexture>)mHorsEcran;
+			if (!he || he.width != mData.width || he.height != mData.height) {
+				if (mHorsEcran)
+					CFBridgingRelease(mHorsEcran);
+				id<MTLDevice> device = (__bridge id<MTLDevice>)mData.device;
+				MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:layer.pixelFormat
+																							   width:mData.width
+																							  height:mData.height
+																						   mipmapped:NO];
+				td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+				td.storageMode = MTLStorageModePrivate;
+				he = [device newTextureWithDescriptor:td];
+				mHorsEcran = he ? (void *)CFBridgingRetain(he) : nullptr;
+			}
+			cible = he;
+			if (!cible) {
+				NK_MTL_ERR("texture hors ecran %ux%u impossible\n", mData.width, mData.height);
+				return false;
+			}
+		} else {
+			id<CAMetalDrawable> drawable = [layer nextDrawable];
+			if (!drawable) {
+				NK_MTL_ERR("nextDrawable returned nil (likely minimized)\n");
+				return false;
+			}
+			mData.currentDrawable = (void *)CFBridgingRetain(drawable);
+			cible = drawable.texture;
 		}
-		mData.currentDrawable = (void *)CFBridgingRetain(drawable);
 
 		id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)mData.commandQueue;
 		id<MTLCommandBuffer> cmdb = [queue commandBuffer];
@@ -220,7 +249,7 @@ namespace nkentseu {
 
 		// Render pass descriptor
 		MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
-		rpd.colorAttachments[0].texture = drawable.texture;
+		rpd.colorAttachments[0].texture = cible;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
 		rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
 		rpd.colorAttachments[0].clearColor = MTLClearColorMake(mClear[0], mClear[1], mClear[2], mClear[3]);
@@ -261,12 +290,11 @@ namespace nkentseu {
 		if (!cmdb)
 			return; // BeginFrame avait echoue (fenetre minimisee) : rien a presenter
 
-		// Capture demandee : copie du drawable dans un tampon partage, AVANT de
-		// le presenter (apres, il appartient de nouveau a la CAMetalLayer).
+		// Mode capture : copie de la texture hors ecran dans un tampon partage.
 		id<MTLBuffer> lecture = nil;
 		uint32 w = 0, h = 0;
-		if (mKeepLast && drw && !drw.texture.framebufferOnly) {
-			id<MTLTexture> tex = drw.texture;
+		if (mKeepLast && mHorsEcran) {
+			id<MTLTexture> tex = (__bridge id<MTLTexture>)mHorsEcran;
 			w = (uint32)tex.width;
 			h = (uint32)tex.height;
 			const NSUInteger taille = (NSUInteger)w * h * 4u;
@@ -323,10 +351,6 @@ namespace nkentseu {
 
 	void NkMetalContext::KeepLastFrame(bool keep) {
 		mKeepLast = keep;
-		if (mData.layer) {
-			CAMetalLayer *layer = (__bridge CAMetalLayer *)mData.layer;
-			layer.framebufferOnly = keep ? NO : YES;
-		}
 	}
 
 	bool NkMetalContext::ReadLastFrame(NkVector<uint8> &rgba, uint32 &width, uint32 &height) const {

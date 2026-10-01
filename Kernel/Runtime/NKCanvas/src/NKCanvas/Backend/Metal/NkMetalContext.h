@@ -55,10 +55,12 @@ namespace nkentseu {
 			void SetClearColor(float r, float g, float b, float a) override;
 
 			// ── Capture (2026-09-30) ─────────────────────────────────────────────
-			// Garder une copie CPU de chaque image PRESENTEE (NkRenderWindow::
-			// Capture, apres Display). Couteux (copie + attente GPU par image) :
-			// eteint par defaut, allume seulement quand une capture est demandee.
-			// Allumer rend la CAMetalLayer lisible (framebufferOnly = NO).
+			// Mode capture : chaque image est rendue HORS ECRAN, dans une texture
+			// du contexte, puis copiee en memoire CPU (NkRenderWindow::Capture,
+			// apres Display) ; rien n'est presente a l'ecran. Couteux (copie +
+			// attente GPU par image) : eteint par defaut. Pas de drawable lisible
+			// (framebufferOnly = NO) : le GPU paravirtualise de la CI n'en
+			// donnait plus aucun (nextDrawable nil a chaque image).
 			void KeepLastFrame(bool keep);
 			// Derniere image presentee, en RGBA 8 bits, lignes de haut en bas.
 			bool ReadLastFrame(NkVector<uint8> &rgba, uint32 &width, uint32 &height) const;
@@ -72,7 +74,8 @@ namespace nkentseu {
 			bool mVSync = true;
 			float mClear[4] = {0.1f, 0.1f, 0.1f, 1.f};
 			bool mKeepLast = false;
-			void *mReadback = nullptr; // id<MTLBuffer> partage, BGRA de l'image
+			void *mReadback = nullptr;  // id<MTLBuffer> partage, BGRA de l'image
+			void *mHorsEcran = nullptr; // id<MTLTexture> cible du mode capture
 			NkVector<uint8> mLast;
 			uint32 mLastW = 0, mLastH = 0;
 	};
