@@ -443,12 +443,14 @@ namespace nkentseu {
 				// (2026-10-01, R18) L'IA : --ia ouvre le panneau a droite (une capture le
 				// montre sans souris) ; --ia-reglages ouvre aussi la fenetre des
 				// fournisseurs ; --captures-ia=DOSSIER : les captures hors ecran.
-				if (args[i] == "--ia") {
-					mUi->voirIA = true;
+				// --ia : l'IA au premier plan, la ou elle vit (onglet ou a part) ;
+				// --ia=onglet / --ia=panneau / --ia=replie imposent la disposition.
+				if (args[i] == "--ia" || args[i].StartsWith("--ia=")) {
+					mIADepart = args[i] == "--ia" ? NkString("devant") : NkString(args[i].SubStr(5));
 					continue;
 				}
 				if (args[i] == "--ia-reglages") {
-					mUi->voirIA = true;
+					mIADepart = NkString("devant");
 					mIAReglagesDepart = true;
 					continue;
 				}
@@ -678,6 +680,21 @@ namespace nkentseu {
 			NkEditeurScriptsDemarrer(*mScripts, m, &mEntrees->jeu.Actions(0), &mEntrees->jeu.Liaisons());
 			// L'IA (2026-10-01, R18) : les fournisseurs de <AppData>/Nkentseu/IA.
 			NkEditeurIADemarrer(*mIA, m);
+			// La disposition RETENUE (onglet / a part / replie), puis ce que la ligne
+			// de commande impose -- une capture doit etre reproductible.
+			NkEditeurIALireDisposition(*mIA, *mUi);
+			if (mIADepart == "onglet" || mIADepart == "panneau" || mIADepart == "replie") {
+				mUi->iaPlace = mIADepart == "onglet" ? 0 : 1;
+				mUi->iaReplie = mIADepart == "replie";
+				mUi->voirIA = true;
+			}
+			if (!mIADepart.Empty() && mUi->iaPlace == 0) {
+				mUi->voirDetails = true;
+				mUi->ongletDroite = NK_ONGLET_IA;
+			} else if (mIADepart == "devant" || mIADepart == "panneau") {
+				mUi->voirIA = true;
+				mUi->iaReplie = false;
+			}
 			if (mIAReglagesDepart) {
 				NkEditeurIAOuvrirReglages(*mIA, -1);
 			}

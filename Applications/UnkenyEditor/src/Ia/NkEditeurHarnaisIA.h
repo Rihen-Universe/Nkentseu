@@ -97,6 +97,9 @@ namespace nkentseu {
 					t.W = w;
 					t.H = h;
 					t.pctx->Init(static_cast<int32>(w), static_cast<int32>(h));
+					// LE DEFAUT : l'onglet IA du groupe Details | Monde, au premier plan.
+					t.Ui().iaPlace = 0;
+					t.Ui().ongletDroite = NK_ONGLET_IA;
 					t.Ui().voirIA = true;
 					t.Ui().voirTiroir = false;
 					t.Ui().cadrageEnAttente = true;

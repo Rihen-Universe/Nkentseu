@@ -30,6 +30,9 @@
 //   (ia11) un chemin hors du projet est refuse, rien n'est ecrit
 //   (ia12) la description est ENGENDREE : elle nomme une entite creee a
 //          l'instant, les noeuds Blueprint, les acteurs
+//   (ia13) le panneau : un ONGLET du groupe Details | Monde par defaut ;
+//          « Detacher » en fait un panneau a part ; son chevron le REPLIE en
+//          bande ; la disposition est RETENUE ; « Rattacher » le remet en onglet
 //   CONTRE-EPREUVES (une mutation, le temoin doit passer au ROUGE) :
 //   (ce1) un nom d'outil faux -> le temoin de creation voit ECHEC
 //   (ce2) sans la photo avant l'outil -> le temoin de Ctrl+Z voit ECHEC
@@ -180,7 +183,7 @@ namespace nkentseu {
 			{
 				NkString msg;
 				const converse::NkDiagIA ok = converse::NkIaTesterConnexion(ollama, NkString(), msg);
-				Temoin(ok == converse::NkDiagIA::NK_OK && Contient(msg, "Connecte") && Contient(msg, "rien ne quitte"),
+				Temoin(ok == converse::NkDiagIA::NK_OK && Contient(msg, "Connecté") && Contient(msg, "rien ne quitte"),
 					   "(ia2a) Tester la connexion : « Connecte : 2 modele(s)... rien ne quitte ce PC »");
 				converse::NkReglagesFournisseur absent = ollama;
 				absent.modele = NkString("qwen3:8b");
@@ -202,7 +205,7 @@ namespace nkentseu {
 				const converse::NkDiagIA d = converse::NkIaListerModeles(openai, NkString(NkHarnaisIA::kCle), l, motif);
 				Temoin(d == converse::NkDiagIA::NK_OK && l.Size() == 2u, "(ia3a) OpenAI : /v1/models avec la cle (Bearer)", static_cast<float32>(l.Size()));
 				const converse::NkDiagIA d2 = converse::NkIaListerModeles(openai, NkString("sk-fausse"), l, motif);
-				Temoin(d2 == converse::NkDiagIA::NK_CLE_REFUSEE && Contient(motif, "Verifiez la cle"),
+				Temoin(d2 == converse::NkDiagIA::NK_CLE_REFUSEE && Contient(motif, "Vérifiez la clé"),
 					   "(ia3b) une mauvaise cle : CLE REFUSEE (401), le geste en tete");
 				converse::NkReglagesFournisseur claude = ia.fournisseurs[2];
 				const uint32 appels = h.serveur.Appels();
@@ -274,7 +277,7 @@ namespace nkentseu {
 				const bool refuse = h.CliquerAction(bloc, 1u);
 				h.Attendre();
 				const NkString derniere = h.serveur.DerniereRequete();
-				Temoin(refuse && NkFile::Exists(chemin.CStr()) && Contient(derniere, "REFUSE"),
+				Temoin(refuse && NkFile::Exists(chemin.CStr()) && Contient(derniere, "a REFUS"),
 					   "(ia7b) « Refuser » : le fichier reste, le modele apprend le refus");
 				uint32 bloc2 = 0u;
 				const bool attend2 = SuppressionAttend(h, chemin, bloc2);
@@ -357,6 +360,53 @@ namespace nkentseu {
 				Temoin(Contient(d, "TemoinUnique") && Contient(d, "bp.ev.debut") && Contient(d, "caisse") && Contient(d, "Ctrl+Z") &&
 						   Contient(d, "Documents/GDD.md"),
 					   "(ia12) la description nomme l'entite creee a l'instant, les noeuds, les acteurs", static_cast<float32>(d.Length()));
+			}
+
+			// ── (ia13) ou vit le panneau : onglet (defaut), a part, replie ; RETENU ──
+			{
+				NkEditeurInterface &ui = h.T().Ui();
+				auto Dans = [](const nkgui::NkRect &a, const editorkit::NkPaintRect &b) {
+					return b.w > 0.f && b.x >= a.x - 0.5f && b.y >= a.y - 0.5f && b.x + b.w <= a.x + a.w + 0.5f && b.y + b.h <= a.y + a.h + 0.5f;
+				};
+				h.T().Trame();
+				h.T().Trame();
+				Temoin(ui.iaPlace == 0 && ui.ia.w == 0.f && Dans(ui.details, ia.pan.rect),
+					   "(ia13a) par defaut : un ONGLET « IA » du groupe Details | Monde");
+				const nkgui::NkRect bp = ui.iaBoutonPlace;
+				h.T().Clic(0, bp.x + bp.w * 0.5f, bp.y + bp.h * 0.5f);
+				h.T().Trame();
+				const float32 largeurVue = ui.viseur.w;
+				Temoin(ui.iaPlace == 1 && ui.ia.w >= 300.f && Dans(ui.ia, ia.pan.rect) && ui.ongletDroite != NK_ONGLET_IA,
+					   "(ia13b) « Detacher » : un panneau a part, a droite de tout", ui.ia.w);
+				const nkgui::NkRect br = ui.iaBoutonRepli;
+				h.T().Clic(0, br.x + br.w * 0.5f, br.y + br.h * 0.5f);
+				h.T().Trame();
+				const bool replie = ui.iaReplie && ui.ia.w == 28.f && ui.viseur.w > largeurVue + 200.f;
+				const nkgui::NkRect bande = ui.ia;
+				h.T().Clic(0, bande.x + bande.w * 0.5f, bande.y + 200.f);
+				h.T().Trame();
+				Temoin(replie && !ui.iaReplie && ui.ia.w >= 300.f, "(ia13c) le chevron le REPLIE en bande (la vue s'elargit) ; un clic le deplie",
+					   bande.w);
+				// RETENU : ecrit sur le disque, relu dans une interface neuve.
+				h.T().Clic(0, ui.iaBoutonRepli.x + 10.f, ui.iaBoutonRepli.y + 10.f); // replie
+				h.T().Trame();
+				ia.persister = true;
+				NkEditeurIARetenirDisposition(ia, ui);
+				ia.persister = false;
+				memory::NkAllocator &al = memory::NkGetDefaultAllocator();
+				NkEditeurInterface *ui2 = al.New<NkEditeurInterface>();
+				const bool neuveOnglet = ui2->iaPlace == 0;
+				NkEditeurIALireDisposition(ia, *ui2);
+				Temoin(neuveOnglet && ui2->iaPlace == 1 && ui2->iaReplie && ui2->voirIA,
+					   "(ia13d) la disposition est RETENUE (unkeny_panneau.txt) et relue");
+				al.Delete(ui2);
+				// Retour au defaut : deplier, puis rattacher en onglet.
+				NkEditeurCadre c = h.T().Cadre();
+				NkEditeurExecuter(c, NK_A_IA_REPLIER);
+				NkEditeurExecuter(c, NK_A_IA_PLACE);
+				h.T().Trame();
+				Temoin(ui.iaPlace == 0 && ui.ongletDroite == NK_ONGLET_IA && Dans(ui.details, ia.pan.rect),
+					   "(ia13e) « Rattacher » : de nouveau l'onglet, au premier plan");
 			}
 
 			// ════════════ LES CONTRE-EPREUVES ════════════

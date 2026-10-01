@@ -54,11 +54,13 @@
 #include "NKConverse/NkConverseChatFlux.h"
 #include "NKEditorKit/NkAiPanneau.h"
 #include "NKEditorKit/NkAiReglagesVue.h"
+#include "NKGui/Core/NkGuiTypes.h"
 
 namespace nkentseu {
 	namespace editeur {
 
 		struct NkEditeurCadre;
+		struct NkEditeurInterface;
 
 		/// Ce qu'un outil a fait.
 		struct NkResultatOutilIA {
@@ -158,6 +160,9 @@ namespace nkentseu {
 				NkString derniereErreur;
 				/// Faux : rien n'est ecrit chez l'utilisateur (bancs, captures).
 				bool persister = true;
+				/// La disposition du panneau telle qu'elle est ecrite sur le disque :
+				/// on ne reecrit que ce qui a change.
+				NkString dispositionEcrite;
 
 				NkEditeurIA() = default;
 				NkEditeurIA(const NkEditeurIA &) = delete;
@@ -183,8 +188,17 @@ namespace nkentseu {
 
 		/// Les actions du menu (NK_A_VOIR_IA, NK_A_REGLAGES_IA) ; false : pas a l'IA.
 		bool NkEditeurActionIA(NkEditeurCadre &c, int32 action);
-		/// Le panneau, dans `ui.ia` (NkEditeurPlanifier). Rien si `m.ia` est nul.
+		/// Le panneau A PART, dans `ui.ia` (NkEditeurPlanifier) : deplie, ou replie
+		/// en bande. Rien en onglet (le groupe Details | Monde le dessine).
 		void NkEditeurDessinerIA(NkEditeurCadre &c);
+		/// Le panneau EN ONGLET, dans `zone` (le contenu du groupe Details | Monde).
+		void NkEditeurDessinerIADans(NkEditeurCadre &c, const nkgui::NkRect &zone);
+		/// L'IA se voit-elle a l'ecran (onglet au premier plan, ou panneau deplie) ?
+		bool NkEditeurIAVisible(const NkEditeurInterface &ui);
+		/// La disposition RETENUE (<dossier IA>/unkeny_panneau.txt) : onglet ou a
+		/// part, replie, ouvert, largeur. Lue au demarrage, ecrite quand elle change.
+		void NkEditeurIALireDisposition(NkEditeurIA &ia, NkEditeurInterface &ui);
+		void NkEditeurIARetenirDisposition(NkEditeurIA &ia, const NkEditeurInterface &ui);
 		/// La fenetre des reglages, par-dessus tout (couche du dessus).
 		void NkEditeurDessinerReglagesIA(NkEditeurCadre &c);
 		/// La fenetre est-elle ouverte (elle est modale) ?

@@ -29,6 +29,9 @@
 
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKConverse/NkConverseFournisseurs.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -103,7 +106,7 @@ namespace nkentseu {
 						editorkit::NkAiModeleDesc md;
 						md.nom = l[k].nom;
 						md.detail = converse::NkConverseDecrireModele(l[k], r.Distant());
-						md.motifEffort = NkString("l'effort n'est pas un reglage d'Unkeny");
+						md.motifEffort = NkString("l'effort n'est pas un réglage d'Unkeny");
 						d.modeles.PushBack(md);
 						if (l[k].nom == r.modele)
 							d.modele = static_cast<int32>(k);
@@ -111,7 +114,7 @@ namespace nkentseu {
 					if (!r.modele.Empty() && d.modeles.Empty()) {
 						editorkit::NkAiModeleDesc md;
 						md.nom = r.modele;
-						md.detail = NkString("choisi dans les reglages (liste non lue : Reglages > Actualiser)");
+						md.detail = NkString("choisi dans les réglages (liste non lue : Réglages > Actualiser)");
 						d.modeles.PushBack(md);
 						d.modele = 0;
 					}
@@ -161,16 +164,16 @@ namespace nkentseu {
 				NkAiBlocDonnees b;
 				b.type = NkAiBloc::Outil;
 				b.titre = ap.nom;
-				b.texte = r.ok ? (r.effet.Empty() ? NkString("fait") : r.effet) : NkString("refuse : ") + Borne(r.texte, 160);
+				b.texte = r.ok ? (r.effet.Empty() ? NkString("fait") : r.effet) : NkString("refusé : ") + Borne(r.texte, 160);
 				b.entree = Borne(ap.arguments, 900);
 				b.sortie = Borne(r.texte, 1600);
 				b.etiquetteEntree = NkString("Arguments");
-				b.etiquetteSortie = NkString("Resultat");
+				b.etiquetteSortie = NkString("Résultat");
 				Pousser(ia, b);
 				if (r.ok && r.modifie && !r.effet.Empty()) {
 					NkAiBlocDonnees e;
 					e.type = NkAiBloc::Effet;
-					e.effet = r.effet + " -- Ctrl+Z la defait";
+					e.effet = r.effet + " — Ctrl+Z la défait";
 					e.texte = r.effet;
 					e.replie = false;
 					ia.blocEffet = Pousser(ia, e);
@@ -197,9 +200,14 @@ namespace nkentseu {
 						NkAiBlocDonnees b;
 						b.type = NkAiBloc::Outil;
 						b.titre = ap.nom;
-						b.texte = NkString("ATTEND VOTRE CONFIRMATION : ") + pourquoi;
+						b.texte = NkString("attend votre confirmation");
 						b.entree = Borne(ap.arguments, 900);
 						b.etiquetteEntree = NkString("Arguments");
+						// LA QUESTION ENTIERE, en clair, dans le compartiment du bas :
+						// sur la ligne du titre, elle serait tronquee.
+						b.sortie = pourquoi;
+						b.etiquetteSortie = NkString("Question");
+						b.sortieEnClair = true;
 						b.replie = false;
 						ia.blocConfirmation = Pousser(ia, b);
 						ia.motifConfirmation = pourquoi;
@@ -219,7 +227,7 @@ namespace nkentseu {
 				++ia.etapes;
 				if (ia.etapes >= ia.etapesMax) {
 					char b[160];
-					std::snprintf(b, sizeof(b), "La demande s'arrete apres %d tours d'outils (un modele qui tourne en rond ne bloque pas l'editeur). Relancez si besoin.",
+					std::snprintf(b, sizeof(b), "La demande s'arrête après %d tours d'outils (un modèle qui tourne en rond ne bloque pas l'éditeur). Relancez si besoin.",
 								  static_cast<int>(ia.etapesMax));
 					Bloc(ia, NkAiBloc::Refus, NkString(), NkString(b));
 					ia.phase = NkPhaseIA::NK_REPOS;
@@ -233,7 +241,7 @@ namespace nkentseu {
 					if (rep.diag == converse::NkDiagIA::NK_OUTILS_REFUSES && ia.outilsNatifs) {
 						ia.forceTexte[static_cast<usize>(ia.actif)] = 1u;
 						Bloc(ia, NkAiBloc::Refus, NkString(),
-							 NkString("Ce modele ne sait pas les outils natifs : ils passent en blocs <outil> (format texte). Nouvel essai."));
+							 NkString("Ce modèle ne sait pas les outils natifs : ils passent en blocs <outil> (format texte). Nouvel essai."));
 						LancerTour(c, ia);
 						return;
 					}
@@ -244,7 +252,7 @@ namespace nkentseu {
 					}
 					ia.derniereErreur = rep.erreur;
 					if (rep.diag == converse::NkDiagIA::NK_ANNULE)
-						Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrete a votre demande."));
+						Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrêté à votre demande."));
 					else {
 						Bloc(ia, NkAiBloc::Echec, NkString(), rep.erreur.Empty() ? NkString("le fournisseur n'a rien rendu") : rep.erreur);
 						if (rep.diag == converse::NkDiagIA::NK_SERVEUR_ABSENT || rep.diag == converse::NkDiagIA::NK_CLE_ABSENTE ||
@@ -292,7 +300,7 @@ namespace nkentseu {
 
 			void LancerTour(NkEditeurCadre &c, NkEditeurIA &ia) {
 				if (ia.fournisseurs.Empty()) {
-					Bloc(ia, NkAiBloc::Echec, NkString(), NkString("Declarez un fournisseur : Fenetre > Reglages de l'IA."));
+					Bloc(ia, NkAiBloc::Echec, NkString(), NkString("Déclarez un fournisseur : Fenêtre > Réglages de l'IA."));
 					ia.phase = NkPhaseIA::NK_REPOS;
 					return;
 				}
@@ -332,7 +340,7 @@ namespace nkentseu {
 					for (uint8 g = 0; g < static_cast<uint8>(converse::NkGenreFournisseur::NK_COUNT); ++g)
 						v.genres.PushBack(NkString(converse::NkGenreFournisseurNom(static_cast<converse::NkGenreFournisseur>(g))));
 				if (v.modesOutils.Empty()) {
-					v.modesOutils.PushBack(NkString("Auto (natifs si le modele les annonce)"));
+					v.modesOutils.PushBack(NkString("Auto (natifs si le modèle les annonce)"));
 					v.modesOutils.PushBack(NkString("Natifs (champ « tools » de l'API)"));
 					v.modesOutils.PushBack(NkString("Texte (blocs <outil>, tout modele)"));
 				}
@@ -395,7 +403,7 @@ namespace nkentseu {
 				ia.sonde.Lancer(r, cle, tester);
 				if (ia.reglagesOuverts && ia.vueIndex == i) {
 					ia.vue.occupe = true;
-					ia.vue.message = NkString(tester ? "Test de la connexion…" : "Lecture de la liste des modeles…");
+					ia.vue.message = NkString(tester ? "Test de la connexion…" : "Lecture de la liste des modèles…");
 					ia.vue.ton = 3u;
 				}
 			}
@@ -423,16 +431,16 @@ namespace nkentseu {
 			p.plafond = 200u;
 			p.reglagesParHote = true;
 			p.effortCrans.Clear(); // aucun « effort » : le budget est un reglage du fournisseur
-			p.invite = NkString("Demandez a l'IA : « ajoute une caisse au centre », « ecris le GDD »…");
-			p.indication = NkString("L'assistant VOIT la scene et AGIT dessus : creer et regler des entites, ecrire des scripts C++ "
-									"et des Blueprints, organiser le Contenu, ecrire le GDD. Chaque action se defait par Ctrl+Z ; "
-									"supprimer ou ecraser un fichier attend votre confirmation.");
-			p.declaration = NkString("Fenetre > Reglages de l'IA : Ollama, serveur compatible OpenAI, Claude (API ou CLI), modele local.");
+			p.invite = NkString("Demandez à l'IA : « ajoute une caisse au centre », « écris le GDD »…");
+			p.indication = NkString("L'assistant VOIT la scène et AGIT dessus : créer et régler des entités, écrire des scripts C++ "
+									"et des Blueprints, organiser le Contenu, écrire le GDD. Chaque action se défait par Ctrl+Z ; "
+									"supprimer ou écraser un fichier attend votre confirmation.");
+			p.declaration = NkString("Fenêtre > Réglages de l'IA : Ollama, serveur compatible OpenAI, Claude (API ou CLI), modèle local.");
 			p.commandes.Clear();
 			{
 				editorkit::NkAiCommandeDesc d;
-				d.nom = NkString("Reglages des fournisseurs");
-				d.detail = NkString("adresse, modele, cle (hors du depot), tester la connexion");
+				d.nom = NkString("Réglages des fournisseurs");
+				d.detail = NkString("adresse, modèle, clé (hors du dépôt), tester la connexion");
 				d.section = NkString("Modele");
 				d.id = 1;
 				p.commandes.PushBack(d);
@@ -440,7 +448,7 @@ namespace nkentseu {
 			{
 				editorkit::NkAiCommandeDesc d;
 				d.nom = NkString("Tester la connexion");
-				d.detail = NkString("le fournisseur actif : serveur, modele, cle");
+				d.detail = NkString("le fournisseur actif : serveur, modèle, clé");
 				d.section = NkString("Modele");
 				d.id = 2;
 				p.commandes.PushBack(d);
@@ -448,7 +456,7 @@ namespace nkentseu {
 			{
 				editorkit::NkAiCommandeDesc d;
 				d.nom = NkString("Ce que l'IA voit");
-				d.detail = NkString("le message systeme engendre depuis l'editeur, maintenant");
+				d.detail = NkString("le message système engendré par l'éditeur, maintenant");
 				d.section = NkString("Contexte");
 				d.id = 3;
 				p.commandes.PushBack(d);
@@ -508,7 +516,7 @@ namespace nkentseu {
 				return;
 			const NkAppelOutil ap = ia.aExecuter[ia.prochain];
 			if (NkAiBlocDonnees *b = ia.pan.Fil().MutableParId(ia.blocConfirmation))
-				b->texte = NkString(accepte ? "CONFIRME par vous : " : "REFUSE par vous : ") + ia.motifConfirmation;
+				b->texte = NkString(accepte ? "confirmé par vous" : "refusé par vous");
 			ia.blocConfirmation = 0u;
 			ia.phase = NkPhaseIA::NK_ATTENTE;
 			const bool natif = ia.outilsNatifs && !ap.id.StartsWith("texte_");
@@ -520,7 +528,7 @@ namespace nkentseu {
 				m.role = natif ? NkRoleIA::NK_OUTIL : NkRoleIA::NK_UTILISATEUR;
 				m.idAppel = ap.id;
 				m.nomOutil = ap.nom;
-				const NkString t("REFUS : l'utilisateur a REFUSE cette action. Ne la refais pas sans qu'il la redemande.");
+				const NkString t("REFUS : l'utilisateur a REFUSÉ cette action. Ne la refais pas sans qu'il la redemande.");
 				m.texte = natif ? t : NkString("[resultat de l'outil ") + ap.nom + "]\n" + t;
 				ia.resultats.PushBack(m);
 			}
@@ -563,7 +571,7 @@ namespace nkentseu {
 							v.PoserChamp(v.modele, sizeof(v.modele), l[0].nom.CStr());
 						if (d == converse::NkDiagIA::NK_OK && !test) {
 							char b[96];
-							std::snprintf(b, sizeof(b), "%u modele(s) lu(s) sur le serveur : choisissez dans la liste ▾",
+							std::snprintf(b, sizeof(b), "%u modèle(s) lu(s) sur le serveur : choisissez-le dans la liste",
 										  static_cast<unsigned>(l.Size()));
 							v.message = NkString(b);
 						} else
@@ -574,7 +582,7 @@ namespace nkentseu {
 				}
 			}
 			// La liste du fournisseur actif, une fois, a la premiere ouverture du panneau.
-			if (c.ui.voirIA && !ia.listeDemandee && !ia.sonde.EnCours() && !ia.fournisseurs.Empty()) {
+			if (NkEditeurIAVisible(c.ui) && !ia.listeDemandee && !ia.sonde.EnCours() && !ia.fournisseurs.Empty()) {
 				ia.listeDemandee = true;
 				const NkReglagesFournisseur &r = Actif(ia);
 				if (r.genre != converse::NkGenreFournisseur::NK_CLAUDE_CLI)
@@ -600,142 +608,314 @@ namespace nkentseu {
 					TraiterReponse(c, ia, rep);
 			}
 			ia.pan.occupe = ia.phase != NkPhaseIA::NK_REPOS;
+			// La disposition choisie (onglet, a part, replie) est RETENUE.
+			NkEditeurIARetenirDisposition(ia, c.ui);
+		}
+
+		// =====================================================================
+		// LA DISPOSITION : onglet, panneau a part, replie -- et RETENUE
+		// =====================================================================
+		namespace {
+			NkString CheminDisposition(const NkEditeurIA &ia) {
+				return (NkPath(ia.dossier.CStr()) / "unkeny_panneau.txt").ToString();
+			}
+			NkString TexteDisposition(const NkEditeurInterface &ui) {
+				char b[160];
+				std::snprintf(b, sizeof(b), "nkpanneauia 1\nplace = %s\nreplie = %d\nvoir = %d\nlargeur = %d\n",
+							  ui.iaPlace == 1 ? "panneau" : "onglet", ui.iaReplie ? 1 : 0, ui.voirIA ? 1 : 0,
+							  static_cast<int>(ui.largeurIA));
+				return NkString(b);
+			}
+		} // namespace
+
+		void NkEditeurIALireDisposition(NkEditeurIA &ia, NkEditeurInterface &ui) {
+			const NkString f = CheminDisposition(ia);
+			if (!NkFile::Exists(f.CStr()))
+				return; // rien de retenu : le defaut (l'onglet du groupe Details | Monde)
+			const NkString t = NkFile::ReadAllText(f.CStr());
+			auto Valeur = [&](const char *cle) -> NkString {
+				const NkString motif = NkString(cle) + " = ";
+				const NkString::SizeType i = t.Find(motif.CStr());
+				if (i == NkString::npos)
+					return NkString();
+				NkString::SizeType j = t.Find('\n', i);
+				NkString v = t.SubStr(i + motif.Length(), (j == NkString::npos ? t.Length() : j) - i - motif.Length());
+				v.Trim();
+				return v;
+			};
+			ui.iaPlace = Valeur("place") == "panneau" ? 1 : 0;
+			ui.iaReplie = Valeur("replie") == "1";
+			ui.voirIA = Valeur("voir") != "0";
+			const int32 l = Valeur("largeur").ToInt32(0);
+			if (l >= 200)
+				ui.largeurIA = static_cast<float32>(l);
+			ia.dispositionEcrite = TexteDisposition(ui);
+		}
+
+		void NkEditeurIARetenirDisposition(NkEditeurIA &ia, const NkEditeurInterface &ui) {
+			if (!ia.persister)
+				return;
+			const NkString t = TexteDisposition(ui);
+			if (t == ia.dispositionEcrite)
+				return;
+			NkDirectory::CreateRecursive(ia.dossier.CStr());
+			if (NkFile::WriteAllText(CheminDisposition(ia).CStr(), t.CStr()))
+				ia.dispositionEcrite = t;
+		}
+
+		bool NkEditeurIAVisible(const NkEditeurInterface &ui) {
+			return ui.iaPlace == 0 ? (ui.voirDetails && ui.ongletDroite == NK_ONGLET_IA) : (ui.voirIA && !ui.iaReplie);
 		}
 
 		// =====================================================================
 		// LES ACTIONS DU MENU
 		// =====================================================================
 		bool NkEditeurActionIA(NkEditeurCadre &c, int32 action) {
+			NkEditeurInterface &ui = c.ui;
 			if (action == NK_A_VOIR_IA) {
-				c.ui.voirIA = !c.ui.voirIA;
+				// En ONGLET : l'onglet IA vient au premier plan (et y renvoie a
+				// Details s'il y etait deja). A PART : il s'ouvre, ou se deplie ;
+				// ouvert et deplie, il se ferme.
+				if (ui.iaPlace == 0) {
+					ui.voirDetails = true;
+					ui.ongletDroite = ui.ongletDroite == NK_ONGLET_IA ? 0 : NK_ONGLET_IA;
+				} else if (!ui.voirIA || ui.iaReplie) {
+					ui.voirIA = true;
+					ui.iaReplie = false;
+				} else
+					ui.voirIA = false;
+				return true;
+			}
+			if (action == NK_A_IA_PLACE) {
+				if (ui.iaPlace == 0) {
+					ui.iaPlace = 1; // DETACHER : un panneau a part, ouvert et deplie
+					ui.voirIA = true;
+					ui.iaReplie = false;
+					if (ui.ongletDroite == NK_ONGLET_IA)
+						ui.ongletDroite = 0;
+				} else {
+					ui.iaPlace = 0; // RATTACHER : l'onglet du groupe, au premier plan
+					ui.voirDetails = true;
+					ui.ongletDroite = NK_ONGLET_IA;
+				}
+				return true;
+			}
+			if (action == NK_A_IA_REPLIER) {
+				if (ui.iaPlace == 1) {
+					ui.voirIA = true;
+					ui.iaReplie = !ui.iaReplie;
+				}
 				return true;
 			}
 			if (action == NK_A_REGLAGES_IA) {
 				if (c.m.ia)
 					NkEditeurIAOuvrirReglages(*c.m.ia, -1);
 				else
-					NkEditeurAnnoncer(c.m, "L'IA n'est pas demarree dans cet editeur");
+					NkEditeurAnnoncer(c.m, "L'IA n'est pas démarrée dans cet éditeur");
 				return true;
 			}
 			return false;
 		}
 
 		// =====================================================================
-		// LE PANNEAU
+		// LE PANNEAU (son contenu, quel que soit l'endroit ou il vit)
 		// =====================================================================
+		namespace {
+			/// Le chevron d'un panneau qui se replie vers la DROITE (« › ») ou se
+			/// deplie vers la GAUCHE (« ‹ »), TRACE (la police n'a pas ces fleches
+			/// en gras lisible).
+			void ChevronHorizontal(nkgui::NkGuiDrawList &dl, float32 cx, float32 cy, bool versDroite, const nkgui::NkColor &col) {
+				const float32 d = versDroite ? 1.f : -1.f;
+				dl.AddLine(nkgui::NkVec2{cx - 2.5f * d, cy - 5.f}, nkgui::NkVec2{cx + 2.5f * d, cy}, col, 1.8f);
+				dl.AddLine(nkgui::NkVec2{cx + 2.5f * d, cy}, nkgui::NkVec2{cx - 2.5f * d, cy + 5.f}, col, 1.8f);
+			}
+
+			/// Le CONTENU du panneau IA dans `r` : le panneau du kit, et ses gestes.
+			void DessinerContenu(NkEditeurCadre &c, const nkgui::NkRect &zone, const nkgui::NkRect &r) {
+				NkEditeurInterface &ui = c.ui;
+				if (!c.m.ia) {
+					nkgui::NkGuiFont *f = c.police;
+					if (f && f->Valid())
+						c.ctx.dl.AddText(f->Face(), f->TexId(), {r.x + 12.f, r.y + 24.f}, "L'IA n'est pas démarrée dans cet éditeur.",
+										 c.pal.attenue);
+					return;
+				}
+				NkEditeurIA &ia = *c.m.ia;
+				editorkit::NkAiPanneau &pan = ia.pan;
+				// LES BOUTONS D'UN BLOC : la confirmation en attente d'abord ; sinon
+				// « Annuler cette action » sur le dernier effet, TANT QUE rien d'autre
+				// n'a ete retenu depuis (sinon il defairait le geste de quelqu'un d'autre).
+				pan.actions = editorkit::NkAiActionsFil{};
+				if (ia.phase == NkPhaseIA::NK_CONFIRMATION && ia.blocConfirmation != 0u) {
+					pan.actions.blocId = ia.blocConfirmation;
+					pan.actions.libelle[0] = "Confirmer";
+					pan.actions.libelle[1] = "Refuser";
+				} else if (ia.blocEffet != 0u && c.m.historique.annuler.Size() == ia.historiqueApresEffet &&
+						   !c.m.historique.annuler.Empty()) {
+					pan.actions.blocId = ia.blocEffet;
+					pan.actions.libelle[0] = "Annuler cette action (Ctrl+Z)";
+				}
+				pan.echelle = 1.f;
+				pan.maintenant = static_cast<float64>(ui.temps);
+				pan.phase = ui.temps - static_cast<float32>(static_cast<int32>(ui.temps));
+				// UN CLIC AILLEURS REND LE CLAVIER A L'EDITEUR : sans cela, apres une
+				// demande, Ctrl+Z dans la vue partait au composeur (et n'annulait pas
+				// l'action de l'IA qu'on voulait defaire).
+				if (c.ctx.input.mouseClicked[0] && !NkEditeurDans(zone, c.ctx.input.mousePos) && pan.ComposeurActif(c.ctx))
+					c.ctx.inputId = nkgui::NKGUI_ID_NONE;
+				editorkit::NkGuiComponentPaint pc(c.ctx, c.theme);
+				pc.PoserPolices(nullptr, nullptr, nullptr);
+				const editorkit::NkAiSorties out = pan.Dessiner(c.ctx, pc, {r.x, r.y, r.w, r.h}, true);
+
+				if (out.envoyer && !out.texte.Empty()) {
+					if (NkEditeurIAEnvoyer(c, out.texte.CStr()))
+						pan.ViderSaisie();
+				}
+				if (out.arreter) {
+					if (ia.phase == NkPhaseIA::NK_ATTENTE) {
+						ia.envoi.Annuler();
+						Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrêté à votre demande."));
+					} else if (ia.phase == NkPhaseIA::NK_CONFIRMATION) {
+						Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrêté : l'action en attente n'a pas été faite."));
+						ia.aExecuter.Clear();
+						ia.resultats.Clear();
+						ia.prochain = 0u;
+						ia.blocConfirmation = 0u;
+					}
+					ia.phase = NkPhaseIA::NK_REPOS;
+				}
+				if (out.actionBloc != 0u) {
+					if (out.actionBloc == ia.blocConfirmation && ia.phase == NkPhaseIA::NK_CONFIRMATION)
+						NkEditeurIAConfirmer(c, out.actionIndice == 0);
+					else if (out.actionBloc == ia.blocEffet && out.actionIndice == 0) {
+						NkEditeurExecuter(c, NK_A_ANNULER);
+						if (NkAiBlocDonnees *b = pan.Fil().MutableParId(ia.blocEffet))
+							b->effet = b->texte + " — ANNULÉE (Ctrl+Y la refait)";
+						ia.blocEffet = 0u;
+					}
+				}
+				if (out.ajouterIa)
+					NkEditeurIAOuvrirReglages(ia, -1);
+				if (out.fournisseurChange && out.nouveau >= 0)
+					NkEditeurIAChoisir(ia, out.nouveau);
+				if (out.modeleChange) {
+					const int32 a = pan.Actif();
+					if (a >= 0 && a < static_cast<int32>(pan.fournisseurs.Size())) {
+						const editorkit::NkAiFournisseurDesc &f = pan.fournisseurs[static_cast<usize>(a)];
+						if (f.modele >= 0 && f.modele < static_cast<int32>(f.modeles.Size()))
+							NkEditeurIAChoisir(ia, a, f.modeles[static_cast<usize>(f.modele)].nom.CStr());
+					}
+				}
+				if (out.nouvelle)
+					(void)Echange(ia); // le chat neuf a son echange vide
+				if (out.commande == 1)
+					NkEditeurIAOuvrirReglages(ia, -1);
+				if (out.commande == 2 && !ia.fournisseurs.Empty()) {
+					NkEditeurIAOuvrirReglages(ia, -1);
+					const NkReglagesFournisseur &rf = Actif(ia);
+					LancerSonde(ia, ia.actif, rf, Cle(ia, rf), true);
+				}
+				if (out.commande == 3) {
+					const bool natif = ia.fournisseurs.Empty() ? true
+															   : (ia.forceTexte[static_cast<usize>(ia.actif)] == 0u &&
+																  converse::NkIaOutilsNatifs(Actif(ia), OutilsModele(ia, ia.actif)));
+					NkAiBlocDonnees b;
+					b.type = NkAiBloc::Outil;
+					b.titre = NkString("Ce que l'IA voit");
+					b.texte = NkString(natif ? "le message système (outils natifs)" : "le message système (outils en texte)");
+					b.entree = Borne(NkEditeurIADescription(c.m, !natif), 6000);
+					b.etiquetteEntree = NkString("Système");
+					Pousser(ia, b);
+				}
+			}
+		} // namespace
+
+		// --- EN ONGLET, dans le groupe Details | Monde -----------------------------
+		void NkEditeurDessinerIADans(NkEditeurCadre &c, const nkgui::NkRect &zone) {
+			// Une barre fine : de quoi DETACHER le panneau, et ses reglages.
+			// ⚠️ PAS DE « ⚙ » NI DE « ✕ » : la police de l'editeur ne les a pas (la
+			//    premiere capture les montrait en « ? »). Des mots, et le « × » latin.
+			const float32 hBarre = 26.f;
+			c.ctx.dl.AddRectFilled(nkgui::NkRect{zone.x, zone.y, zone.w, hBarre}, c.pal.entete);
+			c.ui.iaBoutonPlace = nkgui::NkRect{zone.x + zone.w - 160.f, zone.y + 2.f, 86.f, 22.f};
+			if (NkEditeurBouton(c, c.ui.iaBoutonPlace, "Détacher"))
+				NkEditeurExecuter(c, NK_A_IA_PLACE);
+			if (NkEditeurBouton(c, nkgui::NkRect{zone.x + zone.w - 70.f, zone.y + 2.f, 66.f, 22.f}, "Réglages") && c.m.ia)
+				NkEditeurIAOuvrirReglages(*c.m.ia, -1);
+			if (c.m.ia && c.police && c.police->Valid()) {
+				const NkEditeurIA &ia = *c.m.ia;
+				const NkString lieu = ia.fournisseurs.Empty() ? NkString("aucun fournisseur")
+															  : ia.fournisseurs[static_cast<usize>(ia.actif < 0 ? 0 : ia.actif)].nom;
+				const float32 y = zone.y + hBarre * 0.5f - c.police->LineHeight() * 0.5f + c.police->Ascent();
+				c.ctx.dl.PushClipRect(nkgui::NkRect{zone.x + 8.f, zone.y, zone.w - 176.f, hBarre}, true);
+				c.ctx.dl.AddText(c.police->Face(), c.police->TexId(), {zone.x + 10.f, y}, lieu.CStr(), c.pal.attenue);
+				c.ctx.dl.PopClipRect();
+			}
+			DessinerContenu(c, zone, nkgui::NkRect{zone.x, zone.y + hBarre, zone.w, zone.h - hBarre});
+		}
+
+		// --- A PART, a droite de tout (deplie ou replie) ----------------------------
 		void NkEditeurDessinerIA(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;
-			if (!ui.voirIA || ui.ia.w < 40.f || ui.ia.h < 80.f)
+			if (ui.iaPlace != 1 || !ui.voirIA || ui.ia.w < 8.f || ui.ia.h < 80.f)
 				return;
 			const nkgui::NkRect zone = ui.ia;
 			c.ctx.dl.AddRectFilled(zone, c.pal.panneau);
-			// L'en-tete du panneau : son onglet, les reglages et la croix -- comme
-			// les autres panneaux ancres.
 			const float32 hOnglet = 26.f;
+			if (ui.iaReplie) {
+				// REPLIE : une bande, son chevron « ‹ » en tete, « IA » ecrit lettre a
+				// lettre ; un clic n'importe ou sur la bande le deplie. Un point
+				// d'accent dit qu'un tour est en vol (ou qu'une confirmation attend).
+				c.ctx.dl.AddRectFilled(nkgui::NkRect{zone.x, zone.y, zone.w, zone.h}, c.pal.entete);
+				c.ctx.dl.AddRectFilled(nkgui::NkRect{zone.x, zone.y, 1.f, zone.h}, c.pal.bord);
+				ui.iaBoutonRepli = nkgui::NkRect{zone.x + 2.f, zone.y + 2.f, zone.w - 4.f, 22.f};
+				const bool survol = NkEditeurDans(zone, c.ctx.input.mousePos);
+				if (survol)
+					c.ctx.dl.AddRectFilled(ui.iaBoutonRepli, c.pal.boutonSurvol, 2.f);
+				ChevronHorizontal(c.ctx.dl, zone.x + zone.w * 0.5f, zone.y + 13.f, false, survol ? c.pal.texte : c.pal.attenue);
+				if (c.police && c.police->Valid()) {
+					static const char *kLettres[2] = {"I", "A"};
+					for (int32 k = 0; k < 2; ++k) {
+						const float32 w = c.police->MeasureWidth(kLettres[k]);
+						c.ctx.dl.AddText(c.police->Face(), c.police->TexId(),
+										 {zone.x + (zone.w - w) * 0.5f, zone.y + 48.f + static_cast<float32>(k) * 16.f}, kLettres[k],
+										 c.pal.texte);
+					}
+				}
+				if (c.m.ia && c.m.ia->phase != NkPhaseIA::NK_REPOS)
+					c.ctx.dl.AddCircleFilled(nkgui::NkVec2{zone.x + zone.w * 0.5f, zone.y + 92.f}, 4.f,
+											 c.m.ia->phase == NkPhaseIA::NK_CONFIRMATION ? c.pal.selection : c.pal.accent);
+				if (survol && c.ctx.input.mouseClicked[0]) {
+					c.ctx.input.mouseClicked[0] = false;
+					NkEditeurExecuter(c, NK_A_IA_REPLIER);
+				}
+				return;
+			}
+			// DEPLIE : l'onglet du panneau ; Rattacher (en onglet), Reglages, le
+			// chevron « › » qui le replie, la croix qui le ferme.
 			static const char *kOnglet[1] = {"Assistant IA"};
 			int32 seul = 0;
-			NkEditeurOnglets(c, nkgui::NkRect{zone.x, zone.y, zone.w - 56.f, hOnglet}, kOnglet, 1, seul);
-			c.ctx.dl.AddRectFilled(nkgui::NkRect{zone.x + zone.w - 56.f, zone.y, 56.f, hOnglet}, c.pal.entete);
-			if (NkEditeurBouton(c, nkgui::NkRect{zone.x + zone.w - 54.f, zone.y + 2.f, 24.f, 22.f}, "⚙") && c.m.ia)
+			const float32 wBoutons = 92.f + 70.f + 26.f + 26.f;
+			NkEditeurOnglets(c, nkgui::NkRect{zone.x, zone.y, zone.w - wBoutons, hOnglet}, kOnglet, 1, seul);
+			c.ctx.dl.AddRectFilled(nkgui::NkRect{zone.x + zone.w - wBoutons, zone.y, wBoutons, hOnglet}, c.pal.entete);
+			float32 x = zone.x + zone.w - wBoutons + 2.f;
+			ui.iaBoutonPlace = nkgui::NkRect{x, zone.y + 2.f, 88.f, 22.f};
+			if (NkEditeurBouton(c, ui.iaBoutonPlace, "Rattacher"))
+				NkEditeurExecuter(c, NK_A_IA_PLACE);
+			x += 92.f;
+			if (NkEditeurBouton(c, nkgui::NkRect{x, zone.y + 2.f, 66.f, 22.f}, "Réglages") && c.m.ia)
 				NkEditeurIAOuvrirReglages(*c.m.ia, -1);
-			if (NkEditeurBouton(c, nkgui::NkRect{zone.x + zone.w - 27.f, zone.y + 2.f, 24.f, 22.f}, "✕")) {
+			x += 70.f;
+			ui.iaBoutonRepli = nkgui::NkRect{x, zone.y + 2.f, 23.f, 22.f};
+			if (NkEditeurBouton(c, ui.iaBoutonRepli, ""))
+				NkEditeurExecuter(c, NK_A_IA_REPLIER);
+			ChevronHorizontal(c.ctx.dl, ui.iaBoutonRepli.x + ui.iaBoutonRepli.w * 0.5f, ui.iaBoutonRepli.y + 11.f, true, c.pal.texte);
+			x += 26.f;
+			if (NkEditeurBouton(c, nkgui::NkRect{x, zone.y + 2.f, 23.f, 22.f}, "×")) {
 				ui.voirIA = false;
 				return;
 			}
-			const nkgui::NkRect r{zone.x, zone.y + hOnglet, zone.w, zone.h - hOnglet};
-			if (!c.m.ia) {
-				nkgui::NkGuiFont *f = c.police;
-				if (f && f->Valid())
-					c.ctx.dl.AddText(f->Face(), f->TexId(), {r.x + 12.f, r.y + 24.f}, "L'IA n'est pas demarree dans cet editeur.", c.pal.attenue);
-				return;
-			}
-			NkEditeurIA &ia = *c.m.ia;
-			editorkit::NkAiPanneau &pan = ia.pan;
-			// LES BOUTONS D'UN BLOC : la confirmation en attente d'abord ; sinon
-			// « Annuler cette action » sur le dernier effet, TANT QUE rien d'autre
-			// n'a ete retenu depuis (sinon il defairait le geste de quelqu'un d'autre).
-			pan.actions = editorkit::NkAiActionsFil{};
-			if (ia.phase == NkPhaseIA::NK_CONFIRMATION && ia.blocConfirmation != 0u) {
-				pan.actions.blocId = ia.blocConfirmation;
-				pan.actions.libelle[0] = "Confirmer";
-				pan.actions.libelle[1] = "Refuser";
-			} else if (ia.blocEffet != 0u && c.m.historique.annuler.Size() == ia.historiqueApresEffet &&
-					   !c.m.historique.annuler.Empty()) {
-				pan.actions.blocId = ia.blocEffet;
-				pan.actions.libelle[0] = "Annuler cette action (Ctrl+Z)";
-			}
-			pan.echelle = 1.f;
-			pan.maintenant = static_cast<float64>(ui.temps);
-			pan.phase = ui.temps - static_cast<float32>(static_cast<int32>(ui.temps));
-			// UN CLIC AILLEURS REND LE CLAVIER A L'EDITEUR : sans cela, apres une
-			// demande, Ctrl+Z dans la vue partait au composeur (et n'annulait pas
-			// l'action de l'IA qu'on voulait defaire).
-			if (c.ctx.input.mouseClicked[0] && !NkEditeurDans(zone, c.ctx.input.mousePos) && pan.ComposeurActif(c.ctx))
-				c.ctx.inputId = nkgui::NKGUI_ID_NONE;
-			editorkit::NkGuiComponentPaint pc(c.ctx, c.theme);
-			pc.PoserPolices(nullptr, nullptr, nullptr);
-			const editorkit::NkAiSorties out = pan.Dessiner(c.ctx, pc, {r.x, r.y, r.w, r.h}, true);
-
-			if (out.envoyer && !out.texte.Empty()) {
-				if (NkEditeurIAEnvoyer(c, out.texte.CStr()))
-					pan.ViderSaisie();
-			}
-			if (out.arreter) {
-				if (ia.phase == NkPhaseIA::NK_ATTENTE) {
-					ia.envoi.Annuler();
-					Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrete a votre demande."));
-				} else if (ia.phase == NkPhaseIA::NK_CONFIRMATION) {
-					Bloc(ia, NkAiBloc::Refus, NkString(), NkString("Arrete : l'action en attente n'a pas ete faite."));
-					ia.aExecuter.Clear();
-					ia.resultats.Clear();
-					ia.prochain = 0u;
-					ia.blocConfirmation = 0u;
-				}
-				ia.phase = NkPhaseIA::NK_REPOS;
-			}
-			if (out.actionBloc != 0u) {
-				if (out.actionBloc == ia.blocConfirmation && ia.phase == NkPhaseIA::NK_CONFIRMATION)
-					NkEditeurIAConfirmer(c, out.actionIndice == 0);
-				else if (out.actionBloc == ia.blocEffet && out.actionIndice == 0) {
-					NkEditeurExecuter(c, NK_A_ANNULER);
-					if (NkAiBlocDonnees *b = pan.Fil().MutableParId(ia.blocEffet))
-						b->effet = b->texte + " -- ANNULEE";
-					ia.blocEffet = 0u;
-				}
-			}
-			if (out.ajouterIa)
-				NkEditeurIAOuvrirReglages(ia, -1);
-			if (out.fournisseurChange && out.nouveau >= 0)
-				NkEditeurIAChoisir(ia, out.nouveau);
-			if (out.modeleChange) {
-				const int32 a = pan.Actif();
-				if (a >= 0 && a < static_cast<int32>(pan.fournisseurs.Size())) {
-					const editorkit::NkAiFournisseurDesc &f = pan.fournisseurs[static_cast<usize>(a)];
-					if (f.modele >= 0 && f.modele < static_cast<int32>(f.modeles.Size()))
-						NkEditeurIAChoisir(ia, a, f.modeles[static_cast<usize>(f.modele)].nom.CStr());
-				}
-			}
-			if (out.nouvelle)
-				(void)Echange(ia); // le chat neuf a son echange vide
-			if (out.commande == 1)
-				NkEditeurIAOuvrirReglages(ia, -1);
-			if (out.commande == 2 && !ia.fournisseurs.Empty()) {
-				NkEditeurIAOuvrirReglages(ia, -1);
-				const NkReglagesFournisseur &rf = Actif(ia);
-				LancerSonde(ia, ia.actif, rf, Cle(ia, rf), true);
-			}
-			if (out.commande == 3) {
-				const bool natif = ia.fournisseurs.Empty() ? true
-														   : (ia.forceTexte[static_cast<usize>(ia.actif)] == 0u &&
-															  converse::NkIaOutilsNatifs(Actif(ia), OutilsModele(ia, ia.actif)));
-				NkAiBlocDonnees b;
-				b.type = NkAiBloc::Outil;
-				b.titre = NkString("Ce que l'IA voit");
-				b.texte = NkString(natif ? "le message systeme (outils natifs)" : "le message systeme (outils en texte)");
-				b.entree = Borne(NkEditeurIADescription(c.m, !natif), 6000);
-				b.etiquetteEntree = NkString("Systeme");
-				Pousser(ia, b);
-			}
+			DessinerContenu(c, zone, nkgui::NkRect{zone.x, zone.y + hOnglet, zone.w, zone.h - hOnglet});
 		}
 
 		// =====================================================================
@@ -780,7 +960,7 @@ namespace nkentseu {
 				ia.vue.adresseUtile = g != converse::NkGenreFournisseur::NK_CLAUDE_CLI;
 				ia.vue.modeles.Clear();
 				ia.vue.modelesDetail.Clear();
-				ia.vue.message = NkString("Genre change : Actualiser lit la liste des modeles de ce serveur.");
+				ia.vue.message = NkString("Genre changé : « Actualiser » lit la liste des modèles de ce serveur.");
 				ia.vue.ton = 0u;
 			}
 			const int32 i = ia.vueIndex;
@@ -800,8 +980,8 @@ namespace nkentseu {
 				NkString source;
 				const NkString cle = Cle(ia, ia.fournisseurs[static_cast<usize>(i)], &source);
 				ia.vue.cleInfo = cle.Empty() ? NkString() : converse::NkIaMasquerCle(cle) + "  (" + source + ")";
-				ia.vue.message = cle.Empty() ? NkString("Cle effacee du dossier de l'utilisateur.")
-											 : NkString("Le fichier est efface, mais une variable d'environnement fournit encore une cle.");
+				ia.vue.message = cle.Empty() ? NkString("Clé effacée du dossier de l'utilisateur.")
+											 : NkString("Le fichier est effacé, mais une variable d'environnement fournit encore une clé.");
 				ia.vue.ton = 1u;
 			}
 			if (out.enregistrer || out.utiliser) {
@@ -821,8 +1001,8 @@ namespace nkentseu {
 				ia.motifs[static_cast<usize>(i)] = NkString();
 				DeclarerFournisseurs(ia);
 				VersForme(ia, i);
-				ia.vue.message = cleOk ? NkString(out.utiliser ? "Fournisseur utilise par le panneau ; reglages enregistres dans " : "Enregistre dans ") +
-											 ia.dossier + " (AUCUNE cle dans ce fichier : elles sont dans cles/)."
+				ia.vue.message = cleOk ? NkString(out.utiliser ? "Fournisseur utilisé par le panneau ; réglages enregistrés dans " : "Enregistré dans ") +
+											 ia.dossier + " (AUCUNE clé dans ce fichier : elles sont dans cles/)."
 									   : pq;
 				ia.vue.ton = cleOk ? 1u : 2u;
 			}
@@ -833,12 +1013,12 @@ namespace nkentseu {
 				std::snprintf(id, sizeof(id), "fournisseur-%u", static_cast<unsigned>(ia.fournisseurs.Size() + 1u));
 				n.id = NkString(id);
 				n.genre = converse::NkGenreFournisseur::NK_OLLAMA;
-				n.nom = NkString("Ollama (autre PC du reseau)");
+				n.nom = NkString("Ollama (autre PC du réseau)");
 				n.adresse = NkString("http://192.168.1.20:11434");
 				ia.fournisseurs.PushBack(n);
 				Tailles(ia);
 				VersForme(ia, static_cast<int32>(ia.fournisseurs.Size()) - 1);
-				ia.vue.message = NkString("Corrigez l'adresse (l'IP de l'autre PC), puis Actualiser.");
+				ia.vue.message = NkString("Corrigez l'adresse (l'IP de l'autre PC), puis « Actualiser ».");
 				ia.vue.ton = 0u;
 			}
 			if (out.supprimer && ia.fournisseurs.Size() > 1u) {

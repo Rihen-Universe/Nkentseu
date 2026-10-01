@@ -192,6 +192,10 @@ namespace nkentseu {
 				if (!ligne.Empty())
 					out.PushBack(ligne);
 			}
+			/// La petite fleche d'une liste deroulante, TRACEE (la police n'a pas « ▾ »).
+			inline void Fleche(nkgui::NkGuiDrawList &dl, float32 x, float32 yMilieu, const nkgui::NkColor &c) {
+				dl.AddTriangleFilled({x, yMilieu - 2.5f}, {x + 8.f, yMilieu - 2.5f}, {x + 4.f, yMilieu + 2.5f}, c);
+			}
 			inline bool Bouton(nkgui::NkGuiContext &ctx, nkgui::NkGuiDrawList &dl, const nkgui::NkGuiFont *f,
 							   const nkgui::NkRect &r, const char *t, const NkAiReglagesCouleurs &c, bool actif = true,
 							   bool principal = false) {
@@ -239,7 +243,7 @@ namespace nkentseu {
 			dl.AddRectFilled(entete, c.entete, 5.f);
 			Texte(dl, police, r.x + 12.f, entete.y + 16.f, v.titre.CStr(), c.texte);
 			v.btnFermer = {r.x + r.w - 30.f, r.y + 4.f, 24.f, 24.f};
-			if (Bouton(ctx, dl, police, v.btnFermer, "✕", c))
+			if (Bouton(ctx, dl, police, v.btnFermer, "×", c)) // la police n'a pas « ✕ »
 				out.fermer = true;
 
 			// ── LA LISTE DES FOURNISSEURS, a gauche ──
@@ -303,7 +307,7 @@ namespace nkentseu {
 				if (Bouton(ctx, dl, police, ancreGenre, "", c))
 					v.liste = v.liste == 1 ? 0 : 1;
 				TexteBorne(dl, police, ancreGenre.x + 8.f, ancreGenre.y + hL * 0.5f, ancreGenre.w - 28.f, g, c.texte);
-				Texte(dl, police, ancreGenre.x + ancreGenre.w - 16.f, ancreGenre.y + hL * 0.5f, "▾", c.attenue);
+				Fleche(dl, ancreGenre.x + ancreGenre.w - 16.f, ancreGenre.y + hL * 0.5f, c.attenue);
 			}
 			y += pas;
 			Etiquette("Nom");
@@ -319,8 +323,9 @@ namespace nkentseu {
 				v.champModele = cm;
 				Champ(2, cm, v.modele, (int32)sizeof(v.modele), true);
 				ancreModele = {cm.x + cm.w + 4.f, y, 26.f, hL};
-				if (Bouton(ctx, dl, police, ancreModele, "▾", c, v.modeles.Size() > 0u))
+				if (Bouton(ctx, dl, police, ancreModele, "", c, v.modeles.Size() > 0u))
 					v.liste = v.liste == 2 ? 0 : 2;
+				Fleche(dl, ancreModele.x + ancreModele.w * 0.5f - 4.f, ancreModele.y + hL * 0.5f, v.modeles.Size() > 0u ? c.texte : c.attenue);
 				v.btnActualiser = {ancreModele.x + ancreModele.w + 4.f, y, wBtn, hL};
 				if (Bouton(ctx, dl, police, v.btnActualiser, v.occupe ? "…" : "Actualiser", c, !v.occupe))
 					out.actualiser = true;
@@ -403,7 +408,7 @@ namespace nkentseu {
 				if (Bouton(ctx, dl, police, ancreOutils, "", c))
 					v.liste = v.liste == 3 ? 0 : 3;
 				TexteBorne(dl, police, ancreOutils.x + 8.f, y + hL * 0.5f, ancreOutils.w - 28.f, o, c.texte);
-				Texte(dl, police, ancreOutils.x + ancreOutils.w - 16.f, y + hL * 0.5f, "▾", c.attenue);
+				Fleche(dl, ancreOutils.x + ancreOutils.w - 16.f, y + hL * 0.5f, c.attenue);
 			}
 			y += pas + 4.f;
 			// L'aide du genre, enveloppee.

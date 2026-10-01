@@ -5,13 +5,15 @@
 //              trame de banc peint l'editeur et le rasteriseur de NKGui l'ecrit
 //              en PNG.
 //
-//   01  le panneau IA a droite, une conversation : demande, texte, outil, effet
-//   02  la fenetre des reglages : la liste des modeles LUE SUR LE SERVEUR
-//   03  le verdict de « Tester la connexion » quand le serveur est absent
+//   01  l'IA en ONGLET du groupe Details | Monde (le defaut) : une conversation
+//   02  la meme, DETACHEE en panneau a part (Details et IA cote a cote)
+//   03  le panneau a part REPLIE en bande (son chevron)
 //   04  l'action faite (la caisse au centre, le bloc d'effet, son bouton)
 //   05  la meme, ANNULEE (Ctrl+Z) : la caisse est partie
 //   06  une suppression qui ATTEND la confirmation (Confirmer / Refuser)
-//   07  la cle d'un fournisseur : jamais en clair
+//   07  la fenetre des reglages : la liste des modeles LUE SUR LE SERVEUR
+//   08  le verdict de « Tester la connexion » quand le serveur est absent
+//   09  la cle d'un fournisseur : jamais en clair
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -59,6 +61,7 @@ namespace nkentseu {
 			NkEditeurIA &ia = h.IA();
 			NkEditeurInterface &ui = h.T().Ui();
 			ui.largeurIA = 460.f;
+			ui.largeurDetails = 380.f;
 			// La liste du fournisseur actif, lue par la premiere ouverture du panneau.
 			for (int32 k = 0; k < 60 && (ia.sonde.EnCours() || ia.modeles[0].Empty()); ++k) {
 				h.T().Trame();
@@ -69,8 +72,8 @@ namespace nkentseu {
 
 			// 01 + 04 : une conversation, puis « ajoute une caisse au centre ».
 			{
-				const char *bonjour[] = {"Bonjour ! Je vois votre scene : un sol, des caisses, un blob, de l'eau et un tissu. ",
-										 "Je peux y poser des acteurs, regler leurs composants, ecrire des scripts C++ ou des Blueprints, et tenir le GDD."};
+				const char *bonjour[] = {"Bonjour ! Je vois votre scène : un sol, des caisses, un blob, de l'eau et un tissu. ",
+										 "Je peux y poser des acteurs, régler leurs composants, écrire des scripts C++ ou des Blueprints, et tenir le GDD."};
 				h.serveur.PousserTexte(bonjour, 2);
 				h.Dire("Bonjour, que vois-tu ?");
 				h.Attendre();
@@ -80,7 +83,24 @@ namespace nkentseu {
 				h.Dire("ajoute une caisse au centre");
 				h.Attendre();
 				Trames(h, 3);
-				erreurs += Png(h.T(), NkString::Format("%s/01_panneau_ia_conversation.png", dossier)) ? 0 : 1;
+				erreurs += Png(h.T(), NkString::Format("%s/01_onglet_ia_a_cote_de_details_et_monde.png", dossier)) ? 0 : 1;
+				// 02 : DETACHE en panneau a part (le bouton de la barre de l'onglet).
+				NkEditeurInterface &u = h.T().Ui();
+				h.T().Clic(0, u.iaBoutonPlace.x + u.iaBoutonPlace.w * 0.5f, u.iaBoutonPlace.y + u.iaBoutonPlace.h * 0.5f);
+				u.ongletDroite = 0; // les Details de la caisse, a cote
+				Trames(h, 3);
+				erreurs += Png(h.T(), NkString::Format("%s/02_panneau_a_part_detache.png", dossier)) ? 0 : 1;
+				// 03 : REPLIE (son chevron), puis deplie (un clic sur la bande).
+				h.T().Clic(0, u.iaBoutonRepli.x + u.iaBoutonRepli.w * 0.5f, u.iaBoutonRepli.y + u.iaBoutonRepli.h * 0.5f);
+				Trames(h, 3);
+				erreurs += Png(h.T(), NkString::Format("%s/03_panneau_replie_chevron.png", dossier)) ? 0 : 1;
+				h.T().Clic(0, u.ia.x + u.ia.w * 0.5f, u.ia.y + 200.f);
+				Trames(h, 3);
+				// 04 : la vue s'approche du centre pour qu'on VOIE la caisse posee.
+				NkVue2D &cam = h.M().scene.Camera();
+				const float32 zoom = cam.Zoom();
+				cam.PoserZoom(zoom * 3.f);
+				Trames(h, 2);
 				erreurs += Png(h.T(), NkString::Format("%s/04_action_faite_caisse_au_centre.png", dossier)) ? 0 : 1;
 			}
 			// 05 : la meme, annulee par « Annuler cette action » (la meme porte que Ctrl+Z).
@@ -89,6 +109,7 @@ namespace nkentseu {
 				h.CliquerAction(effet, 0u);
 				Trames(h, 3);
 				erreurs += Png(h.T(), NkString::Format("%s/05_action_annulee_ctrl_z.png", dossier)) ? 0 : 1;
+				h.M().scene.Camera().PoserZoom(h.M().scene.Camera().Zoom() / 3.f);
 			}
 			// 06 : une suppression qui attend la confirmation.
 			{
@@ -101,7 +122,7 @@ namespace nkentseu {
 				h.CliquerAction(ia.blocConfirmation, 1u); // Refuser : le brouillon reste
 				h.Attendre();
 			}
-			// 02 : les reglages, la liste des modeles lue sur le serveur.
+			// 07 : les reglages, la liste des modeles lue sur le serveur.
 			{
 				NkEditeurIAOuvrirReglages(ia, 0);
 				Trames(h, 2);
@@ -113,10 +134,10 @@ namespace nkentseu {
 				Trames(h, 2);
 				ia.vue.OuvrirListeModeles();
 				Trames(h, 2);
-				erreurs += Png(h.T(), NkString::Format("%s/02_reglages_liste_des_modeles_du_serveur.png", dossier)) ? 0 : 1;
+				erreurs += Png(h.T(), NkString::Format("%s/07_reglages_liste_des_modeles_du_serveur.png", dossier)) ? 0 : 1;
 				ia.vue.liste = 0;
 			}
-			// 03 : « Tester la connexion », serveur absent.
+			// 08 : « Tester la connexion », serveur absent.
 			{
 				ia.vue.PoserChamp(ia.vue.adresse, sizeof(ia.vue.adresse), "http://127.0.0.1:11999"); // personne n ecoute ici
 				ia.vue.PoserChamp(ia.vue.nom, sizeof(ia.vue.nom), "Ollama (adresse fausse)");
@@ -127,16 +148,16 @@ namespace nkentseu {
 					NkChrono::Sleep(static_cast<int64>(5));
 				}
 				Trames(h, 2);
-				erreurs += Png(h.T(), NkString::Format("%s/03_tester_la_connexion_serveur_absent.png", dossier)) ? 0 : 1;
+				erreurs += Png(h.T(), NkString::Format("%s/08_tester_la_connexion_serveur_absent.png", dossier)) ? 0 : 1;
 			}
-			// 07 : Claude par l'API, une cle tapee : des points, jamais la cle.
+			// 09 : Claude par l'API, une cle tapee : des points, jamais la cle.
 			{
 				NkEditeurIAOuvrirReglages(ia, 2);
 				Trames(h, 2);
 				h.T().Clic(0, ia.vue.champCle.x + 20.f, ia.vue.champCle.y + ia.vue.champCle.h * 0.5f);
 				h.T().Taper("sk-ant-exemple-pas-une-vraie-cle");
 				Trames(h, 2);
-				erreurs += Png(h.T(), NkString::Format("%s/07_reglages_cle_masquee.png", dossier)) ? 0 : 1;
+				erreurs += Png(h.T(), NkString::Format("%s/09_reglages_cle_masquee.png", dossier)) ? 0 : 1;
 				ia.vue.cleSaisie = NkString(); // jamais enregistree (persister est faux, et on l'oublie)
 				ia.reglagesOuverts = false;
 			}

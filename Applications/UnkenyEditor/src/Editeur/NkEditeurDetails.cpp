@@ -36,6 +36,7 @@
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 
+#include "Ia/NkEditeurIA.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurLumiere.h"
@@ -1905,13 +1906,22 @@ namespace nkentseu {
 				return;
 			}
 			c.ctx.dl.AddRectFilled(zone, c.pal.panneau);
-			static const char *kOnglets[2] = {"Détails", "Monde"};
+			// (2026-10-01, R18) L'IA EST UN TROISIEME ONGLET du groupe (le defaut ;
+			// detachee, elle a son panneau a part et l'onglet s'en va). Sans IA
+			// demarree (la plupart des bancs), le groupe reste Details | Monde.
+			static const char *kOnglets[3] = {"Détails", "Monde", "IA"};
+			const bool ongletIA = c.m.ia != nullptr && ui.iaPlace == 0;
+			if (!ongletIA && ui.ongletDroite == NK_ONGLET_IA) {
+				ui.ongletDroite = 0;
+			}
 			const float32 ongletsH = 26.f;
-			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 2, ui.ongletDroite);
+			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, ongletIA ? 3 : 2, ui.ongletDroite);
 			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
 			c.ctx.dl.PushClipRect(contenu, true);
 			if (ui.ongletDroite == 0) {
 				OngletDetails(c, contenu);
+			} else if (ui.ongletDroite == NK_ONGLET_IA) {
+				NkEditeurDessinerIADans(c, contenu);
 			} else {
 				OngletMonde(c, contenu);
 			}

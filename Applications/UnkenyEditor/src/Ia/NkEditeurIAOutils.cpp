@@ -220,13 +220,13 @@ namespace nkentseu {
 			/// L'entite d'un uid ; un refus nomme sinon.
 			bool EntiteDe(NkEditeurModele &m, uint64 uid, ecs::NkEntityId &id, NkString &pourquoi) {
 				if (uid == 0u) {
-					pourquoi = NkString("uid manquant : lire_scene donne l'uid de chaque entite");
+					pourquoi = NkString("uid manquant : lire_scene donne l'uid de chaque entité");
 					return false;
 				}
 				id = m.scene.EntiteParUid(uid);
 				if (!id.IsValid() || !m.scene.Monde().IsAlive(id)) {
 					char b[96];
-					std::snprintf(b, sizeof(b), "aucune entite d'uid %llu (lire_scene les liste)", static_cast<unsigned long long>(uid));
+					std::snprintf(b, sizeof(b), "aucune entité d'uid %llu (lire_scene les liste)", static_cast<unsigned long long>(uid));
 					pourquoi = NkString(b);
 					return false;
 				}
@@ -553,7 +553,7 @@ namespace nkentseu {
 				const ecs::NkEntityId apres = m.scene.EntiteParUid(uid);
 				Selectionner(m, apres);
 				r.texte = NkString("{\"ok\":true,\"entite\":") + d.Ecrire(e) + "}";
-				r.effet = NkString("valeurs de « ") + NomDe(m, apres) + "» changees : " + propre.Ecrire(po);
+				r.effet = NkString("valeurs de « ") + NomDe(m, apres) + " » changées : " + propre.Ecrire(po);
 				if (r.effet.Length() > 160u)
 					r.effet = r.effet.SubStr(0, 157) + "...";
 				return r;
@@ -581,7 +581,7 @@ namespace nkentseu {
 				m.acteur = arme;
 				m.acteurSimple = simple;
 				if (!e.IsValid())
-					return Refus("l'acteur n'a pas pu etre pose (le monde de particules manque-t-il ?)");
+					return Refus("l'acteur n'a pas pu être posé (le monde de particules manque-t-il ?)");
 				if (a.A("nom") && !a.T("nom").Empty())
 					NkEditeurRenommer(m, e, a.T("nom").CStr());
 				Selectionner(m, e);
@@ -594,7 +594,7 @@ namespace nkentseu {
 				NkJsonChaine(NomDe(m, e), r.texte);
 				std::snprintf(b, sizeof(b), ",\"position\":[%.3f,%.3f]}", static_cast<double>(p.x), static_cast<double>(p.y));
 				r.texte.Append(b);
-				r.effet = NkString("+1 entite « ") + NomDe(m, e) + " » en " + Pos(p);
+				r.effet = NkString("+1 entité « ") + NomDe(m, e) + " » en " + Pos(p);
 				return r;
 			}
 
@@ -604,7 +604,7 @@ namespace nkentseu {
 				const NkString nom = a.T("nom", "Entite");
 				const ecs::NkEntityId e = NkEditeurCreerEntite(m, nom.CStr(), p);
 				if (!e.IsValid())
-					return Refus("l'entite n'a pas pu etre creee");
+					return Refus("l'entité n'a pas pu être créée");
 				NkString ajoutes, refuses;
 				const int32 cs = a.d.Membre(a.r, "composants");
 				for (uint32 k = 0; k < a.d.Taille(cs); ++k) {
@@ -632,7 +632,7 @@ namespace nkentseu {
 					NkJsonChaine(refuses, r.texte);
 				}
 				r.texte.Append("}");
-				r.effet = NkString("+1 entite « ") + NomDe(m, e) + " » en " + Pos(p) + (ajoutes.Empty() ? NkString() : NkString(" (") + ajoutes + ")");
+				r.effet = NkString("+1 entité « ") + NomDe(m, e) + " » en " + Pos(p) + (ajoutes.Empty() ? NkString() : NkString(" (") + ajoutes + ")");
 				return r;
 			}
 
@@ -663,11 +663,11 @@ namespace nkentseu {
 				if (a.A("echelle_x") || a.A("echelle_y")) {
 					const NkVec2f e0 = NkEditeurEchelle(m, id);
 					NkEditeurPoserEchelle(m, id, NkVec2f(a.A("echelle_x") ? a.F("echelle_x") : e0.x, a.A("echelle_y") ? a.F("echelle_y") : e0.y));
-					fait.Append("echelle ");
+					fait.Append("échelle ");
 				}
 				if (a.A("active")) {
 					m.scene.Activer(id, a.B("active"));
-					fait.Append("activite ");
+					fait.Append("activité ");
 				}
 				if (a.A("parent")) {
 					const uint64 pu = a.U("parent");
@@ -678,12 +678,12 @@ namespace nkentseu {
 						if (!EntiteDe(m, pu, p, pq))
 							return Refus(NkString("parent : ") + pq);
 						if (!NkEditeurRattacher(m, id, p))
-							return Refus("ce parent ferait une boucle (une entite ne peut pas etre sous sa descendance)");
+							return Refus("ce parent ferait une boucle (une entité ne peut pas être sous sa descendance)");
 					}
 					fait.Append("parent ");
 				}
 				if (fait.Empty())
-					return Refus("rien a changer : donnez nom, x, y, rotation, echelle_x, echelle_y, active ou parent");
+					return Refus("rien à changer : donnez nom, x, y, rotation, echelle_x, echelle_y, active ou parent");
 				NkResultatOutilIA r;
 				r.ok = true;
 				r.modifie = true;
@@ -752,7 +752,7 @@ namespace nkentseu {
 				r.ok = true;
 				r.modifie = true;
 				r.texte = NkString("{\"ok\":true}");
-				r.effet = NkString("-1 entite « ") + nom + " » (Ctrl+Z la rend)";
+				r.effet = NkString("-1 entité « ") + nom + " » (Ctrl+Z la rend)";
 				return r;
 			}
 
@@ -764,7 +764,7 @@ namespace nkentseu {
 				Selectionner(m, id);
 				const ecs::NkEntityId e = NkEditeurDupliquer(m);
 				if (!e.IsValid())
-					return Refus("cette entite ne se duplique pas (la matiere d'un corps mou ne se recopie pas)");
+					return Refus("cette entité ne se duplique pas (la matière d'un corps mou ne se recopie pas)");
 				Selectionner(m, e);
 				NkResultatOutilIA r;
 				r.ok = true;
@@ -802,7 +802,7 @@ namespace nkentseu {
 					m.scene.Monde().Add<unkeny::NkScript2D>(id, unkeny::NkScript2D());
 				unkeny::NkScript2D *sc = m.scene.Monde().Get<unkeny::NkScript2D>(id);
 				if (sc == nullptr || unkeny::NkScriptTrouver(*sc, voulu.CStr()) >= 0)
-					return Refus("ce script est deja sur l'entite");
+					return Refus("ce script est déjà sur l'entité");
 				if (unkeny::NkScriptAjouter(*sc, voulu.CStr()) < 0)
 					return Refus("plus de place (4 scripts au plus) ou nom trop long");
 				const unkeny::NkDefinitionScript *d = m.scripts->registre.Definition(m.scripts->registre.Trouver(voulu.CStr()));
@@ -817,7 +817,7 @@ namespace nkentseu {
 				r.ok = true;
 				r.modifie = true;
 				r.texte = NkString("{\"ok\":true}");
-				r.effet = NkString("script ") + voulu + " pose sur « " + NomDe(m, id) + " »";
+				r.effet = NkString("script ") + voulu + " posé sur « " + NomDe(m, id) + " »";
 				return r;
 			}
 
@@ -893,7 +893,7 @@ namespace nkentseu {
 					return Refus(pq);
 				const bool existait = NkFile::Exists(abs.CStr());
 				if (!EcrireRetenu(m, abs, a.T("texte")))
-					return Refus(NkString("ecriture impossible : ") + rel);
+					return Refus(NkString("écriture impossible : ") + rel);
 				if (ui)
 					ui->contenuPerime = true;
 				NkResultatOutilIA r;
@@ -904,7 +904,7 @@ namespace nkentseu {
 				r.texte.Append("}");
 				char b[48];
 				std::snprintf(b, sizeof(b), " (%u octets)", static_cast<unsigned>(a.T("texte").Length()));
-				r.effet = NkString(existait ? "fichier ecrase : " : "fichier cree : ") + rel + b;
+				r.effet = NkString(existait ? "fichier écrasé : " : "fichier créé : ") + rel + b;
 				return r;
 			}
 
@@ -923,7 +923,7 @@ namespace nkentseu {
 				r.ok = true;
 				r.modifie = true;
 				r.texte = NkString("{\"ok\":true}");
-				r.effet = NkString("fichier supprime : ") + rel + " (Ctrl+Z le rend pendant cette session)";
+				r.effet = NkString("fichier supprimé : ") + rel + " (Ctrl+Z le rend pendant cette session)";
 				return r;
 			}
 
@@ -932,16 +932,16 @@ namespace nkentseu {
 				if (!CheminDuProjet(m, a.T("chemin"), abs, rel, pq))
 					return Refus(pq);
 				if (NkDirectory::Exists(abs.CStr()))
-					return Refus(NkString("ce dossier existe deja : ") + rel);
+					return Refus(NkString("ce dossier existe déjà : ") + rel);
 				if (!NkDirectory::CreateRecursive(abs.CStr()))
-					return Refus(NkString("creation impossible : ") + rel);
+					return Refus(NkString("création impossible : ") + rel);
 				if (ui)
 					ui->contenuPerime = true;
 				NkResultatOutilIA r;
 				r.ok = true;
 				r.modifie = false; // un dossier vide ne se retient pas (et ne gene personne)
 				r.texte = NkString("{\"ok\":true}");
-				r.effet = NkString("dossier cree : ") + rel;
+				r.effet = NkString("dossier créé : ") + rel;
 				return r;
 			}
 
@@ -986,7 +986,7 @@ namespace nkentseu {
 					code = t;
 				}
 				if (!EcrireRetenu(m, abs, code))
-					return Refus(NkString("ecriture impossible : ") + rel);
+					return Refus(NkString("écriture impossible : ") + rel);
 				if (ui)
 					ui->contenuPerime = true;
 				NkResultatOutilIA r;
@@ -997,7 +997,7 @@ namespace nkentseu {
 				r.texte.Append(",\"classe\":");
 				NkJsonChaine(NkString("cpp:") + classe, r.texte);
 				r.texte.Append(",\"note\":\"l'editeur le recompile et le recharge a chaud ; les erreurs arrivent au Journal\"}");
-				r.effet = NkString(existait ? "script ecrase : " : "script C++ ecrit : ") + rel;
+				r.effet = NkString(existait ? "script écrasé : " : "script C++ écrit : ") + rel;
 				return r;
 			}
 
@@ -1078,16 +1078,16 @@ namespace nkentseu {
 						if (noeuds[i] == err.noeud)
 							quel = ids[i];
 					r.ok = false;
-					r.texte = NkString("REFUS : le graphe est ecrit mais NE COMPILE PAS -- ") + err.message +
+					r.texte = NkString("REFUS : le graphe est écrit mais NE COMPILE PAS -- ") + err.message +
 							  (quel.Empty() ? NkString() : NkString(" (noeud « ") + quel + " »)");
-					r.effet = NkString("Blueprint ecrit, sans module : ") + rel;
+					r.effet = NkString("Blueprint écrit, sans module : ") + rel;
 					return r;
 				}
 				r.ok = true;
 				r.texte = NkString("{\"ok\":true,\"chemin\":");
 				NkJsonChaine(rel, r.texte);
 				r.texte.Append(",\"compile\":true}");
-				r.effet = NkString("Blueprint compile et ecrit : ") + rel;
+				r.effet = NkString("Blueprint compilé et écrit : ") + rel;
 				return r;
 			}
 
@@ -1119,7 +1119,7 @@ namespace nkentseu {
 				r.ok = true;
 				r.modifie = true;
 				r.texte = NkString("{\"ok\":true,\"chemin\":\"Documents/GDD.md\"}");
-				r.effet = NkString(remplacer ? "GDD remplace" : "GDD complete") + (a.T("section").Empty() ? NkString() : NkString(" : ") + a.T("section"));
+				r.effet = NkString(remplacer ? "GDD remplacé" : "GDD complété") + (a.T("section").Empty() ? NkString() : NkString(" : ") + a.T("section"));
 				return r;
 			}
 
@@ -1207,7 +1207,7 @@ namespace nkentseu {
 				if (CheminDuProjet(c.m, a.T("chemin"), abs, rel, pq) && NkFile::Exists(abs.CStr())) {
 					char b[64];
 					std::snprintf(b, sizeof(b), " (%lld octets)", static_cast<long long>(NkFile::GetFileSize(abs.CStr())));
-					pourquoi = NkString("Supprimer ") + rel + b + " ? Ctrl+Z le rend pendant cette session, plus apres.";
+					pourquoi = NkString("Supprimer ") + rel + b + " ?\nCtrl+Z le rend pendant cette session, plus après.";
 					return true;
 				}
 				return false; // un chemin faux sera refuse, sans rien demander
@@ -1226,7 +1226,7 @@ namespace nkentseu {
 				if (CheminDuProjet(c.m, r, abs, rel, pq) && NkFile::Exists(abs.CStr())) {
 					char b[64];
 					std::snprintf(b, sizeof(b), " (%lld octets)", static_cast<long long>(NkFile::GetFileSize(abs.CStr())));
-					pourquoi = NkString("Ecraser ") + rel + b + " ? Ctrl+Z rend l'ancien contenu pendant cette session.";
+					pourquoi = NkString("Écraser ") + rel + b + " ?\nCtrl+Z rend l'ancien contenu pendant cette session.";
 					return true;
 				}
 				return false;
@@ -1242,7 +1242,7 @@ namespace nkentseu {
 					return true;
 				}
 				if (k && k->action == -2 && c.ui.modifiee) {
-					pourquoi = NkString("Une scene neuve PERD les modifications non enregistrees (et l'historique). Continuer ?");
+					pourquoi = NkString("Une scène neuve PERD les modifications non enregistrées\n(et l'historique). Continuer ?");
 					return true;
 				}
 			}
@@ -1271,7 +1271,7 @@ namespace nkentseu {
 			a.r = a.d.Racine();
 			const NkString n = Normaliser(o->nom);
 			if (o->modifie && m.etat != NkEtatJeu::NK_EDITION)
-				return Refus("en JEU, rien ne se modifie (l'historique est celui de l'edition) : appelez d'abord commande {\"nom\":\"arreter\"}");
+				return Refus("en JEU, rien ne se modifie (l'historique est celui de l'édition) : appelez d'abord commande {\"nom\":\"arreter\"}");
 
 			// LA PHOTO AVANT : Ctrl+Z rendra la scene (et les fichiers retenus).
 			NkHistoriqueEditeur &h = m.historique;
@@ -1327,7 +1327,7 @@ namespace nkentseu {
 						Selectionner(m, id);
 						r.ok = true;
 						r.texte = NkString("{\"ok\":true}");
-						r.effet = NkString("selection : « ") + NomDe(m, id) + " »";
+						r.effet = NkString("sélection : « ") + NomDe(m, id) + " »";
 					}
 				}
 			} else if (n == "poser-script")
@@ -1363,7 +1363,7 @@ namespace nkentseu {
 				h.refaireFichiers = refaireFichiersAvant;
 			}
 			if (r.modifie)
-				NkEditeurAnnoncer(m, (NkString("IA : ") + r.effet + " (Ctrl+Z la defait)").CStr());
+				NkEditeurAnnoncer(m, (NkString("IA : ") + r.effet + " (Ctrl+Z la défait)").CStr());
 			return r;
 		}
 
@@ -1372,36 +1372,36 @@ namespace nkentseu {
 		// =====================================================================
 		NkString NkEditeurIADescription(NkEditeurModele &m, bool outilsTexte) {
 			NkString t;
-			t.Append("Tu es l'assistant integre d'UnkenyEditor, l'editeur du moteur de jeu 2D Unkeny (Nkentseu). "
-					 "Tu VOIS l'editeur et tu AGIS sur lui par des OUTILS : tout ce qui est decrit ici, tu peux le lire et le "
-					 "changer -- creer et regler des entites, ecrire des scripts C++ et des Blueprints, organiser le Contenu, "
-					 "ecrire le document de conception (GDD), discuter du jeu. Reponds en francais, brievement. Quand une demande "
-					 "est claire, AGIS (appelle l'outil) au lieu d'expliquer ce qu'il faudrait faire ; apres l'action, dis en une "
-					 "phrase ce qui a change.\n");
+			t.Append("Tu es l'assistant intégré d'UnkenyEditor, l'éditeur du moteur de jeu 2D Unkeny (Nkentseu). "
+					 "Tu VOIS l'éditeur et tu AGIS sur lui par des OUTILS : tout ce qui est décrit ici, tu peux le lire et le "
+					 "changer -- créer et régler des entités, écrire des scripts C++ et des Blueprints, organiser le Contenu, "
+					 "écrire le document de conception (GDD), discuter du jeu. Réponds en français, brièvement. Quand une demande "
+					 "est claire, AGIS (appelle l'outil) au lieu d'expliquer ce qu'il faudrait faire ; après l'action, dis en une "
+					 "phrase ce qui a changé.\n");
 			t.Append("\n## Garde-fous\n");
-			t.Append("- Chaque action passe par l'historique de l'editeur : l'utilisateur la defait par Ctrl+Z.\n");
-			t.Append("- Supprimer ou ecraser un fichier, enregistrer par-dessus la scene, une scene neuve sur des modifications non "
-					 "enregistrees : l'editeur demande la CONFIRMATION de l'utilisateur. S'il refuse, n'insiste pas.\n");
+			t.Append("- Chaque action passe par l'historique de l'éditeur : l'utilisateur la défait par Ctrl+Z.\n");
+			t.Append("- Supprimer ou écraser un fichier, enregistrer par-dessus la scène, une scène neuve sur des modifications non "
+					 "enregistrées : l'éditeur demande la CONFIRMATION de l'utilisateur. S'il refuse, n'insiste pas.\n");
 			t.Append("- Les chemins sont RELATIFS au projet (\"Contenu/Scripts/Porte.cpp\") ; rien hors du projet.\n");
 			t.Append("- En JEU, rien ne se modifie : commande arreter d'abord.\n");
-			t.Append("\n## Reperes\n");
-			t.Append("- 2D, en metres ; x vers la droite, y vers le HAUT ; rotation en degres. « Au centre » = le centre de la vue.\n");
-			t.Append("- Une entite se designe par son uid (lire_scene les donne).\n");
+			t.Append("\n## Repères\n");
+			t.Append("- 2D, en mètres ; x vers la droite, y vers le HAUT ; rotation en degrés. « Au centre » = le centre de la vue.\n");
+			t.Append("- Une entité se désigne par son uid (lire_scene les donne).\n");
 
-			t.Append("\n## L'editeur maintenant\n");
+			t.Append("\n## L'éditeur maintenant\n");
 			const NkString projet = NkEditeurDossierProjet(m);
 			t.Append("- Projet : ");
 			t.Append(projet);
-			t.Append("\n- Scene : ");
-			t.Append(m.chemin.Empty() ? NkString("(neuve, non enregistree)") : m.chemin);
+			t.Append("\n- Scène : ");
+			t.Append(m.chemin.Empty() ? NkString("(neuve, non enregistrée)") : m.chemin);
 			t.Append(" ; etat : ");
-			t.Append(m.etat == NkEtatJeu::NK_EDITION ? "edition" : (m.etat == NkEtatJeu::NK_JEU ? "jeu" : "pause"));
+			t.Append(m.etat == NkEtatJeu::NK_EDITION ? "édition" : (m.etat == NkEtatJeu::NK_JEU ? "jeu" : "pause"));
 			const NkVue2D &cam = m.scene.Camera();
 			char b[256];
 			std::snprintf(b, sizeof(b), "\n- Vue : centre (%.2f ; %.2f), zoom %.1f px/m\n", static_cast<double>(cam.Centre().x),
 						  static_cast<double>(cam.Centre().y), static_cast<double>(cam.Zoom()));
 			t.Append(b);
-			t.Append("- Selection : ");
+			t.Append("- Sélection : ");
 			if (m.aSelection && m.scene.Monde().IsAlive(m.selection)) {
 				std::snprintf(b, sizeof(b), "« %s » (uid %llu)\n", NomDe(m, m.selection),
 							  static_cast<unsigned long long>(m.scene.AssurerUid(m.selection)));
@@ -1409,7 +1409,7 @@ namespace nkentseu {
 			} else
 				t.Append("aucune\n");
 			const NkVector<ecs::NkEntityId> es = Entites(m);
-			std::snprintf(b, sizeof(b), "- Entites (%u) :\n", static_cast<unsigned>(es.Size()));
+			std::snprintf(b, sizeof(b), "- Entités (%u) :\n", static_cast<unsigned>(es.Size()));
 			t.Append(b);
 			for (usize i = 0; i < es.Size() && i < 60u; ++i) {
 				const NkTransform2D *tr = m.scene.Monde().Get<NkTransform2D>(es[i]);
@@ -1439,7 +1439,7 @@ namespace nkentseu {
 					t.Append(", ");
 				t.Append(Normaliser(NkComposantEditeurNom(static_cast<NkComposantEditeur>(i))));
 			}
-			t.Append(" ; la matiere d'un corps-mou est un acteur mou ou fluide (blob-visqueux, gelee, eau...).\n");
+			t.Append(" ; la matière d'un corps-mou est un acteur mou ou fluide (blob-visqueux, gelee, eau...).\n");
 			t.Append("- Commandes (commande) : ");
 			for (usize i = 0; i < sizeof(kCommandes) / sizeof(kCommandes[0]); ++i) {
 				if (i)
@@ -1461,9 +1461,9 @@ namespace nkentseu {
 			t.Append(" ; importables : ");
 			t.Append(NkEditeurFiltreImport());
 			t.Append("\n- Scripts C++ : Contenu/Scripts/<Nom>.cpp, une classe derivee de nkunk::Script declaree par "
-					 "NK_UNKENY_CLASSE_VARIABLES ; l'editeur les recompile et les recharge a chaud. ecrire_script_cpp SANS code "
-					 "ecrit le modele commente (toute l'API : Debut, Tick, ContactDebut, ZoneEntree, Position, Teleporter, Impulsion, "
-					 "JouerClip, Afficher...) : lis-le avec lire_fichier avant d'ecrire du code. poser_script le met sur une entite.\n");
+					 "NK_UNKENY_CLASSE_VARIABLES ; l'éditeur les recompile et les recharge à chaud. ecrire_script_cpp SANS code "
+					 "écrit le modèle commenté (toute l'API : Debut, Tick, ContactDebut, ZoneEntree, Position, Teleporter, Impulsion, "
+					 "JouerClip, Afficher...) : lis-le avec lire_fichier avant d'écrire du code. poser_script le met sur une entité.\n");
 			if (m.scripts != nullptr) {
 				NkVector<NkString> proposes;
 				NkEditeurScriptsProposes(*m.scripts, proposes);
@@ -1477,8 +1477,8 @@ namespace nkentseu {
 				}
 				t.Append("\n");
 			}
-			t.Append("- Blueprints (ecrire_blueprint) : des noeuds relies par des fils ; un fil d'execution va d'une sortie "
-					 "« suite » (ou « vrai »/« faux ») vers l'entree « exec ». Les noeuds : ");
+			t.Append("- Blueprints (ecrire_blueprint) : des nœuds reliés par des fils ; un fil d'exécution va d'une sortie "
+					 "« suite » (ou « vrai »/« faux ») vers l'entrée « exec ». Les nœuds : ");
 			const NkVector<NkProtoBp> &protos = NkBpProtos();
 			for (usize i = 0; i < protos.Size() && i < 90u; ++i) {
 				const NkProtoBp &p = protos[i];

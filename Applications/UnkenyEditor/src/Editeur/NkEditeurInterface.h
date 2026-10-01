@@ -236,9 +236,14 @@ namespace nkentseu {
 			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
 			NK_A_SCRIPT = 2200, ///< + NkActionScript
 			// L'IA INTEGREE (2026-10-01, R18, Ia/NkEditeurIA.h) : la plage 2500-2549.
-			NK_A_VOIR_IA = 2500,	 ///< Fenetre > IA : le panneau a droite, ouvert / ferme
-			NK_A_REGLAGES_IA = 2501	 ///< Fenetre > Reglages de l'IA : les fournisseurs de modeles
+			NK_A_VOIR_IA = 2500,	 ///< Fenetre > IA (Ctrl+I) : l'onglet IA au premier plan, ou le panneau a part
+			NK_A_REGLAGES_IA = 2501, ///< Fenetre > Reglages de l'IA : les fournisseurs de modeles
+			NK_A_IA_PLACE = 2502,	 ///< onglet du groupe Details | Monde <-> panneau a part (et retour)
+			NK_A_IA_REPLIER = 2503	 ///< le panneau a part se replie en bande (et se deplie)
 		};
+
+		/// (2026-10-01, R18) L'onglet IA du groupe Details | Monde : `ongletDroite`.
+		constexpr int32 NK_ONGLET_IA = 2;
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
 		struct NkEntreeMenu {
@@ -304,10 +309,23 @@ namespace nkentseu {
 				int32 cloisonTenue = -1;
 				bool voirOutliner = true;
 				bool voirDetails = true;
-				/// Le panneau IA (Fenetre > IA). Ferme par defaut : la disposition
-				/// d'UE5 d'abord ; il s'ouvre a droite, et se retient d'une session
-				/// a l'autre seulement par --ia.
-				bool voirIA = false;
+				/// (2026-10-01, R18 + la precision de Rihen : « il doit aussi etre
+				/// retractable, ou se poser comme onglet a cote de Details et Monde »)
+				/// OU VIT LE PANNEAU IA :
+				///   0  un ONGLET « IA » du groupe Details | Monde (le DEFAUT) ;
+				///   1  un panneau A PART, a droite de tout, que son chevron REPLIE en
+				///      une bande etroite (`iaReplie`) et que sa croix ferme (`voirIA`).
+				/// L'etat choisi est RETENU d'une session a l'autre (<AppData>/
+				/// Nkentseu/IA/unkeny_panneau.txt, NkEditeurIARetenirDisposition).
+				int32 iaPlace = 0;
+				bool iaReplie = false;
+				/// Les boutons « Detacher / Rattacher » et le chevron, a la derniere
+				/// trame : le banc et les captures y visent.
+				nkgui::NkRect iaBoutonPlace{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect iaBoutonRepli{0.f, 0.f, 0.f, 0.f};
+				/// Le panneau a part est-il ouvert ? (Sans objet en onglet : l'onglet
+				/// est toujours dans le groupe, comme Monde.)
+				bool voirIA = true;
 				float32 largeurIA = 400.f;
 				bool voirTiroir = true;
 

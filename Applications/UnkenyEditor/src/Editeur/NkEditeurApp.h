@@ -126,6 +126,7 @@ namespace nkentseu {
 				bool mExempleHud = false;  ///< --exemple=hud : quatre elements ancres a la zone sure (document 03)
 				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
 				bool mIAReglagesDepart = false; ///< --ia-reglages : la fenetre des fournisseurs ouverte au depart
+				NkString mIADepart;			///< --ia[=onglet|panneau|replie] : l'IA au premier plan au depart
 		};
 
 	} // namespace editeur

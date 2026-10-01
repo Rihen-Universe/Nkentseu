@@ -1577,8 +1577,8 @@ namespace nkentseu {
 							{
 								LigneMenu l;
 								l.quoi = QAjouterIa;
-								l.texte = NkString(reglagesParHote ? "Reglages des fournisseurs…" : "Ajouter une IA…");
-								l.detail = NkString(reglagesParHote ? "Ollama, OpenAI, Claude : adresse, modele, cle hors du depot"
+								l.texte = NkString(reglagesParHote ? "Réglages des fournisseurs…" : "Ajouter une IA…");
+								l.detail = NkString(reglagesParHote ? "Ollama, OpenAI, Claude : adresse, modèle, clé hors du dépôt"
 																	: "declarer, sans cle");
 								l.deuxLignes = true;
 								mLignes.PushBack(l);

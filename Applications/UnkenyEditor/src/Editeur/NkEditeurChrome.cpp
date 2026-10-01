@@ -266,8 +266,12 @@ namespace nkentseu {
 						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
 						out.PushBack(Separateur());
 						// (2026-10-01, R18) L'IA integree : le panneau a droite, et ses fournisseurs.
-						out.PushBack(Entree("IA (assistant)", NK_A_VOIR_IA, "Ctrl+I", c.ui.voirIA));
-						out.PushBack(Entree("Réglages de l'IA : fournisseurs de modèles…", NK_A_REGLAGES_IA));
+						out.PushBack(Entree("IA (assistant)", NK_A_VOIR_IA, "Ctrl+I",
+											c.ui.iaPlace == 0 ? (c.ui.voirDetails && c.ui.ongletDroite == 2) : (c.ui.voirIA && !c.ui.iaReplie),
+											c.m.ia != nullptr));
+						out.PushBack(Entree(c.ui.iaPlace == 0 ? "IA : détacher en panneau à part" : "IA : rattacher en onglet (Détails | Monde)",
+											NK_A_IA_PLACE, "", false, c.m.ia != nullptr));
+						out.PushBack(Entree("Réglages de l'IA : fournisseurs de modèles…", NK_A_REGLAGES_IA, "", false, c.m.ia != nullptr));
 						out.PushBack(Separateur());
 						// (2026-10-01) Les pages, en onglets de document (NkEditeurPagesAnim.h).
 						out.PushBack(Entree("Animation (frise)", NK_A_ANIM_ANIMATION));
@@ -868,7 +872,10 @@ namespace nkentseu {
 			const float32 R = ui.voirDetails ? Borne(ui.largeurDetails, 240.f, W * 0.42f) : 0.f;
 			// (2026-10-01, R18) LE PANNEAU IA, A DROITE DE TOUT : les Details glissent
 			// d'autant. Ferme, il ne prend rien -- la disposition d'avant, au pixel.
-			const float32 I = ui.voirIA ? Borne(ui.largeurIA, 300.f, W * 0.40f) : 0.f;
+			// En ONGLET (le defaut), il vit dans la colonne des Details : rien ici.
+			// REPLIE, une bande de 28 px garde son chevron sous la main.
+			const bool aPart = ui.voirIA && ui.iaPlace == 1;
+			const float32 I = !aPart ? 0.f : (ui.iaReplie ? 28.f : Borne(ui.largeurIA, 300.f, W * 0.40f));
 			const float32 droite = W - I - (I > 0.f ? EPAISSEUR_CLOISON : 0.f);
 			ui.ia = NkRect{W - I, corpsHaut, I, I > 0.f ? colonnesH : 0.f};
 			ui.outliner = NkRect{x0, corpsHaut, L, colonnesH};
@@ -1855,7 +1862,8 @@ namespace nkentseu {
 				// (2026-10-01, R18) Details | IA.
 				NkRect{ui.ia.x - EPAISSEUR_CLOISON, ui.ia.y, EPAISSEUR_CLOISON, ui.ia.h},
 			};
-			const bool visibles[4] = {ui.voirOutliner, ui.voirDetails, ui.voirTiroir, ui.voirIA};
+			const bool visibles[4] = {ui.voirOutliner, ui.voirDetails, ui.voirTiroir,
+									  ui.voirIA && ui.iaPlace == 1 && !ui.iaReplie};
 
 			if (ui.cloisonTenue >= 0) {
 				if (!in.mouseDown[0]) {
