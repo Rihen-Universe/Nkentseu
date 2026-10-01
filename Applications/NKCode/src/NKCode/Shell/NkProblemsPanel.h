@@ -30,7 +30,7 @@ namespace nkentseu {
 		class NkProblemsPanel : public NkEditorPanel {
 			public:
 				NkProblemsPanel(NkCodeState *st) noexcept
-					: NkEditorPanel("Problemes", NkEditorDockSide::NK_BOTTOM), mS(st) {
+					: NkEditorPanel("Problemes", "Problèmes", NkEditorDockSide::NK_BOTTOM), mS(st) {
 					SetOpen(false);
 				}
 

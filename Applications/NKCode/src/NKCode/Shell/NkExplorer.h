@@ -14,6 +14,7 @@
 #include "NKCode/Project/NkProcess.h"
 #include "NKCode/Shell/NkI18n.h"
 #include "NKCode/Shell/NkUi.h"		// NkIcons (registre extension -> texture)
+#include "NKCode/Shell/NkApparence.h" // (01/10) en-tete selon l'apparence
 #include "NKCode/Shell/NkShell.h"	// NkCodeShellRun (révéler dans l'OS)
 #include "NKCode/Editor/NkTextDraw.h" // NkCtxMenu (menu contextuel modal scrollable)
 #include "NKContainers/String/NkFormat.h" // NkPrintf/NkFormat (outils maison, pas snprintf)
@@ -858,11 +859,25 @@ namespace nkentseu {
 					const NkRect bar = {clip.x, clip.y, clip.w, h};
 					auto &dl = ctx.DL();
 					dl.AddRectFilled(bar, ctx.theme.panel); // opaque : les rows passent dessous
-					dl.AddRectFilled({bar.x, bar.y + h - 1.f, bar.w, 1.f}, ctx.theme.border);
-					if (ctx.font && ctx.font->Valid())
-						dl.AddText(ctx.font->Face(), ctx.font->TexId(),
-								   {bar.x + 4.f, bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent()},
-								   "EXPLORATEUR", ctx.theme.textDisabled);
+					// (01/10) « Explorateur » UNE SEULE FOIS : en Classique l'onglet du dock
+					// porte deja le nom -> l'en-tete ne garde que ses boutons ; sans onglet
+					// (Nettoyee, Famille) c'est l'en-tete qui le porte.
+					const int32 styleTitre = NkApparenceCourante().dispo.enteteExplorateur;
+					const char *titre = styleTitre == 1 ? "EXPLORATEUR" : styleTitre == 2 ? "Explorateur" : "";
+					if (styleTitre != 2)
+						dl.AddRectFilled({bar.x, bar.y + h - 1.f, bar.w, 1.f}, ctx.theme.border);
+					if (titre[0] && ctx.font && ctx.font->Valid()) {
+						const float32 by = bar.y + (h - ctx.font->LineHeight()) * 0.5f + ctx.font->Ascent();
+						const NkColor tc = styleTitre == 2 ? ctx.theme.text : ctx.theme.textDisabled;
+						dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + 8.f, by}, titre, tc);
+						if (styleTitre == 2) { // « gras » : un second passage decale d'un pixel, puis ▾
+							dl.AddText(ctx.font->Face(), ctx.font->TexId(), {bar.x + 8.6f, by}, titre, tc);
+							const float32 vx = bar.x + 8.f + ctx.font->MeasureWidth(titre) + 6.f;
+							const float32 vy = bar.y + h * 0.5f;
+							dl.AddLine({vx, vy - 1.5f}, {vx + 3.f, vy + 1.5f}, ctx.theme.textDisabled, 1.3f);
+							dl.AddLine({vx + 3.f, vy + 1.5f}, {vx + 6.f, vy - 1.5f}, ctx.theme.textDisabled, 1.3f);
+						}
+					}
 					const NkVec2 m = ctx.input.mousePos;
 					const bool inClip = NkGuiRectContains(dl.CurrentClip(), m);
 					const float32 bs = h - 4.f;
@@ -870,8 +885,7 @@ namespace nkentseu {
 					// Fin du titre : les boutons ne CHEVAUCHENT jamais « EXPLORATEUR » —
 					// si le panneau est trop étroit, les boutons de gauche disparaissent.
 					const float32 titleEnd =
-						bar.x + 4.f +
-						((ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth("EXPLORATEUR") : 90.f) + 6.f;
+						bar.x + 8.f + ((titre[0] && ctx.font && ctx.font->Valid()) ? ctx.font->MeasureWidth(titre) + 16.f : 0.f);
 					// [5] œil (exclus), [4] replier, [3] actualiser, [2] nouveau dossier,
 					// [1] nouveau fichier — de droite à gauche. (La recherche est permanente
 					// sous l'en-tête -> plus de bouton filtre.)
@@ -891,10 +905,12 @@ namespace nkentseu {
 										   : b == 5  ? (mShowExcluded ? mS->icons->oeilOuvert : mS->icons->oeilFermer)
 										   : b == 6  ? (mS->icons->filter ? mS->icons->filter : mS->icons->search)
 												     : 0u;
-						const float32 isz = h * 0.5f; // icônes plus fines (avant : r.w-4, trop grosses)
+						// (01/10) 16 px (maquette A) et TEINTEES par le theme : dessinees en
+						// blanc, ces icones disparaissaient en theme clair.
+						const float32 isz = (h * 0.68f < ctx.S(16.f)) ? h * 0.68f : ctx.S(16.f);
 						if (tex)
 							dl.AddImage(tex, {r.x + (r.w - isz) * 0.5f, r.y + (r.h - isz) * 0.5f, isz, isz}, {0.f, 0.f},
-										{1.f, 1.f}, {255, 255, 255, 255});
+										{1.f, 1.f}, c);
 						else if (b == 4) { // tout replier : deux chevrons vers le haut (au trait)
 							const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = r.w * 0.22f;
 							dl.AddLine({cx - a, cy - a * 0.1f}, {cx, cy - a * 1.1f}, c, 1.6f);
@@ -939,9 +955,9 @@ namespace nkentseu {
 					dl.AddRectFilled({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.bgPrimary, 2.f);
 					dl.AddRect({bar.x + 2.f, bar.y + 1.f, bar.w - 4.f, h - 2.f}, ctx.theme.border, 2.f);
 					const float32 sisz = h * 0.46f; // loupe plus fine (avant : h-6, trop grosse)
-					if (mS->icons && mS->icons->search)
+					if (mS->icons && mS->icons->search) // (01/10) teintee : visible en theme clair
 						dl.AddImage(mS->icons->search, {bar.x + 9.f, bar.y + (h - sisz) * 0.5f, sisz, sisz}, {0.f, 0.f},
-									{1.f, 1.f}, {255, 255, 255, 255});
+									{1.f, 1.f}, ctx.theme.textDisabled);
 					const char *shown = mFilter[0] ? mFilter : NkT("exp.filter");
 					const NkColor col = mFilter[0] ? ctx.theme.text : ctx.theme.textDisabled;
 					float32 tx = bar.x + 9.f + sisz + 8.f;
@@ -1033,7 +1049,8 @@ namespace nkentseu {
 														  SameStr(mEditPath.CStr(), r.path.CStr()));
 						if (sel) {
 							dl.AddRectFilled(row, ctx.theme.selection);
-							dl.AddRectFilled({row.x, row.y, 2.f, rowH}, ctx.theme.accent);
+							if (!NkApparenceCourante().dispo.selectionPleine) // Famille : selection pleine
+								dl.AddRectFilled({row.x, row.y, 2.f, rowH}, ctx.theme.accent);
 						} else if (hov)
 							dl.AddRectFilled(row, ctx.theme.tabHover);
 						float32 x = row.x + 4.f + r.depth * 12.f;
@@ -1076,8 +1093,10 @@ namespace nkentseu {
 								mtex = r.open ? mS->icons->folderMOpen : mS->icons->folderM;
 							const uint32 tex =
 								mtex ? 0u : (!mS->icons ? 0u : (r.open ? mS->icons->folderOpen : mS->icons->folder));
-							if (mtex)
-								dl.AddImage(mtex, ir, {0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+							if (mtex) // (01/10) icone BLANCHE d'un jeu (« mono ») : teintee par le theme
+								dl.AddImage(mtex, ir, {0.f, 0.f}, {1.f, 1.f},
+											(mS->icons && mS->icons->IsMono(mtex)) ? ctx.theme.text
+																				   : NkColor{255, 255, 255, 255});
 							else if (tex)
 								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, tint);
 							else if (r.open) { // repli au trait : dossier ouvert (rabat incliné)
@@ -1090,11 +1109,16 @@ namespace nkentseu {
 						} else {
 							char e[16];
 							ExtOf(r.name.CStr(), e, sizeof(e));
-							const uint32 tex = mS->icons ? mS->icons->ForFile(r.name.CStr()) : 0u;
+							uint32 tex = mS->icons ? mS->icons->ForFile(r.name.CStr()) : 0u;
+							// (01/10) un jeu d'icones qui declare « * » dessine AUSSI les fichiers
+							// dont l'extension n'est pas listee (sinon : pastilles d'avant).
+							if (!tex && mS->icons && mS->icons->defaultFile && !ExtIs(e, "nksl") && !IsShaderExt(e))
+								tex = mS->icons->defaultFile;
 							char lab[4] = {};
 							NkColor bc = {150, 150, 150, 255};
-							if (tex)
-								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f}, {255, 255, 255, 255});
+							if (tex) // icone BLANCHE (« mono » du manifeste) : teintee, sinon invisible en clair
+								dl.AddImage(tex, ir, {0.f, 0.f}, {1.f, 1.f},
+											mS->icons->IsMono(tex) ? ctx.theme.text : NkColor{255, 255, 255, 255});
 							else if (ExtIs(e, "nksl")) { // NKSL : pastille brandée (vert Nkentseu)
 								dl.AddRectFilled(ir, {36, 61, 31, 255}, 3.f);
 								dl.AddRect(ir, {120, 200, 120, 255}, 3.f);

@@ -47,7 +47,20 @@ namespace nkentseu {
 			return s;
 		}
 
-		inline void DrawCodeToolbar(NkEditorFrameContext &ec, NkCodeState *s) {
+		/// (01/10) La rangee d'outils est-elle dessinee CETTE image ? Posee par
+		/// l'apparence (NkAppCommands.h, debut d'image). Quand elle ne l'est pas
+		/// (apparence sans rangee d'outils, aucun workspace), c'est la barre de
+		/// menus qui fait battre NKCode a sa place (NkMenuBar.h).
+		inline bool &NkBarreOutilsVisible() {
+			static bool v = true;
+			return v;
+		}
+
+		/// LE BATTEMENT DE L'IDE, une fois par image : pont IDE, projets, LSP,
+		/// diagnostics, session, surveillance des fichiers... Il vivait DANS le
+		/// dessin de la barre d'outils ; une apparence sans barre d'outils
+		/// l'aurait arrete net. Il en est sorti (01/10), a l'identique.
+		inline void NkCodeBattementIde(NkEditorFrameContext &ec, NkCodeState *s) {
 			if (!s)
 				return;
 			// ── Pont IDE (contexte TEMPS REEL pour l'agent) ────────────────────
@@ -97,6 +110,12 @@ namespace nkentseu {
 			s->TickFileWatch(ec.dt); // détecte suppression / modification EXTERNE des fichiers ouverts
 			s->TickBgCheck(ec.dt);	 // vérif fond des fichiers STRATÉGIQUES modifiés hors éditeur
 									 // (git status -> -fsyntax-only) : icônes rouges/oranges + voyant CODE
+		}
+
+		inline void DrawCodeToolbar(NkEditorFrameContext &ec, NkCodeState *s) {
+			if (!s)
+				return;
+			NkCodeBattementIde(ec, s);
 
 			const NkUi u = NkUi::From(ec);
 			const NkRect r = ec.Ui().layout.region; // bornes de la toolbar (46px)

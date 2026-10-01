@@ -213,7 +213,7 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 			sTaper = t ? NkLireImage(t, sTexte, sizeof(sTexte), 90) : -1;
 		}
 		if (sTaper > 0 && sImage == sTaper / 2 && sh)
-			sh->FocusPanel("TERMINAL");
+			sh->FocusPanel("Terminal");
 		if (sImage == sTaper && gTerminal) {
 			gTerminal->TaperAuDemarrage(NkString(sTexte) + "\r");
 			printf("[nkcode] TERM TAPER image=%d : %s\n", (int)sImage, sTexte);
@@ -302,7 +302,7 @@ int nkmain(const NkEntryState &state) {
 	// Panneau d'EXECUTION : meme moteur de terminal, mais reserve aux programmes
 	// lances par « Demarrer » — pour ne pas les melanger aux shells que
 	// l'utilisateur garde ouverts. Ne cree jamais de shell tout seul.
-	static nkcode::TerminalPanel runTerm("EXECUTION", /*runMode=*/true);
+	static nkcode::TerminalPanel runTerm("EXECUTION", "Exécution", /*runMode=*/true);
 	shell->AddPanel(&explorer);
 	shell->AddPanel(&outline);
 	shell->AddPanel(&editor);

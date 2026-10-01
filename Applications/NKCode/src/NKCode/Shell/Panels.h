@@ -1420,7 +1420,7 @@ namespace nkentseu {
 							mTermPickDir = NkString();
 							mTabMenu.open = false; // choix fait : referme le menu principal aussi
 							if (mShell)
-								mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
+								mShell->FocusPanel("Terminal"); // titre EXACT (comparaison sensible a la casse)
 						}
 					}
 					// Tooltip : CHEMIN COMPLET après ~0,6 s de survol (désambiguïsation totale).
@@ -1520,7 +1520,7 @@ namespace nkentseu {
 									mS->termOpenRun = false; // shells, pas le panneau EXECUTION
 									mTermPick.open = false;
 									if (mShell)
-										mShell->FocusPanel("TERMINAL"); // titre EXACT (comparaison sensible a la casse)
+										mShell->FocusPanel("Terminal"); // titre EXACT (comparaison sensible a la casse)
 									break;
 								case 7: // onglets multi-rangées (option, façon Visual Studio)
 									NkCodeTabRowsOn() = !NkCodeTabRowsOn();
@@ -1740,7 +1740,7 @@ namespace nkentseu {
 		class OutputPanel : public NkEditorPanel {
 			public:
 				explicit OutputPanel(NkCodeState *s, NkEditorShell *shell = nullptr)
-					: NkEditorPanel("OUTPUT", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
+					: NkEditorPanel("OUTPUT", "Sortie", NkEditorDockSide::NK_BOTTOM), mS(s), mShell(shell) {
 				}
 
 				void OnUI(NkEditorFrameContext &ec) override {
@@ -1769,7 +1769,9 @@ namespace nkentseu {
 						mLogs.Erase(mLogs.Begin());
 
 					const NkRect clip = dl.CurrentClip();
-					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond #0D1117
+					// (01/10) UN ROLE PAR FOND : la Sortie est un PANNEAU, comme l'Explorateur
+					// et l'Assistant IA -- plus le fond de l'editeur.
+					dl.AddRectFilled(clip, ctx.theme.panel);
 
 					NkCodeFontScope _cfs(ctx); // police monospace (box-drawing + unicode)
 					const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
@@ -2324,8 +2326,12 @@ namespace nkentseu {
 				// Les separer evite de melanger une session shell qu'on garde ouverte et
 				// l'application qu'on relance vingt fois. En mode execution, AUCUN shell
 				// par defaut n'est cree : le panneau reste vide tant que rien n'est lance.
-				explicit TerminalPanel(const char *title = "TERMINAL", bool runMode = false)
-					: NkEditorPanel(title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
+				// (01/10) L'IDENTIFIANT reste « TERMINAL » / « EXECUTION » (dispositions
+				// enregistrees, ui.cfg) ; le TITRE affiche est en francais : « Terminal »,
+				// « Exécution ». FocusPanel compare des TITRES.
+				explicit TerminalPanel(const char *id = "TERMINAL", const char *title = "Terminal",
+									   bool runMode = false)
+					: NkEditorPanel(id, title, NkEditorDockSide::NK_BOTTOM), mRunMode(runMode) {
 					// Le terminal par defaut est cree quand le WORKSPACE est connu (bon repertoire,
 					// pas de persistance de session ; l historique = celui du shell, ex. PSReadLine).
 				}
@@ -2346,7 +2352,7 @@ namespace nkentseu {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
 					const NkRect clip = dl.CurrentClip();
-					dl.AddRectFilled(clip, ctx.theme.bgPrimary); // fond terminal #0D1117
+					dl.AddRectFilled(clip, ctx.theme.panel); // (01/10) fond de PANNEAU (un role par fond)
 					// ── CIBLE de DRAG & DROP global : déposer des fichiers/dossiers de
 					// l'explorateur COLLE leurs chemins (quotés) dans le shell actif. ──
 					// Cible de depot : InputHits (routeur d'occlusion) et pas un
@@ -2471,8 +2477,13 @@ namespace nkentseu {
 					// recherche et le menu gardent la police d'interface.
 					editorkit::NkTerminalGrilleStyle style;
 					style.police = mShell ? mShell->TermCodeFont() : nullptr;
+					// (01/10) La grille prend le fond de PANNEAU (un role par fond) : le
+					// convertisseur du kit lit `bgPrimary`, on lui passe le theme avec le
+					// fond du panneau a cette place.
+					NkGuiTheme themeTerm = ctx.theme;
+					themeTerm.bgPrimary = ctx.theme.panel;
 					const editorkit::NkTerminalPalette pal =
-						editorkit::NkTerminalPaletteDuThemeGui(ctx.theme); // suit la bascule Dark/Light de NKCode
+						editorkit::NkTerminalPaletteDuThemeGui(themeTerm); // suit la bascule Dark/Light de NKCode
 					const float32 hEntete = ctx.S(26.f);
 					const NkRect enteteR = {mainR.x, mainR.y, mainR.w, hEntete};
 					const NkRect grilleR = {mainR.x, mainR.y + hEntete, mainR.w, mainR.h - hEntete};

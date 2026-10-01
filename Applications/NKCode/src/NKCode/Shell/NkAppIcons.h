@@ -12,14 +12,91 @@
 #include "NKContainers/String/NkFormat.h"
 #include "NKCode/Shell/NkHome.h"
 #include "NKCode/Shell/NkAppData.h" // NkCodeData : data/ quel que soit le dossier de lancement
+#include "NKCode/Shell/NkJeuxIcones.h" // (01/10) jeux d'icones installables : chaine de recherche
 #include "NKLogger/NkLog.h"
 
 namespace nkentseu {
 	namespace nkcode {
 
+		// ── (01/10) LES JEUX D'ICONES : un cache par (jeu, variante de theme) ──────
+		// Basculer de jeu ne recharge rien deux fois : la table d'un jeu deja vu est
+		// reprise telle quelle (memes textures). Revenir au jeu d'avant rend donc
+		// EXACTEMENT la table d'avant -- c'est ce que le banc (NkBancApparences.h)
+		// verifie.
+		struct NkAppIconsCache {
+				editorkit::NkEditorShell *shell = nullptr;
+				NkHomeState *home = nullptr;
+				NkCodeState *st = nullptr;
+				NkString cleCourante; ///< « pastilles » / « trait|clair » ...
+				NkString jeuCourant;
+				NkVector<NkString> cles;
+				NkVector<NkIcons> tables;
+				/// Mutation de banc (NK_BANC_MUTATION=sansrepli) : la chaine perd
+				/// l'actuel -- une icone absente du jeu devient un trou.
+				bool sansRepli = false;
+		};
+		inline NkAppIconsCache &NkAppIconsEtat() {
+			static NkAppIconsCache c;
+			return c;
+		}
+
+		/// La cle de cache d'un jeu pour un theme : la variante ne compte que si le
+		/// jeu (ou un de ses replis) en declare.
+		inline NkString NkAppIconsCle(const char *jeu, bool clair) {
+			// L'id EFFECTIF : un jeu choisi mais desinstalle, c'est Pastilles.
+			NkString c = NkCodeJeuxIcones().catalogue.Empty() ? NkString(jeu ? jeu : "")
+															   : NkCodeJeuxIcones().Effectif(jeu);
+			if (NkCodeJeuxIcones().DependDuTheme(jeu))
+				c += clair ? "|clair" : "|sombre";
+			return c;
+		}
+
+		/// Publie une table d'icones : home.icons, st.icons, barres d'activite.
+		inline void NkPublierIcones(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st,
+									const NkIcons &table) {
+			home.icons = table;
+			st.icons = &home.icons; // rend les icones accessibles aux panneaux/toolbar (via l'etat)
+			const NkIcons &t = home.icons;
+			const uint32 L[7] = {t.files, t.search, t.sourceControl, t.bug, t.liveShare, t.puzzle, t.chart};
+			// 100 Claude (vrai logo), 101 Codex, 102 Assistant (Maison), 103 NkAI (etincelle)
+			const uint32 R[4] = {t.claude, t.codeC, t.accueil, t.sparkles};
+			shell->SetActivityIcons(L, 7, t.gear, R, 4);
+		}
+
+		inline void NkChargerJeuIcones(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st,
+									   const char *jeu, bool clair, bool logos);
+
+		/// Rend le jeu `jeu` actif (variante du theme `clair`). Ne fait rien si c'est
+		/// deja lui. Rend vrai si la table a change.
+		inline bool NkAppliquerJeuIcones(const char *jeu, bool clair) {
+			NkAppIconsCache &c = NkAppIconsEtat();
+			if (!c.shell || !c.home || !c.st)
+				return false;
+			const NkString cle = NkAppIconsCle(jeu, clair);
+			if (cle == c.cleCourante)
+				return false;
+			NkChargerJeuIcones(c.shell, *c.home, *c.st, jeu, clair, false);
+			return true;
+		}
+
 		// Charge logos + icônes (table unique) + manifeste extensions + activity
-		// bars. À appeler après l'Init du shell (upload GPU) et le wiring de home.
-		inline void NkLoadAppIcons(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st) {
+		// bars, pour UN jeu d'icones. Appele au demarrage (NkLoadAppIcons, logos
+		// compris) puis a chaque bascule de jeu ou de theme (NkAppliquerJeuIcones).
+		inline void NkChargerJeuIcones(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st,
+									   const char *jeu, bool clair, bool logos) {
+				NkAppIconsCache &cache = NkAppIconsEtat();
+				cache.shell = shell;
+				cache.home = &home;
+				cache.st = &st;
+				const NkString cleCache = NkAppIconsCle(jeu, clair);
+				// Deja vu : on reprend la table telle quelle (aucun re-televersement).
+				for (usize k = 0; k < cache.cles.Size(); ++k)
+					if (cache.cles[k] == cleCache) {
+						cache.cleCourante = cleCache;
+						cache.jeuCourant = NkString(jeu ? jeu : "");
+						NkPublierIcones(shell, home, st, cache.tables[k]);
+						return;
+					}
 				// Charge une texture NETTE : PNG en priorite (repli SVG), puis REDIMENSIONNE
 				// a ~ la taille d'affichage (tw x th) au filtre bilineaire. Sans mipmaps, une
 				// texture bien plus grande que l'affichage est sous-echantillonnee (flou) ;
@@ -150,6 +227,29 @@ namespace nkentseu {
 				// n'avait ni icones ni logo (un carre bleu a sa place).
 				const NkString texDir = NkCodeDataDir("textures");
 				logger.Info("[NKCode] textures (logo, icones) : {0}\n", texDir.Empty() ? "(introuvables)" : texDir.CStr());
+				// (01/10) LES JEUX D'ICONES (extensions de donnees) : catalogue data/extensions/ +
+				// installees %APPDATA%/NKCode/extensions/, decouverts UNE fois ; puis la chaine
+				// du jeu choisi -- override, jeu (variante du theme), replis, Pastilles, base.
+				NkJeuxIcones &jeux = NkCodeJeuxIcones();
+				if (jeux.catalogue.Empty()) {
+					jeux.dossierBase = texDir.Empty() ? NkString() : texDir + "icon/";
+					jeux.dossierOverride = NkString(ovrDir) + "icon/";
+					// data/ = le dossier des textures sans « textures/ » (« @data/ » des manifestes)
+					jeux.dossierData = texDir.Size() > 9 ? texDir.SubStr(0, texDir.Size() - 9) : NkString();
+					jeux.catalogue = NkCodeDataDir("extensions", false);
+					jeux.installees = NkString(ovrDir) + "extensions/";
+					jeux.Decouvrir();
+					for (usize k = 0; k < jeux.jeux.Size(); ++k)
+						logger.Info("[NKCode] jeu d'icones « {0} » ({1}) {2} : {3}\n", jeux.jeux[k].cle.CStr(),
+									jeux.jeux[k].titre.CStr(),
+									jeux.jeux[k].integre ? "integre" : jeux.jeux[k].installe ? "installe" : "catalogue",
+									jeux.jeux[k].images.CStr());
+				}
+				NkVector<NkMaillonIcones> chaine = jeux.Chaine(jeu, clair ? "clair" : "sombre");
+				if (cache.sansRepli && chaine.Size() > 1)
+					chaine.PopBack(); // MUTATION DE BANC : plus d'actuel en bout de chaine
+				nkcode::NkIcons fresh; // la table de CE jeu (le cache la garde)
+				nkcode::NkIcons &ic = fresh;
 				auto loadTex = [&](const char *base, int32 tw, int32 th, int32 *outW = nullptr, int32 *outH = nullptr,
 								   bool trim = true, bool box = true) -> uint32 {
 					const char *dirs[] = {ovrDir, texDir.CStr(), ""};
@@ -159,6 +259,26 @@ namespace nkentseu {
 							t = trimAlpha(img);
 						return upload(t.IsValid() ? t : img, tw, th, outW, outH, box);
 					};
+					// « icon/<Nom> » : par la CHAINE du jeu (override d'abord, l'actuel en dernier).
+					if (base[0] == 'i' && base[1] == 'c' && base[2] == 'o' && base[3] == 'n' && base[4] == '/') {
+						const NkIconeTrouvee f = jeux.Resoudre(chaine, base + 5);
+						if (f.chemin.Empty())
+							return 0;
+						NkImage img;
+						if (f.chemin.EndsWith(".svg"))
+							img = NkSVGCodec::DecodeFromFile(f.chemin.CStr(), tw * 2, th * 2); // large puis reduit = net
+						else
+							(void)img.LoadFromFile(f.chemin.CStr());
+						if (!img.IsValid())
+							return 0;
+						NkImage t;
+						if (trim && f.rogner)
+							t = trimAlpha(img);
+						const uint32 id = upload(t.IsValid() ? t : img, tw, th, outW, outH, box);
+						if (f.mono && id)
+							ic.SetMono(id);
+						return id;
+					}
 					for (const char *const *d = dirs;; ++d) {
 						// Outils MAISON : NkPrintf + NkFile::Exists (pas de snprintf/fopen).
 						const NkString png = NkPrintf("%s%s.png", *d, base);
@@ -185,6 +305,7 @@ namespace nkentseu {
 				// d'affichage sidebar -> NET (sans mipmaps, uploader 512px puis laisser le GPU
 				// sous-echantillonner produit du flou). La barre de titre utilise l'ICONE (nette)
 				// + "nkcode" en police vectorielle (toujours net), conforme a la maquette.
+				if (logos) {
 				home.logoIcon = loadTex("logo/nkcode_icon", 48, 48); // icone barre de titre (elle seule, sans texte)
 				// Wordmark en 2 versions PRETES : nkcode_white (fond sombre) + nkcode_dark (fond clair / theme Light).
 				home.logoWord =
@@ -192,6 +313,7 @@ namespace nkentseu {
 				home.logoWordDark =
 					loadTex("logo/nkcode_dark", 360, 90, &home.wordWD, &home.wordHD, /*trim*/ true, /*box*/ false);
 				shell->SetTitleLogo(home.logoIcon, 1.0f); // aspect>0 => icone carree SEULE (pas de texte "nkcode")
+				}
 				// Icones : uploadees a la taille d'AFFICHAGE (DPI-aware) -> NET. Sans mipmaps,
 				// uploader plus grand que l'ecran puis laisser le GPU reduire = flou. On
 				// redimensionne donc la source 128px directement a ~ sa taille ecran (CPU, filtre
@@ -200,7 +322,6 @@ namespace nkentseu {
 				int32 IS = (int32)(32.f * dpi + 0.5f);
 				if (IS < 24)
 					IS = 24; // source 128px -> downscale progressif net
-				nkcode::NkIcons &ic = home.icons;
 				// ═══ TABLE UNIQUE des icônes de l'application ═══════════════════════
 				// TOUTES les icônes nommées se déclarent ICI (champ <- data/textures/…)
 				// et nulle part ailleurs : une ligne par icône, chargée par la boucle.
@@ -335,16 +456,8 @@ namespace nkentseu {
 								ic.SetDir(d.names[j], tc ? tc : to, to ? to : tc);
 					}
 				}
-				st.icons = &home.icons; // rend les icones accessibles aux panneaux/toolbar (via l'etat)
-				{ // Activity bars : textures codicon (remplacent les dessins au trait du shell)
-					const uint32 L[7] = {ic.files, ic.search,	 ic.sourceControl, ic.bug,
-										 ic.liveShare, ic.puzzle, ic.chart}; // vues gauche 0..6
-					// 100 Claude (vrai logo), 101 Codex, 102 Assistant (Maison), 103 NkAI (etincelle)
-					const uint32 R[4] = {ic.claude, ic.codeC, ic.accueil, ic.sparkles};
-					shell->SetActivityIcons(L, 7, ic.gear, R, 4);
-					// Les barres d'activite sont opt-in dans le kit : NKCode les demande.
+				if (logos) // Les barres d'activite sont opt-in dans le kit : NKCode les demande.
 					shell->SetActivityBars(true, true);
-				}
 				// toggle liste/grille : pas d'asset adapte (`<>` et `↕` ne conviennent pas) -> dessine.
 
 				// ── Registre d'extensions DATA-DRIVEN (icons.cfg) : .ext -> icone ──
@@ -388,6 +501,8 @@ namespace nkentseu {
 									const NkString val = trim(l.SubStr(eq + 1, l.Length() - eq - 1));
 									if (!key.Empty() && key.CStr()[0] == '.' && !val.Empty())
 										ic.SetExt(key.CStr(), loadStem(val));
+									else if (key == NkString("*") && !val.Empty())
+										ic.defaultFile = loadStem(val); // (01/10) extension non listee
 								}
 							}
 							line.Clear();
@@ -408,15 +523,42 @@ namespace nkentseu {
 					// 2) manifeste livre (NkAppData.h : dossier courant, a cote de
 					// l'EXECUTABLE, puis en remontant jusqu'au depot) ;
 					// 3) override utilisateur (applique en dernier -> gagne).
-					const NkString man = NkCodeData("icons.cfg");
-					if (!man.Empty())
-						applyManifest(NkFile::ReadAllText(NkPath(man.CStr())));
+					// (01/10) celui de l'actuel puis ceux des replis et du jeu (le jeu gagne) ;
+					// sans manifeste de jeu (data/icons absent), data/icons.cfg comme avant.
+					const NkVector<NkString> tables = jeux.TablesExtensions(jeu);
+					if (tables.Empty()) {
+						const NkString man = NkCodeData("icons.cfg");
+						if (!man.Empty())
+							applyManifest(NkFile::ReadAllText(NkPath(man.CStr())));
+					}
+					for (usize k = 0; k < tables.Size(); ++k)
+						if (NkFile::Exists(tables[k].CStr()))
+							applyManifest(NkFile::ReadAllText(NkPath(tables[k].CStr())));
 					{
 						const NkString uman = NkString(ovrDir) + "icons.cfg";
 						if (NkFile::Exists(uman.CStr()))
 							applyManifest(NkFile::ReadAllText(NkPath(uman.CStr())));
 					}
 				}
+				// Publie la table du jeu et la garde (revenir a ce jeu la reprendra telle quelle).
+				cache.cles.PushBack(cleCache);
+				cache.tables.PushBack(fresh);
+				cache.cleCourante = cleCache;
+				cache.jeuCourant = NkString(jeu ? jeu : "");
+				NkPublierIcones(shell, home, st, fresh);
+		}
+
+		// Charge logos + icônes (table unique) + manifeste extensions + activity
+		// bars. À appeler après l'Init du shell (upload GPU) et le wiring de home.
+		// (01/10) Le jeu vient des reglages (`jeuIcones`, defaut « pastilles ») ;
+		// sa variante, du theme.
+		inline void NkLoadAppIcons(editorkit::NkEditorShell *shell, NkHomeState &home, NkCodeState &st) {
+			if (!home.settings.loaded)
+				home.settings.Load();
+			if (const char *m = env::GetEnvVar("NK_BANC_MUTATION"))
+				NkAppIconsEtat().sansRepli = (m[0] == 's'); // « sansrepli »
+			NkChargerJeuIcones(shell, home, st, home.settings.jeuIcones, NkThemeIdEstClair(home.settings.theme),
+							   /*logos*/ true);
 		}
 
 	} // namespace nkcode

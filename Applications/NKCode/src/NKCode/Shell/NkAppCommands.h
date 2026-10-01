@@ -9,6 +9,8 @@
 #include "NKCode/Shell/Toolbar.h"
 #include "NKCode/Shell/Dialogs.h"
 #include "NKCode/Shell/NkHome.h"
+#include "NKCode/Shell/NkApparence.h"
+#include "NKCode/Shell/NkAppIcons.h" // NkAppliquerJeuIcones (bascule a chaud)
 
 namespace nkentseu {
 	namespace nkcode {
@@ -439,6 +441,76 @@ inline void SyncActivityMarkers(editorkit::NkEditorShell *sh) {
 	sh->SetActivityActive(left, right);
 }
 
+// ── (01/10) L'APPARENCE, ecrite a CHAQUE image (NkApparence.h) ──────────────
+// Tout ce que l'apparence controle est REECRIT ici, depuis un calcul pur : le
+// theme du dessin, la coloration, la palette NkCol, le theme du kit (panneau IA),
+// la disposition de la coquille, le jeu d'icones. Revenir a une apparence rend
+// donc exactement son etat -- le banc NkBancApparences.h le verifie.
+inline NkGuiTheme &NkThemeDeBase() { // le theme de la coquille a l'Init, capture une fois
+	static NkGuiTheme t;
+	return t;
+}
+inline NkGuiSyntax &NkSyntaxeDeBase() {
+	static NkGuiSyntax s;
+	return s;
+}
+
+inline void NkAppliquerPaletteNkCol(const NkThemePalette &p) {
+	NkCol::background = p.background;
+	NkCol::foreground = p.foreground;
+	NkCol::border = p.border;
+	NkCol::input = p.input;
+	NkCol::surface = p.surface;
+	NkCol::primary = p.primary;
+	NkCol::primaryFg = p.primaryFg;
+	NkCol::secondary = p.secondary;
+	NkCol::secondaryFg = p.secondaryFg;
+	NkCol::accent = p.accent;
+	NkCol::sidebar = p.sidebar;
+	NkCol::sidebarFg = p.sidebarFg;
+	NkCol::muted = p.muted;
+	NkCol::mutedFg = p.mutedFg;
+	NkCol::success = p.success;
+	NkCol::danger = p.danger;
+	NkCol::hover = p.hover;
+	NkCol::selection = p.selection;
+}
+
+inline void NkAppliquerApparence(NkEditorFrameContext &ec, NkHomeState *home) {
+	auto &ctx = ec.Ui();
+	static bool sBase = false;
+	if (!sBase) { // premiere image : le theme de la coquille, avant toute apparence
+		NkThemeDeBase() = ctx.theme;
+		NkSyntaxeDeBase() = ctx.syntax;
+		sBase = true;
+	}
+	NkSettingsState &S = home->settings;
+	NkApparenceEtat &e = NkApparenceCourante();
+	e = NkApparenceCalculer(S.apparence, S.theme, S.accent, NkThemeDeBase(), NkSyntaxeDeBase());
+	NkAppliquerPaletteNkCol(e.col);
+	editorkit::NkEditorShell *sh = home->dlg ? home->dlg->shell : nullptr;
+	NkCodeState *st = home->dlg ? home->dlg->st : nullptr;
+	if (sh) {
+		// Le theme du KIT d'abord (il convertit aussi vers ctx.theme) ; le theme du
+		// dessin est ensuite ecrit EN ENTIER par-dessus : aucun champ n'en herite.
+		sh->ApplyTheme(e.kit);
+		sh->SetActivityBars(e.dispo.activiteGauche, e.dispo.activiteDroite);
+		sh->SetSideTabsVisible(e.dispo.ongletsLateraux);
+		sh->SetHeaderLayout(e.dispo.titreH, e.dispo.bandeH, e.dispo.logoCoin);
+		sh->SetStatusBarHeight(e.dispo.barreEtatH);
+		// La rangee d'outils : demandee par l'apparence ET un workspace ouvert --
+		// sans workspace elle ne disait que « Aucun workspace... », une ligne
+		// perdue sous les menus (maquette A).
+		const bool barre = e.dispo.barreOutils && st && st->HasWorkspace();
+		NkBarreOutilsVisible() = barre;
+		sh->SetToolbar(barre ? &ToolbarThunk : nullptr, st);
+	}
+	ctx.theme = e.gui;
+	ctx.syntax = e.syntaxe;
+	// Le jeu d'icones (sa variante suit le theme) : no-op s'il n'a pas change.
+	NkAppliquerJeuIcones(S.jeuIcones, e.pal.clair);
+}
+
 inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeState*
 	auto *home = static_cast<NkHomeState *>(u);
 	if (!home || !home->dlg)
@@ -472,7 +544,9 @@ inline void AppFlagsThunk(NkEditorFrameContext &ec, void *u) { // user = NkHomeS
 		home->dlg->st->osDropPaths.Clear();
 	if (!home->settings.loaded)
 		home->settings.Load();
-	nkcode::NkApplyEditorTheme(ec.Ui(), home->settings.theme, home->settings.accent);
+	// (01/10) remplace NkApplyEditorTheme : l'apparence ecrit le theme du dessin
+	// EN ENTIER (et la coloration, NkCol, le kit, la disposition, les icones).
+	NkAppliquerApparence(ec, home);
 }
 
 	} // namespace nkcode

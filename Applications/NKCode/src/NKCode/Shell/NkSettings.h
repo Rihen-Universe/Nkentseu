@@ -8,6 +8,8 @@
 #pragma once
 #include "NKCode/Project/NkEmbeddedJenga.h" // version du Jenga embarque (repli)
 #include "NKCode/Shell/NkUi.h"
+#include "NKCode/Shell/NkApparence.h"  // (01/10) apparences reversibles
+#include "NKCode/Shell/NkJeuxIcones.h" // (01/10) jeux d'icones installables
 #include "NKEditorKit/NkEditorScrollbar.h"
 #include "NKCode/Shell/NkOpenWs.h"		 // NkOwEditA, NkOwIco, NkWizLabel, Home
 #include "NKCode/Shell/NkNewWorkspace.h" // NkNewWsState::TcWhich / TcRun
@@ -49,7 +51,21 @@ namespace nkentseu {
 				bool regTc = true, incCache = true, daemon = true;
 				// ── Theme ──
 				int32 theme = 0;			 // 0 Dark Pro, 1 Dark, 2 Midnight, 3 Light
-				char accent[10] = "#F79A28"; // couleur d'accent par defaut (orange Dark Pro)
+				// (01/10) Accent par defaut = le BLEU DU LOGO (chevrons de
+				// data/textures/logo/nkcode_icon.png), plus l'orange #F79A28.
+				char accent[10] = "#0075CF";
+				/// Vrai des que l'utilisateur a TOUCHE a l'accent : son choix n'est
+				/// alors plus jamais migre. Un settings.cfg d'avant le 01/10 n'a pas
+				/// cette cle ; s'il porte l'ancien defaut (#F79A28), c'est le defaut
+				/// qu'il porte, pas un choix -- il passe au bleu.
+				bool accentChoisi = false;
+				/// (01/10) L'APPARENCE de l'IDE (NkApparence.h) : 0 Classique (celle
+				/// d'avant, corrigee), 1 Nettoyee (maquette A), 2 Famille (maquette B).
+				/// Reversible : revenir = la rechoisir.
+				int32 apparence = 0;
+				/// (01/10) Le JEU D'ICONES (NkJeuxIcones.h) : cle = nom du dossier
+				/// sous data/extensions/ ou %APPDATA%/NKCode/extensions/ (NkJeuxIcones.h).
+				char jeuIcones[64] = "pastilles";
 				int32 transparency = 80;	 // (obsolete : plus utilise, garde pour compat cfg)
 				bool anim = true;
 				// ── Git ──
@@ -114,6 +130,9 @@ namespace nkentseu {
 					ki("daemon", daemon);
 					ki("theme", theme);
 					kv("accent", NkString(accent));
+					ki("accentChoisi", accentChoisi);
+					ki("apparence", apparence);
+					kv("jeuIcones", NkString(jeuIcones));
 					ki("transparency", transparency);
 					ki("anim", anim);
 					ki("gitIndicators", gitIndicators);
@@ -136,8 +155,15 @@ namespace nkentseu {
 						const NkString d = NkOpenWsState::JengaCacheDir();
 						NkStrCopy(cacheDir, sizeof(cacheDir), d.CStr());
 					}
-					if (StrEq(accent, "#00d4ff"))
-						NkStrCopy(accent, sizeof(accent), "#F79A28"); // migre l'ancien accent cyan par defaut
+					// Migre les anciens accents PAR DEFAUT (cyan, puis orange) vers le bleu
+					// du logo -- jamais un accent que l'utilisateur a choisi (accentChoisi).
+					if (!accentChoisi && (StrEq(accent, "#00d4ff") || StrEq(accent, "#F79A28") ||
+										  StrEq(accent, "#f79a28") || accent[0] == '\0'))
+						NkStrCopy(accent, sizeof(accent), "#0075CF");
+					if (jeuIcones[0] == '\0')
+						NkStrCopy(jeuIcones, sizeof(jeuIcones), "pastilles");
+					if (apparence < 0 || apparence >= NK_APPARENCE_COUNT)
+						apparence = 0;
 					// jengaPath REEL : resout le vrai binaire (jenga embarque, override JENGA_EXE, sinon PATH)
 					// au lieu du litteral "jenga". Prepare l'integration future (jenga+Python dans tools/).
 					if (jengaPath[0] == '\0' || StrEq(jengaPath, "jenga")) {
@@ -240,6 +266,12 @@ namespace nkentseu {
 									theme = iv;
 								else if (is("accent"))
 									cp(accent, sizeof(accent));
+								else if (is("accentChoisi"))
+									accentChoisi = iv != 0;
+								else if (is("apparence"))
+									apparence = iv;
+								else if (is("jeuIcones"))
+									cp(jeuIcones, sizeof(jeuIcones));
 								else if (is("transparency"))
 									transparency = iv;
 								else if (is("anim"))
@@ -280,6 +312,9 @@ namespace nkentseu {
 					daemon = d.daemon;
 					theme = d.theme;
 					NkStrCopy(accent, sizeof(accent), d.accent);
+					accentChoisi = d.accentChoisi;
+					apparence = d.apparence;
+					NkStrCopy(jeuIcones, sizeof(jeuIcones), d.jeuIcones);
 					transparency = d.transparency;
 					anim = d.anim;
 					gitIndicators = d.gitIndicators;
@@ -872,9 +907,66 @@ namespace nkentseu {
 						}
 					}
 					u.dl->AddRectFilled({ctrlX, y + u.s(4), u.s(28), u.s(22)}, ac, NkR::sm * u.S);
+					char avant[10];
+					NkStrCopy(avant, sizeof(avant), s->accent);
 					NkSetField(u, {ctrlX + u.s(36), y, u.s(120), u.s(30)}, s->accent, (int32)sizeof(s->accent), 36, s,
 							   dt, blockBg, u.s(10));
+					if (!StrEq(avant, s->accent))
+						s->accentChoisi = true; // un choix : il ne sera plus jamais migre
 					y += u.s(44);
+				}
+				// (01/10) L'APPARENCE : une disposition entiere, a chaud ; revenir = la rechoisir.
+				{
+					rowLabel(NkT("set.apparence"));
+					static const char *A[NK_APPARENCE_COUNT];
+					for (int32 k = 0; k < NK_APPARENCE_COUNT; ++k)
+						A[k] = NkApparenceNom(k);
+					NkSetCombo(u, {ctrlX, y, u.s(200), u.s(30)}, A, NK_APPARENCE_COUNT, &s->apparence, 7, s, blockBg);
+					u.TextEllipsis(ctrlX + u.s(214), y + u.s(7), ctrlW - u.s(214),
+								   NkApparenceDescription(s->apparence), NkCol::mutedFg);
+					y += u.s(44);
+				}
+				// (01/10) LE JEU D'ICONES : ceux de data/icons/ et ceux installes dans
+				// %APPDATA%/NKCode/extensions/ (un dossier = une extension).
+				{
+					rowLabel(NkT("set.jeuicones"));
+					// La liste = ce qui est INSTALLE (Pastilles, integre, toujours la) ; le
+					// catalogue s'installe depuis la vue Extensions.
+					const NkJeuxIcones &J = NkCodeJeuxIcones();
+					static const char *N[16];
+					static NkString titres[16];
+					static int32 idx[16];
+					static int32 sel = 0;
+					int32 n = 0, cur = -1;
+					for (usize k = 0; k < J.jeux.Size() && n < 16; ++k) {
+						if (!J.jeux[k].installe)
+							continue;
+						titres[n] = J.jeux[k].titre;
+						if (J.jeux[k].integre)
+							titres[n] += NkT("set.jeuintegre");
+						N[n] = titres[n].CStr();
+						idx[n] = (int32)k;
+						if (J.jeux[k].cle == J.Effectif(s->jeuIcones))
+							cur = n;
+						++n;
+					}
+					if (n > 0) {
+						// Le combo ecrit `sel` ; on le recopie en ID (nom du dossier).
+						if (s->comboOpen != 8)
+							sel = cur < 0 ? 0 : cur;
+						NkSetCombo(u, {ctrlX, y, u.s(200), u.s(30)}, N, n, &sel, 8, s, blockBg);
+						if (sel >= 0 && sel < n) {
+							const NkJeuIcones &j = J.jeux[(usize)idx[sel]];
+							if (!(j.cle == NkString(s->jeuIcones)))
+								NkStrCopy(s->jeuIcones, sizeof(s->jeuIcones), j.cle.CStr());
+							u.TextEllipsis(ctrlX + u.s(214), y + u.s(7), ctrlW - u.s(214), j.description.CStr(),
+										   NkCol::mutedFg);
+						}
+					} else
+						u.Text(ctrlX, y + u.s(7), NkT("set.jeuaucun"), NkCol::mutedFg);
+					y += u.s(36);
+					u.TextEllipsis(ctrlX, y, ctrlW, NkT("set.jeuoverride"), NkCol::mutedFg);
+					y += u.s(30);
 				}
 				// Apercu du theme : bandeau montrant les couleurs cles (temps reel).
 				{

@@ -7137,7 +7137,7 @@ namespace nkentseu {
 						termOpenLabel = NkString("\xE2\x96\xB7 ") + proj;
 						termOpenLabel += " \xC2\xB7 ";
 						termOpenLabel += S.name;
-						focusPanelReq = "EXECUTION";
+						focusPanelReq = "Exécution";
 						Journal(NkString("execution lancee (terminal dedie) : ") + cmd.CStr());
 						status = NkString("Execution dans le terminal : ") + proj;
 						return;
@@ -7310,7 +7310,7 @@ namespace nkentseu {
 							termOpenLabel += " \xC2\xB7 ";
 							termOpenLabel += mRunPendingPlat;
 						}
-						focusPanelReq = "EXECUTION"; // fait remonter le panneau (peut etre ferme)
+						focusPanelReq = "Exécution"; // fait remonter le panneau (peut etre ferme)
 						Journal(NkString("execution lancee (terminal dedie) : ") + line.CStr());
 						status = NkString("Execution dans le terminal : ") + mRunPendingProj.CStr();
 						return;

@@ -123,7 +123,7 @@ namespace nkentseu {
 						mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 						if (mShell)
-							mShell->FocusPanel("TERMINAL");
+							mShell->FocusPanel("Terminal");
 					}
 				}
 
@@ -3862,7 +3862,7 @@ namespace nkentseu {
 							mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 						mS->termOpenRun = false; // agent CLI -> panneau TERMINAL
 							if (mShell)
-								mShell->FocusPanel("TERMINAL");
+								mShell->FocusPanel("Terminal");
 						} else if (clicked == 41 && mShell) { // General config -> Preferences (reel)
 							mShell->OpenPreferences();
 						} else if (clicked == 50) { // View help docs -> ouvre le wiki (reel)
@@ -4657,7 +4657,7 @@ namespace nkentseu {
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false; // agent CLI -> panneau TERMINAL, pas EXECUTION
 					if (mShell)
-						mShell->FocusPanel("TERMINAL");
+						mShell->FocusPanel("Terminal");
 					// Trace VISIBLE dans la conversation : si le terminal s'ouvre ailleurs ou
 					// si la commande echoue, l'utilisateur sait au moins ce qui a ete lance
 					// et sur quel compte — au lieu d'un silence indistinguable d'un bug.
@@ -4680,7 +4680,7 @@ namespace nkentseu {
 					mS->termOpenAt = mS->HasWorkspace() ? mS->root.ToString() : NkString(".");
 					mS->termOpenRun = false;
 					if (mShell)
-						mShell->FocusPanel("TERMINAL");
+						mShell->FocusPanel("Terminal");
 					// Le chemin resolu est mis en cache : apres une installation il doit etre
 					// recalcule, sinon NKCode continuerait de croire le CLI absent.
 					mClaudeExeResolved = false;

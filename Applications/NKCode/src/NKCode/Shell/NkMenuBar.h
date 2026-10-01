@@ -12,6 +12,7 @@
 #include "NKCode/Shell/Panels.h"	  // SideLeftGroup/OpenSideExclusive (Recherche)
 #include "NKCode/Shell/NkHome.h"	  // NkHomeOpenNewWindow (Nouvelle fenetre)
 #include "NKCode/Shell/NkI18n.h"	  // NkT
+#include "NKCode/Shell/Toolbar.h"	  // (01/10) NkCodeBattementIde, NkBarreOutilsVisible
 #include "NKCode/Shell/NkUpdate.h"	  // NkUpdateState (mises a jour in-app, menu Aide)
 #include "NKCode/Shell/NkJengaUpdate.h" // NkJengaUpdateState (Jenga seul, 1 Mo)
 #include "NKWindow/Core/NkLauncher.h" // OpenURL (Aide)
@@ -148,7 +149,7 @@ namespace nkentseu {
 				s->termOpenKind = -1;
 				s->termOpenAt = s->HasWorkspace() ? s->root.ToString() : NkString(".");
 				s->termOpenRun = false; // shells, pas le panneau EXECUTION
-				sh->FocusPanel("TERMINAL");
+				sh->FocusPanel("Terminal");
 			}
 
 			// Menu IA -> chat : joint la selection (ou le fichier courant) au prompt.
@@ -857,7 +858,14 @@ namespace nkentseu {
 
 		// Thunk pour NkEditorShell::SetMenuBar.
 		inline void MainMenuBarThunk(NkEditorFrameContext &ec, void *user) {
-			DrawMainMenuBar(ec, static_cast<NkMenuBarCtx *>(user));
+			auto *mb = static_cast<NkMenuBarCtx *>(user);
+			// (01/10) Sans rangee d'outils cette image (apparence Nettoyee, aucun
+			// workspace), l'IDE bat ICI : la barre de menus est dessinee une fois par
+			// image dans l'editeur, jamais sur le launcher -- exactement les images ou
+			// la barre d'outils battait.
+			if (!NkBarreOutilsVisible() && mb && mb->dlg && mb->dlg->st)
+				NkCodeBattementIde(ec, mb->dlg->st);
+			DrawMainMenuBar(ec, mb);
 		}
 
 	} // namespace nkcode
