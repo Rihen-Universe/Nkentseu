@@ -89,6 +89,12 @@ namespace nkentseu {
 				float32 Fraction() const noexcept;
 				/// Le niveau d'une ligne lue hors des boites de Jenga.
 				static NkNiveauLigne NiveauDe(const NkString &texte);
+				/// A l'affichage, `prefixe` (un chemin, en / ou en \) devient `par` :
+				/// le depot et le dossier du jeu disparaissent des lignes.
+				void Abreger(const NkString &prefixe, const NkString &par);
+				/// Le texte montre d'une ligne : sans les symboles de Jenga, les
+				/// chemins connus raccourcis, sans espaces aux bords.
+				NkString Lisible(const NkString &texte) const;
 
 				NkVector<NkLigneJournal> lignes;
 				NkVector<NkDiagnostic> diagnostics;
@@ -109,6 +115,8 @@ namespace nkentseu {
 				void Progression(const NkString &texte);
 
 				NkPhaseConstruction mPhase = NkPhaseConstruction::NK_PREPARER;
+				NkVector<NkString> mPrefixes;
+				NkVector<NkString> mRemplacements;
 				/// 0 hors boite ; 1 en-tete attendu ; 2 erreur ; 3 avertissement ; 4 autre.
 				int32 mBoite = 0;
 				NkString mRecousue;
@@ -167,6 +175,7 @@ namespace nkentseu {
 				float64 mDebut = 0.0;
 				float64 mFin = 0.0;
 				float64 mDebutMoteur = 0.0;
+				int32 mErreursAvant = 0; ///< les erreurs du journal avant la commande
 		};
 
 		/// Le resume des erreurs, en tete de l'onglet Journal : « fichier:ligne:

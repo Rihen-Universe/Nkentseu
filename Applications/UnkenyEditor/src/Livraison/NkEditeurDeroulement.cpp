@@ -172,7 +172,9 @@ namespace nkentseu {
 				s.Find("AVERTISSEMENT") != NkString::npos || s.StartsWith("Warnings:")) {
 				return NkNiveauLigne::NK_AVERTISSEMENT;
 			}
-			if (coche || s.Find("BUILD COMPLETED") != NkString::npos || s.Find("Build Successful") != NkString::npos ||
+			// « ✓ [3/31] Compiled: x.cpp » est le fond du journal, pas un succes :
+			// en vert, il noierait les vrais (Built:, Build Successful, VERIFIE).
+			if ((coche && s.Find("Compiled") == NkString::npos) || s.Find("BUILD COMPLETED") != NkString::npos || s.Find("Build Successful") != NkString::npos ||
 				s.StartsWith("Kit pret") || s.Find("VERIFIE") != NkString::npos) {
 				return NkNiveauLigne::NK_SUCCES;
 			}
@@ -182,12 +184,66 @@ namespace nkentseu {
 			return NkNiveauLigne::NK_INFO;
 		}
 
+		void NkJournalConstruction::Abreger(const NkString &prefixe, const NkString &par) {
+			if (prefixe.Length() < 4u) {
+				return;
+			}
+			// Les deux ecritures : clang cite le chemin tel qu'on le lui donne
+			// (C:\Users\...), Jenga et l'editeur l'ecrivent en obliques.
+			NkString oblique;
+			NkString inverse;
+			for (usize i = 0; i < prefixe.Length(); ++i) {
+				oblique.Append(prefixe[i] == '\\' ? '/' : prefixe[i]);
+				inverse.Append(prefixe[i] == '/' ? '\\' : prefixe[i]);
+			}
+			mPrefixes.PushBack(oblique);
+			mRemplacements.PushBack(par);
+			mPrefixes.PushBack(inverse);
+			mRemplacements.PushBack(par);
+		}
+
+		NkString NkJournalConstruction::Lisible(const NkString &texte) const {
+			// Les symboles de Jenga (coche, croix, alerte, info, interdit,
+			// fleche), ou qu'ils soient : la police de l'editeur ne les a pas
+			// (« Status: ? FAILURE »), et la couleur de la ligne le dit deja.
+			static const char *kSymboles[] = {"\xE2\x9C\x93", "\xE2\x9C\x97", "\xE2\x9A\xA0",
+											  "\xE2\x84\xB9", "\xE2\x8A\x98", "\xE2\x86\x92"};
+			NkString s;
+			for (usize i = 0; i < texte.Length(); ++i) {
+				bool symbole = false;
+				for (const char *k : kSymboles) {
+					if (i + 2u < texte.Length() && texte[i] == k[0] && texte[i + 1u] == k[1] && texte[i + 2u] == k[2]) {
+						symbole = true;
+						break;
+					}
+				}
+				if (symbole) {
+					i += 2u;
+					continue;
+				}
+				s.Append(texte[i]);
+			}
+			// Les chemins connus raccourcis : « Applications/UnkenyPlayer/... »
+			// plutot que trois lignes de C:\Users\...
+			for (usize k = 0; k < mPrefixes.Size(); ++k) {
+				usize p = 0;
+				while ((p = s.Find(mPrefixes[k].CStr(), p)) != NkString::npos) {
+					s = NkString(s.SubStr(0, p)) + mRemplacements[k] + NkString(s.SubStr(p + mPrefixes[k].Length()));
+					p += mRemplacements[k].Length();
+				}
+			}
+			return SansEspaces(s);
+		}
+
 		void NkJournalConstruction::Pousser(NkNiveauLigne niveau, const NkString &texte, float32 temps) {
 			NkLigneJournal l;
 			l.niveau = niveau;
 			l.phase = mPhase;
 			l.temps = temps;
-			l.texte = texte;
+			l.texte = Lisible(texte);
+			if (l.texte.Empty()) {
+				return;
+			}
 			lignes.PushBack(l);
 		}
 
@@ -379,7 +435,10 @@ namespace nkentseu {
 					return;
 				}
 				if (mBoite == 5 && texte.Find("Build Successful") != NkString::npos) {
+					// Le projet est fini : sa part de fichiers ne compte plus.
 					++projetsFaits;
+					fichiersTotal = 0;
+					fichiersFaits = 0;
 				}
 				Pousser(NiveauDe(texte), SansSymbole(texte), temps);
 				return;
@@ -450,6 +509,13 @@ namespace nkentseu {
 				}
 			}
 			mFin = 0.0;
+			// Les chemins que le journal raccourcit (a l'affichage seulement :
+			// construire.log garde le texte brut).
+			journal.Abreger(p.depot, NkString());
+			journal.Abreger(p.dossierJeu, NkString());
+			if (!p.cache.racine.Empty()) {
+				journal.Abreger(p.cache.racine, NkString("cache/"));
+			}
 			for (usize i = 0; i < preparation.Size(); ++i) {
 				const NkString &l = preparation[i];
 				NkPhaseConstruction ph = NkPhaseConstruction::NK_PREPARER;
@@ -559,6 +625,7 @@ namespace nkentseu {
 			Annoncer(NkString("  ") + e.commande, NkNiveauLigne::NK_NOTE);
 			annonce = e.libelle + "...";
 			journal.NouvelleCommande();
+			mErreursAvant = journal.erreurs;
 			mProcessus.Environnement("JENGA_NO_IDE_CONFIG", NK_CONSTRUIRE_SANS_IDE);
 			if (!mProcessus.Lancer(e.commande, e.dossier.Empty() ? plan->dossierJeu : e.dossier)) {
 				Echec(NkString("lancement impossible : ") + e.commande);
@@ -581,7 +648,10 @@ namespace nkentseu {
 				// Le dernier fichier du JEU compile : la phase Lier commence. On
 				// n'attend pas « Linking... » : Jenga ne l'ecrit qu'APRES l'edition
 				// de liens (BuildLogger.LogLink), la phase durerait zero seconde.
-				const bool compile = journal.lien || (journal.fichiersTotal > 0 && journal.fichiersFaits >= journal.fichiersTotal);
+				// ... sauf si un fichier a echoue : la phase en echec est alors
+				// celle de la compilation, pas celle des liens.
+				const bool compile = journal.erreurs == mErreursAvant &&
+									 (journal.lien || (journal.fichiersTotal > 0 && journal.fichiersFaits >= journal.fichiersTotal));
 				if (mPas == NkPas::NK_PROCESSUS && mEtape < plan->etapes.Size() &&
 					plan->etapes[mEtape].phase == NkPhaseConstruction::NK_COMPILER && compile && journal.projet == plan->projet &&
 					plan->phases[static_cast<int32>(NkPhaseConstruction::NK_LIER)].etat == NkEtatPhase::NK_ATTENTE) {
@@ -723,6 +793,15 @@ namespace nkentseu {
 			if (plan == nullptr) {
 				return 0.f;
 			}
+			// Le POIDS de chaque phase, a la louche des mesures du 2026-10-01 : un
+			// moteur a construire, c'est les trois quarts du temps ; trouve, il
+			// ne compte plus. En mode sources, le moteur est dans « Compiler ».
+			bool moteurAConstruire = false;
+			for (usize k = 0; k < plan->etapes.Size(); ++k) {
+				moteurAConstruire |= plan->etapes[k].phase == NkPhaseConstruction::NK_MOTEUR;
+			}
+			const bool sources = plan->moteur == NkModeMoteur::NK_SOURCES;
+			const float32 poids[NK_NB_PHASES] = {1.f, 1.f, 1.f, moteurAConstruire ? 60.f : 1.f, sources ? 70.f : 12.f, 4.f, 2.f, 6.f};
 			float32 total = 0.f;
 			float32 fait = 0.f;
 			for (int32 i = 0; i < NK_NB_PHASES; ++i) {
@@ -730,9 +809,10 @@ namespace nkentseu {
 				if (s.etat == NkEtatPhase::NK_SAUTEE) {
 					continue;
 				}
-				total += 1.f;
+				const float32 p = poids[i];
+				total += p;
 				if (s.etat == NkEtatPhase::NK_FAITE) {
-					fait += 1.f;
+					fait += p;
 				} else if (s.etat == NkEtatPhase::NK_EN_COURS) {
 					// La part de la phase : ses commandes faites, plus celle en
 					// cours au prorata de ce que Jenga en dit.
@@ -746,7 +826,7 @@ namespace nkentseu {
 					}
 					const float32 f = journal.Fraction();
 					const float32 dedans = f < 0.f ? 0.f : f;
-					fait += n > 0u ? (static_cast<float32>(avant) + dedans) / static_cast<float32>(n) : dedans;
+					fait += p * (n > 0u ? (static_cast<float32>(avant) + dedans) / static_cast<float32>(n) : dedans);
 				}
 			}
 			return total > 0.f ? fait / total : 0.f;

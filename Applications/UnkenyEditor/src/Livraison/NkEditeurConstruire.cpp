@@ -731,7 +731,7 @@ namespace nkentseu {
 			if (m.etat != NkEtatJeu::NK_EDITION) {
 				NkEditeurArreter(m);
 			}
-			Fermer(NkPhaseConstruction::NK_PREPARER, NkEtatPhase::NK_FAITE, plan.dossierJeu);
+			Fermer(NkPhaseConstruction::NK_PREPARER, NkEtatPhase::NK_FAITE, NkString("dossier ") + plan.projet + "/");
 
 			// ── La cuisson, dans un dossier VIDE : une texture d'une construction
 			//    precedente ne doit pas y trainer (le sommaire ne la citerait pas,

@@ -38,12 +38,21 @@
 //         (ABI), Linux seulement sur demande expresse
 //   (lg10) un lien systeme que le joueur lie et que le kit ne transmet pas
 //         (d3dcompiler, 30/09) est nomme
+//   Le JOURNAL de la construction (2026-10-01, NkEditeurDeroulement.h) :
+//   (lg11) une boite d'erreur reelle de Jenga (chemin coupe net sur trois
+//         lignes de 92 colonnes) est recousue : fichier, ligne 299, colonne 37,
+//         message ; le resume dit « NkJoueurApp.cpp:299: ... » ; aucun cadre
+//         ni symbole de Jenga ne reste a l'affichage
+//   (lg12) la progression vient des lignes de Jenga : 2 projets, le premier a
+//         2/4 fichiers = 25 %, fini = 50 % ; « [2/4] Compiled » reste gris,
+//         « Built: » est vert, et le dossier du jeu disparait des chemins
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 
 #include "Livraison/NkEditeurConstruire.h"
+#include "Livraison/NkEditeurDeroulement.h"
 
 #include "Editeur/NkEditeurActions.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -377,6 +386,83 @@ namespace nkentseu {
 				const NkVector<NkString> lus = NkLiensSystemeDuKit(complet, "Debug", "Windows");
 				Temoin(rien.Empty() && un.Size() == 1u && un[0] == NkString("d3dcompiler") && lus.Size() == 20u,
 					   "(lg10) liens systeme : un lien du joueur absent du kit est nomme", static_cast<float32>(lus.Size()));
+			}
+
+			// ── Le JOURNAL de la construction (2026-10-01), sans Jenga ──────────
+			// (lg11) une boite d'erreur de Jenga, telle que construire.log l'a
+			//        recue le 01/10 (chemin coupe net a 92 colonnes, sur trois
+			//        lignes) : recousue, elle donne fichier, ligne, colonne et
+			//        message ; aucun cadre ne reste a l'affichage
+			{
+				static const char *kBoite[] = {
+					"╔══════════════════════════════════════════════════════════════════════════════════════════════╗",
+					"║                              Compilation Error: NkJoueurApp.cpp                              ║",
+					"╠══════════════════════════════════════════════════════════════════════════════════════════════╣",
+					"║ C:\\Users\\rihen\\AppData\\Local\\Temp\\claude\\c--Users-rihen-Documents-Projects-Nkentseu\\47680671 ║",
+					"║ -02af-4603-b281-5d1cc24ea730\\scratchpad\\depotcasse\\Applications\\UnkenyPlayer\\src\\Joueur\\NkJo ║",
+					"║ ueurApp.cpp:299:37: error: use of undeclared identifier 'graviteDuMonde'                     ║",
+					"║   299 |                                 return static_cast<int>(duree * graviteDuMonde);     ║",
+					"║       |                                                                 ^~~~~~~~~~~~~~       ║",
+					"║ 3 errors generated.                                                                          ║",
+					"╚══════════════════════════════════════════════════════════════════════════════════════════════╝",
+				};
+				NkJournalConstruction j;
+				for (const char *l : kBoite) {
+					j.LigneJenga(NkString(l), 1.f);
+				}
+				j.LigneJenga(NkString("\xE2\x9C\x97 \xE2\x9C\x97 Compilation failed: C:\\x\\NkJoueurApp.cpp"), 1.f);
+				j.FinCommande(1.f);
+				bool cadres = false;
+				bool ligneErreur = false;
+				bool extrait = false;
+				for (usize i = 0; i < j.lignes.Size(); ++i) {
+					const NkString &t = j.lignes[i].texte;
+					cadres |= t.Find("\xE2\x95") != NkString::npos || t.Find("\xE2\x94") != NkString::npos || t.Find("\xE2\x9C") != NkString::npos;
+					ligneErreur |= j.lignes[i].niveau == NkNiveauLigne::NK_ERREUR && t.Find("NkJoueurApp.cpp:299:37: error:") != NkString::npos;
+					extrait |= j.lignes[i].niveau == NkNiveauLigne::NK_NOTE && t.Find("299 |") != NkString::npos;
+				}
+				const bool diag = j.diagnostics.Size() == 1u && j.diagnostics[0].fichier.EndsWith("Joueur\\NkJoueurApp.cpp") &&
+								  j.diagnostics[0].fichier.StartsWith("C:\\Users\\") && j.diagnostics[0].ligne == 299 &&
+								  j.diagnostics[0].colonne == 37 &&
+								  j.diagnostics[0].message == NkString("use of undeclared identifier 'graviteDuMonde'") && j.erreurs == 1;
+				const NkVector<NkString> resume = NkResumeErreurs(j, 5u);
+				Temoin(diag && !cadres && ligneErreur && extrait && resume.Size() == 1u &&
+						   resume[0] == NkString("NkJoueurApp.cpp:299: use of undeclared identifier 'graviteDuMonde'"),
+					   "(lg11) boite d'erreur recousue : NkJoueurApp.cpp:299:37, message, sans cadre", static_cast<float32>(j.lignes.Size()));
+			}
+
+			// (lg12) la progression vient des lignes de Jenga (projets, fichiers) ;
+			//        une ligne « [i/N] Compiled » n'est pas un succes (gris), et
+			//        les chemins connus sont raccourcis a l'affichage
+			{
+				NkJournalConstruction j;
+				j.Abreger(NkString("C:/Jeux/Gelee/"), NkString());
+				const float32 avant = j.Fraction();
+				j.LigneJenga(NkString("Build Order (2 projects):"), 0.f);
+				j.LigneJenga(NkString("\xE2\x95\x94\xE2\x95\x90\xE2\x95\x97"), 0.f);
+				j.LigneJenga(NkString("\xE2\x95\x91  Project: NKCore                Kind: STATIC_LIB  \xE2\x95\x91"), 0.f);
+				j.LigneJenga(NkString("\xE2\x95\x9A\xE2\x95\x90\xE2\x95\x9D"), 0.f);
+				j.LigneJenga(NkString("\xE2\x84\xB9 Found 4 source file(s)"), 0.f);
+				j.LigneJenga(NkString("\xE2\x9C\x93   [2/4] Compiled: NkCore.cpp"), 0.f);
+				const float32 milieu = j.Fraction();
+				j.LigneJenga(NkString("\xE2\x9C\x93 Built: C:\\Jeux\\Gelee\\Build\\Lib\\NKCore.lib"), 0.f);
+				j.LigneJenga(NkString("\xE2\x94\x8C\xE2\x94\x80\xE2\x94\x90"), 0.f);
+				j.LigneJenga(NkString("\xE2\x94\x82  \xE2\x9C\x93 Build Successful        Time: 0.58s  \xE2\x94\x82"), 0.f);
+				j.LigneJenga(NkString("\xE2\x94\x94\xE2\x94\x80\xE2\x94\x98"), 0.f);
+				const float32 apres = j.Fraction();
+				bool compiledGris = false;
+				bool construitVert = false;
+				bool court = false;
+				for (usize i = 0; i < j.lignes.Size(); ++i) {
+					const NkLigneJournal &l = j.lignes[i];
+					compiledGris |= l.texte == NkString("[2/4] Compiled: NkCore.cpp") && l.niveau == NkNiveauLigne::NK_INFO;
+					construitVert |= l.texte.StartsWith("Built: Build\\Lib") && l.niveau == NkNiveauLigne::NK_SUCCES;
+					court |= l.texte == NkString("Built: Build\\Lib\\NKCore.lib");
+				}
+				Temoin(avant < 0.f && milieu > 0.24f && milieu < 0.26f && apres > 0.49f && apres < 0.51f && j.projet == NkString("NKCore") &&
+						   compiledGris && construitVert && court,
+					   "(lg12) progression lue dans Jenga : 1/2 projet, 2/4 fichiers = 25 % ; chemins courts",
+					   milieu * 100.f);
 			}
 
 			tas.Delete(partie);

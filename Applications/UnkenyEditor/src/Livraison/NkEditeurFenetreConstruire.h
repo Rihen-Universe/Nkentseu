@@ -4,7 +4,9 @@
 // Description :
 //   La fenetre « Construire » de l'editeur (Fichier > Construire…) : choisir
 //   la plateforme, le profil, le nom, l'icone sombre et claire, le dossier de
-//   sortie ; lancer ; suivre Jenga dans l'onglet Journal ; lire le resultat.
+//   sortie, le moteur (precompile ou sources) ; lancer ; suivre la construction
+//   dans l'onglet JOURNAL de la fenetre (phases, progression, erreurs, journal
+//   filtre : NkEditeurOngletJournal.cpp) ; lire le resultat.
 //
 // Caracteristiques :
 //   - DESSINEE PAR L'EDITEUR, dans `dlOverlay`, comme la boite « non
@@ -65,6 +67,19 @@ namespace nkentseu {
 				NkDeroulementConstruction deroulement;
 				usize lignesVues = 0;
 				NkString annonce; ///< la ligne d'etat de la fenetre
+
+				// ── L'onglet Journal (2026-10-01) ─────────────────────────────
+				/// 0 Reglages, 1 Journal : « Construire » y bascule.
+				int32 onglet = 0;
+				/// 0 tout, 1 avertissements et erreurs, 2 erreurs seules.
+				int32 filtre = 0;
+				/// La premiere ligne montree ; `suivre` : collee a la derniere,
+				/// jusqu'a ce qu'on remonte a la molette.
+				float32 defilement = 0.f;
+				bool suivre = true;
+				/// Un retour bref (« Journal copié ») et l'heure ou il s'efface.
+				NkString retour;
+				float32 retourJusqua = 0.f;
 		};
 
 		/// Ouvre la fenetre, avec les reglages precedents ou ceux par defaut, et
@@ -83,6 +98,12 @@ namespace nkentseu {
 
 		/// La fenetre, dans dlOverlay. Rien si elle est fermee.
 		void NkEditeurDessinerConstruire(NkEditeurCadre &c, NkEditeurConstruction &k);
+
+		/// L'onglet Journal de la fenetre, dans `zone` (NkEditeurOngletJournal.cpp) :
+		/// les phases et leur etat, la barre de progression, le resume des
+		/// erreurs, puis le journal ligne par ligne, colore et filtre -- a la
+		/// maniere de l'Output Log d'Unreal Engine 5.
+		void NkEditeurDessinerJournalConstruction(NkEditeurCadre &c, NkEditeurConstruction &k, const nkgui::NkRect &zone);
 
 	} // namespace editeur
 } // namespace nkentseu
