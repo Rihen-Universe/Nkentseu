@@ -485,6 +485,7 @@ namespace nkentseu {
 				bool detailsCloison = false;
 				int32 detailsComposant = -1;
 				int32 detailsArbreDefil = 0; ///< la premiere ligne montree de l'arbre (molette)
+				NkString demDetails; ///< --details=NOM : le composant choisi dans l'arbre au depart
 				/// (2026-10-01) Un CHAMP a pris Echap ou Entree a cette trame (il s'est
 				/// ferme en la prenant) : les raccourcis ne la voient pas. Sans cela, Echap
 				/// qui vide une recherche « Arretait » aussi -- et la selection tombait.

@@ -1598,6 +1598,15 @@ namespace nkentseu {
 							cartes.PushBack(static_cast<int32>(carte));
 						}
 					}
+					// --details=NOM : le composant demande au demarrage.
+					if (!c.ui.demDetails.Empty()) {
+						for (uint32 k = 1; k < cartes.Size(); ++k) {
+							if (c.ui.demDetails == NkString(NkCarteEditeurNom(static_cast<NkCarteEditeur>(cartes[k])))) {
+								c.ui.detailsComposant = cartes[k];
+							}
+						}
+						c.ui.demDetails = NkString();
+					}
 					bool present = c.ui.detailsComposant < 0;
 					for (uint32 k = 1; k < cartes.Size(); ++k) {
 						present = present || cartes[k] == c.ui.detailsComposant;

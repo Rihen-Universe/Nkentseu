@@ -332,6 +332,12 @@ namespace nkentseu {
 				}
 				// --theme=clair (2026-10-01) : le theme CLAIR du kit (le logo du coin
 				// passe en version claire) -- une capture sans souris.
+				// --details=NOM (2026-10-01) : le composant NOM (« Sprite »...) choisi
+				// dans l'arbre des Details au depart -- une capture sans souris.
+				if (args[i].StartsWith("--details=")) {
+					mUi->demDetails = NkString(args[i].SubStr(10));
+					continue;
+				}
 				if (args[i] == "--theme=clair") {
 					mTheme = editorkit::NkTheme::Light();
 					mPalette = NkEditeurPalette(mTheme);
