@@ -1383,6 +1383,8 @@ namespace nkentseu {
 						}
 						ui.hauteurTiroir = 230.f;
 						ui.contenu.thumbSize = 96.f;
+						T.Trame(); // les cartes reprennent leur place avant le geste suivant
+						T.Trame();
 					}
 					// 04 : le VRAI prefab glisse du dossier Prefabs dans l'Outliner, puis
 					// dans la vue.
@@ -1395,6 +1397,9 @@ namespace nkentseu {
 							T.Trame();
 						}
 						const int32 kp = pCaisse.Empty() ? -1 : T.Carte(pCaisse.CStr());
+						if (kd < 0 || kp < 0) {
+							std::printf("  captures 04 : dossier %d, prefab %d (%s)\n", kd, kp, pCaisse.CStr());
+						}
 						if (kp >= 0) {
 							const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(kp)];
 							const float32 x0 = r.x + r.w * 0.5f, y0 = r.y + r.h * 0.3f;

@@ -219,6 +219,27 @@ Lumières, Formes, Effets, Volumes, Tout**, avec recherche, liste à icônes,
 > « utiliser la sélection », « parcourir », glisser sur le champ ou sur le sprite
 > de la vue, Ctrl+Z). Sombre et clair. Témoins u4, u5, u9 (`NkEditeurBancUe5.cpp`).
 > **Pas encore** : liste relatif / absolu du Transform, *Mobilité*, « Avancé ».
+>
+> **État au 01/10 soir (R33 / R34, branche `unkeny/assets-cartes-effets`)** — RIEN
+> HORS CADRE : la forme 2D, la collision et l'ancrage à l'écran, qui s'affichaient
+> en contrôles bruts sous les cartes, sont des cartes (`NkEditeurDetails.cpp`) :
+> **Collisionneur** (Physique : type au choix boîte / cercle / capsule / polygone /
+> chaîne, depuis la forme ou le sprite, sommets, calque et ce qu'il touche, rotation
+> propre, poignées, « Rendre solide »), **Corps rigide** (Physique), **Forme 2D**
+> (Rendu : genre, taille, branches, côtés, points, couleurs, arrondi, opacité,
+> couche), **Ancrage à l'écran** (Acteur). « + Ajouter » / « Ajouter un composant »
+> sont rangés Physique / Rendu / Animation / Audio / Acteur, une ligne par
+> composant (Animation (sprites), **Animateur** : chaque modèle et chaque
+> `.nkanimctl` du Contenu, Émetteur, Lumière, Son, Ancrage…) ; la recherche répond
+> aussi par section. **Chaque asset s'ouvre** dans un onglet (`NkEditeurAssets.h`) :
+> texture, police, son, contrôleur (en lecture ; page Animateur de NKEditorKit à
+> brancher sur `NkEditeurOuvrirAnimateur`), et le **mode prefab** (la scène de côté,
+> Enregistrer met à jour les instances). Prefab glissé dans l'Outliner ou la vue.
+> Placer des acteurs **se replie**. Interrupteur de l'**éclairage** (barre de la vue,
+> Monde, Réglages). Effets **en jeu seulement** (aperçu au choix, jouer au
+> démarrage, Jouer / Pause / Arrêter en C++). **Jouer comme le PIE** (vue au jeu,
+> Éjecter / F8), **l'appareil se zoome en entier**, **dossier plein** = feuille et
+> aperçus. Banc ASSETS EDITEUR (m1…m10) ; captures `References\Captures\assets\`.
 
 ## 6. Méthode
 
