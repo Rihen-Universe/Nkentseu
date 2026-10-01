@@ -252,6 +252,20 @@ namespace nkentseu {
 				/// @note Protège contre les boucles de redirection mal configurées
 				uint32 maxRedirects = 5;
 
+				/// LE FLUX (2026-10-01, NKConverse : une reponse de modele se lit
+				/// PENDANT qu'elle s'ecrit). Non nul : appele sur le fil de la
+				/// requete avec chaque morceau du CORPS des qu'il arrive -- le
+				/// cadrage `chunked` deja retire -- et le code HTTP de la reponse.
+				/// Rendre false ARRETE la reception : la reponse porte alors
+				/// `error = "flux arrete par l'appelant"`.
+				/// ⚠️ LE DELAI DEVIENT UN DELAI D'INACTIVITE : chaque octet recu le
+				///    repousse. Une generation de deux minutes qui parle sans cesse
+				///    ne doit pas expirer parce qu'elle parle longtemps ; un service
+				///    muet pendant `timeoutMs`, si.
+				/// Le corps reste AUSSI accumule dans la reponse, comme sans flux :
+				/// un appelant qui ne lit que la fin n'a rien a changer.
+				NkFunction<bool(uint32 statut, const char *donnees, uint32 taille)> surCorps;
+
 				// -------------------------------------------------------------
 				// Helpers de construction — méthodes utilitaires
 				// -------------------------------------------------------------
