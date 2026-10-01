@@ -334,12 +334,24 @@ namespace {
 			fd_set writeSet;
 			FD_ZERO(&writeSet);
 			FD_SET(sock, &writeSet);
+			// ⚠️ (2026-10-01) L'ENSEMBLE D'EXCEPTION, SANS QUOI « PERSONNE N'ECOUTE »
+			//    COUTAIT TOUT LE DELAI. Sous Windows, une connexion non bloquante
+			//    REFUSEE ne rend jamais le socket inscriptible : elle se signale
+			//    dans `exceptfds`. Sans lui, le panneau IA mettait 3 s (le delai
+			//    de la question) -- deux fois pour « localhost » (::1 puis
+			//    127.0.0.1) -- a dire qu'Ollama n'etait pas lance, alors que le
+			//    refus arrive en une milliseconde. Sous POSIX, le refus rend le
+			//    socket inscriptible avec SO_ERROR pose : rien ne change.
+			fd_set exceptSet;
+			FD_ZERO(&exceptSet);
+			FD_SET(sock, &exceptSet);
 
 			timeval tv = {};
 			tv.tv_sec = static_cast<long>(timeoutMs / 1000);
 			tv.tv_usec = static_cast<long>((timeoutMs % 1000) * 1000);
 
-			if (select(static_cast<int>(sock + 1), nullptr, &writeSet, nullptr, &tv) > 0) {
+			if (select(static_cast<int>(sock + 1), nullptr, &writeSet, &exceptSet, &tv) > 0 &&
+				FD_ISSET(sock, &writeSet)) {
 				// Vérification que la connexion a réussi
 				int soError = 0;
 				socklen_t len = sizeof(soError);
@@ -509,19 +521,132 @@ namespace {
 	///
 	///    Elle lit maintenant le corps ENTIER : `Content-Length` s'il est annonce,
 	///    le decoupage `chunked` sinon, et a defaut jusqu'a fermeture du pair.
-	bool RecvWithTimeout(NkNativeSocket sock, NkString &out, uint32 maxSize, uint32 timeoutMs) noexcept {
+	/// LE LECTEUR DE FLUX (2026-10-01) : il suit le corps PENDANT la reception et
+	/// rend a `NkHTTPRequest::surCorps` chaque morceau nouveau, le cadrage
+	/// `chunked` retire. Il ne travaille que sur des INDICES dans le tampon brut
+	/// (qui peut etre realloue entre deux `recv`) et ne lit jamais deux fois le
+	/// meme octet. ⚠️ Il ne remplace pas `CorpsComplet` ni `ParseResponse` : la
+	/// reponse accumulee reste la seule verite de fin ; lui ne fait que la
+	/// montrer en avance.
+	struct NkFluxCorps {
+			const NkFunction<bool(uint32, const char *, uint32)> *cb = nullptr;
+			uint32 statut = 0u;
+			bool pret = false;
+			bool parMorceaux = false;
+			NkString::SizeType pos = 0;
+			uint32 resteMorceau = 0u;
+			bool sauterCRLF = false;
+			bool fini = false;
+			bool arrete = false;
+
+			bool Actif() const noexcept {
+				return cb != nullptr && *cb != nullptr;
+			}
+			/// Le code de la ligne d'etat « HTTP/1.1 200 OK ».
+			static uint32 LireStatut(const NkString &brut) noexcept {
+				const NkString::SizeType sp = brut.Find(' ');
+				uint32 v = 0u;
+				if (sp == NkString::npos)
+					return 0u;
+				for (NkString::SizeType i = sp + 1; i < brut.Length() && brut.Data()[i] >= '0' && brut.Data()[i] <= '9'; ++i)
+					v = v * 10u + static_cast<uint32>(brut.Data()[i] - '0');
+				return v;
+			}
+			void Debut(const NkString &brut, NkString::SizeType finEntetes, bool morceaux) noexcept {
+				statut = LireStatut(brut);
+				pos = finEntetes;
+				parMorceaux = morceaux;
+				pret = true;
+			}
+			bool Rendre(const char *d, uint32 n) noexcept {
+				if (n == 0u)
+					return true;
+				if (!(*cb)(statut, d, n)) {
+					arrete = true;
+					return false;
+				}
+				return true;
+			}
+			/// Rend false si l'appelant a demande l'arret.
+			bool Avancer(const NkString &brut) noexcept {
+				if (!pret || !Actif() || fini || arrete)
+					return !arrete;
+				const char *d = brut.Data();
+				const NkString::SizeType n = brut.Length();
+				if (!parMorceaux) {
+					if (n > pos) {
+						const NkString::SizeType debut = pos;
+						pos = n;
+						return Rendre(d + debut, static_cast<uint32>(n - debut));
+					}
+					return true;
+				}
+				for (;;) {
+					if (resteMorceau > 0u) {
+						const NkString::SizeType dispo = n - pos;
+						if (dispo == 0u)
+							return true;
+						const uint32 prendre = dispo < resteMorceau ? static_cast<uint32>(dispo) : resteMorceau;
+						const NkString::SizeType debut = pos;
+						pos += prendre;
+						resteMorceau -= prendre;
+						if (resteMorceau == 0u)
+							sauterCRLF = true;
+						if (!Rendre(d + debut, prendre))
+							return false;
+						continue;
+					}
+					if (sauterCRLF) {
+						if (n - pos < 2u)
+							return true;
+						pos += 2u;
+						sauterCRLF = false;
+						continue;
+					}
+					NkString::SizeType j = pos;
+					while (j + 1 < n && !(d[j] == '\r' && d[j + 1] == '\n'))
+						++j;
+					if (j + 1 >= n)
+						return true; // la ligne de taille n'est pas encore entiere
+					uint32 taille = 0u;
+					for (NkString::SizeType k = pos; k < j; ++k) {
+						const char c = NkBasMin(d[k]);
+						if (c >= '0' && c <= '9')
+							taille = taille * 16u + static_cast<uint32>(c - '0');
+						else if (c >= 'a' && c <= 'f')
+							taille = taille * 16u + static_cast<uint32>(c - 'a' + 10);
+						else
+							break; // extension « ; » ou illisible : la taille s'arrete la
+					}
+					pos = j + 2u;
+					if (taille == 0u) {
+						fini = true;
+						return true;
+					}
+					resteMorceau = taille;
+				}
+			}
+	};
+
+	bool RecvWithTimeout(NkNativeSocket sock, NkString &out, uint32 maxSize, uint32 timeoutMs,
+						 NkFluxCorps *flux = nullptr) noexcept {
 		char buffer[4096];
 		out.Clear();
-		const NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
+		// ⚠️ PAS `const` : avec un flux, chaque octet recu repousse l'echeance
+		//    (voir NkHTTPRequest::surCorps). Sans flux, rien ne la touche.
+		NkTimestampMs deadline = NkNetNowMs() + timeoutMs;
 		NkString::SizeType finEntetes = NkString::npos;
 		uint32 attendu = 0u;   // octets de corps annonces par Content-Length
 		bool parMorceaux = false;
 		bool longueurConnue = false;
+		const bool enFlux = flux != nullptr && flux->Actif();
 
 		while (NkNetNowMs() < deadline) {
 			int result = recv(sock, buffer, sizeof(buffer), 0);
 			if (result > 0) {
 				out.Append(buffer, static_cast<uint32>(result));
+				if (enFlux)
+					deadline = NkNetNowMs() + timeoutMs;
 				// ⚠️ UNE TRONCATURE REND `false`. L'ancienne version rendait
 				//    `true` avec un corps coupe : un appelant ne peut pas
 				//    distinguer ca d'une reponse complete. *Des deux facons de
@@ -535,8 +660,12 @@ namespace {
 					if (p != NkString::npos) {
 						finEntetes = p + 4u;
 						longueurConnue = LireCadrage(out, finEntetes, attendu, parMorceaux);
+						if (enFlux)
+							flux->Debut(out, finEntetes, parMorceaux);
 					}
 				}
+				if (enFlux && finEntetes != NkString::npos && !flux->Avancer(out))
+					return false; // l'appelant a coupe le flux
 				if (finEntetes != NkString::npos && CorpsComplet(out, finEntetes, attendu,
 															   parMorceaux, longueurConnue))
 					return true;
@@ -1274,8 +1403,13 @@ namespace nkentseu {
 
 			// Réception de la réponse
 			NkString rawResponse;
-			if (!RecvWithTimeout(sock, rawResponse, kMaxResponseSize, req.timeoutMs)) {
-				response.error = "Receive timeout";
+			NkFluxCorps flux;
+			flux.cb = &req.surCorps;
+			if (!RecvWithTimeout(sock, rawResponse, kMaxResponseSize, req.timeoutMs, &flux)) {
+				// L'arret demande par le lecteur du flux n'est pas un delai depasse :
+				// les deux se reparent a deux endroits differents.
+				response.error = flux.arrete ? "flux arrete par l'appelant" : "Receive timeout";
+				response.statusCode = flux.arrete ? flux.statut : 0u;
 				NkCloseSocket(sock);
 				return response;
 			}
@@ -1417,6 +1551,11 @@ namespace nkentseu {
 			// Réception jusqu'à fermeture propre, fin de flux ou taille max.
 			NkString rawResponse;
 			unsigned char recvBuf[4096];
+			// LE FLUX (2026-10-01) : le meme lecteur que le chemin HTTP. Le delai de
+			// lecture de mbedTLS est deja un delai d'INACTIVITE (par lecture).
+			NkFluxCorps flux;
+			flux.cb = &req.surCorps;
+			NkString::SizeType finEntetes = NkString::npos;
 			for (;;) {
 				ret = mbedtls_ssl_read(&ssl, recvBuf, sizeof(recvBuf));
 				if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -1436,6 +1575,27 @@ namespace nkentseu {
 				rawResponse.Append(reinterpret_cast<const char *>(recvBuf), static_cast<uint32>(ret));
 				if (rawResponse.Length() >= kMaxResponseSize) {
 					break;
+				}
+				if (flux.Actif()) {
+					if (finEntetes == NkString::npos) {
+						const NkString::SizeType p = rawResponse.Find("\r\n\r\n");
+						if (p != NkString::npos) {
+							finEntetes = p + 4u;
+							uint32 attendu = 0u;
+							bool morceaux = false;
+							(void)LireCadrage(rawResponse, finEntetes, attendu, morceaux);
+							flux.Debut(rawResponse, finEntetes, morceaux);
+						}
+					}
+					if (finEntetes != NkString::npos && !flux.Avancer(rawResponse)) {
+						cleanup();
+						response.error = "flux arrete par l'appelant";
+						response.statusCode = flux.statut;
+						return response;
+					}
+					if (flux.fini) {
+						break; // le morceau terminal est arrive : inutile d'attendre la fermeture
+					}
 				}
 			}
 
