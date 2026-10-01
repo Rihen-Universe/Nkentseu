@@ -316,6 +316,33 @@ namespace nkentseu {
 				NkAnimationTrack<float32> ppDOFFocus;
 				NkAnimationTrack<float32> ppVignetteIntensity;
 
+				// ── Pistes de PROPRIETES (2026-10-01, pages Animation d'Unkeny, R21/R35) ──
+				// Une piste = UNE propriete NOMMEE d'un objet : « Transform.position »
+				// de « » (l'objet anime lui-meme) ou de « Bras/Main » (un descendant,
+				// designe par le chemin de ses noms). La valeur tient dans un NkVec4f :
+				// nombre (x), vecteur (xy, xyz, xyzw), couleur (rgba, 0..1). Le GENRE dit
+				// comment la lire ; « par paliers » (booleen, entier, enumeration,
+				// reference d'asset) pose ses cles en NK_STEP : la valeur ne glisse pas
+				// d'une image a l'autre, elle saute.
+				// ⚠️ AJOUTER UNE PROPRIETE NE TOUCHE PAS CE FICHIER : c'est une piste de
+				//    plus, nommee. NKAnima ne sait pas ce qu'est un composant et ne
+				//    l'applique pas : le consommateur (Unkeny) lit Evaluate et ecrit sa
+				//    propriete. Les pistes fixes plus haut (position, albedoColor...)
+				//    restent celles du rendu 3D ; celles-ci servent les editeurs.
+				enum class NkPropertyKind : uint8 { NK_NUMBER = 0, NK_VEC2, NK_VEC3, NK_VEC4, NK_COLOR, NK_STEP };
+				struct NkPropertyTrack {
+						NkString target;   ///< chemin de l'objet ("" = l'objet anime)
+						NkString property; ///< « Composant.champ »
+						NkPropertyKind kind = NkPropertyKind::NK_NUMBER;
+						NkAnimationTrack<NkVec4f> curve;
+				};
+				NkVector<NkPropertyTrack> propertyTracks;
+				/// La piste (target, property), ou nul.
+				NkPropertyTrack *FindPropertyTrack(const NkString &target, const NkString &property);
+				/// La piste (target, property), creee vide si elle manque (le genre
+				/// n'est pose qu'a la creation).
+				NkPropertyTrack &AddPropertyTrack(const NkString &target, const NkString &property, NkPropertyKind kind);
+
 				// ── Helpers ───────────────────────────────────────────────────────────
 				void RecalcDuration();
 
@@ -327,6 +354,9 @@ namespace nkentseu {
 				// Format compact versionné (header NKAN + tracks d'os). Pas de JSON :
 				// l'anim = beaucoup de keyframes (floats) -> binaire = compact + chargement
 				// rapide sans parsing. Sert l'app NkAnima ET le moteur de jeu (rejouer un clip).
+				// (2026-10-01) Un clip qui porte des pistes de PROPRIETES s'ecrit en v4
+				// (corps v2 + section 'PROP') ; sans elles, toujours en v2, octet pour
+				// octet comme avant.
 				bool SaveBinary(const NkString &path) const;
 				bool LoadBinary(const NkString &path);
 
@@ -805,6 +835,40 @@ namespace nkentseu {
 				// Par nom ("marche") ou par chemin ("Sol/marche"). -1 si absent.
 				int32 FindState(const NkString &nameOrPath) const;
 
+				// ── Lecture complete, pour un EDITEUR (2026-10-01, page Animateur) ──
+				// Ce qu'il faut pour redessiner la machine en graphe sans rien perdre :
+				// la reference d'un etat, chaque transition et chacune de ses
+				// conditions, le defaut d'un parametre. Lecture seule : l'editeur
+				// RECONSTRUIT une machine neuve par les Add* quand on enregistre.
+				// Genre de reference : 0 vide, 1 clip, 2 arbre 1D, 3 arbre 2D.
+				uint8 GetStateRefKind(int32 state) const;
+				const NkString &GetStateRef(int32 state) const;
+				// Un etat-CLIP designe par son NOM (refKind 1), le clip resolu ou non :
+				// c'est ce qu'ecrit un editeur qui n'a pas le clip en memoire. `clip`
+				// peut etre nul (l'etat ne pose rien, comme un clip non resolu).
+				void SetStateClipRef(int32 state, const NkString &clipName, const NkAnimationClip *clip = nullptr);
+				int32 GetTransitionFrom(uint32 t) const;
+				int32 GetTransitionTo(uint32 t) const;
+				bool IsAnyStateTransition(uint32 t) const;
+				int32 GetTransitionScope(uint32 t) const;
+				float32 GetTransitionFade(uint32 t) const;
+				int32 GetTransitionPriority(uint32 t) const;
+				uint32 GetConditionCount(uint32 t) const;
+				bool GetCondition(uint32 t, uint32 k, NkString &param, NkCondKind &kind, float32 &threshold) const;
+				float32 GetParamDefault(uint32 i) const;
+
+				// ── Disposition dans l'EDITEUR (2026-10-01) ─────────────────────
+				// La place de chaque etat dans le graphe, et celle des deux pseudo-
+				// noeuds d'un niveau (« Entree », « N'importe quel etat »). La machine
+				// ne les lit pas ; elle les GARDE et les ecrit dans une section a part
+				// ('GRPH') du .nkanimctl, sautee par un lecteur qui ne la connait pas.
+				// Une machine sans disposition s'ecrit octet pour octet comme avant.
+				void SetStatePosition(int32 state, float32 x, float32 y);
+				bool GetStatePosition(int32 state, float32 &x, float32 &y) const;
+				// `machine` = NK_ROOT ou une sous-machine ; `pseudo` 0 = Entree, 1 = N'importe quel etat.
+				void SetPseudoPosition(int32 machine, int32 pseudo, float32 x, float32 y);
+				bool GetPseudoPosition(int32 machine, int32 pseudo, float32 &x, float32 &y) const;
+
 				void Update(float32 dt);
 
 				const NkAnimationState &GetState() const {
@@ -883,6 +947,17 @@ namespace nkentseu {
 						bool composite = false;
 						uint8 refKind = 0; // 0 vide, 1 clip, 2 arbre 1D, 3 arbre 2D (sauvegarde)
 						NkString ref;	   // nom du clip / de l'arbre, garde pour la sauvegarde
+						// Disposition dans l'editeur (2026-10-01) : lue et ecrite, jamais interpretee.
+						float32 edX = 0.f, edY = 0.f;
+						bool edPlaced = false;
+				};
+
+				// Les pseudo-noeuds d'un niveau dans l'editeur (2026-10-01).
+				struct Pseudo {
+						int32 machine = NK_ROOT;
+						float32 x[2] = {0.f, 0.f};
+						float32 y[2] = {0.f, 0.f};
+						bool placed[2] = {false, false};
 				};
 
 				struct Condition {
@@ -936,6 +1011,7 @@ namespace nkentseu {
 				NkVector<State> mStates;
 				NkVector<Transition> mTransitions;
 				NkVector<Param> mParams;
+				NkVector<Pseudo> mPseudos; // disposition des pseudo-noeuds (editeur)
 				NkAnimStateMachine *mParamOwner = nullptr; // non nul : parametres partages (ShareParametersWith)
 				int32 mRootEntry = -1;
 				int32 mCurrent = -1;
