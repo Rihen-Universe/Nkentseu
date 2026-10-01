@@ -27,6 +27,9 @@
 //         l'asset ; une image GLISSEE sur le champ, puis SUR le sprite dans la
 //         vue, devient sa texture (aucune entite creee) ; lachee dans le vide,
 //         elle pose toujours un sprite neuf
+//   (u5)  le TRANSFORM d'Unreal : chaque composante d'axe porte un LISERE de
+//         sa couleur (rouge X, vert Y, bleu Z) colle au bord gauche de son
+//         champ, de toute sa hauteur, au lieu d'une lettre
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -432,6 +435,37 @@ namespace nkentseu {
 					   static_cast<float32>(champ + liste + choisie + annulee + refaite + selection + parcourir + surChamp + surSprite + neuf));
 				m.projet = NkString();
 				NkDirectory::Delete("banc_u4", true);
+			}
+
+			// (u5) LE TRANSFORM D'UNREAL : des LISERES de couleur, pas des lettres
+			// (retour 5 de Rihen, `ue58_a.png` : Location / Rotation / Scale).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = m.selection.IsValid();
+				t.Trame();
+				t.Trame();
+				uint32 rouges = 0, verts = 0, bleus = 0, colles = 0;
+				for (uint32 i = 0; i < ui.detailsLiseres.Size(); ++i) {
+					const NkEditeurInterface::NkLisereAxe &l = ui.detailsLiseres[i];
+					const nkgui::NkColor c(l.couleur);
+					rouges += c.r > 200u && c.g < 120u ? 1u : 0u;
+					verts += c.g > 180u && c.r < 120u ? 1u : 0u;
+					bleus += c.b > 200u && c.r < 120u ? 1u : 0u;
+					// colle au bord GAUCHE du champ, de TOUTE sa hauteur, etroit
+					colles += (l.lisere.x == l.champ.x && l.lisere.y == l.champ.y && l.lisere.h == l.champ.h && l.lisere.w > 0.f &&
+							   l.lisere.w <= 6.f)
+								  ? 1u
+								  : 0u;
+				}
+				const uint32 n = static_cast<uint32>(ui.detailsLiseres.Size());
+				// Transform : X, Y (position), Z (rotation), X, Y (echelle) ; le sprite
+				// en ajoute (taille L / H, pivot X / Y).
+				Temoin(n >= 5u && colles == n && rouges >= 2u && verts >= 2u && bleus >= 1u,
+					   "(u5) Transform : liseres rouge X / vert Y / bleu Z colles au bord gauche du champ (nombre)", static_cast<float32>(n));
 			}
 
 			m.chemin = cheminAvant;

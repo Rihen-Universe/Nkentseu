@@ -402,8 +402,32 @@ namespace nkentseu {
 				return true;
 			}
 
-			/// Deux nombres sur une rangee (position, taille...), chacun avec sa
-			/// lettre -- rouge X, verte Y, comme les axes -- qui se TIRE elle aussi.
+			/// Un AXE (X, Y, Z ; L et H d'une taille) se marque d'un LISERE de couleur
+			/// au bord gauche de son champ, toute sa hauteur (Unreal, `ue58_a.png`) ;
+			/// une autre etiquette (min / max, deb / fin) garde ses lettres.
+			bool EstAxe(const char *lettre) {
+				return lettre != nullptr && lettre[0] != '\0' && lettre[1] == '\0' &&
+					   (lettre[0] == 'X' || lettre[0] == 'Y' || lettre[0] == 'Z' || lettre[0] == 'L' || lettre[0] == 'H');
+			}
+
+			/// Le LISERE d'axe : un rectangle de la couleur de l'axe, colle au bord
+			/// gauche du champ, de toute sa hauteur ; il se TIRE (comme la lettre
+			/// d'avant). Releve pour le banc (detailsLiseres). Rend sa largeur.
+			float32 Lisere(NkInspecteur &I, const NkRect &cellule, const NkColor &col) {
+				constexpr float32 L = 4.f;
+				const NkRect r{cellule.x, cellule.y, L, cellule.h};
+				I.c.ctx.DL().AddRectFilled(r, col, 2.f);
+				NkEditeurInterface::NkLisereAxe la;
+				la.lisere = r;
+				la.champ = cellule;
+				la.couleur = col.ToUint32A();
+				I.c.ui.detailsLiseres.PushBack(la);
+				return L;
+			}
+
+			/// Deux nombres sur une rangee (position, taille...). (2026-10-01, retour 5
+			/// de Rihen) Un AXE n'ecrit plus sa lettre : le LISERE rouge X / vert Y
+			/// d'Unreal, colle au bord gauche du champ, toute sa hauteur ; il se TIRE.
 			/// Le bouton « remettre » au bout d'une rangee (la fleche d'Unreal) ; il
 			/// prend sa place a DROITE du champ, qui retrecit d'autant.
 			bool Remettre(NkInspecteur &I, NkRect &champ) {
@@ -440,13 +464,23 @@ namespace nkentseu {
 				for (int32 k = 0; k < 2; ++k) {
 					float32 &v = k == 0 ? a : b;
 					const NkRect cellule{champ.x + static_cast<float32>(k) * (moitie + 4.f), champ.y, moitie, champ.h};
-					const NkRect lettre{cellule.x, cellule.y, 14.f, cellule.h};
 					const NkColor col = k == 0 ? NkColor{220, 95, 95, 255} : NkColor{105, 200, 115, 255};
-					renderer::NkTexteDansBoite(dl, I.c.petite, lettre, k == 0 ? la : lb, col);
+					const char *etiquette = k == 0 ? la : lb;
 					ctx.PushId(k == 0 ? "a" : "b");
-					change |= Frotter(I, lettre, v, pas, vmin, vmax);
-					ctx.SetNextItemRect(NkRect{cellule.x + 15.f, cellule.y, cellule.w - 15.f, cellule.h});
-					change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+					if (EstAxe(etiquette)) {
+						// Le champ PREND toute la cellule ; le lisere se pose PAR-DESSUS
+						// son bord gauche (dessine apres lui).
+						ctx.SetNextItemRect(cellule);
+						change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+						const float32 l = Lisere(I, cellule, col);
+						change |= Frotter(I, NkRect{cellule.x, cellule.y, l + 2.f, cellule.h}, v, pas, vmin, vmax);
+					} else {
+						const NkRect lettre{cellule.x, cellule.y, 14.f, cellule.h};
+						renderer::NkTexteDansBoite(dl, I.c.petite, lettre, etiquette, col);
+						change |= Frotter(I, lettre, v, pas, vmin, vmax);
+						ctx.SetNextItemRect(NkRect{cellule.x + 15.f, cellule.y, cellule.w - 15.f, cellule.h});
+						change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+					}
 					ctx.PopId();
 				}
 				ctx.PopId();
@@ -464,11 +498,20 @@ namespace nkentseu {
 					*remise = Remettre(I, champ);
 				}
 				ctx.PushId(libelle);
-				const NkRect rl{champ.x, champ.y, 14.f, champ.h};
-				renderer::NkTexteDansBoite(ctx.DL(), I.c.petite, rl, lettre, couleur);
-				bool change = Frotter(I, rl, v, pas, vmin, vmax);
-				ctx.SetNextItemRect(NkRect{champ.x + 15.f, champ.y, champ.w - 15.f, champ.h});
-				change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+				bool change = false;
+				if (EstAxe(lettre)) {
+					// Le lisere bleu Z d'Unreal, comme ceux de Paire.
+					ctx.SetNextItemRect(champ);
+					change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+					const float32 l = Lisere(I, champ, couleur);
+					change |= Frotter(I, NkRect{champ.x, champ.y, l + 2.f, champ.h}, v, pas, vmin, vmax);
+				} else {
+					const NkRect rl{champ.x, champ.y, 14.f, champ.h};
+					renderer::NkTexteDansBoite(ctx.DL(), I.c.petite, rl, lettre, couleur);
+					change = Frotter(I, rl, v, pas, vmin, vmax);
+					ctx.SetNextItemRect(NkRect{champ.x + 15.f, champ.y, champ.w - 15.f, champ.h});
+					change |= nkgui::DragFloat(ctx, "##v", v, pas, vmin, vmax);
+				}
 				ctx.PopId();
 				return change;
 			}
@@ -1272,6 +1315,7 @@ namespace nkentseu {
 				auto &dl = ctx.dl;
 				c.ui.caseActif = NkRect{0.f, 0.f, 0.f, 0.f};
 				c.ui.detailsTexture = NkRect{0.f, 0.f, 0.f, 0.f};
+				c.ui.detailsLiseres.Clear();
 				if (!c.m.aSelection || !c.m.scene.Monde().IsAlive(c.m.selection)) {
 					// Un etat vide qui PARLE (UI_SPEC §0, regle 3) : il dit quoi faire.
 					const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f);

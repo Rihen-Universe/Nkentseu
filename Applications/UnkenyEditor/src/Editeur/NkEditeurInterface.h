@@ -427,6 +427,15 @@ namespace nkentseu {
 				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
 				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »
 				nkgui::NkRect detailsTextureParcourir{0.f, 0.f, 0.f, 0.f}; ///< « parcourir »
+				/// Les LISERES d'axe des champs de vecteurs (Unreal : rouge X, vert Y,
+				/// bleu Z, colles au bord gauche du champ, toute sa hauteur), releves
+				/// a chaque trame : le liseré, son champ, sa couleur (0xRRGGBBAA).
+				struct NkLisereAxe {
+						nkgui::NkRect lisere;
+						nkgui::NkRect champ;
+						uint32 couleur = 0u;
+				};
+				NkVector<NkLisereAxe> detailsLiseres;
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
