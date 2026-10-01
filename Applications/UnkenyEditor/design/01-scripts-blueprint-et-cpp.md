@@ -1336,3 +1336,13 @@ qui appuie lui-même sur Ctrl+B ; images dans
 `References/Captures/scripts-cpp/` (00–02 : avant/après ; 10 : NKCode sur le
 workspace ; 11 : l'éditeur en Jouer, la porte rouge ouverte par la DLL de
 Jenga, le Journal de toute la chaîne).
+
+**NKCode ouvre aussi ce qui n'est pas un workspace (02/10, remarque de Rihen)**,
+comme VS Code : un dossier sans `.jenga` s'ouvre en édition simple (Construire /
+Exécuter grisés, info-bulle, bouton « Créer un workspace Jenga ici ») ; un
+fichier hors de tout workspace ouvre son dossier et lui en onglet ; un fichier
+lâché sur le lanceur ou double-cliqué dans sa vue « Ouvrir » aussi ; un `.jenga`
+qui n'est pas un workspace s'ouvre comme un fichier. La barre d'état ne reste
+plus sur « Construction… » : la construction est suivie par la barre d'outils à
+chaque image, plus seulement par le panneau OUTPUT. Banc : `NKCode --selftest`
+(o1–o5, mutations `NK_NKCODE_MUTATION`). Captures 20–29.

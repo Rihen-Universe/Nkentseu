@@ -229,19 +229,23 @@ namespace nkentseu {
 				const char *mode = NkT("tb.simple");
 				u.Text(x, r.y + (r.h - u.Lh()) * 0.5f, mode, NkCol::mutedFg);
 				x += u.TextW(mode) + u.s(18);
+				bool survolGrise = false;
 				auto grise = [&](float32 bx, const char *label, uint32 tex, const char *drawn) -> float32 {
 					const float32 w = u.s(12) + u.s(6) + u.TextW(label) + u.s(20);
 					const NkRect b = {bx, cyBtn - u.s(13), w, u.s(26)};
 					u.Panel(b, NkCol::sidebar, NkCol::border, NkR::sm * u.S);
 					NkOwIco(u, tex, drawn, {b.x + u.s(10), b.y + u.s(7), u.s(12), u.s(12)}, NkCol::mutedFg);
 					u.Text(b.x + u.s(10) + u.s(12) + u.s(6), b.y + (b.h - u.Lh()) * 0.5f, label, NkCol::mutedFg);
-					NkTooltip(ec.Ui(), u.Hit(b), NkT("tb.nows.tip"));
+					// Une SEULE info-bulle pour les deux (meme texte) : appelee par bouton,
+					// le second, non survole, l'effacait aussitot (NkTooltip suit son texte).
+					survolGrise = survolGrise || u.Hit(b);
 					if (u.Hit(b) && u.click) // un clic sur un bouton grise EXPLIQUE, il ne construit rien
 						s->status = NkString(NkCodeState::MessageSansWorkspace());
 					return w;
 				};
 				x += grise(x, NkT("tb.build"), TEX(ic ? ic->hammer : 0), "hammer") + u.s(6);
 				x += grise(x, NkT("tb.run"), TEX(ic ? ic->play : 0), "play") + u.s(14);
+				NkTooltip(ec.Ui(), survolGrise, NkT("tb.nows.tip"));
 				const char *creer = NkT("tb.createws");
 				const float32 wc = btn(x, creer, TEX(ic ? ic->jenga : 0), "plus", 1, nullptr, false);
 				const NkRect bc = {x, cyBtn - u.s(13), wc, u.s(26)};
