@@ -23,9 +23,12 @@
 //   NkFamilleVue.h      barre de vue, barre flottante du viseur, repere d'axes
 //   NkFamilleContenu.h  le tiroir « Contenu » : le Content Browser Unreal du kit sur un dossier
 //   NkFamilleJournal.h  le tiroir « Journal » (Output Log d'Unreal)
+//   NkFamilleEditeur.h  LA TRAME d'un editeur de la famille, prete a deriver :
+//                       polices, theme, entree, plan, ordre de dessin d'UnkenyEditor,
+//                       menus, fenetre modale (NkAnimaEditor ; NKScena, PV3DE ensuite)
 //   (le tiroir « Terminal » est NKEditorKit/Terminal/NkTerminalPanneau.h)
 //
-// Qui s'en sert : Nogee (le premier, 01/10/2026), NkAnimaEditor ; UnkenyEditor a
+// Qui s'en sert : Nogee (le premier, 01/10/2026), NkAnimaEditor (par NkFamilleEditeur) ; UnkenyEditor a
 // ses copies d'origine et basculera sur celles-ci (R32).
 // -----------------------------------------------------------------------------
 
@@ -38,3 +41,4 @@
 #include "NKEditorKit/Famille/NkFamilleVue.h"
 #include "NKEditorKit/Famille/NkFamilleContenu.h"
 #include "NKEditorKit/Famille/NkFamilleJournal.h"
+#include "NKEditorKit/Famille/NkFamilleEditeur.h"
