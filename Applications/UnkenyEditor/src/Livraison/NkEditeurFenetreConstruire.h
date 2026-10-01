@@ -29,7 +29,7 @@
 
 #include "Editeur/NkEditeurInterface.h"
 #include "Livraison/NkEditeurConstruire.h"
-#include "Livraison/NkEditeurProcessus.h"
+#include "Livraison/NkEditeurDeroulement.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -60,8 +60,10 @@ namespace nkentseu {
 
 				NkEtatConstruction etat = NkEtatConstruction::NK_REPOS;
 				NkPlanConstruction plan;
-				usize etape = 0;
-				NkEditeurProcessus processus;
+				/// Le deroulement (commandes, moteur, journal) : le meme que
+				/// `--construire=`. `lignesVues` : ce qui est deja passe au tiroir.
+				NkDeroulementConstruction deroulement;
+				usize lignesVues = 0;
 				NkString annonce; ///< la ligne d'etat de la fenetre
 		};
 

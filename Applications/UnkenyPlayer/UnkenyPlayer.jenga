@@ -27,7 +27,14 @@ CE FICHIER DECLARE LE PROJET DU JOUEUR UNE SEULE FOIS, pour deux usages :
            "icone_livree": "D:/.../icone_claire.png",  # l'autre version, livree a cote (R17)
            "id":      "com.unkeny.gelee",       # Android / HarmonyOS / iOS
            "version": "1.0.0",
+           "moteur":  "C:/.../Moteur/<empreinte>/Windows-Debug",  # facultatif
        }
+
+   "moteur" (2026-10-01) : le MOTEUR PRECOMPILE. Le workspace genere a alors
+   charge le kit du cache partage (useconfig de UnkenyMoteur.jenga, ecrit par
+   `jenga kit`) et n'inclut AUCUN module : le joueur se lie aux archives du kit
+   par useunkenymoteur() au lieu de nkentseudependson(), et seul son code est
+   compile. Sans "moteur", rien ne change (le moteur vient des sources).
 
    ⚠️ POURQUOI PAS UNE COPIE DE CE PROJET DANS LE FICHIER GENERE
    Deux declarations du meme joueur (dependances, liens, drapeaux par
@@ -49,6 +56,7 @@ _VK_OFF = "NKENTSEU_ENABLE_VULKAN_BACKEND=0"
 # Le jeu construit, s'il y en a un (voir l'en-tete). None : le joueur generique.
 _JEU = globals().get("UNKENY_JEU")
 _PROJET = _JEU["projet"] if _JEU else "UnkenyPlayer"
+_MOTEUR = _JEU.get("moteur") if _JEU else None
 _ID = _JEU["id"] if _JEU else "com.nkentseu.unkenyplayer"
 
 
@@ -66,14 +74,24 @@ with project(_PROJET):
     # ⚠️ Toute dependance ajoutee ici doit l'etre aussi a la liste des modules
     #    du workspace genere (kModulesDuJoueur, NkEditeurConstruire.cpp) : le
     #    banc de l'editeur (lg2) compare les deux.
-    nkentseudependson(
-        ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
-         "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
-         "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
-         "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny", "NKMedia"],
-        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
-                       + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
-    )
+    _DEPS = ["NKEvent", "NKWindow", "NKCanvas", "NKImage", "NKFont", "NKGlad", "NKLogger",
+             "NKMath", "NKTime", "NKStream", "NKGui", "NKFileSystem", "NKSerialization",
+             "NKContainers", "NKMemory", "NKCore", "NKPlatform", "NKThreading", "NKAudio",
+             "NKECS", "NKCollision", "NKPhysics", "NKReflection", "Unkeny", "NKMedia"]
+    if _MOTEUR:
+        # Le moteur PRECOMPILE : les memes defines (_STATIC_LIB, backend Linux)
+        # que nkentseudependson, par useappdeps ; les en-tetes, les archives
+        # dans l'ordre de lien et les liens SYSTEME des modules, par le kit.
+        # Ni includedirs vers les modules ni dependson : ils ne sont pas dans
+        # ce workspace.
+        useappdeps(*_DEPS)
+        useunkenymoteur(extra_includes=["src"] + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []))
+    else:
+        nkentseudependson(
+            _DEPS,
+            extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
+                           + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
+        )
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Bin/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")

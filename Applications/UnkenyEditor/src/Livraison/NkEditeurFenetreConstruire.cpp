@@ -59,20 +59,6 @@ namespace nkentseu {
 				std::snprintf(dst, taille, "%s", src != nullptr ? src : "");
 			}
 
-			void LancerEtape(NkEditeurConstruction &k, NkEditeurInterface &ui) {
-				const NkEtapeConstruction &e = k.plan.etapes[k.etape];
-				JournalDate(ui, NkString("[etape] ") + e.libelle);
-				Journal(ui, NkString("  ") + e.commande);
-				AuFichier(k, NkString("[etape] ") + e.commande);
-				k.annonce = e.libelle + "...";
-				k.processus.Environnement("JENGA_NO_IDE_CONFIG", NK_CONSTRUIRE_SANS_IDE);
-				if (!k.processus.Lancer(e.commande, k.plan.dossierJeu)) {
-					k.etat = NkEtatConstruction::NK_ECHOUEE;
-					k.annonce = NkString("lancement impossible : ") + e.commande;
-					JournalDate(ui, k.annonce);
-				}
-			}
-
 			void Echec(NkEditeurConstruction &k, NkEditeurModele &m, NkEditeurInterface &ui, const NkString &pourquoi) {
 				k.etat = NkEtatConstruction::NK_ECHOUEE;
 				k.annonce = pourquoi + " -- journal complet : " + k.plan.journal;
@@ -153,80 +139,56 @@ namespace nkentseu {
 			const bool pret = NkPreparerConstruction(m, k.demande, ui.viseur.w, ui.viseur.h, k.plan, lignes);
 			for (usize i = 0; i < lignes.Size(); ++i) {
 				JournalDate(ui, lignes[i]);
-				AuFichier(k, lignes[i]);
 			}
 			if (!pret || k.plan.etapes.Empty()) {
+				// Le refus va AUSSI a l'onglet Journal, en rouge : on y regarde.
+				k.deroulement.journal.Vider();
+				for (usize i = 0; i < lignes.Size(); ++i) {
+					AuFichier(k, lignes[i]);
+					k.deroulement.journal.Annonce(lignes[i], NkJournalConstruction::NiveauDe(lignes[i]), 0.f);
+				}
+				k.lignesVues = k.deroulement.journal.lignes.Size();
 				Echec(k, m, ui, lignes.Empty() ? NkString("rien a construire") : lignes[lignes.Size() - 1u]);
 				return false;
 			}
-			k.etape = 0;
+			// Le MEME deroulement que `--construire=` : commandes, verrou et sceau
+			// du moteur, rangement, verification.
+			k.deroulement.Commencer(k.demande, k.plan, lignes);
+			k.lignesVues = k.deroulement.journal.lignes.Size();
 			k.etat = NkEtatConstruction::NK_EN_COURS;
-			LancerEtape(k, ui);
-			return k.etat == NkEtatConstruction::NK_EN_COURS;
+			k.annonce = NkString("construction...");
+			return true;
 		}
 
 		void NkEditeurAvancerConstruction(NkEditeurConstruction &k, NkEditeurModele &m, NkEditeurInterface &ui) {
 			if (k.etat != NkEtatConstruction::NK_EN_COURS && k.etat != NkEtatConstruction::NK_VERIFIE) {
 				return;
 			}
-			// EnCours AVANT la recolte : le fil pousse toutes ses lignes avant de
-			// se dire fini, donc une recolte faite apres un « fini » a tout.
-			const bool encore = k.processus.EnCours();
-			NkVector<NkString> lignes;
-			k.processus.Recolter(lignes);
-			for (usize i = 0; i < lignes.Size(); ++i) {
-				AuFichier(k, lignes[i]);
-				const NkString propre = NkLigneDeJenga(lignes[i]);
-				if (!propre.Empty()) {
-					Journal(ui, NkString("  ") + propre);
+			const bool encore = k.deroulement.Avancer();
+			// Le tiroir Journal de l'editeur recoit les lignes comme avant (il ne
+			// garde que la fin) ; l'onglet Journal de la fenetre a tout.
+			const NkVector<NkLigneJournal> &lignes = k.deroulement.journal.lignes;
+			for (; k.lignesVues < lignes.Size(); ++k.lignesVues) {
+				const NkLigneJournal &l = lignes[k.lignesVues];
+				if (l.niveau == NkNiveauLigne::NK_ETAPE) {
+					JournalDate(ui, l.texte);
+				} else {
+					Journal(ui, NkString("  ") + l.texte);
 				}
 			}
+			k.annonce = k.deroulement.annonce;
 			if (encore) {
+				k.etat = k.deroulement.Verification() ? NkEtatConstruction::NK_VERIFIE : NkEtatConstruction::NK_EN_COURS;
 				return;
 			}
-			const int32 code = k.processus.Code();
-			if (k.etat == NkEtatConstruction::NK_VERIFIE) {
-				if (code != 0) {
-					Echec(k, m, ui, NkString::Format("le jeu construit ne relit pas la scene de l'editeur (code %d)", code));
-					return;
-				}
+			if (k.deroulement.Reussi()) {
 				k.etat = NkEtatConstruction::NK_REUSSIE;
-				k.annonce = NkString("Construit et verifie : ") + k.plan.resultat;
-				JournalDate(ui, k.annonce);
 				NkEditeurAnnoncer(m, "Jeu construit : voir le Journal");
 				return;
 			}
-			if (code != 0) {
-				Echec(k, m, ui, NkString::Format("echec de l'etape « %s » (code %d)", k.plan.etapes[k.etape].libelle.CStr(), code));
-				return;
-			}
-			++k.etape;
-			if (k.etape < k.plan.etapes.Size()) {
-				LancerEtape(k, ui);
-				return;
-			}
-			NkVector<NkString> fin;
-			const bool range = NkAcheverConstruction(k.demande, k.plan, fin);
-			for (usize i = 0; i < fin.Size(); ++i) {
-				JournalDate(ui, fin[i]);
-				AuFichier(k, fin[i]);
-			}
-			if (!range) {
-				Echec(k, m, ui, fin.Empty() ? NkString("rien de produit") : fin[fin.Size() - 1u]);
-				return;
-			}
-			if (!k.plan.verification.Empty() && k.processus.Lancer(k.plan.verification, k.plan.dossierJeu)) {
-				// Le jeu produit relit SES donnees sans fenetre (temoin l1 sur le
-				// vrai produit) : c'est la derniere etape.
-				k.etat = NkEtatConstruction::NK_VERIFIE;
-				k.annonce = NkString("le jeu construit relit ses donnees...");
-				JournalDate(ui, NkString("[verifier] ") + k.plan.verification);
-				return;
-			}
-			k.etat = NkEtatConstruction::NK_REUSSIE;
-			k.annonce = NkString("Construit : ") + k.plan.resultat;
-			JournalDate(ui, k.annonce);
-			NkEditeurAnnoncer(m, "Jeu construit : voir le Journal");
+			k.etat = NkEtatConstruction::NK_ECHOUEE;
+			k.annonce = k.deroulement.annonce + " -- journal complet : " + k.plan.journal;
+			NkEditeurAnnoncer(m, "Construction en echec : voir le Journal");
 		}
 
 		// =====================================================================
@@ -247,7 +209,7 @@ namespace nkentseu {
 
 			dl.AddRectFilled(ui.ecran, NkColor{0, 0, 0, 120});
 			const float32 w = ui.ecran.w - 40.f < 660.f ? ui.ecran.w - 40.f : 660.f;
-			const float32 h = ui.ecran.h - 40.f < 540.f ? ui.ecran.h - 40.f : 540.f;
+			const float32 h = ui.ecran.h - 40.f < 580.f ? ui.ecran.h - 40.f : 580.f;
 			const NkRect boite{(ui.ecran.w - w) * 0.5f, (ui.ecran.h - h) * 0.45f, w, h};
 			dl.AddRectFilled(NkRect{boite.x + 4.f, boite.y + 6.f, boite.w, boite.h}, NkColor{0, 0, 0, 110}, 3.f);
 			dl.AddRectFilled(boite, c.pal.entete, 3.f);
@@ -300,6 +262,25 @@ namespace nkentseu {
 				renderer::NkTexte(dl, c.petite, rExp.x + bw + 10.f, y + 4.f,
 								  dev ? "Debug, l'exécutable seul" : "Release, et le paquet (zip, apk...)", c.pal.attenue,
 								  boite.x + boite.w - 16.f - (rExp.x + bw + 10.f));
+			}
+			y += lh + 16.f;
+
+			// ── Le moteur (2026-10-01) : precompile, ou depuis les sources ────
+			renderer::NkTexte(dl, c.police, gauche, y + 3.f, "Moteur", c.pal.texte);
+			{
+				const float32 bw = 130.f;
+				const NkRect rKit{colonne, y, bw, lh + 8.f};
+				const NkRect rSrc{colonne + bw + 8.f, y, bw, lh + 8.f};
+				const bool kit = k.demande.moteur == NkModeMoteur::NK_PRECOMPILE;
+				if (NkEditeurBouton(c, rKit, "Précompilé", kit, !occupe, &dl)) {
+					k.demande.moteur = NkModeMoteur::NK_PRECOMPILE;
+				}
+				if (NkEditeurBouton(c, rSrc, "Sources", !kit, !occupe, &dl)) {
+					k.demande.moteur = NkModeMoteur::NK_SOURCES;
+				}
+				renderer::NkTexte(dl, c.petite, rSrc.x + bw + 10.f, y + 4.f,
+								  kit ? "compilé une fois, partagé par tous les jeux" : "recompilé dans le dossier du jeu",
+								  c.pal.attenue, boite.x + boite.w - 16.f - (rSrc.x + bw + 10.f));
 			}
 			y += lh + 16.f;
 
@@ -369,7 +350,7 @@ namespace nkentseu {
 			}
 			if (NkEditeurBouton(c, rFermer, occupe ? "Arrêter" : "Fermer", false, true, &dl)) {
 				if (occupe) {
-					k.processus.Arreter();
+					k.deroulement.Arreter();
 				} else {
 					k.ouverte = false;
 				}

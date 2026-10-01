@@ -14,6 +14,12 @@
 //     (les filtres des modules les lisent), et `unitest` AVANT les includes
 //     (chaque module declare ses tests ; sans lui, « Unitest is not
 //     configured »).
+//   - En moteur PRECOMPILE (NkEditeurMoteur.h), le workspace du jeu ne reprend
+//     que les `useconfig` et les options : ni `unitest` ni module. Il charge le
+//     kit du cache (`useconfig(MOTEUR + "/UnkenyMoteur.jenga")`) et le dit au
+//     joueur par UNKENY_JEU["moteur"]. Le workspace du MOTEUR (dans le
+//     chantier du cache) reprend, lui, les modules sans le joueur : les deux
+//     partagent leur prologue (Useconfigs, Reglages, Modules ci-dessous).
 //   - `jengaconfig` : les modules font `from jengaconfig import *`. Le module
 //     est un talon vide que `jenga build` genere... sauf quand on lui demande
 //     de ne pas toucher au dossier (JENGA_NO_IDE_CONFIG). On l'ecrit donc
@@ -34,7 +40,9 @@
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
 #include "NKImage/Core/NkImage.h"
+#include "Livraison/NkEditeurDeroulement.h"
 #include "NKMemory/NKMemory.h"
+#include "NKTime/NkChrono.h"
 #include "Unkeny/Livraison/NkUnkenyLivraison.h"
 
 #include <cstdio>
@@ -524,9 +532,51 @@ namespace nkentseu {
 		// =====================================================================
 		// LE WORKSPACE DU JEU
 		// =====================================================================
+		namespace {
+			/// Ce que les modules du moteur supposent (voir Nkentseu.jenga).
+			void Useconfigs(NkString &t) {
+				t += "# Ce que les modules du moteur supposent (voir Nkentseu.jenga).\n";
+				t += "useconfig(NK + \"/config/modules.jenga\")\n";
+				t += "useconfig(NK + \"/config/toolchain.jenga\")\n";
+				t += "useconfig(NK + \"/config/graphics.jenga\")\n";
+				t += "useconfig(NK + \"/config/wayland.jenga\")\n";
+			}
+
+			/// Le debut du `with workspace` : chaine, configurations, options.
+			void Reglages(NkString &t, const NkString &nom) {
+				t += NkString::Format("with workspace(\"%s\"):\n", nom.CStr());
+				t += "    nkentseutoolchain()\n";
+				t += "    configurations([\"Debug\", \"Release\"])\n";
+				t += "    # Les options que les FILTRES des modules lisent (Nkentseu.jenga).\n";
+				t += "    newoption(trigger=\"linux-backend\", value=\"BACKEND\",\n";
+				t += "              allowed=[[\"xlib\", \"X11/XLib\"], [\"xcb\", \"X11/XCB\"], [\"wayland\", \"Wayland\"], [\"headless\", \"sans fenetre\"]],\n";
+				t += "              default=\"xlib\", description=\"Backend de fenetrage Linux\")\n";
+				t += "    newoption(trigger=\"headless\", description=\"[Obsolete] linux-backend=headless\")\n";
+				t += "    newoption(trigger=\"windows-runtime\", value=\"RUNTIME\",\n";
+				t += "              allowed=[[\"desktop\", \"Win32\"], [\"uwp\", \"UWP\"]],\n";
+				t += "              default=\"desktop\", description=\"Runtime Windows cible\")\n";
+				t += "    targetoses([TargetOS.WINDOWS, TargetOS.LINUX, TargetOS.MACOS, TargetOS.ANDROID,\n";
+				t += "                TargetOS.IOS, TargetOS.WEB, TargetOS.HARMONYOS])\n";
+				t += "    targetarchs([TargetArch.X86_64, TargetArch.ARM64, TargetArch.WASM32])\n";
+			}
+
+			/// `unitest` puis chaque module du moteur, depuis les sources.
+			void Modules(NkString &t) {
+				t += "    # AVANT les includes : chaque module declare ses tests.\n";
+				t += "    with unitest() as u:\n";
+				t += "        u.Compile()\n\n";
+				const NkVector<NkString> &modules = NkModulesDuJoueur();
+				for (usize i = 0; i < modules.Size(); ++i) {
+					t += NkString::Format("    with include(NK + \"/%s\"):\n", modules[i].CStr());
+					t += "        pass\n";
+				}
+			}
+		} // namespace
+
 		NkString NkEcrireJengaDuJeu(const NkDemandeConstruction &demande, const NkPlanConstruction &plan) {
 			const NkString nk = SansBarre(plan.depot);
 			const NkString jeu = SansBarre(plan.dossierJeu);
+			const bool kit = plan.moteur == NkModeMoteur::NK_PRECOMPILE;
 			const NkString sombre = demande.executableSombre ? NkString("icone_sombre.png") : NkString("icone_claire.png");
 			const NkString livree = demande.executableSombre ? NkString("icone_claire.png") : NkString("icone_sombre.png");
 			// Le nom affiche ne va qu'en COMMENTAIRE : un guillemet ou une fin de
@@ -550,8 +600,13 @@ namespace nkentseu {
 			t += "#\n";
 			t += NkString::Format("# Le jeu « %s » = le joueur autonome d'Unkeny (Applications/UnkenyPlayer du\n", nomSur.CStr());
 			t += "# depot) + ses donnees cuites (assets/) + ses icones (icones/). Le moteur est\n";
-			t += "# compile ICI (Build/), depuis les sources du depot : rien n'est ecrit dans le\n";
-			t += "# depot.\n";
+			if (kit) {
+				t += "# PRECOMPILE : le kit du cache partage (MOTEUR ci-dessous), construit une fois\n";
+				t += "# par empreinte du moteur ; seul le joueur est compile ICI (Build/).\n";
+			} else {
+				t += "# compile ICI (Build/), depuis les sources du depot : rien n'est ecrit dans le\n";
+				t += "# depot.\n";
+			}
 			t += "#\n";
 			t += "# A la main :\n";
 			t += NkString::Format("#   jenga build --jenga-file \"%s\" --platform windows --config Debug --target %s --no-daemon\n",
@@ -559,12 +614,18 @@ namespace nkentseu {
 			t += "# =============================================================================\n\n";
 			t += "from Jenga import *\n\n";
 			t += NkString::Format("NK = r\"%s\"\n", nk.CStr());
-			t += NkString::Format("JEU = r\"%s\"\n\n", jeu.CStr());
-			t += "# Ce que les modules du moteur supposent (voir Nkentseu.jenga).\n";
-			t += "useconfig(NK + \"/config/modules.jenga\")\n";
-			t += "useconfig(NK + \"/config/toolchain.jenga\")\n";
-			t += "useconfig(NK + \"/config/graphics.jenga\")\n";
-			t += "useconfig(NK + \"/config/wayland.jenga\")\n\n";
+			t += NkString::Format("JEU = r\"%s\"\n", jeu.CStr());
+			if (kit) {
+				t += NkString::Format("# Empreinte du moteur : %s\n", plan.cache.empreinte.CStr());
+				t += NkString::Format("MOTEUR = r\"%s\"\n", SansBarre(plan.cache.dossier).CStr());
+			}
+			t += "\n";
+			Useconfigs(t);
+			if (kit) {
+				t += "# Le moteur precompile : useunkenymoteur() (en-tetes, archives, liens).\n";
+				t += "useconfig(MOTEUR + \"/UnkenyMoteur.jenga\")\n";
+			}
+			t += "\n";
 			t += "# Ce qui est PROPRE A CE JEU. Le projet est declare par\n";
 			t += "# Applications/UnkenyPlayer/UnkenyPlayer.jenga, qui lit ce dictionnaire.\n";
 			t += "UNKENY_JEU = {\n";
@@ -574,28 +635,13 @@ namespace nkentseu {
 			t += NkString::Format("    \"icone_livree\": JEU + \"/icones/%s\",\n", livree.CStr());
 			t += NkString::Format("    \"id\": \"com.unkeny.%s\",\n", id.CStr());
 			t += "    \"version\": \"1.0.0\",\n";
+			if (kit) {
+				t += "    \"moteur\": MOTEUR,\n";
+			}
 			t += "}\n\n";
-			t += NkString::Format("with workspace(\"%s\"):\n", plan.projet.CStr());
-			t += "    nkentseutoolchain()\n";
-			t += "    configurations([\"Debug\", \"Release\"])\n";
-			t += "    # Les options que les FILTRES des modules lisent (Nkentseu.jenga).\n";
-			t += "    newoption(trigger=\"linux-backend\", value=\"BACKEND\",\n";
-			t += "              allowed=[[\"xlib\", \"X11/XLib\"], [\"xcb\", \"X11/XCB\"], [\"wayland\", \"Wayland\"], [\"headless\", \"sans fenetre\"]],\n";
-			t += "              default=\"xlib\", description=\"Backend de fenetrage Linux\")\n";
-			t += "    newoption(trigger=\"headless\", description=\"[Obsolete] linux-backend=headless\")\n";
-			t += "    newoption(trigger=\"windows-runtime\", value=\"RUNTIME\",\n";
-			t += "              allowed=[[\"desktop\", \"Win32\"], [\"uwp\", \"UWP\"]],\n";
-			t += "              default=\"desktop\", description=\"Runtime Windows cible\")\n";
-			t += "    targetoses([TargetOS.WINDOWS, TargetOS.LINUX, TargetOS.MACOS, TargetOS.ANDROID,\n";
-			t += "                TargetOS.IOS, TargetOS.WEB, TargetOS.HARMONYOS])\n";
-			t += "    targetarchs([TargetArch.X86_64, TargetArch.ARM64, TargetArch.WASM32])\n";
-			t += "    # AVANT les includes : chaque module declare ses tests.\n";
-			t += "    with unitest() as u:\n";
-			t += "        u.Compile()\n\n";
-			const NkVector<NkString> &modules = NkModulesDuJoueur();
-			for (usize i = 0; i < modules.Size(); ++i) {
-				t += NkString::Format("    with include(NK + \"/%s\"):\n", modules[i].CStr());
-				t += "        pass\n";
+			Reglages(t, plan.projet);
+			if (!kit) {
+				Modules(t);
 			}
 			t += "\n    # Le joueur, qui lit UNKENY_JEU.\n";
 			t += "    with include(NK + \"/Applications/UnkenyPlayer/UnkenyPlayer.jenga\"):\n";
@@ -604,20 +650,71 @@ namespace nkentseu {
 			return t;
 		}
 
+		NkString NkEcrireJengaDuMoteur(const NkString &depot) {
+			NkString t;
+			t += "#!/usr/bin/env python3\n";
+			t += "# -*- coding: utf-8 -*-\n";
+			t += "# =============================================================================\n";
+			t += "# Moteur.jenga -- ECRIT PAR UnkenyEditor : le MOTEUR d'un jeu Unkeny, seul.\n";
+			t += "# Les modules du joueur, depuis les sources du depot ; Build/ est ICI, dans le\n";
+			t += "# chantier du cache. `jenga kit` en tire le kit que les jeux chargent.\n";
+			t += "# =============================================================================\n\n";
+			t += "from Jenga import *\n\n";
+			t += NkString::Format("NK = r\"%s\"\n\n", SansBarre(depot).CStr());
+			Useconfigs(t);
+			t += "\n";
+			Reglages(t, NkString("UnkenyMoteur"));
+			Modules(t);
+			return t;
+		}
+
+		bool NkPreparerChantier(const NkCacheMoteur &c, const NkString &depot) {
+			NkDirectory::CreateRecursive((c.chantier + ".jenga-typings").CStr());
+			NkFile::WriteAllText((c.chantier + ".jenga-typings/jengaconfig.py").CStr(),
+								 "# Talon vide : les modules du moteur font `from jengaconfig import *`.\n");
+			return NkFile::WriteAllText((c.chantier + "Moteur.jenga").CStr(), NkEcrireJengaDuMoteur(depot).CStr());
+		}
+
+		const char *NkPhaseNom(NkPhaseConstruction p) noexcept {
+			static const char *kNoms[NK_NB_PHASES] = {"Préparer", "Cuire la scène", "Icônes", "Moteur",
+													  "Compiler le jeu", "Lier", "Vérifier", "Empaqueter"};
+			const int32 i = static_cast<int32>(p);
+			return (i >= 0 && i < NK_NB_PHASES) ? kNoms[i] : "?";
+		}
+
 		// =====================================================================
 		// ETAPE 1 : cuire, poser, ecrire
 		// =====================================================================
 		bool NkPreparerConstruction(NkEditeurModele &m, const NkDemandeConstruction &demande, float32 vueLargeur,
 									float32 vueHauteur, NkPlanConstruction &plan, NkVector<NkString> &journal) {
 			plan = NkPlanConstruction();
+			// Le suivi des phases (l'onglet Journal) : chacune s'ouvre ici, et un
+			// refus laisse la phase ouverte en ECHEC.
+			NkPhaseConstruction ouverte = NkPhaseConstruction::NK_PREPARER;
+			auto Ouvrir = [&plan, &ouverte](NkPhaseConstruction p) {
+				NkPhaseSuivie &s = plan.phases[static_cast<int32>(p)];
+				s.etat = NkEtatPhase::NK_EN_COURS;
+				s.debut = NkChrono::Now().ToSeconds();
+				ouverte = p;
+			};
+			auto Fermer = [&plan](NkPhaseConstruction p, NkEtatPhase etat, const NkString &detail) {
+				NkPhaseSuivie &s = plan.phases[static_cast<int32>(p)];
+				s.etat = etat;
+				s.duree = s.debut > 0.0 ? NkChrono::Now().ToSeconds() - s.debut : 0.0;
+				s.detail = detail;
+			};
+			auto Refus = [&](const NkString &pourquoi) {
+				journal.PushBack(pourquoi);
+				Fermer(ouverte, NkEtatPhase::NK_ECHEC, pourquoi);
+				return false;
+			};
+			Ouvrir(NkPhaseConstruction::NK_PREPARER);
 			plan.depot = NkTrouverDepot();
 			if (plan.depot.Empty()) {
-				journal.PushBack(NkString("[construire] sources du moteur introuvables : poser NK_UNKENY_DEPOT, ou lancer l'editeur depuis le depot"));
-				return false;
+				return Refus(NkString("[construire] sources du moteur introuvables : poser NK_UNKENY_DEPOT, ou lancer l'editeur depuis le depot"));
 			}
 			if (demande.iconeSombre.Empty() != demande.iconeClaire.Empty()) {
-				journal.PushBack(NkString("[construire] l'icone doit exister en version SOMBRE ET CLAIRE (R17) : donnez les deux, ou aucune (Unkeny fabrique les siennes)"));
-				return false;
+				return Refus(NkString("[construire] l'icone doit exister en version SOMBRE ET CLAIRE (R17) : donnez les deux, ou aucune (Unkeny fabrique les siennes)"));
 			}
 			plan.projet = NkIdentifiantJeu(demande.nom.CStr());
 			const NkString sortie = demande.sortie.Empty() ? NkSortieParDefaut() : demande.sortie;
@@ -634,10 +731,12 @@ namespace nkentseu {
 			if (m.etat != NkEtatJeu::NK_EDITION) {
 				NkEditeurArreter(m);
 			}
+			Fermer(NkPhaseConstruction::NK_PREPARER, NkEtatPhase::NK_FAITE, plan.dossierJeu);
 
 			// ── La cuisson, dans un dossier VIDE : une texture d'une construction
 			//    precedente ne doit pas y trainer (le sommaire ne la citerait pas,
 			//    mais le paquet l'emporterait).
+			Ouvrir(NkPhaseConstruction::NK_CUIRE);
 			const NkString donnees = plan.dossierJeu + "assets";
 			NkDirectory::Delete(donnees.CStr(), true);
 			unkeny::NkDemandeCuisson cuisson;
@@ -652,51 +751,124 @@ namespace nkentseu {
 				journal.PushBack(NkString("[cuisson] ") + rapport.erreurs[i]);
 			}
 			if (!cuit) {
-				journal.PushBack(NkString("[cuisson] ECHEC : rien n'est construit"));
-				return false;
+				return Refus(NkString("[cuisson] ECHEC : rien n'est construit"));
 			}
 			plan.empreinte = rapport.empreinte;
 			journal.PushBack(NkString::Format("[cuisson] scene + %u texture(s) + %u son(s) -> %s (empreinte %016llx)",
 											  static_cast<unsigned>(rapport.textures), static_cast<unsigned>(rapport.sons),
 											  donnees.CStr(), static_cast<unsigned long long>(rapport.empreinte)));
+			Fermer(NkPhaseConstruction::NK_CUIRE, NkEtatPhase::NK_FAITE,
+				   NkString::Format("%u texture(s), %u son(s)", static_cast<unsigned>(rapport.textures), static_cast<unsigned>(rapport.sons)));
 
 			// ── Les icones (R17) ─────────────────────────────────────────────
+			Ouvrir(NkPhaseConstruction::NK_ICONES);
 			const NkString sombre = plan.dossierJeu + "icones/icone_sombre.png";
 			const NkString claire = plan.dossierJeu + "icones/icone_claire.png";
 			if (demande.iconeSombre.Empty()) {
 				if (!NkFabriquerIcones(sombre.CStr(), claire.CStr())) {
-					journal.PushBack(NkString("[icones] fabrication impossible : ") + plan.dossierJeu + "icones");
-					return false;
+					return Refus(NkString("[icones] fabrication impossible : ") + plan.dossierJeu + "icones");
 				}
 				journal.PushBack(NkString("[icones] fabriquees par Unkeny : icone_sombre.png et icone_claire.png"));
 			} else {
 				if (!NkFile::Copy(demande.iconeSombre.CStr(), sombre.CStr(), true)) {
-					journal.PushBack(NkString("[icones] icone sombre illisible : ") + demande.iconeSombre);
-					return false;
+					return Refus(NkString("[icones] icone sombre illisible : ") + demande.iconeSombre);
 				}
 				if (!NkFile::Copy(demande.iconeClaire.CStr(), claire.CStr(), true)) {
-					journal.PushBack(NkString("[icones] icone claire illisible : ") + demande.iconeClaire);
-					return false;
+					return Refus(NkString("[icones] icone claire illisible : ") + demande.iconeClaire);
 				}
 				journal.PushBack(NkString("[icones] copiees : ") + demande.iconeSombre + " et " + demande.iconeClaire);
 			}
 			journal.PushBack(NkString("[icones] l'executable porte la version ") + (demande.executableSombre ? "SOMBRE" : "CLAIRE") +
 							 ", l'autre est livree a cote");
+			Fermer(NkPhaseConstruction::NK_ICONES, NkEtatPhase::NK_FAITE,
+				   demande.iconeSombre.Empty() ? NkString("fabriquées par Unkeny") : NkString("fournies"));
+
+			// ── Le moteur : precompile (le cache) ou depuis les sources ────────
+			const NkInfoCible &cible = Cible(demande.plateforme);
+			const char *config = demande.profil == NkProfilJeu::NK_DEVELOPPEMENT ? "Debug" : "Release";
+			Ouvrir(NkPhaseConstruction::NK_MOTEUR);
+			plan.moteur = NkModeMoteur::NK_SOURCES;
+			if (demande.moteur == NkModeMoteur::NK_SOURCES) {
+				plan.raisonMoteur = NkString("mode « sources » demande : le moteur est compile avec le jeu, dans son dossier");
+			} else if (NkMoteurPrecompilePossible(demande.plateforme, demande.moteurExplicite, plan.raisonMoteur)) {
+				NkString erreur;
+				if (NkEmpreinteDuMoteur(plan.depot, demande.plateforme, plan.empreinteMoteur, erreur)) {
+					plan.moteur = NkModeMoteur::NK_PRECOMPILE;
+					plan.cache = NkCacheDuMoteur(NkRacineCacheMoteur(), plan.empreinteMoteur.hex, cible.systeme, config);
+					NkString etat;
+					plan.cacheTrouve = NkCacheScelle(plan.cache, etat);
+					journal.PushBack(NkString::Format("[moteur] empreinte %s : %u fichiers, %.1f Mo, Jenga %s",
+													  plan.empreinteMoteur.hex.CStr(), static_cast<unsigned>(plan.empreinteMoteur.fichiers),
+													  static_cast<double>(plan.empreinteMoteur.octets) / (1024.0 * 1024.0),
+													  NkVersionJenga().CStr()));
+					journal.PushBack(NkString("[moteur] ") + (plan.cacheTrouve ? "cache trouve : " : "cache a construire : ") +
+									 plan.cache.dossier + " (" + etat + ")");
+#if defined(_WIN32)
+					// Mesure du 2026-10-01 : sous un dossier de 200 caracteres, `ar`
+					// ne lisait plus les objets du chantier (MAX_PATH, 260) -- les
+					// plus longs y ajoutent une centaine de caracteres.
+					if (!plan.cacheTrouve && plan.cache.chantier.Length() > 150u) {
+						journal.PushBack(NkString::Format("[moteur] AVERTISSEMENT chemin du cache long (%u caracteres) : les objets "
+														  "du moteur risquent MAX_PATH (260) ; NK_UNKENY_CACHE_MOTEUR peut le raccourcir",
+														  static_cast<unsigned>(plan.cache.chantier.Length())));
+					}
+#endif
+				} else {
+					plan.raisonMoteur = erreur + " -- construit depuis les sources";
+				}
+			}
+			if (plan.moteur == NkModeMoteur::NK_SOURCES) {
+				journal.PushBack(NkString("[moteur] ") + plan.raisonMoteur);
+			}
 
 			// ── Le workspace ─────────────────────────────────────────────────
 			NkFile::WriteAllText((plan.dossierJeu + ".jenga-typings/jengaconfig.py").CStr(),
 								 "# Talon vide : les modules du moteur font `from jengaconfig import *`.\n");
 			if (!NkFile::WriteAllText(plan.fichierJenga.CStr(), NkEcrireJengaDuJeu(demande, plan).CStr())) {
-				journal.PushBack(NkString("[construire] ecriture impossible : ") + plan.fichierJenga);
-				return false;
+				return Refus(NkString("[construire] ecriture impossible : ") + plan.fichierJenga);
 			}
 			journal.PushBack(NkString("[construire] workspace du jeu : ") + plan.fichierJenga);
 
 			// ── Les commandes ───────────────────────────────────────────────
-			const NkInfoCible &cible = Cible(demande.plateforme);
-			const char *config = demande.profil == NkProfilJeu::NK_DEVELOPPEMENT ? "Debug" : "Release";
+			if (plan.moteur == NkModeMoteur::NK_PRECOMPILE && !plan.cacheTrouve) {
+				// Le moteur, une fois pour toutes les constructions de cette
+				// empreinte : ses modules, puis le kit. Le deroulement prend le
+				// VERROU avant la premiere et scelle apres la seconde.
+				const NkString moteurJenga = Guillemets(plan.cache.chantier + "Moteur.jenga");
+				NkEtapeConstruction moteur;
+				moteur.phase = NkPhaseConstruction::NK_MOTEUR;
+				moteur.dossier = plan.cache.chantier;
+				moteur.libelle = NkString::Format("Moteur : compiler ses %u modules pour %s (%s), une fois",
+												  static_cast<unsigned>(NkModulesDuJoueur().Size()), cible.nom, config);
+				moteur.commande = NkString::Format("jenga build --jenga-file %s --platform %s --config %s --no-daemon",
+												   moteurJenga.CStr(), cible.jenga, config);
+				plan.etapes.PushBack(moteur);
+				NkString cibles;
+				const NkVector<NkString> projets = NkProjetsDuMoteur();
+				for (usize i = 0; i < projets.Size(); ++i) {
+					cibles += (i == 0u ? "" : ",") + projets[i];
+				}
+				NkEtapeConstruction kit;
+				kit.phase = NkPhaseConstruction::NK_MOTEUR;
+				kit.dossier = plan.cache.chantier;
+				kit.libelle = NkString("Moteur : en tirer le kit (en-tetes, archives, liens systeme)");
+				kit.commande = NkString::Format("jenga kit --jenga-file %s --target %s --config %s --platform %s --output %s --name UnkenyMoteur --force",
+												moteurJenga.CStr(), cibles.CStr(), config, cible.systeme,
+												Guillemets(SansBarre(plan.cache.dossier)).CStr());
+				plan.etapes.PushBack(kit);
+				plan.phases[static_cast<int32>(NkPhaseConstruction::NK_MOTEUR)].etat = NkEtatPhase::NK_ATTENTE;
+				plan.phases[static_cast<int32>(NkPhaseConstruction::NK_MOTEUR)].detail =
+					NkString("à construire (") + NkString(plan.empreinteMoteur.hex.SubStr(0, 8)) + ")";
+			} else if (plan.moteur == NkModeMoteur::NK_PRECOMPILE) {
+				Fermer(NkPhaseConstruction::NK_MOTEUR, NkEtatPhase::NK_FAITE,
+					   NkString("cache trouvé (") + NkString(plan.empreinteMoteur.hex.SubStr(0, 8)) + ")");
+			} else {
+				Fermer(NkPhaseConstruction::NK_MOTEUR, NkEtatPhase::NK_SAUTEE, NkString("depuis les sources, avec le jeu"));
+			}
 			NkEtapeConstruction build;
-			build.libelle = NkString::Format("Jenga : moteur et jeu pour %s (%s)", cible.nom, config);
+			build.libelle = plan.moteur == NkModeMoteur::NK_PRECOMPILE
+								? NkString::Format("Jenga : le jeu pour %s (%s), lie au moteur precompile", cible.nom, config)
+								: NkString::Format("Jenga : moteur et jeu pour %s (%s)", cible.nom, config);
 			build.commande = NkString::Format("jenga build --jenga-file %s --platform %s --config %s --target %s --no-daemon",
 											  Guillemets(plan.fichierJenga).CStr(), cible.jenga, config, plan.projet.CStr());
 			plan.etapes.PushBack(build);
@@ -704,6 +876,7 @@ namespace nkentseu {
 							cible.extension;
 			if (demande.profil == NkProfilJeu::NK_EXPEDITION) {
 				NkEtapeConstruction paquet;
+				paquet.phase = NkPhaseConstruction::NK_EMPAQUETER;
 				paquet.libelle = NkString::Format("Jenga : paquet %s", cible.nom);
 				const bool zip = demande.plateforme == NkPlateformeJeu::NK_WINDOWS || demande.plateforme == NkPlateformeJeu::NK_WEB;
 				paquet.commande = NkString::Format("jenga package --jenga-file %s --platform %s --config Release --project %s --output %s%s --no-daemon",
@@ -711,7 +884,16 @@ namespace nkentseu {
 												   Guillemets(plan.dossierJeu + "Livraison").CStr(), zip ? " --type zip" : "");
 				plan.etapes.PushBack(paquet);
 				plan.paquet = plan.dossierJeu + "Livraison";
+			} else {
+				Fermer(NkPhaseConstruction::NK_EMPAQUETER, NkEtatPhase::NK_SAUTEE, NkString("Développement : pas de paquet"));
 			}
+#if !defined(_WIN32)
+			Fermer(NkPhaseConstruction::NK_VERIFIER, NkEtatPhase::NK_SAUTEE, NkString("le jeu ne se lance pas ici"));
+#else
+			if (demande.plateforme != NkPlateformeJeu::NK_WINDOWS) {
+				Fermer(NkPhaseConstruction::NK_VERIFIER, NkEtatPhase::NK_SAUTEE, NkString("le jeu ne se lance pas ici"));
+			}
+#endif
 			return true;
 		}
 
@@ -795,16 +977,6 @@ namespace nkentseu {
 		// LA LIGNE DE COMMANDE
 		// =====================================================================
 		namespace {
-			void Ecrire(const NkString &ligne, void *donnees) {
-				const NkString *fichier = static_cast<const NkString *>(donnees);
-				AuFichier(*fichier, ligne);
-				const NkString propre = NkLigneDeJenga(ligne);
-				if (!propre.Empty()) {
-					std::printf("  %s\n", propre.CStr());
-					std::fflush(stdout);
-				}
-			}
-
 			void Aide() {
 				std::printf("UnkenyEditor --construire=PLATEFORME [options]\n");
 				std::printf("  PLATEFORME          windows, android, web, harmonyos, linux, macos, ios\n");
@@ -816,6 +988,34 @@ namespace nkentseu {
 				std::printf("  --icone-sombre=PNG --icone-claire=PNG   les deux, ou aucune (R17)\n");
 				std::printf("  --icone-exe=claire  l'executable porte la claire (defaut : la sombre)\n");
 				std::printf("  --vue=LxH           le viseur de reference, en pixels (defaut : 1280x720)\n");
+				std::printf("  --moteur=M          precompile (defaut : le cache partage, %s)\n", NkRacineCacheMoteur().CStr());
+				std::printf("                      ou sources (le moteur recompile dans le dossier du jeu)\n");
+			}
+
+			const char *EtatPhaseNom(NkEtatPhase e) noexcept {
+				switch (e) {
+					case NkEtatPhase::NK_EN_COURS:
+						return "en cours";
+					case NkEtatPhase::NK_FAITE:
+						return "fait";
+					case NkEtatPhase::NK_ECHEC:
+						return "ECHEC";
+					case NkEtatPhase::NK_SAUTEE:
+						return "saute";
+					default:
+						return "en attente";
+				}
+			}
+
+			/// Le tableau des phases, en fin de construction : c'est lui que les
+			/// mesures relisent (« Moteur ... 182.4 s »).
+			void ImprimerPhases(const NkPlanConstruction &plan) {
+				std::printf("PHASES (moteur %s) :\n", NkModeMoteurNom(plan.moteur));
+				for (int32 i = 0; i < NK_NB_PHASES; ++i) {
+					const NkPhaseSuivie &s = plan.phases[i];
+					std::printf("  %-18s %-10s %7.1f s  %s\n", NkPhaseNom(static_cast<NkPhaseConstruction>(i)), EtatPhaseNom(s.etat),
+								s.duree, s.detail.CStr());
+				}
 			}
 		} // namespace
 
@@ -855,6 +1055,13 @@ namespace nkentseu {
 					char *fin = nullptr;
 					vueL = std::strtof(v.CStr(), &fin);
 					vueH = (fin != nullptr && *fin == 'x') ? std::strtof(fin + 1, nullptr) : vueL * 0.5625f;
+				} else if (a.StartsWith("--moteur=")) {
+					// 2026-10-01 : precompile (defaut) ou sources (l'ancien mode).
+					if (!NkModeMoteurDepuis(NkString(a.SubStr(9)).CStr(), d.moteur)) {
+						Aide();
+						return 2;
+					}
+					d.moteurExplicite = true;
 				}
 			}
 			if (!NkPlateformeJeuDepuis(plateforme.CStr(), d.plateforme)) {
@@ -872,7 +1079,8 @@ namespace nkentseu {
 			}
 
 			// La scene : celle que l'editeur ouvrirait, avec ses ressources.
-			NkEditeurModele *pm = memory::NkGetDefaultAllocator().New<NkEditeurModele>();
+			auto &tas = memory::NkGetDefaultAllocator();
+			NkEditeurModele *pm = tas.New<NkEditeurModele>();
 			NkEditeurModele &m = *pm;
 			NkCreerRessourcesSim(m.ressources, &m.textures, nullptr);
 			if (nuit) {
@@ -883,7 +1091,7 @@ namespace nkentseu {
 				m.chemin = scene;
 				if (!NkEditeurOuvrir(m)) {
 					std::printf("SCENE ILLISIBLE : %s (%s)\n", scene.CStr(), m.message.CStr());
-					memory::NkGetDefaultAllocator().Delete(pm);
+					tas.Delete(pm);
 					return 4;
 				}
 				// Les entrees de la scene, a cote d'elle (.nkentrees), comme
@@ -894,59 +1102,65 @@ namespace nkentseu {
 					d.entrees = NkFile::ReadAllText(entrees.CStr());
 				}
 			}
-			NkPlanConstruction plan;
+			NkPlanConstruction *plan = tas.New<NkPlanConstruction>();
 			NkVector<NkString> journal;
-			const bool pret = NkPreparerConstruction(m, d, vueL, vueH, plan, journal);
-			memory::NkGetDefaultAllocator().Delete(pm);
-			for (usize i = 0; i < journal.Size(); ++i) {
-				Ecrire(journal[i], &plan.journal);
-			}
+			const bool pret = NkPreparerConstruction(m, d, vueL, vueH, *plan, journal);
+			tas.Delete(pm);
 			if (!pret) {
+				for (usize i = 0; i < journal.Size(); ++i) {
+					AuFichier(plan->journal, journal[i]);
+					std::printf("  %s\n", journal[i].CStr());
+				}
+				ImprimerPhases(*plan);
 				std::printf("CONSTRUCTION IMPOSSIBLE\n");
+				tas.Delete(plan);
 				return 1;
 			}
-			for (usize e = 0; e < plan.etapes.Size(); ++e) {
-				const NkEtapeConstruction &etape = plan.etapes[e];
-				Ecrire(NkString("[etape] ") + etape.libelle, &plan.journal);
-				Ecrire(NkString("[etape] ") + etape.commande, &plan.journal);
-				NkEditeurProcessus proc;
-				proc.Environnement("JENGA_NO_IDE_CONFIG", NK_CONSTRUIRE_SANS_IDE);
-				if (!proc.Lancer(etape.commande, plan.dossierJeu)) {
-					std::printf("LANCEMENT IMPOSSIBLE : %s\n", etape.commande.CStr());
-					return 1;
+			// Le MEME deroulement que la fenetre, tourne en boucle.
+			NkDeroulementConstruction *der = tas.New<NkDeroulementConstruction>();
+			der->Commencer(d, *plan, journal);
+			usize vues = 0;
+			auto Imprimer = [&]() {
+				for (; vues < der->journal.lignes.Size(); ++vues) {
+					std::printf("  %s\n", der->journal.lignes[vues].texte.CStr());
 				}
-				const int32 code = proc.Attendre(&Ecrire, &plan.journal);
-				if (code != 0) {
-					Ecrire(NkString::Format("[etape] ECHEC (code %d) -- tout est dans %s", code, plan.journal.CStr()), &plan.journal);
+				std::fflush(stdout);
+			};
+			while (der->Avancer()) {
+				Imprimer();
+				NkChrono::Sleep(static_cast<int64>(20));
+			}
+			Imprimer();
+			ImprimerPhases(*plan);
+			std::printf("DUREE : %.1f s\n", static_cast<double>(der->Temps()));
+			const bool reussi = der->Reussi();
+			const bool verifie = plan->phases[static_cast<int32>(NkPhaseConstruction::NK_VERIFIER)].etat == NkEtatPhase::NK_FAITE;
+			const bool verifEchec = plan->phases[static_cast<int32>(NkPhaseConstruction::NK_VERIFIER)].etat == NkEtatPhase::NK_ECHEC;
+			int32 code = 0;
+			if (!reussi) {
+				const NkVector<NkString> erreurs = NkResumeErreurs(der->journal, 12u);
+				for (usize i = 0; i < erreurs.Size(); ++i) {
+					std::printf("ERREUR %s\n", erreurs[i].CStr());
+				}
+				if (verifEchec) {
+					std::printf("CONSTRUIT : %s\n", plan->resultat.CStr());
+					std::printf("VERIFICATION EN ECHEC\n");
+					code = 5;
+				} else {
 					std::printf("CONSTRUCTION EN ECHEC\n");
-					return 1;
+					code = 1;
+				}
+			} else {
+				std::printf("CONSTRUIT : %s\n", plan->resultat.CStr());
+				if (verifie) {
+					// Le jeu produit a relu SES donnees, sans fenetre : l'empreinte
+					// etait celle que l'editeur a cuite (temoin l1, sur le vrai produit).
+					std::printf("VERIFIE : le jeu construit relit la scene de l'editeur (meme empreinte)\n");
 				}
 			}
-			journal.Clear();
-			const bool range = NkAcheverConstruction(d, plan, journal);
-			for (usize i = 0; i < journal.Size(); ++i) {
-				Ecrire(journal[i], &plan.journal);
-			}
-			if (!range) {
-				std::printf("CONSTRUCTION EN ECHEC\n");
-				return 1;
-			}
-			std::printf("CONSTRUIT : %s\n", plan.resultat.CStr());
-			if (plan.verification.Empty()) {
-				return 0;
-			}
-			// Le jeu produit relit SES donnees, sans fenetre : l'empreinte doit etre
-			// celle que l'editeur a cuite (temoin l1, sur le vrai produit).
-			Ecrire(NkString("[verifier] ") + plan.verification, &plan.journal);
-			NkEditeurProcessus verif;
-			if (!verif.Lancer(plan.verification, plan.dossierJeu)) {
-				std::printf("VERIFICATION IMPOSSIBLE A LANCER\n");
-				return 1;
-			}
-			const int32 code = verif.Attendre(&Ecrire, &plan.journal);
-			std::printf("%s\n", code == 0 ? "VERIFIE : le jeu construit relit la scene de l'editeur (meme empreinte)"
-										  : "VERIFICATION EN ECHEC");
-			return code == 0 ? 0 : 5;
+			tas.Delete(der);
+			tas.Delete(plan);
+			return code;
 		}
 
 	} // namespace editeur

@@ -15,13 +15,14 @@
 //         <Projet>.jenga        le workspace GENERE (voir NkEcrireJengaDuJeu)
 //         assets/               les donnees cuites (NkCuireJeu)
 //         icones/icone_sombre.png, icones/icone_claire.png   (R17)
-//         Build/                le moteur et le jeu, compiles la
+//         Build/                le jeu compile la (et le moteur en mode « sources »)
 //         Livraison/            les paquets (zip, apk...) de l'Expedition
 //         construire.log        tout ce que Jenga a ecrit
-//   - Le moteur est compile depuis les SOURCES DU DEPOT : sans elles, rien ne
-//     se construit, et la fenetre le dit (NkTrouverDepot). Le « kit » Jenga
-//     precompile (Kit/2D) est la piste pour s'en passer ; il ne couvre pas
-//     encore Unkeny.
+//   - Le moteur vient des SOURCES DU DEPOT : sans elles, rien ne se construit,
+//     et la fenetre le dit (NkTrouverDepot). Depuis le 2026-10-01 il est
+//     compile UNE FOIS par empreinte dans un cache partage (un kit Jenga,
+//     NkEditeurMoteur.h) et chaque jeu s'y LIE ; `--moteur=sources` garde
+//     l'ancienne construction, qui le recompile dans Build/ du jeu.
 //
 // ⚠️ LES CHAINES SONT CHERCHEES OU JENGA LES CHERCHE
 //   NkDetecterPlateformes refait, en C++, la recherche de Jenga (emsdk, SDK et
@@ -41,6 +42,7 @@
 #define __NKENTSEU_UNKENYEDITOR_NKEDITEURCONSTRUIRE_H__
 
 #include "Editeur/NkEditeurModele.h"
+#include "Livraison/NkEditeurMoteur.h"
 
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -104,12 +106,47 @@ namespace nkentseu {
 				/// Les liaisons du jeu en texte (NkLiaisons::Ecrire) : le joueur les
 				/// relit. Vide : il prend les liaisons standard.
 				NkString entrees;
+				/// Le moteur : precompile (le cache partage, par defaut) ou depuis
+				/// les sources. `moteurExplicite` : demande expresse
+				/// (`--moteur=precompile`), qui tente aussi une plateforme pas
+				/// encore eprouvee (NkMoteurPrecompilePossible).
+				NkModeMoteur moteur = NkModeMoteur::NK_PRECOMPILE;
+				bool moteurExplicite = false;
+		};
+
+		/// Les PHASES d'une construction, celles que l'onglet Journal montre.
+		/// LIER est vue dans la sortie de la commande du jeu (« Linking... ») ;
+		/// EMPAQUETER n'existe qu'en Expedition.
+		enum class NkPhaseConstruction : uint8 {
+			NK_PREPARER = 0,
+			NK_CUIRE,
+			NK_ICONES,
+			NK_MOTEUR,
+			NK_COMPILER,
+			NK_LIER,
+			NK_VERIFIER,
+			NK_EMPAQUETER,
+			NK_COUNT
+		};
+		constexpr int32 NK_NB_PHASES = static_cast<int32>(NkPhaseConstruction::NK_COUNT);
+		const char *NkPhaseNom(NkPhaseConstruction p) noexcept; ///< « Cuire la scène »
+
+		enum class NkEtatPhase : uint8 { NK_ATTENTE = 0, NK_EN_COURS, NK_FAITE, NK_ECHEC, NK_SAUTEE };
+
+		struct NkPhaseSuivie {
+				NkEtatPhase etat = NkEtatPhase::NK_ATTENTE;
+				float64 debut = 0.0; ///< NkChrono::Now, en secondes
+				float64 duree = 0.0;
+				NkString detail; ///< « cache trouvé 3f2a… », « 12/48 fichiers »...
 		};
 
 		/// Une commande a lancer, et ce qu'elle dit d'elle-meme au Journal.
 		struct NkEtapeConstruction {
 				NkString libelle;
 				NkString commande;
+				NkPhaseConstruction phase = NkPhaseConstruction::NK_COMPILER;
+				/// Le dossier ou la lancer (vide : celui du jeu).
+				NkString dossier;
 		};
 
 		struct NkPlanConstruction {
@@ -129,6 +166,17 @@ namespace nkentseu {
 				/// l'editeur (temoin l1 sur le produit reel). Vide sinon.
 				NkString verification;
 				uint64 empreinte = 0u; ///< celle de la scene cuite (temoin l1)
+
+				/// Le moteur RETENU (la demande, ou le repli sur les sources) et
+				/// pourquoi ; en precompile, son cache et s'il etait deja scelle.
+				NkModeMoteur moteur = NkModeMoteur::NK_SOURCES;
+				NkString raisonMoteur;
+				NkEmpreinteMoteur empreinteMoteur;
+				NkCacheMoteur cache;
+				bool cacheTrouve = false;
+				/// Le suivi de chaque phase (NkPreparerConstruction remplit les
+				/// trois premieres, le deroulement les autres).
+				NkPhaseSuivie phases[NK_NB_PHASES];
 		};
 
 		/// L'identifiant d'un nom de jeu : lettres et chiffres ASCII (les
@@ -153,8 +201,18 @@ namespace nkentseu {
 		/// au depot), dans l'ordre de Nkentseu.jenga.
 		const NkVector<NkString> &NkModulesDuJoueur();
 
-		/// Le texte du workspace genere (expose pour le banc).
+		/// Le texte du workspace genere (expose pour le banc). En precompile,
+		/// il charge le kit du cache (useconfig) et n'inclut aucun module.
 		NkString NkEcrireJengaDuJeu(const NkDemandeConstruction &demande, const NkPlanConstruction &plan);
+
+		/// Le workspace du MOTEUR, ecrit dans le chantier du cache : les memes
+		/// modules, depuis les sources de `depot`, sans le joueur. Build/ va
+		/// dans le chantier.
+		NkString NkEcrireJengaDuMoteur(const NkString &depot);
+
+		/// Ecrit le chantier du cache (Moteur.jenga et le talon jengaconfig).
+		/// A appeler VERROU TENU. false = ecriture impossible.
+		bool NkPreparerChantier(const NkCacheMoteur &c, const NkString &depot);
 
 		/// ETAPE 1, sans processus : arrete le jeu s'il tourne (on construit ce
 		/// qu'on EDITE, comme on l'enregistre), cuit la scene, pose les icones,

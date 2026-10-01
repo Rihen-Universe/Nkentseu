@@ -24,6 +24,20 @@
 //         « 3D » -> Jeu3D
 //   (lg6) jouer 1 s dans l'EDITEUR (NkEditeurJouer + NkEditeurAvancer) et dans
 //         le JOUEUR (NkAvancerPartie) depuis le meme jeu cuit : meme empreinte
+//   Le moteur PRECOMPILE (2026-10-01, NkEditeurMoteur.h) :
+//   (lg7) l'empreinte d'un depot fabrique change avec un octet, un fichier
+//         nouveau, la version de Jenga, une variable que lit un .jenga ; elle
+//         revient quand l'octet revient ; un .md et le CHEMIN du depot n'y
+//         changent rien. (lg7b) celle du vrai depot est stable, et chiffree.
+//   (lg8) un cache sans sceau, ou dont une archive manque, ou d'une autre
+//         empreinte, n'est pas utilise ; scelle, il l'est, et son chantier
+//         est efface ; le verrou est exclusif, et se reprend une fois rendu
+//   (lg9) le workspace d'un jeu precompile charge le kit et n'inclut AUCUN
+//         module (ni unitest) ; celui des sources les inclut tous, celui du
+//         moteur aussi, sans le joueur ; Windows y a droit, Android retombe
+//         (ABI), Linux seulement sur demande expresse
+//   (lg10) un lien systeme que le joueur lie et que le kit ne transmet pas
+//         (d3dcompiler, 30/09) est nomme
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
@@ -35,10 +49,12 @@
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKMemory/NKMemory.h"
+#include "NKTime/NkChrono.h"
 #include "Unkeny/Livraison/NkUnkenyLivraison.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace nkentseu {
 	namespace editeur {
@@ -62,7 +78,10 @@ namespace nkentseu {
 			/// du joueur : les chaines entre guillemets du premier crochet.
 			NkVector<NkString> DependancesDuJoueur(const NkString &texte) {
 				NkVector<NkString> noms;
-				const usize debut = texte.Find("nkentseudependson(");
+				// Le joueur nomme sa liste (_DEPS, 2026-10-01 : elle sert aux deux
+				// moteurs, sources et precompile) ; Unkeny la donne en ligne.
+				const usize nommee = texte.Find("_DEPS = [");
+				const usize debut = nommee != NkString::npos ? nommee : texte.Find("nkentseudependson(");
 				if (debut == NkString::npos) {
 					return noms;
 				}
@@ -108,6 +127,10 @@ namespace nkentseu {
 			NkDemandeConstruction d;
 			d.nom = NkString("Banc Gelée");
 			d.sortie = sortie;
+			// (lg1)..(lg6) eprouvent le workspace « sources » ; le precompile
+			// (lg7..) est eprouve a part, SANS Jenga : sa preparation lit
+			// `jenga --version`, et le banc n'en depend pas.
+			d.moteur = NkModeMoteur::NK_SOURCES;
 			NkPlanConstruction plan;
 			NkVector<NkString> journal;
 			const bool pret = NkPreparerConstruction(m, d, 800.f, 450.f, plan, journal);
@@ -200,6 +223,161 @@ namespace nkentseu {
 			const uint64 eJoueur = unkeny::NkEmpreinteScene(partie->scene, &partie->textures);
 			Temoin(ouvert && eEditeur == eJoueur && eJoueur != plan.empreinte,
 				   "(lg6) 1 s jouee dans l'editeur et dans le joueur : meme empreinte", 60.f);
+
+			// ── Le moteur PRECOMPILE (2026-10-01), sans Jenga ni compilateur ────
+			// (lg7) l'empreinte : celle du CONTENU, sur un depot fabrique
+			{
+				const NkString fab = sortie + "/depot_fabrique/";
+				const NkString ailleurs = sortie + "/ailleurs/depot_copie/";
+				NkDirectory::CreateRecursive((fab + "Kernel/NKA/src").CStr());
+				NkDirectory::CreateRecursive((fab + "config").CStr());
+				NkFile::WriteAllText((fab + "Kernel/NKA/src/a.cpp").CStr(), "int a() { return 1; }\n");
+				NkFile::WriteAllText((fab + "Kernel/NKA/NKA.jenga").CStr(), "x = os.getenv(\"NK_BANC_EMPREINTE\", \"\")\n");
+				NkFile::WriteAllText((fab + "config/modules.jenga").CStr(), "# registre\n");
+				NkVector<NkString> dossiers;
+				dossiers.PushBack(NkString("Kernel/NKA"));
+				dossiers.PushBack(NkString("config"));
+				NkString err;
+				NkEmpreinteMoteur e1, e2, e3, e4, e5, e6, e7, e8;
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e1, err);
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e2, err);
+				// Un octet change, non commite : autre empreinte ; remis : la meme.
+				NkFile::WriteAllText((fab + "Kernel/NKA/src/a.cpp").CStr(), "int a() { return 2; }\n");
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e3, err);
+				NkFile::WriteAllText((fab + "Kernel/NKA/src/a.cpp").CStr(), "int a() { return 1; }\n");
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e4, err);
+				// Un fichier NOUVEAU (non suivi par git) compte ; un .md non.
+				NkFile::WriteAllText((fab + "Kernel/NKA/LISEZMOI.md").CStr(), "documentation\n");
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e5, err);
+				NkFile::WriteAllText((fab + "Kernel/NKA/src/b.cpp").CStr(), "int b() { return 0; }\n");
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e6, err);
+				NkFile::Delete((fab + "Kernel/NKA/src/b.cpp").CStr());
+				// Le meme contenu AILLEURS (un autre worktree) : la meme empreinte.
+				NkDirectory::CreateRecursive(ailleurs.CStr());
+				NkDirectory::Copy(fab.CStr(), ailleurs.CStr(), true, true);
+				NkEmpreinteDesDossiers(ailleurs, dossiers, NkString("jenga=2.8.7"), e7, err);
+				// Une autre version de Jenga : autre empreinte.
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.8"), e8, err);
+				// La variable qu'un .jenga lit (VULKAN_SDK...) compte aussi.
+				NkEmpreinteMoteur e9;
+#if defined(_WIN32)
+				_putenv("NK_BANC_EMPREINTE=vulkan");
+#else
+				setenv("NK_BANC_EMPREINTE", "vulkan", 1);
+#endif
+				NkEmpreinteDesDossiers(fab, dossiers, NkString("jenga=2.8.7"), e9, err);
+#if defined(_WIN32)
+				_putenv("NK_BANC_EMPREINTE=");
+#else
+				unsetenv("NK_BANC_EMPREINTE");
+#endif
+				const bool contenu = e1.valeur == e2.valeur && e3.valeur != e1.valeur && e4.valeur == e1.valeur;
+				const bool fichiers = e5.valeur == e1.valeur && e6.valeur != e1.valeur;
+				const bool ailleursMeme = e7.valeur == e1.valeur && !e7.hex.Empty();
+				Temoin(contenu && fichiers && ailleursMeme && e8.valeur != e1.valeur && e9.valeur != e1.valeur && e1.fichiers == 3u,
+					   "(lg7) empreinte du moteur : contenu, nouveau fichier, Jenga, env ; .md et chemin non",
+					   static_cast<float32>(e1.fichiers));
+				// Sur le VRAI depot : stable, et chiffre (secondes).
+				const float64 t0 = NkChrono::Now().ToSeconds();
+				NkEmpreinteMoteur r1, r2;
+				const bool lu1 = NkEmpreinteDesDossiers(plan.depot, NkDossiersDuMoteur(), NkString(), r1, err);
+				const float64 duree = NkChrono::Now().ToSeconds() - t0;
+				const bool lu2 = NkEmpreinteDesDossiers(plan.depot, NkDossiersDuMoteur(), NkString(), r2, err);
+				std::printf("         depot : %u fichiers, %.1f Mo, %.2f s, %s\n", static_cast<unsigned>(r1.fichiers),
+							static_cast<double>(r1.octets) / (1024.0 * 1024.0), duree, r1.hex.CStr());
+				Temoin(lu1 && lu2 && r1.valeur == r2.valeur && r1.fichiers > 500u, "(lg7b) empreinte du vrai depot : stable d'un calcul a l'autre",
+					   static_cast<float32>(duree));
+			}
+
+			// (lg8) le cache : rien n'est utilise sans SCEAU, et un sceau ne vaut
+			//       que si chaque archive est la ; le verrou est exclusif.
+			{
+				const NkCacheMoteur c = NkCacheDuMoteur(sortie + "/cache", NkString("00000000banc0001"), "Windows", "Debug");
+				NkString pourquoi;
+				const bool videScelle = NkCacheScelle(c, pourquoi);
+				NkDirectory::CreateRecursive((c.dossier + "lib/Debug-Windows").CStr());
+				NkDirectory::CreateRecursive(c.chantier.CStr());
+				const NkVector<NkString> projets = NkProjetsDuMoteur();
+				for (usize i = 0; i < projets.Size(); ++i) {
+					NkFile::WriteAllText((c.dossier + "lib/Debug-Windows/" + projets[i] + ".lib").CStr(), "!<arch>\n");
+				}
+				const NkString joueurTexte = NkFile::ReadAllText((plan.depot + "Applications/UnkenyPlayer/UnkenyPlayer.jenga").CStr());
+				NkFile::WriteAllText(c.kit.CStr(), "KIT_SYSTEM_LIBS = {\n    (\"Debug\", \"Windows\"): ['user32', 'gdi32'],\n}\n");
+				const bool sansSceau = NkCacheScelle(c, pourquoi);
+				NkVector<NkString> details;
+				const bool scelle = NkScellerMoteur(c, plan.depot, "Debug", "Windows", NkString("banc"), 1.0, details);
+				const bool trouve = NkCacheScelle(c, pourquoi);
+				const bool chantierEfface = !NkDirectory::Exists(c.chantier.CStr());
+				// Une archive perdue : le kit n'est plus entier.
+				NkFile::Delete((c.dossier + "lib/Debug-Windows/" + projets[0] + ".lib").CStr());
+				NkString perdu;
+				const bool troue = NkCacheScelle(c, perdu);
+				// Une AUTRE empreinte ne lit pas ce sceau.
+				NkCacheMoteur autre = c;
+				autre.empreinte = NkString("00000000banc0002");
+				NkString autrePourquoi;
+				const bool autreScelle = NkCacheScelle(autre, autrePourquoi);
+				NkVerrouMoteur v1, v2;
+				const bool pris1 = v1.Prendre(c.verrou);
+				const bool pris2 = v2.Prendre(c.verrou);
+				v1.Liberer();
+				const bool pris3 = v2.Prendre(c.verrou);
+				v2.Liberer();
+				(void)joueurTexte;
+				Temoin(!videScelle && !sansSceau && scelle && trouve && chantierEfface && !troue && perdu.Find("archive") != NkString::npos &&
+						   !autreScelle && pris1 && !pris2 && pris3,
+					   "(lg8) cache : scelle seulement entier, autre empreinte non ; verrou exclusif", static_cast<float32>(projets.Size()));
+			}
+
+			// (lg9) le workspace d'un jeu au moteur precompile : le kit, aucun
+			//       module ; le mode sources inchange ; le repli des plateformes
+			{
+				NkPlanConstruction kit = plan;
+				kit.moteur = NkModeMoteur::NK_PRECOMPILE;
+				kit.cache = NkCacheDuMoteur(sortie + "/cache", NkString("00000000banc0001"), "Windows", "Debug");
+				const NkString texteKit = NkEcrireJengaDuJeu(d, kit);
+				const NkString texteSources = NkEcrireJengaDuJeu(d, plan);
+				uint32 modulesKit = 0u;
+				uint32 modulesSources = 0u;
+				for (usize i = 0; i < modules.Size(); ++i) {
+					modulesKit += texteKit.Find(modules[i].CStr()) != NkString::npos ? 1u : 0u;
+					modulesSources += texteSources.Find(modules[i].CStr()) != NkString::npos ? 1u : 0u;
+				}
+				const NkString moteurJenga = NkEcrireJengaDuMoteur(plan.depot);
+				uint32 modulesMoteur = 0u;
+				for (usize i = 0; i < modules.Size(); ++i) {
+					modulesMoteur += moteurJenga.Find(modules[i].CStr()) != NkString::npos ? 1u : 0u;
+				}
+				NkString r;
+				const bool windows = NkMoteurPrecompilePossible(NkPlateformeJeu::NK_WINDOWS, false, r);
+				const bool android = NkMoteurPrecompilePossible(NkPlateformeJeu::NK_ANDROID, true, r);
+				const bool ditAbi = r.Find("ABI") != NkString::npos && r.Find("sources") != NkString::npos;
+				const bool linux = NkMoteurPrecompilePossible(NkPlateformeJeu::NK_LINUX, false, r);
+				const bool linuxEssai = NkMoteurPrecompilePossible(NkPlateformeJeu::NK_LINUX, true, r);
+				Temoin(texteKit.Find("useconfig(MOTEUR + \"/UnkenyMoteur.jenga\")") != NkString::npos &&
+						   texteKit.Find("\"moteur\": MOTEUR") != NkString::npos && texteKit.Find("unitest") == NkString::npos &&
+						   modulesKit == 0u && modulesSources == modules.Size() && modulesMoteur == modules.Size() &&
+						   moteurJenga.Find("UnkenyPlayer") == NkString::npos && windows && !android && ditAbi && !linux && linuxEssai,
+					   "(lg9) jeu precompile : le kit, aucun module ; sources inchange ; replis", static_cast<float32>(modulesMoteur));
+			}
+
+			// (lg10) les bibliotheques SYSTEME : celles que le joueur lie et que le
+			//        kit ne transmet pas sont nommees (d3dcompiler, 30/09)
+			{
+				const NkString joueur = NkFile::ReadAllText((plan.depot + "Applications/UnkenyPlayer/UnkenyPlayer.jenga").CStr());
+				const NkString complet =
+					"KIT_SYSTEM_LIBS = {\n    (\"Debug\", \"Windows\"): ['winmm', 'user32', 'gdi32', 'opengl32', 'dwmapi', 'shell32', "
+					"'comdlg32', 'mf', 'mfplat', 'mfreadwrite', 'mfuuid', 'uuid', 'ole32', 'dinput8', 'dxguid', 'd3d11', 'd3d12', 'dxgi', "
+					"'d3dcompiler', 'avrt'],\n}\n";
+				NkString sansD3d = complet;
+				const usize k = sansD3d.Find("'d3dcompiler', ");
+				sansD3d = NkString(sansD3d.SubStr(0, k)) + NkString(sansD3d.SubStr(k + 15));
+				const NkVector<NkString> rien = NkLiensSystemeManquants(complet, joueur, "Debug");
+				const NkVector<NkString> un = NkLiensSystemeManquants(sansD3d, joueur, "Debug");
+				const NkVector<NkString> lus = NkLiensSystemeDuKit(complet, "Debug", "Windows");
+				Temoin(rien.Empty() && un.Size() == 1u && un[0] == NkString("d3dcompiler") && lus.Size() == 20u,
+					   "(lg10) liens systeme : un lien du joueur absent du kit est nomme", static_cast<float32>(lus.Size()));
+			}
 
 			tas.Delete(partie);
 			tas.Delete(relu);
