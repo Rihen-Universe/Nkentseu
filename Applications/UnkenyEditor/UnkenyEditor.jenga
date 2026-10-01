@@ -80,7 +80,10 @@ with project("UnkenyEditor"):
          # « undefined reference to media::NkOpusFile::Decode » (mesure du
          # 2026-09-29). GemCrush le declare de la meme facon.
          "NKMedia"],
-        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals"]
+        # NKGraph (en-tete pur, sans cible) : les Blueprints (Script/NkBpCatalogue)
+        # en sont la couche 3 -- le premier consommateur reel (document 01, G6).
+        extra_includes=["src", "%{NKGlad.location}/include", "%{wks.location}/Externals",
+                        "%{wks.location}/Kernel/Runtime/NKGraph/src"]
                        + ([VULKAN_INCLUDE] if VULKAN_INCLUDE else []),
         # NKENTSEU_ENABLE_VULKAN_BACKEND est defini par plateforme ci-dessous
         # (uniquement la ou Vulkan est cable), pas globalement.

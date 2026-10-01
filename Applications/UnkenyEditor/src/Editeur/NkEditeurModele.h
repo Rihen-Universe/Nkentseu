@@ -27,6 +27,10 @@ namespace nkentseu {
 
 		using namespace nkentseu::unkeny;
 
+		/// Les scripts de l'editeur (Script/NkEditeurScripts.h), possedes par
+		/// l'application ; nul dans un banc qui n'en a pas.
+		struct NkEditeurScripts;
+
 		/// L'outil courant. Il decide de ce que fait un clic dans le viseur.
 		/// SAISIR et COUTEAU agissent sur la matiere : ils servent en JEU.
 		/// DEPLACER / TOURNER / ECHELLE (2026-09-29) : la selection, plus le
@@ -174,6 +178,10 @@ namespace nkentseu {
 
 				bool voirCollisionneurs = true;
 				bool voirGrille = true;
+
+				/// (2026-10-01) Les scripts : registre, hote, C++ a chaud, page du
+				/// graphe. Pose par NkEditeurScriptsDemarrer.
+				NkEditeurScripts *scripts = nullptr;
 
 				ecs::NkEntityId selection;
 				bool aSelection = false;

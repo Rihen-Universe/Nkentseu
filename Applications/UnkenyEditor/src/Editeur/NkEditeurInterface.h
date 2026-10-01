@@ -228,7 +228,9 @@ namespace nkentseu {
 			NK_A_PLACER = 1550,			  ///< + indice du catalogue du panneau : au centre de la vue
 			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
 			// loin des autres (des branches paralleles ajoutent les leurs).
-			NK_A_TEXTURE_SPRITE = 2100 ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			NK_A_TEXTURE_SPRITE = 2100, ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
+			NK_A_SCRIPT = 2200 ///< + NkActionScript
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
