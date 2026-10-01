@@ -9,6 +9,7 @@
 // -----------------------------------------------------------------------------
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurBancTrame.h"
+#include "Editeur/NkEditeurDocuments.h"
 #include "Script/NkBpCatalogue.h"
 #include "Script/NkEditeurExemplePortes.h"
 #include "Script/NkEditeurGraphe.h"
@@ -101,24 +102,24 @@ namespace nkentseu {
 			Trames(4);
 
 			// 01 : la page du graphe de la porte bleue.
-			NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr());
+			NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr(), &ui);
 			Trames(3);
 			erreurs += Png(T, NkString::Format("%s/01_page_graphe_porte_blueprint.png", dossier).CStr()) ? 0 : 1;
 
 			// 02 : une erreur designee sur son noeud (une force sous Tick).
 			{
-				graph::NkNodeGraph &g = s.graphe.graphe;
+				graph::NkNodeGraph &g = s.Graphe().graphe;
 				const graph::NkNodeId ev = NkBpCreerNoeud(g, "bp.ev.tick", 0.f, 520.f);
 				const graph::NkNodeId f = NkBpCreerNoeud(g, "bp.natif:unkeny.corps.force", 300.f, 520.f);
 				NkBpPoserDefaut(g, f, "force", "0 10");
 				g.Connect(ev, "suite", f, "exec");
-				const NkString chemin = s.graphe.chemin;
-				s.graphe.chemin = racine + "erreur.nkbp"; // la vraie porte reste intacte sur le disque
+				const NkString chemin = s.Graphe().chemin;
+				s.Graphe().chemin = racine + "erreur.nkbp"; // la vraie porte reste intacte sur le disque
 				NkEditeurCompilerGraphe(s, m);
-				s.graphe.chemin = chemin;
+				s.Graphe().chemin = chemin;
 				Trames(3);
 				erreurs += Png(T, NkString::Format("%s/02_graphe_erreur_sur_son_noeud.png", dossier).CStr()) ? 0 : 1;
-				NkEditeurFermerGraphe(s);
+				NkEditeurFermerDocument(m, ui, NkDoc(NkGenreDocument::NK_BLUEPRINT, s.Graphe().id));
 			}
 
 			// 03 : les Details de la Zone rouge, son script C++ et sa variable.

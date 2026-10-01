@@ -113,10 +113,12 @@ namespace nkentseu {
 		/// L'etat des pages : un membre de NkEditeurInterface.
 		struct NkPagesAnim {
 				NkVector<NkDocAnim> docs;
-				nk_uint64 actif = 0; ///< 0 = la scene
+				/// (2026-10-02) Le PREMIER PLAN n'est plus ici : il est dans la barre
+				/// unique des documents (NkEditeurDocuments.h) ; NkEditeurDocAnimActif le lit.
 				nk_uint64 prochainId = 1;
 				/// Releves a la derniere trame (le banc y vise) : un rectangle par
-				/// document, dans l'ordre de `docs`, et leur croix.
+				/// document, dans l'ordre de la barre, et leur croix (la barre unique
+				/// les remplit, NkEditeurDessinerOngletsDocuments).
 				NkVector<nkgui::NkRect> onglets;
 				NkVector<nkgui::NkRect> croix;
 				nkgui::NkRect page{0.f, 0.f, 0.f, 0.f};
@@ -152,8 +154,12 @@ namespace nkentseu {
 		/// selection. Chemin vide : un clip neuf pour la selection.
 		bool NkEditeurOuvrirAnimation(NkEditeurModele &m, NkEditeurInterface &ui, const char *chemin);
 		bool NkEditeurOuvrirAnimation(NkEditeurCadre &c, const char *chemin);
-		/// Ferme un document (l'apercu rend l'entite). Faux s'il n'existe pas.
+		/// Ferme un document par la barre (NkEditeurFermerDocument : s'il etait
+		/// devant, son voisin de gauche passe devant). Faux s'il n'existe pas.
 		bool NkEditeurFermerDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
+		/// Retire le document (l'apercu rend l'entite), SANS toucher au premier
+		/// plan : la barre l'a deja fait passer derriere (NkEditeurDocuments.cpp).
+		bool NkEditeurDetruireDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
 		/// Le document au premier plan, ou nul (la scene).
 		NkDocAnim *NkEditeurDocAnimActif(NkEditeurInterface &ui);
 		bool NkEditeurPageAnimOuverte(const NkEditeurInterface &ui) noexcept;
@@ -162,9 +168,8 @@ namespace nkentseu {
 		bool NkEditeurEnregistrerDocAnim(NkEditeurModele &m, NkDocAnim &d);
 
 		// --- Les appels des fichiers partages (une ligne chacun) ---------------
-		/// Les onglets des documents, a droite de celui de la scene
-		/// (NkEditeurDessinerOnglets) ; un clic sur l'onglet de la scene la ramene.
-		void NkEditeurDessinerOngletsAnim(NkEditeurCadre &c);
+		// (2026-10-02) Les ONGLETS des documents sont dans la barre unique
+		// (NkEditeurDocuments.h) : NkEditeurDessinerOngletsAnim n'existe plus.
 		/// La page du document actif dans le corps (NkEditeurDessinerTrame). Faux
 		/// si c'est la scene : le corps habituel se dessine.
 		bool NkEditeurDessinerPageAnim(NkEditeurCadre &c);

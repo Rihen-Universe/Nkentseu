@@ -3,7 +3,9 @@
 // =============================================================================
 // Description :
 //   LA PAGE DU GRAPHE d'un Blueprint (document 01, § 4.7) : un double-clic sur
-//   un .nkbp du Contenu l'ouvre a la place du viseur. Une palette des noeuds a
+//   un .nkbp du Contenu l'ouvre a la place du viseur, DANS SON ONGLET (2026-10-02,
+//   NkEditeurDocuments.h) : chaque Blueprint ouvert a le sien, a cote de celui
+//   de la scene, qui reste accessible d'un clic. Une palette des noeuds a
 //   gauche (recherche, categories), le canevas du kit (NkCanevasNoeuds) au
 //   centre, la barre « Compiler / Enregistrer / Fermer » en haut, le resultat
 //   de la compilation en bas -- une erreur ENTOURE son noeud en rouge.
@@ -35,8 +37,12 @@ namespace nkentseu {
 		struct NkEditeurScripts;
 		struct NkEditeurModele;
 		struct NkEditeurCadre;
+		struct NkEditeurInterface;
 
+		/// UN Blueprint ouvert (son onglet de document).
 		struct NkEditeurGrapheEtat {
+				/// Son identite dans la barre des documents (NkEditeurDocuments.h).
+				nk_uint64 id = 0;
 				bool ouvert = false;
 				NkString chemin; ///< le .nkbp, absolu
 				NkString ref;	 ///< « Contenu/Scripts/Porte.nkbp »
@@ -61,15 +67,28 @@ namespace nkentseu {
 				nkgui::NkRect boutonFermer{0.f, 0.f, 0.f, 0.f};
 		};
 
-		/// Ouvre le .nkbp `chemin` (absolu) dans la page. false : illisible (annonce).
-		bool NkEditeurOuvrirGraphe(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin);
+		/// Ouvre le .nkbp `chemin` (absolu) dans SA page, qui devient le graphe
+		/// COURANT (celui que la page montre, que Compiler et Fermer visent). Deja
+		/// ouvert : il redevient courant (pas de second onglet). `ui` non nul : son
+		/// onglet passe au premier plan (NkEditeurActiverDocument) ; nul : un banc
+		/// sans interface. false : illisible (annonce).
+		bool NkEditeurOuvrirGraphe(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin, NkEditeurInterface *ui = nullptr);
+		/// Ferme le graphe COURANT, sans interface (bancs). Avec elle, passer par la
+		/// barre (NkEditeurFermerDocument) : le voisin passe devant.
 		void NkEditeurFermerGraphe(NkEditeurScripts &s);
-		/// Compile, enregistre et donne au registre. false : l'erreur est dans
-		/// `s.graphe.message`, son noeud entoure.
+		/// Le Blueprint `id`, ou nul.
+		NkEditeurGrapheEtat *NkEditeurGrapheParId(NkEditeurScripts &s, nk_uint64 id);
+		/// `id` devient le graphe courant. false : il n'existe pas.
+		bool NkEditeurGrapheDevenirCourant(NkEditeurScripts &s, nk_uint64 id);
+		/// Retire le Blueprint `id` (la barre l'a deja fait passer derriere).
+		bool NkEditeurDetruireGraphe(NkEditeurScripts &s, nk_uint64 id);
+		/// Compile, enregistre et donne au registre le graphe COURANT. false :
+		/// l'erreur est dans `s.Graphe().message`, son noeud entoure.
 		bool NkEditeurCompilerGraphe(NkEditeurScripts &s, NkEditeurModele &m);
-		/// La page est-elle ouverte ? (le viseur lui cede sa place)
+		/// Un Blueprint est-il ouvert (un graphe courant existe) ?
 		bool NkEditeurGrapheOuvert(const NkEditeurModele &m);
-		/// Dessine la page dans la colonne centrale (ui.vue).
+		/// Dessine la page du graphe courant dans la colonne centrale (ui.vue) --
+		/// quand son onglet est au premier plan (NkEditeurBlueprintDevant).
 		void NkEditeurDessinerGraphe(NkEditeurCadre &c);
 		/// Pose un noeud du catalogue au point d'ajout (ou au centre de la vue).
 		graph::NkNodeId NkEditeurGrapheAjouter(NkEditeurScripts &s, const char *type);

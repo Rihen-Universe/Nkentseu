@@ -631,7 +631,7 @@ namespace nkentseu {
 			if (d != nullptr && !ui.pagesAnim.docs.Empty()) {
 				T.theme = editorkit::NkTheme::Light();
 				T.pal = NkEditeurPalette(T.theme);
-				ui.pagesAnim.actif = ui.pagesAnim.docs[0].id;
+				NkEditeurActiverDocument(m, ui, NkDoc(NkGenreDocument::NK_ANIM, ui.pagesAnim.docs[0].id));
 				for (int32 k = 0; k < 3; ++k) {
 					T.Trame();
 				}

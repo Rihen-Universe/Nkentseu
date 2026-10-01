@@ -448,6 +448,10 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-assets=")) {
 					return NkOptional<int>(NkEditeurCapturesAssets(NkString(args[i].SubStr(18)).CStr()));
 				}
+				// (2026-10-02) La barre UNIQUE des onglets de document, et les Details.
+				if (args[i].StartsWith("--captures-documents=")) {
+					return NkOptional<int>(NkEditeurCapturesDocuments(NkString(args[i].SubStr(21)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -913,6 +917,12 @@ namespace nkentseu {
 					NkEditeurExecuter(c, NK_A_REFAIRE);
 					return;
 				}
+				// (2026-10-02) Ctrl+W ferme le DOCUMENT au premier plan (un asset, un
+				// Blueprint ; la page d'animation le fait elle-meme) -- jamais la scene.
+				if (in.KeyPressed(NkGuiKey::W)) {
+					NkEditeurFermerDocumentDevant(c.m, c.ui);
+					return;
+				}
 				struct NkRaccourci {
 						NkGuiKey touche;
 						int32 action;
@@ -970,6 +980,9 @@ namespace nkentseu {
 									NkEditeurSelecteurEtat *selecteur) {
 			NkEditeurInterface &ui = c.ui;
 			ui.toucheChamp = false;
+			// La barre des documents suit ce qui est ouvert AVANT le corps : un
+			// document ferme hors d'elle (un banc) ne laisse pas un premier plan vide.
+			NkEditeurSynchroniserDocuments(c.m, ui);
 			// ── Les DEMANDES du selecteur de fichiers (Importer…, Exporter…) : il
 			//    s'ouvre ICI, avant le dessin -- modal des cette trame.
 			if (selecteur != nullptr && !selecteur->pickerOpen) {
@@ -1056,15 +1069,17 @@ namespace nkentseu {
 				// ne doit pas choisir l'entite qui est dessous.
 				Neutraliser(c.ctx.input, true);
 			}
-			// (2026-10-01) Un onglet Animation / Animateur au premier plan occupe le
-			// corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux. (R33) Un
-			// onglet d'asset actif (texture, police, son, controleur) prend la place de
-			// la vue ; un prefab garde la vue (il s'edite comme une scene) et y pose son
-			// bandeau ; un Blueprint ouvert prend la place du viseur (Script/NkEditeurGraphe.h).
+			// LE DOCUMENT AU PREMIER PLAN (2026-10-02, NkEditeurDocuments.h : UNE barre
+			// d'onglets, la scene toujours la premiere). Une page Animation / Animateur
+			// occupe le corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux.
+			// (R33) Un asset (texture, police, son, controleur) prend la place de la
+			// vue ; un prefab garde la vue (il s'edite comme une scene) et y pose son
+			// bandeau ; un Blueprint prend la place du viseur (Script/NkEditeurGraphe.h)
+			// -- et l'onglet de la scene la ramene d'un clic.
 			if (!NkEditeurDessinerPageAnim(c)) {
 				if (NkEditeurAssetALaPlaceDeLaVue(ui)) {
 					NkEditeurDessinerAsset(c);
-				} else if (NkEditeurGrapheOuvert(c.m)) {
+				} else if (NkEditeurBlueprintDevant(ui)) {
 					NkEditeurDessinerGraphe(c);
 				} else {
 					NkEditeurDessinerVue(c);

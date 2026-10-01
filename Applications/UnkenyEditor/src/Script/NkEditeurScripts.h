@@ -90,8 +90,18 @@ namespace nkentseu {
 				NkVector<NkString> journal;
 				bool montrerJournal = false;
 
-				// --- La page du graphe ouverte (NkEditeurGraphe.h) ---------------
-				NkEditeurGrapheEtat graphe;
+				// --- Les Blueprints ouverts (NkEditeurGraphe.h) : UN ONGLET CHACUN --
+				// (2026-10-02) Il n'y en avait qu'un, qui remplacait la vue sans
+				// retour possible ; chacun a desormais son onglet de document.
+				NkVector<NkEditeurGrapheEtat *> graphes;
+				/// Celui que la page montre et que Compiler / Fermer visent (nul : aucun).
+				NkEditeurGrapheEtat *courant = nullptr;
+				nk_uint64 prochainGraphe = 1;
+				/// Rendu par Graphe() quand aucun n'est ouvert (`ouvert` faux) : jamais nul.
+				NkEditeurGrapheEtat aucun;
+				NkEditeurGrapheEtat &Graphe() noexcept {
+					return courant != nullptr ? *courant : aucun;
+				}
 
 				NkEtatJeu etatPrecedent = NkEtatJeu::NK_EDITION;
 				bool demarre = false;
@@ -107,6 +117,11 @@ namespace nkentseu {
 				/// decharge, passerait avant `hote`).
 				~NkEditeurScripts() {
 					hote.Arreter();
+					for (uint32 i = 0; i < graphes.Size(); ++i) {
+						memory::NkGetDefaultAllocator().Delete(graphes[i]);
+					}
+					graphes.Clear();
+					courant = nullptr;
 				}
 		};
 

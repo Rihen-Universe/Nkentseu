@@ -207,10 +207,21 @@ namespace nkentseu {
 				return k >= 0 && static_cast<uint32>(k) < ui.onglets.Size() ? ui.onglets[static_cast<uint32>(k)] : nullptr;
 			}
 
+			int32 IndiceParId(const NkEditeurInterface &ui, nk_uint64 id) {
+				for (uint32 k = 0; k < ui.onglets.Size(); ++k) {
+					if (ui.onglets[k]->id == id) {
+						return static_cast<int32>(k);
+					}
+				}
+				return -1;
+			}
+
+			NkOngletAsset *OngletParId(NkEditeurInterface &ui, nk_uint64 id) {
+				return Onglet(ui, IndiceParId(ui, id));
+			}
+
 			/// La scene de cote, l'editeur sur le prefab seul.
-			bool EntrerPrefab(NkEditeurCadre &c, int32 k) {
-				NkEditeurModele &m = c.m;
-				NkOngletAsset *o = Onglet(c.ui, k);
+			bool EntrerPrefab(NkEditeurModele &m, NkEditeurInterface &ui, NkOngletAsset *o) {
 				if (o == nullptr || o->prefab == 0u) {
 					return false;
 				}
@@ -224,7 +235,7 @@ namespace nkentseu {
 				mp->camera = m.scene.Camera();
 				mp->historique = m.historique;
 				mp->selection = m.aSelection && m.scene.Monde().IsAlive(m.selection) ? m.scene.AssurerUid(m.selection) : 0u;
-				mp->onglet = k;
+				mp->onglet = o->id;
 				NkEditeurOublierHistorique(m);
 				if (o->prefabPhotoValide) {
 					// On y revient : l'edition en cours, telle qu'on l'a laissee.
@@ -244,7 +255,7 @@ namespace nkentseu {
 				const ecs::NkEntityId r = o->racineUid != 0u ? m.scene.EntiteParUid(o->racineUid) : ecs::NkEntityId::Invalid();
 				m.selection = r;
 				m.aSelection = r.IsValid();
-				c.ui.modePrefab = mp;
+				ui.modePrefab = mp;
 				NkEditeurAnnoncer(m, NkString::Format("Prefab ouvert : %s — Enregistrer (Ctrl+S) met à jour ses instances",
 													  NkEditeurRelatifContenu(o->nav.CStr()).CStr())
 										 .CStr());
@@ -253,13 +264,12 @@ namespace nkentseu {
 
 			/// La scene revient ; les prefabs enregistres sont relus : leurs instances
 			/// suivent (NkPrefabs2D::Charger compare a l'ANCIEN modele, surcharges gardees).
-			void SortirPrefab(NkEditeurCadre &c) {
-				NkEditeurModele &m = c.m;
-				NkModePrefab *mp = c.ui.modePrefab;
+			void SortirPrefab(NkEditeurModele &m, NkEditeurInterface &ui) {
+				NkModePrefab *mp = ui.modePrefab;
 				if (mp == nullptr) {
 					return;
 				}
-				if (NkOngletAsset *o = Onglet(c.ui, mp->onglet)) {
+				if (NkOngletAsset *o = OngletParId(ui, mp->onglet)) {
 					m.scene.Photographier(o->prefabPhoto);
 					o->prefabPhotoValide = true;
 				}
@@ -283,12 +293,12 @@ namespace nkentseu {
 					NkEditeurAnnoncer(m, NkString::Format("Prefab enregistré : %u instance(s) de la scène mises à jour", suivies).CStr());
 				}
 				memory::NkGetDefaultAllocator().Delete(mp);
-				c.ui.modePrefab = nullptr;
+				ui.modePrefab = nullptr;
 			}
 		} // namespace
 
 		NkOngletAsset *NkEditeurPrefabOuvert(NkEditeurInterface &ui) noexcept {
-			return ui.modePrefab != nullptr ? Onglet(ui, ui.modePrefab->onglet) : nullptr;
+			return ui.modePrefab != nullptr ? OngletParId(ui, ui.modePrefab->onglet) : nullptr;
 		}
 
 		bool NkEditeurEnregistrerPrefabOuvert(NkEditeurCadre &c) {
@@ -327,11 +337,16 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		// OUVRIR, ACTIVER, FERMER
+		// OUVRIR, ACTIVER, FERMER (la barre et le premier plan : NkEditeurDocuments.h)
 		// =====================================================================
 		bool NkEditeurOuvrirAsset(NkEditeurCadre &c, const char *cheminNav) {
 			NkEditeurModele &m = c.m;
 			NkEditeurInterface &ui = c.ui;
+			// (2026-10-02) Une ANIMATION (.nkanim) s'ouvre dans la page Animation :
+			// sa frise est son editeur (NkEditeurPagesAnim.h). Rien d'autre ne l'ouvrait.
+			if (NkEditeurNatureFichier(cheminNav).type == NkAssetType::Animation) {
+				return NkEditeurOuvrirAnimation(c, NkEditeurCheminContenuAbsolu(m, cheminNav).CStr()) || true;
+			}
 			const NkGenreAsset genre = NkEditeurGenreAsset(cheminNav);
 			if (genre == NkGenreAsset::NK_AUCUN) {
 				return false;
@@ -346,6 +361,7 @@ namespace nkentseu {
 					return true;
 				}
 			}
+			// Ouvert deux fois : son onglet REVIENT au premier plan.
 			for (uint32 k = 0; k < ui.onglets.Size(); ++k) {
 				if (ui.onglets[k]->nav == NkString(cheminNav)) {
 					NkEditeurActiverOnglet(c, static_cast<int32>(k));
@@ -358,6 +374,7 @@ namespace nkentseu {
 			}
 			memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
 			NkOngletAsset *o = tas.New<NkOngletAsset>();
+			o->id = ui.documents.prochainAsset++;
 			o->nav = NkString(cheminNav);
 			o->disque = NkEditeurCheminContenuAbsolu(m, cheminNav);
 			o->genre = genre;
@@ -407,53 +424,62 @@ namespace nkentseu {
 				NkEditeurAnnoncer(m, NkString::Format("%s illisible : %s (l'onglet le dit)", NkNomGenreAsset(genre), cheminNav).CStr());
 			}
 			ui.onglets.PushBack(o);
-			NkEditeurActiverOnglet(c, static_cast<int32>(ui.onglets.Size()) - 1);
+			// Son onglet entre dans la barre, au premier plan.
+			NkEditeurActiverDocument(m, ui, NkDoc(NkGenreDocument::NK_ASSET, o->id));
 			return true;
 		}
 
+		int32 NkEditeurOngletAssetActif(const NkEditeurInterface &ui) noexcept {
+			const NkDocumentOuvert d = NkEditeurDocumentActif(ui);
+			return d.genre == NkGenreDocument::NK_ASSET ? IndiceParId(ui, d.cle) : -1;
+		}
+
 		void NkEditeurActiverOnglet(NkEditeurCadre &c, int32 k) {
-			NkEditeurInterface &ui = c.ui;
-			if (k >= static_cast<int32>(ui.onglets.Size())) {
-				return;
+			NkOngletAsset *o = Onglet(c.ui, k);
+			NkEditeurActiverDocument(c.m, c.ui, o != nullptr ? NkDoc(NkGenreDocument::NK_ASSET, o->id) : NkDocScene());
+		}
+
+		void NkEditeurFermerOnglet(NkEditeurCadre &c, int32 k) {
+			if (NkOngletAsset *o = Onglet(c.ui, k)) {
+				NkEditeurFermerDocument(c.m, c.ui, NkDoc(NkGenreDocument::NK_ASSET, o->id));
 			}
-			k = k < 0 ? -1 : k;
-			// (fusion du 02/10) Un onglet d'asset ou la scene passe DEVANT les pages
-			// Animation / Animateur.
-			ui.pagesAnim.actif = 0;
-			if (k == ui.ongletActif) {
-				return;
-			}
+		}
+
+		void NkEditeurAssetQuitte(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id) {
 			// Quitter un prefab rend la scene (et relit ce qui a ete enregistre).
 			if (ui.modePrefab != nullptr) {
-				SortirPrefab(c);
+				SortirPrefab(m, ui);
 			}
 			// Un son qui jouait se tait quand on quitte son onglet.
-			if (NkOngletAsset *avant = Onglet(ui, ui.ongletActif)) {
+			if (NkOngletAsset *avant = OngletParId(ui, id)) {
 				if (avant->voix != 0u && ui.sonsApercu != nullptr) {
 					ui.sonsApercu->Couper(avant->voix, 0.05f);
 					avant->voix = 0u;
 				}
 			}
-			NkOngletAsset *o = Onglet(ui, k);
-			if (o != nullptr && o->genre == NkGenreAsset::NK_PREFAB && !EntrerPrefab(c, k)) {
-				return;
+		}
+
+		bool NkEditeurAssetEntre(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id) {
+			NkOngletAsset *o = OngletParId(ui, id);
+			if (o == nullptr) {
+				return false;
 			}
-			if (o != nullptr && o->genre == NkGenreAsset::NK_POLICE && o->policeOk) {
+			if (o->genre == NkGenreAsset::NK_PREFAB && !EntrerPrefab(m, ui, o)) {
+				return false;
+			}
+			if (o->genre == NkGenreAsset::NK_POLICE && o->policeOk) {
 				ui.policeApercu = o->police;
 				ui.policeApercuSale = true;
 			}
-			ui.ongletActif = k;
-			ui.menu = NkMenuEditeur::NK_AUCUN;
+			return true;
 		}
 
-		void NkEditeurFermerOnglet(NkEditeurCadre &c, int32 k) {
-			NkEditeurInterface &ui = c.ui;
+		bool NkEditeurDetruireAsset(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id) {
+			(void)m;
+			const int32 k = IndiceParId(ui, id);
 			NkOngletAsset *o = Onglet(ui, k);
 			if (o == nullptr) {
-				return;
-			}
-			if (ui.ongletActif == k) {
-				NkEditeurActiverOnglet(c, -1);
+				return false;
 			}
 			memory::NkAllocator &tas = memory::NkGetDefaultAllocator();
 			if (o->voix != 0u && ui.sonsApercu != nullptr) {
@@ -467,9 +493,7 @@ namespace nkentseu {
 			}
 			tas.Delete(o);
 			ui.onglets.Erase(ui.onglets.Begin() + k);
-			if (ui.ongletActif > k) {
-				--ui.ongletActif;
-			}
+			return true;
 		}
 
 		void NkEditeurFermerTousOnglets(NkEditeurCadre &c) {
@@ -485,71 +509,8 @@ namespace nkentseu {
 		}
 
 		bool NkEditeurAssetALaPlaceDeLaVue(const NkEditeurInterface &ui) noexcept {
-			return ui.ongletActif >= 0 && static_cast<uint32>(ui.ongletActif) < ui.onglets.Size() &&
-				   ui.onglets[static_cast<uint32>(ui.ongletActif)]->genre != NkGenreAsset::NK_PREFAB;
-		}
-
-		// =====================================================================
-		// LES ONGLETS, a droite de celui de la scene
-		// =====================================================================
-		void NkEditeurDessinerOngletsAssets(NkEditeurCadre &c, float32 x) {
-			NkEditeurInterface &ui = c.ui;
-			auto &dl = c.ctx.dl;
-			const nkgui::NkGuiInput &in = c.ctx.input;
-			const NkRect &b = ui.barreOnglets;
-			ui.ongletsRects.Clear();
-			ui.ongletsFermer.Clear();
-			int32 aFermer = -1, aActiver = -2;
-			for (uint32 k = 0; k < ui.onglets.Size(); ++k) {
-				const NkOngletAsset *o = ui.onglets[k];
-				NkString nom = NkEditeurRelatifContenu(o->nav.CStr());
-				const char *court = nom.CStr();
-				for (const char *p = court; *p != '\0'; ++p) {
-					court = *p == '/' ? p + 1 : court;
-				}
-				const NkString libelle(court);
-				const float32 tw = renderer::NkTexteLargeur(c.police, libelle.CStr());
-				const float32 w = 12.f + 14.f + tw + 8.f + 20.f;
-				const NkRect r{x, b.y + 3.f, w, b.h - 3.f};
-				const bool actif = ui.ongletActif == static_cast<int32>(k);
-				const bool survol = NkEditeurDans(r, in.mousePos);
-				dl.AddRectFilled(r, actif ? c.pal.panneau : (survol ? c.pal.boutonSurvol : c.pal.fond), 2.f);
-				if (actif) {
-					dl.AddRectFilled(NkRect{r.x, r.y, r.w, 2.f}, c.pal.accent);
-				}
-				if (o->modifie) {
-					dl.AddCircleFilled(NkVec2{r.x + 16.f, r.y + r.h * 0.5f}, 3.5f, c.pal.selection);
-				} else if (o->genre == NkGenreAsset::NK_PREFAB) {
-					// Un prefab : le losange bleu d'Unreal (trace : la police ne l'a pas).
-					const NkVec2 m{r.x + 16.f, r.y + r.h * 0.5f};
-					const NkColor bleu{90, 150, 235, 255};
-					dl.AddTriangleFilled(NkVec2{m.x, m.y - 5.f}, NkVec2{m.x + 5.f, m.y}, NkVec2{m.x, m.y + 5.f}, bleu);
-					dl.AddTriangleFilled(NkVec2{m.x, m.y - 5.f}, NkVec2{m.x, m.y + 5.f}, NkVec2{m.x - 5.f, m.y}, bleu);
-				}
-				const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
-				renderer::NkTexte(dl, c.police, r.x + 26.f, ty, libelle.CStr(), actif ? c.pal.texte : c.pal.attenue);
-				const NkRect fermer{r.x + r.w - 24.f, r.y + (r.h - 16.f) * 0.5f, 16.f, 16.f};
-				const bool surX = NkEditeurDans(fermer, in.mousePos);
-				if (surX) {
-					dl.AddRectFilled(fermer, c.pal.boutonSurvol, 2.f);
-				}
-				const NkColor tx = surX ? c.pal.texte : c.pal.attenue;
-				dl.AddLine(NkVec2{fermer.x + 4.5f, fermer.y + 4.5f}, NkVec2{fermer.x + 11.5f, fermer.y + 11.5f}, tx, 1.4f);
-				dl.AddLine(NkVec2{fermer.x + 11.5f, fermer.y + 4.5f}, NkVec2{fermer.x + 4.5f, fermer.y + 11.5f}, tx, 1.4f);
-				ui.ongletsRects.PushBack(r);
-				ui.ongletsFermer.PushBack(fermer);
-				if (in.mouseClicked[0] && surX) {
-					aFermer = static_cast<int32>(k);
-				} else if (in.mouseClicked[0] && survol) {
-					aActiver = static_cast<int32>(k);
-				}
-				x += w + 2.f;
-			}
-			if (aFermer >= 0) {
-				NkEditeurFermerOnglet(c, aFermer);
-			} else if (aActiver >= -1) {
-				NkEditeurActiverOnglet(c, aActiver);
-			}
+			const int32 k = NkEditeurOngletAssetActif(ui);
+			return k >= 0 && ui.onglets[static_cast<uint32>(k)]->genre != NkGenreAsset::NK_PREFAB;
 		}
 
 		// =====================================================================
@@ -891,7 +852,7 @@ namespace nkentseu {
 			if (!NkEditeurAssetALaPlaceDeLaVue(ui)) {
 				return;
 			}
-			NkOngletAsset &o = *ui.onglets[static_cast<uint32>(ui.ongletActif)];
+			NkOngletAsset &o = *ui.onglets[static_cast<uint32>(NkEditeurOngletAssetActif(ui))];
 			const NkRect zone = ui.vue;
 			dl.AddRectFilled(zone, c.pal.fond);
 			// L'en-tete : le genre et le chemin.

@@ -113,17 +113,50 @@ namespace nkentseu {
 		} // namespace
 
 		bool NkEditeurGrapheOuvert(const NkEditeurModele &m) {
-			return m.scripts != nullptr && m.scripts->graphe.ouvert;
+			return m.scripts != nullptr && m.scripts->courant != nullptr;
 		}
 
-		bool NkEditeurOuvrirGraphe(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin) {
-			NkEditeurGrapheEtat &e = s.graphe;
+		NkEditeurGrapheEtat *NkEditeurGrapheParId(NkEditeurScripts &s, nk_uint64 id) {
+			for (uint32 i = 0; i < s.graphes.Size(); ++i) {
+				if (s.graphes[i]->id == id) {
+					return s.graphes[i];
+				}
+			}
+			return nullptr;
+		}
+
+		bool NkEditeurGrapheDevenirCourant(NkEditeurScripts &s, nk_uint64 id) {
+			NkEditeurGrapheEtat *e = NkEditeurGrapheParId(s, id);
+			if (e != nullptr) {
+				s.courant = e;
+			}
+			return e != nullptr;
+		}
+
+		bool NkEditeurOuvrirGraphe(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin, NkEditeurInterface *ui) {
+			// Ouvert deux fois : le MEME onglet revient (ses modifications, son
+			// historique, sa vue sont gardes). Compare par REFERENCE du projet
+			// (« Contenu/Scripts/Porte.nkbp ») : deux ecritures du meme chemin absolu
+			// (barres, majuscules du disque) ne font pas deux onglets.
+			const NkString ref = chemin != nullptr ? NkEditeurRefScript(m, chemin) : NkString();
+			for (uint32 i = 0; chemin != nullptr && i < s.graphes.Size(); ++i) {
+				if (s.graphes[i]->chemin == NkString(chemin) || (!ref.Empty() && s.graphes[i]->ref == ref)) {
+					s.courant = s.graphes[i];
+					if (ui != nullptr) {
+						NkEditeurActiverDocument(m, *ui, NkDoc(NkGenreDocument::NK_BLUEPRINT, s.graphes[i]->id));
+					}
+					return true;
+				}
+			}
 			NkString err;
 			graph::NkNodeGraph g;
 			if (!NkBpOuvrir(chemin, g, &err)) {
 				NkEditeurAnnoncer(m, NkString::Format("Blueprint illisible : %s", err.CStr()).CStr());
 				return false;
 			}
+			NkEditeurGrapheEtat *pe = memory::NkGetDefaultAllocator().New<NkEditeurGrapheEtat>();
+			NkEditeurGrapheEtat &e = *pe;
+			e.id = s.prochainGraphe++;
 			e.graphe = g;
 			e.chemin = chemin;
 			e.ref = NkEditeurRefScript(m, chemin);
@@ -135,16 +168,43 @@ namespace nkentseu {
 			e.message = NkString::Format("Ouvert : %s — clic droit dans le vide puis un nœud de la palette pour l'y poser ; « Compiler » enregistre.",
 										 e.ref.CStr());
 			e.cadrer = true;
+			s.graphes.PushBack(pe);
+			s.courant = pe;
+			// Son onglet entre dans la barre, au premier plan.
+			if (ui != nullptr) {
+				NkEditeurActiverDocument(m, *ui, NkDoc(NkGenreDocument::NK_BLUEPRINT, e.id));
+			}
 			return true;
 		}
 
+		bool NkEditeurDetruireGraphe(NkEditeurScripts &s, nk_uint64 id) {
+			for (uint32 i = 0; i < s.graphes.Size(); ++i) {
+				if (s.graphes[i]->id != id) {
+					continue;
+				}
+				NkEditeurGrapheEtat *e = s.graphes[i];
+				s.graphes.Erase(s.graphes.Begin() + i);
+				if (s.courant == e) {
+					// Le courant devient le dernier ouvert qui reste (ou aucun).
+					s.courant = s.graphes.Empty() ? nullptr : s.graphes[s.graphes.Size() - 1];
+				}
+				memory::NkGetDefaultAllocator().Delete(e);
+				return true;
+			}
+			return false;
+		}
+
 		void NkEditeurFermerGraphe(NkEditeurScripts &s) {
-			s.graphe.ouvert = false;
-			s.graphe.canevas = editorkit::NkEtatCanevas();
+			if (s.courant != nullptr) {
+				NkEditeurDetruireGraphe(s, s.courant->id);
+			}
 		}
 
 		bool NkEditeurCompilerGraphe(NkEditeurScripts &s, NkEditeurModele &m) {
-			NkEditeurGrapheEtat &e = s.graphe;
+			if (s.courant == nullptr) {
+				return false;
+			}
+			NkEditeurGrapheEtat &e = *s.courant;
 			NkErreurBp err;
 			unkeny::NkModuleBp module;
 			const bool ok = NkBpEnregistrer(e.chemin.CStr(), e.graphe, err, &module);
@@ -184,7 +244,10 @@ namespace nkentseu {
 		}
 
 		graph::NkNodeId NkEditeurGrapheAjouter(NkEditeurScripts &s, const char *type) {
-			NkEditeurGrapheEtat &e = s.graphe;
+			if (s.courant == nullptr) {
+				return graph::NK_NODE_INVALID;
+			}
+			NkEditeurGrapheEtat &e = *s.courant;
 			float32 x = e.ajoutX, y = e.ajoutY;
 			if (!e.ajoutPose) {
 				// Au centre de ce qu'on regarde.
@@ -204,11 +267,11 @@ namespace nkentseu {
 		}
 
 		void NkEditeurDessinerGraphe(NkEditeurCadre &c) {
-			if (c.m.scripts == nullptr || !c.m.scripts->graphe.ouvert) {
+			if (c.m.scripts == nullptr || c.m.scripts->courant == nullptr) {
 				return;
 			}
 			NkEditeurScripts &s = *c.m.scripts;
-			NkEditeurGrapheEtat &e = s.graphe;
+			NkEditeurGrapheEtat &e = *s.courant;
 			nkgui::NkGuiDrawList &dl = c.ctx.dl;
 			nkgui::NkGuiInput &in = c.ctx.input;
 			const NkRect page = c.ui.vue;
@@ -230,7 +293,9 @@ namespace nkentseu {
 				NkEditeurCompilerGraphe(s, c.m);
 			}
 			if (NkEditeurBouton(c, fermer, "Fermer", false, true)) {
-				NkEditeurFermerGraphe(s);
+				// Par la barre : son onglet part, son voisin de gauche (ou la scene)
+				// passe devant.
+				NkEditeurFermerDocument(c.m, c.ui, NkDoc(NkGenreDocument::NK_BLUEPRINT, e.id));
 				return;
 			}
 

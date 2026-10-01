@@ -448,10 +448,11 @@ namespace nkentseu {
 						t.DoubleClic(r.x + r.w * 0.5f, r.y + r.h * 0.3f);
 						t.Trame();
 					}
-					return k >= 0 && ui.ongletActif >= 0;
+					return k >= 0 && NkEditeurOngletAssetActif(ui) >= 0;
 				};
 				auto Actif = [&]() -> NkOngletAsset * {
-					return ui.ongletActif >= 0 ? ui.onglets[static_cast<uint32>(ui.ongletActif)] : nullptr;
+					const int32 k = NkEditeurOngletAssetActif(ui);
+					return k >= 0 ? ui.onglets[static_cast<uint32>(k)] : nullptr;
 				};
 				// La TEXTURE : apercu, « Pixel », Enregistrer, relu.
 				bool texture = Ouvrir("Contenu/damier.png") && Actif()->genre == NkGenreAsset::NK_TEXTURE && Actif()->texId != 0u &&
@@ -486,7 +487,7 @@ namespace nkentseu {
 					(void)Ouvrir(ctl.CStr());
 					const NkDocAnim *d = NkEditeurDocAnimActif(ui);
 					controleur = d != nullptr && d->genre == NkGenreDocAnim::NK_ANIMATEUR && d->graphe.nodes.Size() >= 2u;
-					ui.pagesAnim.actif = 0;
+					NkEditeurActiverDocument(m, ui, NkDocScene());
 					t.Trame();
 				}
 				// Le PREFAB : le mode prefab, la teinte changee, enregistree, et l'instance suit.
@@ -508,7 +509,7 @@ namespace nkentseu {
 					t.Trame();
 					const ecs::NkEntityId c2 = m.scene.EntiteParUid(uidCaisse);
 					const NkSprite2D *s2 = c2.IsValid() ? m.scene.Monde().Get<NkSprite2D>(c2) : nullptr;
-					suit = ui.modePrefab == nullptr && ui.ongletActif == -1 && NbEntites(m.scene) == avant && s2 != nullptr && s2->couleur == 0x20C040FFu;
+					suit = ui.modePrefab == nullptr && NkEditeurSceneDevant(ui) && NbEntites(m.scene) == avant && s2 != nullptr && s2->couleur == 0x20C040FFu;
 				}
 				NkEditeurCadre cadre = t.Cadre();
 				NkEditeurFermerTousOnglets(cadre);
@@ -1342,9 +1343,9 @@ namespace nkentseu {
 					T.Trame();
 					erreurs += EcrirePng(T, NkString::Format("%s/03a_texture_onglet.png", dossier).CStr()) ? 0 : 1;
 					NkEditeurOuvrirAsset(cadre, "Contenu/Textures/Checkerboard.png");
-					if (ui.ongletActif >= 0) {
-						ui.onglets[static_cast<uint32>(ui.ongletActif)]->texture.pixel = true;
-						ui.onglets[static_cast<uint32>(ui.ongletActif)]->modifie = true;
+					if (NkEditeurOngletAssetActif(ui) >= 0) {
+						ui.onglets[static_cast<uint32>(NkEditeurOngletAssetActif(ui))]->texture.pixel = true;
+						ui.onglets[static_cast<uint32>(NkEditeurOngletAssetActif(ui))]->modifie = true;
 					}
 					T.Trame();
 					T.Trame();

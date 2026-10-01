@@ -1048,6 +1048,10 @@ namespace nkentseu {
 			/// Pose la question si la scene a change ; sinon, agit tout de suite.
 			void Demander(NkEditeurCadre &c, int32 action) {
 				NkEditeurModele &m = c.m;
+				// (2026-10-02) Ces gestes portent sur LA SCENE : elle passe devant
+				// d'abord. Un prefab en cours d'edition rend la scene mise de cote --
+				// sinon son retour ecraserait la scene qu'on vient d'ouvrir.
+				NkEditeurActiverDocument(m, c.ui, NkDocScene());
 				// En jeu, la scene editee est la PHOTO d'avant « Jouer » : Arreter la
 				// rend, et c'est elle qu'on compare -- pas un instant de simulation.
 				// Chacun de ces gestes quitte de toute facon le jeu.
@@ -1797,10 +1801,10 @@ namespace nkentseu {
 			// A DROITE du logo, qui tient le coin sur les deux lignes.
 			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
 			c.ui.ongletScene = onglet;
-			// (2026-10-01) La scene n'est au premier plan (son liseré) que si aucune
-			// page Animation / Animateur (NkEditeurPagesAnim.h) ni aucun onglet d'asset
-			// (R33) ne l'est ; un clic la reprend.
-			const bool sceneActive = !NkEditeurPageAnimOuverte(c.ui) && c.ui.ongletActif < 0;
+			// (2026-10-02) LA SCENE EST UN ONGLET DE DOCUMENT COMME LES AUTRES, et le
+			// premier : devant (son liseré) quand aucun document ne l'est
+			// (NkEditeurDocuments.h) ; un clic la ramene, quoi qu'on ait ouvert.
+			const bool sceneActive = NkEditeurSceneDevant(c.ui);
 			dl.AddRectFilled(onglet, sceneActive ? c.pal.panneau : c.pal.fond, 2.f);
 			if (sceneActive) {
 				dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
@@ -1827,16 +1831,11 @@ namespace nkentseu {
 			if (survolX && in.mouseClicked[0]) {
 				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
 			} else if (!sceneActive && NkEditeurDans(onglet, in.mousePos) && in.mouseClicked[0]) {
-				NkEditeurActiverOnglet(c, -1);
+				NkEditeurActiverDocument(c.m, c.ui, NkDocScene());
 			}
-			NkEditeurDessinerOngletsAnim(c); // les documents d'animation, a sa droite
-			// Les onglets des assets ouverts, a la suite.
-			float32 xAssets = onglet.x + onglet.w + 2.f;
-			for (uint32 k = 0; k < c.ui.pagesAnim.onglets.Size(); ++k) {
-				const NkRect &r = c.ui.pagesAnim.onglets[k];
-				xAssets = r.x + r.w + 2.f > xAssets ? r.x + r.w + 2.f : xAssets;
-			}
-			NkEditeurDessinerOngletsAssets(c, xAssets);
+			// A sa droite, UNE barre pour tous les documents : pages Animation /
+			// Animateur, assets, Blueprints (NkEditeurDocuments.h).
+			NkEditeurDessinerOngletsDocuments(c, onglet.x + onglet.w + 3.f);
 		}
 
 		// =====================================================================

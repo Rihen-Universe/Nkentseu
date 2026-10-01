@@ -14,7 +14,6 @@
 #include "Editeur/NkEditeurPagesAnim.h"
 
 #include "Editeur/NkEditeurActions.h"
-#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -90,8 +89,10 @@ namespace nkentseu {
 					d.cibleUid = m.scene.AssurerUid(m.selection);
 				}
 				ui.pagesAnim.docs.PushBack(d);
-				ui.pagesAnim.actif = d.id;
-				return ui.pagesAnim.docs[ui.pagesAnim.docs.Size() - 1];
+				// Son onglet entre dans la barre unique, au premier plan
+				// (NkEditeurDocuments.h) : le document d'avant est QUITTE.
+				NkEditeurActiverDocument(m, ui, NkDoc(NkGenreDocument::NK_ANIM, d.id));
+				return *DocParId(ui, d.id);
 			}
 
 			/// Le nom de l'entite (« » si elle n'en a pas).
@@ -407,7 +408,8 @@ namespace nkentseu {
 		bool NkEditeurOuvrirAnimateur(NkEditeurModele &m, NkEditeurInterface &ui, const char *chemin) {
 			const NkString c(chemin != nullptr ? chemin : "");
 			if (NkDocAnim *deja = DocParChemin(ui, c)) {
-				ui.pagesAnim.actif = deja->id;
+				// Ouvert deux fois : son onglet REVIENT au premier plan.
+				NkEditeurActiverDocument(m, ui, NkDoc(NkGenreDocument::NK_ANIM, deja->id));
 				return true;
 			}
 			anim::NkAnimStateMachine machine;
@@ -433,7 +435,8 @@ namespace nkentseu {
 		bool NkEditeurOuvrirAnimation(NkEditeurModele &m, NkEditeurInterface &ui, const char *chemin) {
 			const NkString c(chemin != nullptr ? chemin : "");
 			if (NkDocAnim *deja = DocParChemin(ui, c)) {
-				ui.pagesAnim.actif = deja->id;
+				// Ouvert deux fois : son onglet REVIENT au premier plan.
+				NkEditeurActiverDocument(m, ui, NkDoc(NkGenreDocument::NK_ANIM, deja->id));
 				return true;
 			}
 			anim::NkAnimationClip clip;
@@ -472,28 +475,30 @@ namespace nkentseu {
 		}
 
 		bool NkEditeurFermerDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id) {
+			return NkEditeurFermerDocument(m, ui, NkDoc(NkGenreDocument::NK_ANIM, id));
+		}
+
+		bool NkEditeurDetruireDocAnim(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id) {
 			for (uint32 i = 0; i < (uint32)ui.pagesAnim.docs.Size(); ++i) {
 				if (ui.pagesAnim.docs[i].id != id) {
 					continue;
 				}
 				NkEditeurRendreApercu(m, ui.pagesAnim.docs[i]);
 				ui.pagesAnim.docs.Erase(ui.pagesAnim.docs.Begin() + i);
-				if (ui.pagesAnim.actif == id) {
-					// Le voisin de gauche, ou la scene.
-					ui.pagesAnim.actif = i > 0 ? ui.pagesAnim.docs[i - 1].id : 0;
-				}
 				return true;
 			}
 			return false;
 		}
 
 		NkDocAnim *NkEditeurDocAnimActif(NkEditeurInterface &ui) {
-			return ui.pagesAnim.actif != 0 ? DocParId(ui, ui.pagesAnim.actif) : nullptr;
+			const NkDocumentOuvert d = NkEditeurDocumentActif(ui);
+			return d.genre == NkGenreDocument::NK_ANIM ? DocParId(ui, d.cle) : nullptr;
 		}
 
 		bool NkEditeurPageAnimOuverte(const NkEditeurInterface &ui) noexcept {
-			for (uint32 i = 0; ui.pagesAnim.actif != 0 && i < (uint32)ui.pagesAnim.docs.Size(); ++i) {
-				if (ui.pagesAnim.docs[i].id == ui.pagesAnim.actif) {
+			const NkDocumentOuvert d = NkEditeurDocumentActif(ui);
+			for (uint32 i = 0; d.genre == NkGenreDocument::NK_ANIM && i < (uint32)ui.pagesAnim.docs.Size(); ++i) {
+				if (ui.pagesAnim.docs[i].id == d.cle) {
 					return true;
 				}
 			}
@@ -545,70 +550,8 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		// LES ONGLETS
+		// LES ONGLETS : (2026-10-02) dans la barre unique, NkEditeurDocuments.cpp
 		// =====================================================================
-		void NkEditeurDessinerOngletsAnim(NkEditeurCadre &c) {
-			NkEditeurInterface &ui = c.ui;
-			NkPagesAnim &pa = ui.pagesAnim;
-			auto &dl = c.ctx.dl;
-			const nkgui::NkGuiInput &in = c.ctx.input;
-			pa.onglets.Clear();
-			pa.croix.Clear();
-			// L'onglet de la SCENE la ramene au premier plan (sa croix reste a lui).
-			const NkRect &sc = ui.ongletScene;
-			if (pa.actif != 0 && in.mouseClicked[0] && NkEditeurDans(NkRect{sc.x, sc.y, sc.w - 24.f, sc.h}, in.mousePos)) {
-				pa.actif = 0;
-			}
-			float32 x = sc.x + sc.w + 4.f;
-			nk_uint64 fermer = 0;
-			for (uint32 i = 0; i < (uint32)pa.docs.Size(); ++i) {
-				NkDocAnim &d = pa.docs[i];
-				const bool actif = d.id == pa.actif;
-				const char *genre = d.genre == NkGenreDocAnim::NK_ANIMATION ? "Animation" : "Animateur";
-				NkString lib = NkString::Format("%s : %s", genre, d.nom.CStr());
-				const float32 point = 14.f, croixW = 20.f;
-				const float32 w = 12.f + point + renderer::NkTexteLargeur(c.police, lib.CStr()) + 8.f + croixW;
-				const NkRect r{x, sc.y, w, sc.h};
-				pa.onglets.PushBack(r);
-				const bool survol = NkEditeurDans(r, in.mousePos);
-				dl.AddRectFilled(r, actif ? c.pal.panneau : (survol ? c.pal.bouton : c.pal.fond), 2.f);
-				if (actif) {
-					dl.AddRectFilled(NkRect{r.x, r.y, r.w, 2.f}, c.pal.accent);
-				}
-				// La NATURE : un carre de la couleur de son type (anim. / graphe).
-				const NkColor nature(c.theme.Get(d.genre == NkGenreDocAnim::NK_ANIMATION ? NkRole::TypeAnim : NkRole::NodeActionHeader));
-				dl.AddRectFilled(NkRect{r.x + 8.f, r.y + r.h * 0.5f - 4.f, 8.f, 8.f}, nature, 1.f);
-				if (d.modifie) {
-					dl.AddCircleFilled(NkVec2{r.x + 12.f + point + renderer::NkTexteLargeur(c.police, lib.CStr()) + 6.f, r.y + r.h * 0.5f},
-									   3.5f, c.pal.selection);
-				}
-				const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
-				renderer::NkTexte(dl, c.police, r.x + 12.f + point, ty, lib.CStr(), actif ? c.pal.texte : c.pal.attenue);
-				const NkRect cx{r.x + r.w - croixW - 2.f, r.y + (r.h - 16.f) * 0.5f, 16.f, 16.f};
-				pa.croix.PushBack(cx);
-				const bool survolX = NkEditeurDans(cx, in.mousePos);
-				if (survolX) {
-					dl.AddRectFilled(cx, c.pal.boutonSurvol, 2.f);
-				}
-				const NkColor teinte = survolX ? c.pal.texte : c.pal.attenue;
-				dl.AddLine(NkVec2{cx.x + 4.5f, cx.y + 4.5f}, NkVec2{cx.x + cx.w - 4.5f, cx.y + cx.h - 4.5f}, teinte, 1.4f);
-				dl.AddLine(NkVec2{cx.x + cx.w - 4.5f, cx.y + 4.5f}, NkVec2{cx.x + 4.5f, cx.y + cx.h - 4.5f}, teinte, 1.4f);
-				if (in.mouseClicked[0]) {
-					if (survolX) {
-						fermer = d.id;
-					} else if (survol) {
-						pa.actif = d.id;
-						NkEditeurActiverOnglet(c, -1); // (fusion du 02/10) l'asset passe derriere
-						pa.actif = d.id;
-					}
-				}
-				x += w + 3.f;
-			}
-			// La fermeture APRES le parcours : jamais la liste qu'on parcourt.
-			if (fermer != 0) {
-				NkEditeurFermerDocAnim(c.m, ui, fermer);
-			}
-		}
 
 		// =====================================================================
 		// LA PAGE AU PREMIER PLAN
@@ -616,16 +559,15 @@ namespace nkentseu {
 		bool NkEditeurDessinerPageAnim(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;
 			NkPagesAnim &pa = ui.pagesAnim;
+			NkDocAnim *d = NkEditeurDocAnimActif(ui);
 			// Les documents qui ne sont PAS au premier plan s'entretiennent : un
 			// apercu quitte rend l'entite, un controleur suit le jeu.
 			for (uint32 i = 0; i < (uint32)pa.docs.Size(); ++i) {
-				if (pa.docs[i].id != pa.actif) {
+				if (&pa.docs[i] != d) {
 					NkEditeurEntretenirDocAnim(c, pa.docs[i], false);
 				}
 			}
-			NkDocAnim *d = NkEditeurDocAnimActif(ui);
 			if (d == nullptr) {
-				pa.actif = 0;
 				return false;
 			}
 			// Le corps ENTIER sous les onglets (la barre d'outils comprise : la page
@@ -678,7 +620,7 @@ namespace nkentseu {
 				} else if (d->genre == NkGenreDocAnim::NK_ANIMATEUR && c.m.etat != NkEtatJeu::NK_EDITION) {
 					NkEditeurExecuter(c, NK_A_ARRETER);
 				} else {
-					c.ui.pagesAnim.actif = 0; // Echap rend la scene
+					NkEditeurActiverDocument(c.m, c.ui, NkDocScene()); // Echap rend la scene
 				}
 				return true;
 			}

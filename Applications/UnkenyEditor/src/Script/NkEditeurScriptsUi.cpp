@@ -195,7 +195,7 @@ namespace nkentseu {
 				}
 				return;
 			}
-			NkEditeurOuvrirGraphe(s, c.m, (s.projet + ref).CStr());
+			NkEditeurOuvrirGraphe(s, c.m, (s.projet + ref).CStr(), &c.ui);
 		}
 
 		NkString NkEditeurEtatCompilationScripts(NkEditeurScripts &s) {
@@ -231,7 +231,7 @@ namespace nkentseu {
 					const NkString cree = NkEditeurNouveauBlueprint(m, DossierDeCreation(c.ui).CStr());
 					if (!cree.Empty()) {
 						c.ui.contenuPerime = true;
-						NkEditeurOuvrirGraphe(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr());
+						NkEditeurOuvrirGraphe(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr(), &c.ui);
 						s.ageReleve = 99.f;
 					}
 					break;
@@ -258,7 +258,7 @@ namespace nkentseu {
 			}
 			const NkString abs = NkEditeurCheminContenu(c.m, cheminNav);
 			if (FinitPar(cheminNav, ".nkbp")) {
-				NkEditeurOuvrirGraphe(*c.m.scripts, c.m, abs.CStr());
+				NkEditeurOuvrirGraphe(*c.m.scripts, c.m, abs.CStr(), &c.ui);
 				return true;
 			}
 			if (FinitPar(cheminNav, ".cpp") || FinitPar(cheminNav, ".h") || FinitPar(cheminNav, ".hpp")) {

@@ -62,6 +62,9 @@ namespace nkentseu {
 
 		/// Un onglet ouvert. Ce qu'il charge lui appartient (police, son, texture).
 		struct NkOngletAsset {
+				/// Son identite dans la barre des documents (NkEditeurDocuments.h) :
+				/// stable, quand les autres onglets se ferment.
+				nk_uint64 id = 0;
 				NkString nav;	 ///< « Contenu/... »
 				NkString disque; ///< le chemin absolu
 				NkGenreAsset genre = NkGenreAsset::NK_AUCUN;
@@ -89,7 +92,7 @@ namespace nkentseu {
 				NkVue2D camera;
 				NkHistoriqueEditeur historique;
 				uint64 selection = 0u; ///< identite de la selection (0 : aucune)
-				int32 onglet = -1;	   ///< l'onglet du prefab en cours d'edition
+				nk_uint64 onglet = 0;  ///< l'onglet (NkOngletAsset::id) du prefab en cours d'edition
 				ecs::NkEntityId racine;
 				/// Les .nkprefab enregistres pendant le mode : relus au retour, et leurs
 				/// instances de la scene suivent.
@@ -97,13 +100,27 @@ namespace nkentseu {
 		};
 
 		// --- Les onglets -------------------------------------------------------
+		// (2026-10-02) Leur barre et leur premier plan sont ceux de TOUS les
+		// documents (NkEditeurDocuments.h) ; ce qui suit en est la part des assets.
 		/// Ouvre l'asset `cheminNav` dans son onglet (ou y revient). Rend false
-		/// pour un genre sans onglet (la scene a son chemin a elle).
+		/// pour un genre sans onglet (la scene a son chemin a elle). Une ANIMATION
+		/// (.nkanim) s'ouvre dans la page Animation, un CONTROLEUR dans la page
+		/// Animateur (NkEditeurPagesAnim.h).
 		bool NkEditeurOuvrirAsset(NkEditeurCadre &c, const char *cheminNav);
-		/// Rend l'onglet `k` actif (-1 = la scene). Entrer dans un prefab met la
-		/// scene de cote ; en sortir la rend, et relit les prefabs enregistres.
+		/// Rend l'onglet `k` actif (-1 = la scene), par la porte de la barre.
+		/// Entrer dans un prefab met la scene de cote ; en sortir la rend, et relit
+		/// les prefabs enregistres.
 		void NkEditeurActiverOnglet(NkEditeurCadre &c, int32 k);
 		void NkEditeurFermerOnglet(NkEditeurCadre &c, int32 k);
+		/// L'indice (dans `ui.onglets`) de l'asset au premier plan, ou -1.
+		int32 NkEditeurOngletAssetActif(const NkEditeurInterface &ui) noexcept;
+		/// La part des assets dans la porte de la barre (NkEditeurDocuments.cpp) :
+		/// QUITTER l'onglet `id` (un son se tait ; le mode prefab rend la scene,
+		/// quel que soit `id`), ENTRER dans l'onglet `id` (un prefab met la scene
+		/// de cote -- refuse pendant le jeu), DETRUIRE l'onglet `id` (deja derriere).
+		void NkEditeurAssetQuitte(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
+		bool NkEditeurAssetEntre(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
+		bool NkEditeurDetruireAsset(NkEditeurModele &m, NkEditeurInterface &ui, nk_uint64 id);
 		/// L'onglet actif est-il un asset qui REMPLACE la vue (pas un prefab) ?
 		bool NkEditeurAssetALaPlaceDeLaVue(const NkEditeurInterface &ui) noexcept;
 		/// Le prefab en cours d'edition, ou nul.
@@ -112,8 +129,8 @@ namespace nkentseu {
 		bool NkEditeurEnregistrerPrefabOuvert(NkEditeurCadre &c);
 		/// L'editeur d'asset, a la place de la vue (barre de vue comprise).
 		void NkEditeurDessinerAsset(NkEditeurCadre &c);
-		/// Les onglets d'assets, a droite de celui de la scene (NkEditeurDessinerOnglets).
-		void NkEditeurDessinerOngletsAssets(NkEditeurCadre &c, float32 x);
+		// (2026-10-02) NkEditeurDessinerOngletsAssets n'existe plus : la barre
+		// unique (NkEditeurDessinerOngletsDocuments) les dessine.
 		/// Libere ce que les onglets ont charge (fin de l'application, bancs).
 		void NkEditeurFermerTousOnglets(NkEditeurCadre &c);
 

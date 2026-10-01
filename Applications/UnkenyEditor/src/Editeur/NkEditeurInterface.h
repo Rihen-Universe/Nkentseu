@@ -47,6 +47,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurContenu.h"
+#include "Editeur/NkEditeurDocuments.h"
 #include "Editeur/NkEditeurModele.h"
 #include "Editeur/NkEditeurPagesAnim.h"
 
@@ -524,15 +525,20 @@ namespace nkentseu {
 				};
 				NkVector<NkLigneMenuPeinte> menuLignes;
 
+				// --- LES ONGLETS DE DOCUMENT (2026-10-02, NkEditeurDocuments.h) ----
+				/// UNE barre : la scene, les pages Animation / Animateur, les assets,
+				/// chaque Blueprint ; LE premier plan (`documents.actif`).
+				NkDocuments documents;
+
 				// --- Les ONGLETS D'ASSETS (2026-10-01, R33, NkEditeurAssets.h) ----
-				/// Les assets ouverts (texture, police, son, prefab, controleur),
-				/// a droite de l'onglet de la scene ; -1 = la scene est active.
+				/// Les assets ouverts (texture, police, son, prefab, controleur) ;
+				/// leur onglet est dans `documents` (le premier plan aussi : plus
+				/// d'`ongletActif` ici, voir NkEditeurOngletAssetActif).
 				NkVector<NkOngletAsset *> onglets;
 				/// Le double-clic sur un asset a onglet, ouvert au relachement.
 				NkString assetEnAttente;
 				nkgui::NkVec2 assetAttente{0.f, 0.f}; ///< ou l'appui du double-clic est tombe
 				NkString appuiCarte; ///< la carte sous le dernier appui (chemin), vide sinon
-				int32 ongletActif = -1;
 				nkgui::NkRect ongletSceneRect{0.f, 0.f, 0.f, 0.f};
 				NkVector<nkgui::NkRect> ongletsRects;
 				NkVector<nkgui::NkRect> ongletsFermer;
@@ -887,7 +893,8 @@ namespace nkentseu {
 		void NkEditeurBordsFenetre(NkEditeurCadre &c);
 		/// La barre de titre : menus, titre, boutons de fenetre, zone de saisie.
 		void NkEditeurDessinerBarreMenus(NkEditeurCadre &c);
-		/// Les onglets de scene, sous la barre de titre : [ ● Scene_01  ✕ ].
+		/// Les onglets de document, sous la barre de titre : [ ● Scene_01  ✕ ] puis,
+		/// a sa droite, ceux de NkEditeurDocuments.h (animations, assets, Blueprints).
 		void NkEditeurDessinerOnglets(NkEditeurCadre &c);
 		/// Recopie au journal l'annonce du modele si elle est neuve. Appelee apres
 		/// chaque action qui peut annoncer DEUX choses dans la meme trame
