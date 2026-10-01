@@ -92,8 +92,19 @@ namespace nkentseu {
 							mJobs.pop_back();
 						}
 						job();
-						if (--mPending == 0)
+						if (--mPending == 0) {
+							// ⚠️ LE VERROU AVANT LE REVEIL (2026-09-30). Sans lui, un
+							//    reveil pouvait se PERDRE : WaitAll tient mDoneMutex, lit
+							//    mPending != 0, et -- avant d'etre endormi -- ce fil passe
+							//    a 0 et notifie ; personne n'attend encore, WaitAll
+							//    s'endort ensuite pour toujours. Mesure : NogeDemo
+							//    --selftest gelait 2 fois sur 12 (pile : le fil principal
+							//    dans WaitAll, groupe PostUpdate, tous les ouvriers au
+							//    repos). Prendre le verrou ici attend que WaitAll dorme
+							//    vraiment (wait le relache atomiquement) : plus de trou.
+							std::lock_guard<std::mutex> lock(mDoneMutex);
 							mDoneCv.notify_all();
+						}
 					}
 				}
 
