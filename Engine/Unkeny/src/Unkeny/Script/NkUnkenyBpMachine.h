@@ -44,8 +44,14 @@ namespace nkentseu {
 				const NkValeurBp *args = nullptr;
 				NkValeurBp *res = nullptr;
 				const NkModuleBp *module = nullptr;
-				/// Le texte de l'argument `i` (une constante texte), jamais nul.
+				/// Les textes FABRIQUES pendant l'appel (concatenation, variable
+				/// texte) ; nul : le cadre n'en fabrique pas (les resultats texte
+				/// valent alors « »).
+				NkVector<NkString> *textes = nullptr;
+				/// Le texte de l'argument `i` (constante ou texte fabrique), jamais nul.
 				const char *Texte(uint32 i) const noexcept;
+				/// Fabrique un texte : rend la valeur `i` d'un registre texte qui le designe.
+				int32 NouveauTexte(const char *texte) const;
 				NkUnkEntite Entite(uint32 i) const noexcept {
 					NkUnkEntite e;
 					e.pack = args[i].e;
@@ -91,12 +97,31 @@ namespace nkentseu {
 				const NkUnkEvenementV1 *ev = nullptr;
 				/// Les variables du module (module.variables.Size()), lues et ecrites.
 				NkValeurBp *variables = nullptr;
-				/// Le tampon des registres, REUTILISE d'un appel a l'autre.
+				/// Le tampon des registres, REUTILISE d'un appel a l'autre. Les
+				/// appels de fonctions y EMPILENT leurs cadres (au-dessus de celui de
+				/// l'appelant).
 				NkVector<NkValeurBp> *registres = nullptr;
+				/// Les textes fabriques pendant l'appel (facultatif ; l'hote le vide
+				/// entre deux evenements). Un registre texte < 0 les designe.
+				NkVector<NkString> *textes = nullptr;
+				/// Les parametres d'un evenement PERSONNALISE (repartiteur) : copies
+				/// dans les premiers registres de la fonction appelee.
+				const NkValeurBp *arguments = nullptr;
+				uint32 nbArguments = 0u;
 				uint32 budget = NK_BP_BUDGET;
 				/// Rempli : instructions executees, natifs refuses par l'hote.
 				uint32 instructions = 0u;
 				uint32 refus = 0u;
+				/// LA TRACE (l'editeur : fils qui ont servi, compteurs « x3 ») :
+				/// appelee quand l'execution passe a un autre NOEUD du graphe (table
+				/// de lignes). Nulle : aucun cout.
+				void (*trace)(void *donnees, uint32 fonction, uint32 noeud) = nullptr;
+				void *traceDonnees = nullptr;
+				/// Un REPARTITEUR appele sur une AUTRE entite (NK_DIFFUSER) : l'hote
+				/// livre l'evenement personnalise `nom` a ses scripts. Nul : refuse.
+				bool (*diffuser)(void *donnees, NkUnkEntite cible, const char *nom, const NkValeurBp *args, uint32 n,
+								 const NkTypeBp *types) = nullptr;
+				void *diffuserDonnees = nullptr;
 		};
 
 		struct NkFauteBp {
@@ -126,10 +151,25 @@ namespace nkentseu {
 				uint32 ConstBooleen(bool v);
 				uint32 ConstVec2(float32 x, float32 y);
 				uint32 ConstTexte(const char *texte);
+				uint32 ConstCouleur(uint32 rvba);
 				/// La variable `nom` (creee au premier appel).
 				uint32 Variable(const char *nom, NkTypeBp type, const NkValeurBp &defaut, bool exposee = true);
 				/// Une fonction neuve, qui devient la COURANTE. Rend son indice.
 				uint32 Fonction(const char *nom);
+				/// (format 2) La SIGNATURE de la fonction COURANTE : ses parametres
+				/// puis ses resultats deviennent ses premiers registres. A appeler
+				/// juste apres Fonction(), avant tout autre registre.
+				void Signature(const NkTypeBp *params, uint32 np, const NkTypeBp *resultats, uint32 nr);
+				/// Fait de `f` la fonction COURANTE (les fonctions sont declarees
+				/// d'abord, pour que leurs appels se resolvent, puis remplies).
+				void Courante(uint32 f) noexcept {
+					mCourante = f;
+				}
+				uint32 Courante() const noexcept {
+					return mCourante;
+				}
+				/// NK_APPEL : la fonction `f`, puis ses parametres et ses resultats.
+				void Appel(uint32 f, const uint32 *registres, uint32 nombre);
 				uint32 Registre(NkTypeBp type);
 				uint32 Pc() const noexcept;
 				void Emettre(NkOpBp op);

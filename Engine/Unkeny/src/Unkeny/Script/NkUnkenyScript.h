@@ -50,9 +50,17 @@ namespace nkentseu {
 		static constexpr uint32 NK_UNKENY_SCRIPT_NOM_MAX = 64u;
 		/// Longueur d'un nom de variable, zero final compris.
 		static constexpr uint32 NK_UNKENY_VAR_NOM_MAX = 20u;
+		/// Longueur du TEXTE d'une variable texte (ou du nom de l'entite d'une
+		/// variable entite), zero final compris.
+		static constexpr uint32 NK_UNKENY_VAR_TEXTE_MAX = 48u;
 
-		/// Le genre d'une variable (les valeurs NK_UNK_* de NkUnkenyScriptABI.h).
-		enum class NkTypeVarScript : uint8 { NK_REEL = 0, NK_ENTIER, NK_BOOLEEN, NK_VEC2 };
+		/// Le genre d'une variable (les quatre premiers : NK_UNK_* de
+		/// NkUnkenyScriptABI.h). AJOUTES A LA FIN (2026-10-01, Blueprint a la UE5) :
+		///   texte    -> `texte` ;
+		///   couleur  -> RVBA en deux moities EXACTES : x = RRVV, y = BBAA (< 2^16) ;
+		///   entite   -> `texte` = son NOM (une poignee ne survit pas a la
+		///               sauvegarde ; un nom, si -- « » = aucune).
+		enum class NkTypeVarScript : uint8 { NK_REEL = 0, NK_ENTIER, NK_BOOLEEN, NK_VEC2, NK_TEXTE, NK_COULEUR, NK_ENTITE };
 
 		/// Une variable d'un script de l'entite.
 		struct NkVarScript {
@@ -60,7 +68,18 @@ namespace nkentseu {
 				uint8 script = 0;					  ///< l'emplacement du script qui la porte
 				uint8 type = 0;						  ///< NkTypeVarScript
 				math::NkVec2f valeur{0.f, 0.f};
+				char texte[NK_UNKENY_VAR_TEXTE_MAX] = {}; ///< texte, entite (son nom)
 		};
+
+		/// Une couleur RVBA (0xRRVVBBAA) <-> les deux reels d'une variable.
+		inline math::NkVec2f NkCouleurVersVar(uint32 rvba) noexcept {
+			return math::NkVec2f(static_cast<float32>(rvba >> 16), static_cast<float32>(rvba & 0xFFFFu));
+		}
+		inline uint32 NkCouleurDeVar(const math::NkVec2f &v) noexcept {
+			const uint32 hi = v.x > 0.f ? static_cast<uint32>(v.x) & 0xFFFFu : 0u;
+			const uint32 lo = v.y > 0.f ? static_cast<uint32>(v.y) & 0xFFFFu : 0u;
+			return (hi << 16) | lo;
+		}
 
 		/// Le composant.
 		struct NkScript2D {
@@ -91,6 +110,10 @@ namespace nkentseu {
 		/// Pose (ou cree) la variable. false : plus de place, ou nom trop long.
 		bool NkScriptPoserVariable(NkScript2D &s, uint32 emplacement, const char *nom, NkTypeVarScript type,
 								   const math::NkVec2f &valeur) noexcept;
+		/// Pose (ou cree) une variable TEXTE ou ENTITE (son nom). Le texte est
+		/// tronque a NK_UNKENY_VAR_TEXTE_MAX - 1 octets (sans couper un caractere).
+		bool NkScriptPoserTexte(NkScript2D &s, uint32 emplacement, const char *nom, NkTypeVarScript type,
+								const char *texte) noexcept;
 		/// Le nombre de variables du script `emplacement`.
 		uint32 NkScriptNbVariables(const NkScript2D &s, uint32 emplacement) noexcept;
 

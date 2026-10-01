@@ -135,6 +135,40 @@ namespace nkentseu {
 				bool faute = false;
 		};
 
+		/// (2026-10-01) Un PASSAGE d'evenement dans un Blueprint trace : quand,
+		/// quel evenement, sur quelle entite, et par quels noeuds (le premier, le
+		/// dernier, combien). La console de simulation de l'editeur le montre.
+		struct NkPassageBp {
+				float32 temps = 0.f;
+				uint32 genre = 0u;
+				NkString parametre; ///< l'action, le repartiteur
+				NkString entite;	///< le nom de l'entite
+				uint32 fonction = 0u;
+				uint32 premier = 0u, dernier = 0u; ///< noeuds (codes de la table de lignes)
+				uint32 nbNoeuds = 0u;
+				bool faute = false;
+		};
+
+		/// LA TRACE d'un Blueprint (« Simuler » dans l'editeur : les fils qui ont
+		/// servi brillent, chaque noeud dit « x3 », les noeuds jamais atteints
+		/// s'estompent). Compte, pour chaque noeud, les EVENEMENTS qui y sont
+		/// passes (pas les instructions : un « Si » evalue deux fois compte une).
+		struct NkTraceBp {
+				NkString script;
+				NkVector<uint32> noeuds; ///< codes de noeud (table de lignes)
+				NkVector<uint32> comptes;
+				NkVector<NkPassageBp> passages; ///< les derniers (64 au plus)
+				uint32 evenements = 0u;
+				uint32 Compte(uint32 noeud) const noexcept {
+					for (uint32 i = 0; i < noeuds.Size(); ++i) {
+						if (noeuds[i] == noeud) {
+							return comptes[i];
+						}
+					}
+					return 0u;
+				}
+		};
+
 		class NkHoteScripts2D {
 			public:
 				NkHoteScripts2D();
@@ -207,6 +241,28 @@ namespace nkentseu {
 				/// L'instance est-elle en faute ?
 				bool EnFaute(ecs::NkEntityId id, uint32 emplacement) const noexcept;
 
+				// --- La TRACE des Blueprints (l'editeur, « Simuler ») -----------
+				void ActiverTrace(bool active) noexcept {
+					mTraceActive = active;
+				}
+				bool TraceActive() const noexcept {
+					return mTraceActive;
+				}
+				/// La trace du script `nom` (« Contenu/Scripts/Porte.nkbp »), ou nul.
+				const NkTraceBp *Trace(const char *nom) const noexcept;
+				void ViderTrace() noexcept {
+					mTraces.Clear();
+				}
+
+				/// (2026-10-01) Un REPARTITEUR appele sur `cible` : l'evenement
+				/// personnalise est mis en FILE et livre a la fin du passage en cours
+				/// (jamais pendant l'appel qui l'a demande : pas de reentree dans la
+				/// machine). false : cible morte, ou plus de 8 parametres.
+				bool Diffuser(NkUnkEntite cible, NkUnkEntite source, const char *nom, const NkValeurBp *args, uint32 n,
+							  const NkTypeBp *types, const NkModuleBp *module);
+				/// Livre la file (le passage le fait seul ; un banc aussi).
+				void LivrerDiffusions();
+
 				// --- Pour la table C (NkUnkenyScripts.cpp), pas pour l'appelant ---
 				NkScene *Scene() const noexcept {
 					return mScene;
@@ -273,6 +329,27 @@ namespace nkentseu {
 				NkVector<ecs::NkEntityId> mListe;			///< le releve du passage (reutilise)
 				NkVector<NkValeurBp> mRegistres;			///< le cadre de la VM (reutilise)
 				NkVector<NkValeurBp> mVariables;			///< les variables d'un appel (reutilise)
+				NkVector<NkString> mTextes;					///< les textes fabriques pendant un appel
+				// --- La trace -------------------------------------------------
+				bool mTraceActive = false;
+				NkVector<NkTraceBp> mTraces;
+				NkVector<uint32> mVus; ///< les noeuds vus pendant l'appel en cours
+				// --- Les repartiteurs -------------------------------------------
+				struct NkDiffusionBp {
+						uint64 cible = 0u, source = 0u;
+						NkString nom;
+						uint32 n = 0u;
+						NkValeurBp args[8];
+						NkTypeBp types[8] = {};
+						NkString textes[8];
+				};
+				NkVector<NkDiffusionBp> mFile;
+				const NkDiffusionBp *mDiffusion = nullptr; ///< celle qu'on livre
+				const NkModuleBp *mModuleCourant = nullptr; ///< celui qui s'execute (ses textes)
+				uint64 mSoiCourant = 0u;					///< l'entite dont le script s'execute
+				static bool DiffuserBp(void *donnees, NkUnkEntite cible, const char *nom, const NkValeurBp *args, uint32 n,
+									   const NkTypeBp *types);
+				static void TracerBp(void *donnees, uint32 fonction, uint32 noeud);
 				NkVector<NkLigneScript> mJournal;
 				NkSortieJournal mSortie = nullptr;
 				void *mSortieDonnees = nullptr;

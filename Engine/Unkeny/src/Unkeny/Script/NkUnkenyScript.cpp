@@ -147,6 +147,30 @@ namespace nkentseu {
 			return false;
 		}
 
+		bool NkScriptPoserTexte(NkScript2D &s, uint32 emplacement, const char *nom, NkTypeVarScript type,
+								const char *texte) noexcept {
+			if (!NkScriptPoserVariable(s, emplacement, nom, type, math::NkVec2f(0.f, 0.f))) {
+				return false;
+			}
+			NkVarScript *x = NkScriptVariable(s, emplacement, nom);
+			if (x == nullptr) {
+				return false;
+			}
+			std::memset(x->texte, 0, NK_UNKENY_VAR_TEXTE_MAX);
+			if (texte != nullptr) {
+				usize n = std::strlen(texte);
+				if (n >= NK_UNKENY_VAR_TEXTE_MAX) {
+					n = NK_UNKENY_VAR_TEXTE_MAX - 1u;
+					// Ne pas couper un caractere UTF-8 en deux.
+					while (n > 0u && (static_cast<uint8>(texte[n]) & 0xC0u) == 0x80u) {
+						--n;
+					}
+				}
+				std::memcpy(x->texte, texte, n);
+			}
+			return true;
+		}
+
 		uint32 NkScriptNbVariables(const NkScript2D &s, uint32 emplacement) noexcept {
 			uint32 n = 0;
 			for (uint32 v = 0; v < NK_UNKENY_SCRIPT_VARS_MAX; ++v) {
@@ -168,6 +192,8 @@ namespace nkentseu {
 				NK_UNKENY_CHAMP_TABLEAU(NkScript2D, vars, NkVarScript, script, NkTypeChamp::NK_U8, "vars.script"),
 				NK_UNKENY_CHAMP_TABLEAU(NkScript2D, vars, NkVarScript, type, NkTypeChamp::NK_U8, "vars.type"),
 				NK_UNKENY_CHAMP_TABLEAU(NkScript2D, vars, NkVarScript, valeur, NkTypeChamp::NK_VEC2, "vars.valeur"),
+				// (2026-10-01) Le texte d'une variable texte, le NOM d'une entite.
+				NK_UNKENY_CHAMP_TABLEAU(NkScript2D, vars, NkVarScript, texte, NkTypeChamp::NK_TEXTE, "vars.texte"),
 			};
 			nombre = static_cast<uint32>(sizeof(k) / sizeof(k[0]));
 			return k;

@@ -18,10 +18,23 @@ namespace nkentseu {
 
 		const char *NkAppelNatifBp::Texte(uint32 i) const noexcept {
 			const int32 k = args[i].i;
-			if (module == nullptr || k < 0 || static_cast<uint32>(k) >= module->constantes.Size()) {
+			if (k < 0) {
+				// Un texte FABRIQUE pendant l'appel : -1 - indice.
+				const int64 d = -static_cast<int64>(k) - 1;
+				return textes != nullptr && d < static_cast<int64>(textes->Size()) ? (*textes)[static_cast<uint32>(d)].CStr() : "";
+			}
+			if (module == nullptr || static_cast<uint32>(k) >= module->constantes.Size()) {
 				return "";
 			}
 			return module->constantes[static_cast<uint32>(k)].texte.CStr();
+		}
+
+		int32 NkAppelNatifBp::NouveauTexte(const char *texte) const {
+			if (textes == nullptr) {
+				return -0x7FFFFFFF; // hors de toute table : se lit « »
+			}
+			textes->PushBack(NkString(texte != nullptr ? texte : ""));
+			return -static_cast<int32>(textes->Size());
 		}
 
 		// =====================================================================
@@ -30,7 +43,7 @@ namespace nkentseu {
 		namespace {
 			constexpr NkTypeBp RIEN = NkTypeBp::NK_RIEN, B_ = NkTypeBp::NK_BOOLEEN, I_ = NkTypeBp::NK_ENTIER,
 							   R_ = NkTypeBp::NK_REEL, V_ = NkTypeBp::NK_VEC2, E_ = NkTypeBp::NK_ENTITE,
-							   T_ = NkTypeBp::NK_TEXTE;
+							   T_ = NkTypeBp::NK_TEXTE, C_ = NkTypeBp::NK_COULEUR;
 
 			bool Afficher(NkAppelNatifBp &a) {
 				a.hote->Afficher(a.hote->ctx, a.soi, a.Texte(0));
@@ -124,6 +137,46 @@ namespace nkentseu {
 			bool JouerSon(NkAppelNatifBp &a) {
 				return a.hote->JouerSon(a.hote->ctx, a.Texte(0), a.args[1].x) != 0;
 			}
+			// ── (2026-10-01) Les textes, les couleurs : des CALCULS, sans l'hote ──
+			bool Concatener(NkAppelNatifBp &a) {
+				const NkString t = NkString(a.Texte(0)) + a.Texte(1);
+				a.res[0].i = a.NouveauTexte(t.CStr());
+				return true;
+			}
+			bool TexteDeReel(NkAppelNatifBp &a) {
+				char b[48];
+				std::snprintf(b, sizeof(b), "%g", static_cast<double>(a.args[0].x));
+				a.res[0].i = a.NouveauTexte(b);
+				return true;
+			}
+			bool TexteDeEntier(NkAppelNatifBp &a) {
+				char b[24];
+				std::snprintf(b, sizeof(b), "%d", static_cast<int>(a.args[0].i));
+				a.res[0].i = a.NouveauTexte(b);
+				return true;
+			}
+			bool TextesEgaux(NkAppelNatifBp &a) {
+				a.res[0].i = std::strcmp(a.Texte(0), a.Texte(1)) == 0 ? 1 : 0;
+				return true;
+			}
+			uint32 Canal(float32 v) {
+				const float32 c = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+				return static_cast<uint32>(c * 255.f + 0.5f);
+			}
+			bool CouleurRvba(NkAppelNatifBp &a) {
+				const uint32 rvba = (Canal(a.args[0].x) << 24) | (Canal(a.args[1].x) << 16) | (Canal(a.args[2].x) << 8) | Canal(a.args[3].x);
+				a.res[0].i = static_cast<int32>(rvba);
+				return true;
+			}
+			bool PoserCouleurC(NkAppelNatifBp &a) {
+				return a.hote->PoserCouleur(a.hote->ctx, a.Entite(0), static_cast<uint32>(a.args[1].i)) != 0;
+			}
+			bool NomEntite(NkAppelNatifBp &a) {
+				char b[64] = {};
+				const bool ok = a.hote->Nom(a.hote->ctx, a.Entite(0), b, sizeof(b)) != 0;
+				a.res[0].i = a.NouveauTexte(b);
+				return ok;
+			}
 
 			/// Le constructeur d'une entree de la table.
 			struct B {
@@ -155,8 +208,8 @@ namespace nkentseu {
 			};
 
 			struct NkTableNatifs {
-					NkNatifBp natifs[40];
-					NkSignatureNatifBp signatures[40];
+					NkNatifBp natifs[64];
+					NkSignatureNatifBp signatures[64];
 					uint32 nombre = 0u;
 					void Ajouter(const B &b) {
 						natifs[nombre] = b.n;
@@ -221,6 +274,26 @@ namespace nkentseu {
 									.R(B_, "enfoncée")
 									.Pur());
 						Ajouter(B("unkeny.son.jouer", "Jouer un son", "Son", &JouerSon).P(T_, "son").P(R_, "volume"));
+						// (2026-10-01) Les textes et les couleurs (editeur de Blueprint a la UE5).
+						Ajouter(B("unkeny.texte.concatener", "Concaténer", "Texte", &Concatener)
+									.P(T_, "a")
+									.P(T_, "b")
+									.R(T_, "texte")
+									.Pur());
+						Ajouter(B("unkeny.texte.de_reel", "Réel en texte", "Texte", &TexteDeReel).P(R_, "valeur").R(T_, "texte").Pur());
+						Ajouter(B("unkeny.texte.de_entier", "Entier en texte", "Texte", &TexteDeEntier).P(I_, "valeur").R(T_, "texte").Pur());
+						Ajouter(B("unkeny.texte.egaux", "Textes égaux", "Texte", &TextesEgaux).P(T_, "a").P(T_, "b").R(B_, "égaux").Pur());
+						Ajouter(B("unkeny.couleur.rvba", "Couleur RVBA", "Couleur", &CouleurRvba)
+									.P(R_, "r")
+									.P(R_, "v")
+									.P(R_, "b")
+									.P(R_, "a")
+									.R(C_, "couleur")
+									.Pur());
+						Ajouter(B("unkeny.sprite.poser_couleur", "Poser la couleur (couleur)", "Sprite", &PoserCouleurC)
+									.P(E_, "entité")
+									.P(C_, "couleur"));
+						Ajouter(B("unkeny.entite.nom", "Nom de l'entité", "Entité", &NomEntite).P(E_, "entité").R(T_, "nom").Pur());
 					}
 			};
 
@@ -260,252 +333,351 @@ namespace nkentseu {
 		// =====================================================================
 		// L'interpreteur
 		// =====================================================================
-		bool NkExecuterBp(const NkProgrammeBp &p, uint32 f, NkCadreBp &c, NkFauteBp &faute) {
-			const NkModuleBp &m = p.module;
-			auto echec = [&](const char *raison, uint32 pc) {
-				faute.raison = raison;
-				faute.fonction = f;
-				faute.pc = pc;
-				faute.noeud = m.NoeudDe(f, pc);
-				return false;
-			};
-			if (!p.pret || f >= m.fonctions.Size() || c.registres == nullptr) {
-				return echec("programme non verifie", 0u);
-			}
-			const NkFonctionBp &fn = m.fonctions[f];
-			NkVector<NkValeurBp> &regs = *c.registres;
-			const uint32 nreg = static_cast<uint32>(fn.registres.Size());
-			if (regs.Size() < nreg) {
-				regs.Resize(nreg);
-			}
-			for (uint32 i = 0; i < nreg; ++i) {
-				regs[i] = NkValeurBp();
-			}
-			NkValeurBp *r = regs.Data();
-			const uint32 *code = fn.code.Data();
-			const uint32 taille = static_cast<uint32>(fn.code.Size());
-			uint32 natifs = 0;
-			const NkNatifBp *table = NkNatifsBp(natifs);
-			NkValeurBp args[4];
-			NkValeurBp res[2];
-			uint32 pc = 0;
-			c.instructions = 0u;
-			while (pc < taille) {
-				if (++c.instructions > c.budget) {
-					return echec("budget d'instructions epuise (boucle sans fin ?)", pc);
-				}
-				const uint32 at = pc;
-				const NkOpBp op = static_cast<NkOpBp>(code[pc++]);
-				switch (op) {
-					case NkOpBp::NK_FIN:
-						return true;
-					case NkOpBp::NK_CONST: {
-						const uint32 d = code[pc++], k = code[pc++];
-						r[d] = m.constantes[k].valeur;
-						if (m.constantes[k].type == NkTypeBp::NK_TEXTE) {
-							r[d].i = static_cast<int32>(k);
+		namespace {
+			/// Une execution : le programme, le cadre, la faute -- et la pile des
+			/// appels de fonctions, empilee dans le MEME tampon de registres.
+			struct NkExecution {
+					const NkProgrammeBp &p;
+					NkCadreBp &c;
+					NkFauteBp &faute;
+					const NkNatifBp *table = nullptr;
+					bool Echec(const char *raison, uint32 f, uint32 pc) {
+						faute.raison = raison;
+						faute.fonction = f;
+						faute.pc = pc;
+						faute.noeud = p.module.NoeudDe(f, pc);
+						return false;
+					}
+
+					/// La fonction `f`, son cadre a partir du registre `base` (ses
+					/// parametres y sont deja). false = faute.
+					bool Executer(uint32 f, uint32 base, uint32 profondeur) {
+						const NkModuleBp &m = p.module;
+						if (profondeur >= NK_BP_PILE_MAX) {
+							return Echec("pile d'appels trop profonde (recursion sans fin ?)", f, 0u);
 						}
-						break;
-					}
-					case NkOpBp::NK_COPIER: {
-						const uint32 d = code[pc++], s = code[pc++];
-						r[d] = r[s];
-						break;
-					}
-					case NkOpBp::NK_LIRE_VAR: {
-						const uint32 d = code[pc++], v = code[pc++];
-						r[d] = c.variables[v];
-						break;
-					}
-					case NkOpBp::NK_ECRIRE_VAR: {
-						const uint32 v = code[pc++], s = code[pc++];
-						c.variables[v] = r[s];
-						break;
-					}
-					case NkOpBp::NK_SOI:
-						r[code[pc++]].e = c.soi.pack;
-						break;
-					case NkOpBp::NK_ARG: {
-						const uint32 d = code[pc++], n = code[pc++];
-						NkValeurBp v;
-						if (c.ev != nullptr) {
-							switch (static_cast<NkArgBp>(n)) {
-								case NkArgBp::NK_DT:
-									v.x = c.ev->dt;
+						const NkFonctionBp &fn = m.fonctions[f];
+						NkVector<NkValeurBp> &regs = *c.registres;
+						const uint32 nreg = static_cast<uint32>(fn.registres.Size());
+						if (regs.Size() < base + nreg) {
+							regs.Resize(base + nreg);
+						}
+						// Les registres au-dela des parametres repartent de zero (les
+						// resultats compris : un chemin sans « Retour » rend 0).
+						for (uint32 i = static_cast<uint32>(fn.params.Size()); i < nreg; ++i) {
+							regs[base + i] = NkValeurBp();
+						}
+						NkValeurBp *r = regs.Data() + base;
+						const uint32 *code = fn.code.Data();
+						const uint32 taille = static_cast<uint32>(fn.code.Size());
+						NkValeurBp args[8];
+						NkValeurBp res[2];
+						uint32 noeudTrace = 0xFFFFFFFFu;
+						uint32 pc = 0;
+						while (pc < taille) {
+							if (++c.instructions > c.budget) {
+								return Echec("budget d'instructions epuise (boucle sans fin ?)", f, pc);
+							}
+							const uint32 at = pc;
+							if (c.trace != nullptr) {
+								const uint32 n = m.NoeudDe(f, pc);
+								if (n != noeudTrace) {
+									noeudTrace = n;
+									if (n != 0u) {
+										c.trace(c.traceDonnees, f, n);
+									}
+								}
+							}
+							const NkOpBp op = static_cast<NkOpBp>(code[pc++]);
+							switch (op) {
+								case NkOpBp::NK_FIN:
+									return true;
+								case NkOpBp::NK_CONST: {
+									const uint32 d = code[pc++], k = code[pc++];
+									r[d] = m.constantes[k].valeur;
+									if (m.constantes[k].type == NkTypeBp::NK_TEXTE) {
+										r[d].i = static_cast<int32>(k);
+									}
 									break;
-								case NkArgBp::NK_AUTRE:
-									v.e = c.ev->autre.pack;
+								}
+								case NkOpBp::NK_COPIER: {
+									const uint32 d = code[pc++], s = code[pc++];
+									r[d] = r[s];
 									break;
-								case NkArgBp::NK_SOI_EST_ZONE:
-									v.i = c.ev->soiEstLaZone != 0 ? 1 : 0;
+								}
+								case NkOpBp::NK_LIRE_VAR: {
+									const uint32 d = code[pc++], v = code[pc++];
+									r[d] = c.variables[v];
 									break;
-								case NkArgBp::NK_VALEUR:
-									v.x = c.ev->valeur;
+								}
+								case NkOpBp::NK_ECRIRE_VAR: {
+									const uint32 v = code[pc++], s = code[pc++];
+									c.variables[v] = r[s];
 									break;
+								}
+								case NkOpBp::NK_SOI:
+									r[code[pc++]].e = c.soi.pack;
+									break;
+								case NkOpBp::NK_ARG: {
+									const uint32 d = code[pc++], n = code[pc++];
+									NkValeurBp v;
+									if (c.ev != nullptr) {
+										switch (static_cast<NkArgBp>(n)) {
+											case NkArgBp::NK_DT:
+												v.x = c.ev->dt;
+												break;
+											case NkArgBp::NK_AUTRE:
+												v.e = c.ev->autre.pack;
+												break;
+											case NkArgBp::NK_SOI_EST_ZONE:
+												v.i = c.ev->soiEstLaZone != 0 ? 1 : 0;
+												break;
+											case NkArgBp::NK_VALEUR:
+												v.x = c.ev->valeur;
+												break;
+											default:
+												break;
+										}
+									}
+									r[d] = v;
+									break;
+								}
+								case NkOpBp::NK_ADD_R:
+								case NkOpBp::NK_SUB_R:
+								case NkOpBp::NK_MUL_R:
+								case NkOpBp::NK_DIV_R: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const float32 x = r[a].x, y = r[b].x;
+									r[d] = NkValeurBp();
+									r[d].x = op == NkOpBp::NK_ADD_R	  ? x + y
+											 : op == NkOpBp::NK_SUB_R ? x - y
+											 : op == NkOpBp::NK_MUL_R ? x * y
+																	  : (y != 0.f ? x / y : 0.f);
+									break;
+								}
+								case NkOpBp::NK_ADD_I:
+								case NkOpBp::NK_SUB_I:
+								case NkOpBp::NK_MUL_I:
+								case NkOpBp::NK_DIV_I: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const int32 x = r[a].i, y = r[b].i;
+									if (op == NkOpBp::NK_DIV_I && y == 0) {
+										return Echec("division entiere par zero", f, at);
+									}
+									r[d] = NkValeurBp();
+									r[d].i = op == NkOpBp::NK_ADD_I	  ? x + y
+											 : op == NkOpBp::NK_SUB_I ? x - y
+											 : op == NkOpBp::NK_MUL_I ? x * y
+																	  : x / y;
+									break;
+								}
+								case NkOpBp::NK_ADD_V:
+								case NkOpBp::NK_SUB_V: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const float32 s = op == NkOpBp::NK_ADD_V ? 1.f : -1.f;
+									const float32 x = r[a].x + s * r[b].x, y = r[a].y + s * r[b].y;
+									r[d] = NkValeurBp();
+									r[d].x = x;
+									r[d].y = y;
+									break;
+								}
+								case NkOpBp::NK_MUL_VR: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const float32 x = r[a].x * r[b].x, y = r[a].y * r[b].x;
+									r[d] = NkValeurBp();
+									r[d].x = x;
+									r[d].y = y;
+									break;
+								}
+								case NkOpBp::NK_LT_R:
+								case NkOpBp::NK_LE_R:
+								case NkOpBp::NK_EQ_R: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const float32 x = r[a].x, y = r[b].x;
+									const bool v = op == NkOpBp::NK_LT_R ? x < y : op == NkOpBp::NK_LE_R ? x <= y : x == y;
+									r[d] = NkValeurBp();
+									r[d].i = v ? 1 : 0;
+									break;
+								}
+								case NkOpBp::NK_LT_I:
+								case NkOpBp::NK_LE_I:
+								case NkOpBp::NK_EQ_I: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const int32 x = r[a].i, y = r[b].i;
+									const bool v = op == NkOpBp::NK_LT_I ? x < y : op == NkOpBp::NK_LE_I ? x <= y : x == y;
+									r[d] = NkValeurBp();
+									r[d].i = v ? 1 : 0;
+									break;
+								}
+								case NkOpBp::NK_EQ_E: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const bool v = r[a].e == r[b].e;
+									r[d] = NkValeurBp();
+									r[d].i = v ? 1 : 0;
+									break;
+								}
+								case NkOpBp::NK_ET:
+								case NkOpBp::NK_OU: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const bool v = op == NkOpBp::NK_ET ? (r[a].i != 0 && r[b].i != 0) : (r[a].i != 0 || r[b].i != 0);
+									r[d] = NkValeurBp();
+									r[d].i = v ? 1 : 0;
+									break;
+								}
+								case NkOpBp::NK_NON: {
+									const uint32 d = code[pc++], a = code[pc++];
+									const bool v = r[a].i == 0;
+									r[d] = NkValeurBp();
+									r[d].i = v ? 1 : 0;
+									break;
+								}
+								case NkOpBp::NK_I2R: {
+									const uint32 d = code[pc++], a = code[pc++];
+									const float32 x = static_cast<float32>(r[a].i);
+									r[d] = NkValeurBp();
+									r[d].x = x;
+									break;
+								}
+								case NkOpBp::NK_VEC2: {
+									const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
+									const float32 x = r[a].x, y = r[b].x;
+									r[d] = NkValeurBp();
+									r[d].x = x;
+									r[d].y = y;
+									break;
+								}
+								case NkOpBp::NK_VX:
+								case NkOpBp::NK_VY:
+								case NkOpBp::NK_LONGUEUR: {
+									const uint32 d = code[pc++], a = code[pc++];
+									const float32 x = r[a].x, y = r[a].y;
+									r[d] = NkValeurBp();
+									r[d].x = op == NkOpBp::NK_VX ? x : op == NkOpBp::NK_VY ? y : math::NkSqrt(x * x + y * y);
+									break;
+								}
+								case NkOpBp::NK_NORMALISER: {
+									const uint32 d = code[pc++], a = code[pc++];
+									const float32 x = r[a].x, y = r[a].y;
+									const float32 l = math::NkSqrt(x * x + y * y);
+									r[d] = NkValeurBp();
+									if (l > 1e-12f) {
+										r[d].x = x / l;
+										r[d].y = y / l;
+									}
+									break;
+								}
+								case NkOpBp::NK_SAUT:
+									pc = code[pc];
+									break;
+								case NkOpBp::NK_SAUT_SI_FAUX: {
+									const uint32 a = code[pc++], cible = code[pc++];
+									if (r[a].i == 0) {
+										pc = cible;
+									}
+									break;
+								}
+								case NkOpBp::NK_NATIF: {
+									const uint32 k = code[pc++];
+									const NkImportBp &x = m.imports[k];
+									const NkNatifBp &n = table[p.natifs[k]];
+									const uint32 np = static_cast<uint32>(x.params.Size()), nr = static_cast<uint32>(x.resultats.Size());
+									for (uint32 i = 0; i < np; ++i) {
+										args[i] = r[code[pc++]];
+									}
+									res[0] = NkValeurBp();
+									res[1] = NkValeurBp();
+									NkAppelNatifBp appel;
+									appel.hote = c.hote;
+									appel.soi = c.soi;
+									appel.args = args;
+									appel.res = res;
+									appel.module = &m;
+									appel.textes = c.textes;
+									if (!n.appel(appel)) {
+										++c.refus;
+									}
+									for (uint32 i = 0; i < nr; ++i) {
+										r[code[pc++]] = res[i];
+									}
+									break;
+								}
+								case NkOpBp::NK_APPEL: {
+									// Le cadre de l'appele s'empile JUSTE AU-DESSUS du notre.
+									const uint32 g = code[pc++];
+									const NkFonctionBp &cible = m.fonctions[g];
+									const uint32 np = static_cast<uint32>(cible.params.Size());
+									const uint32 nr = static_cast<uint32>(cible.resultats.Size());
+									const uint32 base2 = base + nreg;
+									const uint32 nreg2 = static_cast<uint32>(cible.registres.Size());
+									if (regs.Size() < base2 + nreg2) {
+										regs.Resize(base2 + nreg2);
+										r = regs.Data() + base; // le tampon a pu bouger
+									}
+									for (uint32 i = 0; i < np; ++i) {
+										regs[base2 + i] = r[code[pc++]];
+									}
+									if (!Executer(g, base2, profondeur + 1u)) {
+										return false;
+									}
+									r = regs.Data() + base; // l'appele a pu agrandir le tampon
+									for (uint32 i = 0; i < nr; ++i) {
+										r[code[pc++]] = regs[base2 + np + i];
+									}
+									if (c.trace != nullptr) {
+										noeudTrace = 0xFFFFFFFFu; // de retour : le noeud d'appel se revoit
+									}
+									break;
+								}
+								case NkOpBp::NK_DIFFUSER: {
+									const uint32 rc = code[pc++], k = code[pc++], n = code[pc++];
+									NkTypeBp types[8];
+									for (uint32 i = 0; i < n; ++i) {
+										const uint32 ra = code[pc++];
+										args[i] = r[ra];
+										types[i] = fn.registres[ra];
+									}
+									NkUnkEntite cible;
+									cible.pack = r[rc].e;
+									if (c.diffuser == nullptr ||
+										!c.diffuser(c.diffuserDonnees, cible, m.constantes[k].texte.CStr(), args, n, types)) {
+										++c.refus;
+									}
+									break;
+								}
 								default:
-									break;
+									return Echec("opcode inconnu", f, at);
 							}
 						}
-						r[d] = v;
-						break;
+						return true;
 					}
-					case NkOpBp::NK_ADD_R:
-					case NkOpBp::NK_SUB_R:
-					case NkOpBp::NK_MUL_R:
-					case NkOpBp::NK_DIV_R: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const float32 x = r[a].x, y = r[b].x;
-						r[d] = NkValeurBp();
-						r[d].x = op == NkOpBp::NK_ADD_R ? x + y : op == NkOpBp::NK_SUB_R ? x - y : op == NkOpBp::NK_MUL_R ? x * y : (y != 0.f ? x / y : 0.f);
-						break;
-					}
-					case NkOpBp::NK_ADD_I:
-					case NkOpBp::NK_SUB_I:
-					case NkOpBp::NK_MUL_I:
-					case NkOpBp::NK_DIV_I: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const int32 x = r[a].i, y = r[b].i;
-						if (op == NkOpBp::NK_DIV_I && y == 0) {
-							return echec("division entiere par zero", at);
-						}
-						r[d] = NkValeurBp();
-						r[d].i = op == NkOpBp::NK_ADD_I ? x + y : op == NkOpBp::NK_SUB_I ? x - y : op == NkOpBp::NK_MUL_I ? x * y : x / y;
-						break;
-					}
-					case NkOpBp::NK_ADD_V:
-					case NkOpBp::NK_SUB_V: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const float32 s = op == NkOpBp::NK_ADD_V ? 1.f : -1.f;
-						const float32 x = r[a].x + s * r[b].x, y = r[a].y + s * r[b].y;
-						r[d] = NkValeurBp();
-						r[d].x = x;
-						r[d].y = y;
-						break;
-					}
-					case NkOpBp::NK_MUL_VR: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const float32 x = r[a].x * r[b].x, y = r[a].y * r[b].x;
-						r[d] = NkValeurBp();
-						r[d].x = x;
-						r[d].y = y;
-						break;
-					}
-					case NkOpBp::NK_LT_R:
-					case NkOpBp::NK_LE_R:
-					case NkOpBp::NK_EQ_R: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const float32 x = r[a].x, y = r[b].x;
-						const bool v = op == NkOpBp::NK_LT_R ? x < y : op == NkOpBp::NK_LE_R ? x <= y : x == y;
-						r[d] = NkValeurBp();
-						r[d].i = v ? 1 : 0;
-						break;
-					}
-					case NkOpBp::NK_LT_I:
-					case NkOpBp::NK_LE_I:
-					case NkOpBp::NK_EQ_I: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const int32 x = r[a].i, y = r[b].i;
-						const bool v = op == NkOpBp::NK_LT_I ? x < y : op == NkOpBp::NK_LE_I ? x <= y : x == y;
-						r[d] = NkValeurBp();
-						r[d].i = v ? 1 : 0;
-						break;
-					}
-					case NkOpBp::NK_EQ_E: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const bool v = r[a].e == r[b].e;
-						r[d] = NkValeurBp();
-						r[d].i = v ? 1 : 0;
-						break;
-					}
-					case NkOpBp::NK_ET:
-					case NkOpBp::NK_OU: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const bool v = op == NkOpBp::NK_ET ? (r[a].i != 0 && r[b].i != 0) : (r[a].i != 0 || r[b].i != 0);
-						r[d] = NkValeurBp();
-						r[d].i = v ? 1 : 0;
-						break;
-					}
-					case NkOpBp::NK_NON: {
-						const uint32 d = code[pc++], a = code[pc++];
-						const bool v = r[a].i == 0;
-						r[d] = NkValeurBp();
-						r[d].i = v ? 1 : 0;
-						break;
-					}
-					case NkOpBp::NK_I2R: {
-						const uint32 d = code[pc++], a = code[pc++];
-						const float32 x = static_cast<float32>(r[a].i);
-						r[d] = NkValeurBp();
-						r[d].x = x;
-						break;
-					}
-					case NkOpBp::NK_VEC2: {
-						const uint32 d = code[pc++], a = code[pc++], b = code[pc++];
-						const float32 x = r[a].x, y = r[b].x;
-						r[d] = NkValeurBp();
-						r[d].x = x;
-						r[d].y = y;
-						break;
-					}
-					case NkOpBp::NK_VX:
-					case NkOpBp::NK_VY:
-					case NkOpBp::NK_LONGUEUR: {
-						const uint32 d = code[pc++], a = code[pc++];
-						const float32 x = r[a].x, y = r[a].y;
-						r[d] = NkValeurBp();
-						r[d].x = op == NkOpBp::NK_VX ? x : op == NkOpBp::NK_VY ? y : math::NkSqrt(x * x + y * y);
-						break;
-					}
-					case NkOpBp::NK_NORMALISER: {
-						const uint32 d = code[pc++], a = code[pc++];
-						const float32 x = r[a].x, y = r[a].y;
-						const float32 l = math::NkSqrt(x * x + y * y);
-						r[d] = NkValeurBp();
-						if (l > 1e-12f) {
-							r[d].x = x / l;
-							r[d].y = y / l;
-						}
-						break;
-					}
-					case NkOpBp::NK_SAUT:
-						pc = code[pc];
-						break;
-					case NkOpBp::NK_SAUT_SI_FAUX: {
-						const uint32 a = code[pc++], cible = code[pc++];
-						if (r[a].i == 0) {
-							pc = cible;
-						}
-						break;
-					}
-					case NkOpBp::NK_NATIF: {
-						const uint32 k = code[pc++];
-						const NkImportBp &x = m.imports[k];
-						const NkNatifBp &n = table[p.natifs[k]];
-						const uint32 np = static_cast<uint32>(x.params.Size()), nr = static_cast<uint32>(x.resultats.Size());
-						for (uint32 i = 0; i < np; ++i) {
-							args[i] = r[code[pc++]];
-						}
-						res[0] = NkValeurBp();
-						res[1] = NkValeurBp();
-						NkAppelNatifBp appel;
-						appel.hote = c.hote;
-						appel.soi = c.soi;
-						appel.args = args;
-						appel.res = res;
-						appel.module = &m;
-						if (!n.appel(appel)) {
-							++c.refus;
-						}
-						for (uint32 i = 0; i < nr; ++i) {
-							r[code[pc++]] = res[i];
-						}
-						break;
-					}
-					default:
-						return echec("opcode inconnu", at);
-				}
+			};
+		} // namespace
+
+		bool NkExecuterBp(const NkProgrammeBp &p, uint32 f, NkCadreBp &c, NkFauteBp &faute) {
+			const NkModuleBp &m = p.module;
+			if (!p.pret || f >= m.fonctions.Size() || c.registres == nullptr) {
+				faute.raison = "programme non verifie";
+				faute.fonction = f;
+				faute.pc = 0u;
+				faute.noeud = 0u;
+				return false;
 			}
-			return true;
+			NkExecution x{p, c, faute};
+			uint32 n = 0;
+			x.table = NkNatifsBp(n);
+			c.instructions = 0u;
+			// Les parametres d'un evenement personnalise : dans les premiers
+			// registres (la signature de la fonction les type ; un nombre ou un
+			// type discordant a ete refuse par l'hote avant l'appel).
+			const NkFonctionBp &fn = m.fonctions[f];
+			NkVector<NkValeurBp> &regs = *c.registres;
+			if (regs.Size() < fn.registres.Size()) {
+				regs.Resize(fn.registres.Size());
+			}
+			for (uint32 i = 0; i < fn.params.Size(); ++i) {
+				regs[i] = (c.arguments != nullptr && i < c.nbArguments) ? c.arguments[i] : NkValeurBp();
+			}
+			return x.Executer(f, 0u, 0u);
 		}
 
 		// =====================================================================
@@ -571,6 +743,12 @@ namespace nkentseu {
 			c.valeur.y = y;
 			return Constante(c);
 		}
+		uint32 NkAssembleurBp::ConstCouleur(uint32 rvba) {
+			NkConstanteBp c;
+			c.type = NkTypeBp::NK_COULEUR;
+			c.valeur.i = static_cast<int32>(rvba);
+			return Constante(c);
+		}
 		uint32 NkAssembleurBp::ConstTexte(const char *texte) {
 			NkConstanteBp c;
 			c.type = NkTypeBp::NK_TEXTE;
@@ -597,6 +775,25 @@ namespace nkentseu {
 			module.fonctions.PushBack(f);
 			mCourante = static_cast<uint32>(module.fonctions.Size() - 1u);
 			return mCourante;
+		}
+		void NkAssembleurBp::Signature(const NkTypeBp *params, uint32 np, const NkTypeBp *resultats, uint32 nr) {
+			NkFonctionBp &f = module.fonctions[mCourante];
+			f.params.Clear();
+			f.resultats.Clear();
+			for (uint32 i = 0; i < np; ++i) {
+				f.params.PushBack(params[i]);
+				f.registres.PushBack(params[i]);
+			}
+			for (uint32 i = 0; i < nr; ++i) {
+				f.resultats.PushBack(resultats[i]);
+				f.registres.PushBack(resultats[i]);
+			}
+		}
+		void NkAssembleurBp::Appel(uint32 f, const uint32 *registres, uint32 nombre) {
+			Emettre(NkOpBp::NK_APPEL, f);
+			for (uint32 i = 0; i < nombre; ++i) {
+				module.fonctions[mCourante].code.PushBack(registres[i]);
+			}
 		}
 		uint32 NkAssembleurBp::Registre(NkTypeBp type) {
 			module.fonctions[mCourante].registres.PushBack(type);

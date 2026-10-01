@@ -31,6 +31,8 @@ namespace nkentseu {
 					return "entite";
 				case NkTypeBp::NK_TEXTE:
 					return "texte";
+				case NkTypeBp::NK_COULEUR:
+					return "couleur";
 				default:
 					return "rien";
 			}
@@ -42,7 +44,7 @@ namespace nkentseu {
 											"DIV_I", "ADD_V", "SUB_V",	"MUL_VR",	"LT_R",		  "LE_R",	  "EQ_R",
 											"LT_I",	 "LE_I",  "EQ_I",	"EQ_E",		"ET",		  "OU",		  "NON",
 											"I2R",	 "VEC2",  "VX",		"VY",		"LONGUEUR",	  "NORMALISER", "SAUT",
-											"SAUT_SI_FAUX",	  "NATIF"};
+											"SAUT_SI_FAUX",	  "NATIF", "APPEL", "DIFFUSER"};
 			const uint32 i = static_cast<uint32>(op);
 			return i < sizeof(k) / sizeof(k[0]) ? k[i] : "?";
 		}
@@ -209,7 +211,7 @@ namespace nkentseu {
 			};
 
 			NkTypeBp Type(uint8 v) {
-				return v <= static_cast<uint8>(NkTypeBp::NK_TEXTE) ? static_cast<NkTypeBp>(v) : NkTypeBp::NK_RIEN;
+				return v <= NK_BP_TYPE_DERNIER ? static_cast<NkTypeBp>(v) : NkTypeBp::NK_RIEN;
 			}
 		} // namespace
 
@@ -260,6 +262,15 @@ namespace nkentseu {
 			for (uint32 i = 0; i < m.fonctions.Size(); ++i) {
 				const NkFonctionBp &f = m.fonctions[i];
 				w.Texte(f.nom);
+				// Format 2 : la signature, avant les registres.
+				w.U8(static_cast<uint8>(f.params.Size()));
+				for (uint32 k = 0; k < f.params.Size(); ++k) {
+					w.U8(static_cast<uint8>(f.params[k]));
+				}
+				w.U8(static_cast<uint8>(f.resultats.Size()));
+				for (uint32 k = 0; k < f.resultats.Size(); ++k) {
+					w.U8(static_cast<uint8>(f.resultats[k]));
+				}
 				w.U32(static_cast<uint32>(f.registres.Size()));
 				for (uint32 k = 0; k < f.registres.Size(); ++k) {
 					w.U8(static_cast<uint8>(f.registres[k]));
@@ -293,7 +304,7 @@ namespace nkentseu {
 			m.abiMineure = r.U16();
 			(void)r.U16();
 			m.empreinte = r.U64();
-			if (r.ok && m.format != NK_BP_FORMAT) {
+			if (r.ok && (m.format < NK_BP_FORMAT_MIN || m.format > NK_BP_FORMAT)) {
 				return echec("module : format inconnu (plus recent que ce moteur ?)");
 			}
 			uint32 n = r.Compte();
@@ -339,6 +350,16 @@ namespace nkentseu {
 			for (uint32 i = 0; r.ok && i < n; ++i) {
 				NkFonctionBp f;
 				f.nom = r.Texte();
+				if (m.format >= 2u) {
+					const uint8 np = r.U8();
+					for (uint8 k = 0; r.ok && k < np; ++k) {
+						f.params.PushBack(Type(r.U8()));
+					}
+					const uint8 ns = r.U8();
+					for (uint8 k = 0; r.ok && k < ns; ++k) {
+						f.resultats.PushBack(Type(r.U8()));
+					}
+				}
 				const uint32 nr = r.Compte();
 				for (uint32 k = 0; r.ok && k < nr; ++k) {
 					f.registres.PushBack(Type(r.U8()));
@@ -442,7 +463,10 @@ namespace nkentseu {
 			}
 
 			bool VarTypeValide(NkTypeBp t) {
-				return t == B_ || t == I_ || t == R_ || t == V_;
+				// (2026-10-01) texte, entite et couleur : des variables declarees
+				// dans l'editeur de Blueprint (une entite ou un texte par instance).
+				return t == B_ || t == I_ || t == R_ || t == V_ || t == E_ || t == NkTypeBp::NK_TEXTE ||
+					   t == NkTypeBp::NK_COULEUR;
 			}
 		} // namespace
 
@@ -457,7 +481,7 @@ namespace nkentseu {
 				refus.noeud = (f >= 0 && pc >= 0) ? m.NoeudDe(static_cast<uint32>(f), static_cast<uint32>(pc)) : 0u;
 				return false;
 			};
-			if (m.format != NK_BP_FORMAT) {
+			if (m.format < NK_BP_FORMAT_MIN || m.format > NK_BP_FORMAT) {
 				return refuser(-1, -1, NkString("format de module inconnu"));
 			}
 			if (m.abiMajeure != NK_UNK_ABI_MAJEURE) {
@@ -495,6 +519,14 @@ namespace nkentseu {
 				if (!VarTypeValide(m.variables[i].type) || m.variables[i].nom.Empty()) {
 					return refuser(-1, -1, NkString::Format("variable %u : type ou nom invalide", static_cast<unsigned>(i)));
 				}
+				// Le defaut d'un texte est une CONSTANTE du module (son indice).
+				if (m.variables[i].type == NkTypeBp::NK_TEXTE) {
+					const int32 k = m.variables[i].defaut.i;
+					if (k < 0 || static_cast<uint32>(k) >= m.constantes.Size() ||
+						m.constantes[static_cast<uint32>(k)].type != NkTypeBp::NK_TEXTE) {
+						return refuser(-1, -1, NkString::Format("variable %s : defaut texte hors table", m.variables[i].nom.CStr()));
+					}
+				}
 			}
 			for (uint32 i = 0; i < m.constantes.Size(); ++i) {
 				if (m.constantes[i].type == RIEN) {
@@ -502,12 +534,26 @@ namespace nkentseu {
 				}
 			}
 			// ── Les fonctions ──
-			NkVector<uint32> masques; // evenements autorises par fonction
+			NkVector<uint32> masques; // evenements autorises par fonction (natifs DIRECTS, puis fermes)
+			NkVector<uint32> appels;  // (appelant, appele, pc) : la fermeture des masques
 			for (uint32 f = 0; f < m.fonctions.Size(); ++f) {
 				const NkFonctionBp &fn = m.fonctions[f];
 				const uint32 nreg = static_cast<uint32>(fn.registres.Size());
 				if (nreg > NK_BP_REGISTRES_MAX) {
 					return refuser(static_cast<int32>(f), -1, NkString("trop de registres"));
+				}
+				// La signature : les premiers registres SONT les parametres, puis
+				// les resultats, de memes types.
+				const uint32 nsig = static_cast<uint32>(fn.params.Size() + fn.resultats.Size());
+				if (nsig > nreg) {
+					return refuser(static_cast<int32>(f), -1, NkString("signature plus large que le cadre"));
+				}
+				for (uint32 k = 0; k < nsig; ++k) {
+					const NkTypeBp t = k < fn.params.Size() ? fn.params[k] : fn.resultats[k - static_cast<uint32>(fn.params.Size())];
+					if (t == RIEN || fn.registres[k] != t) {
+						return refuser(static_cast<int32>(f), -1,
+									   NkString::Format("signature : le registre %u n'a pas son type", static_cast<unsigned>(k)));
+					}
 				}
 				for (uint32 k = 0; k < nreg; ++k) {
 					if (fn.registres[k] == RIEN) {
@@ -559,6 +605,58 @@ namespace nkentseu {
 							}
 						}
 						masque &= table[natifs[k]].evenements;
+						continue;
+					}
+					if (op == NkOpBp::NK_DIFFUSER) {
+						if (pc + 3u > c.Size()) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("instruction tronquee"));
+						}
+						const uint32 cible = c[pc++], k = c[pc++], n = c[pc++];
+						if (!reg(cible) || fn.registres[cible] != E_) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("repartiteur : la cible n'est pas une entite"));
+						}
+						if (k >= m.constantes.Size() || m.constantes[k].type != NkTypeBp::NK_TEXTE) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("repartiteur : nom hors table"));
+						}
+						if (n > 8u || pc + n > c.Size()) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("repartiteur : trop de parametres"));
+						}
+						for (uint32 a = 0; a < n; ++a) {
+							if (!reg(c[pc++])) {
+								return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("registre hors cadre"));
+							}
+						}
+						continue;
+					}
+					if (op == NkOpBp::NK_APPEL) {
+						if (pc >= c.Size()) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("instruction tronquee"));
+						}
+						const uint32 g = c[pc++];
+						if (g >= m.fonctions.Size()) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("appel d'une fonction absente"));
+						}
+						const NkFonctionBp &cible = m.fonctions[g];
+						const uint32 np = static_cast<uint32>(cible.params.Size());
+						const uint32 nb = np + static_cast<uint32>(cible.resultats.Size());
+						if (pc + nb > c.Size()) {
+							return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("instruction tronquee"));
+						}
+						for (uint32 a = 0; a < nb; ++a) {
+							const uint32 r = c[pc++];
+							const NkTypeBp attendu = a < np ? cible.params[a] : cible.resultats[a - np];
+							if (!reg(r)) {
+								return refuser(static_cast<int32>(f), static_cast<int32>(at), NkString("registre hors cadre"));
+							}
+							if (fn.registres[r] != attendu) {
+								return refuser(static_cast<int32>(f), static_cast<int32>(at),
+											   NkString::Format("type discordant : %s attend un %s", cible.nom.CStr(),
+																NkNomTypeBp(attendu)));
+							}
+						}
+						appels.PushBack(f);
+						appels.PushBack(g);
+						appels.PushBack(at);
 						continue;
 					}
 					const NkFormeOp forme = Forme(op);
@@ -659,6 +757,29 @@ namespace nkentseu {
 				}
 				masques.PushBack(masque);
 			}
+			// ── La FERMETURE des masques par les appels : une fonction appelee sous
+			//    « Tick » ne peut pas y appliquer une force. Point fixe : les masques
+			//    ne font que DECROITRE (ET binaire), il converge -- recursion comprise.
+			for (bool change = true; change;) {
+				change = false;
+				for (uint32 a = 0; a + 2u < appels.Size(); a += 3u) {
+					const uint32 appelant = appels[a], appele = appels[a + 1u];
+					const uint32 nm = masques[appelant] & masques[appele];
+					if (nm != masques[appelant]) {
+						masques[appelant] = nm;
+						change = true;
+					}
+				}
+			}
+			// ── Une fonction d'evenement n'a ni parametre ni resultat (sauf un
+			//    evenement PERSONNALISE, qui porte les parametres de son repartiteur) ──
+			for (uint32 i = 0; i < m.entrees.Size(); ++i) {
+				const NkEntreeBp &e = m.entrees[i];
+				if (e.fonction < m.fonctions.Size() && e.genre != NK_UNK_EV_PERSONNALISE &&
+					(!m.fonctions[e.fonction].params.Empty() || !m.fonctions[e.fonction].resultats.Empty())) {
+					return refuser(static_cast<int32>(e.fonction), -1, NkString("une fonction d'evenement n'a pas de parametre"));
+				}
+			}
 			// ── Les entrees : fonction existante, natifs permis pour l'evenement ──
 			for (uint32 i = 0; i < m.entrees.Size(); ++i) {
 				const NkEntreeBp &e = m.entrees[i];
@@ -672,7 +793,8 @@ namespace nkentseu {
 					return refuser(static_cast<int32>(e.fonction), -1, NkString("evenement d'action sans action"));
 				}
 				if ((masques[e.fonction] & (1u << e.genre)) == 0u) {
-					// Retrouver le natif fautif : le premier dont le masque refuse.
+					// Retrouver le natif fautif : le premier dont le masque refuse --
+					// ou l'APPEL qui y mene (la faute est designee la ou on la voit).
 					const NkFonctionBp &fn = m.fonctions[e.fonction];
 					uint32 pc = 0;
 					while (pc < fn.code.Size()) {
@@ -684,6 +806,16 @@ namespace nkentseu {
 											   NkString::Format("%s n'est pas permis sous cet evenement", m.imports[k].nom.CStr()));
 							}
 							pc += 2u + static_cast<uint32>(m.imports[k].params.Size() + m.imports[k].resultats.Size());
+						} else if (op == NkOpBp::NK_DIFFUSER) {
+							pc += 4u + fn.code[pc + 3u];
+						} else if (op == NkOpBp::NK_APPEL) {
+							const uint32 g = fn.code[pc + 1u];
+							if ((masques[g] & (1u << e.genre)) == 0u) {
+								return refuser(static_cast<int32>(e.fonction), static_cast<int32>(pc),
+											   NkString::Format("la fonction %s fait un geste qui n'est pas permis sous cet evenement",
+																m.fonctions[g].nom.CStr()));
+							}
+							pc += 2u + static_cast<uint32>(m.fonctions[g].params.Size() + m.fonctions[g].resultats.Size());
 						} else {
 							pc += 1u + Forme(op).n;
 						}
@@ -697,12 +829,14 @@ namespace nkentseu {
 		// =====================================================================
 		// La charge utile et le fichier .nkbp
 		// =====================================================================
-		void NkEcrireChargeBp(const NkString &graphe, const NkModuleBp *module, NkVector<uint8> &sortie) {
+		void NkEcrireChargeBp(const NkString &graphe, const NkModuleBp *module, NkVector<uint8> &sortie,
+							  const NkString *document) {
 			sortie.Clear();
 			NkEcrivain w{sortie};
 			w.Magie("NKBP");
 			w.U32(NK_BP_FICHIER_VERSION);
-			w.U32(module != nullptr ? 2u : 1u);
+			const bool doc = document != nullptr && !document->Empty();
+			w.U32((module != nullptr ? 2u : 1u) + (doc ? 1u : 0u));
 			w.Magie("GRAF");
 			w.Texte(graphe);
 			if (module != nullptr) {
@@ -714,12 +848,21 @@ namespace nkentseu {
 					w.U8(octets[i]);
 				}
 			}
+			// EN DERNIER : un lecteur d'avant le 01/10 s'arrete a la premiere
+			// section inconnue -- il aura deja lu GRAF et MODL.
+			if (doc) {
+				w.Magie("DOCU");
+				w.Texte(*document);
+			}
 		}
 
 		bool NkLireChargeBp(const uint8 *octets, usize taille, NkString *graphe, NkModuleBp *module, bool *aModule,
-							NkString *erreur) {
+							NkString *erreur, NkString *document) {
 			if (aModule != nullptr) {
 				*aModule = false;
+			}
+			if (document != nullptr) {
+				document->Clear();
 			}
 			NkLecteur r{octets, taille};
 			if (octets == nullptr || !r.Magie("NKBP")) {
@@ -762,9 +905,19 @@ namespace nkentseu {
 						}
 					}
 					r.at += n;
+				} else if (std::strcmp(magie, "DOCU") == 0) {
+					NkString d = r.Texte();
+					if (document != nullptr) {
+						*document = d;
+					}
 				} else {
-					// Une section d'une version plus recente : on ne sait pas la sauter.
-					break;
+					// Une section d'une version plus recente : TOUTES portent leur
+					// longueur (u32), on la saute.
+					const uint32 n = r.U32();
+					if (!r.Prendre(n)) {
+						break;
+					}
+					r.at += n;
 				}
 			}
 			if (!r.ok) {
@@ -776,9 +929,10 @@ namespace nkentseu {
 			return true;
 		}
 
-		bool NkEcrireFichierBp(const char *chemin, const NkString &graphe, const NkModuleBp *module, NkString *erreur) {
+		bool NkEcrireFichierBp(const char *chemin, const NkString &graphe, const NkModuleBp *module, NkString *erreur,
+							   const NkString *document) {
 			NkVector<uint8> charge;
-			NkEcrireChargeBp(graphe, module, charge);
+			NkEcrireChargeBp(graphe, module, charge, document);
 			NkAssetMetadata meta;
 			meta.type = NkAssetType::Blueprint;
 			meta.typeName = "unkeny.Blueprint";
@@ -794,7 +948,8 @@ namespace nkentseu {
 			return true;
 		}
 
-		bool NkLireFichierBp(const char *chemin, NkString *graphe, NkModuleBp *module, bool *aModule, NkString *erreur) {
+		bool NkLireFichierBp(const char *chemin, NkString *graphe, NkModuleBp *module, bool *aModule, NkString *erreur,
+							 NkString *document) {
 			NkAssetMetadata meta;
 			NkVector<nk_uint8> charge;
 			NkString err;
@@ -804,7 +959,7 @@ namespace nkentseu {
 				}
 				return false;
 			}
-			return NkLireChargeBp(charge.Data(), charge.Size(), graphe, module, aModule, erreur);
+			return NkLireChargeBp(charge.Data(), charge.Size(), graphe, module, aModule, erreur, document);
 		}
 
 	} // namespace unkeny

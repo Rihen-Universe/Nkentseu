@@ -613,6 +613,7 @@ namespace nkentseu {
 			}
 			mFiches.Clear();
 			mIndex.Clear();
+			mFile.Clear();
 			mTemps = 0.f;
 			mFautes = 0u;
 			mRefus = 0u;
@@ -792,6 +793,19 @@ namespace nkentseu {
 							val = NkVec2f(x.defaut.i != 0 ? 1.f : 0.f, 0.f);
 						} else if (x.type == NkTypeBp::NK_VEC2) {
 							t = NkTypeVarScript::NK_VEC2;
+						} else if (x.type == NkTypeBp::NK_COULEUR) {
+							t = NkTypeVarScript::NK_COULEUR;
+							val = NkCouleurVersVar(static_cast<uint32>(x.defaut.i));
+						} else if (x.type == NkTypeBp::NK_TEXTE || x.type == NkTypeBp::NK_ENTITE) {
+							// Le texte par defaut est une constante du module ; une
+							// entite part de « aucune ».
+							const int32 c = x.defaut.i;
+							const char *texte = x.type == NkTypeBp::NK_TEXTE && c >= 0 && static_cast<uint32>(c) < m.constantes.Size()
+													? m.constantes[static_cast<uint32>(c)].texte.CStr()
+													: "";
+							NkScriptPoserTexte(*s, k, x.nom.CStr(),
+											   x.type == NkTypeBp::NK_TEXTE ? NkTypeVarScript::NK_TEXTE : NkTypeVarScript::NK_ENTITE, texte);
+							continue;
 						}
 						NkScriptPoserVariable(*s, k, x.nom.CStr(), t, val);
 					}
@@ -873,6 +887,26 @@ namespace nkentseu {
 					(e >= inst.actions.Size() || inst.actions[e] != ev.action)) {
 					continue;
 				}
+				// Un REPARTITEUR : son nom, et ses parametres (nombre ET types).
+				const NkDiffusionBp *diff = nullptr;
+				if (ev.genre == NK_UNK_EV_PERSONNALISE) {
+					if (mDiffusion == nullptr || ev.nomAction == nullptr || std::strcmp(entree.parametre.CStr(), ev.nomAction) != 0) {
+						continue;
+					}
+					const NkFonctionBp &fn = m.fonctions[entree.fonction];
+					bool egal = fn.params.Size() == mDiffusion->n;
+					for (uint32 i = 0; egal && i < mDiffusion->n; ++i) {
+						egal = fn.params[i] == mDiffusion->types[i];
+					}
+					if (!egal) {
+						char ligne[256];
+						std::snprintf(ligne, sizeof(ligne), "[script] %s : le repartiteur « %s » arrive avec d'autres parametres -- ignore",
+									  def.nom.CStr(), ev.nomAction);
+						Ecrire(ligne, true);
+						continue;
+					}
+					diff = mDiffusion;
+				}
 				// Les variables : du composant vers le cadre (par NOM), puis retour.
 				// ⚠️ Pas de pointeur garde sur le composant pendant l'appel : un natif
 				//    (Activer) peut changer l'archetype de l'entite et le deplacer.
@@ -880,17 +914,57 @@ namespace nkentseu {
 				if (mVariables.Size() < nv) {
 					mVariables.Resize(nv);
 				}
+				mTextes.Clear();
 				if (const NkScript2D *s = mScene->Monde().Get<NkScript2D>(id)) {
 					for (uint32 v = 0; v < nv; ++v) {
-						const NkVarScript *x = NkScriptVariable(*s, k, m.variables[v].nom.CStr());
-						NkValeurBp val = m.variables[v].defaut;
+						const NkVariableBp &dv = m.variables[v];
+						const NkVarScript *x = NkScriptVariable(*s, k, dv.nom.CStr());
+						NkValeurBp val = dv.defaut;
 						if (x != nullptr) {
 							val = NkValeurBp();
-							val.x = x->valeur.x;
-							val.y = x->valeur.y;
-							val.i = static_cast<int32>(x->valeur.x);
+							switch (dv.type) {
+								case NkTypeBp::NK_ENTIER:
+								case NkTypeBp::NK_BOOLEEN:
+									val.i = static_cast<int32>(x->valeur.x);
+									val.x = x->valeur.x;
+									break;
+								case NkTypeBp::NK_COULEUR:
+									val.i = static_cast<int32>(NkCouleurDeVar(x->valeur));
+									break;
+								case NkTypeBp::NK_TEXTE:
+									mTextes.PushBack(NkString(x->texte));
+									val.i = -static_cast<int32>(mTextes.Size());
+									break;
+								case NkTypeBp::NK_ENTITE: {
+									NkUnkEntite t{0u};
+									if (x->texte[0] != '\0' && mTable.ParNom != nullptr) {
+										// Un nom qui ne designe plus rien : « aucune » (pas un refus).
+										const uint32 refus = mRefus;
+										mTable.ParNom(this, x->texte, &t);
+										mRefus = refus;
+									}
+									val.e = t.pack;
+									break;
+								}
+								default:
+									val.x = x->valeur.x;
+									val.y = x->valeur.y;
+									val.i = static_cast<int32>(x->valeur.x);
+									break;
+							}
 						}
 						mVariables[v] = val;
+					}
+				}
+				NkValeurBp arguments[8];
+				if (diff != nullptr) {
+					for (uint32 i = 0; i < diff->n; ++i) {
+						arguments[i] = diff->args[i];
+						if (diff->types[i] == NkTypeBp::NK_TEXTE) {
+							// Un texte venu d'un AUTRE module : fabrique ici.
+							mTextes.PushBack(diff->textes[i]);
+							arguments[i].i = -static_cast<int32>(mTextes.Size());
+						}
 					}
 				}
 				NkCadreBp c;
@@ -899,30 +973,125 @@ namespace nkentseu {
 				c.ev = &ev;
 				c.variables = mVariables.Data();
 				c.registres = &mRegistres;
+				c.textes = &mTextes;
+				c.diffuser = &NkHoteScripts2D::DiffuserBp;
+				c.diffuserDonnees = this;
+				if (diff != nullptr) {
+					c.arguments = arguments;
+					c.nbArguments = diff->n;
+				}
+				if (mTraceActive) {
+					mVus.Clear();
+					c.trace = &NkHoteScripts2D::TracerBp;
+					c.traceDonnees = this;
+				}
+				const NkModuleBp *avant = mModuleCourant;
+				mModuleCourant = &m;
+				const uint64 soiAvant = mSoiCourant;
+				mSoiCourant = id.Pack();
 				NkFauteBp faute;
 				const bool ok = NkExecuterBp(p, entree.fonction, c, faute);
+				mModuleCourant = avant;
+				mSoiCourant = soiAvant;
 				mRefus += c.refus;
 				if (mScene->Monde().IsAlive(id)) {
 					if (NkScript2D *s = mScene->Monde().Get<NkScript2D>(id)) {
 						for (uint32 v = 0; v < nv; ++v) {
 							const NkVariableBp &x = m.variables[v];
 							const NkValeurBp &val = mVariables[v];
-							NkVec2f w(val.x, val.y);
-							NkTypeVarScript t = NkTypeVarScript::NK_REEL;
-							if (x.type == NkTypeBp::NK_ENTIER) {
-								t = NkTypeVarScript::NK_ENTIER;
-								w = NkVec2f(static_cast<float32>(val.i), 0.f);
-							} else if (x.type == NkTypeBp::NK_BOOLEEN) {
-								t = NkTypeVarScript::NK_BOOLEEN;
-								w = NkVec2f(val.i != 0 ? 1.f : 0.f, 0.f);
-							} else if (x.type == NkTypeBp::NK_VEC2) {
-								t = NkTypeVarScript::NK_VEC2;
-							} else {
-								w.y = 0.f;
+							switch (x.type) {
+								case NkTypeBp::NK_ENTIER:
+									NkScriptPoserVariable(*s, k, x.nom.CStr(), NkTypeVarScript::NK_ENTIER, NkVec2f(static_cast<float32>(val.i), 0.f));
+									break;
+								case NkTypeBp::NK_BOOLEEN:
+									NkScriptPoserVariable(*s, k, x.nom.CStr(), NkTypeVarScript::NK_BOOLEEN, NkVec2f(val.i != 0 ? 1.f : 0.f, 0.f));
+									break;
+								case NkTypeBp::NK_VEC2:
+									NkScriptPoserVariable(*s, k, x.nom.CStr(), NkTypeVarScript::NK_VEC2, NkVec2f(val.x, val.y));
+									break;
+								case NkTypeBp::NK_COULEUR:
+									NkScriptPoserVariable(*s, k, x.nom.CStr(), NkTypeVarScript::NK_COULEUR,
+														  NkCouleurVersVar(static_cast<uint32>(val.i)));
+									break;
+								case NkTypeBp::NK_TEXTE: {
+									const char *t = "";
+									if (val.i >= 0 && static_cast<uint32>(val.i) < m.constantes.Size()) {
+										t = m.constantes[static_cast<uint32>(val.i)].texte.CStr();
+									} else if (val.i < 0) {
+										const int64 d = -static_cast<int64>(val.i) - 1;
+										t = d < static_cast<int64>(mTextes.Size()) ? mTextes[static_cast<uint32>(d)].CStr() : "";
+									}
+									NkScriptPoserTexte(*s, k, x.nom.CStr(), NkTypeVarScript::NK_TEXTE, t);
+									break;
+								}
+								case NkTypeBp::NK_ENTITE: {
+									char nom[NK_UNKENY_VAR_TEXTE_MAX] = {};
+									const ecs::NkEntityId e2 = val.e != 0u ? ecs::NkEntityId::Unpack(val.e) : ecs::NkEntityId::Invalid();
+									if (e2.IsValid() && mScene->Monde().IsAlive(e2)) {
+										if (const NkEtiquette *et = mScene->Monde().Get<NkEtiquette>(e2)) {
+											std::snprintf(nom, sizeof(nom), "%s", et->nom);
+										}
+									}
+									s = mScene->Monde().Get<NkScript2D>(id);
+									if (s != nullptr) {
+										NkScriptPoserTexte(*s, k, x.nom.CStr(), NkTypeVarScript::NK_ENTITE, nom);
+									}
+									break;
+								}
+								default:
+									NkScriptPoserVariable(*s, k, x.nom.CStr(), NkTypeVarScript::NK_REEL, NkVec2f(val.x, 0.f));
+									break;
 							}
-							NkScriptPoserVariable(*s, k, x.nom.CStr(), t, w);
+							if (s == nullptr) {
+								break;
+							}
 						}
 					}
+				}
+				if (mTraceActive) {
+					// Les noeuds VUS pendant cet evenement : chacun compte une fois.
+					NkTraceBp *t = nullptr;
+					for (uint32 i = 0; i < mTraces.Size() && t == nullptr; ++i) {
+						if (mTraces[i].script == def.nom) {
+							t = &mTraces[i];
+						}
+					}
+					if (t == nullptr) {
+						NkTraceBp neuve;
+						neuve.script = def.nom;
+						mTraces.PushBack(neuve);
+						t = &mTraces.Back();
+					}
+					++t->evenements;
+					for (uint32 i = 0; i < mVus.Size(); ++i) {
+						bool trouve = false;
+						for (uint32 q = 0; q < t->noeuds.Size() && !trouve; ++q) {
+							if (t->noeuds[q] == mVus[i]) {
+								++t->comptes[q];
+								trouve = true;
+							}
+						}
+						if (!trouve) {
+							t->noeuds.PushBack(mVus[i]);
+							t->comptes.PushBack(1u);
+						}
+					}
+					NkPassageBp pa;
+					pa.temps = mTemps;
+					pa.genre = ev.genre;
+					pa.parametre = entree.parametre;
+					if (const NkEtiquette *et = mScene->Monde().IsAlive(id) ? mScene->Monde().Get<NkEtiquette>(id) : nullptr) {
+						pa.entite = et->nom;
+					}
+					pa.fonction = entree.fonction;
+					pa.premier = mVus.Empty() ? 0u : mVus[0];
+					pa.dernier = mVus.Empty() ? 0u : mVus.Back();
+					pa.nbNoeuds = static_cast<uint32>(mVus.Size());
+					pa.faute = !ok;
+					if (t->passages.Size() >= 64u) {
+						t->passages.Erase(t->passages.Begin());
+					}
+					t->passages.PushBack(pa);
 				}
 				if (!ok) {
 					char raison[384];
@@ -934,6 +1103,110 @@ namespace nkentseu {
 			}
 		}
 
+		void NkHoteScripts2D::TracerBp(void *donnees, uint32 fonction, uint32 noeud) {
+			(void)fonction;
+			NkHoteScripts2D &h = *static_cast<NkHoteScripts2D *>(donnees);
+			for (uint32 i = 0; i < h.mVus.Size(); ++i) {
+				if (h.mVus[i] == noeud) {
+					// Deja vu : il redevient le DERNIER (l'ordre du passage).
+					h.mVus.Erase(h.mVus.Begin() + i);
+					break;
+				}
+			}
+			h.mVus.PushBack(noeud);
+		}
+
+		const NkTraceBp *NkHoteScripts2D::Trace(const char *nom) const noexcept {
+			for (uint32 i = 0; nom != nullptr && i < mTraces.Size(); ++i) {
+				if (std::strcmp(mTraces[i].script.CStr(), nom) == 0) {
+					return &mTraces[i];
+				}
+			}
+			return nullptr;
+		}
+
+		bool NkHoteScripts2D::DiffuserBp(void *donnees, NkUnkEntite cible, const char *nom, const NkValeurBp *args, uint32 n,
+										 const NkTypeBp *types) {
+			NkHoteScripts2D &h = *static_cast<NkHoteScripts2D *>(donnees);
+			// La source : l'entite dont le script s'execute (son cadre la connait ;
+			// la file la garde pour « autre »).
+			NkUnkEntite source{h.mSoiCourant};
+			return h.Diffuser(cible, source, nom, args, n, types, h.mModuleCourant);
+		}
+
+		bool NkHoteScripts2D::Diffuser(NkUnkEntite cible, NkUnkEntite source, const char *nom, const NkValeurBp *args, uint32 n,
+									   const NkTypeBp *types, const NkModuleBp *module) {
+			if (mScene == nullptr || nom == nullptr || n > 8u || cible.pack == 0u) {
+				return false;
+			}
+			const ecs::NkEntityId id = ecs::NkEntityId::Unpack(cible.pack);
+			if (!mScene->Monde().IsAlive(id)) {
+				return false;
+			}
+			// Une file BORNEE : deux repartiteurs qui s'appellent l'un l'autre ne
+			// mangent pas la memoire.
+			if (mFile.Size() >= 256u) {
+				Ecrire("[script] trop de repartiteurs en attente (256) : appel ignore", true);
+				return false;
+			}
+			NkDiffusionBp d;
+			d.cible = cible.pack;
+			d.source = source.pack;
+			d.nom = nom;
+			d.n = n;
+			for (uint32 i = 0; i < n; ++i) {
+				d.args[i] = args[i];
+				d.types[i] = types != nullptr ? types[i] : NkTypeBp::NK_REEL;
+				if (d.types[i] == NkTypeBp::NK_TEXTE) {
+					// Le texte, RESOLU ici : son indice ne vaut que dans SON module.
+					const int32 k = args[i].i;
+					if (k >= 0 && module != nullptr && static_cast<uint32>(k) < module->constantes.Size()) {
+						d.textes[i] = module->constantes[static_cast<uint32>(k)].texte;
+					} else if (k < 0) {
+						const int64 q = -static_cast<int64>(k) - 1;
+						d.textes[i] = q < static_cast<int64>(mTextes.Size()) ? mTextes[static_cast<uint32>(q)] : NkString();
+					}
+				}
+			}
+			mFile.PushBack(d);
+			return true;
+		}
+
+		void NkHoteScripts2D::LivrerDiffusions() {
+			if (mScene == nullptr) {
+				mFile.Clear();
+				return;
+			}
+			uint32 livrees = 0u;
+			while (!mFile.Empty()) {
+				if (++livrees > 256u) {
+					Ecrire("[script] repartiteurs qui s'appellent sans fin : file videe", true);
+					mFile.Clear();
+					break;
+				}
+				const NkDiffusionBp d = mFile[0];
+				mFile.Erase(mFile.Begin());
+				const ecs::NkEntityId id = ecs::NkEntityId::Unpack(d.cible);
+				if (!mScene->Monde().IsAlive(id) || !mScene->Monde().Has<NkScript2D>(id)) {
+					continue;
+				}
+				NkUnkEvenementV1 ev;
+				std::memset(&ev, 0, sizeof(ev));
+				ev.genre = NK_UNK_EV_PERSONNALISE;
+				ev.nomAction = d.nom.CStr();
+				ev.autre.pack = d.source;
+				for (uint32 i = 0; i < d.n; ++i) {
+					if (d.types[i] == NkTypeBp::NK_REEL) {
+						ev.valeur = d.args[i].x;
+						break;
+					}
+				}
+				const NkDiffusionBp *avant = mDiffusion;
+				mDiffusion = &d;
+				Livrer(id, ev);
+				mDiffusion = avant;
+			}
+		}
 		void NkHoteScripts2D::Envoyer(ecs::NkEntityId id, uint32 k, NkInstanceScript &inst, const NkUnkEvenementV1 &ev) {
 			if (inst.script == 0u || inst.faute || !mScene->Monde().IsAlive(id)) {
 				return;
@@ -1034,6 +1307,7 @@ namespace nkentseu {
 				for (uint32 i = 0; i < mListe.Size(); ++i) {
 					Livrer(mListe[i], ev);
 				}
+				LivrerDiffusions(); // les repartiteurs appeles pendant ce pas
 				return;
 			}
 
@@ -1081,6 +1355,9 @@ namespace nkentseu {
 			for (uint32 i = 0; i < mListe.Size(); ++i) {
 				Livrer(mListe[i], ev);
 			}
+			// 6. Les REPARTITEURS appeles pendant la trame (une file : jamais une
+			//    reentree dans la machine).
+			LivrerDiffusions();
 		}
 
 	} // namespace unkeny

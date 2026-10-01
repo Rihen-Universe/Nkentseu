@@ -42,8 +42,15 @@
 namespace nkentseu {
 	namespace unkeny {
 
-		/// Version du format du module (section MODL).
-		constexpr uint16 NK_BP_FORMAT = 1u;
+		/// Version du format du module (section MODL). 2 (2026-10-01, editeur de
+		/// Blueprint a la UE5) : chaque fonction porte sa SIGNATURE (parametres,
+		/// resultats) et le code peut APPELER une fonction du module (NK_APPEL).
+		/// Le format 1 reste LU (fonctions sans signature : les evenements).
+		constexpr uint16 NK_BP_FORMAT = 2u;
+		constexpr uint16 NK_BP_FORMAT_MIN = 1u;
+		/// Profondeur d'appels de fonctions du Blueprint (une recursion sans fin
+		/// est coupee, comme une boucle sans fin l'est par le budget).
+		constexpr uint32 NK_BP_PILE_MAX = 64u;
 		/// Version de la charge utile d'un .nkbp (en-tete « NKBP »).
 		constexpr uint32 NK_BP_FICHIER_VERSION = 1u;
 		/// Instructions par evenement avant que l'instance soit mise en faute.
@@ -52,14 +59,20 @@ namespace nkentseu {
 		constexpr uint32 NK_BP_REGISTRES_MAX = 256u;
 
 		/// Les types d'une valeur. AJOUTES A LA FIN.
-		enum class NkTypeBp : uint8 { NK_RIEN = 0, NK_BOOLEEN, NK_ENTIER, NK_REEL, NK_VEC2, NK_ENTITE, NK_TEXTE };
+		/// NK_COULEUR (2026-10-01) : RVBA empaquete dans `i` (0xRRVVBBAA, le format
+		/// de NkSprite2D::couleur).
+		enum class NkTypeBp : uint8 { NK_RIEN = 0, NK_BOOLEEN, NK_ENTIER, NK_REEL, NK_VEC2, NK_ENTITE, NK_TEXTE, NK_COULEUR };
+		constexpr uint8 NK_BP_TYPE_DERNIER = static_cast<uint8>(NkTypeBp::NK_COULEUR);
 		const char *NkNomTypeBp(NkTypeBp t) noexcept;
 
 		/// Une valeur. Pas d'union : un registre lu sous un autre type que le sien
 		/// est refuse par le verificateur, il n'y a rien a reinterpreter.
 		struct NkValeurBp {
 				float32 x = 0.f, y = 0.f; ///< reel (x), vec2 (x, y)
-				int32 i = 0;			  ///< entier, booleen (0/1), texte (indice de constante)
+				/// entier, booleen (0/1), couleur (RVBA), texte : >= 0 indice de
+				/// constante, < 0 texte FABRIQUE pendant l'appel (-1 - k dans
+				/// NkCadreBp::textes : une concatenation, une variable texte).
+				int32 i = 0;
 				uint64 e = 0u;			  ///< entite (NkEntityId::Pack, 0 = aucune)
 		};
 
@@ -103,6 +116,15 @@ namespace nkentseu {
 			NK_SAUT,		 ///< (pc)
 			NK_SAUT_SI_FAUX, ///< (r:B, pc)
 			NK_NATIF,		 ///< (k, params..., resultats...) — nombres pris dans la signature de l'import k
+			/// (2026-10-01, format 2) (f, params..., resultats...) : appelle la
+			/// fonction f du module ; les nombres sont ceux de SA signature. Les
+			/// parametres arrivent dans ses premiers registres, ses resultats sont
+			/// les registres qui suivent (rendus a FIN).
+			NK_APPEL,
+			/// (cible:E, nom:K texte, n, args...) : appelle le REPARTITEUR `nom` sur
+			/// l'entite `cible` -- l'hote livre l'evenement personnalise a ses
+			/// scripts APRES l'evenement en cours (une file, jamais une reentree).
+			NK_DIFFUSER,
 			NK_NOMBRE
 		};
 		const char *NkNomOpBp(NkOpBp op) noexcept;
@@ -146,6 +168,11 @@ namespace nkentseu {
 		};
 		struct NkFonctionBp {
 				NkString nom;
+				/// La SIGNATURE (format 2) : les parametres sont les registres
+				/// 0..P-1, les resultats les registres P..P+R-1. Vide pour un
+				/// evenement (une entree n'en a pas).
+				NkVector<NkTypeBp> params;
+				NkVector<NkTypeBp> resultats;
 				NkVector<NkTypeBp> registres;
 				NkVector<uint32> code;
 				NkVector<NkLigneBp> lignes;
@@ -201,16 +228,22 @@ namespace nkentseu {
 								NkVector<int32> &natifs, NkRefusBp &refus);
 
 		// --- Le fichier .nkbp (NkAssetIO, NkAssetType::Blueprint) ------------------
-		/// La charge utile « NKBP » : GRAF (peut etre vide) et MODL (facultatif).
-		void NkEcrireChargeBp(const NkString &graphe, const NkModuleBp *module, NkVector<uint8> &sortie);
+		/// La charge utile « NKBP » : GRAF (peut etre vide), MODL (facultatif) et
+		/// DOCU (2026-10-01, facultatif) : le DOCUMENT de l'editeur -- variables
+		/// declarees, fonctions, macros, repartiteurs et leurs graphes. Ecrite
+		/// EN DERNIER : un lecteur ancien lit GRAF et MODL puis s'arrete.
+		/// ⚠️ Toutes les sections portent leur longueur : un lecteur saute
+		///    desormais celle qu'il ne connait pas au lieu de s'arreter.
+		void NkEcrireChargeBp(const NkString &graphe, const NkModuleBp *module, NkVector<uint8> &sortie,
+							  const NkString *document = nullptr);
 		/// `aModule` : la section MODL etait presente (et lue). false : charge
-		/// illisible.
+		/// illisible. `document` : la section DOCU (vide si absente).
 		bool NkLireChargeBp(const uint8 *octets, usize taille, NkString *graphe, NkModuleBp *module, bool *aModule,
-							NkString *erreur = nullptr);
+							NkString *erreur = nullptr, NkString *document = nullptr);
 		bool NkEcrireFichierBp(const char *chemin, const NkString &graphe, const NkModuleBp *module,
-							   NkString *erreur = nullptr);
+							   NkString *erreur = nullptr, const NkString *document = nullptr);
 		bool NkLireFichierBp(const char *chemin, NkString *graphe, NkModuleBp *module, bool *aModule,
-							 NkString *erreur = nullptr);
+							 NkString *erreur = nullptr, NkString *document = nullptr);
 
 		/// Empreinte FNV-1a 64 d'un texte (celle de la section GRAF).
 		uint64 NkEmpreinteBp(const char *texte, usize longueur) noexcept;

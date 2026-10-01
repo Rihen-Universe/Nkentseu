@@ -90,7 +90,10 @@ extern "C" {
 #define NK_UNK_EV_ACTION_PRESSEE 7u	 ///< une ACTION (jamais une touche) vient d'etre pressee
 #define NK_UNK_EV_ACTION_RELACHEE 8u
 #define NK_UNK_EV_RECHARGE 9u		 ///< (C++) la classe vient d'etre rechargee a chaud
-#define NK_UNK_EV_NOMBRE 10u
+/// (2026-10-01) Un REPARTITEUR d'evenement appele (Blueprint) : `nomAction` porte
+/// son nom ; un Blueprint le recoit par son noeud « Evenement <repartiteur> ».
+#define NK_UNK_EV_PERSONNALISE 10u
+#define NK_UNK_EV_NOMBRE 11u
 
 	/// Ce qu'un script recoit. Les champs inutiles a un genre valent 0.
 	typedef struct NkUnkEvenementV1 {
@@ -290,6 +293,14 @@ namespace nkunk {
 				(void)taille;
 				return false;
 			}
+			/// (2026-10-01) Un REPARTITEUR d'evenement d'un Blueprint, appele sur
+			/// cette entite : son nom, l'entite qui l'a appele, et son premier
+			/// parametre reel (0 s'il n'en a pas).
+			virtual void Repartiteur(const char *nom, NkUnkEntite source, float valeur) {
+				(void)nom;
+				(void)source;
+				(void)valeur;
+			}
 
 			// --- Les aides --------------------------------------------------
 			NkUnkEntite Soi() const {
@@ -443,6 +454,9 @@ namespace nkunk {
 					break;
 				case NK_UNK_EV_RECHARGE:
 					s->Recharge();
+					break;
+				case NK_UNK_EV_PERSONNALISE:
+					s->Repartiteur(ev->nomAction, ev->autre, ev->valeur);
 					break;
 				default:
 					break; // un genre d'un hote plus recent : ignore
