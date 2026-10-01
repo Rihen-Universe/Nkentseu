@@ -142,7 +142,8 @@ namespace nkentseu {
 					ajouter(kNkGraphUpId);
 				}
 				for (uint32 i = 0; i < (uint32)m.nodes.Size(); ++i) {
-					if (m.nodes[i].parent == m.level) {
+					// (01/10 soir) une COUCHE est une sous-machine cachee de la racine.
+					if (m.nodes[i].parent == m.level && !m.nodes[i].layerRoot) {
 						ajouter(m.nodes[i].id);
 					}
 				}
@@ -238,6 +239,9 @@ namespace nkentseu {
 					if (m.level == 0 && (a == 0 || b == 0)) {
 						continue;
 					}
+					if (m.IsLayerRoot(a) || m.IsLayerRoot(b)) {
+						continue; // une transition d'une COUCHE ne se voit que dans sa couche
+					}
 					a = a == 0 ? kNkGraphUpId : a;
 					b = b == 0 ? kNkGraphUpId : b;
 					if (a == b) {
@@ -316,10 +320,21 @@ namespace nkentseu {
 				for (uint32 k = 0; k < (uint32)niveaux.Size(); ++k) {
 					const NkGraphNode *n = m.Node(niveaux[k]);
 					Ligne l;
-					l.texte = n != nullptr ? n->name : NkString("Racine");
+					int32 rang = (int32)k;
+					l.texte = n != nullptr ? n->name : NkString("Base");
+					if (n != nullptr && n->layerRoot) {
+						rang = 0;
+						l.texte = NkString("Couche ");
+						l.texte.Append(n->name);
+						// La racine « Base » n'est pas un parent d'une couche : on ne la montre pas.
+						if (k == 1 && !c.lignes.Empty()) {
+							c.lignes.PopBack();
+							x = c.bar.x + pad;
+						}
+					}
 					const float32 w = c.p.TextWidth(l.texte.CStr()) + pad;
 					l.hit.field = NkGraphField::Breadcrumb;
-					l.hit.index = (int32)k;
+					l.hit.index = rang;
 					l.hit.id = niveaux[k];
 					l.hit.rect = NkPaintRect{x, c.bar.y, w, c.bar.h};
 					l.actif = k + 1 < (uint32)niveaux.Size(); // le dernier est le niveau courant
@@ -379,6 +394,51 @@ namespace nkentseu {
 					c.lignes.PushBack(x);
 					y += rh;
 				}
+				// (01/10 soir) LES COUCHES : « Base », puis chacune ; un clic l'ouvre.
+				y += rh * 0.5f;
+				{
+					Ligne tc;
+					tc.titre = true;
+					tc.texte = "Couches";
+					tc.hit.rect = NkPaintRect{c.side.x, y, c.side.w, rh};
+					c.lignes.PushBack(tc);
+					Ligne plus;
+					plus.hit.field = NkGraphField::LayerAdd;
+					plus.hit.rect = NkPaintRect{c.side.x + c.side.w - pad - c.p.TextWidth("+ Couche") - pad * 2.f, y + c.M("button_gap"),
+												c.p.TextWidth("+ Couche") + pad * 2.f, rh - c.M("button_gap") * 2.f};
+					plus.texte = "+ Couche";
+					plus.bouton = true;
+					c.lignes.PushBack(plus);
+					y += rh;
+					const nk_uint64 courante = m.LayerOf(m.level);
+					Ligne base;
+					base.hit.field = NkGraphField::LayerItem;
+					base.hit.id = 0;
+					base.hit.rect = NkPaintRect{c.side.x + pad, y, c.side.w - pad * 2.f, rh};
+					base.texte = "Base";
+					base.coche = courante == 0;
+					base.valeur = "machine";
+					c.lignes.PushBack(base);
+					y += rh;
+					for (uint32 i = 0; i < (uint32)m.nodes.Size(); ++i) {
+						const NkGraphNode &n = m.nodes[i];
+						if (!n.layerRoot) {
+							continue;
+						}
+						Ligne l;
+						l.hit.field = NkGraphField::LayerItem;
+						l.hit.id = n.id;
+						l.hit.rect = NkPaintRect{c.side.x + pad, y, c.side.w - pad * 2.f, rh};
+						l.texte = n.name;
+						l.coche = courante == n.id;
+						char txt[48];
+						std::snprintf(txt, sizeof(txt), "%s %.2f", n.layerAdditive ? "+" : "=", (double)n.layerWeight);
+						l.valeur = txt;
+						l.pastille = n.layerAdditive ? c.s.paramTrigger : c.s.paramBool;
+						c.lignes.PushBack(l);
+						y += rh;
+					}
+				}
 				y += rh * 0.5f;
 				Ligne ta;
 				ta.titre = true;
@@ -403,6 +463,10 @@ namespace nkentseu {
 					c.lignes.PushBack(l);
 					y += rh;
 				}
+				// (01/10 soir) « + Arbre » : un ARBRE DE MELANGE au centre de la vue (sous
+				// les animations qu'il melangera ; la barre du haut est deja pleine).
+				c.r.buttons[(uint8)NkStateGraphButton::AddBlendTree] =
+					NkPaintRect{c.side.x + pad, y + c.M("button_gap") * 2.f, c.side.w - pad * 2.f, rh - c.M("button_gap") * 2.f};
 			}
 
 			void Champ(Ctx &c, float32 &y, NkGraphField f, const char *libelle, const NkString &valeur, nk_uint64 id,
@@ -452,6 +516,8 @@ namespace nkentseu {
 					Info(c, y, de);
 					std::snprintf(txt, sizeof(txt), "%.2f s", (double)t->fade);
 					Champ(c, y, NkGraphField::TransFade, "Fondu", txt, t->id);
+					// (01/10 soir) la COURBE du fondu : un clic la fait tourner.
+					Champ(c, y, NkGraphField::TransCurve, "Courbe du fondu", NkStateGraphModel::FadeCurveName(t->curve), t->id);
 					std::snprintf(txt, sizeof(txt), "%d", t->priority);
 					Champ(c, y, NkGraphField::TransPriority, "Priorite", txt, t->id);
 					Info(c, y, "Conditions (toutes vraies)", true);
@@ -522,9 +588,58 @@ namespace nkentseu {
 					return;
 				}
 				if (const NkGraphNode *n = m.Node(m.selectedNode)) {
-					Info(c, y, n->subMachine ? "Sous-machine" : "Etat", true);
+					Info(c, y, n->subMachine ? "Sous-machine" : (n->blendTree ? "Arbre de melange" : "Etat"), true);
 					Champ(c, y, NkGraphField::NodeName, "Nom", n->name, n->id);
-					if (!n->subMachine) {
+					if (n->blendTree) {
+						// (01/10 soir) L'ARBRE : sa dimension, ses parametres, ses animations.
+						Champ(c, y, NkGraphField::BlendDims, "Dimension", n->blendDims >= 2 ? NkString("2D") : NkString("1D"), n->id);
+						Champ(c, y, NkGraphField::BlendParamX, "Parametre X", n->paramX.Empty() ? NkString("(aucun)") : n->paramX, n->id);
+						if (n->blendDims >= 2) {
+							Champ(c, y, NkGraphField::BlendParamY, "Parametre Y", n->paramY.Empty() ? NkString("(aucun)") : n->paramY,
+								  n->id);
+						}
+						Info(c, y, "Animations (position)", true);
+						const float32 pad = c.M("pad");
+						const float32 rh = c.M("row_h");
+						const float32 gap = c.M("button_gap");
+						const float32 w = c.inspector.w - pad * 2.f;
+						for (uint32 k = 0; k < (uint32)n->samples.Size(); ++k) {
+							const NkGraphBlendSample &sm = n->samples[k];
+							const bool deux = n->blendDims >= 2;
+							const float32 wc = w * (deux ? 0.44f : 0.6f), wv = w * (deux ? 0.22f : 0.28f), wx = w - wc - wv * (deux ? 2.f : 1.f);
+							float32 x = c.inspector.x + pad;
+							Ligne lc;
+							lc.hit.field = NkGraphField::SampleClip;
+							lc.hit.id = n->id;
+							lc.hit.index = (int32)k;
+							lc.hit.rect = NkPaintRect{x, y + gap, wc - gap, rh - gap * 2.f};
+							lc.valeur = sm.clip.Empty() ? NkString("(aucune)") : sm.clip;
+							c.lignes.PushBack(lc);
+							x += wc;
+							for (int32 axe = 0; axe < (deux ? 2 : 1); ++axe) {
+								Ligne lv;
+								lv.hit.field = axe == 0 ? NkGraphField::SampleX : NkGraphField::SampleY;
+								lv.hit.id = n->id;
+								lv.hit.index = (int32)k;
+								lv.hit.rect = NkPaintRect{x, y + gap, wv - gap, rh - gap * 2.f};
+								std::snprintf(txt, sizeof(txt), "%.2f", (double)(axe == 0 ? sm.x : sm.y));
+								lv.valeur = txt;
+								c.lignes.PushBack(lv);
+								x += wv;
+							}
+							Ligne lx;
+							lx.hit.field = NkGraphField::SampleRemove;
+							lx.hit.id = n->id;
+							lx.hit.index = (int32)k;
+							lx.hit.rect = NkPaintRect{x, y + gap, wx, rh - gap * 2.f};
+							lx.texte = "-";
+							lx.bouton = true;
+							c.lignes.PushBack(lx);
+							y += rh;
+						}
+						Champ(c, y, NkGraphField::SampleAdd, "+ Animation", NkString(), n->id, -1, true, !m.clips.Empty());
+					}
+					if (!n->subMachine && !n->blendTree) {
 						Champ(c, y, NkGraphField::NodeClip, "Animation", n->clip.Empty() ? NkString("(aucune)") : n->clip,
 							  n->id);
 						std::snprintf(txt, sizeof(txt), "%d", n->tag);
@@ -543,6 +658,20 @@ namespace nkentseu {
 					Champ(c, y, NkGraphField::NodeDelete, n->subMachine ? "Supprimer la sous-machine" : "Supprimer l'etat",
 						  NkString(), n->id, -1, true);
 					return;
+				}
+				if (const NkGraphNode *L = m.Node(m.LayerOf(m.level))) {
+					// (01/10 soir) LA COUCHE ouverte : son poids, son mode, son masque.
+					Info(c, y, NkString("Couche ") + L->name, true);
+					Champ(c, y, NkGraphField::NodeName, "Nom", L->name, L->id);
+					std::snprintf(txt, sizeof(txt), "%.2f", (double)L->layerWeight);
+					Champ(c, y, NkGraphField::LayerWeight, "Poids", txt, L->id);
+					Champ(c, y, NkGraphField::LayerMode, "Mode", L->layerAdditive ? NkString("Additif") : NkString("Remplace"), L->id);
+					Champ(c, y, NkGraphField::LayerMask, "Masque", L->layerMask.Empty() ? NkString("(tout)") : L->layerMask, L->id);
+					Champ(c, y, NkGraphField::LayerParam, "Poids par",
+						  L->layerWeightParam.Empty() ? NkString("(aucun)") : L->layerWeightParam, L->id);
+					y += c.M("row_h") * 0.5f;
+					Champ(c, y, NkGraphField::LayerRemove, "Supprimer la couche", NkString(), L->id, -1, true);
+					y += c.M("row_h") * 0.5f;
 				}
 				Info(c, y, "Graphe d'etats", true);
 				Info(c, y, "Double-clic sur le fond : un etat.");
@@ -759,6 +888,129 @@ namespace nkentseu {
 						Selectionner(c, 0, 0);
 						c.r.changed = true;
 						break;
+					// ── (01/10 soir) le melange ─────────────────────────────────
+					case NkGraphField::TransCurve:
+						if (m.Transition(l.hit.id) != nullptr) {
+							m.PushUndo();
+							NkGraphTransition *t = m.Transition(l.hit.id);
+							t->curve = (uint8)((t->curve + 1u) % 4u);
+							m.Touch();
+							c.r.changed = true;
+						}
+						break;
+					case NkGraphField::BlendDims:
+					case NkGraphField::BlendParamX:
+					case NkGraphField::BlendParamY:
+					case NkGraphField::LayerMode:
+					case NkGraphField::LayerMask:
+					case NkGraphField::LayerParam: {
+						if (m.Node(l.hit.id) == nullptr) {
+							break;
+						}
+						m.PushUndo();
+						NkGraphNode *n = m.Node(l.hit.id);
+						// Le suivant d'une liste, puis « aucun » (vide), puis le premier.
+						auto suivant = [](const NkVector<NkString> &liste, const NkString &cur) -> NkString {
+							if (liste.Empty()) {
+								return NkString();
+							}
+							for (uint32 i = 0; i < (uint32)liste.Size(); ++i) {
+								if (liste[i] == cur) {
+									return i + 1 < (uint32)liste.Size() ? liste[i + 1] : NkString();
+								}
+							}
+							return liste[0];
+						};
+						NkVector<NkString> reels;
+						for (uint32 i = 0; i < (uint32)m.params.Size(); ++i) {
+							if (m.params[i].kind == (uint8)NkGraphParamKind::Float) {
+								reels.PushBack(m.params[i].name);
+							}
+						}
+						switch (l.hit.field) {
+							case NkGraphField::BlendDims:
+								n->blendDims = n->blendDims >= 2 ? (uint8)1 : (uint8)2;
+								break;
+							case NkGraphField::BlendParamX:
+								n->paramX = suivant(reels, n->paramX);
+								break;
+							case NkGraphField::BlendParamY:
+								n->paramY = suivant(reels, n->paramY);
+								break;
+							case NkGraphField::LayerMode:
+								n->layerAdditive = !n->layerAdditive;
+								break;
+							case NkGraphField::LayerMask:
+								n->layerMask = suivant(m.masks, n->layerMask);
+								break;
+							default:
+								n->layerWeightParam = suivant(reels, n->layerWeightParam);
+								break;
+						}
+						m.Touch();
+						c.r.changed = true;
+						break;
+					}
+					case NkGraphField::SampleClip:
+						if (NkGraphNode *n = m.Node(l.hit.id)) {
+							if (l.hit.index >= 0 && l.hit.index < (int32)n->samples.Size()) {
+								m.PushUndo();
+								n = m.Node(l.hit.id);
+								NkString &clip = n->samples[(uint32)l.hit.index].clip;
+								clip = ClipSuivant(m, clip);
+								m.Touch();
+								c.r.changed = true;
+							}
+						}
+						break;
+					case NkGraphField::SampleX:
+					case NkGraphField::SampleY:
+					case NkGraphField::LayerWeight: {
+						m.gesture = (uint8)NkStateGraphGesture::ScrubField;
+						m.gestureParam = (int32)l.hit.field;
+						m.gestureNode = l.hit.id;
+						m.gestureCondition = l.hit.index;
+						float32 v = 0.f;
+						if (const NkGraphNode *n = m.Node(l.hit.id)) {
+							if (l.hit.field == NkGraphField::LayerWeight) {
+								v = n->layerWeight;
+							} else if (l.hit.index >= 0 && l.hit.index < (int32)n->samples.Size()) {
+								v = l.hit.field == NkGraphField::SampleX ? n->samples[(uint32)l.hit.index].x
+																		 : n->samples[(uint32)l.hit.index].y;
+							}
+						}
+						m.gestureValue = v;
+						break;
+					}
+					case NkGraphField::SampleRemove:
+						m.RemoveBlendSample(l.hit.id, (uint32)l.hit.index);
+						c.r.changed = true;
+						break;
+					case NkGraphField::SampleAdd:
+						if (const NkGraphNode *n = m.Node(l.hit.id)) {
+							// La suivante des animations, un cran plus loin sur l'axe.
+							const float32 x = n->samples.Empty() ? 0.f : n->samples[n->samples.Size() - 1].x + 1.f;
+							const NkString clip = m.clips.Empty() ? NkString() : m.clips[(uint32)n->samples.Size() % (uint32)m.clips.Size()];
+							m.AddBlendSample(l.hit.id, clip, x, 0.f);
+							c.r.changed = true;
+						}
+						break;
+					case NkGraphField::LayerItem:
+						ChangerNiveau(c, l.hit.id);
+						break;
+					case NkGraphField::LayerAdd: {
+						const nk_uint64 id = m.AddLayer(m.UniqueName("Couche", 0));
+						ChangerNiveau(c, id);
+						c.r.changed = true;
+						break;
+					}
+					case NkGraphField::LayerRemove:
+						if (m.LayerOf(m.level) == l.hit.id) {
+							ChangerNiveau(c, 0);
+						}
+						m.RemoveNode(l.hit.id);
+						c.r.changed = true;
+						break;
 					default:
 						break;
 				}
@@ -799,6 +1051,13 @@ namespace nkentseu {
 					case NkStateGraphButton::Frame:
 						m.FrameLevel(c.canvas.w / c.S, c.canvas.h / c.S);
 						break;
+					case NkStateGraphButton::AddBlendTree: {
+						const float32 decal = (float32)(m.nodes.Size() % 5) * 24.f;
+						const nk_uint64 id = m.AddBlendTree("Arbre", m.level, m.panX + decal, m.panY + decal);
+						Selectionner(c, id, 0);
+						c.r.changed = true;
+						break;
+					}
 					case NkStateGraphButton::AddBool:
 					case NkStateGraphButton::AddFloat:
 					case NkStateGraphButton::AddTrigger:
@@ -919,6 +1178,17 @@ namespace nkentseu {
 							if (NkGraphNode *n = m.Node(m.gestureNode)) {
 								const int32 v = (int32)std::floor(m.gestureValue + dx * c.Raw("scrub_px") * 10.f + 0.5f);
 								n->tag = v < 0 ? 0 : v;
+							}
+						} else if (f == NkGraphField::LayerWeight || f == NkGraphField::SampleX || f == NkGraphField::SampleY) {
+							// (01/10 soir) le poids d'une couche (0..1), la place d'une animation.
+							if (NkGraphNode *n = m.Node(m.gestureNode)) {
+								const float32 v = m.gestureValue + dx * c.Raw("scrub_px");
+								if (f == NkGraphField::LayerWeight) {
+									n->layerWeight = v < 0.f ? 0.f : (v > 1.f ? 1.f : v);
+								} else if (m.gestureCondition >= 0 && m.gestureCondition < (int32)n->samples.Size()) {
+									(f == NkGraphField::SampleX ? n->samples[(uint32)m.gestureCondition].x
+																: n->samples[(uint32)m.gestureCondition].y) = v;
+								}
 							}
 						} else if (NkGraphTransition *t = m.Transition(m.gestureNode)) {
 							if (f == NkGraphField::TransFade) {
@@ -1129,7 +1399,7 @@ namespace nkentseu {
 					if (nr.id == kNkGraphUpId) {
 						const NkGraphNode *cur = m.Node(m.level);
 						const NkGraphNode *par = cur != nullptr ? m.Node(cur->parent) : nullptr;
-						nom.Append(par != nullptr ? par->name : NkString("Racine"));
+						nom.Append(par != nullptr ? par->name : NkString("Base"));
 					}
 					c.p.Text(rc, nom.CStr(), nr.id == kNkGraphUpId ? c.s.text : c.s.textOnAccent, NkTextAlign::Center);
 				} else {
@@ -1153,13 +1423,49 @@ namespace nkentseu {
 						c.p.Fill(NkPaintRect{rc.x + d, rc.y + d, rc.w, rc.h}, c.s.border, rnd);
 					}
 					c.p.Fill(rc, c.s.nodeBody, rnd);
-					const uint16 bandeau = n->subMachine ? c.s.subMachine : (entree ? c.s.nodeEntry : c.s.nodeHeader);
+					const uint16 roleArbre = c.s.blendTree != 0 ? c.s.blendTree : c.s.pseudoAny;
+					const uint16 bandeau = n->subMachine ? c.s.subMachine : (entree ? c.s.nodeEntry : (n->blendTree ? roleArbre : c.s.nodeHeader));
 					c.p.Fill(NkPaintRect{rc.x, rc.y, rc.w, c.M("node_header_h") * m.zoom}, bandeau, rnd);
 					const float32 pad = c.M("pad") * m.zoom;
 					const float32 lh = rc.h - c.M("node_header_h") * m.zoom;
 					c.p.Text(NkPaintRect{rc.x + pad, rc.y + c.M("node_header_h") * m.zoom, rc.w - pad * 2.f, lh * 0.55f},
 							 n->name.CStr(), c.s.text, NkTextAlign::Center);
-					if (m.zoom >= 0.6f) {
+					if (n->blendTree) {
+						// (01/10 soir) L'ARBRE : son axe (1D) ou son plan (2D), un point par
+						// animation, et la valeur VIVANTE du parametre pendant l'apercu.
+						const NkPaintRect g{rc.x + pad, rc.y + rc.h - lh * 0.46f, rc.w - pad * 2.f, lh * 0.36f};
+						float32 x0 = 0.f, x1 = 1.f, y0 = 0.f, y1 = 1.f;
+						for (uint32 k = 0; k < (uint32)n->samples.Size(); ++k) {
+							const NkGraphBlendSample &s = n->samples[k];
+							x0 = k == 0 || s.x < x0 ? s.x : x0;
+							x1 = k == 0 || s.x > x1 ? s.x : x1;
+							y0 = k == 0 || s.y < y0 ? s.y : y0;
+							y1 = k == 0 || s.y > y1 ? s.y : y1;
+						}
+						const float32 sx = x1 - x0 > 1e-4f ? x1 - x0 : 1.f, sy = y1 - y0 > 1e-4f ? y1 - y0 : 1.f;
+						const bool deux = n->blendDims >= 2;
+						auto px = [&](float32 v) { return g.x + (v - x0) / sx * g.w; };
+						auto py = [&](float32 v) { return deux ? g.y + g.h - (v - y0) / sy * g.h : g.y + g.h * 0.5f; };
+						if (deux) {
+							c.p.FillColor(g, Voile(c.p, c.s.canvasBg, 0xA0u), c.M("button_gap"));
+						} else {
+							c.p.HLine(g.x, g.y + g.h * 0.5f, g.w, c.s.textMuted);
+						}
+						const float32 r = c.M("button_gap") * 1.2f * (m.zoom < 1.f ? 1.f : m.zoom);
+						for (uint32 k = 0; k < (uint32)n->samples.Size(); ++k) {
+							const float32 x = px(n->samples[k].x), y = py(n->samples[k].y);
+							const float32 xy[8] = {x, y - r, x + r, y, x, y + r, x - r, y};
+							c.p.PolygonHex(xy, 4, c.p.ColorOf(roleArbre));
+						}
+						if (m.live) {
+							const int32 ix = m.ParamIndex(n->paramX), iy = m.ParamIndex(n->paramY);
+							const float32 vx = ix >= 0 ? m.params[(uint32)ix].value : 0.f;
+							const float32 vy = iy >= 0 ? m.params[(uint32)iy].value : 0.f;
+							const float32 x = px(vx < x0 ? x0 : (vx > x1 ? x1 : vx)), y = py(vy < y0 ? y0 : (vy > y1 ? y1 : vy));
+							c.p.Fill(NkPaintRect{x - r * 0.6f, g.y - r * 0.5f, r * 1.2f, g.h + r}, c.s.accent);
+							(void)y;
+						}
+					} else if (m.zoom >= 0.6f) {
 						const char *sous = n->subMachine ? "sous-machine" : (n->clip.Empty() ? "(etat vide)" : n->clip.CStr());
 						c.p.Text(NkPaintRect{rc.x + pad, rc.y + rc.h - lh * 0.48f, rc.w - pad * 2.f, lh * 0.42f}, sous,
 								 c.s.textMuted, NkTextAlign::Center);
@@ -1219,6 +1525,26 @@ namespace nkentseu {
 					}
 					return;
 				}
+				if (l.hit.field == NkGraphField::LayerItem) {
+					// (01/10 soir) Une couche : la courante pleine, son poids a droite.
+					if (l.coche) {
+						c.p.Fill(rc, c.s.accent, gap);
+					} else if (survol) {
+						c.p.Fill(rc, c.s.inputBg, gap);
+					}
+					float32 x = rc.x + gap * 2.f;
+					if (l.pastille != 0) {
+						const float32 d = rc.h * 0.36f;
+						c.p.Fill(NkPaintRect{x, rc.y + (rc.h - d) * 0.5f, d, d}, l.pastille, d * 0.5f);
+						x += d + gap * 2.f;
+					}
+					const float32 vw = c.p.TextWidth(l.valeur.CStr()) + pad;
+					c.p.Text(NkPaintRect{x, rc.y, rc.x + rc.w - x - vw, rc.h}, l.texte.CStr(), l.coche ? c.s.textOnAccent : c.s.text,
+							 NkTextAlign::Left);
+					c.p.Text(NkPaintRect{rc.x + rc.w - vw - gap, rc.y, vw, rc.h}, l.valeur.CStr(),
+							 l.coche ? c.s.textOnAccent : c.s.textMuted, NkTextAlign::Right);
+					return;
+				}
 				if (l.hit.field == NkGraphField::ParamName || l.hit.field == NkGraphField::ClipItem ||
 					(l.hit.field == NkGraphField::None && !l.texte.Empty() && l.valeur.Empty())) {
 					float32 x = rc.x;
@@ -1265,7 +1591,7 @@ namespace nkentseu {
 				c.p.VLine(c.inspector.x - c.M("stroke_w"), c.inspector.y, c.inspector.h, c.s.border);
 				c.p.HLine(c.bar.x, c.bar.y + c.bar.h - c.M("stroke_w"), c.bar.w, c.s.border);
 				static const char *const kTextes[] = {"+ Etat", "+ Sous-machine", "Relier", "Supprimer", "Annuler",
-													  "Refaire", "Cadrer", "+ Bool", "+ Reel", "+ Decl."};
+													  "Refaire", "Cadrer", "+ Bool", "+ Reel", "+ Decl.", "+ Arbre de melange"};
 				for (uint8 b = 0; b < (uint8)NkStateGraphButton::Count; ++b) {
 					const NkPaintRect &rc = c.r.buttons[b];
 					if (rc.w <= 0.f) {

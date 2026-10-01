@@ -711,6 +711,100 @@ namespace nkentseu {
 				}
 			}
 
+			// ── (01/10 soir) LE GRAPHE : arbres de melange, couches, courbes ──────
+			//  PRE-ENREGISTREMENT :
+			//   g8  une COUCHE est une sous-machine cachee : la base ne la dessine pas,
+			//       son entree ne la prend pas ; ses etats sont dans sa couche
+			//   g9  GESTE : « + Couche » l'ouvre ; son mode se clique (additif), son
+			//       masque tourne dans ceux de l'hote ; « Base » ramene a la racine
+			//   g10 GESTE : « + Arbre » (le parametre reel en X), « + Animation »,
+			//       l'animation se clique ; la courbe d'une transition tourne
+			inline void FamilleGrapheMelange(Bilan &b) {
+				std::printf("  -- graphe : le melange --\n");
+				{
+					NkStateGraphModel m;
+					const nk_uint64 couche = m.AddLayer("Tir");
+					const nk_uint64 a = m.AddState("A", 0, 0.f, 0.f);
+					const nk_uint64 t = m.AddState("Tirer", couche, 0.f, 0.f);
+					HoteGraphe h;
+					h.Trame(m);
+					const bool cachee = h.Noeud(couche) == nullptr && h.Noeud(a) != nullptr;
+					Note(b, cachee && m.EntryOf(0) == a && m.LayerOf(t) == couche && m.LayerOf(a) == 0 && m.EntryOf(couche) == t,
+						 "g8 une couche : cachee de la base, hors de son entree, ses etats chez elle");
+				}
+				{
+					NkStateGraphModel m;
+					m.AddParam("visee", (uint8)NkGraphParamKind::Float);
+					m.AddState("Course", 0, 0.f, 0.f);
+					m.masks.PushBack("Torse");
+					m.undoStack.Clear();
+					HoteGraphe h;
+					h.Trame(m);
+					const NkGraphHit *plus = h.Champ(NkGraphField::LayerAdd);
+					if (plus != nullptr) {
+						h.Clic(m, plus->rect.x + plus->rect.w * 0.5f, plus->rect.y + plus->rect.h * 0.5f);
+					}
+					h.Trame(m);
+					const nk_uint64 couche = m.level;
+					const bool ouverte = couche != 0 && m.IsLayerRoot(couche);
+					const NkGraphHit *mode = h.Champ(NkGraphField::LayerMode);
+					if (mode != nullptr) {
+						h.Clic(m, mode->rect.x + mode->rect.w * 0.5f, mode->rect.y + mode->rect.h * 0.5f);
+					}
+					h.Trame(m);
+					const NkGraphHit *masque = h.Champ(NkGraphField::LayerMask);
+					if (masque != nullptr) {
+						h.Clic(m, masque->rect.x + masque->rect.w * 0.5f, masque->rect.y + masque->rect.h * 0.5f);
+					}
+					h.Trame(m);
+					const NkGraphNode *L = m.Node(couche);
+					const bool reglee = L != nullptr && L->layerAdditive && L->layerMask == NkString("Torse");
+					const NkGraphHit *base = h.Champ(NkGraphField::LayerItem);
+					if (base != nullptr) {
+						h.Clic(m, base->rect.x + base->rect.w * 0.5f, base->rect.y + base->rect.h * 0.5f);
+					}
+					Note(b, plus != nullptr && ouverte && reglee && m.level == 0,
+						 "g9 + Couche l'ouvre ; mode additif et masque au clic ; Base ramene a la racine");
+				}
+				{
+					NkStateGraphModel m;
+					m.AddParam("vitesse", (uint8)NkGraphParamKind::Float);
+					m.clips.PushBack("idle");
+					m.clips.PushBack("course");
+					const nk_uint64 a = m.AddState("A", 0, -200.f, 0.f);
+					m.undoStack.Clear();
+					HoteGraphe h;
+					h.Trame(m);
+					const NkPaintRect bt = h.r.buttons[(uint8)NkStateGraphButton::AddBlendTree];
+					h.Clic(m, bt.x + bt.w * 0.5f, bt.y + bt.h * 0.5f);
+					h.Trame(m);
+					const nk_uint64 arbre = m.selectedNode;
+					const NkGraphNode *n = m.Node(arbre);
+					const bool cree = n != nullptr && n->blendTree && n->paramX == NkString("vitesse");
+					const NkGraphHit *ajout = h.Champ(NkGraphField::SampleAdd);
+					if (ajout != nullptr) {
+						h.Clic(m, ajout->rect.x + ajout->rect.w * 0.5f, ajout->rect.y + ajout->rect.h * 0.5f);
+					}
+					h.Trame(m);
+					const NkGraphHit *clip = h.Champ(NkGraphField::SampleClip, 0);
+					if (clip != nullptr) {
+						h.Clic(m, clip->rect.x + clip->rect.w * 0.5f, clip->rect.y + clip->rect.h * 0.5f);
+					}
+					n = m.Node(arbre);
+					const bool echantillon = n != nullptr && n->samples.Size() == 1u && n->samples[0].clip == NkString("course");
+					const nk_uint64 t = m.AddTransition(a, arbre);
+					m.selectedTransition = t;
+					m.selectedNode = 0;
+					h.Trame(m);
+					const NkGraphHit *courbe = h.Champ(NkGraphField::TransCurve);
+					if (courbe != nullptr) {
+						h.Clic(m, courbe->rect.x + courbe->rect.w * 0.5f, courbe->rect.y + courbe->rect.h * 0.5f);
+					}
+					Note(b, bt.w > 0.f && cree && echantillon && m.Transition(t) != nullptr && m.Transition(t)->curve == 1u,
+						 "g10 + Arbre (parametre en X), + Animation, son clip au clic ; la courbe du fondu tourne");
+				}
+			}
+
 			inline Bilan Sonder() {
 				Bilan b;
 				FamilleFriseModele(b);
@@ -718,6 +812,7 @@ namespace nkentseu {
 				FamilleFriseUE5(b);
 				FamilleGrapheModele(b);
 				FamilleGrapheGestes(b);
+				FamilleGrapheMelange(b);
 				return b;
 			}
 

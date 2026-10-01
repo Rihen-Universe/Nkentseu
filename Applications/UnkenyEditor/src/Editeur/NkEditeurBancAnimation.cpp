@@ -34,6 +34,10 @@
 //        la position est a 0,5 ; l'apercu d'une trame ne laisse rien
 //   (c3) « + Piste » propose d'abord une piste de clips ; son « + » ouvre le
 //        choix des animations ; un clic y pose le clip au curseur
+//   (b7) (01/10 soir) le graphe d'un CONTROLEUR : une couche « Tir » (masque
+//        « Torse », additive, poids 0,5) et un arbre de melange 1D sur
+//        « vitesse », une courbe douce : graphe -> controleur -> graphe garde tout,
+//        et le .nkanimctl ecrit par l'editeur se relit par Unkeny
 //   PAGE ANIMATEUR
 //   (b1) Fenetre > Animateur : « + Reel », puis deux double-clics sur la toile =
 //        deux etats aux points du clic
@@ -623,6 +627,45 @@ namespace nkentseu {
 				memory::NkGetDefaultAllocator().Delete(pm);
 				NkDirectory::Delete("banc_seq", true);
 			}
+			void BancGrapheControleur() {
+				editorkit::NkStateGraphModel g;
+				g.AddParam("vitesse", (uint8)editorkit::NkGraphParamKind::Float);
+				const nk_uint64 loco = g.AddBlendTree("Locomotion", 0, 0.f, 0.f);
+				g.AddBlendSample(loco, "repos", 0.f);
+				g.AddBlendSample(loco, "course", 3.f);
+				const nk_uint64 saut = g.AddState("Saut", 0, 300.f, 0.f, "saut");
+				const nk_uint64 t = g.AddTransition(loco, saut);
+				g.Transition(t)->curve = 1;
+				const nk_uint64 tir = g.AddLayer("Tir");
+				g.Node(tir)->layerAdditive = true;
+				g.Node(tir)->layerWeight = 0.5f;
+				g.Node(tir)->layerMask = "Torse";
+				g.AddState("Viser", tir, 0.f, 0.f, "visee");
+				anim::NkAnimController ctl;
+				NkVector<nk_uint64> nds;
+				const bool compile = NkControleurDepuisGraphe(g, ctl, nds);
+				const anim::NkBlendSpaceDef *bs = ctl.FindBlendSpace("Locomotion");
+				const bool vers = compile && ctl.base.GetStateCount() == 2 && ctl.base.GetStateRefKind(0) == 2 && bs != nullptr &&
+								  bs->samples.Size() == 2u && bs->paramX == NkString("vitesse") && ctl.layers.Size() == 1u &&
+								  ctl.layers[0].mode == anim::NkLayerMode::NK_ADDITIVE && ctl.layers[0].machine.GetStateCount() == 1 &&
+								  ctl.FindMask("Torse") != nullptr && ctl.base.GetTransitionCurve(0) == anim::NkFadeCurve::NK_SMOOTH;
+				editorkit::NkStateGraphModel h;
+				NkVector<nk_uint64> nds2;
+				NkGrapheDepuisControleur(ctl, h, nds2);
+				uint32 couches = 0, arbres = 0, viser = 0;
+				for (uint32 i = 0; i < (uint32)h.nodes.Size(); ++i) {
+					couches += h.nodes[i].layerRoot ? 1u : 0u;
+					arbres += h.nodes[i].blendTree && h.nodes[i].samples.Size() == 2u ? 1u : 0u;
+					viser += h.nodes[i].name == NkString("Viser") && h.LayerOf(h.nodes[i].id) != 0 ? 1u : 0u;
+				}
+				const bool retour = couches == 1u && arbres == 1u && viser == 1u && h.transitions.Size() == 1u && h.transitions[0].curve == 1u;
+				ctl.SaveBinary("banc_ctl_melange.nkanimctl");
+				const bool lu = unkeny::NkChargerModeleAnimateur("banc_ctl_melange", "banc_ctl_melange.nkanimctl");
+				const anim::NkAnimController *rl = unkeny::NkControleurAnimateur("banc_ctl_melange");
+				NkFile::Delete("banc_ctl_melange.nkanimctl");
+				Temoin(vers && retour && lu && rl != nullptr && rl->layers.Size() == 1u && rl->FindBlendSpace("Locomotion") != nullptr,
+					   "(b7) couche, arbre 1D, courbe : graphe -> controleur -> graphe ; relu par Unkeny");
+			}
 		} // namespace
 
 		int32 NkEditeurLancerBancAnimation() {
@@ -631,6 +674,7 @@ namespace nkentseu {
 			BancPageAnimation();
 			BancPageSequence();
 			BancPageAnimateur();
+			BancGrapheControleur();
 			std::printf("\nBANC ANIMATION %s : %d reussis, %d echec\n", gE == 0 ? "REUSSI" : "ECHOUE", gR, gE);
 			return gE == 0 ? 0 : 1;
 		}
@@ -717,6 +761,59 @@ namespace nkentseu {
 				T.Trame();
 				erreurs += EcrirePng(T, fichier("03_animation_proprietes.png").CStr()) ? 0 : 1;
 				d->choix = false;
+				// (01/10 soir) 7. Les TANGENTES : la position en « Courbe », la cle du
+				// sommet choisie (unifiee), dans l'editeur de courbes.
+				for (uint32 k = 0; k < (uint32)f.Track(1)->keys.Size(); ++k) {
+					f.Track(1)->keys[k].interp = (uint8)editorkit::NkTimelineInterp::Courbe;
+				}
+				f.ClearSelection();
+				f.SelectKey(1, 1, false);
+				f.SetSelectionTangent((uint8)editorkit::NkTimelineTangent::Unifiee);
+				f.Track(1)->keys[1].tanIn[1] = f.Track(1)->keys[1].tanOut[1] = -2.f;
+				f.Touch();
+				f.curveMode = true;
+				f.curveAutoFit = true;
+				f.activeTrack = 1;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, fichier("07_animation_courbes_tangentes.png").CStr()) ? 0 : 1;
+				// 8. Une SEQUENCE : une piste de clips (deux animations qui se fondent,
+				// une boucle), des marqueurs, la plage de lecture.
+				{
+					anim::NkAnimationClip marche, course;
+					marche.name = "Marche";
+					marche.duration = 0.4f;
+					course.name = "Course";
+					course.duration = 0.3f;
+					unkeny::NkEnregistrerClipProprietes("Marche", marche);
+					unkeny::NkEnregistrerClipProprietes("Course", course);
+				}
+				f.curveMode = false;
+				f.ClearSelection();
+				f.duration = 2.f;
+				f.AddTrack(9, "", "Clips", editorkit::NkTimelineValueKind::Clips, 1).label = "Clips";
+				const nk_uint64 clipA = f.AddClip(9, "Marche", 0.f, 1.1f, 0.4f);
+				const nk_uint64 clipB = f.AddClip(9, "Course", 0.8f, 1.f, 0.3f);
+				f.Clip(9, clipA)->blendOut = 0.3f;
+				f.Clip(9, clipB)->blendIn = 0.3f;
+				f.Clip(9, clipB)->weight = 0.8f;
+				f.AddTrack(10, "", "Clips additifs", editorkit::NkTimelineValueKind::Clips, 1).label = "Respiration";
+				f.Track(10)->additive = true;
+				f.Track(10)->mask = "Lanterne";
+				f.AddClip(10, "Marche", 0.2f, 1.4f, 0.4f);
+				f.SelectClip(clipB, false);
+				f.AddMarker(0.5f, "Impact");
+				f.AddMarker(1.4f, "Fin du pas");
+				f.SetPlayRange(0.1f, 1.8f);
+				f.Track(5)->muted = true;
+				f.Track(3)->solo = false;
+				f.SetCursor(0.95f);
+				f.FrameAll();
+				for (int32 k = 0; k < 4; ++k) {
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, fichier("08_animation_pistes_de_clips.png").CStr()) ? 0 : 1;
 			}
 			// 4. La page Animateur : le modele « plateforme » d'Unkeny (Sol / Air).
 			m.selection = heros;
@@ -760,6 +857,35 @@ namespace nkentseu {
 				}
 				erreurs += EcrirePng(T, fichier("05_animateur_en_jeu.png").CStr()) ? 0 : 1;
 				NkEditeurArreter(m);
+				// (01/10 soir) 9. Un ARBRE DE MELANGE a la racine (marche / course sur
+				// « vitesse »), choisi : l'inspecteur montre ses animations.
+				editorkit::NkStateGraphModel &g = a->graphe;
+				g.level = 0;
+				g.selectedTransition = 0;
+				const nk_uint64 arbre = g.AddBlendTree("Locomotion", 0, 170.f, 210.f);
+				g.AddBlendSample(arbre, "Heros", 0.f);
+				g.AddBlendSample(arbre, "marche", 1.f);
+				g.AddBlendSample(arbre, "saut", 3.f);
+				g.selectedNode = arbre;
+				a->grapheCadre = false;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, fichier("09_animateur_arbre_de_melange.png").CStr()) ? 0 : 1;
+				// 10. Une COUCHE « Tir » (le haut du corps), ouverte : ses reglages.
+				g.masks.PushBack("Lanterne");
+				const nk_uint64 couche = g.AddLayer("Tir");
+				g.Node(couche)->layerWeight = 0.75f;
+				g.Node(couche)->layerMask = "Lanterne";
+				g.AddState("Viser", couche, 0.f, 0.f, "marche");
+				g.AddState("Tirer", couche, 320.f, 0.f, "saut");
+				g.level = couche;
+				g.selectedNode = 0;
+				a->grapheCadre = false;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, fichier("10_animateur_couche.png").CStr()) ? 0 : 1;
 			}
 			// 6. Le THEME CLAIR : la page Animation.
 			if (d != nullptr && !ui.pagesAnim.docs.Empty()) {

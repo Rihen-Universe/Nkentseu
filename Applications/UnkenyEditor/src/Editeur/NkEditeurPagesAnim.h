@@ -212,8 +212,16 @@ namespace nkentseu {
 		void NkGrapheDepuisMachine(const anim::NkAnimStateMachine &m, editorkit::NkStateGraphModel &g,
 								   NkVector<nk_uint64> &noeudDeEtat);
 		/// La machine d'un graphe (une machine NEUVE). Faux si le graphe n'a aucun etat.
+		/// (01/10 soir) `racine` : la couche a compiler (0 = la base ; une couche du
+		/// graphe est une sous-machine cachee, `layerRoot`).
 		bool NkMachineDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimStateMachine &m,
-								   NkVector<nk_uint64> &noeudDeEtat);
+								   NkVector<nk_uint64> &noeudDeEtat, nk_uint64 racine = 0);
+		/// (01/10 soir) Le graphe d'un CONTROLEUR (base, couches, arbres, courbes), et
+		/// l'inverse (le controleur NEUF d'un graphe ; faux si la base n'a aucun etat).
+		void NkGrapheDepuisControleur(const anim::NkAnimController &ctl, editorkit::NkStateGraphModel &g,
+									  NkVector<nk_uint64> &noeudDeEtat);
+		bool NkControleurDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimController &ctl,
+									  NkVector<nk_uint64> &noeudDeEtat);
 		/// Les animations proposees au graphe : les .nkanim du Contenu (leur nom).
 		void NkEditeurAnimationsDuContenu(NkEditeurModele &m, NkVector<NkString> &noms);
 
