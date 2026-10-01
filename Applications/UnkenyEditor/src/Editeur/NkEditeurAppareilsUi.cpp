@@ -208,47 +208,8 @@ namespace nkentseu {
 			m.aSelection = false;
 		}
 
-		void NkEditeurBlocAncrage(NkEditeurCadre &c, ecs::NkEntityId id) {
-			NkGuiContext &ctx = c.ctx;
-			NkEditeurModele &m = c.m;
-			NkAncrageEcran2D *a = m.scene.Monde().Get<NkAncrageEcran2D>(id);
-			if (a == nullptr) {
-				return;
-			}
-			ctx.PushId("ancrage");
-			nkgui::Separator(ctx);
-			nkgui::Text(ctx, "Ancrage à l'écran (HUD)");
-			// Les neuf ancres, en grille : on choisit le coin comme on le voit.
-			static const char *kRepli[9] = {"HG", "H", "HD", "G", "C", "D", "BG", "B", "BD"};
-			for (int32 k = 0; k < 9; ++k) {
-				if (k % 3 != 0) {
-					ctx.SameLine();
-				}
-				ctx.BeginDisabled(a->ancre == k);
-				if (nkgui::Button(ctx, kRepli[k])) {
-					NkEditeurRetenir(m);
-					a = m.scene.Monde().Get<NkAncrageEcran2D>(id);
-					if (a == nullptr) {
-						ctx.EndDisabled();
-						ctx.PopId();
-						return;
-					}
-					a->ancre = static_cast<uint8>(k);
-				}
-				ctx.EndDisabled();
-			}
-			nkgui::SliderFloat(ctx, "écart x (pt)", a->decalage.x, -100.f, 300.f);
-			nkgui::SliderFloat(ctx, "écart y (pt)", a->decalage.y, -100.f, 300.f);
-			nkgui::Checkbox(ctx, "dans la zone sûre", a->zoneSure);
-			if (!a->zoneSure) {
-				nkgui::TextWrapped(ctx, "Au bord de l'écran : pour un fond, jamais pour un bouton ou un texte.");
-			}
-			if (nkgui::Button(ctx, "Retirer l'ancrage")) {
-				NkEditeurRetenir(m);
-				m.scene.Monde().Remove<NkAncrageEcran2D>(id);
-			}
-			ctx.PopId();
-		}
+		// (2026-10-01, R33) NkEditeurBlocAncrage : devenu la carte « Ancrage a l'ecran »
+		// des Details (NkEditeurDetails.cpp, CarteAncrage).
 
 	} // namespace editeur
 } // namespace nkentseu

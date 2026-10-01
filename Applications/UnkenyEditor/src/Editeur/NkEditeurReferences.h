@@ -27,6 +27,7 @@
 #include "Editeur/NkEditeurModele.h"
 
 #include "NKContainers/Sequential/NkVector.h"
+#include "NKSerialization/Asset/NkAssetMetadata.h"
 #include "NKContainers/String/NkString.h"
 
 namespace nkentseu {
@@ -50,6 +51,20 @@ namespace nkentseu {
 		/// Les IMAGES du Contenu, recursivement, en chemins du navigateur, dans
 		/// l'ordre du rail puis par nom. Borne a `maxi`.
 		void NkEditeurImagesDuContenu(NkEditeurModele &m, NkVector<NkString> &sortie, uint32 maxi = 99u);
+		/// (2026-10-01, R33) Les assets du Contenu d'un TYPE (controleurs
+		/// d'animation, prefabs, sons...), comme NkEditeurImagesDuContenu.
+		void NkEditeurAssetsDuContenu(NkEditeurModele &m, NkAssetType type, NkVector<NkString> &sortie, uint32 maxi = 99u);
+
+		/// (2026-10-01, R33) Un ANIMATEUR dont le modele est le controleur
+		/// `cheminNav` (.nkanimctl du Contenu) : lu, enregistre sous le NOM de son
+		/// fichier (sans extension, borne a NK_UNKENY_ANIM_MODELE_MAX - 1), et pose
+		/// sur `id` (NkEditeurAjouterAnimateur). Rend false s'il est illisible.
+		bool NkEditeurAjouterControleur(NkEditeurModele &m, ecs::NkEntityId id, const char *cheminNav);
+		/// Le nom de modele d'un controleur du Contenu (son fichier, sans extension).
+		NkString NkEditeurNomControleur(const char *cheminNav);
+		/// Un animateur dont le modele n'est pas enregistre (scene rouverte) : le
+		/// controleur du Contenu qui porte ce nom est relu. Rend true s'il l'est.
+		bool NkEditeurRetrouverControleur(NkEditeurModele &m, const char *modele);
 
 		/// Un chemin du navigateur designe-t-il une image (par son extension) ?
 		bool NkEditeurEstImage(const char *cheminNav) noexcept;

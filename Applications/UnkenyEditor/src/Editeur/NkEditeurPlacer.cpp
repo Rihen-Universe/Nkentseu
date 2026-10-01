@@ -568,7 +568,7 @@ namespace nkentseu {
 				s.ActualiserCorps(id);
 			}
 			NkEditeurAnnoncer(m, NkString::Format("Collisionneur : %s%s", NkNomCollisionEditeur(k),
-												  s.Monde().Has<NkCorps2D>(id) ? "" : " (sans corps : Détails > Collision pour le rendre solide)")
+												  s.Monde().Has<NkCorps2D>(id) ? "" : " (sans corps : Détails > Collisionneur pour le rendre solide)")
 									 .CStr());
 			return true;
 		}

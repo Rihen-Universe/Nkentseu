@@ -96,7 +96,9 @@ namespace nkentseu {
 			NK_CONTENU_COLLECTION, ///< sous-menu « Ajouter a la collection »
 			NK_CTX_COLLECTION,	   ///< clic droit sur une collection
 			// L'etape 2 d'Unreal (2026-10-01, document 02 §5) : AJOUTES A LA FIN.
-			NK_TEXTURE_SPRITE ///< la liste deroulante de la texture d'un sprite (Details)
+			NK_TEXTURE_SPRITE, ///< la liste deroulante de la texture d'un sprite (Details)
+			// R33 (2026-10-01) : AJOUTES A LA FIN.
+			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -228,7 +230,10 @@ namespace nkentseu {
 			NK_A_PLACER = 1550,			  ///< + indice du catalogue du panneau : au centre de la vue
 			// La reference d'asset des Details (2026-10-01, document 02 §5) : une plage
 			// loin des autres (des branches paralleles ajoutent les leurs).
-			NK_A_TEXTURE_SPRITE = 2100 ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			NK_A_TEXTURE_SPRITE = 2100, ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
+			// « Ajouter un composant > Animateur » (2026-10-01, R33).
+			NK_A_ANIMATEUR = 2200,		   ///< + i : le modele enregistre NkNomModeleAnimateur(i)
+			NK_A_ANIMATEUR_FICHIER = 2250 ///< + k : le controleur controleursProposes[k] (.nkanimctl)
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -458,6 +463,19 @@ namespace nkentseu {
 				/// par sa liste deroulante, et son rectangle a l'ecran (cible du
 				/// glisser depuis le Content Browser ; le banc y vise).
 				NkVector<NkString> texturesProposees;
+				/// (2026-10-01, R33) Les controleurs d'animation (.nkanimctl) du Contenu
+				/// que propose « Ajouter un composant > Animateur », releves a la
+				/// premiere peinture du menu apres son ouverture (`controleursFrais`).
+				NkVector<NkString> controleursProposes;
+				bool controleursFrais = false;
+				/// Les lignes des menus PEINTES a cette trame (menu et sous-menu) :
+				/// libelle, action, rectangle. Les bancs y visent comme un oeil lit.
+				struct NkLigneMenuPeinte {
+						NkString libelle;
+						int32 action = 0;
+						nkgui::NkRect r;
+				};
+				NkVector<NkLigneMenuPeinte> menuLignes;
 				nkgui::NkRect detailsTexture{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
 				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »
@@ -471,6 +489,15 @@ namespace nkentseu {
 						uint32 couleur = 0u;
 				};
 				NkVector<NkLisereAxe> detailsLiseres;
+				/// (2026-10-01, R33) Les RANGEES dessinees a cette trame, par carte :
+				/// leur libelle et le rectangle de leur valeur. Les bancs y trouvent
+				/// « Type » du Collisionneur, comme un oeil trouve la ligne a l'ecran.
+				struct NkRangeeDetails {
+						int32 carte = -1; ///< NkCarteEditeur
+						NkString libelle;
+						nkgui::NkRect champ;
+				};
+				NkVector<NkRangeeDetails> detailsRangees;
 				ecs::NkEntityId nomDe; ///< l'entite dont `nom` est le tampon
 				char nom[32] = {};
 				bool nomFocus = false;
@@ -485,7 +512,9 @@ namespace nkentseu {
 				/// L'ORDRE des cartes (le Transform reste en tete). Monter / Descendre
 				/// le changent pour toutes les entites : NKECS ne range pas les
 				/// composants d'une entite, il n'y a pas d'ordre propre a garder.
-				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
+				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 7, 12, 8};
+				// (2026-10-01, R33) Forme 2D et Ancrage AJOUTES vers la fin : les places
+				// 0..3 ne bougent pas (le banc e45 de Monter / Descendre les lit).
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
 				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
 				/// LES DETAILS D'UNREAL, etape 2 (2026-10-01, document 02 §5) :

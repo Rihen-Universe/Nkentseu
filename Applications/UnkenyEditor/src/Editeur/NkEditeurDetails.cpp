@@ -41,6 +41,7 @@
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurReferences.h"
 #include "Editeur/NkEditeurPlacer.h"
+#include "Editeur/NkEditeurActions.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
@@ -96,6 +97,7 @@ namespace nkentseu {
 					case NkCarteEditeur::NK_TRANSFORM:
 						return 1;
 					case NkCarteEditeur::NK_HIERARCHIE:
+					case NkCarteEditeur::NK_ANCRAGE:
 						return 2;
 					case NkCarteEditeur::NK_COLLISIONNEUR:
 					case NkCarteEditeur::NK_CORPS:
@@ -104,6 +106,7 @@ namespace nkentseu {
 					case NkCarteEditeur::NK_SPRITE:
 					case NkCarteEditeur::NK_LUMIERE:
 					case NkCarteEditeur::NK_EMETTEUR:
+					case NkCarteEditeur::NK_FORME:
 						return 4;
 					case NkCarteEditeur::NK_ANIMATION:
 					case NkCarteEditeur::NK_ANIMATEUR:
@@ -228,6 +231,18 @@ namespace nkentseu {
 						dl.AddTriangleFilled(pts[0], pts[2], pts[3], col);
 						break;
 					}
+					case NkCarteEditeur::NK_FORME:
+						// Un cercle et un triangle qui se chevauchent : « des formes ».
+						dl.AddCircle(P(cx - 2.f, cy - 1.5f), 4.2f, col, 1.2f);
+						dl.AddTriangleFilled(P(cx + 1.f, cy - 1.f), P(cx + 6.5f, cy + 6.f), P(cx - 4.5f, cy + 6.f), col);
+						break;
+					case NkCarteEditeur::NK_ANCRAGE:
+						// Un coin d'ecran et le point qui s'y accroche.
+						dl.AddRect(NkRect{cx - 6.f, cy - 5.f, 12.f, 10.f}, col, 1.2f);
+						dl.AddLine(P(cx + 1.f, cy - 2.5f), P(cx + 3.5f, cy - 2.5f), col, 1.2f);
+						dl.AddLine(P(cx + 3.5f, cy - 2.5f), P(cx + 3.5f, cy), col, 1.2f);
+						dl.AddCircleFilled(P(cx + 0.5f, cy + 0.5f), 1.6f, col);
+						break;
 					case NkCarteEditeur::NK_HIERARCHIE:
 						dl.AddRectFilled(NkRect{cx - 6.f, cy - 6.f, 5.f, 4.f}, col);
 						dl.AddLine(P(cx - 3.5f, cy - 2.f), P(cx - 3.5f, cy + 4.f), col, 1.2f);
@@ -370,6 +385,13 @@ namespace nkentseu {
 				// (Unreal) : les champs de toutes les cartes finissent au meme x.
 				champ = NkRect{r.x + colonne, r.y + 2.f, r.w - colonne - 8.f - 24.f, r.h - 4.f};
 				if (libelle != nullptr && libelle[0] != '\0') {
+					NkEditeurInterface::NkRangeeDetails rd;
+					rd.carte = gCarte;
+					rd.libelle = NkString(libelle);
+					rd.champ = champ;
+					I.c.ui.detailsRangees.PushBack(rd);
+				}
+				if (libelle != nullptr && libelle[0] != '\0') {
 					const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(I.c.police, 16.f)) * 0.5f;
 					dl.PushClipRect(lib, true);
 					renderer::NkTexte(dl, I.c.police, lib.x, ty, libelle, I.c.pal.texte);
@@ -480,8 +502,10 @@ namespace nkentseu {
 				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
 					return false;
 				}
-				float32 col[4] = {static_cast<float32>((rgba >> 24) & 0xFFu) / 255.f, static_cast<float32>((rgba >> 16) & 0xFFu) / 255.f,
-								  static_cast<float32>((rgba >> 8) & 0xFFu) / 255.f, static_cast<float32>(rgba & 0xFFu) / 255.f};
+				// (2026-10-01) Les conversions sont celles de math::NkColor / NkColorF
+				// (NKMath/NkColor.h), pas des decalages faits main.
+				const math::NkColorF cf = math::NkColor(rgba).ToColorF();
+				float32 col[4] = {cf.r, cf.g, cf.b, cf.a};
 				ctx.PushId(libelle);
 				ctx.SetNextItemRect(champ);
 				const bool change = nkgui::ColorEdit4(ctx, "##v", col);
@@ -489,8 +513,7 @@ namespace nkentseu {
 				if (!change) {
 					return false;
 				}
-				auto o = [](float32 v) { return static_cast<uint32>((v < 0.f ? 0.f : (v > 1.f ? 1.f : v)) * 255.f + 0.5f); };
-				rgba = (o(col[0]) << 24) | (o(col[1]) << 16) | (o(col[2]) << 8) | o(col[3]);
+				rgba = math::NkColor(math::NkColorF(col[0], col[1], col[2], col[3])).ToUint32A();
 				return true;
 			}
 
@@ -903,6 +926,151 @@ namespace nkentseu {
 				Fin(I);
 			}
 
+			bool Angle(NkInspecteur &I, const char *libelle, float32 &radians, float32 mini, float32 maxi);
+
+			/// Un choix parmi BEAUCOUP de valeurs (le genre d'une forme, l'ancre d'un
+			/// HUD) : des boutons segmentes, `parLigne` par rangee ; le libelle sur la
+			/// premiere seulement.
+			bool ChoixGrille(NkInspecteur &I, const char *libelle, const char *const *noms, int32 n, int32 parLigne, int32 &valeur) {
+				bool change = false;
+				const bool actif = NkEditeurDans(I.zone, I.c.ctx.input.mousePos);
+				I.c.ctx.PushId(libelle);
+				const bool avant = gCarteRepond;
+				for (int32 debut = 0; debut < n; debut += parLigne) {
+					NkRect champ, lib;
+					if (!Rangee(I, debut == 0 ? libelle : "", RANG_H, champ, lib)) {
+						break;
+					}
+					// Les rangees suivantes se montrent avec la premiere (recherche).
+					gCarteRepond = true;
+					const float32 w = champ.w / static_cast<float32>(parLigne);
+					for (int32 i = debut; i < debut + parLigne && i < n; ++i) {
+						const NkRect r{champ.x + static_cast<float32>(i - debut) * w, champ.y, w - 2.f, champ.h};
+						if (NkEditeurBouton(I.c, r, "", i == valeur, actif, &I.c.ctx.DL()) && i != valeur) {
+							valeur = i;
+							change = true;
+						}
+						renderer::NkTexteDansBoite(I.c.ctx.DL(), I.c.petite, r, noms[i], i == valeur ? I.c.pal.surAccent : I.c.pal.texte);
+					}
+				}
+				gCarteRepond = avant;
+				I.c.ctx.PopId();
+				return change;
+			}
+
+			/// Une liste de POINTS dans une carte (sommets d'un collisionneur, points
+			/// d'une ligne) : une rangee « titre (n) » avec « + » et « − », puis une
+			/// rangee par point, son numero a gauche, X / Y a liseres a droite.
+			bool Points(NkInspecteur &I, const char *titre, NkVec2f *pts, uint8 &nb, uint32 mini, uint32 maxi) {
+				NkGuiContext &ctx = I.c.ctx;
+				NkRect champ, lib;
+				const NkString t = NkString::Format("%s (%u)", titre, static_cast<unsigned>(nb));
+				if (!Repond(titre) || !Rangee(I, t.CStr(), RANG_H, champ, lib)) {
+					return false;
+				}
+				bool change = false;
+				const bool dedans = NkEditeurDans(I.zone, ctx.input.mousePos);
+				const float32 w = (champ.w - 4.f) * 0.5f;
+				const NkRect rp{champ.x, champ.y, w, champ.h};
+				const NkRect rm{champ.x + w + 4.f, champ.y, w, champ.h};
+				if (NkEditeurBouton(I.c, rp, "", false, dedans && nb < maxi, &ctx.DL()) && nb < maxi) {
+					// Au milieu du dernier cote : la forme ne saute pas.
+					const NkVec2f a = nb > 0u ? pts[nb - 1u] : NkVec2f(0.f, 0.f);
+					const NkVec2f b = nb > 0u ? pts[0] : NkVec2f(0.5f, 0.f);
+					pts[nb] = NkVec2f((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f + (nb > 1u ? 0.f : 0.5f));
+					++nb;
+					change = true;
+				}
+				renderer::NkTexteDansBoite(ctx.DL(), I.c.petite, rp, "+ point", nb < maxi ? I.c.pal.texte : I.c.pal.attenue);
+				if (NkEditeurBouton(I.c, rm, "", false, dedans && nb > mini, &ctx.DL()) && nb > mini) {
+					--nb;
+					change = true;
+				}
+				renderer::NkTexteDansBoite(ctx.DL(), I.c.petite, rm, "− point", nb > mini ? I.c.pal.texte : I.c.pal.attenue);
+				ctx.PushId(titre);
+				for (uint32 i = 0; i < nb; ++i) {
+					char num[16];
+					std::snprintf(num, sizeof(num), "   %u", static_cast<unsigned>(i + 1u));
+					// Le numero ne repond pas a la recherche : la liste suit son titre.
+					const bool avant = gCarteRepond;
+					gCarteRepond = true;
+					change |= Paire(I, num, pts[i].x, pts[i].y, 0.01f);
+					gCarteRepond = avant;
+				}
+				ctx.PopId();
+				return change;
+			}
+
+			/// Le premier calque d'une couche (-1 : aucun, collisionneur eteint).
+			int32 PremierCalque(uint32 couche) {
+				for (uint32 i = 0; i < NK_CALQUES_COLLISION; ++i) {
+					if ((couche & (1u << i)) != 0u) {
+						return static_cast<int32>(i);
+					}
+				}
+				return -1;
+			}
+
+			NkString NomCalque(const NkCalquesCollision2D &k, int32 i) {
+				if (i < 0) {
+					return NkString("(aucun)");
+				}
+				if (k.noms[i][0] != '\0') {
+					return NkString(k.noms[i]);
+				}
+				return i == 0 ? NkString("Défaut") : NkString::Format("Calque %d", i);
+			}
+
+			/// Le CALQUE d'un collisionneur (‹ nom ›) et ce qu'il TOUCHE (les calques
+			/// nommes que sa ligne de la matrice laisse passer). Rend vrai s'il change.
+			bool Calque(NkInspecteur &I, NkCollisionneur2D &col) {
+				NkCalquesCollision2D &kc = I.c.m.scene.Calques();
+				bool change = false;
+				int32 calque = PremierCalque(col.couche);
+				NkRect champ, lib;
+				if (Rangee(I, "Calque", RANG_H, champ, lib)) {
+					auto &dl = I.c.ctx.DL();
+					const bool dedans = NkEditeurDans(I.zone, I.c.ctx.input.mousePos);
+					const NkRect rg{champ.x, champ.y, 22.f, champ.h};
+					const NkRect rd{champ.x + champ.w - 22.f, champ.y, 22.f, champ.h};
+					const NkRect rn{champ.x + 24.f, champ.y, champ.w - 48.f, champ.h};
+					if (NkEditeurBouton(I.c, rg, "", false, dedans && calque > 0, &dl) && calque > 0) {
+						col.couche = (col.couche & 0xFFFF0000u) | (1u << static_cast<uint32>(calque - 1));
+						change = true;
+					}
+					renderer::NkTexteDansBoite(dl, I.c.petite, rg, "‹", I.c.pal.texte);
+					if (NkEditeurBouton(I.c, rd, "", false, dedans && calque >= 0 && calque < static_cast<int32>(NK_CALQUES_COLLISION) - 1, &dl) &&
+						calque >= 0 && calque < static_cast<int32>(NK_CALQUES_COLLISION) - 1) {
+						col.couche = (col.couche & 0xFFFF0000u) | (1u << static_cast<uint32>(calque + 1));
+						change = true;
+					}
+					renderer::NkTexteDansBoite(dl, I.c.petite, rd, "›", I.c.pal.texte);
+					calque = PremierCalque(col.couche);
+					dl.AddRectFilled(rn, I.c.pal.champ, 3.f);
+					renderer::NkTexteDansBoite(dl, I.c.police, rn, NomCalque(kc, calque).CStr(), I.c.pal.texte);
+				}
+				NkString touche;
+				int32 refuses = 0;
+				for (uint32 j = 0; j < NK_CALQUES_COLLISION; ++j) {
+					if (j != 0u && kc.noms[j][0] == '\0' && static_cast<int32>(j) != calque) {
+						continue;
+					}
+					if (calque >= 0 && !kc.Touche(static_cast<uint32>(calque), j)) {
+						++refuses;
+						continue;
+					}
+					if (!touche.Empty()) {
+						touche.Append(", ");
+					}
+					touche.Append(NomCalque(kc, static_cast<int32>(j)).CStr());
+				}
+				if (refuses > 0) {
+					touche.Append(NkString::Format("  (%d refusé%s)", refuses, refuses > 1 ? "s" : "").CStr());
+				}
+				Info(I, "Touche", touche.Empty() ? "rien" : touche.CStr());
+				return change;
+			}
+
 			void CarteCollisionneur(NkInspecteur &I) {
 				NkEditeurModele &m = I.c.m;
 				bool actif = NkEditeurCarteActive(m, I.id, NkCarteEditeur::NK_COLLISIONNEUR);
@@ -916,27 +1084,100 @@ namespace nkentseu {
 				if (!actif) {
 					Ligne(I, "Éteint : il ne touche plus rien (couche et masque à 0).");
 				}
+				NkScene &s = m.scene;
 				bool change = false;
-				// (2026-10-01) Polygone et chaine : leurs sommets dans le bloc Collision.
-				static const char *kFormes[5] = {"Cercle", "Boîte", "Capsule", "Polyg.", "Chaîne"};
-				int32 f = static_cast<int32>(col->forme);
-				if (Choix(I, "Forme", kFormes, 5, f)) {
-					col->forme = static_cast<NkForme2D>(f);
-					change = true;
+				// ── LE TYPE, AU CHOIX (2026-10-01, R33 : tout ce que montrait le bloc
+				//    « Collision » sous les cartes vit ici). Boite, cercle, capsule et
+				//    polygone se refont A LA TAILLE de ce qu'on voit
+				//    (NkEditeurAjouterCollision) ; la chaine garde ses sommets ─────
+				static const char *kTypes[5] = {"Boîte", "Cercle", "Capsule", "Polygone", "Chaîne"};
+				static const NkForme2D kFormes[5] = {NkForme2D::NK_BOITE, NkForme2D::NK_CERCLE, NkForme2D::NK_CAPSULE, NkForme2D::NK_POLYGONE,
+													 NkForme2D::NK_CHAINE};
+				int32 t = 0;
+				for (int32 k = 0; k < 5; ++k) {
+					t = kFormes[k] == col->forme ? k : t;
 				}
+				if (ChoixGrille(I, "Type", kTypes, 5, 3, t)) {
+					if (t < 4) {
+						// NkCollisionEditeur : Boite, Cercle, Capsule, Polygone, dans cet ordre.
+						NkEditeurAjouterCollision(m, I.id, static_cast<NkCollisionEditeur>(t));
+					} else {
+						NkEditeurRetenir(m);
+						col = s.Monde().Get<NkCollisionneur2D>(I.id);
+						if (col->nbSommets < 2u) {
+							col->nbSommets = 2u;
+							col->sommets[0] = NkVec2f(-col->demiTaille.x, 0.f);
+							col->sommets[1] = NkVec2f(col->demiTaille.x, 0.f);
+						}
+						col->forme = NkForme2D::NK_CHAINE;
+						change = true;
+					}
+					col = s.Monde().Get<NkCollisionneur2D>(I.id);
+				}
+				// Generer depuis ce que l'entite montre (forme 2D, pixels du sprite).
+				const NkSprite2D *sp = s.Monde().Get<NkSprite2D>(I.id);
+				const bool aForme = s.Monde().Has<NkRenduForme2D>(I.id);
+				const bool aImage = sp != nullptr && sp->texId != 0u;
+				if (aForme || aImage) {
+					const int32 g = Boutons(I, "Depuis la forme", "Depuis le sprite", aForme, aImage);
+					if (g == 0 && aForme) {
+						NkEditeurAjouterCollision(m, I.id, NkCollisionEditeur::NK_DEPUIS_FORME);
+					} else if (g == 1 && aImage) {
+						NkEditeurAjouterCollision(m, I.id, NkCollisionEditeur::NK_DEPUIS_SPRITE);
+					}
+					col = s.Monde().Get<NkCollisionneur2D>(I.id);
+				}
+				// ── Les mesures du type ─────────────────────────────────────────
 				if (col->forme == NkForme2D::NK_BOITE) {
 					change |= Paire(I, "Demi-taille (m)", col->demiTaille.x, col->demiTaille.y, 0.01f, 0.02f, 50.f, "L", "H");
-				} else {
+				} else if (col->forme == NkForme2D::NK_CERCLE || col->forme == NkForme2D::NK_CAPSULE) {
 					change |= Nombre(I, "Rayon (m)", col->rayon, 0.01f, 0.02f, 20.f);
 					if (col->forme == NkForme2D::NK_CAPSULE) {
 						change |= Nombre(I, "Demi-longueur (m)", col->demiTaille.x, 0.01f, 0.f, 50.f);
 					}
+				} else {
+					const bool polygone = col->forme == NkForme2D::NK_POLYGONE;
+					if (!polygone) {
+						change |= Case(I, "Chaîne fermée", col->boucle);
+					}
+					change |= Points(I, polygone ? "Sommets (8 max)" : "Sommets", col->sommets, col->nbSommets, polygone ? 3u : 2u,
+									 polygone ? NK_POLYGONE_CONVEXE_MAX : NK_COLLISION_SOMMETS_MAX);
+					if (polygone && col->nbSommets >= 3u && !NkEstConvexe2D(col->sommets, col->nbSommets)) {
+						Ligne(I, "Polygone CONCAVE : prenez « Chaîne » (décor) ou « Depuis la forme ».");
+					}
 				}
 				change |= Paire(I, "Décalage (m)", col->decalage.x, col->decalage.y, 0.01f);
+				change |= Angle(I, "Rotation propre (°)", col->rotation, -360.f, 360.f);
 				change |= Case(I, "Déclencheur (zone)", col->declencheur);
-				// ⚠️ La forme vit AUSSI dans le solveur : on refait le corps.
-				if (change && m.scene.Monde().Has<NkCorps2D>(I.id)) {
-					m.scene.ActualiserCorps(I.id);
+				// ── Le calque, et ce qu'il touche (la ligne de la matrice) ─────────
+				change |= Calque(I, *col);
+				if (Boutons(I, "Calques et matrice (réglages du projet)") == 0) {
+					I.c.ui.reglagesCollision = true;
+				}
+				Case(I, "Éditer dans la vue (poignées)", I.c.ui.editionCollision);
+				// ── Sans corps rigide, il ne touche rien en jeu ─────────────────────
+				if (!s.Monde().Has<NkCorps2D>(I.id) && s.PhysiqueActive()) {
+					Ligne(I, "Sans corps rigide : il ne touche rien en jeu.");
+					const int32 k = Boutons(I, "Rendre solide (statique)", "Le faire tomber (dynamique)");
+					if (k >= 0) {
+						NkEditeurRetenir(m);
+						NkCorps2D nb;
+						nb.type = k == 0 ? NkTypeCorps::NK_STATIQUE : NkTypeCorps::NK_DYNAMIQUE;
+						s.AjouterCorps(I.id, nb);
+						// Dynamique : un contour concave devient son enveloppe convexe.
+						NkEditeurFormeChangee(m, I.id);
+					}
+					col = s.Monde().Get<NkCollisionneur2D>(I.id);
+				}
+				if (change && col != nullptr) {
+					// Regle a la main : la forme ne le refait plus.
+					if (NkRenduForme2D *f = s.Monde().Get<NkRenduForme2D>(I.id)) {
+						f->collisionSuit = false;
+					}
+					// ⚠️ La forme vit AUSSI dans le solveur : on refait le corps.
+					if (s.Monde().Has<NkCorps2D>(I.id)) {
+						s.ActualiserCorps(I.id);
+					}
 				}
 				Fin(I);
 			}
@@ -958,6 +1199,10 @@ namespace nkentseu {
 				int32 ty = static_cast<int32>(b->type);
 				if (Choix(I, "Type", kTypes, 3, ty)) {
 					b->type = static_cast<NkTypeCorps>(ty);
+					// Un corps qui devient dynamique : le contour concave d'une forme
+					// devient son enveloppe (le solveur ne fait pas tomber un concave).
+					NkEditeurFormeChangee(m, I.id);
+					b = m.scene.Monde().Get<NkCorps2D>(I.id);
 					change = true;
 				}
 				change |= Nombre(I, "Masse (kg)", b->masse, 0.1f, 0.1f, 1000.f);
@@ -1100,7 +1345,12 @@ namespace nkentseu {
 				Info(I, "Modèle", a->modele[0] != '\0' ? a->modele : "(aucun)");
 				const anim::NkAnimStateMachine *mach = NkModeleAnimateur(a->modele);
 				if (mach == nullptr) {
-					Ligne(I, "(modèle non enregistré : NkEnregistrerModeleAnimateur)");
+					// (2026-10-01, R33) Une scene rouverte : le controleur du Contenu
+					// qui porte ce nom se relit d'un clic.
+					Ligne(I, "Modèle non enregistré (scène rouverte ?)");
+					if (Boutons(I, "Relire le contrôleur du Contenu") == 0 && !NkEditeurRetrouverControleur(I.c.m, a->modele)) {
+						NkEditeurAnnoncer(I.c.m, NkString::Format("Aucun contrôleur « %s » dans le Contenu", a->modele).CStr());
+					}
 					Fin(I);
 					return;
 				}
@@ -1346,6 +1596,101 @@ namespace nkentseu {
 				Fin(I);
 			}
 
+			/// La FORME 2D (2026-10-01, R33) : ce que montrait le bloc « Forme 2D » sous
+			/// les cartes, rangee par rangee. La case de l'en-tete la rend visible ;
+			/// un reglage qui change le contour refait le collisionneur s'il la suit
+			/// (NkEditeurFormeChangee).
+			void CarteForme(NkInspecteur &I) {
+				NkEditeurModele &m = I.c.m;
+				NkRenduForme2D *f = m.scene.Monde().Get<NkRenduForme2D>(I.id);
+				if (!Entete(I, NkCarteEditeur::NK_FORME, &f->visible)) {
+					return;
+				}
+				bool change = false;
+				static const char *kGenres[9] = {"Rectangle", "Cercle", "Ellipse", "Triangle", "Étoile", "Polygone", "Capsule", "Ligne", "Libre"};
+				int32 g = static_cast<int32>(f->genre);
+				if (ChoixGrille(I, "Genre", kGenres, 9, 3, g)) {
+					const NkGenreForme2D genre = static_cast<NkGenreForme2D>(g);
+					// Les points d'exemple d'une ligne ou d'un polygone libre, s'il n'en
+					// a pas : sans eux, la forme n'aurait que sa boite.
+					if ((genre == NkGenreForme2D::NK_LIGNE && f->nbPoints < 2u) || (genre == NkGenreForme2D::NK_POLYGONE_LIBRE && f->nbPoints < 3u)) {
+						const NkRenduForme2D d = NkFormeParDefaut(genre);
+						f->nbPoints = d.nbPoints;
+						for (uint32 i = 0; i < NK_FORME_POINTS_MAX; ++i) {
+							f->points[i] = d.points[i];
+						}
+					}
+					f->genre = genre;
+					change = true;
+				}
+				const bool aPoints = f->genre == NkGenreForme2D::NK_LIGNE || f->genre == NkGenreForme2D::NK_POLYGONE_LIBRE;
+				if (!aPoints) {
+					change |= Paire(I, "Taille (m)", f->taille.x, f->taille.y, 0.01f, 0.02f, 200.f, "L", "H");
+				}
+				if (f->genre == NkGenreForme2D::NK_ETOILE) {
+					int32 b = f->branches;
+					if (Entier(I, "Branches", b, 3, 16)) {
+						f->branches = static_cast<uint8>(b < 3 ? 3 : (b > 16 ? 16 : b));
+						change = true;
+					}
+					change |= Glissiere(I, "Rayon intérieur", f->rayonInterieur, 0.1f, 0.95f);
+				}
+				if (f->genre == NkGenreForme2D::NK_POLYGONE_REGULIER) {
+					int32 n = f->cotes;
+					if (Entier(I, "Côtés", n, 3, 32)) {
+						f->cotes = static_cast<uint8>(n < 3 ? 3 : (n > 32 ? 32 : n));
+						change = true;
+					}
+				}
+				if (f->genre == NkGenreForme2D::NK_LIGNE) {
+					change |= Glissiere(I, "Épaisseur du trait (m)", f->epaisseur, 0.01f, 1.f);
+				}
+				if (aPoints) {
+					change |= Points(I, f->genre == NkGenreForme2D::NK_LIGNE ? "Points (m)" : "Contour (m)", f->points, f->nbPoints,
+									 f->genre == NkGenreForme2D::NK_LIGNE ? 2u : 3u, NK_FORME_POINTS_MAX);
+				}
+				Case(I, "Remplie", f->rempli);
+				Teinte(I, "Remplissage", f->remplissage);
+				Teinte(I, "Couleur du contour", f->couleurContour);
+				Glissiere(I, "Contour (m)", f->epaisseurContour, 0.f, 0.5f);
+				const bool aCoins = f->genre == NkGenreForme2D::NK_RECTANGLE || f->genre == NkGenreForme2D::NK_TRIANGLE ||
+									f->genre == NkGenreForme2D::NK_ETOILE || f->genre == NkGenreForme2D::NK_POLYGONE_REGULIER ||
+									f->genre == NkGenreForme2D::NK_POLYGONE_LIBRE;
+				if (aCoins) {
+					Glissiere(I, "Arrondi (m)", f->arrondi, 0.f, 1.f);
+				}
+				Glissiere(I, "Opacité", f->opacite, 0.f, 1.f);
+				Entier(I, "Couche", f->couche);
+				if (Case(I, "Le collisionneur suit", f->collisionSuit) && f->collisionSuit) {
+					change = true;
+				}
+				if (change) {
+					NkEditeurFormeChangee(m, I.id);
+				}
+				Fin(I);
+			}
+
+			/// L'ANCRAGE A L'ECRAN (HUD, document 03 §2.5) : l'ancre en grille, comme
+			/// on voit le coin ; l'ecart en points ; la zone sure. Pas de case : il se
+			/// retire par le menu « ⋮ ».
+			void CarteAncrage(NkInspecteur &I) {
+				NkAncrageEcran2D *a = I.c.m.scene.Monde().Get<NkAncrageEcran2D>(I.id);
+				if (!Entete(I, NkCarteEditeur::NK_ANCRAGE, nullptr)) {
+					return;
+				}
+				static const char *kAncres[9] = {"Haut G", "Haut", "Haut D", "Gauche", "Centre", "Droite", "Bas G", "Bas", "Bas D"};
+				int32 k = a->ancre;
+				if (ChoixGrille(I, "Ancre", kAncres, 9, 3, k)) {
+					a->ancre = static_cast<uint8>(k);
+				}
+				Paire(I, "Écart (pt)", a->decalage.x, a->decalage.y, 0.5f, -100.f, 300.f);
+				Case(I, "Dans la zone sûre", a->zoneSure);
+				if (!a->zoneSure) {
+					Ligne(I, "Au bord de l'écran : pour un fond, jamais pour un bouton.");
+				}
+				Fin(I);
+			}
+
 			void DessinerCarte(NkInspecteur &I, NkCarteEditeur carte) {
 				switch (carte) {
 					case NkCarteEditeur::NK_TRANSFORM:
@@ -1380,6 +1725,12 @@ namespace nkentseu {
 						break;
 					case NkCarteEditeur::NK_EMETTEUR:
 						CarteEmetteur(I);
+						break;
+					case NkCarteEditeur::NK_FORME:
+						CarteForme(I);
+						break;
+					case NkCarteEditeur::NK_ANCRAGE:
+						CarteAncrage(I);
 						break;
 					default:
 						break;
@@ -1462,6 +1813,7 @@ namespace nkentseu {
 				c.ui.caseActif = NkRect{0.f, 0.f, 0.f, 0.f};
 				c.ui.detailsTexture = NkRect{0.f, 0.f, 0.f, 0.f};
 				c.ui.detailsLiseres.Clear();
+				c.ui.detailsRangees.Clear();
 				if (!c.m.aSelection || !c.m.scene.Monde().IsAlive(c.m.selection)) {
 					// Un etat vide qui PARLE (UI_SPEC §0, regle 3) : il dit quoi faire.
 					const float32 lh = renderer::NkTexteHauteurLigne(c.police, 16.f);
@@ -1762,16 +2114,10 @@ namespace nkentseu {
 				gCarte = -1;
 				gCarteRepond = false;
 				gRecherche = nullptr;
-				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp) : avec
-				// l'acteur entier, sous « Tout » ou « Acteur », hors recherche.
-				if (c.ui.detailsComposant < 0 && (c.ui.detailsCategorie == 0 || c.ui.detailsCategorie == 2) && !cherche) {
-					NkEditeurBlocAncrage(c, id);
-					// La forme 2D et la collision (2026-10-01, NkEditeurPlacer.h), sous la
-					// meme regle que l'ancrage (fusion du 01/10 : a ranger plus tard dans la
-					// categorie « Physique » du nouveau panneau).
-					NkEditeurBlocForme(c, id);
-					NkEditeurBlocCollision(c, id);
-				}
+				// (2026-10-01, R33) RIEN HORS CADRE : l'ancrage a l'ecran, la forme 2D et
+				// la collision, qui s'affichaient en blocs bruts ICI (fusion du 01/10),
+				// sont des CARTES (CarteAncrage, CarteForme, CarteCollisionneur et
+				// CarteCorps), rangees dans leurs pastilles (Acteur, Rendu, Physique).
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
 				const NkRect r0 = ctx.NextItemRect(0.f, 28.f);

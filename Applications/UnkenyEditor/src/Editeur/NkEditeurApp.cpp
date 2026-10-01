@@ -417,6 +417,10 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}
+				// (2026-10-01) Celles des cartes, assets et effets (R33 / R34).
+				if (args[i].StartsWith("--captures-assets=")) {
+					return NkOptional<int>(NkEditeurCapturesAssets(NkString(args[i].SubStr(18)).CStr()));
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -446,9 +450,11 @@ namespace nkentseu {
 					// Les formes 2D, les collisionneurs et les calques (01/10) : a part,
 					// le moteur puis l'editeur (Placer des acteurs, Details, poignees).
 					const int32 formes = unkeny::NkUnkenyLancerBancFormes() | NkEditeurLancerBancFormes();
+					// Les cartes, assets, prefabs et effets (01/10, R33 / R34) : a part.
+					const int32 assets = NkEditeurLancerBancAssets();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0;
+									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || assets != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une

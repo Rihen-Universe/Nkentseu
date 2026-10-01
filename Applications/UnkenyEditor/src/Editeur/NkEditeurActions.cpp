@@ -6,6 +6,7 @@
 // =============================================================================
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurPlacer.h"
 #include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -1148,13 +1149,19 @@ namespace nkentseu {
 				case NkComposantEditeur::NK_CORPS_MOU:
 					return "Corps mou";
 				case NkComposantEditeur::NK_SOURCE:
-					return "Source sonore";
+					return "Son";
 				case NkComposantEditeur::NK_ANIMATION:
 					return "Animation";
 				case NkComposantEditeur::NK_LUMIERE:
-					return "Lumière 2D";
+					return "Lumière";
 				case NkComposantEditeur::NK_EMETTEUR:
-					return "Émetteur de particules";
+					return "Émetteur";
+				case NkComposantEditeur::NK_FORME:
+					return "Forme 2D";
+				case NkComposantEditeur::NK_ANIMATEUR:
+					return "Animateur";
+				case NkComposantEditeur::NK_ANCRAGE:
+					return "Ancrage à l'écran";
 				default:
 					return "";
 			}
@@ -1179,6 +1186,12 @@ namespace nkentseu {
 					return w.Has<NkLumiere2D>(id);
 				case NkComposantEditeur::NK_EMETTEUR:
 					return w.Has<NkEmetteur2D>(id);
+				case NkComposantEditeur::NK_FORME:
+					return w.Has<NkRenduForme2D>(id);
+				case NkComposantEditeur::NK_ANIMATEUR:
+					return w.Has<NkAnimateur2D>(id);
+				case NkComposantEditeur::NK_ANCRAGE:
+					return w.Has<NkAncrageEcran2D>(id);
 				default:
 					return false;
 			}
@@ -1252,9 +1265,48 @@ namespace nkentseu {
 					return NkEditeurAjouterLumiere(m, id, NkTypeLumiere2D::NK_PONCTUELLE);
 				case NkComposantEditeur::NK_EMETTEUR:
 					return NkEditeurAjouterEffet(m, id, NkPresetEffet2D::NK_FEU);
+				case NkComposantEditeur::NK_FORME:
+					// Un rectangle : le genre se change dans sa carte (Rendu).
+					return NkEditeurAjouterForme(m, id, NkGenreForme2D::NK_RECTANGLE);
+				case NkComposantEditeur::NK_ANIMATEUR:
+					// Le modele toujours present ; le menu en propose d'autres
+					// (NkEditeurAjouterAnimateur, les .nkanimctl du Contenu).
+					return NkEditeurAjouterAnimateur(m, id, "plateforme", nullptr);
+				case NkComposantEditeur::NK_ANCRAGE: {
+					NkAncrageEcran2D a;
+					w.Add<NkAncrageEcran2D>(id, a);
+					return true;
+				}
 				default:
 					return false;
 			}
+		}
+
+		bool NkEditeurAjouterAnimateur(NkEditeurModele &m, ecs::NkEntityId id, const char *modele, const char *fichier) {
+			ecs::NkWorld &w = m.scene.Monde();
+			if (!w.IsAlive(id) || modele == nullptr || modele[0] == '\0') {
+				return false;
+			}
+			// Un .nkanimctl du Contenu : lu et enregistre sous son nom avant tout.
+			if (fichier != nullptr && fichier[0] != '\0' && !NkChargerModeleAnimateur(modele, fichier)) {
+				NkEditeurAnnoncer(m, NkString::Format("Contrôleur illisible : %s", fichier).CStr());
+				return false;
+			}
+			// L'animateur choisit le CLIP d'une animation de sprites : sans elle, il
+			// tournerait a vide. On l'ajoute avec lui.
+			if (!w.Has<NkAnimSprite2D>(id)) {
+				NkAnimSprite2D a;
+				a.nbClips = 1;
+				w.Add<NkAnimSprite2D>(id, a);
+			}
+			const NkAnimateur2D a = NkCreerAnimateur2D(modele);
+			if (w.Has<NkAnimateur2D>(id)) {
+				w.Set<NkAnimateur2D>(id, a);
+			} else {
+				w.Add<NkAnimateur2D>(id, a);
+			}
+			NkEditeurAnnoncer(m, NkString::Format("Animateur ajouté : %s", modele).CStr());
+			return true;
 		}
 
 		bool NkEditeurRetirerComposant(NkEditeurModele &m, ecs::NkEntityId id, NkComposantEditeur c) {
@@ -1289,6 +1341,16 @@ namespace nkentseu {
 					// disparaitre d'un coup les flammeches deja en l'air.
 					w.Remove<NkEmetteur2D>(id);
 					return true;
+				case NkComposantEditeur::NK_FORME:
+					// Le collisionneur reste : il ne suit plus rien, il se regle a la main.
+					w.Remove<NkRenduForme2D>(id);
+					return true;
+				case NkComposantEditeur::NK_ANIMATEUR:
+					w.Remove<NkAnimateur2D>(id);
+					return true;
+				case NkComposantEditeur::NK_ANCRAGE:
+					w.Remove<NkAncrageEcran2D>(id);
+					return true;
 				default:
 					return false;
 			}
@@ -1308,6 +1370,18 @@ namespace nkentseu {
 			}
 			if (c == NkCarteEditeur::NK_EMETTEUR) {
 				sortie = NkComposantEditeur::NK_EMETTEUR;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_ANIMATEUR) {
+				sortie = NkComposantEditeur::NK_ANIMATEUR;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_FORME) {
+				sortie = NkComposantEditeur::NK_FORME;
+				return true;
+			}
+			if (c == NkCarteEditeur::NK_ANCRAGE) {
+				sortie = NkComposantEditeur::NK_ANCRAGE;
 				return true;
 			}
 			return false;
@@ -1350,7 +1424,8 @@ namespace nkentseu {
 		bool NkEditeurCarteSeCopie(NkCarteEditeur c) noexcept {
 			return c == NkCarteEditeur::NK_TRANSFORM || c == NkCarteEditeur::NK_SPRITE || c == NkCarteEditeur::NK_COLLISIONNEUR ||
 				   c == NkCarteEditeur::NK_CORPS || c == NkCarteEditeur::NK_SOURCE || c == NkCarteEditeur::NK_ANIMATION ||
-				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR;
+				   c == NkCarteEditeur::NK_LUMIERE || c == NkCarteEditeur::NK_EMETTEUR || c == NkCarteEditeur::NK_FORME ||
+				   c == NkCarteEditeur::NK_ANCRAGE;
 		}
 
 		namespace {
@@ -1466,6 +1541,19 @@ namespace nkentseu {
 				case NkCarteEditeur::NK_EMETTEUR:
 					// Un emetteur se remet a SA recette (graine et etat gardes).
 					return NkEditeurAppliquerPreset(m, id, w.Get<NkEmetteur2D>(id)->preset);
+				case NkCarteEditeur::NK_FORME: {
+					// La forme par defaut de SON genre, a SA taille et visible comme avant.
+					NkRenduForme2D *f = w.Get<NkRenduForme2D>(id);
+					NkRenduForme2D d = NkFormeParDefaut(f->genre);
+					d.taille = f->taille;
+					d.visible = f->visible;
+					*f = d;
+					NkEditeurFormeChangee(m, id);
+					return true;
+				}
+				case NkCarteEditeur::NK_ANCRAGE:
+					*w.Get<NkAncrageEcran2D>(id) = NkAncrageEcran2D();
+					return true;
 				default:
 					return false;
 			}
@@ -1507,6 +1595,10 @@ namespace nkentseu {
 					return CopierOctets<NkLumiere2D>(w, id, c, pp);
 				case NkCarteEditeur::NK_EMETTEUR:
 					return CopierOctets<NkEmetteur2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_FORME:
+					return CopierOctets<NkRenduForme2D>(w, id, c, pp);
+				case NkCarteEditeur::NK_ANCRAGE:
+					return CopierOctets<NkAncrageEcran2D>(w, id, c, pp);
 				default:
 					return false;
 			}
@@ -1610,13 +1702,32 @@ namespace nkentseu {
 					m.scene.Effets().Rejouer(id.Pack());
 					return true;
 				}
+				case NkCarteEditeur::NK_FORME: {
+					NkRenduForme2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkRenduForme2D>(id) = v;
+					NkEditeurFormeChangee(m, id);
+					return true;
+				}
+				case NkCarteEditeur::NK_ANCRAGE: {
+					NkAncrageEcran2D v;
+					if (!LireOctets(pp, v)) {
+						return false;
+					}
+					*w.Get<NkAncrageEcran2D>(id) = v;
+					return true;
+				}
 				default:
 					return false;
 			}
 		}
 
 		bool NkEditeurCarteAUneCase(NkCarteEditeur c) noexcept {
-			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c < NkCarteEditeur::NK_COUNT;
+			// L'ancrage n'a rien a eteindre : il se retire (menu « ⋮ »).
+			return c != NkCarteEditeur::NK_TRANSFORM && c != NkCarteEditeur::NK_HIERARCHIE && c != NkCarteEditeur::NK_ANCRAGE &&
+				   c < NkCarteEditeur::NK_COUNT;
 		}
 
 		bool NkEditeurCarteActive(NkEditeurModele &m, ecs::NkEntityId id, NkCarteEditeur c) {
@@ -1645,6 +1756,10 @@ namespace nkentseu {
 				case NkCarteEditeur::NK_EMETTEUR: {
 					const NkEmetteur2D *s = w.Get<NkEmetteur2D>(id);
 					return s != nullptr && s->actif;
+				}
+				case NkCarteEditeur::NK_FORME: {
+					const NkRenduForme2D *s = w.Get<NkRenduForme2D>(id);
+					return s != nullptr && s->visible;
 				}
 				case NkCarteEditeur::NK_COLLISIONNEUR:
 				case NkCarteEditeur::NK_CORPS:
@@ -1680,6 +1795,9 @@ namespace nkentseu {
 					return true;
 				case NkCarteEditeur::NK_EMETTEUR:
 					w.Get<NkEmetteur2D>(id)->actif = actif;
+					return true;
+				case NkCarteEditeur::NK_FORME:
+					w.Get<NkRenduForme2D>(id)->visible = actif;
 					return true;
 				default:
 					break;
