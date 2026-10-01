@@ -144,6 +144,10 @@ namespace nkentseu {
 			NK_A_EMETTEUR = 1050,		///< + NkPresetEffet2D : un emetteur sur la selection
 			NK_A_LUMIERE_ICI = 1100,	///< + NkTypeLumiere2D : une lumiere au point du clic droit
 			NK_A_EMETTEUR_ICI = 1150,	///< + NkPresetEffet2D : un effet au point du clic droit
+			// Les appareils simules (2026-10-01, NkEditeurAppareils.h) : 1400-1499.
+			NK_A_ORIENTATION = 1400,	///< + NkOrientation
+			NK_A_OPTION_APPAREIL = 1410, ///< + NkOptionAppareil (cadre, zone sure, decoupe...)
+			NK_A_REGLE_CAMERA = 1440,	///< + NkRegleCamera (camera du jeu selon l'ecran)
 			// La barre flottante du viseur (2026-09-30).
 			NK_A_ACCROCHE_GRILLE = 1200, ///< l'accrochage des DEPLACEMENTS, allume / eteint
 			NK_A_ACCROCHE_ANGLE,		///< celui des ROTATIONS

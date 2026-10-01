@@ -342,7 +342,17 @@ namespace nkentseu {
 							out.PushBack(Entree(NkProfil(k).nom, NK_A_APPAREIL + k, "", m.profil == k));
 						}
 						out.PushBack(Separateur());
-						out.PushBack(Entree("Paysage", NK_A_PAYSAGE, "", m.paysage));
+						// (2026-10-01) Les QUATRE orientations : le sens du paysage
+						// change le cote de la decoupe (document 03, §2.3).
+						{
+							const NkProfilAppareil base = NkProfil(m.profil);
+							const bool naturelPaysage = base.largeur > base.hauteur;
+							for (int32 k = 0; k < static_cast<int32>(NkOrientation::NK_COUNT); ++k) {
+								const NkOrientation o = static_cast<NkOrientation>(k);
+								out.PushBack(Entree(NkNomOrientation(o, naturelPaysage), NK_A_ORIENTATION + k, "",
+													m.orientation == o));
+							}
+						}
 						break;
 					case NkMenuEditeur::NK_REGLAGES: {
 						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
@@ -910,6 +920,10 @@ namespace nkentseu {
 				m.profil = action - NK_A_APPAREIL;
 				return;
 			}
+			if (action >= NK_A_ORIENTATION && action < NK_A_ORIENTATION + static_cast<int32>(NkOrientation::NK_COUNT)) {
+				m.orientation = static_cast<NkOrientation>(action - NK_A_ORIENTATION);
+				return;
+			}
 			if (action >= NK_A_POSER_ACTEUR && action < NK_A_POSER_ACTEUR + static_cast<int32>(NkActeurSim::NK_COUNT)) {
 				// « + Ajouter » POSE : au centre de la vue, la ou l'on regarde. Le
 				// tiroir, lui, ARME l'outil (clic) ou pose au point de depot (glisser).
@@ -1081,8 +1095,8 @@ namespace nkentseu {
 				case NK_A_VITESSES:
 					m.rendu.vitesses = !m.rendu.vitesses;
 					break;
-				case NK_A_PAYSAGE:
-					m.paysage = !m.paysage;
+				case NK_A_PAYSAGE: // portrait <-> paysage gauche, comme avant
+					m.orientation = NkEstPaysage(m.orientation) ? NkOrientation::NK_PORTRAIT : NkOrientation::NK_PAYSAGE_GAUCHE;
 					break;
 				case NK_A_VOIR_OUTLINER:
 					ui.voirOutliner = !ui.voirOutliner;

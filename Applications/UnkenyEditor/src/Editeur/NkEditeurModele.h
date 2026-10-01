@@ -112,8 +112,13 @@ namespace nkentseu {
 				NkCarteTuiles carte;
 
 				NkOutil outil = NkOutil::NK_SELECTION;
+				/// L'appareil simule : un indice du catalogue (NkProfil), ou
+				/// NkNbProfils() pour l'appareil PERSONNALISE (`appareil.perso`).
 				int32 profil = 0;
-				bool paysage = false;
+				/// (2026-10-01) Quatre orientations, et non plus un booleen
+				/// « paysage » : le portrait inverse et le SENS du paysage changent
+				/// la zone sure (document 03, §2.3).
+				NkOrientation orientation = NkOrientation::NK_PORTRAIT;
 
 				/// La physique tourne-t-elle ?
 				///
@@ -183,9 +188,10 @@ namespace nkentseu {
 				/// theme-ci ne sert qu au contenu 2D dessine dans le viseur.
 				NkTheme theme;
 
-				/// Le profil effectif, rotation comprise.
+				/// Le profil effectif, rotation comprise (NkOrienter : la rotation
+				/// exacte, marges selon les regles du systeme).
 				NkProfilAppareil ProfilCourant() const noexcept {
-					return paysage ? NkTourner(NkProfil(profil)) : NkProfil(profil);
+					return NkOrienter(NkProfil(profil), orientation);
 				}
 
 				/// Le pointeur de selection attendu par les fonctions de dessin

@@ -11,7 +11,8 @@
 //                    [--scene=FICHIER.nkscene] [--exemple=nuit] [--eclairage=off]
 //
 //   --profil=N      l'appareil simule (0 = bureau, puis du plus contraint au moins)
-//   --paysage       tourne l'appareil
+//   --paysage       tourne l'appareil (paysage gauche)
+//   --orientation=O portrait, paysage-gauche, portrait-inverse, paysage-droite
 //   --simuler       demarre avec la physique active
 //   --selftest      le banc d'Unkeny, puis celui des actions de l'editeur ;
 //                   code de sortie 0 = tout tient

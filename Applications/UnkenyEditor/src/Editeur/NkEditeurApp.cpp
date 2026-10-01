@@ -197,8 +197,20 @@ namespace nkentseu {
 					m.profil = (n >= 0 && n < NkNbProfils()) ? n : 0;
 					continue;
 				}
+				// --paysage : le paysage GAUCHE (le haut de l'appareil a gauche),
+				// comme avant. --orientation= : les quatre (document 03).
 				if (args[i] == "--paysage") {
-					m.paysage = true;
+					m.orientation = NkOrientation::NK_PAYSAGE_GAUCHE;
+					continue;
+				}
+				if (args[i].StartsWith("--orientation=")) {
+					static const char *kNoms[4] = {"portrait", "paysage-gauche", "portrait-inverse", "paysage-droite"};
+					const NkString nom(args[i].SubStr(14));
+					for (int32 k = 0; k < 4; ++k) {
+						if (nom == NkString(kNoms[k])) {
+							m.orientation = static_cast<NkOrientation>(k);
+						}
+					}
 					continue;
 				}
 				if (args[i] == "--simuler") {
@@ -290,8 +302,10 @@ namespace nkentseu {
 					// (moteur), puis preparer une construction (editeur).
 					const int32 livraison = unkeny::NkUnkenyLancerBancLivraison();
 					const int32 construction = NkEditeurLancerBancLivraison();
+					// Les appareils et la zone sure (01/10, document 03) : a part.
+					const int32 appareils = NkEditeurLancerBancAppareils();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
-									   lumiereEditeur != 0 || livraison != 0 || construction != 0;
+									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
