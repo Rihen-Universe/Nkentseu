@@ -213,6 +213,7 @@ namespace nkentseu {
 		if (!enc)
 			return false;
 		mRenderEncoder = (__bridge_retained void *)enc;
+		mDescripteursSales = true; // un encodeur neuf n'a aucune liaison
 		return true;
 	}
 
@@ -288,6 +289,8 @@ namespace nkentseu {
 			return;
 		auto *pipe = mDev->GetPipeline(p.id);
 		mPipelineValide = false;
+		mPipelineCourant = p.id;
+		mDescripteursSales = true;
 		if (!pipe)
 			return;
 		// La variante faite pour les formats de CETTE passe (cf. NkMetalPassFormats).
@@ -311,6 +314,8 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::BindComputePipeline(NkPipelineHandle p) {
 		EndCurrentEncoder();
 		auto *pipe = mDev->GetPipeline(p.id);
+		mPipelineCourant = p.id;
+		mDescripteursSales = true;
 		if (!pipe || !pipe->cpso || !AssurerCmdBuf())
 			return;
 		id<MTLComputeCommandEncoder> enc = [CMD_BUF computeCommandEncoder];
@@ -324,19 +329,48 @@ namespace nkentseu {
 	// =============================================================================
 	// Descriptor Set
 	// =============================================================================
-	void NkMetalCommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32 /*idx*/, uint32 * /*off*/,
-												 uint32 /*cnt*/) {
-		auto *ds = mDev->GetDescSet(set.id);
-		if (!ds)
+	// (2026-10-01) Metal n'a qu'UNE table de ressources par etage : les ensembles
+	// de Vulkan s'y superposent. Lier un ensemble des son BindDescriptorSet
+	// ecrasait les slots d'un autre (binding 9 2D de l'ensemble materiau sur la
+	// cubemap binding 9 de l'ensemble global : « incorrect type of texture »,
+	// eclairage PBR faux). Les ensembles sont donc retenus, et appliques au
+	// prochain dessin -- seulement les (ensemble, binding) que le nuanceur du
+	// pipeline lit (« // nk_rsrc » du MSL). Pipeline sans liste (MSL a la main) :
+	// tout est lie, comme avant.
+	void NkMetalCommandBuffer::BindDescriptorSet(NkDescSetHandle set, uint32 idx, uint32 * /*off*/, uint32 /*cnt*/) {
+		if (idx >= kEnsembles)
 			return;
+		mEnsembles[idx] = set.id;
+		mDescripteursSales = true;
+	}
 
-		// Une entree de binding N va en buffer(N) / texture(N) / sampler(N)
-		// (NkMslConventions.h). Au-dela des tables de Metal, le shader a recu un
-		// sampler constexpr (SpirvToMsl) : on ne lie pas -- Metal arreterait le
-		// processus sur un index hors table.
-		for (auto &b : ds->bindings) {
-			uint32 slot = b.slot; // UINT est un type Windows, indisponible sur Apple/clang
-			if (b.bufId && slot < kNkMslVertexBufferBase) {
+	void NkMetalCommandBuffer::AppliquerDescripteurs() {
+		if (!mDescripteursSales)
+			return;
+		mDescripteursSales = false;
+		const NkMetalPipeline *pipe = mPipelineCourant ? mDev->GetPipeline(mPipelineCourant) : nullptr;
+		const uint32 nbLus = pipe ? pipe->ressources.Size() : 0;
+		for (uint32 e = 0; e < kEnsembles; ++e) {
+			if (!mEnsembles[e])
+				continue;
+			const NkMetalDescSet *ds = mDev->GetDescSet(mEnsembles[e]);
+			if (!ds)
+				continue;
+			for (auto &b : ds->bindings) {
+				if (nbLus > 0) {
+					const uint32 cle = (e << 16) | (b.slot & 0xFFFFu);
+					bool lu = false;
+					for (uint32 k = 0; k < nbLus && !lu; ++k)
+						lu = pipe->ressources[k] == cle;
+					if (!lu)
+						continue;
+				}
+				// Une entree de binding N va en buffer(N) / texture(N) / sampler(N)
+				// (NkMslConventions.h). Au-dela des tables de Metal, le shader a recu
+				// un sampler constexpr (SpirvToMsl) : on ne lie pas -- Metal
+				// arreterait le processus sur un index hors table.
+				uint32 slot = b.slot; // UINT est un type Windows, indisponible sur Apple/clang
+				if (b.bufId && slot < kNkMslVertexBufferBase) {
 				id<MTLBuffer> buf = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(b.bufId);
 				const NSUInteger dec = (NSUInteger)b.offset;
 				if (mRenderEncoder) {
@@ -363,6 +397,7 @@ namespace nkentseu {
 				}
 				if (mComputeEncoder)
 					[((__bridge id<MTLComputeCommandEncoder>)mComputeEncoder) setSamplerState:ss atIndex:slot];
+			}
 			}
 		}
 	}
@@ -416,6 +451,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
 		if (!mRenderEncoder || !mPipelineValide)
 			return;
+		AppliquerDescripteurs();
 		[RENDER_ENC drawPrimitives:mPrimitive
 					   vertexStart:firstVtx
 					   vertexCount:vtx
@@ -427,6 +463,7 @@ namespace nkentseu {
 											   uint32 firstInst) {
 		if (!mRenderEncoder || !mCurrentIndexBuffer || !mPipelineValide)
 			return;
+		AppliquerDescripteurs();
 		id<MTLBuffer> ib = (__bridge id<MTLBuffer>)mCurrentIndexBuffer;
 		MTLIndexType it = mIndexUint32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16;
 		NSUInteger stride = mIndexUint32 ? 4 : 2;
@@ -445,6 +482,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::DrawIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		if (!mRenderEncoder)
 			return;
+		AppliquerDescripteurs();
 		id<MTLBuffer> b = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(buf.id);
 		for (uint32 i = 0; i < cnt; i++)
 			[RENDER_ENC drawPrimitives:mPrimitive indirectBuffer:b indirectBufferOffset:off + i * stride];
@@ -453,6 +491,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::DrawIndexedIndirectImpl(NkBufferHandle buf, uint64 off, uint32 cnt, uint32 stride) {
 		if (!mRenderEncoder || !mCurrentIndexBuffer)
 			return;
+		AppliquerDescripteurs();
 		id<MTLBuffer> ib = (__bridge id<MTLBuffer>)mCurrentIndexBuffer;
 		id<MTLBuffer> ab = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(buf.id);
 		MTLIndexType it = mIndexUint32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16;
@@ -471,6 +510,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::Dispatch(uint32 gx, uint32 gy, uint32 gz) {
 		if (!mComputeEncoder)
 			return;
+		AppliquerDescripteurs();
 		auto *enc = (__bridge id<MTLComputeCommandEncoder>)mComputeEncoder;
 		[enc dispatchThreadgroups:MTLSizeMake(gx, gy, gz) threadsPerThreadgroup:MTLSizeMake(mTgX, mTgY, mTgZ)];
 	}
@@ -478,6 +518,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::DispatchIndirect(NkBufferHandle buf, uint64 off) {
 		if (!mComputeEncoder)
 			return;
+		AppliquerDescripteurs();
 		auto *enc = (__bridge id<MTLComputeCommandEncoder>)mComputeEncoder;
 		id<MTLBuffer> b = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(buf.id);
 		[enc dispatchThreadgroupsWithIndirectBuffer:b
