@@ -921,7 +921,11 @@ namespace nkentseu {
 			const float32 g = M("card_gap") * 0.5f; // Unreal serre ses cartes
 			float32 thumb = (m.thumbSize > 0.f ? m.thumbSize : P("thumb_size")) * in.surfaceScale;
 			const float32 bande = M("type_band");
-			const float32 piedH = bande + pad * 0.25f + 3.f * lh + pad * 0.25f; // nom (2 lignes) + type
+			// (2026-10-01, retour de Rihen) Un nom LONG se confondait avec sa nature :
+			// la seconde ligne du nom touchait le type gris. Un ECART NET, un filet
+			// fin en son milieu, les separe ; le nom garde deux lignes au plus.
+			const float32 ecartNom = pad * 0.75f;
+			const float32 piedH = bande + pad * 0.25f + 2.f * lh + ecartNom + lh + pad * 0.25f; // nom (2 lignes) | type
 			// En bande courte, la vignette cede (le pied porte l'information) ;
 			// plancher d'une ligne et demie.
 			if (!liste && thumb + piedH + 2.f * g > area.h) {
@@ -1066,6 +1070,9 @@ namespace nkentseu {
 					} else {
 						DeuxLignes(p, rn, Label(e), texteNom, false, lh);
 					}
+					// le FILET entre le nom et la nature, au milieu de l'ecart
+					const uint32 teinteFilet = Alpha(p.ColorOf(choisi ? rSurBleu : s.textMuted), 0x48u);
+					p.FillColor({pied.x + pad * 0.5f, rn.y + rn.h + ecartNom * 0.5f - 0.5f, pied.w - pad, 1.f}, teinteFilet);
 					p.Text({pied.x + pad * 0.5f, pied.y + pied.h - lh - pad * 0.25f, pied.w - pad, lh},
 						   e.kindLabel ? e.kindLabel : "", choisi ? rSurBleu : s.textMuted);
 					if (choisi && !actif)

@@ -12,6 +12,9 @@
 //         lettres et ne tire pas la carte ; Origine, Maj+fleches, Ctrl+X / V,
 //         Ctrl+A ; un « é » s'ecrit et s'efface d'un coup ; Echap annule (le
 //         fichier garde son nom), Entree valide (l'extension reste)
+//   (u2)  les CARTES : un nom long tient sur DEUX lignes au plus, et la
+//         nature (le type gris) en est SEPAREE : un ecart net d'au moins 3 px
+//         et un filet fin entre les deux
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -20,6 +23,7 @@
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
 
+#include "NKEditorKit/Components/NkRecordingPaint.h"
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 
@@ -136,6 +140,62 @@ namespace nkentseu {
 					   static_cast<float32>(vu + ouvert + toutChoisi + ctrlA + mot + lettres + coupe + colle + accent + efface + annule +
 											valide));
 				NkDirectory::Delete("banc_u1", true);
+			}
+
+			// (u2) LES CARTES : le nom long (deux lignes au plus) et la nature SEPARES
+			// (retour 2 de Rihen : « le nom se confond avec la nature »).
+			{
+				using namespace editorkit;
+				NkComponentInstance inst(NkContentBrowserDecl());
+				inst.SetVariantByName("unreal");
+				NkContentBrowserStyle st;
+				st.values = &inst;
+				st.panelBg = 1;
+				st.headerBg = 2;
+				st.border = 3;
+				st.text = 4;
+				st.textMuted = 6;
+				st.cardBg = 7;
+				st.cardFooterBg = 8;
+				st.activeMark = 9;
+				st.chosenMark = 10;
+				st.folderTint = 11;
+				NkContentBrowserModel mod;
+				mod.thumbSize = 96.f;
+				NkAssetEntry f;
+				f.name = NkString("Niveau1jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj");
+				f.path = NkString("Contenu/Niveau1.nkscene");
+				f.kindRole = 5;
+				f.kindLabel = "Scène";
+				mod.entries.PushBack(f);
+				NkContentBrowserHooks h;
+				NkComponentInput in;
+				NkRecordingPaint rp;
+				NkDrawContentBrowser(rp, in, NkPaintRect{0.f, 0.f, 1000.f, 400.f}, mod, st, h);
+				int32 lignes = 0;
+				float32 basNom = -1.f, hautType = -1.f, largeurMax = 0.f;
+				for (uint32 i = 0; i < rp.cmds.Size(); ++i) {
+					const NkPaintCmd &k = rp.cmds[i];
+					if (k.op != NkPaintOp::Text) {
+						continue;
+					}
+					if (k.text == NkString("Scène")) {
+						hautType = k.y;
+					} else if (k.text.StartsWith("Niveau1") || (k.text.Length() > 0 && k.text.CStr()[0] == 'j')) {
+						++lignes;
+						basNom = k.y + k.h > basNom ? k.y + k.h : basNom;
+						largeurMax = k.w > largeurMax ? k.w : largeurMax;
+					}
+				}
+				bool filet = false;
+				for (uint32 i = 0; i < rp.cmds.Size(); ++i) {
+					const NkPaintCmd &k = rp.cmds[i];
+					filet = filet || (k.op == NkPaintOp::FillColor && k.h > 0.f && k.h <= 1.5f && k.y >= basNom - 0.01f &&
+									  k.y + k.h <= hautType + 0.01f);
+				}
+				const float32 ecart = hautType - basNom;
+				Temoin(lignes == 2 && largeurMax <= 96.f && ecart >= 3.f && filet,
+					   "(u2) carte : nom long sur deux lignes, ecart et filet avant la nature (ecart px)", ecart);
 			}
 
 			m.chemin = cheminAvant;
