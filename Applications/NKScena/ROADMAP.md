@@ -58,7 +58,8 @@ outils existent**. L'outil de NKScena, c'est le séquenceur.
 | `Applications/NkSequenceCheck` | le banc : clés → pose ECS → PNG numérotés, **sans fenêtre ni GPU** |
 | `NKMedia/Video/NkImageSequenceWriter` | 205 l. — écrit `frame_0001.png`, **aucune dépendance GPU** |
 | `NKRenderer/Tools/Offscreen/NkOffscreenTarget` | 351 l. — `ReadbackPixels` + `Capture(path)`, **tourne déjà** dans NKCraft |
-| pistes NLA, sérialisation de séquence | **déclarées, pas livrées** — voir `Engine/Noge/ROADMAP.md` |
+| pistes NLA | **livrées le 2026-10-01** : `NkNLATrack::Evaluate(t, monde, registre)` (Noge) sur la pile de poses de NKAnima (`Blend/NkAnimMix.h`) ; la piste `Animation` fond ses clips qui se chevauchent |
+| sérialisation de séquence | voir `Engine/Noge/ROADMAP.md` |
 
 > **Condition de naissance de l'application** : quand une séquence se sauve et se
 > relit (`NkSequence::SaveToFile`/`LoadFromFile`, qui rendent `false` aujourd'hui).
@@ -82,10 +83,31 @@ outils existent**. L'outil de NKScena, c'est le séquenceur.
 1. **Rodolf** : NKScena est-elle une application distincte, ou un **espace** de
    Nogee ? La définition ci-dessus tient dans les deux cas ; le coût de
    maintenance, non.
-2. La timeline est-elle partagée avec NkAnimaEditor (une brique de `NKEditorKit`)
-   ou propre à chacun ? Deux timelines divergeront.
+2. ~~La timeline est-elle partagée avec NkAnimaEditor ?~~ **Tranché le 2026-10-01** :
+   oui, LA frise de `NKEditorKit` (`Components/NkTimelineModel.h`, façon Sequencer
+   d'UE5), déjà dans UnkenyEditor et NkAnimaEditor — voir §6.
 3. Le son : `NkTrackType::Audio` est déclaré et n'agit pas. Un film sans son se
    monte quand même, mais pas longtemps.
+
+## 6. Le MÉLANGE à brancher (2026-10-01, demande de Rihen)
+
+> « On peut intégrer le MÉLANGE de plusieurs animations, que ce soit dans
+> NkAnimaEditor, Noge, Unkeny, NKScena ou PV3DE. » NKScena n'a pas de code : voici
+> ce qu'elle BRANCHERA, rien de plus. Tout existe et a ses témoins.
+
+| Besoin de NKScena | Ce qui existe | Où |
+|---|---|---|
+| la frise de montage | la frise partagée : arbre de pistes (muet / solo / verrou), règle secondes + images, **plage de lecture**, **marqueurs**, clés en formes d'interpolation, courbes + **tangentes**, boîte d'échelle, copier / coller, **pistes de clips** (NLA : clips posés, rognés, fondus, chevauchés) | `Engine/NKEditorKit/src/NKEditorKit/Components/NkTimelineModel.h`, `NkTimelineDraw.cpp` (témoins : NKEditorKitTest famille 31, t1–t17) |
+| un clip de séquence (des clips posés sur des pistes) | `NkAnimationClip::clipTracks` (`NkClipStripTrack`, `NkClipStrip`), section `CLPS` du `.nkanim` | `Kernel/Runtime/NKAnima/src/NKAnima/Clip/NkAnimation.h` |
+| jouer la séquence à `t` (absolu) | `anim::NkSampleClip(clip, t, pose, &lookup)` → `NkAnimPose` (os TRS + propriétés à couverture) ; `NkEvaluateStrips` pour des pistes seules | `Kernel/Runtime/NKAnima/src/NKAnima/Blend/NkAnimMix.h` |
+| appliquer à un personnage Noge | `NkNLATrack::Evaluate(t, monde, registre)` (transform + `NkSkeleton`) | `Engine/Noge/src/Noge/Sequencer/NkSequencer.cpp` |
+| un personnage qui *réagit* pendant le plan | `NkAnimController` (base + couches masquées + arbres 1D/2D + courbes de fondu) et `NkAdvanceController` (état fixe `NkAnimControllerRuntime`, un par acteur) | `NkAnimMix.h` ; graphe d'états partagé `Components/NkStateGraphModel.h` |
+
+**Le pont à écrire (seul travail restant)** : la frise ↔ `NkSequence` de Noge, sur le
+modèle de `NkFriseDepuisClip` / `NkClipDepuisFrise` d'UnkenyEditor
+(`Applications/UnkenyEditor/src/Editeur/NkEditeurPagesAnim.cpp`) : une piste
+`Animation` de Noge = une piste de clips de la frise ; `clipHandle` ↔ nom par
+`anim::NkClipRegistry`.
 
 ---
 

@@ -1,5 +1,29 @@
 # PV3DE — Roadmap (Patient Virtuel 3D Emotif)
 
+## Le MÉLANGE d'animations à brancher (2026-10-01, demande de Rihen)
+
+> Rien n'est branché ici : ce paragraphe dit CE QU'IL FAUDRA brancher. Le moteur
+> de mélange est livré pour tous dans NKAnima
+> (`Kernel/Runtime/NKAnima/src/NKAnima/Blend/NkAnimMix.h`, témoins
+> NKAnima_Tests m1–m12).
+
+- **Le corps** — `Body/NkBodyController::SetTargetPose(pose, blendTime)` fond
+  aujourd'hui SES poses à lui (`mPoseBlendSpd`). À brancher : chaque `NkBodyPose`
+  devient un clip, et l'état clinique pilote un `anim::NkAnimController` —
+  un **arbre de mélange 2D** (douleur × fatigue, `NkBlendSpaceDef`, poids exacts
+  sur chaque point) pour la posture, une **couche additive** pour la respiration
+  (`NkBreathController` → un clip additif, poids = amplitude) et une **couche
+  masquée** « haut du corps » pour les gestes (`NkAnimMask` sur la branche du
+  tronc) ; les transitions d'état avec une **courbe de fondu douce**
+  (`NkFadeCurve::NK_SMOOTH`). Un `NkAnimControllerRuntime` par patient,
+  `NkAdvanceController(ctl, rt, dt, lookup, pose)`, puis `pose.ToSkinning(...)`.
+- **Le visage** — `Face/NkFaceControllerV2` (unités d'action) reste maître des
+  morphs ; la pose de mélange porte aussi `morphs` : à brancher, le visage en
+  **couche** au-dessus du corps (masque vide sur les os, poids 1 sur les morphs).
+- **L'éditeur** — les clips et le contrôleur se font dans NkAnimaEditor (frise
+  partagée, graphe d'états à arbres et couches) ou UnkenyEditor ; PV3DE ne relit
+  que le `.nkanimctl` (`NkAnimController::LoadBinary`).
+
 > Audit complet du 2026-07-25, même méthode que `Engine/Noge/ROADMAP.md` (build réel,
 > lecture fichier par fichier, verdicts factuels). ⬜ à faire · 🟡 en cours · ✅ fait.
 
