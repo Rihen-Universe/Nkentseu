@@ -36,5 +36,9 @@ namespace nkentseu {
 		/// CALQUES DE COLLISION (2026-10-01, NkUnkenyBancFormes.cpp) : lance a part
 		/// par l'editeur. Rend 0 quand tout tient.
 		int32 NkUnkenyLancerBancFormes();
+		/// Les SCRIPTS (2026-10-01, NkUnkenyBancScripts.cpp) : l'hote, la VM des
+		/// Blueprints, le C++ lie en statique, le rechargement. Lance a part par
+		/// l'editeur ET par le joueur. Rend 0 quand tout tient.
+		int32 NkUnkenyLancerBancScripts();
 	} // namespace unkeny
 } // namespace nkentseu

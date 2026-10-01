@@ -446,9 +446,11 @@ namespace nkentseu {
 					// Les formes 2D, les collisionneurs et les calques (01/10) : a part,
 					// le moteur puis l'editeur (Placer des acteurs, Details, poignees).
 					const int32 formes = unkeny::NkUnkenyLancerBancFormes() | NkEditeurLancerBancFormes();
+					// Les SCRIPTS (01/10, document 01 : S0-S2) : le moteur, puis l'editeur.
+					const int32 scripts = unkeny::NkUnkenyLancerBancScripts();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0;
+									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || scripts != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une

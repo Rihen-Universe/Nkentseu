@@ -193,6 +193,14 @@ namespace nkentseu {
 
 				void PoserVitesse(ecs::NkEntityId id, const NkVec2f &vitesse);
 				NkVec2f Vitesse(ecs::NkEntityId id) const;
+				/// (2026-10-01, manque M1 du document 01) Une FORCE ou une IMPULSION
+				/// au centre de masse du corps rigide, en 2D -- le pont z = 0 reste
+				/// ici. Le corps est reveille. false : pas de corps dynamique, ou une
+				/// valeur non finie (refusee : elle empoisonnerait le solveur).
+				/// ⚠️ Une force ne vit qu'UN pas fixe (Step la remet a zero) : la
+				/// poser a chaque pas fixe, avant la physique.
+				bool AppliquerForce(ecs::NkEntityId id, const NkVec2f &force);
+				bool AppliquerImpulsion(ecs::NkEntityId id, const NkVec2f &impulsion);
 
 				physics::NkPhysicsWorld *MondePhysique() noexcept {
 					return mPhysique;

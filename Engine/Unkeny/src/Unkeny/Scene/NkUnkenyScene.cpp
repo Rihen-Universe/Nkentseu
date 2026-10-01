@@ -16,6 +16,7 @@
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
+#include "Unkeny/Script/NkUnkenyScript.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
 #include "NKLogger/NkLog.h"
@@ -212,6 +213,13 @@ namespace nkentseu {
 				uint32 n = 0;
 				const NkChampSauve *champs = NkChampsRenduForme2D(n);
 				PhotographierAussi<NkRenduForme2D>("NkRenduForme2D", champs, n);
+			}
+			// Les SCRIPTS (2026-10-01, Script/NkUnkenyScript.h) : APRES les formes,
+			// meme raison. Noms de script et de variable en texte, valeurs en nombres.
+			{
+				uint32 n = 0;
+				const NkChampSauve *champs = NkChampsScript2D(n);
+				PhotographierAussi<NkScript2D>("NkScript2D", champs, n);
 			}
 			// Les calques de collision repartent de « tout touche tout ».
 			mCalques = NkCalquesCollision2D();
@@ -541,6 +549,45 @@ namespace nkentseu {
 			NkVitesse2D v;
 			v.lineaire = vitesse;
 			mMonde.Set<NkVitesse2D>(id, v);
+		}
+
+		namespace {
+			/// Le corps DYNAMIQUE de `id`, reveille, ou nul.
+			physics::NkRigidBody *CorpsDynamique(ecs::NkWorld &monde, physics::NkPhysicsWorld *physique,
+												 ecs::NkEntityId id, const NkVec2f &v) {
+				if (physique == nullptr || !(v.x == v.x && v.y == v.y) || math::NkFabs(v.x) > 1e30f ||
+					math::NkFabs(v.y) > 1e30f) {
+					return nullptr; // NaN ou infini : refuse
+				}
+				const NkCorps2D *c = monde.Get<NkCorps2D>(id);
+				if (c == nullptr || c->type != NkTypeCorps::NK_DYNAMIQUE) {
+					return nullptr;
+				}
+				physics::NkRigidBody *b = physique->GetBody(c->corpsId);
+				if (b != nullptr) {
+					b->flags &= ~static_cast<uint32>(physics::NK_BODY_SLEEPING);
+					b->sleepTimer = 0.f;
+				}
+				return b;
+			}
+		} // namespace
+
+		bool NkScene::AppliquerForce(ecs::NkEntityId id, const NkVec2f &force) {
+			physics::NkRigidBody *b = CorpsDynamique(mMonde, mPhysique, id, force);
+			if (b == nullptr) {
+				return false;
+			}
+			b->ApplyForce(math::NkVec3f(force.x, force.y, 0.f));
+			return true;
+		}
+
+		bool NkScene::AppliquerImpulsion(ecs::NkEntityId id, const NkVec2f &impulsion) {
+			physics::NkRigidBody *b = CorpsDynamique(mMonde, mPhysique, id, impulsion);
+			if (b == nullptr) {
+				return false;
+			}
+			b->ApplyImpulse(math::NkVec3f(impulsion.x, impulsion.y, 0.f));
+			return true;
 		}
 
 		NkVec2f NkScene::Vitesse(ecs::NkEntityId id) const {
