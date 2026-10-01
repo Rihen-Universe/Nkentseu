@@ -1593,6 +1593,13 @@ namespace nkentseu {
 				char newProjName[64] = {};
 				char newProjDir[260] = {};
 				char projError[200] = {}; ///< derniere erreur, affichee telle quelle
+				/// (01/10) Le MODELE choisi sur le lanceur pour le prochain « Creer »
+				/// (indice dans NkWelcomeModeles, 0 = scene de depart). Applique
+				/// APRES la creation reussie (NkProjectHandlePending, action 6).
+				int32 newProjModele = 0;
+				/// (01/10) Le bouton de theme du lanceur : la bascule sombre / clair
+				/// est faite par la boucle, qui possede la bibliotheque de themes.
+				bool themeBascule = false;
 				// DEMANDE D'ACTION PROJET, consommee APRES la frame -- meme patron
 				// que capturePending / tutoRecPending. Les selecteurs de fichiers
 				// de l'OS ouvrent une boucle modale : les appeler pendant la

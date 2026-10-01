@@ -37,6 +37,7 @@
 #include "PV3DE/Panels/DiagnosticPanel.h"
 #include "PV3DE/Panels/PatientStatePanel.h"
 #include "PV3DE/Panels/ReportPanel.h"
+#include "PV3DE/UI/PV3DELanceur.h" // (01/10) le lanceur de projets partage, touche PV3DE
 
 namespace nkentseu {
 	namespace pv3de {
@@ -68,6 +69,19 @@ namespace nkentseu {
 				void RenderViewport() noexcept;
 
 				void UpdateInput(NkEvent *e) noexcept;
+
+				// ── (01/10) LE LANCEUR ─────────────────────────────────────────
+				// Plein ecran tant qu'aucune consultation n'est commencee ; il
+				// revient par « Cas clinique > Nouveau cas ».
+				void RenderLanceur() noexcept;
+				bool AgirLanceur(const editorkit::NkProjectLauncherResult &r) noexcept;
+				bool OuvrirCas(const NkString &chemin) noexcept;
+				editorkit::NkProjectLauncherModel mLanceur;
+				editorkit::NkLanceurPolices mLanceurPolices;
+				editorkit::NkTheme mLanceurTheme = editorkit::NkTheme::Dark();
+				bool mLanceurActif = true;
+				bool mLanceurPret = false;
+				bool mOuvrirCasDiffere = false; ///< le selecteur natif, a l'image suivante
 
 				NkIDevice *mDevice = nullptr;
 				NkICommandBuffer *mCmd = nullptr;

@@ -10,6 +10,7 @@
 #include "NKMemory/NkUniquePtr.h"
 #include "AnimBridge.h"
 #include "Panels.h"
+#include "NkAnimaLanceur.h" // (01/10) le lanceur de projets partage, avec la touche de l'editeur
 #include "NkCoquilleDocument.h"			   // L'INTERFACE VIENT D'UN DOCUMENT, PAS D'ICI
 #include "NkEditorRHIRenderer.h"		   // UI sur NKRHI/NKRenderer (pas NKCanvas)
 #include "NKGui/Core/NkGuiDrawListRaster.h" // la sonde, sans fenetre ni GPU
@@ -966,6 +967,11 @@ static int SondeCoquille(const char *dossier) {
 // Hook pré-UI : rend le viewport 3D dans l'offscreen (device partagé) AVANT la passe
 // UI, puis publie sa texture au backend NKGui pour AddImage. user = NkEditorRHIRenderer*.
 static void PreUI3D(NkICommandBuffer *cmd, void *user) {
+	// (01/10) RIEN A RENDRE TANT QU'AUCUN PERSONNAGE N'EST CHARGE (le lanceur est
+	// ouvert) : `Init3D` ne s'essaie qu'UNE fois, et l'essayer sans modele
+	// l'aurait condamne pour toute la session.
+	if (!nkanima::AnimLoaded())
+		return;
 	auto *r = static_cast<nkanima::NkEditorRHIRenderer *>(user);
 	nkanima::Anim3DRenderOffscreen(cmd);
 	nkanima::Anim3DRegisterInto(&r->GetBackend(), nkanima::ANIM_VIEWPORT_TEXID);
@@ -995,6 +1001,22 @@ int nkmain(const NkEntryState &state) {
 	//    meme besoin -- un chemin de fichier libre -- et part de 1 lui aussi
 	//    (main.cpp:105).
 	const NkVector<NkString> &args = state.GetArgs();
+	// (01/10) LA PHOTO DU LANCEUR, sans fenetre ni GPU : --capture-lanceur=FICHIER.png
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)args.Size(), args.Data(), &clair);
+		if (!capture.Empty())
+			return nkanima::AnimaCapturerLanceur(capture, clair);
+	}
+	// (01/10) Les chemins par defaut sont RESOLUS (repertoire courant, puis la
+	// racine trouvee en remontant depuis l'executable) : l'editeur se lance de
+	// n'importe quel dossier, comme NKRenderer trouve ses shaders.
+	static NkString sModeleDefaut = nkanima::AnimCheminRessource(modelPath);
+	static NkString sDossierUI = nkanima::AnimCheminRessource(dossierUI);
+	modelPath = sModeleDefaut.CStr();
+	dossierUI = sDossierUI.CStr();
+	bool modeleDonne = false, sansLanceur = std::getenv("NKANIMA_SANS_LANCEUR") != nullptr;
 	bool sonde = false;
 	for (usize i = 1; i < args.Size(); ++i) {
 		const NkString &a = args[i];
@@ -1016,8 +1038,12 @@ int nkmain(const NkEntryState &state) {
 			gfx = NkEditorGfxApi::Software;
 		else if (a == "-bgl" || a == "--backend=opengl")
 			gfx = NkEditorGfxApi::OpenGL;
-		else if (!a.Empty() && a.Data()[0] != '-')
+		else if (a == "--sans-lanceur")
+			sansLanceur = true;
+		else if (!a.Empty() && a.Data()[0] != '-') {
 			modelPath = a.CStr(); // les args vivent dans state : durée de vie OK
+			modeleDonne = true;
+		}
 	}
 
 	// LA SONDE SORT AVANT TOUTE FENETRE : elle ne demande ni GPU ni souris.
@@ -1121,7 +1147,12 @@ int nkmain(const NkEntryState &state) {
 		std::fflush(stdout);
 	}
 
-	nkanima::AnimInit(modelPath);
+	// (01/10) LE LANCEUR AU LANCEMENT INTERACTIF : sans modele donne, sans sonde,
+	// sans --sans-lanceur. Le personnage est alors charge PAR le lanceur (meme
+	// porte `AnimInit`) ; sinon, comportement d'avant a l'octet pres.
+	const bool avecLanceur = !modeleDonne && !sansLanceur;
+	if (!avecLanceur)
+		nkanima::AnimInit(modelPath);
 
 	// Viewport 3D : partage le device NKRHI de l'éditeur + rend en début de frame.
 	nkanima::Anim3DSetSharedDevice(rhi.GetDevice());
@@ -1241,6 +1272,16 @@ int nkmain(const NkEntryState &state) {
 	// Quitter reste ici : elle agit sur la COQUILLE, pas sur l'animation, et
 	// elle n'a donc rien a faire dans la table des actions d'animation.
 	shell->RegisterCommand("Application: Quitter", &CmdQuit, shell.Get(), "Ctrl+Q");
+
+	if (avecLanceur) {
+		static editorkit::NkLanceurCoquille lanceur;
+		nkanima::AnimaRemplirLanceur(lanceur.modele);
+		nkanima::AnimaLanceurEtat().recents.Charger("NkAnimaEditor");
+		lanceur.agir = &nkanima::AnimaAgirLanceur;
+		lanceur.rafraichir = &nkanima::AnimaRafraichirLanceur;
+		lanceur.themeParCoquille = true;
+		lanceur.Brancher(*shell);
+	}
 
 	return shell->Run();
 }

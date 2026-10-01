@@ -1,3 +1,5 @@
+#include "PV3DE/UI/PV3DELanceur.h" // (01/10) le lanceur de projets partage
+#include <cstdlib>
 #include "PatientVirtualApp.h"
 #include "Noge/Core/NkApplication.h"
 #include "NKWindow/NKMain.h"
@@ -84,6 +86,23 @@ namespace nkentseu {
 int nkmain(const nkentseu::NkEntryState &state) {
 	using namespace nkentseu;
 
+	// (01/10) LE LANCEUR DE PROJETS PARTAGE (PV3DE/UI/PV3DELanceur.h).
+	// --capture-lanceur=FICHIER.png [--theme-lanceur=clair] : sa photo sans
+	// fenetre ni GPU, puis sortie. --sans-lanceur (ou PV3DE_SANS_LANCEUR) :
+	// la consultation s'ouvre directement, comme avant.
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)state.args.Size(), state.args.Data(), &clair);
+		if (!capture.Empty())
+			return pv3de::PV3DECapturerLanceur(capture, clair);
+		bool sans = std::getenv("PV3DE_SANS_LANCEUR") != nullptr;
+		for (usize i = 0; i < state.args.Size(); ++i)
+			if (state.args[i] == NkString("--sans-lanceur"))
+				sans = true;
+		pv3de::PV3DELanceurAuDemarrage() = !sans;
+	}
+
 	NkApplicationConfig config(state);
 
 	config.appName = "PatientVirtuel3D";
@@ -94,6 +113,11 @@ int nkmain(const nkentseu::NkEntryState &state) {
 	config.windowConfig.width = 1280;
 	config.windowConfig.height = 720;
 	config.windowConfig.centered = true;
+	// (01/10) NK_FENETRE_CACHEE=1 : la fenetre existe mais n'apparait pas
+	// (instrument de mesure, meme mot que NKCraft et NKEditorKit).
+	if (const char *fc = std::getenv("NK_FENETRE_CACHEE"))
+		if (fc[0] && fc[0] != '0')
+			config.windowConfig.visible = false;
 	config.windowConfig.resizable = true;
 
 	config.deviceInfo.api = NkGraphicsApi::NK_GFX_API_OPENGL;

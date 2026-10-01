@@ -1117,6 +1117,16 @@ namespace nkentseu {
 				if (!anyPopup && c)
 					H->nav = 3;
 			}
+			ry += qh + u.s(10);
+			{
+				// (2026-10-01) Le retour vers l'accueil par le lanceur partage.
+				const bool c = NkQuickAction(u, {right.x, ry, rcw, qh}, H->icons.accueil, NkT("qa.lanceur"),
+											 NkT("qa.lanceur.sub"), NkCol::border, NkCol::mutedFg);
+				if (!anyPopup && c) {
+					H->settings.accueil = 0;
+					H->settings.Save();
+				}
+			}
 			ry += qh + u.s(18);
 
 			u.Rect({right.x, ry - u.s(8), rcw, 1.f}, NkCol::border);
@@ -1352,6 +1362,11 @@ namespace nkentseu {
 		}
 
 		// ── Point d'entree : ecran d'accueil PLEIN CADRE (via SetStartScreen) ──
+		// (2026-10-01) L'accueil par le lanceur de projets PARTAGE : defini dans
+		// NkHomeLanceur.h, inclus a la fin de ce fichier (il a besoin de
+		// NkHomeState complet).
+		inline void NkHomeLanceurPanel(NkEditorFrameContext &ec, const NkRect &panel, NkHomeState *H);
+
 		inline void DrawHome(NkEditorFrameContext &ec, NkHomeState *H) {
 			if (!H || !H->dlg || !H->dlg->showStart)
 				return;
@@ -1423,8 +1438,10 @@ namespace nkentseu {
 			} else if (H->nav == 12) { // parametres du launcher
 				if (NkSettingsPanel(u, panel, &H->settings, H->st, H->dlg, ec.dt, H->icons, &H->nav) == 1)
 					H->nav = 0;
+			} else if (H->settings.accueil == 0) {
+				NkHomeLanceurPanel(ec, panel, H); // Accueil : le lanceur partage (NkHomeLanceur.h)
 			} else {
-				NkHomePanel(u, panel, H); // Accueil (recents + actions + exemples)
+				NkHomePanel(u, panel, H); // Accueil classique (recents + actions + exemples)
 			}
 			if (txtMenuOpen) {
 				u.mp = savedMp;
@@ -1435,3 +1452,5 @@ namespace nkentseu {
 
 	} // namespace nkcode
 } // namespace nkentseu
+
+#include "NKCode/Shell/NkHomeLanceur.h" // (2026-10-01) l'accueil par le lanceur partage

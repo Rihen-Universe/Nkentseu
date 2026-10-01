@@ -13,6 +13,7 @@
 #include "NKRenderer/Materials/NkMaterialCollection.h"
 #include "NKRenderer/Materials/NkMatcapLibrary.h"
 #include "NKFileSystem/NkFile.h" // tables LTC (Resources/NKRenderer/LUT)
+#include "NKRenderer/Core/NkRendererResourcePath.h"
 #include "NkRender3D_PBRShaders.inl"
 #include "NKLogger/NkLog.h"
 #include <cstring>
@@ -268,8 +269,11 @@ namespace nkentseu {
 						mDevice->WriteTextureRegion(t, bytes.Data(), 0, 0, 0, 64, 64, 1, 0, 0);
 					return t;
 				};
-				mLTC1Tex = loadLtc("Resources/NKRenderer/LUT/ltc1.bin", "LTC1_MInv");
-				mLTC2Tex = loadLtc("Resources/NKRenderer/LUT/ltc2.bin", "LTC2_NormFresnel");
+				// (2026-10-01) chemins RESOLUS : repertoire courant, puis la racine
+				// trouvee en remontant depuis l'executable (NkRendererResourcePath.h).
+				mLTC1Tex = loadLtc(NkRendererResolvePath("Resources/NKRenderer/LUT/ltc1.bin").CStr(), "LTC1_MInv");
+				mLTC2Tex = loadLtc(NkRendererResolvePath("Resources/NKRenderer/LUT/ltc2.bin").CStr(),
+								   "LTC2_NormFresnel");
 				logger.Info("[NkRender3D] Tables LTC : ltc1={0} ltc2={1}\n",
 							mLTC1Tex.IsValid() ? 1 : 0, mLTC2Tex.IsValid() ? 1 : 0);
 			}

@@ -30,6 +30,9 @@ namespace nkentseu {
 				int32 openStartup = 0; // 0 Launcher, 1 Dernier WS, 2 Fenetres precedentes
 				char recentsMax[8] = "50";
 				int32 groupBy = 0; // 0 Date, 1 Plateforme, 2 Langage
+				/// (2026-10-01) 0 = l'accueil par le lanceur de projets partage
+				/// (NkHomeLanceur.h), 1 = l'accueil classique (NkHomePanel).
+				int32 accueil = 0;
 				// ── Chemins par defaut ──
 				char projDir[320] = "";
 				char buildDir[128] = "Build/";
@@ -98,6 +101,7 @@ namespace nkentseu {
 					ki("openStartup", openStartup);
 					kv("recentsMax", NkString(recentsMax));
 					ki("groupBy", groupBy);
+					ki("accueil", accueil);
 					kv("projDir", NkString(projDir));
 					kv("buildDir", NkString(buildDir));
 					kv("cacheDir", NkString(cacheDir));
@@ -210,6 +214,8 @@ namespace nkentseu {
 									cp(recentsMax, sizeof(recentsMax));
 								else if (is("groupBy"))
 									groupBy = iv;
+								else if (is("accueil"))
+									accueil = iv;
 								else if (is("projDir"))
 									cp(projDir, sizeof(projDir));
 								else if (is("buildDir"))
@@ -261,6 +267,7 @@ namespace nkentseu {
 					openStartup = d.openStartup;
 					NkStrCopy(recentsMax, sizeof(recentsMax), d.recentsMax); // copie bornée maison (NkText.h)
 					groupBy = d.groupBy;
+					accueil = d.accueil;
 					projDir[0] = '\0';
 					NkStrCopy(buildDir, sizeof(buildDir), d.buildDir);
 					cacheDir[0] = '\0';
