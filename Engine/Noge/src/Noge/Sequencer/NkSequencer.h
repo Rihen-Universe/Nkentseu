@@ -298,7 +298,13 @@ namespace nkentseu {
 			bool locked = false;
 			float32 weight = 1.f;
 
+			/// Sans registre de clips : n'applique rien (rien a resoudre).
 			void Evaluate(float32 time, NkWorld &world) const noexcept;
+			/// (2026-10-01 soir) LIVRE : les clips actifs se posent l'un sur l'autre
+			/// (Replace fond vers le clip a son influence, Add ajoute la difference a
+			/// sa premiere image, Multiply compose) sur le transform de l'entite et,
+			/// si elle a un NkSkeleton, sur la pose de ses os (NKAnima, NkAnimMix.h).
+			void Evaluate(float32 time, NkWorld &world, const anim::NkClipRegistry *clips) const noexcept;
 	};
 
 	// =========================================================================

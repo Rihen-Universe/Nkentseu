@@ -782,6 +782,14 @@ namespace nkentseu {
 
 		uint32 NkAppliquerClipProprietes(NkScene &scene, ecs::NkEntityId racine, const anim::NkAnimationClip &clip,
 										 float32 t) {
+			// (01/10 soir) Une SEQUENCE (des clips poses, NLA) : la pose melangee de
+			// NKAnima, ses pistes propres comprises.
+			if (!clip.clipTracks.Empty()) {
+				const anim::NkClipLookup lookup = NkRechercheClipsProprietes();
+				anim::NkAnimPose pose;
+				anim::NkSampleClip(clip, t, pose, &lookup);
+				return NkAppliquerPoseProprietes(scene, racine, pose);
+			}
 			uint32 n = 0;
 			bool hierarchie = false;
 			for (uint32 i = 0; i < (uint32)clip.propertyTracks.Size(); ++i) {
@@ -795,7 +803,9 @@ namespace nkentseu {
 				}
 				// L'interpolation est CELLE DE NKAnima (NkAnimationTrack::Evaluate) :
 				// l'apercu de l'editeur et le jeu jouent la meme courbe.
-				if (EcrireInterne(scene, cible, p.property, p.curve.Evaluate(t), hierarchie)) {
+				// (01/10 soir) NkPropertyTrack::Evaluate : la « Courbe » y est une vraie
+				// courbe (Hermite, tangentes), les autres interpolations inchangees.
+				if (EcrireInterne(scene, cible, p.property, p.Evaluate(t), hierarchie)) {
 					++n;
 				}
 			}
@@ -803,6 +813,44 @@ namespace nkentseu {
 				scene.PropagerHierarchie();
 			}
 			return n;
+		}
+
+		uint32 NkAppliquerPoseProprietes(NkScene &scene, ecs::NkEntityId racine, const anim::NkAnimPose &pose) {
+			uint32 n = 0;
+			bool hierarchie = false;
+			for (uint32 i = 0; i < (uint32)pose.props.Size(); ++i) {
+				const anim::NkPropValue &p = pose.props[i];
+				if (p.weight <= 1e-4f) {
+					continue;
+				}
+				const ecs::NkEntityId cible = NkResoudreCible(scene, racine, p.target);
+				if (!cible.IsValid()) {
+					continue;
+				}
+				math::NkVec4f v = p.value;
+				if (p.weight < 0.999f && p.kind != anim::NkAnimationClip::NkPropertyKind::NK_STEP) {
+					// Une couverture partielle : le fondu part de la valeur VIVANTE.
+					math::NkVec4f vivante;
+					if (NkLireProprieteAnimee(scene, cible, p.property, vivante)) {
+						for (uint32 c = 0; c < 4; ++c) {
+							v[c] = vivante[c] + (p.value[c] - vivante[c]) * p.weight;
+						}
+					}
+				} else if (p.weight < 0.5f) {
+					continue; // un palier peu couvert ne bascule pas
+				}
+				if (EcrireInterne(scene, cible, p.property, v, hierarchie)) {
+					++n;
+				}
+			}
+			if (hierarchie) {
+				scene.PropagerHierarchie();
+			}
+			return n;
+		}
+
+		anim::NkClipLookup NkRechercheClipsProprietes() {
+			return [](const NkString &nom) -> const anim::NkAnimationClip * { return NkClipProprietesEnregistre(nom.CStr()); };
 		}
 
 		// =====================================================================
@@ -880,6 +928,14 @@ namespace nkentseu {
 				return false;
 			}
 			return NkEnregistrerClipProprietes(nom, c);
+		}
+
+		uint32 NkNbClipsProprietes() {
+			return (uint32)Clips().clips.Size();
+		}
+
+		const char *NkNomClipProprietes(uint32 i) {
+			return i < (uint32)Clips().clips.Size() ? Clips().clips[i].nom : nullptr;
 		}
 
 		const anim::NkAnimationClip *NkClipProprietesEnregistre(const char *nom) {

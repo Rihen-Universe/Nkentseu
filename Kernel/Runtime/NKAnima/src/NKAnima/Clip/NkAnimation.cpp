@@ -99,6 +99,133 @@ namespace nkentseu {
 			for (auto &p : propertyTracks)
 				if (!p.curve.Empty())
 					duration = fmaxf(duration, p.curve.GetDuration());
+			// (01/10 soir) une sequence dure au moins jusqu'a la fin de son dernier clip.
+			for (auto &tr : clipTracks)
+				for (auto &st : tr.strips)
+					duration = fmaxf(duration, st.End());
+		}
+
+		// ── (2026-10-01 soir) Fondus, tangentes, clips poses ────────────────────
+		float32 NkFadeWeight(float32 u, NkFadeCurve curve) {
+			u = u < 0.f ? 0.f : (u > 1.f ? 1.f : u);
+			switch (curve) {
+				case NkFadeCurve::NK_SMOOTH:
+					return u * u * (3.f - 2.f * u);
+				case NkFadeCurve::NK_EASE_IN:
+					return u * u;
+				case NkFadeCurve::NK_EASE_OUT:
+					return 1.f - (1.f - u) * (1.f - u);
+				default:
+					return u;
+			}
+		}
+
+		const char *NkFadeCurveName(NkFadeCurve curve) {
+			switch (curve) {
+				case NkFadeCurve::NK_SMOOTH:
+					return "Douce";
+				case NkFadeCurve::NK_EASE_IN:
+					return "Entree";
+				case NkFadeCurve::NK_EASE_OUT:
+					return "Sortie";
+				case NkFadeCurve::NK_LINEAR:
+					return "Lineaire";
+				default:
+					return "?";
+			}
+		}
+
+		float32 NkClipStrip::WeightAt(float32 t) const {
+			if (muted || t < start || t > End() || length <= 0.f) {
+				return 0.f;
+			}
+			float32 w = weight;
+			if (blendIn > 1e-6f && t < start + blendIn) {
+				w *= (t - start) / blendIn;
+			}
+			if (blendOut > 1e-6f && t > End() - blendOut) {
+				w *= (End() - t) / blendOut;
+			}
+			return w < 0.f ? 0.f : w;
+		}
+
+		float32 NkClipStrip::LocalTime(float32 t, float32 sourceLength) const {
+			float32 local = offset + (t - start) * rate;
+			if (sourceLength <= 1e-6f) {
+				return 0.f;
+			}
+			if (loop) {
+				local = fmodf(local, sourceLength);
+				return local < 0.f ? local + sourceLength : local;
+			}
+			return local < 0.f ? 0.f : (local > sourceLength ? sourceLength : local);
+		}
+
+		void NkAnimationClip::NkPropertyTrack::KeySlopes(uint32 k, uint32 c, float32 &in, float32 &out) const {
+			in = out = 0.f;
+			const uint32 n = curve.KeyCount();
+			if (k >= n || c >= 4) {
+				return;
+			}
+			if (k < (uint32)tangents.Size()) {
+				const NkPropertyTangent &tg = tangents[k];
+				if (tg.mode == NkTangentMode::NK_USER) {
+					in = out = tg.out[c];
+					return;
+				}
+				if (tg.mode == NkTangentMode::NK_BREAK) {
+					in = tg.in[c];
+					out = tg.out[c];
+					return;
+				}
+				if (tg.mode == NkTangentMode::NK_FLAT) {
+					return;
+				}
+			}
+			// AUTO BORNEE (la meme que la frise du kit, NkTimelineModel::KeySlopes) :
+			// plate aux extremites et sur un sommet ou un creux.
+			if (k == 0 || k + 1 >= n) {
+				return;
+			}
+			const NkKeyframe<NkVec4f> &p = curve.GetKey(k - 1);
+			const NkKeyframe<NkVec4f> &m = curve.GetKey(k);
+			const NkKeyframe<NkVec4f> &s = curve.GetKey(k + 1);
+			const float32 dp = m.value[c] - p.value[c], ds = s.value[c] - m.value[c];
+			if (dp * ds <= 0.f) {
+				return;
+			}
+			const float32 dt = s.time - p.time;
+			in = out = dt > 1e-6f ? (s.value[c] - p.value[c]) / dt : 0.f;
+		}
+
+		NkVec4f NkAnimationClip::NkPropertyTrack::Evaluate(float32 t) const {
+			const uint32 n = curve.KeyCount();
+			if (n < 2 || kind == NkPropertyKind::NK_STEP || t <= curve.GetKey(0).time || t >= curve.GetKey(n - 1).time) {
+				return curve.Evaluate(t);
+			}
+			uint32 hi = 1;
+			while (hi < n && curve.GetKey(hi).time <= t) {
+				++hi;
+			}
+			const NkKeyframe<NkVec4f> &a = curve.GetKey(hi - 1);
+			if (a.interp != NkInterpMode::NK_CUBIC) {
+				return curve.Evaluate(t);
+			}
+			// Hermite cubique : la « Courbe » des frises, sur les pentes des cles.
+			const NkKeyframe<NkVec4f> &b = curve.GetKey(hi);
+			const float32 d = b.time - a.time;
+			const float32 u = d > 1e-6f ? (t - a.time) / d : 0.f;
+			const float32 u2 = u * u, u3 = u2 * u;
+			const float32 h00 = 2.f * u3 - 3.f * u2 + 1.f, h10 = u3 - 2.f * u2 + u;
+			const float32 h01 = -2.f * u3 + 3.f * u2, h11 = u3 - u2;
+			NkVec4f r;
+			for (uint32 c = 0; c < 4; ++c) {
+				float32 inA, outA, inB, outB;
+				KeySlopes(hi - 1, c, inA, outA);
+				KeySlopes(hi, c, inB, outB);
+				r[c] = h00 * a.value[c] + h10 * d * outA + h01 * b.value[c] + h11 * d * inB;
+			}
+			return r;
 		}
 
 		NkAnimationClip::NkPropertyTrack *NkAnimationClip::FindPropertyTrack(const NkString &target,
@@ -181,6 +308,11 @@ namespace nkentseu {
 			// reprend pas, sinon un lecteur d'hier le prendrait pour une machine.
 			constexpr uint32 kNkAnimVersionProprietes = 4;
 			constexpr uint32 kNkAnimSectionPROP = 0x504F5250; // 'PROP' (little-endian)
+			// (2026-10-01 soir) Les tangentes posees a la main des pistes de propriete,
+			// les pistes de CLIPS (NLA), les courbes des fondus de transition.
+			constexpr uint32 kNkAnimSectionTANG = 0x474E4154; // 'TANG'
+			constexpr uint32 kNkAnimSectionCLPS = 0x53504C43; // 'CLPS'
+			constexpr uint32 kNkAnimSectionFADE = 0x45444146; // 'FADE'
 			// La disposition de la machine dans l'editeur (.nkanimctl, page Animateur).
 			constexpr uint32 kNkAnimSectionGRPH = 0x48505247; // 'GRPH' (little-endian)
 
@@ -390,8 +522,21 @@ namespace nkentseu {
 			// Sans piste de propriete : v2, OCTET POUR OCTET comme avant le 01/10 --
 			// un moteur d'hier relit tout clip qu'il savait deja lire.
 			const bool proprietes = !propertyTracks.Empty();
-			w.u32(proprietes ? kNkAnimVersionProprietes : kNkAnimVersion);
+			// (01/10 soir) Des tangentes posees a la main, des pistes de clips :
+			// deux sections de plus, seulement si elles ont quelque chose a dire.
+			bool tangentes = false;
+			for (uint32 i = 0; i < (uint32)propertyTracks.Size() && !tangentes; ++i) {
+				for (uint32 k = 0; k < (uint32)propertyTracks[i].tangents.Size(); ++k) {
+					tangentes = tangentes || propertyTracks[i].tangents[k].mode != NkTangentMode::NK_AUTO;
+				}
+			}
+			const bool sequence = !clipTracks.Empty();
+			const uint32 nbSections = (proprietes ? 1u : 0u) + (tangentes ? 1u : 0u) + (sequence ? 1u : 0u);
+			w.u32(nbSections > 0 ? kNkAnimVersionProprietes : kNkAnimVersion);
 			WriteClipBody(w, *this);
+			if (nbSections > 0) {
+				w.u32(nbSections);
+			}
 			if (proprietes) {
 				// [nbSections] puis 'PROP' : [version(u32)=1] [nbPistes(u32)]
 				//   par piste : [cible] [propriete] [genre(u8)] [active(u8)] [nbCles(u32)]
@@ -416,8 +561,67 @@ namespace nkentseu {
 						sct.u8((uint8)kf.interp);
 					}
 				}
-				w.u32(1);
 				w.u32(kNkAnimSectionPROP);
+				w.u32((uint32)sct.buf.Size());
+				w.raw(sct.buf.Data(), sct.buf.Size());
+			}
+			if (tangentes) {
+				// 'TANG' : [version(u32)=1] [nbPistes(u32)] par piste : [nbCles(u32)]
+				//   par cle : [mode(u8)] et, si USER ou BREAK : [entree xyzw] [sortie xyzw]
+				ByteWriter sct;
+				sct.u32(1);
+				sct.u32((uint32)propertyTracks.Size());
+				for (uint32 i = 0; i < (uint32)propertyTracks.Size(); ++i) {
+					const NkPropertyTrack &p = propertyTracks[i];
+					sct.u32(p.curve.KeyCount());
+					for (uint32 k = 0; k < p.curve.KeyCount(); ++k) {
+						const NkPropertyTangent tg = k < (uint32)p.tangents.Size() ? p.tangents[k] : NkPropertyTangent();
+						sct.u8((uint8)tg.mode);
+						if (tg.mode == NkTangentMode::NK_USER || tg.mode == NkTangentMode::NK_BREAK) {
+							for (uint32 c = 0; c < 4; ++c) {
+								sct.f32(tg.in[c]);
+							}
+							for (uint32 c = 0; c < 4; ++c) {
+								sct.f32(tg.out[c]);
+							}
+						}
+					}
+				}
+				w.u32(kNkAnimSectionTANG);
+				w.u32((uint32)sct.buf.Size());
+				w.raw(sct.buf.Data(), sct.buf.Size());
+			}
+			if (sequence) {
+				// 'CLPS' : [version(u32)=1] [nbPistes(u32)] par piste : [nom] [poids(f32)]
+				//   [additif(u8)] [muette(u8)] [masque] [nbClips(u32)] par clip : [clip]
+				//   [debut] [duree] [decalage] [vitesse] [fondu entree] [fondu sortie]
+				//   [poids] (f32) [boucle(u8)] [muet(u8)]
+				ByteWriter sct;
+				sct.u32(1);
+				sct.u32((uint32)clipTracks.Size());
+				for (uint32 i = 0; i < (uint32)clipTracks.Size(); ++i) {
+					const NkClipStripTrack &tr = clipTracks[i];
+					sct.str(tr.name);
+					sct.f32(tr.weight);
+					sct.u8(tr.additive ? 1 : 0);
+					sct.u8(tr.muted ? 1 : 0);
+					sct.str(tr.mask);
+					sct.u32((uint32)tr.strips.Size());
+					for (uint32 k = 0; k < (uint32)tr.strips.Size(); ++k) {
+						const NkClipStrip &st = tr.strips[k];
+						sct.str(st.clip);
+						sct.f32(st.start);
+						sct.f32(st.length);
+						sct.f32(st.offset);
+						sct.f32(st.rate);
+						sct.f32(st.blendIn);
+						sct.f32(st.blendOut);
+						sct.f32(st.weight);
+						sct.u8(st.loop ? 1 : 0);
+						sct.u8(st.muted ? 1 : 0);
+					}
+				}
+				w.u32(kNkAnimSectionCLPS);
 				w.u32((uint32)sct.buf.Size());
 				w.raw(sct.buf.Data(), sct.buf.Size());
 			}
@@ -462,6 +666,10 @@ namespace nkentseu {
 			}
 			const uint32 nb = ReadClipBody(r, ver, *this);
 			propertyTracks.Clear();
+			clipTracks.Clear();
+			// 'TANG' peut preceder ou suivre 'PROP' : appliquee apres la boucle.
+			const nk_uint8 *tang = nullptr;
+			uint32 tangTaille = 0;
 			if (r.ok && ver == kNkAnimVersionProprietes) {
 				// Les sections : 'PROP' lue, toute autre SAUTEE grace a sa taille.
 				const uint32 nbSections = r.u32();
@@ -473,6 +681,50 @@ namespace nkentseu {
 					}
 					ByteReader s(r.p + r.off, taille);
 					r.off += taille;
+					if (tag == kNkAnimSectionTANG) {
+						tang = s.p;
+						tangTaille = taille;
+						continue;
+					}
+					if (tag == kNkAnimSectionCLPS) {
+						if (s.u32() != 1) {
+							continue; // une version future : sautee, le clip reste lisible
+						}
+						uint32 nt = s.u32();
+						if (nt > (s.n - s.off) / 18u) {
+							nt = 0;
+						}
+						for (uint32 i = 0; i < nt && s.ok; ++i) {
+							NkClipStripTrack tr;
+							tr.name = s.str();
+							tr.weight = s.f32();
+							tr.additive = s.u8() != 0;
+							tr.muted = s.u8() != 0;
+							tr.mask = s.str();
+							uint32 ns = s.u32();
+							if (ns > (s.n - s.off) / 34u) {
+								ns = 0;
+							}
+							for (uint32 k = 0; k < ns && s.ok; ++k) {
+								NkClipStrip st;
+								st.clip = s.str();
+								st.start = s.f32();
+								st.length = s.f32();
+								st.offset = s.f32();
+								st.rate = s.f32();
+								st.blendIn = s.f32();
+								st.blendOut = s.f32();
+								st.weight = s.f32();
+								st.loop = s.u8() != 0;
+								st.muted = s.u8() != 0;
+								tr.strips.PushBack(st);
+							}
+							if (s.ok) {
+								clipTracks.PushBack(tr);
+							}
+						}
+						continue;
+					}
 					if (tag != kNkAnimSectionPROP) {
 						continue;
 					}
@@ -514,6 +766,34 @@ namespace nkentseu {
 					}
 					if (!s.ok) {
 						r.ok = false;
+					}
+				}
+			}
+			if (tang != nullptr) {
+				ByteReader s(tang, tangTaille);
+				if (s.u32() == 1u) {
+					const uint32 np = s.u32();
+					for (uint32 i = 0; i < np && s.ok && i < (uint32)propertyTracks.Size(); ++i) {
+						NkPropertyTrack &p = propertyTracks[i];
+						const uint32 nk = s.u32();
+						p.tangents.Clear();
+						for (uint32 k = 0; k < nk && s.ok; ++k) {
+							NkPropertyTangent tg;
+							const uint8 mode = s.u8();
+							tg.mode = mode <= (uint8)NkTangentMode::NK_FLAT ? (NkTangentMode)mode : NkTangentMode::NK_AUTO;
+							if (mode == (uint8)NkTangentMode::NK_USER || mode == (uint8)NkTangentMode::NK_BREAK) {
+								for (uint32 c = 0; c < 4; ++c) {
+									tg.in[c] = s.f32();
+								}
+								for (uint32 c = 0; c < 4; ++c) {
+									tg.out[c] = s.f32();
+								}
+							}
+							p.tangents.PushBack(tg);
+						}
+						if (p.tangents.Size() != p.curve.KeyCount()) {
+							p.tangents.Clear(); // incoherent : toutes automatiques, sans casser le clip
+						}
 					}
 				}
 			}
@@ -1515,6 +1795,18 @@ namespace nkentseu {
 			st.tree2d = nullptr;
 		}
 
+		void NkAnimStateMachine::SetStateBlendRef(int32 state, const NkString &spaceName, uint8 dims) {
+			if (state < 0 || state >= (int32)mStates.Size() || mStates[(uint32)state].composite) {
+				return;
+			}
+			State &st = mStates[(uint32)state];
+			st.refKind = spaceName.Empty() ? (uint8)0 : (dims >= 2 ? (uint8)3 : (uint8)2);
+			st.ref = spaceName;
+			st.clip = nullptr;
+			st.tree = nullptr;
+			st.tree2d = nullptr;
+		}
+
 		int32 NkAnimStateMachine::GetTransitionFrom(uint32 t) const {
 			return t < (uint32)mTransitions.Size() ? mTransitions[t].from : -1;
 		}
@@ -1858,6 +2150,38 @@ namespace nkentseu {
 			return (mCurrent >= 0 && mCurrent < (int32)mStates.Size()) ? mStates[(uint32)mCurrent].name : sEmpty;
 		}
 
+		bool NkAnimStateMachine::SetTransitionCurve(int32 t, NkFadeCurve curve) {
+			if (t < 0 || t >= (int32)mTransitions.Size() || (uint8)curve >= (uint8)NkFadeCurve::NK_COUNT) {
+				return false;
+			}
+			mTransitions[(uint32)t].curve = curve;
+			return true;
+		}
+
+		NkFadeCurve NkAnimStateMachine::GetTransitionCurve(uint32 t) const {
+			return t < (uint32)mTransitions.Size() ? mTransitions[t].curve : NkFadeCurve::NK_LINEAR;
+		}
+
+		int32 NkAnimStateMachine::FindTransitionTo(int32 from, int32 to) const {
+			if (from < 0 || to < 0 || from >= (int32)mStates.Size()) {
+				return -1;
+			}
+			int32 path[NK_MAX_DEPTH];
+			const int32 n = BuildPath(from, path);
+			for (uint32 i = 0; i < (uint32)mTransitions.Size(); ++i) {
+				const Transition &tr = mTransitions[i];
+				if (ResolveLeaf(tr.to) != to) {
+					continue;
+				}
+				for (int32 k = 0; k < n; ++k) {
+					if ((!tr.any && tr.from == path[k]) || (tr.any && (tr.scope == NK_ROOT || tr.scope == path[k]))) {
+						return (int32)i;
+					}
+				}
+			}
+			return -1;
+		}
+
 		float32 NkAnimStateMachine::GetFadeWeight() const {
 			if (mNext < 0 || mFadeDur <= 0.f) {
 				return 0.f;
@@ -1939,8 +2263,14 @@ namespace nkentseu {
 				outSkel = st.tree2d->GetSkeletonClip();
 				return;
 			}
-			if (!st.clip)
+			if (!st.clip) {
+				// (01/10 soir) Un etat designe par son NOM (clip ou arbre que le
+				// consommateur resout lui-meme, Unkeny) : son temps AVANCE quand
+				// meme, pour qu'un melangeur externe (Blend/NkAnimMix.h) sache ou en
+				// est le clip. Sans clip, rien d'autre ne le lit.
+				st.time += dt;
 				return;
+			}
 			st.time += dt;
 			const float32 dur = st.clip->duration > 1e-4f ? st.clip->duration : 1.f;
 			st.time -= floorf(st.time / dur) * dur;
@@ -1987,6 +2317,7 @@ namespace nkentseu {
 						mNext = target;
 						mFadeDur = tr.fadeDur > 1e-3f ? tr.fadeDur : 1e-3f;
 						mFadeT = mFadeDur;
+						mFadeCurve = tr.curve;
 						mStates[(uint32)mNext].time = 0.f; // repart du debut
 						if (mTransitionCb)
 							mTransitionCb(mStates[(uint32)mCurrent].name, mStates[(uint32)mNext].name,
@@ -2002,7 +2333,8 @@ namespace nkentseu {
 				const NkAnimationClip *skelB = nullptr;
 				EvalState(mNext, dt, mNextState, mLocalB, skelB);
 				mFadeT -= dt;
-				const float32 w = 1.f - (mFadeT > 0.f ? mFadeT / mFadeDur : 0.f); // 0 -> 1
+				// 0 -> 1, par la COURBE de la transition (lineaire par defaut).
+				const float32 w = NkFadeWeight(1.f - (mFadeT > 0.f ? mFadeT / mFadeDur : 0.f), mFadeCurve);
 				// Crossfade BONE-LOCAL si les deux etats exposent leur pose locale
 				// sur le meme squelette : blend TRS par os PUIS un seul FK —
 				// correct sur les rotations. Sinon fallback lerp matriciel des
@@ -2113,7 +2445,13 @@ namespace nkentseu {
 			for (uint32 i = 0; i < (uint32)mStates.Size() && !disposition; ++i) {
 				disposition = mStates[i].edPlaced;
 			}
-			w.u32(disposition ? 2u : 1u);
+			// (01/10 soir) Les COURBES de fondu, s'il y en a une qui n'est pas lineaire
+			// (section 'FADE') : sans elle, le fichier reste celui d'avant.
+			bool courbes = false;
+			for (uint32 i = 0; i < (uint32)mTransitions.Size() && !courbes; ++i) {
+				courbes = mTransitions[i].curve != NkFadeCurve::NK_LINEAR;
+			}
+			w.u32(1u + (disposition ? 1u : 0u) + (courbes ? 1u : 0u));
 			ByteWriter s;
 			s.u32(1); // version de la section HFSM
 			s.u32((uint32)mStates.Size());
@@ -2179,6 +2517,18 @@ namespace nkentseu {
 				w.u32((uint32)g.buf.Size());
 				w.raw(g.buf.Data(), g.buf.Size());
 			}
+			if (courbes) {
+				// 'FADE' : [version(u32)=1] [nbTransitions(u32)] par transition : [courbe(u8)]
+				ByteWriter f;
+				f.u32(1);
+				f.u32((uint32)mTransitions.Size());
+				for (uint32 i = 0; i < (uint32)mTransitions.Size(); ++i) {
+					f.u8((uint8)mTransitions[i].curve);
+				}
+				w.u32(kNkAnimSectionFADE);
+				w.u32((uint32)f.buf.Size());
+				w.raw(f.buf.Data(), f.buf.Size());
+			}
 			out = w.buf;
 		}
 
@@ -2217,6 +2567,8 @@ namespace nkentseu {
 			// peut venir avant ou apres la section des etats.
 			const nk_uint8 *grph = nullptr;
 			uint32 grphTaille = 0;
+			const nk_uint8 *fade = nullptr; // (01/10 soir) les courbes de fondu
+			uint32 fadeTaille = 0;
 			for (uint32 sct = 0; sct < nbSections && r.ok; ++sct) {
 				const uint32 tag = r.u32();
 				const uint32 taille = r.u32();
@@ -2226,6 +2578,12 @@ namespace nkentseu {
 				if (tag == kNkAnimSectionGRPH && grph == nullptr) {
 					grph = r.p + r.off;
 					grphTaille = taille;
+					r.off += taille;
+					continue;
+				}
+				if (tag == kNkAnimSectionFADE && fade == nullptr) {
+					fade = r.p + r.off;
+					fadeTaille = taille;
 					r.off += taille;
 					continue;
 				}
@@ -2329,6 +2687,15 @@ namespace nkentseu {
 			}
 			// La definition remplace l'ancienne ; le rappel et le partage de
 			// parametres, qui sont du CABLAGE et non de la definition, restent.
+			if (fade != nullptr) {
+				ByteReader f(fade, fadeTaille);
+				if (f.u32() == 1u && f.u32() == (uint32)lu.mTransitions.Size()) {
+					for (uint32 i = 0; i < (uint32)lu.mTransitions.Size() && f.ok; ++i) {
+						const uint8 c = f.u8();
+						lu.mTransitions[i].curve = c < (uint8)NkFadeCurve::NK_COUNT ? (NkFadeCurve)c : NkFadeCurve::NK_LINEAR;
+					}
+				}
+			}
 			mStates = lu.mStates;
 			mTransitions = lu.mTransitions;
 			mParams = lu.mParams;

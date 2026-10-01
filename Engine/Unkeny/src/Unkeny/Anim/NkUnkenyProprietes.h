@@ -37,6 +37,7 @@
 // =============================================================================
 #pragma once
 
+#include "NKAnima/Blend/NkAnimMix.h" // (01/10 soir) le melange : poses de proprietes, NLA, couches
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
@@ -81,6 +82,14 @@ namespace nkentseu {
 		/// piste dont la cible ou la propriete manque est sautee, sans bruit).
 		uint32 NkAppliquerClipProprietes(NkScene &scene, ecs::NkEntityId racine, const anim::NkAnimationClip &clip,
 										 float32 t);
+		/// (2026-10-01 soir) Applique une POSE melangee (NKAnima, Blend/NkAnimMix.h) :
+		/// chaque valeur de propriete, a sa COUVERTURE -- 1 = la valeur, moins = un
+		/// fondu depuis la valeur vivante de l'objet (une propriete que seul un
+		/// des deux clips d'un fondu anime). Rend le nombre de valeurs ecrites.
+		uint32 NkAppliquerPoseProprietes(NkScene &scene, ecs::NkEntityId racine, const anim::NkAnimPose &pose);
+		/// Retrouver un clip de proprietes ENREGISTRE par son nom (les clips poses
+		/// d'une sequence, les etats d'un animateur, les arbres de melange).
+		anim::NkClipLookup NkRechercheClipsProprietes();
 
 		// --- Le clip de proprietes EN JEU ----------------------------------
 		static const int32 NK_UNKENY_CLIP_NOM_MAX = 32;
@@ -108,6 +117,9 @@ namespace nkentseu {
 		/// Lit un .nkanim et l'enregistre sous `nom`.
 		bool NkChargerClipProprietes(const char *nom, const char *chemin);
 		const anim::NkAnimationClip *NkClipProprietesEnregistre(const char *nom);
+		/// (01/10 soir) Les clips enregistres, pour les proposer (pistes de clips).
+		uint32 NkNbClipsProprietes();
+		const char *NkNomClipProprietes(uint32 i);
 
 		/// LE SYSTEME : avance chaque NkClipProprietes2D et applique son clip a son
 		/// entite. NkScene::Pas l'appelle apres les animations de sprites.

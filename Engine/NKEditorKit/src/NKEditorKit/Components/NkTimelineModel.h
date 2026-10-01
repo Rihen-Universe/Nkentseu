@@ -51,6 +51,30 @@
 //   • un EVENEMENT      -> `kEvents` + un champ de `NkTimelineResult`
 //   • un GENRE de valeur-> `NkTimelineValueKind` (et son pas de frottement)
 //
+// =============================================================================
+//  LA FRISE « UNREAL 5 / BLENDER » (2026-10-01 au soir, demande de Rihen)
+// =============================================================================
+//  « le style actuel ne me plait pas : inspire-toi d'Unreal 5 ou de Blender ».
+//  Le dessin suit le Sequencer d'UE5 et la Dope Sheet / le NLA de Blender :
+//    - colonne des pistes en ARBRE repliable (« Bras/Main » est sous « Bras »,
+//      lui-meme sous l'objet anime), une icone par genre, et par ligne les
+//      boutons ◁ ◆ ▷ (cle precedente, cle au curseur, cle suivante), muet,
+//      solo et verrou ; « + Piste » en tete ;
+//    - regle a deux etages : les SECONDES en haut, les IMAGES en bas, la
+//      PLAGE DE LECTURE (poignees verte et rouge) et les MARQUEURS ;
+//    - cles dont la FORME dit l'interpolation (carre = palier, losange =
+//      lineaire, rond = courbe, losange arrondi = douceur, hexagone =
+//      dynamique), sections teintees sous les cles, barres de PALIER ;
+//    - pistes de CLIPS (NLA de Blender, sections d'animation d'UE5) : des
+//      clips poses bout a bout, qui se chevauchent, avec leurs fondus ;
+//    - editeur de courbes avec POIGNEES DE TANGENTE (auto, unifiee, cassee,
+//      plate), comme le Curve Editor d'UE5 ;
+//    - boite de TRANSFORMATION des cles choisies (ses bords mettent a
+//      l'echelle), copier / coller, barre de defilement du bas dont les bords
+//      zooment, zoom a la molette ADOUCI.
+//  Rien de l'ancien modele n'est retire : les champs et methodes d'avant
+//  gardent leur sens, les nouveaux s'ajoutent.
+//
 //  CE QU'IL NE FAIT PAS : il n'a pas de clavier (`NkComponentInput` n'en porte
 //  aucun). Suppr, Espace, Ctrl+Z sont a l'hote, qui appelle `DeleteSelection`,
 //  `TogglePlay`, `Undo`. Il ne nomme pas les proprietes : « + Propriete » est
@@ -90,8 +114,22 @@ namespace nkentseu {
 			Nombre = 0, ///< un ou plusieurs nombres (position, rotation, echelle)
 			Couleur,	///< rgba 0..1 : une pastille de la couleur dans la colonne
 			Palier,		///< booleen, entier, enumeration, reference d'asset : pas de glissement
+			/// (01/10 soir) Une piste de CLIPS non lineaires (NLA de Blender,
+			/// sections d'animation d'UE5) : pas de cles, des `clips`.
+			Clips,
 			Count
 		};
+
+		/// La TANGENTE d'une cle « Courbe » (Curve Editor d'UE5). MEME ORDRE QUE
+		/// anim::NkTangentMode (NKAnima).
+		enum class NkTimelineTangent : uint8 {
+			Auto = 0, ///< calculee (Catmull-Rom sur les temps), comme NKAnima
+			Unifiee,  ///< posee a la main ; entree = sortie (poignees alignees)
+			Cassee,	  ///< posee a la main ; entree et sortie independantes
+			Plate,	  ///< pente nulle (un sommet ou un creux qui ne deborde pas)
+			Count
+		};
+		const char *NkTimelineTangentName(uint8 tangent);
 
 		struct NkTimelineKey {
 				float32 time = 0.f;
@@ -99,6 +137,43 @@ namespace nkentseu {
 				uint8 interp = (uint8)NkTimelineInterp::Lineaire;
 				/// La selection est PORTEE PAR LA CLE : elle survit au tri qui suit un
 				/// deplacement (un indice, lui, aurait change de cle).
+				bool selected = false;
+				/// (01/10 soir) La tangente (lue par l'interpolation Courbe) et, quand
+				/// elle est posee a la main, ses PENTES par canal (valeur par seconde).
+				uint8 tangent = (uint8)NkTimelineTangent::Auto;
+				float32 tanIn[4] = {0.f, 0.f, 0.f, 0.f};
+				float32 tanOut[4] = {0.f, 0.f, 0.f, 0.f};
+				/// L'identite que l'HOTE y range (NkAnimaEditor : le rang d'origine
+				/// d'une pose-cle). Le kit la recopie sans la lire.
+				nk_uint64 user = 0;
+		};
+
+		/// UN CLIP pose sur une piste de clips (NLA). Le kit ne sait pas ce qu'il
+		/// joue : `name` est resolu par l'hote, `sourceLength` est sa duree propre.
+		struct NkTimelineClip {
+				nk_uint64 id = 0;
+				NkString name;
+				float32 start = 0.f;		///< debut sur la frise (s)
+				float32 length = 1.f;		///< duree sur la frise (s)
+				float32 sourceLength = 1.f; ///< la duree propre du clip
+				float32 offset = 0.f;		///< le temps du clip au debut de la section (rognage)
+				float32 rate = 1.f;			///< vitesse de lecture
+				float32 blendIn = 0.f;		///< fondu d'entree (s)
+				float32 blendOut = 0.f;		///< fondu de sortie (s)
+				float32 weight = 1.f;		///< influence
+				bool loop = true; ///< au-dela de sa duree : boucle, sinon tient la derniere pose
+				bool selected = false;
+				float32 End() const {
+					return start + length;
+				}
+		};
+
+		/// Un MARQUEUR de la regle (les « Marked Frames » d'UE5, les marqueurs de
+		/// Blender) : un temps et un nom.
+		struct NkTimelineMarker {
+				nk_uint64 id = 0;
+				float32 time = 0.f;
+				NkString name;
 				bool selected = false;
 		};
 
@@ -122,6 +197,26 @@ namespace nkentseu {
 				/// Montree dans l'editeur de courbes, et chacun de ses canaux.
 				bool showCurve = true;
 				bool showChannel[4] = {true, true, true, true};
+				/// (01/10 soir) MUET : l'hote ne l'applique pas (`TrackActive`).
+				bool muted = false;
+				/// SOLO : des qu'une piste est solo, seules les solos jouent.
+				bool solo = false;
+				/// VERROU : ses cles et ses clips ne se choisissent ni ne bougent.
+				bool locked = false;
+				/// Piste de CLIPS (kind == Clips) : ses clips, tries par debut.
+				NkVector<NkTimelineClip> clips;
+				/// Piste de clips : son influence, son mode (additif = s'ajoute a ce
+				/// qui est dessous, sinon le remplace) et son MASQUE (nom donne par
+				/// l'hote, vide = tout le corps / toutes les proprietes).
+				float32 weight = 1.f;
+				bool additive = false;
+				NkString mask;
+		};
+
+		/// Une cle COPIEE : sa piste et son temps relatif a la premiere copiee.
+		struct NkTimelineClipboardKey {
+				nk_uint64 track = 0;
+				NkTimelineKey key;
 		};
 
 		/// Un INSTANTANE pour Annuler / Refaire : les pistes et la duree. Les
@@ -131,6 +226,8 @@ namespace nkentseu {
 		struct NkTimelineSnapshot {
 				NkVector<NkTimelineTrack> tracks;
 				float32 duration = 1.f;
+				NkVector<NkTimelineMarker> markers;
+				float32 rangeStart = 0.f, rangeEnd = -1.f;
 		};
 
 		// ── LE MODELE ───────────────────────────────────────────────────────────
@@ -157,9 +254,35 @@ namespace nkentseu {
 				nk_uint64 activeTrack = 0; ///< la piste choisie dans la colonne (0 = aucune)
 				/// Les objets REPLIES (leurs pistes ne sont pas montrees).
 				NkVector<NkString> collapsed;
+				/// (01/10 soir) Le nom de la racine de l'arbre (vide = « (objet anime) »).
+				NkString rootLabel;
 				/// Incremente a CHAQUE changement des cles : l'hote relit le modele
 				/// quand il a bouge (en plus de `NkTimelineResult::changed`).
 				uint32 revision = 0;
+
+				// --- (01/10 soir) La plage de lecture, les marqueurs, les clips -------
+				/// La PLAGE DE LECTURE (poignees verte et rouge de la regle) : la
+				/// lecture boucle dedans. `rangeEnd < 0` = la duree.
+				float32 rangeStart = 0.f;
+				float32 rangeEnd = -1.f;
+				NkVector<NkTimelineMarker> markers;
+				nk_uint64 nextMarkerId = 1;
+				nk_uint64 nextClipId = 1;
+				/// La piste de clips et le clip choisis (inspecteur de l'hote).
+				nk_uint64 activeClip = 0;
+				/// Le presse-papiers des cles (Copier / Coller).
+				NkVector<NkTimelineClipboardKey> clipboard;
+				/// L'HOTE TIENT LES CLES (NkAnimaEditor : des poses-cles de tout le
+				/// squelette). Vrai : « + Cle », « ◆ », le double-clic, Suppr.,
+				/// Coller, Annuler et Refaire ne touchent plus le modele, ils sont
+				/// RAPPORTES (`keyRequested`, `deleteRequested`...) ; deplacer et
+				/// interpoler restent faits ici, l'hote relit.
+				bool hostKeys = false;
+				bool hostCanUndo = false, hostCanRedo = false;
+				/// Le ZOOM ADOUCI : la molette pose une cible, la vue la rejoint en
+				/// quelques images (`GlideStep`).
+				float32 viewTargetStart = 0.f, viewTargetEnd = 0.f;
+				bool viewGlide = false;
 
 				// --- Annuler / Refaire ---------------------------------------------
 				NkVector<NkTimelineSnapshot> undoStack;
@@ -175,6 +298,10 @@ namespace nkentseu {
 				nk_uint64 gestureTrack = 0;
 				int32 gestureKey = -1;
 				int32 gestureChannel = -1;
+				nk_uint64 gestureClip = 0;	   ///< le clip tenu (pistes de clips)
+				nk_uint64 gestureMarker = 0;   ///< le marqueur tenu
+				bool gestureTangentOut = true; ///< la poignee tenue : sortie (vrai) ou entree
+				float32 gestureA = 0.f, gestureB = 0.f, gestureC = 0.f; ///< valeurs d'origine du geste
 				NkVector<float32> gestureTimes;	 ///< temps d'origine des cles choisies
 				NkVector<float32> gestureValues; ///< valeurs d'origine (courbes : le canal tenu)
 				float32 gestureViewStart = 0.f, gestureViewEnd = 0.f;
@@ -190,6 +317,26 @@ namespace nkentseu {
 				bool RemoveTrack(nk_uint64 id); ///< ANNULABLE
 				bool IsCollapsed(const NkString &object) const;
 				void ToggleCollapsed(const NkString &object);
+				/// (01/10 soir) L'ARBRE des objets : « Bras/Main » a pour parent
+				/// « Bras », dont le parent est « » (l'objet anime). Une piste est
+				/// CACHEE si son objet ou l'un de ses ancetres est replie.
+				static NkString ParentObject(const NkString &object);
+				static uint32 ObjectDepth(const NkString &object);
+				/// `object` est-il `ancestor` ou sous lui ? (« » contient tout.)
+				static bool IsUnderObject(const NkString &object, const NkString &ancestor);
+				bool IsHidden(const NkString &object) const;
+				/// Muet / solo : la piste doit-elle JOUER ? L'hote ne l'applique pas sinon.
+				bool AnySolo() const;
+				bool TrackActive(const NkTimelineTrack &track) const;
+				/// Bascules (ANNULABLES) d'une piste...
+				void ToggleMute(nk_uint64 track);
+				void ToggleSolo(nk_uint64 track);
+				void ToggleLock(nk_uint64 track);
+				/// ...ou de toutes celles d'un objet et de ses descendants.
+				/// `flag` : 0 muet, 1 solo, 2 verrou.
+				void SetObjectFlag(const NkString &object, uint8 flag, bool on);
+				/// Vrai si TOUTES les pistes de l'objet (et dessous) l'ont.
+				bool ObjectFlag(const NkString &object, uint8 flag) const;
 
 				// --- Le temps -------------------------------------------------------
 				float32 FrameDuration() const {
@@ -212,6 +359,19 @@ namespace nkentseu {
 				void FrameAll();
 				/// Zoome de `factor` (< 1 rapproche) autour de `pivot` (secondes).
 				void ZoomTime(float32 pivot, float32 factor);
+				/// (01/10 soir) La plage de lecture effective, et son reglage (ANNULABLE).
+				float32 PlayStart() const;
+				float32 PlayEnd() const;
+				void SetPlayRange(float32 start, float32 end);
+				/// Avance le curseur de `frames` images (negatif = recule), dans [0, duree].
+				void StepFrame(int32 frames);
+				/// Le zoom ADOUCI : pose la cible (la vue la rejoint par `GlideStep`).
+				void ZoomTimeSmooth(float32 pivot, float32 factor);
+				/// Un pas du glissement de la vue (`k` dans ]0,1] : la part du chemin
+				/// faite a cette image). Rend vrai si la vue a bouge.
+				bool GlideStep(float32 k);
+				/// Fait suivre la vue au curseur pendant la lecture (comme UE5).
+				void FollowCursor();
 
 				// --- Les cles (toutes ANNULABLES) -------------------------------------
 				/// Pose une cle a `t` (accroche) : remplace celle qui est deja a cette
@@ -227,6 +387,46 @@ namespace nkentseu {
 				/// L'interpolation commune des cles choisies, 255 si elles different ou
 				/// s'il n'y en a pas.
 				uint8 SelectionInterp() const;
+				/// (01/10 soir) Met a l'echelle les temps des cles choisies autour de
+				/// `pivot` (la boite de transformation d'UE5). Sans instantane.
+				void ScaleSelection(float32 pivot, float32 factor);
+				/// Le premier et le dernier temps choisis ; faux s'il n'y a rien.
+				bool SelectionTimeRange(float32 &t0, float32 &t1) const;
+				/// Copier / Couper / Coller. Coller pose les cles copiees a partir
+				/// de `t` (la premiere copiee tombe sur `t`), sur LEURS pistes.
+				uint32 CopySelection();
+				bool CutSelection();	 ///< ANNULABLE
+				bool PasteAt(float32 t); ///< ANNULABLE ; choisit les cles collees
+				/// La tangente des cles choisies (ANNULABLE), et la commune (255 sinon).
+				void SetSelectionTangent(uint8 tangent);
+				uint8 SelectionTangent() const;
+				/// Les PENTES effectives de la cle `k` d'une piste, canal `ch` : la
+				/// posee, la plate, ou l'automatique (Catmull-Rom sur les temps).
+				void KeySlopes(const NkTimelineTrack &track, uint32 k, uint32 ch, float32 &in, float32 &out) const;
+
+				// --- (01/10 soir) Les marqueurs ---------------------------------------
+				nk_uint64 AddMarker(float32 t, const NkString &name = NkString()); ///< ANNULABLE
+				bool RemoveMarker(nk_uint64 id);									///< ANNULABLE
+				NkTimelineMarker *Marker(nk_uint64 id);
+
+				// --- (01/10 soir) Les clips des pistes de clips (NLA) -----------------
+				/// Pose un clip (ANNULABLE) et rend son identite (0 si la piste n'est pas
+				/// une piste de clips). `sourceLength < 0` : la duree sur la frise.
+				nk_uint64 AddClip(nk_uint64 track, const NkString &name, float32 start, float32 length,
+								  float32 sourceLength = -1.f);
+				NkTimelineClip *Clip(nk_uint64 track, nk_uint64 clip);
+				NkTimelineClip *FindClip(nk_uint64 clip, nk_uint64 *track = nullptr);
+				/// Le clip de `track` sous `t` (le dernier s'ils se chevauchent), 0 sinon.
+				nk_uint64 ClipAt(const NkTimelineTrack &track, float32 t) const;
+				void SelectClip(nk_uint64 clip, bool additive);
+				uint32 ClipSelectionCount() const;
+				/// Trie les clips de chaque piste par debut.
+				void SortClips();
+				/// Le POIDS d'un clip a `t` : son influence, adoucie par ses fondus
+				/// (0 hors du clip). Le meme calcul que NKAnima (NkClipStrip::WeightAt).
+				static float32 ClipWeightAt(const NkTimelineClip &clip, float32 t);
+				/// Le temps DU CLIP a `t` (rognage, vitesse, boucle) -- NkClipStrip::LocalTime.
+				static float32 ClipLocalTime(const NkTimelineClip &clip, float32 t);
 
 				// --- La selection ---------------------------------------------------
 				void SelectKey(nk_uint64 track, int32 key, bool additive);
@@ -267,7 +467,21 @@ namespace nkentseu {
 			MoveKeys,  ///< des cles tenues
 			Box,	   ///< un cadre de selection
 			Pan,	   ///< Alt + glisser : la vue suit
-			ScrubValue ///< une valeur de la colonne frottee
+			ScrubValue, ///< une valeur de la colonne frottee
+			// (01/10 soir)
+			ScaleKeys,	   ///< un bord de la boite de transformation
+			MoveClip,	   ///< un clip tenu par son corps
+			TrimClipStart, ///< son bord gauche
+			TrimClipEnd,   ///< son bord droit
+			ClipBlendIn,   ///< sa poignee de fondu d'entree
+			ClipBlendOut,  ///< sa poignee de fondu de sortie
+			MoveMarker,	   ///< un marqueur de la regle
+			RangeStart,	   ///< la poignee verte de la plage de lecture
+			RangeEnd,	   ///< la poignee rouge
+			ScrollThumb,   ///< le pouce de la barre de defilement
+			ScrollEdgeL,   ///< son bord gauche (zoom)
+			ScrollEdgeR,   ///< son bord droit (zoom)
+			MoveTangent	   ///< une poignee de tangente (courbes)
 		};
 
 		// ── LE STYLE ────────────────────────────────────────────────────────────
@@ -287,6 +501,13 @@ namespace nkentseu {
 				uint16 channel[4] = {0, 0, 0, 0}; ///< X rouge, Y vert, Z bleu, W
 				uint16 buttonBg = 0;
 				uint16 inputBg = 0;
+				/// (01/10 soir) Roles FACULTATIFS : 0 = un repli tire des autres.
+				uint16 rangeIn = 0;	 ///< poignee de debut de plage (vert, UE5)
+				uint16 rangeOut = 0; ///< poignee de fin de plage (rouge)
+				uint16 marker = 0;	 ///< marqueurs (ambre)
+				uint16 clip = 0;	 ///< corps d'un clip (NLA)
+				uint16 clipAlt = 0;	 ///< un clip additif
+				uint16 tangent = 0;	 ///< poignees de tangente (#d29922, spec. 05 §1)
 				/// La source des nombres (nul = les defauts de la declaration).
 				const NkComponentInstance *values = nullptr;
 		};
@@ -318,8 +539,16 @@ namespace nkentseu {
 			Delete,
 			Undo,
 			Redo,
-			AddTrack,  ///< « + Propriete »
-			InterpFirst, ///< puis une case par interpolation (Count de suite)
+			AddTrack,  ///< « + Piste »
+			// (01/10 soir)
+			PrevFrame, ///< image precedente
+			NextFrame, ///< image suivante
+			Copy,
+			Paste,
+			AddMarker,	  ///< un marqueur au curseur
+			Speed,		  ///< la vitesse de lecture (0,25x .. 2x, spec. 04 §17)
+			TangentFirst, ///< une case par tangente (NkTimelineTangent::Count de suite)
+			InterpFirst = TangentFirst + (uint8)NkTimelineTangent::Count, ///< puis une case par interpolation
 			Count = InterpFirst + (uint8)NkTimelineInterp::Count
 		};
 
@@ -327,10 +556,14 @@ namespace nkentseu {
 				nk_uint64 track = 0; ///< 0 = une ligne d'en-tete d'objet
 				NkString object;
 				float32 y = 0.f, h = 0.f;
+				uint32 depth = 0; ///< (01/10 soir) la profondeur dans l'arbre
 				/// Les zones de la colonne (lignes de piste) : « ◆ » (une cle au curseur)
 				/// et la case de chaque canal (frotter = une cle au curseur).
 				NkPaintRect keyButton;
 				NkPaintRect channel[4];
+				/// (01/10 soir) Muet, solo, verrou ; cle precedente / suivante.
+				NkPaintRect muteButton, soloButton, lockButton;
+				NkPaintRect prevKeyButton, nextKeyButton;
 		};
 
 		// ── LE RESULTAT ─────────────────────────────────────────────────────────
@@ -346,6 +579,27 @@ namespace nkentseu {
 				/// Annuler / Refaire passes par la barre (deja faits).
 				bool undone = false;
 				bool redone = false;
+				// --- (01/10 soir) ---
+				/// Muet / solo / verrou bascules (deja faits, annulables).
+				bool flagsChanged = false;
+				/// Les marqueurs ou la plage de lecture ont change.
+				bool markersChanged = false;
+				/// Des clips ont change (poses, deplaces, rognes, fondus).
+				bool clipsChanged = false;
+				/// `hostKeys` : les gestes RAPPORTES a l'hote qui tient les cles.
+				bool keyRequested = false;	  ///< une cle a `requestTime` (piste `requestTrack`, 0 = la active)
+				bool deleteRequested = false; ///< supprimer la selection
+				bool pasteRequested = false;  ///< coller a `requestTime`
+				bool copyRequested = false;	  ///< copier la selection
+				bool undoRequested = false;
+				bool redoRequested = false;
+				/// Une piste de clips demande un clip (son « + », ou un double-clic
+				/// dans son vide) a `requestTime` : l'hote propose ses animations.
+				bool addClipRequested = false;
+				nk_uint64 requestTrack = 0;
+				float32 requestTime = 0.f;
+				nk_uint64 hoveredClip = 0;
+				nk_uint64 hoveredMarker = 0;
 				/// Survols, pour les infobulles de l'hote.
 				nk_uint64 hoveredTrack = 0;
 				int32 hoveredKey = -1;
@@ -356,6 +610,8 @@ namespace nkentseu {
 				NkPaintRect ruler;	///< la regle
 				NkPaintRect area;	///< les losanges ou les courbes
 				NkVector<NkTimelineRow> rows;
+				NkPaintRect transport; ///< (01/10 soir) la barre de lecture du bas
+				NkPaintRect scrollbar; ///< la barre de defilement de la vue
 		};
 
 		/// Le temps -> x dans `area`, et l'inverse : la geometrie que le dessin,
@@ -402,15 +658,22 @@ namespace nkentseu {
 				{"channel_x", "axis_x", "canal X / R"},
 				{"channel_y", "axis_y", "canal Y / G"},
 				{"channel_z", "axis_z", "canal Z / B"},
+				{"range_in", "status_ok", "debut de la plage de lecture"},
+				{"range_out", "status_err", "fin de la plage de lecture"},
+				{"marker", "accent_sel", "marqueurs"},
+				{"clip", "type_anim", "un clip (NLA)"},
+				{"clip_alt", "node_action_header", "un clip additif"},
+				{"tangent", "accent_sel", "poignees de tangente"},
 			};
 			static const NkMetricDecl kMetrics[] = {
-				{"toolbar_h", 28.f, "hauteur de la barre d'outils"},
-				{"ruler_h", 22.f, "hauteur de la regle"},
-				{"list_w", 290.f, "largeur de la colonne des pistes (une couleur y montre ses quatre canaux)"},
-				{"row_h", 22.f, "hauteur d'une piste"},
-				{"group_h", 22.f, "hauteur d'un en-tete d'objet"},
-				{"indent", 14.f, "retrait d'une piste sous son objet"},
-				{"key_r", 5.f, "demi-diagonale d'un losange"},
+				{"toolbar_h", 30.f, "hauteur de la barre d'outils"},
+				{"ruler_h", 34.f, "hauteur de la regle (secondes en haut, images en bas)"},
+				{"list_w", 420.f, "largeur de la colonne des pistes (une couleur y montre ses quatre canaux)"},
+				{"row_h", 24.f, "hauteur d'une piste"},
+				{"group_h", 24.f, "hauteur d'un en-tete d'objet"},
+				{"clip_row_h", 30.f, "hauteur d'une piste de clips"},
+				{"indent", 14.f, "retrait d'un niveau de l'arbre"},
+				{"key_r", 5.5f, "demi-diagonale d'un losange"},
 				{"hit_r", 7.f, "rayon de prise d'une cle"},
 				{"button_w", 26.f, "largeur d'un bouton a icone"},
 				{"button_gap", 2.f, "ecart entre deux boutons"},
@@ -426,6 +689,14 @@ namespace nkentseu {
 				{"scrub_px", 0.01f, "valeur ajoutee par pixel frotte (nombre)"},
 				{"scrub_color_px", 0.004f, "valeur ajoutee par pixel frotte (couleur)"},
 				{"wheel_zoom", 0.85f, "facteur de zoom par cran de molette"},
+				{"transport_h", 30.f, "hauteur de la barre de lecture du bas"},
+				{"icon_w", 18.f, "largeur d'un bouton de piste (muet, solo, verrou, cles)"},
+				{"marker_h", 9.f, "hauteur d'un drapeau de marqueur"},
+				{"range_w", 7.f, "largeur d'une poignee de plage"},
+				{"edge_px", 6.f, "prise d'un bord (clip, boite, barre de defilement)"},
+				{"tangent_len", 42.f, "longueur d'une poignee de tangente"},
+				{"round", 3.f, "arrondi d'une section, d'un clip, d'un bouton"},
+				{"glide", 0.35f, "part du chemin faite par image par le zoom adouci"},
 			};
 			static const NkHookDecl kHooks[] = {
 				{"evaluate", "(user, piste, t, out[4]) -> bool", "l'interpolation de l'hote (celle que le jeu jouera)"},
@@ -441,11 +712,17 @@ namespace nkentseu {
 				{"onAddTrack", "Ajouter une propriete", "« + Propriete » presse ; l'hote propose les siennes", nullptr, 0,
 				 false},
 				{"onRemoveTrack", "Piste retiree", "le « − » d'une piste (deja fait, annulable)", kArgsTrack, 1, true},
+				{"onFlags", "Muet / solo / verrou", "une bascule de piste (deja faite, annulable)", kArgsTrack, 1, true},
+				{"onMarkers", "Marqueurs", "un marqueur ou la plage de lecture a change", nullptr, 0, true},
+				{"onClips", "Clips", "un clip pose, deplace, rogne ou fondu (pistes de clips)", nullptr, 0, true},
+				{"onHostKey", "Cle demandee", "hostKeys : l'hote pose, supprime, colle, annule lui-meme", nullptr, 0,
+				 false},
 			};
 			static const NkComponentDecl kDecl = {
 				/* name        */ "timeline",
 				/* title       */ "Frise",
-				/* summary     */ "pistes par objet et propriete, images-cles, courbes d'interpolation, lecture, "
+				/* summary     */ "pistes en arbre (muet, solo, verrou), cles en formes d'interpolation, courbes et "
+								  "tangentes, pistes de clips (NLA), plage de lecture, marqueurs, copier / coller, "
 								  "annuler / refaire",
 				/* params      */ kParams, (uint16)(sizeof(kParams) / sizeof(kParams[0])),
 				/* variants    */ nullptr, 0,

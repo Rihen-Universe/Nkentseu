@@ -34,6 +34,19 @@
 //  qui a tire) et `live = true` : les parametres edites changent alors la
 //  valeur VIVANTE (`paramValueChanged`), plus le defaut.
 //
+//  (2026-10-01 soir) LE MELANGE (NKAnima, Blend/NkAnimMix.h) :
+//    - un etat peut etre un ARBRE DE MELANGE (le « Blend Space » d'UE5) : des
+//      animations placees sur un axe (1D, un parametre) ou un plan (2D, deux),
+//      montrees dans le noeud, editees dans l'inspecteur ;
+//    - des COUCHES : chacune est une machine a elle (le haut du corps qui tire
+//      pendant que les jambes courent), avec son poids, son mode (remplace /
+//      additif), son masque et un parametre de poids. Une couche est rangee
+//      comme une sous-machine CACHEE de la racine (`layerRoot`) : ses etats, ses
+//      transitions et son entree en heritent sans rien de neuf ; le panneau de
+//      gauche liste « Base » et les couches, un clic en ouvre une ;
+//    - la COURBE du fondu de chaque transition (lineaire, douce, entree,
+//      sortie), dans le meme ordre qu'anim::NkFadeCurve.
+//
 //  CE QU'IL NE FAIT PAS : pas de clavier. Renommer un etat ou un parametre est
 //  RAPPORTE (`renameRequested` + le rectangle du nom) : l'hote, qui a le
 //  clavier, y pose son champ -- meme partage que tree_view et tab_strip.
@@ -78,6 +91,12 @@ namespace nkentseu {
 				float32 threshold = 0.f;
 		};
 
+		/// (01/10 soir) Une animation placee dans un arbre de melange.
+		struct NkGraphBlendSample {
+				NkString clip;
+				float32 x = 0.f, y = 0.f;
+		};
+
 		struct NkGraphNode {
 				nk_uint64 id = 0;
 				NkString name;
@@ -90,6 +109,17 @@ namespace nkentseu {
 				/// Sous-machine : son etat d'entree (0 = son premier enfant).
 				nk_uint64 entry = 0;
 				float32 x = 0.f, y = 0.f; ///< position dans le graphe (unites du graphe)
+				// --- (01/10 soir) l'ARBRE DE MELANGE ---
+				bool blendTree = false;
+				uint8 blendDims = 1; ///< 1 ou 2
+				NkString paramX, paramY;
+				NkVector<NkGraphBlendSample> samples;
+				// --- (01/10 soir) la RACINE D'UNE COUCHE (sous-machine cachee) ---
+				bool layerRoot = false;
+				float32 layerWeight = 1.f;
+				bool layerAdditive = false;
+				NkString layerMask;		   ///< un des `masks` proposes par l'hote (vide = tout)
+				NkString layerWeightParam; ///< un parametre reel qui multiplie le poids (vide = aucun)
 		};
 
 		struct NkGraphTransition {
@@ -101,6 +131,7 @@ namespace nkentseu {
 				NkVector<NkGraphCondition> conditions; ///< ET
 				float32 fade = 0.25f;
 				int32 priority = 0;
+				uint8 curve = 0; ///< (01/10 soir) la courbe du fondu, MEME ORDRE QU'anim::NkFadeCurve
 		};
 
 		/// La place des deux pseudo-noeuds d'un niveau.
@@ -133,6 +164,9 @@ namespace nkentseu {
 				/// Les ANIMATIONS proposees (noms), fournies par l'hote : un clic en
 				/// cree un etat qui la joue.
 				NkVector<NkString> clips;
+				/// (01/10 soir) Les MASQUES proposes par l'hote pour les couches (Unkeny :
+				/// les objets nommes sous l'entite, « Torse » couvre « Torse/Bras »).
+				NkVector<NkString> masks;
 				nk_uint64 nextId = 1;
 
 				// --- La vue -------------------------------------------------------
@@ -237,6 +271,19 @@ namespace nkentseu {
 				}
 				/// Recentre la vue sur les etats du niveau regarde.
 				void FrameLevel(float32 canvasW, float32 canvasH);
+
+				// --- (01/10 soir) Le melange --------------------------------------
+				/// Une COUCHE neuve (ANNULABLE) : rend sa racine (le niveau a ouvrir).
+				nk_uint64 AddLayer(const NkString &name);
+				bool IsLayerRoot(nk_uint64 id) const;
+				/// La couche de `id` (sa racine), 0 = la base.
+				nk_uint64 LayerOf(nk_uint64 id) const;
+				/// Un ARBRE DE MELANGE (ANNULABLE), le premier parametre reel en X.
+				nk_uint64 AddBlendTree(const NkString &name, nk_uint64 parent, float32 x, float32 y, uint8 dims = 1);
+				bool AddBlendSample(nk_uint64 node, const NkString &clip, float32 x, float32 y = 0.f); ///< ANNULABLE
+				bool RemoveBlendSample(nk_uint64 node, uint32 index);								   ///< ANNULABLE
+				/// « Lineaire », « Douce », « Entree », « Sortie ».
+				static const char *FadeCurveName(uint8 curve);
 		};
 
 		enum class NkStateGraphGesture : uint8 {
@@ -269,6 +316,7 @@ namespace nkentseu {
 				uint16 paramBool = 0, paramFloat = 0, paramTrigger = 0;
 				uint16 buttonBg = 0;
 				uint16 inputBg = 0;
+				uint16 blendTree = 0; ///< (01/10 soir) bandeau d'un arbre de melange (0 = pseudoAny)
 				const NkComponentInstance *values = nullptr;
 		};
 
@@ -283,6 +331,7 @@ namespace nkentseu {
 			AddBool,	///< panneau des parametres
 			AddFloat,
 			AddTrigger,
+			AddBlendTree, ///< (01/10 soir) « + Arbre »
 			Count
 		};
 
@@ -307,7 +356,24 @@ namespace nkentseu {
 			ParamName,	   ///< double-clic : renommer
 			ParamRemove,
 			ClipItem,	   ///< une animation proposee : clic = un etat qui la joue
-			Breadcrumb	   ///< un niveau du fil d'Ariane
+			Breadcrumb,	   ///< un niveau du fil d'Ariane
+			// (01/10 soir) le melange
+			TransCurve,	  ///< clic : courbe suivante
+			BlendDims,	  ///< clic : 1D <-> 2D
+			BlendParamX,  ///< clic : parametre reel suivant
+			BlendParamY,
+			SampleClip,	  ///< clic : animation suivante (index = echantillon)
+			SampleX,	  ///< frotter
+			SampleY,
+			SampleRemove,
+			SampleAdd,
+			LayerItem,	  ///< « Base » ou une couche : l'ouvrir (id = sa racine, 0 = la base)
+			LayerAdd,
+			LayerWeight,  ///< frotter
+			LayerMode,	  ///< clic : remplace <-> additif
+			LayerMask,	  ///< clic : masque suivant
+			LayerParam,	  ///< clic : parametre de poids suivant
+			LayerRemove
 		};
 
 		struct NkGraphHit {
@@ -380,6 +446,7 @@ namespace nkentseu {
 				{"param_bool", "accent_ui", "pastille d'un booleen"},
 				{"param_float", "status_ok", "pastille d'un reel"},
 				{"param_trigger", "accent_sel", "pastille d'un declencheur"},
+				{"blend_tree", "type_anim", "bandeau d'un arbre de melange"},
 			};
 			static const NkMetricDecl kMetrics[] = {
 				{"bar_h", 28.f, "hauteur de la barre (fil d'Ariane, boutons)"},
@@ -419,7 +486,8 @@ namespace nkentseu {
 			static const NkComponentDecl kDecl = {
 				/* name        */ "state_graph",
 				/* title       */ "Graphe d'etats",
-				/* summary     */ "etats et sous-machines, transitions conditionnees par des parametres, etat "
+				/* summary     */ "etats, sous-machines et arbres de melange 1D / 2D, couches (poids, masque, additif), "
+									  "transitions conditionnees et courbe de fondu, etat "
 								  "d'entree, apercu de l'etat actif",
 				/* params      */ kParams, (uint16)(sizeof(kParams) / sizeof(kParams[0])),
 				/* variants    */ nullptr, 0,

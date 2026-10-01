@@ -202,7 +202,7 @@ namespace nkentseu {
 				}
 			}
 			for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
-				if (nodes[i].parent == machine) {
+				if (nodes[i].parent == machine && !nodes[i].layerRoot) {
 					return nodes[i].id;
 				}
 			}
@@ -495,7 +495,7 @@ namespace nkentseu {
 			float32 x0 = 0.f, y0 = 0.f;
 			bool premier = true;
 			for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
-				if (nodes[i].parent != machine) {
+				if (nodes[i].parent != machine || nodes[i].layerRoot) {
 					continue;
 				}
 				if (premier || nodes[i].x < x0) {
@@ -575,6 +575,80 @@ namespace nkentseu {
 			return true;
 		}
 
+		// ── (01/10 soir) Le melange ─────────────────────────────────────────────
+		nk_uint64 NkStateGraphModel::AddLayer(const NkString &name) {
+			const nk_uint64 id = AddSubMachine(name.Empty() ? NkString("Couche") : name, 0, 0.f, 0.f);
+			if (NkGraphNode *n = Node(id)) {
+				n->layerRoot = true;
+			}
+			return id;
+		}
+
+		bool NkStateGraphModel::IsLayerRoot(nk_uint64 id) const {
+			const NkGraphNode *n = Node(id);
+			return n != nullptr && n->layerRoot;
+		}
+
+		nk_uint64 NkStateGraphModel::LayerOf(nk_uint64 id) const {
+			for (const NkGraphNode *n = Node(id); n != nullptr; n = Node(n->parent)) {
+				if (n->layerRoot) {
+					return n->id;
+				}
+			}
+			return 0;
+		}
+
+		nk_uint64 NkStateGraphModel::AddBlendTree(const NkString &name, nk_uint64 parent, float32 x, float32 y, uint8 dims) {
+			const nk_uint64 id = AddState(name.Empty() ? NkString("Arbre") : name, parent, x, y);
+			if (NkGraphNode *n = Node(id)) {
+				n->blendTree = true;
+				n->blendDims = dims >= 2 ? (uint8)2 : (uint8)1;
+				for (uint32 i = 0; i < (uint32)params.Size(); ++i) {
+					if (params[i].kind == (uint8)NkGraphParamKind::Float) {
+						if (n->paramX.Empty()) {
+							n->paramX = params[i].name;
+						} else if (n->paramY.Empty()) {
+							n->paramY = params[i].name;
+						}
+					}
+				}
+			}
+			return id;
+		}
+
+		bool NkStateGraphModel::AddBlendSample(nk_uint64 node, const NkString &clip, float32 x, float32 y) {
+			NkGraphNode *n = Node(node);
+			if (n == nullptr || !n->blendTree) {
+				return false;
+			}
+			PushUndo();
+			n = Node(node);
+			NkGraphBlendSample s;
+			s.clip = clip;
+			s.x = x;
+			s.y = y;
+			n->samples.PushBack(s);
+			Touch();
+			return true;
+		}
+
+		bool NkStateGraphModel::RemoveBlendSample(nk_uint64 node, uint32 index) {
+			NkGraphNode *n = Node(node);
+			if (n == nullptr || index >= (uint32)n->samples.Size()) {
+				return false;
+			}
+			PushUndo();
+			n = Node(node);
+			n->samples.Erase(n->samples.Begin() + index);
+			Touch();
+			return true;
+		}
+
+		const char *NkStateGraphModel::FadeCurveName(uint8 curve) {
+			static const char *const k[4] = {"Lineaire", "Douce", "Entree", "Sortie"};
+			return curve < 4 ? k[curve] : "?";
+		}
+
 		void NkStateGraphModel::FrameLevel(float32 canvasW, float32 canvasH) {
 			float32 x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
 			const NkGraphPseudo &p = PseudoOf(level);
@@ -586,7 +660,7 @@ namespace nkentseu {
 				y1 = py[k] > y1 ? py[k] : y1;
 			}
 			for (uint32 i = 0; i < (uint32)nodes.Size(); ++i) {
-				if (nodes[i].parent != level) {
+				if (nodes[i].parent != level || nodes[i].layerRoot) {
 					continue;
 				}
 				x0 = nodes[i].x < x0 ? nodes[i].x : x0;

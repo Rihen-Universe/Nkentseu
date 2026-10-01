@@ -1161,4 +1161,107 @@ namespace nkanima {
 		return "COM uniforme (approximatif) — equilibre indetermine : aucun appui detecte";
 	}
 
+	// ── (2026-10-01 soir) LA FRISE PARTAGEE ──────────────────────────────────────
+	bool AnimCanUndo() {
+		return g.editor.CanUndo();
+	}
+
+	bool AnimCanRedo() {
+		return g.editor.CanRedo();
+	}
+
+	void AnimDeleteKeyAt(float32 t) {
+		g.editor.DeletePoseKeyAt(t);
+	}
+
+	void AnimCopyPoseKey(float32 from, float32 to) {
+		if (!g.loaded)
+			return;
+		const uint32 nb = (uint32)g.clip.boneTracks.Size();
+		NkVector<NkMat4f> pose;
+		pose.Resize(nb);
+		for (uint32 b = 0; b < nb; ++b)
+			pose[b] = g.clip.boneTracks[b].Evaluate(from);
+		const float32 avant = g.editor.GetCursor();
+		g.editor.SetCursor(to);
+		g.editor.InsertPoseKey(pose);
+		g.editor.SetCursor(avant);
+	}
+
+	uint8 AnimKeyInterp(float32 t) {
+		for (uint32 b = 0; b < (uint32)g.clip.boneTracks.Size(); ++b) {
+			const int32 k = g.clip.boneTracks[b].FindKeyAtTime(t, 1e-3f);
+			if (k >= 0)
+				return (uint8)g.clip.boneTracks[b].GetKey((uint32)k).interp;
+		}
+		return 255;
+	}
+
+	void AnimSetKeyInterp(float32 t, uint8 interp) {
+		if (interp > (uint8)anim::NkInterpMode::NK_BACK)
+			return;
+		for (uint32 b = 0; b < (uint32)g.clip.boneTracks.Size(); ++b) {
+			const int32 k = g.clip.boneTracks[b].FindKeyAtTime(t, 1e-3f);
+			if (k >= 0)
+				g.clip.boneTracks[b].SetKeyInterp((uint32)k, (anim::NkInterpMode)interp);
+		}
+	}
+
+	uint32 AnimBoneCount() {
+		return (uint32)g.clip.boneTracks.Size();
+	}
+
+	const char *AnimJointName(uint32 j) {
+		return j < (uint32)g.clip.jointNames.Size() ? g.clip.jointNames[j].CStr() : "";
+	}
+
+	int32 AnimJointParent(uint32 j) {
+		return j < (uint32)g.clip.jointParent.Size() ? g.clip.jointParent[j] : -1;
+	}
+
+	bool AnimSampleJointLocal(uint32 j, float32 t, float32 pos[3], float32 rotDeg[3], float32 scale[3]) {
+		if (j >= (uint32)g.clip.boneTracks.Size())
+			return false;
+		const anim::NkAnimationTrack<NkMat4f> &tr = g.clip.boneTracks[j];
+		const uint32 n = tr.KeyCount();
+		if (n == 0)
+			return false;
+		// Le geste du lecteur (SampleBoneLocalSlerp) : TRS lineaire, rotation NLERP.
+		NkMat4f m = tr.GetKey(0).value;
+		if (n > 1 && t > tr.GetKey(0).time) {
+			if (t >= tr.GetKey(n - 1).time) {
+				m = tr.GetKey(n - 1).value;
+			} else {
+				uint32 hi = 1;
+				while (hi < n && tr.GetKey(hi).time <= t)
+					++hi;
+				const float32 d = tr.GetKey(hi).time - tr.GetKey(hi - 1).time;
+				const float32 a = d > 1e-6f ? (t - tr.GetKey(hi - 1).time) / d : 0.f;
+				m = tr.GetKey(hi - 1).interp == anim::NkInterpMode::NK_STEP
+						? tr.GetKey(hi - 1).value
+						: anim::NkBlendLocalTRS(tr.GetKey(hi - 1).value, tr.GetKey(hi).value, a);
+			}
+		}
+		NkVec3f tt, ss;
+		NkMat4f r;
+		m.DecomposeTRS(tt, r, ss);
+		const NkQuatf q = NkQuatf(r).Normalized();
+		pos[0] = tt.x;
+		pos[1] = tt.y;
+		pos[2] = tt.z;
+		scale[0] = ss.x;
+		scale[1] = ss.y;
+		scale[2] = ss.z;
+		// Euler X, Y, Z en degres (la lecture des courbes d'UE5 et de Blender).
+		const float32 k = 57.29578f;
+		const float32 sx = 2.f * (q.w * q.x + q.y * q.z), cx = 1.f - 2.f * (q.x * q.x + q.y * q.y);
+		float32 sy = 2.f * (q.w * q.y - q.z * q.x);
+		sy = sy > 1.f ? 1.f : (sy < -1.f ? -1.f : sy);
+		const float32 sz = 2.f * (q.w * q.z + q.x * q.y), cz = 1.f - 2.f * (q.y * q.y + q.z * q.z);
+		rotDeg[0] = std::atan2(sx, cx) * k;
+		rotDeg[1] = std::asin(sy) * k;
+		rotDeg[2] = std::atan2(sz, cz) * k;
+		return true;
+	}
+
 } // namespace nkanima

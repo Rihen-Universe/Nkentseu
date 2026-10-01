@@ -1008,6 +1008,7 @@ int nkmain(const NkEntryState &state) {
 	bool ancienne = false; // --ancienne-coquille : la coquille NkEditorShell d'avant R32
 	float secondes = 0.f;  // --secondes=S : la face se ferme seule (captures hors ecran)
 	bool horsEcran = false; // --hors-ecran : la fenetre de la face se pose hors de tout ecran
+	const char *capturesFrise = nullptr;
 	for (usize i = 1; i < args.Size(); ++i) {
 		const NkString &a = args[i];
 		if (a == "--ancienne-coquille") {
@@ -1024,6 +1025,10 @@ int nkmain(const NkEntryState &state) {
 		}
 		if (a == "--sonde-coquille") {
 			sonde = true;
+			continue;
+		}
+		if (a.StartsWith("--captures-frise=")) { // (01/10 soir) la frise partagee, hors ecran
+			capturesFrise = a.CStr() + 17;
 			continue;
 		}
 		if (a.StartsWith("--interface=")) {
@@ -1047,6 +1052,8 @@ int nkmain(const NkEntryState &state) {
 	// LA SONDE SORT AVANT TOUTE FENETRE : elle ne demande ni GPU ni souris.
 	if (sonde)
 		return SondeCoquille(dossierUI);
+	if (capturesFrise != nullptr)
+		return nkanima::NkAnimaCapturesFrise(capturesFrise, modelPath);
 	// LA FACE D'UE5 (R32) est le chemin par defaut ; l'ancienne coquille suit.
 	if (!ancienne)
 		return nkanima::NkAnimaLancerFace(modelPath, static_cast<int>(gfx), secondes, horsEcran);

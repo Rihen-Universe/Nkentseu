@@ -29,6 +29,7 @@
 #include "NKEditorKit/Components/NkGuiComponentPaint.h"
 #include "NKEditorKit/NkEditorTextField.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
+#include "Unkeny/Anim/NkUnkenyProprietes.h"
 
 #include <cstdio>
 #include <cstring>
@@ -68,6 +69,7 @@ namespace nkentseu {
 				s.paramTrigger = (uint16)NkRole::AccentSel;
 				s.buttonBg = (uint16)NkRole::ButtonBg;
 				s.inputBg = (uint16)NkRole::InputBg;
+				s.blendTree = (uint16)NkRole::TypeAnim; // (01/10 soir) un arbre de melange
 				return s;
 			}
 
@@ -79,9 +81,10 @@ namespace nkentseu {
 			/// Le graphe COMPILE et enregistre sous le nom du document : c'est ce
 			/// que joue une entite qui porte ce modele (voir l'en-tete).
 			void Compiler(NkDocAnim &d) {
-				anim::NkAnimStateMachine machine;
-				if (NkMachineDepuisGraphe(d.graphe, machine, d.noeudDeEtat)) {
-					unkeny::NkEnregistrerModeleAnimateur(d.nom.CStr(), machine);
+				// (01/10 soir) un CONTROLEUR : la base, ses couches, ses arbres de melange.
+				anim::NkAnimController controleur;
+				if (NkControleurDepuisGraphe(d.graphe, controleur, d.noeudDeEtat)) {
+					unkeny::NkEnregistrerControleurAnimateur(d.nom.CStr(), controleur);
 				}
 			}
 
@@ -275,6 +278,25 @@ namespace nkentseu {
 			if (!d.grapheCadre && toile.w > 1.f) {
 				g.FrameLevel(toile.w, toile.h);
 				d.grapheCadre = true;
+			}
+			// (01/10 soir) Les MASQUES proposes aux couches : les objets nommes sous
+			// l'entite observee (« Torse » couvre « Torse » et ses descendants).
+			g.masks.Clear();
+			if (m.scene.Monde().IsAlive(cible)) {
+				NkVector<ecs::NkEntityId> pile, enfants;
+				pile.PushBack(cible);
+				for (uint32 k = 0; k < (uint32)pile.Size() && k < 256u; ++k) {
+					if (k > 0) {
+						NkString chemin;
+						if (unkeny::NkCheminCible(m.scene, cible, pile[k], chemin) && !chemin.Empty()) {
+							g.masks.PushBack(chemin);
+						}
+					}
+					m.scene.Enfants(pile[k], enfants);
+					for (uint32 e = 0; e < (uint32)enfants.Size(); ++e) {
+						pile.PushBack(enfants[e]);
+					}
+				}
 			}
 			editorkit::NkGuiComponentPaint peintre(c.ctx, c.theme);
 			const uint32 avant = g.revision;

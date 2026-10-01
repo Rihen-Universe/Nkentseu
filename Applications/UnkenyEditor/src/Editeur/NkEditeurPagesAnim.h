@@ -69,6 +69,13 @@ namespace nkentseu {
 				NkString objet;	 ///< son nom, pour l'en-tete
 				unkeny::NkProprieteAnimable propriete;
 				nkgui::NkRect rect{0.f, 0.f, 0.f, 0.f}; ///< a l'ecran (le banc y vise)
+				/// (01/10 soir) Une PISTE DE CLIPS (NLA) plutot qu'une propriete...
+				bool pisteClips = false;
+				/// ...ou, dans le choix d'un clip a poser, le clip propose (et sa duree).
+				NkString clip;
+				float32 duree = 1.f;
+				/// L'en-tete du groupe (vide = celui de l'objet).
+				NkString entete;
 		};
 
 		/// Un document ouvert. Les deux genres partagent la forme (et l'onglet).
@@ -95,6 +102,11 @@ namespace nkentseu {
 				NkVector<NkProposition> propositions;
 				nkgui::NkRect choixRect{0.f, 0.f, 0.f, 0.f};
 				float32 choixDefil = 0.f;
+				/// (01/10 soir) Le choix ouvert est celui d'un CLIP a poser sur la piste
+				/// de clips `choixPiste`, a `choixTemps`.
+				bool choixClips = false;
+				nk_uint64 choixPiste = 0;
+				float32 choixTemps = 0.f;
 
 				// --- Animateur -------------------------------------------------------
 				editorkit::NkStateGraphModel graphe;
@@ -205,8 +217,16 @@ namespace nkentseu {
 		void NkGrapheDepuisMachine(const anim::NkAnimStateMachine &m, editorkit::NkStateGraphModel &g,
 								   NkVector<nk_uint64> &noeudDeEtat);
 		/// La machine d'un graphe (une machine NEUVE). Faux si le graphe n'a aucun etat.
+		/// (01/10 soir) `racine` : la couche a compiler (0 = la base ; une couche du
+		/// graphe est une sous-machine cachee, `layerRoot`).
 		bool NkMachineDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimStateMachine &m,
-								   NkVector<nk_uint64> &noeudDeEtat);
+								   NkVector<nk_uint64> &noeudDeEtat, nk_uint64 racine = 0);
+		/// (01/10 soir) Le graphe d'un CONTROLEUR (base, couches, arbres, courbes), et
+		/// l'inverse (le controleur NEUF d'un graphe ; faux si la base n'a aucun etat).
+		void NkGrapheDepuisControleur(const anim::NkAnimController &ctl, editorkit::NkStateGraphModel &g,
+									  NkVector<nk_uint64> &noeudDeEtat);
+		bool NkControleurDepuisGraphe(const editorkit::NkStateGraphModel &g, anim::NkAnimController &ctl,
+									  NkVector<nk_uint64> &noeudDeEtat);
 		/// Les animations proposees au graphe : les .nkanim du Contenu (leur nom).
 		void NkEditeurAnimationsDuContenu(NkEditeurModele &m, NkVector<NkString> &noms);
 

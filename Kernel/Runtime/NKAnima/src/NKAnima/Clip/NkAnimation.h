@@ -74,6 +74,27 @@ namespace nkentseu {
 		};
 
 		// =========================================================================
+		// (2026-10-01 soir) La TANGENTE d'une cle NK_CUBIC d'une piste de propriete
+		// (Curve Editor d'UE5). MEME ORDRE QUE editorkit::NkTimelineTangent.
+		//   AUTO  : Catmull-Rom sur les temps, BORNEE (plate aux extremites et sur
+		//           un sommet ou un creux : la courbe ne deborde pas de ses cles,
+		//           l'« Auto Clamped » de Blender) ;
+		//   USER  : posee a la main, entree = sortie ;
+		//   BREAK : posee a la main, entree et sortie independantes ;
+		//   FLAT  : pente nulle.
+		// =========================================================================
+		enum class NkTangentMode : uint8 { NK_AUTO = 0, NK_USER, NK_BREAK, NK_FLAT };
+
+		// =========================================================================
+		// (2026-10-01 soir) La COURBE d'un fondu de transition (et d'un fondu de
+		// clip) : le poids du nouvel etat en fonction de la part du fondu ecoulee.
+		// =========================================================================
+		enum class NkFadeCurve : uint8 { NK_LINEAR = 0, NK_SMOOTH, NK_EASE_IN, NK_EASE_OUT, NK_COUNT };
+		/// Le poids a la part `u` (0..1) du fondu.
+		float32 NkFadeWeight(float32 u, NkFadeCurve curve);
+		const char *NkFadeCurveName(NkFadeCurve curve);
+
+		// =========================================================================
 		// Mode de lecture
 		// =========================================================================
 		enum class NkPlayMode : uint8 {
@@ -236,6 +257,43 @@ namespace nkentseu {
 		};
 
 		// =========================================================================
+		// (2026-10-01 soir) UN CLIP POSE SUR UNE PISTE DE CLIPS (NLA). Donnees
+		// seules : le clip joue est designe par son NOM (resolu par le
+		// consommateur). MEME CALCUL que editorkit::NkTimelineModel::ClipWeightAt
+		// et ClipLocalTime (la frise dessine ce que le jeu joue).
+		// =========================================================================
+		struct NkClipStrip {
+				NkString clip;			///< le nom du clip joue
+				float32 start = 0.f;	///< debut sur la sequence (s)
+				float32 length = 1.f;	///< duree sur la sequence (s)
+				float32 offset = 0.f;	///< temps du clip au debut (rognage a gauche)
+				float32 rate = 1.f;		///< vitesse
+				float32 blendIn = 0.f;	///< fondu d'entree (s)
+				float32 blendOut = 0.f; ///< fondu de sortie (s)
+				float32 weight = 1.f;	///< influence
+				bool loop = true;		///< au-dela de sa duree : boucle (sinon tient)
+				bool muted = false;
+				float32 End() const {
+					return start + length;
+				}
+				/// Le poids a `t` (0 hors du clip ; rampes lineaires des fondus).
+				float32 WeightAt(float32 t) const;
+				/// Le temps DANS le clip a `t`, sa duree propre etant `sourceLength`.
+				float32 LocalTime(float32 t, float32 sourceLength) const;
+		};
+
+		/// Une piste de clips : ses clips, et comment elle se pose sur celles du
+		/// dessous (la premiere piste est en bas, comme dans le NLA de Blender).
+		struct NkClipStripTrack {
+				NkString name;
+				NkVector<NkClipStrip> strips;
+				float32 weight = 1.f;
+				bool additive = false; ///< s'ajoute a la pose du dessous (sinon la remplace)
+				bool muted = false;
+				NkString mask; ///< le nom d'un masque (NkAnimMask), vide = tout
+		};
+
+		// =========================================================================
 		// NkAnimationClip — ensemble de tracks décrivant une animation complète
 		// =========================================================================
 		class NkAnimationClip {
@@ -330,11 +388,28 @@ namespace nkentseu {
 				//    propriete. Les pistes fixes plus haut (position, albedoColor...)
 				//    restent celles du rendu 3D ; celles-ci servent les editeurs.
 				enum class NkPropertyKind : uint8 { NK_NUMBER = 0, NK_VEC2, NK_VEC3, NK_VEC4, NK_COLOR, NK_STEP };
+				/// (2026-10-01 soir) La tangente d'une cle (pentes par seconde, par canal).
+				struct NkPropertyTangent {
+						NkTangentMode mode = NkTangentMode::NK_AUTO;
+						NkVec4f in = {0.f, 0.f, 0.f, 0.f};
+						NkVec4f out = {0.f, 0.f, 0.f, 0.f};
+				};
 				struct NkPropertyTrack {
 						NkString target;   ///< chemin de l'objet ("" = l'objet anime)
 						NkString property; ///< « Composant.champ »
 						NkPropertyKind kind = NkPropertyKind::NK_NUMBER;
 						NkAnimationTrack<NkVec4f> curve;
+						/// (01/10 soir) Les tangentes, une par cle de `curve` (meme ordre).
+						/// VIDE = toutes automatiques -- le cas de tout clip d'avant.
+						NkVector<NkPropertyTangent> tangents;
+						/// LA valeur a `t` : `curve.Evaluate`, sauf sur un segment NK_CUBIC
+						/// qui devient une VRAIE courbe (Hermite sur les pentes des deux
+						/// cles) -- l'interpolation « Courbe » des frises. ⚠️ Lire une piste
+						/// de propriete par CETTE fonction, pas par `curve.Evaluate` (qui
+						/// trace NK_CUBIC en droite, comme toutes les autres pistes).
+						NkVec4f Evaluate(float32 t) const;
+						/// Les pentes effectives (entree, sortie) de la cle `k`, canal `c`.
+						void KeySlopes(uint32 k, uint32 c, float32 &in, float32 &out) const;
 				};
 				NkVector<NkPropertyTrack> propertyTracks;
 				/// La piste (target, property), ou nul.
@@ -342,6 +417,13 @@ namespace nkentseu {
 				/// La piste (target, property), creee vide si elle manque (le genre
 				/// n'est pose qu'a la creation).
 				NkPropertyTrack &AddPropertyTrack(const NkString &target, const NkString &property, NkPropertyKind kind);
+
+				// ── (2026-10-01 soir) Pistes de CLIPS non lineaires (NLA) ─────────────
+				// Le clip devient une SEQUENCE : d'autres clips y sont poses (NLA de
+				// Blender, sections d'animation d'UE5), se chevauchent et se fondent.
+				// Ecrites en section 'CLPS' ; evaluees par NkEvaluateStrips
+				// (Blend/NkAnimMix.h), qui les melange a la pose des pistes du clip.
+				NkVector<NkClipStripTrack> clipTracks;
 
 				// ── Helpers ───────────────────────────────────────────────────────────
 				void RecalcDuration();
@@ -750,6 +832,13 @@ namespace nkentseu {
 				// = de partout). Applicable tant que la feuille courante est dans
 				// `scope`. Rend son index, ou -1 si `scope` n'est pas une sous-machine.
 				int32 AddAnyStateTransition(int32 scope, int32 to, float32 fadeDur = 0.25f, int32 priority = 0);
+				/// (2026-10-01 soir) La COURBE du fondu d'une transition (lineaire par
+				/// defaut : le comportement d'avant). Ecrite en section 'FADE'.
+				bool SetTransitionCurve(int32 transition, NkFadeCurve curve);
+				NkFadeCurve GetTransitionCurve(uint32 transition) const;
+				/// La transition qui mene de `from` a `to` (la premiere, any-state
+				/// comprises, sur le chemin de `from`), -1 sinon. Pour un melangeur.
+				int32 FindTransitionTo(int32 from, int32 to) const;
 				// Ajoute une condition a la transition `transition` (index rendu par
 				// AddTransitionEx / AddAnyStateTransition). Le parametre est declare
 				// au passage, du genre que la condition implique.
@@ -847,6 +936,10 @@ namespace nkentseu {
 				// c'est ce qu'ecrit un editeur qui n'a pas le clip en memoire. `clip`
 				// peut etre nul (l'etat ne pose rien, comme un clip non resolu).
 				void SetStateClipRef(int32 state, const NkString &clipName, const NkAnimationClip *clip = nullptr);
+				/// (2026-10-01 soir) L'etat joue un ARBRE DE MELANGE designe par son nom
+				/// (un NkBlendSpaceDef du controleur, Blend/NkAnimMix.h) : genre 2 (1D)
+				/// ou 3 (2D), sans pointeur -- le melangeur le resout.
+				void SetStateBlendRef(int32 state, const NkString &spaceName, uint8 dims = 1);
 				int32 GetTransitionFrom(uint32 t) const;
 				int32 GetTransitionTo(uint32 t) const;
 				bool IsAnyStateTransition(uint32 t) const;
@@ -974,6 +1067,7 @@ namespace nkentseu {
 						NkVector<Condition> conds;
 						float32 fadeDur = 0.25f;
 						int32 priority = 0;
+						NkFadeCurve curve = NkFadeCurve::NK_LINEAR; ///< (01/10 soir)
 				};
 
 				struct Param {
@@ -1018,6 +1112,7 @@ namespace nkentseu {
 				int32 mNext = -1;	  // etat cible pendant un fondu (-1 = aucun)
 				float32 mFadeT = 0.f; // temps restant du fondu
 				float32 mFadeDur = 0.f;
+				NkFadeCurve mFadeCurve = NkFadeCurve::NK_LINEAR; ///< celle du fondu en cours
 				float32 mClock = 0.f;
 				float32 mEnteredAt[NK_MAX_DEPTH] = {};
 				bool mStarted = false; // faux tant qu'aucun Update / ForceState n'a fixe l'etat

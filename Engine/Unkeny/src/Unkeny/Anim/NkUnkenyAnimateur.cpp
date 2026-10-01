@@ -12,6 +12,7 @@
 #include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenyActif.h"
+#include "Unkeny/Scene/NkUnkenyScene.h"
 
 #include <cstring>
 
@@ -95,6 +96,8 @@ namespace nkentseu {
 
 			struct NkModele {
 					char nom[NK_UNKENY_ANIM_MODELE_MAX] = {};
+					/// (01/10 soir) le CONTROLEUR ; `machine` = sa base (l'API d'avant).
+					anim::NkAnimController *controleur = nullptr;
 					NkAnimStateMachine *machine = nullptr;
 			};
 
@@ -112,7 +115,7 @@ namespace nkentseu {
 					}
 					~NkRegistre() {
 						for (uint32 i = 0; i < modeles.Size(); ++i) {
-							memory::NkGetDefaultAllocator().Delete(modeles[i].machine);
+							memory::NkGetDefaultAllocator().Delete(modeles[i].controleur);
 						}
 					}
 			};
@@ -129,24 +132,33 @@ namespace nkentseu {
 				return nullptr;
 			}
 
-			bool Enregistrer(NkRegistre &r, const char *nom, const NkAnimStateMachine &machine) {
+			bool EnregistrerControleur(NkRegistre &r, const char *nom, const anim::NkAnimController &ctl) {
 				if (nom == nullptr || nom[0] == '\0') {
 					logger.Warn("[unkeny] modele d'animateur refuse : nom vide");
 					return false;
 				}
 				if (NkModele *m = Trouver(r, nom)) {
-					*m->machine = machine;
+					*m->controleur = ctl;
+					m->machine = &m->controleur->base;
 					return true;
 				}
 				NkModele m;
 				CopierNom(m.nom, NK_UNKENY_ANIM_MODELE_MAX, nom);
-				m.machine = memory::NkGetDefaultAllocator().New<NkAnimStateMachine>(machine);
-				if (m.machine == nullptr) {
+				m.controleur = memory::NkGetDefaultAllocator().New<anim::NkAnimController>(ctl);
+				if (m.controleur == nullptr) {
 					logger.Error("[unkeny] modele d'animateur : allocation IMPOSSIBLE");
 					return false;
 				}
+				m.machine = &m.controleur->base;
 				r.modeles.PushBack(m);
 				return true;
+			}
+
+			/// Une machine SEULE : un controleur sans couche ni arbre (le modele d'avant).
+			bool Enregistrer(NkRegistre &r, const char *nom, const NkAnimStateMachine &machine) {
+				anim::NkAnimController ctl;
+				ctl.base = machine;
+				return EnregistrerControleur(r, nom, ctl);
 			}
 
 			NkRegistre &Registre() {
@@ -243,15 +255,23 @@ namespace nkentseu {
 			if (chemin == nullptr) {
 				return false;
 			}
-			NkAnimStateMachine m;
-			// Sans resolveur : un modele d'animateur n'a que des etats vides
-			// (voir l'en-tete) ; un clip nomme dedans resterait vide, et NKAnima
-			// le dit.
+			// (01/10 soir) Un CONTROLEUR : la machine de base, et ses couches, arbres
+			// et masques s'il en a (un fichier d'avant n'a que la base).
+			anim::NkAnimController m;
 			if (!m.LoadBinary(NkString(chemin))) {
 				logger.Warn("[unkeny] modele d'animateur '{0}' non lu : {1}", nom != nullptr ? nom : "", chemin);
 				return false;
 			}
-			return Enregistrer(Registre(), nom, m);
+			return EnregistrerControleur(Registre(), nom, m);
+		}
+
+		bool NkEnregistrerControleurAnimateur(const char *nom, const anim::NkAnimController &controleur) {
+			return EnregistrerControleur(Registre(), nom, controleur);
+		}
+
+		anim::NkAnimController *NkControleurAnimateur(const char *nom) {
+			NkModele *m = Trouver(Registre(), nom);
+			return m != nullptr ? m->controleur : nullptr;
 		}
 
 		NkAnimStateMachine *NkModeleAnimateur(const char *nom) {
@@ -357,6 +377,62 @@ namespace nkentseu {
 				}
 				s->Jouer(static_cast<uint8>(clip));
 			});
+		}
+
+		// =====================================================================
+		// (2026-10-01 soir) LE MELANGE EN JEU
+		// =====================================================================
+		void NkMelangerAnimateurs(NkScene &scene, float32 dt) {
+			ecs::NkWorld &monde = scene.Monde();
+			NkVector<ecs::NkEntityId> ids;
+			monde.Query<NkAnimateur2D>().ForEach([&](ecs::NkEntityId id, NkAnimateur2D &) { ids.PushBack(id); });
+			const anim::NkClipLookup lookup = NkRechercheClipsProprietes();
+			anim::NkAnimPose pose;
+			for (uint32 k = 0; k < (uint32)ids.Size(); ++k) {
+				const ecs::NkEntityId id = ids[k];
+				NkAnimateur2D *a = monde.Get<NkAnimateur2D>(id);
+				if (a == nullptr || a->enPause || a->execution.current < 0 || !NkEntiteActive(monde, id)) {
+					continue;
+				}
+				anim::NkAnimController *ctl = NkControleurAnimateur(a->modele);
+				if (ctl == nullptr || !ctl->HasMixing()) {
+					continue;
+				}
+				// Sans clip de proprietes, sans couche ni arbre : rien a melanger ici
+				// (l'animateur ne sert que le sprite et le jeu, comme avant).
+				const bool proprietes = monde.Get<NkClipProprietes2D>(id) != nullptr;
+				if (!proprietes && ctl->layers.Empty() && ctl->blendSpaces.Empty()) {
+					continue;
+				}
+				if (monde.Get<NkMelangeAnimateur2D>(id) == nullptr) {
+					monde.Add<NkMelangeAnimateur2D>(id, NkMelangeAnimateur2D());
+				}
+				NkMelangeAnimateur2D *mel = monde.Get<NkMelangeAnimateur2D>(id);
+				if (mel == nullptr) {
+					continue;
+				}
+				// Le modele reprend les parametres de CE personnage (comme
+				// NkAvancerAnimateurs) : les arbres et les couches les lisent.
+				NkAnimStateMachine &m = ctl->base;
+				m.ResetParams();
+				int32 index[NK_UNKENY_ANIM_PARAMS_MAX];
+				for (int32 i = 0; i < a->nbParams; ++i) {
+					index[i] = m.FindParam(NkString(a->params[i].nom), VersNKAnima(a->params[i].genre));
+					if (index[i] >= 0) {
+						m.SetParamValue(static_cast<uint32>(index[i]), a->params[i].valeur);
+					}
+				}
+				// La base a DEJA avance (NkAvancerAnimateurs) : son etat est celui du composant.
+				mel->execution.layers[0].rt = a->execution;
+				anim::NkAdvanceController(*ctl, mel->execution, dt, lookup, pose, false);
+				// Un declencheur consomme par une COUCHE revient a 0 dans le composant.
+				for (int32 i = 0; i < a->nbParams; ++i) {
+					if (index[i] >= 0 && a->params[i].genre == NkGenreParamAnim::NK_DECLENCHEUR) {
+						a->params[i].valeur = m.GetParamValue(static_cast<uint32>(index[i]));
+					}
+				}
+				NkAppliquerPoseProprietes(scene, id, pose);
+			}
 		}
 
 	} // namespace unkeny
