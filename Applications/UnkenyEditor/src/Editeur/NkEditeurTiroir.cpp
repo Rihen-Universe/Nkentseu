@@ -1277,6 +1277,7 @@ namespace nkentseu {
 				if (res.rechercheW > 0.f && ui.contenu.searchFocused) {
 					if (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 						ui.contenu.searchFocused = false;
+						ui.toucheChamp = true;
 					}
 					const NkRect champ{res.rechercheX, res.rechercheY, res.rechercheW - 4.f, res.rechercheH};
 					c.ctx.dl.AddRectFilled(NkRect{champ.x, champ.y + 1.f, champ.w, champ.h - 2.f}, c.pal.fond);
@@ -1287,6 +1288,7 @@ namespace nkentseu {
 				if (res.sourcesRechercheW > 0.f && res.sourcesTampon != nullptr && ui.contenu.sourcesRechercheFocus) {
 					if (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 						ui.contenu.sourcesRechercheFocus = false;
+						ui.toucheChamp = true;
 					}
 					const NkRect champ{res.sourcesRechercheX, res.sourcesRechercheY, res.sourcesRechercheW, res.sourcesRechercheH};
 					c.ctx.dl.AddRectFilled(NkRect{champ.x, champ.y + 1.f, champ.w, champ.h - 2.f}, c.pal.fond);
@@ -1317,8 +1319,10 @@ namespace nkentseu {
 													  static_cast<int32>(sizeof(ui.contenu.renommeTampon)), true, &stNom);
 						if (in.KeyPressed(nkgui::NkGuiKey::Enter)) {
 							FinirRenommage(c, true);
+							ui.toucheChamp = true;
 						} else if (in.KeyPressed(nkgui::NkGuiKey::Escape)) {
 							FinirRenommage(c, false);
+							ui.toucheChamp = true;
 						} else if ((in.mouseClicked[0] || in.mouseClicked[1]) && !NkEditeurDans(champ, in.mousePos)) {
 							// Un clic AILLEURS valide (Unreal) : ce qui est tape est garde.
 							FinirRenommage(c, true);
@@ -1420,24 +1424,6 @@ namespace nkentseu {
 				DemandesDemarrage(c);
 			}
 
-			/// `texte` contient-il `motif` (sans tenir compte de la casse ASCII) ?
-			bool ContientSansCasse(const char *texte, const char *motif) {
-				auto bas = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
-				if (motif == nullptr || motif[0] == '\0') {
-					return true;
-				}
-				for (const char *t = texte; *t != '\0'; ++t) {
-					usize k = 0;
-					while (motif[k] != '\0' && t[k] != '\0' && bas(t[k]) == bas(motif[k])) {
-						++k;
-					}
-					if (motif[k] == '\0') {
-						return true;
-					}
-				}
-				return false;
-			}
-
 			/// LE JOURNAL DU TIROIR, a la maniere de l'Output Log d'Unreal (2026-10-01,
 			/// retour 7 de Rihen : « le Journal du bas n'a pas de filtres ») : les
 			/// puces Tout / Avertissements / Erreurs avec leurs comptes, la recherche,
@@ -1482,6 +1468,7 @@ namespace nkentseu {
 					}
 					if (ui.journalRechercheFocus && (in.KeyPressed(nkgui::NkGuiKey::Escape) || in.KeyPressed(nkgui::NkGuiKey::Enter))) {
 						ui.journalRechercheFocus = false;
+						ui.toucheChamp = true;
 					}
 					dl.AddRectFilled(rr, c.pal.champ, 2.f);
 					dl.AddRect(rr, ui.journalRechercheFocus ? c.pal.accent : c.pal.bord, 1.f, 2.f);
@@ -1507,7 +1494,7 @@ namespace nkentseu {
 				for (int32 i = static_cast<int32>(ui.journal.Size()) - 1; i >= 0; --i) {
 					const uint32 k = static_cast<uint32>(i);
 					if (NkEditeurNiveauMontre(static_cast<NkNiveauLigne>(niveaux[k]), ui.journalFiltre) &&
-						ContientSansCasse(propres[k].CStr(), ui.journalRecherche)) {
+						NkEditeurContientSansCasse(propres[k].CStr(), ui.journalRecherche)) {
 						montrees.PushBack(k);
 						ui.journalMontrees.PushBack(propres[k]);
 						ui.journalNiveaux.PushBack(niveaux[k]);
@@ -2080,6 +2067,24 @@ namespace nkentseu {
 				}
 			}
 			return NkEditeurExporter(m, fichiers, destination);
+		}
+
+		/// `texte` contient-il `motif` (sans tenir compte de la casse ASCII) ?
+		bool NkEditeurContientSansCasse(const char *texte, const char *motif) {
+			auto bas = [](char ch) { return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch; };
+			if (motif == nullptr || motif[0] == '\0') {
+				return true;
+			}
+			for (const char *t = texte; *t != '\0'; ++t) {
+				usize k = 0;
+				while (motif[k] != '\0' && t[k] != '\0' && bas(t[k]) == bas(motif[k])) {
+				++k;
+				}
+				if (motif[k] == '\0') {
+				return true;
+				}
+			}
+			return false;
 		}
 
 		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav) {

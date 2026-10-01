@@ -475,6 +475,40 @@ namespace nkentseu {
 				uint8 ordreCartes[static_cast<uint32>(NkCarteEditeur::NK_COUNT)] = {0, 1, 2, 3, 4, 5, 6, 9, 10, 7, 8};
 				int32 carteMenu = -1;			   ///< la carte dont le menu « ⋮ » est ouvert
 				NkPressePapierComposant pressePapier; ///< « Copier les valeurs »
+				/// LES DETAILS D'UNREAL, etape 2 (2026-10-01, document 02 §5) :
+				/// la colonne des NOMS (fraction de la largeur, sa cloison se tire) ;
+				/// le composant choisi dans l'ARBRE (-1 : l'acteur entier) ; la
+				/// RECHERCHE dans les proprietes ; la PASTILLE de categorie (0 Tout,
+				/// 1 General, 2 Acteur, 3 Physique, 4 Rendu, 5 Animation, 6 Audio) ;
+				/// le VERROU de l'echelle (proportions gardees).
+				float32 detailsColonne = 0.40f;
+				bool detailsCloison = false;
+				int32 detailsComposant = -1;
+				int32 detailsArbreDefil = 0; ///< la premiere ligne montree de l'arbre (molette)
+				/// (2026-10-01) Un CHAMP a pris Echap ou Entree a cette trame (il s'est
+				/// ferme en la prenant) : les raccourcis ne la voient pas. Sans cela, Echap
+				/// qui vide une recherche « Arretait » aussi -- et la selection tombait.
+				bool toucheChamp = false;
+				char detailsRecherche[64] = {};
+				bool detailsRechercheFocus = false;
+				int32 detailsCategorie = 0;
+				bool echelleVerrou = false;
+				/// Les cartes qui ont montre une rangee pour la recherche `detailsRechercheVue`
+				/// (bit = NkCarteEditeur) : une carte sans rangee qui repond se tait.
+				uint32 detailsCartesTrouvees = 0xFFFFFFFFu;
+				NkString detailsRechercheVue;
+				/// Releves pour le banc : l'en-tete (« + Ajouter »), les lignes de l'arbre
+				/// (la 0 = l'acteur), les pastilles, la recherche, le verrou, la
+				/// cloison ; les cartes dessinees, les fleches de remise MONTREES.
+				nkgui::NkRect detailsAjouter{0.f, 0.f, 0.f, 0.f};
+				NkVector<nkgui::NkRect> detailsArbre;
+				NkVector<int32> detailsArbreCartes;
+				nkgui::NkRect detailsPastilles[7] = {};
+				nkgui::NkRect detailsRechercheRect{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect detailsVerrou{0.f, 0.f, 0.f, 0.f};
+				float32 detailsCloisonX = 0.f;
+				uint32 detailsCartesDessinees = 0u;
+				uint32 detailsRemises = 0u;
 				/// Le libelle d'un nombre qu'on FROTTE (Unity : tirer sur le libelle).
 				uint32 frotteId = 0u;
 				float32 frotteX = 0.f;
@@ -711,6 +745,9 @@ namespace nkentseu {
 		/// Asset ») : le tiroir montre le Content Browser, sur le dossier de `nav`,
 		/// l'asset choisi.
 		void NkEditeurContenuMontrer(NkEditeurInterface &ui, const NkString &nav);
+		/// `texte` contient-il `motif`, sans tenir compte de la casse ASCII ? (Le
+		/// journal du tiroir et la recherche des Details.)
+		bool NkEditeurContientSansCasse(const char *texte, const char *motif);
 		/// La palette des couleurs de dossier (Unreal « Set Color ») : son nom et sa
 		/// couleur (0 = celle du theme).
 		int32 NkEditeurNbCouleursDossier() noexcept;

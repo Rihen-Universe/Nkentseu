@@ -802,7 +802,7 @@ namespace nkentseu {
 			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,
 			// renommage en place) gardent leurs touches : Suppr efface une lettre.
 			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty() ||
-				c.ui.journalRechercheFocus) {
+				c.ui.journalRechercheFocus || c.ui.detailsRechercheFocus || c.ui.toucheChamp) {
 				return;
 			}
 			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.
@@ -874,6 +874,7 @@ namespace nkentseu {
 		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction,
 									NkEditeurSelecteurEtat *selecteur) {
 			NkEditeurInterface &ui = c.ui;
+			ui.toucheChamp = false;
 			// ── Les DEMANDES du selecteur de fichiers (Importer…, Exporter…) : il
 			//    s'ouvre ICI, avant le dessin -- modal des cette trame.
 			if (selecteur != nullptr && !selecteur->pickerOpen) {

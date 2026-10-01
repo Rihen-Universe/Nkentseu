@@ -43,6 +43,7 @@
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/NkEditorTextField.h"
+#include "NKEditorKit/NkThemeToGui.h"
 #include "NKGui/Widgets/NkGuiWidgets.h"
 
 #include <cmath>
@@ -58,10 +59,61 @@ namespace nkentseu {
 
 		namespace {
 
-			/// La colonne des LIBELLES, en fraction de la largeur d'une carte.
-			constexpr float32 LIBELLE_FRAC = 0.40f;
-			constexpr float32 RANG_H = 22.f;   ///< une rangee
+			// (2026-10-01) La colonne des LIBELLES est `ui.detailsColonne` (0,40 par
+			// defaut) : sa cloison se TIRE, comme celle d'Unreal.
+			constexpr float32 RANG_H = 24.f;   ///< une rangee : le RYTHME d'Unreal, constant
 			constexpr float32 ENTETE_H = 26.f; ///< l'en-tete d'une carte
+
+			// ── LA RECHERCHE ET LA CARTE EN COURS (etape 2, document 02 §5) ──
+			// Rangee tait une rangee qui ne repond pas a la recherche, et note que la
+			// carte en cours en a montre une (`detailsCartesTrouvees`).
+			const char *gRecherche = nullptr;
+			int32 gCarte = -1;
+			bool gCarteRepond = false; ///< le NOM de la carte repond : toutes ses rangees restent
+			/// La derniere rangee dessinee (la cloison des noms se tire sur elle).
+			float32 gRangeeX = 0.f, gRangeeW = 0.f;
+
+			/// Une rangee de `libelle` se montre-t-elle sous la recherche ?
+			bool Repond(const char *libelle) {
+				if (gRecherche == nullptr || gRecherche[0] == '\0' || gCarteRepond) {
+					return true;
+				}
+				return libelle != nullptr && libelle[0] != '\0' && NkEditeurContientSansCasse(libelle, gRecherche);
+			}
+
+			/// Un titre en GRAS (la police n'a qu'une graisse : le meme texte, decale
+			/// d'un demi-pixel, epaissit le trait sans le flouter).
+			void TexteGras(nkgui::NkGuiDrawList &dl, nkgui::NkGuiFont *f, float32 x, float32 y, const char *t, const NkColor &c) {
+				renderer::NkTexte(dl, f, x, y, t, c);
+				renderer::NkTexte(dl, f, x + 0.6f, y, t, c);
+			}
+
+			/// La CATEGORIE d'une carte (les pastilles d'Unreal) : 1 General,
+			/// 2 Acteur, 3 Physique, 4 Rendu, 5 Animation, 6 Audio.
+			int32 CategorieDe(NkCarteEditeur c) {
+				switch (c) {
+					case NkCarteEditeur::NK_TRANSFORM:
+						return 1;
+					case NkCarteEditeur::NK_HIERARCHIE:
+						return 2;
+					case NkCarteEditeur::NK_COLLISIONNEUR:
+					case NkCarteEditeur::NK_CORPS:
+					case NkCarteEditeur::NK_CORPS_MOU:
+						return 3;
+					case NkCarteEditeur::NK_SPRITE:
+					case NkCarteEditeur::NK_LUMIERE:
+					case NkCarteEditeur::NK_EMETTEUR:
+						return 4;
+					case NkCarteEditeur::NK_ANIMATION:
+					case NkCarteEditeur::NK_ANIMATEUR:
+						return 5;
+					case NkCarteEditeur::NK_SOURCE:
+						return 6;
+					default:
+						return 0;
+				}
+			}
+			const char *const kCategories[7] = {"Tout", "Général", "Acteur", "Physique", "Rendu", "Animation", "Audio"};
 
 			/// Le libelle d'une entite : son etiquette, ou son indice a defaut.
 			NkString NomDe(NkScene &scene, ecs::NkEntityId id) {
@@ -188,6 +240,15 @@ namespace nkentseu {
 				}
 			}
 
+			/// L'ACTEUR (l'en-tete et la racine de l'arbre) : le cube d'Unreal, en 2D
+			/// un carre arrondi et son pivot.
+			void IconeActeur(nkgui::NkGuiDrawList &dl, const NkRect &r, const NkColor &col, const NkColor &accent) {
+				const NkRect b{r.x + 2.f, r.y + 2.f, r.w - 4.f, r.h - 4.f};
+				dl.AddRect(b, col, 1.4f, 3.f);
+				dl.AddRectFilled(NkRect{b.x + 1.f, b.y + 1.f, b.w - 2.f, (b.h - 2.f) * 0.45f}, Melange(col, accent, 0.6f), 2.f);
+				dl.AddCircleFilled(NkVec2{b.x + b.w * 0.5f, b.y + b.h * 0.68f}, 1.8f, accent);
+			}
+
 			// =================================================================
 			// L'EN-TETE ET LA FIN D'UNE CARTE
 			// =================================================================
@@ -217,6 +278,8 @@ namespace nkentseu {
 				dl.AddRect(r, I.bord, 1.f, 4.f);
 
 				const NkColor texte = (actif != nullptr && !*actif) ? I.c.pal.attenue : I.c.pal.texte;
+				// Unreal : la categorie sur une BANDE plus claire que les rangees.
+				dl.AddRectFilled(NkRect{r.x + 1.f, r.y + 1.f, r.w - 2.f, 1.f}, Melange(I.fondEntete, I.c.pal.texte, 0.10f));
 				// Le repli : un triangle, vers le bas deplie, vers la droite replie.
 				const float32 tx = r.x + 12.f;
 				if (ouverte) {
@@ -236,7 +299,7 @@ namespace nkentseu {
 					x += 20.f;
 				}
 				const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(I.c.police, 16.f)) * 0.5f;
-				renderer::NkTexte(dl, I.c.police, x, ty, NkCarteEditeurNom(carte), texte);
+				TexteGras(dl, I.c.police, x, ty, NkCarteEditeurNom(carte), texte);
 				// Le menu « ⋮ » : trois points.
 				if (surMenu || (ui.menu == NkMenuEditeur::NK_CARTE && ui.carteMenu == static_cast<int32>(carte))) {
 					dl.AddRectFilled(rMenu, I.c.pal.boutonSurvol, 2.f);
@@ -277,7 +340,16 @@ namespace nkentseu {
 			// =================================================================
 			/// Reserve une rangee, peint son fond et son libelle ; rend le
 			/// rectangle du CHAMP (a droite) et celui du LIBELLE (a gauche).
-			void Rangee(NkInspecteur &I, const char *libelle, float32 h, NkRect &champ, NkRect &lib) {
+			/// (2026-10-01) Rend FAUX, sans rien reserver, quand la recherche tait la
+			/// rangee : l'appelant s'arrete la.
+			bool Rangee(NkInspecteur &I, const char *libelle, float32 h, NkRect &champ, NkRect &lib) {
+				if (!Repond(libelle)) {
+					champ = lib = NkRect{0.f, 0.f, 0.f, 0.f};
+					return false;
+				}
+				if (gCarte >= 0) {
+					I.c.ui.detailsCartesTrouvees |= 1u << static_cast<uint32>(gCarte);
+				}
 				NkGuiContext &ctx = I.c.ctx;
 				auto &dl = ctx.DL();
 				const NkRect r0 = ctx.NextItemRect(0.f, h);
@@ -285,15 +357,24 @@ namespace nkentseu {
 				dl.AddRectFilled(r, I.fondCorps);
 				dl.AddRectFilled(NkRect{r.x, r.y, 1.f, r.h}, I.bord);
 				dl.AddRectFilled(NkRect{r.x + r.w - 1.f, r.y, 1.f, r.h}, I.bord);
-				const float32 colonne = r.w * LIBELLE_FRAC;
-				lib = NkRect{r.x + 12.f, r.y, colonne - 16.f, r.h};
-				champ = NkRect{r.x + colonne, r.y + 2.f, r.w - colonne - 8.f, r.h - 4.f};
+				// La colonne des noms ALIGNEE sur toutes les cartes, et sa CLOISON
+				// fine (Unreal) : elle se tire (OngletDetails).
+				const float32 colonne = r.w * I.c.ui.detailsColonne;
+				I.c.ui.detailsCloisonX = r.x + colonne - 4.f;
+				gRangeeX = r.x;
+				gRangeeW = r.w;
+				dl.AddRectFilled(NkRect{r.x + colonne - 4.f, r.y, 1.f, r.h}, Melange(I.bord, I.fondCorps, 0.35f));
+				lib = NkRect{r.x + 12.f, r.y, colonne - 20.f, r.h};
+				// La colonne des FLECHES DE REMISE est reservee sur TOUTES les rangees
+				// (Unreal) : les champs de toutes les cartes finissent au meme x.
+				champ = NkRect{r.x + colonne, r.y + 2.f, r.w - colonne - 8.f - 24.f, r.h - 4.f};
 				if (libelle != nullptr && libelle[0] != '\0') {
 					const float32 ty = r.y + (r.h - renderer::NkTexteHauteurLigne(I.c.police, 16.f)) * 0.5f;
 					dl.PushClipRect(lib, true);
 					renderer::NkTexte(dl, I.c.police, lib.x, ty, libelle, I.c.pal.texte);
 					dl.PopClipRect();
 				}
+				return true;
 			}
 
 			/// Le LIBELLE d'un nombre se TIRE (Unity) : a droite il augmente, a
@@ -333,7 +414,9 @@ namespace nkentseu {
 			bool Nombre(NkInspecteur &I, const char *libelle, float32 &v, float32 pas, float32 vmin = -1.0e9f, float32 vmax = 1.0e9f) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				ctx.PushId(libelle);
 				bool change = Frotter(I, lib, v, pas, vmin, vmax);
 				ctx.SetNextItemRect(champ);
@@ -345,7 +428,9 @@ namespace nkentseu {
 			bool Glissiere(NkInspecteur &I, const char *libelle, float32 &v, float32 vmin, float32 vmax) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				ctx.PushId(libelle);
 				bool change = Frotter(I, lib, v, (vmax - vmin) / 300.f, vmin, vmax);
 				ctx.SetNextItemRect(champ);
@@ -357,7 +442,9 @@ namespace nkentseu {
 			bool Entier(NkInspecteur &I, const char *libelle, int32 &v, int32 vmin = -1000000, int32 vmax = 1000000) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				ctx.PushId(libelle);
 				float32 f = static_cast<float32>(v);
 				bool change = false;
@@ -375,7 +462,9 @@ namespace nkentseu {
 			bool Case(NkInspecteur &I, const char *libelle, bool &v) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				ctx.PushId(libelle);
 				ctx.SetNextItemRect(NkRect{champ.x, champ.y, champ.h, champ.h});
 				const bool change = nkgui::Checkbox(ctx, "##v", v);
@@ -387,7 +476,9 @@ namespace nkentseu {
 			bool Teinte(NkInspecteur &I, const char *libelle, uint32 &rgba) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				float32 col[4] = {static_cast<float32>((rgba >> 24) & 0xFFu) / 255.f, static_cast<float32>((rgba >> 16) & 0xFFu) / 255.f,
 								  static_cast<float32>((rgba >> 8) & 0xFFu) / 255.f, static_cast<float32>(rgba & 0xFFu) / 255.f};
 				ctx.PushId(libelle);
@@ -425,14 +516,17 @@ namespace nkentseu {
 				return L;
 			}
 
-			/// Deux nombres sur une rangee (position, taille...). (2026-10-01, retour 5
-			/// de Rihen) Un AXE n'ecrit plus sa lettre : le LISERE rouge X / vert Y
-			/// d'Unreal, colle au bord gauche du champ, toute sa hauteur ; il se TIRE.
 			/// Le bouton « remettre » au bout d'une rangee (la fleche d'Unreal) ; il
-			/// prend sa place a DROITE du champ, qui retrecit d'autant.
-			bool Remettre(NkInspecteur &I, NkRect &champ) {
-				const NkRect r{champ.x + champ.w - 20.f, champ.y, 20.f, champ.h};
-				champ.w -= 24.f;
+			/// prend sa place a DROITE du champ, qui retrecit d'autant. (2026-10-01)
+			/// Comme Unreal, il ne PARAIT que si la valeur s'ecarte de son defaut
+			/// (`modifie`) ; sa place reste prise, les champs ne sautent pas.
+			bool Remettre(NkInspecteur &I, NkRect &champ, bool modifie = true) {
+				// Dans la colonne reservee par Rangee, a droite du champ.
+				const NkRect r{champ.x + champ.w + 4.f, champ.y, 20.f, champ.h};
+				if (!modifie) {
+					return false;
+				}
+				++I.c.ui.detailsRemises;
 				const bool clic = NkEditeurBouton(I.c, r, "", false, NkEditeurDans(I.zone, I.c.ctx.input.mousePos), &I.c.ctx.DL());
 				// Une fleche qui revient : un arc et sa pointe.
 				auto &dl = I.c.ctx.DL();
@@ -449,14 +543,40 @@ namespace nkentseu {
 				return clic;
 			}
 
+			/// Deux nombres sur une rangee (position, taille...). (2026-10-01, retour 5
+			/// de Rihen) Un AXE n'ecrit plus sa lettre : le LISERE rouge X / vert Y
+			/// d'Unreal, colle au bord gauche du champ, toute sa hauteur ; il se TIRE.
+			/// `verrou` (facultatif) : le cadenas d'Unreal dans la colonne du nom.
 			bool Paire(NkInspecteur &I, const char *libelle, float32 &a, float32 &b, float32 pas, float32 vmin = -1.0e9f,
-					   float32 vmax = 1.0e9f, const char *la = "X", const char *lb = "Y", bool *remise = nullptr) {
+					   float32 vmax = 1.0e9f, const char *la = "X", const char *lb = "Y", bool *remise = nullptr, bool modifie = true,
+					   bool *verrou = nullptr) {
 				NkGuiContext &ctx = I.c.ctx;
 				auto &dl = ctx.DL();
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				if (remise != nullptr) {
-					*remise = Remettre(I, champ);
+					*remise = Remettre(I, champ, modifie);
+				}
+				if (verrou != nullptr) {
+					// Le CADENAS, au bout de la colonne du nom : ferme, les proportions
+					// sont gardees (X entraine Y, et l'inverse).
+					const NkRect rv{lib.x + lib.w - 14.f, lib.y + (lib.h - 14.f) * 0.5f, 14.f, 14.f};
+					I.c.ui.detailsVerrou = rv;
+					const bool sur = Survol(I, rv);
+					const NkColor cv = *verrou ? I.c.pal.accent : (sur ? I.c.pal.texte : I.c.pal.attenue);
+					dl.AddRectFilled(NkRect{rv.x + 2.f, rv.y + 6.f, 10.f, 7.f}, cv, 1.5f);
+					NkVec2 anse[7];
+					const float32 ox = *verrou ? 0.f : 3.f; // ouvert : l'anse s'ecarte
+					for (int32 k = 0; k < 7; ++k) {
+						const float32 t = 3.14159f * static_cast<float32>(k) / 6.f;
+						anse[k] = NkVec2{rv.x + 7.f + ox - 3.2f * std::cos(t), rv.y + 6.f - 4.f * std::sin(t)};
+					}
+					dl.AddPolyline(anse, 7, cv, 1.4f, false);
+					if (sur && ctx.input.mouseClicked[0]) {
+						*verrou = !*verrou;
+					}
 				}
 				ctx.PushId(libelle);
 				bool change = false;
@@ -490,12 +610,14 @@ namespace nkentseu {
 			/// UNE composante avec sa lettre coloree -- la rotation d'un Transform :
 			/// Z, bleue, comme l'axe qui sort de l'ecran.
 			bool Unique(NkInspecteur &I, const char *libelle, float32 &v, float32 pas, float32 vmin, float32 vmax, const char *lettre,
-						const NkColor &couleur, bool *remise) {
+						const NkColor &couleur, bool *remise, bool modifie = true) {
 				NkGuiContext &ctx = I.c.ctx;
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				if (remise != nullptr) {
-					*remise = Remettre(I, champ);
+					*remise = Remettre(I, champ, modifie);
 				}
 				ctx.PushId(libelle);
 				bool change = false;
@@ -519,7 +641,9 @@ namespace nkentseu {
 			/// Un choix parmi quelques valeurs, SEGMENTE (UI_SPEC §3.1).
 			bool Choix(NkInspecteur &I, const char *libelle, const char *const *noms, int32 n, int32 &valeur) {
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return false;
+				}
 				const float32 w = champ.w / static_cast<float32>(n);
 				bool change = false;
 				const bool actif = NkEditeurDans(I.zone, I.c.ctx.input.mousePos);
@@ -537,7 +661,9 @@ namespace nkentseu {
 			/// Une valeur en LECTURE seule.
 			void Info(NkInspecteur &I, const char *libelle, const char *valeur) {
 				NkRect champ, lib;
-				Rangee(I, libelle, RANG_H, champ, lib);
+				if (!Rangee(I, libelle, RANG_H, champ, lib)) {
+					return;
+				}
 				auto &dl = I.c.ctx.DL();
 				const float32 ty = champ.y + (champ.h - renderer::NkTexteHauteurLigne(I.c.police, 16.f)) * 0.5f;
 				dl.PushClipRect(champ, true);
@@ -549,7 +675,9 @@ namespace nkentseu {
 			/// animateur, une note).
 			void Ligne(NkInspecteur &I, const char *texte, bool vif = false) {
 				NkRect champ, lib;
-				Rangee(I, "", RANG_H - 4.f, champ, lib);
+				if (!Rangee(I, "", RANG_H - 4.f, champ, lib)) {
+					return;
+				}
 				auto &dl = I.c.ctx.DL();
 				const float32 ty = lib.y + (lib.h - renderer::NkTexteHauteurLigne(I.c.petite, 12.f)) * 0.5f;
 				renderer::NkTexte(dl, I.c.petite, lib.x, ty, texte, vif ? I.c.pal.texte : I.c.pal.attenue);
@@ -559,7 +687,9 @@ namespace nkentseu {
 			/// (0, 1) ou -1.
 			int32 Boutons(NkInspecteur &I, const char *a, const char *b = nullptr, bool actifA = true, bool actifB = true) {
 				NkRect champ, lib;
-				Rangee(I, "", RANG_H + 4.f, champ, lib);
+				if (!Rangee(I, "", RANG_H + 4.f, champ, lib)) {
+					return -1;
+				}
 				const NkRect ligne{lib.x - 4.f, champ.y, champ.x + champ.w - lib.x + 4.f, champ.h};
 				const bool dedans = NkEditeurDans(I.zone, I.c.ctx.input.mousePos);
 				const int32 n = b != nullptr ? 2 : 1;
@@ -593,7 +723,9 @@ namespace nkentseu {
 				const NkSprite2D *s = c.m.scene.Monde().Get<NkSprite2D>(I.id);
 				constexpr float32 H = 58.f;
 				NkRect champ, lib;
-				Rangee(I, "Texture", H, champ, lib);
+				if (!Rangee(I, "Texture", H, champ, lib)) {
+					return;
+				}
 				const NkRect rangee{lib.x - 12.f, lib.y, champ.x + champ.w + 8.f - (lib.x - 12.f), lib.h};
 				ui.detailsTexture = rangee;
 				const uint32 tex = s->texId;
@@ -712,7 +844,7 @@ namespace nkentseu {
 				float32 x = centre.x;
 				float32 y = centre.y;
 				bool remise = false;
-				if (Paire(I, "Position (m)", x, y, 0.02f, -1.0e9f, 1.0e9f, "X", "Y", &remise)) {
+				if (Paire(I, "Position (m)", x, y, 0.02f, -1.0e9f, 1.0e9f, "X", "Y", &remise, x != 0.f || y != 0.f)) {
 					NkEditeurDeplacer(m, NkVec2f(x, y));
 				}
 				if (remise) {
@@ -722,7 +854,7 @@ namespace nkentseu {
 				if (!m.scene.Monde().Has<NkCorpsMou2D>(I.id)) {
 					float32 rot = t->rotation * 57.2957795f;
 					remise = false;
-					const bool tourne = Unique(I, "Rotation (°)", rot, 0.5f, -360.f, 360.f, "Z", NkColor{95, 150, 235, 255}, &remise);
+					const bool tourne = Unique(I, "Rotation (°)", rot, 0.5f, -360.f, 360.f, "Z", NkColor{95, 150, 235, 255}, &remise, rot != 0.f);
 					if (tourne || remise) {
 						t->rotation = remise ? 0.f : rot / 57.2957795f;
 						if (m.scene.Monde().Has<NkCorps2D>(I.id)) {
@@ -736,8 +868,18 @@ namespace nkentseu {
 				// taper, c'est ce que fait le gizmo R. En DERNIER : elle peut ajouter
 				// un composant a l'entite, ce qui deplace ses donnees.
 				NkVec2f e = NkEditeurEchelle(m, I.id);
+				const NkVec2f avant = e;
 				remise = false;
-				if (Paire(I, "Échelle", e.x, e.y, 0.01f, 0.05f, 100.f, "X", "Y", &remise)) {
+				if (Paire(I, "Échelle", e.x, e.y, 0.01f, 0.05f, 100.f, "X", "Y", &remise, e.x != 1.f || e.y != 1.f, &I.c.ui.echelleVerrou)) {
+					// (2026-10-01) VERROUILLEE, l'echelle garde ses proportions : l'axe
+					// change entraine l'autre (Unreal).
+					if (I.c.ui.echelleVerrou) {
+						if (e.x != avant.x && avant.x != 0.f) {
+							e.y = avant.y * e.x / avant.x;
+						} else if (e.y != avant.y && avant.y != 0.f) {
+							e.x = avant.x * e.y / avant.y;
+						}
+					}
 					NkEditeurPoserEchelle(m, I.id, e);
 				}
 				if (remise) {
@@ -994,7 +1136,9 @@ namespace nkentseu {
 						}
 					} else if (p.genre == NkGenreParamAnim::NK_DECLENCHEUR) {
 						NkRect champ, lib;
-						Rangee(I, p.nom, RANG_H, champ, lib);
+						if (!Rangee(I, p.nom, RANG_H, champ, lib)) {
+							continue;
+						}
 						const NkRect rb{champ.x, champ.y, champ.w * 0.45f, champ.h};
 						if (NkEditeurBouton(I.c, rb, "", false, NkEditeurDans(I.zone, ctx.input.mousePos), &ctx.DL())) {
 							p.valeur = 1.f;
@@ -1329,24 +1473,45 @@ namespace nkentseu {
 				}
 				const ecs::NkEntityId id = c.m.selection;
 
-				// ── La case « active », le nom ; la nature dessous ───────────
-				// « Ajouter » est en BAS des cartes, comme dans Unity : on ajoute
-				// apres avoir vu ce que l'entite porte deja.
-				const float32 rangeeH = 24.f;
+				// ── L'EN-TETE D'UNREAL (2026-10-01, document 02 §5 ; Rihen : « tres
+				//    beau ») : l'icone du type, la case « active », le NOM, et
+				//    « + Ajouter » (le plus vert d'Unreal) a droite ─────────────────
+				const float32 rangeeH = 26.f;
+				const float32 lhP = renderer::NkTexteHauteurLigne(c.police, 16.f);
+				const float32 lhS = renderer::NkTexteHauteurLigne(c.petite, 12.f);
+				const float32 y0 = zone.y + 8.f;
+				const float32 wA = renderer::NkTexteLargeur(c.police, "Ajouter") + 36.f;
+				const NkRect ajouter{zone.x + zone.w - 10.f - wA, y0, wA, rangeeH};
+				c.ui.detailsAjouter = ajouter;
+				{
+					const bool ouvertA = c.ui.menu == NkMenuEditeur::NK_COMPOSANT;
+					if (NkEditeurBouton(c, ajouter, "", ouvertA, true)) {
+						NkEditeurOuvrirMenu(c, NkMenuEditeur::NK_COMPOSANT, ajouter);
+					}
+					const NkColor vert = editorkit::NkThemeUnpack(c.theme.GetOuRepli(editorkit::NkRole::StatusOk, editorkit::NkRole::AccentUi));
+					const float32 px = ajouter.x + 15.f, py = ajouter.y + rangeeH * 0.5f;
+					dl.AddRectFilled(NkRect{px - 5.f, py - 1.1f, 10.f, 2.2f}, vert, 1.f);
+					dl.AddRectFilled(NkRect{px - 1.1f, py - 5.f, 2.2f, 10.f}, vert, 1.f);
+					renderer::NkTexte(dl, c.police, ajouter.x + 26.f, ajouter.y + (rangeeH - lhP) * 0.5f, "Ajouter",
+									  ouvertA ? c.pal.surAccent : c.pal.texte);
+				}
+				// L'icone du TYPE (l'acteur), comme le cube d'Unreal devant « Floor ».
+				const NkRect icone{zone.x + 10.f, y0 + (rangeeH - 18.f) * 0.5f, 18.f, 18.f};
+				IconeActeur(dl, icone, c.pal.texte, c.pal.accent);
 				// (2026-10-01) LA CASE « ACTIVE », a gauche du nom (GameObject.active
 				// de Unity) : decochee, l'entite et sa descendance ne sont ni rendues,
 				// ni simulees, ni animees -- en edition comme en jeu, sauve dans la
 				// scene et les prefabs (NkUnkenyActif.h). Ctrl+Z l'annule.
 				// ⚠️ CE N'EST PAS L'OEIL DE L'OUTLINER : l'oeil ne cache qu'en EDITION et
 				//    le jeu montre tout ; la case, elle, change LE JEU. Les deux restent.
-				const NkRect caseR{zone.x + 8.f, zone.y + 6.f + (rangeeH - 16.f) * 0.5f, 16.f, 16.f};
+				const NkRect caseR{icone.x + icone.w + 8.f, y0 + (rangeeH - 16.f) * 0.5f, 16.f, 16.f};
 				c.ui.caseActif = caseR;
 				{
 					const bool soi = c.m.scene.EstActiveSoi(id);
 					const bool enEffet = c.m.scene.EstActive(id);
 					const bool survol = NkEditeurDans(caseR, ctx.input.mousePos);
-					dl.AddRectFilled(caseR, c.pal.champ, 2.f);
-					dl.AddRect(caseR, survol ? c.pal.accent : c.pal.bord, 1.f, 2.f);
+					dl.AddRectFilled(caseR, c.pal.champ, 3.f);
+					dl.AddRect(caseR, survol ? c.pal.accent : c.pal.bord, 1.f, 3.f);
 					if (soi) {
 						// Cochee mais eteinte PAR UN PARENT : la coche, attenuee -- on voit
 						// qu'elle est a soi, et que ce n'est pas ici que ca se rallume.
@@ -1359,7 +1524,7 @@ namespace nkentseu {
 						NkEditeurActiverEntite(c.m, id, !soi);
 					}
 				}
-				const NkRect nomR{caseR.x + caseR.w + 6.f, zone.y + 6.f, zone.x + zone.w - 6.f - (caseR.x + caseR.w + 6.f), rangeeH};
+				const NkRect nomR{caseR.x + caseR.w + 8.f, y0, ajouter.x - 8.f - (caseR.x + caseR.w + 8.f), rangeeH};
 				ChampNom(c, id, nomR);
 				NkString type = NkString::Format("type : %s", NkEditeurTypeDe(c.m.scene, id));
 				if (!c.m.scene.EstActiveSoi(id)) {
@@ -1367,14 +1532,47 @@ namespace nkentseu {
 				} else if (!c.m.scene.EstActive(id)) {
 					type.Append("  —  désactivée par un parent");
 				}
-				renderer::NkTexte(dl, c.petite, zone.x + 8.f, nomR.y + rangeeH + 5.f, type.CStr(), c.pal.attenue);
+				renderer::NkTexte(dl, c.petite, nomR.x, y0 + rangeeH + 3.f, type.CStr(), c.pal.attenue, zone.x + zone.w - 10.f - nomR.x);
+				float32 y = y0 + rangeeH + 3.f + lhS + 8.f;
 
-				// ── Les cartes, dans une zone defilable ──────────────────────
-				const float32 haut = nomR.y + rangeeH + 22.f;
+				// La RECHERCHE a change : toutes les cartes se redessinent une trame
+				// (leurs rangees qui repondent les marquent), puis celles sans
+				// reponse se taisent.
+				const NkString recherche(c.ui.detailsRecherche);
+				const bool cherche = !recherche.Empty();
+				const bool nouvelle = !(recherche == c.ui.detailsRechercheVue);
+				if (nouvelle) {
+					c.ui.detailsCartesTrouvees = 0u;
+					c.ui.detailsRechercheVue = recherche;
+				}
+				c.ui.detailsCartesDessinees = 0u;
+				c.ui.detailsRemises = 0u;
+				auto Montrer = [&](NkCarteEditeur carte) {
+					const int32 k = static_cast<int32>(carte);
+					if (c.ui.detailsComposant >= 0 && c.ui.detailsComposant != k) {
+						return false;
+					}
+					if (c.ui.detailsCategorie != 0 && CategorieDe(carte) != c.ui.detailsCategorie) {
+						return false;
+					}
+					const bool nomRepond = cherche && NkEditeurContientSansCasse(NkCarteEditeurNom(carte), recherche.CStr());
+					if (cherche && !nouvelle && !nomRepond && (c.ui.detailsCartesTrouvees & (1u << static_cast<uint32>(k))) == 0u) {
+						return false;
+					}
+					gCarte = k;
+					gCarteRepond = nomRepond;
+					c.ui.detailsCartesDessinees |= 1u << static_cast<uint32>(k);
+					return true;
+				};
+
+				// ── L'arbre, la recherche, les pastilles et les cartes, dans une zone
+				//    DEFILABLE : a petite hauteur, les proprietes gardent la place ──
+				const float32 haut = y;
 				const NkRect corps{zone.x, haut, zone.w, zone.y + zone.h - haut};
 				if (!nkgui::BeginChild(ctx, "details.composants", corps, false)) {
 					return;
 				}
+				gRecherche = c.ui.detailsRecherche;
 				// Chaque entite garde ses propres identifiants de champs : sans
 				// cette cle, un glisser commence sur une caisse finirait sur une autre.
 				char cle[24];
@@ -1384,22 +1582,180 @@ namespace nkentseu {
 				// y ouvrirait des fentes (et casserait le bord des cartes).
 				const float32 espacement = ctx.layout.itemSpacingY;
 				ctx.layout.itemSpacingY = 0.f;
-				NkInspecteur I{c, id, corps, c.pal.entete, Melange(c.pal.entete, c.pal.texte, 0.08f),
+				// ── L'ARBRE DES COMPOSANTS (Unreal : « Floor (Instance) » puis ses
+				//    composants) : un clic n'affiche que ce composant, l'acteur les
+				//    montre tous ─────────────────────────────────────────────────────
+				auto &dc = ctx.DL();
+				{
+					NkVector<int32> cartes;
+					cartes.PushBack(-1);
+					if (c.m.scene.Monde().Has<NkTransform2D>(id)) {
+						cartes.PushBack(static_cast<int32>(NkCarteEditeur::NK_TRANSFORM));
+					}
+					for (uint32 k = 0; k < static_cast<uint32>(NkCarteEditeur::NK_COUNT); ++k) {
+						const NkCarteEditeur carte = static_cast<NkCarteEditeur>(c.ui.ordreCartes[k]);
+						if (carte != NkCarteEditeur::NK_TRANSFORM && NkEditeurAUneCarte(c.m, id, carte)) {
+							cartes.PushBack(static_cast<int32>(carte));
+						}
+					}
+					bool present = c.ui.detailsComposant < 0;
+					for (uint32 k = 1; k < cartes.Size(); ++k) {
+						present = present || cartes[k] == c.ui.detailsComposant;
+					}
+					if (!present) {
+						c.ui.detailsComposant = -1;
+					}
+					constexpr float32 LIGNE = 22.f;
+					// QUATRE lignes visibles au plus (Unreal garde l'arbre court) ; la
+					// molette fait defiler le reste.
+					const uint32 total = static_cast<uint32>(cartes.Size());
+					const uint32 n = total < 4u ? total : 4u;
+					const int32 maxDefil = static_cast<int32>(total - n);
+					c.ui.detailsArbreDefil = c.ui.detailsArbreDefil > maxDefil ? maxDefil : (c.ui.detailsArbreDefil < 0 ? 0 : c.ui.detailsArbreDefil);
+					const NkRect r0 = ctx.NextItemRect(0.f, LIGNE * static_cast<float32>(n) + 6.f + 8.f);
+					const NkRect boite{r0.x + 4.f, r0.y, r0.w - 8.f, LIGNE * static_cast<float32>(n) + 6.f};
+					dc.AddRectFilled(boite, Melange(c.pal.panneau, c.pal.fond, 0.55f), 3.f);
+					dc.AddRect(boite, c.pal.bord, 1.f, 3.f);
+					c.ui.detailsArbre.Clear();
+					c.ui.detailsArbreCartes.Clear();
+					if (maxDefil > 0 && NkEditeurDans(boite, ctx.input.mousePos) && ctx.input.wheel != 0.f) {
+						c.ui.detailsArbreDefil -= ctx.input.wheel > 0.f ? 1 : -1;
+						c.ui.detailsArbreDefil = c.ui.detailsArbreDefil > maxDefil ? maxDefil : (c.ui.detailsArbreDefil < 0 ? 0 : c.ui.detailsArbreDefil);
+					}
+					for (uint32 v = 0; v < n; ++v) {
+						const uint32 k = v + static_cast<uint32>(c.ui.detailsArbreDefil);
+						const NkRect ligne{boite.x + 3.f, boite.y + 3.f + static_cast<float32>(v) * LIGNE, boite.w - 6.f, LIGNE};
+						const bool choisie = cartes[k] == c.ui.detailsComposant;
+						const bool survol = NkEditeurDans(ligne, ctx.input.mousePos) && NkEditeurDans(corps, ctx.input.mousePos);
+						if (choisie) {
+							dc.AddRectFilled(ligne, Melange(c.pal.accent, c.pal.panneau, 0.2f), 2.f);
+						} else if (survol) {
+							dc.AddRectFilled(ligne, c.pal.boutonSurvol, 2.f);
+						}
+						const float32 retrait = k == 0 ? 6.f : 24.f;
+						const NkRect ic{ligne.x + retrait, ligne.y + (LIGNE - 16.f) * 0.5f, 16.f, 16.f};
+						NkString libelle;
+						if (k == 0) {
+							IconeActeur(dc, ic, c.pal.texte, c.pal.accent);
+							libelle = NomDe(c.m.scene, id) + " (Instance)";
+						} else {
+							IconeCarte(dc, static_cast<NkCarteEditeur>(cartes[k]), ic, c.pal.texte);
+							libelle = NkString(NkCarteEditeurNom(static_cast<NkCarteEditeur>(cartes[k])));
+						}
+						const NkColor tl = choisie ? c.pal.surAccent : c.pal.texte;
+						dc.PushClipRect(ligne, true);
+						renderer::NkTexte(dc, c.police, ic.x + ic.w + 7.f, ligne.y + (LIGNE - lhP) * 0.5f, libelle.CStr(), tl);
+						dc.PopClipRect();
+						if (survol && ctx.input.mouseClicked[0]) {
+							c.ui.detailsComposant = cartes[k];
+						}
+						c.ui.detailsArbre.PushBack(ligne);
+						c.ui.detailsArbreCartes.PushBack(cartes[k]);
+					}
+					if (maxDefil > 0) {
+						const float32 hb = boite.h - 6.f;
+						const float32 hp = hb * static_cast<float32>(n) / static_cast<float32>(total);
+						const float32 yp = boite.y + 3.f + (hb - hp) * static_cast<float32>(c.ui.detailsArbreDefil) / static_cast<float32>(maxDefil);
+						dc.AddRectFilled(NkRect{boite.x + boite.w - 5.f, yp, 3.f, hp}, c.pal.attenue, 1.5f);
+					}
+				}
+
+				// ── LA RECHERCHE dans les proprietes, puis les PASTILLES de
+				//    categorie (Unreal : General, Acteur, ... et « Tout ») ────────────
+				{
+					static const int32 kOrdre[7] = {1, 2, 3, 4, 5, 6, 0};
+					const float32 ph = 20.f;
+					const NkRect rz = ctx.NextItemRect(0.f, 1.f); // la largeur de la zone
+					// Les lignes de pastilles, MESUREES avant de reserver la place.
+					int32 lignes = 1;
+					{
+						float32 x = rz.x + 4.f;
+						for (int32 k = 0; k < 7; ++k) {
+							const float32 w = renderer::NkTexteLargeur(c.petite, kCategories[kOrdre[k]]) + 18.f;
+							if (x + w > rz.x + rz.w - 4.f && x > rz.x + 4.f) {
+								x = rz.x + 4.f;
+								++lignes;
+							}
+							x += w + 4.f;
+						}
+					}
+					const NkRect rb = ctx.NextItemRect(0.f, 24.f + 6.f + static_cast<float32>(lignes) * (ph + 4.f) + 6.f);
+					float32 y = rb.y;
+					const NkRect rr{rb.x + 4.f, y, rb.w - 8.f, 24.f};
+					c.ui.detailsRechercheRect = rr;
+					const nkgui::NkGuiInput &in = ctx.input;
+					if (in.mouseClicked[0]) {
+						c.ui.detailsRechercheFocus = NkEditeurDans(rr, in.mousePos) && NkEditeurDans(corps, in.mousePos);
+					}
+					if (c.ui.detailsRechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Escape)) {
+						c.ui.detailsRecherche[0] = '\0';
+						c.ui.detailsRechercheFocus = false;
+						c.ui.toucheChamp = true;
+					} else if (c.ui.detailsRechercheFocus && in.KeyPressed(nkgui::NkGuiKey::Enter)) {
+						c.ui.detailsRechercheFocus = false;
+						c.ui.toucheChamp = true;
+					}
+					dc.AddRectFilled(rr, c.pal.champ, 3.f);
+					dc.AddRect(rr, c.ui.detailsRechercheFocus ? c.pal.accent : c.pal.bord, 1.f, 3.f);
+					const float32 lx = rr.x + 12.f, ly = rr.y + rr.h * 0.5f - 1.f;
+					dc.AddCircle(NkVec2{lx, ly}, 4.5f, c.pal.attenue, 1.3f);
+					dc.AddLine(NkVec2{lx + 3.2f, ly + 3.2f}, NkVec2{lx + 6.5f, ly + 6.5f}, c.pal.attenue, 1.6f);
+					if (c.ui.detailsRecherche[0] == '\0' && !c.ui.detailsRechercheFocus) {
+						renderer::NkTexte(dc, c.petite, rr.x + 24.f, rr.y + (rr.h - lhS) * 0.5f, "Rechercher une propriété", c.pal.attenue);
+					}
+					editorkit::NkOverlayFieldStyle st;
+					st.fond = false;
+					st.bord = false;
+					st.texte = c.pal.texte;
+					st.utf8 = true;
+					editorkit::NkOverlayTextField(ctx, dl, c.police, NkRect{rr.x + 20.f, rr.y, rr.w - 24.f, rr.h}, c.ui.detailsRecherche,
+												  static_cast<int32>(sizeof(c.ui.detailsRecherche)), c.ui.detailsRechercheFocus, &st);
+					y += rr.h + 6.f;
+					// Les pastilles, en flux (elles passent a la ligne comme celles
+					// d'Unreal) ; « Tout » en dernier.
+					float32 x = rb.x + 4.f;
+					for (int32 k = 0; k < 7; ++k) {
+						const int32 cat = kOrdre[k];
+						const float32 w = renderer::NkTexteLargeur(c.petite, kCategories[cat]) + 18.f;
+						if (x + w > rb.x + rb.w - 4.f && x > rb.x + 4.f) {
+							x = rb.x + 4.f;
+							y += ph + 4.f;
+						}
+						const NkRect r{x, y, w, ph};
+						c.ui.detailsPastilles[cat] = r;
+						const bool sel = c.ui.detailsCategorie == cat;
+						if (NkEditeurBouton(c, r, "", sel, NkEditeurDans(corps, ctx.input.mousePos), &dc)) {
+							c.ui.detailsCategorie = cat;
+						}
+						renderer::NkTexteDansBoite(dc, c.petite, r, kCategories[cat], sel ? c.pal.surAccent : c.pal.texte);
+						x += w + 4.f;
+					}
+				}
+
+				NkInspecteur I{c, id, corps, Melange(c.pal.entete, c.pal.texte, 0.05f), Melange(c.pal.entete, c.pal.texte, 0.12f),
 							   Melange(c.pal.panneau, c.pal.entete, 0.45f), c.pal.bord};
 				// Le Transform en tete, toujours ; les autres dans l'ordre choisi
 				// (Monter / Descendre du menu « ⋮ »).
-				CarteTransform(I);
+				if (Montrer(NkCarteEditeur::NK_TRANSFORM)) {
+					CarteTransform(I);
+				}
 				for (uint32 k = 0; k < static_cast<uint32>(NkCarteEditeur::NK_COUNT); ++k) {
 					const NkCarteEditeur carte = static_cast<NkCarteEditeur>(c.ui.ordreCartes[k]);
-					if (carte == NkCarteEditeur::NK_TRANSFORM || !NkEditeurAUneCarte(c.m, id, carte)) {
+					if (carte == NkCarteEditeur::NK_TRANSFORM || !NkEditeurAUneCarte(c.m, id, carte) || !Montrer(carte)) {
 						continue;
 					}
 					ctx.PushId(NkCarteEditeurNom(carte));
 					DessinerCarte(I, carte);
 					ctx.PopId();
 				}
-				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp).
-				NkEditeurBlocAncrage(c, id);
+				gCarte = -1;
+				gCarteRepond = false;
+				gRecherche = nullptr;
+				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp) : avec
+				// l'acteur entier, sous « Tout » ou « Acteur », hors recherche.
+				if (c.ui.detailsComposant < 0 && (c.ui.detailsCategorie == 0 || c.ui.detailsCategorie == 2) && !cherche) {
+					NkEditeurBlocAncrage(c, id);
+				}
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
 				const NkRect r0 = ctx.NextItemRect(0.f, 28.f);
@@ -1413,6 +1769,27 @@ namespace nkentseu {
 				ctx.layout.itemSpacingY = espacement;
 				ctx.PopId();
 				nkgui::EndChild(ctx);
+				// ── LA CLOISON DES NOMS, qui se TIRE (Unreal) : la colonne des
+				//    libelles de toutes les cartes suit ─────────────────────────────
+				{
+					const nkgui::NkGuiInput &in = ctx.input;
+					const float32 xc = c.ui.detailsCloisonX;
+					const bool sur = xc > 0.f && NkEditeurDans(corps, in.mousePos) && in.mousePos.x >= xc - 3.f && in.mousePos.x <= xc + 3.f;
+					if (sur && in.mouseClicked[0] && c.ui.menu == NkMenuEditeur::NK_AUCUN) {
+						c.ui.detailsCloison = true;
+					}
+					if (!in.mouseDown[0]) {
+						c.ui.detailsCloison = false;
+					}
+					if (sur || c.ui.detailsCloison) {
+						ctx.wantCursor = nkgui::NkGuiCursor::ResizeEW;
+					}
+					if (c.ui.detailsCloison && gRangeeW > 1.f) {
+						float32 f = (in.mousePos.x + 4.f - gRangeeX) / gRangeeW;
+						f = f < 0.25f ? 0.25f : (f > 0.65f ? 0.65f : f);
+						c.ui.detailsColonne = f;
+					}
+				}
 			}
 
 			void OngletMonde(NkEditeurCadre &c, const NkRect &zone) {

@@ -43,6 +43,13 @@
 //         et celle des onglets, dessine en vecteurs (tuiles bleues, sol ambre) ;
 //         un clic dessus n'ouvre rien, « Fichier » est a sa droite, l'onglet
 //         aussi ; la version claire sur fond clair, la sombre sur fond sombre
+//   (u9)  les DETAILS d'Unreal : « + Ajouter » ouvre le menu des composants ;
+//         l'arbre (l'acteur, puis ses composants) : « Sprite » ne montre que sa
+//         carte, l'acteur les montre toutes ; la pastille Physique ne montre
+//         que la physique ; la recherche « pivot » ne garde que le Sprite, Echap
+//         la vide (la scene ne joue pas) ; la fleche de remise ne parait que
+//         sur une valeur modifiee ; le verrou de l'echelle garde ses
+//         proportions ; la cloison des noms se tire
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -179,9 +186,12 @@ namespace nkentseu {
 				const bool accent = Tampon() == NkString("-boitejeune\xC3\xA9");
 				t.Touche(nkgui::NkGuiKey::Backspace);
 				const bool efface = Tampon() == NkString("-boitejeune");
-				// (f) Echap ANNULE : le fichier garde son nom
+				// (f) Echap ANNULE : le fichier garde son nom -- et Echap ne va pas
+				//     AUSSI aux raccourcis (« Arreter » oublierait la selection)
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = m.selection.IsValid();
 				t.Touche(nkgui::NkGuiKey::Escape);
-				const bool annule = ui.renommeChemin.Empty() && NkFile::Exists("banc_u1/projet/Contenu/vieille-caisse.png");
+				const bool annule = ui.renommeChemin.Empty() && NkFile::Exists("banc_u1/projet/Contenu/vieille-caisse.png") && m.aSelection;
 				// (g) F2, la frappe, Entree VALIDE (l'extension reste)
 				t.Fermer();
 				t.CliquerCarte("Contenu/vieille-caisse.png");
@@ -362,6 +372,23 @@ namespace nkentseu {
 				m.selection = caisse;
 				m.aSelection = caisse.IsValid();
 				t.Trame();
+				t.Trame();
+				// L'ARBRE des composants (Unreal) : « Sprite » n'affiche que lui -- la
+				// rangee Texture est alors a l'ecran quelle que soit la hauteur.
+				for (uint32 k = 0; k < ui.detailsArbreCartes.Size(); ++k) {
+					if (ui.detailsArbreCartes[k] == static_cast<int32>(NkCarteEditeur::NK_SPRITE)) {
+						const nkgui::NkRect r = ui.detailsArbre[k];
+						t.Clic(0, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+					}
+				}
+				t.Trame();
+				// ... et la MOLETTE descend la zone defilable des Details jusqu'a elle.
+				for (int32 k = 0; k < 3; ++k) {
+					t.Ctx().input.mousePos = nkgui::NkVec2{ui.details.x + 60.f, ui.details.y + ui.details.h - 30.f};
+					t.Ctx().input.wheel = -4.f;
+					t.Trame();
+				}
+				t.Ctx().input.wheel = 0.f;
 				t.Trame();
 				// ⚠️ Annuler / refaire RESTAURE la scene : les poignees changent, on
 				//    retrouve la caisse par son nom a chaque mesure.
@@ -685,6 +712,107 @@ namespace nkentseu {
 				}
 				Temoin(ok, "(u8) logo du coin : carre sur menus + onglets, en vecteurs, sombre et clair ; menus a sa droite",
 					   static_cast<float32>(nBleu));
+			}
+
+			// (u9) LES DETAILS D'UNREAL, etape 2 (document 02 §5 ; Rihen : « tres
+			// beau ») : en-tete et « + Ajouter », arbre des composants, pastilles,
+			// recherche, fleches de remise des seules valeurs modifiees, verrou de
+			// l'echelle, cloison des noms qui se tire.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.hauteurTiroir = 120.f; // la colonne des Details a de la place
+				m.selection = Par(m.scene, "Caisse");
+				m.aSelection = m.selection.IsValid();
+				t.Trame();
+				t.Trame();
+				auto Milieu = [](const nkgui::NkRect &r) { return nkgui::NkVec2{r.x + r.w * 0.5f, r.y + r.h * 0.5f}; };
+				auto Bit = [](NkCarteEditeur k) { return 1u << static_cast<uint32>(k); };
+				// (a) « + Ajouter » ouvre le menu des composants
+				t.Clic(0, Milieu(ui.detailsAjouter).x, Milieu(ui.detailsAjouter).y);
+				const bool ajouter = ui.menu == NkMenuEditeur::NK_COMPOSANT;
+				t.Fermer();
+				// (b) l'ARBRE : l'acteur d'abord, puis ses composants ; « Sprite » n'en
+				//     montre que la carte, l'acteur les montre toutes
+				int32 kSprite = -1;
+				for (uint32 k = 0; k < ui.detailsArbreCartes.Size(); ++k) {
+					kSprite = ui.detailsArbreCartes[k] == static_cast<int32>(NkCarteEditeur::NK_SPRITE) ? static_cast<int32>(k) : kSprite;
+				}
+				const bool racine = ui.detailsArbreCartes.Size() >= 3u && ui.detailsArbreCartes[0] == -1 && kSprite > 0;
+				bool arbre = false;
+				if (racine) {
+					t.Clic(0, Milieu(ui.detailsArbre[static_cast<uint32>(kSprite)]).x, Milieu(ui.detailsArbre[static_cast<uint32>(kSprite)]).y);
+					t.Trame();
+					const bool seul = ui.detailsCartesDessinees == Bit(NkCarteEditeur::NK_SPRITE);
+					t.Clic(0, Milieu(ui.detailsArbre[0]).x, Milieu(ui.detailsArbre[0]).y);
+					t.Trame();
+					arbre = seul && (ui.detailsCartesDessinees & Bit(NkCarteEditeur::NK_TRANSFORM)) != 0u &&
+							(ui.detailsCartesDessinees & Bit(NkCarteEditeur::NK_SPRITE)) != 0u;
+				}
+				// (c) la pastille « Physique » : les seules cartes de physique
+				t.Clic(0, Milieu(ui.detailsPastilles[3]).x, Milieu(ui.detailsPastilles[3]).y);
+				t.Trame();
+				const uint32 physique = Bit(NkCarteEditeur::NK_COLLISIONNEUR) | Bit(NkCarteEditeur::NK_CORPS) | Bit(NkCarteEditeur::NK_CORPS_MOU);
+				const bool pastille = ui.detailsCategorie == 3 && ui.detailsCartesDessinees != 0u && (ui.detailsCartesDessinees & ~physique) == 0u;
+				t.Clic(0, Milieu(ui.detailsPastilles[0]).x, Milieu(ui.detailsPastilles[0]).y);
+				t.Trame();
+				// (d) la RECHERCHE « pivot » : la seule carte Sprite reste ; Echap la vide
+				t.Clic(0, Milieu(ui.detailsRechercheRect).x, Milieu(ui.detailsRechercheRect).y);
+				t.Taper("pivot");
+				t.Trame();
+				t.Trame();
+				const bool trouve = ui.detailsRechercheFocus && ui.detailsCartesDessinees == Bit(NkCarteEditeur::NK_SPRITE);
+				t.Touche(nkgui::NkGuiKey::Escape);
+				t.Trame();
+				t.Trame();
+				const bool vide = ui.detailsRecherche[0] == '\0' && (ui.detailsCartesDessinees & Bit(NkCarteEditeur::NK_TRANSFORM)) != 0u &&
+								  m.etat == NkEtatJeu::NK_EDITION;
+				// (e) la fleche de remise : seulement sur une valeur MODIFIEE
+				const uint32 remisesAvant = ui.detailsRemises;
+				NkTransform2D *tr = m.scene.Monde().Get<NkTransform2D>(m.selection);
+				const bool rotationNulle = tr != nullptr && tr->rotation == 0.f;
+				if (tr != nullptr) {
+					tr->rotation = 0.5f;
+				}
+				t.Trame();
+				const bool remise = rotationNulle && ui.detailsRemises == remisesAvant + 1u;
+				if (tr != nullptr) {
+					tr->rotation = 0.f;
+				}
+				t.Trame();
+				// (f) le VERROU de l'echelle : ferme, tirer X entraine Y
+				t.Clic(0, Milieu(ui.detailsVerrou).x, Milieu(ui.detailsVerrou).y);
+				bool verrou = ui.echelleVerrou && ui.detailsLiseres.Size() >= 5u;
+				if (verrou) {
+					const nkgui::NkRect lx = ui.detailsLiseres[3].lisere; // l'echelle X
+					t.Ctx().input.mousePos = nkgui::NkVec2{lx.x + 2.f, lx.y + lx.h * 0.5f};
+					t.souris.Appui(t.Ctx().input, 0);
+					t.Trame();
+					for (int32 k = 1; k <= 4; ++k) {
+						t.Ctx().input.mousePos = nkgui::NkVec2{lx.x + 2.f + 5.f * static_cast<float32>(k), lx.y + lx.h * 0.5f};
+						t.Trame();
+					}
+					t.souris.Relache(t.Ctx().input, 0);
+					t.Trame();
+					const NkVec2f e = NkEditeurEchelle(m, m.selection);
+					verrou = e.x > 1.05f && math::NkAbs(e.x - e.y) < 1.0e-3f;
+				}
+				// (g) la CLOISON des noms se tire : la colonne s'elargit
+				const float32 colAvant = ui.detailsColonne;
+				const float32 xc = ui.detailsCloisonX;
+				const float32 yc = ui.detailsLiseres.Empty() ? ui.details.y + 200.f : ui.detailsLiseres[0].champ.y + 10.f;
+				t.Glisser(xc, yc, xc + 40.f, yc);
+				const bool cloison = ui.detailsColonne > colAvant + 0.05f;
+				const bool ok = ajouter && racine && arbre && pastille && trouve && vide && remise && verrou && cloison;
+				if (!ok) {
+					std::printf("        ajouter %d racine %d arbre %d pastille %d (%x) trouve %d vide %d remise %d (%u) verrou %d cloison %d (%.2f)%c", ajouter,
+								racine, arbre, pastille, ui.detailsCartesDessinees, trouve, vide, remise, ui.detailsRemises, verrou, cloison,
+								static_cast<double>(ui.detailsColonne), 10);
+				}
+				Temoin(ok, "(u9) Details : + Ajouter, arbre, pastilles, recherche, remise si modifie, verrou d'echelle, cloison",
+					   static_cast<float32>(ajouter + racine + arbre + pastille + trouve + vide + remise + verrou + cloison));
 			}
 
 			m.chemin = cheminAvant;
