@@ -42,6 +42,10 @@
 //         difference, la liste n'est plus peinte, sa largeur est gardee ; un
 //         onglet clique (Formes) le deplie SUR cet onglet ; le chevron replie
 //         puis deplie de nouveau
+//   (m6)  L'ECLAIRAGE DE LA SCENE S'ALLUME ET S'ETEINT : l'interrupteur de la
+//         barre de la vue l'allume puis l'eteint ; celui de l'onglet Monde
+//         (« Allumé » / « Éteint ») aussi ; Ctrl+Z rend l'etat d'avant le
+//         dernier geste
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -54,6 +58,7 @@
 #include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
+#include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurPlacer.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -594,6 +599,41 @@ namespace nkentseu {
 				Temoin(ok, "(m5) Placer des acteurs : replie en colonne d'onglets, deplie sur un onglet", static_cast<float32>(large - NK_PLACER_REPLIE_L));
 			}
 
+			// (m6) L'INTERRUPTEUR DE L'ECLAIRAGE (retour 6 de Rihen).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				m.scene.Eclairage().actif = false;
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				t.Trame();
+				t.Trame();
+				nkgui::NkVec2 p = Milieu(ui.boutonEclairageVue);
+				t.Clic(0, p.x, p.y);
+				const bool vueAllume = m.scene.Eclairage().actif;
+				p = Milieu(ui.boutonEclairageVue);
+				t.Clic(0, p.x, p.y);
+				const bool vueEteint = !m.scene.Eclairage().actif;
+				ui.ongletDroite = 1; // l'onglet Monde
+				t.Trame();
+				p = Milieu(ui.boutonEclairageMonde);
+				t.Clic(0, p.x, p.y);
+				const bool mondeAllume = m.scene.Eclairage().actif;
+				t.Trame();
+				p = Milieu(ui.boutonEclairageMonde);
+				t.Clic(0, p.x, p.y);
+				const bool mondeEteint = !m.scene.Eclairage().actif;
+				NkEditeurAnnuler(m);
+				const bool annule = m.scene.Eclairage().actif;
+				ui.ongletDroite = 0;
+				const bool ok = vueAllume && vueEteint && mondeAllume && mondeEteint && annule;
+				if (!ok) {
+					std::printf("        vue %d/%d monde %d/%d annule %d%c", vueAllume, vueEteint, mondeAllume, mondeEteint, annule, 10);
+				}
+				Temoin(ok, "(m6) eclairage de la scene : interrupteurs de la vue et du Monde, Ctrl+Z",
+					   static_cast<float32>(vueAllume + vueEteint + mondeAllume + mondeEteint + annule));
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -677,6 +717,29 @@ namespace nkentseu {
 				T.Clic(0, p.x, p.y);
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/05c_placer_deplie_lumieres.png", dossier).CStr()) ? 0 : 1;
+				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 06 : l'interrupteur de l'eclairage, dans la barre de la vue et dans le
+			// Monde, sur la nuit au feu de camp (allumee, puis eteinte).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurSceneNuit(m);
+				m.aSelection = false;
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				T.W = 1600.f;
+				T.H = 900.f;
+				T.pctx->Init(1600, 900);
+				T.Ui().hauteurTiroir = 150.f;
+				T.Ui().ongletDroite = 1;
+				for (int32 k = 0; k < 4; ++k) {
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, NkString::Format("%s/06a_eclairage_allume.png", dossier).CStr()) ? 0 : 1;
+				const nkgui::NkVec2 p = Milieu(T.Ui().boutonEclairageVue);
+				T.Clic(0, p.x, p.y);
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/06b_eclairage_eteint.png", dossier).CStr()) ? 0 : 1;
 				memory::NkGetDefaultAllocator().Delete(pt);
 			}
 			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration

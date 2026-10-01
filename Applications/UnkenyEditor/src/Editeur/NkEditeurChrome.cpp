@@ -425,6 +425,7 @@ namespace nkentseu {
 					case NkMenuEditeur::NK_REGLAGES: {
 						out.PushBack(Entree("Grille", NK_A_GRILLE, "", m.voirGrille));
 						out.PushBack(Entree("Collisionneurs", NK_A_COLLISIONNEURS, "", m.voirCollisionneurs));
+						out.PushBack(Entree("Éclairage de la scène", NK_A_ECLAIRAGE, "", m.scene.Eclairage().actif));
 						out.PushBack(Separateur());
 						out.PushBack(Intitule("Matière"));
 						out.PushBack(Entree("Liens", NK_A_LIENS, "", m.rendu.liens));
@@ -1312,6 +1313,16 @@ namespace nkentseu {
 						NkEditeurRetenirEmpreinte(m, ui);
 					}
 					break;
+				case NK_A_ECLAIRAGE: {
+					// (2026-10-01, R33 point 6) L'interrupteur de l'eclairage de la scene :
+					// retenu (Ctrl+Z le remet), sauve avec la scene.
+					NkEditeurRetenir(m);
+					NkEclairage2D &ec = m.scene.Eclairage();
+					ec.actif = !ec.actif;
+					NkEditeurAnnoncer(m, ec.actif ? "Éclairage de la scène allumé (ambiance, lumières, ombres)"
+												  : "Éclairage de la scène éteint : la scène se dessine sans lumière ni ombre");
+					break;
+				}
 				case NK_A_CONSTRUIRE:
 					// Une DEMANDE, comme la fermeture : la fenetre (et son etat,
 					// processus compris) appartient a l'application.

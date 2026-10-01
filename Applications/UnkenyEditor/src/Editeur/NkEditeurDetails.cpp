@@ -2162,6 +2162,32 @@ namespace nkentseu {
 					return;
 				}
 				physics::NkParticules2D *p = m.scene.Particules();
+				// (2026-10-01, R33 point 6) L'INTERRUPTEUR DE L'ECLAIRAGE, en tete du
+				// Monde : deux boutons segmentes, « Allumé » / « Éteint » (le reglage
+				// fin reste plus bas, section Éclairage 2D).
+				{
+					const bool actif = m.scene.Eclairage().actif;
+					auto &dlm = ctx.DL();
+					const NkRect r0 = ctx.NextItemRect(0.f, 34.f);
+					const NkRect r{r0.x + 2.f, r0.y + 2.f, r0.w - 4.f, 30.f};
+					dlm.AddRectFilled(r, c.pal.entete, 4.f);
+					const float32 lw = renderer::NkTexteLargeur(c.police, "Éclairage de la scène") + 20.f;
+					renderer::NkTexte(dlm, c.police, r.x + 10.f, r.y + (r.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f,
+									  "Éclairage de la scène", c.pal.texte);
+					const float32 bw = (r.w - lw - 10.f) * 0.5f;
+					const NkRect on{r.x + lw, r.y + 3.f, bw - 2.f, r.h - 6.f};
+					const NkRect off{r.x + lw + bw, r.y + 3.f, bw - 2.f, r.h - 6.f};
+					c.ui.boutonEclairageMonde = actif ? off : on;
+					const bool dedans = NkEditeurDans(corps, ctx.input.mousePos);
+					if (NkEditeurBouton(c, on, "", actif, dedans, &dlm) && !actif) {
+						NkEditeurExecuter(c, NK_A_ECLAIRAGE);
+					}
+					renderer::NkTexteDansBoite(dlm, c.petite, on, "Allumé", actif ? c.pal.surAccent : c.pal.texte);
+					if (NkEditeurBouton(c, off, "", !actif, dedans, &dlm) && actif) {
+						NkEditeurExecuter(c, NK_A_ECLAIRAGE);
+					}
+					renderer::NkTexteDansBoite(dlm, c.petite, off, "Éteint", !actif ? c.pal.surAccent : c.pal.texte);
+				}
 				nkgui::Text(ctx, "Propriétés de la scène");
 				nkgui::Separator(ctx);
 				if (p != nullptr) {

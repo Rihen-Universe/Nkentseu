@@ -147,6 +147,7 @@ namespace nkentseu {
 			NK_A_DETACHER,				///< la selection devient une racine, a sa place
 			NK_A_ANNULER,				///< Ctrl+Z (2026-10-01, NkHistoriqueEditeur)
 			NK_A_REFAIRE,				///< Ctrl+Y / Ctrl+Maj+Z
+			NK_A_ECLAIRAGE,				///< l'eclairage 2D de la SCENE, allume / eteint (2026-10-01, R33)
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -715,6 +716,10 @@ namespace nkentseu {
 				/// clique, replie, le deplie sur cet onglet. Sa largeur est gardee.
 				bool placerReplie = false;
 				nkgui::NkRect placerChevron{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, R33 point 6) Les deux INTERRUPTEURS de l'eclairage de la
+				/// scene : celui de la barre de la vue, celui de l'onglet Monde.
+				nkgui::NkRect boutonEclairageVue{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonEclairageMonde{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture
 				char placerFiltre[32] = {};
 				bool placerFiltreFocus = false;

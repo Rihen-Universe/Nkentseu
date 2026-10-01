@@ -125,17 +125,40 @@ namespace nkentseu {
 				};
 				// L'accrochage n'est plus ici : il est dans la barre flottante du
 				// viseur, avec un interrupteur et un pas PAR GESTE (UE5).
-				const NkBouton boutons[3] = {
+				// (2026-10-01, R33 point 6) « Éclairage » : l'INTERRUPTEUR de l'eclairage
+				// 2D de la scene, enfonce quand il est allume (Rihen ne savait pas
+				// l'eteindre : seule une lumiere savait l'allumer).
+				const bool eclaire = c.m.scene.Eclairage().actif;
+				const NkBouton boutons[4] = {
 					{NkString("Cadrer"), NK_A_CADRER_SELECTION, false},
 					{NkString("Grille"), NK_A_GRILLE, c.m.voirGrille},
 					{NkString("Collisionneurs"), NK_A_COLLISIONNEURS, c.m.voirCollisionneurs},
+					{NkString(eclaire ? "Éclairage : allumé" : "Éclairage : éteint"), NK_A_ECLAIRAGE, eclaire},
 				};
-				for (int32 i = 0; i < 3; ++i) {
-					const float32 w = renderer::NkTexteLargeur(c.petite, boutons[i].texte.CStr()) + 16.f;
+				for (int32 i = 0; i < 4; ++i) {
+					const bool lampe = boutons[i].action == NK_A_ECLAIRAGE;
+					const float32 w = renderer::NkTexteLargeur(c.petite, boutons[i].texte.CStr()) + 16.f + (lampe ? 16.f : 0.f);
 					const NkRect r{x, b.y + 4.f, w, b.h - 8.f};
 					const bool clic = NkEditeurBouton(c, r, "", boutons[i].enfonce);
-					renderer::NkTexteDansBoite(dl, c.petite, r, boutons[i].texte.CStr(),
-											   boutons[i].enfonce ? c.pal.surAccent : c.pal.texte);
+					const NkColor ct = boutons[i].enfonce ? c.pal.surAccent : c.pal.texte;
+					if (lampe) {
+						// Un soleil trace, plein allume, creux eteint.
+						c.ui.boutonEclairageVue = r;
+						const float32 sx = r.x + 12.f, sy = r.y + r.h * 0.5f;
+						for (int32 k = 0; k < 8; ++k) {
+							const float32 a = 0.785398f * static_cast<float32>(k);
+							dl.AddLine(NkVec2{sx + math::NkCos(a) * 4.5f, sy + math::NkSin(a) * 4.5f},
+									   NkVec2{sx + math::NkCos(a) * 6.5f, sy + math::NkSin(a) * 6.5f}, ct, 1.2f);
+						}
+						if (eclaire) {
+							dl.AddCircleFilled(NkVec2{sx, sy}, 3.f, ct);
+						} else {
+							dl.AddCircle(NkVec2{sx, sy}, 3.f, ct, 1.2f);
+						}
+						renderer::NkTexteDansBoite(dl, c.petite, NkRect{r.x + 16.f, r.y, r.w - 16.f, r.h}, boutons[i].texte.CStr(), ct);
+					} else {
+						renderer::NkTexteDansBoite(dl, c.petite, r, boutons[i].texte.CStr(), ct);
+					}
 					if (clic) {
 						NkEditeurExecuter(c, boutons[i].action);
 					}
