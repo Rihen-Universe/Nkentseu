@@ -109,6 +109,23 @@ namespace nkentseu {
 				/// demandé au disque. Additif, neutre par défaut : un hôte qui ne le
 				/// renseigne pas garde exactement le dessin d'avant.
 				uint8 contenu = 0;
+
+				/// (2026-10-01) LA COULEUR CHOISIE PAR L'UTILISATEUR pour un dossier
+				/// (Unreal : « Set Color »), 0xRRGGBBAA. Ce n'est pas un jeton de style :
+				/// c'est une DONNEE, que l'utilisateur pose dossier par dossier et que
+				/// l'application garde (`NkContentBrowserDisque.h`, la memoire du
+				/// navigateur). 0 = la teinte du style, le dessin d'avant.
+				uint32 couleur = 0;
+		};
+
+		/// (2026-10-01) UNE COLLECTION, telle que la section « Collections » de la
+		/// variante Unreal la montre : un nom, une couleur, un COMPTE. Ce qu'elle
+		/// contient, l'application le sait (sa memoire) ; le composant n'en peint
+		/// que la ligne.
+		struct NkBrowserCollection {
+				NkString nom;
+				uint32 couleur = 0; ///< 0xRRGGBBAA, 0 = la teinte du style
+				uint32 compte = 0;
 		};
 
 		// ⚠️ `NkAssetIcone` ET `NkDessinerSilhouette` ONT DEMENAGE (05/09, nuit) dans
@@ -245,6 +262,70 @@ namespace nkentseu {
 				NkString glisserLibelle; ///< ce que le fantome affiche
 				bool glisserRail = false;
 
+				// ═══ LA VARIANTE UNREAL (2026-10-01, document 02 §3 et §3.1 ═══
+				// ═══ d'UnkenyEditor). AJOUTES A LA FIN ; aucun n'est lu par les ═══
+				// ═══ variantes d'avant, qui ne changent pas d'un pixel.         ═══
+				// Rihen, 01/10 : « on ne peut pas selectionner les dossiers ; pas de
+				// copier / coller / couper ; pas de deplacer par glisser ». Ce qui
+				// suit est l'ETAT de ces gestes ; leur EFFET sur le disque reste a
+				// l'hote (`NkContentBrowserDisque.h`).
+
+				/// L'ANCRE de la selection par plage (Maj+clic), un index d'entree.
+				int32 ancre = -1;
+				/// Appui sur une carte DEJA choisie, sans modificateur, dans une
+				/// selection multiple : elle ne se reduit a cette carte qu'AU
+				/// RELACHEMENT, et seulement si aucun glisser n'a eu lieu. Sans ce
+				/// report, on ne pourrait jamais trainer plusieurs cartes (Unreal).
+				int32 reduireAuRelache = -1;
+				/// Le CADRE de selection : un glisser qui part du vide de la grille.
+				bool cadreArme = false;
+				bool cadreActif = false;
+				float32 cadreX0 = 0.f, cadreY0 = 0.f;
+				NkVector<int32> cadreAvant; ///< la selection d'avant (Ctrl : le cadre s'y ajoute)
+				/// Le navigateur a le FOCUS clavier : le dernier clic est tombe dedans.
+				/// L'hote s'en sert pour router Ctrl+C / Ctrl+V / F2 / Suppr vers le
+				/// contenu plutot que vers la scene.
+				bool focus = false;
+				/// L'HISTORIQUE de navigation (precedent / suivant). L'hote pose
+				/// `cheminCourant` a chaque image ; le composant empile ce qui change.
+				NkString cheminCourant;
+				NkVector<NkString> historique;
+				int32 historiquePos = -1;
+				/// Le verrou d'Unreal : le navigateur ne SUIT plus les demandes de
+				/// l'application (un import n'y fait plus sauter la vue).
+				bool verrouille = false;
+				/// Les sections du volet des sources, repliables (Unreal).
+				bool favorisOuverts = true;
+				bool projetOuvert = true;
+				bool collectionsOuvertes = true;
+				/// Le titre de la section du projet (Unreal : le nom du projet).
+				NkString nomProjet;
+				/// Les FAVORIS : des dossiers, par chemin (le meme que celui des nœuds de
+				/// `folders`) ; `favorisCouleurs` est parallele (0 = teinte du style).
+				NkVector<NkString> favoris;
+				NkVector<uint32> favorisCouleurs;
+				/// Les COLLECTIONS et celle qu'on regarde (-1 = aucune).
+				NkVector<NkBrowserCollection> collections;
+				int32 collectionActive = -1;
+				/// La recherche ouverte dans une section des sources : 0 aucune,
+				/// 1 Favoris, 2 le projet (elle ecrit dans `folders.filter`), 3 Collections.
+				uint8 sourcesRecherche = 0;
+				bool sourcesRechercheFocus = false;
+				char filtreFavoris[64] = {};
+				char filtreCollections[64] = {};
+				/// La rangee des puces de type (zone 4), ouverte par l'entonnoir.
+				bool filtresOuverts = true;
+				/// Reglage d'Unreal « Show Folders » : les dossiers dans la vue.
+				bool montrerDossiers = true;
+				/// Le RENOMMAGE EN PLACE (F2) : l'index d'entree dont le nom s'edite,
+				/// -1 = aucun. L'hote, qui a le clavier, ecrit dans `renommeTampon` et
+				/// valide ; le composant lui reserve la place et la rapporte.
+				int32 renomme = -1;
+				char renommeTampon[128] = {};
+				/// TOUT ce qu'on traine (la selection), le premier etant `glisserChemin`.
+				NkVector<NkString> armeChemins;
+				NkVector<NkString> glisserChemins;
+
 				/// Tout oublier : appele au lacher, et par l'hote quand le dialogue se
 				/// ferme. Un glisser qui survit a la fermeture se reveillerait au
 				/// prochain lacher, sur une liste qui n'a plus rien a voir.
@@ -255,6 +336,8 @@ namespace nkentseu {
 					glisserLibelle = NkString();
 					armeRail = false;
 					glisserRail = false;
+					armeChemins.Clear();
+					glisserChemins.Clear();
 				}
 
 				bool IsChosen(int32 i) const {
@@ -292,6 +375,17 @@ namespace nkentseu {
 			/// Bootstrap/React » (Rodolf, 2026-08-30). Ajoute EN FIN d'enumeration,
 			/// regle append-only : ces valeurs finissent dans des fichiers.
 			Minimal,
+			/// (2026-10-01) LES SEPT ZONES DU CONTENT BROWSER D'UNREAL 5 (document 02
+			/// §3 d'UnkenyEditor) : barre « + Ajouter / Importer / Tout enregistrer »,
+			/// precedent / suivant, fil d'Ariane, verrou, reglages ; sources en
+			/// sections repliables (Favoris, le projet, Collections) ; puces de type ;
+			/// recherche et tri ; cartes d'Unreal (bande de couleur du type, nom sur
+			/// deux lignes, type en gris ; cartes de dossier) ; ligne d'etat.
+			/// ⚠️ UNE VARIANTE, PAS UN SECOND COMPOSANT : meme modele, memes greffes.
+			///    Les champs qu'elle lit dans le modele sont des ETATS de gestes
+			///    (ancre, cadre, historique...) que toute variante pourra reprendre ;
+			///    aucun n'est une decision de rendu.
+			Unreal,
 			Count
 		};
 
@@ -345,6 +439,14 @@ namespace nkentseu {
 				/// d'icones d'aucune application. A zero, l'arbre dessine sans
 				/// chevron visible, comme tout tree_view sans icones.
 				NkTreeViewIcons treeIcons;
+
+				// Jetons de la VARIANTE UNREAL (2026-10-01), ajoutes A LA FIN. A zero,
+				// le dessin retombe sur un role voisin (dit a chaque lecture) : un hote
+				// qui ne les pose pas voit quand meme un navigateur juste.
+				uint16 cardHover = 0;	 ///< fond d'une carte survolee (repli : chipBg)
+				uint16 addMark = 0;		 ///< le « + » vert de « Ajouter » (repli : activeMark)
+				uint16 dragMark = 0;	 ///< l'AMBRE de la cible d'un glisser (repli : chosenMark)
+				uint16 textOnAccent = 0; ///< le texte sur une carte choisie (repli : text)
 		};
 
 		/// Lecture d'une metrique du navigateur, avec sa source unique. Le dessin
@@ -444,6 +546,19 @@ namespace nkentseu {
 				void (*onCreate)(void *user) = nullptr;
 				void (*onImport)(void *user) = nullptr;
 				void (*onSaveAll)(void *user) = nullptr;
+
+				// ── (2026-10-01) LA VIGNETTE DE L'APPLICATION : SA TOUCHE ──────────
+				// Document 02 §3.1 : « nos touches : les icones de types d'Unkeny (scene,
+				// prefab, controleur d'animation, image, son, police) et de VRAIS
+				// apercus ». La bibliotheque de silhouettes du kit est FERMEE, et c'est
+				// delibere (`NkSilhouettes.h` : « les natures que tout systeme de
+				// fichiers connait, pas celles d'une application »). Une scene Unkeny
+				// n'en est pas une ; elle se peint donc ICI, par l'application.
+				// Appele apres la poignee de texture et les cellules, AVANT la
+				// silhouette : vrai = l'application a peint la zone, le kit n'y ajoute
+				// rien. Faux = repli sur la silhouette, comme une poignee nulle.
+				bool (*vignetteApp)(void *user, NkComponentPaint &p, int32 index, float32 x, float32 y,
+									float32 w, float32 h) = nullptr;
 		};
 
 		// ── CE QUE LE DESSIN REND ───────────────────────────────────────────────
@@ -576,6 +691,53 @@ namespace nkentseu {
 				//    ecrit dans `filter`. Aucun second chemin de saisie n'est ecrit.
 				/// w == 0 : cette variante n'a pas de boite de recherche (minimal).
 				float32 rechercheX = 0.f, rechercheY = 0.f, rechercheW = 0.f, rechercheH = 0.f;
+
+				// ── (2026-10-01) LA VARIANTE UNREAL : CE QU'ELLE RAPPORTE ───────────
+				// Toujours la meme forme : le composant SIGNALE et donne l'ENDROIT ;
+				// l'hote ouvre son menu, son champ, sa boite. ADDITIF ET INERTE : les
+				// variantes d'avant ne remplissent aucun de ces champs.
+
+				/// « + Ajouter », « Reglages », le bouton de tri : l'hote ouvre SON menu
+				/// sous le bouton (creer quoi, regler quoi : des decisions d'application).
+				bool ajouterDemande = false;
+				bool reglagesDemandes = false;
+				bool triDemande = false;
+				float32 menuBoutonX = 0.f, menuBoutonY = 0.f, menuBoutonW = 0.f, menuBoutonH = 0.f;
+				/// Les rectangles des trois boutons de tete, a chaque image (le banc y
+				/// vise ses clics ; w == 0 : non dessine).
+				float32 ajouterX = 0.f, ajouterY = 0.f, ajouterW = 0.f, ajouterH = 0.f;
+				float32 importerX = 0.f, importerY = 0.f, importerW = 0.f, importerH = 0.f;
+				/// Precedent / suivant : le chemin a rejoindre (`onNavigate` part aussi).
+				NkString allerA;
+				/// TOUT ce qui a ete lache (la selection trainee) ; `deposeSource` en
+				/// est le premier. Et l'endroit du lacher : le menu « Deplacer ici /
+				/// Copier ici » s'y ouvre.
+				NkVector<NkString> deposeSources;
+				float32 deposeX = 0.f, deposeY = 0.f;
+				/// Le DOSSIER sous la souris (grille, rail, favoris), glisser ou non.
+				/// Un depot de fichiers de l'OS arrive hors de l'image : l'hote garde
+				/// ce chemin pour savoir ou importer.
+				NkString survolDossier;
+				/// Les sections des sources.
+				NkString favoriClique;			///< un favori a ete clique (navigation)
+				int32 collectionCliquee = -1;	///< une collection a ete choisie
+				bool collectionCreer = false;	///< le « + » des Collections
+				int32 menuCollection = -1;		///< clic droit sur une collection
+				/// Le CHAMP que l'hote peint : la recherche d'une section des sources,
+				/// avec le tampon ou il doit ecrire (`folders.filter`, `filtreFavoris`
+				/// ou `filtreCollections`). w == 0 : aucune recherche ouverte.
+				float32 sourcesRechercheX = 0.f, sourcesRechercheY = 0.f, sourcesRechercheW = 0.f,
+						sourcesRechercheH = 0.f;
+				char *sourcesTampon = nullptr;
+				int32 sourcesTamponTaille = 0;
+				/// Le champ du RENOMMAGE EN PLACE (`NkContentBrowserModel::renomme`),
+				/// pose sur le nom de la carte. w == 0 : carte hors champ ou aucun.
+				float32 renommeX = 0.f, renommeY = 0.f, renommeW = 0.f, renommeH = 0.f;
+				/// La vue ne montre RIEN (l'etat vide d'Unreal est peint).
+				bool vide = false;
+				/// Le nombre d'entrees VISIBLES (apres recherche et puces) : la ligne
+				/// d'etat le dit, le banc le lit.
+				int32 nbVisibles = 0;
 		};
 
 		// ── LA SIGNATURE TYPE ───────────────────────────────────────────────────
@@ -623,6 +785,11 @@ namespace nkentseu {
 				{"columns", "Colonnes", "colonnes triables : nom, type, taille, date"},
 				{"minimal", "Minimale", "l'ancien rendu nu : en-tête, fil d'Ariane, grille de "
 										"cartes — gardée comme variante, l'application choisit"},
+				{"unreal", "Unreal 5", "les sept zones du Content Browser d'Unreal 5 : + Ajouter / "
+									   "Importer / Tout enregistrer, précédent / suivant, fil "
+									   "d'Ariane, verrou, réglages ; Favoris, projet et Collections "
+									   "repliables ; cartes d'Unreal (bande du type, nom sur deux "
+									   "lignes) ; ligne d'état (2026-10-01)"},
 			};
 			static const NkParamDecl kParams[] = {
 				{"thumb_size", "Taille des vignettes", NkParamKind::Float, 96.f, 48.f, 256.f, nullptr, 0},
@@ -679,6 +846,12 @@ namespace nkentseu {
 				//    bougent pas d'un pixel.
 				{"show_badge", "Badge de type sur la vignette", NkParamKind::Bool, 1.f, 0.f, 0.f,
 				 nullptr, 0},
+				// (2026-10-01) La variante Unreal : ses deux sections facultatives du
+				// volet des sources. Defaut 1, et les autres variantes ne les lisent pas.
+				{"show_favorites", "Section « Favoris » des sources", NkParamKind::Bool, 1.f, 0.f, 0.f,
+				 nullptr, 0},
+				{"show_collections", "Section « Collections » des sources", NkParamKind::Bool, 1.f, 0.f,
+				 0.f, nullptr, 0},
 			};
 			static const NkTokenDecl kTokens[] = {
 				{"panel_bg", "panel_bg", "fond du panneau"},
@@ -697,6 +870,12 @@ namespace nkentseu {
 				{"badge_text", "panel_bg", "texte du badge de type sur la carte (le fond du badge "
 										  "est le role de la nature, sombre sur clair)"},
 				{"status_bg", "panel_header", "fond de la barre d'état basse"},
+				// (2026-10-01) La variante Unreal, A LA FIN.
+				{"card_hover", "button_bg", "fond d'une carte survolée (Unreal : éclairci)"},
+				{"add_mark", "status_ok", "le « + » vert du bouton Ajouter"},
+				{"drag_mark", "accent_sel", "l'ambre de la cible d'un glisser et de la sélection "
+											"secondaire"},
+				{"text_on_accent", "text_on_accent", "le texte d'une carte choisie (fond bleu)"},
 			};
 			static const NkMetricDecl kMetrics[] = {
 				{"card_gap", 12.f, "gouttiere entre deux cartes"},
@@ -725,6 +904,11 @@ namespace nkentseu {
 				//    ordinaire.
 				{"drag_threshold", 5.f,
 				 "distance à parcourir, appui maintenu, avant qu'un clic devienne un glisser"},
+				// (2026-10-01) La variante Unreal, A LA FIN.
+				{"section_h", 26.f, "titre d'une section des sources (Favoris, projet, Collections)"},
+				{"type_band", 2.f, "bande de la couleur du type, sous la vignette d'une carte"},
+				{"icon_btn", 24.f, "bouton à icône de la barre (précédent, suivant, verrou)"},
+				{"card_round", 2.f, "coins d'une carte : à peine arrondis (la touche de la famille)"},
 			};
 			// ⚠️ TROIS ENTREES ONT QUITTE CETTE TABLE le 18/08 (seconde passe) :
 			//    `on_activate`, `on_context_menu`, `on_drop_into` sont des

@@ -618,8 +618,9 @@ namespace nkentseu {
 						const NkPaintRect ri{x, row.y, iconW, rowH};
 						const NkAssetIcone sil = (NkAssetIcone)n.silhouette;
 						if (sil != NkAssetIcone::Auto && sil < NkAssetIcone::Count)
-							NkDessinerSilhouette(p, ri, sil, n.kindRole ? n.kindRole : s.iconTint,
-												 n.contenu);
+							// (2026-10-01) La couleur CHOISIE d'un dossier, si l'hote en pose une.
+							NkDessinerSilhouetteCouleur(p, ri, sil, n.kindRole ? n.kindRole : s.iconTint,
+														n.couleur, n.contenu);
 						else
 							p.Icon(ri, n.icon, n.kindRole ? n.kindRole : s.iconTint);
 					}
