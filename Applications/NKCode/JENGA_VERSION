@@ -18,5 +18,5 @@
 # seul, et NKCode refuse de se construire si le wheel ne suit pas.
 #
 # Le tag correspondant doit exister sur Rihen-Universe/Jenga, prefixe
-# d'un « v » : 2.8.7 ici, v2.8.7 la-bas.
-2.8.7
+# d'un « v » : 2.8.8 ici, v2.8.8 la-bas.
+2.8.8
