@@ -28,6 +28,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Physic2D/Physic2DBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 #include "Physic2D/Physic2DActeurs.h"
 #include "NKPhysics/NkParticules2DFabrique.h"
 
@@ -78,7 +79,7 @@ namespace nkentseu {
 			std::printf("Physic2D — banc de l'integration Unkeny (NKECS + NKPhysics + NkParticules2D)\n\n");
 
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, false, true);
 				Temoin(s.MondePhysique() != nullptr && s.Particules() != nullptr,
 					   "(u1) particules seules : le monde physique est cree aussi", 1.f);
@@ -87,7 +88,7 @@ namespace nkentseu {
 			// (u2) (u3) (u4) (u8)
 			for (int32 k = 0; k < 2; ++k) {
 				const bool couple = k == 0;
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, true, true);
 				NkChargerNiveau(s, NK_NB_NIVEAUX - 1);
 				const ecs::NkEntityId caisse = NkPoserActeur(s, NkActeur::NK_CAISSE, NkVec2f(0.f, 0.8f));
@@ -126,13 +127,13 @@ namespace nkentseu {
 
 			// (u5) photo
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, true, true);
 				NkChargerNiveau(s, NK_NB_NIVEAUX - 1);
 				NkPoserActeur(s, NkActeur::NK_CAISSE, NkVec2f(-2.f, 3.f));
 				const ecs::NkEntityId blob = NkPoserActeur(s, NkActeur::NK_BLOB, NkVec2f(2.f, 3.f));
 				Avancer(s, 0.3f);
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				const float32 yBlob = YCorps(s, blob);
 				NkVector<ecs::NkEntityId> avant;
@@ -174,7 +175,7 @@ namespace nkentseu {
 
 			// (u6) (u7)
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, true, true);
 				NkChargerNiveau(s, NK_NB_NIVEAUX - 1);
 				const ecs::NkEntityId a = NkPoserActeur(s, NkActeur::NK_GELEE, NkVec2f(-3.f, 2.f));
@@ -190,7 +191,7 @@ namespace nkentseu {
 
 			// (u9) niveaux
 			for (int32 niv = 0; niv < NK_NB_NIVEAUX; ++niv) {
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, true, true);
 				NkChargerNiveau(s, niv);
 				const uint32 n0 = static_cast<uint32>(s.Particules()->particules.Size());
@@ -210,13 +211,13 @@ namespace nkentseu {
 
 			// (u10) sauvegarde de chaque niveau
 			for (int32 niv = 0; niv < NK_NB_NIVEAUX; ++niv) {
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s, true, true);
 				NkChargerNiveau(s, niv);
 				Avancer(s, 1.f);
 				NkString json;
 				const bool ecrit = NkSauverSceneJSON(s, json);
-				NkScene r;
+				NK_BANC_SUR_TAS(NkScene, r);
 				r.PhotographierAussi<NkDecor2D>("physic2d.NkDecor2D");
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(r, json.View(), nullptr, &err);

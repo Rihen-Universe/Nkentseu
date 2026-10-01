@@ -52,6 +52,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 
 #include "NKPhysics/NkParticules2DFabrique.h"
 #include "Unkeny/Entree/NkUnkenyActions.h"
@@ -163,7 +164,7 @@ namespace nkentseu {
 			void TemoinsContacts() {
 				for (int32 k = 0; k < 2; ++k) {
 					const bool traverse = k == 0;
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId zone = Boite(s, "Fin", NkVec2f(traverse ? 0.f : 4.f, 2.f), NkVec2f(1.f, 0.3f), NkTypeCorps::NK_STATIQUE, true);
@@ -186,7 +187,7 @@ namespace nkentseu {
 					}
 				}
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					const ecs::NkEntityId caisse = Boite(s, "Caisse", NkVec2f(0.f, 0.5f), NkVec2f(1.5f, 0.5f));
 					const ecs::NkEntityId g = Gelee(s, NkVec2f(0.f, 2.f));
@@ -204,7 +205,7 @@ namespace nkentseu {
 					// 10 kg ; l'ecart ne disait rien de la photo. Ici la gelee est POSEE
 					// sur la caisse, attachee par le bas, et c'est la caisse qu'on pousse
 					// apres la photo : la gelee doit suivre.
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId caisse = Boite(s, "Caisse", NkVec2f(0.f, 0.3f), NkVec2f(0.6f, 0.3f), NkTypeCorps::NK_DYNAMIQUE);
@@ -221,7 +222,7 @@ namespace nkentseu {
 					for (int32 i = 0; i < 30; ++i) {
 						s.Pas(1.f / 60.f);
 					}
-					NkScene::NkPhoto photo;
+					NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 					s.Photographier(photo);
 					s.Restaurer(photo);
 					NkVector<ecs::NkEntityId> ids;
@@ -265,7 +266,7 @@ namespace nkentseu {
 			void TemoinsRigide() {
 				// (c1) marcher ; (c2) sauter ; (c2n) en l'air
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(40.f, 0.5f));
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(-10.f, 0.4f));
@@ -302,7 +303,7 @@ namespace nkentseu {
 				// l'avoir quitte.
 				for (int32 k = 0; k < 2; ++k) {
 					const int32 attente = k == 0 ? 3 : 18;
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Bord", NkVec2f(-5.f, -0.5f), NkVec2f(5.f, 0.5f)); // s'arrete en x = 0
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(-1.f, 0.4f));
@@ -334,7 +335,7 @@ namespace nkentseu {
 				}
 				// (c4) (c4n) tampon : demande juste avant d'atterrir.
 				for (int32 k = 0; k < 2; ++k) {
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(0.f, 2.f));
@@ -362,7 +363,7 @@ namespace nkentseu {
 				}
 				// (c5) controle en l'air
 				for (int32 k = 0; k < 2; ++k) {
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(0.f, 0.4f));
@@ -390,7 +391,7 @@ namespace nkentseu {
 				}
 				// (c6) plateforme mobile
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					const ecs::NkEntityId pf = Boite(s, "Plateforme", NkVec2f(0.f, -0.25f), NkVec2f(3.f, 0.25f), NkTypeCorps::NK_CINEMATIQUE);
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(0.f, 0.4f));
@@ -412,7 +413,7 @@ namespace nkentseu {
 			void TemoinsMou() {
 				// (c7)
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(40.f, 0.5f));
 					const ecs::NkEntityId g = Gelee(s, NkVec2f(-10.f, 0.4f));
@@ -449,7 +450,7 @@ namespace nkentseu {
 				}
 				// (c8) les pieds disent le sol
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId g = Gelee(s, NkVec2f(0.f, 0.4f));
@@ -478,7 +479,7 @@ namespace nkentseu {
 			void TemoinsSauvegarde() {
 				// (w1)
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(-3.f, 0.4f));
@@ -499,7 +500,7 @@ namespace nkentseu {
 					s.Monde().Add<NkControleMou2D>(g, cm);
 					NkString json;
 					NkSauverSceneJSON(s, json, nullptr);
-					NkScene t;
+					NK_BANC_SUR_TAS(NkScene, t);
 					NkString err;
 					const bool lu = NkChargerSceneJSON(t, json.View(), nullptr, &err);
 					const NkControleRigide2D *r = nullptr;
@@ -540,7 +541,7 @@ namespace nkentseu {
 						"   \"corps\": {\"type\": 2, \"masse\": 12, \"amortLineaire\": 0, \"amortAngulaire\": 0.05, \"echelleGravite\": 1,"
 						"    \"rotationBloquee\": false, \"friction\": 0.7, \"rebond\": 0}}"
 						" ]}";
-					NkScene t;
+					NK_BANC_SUR_TAS(NkScene, t);
 					NkString err;
 					const bool lu = NkChargerSceneJSON(t, ancienne, nullptr, &err);
 					NkVector<ecs::NkEntityId> ids;
@@ -570,7 +571,7 @@ namespace nkentseu {
 				}
 				// (w2) la photo garde l'etat
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId h = Rigide(s, NkVec2f(0.f, 0.4f));
@@ -582,7 +583,7 @@ namespace nkentseu {
 					}
 					Trame(s, a, 0.f, true);
 					Trame(s, a, 0.f, false);
-					NkScene::NkPhoto photo;
+					NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 					s.Photographier(photo);
 					s.Restaurer(photo);
 					NkVector<ecs::NkEntityId> ids;
@@ -596,7 +597,7 @@ namespace nkentseu {
 				}
 				// (w3) parties et attaches par fichier
 				{
-					NkScene s;
+					NK_BANC_SUR_TAS(NkScene, s);
 					Scene(s);
 					Boite(s, "Sol", NkVec2f(0.f, -0.5f), NkVec2f(20.f, 0.5f));
 					const ecs::NkEntityId caisse = Boite(s, "Caisse", NkVec2f(0.f, 0.3f), NkVec2f(0.4f, 0.3f), NkTypeCorps::NK_DYNAMIQUE);
@@ -612,7 +613,7 @@ namespace nkentseu {
 																  s.Monde().Get<NkCorps2D>(caisse)->corpsId);
 					NkString json;
 					NkSauverSceneJSON(s, json, nullptr);
-					NkScene t;
+					NK_BANC_SUR_TAS(NkScene, t);
 					NkString err;
 					const bool lu = NkChargerSceneJSON(t, json.View(), nullptr, &err);
 					uint32 nouveau = 0;
@@ -687,7 +688,7 @@ namespace nkentseu {
 
 			Bilan Partie(bool mou, bool avecSauts) {
 				Bilan b;
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				Scene(s);
 				Niveau n;
 				NkConstruireNiveauGelee(s, n, mou);

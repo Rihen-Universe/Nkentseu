@@ -32,6 +32,7 @@
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
 #include "NKFileSystem/NkPath.h"
@@ -121,7 +122,7 @@ namespace nkentseu {
 
 			// (z5) (z6) (z7)
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = false;
 				s.Init(cfg);
@@ -171,7 +172,7 @@ namespace nkentseu {
 				// (z7)
 				NkString json;
 				const bool ecrit = NkSauverSceneJSON(s, json, static_cast<const NkTextures2D *>(nullptr));
-				NkScene t;
+				NK_BANC_SUR_TAS(NkScene, t);
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(t, json.View(), static_cast<NkTextures2D *>(nullptr), &err);
 				const NkAncrageEcran2D *ra = nullptr;

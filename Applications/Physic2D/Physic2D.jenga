@@ -114,6 +114,10 @@ with project("Physic2D"):
         # `--selftest` tombait des l'entree en STATUS_STACK_OVERFLOW (0xC00000FD,
         # mesure du 2026-09-29 avec la pile par defaut de 2 Mo), sans une ligne
         # de sortie. Chaine clang-mingw (ld de msys2), d'ou -Wl,--stack.
+        # 2026-10-01 : les scenes des bancs vivent desormais sur le tas
+        # (Unkeny/Banc/NkUnkenyBancTas.h) -- NkUnkenyLancerBancStructure, a 37
+        # scenes, depassait meme ces 32 Mo sous macOS. Plus grosse trame mesuree
+        # ensuite : 0,8 Mo (NkCanvasApp::Run). Les 32 Mo restent une marge.
         ldflags(["-Wl,--stack,33554432"])
 
     with filter("system:Linux && options:linux-backend=headless || system:Linux && options:headless"):
@@ -166,6 +170,10 @@ with project("Physic2D"):
         # PILE DE 32 Mo, comme sous Windows et comme UnkenyEditor : le banc
         # d'Unkeny demande ~11 Mo de pile en Debug, le fil principal macOS en a
         # 8 (EXC_BAD_ACCESS dans ___chkstk_darwin, CI macOS du 2026-09-30).
+        # 2026-10-01 : les scenes des bancs vivent desormais sur le tas
+        # (Unkeny/Banc/NkUnkenyBancTas.h) -- NkUnkenyLancerBancStructure, a 37
+        # scenes, depassait meme ces 32 Mo sous macOS. Plus grosse trame mesuree
+        # ensuite : 0,8 Mo (NkCanvasApp::Run). Les 32 Mo restent une marge.
         ldflags(["-Wl,-stack_size,0x2000000"])
 
     with filter("system:Android"):

@@ -60,6 +60,7 @@
 // =============================================================================
 
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 
 #include "NKECS/Hierarchy/NkHierarchy.h"
 #include "NKSerialization/Asset/NkAssetMetadata.h"
@@ -367,7 +368,7 @@ namespace nkentseu {
 
 			// (h1) (h2) (h3) (h4)
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				s.Init(cfg);
 				const ecs::NkEntityId p = s.Creer("P", NkVec2f(1.f, 2.f));
@@ -424,7 +425,7 @@ namespace nkentseu {
 
 			// (h5 bis) (h6) avec la physique
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				s.Init(cfg);
@@ -463,7 +464,7 @@ namespace nkentseu {
 
 			// (h7) (i1) (i1n) (i2) (i3) (i3n) : photo et fichier
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				s.Init(cfg);
 				DeclarerBanc(s);
@@ -481,7 +482,7 @@ namespace nkentseu {
 				cible.n = 5;
 				s.Monde().Add<NkBancCible>(b, cible);
 				s.Monde().Add<NkBancCibleBrute>(b, NkBancCibleBrute{a});
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				const NkVec2f mondeC = s.Monde().Get<NkTransform2D>(c)->position;
 				s.Restaurer(photo);
@@ -514,7 +515,7 @@ namespace nkentseu {
 				// (i2) (h7 fichier) (i3 fichier)
 				NkString json;
 				const bool ecrit = NkSauverSceneJSON(s, json, static_cast<const NkTextures2D *>(nullptr));
-				NkScene t;
+				NK_BANC_SUR_TAS(NkScene, t);
 				DeclarerBanc(t);
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(t, json.View(), static_cast<NkTextures2D *>(nullptr), &err);
@@ -557,7 +558,7 @@ namespace nkentseu {
 					retouche.Append(apres);
 					retouche.Append(at + std::strlen(avant));
 				}
-				NkScene u;
+				NK_BANC_SUR_TAS(NkScene, u);
 				DeclarerBanc(u);
 				const bool lu4 = at != nullptr && NkChargerSceneJSON(u, retouche.View(), static_cast<NkTextures2D *>(nullptr), &err);
 				const ecs::NkEntityId c4 = u.EntiteParUid(uc);
@@ -571,7 +572,7 @@ namespace nkentseu {
 			// (f1) (f2) LA FUSION du 30/09 avec la physique : hierarchie, attache
 			//      particule-rigide et controleur, ENSEMBLE
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				cfg.particules = true;
@@ -657,12 +658,12 @@ namespace nkentseu {
 
 				NkString json;
 				NkSauverSceneJSON(s, json, static_cast<const NkTextures2D *>(nullptr));
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				s.Restaurer(photo);
 				NkString quoi1;
 				const bool okPhoto = Verifier(s, true, quoi1);
-				NkScene t;
+				NK_BANC_SUR_TAS(NkScene, t);
 				NkString err;
 				const bool lu = NkChargerSceneJSON(t, json.View(), static_cast<NkTextures2D *>(nullptr), &err);
 				NkString quoi2;
@@ -691,7 +692,7 @@ namespace nkentseu {
 				a.SetObjectArray(NkStringView("entites"), entites);
 				NkString physiqueV1;
 				NkJSONWriter::WriteArchive(a, physiqueV1, true, 1);
-				NkScene u;
+				NK_BANC_SUR_TAS(NkScene, u);
 				const bool lu2 = NkChargerSceneJSON(u, physiqueV1.View(), static_cast<NkTextures2D *>(nullptr), &err);
 				NkString quoi3;
 				const bool okV1 = lu2 && Verifier(u, false, quoi3) &&
@@ -714,10 +715,10 @@ namespace nkentseu {
 				bip.Resize(480);
 				sons.Creer(bip.Data(), bip.Size(), 48000, "a");
 				sons.Creer(bip.Data(), bip.Size(), 48000, "b");
-				NkRessourcesScene r;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r);
 				r.textures = &tex;
 				r.sons = &sons;
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				s.PhotographierAussi<NkBancMarqueV1>("banc.NkBancMarque");
 				NkString err;
 				const bool lu = NkChargerSceneJSON(s, NkStringView(kSceneV1), r, &err);
@@ -731,7 +732,7 @@ namespace nkentseu {
 				}
 				NkString v2;
 				const bool reecrit = lu && NkSauverSceneJSON(s, v2, r);
-				NkScene t;
+				NK_BANC_SUR_TAS(NkScene, t);
 				t.PhotographierAussi<NkBancMarqueV1>("banc.NkBancMarque");
 				const bool relu = reecrit && NkChargerSceneJSON(t, v2.View(), r, &err);
 				NkString quoi2;
@@ -750,7 +751,7 @@ namespace nkentseu {
 
 			// (r1) (r1n) l'ajout d'un champ
 			{
-				NkScene s1;
+				NK_BANC_SUR_TAS(NkScene, s1);
 				NkSceneConfig cfg;
 				s1.Init(cfg);
 				s1.PhotographierAussi<NkBancVersion1>("banc.Version", kChampsV1, 2u);
@@ -760,7 +761,7 @@ namespace nkentseu {
 				s1.Monde().Add<NkBancBrut1>(e, NkBancBrut1{3u, 4.5f});
 				NkString json;
 				NkSauverSceneJSON(s1, json, static_cast<const NkTextures2D *>(nullptr));
-				NkScene s2;
+				NK_BANC_SUR_TAS(NkScene, s2);
 				s2.PhotographierAussi<NkBancVersion2>("banc.Version", kChampsV2, 3u);
 				s2.PhotographierAussi<NkBancBrut2>("banc.Brut");
 				NkString err;
@@ -783,7 +784,7 @@ namespace nkentseu {
 				NkSons2D sonsA;
 				sonsA.Creer(bip.Data(), bip.Size(), 48000, "pas.wav");
 				const uint32 cloche = sonsA.Creer(bip.Data(), bip.Size(), 48000, "cloche.wav");
-				NkScene a;
+				NK_BANC_SUR_TAS(NkScene, a);
 				NkSceneConfig cfg;
 				a.Init(cfg);
 				const ecs::NkEntityId e = a.Creer("Cloche", NkVec2f(0.f, 0.f));
@@ -791,7 +792,7 @@ namespace nkentseu {
 				src.son = cloche;
 				src.boucle = true;
 				a.Monde().Add<NkSource2D>(e, src);
-				NkRessourcesScene ra;
+				NK_BANC_SUR_TAS(NkRessourcesScene, ra);
 				ra.sons = &sonsA;
 				NkString json;
 				NkSauverSceneJSON(a, json, ra);
@@ -799,9 +800,9 @@ namespace nkentseu {
 				NkSons2D sonsB;
 				sonsB.Creer(bip.Data(), bip.Size(), 48000, "cloche.wav");
 				sonsB.Creer(bip.Data(), bip.Size(), 48000, "pas.wav");
-				NkRessourcesScene rb;
+				NK_BANC_SUR_TAS(NkRessourcesScene, rb);
 				rb.sons = &sonsB;
-				NkScene b;
+				NK_BANC_SUR_TAS(NkScene, b);
 				NkString err;
 				const bool lu = NkChargerSceneJSON(b, json.View(), rb, &err);
 				const NkSource2D *sb = lu ? b.Monde().Get<NkSource2D>(ParNom(b, "Cloche")) : nullptr;
@@ -811,7 +812,7 @@ namespace nkentseu {
 				// (a7n) ecrit SANS registre de sons : le numero de session, comme avant.
 				NkString brut;
 				NkSauverSceneJSON(a, brut, static_cast<const NkTextures2D *>(nullptr));
-				NkScene c;
+				NK_BANC_SUR_TAS(NkScene, c);
 				const bool lu2 = NkChargerSceneJSON(c, brut.View(), rb, &err);
 				const NkSource2D *sc = lu2 ? c.Monde().Get<NkSource2D>(ParNom(c, "Cloche")) : nullptr;
 				Temoin(sc != nullptr && sc->son == 2u && std::strcmp(sonsB.Nom(sc->son), "pas.wav") == 0,
@@ -820,7 +821,7 @@ namespace nkentseu {
 
 			// (p1) (p2) (p3) les prefabs
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				s.Init(cfg);
@@ -896,14 +897,14 @@ namespace nkentseu {
 					   "(p1) la surcharge de l'instance 7 est GARDEE, et elle seule listee", static_cast<float32>(sur.Size()));
 
 				// (p2) le fichier .nkprefab
-				NkRessourcesScene r;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r);
 				r.prefabs = &pf;
 				NkString texte;
 				const bool ecrit = pf.EnregistrerJSON(s, id, texte, r);
-				NkScene s2;
+				NK_BANC_SUR_TAS(NkScene, s2);
 				s2.Init(cfg);
 				NkPrefabs2D pf2;
-				NkRessourcesScene r2;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r2);
 				r2.prefabs = &pf2;
 				uint32 id2 = 0;
 				NkString err;
@@ -945,8 +946,8 @@ namespace nkentseu {
 				NkString scene;
 				NkSauverSceneJSON(s2, scene, r2);
 				NkPrefabs2D pf3;
-				NkScene s3;
-				NkRessourcesScene r3;
+				NK_BANC_SUR_TAS(NkScene, s3);
+				NK_BANC_SUR_TAS(NkRessourcesScene, r3);
 				r3.prefabs = &pf3;
 				uint32 id4 = 0;
 				pf3.Creer(s3, s3.Creer("Leurre", NkVec2f(0.f, 0.f)), "Autre.nkprefab"); // decale les identifiants
@@ -962,7 +963,7 @@ namespace nkentseu {
 			//      sa descendance -- ni dessinee, ni simulee (corps rigide sorti du
 			//      solveur, matiere gelee), ni animee ; rallume, tout repart.
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				cfg.particules = true;
@@ -1030,7 +1031,7 @@ namespace nkentseu {
 			// (o2) l'activite traverse Photographier / Restaurer et le fichier ; un
 			//      fichier qui ne la porte pas (celui d'avant) se relit TOUT ACTIF.
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				s.Init(cfg);
@@ -1041,18 +1042,18 @@ namespace nkentseu {
 				s.AjouterCorps(a, k);
 				const ecs::NkEntityId b = s.Creer("AllumeeA2", NkVec2f(3.f, 5.f));
 				s.Activer(a, false);
-				NkScene::NkPhoto photo;
+				NK_BANC_SUR_TAS(NkScene::NkPhoto, photo);
 				s.Photographier(photo);
 				s.Activer(a, true);
 				s.Restaurer(photo);
 				const ecs::NkEntityId a1 = ParNom(s, "EteinteA2");
 				const bool photoOk = !s.EstActive(a1) && CorpsDe(s, a1)->corpsId == physics::NK_INVALID_BODY &&
 									 s.EstActive(ParNom(s, "AllumeeA2")) && s.MondePhysique()->Bodies().Size() == 0u;
-				NkRessourcesScene r;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r);
 				NkString texte;
 				const bool ecrit = NkSauverSceneJSON(s, texte, r);
 				const bool cle = std::strstr(texte.CStr(), "NkActif2D") != nullptr;
-				NkScene s2;
+				NK_BANC_SUR_TAS(NkScene, s2);
 				s2.Init(cfg);
 				NkString err;
 				const bool lu = ecrit && NkChargerSceneJSON(s2, texte.View(), r, &err);
@@ -1060,14 +1061,14 @@ namespace nkentseu {
 				const bool fichierOk = lu && !s2.EstActive(a2) && CorpsDe(s2, a2)->corpsId == physics::NK_INVALID_BODY &&
 									   s2.EstActive(ParNom(s2, "AllumeeA2")) && s2.MondePhysique()->Bodies().Size() == 0u;
 				// Le fichier d'AVANT : la meme scene sans la cle -- tout est actif.
-				NkScene s3;
+				NK_BANC_SUR_TAS(NkScene, s3);
 				s3.Init(cfg);
 				const ecs::NkEntityId c = s3.Creer("AncienneA2", NkVec2f(0.f, 5.f));
 				s3.Monde().Add<NkCollisionneur2D>(c, col);
 				s3.AjouterCorps(c, k);
 				NkString ancien;
 				NkSauverSceneJSON(s3, ancien, r);
-				NkScene s4;
+				NK_BANC_SUR_TAS(NkScene, s4);
 				s4.Init(cfg);
 				const bool luAncien = std::strstr(ancien.CStr(), "NkActif2D") == nullptr && NkChargerSceneJSON(s4, ancien.View(), r, &err);
 				const ecs::NkEntityId c4 = ParNom(s4, "AncienneA2");
@@ -1081,7 +1082,7 @@ namespace nkentseu {
 			// (o3) un prefab fait d'une entite ETEINTE pose des instances eteintes ;
 			//      l'instance se rallume seule, le prefab reste eteint.
 			{
-				NkScene s;
+				NK_BANC_SUR_TAS(NkScene, s);
 				NkSceneConfig cfg;
 				cfg.physique = true;
 				s.Init(cfg);
@@ -1095,14 +1096,14 @@ namespace nkentseu {
 				const uint32 id = pf.Creer(s, modele, "Prefabs/Eteint.nkprefab");
 				const ecs::NkEntityId i1 = pf.Instancier(s, id, NkVec2f(4.f, 0.f));
 				const bool instanceEteinte = s.Monde().IsAlive(i1) && !s.EstActive(i1) && CorpsDe(s, i1)->corpsId == physics::NK_INVALID_BODY;
-				NkRessourcesScene r;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r);
 				r.prefabs = &pf;
 				NkString texte;
 				const bool ecrit = pf.EnregistrerJSON(s, id, texte, r);
-				NkScene s2;
+				NK_BANC_SUR_TAS(NkScene, s2);
 				s2.Init(cfg);
 				NkPrefabs2D pf2;
-				NkRessourcesScene r2;
+				NK_BANC_SUR_TAS(NkRessourcesScene, r2);
 				r2.prefabs = &pf2;
 				uint32 id2 = 0;
 				NkString err;
