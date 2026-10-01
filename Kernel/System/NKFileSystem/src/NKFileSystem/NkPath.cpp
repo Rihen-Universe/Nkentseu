@@ -653,7 +653,9 @@ namespace nkentseu {
 			for (usize i = 0; i < dossiers.Size(); ++i) {
 				ou += "\n      ";
 				ou += dossiers[i];
-				if (dossiers[i] == cwd)
+				if (dossiers[i] == cwd && dossiers[i] == exe)
+					ou += "   (dossier courant ET de l'executable)";
+				else if (dossiers[i] == cwd)
 					ou += "   (dossier courant)";
 				else if (dossiers[i] == exe)
 					ou += "   (dossier de l'executable)";
