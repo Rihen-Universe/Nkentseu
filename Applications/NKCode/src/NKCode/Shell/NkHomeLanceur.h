@@ -47,10 +47,25 @@ namespace nkentseu {
 			t.Set(NkRole::Border, NkCol::border.ToUint32A());
 			t.Set(NkRole::Text, NkCol::foreground.ToUint32A());
 			t.Set(NkRole::TextMuted, NkCol::mutedFg.ToUint32A());
-			t.Set(NkRole::AccentUi, NkCol::accent.ToUint32A());
+			// ⚠️ LE BLEU EST LE PRIMAIRE DE NKCODE (selection, bouton principal, cadre
+			//    de « Nouveau Workspace ») ; l'ORANGE est son accent secondaire (les
+			//    exemples, l'etoile). Mesure sur la capture « avant » du 01/10.
+			t.Set(NkRole::AccentUi, NkCol::primary.ToUint32A());
 			t.Set(NkRole::AccentSel, NkCol::accent.ToUint32A());
+			t.Set(NkRole::TextOnAccent, NkCol::primaryFg.ToUint32A());
 			t.Set(NkRole::StatusErr, NkCol::danger.ToUint32A());
 			return t;
+		}
+
+		/// Le style : l'ETOILE de NKCode pour epingler.
+		inline editorkit::NkProjectLauncherStyle NkCodeStyleLanceur() {
+			editorkit::NkProjectLauncherStyle s;
+			s.glypheEpingle = editorkit::NkLanceurGlyphe::Etoile;
+			// NKCode ecrit TOUT dans sa police d'interface (les sous-titres des
+			// actions, les en-tetes de groupe) : pas de « petit texte » a part.
+			s.policePetite = 0u;
+			s.rayonChamp = 6.f;
+			return s;
 		}
 
 		struct NkCodeLanceurEtat {
@@ -64,10 +79,17 @@ namespace nkentseu {
 			return e;
 		}
 
-		/// Le premier modele qui est un EXEMPLE Jenga (avant : les trois portes).
-		static const usize kNkCodePremierExemple = 3u;
+		/// Le premier modele qui est un EXEMPLE Jenga (avant : les quatre actions
+		/// rapides de la page classique, dans le meme ordre).
+		static const usize kNkCodePremierExemple = 4u;
 
 		/// Les DONNEES du lanceur depuis l'etat vivant de NKCode (chaque image).
+		/// ⚠️ LA DISPOSITION EST CELLE DE NKCODE, pas celle des autres
+		///    applications : une recherche en tete (pas de grand titre), la liste
+		///    detaillee des workspaces groupee par date (Langages, Configs,
+		///    Plateformes, Projets, Modifie -- les champs de NkWorkspaceCard), et a
+		///    droite les ACTIONS RAPIDES puis les EXEMPLES JENGA avec leur
+		///    recherche. Les libelles viennent de NkT (les huit langues de NKCode).
 		inline void NkHomeLanceurRemplir(NkHomeState *H) {
 			using namespace editorkit;
 			using G = NkLanceurGlyphe;
@@ -83,60 +105,114 @@ namespace nkentseu {
 				m.identite.extensions = NkString(".jenga");
 				m.identite.glyphe = G::Code;
 				m.colonne = false; // la colonne de NKCode reste la sienne
+				m.enTete = false;  // NKCode ouvre sur sa recherche, pas sur un titre
+				m.disposition = NkLanceurDisposition::ColonneDroite;
+				m.vueListe = true; // ses cartes de workspace sont des LIGNES detaillees
 				m.actionHote = NkString("Accueil classique");
 				m.glypheActionHote = G::Liste;
 				NkLanceurPage p;
 				p.libelle = NkString("Accueil");
-				p.titre = NkString("Accueil");
 				p.glyphe = G::Projets;
 				m.pages.PushBack(p);
 				m.piedDePage = NkString("Ctrl+N : nouveau workspace · Ctrl+O : ouvrir · Ctrl+G : cloner un depot.");
 			}
 
-			// ── Les modeles : les trois portes de NKCode, puis les exemples Jenga
-			//    (charges en tache de fond : la liste se complete toute seule). ──
+			// ── La colonne de droite : les ACTIONS RAPIDES de NKCode (memes libelles,
+			//    meme ordre, la premiere mise en avant), puis les EXEMPLES JENGA. ──
 			m.modeles.Clear();
-			auto mod = [&](const char *nom, const char *cat, const char *desc, G g, uint32 teinte, bool dispo) {
+			const NkString gActions(NkT("home.actions"));
+			auto action = [&](const char *nom, const char *desc, G g, uint32 teinte, bool accentue) {
 				NkLanceurModele md;
 				md.nom = NkString(nom);
-				md.categorie = NkString(cat);
 				md.description = NkString(desc);
 				md.glyphe = g;
 				md.couleur = teinte;
-				md.disponible = dispo;
+				md.accentue = accentue;
+				md.groupe = gActions;
 				m.modeles.PushBack(md);
 			};
-			mod("Nouveau workspace", "ASSISTANT", "Langage, plateformes, toolchains : l'assistant pas a pas.", G::Nouveau,
-				0u, true);
-			mod("Ouvrir un dossier", "WORKSPACE", "Un dossier qui porte un .jenga, ou un dossier de sources.", G::Ouvrir,
-				math::NkColor(0x2E, 0xA0, 0x6B).ToUint32A(), true);
-			mod("Cloner un depot Git", "GIT", "GitHub, GitLab, Bitbucket... cloner puis ouvrir.", G::Lien,
-				math::NkColor(0x8E, 0x5B, 0xE8).ToUint32A(), true);
+			action(NkT("nav.newws"), NkT("qa.newws.sub"), G::Nouveau, NkCol::primary.ToUint32A(), true);
+			action(NkT("qa.openws"), NkT("qa.openws.sub"), G::Ouvrir, NkCol::mutedFg.ToUint32A(), false);
+			action(NkT("qa.openfolder"), NkT("qa.openfolder.sub"), G::Dossier, NkCol::mutedFg.ToUint32A(), false);
+			action(NkT("qa.clone"), NkT("qa.clone.sub"), G::Lien, NkCol::secondaryFg.ToUint32A(), false);
+			const NkString gExemples =
+				NkPrintf("%s (%d)", NkT("home.examples"), st ? (int)st->examples.Size() : 0);
+			m.groupeAvecRecherche = gExemples;
 			if (st)
-				for (usize i = 0; i < st->examples.Size() && i < 9u; ++i) {
+				for (usize i = 0; i < st->examples.Size(); ++i) {
 					const NkCodeState::Example &e = st->examples[i];
-					const NkString cat = e.difficulty.Empty() ? NkString("EXEMPLE") : e.difficulty;
-					mod(e.id.CStr(), cat.CStr(), e.desc.CStr(), G::Code, math::NkColor(0x2E, 0x8E, 0xD8).ToUint32A(),
-						!(H && H->dlg && H->dlg->exCopyBusy));
+					NkLanceurModele md;
+					md.nom = e.id;
+					md.description = e.platforms.Empty() ? e.desc : e.platforms;
+					md.categorie = e.desc;
+					md.glyphe = G::Apprendre;
+					md.couleur = NkCol::accent.ToUint32A();
+					md.ligne = true;
+					md.groupe = gExemples;
+					md.disponible = !(H && H->dlg && H->dlg->exCopyBusy);
+					m.modeles.PushBack(md);
 				}
+			if (!st || st->examples.Empty()) {
+				// La liste vient de `jenga examples list`, en tache de fond : en
+				// attendant, l'en-tete existe et le dit, pas de colonne muette.
+				NkLanceurModele md;
+				md.nom = NkString(NkT("home.examples"));
+				md.description = NkString("...");
+				md.glyphe = G::Apprendre;
+				md.couleur = NkCol::accent.ToUint32A();
+				md.ligne = true;
+				md.disponible = false;
+				md.groupe = gExemples;
+				m.modeles.PushBack(md);
+			}
 
-			// ── Les workspaces : le courant, les epingles, les recents. ──
+			// ── La liste : le courant, les epingles, les recents -- groupes comme
+			//    la page classique (EPINGLES, puis AUJOURD'HUI, CETTE SEMAINE...). ──
 			m.projets.Clear();
 			L.chemins.Clear();
 			NkString courant;
 			if (st && st->HasWorkspace() && st->wsIdx >= 0 && st->wsIdx < (int32)st->wsPaths.Size())
 				courant = st->wsPaths[st->wsIdx];
 			const int64 now = NkCodeState::NowEpoch();
-			auto ajoute = [&](const NkString &chemin, const NkString &nom, bool epingle, const char *dateForcee) {
+			const uint32 tuiles[4] = {NkCol::primary.ToUint32A(), NkCol::accent.ToUint32A(), NkCol::secondary.ToUint32A(),
+									  math::NkColor(51, 177, 160).ToUint32A()};
+			auto ajoute = [&](const NkString &chemin, const NkString &nom, bool epingle, bool estCourant) {
 				for (usize k = 0; k < L.chemins.Size(); ++k)
 					if (L.chemins[k] == chemin)
 						return;
+				const NkCodeState::WsMeta meta = st->WorkspaceMeta(chemin.CStr());
 				NkLanceurProjet p;
-				p.nom = nom.Empty() ? chemin : nom;
+				p.nom = estCourant ? st->root.GetFileName() : (nom.Empty() ? chemin : nom);
 				p.chemin = chemin;
 				p.epingle = epingle;
-				p.date = dateForcee ? NkString(dateForcee)
-									: NkCodeState::HumanAge(st->WorkspaceMeta(chemin.CStr()).activity, now);
+				p.glyphe = G::Pile;
+				p.couleur = estCourant ? NkCol::primary.ToUint32A() : tuiles[L.chemins.Size() % 4u];
+				const NkString age = NkCodeState::HumanAge(meta.activity, now);
+				p.date = age;
+				p.groupe = epingle ? NkString(NkT("home.pinned"))
+								   : NkString(NkHomeBucketLabel(NkCodeState::AgeBucket(meta.activity, now)));
+				auto detail = [&](const char *lib, const NkString &val, bool ligne) {
+					if (val.Empty())
+						return;
+					NkLanceurDetail d;
+					d.libelle = NkString(lib);
+					d.valeur = val;
+					d.nouvelleLigne = ligne;
+					p.details.PushBack(d);
+				};
+				detail("Langages: ", estCourant ? NkString("C++20") : (meta.langVer.Empty() ? NkString("C++") : meta.langVer),
+					   false);
+				detail("Configs: ", estCourant ? st->infoConfigs : meta.configs, false);
+				detail("Plateformes: ", estCourant ? st->infoOSes : meta.platforms, true);
+				if (meta.projCount > 0 || !meta.projects.Empty()) {
+					NkString pr = meta.projects;
+					if (meta.projCount > 0)
+						pr += meta.projCountExact ? NkPrintf("  (%d)", meta.projCount) : NkPrintf("  (~%d)", meta.projCount);
+					detail(NkT("card.projects"), pr, true);
+				}
+				if (estCourant)
+					detail(NkT("card.lastbuild"), st->ConfigName(), true);
+				detail("Modifie: ", age, !estCourant);
 				const NkString dossier = NkCodeState::RecentFolder(chemin.CStr()).ToString();
 				p.etat = (NkDirectory::Exists(dossier.CStr()) || NkFile::Exists(chemin.CStr())) ? 0u : 1u;
 				p.hote = (uint32)L.chemins.Size();
@@ -144,14 +220,14 @@ namespace nkentseu {
 				m.projets.PushBack(p);
 			};
 			if (st) {
-				if (!courant.Empty())
-					ajoute(courant, st->root.GetFileName(), st->IsPinned(courant.CStr()), "ouvert maintenant");
 				for (usize i = 0; i < st->pinned.Size(); ++i)
-					ajoute(st->pinned[i], i < st->pinnedNames.Size() ? st->pinnedNames[i] : NkString(), true, nullptr);
+					ajoute(st->pinned[i], i < st->pinnedNames.Size() ? st->pinnedNames[i] : NkString(), true,
+						   st->pinned[i] == courant);
+				if (!courant.Empty())
+					ajoute(courant, NkString(), st->IsPinned(courant.CStr()), true);
 				for (usize i = 0; i < st->recents.Size(); ++i)
-					ajoute(st->recents[i], i < st->recentNames.Size() ? st->recentNames[i] : NkString(), false, nullptr);
+					ajoute(st->recents[i], i < st->recentNames.Size() ? st->recentNames[i] : NkString(), false, false);
 			}
-
 		}
 
 		inline void NkHomeLanceurPanel(NkEditorFrameContext &ec, const NkRect &panel, NkHomeState *H) {
@@ -170,7 +246,7 @@ namespace nkentseu {
 			const bool entree = !(H->dlg && H->dlg->pickerOpen);
 			const NkProjectLauncherResult res =
 				NkLanceurPeindre(ctx, NkCodeThemeLanceur(), L.polices, NkPaintRect{panel.x, panel.y, panel.w, panel.h}, m,
-								 NkProjectLauncherStyle(), NkProjectLauncherHooks(), ech, entree);
+								 NkCodeStyleLanceur(), NkProjectLauncherHooks(), ech, entree);
 			if (!st)
 				return;
 			const int32 i = res.index;
@@ -185,11 +261,11 @@ namespace nkentseu {
 					break;
 				case NkLanceurAction::NouveauDepuisModele:
 					if (i == 0)
-						H->nav = 2;
-					else if (i == 1)
-						H->nav = 1;
-					else if (i == 2)
-						H->nav = 3;
+						H->nav = 2; // Nouveau workspace : l'assistant
+					else if (i == 1 || i == 2)
+						H->nav = 1; // Ouvrir un workspace / un dossier
+					else if (i == 3)
+						H->nav = 3; // Cloner depuis Git
 					else if (i >= (int32)kNkCodePremierExemple && H->dlg && !H->dlg->exCopyBusy && !H->dlg->pickerOpen) {
 						const usize k = (usize)i - kNkCodePremierExemple;
 						if (k < st->examples.Size()) {
@@ -255,8 +331,8 @@ namespace nkentseu {
 			NkLanceurCaptureDesc d;
 			d.chemin = chemin.CStr();
 			char msg[512];
-			const bool ok = NkLanceurCapturer(d, m, NkCodeThemeLanceur(), NkProjectLauncherHooks(),
-											  NkProjectLauncherStyle(), msg, (int32)sizeof(msg));
+			const bool ok = NkLanceurCapturer(d, m, NkCodeThemeLanceur(), NkProjectLauncherHooks(), NkCodeStyleLanceur(),
+											  msg, (int32)sizeof(msg));
 			std::printf("[capture-lanceur] NKCode : %s\n", msg);
 			std::fflush(stdout);
 			return ok ? 0 : 1;

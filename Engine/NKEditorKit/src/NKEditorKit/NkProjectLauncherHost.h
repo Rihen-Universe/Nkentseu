@@ -133,6 +133,22 @@ namespace nkentseu {
 				if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape) || ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
 					m.rechercheFocus = false;
 			}
+			// La recherche d'un groupe de modeles (colonne de droite) : meme contrat.
+			if (entree && m.rechercheModelesFocus && res.rechercheModeles.w > 4.f) {
+				NkOverlayFieldStyle st;
+				st.fond = false;
+				st.bord = false;
+				st.utf8 = true;
+				const uint32 ct = theme.Get(NkRole::Text);
+				st.texte = nkgui::NkColor{(uint8)((ct >> 24) & 0xFFu), (uint8)((ct >> 16) & 0xFFu),
+										  (uint8)((ct >> 8) & 0xFFu), (uint8)(ct & 0xFFu)};
+				NkOverlayTextField(ctx, ctx.DL(), ctx.font,
+								   nkgui::NkRect{res.rechercheModeles.x, res.rechercheModeles.y, res.rechercheModeles.w,
+												 res.rechercheModeles.h},
+								   m.filtreModeles, (int32)sizeof(m.filtreModeles), true, &st);
+				if (ctx.input.KeyPressed(nkgui::NkGuiKey::Escape) || ctx.input.KeyPressed(nkgui::NkGuiKey::Enter))
+					m.rechercheModelesFocus = false;
+			}
 			return res;
 		}
 

@@ -91,7 +91,19 @@ namespace nkentseu {
 			Pinceau,	///< peinture, texture
 			Moteur,		///< engrenage + eclair : moteur, installations
 			Dossier,	///< un dossier ferme (etat vide)
+			Chevron,	///< chevron vers le bas (en-tete de groupe)
+			Pile,		///< trois blocs empiles (un workspace Jenga)
 			Count
+		};
+
+		/// Un DETAIL d'une carte de projet en liste detaillee (« Langages : C++20 »).
+		/// Les details d'une meme ligne sont separes par un point ; `nouvelleLigne`
+		/// en ouvre une autre. `roleValeur` colore la valeur (0 = texte).
+		struct NkLanceurDetail {
+				NkString libelle;
+				NkString valeur;
+				bool nouvelleLigne = false;
+				uint16 roleValeur = 0u;
 		};
 
 		/// Un projet RECENT, tel que l'hote le connait.
@@ -112,6 +124,15 @@ namespace nkentseu {
 				NkString etatTexte;
 				/// Libre pour l'hote (indice dans SA liste, identifiant...).
 				uint32 hote = 0u;
+				/// (NKCode) La LISTE DETAILLEE : non vide = la carte de liste porte une
+				/// tuile d'icone, le nom, le chemin complet et ces details.
+				NkVector<NkLanceurDetail> details;
+				/// Le GROUPE de la liste (« AUJOURD'HUI », « CETTE SEMAINE ») : un
+				/// en-tete discret a chaque changement, tant qu'on trie par recence.
+				NkString groupe;
+				uint32 couleur = 0u; ///< la tuile d'icone (0xRRGGBBAA), 0 = l'accent
+				/// Le glyphe de la tuile (Aucun = celui de l'application).
+				NkLanceurGlyphe glyphe = NkLanceurGlyphe::Aucun;
 		};
 
 		/// Un MODELE de nouveau projet : une carte illustree.
@@ -128,6 +149,14 @@ namespace nkentseu {
 				/// branche, il se montre grise avec sa raison -- jamais un faux bouton.
 				bool disponible = true;
 				NkString raison; ///< « a venir » ...
+				/// (disposition ColonneDroite) Le groupe de la colonne (« ACTIONS
+				/// RAPIDES », « EXEMPLES JENGA (28) ») : un en-tete a chaque changement.
+				NkString groupe;
+				/// Vrai : une LIGNE compacte (icone, nom, sous-titre), comme une liste
+				/// d'exemples ; faux : une carte d'action encadree.
+				bool ligne = false;
+				/// L'action mise en avant : son cadre est a l'accent.
+				bool accentue = false;
 		};
 
 		/// Une carte d'une page de LIENS (Apprendre, Communaute, Installations).
@@ -140,6 +169,13 @@ namespace nkentseu {
 				/// faux = grisee (lien pas encore ouvert). Vrai sans URL = simple
 				/// information (une installation, un chemin) : lisible, pas cliquable.
 				bool disponible = true;
+		};
+
+		/// OU VONT LES MODELES sur la page Projets.
+		enum class NkLanceurDisposition : uint8 {
+			Cartes = 0,	   ///< en haut, en cartes illustrees (Unreal 5) -- le defaut
+			ColonneDroite, ///< dans une colonne d'actions a droite (NKCode) ; la liste
+						   ///< des projets garde toute la hauteur
 		};
 
 		enum class NkLanceurPageType : uint8 {
@@ -235,6 +271,13 @@ namespace nkentseu {
 				/// (vide = aucun) : rend `NkLanceurAction::ActionHote`.
 				NkString actionHote;
 				NkLanceurGlyphe glypheActionHote = NkLanceurGlyphe::Reglages;
+				NkLanceurDisposition disposition = NkLanceurDisposition::Cartes;
+				/// L'EN-TETE de page (titre, sous-titre, grands boutons). Faux : la page
+				/// commence par la recherche (NKCode), le bouton d'hote y prend place.
+				bool enTete = true;
+				/// Le groupe de modeles qui porte SA recherche (colonne de droite) ;
+				/// vide = aucun. L'hote ecrit la frappe dans `filtreModeles`.
+				NkString groupeAvecRecherche;
 
 				// ── ETAT (ecrit par le composant, garde par l'hote) ─────────────
 				int32 page = 0;
@@ -243,6 +286,9 @@ namespace nkentseu {
 				bool vueListe = false;
 				uint8 tri = 0u; ///< 0 = ordre de l'hote (recents), 1 = par nom
 				float32 defilement = 0.f;
+				char filtreModeles[128] = {0}; ///< la recherche du groupe `groupeAvecRecherche`
+				bool rechercheModelesFocus = false;
+				float32 defilementColonne = 0.f;
 		};
 
 		/// Les ROLES. Les defauts sont ceux du theme du kit : un hote n'a rien a
@@ -268,6 +314,11 @@ namespace nkentseu {
 				uint8 policeIntertitre = 4u;
 				uint8 policeGrasse = 1u;
 				uint8 policePetite = 5u;
+				/// Le glyphe du bouton « epingler » (NKCode : une etoile).
+				NkLanceurGlyphe glypheEpingle = NkLanceurGlyphe::Epingle;
+				/// L'arrondi de la boite de recherche (pixels logiques) ; negatif =
+				/// une pilule (le defaut). NKCode : 6, ses champs sont des rectangles.
+				float32 rayonChamp = -1.f;
 		};
 
 		struct NkProjectLauncherHooks {
@@ -286,6 +337,11 @@ namespace nkentseu {
 				NkPaintRect recherche;
 				/// La barre de titre (fenetres sans cadre) : glisser = deplacer.
 				NkPaintRect barreTitre;
+				/// Les trois boutons de l'en-tete (w == 0 : absent) : ce qu'une sonde
+				/// vise pour rejouer un clic sans deviner la mise en page.
+				NkPaintRect boutonNouveau, boutonOuvrir, boutonHote;
+				/// La recherche du groupe de modeles (colonne de droite), w == 0 : aucune.
+				NkPaintRect rechercheModeles;
 				bool curseurMain = false; ///< un element cliquable est survole
 				int32 projetsVisibles = 0; ///< apres recherche (pour les sondes)
 				float32 contenuH = 0.f;	   ///< hauteur du contenu defilant (sondes)

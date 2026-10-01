@@ -634,6 +634,15 @@ namespace nkentseu {
 					Poly(p, q, 10, c);
 					break;
 				}
+				case NkLanceurGlyphe::Pile:
+					R(4.f, 4.f, 13.f, 4.2f, 1.2f, c);
+					R(7.f, 10.f, 13.f, 4.2f, 1.2f, c);
+					R(4.f, 16.f, 13.f, 4.2f, 1.2f, c);
+					break;
+				case NkLanceurGlyphe::Chevron:
+					T(6.f, 9.f, 12.f, 15.f, 2.f);
+					T(12.f, 15.f, 18.f, 9.f, 2.f);
+					break;
 				case NkLanceurGlyphe::Croix:
 					T(6.f, 6.f, 18.f, 18.f, 1.8f);
 					T(18.f, 6.f, 6.f, 18.f, 1.8f);
@@ -839,9 +848,16 @@ namespace nkentseu {
 			if (mw < S(760.f))
 				pad = S(22.f);
 			const float32 cx = mx + pad, cw = mw - pad * 2.f;
+			// (NKCode) LA COLONNE DE DROITE : les modeles quittent le haut de la page
+			// pour une colonne d'actions ; la liste des projets garde la hauteur.
+			const bool colonneDroite =
+				pageProjets && m.disposition == NkLanceurDisposition::ColonneDroite && cw > S(720.f);
+			const float32 colDW = colonneDroite ? S(272.f) : 0.f;
+			const float32 cwM = colonneDroite ? cw - colDW - S(24.f) : cw; // la colonne principale
 
-			// En-tete : titre, sous-titre, boutons.
+			// En-tete : titre, sous-titre, boutons (facultatif : `enTete`).
 			float32 y = haut + S(26.f);
+			if (m.enTete) {
 			const char *titre = page.titre.Empty() ? page.libelle.CStr() : page.titre.CStr();
 			NkString sousTitre = page.sousTitre;
 			if (sousTitre.Empty() && pageProjets) {
@@ -863,6 +879,7 @@ namespace nkentseu {
 				snprintf(lib, sizeof(lib), "Nouveau %s", m.identite.motProjet.CStr());
 				const float32 w1 = e.W(lib, 0) + S(56.f);
 				const NkPaintRect b1{cx + cw - w1, y + S(4.f), w1, bh};
+				res.boutonNouveau = b1;
 				if (PeindreBouton(p, e, in, b1, lib, NkLanceurGlyphe::Nouveau, true, acc, s, k, res))
 					res.action = NkLanceurAction::NouveauProjet;
 				droiteBoutons = b1.x;
@@ -870,6 +887,7 @@ namespace nkentseu {
 					const char *lo = "Ouvrir...";
 					const float32 w2 = e.W(lo, 0) + S(56.f);
 					const NkPaintRect b2{b1.x - S(10.f) - w2, b1.y, w2, bh};
+					res.boutonOuvrir = b2;
 					if (PeindreBouton(p, e, in, b2, lo, NkLanceurGlyphe::Ouvrir, false, acc, s, k, res))
 						res.action = NkLanceurAction::Ouvrir;
 					droiteBoutons = b2.x;
@@ -877,6 +895,7 @@ namespace nkentseu {
 				if (!m.actionHote.Empty()) {
 					const float32 w3 = e.W(m.actionHote.CStr(), 0) + S(56.f);
 					const NkPaintRect b3{droiteBoutons - S(10.f) - w3, b1.y, w3, bh};
+					res.boutonHote = b3;
 					if (PeindreBouton(p, e, in, b3, m.actionHote.CStr(), m.glypheActionHote, false, acc, s, k, res))
 						res.action = NkLanceurAction::ActionHote;
 					droiteBoutons = b3.x;
@@ -895,6 +914,9 @@ namespace nkentseu {
 					y = haut + S(26.f) + S(46.f);
 			}
 			y += S(18.f);
+			} else
+				y = haut + S(18.f);
+			const float32 yRecherche = y;
 
 			// Barre de recherche et vues (page Projets).
 			if (pageProjets) {
@@ -904,10 +926,21 @@ namespace nkentseu {
 					rw = S(460.f);
 				if (rw < S(220.f))
 					rw = S(220.f);
+				const char *libTri = m.tri == 0u ? "Tri : recents" : "Tri : nom";
+				const bool hoteEnLigne = !m.enTete && !m.actionHote.Empty();
+				if (colonneDroite) {
+					// La recherche prend toute la colonne principale, moins ses voisins.
+					float32 voisins = S(36.f) * 2.f + S(10.f) + e.W(libTri, 0) + S(28.f) + S(16.f);
+					if (hoteEnLigne)
+						voisins += e.W(m.actionHote.CStr(), 0) + S(52.f) + S(10.f);
+					rw = cwM - voisins;
+					if (rw < S(220.f))
+						rw = S(220.f);
+				}
 				const NkPaintRect boite{cx, y, rw, bh};
 				const bool sur = Dans(boite, in);
 				p.OutlineColor(boite, m.rechercheFocus ? acc : (sur ? Mix(cBord, cTexte, 0.25f) : cBord), cChamp,
-							   bh * 0.5f);
+							   s.rayonChamp >= 0.f ? S(s.rayonChamp) : bh * 0.5f);
 				const float32 gs = S(16.f);
 				NkLanceurPeindreGlyphe(p, NkLanceurGlyphe::Recherche, {boite.x + S(14.f), y + (bh - gs) * 0.5f, gs, gs},
 									   cDiscret);
@@ -943,11 +976,11 @@ namespace nkentseu {
 					clicRecherche = true;
 				}
 
-				// A droite : grille | liste, puis le tri.
+				// A droite : [bouton d'hote], grille | liste, puis le tri.
 				const float32 sw = S(36.f);
-				float32 xd = cx + cw;
+				float32 xd = cx + cwM;
 				{
-					const char *lt = m.tri == 0u ? "Tri : recents" : "Tri : nom";
+					const char *lt = libTri;
 					const float32 tw = e.W(lt, 0) + S(28.f);
 					const NkPaintRect bt{xd - tw, y, tw, bh};
 					const bool st = Dans(bt, in);
@@ -961,6 +994,13 @@ namespace nkentseu {
 					xd = bt.x - S(10.f);
 				}
 				const NkPaintRect seg{xd - sw * 2.f, y, sw * 2.f, bh};
+				if (hoteEnLigne) {
+					const float32 wh = e.W(m.actionHote.CStr(), 0) + S(52.f);
+					const NkPaintRect bh2{seg.x - S(10.f) - wh, y, wh, bh};
+					res.boutonHote = bh2;
+					if (PeindreBouton(p, e, in, bh2, m.actionHote.CStr(), m.glypheActionHote, false, acc, s, k, res))
+						res.action = NkLanceurAction::ActionHote;
+				}
 				p.OutlineColor(seg, cBord, cCarte, S(6.f));
 				for (int32 i = 0; i < 2; ++i) {
 					const NkPaintRect b{seg.x + sw * (float32)i, y, sw, bh};
@@ -1010,7 +1050,8 @@ namespace nkentseu {
 			}
 
 			// ── LA ZONE QUI DEFILE ──────────────────────────────────────────────
-			const NkPaintRect zone{mx, y, mw, piedY - y};
+			const float32 zoneW = colonneDroite ? (cx + cwM + S(12.f)) - mx : mw;
+			const NkPaintRect zone{mx, y, zoneW, piedY - y};
 			if (zone.h < S(40.f))
 				return res;
 			const bool dansZone = Dans(zone, in);
@@ -1036,11 +1077,11 @@ namespace nkentseu {
 
 				// ── 1. La bande de version ──────────────────────────────────────
 				if (m.banniere.image != 0u && !filtreActif) {
-					float32 bh = cw * (float32)m.banniere.h / (float32)(m.banniere.w > 0 ? m.banniere.w : 1);
+					float32 bh = cwM * (float32)m.banniere.h / (float32)(m.banniere.w > 0 ? m.banniere.w : 1);
 					if (bh > S(210.f))
 						bh = S(210.f);
 					if (bh >= S(90.f)) {
-						const NkPaintRect br{cx, cy, cw, bh};
+						const NkPaintRect br{cx, cy, cwM, bh};
 						ImageCouvrir(p, br, m.banniere.image, m.banniere.w, m.banniere.h, S(12.f), true);
 						// Un voile en degrade au bas de l'image : la legende se lit
 						// sur n'importe quelle photo.
@@ -1066,13 +1107,13 @@ namespace nkentseu {
 
 				// ── 2. Les modeles ──────────────────────────────────────────────
 				const int32 nMod = (int32)m.modeles.Size();
-				if (nMod > 0 && !filtreActif) {
+				if (nMod > 0 && !filtreActif && !colonneDroite) {
 					char t[96];
 					snprintf(t, sizeof(t), "Commencer un nouveau %s", m.identite.motProjet.CStr());
 					TitreSection(t, -1);
 					cy += e.H(pI) + S(14.f);
 					const float32 gap = S(16.f);
-					int32 cols = (int32)((cw + gap) / (S(196.f) + gap));
+					int32 cols = (int32)((cwM + gap) / (S(196.f) + gap));
 					if (cols < 1)
 						cols = 1;
 					if (cols > 6)
@@ -1082,7 +1123,7 @@ namespace nkentseu {
 					// modeles etires sur toute la largeur faisaient des affiches.
 					if (cols > nMod && cols > 4)
 						cols = nMod > 4 ? nMod : 4;
-					const float32 tw = (cw - gap * (float32)(cols - 1)) / (float32)cols;
+					const float32 tw = (cwM - gap * (float32)(cols - 1)) / (float32)cols;
 					const float32 ih = tw * 0.52f;
 					const float32 ipad = S(14.f);
 					for (int32 debut = 0; debut < nMod; debut += cols) {
@@ -1193,7 +1234,7 @@ namespace nkentseu {
 							 morts > 1 ? m.identite.motProjets.CStr() : m.identite.motProjet.CStr(), morts > 1 ? "s" : "",
 							 morts > 1 ? "s" : "");
 					const float32 bw = e.W(lp, pP) + S(40.f), bh = S(28.f);
-					const NkPaintRect bp{cx + cw - bw, cy + (e.H(pI) - bh) * 0.5f, bw, bh};
+					const NkPaintRect bp{cx + cwM - bw, cy + (e.H(pI) - bh) * 0.5f, bw, bh};
 					const bool sp = dansZone && Dans(bp, in);
 					p.OutlineColor(bp, sp ? p.ColorOf(s.erreur) : cBord, sp ? cSurvol : cCarte, bh * 0.5f);
 					const float32 g2 = S(13.f);
@@ -1212,10 +1253,10 @@ namespace nkentseu {
 					// L'etat vide : une illustration et deux phrases, jamais un cadre muet.
 					const float32 gs = S(56.f);
 					const float32 bh2 = S(170.f);
-					const NkPaintRect vr{cx, cy, cw, bh2};
+					const NkPaintRect vr{cx, cy, cwM, bh2};
 					p.OutlineColor(vr, cBord, Mix(cFond, cCarte, 0.5f), S(12.f));
 					NkLanceurPeindreGlyphe(p, filtreActif ? NkLanceurGlyphe::Recherche : NkLanceurGlyphe::Dossier,
-										   {cx + (cw - gs) * 0.5f, cy + S(26.f), gs, gs}, Alpha(acc, 0xB0));
+										   {cx + (cwM - gs) * 0.5f, cy + S(26.f), gs, gs}, Alpha(acc, 0xB0));
 					char l1[200], l2[200];
 					if (filtreActif) {
 						snprintf(l1, sizeof(l1), "Aucun %s ne correspond a « %s ».", m.identite.motProjet.CStr(), m.filtre);
@@ -1229,18 +1270,18 @@ namespace nkentseu {
 							snprintf(l2, sizeof(l2), "Commencez depuis un modele, ou ouvrez un %s existant.",
 									 m.identite.motProjet.CStr());
 					}
-					e.TC(cx, cw, cy + S(26.f) + gs + S(16.f), l1, s.texte, pG);
-					e.TC(cx, cw, cy + S(26.f) + gs + S(20.f) + e.H(pG), l2, s.texteDiscret, pP);
+					e.TC(cx, cwM, cy + S(26.f) + gs + S(16.f), l1, s.texte, pG);
+					e.TC(cx, cwM, cy + S(26.f) + gs + S(20.f) + e.H(pG), l2, s.texteDiscret, pP);
 					cy += bh2 + S(16.f);
 				} else if (!m.vueListe) {
 					// ── la GRILLE de grandes vignettes ──
 					const float32 gap = S(18.f);
-					int32 cols = (int32)((cw + gap) / (S(250.f) + gap));
+					int32 cols = (int32)((cwM + gap) / (S(250.f) + gap));
 					if (cols < 1)
 						cols = 1;
 					if (cols > 6)
 						cols = 6;
-					const float32 tw = (cw - gap * (float32)(cols - 1)) / (float32)cols;
+					const float32 tw = (cwM - gap * (float32)(cols - 1)) / (float32)cols;
 					const float32 thH = tw * 9.f / 16.f;
 					const float32 ipad = S(14.f);
 					const int32 n = (int32)vis.Size();
@@ -1349,10 +1390,106 @@ namespace nkentseu {
 				} else {
 					// ── la LISTE ──
 					const float32 rh = S(66.f);
+					NkString groupePrec;
+					bool premierGroupe = true;
 					for (usize j = 0; j < vis.Size(); ++j) {
 						const int32 i = vis[j];
 						const NkLanceurProjet &pr = m.projets[(usize)i];
-						const NkPaintRect rr{cx, cy, cw, rh};
+						// (NKCode) LES GROUPES : un en-tete discret a chaque changement
+						// (« AUJOURD'HUI », « CETTE SEMAINE »...), sauf trie par nom.
+						if (m.tri == 0u && !pr.groupe.Empty() && (premierGroupe || !(pr.groupe == groupePrec))) {
+							premierGroupe = false;
+							groupePrec = pr.groupe;
+							const float32 gh = S(26.f), g2 = S(10.f);
+							NkLanceurPeindreGlyphe(p, NkLanceurGlyphe::Chevron, {cx + S(2.f), cy + (gh - g2) * 0.5f, g2, g2},
+												   cDiscret);
+							e.T(cx + S(18.f), cy + (gh - e.H(pP)) * 0.5f, pr.groupe.CStr(), s.texteDiscret, pP);
+							cy += gh;
+						}
+						if (!pr.details.Empty()) {
+							// (NKCode) LA CARTE DETAILLEE : tuile d'icone, nom, chemin, puis
+							// les details « Libelle : valeur » -- separes par un point sur
+							// une meme ligne, une ligne par groupe de details.
+							int32 nLignes = 1;
+							for (usize d = 1; d < pr.details.Size(); ++d)
+								if (pr.details[d].nouvelleLigne)
+									++nLignes;
+							const float32 lh0 = e.H(0);
+							const float32 rhR = S(12.f) + (lh0 + S(6.f)) * 2.f + (lh0 + S(5.f)) * (float32)nLignes + S(8.f);
+							const NkPaintRect rr{cx, cy, cwM, rhR};
+							if (!(rr.y > zone.y + zone.h || rr.y + rr.h < zone.y)) {
+								const bool sain = pr.etat == 0u;
+								const bool sur = dansZone && Dans(rr, in);
+								p.OutlineColor(rr, sur ? Mix(cBord, cTexte, 0.18f) : cBord, sur ? cSurvol : cCarte, S(8.f));
+								const float32 ic = S(38.f);
+								const NkPaintRect icR{rr.x + S(14.f), rr.y + S(14.f), ic, ic};
+								if (pr.image != 0u)
+									ImageCouvrir(p, icR, pr.image, pr.imageW, pr.imageH, S(6.f), true);
+								else {
+									p.FillColor(icR, pr.couleur ? pr.couleur : acc, S(6.f));
+									const float32 gi = ic * 0.56f;
+									NkLanceurPeindreGlyphe(p, pr.glyphe != NkLanceurGlyphe::Aucun ? pr.glyphe : m.identite.glyphe,
+														   {icR.x + (ic - gi) * 0.5f, icR.y + (ic - gi) * 0.5f, gi, gi}, cSurAcc);
+								}
+								const float32 tx = rr.x + S(62.f);
+								const float32 droite = rr.x + rr.w - S(16.f);
+								float32 ty = rr.y + S(12.f);
+								Ligne l1[1], l2[1];
+								const int32 a = Couper(p, pr.nom.CStr(), droite - S(70.f) - tx, 0, l1, 1, false);
+								e.Lignes(tx, ty, l1, a, s.texte, 0, 0.f);
+								ty += lh0 + S(6.f);
+								const int32 b = Couper(p, pr.chemin.CStr(), droite - tx, 0, l2, 1, true);
+								e.Lignes(tx, ty, l2, b, sain ? s.texteDiscret : s.erreur, 0, 0.f);
+								ty += lh0 + S(6.f);
+								float32 x = tx;
+								for (usize d = 0; d < pr.details.Size(); ++d) {
+									const NkLanceurDetail &dt = pr.details[d];
+									if (d > 0 && dt.nouvelleLigne) {
+										ty += lh0 + S(5.f);
+										x = tx;
+									} else if (d > 0) {
+										if (x < droite)
+											Disque(p, x + S(7.f), ty + lh0 * 0.5f, S(1.6f), cDiscret);
+										x += S(16.f);
+									}
+									if (x >= droite)
+										continue;
+									e.T(x, ty, dt.libelle.CStr(), s.texteDiscret, 0);
+									x += e.W(dt.libelle.CStr(), 0);
+									Ligne lv[1];
+									const int32 c = Couper(p, dt.valeur.CStr(), droite - x, 0, lv, 1, false);
+									e.Lignes(x, ty, lv, c, dt.roleValeur ? dt.roleValeur : s.texte, 0, 0.f);
+									if (c > 0)
+										x += e.W(lv[0].d, 0, lv[0].f) + (lv[0].suspension ? e.W("...", 0) : 0.f);
+								}
+								// Epingler et retirer, en haut a droite (l'etoile et « ... »).
+								bool geste = false;
+								const float32 rb = S(12.f);
+								const float32 by = rr.y + S(14.f) + rb;
+								const uint32 fondB = sur ? cSurvol : cCarte;
+								if (BoutonRond(p, in, rr.x + rr.w - S(14.f) - rb, by, rb, NkLanceurGlyphe::Corbeille, fondB,
+											   sur ? cTexte : cDiscret, res)) {
+									res.action = NkLanceurAction::Retirer;
+									res.index = i;
+									geste = true;
+								}
+								if (BoutonRond(p, in, rr.x + rr.w - S(14.f) - rb * 3.f - S(4.f), by, rb, s.glypheEpingle, fondB,
+											   pr.epingle ? p.ColorOf(s.epingle) : (sur ? cTexte : cDiscret), res)) {
+									res.action = NkLanceurAction::Epingler;
+									res.index = i;
+									geste = true;
+								}
+								if (sur && sain)
+									res.curseurMain = true;
+								if (sur && sain && in.mousePressed && !geste) {
+									res.action = NkLanceurAction::OuvrirRecent;
+									res.index = i;
+								}
+							}
+							cy += rhR + S(10.f);
+							continue;
+						}
+						const NkPaintRect rr{cx, cy, cwM, rh};
 						if (!(rr.y > zone.y + zone.h || rr.y + rr.h < zone.y)) {
 							const bool sain = pr.etat == 0u;
 							const bool sur = dansZone && Dans(rr, in);
@@ -1487,6 +1624,126 @@ namespace nkentseu {
 			}
 			p.PopClip();
 
+			// ── LA COLONNE DE DROITE (disposition NKCode) ───────────────────────
+			// Les modeles en ACTIONS (cartes encadrees) et en LIGNES (une liste
+			// d'exemples), groupes sous des en-tetes discrets ; un groupe peut
+			// porter sa propre recherche. Elle defile pour son compte.
+			bool clicRechercheModeles = false;
+			if (colonneDroite) {
+				const float32 dx = cx + cwM + S(24.f);
+				const NkPaintRect zc{dx, yRecherche, colDW, piedY - yRecherche - S(8.f)};
+				const bool dansCol = Dans(zc, in);
+				p.PushClip(zc);
+				float32 ry = zc.y - m.defilementColonne;
+				const float32 debutCol = ry;
+				NkString grp;
+				bool premier = true;
+				const int32 nMod = (int32)m.modeles.Size();
+				for (int32 i = 0; i < nMod; ++i) {
+					const NkLanceurModele &md = m.modeles[(usize)i];
+					if (premier || !(md.groupe == grp)) {
+						if (!premier) {
+							p.HLine(dx, ry + S(2.f), colDW, s.bord);
+							ry += S(14.f);
+						}
+						premier = false;
+						grp = md.groupe;
+						if (!grp.Empty()) {
+							e.T(dx, ry, grp.CStr(), s.texteDiscret, pP);
+							ry += e.H(pP) + S(10.f);
+						}
+						if (!m.groupeAvecRecherche.Empty() && grp == m.groupeAvecRecherche) {
+							const float32 bhr = S(30.f);
+							const NkPaintRect bx{dx, ry, colDW, bhr};
+							const bool sb = dansCol && Dans(bx, in);
+							p.OutlineColor(bx, m.rechercheModelesFocus ? acc : cBord, cChamp, S(6.f));
+							const float32 g2 = S(13.f);
+							NkLanceurPeindreGlyphe(p, NkLanceurGlyphe::Recherche, {dx + S(10.f), ry + (bhr - g2) * 0.5f, g2, g2},
+												   cDiscret);
+							res.rechercheModeles = {dx + S(30.f), ry + S(3.f), colDW - S(38.f), bhr - S(6.f)};
+							if (!m.rechercheModelesFocus)
+								e.T(res.rechercheModeles.x, ry + (bhr - e.H(0)) * 0.5f,
+									m.filtreModeles[0] ? m.filtreModeles : "Rechercher...",
+									m.filtreModeles[0] ? s.texte : s.texteDiscret, 0);
+							if (sb && in.mousePressed) {
+								m.rechercheModelesFocus = true;
+								clicRechercheModeles = true;
+							}
+							ry += bhr + S(8.f);
+						}
+					}
+					if (!m.groupeAvecRecherche.Empty() && md.groupe == m.groupeAvecRecherche && m.filtreModeles[0] &&
+						!Contient(md.nom, m.filtreModeles) && !Contient(md.description, m.filtreModeles) &&
+						!Contient(md.categorie, m.filtreModeles))
+						continue;
+					const uint32 teinte = md.couleur ? md.couleur : acc;
+					if (!md.ligne) {
+						const float32 qh = S(52.f);
+						const NkPaintRect qr{dx, ry, colDW, qh};
+						const bool sur = dansCol && Dans(qr, in) && md.disponible;
+						p.OutlineColor(qr, (md.accentue || sur) ? acc : cBord, sur ? cSurvol : cCarte, S(8.f));
+						const float32 g2 = S(18.f);
+						NkLanceurPeindreGlyphe(p, md.glyphe, {dx + S(14.f), ry + (qh - g2) * 0.5f, g2, g2},
+											   md.disponible ? teinte : cDiscret);
+						const float32 tx = dx + S(44.f);
+						Ligne ln[1], ld[1];
+						const int32 a = Couper(p, md.nom.CStr(), colDW - S(54.f), 0, ln, 1, false);
+						const float32 hb = e.H(0) + S(2.f) + e.H(pP);
+						e.Lignes(tx, ry + (qh - hb) * 0.5f, ln, a, md.disponible ? s.texte : s.texteDiscret, 0, 0.f);
+						const int32 b = Couper(p, md.description.CStr(), colDW - S(54.f), pP, ld, 1, false);
+						e.Lignes(tx, ry + (qh - hb) * 0.5f + e.H(0) + S(2.f), ld, b, s.texteDiscret, pP, 0.f);
+						if (sur) {
+							res.curseurMain = true;
+							if (in.mousePressed) {
+								res.action = NkLanceurAction::NouveauDepuisModele;
+								res.index = i;
+							}
+						}
+						ry += qh + S(10.f);
+					} else {
+						const float32 lh2 = S(40.f);
+						const NkPaintRect lr{dx, ry, colDW, lh2};
+						const bool sur = dansCol && Dans(lr, in) && md.disponible;
+						if (sur)
+							p.FillColor(lr, cSurvol, S(6.f));
+						const float32 g2 = S(14.f);
+						NkLanceurPeindreGlyphe(p, md.glyphe, {dx + S(8.f), ry + S(6.f), g2, g2}, md.disponible ? teinte : cDiscret);
+						Ligne ln[1], ld[1];
+						const int32 a = Couper(p, md.nom.CStr(), colDW - S(40.f), 0, ln, 1, false);
+						e.Lignes(dx + S(30.f), ry + S(3.f), ln, a, md.disponible ? s.texte : s.texteDiscret, 0, 0.f);
+						const int32 b = Couper(p, md.description.CStr(), colDW - S(40.f), pP, ld, 1, false);
+						e.Lignes(dx + S(30.f), ry + S(4.f) + e.H(0), ld, b, s.texteDiscret, pP, 0.f);
+						if (sur) {
+							res.curseurMain = true;
+							if (in.mousePressed) {
+								res.action = NkLanceurAction::NouveauDepuisModele;
+								res.index = i;
+							}
+						}
+						ry += lh2 + S(2.f);
+					}
+				}
+				p.PopClip();
+				const float32 contenuC = ry + m.defilementColonne - debutCol;
+				const float32 maxC = contenuC > zc.h ? contenuC - zc.h : 0.f;
+				if (dansCol && in.wheel != 0.f)
+					m.defilementColonne -= in.wheel * S(50.f);
+				if (m.defilementColonne > maxC)
+					m.defilementColonne = maxC;
+				if (m.defilementColonne < 0.f)
+					m.defilementColonne = 0.f;
+				if (maxC > 0.f) {
+					const float32 piste = zc.h - S(8.f);
+					float32 pouce = piste * zc.h / contenuC;
+					if (pouce < S(30.f))
+						pouce = S(30.f);
+					const float32 py = zc.y + S(4.f) + (piste - pouce) * (m.defilementColonne / maxC);
+					p.FillColor({dx + colDW + S(6.f), py, S(4.f), pouce}, Alpha(cDiscret, 0x70), S(2.f));
+				}
+			}
+			if (in.mousePressed && !clicRechercheModeles)
+				m.rechercheModelesFocus = false;
+
 			// ── LE DEFILEMENT ───────────────────────────────────────────────────
 			const float32 contenuH = (cy + m.defilement) - debutContenu + S(20.f);
 			res.contenuH = contenuH;
@@ -1503,7 +1760,7 @@ namespace nkentseu {
 				if (pouce < S(36.f))
 					pouce = S(36.f);
 				const float32 py = zone.y + S(4.f) + (piste - pouce) * (m.defilement / maxDef);
-				p.FillColor({mx + mw - S(9.f), py, S(5.f), pouce}, Alpha(cDiscret, 0x70), S(2.5f));
+				p.FillColor({mx + zoneW - S(9.f), py, S(5.f), pouce}, Alpha(cDiscret, 0x70), S(2.5f));
 			}
 			(void)cTexte;
 			return res;
