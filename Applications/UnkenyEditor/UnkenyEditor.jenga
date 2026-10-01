@@ -93,7 +93,7 @@ with project("UnkenyEditor"):
     appversion("0.1.0")
     licensefile("../../LICENSE")
 
-    # L icone d Unkeny (« Rebond sur les tuiles », SANS la trajectoire en pointilles, validee le 01/10/2026),
+    # L'icone d'Unkeny (« Rebond sur les tuiles », SANS la trajectoire en pointilles, validee le 01/10/2026),
     # version sombre ; la claire est a cote (unkenyeditor_icon_clair.png, R17).
     # Sources vectorielles : data/brand/unkeny_icone_{sombre,clair}.svg.
     # (Avant elle, pas d'appicon : declarer une icone absente fait echouer
