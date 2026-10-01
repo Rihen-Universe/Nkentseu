@@ -489,10 +489,17 @@ namespace nkentseu {
 					return;
 				}
 
+				// (2026-10-01, PIE d'Unreal) EN JEU, LA VUE EST AU JEU : la molette, le
+				// panoramique, le menu et la selection de l'editeur sont COUPES (les
+				// entrees vont au jeu). « Ejecter » (F8) rend une camera libre.
+				const bool auJeu = NkEditeurVueAuJeu(m);
+				if (auJeu) {
+					m.panoramique = false;
+				}
 				// ── Molette : zoom autour du curseur ─────────────────────────────
 				// Le point du monde sous le curseur ne bouge pas : c'est lui qu'on
 				// regarde, c'est lui qu'on grossit.
-				if (dedans && in.wheel != 0.f) {
+				if (dedans && in.wheel != 0.f && !auJeu) {
 					ui.cadrageAnime = false; // la main reprend la camera
 					const NkVec2f avant = cam.EcranVersMonde(pos);
 					const float32 z = cam.Zoom() * (in.wheel > 0.f ? 1.15f : 1.f / 1.15f);
@@ -504,7 +511,7 @@ namespace nkentseu {
 				// ⚠️ LE SEUL panoramique (2026-09-29) : le bouton droit ouvre le menu,
 				//    et le clic gauche dans le vide deselectionne au lieu de tirer la
 				//    vue.
-				if (dedans && in.mouseClicked[2]) {
+				if (dedans && in.mouseClicked[2] && !auJeu) {
 					ui.cadrageAnime = false;
 					m.panoramique = true;
 					m.dernierPointeur = pos;
@@ -522,7 +529,7 @@ namespace nkentseu {
 				// ── Clic droit : le menu contextuel ──────────────────────────────
 				// Il CHOISIT d'abord ce qui est sous le curseur (comme UE5) : le menu
 				// d'une entite vise celle-la, pas la selection d'avant.
-				if (dedans && in.mouseClicked[1]) {
+				if (dedans && in.mouseClicked[1] && !auJeu) {
 					ui.pointContexte = monde;
 					const bool surEntite = NkEditeurCliquerSelection(m, monde);
 					NkEditeurOuvrirMenu(c, surEntite ? NkMenuEditeur::NK_CTX_ENTITE : NkMenuEditeur::NK_CTX_VIDE,
@@ -565,6 +572,10 @@ namespace nkentseu {
 							// SELECTION, et les trois gizmos hors de leurs poignees : le clic
 							// choisit, le vide deselectionne. Le glisser est ARME, pas encore
 							// parti : il ne partira qu'au-dela du seuil.
+							// (PIE) Au jeu, le clic est au JEU : rien n'est choisi.
+							if (auJeu) {
+								break;
+							}
 							NkVec2f centre;
 							if (NkEditeurCliquerSelection(m, monde, &centre)) {
 								ui.glisserArme = true;
@@ -989,6 +1000,15 @@ namespace nkentseu {
 			// souris du viseur (un clic sur elle ne choisit rien dessous).
 			BarreFlottante(c, aire);
 			Souris(c, aire);
+			// (2026-10-01, PIE) Ce que montre la vue en jeu, en clair.
+			if (c.m.etat != NkEtatJeu::NK_EDITION) {
+				const char *t = c.m.ejecte ? "Éjecté : caméra libre de l'éditeur  ·  F8 : revenir au jeu"
+										   : "Caméra du jeu  ·  les entrées vont au jeu  ·  F8 : éjecter";
+				const float32 w = renderer::NkTexteLargeur(c.petite, t) + 16.f;
+				const NkRect r{aire.x + 8.f, aire.y + aire.h - 30.f, w, 22.f};
+				dl.AddRectFilled(r, c.m.ejecte ? NkColor{120, 90, 30, 220} : NkColor{30, 90, 50, 220}, 3.f);
+				renderer::NkTexteDansBoite(dl, c.petite, r, t, NkColor{235, 240, 235, 255});
+			}
 		}
 
 	} // namespace editeur

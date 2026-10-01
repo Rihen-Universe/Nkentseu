@@ -148,6 +148,7 @@ namespace nkentseu {
 			NK_A_ANNULER,				///< Ctrl+Z (2026-10-01, NkHistoriqueEditeur)
 			NK_A_REFAIRE,				///< Ctrl+Y / Ctrl+Maj+Z
 			NK_A_ECLAIRAGE,				///< l'eclairage 2D de la SCENE, allume / eteint (2026-10-01, R33)
+			NK_A_EJECTER,				///< en jeu : camera libre de l'editeur / camera du jeu (F8, PIE d'Unreal)
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -722,6 +723,7 @@ namespace nkentseu {
 				nkgui::NkRect effetJouer{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect effetPause{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect effetArreter{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect boutonEjecter{0.f, 0.f, 0.f, 0.f}; ///< (PIE) le cinquieme bouton de lecture
 				nkgui::NkRect boutonEclairageVue{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEclairageMonde{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture

@@ -94,6 +94,11 @@ namespace nkentseu {
 		void NkEditeurJouer(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo); // ce que « Arreter » rendra
+				// (2026-10-01, PIE) La camera de l'editeur, rendue a l'arret ; le jeu
+				// part de la meme vue, et la vue est AU JEU (pas ejectee).
+				m.cameraAvantJeu = m.scene.Camera();
+				m.cameraAvantJeuValide = true;
+				m.ejecte = false;
 				// Les effets repartent de leur graine : ce qu'on voit en jeu ne
 				// depend pas de la duree de l'apercu en edition.
 				m.scene.Effets().Vider();
@@ -112,6 +117,12 @@ namespace nkentseu {
 				m.scene.Restaurer(m.photo);
 				Aligner(m);
 			}
+			// (2026-10-01, PIE) La vue revient la ou l'editeur l'avait laissee.
+			if (m.cameraAvantJeuValide) {
+				m.scene.Camera() = m.cameraAvantJeu;
+				m.cameraAvantJeuValide = false;
+			}
+			m.ejecte = false;
 			m.photo.valide = false;
 			m.etat = NkEtatJeu::NK_EDITION;
 			// Les identifiants d'entite ont change (Restaurer) : une selection
@@ -125,9 +136,32 @@ namespace nkentseu {
 			m.pinceau = ecs::NkEntityId::Invalid();
 		}
 
+		bool NkEditeurVueAuJeu(const NkEditeurModele &m) noexcept {
+			return m.etat != NkEtatJeu::NK_EDITION && !m.ejecte;
+		}
+
+		bool NkEditeurEjecter(NkEditeurModele &m) {
+			if (m.etat == NkEtatJeu::NK_EDITION) {
+				return false;
+			}
+			if (!m.ejecte) {
+				m.cameraJeu = m.scene.Camera();
+				m.ejecte = true;
+				NkEditeurAnnoncer(m, "Éjecté : caméra libre de l'éditeur (le jeu continue) — F8 pour revenir au jeu");
+			} else {
+				m.scene.Camera() = m.cameraJeu;
+				m.ejecte = false;
+				NkEditeurAnnoncer(m, "Retour au jeu : la vue suit la caméra du jeu");
+			}
+			return true;
+		}
+
 		void NkEditeurUnPas(NkEditeurModele &m) {
 			if (!m.photo.valide) {
 				m.scene.Photographier(m.photo);
+				m.cameraAvantJeu = m.scene.Camera();
+				m.cameraAvantJeuValide = true;
+				m.ejecte = false;
 			}
 			m.etat = NkEtatJeu::NK_PAUSE;
 			m.scene.Pas(m.scene.Config().pasFixe);
@@ -142,7 +176,16 @@ namespace nkentseu {
 				// LA trame du jeu, celle que joue aussi le joueur autonome
 				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde
 				// dt > 0 et le plafond de trame, et Pas propage la hierarchie.
-				NkAvancerPartie(m.scene, dt);
+				// Ejectee, la vue garde sa camera LIBRE ; le jeu avance avec la sienne.
+				if (m.ejecte) {
+					const NkVue2D libre = m.scene.Camera();
+					m.scene.Camera() = m.cameraJeu;
+					NkAvancerPartie(m.scene, dt);
+					m.cameraJeu = m.scene.Camera();
+					m.scene.Camera() = libre;
+				} else {
+					NkAvancerPartie(m.scene, dt);
+				}
 			} else {
 				// En EDITION rien ne fait Pas : deplacer un parent au gizmo doit
 				// pourtant emporter ses enfants a l'ecran, a cette trame.

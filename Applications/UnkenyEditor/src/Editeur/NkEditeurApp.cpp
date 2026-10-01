@@ -899,6 +899,7 @@ namespace nkentseu {
 				{NkGuiKey::Delete, NK_A_SUPPRIMER},
 				{NkGuiKey::Space, NK_A_JOUER},
 				{NkGuiKey::Escape, NK_A_ARRETER},
+				{NkGuiKey::F8, NK_A_EJECTER}, // (2026-10-01) le PIE d'Unreal
 				{NkGuiKey::F, NK_A_CADRER_SELECTION},
 				{NkGuiKey::F2, NK_A_RENOMMER},
 				{NkGuiKey::Q, NK_A_OUTIL + static_cast<int32>(NkOutil::NK_SELECTION)},

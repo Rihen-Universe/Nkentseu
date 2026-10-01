@@ -141,10 +141,16 @@ namespace nkentseu {
 				const float32 cote = b.h - 8.f;
 				const NkEtatJeu etat = c.m.etat;
 				auto &dl = c.ctx.dl;
-				for (int32 k = 0; k < 4; ++k) {
+				// (2026-10-01) Le CINQUIEME : « Ejecter » (F8), actif en jeu, enfonce
+				// quand la vue est ejectee. Sa place est gardee en edition.
+				for (int32 k = 0; k < 5; ++k) {
 					const NkRect r{x, b.y + 4.f, cote, cote};
-					const bool enfonce = (k == 0 && etat == NkEtatJeu::NK_JEU) || (k == 1 && etat == NkEtatJeu::NK_PAUSE);
-					const bool actif = !(k == 2 && etat == NkEtatJeu::NK_EDITION);
+					const bool enfonce = (k == 0 && etat == NkEtatJeu::NK_JEU) || (k == 1 && etat == NkEtatJeu::NK_PAUSE) ||
+										 (k == 4 && c.m.ejecte);
+					const bool actif = !((k == 2 || k == 4) && etat == NkEtatJeu::NK_EDITION);
+					if (k == 4) {
+						c.ui.boutonEjecter = r;
+					}
 					const bool clic = NkEditeurBouton(c, r, "", enfonce, actif);
 					const NkColor g = enfonce ? c.pal.surAccent : (actif ? c.pal.texte : c.pal.attenue);
 					const float32 cx = r.x + r.w * 0.5f;
@@ -160,13 +166,17 @@ namespace nkentseu {
 						case 2: // Arreter : un carre
 							dl.AddRectFilled(NkRect{cx - 5.f, cy - 5.f, 10.f, 10.f}, g);
 							break;
+						case 4: // Ejecter : un triangle sur une barre (le glyphe d'ejection)
+							dl.AddTriangleFilled(NkVec2{cx - 6.f, cy + 1.f}, NkVec2{cx + 6.f, cy + 1.f}, NkVec2{cx, cy - 6.f}, g);
+							dl.AddRectFilled(NkRect{cx - 6.f, cy + 3.5f, 12.f, 2.5f}, g);
+							break;
 						default: // Un pas : triangle + barre
 							dl.AddTriangleFilled(NkVec2{cx - 5.f, cy - 6.f}, NkVec2{cx - 5.f, cy + 6.f}, NkVec2{cx + 3.f, cy}, g);
 							dl.AddRectFilled(NkRect{cx + 3.5f, cy - 6.f, 2.5f, 12.f}, g);
 							break;
 					}
 					if (clic) {
-						static const int32 kActions[4] = {NK_A_JOUER, NK_A_PAUSE, NK_A_ARRETER, NK_A_PAS};
+						static const int32 kActions[5] = {NK_A_JOUER, NK_A_PAUSE, NK_A_ARRETER, NK_A_PAS, NK_A_EJECTER};
 						NkEditeurExecuter(c, kActions[k]);
 					}
 					x += cote + 3.f;
@@ -1312,6 +1322,9 @@ namespace nkentseu {
 					if (NkEditeurSauver(m)) {
 						NkEditeurRetenirEmpreinte(m, ui);
 					}
+					break;
+				case NK_A_EJECTER:
+					NkEditeurEjecter(m);
 					break;
 				case NK_A_ECLAIRAGE: {
 					// (2026-10-01, R33 point 6) L'interrupteur de l'eclairage de la scene :

@@ -30,6 +30,13 @@ namespace nkentseu {
 		void NkEditeurPause(NkEditeurModele &m);
 		void NkEditeurArreter(NkEditeurModele &m); ///< rend la scene d'avant Jouer
 		void NkEditeurUnPas(NkEditeurModele &m);
+		/// (2026-10-01) EJECTER, comme le PIE d'Unreal (F8) : en jeu, detache une
+		/// camera libre de l'editeur (la camera du jeu continue a part), ou la
+		/// rattache (la vue revient a la camera du jeu). Rend false en edition.
+		bool NkEditeurEjecter(NkEditeurModele &m);
+		/// La vue est-elle AU JEU (en jeu ou en pause, non ejectee) ? Ses gestes
+		/// d'editeur (molette, panoramique, selection, menu) sont alors coupes.
+		bool NkEditeurVueAuJeu(const NkEditeurModele &m) noexcept;
 		/// Une trame : la scene avance si l'on JOUE ; l'annonce vieillit.
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt);
 

@@ -54,6 +54,11 @@
 //         particules finissent leur vie ; Arreter(vider) les efface ; les boutons
 //         Jouer / Pause / Arreter de la carte pilotent en jeu ; les deux reglages
 //         survivent a Enregistrer / Ouvrir
+//   (m8)  JOUER COMME LE PIE D'UNREAL : en jeu, la molette ne zoome plus, le
+//         bouton du milieu ne deplace plus, un clic ne choisit rien ; F8 EJECTE
+//         (camera libre : la molette zoome, le jeu avance a part) ; F8 de
+//         nouveau : la vue revient a la camera du jeu ; le bouton Ejecter de la
+//         barre fait de meme ; Arreter rend la camera d'avant Jouer
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -761,6 +766,92 @@ namespace nkentseu {
 				NkDirectory::Delete("banc_m7", true);
 			}
 
+			// (m8) JOUER : LA VUE EST AU JEU ; EJECTER (Rihen, 01/10).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				t.Trame();
+				t.Trame();
+				ui.cadrageAnime = false;
+				NkVue2D &cam = m.scene.Camera();
+				const float32 zEdition = cam.Zoom();
+				const NkVec2f cEdition = cam.Centre();
+				const nkgui::NkVec2 milieu{ui.viseur.x + ui.viseur.w * 0.5f, ui.viseur.y + ui.viseur.h * 0.5f};
+				auto Molette = [&](float32 w) {
+					t.Ctx().input.mousePos = milieu;
+					t.Ctx().input.wheel = w;
+					t.Trame();
+					t.Ctx().input.wheel = 0.f;
+					t.Trame();
+				};
+				NkEditeurCadre cadre = t.Cadre();
+				NkEditeurExecuter(cadre, NK_A_JOUER);
+				t.Trame();
+				const float32 zJeu = cam.Zoom();
+				Molette(3.f);
+				const bool molette = cam.Zoom() == zJeu;
+				// Le bouton du milieu : pas de panoramique.
+				const NkVec2f c0 = cam.Centre();
+				t.Ctx().input.mousePos = milieu;
+				t.souris.Appui(t.Ctx().input, 2);
+				t.Trame();
+				t.Ctx().input.mousePos = nkgui::NkVec2{milieu.x + 80.f, milieu.y + 40.f};
+				t.Trame();
+				t.souris.Relache(t.Ctx().input, 2);
+				t.Trame();
+				const bool pano = cam.Centre().x == c0.x && cam.Centre().y == c0.y;
+				// Un clic sur une caisse : rien n'est choisi.
+				m.aSelection = false;
+				ecs::NkEntityId caisse;
+				m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					if (std::strncmp(e.nom, "Caisse", 6) == 0 && !caisse.IsValid()) {
+						caisse = id;
+					}
+				});
+				bool choix = true;
+				if (const NkTransform2D *tc = caisse.IsValid() ? m.scene.Monde().Get<NkTransform2D>(caisse) : nullptr) {
+					const NkVec2f e = cam.MondeVersEcran(tc->position);
+					t.Clic(0, e.x, e.y);
+					choix = m.aSelection;
+				}
+				// F8 : ejecte, la molette zoome ; le jeu avance avec SA camera.
+				t.Touche(nkgui::NkGuiKey::F8);
+				const bool ejecte = m.ejecte;
+				Molette(3.f);
+				const float32 zLibre = cam.Zoom();
+				for (int32 k = 0; k < 5; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+				}
+				const bool libre = ejecte && zLibre != zJeu && cam.Zoom() == zLibre && m.cameraJeu.Zoom() == zJeu;
+				// F8 : retour a la camera du jeu.
+				t.Touche(nkgui::NkGuiKey::F8);
+				const bool retour = !m.ejecte && cam.Zoom() == zJeu;
+				// Le bouton de la barre : ejecte puis revient.
+				nkgui::NkVec2 p = Milieu(ui.boutonEjecter);
+				t.Clic(0, p.x, p.y);
+				const bool bouton1 = m.ejecte;
+				p = Milieu(ui.boutonEjecter);
+				t.Clic(0, p.x, p.y);
+				const bool bouton = bouton1 && !m.ejecte;
+				// Arreter : la camera d'avant Jouer.
+				Molette(3.f); // (au jeu : sans effet)
+				NkEditeurExecuter(cadre, NK_A_ARRETER);
+				t.Trame();
+				const bool arret = cam.Zoom() == zEdition && cam.Centre().x == cEdition.x && cam.Centre().y == cEdition.y && !m.ejecte;
+				// En EDITION, la molette zoome de nouveau.
+				Molette(3.f);
+				const bool edition = cam.Zoom() != zEdition;
+				const bool ok = molette && pano && !choix && libre && retour && bouton && arret && edition;
+				if (!ok) {
+					std::printf("        molette %d pano %d choix %d libre %d retour %d bouton %d arret %d edition %d%c", molette, pano, choix, libre,
+								retour, bouton, arret, edition, 10);
+				}
+				Temoin(ok, "(m8) Jouer : vue au jeu (molette, pano, clic coupes), F8 ejecte / revient, Arreter",
+					   static_cast<float32>(molette + pano + !choix + libre + retour + bouton + arret + edition));
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -911,6 +1002,44 @@ namespace nkentseu {
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/07c_effet_en_pause.png", dossier).CStr()) ? 0 : 1;
 				NkEditeurArreter(m);
+				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 08 : Jouer (la vue au jeu), puis Ejecter (F8) et zoomer.
+			{
+				NkEditeurNouvelleScene(m);
+				m.aSelection = false;
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				T.W = 1600.f;
+				T.H = 900.f;
+				T.pctx->Init(1600, 900);
+				T.Ui().hauteurTiroir = 150.f;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				NkEditeurCadre cadre = T.Cadre();
+				NkEditeurExecuter(cadre, NK_A_JOUER);
+				for (int32 k = 0; k < 40; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/08a_jouer_vue_au_jeu.png", dossier).CStr()) ? 0 : 1;
+				T.Touche(nkgui::NkGuiKey::F8);
+				const nkgui::NkVec2 mil{T.Ui().viseur.x + T.Ui().viseur.w * 0.5f, T.Ui().viseur.y + T.Ui().viseur.h * 0.5f};
+				for (int32 k = 0; k < 4; ++k) {
+					T.Ctx().input.mousePos = mil;
+					T.Ctx().input.wheel = -2.f;
+					T.Trame();
+				}
+				T.Ctx().input.wheel = 0.f;
+				for (int32 k = 0; k < 20; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/08b_ejecte_camera_libre.png", dossier).CStr()) ? 0 : 1;
+				NkEditeurExecuter(cadre, NK_A_ARRETER);
 				memory::NkGetDefaultAllocator().Delete(pt);
 			}
 			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration
