@@ -393,6 +393,7 @@ namespace nkentseu {
 							}
 						}
 						out.PushBack(Separateur());
+						out.PushBack(Entree("Recadrer l'appareil dans la vue", NK_A_RECADRER_APPAREIL, "", false, m.profil != 0));
 						out.PushBack(Entree("Personnalisé", NK_A_APPAREIL + NkNbProfils(), "", m.ProfilPersonnalise()));
 						out.PushBack(Entree("Personnaliser cet appareil",
 											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_PERSONNALISER), "",
@@ -1325,6 +1326,9 @@ namespace nkentseu {
 					break;
 				case NK_A_EJECTER:
 					NkEditeurEjecter(m);
+					break;
+				case NK_A_RECADRER_APPAREIL:
+					ui.appareilAncre = false; // repose a la prochaine trame, ajuste a la vue
 					break;
 				case NK_A_ECLAIRAGE: {
 					// (2026-10-01, R33 point 6) L'interrupteur de l'eclairage de la scene :

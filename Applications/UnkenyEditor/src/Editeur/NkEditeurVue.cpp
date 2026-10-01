@@ -938,6 +938,50 @@ namespace nkentseu {
 
 		} // namespace
 
+		namespace {
+			/// L'APPAREIL POSE DANS LE MONDE (2026-10-01, retour de Rihen : « le zoom
+			/// doit agrandir l'appareil entier, pas la scene derriere un cadre fige »).
+			/// Son ecran est un rectangle du MONDE, pose la ou l'aire ajustee tombe a
+			/// sa pose ; il suit ensuite la camera comme le reste de la scene.
+			NkRect AppareilDansLeMonde(NkEditeurCadre &c, NkVue2D &cam, const NkRect &ajuste) {
+				NkEditeurInterface &ui = c.ui;
+				NkEditeurModele &m = c.m;
+				const uint32 cle = static_cast<uint32>(m.profil) * 64u + static_cast<uint32>(m.orientation) * 2u + (m.appareil.voirCadre ? 1u : 0u);
+				if (!ui.appareilAncre || ui.appareilCle != cle) {
+					const NkVec2f a = cam.EcranVersMonde(NkVec2f(ajuste.x, ajuste.y));
+					const NkVec2f b = cam.EcranVersMonde(NkVec2f(ajuste.x + ajuste.w, ajuste.y + ajuste.h));
+					ui.appareilCentre = NkVec2f((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+					ui.appareilTaille = NkVec2f(math::NkAbs(b.x - a.x), math::NkAbs(b.y - a.y));
+					ui.appareilAncre = ui.appareilTaille.x > 1.0e-4f && ui.appareilTaille.y > 1.0e-4f;
+					ui.appareilCle = cle;
+					if (!ui.appareilAncre) {
+						return ajuste;
+					}
+				}
+				auto Ecran = [&]() {
+					const NkVec2f p0 = cam.MondeVersEcran(
+						NkVec2f(ui.appareilCentre.x - ui.appareilTaille.x * 0.5f, ui.appareilCentre.y - ui.appareilTaille.y * 0.5f));
+					const NkVec2f p1 = cam.MondeVersEcran(
+						NkVec2f(ui.appareilCentre.x + ui.appareilTaille.x * 0.5f, ui.appareilCentre.y + ui.appareilTaille.y * 0.5f));
+					return NkRect{p0.x < p1.x ? p0.x : p1.x, p0.y < p1.y ? p0.y : p1.y, math::NkAbs(p1.x - p0.x), math::NkAbs(p1.y - p0.y)};
+				};
+				// EN JEU, une fois : la vue se recadre sur l'appareil entier (le jeu y
+				// est montre a sa camera) ; Arreter rend la camera d'edition.
+				if (m.etat == NkEtatJeu::NK_EDITION) {
+					ui.appareilAjusteJeu = false;
+				} else if (!ui.appareilAjusteJeu && !m.ejecte) {
+					ui.appareilAjusteJeu = true;
+					const NkRect r = Ecran();
+					if (r.w > 1.f) {
+						cam.PoserZoom(cam.Zoom() * ajuste.w / r.w);
+						const NkVec2f d = cam.EcranVersMonde(NkVec2f(ajuste.x + ajuste.w * 0.5f, ajuste.y + ajuste.h * 0.5f)) - ui.appareilCentre;
+						cam.PoserCentre(cam.Centre() - d);
+					}
+				}
+				return Ecran();
+			}
+		} // namespace
+
 		void NkEditeurDemanderCadrage(NkEditeurCadre &c, bool toutLaScene) {
 			NkEditeurModele &m = c.m;
 			const bool avait = m.aSelection;
@@ -967,7 +1011,7 @@ namespace nkentseu {
 				return;
 			}
 			auto &dl = c.ctx.dl;
-			const NkRect appareil = NkAireAppareil(aire, c.m.ProfilCourant(), c.m.appareil.voirCadre);
+			const NkRect ajuste = NkAireAppareil(aire, c.m.ProfilCourant(), c.m.appareil.voirCadre);
 			// ⚠️ LE VISEUR DE LA CAMERA EST TOUTE L'AIRE (2026-09-29). Il etait
 			//    l'aire d'appareil : le monde ne se voyait que dans un rectangle
 			//    centre. L'appareil n'est plus qu'une surimpression (NkDessinerViseur).
@@ -988,8 +1032,11 @@ namespace nkentseu {
 				}
 				c.m.aSelection = avait;
 				cam.Cadrer(centre, taille);
+				ui.appareilAncre = false; // une autre scene : l'appareil se repose
 			}
 			AnimerCadrage(c, cam, aire);
+			const NkRect appareil = c.m.profil != 0 ? AppareilDansLeMonde(c, cam, ajuste) : ajuste;
+			ui.appareilEcran = appareil;
 			dl.PushClipRect(aire, true);
 			c.m.stats = NkDessinerViseur(dl, c.m, aire, appareil);
 			DessinerGizmo(c, dl);

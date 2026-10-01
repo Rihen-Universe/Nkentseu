@@ -59,6 +59,12 @@
 //         (camera libre : la molette zoome, le jeu avance a part) ; F8 de
 //         nouveau : la vue revient a la camera du jeu ; le bouton Ejecter de la
 //         barre fait de meme ; Arreter rend la camera d'avant Jouer
+//   (m9)  L'APPAREIL ENTIER SE ZOOME : un telephone affiche, la molette grossit
+//         son ecran du MEME facteur que la camera, et le monde sous son centre
+//         ne change pas ; le panoramique le deplace du meme nombre de pixels ;
+//         en Jouer, il se recadre entier dans la vue (le jeu a sa camera : le
+//         meme monde sous son centre) ; Arreter rend la vue d'avant ;
+//         « Recadrer l'appareil » lui rend sa taille ajustee
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -73,6 +79,7 @@
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurPlacer.h"
+#include "Editeur/NkEditeurViseur.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
@@ -852,6 +859,81 @@ namespace nkentseu {
 					   static_cast<float32>(molette + pano + !choix + libre + retour + bouton + arret + edition));
 			}
 
+			// (m9) L'APPAREIL SIMULE ZOOME EN ENTIER (Rihen, 01/10).
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				const int32 profilAvant = m.profil;
+				for (int32 k = 0; k < NkNbProfils(); ++k) {
+					if (NkProfil(k).famille == NkFamilleAppareil::NK_TELEPHONE) {
+						m.profil = k;
+						break;
+					}
+				}
+				const bool cadreAvant = m.appareil.voirCadre;
+				m.appareil.voirCadre = true;
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				t.Trame();
+				t.Trame();
+				ui.cadrageAnime = false;
+				NkVue2D &cam = m.scene.Camera();
+				auto CentreR = [](const nkgui::NkRect &r) { return NkVec2f(r.x + r.w * 0.5f, r.y + r.h * 0.5f); };
+				const nkgui::NkRect r0 = ui.appareilEcran;
+				const float32 z0 = cam.Zoom();
+				const NkVec2f w0 = cam.EcranVersMonde(CentreR(r0));
+				// La molette, au centre de la vue.
+				t.Ctx().input.mousePos = nkgui::NkVec2{ui.viseur.x + ui.viseur.w * 0.5f, ui.viseur.y + ui.viseur.h * 0.5f};
+				t.Ctx().input.wheel = 2.f;
+				t.Trame();
+				t.Ctx().input.wheel = 0.f;
+				t.Trame();
+				const nkgui::NkRect r1 = ui.appareilEcran;
+				const float32 k = cam.Zoom() / z0;
+				const NkVec2f w1 = cam.EcranVersMonde(CentreR(r1));
+				const bool zoom = k > 1.1f && math::NkAbs(r1.w / r0.w - k) < 0.01f * k && math::NkAbs(r1.h / r0.h - k) < 0.01f * k &&
+								  math::NkAbs(w1.x - w0.x) < 0.01f && math::NkAbs(w1.y - w0.y) < 0.01f;
+				// Le panoramique : le meme deplacement.
+				const nkgui::NkVec2 a{ui.viseur.x + 200.f, ui.viseur.y + 200.f};
+				t.Ctx().input.mousePos = a;
+				t.souris.Appui(t.Ctx().input, 2);
+				t.Trame();
+				t.Ctx().input.mousePos = nkgui::NkVec2{a.x + 60.f, a.y + 30.f};
+				t.Trame();
+				t.souris.Relache(t.Ctx().input, 2);
+				t.Trame();
+				const nkgui::NkRect r2 = ui.appareilEcran;
+				const bool pano = math::NkAbs(r2.x - r1.x - 60.f) < 1.f && math::NkAbs(r2.y - r1.y - 30.f) < 1.f && math::NkAbs(r2.w - r1.w) < 0.5f;
+				// Jouer : recadre entier dans la vue, le meme monde au centre.
+				const nkgui::NkRect ajuste = NkAireAppareil(ui.viseur, m.ProfilCourant(), true);
+				NkEditeurCadre cadre = t.Cadre();
+				NkEditeurExecuter(cadre, NK_A_JOUER);
+				t.Trame();
+				t.Trame();
+				const nkgui::NkRect r3 = ui.appareilEcran;
+				const NkVec2f w3 = cam.EcranVersMonde(CentreR(r3));
+				const bool jeu = math::NkAbs(r3.w - ajuste.w) < 1.f && math::NkAbs(r3.x - ajuste.x) < 1.f && math::NkAbs(r3.y - ajuste.y) < 1.f &&
+								 math::NkAbs(w3.x - w0.x) < 0.01f && math::NkAbs(w3.y - w0.y) < 0.01f;
+				NkEditeurExecuter(cadre, NK_A_ARRETER);
+				t.Trame();
+				const nkgui::NkRect r4 = ui.appareilEcran;
+				const bool arret = math::NkAbs(r4.x - r2.x) < 1.f && math::NkAbs(r4.w - r2.w) < 1.f;
+				// « Recadrer l'appareil » : sa taille ajustee, a la vue de maintenant.
+				NkEditeurExecuter(cadre, NK_A_RECADRER_APPAREIL);
+				t.Trame();
+				const bool recadre = math::NkAbs(ui.appareilEcran.w - ajuste.w) < 1.f && math::NkAbs(ui.appareilEcran.x - ajuste.x) < 1.f;
+				m.profil = profilAvant;
+				m.appareil.voirCadre = cadreAvant;
+				const bool ok = zoom && pano && jeu && arret && recadre;
+				if (!ok) {
+					std::printf("        zoom %d (k %.3f, %.1f -> %.1f) pano %d jeu %d (%.1f vs %.1f) arret %d recadre %d%c", zoom, static_cast<double>(k),
+								static_cast<double>(r0.w), static_cast<double>(r1.w), pano, jeu, static_cast<double>(r3.w),
+								static_cast<double>(ajuste.w), arret, recadre, 10);
+				}
+				Temoin(ok, "(m9) appareil : zoom et panoramique de l'appareil entier, recadre en Jouer",
+					   static_cast<float32>(zoom + pano + jeu + arret + recadre));
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -1040,6 +1122,56 @@ namespace nkentseu {
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/08b_ejecte_camera_libre.png", dossier).CStr()) ? 0 : 1;
 				NkEditeurExecuter(cadre, NK_A_ARRETER);
+				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 09 : un telephone affiche ; la molette grossit l'APPAREIL ENTIER ; en
+			// Jouer, il se recadre et le jeu y tourne.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurSceneNuit(m);
+				m.aSelection = false;
+				const int32 profilAvant = m.profil;
+				for (int32 k = 0; k < NkNbProfils(); ++k) {
+					if (NkProfil(k).famille == NkFamilleAppareil::NK_TELEPHONE) {
+						m.profil = k;
+						break;
+					}
+				}
+				m.orientation = NkOrientation::NK_PAYSAGE_GAUCHE;
+				const bool cadreAvant = m.appareil.voirCadre;
+				m.appareil.voirCadre = true;
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				T.W = 1600.f;
+				T.H = 900.f;
+				T.pctx->Init(1600, 900);
+				T.Ui().hauteurTiroir = 150.f;
+				for (int32 k = 0; k < 3; ++k) {
+					T.Trame();
+				}
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/09a_appareil_pose.png", dossier).CStr()) ? 0 : 1;
+				const nkgui::NkRect e = T.Ui().appareilEcran;
+				for (int32 k = 0; k < 4; ++k) {
+					T.Ctx().input.mousePos = nkgui::NkVec2{e.x + e.w * 0.5f, e.y + e.h * 0.5f};
+					T.Ctx().input.wheel = -1.f;
+					T.Trame();
+				}
+				T.Ctx().input.wheel = 0.f;
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/09b_appareil_reduit_en_entier.png", dossier).CStr()) ? 0 : 1;
+				NkEditeurCadre cadre = T.Cadre();
+				NkEditeurExecuter(cadre, NK_A_JOUER);
+				for (int32 k = 0; k < 40; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/09c_jouer_dans_l_appareil.png", dossier).CStr()) ? 0 : 1;
+				NkEditeurExecuter(cadre, NK_A_ARRETER);
+				m.profil = profilAvant;
+				m.orientation = NkOrientation::NK_PORTRAIT;
+				m.appareil.voirCadre = cadreAvant;
 				memory::NkGetDefaultAllocator().Delete(pt);
 			}
 			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration

@@ -149,6 +149,7 @@ namespace nkentseu {
 			NK_A_REFAIRE,				///< Ctrl+Y / Ctrl+Maj+Z
 			NK_A_ECLAIRAGE,				///< l'eclairage 2D de la SCENE, allume / eteint (2026-10-01, R33)
 			NK_A_EJECTER,				///< en jeu : camera libre de l'editeur / camera du jeu (F8, PIE d'Unreal)
+			NK_A_RECADRER_APPAREIL,		///< l'appareil simule reprend sa taille ajustee a la vue
 			NK_A_POSER_ICI = 700,		///< + NkActeurSim : pose au point du clic droit
 			NK_A_OUTIL = 100,			///< + NkOutil
 			NK_A_POSER_ACTEUR = 200,	///< + NkActeurSim : pose au centre de la vue
@@ -724,6 +725,20 @@ namespace nkentseu {
 				nkgui::NkRect effetPause{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect effetArreter{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEjecter{0.f, 0.f, 0.f, 0.f}; ///< (PIE) le cinquieme bouton de lecture
+				/// (2026-10-01) L'APPAREIL SIMULE EST POSE DANS LE MONDE : son ecran
+				/// couvre un rectangle du monde (centre, taille en m), fixe a sa pose
+				/// (le premier dessin, un autre appareil, une autre orientation,
+				/// « Recadrer l'appareil ») ; le zoom et le panoramique de l'editeur
+				/// agrandissent, reduisent et deplacent ALORS L'APPAREIL ENTIER (cadre,
+				/// ecran, contenu). En Jouer, il se recadre une fois, entier dans la
+				/// vue : le jeu y est montre a sa camera (ce rectangle). `appareilEcran`
+				/// : son ecran a cette trame.
+				bool appareilAncre = false;
+				uint32 appareilCle = 0u;
+				NkVec2f appareilCentre{0.f, 0.f};
+				NkVec2f appareilTaille{0.f, 0.f};
+				bool appareilAjusteJeu = false;
+				nkgui::NkRect appareilEcran{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEclairageVue{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEclairageMonde{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture
