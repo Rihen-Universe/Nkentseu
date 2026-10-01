@@ -204,9 +204,15 @@ jobs:
       # fonctions 4.2-4.5 (NkOpenglCompat41.cpp), shaders adaptes en GLSL 410.
       # Avant, NKRHI refusait OpenGL sur Apple et le repli apres Metal etait le
       # rendu logiciel. Meme scene, meme etalon DX11 que Metal.
+      # La VM n'accorde a OpenGL que le rendu LOGICIEL d'Apple (« Apple Software
+      # Renderer », mesure du 2026-10-01 : ~100 s pour la 1re image, ~20 s pour
+      # les suivantes) : capture de l'image 2 (deja conforme sous Windows des
+      # l'image 1), delai porte a 420 s.
       - name: Tuto03Scene - capture hors ecran OpenGL 4.1
         if: ${{ !cancelled() && hashFiles('journaux/Tuto03Scene.chemin') != '' }}
-        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" opengl 30 "$JOURNAUX/captures/tuto03-opengl.png" "$JOURNAUX/captures"
+        env:
+          NK_CAPTURE_DELAI: "420"
+        run: .github/scripts/capturer-rendu.sh "$(cat "$JOURNAUX/Tuto03Scene.chemin")" opengl 2 "$JOURNAUX/captures/tuto03-opengl.png" "$JOURNAUX/captures"
 
       - name: Tuto03Scene - pixels de l'image OpenGL
         if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-opengl.png') != '' }}
