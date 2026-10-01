@@ -1284,6 +1284,15 @@ int nkmain(const NkEntryState &entry) {
 	// drapeau, l'explorateur montre le curseur « interdit » et rien n'arrive --
 	// c'etait l'ecoute qui manquait (contrat d'import, point 2).
 	wc.dropEnabled = true;
+	// (01/10) NK_FENETRE_CACHEE=1 : la fenetre existe (le device, les shaders, le
+	// viseur naissent comme d'habitude) mais N'APPARAIT PAS a l'ecran. Instrument
+	// de mesure : une sonde ne doit pas surgir sous les yeux de celui qui
+	// travaille (meme regle que `--fenetre-cachee` d'UnkenyEditor). Sans la
+	// variable, rien ne change.
+	if (const char *fc = std::getenv("NK_FENETRE_CACHEE")) {
+		if (fc[0] && fc[0] != '0')
+			wc.visible = false;
+	}
 	// (25/09) SOUS `NK_SONDE`, LA FENETRE NE PREND PAS LE FOCUS. Le modeleur a sa
 	// propre boucle : il pose donc le meme reglage que la coquille, par la meme
 	// porte du kit, avec le meme refus nomme la ou la plateforme ne le tient pas.
