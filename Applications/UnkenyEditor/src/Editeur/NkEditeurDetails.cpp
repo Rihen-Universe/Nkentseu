@@ -1235,6 +1235,8 @@ namespace nkentseu {
 					DessinerCarte(I, carte);
 					ctx.PopId();
 				}
+				// L'ancrage a l'ecran (2026-10-01, NkEditeurAppareilsUi.cpp).
+				NkEditeurBlocAncrage(c, id);
 				// ── « Ajouter un composant », en bas (Unity) ─────────────────
 				Espace(ctx, 10.f);
 				const NkRect r0 = ctx.NextItemRect(0.f, 28.f);

@@ -50,6 +50,7 @@
 #include "Unkeny/Scene/NkUnkenyComposants.h"
 #include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyControles.h"
+#include "Unkeny/Scene/NkUnkenyEcran.h"
 
 #include <cstring>
 #include <type_traits>
@@ -254,6 +255,18 @@ namespace nkentseu {
 				}
 				const NkVue2D &Camera() const noexcept {
 					return mCamera;
+				}
+
+				/// L'ECRAN du jeu et sa ZONE SURE (2026-10-01, NkUnkenyEcran.h).
+				/// Pose a chaque trame par celui qui affiche la scene : le joueur
+				/// (NKWindow, par NKCanvas), l'editeur (l'appareil simule). Le jeu
+				/// le LIT : NkZoneSure(scene.Ecran()) est le rectangle ou poser un
+				/// bouton. Invalide tant que personne ne l'a pose.
+				const NkEcranDuJeu &Ecran() const noexcept {
+					return mEcran;
+				}
+				void PoserEcran(const NkEcranDuJeu &e) noexcept {
+					mEcran = e;
 				}
 
 				const NkSceneConfig &Config() const noexcept {
@@ -640,6 +653,7 @@ namespace nkentseu {
 				physics::NkPhysicsWorld *mPhysique = nullptr;
 				physics::NkParticules2D *mParticules = nullptr;
 				NkVue2D mCamera;
+				NkEcranDuJeu mEcran;
 				NkEclairage2D mEclairage;
 				NkEffets2D mEffets;
 				float32 mAccumulateur = 0.f;

@@ -72,6 +72,7 @@
 #include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Scene/NkUnkenyCamera.h"
 #include "Unkeny/Scene/NkUnkenyComposants.h"
+#include "Unkeny/Scene/NkUnkenyEcran.h"
 #include "Unkeny/Scene/NkUnkenyHierarchie.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
@@ -83,6 +84,7 @@
 #include "Unkeny/Ui/NkUnkenyGeometrie.h"
 #include "Unkeny/Ui/NkUnkenyTheme.h"
 #include "Unkeny/Ui/NkUnkenyWidgets.h"
+#include "Unkeny/Partie/NkUnkenyZoneSure.h"
 
 // Les aides de texte vivent UN ETAGE PLUS BAS, dans NKCanvas : elles servent
 // aussi aux applications qui n'utilisent pas Unkeny. On les re-exporte pour que

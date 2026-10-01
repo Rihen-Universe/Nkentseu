@@ -28,5 +28,9 @@ namespace nkentseu {
 		/// contacts, controleurs de personnage, jalon « Gelee ». Lance a la fin de
 		/// NkUnkenyLancerBanc, qui rend 1 si l'un des deux rougit.
 		int32 NkUnkenyLancerBancJeu();
+		/// L'ECRAN du jeu et sa ZONE SURE (2026-10-01, NkUnkenyBancEcran.cpp) :
+		/// lance A PART par l'editeur ET par le joueur (le meme code des deux
+		/// cotes). Rend 0 quand tout tient.
+		int32 NkUnkenyLancerBancEcran();
 	} // namespace unkeny
 } // namespace nkentseu

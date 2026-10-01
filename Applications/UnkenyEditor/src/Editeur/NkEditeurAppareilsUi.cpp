@@ -160,5 +160,88 @@ namespace nkentseu {
 			ctx.PopId();
 		}
 
+
+		// =====================================================================
+		// L'INTERFACE ANCREE A L'ECRAN (document 03, §2.5)
+		// =====================================================================
+
+		ecs::NkEntityId NkEditeurAjouterHud(NkEditeurModele &m, NkAncre ancre, const char *nom, uint32 couleur,
+											const NkVec2f &taille) {
+			const ecs::NkEntityId id = NkEditeurCreerEntite(m, nom, m.scene.Camera().Centre());
+			if (!id.IsValid()) {
+				return id;
+			}
+			NkSprite2D s;
+			s.taille = taille;
+			s.couleur = couleur;
+			s.couche = 100; // devant le decor : c'est une interface
+			m.scene.Monde().Add<NkSprite2D>(id, s);
+			NkAncrageEcran2D a;
+			a.ancre = static_cast<uint8>(ancre);
+			m.scene.Monde().Add<NkAncrageEcran2D>(id, a);
+			return id;
+		}
+
+		bool NkEditeurAncrerSelection(NkEditeurModele &m) {
+			if (!m.aSelection || m.etat != NkEtatJeu::NK_EDITION || m.scene.Monde().Has<NkAncrageEcran2D>(m.selection)) {
+				return false;
+			}
+			NkEditeurRetenir(m);
+			m.scene.Monde().Add<NkAncrageEcran2D>(m.selection, NkAncrageEcran2D());
+			return true;
+		}
+
+		void NkEditeurExempleHud(NkEditeurModele &m) {
+			// Quatre elements, aux quatre coins de la ZONE SURE : un score, une
+			// pause, un saut, une croix de direction. Le meme decor qu'a l'ouverture.
+			NkEditeurAjouterHud(m, NkAncre::NK_HAUT_GAUCHE, "HUD Score", 0x2E3A5CF0u, NkVec2f(2.6f, 0.8f));
+			NkEditeurAjouterHud(m, NkAncre::NK_HAUT_DROITE, "HUD Pause", 0xE0A030FFu, NkVec2f(0.9f, 0.9f));
+			NkEditeurAjouterHud(m, NkAncre::NK_BAS_DROITE, "HUD Saut", 0x3C9AE0FFu, NkVec2f(1.4f, 1.4f));
+			NkEditeurAjouterHud(m, NkAncre::NK_BAS_GAUCHE, "HUD Direction", 0x6E7C96D0u, NkVec2f(1.8f, 1.8f));
+			m.aSelection = false;
+		}
+
+		void NkEditeurBlocAncrage(NkEditeurCadre &c, ecs::NkEntityId id) {
+			NkGuiContext &ctx = c.ctx;
+			NkEditeurModele &m = c.m;
+			NkAncrageEcran2D *a = m.scene.Monde().Get<NkAncrageEcran2D>(id);
+			if (a == nullptr) {
+				return;
+			}
+			ctx.PushId("ancrage");
+			nkgui::Separator(ctx);
+			nkgui::Text(ctx, "Ancrage à l'écran (HUD)");
+			// Les neuf ancres, en grille : on choisit le coin comme on le voit.
+			static const char *kRepli[9] = {"HG", "H", "HD", "G", "C", "D", "BG", "B", "BD"};
+			for (int32 k = 0; k < 9; ++k) {
+				if (k % 3 != 0) {
+					ctx.SameLine();
+				}
+				ctx.BeginDisabled(a->ancre == k);
+				if (nkgui::Button(ctx, kRepli[k])) {
+					NkEditeurRetenir(m);
+					a = m.scene.Monde().Get<NkAncrageEcran2D>(id);
+					if (a == nullptr) {
+						ctx.EndDisabled();
+						ctx.PopId();
+						return;
+					}
+					a->ancre = static_cast<uint8>(k);
+				}
+				ctx.EndDisabled();
+			}
+			nkgui::SliderFloat(ctx, "écart x (pt)", a->decalage.x, -100.f, 300.f);
+			nkgui::SliderFloat(ctx, "écart y (pt)", a->decalage.y, -100.f, 300.f);
+			nkgui::Checkbox(ctx, "dans la zone sûre", a->zoneSure);
+			if (!a->zoneSure) {
+				nkgui::TextWrapped(ctx, "Au bord de l'écran : pour un fond, jamais pour un bouton ou un texte.");
+			}
+			if (nkgui::Button(ctx, "Retirer l'ancrage")) {
+				NkEditeurRetenir(m);
+				m.scene.Monde().Remove<NkAncrageEcran2D>(id);
+			}
+			ctx.PopId();
+		}
+
 	} // namespace editeur
 } // namespace nkentseu

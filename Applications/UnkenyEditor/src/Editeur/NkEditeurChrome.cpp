@@ -293,6 +293,10 @@ namespace nkentseu {
 					case NkMenuEditeur::NK_AJOUTER:
 						out.PushBack(Entree("Entité vide", NK_A_NOUVELLE_ENTITE, "Ctrl+E"));
 						out.PushBack(Entree("Entité simple (sprite + boîte) : poser", NK_A_ARMER_SIMPLE));
+						// (2026-10-01) Un element d'interface ancre dans la zone sure.
+						out.PushBack(Entree("Élément d'interface (HUD ancré)",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_AJOUTER_HUD), "",
+											false, m.etat == NkEtatJeu::NK_EDITION));
 						EntreesCatalogue(out, NK_A_POSER_ACTEUR);
 						break;
 					case NkMenuEditeur::NK_CTX_ENTITE: {
@@ -316,6 +320,11 @@ namespace nkentseu {
 											m.aSelection && m.etat == NkEtatJeu::NK_EDITION));
 						out.PushBack(Entree("Détacher du parent", NK_A_DETACHER, "", false,
 											m.aSelection && m.scene.Parent(m.selection).IsValid()));
+						out.PushBack(Entree("Ancrer à l'écran (HUD)",
+											NK_A_OPTION_APPAREIL + static_cast<int32>(NkOptionAppareil::NK_ANCRER_SELECTION), "",
+											false,
+											m.aSelection && m.etat == NkEtatJeu::NK_EDITION &&
+												!m.scene.Monde().Has<NkAncrageEcran2D>(m.selection)));
 						break;
 					}
 					case NkMenuEditeur::NK_CTX_VIDE:
@@ -975,6 +984,14 @@ namespace nkentseu {
 						break;
 					case NkOptionAppareil::NK_APERCU_JEU:
 						r.apercuJeu = !r.apercuJeu;
+						break;
+					case NkOptionAppareil::NK_AJOUTER_HUD:
+						if (m.etat == NkEtatJeu::NK_EDITION) {
+							NkEditeurAjouterHud(m, NkAncre::NK_HAUT_DROITE, "Interface", 0xE0A030FFu, NkVec2f(1.2f, 0.6f));
+						}
+						break;
+					case NkOptionAppareil::NK_ANCRER_SELECTION:
+						NkEditeurAncrerSelection(m);
 						break;
 					case NkOptionAppareil::NK_PERSONNALISER:
 						// Une copie modifiable de l'appareil regarde, qui devient

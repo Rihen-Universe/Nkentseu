@@ -45,6 +45,8 @@
 #include "NKContainers/String/NkString.h"
 #include "NKCore/NkTypes.h"
 #include "NKEvent/NkSafeArea.h"
+#include "Unkeny/Scene/NkUnkenyEcran.h"
+#include "NKECS/World/NkWorld.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -227,6 +229,9 @@ namespace nkentseu {
 			NK_CADRE_CLAIR,	  ///< cadre clair (sinon sombre)
 			NK_APERCU_JEU,	  ///< la camera du JEU dans l'ecran de l'appareil
 			NK_PERSONNALISER, ///< copie l'appareil courant dans l'appareil personnalise
+			// L'interface ancree a l'ecran (§2.5) : des gestes de l'ecran du jeu.
+			NK_AJOUTER_HUD,		///< « + Ajouter » : un element d'interface ancre en haut a droite
+			NK_ANCRER_SELECTION, ///< clic droit : la selection devient un element d'interface
 			NK_COUNT
 		};
 
@@ -266,6 +271,16 @@ namespace nkentseu {
 		/// (NkEditeurAppareilsUi.cpp).
 		struct NkEditeurCadre;
 		void NkEditeurSectionAppareil(NkEditeurCadre &c);
+
+		/// L'INTERFACE ANCREE A L'ECRAN (NkAncrageEcran2D, Unkeny) : un element
+		/// d'interface (sprite + ancrage), la selection ancree, l'exemple
+		/// `--exemple=hud`, et le bloc « Ancrage a l'ecran » des Details.
+		struct NkEditeurModele;
+		ecs::NkEntityId NkEditeurAjouterHud(NkEditeurModele &m, unkeny::NkAncre ancre, const char *nom, uint32 couleur,
+											const math::NkVec2f &taille);
+		bool NkEditeurAncrerSelection(NkEditeurModele &m);
+		void NkEditeurExempleHud(NkEditeurModele &m);
+		void NkEditeurBlocAncrage(NkEditeurCadre &c, ecs::NkEntityId id);
 
 		/// `--selftest` : le banc des appareils (NkEditeurBancAppareils.cpp),
 		/// compte a part. 0 quand tout tient.

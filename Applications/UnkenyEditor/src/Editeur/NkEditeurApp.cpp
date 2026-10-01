@@ -290,6 +290,12 @@ namespace nkentseu {
 				// --exemple=nuit (2026-09-30) : la scene de nuit au feu de camp
 				// (NkEditeurSceneNuit) au lieu de la scene neuve. Avec --capture=,
 				// c'est l'image de l'eclairage sans souris.
+				// --exemple=hud : quatre elements d'interface ancres aux coins de la
+				// zone sure (document 03, §2.5), pour une capture.
+				if (args[i] == "--exemple=hud") {
+					mExempleHud = true;
+					continue;
+				}
 				if (args[i] == "--exemple=nuit") {
 					mExempleNuit = true;
 					continue;
@@ -319,8 +325,11 @@ namespace nkentseu {
 					const int32 construction = NkEditeurLancerBancLivraison();
 					// Les appareils et la zone sure (01/10, document 03) : a part.
 					const int32 appareils = NkEditeurLancerBancAppareils();
+					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
+					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
-									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0;
+									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
+									   ecran != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -380,6 +389,9 @@ namespace nkentseu {
 			NkEditeurNouvelleScene(m);
 			if (mExempleNuit) {
 				NkEditeurSceneNuit(m);
+			}
+			if (mExempleHud) {
+				NkEditeurExempleHud(m);
 			}
 			m.carte.Creer(40, 24, 1.f);
 			m.carte.AjouterCouche(0, 1.f);

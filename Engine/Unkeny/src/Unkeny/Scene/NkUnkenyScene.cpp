@@ -110,6 +110,12 @@ namespace nkentseu {
 			const NkChampSauve kChampsActif[] = {
 				NK_UNKENY_CHAMP(NkActif2D, actif, NkTypeChamp::NK_BOOL),
 			};
+			// (2026-10-01) L'ancrage d'une entite d'interface a l'ecran (NkUnkenyEcran.h).
+			const NkChampSauve kChampsAncrage[] = {
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, ancre, NkTypeChamp::NK_U8),
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, decalage, NkTypeChamp::NK_VEC2),
+				NK_UNKENY_CHAMP(NkAncrageEcran2D, zoneSure, NkTypeChamp::NK_BOOL),
+			};
 			const NkChampSauve kChampsInstance[] = {
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, prefab, NkTypeChamp::NK_PREFAB),
 				NK_UNKENY_CHAMP(NkInstancePrefab2D, noeud, NkTypeChamp::NK_U32),
@@ -146,6 +152,8 @@ namespace nkentseu {
 			// L'activite (2026-09-30) : DECLAREE APRES les autres, pour que leurs
 			// indices de copieur ne bougent pas. ABSENTE d'un fichier = active.
 			PhotographierAussi<NkActif2D>("NkActif2D", kChampsActif, NbChamps(kChampsActif));
+			// L'ancrage a l'ecran (2026-10-01) : APRES l'activite, meme raison.
+			PhotographierAussi<NkAncrageEcran2D>("NkAncrageEcran2D", kChampsAncrage, NbChamps(kChampsAncrage));
 			mCorpsEteints.Clear();
 
 			// Le monde d'Unkeny est PLAN : NkPhysicsConfig::enable2D, lu par

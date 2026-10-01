@@ -44,6 +44,11 @@ namespace nkentseu {
 		nkgui::NkRect NkAireAppareil(const nkgui::NkRect &viseur, const NkProfilAppareil &profil,
 									 bool avecCadre = false) noexcept;
 
+		/// L'ECRAN DU JEU dans l'editeur (document 03, §2.5) : la zone sure de
+		/// l'appareil simule (NkLayoutSimule), sur son ecran dans le viseur, posee
+		/// dans m.scene (NkScene::PoserEcran). Le bureau : le viseur, sans marge.
+		void NkEditeurPoserEcranDuJeu(NkEditeurModele &m, const nkgui::NkRect &viseur, const nkgui::NkRect &appareil);
+
 		/// Le cadre de l'appareil simule, en vecteurs (NkEditeurCadreAppareil.cpp) :
 		/// bordure, coins, boutons, decoupe, zone sure, marge conseillee, selon
 		/// les interrupteurs de `r`. `ecran` vient de NkAireAppareil ; ce qui est

@@ -23,8 +23,10 @@
 #include "NKFileSystem/NkPath.h"
 #include "NKPlatform/NkPlatformDetect.h"
 #include "NKWindow/Core/NkWESystem.h"
+#include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
+#include "Unkeny/Partie/NkUnkenyZoneSure.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 
 #include <cstdio>
@@ -114,12 +116,39 @@ namespace nkentseu {
 					verifier = true;
 					continue;
 				}
+				// --zone-sure : la surimpression de debogage de la zone sure.
+				// --marges=H,B,G,D : des marges (pixels) a la place de celles de
+				// NKWindow, pour essayer un HUD ancre sur un bureau, qui n'en a
+				// pas. Un ESSAI : sur l'appareil, seule NKWindow fait foi.
+				if (args[i] == "--zone-sure") {
+					mVoirZoneSure = true;
+					continue;
+				}
+				if (args[i].StartsWith("--marges=")) {
+					float32 v[4] = {0.f, 0.f, 0.f, 0.f};
+					const NkString t(args[i].SubStr(9));
+					usize debut = 0;
+					for (int32 k = 0; k < 4 && debut <= t.Length(); ++k) {
+						usize fin = t.Find(',', debut);
+						if (fin == NkString::npos) {
+							fin = t.Length();
+						}
+						NkString(t.SubStr(debut, fin - debut)).ToFloat(v[k]);
+						debut = fin + 1;
+					}
+					mMargesEssai = NkSafeAreaInsets(v[0], v[1], v[2], v[3]);
+					mAMargesEssai = true;
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// La livraison, puis les entrees du joueur (Espace fait sauter
 					// le heros de Gelee) : les deux bilans s'impriment.
 					const int32 livraison = unkeny::NkUnkenyLancerBancLivraison();
 					const int32 entrees = NkJoueurLancerBancEntrees();
-					return NkOptional<int>(livraison == 0 && entrees == 0 ? 0 : 1);
+					// (2026-10-01) L'ecran et la zone sure : le code que le joueur
+					// emploie pour transmettre celle de NKWindow au jeu.
+					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
+					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 ? 0 : 1);
 				}
 			}
 			if (verifier) {
@@ -199,9 +228,21 @@ namespace nkentseu {
 					const float32 ky = ecran.h / p.jeu.vueHauteur;
 					cam.PoserZoom(p.zoomRelu * (kx < ky ? kx : ky));
 				}
+				// LA ZONE SURE DE NKWINDOW, transmise au jeu (document 03, §2.5) :
+				// Layout() est ce que NKCanvas a lu dans NkWindow::GetSafeAreaInsets.
+				// Puis les entites ancrees a l'ecran (HUD), avant le dessin.
+				renderer::NkLayoutInfo vu = lay;
+				if (mAMargesEssai) {
+					vu.safeArea = mMargesEssai;
+				}
+				p.scene.PoserEcran(unkeny::NkEcranDepuisLayout(vu, ecran, false));
+				unkeny::NkAppliquerAncrages(p.scene);
 				dl.PushClipRect(ecran, true);
 				unkeny::NkDessinerPartie(dl, p.scene, p.rendu);
 				dl.PopClipRect();
+				if (mVoirZoneSure) {
+					unkeny::NkDessinerZoneSure(dl, p.scene.Ecran());
+				}
 			}
 			if (p.pause) {
 				const float32 haut = lay.safeArea.top + 16.f;

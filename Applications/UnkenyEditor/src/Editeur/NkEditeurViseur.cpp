@@ -9,6 +9,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Unkeny/Partie/NkUnkenyPartie.h"
+#include "Unkeny/Partie/NkUnkenyZoneSure.h"
 
 namespace nkentseu {
 	namespace editeur {
@@ -19,6 +20,17 @@ namespace nkentseu {
 		// NkAireAppareil vit avec le cadre, dans NkEditeurCadreAppareil.cpp
 		// (2026-10-01) : la place reservee au cadre et son dessin ne doivent pas
 		// diverger.
+
+		void NkEditeurPoserEcranDuJeu(NkEditeurModele &m, const nkgui::NkRect &viseur, const nkgui::NkRect &appareil) {
+			if (m.profil == 0) {
+				renderer::NkLayoutInfo bureau;
+				bureau.width = static_cast<uint32>(viseur.w > 1.f ? viseur.w : 1.f);
+				bureau.height = static_cast<uint32>(viseur.h > 1.f ? viseur.h : 1.f);
+				m.scene.PoserEcran(NkEcranDepuisLayout(bureau, viseur, true));
+				return;
+			}
+			m.scene.PoserEcran(NkEcranDepuisLayout(NkLayoutSimule(m.ProfilCourant()), appareil, true));
+		}
 
 		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
 									  const nkgui::NkRect &appareil) {
@@ -70,6 +82,17 @@ namespace nkentseu {
 					bool aTransform = false;
 					bool mouVisible = false;
 			};
+			// --- L'ECRAN DU JEU (2026-10-01, document 03 §2.5) ------------------
+			// Le jeu lit la zone sure dans scene.Ecran() : ici, celle de
+			// l'appareil SIMULE (NkLayoutSimule, la structure de NKCanvas), posee
+			// sur l'ecran de l'appareil dans le viseur ; le bureau (profil 0) n'a
+			// pas de marge, son ecran est le viseur entier. Les entites ancrees a
+			// l'ecran (HUD) y sont posees AVANT les ecartees : une entite cachee
+			// et ancree reste cachee. En EDITION leurs positions sont RENDUES
+			// apres le dessin : la scene editee ne bouge pas.
+			NkEditeurPoserEcranDuJeu(m, viseur, appareil);
+			NkVector<NkPositionAncree> ancrees;
+			NkAppliquerAncrages(scene, m.etat == NkEtatJeu::NK_EDITION ? &ancrees : nullptr);
 			NkVector<NkEcartee> ecartees;
 			if (m.etat == NkEtatJeu::NK_EDITION) {
 				// Elle, OU un ancetre : un parent cache cache sa descendance.
@@ -154,6 +177,7 @@ namespace nkentseu {
 			}
 			NkEditeurDessinerIconesLumiere(dl, m);
 			dl.PopClipRect();
+			NkRendreAncrages(scene, ancrees);
 
 			// Le bord du viseur dit l'ETAT — VERT en jeu, AMBRE en pause : on sait
 			// d'un regard si ce qu'on voit est la scene editee ou un instant de
