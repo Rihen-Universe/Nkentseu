@@ -77,7 +77,8 @@ namespace nkentseu {
 		/// Une action de la plage NK_A_SCRIPT.
 		void NkEditeurActionScript(NkEditeurCadre &c, int32 action);
 		/// Le double-clic du navigateur sur `cheminNav` : un .cpp s'ouvre dans
-		/// NKCode (ou l'editeur du systeme), un .nkbp dans la page du graphe.
+		/// NKCode, SUR le workspace Jenga du projet (ou dans l'editeur du systeme ;
+		/// le Journal dit pourquoi), un .nkbp dans la page du graphe.
 		/// false : ce n'est pas un script (le navigateur fait le reste).
 		bool NkEditeurScriptOuvrirAsset(NkEditeurCadre &c, const char *cheminNav);
 

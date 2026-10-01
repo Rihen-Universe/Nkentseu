@@ -30,6 +30,11 @@
 //                   construit le jeu SANS fenetre (Livraison/NkEditeurConstruire.h)
 //   --fenetre=construire[-auto] [--sortie= --nom=]
 //                   ouvre la fenetre Construire (-auto : et la lance seule)
+//   --preuve-nkcode=DOSSIER
+//                   le C++ de bout en bout, sans fenetre de l'editeur : l'exemple
+//                   Portes, le double-clic sur son script C++ (NKCode s'ouvre en
+//                   sonde HORS ECRAN sur le workspace et construit par Jenga), la
+//                   DLL de Jenga rechargee a chaud, puis Jouer (Script/NkEditeurPreuveNKCode.cpp)
 // =============================================================================
 #include "Editeur/NkEditeurApp.h"
 

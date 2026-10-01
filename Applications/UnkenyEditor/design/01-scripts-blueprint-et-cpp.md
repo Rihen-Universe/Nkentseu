@@ -1202,9 +1202,10 @@ Rien n'a été compilé ni exécuté pour ce document. En particulier :
 | canevas | `Engine/NKEditorKit/src/NKEditorKit/Components/NkCanevasNoeuds.h` | **générique** (couche 2) : réutilisable par les matériaux et l'Animateur |
 | catalogue + compilateur | `Applications/UnkenyEditor/src/Script/NkBpCatalogue.h` | types, nœuds (un par natif), graphe → module vérifié, erreur → nœud |
 | éditeur | `Script/NkEditeurScripts.h`, `NkEditeurGraphe.h`, `NkEditeurScriptsUi.h` | compilation clang++, rechargement, Journal ; page du graphe ; bloc « Scripts » des Détails ; « + Ajouter » ; double-clic |
-| exemple | `Script/NkEditeurExemplePortes.h` | `--exemple=portes` |
+| workspace + NKCode | `Script/NkEditeurWorkspaceCpp.h`, `NkEditeurOuvrirScriptCpp` (`NkEditeurScripts.h`), `Applications/NKCode/src/NKCode/Shell/NkOuvrirArgument.h` | `<projet>/<Projet>.jenga` (partie entre « # >>> UNKENY » et « # <<< UNKENY » refaite, le reste à l'utilisateur) ; NKCode ouvert SUR lui et le script ; la DLL de son « Construire » rechargée à chaud (§ 14.6) |
+| exemple | `Script/NkEditeurExemplePortes.h` | `--exemple=portes` ; `--preuve-nkcode=DOSSIER` (preuve de bout en bout, `NkEditeurPreuveNKCode.cpp`) |
 | livraison | `Unkeny/Livraison/NkUnkenyLivraison.h`, `Livraison/NkEditeurConstruire.cpp`, `UnkenyPlayer.jenga` | Blueprints cuits sans graphe ; C++ lié en statique |
-| bancs | `Banc/NkUnkenyBancScripts.cpp` (37), `Script/NkEditeurBancScripts.cpp` (20) | x1–x11, c1–c3, r1, b1–b6, p1–p2 ; e13–e18, c4, c5 |
+| bancs | `Banc/NkUnkenyBancScripts.cpp` (37), `Script/NkEditeurBancScripts.cpp` (27) | x1–x11, c1–c3, r1, b1–b6, p1–p2 ; e13–e18, c4, c5, ws1–ws4 |
 | G1 | `Kernel/Runtime/NKGraph/src/NKGraph/NkNodeGraph.inl` | `Validate` connaît la famille ; cas `exec/validate-connait-la-famille` (NkMatGraphCheck, 144 cas) |
 
 ### 14.2 Les choix tranchés
@@ -1269,6 +1270,10 @@ l'attrapeur de dernier recours (N2).
 | les valeurs saisies sur les nœuds | e13 (porte bleue), e16 | vec2 saisi ignoré par le compilateur |
 | la porte ouverte laisse passer | e13 « le Joueur PASSE » | corps statique non refait à la téléportation |
 | le jeu construit fait pareil | `Portes.exe --verifier` (complet), `--essai-scripts` (les deux portes à +2 m, le Joueur à x = 13,1) | — (le même code que l'éditeur) |
+| le workspace est écrit et **lu par Jenga** | ws1 (`jenga info` : « Scripts », SharedLib) | `NK_WS_MUTATION=illisible` |
+| les lignes de l'utilisateur ne sont jamais écrasées | ws2 (mise à jour ; fichier sans repères intact) | `NK_WS_MUTATION=ecrase` |
+| la DLL de Jenga est rechargée et joue | ws3 (`jenga build`, porte rouge en Jouer) | `NK_WS_MUTATION=jenga` |
+| NKCode reçoit workspace + script, depuis le dépôt | ws4 | `NK_WS_MUTATION=dossier` |
 
 ### 14.5 Le premier script de Rihen, pas à pas
 
@@ -1276,11 +1281,16 @@ l'attrapeur de dernier recours (N2).
    `Documents/Unkeny/Exemples/Portes/` et s'ouvre. ▶ **Jouer**, flèches ou
    A / D pour marcher, Espace pour sauter : à gauche la porte **bleue**
    (Blueprint) s'ouvre, à droite la **rouge** (C++).
-2. **C++** : dans le Contenu, double-clic sur `Scripts/PorteCpp.cpp` (NKCode ou
-   l'éditeur du système). Pendant Jouer, changez le texte d'`Afficher` ou la
-   hauteur, **enregistrez** : le Journal dit « recompilés et rechargés à
-   chaud » ; une faute de frappe y apparaît en rouge (fichier:ligne), l'ancienne
-   version continue.
+2. **C++** : dans le Contenu, double-clic sur `Scripts/PorteCpp.cpp` : NKCode
+   s'ouvre SUR le workspace du projet (`Portes.jenga`, écrit par l'éditeur) et
+   sur le fichier. Pendant Jouer, changez le texte d'`Afficher` ou la
+   hauteur, **enregistrez** (Ctrl+S) : le Journal dit « recompilés et rechargés
+   à chaud » ; une faute de frappe y apparaît en rouge (fichier:ligne),
+   l'ancienne version continue. **Construire** dans NKCode (Ctrl+B, bouton
+   Build) : Jenga produit `Intermediaire/Scripts/Jenga/Scripts.dll`, le Journal
+   dit « DLL construite par Jenga (NKCode) rechargée à chaud ». Sans NKCode
+   construit, le Journal dit la commande qui le construit, et le fichier
+   s'ouvre dans l'éditeur du système.
 3. **Blueprint** : double-clic sur `Scripts/PorteBlueprint.nkbp` : la page du
    graphe remplace la vue. Changez « 0 2 » dans le nœud `+ (vec2)`, ou ajoutez
    un nœud (clic droit dans le vide, puis la palette), tirez un fil d'une
@@ -1291,3 +1301,48 @@ l'attrapeur de dernier recours (N2).
    « + cpp:NouveauScript » ou « + Contenu/Scripts/NouveauBlueprint.nkbp ».
 5. **Le jeu** : Fichier > Construire… : les Blueprints sont cuits, le C++ est
    lié au joueur ; `Portes.exe --essai-scripts` le rejoue sans fenêtre.
+
+### 14.6 Le workspace Jenga du projet et NKCode (01/10, soir)
+
+**Le bogue** (capture de Rihen, 21:28) : le double-clic sur le script lançait
+`NKCode.exe <PorteCpp.cpp>` ; NKCode prenait son premier argument pour le
+**dossier** d'un workspace, refusait un fichier, et affichait « Aucun workspace
+(.jenga avec 'with workspace') dans ce dossier ». Le projet n'avait d'ailleurs
+**aucun** `.jenga`. Les icônes vides venaient du dossier courant : NKCode cherche
+`Applications/NKCode/data/` depuis lui.
+
+**La correction** :
+
+- `<projet>/<Projet>.jenga`, écrit par l'éditeur dès que le projet a un `.cpp`
+  (ouverture, « + Ajouter > Script C++ ») : un projet `Scripts` en
+  `sharedlib()` (`Contenu/**.cpp` + le registre généré, l'en-tête du dépôt,
+  clang-mingw, DLL qui ne dépend que du système), sorties sous
+  `Intermediaire/Scripts/Jenga/`. Seule la partie entre `# >>> UNKENY` et
+  `# <<< UNKENY` est refaite (le dépôt peut changer d'un éditeur à l'autre) ;
+  le reste du fichier est à l'utilisateur. Sans les deux repères, l'éditeur
+  n'y touche pas et le Journal dit quoi faire.
+- NKCode est lancé avec `"<Projet>.jenga" "<script>"`, **depuis la racine du
+  dépôt** (ses icônes et polices ; ses `logs/` vont dans un dossier ignoré par
+  git, pas dans le jeu). NKCode accepte désormais un fichier en argument : il
+  ouvre le workspace qui le contient, puis le fichier.
+- La DLL de Jenga est rechargée à chaud dès qu'elle a changé et ne bouge plus
+  d'un relevé (0,5 s) à l'autre ; une DLL laissée par une session précédente
+  n'est pas chargée. La compilation directe (Ctrl+S) reste : elle est plus
+  rapide (≈ 1 s) et c'est elle qui met les erreurs au Journal.
+
+**La preuve** : `UnkenyEditor --preuve-nkcode=<dossier>` (depuis la racine du
+dépôt) refait tout sans fenêtre de l'éditeur, NKCode en sonde **hors écran**
+qui appuie lui-même sur Ctrl+B ; images dans
+`References/Captures/scripts-cpp/` (00–02 : avant/après ; 10 : NKCode sur le
+workspace ; 11 : l'éditeur en Jouer, la porte rouge ouverte par la DLL de
+Jenga, le Journal de toute la chaîne).
+
+**NKCode ouvre aussi ce qui n'est pas un workspace (02/10, remarque de Rihen)**,
+comme VS Code : un dossier sans `.jenga` s'ouvre en édition simple (Construire /
+Exécuter grisés, info-bulle, bouton « Créer un workspace Jenga ici ») ; un
+fichier hors de tout workspace ouvre son dossier et lui en onglet ; un fichier
+lâché sur le lanceur ou double-cliqué dans sa vue « Ouvrir » aussi ; un `.jenga`
+qui n'est pas un workspace s'ouvre comme un fichier. La barre d'état ne reste
+plus sur « Construction… » : la construction est suivie par la barre d'outils à
+chaque image, plus seulement par le panneau OUTPUT. Banc : `NKCode --selftest`
+(o1–o5, mutations `NK_NKCODE_MUTATION`). Captures 20–29.

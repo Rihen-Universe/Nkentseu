@@ -44,6 +44,24 @@
 //         (« un Blueprint ouvert prend la place de la vue », NkEditeurGrapheOuvert)
 //         -> (c6b) ECHEC (la vue ne revient pas), cite dans le commit.
 //
+// LE WORKSPACE JENGA ET NKCODE (01/10 soir, capture de Rihen 21:28 : NKCode
+// ouvert sur le script disait « Aucun workspace ») :
+//   (ws1)  le projet ouvert a son workspace `Portes.jenga`, les deux reperes, le
+//         depot de l'editeur -- et JENGA LE LIT (`jenga info` : « Scripts »,
+//         SharedLib). Contre-epreuve : NK_WS_MUTATION=illisible -> ECHEC
+//   (ws2)  mis a jour SANS ECRASER : des lignes de l'utilisateur avant et apres
+//         la partie generee, une partie perimee (autre depot) -> refaite, les
+//         lignes intactes ; un .jenga sans reperes n'est pas touche (octet pour
+//         octet). Contre-epreuve : NK_WS_MUTATION=ecrase -> ECHEC
+//   (ws3)  `jenga build` du workspace (la commande de « Construire » dans
+//         NKCode) -> l'editeur RECHARGE A CHAUD la DLL de Jenga (la copie chargee
+//         est sous Intermediaire/Scripts/Jenga/) et, en Jouer, la porte rouge
+//         s'ouvre. Contre-epreuve : NK_WS_MUTATION=jenga -> ECHEC
+//   (ws4)  le lancement de NKCode : « "<Portes.jenga>" "<PorteCpp.cpp>" », et son
+//         dossier de travail est la racine du depot (ses icones y sont).
+//         Contre-epreuve : NK_WS_MUTATION=dossier -> ECHEC
+//   Sans jenga dans le PATH : ws1 et ws3 rendent INDETERMINE, jamais vert.
+//
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // =============================================================================
@@ -58,6 +76,9 @@
 #include "Script/NkEditeurGraphe.h"
 #include "Script/NkEditeurScripts.h"
 #include "Script/NkEditeurScriptsUi.h"
+#include "Script/NkEditeurWorkspaceCpp.h"
+#include "Livraison/NkEditeurConstruire.h"
+#include "Livraison/NkEditeurMoteur.h"
 
 #include "NKFileSystem/NkDirectory.h"
 #include "NKFileSystem/NkFile.h"
@@ -68,6 +89,11 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#if defined(_WIN32)
+#include <process.h> // _getpid : le dossier temporaire du banc est a ce processus
+#else
+#include <unistd.h>
+#endif
 
 namespace nkentseu {
 	namespace editeur {
@@ -141,7 +167,15 @@ namespace nkentseu {
 						const_cast<char *>(d.CStr())[i] = '/';
 					}
 				}
-				return d + "/unkeny_banc_scripts/";
+				// ⚠️ (01/10 soir) UN DOSSIER PAR PROCESSUS. Il etait commun a tous :
+				//    deux `--selftest` en meme temps (deux worktrees) s'effacaient le
+				//    projet l'un a l'autre -- vu : un workspace disparu sous (ws2).
+#if defined(_WIN32)
+				const unsigned pid = static_cast<unsigned>(_getpid());
+#else
+				const unsigned pid = static_cast<unsigned>(getpid());
+#endif
+				return d + NkString::Format("/unkeny_banc_scripts_%u/", pid);
 			}
 			/// Compile tout de suite et attend (le banc ne joue pas avec le temps).
 			bool CompilerEtAttendre(NkEditeurScripts &s, NkEditeurModele &m, NkVector<NkString> &journal) {
@@ -597,6 +631,142 @@ namespace nkentseu {
 				//    qu'on a ouvert un Blueprint, je n'arrive plus a acceder a la scene ») ──
 				BancOngletsDocuments(T, m, s, projet);
 				al.Delete(pt);
+			}
+
+			// ── (ws1..ws4) le workspace Jenga du projet, et NKCode ouvert dessus ──
+			{
+				if (std::getenv("NK_WS_MUTATION") != nullptr) {
+					std::printf("    MUTATION DE BANC NK_WS_MUTATION=%s : un temoin ws doit ROUGIR\n", std::getenv("NK_WS_MUTATION"));
+				}
+				const NkString ws = NkEditeurWorkspaceChemin(projet.CStr());
+				const NkString depot = NkTrouverDepot();
+				const bool jenga = !NkVersionJenga().Empty();
+				// (ws1) ecrit a l'ouverture (le releve du debut du banc), lisible par Jenga.
+				{
+					const NkString texte = NkFile::ReadAllText(ws.CStr());
+					NkString d = depot;
+					while (d.Length() > 1u && (d.CStr()[d.Length() - 1u] == '/' || d.CStr()[d.Length() - 1u] == '\\')) {
+						d = NkString(d.CStr(), d.Length() - 1u);
+					}
+					for (usize i = 0; i < d.Length(); ++i) {
+						if (d.CStr()[i] == '\\') {
+							const_cast<char *>(d.CStr())[i] = '/';
+						}
+					}
+					const bool ecrit = NkFile::Exists(ws.CStr()) && std::strstr(texte.CStr(), NK_WS_DEBUT) != nullptr &&
+									   std::strstr(texte.CStr(), NK_WS_FIN) != nullptr && !d.Empty() &&
+									   std::strstr(texte.CStr(), (NkString("NK = r\"") + d + "\"").CStr()) != nullptr &&
+									   s.workspace == ws;
+					if (!jenga) {
+						Temoin(ecrit, "(ws1) l'ouverture ecrit Portes.jenga (reperes, depot de l'editeur)", 0.f);
+						Indetermine("(ws1) Jenga LIT le workspace (jenga info)", "jenga introuvable dans le PATH");
+					} else {
+						NkVector<NkString> sortie;
+						const int32 code = NkEditeurJengaSurWorkspace(ws.CStr(), "info", sortie);
+						bool scripts = false;
+						for (uint32 i = 0; i < sortie.Size(); ++i) {
+							scripts = scripts || (std::strstr(sortie[i].CStr(), "Scripts") != nullptr &&
+												  std::strstr(sortie[i].CStr(), "SharedLib") != nullptr);
+						}
+						if (code != 0 || !scripts) {
+							for (uint32 i = 0; i < sortie.Size() && i < 8u; ++i) {
+								std::printf("    jenga info : %s\n", sortie[i].CStr());
+							}
+						}
+						Temoin(ecrit && code == 0 && scripts,
+							   "(ws1) Portes.jenga ecrit a l'ouverture et LU par Jenga (Scripts, SharedLib)", static_cast<float32>(code));
+					}
+				}
+				// (ws2) ce que l'utilisateur ecrit n'est jamais ecrase.
+				{
+					const NkString original = NkFile::ReadAllText(ws.CStr());
+					const char *enTete = "# MA NOTE, en tete : a garder\n";
+					const char *aMoi = "\n# MES LIGNES, apres la partie generee : a garder\nMON_REGLAGE = 42\n";
+					NkString perime;
+					const bool reperes = NkEditeurWorkspaceRemplacer(original, NkEditeurWorkspacePartie("Portes", "D:/un/autre/depot"), perime);
+					if (!reperes) {
+						std::printf("    (ws2) le workspace ouvert n'a pas ses reperes (%u octets) :\n%s\n", static_cast<unsigned>(original.Length()),
+									original.CStr());
+					}
+					NkFile::WriteAllText(ws.CStr(), (NkString(enTete) + perime + aMoi).CStr());
+					const NkWorkspaceCpp r = NkEditeurAssurerWorkspaceCpp(projet.CStr(), depot.CStr());
+					const NkString apres = NkFile::ReadAllText(ws.CStr());
+					NkString attendu;
+					NkEditeurWorkspaceRemplacer(NkString(enTete) + perime + aMoi, NkEditeurWorkspacePartie("Portes", depot.CStr()), attendu);
+					const bool garde = r.etat == NkEtatWorkspace::NK_MIS_A_JOUR && apres == attendu &&
+									   std::strstr(apres.CStr(), enTete) != nullptr && std::strstr(apres.CStr(), "MON_REGLAGE = 42") != nullptr &&
+									   std::strstr(apres.CStr(), "D:/un/autre/depot") == nullptr;
+					// Un workspace a soi, SANS reperes : pas un octet ne change.
+					const char *sien = "from Jenga import *\n# le workspace de l'utilisateur, sans reperes\nwith workspace(\"Sien\"):\n    pass\n";
+					NkFile::WriteAllText(ws.CStr(), sien);
+					const NkWorkspaceCpp r2 = NkEditeurAssurerWorkspaceCpp(projet.CStr(), depot.CStr());
+					const bool respecte = r2.etat == NkEtatWorkspace::NK_RESPECTE && NkFile::ReadAllText(ws.CStr()) == NkString(sien) &&
+										  std::strstr(r2.message.CStr(), "supprimez") != nullptr;
+					std::printf("    (ws2) mise a jour : etat %d, lignes gardees %d ; sans reperes : etat %d, intact %d\n",
+								static_cast<int>(r.etat), garde ? 1 : 0, static_cast<int>(r2.etat), respecte ? 1 : 0);
+					Temoin(garde, "(ws2) partie generee refaite, lignes de l'utilisateur GARDEES", static_cast<float32>(r.etat));
+					Temoin(respecte, "(ws2) un .jenga sans reperes n'est pas touche, le Journal dit quoi faire", static_cast<float32>(r2.etat));
+					// Le workspace du projet redevient celui de l'editeur.
+					NkFile::Delete(ws.CStr());
+					NkEditeurAssurerWorkspaceCpp(projet.CStr(), depot.CStr());
+				}
+				// (ws3) Construire par Jenga -> la DLL de Jenga rechargee a chaud.
+				if (!jenga || !cpp) {
+					Indetermine("(ws3) jenga build -> DLL de Jenga rechargee a chaud", !jenga ? "jenga introuvable dans le PATH" : "clang++ introuvable");
+				} else {
+					NkVector<NkString> sortie;
+					const NkString args = NkString::Format("build --target %s --config Debug --platform %s", NK_WS_PROJET, NkEditeurWorkspacePlateforme());
+					const int32 code = NkEditeurJengaSurWorkspace(ws.CStr(), args.CStr(), sortie);
+					if (code != 0) {
+						for (uint32 i = 0; i < sortie.Size(); ++i) {
+							std::printf("    jenga build : %s\n", sortie[i].CStr());
+						}
+					}
+					const uint32 avant = s.rechargesJenga;
+					for (int32 k = 0; k < 4; ++k) { // deux releves suffisent (vu, puis stable)
+						NkEditeurScriptsTrame(s, m, nullptr, 0.5f);
+						Vider(s, journal);
+					}
+					const NkString copie = s.modules.Copie();
+					const bool recharge = s.rechargesJenga == avant + 1u && Journal(s, journal, "construite par Jenga") &&
+										  std::strstr(copie.CStr(), NK_WS_SORTIE) != nullptr;
+					std::printf("    (ws3) jenga build : code %d ; module charge : %s\n", code, copie.CStr());
+					Temoin(code == 0 && recharge, "(ws3) jenga build du workspace : la DLL de Jenga est RECHARGEE a chaud",
+						   static_cast<float32>(s.modules.Generation()));
+					// ... et c'est elle qui ouvre la porte rouge en Jouer.
+					const float32 yRouge = Y(m.scene, "Porte rouge");
+					const uint32 lignes = journal.Size();
+					NkEditeurJouer(m);
+					for (int32 k = 0; k < 330; ++k) {
+						Trame(m, s, a, 1.f, journal);
+					}
+					bool ouverte = false;
+					for (uint32 i = lignes; i < journal.Size(); ++i) {
+						ouverte = ouverte || std::strstr(journal[i].CStr(), "La porte rouge s'ouvre (C++)") != nullptr;
+					}
+					const float32 dy = Y(m.scene, "Porte rouge") - yRouge;
+					Temoin(recharge && ouverte && dy > 0.5f, "(ws3) en Jouer, la DLL de Jenga ouvre la porte rouge", dy);
+					NkEditeurArreter(m);
+					NkEditeurScriptsTrame(s, m, nullptr, 1.f / 60.f);
+					Vider(s, journal);
+				}
+				// (ws4) NKCode lance SUR le workspace et le script, depuis la racine du depot.
+				{
+					const NkString script = projet + "Contenu/Scripts/PorteCpp.cpp";
+					const NkLancementNKCode l = NkEditeurLancementNKCode(ws.CStr(), script.CStr());
+					const bool args = std::strstr(l.arguments.CStr(), (NkString("\"") + ws + "\"").CStr()) == l.arguments.CStr() &&
+									  std::strstr(l.arguments.CStr(), "PorteCpp.cpp\"") != nullptr;
+					const bool icones = !l.dossier.Empty() &&
+										NkDirectory::Exists((l.dossier + (l.dossier.EndsWith("/") ? "" : "/") + "Applications/NKCode/data/textures").CStr());
+					std::printf("    (ws4) NKCode : %s %s (dossier %s)\n", l.exe.Empty() ? "(non construit)" : l.exe.CStr(), l.arguments.CStr(),
+								l.dossier.CStr());
+					if (depot.Empty()) {
+						Temoin(args, "(ws4) NKCode recoit le workspace PUIS le script", 0.f);
+						Indetermine("(ws4) dossier de travail de NKCode = le depot", "depot introuvable");
+					} else {
+						Temoin(args && icones, "(ws4) NKCode : workspace PUIS script, lance depuis le depot (ses icones)", 0.f);
+					}
+				}
 			}
 
 			NkEditeurScriptsArreter(s);

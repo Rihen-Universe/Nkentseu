@@ -437,6 +437,11 @@ namespace nkentseu {
 				if (args[i].StartsWith("--captures-scripts=")) {
 					return NkOptional<int>(NkEditeurCapturesScripts(NkString(args[i].SubStr(19)).CStr()));
 				}
+				// (01/10 soir) La preuve de bout en bout du C++ dans NKCode : workspace,
+				// NKCode (sonde hors ecran) qui construit par Jenga, rechargement a chaud.
+				if (args[i].StartsWith("--preuve-nkcode=")) {
+					return NkOptional<int>(NkEditeurPreuveNKCode(NkString(args[i].SubStr(16)).CStr()));
+				}
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}

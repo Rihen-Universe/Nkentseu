@@ -13,6 +13,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "Livraison/NkEditeurConstruire.h"
 #include "Script/NkBpCatalogue.h"
+#include "Script/NkEditeurWorkspaceCpp.h"
 
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -98,6 +99,31 @@ namespace nkentseu {
 					chemins.PushBack(Oblique(e[i].FullPath.ToString()));
 					empreintes.PushBack(static_cast<int64>(e[i].ModificationTime) * 1000003 + static_cast<int64>(e[i].Size));
 				}
+			}
+			/// L'empreinte d'UN fichier (date et taille, comme Lister) ; 0 s'il manque.
+			int64 EmpreinteFichier(const NkString &chemin) {
+				const char *c = chemin.CStr();
+				const char *barre = std::strrchr(c, '/');
+				if (barre == nullptr || !NkFile::Exists(c)) {
+					return 0;
+				}
+				const NkString dossier(c, static_cast<usize>(barre - c));
+				const NkVector<NkDirectoryEntry> e =
+					NkDirectory::GetEntries(dossier.CStr(), barre + 1, NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+				for (uint32 i = 0; i < e.Size(); ++i) {
+					if (e[i].IsFile) {
+						return static_cast<int64>(e[i].ModificationTime) * 1000003 + static_cast<int64>(e[i].Size) + 1;
+					}
+				}
+				return 0;
+			}
+			/// (Banc) une MUTATION nommee est-elle demandee ? `NK_WS_MUTATION` porte
+			/// le nom d'une garantie a casser expres, pour voir son temoin rougir
+			/// (contre-epreuve) : « illisible », « ecrase », « jenga ». Sans la
+			/// variable, rien ne change.
+			bool Mutation(const char *nom) {
+				const char *v = std::getenv("NK_WS_MUTATION");
+				return v != nullptr && std::strcmp(v, nom) == 0;
 			}
 			bool Egaux(const NkVector<NkString> &a, const NkVector<int64> &ea, const NkVector<NkString> &b,
 					   const NkVector<int64> &eb) {
@@ -284,6 +310,27 @@ namespace nkentseu {
 			return t;
 		}
 
+		void NkEditeurScriptsEcrireRegistre(NkEditeurScripts &s) {
+			// Les classes, lues dans les sources : le registre genere les appelle.
+			s.classes.Clear();
+			for (uint32 i = 0; i < s.sources.Size(); ++i) {
+				const NkString texte = NkFile::ReadAllText(s.sources[i].CStr());
+				NkEditeurScriptsClassesDe(texte.CStr(), s.classes);
+			}
+			if (s.projet.Empty()) {
+				return;
+			}
+			const NkString inter = Intermediaire(s);
+			NkDirectory::CreateRecursive(inter.CStr());
+			const NkString registre = inter + "NkUnkRegistre.cpp";
+			const NkString texte = NkEditeurScriptsRegistre(s.classes);
+			// Reecrit SEULEMENT s'il change : sa date ne bouge pas pour rien, et
+			// Jenga ne le recompile pas a chaque enregistrement d'un autre fichier.
+			if (!NkFile::Exists(registre.CStr()) || !(NkFile::ReadAllText(registre.CStr()) == texte)) {
+				NkFile::WriteAllText(registre.CStr(), texte.CStr());
+			}
+		}
+
 		bool NkEditeurScriptsReleverCpp(NkEditeurScripts &s, NkEditeurModele &m) {
 			NkVector<NkString> chemins;
 			NkVector<int64> empreintes;
@@ -304,6 +351,9 @@ namespace nkentseu {
 			if (s.sources.Empty()) {
 				return false;
 			}
+			// Le registre d'abord, compilateur ou non : le workspace Jenga du projet
+			// (NKCode) le compile lui aussi.
+			NkEditeurScriptsEcrireRegistre(s);
 			const NkString clang = NkEditeurScriptsCompilateur();
 			const NkString depot = NkTrouverDepot();
 			const NkString inclure = depot.Empty() ? NkString() : Oblique(depot) + "Engine/Unkeny/src";
@@ -314,16 +364,8 @@ namespace nkentseu {
 				s.montrerJournal = true;
 				return false;
 			}
-			// Les classes, lues dans les sources : le registre genere les appelle.
-			s.classes.Clear();
-			for (uint32 i = 0; i < s.sources.Size(); ++i) {
-				const NkString texte = NkFile::ReadAllText(s.sources[i].CStr());
-				NkEditeurScriptsClassesDe(texte.CStr(), s.classes);
-			}
 			const NkString inter = Intermediaire(s);
-			NkDirectory::CreateRecursive(inter.CStr());
 			const NkString registre = inter + "NkUnkRegistre.cpp";
-			NkFile::WriteAllText(registre.CStr(), NkEditeurScriptsRegistre(s.classes).CStr());
 			NkString cmd = NkString("\"") + clang + "\" -shared -std=c++17 -O1 -g0 -fno-color-diagnostics";
 #if defined(_WIN32)
 			// La chaine clang-mingw du depot (config/toolchain.jenga) : tout en
@@ -436,6 +478,15 @@ namespace nkentseu {
 				s.empreintesBp.Clear();
 				s.ageReleve = 99.f;
 				unkeny::NkModulesCpp::NettoyerCopies((Intermediaire(s) + NomDll()).CStr());
+				// Le workspace Jenga : a assurer pour CE projet. La DLL que Jenga a pu
+				// laisser d'une session precedente n'est PAS chargee : seule une DLL
+				// construite pendant cette session (date ou taille changee) l'est.
+				const NkString dllJenga = NkEditeurWorkspaceDll(s.projet.CStr());
+				unkeny::NkModulesCpp::NettoyerCopies(dllJenga.CStr());
+				s.workspace = NkString();
+				s.workspaceAssure = false;
+				s.empreinteJenga = EmpreinteFichier(dllJenga);
+				s.empreinteJengaVue = s.empreinteJenga;
 			}
 			// « Arreter » : les instances partent avec la scene d'avant Jouer.
 			if (s.etatPrecedent != NkEtatJeu::NK_EDITION && m.etat == NkEtatJeu::NK_EDITION) {
@@ -448,6 +499,12 @@ namespace nkentseu {
 				if (NkEditeurScriptsReleverCpp(s, m)) {
 					NkEditeurScriptsCompiler(s, m);
 				}
+				// Un projet qui a du C++ a son workspace Jenga (a l'ouverture, et des
+				// le premier script cree) ; la DLL que NKCode y construit est suivie.
+				if (!s.sources.Empty() && !s.workspaceAssure) {
+					NkEditeurScriptsAssurerWorkspace(s, false);
+				}
+				NkEditeurScriptsSuivreJenga(s);
 				NkVector<NkString> chemins;
 				NkVector<int64> empreintes;
 				Lister(m, "*.nkbp", chemins, empreintes);
@@ -632,20 +689,12 @@ namespace nkentseu {
 			NkVector<wchar_t> fichier, argument;
 			Large(NkString(chemin), fichier);
 			Large(NkString("\"") + chemin + "\"", argument);
-			// NKCode, s'il est construit a cote du depot.
-			const NkString depot = NkTrouverDepot();
-			const char *candidats[] = {"Build/Bin/Release-Windows/NKCode/NKCode.exe", "Build/Bin/Debug-Windows/NKCode/NKCode.exe"};
-			for (const char *c : candidats) {
-				const NkString exe = depot + c;
-				if (!depot.Empty() && NkFile::Exists(exe.CStr())) {
-					NkVector<wchar_t> w;
-					Large(exe, w);
-					const HINSTANCE h = ::ShellExecuteW(nullptr, L"open", w.Data(), argument.Data(), nullptr, SW_SHOWNORMAL);
-					if (reinterpret_cast<intptr_t>(h) > 32) {
-						return true;
-					}
-				}
-			}
+			// ⚠️ (01/10 soir) NKCODE N'EST PLUS LANCE D'ICI. Il l'etait avec le
+			//    seul fichier en argument : NKCode prend son premier argument pour
+			//    le DOSSIER d'un workspace, et repondait « Aucun workspace (.jenga
+			//    avec 'with workspace') dans ce dossier » (capture de Rihen, 21:28).
+			//    Un script C++ passe par NkEditeurOuvrirScriptCpp, qui ouvre NKCode
+			//    SUR le workspace du projet.
 			// L'editeur associe aux .cpp par le systeme, sinon le bloc-notes.
 			HINSTANCE h = ::ShellExecuteW(nullptr, L"open", fichier.Data(), nullptr, nullptr, SW_SHOWNORMAL);
 			if (reinterpret_cast<intptr_t>(h) > 32) {
@@ -660,6 +709,222 @@ namespace nkentseu {
 			const NkString cmd = NkString("xdg-open \"") + chemin + "\" >/dev/null 2>&1 &";
 			return std::system(cmd.CStr()) == 0;
 #endif
+		}
+
+		// =====================================================================
+		// LE WORKSPACE JENGA DU PROJET, ET NKCODE OUVERT DESSUS
+		// =====================================================================
+		NkString NkEditeurScriptsAssurerWorkspace(NkEditeurScripts &s, bool forcer) {
+			if (s.projet.Empty()) {
+				return NkString();
+			}
+			if (s.workspaceAssure && !forcer) {
+				return s.workspace;
+			}
+			s.workspaceAssure = true;
+			const NkWorkspaceCpp w = NkEditeurAssurerWorkspaceCpp(s.projet.CStr(), NkTrouverDepot().CStr());
+			if (!w.message.Empty()) {
+				s.journal.PushBack(w.message);
+			}
+			if (w.etat == NkEtatWorkspace::NK_ECHEC) {
+				s.montrerJournal = true;
+				s.workspace = NkString();
+				return NkString();
+			}
+			// RESPECTE : le fichier de l'utilisateur reste le workspace du projet.
+			s.workspace = w.chemin;
+			return s.workspace;
+		}
+
+		bool NkEditeurScriptsSuivreJenga(NkEditeurScripts &s) {
+			if (s.projet.Empty()) {
+				return false;
+			}
+			const NkString dll = NkEditeurWorkspaceDll(s.projet.CStr());
+			const int64 e = EmpreinteFichier(dll);
+			// Absente, ou deja chargee (ou deja vue a l'ouverture du projet).
+			if (e == 0 || e == s.empreinteJenga) {
+				s.empreinteJengaVue = e;
+				return false;
+			}
+			// Elle vient de changer : on attend qu'elle ne bouge plus d'un releve a
+			// l'autre (l'editeur de liens de Jenga ecrit peut-etre encore), et que
+			// la compilation directe de l'editeur ne soit pas en cours.
+			if (e != s.empreinteJengaVue || s.compilateur.EnCours()) {
+				s.empreinteJengaVue = e;
+				return false;
+			}
+			s.empreinteJenga = e;
+			// MUTATION DE BANC « jenga » : la DLL construite par Jenga est ignoree.
+			if (Mutation("jenga")) {
+				return false;
+			}
+			NkString err;
+			if (!s.modules.Recharger(dll.CStr(), s.registre, &s.hote, &err)) {
+				s.journal.PushBack(NkString("[C++] DLL construite par Jenga refusée : ") + err + " (l'ancienne version reste active)");
+				s.montrerJournal = true;
+				return false;
+			}
+			++s.rechargesJenga;
+			s.etat = NkEtatCompilation::NK_REUSSIE;
+			NkString noms;
+			const NkUnkModuleV1 *mod = s.modules.Module();
+			for (uint32 i = 0; mod != nullptr && i < mod->nbClasses; ++i) {
+				if (mod->classes[i] != nullptr && mod->classes[i]->nom != nullptr) {
+					noms += noms.Empty() ? NkString() : NkString(", ");
+					noms += mod->classes[i]->nom;
+				}
+			}
+			s.journal.PushBack(NkString::Format("[C++] DLL construite par Jenga (NKCode) rechargée à chaud (génération %u) : %s",
+												static_cast<unsigned>(s.modules.Generation()), noms.CStr()));
+			return true;
+		}
+
+		NkString NkEditeurTrouverNKCode() {
+#if defined(_WIN32)
+			const char *nomExe = "NKCode.exe";
+			const char *systeme = "Windows";
+#elif defined(__APPLE__)
+			const char *nomExe = "NKCode";
+			const char *systeme = "macOS";
+#else
+			const char *nomExe = "NKCode";
+			const char *systeme = "Linux";
+#endif
+			const char *force = std::getenv("NK_NKCODE");
+			if (force != nullptr && *force != '\0' && NkFile::Exists(force)) {
+				return Oblique(NkString(force));
+			}
+			const NkString depot = Oblique(NkTrouverDepot());
+			if (!depot.Empty()) {
+				const char *configs[] = {"Release", "Debug"};
+				for (const char *c : configs) {
+					const NkString exe = NkString::Format("%sBuild/Bin/%s-%s/NKCode/%s", depot.CStr(), c, systeme, nomExe);
+					if (NkFile::Exists(exe.CStr())) {
+						return exe;
+					}
+				}
+			}
+			// A cote de l'editeur : Build/Bin/<Cfg>/UnkenyEditor/ -> ../NKCode/.
+			const NkString ici = Oblique(NkPath::GetExecutableDirectory().ToString());
+			if (!ici.Empty()) {
+				const NkString voisin = ici + "/../NKCode/" + nomExe;
+				if (NkFile::Exists(voisin.CStr())) {
+					return voisin;
+				}
+			}
+			return NkString();
+		}
+
+		NkLancementNKCode NkEditeurLancementNKCode(const char *workspace, const char *script) {
+			NkLancementNKCode l;
+			l.exe = NkEditeurTrouverNKCode();
+			l.workspace = Oblique(NkString(workspace != nullptr ? workspace : ""));
+			// NKCode lit : 1er argument = le workspace (dossier ou .jenga), 2e = le
+			// fichier a ouvrir dedans (Applications/NKCode/src/NKCode/main.cpp).
+			l.arguments = NkString("\"") + l.workspace + "\"";
+			if (script != nullptr && *script != '\0') {
+				l.arguments += NkString(" \"") + Oblique(NkString(script)) + "\"";
+			}
+			// ⚠️ LE DOSSIER DE TRAVAIL DE NKCODE, ET POURQUOI LE DEPOT.
+			//    Aujourd'hui NKCode cherche ses icones et ses polices d'abord
+			//    RELATIVEMENT AU DOSSIER COURANT (« Applications/NKCode/data/... »,
+			//    Shell/NkAppIcons.h et NkAppFonts.h), puis dans `data/` a cote de son
+			//    executable -- dossier que `jenga build` ne copie pas (seul
+			//    `package` le fait). Lance depuis un autre dossier que la racine du
+			//    depot, il dessinait des CARRES VIDES a la place de ses icones
+			//    (capture de Rihen, 01/10 21:28). La racine du depot est donc SON
+			//    dossier de travail. Le jour ou NKCode trouvera ses ressources
+			//    depuis son executable (branche famille/ressources-partout), ce
+			//    choix restera sans effet -- et sans danger.
+			// ⚠️ ET PAS LE DOSSIER DU JEU : NKLogger ecrit `logs/` dans le dossier
+			//    courant. A la racine du depot, ce dossier existe deja et est ignore
+			//    par git (.gitignore « [Ll]ogs/ ») ; dans le projet du jeu, il y
+			//    laisserait un dossier que personne n'a demande.
+			l.dossier = Oblique(NkTrouverDepot());
+			// MUTATION DE BANC « dossier » : le dossier de travail herite (vide).
+			if (Mutation("dossier")) {
+				l.dossier = NkString();
+				return l;
+			}
+			if (l.dossier.Empty() && !l.exe.Empty()) {
+				const char *barre = std::strrchr(l.exe.CStr(), '/');
+				l.dossier = barre != nullptr ? NkString(l.exe.CStr(), static_cast<usize>(barre - l.exe.CStr())) : NkString();
+			}
+			return l;
+		}
+
+		bool NkEditeurOuvrirScriptCpp(NkEditeurScripts &s, NkEditeurModele &m, const char *chemin) {
+			if (!s.ouvrirTexteExterne) {
+				return true; // banc, captures : aucune fenetre
+			}
+			if (chemin == nullptr || !NkFile::Exists(chemin)) {
+				s.journal.PushBack(NkString::Format("[C++] script introuvable : %s", chemin != nullptr ? chemin : "(nul)"));
+				s.montrerJournal = true;
+				return false;
+			}
+			// Le projet suivi est peut-etre encore l'ancien (premiere trame) : on
+			// se recale sur celui du modele avant d'assurer son workspace.
+			const NkString projet = Oblique(NkEditeurDossierProjet(m));
+			if (!(projet == s.projet)) {
+				NkEditeurScriptsTrame(s, m, nullptr, 0.f);
+			}
+			const NkString ws = NkEditeurScriptsAssurerWorkspace(s, true);
+			const NkLancementNKCode l = NkEditeurLancementNKCode(ws.CStr(), chemin);
+			const NkString ref = NkEditeurRefScript(m, chemin);
+			if (ws.Empty() || l.exe.Empty()) {
+				if (l.exe.Empty()) {
+					const NkString depot = Oblique(NkTrouverDepot());
+					s.journal.PushBack(NkString::Format("[C++] NKCode introuvable : il n'est pas construit dans le dépôt (%s). "
+														"Pour l'avoir, depuis la racine du dépôt : jenga build --target NKCode --config Debug "
+														"--platform windows -- ou posez NK_NKCODE=<chemin de NKCode.exe>.",
+														depot.Empty() ? "dépôt introuvable : NK_UNKENY_DEPOT" : (depot + "Build/Bin/Debug-Windows/NKCode/NKCode.exe").CStr()));
+				}
+				if (!ws.Empty()) {
+					s.journal.PushBack(NkString::Format("[C++] Le workspace des scripts est prêt pour NKCode : %s", ws.CStr()));
+				}
+				const bool ok = NkEditeurOuvrirTexteExterne(chemin);
+				s.journal.PushBack(ok ? NkString::Format("[C++] %s ouvert dans l'éditeur de texte du système (enregistrer : l'éditeur recompile et recharge)", ref.CStr())
+									  : NkString::Format("[C++] aucun éditeur de texte n'a pu ouvrir %s", ref.CStr()));
+				s.montrerJournal = true;
+				return ok;
+			}
+#if defined(_WIN32)
+			auto Large = [](const NkString &t, NkVector<wchar_t> &w) {
+				const int n = ::MultiByteToWideChar(CP_UTF8, 0, t.CStr(), -1, nullptr, 0);
+				w.Resize(static_cast<usize>(n > 0 ? n : 1));
+				::MultiByteToWideChar(CP_UTF8, 0, t.CStr(), -1, w.Data(), n);
+			};
+			NkVector<wchar_t> wExe, wArgs, wDossier;
+			Large(l.exe, wExe);
+			Large(l.arguments, wArgs);
+			Large(l.dossier, wDossier);
+			const HINSTANCE h = ::ShellExecuteW(nullptr, L"open", wExe.Data(), wArgs.Data(), l.dossier.Empty() ? nullptr : wDossier.Data(),
+												SW_SHOWNORMAL);
+			const intptr_t code = reinterpret_cast<intptr_t>(h);
+			const bool lance = code > 32;
+#else
+			const NkString cmd = NkString::Format("cd \"%s\" && \"%s\" %s >/dev/null 2>&1 &", l.dossier.CStr(), l.exe.CStr(), l.arguments.CStr());
+			const int code = std::system(cmd.CStr());
+			const bool lance = code == 0;
+#endif
+			if (!lance) {
+				s.journal.PushBack(NkString::Format("[C++] NKCode n'a pas pu être lancé (%s, code %d). À faire : vérifiez qu'il démarre seul "
+													"(%s %s), sinon reconstruisez-le depuis la racine du dépôt (jenga build --target NKCode "
+													"--config Debug --platform windows).",
+													l.exe.CStr(), static_cast<int>(code), l.exe.CStr(), l.arguments.CStr()));
+				const bool ok = NkEditeurOuvrirTexteExterne(chemin);
+				if (ok) {
+					s.journal.PushBack(NkString::Format("[C++] en attendant, %s est ouvert dans l'éditeur de texte du système", ref.CStr()));
+				}
+				s.montrerJournal = true;
+				return ok;
+			}
+			const char *barre = std::strrchr(ws.CStr(), '/');
+			s.journal.PushBack(NkString::Format("[C++] NKCode ouvert sur le workspace %s et sur %s. Enregistrer (Ctrl+S) : l'éditeur "
+												"recompile et recharge ; Construire (Ctrl+B) : Jenga produit %s, rechargée à chaud",
+												barre != nullptr ? barre + 1 : ws.CStr(), ref.CStr(), NkEditeurRefScript(m, NkEditeurWorkspaceDll(s.projet.CStr()).CStr()).CStr()));
+			return true;
 		}
 
 	} // namespace editeur

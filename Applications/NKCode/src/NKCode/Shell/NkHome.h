@@ -1361,6 +1361,22 @@ namespace nkentseu {
 			}
 		}
 
+		// (02/10) UN CHEMIN LACHE SUR LE LANCEUR s'ouvre, comme dans VS Code : un dossier
+		// (avec ou sans workspace), un .jenga, un FICHIER seul (son workspace s'il en a
+		// un, sinon son dossier en edition simple, et le fichier dans un onglet). Il
+		// etait purge au bout de trois images : aucun panneau ne le consommait ici.
+		// Rend vrai si un depot a ete pris. Mutation de banc NK_NKCODE_MUTATION=lanceur.
+		inline bool NkHomeConsommerDepot(NkHomeState *H) {
+			if (!H || !H->dlg || !H->st || H->st->osDropPaths.Empty() || H->dlg->loading.active)
+				return false;
+			if (NkCodeState::MutationNkCode("lanceur"))
+				return false;
+			const NkString chemin = H->st->osDropPaths[0];
+			H->st->osDropPaths.Clear();
+			H->dlg->OuvrirChemin(chemin.CStr());
+			return true;
+		}
+
 		// ── Point d'entree : ecran d'accueil PLEIN CADRE (via SetStartScreen) ──
 		// (2026-10-01) L'accueil par le lanceur de projets PARTAGE : defini dans
 		// NkHomeLanceur.h, inclus a la fin de ce fichier (il a besoin de
@@ -1383,6 +1399,7 @@ namespace nkentseu {
 			NkI18nSet(H->settings.lang);
 			NkApplyTheme(H->settings.theme,
 						 H->settings.accent); // thème GLOBAL (Dark Pro/Dark/Midnight/Light) + accent, temps réel
+			NkHomeConsommerDepot(H); // un fichier / dossier lache sur le lanceur
 			// Écran de chargement (section 14) : prioritaire sur le launcher tant qu'un workspace charge.
 			if (H->dlg->loading.active) {
 				NkDrawLoading(u, H, ec.dt);

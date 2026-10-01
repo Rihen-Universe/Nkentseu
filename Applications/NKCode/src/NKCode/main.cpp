@@ -29,6 +29,8 @@
 #include "NKCode/Shell/NkAppIcons.h"
 #include "NKCode/Shell/NkAppCommands.h"
 #include "NKCode/Shell/NkOpenWindows.h" // registre des fenetres ouvertes (restauration au lancement)
+#include "NKCode/Shell/NkOuvrirArgument.h" // (01/10) un dossier, un .jenga ou un FICHIER en argument
+#include "NKCode/Shell/NkCodeBanc.h"		 // (02/10) `NKCode --selftest`, sans fenetre
 #include "NKCode/Project/NkLogSink.h"
 #include "NKImage/NKImage.h"
 #include "NKPlatform/NkEnv.h" // env::GetEnvVar (variables d'environnement maison)
@@ -236,6 +238,10 @@ int nkmain(const NkEntryState &state) {
 	for (usize i = 1; i < state.args.Size(); ++i)
 		if (state.args[i] == "--ressources")
 			return nkcode::NkCodeVerifierDonnees();
+	// (02/10) LE BANC, AVANT TOUTE FENETRE : `NKCode --selftest` (Shell/NkCodeBanc.h).
+	for (usize ai = 1; ai < state.args.Size(); ++ai)
+		if (state.args[ai] == "--selftest")
+			return nkcode::NkCodeLancerBanc();
 
 	// ── Dossier de l'EXECUTABLE, calcule EN PREMIER ──────────────────────────
 	// Demande a l'OS (GetModuleFileNameW / /proc/self/exe / _NSGetExecutablePath),
@@ -439,18 +445,31 @@ int nkmain(const NkEntryState &state) {
 												 "non exploitable -> repli sur le `jenga` du PATH"));
 		}
 	}
-	// Argument : un dossier de workspace -> ouvre directement (cas "nouvelle fenetre").
-	// C'est AUSSI le chemin d'entree de l'explorateur de fichiers : le menu
-	// contextuel « Ouvrir avec NKCode » lance simplement `NKCode.exe <dossier>`.
+	// Arguments : `NKCode.exe [<workspace>] [<fichier>]` (Shell/NkOuvrirArgument.h).
+	// <workspace> : un dossier (cas « nouvelle fenetre », et le menu contextuel
+	// « Ouvrir avec NKCode » de l'explorateur), un .jenga, ou un FICHIER -- NKCode
+	// ouvre alors le workspace qui le contient, et le fichier dedans. C'est ainsi
+	// qu'UnkenyEditor ouvre un script C++ : `NKCode.exe "<Projet>.jenga" "<script>"`.
+	// (01/10) Un fichier etait pris pour un dossier : « Aucun workspace ».
 	bool g_openedArg = false;
 	NkString g_openedPath; // chemin REELLEMENT ouvert -> inscrit dans le registre
-	for (usize ai = 1; ai < state.args.Size(); ++ai) {
-		const char *a = state.args[ai].CStr();
-		if (a && a[0] && a[0] != '-') {
-			g_dialogs.DoLoad(NkPath(a));
+	{
+		NkVector<NkString> positionnels;
+		for (usize ai = 1; ai < state.args.Size(); ++ai) {
+			const char *a = state.args[ai].CStr();
+			if (a && a[0] && a[0] != '-')
+				positionnels.PushBack(state.args[ai]);
+		}
+		if (!positionnels.Empty()) {
+			const nkcode::NkArgOuverture o = g_dialogs.OuvrirChemin(
+				positionnels[0].CStr(), positionnels.Size() > 1u ? positionnels[1].CStr() : nullptr);
+			printf("[nkcode] argument : workspace « %s »%s%s%s\n", o.dossier.CStr(), o.jenga.Empty() ? "" : " (",
+				   o.jenga.CStr(), o.jenga.Empty() ? "" : ")");
+			if (!o.fichier.Empty())
+				printf("[nkcode] argument : fichier ouvert « %s »\n", o.fichier.CStr());
+			fflush(stdout);
 			g_openedArg = true;
-			g_openedPath = a;
-			break;
+			g_openedPath = o.jenga.Empty() ? o.dossier : o.jenga;
 		}
 	}
 	const NkString g_startupMode = nkcode::NkOpenWsState::ReadNkSetting("openStartup");
@@ -463,7 +482,9 @@ int nkmain(const NkEntryState &state) {
 	if (!g_openedArg && nkcode::StrEq(g_startupMode.CStr(), "2")) {
 		NkVector<NkString> prev = nkcode::NkOpenWindowsTakeStale(g_regHome);
 		if (!prev.Empty()) {
-			g_dialogs.DoLoad(NkPath(prev[0].CStr()));
+			// Une entree peut etre un .jenga (le registre garde ce qui a ete ouvert).
+			const nkcode::NkArgOuverture o = nkcode::NkResoudreArgument(prev[0].CStr(), nullptr);
+			g_dialogs.DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
 			g_openedArg = true;
 			g_openedPath = prev[0];
 			for (usize i = 1; i < prev.Size(); ++i)
@@ -476,7 +497,10 @@ int nkmain(const NkEntryState &state) {
 		for (usize i = 0; i < g_state.recents.Size(); ++i) {
 			const char *rp = g_state.recents[i].CStr();
 			if (rp && rp[0] && (NkDirectory::Exists(rp) || NkFile::Exists(rp))) {
-				g_dialogs.DoLoad(NkPath(rp));
+				// Les recents sont des .jenga (LoadFolder les y inscrit) : un .jenga
+				// n'est pas un dossier -- le resoudre, comme un argument.
+				const nkcode::NkArgOuverture o = nkcode::NkResoudreArgument(rp, nullptr);
+				g_dialogs.DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
 				g_openedPath = rp;
 				break;
 			}

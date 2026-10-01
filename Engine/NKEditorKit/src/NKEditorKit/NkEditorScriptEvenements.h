@@ -274,6 +274,9 @@ namespace nkentseu {
 							case 'x': return NkKey::NK_X;
 							case 'z': return NkKey::NK_Z;
 							case 's': return NkKey::NK_S;
+							// (01/10) Ctrl+B = « Construire » de NKCode : sans elle, `k:ctrl+b`
+							// partait en NK_UNKNOWN et ne construisait rien, en silence.
+							case 'b': return NkKey::NK_B;
 							default: break;
 						}
 					}

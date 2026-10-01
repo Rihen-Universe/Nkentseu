@@ -13,6 +13,7 @@
 #include "NKCode/Project/NkCodeState.h"
 #include "NKCode/Project/NkCodeGen.h"
 #include "NKCode/Shell/NkLoading.h" // ecran de chargement (section 14)
+#include "NKCode/Shell/NkOuvrirArgument.h" // (02/10) un chemin QUELCONQUE a ouvrir
 #include "NKWindow/Core/NkDialogs.h"
 #include "NKContainers/String/NkFormat.h" // NkPrintf (formatage maison)
 #include "NKPlatform/NkEnv.h"			  // env::GetEnvVar (variables d'environnement maison)
@@ -333,10 +334,12 @@ namespace nkentseu {
 							st->status = NkString("Dossier cree : ") + np.ToString().CStr();
 						pickerNew[0] = '\0';
 					} else if (purpose == PK_File && pickWsJenga) {
-						// « Ouvrir un workspace » : .jenga choisi -> charge son dossier.
+						// « Ouvrir un workspace » : .jenga choisi -> charge son dossier (ce
+						// workspace-la s'il y en a plusieurs ; un .jenga qui n'est pas un
+						// workspace s'ouvre comme un fichier, en edition simple).
 						pickWsJenga = false;
 						if (wsOpenBuf[0])
-							DoLoad(NkPath(wsOpenBuf).GetParent());
+							OuvrirChemin(wsOpenBuf);
 					} else if (purpose == PK_ExportZip && st) {
 						// « Exporter » : zip du workspace VERS le dossier choisi, via le
 						// terminal integre (commande visible). Nom = <workspace>-export.zip.
@@ -856,7 +859,23 @@ namespace nkentseu {
 				// Lance l'ecran de CHARGEMENT (section 14) : LoadFolder + etapes reelles.
 				// La bascule vers l'editeur (LoadUiState + showStart=false) se fait quand loading.finished
 				// (gere dans DrawHome). Une erreur .jenga affiche l'etat d'erreur inline (pas de bascule).
-				void DoLoad(const NkPath &folder) {
+				// (02/10) OUVRIR UN CHEMIN QUELCONQUE, comme VS Code : un dossier (avec ou
+				// sans workspace), un .jenga, un fichier (son workspace s'il en a un, sinon
+				// son dossier en edition simple, et le fichier dans un onglet). Le meme
+				// chemin pour les arguments, le depot d'un fichier sur le lanceur, le
+				// double-clic d'un fichier dans « Ouvrir » et « Ouvrir un workspace ».
+				NkArgOuverture OuvrirChemin(const char *chemin, const char *fichier = nullptr) {
+					const NkArgOuverture o = NkResoudreArgument(chemin, fichier);
+					DoLoad(NkPath(o.dossier.CStr()), o.jenga.Empty() ? nullptr : o.jenga.CStr());
+					// LoadFolder est synchrone (session comprise) : le fichier s'ouvre APRES
+					// les onglets restaures, et devient l'onglet actif.
+					if (st && !loading.error && !o.fichier.Empty() && NkFile::Exists(o.fichier.CStr()))
+						st->OpenPath(NkPath(o.fichier.CStr()));
+					return o;
+				}
+
+				// `openJenga` (facultatif) : le .jenga precis a choisir dans le dossier.
+				void DoLoad(const NkPath &folder, const char *openJenga = nullptr) {
 					if (wsAddAsRoot && st) {
 						// Wizard « Nouveau Workspace » lance DEPUIS L'EDITEUR (modale) :
 						// le workspace cree est AJOUTE comme racine de l'explorateur
@@ -866,7 +885,7 @@ namespace nkentseu {
 						st->status = NkString("Workspace cree : ") + folder.ToString().CStr();
 						return;
 					}
-					loading.Start(folder, st);
+					loading.Start(folder, st, openJenga);
 				}
 
 				void OpenSaveAs() {
