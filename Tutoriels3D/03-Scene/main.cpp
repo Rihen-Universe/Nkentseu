@@ -25,6 +25,7 @@
 #include "NKRenderer/Core/NkCamera.h"
 #include "NKRenderer/Mesh/NkMeshSystem.h"
 #include "NKRenderer/Tools/Shadow/NkVirtualShadowMaps.h"
+#include "Commun/NkTutoCapture.h" // NK_CAPTURE : image PNG hors ecran (CI)
 #include "NKRenderer/Tools/Render3D/NkRender3D.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
@@ -124,14 +125,17 @@ int nkmain(const NkEntryState &state) {
 	// ── 5) Boucle principale ──────────────────────────────────────────────────
 	NkClock clock;
 	float32 total = 0.f;
+	tuto::NkTutoCapture capture; // inactif sans NK_CAPTURE
 
 	while (running && window.IsOpen()) {
 		events.PollEvents();
 		if (!running)
 			break;
+		if (capture.Etape(renderer, device, W, H))
+			break; // image capturee : sortie propre
 
 		const float32 dt = clock.Tick().delta;
-		total += dt;
+		total = capture.Temps(total + dt);
 
 		if (!renderer->BeginFrame())
 			continue; // fenêtre minimisée, etc.
@@ -225,6 +229,7 @@ int nkmain(const NkEntryState &state) {
 
 		renderer->Present();
 		renderer->EndFrame();
+		capture.ImageRendue();
 	}
 
 	// ── 6) Fermeture propre (ordre inverse de la création) ────────────────────
@@ -233,5 +238,5 @@ int nkmain(const NkEntryState &state) {
 	NkDeviceFactory::Destroy(device);
 	window.Close();
 	logger.Info("[Tuto03] Termine proprement.");
-	return 0;
+	return capture.CodeDeSortie(0);
 }

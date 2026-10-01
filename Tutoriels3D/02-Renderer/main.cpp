@@ -21,6 +21,7 @@
 #include "NKRenderer/NkRenderer.h"
 #include "NKRenderer/Tools/Render2D/NkRender2D.h"
 #include "NKRenderer/Tools/Overlay/NkOverlayRenderer.h"
+#include "Commun/NkTutoCapture.h" // NK_CAPTURE : image PNG hors ecran (CI)
 
 // Win32 définit DrawText en macro (GDI) — collision avec NkOverlayRenderer::DrawText.
 #ifdef DrawText
@@ -130,6 +131,7 @@ int nkmain(const NkEntryState &state) {
 
 	// ── 5) Boucle de rendu ────────────────────────────────────────────────────
 	NkClock clock;
+	tuto::NkTutoCapture capture; // inactif sans NK_CAPTURE
 #if defined(NKENTSEU_PLATFORM_ANDROID) || defined(NKENTSEU_PLATFORM_HARMONYOS)
 	uint32 sDiagFrame = 0;
 #endif
@@ -137,6 +139,8 @@ int nkmain(const NkEntryState &state) {
 		events.PollEvents();
 		if (!running)
 			break;
+		if (capture.Etape(renderer, device, W, H))
+			break; // image capturee : sortie propre
 
 		// Mobile : re-synchroniser la surface de presentation a CHAQUE frame comme
 		// Pong (qui draine la file d'events inline et rattrape le Shown initial).
@@ -179,6 +183,7 @@ int nkmain(const NkEntryState &state) {
 
 		renderer->Present();
 		renderer->EndFrame();
+		capture.ImageRendue();
 	}
 
 	// ── 6) Fermeture propre (ordre inverse de la création) ────────────────────
@@ -187,5 +192,5 @@ int nkmain(const NkEntryState &state) {
 	NkDeviceFactory::Destroy(device);
 	window.Close();
 	logger.Info("[Tuto02] Termine proprement.");
-	return 0;
+	return capture.CodeDeSortie(0);
 }

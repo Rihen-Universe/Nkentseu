@@ -21,6 +21,7 @@
 // La résolution de fichiers (NkShaderFileResolver) est toujours disponible.
 // =============================================================================
 #include "NKSL/Core/NkSLTypes.h"
+#include "NKSL/ShaderConvert/NkMslConventions.h"
 
 namespace nkentseu {
 

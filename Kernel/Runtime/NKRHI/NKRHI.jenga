@@ -81,6 +81,10 @@ with project("NKRHI"):
 
     with filter("system:macOS || system:iOS"):
         files(["src/NKRHI/Metal/**.mm"])
+    # Contexte NSOpenGL 4.1 core du device GL (NkOpenglContexteApple.mm) :
+    # macOS seulement, garde par NKENTSEU_PLATFORM_MACOS dans le fichier.
+    with filter("system:macOS"):
+        files(["src/NKRHI/Opengl/**.mm"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")
@@ -167,11 +171,20 @@ with project("NKRHI"):
     with filter("system:macOS"):
         usetoolchain("clang-native")
         frameworks(["Cocoa", "QuartzCore", "OpenGL", "Metal", "MetalKit"])
+        # Metal/*.mm est ecrit pour ARC (__bridge_retained + CFRelease) :
+        # voir nkobjcarc() dans config/toolchain.jenga.
+        nkobjcarc()
         # Backend Metal RHI actif : NkMetalDevice.mm recoit la CAMetalLayer via
         # init.context.metal.metalLayer (aucune dependance a NKCanvas).
         defines(["NK_RHI_METAL_ENABLED"])
         libdirs(macGlslangDir)
         _MAC_LINKS = list(macGlslang)
+        # Vulkan sur macOS = MoltenVK, seulement avec un SDK au build (WANT_VULKAN) :
+        # surface Metal (VK_EXT_metal_surface) et chargeur libvulkan. CreateAutoDetect
+        # l'essaie alors en premier (Vulkan -> Metal -> OpenGL -> logiciel).
+        if WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_METAL_EXT"])
+            _MAC_LINKS.append("vulkan")
         if USE_NKGLSLANG:    _MAC_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS: _MAC_LINKS.append("NKSPIRVCross")
         links(_MAC_LINKS)

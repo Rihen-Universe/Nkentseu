@@ -25,6 +25,31 @@
 #include "NkSurfaceHint.h"
 #include "NKPlatform/NkPlatformDetect.h"
 
+// -----------------------------------------------------------------------------
+// NK_OBJC_NON_RETENU — pointeur Objective-C qui DESIGNE sans POSSEDER (2026-09-30)
+//
+// NKRHI et NKCanvas compilent leurs .mm sous ARC (objcarc() de Jenga 2.8.8),
+// NKWindow non (retain/release manuel). Sous ARC, un membre `NSView *` d'une
+// struct C++ devient __strong : la struct cesse d'etre triviale DANS CES SEULES
+// unites, alors que NKWindow et le C++ la voient triviale. Meme struct, deux
+// definitions (ODR), et surtout un release de trop a la destruction de chaque
+// copie : `const NkSurfaceDesc surf = window.GetSurfaceDesc();` (NkMetalContext)
+// relachait la vue et le calque de la fenetre sans les avoir retenus.
+// Le descripteur ne possede rien : NkWindow possede la vue et le calque.
+// __unsafe_unretained garde la struct triviale et identique partout ; hors ARC
+// la macro est vide (rien ne change pour NKWindow ni pour le C++).
+// -----------------------------------------------------------------------------
+#ifndef NK_OBJC_NON_RETENU
+#if defined(__OBJC__) && defined(__clang__)
+#if __has_feature(objc_arc)
+#define NK_OBJC_NON_RETENU __unsafe_unretained
+#endif
+#endif
+#endif
+#ifndef NK_OBJC_NON_RETENU
+#define NK_OBJC_NON_RETENU
+#endif
+
 // Inclusions natives conditionnelles
 #if defined(NKENTSEU_FORCE_WINDOWING_NOOP_ONLY)
 // rien
@@ -113,12 +138,12 @@ namespace nkentseu {
 			// HDC délibérément absent : il est éphémère.
 
 #elif defined(NKENTSEU_PLATFORM_MACOS)
-			NSView *view = nullptr;
-			CAMetalLayer *metalLayer = nullptr;
+			NSView *NK_OBJC_NON_RETENU view = nullptr;
+			CAMetalLayer *NK_OBJC_NON_RETENU metalLayer = nullptr;
 
 #elif defined(NKENTSEU_PLATFORM_IOS)
-			UIView *view = nullptr;
-			CAMetalLayer *metalLayer = nullptr;
+			UIView *NK_OBJC_NON_RETENU view = nullptr;
+			CAMetalLayer *NK_OBJC_NON_RETENU metalLayer = nullptr;
 
 #elif defined(NKENTSEU_WINDOWING_XCB)
 			xcb_connection_t *connection = nullptr;

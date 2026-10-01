@@ -388,6 +388,11 @@ namespace nkentseu {
 			// detruit puis recree la surface en reutilisant souvent la MEME
 			// adresse. On gardait alors une EGLSurface morte.
 			uint32 mEglSurfaceGeneration = 0;
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+			// Contexte NSOpenGL 4.1 core (NkOpenglContexteApple.mm). Opaques et
+			// RETENUS : ce header reste du C++ pur, l'Objective-C vit dans le .mm.
+			void *mNsglContexte = nullptr; // NSOpenGLContext*
+			void *mNsglFormat = nullptr;   // NSOpenGLPixelFormat*
 #elif defined(NKENTSEU_PLATFORM_EMSCRIPTEN)
 			// Contexte WebGL (Emscripten). Handle opaque (long) pour NE PAS tirer
 			// <emscripten/html5.h> dans ce header — meme logique que GLX/EGL ci-dessus.

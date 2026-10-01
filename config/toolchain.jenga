@@ -127,3 +127,40 @@ def nkentseutoolchain():
     # ── Android SDK/NDK paths (from environment) ─────────────────────────
     androidsdkpath(os.getenv("ANDROID_SDK_ROOT", ""))
     androidndkpath(os.getenv("ANDROID_NDK_ROOT", ""))
+
+
+# =============================================================================
+# nkobjcarc() — ARC pour l'Objective-C(++) du projet courant (2026-09-30)
+# =============================================================================
+# A appeler DANS le filtre macOS d'un projet dont les .mm sont ecrits pour ARC
+# (__bridge_retained / __bridge_transfer / CFBridgingRetain appairees avec
+# CFRelease / CFBridgingRelease) : NKRHI (Metal), NKCanvas (Metal, NSOpenGL).
+#
+# SANS ARC, ce code compile mais ses comptes de references sont faux :
+#   - (__bridge_retained void *)x ne retient rien, le CFRelease d'en face
+#     libere un objet qu'on ne possedait pas (NKRHI : la texture du drawable) ;
+#   - (__bridge_transfer id)p ne rend rien : NKCanvas gardait un drawable par
+#     image, et la CAMetalLayer n'en a que trois.
+#
+# ⚠️ PAS sur NKWindow : son Cocoa est ecrit en retain/release manuel (voir le
+#    `#if !__has_feature(objc_arc)` de NkCocoaWindow.mm, et mDelegate, qu'ARC
+#    libererait des la sortie de portee puisque NSWindow.delegate est faible).
+#
+# objcarc() n'existe qu'a partir de Jenga 2.8.8. Avec un Jenga plus ancien, ce
+# helper ne fait RIEN (comportement d'avant : .mm sans ARC) au lieu d'arreter
+# le chargement du workspace sur « name 'objcarc' is not defined » — sur
+# Windows et Linux, ou le filtre macOS est tout de meme execute.
+_NK_OBJCARC_PREVENU = [False]
+
+
+def nkobjcarc():
+    import sys as _sys
+    import Jenga as _jenga
+    _arc = getattr(_jenga, "objcarc", None)
+    if _arc is not None:
+        _arc()
+        return
+    if _sys.platform == "darwin" and not _NK_OBJCARC_PREVENU[0]:
+        _NK_OBJCARC_PREVENU[0] = True
+        print("[Nkentseu] Jenga < 2.8.8 : objcarc() absent, les .mm de NKRHI et "
+              "NKCanvas sont compiles SANS ARC. Installer Jenga 2.8.8 ou plus.")

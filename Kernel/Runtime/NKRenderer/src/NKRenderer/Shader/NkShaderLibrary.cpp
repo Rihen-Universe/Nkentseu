@@ -220,7 +220,9 @@ namespace nkentseu {
 				case NkGraphicsApi::NK_GFX_API_DX12:
 					return "hlsl12";
 				case NkGraphicsApi::NK_GFX_API_METAL:
-					return "msl";
+					// "msl2" (2026-09-30) : le MSL suit desormais NkMslConventions.h ;
+					// un .nksc "msl" d'avant porte d'autres index de ressources.
+					return "msl3"; // msl3 (2026-10-01) : en-tete « // nk_rsrc »
 				case NkGraphicsApi::NK_GFX_API_SOFTWARE:
 					return "swvm";
 				default:
@@ -271,6 +273,37 @@ namespace nkentseu {
 				memcpy(outGlsl.Data(), cached.binary.Data(), cached.binary.Size());
 			} else {
 				outBytecode = cached.binary;
+			}
+			return true;
+		}
+
+		// ── Metal : la source MSL d'un etage (2026-09-30) ────────────────────────
+		// Pour Metal, le texte compile (MSL) arrive dans la chaine « glsl » de
+		// l'etage : res.preprocessed au premier passage, le cache disque ensuite
+		// (IsTextTarget). NkMetalDevice ne lit QUE mslSource ; jusqu'ici personne
+		// ne la remplissait, et le MSL partait en spirvBinary, refuse. On verifie
+		// que c'est bien du MSL : une source GLSL passee pour du MSL produirait une
+		// erreur Metal illisible au lieu de celle-ci.
+		static bool NkRemplirMsl(::nkentseu::NkShaderStageDesc &st, const NkString &src, const NkString &nom) {
+			if (src.Empty() || !src.Contains("metal_stdlib")) {
+				logger.Errorf("[NkShader] '%s' : pas de source MSL pour Metal (la conversion a echoue ?)\n",
+							  nom.CStr());
+				return false;
+			}
+			st.mslSource = src.CStr();
+			// SPIRV-Cross nomme l'entree `main0` (`main` est reserve en MSL) ; le
+			// device retrouve de lui-meme toute autre entree unique de l'etage.
+			st.entryPoint = "main0";
+			// NK_DUMP_MSL=<dossier> : chaque MSL envoye au device, pour le relire
+			// (la CI le publie en artefact).
+			if (const char *dossier = getenv("NK_DUMP_MSL")) {
+				if (dossier[0]) {
+					const char *etage = st.stage == ::nkentseu::NkShaderStage::NK_VERTEX	   ? "vert"
+										: st.stage == ::nkentseu::NkShaderStage::NK_FRAGMENT ? "frag"
+																							 : "autre";
+					NkString chemin = NkString(dossier) + "/" + nom + "." + etage + ".metal";
+					WriteStringToFile(chemin.CStr(), src);
+				}
 			}
 			return true;
 		}
@@ -358,6 +391,7 @@ namespace nkentseu {
 				// glslSource = source convertie pour le backend cible (GL GLSL si GL,
 				// VK GLSL sinon). Le device choisit entre glslSource et spirvBinary.
 				NkShaderDesc desc;
+				const bool isMetalR = (mApi == NkGraphicsApi::NK_GFX_API_METAL);
 				if (!vertSrc.Empty()) {
 					::nkentseu::NkShaderStageDesc vs{};
 					vs.stage = ::nkentseu::NkShaderStage::NK_VERTEX;
@@ -365,7 +399,9 @@ namespace nkentseu {
 					vs.swSource =
 						vertSrc.CStr(); // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré par GPU
 					vs.entryPoint = "main";
-					if (!prog.vertBytecode.Empty()) {
+					if (isMetalR) {
+						NkRemplirMsl(vs, vertGlsl, prog.name);
+					} else if (!prog.vertBytecode.Empty()) {
 						vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
 						memcpy(vs.spirvBinary.Data(), prog.vertBytecode.Data(), (size_t)prog.vertBytecode.Size());
 					}
@@ -378,7 +414,9 @@ namespace nkentseu {
 					fs.swSource =
 						fragSrc.CStr(); // NkSL original : lu UNIQUEMENT par le device software (VM) ; ignoré par GPU
 					fs.entryPoint = "main";
-					if (!prog.fragBytecode.Empty()) {
+					if (isMetalR) {
+						NkRemplirMsl(fs, fragGlsl, prog.name);
+					} else if (!prog.fragBytecode.Empty()) {
 						fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
 						memcpy(fs.spirvBinary.Data(), prog.fragBytecode.Data(), (size_t)prog.fragBytecode.Size());
 					}
@@ -389,7 +427,9 @@ namespace nkentseu {
 					gs.stage = ::nkentseu::NkShaderStage::NK_GEOMETRY;
 					gs.glslSource = geomGlsl.CStr();
 					gs.entryPoint = "main";
-					if (!prog.geomBytecode.Empty()) {
+					if (isMetalR) {
+						// Metal n'a pas d'etage geometrie : rien a lui donner.
+					} else if (!prog.geomBytecode.Empty()) {
 						gs.spirvBinary.Resize((uint32)prog.geomBytecode.Size());
 						memcpy(gs.spirvBinary.Data(), prog.geomBytecode.Data(), (size_t)prog.geomBytecode.Size());
 					}
@@ -515,6 +555,9 @@ namespace nkentseu {
 			// remplit PAS spirvBinary : le device DX12 prendrait le SPIR-V pour du
 			// DXBC. L'entry point reste "main" (SPIRV-Cross conserve le nom du SPIR-V).
 			const bool isDX = (mApi == NkGraphicsApi::NK_GFX_API_DX11 || mApi == NkGraphicsApi::NK_GFX_API_DX12);
+			// Metal : le MSL est dans vsGlslStr/fsGlslStr (preprocessed ou cache) ;
+			// il part en mslSource, jamais en spirvBinary (voir NkRemplirMsl).
+			const bool isMetal = (mApi == NkGraphicsApi::NK_GFX_API_METAL);
 			// Chemin NkSL : le backend a DÉJÀ généré du HLSL natif (NkSL→HLSL direct),
 			// stocké dans res.preprocessed -> vsGlslStr/fsGlslStr. Donc PAS de
 			// SPIRV-Cross (qui échouerait : bytecode = texte HLSL, pas du SPIR-V).
@@ -606,6 +649,8 @@ namespace nkentseu {
 				if (isDX) {
 					if (!vsHlslStr.Empty())
 						vs.hlslSource = vsHlslStr.CStr();
+				} else if (isMetal) {
+					NkRemplirMsl(vs, vsGlslStr, prog.name);
 				} else if (!prog.vertBytecode.Empty()) {
 					vs.spirvBinary.Resize((uint32)prog.vertBytecode.Size());
 					memcpy(vs.spirvBinary.Data(), prog.vertBytecode.Data(), (size_t)prog.vertBytecode.Size());
@@ -620,6 +665,8 @@ namespace nkentseu {
 				if (isDX) {
 					if (!fsHlslStr.Empty())
 						fs.hlslSource = fsHlslStr.CStr();
+				} else if (isMetal) {
+					NkRemplirMsl(fs, fsGlslStr, prog.name);
 				} else if (!prog.fragBytecode.Empty()) {
 					fs.spirvBinary.Resize((uint32)prog.fragBytecode.Size());
 					memcpy(fs.spirvBinary.Data(), prog.fragBytecode.Data(), (size_t)prog.fragBytecode.Size());
