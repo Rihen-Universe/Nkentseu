@@ -37,6 +37,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurTerminal.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
@@ -1910,9 +1911,10 @@ namespace nkentseu {
 			}
 			// (2026-09-30) « Contenu » : le contenu du projet ET le catalogue
 			// d'acteurs. L'onglet s'appelait « Acteurs » quand il n'y avait qu'eux.
-			static const char *kOnglets[2] = {"Contenu", "Journal"};
+			// (2026-10-01) « Terminal » : le vrai terminal de la plateforme (NkEditeurTerminal.cpp).
+			static const char *kOnglets[3] = {"Contenu", "Journal", "Terminal"};
 			const float32 ongletsH = 26.f;
-			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 2, ui.ongletTiroir);
+			NkEditeurOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 3, ui.ongletTiroir);
 			// « Exporter… » a droite des onglets : la touche d'Unkeny (Unreal le range
 			// dans le clic droit, ou il est aussi). « Importer » est dans la barre du
 			// navigateur (zone 1 d'Unreal).
@@ -1932,6 +1934,8 @@ namespace nkentseu {
 			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
 			if (ui.ongletTiroir == 0) {
 				OngletContenu(c, contenu);
+			} else if (ui.ongletTiroir == NK_TIROIR_TERMINAL) {
+				NkEditeurDessinerTerminal(c, contenu);
 			} else {
 				OngletJournal(c, contenu);
 			}

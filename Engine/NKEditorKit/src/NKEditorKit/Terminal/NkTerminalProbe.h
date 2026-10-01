@@ -280,6 +280,22 @@ namespace nkentseu {
 								  static_cast<double>(pire));
 					Note(b, ok, m);
 				}
+				{
+					// Le theme NKGUI d'un hote CLAIR (NKCode en Light : NkApplyEditorTheme
+					// n'ecrit que ctx.theme) : la palette doit suivre, pas rester sombre.
+					nkgui::NkGuiTheme g;
+					g.bgPrimary = {255, 255, 255, 255};
+					g.text = {31, 35, 40, 255};
+					g.textDisabled = {101, 109, 118, 255};
+					g.header = {246, 248, 250, 255};
+					g.border = {208, 215, 222, 255};
+					g.accent = {9, 105, 218, 255};
+					const NkTerminalPalette p = NkTerminalPaletteDuThemeGui(g);
+					bool ok = !p.sombre && p.fond.r == 255;
+					for (int32 i = 1; i < 16; ++i)
+						ok = ok && NkTerminalContraste(p.ansi[i], p.fond) >= 3.f;
+					Note(b, ok, "b7 palette depuis le theme NKGui d'un hote CLAIR : claire, et lisible");
+				}
 			}
 
 			// ── c. DECOUVERTE ────────────────────────────────────────────────

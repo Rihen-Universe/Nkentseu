@@ -285,7 +285,7 @@ namespace nkentseu {
 
 				// --- Les onglets ------------------------------------------------
 				int32 ongletDroite = 0; ///< 0 Details, 1 Monde
-				int32 ongletTiroir = 0; ///< 0 Acteurs, 1 Journal
+				int32 ongletTiroir = 0; ///< 0 Acteurs, 1 Journal, 2 Terminal (NkEditeurTerminal.h)
 
 				// --- L'Outliner -------------------------------------------------
 				editorkit::NkTreeViewModel arbre;

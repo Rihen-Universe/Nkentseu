@@ -79,8 +79,10 @@ namespace nkentseu {
 			tampon.Clear();
 			pty.Drain(tampon);
 			const bool neuf = tampon.Size() > 0;
-			if (neuf)
+			if (neuf) {
 				ecran.Feed(tampon.Data(), tampon.Size());
+				vue.sortieNeuve = true;
+			}
 			// Les questions du shell (position du curseur, identite) : la reponse
 			// repart AUSSITOT, sinon fish et PSReadLine attendent.
 			tampon.Clear();

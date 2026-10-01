@@ -20,6 +20,7 @@
 
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurTrame.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
@@ -195,6 +196,10 @@ namespace nkentseu {
 			NkEditeurModele &m = *mModele;
 			NkString cuire;
 			for (uint32 i = 0; i < args.Size(); ++i) {
+				// --terminal=, --tiroir-onglet=... : le terminal du tiroir (NkEditeurTerminal.h).
+				if (NkEditeurTerminalArgument(*mUi, args[i])) {
+					continue;
+				}
 				// --cuire=DOSSIER (2026-10-01) : cuit les DONNEES du jeu (scene,
 				// textures, regle de camera) sans rien construire, pour les jouer
 				// aussitot : UnkenyPlayer --jeu=DOSSIER. Avec --exemple=hud,
@@ -371,9 +376,12 @@ namespace nkentseu {
 					const int32 appareils = NkEditeurLancerBancAppareils();
 					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
+					// Le terminal partage (01/10) : un VRAI shell -- sur la CI macOS,
+					// c'est lui qui execute le moteur POSIX.
+					const int32 terminal = NkEditeurLancerBancTerminal();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0;
+									   ecran != 0 || terminal != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -463,6 +471,8 @@ namespace nkentseu {
 			ctx.theme.framePadX = 6.f;
 			ctx.theme.framePadY = 3.f;
 			ctx.font = FontBody();
+			// Le terminal du tiroir veut une police a CHASSE FIXE (NkEditeurTerminal.cpp).
+			TeleverserPolice(NkEditeurTerminalPolice(TaillePoliceCorps(Layout())));
 
 			// ── La scene ─────────────────────────────────────────────────────
 			// Les textures des acteurs sont FABRIQUEES maintenant, puis partent
@@ -748,8 +758,14 @@ namespace nkentseu {
 		void NkEditeurRaccourcis(NkEditeurCadre &c) {
 			nkgui::NkGuiContext &ctx = c.ctx;
 			const nkgui::NkGuiInput &in = ctx.input;
+			// Le terminal du tiroir : ses shells avancent, et s'il a le clavier,
+			// l'editeur n'a AUCUN raccourci (Suppr, Espace, Q/W/E/R vont au shell).
+			const bool terminal = NkEditeurTerminalAuClavier(c);
 			if (in.KeyPressed(NkGuiKey::Escape) && c.ui.menu != NkMenuEditeur::NK_AUCUN) {
 				c.ui.menu = NkMenuEditeur::NK_AUCUN;
+				return;
+			}
+			if (terminal) {
 				return;
 			}
 			// Un champ de saisie focalise garde ses touches : Suppr efface une

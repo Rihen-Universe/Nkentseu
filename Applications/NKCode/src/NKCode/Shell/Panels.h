@@ -10,6 +10,7 @@
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
 #include "NKEditorKit/Terminal/NkTerminalVue.h" // (01/10) grille, en-tete et clavier du terminal PARTAGE
+#include "NKWindow/Core/NkLauncher.h"			// OpenURL : un lien du terminal part dans le navigateur
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Editor/NkMarkdown.h" // viewer .md (preview rendu)
 #include "NKCode/Editor/NkJsonView.h" // viewer .json (arbre repliable colore)
@@ -2471,7 +2472,7 @@ namespace nkentseu {
 					editorkit::NkTerminalGrilleStyle style;
 					style.police = mShell ? mShell->TermCodeFont() : nullptr;
 					const editorkit::NkTerminalPalette pal =
-						editorkit::NkTerminalPaletteDuTheme(mShell ? mShell->KitTheme() : editorkit::NkTheme::Dark());
+						editorkit::NkTerminalPaletteDuThemeGui(ctx.theme); // suit la bascule Dark/Light de NKCode
 					const float32 hEntete = ctx.S(26.f);
 					const NkRect enteteR = {mainR.x, mainR.y, mainR.w, hEntete};
 					const NkRect grilleR = {mainR.x, mainR.y + hEntete, mainR.w, mainR.h - hEntete};
@@ -2516,8 +2517,10 @@ namespace nkentseu {
 					// l'emulateur (position du curseur, identite) repartent au shell.
 					mDrain.Clear();
 					t.pty.Drain(mDrain);
-					if (mDrain.Size() > 0)
+					if (mDrain.Size() > 0) {
 						t.screen.Feed(mDrain.Data(), mDrain.Size());
+						t.vue.sortieNeuve = true;
+					}
 					mDrain.Clear();
 					t.screen.PrendreReponses(mDrain);
 					if (mDrain.Size() > 0)
@@ -2625,6 +2628,9 @@ namespace nkentseu {
 						// laisse tranquille). Ctrl+A garde ici son sens « tout selectionner ».
 						editorkit::NkTerminalClavierOptions opt;
 						opt.ctrlAToutSelectionne = true;
+						// Ctrl+lettre au shell : seulement ^D ^L ^R ^U -- les autres restent
+						// aux raccourcis de l'IDE (Ctrl+P, Ctrl+S, Ctrl+W...), comme avant.
+						opt.controleLettres = "DLRU";
 						NkVector<char> seq;
 						if (editorkit::NkTerminalClavier(ctx, t.screen, t.vue, seq, opt)) {
 							t.pty.Write(seq.Data(), seq.Size());
@@ -2971,13 +2977,7 @@ namespace nkentseu {
 					if (!mState)
 						return;
 					if (l.lienEstUrl) {
-#if defined(_WIN32)
-						NkCodeShellRun((NkString("start \"\" \"") + l.lienFichier + "\"").CStr());
-#elif defined(__APPLE__)
-						NkCodeShellRun((NkString("open \"") + l.lienFichier + "\"").CStr());
-#else
-						NkCodeShellRun((NkString("xdg-open \"") + l.lienFichier + "\" &").CStr());
-#endif
+						NkLauncher::OpenURL(l.lienFichier.CStr()); // NKWindow : la porte de la plateforme
 						return;
 					}
 					NkPath p(l.lienFichier.CStr());

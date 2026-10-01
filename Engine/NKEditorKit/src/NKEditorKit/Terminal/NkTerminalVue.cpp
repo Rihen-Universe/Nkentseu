@@ -197,21 +197,74 @@ namespace nkentseu {
 			return la > lb ? (la + 0.05f) / (lb + 0.05f) : (lb + 0.05f) / (la + 0.05f);
 		}
 
+		namespace {
+			/// Les TEINTES de depart d'une palette : d'ou qu'elles viennent (roles
+			/// du kit ou theme NKGui), la derivation des seize couleurs et la
+			/// garantie de contraste sont les memes.
+			struct NkTeintesTerminal {
+					bool sombre = true;
+					NkColor fond, texte, attenue, entete, bord;
+					NkColor bleu, rouge, vert, jaune, violet;
+			};
+
+			NkTerminalPalette Construire(const NkTeintesTerminal &b);
+		} // namespace
+
 		NkTerminalPalette NkTerminalPaletteDuTheme(const NkTheme &t) {
+			NkTeintesTerminal b;
+			b.sombre = t.IsDark();
+			b.fond = Role(t, NkRole::CodeBg, NkRole::InputBg);
+			b.texte = Role(t, NkRole::Text, NkRole::Text);
+			b.attenue = Role(t, NkRole::TextMuted, NkRole::Text);
+			b.entete = Role(t, NkRole::PanelHeader, NkRole::PanelBg);
+			b.bord = Role(t, NkRole::Border, NkRole::Border);
+			b.rouge = Role(t, NkRole::StatusErr, NkRole::AccentSel);
+			b.bleu = Role(t, NkRole::AccentUi, NkRole::AccentUi);
+			b.vert = Role(t, NkRole::StatusOk, NkRole::AccentUi);
+			b.jaune = Role(t, NkRole::StatusWarn, NkRole::AccentSel);
+			b.violet = Role(t, NkRole::AccentAI, NkRole::AccentUi);
+			return Construire(b);
+		}
+
+		NkTerminalPalette NkTerminalPaletteDuThemeGui(const nkgui::NkGuiTheme &g) {
+			// Le fond, le texte et l'accent viennent du theme NKGui (celui que
+			// l'hote fait suivre a sa bascule sombre/clair) ; les teintes d'ETAT,
+			// que NkGuiTheme ne porte pas, viennent du theme du kit de meme
+			// luminosite.
+			const bool sombre = (static_cast<int32>(g.bgPrimary.r) + g.bgPrimary.g + g.bgPrimary.b) <= 384;
+			const NkTheme base = sombre ? NkTheme::Dark() : NkTheme::Light();
+			NkTeintesTerminal b;
+			b.sombre = sombre;
+			b.fond = g.bgPrimary;
+			b.texte = g.text;
+			b.attenue = g.textDisabled;
+			b.entete = g.header;
+			b.bord = g.border;
+			b.bleu = g.accent;
+			b.rouge = Role(base, NkRole::StatusErr, NkRole::AccentSel);
+			b.vert = Role(base, NkRole::StatusOk, NkRole::AccentUi);
+			b.jaune = Role(base, NkRole::StatusWarn, NkRole::AccentSel);
+			b.violet = Role(base, NkRole::AccentAI, NkRole::AccentUi);
+			b.fond.a = b.texte.a = b.attenue.a = b.entete.a = b.bord.a = b.bleu.a = 255;
+			return Construire(b);
+		}
+
+		namespace {
+		NkTerminalPalette Construire(const NkTeintesTerminal &b) {
 			NkTerminalPalette p;
-			p.sombre = t.IsDark();
-			p.fond = Role(t, NkRole::CodeBg, NkRole::InputBg);
-			p.texte = Role(t, NkRole::Text, NkRole::Text);
-			p.attenue = Role(t, NkRole::TextMuted, NkRole::Text);
-			p.entete = Role(t, NkRole::PanelHeader, NkRole::PanelBg);
+			p.sombre = b.sombre;
+			p.fond = b.fond;
+			p.texte = b.texte;
+			p.attenue = b.attenue;
+			p.entete = b.entete;
 			p.enteteTexte = p.texte;
-			p.bord = Role(t, NkRole::Border, NkRole::Border);
-			p.erreur = Role(t, NkRole::StatusErr, NkRole::AccentSel);
-			const NkColor bleu = Role(t, NkRole::AccentUi, NkRole::AccentUi);
-			const NkColor rouge = p.erreur;
-			const NkColor vert = Role(t, NkRole::StatusOk, NkRole::AccentUi);
-			const NkColor jaune = Role(t, NkRole::StatusWarn, NkRole::AccentSel);
-			const NkColor violet = Role(t, NkRole::AccentAI, NkRole::AccentUi);
+			p.bord = b.bord;
+			p.erreur = b.rouge;
+			const NkColor bleu = b.bleu;
+			const NkColor rouge = b.rouge;
+			const NkColor vert = b.vert;
+			const NkColor jaune = b.jaune;
+			const NkColor violet = b.violet;
 			const NkColor cyan = Melange(bleu, vert, 0.45f);
 			const NkColor blanc = {255, 255, 255, 255}, noir = {0, 0, 0, 255};
 			const NkColor bases[6] = {rouge, vert, jaune, bleu, violet, cyan};
@@ -246,6 +299,7 @@ namespace nkentseu {
 			p.trouveActif = Alpha(jaune, 190);
 			return p;
 		}
+		} // namespace
 
 		NkColor NkTerminalResoudre(const NkTerminalPalette &pal, uint32 c, bool estFond, bool gras) {
 			if (c == kNkTermDefaut)
@@ -326,6 +380,10 @@ namespace nkentseu {
 			const bool dedans = nkgui::NkGuiRectContains(zone, m) && ctx.PointReachable(m);
 			res.survol = dedans;
 
+			if (vue.sortieNeuve) {
+				vue.sortieNeuve = false;
+				vue.derniereActivite = ctx.time;
+			}
 			// ── Defilement : en pixels, borne au bas (l'ECRAN, jamais plus bas).
 			const int32 total = static_cast<int32>(term.TotalLines());
 			const float32 vueH = res.rows * lh;
@@ -823,6 +881,26 @@ namespace nkentseu {
 				put("\x1b[19~");
 			if (K(NkGuiKey::F12))
 				put("\x1b[24~");
+			// 2b) Ctrl+lettre -> code de controle (^D fin de saisie, ^L effacer,
+			//     ^R recherche dans l'historique...). ⚠️ NKWindow ne transmet PAS
+			//     les caracteres de controle (WM_CHAR ecarte tout ce qui est sous 32) :
+			//     sans cette table, AUCUN Ctrl+lettre n'atteignait le shell -- seul
+			//     Ctrl+C passait, par wantCopy. C et V restent copier / coller.
+			if (in.ctrlDown && !in.altDown && opt.controleLettres) {
+				static const struct {
+						NkGuiKey k;
+						char l;
+				} kLettres[] = {
+					{NkGuiKey::A, 'A'}, {NkGuiKey::B, 'B'}, {NkGuiKey::D, 'D'}, {NkGuiKey::E, 'E'}, {NkGuiKey::F, 'F'},
+					{NkGuiKey::G, 'G'}, {NkGuiKey::H, 'H'}, {NkGuiKey::I, 'I'}, {NkGuiKey::J, 'J'}, {NkGuiKey::K, 'K'},
+					{NkGuiKey::L, 'L'}, {NkGuiKey::M, 'M'}, {NkGuiKey::N, 'N'}, {NkGuiKey::O, 'O'}, {NkGuiKey::P, 'P'},
+					{NkGuiKey::Q, 'Q'}, {NkGuiKey::R, 'R'}, {NkGuiKey::S, 'S'}, {NkGuiKey::T, 'T'}, {NkGuiKey::U, 'U'},
+					{NkGuiKey::W, 'W'}, {NkGuiKey::X, 'X'}, {NkGuiKey::Y, 'Y'}, {NkGuiKey::Z, 'Z'},
+				};
+				for (const auto &e : kLettres)
+					if (std::strchr(opt.controleLettres, e.l) && !(e.l == 'A' && opt.ctrlAToutSelectionne) && K(e.k))
+						sortie.PushBack(static_cast<char>(e.l - 'A' + 1));
+			}
 			// 3) Copier / coller / tout selectionner.
 			if (in.wantCopy) {
 				if (vue.AUneSelection()) {

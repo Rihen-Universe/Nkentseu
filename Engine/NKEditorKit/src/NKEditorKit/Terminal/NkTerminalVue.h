@@ -63,6 +63,12 @@ namespace nkentseu {
 		/// en sombre ET en clair (contraste minimal garanti contre le fond).
 		NkTerminalPalette NkTerminalPaletteDuTheme(const NkTheme &theme);
 
+		/// La meme palette, depuis le theme NKGui d'un hote dont la bascule
+		/// sombre/clair ne passe que par lui (NKCode : NkApplyEditorTheme ecrit
+		/// `ctx.theme`, pas le theme du kit). Fond, texte, accent : de `g` ; les
+		/// teintes d'etat : du theme du kit de meme luminosite.
+		NkTerminalPalette NkTerminalPaletteDuThemeGui(const nkgui::NkGuiTheme &g);
+
 		/// La couleur RGBA d'une couleur de cellule (defaut, indice 0..255, RGB).
 		nkgui::NkColor NkTerminalResoudre(const NkTerminalPalette &pal, uint32 couleur, bool estFond, bool gras);
 
@@ -86,6 +92,9 @@ namespace nkentseu {
 				int32 selAL = 0, selAC = 0, selBL = 0, selBC = 0;
 				bool glisse = false;
 				float32 derniereActivite = -10.f; ///< ctx.time de la derniere frappe (curseur plein)
+				/// Du NOUVEAU est arrive du shell depuis la derniere image : le curseur
+				/// redevient plein (il ne clignote pas pendant que le texte defile).
+				bool sortieNeuve = false;
 
 				bool AUneSelection() const {
 					return selAL != selBL || selAC != selBC;
@@ -151,6 +160,11 @@ namespace nkentseu {
 				/// Ctrl+A : « tout selectionner » (NKCode) au lieu d'aller au shell
 				/// (debut de ligne pour readline). Defaut : au shell.
 				bool ctrlAToutSelectionne = false;
+				/// Les lettres dont Ctrl+lettre part au shell en CODE DE CONTROLE
+				/// (^D, ^L, ^R...). Un hote dont les raccourcis globaux utilisent
+				/// Ctrl+lettre la restreint (NKCode : « DLRU ») ; nul = aucune.
+				/// C et V n'y sont jamais : ils copient et collent.
+				const char *controleLettres = "ABDEFGHIJKLMNOPQRSTUWXYZ";
 		};
 
 		/// Traduit les frappes de CETTE image en octets pour le shell (UTF-8 +
