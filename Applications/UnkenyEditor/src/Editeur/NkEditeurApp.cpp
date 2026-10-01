@@ -371,9 +371,11 @@ namespace nkentseu {
 					const int32 appareils = NkEditeurLancerBancAppareils();
 					// L'ecran du jeu et sa zone sure (moteur), lance aussi par le joueur.
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
+					// Les formes 2D, les collisionneurs et les calques (01/10) : a part.
+					const int32 formes = unkeny::NkUnkenyLancerBancFormes();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0;
+									   ecran != 0 || formes != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une

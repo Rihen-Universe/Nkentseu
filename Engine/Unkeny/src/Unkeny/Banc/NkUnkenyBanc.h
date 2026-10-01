@@ -32,5 +32,9 @@ namespace nkentseu {
 		/// lance A PART par l'editeur ET par le joueur (le meme code des deux
 		/// cotes). Rend 0 quand tout tient.
 		int32 NkUnkenyLancerBancEcran();
+		/// Les FORMES 2D, leurs collisionneurs (polygone, chaine, rotation) et les
+		/// CALQUES DE COLLISION (2026-10-01, NkUnkenyBancFormes.cpp) : lance a part
+		/// par l'editeur. Rend 0 quand tout tient.
+		int32 NkUnkenyLancerBancFormes();
 	} // namespace unkeny
 } // namespace nkentseu
