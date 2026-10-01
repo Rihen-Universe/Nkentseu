@@ -6,6 +6,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Famille/NkFamilleCadre.h"
+#include "NKEditorKit/NkEditorSurface.h"
 
 namespace nkentseu {
 	namespace editorkit {
@@ -466,7 +467,6 @@ namespace nkentseu {
 							float32 y, float32 largeurMin, int32 sousOuvert, float32 xRepli) {
 				NkListe res;
 				const nkgui::NkGuiInput &in = c.ctx.input;
-				auto &dl = c.ctx.dlOverlay;
 				const float32 ligneH = NkFamilleHauteurLigne(c.police, 16.f) + 7.f;
 				const float32 sepH = 7.f;
 				float32 largeur = largeurMin > 190.f ? largeurMin : 190.f;
@@ -492,6 +492,14 @@ namespace nkentseu {
 				y = y < 0.f ? 0.f : y;
 				const NkRect cadre{x, y, largeur, hauteur};
 				res.cadre = cadre;
+				// (2026-10-02) PAR LA PORTE (NkEditorSurface.h) : le menu se peint
+				// au-dessus ET le reclame -- occlusion, couche, saisie. Il se peignait
+				// dans la couche du dessus sans rien reclamer (banc du kit, 11g). La
+				// geometrie est connue ICI, avant le premier trait : la porte s'ouvre
+				// sur la boite reelle (pas son ombre : declarer trop grand rendrait
+				// inerte ce qui est a cote).
+				NkSurfaceFlottante surface(c.ctx, cadre, NkCouche::Menu, NkPriseClavier::Oui);
+				auto &dl = surface.dl;
 
 				dl.AddRectFilled(NkRect{cadre.x + 3.f, cadre.y + 4.f, cadre.w, cadre.h}, NkColor{0, 0, 0, 90}, 3.f);
 				dl.AddRectFilled(cadre, c.pal.entete, 2.f);

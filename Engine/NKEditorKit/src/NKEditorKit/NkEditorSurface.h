@@ -226,6 +226,18 @@ namespace nkentseu {
 				}
 		};
 
+		// ── LES DEUX ETAGES, RENDUS PAR L'HOTE (2026-10-02) ─────────────────────
+		/// L'hote qui compose SA liste de rendu (NkFamilleEditeur) : la couche
+		/// principale, puis ce que les surfaces flottantes ont peint au-dessus. C'est
+		/// la seule LECTURE de la couche du dessus qu'un hote du kit ait a faire ; elle
+		/// vit a cote de la porte qui l'ECRIT. Un hote n'a donc pas a nommer la couche
+		/// lui-meme -- et le banc (famille 11, qui lit les sources) continue de
+		/// signaler toute peinture au-dessus qui ne passe pas par la porte.
+		inline void NkComposerLesDeuxEtages(const NkGuiContext &ctx, NkGuiDrawList &sortie) noexcept {
+			sortie.Append(ctx.dl);
+			sortie.Append(ctx.dlOverlay);
+		}
+
 		// ── OU SE POSE UNE SURFACE FLOTTANTE, PAR RAPPORT A CE QUI L'OUVRE ──────
 		//
 		// 🔴 RETOUR DE RODOLF (07/09), sur le selecteur de couleur : il « deborde du

@@ -6,6 +6,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Famille/NkFamillePlacer.h"
+#include "NKEditorKit/NkEditorSurface.h"
 
 #include <cmath>
 #include <cstring>
@@ -361,10 +362,15 @@ namespace nkentseu {
 					res.glisse = k;
 					// Le FANTOME : l'icone et le nom sous le curseur ; sur la vue, la
 					// croix du point de pose.
-					auto &over = ctx.dlOverlay;
 					const char *nom = cat[k].nom;
 					const float32 w = NkFamilleLargeur(c.police, nom) + 40.f;
 					const NkRect g{in.mousePos.x + 14.f, in.mousePos.y + 10.f, w, 26.f};
+					// (2026-10-02) PAR LA PORTE (NkEditorSurface.h), comme toute surface
+					// peinte au-dessus (banc du kit, 11g). Il ne reclame que SA boite, qui
+					// est DECALEE du curseur : il ne masque jamais le point vise (la
+					// vue, la cible du depot), et il ne prend pas le clavier.
+					NkSurfaceFlottante fantome(ctx, g, NkCouche::Menu, NkPriseClavier::Non);
+					auto &over = fantome.dl;
 					over.AddRectFilled(g, c.pal.entete, 3.f);
 					const bool surVue = NkFamilleDans(cible, in.mousePos);
 					over.AddRect(g, surVue ? c.pal.selection : c.pal.accent, 1.f, 3.f);

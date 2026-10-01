@@ -6,6 +6,7 @@
 // -----------------------------------------------------------------------------
 
 #include "NKEditorKit/Famille/NkFamilleEditeur.h"
+#include "NKEditorKit/NkEditorSurface.h"
 #include "NKEditorKit/NkThemeToGui.h"
 
 namespace nkentseu {
@@ -182,8 +183,8 @@ namespace nkentseu {
 				dl.AddRect(plan.ecran, pal.bord, 1.f);
 			}
 			mCtx.EndFrame();
-			mFusion.Append(mCtx.dl);
-			mFusion.Append(mCtx.dlOverlay);
+			// Les deux etages, dans l'ordre du rendu (NkEditorSurface.h).
+			NkComposerLesDeuxEtages(mCtx, mFusion);
 			mEntree.FinDeTrame(mCtx.input);
 			return mFusion;
 		}
