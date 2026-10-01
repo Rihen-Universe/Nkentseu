@@ -732,6 +732,11 @@ namespace nkanima {
 			// rend dans le viewport, échantillonnable par l'UI.
 			if (auto *texLib = g.r3->GetTextures())
 				g.r3->SetFinalColorTarget(texLib->GetRHIHandle(g.rt->GetColorResult()));
+			// (2026-10-01) LA TAILLE DE RENDU EST CELLE DE LA CIBLE, pas de la fenetre :
+			// sans l'override, le graphe rendait a la taille de la FENETRE dans cette
+			// cible de 1280 x 720, et l'image n'en remplissait qu'un coin (le meme
+			// correctif que NKCraft, NkMatPreview3D.h / NkViewport3D.cpp).
+			g.r3->SetRenderSizeOverride(1280, 720);
 
 			// Mesh skinné + matériaux glTF (calque DemoIKChar).
 			auto *meshSys = g.r3->GetMeshSystem();

@@ -1,6 +1,14 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 // =============================================================================
 // main.cpp — NkAnimaEditor : éditeur d'animation (timeline) sur NKEditorKit.
+//
+// (2026-10-01, feuille de route R32) DEUX CHEMINS DANS LE MEME EXECUTABLE :
+//   (defaut) LA FACE D'UNREAL 5, l'apparence EXACTE d'UnkenyEditor, vue 3D au
+//            centre (Face/NkAnimaFace.cpp, pieces NKEditorKit/Famille) ;
+//   (--ancienne-coquille, --sonde-coquille) LA COQUILLE D'AVANT, intacte :
+//            NkEditorShell, documents d'interface, palette, sonde.
+//   --secondes=S : la face se ferme seule apres S secondes (captures) ;
+//   --hors-ecran : sa fenetre se pose hors de tout ecran, sans focus.
 // L'app ne touche QUE l'Editor Kit + AnimBridge (pas NKRenderer directement, pour
 // éviter le conflit de types NKRenderer/NKCanvas). L'anim vit dans AnimBridge.cpp.
 // =============================================================================
@@ -9,6 +17,7 @@
 #include "NKEditorKit/NkEditorKit.h"
 #include "NKMemory/NkUniquePtr.h"
 #include "AnimBridge.h"
+#include "Face/NkAnimaFace.h" // (2026-10-01, R32) la face d'UE5, chemin par defaut
 #include "Panels.h"
 #include "NkCoquilleDocument.h"			   // L'INTERFACE VIENT D'UN DOCUMENT, PAS D'ICI
 #include "NkEditorRHIRenderer.h"		   // UI sur NKRHI/NKRenderer (pas NKCanvas)
@@ -996,8 +1005,23 @@ int nkmain(const NkEntryState &state) {
 	//    (main.cpp:105).
 	const NkVector<NkString> &args = state.GetArgs();
 	bool sonde = false;
+	bool ancienne = false; // --ancienne-coquille : la coquille NkEditorShell d'avant R32
+	float secondes = 0.f;  // --secondes=S : la face se ferme seule (captures hors ecran)
+	bool horsEcran = false; // --hors-ecran : la fenetre de la face se pose hors de tout ecran
 	for (usize i = 1; i < args.Size(); ++i) {
 		const NkString &a = args[i];
+		if (a == "--ancienne-coquille") {
+			ancienne = true;
+			continue;
+		}
+		if (a == "--hors-ecran") {
+			horsEcran = true;
+			continue;
+		}
+		if (a.StartsWith("--secondes=")) {
+			secondes = static_cast<float>(std::atof(a.CStr() + 11));
+			continue;
+		}
 		if (a == "--sonde-coquille") {
 			sonde = true;
 			continue;
@@ -1023,6 +1047,9 @@ int nkmain(const NkEntryState &state) {
 	// LA SONDE SORT AVANT TOUTE FENETRE : elle ne demande ni GPU ni souris.
 	if (sonde)
 		return SondeCoquille(dossierUI);
+	// LA FACE D'UE5 (R32) est le chemin par defaut ; l'ancienne coquille suit.
+	if (!ancienne)
+		return nkanima::NkAnimaLancerFace(modelPath, static_cast<int>(gfx), secondes, horsEcran);
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	// Backend de rendu NKRHI/NKRenderer injecte (PAS NKCanvas) : l'UI NKGui et le

@@ -151,62 +151,70 @@ namespace nkanima {
 
 			void OnUI(NkEditorFrameContext &ec) override {
 				auto &ctx = ec.Ui();
-				ec.Text("Apercu squelette 2D — Pose Mode : clic = os, drag = manipuler, Enregistrer = cle");
-				// Barre : Mode Pose (toggle) + choix outil (Drag IK / Rotation FK) + Enregistrer.
-				bool bMode = ec.Button(AnimInPoseEdit() ? "Mode Pose: ON" : "Mode Pose: OFF");
-				ctx.SameLine();
-				bool bIK = ec.Button(mTool == 0 ? "[ Drag IK ]" : "Drag IK");
-				ctx.SameLine();
-				bool bFK = ec.Button(mTool == 1 ? "[ Rotation FK ]" : "Rotation FK");
-				ctx.SameLine();
-				bool bTR = ec.Button(mTool == 2 ? "[ Translation FK ]" : "Translation FK");
-				ctx.SameLine();
-				bool bRec = ec.Button("Enregistrer pose");
-				ctx.SameLine();
-				bool bRag = ec.Button(AnimPhysicsEnabled() ? "[ Ragdoll: ON ]" : "Ragdoll: OFF");
-				if (bMode) {
-					if (AnimInPoseEdit())
-						AnimEndPoseEdit();
-					else
-						AnimBeginPoseEdit();
+				// (2026-10-01, R32) LA ZONE IMPOSEE : la nouvelle face d'UE5 (NkAnimaFace)
+				// pose la vue dans SON viseur et porte ces commandes dans sa barre
+				// d'outils, sa barre de vue et ses menus. Sans zone imposee, le panneau
+				// est celui de l'ancienne coquille, a l'identique.
+				const bool impose = zoneImposee.w > 0.f && zoneImposee.h > 0.f;
+				if (!impose) {
+					ec.Text("Apercu squelette 2D — Pose Mode : clic = os, drag = manipuler, Enregistrer = cle");
+					// Barre : Mode Pose (toggle) + choix outil (Drag IK / Rotation FK) + Enregistrer.
+					bool bMode = ec.Button(AnimInPoseEdit() ? "Mode Pose: ON" : "Mode Pose: OFF");
+					ctx.SameLine();
+					bool bIK = ec.Button(mTool == 0 ? "[ Drag IK ]" : "Drag IK");
+					ctx.SameLine();
+					bool bFK = ec.Button(mTool == 1 ? "[ Rotation FK ]" : "Rotation FK");
+					ctx.SameLine();
+					bool bTR = ec.Button(mTool == 2 ? "[ Translation FK ]" : "Translation FK");
+					ctx.SameLine();
+					bool bRec = ec.Button("Enregistrer pose");
+					ctx.SameLine();
+					bool bRag = ec.Button(AnimPhysicsEnabled() ? "[ Ragdoll: ON ]" : "Ragdoll: OFF");
+					if (bMode) {
+						if (AnimInPoseEdit())
+							AnimEndPoseEdit();
+						else
+							AnimBeginPoseEdit();
+					}
+					if (bIK)
+						mTool = 0;
+					if (bFK)
+						mTool = 1;
+					if (bTR)
+						mTool = 2;
+					if (bRec)
+						AnimCommitPoseKey();
+					if (bRag)
+						AnimSetPhysics(!AnimPhysicsEnabled()); // couplage NKPhysics : le perso devient un ragdoll
+
+					// 2e ligne : modes d'affichage du viewport (façon Blender).
+					const NkAnimViewMode vm = Anim3DViewMode();
+					ec.Text("Vue:");
+					ctx.SameLine();
+					bool vSol = ec.Button(vm == NkAnimViewMode::SOLIDE ? "[ Solide ]" : "Solide");
+					ctx.SameLine();
+					bool vRen = ec.Button(vm == NkAnimViewMode::RENDU ? "[ Rendu ]" : "Rendu");
+					ctx.SameLine();
+					bool vWir = ec.Button(vm == NkAnimViewMode::FILAIRE ? "[ Filaire ]" : "Filaire");
+					ctx.SameLine();
+					bool vCom = ec.Button(AnimShowCOM() ? "[ COM ]" : "COM");
+					if (vSol)
+						Anim3DSetViewMode(NkAnimViewMode::SOLIDE);
+					if (vRen)
+						Anim3DSetViewMode(NkAnimViewMode::RENDU);
+					if (vWir)
+						Anim3DSetViewMode(NkAnimViewMode::FILAIRE);
+					if (vCom)
+						AnimSetShowCOM(!AnimShowCOM());
+					// Le régime est AFFICHÉ, pas supposé : un COM uniforme ressemble à un
+					// COM anthropométrique, et sans ce libellé l'approximation serait
+					// invisible et permanente.
+					if (AnimShowCOM())
+						ec.Text(AnimCOMRegimeLabel());
+
 				}
-				if (bIK)
-					mTool = 0;
-				if (bFK)
-					mTool = 1;
-				if (bTR)
-					mTool = 2;
-				if (bRec)
-					AnimCommitPoseKey();
-				if (bRag)
-					AnimSetPhysics(!AnimPhysicsEnabled()); // couplage NKPhysics : le perso devient un ragdoll
 
-				// 2e ligne : modes d'affichage du viewport (façon Blender).
-				const NkAnimViewMode vm = Anim3DViewMode();
-				ec.Text("Vue:");
-				ctx.SameLine();
-				bool vSol = ec.Button(vm == NkAnimViewMode::SOLIDE ? "[ Solide ]" : "Solide");
-				ctx.SameLine();
-				bool vRen = ec.Button(vm == NkAnimViewMode::RENDU ? "[ Rendu ]" : "Rendu");
-				ctx.SameLine();
-				bool vWir = ec.Button(vm == NkAnimViewMode::FILAIRE ? "[ Filaire ]" : "Filaire");
-				ctx.SameLine();
-				bool vCom = ec.Button(AnimShowCOM() ? "[ COM ]" : "COM");
-				if (vSol)
-					Anim3DSetViewMode(NkAnimViewMode::SOLIDE);
-				if (vRen)
-					Anim3DSetViewMode(NkAnimViewMode::RENDU);
-				if (vWir)
-					Anim3DSetViewMode(NkAnimViewMode::FILAIRE);
-				if (vCom)
-					AnimSetShowCOM(!AnimShowCOM());
-				// Le régime est AFFICHÉ, pas supposé : un COM uniforme ressemble à un
-				// COM anthropométrique, et sans ce libellé l'approximation serait
-				// invisible et permanente.
-				if (AnimShowCOM())
-					ec.Text(AnimCOMRegimeLabel());
-
-				const NkRect area = ctx.NextItemRect(560.f, 420.f);
+				const NkRect area = impose ? zoneImposee : ctx.NextItemRect(560.f, 420.f);
 
 				// ── MESURE (a3) : la geometrie du viewport, sur PLUSIEURS images ─
 				// Le canal chrome demande que rien d'autre ne bouge apres
@@ -234,9 +242,24 @@ namespace nkanima {
 				// (origine bas-gauche des render targets GL). Le squelette 2D reste dessiné
 				// par-dessus en mode édition (repère de manipulation).
 				const bool has3D = AnimLoaded() && Anim3DReady();
-				if (has3D)
-					dl.AddImage(ANIM_VIEWPORT_TEXID, area, NkVec2{0.f, 1.f}, NkVec2{1.f, 0.f},
-								NkColor{255, 255, 255, 255});
+				if (has3D) {
+					// La cible est en 16:9 (AnimBridge, 1280 x 720) : dans une zone
+					// imposee d'un autre rapport, on RECADRE au lieu d'etirer.
+					NkVec2 uv0{0.f, 1.f}, uv1{1.f, 0.f};
+					if (impose && area.h > 1.f) {
+						const float32 rapport = area.w / area.h, source = 16.f / 9.f;
+						if (rapport < source) {
+							const float32 f = rapport / source;
+							uv0.x = 0.5f - f * 0.5f;
+							uv1.x = 0.5f + f * 0.5f;
+						} else {
+							const float32 f = source / rapport;
+							uv0.y = 0.5f + f * 0.5f;
+							uv1.y = 0.5f - f * 0.5f;
+						}
+					}
+					dl.AddImage(ANIM_VIEWPORT_TEXID, area, uv0, uv1, NkColor{255, 255, 255, 255});
+				}
 				dl.AddRect(area, AnimInPoseEdit() ? NkColor{0, 212, 255, 255} : NkColor{40, 42, 48, 255}, 1.f);
 
 				// ── (26/09) LES COMPTEURS DE RENDU, EN HAUT A DROITE DE LA VUE ──
@@ -449,6 +472,22 @@ namespace nkanima {
 				} else {
 					mDragging = mRotating = mTranslating = false;
 				}
+			}
+
+			/// (2026-10-01, R32) La zone ou peindre la vue, posee par la face d'UE5
+			/// (NkAnimaFace) ; vide = le panneau de l'ancienne coquille.
+			NkRect zoneImposee{0.f, 0.f, 0.f, 0.f};
+			int32 Outil() const noexcept {
+				return mTool;
+			}
+			void PoserOutil(int32 o) noexcept {
+				mTool = o < 0 ? 0 : (o > 2 ? 2 : o);
+			}
+			int32 OsChoisi() const noexcept {
+				return mSel;
+			}
+			void ChoisirOs(int32 j) noexcept {
+				mSel = j;
 			}
 
 		private:
