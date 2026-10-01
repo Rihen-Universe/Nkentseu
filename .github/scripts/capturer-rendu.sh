@@ -18,6 +18,9 @@
 #                --backend=<api> --capture=<png> --capture-frame=<n>, et
 #                l'application se ferme d'elle-meme une fois l'image ecrite.
 #   Sortie 0 : PNG ecrit, rendu par l'API demandee. Sortie 1 sinon.
+#   NK_CAPTURE_DELAI=<s> (defaut 120) : delai avant d'abattre le programme. Le
+#     GL de la VM macOS est le rendu LOGICIEL d'Apple (~20 s par image, la
+#     premiere ~100 s) : sa capture en demande davantage.
 # =============================================================================
 
 set -u
@@ -43,7 +46,8 @@ else
 fi
 PID=$!
 ECOULE=0
-while [ "$ECOULE" -lt 120 ] && kill -0 "$PID" 2>/dev/null; do
+DELAI="${NK_CAPTURE_DELAI:-120}"
+while [ "$ECOULE" -lt "$DELAI" ] && kill -0 "$PID" 2>/dev/null; do
     sleep 1
     ECOULE=$((ECOULE + 1))
 done
@@ -51,7 +55,7 @@ if kill -0 "$PID" 2>/dev/null; then
     kill -TERM "$PID" 2>/dev/null
     sleep 2
     kill -KILL "$PID" 2>/dev/null || true
-    CODE="delai depasse (120 s)"
+    CODE="delai depasse ($DELAI s)"
 else
     wait "$PID"
     CODE=$?
