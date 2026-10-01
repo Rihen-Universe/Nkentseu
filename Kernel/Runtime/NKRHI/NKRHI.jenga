@@ -81,6 +81,10 @@ with project("NKRHI"):
 
     with filter("system:macOS || system:iOS"):
         files(["src/NKRHI/Metal/**.mm"])
+    # Contexte NSOpenGL 4.1 core du device GL (NkOpenglContexteApple.mm) :
+    # macOS seulement, garde par NKENTSEU_PLATFORM_MACOS dans le fichier.
+    with filter("system:macOS"):
+        files(["src/NKRHI/Opengl/**.mm"])
 
     objdir("%{wks.location}/Build/Obj/%{cfg.buildcfg}-%{cfg.system}/%{prj.name}")
     targetdir("%{wks.location}/Build/Lib/%{cfg.buildcfg}-%{cfg.system}")

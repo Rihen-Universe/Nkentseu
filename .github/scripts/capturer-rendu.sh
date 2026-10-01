@@ -83,6 +83,7 @@ fi
 case "$API" in
     metal) ATTENDU="Metal" ;;
     software) ATTENDU="Software" ;;
+    opengl) ATTENDU="OpenGL" ;;
     *) ATTENDU="" ;;
 esac
 if [ -n "$ATTENDU" ] && ! printf '%s' "$CHOISIE $LIGNE_CAPTURE" | grep -qi "$ATTENDU"; then
