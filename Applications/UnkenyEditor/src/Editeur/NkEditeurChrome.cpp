@@ -916,6 +916,10 @@ namespace nkentseu {
 						// La scene du navigateur DEVIENT la scene de l'editeur ; un
 						// echec rend l'ancien chemin (on n'enregistrera pas ailleurs).
 						const NkString avant = m.chemin;
+						// (2026-10-01, retour 3 de Rihen) Le projet est RETENU : la scene
+						// ouverte depuis le navigateur ne le change pas -- ni la racine
+						// du Contenu, ni le dossier courant (NkEditeurDossierProjet).
+						m.projet = NkEditeurDossierProjet(m);
 						m.chemin = ui.sceneAOuvrir;
 						ui.sceneAOuvrir = NkString();
 						if (NkEditeurOuvrir(m)) {

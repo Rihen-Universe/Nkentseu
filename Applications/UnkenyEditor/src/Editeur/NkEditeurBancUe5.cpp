@@ -15,6 +15,11 @@
 //   (u2)  les CARTES : un nom long tient sur DEUX lignes au plus, et la
 //         nature (le type gris) en est SEPAREE : un ecart net d'au moins 3 px
 //         et un filet fin entre les deux
+//   (u3)  DOUBLE-CLIC SUR UNE SCENE du Content Browser : elle s'ouvre, et le
+//         navigateur ne bouge pas -- meme racine du Contenu, meme dossier
+//         courant, memes cartes, memes dossiers au rail ; une scene rangee dans
+//         un dossier lui-meme nomme « Contenu » garde le projet (retenu) ; sans
+//         memoire, une scene rangee dans le Contenu donne son projet
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -196,6 +201,89 @@ namespace nkentseu {
 				const float32 ecart = hautType - basNom;
 				Temoin(lignes == 2 && largeurMax <= 96.f && ecart >= 3.f && filet,
 					   "(u2) carte : nom long sur deux lignes, ecart et filet avant la nature (ecart px)", ecart);
+			}
+
+			// (u3) DOUBLE-CLIC SUR UNE SCENE : elle s'ouvre, le navigateur ne bouge
+			// pas (retour 3 de Rihen : « tout le navigateur change, les fichiers
+			// disparaissent, les dossiers aussi »).
+			{
+				NkDirectory::Delete("banc_u3", true);
+				NkDirectory::CreateRecursive("banc_u3/projet/Contenu/Scenes");
+				NkDirectory::CreateRecursive("banc_u3/projet/Contenu/Decor/Contenu");
+				NkFile::WriteAllText("banc_u3/projet/Contenu/a.png", "a");
+				NkFile::WriteAllText("banc_u3/projet/Contenu/Scenes/b.png", "b");
+				NkEditeurNouvelleScene(m);
+				m.projet = NkString();
+				m.chemin = NkString("banc_u3/projet/Contenu/Scenes/niveau.nkscene");
+				const bool e1 = NkEditeurSauver(m);
+				m.chemin = NkString("banc_u3/projet/Contenu/Decor/Contenu/cachee.nkscene");
+				const bool e2 = NkEditeurSauver(m);
+				m.chemin = NkString("banc_u3/projet/scene.nkscene");
+				const bool e3 = NkEditeurSauver(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.contenuCorbeille = false;
+				t.Trame();
+				t.Trame();
+				NkEditeurRetenirEmpreinte(m, ui);
+				const NkString racine = NkEditeurDossierContenu(m);
+				auto AllerDans = [&](const char *dossier) {
+					NkEditeurCadre c = t.Cadre();
+					ui.contenuMenuChemin = NkString(dossier);
+					ui.contenuMenuDossier = true;
+					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR);
+					ui.contenuMenuChemin = NkString();
+					t.Trame();
+					t.Trame();
+				};
+				auto DoubleCliquer = [&](const char *chemin) {
+					const int32 k = t.Carte(chemin);
+					if (k < 0) {
+						return false;
+					}
+					const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+					t.DoubleClic(r.x + r.w * 0.5f, r.y + r.h * 0.3f);
+					t.Trame();
+					t.Trame();
+					return true;
+				};
+				auto Finit = [](const NkString &s, const char *fin) {
+					const usize n = std::strlen(fin);
+					return s.Length() >= n && std::strcmp(s.CStr() + s.Length() - n, fin) == 0;
+				};
+				// (a) dans « Scenes », double-clic sur niveau.nkscene
+				AllerDans("Contenu/Scenes");
+				const uint32 cartes = static_cast<uint32>(ui.contenu.entries.Size());
+				const uint32 rail = static_cast<uint32>(ui.contenuSousDossiers.Size());
+				const bool vise = DoubleCliquer("Contenu/Scenes/niveau.nkscene");
+				const bool ouverte = Finit(m.chemin, "Contenu/Scenes/niveau.nkscene") && ui.confirmation == NK_A_AUCUNE;
+				const bool memeRacine = NkEditeurDossierContenu(m) == racine;
+				const bool memeDossier = ui.contenuDossier == NkString("Scenes");
+				const bool memeVue = static_cast<uint32>(ui.contenu.entries.Size()) == cartes && t.Carte("Contenu/Scenes/b.png") >= 0 &&
+									 static_cast<uint32>(ui.contenuSousDossiers.Size()) == rail && rail >= 3u;
+				// (b) une scene rangee dans un dossier NOMME « Contenu » : le projet retenu
+				AllerDans("Contenu/Decor/Contenu");
+				const bool vise2 = DoubleCliquer("Contenu/Decor/Contenu/cachee.nkscene");
+				const bool niche = Finit(m.chemin, "Decor/Contenu/cachee.nkscene") && NkEditeurDossierContenu(m) == racine &&
+								   ui.contenuDossier == NkString("Decor/Contenu");
+				// (c) sans memoire : une scene rangee dans le Contenu donne son projet
+				m.projet = NkString();
+				m.chemin = NkString("banc_u3/projet/Contenu/Scenes/niveau.nkscene");
+				const bool regle = NkEditeurDossierProjet(m) == NkString("banc_u3/projet/");
+				m.chemin = NkString("banc_u3/projet/scene.nkscene");
+				const bool historique = NkEditeurDossierProjet(m) == NkString("banc_u3/projet/");
+				if (!(e1 && e2 && e3 && vise && ouverte && memeRacine && memeDossier && memeVue && vise2 && niche && regle && historique)) {
+					std::printf("        ecrits %d%d%d vise %d ouverte %d racine %d dossier %d (« %s ») vue %d (%u/%u cartes, %u/%u rail) ; "
+								"niche %d %d ; regle %d historique %d ; racine « %s »\n",
+								e1, e2, e3, vise, ouverte, memeRacine, memeDossier, ui.contenuDossier.CStr(), memeVue,
+								static_cast<uint32>(ui.contenu.entries.Size()), cartes, static_cast<uint32>(ui.contenuSousDossiers.Size()),
+								rail, vise2, niche, regle, historique, NkEditeurDossierContenu(m).CStr());
+				}
+				Temoin(e1 && e2 && e3 && vise && ouverte && memeRacine && memeDossier && memeVue && vise2 && niche && regle && historique,
+					   "(u3) double-clic sur une scene : ouverte, le navigateur ne bouge pas (racine, dossier, cartes)",
+					   static_cast<float32>(cartes));
+				m.projet = NkString();
+				NkDirectory::Delete("banc_u3", true);
 			}
 
 			m.chemin = cheminAvant;
