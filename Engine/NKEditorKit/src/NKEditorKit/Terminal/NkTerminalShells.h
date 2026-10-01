@@ -70,6 +70,18 @@ namespace nkentseu {
 		/// qui a des shells.
 		NkShellDecouvert NkTerminalShellDeRepli();
 
+		/// Les distributions WSL installees (vide hors Windows, ou sans WSL).
+		/// Lance `wsl -l -q` SANS fenetre, borne a quelques secondes.
+		void NkTerminalListerWsl(NkVector<NkString> &distros);
+
+		/// L'INVITE de la famille, par INDICES de palette (le chemin en bleu,
+		/// « > » en vert : elle suit le theme) et qui ANNONCE le dossier courant
+		/// (OSC 9;9) pour l'en-tete du panneau.
+		///   PowerShell : la suite d'arguments a ajouter apres l'executable ;
+		///   cmd        : le TEXTE de `prompt` (« $E]9;9;$P... »).
+		const char *NkTerminalInvitePowerShell();
+		const char *NkTerminalInviteCmdTexte();
+
 		/// « PowerShell », « Invite de commandes »... (nom de FAMILLE).
 		const char *NkShellGenreNom(NkShellGenre g);
 

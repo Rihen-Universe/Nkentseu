@@ -9,6 +9,7 @@
 #include "NKCode/Project/NkLogSink.h"
 #include "NKCode/Project/NkPty.h"
 #include "NKCode/Project/NkTerm.h"
+#include "NKEditorKit/Terminal/NkTerminalVue.h" // (01/10) grille, en-tete et clavier du terminal PARTAGE
 #include "NKCode/Editor/NkTextDraw.h"
 #include "NKCode/Editor/NkMarkdown.h" // viewer .md (preview rendu)
 #include "NKCode/Editor/NkJsonView.h" // viewer .json (arbre repliable colore)
@@ -2334,6 +2335,12 @@ namespace nkentseu {
 				NkCodeState *mState = nullptr;	 // racine du workspace -> repertoire de demarrage des shells
 				float32 mZoom = 0.f;			 // taille PROPRE du terminal (0 = globale), zoom au survol
 
+				/// (01/10) Texte a TAPER dans le terminal actif des qu'il a demarre --
+				/// la sonde NK_TERM_TAPER (main.cpp) : l'etat qu'une frappe ecrirait.
+				void TaperAuDemarrage(const NkString &texte) {
+					mTaper += texte;
+				}
+
 				void OnUI(NkEditorFrameContext &ec) override {
 					auto &ctx = ec.Ui();
 					auto &dl = ctx.DL();
@@ -2455,12 +2462,49 @@ namespace nkentseu {
 					const NkRect listR = {clip.x + clip.w - listW, clip.y, listW, clip.h};
 					DrawTermList(ctx, listR);
 
-					// A partir d'ici : police MONOSPACE du TERMINAL (atlas propre, taille globale fixe :
-					// decouple du zoom par-onglet de l'editeur).
-					NkCodeFontScope _cfs(ctx, mShell ? mShell->TermCodeFont() : nullptr);
+					// (01/10) L'EN-TETE et la GRILLE viennent du KIT (NkTerminalVue), comme
+					// dans UnkenyEditor : marges, palette accordee au theme, curseur net qui
+					// clignote, barre de defilement du kit, liens fichier:ligne. La police
+					// MONOSPACE du terminal (atlas propre, taille globale fixe, decouplee du
+					// zoom par-onglet de l'editeur) va a la GRILLE seule ; l'en-tete, la
+					// recherche et le menu gardent la police d'interface.
+					editorkit::NkTerminalGrilleStyle style;
+					style.police = mShell ? mShell->TermCodeFont() : nullptr;
+					const editorkit::NkTerminalPalette pal =
+						editorkit::NkTerminalPaletteDuTheme(mShell ? mShell->KitTheme() : editorkit::NkTheme::Dark());
+					const float32 hEntete = ctx.S(26.f);
+					const NkRect enteteR = {mainR.x, mainR.y, mainR.w, hEntete};
+					const NkRect grilleR = {mainR.x, mainR.y + hEntete, mainR.w, mainR.h - hEntete};
+					int16 cols = 80, rows = 24;
+					editorkit::NkTerminalTailleGrille(ctx, grilleR, style, cols, rows);
+					// Le shell demarre A LA TAILLE de la zone, et seulement quand elle est
+					// STABLE (trois images de suite). Mesure du 01/10 : la police du
+					// terminal se reconstruit quelques images apres l'apparition du
+					// panneau (atlas a sa taille, avec un delai) ; un shell lance pendant
+					// ce temps etait redimensionne aussitot, et PSReadLine, qui redessine
+					// sa ligne apres un redimensionnement, la reecrivait PAR-DESSUS
+					// l'invite (capture « apres », premiere version).
+					if (!t.started) {
+						t.screen.Resize(cols, rows);
+						if (cols == mTailleVueCols && rows == mTailleVueRows)
+							++mTailleStable;
+						else
+							mTailleStable = 0;
+						mTailleVueCols = cols;
+						mTailleVueRows = rows;
+					}
 
 					// Lance le shell (ConPTY) au premier affichage de cet onglet.
-					StartTerm(t);
+					if (t.started || mTailleStable >= 3)
+						StartTerm(t);
+					// Seulement une fois l'INVITE affichee (dossier annonce, ou curseur
+					// avance) : tapee plus tot, la frappe est renvoyee en echo par la
+					// console la ou se trouve le curseur, au milieu de l'invite.
+					if (!mTaper.Empty() && t.alive && t.started &&
+						(!t.screen.DossierCourant().Empty() || t.screen.CursorCol() > 0)) {
+						t.pendingType += mTaper;
+						mTaper = NkString();
+					}
 					// Texte en attente (ex. commande de lancement d'emulateur) : tape SANS
 					// valider, l'utilisateur presse Entree lui-meme apres verification.
 					if (!t.pendingType.Empty() && t.alive) {
@@ -2468,11 +2512,20 @@ namespace nkentseu {
 						t.pendingType = NkString();
 						t.touched = true;
 					}
-					// Recupere la sortie brute et la passe a l'emulateur VT.
+					// Recupere la sortie brute et la passe a l'emulateur VT ; les REPONSES de
+					// l'emulateur (position du curseur, identite) repartent au shell.
 					mDrain.Clear();
 					t.pty.Drain(mDrain);
 					if (mDrain.Size() > 0)
 						t.screen.Feed(mDrain.Data(), mDrain.Size());
+					mDrain.Clear();
+					t.screen.PrendreReponses(mDrain);
+					if (mDrain.Size() > 0)
+						t.pty.Write(mDrain.Data(), mDrain.Size());
+					if (t.started && (cols != t.screen.Cols() || rows != t.screen.Rows())) {
+						t.screen.Resize(cols, rows);
+						t.pty.Resize(cols, rows);
+					}
 					// Onglet d'EXECUTION (la commande remplace le shell) : une app console
 					// affiche puis se termine. Sans marque, rien ne distingue « fini » de
 					// « en cours mais silencieux ». L'onglet reste ouvert : la sortie doit
@@ -2526,10 +2579,38 @@ namespace nkentseu {
 						mFocused = true;
 					}
 
-					const float32 lineH = (ctx.font && ctx.font->Valid()) ? ctx.font->LineHeight() : 16.f;
-					const float32 pad = 6.f;
-					if (mainR.h > lineH)
-						DrawGrid(ctx, t, mainR, lineH, pad);
+					// L'en-tete : le shell, LE DOSSIER COURANT (annonce par l'invite, sinon
+					// le dossier de depart), le moteur et la taille.
+					{
+						NkVector<NkString> args;
+						editorkit::NkTerminalDecouperCommande(
+							(!t.cmdOverride.Empty() ? t.cmdOverride : PtyCommand(t.shell, t.distro)).CStr(), args);
+						const editorkit::NkShellGenre genre =
+							args.Empty() ? editorkit::NkShellGenre::Autre : editorkit::NkTerminalGenreDuChemin(args[0].CStr());
+						const NkString dossier = DossierDe(t);
+						const NkString droite = NkPrintf("%s%s · %d x %d", t.endNoted ? "terminé · " : "",
+														 editorkit::NkPty::NomMoteur(), (int32)cols, (int32)rows);
+						editorkit::NkTerminalDessinerEntete(ctx, ctx.DL(), enteteR, pal, genre, t.label.CStr(), dossier.CStr(),
+															droite.CStr());
+					}
+					// La grille, avec les correspondances de la recherche (Ctrl+F).
+					mSurl.Clear();
+					if (mFindOpen)
+						for (usize hI = 0; hI < mFindHits.Size(); ++hI) {
+							editorkit::NkTerminalSurlignage s;
+							s.ligne = mFindHits[hI].line;
+							s.col = mFindHits[hI].col;
+							s.len = mFindHits[hI].len;
+							s.courant = ((int32)hI == mFindCur);
+							mSurl.PushBack(s);
+						}
+					t.vue.focus = mFocused;
+					const editorkit::NkTerminalGrilleResultat gr = editorkit::NkTerminalDessinerGrille(
+						ctx, ctx.DL(), grilleR, t.screen, t.vue, pal, style, mSurl.Data(), (int32)mSurl.Size());
+					if (gr.lienClique)
+						OuvrirLien(t, gr);
+					const float32 lhGrille =
+						(style.police && style.police->Valid() ? style.police->LineHeight() : 16.f) + style.interligne;
 
 					// ── Clavier : frappes routees vers le pty (pas de boite de saisie) ──
 					// Ctrl+F / Ctrl+H : ouvre la recherche DANS le terminal (lecture seule -> pas de remplacement).
@@ -2537,20 +2618,37 @@ namespace nkentseu {
 						(ctx.input.KeyPressed(nkgui::NkGuiKey::F) || ctx.input.KeyPressed(nkgui::NkGuiKey::H)))
 						mFindOpen = true;
 					if (mFindOpen)
-						DrawTermFind(ctx, t, mainR);
-					if (mFocused && !mMenu.open && !mFindOpen && ctx.popupDepth == 0)
-						RouteKeyboard(ctx, t);
+						DrawTermFind(ctx, t, grilleR, lhGrille);
+					if (mFocused && !mMenu.open && !mFindOpen && ctx.popupDepth == 0) {
+						// Le CLAVIER du kit : memes sequences que l'emulateur attend (touches
+						// curseur en mode application, collage encadre, Alt = meta, AltGr
+						// laisse tranquille). Ctrl+A garde ici son sens « tout selectionner ».
+						editorkit::NkTerminalClavierOptions opt;
+						opt.ctrlAToutSelectionne = true;
+						NkVector<char> seq;
+						if (editorkit::NkTerminalClavier(ctx, t.screen, t.vue, seq, opt)) {
+							t.pty.Write(seq.Data(), seq.Size());
+							t.touched = true;
+						}
+					}
 
 					// ── Menu contextuel (overlay) ──
 					const char *items[] = {"Copier", "Coller", "Tout selectionner"};
-					const bool en[] = {t.HasSel(), true, true};
+					const bool en[] = {t.vue.AUneSelection(), true, true};
 					const int32 act = NkCtxMenuDraw(ctx, mMenu, items, en, 3);
-					if (act == 0)
-						CopySelection(ctx, t);
-					else if (act == 1)
-						PasteClipboard(ctx, t);
-					else if (act == 2)
-						SelectAll(t);
+					if (act == 0) {
+						const NkString sel = editorkit::NkTerminalTexteSelection(t.screen, t.vue);
+						if (!sel.Empty())
+							ctx.SetClipboard(sel.CStr());
+					} else if (act == 1) {
+						NkVector<char> seq;
+						editorkit::NkTerminalPreparerCollage(t.screen, ctx.GetClipboard(), seq);
+						if (seq.Size() > 0)
+							t.pty.Write(seq.Data(), seq.Size());
+						t.touched = true;
+					} else if (act == 2) {
+						editorkit::NkTerminalToutSelectionner(t.screen, t.vue);
+					}
 				}
 
 				// Actions sur la BARRE D'ONGLETS (a droite) quand TERMINAL est l'onglet actif :
@@ -2647,15 +2745,8 @@ namespace nkentseu {
 						NkString pendingType; // texte a TAPER (pas executer) une fois le pty demarre
 						bool touched = false; // l utilisateur y a TAPE (ne pas recycler au changement de workspace)
 						bool endNoted = false; // fin de processus deja signalee dans l'ecran ?
-						float32 scrollX = 0.f, scrollY = 0.f;
-						bool follow = true; // colle au bas (desactive au scroll manuel)
-						// Selection en cellules : ancre (A) + curseur (B), en (ligne ABSOLUE, colonne).
-						int32 sAL = 0, sAC = 0, sBL = 0, sBC = 0;
-						bool dragging = false;
-
-						bool HasSel() const {
-							return sAL != sBL || sAC != sBC;
-						}
+						// (01/10) Defilement, selection, focus : l'etat de VUE du kit.
+						editorkit::NkTerminalVue vue;
 				};
 
 				// ── Lance le shell interactif (ConPTY) pour ce terminal, une seule fois. ──
@@ -2681,12 +2772,14 @@ namespace nkentseu {
 				// Invite COLOREE injectee (chemin bleu + « > » vert) : PowerShell/cmd n'emettent
 				// pas de couleurs par defaut (contrairement a bash Ubuntu) -> on definit une
 				// invite ANSI a leur lancement pour un rendu colore homogene.
+				// (01/10) C'est l'invite du KIT : couleurs par INDICES de palette (elle suit
+				// le theme, clair compris), et elle ANNONCE le dossier courant (OSC 9;9)
+				// que l'en-tete du terminal affiche.
 				static NkString PwshColored(const NkString &exe) {
-					return exe +
-						   " -NoLogo -NoExit -Command \"function prompt { $e=[char]27; \\\"$e[38;2;88;166;255m$($PWD.Path)$e[0m$e[38;2;120;200;120m> $e[0m\\\" }\"";
+					return exe + editorkit::NkTerminalInvitePowerShell();
 				}
 				static NkString CmdColored(const char *pre) {
-					const NkString p = "prompt $E[38;2;88;166;255m$P$E[0m$E[38;2;120;200;120m$G$E[0m$S";
+					const NkString p = NkString("prompt ") + editorkit::NkTerminalInviteCmdTexte();
 					if (pre && pre[0])
 						return NkString("cmd.exe /K \"") + p + " & " + pre + "\"";
 					return NkString("cmd.exe /K ") + p;
@@ -2773,7 +2866,7 @@ namespace nkentseu {
 				}
 
 				// Barre de recherche DANS le terminal (Ctrl+F) : champ + compteur + prec/suiv/fermer.
-				void DrawTermFind(NkGuiContext &ctx, Term &t, const NkRect &out) {
+				void DrawTermFind(NkGuiContext &ctx, Term &t, const NkRect &out, float32 lhGrille) {
 					auto &dl = ctx.DL();
 					const NkGuiFont *font = ctx.font;
 					const float32 S = ctx.S(1.f);
@@ -2798,9 +2891,9 @@ namespace nkentseu {
 						if (mFindHits.Empty())
 							return;
 						mFindCur = (mFindCur + d + (int32)mFindHits.Size()) % (int32)mFindHits.Size();
-						t.follow = false;
-						const float32 sy = (float32)mFindHits[mFindCur].line * lineH - out.h * 0.4f;
-						t.scrollY = sy < 0.f ? 0.f : sy;
+						t.vue.suivre = false;
+						const float32 sy = (float32)mFindHits[mFindCur].line * lhGrille - out.h * 0.4f;
+						t.vue.defil = sy < 0.f ? 0.f : sy;
 					};
 					if (font && font->Valid()) {
 						const NkString cnt = mFindHits.Empty() ? NkString(mFindBuf[0] ? "0" : "")
@@ -2854,359 +2947,63 @@ namespace nkentseu {
 						mFindOpen = false;
 				}
 
-				void DrawGrid(NkGuiContext &ctx, Term &t, const NkRect &out, float32 lineH, float32 pad) {
-					auto &dl = ctx.DL();
-					const bool sbLight =
-						((int32)ctx.theme.bgPrimary.r + ctx.theme.bgPrimary.g + ctx.theme.bgPrimary.b) > 384;
-					const NkColor kTrk = sbLight ? NkColor{0, 0, 0, 20} : NkColor{255, 255, 255, 16};
-					const NkColor kThb = sbLight ? NkColor{168, 176, 185, 255} : NkColor{80, 88, 98, 255};
-					const NkColor kThbH = sbLight ? NkColor{130, 138, 148, 255} : NkColor{120, 130, 142, 255};
-					const float32 sbW = 14.f;
-					const NkFont *face = (ctx.font && ctx.font->Valid()) ? ctx.font->Face() : nullptr;
-					const float32 cellW = face ? face->CalcTextSizeX("M") : 8.f;
-					const float32 cw = cellW > 1.f ? cellW : 8.f;
-					const float32 viewW = out.w - sbW - pad * 2.f;
-					const float32 viewH = out.h - sbW;
-					const float32 left = out.x + pad;
-					const NkVec2 m = ctx.input.mousePos;
-					auto in = [&](const NkRect &r) {
-						return m.x >= r.x && m.x < r.x + r.w && m.y >= r.y && m.y < r.y + r.h;
-					};
+				// (01/10) La grille, le clavier, la selection et le collage sont ceux du
+				// KIT (NkTerminalVue.h) : DrawGrid, RouteKeyboard, CopySelection,
+				// PasteClipboard et SelectAll ont descendu, avec leurs lecons (Ctrl+C
+				// copie SI selection sinon interrompt ; wantPaste remis a faux apres
+				// usage). Restent ici ce qui est propre a NKCode :
 
-					// Recale la taille de la grille (+ le pty) sur la zone visible.
-					int16 cols = static_cast<int16>(viewW / cw);
-					if (cols < 1)
-						cols = 1;
-					if (cols > 500)
-						cols = 500;
-					int16 rows = static_cast<int16>(viewH / lineH);
-					if (rows < 1)
-						rows = 1;
-					if (rows > 300)
-						rows = 300;
-					if (t.started && (cols != t.screen.Cols() || rows != t.screen.Rows())) {
-						t.screen.Resize(cols, rows);
-						t.pty.Resize(cols, rows);
-					}
-
-					const float32 topPad = lineH;
-					const int32 total = static_cast<int32>(t.screen.TotalLines());
-					const float32 contentH = total * lineH + topPad;
-					// « Coller au bas » = afficher l'ECRAN (les rows dernieres lignes) epingle.
-					// On ne defile QUE dans le scrollback : borne basse = followY. Pas de marge
-					// basse over-scrollable -> evite le va-et-vient (clignotement) au scroll bas.
-					float32 followY = static_cast<float32>(total - t.screen.Rows()) * lineH;
-					if (followY < 0.f)
-						followY = 0.f;
-					const float32 maxSY = followY; // on ne descend pas en dessous de l'ecran
-					const float32 maxSX = 0.f;	   // contenu cale sur cols -> pas de defilement H
-
-					if (in(out)) {
-						if (ctx.input.wheel != 0.f) {
-							t.scrollY -= ctx.input.wheel * lineH * 3.f;
-							ctx.input.wheel = 0.f;
-							t.follow = false;
-						}
-					}
-					if (t.follow)
-						t.scrollY = followY;
-					if (t.scrollY < 0.f)
-						t.scrollY = 0.f;
-					if (t.scrollY > maxSY)
-						t.scrollY = maxSY;
-					t.scrollX = 0.f;
-
-					// ── Selection souris (cellules) ──
-					const NkRect selArea = {out.x, out.y, out.w - sbW, viewH};
-					auto rowAtY = [&](float32 y) -> int32 {
-						int32 L = static_cast<int32>((y - out.y - topPad + t.scrollY) / lineH);
-						if (L < 0)
-							L = 0;
-						if (L >= total)
-							L = total - 1;
-						return L;
-					};
-					auto colAtX = [&](float32 x) -> int32 {
-						int32 c = static_cast<int32>((x - left) / cw + 0.5f);
-						if (c < 0)
-							c = 0;
-						return c;
-					};
-					if (ctx.input.mouseClicked[0] && in(selArea) && ctx.popupDepth == 0 && !mMenu.open) {
-						const int32 L = rowAtY(m.y);
-						t.sAL = t.sBL = L;
-						t.sAC = t.sBC = colAtX(m.x);
-						t.dragging = true;
-					}
-					if (t.dragging && ctx.input.mouseDown[0]) {
-						t.sBL = rowAtY(m.y);
-						t.sBC = colAtX(m.x);
-					}
-					if (!ctx.input.mouseDown[0])
-						t.dragging = false;
-					// Selection normalisee (aL,aC) <= (bL,bC).
-					int32 nAL = t.sAL, nAC = t.sAC, nBL = t.sBL, nBC = t.sBC;
-					if (nAL > nBL || (nAL == nBL && nAC > nBC)) {
-						int32 tl = nAL, tc = nAC;
-						nAL = nBL;
-						nAC = nBC;
-						nBL = tl;
-						nBC = tc;
-					}
-					// Ctrl+C : copie si selection, sinon laisse RouteKeyboard envoyer SIGINT.
-					if (ctx.input.wantCopy && t.HasSel())
-						CopySelection(ctx, t);
-
-					// ── Rendu des cellules ──
-					const NkRect txtClip = {out.x, out.y, out.w - sbW, viewH};
-					dl.PushClipRect(txtClip, true);
-					int32 first = static_cast<int32>((t.scrollY - topPad) / lineH);
-					if (first < 0)
-						first = 0;
-					const int32 last = first + static_cast<int32>(viewH / lineH) + 2;
-					const float32 asc = ctx.font ? ctx.font->Ascent() : 12.f;
-					for (int32 i = first; i <= last && i < total; ++i) {
-						if (i < 0)
-							continue;
-						const float32 ytop = out.y + topPad + i * lineH - t.scrollY;
-						const NkTerm::Line &ln = t.screen.LineAt(static_cast<usize>(i));
-						// Surlignage de selection (en colonnes de cellules).
-						if (t.HasSel() && i >= nAL && i <= nBL) {
-							const int32 c0 = (i == nAL) ? nAC : 0;
-							const int32 c1 = (i == nBL) ? nBC : cols;
-							if (c1 > c0)
-								dl.AddRectFilled({left + c0 * cw, ytop, (c1 - c0) * cw, lineH},
-												 NkColor{31, 111, 235, 90});
-						}
-						// Surlignage des correspondances de recherche (Ctrl+F) sur cette ligne.
-						if (mFindOpen && !mFindHits.Empty()) {
-							for (usize hI = 0; hI < mFindHits.Size(); ++hI) {
-								const FindHit &fh = mFindHits[hI];
-								if (fh.line != i)
-									continue;
-								const bool cur = ((int32)hI == mFindCur);
-								dl.AddRectFilled({left + fh.col * cw, ytop, fh.len * cw, lineH},
-												 cur ? NkColor{240, 190, 40, 175} : NkColor{240, 190, 40, 80});
-							}
-						}
-						const int32 ncell = static_cast<int32>(ln.Size());
-						for (int32 c = 0; c < ncell; ++c) {
-							const NkTermCell &cell = ln[c];
-							const float32 x = left + c * cw;
-							if (x >= out.x + out.w - sbW)
-								break;
-							if (cell.bg.a != 0)
-								dl.AddRectFilled({x, ytop, cw + 0.5f, lineH}, cell.bg);
-							if (cell.cp != 0x20 && cell.cp != 0 && face) {
-								char u8[5];
-								const int32 n = NkEncodeU8(cell.cp, u8);
-								// Cellule NON colorée (fg par défaut #CCCCCC) -> couleur de texte du
-								// THÈME (présente + lisible en clair comme en sombre). Les cellules
-								// colorées par ANSI gardent leur couleur.
-								NkColor fg = cell.fg;
-								if (fg.r == 204 && fg.g == 204 && fg.b == 204 && fg.a == 255)
-									fg = ctx.theme.text;
-								NkDrawTextU(ctx, x, ytop + asc, ytop, lineH, u8, u8 + n, fg);
-							}
-						}
-					}
-					// Curseur (bloc) si focus.
-					if (mFocused && t.screen.CursorVisible()) {
-						const int32 cl = static_cast<int32>(t.screen.CursorLine());
-						const int32 cc = t.screen.CursorCol();
-						const float32 cx = left + cc * cw;
-						const float32 cy = out.y + topPad + cl * lineH - t.scrollY;
-						dl.AddRectFilled({cx, cy, cw, lineH}, ctx.theme.text);
-					}
-					dl.PopClipRect();
-
-					// ── Scrollbars V + H avec fleches ──
-					auto arrow = [&](const NkRect &r, int32 dir) -> bool {
-						const bool h = in(r);
-						if (h)
-							dl.AddRectFilled(r, ctx.theme.button);
-						const float32 cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f, a = 3.2f;
-						const NkColor c = h ? kThbH : kThb;
-						if (dir == 0)
-							dl.AddTriangleFilled({cx, cy - a}, {cx - a, cy + a}, {cx + a, cy + a}, c);
-						else if (dir == 1)
-							dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy - a}, {cx, cy + a}, c);
-						else if (dir == 2)
-							dl.AddTriangleFilled({cx - a, cy}, {cx + a, cy - a}, {cx + a, cy + a}, c);
-						else
-							dl.AddTriangleFilled({cx - a, cy - a}, {cx + a, cy}, {cx - a, cy + a}, c);
-						return h && ctx.input.mouseDown[0];
-					};
-					const NkRect vT = {out.x + out.w - sbW, out.y, sbW, viewH};
-					const NkRect hT = {out.x, out.y + viewH, out.w - sbW, sbW};
-					dl.AddRectFilled(vT, kTrk);
-					dl.AddRectFilled(hT, kTrk);
-					dl.AddRectFilled({vT.x, hT.y, sbW, sbW}, kTrk);
-					{
-						const NkRect up = {vT.x, vT.y, sbW, sbW}, dn = {vT.x, vT.y + viewH - sbW, sbW, sbW};
-						const NkRect iv = {vT.x, vT.y + sbW, sbW, viewH - 2.f * sbW};
-						if (arrow(up, 0)) {
-							t.scrollY -= lineH * 0.8f;
-							t.follow = false;
-						}
-						if (arrow(dn, 1))
-							t.scrollY += lineH * 0.8f;
-						if (maxSY > 0.f && iv.h > 8.f) {
-							float32 th = iv.h * (viewH / contentH);
-							if (th < 24.f)
-								th = 24.f;
-							if (th > iv.h)
-								th = iv.h;
-							const float32 ty = iv.y + (t.scrollY / maxSY) * (iv.h - th);
-							if (ctx.input.mouseClicked[0] && in(iv))
-								ctx.activeId = ctx.GetId("##tvbar");
-							const bool actv = (ctx.activeId == ctx.GetId("##tvbar"));
-							if (actv && ctx.input.mouseDown[0]) {
-								const float32 u = (m.y - iv.y - th * 0.5f) / (iv.h - th);
-								t.scrollY = (u < 0 ? 0 : u > 1 ? 1 : u) * maxSY;
-								t.follow = false;
-							}
-							dl.AddRectFilled({iv.x + 3.f, ty, sbW - 6.f, th}, (actv || in(iv)) ? kThbH : kThb, 3.f);
-						}
-					}
-					{
-						const NkRect lf = {hT.x, hT.y, sbW, sbW}, rt = {hT.x + hT.w - sbW, hT.y, sbW, sbW};
-						const NkRect ih = {hT.x + sbW, hT.y, hT.w - 2.f * sbW, sbW};
-						arrow(lf, 2);
-						arrow(rt, 3);
-						dl.AddRectFilled({ih.x + 3.f, hT.y + 3.f, ih.w - 6.f, sbW - 6.f}, kThb,
-										 3.f); // H inactif (contenu cale)
-					}
-					if (t.scrollY < 0.f)
-						t.scrollY = 0.f;
-					if (t.scrollY > maxSY)
-						t.scrollY = maxSY;
-					if (t.scrollY >= followY - 1.f)
-						t.follow = true; // revenu au bas -> re-suit le flux
+				// Le dossier COURANT d'un terminal : celui que l'invite annonce (OSC 9;9),
+				// sinon le dossier demande, sinon la racine du workspace.
+				NkString DossierDe(const Term &t) const {
+					if (!t.screen.DossierCourant().Empty())
+						return t.screen.DossierCourant();
+					if (!t.cwd.Empty())
+						return t.cwd;
+					return mState ? mState->root.ToString() : NkString();
 				}
 
-				// ── Clavier : route les frappes vers l'entree du pty (UTF-8 + sequences VT). ──
-				void RouteKeyboard(NkGuiContext &ctx, Term &t) {
-					NkVector<char> seq;
-					auto put = [&](const char *s) {
-						for (; *s; ++s)
-							seq.PushBack(*s);
-					};
-					// Caracteres tapes (hors touches d'edition + hors Ctrl-C/A/V/X geres en flags).
-					for (int32 i = 0; i < ctx.input.charCount; ++i) {
-						const uint32 cp = ctx.input.chars[i];
-						if (cp == 9) {
-							seq.PushBack('\t');
-							continue;
-						}
-						if (cp == 10 || cp == 13 || cp == 8 || cp == 127)
-							continue; // touches dediees
-						if (cp < 32) {
-							if (cp == 3 || cp == 1 || cp == 22 || cp == 24)
-								continue;
-							seq.PushBack(static_cast<char>(cp));
-							continue;
-						} // Ctrl+lettre
-						char u8[5];
-						const int32 n = NkEncodeU8(cp, u8);
-						for (int32 k = 0; k < n; ++k)
-							seq.PushBack(u8[k]);
+				// Ctrl+clic sur un lien de la grille : `fichier:ligne:col` s'ouvre dans
+				// l'EDITEUR, a la ligne (meme saut que le panneau Problemes) ; une URL
+				// part dans le navigateur. Un chemin relatif se resout depuis le dossier
+				// COURANT du terminal, puis depuis la racine du workspace.
+				void OuvrirLien(const Term &t, const editorkit::NkTerminalGrilleResultat &l) {
+					if (!mState)
+						return;
+					if (l.lienEstUrl) {
+#if defined(_WIN32)
+						NkCodeShellRun((NkString("start \"\" \"") + l.lienFichier + "\"").CStr());
+#elif defined(__APPLE__)
+						NkCodeShellRun((NkString("open \"") + l.lienFichier + "\"").CStr());
+#else
+						NkCodeShellRun((NkString("xdg-open \"") + l.lienFichier + "\" &").CStr());
+#endif
+						return;
 					}
-					// Touches d'edition -> sequences.
-					auto K = [&](NkGuiKey k) { return ctx.input.KeyPressedRepeat(k); };
-					if (K(NkGuiKey::Enter))
-						put("\r");
-					if (K(NkGuiKey::Backspace))
-						put("\x7f");
-					if (K(NkGuiKey::Delete))
-						put("\x1b[3~");
-					if (K(NkGuiKey::Up))
-						put("\x1b[A");
-					if (K(NkGuiKey::Down))
-						put("\x1b[B");
-					if (K(NkGuiKey::Right))
-						put("\x1b[C");
-					if (K(NkGuiKey::Left))
-						put("\x1b[D");
-					if (K(NkGuiKey::Home))
-						put("\x1b[H");
-					if (K(NkGuiKey::End))
-						put("\x1b[F");
-					if (ctx.input.KeyPressed(NkGuiKey::Escape))
-						put("\x1b");
-					// Raccourcis : coller / copier (->SIGINT si pas de selection) / tout selectionner.
-					// Remet wantPaste a false apres usage (contrairement a tous les AUTRES
-					// consommateurs de ce flag dans la base de code — InputTextMultiline,
-					// NkOverlayTextField, NkOpenWs.h, NkNewWorkspace.h le font tous — c'etait le
-					// seul manquant, incoherence corrigee lors du debug du collage terminal).
-					if (ctx.input.wantPaste) {
-						PasteClipboard(ctx, t);
-						ctx.input.wantPaste = false;
+					NkPath p(l.lienFichier.CStr());
+					if (!NkFile::Exists(p.ToString().CStr()))
+						p = NkPath(DossierDe(t).CStr()) / l.lienFichier.CStr();
+					if (!NkFile::Exists(p.ToString().CStr()) && mState->HasWorkspace())
+						p = mState->root / l.lienFichier.CStr();
+					if (!NkFile::Exists(p.ToString().CStr())) {
+						mState->status = NkPrintf("Fichier introuvable : %s", l.lienFichier.CStr());
+						mState->statusError = true;
+						return;
 					}
-					if (ctx.input.wantSelectAll)
-						SelectAll(t);
-					if (ctx.input.wantCopy && !t.HasSel())
-						put("\x03"); // Ctrl+C = interruption
-					if (seq.Size() > 0) {
-						t.scrollY = 1.0e9f;
-						t.follow = true;
-						t.pty.Write(seq.Data(), seq.Size());
-						t.touched = true;
-					}
+					mState->OpenPath(p);
+					if (!mState->HasActive())
+						return;
+					OpenFile &f = mState->files[mState->active];
+					const int32 ln = l.lienLigne > 0 ? l.lienLigne - 1 : 0;
+					const int32 co = l.lienColonne > 0 ? l.lienColonne - 1 : 0;
+					f.doc.curLine = ln;
+					f.doc.curCol = co;
+					f.doc.selLine = ln;
+					f.doc.selCol = co;
+					f.doc.ClampCursor();
+					f.doc.ResetEditRun();
+					f.doc.wantReveal = true;
 				}
-
-				// Texte de la selection (cellules -> UTF-8), espaces de fin retires par ligne.
-				void CopySelection(NkGuiContext &ctx, Term &t) {
-					int32 aL = t.sAL, aC = t.sAC, bL = t.sBL, bC = t.sBC;
-					if (aL > bL || (aL == bL && aC > bC)) {
-						int32 tl = aL, tc = aC;
-						aL = bL;
-						aC = bC;
-						bL = tl;
-						bC = tc;
-					}
-					const int32 total = static_cast<int32>(t.screen.TotalLines());
-					NkVector<char> buf;
-					for (int32 L = aL; L <= bL && L < total; ++L) {
-						if (L < 0)
-							continue;
-						const NkTerm::Line &ln = t.screen.LineAt(static_cast<usize>(L));
-						const int32 ncell = static_cast<int32>(ln.Size());
-						const int32 c0 = (L == aL) ? aC : 0;
-						int32 c1 = (L == bL) ? bC : ncell;
-						if (c1 > ncell)
-							c1 = ncell;
-						int32 end = c1;
-						while (end > c0 && (ln[end - 1].cp == 0x20 || ln[end - 1].cp == 0))
-							--end; // trim fin
-						for (int32 c = (c0 < 0 ? 0 : c0); c < end; ++c) {
-							char u8[5];
-							const int32 n = NkEncodeU8(ln[c].cp ? ln[c].cp : 0x20, u8);
-							for (int32 k = 0; k < n; ++k)
-								buf.PushBack(u8[k]);
-						}
-						if (L < bL)
-							buf.PushBack('\n');
-					}
-					buf.PushBack('\0');
-					if (buf.Size() > 1)
-						ctx.SetClipboard(buf.Data());
-				}
-
-				void PasteClipboard(NkGuiContext &ctx, Term &t) {
-					const NkString clip = ctx.GetClipboard();
-					if (!clip.Empty())
-						t.pty.Write(clip.CStr(), clip.Size());
-					t.touched = true;
-				}
-
-				void SelectAll(Term &t) {
-					t.sAL = 0;
-					t.sAC = 0;
-					t.sBL = static_cast<int32>(t.screen.TotalLines()) - 1;
-					t.sBC = t.screen.Cols();
-				}
-
 				// Construit la liste de base (toujours dispo, sans cout) : PowerShell, cmd,
 				// jenga, bash. Les distros WSL sont ajoutees a la demande (DetectWslDistros).
 				void EnsureBaseShells() {
@@ -3235,7 +3032,7 @@ namespace nkentseu {
 						mShells.PushBack(ShellDef{SH_BASH, "bash", "", ""});
 					// Docker Desktop : entree "Docker" seulement si docker.exe est present.
 					if (pf) {
-						const NkString dk = NkString(pf) + "\Docker\Docker\resources\bin\docker.exe";
+						const NkString dk = NkString(pf) + "\\Docker\\Docker\\resources\\bin\\docker.exe";
 						if (NkFile::Exists(NkPath(dk)))
 							mShells.PushBack(ShellDef{SH_DOCKER, "Docker", "", CmdColored("docker ps")});
 					}
@@ -3249,42 +3046,16 @@ namespace nkentseu {
 					if (mWslDetected)
 						return;
 					mWslDetected = true;
-#if defined(_WIN32)
-					FILE *pipe = _popen("set \"WSL_UTF8=1\" && wsl --list --quiet 2>nul", "r");
-					if (!pipe)
-						return;
-					char buf[256];
-					usize j = 0;
-					int ch;
-					int32 found = 0;
-					auto flush = [&]() {
-						while (j > 0 && (buf[j - 1] == ' ' || buf[j - 1] == '\t'))
-							--j; // trim fin
-						buf[j] = '\0';
-						if (j > 0) {
-							mShells.PushBack(ShellDef{SH_WSL, NkString("WSL: ") + buf, NkString(buf)});
-							++found;
-						}
-						j = 0;
-					};
-					// fgetc sur PIPE process : conservé (cf. wrapper désigné NkProcess.h).
-					while ((ch = std::fgetc(pipe)) != EOF) {
-						if (ch == 0x00 || ch == '\r' || ch == 0xFF || ch == 0xFE)
-							continue; // nuls UTF-16 + BOM
-						if (ch == '\n') {
-							flush();
-							continue;
-						}
-						if (j + 1 < sizeof(buf))
-							buf[j++] = static_cast<char>(ch);
-					}
-					flush();
-					_pclose(pipe);
-					if (found == 0)
+					// (01/10) Par le KIT : `wsl -l -q` SANS console (l'ancien _popen
+					// faisait clignoter une fenetre noire) et code de sortie EXIGE --
+					// sans WSL, le message « ... n'est pas installe » devenait une
+					// « distribution » de ce menu.
+					NkVector<NkString> distros;
+					editorkit::NkTerminalListerWsl(distros);
+					for (usize i = 0; i < distros.Size(); ++i)
+						mShells.PushBack(ShellDef{SH_WSL, NkString("WSL: ") + distros[i], distros[i]});
+					if (distros.Empty())
 						mShells.PushBack(ShellDef{SH_WSL, "wsl", ""}); // repli : wsl generique
-#else
-					mShells.PushBack(ShellDef{SH_WSL, "wsl", ""});
-#endif
 				}
 
 				int32 FirstAlive() const {
@@ -3317,12 +3088,9 @@ namespace nkentseu {
 							mTerm[i].shell = sd.kind;
 							mTerm[i].distro = sd.distro;
 							mTerm[i].label = sd.label;
-							mTerm[i].scrollY = 0.f;
-							mTerm[i].follow = true;
 							mTerm[i].cwd = NkString();
 							mTerm[i].cmdOverride = sd.cmd; // pwsh 7 / Git Bash : commande explicite detectee
-							mTerm[i].sAL = mTerm[i].sAC = mTerm[i].sBL = mTerm[i].sBC = 0;
-							mTerm[i].dragging = false;
+							mTerm[i].vue = editorkit::NkTerminalVue();
 							mActive = i;
 							GlobalLogBuffer().Push(NkString("[term] nouveau terminal: ") + sd.label);
 							return;
@@ -3599,6 +3367,10 @@ namespace nkentseu {
 				bool mFocused = false; // le terminal capte-t-il le clavier ?
 				NkCtxMenu mMenu;	   // menu contextuel (clic droit) Copier/Coller
 				NkVector<char> mDrain; // tampon de drain pty (reutilise)
+				NkVector<editorkit::NkTerminalSurlignage> mSurl; // correspondances Ctrl+F, pour la grille du kit
+				NkString mTaper;	   // TaperAuDemarrage : a remettre au terminal actif
+				int16 mTailleVueCols = 0, mTailleVueRows = 0; // derniere taille vue (avant demarrage)
+				int32 mTailleStable = 0;					  // images de suite a cette taille
 		};
 
 	} // namespace nkcode

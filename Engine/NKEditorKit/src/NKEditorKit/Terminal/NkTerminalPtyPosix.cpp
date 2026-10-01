@@ -217,7 +217,7 @@ namespace nkentseu {
 			if (maitre < 0 || ::grantpt(maitre) != 0 || ::unlockpt(maitre) != 0) {
 				if (maitre >= 0)
 					::close(maitre);
-				mErreur = "Pseudo-terminal refuse par le systeme (posix_openpt).";
+				mErreur = "Pseudo-terminal refusé par le système (posix_openpt).";
 				return false;
 			}
 			const char *nomEsclave = ::ptsname(maitre);
@@ -240,7 +240,7 @@ namespace nkentseu {
 			if (pid < 0) {
 				::close(maitre);
 				delete im;
-				mErreur = "fork() a echoue.";
+				mErreur = "fork() a échoué.";
 				return false;
 			}
 			if (pid == 0) {

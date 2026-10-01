@@ -421,6 +421,35 @@ namespace nkentseu {
 					const bool refuse = !q.Start(NkString("nk_programme_introuvable_42"), 80, 24);
 					Note(b, refuse && !q.Erreur().Empty() && !q.Running(), "d8 programme introuvable : refus EXPLIQUE, rien ne tourne");
 				}
+#if defined(NKENTSEU_TERMINAL_CONPTY)
+				// PowerShell, le shell par defaut : la ligne de commande de l'invite
+				// (guillemets imbriques) ET la mesure de PSReadLine. Une zone ETROITE
+				// (60 colonnes) : une invite que PSReadLine croirait plus longue
+				// qu'elle n'est (l'annonce OSC comptee comme visible) passerait a la
+				// ligne et la commande ecraserait l'invite.
+				// ⚠️ On tape APRES l'invite (dossier annonce) : une frappe envoyee AVANT
+				//    que PowerShell lise sa console est renvoyee en echo par la console
+				//    elle-meme, la ou se trouve le curseur -- c'est l'artefact de la
+				//    premiere capture « apres », qui tapait trop tot.
+				{
+					NkVector<NkShellDecouvert> l;
+					NkTerminalDecouvrirShells(l, false);
+					const NkShellDecouvert *ps = nullptr;
+					for (usize i = 0; i < l.Size(); ++i)
+						if (l[i].genre == NkShellGenre::WindowsPowerShell)
+							ps = &l[i];
+					NkPty q;
+					NkTerm u;
+					u.Resize(60, 20);
+					bool ok = ps && q.Start(ps->commande, 60, 20, dossier);
+					ok = ok && Attendre(q, u, [&]() { return !u.DossierCourant().Empty(); }, 20000);
+					if (ok)
+						q.Write("echo nkentseu\r");
+					ok = ok && Attendre(q, u, [&]() { return LigneEgale(u, "nkentseu"); }, 15000);
+					const bool intacte = ok && LigneFinissant(u, "> echo nkentseu", ":");
+					Note(b, intacte, "d9 PowerShell : invite INTACTE (la commande la suit, ne l'ecrase pas), dossier annonce");
+				}
+#endif
 			}
 
 			/// Le banc entier. Rend le bilan ; l'appelant l'additionne au sien.

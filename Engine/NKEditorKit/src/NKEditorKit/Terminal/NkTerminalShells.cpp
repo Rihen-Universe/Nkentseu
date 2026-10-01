@@ -205,6 +205,22 @@ namespace nkentseu {
 			}
 		}
 
+		// L'invite colorée, par INDICES de palette (34 bleu, 32 vert) : elle suit
+		// le theme, sombre comme clair. Elle annonce aussi le dossier courant
+		// (OSC 9;9, la convention de Windows Terminal) : l'en-tete l'affiche.
+		//
+		// Mesure (banc d9, 60 colonnes) : PSReadLine de Windows PowerShell 5.1
+		// ne compte PAS l'annonce comme du texte visible -- la commande tapee
+		// suit l'invite sans l'ecraser.
+		const char *NkTerminalInvitePowerShell() {
+			return " -NoLogo -NoExit -Command \"function prompt { $e=[char]27; $p=$PWD.ProviderPath; "
+				   "\\\"$e]9;9;$p$e\\$e[34m$p$e[0m$e[32m>$e[0m \\\" }\"";
+		}
+
+		const char *NkTerminalInviteCmdTexte() {
+			return "$E]9;9;$P$E\\$E[34m$P$E[0m$E[32m$G$E[0m$S";
+		}
+
 #if defined(NKENTSEU_TERMINAL_CONPTY)
 		// =====================================================================
 		//  WINDOWS
@@ -262,13 +278,8 @@ namespace nkentseu {
 				return NkString("\"") + chemin + "\"";
 			}
 
-			// L'invite colorée, par INDICES de palette (34 bleu, 32 vert) : elle
-			// suit le theme, sombre comme clair. Elle annonce aussi le dossier
-			// courant (OSC 9;9, la convention de Windows Terminal) : l'en-tete du
-			// panneau l'affiche.
-			const char *kInvitePs = " -NoLogo -NoExit -Command \"function prompt { $e=[char]27; $p=$PWD.ProviderPath; "
-									"\\\"$e]9;9;$p$e\\$e[34m$p$e[0m$e[32m>$e[0m \\\" }\"";
-			const char *kInviteCmd = " /K prompt $E]9;9;$P$E\\$E[34m$P$E[0m$E[32m$G$E[0m$S";
+			const NkString kInvitePs(NkTerminalInvitePowerShell());
+			const NkString kInviteCmd = NkString(" /K prompt ") + NkTerminalInviteCmdTexte();
 
 			/// Lance `cmd` SANS fenetre, rend sa sortie et son code. Borne a
 			/// `delaiMs` : au-dela, le processus est tue et l'appel rend faux.
@@ -409,26 +420,33 @@ namespace nkentseu {
 			//    premiere de `wsl -l -q`.
 			if (avecWsl) {
 				const NkString wsl = sys + "\\System32\\wsl.exe";
-				if (Existe(wsl)) {
-					NkVector<char> sortie;
-					DWORD code = 1;
-					if (LancerSilencieux(Guillemets(wsl) + " -l -q", sortie, 4000, code) && code == 0) {
-						NkVector<NkString> distros;
-						NkTerminalLireListeWsl(sortie.Data(), sortie.Size(), distros);
-						for (usize i = 0; i < distros.Size(); ++i) {
-							NkShellDecouvert s;
-							s.genre = NkShellGenre::Wsl;
-							s.nom = NkString("WSL : ") + distros[i];
-							s.distro = distros[i];
-							s.chemin = wsl;
-							s.commande = Guillemets(wsl) + " -d " + distros[i];
-							out.PushBack(s);
-						}
-					}
+				NkVector<NkString> distros;
+				NkTerminalListerWsl(distros);
+				for (usize i = 0; i < distros.Size(); ++i) {
+					NkShellDecouvert s;
+					s.genre = NkShellGenre::Wsl;
+					s.nom = NkString("WSL : ") + distros[i];
+					s.distro = distros[i];
+					s.chemin = wsl;
+					s.commande = Guillemets(wsl) + " -d " + distros[i];
+					out.PushBack(s);
 				}
 			}
 			if (!out.Empty())
 				out[0].session = true;
+		}
+
+		void NkTerminalListerWsl(NkVector<NkString> &distros) {
+			distros.Clear();
+			const NkString wsl = Env(L"SystemRoot") + "\\System32\\wsl.exe";
+			if (!Existe(wsl))
+				return;
+			NkVector<char> sortie;
+			DWORD code = 1;
+			// Code de sortie EXIGE : sans WSL, la commande ecrit un message et
+			// rend une erreur -- ce message n'est pas une liste.
+			if (LancerSilencieux(Guillemets(wsl) + " -l -q", sortie, 4000, code) && code == 0)
+				NkTerminalLireListeWsl(sortie.Data(), sortie.Size(), distros);
 		}
 
 #elif defined(NKENTSEU_TERMINAL_POSIX)
@@ -461,6 +479,10 @@ namespace nkentseu {
 
 		NkShellDecouvert NkTerminalShellDeRepli() {
 			return Shell(NkString("/bin/sh"), true);
+		}
+
+		void NkTerminalListerWsl(NkVector<NkString> &distros) {
+			distros.Clear();
 		}
 
 		void NkTerminalDecouvrirShells(NkVector<NkShellDecouvert> &out, bool avecWsl) {
@@ -511,6 +533,10 @@ namespace nkentseu {
 		// =====================================================================
 		NkShellDecouvert NkTerminalShellDeRepli() {
 			return NkShellDecouvert{};
+		}
+
+		void NkTerminalListerWsl(NkVector<NkString> &distros) {
+			distros.Clear();
 		}
 
 		void NkTerminalDecouvrirShells(NkVector<NkShellDecouvert> &out, bool avecWsl) {

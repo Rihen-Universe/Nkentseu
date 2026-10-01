@@ -80,6 +80,11 @@ static nkcode::NkJengaUpdateState g_jenga_update;
 //  Ils ne sont poses que si l'une des variables existe : un lancement normal ne
 //  change pas d'un octet.
 static nkcode::AiPanel *gPanneauxIA[4] = {nullptr, nullptr, nullptr, nullptr};
+//  NK_TERM_TAPER=<texte>,<image>     : (01/10) fait remonter le panneau TERMINAL
+//      a l'image/2 et tape <texte> + Entree dans son shell a <image> -- l'etat
+//      qu'une frappe ecrirait, aucune entree injectee. Avec NK_AI_IMAGE, c'est
+//      la photographie du terminal sans souris.
+static nkcode::TerminalPanel *gTerminal = nullptr;
 
 static nkentseu::int32 NkLireImage(const char *v, char *texte, nkentseu::usize cap, nkentseu::int32 defaut) {
 	const char *virg = nullptr;
@@ -182,6 +187,21 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 					break;
 				}
 	}
+	{
+		static int32 sTaper = -2;
+		static char sTexte[256] = {0};
+		if (sTaper == -2) {
+			const char *t = std::getenv("NK_TERM_TAPER");
+			sTaper = t ? NkLireImage(t, sTexte, sizeof(sTexte), 90) : -1;
+		}
+		if (sTaper > 0 && sImage == sTaper / 2 && sh)
+			sh->FocusPanel("TERMINAL");
+		if (sImage == sTaper && gTerminal) {
+			gTerminal->TaperAuDemarrage(NkString(sTexte) + "\r");
+			printf("[nkcode] TERM TAPER image=%d : %s\n", (int)sImage, sTexte);
+			fflush(stdout);
+		}
+	}
 	if (sImage == sSortie && sh) {
 		// LA SONDE SE FERME ELLE-MEME, par la porte que la confirmation emprunte :
 		// `RequestQuit` seul est VETOE par la question « quitter ? » (voulue pour
@@ -245,6 +265,7 @@ int nkmain(const NkEntryState &state) {
 	static nkcode::EditorPanel editor(&g_state, shell.Get());
 	static nkcode::OutputPanel output(&g_state, shell.Get());
 	static nkcode::TerminalPanel terminal;
+	gTerminal = &terminal;
 	// Panneau d'EXECUTION : meme moteur de terminal, mais reserve aux programmes
 	// lances par « Demarrer » — pour ne pas les melanger aux shells que
 	// l'utilisateur garde ouverts. Ne cree jamais de shell tout seul.
@@ -286,7 +307,8 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[1] = &claudePanel;
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
-	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT"))
+	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
+		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);
 	static ScaffoldPanel pExt("Extensions", NkEditorDockSide::NK_LEFT, "Maquette - roadmap #12", sc::kExtensions, 1);

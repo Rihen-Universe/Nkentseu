@@ -66,13 +66,9 @@ namespace nkentseu {
 				echec = true;
 				// L'echec se LIT dans la grille, en couleur d'erreur, au lieu d'un
 				// terminal vide qui laisse chercher.
-				const NkString m = NkString("\x1b[31m") + pty.Erreur() + "\x1b[0m\r\n\x1b[90mEntree pour reessayer.\x1b[0m\r\n";
+				const NkString m = NkString("\x1b[31m") + pty.Erreur() + "\x1b[0m\r\n\x1b[90mEntrée pour réessayer.\x1b[0m\r\n";
 				ecran.Feed(m.CStr(), m.Size());
 				return false;
-			}
-			if (!aTaper.Empty()) {
-				pty.Write(aTaper.CStr(), aTaper.Size());
-				aTaper = NkString();
 			}
 			return true;
 		}
@@ -91,10 +87,17 @@ namespace nkentseu {
 			ecran.PrendreReponses(tampon);
 			if (tampon.Size() > 0)
 				pty.Write(tampon.Data(), tampon.Size());
+			// Le texte en attente part une fois l'INVITE affichee (dossier annonce,
+			// ou curseur avance) : tape plus tot, la console le renverrait en echo
+			// au milieu de l'invite.
+			if (!aTaper.Empty() && (!ecran.DossierCourant().Empty() || ecran.CursorCol() > 0)) {
+				pty.Write(aTaper.CStr(), aTaper.Size());
+				aTaper = NkString();
+			}
 			if (!finAnnoncee && !pty.Running()) {
 				finAnnoncee = true;
 				char m[160];
-				std::snprintf(m, sizeof(m), "\r\n\x1b[90m[processus termine, code %d] Entree pour relancer.\x1b[0m\r\n",
+				std::snprintf(m, sizeof(m), "\r\n\x1b[90m[processus terminé, code %d] Entrée pour relancer.\x1b[0m\r\n",
 							  static_cast<int>(pty.CodeSortie()));
 				ecran.Feed(m, std::strlen(m));
 			}
@@ -390,7 +393,7 @@ namespace nkentseu {
 			o.AddRect(r, mPalette.bord, 1.f, 7.f);
 			Texte(o, f, r.x + 14.f, r.y + 2.f, titreH, "Nouveau terminal", mPalette.attenue);
 			if (n == 0)
-				Texte(o, f, r.x + 14.f, r.y + titreH, rangH, "Aucun shell trouve sur cette machine.", mPalette.attenue);
+				Texte(o, f, r.x + 14.f, r.y + titreH, rangH, "Aucun shell trouvé sur cette machine.", mPalette.attenue);
 			int32 choisi = -1;
 			bool actualiser = false;
 			float32 y = r.y + titreH;
@@ -408,7 +411,7 @@ namespace nkentseu {
 				float32 xd = rang.x + 36.f + (f ? f->MeasureWidth(s.nom.CStr()) : 80.f) + 14.f;
 				if (i == 0 && f) {
 					// La pastille « par defaut » : le premier est celui du « + » rapide.
-					const char *pd = "par defaut";
+					const char *pd = "par défaut";
 					const float32 pw = f->MeasureWidth(pd) + 12.f;
 					o.AddRectFilled({xd, rang.y + 7.f, pw, rang.h - 14.f}, Alpha(accent, 40), 4.f);
 					Texte(o, f, xd + 6.f, rang.y, rang.h, pd, accent);
@@ -502,7 +505,7 @@ namespace nkentseu {
 			NkTerminalSession *s = Session(mActif);
 			if (!s) {
 				DessinerVide(ctx, dl, corps, "Aucun terminal ouvert",
-							 "Le bouton + ouvre PowerShell, bash, WSL... selon ce que la machine propose.", true);
+							 "Le bouton + ouvre PowerShell, bash, WSL… selon ce que la machine propose.", true);
 				DessinerMenuShells(ctx, zone);
 				return;
 			}
@@ -512,7 +515,7 @@ namespace nkentseu {
 			const NkRect entete = {zone.x, corps.y, zone.w, hEntete};
 			const NkString &dossier = s->ecran.DossierCourant().Empty() ? s->dossierDepart : s->ecran.DossierCourant();
 			char droite[96];
-			std::snprintf(droite, sizeof(droite), "%s%s · %d x %d", s->echec ? "echec · " : (s->finAnnoncee ? "termine · " : ""),
+			std::snprintf(droite, sizeof(droite), "%s%s · %d x %d", s->echec ? "échec · " : (s->finAnnoncee ? "terminé · " : ""),
 						  NkPty::NomMoteur(), static_cast<int>(s->ecran.Cols()), static_cast<int>(s->ecran.Rows()));
 			NkTerminalDessinerEntete(ctx, dl, entete, mPalette, s->shell.genre, s->shell.nom.CStr(), dossier.CStr(), droite);
 
@@ -520,10 +523,20 @@ namespace nkentseu {
 			const NkRect grille = {zone.x, entete.y + hEntete, zone.w, zone.h - hOnglets - hEntete};
 			int16 cols = 80, rows = 24;
 			NkTerminalTailleGrille(ctx, grille, styleGrille, cols, rows);
-			if (!s->demarre)
-				s->Demarrer(cols, rows);
-			else
+			// Le shell demarre a la taille de la zone, et seulement quand elle est
+			// STABLE (trois images). Mesure du 01/10 dans NKCode : un shell lance
+			// pendant que la police se reconstruit est redimensionne aussitot, et
+			// PSReadLine redessine alors sa ligne PAR-DESSUS l'invite.
+			if (!s->demarre) {
+				mStable = (cols == mColsVues && rows == mRowsVues) ? mStable + 1 : 0;
+				mColsVues = cols;
+				mRowsVues = rows;
+				s->ecran.Resize(cols, rows);
+				if (mStable >= 3)
+					s->Demarrer(cols, rows);
+			} else {
 				s->Redimensionner(cols, rows);
+			}
 			s->Pomper();
 			const NkTerminalGrilleResultat r =
 				NkTerminalDessinerGrille(ctx, dl, grille, s->ecran, s->vue, mPalette, styleGrille);
@@ -559,7 +572,7 @@ namespace nkentseu {
 			}
 
 			// Le menu contextuel (clic droit).
-			static const char *kItems[] = {"Copier", "Coller", "Tout selectionner", "Effacer l'ecran", "Renommer l'onglet",
+			static const char *kItems[] = {"Copier", "Coller", "Tout sélectionner", "Effacer l'écran", "Renommer l'onglet",
 										   "Fermer le terminal"};
 			const bool actifs[] = {s->vue.AUneSelection(), true, true, true, true, true};
 			const bool separe[] = {false, false, true, false, true, false};

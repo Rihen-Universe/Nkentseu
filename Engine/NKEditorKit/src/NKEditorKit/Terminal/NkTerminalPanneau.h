@@ -155,6 +155,8 @@ namespace nkentseu {
 				bool mLien = false;
 				NkTerminalGrilleResultat mDernierLien;
 				nkgui::NkRect mZone = {0.f, 0.f, 0.f, 0.f};
+				int16 mColsVues = 0, mRowsVues = 0; ///< taille vue avant le demarrage du shell
+				int32 mStable = 0;					///< images de suite a cette taille
 		};
 
 	} // namespace editorkit

@@ -35,11 +35,11 @@ namespace nkentseu {
 			mCols = cols < 1 ? 80 : cols;
 			mRows = rows < 1 ? 24 : rows;
 #if defined(__ANDROID__)
-			mErreur = "Pas de shell systeme sous Android : une application n'y ouvre pas de terminal.";
+			mErreur = "Pas de shell système sous Android : une application n'y ouvre pas de terminal.";
 #elif defined(__EMSCRIPTEN__)
-			mErreur = "Pas de shell systeme dans un navigateur (Web) : le terminal est reserve aux editeurs de bureau.";
+			mErreur = "Pas de shell système dans un navigateur (Web) : le terminal est réservé aux éditeurs de bureau.";
 #else
-			mErreur = "Pas de shell systeme sous iOS : une application n'y ouvre pas de terminal.";
+			mErreur = "Pas de shell système sous iOS : une application n'y ouvre pas de terminal.";
 #endif
 			return false;
 		}

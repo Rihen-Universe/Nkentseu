@@ -148,7 +148,7 @@ namespace nkentseu {
 				k32 ? (PFN_ResizePseudoConsole)GetProcAddress(k32, "ResizePseudoConsole") : nullptr;
 			PFN_ClosePseudoConsole pClose = k32 ? (PFN_ClosePseudoConsole)GetProcAddress(k32, "ClosePseudoConsole") : nullptr;
 			if (!pCreate || !pClose) {
-				mErreur = "ConPTY indisponible : Windows 10 version 1809 ou plus recent est requis.";
+				mErreur = "ConPTY indisponible : Windows 10 version 1809 ou plus récent est requis.";
 				return false;
 			}
 
@@ -158,7 +158,7 @@ namespace nkentseu {
 			if (!CreatePipe(&inRead, &inWrite, NULL, 0) || !CreatePipe(&outRead, &outWrite, NULL, 0)) {
 				Fermer(inRead);
 				Fermer(inWrite);
-				mErreur = "Creation des tubes du terminal refusee par le systeme.";
+				mErreur = "Création des tubes du terminal refusée par le système.";
 				return false;
 			}
 			COORD taille;
@@ -172,7 +172,7 @@ namespace nkentseu {
 			if (FAILED(hr) || !hpc) {
 				Fermer(inWrite);
 				Fermer(outRead);
-				mErreur = "CreatePseudoConsole a echoue.";
+				mErreur = "CreatePseudoConsole a échoué.";
 				return false;
 			}
 
@@ -211,7 +211,7 @@ namespace nkentseu {
 				Fermer(im->inWrite);
 				Fermer(im->outRead);
 				delete im;
-				mErreur = "Attribut de pseudo-console refuse.";
+				mErreur = "Attribut de pseudo-console refusé.";
 				return false;
 			}
 
@@ -252,8 +252,8 @@ namespace nkentseu {
 				mErreur = NkString("Impossible de lancer « ") + cmdline +
 						  (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND
 							   ? NkString(" » : programme introuvable.")
-							   : (err == ERROR_DIRECTORY ? NkString(" » : dossier de depart invalide.")
-														 : NkString(" » (erreur systeme).")));
+							   : (err == ERROR_DIRECTORY ? NkString(" » : dossier de départ invalide.")
+														 : NkString(" » (erreur système).")));
 				return false;
 			}
 			if (im->job && !AssignProcessToJobObject(im->job, pi.hProcess)) {
