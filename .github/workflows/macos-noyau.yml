@@ -194,7 +194,10 @@ jobs:
 
       - name: Tuto03Scene - pixels de l'image Metal
         if: ${{ !cancelled() && hashFiles('journaux/captures/tuto03-metal.png') != '' }}
-        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference "$JOURNAUX/captures/tuto03-software.png" --regles tuto03 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
+        # Reference : la meme scene rendue par DX11 sous Windows (GPU, meme PBR),
+        # docs/captures-reference/. Le rendu logiciel, simplifie (pas d'IBL ni de
+        # PBR complet), reste publie a cote mais ne sert pas d'etalon.
+        run: python3 .github/scripts/comparer-captures.py --image "$JOURNAUX/captures/tuto03-metal.png" --reference docs/captures-reference/tuto03-dx11-windows.png --regles tuto03 --tolerance 60 --rapport "$JOURNAUX/captures/tuto03-comparaison.txt"
 
       # DIAGNOSTIC (ne decide pas du verdict) : la couche de validation Metal en
       # mode journal, et le MSL de chaque nuanceur, publies en artefact.
