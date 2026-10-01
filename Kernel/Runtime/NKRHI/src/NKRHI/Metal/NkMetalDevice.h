@@ -78,6 +78,9 @@ namespace nkentseu {
 			// SPIRV-Cross) : Metal la demande a CHAQUE dispatch, le shader ne
 			// l'impose pas. Dispatcher en 1x1x1 ne calculait qu'un fil par groupe.
 			uint32 tgX = 1, tgY = 1, tgZ = 1;
+			// (ensemble << 16 | binding) lus par le nuanceur (« // nk_rsrc » du
+			// MSL). Vide : MSL ecrit a la main (NKGui), tout est lie comme avant.
+			NkVector<uint32> ressources;
 	};
 
 	// Formats des attachements de la passe en cours (MTLPixelFormat en uint32,
@@ -129,6 +132,7 @@ namespace nkentseu {
 			void *vert = nullptr; // id<MTLFunction> retenues : le shader peut etre detruit
 			void *frag = nullptr;
 			uint64 baseSig = 0;
+			NkVector<uint32> ressources; // copie de NkMetalShader::ressources
 			struct Variante {
 					uint64 sig = 0;
 					void *rpso = nullptr;

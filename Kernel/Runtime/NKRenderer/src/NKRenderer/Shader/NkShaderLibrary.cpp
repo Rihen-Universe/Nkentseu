@@ -222,7 +222,7 @@ namespace nkentseu {
 				case NkGraphicsApi::NK_GFX_API_METAL:
 					// "msl2" (2026-09-30) : le MSL suit desormais NkMslConventions.h ;
 					// un .nksc "msl" d'avant porte d'autres index de ressources.
-					return "msl2";
+					return "msl3"; // msl3 (2026-10-01) : en-tete « // nk_rsrc »
 				case NkGraphicsApi::NK_GFX_API_SOFTWARE:
 					return "swvm";
 				default:

@@ -657,6 +657,29 @@ namespace nkentseu {
 				horsTable(r);
 
 			std::string msl = compiler.compile();
+			// Les (ensemble, binding) que ce nuanceur LIT : Metal n'a qu'une table
+			// par etage, ou les ensembles se melangent (binding 9 de l'ensemble
+			// materiau ecrasait la cubemap binding 9 de l'ensemble global, CI du
+			// 2026-10-01). NkMetalCommandBuffer ne lie que ceux-la.
+			{
+				std::string entete;
+				auto lister = [&](const spirv_cross::SmallVector<spirv_cross::Resource> &v) {
+					for (const auto &r : v) {
+						char ligne[64];
+						snprintf(ligne, sizeof(ligne), "// nk_rsrc %u %u\n",
+								 compiler.get_decoration(r.id, spv::DecorationDescriptorSet),
+								 compiler.get_decoration(r.id, spv::DecorationBinding));
+						entete += ligne;
+					}
+				};
+				lister(ressources.uniform_buffers);
+				lister(ressources.storage_buffers);
+				lister(ressources.sampled_images);
+				lister(ressources.separate_images);
+				lister(ressources.separate_samplers);
+				lister(ressources.storage_images);
+				msl = entete + msl;
+			}
 			// Compute : Metal demande la taille de groupe a CHAQUE dispatch, le MSL
 			// ne l'impose pas. On l'ecrit en tete ; NkMetalDevice::CreateShader la lit.
 			if (compiler.get_execution_model() == spv::ExecutionModelGLCompute) {

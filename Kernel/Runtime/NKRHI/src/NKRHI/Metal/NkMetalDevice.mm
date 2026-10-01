@@ -767,6 +767,22 @@ namespace nkentseu {
 
 			if (!lib)
 				continue;
+			// Ressources lues (ensemble, binding), ecrites par SpirvToMsl.
+			if (s.mslSource) {
+				const char *p = s.mslSource;
+				while ((p = strstr(p, "// nk_rsrc ")) != nullptr) {
+					unsigned ens = 0, bnd = 0;
+					if (sscanf(p, "// nk_rsrc %u %u", &ens, &bnd) == 2) {
+						const uint32 cle = (ens << 16) | (bnd & 0xFFFFu);
+						bool deja = false;
+						for (uint32 k = 0; k < sh.ressources.Size(); ++k)
+							deja = deja || sh.ressources[k] == cle;
+						if (!deja)
+							sh.ressources.PushBack(cle);
+					}
+					p += 11;
+				}
+			}
 			const char *entry = s.entryPoint ? s.entryPoint : "main";
 			NSString *fn = [NSString stringWithUTF8String:entry];
 			id<MTLFunction> func = [lib newFunctionWithName:fn];
@@ -910,6 +926,7 @@ namespace nkentseu {
 		p.primitive = (uint32)ToMTLTopology(d.topology);
 		p.desc = d;
 		p.baseSig = base.Signature();
+		p.ressources = sh.ressources;
 		p.vert = sh.vert ? (void *)CFRetain(sh.vert) : nullptr;
 		p.frag = sh.frag ? (void *)CFRetain(sh.frag) : nullptr;
 		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
@@ -1064,6 +1081,7 @@ namespace nkentseu {
 		NkMetalPipeline p;
 		p.cpso = (__bridge_retained void *)cpso;
 		p.isCompute = true;
+		p.ressources = sit->ressources;
 		p.tgX = sit->tgX;
 		p.tgY = sit->tgY;
 		p.tgZ = sit->tgZ;

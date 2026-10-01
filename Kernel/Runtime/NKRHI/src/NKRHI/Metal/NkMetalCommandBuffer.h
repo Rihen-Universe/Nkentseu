@@ -91,6 +91,7 @@ namespace nkentseu {
 			void EndCurrentEncoder();
 			bool AssurerCmdBuf();
 			void RendreCmdBuf();
+			void AppliquerDescripteurs();
 
 			NkMetalDevice *mDev = nullptr;
 			NkCommandBufferType mType;
@@ -115,6 +116,12 @@ namespace nkentseu {
 			// Formats de la passe en cours : choisissent la variante du pipeline.
 			NkMetalPassFormats mFormats;
 			bool mPipelineValide = false;
+			// Ensembles de descripteurs lies, par index d'ensemble ; appliques au
+			// prochain dessin / dispatch, filtres par ce que le pipeline lit.
+			static constexpr uint32 kEnsembles = 8;
+			uint64 mEnsembles[kEnsembles] = {};
+			uint64 mPipelineCourant = 0;
+			bool mDescripteursSales = false;
 	};
 
 } // namespace nkentseu
