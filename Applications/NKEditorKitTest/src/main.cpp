@@ -122,6 +122,7 @@
 #include "NKEditorKit/NkScreenCountersView.h" // (25/09) famille 28 : (A) les compteurs
 // (o3) la porte du chrome : les couches de surfaces et PointReachable
 #include "NKEditorKit/NkEditorSurface.h"
+#include "NKEditorKit/Terminal/NkTerminalProbe.h" // (01/10) famille 30 : le terminal partage
 
 #include <stdio.h>
 
@@ -1805,6 +1806,16 @@ int main(int argc, char **argv) {
 		}
 	}
 
+
+	// Famille 30 - (01/10) LE TERMINAL PARTAGE : emulateur, parseurs, palette,
+	// decouverte des shells, et un VRAI shell (echo, taille, aucun orphelin).
+	{
+		printf("\n--- Famille 30 : le terminal partage ---\n");
+		const editorkit::terminalprobe::Bilan b30 = editorkit::terminalprobe::Sonder();
+		printf("  famille 30 : %u/%u\n", b30.ok, b30.total);
+		gPassed += b30.ok;
+		gFailed += (b30.total - b30.ok);
+	}
 
 	printf("\n---------------------------------------------\n");
 	printf("RESULTAT : %u/%u\n", gPassed, gPassed + gFailed);
