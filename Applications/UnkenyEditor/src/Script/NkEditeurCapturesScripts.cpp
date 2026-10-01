@@ -107,7 +107,7 @@ namespace nkentseu {
 
 			// 02 : une erreur designee sur son noeud (une force sous Tick).
 			{
-				graph::NkNodeGraph &g = s.graphe.graphe;
+				graph::NkNodeGraph &g = s.graphe.doc.graphes[0].graphe;
 				const graph::NkNodeId ev = NkBpCreerNoeud(g, "bp.ev.tick", 0.f, 520.f);
 				const graph::NkNodeId f = NkBpCreerNoeud(g, "bp.natif:unkeny.corps.force", 300.f, 520.f);
 				NkBpPoserDefaut(g, f, "force", "0 10");

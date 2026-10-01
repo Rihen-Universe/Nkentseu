@@ -259,7 +259,7 @@ namespace nkentseu {
 			{
 				NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr());
 				// La porte montera de 3 m desormais ; « ouverte » est vraie : rien ne bouge.
-				graph::NkNodeGraph &g = s.graphe.graphe;
+				graph::NkNodeGraph &g = s.graphe.doc.graphes[0].graphe;
 				for (uint32 i = 0; i < g.RawNodeCount(); ++i) {
 					const graph::NkNode *n = g.RawNodeAt(i);
 					if (n != nullptr && n->alive && n->type == "bp.math.add_v") {
@@ -381,64 +381,64 @@ namespace nkentseu {
 				Temoin(NkFile::Exists((projet + "Contenu/Scripts/NouveauBlueprint.nkbp").CStr()) && s.graphe.ouvert,
 					   "(c5) « + Ajouter > Blueprint » : l'asset est cree, sa page s'ouvre", 0.f);
 
-				// ── (e18) la page du graphe, hors ecran ──
-				// La recherche de la palette (comme si on l'avait tapee).
-				std::snprintf(s.graphe.filtre, sizeof(s.graphe.filtre), "%s", "Afficher");
+				// ── (e18) la page du graphe (l'editeur a la UE5), hors ecran ──
+				// Clic droit dans le VIDE de la toile : le menu des noeuds ; la
+				// recherche a le clavier (« Afficher ») ; un clic sur l'entree pose.
+				NkEditeurBlueprintEtat &bp = s.graphe;
 				T.Trame();
-				const uint32 avant = s.graphe.graphe.NodeCount();
+				const nkgui::NkRect zt = bp.zoneToile;
+				T.Clic(1, zt.x + zt.w * 0.82f, zt.y + zt.h * 0.82f);
+				T.Taper("Afficher");
+				const uint32 avant = bp.Graphe().NodeCount();
 				int32 cible = -1;
-				for (uint32 i = 0; i < s.graphe.paletteProtos.Size(); ++i) {
-					const NkProtoBp &p = NkBpProtos()[static_cast<uint32>(s.graphe.paletteProtos[i])];
-					if (p.type == "bp.natif:unkeny.journal.afficher") {
+				for (uint32 i = 0; i < bp.menu.ids.Size(); ++i) {
+					const int32 id = bp.menu.ids[i];
+					if (id >= 0 && static_cast<uint32>(id) < bp.menuEntrees.Size() && bp.menuEntrees[static_cast<uint32>(id)].cle == "bp.natif:unkeny.journal.afficher") {
 						cible = static_cast<int32>(i);
 					}
 				}
+				std::printf("    (e18) menu ouvert=%d, %u entree(s) visibles\n", bp.menu.ouvert ? 1 : 0, static_cast<unsigned>(bp.menu.ids.Size()));
 				if (cible >= 0) {
-					const nkgui::NkRect r = s.graphe.paletteRects[static_cast<uint32>(cible)];
+					const nkgui::NkRect r = bp.menu.rects[static_cast<uint32>(cible)];
 					T.Clic(0, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
 				}
-				const uint32 apres = s.graphe.graphe.NodeCount();
-				Temoin(cible >= 0 && apres == avant + 1u, "(e18) un clic sur la palette pose un noeud", static_cast<float32>(apres));
+				const uint32 apres = bp.Graphe().NodeCount();
+				Temoin(cible >= 0 && apres == avant + 1u, "(e18) clic droit dans le vide, « Afficher », un clic : le noeud est pose", static_cast<float32>(apres));
 				// Le Debut du Blueprint neuf, et le noeud pose : tirer « suite » -> « exec ».
-				graph::NkNodeId debut = graph::NK_NODE_INVALID, pose = s.graphe.canevas.selection;
-				for (uint32 i = 0; i < s.graphe.graphe.RawNodeCount(); ++i) {
-					const graph::NkNode *n = s.graphe.graphe.RawNodeAt(i);
+				graph::NkNodeId debut = graph::NK_NODE_INVALID, pose = bp.Toile().selection;
+				for (uint32 i = 0; i < bp.Graphe().RawNodeCount(); ++i) {
+					const graph::NkNode *n = bp.Graphe().RawNodeAt(i);
 					if (n != nullptr && n->alive && n->type == "bp.ev.debut") {
 						debut = n->id;
 					}
 				}
-				const graph::NkNode *nd = s.graphe.graphe.Find(debut);
-				graph::NkNode *np = s.graphe.graphe.Find(pose);
+				const graph::NkNode *nd = bp.Graphe().Find(debut);
+				graph::NkNode *np = bp.Graphe().Find(pose);
 				bool relie = false, refusNomme = false;
 				if (nd != nullptr && np != nullptr) {
-					np->x = nd->x + 300.f; // a cote, pour viser sans chevauchement
-					np->y = nd->y + 220.f;
+					np->x = nd->x + 320.f; // a cote, pour viser sans chevauchement
+					np->y = nd->y + 240.f;
 					T.Trame();
-					const nkgui::NkRect zone = s.graphe.zoneCanevas;
+					const nkgui::NkRect zone = bp.zoneToile;
 					const editorkit::NkStyleCanevas st;
 					nkgui::NkVec2 a0, b0;
 					const int32 ks = nd->FindSocket("suite", graph::NkSocketDir::Output);
 					const int32 ke = np->FindSocket("exec", graph::NkSocketDir::Input);
-					const uint32 liensAvant = s.graphe.graphe.LinkCount();
-					if (editorkit::NkCanevasPrise(s.graphe.canevas, zone, *nd, ks, st, a0) &&
-						editorkit::NkCanevasPrise(s.graphe.canevas, zone, *np, ke, st, b0)) {
+					if (editorkit::NkCanevasPrise(bp.Toile(), zone, *nd, ks, st, a0) && editorkit::NkCanevasPrise(bp.Toile(), zone, *np, ke, st, b0)) {
 						// Le fil existant (Debut -> Afficher du modele) part de « suite » :
 						// d'abord le couper (clic droit sur la prise), puis tirer.
 						T.Clic(1, a0.x, a0.y);
 						T.Glisser(a0.x, a0.y, b0.x, b0.y, 6);
-						relie = s.graphe.graphe.LinkCount() >= 1u && s.graphe.graphe.LinkCount() <= liensAvant;
-						const graph::NkLink *l = s.graphe.graphe.IncomingOf(pose, ke);
+						const graph::NkLink *l = bp.Graphe().IncomingOf(pose, ke);
 						relie = l != nullptr && l->fromNode == debut;
 					}
 					// Vers une entree de DONNEE (« texte ») : refus nomme.
 					nkgui::NkVec2 c0;
 					const int32 kt = np->FindSocket("texte", graph::NkSocketDir::Input);
-					if (editorkit::NkCanevasPrise(s.graphe.canevas, zone, *nd, ks, st, a0) &&
-						editorkit::NkCanevasPrise(s.graphe.canevas, zone, *np, kt, st, c0)) {
+					if (editorkit::NkCanevasPrise(bp.Toile(), zone, *nd, ks, st, a0) && editorkit::NkCanevasPrise(bp.Toile(), zone, *np, kt, st, c0)) {
 						T.Glisser(a0.x, a0.y, c0.x, c0.y, 6);
-						refusNomme = std::strstr(s.graphe.canevas.refus.CStr(), "famille") != nullptr ||
-									 std::strstr(s.graphe.canevas.refus.CStr(), "family") != nullptr;
-						std::printf("    (e18) refus : %s\n", s.graphe.canevas.refus.CStr());
+						refusNomme = std::strstr(bp.Toile().refus.CStr(), "famille") != nullptr || std::strstr(bp.Toile().refus.CStr(), "family") != nullptr;
+						std::printf("    (e18) refus : %s\n", bp.Toile().refus.CStr());
 					}
 				}
 				Temoin(relie, "(e18) tirer un fil « suite » -> « exec » dans la page le relie", 0.f);

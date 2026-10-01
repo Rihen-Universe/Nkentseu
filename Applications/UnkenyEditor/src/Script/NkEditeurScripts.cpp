@@ -426,6 +426,15 @@ namespace nkentseu {
 			if (!s.demarre) {
 				return;
 			}
+			// L'editeur de Blueprint ferme (d'ou que ce soit) : les panneaux de la
+			// scene, replies pendant l'edition EN PLEIN, reviennent.
+			if (!s.graphe.ouvert && s.panneauxCaches && ui != nullptr) {
+				s.panneauxCaches = false;
+				ui->voirPlacer = s.voirPlacer;
+				ui->voirOutliner = s.voirOutliner;
+				ui->voirDetails = s.voirDetails;
+				ui->voirTiroir = s.voirTiroir;
+			}
 			// Le PROJET a change (une scene d'un autre dossier) : on repart.
 			const NkString projet = Oblique(NkEditeurDossierProjet(m));
 			if (!(projet == s.projet)) {

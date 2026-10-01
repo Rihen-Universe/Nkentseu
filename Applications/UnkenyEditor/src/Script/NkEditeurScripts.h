@@ -92,6 +92,11 @@ namespace nkentseu {
 
 				// --- La page du graphe ouverte (NkEditeurGraphe.h) ---------------
 				NkEditeurGrapheEtat graphe;
+				/// (2026-10-01) L'editeur de Blueprint s'ouvre EN PLEIN : les panneaux
+				/// de la scene se replient, et reviennent a la fermeture.
+				bool pleinEcran = true;
+				bool panneauxCaches = false;
+				bool voirPlacer = true, voirOutliner = true, voirDetails = true, voirTiroir = true;
 
 				NkEtatJeu etatPrecedent = NkEtatJeu::NK_EDITION;
 				bool demarre = false;
