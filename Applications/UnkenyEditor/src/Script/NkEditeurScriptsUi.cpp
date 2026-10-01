@@ -246,8 +246,10 @@ namespace nkentseu {
 					const NkString ref(sc->refs[k]);
 					if (std::strncmp(ref.CStr(), unkeny::NK_SCRIPT_PREFIXE_CPP, 4) == 0) {
 						const NkString source = SourceDe(s, ref.CStr());
-						if (source.Empty() || (s.ouvrirTexteExterne && !NkEditeurOuvrirTexteExterne(source.CStr()))) {
+						if (source.Empty()) {
 							NkEditeurAnnoncer(m, NkString::Format("%s : source introuvable dans le Contenu", ref.CStr()).CStr());
+						} else if (!NkEditeurOuvrirScriptCpp(s, m, source.CStr())) {
+							NkEditeurAnnoncer(m, NkString::Format("%s : aucun éditeur n'a pu l'ouvrir (voir le Journal)", ref.CStr()).CStr());
 						}
 					} else {
 						NkEditeurOuvrirGraphe(s, m, (s.projet + ref).CStr());
@@ -324,10 +326,11 @@ namespace nkentseu {
 					const NkString cree = NkEditeurNouveauScriptCpp(m, DossierDeCreation(c.ui).CStr());
 					if (!cree.Empty()) {
 						c.ui.contenuPerime = true;
-						if (s.ouvrirTexteExterne) {
-							NkEditeurOuvrirTexteExterne(NkEditeurCheminContenu(m, cree.CStr()).CStr());
-						}
 						s.ageReleve = 99.f; // compile tout de suite (le releve le voit)
+						// Le workspace Jenga du projet est (re)assure, puis NKCode s'ouvre
+						// dessus et sur le modele (sans effet dans un banc).
+						s.workspaceAssure = false;
+						NkEditeurOuvrirScriptCpp(s, m, NkEditeurCheminContenu(m, cree.CStr()).CStr());
 					}
 					break;
 				}
@@ -359,8 +362,10 @@ namespace nkentseu {
 				return true;
 			}
 			if (FinitPar(cheminNav, ".cpp") || FinitPar(cheminNav, ".h") || FinitPar(cheminNav, ".hpp")) {
-				if (c.m.scripts->ouvrirTexteExterne && !NkEditeurOuvrirTexteExterne(abs.CStr())) {
-					NkEditeurAnnoncer(c.m, "Aucun éditeur de texte n'a pu être lancé pour ce script");
+				// NKCode SUR le workspace Jenga du projet (sinon l'editeur du systeme ;
+				// le Journal dit pourquoi et quoi faire).
+				if (!NkEditeurOuvrirScriptCpp(*c.m.scripts, c.m, abs.CStr())) {
+					NkEditeurAnnoncer(c.m, "Aucun éditeur n'a pu être lancé pour ce script (voir le Journal)");
 				}
 				return true;
 			}
