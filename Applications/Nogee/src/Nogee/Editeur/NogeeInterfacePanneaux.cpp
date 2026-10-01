@@ -184,10 +184,10 @@ namespace nkentseu {
 				const NkEntityId e = EntiteDeLigne(ui, index);
 				if (e.IsValid()) {
 					ui.M().Choisir(e);
-					ui.mMenus.Ouvrir(NOGEE_MENU_CTX_ENTITE, NkRect{x, y, 0.f, 0.f});
+					ui.menus.Ouvrir(NOGEE_MENU_CTX_ENTITE, NkRect{x, y, 0.f, 0.f});
 				} else {
 					ui.mPointMenu = NkVec3f{ui.M().orbite.pivot.x, 0.f, ui.M().orbite.pivot.z};
-					ui.mMenus.Ouvrir(NOGEE_MENU_CTX_VIDE, NkRect{x, y, 0.f, 0.f});
+					ui.menus.Ouvrir(NOGEE_MENU_CTX_VIDE, NkRect{x, y, 0.f, 0.f});
 				}
 			}
 			void SurNouvelle(void *u) {
@@ -266,7 +266,7 @@ namespace nkentseu {
 		// PLACER DES ACTEURS
 		// =====================================================================
 		void NogeeInterface::Placer(NkFamilleCtx &c) {
-			if (!mPlan.voirPlacer) {
+			if (!plan.voirPlacer) {
 				return;
 			}
 			int32 n = 0;
@@ -283,7 +283,7 @@ namespace nkentseu {
 				}
 			}
 			const NkFamillePlacerResultat r =
-				NkFamilleDessinerPlacer(c, mPlan.placer, mPlacer, elements.Data(), n, &IconeElement, this, mPlan.viseur);
+				NkFamilleDessinerPlacer(c, plan.placer, mPlacer, elements.Data(), n, &IconeElement, this, plan.viseur);
 			NogeeModele &m = M();
 			if (m.etat != NogeeEtatJeu::Edition) {
 				if (r.clic >= 0 || r.lache >= 0) {
@@ -306,7 +306,7 @@ namespace nkentseu {
 		void NogeeInterface::Outliner(NkFamilleCtx &c) {
 			NogeeModele &m = M();
 			m.Entites(mArbreEntites);
-			if (!mPlan.voirOutliner) {
+			if (!plan.voirOutliner) {
 				return;
 			}
 			NkTreeViewModel &a = mOutliner.arbre;
@@ -378,7 +378,7 @@ namespace nkentseu {
 			r.rattacher = &SurRattacher;
 			const NkString pied = NkString::Format("%u entités (%u sél.)", static_cast<unsigned>(mArbreEntites.Size()),
 												   m.SelectionValide() ? 1u : 0u);
-			const NkFamilleOutlinerResultat res = NkFamilleDessinerOutliner(c, mPlan.outliner, mOutliner, r, pied.CStr(), mDt);
+			const NkFamilleOutlinerResultat res = NkFamilleDessinerOutliner(c, plan.outliner, mOutliner, r, pied.CStr(), mDt);
 			if (res.selectionChangee) {
 				const NkEntityId e = EntiteDeLigne(*this, res.actif);
 				if (e.IsValid()) {
@@ -501,7 +501,7 @@ namespace nkentseu {
 				if (clic) {
 					mCarteMenu = static_cast<int32>(k);
 					const nkgui::NkVec2 p = c.ctx.input.mousePos;
-					mMenus.Ouvrir(NOGEE_MENU_CARTE, NkRect{p.x - 160.f, p.y, 0.f, 0.f});
+					menus.Ouvrir(NOGEE_MENU_CARTE, NkRect{p.x - 160.f, p.y, 0.f, 0.f});
 				}
 			};
 			bool menu = false;
@@ -828,11 +828,11 @@ namespace nkentseu {
 			float32 y = zone.y + 10.f;
 			const float32 lh = NkFamilleHauteurLigne(c.police, 16.f) + 8.f;
 			auto Ligne = [&](const char *cle, const char *valeur) {
-				NkFamilleTexte(dl, c.petite, zone.x + 12.f, y + 3.f, cle, mPal.attenue);
-				NkFamilleTexte(dl, c.police, zone.x + zone.w * 0.42f, y, valeur, mPal.texte, zone.w * 0.55f);
+				NkFamilleTexte(dl, c.petite, zone.x + 12.f, y + 3.f, cle, pal.attenue);
+				NkFamilleTexte(dl, c.police, zone.x + zone.w * 0.42f, y, valeur, pal.texte, zone.w * 0.55f);
 				y += lh;
 			};
-			NkFamilleTexteGras(dl, c.police, zone.x + 12.f, y, "Le monde de la scène", mPal.texte);
+			NkFamilleTexteGras(dl, c.police, zone.x + 12.f, y, "Le monde de la scène", pal.texte);
 			y += lh + 4.f;
 			Ligne("Fichier", m.chemin.CStr());
 			Ligne("Entités", NkString::Format("%u", static_cast<unsigned>(mArbreEntites.Size())).CStr());
@@ -848,27 +848,27 @@ namespace nkentseu {
 		}
 
 		void NogeeInterface::Details(NkFamilleCtx &c) {
-			if (!mPlan.voirDetails || mPlan.details.w < 8.f || mPlan.details.h < 60.f) {
+			if (!plan.voirDetails || plan.details.w < 8.f || plan.details.h < 60.f) {
 				return;
 			}
 			NogeeModele &m = M();
-			const NkRect &zone = mPlan.details;
-			mCtx.dl.AddRectFilled(zone, mPal.panneau);
+			const NkRect &zone = plan.details;
+			Gui().dl.AddRectFilled(zone, pal.panneau);
 			static const char *const kOnglets[2] = {"Détails", "Monde"};
 			const float32 ongletsH = NkFamilleCotes::kOngletPanneau;
 			(void)NkFamilleOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 2, mOngletDroite);
 			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
-			mCtx.dl.PushClipRect(contenu, true);
+			Gui().dl.PushClipRect(contenu, true);
 			if (mOngletDroite == 1) {
 				Monde(c, contenu);
-				mCtx.dl.PopClipRect();
+				Gui().dl.PopClipRect();
 				return;
 			}
 			NkFamilleInspecteur I(c, mDetails, contenu);
 			if (!m.SelectionValide()) {
 				I.Vide("Sélectionnez une entité pour voir ses détails.",
 					   "Cliquez-la dans la vue ou l'Outliner, ou posez-en une (Placer des acteurs).");
-				mCtx.dl.PopClipRect();
+				Gui().dl.PopClipRect();
 				return;
 			}
 			const NkEntityId id = m.selection;
@@ -877,8 +877,8 @@ namespace nkentseu {
 			NkString nouveau;
 			const NkString type = NkString::Format("type : %s%s", m.Type(id),
 												   actif ? "" : "  —  désactivée (ni rendue, ni simulée)");
-			if (I.Entete(id.Pack(), m.Nom(id), &actif, type.CStr(), mMenus.menu == NOGEE_MENU_COMPOSANT, &nouveau)) {
-				mMenus.Ouvrir(NOGEE_MENU_COMPOSANT, mDetails.ajouter);
+			if (I.Entete(id.Pack(), m.Nom(id), &actif, type.CStr(), menus.menu == NOGEE_MENU_COMPOSANT, &nouveau)) {
+				menus.Ouvrir(NOGEE_MENU_COMPOSANT, mDetails.ajouter);
 			}
 			if (actif != actifAvant) {
 				m.Activer(id, actif);
@@ -916,26 +916,26 @@ namespace nkentseu {
 			if (I.Debut(cle, m.Nom(id), comps, n)) {
 				Cartes(c, I, id);
 				NkRect ajout;
-				if (I.Fin("Ajouter un composant", mMenus.menu == NOGEE_MENU_COMPOSANT, &ajout)) {
-					mMenus.Ouvrir(NOGEE_MENU_COMPOSANT, ajout);
+				if (I.Fin("Ajouter un composant", menus.menu == NOGEE_MENU_COMPOSANT, &ajout)) {
+					menus.Ouvrir(NOGEE_MENU_COMPOSANT, ajout);
 				}
 			}
-			mCtx.dl.PopClipRect();
+			Gui().dl.PopClipRect();
 		}
 
 		// =====================================================================
 		// LE TIROIR : Contenu, Journal, Terminal
 		// =====================================================================
 		void NogeeInterface::Tiroir(NkFamilleCtx &c) {
-			const NkRect &zone = mPlan.tiroir;
-			if (!mPlan.voirTiroir || zone.w < 8.f || zone.h < 40.f) {
+			const NkRect &zone = plan.tiroir;
+			if (!plan.voirTiroir || zone.w < 8.f || zone.h < 40.f) {
 				return;
 			}
 			static const char *const kOnglets[3] = {"Contenu", "Journal", "Terminal"};
 			const float32 ongletsH = NkFamilleCotes::kOngletPanneau;
 			(void)NkFamilleOnglets(c, NkRect{zone.x, zone.y, zone.w, ongletsH}, kOnglets, 3, mOngletTiroir);
 			const NkRect contenu{zone.x, zone.y + ongletsH, zone.w, zone.h - ongletsH};
-			mCtx.dl.PushClipRect(contenu, true);
+			Gui().dl.PushClipRect(contenu, true);
 			if (mOngletTiroir == 0) {
 				if (NkFamilleDessinerContenu(c, contenu, mContenu, kNatures, static_cast<int32>(sizeof(kNatures) / sizeof(kNatures[0])),
 											 mDt)) {
@@ -970,9 +970,9 @@ namespace nkentseu {
 			} else if (mOngletTiroir == 1) {
 				NkFamilleDessinerJournal(c, contenu, mJournal, mDt);
 			} else {
-				mTerminal.Dessiner(mCtx, mCtx.dl, contenu, mTheme);
+				mTerminal.Dessiner(Gui(), Gui().dl, contenu, theme);
 			}
-			mCtx.dl.PopClipRect();
+			Gui().dl.PopClipRect();
 		}
 
 	} // namespace nogee

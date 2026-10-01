@@ -38,10 +38,6 @@ namespace nkentseu {
 		using O = editorkit::NkFamilleOngletPlacer;
 
 		namespace {
-			void RemplirMenu(void *user, int32 menu, NkVector<NkFamilleEntreeMenu> &sortie) {
-				static_cast<NogeeInterface *>(user)->Remplir(menu, sortie);
-			}
-
 			const float32 kPasGrille[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f, 2.f};
 			const float32 kPasAngle[] = {1.f, 5.f, 10.f, 15.f, 30.f, 45.f, 90.f};
 			const float32 kPasEchelle[] = {0.05f, 0.1f, 0.25f, 0.5f, 1.f};
@@ -62,72 +58,39 @@ namespace nkentseu {
 		// LA COUCHE
 		// =====================================================================
 		NogeeInterface::NogeeInterface(const NogeeHote &hote) noexcept
-			: NkOverlay("NogeeInterface"), mHote(hote), mSelecteur(memory::NkMakeUnique<NkFilePickerNavState>()),
-			  mTheme(NkTheme::Dark()) {
-			mPal = NkFamillePaletteDe(mTheme);
+			: NkOverlay("NogeeInterface"), mHote(hote), mSelecteur(memory::NkMakeUnique<NkFilePickerNavState>()) {
 		}
 
 		NogeeInterface::~NogeeInterface() = default;
-
-		void NogeeInterface::PoserTheme(bool clair) {
-			mClair = clair;
-			mTheme = clair ? NkTheme::Light() : NkTheme::Dark();
-			mPal = NkFamillePaletteDe(mTheme);
-			if (mPret) {
-				NkThemeVersGui(mCtx, mTheme);
-				// La geometrie n'est pas une couleur : celle de la famille (coins de
-				// 2 px, rangees denses), comme UnkenyEditor.
-				mCtx.theme.rounding = 2.f;
-				mCtx.theme.roundingSmall = 2.f;
-				mCtx.theme.framePadX = 6.f;
-				mCtx.theme.framePadY = 3.f;
-			}
-		}
 
 		void NogeeInterface::OnAttach() {
 			NkIDevice *dev = mHote.device;
 			const uint32 W = dev != nullptr ? dev->GetSwapchainWidth() : 1280u;
 			const uint32 H = dev != nullptr ? dev->GetSwapchainHeight() : 760u;
-			if (!mCtx.Init(static_cast<int32>(W), static_cast<int32>(H))) {
+			// LA TRAME DE LA FAMILLE : le contexte NKGui, les polices (DroidSans
+			// 13 px, la petite, la chasse fixe du terminal), le theme sombre.
+			if (!InitialiserGui(static_cast<int32>(W), static_cast<int32>(H))) {
 				logger.Errorf("[Nogee] NkGuiContext::Init a echoue : pas d'interface\n");
 				return;
 			}
-			nkgui::SetCurrentContext(&mCtx);
-			// LES POLICES DE LA FAMILLE (NkCanvasGuiApp::LoadFonts) : DroidSans 13 px,
-			// la petite a 0,78 ; une texId DISTINCTE par police.
-			mPolice.texId = 0x4E4B4654u;
-			mPetite.texId = 0x4E4B4655u;
-			mMono.texId = 0x4E4B5445u;
-			const float32 corps = 13.f;
-			if (!mPolice.LoadEmbedded(NkEmbeddedFontId::DroidSans, corps)) {
-				(void)mPolice.LoadEmbedded(NkEmbeddedFontId::ProggyClean, corps);
-			}
-			(void)mPetite.LoadEmbedded(NkEmbeddedFontId::DroidSans, corps * 0.78f);
-			if (!mMono.LoadEmbedded(NkEmbeddedFontId::DejaVuSansMono, corps, false)) {
-				(void)mMono.LoadEmbedded(NkEmbeddedFontId::Cousine, corps, false);
-			}
-			mCtx.font = &mPolice;
-			mCtx.codeFont = mMono.Valid() ? &mMono : &mPolice;
 			mPret = true;
-			PoserTheme(mClair);
 
 			// LE RENDU : le backend sur la passe de la swapchain, les atlas, puis le
 			// rappel dans la passe Overlay2D du renderer de l'application (UNE
-			// Submit par image, contenu + surcouche fusionnes).
+			// Submit par image, contenu + surcouche fusionnes par la trame).
 			if (dev != nullptr && mBackend.Init(dev, dev->GetSwapchainRenderPass(), mHote.api)) {
 				mBackendPret = true;
-				nkgui::NkGuiFont *polices[3] = {&mPolice, &mPetite, &mMono};
-				for (nkgui::NkGuiFont *f : polices) {
-					if (f->Valid() && f->pixels != nullptr) {
-						mBackend.UploadTextureGray8(f->TexId(), f->pixels, f->atlasW, f->atlasH);
-					}
+				nkgui::NkGuiFont *polices[3];
+				const int32 n = Polices(polices, 3);
+				for (int32 k = 0; k < n; ++k) {
+					mBackend.UploadTextureGray8(polices[k]->TexId(), polices[k]->pixels, polices[k]->atlasW, polices[k]->atlasH);
 				}
 				if (renderer::NkRenderer *r = NkApplication::Get().GetRenderer()) {
 					r->SetUIOverlayCallback([this](NkICommandBuffer *cmd) {
-						if (!mBackendPret || mHote.device == nullptr) {
+						if (!mBackendPret || mHote.device == nullptr || mListe == nullptr) {
 							return;
 						}
-						mBackend.Submit(cmd, mFusion, mHote.device->GetSwapchainWidth(), mHote.device->GetSwapchainHeight());
+						mBackend.Submit(cmd, *mListe, mHote.device->GetSwapchainWidth(), mHote.device->GetSwapchainHeight());
 					});
 					mRappelPose = true;
 				}
@@ -139,7 +102,7 @@ namespace nkentseu {
 			mContenu.racine = mHote.contenu;
 			mContenu.nomProjet = NkString("Nogee");
 			mTerminal.dossierDepart = NkString(".");
-			mTerminal.police = mMono.Valid() ? &mMono : nullptr;
+			mTerminal.police = PoliceMono();
 			mJournal.Ajouter("Nogee — l'éditeur de Noge, à l'apparence d'UnkenyEditor (R32)");
 			mJournal.Ajouter("Vue 3D : le chemin de jeu de Noge (NkApplication + NkEngineLayer), rendu hors écran");
 			logger.Infof("[Nogee] interface attachee %ux%u (backend RHI : %d)\n", W, H, mBackendPret ? 1 : 0);
@@ -162,34 +125,27 @@ namespace nkentseu {
 				mBackendPret = false;
 			}
 			mHote.device = nullptr;
+			mListe = nullptr;
 		}
 
 		void NogeeInterface::OnDetach() {
 			LibererGpu();
 			mTerminal.FermerTout();
 			if (mPret) {
-				mCtx.Shutdown();
+				Terminer();
 				mPret = false;
 			}
 		}
 
 		void NogeeInterface::OnUpdate(float dt) {
 			mDt = dt > 0.f ? dt : 1.f / 60.f;
-			mTemps += mDt;
 			M().messageAge += mDt;
-			mTempsIps += mDt;
-			++mTramesIps;
-			if (mTempsIps >= 0.5f) {
-				mIps = static_cast<float32>(mTramesIps) / mTempsIps;
-				mTempsIps = 0.f;
-				mTramesIps = 0;
-			}
 			mTerminal.Pomper();
 		}
 
 		bool NogeeInterface::OnEvent(NkEvent *event) {
 			if (event != nullptr && mPret) {
-				(void)mEntree.Lire(mCtx.input, *event);
+				LireEvenement(*event);
 			}
 			// Rien n'est CONSOMME : le moteur (sa carte d'entree) lit les memes
 			// evenements -- en jeu, ce sont les siens.
@@ -205,123 +161,83 @@ namespace nkentseu {
 			if (W == 0u || H == 0u) {
 				return;
 			}
-			nkgui::SetCurrentContext(&mCtx);
-			mCtx.viewW = static_cast<int32>(W);
-			mCtx.viewH = static_cast<int32>(H);
 			// La vue 3D, publiee aupres du backend (de nouveau si sa cible a ete refaite).
 			if (mBackendPret && mHote.vue != nullptr && mHote.vue->Pret() && mHote.vue->Generation() != mGenerationVue) {
 				if (mBackend.RegisterTexture(kTexVue, mHote.vue->Texture())) {
 					mGenerationVue = mHote.vue->Generation();
 				}
 			}
-			mCtx.BeginFrame(mDt);
-			NkFamillePlanifier(mPlan, static_cast<float32>(W), static_cast<float32>(H));
-			NkFamilleCtx c{mCtx, mTheme, mPal, &mPolice, &mPetite};
-			Trame(c);
+			// LA TRAME DE LA FAMILLE (NkFamilleEditeur::Trame) : l'ordre d'UnkenyEditor.
+			const bool agrandie = mHote.fenetre != nullptr && mHote.fenetre->IsMaximized();
+			mListe = &Trame(mDt, static_cast<int32>(W), static_cast<int32>(H), agrandie);
 			if (mHote.fenetre != nullptr) {
-				mHote.fenetre->SetCursor(NkFamilleCurseur(mCtx.wantCursor));
+				AppliquerFenetre(*mHote.fenetre);
 			}
-			mCtx.EndFrame();
-			mFusion.Reset();
-			mFusion.Append(mCtx.dl);
-			mFusion.Append(mCtx.dlOverlay);
-			mEntree.FinDeTrame(mCtx.input);
-			AppliquerFenetre();
 		}
 
 		// =====================================================================
-		// LA TRAME : l'ordre de dessin d'UnkenyEditor (NkEditeurDessinerTrame)
+		// CE QUE NOGEE PEINT DANS LA TRAME DE LA FAMILLE
 		// =====================================================================
-		void NogeeInterface::Trame(NkFamilleCtx &c) {
-			auto &dl = mCtx.dl;
-			nkgui::NkGuiInput &in = mCtx.input;
-			dl.AddRectFilled(mPlan.ecran, mPal.fond);
-			mFen.agrandie = mHote.fenetre != nullptr && mHote.fenetre->IsMaximized();
+		void NogeeInterface::AvantCorps(NkFamilleCtx &) {
 			Journaliser();
+		}
 
-			// ── 0. Les bords de la fenetre, avant tout, avec l'entree reelle ──
-			NkFamilleBordsFenetre(c, mPlan, mFen);
-
-			// ── 1. Le corps, gestes neutralises si un menu est ouvert ─────────
-			// Le menu est decide AVANT le corps, avec le rectangle de la trame
-			// d'avant : un clic hors du menu le ferme et ne traverse pas.
-			int32 menuDebut = mMenus.menu;
-			const NkFamilleGestes vrais = NkFamilleSauverGestes(in);
-			// LE SELECTEUR DE FICHIERS EST MODAL : tant qu'il est ouvert, ni le corps
-			// ni les menus ne recoivent la souris (UnkenyEditor, NkEditeurTrame).
-			const bool modal = mSelecteur && mSelecteur->pickerOpen;
-			if (modal) {
-				mMenus.Fermer();
-				menuDebut = -1;
-				NkFamilleNeutraliserGestes(in, true);
-			}
-			if (menuDebut >= 0 && vrais.clic[1] && !mMenus.Contient(vrais.position)) {
-				mMenus.Fermer();
-				menuDebut = -1;
-			}
-			if (menuDebut >= 0) {
-				NkFamilleNeutraliserGestes(in, mMenus.Contient(vrais.position));
-			}
+		void NogeeInterface::PeindreCorps(NkFamilleCtx &c) {
 			Vue(c);
 			Placer(c);
 			Outliner(c);
 			Details(c);
 			Tiroir(c);
-			(void)NkFamilleCloisons(c, mPlan);
-			BarreOutils(c);
-			Statut(c);
-			OngletsScene(c);
+		}
 
-			// ── 2. Les menus, avec l'entree reelle ───────────────────────────
-			if (!modal) {
-				NkFamilleRendreGestes(in, vrais);
+		NkString NogeeInterface::Titre() const {
+			const NogeeModele &m = M();
+			return NkString::Format("Nogee  —  %s%s", Fichier(m.chemin), m.modifie ? " *" : "");
+		}
+
+		void NogeeInterface::PeindreLogo(nkgui::NkGuiDrawList &dl, float32 x, float32 y, float32 cote, bool fondSombre) {
+			NogeeDessinerLogo(dl, x, y, cote, fondSombre, nullptr);
+		}
+
+		void NogeeInterface::Fermer() {
+			Executer(NOGEE_A_QUITTER);
+		}
+
+		bool NogeeInterface::Modale() const {
+			return mSelecteur && mSelecteur->pickerOpen;
+		}
+
+		void NogeeInterface::PeindreModale(NkFamilleCtx &) {
+			// LE selecteur de fichiers du kit, par-dessus tout, avec l'entree reelle.
+			(void)NkDrawSelecteur(Gui(), *mSelecteur, theme);
+			if (mSelecteur->pickerCancelled) {
+				mSelecteur->pickerCancelled = false;
+				mUsageSelecteur = 0;
 			}
-			BarreTitre(c);
-			const int32 action = NkFamilleDessinerMenu(c, mPlan.ecran, mMenus, menuDebut, &RemplirMenu, this);
-			if (action != NOGEE_A_AUCUNE) {
-				Executer(action);
-			}
-			// ── 3. Le selecteur, par-dessus tout, avec l'entree reelle ───────
-			if (modal) {
-				NkFamilleRendreGestes(in, vrais);
-				(void)NkDrawSelecteur(mCtx, *mSelecteur, mTheme);
-				if (mSelecteur->pickerCancelled) {
-					mSelecteur->pickerCancelled = false;
-					mUsageSelecteur = 0;
-				}
-				if (mSelecteur->pickerConfirmed) {
-					mSelecteur->pickerConfirmed = false;
-					NkString chemin(mSelecteur->pickerResultPath);
-					NogeeModele &m = M();
-					if (mUsageSelecteur == 1) {
-						if (m.etat != NogeeEtatJeu::Edition) {
-							m.Arreter();
-						}
-						(void)m.Ouvrir(chemin.CStr());
-					} else if (mUsageSelecteur == 2) {
-						if (!chemin.EndsWith(".nkscene")) {
-							chemin.Append(".nkscene");
-						}
-						m.chemin = chemin;
-						(void)m.Enregistrer();
+			if (mSelecteur->pickerConfirmed) {
+				mSelecteur->pickerConfirmed = false;
+				NkString chemin(mSelecteur->pickerResultPath);
+				NogeeModele &m = M();
+				if (mUsageSelecteur == 1) {
+					if (m.etat != NogeeEtatJeu::Edition) {
+						m.Arreter();
 					}
-					mUsageSelecteur = 0;
+					(void)m.Ouvrir(chemin.CStr());
+				} else if (mUsageSelecteur == 2) {
+					if (!chemin.EndsWith(".nkscene")) {
+						chemin.Append(".nkscene");
+					}
+					m.chemin = chemin;
+					(void)m.Enregistrer();
 				}
-				return; // pas de raccourcis sous une fenetre modale
-			}
-
-			// ── 3. Les raccourcis, APRES le dessin (un champ garde ses touches) ─
-			Raccourcis(c);
-			// Un liseret autour de la fenetre sans cadre ; agrandie, elle n'a pas de bord.
-			if (!mFen.agrandie) {
-				dl.AddRect(mPlan.ecran, mPal.bord, 1.f);
+				mUsageSelecteur = 0;
 			}
 		}
 
 		void NogeeInterface::Journaliser() {
 			NogeeModele &m = M();
 			for (uint32 i = 0; i < m.aJournaliser.Size(); ++i) {
-				const int32 s = static_cast<int32>(mTemps);
+				const int32 s = static_cast<int32>(temps);
 				const NkString ligne = NkString::Format("[%02d:%02d]  %s", s / 60, s % 60, m.aJournaliser[i].CStr());
 				const uint8 n = i < m.niveaux.Size() ? m.niveaux[i] : 0u;
 				mJournal.Ajouter(ligne.CStr(), n == 3 ? NkFamilleNiveau::Erreur
@@ -334,38 +250,14 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
-		// LE CHROME
+		// LE CHROME DE NOGEE (sa barre d'outils, son onglet, sa barre d'etat)
 		// =====================================================================
-		void NogeeInterface::BarreTitre(NkFamilleCtx &c) {
-			static const char *const kMenus[4] = {"Fichier", "Édition", "Fenêtre", "Aide"};
-			const NogeeModele &m = M();
-			const NkString titre = NkString::Format("Nogee  —  %s%s", Fichier(m.chemin), m.modifie ? " *" : "");
-			NkFamilleTitre t;
-			t.menus = kMenus;
-			t.nbMenus = 4;
-			t.titre = titre.CStr();
-			t.logo = &NogeeDessinerLogo;
-			const int32 menuBarre = mMenus.menu >= 0 && mMenus.menu <= NOGEE_MENU_AIDE ? mMenus.menu : -1;
-			const bool autre = mMenus.menu > NOGEE_MENU_AIDE;
-			NkRect ancre;
-			const int32 aOuvrir = NkFamilleBarreTitre(c, mPlan, t, menuBarre, autre, ancre, mFen);
-			if (aOuvrir >= 0) {
-				if (menuBarre >= 0 && aOuvrir != menuBarre) {
-					mMenus.menu = aOuvrir; // le survol d'un voisin remplace le menu ouvert
-					mMenus.ancre = ancre;
-					mMenus.sousMenu = -1;
-				} else {
-					mMenus.Ouvrir(aOuvrir, ancre);
-				}
-			}
-		}
-
-		void NogeeInterface::OngletsScene(NkFamilleCtx &c) {
+		void NogeeInterface::PeindreOnglets(NkFamilleCtx &c) {
 			const NogeeModele &m = M();
 			NkFamilleOngletScene o;
 			o.nom = Fichier(m.chemin);
 			o.modifie = m.modifie;
-			const NkFamilleOngletsResultat r = NkFamilleOngletsScene(c, mPlan, &o, 1, 0);
+			const NkFamilleOngletsResultat r = NkFamilleOngletsScene(c, plan, &o, 1, 0);
 			if (r.fermer == 0) {
 				if (m.modifie) {
 					M().Annoncer("La scène est modifiée : Enregistrer (Ctrl+S) d'abord, ou Fichier > Nouvelle scène", 2);
@@ -375,8 +267,8 @@ namespace nkentseu {
 			}
 		}
 
-		void NogeeInterface::BarreOutils(NkFamilleCtx &c) {
-			const NkRect &b = mPlan.barreOutils;
+		void NogeeInterface::PeindreBarreOutils(NkFamilleCtx &c) {
+			const NkRect &b = plan.barreOutils;
 			NkFamilleFondBarreOutils(c, b);
 			NogeeModele &m = M();
 			// La place des boutons dont le libelle VARIE : celle du plus long.
@@ -395,14 +287,14 @@ namespace nkentseu {
 			}
 			x = NkFamilleTrait(c, b, x);
 			const NkString outil = NkString::Format("Outil : %s", NogeeNomOutil(m.outil));
-			x = NkFamilleBoutonOutil(c, b, x, outil.CStr(), true, mMenus.menu == NOGEE_MENU_OUTIL, clic, r, largeurOutil);
+			x = NkFamilleBoutonOutil(c, b, x, outil.CStr(), true, menus.menu == NOGEE_MENU_OUTIL, clic, r, largeurOutil);
 			if (clic) {
-				mMenus.Ouvrir(NOGEE_MENU_OUTIL, r);
+				menus.Ouvrir(NOGEE_MENU_OUTIL, r);
 			}
 			x = NkFamilleTrait(c, b, x);
-			x = NkFamilleBoutonOutil(c, b, x, "+ Ajouter", true, mMenus.menu == NOGEE_MENU_AJOUTER, clic, r);
+			x = NkFamilleBoutonOutil(c, b, x, "+ Ajouter", true, menus.menu == NOGEE_MENU_AJOUTER, clic, r);
 			if (clic) {
-				mMenus.Ouvrir(NOGEE_MENU_AJOUTER, r);
+				menus.Ouvrir(NOGEE_MENU_AJOUTER, r);
 			}
 			x = NkFamilleTrait(c, b, x);
 			const NkFamilleEtatJeu etat = m.etat == NogeeEtatJeu::Jeu	 ? NkFamilleEtatJeu::Jeu
@@ -414,19 +306,19 @@ namespace nkentseu {
 				Executer(kActions[lecture]);
 			}
 			x = NkFamilleTrait(c, b, x);
-			x = NkFamilleBoutonOutil(c, b, x, "Appareil : Bureau", true, mMenus.menu == NOGEE_MENU_APPAREIL, clic, r,
+			x = NkFamilleBoutonOutil(c, b, x, "Appareil : Bureau", true, menus.menu == NOGEE_MENU_APPAREIL, clic, r,
 									 NkFamilleLargeurBoutonOutil(c, "Appareil : Bureau", true) + 60.f);
 			if (clic) {
-				mMenus.Ouvrir(NOGEE_MENU_APPAREIL, r);
+				menus.Ouvrir(NOGEE_MENU_APPAREIL, r);
 			}
 			x = NkFamilleTrait(c, b, x);
-			(void)NkFamilleBoutonOutil(c, b, x, "Réglages", true, mMenus.menu == NOGEE_MENU_REGLAGES, clic, r);
+			(void)NkFamilleBoutonOutil(c, b, x, "Réglages", true, menus.menu == NOGEE_MENU_REGLAGES, clic, r);
 			if (clic) {
-				mMenus.Ouvrir(NOGEE_MENU_REGLAGES, r);
+				menus.Ouvrir(NOGEE_MENU_REGLAGES, r);
 			}
 		}
 
-		void NogeeInterface::Statut(NkFamilleCtx &c) {
+		void NogeeInterface::PeindreStatut(NkFamilleCtx &c) {
 			const NogeeModele &m = M();
 			const NkFamilleEtatJeu etat = m.etat == NogeeEtatJeu::Jeu	 ? NkFamilleEtatJeu::Jeu
 										  : m.etat == NogeeEtatJeu::Pause ? NkFamilleEtatJeu::Pause
@@ -439,53 +331,8 @@ namespace nkentseu {
 				NkString::Format("%u entités   ·   maillages soumis %u   ·   vue %ux%u   ·   %.0f ips",
 								 static_cast<unsigned>(mArbreEntites.Size()), static_cast<unsigned>(appels),
 								 mHote.vue != nullptr ? mHote.vue->Largeur() : 0u, mHote.vue != nullptr ? mHote.vue->Hauteur() : 0u,
-								 static_cast<double>(mIps));
-			NkFamilleBarreEtat(c, mPlan.statut, etat, m.messageAge < 4.f ? m.message.CStr() : "", compteurs.CStr());
-		}
-
-		void NogeeInterface::AppliquerFenetre() {
-			NkWindow *f = mHote.fenetre;
-			nkgui::NkGuiInput &in = mCtx.input;
-			if (mFen.fermerDemande) {
-				mFen.fermerDemande = false;
-				Executer(NOGEE_A_QUITTER);
-			}
-			if (f == nullptr) {
-				return;
-			}
-			if (mFen.reduireDemande) {
-				mFen.reduireDemande = false;
-				f->Minimize();
-			}
-			if (mFen.agrandirDemande) {
-				mFen.agrandirDemande = false;
-				if (f->IsMaximized()) {
-					f->Restore();
-				} else {
-					f->Maximize();
-				}
-			}
-			if (mFen.deplacerDemande) {
-				mFen.deplacerDemande = false;
-				// TIRER UNE FENETRE AGRANDIE LA RESTAURE, sous le curseur (la recette
-				// d'UnkenyEditor, AppliquerDemandesFenetre).
-				if (f->IsMaximized()) {
-					const NkVec2 souris = in.mousePos;
-					f->Restore();
-					const math::NkVec2u taille = f->GetSize();
-					const int32 nx = static_cast<int32>(souris.x - static_cast<float32>(taille.x) * mFen.deplacerFractionX);
-					const int32 ny = static_cast<int32>(souris.y - 12.f);
-					f->SetPosition(nx < 0 ? 0 : nx, ny < 0 ? 0 : ny);
-				}
-				f->BeginDragMove();
-				in.mouseDown[0] = false; // la boucle modale a mange le relachement
-			}
-			if (mFen.redimDemande >= 0) {
-				const NkWindow::NkResizeEdge bord = static_cast<NkWindow::NkResizeEdge>(mFen.redimDemande);
-				mFen.redimDemande = -1;
-				f->BeginResize(bord);
-				in.mouseDown[0] = false;
-			}
+								 static_cast<double>(ips));
+			NkFamilleBarreEtat(c, plan.statut, etat, m.messageAge < 4.f ? m.message.CStr() : "", compteurs.CStr());
 		}
 
 		// =====================================================================
@@ -536,16 +383,16 @@ namespace nkentseu {
 					out.PushBack(NkFamilleLigneMenu("Tout désélectionner", NOGEE_A_DESELECTIONNER, "", false, sel));
 					break;
 				case NOGEE_MENU_FENETRE:
-					out.PushBack(NkFamilleLigneMenu("Placer des acteurs", NOGEE_A_VOIR_PLACER, "", mPlan.voirPlacer));
-					out.PushBack(NkFamilleLigneMenu("Outliner", NOGEE_A_VOIR_OUTLINER, "", mPlan.voirOutliner));
-					out.PushBack(NkFamilleLigneMenu("Détails", NOGEE_A_VOIR_DETAILS, "", mPlan.voirDetails));
-					out.PushBack(NkFamilleLigneMenu("Tiroir du bas", NOGEE_A_VOIR_TIROIR, "", mPlan.voirTiroir));
+					out.PushBack(NkFamilleLigneMenu("Placer des acteurs", NOGEE_A_VOIR_PLACER, "", plan.voirPlacer));
+					out.PushBack(NkFamilleLigneMenu("Outliner", NOGEE_A_VOIR_OUTLINER, "", plan.voirOutliner));
+					out.PushBack(NkFamilleLigneMenu("Détails", NOGEE_A_VOIR_DETAILS, "", plan.voirDetails));
+					out.PushBack(NkFamilleLigneMenu("Tiroir du bas", NOGEE_A_VOIR_TIROIR, "", plan.voirTiroir));
 					out.PushBack(NkFamilleSeparateur());
 					out.PushBack(NkFamilleLigneMenu("Contenu", NOGEE_A_TIROIR_CONTENU, "", mOngletTiroir == 0));
 					out.PushBack(NkFamilleLigneMenu("Journal", NOGEE_A_TIROIR_JOURNAL, "", mOngletTiroir == 1));
 					out.PushBack(NkFamilleLigneMenu("Terminal", NOGEE_A_TIROIR_TERMINAL, "", mOngletTiroir == 2));
 					out.PushBack(NkFamilleSeparateur());
-					out.PushBack(NkFamilleLigneMenu("Thème clair", NOGEE_A_THEME, "", mClair));
+					out.PushBack(NkFamilleLigneMenu("Thème clair", NOGEE_A_THEME, "", Clair()));
 					out.PushBack(NkFamilleLigneMenu("Réinitialiser la disposition", NOGEE_A_DISPOSITION));
 					out.PushBack(NkFamilleSeparateur());
 					// CE QUI NE RENTRE PAS ENCORE : l'ancienne coquille (NkEditorShell,
@@ -734,7 +581,7 @@ namespace nkentseu {
 					}
 					break;
 				case NOGEE_A_QUITTER:
-					mDemandeQuitter = true;
+					DemanderQuitter();
 					break;
 				case NOGEE_A_ANNULER:
 					(void)m.Annuler();
@@ -797,39 +644,39 @@ namespace nkentseu {
 					m.Pas();
 					break;
 				case NOGEE_A_VOIR_PLACER:
-					mPlan.voirPlacer = !mPlan.voirPlacer;
+					plan.voirPlacer = !plan.voirPlacer;
 					break;
 				case NOGEE_A_VOIR_OUTLINER:
-					mPlan.voirOutliner = !mPlan.voirOutliner;
+					plan.voirOutliner = !plan.voirOutliner;
 					break;
 				case NOGEE_A_VOIR_DETAILS:
-					mPlan.voirDetails = !mPlan.voirDetails;
+					plan.voirDetails = !plan.voirDetails;
 					break;
 				case NOGEE_A_VOIR_TIROIR:
-					mPlan.voirTiroir = !mPlan.voirTiroir;
+					plan.voirTiroir = !plan.voirTiroir;
 					break;
 				case NOGEE_A_TIROIR_CONTENU:
 					mOngletTiroir = 0;
-					mPlan.voirTiroir = true;
+					plan.voirTiroir = true;
 					break;
 				case NOGEE_A_TIROIR_JOURNAL:
 					mOngletTiroir = 1;
-					mPlan.voirTiroir = true;
+					plan.voirTiroir = true;
 					break;
 				case NOGEE_A_TIROIR_TERMINAL:
 					mOngletTiroir = 2;
-					mPlan.voirTiroir = true;
+					plan.voirTiroir = true;
 					break;
 				case NOGEE_A_THEME:
-					PoserTheme(!mClair);
+					PoserTheme(!Clair());
 					break;
 				case NOGEE_A_DISPOSITION: {
 					const NkFamillePlan neuf;
-					mPlan.largeurPlacer = neuf.largeurPlacer;
-					mPlan.largeurOutliner = neuf.largeurOutliner;
-					mPlan.largeurDetails = neuf.largeurDetails;
-					mPlan.hauteurTiroir = neuf.hauteurTiroir;
-					mPlan.voirPlacer = mPlan.voirOutliner = mPlan.voirDetails = mPlan.voirTiroir = true;
+					plan.largeurPlacer = neuf.largeurPlacer;
+					plan.largeurOutliner = neuf.largeurOutliner;
+					plan.largeurDetails = neuf.largeurDetails;
+					plan.hauteurTiroir = neuf.hauteurTiroir;
+					plan.voirPlacer = plan.voirOutliner = plan.voirDetails = plan.voirTiroir = true;
 					break;
 				}
 				case NOGEE_A_ANCIENNE_COQUILLE: {
@@ -888,14 +735,14 @@ namespace nkentseu {
 		// LES RACCOURCIS
 		// =====================================================================
 		bool NogeeInterface::ChampAuClavier() const noexcept {
-			return mCtx.inputId != nkgui::NKGUI_ID_NONE || !mOutliner.Libre() || !mDetails.Libre() || mPlacer.filtreFocus ||
+			return const_cast<NogeeInterface *>(this)->Gui().inputId != nkgui::NKGUI_ID_NONE || !mOutliner.Libre() || !mDetails.Libre() || mPlacer.filtreFocus ||
 				   mJournal.rechercheFocus || mContenu.modele.searchFocused || mTerminal.AFocus();
 		}
 
 		void NogeeInterface::Raccourcis(NkFamilleCtx &c) {
 			const nkgui::NkGuiInput &in = c.ctx.input;
-			if (in.KeyPressed(NkGuiKey::Escape) && mMenus.Ouvert()) {
-				mMenus.Fermer();
+			if (in.KeyPressed(NkGuiKey::Escape) && menus.Ouvert()) {
+				menus.Fermer();
 				return;
 			}
 			if (ChampAuClavier()) {

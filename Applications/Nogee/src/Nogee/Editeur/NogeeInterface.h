@@ -13,6 +13,11 @@
 // Overlay2D du renderer de l'application (SetUIOverlayCallback, le patron de
 // PV3DE/MedicalUILayer). La vue 3D, rendue a part (NogeeVue3D), y est une IMAGE.
 //
+// LA TRAME (ordre de dessin, polices, theme, entree, plan, barre de titre,
+// menus, fenetre modale, fenetre sans cadre) est celle de la FAMILLE :
+// editorkit::NkFamilleEditeur, dont cette couche derive -- la meme que
+// NkAnimaEditor. Nogee ne peint que SON corps, ses barres et ses menus.
+//
 // OU EST QUOI (un fichier par region, comme UnkenyEditor) :
 //   NogeeInterface.cpp          la couche, la trame, le chrome, les menus, les actions
 //   NogeeInterfaceVue.cpp       le viseur : image, grille, selection, gizmo, camera
@@ -136,7 +141,7 @@ namespace nkentseu {
 			Count
 		};
 
-		class NogeeInterface final : public NkOverlay {
+		class NogeeInterface final : public NkOverlay, public editorkit::NkFamilleEditeur {
 			public:
 				static constexpr uint32 kTexVue = 4096u; ///< la vue 3D (image hors ecran)
 
@@ -153,17 +158,16 @@ namespace nkentseu {
 					return mPret && mBackendPret;
 				}
 				bool DemandeQuitter() const noexcept {
-					return mDemandeQuitter;
+					return QuitterDemande();
 				}
 				/// Le viseur, a la derniere trame (la taille de la vue 3D).
 				const nkgui::NkRect &Viseur() const noexcept {
-					return mPlan.viseur;
+					return plan.viseur;
 				}
 				/// Pose l'onglet du tiroir (captures : --tiroir=journal|terminal|contenu).
 				void PoserOngletTiroir(int32 o) noexcept {
 					mOngletTiroir = o;
 				}
-				void PoserTheme(bool clair);
 				/// Rend au device ce que l'interface y tient (backend, rappel de la passe
 				/// d'interface). A appeler AVANT la destruction du device : la pile de
 				/// couches n'est detachee qu'apres (~NkLayerStack), device deja mort --
@@ -171,19 +175,25 @@ namespace nkentseu {
 				void LibererGpu() noexcept;
 
 				/// L'action `a` (menus, barres, raccourcis, banc).
-				void Executer(int32 a);
+				void Executer(int32 a) override;
 				/// Les entrees du menu `m`.
-				void Remplir(int32 m, NkVector<editorkit::NkFamilleEntreeMenu> &sortie);
+				void Remplir(int32 m, NkVector<editorkit::NkFamilleEntreeMenu> &sortie) override;
+
+			protected:
+				// ── Ce que Nogee peint dans la trame de la famille ─────────────
+				NkString Titre() const override;
+				void PeindreLogo(nkgui::NkGuiDrawList &dl, float32 x, float32 y, float32 cote, bool fondSombre) override;
+				void AvantCorps(editorkit::NkFamilleCtx &c) override;
+				void PeindreCorps(editorkit::NkFamilleCtx &c) override;
+				void PeindreOnglets(editorkit::NkFamilleCtx &c) override;
+				void PeindreBarreOutils(editorkit::NkFamilleCtx &c) override;
+				void PeindreStatut(editorkit::NkFamilleCtx &c) override;
+				void Raccourcis(editorkit::NkFamilleCtx &c) override;
+				void Fermer() override;
+				bool Modale() const override;
+				void PeindreModale(editorkit::NkFamilleCtx &c) override;
 
 			private:
-				// ── La trame (NogeeInterface.cpp) ──────────────────────────────
-				void Trame(editorkit::NkFamilleCtx &c);
-				void BarreTitre(editorkit::NkFamilleCtx &c);
-				void OngletsScene(editorkit::NkFamilleCtx &c);
-				void BarreOutils(editorkit::NkFamilleCtx &c);
-				void Statut(editorkit::NkFamilleCtx &c);
-				void Raccourcis(editorkit::NkFamilleCtx &c);
-				void AppliquerFenetre();
 				void Journaliser();
 				bool ChampAuClavier() const noexcept;
 
@@ -217,31 +227,19 @@ namespace nkentseu {
 				const NogeeModele &M() const noexcept {
 					return *mHote.modele;
 				}
-				editorkit::NkFamilleMenus mMenus;
 				ecs::NkEntityId mCibleMenu = ecs::NkEntityId::Invalid();
 				math::NkVec3f mPointMenu{0.f, 0.f, 0.f};
 				int32 mCarteMenu = -1;
 				NkVector<ecs::NkEntityId> mArbreEntites;
 
 			private:
-				// ── NKGui et son rendu ────────────────────────────────────────
-				nkgui::NkGuiContext mCtx;
-				nkgui::NkGuiFont mPolice, mPetite, mMono;
+				// ── Le rendu de l'interface ───────────────────────────────────
 				nkgui::NkGuiRHIBackend mBackend;
-				nkgui::NkGuiDrawList mFusion; ///< dl + dlOverlay : UNE Submit par image
+				const nkgui::NkGuiDrawList *mListe = nullptr; ///< la liste fusionnee de la trame
 				bool mPret = false;
 				bool mBackendPret = false;
 				bool mRappelPose = false;
 				uint32 mGenerationVue = 0;
-				editorkit::NkTheme mTheme;
-				editorkit::NkFamillePalette mPal;
-				bool mClair = false;
-				editorkit::NkFamilleEntree mEntree;
-
-				// ── La disposition et la fenetre ──────────────────────────────
-				editorkit::NkFamillePlan mPlan;
-				editorkit::NkFamilleFenetre mFen;
-				bool mDemandeQuitter = false;
 
 				// ── Les panneaux ──────────────────────────────────────────────
 				editorkit::NkFamillePlacer mPlacer;
@@ -260,10 +258,6 @@ namespace nkentseu {
 
 				// ── Le temps ──────────────────────────────────────────────────
 				float32 mDt = 1.f / 60.f;
-				float32 mTemps = 0.f;
-				float32 mIps = 0.f;
-				float32 mTempsIps = 0.f;
-				int32 mTramesIps = 0;
 
 				// ── Le viseur ─────────────────────────────────────────────────
 				bool mOrbite = false;

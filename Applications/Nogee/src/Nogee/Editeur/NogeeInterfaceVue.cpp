@@ -77,18 +77,18 @@ namespace nkentseu {
 			if (c.w <= 1.0e-4f) {
 				return false;
 			}
-			const NkRect &v = mPlan.viseur;
+			const NkRect &v = plan.viseur;
 			s.x = v.x + (c.x / c.w * 0.5f + 0.5f) * v.w;
 			s.y = v.y + (1.f - (c.y / c.w * 0.5f + 0.5f)) * v.h;
 			return true;
 		}
 
 		bool NogeeInterface::RayonSouris(const NkVec2 &s, NkVec3f &o, NkVec3f &d) const noexcept {
-			if (mHote.moteur == nullptr || mPlan.viseur.w < 2.f || mPlan.viseur.h < 2.f) {
+			if (mHote.moteur == nullptr || plan.viseur.w < 2.f || plan.viseur.h < 2.f) {
 				return false;
 			}
 			const NkMat4f inv = mHote.moteur->GetRenderSystem().GetViewProjection().Inverse();
-			const NkRect &v = mPlan.viseur;
+			const NkRect &v = plan.viseur;
 			const float32 nx = (s.x - v.x) / v.w * 2.f - 1.f;
 			const float32 ny = 1.f - (s.y - v.y) / v.h * 2.f;
 			// Deux points de profondeur 0 et 1 : sur le rayon quelle que soit la
@@ -119,7 +119,7 @@ namespace nkentseu {
 
 		NkVec3f NogeeInterface::PointDePose(int32 element, bool auCentre, const NkVec2 &) const noexcept {
 			const NogeeModele &m = M();
-			const NkRect &v = mPlan.viseur;
+			const NkRect &v = plan.viseur;
 			NkVec3f p = auCentre ? PointAuSol(NkVec2{v.x + v.w * 0.5f, v.y + v.h * 0.5f}) : mPointMenu;
 			p.x = Accrocher(p.x, m.pasGrille, m.accrocheGrille);
 			p.z = Accrocher(p.z, m.pasGrille, m.accrocheGrille);
@@ -186,7 +186,7 @@ namespace nkentseu {
 				return;
 			}
 			const NkMat4f &m = mHote.moteur->GetRenderSystem().GetViewProjection();
-			const NkRect &v = mPlan.viseur;
+			const NkRect &v = plan.viseur;
 			auto Segment = [&](const NkVec3f &a, const NkVec3f &b, const NkColor &col, float32 e) {
 				NkClip ca = VersClip(m, a);
 				NkClip cb = VersClip(m, b);
@@ -208,9 +208,9 @@ namespace nkentseu {
 				const NkVec2 pb{v.x + (cb.x / cb.w * 0.5f + 0.5f) * v.w, v.y + (1.f - (cb.y / cb.w * 0.5f + 0.5f)) * v.h};
 				dl.AddLine(pa, pb, col, e);
 			};
-			NkColor fine = mPal.texte;
+			NkColor fine = pal.texte;
 			fine.a = 26;
-			NkColor forte = mPal.texte;
+			NkColor forte = pal.texte;
 			forte.a = 52;
 			const int32 N = 20;
 			for (int32 i = -N; i <= N; ++i) {
@@ -222,9 +222,9 @@ namespace nkentseu {
 				}
 			}
 			// Les axes du monde sur le sol : X rouge, Z bleu (Unreal).
-			NkColor ax = mPal.axeX;
+			NkColor ax = pal.axeX;
 			ax.a = 170;
-			NkColor az = mPal.axeZ;
+			NkColor az = pal.axeZ;
 			az.a = 170;
 			Segment(NkVec3f{-static_cast<float32>(N), 0.f, 0.f}, NkVec3f{static_cast<float32>(N), 0.f, 0.f}, ax, 1.5f);
 			Segment(NkVec3f{0.f, 0.f, -static_cast<float32>(N)}, NkVec3f{0.f, 0.f, static_cast<float32>(N)}, az, 1.5f);
@@ -259,7 +259,7 @@ namespace nkentseu {
 				axes[2] = Normer(NkVec3f{w[2][0], w[2][1], w[2][2]});
 			}
 			const float32 L = m.orbite.distance * 0.16f;
-			const NkColor couleurs[3] = {mPal.axeX, mPal.axeY, mPal.axeZ};
+			const NkColor couleurs[3] = {pal.axeX, pal.axeY, pal.axeZ};
 			const NkColor survolCol{255, 220, 60, 255};
 
 			// ── Les poignees a l'ecran ─────────────────────────────────────────
@@ -335,7 +335,7 @@ namespace nkentseu {
 				}
 			}
 			dl.AddCircleFilled(S, m.outil == NogeeOutil::Echelle ? 5.f : 3.5f,
-							   (survole == 3 || mAxeTenu == 3) ? survolCol : mPal.texte);
+							   (survole == 3 || mAxeTenu == 3) ? survolCol : pal.texte);
 
 			// ── Le geste ───────────────────────────────────────────────────────
 			if (survole >= 0 && in.mouseClicked[0]) {
@@ -433,34 +433,34 @@ namespace nkentseu {
 			el[5].separateur = true;
 			el[5].bulle = NkString("Accrochage des déplacements (Ctrl l'inverse)");
 			el[6].texte = NkString::Format("%g m", static_cast<double>(m.pasGrille));
-			el[6].enfonce = mMenus.menu == NOGEE_MENU_PAS_GRILLE;
+			el[6].enfonce = menus.menu == NOGEE_MENU_PAS_GRILLE;
 			el[6].eteint = !m.accrocheGrille;
 			el[6].bulle = NkString("Pas de la grille");
 			el[7].icone = NkFamilleIconeBarre::Angle;
 			el[7].enfonce = m.accrocheAngle;
 			el[7].bulle = NkString("Accrochage des rotations (Ctrl l'inverse)");
 			el[8].texte = NkString::Format("%g°", static_cast<double>(m.pasAngle));
-			el[8].enfonce = mMenus.menu == NOGEE_MENU_PAS_ANGLE;
+			el[8].enfonce = menus.menu == NOGEE_MENU_PAS_ANGLE;
 			el[8].eteint = !m.accrocheAngle;
 			el[8].bulle = NkString("Pas des angles");
 			el[9].icone = NkFamilleIconeBarre::PasEchelle;
 			el[9].enfonce = m.accrocheEchelle;
 			el[9].bulle = NkString("Accrochage des échelles (Ctrl l'inverse)");
 			el[10].texte = NkString::Format("x%g", static_cast<double>(m.pasEchelle));
-			el[10].enfonce = mMenus.menu == NOGEE_MENU_PAS_ECHELLE;
+			el[10].enfonce = menus.menu == NOGEE_MENU_PAS_ECHELLE;
 			el[10].eteint = !m.accrocheEchelle;
 			el[10].bulle = NkString("Pas de l'échelle");
-			const NkFamilleBarreFlottanteResultat r = NkFamilleBarreFlottante(c, mPlan.viseur, el, 11, mMenus.Ouvert());
+			const NkFamilleBarreFlottanteResultat r = NkFamilleBarreFlottante(c, plan.viseur, el, 11, menus.Ouvert());
 			mBarre = r.barre;
 			switch (r.clic) {
 				case 0: case 1: case 2: case 3: Executer(NOGEE_A_OUTIL + r.clic); break;
 				case 4:  Executer(NOGEE_A_REPERE_LOCAL); break;
 				case 5:  Executer(NOGEE_A_ACCROCHE_GRILLE); break;
-				case 6:  mMenus.Ouvrir(NOGEE_MENU_PAS_GRILLE, r.rect); break;
+				case 6:  menus.Ouvrir(NOGEE_MENU_PAS_GRILLE, r.rect); break;
 				case 7:  Executer(NOGEE_A_ACCROCHE_ANGLE); break;
-				case 8:  mMenus.Ouvrir(NOGEE_MENU_PAS_ANGLE, r.rect); break;
+				case 8:  menus.Ouvrir(NOGEE_MENU_PAS_ANGLE, r.rect); break;
 				case 9:  Executer(NOGEE_A_ACCROCHE_ECHELLE); break;
-				case 10: mMenus.Ouvrir(NOGEE_MENU_PAS_ECHELLE, r.rect); break;
+				case 10: menus.Ouvrir(NOGEE_MENU_PAS_ECHELLE, r.rect); break;
 				default: break;
 			}
 		}
@@ -472,8 +472,8 @@ namespace nkentseu {
 			NogeeModele &m = M();
 			auto &dl = c.ctx.dl;
 			nkgui::NkGuiInput &in = c.ctx.input;
-			const NkRect &v = mPlan.viseur;
-			if (mPlan.vue.w < 8.f || mPlan.vue.h < 8.f) {
+			const NkRect &v = plan.viseur;
+			if (plan.vue.w < 8.f || plan.vue.h < 8.f) {
 				return;
 			}
 			// ── La barre de vue ───────────────────────────────────────────────
@@ -483,7 +483,7 @@ namespace nkentseu {
 														  mHote.vue != nullptr ? mHote.vue->Largeur() : 0u,
 														  mHote.vue != nullptr ? mHote.vue->Hauteur() : 0u,
 														  m.etat == NogeeEtatJeu::Edition ? "caméra d'édition" : "caméra du jeu");
-				const int32 k = NkFamilleBarreVue(c, mPlan.barreVue, boutons, 3, reperes.CStr());
+				const int32 k = NkFamilleBarreVue(c, plan.barreVue, boutons, 3, reperes.CStr());
 				if (k == 0) {
 					Executer(NOGEE_A_CADRER);
 				} else if (k == 1) {
@@ -501,7 +501,7 @@ namespace nkentseu {
 				dl.AddImage(kTexVue, v, NkVec2{0.f, 1.f}, NkVec2{1.f, 0.f}, NkColor{255, 255, 255, 255});
 			} else {
 				NkFamilleTexteCentre(dl, c.police, v.x + v.w * 0.5f, v.y + v.h * 0.45f, "La vue 3D n'est pas encore prête",
-									 mPal.attenue);
+									 pal.attenue);
 			}
 			dl.PushClipRect(v, true);
 			if (m.voirGrille && m.etat == NogeeEtatJeu::Edition) {
@@ -555,9 +555,9 @@ namespace nkentseu {
 						const NkEntityId sous = Prendre(in.mousePos);
 						if (sous.IsValid()) {
 							m.Choisir(sous);
-							mMenus.Ouvrir(NOGEE_MENU_CTX_ENTITE, NkRect{in.mousePos.x, in.mousePos.y, 0.f, 0.f});
+							menus.Ouvrir(NOGEE_MENU_CTX_ENTITE, NkRect{in.mousePos.x, in.mousePos.y, 0.f, 0.f});
 						} else {
-							mMenus.Ouvrir(NOGEE_MENU_CTX_VIDE, NkRect{in.mousePos.x, in.mousePos.y, 0.f, 0.f});
+							menus.Ouvrir(NOGEE_MENU_CTX_VIDE, NkRect{in.mousePos.x, in.mousePos.y, 0.f, 0.f});
 						}
 					}
 				}
