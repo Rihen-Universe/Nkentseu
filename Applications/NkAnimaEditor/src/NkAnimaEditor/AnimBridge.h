@@ -141,4 +141,24 @@ namespace nkanima {
 	// Libellé du régime courant, à afficher à côté de la sphère. Jamais nul.
 	const char *AnimCOMRegimeLabel();
 
+	// ── (2026-10-01 soir) LA FRISE PARTAGEE (Frise/NkAnimaFrise.cpp) ────────────
+	// Ce qu'il faut a la frise de NKEditorKit pour montrer les POSES-CLES et les
+	// courbes de CHAQUE OS, sans que l'UI tire NKAnima (types foundation).
+	bool AnimCanUndo();
+	bool AnimCanRedo();
+	void AnimDeleteKeyAt(float32 t);
+	// Copier / coller : la pose ECHANTILLONNEE a `from` devient une pose-cle a `to`.
+	void AnimCopyPoseKey(float32 from, float32 to);
+	// L'interpolation d'une pose-cle (celle de sa premiere piste d'os, 255 sinon),
+	// et son reglage sur toutes les pistes d'os (codes d'anim::NkInterpMode).
+	uint8 AnimKeyInterp(float32 t);
+	void AnimSetKeyInterp(float32 t, uint8 interp);
+	// Les os : nombre, nom (« » s'il n'en a pas), parent (-1 = racine), et leur
+	// transform LOCAL a `t` -- position, rotation en degres (X, Y, Z), echelle --
+	// echantillonne comme le joue le lecteur (TRS, NLERP).
+	uint32 AnimBoneCount();
+	const char *AnimJointName(uint32 j);
+	int32 AnimJointParent(uint32 j);
+	bool AnimSampleJointLocal(uint32 j, float32 t, float32 pos[3], float32 rotDeg[3], float32 scale[3]);
+
 } // namespace nkanima

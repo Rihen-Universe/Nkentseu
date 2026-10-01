@@ -996,10 +996,15 @@ int nkmain(const NkEntryState &state) {
 	//    (main.cpp:105).
 	const NkVector<NkString> &args = state.GetArgs();
 	bool sonde = false;
+	const char *capturesFrise = nullptr;
 	for (usize i = 1; i < args.Size(); ++i) {
 		const NkString &a = args[i];
 		if (a == "--sonde-coquille") {
 			sonde = true;
+			continue;
+		}
+		if (a.StartsWith("--captures-frise=")) { // (01/10 soir) la frise partagee, hors ecran
+			capturesFrise = a.CStr() + 17;
 			continue;
 		}
 		if (a.StartsWith("--interface=")) {
@@ -1023,6 +1028,8 @@ int nkmain(const NkEntryState &state) {
 	// LA SONDE SORT AVANT TOUTE FENETRE : elle ne demande ni GPU ni souris.
 	if (sonde)
 		return SondeCoquille(dossierUI);
+	if (capturesFrise != nullptr)
+		return nkanima::NkAnimaCapturesFrise(capturesFrise, modelPath);
 
 	auto shell = memory::NkMakeUnique<NkEditorShell>();
 	// Backend de rendu NKRHI/NKRenderer injecte (PAS NKCanvas) : l'UI NKGui et le
