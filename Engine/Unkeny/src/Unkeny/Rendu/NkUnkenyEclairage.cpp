@@ -320,9 +320,18 @@ namespace nkentseu {
 								}
 								// Le meme repere que NkDistanceForme2D et NkDessinerFormes :
 								// rotation du transform, echelle 1, decalage local.
-								const float32 etendue = c.forme == NkForme2D::NK_BOITE
-															? math::NkSqrt(c.demiTaille.x * c.demiTaille.x + c.demiTaille.y * c.demiTaille.y)
-															: c.rayon + (c.forme == NkForme2D::NK_CAPSULE ? c.demiTaille.x : 0.f);
+								float32 etendue = c.forme == NkForme2D::NK_BOITE
+													  ? math::NkSqrt(c.demiTaille.x * c.demiTaille.x + c.demiTaille.y * c.demiTaille.y)
+													  : c.rayon + (c.forme == NkForme2D::NK_CAPSULE ? c.demiTaille.x : 0.f);
+								const bool sommets = c.forme == NkForme2D::NK_POLYGONE || c.forme == NkForme2D::NK_CHAINE;
+								if (sommets) {
+									// (2026-10-01) Polygone, chaine : le sommet le plus loin.
+									etendue = 0.f;
+									for (uint32 k = 0; k < NkNbSommetsCollision2D(c); ++k) {
+										const NkVec2f &q = c.sommets[k];
+										etendue = math::NkMax(etendue, math::NkSqrt(q.x * q.x + q.y * q.y));
+									}
+								}
 								const NkVec2f o = t.VersMonde(c.decalage);
 								const float32 dx = o.x - centre.x;
 								const float32 dy = o.y - centre.y;
@@ -330,7 +339,11 @@ namespace nkentseu {
 								if (dx * dx + dy * dy >= r * r) {
 									return;
 								}
-								auto P = [&](float32 lx, float32 ly) {
+								// (2026-10-01) La rotation PROPRE du collisionneur y est aussi.
+								const float32 cr = math::NkCos(c.rotation), sr = math::NkSin(c.rotation);
+								auto P = [&](float32 lx0, float32 ly0) {
+									const float32 lx = lx0 * cr - ly0 * sr;
+									const float32 ly = lx0 * sr + ly0 * cr;
 									const float32 co = math::NkCos(t.rotation);
 									const float32 si = math::NkSin(t.rotation);
 									const float32 x = lx + c.decalage.x;
@@ -339,7 +352,24 @@ namespace nkentseu {
 								};
 								const int32 occ = static_cast<int32>(occs.Size());
 								NkVec2f pts[SEGMENTS_CERCLE + 2];
-								if (c.forme == NkForme2D::NK_BOITE) {
+								if (sommets) {
+									// Ferme : son contour. Ouvert (une pente, un trait) : un
+									// polygone PLAT, aller puis retour, qui porte ombre des deux
+									// cotes sans fermer le dessous.
+									NkVec2f q[2u * NK_COLLISION_SOMMETS_MAX];
+									const uint32 n = NkNbSommetsCollision2D(c);
+									int32 m = 0;
+									for (uint32 k = 0; k < n; ++k) {
+										q[m++] = P(c.sommets[k].x, c.sommets[k].y);
+									}
+									const bool ferme = c.forme == NkForme2D::NK_POLYGONE || c.boucle;
+									for (uint32 k = n; !ferme && k-- > 1u;) {
+										q[m++] = P(c.sommets[k - 1u].x, c.sommets[k - 1u].y);
+									}
+									if (m >= 2) {
+										Polygone(q, m, occ);
+									}
+								} else if (c.forme == NkForme2D::NK_BOITE) {
 									const float32 hx = c.demiTaille.x;
 									const float32 hy = c.demiTaille.y;
 									pts[0] = P(-hx, -hy);

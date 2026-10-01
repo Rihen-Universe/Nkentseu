@@ -861,6 +861,20 @@ namespace nkentseu {
 					o.SetUInt32(V("couche"), c.couche);
 					o.SetUInt32(V("masque"), c.masque);
 					o.SetBool(V("declencheur"), c.declencheur);
+					// (2026-10-01) ECRITS SEULEMENT S'ILS SERVENT : un collisionneur
+					// d'avant (boite, cercle, capsule, droit) ressort a l'octet pres.
+					if (c.rotation != 0.f) {
+						o.SetFloat32(V("rotation"), c.rotation);
+					}
+					if (c.forme == NkForme2D::NK_POLYGONE || c.forme == NkForme2D::NK_CHAINE) {
+						NkNombres pts;
+						const uint32 n = NkNbSommetsCollision2D(c);
+						for (uint32 k = 0; k < n; ++k) {
+							pts.V2(c.sommets[k]);
+						}
+						o.SetString(V("sommets"), pts.Texte().View());
+						o.SetBool(V("boucle"), c.boucle);
+					}
 					a.SetObject(V("collisionneur"), o);
 				}
 				if (e.aCorps) {
@@ -1002,7 +1016,7 @@ namespace nkentseu {
 					NkCollisionneur2D &c = e.collisionneur;
 					uint32 forme = 0;
 					LireU(o, "forme", forme);
-					if (forme > static_cast<uint32>(NkForme2D::NK_CAPSULE)) {
+					if (forme > static_cast<uint32>(NkForme2D::NK_CHAINE)) {
 						erreur = "forme de collisionneur inconnue";
 						return false;
 					}
@@ -1013,6 +1027,18 @@ namespace nkentseu {
 					LireU(o, "couche", c.couche);
 					LireU(o, "masque", c.masque);
 					LireB(o, "declencheur", c.declencheur);
+					// (2026-10-01) Absents d'un fichier d'avant : droit, sans sommets.
+					LireF(o, "rotation", c.rotation);
+					LireB(o, "boucle", c.boucle);
+					if (o.GetString(V("sommets"), s)) {
+						NkLecteur l(s);
+						uint32 n = 0;
+						NkVec2f p;
+						while (n < NK_COLLISION_SOMMETS_MAX && l.V2(p)) {
+							c.sommets[n++] = p;
+						}
+						c.nbSommets = static_cast<uint8>(n);
+					}
 				}
 				if (a.GetObject(V("corps"), o)) {
 					e.aCorps = true;
@@ -1536,6 +1562,24 @@ namespace nkentseu {
 				o.SetFloat32(V("maille"), ec.maille);
 				sortie.SetObject(V("eclairage"), o);
 			}
+			// (2026-10-01) Les calques de collision, seulement s'ils ont ete
+			// retouches : meme regle que l'eclairage.
+			const NkCalquesCollision2D &kc = scene.Calques();
+			if (!NkCalquesParDefaut(kc)) {
+				NkArchive o;
+				NkNombres lignes;
+				NkString noms;
+				for (uint32 i = 0; i < NK_CALQUES_COLLISION; ++i) {
+					lignes.U(kc.matrice[i]);
+					if (i > 0u) {
+						noms.Append("\n"); // un nom peut porter des espaces, pas de saut de ligne
+					}
+					noms.Append(kc.noms[i]);
+				}
+				o.SetString(V("matrice"), lignes.Texte().View());
+				o.SetString(V("noms"), noms.View());
+				sortie.SetObject(V("calques"), o);
+			}
 			return true;
 		}
 
@@ -1606,6 +1650,33 @@ namespace nkentseu {
 				}
 				ec.mode = static_cast<NkModeEclairage2D>(mode);
 			}
+			// (2026-10-01) Les calques de collision : absents = tout touche tout.
+			NkCalquesCollision2D calques;
+			NkArchive ka;
+			if (entree.GetObject(V("calques"), ka)) {
+				NkString t;
+				if (ka.GetString(V("matrice"), t)) {
+					NkLecteur l(t);
+					for (uint32 i = 0; i < NK_CALQUES_COLLISION; ++i) {
+						uint32 v = 0xFFFFu;
+						if (!l.U(v)) {
+							break;
+						}
+						calques.matrice[i] = static_cast<uint16>(v & 0xFFFFu);
+					}
+				}
+				if (ka.GetString(V("noms"), t)) {
+					const char *a = t.CStr();
+					for (uint32 i = 0; i < NK_CALQUES_COLLISION && a != nullptr; ++i) {
+						const char *fin = std::strchr(a, '\n');
+						const usize l = fin != nullptr ? static_cast<usize>(fin - a) : std::strlen(a);
+						const usize m = l < sizeof(calques.noms[i]) - 1u ? l : sizeof(calques.noms[i]) - 1u;
+						std::memcpy(calques.noms[i], a, m);
+						calques.noms[i][m] = '\0';
+						a = fin != nullptr ? fin + 1 : nullptr;
+					}
+				}
+			}
 			NkArchive pa;
 			const bool aParticules = entree.GetObject(V("particules"), pa);
 			if (aParticules && !LireParticules(pa, photo.particules, err)) {
@@ -1627,6 +1698,8 @@ namespace nkentseu {
 			if (!scene.Init(cfg)) {
 				return echec("initialisation de la scene impossible");
 			}
+			// AVANT Restaurer : les corps naissent avec la matrice du fichier.
+			scene.Calques() = calques;
 			NkString s;
 			if (entree.GetString(V("camera"), s)) {
 				NkLecteur l(s);

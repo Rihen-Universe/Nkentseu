@@ -323,6 +323,52 @@ namespace nkentseu {
 			return Mou(s, NkActeurSim::NK_PONT, physics::NkCreerPontP2D(*p, a, b));
 		}
 
+		// =====================================================================
+		ecs::NkEntityId NkPoserForme2D(NkScene &s, const NkRenduForme2D &f, const NkVec2f &pos, const char *nom,
+									   bool collisionneur, int32 corps) {
+			const ecs::NkEntityId e = s.Creer(nom != nullptr && nom[0] != '\0' ? nom : NkNomGenreForme2D(f.genre), pos);
+			s.Monde().Add<NkRenduForme2D>(e, f);
+			if (!collisionneur && corps < 0) {
+				return e;
+			}
+			NkCollisionneur2D col;
+			NkCollisionneurDepuisForme(f, corps == static_cast<int32>(NkTypeCorps::NK_DYNAMIQUE), col);
+			s.Monde().Add<NkCollisionneur2D>(e, col);
+			if (corps >= 0 && corps <= static_cast<int32>(NkTypeCorps::NK_DYNAMIQUE) && s.PhysiqueActive()) {
+				NkCorps2D c;
+				c.type = static_cast<NkTypeCorps>(corps);
+				s.AjouterCorps(e, c);
+			}
+			return e;
+		}
+
+		bool NkRefaireCollisionneurForme(NkScene &s, ecs::NkEntityId id) {
+			const NkRenduForme2D *f = s.Monde().Get<NkRenduForme2D>(id);
+			if (f == nullptr) {
+				return false;
+			}
+			const NkCorps2D *corps = s.Monde().Get<NkCorps2D>(id);
+			const bool dynamique = corps != nullptr && corps->type == NkTypeCorps::NK_DYNAMIQUE;
+			NkCollisionneur2D col;
+			if (const NkCollisionneur2D *avant = s.Monde().Get<NkCollisionneur2D>(id)) {
+				col = *avant; // couche, masque, declencheur
+			}
+			const NkRenduForme2D copie = *f; // Add peut deplacer les donnees de l'entite
+			if (!NkCollisionneurDepuisForme(copie, dynamique, col)) {
+				return false;
+			}
+			if (s.Monde().Has<NkCollisionneur2D>(id)) {
+				s.Monde().Set<NkCollisionneur2D>(id, col);
+			} else {
+				s.Monde().Add<NkCollisionneur2D>(id, col);
+			}
+			if (corps != nullptr) {
+				s.ActualiserCorps(id);
+			}
+			return true;
+		}
+
+		// =====================================================================
 		ecs::NkEntityId NkPoserObstacleSim(NkScene &s, const NkVec2f &a, const NkVec2f &b, float32 rayon) {
 			const NkVec2f ab = b - a;
 			const float32 L = math::NkSqrt(ab.x * ab.x + ab.y * ab.y);

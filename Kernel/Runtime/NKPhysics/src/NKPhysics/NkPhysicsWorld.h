@@ -42,7 +42,10 @@ namespace nkentseu {
 
 		// Nombre maximal de sommets d'un polygone 2D DYNAMIQUE (copie tenue par le
 		// monde). NkColClip n'en lit deja que 8 ; au-dela, le polygone est tronque.
-		static constexpr uint32 NK_SOMMETS_2D_MAX = 16u;
+		// (2026-10-01) 40 au lieu de 16 : la copie sert aussi les CHAINES 2D (le
+		// contour exact d'un decor concave, Unkeny NkForme2D::NK_CHAINE), dont
+		// 32 points et le point de fermeture. Un polygone n'en lit toujours que 8.
+		static constexpr uint32 NK_SOMMETS_2D_MAX = 40u;
 
 		class NkPhysicsWorld {
 			public:

@@ -26,6 +26,7 @@
 #pragma once
 
 #include "NKMath/NKMath.h"
+#include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
 
 namespace nkentseu {
@@ -103,6 +104,18 @@ namespace nkentseu {
 		ecs::NkEntityId NkPoserPontSim(NkScene &scene, const NkVec2f &a, const NkVec2f &b);
 		/// Paroi statique (capsule) de a a b ; a == b donne une cheville ronde.
 		ecs::NkEntityId NkPoserObstacleSim(NkScene &scene, const NkVec2f &a, const NkVec2f &b, float32 rayon);
+
+		// --- Les FORMES 2D (2026-10-01, NkUnkenyFormes.h) ----------------------
+		/// Pose une forme en `pos` : l'entite (nommee `nom`, ou le nom du genre),
+		/// sa NkRenduForme2D et, si `collisionneur`, le collisionneur ASSORTI
+		/// (NkCollisionneurDepuisForme). `corps` >= 0 : un corps rigide de ce
+		/// NkTypeCorps (la scene doit avoir sa physique). Rend l'entite.
+		ecs::NkEntityId NkPoserForme2D(NkScene &scene, const NkRenduForme2D &f, const NkVec2f &pos, const char *nom = nullptr,
+									   bool collisionneur = true, int32 corps = -1);
+		/// Refait le collisionneur de l'entite depuis sa forme (couche, masque et
+		/// « declencheur » gardes ; corps rigide refait s'il y en a un). Faux si
+		/// l'entite n'a pas de forme.
+		bool NkRefaireCollisionneurForme(NkScene &scene, ecs::NkEntityId id);
 
 		/// Les noms sont numerotes par type (Blob_visqueux_3). Remettre a zero au
 		/// chargement d'un niveau garde des noms courts.

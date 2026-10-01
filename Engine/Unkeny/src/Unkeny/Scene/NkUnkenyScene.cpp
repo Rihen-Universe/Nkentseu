@@ -14,6 +14,7 @@
 #include "Unkeny/Scene/NkUnkenyScene.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
+#include "Unkeny/Scene/NkUnkenyFormes.h"
 #include "Unkeny/Scene/NkUnkenyPrefab.h"
 #include "Unkeny/Son/NkUnkenySon.h"
 
@@ -44,21 +45,72 @@ namespace nkentseu {
 
 			/// Traduit un collisionneur 2D en NkShape. Le centre est en MONDE :
 			/// NKCollision place ses formes en absolu.
-			collision::NkShape VersShape(const NkCollisionneur2D &col, const NkVec2f &centre) noexcept {
-				const NkVec2f c(centre.x + col.decalage.x, centre.y + col.decalage.y);
+			/// (2026-10-01) La rotation de l'entite et celle du collisionneur y
+			/// sont : avant, une capsule restait couchee quel que soit son angle
+			/// (l'obstacle oblique de Physic2D etait horizontal pour les balles), et
+			/// le decalage etait lu dans le repere du monde, pas de l'entite.
+			/// Polygone et chaine : `tampon` recoit les sommets en monde (le monde
+			/// physique en garde une copie). Une chaine sur un corps DYNAMIQUE
+			/// devient son enveloppe convexe : le solveur ne fait pas tomber un
+			/// contour concave.
+			collision::NkShape VersShape(const NkCollisionneur2D &col, const NkTransform2D &t, bool dynamique,
+										 math::NkVec3f *tampon, uint32 capacite) noexcept {
+				const NkVec2f c = NkPointCollision2D(t, col, NkVec2f(0.f, 0.f));
 				switch (col.forme) {
 					case NkForme2D::NK_CERCLE:
 						return collision::NkShape::Circle2D(c, col.rayon);
 					case NkForme2D::NK_CAPSULE: {
-						// La capsule est un segment horizontal + un rayon : c'est
-						// la forme d'un personnage, et elle ne s'accroche pas aux
-						// jointures du sol comme le ferait une boite.
-						const NkVec2f a(c.x - col.demiTaille.x, c.y);
-						const NkVec2f b(c.x + col.demiTaille.x, c.y);
+						// La capsule est un segment + un rayon : c'est la forme d'un
+						// personnage, et elle ne s'accroche pas aux jointures du sol
+						// comme le ferait une boite.
+						const NkVec2f a = NkPointCollision2D(t, col, NkVec2f(-col.demiTaille.x, 0.f));
+						const NkVec2f b = NkPointCollision2D(t, col, NkVec2f(col.demiTaille.x, 0.f));
 						return collision::NkShape::Capsule2D(a, b, col.rayon);
 					}
+					case NkForme2D::NK_POLYGONE:
+					case NkForme2D::NK_CHAINE: {
+						NkVec2f locaux[NK_COLLISION_SOMMETS_MAX];
+						uint32 n = NkNbSommetsCollision2D(col);
+						for (uint32 i = 0; i < n; ++i) {
+							locaux[i] = col.sommets[i];
+						}
+						bool polygone = col.forme == NkForme2D::NK_POLYGONE;
+						if (!polygone && dynamique) {
+							n = NkEnveloppeConvexe2D(col.sommets, n, locaux, NK_COLLISION_SOMMETS_MAX);
+							n = NkReduireConvexe2D(locaux, n, NK_POLYGONE_CONVEXE_MAX);
+							polygone = true;
+						}
+						if (polygone && n >= 3u) {
+							// Sens TRIGONOMETRIQUE : parcouru a l'envers, la masse du
+							// polygone sortirait negative (NkMassePolygone2D).
+							const bool inverse = NkAireSignee2D(locaux, n) < 0.f;
+							for (uint32 i = 0; i < n && i < capacite; ++i) {
+								const NkVec2f w = NkPointCollision2D(t, col, locaux[inverse ? n - 1u - i : i]);
+								tampon[i] = math::NkVec3f(w.x, w.y, 0.f);
+							}
+							return collision::NkShape::Polygon2D(tampon, n < capacite ? n : capacite);
+						}
+						if (!polygone && n >= 2u) {
+							uint32 k = 0;
+							for (uint32 i = 0; i < n && k < capacite; ++i) {
+								const NkVec2f w = NkPointCollision2D(t, col, locaux[i]);
+								tampon[k++] = math::NkVec3f(w.x, w.y, 0.f);
+							}
+							// Fermee : le premier point repete (une chaine NKCollision
+							// relie des sommets CONSECUTIFS).
+							if (col.boucle && n >= 3u && k < capacite) {
+								tampon[k] = tampon[0];
+								++k;
+							}
+							return collision::NkShape::Chain2D(tampon, k);
+						}
+						// Trop peu de sommets : un petit cercle, plutot que rien.
+						return collision::NkShape::Circle2D(c, col.rayon > 0.f ? col.rayon : 0.05f);
+					}
 					default:
-						return collision::NkShape::Box2D(c, col.demiTaille, 0.f);
+						// L'angle d'une boite 2D est RELATIF au corps (NKPhysics y ajoute
+						// l'orientation du corps, statique compris) : celui du collisionneur.
+						return collision::NkShape::Box2D(c, col.demiTaille, col.rotation);
 				}
 			}
 
@@ -154,6 +206,15 @@ namespace nkentseu {
 			PhotographierAussi<NkActif2D>("NkActif2D", kChampsActif, NbChamps(kChampsActif));
 			// L'ancrage a l'ecran (2026-10-01) : APRES l'activite, meme raison.
 			PhotographierAussi<NkAncrageEcran2D>("NkAncrageEcran2D", kChampsAncrage, NbChamps(kChampsAncrage));
+			// Les FORMES 2D (2026-10-01, NkUnkenyFormes.h) : APRES l'ancrage, meme
+			// raison. Ecrites sous "jeu" > "NkRenduForme2D", champ par champ.
+			{
+				uint32 n = 0;
+				const NkChampSauve *champs = NkChampsRenduForme2D(n);
+				PhotographierAussi<NkRenduForme2D>("NkRenduForme2D", champs, n);
+			}
+			// Les calques de collision repartent de « tout touche tout ».
+			mCalques = NkCalquesCollision2D();
 			mCorpsEteints.Clear();
 
 			// Le monde d'Unkeny est PLAN : NkPhysicsConfig::enable2D, lu par
@@ -295,6 +356,17 @@ namespace nkentseu {
 		}
 
 		// =====================================================================
+		uint32 NkScene::AppliquerCalques() {
+			NkVector<ecs::NkEntityId> ids;
+			mMonde.Query<NkCorps2D>().ForEach([&ids](ecs::NkEntityId id, NkCorps2D &) { ids.PushBack(id); });
+			uint32 n = 0;
+			for (uint32 i = 0; i < ids.Size(); ++i) {
+				n += ActualiserCorps(ids[i]) ? 1u : 0u;
+			}
+			return n;
+		}
+
+		// =====================================================================
 		bool NkScene::ActualiserCorps(ecs::NkEntityId id) {
 			if (mPhysique == nullptr) {
 				return false;
@@ -378,7 +450,9 @@ namespace nkentseu {
 			def.material.staticFriction = corps.friction * 1.2f;
 			def.material.restitution = corps.rebond;
 			def.layer = col->couche;
-			def.mask = col->masque;
+			// (2026-10-01) La matrice des calques s'ajoute au masque propre : par
+			// defaut elle laisse tout passer (NkMasqueCalques2D).
+			def.mask = col->masque & NkMasqueCalques2D(mCalques, col->couche);
 			if (corps.rotationBloquee) {
 				def.flags |= physics::NK_BODY_FIXED_ROT;
 			}
@@ -386,7 +460,10 @@ namespace nkentseu {
 				def.flags |= physics::NK_BODY_TRIGGER;
 			}
 
-			const physics::NkBodyId bid = mPhysique->CreateBody(def, VersShape(*col, t->position));
+			math::NkVec3f sommets[NK_COLLISION_SOMMETS_MAX + 1u];
+			const collision::NkShape forme =
+				VersShape(*col, *t, corps.type == NkTypeCorps::NK_DYNAMIQUE, sommets, NK_COLLISION_SOMMETS_MAX + 1u);
+			const physics::NkBodyId bid = mPhysique->CreateBody(def, forme);
 			if (bid == physics::NK_INVALID_BODY) {
 				logger.Error("[unkeny] le solveur a refuse le corps");
 				return false;
