@@ -33,6 +33,7 @@
 #include "NKCore/NkTypes.h"
 #include "NKContainers/String/NkString.h"
 #include "NKContainers/Sequential/NkVector.h"
+#include <initializer_list> // NkPath::LocateResource({ ... })
 
 // -------------------------------------------------------------------------
 // SECTION 2 : NAMESPACE PRINCIPAL ET DÉCLARATION DE LA CLASSE
@@ -290,6 +291,42 @@ namespace nkentseu {
 			/// depuis un dossier différent (ex: raccourci, IDE, CI).
 			/// @return NkPath absolu vers le dossier de l'exécutable
 			static NkPath GetExecutableDirectory();
+
+			/// TROUVE UNE RESSOURCE LIVREE (police, texture, icone, langue, shader,
+			/// document d'interface...) quel que soit le dossier de lancement.
+			///
+			/// ⚠️ POURQUOI (2026-10-01) : chaque application cherchait ses ressources
+			///    a partir du DOSSIER COURANT. Lancee par double-clic ou par un
+			///    raccourci depuis `Build/Bin/<cfg>/<App>/`, elle ne trouvait rien
+			///    (NKCode : icones vides, carre bleu a la place du logo), car le
+			///    `build` ne copie pas les ressources a cote de l'exe.
+			///
+			/// Ordre de recherche ; dans chaque dossier, TOUTES les variantes sont
+			/// essayees, dans l'ordre donne, avant de passer au dossier suivant :
+			///   1. le dossier courant (comportement historique : un lancement depuis
+			///      la racine du depot voit exactement les memes fichiers qu'avant) ;
+			///   2. le dossier de l'executable (un paquet : `data/` a cote de l'exe
+			///      passe donc avant la racine du depot trouvee en remontant) ;
+			///   3. les parents de l'executable, 8 niveaux au plus
+			///      (`Build/Bin/<cfg>/<App>/` est a 4 niveaux de la racine) ;
+			///   4. les parents du dossier courant, 8 niveaux au plus.
+			///
+			/// @param relative Chemin RELATIF d'un fichier OU d'un dossier
+			///        (« Resources/Interface/Nogee »). Un chemin absolu qui existe est
+			///        rendu tel quel.
+			/// @param warnIfMissing Si rien n'est trouve, un avertissement au journal
+			///        nomme la ressource et LISTE les dossiers essayes. Mettre false
+			///        pour une ressource facultative.
+			/// @return Le chemin ABSOLU trouve (separateurs '/'), ou une chaine VIDE.
+			///         Exception : un fichier visible seulement par NkFile (paquet
+			///         Android/HarmonyOS) est rendu relatif, tel qu'il a ete trouve.
+			static NkString LocateResource(const char *relative, bool warnIfMissing = true);
+
+			/// Idem avec plusieurs VARIANTES d'un meme chemin, par exemple
+			/// { "Applications/NKCode/data/fonts", "data/fonts" } : la premiere vaut
+			/// pour le depot, la seconde pour un paquet.
+			static NkString LocateResource(std::initializer_list<const char *> variants,
+										   bool warnIfMissing = true);
 
 			/// Obtient le répertoire temporaire du système.
 			/// @return NkPath contenant le chemin du répertoire temp
