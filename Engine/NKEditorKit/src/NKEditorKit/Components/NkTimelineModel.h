@@ -406,7 +406,7 @@ namespace nkentseu {
 			static const NkMetricDecl kMetrics[] = {
 				{"toolbar_h", 28.f, "hauteur de la barre d'outils"},
 				{"ruler_h", 22.f, "hauteur de la regle"},
-				{"list_w", 250.f, "largeur de la colonne des pistes"},
+				{"list_w", 290.f, "largeur de la colonne des pistes (une couleur y montre ses quatre canaux)"},
 				{"row_h", 22.f, "hauteur d'une piste"},
 				{"group_h", 22.f, "hauteur d'un en-tete d'objet"},
 				{"indent", 14.f, "retrait d'une piste sous son objet"},

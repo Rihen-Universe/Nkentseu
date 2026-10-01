@@ -351,9 +351,14 @@ namespace nkentseu {
 			const NkColor nature(c.theme.Get(NkRole::TypeAnim));
 			dl.AddRectFilled(NkRect{x, tete.y + tete.h * 0.5f - 5.f, 10.f, 10.f}, nature, 2.f);
 			x += 18.f;
-			const NkString titre = NkString::Format("Animation  %s%s", d.nom.CStr(), d.modifie ? " ●" : "");
+			const NkString titre = NkString::Format("Animation  %s", d.nom.CStr());
 			renderer::NkTexte(dl, c.police, x, ty, titre.CStr(), c.pal.texte);
-			x += renderer::NkTexteLargeur(c.police, titre.CStr()) + 24.f;
+			x += renderer::NkTexteLargeur(c.police, titre.CStr());
+			if (d.modifie) {
+				// Le point « non enregistre », TRACE (la police embarquee n'a pas « ● »).
+				dl.AddCircleFilled(NkVec2{x + 8.f, tete.y + tete.h * 0.5f}, 3.5f, c.pal.selection);
+			}
+			x += 24.f;
 			const NkString objet = NkString::Format("Entité animée : %s", m.scene.Monde().IsAlive(cible) ? NomDe(m, cible).CStr() : "(aucune)");
 			renderer::NkTexte(dl, c.police, x, ty, objet.CStr(), c.pal.attenue);
 			x += renderer::NkTexteLargeur(c.police, objet.CStr()) + 8.f;

@@ -220,8 +220,9 @@ namespace nkentseu {
 					nd.y = y;
 				} else {
 					const int32 r = rangDansNiveau[(uint32)i];
-					nd.x = (float32)(r % 3) * 230.f;
-					nd.y = (float32)(r / 3) * 110.f;
+					// Assez d'air entre deux etats pour lire le resume des conditions.
+					nd.x = (float32)(r % 3) * 340.f;
+					nd.y = (float32)(r / 3) * 170.f;
 				}
 				if (nd.subMachine) {
 					const int32 e = m.GetEntryState(i);
@@ -764,6 +765,7 @@ namespace nkentseu {
 							NkGrapheDepuisMachine(*mod, d->graphe, d->noeudDeEtat);
 							NkEditeurAnimationsDuContenu(m, d->graphe.clips);
 							d->revisionEnregistree = d->graphe.revision;
+							NkEditeurAnnoncer(m, NkString::Format("Animateur : %s (modele du jeu, a enregistrer)", d->nom.CStr()).CStr());
 						}
 						return true;
 					}

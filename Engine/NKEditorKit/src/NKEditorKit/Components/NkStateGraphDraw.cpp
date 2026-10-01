@@ -187,6 +187,7 @@ namespace nkentseu {
 					y = nr->rect.y + nr->rect.h * 0.5f;
 					return true;
 				};
+				NkVector<nk_uint64> paires; // (a, b) deja poses, pour ecarter les suivants
 				auto poser = [&](nk_uint64 tid, nk_uint64 a, nk_uint64 b, bool entree) {
 					Arc arc;
 					arc.id = tid;
@@ -194,13 +195,22 @@ namespace nkentseu {
 					if (!centre(a, arc.ax, arc.ay) || !centre(b, arc.bx, arc.by)) {
 						return;
 					}
-					// A->B et B->A cote a cote : un decalage perpendiculaire.
+					// A->B et B->A cote a cote : un decalage perpendiculaire ; la
+					// n-ieme fleche d'une meme paire s'ecarte d'autant (un niveau
+					// parent en porte souvent plusieurs vers le meme etat).
+					uint32 rang = 0;
+					for (uint32 k = 0; k + 1 < (uint32)paires.Size(); k += 2) {
+						rang += (paires[k] == a && paires[k + 1] == b) ? 1u : 0u;
+					}
+					paires.PushBack(a);
+					paires.PushBack(b);
 					const float32 dx = arc.bx - arc.ax, dy = arc.by - arc.ay;
 					const float32 l = std::sqrt(dx * dx + dy * dy);
 					if (l < 1e-3f) {
 						return;
 					}
-					const float32 nx = -dy / l * off, ny = dx / l * off;
+					const float32 ecart = off * (1.f + 2.2f * (float32)rang);
+					const float32 nx = -dy / l * ecart, ny = dx / l * ecart;
 					arc.ax += nx;
 					arc.ay += ny;
 					arc.bx += nx;

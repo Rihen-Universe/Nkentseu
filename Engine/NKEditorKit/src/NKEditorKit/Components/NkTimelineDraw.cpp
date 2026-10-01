@@ -1152,7 +1152,7 @@ namespace nkentseu {
 				for (float32 v = std::ceil(m.valueMin / pas) * pas; v <= m.valueMax; v += pas) {
 					const float32 y = NkTimelineValueToY(m, pl.area, v);
 					c.p.HLine(pl.area.x, y, pl.area.w, Abs(v) < pas * 0.01f ? c.s.textMuted : c.s.grid);
-					std::snprintf(txt, sizeof(txt), "%.2f", (double)v);
+					std::snprintf(txt, sizeof(txt), "%.2f", (double)(Abs(v) < pas * 0.01f ? 0.f : v)); // jamais « -0.00 »
 					c.p.Text(NkPaintRect{pl.area.x + c.M("pad"), y - c.M("row_h"), c.M("value_w") * 2.f, c.M("row_h")}, txt,
 							 c.s.textMuted, NkTextAlign::Left);
 				}
