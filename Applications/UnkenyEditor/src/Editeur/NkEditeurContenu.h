@@ -9,8 +9,9 @@
 //
 // Caracteristiques :
 //   - PUR, sans fenetre ni NKGui : le banc importe et exporte de vrais
-//     fichiers (temoin e49). Le dialogue de fichiers (NkDialogs de NKWindow)
-//     et le depot de l'OS (NkDropFileEvent) ne font que fournir des chemins.
+//     fichiers (temoin e49). Le selecteur de fichiers (celui de NKEditorKit,
+//     NkEditeurSelecteur.h) et le depot de l'OS (NkDropFileEvent) ne font que
+//     fournir des chemins.
 //   - IMPORTER = COPIER (CONVENTIONS_FICHIERS.md, « Import : COPIER ») : le
 //     fichier source est copie tel quel, le moteur lit les sources (PNG, WAV,
 //     TTF...) par leur chemin. Sa NATURE vient de la table existante :

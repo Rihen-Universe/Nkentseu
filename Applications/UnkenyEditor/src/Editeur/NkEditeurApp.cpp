@@ -24,7 +24,6 @@
 #include "NKEditorKit/NkThemeToGui.h"
 #include "NKEvent/NkDropEvent.h"
 #include "NKEvent/NkMouseEvent.h"
-#include "NKWindow/Core/NkDialogs.h"
 #include "NKWindow/Core/NkWESystem.h"
 #include "Unkeny/Banc/NkUnkenyBanc.h"
 #include "Unkeny/Banc/NkUnkenyBancEntrees.h"
@@ -166,6 +165,7 @@ namespace nkentseu {
 		NkEditeurApp::NkEditeurApp()
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
 			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mConstruction(memory::NkMakeUnique<NkEditeurConstruction>()),
+			  mSelecteur(memory::NkMakeUnique<NkEditeurSelecteurEtat>()),
 			  mTheme(editorkit::NkTheme::Dark()) {
 			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
@@ -431,31 +431,11 @@ namespace nkentseu {
 			// modales de l'OS (deplacer, redimensionner) peuvent tourner sans
 			// reentrer dans une trame a moitie peinte.
 			AppliquerDemandesFenetre();
-			// « Importer… » / « Exporter… » (2026-09-30) : le DIALOGUE de l'OS
-			// (NkDialogs, NKWindow), HORS du dessin pour la meme raison -- c'est une
-			// boucle modale. Elle mange le relachement du bouton qui l'a demandee.
-			if (mUi->importDemande) {
-				mUi->importDemande = false;
-				const NkDialogResult r = NkDialogs::OpenFileDialog(NkEditeurFiltreImport(), "Importer dans le Contenu du projet");
-				Gui().input.mouseDown[0] = false;
-				if (r.confirmed && !r.path.Empty()) {
-					NkVector<NkString> sources;
-					sources.PushBack(r.path);
-					const NkString rel = NkEditeurRelatifContenu(mUi->importCible.CStr());
-					NkEditeurImporterIci(*mModele, *mUi, sources, mUi->importCible.Empty() ? nullptr : rel.CStr());
-				}
-			}
-			if (mUi->exportDemande) {
-				mUi->exportDemande = false;
-				const NkDialogResult r = NkDialogs::OpenFolderDialog("Exporter la sélection vers…");
-				Gui().input.mouseDown[0] = false;
-				if (r.confirmed && !r.path.Empty()) {
-					NkEditeurExporterChoisis(*mModele, *mUi, r.path.CStr());
-				}
-			}
 			// Les actions du jeu AVANT le pas : la scene lit l'entree de CETTE trame.
+			// (2026-09-30) Le selecteur de fichiers ouvert occupe l'editeur, comme
+			// la boite et la fenetre Construire.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte;
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get());
 			// Les entrees de la scene vivent a cote d'elle (.nkentrees) : relues
 			// quand la scene change de chemin (Ouvrir).
 			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
@@ -549,7 +529,7 @@ namespace nkentseu {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte;
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get());
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -703,7 +683,24 @@ namespace nkentseu {
 		// LE CORPS DE LA TRAME (NkEditeurTrame.h)
 		// =====================================================================
 		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction) {
+			NkEditeurDessinerTrame(c, entrees, construction, nullptr);
+		}
+
+		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction,
+									NkEditeurSelecteurEtat *selecteur) {
 			NkEditeurInterface &ui = c.ui;
+			// ── Les DEMANDES du selecteur de fichiers (Importer…, Exporter…) : il
+			//    s'ouvre ICI, avant le dessin -- modal des cette trame.
+			if (selecteur != nullptr && !selecteur->pickerOpen) {
+				if (ui.importDemande) {
+					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_IMPORTER, nullptr);
+				} else if (ui.exportDemande) {
+					NkEditeurOuvrirSelecteur(*selecteur, NkUsageSelecteur::NK_EXPORTER, nullptr);
+				}
+			}
+			ui.importDemande = false;
+			ui.exportDemande = false;
+			const bool choix = NkEditeurSelecteurOuvert(selecteur);
 			// ── 0. LES BORDS DE LA FENETRE, avant tout, avec l'entree reelle ─
 			// Un clic au bord redimensionne, et n'atteint rien d'autre : la
 			// fonction le consomme avant que le corps et les menus ne le lisent.
@@ -714,7 +711,7 @@ namespace nkentseu {
 				// scene), enregistrees ou non.
 				construction.demande.entrees = entrees.jeu.Liaisons().Ecrire();
 			}
-			if (ui.confirmation == NK_A_AUCUNE && !construction.ouverte) {
+			if (ui.confirmation == NK_A_AUCUNE && !construction.ouverte && !choix) {
 				NkEditeurBordsFenetre(c);
 			}
 
@@ -734,7 +731,8 @@ namespace nkentseu {
 			//    les champs perdent le focus : sinon Entree validerait le nom en
 			//    meme temps que la boite.
 			// La fenetre « Construire » est modale de la meme facon.
-			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte;
+			// Le selecteur de fichiers (NkEditeurSelecteur.h) aussi.
+			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix;
 			if (modale) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
@@ -797,8 +795,23 @@ namespace nkentseu {
 			// ── 3. La boite, par-dessus tout, avec l'entree reelle ───────────
 			Rendre(c.ctx.input, vrais);
 			if (modale) {
+				// Le selecteur passe PAR-DESSUS la boite et Construire : tant qu'il
+				// est ouvert, elles sont dessinees sans souris.
+				if (choix) {
+					Neutraliser(c.ctx.input, true);
+				}
 				NkEditeurDessinerConfirmation(c);
 				NkEditeurDessinerConstruire(c, construction);
+				if (choix) {
+					Rendre(c.ctx.input, vrais);
+					const NkUsageSelecteur usage = NkEditeurDessinerSelecteur(c, *selecteur);
+					if (usage == NkUsageSelecteur::NK_IMPORTER) {
+						const NkString rel = NkEditeurRelatifContenu(ui.importCible.CStr());
+						NkEditeurImporterIci(c.m, ui, selecteur->resultatsMultiples, ui.importCible.Empty() ? nullptr : rel.CStr());
+					} else if (usage == NkUsageSelecteur::NK_EXPORTER) {
+						NkEditeurExporterChoisis(c.m, ui, selecteur->pickerResultPath);
+					}
+				}
 			} else {
 				// Le clavier, apres tout ce qui pouvait le prendre. Sous la boite,
 				// Entree et Echap sont a elle.
@@ -819,7 +832,7 @@ namespace nkentseu {
 			dl.AddRectFilled(ui.ecran, mPalette.fond);
 			ui.fenetreAgrandie = Window().IsMaximized();
 			// Le corps de la trame, sans rien de la fenetre (NkEditeurTrame.h).
-			NkEditeurDessinerTrame(c, *mEntrees, *mConstruction);
+			NkEditeurDessinerTrame(c, *mEntrees, *mConstruction, mSelecteur.Get());
 
 			// ── 4. Ce que la trame laisse a l'OS et a la suivante ────────────
 			// Le curseur que les widgets ont demande (cloisons, champs, DragFloat).

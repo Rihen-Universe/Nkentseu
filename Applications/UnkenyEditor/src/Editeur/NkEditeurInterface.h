@@ -292,8 +292,8 @@ namespace nkentseu {
 				NkVector<editorkit::NkBrowserKind> pucesAutres;
 				bool pucesContenu = false;
 				/// « Importer… » / « Exporter… » : des DEMANDES, consommees au debut de
-				/// la trame suivante (le dialogue de l'OS est une boucle modale, comme
-				/// BeginDragMove : voir plus bas).
+				/// la trame suivante, qui ouvre LE selecteur de fichiers de l'editeur
+				/// (NkEditeurSelecteur.h, celui de NKEditorKit) -- modal.
 				bool importDemande = false;
 				bool exportDemande = false;
 				NkString importCible;		   ///< le dossier (chemin du navigateur) ou importer ; vide = le courant

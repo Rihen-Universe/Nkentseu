@@ -25,6 +25,7 @@
 
 #include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurSelecteur.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
 namespace nkentseu {
@@ -33,6 +34,11 @@ namespace nkentseu {
 		/// Le corps de la trame : bords, panneaux (gestes neutralises sous un
 		/// menu), menus, boite modale, raccourcis, journal. Rien de la fenetre.
 		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction);
+		/// La meme, avec LE selecteur de fichiers (NkEditeurSelecteur.h) : les
+		/// demandes Importer / Exporter l'ouvrent, et il est modal. Nul : pas de
+		/// selecteur (les demandes sont oubliees).
+		void NkEditeurDessinerTrame(NkEditeurCadre &c, NkEditeurEntrees &entrees, NkEditeurConstruction &construction,
+									NkEditeurSelecteurEtat *selecteur);
 
 		/// Les raccourcis globaux, APRES le dessin : un champ de saisie focalise
 		/// les a vus passer et les garde pour lui.

@@ -40,6 +40,7 @@
 #include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurModele.h"
+#include "Editeur/NkEditeurSelecteur.h"
 #include "Editeur/NkEditeurSouris.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 
@@ -95,6 +96,8 @@ namespace nkentseu {
 				memory::NkUniquePtr<NkEditeurEntrees> mEntrees;
 				/// La fenetre « Construire » et la construction en cours (U5).
 				memory::NkUniquePtr<NkEditeurConstruction> mConstruction;
+				/// LE selecteur de fichiers (NKEditorKit) : Importer, Exporter, Parcourir.
+				memory::NkUniquePtr<NkEditeurSelecteurEtat> mSelecteur;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;

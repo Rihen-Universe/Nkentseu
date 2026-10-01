@@ -235,6 +235,8 @@ namespace nkentseu {
 					nkgui::NkGuiFont *police;
 					NkEditeurEntrees *pent;
 					NkEditeurConstruction *pcons;
+					/// LE selecteur de fichiers de l'editeur (NkEditeurSelecteur.h), comme l'application.
+					NkEditeurSelecteurEtat *psel;
 					editorkit::NkTheme theme = editorkit::NkTheme::Dark();
 					NkPaletteEditeur pal;
 					NkEditeurSouris souris;
@@ -246,6 +248,7 @@ namespace nkentseu {
 						police = alloc.New<nkgui::NkGuiFont>();
 						pent = alloc.New<NkEditeurEntrees>();
 						pcons = alloc.New<NkEditeurConstruction>();
+						psel = alloc.New<NkEditeurSelecteurEtat>();
 						NkEditeurEntreesParDefaut(*pent);
 						const bool policeOk = police->LoadEmbedded(NkEmbeddedFontId::DroidSans, 13.f, false);
 						pctx->Init(static_cast<int32>(W), static_cast<int32>(H));
@@ -254,6 +257,7 @@ namespace nkentseu {
 						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
 					}
 					~NkBancTrame() {
+						alloc.Delete(psel);
 						alloc.Delete(pcons);
 						alloc.Delete(pent);
 						alloc.Delete(police);
@@ -275,7 +279,7 @@ namespace nkentseu {
 						pctx->BeginFrame(1.f / 60.f);
 						pctx->BeginLayout(nkgui::NkRect{0.f, 0.f, W, H});
 						NkEditeurCadre c = Cadre();
-						NkEditeurDessinerTrame(c, *pent, *pcons);
+						NkEditeurDessinerTrame(c, *pent, *pcons, psel);
 						pctx->EndFrame();
 						souris.FinDeTrame(pctx->input);
 					}
@@ -292,6 +296,24 @@ namespace nkentseu {
 						pui->sousMenu = NkMenuEditeur::NK_AUCUN;
 						pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
 						Trame();
+					}
+					/// Le centre du bouton de CONFIRMATION du selecteur ouvert : la
+					/// geometrie du kit, celle que son dessin appelle aussi.
+					nkgui::NkVec2 Confirmer() const {
+						const float32 lt = police->MeasureWidth(psel->PickerConfirmLabel());
+						const editorkit::NkGeomSelecteur g = editorkit::NkGeometrieSelecteur(
+							W, H, pctx->S(1.f), false, true, psel->pickerWinOffX, psel->pickerWinOffY,
+							!psel->messageCreation.Empty(), lt);
+						return nkgui::NkVec2{g.confirmer.x + g.confirmer.w * 0.5f, g.confirmer.y + g.confirmer.h * 0.5f};
+					}
+					/// L'indice de l'entree `nom` dans le volet du selecteur, -1 sinon.
+					int32 EntreeSelecteur(const char *nom) const {
+						for (uint32 k = 0; k < psel->vue.entries.Size(); ++k) {
+							if (psel->vue.entries[k].name == NkString(nom)) {
+								return static_cast<int32>(k);
+							}
+						}
+						return -1;
 					}
 					bool AncreEn(float32 x, float32 y) const {
 						return math::NkAbs(pui->menuAncre.x - x) < 0.5f && math::NkAbs(pui->menuAncre.y - y) < 0.5f;
@@ -1314,15 +1336,49 @@ namespace nkentseu {
 				const bool exporte = deux && x1.exportes == 2u && NkFile::Exists("banc_e49/export/caisse.png") &&
 									 NkFile::Exists("banc_e49/export/bruit.wav") && x2.exportes == 2u &&
 									 NkFile::Exists("banc_e49/export/caisse_2.png");
-				// (e) les boutons de la barre DEMANDENT le dialogue (ouvert par
-				// l'application, pas par le banc) ; le clic droit sur un asset
-				// l'exporte seul.
+				// (e) les boutons de la barre ouvrent LE selecteur de NKEditorKit
+				// (NkEditeurSelecteur.h) -- plusieurs fichiers pour importer, un dossier
+				// pour exporter -- et sa confirmation importe / exporte ; le clic droit
+				// sur un asset l'exporte seul.
+				NkEditeurSelecteurEtat &sel = *t.psel;
 				t.Clic(0, ui.boutonImporter.x + ui.boutonImporter.w * 0.5f, ui.boutonImporter.y + ui.boutonImporter.h * 0.5f);
-				const bool demandeImport = ui.importDemande && ui.importCible.Empty();
-				ui.importDemande = false;
+				const bool ouvreImport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_IMPORTER && sel.selectionMultiple &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirFichier;
+				// Modal : un clic sur une carte du tiroir, dessous, ne choisit rien.
+				const uint32 choisisAvant = ui.contenuChoisis.Size();
+				t.Clic(0, ui.tiroir.x + 40.f, ui.tiroir.y + 120.f);
+				const bool modal = ui.contenuChoisis.Size() == choisisAvant && sel.pickerOpen;
+				sel.AllerA("banc_e49/sources");
+				t.Trame();
+				t.Trame();
+				bool importeParLeSelecteur = false;
+				{
+					const int32 kp = t.EntreeSelecteur("caisse.png");
+					const int32 kw = t.EntreeSelecteur("bruit.wav");
+					if (kp >= 0 && kw >= 0) {
+						sel.vue.chosen.Clear();
+						sel.vue.chosen.PushBack(kp);
+						sel.vue.chosen.PushBack(kw);
+						sel.vue.active = kp;
+						const nkgui::NkVec2 ok = t.Confirmer();
+						t.Clic(0, ok.x, ok.y);
+						importeParLeSelecteur = !sel.pickerOpen && NkFile::Exists("banc_e49/projet/Contenu/caisse_3.png") &&
+												NkFile::Exists("banc_e49/projet/Contenu/bruit_2.wav") && ui.contenuChoisis.Size() == 2u;
+					}
+				}
+				const bool demandeImport = ouvreImport && modal && importeParLeSelecteur;
+				NkDirectory::CreateRecursive("banc_e49/export2");
 				t.Clic(0, ui.boutonExporter.x + ui.boutonExporter.w * 0.5f, ui.boutonExporter.y + ui.boutonExporter.h * 0.5f);
-				const bool demandeExport = ui.exportDemande && ui.contenuChoisis.Size() == 2u;
-				ui.exportDemande = false;
+				const bool ouvreExport = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER &&
+										 sel.pickerFor == editorkit::NkSelecteurOuvrirDossier;
+				sel.AllerA("banc_e49/export2");
+				t.Trame();
+				{
+					const nkgui::NkVec2 ok = t.Confirmer();
+					t.Clic(0, ok.x, ok.y);
+				}
+				const bool demandeExport = ouvreExport && !sel.pickerOpen && NkFile::Exists("banc_e49/export2/caisse_3.png") &&
+										   NkFile::Exists("banc_e49/export2/bruit_2.wav");
 				bool menuAsset = false;
 				const int32 kTtf = CarteDe(ui, "Contenu/titre.ttf");
 				if (kTtf >= 0) {
@@ -1332,10 +1388,14 @@ namespace nkentseu {
 					NkEditeurExecuter(c, NK_A_CONTENU_EXPORTER);
 					menuAsset = ouvert && ui.exportDemande && ui.contenuChoisis.Size() == 1u &&
 								ui.contenuChoisis[0] == NkString("Contenu/titre.ttf");
-					ui.exportDemande = false;
 					t.Fermer();
+					// La demande a ouvert le selecteur ; Annuler (Echap) le referme sans rien faire.
+					const bool ouvertParMenu = sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_EXPORTER;
+					sel.PickerCancel();
+					t.Trame();
+					menuAsset = menuAsset && ouvertParMenu && !sel.pickerOpen && sel.usage == NkUsageSelecteur::NK_AUCUN;
 				}
-				Temoin(exporte && demandeImport && demandeExport && menuAsset, "(e49c) Ctrl+clic, exporter (sans ecraser) ; boutons et menu demandent",
+				Temoin(exporte && demandeImport && demandeExport && menuAsset, "(e49c) Ctrl+clic, exporter ; boutons et menu : le selecteur du kit",
 					   static_cast<float32>(exporte + demandeImport + demandeExport + menuAsset));
 
 				NkDirectory::Delete("banc_e49", true);
