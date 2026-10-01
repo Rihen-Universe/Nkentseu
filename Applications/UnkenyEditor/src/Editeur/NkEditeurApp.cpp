@@ -19,6 +19,7 @@
 #include "Editeur/NkEditeurApp.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurProjet.h"
@@ -1015,7 +1016,15 @@ namespace nkentseu {
 				// ne doit pas choisir l'entite qui est dessous.
 				Neutraliser(c.ctx.input, true);
 			}
-			NkEditeurDessinerVue(c);
+			// (2026-10-01, R33) Un onglet d'asset actif (texture, police, son,
+			// controleur) prend la place de la vue ; un prefab garde la vue (il
+			// s'edite comme une scene) et y pose son bandeau.
+			if (NkEditeurAssetALaPlaceDeLaVue(ui)) {
+				NkEditeurDessinerAsset(c);
+			} else {
+				NkEditeurDessinerVue(c);
+				NkEditeurDessinerAsset(c);
+			}
 			NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 			NkEditeurDessinerOutliner(c);
 			NkEditeurDessinerDetails(c);
@@ -1087,6 +1096,11 @@ namespace nkentseu {
 			ui.fenetreAgrandie = Window().IsMaximized();
 			// Le corps de la trame, sans rien de la fenetre (NkEditeurTrame.h).
 			NkEditeurDessinerTrame(c, *mEntrees, *mConstruction, mSelecteur.Get());
+			// (2026-10-01, R33) L'apercu d'une police ouverte dans son onglet.
+			if (ui.policeApercuSale && ui.policeApercu != nullptr) {
+				TeleverserPolice(*ui.policeApercu);
+				ui.policeApercuSale = false;
+			}
 
 			// ── 4. Ce que la trame laisse a l'OS et a la suivante ────────────
 			// Le curseur que les widgets ont demande (cloisons, champs, DragFloat).

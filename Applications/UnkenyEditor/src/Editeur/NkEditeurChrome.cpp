@@ -18,6 +18,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurInterface.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Editeur/NkEditeurMarque.h"
@@ -479,7 +480,11 @@ namespace nkentseu {
 							out.PushBack(Intitule(nature.libelle));
 							if (nature.type == NkAssetType::Scene) {
 								out.PushBack(Entree("Ouvrir la scène", NK_A_CONTENU_OUVRIR_ASSET));
-							} else if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
+							} else if (NkEditeurGenreAsset(cible.CStr()) != NkGenreAsset::NK_AUCUN) {
+								// (2026-10-01, R33) Chaque asset s'ouvre dans son onglet.
+								out.PushBack(Entree("Ouvrir (onglet de réglages)", NK_A_CONTENU_OUVRIR_ASSET, "double-clic"));
+							}
+							if (nature.type == NkAssetType::Prefab || nature.type == NkAssetType::Texture2D) {
 								out.PushBack(Entree("Poser au centre de la vue", NK_A_CONTENU_POSER_ASSET));
 							}
 							out.PushBack(Separateur());
@@ -1279,6 +1284,19 @@ namespace nkentseu {
 				}
 				return;
 			}
+			// (2026-10-01, R33) LE MODE PREFAB : Enregistrer ecrit le PREFAB ; les
+			// gestes qui changent de scene, ou la jouent, rendent d'abord la scene
+			// mise de cote (NkEditeurAssets.h).
+			if (ui.modePrefab != nullptr) {
+				if (action == NK_A_ENREGISTRER) {
+					NkEditeurEnregistrerPrefabOuvert(c);
+					return;
+				}
+				if (action == NK_A_NOUVEAU || action == NK_A_OUVRIR || action == NK_A_QUITTER || action == NK_A_FERMER_SCENE ||
+					action == NK_A_JOUER || action == NK_A_PAS) {
+					NkEditeurActiverOnglet(c, -1);
+				}
+			}
 			switch (action) {
 				case NK_A_NOUVEAU:
 				case NK_A_OUVRIR:
@@ -1723,8 +1741,13 @@ namespace nkentseu {
 			// A DROITE du logo, qui tient le coin sur les deux lignes.
 			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
 			c.ui.ongletScene = onglet;
-			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
-			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			// (2026-10-01, R33) Un asset ouvert a cote : la scene n'est active (son
+			// liseré) que si aucun onglet d'asset ne l'est ; un clic la reprend.
+			const bool sceneActive = c.ui.ongletActif < 0;
+			dl.AddRectFilled(onglet, sceneActive ? c.pal.panneau : c.pal.fond, 2.f);
+			if (sceneActive) {
+				dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
+			}
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;
 			if (c.ui.modifiee) {
 				dl.AddCircleFilled(nkgui::NkVec2{onglet.x + 12.f + 4.f, onglet.y + onglet.h * 0.5f}, 3.5f, c.pal.selection);
@@ -1746,7 +1769,11 @@ namespace nkentseu {
 			dl.AddLine(nkgui::NkVec2{x1, y0}, nkgui::NkVec2{x0, y1}, teinteX, 1.4f);
 			if (survolX && in.mouseClicked[0]) {
 				NkEditeurExecuter(c, NK_A_FERMER_SCENE);
+			} else if (!sceneActive && NkEditeurDans(onglet, in.mousePos) && in.mouseClicked[0]) {
+				NkEditeurActiverOnglet(c, -1);
 			}
+			// Les onglets des assets ouverts, a sa droite.
+			NkEditeurDessinerOngletsAssets(c, onglet.x + onglet.w + 2.f);
 		}
 
 		// =====================================================================

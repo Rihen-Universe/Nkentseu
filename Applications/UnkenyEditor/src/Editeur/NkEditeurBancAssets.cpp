@@ -26,6 +26,13 @@
 //         sur le controleur du Contenu pose l'animateur (modele lu, animation de
 //         sprites ajoutee) et ses deux cartes paraissent ; Forme 2D et Ancrage
 //         s'ajoutent de meme
+//   (m3)  CHAQUE ASSET S'OUVRE (double-clic dans le Content Browser) : une
+//         texture ouvre son onglet (apercu, « Pixel » choisi puis enregistre dans
+//         Contenu/.nkreglages et relu) ; une police montre 4 tailles ; un son se
+//         LIT puis s'ARRETE ; un controleur liste ses etats ; un PREFAB ouvre le
+//         mode prefab (la scene de cote, le prefab seul, sa racine choisie) ; sa
+//         teinte changee puis « Enregistrer » et « Revenir a la scene » : la
+//         scene revient ENTIERE et son instance a la nouvelle teinte
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -35,6 +42,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurPlacer.h"
@@ -110,6 +118,82 @@ namespace nkentseu {
 				return true;
 			}
 
+			uint32 NbEntites(NkScene &s) {
+				NkVector<ecs::NkEntityId> ids;
+				s.Entites(ids);
+				return static_cast<uint32>(ids.Size());
+			}
+			ecs::NkEntityId Par(NkScene &s, const char *nom) {
+				ecs::NkEntityId t = ecs::NkEntityId::Invalid();
+				s.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId id, NkEtiquette &e) {
+					if (std::strcmp(e.nom, nom) == 0 && !t.IsValid()) {
+						t = id;
+					}
+				});
+				return t;
+			}
+			/// Une image 8 x 8 (damier rouge / jaune), une VRAIE PNG (NKImage).
+			bool EcrireImage(const char *chemin) {
+				uint8 px[8 * 8 * 4];
+				for (int32 i = 0; i < 64; ++i) {
+					const bool a = ((i % 8) + (i / 8)) % 2 == 0;
+					px[i * 4 + 0] = 230;
+					px[i * 4 + 1] = a ? 60 : 200;
+					px[i * 4 + 2] = 40;
+					px[i * 4 + 3] = 255;
+				}
+				NkImage img = NkImage::Wrap(px, 8, 8, NkImagePixelFormat::NK_RGBA32);
+				return img.SavePNG(chemin);
+			}
+			/// Un VRAI son : 0,25 s de la4 (440 Hz), PCM 16 bits mono 22 050 Hz.
+			bool EcrireSon(const char *chemin) {
+				const uint32 hz = 22050u, n = hz / 4u;
+				NkVector<nk_uint8> o;
+				auto U32 = [&](uint32 v) {
+					for (int32 k = 0; k < 4; ++k) {
+						o.PushBack(static_cast<nk_uint8>((v >> (8 * k)) & 0xFFu));
+					}
+				};
+				auto U16 = [&](uint32 v) {
+					o.PushBack(static_cast<nk_uint8>(v & 0xFFu));
+					o.PushBack(static_cast<nk_uint8>((v >> 8) & 0xFFu));
+				};
+				auto Mot = [&](const char *t) {
+					for (int32 k = 0; k < 4; ++k) {
+						o.PushBack(static_cast<nk_uint8>(t[k]));
+					}
+				};
+				Mot("RIFF");
+				U32(36u + n * 2u);
+				Mot("WAVE");
+				Mot("fmt ");
+				U32(16u);
+				U16(1u);
+				U16(1u);
+				U32(hz);
+				U32(hz * 2u);
+				U16(2u);
+				U16(16u);
+				Mot("data");
+				U32(n * 2u);
+				for (uint32 i = 0; i < n; ++i) {
+					const float32 s = math::NkSin(6.2831853f * 440.f * static_cast<float32>(i) / static_cast<float32>(hz)) * 0.4f;
+					U16(static_cast<uint32>(static_cast<uint16>(static_cast<int16>(s * 32767.f))));
+				}
+				return NkFile::WriteAllBytes(chemin, o);
+			}
+			/// Une police du depot (NKCode), copiee dans le Contenu du banc.
+			bool CopierPolice(const char *destination) {
+				static const char *kSources[] = {"../../../../Applications/NKCode/data/fonts/NotoSans-Regular.ttf",
+												 "Applications/NKCode/data/fonts/NotoSans-Regular.ttf", "C:/Windows/Fonts/arial.ttf"};
+				for (const char *s : kSources) {
+					if (NkFile::Exists(s)) {
+						return NkFile::Copy(s, destination, true);
+					}
+				}
+				return false;
+			}
+
 			/// La scene du point 1 : une etoile posee (forme, collisionneur, corps
 			/// statique), ancree a l'ecran, choisie.
 			ecs::NkEntityId SceneCartes(NkEditeurModele &m) {
@@ -136,6 +220,12 @@ namespace nkentseu {
 					int32 tw = 0, th = 0;
 					if (T.m.textures.Taille(id, tw, th) && T.m.textures.Pixels(id) != nullptr) {
 						ras->PoserTexture(id, T.m.textures.Pixels(id), tw, th, 4);
+					}
+				}
+				// L'apercu d'une police ouverte (NkEditeurAssets.cpp) : son atlas.
+				if (const nkgui::NkGuiFont *pa = T.pui->policeApercu) {
+					if (pa->pixels != nullptr) {
+						ras->PoserTexture(pa->TexId(), pa->pixels, pa->atlasW, pa->atlasH, 1);
 					}
 				}
 				ras->Rasteriser(T.pctx->dl);
@@ -282,7 +372,109 @@ namespace nkentseu {
 				NkDirectory::Delete("banc_m2", true);
 			}
 
+			// (m3) CHAQUE ASSET S'OUVRE (retour 3 de Rihen).
+			{
+				NkDirectory::Delete("banc_m3", true);
+				NkDirectory::CreateRecursive("banc_m3/projet/Contenu");
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				m.chemin = NkString("banc_m3/projet/scene.nkscene");
+				m.projet = NkString();
+				const bool fichiers = EcrireImage("banc_m3/projet/Contenu/damier.png") && EcrireSon("banc_m3/projet/Contenu/la.wav");
+				const bool police = CopierPolice("banc_m3/projet/Contenu/texte.ttf");
+				const NkString ctl = NkEditeurNouveauControleurContenu(m, "Contenu");
+				// Le prefab : une caisse teintee, faite prefab (elle en devient l'instance).
+				const ecs::NkEntityId caisse = m.scene.Creer("Caisse", NkVec2f(2.f, 1.f));
+				NkSprite2D sp;
+				sp.couleur = 0x804020FFu;
+				m.scene.Monde().Add<NkSprite2D>(caisse, sp);
+				m.selection = caisse;
+				m.aSelection = true;
+				const NkString prefab = NkEditeurNouveauPrefabContenu(m, "Contenu");
+				const uint64 uidCaisse = m.scene.AssurerUid(caisse);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				ui.sonsMuets = true; // pas de peripherique au banc
+				ui.voirTiroir = true;
+				ui.ongletTiroir = 0;
+				ui.hauteurTiroir = 260.f;
+				t.Trame();
+				t.Trame();
+				auto Ouvrir = [&](const char *nav) {
+					t.Fermer();
+					const int32 k = t.Carte(nav);
+					if (k >= 0) {
+						const nkgui::NkRect r = ui.contenuCartes[static_cast<uint32>(k)];
+						t.DoubleClic(r.x + r.w * 0.5f, r.y + r.h * 0.3f);
+						t.Trame();
+					}
+					return k >= 0 && ui.ongletActif >= 0;
+				};
+				auto Actif = [&]() -> NkOngletAsset * {
+					return ui.ongletActif >= 0 ? ui.onglets[static_cast<uint32>(ui.ongletActif)] : nullptr;
+				};
+				// La TEXTURE : apercu, « Pixel », Enregistrer, relu.
+				bool texture = Ouvrir("Contenu/damier.png") && Actif()->genre == NkGenreAsset::NK_TEXTURE && Actif()->texId != 0u &&
+							   ui.assetApercu.w > 0.f;
+				if (texture) {
+					t.Clic(0, ui.assetFiltrage.x + ui.assetFiltrage.w * 0.75f, ui.assetFiltrage.y + ui.assetFiltrage.h * 0.5f);
+					t.Trame();
+					const nkgui::NkVec2 e = Milieu(ui.assetEnregistrer);
+					t.Clic(0, e.x, e.y);
+					t.Trame();
+					NkReglagesTexture relu;
+					texture = Actif()->texture.pixel && NkEditeurLireReglagesTexture(m, "Contenu/damier.png", relu) && relu.pixel &&
+							  NkFile::Exists("banc_m3/projet/Contenu/.nkreglages");
+				}
+				// La POLICE : quatre tailles.
+				const bool policeOk = !police || (Ouvrir("Contenu/texte.ttf") && Actif()->genre == NkGenreAsset::NK_POLICE && Actif()->policeOk &&
+												  ui.assetTailles == 4 && ui.policeApercu == Actif()->police);
+				// Le SON : lire, puis arreter.
+				bool son = Ouvrir("Contenu/la.wav") && Actif()->genre == NkGenreAsset::NK_SON && Actif()->sonId != 0u;
+				if (son) {
+					const nkgui::NkVec2 l = Milieu(ui.assetLire);
+					t.Clic(0, l.x, l.y);
+					const bool lit = Actif()->voix != 0u;
+					t.Clic(0, l.x, l.y);
+					son = lit && Actif()->voix == 0u;
+				}
+				// Le CONTROLEUR : ses etats, en lecture.
+				const bool controleur = !ctl.Empty() && Ouvrir(ctl.CStr()) && Actif()->genre == NkGenreAsset::NK_CONTROLEUR && ui.assetEtats >= 2;
+				// Le PREFAB : le mode prefab, la teinte changee, enregistree, et l'instance suit.
+				const uint32 avant = NbEntites(m.scene);
+				bool mode = !prefab.Empty() && Ouvrir(prefab.CStr()) && ui.modePrefab != nullptr && m.aSelection;
+				const uint32 dansPrefab = NbEntites(m.scene);
+				mode = mode && dansPrefab < avant && dansPrefab >= 1u;
+				bool suit = false;
+				if (mode) {
+					NkSprite2D *s = m.scene.Monde().Get<NkSprite2D>(m.selection);
+					if (s != nullptr) {
+						s->couleur = 0x20C040FFu;
+					}
+					t.Trame();
+					const nkgui::NkVec2 e = Milieu(ui.assetEnregistrer);
+					t.Clic(0, e.x, e.y);
+					const nkgui::NkVec2 r = Milieu(ui.assetRevenir);
+					t.Clic(0, r.x, r.y);
+					t.Trame();
+					const ecs::NkEntityId c2 = m.scene.EntiteParUid(uidCaisse);
+					const NkSprite2D *s2 = c2.IsValid() ? m.scene.Monde().Get<NkSprite2D>(c2) : nullptr;
+					suit = ui.modePrefab == nullptr && ui.ongletActif == -1 && NbEntites(m.scene) == avant && s2 != nullptr && s2->couleur == 0x20C040FFu;
+				}
+				NkEditeurCadre cadre = t.Cadre();
+				NkEditeurFermerTousOnglets(cadre);
+				const bool ok = fichiers && texture && policeOk && son && controleur && mode && suit;
+				if (!ok) {
+					std::printf("        fichiers %d texture %d police %d (%d) son %d controleur %d mode %d (%u -> %u) suit %d prefab '%s'%c", fichiers,
+								texture, policeOk, police, son, controleur, mode, avant, dansPrefab, suit, prefab.CStr(), 10);
+				}
+				Temoin(ok, "(m3) assets ouverts : texture (pixel enregistre), police, son lu/arrete, controleur, prefab",
+					   static_cast<float32>(texture + policeOk + son + controleur + mode + suit));
+				NkDirectory::Delete("banc_m3", true);
+			}
+
 			m.chemin = cheminAvant;
+			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC ASSETS EDITEUR REUSSI" : "BANC ASSETS EDITEUR EN ECHEC", gR, gE,
 						gE > 1 ? "s" : "");
@@ -340,6 +532,97 @@ namespace nkentseu {
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/02c_animation_et_animateur.png", dossier).CStr()) ? 0 : 1;
 				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration
+			// (References/Captures/etape1/projet_demo), ou l'on fabrique de VRAIS
+			// prefabs et un vrai controleur (ceux de la demo sont factices).
+			{
+				const NkString demo = NkString::Format("%s/projet_demo", dossier);
+				static const char *kSources[] = {"../../../../../References/Captures/etape1/projet_demo",
+												 "C:/Users/rihen/Documents/Projects/References/Captures/etape1/projet_demo"};
+				bool copie = NkDirectory::Exists(NkString::Format("%s/MonJeu2D/Contenu", demo.CStr()).CStr());
+				for (const char *s : kSources) {
+					if (!copie && NkDirectory::Exists(s)) {
+						copie = NkDirectory::Copy(s, demo.CStr(), true, true);
+					}
+				}
+				if (!copie) {
+					std::printf("  captures 03 : projet de demonstration introuvable (saute)\n");
+				} else {
+					NkEditeurNouvelleScene(m);
+					m.chemin = NkString::Format("%s/MonJeu2D/Contenu/Scenes/Capture.nkscene", demo.CStr());
+					m.projet = NkString();
+					// De VRAIS prefabs : une caisse texturee (block.png) et un joueur.
+					const uint32 tex = m.textures.Charger(NkEditeurCheminContenuAbsolu(m, "Contenu/Textures/block.png").CStr());
+					const ecs::NkEntityId caisse = m.scene.Creer("Caisse_Vraie", NkVec2f(-3.f, 1.f));
+					NkSprite2D sp;
+					sp.texId = tex;
+					sp.taille = NkVec2f(1.2f, 1.2f);
+					m.scene.Monde().Add<NkSprite2D>(caisse, sp);
+					m.selection = caisse;
+					m.aSelection = true;
+					const NkString pCaisse = NkEditeurNouveauPrefabContenu(m, "Contenu/Prefabs");
+					const ecs::NkEntityId joueur = NkEditeurPoserForme(m, NkGenreForme2D::NK_CAPSULE, NkVec2f(3.f, 1.f));
+					if (NkEtiquette *et = m.scene.Monde().Get<NkEtiquette>(joueur)) {
+						std::snprintf(et->nom, sizeof(et->nom), "%s", "Joueur_Vrai");
+					}
+					m.selection = joueur;
+					const NkString pJoueur = NkEditeurNouveauPrefabContenu(m, "Contenu/Prefabs");
+					const NkString ctl = NkEditeurNouveauControleurContenu(m, "Contenu/Animations");
+					NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+					NkEditeurBancTrame &T = *pt;
+					T.W = 1600.f;
+					T.H = 900.f;
+					T.pctx->Init(1600, 900);
+					NkEditeurInterface &ui = T.Ui();
+					ui.hauteurTiroir = 230.f;
+					ui.sonsMuets = true;
+					for (int32 k = 0; k < 3; ++k) {
+						T.Trame();
+					}
+					NkEditeurCadre cadre = T.Cadre();
+					// La texture, en « Pixel » (Checkerboard : 8 x 8 cases nettes).
+					NkEditeurOuvrirAsset(cadre, "Contenu/Textures/NogeLogo.png");
+					T.Trame();
+					T.Trame();
+					erreurs += EcrirePng(T, NkString::Format("%s/03a_texture_onglet.png", dossier).CStr()) ? 0 : 1;
+					NkEditeurOuvrirAsset(cadre, "Contenu/Textures/Checkerboard.png");
+					if (ui.ongletActif >= 0) {
+						ui.onglets[static_cast<uint32>(ui.ongletActif)]->texture.pixel = true;
+						ui.onglets[static_cast<uint32>(ui.ongletActif)]->modifie = true;
+					}
+					T.Trame();
+					T.Trame();
+					erreurs += EcrirePng(T, NkString::Format("%s/03b_texture_pixel.png", dossier).CStr()) ? 0 : 1;
+					NkEditeurOuvrirAsset(cadre, "Contenu/Polices/Antonio-Bold.ttf");
+					T.Trame();
+					T.Trame();
+					erreurs += EcrirePng(T, NkString::Format("%s/03c_police_tailles.png", dossier).CStr()) ? 0 : 1;
+					NkEditeurOuvrirAsset(cadre, "Contenu/Sons/powerup.wav");
+					T.Trame();
+					const nkgui::NkVec2 l = Milieu(ui.assetLire);
+					T.Clic(0, l.x, l.y);
+					T.pctx->input.mousePos = nkgui::NkVec2{-100.f, -100.f};
+					T.Trame();
+					erreurs += EcrirePng(T, NkString::Format("%s/03d_son_lecture.png", dossier).CStr()) ? 0 : 1;
+					if (!ctl.Empty()) {
+						NkEditeurOuvrirAsset(cadre, ctl.CStr());
+						T.Trame();
+						T.Trame();
+						erreurs += EcrirePng(T, NkString::Format("%s/03e_controleur.png", dossier).CStr()) ? 0 : 1;
+					}
+					if (!pCaisse.Empty()) {
+						NkEditeurOuvrirAsset(cadre, pCaisse.CStr());
+						T.Trame();
+						T.Trame();
+						erreurs += EcrirePng(T, NkString::Format("%s/03f_prefab_mode.png", dossier).CStr()) ? 0 : 1;
+						NkEditeurActiverOnglet(cadre, -1);
+						T.Trame();
+					}
+					(void)pJoueur;
+					NkEditeurFermerTousOnglets(cadre);
+					memory::NkGetDefaultAllocator().Delete(pt);
+				}
 			}
 			memory::NkGetDefaultAllocator().Delete(pm);
 			return erreurs == 0 ? 0 : 1;

@@ -101,6 +101,9 @@ namespace nkentseu {
 			NK_COMPOSANT_MOU ///< sous-menu « Corps mou » de « Ajouter un composant » : la matiere
 		};
 
+		struct NkOngletAsset; // NkEditeurAssets.h
+		struct NkModePrefab;  // NkEditeurAssets.h
+
 		/// LA table des actions. Les plages a partir de 100 portent un indice
 		/// (outil, acteur, profil...) ajoute a leur base.
 		enum NkActionEditeur : int32 {
@@ -476,6 +479,35 @@ namespace nkentseu {
 						nkgui::NkRect r;
 				};
 				NkVector<NkLigneMenuPeinte> menuLignes;
+
+				// --- Les ONGLETS D'ASSETS (2026-10-01, R33, NkEditeurAssets.h) ----
+				/// Les assets ouverts (texture, police, son, prefab, controleur),
+				/// a droite de l'onglet de la scene ; -1 = la scene est active.
+				NkVector<NkOngletAsset *> onglets;
+				/// Le double-clic sur un asset a onglet, ouvert au relachement.
+				NkString assetEnAttente;
+				int32 ongletActif = -1;
+				nkgui::NkRect ongletSceneRect{0.f, 0.f, 0.f, 0.f};
+				NkVector<nkgui::NkRect> ongletsRects;
+				NkVector<nkgui::NkRect> ongletsFermer;
+				/// La scene mise de cote pendant qu'un prefab s'edite (nul sinon).
+				NkModePrefab *modePrefab = nullptr;
+				/// Les sons des onglets (demarre au premier son ouvert) ; `sonsMuets` :
+				/// sans peripherique (bancs).
+				NkSons2D *sonsApercu = nullptr;
+				bool sonsMuets = false;
+				/// La police de l'onglet actif, a televerser par l'application.
+				nkgui::NkGuiFont *policeApercu = nullptr;
+				bool policeApercuSale = false;
+				/// Ce que l'editeur d'asset a peint a cette trame (les bancs y visent).
+				nkgui::NkRect assetApercu{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetFiltrage{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetPivot{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetLire{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetEnregistrer{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect assetRevenir{0.f, 0.f, 0.f, 0.f};
+				int32 assetTailles = 0;
+				int32 assetEtats = 0;
 				nkgui::NkRect detailsTexture{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect detailsTextureListe{0.f, 0.f, 0.f, 0.f};	   ///< la liste deroulante
 				nkgui::NkRect detailsTextureSelection{0.f, 0.f, 0.f, 0.f}; ///< « utiliser la selection »

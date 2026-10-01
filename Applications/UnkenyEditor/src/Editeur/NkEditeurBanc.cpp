@@ -1953,6 +1953,9 @@ namespace nkentseu {
 				const uint32 avantP = NbEntites(m.scene);
 				Glisser(Centre(prefab.CStr()), nkgui::NkVec2{ui.viseur.x + ui.viseur.w * 0.3f, ui.viseur.y + ui.viseur.h * 0.5f});
 				const bool instance = !prefab.Empty() && NbEntites(m.scene) > avantP;
+				if (!(menu && deplace && copies && dossierOs && image && instance)) {
+					std::printf("        menu %d deplace %d copies %d dossierOs %d image %d instance %d%c", menu, deplace, copies, dossierOs, image, instance, 10);
+				}
 				Temoin(menu && deplace && copies && dossierOs && image && instance,
 					   "(e55) glisser : Deplacer / Copier ici (selection entiere) ; dossier de l'OS importe ; image et prefab poses",
 					   static_cast<float32>(menu + deplace + copies + dossierOs + image + instance));

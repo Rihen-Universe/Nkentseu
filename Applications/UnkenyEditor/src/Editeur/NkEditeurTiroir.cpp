@@ -36,6 +36,7 @@
 // =============================================================================
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurAssets.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "Editeur/NkEditeurTerminal.h"
 #include "Editeur/NkEditeurReferences.h"
@@ -358,6 +359,13 @@ namespace nkentseu {
 					return;
 				}
 				if (NkEditeurCheminEstContenu(chemin)) {
+					// (2026-10-01, R33) Un asset qui a un ONGLET s'ouvre au RELACHEMENT, et
+					// seulement si le second appui ne devient pas un glisser (cliquer
+					// une carte puis la trainer aussitot n'ouvre rien).
+					if (NkEditeurGenreAsset(chemin) != NkGenreAsset::NK_AUCUN) {
+						c.ui.assetEnAttente = NkString(chemin);
+						return;
+					}
 					c.ui.contenuMenuChemin = NkString(chemin);
 					c.ui.contenuMenuDossier = false;
 					NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR_ASSET);
@@ -1177,6 +1185,18 @@ namespace nkentseu {
 					peintre, ci, editorkit::NkPaintRect{zone.x, zone.y, zone.w, zone.h}, ui.contenu, s, hooks);
 				// Ce qu'on TRAINE : les cibles de depot hors du tiroir s'eclairent.
 				ui.contenuGlisse = res.glisserChemin;
+				// Le double-clic en attente (SurDoubleClic) : un glisser l'annule, le
+				// relachement l'ouvre.
+				if (!ui.assetEnAttente.Empty()) {
+					if (!res.glisserChemin.Empty()) {
+						ui.assetEnAttente = NkString();
+					} else if (!c.ctx.input.mouseDown[0]) {
+						ui.contenuMenuChemin = ui.assetEnAttente;
+						ui.contenuMenuDossier = false;
+						ui.assetEnAttente = NkString();
+						NkEditeurExecuter(c, NK_A_CONTENU_OUVRIR_ASSET);
+					}
+				}
 				ui.boutonImporter = NkRect{res.importerX, res.importerY, res.importerW, res.importerH};
 				ui.contenuPrecedent = NkRect{res.precedentX, res.precedentY, res.precedentW, res.precedentH};
 				ui.contenuSuivant = NkRect{res.suivantX, res.suivantY, res.suivantW, res.suivantH};
@@ -1835,11 +1855,15 @@ namespace nkentseu {
 				}
 				case NK_A_CONTENU_OUVRIR_ASSET: {
 					// Une SCENE s'ouvre (la question « non enregistree » est a
-					// NkEditeurChrome, qui relit `sceneAOuvrir`). Un prefab ou une image
-					// n'a pas encore d'editeur : on dit comment le poser, on ne pose
-					// RIEN par surprise (un double-clic n'est pas un geste sur la scene).
+					// NkEditeurChrome, qui relit `sceneAOuvrir`). (2026-10-01, R33) Une
+					// texture, une police, un son, un prefab, un controleur s'ouvrent
+					// dans LEUR ONGLET (NkEditeurAssets.h) ; on ne pose RIEN par
+					// surprise (un double-clic n'est pas un geste sur la scene).
 					ui.sceneAOuvrir = NkString();
 					const NkNatureContenu n = NkEditeurNatureFichier(chemin);
+					if (NkEditeurOuvrirAsset(c, chemin)) {
+						break;
+					}
 					if (n.type == NkAssetType::Scene) {
 						ui.sceneAOuvrir = NkEditeurCheminContenu(m, chemin);
 					} else if (n.type == NkAssetType::Prefab || n.type == NkAssetType::Texture2D) {
