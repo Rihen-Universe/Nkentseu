@@ -175,6 +175,12 @@ with project("NKRHI"):
         defines(["NK_RHI_METAL_ENABLED"])
         libdirs(macGlslangDir)
         _MAC_LINKS = list(macGlslang)
+        # Vulkan sur macOS = MoltenVK, seulement avec un SDK au build (WANT_VULKAN) :
+        # surface Metal (VK_EXT_metal_surface) et chargeur libvulkan. CreateAutoDetect
+        # l'essaie alors en premier (Vulkan -> Metal -> OpenGL -> logiciel).
+        if WANT_VULKAN:
+            defines(["VK_USE_PLATFORM_METAL_EXT"])
+            _MAC_LINKS.append("vulkan")
         if USE_NKGLSLANG:    _MAC_LINKS.append("NKGLSlang")
         if USE_NKSPIRVCROSS: _MAC_LINKS.append("NKSPIRVCross")
         links(_MAC_LINKS)

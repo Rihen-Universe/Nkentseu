@@ -174,7 +174,16 @@ cd ~/nk/nkentseu
 ./Build/Bin/Debug-macOS/NkDames/NkDames --backend=metal
 ```
 
-Les tutoriels choisissent Metal tout seuls. Pour forcer un autre dorsal :
+Sans option, les programmes choisissent eux-mêmes le dorsal graphique, dans
+cet ordre : **Vulkan** (seulement si un SDK Vulkan/MoltenVK était installé au
+moment de la construction, et qu'il fonctionne), puis **Metal**, puis
+**OpenGL**, puis le **rendu logiciel**. Sur un Mac sans SDK Vulkan, c'est donc
+Metal. Le Terminal le dit : cherchez `ordre macOS` et `retenu` dans les lignes
+qui s'affichent au lancement (`Vulkan ecarte : non compile ...`, puis
+`Metal retenu` ou `API selectionnee = Metal`).
+
+Pour forcer un dorsal : `--backend=metal` (applications NKCanvas comme
+NkDames) ou la variable `NK_GFX_BACKEND`, par exemple
 `NK_GFX_BACKEND=software ./Build/Bin/Debug-macOS/Tuto03Scene/Tuto03Scene`.
 
 ---

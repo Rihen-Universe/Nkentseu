@@ -371,6 +371,9 @@ namespace nkentseu {
 				int Execute(const NkEntryState &state);
 				bool CreateWindowAndTarget();
 				NkGraphicsApi ResoudreBackend(const NkVector<NkString> &args) const;
+#if defined(NKENTSEU_PLATFORM_MACOS)
+				static NkVector<NkGraphicsApi> OrdreMacOS();
+#endif
 				void PumpEvents();
 				/// Interroge la cible AU MOMENT de la pause : dix secondes plus
 				/// tard, l'ecran a pu s'eteindre pour une autre raison.
@@ -386,6 +389,11 @@ namespace nkentseu {
 				NkWindow mWindow;
 				NkRenderWindow *mTarget = nullptr;
 				NkGraphicsApi mBackendResolu = NkGraphicsApi::NK_GFX_API_NONE;
+				// Vrai quand le dorsal vient du DEFAUT de la plateforme (ni
+				// --backend, ni NK_GFX_BACKEND, ni Config().backend) : sur macOS,
+				// CreateWindowAndTarget essaie alors l'ordre complet
+				// Vulkan -> Metal -> OpenGL -> logiciel (decision du 2026-10-01).
+				mutable bool mBackendDuDefaut = false;
 
 				// --capture=<fichier> [--capture-frame=N] : ecrit une image et sort.
 				// ⚠️ CE N'EST PAS UN GADGET. Sans lui, la seule facon de savoir ce

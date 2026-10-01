@@ -346,12 +346,35 @@ namespace nkentseu {
 #elif defined(NKENTSEU_PLATFORM_ANDROID) || defined(__ANDROID__) || defined(NKENTSEU_PLATFORM_HARMONYOS) || \
 	defined(NKENTSEU_PLATFORM_IOS) || defined(NKENTSEU_ENABLE_EMSCRIPTEN)
 			const NkGraphicsApi defaut = NkGraphicsApi::NK_GFX_API_OPENGLES;
+#elif defined(NKENTSEU_PLATFORM_MACOS)
+			// macOS (decision de Rihen, 2026-10-01) : Vulkan si disponible, puis
+			// Metal, OpenGL, logiciel. Le premier de l'ordre est rendu ici ;
+			// CreateWindowAndTarget passe au suivant si l'un echoue.
+			mBackendDuDefaut = true;
+			const NkGraphicsApi defaut = OrdreMacOS()[0];
 #else
 			const NkGraphicsApi defaut = NkGraphicsApi::NK_GFX_API_OPENGL;
 #endif
 			logger.Info("[nkcanvasapp] backend par defaut de la plateforme = {0}", NkGraphicsApiName(defaut));
 			return defaut;
 		}
+
+#if defined(NKENTSEU_PLATFORM_MACOS)
+		// L'ordre des dorsaux de NKCanvas sur macOS. Vulkan n'y figure que s'il a
+		// ete COMPILE (SDK Vulkan / MoltenVK present au build : WANT_VULKAN) ;
+		// qu'il ait un pilote utilisable se sait a l'execution (son contexte
+		// s'initialise ou non).
+		NkVector<NkGraphicsApi> NkCanvasApp::OrdreMacOS() {
+			NkVector<NkGraphicsApi> ordre;
+#if defined(NKENTSEU_ENABLE_VULKAN_BACKEND) && NKENTSEU_ENABLE_VULKAN_BACKEND
+			ordre.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+#endif
+			ordre.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
+			ordre.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
+			ordre.PushBack(NkGraphicsApi::NK_GFX_API_SOFTWARE);
+			return ordre;
+		}
+#endif
 
 		// =====================================================================
 		// CadencerTrame — plafonner la cadence ET CEDER LA MAIN
@@ -416,18 +439,58 @@ namespace nkentseu {
 			NkContextDesc desc;
 			desc.api = mBackendResolu;
 
-			// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur
-			// maison et le tas CRT corrompt le tas sous Windows (c0000374).
-			mTarget = memory::NkGetDefaultAllocator().New<NkRenderWindow>(mWindow, desc);
-			if (mTarget == nullptr || !mTarget->IsValid()) {
-				logger.Error("[nkcanvasapp] initialisation de NkRenderWindow ECHOUEE");
+			// Les dorsaux a essayer, dans l'ordre. Un seul, sauf sur macOS quand
+			// le dorsal vient du defaut de la plateforme : l'ordre complet
+			// Vulkan -> Metal -> OpenGL -> logiciel, et le journal dit pourquoi
+			// chaque dorsal ecarte l'a ete. --backend / NK_GFX_BACKEND gardent la
+			// main : demande explicite = ce dorsal-la, sans substitution.
+			NkVector<NkGraphicsApi> essais;
+			essais.PushBack(mBackendResolu);
+#if defined(NKENTSEU_PLATFORM_MACOS)
+			NkString ecartes;
+			if (mBackendDuDefaut) {
+				essais = OrdreMacOS();
+#if !(defined(NKENTSEU_ENABLE_VULKAN_BACKEND) && NKENTSEU_ENABLE_VULKAN_BACKEND)
+				ecartes = "Vulkan (non compile : pas de SDK Vulkan / MoltenVK au build)";
+				logger.Info("[nkcanvasapp] dorsal Vulkan ecarte : non compile (pas de SDK Vulkan / MoltenVK au build)");
+#endif
+			}
+#endif
+
+			for (uint32 i = 0; i < essais.Size(); ++i) {
+				desc.api = essais[i];
+				// ⚠️ Alloue par NKMemory, jamais par new : melanger l'allocateur
+				// maison et le tas CRT corrompt le tas sous Windows (c0000374).
+				mTarget = memory::NkGetDefaultAllocator().New<NkRenderWindow>(mWindow, desc);
+				if (mTarget != nullptr && mTarget->IsValid())
+					break;
 				if (mTarget != nullptr) {
 					memory::NkGetDefaultAllocator().Delete(mTarget);
 					mTarget = nullptr;
 				}
+				if (i + 1 < essais.Size()) {
+					logger.Info("[nkcanvasapp] dorsal {0} ecarte : initialisation refusee (pas de pilote utilisable) "
+								"-- essai suivant : {1}",
+								NkGraphicsApiName(essais[i]), NkGraphicsApiName(essais[i + 1]));
+#if defined(NKENTSEU_PLATFORM_MACOS)
+					if (ecartes.Size() > 0)
+						ecartes += ", ";
+					ecartes += NkGraphicsApiName(essais[i]);
+					ecartes += " (initialisation refusee)";
+#endif
+				}
+			}
+			if (mTarget == nullptr) {
+				logger.Error("[nkcanvasapp] initialisation de NkRenderWindow ECHOUEE");
 				mWindow.Close();
 				return false;
 			}
+			mBackendResolu = desc.api;
+#if defined(NKENTSEU_PLATFORM_MACOS)
+			if (mBackendDuDefaut)
+				logger.Info("[nkcanvasapp] ordre macOS Vulkan -> Metal -> OpenGL -> logiciel : {0} retenu ; ecartes : {1}",
+							NkGraphicsApiName(desc.api), ecartes.Size() > 0 ? ecartes.CStr() : "aucun");
+#endif
 
 			// Le backend RETENU, pas celui demande : quand les deux different,
 			// c'est la seule ligne qui permet de le savoir.

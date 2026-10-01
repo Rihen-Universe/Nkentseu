@@ -214,6 +214,12 @@ namespace nkentseu {
 		// Apple, l'OpenGL de NKRHI REFUSE de s'initialiser (refus nomme,
 		// NkOpenglDevice.cpp) : le repli effectif d'un Metal en echec est donc le
 		// rendu logiciel, qui tourne (NKCraft --backend=software).
+		// ORDRE (decision de Rihen, 2026-10-01, le meme que NkCanvasApp) :
+		// Vulkan s'il est disponible -- compile (SDK Vulkan / MoltenVK au build)
+		// ET un pilote a l'execution --, puis Metal, OpenGL, logiciel.
+#if defined(NK_RHI_VULKAN_COMPILED)
+		order.PushBack(NkGraphicsApi::NK_GFX_API_VULKAN);
+#endif
 		order.PushBack(NkGraphicsApi::NK_GFX_API_METAL);
 		order.PushBack(NkGraphicsApi::NK_GFX_API_OPENGL);
 
@@ -302,6 +308,13 @@ namespace nkentseu {
 			logger_src.Infof("[NkDeviceFactory] NK_GFX_BACKEND : %s essaye en premier\n", NkGraphicsApiName(voulu));
 		}
 
+#if defined(NKENTSEU_PLATFORM_MACOS)
+		// macOS : le journal dit l'ordre, et pourquoi chaque dorsal est ecarte.
+		logger_src.Infof("[NkDeviceFactory] ordre macOS : Vulkan -> Metal -> OpenGL -> logiciel\n");
+#if !defined(NK_RHI_VULKAN_COMPILED)
+		logger_src.Infof("[NkDeviceFactory] Vulkan ecarte : non compile (pas de SDK Vulkan / MoltenVK au build)\n");
+#endif
+#endif
 		for (uint32 i = 0; i < (uint32)order.Size(); ++i) {
 			NkGraphicsApi api = order[i];
 			if (!IsApiSupported(api))
@@ -322,6 +335,10 @@ namespace nkentseu {
 				return dev;
 			}
 			// Ce device n'a pas fonctionné — on le détruit proprement avant d'essayer le suivant
+#if defined(NKENTSEU_PLATFORM_MACOS)
+			logger_src.Infof("[NkDeviceFactory] %s ecarte : initialisation refusee (pas de pilote utilisable)\n",
+							 NkGraphicsApiName(api));
+#endif
 			if (dev) {
 				dev->Shutdown();
 				nkentseu::memory::NkGetDefaultAllocator().Delete(dev);
