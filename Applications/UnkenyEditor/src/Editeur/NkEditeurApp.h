@@ -44,6 +44,7 @@
 #include "Editeur/NkEditeurSouris.h"
 #include "Livraison/NkEditeurFenetreConstruire.h"
 #include "Script/NkEditeurScripts.h"
+#include "Ia/NkEditeurIA.h"
 
 #include "NKCanvas/App/NkCanvasGuiApp.h"
 #include "NKContainers/Sequential/NkVector.h"
@@ -104,6 +105,9 @@ namespace nkentseu {
 				/// Les scripts (2026-10-01) : APRES le modele, donc detruits AVANT lui
 				/// (l'hote se retire de la scene du modele en partant).
 				memory::NkUniquePtr<NkEditeurScripts> mScripts;
+				/// L'IA integree (2026-10-01, R18, Ia/NkEditeurIA.h) : le panneau, les
+				/// fournisseurs de modeles, la conversation. APRES le modele.
+				memory::NkUniquePtr<NkEditeurIA> mIA;
 				editorkit::NkTheme mTheme;
 				NkPaletteEditeur mPalette;
 				float32 mDernierDt = 1.f / 60.f;
@@ -121,6 +125,7 @@ namespace nkentseu {
 				int32 CuireSeulement(const NkString &dossier);
 				bool mExempleHud = false;  ///< --exemple=hud : quatre elements ancres a la zone sure (document 03)
 				bool mEclairageEteint = false; ///< --eclairage=off : la scene de depart, eclairage eteint
+				bool mIAReglagesDepart = false; ///< --ia-reglages : la fenetre des fournisseurs ouverte au depart
 		};
 
 	} // namespace editeur

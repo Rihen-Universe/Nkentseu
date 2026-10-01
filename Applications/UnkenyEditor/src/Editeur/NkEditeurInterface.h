@@ -234,7 +234,10 @@ namespace nkentseu {
 			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
 			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
 			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
-			NK_A_SCRIPT = 2200 ///< + NkActionScript
+			NK_A_SCRIPT = 2200, ///< + NkActionScript
+			// L'IA INTEGREE (2026-10-01, R18, Ia/NkEditeurIA.h) : la plage 2500-2549.
+			NK_A_VOIR_IA = 2500,	 ///< Fenetre > IA : le panneau a droite, ouvert / ferme
+			NK_A_REGLAGES_IA = 2501	 ///< Fenetre > Reglages de l'IA : les fournisseurs de modeles
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -287,6 +290,9 @@ namespace nkentseu {
 				nkgui::NkRect barreVue{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect viseur{0.f, 0.f, 0.f, 0.f};	 ///< la vue sous sa barre
 				nkgui::NkRect details{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, R18) LE PANNEAU IA, a DROITE de tout (a droite des
+				/// Details, comme un panneau ancre d'UE5). Vide s'il est ferme.
+				nkgui::NkRect ia{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect tiroir{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect statut{0.f, 0.f, 0.f, 0.f};
 
@@ -298,6 +304,11 @@ namespace nkentseu {
 				int32 cloisonTenue = -1;
 				bool voirOutliner = true;
 				bool voirDetails = true;
+				/// Le panneau IA (Fenetre > IA). Ferme par defaut : la disposition
+				/// d'UE5 d'abord ; il s'ouvre a droite, et se retient d'une session
+				/// a l'autre seulement par --ia.
+				bool voirIA = false;
+				float32 largeurIA = 400.f;
 				bool voirTiroir = true;
 
 				// --- Le menu ouvert ---------------------------------------------

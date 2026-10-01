@@ -17,6 +17,7 @@
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 
+#include "Ia/NkEditeurIA.h"
 #include "Editeur/NkEditeurInterface.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
@@ -263,6 +264,10 @@ namespace nkentseu {
 						out.PushBack(Entree("Tiroir de contenu", NK_A_VOIR_TIROIR, "", c.ui.voirTiroir));
 						out.PushBack(Entree("Entrées du jeu", NK_A_ENTREES, "", c.ui.panneauEntrees));
 						out.PushBack(Entree("Réglages du projet : collision", NK_A_REGLAGES_COLLISION, "", c.ui.reglagesCollision));
+						out.PushBack(Separateur());
+						// (2026-10-01, R18) L'IA integree : le panneau a droite, et ses fournisseurs.
+						out.PushBack(Entree("IA (assistant)", NK_A_VOIR_IA, "Ctrl+I", c.ui.voirIA));
+						out.PushBack(Entree("Réglages de l'IA : fournisseurs de modèles…", NK_A_REGLAGES_IA));
 						out.PushBack(Separateur());
 						// (2026-10-01) Les pages, en onglets de document (NkEditeurPagesAnim.h).
 						out.PushBack(Entree("Animation (frise)", NK_A_ANIM_ANIMATION));
@@ -861,10 +866,15 @@ namespace nkentseu {
 			ui.placer = NkRect{0.f, corpsHaut, P, colonnesH};
 			const float32 L = ui.voirOutliner ? Borne(ui.largeurOutliner, 150.f, W * 0.35f) : 0.f;
 			const float32 R = ui.voirDetails ? Borne(ui.largeurDetails, 240.f, W * 0.42f) : 0.f;
+			// (2026-10-01, R18) LE PANNEAU IA, A DROITE DE TOUT : les Details glissent
+			// d'autant. Ferme, il ne prend rien -- la disposition d'avant, au pixel.
+			const float32 I = ui.voirIA ? Borne(ui.largeurIA, 300.f, W * 0.40f) : 0.f;
+			const float32 droite = W - I - (I > 0.f ? EPAISSEUR_CLOISON : 0.f);
+			ui.ia = NkRect{W - I, corpsHaut, I, I > 0.f ? colonnesH : 0.f};
 			ui.outliner = NkRect{x0, corpsHaut, L, colonnesH};
-			ui.details = NkRect{W - R, corpsHaut, R, colonnesH};
+			ui.details = NkRect{droite - R, corpsHaut, R, colonnesH};
 			const float32 vx = x0 + L + (L > 0.f ? EPAISSEUR_CLOISON : 0.f);
-			float32 vw = W - R - (R > 0.f ? EPAISSEUR_CLOISON : 0.f) - vx;
+			float32 vw = droite - R - (R > 0.f ? EPAISSEUR_CLOISON : 0.f) - vx;
 			if (vw < 0.f) {
 				vw = 0.f;
 			}
@@ -1097,6 +1107,10 @@ namespace nkentseu {
 			}
 			// 2026-10-01 : les pages Animation et Animateur (2400-2449, NkEditeurPagesAnim.h).
 			if (NkEditeurActionAnim(c, action)) {
+				return;
+			}
+			// 2026-10-01 : l'IA integree (2500-2549, Ia/NkEditeurIA.h).
+			if (NkEditeurActionIA(c, action)) {
 				return;
 			}
 			// Les plages d'abord : leur indice est ajoute a la base.
@@ -1834,12 +1848,14 @@ namespace nkentseu {
 		void NkEditeurCloisons(NkEditeurCadre &c) {
 			NkEditeurInterface &ui = c.ui;
 			const nkgui::NkGuiInput &in = c.ctx.input;
-			NkRect cloisons[3] = {
+			NkRect cloisons[4] = {
 				NkRect{ui.outliner.x + ui.outliner.w, ui.outliner.y, EPAISSEUR_CLOISON, ui.outliner.h},
 				NkRect{ui.details.x - EPAISSEUR_CLOISON, ui.details.y, EPAISSEUR_CLOISON, ui.details.h},
 				NkRect{0.f, ui.tiroir.y - EPAISSEUR_CLOISON, ui.ecran.w, EPAISSEUR_CLOISON},
+				// (2026-10-01, R18) Details | IA.
+				NkRect{ui.ia.x - EPAISSEUR_CLOISON, ui.ia.y, EPAISSEUR_CLOISON, ui.ia.h},
 			};
-			const bool visibles[3] = {ui.voirOutliner, ui.voirDetails, ui.voirTiroir};
+			const bool visibles[4] = {ui.voirOutliner, ui.voirDetails, ui.voirTiroir, ui.voirIA};
 
 			if (ui.cloisonTenue >= 0) {
 				if (!in.mouseDown[0]) {
@@ -1847,24 +1863,28 @@ namespace nkentseu {
 				} else if (ui.cloisonTenue == 0) {
 					ui.largeurOutliner = in.mousePos.x - ui.outliner.x; // le panneau Placer est a sa gauche
 				} else if (ui.cloisonTenue == 1) {
-					ui.largeurDetails = ui.ecran.w - in.mousePos.x;
+					// Le bord droit des Details (l'ecran, ou le panneau IA a leur droite).
+					ui.largeurDetails = ui.details.x + ui.details.w - in.mousePos.x;
+				} else if (ui.cloisonTenue == 3) {
+					ui.largeurIA = ui.ecran.w - in.mousePos.x;
 				} else {
 					ui.hauteurTiroir = ui.statut.y - in.mousePos.y;
 				}
 			}
-			for (int32 k = 0; k < 3; ++k) {
+			for (int32 k = 0; k < 4; ++k) {
 				if (!visibles[k]) {
 					continue;
 				}
+				const bool verticale = k != 2;
 				// La zone de saisie deborde de 2 px de chaque cote : 4 px se
 				// visent mal, et le trait visible n'a pas a grossir pour autant.
-				const NkRect prise = k < 2 ? NkRect{cloisons[k].x - 2.f, cloisons[k].y, cloisons[k].w + 4.f, cloisons[k].h}
-										   : NkRect{cloisons[k].x, cloisons[k].y - 2.f, cloisons[k].w, cloisons[k].h + 4.f};
+				const NkRect prise = verticale ? NkRect{cloisons[k].x - 2.f, cloisons[k].y, cloisons[k].w + 4.f, cloisons[k].h}
+											   : NkRect{cloisons[k].x, cloisons[k].y - 2.f, cloisons[k].w, cloisons[k].h + 4.f};
 				const bool survol = NkEditeurDans(prise, in.mousePos);
 				const bool tenue = ui.cloisonTenue == k;
 				c.ctx.dl.AddRectFilled(cloisons[k], (survol || tenue) ? c.pal.accent : c.pal.fond);
 				if (survol || tenue) {
-					c.ctx.wantCursor = k < 2 ? nkgui::NkGuiCursor::ResizeEW : nkgui::NkGuiCursor::ResizeNS;
+					c.ctx.wantCursor = verticale ? nkgui::NkGuiCursor::ResizeEW : nkgui::NkGuiCursor::ResizeNS;
 				}
 				if (survol && in.mouseClicked[0] && ui.cloisonTenue < 0) {
 					ui.cloisonTenue = k;

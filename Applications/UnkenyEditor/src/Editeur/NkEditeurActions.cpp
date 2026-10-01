@@ -1821,6 +1821,8 @@ namespace nkentseu {
 		void NkEditeurOublierHistorique(NkEditeurModele &m) {
 			m.historique.annuler.Clear();
 			m.historique.refaire.Clear();
+			m.historique.annulerFichiers.Clear();
+			m.historique.refaireFichiers.Clear();
 		}
 
 		void NkEditeurRetenir(NkEditeurModele &m) {
@@ -1830,11 +1832,19 @@ namespace nkentseu {
 			NkHistoriqueEditeur &h = m.historique;
 			NkScene::NkPhoto photo;
 			m.scene.Photographier(photo);
+			// (2026-10-01) Les fichiers suivent leur photo, INDICE POUR INDICE : un
+			// historique d'avant le journal des fichiers est remis d'equerre ici.
+			while (h.annulerFichiers.Size() < h.annuler.Size()) {
+				h.annulerFichiers.PushBack(NkVector<NkFichierRetenu>());
+			}
 			if (h.annuler.Size() >= h.maximum && h.annuler.Size() > 0u) {
 				h.annuler.RemoveAt(0);
+				h.annulerFichiers.RemoveAt(0);
 			}
 			h.annuler.PushBack(photo);
+			h.annulerFichiers.PushBack(NkVector<NkFichierRetenu>());
 			h.refaire.Clear();
+			h.refaireFichiers.Clear();
 		}
 
 		namespace {
@@ -1847,7 +1857,30 @@ namespace nkentseu {
 				m.selection = e;
 			}
 
+			/// Rend aux fichiers l'etat retenu, et rend celui d'AVANT ce retour (ce
+			/// que le geste inverse rendra). Un fichier qui n'existait pas est efface.
+			NkVector<NkFichierRetenu> RendreFichiers(const NkVector<NkFichierRetenu> &retenus) {
+				NkVector<NkFichierRetenu> maintenant;
+				for (usize i = 0; i < retenus.Size(); ++i) {
+					const NkFichierRetenu &f = retenus[i];
+					NkFichierRetenu actuel;
+					actuel.chemin = f.chemin;
+					actuel.existait = NkFile::Exists(f.chemin.CStr());
+					if (actuel.existait) {
+						actuel.octets = NkFile::ReadAllBytes(f.chemin.CStr());
+					}
+					maintenant.PushBack(actuel);
+					if (f.existait) {
+						NkFile::WriteAllBytes(f.chemin.CStr(), f.octets);
+					} else if (actuel.existait) {
+						NkFile::Delete(f.chemin.CStr());
+					}
+				}
+				return maintenant;
+			}
+
 			bool Basculer(NkEditeurModele &m, NkVector<NkScene::NkPhoto> &depuis, NkVector<NkScene::NkPhoto> &vers,
+						  NkVector<NkVector<NkFichierRetenu>> &fDepuis, NkVector<NkVector<NkFichierRetenu>> &fVers,
 						  const char *rien, const char *fait) {
 				if (m.etat != NkEtatJeu::NK_EDITION) {
 					NkEditeurAnnoncer(m, "En jeu, Arreter rend la scene d'avant : l'historique est celui de l'edition");
@@ -1857,23 +1890,54 @@ namespace nkentseu {
 					NkEditeurAnnoncer(m, rien);
 					return false;
 				}
+				// Les fichiers d'abord remis d'equerre avec leurs photos (meme indice).
+				while (fDepuis.Size() < depuis.Size()) {
+					fDepuis.PushBack(NkVector<NkFichierRetenu>());
+				}
+				while (fVers.Size() < vers.Size()) {
+					fVers.PushBack(NkVector<NkFichierRetenu>());
+				}
 				NkScene::NkPhoto maintenant;
 				m.scene.Photographier(maintenant);
 				vers.PushBack(maintenant);
 				const NkScene::NkPhoto photo = depuis[depuis.Size() - 1u];
 				depuis.PopBack();
+				const NkVector<NkFichierRetenu> retenus = fDepuis[fDepuis.Size() - 1u];
+				fDepuis.PopBack();
+				fVers.PushBack(RendreFichiers(retenus));
 				RendrePhoto(m, photo);
 				NkEditeurAnnoncer(m, fait);
 				return true;
 			}
 		} // namespace
 
+		// =====================================================================
+		// LE JOURNAL DES FICHIERS (2026-10-01, IA R18)
+		// =====================================================================
+		void NkEditeurRetenirFichier(NkEditeurModele &m, const char *chemin) {
+			NkHistoriqueEditeur &h = m.historique;
+			if (h.annulerFichiers.Size() != h.annuler.Size() || h.annuler.Empty())
+				return; // pas de photo pour porter le fichier : rien a defaire
+			NkVector<NkFichierRetenu> &l = h.annulerFichiers[h.annulerFichiers.Size() - 1u];
+			for (usize i = 0; i < l.Size(); ++i)
+				if (l[i].chemin == chemin)
+					return; // deja retenu dans ce geste : on garde l'etat le plus ANCIEN
+			NkFichierRetenu f;
+			f.chemin = NkString(chemin);
+			f.existait = NkFile::Exists(chemin);
+			if (f.existait)
+				f.octets = NkFile::ReadAllBytes(chemin);
+			l.PushBack(f);
+		}
+
 		bool NkEditeurAnnuler(NkEditeurModele &m) {
-			return Basculer(m, m.historique.annuler, m.historique.refaire, "Rien a annuler", "Annule");
+			return Basculer(m, m.historique.annuler, m.historique.refaire, m.historique.annulerFichiers, m.historique.refaireFichiers,
+							"Rien a annuler", "Annule");
 		}
 
 		bool NkEditeurRefaire(NkEditeurModele &m) {
-			return Basculer(m, m.historique.refaire, m.historique.annuler, "Rien a retablir", "Retabli");
+			return Basculer(m, m.historique.refaire, m.historique.annuler, m.historique.refaireFichiers, m.historique.annulerFichiers,
+							"Rien a retablir", "Retabli");
 		}
 
 		bool NkEditeurActiverEntite(NkEditeurModele &m, ecs::NkEntityId id, bool actif) {
