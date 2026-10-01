@@ -20,6 +20,43 @@
 
 ---
 
+## 0. Portée : toute la famille, chacun avec sa touche
+
+Rihen, 01/10 : *« ce n'est pas seulement valable pour UnkenyEditor, mais aussi pour
+Nogee, NkAnimaEditor, PV3DE, NK3DModeler ; mais chacun doit apporter une touche
+particulière à cette interface »*. Images de référence de Rihen (hors dépôt, sous
+droits) : `C:\Users\rihen\Documents\Projects\References\UE5\`.
+
+**Où écrire** : dans **NKEditorKit**, jamais en copie dans chaque application. Le
+socle existe : `Components/NkContentBrowserModel.h` (+ `NkContentBrowserDraw.cpp`,
+`NkTreeViewModel.h`, `NkTabStripModel.h`, `NkEditorInspector.h`, `NkTheme.h`),
+écrit comme **modèle neutre + jetons + variantes + greffes**, déjà consommé par
+NKUIDesign et NKCraft (derrière `NK_KIT_BROWSER=1`). La spécification de famille
+« Aetherion » (style UE5, thèmes clair et sombre, docking, Content Browser et
+Outliner partagés) est dans `Applications/Nogee/design/` (documents 1 à 3) et
+`Applications/NkAnimaEditor/design/04` à `06`.
+
+**Directive de Rodolf du 30/08, toujours valable** : la variante par défaut est le
+mixte Unreal + Aetherion ; une application ne bascule sur le composant partagé
+qu'une fois la **parité avec son navigateur historique atteinte et validée sur
+capture** ; les navigateurs existants (`NKCraft/Shell/NkModelerBrowser.h`,
+`Nogee/Panels/ContentBrowserPanel.cpp`, `Nogee/Panels/AssetBrowser.cpp`) restent
+intacts jusque-là.
+
+**La touche de chacun** (proposition, à valider par Rihen) :
+
+| application | sa touche |
+|---|---|
+| **UnkenyEditor** (jeux 2D) | formes 2D et acteurs de jeu dans *Placer des acteurs* ; aperçus de sprites et de scènes 2D ; logo Unkeny (tuiles / rebond) |
+| **Nogee** (jeux 3D, Noge) | primitives 3D, lumières et volumes 3D ; aperçus rendus des maillages et matériaux |
+| **NkAnimaEditor** (animation, VFX) | frise temporelle au premier plan ; assets d'animation, squelettes, contrôleurs `.nkanimctl` avec aperçu animé au survol |
+| **PV3DE** (patient virtuel) | les **cas** (`.nkcase`) et les patients comme assets ; palette plus calme ; mention « simulation pédagogique » |
+| **NKCraft** (modélisation) | l'araignée ; vignettes rendues des maillages ; générateur de créatures |
+
+**Ordre** : le composant partagé d'abord, adopté par **UnkenyEditor** en premier
+(c'est lui que Rihen teste), puis les autres applications, une par une, chacune
+après validation sur capture.
+
 ## 1. Ce que Rihen a constaté (01/10)
 
 1. Le navigateur de contenu : **on ne peut pas sélectionner les dossiers** ; pas de
