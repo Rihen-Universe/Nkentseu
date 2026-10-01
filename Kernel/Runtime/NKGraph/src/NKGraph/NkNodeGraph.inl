@@ -925,6 +925,10 @@ namespace nkentseu {
 					return "defaut-type-different";
 				case NkGraphIssue::PropUnknownType:
 					return "propriete-type-inconnu";
+				case NkGraphIssue::LinkFamilyMismatch:
+					return "lien-famille-incompatible";
+				case NkGraphIssue::ExecOutputDuplicate:
+					return "lien-sortie-exec-doublee";
 			}
 			return "?";
 		}
@@ -988,6 +992,25 @@ namespace nkentseu {
 				const NkSocket &sb = b->sockets[(uint32)l.toSocket];
 				if (sa.dir != NkSocketDir::Output || sb.dir != NkSocketDir::Input) {
 					add(NkGraphIssue::LinkDirection, l.toNode, l.id, NkString(""));
+					continue;
+				}
+				// ⚠️ G1 (2026-10-01, document 01 d'UnkenyEditor) : VALIDATE CONNAIT LA
+				// FAMILLE, comme Connect. Avant, il appliquait aux fils d'EXECUTION les
+				// regles des DONNEES : une entree exec a deux sources -- que Connect
+				// autorise expressement (deux chemins menent au meme noeud) -- etait
+				// signalee « lien-entree-doublee », et un Blueprint valide se relisait
+				// avec de faux diagnostics. Les arites sont INVERSEES : une entree de
+				// donnees n'a qu'une source ; une SORTIE d'execution n'a qu'une suite.
+				if (sa.family != sb.family) {
+					add(NkGraphIssue::LinkFamilyMismatch, l.toNode, l.id, sb.name);
+					continue;
+				}
+				if (sa.family == NkSocketFamily::Exec) {
+					for (uint32 k = i + 1; k < (uint32)mLinks.Size(); ++k)
+						if (mLinks[k].alive && mLinks[k].fromNode == l.fromNode && mLinks[k].fromSocket == l.fromSocket) {
+							add(NkGraphIssue::ExecOutputDuplicate, l.fromNode, mLinks[k].id, sa.name);
+							break;
+						}
 					continue;
 				}
 				if (!Accepts(sb.type, sa.type))
