@@ -2,6 +2,7 @@
 // NkShaderIncludeResolver.cpp  — M.5 Material Functions
 // =============================================================================
 #include "NkShaderIncludeResolver.h"
+#include "NKRenderer/Core/NkRendererResourcePath.h" // racine trouvee en remontant depuis l'executable
 #include "NKFileSystem/NkFile.h"
 #include "NKLogger/NkLog.h"
 #include <cstdio>
@@ -101,8 +102,11 @@ namespace nkentseu {
 				const char *s = includeArg.CStr();
 				if (s[0] == 'R' && s[1] == 'e' && s[2] == 's' && s[3] == 'o' && s[4] == 'u' && s[5] == 'r' &&
 					s[6] == 'c' && s[7] == 'e' && s[8] == 's' && s[9] == '/') {
-					if (NkFile::Exists(includeArg.CStr()))
-						return includeArg;
+					// (2026-10-01) resolu : repertoire courant, puis la racine
+					// trouvee en remontant depuis l'executable.
+					const NkString p = NkRendererResolvePath(includeArg);
+					if (NkFile::Exists(p.CStr()))
+						return p;
 				}
 			}
 
@@ -112,7 +116,7 @@ namespace nkentseu {
 				const char *s = includeArg.CStr();
 				if (s[0] == 'I' && s[1] == 'n' && s[2] == 'c' && s[3] == 'l' && s[4] == 'u' && s[5] == 'd' &&
 					s[6] == 'e' && s[7] == '/') {
-					NkString p = NkString("Resources/NKRenderer/Shaders/") + includeArg;
+					NkString p = NkRendererResolvePath(NkString("Resources/NKRenderer/Shaders/") + includeArg);
 					if (NkFile::Exists(p.CStr()))
 						return p;
 				}
@@ -127,7 +131,7 @@ namespace nkentseu {
 
 			// 4. Fallback : "Resources/NKRenderer/Shaders/Include/<arg>"
 			{
-				NkString p = NkString("Resources/NKRenderer/Shaders/Include/") + includeArg;
+				NkString p = NkRendererResolvePath(NkString("Resources/NKRenderer/Shaders/Include/") + includeArg);
 				if (NkFile::Exists(p.CStr()))
 					return p;
 			}

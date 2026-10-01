@@ -10,6 +10,7 @@
 // Cache disque (nk_ibl_cache.bin par defaut) : premiere execution ~0.5-2s, suivantes <50ms.
 // Invalidation automatique si les parametres sky ou les tailles changent (hash FNV-32).
 // =============================================================================
+#include "NKRenderer/Core/NkRendererResourcePath.h"
 #include "NkEnvironmentSystem.h"
 #include "NKCore/Text/NkSnprintf.h"
 #include "NKThreading/NkThreadPool.h"
@@ -701,7 +702,10 @@ namespace nkentseu {
 				// Le code officiel lit par le CRT (fopen) : suffisant sur les
 				// plateformes de bureau ; le passage par NkFile viendra avec les
 				// plateformes a assets empaquetes — meme reserve que ReadFile.
-				const char *path = "Resources/NKRenderer/Sky/SkyModelDataset.dat";
+				// (2026-10-01) RESOLU : repertoire courant, puis la racine trouvee en
+				// remontant depuis l'executable (NkRendererResourcePath.h).
+				const NkString cheminPrague = NkRendererResolvePath("Resources/NKRenderer/Sky/SkyModelDataset.dat");
+				const char *path = cheminPrague.CStr();
 				sPragueState =
 					praguedata::arpragueskymodelground_state_alloc_init(path, 0.5, 60.0, 0.3);
 				if (!sPragueState) {
