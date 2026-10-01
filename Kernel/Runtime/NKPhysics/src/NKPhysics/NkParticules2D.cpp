@@ -404,7 +404,14 @@ namespace nkentseu {
 			}
 			mTri.Resize(n);
 			mCleTri.Resize(n);
+			// (2026-09-30) Un corps ETEINT n'entre pas dans la grille : ni paire, ni
+			// contact rigide, ni viscosite, ni soudure -- tout ce qui passe par elle.
+			const uint32 HORS_GRILLE = 0xFFFFFFFFu;
 			for (uint32 i = 0; i < n; ++i) {
+				if (!corps[particules[i].corps].actif) {
+					mCleTri[i] = HORS_GRILLE;
+					continue;
+				}
 				int32 cx = static_cast<int32>((particules[i].pos.x - mOrigine.x) / mCell);
 				int32 cy = static_cast<int32>((particules[i].pos.y - mOrigine.y) / mCell);
 				cx = cx < 0 ? 0 : (cx >= mGx ? mGx - 1 : cx);
@@ -421,7 +428,9 @@ namespace nkentseu {
 				somme += k;
 			}
 			for (uint32 i = 0; i < n; ++i) {
-				mTri[static_cast<uint32>(mCellFin[mCleTri[i]]++)] = i;
+				if (mCleTri[i] != HORS_GRILLE) {
+					mTri[static_cast<uint32>(mCellFin[mCleTri[i]]++)] = i;
+				}
 			}
 			mGrilleValide = true;
 			ConstruirePaires();
@@ -587,7 +596,7 @@ namespace nkentseu {
 			for (uint32 i = 0; i < particules.Size(); ++i) {
 				NkParticule2D &p = particules[i];
 				p.prec = p.pos;
-				if (p.epingle || p.invMasse == 0.f) {
+				if (p.epingle || p.invMasse == 0.f || !corps[p.corps].actif) {
 					p.vit = NkVec2f(0.f, 0.f);
 					continue;
 				}
@@ -613,6 +622,9 @@ namespace nkentseu {
 					continue;
 				}
 				NkParticule2D &p = particules[i];
+				if (!corps[p.corps].actif) {
+					continue; // un corps eteint ne se saisit pas
+				}
 				const NkVec2f cible = mCibleSaisie + mSaisisDecalage[k];
 				if (p.epingle) {
 					p.pos = cible;
@@ -634,7 +646,7 @@ namespace nkentseu {
 				NkParticule2D &pa = particules[l.a];
 				NkParticule2D &pb = particules[l.b];
 				const float32 w = pa.invMasse + pb.invMasse;
-				if (w <= 0.f) {
+				if (w <= 0.f || !corps[pa.corps].actif || !corps[pb.corps].actif) {
 					continue;
 				}
 				const NkVec2f d = pb.pos - pa.pos;
@@ -700,7 +712,7 @@ namespace nkentseu {
 		void NkParticules2D::ResoudrePression(float32 h) noexcept {
 			for (uint32 ci = 0; ci < corps.Size(); ++ci) {
 				NkCorpsP2D &c = corps[ci];
-				if (c.mat != NkMateriauP2D::NK_BALLON || c.nombre < 3 || c.pression <= 0.f) {
+				if (!c.actif || c.mat != NkMateriauP2D::NK_BALLON || c.nombre < 3 || c.pression <= 0.f) {
 					continue;
 				}
 				const uint32 n = c.nombre;
@@ -734,7 +746,7 @@ namespace nkentseu {
 		void NkParticules2D::ResoudreForme() noexcept {
 			for (uint32 ci = 0; ci < corps.Size(); ++ci) {
 				const NkCorpsP2D &c = corps[ci];
-				if (c.formeRaideur <= 0.f || c.nombre < 2) {
+				if (!c.actif || c.formeRaideur <= 0.f || c.nombre < 2) {
 					continue;
 				}
 				NkVec2f centre(0.f, 0.f);
@@ -1184,7 +1196,7 @@ namespace nkentseu {
 				if (!L.actif) {
 					continue;
 				}
-				if (p.invMasse == 0.f) {
+				if (p.invMasse == 0.f || !corps[p.corps].actif) {
 					continue;
 				}
 				const float32 r = p.rayon;
@@ -1212,6 +1224,13 @@ namespace nkentseu {
 			const float32 vMax = 80.f;
 			for (uint32 i = 0; i < particules.Size(); ++i) {
 				NkParticule2D &p = particules[i];
+				if (!corps[p.corps].actif) {
+					// Eteint : exactement ou il etait, sans vitesse (voir NkCorpsP2D::actif).
+					p.pos = p.prec;
+					p.vit = NkVec2f(0.f, 0.f);
+					p.contact = false;
+					continue;
+				}
 				if (p.epingle || p.invMasse == 0.f) {
 					if (!p.saisie) {
 						p.pos = p.prec;
@@ -1305,7 +1324,7 @@ namespace nkentseu {
 				NkParticule2D &a = particules[l.a];
 				NkParticule2D &b = particules[l.b];
 				const float32 w = a.invMasse + b.invMasse;
-				if (w <= 0.f) {
+				if (w <= 0.f || !corps[a.corps].actif || !corps[b.corps].actif) {
 					continue;
 				}
 				const NkVec2f d = b.pos - a.pos;
@@ -1459,6 +1478,9 @@ namespace nkentseu {
 			int32 meilleur = -1;
 			float32 best = rayonMax * rayonMax;
 			for (uint32 i = 0; i < particules.Size(); ++i) {
+				if (!corps[particules[i].corps].actif) {
+					continue; // un corps eteint ne se prend pas
+				}
 				const float32 r = particules[i].rayon;
 				const float32 d2 = Len2(particules[i].pos - p) - r * r;
 				if (d2 < best) {
@@ -1693,7 +1715,7 @@ namespace nkentseu {
 		bool NkParticules2D::SaisirDebut(const NkVec2f &p, float32 rayon) noexcept {
 			SaisirFin();
 			for (uint32 i = 0; i < particules.Size(); ++i) {
-				if (Len2(particules[i].pos - p) <= rayon * rayon) {
+				if (corps[particules[i].corps].actif && Len2(particules[i].pos - p) <= rayon * rayon) {
 					mSaisis.PushBack(i);
 				}
 			}

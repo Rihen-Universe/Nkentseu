@@ -156,8 +156,8 @@ namespace nkentseu {
 			}
 			for (uint32 ci = 0; ci < corps.Size(); ++ci) {
 				const NkCorpsP2D &c = corps[ci];
-				if (c.nombre == 0u) {
-					continue;
+				if (c.nombre == 0u || !c.actif) {
+					continue; // un corps eteint n'entre dans aucune zone
 				}
 				NkVec2f mn;
 				NkVec2f mx;
@@ -776,7 +776,7 @@ namespace nkentseu {
 					stats.rupturesAttaches++;
 					continue;
 				}
-				if (p.invMasse == 0.f || len < 1.0e-7f) {
+				if (p.invMasse == 0.f || len < 1.0e-7f || !corps[p.corps].actif) {
 					continue;
 				}
 				const NkVec2f n = d * (1.f / len);
@@ -861,8 +861,8 @@ namespace nkentseu {
 			uint32 prises = 0;
 			auto libre = [&](uint32 i) {
 				const NkParticule2D &q = particules[i];
-				if (q.saisie) {
-					return false; // tenue par la saisie historique ou un autre pointeur : jamais volee
+				if (q.saisie || !corps[q.corps].actif) {
+					return false; // tenue (jamais volee), ou d'un corps eteint (jamais prise)
 				}
 				return ci < 0 || q.corps == static_cast<uint32>(ci);
 			};

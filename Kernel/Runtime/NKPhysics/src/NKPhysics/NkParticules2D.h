@@ -174,6 +174,13 @@ namespace nkentseu {
 				float32 amortissement = 0.f;
 				bool autoCollision = true;	 ///< collisions entre SES propres particules
 				bool couplageRigide = true;	 ///< touche les corps de NkPhysicsWorld
+				/// (2026-09-30) false : le corps est ETEINT (l'entite « inactive »
+				/// d'Unkeny). Ses particules restent OU ELLES SONT : ni integrees, ni
+				/// resolues, hors de la grille (donc sans aucun contact, ni entre
+				/// elles, ni avec les rigides, ni avec les autres corps), ni saisies,
+				/// ni dans les zones. Rallume, il repart immobile. AJOUTE A LA FIN,
+				/// vrai par defaut : tout corps existant se simule comme avant.
+				bool actif = true;
 		};
 
 		/// La boite du monde. Facultative : un monde de jeu a son sol en corps
