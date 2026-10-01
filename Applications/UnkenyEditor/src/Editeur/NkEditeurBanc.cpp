@@ -133,7 +133,8 @@
 //   (e56) creer : clic droit dans le vide, « Nouveau dossier » (son nom s'edite
 //         aussitot, Entree le valide), scene vide, controleur d'animation ; la
 //         COULEUR d'un dossier (sa carte ET le rail, gardee dans .nknavigateur),
-//         les FAVORIS, une COLLECTION et son compteur
+//         les FAVORIS, une COLLECTION et son compteur ; RENOMMER un dossier
+//         depuis le rail : la grille saute sur son parent, le champ s'ouvre
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -2033,9 +2034,27 @@ namespace nkentseu {
 					t.Trame();
 					collection = ui.contenu.collections.Size() == 1u && ui.contenu.collections[0].compte == 1u;
 				}
-				Temoin(menuVide && cree && nomme && fichiers && couleur && favori && collection,
-					   "(e56) creer : dossier (nom en place), scene, controleur ; couleur de dossier (grille et rail), favori, collection",
-					   static_cast<float32>(menuVide + cree + nomme + fichiers + couleur + favori + collection));
+				// (e) RENOMMER un dossier depuis le RAIL alors que la grille montre la
+				// racine : la vue saute sur son parent, le champ s'ouvre sur sa carte.
+				NkDirectory::CreateRecursive("banc_e56/projet/Contenu/Decor/Profond");
+				ui.contenuPerime = true;
+				t.Trame();
+				ui.contenuMenuChemin = NkString("Contenu/Decor/Profond");
+				ui.contenuMenuDossier = true;
+				NkEditeurExecuter(c, NK_A_CONTENU_RENOMMER);
+				t.Trame();
+				t.Trame();
+				const bool vueParent = ui.contenuDossier == NkString("Decor") && ui.renommeChemin == NkString("Contenu/Decor/Profond") &&
+									   ui.contenu.renomme >= 0;
+				std::snprintf(ui.contenu.renommeTampon, sizeof(ui.contenu.renommeTampon), "%s", "Grottes");
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, true);
+				t.Trame();
+				t.Ctx().input.SetKey(nkgui::NkGuiKey::Enter, false);
+				t.Trame();
+				const bool depuisRail = vueParent && NkDirectory::Exists("banc_e56/projet/Contenu/Decor/Grottes");
+				Temoin(menuVide && cree && nomme && fichiers && couleur && favori && collection && depuisRail,
+					   "(e56) creer : dossier (nom en place), scene, controleur ; couleur (grille et rail), favori, collection ; renommer depuis le rail",
+					   static_cast<float32>(menuVide + cree + nomme + fichiers + couleur + favori + collection + depuisRail));
 				m.chemin = cheminAvant;
 				NkDirectory::Delete("banc_e56", true);
 			}

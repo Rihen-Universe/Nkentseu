@@ -928,6 +928,14 @@ namespace nkentseu {
 					return;
 				}
 				ui.renommeChemin = chemin;
+				// Le champ se pose sur la CARTE : un dossier renomme depuis le RAIL (ou
+				// un favori) n'est peut-etre pas dans la grille -- on montre son parent.
+				const NkString parent = editorkit::NkDisqueParent(Rel(chemin).CStr());
+				if (!ui.contenuProjet || !(ui.contenuDossier == parent)) {
+					AllerContenu(ui, parent);
+					ui.contenuChoisis.PushBack(chemin);
+					ui.contenuActif = chemin;
+				}
 				// On edite le PIED : l'extension reste (Unreal edite le nom d'asset).
 				// Un DOSSIER s'edite en entier (« v1.2 » n'a pas d'extension).
 				const NkString nom = editorkit::NkDisqueNom(chemin.CStr());
