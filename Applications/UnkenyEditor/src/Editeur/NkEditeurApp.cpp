@@ -273,6 +273,40 @@ namespace nkentseu {
 					mEclairageEteint = true;
 					continue;
 				}
+				// (2026-10-01) Le NAVIGATEUR DE CONTENU, capturable sans souris :
+				// --contenu=Contenu/Textures   le dossier montre au depart
+				// --contenu-choisir=a;b;c      des chemins choisis (selection multiple)
+				// --contenu-menu=CHEMIN        sa carte choisie et son clic droit ouvert
+				// --contenu-deposer=A>B        le menu « Deplacer ici / Copier ici »
+				// --contenu-filtres            la rangee des puces de type ouverte
+				// --tiroir=H                   la hauteur du tiroir, en pixels
+				if (args[i].StartsWith("--contenu=")) {
+					mUi->demContenu = NkString(args[i].SubStr(10));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-choisir=")) {
+					mUi->demChoisir = NkString(args[i].SubStr(18));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-menu=")) {
+					mUi->demMenu = NkString(args[i].SubStr(15));
+					continue;
+				}
+				if (args[i].StartsWith("--contenu-deposer=")) {
+					mUi->demDeposer = NkString(args[i].SubStr(18));
+					continue;
+				}
+				if (args[i] == "--contenu-filtres") {
+					mUi->demFiltres = true;
+					continue;
+				}
+				if (args[i].StartsWith("--tiroir=")) {
+					const int32 h = NkString(args[i].SubStr(9)).ToInt32();
+					if (h > 80) {
+						mUi->hauteurTiroir = static_cast<float32>(h);
+					}
+					continue;
+				}
 				if (args[i] == "--selftest") {
 					// Le moteur d'abord (textures, sauvegarde, son, systemes), puis
 					// les ACTIONS de l'editeur : un echec d'Unkeny se lit ainsi a
@@ -435,7 +469,8 @@ namespace nkentseu {
 			// (2026-09-30) Le selecteur de fichiers ouvert occupe l'editeur, comme
 			// la boite et la fenetre Construire.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get());
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
+								!mUi->contenuASupprimer.Empty();
 			// Les entrees de la scene vivent a cote d'elle (.nkentrees) : relues
 			// quand la scene change de chemin (Ouvrir).
 			NkEditeurEntreesSuivreScene(*mEntrees, NkEditeurEntreesCheminScene(*mModele).CStr());
@@ -529,7 +564,8 @@ namespace nkentseu {
 			// La vue active EN JEU : le clavier, la manette et le doigt sont au
 			// jeu (NkEditeurEntrees.h). Ce qu'il prend, NKGui ne le voit pas.
 			const bool occupe = mUi->confirmation != NK_A_AUCUNE || mUi->menu != NkMenuEditeur::NK_AUCUN ||
-								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get());
+								mUi->panneauEntrees || mConstruction->ouverte || NkEditeurSelecteurOuvert(mSelecteur.Get()) ||
+								!mUi->contenuASupprimer.Empty();
 			if (NkEditeurEntreesEvenement(*mEntrees, mModele->etat, event, mUi->viseur, occupe)) {
 				return false;
 			}
@@ -633,6 +669,15 @@ namespace nkentseu {
 				c.ui.menu == NkMenuEditeur::NK_COMPOSANT) {
 				return;
 			}
+			// (2026-10-01) Les CHAMPS du navigateur (recherche, recherche d'une section,
+			// renommage en place) gardent leurs touches : Suppr efface une lettre.
+			if (c.ui.contenu.searchFocused || c.ui.contenu.sourcesRechercheFocus || !c.ui.renommeChemin.Empty()) {
+				return;
+			}
+			// Le navigateur qui a le FOCUS prend Ctrl+C / X / V / D / A, F2, Suppr.
+			if (NkEditeurContenuAuClavier(c)) {
+				return;
+			}
 			if (in.ctrlDown) {
 				// Ctrl+Z / Ctrl+Y, et Ctrl+Maj+Z (2026-10-01, NkHistoriqueEditeur).
 				if (in.KeyPressed(NkGuiKey::Z)) {
@@ -720,7 +765,7 @@ namespace nkentseu {
 				// scene), enregistrees ou non.
 				construction.demande.entrees = entrees.jeu.Liaisons().Ecrire();
 			}
-			if (ui.confirmation == NK_A_AUCUNE && !construction.ouverte && !choix) {
+			if (ui.confirmation == NK_A_AUCUNE && !construction.ouverte && !choix && ui.contenuASupprimer.Empty()) {
 				NkEditeurBordsFenetre(c);
 			}
 
@@ -741,7 +786,7 @@ namespace nkentseu {
 			//    meme temps que la boite.
 			// La fenetre « Construire » est modale de la meme facon.
 			// Le selecteur de fichiers (NkEditeurSelecteur.h) aussi.
-			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix;
+			const bool modale = ui.confirmation != NK_A_AUCUNE || construction.ouverte || choix || !ui.contenuASupprimer.Empty();
 			if (modale) {
 				ui.menu = NkMenuEditeur::NK_AUCUN;
 				ui.nomFocus = false;
@@ -810,6 +855,7 @@ namespace nkentseu {
 					Neutraliser(c.ctx.input, true);
 				}
 				NkEditeurDessinerConfirmation(c);
+				NkEditeurDessinerSuppressionContenu(c);
 				NkEditeurDessinerConstruire(c, construction);
 				if (choix) {
 					Rendre(c.ctx.input, vrais);

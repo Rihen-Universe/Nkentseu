@@ -53,6 +53,7 @@
 #include "NKContainers/String/NkString.h"
 #include "NKEditorKit/Components/NkComponentInstance.h"
 #include "NKEditorKit/Components/NkComponentPaint.h"
+#include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "NKEditorKit/Components/NkContentBrowserModel.h"
 #include "NKEditorKit/Components/NkTreeViewModel.h"
 #include "NKEditorKit/NkTheme.h"
@@ -85,7 +86,15 @@ namespace nkentseu {
 			// Le clic droit hors d'une entite (2026-09-30, lot 1) : AJOUTES A LA FIN.
 			NK_CTX_ARBRE,		///< l'Outliner hors d'une ligne d'entite (la racine, le vide)
 			NK_CTX_CONTENU,		///< une carte ou un dossier du navigateur de contenu
-			NK_CTX_CONTENU_VIDE ///< le fond du navigateur de contenu
+			NK_CTX_CONTENU_VIDE, ///< le fond du navigateur de contenu
+			// Le navigateur a la maniere d'UE5 (2026-10-01, document 02 §3) : AJOUTES A LA FIN.
+			NK_CONTENU_AJOUTER,	   ///< « + Ajouter » : creer un dossier, une scene, un prefab...
+			NK_CONTENU_REGLAGES,   ///< « Reglages » : taille des vignettes, dossiers, liste...
+			NK_CONTENU_TRI,		   ///< le bouton de tri : nom, type, date, taille ; sens
+			NK_CONTENU_DEPOSER,	   ///< apres un glisser : « Deplacer ici / Copier ici »
+			NK_CONTENU_COULEUR,	   ///< sous-menu « Couleur du dossier »
+			NK_CONTENU_COLLECTION, ///< sous-menu « Ajouter a la collection »
+			NK_CTX_COLLECTION	   ///< clic droit sur une collection
 		};
 
 		/// LA table des actions. Les plages a partir de 100 portent un indice
@@ -166,7 +175,38 @@ namespace nkentseu {
 			NK_A_CONTENU_OUVRIR,	   ///< le dossier vise s'ouvre
 			NK_A_CONTENU_RACINE,	   ///< retour a la racine du navigateur (ou de « Contenu »)
 			NK_A_CONTENU_IMPORTER,	   ///< « Importer… » : le dialogue, puis la copie dans le Contenu
-			NK_A_CONTENU_EXPORTER	   ///< « Exporter… » : les assets choisis, vers un dossier de l'OS
+			NK_A_CONTENU_EXPORTER,	   ///< « Exporter… » : les assets choisis, vers un dossier de l'OS
+			// Le navigateur a la maniere d'UE5 (2026-10-01, document 02 §3.1) : les
+			// gestes sur les fichiers ET les dossiers (NkContentBrowserDisque.h du kit).
+			NK_A_CONTENU_NOUVEAU_DOSSIER = 1306, ///< « Nouveau dossier » (dans le dossier vise ou courant)
+			NK_A_CONTENU_NOUVELLE_SCENE,		 ///< une scene vide (.nkscene)
+			NK_A_CONTENU_NOUVEAU_PREFAB,		 ///< un prefab de la selection de la scene
+			NK_A_CONTENU_NOUVEAU_CONTROLEUR,	 ///< un controleur d'animation (.nkanimctl)
+			NK_A_CONTENU_COUPER,				 ///< Ctrl+X
+			NK_A_CONTENU_COPIER,				 ///< Ctrl+C
+			NK_A_CONTENU_COLLER,				 ///< Ctrl+V
+			NK_A_CONTENU_DUPLIQUER,				 ///< Ctrl+D
+			NK_A_CONTENU_RENOMMER,				 ///< F2 : le nom s'edite EN PLACE
+			NK_A_CONTENU_SUPPRIMER,				 ///< Suppr : la CONFIRMATION s'ouvre
+			NK_A_CONTENU_SUPPRIMER_OUI,			 ///< la confirmation acceptee : vers la corbeille
+			NK_A_CONTENU_DEPLACER_ICI,			 ///< le menu du glisser
+			NK_A_CONTENU_COPIER_ICI,			 ///< le menu du glisser
+			NK_A_CONTENU_FAVORI,				 ///< le dossier vise entre aux / sort des Favoris
+			NK_A_CONTENU_TOUT_SELECTIONNER,		 ///< Ctrl+A dans le navigateur
+			NK_A_CONTENU_COPIER_CHEMIN,			 ///< le chemin dans le presse-papiers
+			NK_A_CONTENU_OUVRIR_ASSET,			 ///< double-clic : une scene s'ouvre, un dossier aussi
+			NK_A_CONTENU_POSER_ASSET,			 ///< un prefab ou une image, au centre de la vue
+			NK_A_CONTENU_AFFICHER_DOSSIERS,		 ///< reglage « Afficher les dossiers »
+			NK_A_CONTENU_FILTRES,				 ///< reglage « Filtres par type »
+			NK_A_CONTENU_VUE_LISTE,				 ///< reglage « Vue en liste »
+			NK_A_CONTENU_NOUVELLE_COLLECTION,	 ///< le « + » des Collections
+			NK_A_CONTENU_SUPPRIMER_COLLECTION,	 ///< clic droit sur une collection
+			NK_A_CONTENU_RETIRER_COLLECTION,	 ///< l'asset sort de la collection regardee
+			NK_A_CONTENU_TRI_SENS,				 ///< croissant / decroissant
+			NK_A_CONTENU_COULEUR = 1340,		 ///< + indice de NkCouleursDossier (0 = celle par defaut)
+			NK_A_CONTENU_TAILLE = 1352,			 ///< + indice de taille (petite, moyenne, grande, enorme)
+			NK_A_CONTENU_TRI = 1360,			 ///< + NkBrowserTri
+			NK_A_CONTENU_COLLECTION = 1370		 ///< + indice de collection : la selection y entre
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.
@@ -305,6 +345,55 @@ namespace nkentseu {
 				nkgui::NkRect boutonImporter{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonExporter{0.f, 0.f, 0.f, 0.f};
 				bool cloisonContenu = false; ///< la cloison dossiers | cartes est tenue
+				// --- Le navigateur a la maniere d'UE5 (2026-10-01, document 02 §3) ---
+				/// « Tout » : la racine du fil d'Ariane (Unreal « All ») -- ses deux
+				/// dossiers, « Contenu » et « Acteurs », en cartes.
+				bool contenuTout = false;
+				/// La collection regardee (indice dans la memoire), -1 = aucune.
+				int32 contenuCollection = -1;
+				/// L'entree ACTIVE et l'ANCRE de la selection, par CHEMIN : les cartes
+				/// sont reconstruites a chaque trame, un indice ne survivrait pas.
+				NkString contenuActif;
+				NkString contenuAncre;
+				/// Le presse-papiers du navigateur (Ctrl+X / Ctrl+C), des chemins.
+				NkVector<NkString> pressePapierContenu;
+				bool pressePapierCouper = false;
+				/// La SUPPRESSION en attente de confirmation (modale tant que non vide).
+				NkVector<NkString> contenuASupprimer;
+				NkVector<NkString> contenuReferences; ///< les scenes et prefabs qui les citent
+				/// Le GLISSER lache, en attente du menu « Deplacer ici / Copier ici ».
+				NkVector<NkString> deposeSources;
+				NkString deposeCible;
+				/// Le RENOMMAGE en place : le chemin vise (vide = aucun).
+				NkString renommeChemin;
+				/// La memoire du navigateur (couleurs, favoris, collections), relue
+				/// quand elle est perimee (NkContentBrowserDisque.h).
+				editorkit::NkDisqueMeta contenuMeta;
+				bool contenuMetaPerimee = true;
+				/// La collection visee par le clic droit.
+				int32 collectionMenu = -1;
+				/// Les vignettes REELLES des images : chemin -> texture (0 = echec).
+				NkVector<NkString> vignettesCles;
+				NkVector<uint32> vignettesTex;
+				/// Le rectangle du navigateur (sous ses onglets) a la derniere trame.
+				nkgui::NkRect contenuZone{0.f, 0.f, 0.f, 0.f};
+				/// Precedent / suivant de la barre du navigateur (le banc y vise).
+				nkgui::NkRect contenuPrecedent{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect contenuSuivant{0.f, 0.f, 0.f, 0.f};
+				/// Les demandes de DEMARRAGE pour une capture sans souris (--contenu=,
+				/// --contenu-choisir=, --contenu-menu=, --contenu-deposer=).
+				NkString demContenu;
+				NkString demChoisir;
+				NkString demMenu;
+				NkString demDeposer;
+				int32 demTrame = 0;
+				bool demFiltres = false; ///< --contenu-filtres : la rangee des puces ouverte au depart
+				/// Supprimer = vers la CORBEILLE de l'OS (recuperable). Le banc le met a
+				/// faux : ses dossiers temporaires ne doivent pas remplir la corbeille.
+				bool contenuCorbeille = true;
+				/// La scene a ouvrir (double-clic sur une scene du Contenu), chemin
+				/// ABSOLU, consommee par la question « non enregistree ».
+				NkString sceneAOuvrir;
 				NkVector<NkString> journal;
 				float32 agePrecedent = 99.f;
 				float32 defilJournal = 0.f;
@@ -551,6 +640,18 @@ namespace nkentseu {
 		/// Exporte les assets choisis (NkEditeurInterface::contenuChoisis) vers le
 		/// dossier ABSOLU `destination`.
 		NkRapportExport NkEditeurExporterChoisis(NkEditeurModele &m, NkEditeurInterface &ui, const char *destination);
+		/// (2026-10-01) La CONFIRMATION d'une suppression du Contenu (modale tant que
+		/// NkEditeurInterface::contenuASupprimer n'est pas vide) : la liste, les
+		/// scenes et prefabs qui citent ces assets, Supprimer / Annuler.
+		void NkEditeurDessinerSuppressionContenu(NkEditeurCadre &c);
+		/// Le CLAVIER du navigateur quand il a le focus (le dernier clic est tombe
+		/// dedans) : Ctrl+C / X / V / D / A, F2, Suppr. Rend vrai si une touche a
+		/// ete prise -- la scene ne la recoit pas aussi.
+		bool NkEditeurContenuAuClavier(NkEditeurCadre &c);
+		/// La palette des couleurs de dossier (Unreal « Set Color ») : son nom et sa
+		/// couleur (0 = celle du theme).
+		int32 NkEditeurNbCouleursDossier() noexcept;
+		const char *NkEditeurCouleurDossier(int32 k, uint32 &rgba) noexcept;
 		void NkEditeurDessinerVue(NkEditeurCadre &c);
 		/// Mene la camera, EN DOUCEUR, sur la selection -- ou sur toute la scene
 		/// si `toutLaScene` ou si rien n'est selectionne (NkEditeurZoneACadrer).

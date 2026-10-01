@@ -105,6 +105,17 @@ après validation sur capture.
    vignettes réglable.
 7. **Réglages** de la vue (taille, colonnes, afficher les dossiers…).
 
+> **État au 01/10 (étape 1, branche `ue5/navigateur-partage`)** — fait dans le
+> composant PARTAGÉ de NKEditorKit (variante `unreal`, `NkContentBrowserUnreal.cpp`)
+> et adopté par le tiroir « Contenu » : les sept zones ; sources *Favoris*, projet
+> (arbre « Contenu » + catalogue « Acteurs »), *Collections* avec compteur, chacune
+> repliable avec sa loupe ; puces de type ; recherche, tri (nom, date, taille,
+> type ; sens) ; vraies vignettes des images, icônes Unkeny des autres natures ;
+> sélection simple / Ctrl / Maj / cadre ; double-clic ; état vide ; ligne d'état ;
+> taille des vignettes (Réglages, Ctrl+molette) ; verrou ; précédent / suivant.
+> **Partiel** : pas de colonnes réglables (la vue liste existe), pas encore de
+> miniature RENDUE d'une scène ou d'un prefab (une icône Unkeny à la place).
+
 ### 3.1 Les cartes de fichiers et de dossiers
 
 Rihen, 01/10 : *« même les cartes de fichier et de dossier doivent tendre vers
@@ -131,6 +142,17 @@ le viseur pour le **poser** ; **déposer** des fichiers ou des dossiers depuis
 l'explorateur du système = importer ; clic droit sur un asset, un dossier, le
 vide : menus complets. Le sélecteur de fichiers est **celui de NKEditorKit**
 (jamais un nouveau).
+
+> **État au 01/10 (étape 1)** — fait : sélection des fichiers ET des dossiers ;
+> Ctrl+X / C / V, Ctrl+D, F2 en place, Suppr avec confirmation et « Cité par » ;
+> glisser vers un dossier (grille, rail, favori) → « Déplacer ici / Copier ici »,
+> toute la sélection voyage ; image et prefab glissés dans le viseur = sprite ou
+> instance ; dépôt de fichiers ET dossiers de l'OS = import ; clic droit complet
+> (asset, dossier, vide, collection) ; couleur de dossier (Unreal « Set Color »),
+> favoris, collections, gardés dans `Contenu/.nknavigateur`. Le disque passe par
+> `NkContentBrowserDisque.h` (confiné au Contenu, jamais d'écrasement, corbeille).
+> Témoins e51 à e56 du banc de l'éditeur. **Partiel** : un dépôt de l'OS vise une
+> carte de dossier de la grille, pas encore une rangée du rail.
 
 ## 4. Placer des acteurs (Place Actors)
 
