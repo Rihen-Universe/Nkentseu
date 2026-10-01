@@ -250,9 +250,34 @@ namespace nkentseu {
 				return MTLVertexFormatChar4Normalized;
 			case NkVertexFormat::NK_R32_UINT:
 				return MTLVertexFormatUInt;
+			case NkVertexFormat::NK_RG32_UINT:
+				return MTLVertexFormatUInt2;
+			case NkVertexFormat::NK_RGB32_UINT:
+				return MTLVertexFormatUInt3;
 			case NkVertexFormat::NK_RGBA32_UINT:
 				return MTLVertexFormatUInt4;
+			case NkVertexFormat::NK_R32_SINT:
+				return MTLVertexFormatInt;
+			case NkVertexFormat::NK_RG32_SINT:
+				return MTLVertexFormatInt2;
+			case NkVertexFormat::NK_RGBA32_SINT:
+				return MTLVertexFormatInt4;
+			case NkVertexFormat::NK_RGBA16_UINT:
+				return MTLVertexFormatUShort4;
+			case NkVertexFormat::NK_RGBA8_UINT:
+				return MTLVertexFormatUChar4;
+			case NkVertexFormat::NK_RGBA8_SINT:
+				return MTLVertexFormatChar4;
+			case NkVertexFormat::NK_RG8_UNORM:
+				return MTLVertexFormatUChar2Normalized;
+			case NkVertexFormat::NK_R16_FLOAT:
+				return MTLVertexFormatHalf;
+			case NkVertexFormat::NK_A2B10G10R10_UNORM:
+				return MTLVertexFormatUInt1010102Normalized;
 			default:
+				// Un format non traduit se DIT : Float3 en silence donnait des
+				// sommets decales, sans erreur.
+				NK_MTL_ERR("format de sommet %u non traduit : Float3 par defaut\n", (unsigned)f);
 				return MTLVertexFormatFloat3;
 		}
 	}
@@ -315,7 +340,9 @@ namespace nkentseu {
 			NK_MTL_ERR("MTLDevice indisponible\n");
 			return false;
 		}
-		mQueue = [mDevice newCommandQueue];
+		// 256 command buffers en vol au plus (64 par defaut) : de la marge pour
+		// les envois synchrones (WriteTexture...) d'une meme image.
+		mQueue = [mDevice newCommandQueueWithMaxCommandBufferCount:256];
 #if TARGET_OS_OSX
 		sNkMtlDepth24Stencil8 = mDevice.depth24Stencil8PixelFormatSupported;
 #endif
@@ -847,12 +874,97 @@ namespace nkentseu {
 			return {};
 		}
 
+		// Etat de base : formats de la passe DONNEE (sinon ceux de la chaine
+		// d'echange). D'autres viendront a la liaison (ResolveRenderPipeline).
+		const NkMetalPassFormats base = FormatsDeLaPasse(d.renderPass);
+		void *rpsoBase = BuildRenderPipeline(d, sh.vert, sh.frag, base);
+		if (!rpsoBase)
+			return {};
+		id<MTLRenderPipelineState> rpso = (__bridge_transfer id<MTLRenderPipelineState>)rpsoBase;
+
+		// Depth-stencil state
+		MTLDepthStencilDescriptor *dsd = [[MTLDepthStencilDescriptor alloc] init];
+		dsd.depthCompareFunction =
+			d.depthStencil.depthTestEnable ? ToMTLCompare(d.depthStencil.depthCompareOp) : MTLCompareFunctionAlways;
+		dsd.depthWriteEnabled = d.depthStencil.depthWriteEnable;
+		if (d.depthStencil.stencilEnable) {
+			MTLStencilDescriptor *sf = [[MTLStencilDescriptor alloc] init];
+			sf.stencilFailureOperation = ToMTLStencilOp(d.depthStencil.front.failOp);
+			sf.depthFailureOperation = ToMTLStencilOp(d.depthStencil.front.depthFailOp);
+			sf.depthStencilPassOperation = ToMTLStencilOp(d.depthStencil.front.passOp);
+			sf.stencilCompareFunction = ToMTLCompare(d.depthStencil.front.compareOp);
+			dsd.frontFaceStencil = sf;
+			MTLStencilDescriptor *sb = [[MTLStencilDescriptor alloc] init];
+			sb.stencilFailureOperation = ToMTLStencilOp(d.depthStencil.back.failOp);
+			sb.depthFailureOperation = ToMTLStencilOp(d.depthStencil.back.depthFailOp);
+			sb.depthStencilPassOperation = ToMTLStencilOp(d.depthStencil.back.passOp);
+			sb.stencilCompareFunction = ToMTLCompare(d.depthStencil.back.compareOp);
+			dsd.backFaceStencil = sb;
+		}
+		id<MTLDepthStencilState> dss = [mDevice newDepthStencilStateWithDescriptor:dsd];
+
+		NkMetalPipeline p;
+		p.rpso = (__bridge_retained void *)rpso;
+		p.dss = (__bridge_retained void *)dss;
+		p.isCompute = false;
+		p.primitive = (uint32)ToMTLTopology(d.topology);
+		p.desc = d;
+		p.baseSig = base.Signature();
+		p.vert = sh.vert ? (void *)CFRetain(sh.vert) : nullptr;
+		p.frag = sh.frag ? (void *)CFRetain(sh.frag) : nullptr;
+		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		p.cullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	 ? 0
+					 : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? 1
+																	 : 2;
+		p.depthBiasConst = d.rasterizer.depthBiasConst;
+		p.depthBiasSlope = d.rasterizer.depthBiasSlope;
+		p.depthBiasClamp = d.rasterizer.depthBiasClamp;
+
+		uint64 hid = NextId();
+		mPipelines[hid] = p;
+		NkPipelineHandle h;
+		h.id = hid;
+		return h;
+	}
+
+	// Formats d'une passe declaree (NkRenderPassDesc) ; passe inconnue : ceux de
+	// la chaine d'echange.
+	NkMetalPassFormats NkMetalDevice::FormatsDeLaPasse(NkRenderPassHandle rp) const {
+		NkMetalPassFormats f;
+		const NkMetalRenderPass *rpit = rp.IsValid() ? mRenderPasses.Find(rp.id) : nullptr;
+		if (rpit) {
+			f.colorCount = rpit->desc.colorAttachments.Size() < 8 ? rpit->desc.colorAttachments.Size() : 8;
+			for (uint32 i = 0; i < f.colorCount; ++i)
+				f.color[i] = (uint32)ToMTLFormat(rpit->desc.colorAttachments[i].format);
+			if (f.colorCount > 0)
+				f.samples = (uint32)rpit->desc.colorAttachments[0].samples;
+			if (rpit->desc.hasDepth) {
+				const MTLPixelFormat df = ToMTLFormat(rpit->desc.depthAttachment.format);
+				f.depth = (uint32)df;
+				if (df == MTLPixelFormatDepth32Float_Stencil8
+#if TARGET_OS_OSX
+					|| df == MTLPixelFormatDepth24Unorm_Stencil8
+#endif
+				)
+					f.stencil = (uint32)df;
+			}
+		} else {
+			f.colorCount = 1;
+			f.color[0] = (uint32)ToMTLFormat(mSwapFormat);
+			f.depth = (uint32)MTLPixelFormatDepth32Float;
+		}
+		if (f.samples == 0)
+			f.samples = 1;
+		return f;
+	}
+
+	void *NkMetalDevice::BuildRenderPipeline(const NkGraphicsPipelineDesc &d, void *vert, void *frag,
+											 const NkMetalPassFormats &f) {
 		MTLRenderPipelineDescriptor *pd = [[MTLRenderPipelineDescriptor alloc] init];
-		if (sh.vert)
-			pd.vertexFunction = (__bridge id<MTLFunction>)sh.vert;
-		if (sh.frag)
-			pd.fragmentFunction = (__bridge id<MTLFunction>)sh.frag;
-		pd.sampleCount = (NSUInteger)d.samples;
+		pd.vertexFunction = (__bridge id<MTLFunction>)vert;
+		if (frag)
+			pd.fragmentFunction = (__bridge id<MTLFunction>)frag;
+		pd.sampleCount = f.samples > 0 ? f.samples : 1;
 
 		// Vertex descriptor. La liaison de sommets B vit en buffer(26 + B)
 		// (NkMslConventions.h) : en buffer(B), elle ecrasait le tampon de camera
@@ -887,30 +999,15 @@ namespace nkentseu {
 				break;
 		}
 
-		// Render target formats
-		auto *rpit = mRenderPasses.Find(d.renderPass.id);
-		if (rpit) {
-			for (uint32 i = 0; i < rpit->desc.colorAttachments.Size(); i++)
-				pd.colorAttachments[i].pixelFormat = ToMTLFormat(rpit->desc.colorAttachments[i].format);
-			if (rpit->desc.hasDepth) {
-				const MTLPixelFormat df = ToMTLFormat(rpit->desc.depthAttachment.format);
-				pd.depthAttachmentPixelFormat = df;
-				// Un format profondeur+stencil doit AUSSI etre declare en stencil,
-				// sinon le pipeline ne correspond pas a la passe.
-				if (df == MTLPixelFormatDepth32Float_Stencil8
-#if TARGET_OS_OSX
-					|| df == MTLPixelFormatDepth24Unorm_Stencil8
-#endif
-				)
-					pd.stencilAttachmentPixelFormat = df;
-			}
-		} else {
-			pd.colorAttachments[0].pixelFormat = ToMTLFormat(mSwapFormat);
-			pd.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
-		}
+		// Formats des cibles : ceux de la passe, EXACTEMENT (Metal refuse de
+		// dessiner avec un pipeline d'un autre format que l'attachement).
+		for (uint32 i = 0; i < f.colorCount && i < 8; i++)
+			pd.colorAttachments[i].pixelFormat = (MTLPixelFormat)f.color[i];
+		pd.depthAttachmentPixelFormat = (MTLPixelFormat)f.depth;
+		pd.stencilAttachmentPixelFormat = (MTLPixelFormat)f.stencil;
 
-		// Blend
-		for (uint32 i = 0; i < d.blend.attachments.Size() && i < 8; i++) {
+		// Blend (seulement sur les attachements qui existent)
+		for (uint32 i = 0; i < d.blend.attachments.Size() && i < f.colorCount && i < 8; i++) {
 			auto &a = d.blend.attachments[i];
 			pd.colorAttachments[i].blendingEnabled = a.blendEnable;
 			pd.colorAttachments[i].sourceRGBBlendFactor = ToMTLBlend(a.srcColor);
@@ -924,50 +1021,30 @@ namespace nkentseu {
 
 		NSError *err = nil;
 		id<MTLRenderPipelineState> rpso = [mDevice newRenderPipelineStateWithDescriptor:pd error:&err];
-		if (err) {
-			NK_MTL_ERR("Pipeline '%s' : %s\n", d.debugName ? d.debugName : "?", [err.localizedDescription UTF8String]);
-			return {};
+		if (!rpso) {
+			NK_MTL_ERR("Pipeline '%s' : %s\n", d.debugName ? d.debugName : "?",
+					   err ? [err.localizedDescription UTF8String] : "?");
+			return nullptr;
 		}
+		return (__bridge_retained void *)rpso;
+	}
 
-		// Depth-stencil state
-		MTLDepthStencilDescriptor *dsd = [[MTLDepthStencilDescriptor alloc] init];
-		dsd.depthCompareFunction =
-			d.depthStencil.depthTestEnable ? ToMTLCompare(d.depthStencil.depthCompareOp) : MTLCompareFunctionAlways;
-		dsd.depthWriteEnabled = d.depthStencil.depthWriteEnable;
-		if (d.depthStencil.stencilEnable) {
-			MTLStencilDescriptor *sf = [[MTLStencilDescriptor alloc] init];
-			sf.stencilFailureOperation = ToMTLStencilOp(d.depthStencil.front.failOp);
-			sf.depthFailureOperation = ToMTLStencilOp(d.depthStencil.front.depthFailOp);
-			sf.depthStencilPassOperation = ToMTLStencilOp(d.depthStencil.front.passOp);
-			sf.stencilCompareFunction = ToMTLCompare(d.depthStencil.front.compareOp);
-			dsd.frontFaceStencil = sf;
-			MTLStencilDescriptor *sb = [[MTLStencilDescriptor alloc] init];
-			sb.stencilFailureOperation = ToMTLStencilOp(d.depthStencil.back.failOp);
-			sb.depthFailureOperation = ToMTLStencilOp(d.depthStencil.back.depthFailOp);
-			sb.depthStencilPassOperation = ToMTLStencilOp(d.depthStencil.back.passOp);
-			sb.stencilCompareFunction = ToMTLCompare(d.depthStencil.back.compareOp);
-			dsd.backFaceStencil = sb;
-		}
-		id<MTLDepthStencilState> dss = [mDevice newDepthStencilStateWithDescriptor:dsd];
-
-		NkMetalPipeline p;
-		p.rpso = (__bridge_retained void *)rpso;
-		p.dss = (__bridge_retained void *)dss;
-		p.isCompute = false;
-		p.primitive = (uint32)ToMTLTopology(d.topology);
-		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
-		p.cullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	 ? 0
-					 : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? 1
-																	 : 2;
-		p.depthBiasConst = d.rasterizer.depthBiasConst;
-		p.depthBiasSlope = d.rasterizer.depthBiasSlope;
-		p.depthBiasClamp = d.rasterizer.depthBiasClamp;
-
-		uint64 hid = NextId();
-		mPipelines[hid] = p;
-		NkPipelineHandle h;
-		h.id = hid;
-		return h;
+	void *NkMetalDevice::ResolveRenderPipeline(uint64 id, const NkMetalPassFormats &f) {
+		threading::NkScopedLockMutex lock(mMutex);
+		auto *pipe = mPipelines.Find(id);
+		if (!pipe || pipe->isCompute)
+			return nullptr;
+		const uint64 sig = f.Signature();
+		if (sig == pipe->baseSig)
+			return pipe->rpso;
+		for (uint32 i = 0; i < pipe->variantes.Size(); ++i)
+			if (pipe->variantes[i].sig == sig)
+				return pipe->variantes[i].rpso; // nullptr si la construction a echoue : ne pas reessayer
+		NkMetalPipeline::Variante v;
+		v.sig = sig;
+		v.rpso = pipe->vert ? BuildRenderPipeline(pipe->desc, pipe->vert, pipe->frag, f) : nullptr;
+		pipe->variantes.PushBack(v);
+		return v.rpso;
 	}
 
 	NkPipelineHandle NkMetalDevice::CreateComputePipeline(const NkComputePipelineDesc &d) {
@@ -1008,6 +1085,13 @@ namespace nkentseu {
 			CFRelease(it->cpso);
 		if (it->dss)
 			CFRelease(it->dss);
+		if (it->vert)
+			CFRelease(it->vert);
+		if (it->frag)
+			CFRelease(it->frag);
+		for (uint32 i = 0; i < it->variantes.Size(); ++i)
+			if (it->variantes[i].rpso)
+				CFRelease(it->variantes[i].rpso);
 		mPipelines.Erase(h.id);
 		h.id = 0;
 	}
@@ -1095,7 +1179,7 @@ namespace nkentseu {
 			auto *sit = mDescSets.Find(w.set.id);
 			if (!sit)
 				continue;
-			NkMetalDescSet::Binding b{w.binding, w.type, w.buffer.id, w.texture.id, w.sampler.id};
+			NkMetalDescSet::Binding b{w.binding, w.type, w.buffer.id, w.texture.id, w.sampler.id, w.bufferOffset};
 			bool found = false;
 			for (uint32 j = 0; j < sit->bindings.Size(); j++)
 				if (sit->bindings[j].slot == w.binding) {

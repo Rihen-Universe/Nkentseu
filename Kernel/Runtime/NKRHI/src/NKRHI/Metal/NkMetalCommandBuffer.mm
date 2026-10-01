@@ -16,28 +16,42 @@
 
 namespace nkentseu {
 
+	// (2026-09-30) UN MTLCommandBuffer N'EXISTE QU'ENTRE Begin ET SA SOUMISSION.
+	// Avant, chaque NkMetalCommandBuffer en gardait un des sa construction, et
+	// en recreait un a Reset : une file Metal n'en accorde qu'un nombre fini
+	// (64 par defaut) avant de BLOQUER la creation suivante. Les tutoriels se
+	// figeaient ainsi dans [queue commandBuffer] (pile `sample` de la CI) et ne
+	// repondaient plus a « Quitter ».
 	NkMetalCommandBuffer::NkMetalCommandBuffer(NkMetalDevice *dev, NkCommandBufferType type) : mDev(dev), mType(type) {
-		id<MTLCommandBuffer> cmd = [dev->MtlQueue() commandBuffer];
-		mCmdBuf = (__bridge_retained void *)cmd;
 	}
 
 	NkMetalCommandBuffer::~NkMetalCommandBuffer() {
 		EndCurrentEncoder();
+		RendreCmdBuf();
+	}
+
+	bool NkMetalCommandBuffer::AssurerCmdBuf() {
 		if (mCmdBuf)
+			return true;
+		id<MTLCommandBuffer> cmd = [mDev->MtlQueue() commandBuffer];
+		if (!cmd)
+			return false;
+		mCmdBuf = (__bridge_retained void *)cmd;
+		return true;
+	}
+
+	void NkMetalCommandBuffer::RendreCmdBuf() {
+		if (mCmdBuf) {
 			CFRelease(mCmdBuf);
+			mCmdBuf = nullptr;
+		}
 	}
 
 	bool NkMetalCommandBuffer::Begin() {
-		// Obtenir un nouveau command buffer
-		if (mCmdBuf)
-			CFRelease(mCmdBuf);
-		id<MTLCommandBuffer> cmd = [mDev->MtlQueue() commandBuffer];
-		if (!cmd) {
-			mCmdBuf = nullptr;
-			return false;
-		}
-		mCmdBuf = (__bridge_retained void *)cmd;
-		return true;
+		EndCurrentEncoder();
+		RendreCmdBuf();
+		mPipelineValide = false;
+		return AssurerCmdBuf();
 	}
 
 	void NkMetalCommandBuffer::End() {
@@ -46,10 +60,19 @@ namespace nkentseu {
 
 	void NkMetalCommandBuffer::Reset() {
 		EndCurrentEncoder();
-		if (mCmdBuf)
-			CFRelease(mCmdBuf);
-		id<MTLCommandBuffer> cmd = [mDev->MtlQueue() commandBuffer];
-		mCmdBuf = (__bridge_retained void *)cmd;
+		RendreCmdBuf();
+	}
+
+	// Une erreur GPU (faute d'adresse, delai depasse) ne se voyait nulle part :
+	// les premieres sont journalisees, avec le nom de l'erreur Metal.
+	static void NkMtlSurveiller(id<MTLCommandBuffer> cb) {
+		static int sJournalisees = 0;
+		[cb addCompletedHandler:^(id<MTLCommandBuffer> fini) {
+		  if (fini.error && sJournalisees < 8) {
+			  ++sJournalisees;
+			  printf("[NkRHI_Metal][ERR] command buffer en erreur : %s\n", [fini.error.localizedDescription UTF8String]);
+		  }
+		}];
 	}
 
 	void NkMetalCommandBuffer::EndCurrentEncoder() {
@@ -72,17 +95,25 @@ namespace nkentseu {
 
 	void NkMetalCommandBuffer::CommitAndWait() {
 		EndCurrentEncoder();
+		if (!mCmdBuf)
+			return; // rien d'enregistre
+		NkMtlSurveiller(CMD_BUF);
 		[CMD_BUF commit];
 		[CMD_BUF waitUntilCompleted];
+		RendreCmdBuf();
 	}
 
 	void NkMetalCommandBuffer::CommitAndPresent(void *drawable) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		if (drawable) {
 			id<CAMetalDrawable> d = (__bridge id<CAMetalDrawable>)drawable;
 			[CMD_BUF presentDrawable:d];
 		}
+		NkMtlSurveiller(CMD_BUF);
 		[CMD_BUF commit];
+		RendreCmdBuf(); // Metal garde le command buffer soumis jusqu'a la fin
 	}
 
 	// =============================================================================
@@ -111,7 +142,7 @@ namespace nkentseu {
 	// les couleurs d'effacement, de SetClearColor/SetClearDepth (comme Vulkan).
 	bool NkMetalCommandBuffer::BeginRenderPass(NkRenderPassHandle rpH, NkFramebufferHandle fbH,
 											   const NkRect2D & /*area*/) {
-		if (!mCmdBuf || !fbH.IsValid())
+		if (!fbH.IsValid() || !AssurerCmdBuf())
 			return false;
 		EndCurrentEncoder();
 
@@ -124,6 +155,8 @@ namespace nkentseu {
 		MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
 		mPassW = 0;
 		mPassH = 0;
+		mFormats = NkMetalPassFormats{};
+		mPipelineValide = false;
 
 		for (uint32 i = 0; i < fb->colorCount; i++) {
 			id<MTLTexture> tex = (__bridge id<MTLTexture>)mDev->GetMTLTexture(fb->colorAttachments[i].id);
@@ -138,6 +171,11 @@ namespace nkentseu {
 				mPassW = (uint32)tex.width;
 				mPassH = (uint32)tex.height;
 			}
+			if (tex && i < 8) {
+				mFormats.color[i] = (uint32)tex.pixelFormat;
+				mFormats.colorCount = i + 1;
+				mFormats.samples = (uint32)tex.sampleCount;
+			}
 		}
 		if (fb->depthAttachment.IsValid()) {
 			id<MTLTexture> dtex = (__bridge id<MTLTexture>)mDev->GetMTLTexture(fb->depthAttachment.id);
@@ -146,6 +184,11 @@ namespace nkentseu {
 			rpd.depthAttachment.loadAction = aDesc ? NkMtlLoad(rpd0->depthAttachment.loadOp) : MTLLoadActionClear;
 			rpd.depthAttachment.storeAction = aDesc ? NkMtlStore(rpd0->depthAttachment.storeOp) : MTLStoreActionStore;
 			rpd.depthAttachment.clearDepth = mClearDepth;
+			if (dtex) {
+				mFormats.depth = (uint32)dtex.pixelFormat;
+				if (mFormats.colorCount == 0)
+					mFormats.samples = (uint32)dtex.sampleCount;
+			}
 			// Profondeur + stencil dans la MEME texture : le stencil doit etre
 			// attache aussi, sinon la passe ne correspond pas au pipeline.
 			if (dtex && (dtex.pixelFormat == MTLPixelFormatDepth32Float_Stencil8
@@ -158,6 +201,7 @@ namespace nkentseu {
 				rpd.stencilAttachment.storeAction =
 					aDesc ? NkMtlStore(rpd0->depthAttachment.stencilStore) : MTLStoreActionDontCare;
 				rpd.stencilAttachment.clearStencil = mClearStencil;
+				mFormats.stencil = (uint32)dtex.pixelFormat;
 			}
 			if (dtex && mPassW == 0) {
 				mPassW = (uint32)dtex.width;
@@ -243,9 +287,15 @@ namespace nkentseu {
 		if (!mRenderEncoder)
 			return;
 		auto *pipe = mDev->GetPipeline(p.id);
+		mPipelineValide = false;
 		if (!pipe)
 			return;
-		[RENDER_ENC setRenderPipelineState:(__bridge id<MTLRenderPipelineState>)pipe->rpso];
+		// La variante faite pour les formats de CETTE passe (cf. NkMetalPassFormats).
+		void *rpso = mDev->ResolveRenderPipeline(p.id, mFormats);
+		if (!rpso)
+			return; // les dessins suivants sont sautes plutot que refuses par Metal
+		mPipelineValide = true;
+		[RENDER_ENC setRenderPipelineState:(__bridge id<MTLRenderPipelineState>)rpso];
 		if (pipe->dss)
 			[RENDER_ENC setDepthStencilState:(__bridge id<MTLDepthStencilState>)pipe->dss];
 		[RENDER_ENC setFrontFacingWinding:pipe->frontFaceCCW ? MTLWindingCounterClockwise : MTLWindingClockwise];
@@ -261,7 +311,7 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::BindComputePipeline(NkPipelineHandle p) {
 		EndCurrentEncoder();
 		auto *pipe = mDev->GetPipeline(p.id);
-		if (!pipe || !pipe->cpso)
+		if (!pipe || !pipe->cpso || !AssurerCmdBuf())
 			return;
 		id<MTLComputeCommandEncoder> enc = [CMD_BUF computeCommandEncoder];
 		[enc setComputePipelineState:(__bridge id<MTLComputePipelineState>)pipe->cpso];
@@ -288,12 +338,13 @@ namespace nkentseu {
 			uint32 slot = b.slot; // UINT est un type Windows, indisponible sur Apple/clang
 			if (b.bufId && slot < kNkMslVertexBufferBase) {
 				id<MTLBuffer> buf = (__bridge id<MTLBuffer>)mDev->GetMTLBuffer(b.bufId);
+				const NSUInteger dec = (NSUInteger)b.offset;
 				if (mRenderEncoder) {
-					[RENDER_ENC setVertexBuffer:buf offset:0 atIndex:slot];
-					[RENDER_ENC setFragmentBuffer:buf offset:0 atIndex:slot];
+					[RENDER_ENC setVertexBuffer:buf offset:dec atIndex:slot];
+					[RENDER_ENC setFragmentBuffer:buf offset:dec atIndex:slot];
 				}
 				if (mComputeEncoder)
-					[((__bridge id<MTLComputeCommandEncoder>)mComputeEncoder) setBuffer:buf offset:0 atIndex:slot];
+					[((__bridge id<MTLComputeCommandEncoder>)mComputeEncoder) setBuffer:buf offset:dec atIndex:slot];
 			}
 			if (b.texId && slot < kNkMslMaxTextureSlots) {
 				id<MTLTexture> tex = (__bridge id<MTLTexture>)mDev->GetMTLTexture(b.texId);
@@ -363,7 +414,7 @@ namespace nkentseu {
 	// Draw
 	// =============================================================================
 	void NkMetalCommandBuffer::DrawImpl(uint32 vtx, uint32 inst, uint32 firstVtx, uint32 firstInst) {
-		if (!mRenderEncoder)
+		if (!mRenderEncoder || !mPipelineValide)
 			return;
 		[RENDER_ENC drawPrimitives:mPrimitive
 					   vertexStart:firstVtx
@@ -374,7 +425,7 @@ namespace nkentseu {
 
 	void NkMetalCommandBuffer::DrawIndexedImpl(uint32 idx, uint32 inst, uint32 firstIdx, int32 vtxOff,
 											   uint32 firstInst) {
-		if (!mRenderEncoder || !mCurrentIndexBuffer)
+		if (!mRenderEncoder || !mCurrentIndexBuffer || !mPipelineValide)
 			return;
 		id<MTLBuffer> ib = (__bridge id<MTLBuffer>)mCurrentIndexBuffer;
 		MTLIndexType it = mIndexUint32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16;
@@ -449,6 +500,8 @@ namespace nkentseu {
 		}
 		// Tampon prive : copie dans le flux de commandes, a sa place.
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		id<MTLBuffer> stage = [DEV_MTL newBufferWithBytes:data length:(NSUInteger)size
 												  options:MTLResourceStorageModeShared];
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
@@ -461,6 +514,8 @@ namespace nkentseu {
 	// =============================================================================
 	void NkMetalCommandBuffer::CopyBuffer(NkBufferHandle src, NkBufferHandle dst, const NkBufferCopyRegion &r) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
 		[blit copyFromBuffer:(__bridge id<MTLBuffer>)mDev->GetMTLBuffer(src.id)
 				 sourceOffset:r.srcOffset
@@ -480,6 +535,8 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::CopyBufferToTexture(NkBufferHandle src, NkTextureHandle dst,
 												   const NkBufferTextureCopyRegion &r) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		const uint64 pas = NkPasDeLigne(r.bufferRowPitch, r.width, mDev->GetTextureBytesPerPixel(dst.id));
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
 		[blit copyFromBuffer:(__bridge id<MTLBuffer>)mDev->GetMTLBuffer(src.id)
@@ -497,6 +554,8 @@ namespace nkentseu {
 	void NkMetalCommandBuffer::CopyTextureToBuffer(NkTextureHandle src, NkBufferHandle dst,
 												   const NkBufferTextureCopyRegion &r) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		const uint64 pas = NkPasDeLigne(r.bufferRowPitch, r.width, mDev->GetTextureBytesPerPixel(src.id));
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
 		[blit copyFromTexture:(__bridge id<MTLTexture>)mDev->GetMTLTexture(src.id)
@@ -513,6 +572,8 @@ namespace nkentseu {
 
 	void NkMetalCommandBuffer::CopyTexture(NkTextureHandle src, NkTextureHandle dst, const NkTextureCopyRegion &r) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
 		[blit copyFromTexture:(__bridge id<MTLTexture>)mDev->GetMTLTexture(src.id)
 				  sourceSlice:r.srcLayer
@@ -536,6 +597,8 @@ namespace nkentseu {
 	// =============================================================================
 	void NkMetalCommandBuffer::GenerateMipmaps(NkTextureHandle tex, NkFilter /*f*/) {
 		EndCurrentEncoder();
+		if (!AssurerCmdBuf())
+			return;
 		id<MTLBlitCommandEncoder> blit = [CMD_BUF blitCommandEncoder];
 		[blit generateMipmapsForTexture:(__bridge id<MTLTexture>)mDev->GetMTLTexture(tex.id)];
 		[blit endEncoding];
