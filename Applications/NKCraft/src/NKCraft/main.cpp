@@ -62,6 +62,7 @@
 #include "NKEditorKit/NkSondeInerte.h" // (25/09) la porte d'inertie des sondes
 #include "NKEditorKit/NkScreenLogSink.h" // (25/09) LE NEUVIEME PUITS : les messages sortent de la console
 #include "NKEditorKit/NkScreenCountersView.h" // (25/09) (A) les compteurs, dans la vue
+#include "NKEditorKit/NkEditorRendererMemoire.h" // (01/10) NK_CAPTURE_ACCUEIL : l accueil sans fenetre
 #include "NKEditorKit/NkAiPanneauImage.h" // NK_AI_IMAGE : le panneau IA rendu par l'application
 #include "NKEditorKit/NkVignetteImage.h" // (Q11) NK_VIGNETTES : le releve nomme des miniatures
 #include "NKCraft/Genia/NkGeniaImport.h"     // GENIA : image -> generateur externe -> import (bouton Generer)
@@ -705,6 +706,84 @@ namespace {
 		}
 	}
 
+	// ── (01/10) L'ECRAN D'ACCUEIL, PHOTOGRAPHIE SANS FENETRE NI GPU ─────────
+	// NK_CAPTURE_ACCUEIL=<fichier.png> : l'accueil est peint par SON PROPRE CODE
+	// (PaintWelcome, le meme peintre, les memes icones SVG, les vignettes des
+	// projets recents et l'image de version), dans une liste NKGui que
+	// `NkEditorRendererMemoire` rasterise -- le renderer qui GARDE les textures
+	// au lieu de les envoyer au GPU. Aucune fenetre ne surgit : la regle des
+	// sondes. NK_FENETRE=<L>x<H> choisit la taille (1600x900 par defaut), le
+	// theme suit NK_THEME comme l'application, NK_SOURIS=<x>,<y> pose la souris
+	// (un survol se photographie aussi). DPI 1 : la densite seule (x1.15).
+	int CaptureAccueilHorsEcran(const char *chemin, NkThemeLibrary &themes, NkModelerRoles &roles) {
+		uint32 W = 1600u, H = 900u;
+		if (const char *fw = std::getenv("NK_FENETRE")) {
+			const int lw = std::atoi(fw);
+			const char *xx = fw;
+			while (*xx && *xx != 'x' && *xx != 'X')
+				++xx;
+			const int lh = *xx ? std::atoi(xx + 1) : 0;
+			if (lw >= 640 && lh >= 400) {
+				W = (uint32)lw;
+				H = (uint32)lh;
+			}
+		}
+		const NkTheme &theme = themes.Current();
+		editorkit::NkEditorRendererMemoire mem(W, H, theme.Get(NkRole::WindowBg));
+		const float32 total = 1.15f;
+		ApplyUiScale(total);
+		static nkgui::NkGuiFont font;
+		if (!font.LoadEmbedded(NkEmbeddedFontId::Inter, (float32)(int32)(13.f * total + 0.5f))) {
+			std::printf("[capture-accueil] police introuvable\n");
+			return 1;
+		}
+		mem.UploadFontGray8(font.TexId(), font.pixels, font.atlasW, font.atlasH);
+		static NkModelerIcons icons;
+		icons.Load(mem, font.TexId() + 16u, (int32)(16.f * total + 0.5f));
+		static nk3d::NkRecentList recents;
+		recents.Load();
+		nk3d::NkWelcomeUploadCovers(mem, recents);
+		static nk3d::NkSplashArt art;
+		nk3d::NkSplashLoad(mem, art);
+
+		static nkgui::NkGuiContext ui;
+		ui.Init((int32)W, (int32)H);
+		ui.font = &font;
+		NkUiCtx() = &ui;
+		static NkModelerState st;
+		static NkHitRegistry hit;
+		static NkWidgetState ws;
+		ui.input.mousePos = {-1000.f, -1000.f};
+		if (const char *ms = std::getenv("NK_SOURIS")) {
+			const char *v = ms;
+			while (*v && *v != ',')
+				++v;
+			ui.input.mousePos = {(float32)std::atof(ms), *v ? (float32)std::atof(v + 1) : 0.f};
+		}
+		// DEUX images : la premiere installe l'etat que l'accueil calcule a la
+		// volee (etat des fichiers, survols), la seconde est photographiee.
+		for (int32 k = 0; k < 2; ++k) {
+			ui.BeginFrame(1.f / 60.f);
+			hit.Begin(ui.input);
+			NkModelerPainter p(ui.dl, font, theme, roles, icons);
+			nk3d::PaintWelcome(p, (float32)W, (float32)H, st, hit, ws, ui.input, recents, art);
+			mem.BeginFrame();
+			mem.SubmitDrawList(ui.dl, W, H);
+			mem.SubmitDrawList(ui.dlOverlay, W, H);
+			if (k == 1)
+				(void)mem.CaptureNext(chemin);
+			mem.EndFrame();
+			ui.EndFrame();
+		}
+		const bool ok = mem.DerniereEcritureOk();
+		std::printf("[capture-accueil] %s : %s (%ux%u, theme %s, %u texture(s) gardee(s), %u commande(s) sans "
+					"texture, %d projet(s) recent(s))\n",
+					ok ? "ECRITE" : "ECHEC", chemin, W, H, theme.Name().CStr(), mem.TexturesGardees(),
+					mem.TexturesInconnues(), (int)recents.items.Size());
+		std::fflush(stdout);
+		return ok ? 0 : 1;
+	}
+
 } // namespace
 
 int nkmain(const NkEntryState &entry) {
@@ -1144,6 +1223,13 @@ int nkmain(const NkEntryState &entry) {
 			std::printf("[theme] NK_THEME=%s -> %s (courant : %s)\n", thEnv,
 						ok ? "accepte" : "INCONNU, ignore", themes.Current().Name().CStr());
 		}
+
+	// ── (01/10) L'ECRAN D'ACCUEIL PHOTOGRAPHIE SANS FENETRE ─────────────────
+	// NK_CAPTURE_ACCUEIL=<fichier.png> : cf. CaptureAccueilHorsEcran. Apres les
+	// themes (la capture suit NK_THEME), avant la fenetre (il n'y en a pas).
+	if (const char *ca = std::getenv("NK_CAPTURE_ACCUEIL"))
+		if (*ca)
+			return CaptureAccueilHorsEcran(ca, themes, roles);
 
 	NkThemeIssue issue{};
 	if (const uint32 bad = themes.Current().Validate(&issue)) {
