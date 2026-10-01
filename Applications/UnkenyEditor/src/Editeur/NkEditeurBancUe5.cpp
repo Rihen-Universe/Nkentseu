@@ -39,6 +39,10 @@
 //         ANSI, classees et colorees ; puces Erreurs (la seule erreur) et
 //         Avertissements (avertissements et erreurs) ; la recherche se tape
 //         (la scene n'en recoit rien) ; Copier ; Effacer
+//   (u8)  le LOGO du coin haut gauche : un carre qui couvre la ligne des menus
+//         et celle des onglets, dessine en vecteurs (tuiles bleues, sol ambre) ;
+//         un clic dessus n'ouvre rien, « Fichier » est a sa droite, l'onglet
+//         aussi ; la version claire sur fond clair, la sombre sur fond sombre
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -46,6 +50,7 @@
 #include "Editeur/NkEditeurActions.h"
 #include "Editeur/NkEditeurBancTrame.h"
 #include "Editeur/NkEditeurContenu.h"
+#include "Editeur/NkEditeurMarque.h"
 #include "Editeur/NkEditeurProjet.h"
 #include "Editeur/NkEditeurReferences.h"
 #include "Livraison/NkEditeurDeroulement.h"
@@ -624,6 +629,62 @@ namespace nkentseu {
 				}
 				Temoin(ok, "(u7) Journal du tiroir : Tout / Avertissements / Erreurs, recherche, Copier, Effacer, sans ANSI",
 					   static_cast<float32>(niveaux + erreurs + avertissements + recherche + copie + efface));
+			}
+
+			// (u8) LE LOGO DU COIN HAUT GAUCHE, comme celui d'Unreal (retour 8 de
+			// Rihen) : un carre sur la ligne des menus ET celle des onglets, dessine
+			// en vecteurs, sombre ou clair.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurBancTrame t(m);
+				NkEditeurInterface &ui = t.Ui();
+				t.Trame();
+				t.Trame();
+				const nkgui::NkRect lg = ui.logo;
+				// (a) un CARRE qui couvre les deux lignes
+				const bool carre = lg.x == 0.f && lg.y == ui.barreMenus.y && lg.w == lg.h && lg.h == ui.barreMenus.h + ui.barreOnglets.h &&
+								   lg.h > 0.f;
+				// (b) dessine en VECTEURS, aux couleurs de la version sombre (tuiles
+				//     bleues ET sol ambre dans le carre)
+				const NkCouleursMarque ks = NkMarqueCouleurs(true);
+				const uint32 bleu = nkgui::NkGuiPackColor(ks.tuile), ambre = nkgui::NkGuiPackColor(ks.sol);
+				uint32 nBleu = 0, nAmbre = 0;
+				const nkgui::NkGuiDrawList &dl = t.Ctx().dl;
+				for (uint32 i = 0; i < dl.vtx.Size(); ++i) {
+					const nkgui::NkVec2 p = dl.vtx[i].pos;
+					if (p.x >= lg.x && p.x <= lg.x + lg.w && p.y >= lg.y && p.y <= lg.y + lg.h) {
+						nBleu += dl.vtx[i].col == bleu ? 1u : 0u;
+						nAmbre += dl.vtx[i].col == ambre ? 1u : 0u;
+					}
+				}
+				const bool dessine = nBleu > 0u && nAmbre > 0u;
+				// (c) les MENUS commencent a sa droite : un clic sur le logo n'ouvre rien,
+				//     juste a sa droite c'est « Fichier » ; l'onglet de la scene aussi
+				t.Clic(0, lg.x + lg.w * 0.5f, ui.barreMenus.y + ui.barreMenus.h * 0.5f);
+				const bool rienSurLogo = ui.menu == NkMenuEditeur::NK_AUCUN;
+				t.Clic(0, lg.x + lg.w + 12.f, ui.barreMenus.y + ui.barreMenus.h * 0.5f);
+				const bool fichier = ui.menu == NkMenuEditeur::NK_FICHIER;
+				t.Fermer();
+				const bool onglet = ui.ongletScene.x >= lg.x + lg.w && ui.ongletScene.w > 0.f;
+				// (d) la version CLAIRE sur un fond clair : son bleu, pas celui du sombre
+				const bool choix = NkFondSombre(NkEditeurPalette(editorkit::NkTheme::Dark()).fond) &&
+								   !NkFondSombre(NkEditeurPalette(editorkit::NkTheme::Light()).fond);
+				nkgui::NkGuiDrawList clair;
+				NkDessinerMarque(clair, 0.f, 0.f, 56.f, false);
+				const uint32 bleuClair = nkgui::NkGuiPackColor(NkMarqueCouleurs(false).tuile);
+				uint32 nClair = 0, nSombre = 0;
+				for (uint32 i = 0; i < clair.vtx.Size(); ++i) {
+					nClair += clair.vtx[i].col == bleuClair ? 1u : 0u;
+					nSombre += clair.vtx[i].col == bleu ? 1u : 0u;
+				}
+				const bool versionClaire = choix && nClair > 0u && nSombre == 0u;
+				const bool ok = carre && dessine && rienSurLogo && fichier && onglet && versionClaire;
+				if (!ok) {
+					std::printf("        carre %d dessine %d (%u bleus, %u ambre) rienSurLogo %d fichier %d onglet %d claire %d\n", carre, dessine, nBleu,
+								nAmbre, rienSurLogo, fichier, onglet, versionClaire);
+				}
+				Temoin(ok, "(u8) logo du coin : carre sur menus + onglets, en vecteurs, sombre et clair ; menus a sa droite",
+					   static_cast<float32>(nBleu));
 			}
 
 			m.chemin = cheminAvant;

@@ -20,6 +20,7 @@
 #include "Editeur/NkEditeurInterface.h"
 #include "NKEditorKit/Components/NkContentBrowserDisque.h"
 #include "Editeur/NkEditeurLumiere.h"
+#include "Editeur/NkEditeurMarque.h"
 #include "Editeur/NkEditeurReferences.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
@@ -816,6 +817,7 @@ namespace nkentseu {
 			ui.ecran = NkRect{0.f, 0.f, W, H};
 			ui.barreMenus = NkRect{0.f, 0.f, W, HAUTEUR_MENUS};
 			ui.barreOnglets = NkRect{0.f, HAUTEUR_MENUS, W, HAUTEUR_ONGLETS};
+			ui.logo = NkRect{0.f, 0.f, HAUTEUR_MENUS + HAUTEUR_ONGLETS, HAUTEUR_MENUS + HAUTEUR_ONGLETS};
 			ui.barreOutils = NkRect{0.f, HAUTEUR_MENUS + HAUTEUR_ONGLETS, W, HAUTEUR_OUTILS};
 			ui.statut = NkRect{0.f, H - HAUTEUR_STATUT, W, HAUTEUR_STATUT};
 			const float32 corpsHaut = HAUTEUR_MENUS + HAUTEUR_ONGLETS + HAUTEUR_OUTILS;
@@ -1510,7 +1512,8 @@ namespace nkentseu {
 
 			// ── Les menus, a gauche ───────────────────────────────────────────
 			static const char *kNoms[4] = {"Fichier", "Édition", "Fenêtre", "Aide"};
-			float32 x = b.x + 8.f;
+			// A DROITE du logo (le carre du coin couvre les deux lignes).
+			float32 x = b.x + ui.logo.w + 2.f;
 			for (int32 i = 0; i < 4; ++i) {
 				const NkMenuEditeur menu = static_cast<NkMenuEditeur>(i);
 				const float32 w = renderer::NkTexteLargeur(c.police, kNoms[i]) + 18.f;
@@ -1535,6 +1538,14 @@ namespace nkentseu {
 				}
 				x += w + 2.f;
 			}
+
+			// ── LE LOGO, coin haut gauche (2026-10-01, retour 8 de Rihen) : un carre
+			//    sur la ligne des menus ET celle des onglets, comme celui d'Unreal ;
+			//    dessine en VECTEURS (NkEditeurMarque.h), sombre ou clair selon le
+			//    fond. Le carre est peint du fond : le trait bas des onglets ne passe
+			//    pas sous lui.
+			dl.AddRectFilled(ui.logo, c.pal.fond);
+			NkDessinerMarque(dl, ui.logo.x, ui.logo.y, ui.logo.w, NkFondSombre(c.pal.fond));
 
 			// ── Le titre, au centre : l'application, et ce qu'on edite ───────
 			const NkString titre = NkString::Format("Unkeny  —  %s%s", NomScene(c.m).CStr(), ui.modifiee ? " *" : "");
@@ -1635,7 +1646,9 @@ namespace nkentseu {
 			const float32 croix = 20.f;
 			const float32 tw = renderer::NkTexteLargeur(c.police, nom.CStr());
 			const float32 w = 12.f + point + tw + 8.f + croix;
-			const NkRect onglet{b.x + 8.f, b.y + 3.f, w, b.h - 3.f};
+			// A DROITE du logo, qui tient le coin sur les deux lignes.
+			const NkRect onglet{b.x + c.ui.logo.w + 4.f, b.y + 3.f, w, b.h - 3.f};
+			c.ui.ongletScene = onglet;
 			dl.AddRectFilled(onglet, c.pal.panneau, 2.f);
 			dl.AddRectFilled(NkRect{onglet.x, onglet.y, onglet.w, 2.f}, c.pal.accent);
 			const float32 ty = onglet.y + (onglet.h - renderer::NkTexteHauteurLigne(c.police, 16.f)) * 0.5f;

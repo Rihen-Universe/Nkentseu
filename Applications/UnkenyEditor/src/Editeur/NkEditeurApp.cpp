@@ -330,6 +330,14 @@ namespace nkentseu {
 					}
 					continue;
 				}
+				// --theme=clair (2026-10-01) : le theme CLAIR du kit (le logo du coin
+				// passe en version claire) -- une capture sans souris.
+				if (args[i] == "--theme=clair") {
+					mTheme = editorkit::NkTheme::Light();
+					mPalette = NkEditeurPalette(mTheme);
+					Config().clearColor = renderer::NkColor2D{mPalette.fond.r, mPalette.fond.g, mPalette.fond.b, 255};
+					continue;
+				}
 				if (args[i] == "--exemple=nuit") {
 					mExempleNuit = true;
 					continue;

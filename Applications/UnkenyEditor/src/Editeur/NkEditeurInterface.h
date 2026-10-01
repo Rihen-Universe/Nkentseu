@@ -256,6 +256,12 @@ namespace nkentseu {
 				nkgui::NkRect barreMenus{0.f, 0.f, 0.f, 0.f};
 				/// Les onglets de scene, JUSTE SOUS la barre de titre.
 				nkgui::NkRect barreOnglets{0.f, 0.f, 0.f, 0.f};
+				/// (2026-10-01, retour 8 de Rihen) LE LOGO d'Unkeny, en haut a gauche :
+				/// un CARRE qui couvre la ligne des menus ET celle des onglets, comme
+				/// le logo rond d'Unreal ; menus et onglets commencent a sa droite.
+				nkgui::NkRect logo{0.f, 0.f, 0.f, 0.f};
+				/// L'onglet de la scene a l'ecran (le banc y vise).
+				nkgui::NkRect ongletScene{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect barreOutils{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect outliner{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect vue{0.f, 0.f, 0.f, 0.f};		 ///< la colonne centrale entiere
