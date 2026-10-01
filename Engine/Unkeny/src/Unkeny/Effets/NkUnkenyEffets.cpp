@@ -74,7 +74,7 @@ namespace nkentseu {
 			return nullptr;
 		}
 
-		NkEtatEmetteur2D &NkEffets2D::EtatDe(uint64 entite, uint32 graine) {
+		NkEtatEmetteur2D &NkEffets2D::EtatDe(uint64 entite, uint32 graine, bool demarre) {
 			for (uint32 i = 0; i < mEtats.Size(); ++i) {
 				if (mEtats[i].entite == entite) {
 					return mEtats[i];
@@ -83,8 +83,74 @@ namespace nkentseu {
 			NkEtatEmetteur2D e;
 			e.entite = entite;
 			e.alea = Semer(graine);
+			e.lecture = demarre ? NkLectureEffet2D::NK_JOUE : NkLectureEffet2D::NK_ARRETE;
 			mEtats.PushBack(e);
 			return mEtats.Back();
+		}
+
+		// =====================================================================
+		// PILOTER (R34)
+		// =====================================================================
+		bool NkEffets2D::Jouer(NkScene &scene, ecs::NkEntityId id) {
+			const NkEmetteur2D *e = scene.Monde().IsAlive(id) ? scene.Monde().Get<NkEmetteur2D>(id) : nullptr;
+			if (e == nullptr) {
+				return false;
+			}
+			NkEtatEmetteur2D &s = EtatDe(id.Pack(), e->graine, true);
+			if (s.lecture == NkLectureEffet2D::NK_ARRETE) {
+				// Du DEBUT : la meme graine, la meme rafale -- le meme effet.
+				s.alea = Semer(e->graine);
+				s.accumulateur = 0.f;
+				s.age = 0.f;
+				s.vacillement = 0.f;
+				s.rafaleFaite = false;
+			}
+			s.lecture = NkLectureEffet2D::NK_JOUE;
+			return true;
+		}
+
+		bool NkEffets2D::Arreter(NkScene &scene, ecs::NkEntityId id, bool vider) {
+			const NkEmetteur2D *e = scene.Monde().IsAlive(id) ? scene.Monde().Get<NkEmetteur2D>(id) : nullptr;
+			if (e == nullptr) {
+				return false;
+			}
+			const uint64 k = id.Pack();
+			NkEtatEmetteur2D &s = EtatDe(k, e->graine, false);
+			s.lecture = NkLectureEffet2D::NK_ARRETE;
+			if (vider) {
+				for (uint32 i = 0; i < mParticules.Size();) {
+					if (mParticules[i].emetteur == k) {
+						mParticules[i] = mParticules.Back();
+						mParticules.PopBack();
+					} else {
+						++i;
+					}
+				}
+			}
+			return true;
+		}
+
+		bool NkEffets2D::Pause(NkScene &scene, ecs::NkEntityId id, bool pause) {
+			const NkEmetteur2D *e = scene.Monde().IsAlive(id) ? scene.Monde().Get<NkEmetteur2D>(id) : nullptr;
+			if (e == nullptr) {
+				return false;
+			}
+			NkEtatEmetteur2D &s = EtatDe(id.Pack(), e->graine, e->jouerAuDemarrage);
+			if (pause && s.lecture == NkLectureEffet2D::NK_JOUE) {
+				s.lecture = NkLectureEffet2D::NK_PAUSE;
+			} else if (!pause && s.lecture == NkLectureEffet2D::NK_PAUSE) {
+				s.lecture = NkLectureEffet2D::NK_JOUE;
+			}
+			return true;
+		}
+
+		NkLectureEffet2D NkEffets2D::Lecture(NkScene &scene, ecs::NkEntityId id) const {
+			const NkEtatEmetteur2D *s = Etat(id.Pack());
+			if (s != nullptr) {
+				return s->lecture;
+			}
+			const NkEmetteur2D *e = scene.Monde().IsAlive(id) ? scene.Monde().Get<NkEmetteur2D>(id) : nullptr;
+			return e != nullptr && !e->jouerAuDemarrage ? NkLectureEffet2D::NK_ARRETE : NkLectureEffet2D::NK_JOUE;
 		}
 
 		void NkEffets2D::Rejouer(uint64 entite) {
@@ -105,6 +171,10 @@ namespace nkentseu {
 			const NkEtatEmetteur2D *s = Etat(entite);
 			if (s == nullptr) {
 				return e.boucle ? 1.f : 0.f;
+			}
+			// (R34) En jeu, un effet ARRETE n'eclaire plus ; en pause, il garde sa lumiere.
+			if (!edition && s->lecture == NkLectureEffet2D::NK_ARRETE) {
+				return 0.f;
 			}
 			float32 activite = 1.f;
 			if (!e.boucle && s->age > e.duree) {
@@ -197,10 +267,14 @@ namespace nkentseu {
 			//    apres la requete (voir NkUnkenyRendu.cpp) : tout se fait dedans.
 			scene.Monde().Query<NkTransform2D, NkEmetteur2D>().ForEach(
 				[&](ecs::NkEntityId id, NkTransform2D &t, NkEmetteur2D &e) {
-					NkEtatEmetteur2D &etat = EtatDe(id.Pack(), e.graine);
+					NkEtatEmetteur2D &etat = EtatDe(id.Pack(), e.graine, e.jouerAuDemarrage);
 					etat.vu = true;
 					// Une entite ETEINTE (NkUnkenyActif.h) n'emet plus ; son etat reste.
 					if (!e.actif || !scene.EstActive(id)) {
+						return;
+					}
+					// (R34) En EDITION, seul l'apercu choisi tourne ; en JEU, la lecture.
+					if (edition ? !e.apercuEdition : etat.lecture != NkLectureEffet2D::NK_JOUE) {
 						return;
 					}
 					if (!etat.rafaleFaite) {
@@ -239,9 +313,43 @@ namespace nkentseu {
 				}
 			}
 
+			// (R34) Les particules FIGEES (emetteur en pause, en jeu) et EFFACEES (en
+			// edition, celles d'un emetteur sans apercu : decocher l'apercu le
+			// vide). Ni l'un ni l'autre : la boucle d'avant, sans cout.
+			NkVector<uint64> figes, effaces;
+			for (uint32 i = 0; i < mEtats.Size(); ++i) {
+				if (!edition && mEtats[i].lecture == NkLectureEffet2D::NK_PAUSE) {
+					figes.PushBack(mEtats[i].entite);
+				}
+			}
+			if (edition && !mParticules.Empty()) {
+				scene.Monde().Query<NkEmetteur2D>().ForEach([&](ecs::NkEntityId id, NkEmetteur2D &e) {
+					if (!e.apercuEdition) {
+						effaces.PushBack(id.Pack());
+					}
+				});
+			}
+			auto Dans = [](const NkVector<uint64> &v, uint64 k) {
+				for (uint32 j = 0; j < v.Size(); ++j) {
+					if (v[j] == k) {
+						return true;
+					}
+				}
+				return false;
+			};
+
 			// 3. Le mouvement et la mort.
 			for (uint32 i = 0; i < mParticules.Size();) {
 				NkParticuleEffet2D &p = mParticules[i];
+				if (!effaces.Empty() && Dans(effaces, p.emetteur)) {
+					mParticules[i] = mParticules.Back();
+					mParticules.PopBack();
+					continue;
+				}
+				if (!figes.Empty() && Dans(figes, p.emetteur)) {
+					++i;
+					continue;
+				}
 				p.age += dt;
 				if (p.age >= p.vie) {
 					mParticules[i] = mParticules.Back();

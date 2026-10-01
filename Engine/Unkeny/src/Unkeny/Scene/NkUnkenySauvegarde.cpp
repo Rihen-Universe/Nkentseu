@@ -250,6 +250,10 @@ namespace nkentseu {
 				o.SetFloat32(V("porteeLumiere"), e.porteeLumiere);
 				o.SetFloat32(V("scintillement"), e.scintillement);
 				o.SetBool(V("ombresLumiere"), e.ombresLumiere);
+				// (2026-10-01, R34) La lecture ; absents d'un fichier d'avant : les
+				// valeurs par defaut (part au demarrage, pas d'apercu).
+				o.SetBool(V("jouerAuDemarrage"), e.jouerAuDemarrage);
+				o.SetBool(V("apercuEdition"), e.apercuEdition);
 				return o;
 			}
 
@@ -312,6 +316,8 @@ namespace nkentseu {
 				LireF(o, "porteeLumiere", e.porteeLumiere);
 				LireF(o, "scintillement", e.scintillement);
 				LireB(o, "ombresLumiere", e.ombresLumiere);
+				LireB(o, "jouerAuDemarrage", e.jouerAuDemarrage);
+				LireB(o, "apercuEdition", e.apercuEdition);
 				return true;
 			}
 

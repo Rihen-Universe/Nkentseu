@@ -505,6 +505,13 @@ namespace nkentseu {
 				float32 porteeLumiere = 4.f;
 				float32 scintillement = 0.f; ///< 0..1 : amplitude du vacillement
 				bool ombresLumiere = true;
+				// --- La lecture (2026-10-01, R34, AJOUTES A LA FIN) -----------------
+				/// En JEU, l'effet part tout seul au demarrage. Faux : il attend
+				/// NkEffets2D::Jouer (un script, un declencheur, du C++).
+				bool jouerAuDemarrage = true;
+				/// En EDITION, l'effet tourne en APERCU. Faux (par defaut) : un effet
+				/// ne tourne qu'en jeu ; l'editeur ne montre que son icone.
+				bool apercuEdition = false;
 		};
 
 	} // namespace unkeny

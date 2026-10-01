@@ -135,6 +135,9 @@ namespace nkentseu {
 
 		void NkEditeurAvancer(NkEditeurModele &m, float32 dt) {
 			m.messageAge += dt;
+			// (2026-10-01, R34) Les effets ne TOURNENT qu'en jeu ; en edition, seuls
+			// ceux qui ont « Aperçu en édition » (NkEffets2D::edition).
+			m.scene.Effets().edition = m.etat != NkEtatJeu::NK_JEU;
 			if (m.etat == NkEtatJeu::NK_JEU) {
 				// LA trame du jeu, celle que joue aussi le joueur autonome
 				// (Unkeny/Partie) : jouer dans l'editeur, c'est le jeu. Elle garde

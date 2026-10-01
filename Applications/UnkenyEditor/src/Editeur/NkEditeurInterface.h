@@ -718,6 +718,10 @@ namespace nkentseu {
 				nkgui::NkRect placerChevron{0.f, 0.f, 0.f, 0.f};
 				/// (2026-10-01, R33 point 6) Les deux INTERRUPTEURS de l'eclairage de la
 				/// scene : celui de la barre de la vue, celui de l'onglet Monde.
+				/// (R34) Les boutons Jouer / Pause / Arreter de la carte Emetteur, en jeu.
+				nkgui::NkRect effetJouer{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect effetPause{0.f, 0.f, 0.f, 0.f};
+				nkgui::NkRect effetArreter{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEclairageVue{0.f, 0.f, 0.f, 0.f};
 				nkgui::NkRect boutonEclairageMonde{0.f, 0.f, 0.f, 0.f};
 				int32 placerOnglet = 2; ///< NkOngletPlacer : Base, comme UE5 a l'ouverture

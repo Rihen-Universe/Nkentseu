@@ -1516,6 +1516,50 @@ namespace nkentseu {
 				if (!Entete(I, NkCarteEditeur::NK_EMETTEUR, &e->actif)) {
 					return;
 				}
+				// ── LA LECTURE (2026-10-01, R34) : un effet ne tourne qu'en JEU ; en
+				//    edition, son apercu est au choix ; en jeu, il se pilote ──────
+				Case(I, "Jouer au démarrage", e->jouerAuDemarrage);
+				if (Case(I, "Aperçu en édition", e->apercuEdition) && e->apercuEdition) {
+					m.scene.Effets().Rejouer(I.id.Pack());
+				}
+				if (m.etat == NkEtatJeu::NK_EDITION) {
+					if (!e->apercuEdition) {
+						Ligne(I, "Ne tourne qu'en jeu (Jouer) : cochez l'aperçu pour le voir ici.");
+					}
+				} else {
+					static const char *kLectures[3] = {"joue", "arrêté", "en pause"};
+					const NkLectureEffet2D lec = m.scene.Effets().Lecture(m.scene, I.id);
+					Info(I, "Lecture", kLectures[static_cast<int32>(lec) % 3]);
+					NkRect champ, lib;
+					if (Rangee(I, "", RANG_H + 4.f, champ, lib)) {
+						// Les trois gestes du C++ (NkEffets2D::Jouer / Pause / Arreter).
+						static const char *kGestes[3] = {"Jouer", "Pause", "Arrêter"};
+						const NkRect ligne{lib.x - 4.f, champ.y, champ.x + champ.w - lib.x + 4.f, champ.h};
+						const float32 w = (ligne.w - 12.f) / 3.f;
+						for (int32 k = 0; k < 3; ++k) {
+							const NkRect r{ligne.x + static_cast<float32>(k) * (w + 6.f), ligne.y, w, ligne.h};
+							const bool enfonce = (k == 0 && lec == NkLectureEffet2D::NK_JOUE) || (k == 1 && lec == NkLectureEffet2D::NK_PAUSE) ||
+												 (k == 2 && lec == NkLectureEffet2D::NK_ARRETE);
+							if (k == 0) {
+								I.c.ui.effetJouer = r;
+							} else if (k == 1) {
+								I.c.ui.effetPause = r;
+							} else {
+								I.c.ui.effetArreter = r;
+							}
+							if (NkEditeurBouton(I.c, r, "", enfonce, NkEditeurDans(I.zone, I.c.ctx.input.mousePos), &I.c.ctx.DL())) {
+								if (k == 0) {
+									m.scene.Effets().Jouer(m.scene, I.id);
+								} else if (k == 1) {
+									m.scene.Effets().Pause(m.scene, I.id, lec != NkLectureEffet2D::NK_PAUSE);
+								} else {
+									m.scene.Effets().Arreter(m.scene, I.id);
+								}
+							}
+							renderer::NkTexteDansBoite(I.c.ctx.DL(), I.c.petite, r, kGestes[k], enfonce ? I.c.pal.surAccent : I.c.pal.texte);
+						}
+					}
+				}
 				Info(I, "Préréglage", NkNomPresetEffet2D(e->preset));
 				// Les preregrages, deux par rangee (0 est « aucun »).
 				const int32 n = static_cast<int32>(NkPresetEffet2D::NK_COUNT);

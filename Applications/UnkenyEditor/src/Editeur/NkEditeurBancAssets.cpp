@@ -46,6 +46,14 @@
 //         barre de la vue l'allume puis l'eteint ; celui de l'onglet Monde
 //         (« Allumé » / « Éteint ») aussi ; Ctrl+Z rend l'etat d'avant le
 //         dernier geste
+//   (m7)  LES EFFETS NE TOURNENT QU'EN JEU (R34) : un feu pose ne fait rien en
+//         edition ; « Aperçu en édition » coche le fait bruler, decoche l'efface ;
+//         Jouer : le feu (jouer au demarrage) part seul, l'etincelle (sans) attend
+//         NkEffets2D::Jouer ; Pause fige ses particules et ses naissances, la
+//         sortie de pause les relance ; Arreter : plus de naissance, les
+//         particules finissent leur vie ; Arreter(vider) les efface ; les boutons
+//         Jouer / Pause / Arreter de la carte pilotent en jeu ; les deux reglages
+//         survivent a Enregistrer / Ouvrir
 //
 //   Les captures hors ecran : `--captures-assets=DOSSIER` (rasterisees, sans
 //   fenetre ni GPU, comme --captures-formes).
@@ -634,6 +642,125 @@ namespace nkentseu {
 					   static_cast<float32>(vueAllume + vueEteint + mondeAllume + mondeEteint + annule));
 			}
 
+			// (m7) LES EFFETS EN JEU, PILOTABLES (R34).
+			{
+				NkDirectory::Delete("banc_m7", true);
+				NkDirectory::CreateRecursive("banc_m7");
+				NkEditeurNouvelleScene(m);
+				NkEditeurOublierHistorique(m);
+				const ecs::NkEntityId feu = m.scene.Creer("Feu", NkVec2f(-2.f, 0.f));
+				const ecs::NkEntityId eti = m.scene.Creer("Etincelles", NkVec2f(2.f, 0.f));
+				NkEditeurAjouterEffet(m, feu, NkPresetEffet2D::NK_FEU);
+				NkEditeurAjouterEffet(m, eti, NkPresetEffet2D::NK_FEU);
+				m.scene.Monde().Get<NkEmetteur2D>(eti)->jouerAuDemarrage = false;
+				NkEffets2D &fx = m.scene.Effets();
+				auto De = [&](ecs::NkEntityId id) {
+					uint32 n = 0u;
+					for (uint32 i = 0; i < fx.Particules().Size(); ++i) {
+						n += fx.Particules()[i].emetteur == id.Pack() ? 1u : 0u;
+					}
+					return n;
+				};
+				auto Avancer = [&](int32 n) {
+					for (int32 k = 0; k < n; ++k) {
+						NkEditeurAvancer(m, 1.f / 60.f);
+					}
+				};
+				// En EDITION : rien, sauf l'apercu choisi.
+				Avancer(30);
+				const bool rienEnEdition = fx.NbParticules() == 0u;
+				m.scene.Monde().Get<NkEmetteur2D>(feu)->apercuEdition = true;
+				Avancer(30);
+				const bool apercu = De(feu) > 0u && De(eti) == 0u;
+				m.scene.Monde().Get<NkEmetteur2D>(feu)->apercuEdition = false;
+				Avancer(1);
+				const bool efface = fx.NbParticules() == 0u;
+				// En JEU : le feu part seul, l'etincelle attend.
+				NkEditeurJouer(m);
+				Avancer(30);
+				const bool depart = De(feu) > 0u && De(eti) == 0u && fx.Lecture(m.scene, eti) == NkLectureEffet2D::NK_ARRETE;
+				fx.Jouer(m.scene, eti);
+				Avancer(20);
+				const bool joue = De(eti) > 0u;
+				// PAUSE : figees, sans naissance.
+				fx.Pause(m.scene, eti, true);
+				Avancer(1);
+				const uint32 n0 = De(eti);
+				NkVec2f p0(0.f, 0.f);
+				for (uint32 i = 0; i < fx.Particules().Size(); ++i) {
+					if (fx.Particules()[i].emetteur == eti.Pack()) {
+						p0 = fx.Particules()[i].pos;
+						break;
+					}
+				}
+				Avancer(15);
+				NkVec2f p1(1.e9f, 1.e9f);
+				for (uint32 i = 0; i < fx.Particules().Size(); ++i) {
+					if (fx.Particules()[i].emetteur == eti.Pack()) {
+						p1 = fx.Particules()[i].pos;
+						break;
+					}
+				}
+				const bool fige = n0 > 0u && De(eti) == n0 && p0.x == p1.x && p0.y == p1.y;
+				fx.Pause(m.scene, eti, false);
+				Avancer(5);
+				const bool reprend = fx.Lecture(m.scene, eti) == NkLectureEffet2D::NK_JOUE && De(eti) != n0;
+				// ARRETER : plus de naissance ; tout s'eteint en une vie (0,9 s au plus).
+				fx.Arreter(m.scene, feu);
+				Avancer(70);
+				const bool arrete = De(feu) == 0u && fx.Lecture(m.scene, feu) == NkLectureEffet2D::NK_ARRETE;
+				fx.Arreter(m.scene, eti, true);
+				const bool vide = De(eti) == 0u;
+				// La CARTE pilote : « Jouer » sur le feu choisi.
+				m.selection = feu;
+				m.aSelection = true;
+				bool carte = false;
+				{
+					NkEditeurBancTrame t(m);
+					NkEditeurInterface &ui = t.Ui();
+					ui.hauteurTiroir = 100.f;
+					t.Trame();
+					t.Trame();
+					if (ui.effetJouer.w > 0.f) {
+						const nkgui::NkVec2 q = Milieu(ui.effetJouer);
+						t.Clic(0, q.x, q.y);
+						const bool j = fx.Lecture(m.scene, feu) == NkLectureEffet2D::NK_JOUE;
+						const nkgui::NkVec2 r = Milieu(ui.effetPause);
+						t.Clic(0, r.x, r.y);
+						carte = j && fx.Lecture(m.scene, feu) == NkLectureEffet2D::NK_PAUSE;
+					}
+				}
+				NkEditeurArreter(m);
+				// Les deux reglages survivent au fichier. (Arreter a refait les
+				// entites : on retrouve le feu par son nom.)
+				const ecs::NkEntityId feu2 = Par(m.scene, "Feu");
+				if (NkEmetteur2D *ef = feu2.IsValid() ? m.scene.Monde().Get<NkEmetteur2D>(feu2) : nullptr) {
+					ef->apercuEdition = true;
+				}
+				m.chemin = NkString("banc_m7/effets.nkscene");
+				bool fichier = NkEditeurSauver(m) && NkEditeurOuvrir(m);
+				if (fichier) {
+					bool apercuLu = false, departLu = true;
+					m.scene.Monde().Query<NkEtiquette, NkEmetteur2D>().ForEach([&](ecs::NkEntityId, NkEtiquette &et, NkEmetteur2D &e) {
+						if (std::strcmp(et.nom, "Feu") == 0) {
+							apercuLu = e.apercuEdition;
+						}
+						if (std::strcmp(et.nom, "Etincelles") == 0) {
+							departLu = e.jouerAuDemarrage;
+						}
+					});
+					fichier = apercuLu && !departLu;
+				}
+				const bool ok = rienEnEdition && apercu && efface && depart && joue && fige && reprend && arrete && vide && carte && fichier;
+				if (!ok) {
+					std::printf("        edition %d apercu %d efface %d depart %d joue %d fige %d reprend %d arrete %d vide %d carte %d fichier %d%c",
+								rienEnEdition, apercu, efface, depart, joue, fige, reprend, arrete, vide, carte, fichier, 10);
+				}
+				Temoin(ok, "(m7) effets : en jeu seulement, apercu au choix, depart, Jouer / Pause / Arreter",
+					   static_cast<float32>(rienEnEdition + apercu + efface + depart + joue + fige + reprend + arrete + vide + carte + fichier));
+				NkDirectory::Delete("banc_m7", true);
+			}
+
 			m.chemin = cheminAvant;
 			m.projet = NkString();
 			memory::NkGetDefaultAllocator().Delete(pm);
@@ -740,6 +867,50 @@ namespace nkentseu {
 				T.Clic(0, p.x, p.y);
 				T.Fermer();
 				erreurs += EcrirePng(T, NkString::Format("%s/06b_eclairage_eteint.png", dossier).CStr()) ? 0 : 1;
+				memory::NkGetDefaultAllocator().Delete(pt);
+			}
+			// 07 : les effets ne tournent qu'en jeu (R34) : la nuit, apercu decoche,
+			// le feu choisi ; puis Jouer : le feu brule, la carte pilote.
+			{
+				NkEditeurNouvelleScene(m);
+				NkEditeurSceneNuit(m);
+				m.scene.Monde().Query<NkEmetteur2D>().ForEach([](ecs::NkEntityId, NkEmetteur2D &e) { e.apercuEdition = false; });
+				m.scene.Effets().Vider();
+				m.selection = Par(m.scene, "Feu");
+				m.aSelection = m.selection.IsValid();
+				NkEditeurBancTrame *pt = memory::NkGetDefaultAllocator().New<NkEditeurBancTrame>(m);
+				NkEditeurBancTrame &T = *pt;
+				T.W = 1600.f;
+				T.H = 900.f;
+				T.pctx->Init(1600, 900);
+				T.Ui().hauteurTiroir = 120.f;
+				T.Ui().detailsCategorie = 4; // Rendu : la carte Emetteur
+				for (int32 k = 0; k < 30; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				erreurs += EcrirePng(T, NkString::Format("%s/07a_effets_edition_sans_apercu.png", dossier).CStr()) ? 0 : 1;
+				NkEditeurJouer(m);
+				for (int32 k = 0; k < 60; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				m.selection = Par(m.scene, "Feu");
+				m.aSelection = m.selection.IsValid();
+				T.Trame();
+				T.Trame();
+				erreurs += EcrirePng(T, NkString::Format("%s/07b_effets_en_jeu_pilotes.png", dossier).CStr()) ? 0 : 1;
+				if (T.Ui().effetPause.w > 0.f) {
+					const nkgui::NkVec2 p = Milieu(T.Ui().effetPause);
+					T.Clic(0, p.x, p.y);
+				}
+				for (int32 k = 0; k < 20; ++k) {
+					NkEditeurAvancer(m, 1.f / 60.f);
+					T.Trame();
+				}
+				T.Fermer();
+				erreurs += EcrirePng(T, NkString::Format("%s/07c_effet_en_pause.png", dossier).CStr()) ? 0 : 1;
+				NkEditeurArreter(m);
 				memory::NkGetDefaultAllocator().Delete(pt);
 			}
 			// 03 : chaque asset s'ouvre -- sur une COPIE du projet de demonstration

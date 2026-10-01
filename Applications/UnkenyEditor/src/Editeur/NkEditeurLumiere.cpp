@@ -254,6 +254,9 @@ namespace nkentseu {
 			n.graine = e->graine;
 			n.actif = e->actif;
 			n.decalage = e->decalage;
+			// La LECTURE n'est pas la recette : un preset la garde (R34).
+			n.jouerAuDemarrage = e->jouerAuDemarrage;
+			n.apercuEdition = e->apercuEdition;
 			*e = n;
 			// L'effet repart de zero : garder les particules de l'ancienne recette
 			// melangerait deux effets a l'ecran.
@@ -374,6 +377,9 @@ namespace nkentseu {
 			}
 			Plat(s, "Poteau", NkVec2f(9.5f, -1.75f), NkVec2f(0.12f, 4.5f), 0x303238FFu, 0, 0.f);
 			NkEditeurPoserLumiere(m, NkVec2f(-10.f, 5.f), NkTypeLumiere2D::NK_DIRECTIONNELLE);
+			// (2026-10-01, R34) La nuit d'exemple MONTRE ses effets en edition : ils
+			// ont « Aperçu en édition » coche (par defaut, un effet ne tourne qu'en jeu).
+			m.scene.Monde().Query<NkEmetteur2D>().ForEach([](ecs::NkEntityId, NkEmetteur2D &e) { e.apercuEdition = true; });
 			m.aSelection = false;
 		}
 
