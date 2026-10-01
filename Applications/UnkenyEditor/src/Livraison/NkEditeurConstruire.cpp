@@ -30,8 +30,10 @@
 // =============================================================================
 
 #include "Livraison/NkEditeurConstruire.h"
+#include "Script/NkEditeurScripts.h"
 
 #include "Editeur/NkEditeurActions.h"
+#include "Editeur/NkEditeurContenu.h"
 #include "Editeur/NkEditeurEntrees.h"
 #include "Editeur/NkEditeurLumiere.h"
 #include "Livraison/NkEditeurProcessus.h"
@@ -635,6 +637,14 @@ namespace nkentseu {
 			t += NkString::Format("    \"icone_livree\": JEU + \"/icones/%s\",\n", livree.CStr());
 			t += NkString::Format("    \"id\": \"com.unkeny.%s\",\n", id.CStr());
 			t += "    \"version\": \"1.0.0\",\n";
+			// (2026-10-01) Les scripts C++ du projet, lies au joueur (UnkenyPlayer.jenga).
+			if (!plan.scriptsCpp.Empty()) {
+				t += "    \"scripts\": [";
+				for (uint32 i = 0; i < plan.scriptsCpp.Size(); ++i) {
+					t += NkString::Format("%sr\"%s\"", i > 0u ? ", " : "", plan.scriptsCpp[i].CStr());
+				}
+				t += "],\n";
+			}
 			if (kit) {
 				t += "    \"moteur\": MOTEUR,\n";
 			}
@@ -747,6 +757,8 @@ namespace nkentseu {
 			// La regle de camera du projet (.nkappareil, document 03 §2.6).
 			cuisson.regleCamera = m.appareil.regleCamera;
 			cuisson.entrees = demande.entrees;
+			// (2026-10-01) Les Blueprints que la scene nomme sont lus dans le projet.
+			cuisson.projet = NkEditeurDossierProjet(m);
 			unkeny::NkRapportCuisson rapport;
 			const bool cuit = unkeny::NkCuireJeu(m.scene, m.textures, cuisson, rapport);
 			for (usize i = 0; i < rapport.erreurs.Size(); ++i) {
@@ -759,6 +771,39 @@ namespace nkentseu {
 			journal.PushBack(NkString::Format("[cuisson] scene + %u texture(s) + %u son(s) -> %s (empreinte %016llx)",
 											  static_cast<unsigned>(rapport.textures), static_cast<unsigned>(rapport.sons),
 											  donnees.CStr(), static_cast<unsigned long long>(rapport.empreinte)));
+			// ── Les SCRIPTS C++ du projet (2026-10-01, document 01 § 5.6) : les
+			//    sources du Contenu et un registre STATIQUE genere, compiles AVEC le
+			//    joueur (NK_UNKENY_SCRIPTS_STATIQUES) -- les memes sources que la DLL
+			//    rechargee a chaud dans l'editeur. ──
+			plan.scriptsCpp.Clear();
+			{
+				const NkString contenu = NkEditeurDossierContenu(m);
+				NkVector<NkString> classes;
+				if (NkDirectory::Exists(contenu.CStr())) {
+					const NkVector<NkString> sources = NkDirectory::GetFiles(contenu.CStr(), "*.cpp", NkSearchOption::NK_ALL_DIRECTORIES);
+					for (uint32 i = 0; i < sources.Size(); ++i) {
+						NkString chemin = sources[i];
+						for (usize k = 0; k < chemin.Length(); ++k) {
+							if (chemin.CStr()[k] == '\\') {
+								const_cast<char *>(chemin.CStr())[k] = '/';
+							}
+						}
+						NkEditeurScriptsClassesDe(NkFile::ReadAllText(chemin.CStr()).CStr(), classes);
+						plan.scriptsCpp.PushBack(chemin);
+					}
+				}
+				if (!plan.scriptsCpp.Empty()) {
+					const NkString registre = plan.dossierJeu + "scripts/NkUnkRegistre.cpp";
+					NkDirectory::CreateRecursive((plan.dossierJeu + "scripts").CStr());
+					NkFile::WriteAllText(registre.CStr(), NkEditeurScriptsRegistre(classes).CStr());
+					plan.scriptsCpp.PushBack(registre);
+					journal.PushBack(NkString::Format("[scripts] %u source(s) C++ et %u classe(s) liees au jeu ; %u Blueprint(s) cuit(s)",
+													  static_cast<unsigned>(plan.scriptsCpp.Size() - 1u), static_cast<unsigned>(classes.Size()),
+													  static_cast<unsigned>(rapport.scripts)));
+				} else if (rapport.scripts > 0u) {
+					journal.PushBack(NkString::Format("[scripts] %u Blueprint(s) cuit(s)", static_cast<unsigned>(rapport.scripts)));
+				}
+			}
 			Fermer(NkPhaseConstruction::NK_CUIRE, NkEtatPhase::NK_FAITE,
 				   NkString::Format("%u texture(s), %u son(s)", static_cast<unsigned>(rapport.textures), static_cast<unsigned>(rapport.sons)));
 

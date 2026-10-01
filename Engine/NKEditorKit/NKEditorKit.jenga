@@ -33,7 +33,9 @@ with project("NKEditorKit"):
          # concernees le faisaient deja (mesure avant retrait).
          "NKWindow", "NKFont", "NKImage", "NKGui"],
         selfexport="NKEditorKit",
-        extra_includes=["src"],
+        # NKGraph (en-tete pur) : le canevas nodal (Components/NkCanevasNoeuds) en
+        # est la couche 2 (2026-10-01).
+        extra_includes=["src", "%{wks.location}/Kernel/Runtime/NKGraph/src"],
     )
 
     files([

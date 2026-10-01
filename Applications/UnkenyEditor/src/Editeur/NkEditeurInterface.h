@@ -232,7 +232,9 @@ namespace nkentseu {
 			NK_A_TEXTURE_SPRITE = 2100, ///< + 0 = « Aucune », + 1 + i = texturesProposees[i]
 			// Les pages Animation et Animateur (2026-10-01, NkEditeurPagesAnim.h) : 2400-2449.
 			NK_A_ANIM_ANIMATION = 2400, ///< Fenetre > Animation : le clip de la selection (ou un neuf)
-			NK_A_ANIM_ANIMATEUR = 2401	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
+			NK_A_ANIM_ANIMATEUR = 2401,	///< Fenetre > Animateur : le controleur de la selection (ou un neuf)
+			// Les SCRIPTS (2026-10-01, Script/NkEditeurScriptsUi.h) : la plage 2200-2299.
+			NK_A_SCRIPT = 2200 ///< + NkActionScript
 		};
 
 		/// Une ligne de menu. `separateur` = un trait, rien d'autre n'est lu.

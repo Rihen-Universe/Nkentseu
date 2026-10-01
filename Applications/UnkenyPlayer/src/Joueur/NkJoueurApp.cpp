@@ -28,6 +28,16 @@
 #include "Unkeny/Partie/NkUnkenyPartie.h"
 #include "Unkeny/Partie/NkUnkenyZoneSure.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
+#include "Unkeny/Jeu/NkUnkenyControleurs.h"
+#include "Unkeny/Entree/NkUnkenyActionsStandard.h"
+
+#include <cstring>
+
+#if defined(NK_UNKENY_SCRIPTS_STATIQUES)
+// Le registre des classes C++ du jeu, GENERE par l'editeur (Fichier > Construire)
+// et compile avec le joueur : le meme que celui de la DLL rechargee a chaud.
+extern "C" const NkUnkModuleV1 *nk_unkeny_module_statique(void);
+#endif
 
 #include <cstdio>
 
@@ -85,9 +95,68 @@ namespace nkentseu {
 #endif
 		}
 
+		void NkJoueurBrancherScripts(NkPartieJouee &p) {
+#if defined(NK_UNKENY_SCRIPTS_STATIQUES)
+			NkString err;
+			if (!p.scripts.EnregistrerModuleCpp(nk_unkeny_module_statique(), &err)) {
+				p.jeu.manquantes.PushBack(NkString("scripts C++ : ") + err);
+			}
+#endif
+			p.hote.Brancher(p.scene, p.scripts);
+			p.hote.PoserActions(&p.entrees.jeu.Actions(0), &p.entrees.jeu.Liaisons());
+			p.hote.PoserSons(&p.sons);
+			p.hote.PoserSortie(
+				[](void *, const char *ligne, bool faute) {
+					std::printf("[script]%s %s\n", faute ? " FAUTE" : "", ligne);
+					std::fflush(stdout);
+				},
+				nullptr);
+		}
+
+		int32 NkJoueurEssaiScripts(const NkString &dossier) {
+			NkPartieJouee *p = memory::NkGetDefaultAllocator().New<NkPartieJouee>();
+			const bool jouable = unkeny::NkChargerJeu(dossier.CStr(), p->scene, p->textures, nullptr, p->jeu, &p->scripts);
+			NkJoueurEntreesLire(p->entrees, p->jeu.entrees);
+			NkJoueurBrancherScripts(*p);
+			unkeny::NkVerifierScriptsDuJeu(p->scene, p->scripts, p->jeu);
+			unkeny::NkActions &a = p->entrees.jeu.Actions(0);
+			unkeny::NkAjouterControleurs2D(p->scene, &a);
+			auto Portes = [&](const char *quand) {
+				p->scene.Monde().Query<unkeny::NkEtiquette>().ForEach([&](ecs::NkEntityId id, unkeny::NkEtiquette &e) {
+					if (std::strncmp(e.nom, "Porte", 5) == 0 || std::strcmp(e.nom, "Joueur") == 0) {
+						const unkeny::NkTransform2D *t = p->scene.Monde().Get<unkeny::NkTransform2D>(id);
+						std::printf("[essai] %s : %s en (%.2f, %.2f)\n", quand, e.nom, static_cast<double>(t->position.x),
+									static_cast<double>(t->position.y));
+					}
+				});
+			};
+			std::printf("[essai] %s, %u Blueprint(s), %u manque(s)\n", jouable ? "jouable" : p->jeu.erreur.CStr(),
+						static_cast<unsigned>(p->jeu.scripts), static_cast<unsigned>(p->jeu.manquantes.Size()));
+			for (uint32 i = 0; i < p->jeu.manquantes.Size(); ++i) {
+				std::printf("[essai] MANQUE : %s\n", p->jeu.manquantes[i].CStr());
+			}
+			Portes("avant");
+			for (int32 k = 0; jouable && k < 480; ++k) {
+				a.NouvelleTrame();
+				a.Poser(unkeny::NK_ACTION_AVANCER, k < 150 ? -1.f : 1.f);
+				unkeny::NkAvancerPartie(p->scene, 1.f / 60.f);
+			}
+			Portes("apres");
+			const bool ok = jouable && p->jeu.manquantes.Empty() && p->hote.NbFautes() == 0u;
+			std::printf("%s\n", ok ? "ESSAI DES SCRIPTS : REUSSI" : "ESSAI DES SCRIPTS : EN DEFAUT");
+			memory::NkGetDefaultAllocator().Delete(p);
+			return ok ? 0 : 1;
+		}
+
 		int32 NkJoueurVerifier(const NkString &dossier) {
 			NkPartieJouee *p = memory::NkGetDefaultAllocator().New<NkPartieJouee>();
-			const bool jouable = unkeny::NkChargerJeu(dossier.CStr(), p->scene, p->textures, nullptr, p->jeu);
+			const bool jouable = unkeny::NkChargerJeu(dossier.CStr(), p->scene, p->textures, nullptr, p->jeu, &p->scripts);
+#if defined(NK_UNKENY_SCRIPTS_STATIQUES)
+			p->scripts.EnregistrerModuleCpp(nk_unkeny_module_statique());
+#endif
+			if (jouable) {
+				unkeny::NkVerifierScriptsDuJeu(p->scene, p->scripts, p->jeu);
+			}
 			Ecrire(p->jeu, dossier);
 			const bool ok = jouable && p->jeu.manquantes.Empty() && p->jeu.EmpreinteIdentique();
 			std::printf("%s\n", ok ? "JEU VERIFIE : jouable, complet, empreinte de l'editeur" : "JEU EN DEFAUT");
@@ -107,6 +176,7 @@ namespace nkentseu {
 
 		NkOptional<int> NkJoueurApp::OnCommandLine(const NkVector<NkString> &args) {
 			bool verifier = false;
+			bool essaiScripts = false;
 			for (uint32 i = 0; i < args.Size(); ++i) {
 				if (args[i].StartsWith("--jeu=")) {
 					mDossier = AvecBarre(NkString(args[i].SubStr(6)));
@@ -114,6 +184,11 @@ namespace nkentseu {
 				}
 				if (args[i] == "--verifier") {
 					verifier = true;
+					continue;
+				}
+				// (2026-10-01) Les scripts du jeu, joues sans fenetre (voir l'en-tete).
+				if (args[i] == "--essai-scripts") {
+					essaiScripts = true;
 					continue;
 				}
 				// --zone-sure : la surimpression de debogage de la zone sure.
@@ -148,11 +223,16 @@ namespace nkentseu {
 					// (2026-10-01) L'ecran et la zone sure : le code que le joueur
 					// emploie pour transmettre celle de NKWindow au jeu.
 					const int32 ecran = unkeny::NkUnkenyLancerBancEcran();
-					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 ? 0 : 1);
+					// (2026-10-01) Les scripts : la VM, l'hote, le C++ lie en statique.
+					const int32 scripts = unkeny::NkUnkenyLancerBancScripts();
+					return NkOptional<int>(livraison == 0 && entrees == 0 && ecran == 0 && scripts == 0 ? 0 : 1);
 				}
 			}
 			if (verifier) {
 				return NkOptional<int>(NkJoueurVerifier(mDossier));
+			}
+			if (essaiScripts) {
+				return NkOptional<int>(NkJoueurEssaiScripts(mDossier));
 			}
 			// Le titre AVANT la fenetre : relu apres le chargement, il arrivait une
 			// seconde et demie trop tard (le son s'initialise avant ; mesure du
@@ -170,7 +250,7 @@ namespace nkentseu {
 			p.textures.Brancher(&renderer::NkCanvasGuiApp::RelaisTeleversement, static_cast<renderer::NkCanvasGuiApp *>(this));
 			// Sans carte son, le jeu CONTINUE : NkSons2D reste appelable.
 			const bool son = p.sons.Demarrer();
-			unkeny::NkChargerJeu(mDossier.CStr(), p.scene, p.textures, son ? &p.sons : nullptr, p.jeu);
+			unkeny::NkChargerJeu(mDossier.CStr(), p.scene, p.textures, son ? &p.sons : nullptr, p.jeu, &p.scripts);
 			if (p.jeu.Jouable()) {
 				p.zoomRelu = p.scene.Camera().Zoom();
 				// Les entrees cuites avec le jeu (sinon les standard), puis les
@@ -180,6 +260,9 @@ namespace nkentseu {
 					p.jeu.manquantes.PushBack(NkString("entrees : ") + r.erreurs[0]);
 				}
 				NkJoueurEntreesBrancher(p.entrees, p.scene);
+				// Les scripts (2026-10-01) : apres les entrees, dont ils lisent les actions.
+				NkJoueurBrancherScripts(p);
+				unkeny::NkVerifierScriptsDuJeu(p.scene, p.scripts, p.jeu);
 			}
 			if (!p.jeu.nom.Empty()) {
 				Window().SetTitle(p.jeu.nom);

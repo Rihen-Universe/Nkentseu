@@ -479,6 +479,19 @@ namespace nkentseu {
 						NkString s;
 						for (uint32 i = 0; i < ch.nombre; ++i) {
 							const uint8 *q = d + ch.decalage + i * ch.Pas();
+							if (ch.type == NkTypeChamp::NK_TEXTE) {
+								// (2026-10-01, NkScript2D) Un TABLEAU DE TEXTES : une ligne
+								// par element, comme les references ; borne a la taille.
+								usize l = 0;
+								while (l < ch.taille && q[l] != 0u && q[l] != '\n') {
+									++l;
+								}
+								if (i > 0u) {
+									s.Append("\n");
+								}
+								s.Append(NkString(reinterpret_cast<const char *>(q), l));
+								continue;
+							}
 							if (EstReference(ch.type)) {
 								// Une ligne par element : un nom de fichier peut porter des
 								// espaces, pas de saut de ligne. « #n » : sans nom connu.
@@ -580,6 +593,18 @@ namespace nkentseu {
 					if (ch.nombre > 1u) {
 						NkString s;
 						if (!o.GetString(k, s)) {
+							continue;
+						}
+						if (ch.type == NkTypeChamp::NK_TEXTE) {
+							const char *a = s.CStr();
+							for (uint32 i = 0; i < ch.nombre && a != nullptr; ++i) {
+								const char *fin = std::strchr(a, '\n');
+								const usize n = fin != nullptr ? static_cast<usize>(fin - a) : std::strlen(a);
+								uint8 *q = d + ch.decalage + i * ch.Pas();
+								std::memset(q, 0, ch.taille);
+								std::memcpy(q, a, n < ch.taille ? n : ch.taille - 1u);
+								a = fin != nullptr ? fin + 1 : nullptr;
+							}
 							continue;
 						}
 						if (EstReference(ch.type)) {

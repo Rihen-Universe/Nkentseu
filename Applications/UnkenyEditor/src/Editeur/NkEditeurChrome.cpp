@@ -25,6 +25,7 @@
 #include "Editeur/NkEditeurPlacer.h"
 
 #include "NKCanvas/App/NkCanvasTexte.h"
+#include "Script/NkEditeurScriptsUi.h"
 #include "NKEditorKit/NkThemeToGui.h"
 #include "Unkeny/Livraison/NkUnkenyLivraison.h"
 
@@ -521,6 +522,8 @@ namespace nkentseu {
 								out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
 								out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
 								out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+								out.PushBack(Entree("Script C++", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_CPP));
+								out.PushBack(Entree("Blueprint", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_BP));
 								out.PushBack(Separateur());
 								out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
 								out.PushBack(Entree("Coller", NK_A_CONTENU_COLLER, "Ctrl+V", false, !c.ui.pressePapierContenu.Empty()));
@@ -544,6 +547,8 @@ namespace nkentseu {
 						out.PushBack(Entree("Scène", NK_A_CONTENU_NOUVELLE_SCENE));
 						out.PushBack(Entree("Prefab (de la sélection)", NK_A_CONTENU_NOUVEAU_PREFAB, "", false, m.aSelection));
 						out.PushBack(Entree("Contrôleur d'animation", NK_A_CONTENU_NOUVEAU_CONTROLEUR));
+						out.PushBack(Entree("Script C++", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_CPP));
+						out.PushBack(Entree("Blueprint", NK_A_SCRIPT + NK_SCRIPT_NOUVEAU_BP));
 						out.PushBack(Separateur());
 						out.PushBack(Entree("Importer…", NK_A_CONTENU_IMPORTER));
 						break;
@@ -1465,6 +1470,8 @@ namespace nkentseu {
 					// (2026-10-01) Les gestes du navigateur : 1306 a 1399.
 					if (action >= NK_A_CONTENU_NOUVEAU_DOSSIER && action < 1400) {
 						NkEditeurActionContenu(c, action);
+					} else if (action >= NK_A_SCRIPT && action < NK_A_SCRIPT + 100) {
+						NkEditeurActionScript(c, action); // 2026-10-01 : les scripts
 					}
 					break;
 			}

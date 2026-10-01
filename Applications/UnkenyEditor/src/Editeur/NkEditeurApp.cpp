@@ -35,6 +35,8 @@
 #include "Unkeny/Banc/NkUnkenyBancLivraison.h"
 #include "Unkeny/Jeu/NkUnkenyNiveauGelee.h"
 #include "Unkeny/Livraison/NkUnkenyLivraison.h"
+#include "Script/NkEditeurExemplePortes.h"
+#include "NKFileSystem/NkFile.h"
 #include <cstdio>
 
 namespace nkentseu {
@@ -173,6 +175,7 @@ namespace nkentseu {
 			: mModele(memory::NkMakeUnique<NkEditeurModele>()), mUi(memory::NkMakeUnique<NkEditeurInterface>()),
 			  mEntrees(memory::NkMakeUnique<NkEditeurEntrees>()), mConstruction(memory::NkMakeUnique<NkEditeurConstruction>()),
 			  mSelecteur(memory::NkMakeUnique<NkEditeurSelecteurEtat>()),
+			  mScripts(memory::NkMakeUnique<NkEditeurScripts>()),
 			  mTheme(editorkit::NkTheme::Dark()) {
 			NkEditeurEntreesParDefaut(*mEntrees);
 			mPalette = NkEditeurPalette(mTheme);
@@ -321,6 +324,22 @@ namespace nkentseu {
 					mExempleHud = true;
 					continue;
 				}
+				// --exemple=portes (2026-10-01) : le projet d'exemple des SCRIPTS
+				// (Script/NkEditeurExemplePortes.h), ecrit s'il manque dans
+				// Documents/Unkeny/Exemples/Portes/ puis ouvert ; -neuf le reecrit.
+				if (args[i] == "--exemple=portes" || args[i] == "--exemple=portes-neuf") {
+					const NkString dossier = NkEditeurDossierExemplePortes();
+					NkString scene = dossier + "Contenu/Scenes/Portes.nkscene";
+					if (args[i] == "--exemple=portes-neuf" || !NkFile::Exists(scene.CStr())) {
+						NkString err;
+						scene = NkEditeurEcrireExemplePortes(dossier.CStr(), &err);
+						std::printf("[editeur] exemple Portes : %s\n", scene.Empty() ? err.CStr() : scene.CStr());
+					}
+					if (!scene.Empty()) {
+						mSceneDepart = scene;
+					}
+					continue;
+				}
 				// --exemple=journal (2026-10-01) : le tiroir sur son JOURNAL, avec des
 				// lignes de chaque niveau (une construction typique) -- la capture de
 				// l'Output Log sans lancer Jenga.
@@ -414,6 +433,9 @@ namespace nkentseu {
 					continue;
 				}
 				// (2026-10-01) Des captures HORS ECRAN, sans fenetre (NkEditeurPlacer.h).
+				if (args[i].StartsWith("--captures-scripts=")) {
+					return NkOptional<int>(NkEditeurCapturesScripts(NkString(args[i].SubStr(19)).CStr()));
+				}
 				if (args[i].StartsWith("--captures-formes=")) {
 					return NkOptional<int>(NkEditeurCapturesFormes(NkString(args[i].SubStr(18)).CStr()));
 				}
@@ -452,9 +474,12 @@ namespace nkentseu {
 					const int32 formes = unkeny::NkUnkenyLancerBancFormes() | NkEditeurLancerBancFormes();
 					// Les pages Animation et Animateur (01/10) : a part, a la fin.
 					const int32 animation = NkEditeurLancerBancAnimation();
+					// Les SCRIPTS (01/10, document 01 : S0-S2) : le moteur, puis l'editeur.
+					const int32 scripts = unkeny::NkUnkenyLancerBancScripts() | NkEditeurLancerBancScripts();
 					const bool echec = moteur != 0 || editeur != 0 || entrees != 0 || jouer != 0 || lumiere != 0 ||
 									   lumiereEditeur != 0 || livraison != 0 || construction != 0 || appareils != 0 ||
-									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0;
+									   ecran != 0 || terminal != 0 || ue5 != 0 || formes != 0 || animation != 0 ||
+									   scripts != 0;
 					return NkOptional<int>(echec ? 1 : 0);
 				}
 				// La fenetre « Construire » ouverte des le depart : pour qu'une
@@ -627,6 +652,8 @@ namespace nkentseu {
 				m.scene.Eclairage().actif = false;
 			}
 			NkEditeurDemarrerPlacer(m, *mUi);
+			// Les SCRIPTS (2026-10-01) : l'hote sur la scene, les actions du joueur 1.
+			NkEditeurScriptsDemarrer(*mScripts, m, &mEntrees->jeu.Actions(0), &mEntrees->jeu.Liaisons());
 			if (m.simuler) {
 				NkEditeurJouer(m);
 			}
@@ -661,6 +688,8 @@ namespace nkentseu {
 			// fermer le viseur mettait la simulation en pause. La coquille a un
 			// pas de temps a elle : la scene avance, vue ouverte ou non.
 			NkEditeurAvancer(*mModele, deltaTime);
+			// Les scripts : C++ recompile a chaque enregistrement, Blueprints relus.
+			NkEditeurScriptsTrame(*mScripts, *mModele, mUi.Get(), deltaTime);
 			NkEditeurSuivreModifications(*mModele, *mUi, deltaTime);
 			// La construction en cours : les lignes de Jenga au Journal, l'etape
 			// suivante quand une etape finit (Livraison/NkEditeurFenetreConstruire).
@@ -1020,9 +1049,14 @@ namespace nkentseu {
 				Neutraliser(c.ctx.input, true);
 			}
 			// (2026-10-01) Un onglet Animation / Animateur au premier plan occupe le
-			// corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux.
+			// corps (NkEditeurPagesAnim.h) ; sinon, la scene et ses panneaux, et un
+			// Blueprint ouvert prend la place du viseur (Script/NkEditeurGraphe.h).
 			if (!NkEditeurDessinerPageAnim(c)) {
-				NkEditeurDessinerVue(c);
+				if (NkEditeurGrapheOuvert(c.m)) {
+					NkEditeurDessinerGraphe(c);
+				} else {
+					NkEditeurDessinerVue(c);
+				}
 				NkEditeurDessinerPlacer(c); // 2026-10-01 : Placer des acteurs, a gauche
 				NkEditeurDessinerOutliner(c);
 				NkEditeurDessinerDetails(c);
