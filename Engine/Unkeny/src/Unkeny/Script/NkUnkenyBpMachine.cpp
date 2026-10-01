@@ -171,6 +171,60 @@ namespace nkentseu {
 			bool PoserCouleurC(NkAppelNatifBp &a) {
 				return a.hote->PoserCouleur(a.hote->ctx, a.Entite(0), static_cast<uint32>(a.args[1].i)) != 0;
 			}
+			// ── Les MATHS des noeuds de code (« arrondi(x, 1) »...) : des calculs purs ──
+			bool MAbs(NkAppelNatifBp &a) {
+				a.res[0].x = a.args[0].x < 0.f ? -a.args[0].x : a.args[0].x;
+				return true;
+			}
+			bool MMin(NkAppelNatifBp &a) {
+				a.res[0].x = a.args[0].x < a.args[1].x ? a.args[0].x : a.args[1].x;
+				return true;
+			}
+			bool MMax(NkAppelNatifBp &a) {
+				a.res[0].x = a.args[0].x > a.args[1].x ? a.args[0].x : a.args[1].x;
+				return true;
+			}
+			bool MPlancher(NkAppelNatifBp &a) {
+				a.res[0].x = math::NkFloor(a.args[0].x);
+				return true;
+			}
+			bool MArrondi(NkAppelNatifBp &a) {
+				float32 f = 1.f;
+				for (int32 k = 0; k < a.args[1].i && k < 8; ++k) {
+					f *= 10.f;
+				}
+				a.res[0].x = math::NkFloor(a.args[0].x * f + 0.5f) / f;
+				return true;
+			}
+			bool MRacine(NkAppelNatifBp &a) {
+				a.res[0].x = a.args[0].x > 0.f ? math::NkSqrt(a.args[0].x) : 0.f;
+				return a.args[0].x >= 0.f;
+			}
+			bool MSin(NkAppelNatifBp &a) {
+				a.res[0].x = math::NkSin(a.args[0].x);
+				return true;
+			}
+			bool MCos(NkAppelNatifBp &a) {
+				a.res[0].x = math::NkCos(a.args[0].x);
+				return true;
+			}
+			bool MPuissance(NkAppelNatifBp &a) {
+				a.res[0].x = math::NkPow(a.args[0].x, a.args[1].x);
+				return true;
+			}
+			bool MBorner(NkAppelNatifBp &a) {
+				const float32 x = a.args[0].x, lo = a.args[1].x, hi = a.args[2].x;
+				a.res[0].x = x < lo ? lo : (x > hi ? hi : x);
+				return true;
+			}
+			bool MInterpoler(NkAppelNatifBp &a) {
+				a.res[0].x = a.args[0].x + (a.args[1].x - a.args[0].x) * a.args[2].x;
+				return true;
+			}
+			bool MEntier(NkAppelNatifBp &a) {
+				a.res[0].i = static_cast<int32>(math::NkFloor(a.args[0].x));
+				return true;
+			}
 			bool NomEntite(NkAppelNatifBp &a) {
 				char b[64] = {};
 				const bool ok = a.hote->Nom(a.hote->ctx, a.Entite(0), b, sizeof(b)) != 0;
@@ -294,6 +348,18 @@ namespace nkentseu {
 									.P(E_, "entité")
 									.P(C_, "couleur"));
 						Ajouter(B("unkeny.entite.nom", "Nom de l'entité", "Entité", &NomEntite).P(E_, "entité").R(T_, "nom").Pur());
+						Ajouter(B("unkeny.math.abs", "Valeur absolue", "Maths", &MAbs).P(R_, "x").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.min", "Minimum", "Maths", &MMin).P(R_, "a").P(R_, "b").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.max", "Maximum", "Maths", &MMax).P(R_, "a").P(R_, "b").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.plancher", "Plancher", "Maths", &MPlancher).P(R_, "x").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.arrondi", "Arrondi", "Maths", &MArrondi).P(R_, "x").P(I_, "décimales").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.racine", "Racine carrée", "Maths", &MRacine).P(R_, "x").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.sin", "Sinus", "Maths", &MSin).P(R_, "radians").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.cos", "Cosinus", "Maths", &MCos).P(R_, "radians").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.puissance", "Puissance", "Maths", &MPuissance).P(R_, "x").P(R_, "n").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.borner", "Borner", "Maths", &MBorner).P(R_, "x").P(R_, "min").P(R_, "max").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.interpoler", "Interpoler", "Maths", &MInterpoler).P(R_, "a").P(R_, "b").P(R_, "t").R(R_, "r").Pur());
+						Ajouter(B("unkeny.math.entier", "Réel en entier (plancher)", "Maths", &MEntier).P(R_, "x").R(I_, "r").Pur());
 					}
 			};
 

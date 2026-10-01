@@ -22,6 +22,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Script/NkBpCatalogue.h"
+#include "Script/NkBpExpression.h"
 
 #include <cstdio>
 #include <cstring>
@@ -320,7 +321,10 @@ namespace nkentseu {
 								return Appel(c, src, static_cast<uint32>(g), s.name.CStr(), prof);
 							}
 							case NkGenreNoeudBp::NK_POUR:
+							case NkGenreNoeudBp::NK_CODE:
 								return Garde(c, src, s, lecteur);
+							case NkGenreNoeudBp::NK_EXPRESSION:
+								return SortieExpression(c, src, k, prof);
 							case NkGenreNoeudBp::NK_RELAIS:
 								return Valeur(c, src, "in", t, prof + 1);
 							case NkGenreNoeudBp::NK_SOI: {
@@ -705,10 +709,663 @@ namespace nkentseu {
 							case NkGenreNoeudBp::NK_RELAIS:
 								Chaine(c, n, "out", prof);
 								return;
+							case NkGenreNoeudBp::NK_SI_EXPRESSION: {
+								NkArbreExpr ar;
+								if (!Analyser(c, n, false, ar)) {
+									return;
+								}
+								CtxCode cc;
+								cc.n = &n;
+								cc.pur = true;
+								ValExpr v;
+								if (!Gen(c, cc, ar, ar.instructions[0].valeur, v, prof)) {
+									return;
+								}
+								if (v.t != NkTypeBp::NK_BOOLEEN) {
+									EchecCode(c, cc, 1u, NkString::Format("la condition doit être un booléen (« a > 0 »), elle donne un %s", NomType(v.t)));
+									return;
+								}
+								Ligne(c, n.id);
+								a.Emettre(NkOpBp::NK_SAUT_SI_FAUX, v.r, 0u);
+								const uint32 versFaux = a.Pc() - 1u;
+								Chaine(c, n, "vrai", prof);
+								a.Emettre(NkOpBp::NK_SAUT, 0u);
+								const uint32 versFin = a.Pc() - 1u;
+								a.Patcher(versFaux, a.Pc());
+								Chaine(c, n, "faux", prof);
+								a.Patcher(versFin, a.Pc());
+								return;
+							}
+							case NkGenreNoeudBp::NK_CODE:
+								ExecuterCode(c, n, prof);
+								Chaine(c, n, "suite", prof);
+								return;
 							default:
 								Echec(c, n.id, NkString("ce nœud ne s'exécute pas : relier un nœud d'exécution"));
 								return;
 						}
+					}
+
+					// ═════════════════════════════════════════════════════════════
+					// LES NOEUDS DE CODE (NkBpExpression.h) : l'arbre -> la machine
+					// ═════════════════════════════════════════════════════════════
+					struct ValExpr {
+							uint32 r = 0u;
+							NkTypeBp t = NkTypeBp::NK_RIEN;
+					};
+					/// Le contexte d'un noeud de code : ses SORTIES (un noeud Code les
+					/// ecrit), et s'il est PUR (une Expression n'agit pas).
+					struct CtxCode {
+							const graph::NkNode *n = nullptr;
+							bool pur = true;
+							NkVector<NkString> sorties;
+							NkVector<uint32> regs;
+							NkVector<NkTypeBp> types;
+							uint32 ligne = 1u;
+					};
+					uint32 EchecCode(const Ctx &c, const CtxCode &cc, uint32 colonne, const NkString &m) {
+						return Echec(c, cc.n->id, NkString::Format("ligne %u, colonne %u : %s", static_cast<unsigned>(cc.ligne),
+																   static_cast<unsigned>(colonne), m.CStr()));
+					}
+					static const char *NomType(NkTypeBp t) {
+						return unkeny::NkNomTypeBp(t);
+					}
+					/// `v` en `vers` (entier -> reel seulement). false : erreur posee.
+					bool Convertir(const Ctx &c, const CtxCode &cc, ValExpr &v, NkTypeBp vers, uint32 colonne) {
+						if (v.t == vers) {
+							return true;
+						}
+						if (v.t == NkTypeBp::NK_ENTIER && vers == NkTypeBp::NK_REEL) {
+							const uint32 r = a.Registre(NkTypeBp::NK_REEL);
+							a.Emettre(NkOpBp::NK_I2R, r, v.r);
+							v.r = r;
+							v.t = NkTypeBp::NK_REEL;
+							return true;
+						}
+						EchecCode(c, cc, colonne, NkString::Format("un %s est attendu, l'expression donne un %s", NomType(vers), NomType(v.t)));
+						return false;
+					}
+					uint32 ConstanteNombre(NkTypeBp t, float64 x) {
+						const uint32 r = a.Registre(t);
+						a.Emettre(NkOpBp::NK_CONST, r, t == NkTypeBp::NK_ENTIER ? a.ConstEntier(static_cast<int32>(x)) : a.ConstReel(static_cast<float32>(x)));
+						return r;
+					}
+					/// Le natif `nom` (qualifie) appele avec `args` (deja calcules).
+					bool AppelNatif(const Ctx &c, const CtxCode &cc, int32 k, NkVector<ValExpr> &args, ValExpr &sortie, uint32 colonne) {
+						uint32 nb = 0;
+						const unkeny::NkNatifBp &x = unkeny::NkNatifsBp(nb)[k];
+						if (!x.pur && cc.pur) {
+							EchecCode(c, cc, colonne,
+									  NkString::Format("« %s » AGIT : il n'a sa place que dans un nœud Code (pas dans une expression)", x.libelle));
+							return false;
+						}
+						// Une entite omise en tete : SOI (« position() », « impulsion(vec2(0, 5)) »).
+						if (args.Size() + 1u == x.signature.nbParams && x.signature.params[0] == NkTypeBp::NK_ENTITE) {
+							ValExpr soi;
+							soi.r = a.Registre(NkTypeBp::NK_ENTITE);
+							soi.t = NkTypeBp::NK_ENTITE;
+							a.Emettre(NkOpBp::NK_SOI, soi.r);
+							args.Insert(args.Begin(), soi);
+						}
+						if (args.Size() != x.signature.nbParams) {
+							EchecCode(c, cc, colonne,
+									  NkString::Format("« %s » attend %u paramètre(s), %u donné(s)", x.libelle, static_cast<unsigned>(x.signature.nbParams),
+													   static_cast<unsigned>(args.Size())));
+							return false;
+						}
+						uint32 regs[6] = {};
+						uint32 nr = 0;
+						for (uint32 i = 0; i < args.Size(); ++i) {
+							if (!Convertir(c, cc, args[i], x.signature.params[i], colonne)) {
+								return false;
+							}
+							regs[nr++] = args[i].r;
+						}
+						sortie = ValExpr();
+						for (uint8 i = 0; i < x.signature.nbResultats; ++i) {
+							const uint32 r = a.Registre(x.signature.resultats[i]);
+							regs[nr++] = r;
+							if (i == 0u) {
+								sortie.r = r;
+								sortie.t = x.signature.resultats[i];
+							}
+						}
+						const int32 imp = a.Import(x.signature.nom);
+						if (imp < 0) {
+							EchecCode(c, cc, colonne, NkString::Format("natif inconnu : %s", x.signature.nom));
+							return false;
+						}
+						Ligne(c, cc.n->id);
+						a.Natif(static_cast<uint32>(imp), regs, nr);
+						return true;
+					}
+					/// Le natif d'un NOM du langage (alias francais, puis nom court).
+					int32 NatifDeNom(const NkString &nom) {
+						struct A {
+								const char *alias;
+								const char *natif;
+						};
+						static const A k[] = {{"abs", "unkeny.math.abs"},
+											  {"min", "unkeny.math.min"},
+											  {"max", "unkeny.math.max"},
+											  {"plancher", "unkeny.math.plancher"},
+											  {"floor", "unkeny.math.plancher"},
+											  {"racine", "unkeny.math.racine"},
+											  {"sqrt", "unkeny.math.racine"},
+											  {"sin", "unkeny.math.sin"},
+											  {"cos", "unkeny.math.cos"},
+											  {"puissance", "unkeny.math.puissance"},
+											  {"pow", "unkeny.math.puissance"},
+											  {"borner", "unkeny.math.borner"},
+											  {"clamp", "unkeny.math.borner"},
+											  {"interpoler", "unkeny.math.interpoler"},
+											  {"lerp", "unkeny.math.interpoler"},
+											  {"jouer_effet", "unkeny.effet.jouer"},
+											  {"arreter_effet", "unkeny.effet.arreter"},
+											  {"jouer_son", "unkeny.son.jouer"},
+											  {"couleur", "unkeny.couleur.rvba"},
+											  {"poser_couleur", "unkeny.sprite.poser_couleur"},
+											  {"valeur_action", "unkeny.entree.valeur"},
+											  {"action_enfoncee", "unkeny.entree.enfoncee"},
+											  {"afficher_valeur", "unkeny.journal.afficher_reel"},
+											  {"parametre_anim", "unkeny.anim.parametre"},
+											  {"vivante", "unkeny.entite.vivante"},
+											  {"egaux", "unkeny.texte.egaux"}};
+						for (const A &x : k) {
+							if (nom == x.alias) {
+								return unkeny::NkTrouverNatifBp(x.natif);
+							}
+						}
+						uint32 nb = 0;
+						const unkeny::NkNatifBp *t = unkeny::NkNatifsBp(nb);
+						for (uint32 i = 0; i < nb; ++i) {
+							const char *court = std::strrchr(t[i].signature.nom, '.');
+							if ((court != nullptr && nom == court + 1) || nom == t[i].signature.nom) {
+								return static_cast<int32>(i);
+							}
+						}
+						return -1;
+					}
+
+					bool Gen(const Ctx &c, CtxCode &cc, const NkArbreExpr &ar, int32 i, ValExpr &v, int32 prof) {
+						if (!ok) {
+							return false;
+						}
+						if (i < 0 || prof > 128) {
+							EchecCode(c, cc, 0u, NkString("expression trop profonde"));
+							return false;
+						}
+						const NkNoeudExpr &x = ar.noeuds[static_cast<uint32>(i)];
+						cc.ligne = x.ligne;
+						switch (x.genre) {
+							case NkGenreNoeudExpr::NK_NOMBRE:
+								v.t = x.entier ? NkTypeBp::NK_ENTIER : NkTypeBp::NK_REEL;
+								v.r = ConstanteNombre(v.t, x.nombre);
+								return true;
+							case NkGenreNoeudExpr::NK_BOOLEEN:
+								v.t = NkTypeBp::NK_BOOLEEN;
+								v.r = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_CONST, v.r, a.ConstBooleen(x.nombre != 0.0));
+								return true;
+							case NkGenreNoeudExpr::NK_TEXTE:
+								v.t = NkTypeBp::NK_TEXTE;
+								v.r = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_CONST, v.r, a.ConstTexte(x.nom.CStr()));
+								return true;
+							case NkGenreNoeudExpr::NK_SOI:
+								v.t = NkTypeBp::NK_ENTITE;
+								v.r = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_SOI, v.r);
+								return true;
+							case NkGenreNoeudExpr::NK_NOM: {
+								// 1. une SORTIE deja ecrite par ce Code ; 2. une ENTREE du noeud ;
+								// 3. une VARIABLE du Blueprint.
+								for (uint32 k = 0; k < cc.sorties.Size(); ++k) {
+									if (cc.sorties[k] == x.nom) {
+										v.r = cc.regs[k];
+										v.t = cc.types[k];
+										return true;
+									}
+								}
+								const int32 k = cc.n->FindSocket(x.nom.CStr(), graph::NkSocketDir::Input);
+								if (k >= 0 && cc.n->sockets[static_cast<uint32>(k)].family == graph::NkSocketFamily::Data) {
+									v.t = TypePrise(c, cc.n->sockets[static_cast<uint32>(k)]);
+									v.r = Valeur(c, *cc.n, x.nom.CStr(), v.t, prof + 1);
+									return ok;
+								}
+								const int32 var = d.TrouverVariable(x.nom.CStr());
+								if (var >= 0) {
+									v.t = NkBpTypeDeNom(d.variables[static_cast<uint32>(var)].type.CStr());
+									v.r = a.Registre(v.t);
+									a.Emettre(NkOpBp::NK_LIRE_VAR, v.r, static_cast<uint32>(var));
+									return true;
+								}
+								EchecCode(c, cc, x.colonne,
+										  NkString::Format("« %s » est inconnu (ni une entrée du nœud, ni une variable du Blueprint)", x.nom.CStr()));
+								return false;
+							}
+							case NkGenreNoeudExpr::NK_MEMBRE: {
+								ValExpr b;
+								if (!Gen(c, cc, ar, x.a, b, prof + 1)) {
+									return false;
+								}
+								if (b.t != NkTypeBp::NK_VEC2 || (!(x.nom == "x") && !(x.nom == "y"))) {
+									EchecCode(c, cc, x.colonne, NkString::Format("« .%s » : seul un vec2 a un .x et un .y", x.nom.CStr()));
+									return false;
+								}
+								v.t = NkTypeBp::NK_REEL;
+								v.r = a.Registre(v.t);
+								a.Emettre(x.nom == "x" ? NkOpBp::NK_VX : NkOpBp::NK_VY, v.r, b.r);
+								return true;
+							}
+							case NkGenreNoeudExpr::NK_UNAIRE: {
+								ValExpr b;
+								if (!Gen(c, cc, ar, x.a, b, prof + 1)) {
+									return false;
+								}
+								if (x.nom == "!") {
+									if (b.t != NkTypeBp::NK_BOOLEEN) {
+										EchecCode(c, cc, x.colonne, NkString::Format("« ! » attend un booléen, pas un %s", NomType(b.t)));
+										return false;
+									}
+									v.t = b.t;
+									v.r = a.Registre(v.t);
+									a.Emettre(NkOpBp::NK_NON, v.r, b.r);
+									return true;
+								}
+								if (b.t == NkTypeBp::NK_ENTIER || b.t == NkTypeBp::NK_REEL) {
+									const uint32 z = ConstanteNombre(b.t, 0.0);
+									v.t = b.t;
+									v.r = a.Registre(v.t);
+									a.Emettre(b.t == NkTypeBp::NK_ENTIER ? NkOpBp::NK_SUB_I : NkOpBp::NK_SUB_R, v.r, z, b.r);
+									return true;
+								}
+								if (b.t == NkTypeBp::NK_VEC2) {
+									const uint32 m = ConstanteNombre(NkTypeBp::NK_REEL, -1.0);
+									v.t = b.t;
+									v.r = a.Registre(v.t);
+									a.Emettre(NkOpBp::NK_MUL_VR, v.r, b.r, m);
+									return true;
+								}
+								EchecCode(c, cc, x.colonne, NkString::Format("« - » ne s'applique pas à un %s", NomType(b.t)));
+								return false;
+							}
+							case NkGenreNoeudExpr::NK_BINAIRE:
+								return Binaire(c, cc, ar, x, v, prof);
+							case NkGenreNoeudExpr::NK_APPEL:
+								return Appel(c, cc, ar, x, v, prof);
+						}
+						return false;
+					}
+
+					bool Binaire(const Ctx &c, CtxCode &cc, const NkArbreExpr &ar, const NkNoeudExpr &x, ValExpr &v, int32 prof) {
+						ValExpr l, r;
+						if (!Gen(c, cc, ar, x.a, l, prof + 1) || !Gen(c, cc, ar, x.b, r, prof + 1)) {
+							return false;
+						}
+						cc.ligne = x.ligne;
+						const NkString &op = x.nom;
+						const bool num = (l.t == NkTypeBp::NK_ENTIER || l.t == NkTypeBp::NK_REEL) && (r.t == NkTypeBp::NK_ENTIER || r.t == NkTypeBp::NK_REEL);
+						auto unifier = [&]() {
+							// entier op entier reste entier ; un reel promeut l'autre.
+							if (l.t != r.t) {
+								Convertir(c, cc, l, NkTypeBp::NK_REEL, x.colonne);
+								Convertir(c, cc, r, NkTypeBp::NK_REEL, x.colonne);
+							}
+						};
+						if (op == "&&" || op == "||") {
+							if (l.t != NkTypeBp::NK_BOOLEEN || r.t != NkTypeBp::NK_BOOLEEN) {
+								EchecCode(c, cc, x.colonne, NkString::Format("« %s » relie deux booléens (%s, %s)", op.CStr(), NomType(l.t), NomType(r.t)));
+								return false;
+							}
+							v.t = NkTypeBp::NK_BOOLEEN;
+							v.r = a.Registre(v.t);
+							a.Emettre(op == "&&" ? NkOpBp::NK_ET : NkOpBp::NK_OU, v.r, l.r, r.r);
+							return true;
+						}
+						if (op == "+" && (l.t == NkTypeBp::NK_TEXTE || r.t == NkTypeBp::NK_TEXTE)) {
+							// Texte + valeur : la valeur devient un texte, puis on concatene.
+							auto enTexte = [&](ValExpr &w) -> bool {
+								if (w.t == NkTypeBp::NK_TEXTE) {
+									return true;
+								}
+								const char *conv = w.t == NkTypeBp::NK_ENTIER ? "unkeny.texte.de_entier" : (w.t == NkTypeBp::NK_REEL ? "unkeny.texte.de_reel" : nullptr);
+								if (conv == nullptr) {
+									EchecCode(c, cc, x.colonne, NkString::Format("un %s ne se met pas en texte ici", NomType(w.t)));
+									return false;
+								}
+								NkVector<ValExpr> args;
+								args.PushBack(w);
+								return AppelNatif(c, cc, unkeny::NkTrouverNatifBp(conv), args, w, x.colonne);
+							};
+							if (!enTexte(l) || !enTexte(r)) {
+								return false;
+							}
+							NkVector<ValExpr> args;
+							args.PushBack(l);
+							args.PushBack(r);
+							return AppelNatif(c, cc, unkeny::NkTrouverNatifBp("unkeny.texte.concatener"), args, v, x.colonne);
+						}
+						if (op == "+" || op == "-" || op == "*" || op == "/") {
+							if (num) {
+								if (op == "/") {
+									// « / » rend toujours un REEL (5 / 7 = 0,714, pas 0) ; la
+									// division entiere s'ecrit entier(a / b).
+									Convertir(c, cc, l, NkTypeBp::NK_REEL, x.colonne);
+									Convertir(c, cc, r, NkTypeBp::NK_REEL, x.colonne);
+								}
+								unifier();
+								v.t = l.t;
+								v.r = a.Registre(v.t);
+								const bool ent = v.t == NkTypeBp::NK_ENTIER;
+								const NkOpBp o = op == "+" ? (ent ? NkOpBp::NK_ADD_I : NkOpBp::NK_ADD_R)
+												 : op == "-" ? (ent ? NkOpBp::NK_SUB_I : NkOpBp::NK_SUB_R)
+												 : op == "*" ? (ent ? NkOpBp::NK_MUL_I : NkOpBp::NK_MUL_R)
+															 : (ent ? NkOpBp::NK_DIV_I : NkOpBp::NK_DIV_R);
+								a.Emettre(o, v.r, l.r, r.r);
+								return true;
+							}
+							if (l.t == NkTypeBp::NK_VEC2 && r.t == NkTypeBp::NK_VEC2 && (op == "+" || op == "-")) {
+								v.t = NkTypeBp::NK_VEC2;
+								v.r = a.Registre(v.t);
+								a.Emettre(op == "+" ? NkOpBp::NK_ADD_V : NkOpBp::NK_SUB_V, v.r, l.r, r.r);
+								return true;
+							}
+							if ((op == "*" || op == "/") && (l.t == NkTypeBp::NK_VEC2 || r.t == NkTypeBp::NK_VEC2)) {
+								ValExpr vec = l.t == NkTypeBp::NK_VEC2 ? l : r;
+								ValExpr k = l.t == NkTypeBp::NK_VEC2 ? r : l;
+								if (op == "/" && l.t != NkTypeBp::NK_VEC2) {
+									EchecCode(c, cc, x.colonne, NkString("un nombre ne se divise pas par un vec2"));
+									return false;
+								}
+								if (!Convertir(c, cc, k, NkTypeBp::NK_REEL, x.colonne)) {
+									return false;
+								}
+								if (op == "/") {
+									const uint32 un = ConstanteNombre(NkTypeBp::NK_REEL, 1.0);
+									const uint32 inv = a.Registre(NkTypeBp::NK_REEL);
+									a.Emettre(NkOpBp::NK_DIV_R, inv, un, k.r);
+									k.r = inv;
+								}
+								v.t = NkTypeBp::NK_VEC2;
+								v.r = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_MUL_VR, v.r, vec.r, k.r);
+								return true;
+							}
+							EchecCode(c, cc, x.colonne, NkString::Format("« %s » entre un %s et un %s : impossible", op.CStr(), NomType(l.t), NomType(r.t)));
+							return false;
+						}
+						// Les comparaisons.
+						v.t = NkTypeBp::NK_BOOLEEN;
+						v.r = a.Registre(v.t);
+						if (op == "==" || op == "!=") {
+							if (num) {
+								unifier();
+								a.Emettre(l.t == NkTypeBp::NK_ENTIER ? NkOpBp::NK_EQ_I : NkOpBp::NK_EQ_R, v.r, l.r, r.r);
+							} else if (l.t == NkTypeBp::NK_ENTITE && r.t == NkTypeBp::NK_ENTITE) {
+								a.Emettre(NkOpBp::NK_EQ_E, v.r, l.r, r.r);
+							} else if (l.t == NkTypeBp::NK_TEXTE && r.t == NkTypeBp::NK_TEXTE) {
+								NkVector<ValExpr> args;
+								args.PushBack(l);
+								args.PushBack(r);
+								ValExpr e;
+								if (!AppelNatif(c, cc, unkeny::NkTrouverNatifBp("unkeny.texte.egaux"), args, e, x.colonne)) {
+									return false;
+								}
+								v.r = e.r;
+							} else if (l.t == NkTypeBp::NK_BOOLEEN && r.t == NkTypeBp::NK_BOOLEEN) {
+								// a == b  <=>  (a et b) ou (non a et non b)
+								const uint32 ab = a.Registre(v.t), na = a.Registre(v.t), nb = a.Registre(v.t), nn = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_ET, ab, l.r, r.r);
+								a.Emettre(NkOpBp::NK_NON, na, l.r);
+								a.Emettre(NkOpBp::NK_NON, nb, r.r);
+								a.Emettre(NkOpBp::NK_ET, nn, na, nb);
+								a.Emettre(NkOpBp::NK_OU, v.r, ab, nn);
+							} else {
+								EchecCode(c, cc, x.colonne, NkString::Format("« %s » entre un %s et un %s : impossible", op.CStr(), NomType(l.t), NomType(r.t)));
+								return false;
+							}
+							if (op == "!=") {
+								const uint32 n = a.Registre(v.t);
+								a.Emettre(NkOpBp::NK_NON, n, v.r);
+								v.r = n;
+							}
+							return true;
+						}
+						if (!num) {
+							EchecCode(c, cc, x.colonne, NkString::Format("« %s » compare des nombres, pas un %s et un %s", op.CStr(), NomType(l.t), NomType(r.t)));
+							return false;
+						}
+						unifier();
+						const bool ent = l.t == NkTypeBp::NK_ENTIER;
+						// a > b  <=>  b < a ; a >= b  <=>  b <= a
+						const bool inverse = op == ">" || op == ">=";
+						const bool strict = op == "<" || op == ">";
+						const NkOpBp o = strict ? (ent ? NkOpBp::NK_LT_I : NkOpBp::NK_LT_R) : (ent ? NkOpBp::NK_LE_I : NkOpBp::NK_LE_R);
+						a.Emettre(o, v.r, inverse ? r.r : l.r, inverse ? l.r : r.r);
+						return true;
+					}
+
+					bool Appel(const Ctx &c, CtxCode &cc, const NkArbreExpr &ar, const NkNoeudExpr &x, ValExpr &v, int32 prof) {
+						NkVector<ValExpr> args;
+						for (uint32 i = 0; i < x.args.Size(); ++i) {
+							ValExpr w;
+							if (!Gen(c, cc, ar, x.args[i], w, prof + 1)) {
+								return false;
+							}
+							args.PushBack(w);
+						}
+						cc.ligne = x.ligne;
+						const NkString &nom = x.nom;
+						auto nbArgs = [&](uint32 n) -> bool {
+							if (args.Size() != n) {
+								EchecCode(c, cc, x.colonne, NkString::Format("« %s » attend %u paramètre(s), %u donné(s)", nom.CStr(), static_cast<unsigned>(n),
+																			 static_cast<unsigned>(args.Size())));
+								return false;
+							}
+							return true;
+						};
+						// Les fonctions du LANGAGE, qui sont des instructions de la machine.
+						if (nom == "vec2") {
+							if (!nbArgs(2u) || !Convertir(c, cc, args[0], NkTypeBp::NK_REEL, x.colonne) || !Convertir(c, cc, args[1], NkTypeBp::NK_REEL, x.colonne)) {
+								return false;
+							}
+							v.t = NkTypeBp::NK_VEC2;
+							v.r = a.Registre(v.t);
+							a.Emettre(NkOpBp::NK_VEC2, v.r, args[0].r, args[1].r);
+							return true;
+						}
+						if (nom == "longueur" || nom == "length" || nom == "normaliser" || nom == "normalize") {
+							if (!nbArgs(1u) || !Convertir(c, cc, args[0], NkTypeBp::NK_VEC2, x.colonne)) {
+								return false;
+							}
+							const bool lg = nom == "longueur" || nom == "length";
+							v.t = lg ? NkTypeBp::NK_REEL : NkTypeBp::NK_VEC2;
+							v.r = a.Registre(v.t);
+							a.Emettre(lg ? NkOpBp::NK_LONGUEUR : NkOpBp::NK_NORMALISER, v.r, args[0].r);
+							return true;
+						}
+						if (nom == "reel" || nom == "float") {
+							if (!nbArgs(1u) || !Convertir(c, cc, args[0], NkTypeBp::NK_REEL, x.colonne)) {
+								return false;
+							}
+							v = args[0];
+							return true;
+						}
+						if (nom == "entier" || nom == "int") {
+							if (!nbArgs(1u)) {
+								return false;
+							}
+							if (args[0].t == NkTypeBp::NK_ENTIER) {
+								v = args[0];
+								return true;
+							}
+							return AppelNatif(c, cc, unkeny::NkTrouverNatifBp("unkeny.math.entier"), args, v, x.colonne);
+						}
+						if (nom == "texte" || nom == "str" || nom == "string") {
+							if (!nbArgs(1u)) {
+								return false;
+							}
+							if (args[0].t == NkTypeBp::NK_TEXTE) {
+								v = args[0];
+								return true;
+							}
+							const char *conv = args[0].t == NkTypeBp::NK_ENTIER ? "unkeny.texte.de_entier" : "unkeny.texte.de_reel";
+							return AppelNatif(c, cc, unkeny::NkTrouverNatifBp(conv), args, v, x.colonne);
+						}
+						if (nom == "arrondi" || nom == "round") {
+							// arrondi(x) ou arrondi(x, decimales) -- « $round(..., 1) ».
+							if (args.Size() == 1u) {
+								ValExpr z;
+								z.t = NkTypeBp::NK_ENTIER;
+								z.r = ConstanteNombre(z.t, 0.0);
+								args.PushBack(z);
+							}
+							if (!nbArgs(2u)) {
+								return false;
+							}
+							return AppelNatif(c, cc, unkeny::NkTrouverNatifBp("unkeny.math.arrondi"), args, v, x.colonne);
+						}
+						// Une FONCTION du Blueprint.
+						const int32 g = d.TrouverGraphe(nom.CStr(), NkGenreGrapheBp::NK_FONCTION);
+						if (g >= 0) {
+							const NkGrapheBp &f = d.graphes[static_cast<uint32>(g)];
+							if (!f.pure && cc.pur) {
+								EchecCode(c, cc, x.colonne, NkString::Format("la fonction « %s » AGIT : appelez-la dans un nœud Code", nom.CStr()));
+								return false;
+							}
+							if (!nbArgs(static_cast<uint32>(f.entrees.Size()))) {
+								return false;
+							}
+							NkVector<uint32> regs;
+							for (uint32 i = 0; i < args.Size(); ++i) {
+								if (!Convertir(c, cc, args[i], NkBpTypeDeNom(f.entrees[i].type.CStr()), x.colonne)) {
+									return false;
+								}
+								regs.PushBack(args[i].r);
+							}
+							v = ValExpr();
+							for (uint32 i = 0; i < f.sorties.Size(); ++i) {
+								const NkTypeBp t = NkBpTypeDeNom(f.sorties[i].type.CStr());
+								const uint32 r = a.Registre(t);
+								regs.PushBack(r);
+								if (i == 0u) {
+									v.r = r;
+									v.t = t;
+								}
+							}
+							Ligne(c, cc.n->id);
+							a.Appel(static_cast<uint32>(fonctions[static_cast<uint32>(g)]), regs.Data(), static_cast<uint32>(regs.Size()));
+							return true;
+						}
+						// Un NATIF (alias francais ou nom court).
+						const int32 k = NatifDeNom(nom);
+						if (k >= 0) {
+							return AppelNatif(c, cc, k, args, v, x.colonne);
+						}
+						EchecCode(c, cc, x.colonne, NkString::Format("fonction inconnue : « %s »", nom.CStr()));
+						return false;
+					}
+
+					/// Analyse le code du noeud ; false : erreur posee (ligne, colonne).
+					bool Analyser(const Ctx &c, const graph::NkNode &n, bool instructions, NkArbreExpr &ar) {
+						const NkString code = NkBpCodeNoeud(*c.g, n);
+						if (!NkBpAnalyserExpr(code.CStr(), instructions, ar)) {
+							Echec(c, n.id, NkString::Format("ligne %u, colonne %u : %s", static_cast<unsigned>(ar.ligne), static_cast<unsigned>(ar.colonne),
+															ar.erreur.CStr()));
+							return false;
+						}
+						return true;
+					}
+
+					/// La valeur d'une EXPRESSION (noeud pur), dans le type de sa sortie.
+					uint32 SortieExpression(const Ctx &c, const graph::NkNode &n, int32 k, int32 prof) {
+						NkArbreExpr ar;
+						if (!Analyser(c, n, false, ar)) {
+							return 0u;
+						}
+						CtxCode cc;
+						cc.n = &n;
+						cc.pur = true;
+						ValExpr v;
+						if (!Gen(c, cc, ar, ar.instructions[0].valeur, v, prof)) {
+							return 0u;
+						}
+						const NkTypeBp t = TypePrise(c, n.sockets[static_cast<uint32>(k)]);
+						if (!Convertir(c, cc, v, t, 1u)) {
+							return 0u;
+						}
+						return v.r;
+					}
+
+					/// Les INSTRUCTIONS d'un noeud Code.
+					void ExecuterCode(const Ctx &c, const graph::NkNode &n, int32 prof) {
+						NkArbreExpr ar;
+						if (!Analyser(c, n, true, ar)) {
+							return;
+						}
+						CtxCode cc;
+						cc.n = &n;
+						cc.pur = false;
+						// Ses sorties : des registres (zero au depart), gardes pour la suite.
+						for (uint32 k = 0; k < n.sockets.Size(); ++k) {
+							const graph::NkSocket &s = n.sockets[k];
+							if (s.dir == graph::NkSocketDir::Output && s.family == graph::NkSocketFamily::Data) {
+								const NkTypeBp t = TypePrise(c, s);
+								const uint32 r = a.Registre(t);
+								cc.sorties.PushBack(s.name);
+								cc.regs.PushBack(r);
+								cc.types.PushBack(t);
+								Garder(c, n.id, s.name.CStr(), r);
+							}
+						}
+						const NkString code = NkBpCodeNoeud(*c.g, n);
+						for (uint32 i = 0; i < ar.instructions.Size() && ok; ++i) {
+							const NkInstructionExpr &ins = ar.instructions[i];
+							cc.ligne = 1u;
+							// La ligne de l'instruction (pour les messages).
+							const NkNoeudExpr &x0 = ar.noeuds[static_cast<uint32>(ins.valeur)];
+							(void)x0;
+							ValExpr v;
+							if (ins.cible.Empty()) {
+								const NkNoeudExpr &x = ar.noeuds[static_cast<uint32>(ins.valeur)];
+								if (x.genre != NkGenreNoeudExpr::NK_APPEL) {
+									EchecCode(c, cc, x.colonne, NkString("une instruction AGIT : une affectation (« x = ... ») ou un appel (« afficher(...) »)"));
+									return;
+								}
+								Gen(c, cc, ar, ins.valeur, v, prof);
+								continue;
+							}
+							if (!Gen(c, cc, ar, ins.valeur, v, prof)) {
+								return;
+							}
+							// La cible : une SORTIE du noeud, sinon une VARIABLE.
+							bool fait = false;
+							for (uint32 k = 0; k < cc.sorties.Size() && !fait; ++k) {
+								if (cc.sorties[k] == ins.cible) {
+									if (!Convertir(c, cc, v, cc.types[k], ins.colonneCible)) {
+										return;
+									}
+									Ligne(c, n.id);
+									a.Emettre(NkOpBp::NK_COPIER, cc.regs[k], v.r);
+									fait = true;
+								}
+							}
+							if (!fait) {
+								const int32 var = d.TrouverVariable(ins.cible.CStr());
+								if (var < 0) {
+									EchecCode(c, cc, ins.colonneCible,
+											  NkString::Format("« %s » n'est ni une sortie du nœud, ni une variable du Blueprint", ins.cible.CStr()));
+									return;
+								}
+								if (!Convertir(c, cc, v, NkBpTypeDeNom(d.variables[static_cast<uint32>(var)].type.CStr()), ins.colonneCible)) {
+									return;
+								}
+								Ligne(c, n.id);
+								a.Emettre(NkOpBp::NK_ECRIRE_VAR, static_cast<uint32>(var), v.r);
+							}
+						}
+						(void)code;
 					}
 
 					/// Les types d'une liste de parametres. false : un type que la
@@ -1033,6 +1690,35 @@ namespace nkentseu {
 				NkEntreeMenuBp e;
 				Proto(p, e);
 				sortie.PushBack(e);
+			}
+			// Les noeuds de CODE (NkBpExpression.h) : la reference principale.
+			{
+				NkEntreeMenuBp x;
+				x.cle = NK_BP_EXPRESSION;
+				x.libelle = "Expression";
+				x.categorie = "Code";
+				x.aide = "Un calcul ÉCRIT (« arrondi((a - b) / a * 100, 1) ») : ses entrées, ses variables, un résultat.";
+				x.entrees.PushBack(NkString("reel"));
+				x.entrees.PushBack(NkString("reel"));
+				x.sorties.PushBack(NkString("reel"));
+				sortie.PushBack(x);
+				NkEntreeMenuBp si;
+				si.cle = NK_BP_SI_EXPRESSION;
+				si.libelle = "Si (expression)";
+				si.categorie = "Code";
+				si.aide = "Une condition ÉCRITE (« runtime > -1 ») : Vrai ou Faux.";
+				si.entrees.PushBack(NkString("exec"));
+				si.entrees.PushBack(NkString("reel"));
+				si.sorties.PushBack(NkString("exec"));
+				sortie.PushBack(si);
+				NkEntreeMenuBp co;
+				co.cle = NK_BP_CODE;
+				co.libelle = "Code";
+				co.categorie = "Code";
+				co.aide = "Des INSTRUCTIONS, une par ligne : « ouverte = vrai », « afficher(\"...\") », « OuvrirPorte(2) ».";
+				co.entrees.PushBack(NkString("exec"));
+				co.sorties.PushBack(NkString("exec"));
+				sortie.PushBack(co);
 			}
 			{
 				NkEntreeMenuBp e;

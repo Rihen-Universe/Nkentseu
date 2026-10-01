@@ -9,6 +9,7 @@
 #include "Script/NkBpDocument.h"
 
 #include "Script/NkBpCatalogue.h"
+#include "Script/NkBpExpression.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -824,6 +825,154 @@ namespace nkentseu {
 			return n;
 		}
 
+		// =====================================================================
+		// Les noeuds de CODE : Expression, Si (expression), Code
+		// =====================================================================
+		NkString NkBpCodeNoeud(const graph::NkNodeGraph &g, const graph::NkNode &n) {
+			return NkBpCodeDePropriete(NkBpPropTexte(g, n, "code").CStr());
+		}
+
+		void NkBpPoserCodeNoeud(graph::NkNodeGraph &g, graph::NkNodeId n, const char *code) {
+			NkBpPoserPropTexte(g, n, "code", NkBpCodeVersPropriete(code).CStr());
+		}
+
+		graph::NkNodeId NkBpCreerNoeudCode(graph::NkNodeGraph &g, const char *cle, float32 x, float32 y) {
+			const graph::NkSocketDir E = graph::NkSocketDir::Input, S = graph::NkSocketDir::Output;
+			NkVector<PriseVoulue> v;
+			const char *libelle = "Expression";
+			const char *code = "a + b";
+			if (Egal(cle, NK_BP_EXPRESSION)) {
+				Voulue(v, "a", "reel", E);
+				Voulue(v, "b", "reel", E);
+				Voulue(v, "résultat", "reel", S);
+			} else if (Egal(cle, NK_BP_SI_EXPRESSION)) {
+				libelle = "Si (expression)";
+				code = "a > 0";
+				Voulue(v, "exec", "exec", E);
+				Voulue(v, "a", "reel", E);
+				Voulue(v, "vrai", "exec", S);
+				Voulue(v, "faux", "exec", S);
+			} else if (Egal(cle, NK_BP_CODE)) {
+				libelle = "Code";
+				code = "afficher(\"Bonjour\")";
+				Voulue(v, "exec", "exec", E);
+				Voulue(v, "suite", "exec", S);
+			} else {
+				return graph::NK_NODE_INVALID;
+			}
+			const graph::NkNodeId n = Fabriquer(g, cle, libelle, v, x, y);
+			NkBpPoserCodeNoeud(g, n, code);
+			return n;
+		}
+
+		namespace {
+			/// Les prises actuelles d'un noeud, en « voulues » (pour le refaire).
+			void Actuelles(const graph::NkNodeGraph &g, const graph::NkNode &n, NkVector<PriseVoulue> &v) {
+				for (uint32 k = 0; k < n.sockets.Size(); ++k) {
+					const NkString *t = g.TypeName(n.sockets[k].type);
+					Voulue(v, n.sockets[k].name.CStr(), t != nullptr ? t->CStr() : "reel", n.sockets[k].dir);
+				}
+			}
+			bool EstCode(const graph::NkNode &n) {
+				return n.type == NK_BP_EXPRESSION || n.type == NK_BP_SI_EXPRESSION || n.type == NK_BP_CODE;
+			}
+		} // namespace
+
+		NkString NkBpCodeNomLibre(const graph::NkNode &n, graph::NkSocketDir dir) {
+			auto pris = [&](const char *nom) {
+				for (uint32 k = 0; k < n.sockets.Size(); ++k) {
+					if (n.sockets[k].name == nom) {
+						return true;
+					}
+				}
+				return false;
+			};
+			if (dir == graph::NkSocketDir::Input) {
+				for (char c = 'a'; c <= 'z'; ++c) {
+					const char nom[2] = {c, ' '};
+					if (!pris(nom)) {
+						return NkString(nom);
+					}
+				}
+			} else {
+				if (!pris("r")) {
+					return NkString("r");
+				}
+				for (uint32 k = 2; k < 100u; ++k) {
+					const NkString nom = NkString::Format("r%u", static_cast<unsigned>(k));
+					if (!pris(nom.CStr())) {
+						return nom;
+					}
+				}
+			}
+			return NkString::Format("x%u", static_cast<unsigned>(n.sockets.Size()));
+		}
+
+		bool NkBpCodeAjouterPrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, const char *type, graph::NkSocketDir dir) {
+			const graph::NkNode *p = g.Find(n);
+			const NkString cle = NkBpCleDeNom(nom, 32u);
+			if (p == nullptr || !EstCode(*p) || cle.Empty() || cle == "exec" || cle == "suite" || cle == "vrai" || cle == "faux") {
+				return false;
+			}
+			if (dir == graph::NkSocketDir::Output && p->type != NK_BP_CODE) {
+				return false; // une Expression a UN resultat ; un Si, ses deux suites
+			}
+			for (uint32 k = 0; k < p->sockets.Size(); ++k) {
+				if (p->sockets[k].name == cle) {
+					return false; // un nom pris (dans un sens ou l'autre : le code les lit par nom)
+				}
+			}
+			NkVector<PriseVoulue> v;
+			Actuelles(g, *p, v);
+			Voulue(v, cle.CStr(), type != nullptr ? type : "reel", dir);
+			n = Refaire(g, n, v, NkString());
+			return n != graph::NK_NODE_INVALID;
+		}
+
+		bool NkBpCodeRetirerPrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, graph::NkSocketDir dir) {
+			const graph::NkNode *p = g.Find(n);
+			if (p == nullptr || !EstCode(*p) || Egal(nom, "exec") || Egal(nom, "suite") || Egal(nom, "vrai") || Egal(nom, "faux") ||
+				(p->type == NK_BP_EXPRESSION && dir == graph::NkSocketDir::Output)) {
+				return false;
+			}
+			NkVector<PriseVoulue> v, garde;
+			Actuelles(g, *p, v);
+			bool trouve = false;
+			for (uint32 k = 0; k < v.Size(); ++k) {
+				if (v[k].nom == nom && v[k].dir == dir) {
+					trouve = true;
+				} else {
+					garde.PushBack(v[k]);
+				}
+			}
+			if (!trouve) {
+				return false;
+			}
+			n = Refaire(g, n, garde, NkString());
+			return n != graph::NK_NODE_INVALID;
+		}
+
+		bool NkBpCodeTypePrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, graph::NkSocketDir dir, const char *type) {
+			const graph::NkNode *p = g.Find(n);
+			if (p == nullptr || !EstCode(*p) || type == nullptr) {
+				return false;
+			}
+			NkVector<PriseVoulue> v;
+			Actuelles(g, *p, v);
+			bool trouve = false;
+			for (uint32 k = 0; k < v.Size(); ++k) {
+				if (v[k].nom == nom && v[k].dir == dir && !(v[k].type == "exec")) {
+					v[k].type = type;
+					trouve = true;
+				}
+			}
+			if (!trouve) {
+				return false;
+			}
+			n = Refaire(g, n, v, NkString());
+			return n != graph::NK_NODE_INVALID;
+		}
+
 		graph::NkNodeId NkBpCreerParCle(NkDocumentBp &d, graph::NkNodeGraph &g, const char *cle, float32 x, float32 y) {
 			if (cle == nullptr) {
 				return graph::NK_NODE_INVALID;
@@ -849,6 +998,9 @@ namespace nkentseu {
 			}
 			if (Egal(cle, NK_BP_COMMENTAIRE)) {
 				return NkBpCreerCommentaire(g, "Commentaire", x, y, 320.f, 180.f);
+			}
+			if (Egal(cle, NK_BP_EXPRESSION) || Egal(cle, NK_BP_SI_EXPRESSION) || Egal(cle, NK_BP_CODE)) {
+				return NkBpCreerNoeudCode(g, cle, x, y);
 			}
 			if (Egal(cle, NK_BP_FN_RETOUR)) {
 				// Le RETOUR d'une fonction : ses prises viennent de la fonction qui

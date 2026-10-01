@@ -71,6 +71,9 @@ namespace nkentseu {
 			NK_REP_EVENEMENT,
 			NK_RELAIS,
 			NK_COMMENTAIRE,
+			NK_EXPRESSION,	  ///< « Expression » : du code, pur (NkBpExpression.h)
+			NK_SI_EXPRESSION, ///< « Si (expression) » : une condition ecrite
+			NK_CODE,		  ///< « Code » : des instructions
 			NK_INCONNU
 		};
 		/// Le genre de n'importe quel noeud (catalogue fixe ou document).

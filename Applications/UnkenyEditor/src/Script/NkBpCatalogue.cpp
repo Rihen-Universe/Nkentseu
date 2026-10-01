@@ -7,6 +7,7 @@
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
 // -----------------------------------------------------------------------------
 #include "Script/NkBpCatalogue.h"
+#include "Script/NkBpExpression.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -262,7 +263,10 @@ namespace nkentseu {
 								  {NK_BP_REP_APPELER, NkGenreNoeudBp::NK_REP_APPELER},
 								  {NK_BP_REP_EVENEMENT, NkGenreNoeudBp::NK_REP_EVENEMENT},
 								  {NK_BP_RELAIS, NkGenreNoeudBp::NK_RELAIS},
-								  {NK_BP_COMMENTAIRE, NkGenreNoeudBp::NK_COMMENTAIRE}};
+								  {NK_BP_COMMENTAIRE, NkGenreNoeudBp::NK_COMMENTAIRE},
+								  {NK_BP_EXPRESSION, NkGenreNoeudBp::NK_EXPRESSION},
+								  {NK_BP_SI_EXPRESSION, NkGenreNoeudBp::NK_SI_EXPRESSION},
+								  {NK_BP_CODE, NkGenreNoeudBp::NK_CODE}};
 			for (const G &g : k) {
 				if (n.type == g.cle) {
 					return g.genre;

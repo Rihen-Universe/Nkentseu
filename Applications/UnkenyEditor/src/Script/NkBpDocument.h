@@ -190,6 +190,23 @@ namespace nkentseu {
 		/// (celles que propose le menu contextuel).
 		graph::NkNodeId NkBpCreerParCle(NkDocumentBp &d, graph::NkNodeGraph &g, const char *cle, float32 x, float32 y);
 
+		// --- Les noeuds de CODE (NkBpExpression.h) ----------------------------------
+		/// « Expression » (bp.expr), « Si (expression) » (bp.si.expr), « Code »
+		/// (bp.code), avec leurs entrees de depart et leur code d'exemple.
+		graph::NkNodeId NkBpCreerNoeudCode(graph::NkNodeGraph &g, const char *cle, float32 x, float32 y);
+		/// Le code d'un noeud (sauts de ligne compris), et le poser.
+		NkString NkBpCodeNoeud(const graph::NkNodeGraph &g, const graph::NkNode &n);
+		void NkBpPoserCodeNoeud(graph::NkNodeGraph &g, graph::NkNodeId n, const char *code);
+		/// Ajoute une ENTREE (`dir` Input) ou une SORTIE de donnee nommee a un
+		/// noeud de code : le noeud est REFAIT (fils gardes) et `n` suit. Le nom
+		/// devient une cle (sans espace) et un nom pris est refuse.
+		bool NkBpCodeAjouterPrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, const char *type, graph::NkSocketDir dir);
+		bool NkBpCodeRetirerPrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, graph::NkSocketDir dir);
+		/// Change le type d'une prise de donnee d'un noeud de code (refait le noeud).
+		bool NkBpCodeTypePrise(graph::NkNodeGraph &g, graph::NkNodeId &n, const char *nom, graph::NkSocketDir dir, const char *type);
+		/// Un nom libre pour une entree (« a », « b »... ) ou une sortie.
+		NkString NkBpCodeNomLibre(const graph::NkNode &n, graph::NkSocketDir dir);
+
 		/// La propriete texte `nom` d'un noeud (« var », « fonction »...), ou vide.
 		NkString NkBpPropTexte(const graph::NkNodeGraph &g, const graph::NkNode &n, const char *nom);
 		void NkBpPoserPropTexte(graph::NkNodeGraph &g, graph::NkNodeId n, const char *nom, const char *valeur);

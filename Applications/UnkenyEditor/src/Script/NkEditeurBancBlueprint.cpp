@@ -33,6 +33,7 @@
 // =============================================================================
 #include "Script/NkBpCatalogue.h"
 #include "Script/NkBpDocument.h"
+#include "Script/NkBpExpression.h"
 #include "Script/NkEditeurScripts.h"
 
 #include "NKFileSystem/NkDirectory.h"
@@ -552,6 +553,82 @@ namespace nkentseu {
 				std::printf("    (u9) err=« %s » gauche +%.2f, droite +%.2f\n", err.CStr(), static_cast<double>(dg), static_cast<double>(dd));
 				Temoin(err.Empty() && Absf(dg - 2.f) < 1e-4f && Absf(dd - 3.f) < 1e-4f && JournalContient(*w.h, "La porte s'ouvre"),
 					   "(u9) la porte REECRITE : un Blueprint, chaque zone ouvre SA porte (2 m, 3 m par instance)", dd);
+			}
+			// ── (u10) les noeuds de CODE : Code, Si (expression), Expression ──
+			{
+				auto document = [](NkDocumentBp &d, const char *condition, const char *expr) {
+					d.Vider();
+					NkBpAjouterVariable(d, "total", "entier");
+					NkBpAjouterVariable(d, "score", "reel");
+					NkBpAjouterVariable(d, "message", "texte");
+					NkBpAjouterVariable(d, "double", "reel");
+					graph::NkNodeGraph &e = d.graphes[0].graphe;
+					const graph::NkNodeId debut = NkBpCreerNoeud(e, "bp.ev.debut", 0.f, 0.f);
+					const graph::NkNodeId ca = NkBpCreerParCle(d, e, NK_BP_CODE, 240.f, 0.f);
+					NkBpPoserCodeNoeud(e, ca,
+									   "total = total + 3\nscore = $round((7 - 2) / 7 * 100, 1)\nmessage = \"score : \" + texte(score)\nafficher(message)");
+					graph::NkNodeId si = NkBpCreerParCle(d, e, NK_BP_SI_EXPRESSION, 520.f, 0.f);
+					NkBpCodeRetirerPrise(e, si, "a", graph::NkSocketDir::Input); // la condition lit les variables
+					NkBpPoserCodeNoeud(e, si, condition);
+					const graph::NkNodeId cg = NkBpCreerParCle(d, e, NK_BP_CODE, 780.f, -60.f);
+					NkBpPoserCodeNoeud(e, cg, "afficher(\"grand\")");
+					const graph::NkNodeId cp = NkBpCreerParCle(d, e, NK_BP_CODE, 780.f, 80.f);
+					NkBpPoserCodeNoeud(e, cp, "afficher(\"petit\")");
+					const graph::NkNodeId ls = NkBpCreerParCle(d, e, "bp.var.get:score", 780.f, 220.f);
+					const graph::NkNodeId ex = NkBpCreerParCle(d, e, NK_BP_EXPRESSION, 980.f, 220.f);
+					NkBpPoserCodeNoeud(e, ex, expr);
+					NkBpPoserDefaut(e, ex, "b", "2");
+					const graph::NkNodeId ed = NkBpCreerParCle(d, e, "bp.var.set:double", 1220.f, -60.f);
+					e.Connect(debut, "suite", ca, "exec");
+					e.Connect(ca, "suite", si, "exec");
+					e.Connect(si, "vrai", cg, "exec");
+					e.Connect(si, "faux", cp, "exec");
+					e.Connect(cg, "suite", ed, "exec");
+					e.Connect(ls, "valeur", ex, "a");
+					e.Connect(ex, "résultat", ed, "valeur");
+					return ex;
+				};
+				NkDocumentBp d;
+				document(d, "total > 2 && score > 70", "a * b");
+				Monde w;
+				const NkString err = Charger(w, d, "Code.nkbp");
+				const ecs::NkEntityId a = w.Avec("A", "Code.nkbp");
+				w.Jouer(2);
+				const NkVarScript *total = w.Var(a, "total");
+				const NkVarScript *score = w.Var(a, "score");
+				const NkVarScript *dbl = w.Var(a, "double");
+				const NkVarScript *msg = w.Var(a, "message");
+				std::printf("    (u10) err=« %s » total=%g score=%g message=%s double=%g\n", err.CStr(),
+							total != nullptr ? static_cast<double>(total->valeur.x) : -1.0, score != nullptr ? static_cast<double>(score->valeur.x) : -1.0,
+							msg != nullptr ? msg->texte : "?", dbl != nullptr ? static_cast<double>(dbl->valeur.x) : -1.0);
+				Temoin(err.Empty() && total != nullptr && total->valeur.x == 3.f && score != nullptr && Absf(score->valeur.x - 71.4f) < 1e-4f &&
+						   msg != nullptr && std::strcmp(msg->texte, "score : 71.4") == 0 && JournalContient(*w.h, "[A] score : 71.4"),
+					   "(u10) noeud Code : total += 3, score = $round((7-2)/7*100, 1) = 71.4, texte, afficher", score != nullptr ? score->valeur.x : -1.f);
+				Temoin(JournalContient(*w.h, "[A] grand") && !JournalContient(*w.h, "[A] petit") && dbl != nullptr && Absf(dbl->valeur.x - 142.8f) < 1e-3f,
+					   "(u10) Si (expression) « total > 2 && score > 70 » -> Vrai ; Expression a * b = 142.8", dbl != nullptr ? dbl->valeur.x : -1.f);
+				// Contre-epreuve : la condition mutee « total > 5 » -> Faux.
+				NkDocumentBp d2;
+				document(d2, "total > 5", "a * b");
+				Monde w2;
+				Charger(w2, d2, "Code2.nkbp");
+				w2.Avec("A", "Code2.nkbp");
+				w2.Jouer(2);
+				Temoin(JournalContient(*w2.h, "[A] petit") && !JournalContient(*w2.h, "[A] grand"),
+					   "(u10n) la condition mutee « total > 5 » : Faux (le banc VOIT la difference)", 0.f);
+				// Une erreur ECRITE : la ligne, la colonne, le noeud.
+				NkDocumentBp d3;
+				const graph::NkNodeId fautif = document(d3, "total > 2", "a +");
+				unkeny::NkModuleBp m;
+				NkErreurBp e3;
+				const bool ok3 = NkBpCompilerDocument(d3, m, e3);
+				NkDocumentBp d4;
+				const graph::NkNodeId fautif4 = document(d4, "total > 2", "a * zz");
+				NkErreurBp e4;
+				const bool ok4 = NkBpCompilerDocument(d4, m, e4);
+				std::printf("    (u10e) %s | %s\n", e3.message.CStr(), e4.message.CStr());
+				Temoin(!ok3 && e3.noeud == fautif && std::strstr(e3.message.CStr(), "ligne 1, colonne 4") != nullptr && !ok4 && e4.noeud == fautif4 &&
+						   std::strstr(e4.message.CStr(), "« zz » est inconnu") != nullptr,
+					   "(u10e) code faux : erreur sur SON noeud, ligne et colonne, nom inconnu nomme", static_cast<float32>(e3.noeud));
 			}
 			return gE;
 		}
