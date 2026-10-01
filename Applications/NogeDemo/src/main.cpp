@@ -6,7 +6,7 @@
 // NkApplication + NkEngineLayer (ECS, pont physique, pont de rendu) et la
 // carte d'entree du noyau (NkInputMap, la meme qu'Unkeny).
 //
-// LANCER (depuis la RACINE du depot : les nuanceurs y sont lus)
+// LANCER (de n'importe ou : on va a la racine du depot, ou les nuanceurs sont lus)
 //   ./Build/Bin/Debug-Windows/NogeDemo/NogeDemo.exe
 //       [--selftest] [--capture=IMAGE.png] [--charger]
 //       [--scene=FICHIER.nkscene] [--entrees=FICHIER.nkinput]
@@ -27,6 +27,7 @@
 #include "NogeDemoApp.h"
 
 #include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkPath.h" // LocateResource : les nuanceurs, quel que soit le dossier de lancement
 #include "NKLogger/NkLog.h"
 #include "NKSL/ShaderConvert/NkShaderConvert.h"
 #include "NKWindow/Core/NkEntry.h"
@@ -51,20 +52,26 @@ namespace {
 
 	/// Les nuanceurs sont lus RELATIVEMENT au repertoire courant
 	/// (Resources/NKRenderer/Shaders, ROADMAP Noge §9decies). Lance d'ailleurs
-	/// que la racine -- un double-clic dans Build/Bin/... -- on remonte a la
-	/// racine du depot si on la reconnait, et on le DIT.
+	/// que la racine -- un double-clic dans Build/Bin/..., un raccourci, une
+	/// console ailleurs -- on va au dossier qui les contient, et on le DIT.
+	///
+	/// (2026-10-01) Le dossier est TROUVE par NkPath::LocateResource (dossier
+	/// courant, dossier de l'exe, puis en remontant leurs parents) : la liste
+	/// fixe « ../../../.. » d'avant ne marchait que lance DEPUIS Build/Bin/...,
+	/// pas depuis un dossier sans rapport.
 	void AllerALaRacine() {
 		using nkentseu::NkDirectory;
-		if (NkDirectory::Exists("Resources/NKRenderer/Shaders")) {
+		using nkentseu::NkString;
+		static const char kNuanceurs[] = "Resources/NKRenderer/Shaders";
+		if (NkDirectory::Exists(kNuanceurs)) {
 			return;
 		}
-		const char *candidats[] = {"../../../..", "../../..", "../..", ".."};
-		for (const char *c : candidats) {
-			char essai[256];
-			std::snprintf(essai, sizeof(essai), "%s/Resources/NKRenderer/Shaders", c);
-			if (NkDirectory::Exists(essai)) {
-				(void)NkDirectory::SetCurrentDirectory(c);
-				std::printf("[NogeDemo] repertoire courant ramene a la racine du depot (%s)\n", c);
+		const NkString trouve = nkentseu::NkPath::LocateResource(kNuanceurs);
+		const nkentseu::usize n = sizeof(kNuanceurs) - 1u; // + la barre qui le precede
+		if (trouve.Length() > n + 1u) {
+			const NkString racine(trouve.CStr(), trouve.Length() - n - 1u);
+			if (NkDirectory::SetCurrentDirectory(racine.CStr())) {
+				std::printf("[NogeDemo] repertoire courant ramene a la racine du depot (%s)\n", racine.CStr());
 				return;
 			}
 		}

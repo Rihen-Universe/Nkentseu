@@ -23,6 +23,9 @@
 
 #include "pch.h"
 #include "NKFileSystem/NkPath.h"
+#include "NKFileSystem/NkFile.h"	   // LocateResource : Exists (et le paquet Android)
+#include "NKFileSystem/NkDirectory.h" // LocateResource : Exists d'un dossier
+#include "NKLogger/NkLog.h"			   // LocateResource : la liste des dossiers essayes
 
 // En-têtes C standard pour les fonctions système
 #include <cstdlib>
@@ -542,6 +545,128 @@ namespace nkentseu {
 		// Fallback standard pour Unix/Linux
 		return NkPath("/tmp");
 #endif
+	}
+
+	// =============================================================================
+	//  Ressources livrees : les trouver quel que soit le dossier de lancement
+	// =============================================================================
+	// Voir la documentation de LocateResource dans NkPath.h (ordre de recherche).
+
+	namespace {
+		// Un dossier, separateurs '/', sans barre finale — sauf la racine elle-meme
+		// (« / », « C:/ »), qui la garde.
+		NkString DossierNet(const NkString &d) {
+			NkString s;
+			for (usize i = 0; i < d.Length(); ++i)
+				s += (d[i] == '\\') ? '/' : d[i];
+			while (s.Length() > 1 && s[s.Length() - 1] == '/' && !(s.Length() == 3 && s[1] == ':'))
+				s = NkString(s.CStr(), s.Length() - 1);
+			return s;
+		}
+
+		NkString Joindre(const NkString &dossier, const char *relatif) {
+			NkString r = dossier;
+			if (!r.Empty() && r[r.Length() - 1] != '/')
+				r += '/';
+			r += relatif;
+			return r;
+		}
+
+		bool Existe(const char *p) {
+			return p && *p && (NkFile::Exists(p) || NkDirectory::Exists(p));
+		}
+
+		// Ajoute un dossier a la liste, sans doublon.
+		void Ajouter(NkVector<NkString> &dossiers, const NkString &d) {
+			const NkString s = DossierNet(d);
+			if (s.Empty())
+				return;
+			for (usize i = 0; i < dossiers.Size(); ++i)
+				if (dossiers[i] == s)
+					return;
+			dossiers.PushBack(s);
+		}
+
+		// Ajoute les parents de `d` (8 niveaux au plus), du plus proche au plus loin.
+		// ⚠️ BORNE : une remontee sans fin s'arreterait a la racine du disque, ou
+		//    n'importe quel « Resources/ » pourrait repondre a notre place.
+		void AjouterParents(NkVector<NkString> &dossiers, const NkString &d) {
+			NkString courant = DossierNet(d);
+			for (int32 k = 0; k < 8; ++k) {
+				const NkString parent = DossierNet(NkPath(courant).GetDirectory());
+				if (parent.Empty() || parent.Length() >= courant.Length())
+					break;
+				Ajouter(dossiers, parent);
+				courant = parent;
+			}
+		}
+	} // namespace
+
+	NkString NkPath::LocateResource(const char *relative, bool warnIfMissing) {
+		return LocateResource({relative}, warnIfMissing);
+	}
+
+	NkString NkPath::LocateResource(std::initializer_list<const char *> variants, bool warnIfMissing) {
+		const NkString cwd = DossierNet(GetCurrentDirectory().ToString());
+		const NkString exe = DossierNet(GetExecutableDirectory().ToString());
+
+		// 0. Un chemin ABSOLU n'a qu'un endroit ou etre.
+		// 1. Tel quel, donc relatif au dossier courant : c'est le comportement
+		//    d'avant. NkFile y ajoute, sur Android/HarmonyOS, le paquet lui-meme
+		//    (chemin relatif seulement) : on rend alors le chemin tel quel.
+		for (const char *v : variants) {
+			if (!v || !*v || !Existe(v))
+				continue;
+			if (NkPath(v).IsAbsolute())
+				return DossierNet(NkString(v));
+			const NkString abs = Joindre(cwd, v);
+			return Existe(abs.CStr()) ? abs : NkString(v);
+		}
+
+		// 2-4. Le dossier de l'exe, puis les parents de l'exe, puis ceux du
+		//      dossier courant (le dossier courant lui-meme vient d'etre essaye).
+		NkVector<NkString> dossiers;
+		Ajouter(dossiers, cwd);
+		Ajouter(dossiers, exe);
+		AjouterParents(dossiers, exe);
+		AjouterParents(dossiers, cwd);
+		for (usize i = cwd.Empty() ? 0 : 1; i < dossiers.Size(); ++i) {
+			for (const char *v : variants) {
+				if (!v || !*v || NkPath(v).IsAbsolute())
+					continue;
+				const NkString c = Joindre(dossiers[i], v);
+				if (Existe(c.CStr()))
+					return c;
+			}
+		}
+
+		if (warnIfMissing) {
+			NkString quoi;
+			for (const char *v : variants) {
+				if (!v || !*v)
+					continue;
+				if (!quoi.Empty())
+					quoi += "' ou '";
+				quoi += v;
+			}
+			NkString ou;
+			for (usize i = 0; i < dossiers.Size(); ++i) {
+				ou += "\n      ";
+				ou += dossiers[i];
+				if (dossiers[i] == cwd && dossiers[i] == exe)
+					ou += "   (dossier courant ET de l'executable)";
+				else if (dossiers[i] == cwd)
+					ou += "   (dossier courant)";
+				else if (dossiers[i] == exe)
+					ou += "   (dossier de l'executable)";
+			}
+			logger.Warnf("[NkPath] ressource INTROUVABLE : '%s'\n"
+						 "    cherchee, dans cet ordre, sous :%s\n"
+						 "    -> lancer depuis un dossier qui la contient, ou la deployer a cote "
+						 "de l'executable.\n",
+						 quoi.CStr(), ou.CStr());
+		}
+		return NkString();
 	}
 
 	NkPath NkPath::Combine(const char *path1, const char *path2) {

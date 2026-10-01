@@ -1898,9 +1898,16 @@ namespace nkuidesign {
 				for (uint32 d = 0; d < 2; ++d) {
 					// 1. a cote du document principal (le repertoire de travail)
 					NkString c1 = NkString(kDemos[d]);
-					// 2. le chemin du depot (lancement depuis la racine de l'arbre)
+					// 2. le chemin du depot : depuis la racine de l'arbre, a cote de
+					//    l'exe, ou en remontant (NkPath::LocateResource, 2026-10-01 :
+					//    lance depuis Build/Bin/..., l'atelier n'avait pas ses onglets)
 					NkString c2 = NkString("Applications/NKUIDesign/design/mises_en_scene/");
 					c2.Append(kDemos[d]);
+					{
+						const NkString t = nkentseu::NkPath::LocateResource(c2.Data(), /*avertir*/ false);
+						if (!t.Empty())
+							c2 = t;
+					}
 					const char *trouve = nullptr;
 					if (nkentseu::NkFile::Exists(c1.Data()))
 						trouve = c1.Data();
