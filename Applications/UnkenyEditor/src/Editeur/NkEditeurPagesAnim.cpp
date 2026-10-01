@@ -882,6 +882,12 @@ namespace nkentseu {
 					}
 				} else if (in.KeyPressed(NkGuiKey::A) && d->genre == NkGenreDocAnim::NK_ANIMATION) {
 					d->frise.SelectAll();
+				} else if (d->genre == NkGenreDocAnim::NK_ANIMATION && in.KeyPressed(NkGuiKey::C)) {
+					d->frise.CopySelection(); // (01/10 soir) copier / couper / coller des cles
+				} else if (d->genre == NkGenreDocAnim::NK_ANIMATION && in.KeyPressed(NkGuiKey::X)) {
+					d->frise.CutSelection();
+				} else if (d->genre == NkGenreDocAnim::NK_ANIMATION && in.KeyPressed(NkGuiKey::V)) {
+					d->frise.PasteAt(d->frise.cursor);
 				} else if (in.KeyPressed(NkGuiKey::W)) {
 					NkEditeurFermerDocAnim(c.m, c.ui, d->id);
 				}
