@@ -105,6 +105,11 @@ namespace nkentseu {
 			if (!CreateWindowAndTarget()) {
 				return -1;
 			}
+			// --capture : le dorsal s'y prepare des maintenant (Metal garde alors
+			// une copie de chaque image presentee ; ailleurs, sans effet).
+			if (mCapturePath.Size() > 0 && mTarget != nullptr) {
+				mTarget->PrepareCapture();
+			}
 
 			// La mise en page est calculee AVANT OnInit : une application ne
 			// doit jamais avoir a tester "ai-je deja recu ma taille ?".

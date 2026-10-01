@@ -88,7 +88,7 @@ namespace nkentseu {
 		}
 
 		layer.pixelFormat = m.srgb ? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatBGRA8Unorm;
-		layer.framebufferOnly = YES;
+		layer.framebufferOnly = mKeepLast ? NO : YES;
 		layer.drawableSize = CGSizeMake((CGFloat)surf.width, (CGFloat)surf.height);
 #if defined(NKENTSEU_PLATFORM_MACOS)
 		layer.displaySyncEnabled = m.vsync; // propriété CAMetalLayer macOS uniquement
@@ -188,6 +188,10 @@ namespace nkentseu {
 			CFBridgingRelease(mData.commandQueue);
 			mData.commandQueue = nullptr;
 		}
+		if (mReadback) {
+			CFBridgingRelease(mReadback);
+			mReadback = nullptr;
+		}
 		if (mData.device) {
 			CFBridgingRelease(mData.device);
 			mData.device = nullptr;
@@ -219,7 +223,7 @@ namespace nkentseu {
 		rpd.colorAttachments[0].texture = drawable.texture;
 		rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
 		rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
-		rpd.colorAttachments[0].clearColor = MTLClearColorMake(0.1, 0.1, 0.1, 1.0);
+		rpd.colorAttachments[0].clearColor = MTLClearColorMake(mClear[0], mClear[1], mClear[2], mClear[3]);
 
 		if (mData.depthTexture) {
 			id<MTLTexture> depth = (__bridge id<MTLTexture>)mData.depthTexture;
@@ -252,10 +256,86 @@ namespace nkentseu {
 			return;
 		id<MTLCommandBuffer> cmdb = (__bridge_transfer id<MTLCommandBuffer>)mData.commandBuffer;
 		id<CAMetalDrawable> drw = (__bridge_transfer id<CAMetalDrawable>)mData.currentDrawable;
-		[cmdb presentDrawable:drw];
-		[cmdb commit];
 		mData.commandBuffer = nullptr;
 		mData.currentDrawable = nullptr;
+		if (!cmdb)
+			return; // BeginFrame avait echoue (fenetre minimisee) : rien a presenter
+
+		// Capture demandee : copie du drawable dans un tampon partage, AVANT de
+		// le presenter (apres, il appartient de nouveau a la CAMetalLayer).
+		id<MTLBuffer> lecture = nil;
+		uint32 w = 0, h = 0;
+		if (mKeepLast && drw && !drw.texture.framebufferOnly) {
+			id<MTLTexture> tex = drw.texture;
+			w = (uint32)tex.width;
+			h = (uint32)tex.height;
+			const NSUInteger taille = (NSUInteger)w * h * 4u;
+			lecture = (__bridge id<MTLBuffer>)mReadback;
+			if (!lecture || lecture.length < taille) {
+				if (mReadback)
+					CFBridgingRelease(mReadback);
+				id<MTLDevice> device = (__bridge id<MTLDevice>)mData.device;
+				lecture = [device newBufferWithLength:taille options:MTLResourceStorageModeShared];
+				mReadback = lecture ? (void *)CFBridgingRetain(lecture) : nullptr;
+			}
+			if (lecture) {
+				id<MTLBlitCommandEncoder> blit = [cmdb blitCommandEncoder];
+				[blit copyFromTexture:tex
+							 sourceSlice:0
+							 sourceLevel:0
+							sourceOrigin:MTLOriginMake(0, 0, 0)
+							  sourceSize:MTLSizeMake(w, h, 1)
+								toBuffer:lecture
+					   destinationOffset:0
+				  destinationBytesPerRow:(NSUInteger)w * 4u
+				destinationBytesPerImage:(NSUInteger)w * h * 4u];
+				[blit endEncoding];
+			}
+		}
+
+		if (drw)
+			[cmdb presentDrawable:drw];
+		[cmdb commit];
+
+		if (lecture) {
+			[cmdb waitUntilCompleted];
+			// BGRA (format de la CAMetalLayer) -> RGBA.
+			mLast.Resize((usize)w * h * 4u);
+			const uint8 *src = (const uint8 *)lecture.contents;
+			uint8 *dst = mLast.Data();
+			for (usize i = 0; i < (usize)w * h; ++i) {
+				dst[i * 4 + 0] = src[i * 4 + 2];
+				dst[i * 4 + 1] = src[i * 4 + 1];
+				dst[i * 4 + 2] = src[i * 4 + 0];
+				dst[i * 4 + 3] = src[i * 4 + 3];
+			}
+			mLastW = w;
+			mLastH = h;
+		}
+	}
+
+	void NkMetalContext::SetClearColor(float r, float g, float b, float a) {
+		mClear[0] = r;
+		mClear[1] = g;
+		mClear[2] = b;
+		mClear[3] = a;
+	}
+
+	void NkMetalContext::KeepLastFrame(bool keep) {
+		mKeepLast = keep;
+		if (mData.layer) {
+			CAMetalLayer *layer = (__bridge CAMetalLayer *)mData.layer;
+			layer.framebufferOnly = keep ? NO : YES;
+		}
+	}
+
+	bool NkMetalContext::ReadLastFrame(NkVector<uint8> &rgba, uint32 &width, uint32 &height) const {
+		if (mLastW == 0 || mLastH == 0 || mLast.Size() < (usize)mLastW * mLastH * 4u)
+			return false;
+		rgba = mLast;
+		width = mLastW;
+		height = mLastH;
+		return true;
 	}
 
 	// =============================================================================
@@ -313,6 +393,10 @@ namespace nkentseu {
 		i.version = "Metal";
 		i.vramMB = mData.vramMB;
 		i.computeSupported = true;
+		// Taille de la surface en PIXELS (drawableSize) : le renderer 2D en tire
+		// sa vue et son viewport initiaux. Laissee a 0, il partait en 800x600.
+		i.windowWidth = mData.width;
+		i.windowHeight = mData.height;
 		return i;
 	}
 

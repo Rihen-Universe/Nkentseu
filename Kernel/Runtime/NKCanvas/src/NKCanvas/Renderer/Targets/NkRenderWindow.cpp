@@ -205,6 +205,7 @@ namespace nkentseu {
 						if (n > 0 && *d == ':' && d[1]) {
 							std::snprintf(sChemin, sizeof(sChemin), "%s", d + 1);
 							sCible = n;
+							PrepareCapture(); // Metal : garder les images presentees
 							// ⚠️ LA FENETRE SE DENONCE. Une fenetre ouverte pour une mesure porte
 							//    la phrase, sans qu'aucune application ait a le prevoir : un jeu
 							//    n'a pas de drapeau de titre, et Rodolf a deja pris une fenetre
@@ -232,8 +233,8 @@ namespace nkentseu {
 						std::fprintf(stderr, "[capture] image %d ecrite : %s\n", (int)sCible, sChemin);
 					else
 						std::fprintf(stderr, "[capture] REFUS : image %d NON ecrite (%s) -- "
-											 "Capture ne sait lire que le dorsal DX11 : relancer "
-											 "avec le dorsal DX11\n", (int)sCible, sChemin);
+											 "Capture ne sait lire que les dorsaux DX11, Metal et "
+											 "logiciel : relancer avec l'un d'eux\n", (int)sCible, sChemin);
 					std::fflush(stderr);
 				}
 			}

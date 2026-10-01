@@ -7,6 +7,7 @@
 #if defined(NKENTSEU_PLATFORM_MACOS) || defined(NKENTSEU_PLATFORM_IOS)
 
 #include "NKCanvas/Core/NkIGraphicsContext.h"
+#include "NKContainers/Sequential/NkVector.h"
 
 namespace nkentseu {
 
@@ -49,6 +50,19 @@ namespace nkentseu {
 			void *GetNativeContextData() override;
 			bool SupportsCompute() const override;
 
+			// Couleur d'effacement de la PROCHAINE image (NkRenderWindow::Clear
+			// l'appelle avant Begin) : elle etait codee en dur a 0,1 gris.
+			void SetClearColor(float r, float g, float b, float a) override;
+
+			// ── Capture (2026-09-30) ─────────────────────────────────────────────
+			// Garder une copie CPU de chaque image PRESENTEE (NkRenderWindow::
+			// Capture, apres Display). Couteux (copie + attente GPU par image) :
+			// eteint par defaut, allume seulement quand une capture est demandee.
+			// Allumer rend la CAMetalLayer lisible (framebufferOnly = NO).
+			void KeepLastFrame(bool keep);
+			// Derniere image presentee, en RGBA 8 bits, lignes de haut en bas.
+			bool ReadLastFrame(NkVector<uint8> &rgba, uint32 &width, uint32 &height) const;
+
 		private:
 			bool CreateDepthTexture(uint32 w, uint32 h);
 
@@ -56,6 +70,11 @@ namespace nkentseu {
 			NkContextDesc mDesc;
 			bool mIsValid = false;
 			bool mVSync = true;
+			float mClear[4] = {0.1f, 0.1f, 0.1f, 1.f};
+			bool mKeepLast = false;
+			void *mReadback = nullptr; // id<MTLBuffer> partage, BGRA de l'image
+			NkVector<uint8> mLast;
+			uint32 mLastW = 0, mLastH = 0;
 	};
 
 } // namespace nkentseu

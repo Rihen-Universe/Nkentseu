@@ -78,7 +78,11 @@ namespace nkentseu {
 			bool validation = false;
 			bool vsync = true;
 			uint32 sampleCount = 1;
-			bool srgb = true;
+			// UNORM par defaut (2026-09-30), comme la chaine de DX11 et le tampon
+			// par defaut d'OpenGL : les couleurs 2D de NKCanvas sont ecrites pour
+			// une surface non sRGB. En sRGB, tout sortait delave sur Metal seul
+			// (meme constat que NKGui sur NKRHI, commit 136e944eb).
+			bool srgb = false;
 	};
 
 	struct NkSoftwareDesc {
