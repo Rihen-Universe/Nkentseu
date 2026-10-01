@@ -183,8 +183,9 @@ namespace nkentseu {
 
 			// (a10)
 			Temoin(NkOrienter(encoche, kI).orientationNonProposee && NkOrienter(NkProfil(2), kI).orientationNonProposee &&
-					   !NkOrienter(NkProfil(4), kI).orientationNonProposee && !NkOrienter(encoche, kG).orientationNonProposee,
-				   "(a10) portrait inverse : refuse sur telephone, propose sur iPad", 0.f);
+					   !NkOrienter(NkProfil(4), kI).orientationNonProposee && !NkOrienter(encoche, kG).orientationNonProposee &&
+					   Marges(NkOrienter(encoche, kI).zoneSure, 0.f, 47.f, 0.f, 0.f),
+				   "(a10) portrait inverse : refuse sur telephone, propose sur iPad", NkOrienter(encoche, kI).zoneSure.top);
 
 			// (a11)
 			{

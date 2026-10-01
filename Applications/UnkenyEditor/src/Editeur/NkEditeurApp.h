@@ -61,6 +61,8 @@ namespace nkentseu {
 
 			protected:
 				/// `--profil=N`, `--paysage`, `--simuler`, `--selftest`.
+				/// (2026-10-01, document 03) `--orientation=`, `--appareil=F.nkappareil`,
+				/// `--onglet=monde`, `--exemple=hud`, `--cuire=DOSSIER`.
 				///
 				/// ⚠️ `--profil=` et `--paysage` existent pour qu'une capture
 				/// d'ecran soit REPRODUCTIBLE (avec `--capture=` de la coquille) :

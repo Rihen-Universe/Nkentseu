@@ -66,3 +66,26 @@
 - Des **captures** à montrer à Rihen : téléphone à encoche dans les 4
   orientations, téléphone à poinçon, tablette, pliable, montre ronde, appareil
   personnalisé, HUD ancré sur la zone sûre.
+
+## 4. État au 01/10 (branche `appareils/zone-sure`)
+
+- **NKWindow, état des lieux** : iOS réel (lu à chaque appel, relu par NKCanvas
+  à la rotation, pas d'événement) ; Android réel mais **figé à la création**
+  (ni relu à la rotation, ni événement) — manque réel, non comblé faute de NDK
+  pour le compiler et le témoigner ; HarmonyOS réel avec événement ; Web, bureau,
+  Xbox : `{0,0,0,0}` ; aucune plateforme ne donne la **forme** de la découpe
+  (iOS n'a pas d'API publique) : elle reste une donnée du catalogue. NKWindow
+  n'a pas été modifié.
+- §2.1 fait : 21 profils sourcés (`NkEditeurAppareils.cpp`).
+- §2.2 fait : appareil personnalisé, `<scène>.nkappareil` rétro-compatible.
+- §2.3 fait : `NkOrienter`, quatre orientations, règles iOS / Android
+  (`NkMargesSysteme`), `NkTourner` gardé (= paysage gauche).
+- §2.4 fait : cadres vectoriels sombre / clair, interrupteurs.
+- §2.5 fait : `NkScene::Ecran()`, `NkZoneSure`, `NkAncrageEcran2D` (HUD),
+  surimpression ; UnkenyPlayer transmet la zone sûre de NKWindow.
+- §2.6 fait : `NkRegleCamera` par projet, cuite dans `jeu.json`, aperçu dans
+  l'écran de l'appareil.
+- Limites : un élément d'interface est un sprite du MONDE (sa taille suit le
+  zoom, pas les points de l'écran) ; en ÉDITION, la boîte de sélection d'un
+  élément ancré est à sa position enregistrée, pas à l'ancre ; pas de carte
+  « Ancrage » dans « Ajouter un composant » (menu « + Ajouter » et clic droit).
