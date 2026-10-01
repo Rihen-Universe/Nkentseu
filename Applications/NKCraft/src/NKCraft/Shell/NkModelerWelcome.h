@@ -35,6 +35,8 @@
 #include "NKWindow/Core/NkLauncher.h" // ouvre le navigateur du systeme
 #include "NKWindow/Core/NkDialogs.h"  // selecteurs natifs DEJA presents dans le depot
 #include "NKEditorKit/NkIEditorRenderer.h"
+#include "NKEditorKit/NkProjectLauncherHost.h" // (01/10) le lanceur de projets partage
+#include "NKCraft/Shell/NkModelerCommon.h"     // NkPickerOuvrirImport / NkPickerOuvrirImage (modeles)
 // OU SONT LES DONNEES LIVREES : une seule convention (cf. son en-tete).
 #include "NKCraft/NkModelerData.h"
 #include "NKCraft/NkCraftMigration.h" // (29/09) le dossier de projets de l'ancien nom
@@ -182,8 +184,23 @@ namespace nkentseu {
 		// Appele par la boucle principale quand la liste change (`texDirty`), pas
 		// a chaque image : decoder un PNG par frame couterait plus cher que tout
 		// le reste de l'ecran.
+		/// Les polices du lanceur, chargees et televersees par le renderer de
+		/// l'application (cf. NkWelcomeUploadCovers, qui le recoit chaque image).
+		inline editorkit::NkLanceurPolices &NkWelcomePolices() {
+			static editorkit::NkLanceurPolices p;
+			return p;
+		}
+
 		inline void NkWelcomeUploadCovers(editorkit::NkIEditorRenderer &renderer,
 										  NkRecentList &rec) {
+			// (01/10) LES POLICES DU LANCEUR passent par la meme porte : c'est ici
+			// que l'accueil recoit le renderer, a chaque image. Rechargees si
+			// l'echelle d'interface change (un ecran a l'autre DPI).
+			{
+				editorkit::NkLanceurPolices &pol = NkWelcomePolices();
+				if (pol.echelle != gUiScale)
+					(void)pol.Charger(gUiScale, &renderer);
+			}
 			if (!rec.texDirty)
 				return;
 			rec.texDirty = false;
@@ -285,6 +302,44 @@ namespace nkentseu {
 			return hit.Clicked(key);
 		}
 
+		/// Les modeles de nouveau projet de NKCraft. ⚠️ CHAQUE CARTE DISPONIBLE FAIT
+		/// CE QU'ELLE ANNONCE : elle cree le projet par la boite habituelle, puis
+		/// ouvre ce qu'elle promet (selecteur d'import, generateur, assistant) --
+		/// par les portes que l'application a deja (pickerAction 2 et 3, aiOuvert).
+		/// Ce qui n'est pas encore branche se montre « a venir ».
+		inline const NkVector<editorkit::NkLanceurModele> &NkWelcomeModeles() {
+			static NkVector<editorkit::NkLanceurModele> v;
+			if (v.Empty()) {
+				using G = editorkit::NkLanceurGlyphe;
+				auto ajoute = [&](const char *nom, const char *cat, const char *desc, G g, uint32 teinte, bool dispo) {
+					editorkit::NkLanceurModele m;
+					m.nom = NkString(nom);
+					m.categorie = NkString(cat);
+					m.description = NkString(desc);
+					m.glyphe = g;
+					m.couleur = teinte;
+					m.disponible = dispo;
+					v.PushBack(m);
+				};
+				ajoute("Scene de depart", "MODELISATION",
+					   "Sol, lumieres et camera deja en place : on ajoute ses objets et on modele.", G::Cube,
+					   0u, true);
+				ajoute("Importer un modele", "IMPORT",
+					   "Cree le projet puis ouvre le selecteur : glTF, OBJ, FBX... arrivent editables.",
+					   G::Ouvrir, math::NkColor(0x2E, 0xA0, 0x6B).ToUint32A(), true);
+				ajoute("Image vers objet 3D", "GENERATION",
+					   "Cree le projet puis demande une image : le generateur en tire un objet editable.",
+					   G::Pinceau, math::NkColor(0xB0, 0x5C, 0xE0).ToUint32A(), true);
+				ajoute("Avec l'assistant IA", "ASSISTANT",
+					   "Cree le projet et ouvre l'assistant : decrivez ce que vous voulez modeler.", G::Etoile,
+					   math::NkColor(0xF2, 0x98, 0x0E).ToUint32A(), true);
+				ajoute("Creature", "PERSONNAGE",
+					   "Une creature articulee generee par l'outil de creatures de NKCraft.", G::Os,
+					   math::NkColor(0xD9, 0x4F, 0x4F).ToUint32A(), false);
+			}
+			return v;
+		}
+
 		// ── BOITE « NOUVEAU PROJET » ────────────────────────────────────────────
 		// Un projet = un DOSSIER + un .nk3dm a sa racine : creer demande donc un
 		// emplacement ET un nom. Le chemin exact qui sera cree est affiche en
@@ -302,6 +357,13 @@ namespace nkentseu {
 			p.Outline(box, NkRole::Border, NkRole::PanelHeader, 6.f);
 			hit.Add("np.box", box);
 			p.TextV(box.x + S(20.f), box.y + S(12.f), S(24.f), "Nouveau projet");
+			// (01/10) Le modele choisi sur le lanceur, dit dans la boite : on sait
+			// ce que « Creer » va faire en plus du dossier et du .nk3dm.
+			if (st.newProjModele > 0 && (usize)st.newProjModele < NkWelcomeModeles().Size()) {
+				char lm[120];
+				snprintf(lm, sizeof(lm), "Modele : %s", NkWelcomeModeles()[(usize)st.newProjModele].nom.CStr());
+				p.TextV(box.x + bw - S(20.f) - p.TextW(lm), box.y + S(12.f), S(24.f), lm, NkRole::TextMuted);
+			}
 
 			const float32 lx = box.x + S(20.f), fx = box.x + S(120.f);
 			const float32 fw = bw - S(140.f) - S(20.f);
@@ -378,528 +440,284 @@ namespace nkentseu {
 			}
 		}
 
-		// ── L'ECRAN ─────────────────────────────────────────────────────────────
+		// ── L'ECRAN : LE LANCEUR DE PROJETS PARTAGE (2026-10-01) ────────────────
+		// Rihen : l'ancien accueil (deux colonnes, boutons empiles, petites
+		// vignettes) « ne plait pas » ; il le veut BEAU, facon Unreal Engine 5 /
+		// Unity Hub. Il est donc devenu le COMPOSANT du kit
+		// (NKEditorKit/Components/NkProjectLauncherModel.h), le meme pour toute la
+		// famille ; NKCraft n'y met que SA TOUCHE : l'araignee, ses modeles, ses
+		// pages, son extension .nk3dm. Tout ce que faisait l'ancien ecran est garde
+		// et passe par les MEMES portes (projPending 1, 2, 7 ; TogglePin, Remove ;
+		// la purge des projets morts ; les liens « a venir » ; l'image de version ;
+		// les astuces ; la barre de titre dessinee de la fenetre sans cadre).
+
+		/// Ce que promet le modele choisi, fait APRES la creation reussie du projet
+		/// (action 6) -- par les portes de l'application, jamais un second chemin.
+		inline void NkWelcomeAppliquerModele(NkModelerState &st) {
+			const int32 i = st.newProjModele;
+			st.newProjModele = 0;
+			switch (i) {
+				case 1: // Importer un modele : le selecteur d'import du navigateur
+					NkPickerOuvrirImport(st);
+					st.pickerAction = 2;
+					break;
+				case 2: // Image vers objet 3D : le meme geste que « Generer » (GENIA)
+					NkPickerOuvrirImage(st);
+					st.pickerAction = 3;
+					break;
+				case 3: // Avec l'assistant IA : le panneau deploye
+					st.aiOuvert = true;
+					break;
+				default:
+					break;
+			}
+			if (i > 0 && (usize)i < NkWelcomeModeles().Size()) {
+				std::printf("[nk3d] nouveau projet : modele « %s » applique\n", NkWelcomeModeles()[(usize)i].nom.CStr());
+				std::fflush(stdout);
+			}
+		}
+
+		/// Le MODELE du lanceur : son ETAT (page, recherche, vue, defilement) dure
+		/// d'une image a l'autre ; ses DONNEES sont rafraichies a chaque image
+		/// depuis la liste des recents -- une seule verite, celle du fichier.
+		inline editorkit::NkProjectLauncherModel &NkWelcomeLanceur() {
+			static editorkit::NkProjectLauncherModel m;
+			static bool pret = false;
+			if (!pret) {
+				pret = true;
+				using G = editorkit::NkLanceurGlyphe;
+				m.identite.nom = NkString("NKCraft");
+				m.identite.prefixe = NkString("NK");
+				m.identite.sousTitre = NkString("Modelisation 3D — Nkentseu");
+				m.identite.version = NkString(kAppVersion);
+				m.identite.extensions = NkString(".nk3dm");
+				m.identite.glyphe = G::Cube;
+				m.chromeFenetre = true;
+				m.themeBasculable = true;
+				m.modeles = NkWelcomeModeles();
+				auto page = [&](const char *lib, const char *titre, const char *st, G g, editorkit::NkLanceurPageType t) {
+					editorkit::NkLanceurPage p;
+					p.libelle = NkString(lib);
+					p.titre = NkString(titre);
+					p.sousTitre = NkString(st);
+					p.glyphe = g;
+					p.type = t;
+					m.pages.PushBack(p);
+					return (usize)(m.pages.Size() - 1u);
+				};
+				auto lien = [&](usize pg, const char *titre, const char *desc, const char *url, G g) {
+					editorkit::NkLanceurLien l;
+					l.titre = NkString(titre);
+					l.description = NkString(desc);
+					l.url = NkString(url ? url : "");
+					l.glyphe = g;
+					// ⚠️ UNE URL VIDE EST « A VENIR », jamais un lien mort (regle de
+					//    l'ancien ecran, gardee) : remplir kUrl* suffit a l'activer.
+					l.disponible = url && *url;
+					l.badge = NkString(l.disponible ? "" : "a venir");
+					m.pages[pg].liens.PushBack(l);
+				};
+				(void)page("Projets", "Projets", "", G::Projets, editorkit::NkLanceurPageType::Projets);
+				const usize pa = page("Apprendre", "Apprendre", "Tutoriels et documentation de NKCraft.", G::Apprendre,
+									  editorkit::NkLanceurPageType::Liens);
+				lien(pa, "Tutoriels", "Modeler, texturer, eclairer : les gestes de base pas a pas.", kUrlTutos,
+					 G::Apprendre);
+				lien(pa, "Documentation", "Toutes les commandes, les raccourcis et le format .nk3dm.", kUrlDocs,
+					 G::Document);
+				const usize pc = page("Communaute", "Communaute", "Partager ses modeles, poser ses questions.",
+									  G::Communaute, editorkit::NkLanceurPageType::Liens);
+				lien(pc, "Communaute", "Le forum des utilisateurs de NKCraft et de Nkentseu.", kUrlCommu, G::Communaute);
+				lien(pc, "Site officiel", "Les nouveautes, les versions et les galeries.", kUrlSite, G::Lien);
+				const usize pi = page("Installations", "Installations", "Ce qui est installe sur cette machine.",
+									  G::Installations, editorkit::NkLanceurPageType::Liens);
+				{
+					editorkit::NkLanceurLien l;
+					l.titre = NkString("NKCraft ") + NkString(kAppVersion);
+					l.description = NkString("Installe dans ") + NkPath::GetExecutableDirectory().ToString();
+					l.glyphe = G::Cube;
+					l.badge = NkString("installee");
+					l.disponible = true;
+					m.pages[pi].liens.PushBack(l);
+					editorkit::NkLanceurLien u;
+					u.titre = NkString("Mises a jour");
+					u.description = NkString("La recherche de nouvelles versions de NKCraft.");
+					u.glyphe = G::Installations;
+					u.disponible = false;
+					u.badge = NkString("a venir");
+					m.pages[pi].liens.PushBack(u);
+				}
+			}
+			return m;
+		}
+
+		/// Le logo du lanceur : l'araignee, par le peintre du kit.
+		inline void NkWelcomeLogo(void *, editorkit::NkComponentPaint &p, const editorkit::NkPaintRect &r) {
+			PaintBrandMarkKit(p, r, (uint16)NkRole::PanelBg);
+		}
+
 		inline void PaintWelcome(NkModelerPainter &p, float32 W, float32 H, NkModelerState &st,
-								 NkHitRegistry &hit, NkWidgetState &ws,
-								 const nkgui::NkGuiInput &in, NkRecentList &rec,
-								 const NkSplashArt &art) {
+								 NkHitRegistry &hit, NkWidgetState &ws, const nkgui::NkGuiInput &in,
+								 NkRecentList &rec, const NkSplashArt &art) {
 			if (!st.welcome)
 				return;
-			// FOND OPAQUE : l'application est peinte dessous (on ne demonte pas sa
-			// boucle pour un ecran de demarrage), elle ne doit pas transparaitre.
-			p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
+			nkgui::NkGuiContext *gc = NkUiCtx();
+			editorkit::NkLanceurPolices &pol = NkWelcomePolices();
+			// Le lanceur PREND toute la fenetre : rien de l'application dessous ne
+			// recoit un clic (meme role que l'ancien « wel.bg »).
 			hit.Add("wel.bg", {0.f, 0.f, W, H});
-
-			// ── BARRE DE FENETRE ────────────────────────────────────────────────
-			// La fenetre du modeleur n'a pas de chrome systeme : sans cette bande,
-			// l'ecran d'accueil ne pourrait etre ni deplace ni ferme.
-			const float32 barH = S(32.f);
-			{
-				const NkRect bar{0.f, 0.f, W, barH};
-				p.Fill(bar, NkRole::PanelHeader);
-				hit.Add("win.drag", bar);
-				const float32 bw = S(30.f), bh = S(22.f), by = (barH - bh) * 0.5f;
-				const NkIcon kWin[3] = {NkIcon::WinMin,
-										st.maximized ? NkIcon::WinRestore : NkIcon::WinMax,
-										NkIcon::WinClose};
-				static const char *const kKeys[3] = {"wel.min", "wel.max", "wel.close"};
-				for (int32 i = 0; i < 3; ++i) {
-					const float32 bx = W - S(8.f) - (float32)(3 - i) * (bw + S(6.f));
-					const NkRect br{bx, by, bw, bh};
-					const bool over = hit.Add(kKeys[i], br);
-					if (i == 2)
-						p.Fill(br, over ? NkColor{240, 100, 85, 255} : NkColor{231, 76, 60, 255},
-							   3.f);
-					else
-						p.Outline(br, NkRole::Border, over ? NkRole::PanelBg : NkRole::PanelHeader,
-								  3.f);
-					p.IconV(bx + (bw - S(13.f)) * 0.5f, by, bh, kWin[i],
-							i == 2 ? NkRole::TextOnAccent : NkRole::Text, 13.f);
-				}
-				if (hit.Clicked("win.drag")) {
-					st.wantDragMove = true;
-					st.dragFracX = W > 1.f ? (hit.Mouse().x / W) : 0.5f;
-				}
-				if (hit.Clicked("wel.min"))
-					st.wantMinimize = true;
-				if (hit.Clicked("wel.max"))
-					st.wantMaxRestore = true;
-				// AUCUN PROJET N'EST OUVERT : il n'y a rien a perdre, donc rien a
-				// demander. La confirmation de fermeture n'a de sens qu'avec un
-				// document dessous.
-				if (hit.Clicked("wel.close"))
-					st.running = false;
+			if (!gc || !pol.Pretes()) {
+				p.Fill({0.f, 0.f, W, H}, NkRole::WindowBg);
+				return;
 			}
 
-			// ── COLONNES ────────────────────────────────────────────────────────
-			// La colonne des RECENTS prend la plus grande part : c'est elle qu'on
-			// vient chercher. La colonne de gauche est bornee -- au-dela, ses
-			// boutons s'etirent sans rien gagner.
-			float32 leftW = W * 0.36f;
-			if (leftW > S(400.f))
-				leftW = S(400.f);
-			if (leftW < S(260.f))
-				leftW = S(260.f);
-			const float32 pad = S(36.f);
-			const float32 top = barH + S(28.f);
+			editorkit::NkProjectLauncherModel &m = NkWelcomeLanceur();
+			m.fenetreMaximisee = st.maximized;
+			m.themeSombre = p.Theme().IsDark();
 
-			// ══ GAUCHE : marque, actions, liens ═════════════════════════════════
-			{
-				float32 x = pad, y = top;
-				const float32 mark = S(56.f);
-				PaintBrandMark(p, x, y, mark);
-				// Le mot en DEUX POIDS : « NK » porte l'accent d'interface, « Craft »
-				// le texte courant. Une seule taille de police existe dans
-				// l'application -- c'est le CONTRASTE de couleur qui fait la
-				// hierarchie, pas le corps.
-				// (29/09) Il y en avait trois du temps de NK3DModeler : « 3D » en
-				// sarcelle entre les deux. NKCraft n'a plus de syllabe du milieu.
-				{
-					const float32 tx = x + mark + S(16.f);
-					const float32 ty = y + S(10.f);
-					const float32 wNK = p.TextW("NK");
-					p.Text(tx, ty, "NK", NkRole::AccentUi);
-					p.Text(tx + wNK, ty, "Craft", NkRole::Text);
-					p.Text(tx, ty + p.LineH() + S(4.f), "Modelisation 3D — Nkentseu",
-						   NkRole::TextMuted);
+			// ── Les recents -> les cartes. L'etat du fichier (introuvable / vide)
+			//    est mesure UNE fois par entree, comme avant (etatFichier). ──
+			m.projets.Clear();
+			for (usize i = 0; i < rec.items.Size(); ++i) {
+				NkRecentEntry &e = rec.items[i];
+				if (e.etatFichier == 0) {
+					const NkString dossier = NkPath(e.path.CStr()).GetParent().ToString();
+					const bool absent = !NkFile::Exists(e.path.CStr());
+					bool vide = false;
+					if (!absent) {
+						const NkVector<NkString> sc =
+							NkDirectory::GetFiles(dossier.CStr(), "*.nkscene", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
+						vide = sc.Empty();
+					}
+					e.etatFichier = absent ? 2u : (vide ? 3u : 1u);
 				}
-				y += mark + S(28.f);
+				editorkit::NkLanceurProjet pr;
+				pr.nom = e.name;
+				pr.chemin = e.path;
+				pr.date = e.date;
+				pr.epingle = e.pinned;
+				pr.image = e.tex;
+				pr.imageW = e.tex ? 256 : 0; // les couvertures sont televersees en 256 x 144
+				pr.imageH = e.tex ? 144 : 0;
+				pr.etat = e.etatFichier == 2u ? 1u : (e.etatFichier == 3u ? 2u : 0u);
+				if (pr.etat == 2u)
+					pr.etatTexte = NkString("vide : aucune scene");
+				pr.hote = (uint32)i;
+				m.projets.PushBack(pr);
+			}
 
-				p.TextV(x, y, S(22.f), "Demarrer", NkRole::TextMuted);
-				p.HLine(x, y + S(24.f), leftW - pad);
-				y += S(34.f);
+			// ── L'image de version, ses credits, le pied de page. ──
+			m.banniere = editorkit::NkLanceurBanniere();
+			if (art.valid) {
+				m.banniere.image = kSplashTexId;
+				m.banniere.w = (int32)art.w;
+				m.banniere.h = (int32)art.h;
+				m.banniere.legende = NkString("NKCraft ") + NkString(kAppVersion);
+				if (art.title[0] && art.author[0])
+					m.banniere.credit = NkString(art.title) + NkString(" — ") + NkString(art.author);
+				else if (art.title[0] || art.author[0])
+					m.banniere.credit = NkString(art.title[0] ? art.title : art.author);
+			}
+			static const char *const kTips[6] = {
+				"Astuce : Tab bascule entre le mode Objet et le mode Edition.",
+				"Astuce : Ctrl pendant un deplacement inverse l'aimantation.",
+				"Astuce : la molette sur un champ numerique l'ajuste finement.",
+				"Astuce : G, R et S transforment tout de suite, sans changer d'outil.",
+				"Astuce : Maj+D duplique ; Ctrl+C / Ctrl+V copie entre les scenes.",
+				"Astuce : le point-virgule ouvre les cibles d'aimantation."};
+			m.astuce = NkString(kTips[rec.items.Size() % 6u]);
+			m.piedDePage = NkString("Enregistre : objets, geometrie (sommets et faces), materiaux, lumieres, cameras, "
+									"scenes. Pas encore : modificateurs.");
+			// L'erreur d'une action projet reste affichee jusqu'a la prochaine
+			// action : une erreur qui disparait toute seule n'a servi a personne.
+			m.erreur = (!st.newProjOpen && st.projError[0]) ? NkString(st.projError) : NkString();
 
-				const float32 bw = leftW - pad;
-				if (WelcomeButton(p, hit, "wel.new", {x, y, bw, S(34.f)}, "Nouveau projet",
-								  NkIcon::Add, true)) {
+			editorkit::NkProjectLauncherHooks hk;
+			hk.peindreLogo = &NkWelcomeLogo;
+			const editorkit::NkProjectLauncherResult res =
+				editorkit::NkLanceurPeindre(*gc, p.Theme(), pol, editorkit::NkPaintRect{0.f, 0.f, W, H}, m,
+											editorkit::NkProjectLauncherStyle(), hk, gUiScale, !st.newProjOpen);
+			if (res.curseurMain)
+				hit.WantCursor(NkCursorWant::Hand);
+			if (std::getenv("NK_ACCUEIL_SONDE")) {
+				static bool sDit = false;
+				if (!sDit) {
+					sDit = true;
+					std::printf("[nk3d] ACCUEIL lanceur W=%.0f H=%.0f projets=%d visibles=%d contenu=%.0f page=%d\n",
+								(double)W, (double)H, (int)m.projets.Size(), (int)res.projetsVisibles,
+								(double)res.contenuH, (int)m.page);
+					std::fflush(stdout);
+				}
+			}
+
+			// ── CE QUE L'UTILISATEUR A DEMANDE -> les portes de toujours. ──
+			using A = editorkit::NkLanceurAction;
+			const int32 hote = (res.index >= 0 && (usize)res.index < m.projets.Size())
+								   ? (int32)m.projets[(usize)res.index].hote
+								   : -1;
+			switch (res.action) {
+				case A::NouveauProjet:
+					st.newProjModele = 0;
+					st.projPending = 1; // la boite « Nouveau projet »
+					break;
+				case A::NouveauDepuisModele:
+					st.newProjModele = res.index;
 					st.projPending = 1;
-				}
-				y += S(42.f);
-				if (WelcomeButton(p, hit, "wel.open", {x, y, bw, S(34.f)}, "Ouvrir un projet",
-								  NkIcon::FolderOpen, false)) {
+					break;
+				case A::Ouvrir:
 					st.projPending = 2;
-				}
-				y += S(56.f);
-
-				p.TextV(x, y, S(22.f), "Liens", NkRole::TextMuted);
-				p.HLine(x, y + S(24.f), bw);
-				y += S(32.f);
-
-				// COMMUNAUTE EN TUILES (maquette de Rihen) : quatre destinations
-				// nommees valent mieux qu'une ligne « Communaute » qui ne dit pas
-				// ou elle mene. Deux par rangee.
-				struct L {
-						const char *key;
-						const char *label;
-						const char *url;
-						NkIcon icon;
-				};
-				static const L kLinks[4] = {
-					{"wel.l0", "Site officiel", kUrlSite, NkIcon::Globe},
-					{"wel.l1", "Tutoriels", kUrlTutos, NkIcon::Journal},
-					{"wel.l2", "Communaute", kUrlCommu, NkIcon::Layers},
-					{"wel.l3", "Documentation", kUrlDocs, NkIcon::Edit}};
-				{
-					const float32 tgap = S(6.f);
-					const float32 tw2 = (bw - tgap) * 0.5f, th2 = S(44.f);
-					for (int32 i = 0; i < 4; ++i) {
-						const NkRect lr{x + (float32)(i % 2) * (tw2 + tgap),
-										y + (float32)(i / 2) * (th2 + tgap), tw2, th2};
-						// UNE TUILE SANS ADRESSE N'EST PAS CLIQUABLE : sa zone
-						// n'est meme pas declaree. Elle reste VISIBLE, grisee,
-						// pour dire ce qui viendra -- mais ne fait jamais semblant.
-						const bool live = kLinks[i].url && *kLinks[i].url;
-						const bool over = live && hit.Add(kLinks[i].key, lr);
-						p.Outline(lr, over ? NkRole::AccentUi : NkRole::Border,
-								  over ? NkRole::PanelHeader : NkRole::PanelBg, 4.f);
-						const NkRole role = !live ? NkRole::TextMuted
-												  : (over ? NkRole::AccentUi : NkRole::Text);
-						p.IconV(lr.x + S(10.f), lr.y, lr.h, kLinks[i].icon, role, 15.f);
-						p.TextV(lr.x + S(32.f), lr.y, live ? lr.h : lr.h - S(12.f),
-								kLinks[i].label, role);
-						if (!live)
-							p.TextV(lr.x + S(32.f), lr.y + S(16.f), lr.h - S(12.f), "a venir",
-									NkRole::TextMuted);
-						if (over) {
-							hit.WantCursor(NkCursorWant::Hand);
-							if (hit.Clicked(kLinks[i].key))
-								NkLauncher::OpenURL(kLinks[i].url);
-						}
+					break;
+				case A::OuvrirRecent:
+					if (hote >= 0) {
+						st.projRecent = hote;
+						st.projPending = 7;
 					}
-					y += (S(44.f) + S(6.f)) * 2.f;
+					break;
+				case A::Epingler:
+					if (hote >= 0)
+						rec.TogglePin((usize)hote);
+					break;
+				case A::Retirer:
+					if (hote >= 0)
+						rec.Remove((usize)hote);
+					break;
+				case A::Purger: {
+					int32 retires = 0;
+					for (isize k = (isize)rec.items.Size() - 1; k >= 0; --k)
+						if (rec.items[(usize)k].etatFichier == 2u || rec.items[(usize)k].etatFichier == 3u) {
+							rec.Remove((usize)k);
+							++retires;
+						}
+					std::printf("[nk3d] ACCUEIL %d projet(s) vide(s) ou introuvable(s) retire(s) de la liste des "
+								"recents (le disque n'est pas touche)\n",
+								(int)retires);
+					std::fflush(stdout);
+					break;
 				}
+				case A::OuvrirLien:
+					if (res.url && *res.url)
+						NkLauncher::OpenURL(res.url);
+					break;
+				case A::BasculerTheme:
+					st.themeBascule = true;
+					break;
+				case A::FenetreReduire:
+					st.wantMinimize = true;
+					break;
+				case A::FenetreAgrandir:
+					st.wantMaxRestore = true;
+					break;
+				case A::FenetreFermer:
+					st.running = false;
+					break;
+				case A::FenetreGlisser:
+					st.wantDragMove = true;
+					st.dragFracX = W > 1.f ? (in.mousePos.x / W) : 0.5f;
+					break;
+				default:
+					break;
 			}
-
-			// ══ DROITE : image de version, puis les projets recents ═════════════
-			{
-				const float32 x = leftW + S(12.f);
-				const float32 w = W - x - pad;
-				float32 y = top;
-
-				// ── L'IMAGE DE LA VERSION (façon Blender) ───────────────────
-				// Une bande COUCHEE, pas une colonne : elle se montre sans voler
-				// la place aux projets, qui restent ce qu'on vient chercher. Le
-				// credit et la version se posent DESSUS, en bas -- comme Blender
-				// le fait, et parce qu'une legende sous l'image aurait mange une
-				// ligne de plus.
-				if (art.valid) {
-					// Hauteur bornee : au-dela d'un quart de l'ecran, l'image
-					// commence a repousser les projets sous la ligne de flottaison.
-					float32 bh = w * (float32)art.h / (float32)(art.w ? art.w : 1u);
-					const float32 bhMax = H * 0.26f;
-					if (bh > bhMax)
-						bh = bhMax;
-					if (bh > S(90.f)) { // en dessous, l'image n'apprend plus rien
-						const NkRect br{x, y, w, bh};
-						p.Image(kSplashTexId, br);
-						// Bandeau sombre en pied d'image : le texte doit rester
-						// lisible quelle que soit l'oeuvre -- une legende posee a
-						// nu disparait sur un fond clair.
-						const float32 lh = S(26.f);
-						p.Fill({br.x, br.y + br.h - lh, br.w, lh}, NkColor{0, 0, 0, 150});
-						char vbuf[64];
-						snprintf(vbuf, sizeof(vbuf), "NKCraft %s", kAppVersion);
-						p.TextV(br.x + S(10.f), br.y + br.h - lh, lh, vbuf,
-								NkRole::TextOnAccent);
-						if (art.title[0] || art.author[0]) {
-							char cbuf[200];
-							if (art.title[0] && art.author[0])
-								snprintf(cbuf, sizeof(cbuf), "%s — %s", art.title, art.author);
-							else
-								snprintf(cbuf, sizeof(cbuf), "%s",
-										 art.title[0] ? art.title : art.author);
-							const float32 cw = p.TextW(cbuf);
-							p.Clip({br.x + S(10.f), br.y + br.h - lh, br.w - S(20.f), lh});
-							p.TextV(br.x + br.w - S(10.f) - cw, br.y + br.h - lh, lh, cbuf,
-									NkRole::TextOnAccent);
-							p.Unclip();
-						}
-						y += bh + S(22.f);
-					}
-				}
-
-				p.TextV(x, y, S(24.f), "Projets recents");
-				// ── (25/09) « RETIRER LES PROJETS INTROUVABLES » ──────────────────
-				// Mesure du 24/09 : 19 des 20 premieres cartes de Rodolf pointaient vers
-				// des projets disparus. Une liste qu'on ne peut pas nettoyer devient une
-				// liste qu'on ne lit plus.
-				//
-				// ⚠️ LE BOUTON ANNONCE LE NOMBRE AVANT D'AGIR, et il n'existe que s'il y
-				//    a quelque chose a retirer. C'est la difference entre proposer un
-				//    geste et le prendre : Rodolf voit « 19 », puis decide. **Aucune
-				//    purge sans son clic** -- et le retrait ne touche QUE la liste des
-				//    recents, jamais le disque.
-				//
-				// ⚠️ IL NE COMPTE QUE CE QUI A ETE REGARDE. `etatFichier` vaut 0 tant
-				//    qu'une carte n'a pas ete dessinee : on ne va pas sonder 103 chemins
-				//    pour afficher un nombre. Le compte grandit donc a mesure que Rodolf
-				//    defile -- et il ne PROMET jamais plus que ce qu'il a vu.
-				{
-					int32 morts = 0;
-					for (usize k = 0; k < rec.items.Size(); ++k)
-						if (rec.items[k].etatFichier == 2u || rec.items[k].etatFichier == 3u)
-							++morts;
-					if (morts > 0) {
-						char lib[80];
-						snprintf(lib, sizeof(lib), "Retirer les %d projet(s) vide(s) ou introuvable(s)", (int)morts);
-						const float32 bw = S(260.f), bh = S(24.f);
-						const NkRect br{x + w - bw, y - S(2.f), bw, bh};
-						const bool ovR = hit.Add("wel.purge", br);
-						p.Outline(br, ovR ? NkRole::AccentUi : NkRole::Border,
-								  ovR ? NkRole::PanelHeader : NkRole::PanelBg, 4.f);
-						p.TextV(br.x + S(8.f), br.y + S(4.f), S(18.f), lib,
-								ovR ? NkRole::Text : NkRole::TextMuted);
-						if (ovR)
-							hit.WantCursor(NkCursorWant::Hand);
-						if (hit.Clicked("wel.purge")) {
-							// A REBOURS : retirer par index en montant decalerait tout ce
-							// qui suit, et on sauterait une entree sur deux.
-							int32 retires = 0;
-							for (isize k = (isize)rec.items.Size() - 1; k >= 0; --k)
-								if (rec.items[(usize)k].etatFichier == 2u || rec.items[(usize)k].etatFichier == 3u) {
-									rec.Remove((usize)k);
-									++retires;
-								}
-							std::printf("[nk3d] ACCUEIL %d projet(s) vide(s) ou introuvable(s) retire(s) de la "
-										"liste des recents (le disque n'est pas touche)\n",
-										(int)retires);
-							std::fflush(stdout);
-						}
-					}
-				}
-				p.HLine(x, y + S(26.f), w);
-				y += S(38.f);
-
-				// GRILLE DE GRANDES VIGNETTES plutot qu'une liste (maquette de
-				// Rihen, 5 aout) : un projet se reconnait a son IMAGE bien avant
-				// son nom. Une liste montre huit lignes de texte ; une grille
-				// montre six images qu'on identifie d'un regard.
-				// Les colonnes s'adaptent a la largeur : la carte garde une
-				// taille lisible au lieu de s'etirer sur un ecran large.
-				// ⚠️ LA BARRE DE DEFILEMENT SE DESSINE DANS `area` (`p.VScroll(area,
-				//    …)`) : si la grille prend toute la largeur, la barre PASSE PAR
-				//    DESSUS la derniere colonne et les cartes de droite paraissent
-				//    coupees. Constat de Rodolf, 24/09 : « a droite ca ne doit pas
-				//    etre coupe ; en haut ou en bas ca peut, il y a le defilement ».
-				//    On lui reserve donc sa largeur, et seulement quand elle sert :
-				//    sans defilement, la grille reprend toute la place.
-				const float32 barreW = S(16.f);
-				const float32 hDispo = H - y - S(64.f);
-				NkRect area{x, y, w, hDispo};
-				const float32 gap = S(12.f);
-				const float32 cardWmin = S(210.f);
-				{
-					// Deux passes : la premiere dit s'il y aura defilement, la
-					// seconde recalcule la largeur en consequence. Une seule passe
-					// ne peut pas trancher, puisque la hauteur du contenu depend de
-					// la largeur qui depend de la barre.
-					const int32 nEstim = (int32)rec.items.Size();
-					int32 c0 = (int32)((area.w + gap) / (cardWmin + gap));
-					if (c0 < 1)
-						c0 = 1;
-					if (c0 > 5)
-						c0 = 5;
-					const float32 cw0 = (area.w - gap * (float32)(c0 - 1)) / (float32)c0;
-					const float32 ch0 = cw0 * 9.f / 16.f + S(48.f);
-					const int32 r0 = (nEstim + c0 - 1) / c0;
-					if ((float32)r0 * (ch0 + gap) > hDispo)
-						area.w -= barreW;
-				}
-				int32 cols = (int32)((area.w + gap) / (cardWmin + gap));
-				if (cols < 1)
-					cols = 1;
-				if (cols > 5)
-					cols = 5;
-				const float32 cardW = (area.w - gap * (float32)(cols - 1)) / (float32)cols;
-				// 16:9 pour l'image + deux lignes de texte dessous.
-				const float32 thumbH = cardW * 9.f / 16.f;
-				const float32 cardH = thumbH + S(48.f);
-				// ── (24/09) NK_ACCUEIL_SONDE : LA GRILLE SE MESURE, ELLE NE SE DEVINE PAS ─
-				// Rodolf voit les cartes de droite coupees. Une correction de largeur
-				// ne se juge pas a l'oeil sur une capture : on imprime les chiffres qui
-				// decident, UNE fois, et on les confronte a l'image rendue.
-				// ⚠️ Le rectangle de la DERNIERE carte de la premiere ligne est celui
-				//    qui doit finir AVANT le bord : c'est lui qu'on imprime, pas une
-				//    moyenne.
-				{
-					static bool sDit = false;
-					if (!sDit && std::getenv("NK_ACCUEIL_SONDE")) {
-						sDit = true;
-						const float32 dernX = area.x + (float32)(cols - 1) * (cardW + gap);
-						std::printf("[nk3d] ACCUEIL W=%.0f H=%.0f leftW=%.0f pad=%.0f x=%.0f w=%.0f "
-									"area.w=%.0f barreW=%.0f cols=%d cardW=%.0f gap=%.0f%c",
-									(double)W, (double)H, (double)leftW, (double)pad, (double)x, (double)w,
-									(double)area.w, (double)S(16.f), (int)cols, (double)cardW, (double)gap,
-									(char)10);
-						std::printf("[nk3d] ACCUEIL derniere carte ligne 1 : x=%.0f -> %.0f ; "
-									"barre de defilement : x=%.0f -> %.0f ; bord de la fenetre=%.0f ; "
-									"depassement=%.0f%c",
-									(double)dernX, (double)(dernX + cardW), (double)(x + w - S(16.f)),
-									(double)(x + w), (double)W, (double)((dernX + cardW) - W), (char)10);
-						std::fflush(stdout);
-					}
-				}
-				const int32 n = (int32)rec.items.Size();
-				if (n == 0) {
-					// ETAT VIDE HONNETE : aucune carte de demonstration. La liste
-					// dit qu'elle est vide et ce qui la remplira.
-					p.TextV(x, y, S(24.f), "Aucun projet ouvert pour l'instant.",
-							NkRole::TextMuted);
-					p.TextV(x, y + S(26.f), S(24.f),
-							"Creez-en un, ou ouvrez un fichier .nk3dm existant.",
-							NkRole::TextMuted);
-				} else {
-					const int32 rows = (n + cols - 1) / cols;
-					const float32 contentH = (float32)rows * (cardH + gap);
-					hit.WheelIn(area, st.welcomeScroll, contentH, area.h);
-					if (st.welcomeScroll < 0.f)
-						st.welcomeScroll = 0.f;
-					const float32 maxOff = contentH > area.h ? (contentH - area.h) : 0.f;
-					if (st.welcomeScroll > maxOff)
-						st.welcomeScroll = maxOff;
-
-					p.Clip(area);
-					char key[40];
-					for (int32 i = 0; i < n; ++i) {
-						const int32 cx = i % cols, cy = i / cols;
-						const NkRect cr{area.x + (float32)cx * (cardW + gap),
-										area.y + (float32)cy * (cardH + gap) - st.welcomeScroll,
-										cardW, cardH};
-						if (cr.y + cr.h < area.y || cr.y > area.y + area.h)
-							continue;
-						NkRecentEntry &e = rec.items[(usize)i];
-						// (25/09) LE FICHIER EXISTE-T-IL ? Mesure UNE fois par entree, a la
-						// premiere image ou la carte se voit -- pas a chaque image, et pas
-						// pour les cartes hors champ (la boucle les a deja sautees).
-						if (e.etatFichier == 0) {
-							// ⚠️ CE N'EST PAS « LE FICHIER EXISTE-T-IL », ET C'EST UNE PREMISSE
-							//    QUE J'AI DU CORRIGER. `NkRecentList::Load` FILTRE DEJA les
-							//    entrees dont le `.nk3dm` a disparu (`if (!e.path.Empty() &&
-							//    NkFile::Exists(...)) items.PushBack(e)`) : une carte
-							//    « fichier introuvable » ne peut donc pas exister au
-							//    lancement. Mesure : une liste de 5 morts + 1 vivant charge
-							//    « 1 projet(s) recent(s) ».
-							//    Ce que Rodolf voit -- 19 cartes sur 20 sans vignette -- ce
-							//    sont des projets QUI EXISTENT ET QUI SONT VIDES : le `.nk3dm`
-							//    est la, le dossier ne porte AUCUN `.nkscene`. Des coquilles
-							//    creees par des courses de mesure.
-							// ⚠️ UN BALAYAGE DE DOSSIER PAR CARTE, UNE SEULE FOIS, et
-							//    seulement pour les cartes DESSINEES : la boucle a deja saute
-							//    celles qui sont hors champ.
-							const NkString dossier = NkPath(e.path.CStr()).GetParent().ToString();
-							const bool absent = !NkFile::Exists(e.path.CStr());
-							bool vide = false;
-							if (!absent) {
-								const NkVector<NkString> sc = NkDirectory::GetFiles(
-									dossier.CStr(), "*.nkscene", NkSearchOption::NK_TOP_DIRECTORY_ONLY);
-								vide = sc.Empty();
-							}
-							e.etatFichier = absent ? 2u : (vide ? 3u : 1u);
-						}
-						const bool introuvable = (e.etatFichier == 2u);
-						const bool vide = (e.etatFichier == 3u);
-						const bool aRetirer = introuvable || vide;
-						snprintf(key, sizeof(key), "wel.rec.%d", i);
-						const bool over = hit.Add(key, cr);
-						p.Outline(cr, over && !aRetirer ? NkRole::AccentUi : NkRole::Border,
-								  over && !aRetirer ? NkRole::PanelHeader : NkRole::PanelBg, 5.f);
-						// ⚠️ PAS LA MAIN SUR UNE CARTE MORTE : le curseur promet un clic qui
-						//    ne peut qu'echouer. La carte reste cliquable -- l'ouverture rend
-						//    alors un refus NOMME -- mais elle cesse de faire la publicite
-						//    d'un projet qui n'existe pas.
-						if (over && !aRetirer)
-							hit.WantCursor(NkCursorWant::Hand);
-
-						// VIGNETTE : la derniere image du projet, PLEINE LARGEUR de
-						// la carte. Repli sur un aplat neutre -- un projet sans
-						// rendu n'a rien a montrer, et une image d'emprunt ferait
-						// croire au contenu d'un autre.
-						const NkRect tr{cr.x + S(1.f), cr.y + S(1.f), cr.w - S(2.f), thumbH};
-						if (e.tex)
-							p.Image(e.tex, tr);
-						else {
-							p.Fill(tr, NkRole::InputBg, 4.f);
-							p.IconV(tr.x + (tr.w - S(20.f)) * 0.5f, tr.y, tr.h,
-									NkIcon::ImageRef, NkRole::TextMuted, 20.f);
-						}
-
-						// Nom et date SOUS l'image, sur deux lignes serrees : le
-						// chemin complet n'a pas sa place ici, il noierait le nom.
-						const float32 txx = cr.x + S(10.f);
-						p.Clip({txx, cr.y + thumbH, cr.w - S(66.f), S(46.f)});
-						p.TextV(txx, cr.y + thumbH + S(4.f), S(22.f), e.name.CStr());
-						// (25/09) UNE CARTE MORTE LE DIT, a la place de sa date : la date
-						// d'un projet disparu n'apprend rien, et l'absence, si.
-						if (introuvable)
-							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet introuvable",
-									NkRole::StatusErr);
-						else if (vide)
-							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f), "projet vide — aucune scene",
-									NkRole::StatusErr);
-						else
-							p.TextV(txx, cr.y + thumbH + S(24.f), S(20.f),
-									e.date.Empty() ? "date inconnue" : e.date.CStr(),
-									NkRole::TextMuted);
-						p.Unclip();
-
-						// EPINGLE et RETRAIT, comme NKCode. L'epingle garde le projet
-						// en tete quoi qu'il arrive ; le retrait ne touche QUE la
-						// liste, jamais le disque -- il faut que ce soit sans danger.
-						// Poses SUR l'image, en bas a droite : ils ne volent pas de
-						// place au nom et restent a portee.
-						snprintf(key, sizeof(key), "wel.pin.%d", i);
-						const NkRect pr{cr.x + cr.w - S(56.f), cr.y + thumbH + S(12.f), S(24.f),
-										S(24.f)};
-						const bool ovP = hit.Add(key, pr);
-						p.IconV(pr.x, pr.y, pr.h, NkIcon::Pin,
-								e.pinned ? NkRole::AccentSel
-										 : (ovP ? NkRole::Text : NkRole::TextMuted),
-								14.f);
-						if (hit.Clicked(key))
-							rec.TogglePin((usize)i);
-
-						snprintf(key, sizeof(key), "wel.del.%d", i);
-						const NkRect dr{cr.x + cr.w - S(30.f), cr.y + thumbH + S(12.f), S(24.f),
-										S(24.f)};
-						const bool ovD = hit.Add(key, dr);
-						p.IconV(dr.x, dr.y, dr.h, NkIcon::Trash,
-								ovD ? NkRole::Text : NkRole::TextMuted, 14.f);
-						if (hit.Clicked(key)) {
-							rec.Remove((usize)i);
-							break; // la liste a change : on ne continue pas dessus
-						}
-
-						snprintf(key, sizeof(key), "wel.rec.%d", i);
-						if (hit.Clicked(key)) {
-							st.projRecent = i;
-							st.projPending = 7;
-						}
-					}
-					p.Unclip();
-					// La barre se dessine dans la BANDE RESERVEE, a droite de la
-					// grille retrecie : `area` ne la contient plus (voir la garde
-					// plus haut), sinon elle reviendrait sur la derniere colonne.
-					p.VScroll(NkRect{x, y, w, hDispo}, contentH, st.welcomeScroll);
-				}
-			}
-
-			// ── PIED DE PAGE : version, compte, astuce ──────────────────────────
-			// Repris de la maquette de Rihen. L'ASTUCE tourne a chaque ouverture :
-			// elle enseigne les gestes qu'on ne decouvre pas seul, et c'est le
-			// seul contenu « editorial » qui n'ait besoin d'aucun serveur.
-			{
-				const float32 fy = H - S(46.f);
-				p.HLine(pad, fy - S(6.f), W - pad * 2.f);
-				// LA SIGNATURE CEDE LA PLACE A L'ERREUR. Les deux occupaient la
-				// MEME ligne : superposees, aucune des deux n'etait lisible. Entre
-				// un nom d'application decoratif et un message qui dit pourquoi
-				// l'action de l'utilisateur a echoue, c'est le message qui compte.
-				const bool showErr = !st.newProjOpen && st.projError[0] != 0;
-				if (!showErr)
-					p.TextV(pad, fy, S(22.f), "NKCraft — Nkentseu", NkRole::TextMuted);
-				// Rotation par le NOMBRE DE PROJETS connus : stable pendant la
-				// session (l'astuce ne saute pas d'une image a l'autre) et
-				// differente d'une ouverture a l'autre.
-				static const char *const kTips[6] = {
-					"Astuce : Tab bascule entre le mode Objet et le mode Edition.",
-					"Astuce : Ctrl pendant un deplacement inverse l'aimantation.",
-					"Astuce : la molette sur un champ numerique l'ajuste finement.",
-					"Astuce : G, R et S transforment tout de suite, sans changer d'outil.",
-					"Astuce : Maj+D duplique ; Ctrl+C / Ctrl+V copie entre les scenes.",
-					"Astuce : le point-virgule ouvre les cibles d'aimantation."};
-				const int32 ti = (int32)(rec.items.Size() % 6u);
-				const char *tip = kTips[ti];
-				p.TextV(W - pad - p.TextW(tip), fy, S(22.f), tip, NkRole::TextMuted);
-			}
-
-			// ── CE QUI EST ENREGISTRE, ET CE QUI NE L'EST PAS ───────────────────
-			// La scene EST desormais sauvegardee, mais pas entierement. Annoncer
-			// ce qui manque vaut mieux qu'un silence : quelqu'un qui sculpte une
-			// heure doit savoir AVANT de fermer que son maillage edite ne sera pas
-			// repris. La liste de reference vit dans NkModelerScene.h.
-			// LA GEOMETRIE EST PASSEE DU COTE « ENREGISTRE » le 13/09. Cette ligne
-			// est le contrat affiche : la laisser dire « pas encore » alors que les
-			// sommets sont ecrits ferait douter d'un travail pourtant sauve, et le
-			// contraire ferait perdre du travail. Elle suit la liste de reference
-			// de NkModelerScene.h, et elle la suit DANS LE MEME COMMIT.
-			p.TextV(pad, H - S(24.f), S(20.f),
-					"Enregistre : objets, GEOMETRIE (sommets et faces), materiaux, lumieres, "
-					"cameras, scenes. Pas encore : modificateurs.",
-					NkRole::TextMuted);
 
 			PaintNewProjectDialog(p, W, H, st, hit, ws, in);
-
-			// L'erreur de la derniere action projet, quand aucune boite n'est la
-			// pour la porter. Elle reste affichee jusqu'a la prochaine action :
-			// une erreur qui disparait toute seule n'a servi a personne.
-			if (!st.newProjOpen && st.projError[0]) {
-				// Meme ligne que la signature, qui s'efface pour elle (cf. plus
-				// haut). La decoupe borne le texte a la largeur utile : un message
-				// long deborderait sur l'astuce, a droite.
-				p.Clip({pad, H - S(46.f), W * 0.62f, S(22.f)});
-				p.TextV(pad, H - S(46.f), S(22.f), st.projError, NkRole::AccentSel);
-				p.Unclip();
-			}
 		}
 
 		// ── EXECUTION DES ACTIONS PROJET, APRES LA FRAME ────────────────────────
@@ -1046,9 +864,10 @@ namespace nkentseu {
 				}
 
 				case 6: // creation reelle
-					if (NkProjectCreate(st.newProjDir, st.newProjName, proj, &err))
+					if (NkProjectCreate(st.newProjDir, st.newProjName, proj, &err)) {
 						opened();
-					else
+						NkWelcomeAppliquerModele(st); // (01/10) le modele choisi sur le lanceur
+					} else
 						fail(err);
 					break;
 

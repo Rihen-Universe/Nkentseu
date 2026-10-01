@@ -113,6 +113,24 @@ static void NkCrochetsPanneauIA(nkentseu::nkgui::NkGuiContext &ui, nkentseu::int
 		sSortie = c ? (int32)std::atoi(c) : -1;
 	}
 	++sImage;
+	// (2026-10-01) NK_CAPTURE_FENETRE=<n>:<fichier.png> : la FENETRE ENTIERE a
+	// l'image n, par le relecteur du dorsal NKCanvas (CaptureNext : textures,
+	// logos et icones compris -- ce que la rasterisation des listes ne voit
+	// pas). Avec NK_FENETRE_CACHEE=1, aucune fenetre ne surgit a l'ecran.
+	{
+		static int32 sCapture = -2;
+		static char sCheminCapture[256] = {0};
+		if (sCapture == -2) {
+			const char *v = std::getenv("NK_CAPTURE_FENETRE");
+			sCapture = v ? NkLireImage(v, sCheminCapture, sizeof(sCheminCapture), 60) : -1;
+		}
+		if (sImage == sCapture && sh && sh->Renderer()) {
+			const bool arme = sh->Renderer()->CaptureNext(sCheminCapture);
+			printf("[nkcode] CAPTURE FENETRE image=%d -> %s (%s)\n", (int)sImage, sCheminCapture,
+				   arme ? "armee" : "REFUSEE par le dorsal");
+			fflush(stdout);
+		}
+	}
 	{
 		// (Q9) NK_EVENEMENTS : rejoue par les rappels de la coquille
 		static editorkit::NkEditorScriptEvenements sScript;
@@ -232,6 +250,16 @@ int nkmain(const NkEntryState &state) {
 		nkcode::NkOpenWsState::ExeDir() = exeDir;
 	}
 
+	// (2026-10-01) LA PHOTO DU LANCEUR (accueil partage), sans fenetre ni GPU :
+	// --capture-lanceur=FICHIER.png [--theme-lanceur=clair]
+	{
+		bool clair = false;
+		const NkString capture =
+			editorkit::NkLanceurCaptureDemandee((int32)state.args.Size(), state.args.Data(), &clair);
+		if (!capture.Empty())
+			return nkcode::NkHomeLanceurCapturer(capture, clair);
+	}
+
 	nkcode::InstallLogSink(); // capture les logs NKLogger -> panneau OUTPUT
 
 	nkcode::NkSynInitDefaultLangs(); // coloration data-driven (CSS, JS, Lua, Rust…)
@@ -313,6 +341,7 @@ int nkmain(const NkEntryState &state) {
 	gPanneauxIA[2] = &codexPanel;
 	gPanneauxIA[3] = &nkaiPanel;
 	if (std::getenv("NK_AI_IMAGE") || std::getenv("NK_AI_PANNEAU") || std::getenv("NK_AGENT_EXIT") ||
+		std::getenv("NK_CAPTURE_FENETRE") ||
 		std::getenv("NK_TERM_TAPER"))
 		shell->SetApresImage(&NkCrochetsPanneauIA, shell.Get());
 	static ScaffoldPanel pEngine("Moteur", NkEditorDockSide::NK_RIGHT, "Maquette - roadmap #17", sc::kEngine, 1);

@@ -20,6 +20,11 @@ namespace nkanima {
 
 	// Cycle de vie / lecture
 	bool AnimInit(const char *modelPath); // charge + bake ; true si OK
+	/// (01/10) Un chemin de ressource (« Resources/Models/... ») resolu comme
+	/// NKRenderer resout ses shaders : tel quel, puis sous la racine trouvee en
+	/// remontant depuis l'executable. L'application se lance alors de n'importe
+	/// quel dossier. Le chemin est rendu inchange si rien ne repond.
+	nkentseu::NkString AnimCheminRessource(const char *relatif);
 	bool AnimLoaded();
 	void AnimUpdate(float32 dt); // avance le player si en lecture
 	bool AnimIsPlaying();

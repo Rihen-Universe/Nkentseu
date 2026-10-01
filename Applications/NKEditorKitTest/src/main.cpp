@@ -126,6 +126,13 @@
 #include "NKEditorKit/Components/NkAnimationProbe.h" // (01/10) famille 31 : la frise et le graphe d'etats
 #include "NKEditorKit/Famille/NkFamilleDetails.h" // (02/10) famille 32 : les Details de la famille
 #include "NKGui/Core/NkGuiFont.h"
+#include "NKEditorKit/Components/NkProjectLauncherProbe.h" // (01/10) famille 33 : le lanceur de projets partage
+// (01/10) LES DEUX TOUCHES PRETES A BRANCHER (Nogee, UnkenyEditor) : leur
+// interface est en travaux chez d'autres agents, elles ne sont donc pas encore
+// appelees par leur application. Le banc les COMPILE (elles ne dependent que du
+// kit) et, avec --capture-lanceurs=DOSSIER, les PHOTOGRAPHIE sans fenetre.
+#include "../../Nogee/src/Nogee/Shell/NogeeLanceur.h"
+#include "../../UnkenyEditor/src/Editeur/NkEditeurLanceur.h"
 
 #include <stdio.h>
 
@@ -1290,6 +1297,25 @@ namespace porteprobe {
 int main(int argc, char **argv) {
 	(void)argc;
 	(void)argv;
+	// (01/10) --capture-lanceurs=DOSSIER : les lanceurs prets a brancher (Nogee,
+	// UnkenyEditor), en sombre et en clair, puis sortie. Rien d'autre ne tourne.
+	for (int i = 1; i < argc; ++i) {
+		const char *a = argv[i];
+		const char *k = "--capture-lanceurs=";
+		int n = 0;
+		while (k[n] && a[n] == k[n])
+			++n;
+		if (k[n] == 0 && a[n]) {
+			nkentseu::NkString d(a + n);
+			(void)nkentseu::NkDirectory::CreateRecursive(d.CStr());
+			int code = 0;
+			code |= nkentseu::nogee::NogeeCapturerLanceur(d + "/nogee_sombre.png", false);
+			code |= nkentseu::nogee::NogeeCapturerLanceur(d + "/nogee_clair.png", true);
+			code |= nkentseu::unkeny::NkEditeurCapturerLanceur(d + "/unkenyeditor_sombre.png", false);
+			code |= nkentseu::unkeny::NkEditeurCapturerLanceur(d + "/unkenyeditor_clair.png", true);
+			return code;
+		}
+	}
 	printf("=== BANC NKEditorKit — roles de theme et backend graphique ===\n");
 
 	Famille1_Canonisation();
@@ -1922,6 +1948,18 @@ int main(int argc, char **argv) {
 		Check("32d", yEntete > y0 - 0.01f && yEntete < y0 + 0.01f, "la molette sur l'en-tete ne fait rien defiler");
 		al.Delete(police);
 		al.Delete(pctx);
+	}
+
+	// Famille 33 - (01/10) LE LANCEUR DE PROJETS PARTAGE : des gestes rejoues,
+	// des demandes lues (Nouveau, Ouvrir, recherche, tri, bouton d'hote, glyphes,
+	// page de liens) ; l'image d'essai s'ecrit dans Build/lanceur. (Numerote 31 sur
+	// sa branche ; renumerote 33 a la fusion du 02/10 : la frise a le 31, les Details le 32.)
+	{
+		printf("\n--- Famille 33 : le lanceur de projets partage ---\n");
+		const editorkit::lanceurprobe::Bilan b33 = editorkit::lanceurprobe::Sonder("Build/lanceur");
+		printf("  famille 33 : %u/%u\n", b33.ok, b33.total);
+		gPassed += b33.ok;
+		gFailed += (b33.total - b33.ok);
 	}
 
 	printf("\n---------------------------------------------\n");

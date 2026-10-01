@@ -483,6 +483,12 @@ namespace nkentseu {
 			// vraie parade au vol de clics ; la porte par image ne fait que jeter ce
 			// qui est entre malgre tout. Hors sonde, rien ne bouge.
 			(void)NkSondePoserFenetreDiscrete(wc);
+			// (2026-10-01) NK_FENETRE_CACHEE=1 : la fenetre existe (device, boucle,
+			// ecran de demarrage) mais n'apparait pas a l'ecran -- l'instrument des
+			// mesures, meme mot que NKCraft. Sans la variable, rien ne change.
+			if (const char *fc = getenv("NK_FENETRE_CACHEE"))
+				if (fc[0] && fc[0] != '0')
+					wc.visible = false;
 			if (!mWindow.Create(wc))
 				return false;
 			CopyStr(mTitle, config.title, sizeof(mTitle));

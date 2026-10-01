@@ -3,6 +3,7 @@
 // =============================================================================
 #include "NkMaterialLibrary.h"
 #include "NkMaterialSystem.h"
+#include "NKRenderer/Core/NkRendererResourcePath.h"
 #include "NKSerialization/Asset/NkAssetImporter.h"
 #include "NKFileSystem/NkFileWatcher.h"
 #include "NKFileSystem/NkDirectory.h"
@@ -50,10 +51,13 @@ namespace nkentseu {
 		uint32 NkMaterialLibrary::ScanDirectory(const NkString &assetRootDir) {
 			if (!IsValid())
 				return 0;
-			mScanRoot = assetRootDir;
+			// (2026-10-01) RESOLU : tel quel, puis sous la racine trouvee en remontant
+			// depuis l'executable (NkRendererResourcePath.h).
+			const NkString racine = NkRendererResolvePath(assetRootDir);
+			mScanRoot = racine;
 
 			NkVector<NkString> files;
-			files = NkDirectory::GetFiles(assetRootDir.CStr(), "*.nkasset", NkSearchOption::NK_ALL_DIRECTORIES);
+			files = NkDirectory::GetFiles(racine.CStr(), "*.nkasset", NkSearchOption::NK_ALL_DIRECTORIES);
 
 			uint32 added = 0;
 			for (nk_size i = 0; i < files.Size(); ++i) {

@@ -3,6 +3,10 @@
 #include "Noge/Core/NkApplication.h"
 #include "NKRenderer/NkRenderer.h" // SetUIOverlayCallback (passe Overlay2D)
 #include "NKLogger/NkLog.h"
+#include "NKWindow/Core/NkDialogs.h"  // (01/10) « Ouvrir un cas... »
+#include "NKWindow/Core/NkLauncher.h" // (01/10) liens du lanceur
+#include "NKFileSystem/NkPath.h"
+#include "NKFileSystem/NkFile.h"
 #include "NKEvent/NkMouseEvent.h"
 #include "NKEvent/NkKeyboardEvent.h"
 #include <cstdio>
@@ -122,14 +126,28 @@ namespace nkentseu {
 
 			mCtx.BeginFrame(mDt);
 
-			RenderMenuBar();
-			RenderViewport();
+			// (01/10) LE LANCEUR d'abord : tant qu'il est ouvert, il occupe tout
+			// l'ecran ; la consultation (menus, vue, panneaux) vient apres.
+			if (mOuvrirCasDiffere) {
+				// Le selecteur natif ouvre une boucle modale : jamais au milieu
+				// d'une peinture, toujours ici, en tete d'image.
+				mOuvrirCasDiffere = false;
+				const NkDialogResult d = NkDialogs::OpenFileDialog("*.nkcase", "Ouvrir un cas clinique (.nkcase)");
+				if (d.confirmed && !d.path.Empty() && OuvrirCas(d.path))
+					mLanceurActif = false;
+			}
+			if (mLanceurActif && PV3DELanceurAuDemarrage()) {
+				RenderLanceur();
+			} else {
+				RenderMenuBar();
+				RenderViewport();
 
-			// ── 4 panels ──────────────────────────────────────────────────────
-			mSymptomPanel.Render(mCtx, *mPatient, mLayout.symptom);
-			mDiagPanel.Render(mCtx, *mPatient, mLayout.diagnostic);
-			mStatePanel.Render(mCtx, *mPatient, mLayout.state);
-			mReportPanel.Render(mCtx, *mPatient, mLayout.report);
+				// ── 4 panels ──────────────────────────────────────────────────
+				mSymptomPanel.Render(mCtx, *mPatient, mLayout.symptom);
+				mDiagPanel.Render(mCtx, *mPatient, mLayout.diagnostic);
+				mStatePanel.Render(mCtx, *mPatient, mLayout.state);
+				mReportPanel.Render(mCtx, *mPatient, mLayout.report);
+			}
 
 			mCtx.EndFrame();
 
@@ -242,6 +260,98 @@ namespace nkentseu {
 
 
 		// =====================================================================
+		// =====================================================================
+		// (01/10) LE LANCEUR — le composant du kit, avec la touche PV3DE.
+		bool MedicalUILayer::OuvrirCas(const NkString &chemin) noexcept {
+			if (!mPatient || chemin.Empty())
+				return false;
+			if (!mPatient->LoadCase(chemin.CStr())) {
+				mLanceur.erreur = NkString("Cas illisible : ") + chemin;
+				return false;
+			}
+			PV3DERecents().Toucher(chemin, NkPath(chemin.CStr()).GetFileNameWithoutExtension(),
+								   editorkit::NkLanceurAujourdhui());
+			mLanceur.erreur.Clear();
+			logger.Infof("[MedicalUILayer] cas ouvert depuis le lanceur : %s\n", chemin.CStr());
+			return true;
+		}
+
+		bool MedicalUILayer::AgirLanceur(const editorkit::NkProjectLauncherResult &r) noexcept {
+			using namespace editorkit;
+			const int32 i = r.index;
+			const bool projetValide = i >= 0 && (usize)i < mLanceur.projets.Size();
+			switch (r.action) {
+				case NkLanceurAction::NouveauProjet:
+				case NkLanceurAction::NouveauDepuisModele: {
+					uint32 n = 0;
+					const PV3DEScenario *sc = PV3DEScenarios(n);
+					const uint32 k = (r.action == NkLanceurAction::NouveauProjet || i < 0) ? 0u : (uint32)i;
+					if (k >= n || !mPatient)
+						return false;
+					// Les MEMES gestes que « Cas clinique > Reinitialiser » et le
+					// menu « Patient » : rien d'autre n'est invente.
+					mPatient->ClearSymptoms();
+					mPatient->SetVitalSigns(sc[k].pouls, sc[k].temperature, sc[k].spo2);
+					mPatient->ForceEmotion(sc[k].emotion, sc[k].intensite);
+					logger.Infof("[MedicalUILayer] scenario « %s » depuis le lanceur\n", sc[k].nom);
+					return true;
+				}
+				case NkLanceurAction::Ouvrir:
+					mOuvrirCasDiffere = true;
+					return false;
+				case NkLanceurAction::OuvrirRecent:
+					return projetValide && mLanceur.projets[(usize)i].etat == 0u &&
+						   OuvrirCas(mLanceur.projets[(usize)i].chemin);
+				case NkLanceurAction::Epingler:
+					if (projetValide)
+						PV3DERecents().BasculerEpingle((usize)mLanceur.projets[(usize)i].hote);
+					return false;
+				case NkLanceurAction::Retirer:
+					if (projetValide)
+						PV3DERecents().Retirer((usize)mLanceur.projets[(usize)i].hote);
+					return false;
+				case NkLanceurAction::Purger:
+					for (isize k = (isize)PV3DERecents().entrees.Size() - 1; k >= 0; --k)
+						if (!NkFile::Exists(PV3DERecents().entrees[(usize)k].chemin.CStr()))
+							PV3DERecents().Retirer((usize)k);
+					return false;
+				case NkLanceurAction::BasculerTheme:
+					mLanceurTheme = mLanceurTheme.IsDark() ? NkTheme::Light() : NkTheme::Dark();
+					return false;
+				case NkLanceurAction::OuvrirLien:
+					if (r.url && *r.url)
+						NkLauncher::OpenURL(r.url);
+					return false;
+				default:
+					return false;
+			}
+		}
+
+		void MedicalUILayer::RenderLanceur() noexcept {
+			using namespace editorkit;
+			if (!mLanceurPret) {
+				mLanceurPret = true;
+				PV3DERemplirLanceur(mLanceur);
+				PV3DERecents().Charger("PV3DE");
+				(void)mLanceurPolices.Charger(1.f, nullptr);
+				if (mBackendReady) { // les atlas du lanceur, par la meme porte que la police
+					const nkgui::NkGuiFont *f[3] = {&mLanceurPolices.titre, &mLanceurPolices.intertitre,
+													&mLanceurPolices.petite};
+					for (const nkgui::NkGuiFont *x : f)
+						if (x->Valid() && x->pixels)
+							mBackend.UploadTextureGray8(x->TexId(), x->pixels, x->atlasW, x->atlasH);
+				}
+				logger.Infof("[MedicalUILayer] lanceur affiche (%u scenario(s))\n", (unsigned)mLanceur.modeles.Size());
+			}
+			PV3DERecents().Remplir(mLanceur);
+			mLanceur.themeSombre = mLanceurTheme.IsDark();
+			const NkProjectLauncherResult res =
+				NkLanceurPeindre(mCtx, mLanceurTheme, mLanceurPolices,
+								 NkPaintRect{0.f, 0.f, (float32)mCtx.viewW, (float32)mCtx.viewH}, mLanceur);
+			if (res.action != NkLanceurAction::Aucune && AgirLanceur(res))
+				mLanceurActif = false;
+		}
+
 		void MedicalUILayer::ComputeLayout() noexcept {
 			float32 W = (float32)mCtx.viewW;
 			float32 H = (float32)mCtx.viewH;
@@ -269,9 +379,14 @@ namespace nkentseu {
 
 			// ── Menu Cas clinique ─────────────────────────────────────────────
 			if (BeginMenu(mCtx, "Cas clinique")) {
+				// (01/10) CES DEUX ENTREES ETAIENT MORTES (corps vide) : elles
+				// menent desormais au lanceur et au selecteur de cas.
 				if (MenuItem(mCtx, "Nouveau cas")) {
+					mLanceurActif = true;
+					PV3DELanceurAuDemarrage() = true;
 				}
 				if (MenuItem(mCtx, "Charger (.nkcase)")) {
+					mOuvrirCasDiffere = true;
 				}
 				Separator(mCtx);
 				if (MenuItem(mCtx, "Réinitialiser")) {
