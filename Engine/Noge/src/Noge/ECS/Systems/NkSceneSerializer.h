@@ -51,10 +51,18 @@ namespace nkentseu {
 				using DeserializeFn = bool (*)(void *comp, const NkArchive &in);
 				using AddFn = void (*)(NkWorld &world, NkEntityId id);
 
+				// Acces a l'instance du composant d'une entite (nullptr si absent).
+				// AJOUTE LE 2026-09-30 : sans lui, Save produisait des archives VIDES
+				// et Load ajoutait des composants PAR DEFAUT sans les remplir (le
+				// « TODO : obtenir via NkWorld::GetRaw » du .cpp). Le gabarit
+				// RegisterComponentSerializer<T> le pose tout seul.
+				using GetFn = void *(*)(NkWorld &world, NkEntityId id);
+
 				const char *typeName = nullptr;
 				SerializeFn serialize = nullptr;
 				DeserializeFn deserialize = nullptr;
 				AddFn addDefault = nullptr; // crée le composant par défaut
+				GetFn get = nullptr;		// l'instance du composant (typé, via world.Get<T>)
 		};
 
 		// =====================================================================
@@ -85,8 +93,26 @@ namespace nkentseu {
 					cs.serialize = sfn;
 					cs.deserialize = dfn;
 					cs.addDefault = addFn;
+					// Le type est CONNU ici : l'acces a l'instance se deduit, personne
+					// n'a a l'ecrire (2026-09-30).
+					cs.get = [](NkWorld &world, NkEntityId id) -> void * { return world.Get<T>(id); };
+					if (cs.addDefault == nullptr)
+						cs.addDefault = [](NkWorld &world, NkEntityId id) { (void)world.Add<T>(id); };
 					RegisterComponentSerializer(cs);
 				}
+
+				// Enregistre les serialiseurs des composants STANDARD de Noge
+				// (2026-09-30) : NkName (sous le nom « NkNameComponent », celui que
+				// DeserializeEntity lit pour nommer le noeud), NkTransform,
+				// NkMeshComponent, NkMaterialComponent, NkLightComponent,
+				// NkCameraComponent, NkRigidbody3D, NkCollider3D. Idempotent.
+				// ⚠️ Les HANDLES d'execution (maillage, materiau, corps physique) ne
+				//    sont PAS ecrits : ils sont recrees au chargement depuis les
+				//    chemins, les couleurs et les formes.
+				static void RegisterCoreComponents() noexcept;
+
+				// Nombre de serialiseurs enregistres.
+				static nk_uint32 RegisteredCount() noexcept;
 
 				// ── Sauvegarde ────────────────────────────────────────────────────
 				bool Save(const NkSceneGraph &scene, const char *path) const noexcept;
@@ -102,6 +128,11 @@ namespace nkentseu {
 				bool Load(NkSceneGraph &scene, const char *path) const noexcept;
 
 				bool LoadFromArchive(NkSceneGraph &scene, const NkArchive &archive) const noexcept;
+
+				// Lit le fichier en archive SANS toucher a aucune scene (format
+				// courant). Permet de verifier qu'un fichier se lit AVANT de vider
+				// la scene qui le recevra (2026-09-30).
+				bool ReadArchiveFile(const char *path, NkArchive &outArchive) const noexcept;
 
 				// ── Format de sérialisation (configurable) ────────────────────────
 				// Défaut : NK_NATIVE (binaire propriétaire optimisé). JSON/XML/YAML

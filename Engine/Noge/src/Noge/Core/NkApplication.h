@@ -147,12 +147,16 @@ namespace nkentseu {
 			NkApplicationConfig mConfig;
 			NkWindow mWindow;
 			NkIDevice *mDevice = nullptr;
-			NkICommandBuffer *mCmd = nullptr;
+			NkICommandBuffer *mCmd = nullptr; // COURANT : celui de l'image (renderer) pendant Run()
 			renderer::NkRenderer *mRenderer = nullptr; // moteur 2D/3D (sur mDevice)
 			NkLayerStack mLayerStack;
 			bool mRunning = false;
 
 		private:
+			// Celui que l'application a CREE (InitDevice) et qu'elle seule rend au
+			// device (ShutdownDevice). `mCmd` pointe ensuite sur celui du renderer.
+			NkICommandBuffer *mOwnedCmd = nullptr;
+
 			// ── Implémentation interne ────────────────────────────────────────────
 
 			bool InitPlatform();

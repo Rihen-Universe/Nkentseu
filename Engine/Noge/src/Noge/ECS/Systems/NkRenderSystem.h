@@ -13,10 +13,22 @@
 //                              Résolution handles GPU (NkResourceManager)
 //                              Frustum culling (viewProj × AABB)
 //                              NkRender3D::Submit(drawCall)
-//   4. NkRender3D::EndScene(cmd) → flush GPU
+//   4. NkRender3D::BeginScene + Submit ; le Flush est celui de la passe
+//      Geometry du render graph, au Present() (2026-09-30, voir le .cpp).
 //
 // SCHEDULER :
 //   InGroup(NkSystemGroup::Render) — après tous les autres groupes
+//   ⚠️ NkEngineLayer ne le met PLUS dans son ordonnanceur (2026-09-30) : le
+//      groupe Render y tournait dans OnUpdate, AVANT BeginFrame. La couche
+//      l'execute dans OnRender, entre BeginFrame et Present.
+//
+// SANS FICHIER (2026-09-30) :
+//   - NkMeshComponent::meshPath = "primitive:cube" (sphere, plane, quad,
+//     cylinder, cone, capsule, icosphere) : primitive du NkMeshSystem ;
+//   - NkMaterialComponent::SetColor(slot, couleur, metallic, rugosite) : la
+//     couleur passe par le canal PAR DRAW CALL (tint / metallic / roughness),
+//     celui que lit le nuanceur PBR ; le materiau lie reste l'instance de
+//     repli du renderer.
 // =============================================================================
 
 #include "NKECS/System/NkSystem.h"
@@ -92,12 +104,40 @@ namespace nkentseu {
 				return mRenderer ? mRenderer->GetStats() : mEmptyStats;
 			}
 
+			/// Flush dans Execute (l'ancien comportement). Par defaut NON : le
+			/// Flush appartient a la passe Geometry du render graph (Present).
+			void SetManualFlush(bool v) noexcept {
+				mManualFlush = v;
+			}
+
+			/// Draw calls soumis par le dernier Execute (apres culling).
+			[[nodiscard]] nk_uint32 GetLastSubmittedCount() const noexcept {
+				return mLastSubmitted;
+			}
+
+			/// La camera retenue au dernier Execute (priorite maximale).
+			[[nodiscard]] ecs::NkEntityId GetActiveCamera() const noexcept {
+				return mActiveCameraId;
+			}
+
+			/// Sa matrice vue-projection (celle du culling), pour projeter un point.
+			[[nodiscard]] const NkMat4f &GetViewProjection() const noexcept {
+				return mViewProjMatrix;
+			}
+
 		private:
 			void UpdateActiveCamera(ecs::NkWorld &world) noexcept;
 			void CollectLights(ecs::NkWorld &world) noexcept;
 			void SubmitMeshes(ecs::NkWorld &world) noexcept;
 
 			[[nodiscard]] bool IsVisible(const renderer::NkAABB &aabb) const noexcept;
+
+			// « primitive:<nom> » -> maillage built-in (cube, sphere, plane...).
+			[[nodiscard]] static renderer::NkMeshHandle ResolvePrimitive(renderer::NkMeshSystem &meshSys,
+																		 const char *name) noexcept;
+			// Boite locale -> boite monde par la matrice ENTIERE (echelle et rotation comprises).
+			[[nodiscard]] static renderer::NkAABB TransformAABB(const renderer::NkAABB &local,
+																const NkMat4f &world) noexcept;
 
 			[[nodiscard]] static renderer::NkLightType ConvertLightType(ecs::NkLightType t) noexcept {
 				switch (t) {
@@ -129,6 +169,14 @@ namespace nkentseu {
 			NkMat4f mViewProjMatrix = NkMat4f::Identity();
 
 			renderer::NkRendererStats mEmptyStats{};
+
+			bool mManualFlush = false;			  ///< ancien comportement : Flush dans Execute (voir le .cpp)
+			nk_uint32 mLastSubmitted = 0;		  ///< draw calls soumis par le dernier Execute
+
+		public:
+			// Les prefixes de maillage sans fichier.
+			static constexpr const char *kPrimitivePrefix = "primitive:";
+			static constexpr nk_uint32 kPrimitivePrefixLen = 10;
 	};
 
 } // namespace nkentseu

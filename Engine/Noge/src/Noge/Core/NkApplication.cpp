@@ -289,10 +289,13 @@ namespace nkentseu {
 		}
 
 		mCmd = mDevice->CreateCommandBuffer(NkCommandBufferType::NK_GRAPHICS);
+		mOwnedCmd = mCmd; // le SEUL que l'application rend au device (ShutdownDevice)
 		if (!mCmd || !mCmd->IsValid()) {
 			logger.Errorf("[Application] CommandBuffer : échec\n");
 			NkDeviceFactory::Destroy(mDevice);
 			mDevice = nullptr;
+			mCmd = nullptr;
+			mOwnedCmd = nullptr;
 			return false;
 		}
 
@@ -305,7 +308,8 @@ namespace nkentseu {
 		mRenderer = renderer::NkRenderer::Create(mDevice, rcfg);
 		if (!mRenderer) {
 			logger.Errorf("[Application] NKRenderer : échec d'initialisation\n");
-			mDevice->DestroyCommandBuffer(mCmd);
+			mDevice->DestroyCommandBuffer(mOwnedCmd);
+			mOwnedCmd = nullptr;
 			mCmd = nullptr;
 			NkDeviceFactory::Destroy(mDevice);
 			mDevice = nullptr;
@@ -324,10 +328,19 @@ namespace nkentseu {
 				renderer::NkRenderer::Destroy(mRenderer); // appelle Shutdown() en interne
 				mRenderer = nullptr;
 			}
-			if (mCmd) {
-				mDevice->DestroyCommandBuffer(mCmd);
-				mCmd = nullptr;
+			// ⚠️ LE COMMAND BUFFER QUE L'APPLICATION A CREE, PAS `mCmd` (30/09).
+			//    Run() remplace `mCmd` par celui de l'image courante, qui
+			//    APPARTIENT au renderer (`mRenderer->GetCmd()`) et vient d'etre
+			//    detruit avec lui : le rendre au device une seconde fois plantait
+			//    a CHAQUE sortie propre (SIGSEGV dans NkAllocator::Delete, pile
+			//    ShutdownDevice -> DestroyCommandBuffer, NogeDemo --capture), et
+			//    celui de l'application fuyait. Personne ne l'avait vu : aucune
+			//    application ne faisait tourner cette boucle jusqu'a sa fin.
+			if (mOwnedCmd) {
+				mDevice->DestroyCommandBuffer(mOwnedCmd);
+				mOwnedCmd = nullptr;
 			}
+			mCmd = nullptr;
 			NkDeviceFactory::Destroy(mDevice);
 			mDevice = nullptr;
 		}
