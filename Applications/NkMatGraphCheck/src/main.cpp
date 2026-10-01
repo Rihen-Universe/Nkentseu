@@ -1539,6 +1539,42 @@ static void CasExecAriteCroisee() {
 	Cas("exec/arite-croisee", deuxExecTiennent && donneeRemplace && sortieExecUnique && sortieDonneeMultiple, d);
 }
 
+// ── G1 (2026-10-01, document 01 d'UnkenyEditor) : VALIDATE CONNAIT LA FAMILLE
+// Connect autorise deux sources sur une ENTREE d'execution ; Validate les
+// signalait « lien-entree-doublee », et un Blueprint valide se relisait avec de
+// faux diagnostics. Une entree de DONNEE a deux sources (un fichier retouche)
+// doit, elle, toujours etre signalee ; une SORTIE exec doublee aussi.
+static void CasExecValidateConnaitLaFamille() {
+	NkNodeGraph g;
+	const NkTypeId r = g.RegisterType("reel");
+	const NkNodeId a = PoseNoeudMixte(g, r, "essai.a");
+	const NkNodeId b = PoseNoeudMixte(g, r, "essai.b");
+	const NkNodeId c = PoseNoeudMixte(g, r, "essai.c");
+	g.Connect(a, "apres", c, "avant");
+	g.Connect(b, "apres", c, "avant");
+	NkVector<NkGraphDiag> diags;
+	const uint32 n1 = g.Validate(diags);
+	// Une entree de DONNEE a deux sources : la forme d'un FICHIER retouche (Connect
+	// remplacerait). On ajoute au texte un second lien vers c.valeur.
+	g.Connect(a, "resultat", c, "valeur");
+	NkString t;
+	g.Serialize(t);
+	char ligne[96];
+	snprintf(ligne, sizeof(ligne), "lien 99 %u resultat %u valeur\n", (unsigned)b, (unsigned)c);
+	t.Append(ligne);
+	NkNodeGraph m;
+	const bool lu = m.Deserialize(t.CStr(), nullptr);
+	NkVector<NkGraphDiag> dm;
+	m.Validate(dm);
+	bool doubleSignale = false;
+	for (uint32 i = 0; i < dm.Size(); ++i)
+		doubleSignale = doubleSignale || dm[i].issue == NkGraphIssue::LinkDuplicateTarget;
+	NkString d = NkFormat("entree exec a 2 sources : {0} diagnostic(s) (attendu 0) | entree DONNEE a 2 sources (fichier lu={1}) : "
+						  "signalee={2}",
+						  n1, lu ? 1 : 0, doubleSignale ? 1 : 0);
+	Cas("exec/validate-connait-la-famille", n1 == 0u && lu && doubleSignale, d);
+}
+
 // ── CONTROLE 2 : LE REFUS CROISE, ET IL DOIT SE NOMMER ─────────────────────
 // ⚠️ `FamilyMismatch`, JAMAIS `TypeMismatch`. Les deux prises portent ici le
 // MEME type : si le refus s'appelait « type », l'auteur chercherait une
@@ -7813,6 +7849,7 @@ int main() {
 	CasTypesEspaceEtEmpreinte();
 	CasTypesDeuxFichiersMemeNom();
 	CasExecAriteCroisee();
+	CasExecValidateConnaitLaFamille();
 	CasExecRefusCroiseNomme();
 	CasAcycliciteUniverselle();
 	CasExecAllerRetourOctetPourOctet();

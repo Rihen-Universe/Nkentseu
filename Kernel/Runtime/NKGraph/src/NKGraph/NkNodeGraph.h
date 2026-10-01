@@ -404,6 +404,9 @@ namespace nkentseu {
 			SocketUnknownType,	 ///< le type d'une prise n'est pas dans le registre
 			DefaultTypeMismatch, ///< un defaut de prise n'a pas le type de sa prise
 			PropUnknownType,	 ///< une propriete porte un type absent du registre
+			// (2026-10-01, G1 du document 01 d'UnkenyEditor) AJOUTES A LA FIN :
+			LinkFamilyMismatch,	 ///< un fil relie une prise d'execution a une prise de donnees
+			ExecOutputDuplicate, ///< deux fils partent de la MEME sortie d'execution (une seule suite)
 		};
 
 		const char *NkGraphIssueName(NkGraphIssue i);
