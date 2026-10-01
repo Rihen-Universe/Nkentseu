@@ -929,7 +929,13 @@ namespace nkentseu {
 		p.ressources = sh.ressources;
 		p.vert = sh.vert ? (void *)CFRetain(sh.vert) : nullptr;
 		p.frag = sh.frag ? (void *)CFRetain(sh.frag) : nullptr;
-		p.frontFaceCCW = d.rasterizer.frontFace == NkFrontFace::NK_CCW;
+		// frontFace est donne dans la convention du moteur (NDC, comme OpenGL) ;
+		// Metal, comme D3D et le Vulkan au viewport retourne, juge l'enroulement A
+		// L'ECRAN, ou il s'inverse. Vulkan (NkVulkanDevice, « effectiveFace ») et
+		// DX11/DX12 (FrontCounterClockwise = !CCW) l'inversent deja ; sans cela,
+		// Metal cullait les faces AVANT : on voyait l'interieur des objets, eclaire
+		// par en dessous (CI du 2026-10-01, sphere de Tuto03).
+		p.frontFaceCCW = d.rasterizer.frontFace != NkFrontFace::NK_CCW;
 		p.cullMode = d.rasterizer.cullMode == NkCullMode::NK_NONE	 ? 0
 					 : d.rasterizer.cullMode == NkCullMode::NK_FRONT ? 1
 																	 : 2;
