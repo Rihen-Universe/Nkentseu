@@ -81,6 +81,7 @@ namespace nkentseu {
 				bool dossier = false;
 				NkNatureContenu nature;
 				nk_int64 taille = 0;
+				nk_int64 date = 0; ///< (2026-10-01) derniere modification (epoch) : le tri par date
 		};
 
 		/// Les elements du dossier `relatif` (« » = la racine) : dossiers
@@ -93,16 +94,20 @@ namespace nkentseu {
 
 		/// Ce qu'un import a fait.
 		struct NkRapportImport {
-				uint32 importes = 0;
+				uint32 importes = 0; ///< FICHIERS copies (ceux des dossiers deposes compris)
 				uint32 refuses = 0; ///< format inconnu, ou pas un fichier
 				uint32 echecs = 0;	///< la copie a echoue (droits, disque)
 				/// Les chemins du NAVIGATEUR des fichiers crees (« Contenu/... »).
 				NkVector<NkString> crees;
+				/// (2026-10-01) Les DOSSIERS crees : un dossier depose est recopie avec
+				/// son arborescence (il etait refuse avant). AJOUTE A LA FIN.
+				uint32 dossiers = 0;
 		};
 
-		/// Copie `sources` (chemins ABSOLUS de l'OS) dans le dossier du contenu
-		/// `relatif` (« » = la racine), en gardant leur nom (sans jamais ecraser).
-		/// Annonce le resultat au modele.
+		/// Copie `sources` (chemins ABSOLUS de l'OS, fichiers OU DOSSIERS) dans le
+		/// dossier du contenu `relatif` (« » = la racine), en gardant leur nom (sans
+		/// jamais ecraser). Un dossier est recopie avec son arborescence ; ses
+		/// fichiers de format inconnu sont refuses, un a un. Annonce le resultat.
 		NkRapportImport NkEditeurImporter(NkEditeurModele &m, const char *relatif, const NkVector<NkString> &sources);
 
 		/// Ce qu'un export a fait.
@@ -119,6 +124,48 @@ namespace nkentseu {
 		/// Le filtre du dialogue « Importer » : les motifs des formats connus,
 		/// separes par « ; » (la forme de NkDialogs::OpenFileDialog).
 		const char *NkEditeurFiltreImport() noexcept;
+
+		// ── LES GESTES DU NAVIGATEUR (2026-10-01, document 02 §3.1) ─────────────
+		// Chemins du NAVIGATEUR en entree et en sortie (« Contenu/... »). Le travail
+		// sur le disque est celui du KIT (NkContentBrowserDisque.h) : confine au
+		// Contenu, jamais d'ecrasement. Ici : la traduction des chemins, l'annonce,
+		// et la MEMOIRE du navigateur (couleurs, favoris, collections) qui suit un
+		// renommage, un deplacement ou une suppression.
+
+		/// Le chemin du navigateur d'un chemin ABSOLU (ou relatif au repertoire
+		/// courant) sous le Contenu ; vide s'il n'y est pas.
+		NkString NkEditeurNavigateurDe(NkEditeurModele &m, const char *chemin);
+		/// Le chemin ABSOLU d'un chemin du navigateur. NkTextures2D::Charger prefixe
+		/// un chemin RELATIF par sa racine d'assets : une image du Contenu doit lui
+		/// arriver absolue, sinon elle est cherchee sous « assets/ ».
+		NkString NkEditeurCheminContenuAbsolu(NkEditeurModele &m, const char *cheminNav);
+		/// Le nom du projet : le dossier qui porte la scene et son Contenu.
+		NkString NkEditeurNomProjet(NkEditeurModele &m);
+		/// « Nouveau dossier » dans `dossierNav` ; rend son chemin (vide : refuse).
+		NkString NkEditeurNouveauDossier(NkEditeurModele &m, const char *dossierNav);
+		/// Copie (ou DEPLACE) `chemins` dans `dossierNav`. Rend le nombre reussi ;
+		/// `crees` recoit les nouveaux chemins.
+		uint32 NkEditeurCopierContenu(NkEditeurModele &m, const NkVector<NkString> &chemins, const char *dossierNav,
+									  bool deplacer, NkVector<NkString> *crees = nullptr);
+		/// Une copie de chacun, a cote (« caisse_2.png »).
+		uint32 NkEditeurDupliquerContenu(NkEditeurModele &m, const NkVector<NkString> &chemins,
+										 NkVector<NkString> *crees = nullptr);
+		/// Renomme ; refuse un nom pris ou invalide. Rend le nouveau chemin.
+		NkString NkEditeurRenommerContenu(NkEditeurModele &m, const char *cheminNav, const char *nouveauNom);
+		/// Supprime (vers la CORBEILLE si `corbeille`). Rend le nombre supprime.
+		/// ⚠️ Ne pose aucune question : l'editeur ne l'appelle qu'APRES sa boite.
+		uint32 NkEditeurSupprimerContenu(NkEditeurModele &m, const NkVector<NkString> &chemins, bool corbeille);
+		/// Les scenes et prefabs du Contenu qui CITENT l'un de `chemins` (par son
+		/// chemin ou son nom de fichier) : ce que la confirmation montre.
+		void NkEditeurReferencesContenu(NkEditeurModele &m, const NkVector<NkString> &chemins, NkVector<NkString> &refs);
+		/// Une scene VIDE (« NouvelleScene.nkscene ») dans `dossierNav`.
+		NkString NkEditeurNouvelleSceneContenu(NkEditeurModele &m, const char *dossierNav);
+		/// Un controleur d'animation (le modele « plateforme » comme point de depart).
+		NkString NkEditeurNouveauControleurContenu(NkEditeurModele &m, const char *dossierNav);
+		/// Un prefab de la SELECTION de la scene, dans `dossierNav`.
+		NkString NkEditeurNouveauPrefabContenu(NkEditeurModele &m, const char *dossierNav);
+		/// La memoire du navigateur suit `ancienNav` -> `nouveauNav` (vide : oubli).
+		void NkEditeurMetaSuivre(NkEditeurModele &m, const char *ancienNav, const char *nouveauNav);
 
 	} // namespace editeur
 } // namespace nkentseu

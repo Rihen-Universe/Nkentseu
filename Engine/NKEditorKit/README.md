@@ -64,6 +64,37 @@ int nkmain(const NkEntryState&) {
 
 ---
 
+## Navigateur de contenu : la variante « Unreal 5 » (2026-10-01)
+
+`Components/NkContentBrowserModel.h` porte une cinquième variante,
+`NkBrowserVariant::Unreal` (`SetVariantByName("unreal")`) : les **sept zones** du
+Content Browser d'Unreal 5 (barre `+ Ajouter / Importer / Tout enregistrer`,
+précédent / suivant, fil d'Ariane, verrou, Réglages ; sources repliables
+*Favoris*, le projet, *Collections* ; puces de type ; recherche et tri ; cartes
+d'Unreal avec bande de couleur du type et nom sur deux lignes ; cartes de dossier
+à couleur choisie ; état vide ; « N éléments (M sélectionnés) »). Dessin :
+`NkContentBrowserUnreal.cpp`. Le mixte (`grid`), la liste et la variante minimale
+ne changent pas d'un pixel.
+
+- **Gestes** (dans la variante) : sélection simple / Ctrl / Maj / cadre, dossiers
+  compris ; glisser de toute la sélection ; clic droit qui choisit ;
+  Ctrl+molette = taille des vignettes ; `focus` clavier rapporté à l'hôte.
+- **Le composant signale, l'hôte agit** : menus (`ajouterDemande`,
+  `reglagesDemandes`, `triDemande`, `deposeSources`…), champs de saisie (recherche,
+  recherche d'une section, renommage en place : rectangle + tampon rapportés).
+- **La touche de chaque application** : la greffe `vignetteApp` (ses icônes de
+  types, ses vrais aperçus), ses natures (`kinds`), ses jetons.
+- **Le disque** : `Components/NkContentBrowserDisque.h` — nouveau dossier, copier,
+  déplacer, dupliquer, renommer, supprimer (corbeille), importer fichiers **et
+  dossiers** ; tout est **confiné** à la racine de contenu, **jamais
+  d'écrasement** (`_2`, `_3`), pas de cycle ; la mémoire `.nknavigateur`
+  (couleurs de dossiers, favoris, collections) suit renommages et suppressions.
+
+Premier consommateur : le tiroir « Contenu » d'UnkenyEditor (témoins e51 à e56 de
+son banc). NKCraft et NKUIDesign gardent leurs variantes.
+
+---
+
 ## Démo
 
 `Applications/NKEditorKitDemo/` — coquille à 4 panneaux (Explorateur à gauche,
