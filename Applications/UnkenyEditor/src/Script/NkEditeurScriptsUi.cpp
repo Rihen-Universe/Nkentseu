@@ -66,6 +66,8 @@ namespace nkentseu {
 					NkString nom;
 					unkeny::NkTypeVarScript type = unkeny::NkTypeVarScript::NK_REEL;
 					NkVec2f defaut{0.f, 0.f};
+					NkString texte; ///< (2026-10-01) le defaut d'un texte
+					NkString infobulle;
 			};
 			void Declarees(const unkeny::NkDefinitionScript *d, NkVector<VarDeclaree> &sortie) {
 				if (d == nullptr) {
@@ -97,6 +99,16 @@ namespace nkentseu {
 							v.defaut = NkVec2f(x.defaut.i != 0 ? 1.f : 0.f, 0.f);
 						} else if (x.type == unkeny::NkTypeBp::NK_VEC2) {
 							v.type = unkeny::NkTypeVarScript::NK_VEC2;
+						} else if (x.type == unkeny::NkTypeBp::NK_COULEUR) {
+							// (2026-10-01) les variables de l'editeur de Blueprint a la UE5.
+							v.type = unkeny::NkTypeVarScript::NK_COULEUR;
+							v.defaut = unkeny::NkCouleurVersVar(static_cast<uint32>(x.defaut.i));
+						} else if (x.type == unkeny::NkTypeBp::NK_TEXTE) {
+							v.type = unkeny::NkTypeVarScript::NK_TEXTE;
+							const int32 c = x.defaut.i;
+							v.texte = c >= 0 && static_cast<uint32>(c) < m.constantes.Size() ? m.constantes[static_cast<uint32>(c)].texte : NkString();
+						} else if (x.type == unkeny::NkTypeBp::NK_ENTITE) {
+							v.type = unkeny::NkTypeVarScript::NK_ENTITE;
 						}
 						sortie.PushBack(v);
 					}
@@ -222,6 +234,58 @@ namespace nkentseu {
 						case unkeny::NkTypeVarScript::NK_VEC2: {
 							change = nkgui::DragFloat(ctx, NkString::Format("%s.x", d.nom.CStr()).CStr(), val.x, 0.05f) || change;
 							change = nkgui::DragFloat(ctx, NkString::Format("%s.y", d.nom.CStr()).CStr(), val.y, 0.05f) || change;
+							break;
+						}
+						case unkeny::NkTypeVarScript::NK_COULEUR: {
+							// Une COULEUR par instance : le nuancier de NKGui.
+							const uint32 rvba = unkeny::NkCouleurDeVar(val);
+							const NkColor c0(rvba);
+							float32 col[4] = {static_cast<float32>(c0.r) / 255.f, static_cast<float32>(c0.g) / 255.f, static_cast<float32>(c0.b) / 255.f,
+											  static_cast<float32>(c0.a) / 255.f};
+							if (nkgui::ColorEdit4(ctx, d.nom.CStr(), col)) {
+								auto o = [](float32 v) {
+									return static_cast<uint32>((v < 0.f ? 0.f : (v > 1.f ? 1.f : v)) * 255.f + 0.5f);
+								};
+								val = unkeny::NkCouleurVersVar((o(col[0]) << 24) | (o(col[1]) << 16) | (o(col[2]) << 8) | o(col[3]));
+								change = true;
+							}
+							break;
+						}
+						case unkeny::NkTypeVarScript::NK_TEXTE:
+						case unkeny::NkTypeVarScript::NK_ENTITE: {
+							// Un TEXTE (ou le NOM d'une entite) par instance : un champ, et
+							// pour une entite, la liste des entites de la scene.
+							static char tampon[unkeny::NK_UNKENY_VAR_TEXTE_MAX] = {};
+							static NkString proprietaire;
+							const NkString cle = NkString::Format("%u:%u:%s", static_cast<unsigned>(id.Pack() & 0xFFFFFFFFu), static_cast<unsigned>(k), d.nom.CStr());
+							const char *actuel = x != nullptr ? x->texte : d.texte.CStr();
+							if (!(proprietaire == cle)) {
+								proprietaire = cle;
+								std::snprintf(tampon, sizeof(tampon), "%s", actuel);
+							}
+							if (d.type == unkeny::NkTypeVarScript::NK_ENTITE) {
+								if (nkgui::BeginCombo(ctx, d.nom.CStr(), actuel[0] != '\0' ? actuel : "(aucune)", 8)) {
+									if (nkgui::Selectable(ctx, "(aucune)", actuel[0] == '\0')) {
+										std::snprintf(tampon, sizeof(tampon), "%s", "");
+										change = true;
+										ctx.ClosePopup();
+									}
+									m.scene.Monde().Query<NkEtiquette>().ForEach([&](ecs::NkEntityId, NkEtiquette &et) {
+										if (nkgui::Selectable(ctx, et.nom, std::strcmp(et.nom, actuel) == 0)) {
+											std::snprintf(tampon, sizeof(tampon), "%s", et.nom);
+											change = true;
+											ctx.ClosePopup();
+										}
+									});
+									nkgui::EndCombo(ctx);
+								}
+							} else if (nkgui::InputText(ctx, d.nom.CStr(), tampon, static_cast<int32>(sizeof(tampon)))) {
+								change = true;
+							}
+							if (change) {
+								unkeny::NkScriptPoserTexte(*sc, k, d.nom.CStr(), d.type, tampon);
+								change = false; // deja pose (le texte n'est pas dans `val`)
+							}
 							break;
 						}
 						default:

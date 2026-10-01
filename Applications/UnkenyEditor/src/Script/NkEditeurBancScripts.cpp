@@ -259,12 +259,11 @@ namespace nkentseu {
 			{
 				NkEditeurOuvrirGraphe(s, m, (projet + "Contenu/Scripts/PorteBlueprint.nkbp").CStr());
 				// La porte montera de 3 m desormais ; « ouverte » est vraie : rien ne bouge.
-				graph::NkNodeGraph &g = s.graphe.doc.graphes[0].graphe;
-				for (uint32 i = 0; i < g.RawNodeCount(); ++i) {
-					const graph::NkNode *n = g.RawNodeAt(i);
-					if (n != nullptr && n->alive && n->type == "bp.math.add_v") {
-						NkBpPoserDefaut(g, n->id, "b", "0 3");
-					}
+				// (2026-10-01) La porte est un DOCUMENT : sa variable « hauteur » passe
+				// a 3 (l'ancienne forme changeait le « 0 2 » d'un noeud + (vec2)).
+				const int32 vh = s.graphe.doc.TrouverVariable("hauteur");
+				if (vh >= 0) {
+					s.graphe.doc.variables[static_cast<uint32>(vh)].defaut = "3";
 				}
 				const bool ok = NkEditeurCompilerGraphe(s, m);
 				for (int32 k = 0; k < 10; ++k) {

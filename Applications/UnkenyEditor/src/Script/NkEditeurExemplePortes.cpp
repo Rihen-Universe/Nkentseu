@@ -149,11 +149,14 @@ namespace nkentseu {
 			if (!NkFile::WriteAllText(cpp.CStr(), NkEditeurSourcePorteCpp())) {
 				return echec(NkString("ecriture impossible : ") + cpp);
 			}
-			graph::NkNodeGraph g;
-			NkBpGraphePorte(g, "Porte bleue");
+			// (2026-10-01) La porte REECRITE avec de vraies declarations (variables
+			// « ouverte », « porte », « hauteur » et la fonction OuvrirPorte) :
+			// l'ancienne forme (NkBpGraphePorte) reste lue telle quelle (banc u6).
+			NkDocumentBp g;
+			NkBpDocumentPorte(g, "Porte bleue");
 			NkErreurBp err;
 			const NkString bp = scripts + "/PorteBlueprint.nkbp";
-			if (!NkBpEnregistrer(bp.CStr(), g, err)) {
+			if (!NkBpEnregistrerDocument(bp.CStr(), g, err)) {
 				return echec(NkString("Blueprint de la porte : ") + err.message);
 			}
 			NkScene *s = memory::NkGetDefaultAllocator().New<NkScene>();
