@@ -10,8 +10,9 @@
 //   2. Le DOUBLE-CLIC sur Contenu/Scripts/PorteCpp.cpp (NkEditeurScriptOuvrirAsset,
 //      la fonction meme du navigateur) : NKCode s'ouvre SUR Portes.jenga et le
 //      script. Il est lance en SONDE : fenetre nee hors de l'ecran, sans focus,
-//      sourde aux entrees humaines, son etat (recents, reglages) range dans
-//      DOSSIER au lieu du dossier personnel. Son propre script d'evenements
+//      sourde aux entrees humaines, son etat (recents, reglages) range dans le
+//      dossier temporaire de la preuve (%TEMP%/unkeny_preuve_nkcode/), jamais
+//      dans le dossier personnel de Rihen. Son propre script d'evenements
 //      (NK_EVENEMENTS, rejoue DANS son processus) appuie Ctrl+B : « Construire »,
 //      donc `jenga build` du workspace. Il ecrit sa propre image (lecture du
 //      tampon DX11, NK_CAPTURE_IMAGE) puis se ferme (NK_AGENT_EXIT).
@@ -193,7 +194,7 @@ namespace nkentseu {
 				Dire("ECHEC : NKCode n'est pas construit (jenga build --target NKCode --config Debug --platform windows)");
 				++fautes;
 			}
-			const NkString maison = dossier + "/nkcode_maison";
+			const NkString maison = racine + "nkcode_maison"; // hors de DOSSIER : seules les images y vont
 			NkDirectory::CreateRecursive((maison + "/.nkcode").CStr());
 			NkDirectory::CreateRecursive((maison + "/AppData/Roaming").CStr());
 			// Une geometrie connue : sans elle, NKCode MAXIMISE sa fenetre au premier
@@ -201,13 +202,14 @@ namespace nkentseu {
 			NkFile::WriteAllText((maison + "/.nkcode/window.cfg").CStr(), "win=0|0|1440|900\nmaximized=0\n");
 			const NkString imageNKCode = dossier + "/10_nkcode_workspace_portes_construit_par_jenga.png";
 			NkFile::Delete(imageNKCode.CStr());
-			const int32 imageCapture = 1500, imageConstruire = 480;
+			const int32 imageCapture = 1100, imageConstruire = 480;
 			Poser("NK_SONDE", NkString("1"));
 			Poser("NK_SONDE_HORS_ECRAN", NkString("1"));
-			Poser("NK_ETAT_SONDE", dossier + "/nkcode_etat");
+			Poser("NK_ETAT_SONDE", racine + "nkcode_etat");
 			Poser("USERPROFILE", maison);
 			Poser("HOME", maison);
 			Poser("APPDATA", maison + "/AppData/Roaming");
+			// Ctrl+B : « Construire » de NKCode, c'est-a-dire `jenga build` du workspace.
 			Poser("NK_EVENEMENTS", NkString::Format("%d:k:ctrl+b", imageConstruire));
 			Poser("NK_CAPTURE_IMAGE", NkString::Format("%d:%s", imageCapture, imageNKCode.CStr()));
 			Poser("NK_AGENT_EXIT", NkString::Format("%d", imageCapture + 10));
@@ -231,7 +233,8 @@ namespace nkentseu {
 				 NkEditeurWorkspaceDll(projet.CStr()).CStr());
 			bool recharge = false, image = false;
 			float32 attente = 0.f;
-			for (; attente < 150.f && lance && !(recharge && image); attente += 0.1f) {
+			// Une machine chargee (d'autres constructions) ralentit NKCode : 5 minutes au plus.
+			for (; attente < 300.f && lance && !(recharge && image); attente += 0.1f) {
 				Dormir(100);
 				const uint32 avant = ui.journal.Size();
 				NkEditeurScriptsTrame(s, m, &ui, 0.1f);
@@ -244,6 +247,20 @@ namespace nkentseu {
 			Dire("   apres %.1f s : DLL de Jenga rechargee : %s ; module charge : %s ; image de NKCode : %s", static_cast<double>(attente),
 				 recharge ? "OUI" : "NON", s.modules.Copie().CStr(), image ? "ecrite" : "ABSENTE");
 			const bool copieJenga = std::strstr(s.modules.Copie().CStr(), NK_WS_SORTIE) != nullptr;
+			// Ce que Jenga a laisse : SEUL le « Construire » de NKCode ecrit dans ce dossier
+			// (la compilation directe de l'editeur ecrit Intermediaire/Scripts/Scripts.dll).
+			{
+				const NkString sortieJenga = projet + NK_WS_SORTIE;
+				const NkVector<NkDirectoryEntry> e =
+					NkDirectory::GetEntries(sortieJenga.CStr(), "*", NkSearchOption::NK_ALL_DIRECTORIES);
+				for (uint32 i = 0; i < e.Size(); ++i) {
+					// (les copies « Scripts.genN.dll » sont celles que l'editeur charge)
+					if (e[i].IsFile && std::strstr(e[i].Name.CStr(), ".gen") == nullptr) {
+						Dire("   produit par Jenga : %s (%lld octets)", Oblique(e[i].FullPath.ToString()).CStr(),
+							 static_cast<long long>(e[i].Size));
+					}
+				}
+			}
 			fautes += (recharge && copieJenga) ? 0 : 1;
 			fautes += image ? 0 : 1;
 
