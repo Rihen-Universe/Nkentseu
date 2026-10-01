@@ -19,7 +19,9 @@ namespace nkentseu {
 		using unkeny::NkTypeBp;
 
 		namespace {
-			const char *const kTypes[] = {"exec", "booleen", "entier", "reel", "vec2", "entite", "texte"};
+			// L'ORDRE est celui de NkTypeBp (booleen = 1...) jusqu'a « couleur » ;
+			// « asset » (une reference d'asset) est un TEXTE pour la machine.
+			const char *const kTypes[] = {"exec", "booleen", "entier", "reel", "vec2", "entite", "texte", "couleur", "asset"};
 
 			NkProtoBp Proto(const char *type, const char *libelle, const char *categorie, NkGenreNoeudBp genre) {
 				NkProtoBp p;
@@ -88,6 +90,24 @@ namespace nkentseu {
 					S(q, "alors1", "exec");
 					S(q, "alors2", "exec");
 					v.PushBack(q);
+					// (2026-10-01) Les boucles sont des NOEUDS (jamais un fil qui
+					// revient) ; le budget de la machine coupe une boucle sans fin.
+					NkProtoBp b = Proto("bp.pour", "Boucle Pour", "Flot", NkGenreNoeudBp::NK_POUR);
+					E(b, "exec", "exec");
+					E(b, "premier", "entier");
+					E(b, "dernier", "entier");
+					S(b, "corps", "exec");
+					S(b, "indice", "entier");
+					S(b, "fini", "exec");
+					b.aide = "Exécute « corps » pour chaque indice de premier à dernier (compris), puis « fini ».";
+					v.PushBack(b);
+					NkProtoBp t = Proto("bp.tant_que", "Tant que", "Flot", NkGenreNoeudBp::NK_TANT_QUE);
+					E(t, "exec", "exec");
+					E(t, "condition", "booleen");
+					S(t, "corps", "exec");
+					S(t, "fini", "exec");
+					t.aide = "Exécute « corps » tant que la condition est vraie (relue à chaque tour).";
+					v.PushBack(t);
 				}
 				// ── Les variables (sauvees par nom dans le composant, exposees) ──
 				struct Var {
@@ -137,6 +157,10 @@ namespace nkentseu {
 								  {"bp.math.div_r", "÷ (réel)", NkOpBp::NK_DIV_R, "reel", "reel", "reel"},
 								  {"bp.math.add_i", "+ (entier)", NkOpBp::NK_ADD_I, "entier", "entier", "entier"},
 								  {"bp.math.sub_i", "− (entier)", NkOpBp::NK_SUB_I, "entier", "entier", "entier"},
+								  {"bp.math.mul_i", "× (entier)", NkOpBp::NK_MUL_I, "entier", "entier", "entier"},
+								  {"bp.math.div_i", "÷ (entier)", NkOpBp::NK_DIV_I, "entier", "entier", "entier"},
+								  {"bp.math.lt_i", "< (entier)", NkOpBp::NK_LT_I, "entier", "entier", "booleen"},
+								  {"bp.math.le_i", "≤ (entier)", NkOpBp::NK_LE_I, "entier", "entier", "booleen"},
 								  {"bp.math.add_v", "+ (vec2)", NkOpBp::NK_ADD_V, "vec2", "vec2", "vec2"},
 								  {"bp.math.sub_v", "− (vec2)", NkOpBp::NK_SUB_V, "vec2", "vec2", "vec2"},
 								  {"bp.math.mul_vr", "vec2 × réel", NkOpBp::NK_MUL_VR, "vec2", "reel", "vec2"},
@@ -211,12 +235,41 @@ namespace nkentseu {
 			if (nom == nullptr) {
 				return NkTypeBp::NK_RIEN;
 			}
-			for (uint32 k = 1; k < sizeof(kTypes) / sizeof(kTypes[0]); ++k) {
+			if (std::strcmp(nom, "asset") == 0) {
+				return NkTypeBp::NK_TEXTE; // une reference d'asset : son chemin
+			}
+			for (uint32 k = 1; k <= static_cast<uint32>(unkeny::NK_BP_TYPE_DERNIER); ++k) {
 				if (std::strcmp(nom, kTypes[k]) == 0) {
 					return static_cast<NkTypeBp>(k); // meme ordre que NkTypeBp (booleen = 1...)
 				}
 			}
 			return NkTypeBp::NK_RIEN;
+		}
+
+		NkGenreNoeudBp NkBpGenre(const graph::NkNode &n) noexcept {
+			struct G {
+					const char *cle;
+					NkGenreNoeudBp genre;
+			};
+			static const G k[] = {{NK_BP_VAR_LIRE, NkGenreNoeudBp::NK_VAR_GET},
+								  {NK_BP_VAR_ECRIRE, NkGenreNoeudBp::NK_VAR_SET},
+								  {NK_BP_FN_ENTREE, NkGenreNoeudBp::NK_FN_ENTREE},
+								  {NK_BP_FN_RETOUR, NkGenreNoeudBp::NK_FN_RETOUR},
+								  {NK_BP_APPEL, NkGenreNoeudBp::NK_APPEL_FN},
+								  {NK_BP_MACRO, NkGenreNoeudBp::NK_MACRO},
+								  {NK_BP_MACRO_ENTREE, NkGenreNoeudBp::NK_MACRO_ENTREE},
+								  {NK_BP_MACRO_SORTIE, NkGenreNoeudBp::NK_MACRO_SORTIE},
+								  {NK_BP_REP_APPELER, NkGenreNoeudBp::NK_REP_APPELER},
+								  {NK_BP_REP_EVENEMENT, NkGenreNoeudBp::NK_REP_EVENEMENT},
+								  {NK_BP_RELAIS, NkGenreNoeudBp::NK_RELAIS},
+								  {NK_BP_COMMENTAIRE, NkGenreNoeudBp::NK_COMMENTAIRE}};
+			for (const G &g : k) {
+				if (n.type == g.cle) {
+					return g.genre;
+				}
+			}
+			const NkProtoBp *p = NkBpProto(n.type.CStr());
+			return p != nullptr ? p->genre : NkGenreNoeudBp::NK_INCONNU;
 		}
 
 		void NkBpEnregistrerTypes(graph::NkNodeGraph &g) {
@@ -229,6 +282,9 @@ namespace nkentseu {
 			// Reel -> entier, non : trois arrondis plausibles, le meme refus que
 			// les materiaux.
 			g.AllowConversion(g.FindType("entier"), g.FindType("reel"));
+			// Une reference d'asset EST un texte (son chemin), dans les deux sens.
+			g.AllowConversion(g.FindType("asset"), g.FindType("texte"));
+			g.AllowConversion(g.FindType("texte"), g.FindType("asset"));
 		}
 
 		graph::NkNodeId NkBpCreerNoeud(graph::NkNodeGraph &g, const char *type, float32 x, float32 y) {
@@ -274,6 +330,14 @@ namespace nkentseu {
 				case NkTypeBp::NK_TEXTE:
 					v.text = texte;
 					break;
+				case NkTypeBp::NK_COULEUR: {
+					uint32 rvba = 0u;
+					if (!NkBpLireCouleur(texte, rvba)) {
+						return false;
+					}
+					v.text = NkBpTexteCouleur(rvba);
+					break;
+				}
 				case NkTypeBp::NK_BOOLEEN: {
 					const bool vrai = std::strcmp(texte, "vrai") == 0 || std::strcmp(texte, "1") == 0 ||
 									  std::strcmp(texte, "true") == 0 || std::strcmp(texte, "oui") == 0;
@@ -335,399 +399,49 @@ namespace nkentseu {
 					return NkString::Format("%g %g", static_cast<double>(num(0)), static_cast<double>(num(1)));
 				case NkTypeBp::NK_ENTITE:
 					return NkString("soi");
+				case NkTypeBp::NK_COULEUR:
+					return v.IsSet() && !v.text.Empty() ? v.text : NkString("#FFFFFFFF");
 				default:
 					return NkString();
 			}
 		}
 
 		// =====================================================================
-		// Le compilateur
+		// Le compilateur : NkBpCompilateur.cpp (le DOCUMENT). Un graphe seul est
+		// un document d'un seul graphe, sans declaration.
 		// =====================================================================
-		namespace {
-			struct NkCompilateur {
-					const graph::NkNodeGraph &g;
-					unkeny::NkAssembleurBp a;
-					NkErreurBp &err;
-					graph::NkNodeId evenement = graph::NK_NODE_INVALID;
-					bool ok = true;
-
-					NkCompilateur(const graph::NkNodeGraph &graphe, NkErreurBp &e) : g(graphe), err(e) {
-					}
-
-					uint32 Echec(graph::NkNodeId n, const NkString &message) {
-						if (ok) {
-							err.message = message;
-							err.noeud = n;
-						}
-						ok = false;
-						return 0u;
-					}
-					const NkProtoBp *ProtoDe(const graph::NkNode &n) {
-						return NkBpProto(n.type.CStr());
-					}
-					NkTypeBp TypePrise(const graph::NkSocket &s) {
-						const NkString *t = g.TypeName(s.type);
-						return NkBpTypeDeNom(t != nullptr ? t->CStr() : nullptr);
-					}
-					/// Le lien qui PART de la sortie `k` de `n` (une sortie exec n'en a qu'un).
-					const graph::NkLink *Sortant(graph::NkNodeId n, int32 k) {
-						for (uint32 i = 0; i < g.LinkCount(); ++i) {
-							const graph::NkLink *l = g.LinkAt(i);
-							if (l != nullptr && l->alive && l->fromNode == n && l->fromSocket == k) {
-								return l;
-							}
-						}
-						return nullptr;
-					}
-					/// Le texte CONSTANT d'une entree (le nom d'une variable, d'une action).
-					NkString Constante(const graph::NkNode &n, const char *entree) {
-						const int32 k = n.FindSocket(entree, graph::NkSocketDir::Input);
-						if (k < 0) {
-							return NkString();
-						}
-						if (g.IncomingOf(n.id, k) != nullptr) {
-							Echec(n.id, NkString::Format("« %s » doit être une constante (saisie sur le nœud), pas un fil", entree));
-							return NkString();
-						}
-						const graph::NkGraphValue &v = n.sockets[static_cast<uint32>(k)].defaultValue;
-						return v.IsSet() ? v.text : NkString();
-					}
-					uint32 Variable(const graph::NkNode &n, const NkProtoBp &p) {
-						const NkString nom = Constante(n, "nom");
-						if (!ok) {
-							return 0u;
-						}
-						if (nom.Empty()) {
-							return Echec(n.id, NkString("variable sans nom : saisir « nom » sur le nœud"));
-						}
-						if (nom.Length() >= unkeny::NK_UNKENY_VAR_NOM_MAX) {
-							return Echec(n.id, NkString::Format("nom de variable trop long (%u caractères au plus)",
-																 static_cast<unsigned>(unkeny::NK_UNKENY_VAR_NOM_MAX - 1u)));
-						}
-						for (uint32 i = 0; i < a.module.variables.Size(); ++i) {
-							if (a.module.variables[i].nom == nom && a.module.variables[i].type != p.typeVar) {
-								return Echec(n.id, NkString::Format("la variable « %s » a déjà un autre type", nom.CStr()));
-							}
-						}
-						if (a.module.variables.Size() >= unkeny::NK_UNKENY_SCRIPT_VARS_MAX) {
-							bool connue = false;
-							for (uint32 i = 0; i < a.module.variables.Size(); ++i) {
-								connue = connue || a.module.variables[i].nom == nom;
-							}
-							if (!connue) {
-								return Echec(n.id, NkString("trop de variables pour un script"));
-							}
-						}
-						return a.Variable(nom.CStr(), p.typeVar, unkeny::NkValeurBp());
-					}
-
-					/// La valeur de l'entree `entree` de `n`, convertie en `attendu`.
-					uint32 Valeur(const graph::NkNode &n, const char *entree, NkTypeBp attendu, int32 profondeur) {
-						const int32 k = n.FindSocket(entree, graph::NkSocketDir::Input);
-						if (k < 0) {
-							return Echec(n.id, NkString::Format("prise « %s » absente (graphe d'une autre version ?)", entree));
-						}
-						const graph::NkLink *l = g.IncomingOf(n.id, k);
-						if (l != nullptr) {
-							const graph::NkNode *src = g.Find(l->fromNode);
-							if (src == nullptr || l->fromSocket < 0 || static_cast<uint32>(l->fromSocket) >= src->sockets.Size()) {
-								return Echec(n.id, NkString("fil vers un nœud absent"));
-							}
-							const uint32 r = Sortie(*src, l->fromSocket, profondeur + 1);
-							const NkTypeBp t = TypePrise(src->sockets[static_cast<uint32>(l->fromSocket)]);
-							if (!ok || t == attendu) {
-								return r;
-							}
-							if (t == NkTypeBp::NK_ENTIER && attendu == NkTypeBp::NK_REEL) {
-								const uint32 c = a.Registre(NkTypeBp::NK_REEL);
-								a.Emettre(NkOpBp::NK_I2R, c, r);
-								return c;
-							}
-							return Echec(n.id, NkString::Format("« %s » attend un %s", entree, unkeny::NkNomTypeBp(attendu)));
-						}
-						// Une entree LIBRE : sa valeur saisie ; une entite libre vaut SOI.
-						const graph::NkGraphValue &v = n.sockets[static_cast<uint32>(k)].defaultValue;
-						auto num = [&](uint32 i) {
-							return v.IsSet() && i < v.numbers.Size() ? v.numbers[i] : 0.f;
-						};
-						const uint32 r = a.Registre(attendu);
-						switch (attendu) {
-							case NkTypeBp::NK_ENTITE:
-								a.Emettre(NkOpBp::NK_SOI, r);
-								break;
-							case NkTypeBp::NK_TEXTE:
-								a.Emettre(NkOpBp::NK_CONST, r, a.ConstTexte(v.IsSet() ? v.text.CStr() : ""));
-								break;
-							case NkTypeBp::NK_REEL:
-								a.Emettre(NkOpBp::NK_CONST, r, a.ConstReel(num(0)));
-								break;
-							case NkTypeBp::NK_ENTIER:
-								a.Emettre(NkOpBp::NK_CONST, r, a.ConstEntier(static_cast<int32>(num(0))));
-								break;
-							case NkTypeBp::NK_BOOLEEN:
-								a.Emettre(NkOpBp::NK_CONST, r, a.ConstBooleen(num(0) != 0.f));
-								break;
-							case NkTypeBp::NK_VEC2:
-								a.Emettre(NkOpBp::NK_CONST, r, a.ConstVec2(num(0), num(1)));
-								break;
-							default:
-								return Echec(n.id, NkString::Format("« %s » : type sans valeur", entree));
-						}
-						return r;
-					}
-
-					/// La sortie `k` d'un noeud PUR (ou d'un evenement), calculee ici.
-					uint32 Sortie(const graph::NkNode &src, int32 k, int32 profondeur) {
-						if (profondeur > 256) {
-							return Echec(src.id, NkString("graphe trop profond"));
-						}
-						const NkProtoBp *p = ProtoDe(src);
-						if (p == nullptr) {
-							return Echec(src.id, NkString::Format("nœud inconnu de ce catalogue : %s", src.type.CStr()));
-						}
-						const graph::NkSocket &s = src.sockets[static_cast<uint32>(k)];
-						const NkTypeBp t = TypePrise(s);
-						a.Ligne(src.id);
-						switch (p->genre) {
-							case NkGenreNoeudBp::NK_EVENEMENT: {
-								if (src.id != evenement) {
-									return Echec(src.id, NkString("valeur d'un AUTRE événement : chaque événement a les siennes"));
-								}
-								unkeny::NkArgBp arg = unkeny::NkArgBp::NK_DT;
-								if (s.name == "autre") {
-									arg = unkeny::NkArgBp::NK_AUTRE;
-								} else if (s.name == "soiEstLaZone") {
-									arg = unkeny::NkArgBp::NK_SOI_EST_ZONE;
-								} else if (s.name == "valeur") {
-									arg = unkeny::NkArgBp::NK_VALEUR;
-								}
-								const uint32 r = a.Registre(t);
-								a.Emettre(NkOpBp::NK_ARG, r, static_cast<uint32>(arg));
-								return r;
-							}
-							case NkGenreNoeudBp::NK_SOI: {
-								const uint32 r = a.Registre(NkTypeBp::NK_ENTITE);
-								a.Emettre(NkOpBp::NK_SOI, r);
-								return r;
-							}
-							case NkGenreNoeudBp::NK_LIRE_VAR: {
-								const uint32 v = Variable(src, *p);
-								if (!ok) {
-									return 0u;
-								}
-								const uint32 r = a.Registre(p->typeVar);
-								a.Emettre(NkOpBp::NK_LIRE_VAR, r, v);
-								return r;
-							}
-							case NkGenreNoeudBp::NK_MATH: {
-								const uint32 ra = Valeur(src, p->entrees[0].nom, NkBpTypeDeNom(p->entrees[0].type), profondeur);
-								const uint32 rb = p->nbEntrees > 1 ? Valeur(src, p->entrees[1].nom, NkBpTypeDeNom(p->entrees[1].type), profondeur) : 0u;
-								if (!ok) {
-									return 0u;
-								}
-								const uint32 r = a.Registre(NkBpTypeDeNom(p->sorties[0].type));
-								a.Ligne(src.id);
-								if (p->nbEntrees > 1) {
-									a.Emettre(p->op, r, ra, rb);
-								} else {
-									a.Emettre(p->op, r, ra);
-								}
-								return r;
-							}
-							case NkGenreNoeudBp::NK_NATIF: {
-								uint32 nb = 0;
-								const unkeny::NkNatifBp &x = unkeny::NkNatifsBp(nb)[p->natif];
-								if (!x.pur) {
-									return Echec(src.id, NkString("valeur d'un nœud d'exécution : non disponible dans ce premier lot"));
-								}
-								return Natif(src, *p, x, k, profondeur);
-							}
-							default:
-								return Echec(src.id, NkString("ce nœud ne produit pas de valeur"));
-						}
-					}
-
-					/// Un natif : parametres evalues, l'appel, les resultats ; rend le
-					/// registre du resultat `sortie` (-1 : aucun).
-					uint32 Natif(const graph::NkNode &n, const NkProtoBp &p, const unkeny::NkNatifBp &x, int32 sortie, int32 profondeur) {
-						const int32 imp = a.Import(x.signature.nom);
-						if (imp < 0) {
-							return Echec(n.id, NkString::Format("natif inconnu : %s", x.signature.nom));
-						}
-						uint32 regs[6] = {};
-						uint32 nr = 0;
-						for (uint8 k = 0; k < x.signature.nbParams && ok; ++k) {
-							regs[nr++] = Valeur(n, x.nomsParams[k], x.signature.params[k], profondeur);
-						}
-						uint32 resultat = 0u;
-						for (uint8 k = 0; k < x.signature.nbResultats && ok; ++k) {
-							const uint32 r = a.Registre(x.signature.resultats[k]);
-							regs[nr++] = r;
-							// La sortie demandee : par NOM (les sorties d'un natif pur sont
-							// ses resultats, dans l'ordre).
-							const int32 ks = n.FindSocket(x.nomsResultats[k], graph::NkSocketDir::Output);
-							if (ks == sortie) {
-								resultat = r;
-							}
-						}
-						if (!ok) {
-							return 0u;
-						}
-						a.Ligne(n.id);
-						a.Natif(static_cast<uint32>(imp), regs, nr);
-						(void)p;
-						return resultat;
-					}
-
-					void Chaine(const graph::NkNode &n, const char *sortieExec, int32 profondeur) {
-						const int32 k = n.FindSocket(sortieExec, graph::NkSocketDir::Output);
-						if (k < 0 || !ok) {
-							return;
-						}
-						const graph::NkLink *l = Sortant(n.id, k);
-						if (l == nullptr) {
-							return;
-						}
-						const graph::NkNode *suivant = g.Find(l->toNode);
-						if (suivant == nullptr) {
-							Echec(n.id, NkString("fil d'exécution vers un nœud absent"));
-							return;
-						}
-						Noeud(*suivant, profondeur + 1);
-					}
-
-					void Noeud(const graph::NkNode &n, int32 profondeur) {
-						if (profondeur > 256) {
-							Echec(n.id, NkString("chaîne d'exécution trop longue"));
-							return;
-						}
-						const NkProtoBp *p = ProtoDe(n);
-						if (p == nullptr) {
-							Echec(n.id, NkString::Format("nœud inconnu de ce catalogue : %s", n.type.CStr()));
-							return;
-						}
-						a.Ligne(n.id);
-						switch (p->genre) {
-							case NkGenreNoeudBp::NK_SI: {
-								const uint32 c = Valeur(n, "condition", NkTypeBp::NK_BOOLEEN, profondeur);
-								if (!ok) {
-									return;
-								}
-								a.Ligne(n.id);
-								a.Emettre(NkOpBp::NK_SAUT_SI_FAUX, c, 0u);
-								const uint32 versFaux = a.Pc() - 1u;
-								Chaine(n, "vrai", profondeur);
-								a.Emettre(NkOpBp::NK_SAUT, 0u);
-								const uint32 versFin = a.Pc() - 1u;
-								a.Patcher(versFaux, a.Pc());
-								Chaine(n, "faux", profondeur);
-								a.Patcher(versFin, a.Pc());
-								return;
-							}
-							case NkGenreNoeudBp::NK_SEQUENCE:
-								for (uint8 k = 0; k < p->nbSorties && ok; ++k) {
-									Chaine(n, p->sorties[k].nom, profondeur);
-								}
-								return;
-							case NkGenreNoeudBp::NK_ECRIRE_VAR: {
-								const uint32 v = Variable(n, *p);
-								const uint32 r = ok ? Valeur(n, "valeur", p->typeVar, profondeur) : 0u;
-								if (!ok) {
-									return;
-								}
-								a.Ligne(n.id);
-								a.Emettre(NkOpBp::NK_ECRIRE_VAR, v, r);
-								Chaine(n, "suite", profondeur);
-								return;
-							}
-							case NkGenreNoeudBp::NK_NATIF: {
-								uint32 nb = 0;
-								const unkeny::NkNatifBp &x = unkeny::NkNatifsBp(nb)[p->natif];
-								Natif(n, *p, x, -1, profondeur);
-								Chaine(n, "suite", profondeur);
-								return;
-							}
-							default:
-								Echec(n.id, NkString("ce nœud ne s'exécute pas : relier un nœud d'exécution"));
-								return;
-						}
-					}
-			};
-		} // namespace
-
 		bool NkBpCompiler(const graph::NkNodeGraph &g, unkeny::NkModuleBp &sortie, NkErreurBp &erreur) {
-			erreur = NkErreurBp();
-			// ── 1. Le graphe est-il SAIN ? (Validate connait la famille : G1) ──
-			NkVector<graph::NkGraphDiag> diags;
-			if (g.Validate(diags) > 0u) {
-				erreur.message = NkString::Format("graphe invalide : %s %s", graph::NkGraphIssueName(diags[0].issue), diags[0].detail.CStr());
-				erreur.noeud = diags[0].node;
-				return false;
-			}
-			NkCompilateur c(g, erreur);
-			uint32 evenements = 0;
-			// ── 2. Une fonction par EVENEMENT, en marchant le long des fils exec ──
-			for (uint32 i = 0; i < g.RawNodeCount() && c.ok; ++i) {
-				const graph::NkNode *n = g.RawNodeAt(i);
-				if (n == nullptr || !n->alive) {
-					continue;
-				}
-				const NkProtoBp *p = NkBpProto(n->type.CStr());
-				if (p == nullptr) {
-					erreur.message = NkString::Format("nœud inconnu de ce catalogue : %s", n->type.CStr());
-					erreur.noeud = n->id;
-					return false;
-				}
-				if (p->genre != NkGenreNoeudBp::NK_EVENEMENT) {
-					continue;
-				}
-				++evenements;
-				c.evenement = n->id;
-				const uint32 f = c.a.Fonction(p->libelle.CStr());
-				NkString parametre;
-				if (p->evenement == NK_UNK_EV_ACTION_PRESSEE || p->evenement == NK_UNK_EV_ACTION_RELACHEE) {
-					parametre = c.Constante(*n, "action");
-					if (c.ok && parametre.Empty()) {
-						c.Echec(n->id, NkString("événement d'action : saisir le NOM de l'action (« Sauter »...)"));
-					}
-				}
-				c.a.Entree(p->evenement, f, parametre.CStr());
-				c.a.Ligne(n->id);
-				c.Chaine(*n, "suite", 0);
-				c.a.Emettre(NkOpBp::NK_FIN);
-			}
-			if (!c.ok) {
-				return false;
-			}
-			if (evenements == 0u) {
-				erreur.message = "aucun événement : un Blueprint commence par un nœud « Événement »";
-				return false;
-			}
-			NkString texte;
-			g.Serialize(texte);
-			c.a.module.empreinte = unkeny::NkEmpreinteBp(texte.CStr(), texte.Length());
-			// ── 3. Verifie COMME LE JEU LE VERIFIERA (natif hors evenement...) ──
-			unkeny::NkProgrammeBp p;
-			p.module = c.a.module;
-			unkeny::NkRefusBp refus;
-			if (!unkeny::NkPreparerProgrammeBp(p, refus)) {
-				erreur.message = refus.raison;
-				erreur.noeud = refus.noeud;
-				return false;
-			}
-			sortie = c.a.module;
-			return true;
+			NkDocumentBp d;
+			d.graphes[0].graphe = g;
+			NkBpEnregistrerTypes(d.graphes[0].graphe);
+			return NkBpCompilerDocument(d, sortie, erreur);
 		}
 
 		bool NkBpEnregistrer(const char *chemin, const graph::NkNodeGraph &g, NkErreurBp &erreur, unkeny::NkModuleBp *module) {
+			NkDocumentBp d;
+			d.graphes[0].graphe = g;
+			NkBpEnregistrerTypes(d.graphes[0].graphe);
+			return NkBpEnregistrerDocument(chemin, d, erreur, module);
+		}
+
+		bool NkBpEnregistrerDocument(const char *chemin, const NkDocumentBp &d, NkErreurBp &erreur, unkeny::NkModuleBp *module) {
 			unkeny::NkModuleBp m;
-			const bool ok = NkBpCompiler(g, m, erreur);
+			const bool ok = NkBpCompilerDocument(d, m, erreur);
 			NkString texte;
-			g.Serialize(texte);
+			d.graphes[0].graphe.Serialize(texte);
+			// DOCU seulement s'il y a quelque chose a dire : un Blueprint sans
+			// declaration reste un fichier de la forme d'avant le 01/10.
+			NkString doc;
+			const bool aDoc = !d.variables.Empty() || d.graphes.Size() > 1u || !d.repartiteurs.Empty() || !d.description.Empty() ||
+							  !d.categorie.Empty();
+			if (aDoc) {
+				NkBpEcrireDocument(d, doc);
+			}
 			NkString err;
-			if (!unkeny::NkEcrireFichierBp(chemin, texte, ok ? &m : nullptr, &err)) {
+			if (!unkeny::NkEcrireFichierBp(chemin, texte, ok ? &m : nullptr, &err, aDoc ? &doc : nullptr)) {
 				erreur.message = NkString::Format("écriture impossible : %s", err.CStr());
 				erreur.noeud = graph::NK_NODE_INVALID;
+				erreur.graphe = 0u;
 				return false;
 			}
 			if (ok && module != nullptr) {

@@ -262,6 +262,14 @@ namespace nkentseu {
 							  const NkTypeBp *types, const NkModuleBp *module);
 				/// Livre la file (le passage le fait seul ; un banc aussi).
 				void LivrerDiffusions();
+				/// Livre `ev` aux scripts DEMARRES de `id`, dans l'ordre de leur liste,
+				/// comme le ferait le passage (un banc, « Simuler » de l'editeur).
+				void LivrerEvenement(ecs::NkEntityId id, const NkUnkEvenementV1 &ev) {
+					if (mScene != nullptr && mScripts != nullptr) {
+						Livrer(id, ev);
+						LivrerDiffusions();
+					}
+				}
 
 				// --- Pour la table C (NkUnkenyScripts.cpp), pas pour l'appelant ---
 				NkScene *Scene() const noexcept {

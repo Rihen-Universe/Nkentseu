@@ -157,6 +157,9 @@ namespace nkentseu {
 		/// Le banc des scripts de l'editeur (Script/NkEditeurBancScripts.cpp) :
 		/// lance par --selftest. 0 = tout tient (un temoin INDETERMINE n'echoue pas).
 		int32 NkEditeurLancerBancScripts();
+		/// Le banc de l'EDITEUR DE BLUEPRINT a la UE5 (Script/NkEditeurBancBlueprint.cpp),
+		/// lance a la suite du precedent.
+		int32 NkEditeurLancerBancBlueprint();
 		/// `--captures-scripts=DOSSIER` : les captures HORS ECRAN des scripts
 		/// (page du graphe, erreur sur son noeud, Details, jeu, Journal, menu).
 		int32 NkEditeurCapturesScripts(const char *dossier);

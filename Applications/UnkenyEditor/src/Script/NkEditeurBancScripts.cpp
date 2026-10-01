@@ -456,7 +456,9 @@ namespace nkentseu {
 			NkDirectory::Delete(racine.CStr(), true);
 			std::printf("\n%s : %d reussis, %d echec, %d indetermine(s)\n", gE == 0 ? "BANC SCRIPTS EDITEUR REUSSI" : "BANC SCRIPTS EDITEUR EN ECHEC",
 						gR, gE, gI);
-			return gE == 0 ? 0 : 1;
+			// (2026-10-01) L'editeur de Blueprint a la UE5 : compte a part.
+			const int32 blueprint = NkEditeurLancerBancBlueprint();
+			return (gE == 0 ? 0 : 1) | blueprint;
 		}
 
 	} // namespace editeur

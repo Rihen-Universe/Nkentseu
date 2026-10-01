@@ -37,16 +37,47 @@
 #include "NKContainers/Sequential/NkVector.h"
 #include "NKContainers/String/NkString.h"
 #include "NKGraph/NkNodeGraph.h"
+#include "Script/NkBpDocument.h"
 #include "Unkeny/Script/NkUnkenyBpMachine.h"
 #include "Unkeny/Script/NkUnkenyScript.h"
 
 namespace nkentseu {
 	namespace editeur {
 
-		enum class NkGenreNoeudBp : uint8 { NK_EVENEMENT = 0, NK_SI, NK_SEQUENCE, NK_LIRE_VAR, NK_ECRIRE_VAR, NK_NATIF, NK_MATH, NK_SOI };
+		/// Le GENRE d'un noeud : ce que le compilateur en fait. AJOUTES A LA FIN.
+		/// Les genres « document » (variables declarees, fonctions, macros,
+		/// repartiteurs, relais, commentaire) n'ont pas de prototype fixe : leurs
+		/// prises viennent des declarations (NkBpDocument.h).
+		enum class NkGenreNoeudBp : uint8 {
+			NK_EVENEMENT = 0,
+			NK_SI,
+			NK_SEQUENCE,
+			NK_LIRE_VAR, ///< l'ANCIEN noeud (nom saisi) : lu tel quel
+			NK_ECRIRE_VAR,
+			NK_NATIF,
+			NK_MATH,
+			NK_SOI,
+			NK_POUR,	 ///< boucle « Pour » (premier, dernier -> corps, indice, fini)
+			NK_TANT_QUE, ///< boucle « Tant que » (condition -> corps, fini)
+			NK_VAR_GET,	 ///< variable DECLAREE (document)
+			NK_VAR_SET,
+			NK_FN_ENTREE,
+			NK_FN_RETOUR,
+			NK_APPEL_FN,
+			NK_MACRO,
+			NK_MACRO_ENTREE,
+			NK_MACRO_SORTIE,
+			NK_REP_APPELER,
+			NK_REP_EVENEMENT,
+			NK_RELAIS,
+			NK_COMMENTAIRE,
+			NK_INCONNU
+		};
+		/// Le genre de n'importe quel noeud (catalogue fixe ou document).
+		NkGenreNoeudBp NkBpGenre(const graph::NkNode &n) noexcept;
 
 		/// Une prise d'un prototype. `type` : « exec », « booleen », « entier »,
-		/// « reel », « vec2 », « entite », « texte ».
+		/// « reel », « vec2 », « entite », « texte », « couleur », « asset ».
 		struct NkPriseBp {
 				const char *nom = nullptr;
 				const char *type = nullptr;
@@ -86,20 +117,44 @@ namespace nkentseu {
 
 		unkeny::NkTypeBp NkBpTypeDeNom(const char *nomType) noexcept;
 
-		/// Ce qui empeche de compiler, et OU.
+		/// Ce qui empeche de compiler, et OU : le noeud ET son graphe (l'indice
+		/// dans NkDocumentBp::graphes ; 0 = le graphe d'evenements).
 		struct NkErreurBp {
 				NkString message;
 				graph::NkNodeId noeud = graph::NK_NODE_INVALID;
+				uint32 graphe = 0u;
 		};
 
-		/// Compile le graphe. false : `erreur` dit pourquoi et designe le noeud.
-		/// Le module rendu est VERIFIE (comme le jeu le verifiera).
+		/// Compile le graphe (un document d'un seul graphe). false : `erreur` dit
+		/// pourquoi et designe le noeud. Le module rendu est VERIFIE (comme le jeu
+		/// le verifiera).
 		bool NkBpCompiler(const graph::NkNodeGraph &g, unkeny::NkModuleBp &sortie, NkErreurBp &erreur);
+		/// Compile le DOCUMENT : variables declarees, fonctions (appelees par
+		/// NK_APPEL), macros (inserees), repartiteurs, graphe d'evenements.
+		bool NkBpCompilerDocument(const NkDocumentBp &d, unkeny::NkModuleBp &sortie, NkErreurBp &erreur);
 
 		/// Compile puis ecrit le .nkbp (GRAF + MODL). La compilation echoue : le
 		/// GRAPHE est ecrit quand meme (rien n'est perdu), sans module, et false.
 		bool NkBpEnregistrer(const char *chemin, const graph::NkNodeGraph &g, NkErreurBp &erreur,
 							 unkeny::NkModuleBp *module = nullptr);
+		/// Le DOCUMENT : GRAF (graphe d'evenements) + MODL + DOCU.
+		bool NkBpEnregistrerDocument(const char *chemin, const NkDocumentBp &d, NkErreurBp &erreur,
+									 unkeny::NkModuleBp *module = nullptr);
+
+		/// Une ENTREE du menu contextuel de la toile : ce qu'on peut poser dans le
+		/// graphe `graphe` du document (catalogue fixe + variables, fonctions,
+		/// macros, repartiteurs). `entrees` / `sorties` : les TYPES de ses prises
+		/// (« exec » compris) -- le menu « sensible au contexte » ne garde que
+		/// celles qui acceptent la prise tiree.
+		struct NkEntreeMenuBp {
+				NkString cle;		///< pour NkBpCreerParCle
+				NkString libelle;	///< « Lire ouverte »
+				NkString categorie; ///< « Variables »
+				NkString aide;
+				NkVector<NkString> entrees;
+				NkVector<NkString> sorties;
+		};
+		void NkBpEntreesMenu(const NkDocumentBp &d, uint32 graphe, NkVector<NkEntreeMenuBp> &sortie);
 		/// Relit le graphe d'un .nkbp (section GRAF).
 		bool NkBpOuvrir(const char *chemin, graph::NkNodeGraph &g, NkString *erreur = nullptr);
 
@@ -108,6 +163,11 @@ namespace nkentseu {
 		/// fausse) -> Teleporter l'entite `porte` de (0, 2), Jouer son effet,
 		/// Afficher, ouverte = vrai. Construit PAR CODE (banc, exemple).
 		void NkBpGraphePorte(graph::NkNodeGraph &g, const char *porte = "Porte");
+		/// (2026-10-01) La MEME porte, reecrite avec de VRAIES declarations : les
+		/// variables « ouverte » (booleen), « porte » (texte, modifiable par
+		/// instance), « hauteur » (reel, modifiable par instance) et la fonction
+		/// « OuvrirPorte(hauteur) » appelee par le graphe d'evenements.
+		void NkBpDocumentPorte(NkDocumentBp &d, const char *porte = "Porte");
 		/// « Debut -> Afficher "Bonjour" » : le Blueprint neuf.
 		void NkBpGrapheBonjour(graph::NkNodeGraph &g);
 
