@@ -55,7 +55,7 @@ namespace nkentseu {
 				if (p == nullptr || p->curve.Empty() || p->curve.KeyCount() != (uint32)t.keys.Size()) {
 					return false; // le clip a une trame de retard sur un geste : le repli
 				}
-				const math::NkVec4f v = p->curve.Evaluate(temps);
+				const math::NkVec4f v = p->Evaluate(temps); // (01/10 soir) la Courbe d'Hermite, comme le jeu
 				out[0] = v.x;
 				out[1] = v.y;
 				out[2] = v.z;

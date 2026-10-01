@@ -68,6 +68,7 @@
 // =============================================================================
 #pragma once
 
+#include "NKAnima/Blend/NkAnimMix.h"
 #include "NKAnima/Clip/NkAnimation.h"
 #include "NKCore/NkTypes.h"
 
@@ -76,6 +77,7 @@ namespace nkentseu {
 		class NkWorld;
 	}
 	namespace unkeny {
+		class NkScene;
 
 		/// Huit parametres couvrent un personnage (vitesse, sol, saut, chute,
 		/// attaque, touche, mort, accroupi).
@@ -148,6 +150,36 @@ namespace nkentseu {
 		/// « Sol/marche » : le chemin de l'etat courant, pour un inspecteur ou
 		/// un journal. Vide si le modele manque ou si rien n'a demarre.
 		NkString NkEtatAnimateur2D(const NkAnimateur2D &a);
+
+		// --- (2026-10-01 soir) LE MELANGE ------------------------------------
+		// Un modele est desormais un CONTROLEUR de NKAnima (anim::NkAnimController,
+		// Blend/NkAnimMix.h) : sa machine de base (celle d'avant, toujours rendue
+		// par NkModeleAnimateur), des COUCHES (une machine, un poids, un masque
+		// d'objets, remplace ou additif), des ARBRES DE MELANGE 1D / 2D et des
+		// MASQUES nommes. Le .nkanimctl les porte (sections que l'ancien lecteur
+		// saute).
+		//
+		// L'etat de melange d'une entite (les couches au-dela de la base, les
+		// phases des arbres) vit dans NkMelangeAnimateur2D, AJOUTE PAR LE SYSTEME.
+		// Il n'est pas photographie : c'est un etat de lecture, il repart a chaque
+		// « Jouer » (la base, elle, est dans NkAnimateur2D::execution).
+		struct NkMelangeAnimateur2D {
+				anim::NkAnimControllerRuntime execution;
+		};
+
+		/// Enregistre (ou REMPLACE) un controleur complet (copie).
+		bool NkEnregistrerControleurAnimateur(const char *nom, const anim::NkAnimController &controleur);
+		/// Le controleur, ou nul (NkModeleAnimateur rend sa machine de base).
+		anim::NkAnimController *NkControleurAnimateur(const char *nom);
+
+		/// LE MELANGE EN JEU, apres NkAvancerClipsProprietes dans NkScene::Pas :
+		/// pour chaque animateur dont le controleur MELANGE (des etats qui jouent
+		/// des clips de proprietes ou des arbres, des couches), la pose melangee de
+		/// NKAnima -- fondu de transition a sa courbe, arbre selon ses parametres,
+		/// couches sous leurs masques -- est ecrite dans les proprietes de l'entite
+		/// et de ses descendants nommes (NkAppliquerPoseProprietes). Une entite qui
+		/// n'a ni NkClipProprietes2D ni couche ni arbre n'est pas touchee.
+		void NkMelangerAnimateurs(NkScene &scene, float32 dt);
 
 		/// LE SYSTEME : pour chaque NkAnimateur2D, fait avancer son modele avec
 		/// SES parametres et SON etat, puis, si l'etat a change, joue le clip

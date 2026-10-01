@@ -25,6 +25,16 @@
 //   (n10) le modele est PARTAGE : un parametre qu'une entite n'a pas ne
 //         fuit pas de la precedente (le « saut » non consomme de l'une ne
 //         fait pas sauter l'autre)
+//   --- (2026-10-01 soir) LE MELANGE EN JEU (NKAnima, Blend/NkAnimMix.h) ---
+//   (n11) un FONDU entre deux etats qui jouent des clips de proprietes, a la
+//         courbe douce de sa transition : a mi-fondu la rotation est a
+//         mi-chemin (45 deg), puis a 90 ; avant, sans melangeur, elle sautait
+//   (n12) une COUCHE masquee « Torse » : le torse tire (rotation 30) pendant
+//         que les jambes courent (rotation 10) ; poids 0,5 -> torse a 20
+//   (n13) un ARBRE DE MELANGE 1D sur « vitesse » : vitesse 1,5 entre repos (0)
+//         et course (3, rotation 60) -> rotation 30
+//   (n14) un controleur complet (couche, arbre, masque) fait l'aller-retour
+//         .nkanimctl par NkChargerModeleAnimateur
 //
 // AUTEUR: Rihen
 // LICENCE: Proprietary - All Rights Reserved (see LICENSE)
@@ -33,6 +43,7 @@
 #include "Unkeny/Banc/NkUnkenyBancTas.h" // scenes de banc sur le tas (pile macOS)
 #include "NKSerialization/Asset/NkAssetMetadata.h"
 #include "Unkeny/Anim/NkUnkenyAnimateur.h"
+#include "Unkeny/Anim/NkUnkenyProprietes.h"
 #include "Unkeny/Anim/NkUnkenySpriteAnim.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 #include "Unkeny/Scene/NkUnkenyScene.h"
@@ -84,6 +95,27 @@ namespace nkentseu {
 				const NkAnimateur2D *a = s.Monde().Get<NkAnimateur2D>(e);
 				const NkAnimSprite2D *sp = s.Monde().Get<NkAnimSprite2D>(e);
 				return a != nullptr && sp != nullptr && NkEtatAnimateur2D(*a) == chemin && sp->clipCourant == clip;
+			}
+
+			/// (01/10 soir) Un clip de proprietes qui TIENT une rotation, enregistre.
+			void ClipRotation(const char *nom, float32 deg, const char *cible = "") {
+				anim::NkAnimationClip c;
+				c.name = nom;
+				c.duration = 1.f;
+				anim::NkAnimationClip::NkPropertyTrack &p =
+					c.AddPropertyTrack(cible, "Transform.rotation", anim::NkAnimationClip::NkPropertyKind::NK_NUMBER);
+				p.curve.AddKey(0.f, math::NkVec4f(deg, 0.f, 0.f, 0.f));
+				p.curve.AddKey(1.f, math::NkVec4f(deg, 0.f, 0.f, 0.f));
+				NkEnregistrerClipProprietes(nom, c);
+			}
+
+			float32 Rotation(NkScene &s, ecs::NkEntityId e) {
+				math::NkVec4f v;
+				return NkLireProprieteAnimee(s, e, "Transform.rotation", v) ? v.x : -999.f;
+			}
+
+			bool Pres(float32 a, float32 b) {
+				return a > b - 0.05f && a < b + 0.05f;
 			}
 
 			float32 Clip(NkScene &s, ecs::NkEntityId e) {
@@ -280,6 +312,117 @@ namespace nkentseu {
 				Temoin(Est(q, ea, "Air/saut", 2) && q.Monde().Get<NkAnimateur2D>(ea)->Valeur("saut") == 1.f &&
 						   Est(q, eb, "Sol/idle", 0),
 					   "(n10) modele partage : le saut de l'un ne fait pas sauter l'autre", Clip(q, eb));
+			}
+
+			// ── (2026-10-01 soir) LE MELANGE ─────────────────────────────────
+			using SM = anim::NkAnimStateMachine;
+			ClipRotation("banc_repos", 0.f);
+			ClipRotation("banc_marche", 90.f);
+			// (n11) le fondu des proprietes, a sa courbe
+			{
+				anim::NkAnimController ctl;
+				const int32 r0 = ctl.base.AddEmptyState("Repos");
+				const int32 r1 = ctl.base.AddEmptyState("Marche");
+				ctl.base.SetStateClipRef(r0, "banc_repos");
+				ctl.base.SetStateClipRef(r1, "banc_marche");
+				ctl.base.DeclareParam("vitesse", SM::NkParamKind::FLOAT);
+				const int32 t = ctl.base.AddTransitionEx(r0, r1, 0.5f);
+				ctl.base.AddCondition(t, "vitesse", SM::NkCondKind::FLOAT_GREATER, 0.1f);
+				ctl.base.SetTransitionCurve(t, anim::NkFadeCurve::NK_SMOOTH);
+				NkEnregistrerControleurAnimateur("banc_fondu", ctl);
+				NK_BANC_SUR_TAS(NkScene, q);
+				q.Init(cfg);
+				const ecs::NkEntityId e = q.Creer("Danseur", NkVec2f(0.f, 0.f));
+				q.Monde().Add<NkClipProprietes2D>(e, NkClipProprietes2D());
+				q.Monde().Add<NkAnimateur2D>(e, NkCreerAnimateur2D("banc_fondu"));
+				q.Pas(dt);
+				const float32 r0v = Rotation(q, e);
+				q.Monde().Get<NkAnimateur2D>(e)->Poser("vitesse", 1.f);
+				q.Pas(0.25f); // le fondu demarre et en fait la moitie : douce(0,5) = 0,5
+				const float32 mi = Rotation(q, e);
+				q.Pas(0.3f);
+				q.Pas(dt);
+				const float32 fin = Rotation(q, e);
+				Temoin(Pres(r0v, 0.f) && Pres(mi, 45.f) && Pres(fin, 90.f) && q.Monde().Get<NkMelangeAnimateur2D>(e) != nullptr,
+					   "(n11) fondu de proprietes a sa courbe : 0, 45 a mi-fondu, puis 90", mi);
+			}
+			// (n12) une couche masquee : le haut tire, les jambes courent
+			{
+				// La course anime TOUT le corps (jambes et torse a 10) : la couche du
+				// haut remplace le torse, sous son masque.
+				anim::NkAnimationClip course;
+				course.name = "banc_jambes";
+				course.duration = 1.f;
+				for (const char *cible : {"Jambes", "Torse"}) {
+					course.AddPropertyTrack(cible, "Transform.rotation", anim::NkAnimationClip::NkPropertyKind::NK_NUMBER)
+						.curve.AddKey(0.f, math::NkVec4f(10.f, 0.f, 0.f, 0.f));
+				}
+				NkEnregistrerClipProprietes("banc_jambes", course);
+				anim::NkAnimationClip tir;
+				tir.name = "banc_tir";
+				tir.duration = 1.f;
+				for (const char *cible : {"Jambes", "Torse"}) {
+					const float32 v = cible[0] == 'T' ? 30.f : 0.f;
+					tir.AddPropertyTrack(cible, "Transform.rotation", anim::NkAnimationClip::NkPropertyKind::NK_NUMBER)
+						.curve.AddKey(0.f, math::NkVec4f(v, 0.f, 0.f, 0.f));
+				}
+				NkEnregistrerClipProprietes("banc_tir", tir);
+				anim::NkAnimController ctl;
+				ctl.base.SetStateClipRef(ctl.base.AddEmptyState("Course"), "banc_jambes");
+				ctl.base.DeclareParam("visee", SM::NkParamKind::FLOAT, 1.f);
+				anim::NkAnimMask &m = ctl.AddMask("Haut");
+				anim::NkAnimMask::Entry en;
+				en.path = "Torse";
+				m.entries.PushBack(en);
+				anim::NkAnimLayer *l = ctl.AddLayer("Tir", anim::NkLayerMode::NK_OVERRIDE, 1.f, "Haut");
+				l->weightParam = "visee";
+				l->machine.SetStateClipRef(l->machine.AddEmptyState("Tirer"), "banc_tir");
+				NkEnregistrerControleurAnimateur("banc_couches", ctl);
+				NK_BANC_SUR_TAS(NkScene, q);
+				q.Init(cfg);
+				const ecs::NkEntityId e = q.Creer("Soldat", NkVec2f(0.f, 0.f));
+				const ecs::NkEntityId jambes = q.Creer("Jambes", NkVec2f(0.f, -0.5f));
+				const ecs::NkEntityId torse = q.Creer("Torse", NkVec2f(0.f, 0.5f));
+				q.Rattacher(jambes, e);
+				q.Rattacher(torse, e);
+				q.Monde().Add<NkAnimateur2D>(e, NkCreerAnimateur2D("banc_couches"));
+				q.Pas(dt);
+				const float32 j = Rotation(q, jambes), tt = Rotation(q, torse);
+				q.Monde().Get<NkAnimateur2D>(e)->Poser("visee", 0.5f);
+				q.Pas(dt);
+				const float32 demi = Rotation(q, torse);
+				Temoin(Pres(j, 10.f) && Pres(tt, 30.f) && Pres(demi, 20.f),
+					   "(n12) couche masquee : jambes 10, torse 30 ; poids 0,5 -> torse 20", tt);
+			}
+			// (n13) un arbre de melange 1D sur la vitesse
+			{
+				ClipRotation("banc_course", 60.f);
+				anim::NkAnimController ctl;
+				const int32 s0 = ctl.base.AddEmptyState("Locomotion");
+				ctl.base.SetStateBlendRef(s0, "banc_loco", 1);
+				ctl.base.DeclareParam("vitesse", SM::NkParamKind::FLOAT);
+				anim::NkBlendSpaceDef &bs = ctl.AddBlendSpace("banc_loco", 1, "vitesse");
+				bs.AddSample("banc_repos", 0.f);
+				bs.AddSample("banc_course", 3.f);
+				NkEnregistrerControleurAnimateur("banc_arbre", ctl);
+				// (n14) le meme, relu d'un .nkanimctl
+				const NkString chemin = NkString("banc_arbre.") + NkAssetExtensionFor(NkAssetType::AnimationController);
+				ctl.SaveBinary(chemin);
+				const bool relu = NkChargerModeleAnimateur("banc_arbre_lu", chemin.CStr());
+				const anim::NkAnimController *lu = NkControleurAnimateur("banc_arbre_lu");
+				NkFile::Delete(chemin.CStr());
+				NK_BANC_SUR_TAS(NkScene, q);
+				q.Init(cfg);
+				const ecs::NkEntityId e = q.Creer("Coureur", NkVec2f(0.f, 0.f));
+				q.Monde().Add<NkClipProprietes2D>(e, NkClipProprietes2D());
+				NkAnimateur2D an = NkCreerAnimateur2D("banc_arbre_lu");
+				an.Poser("vitesse", 1.5f);
+				q.Monde().Add<NkAnimateur2D>(e, an);
+				q.Pas(dt);
+				const float32 r = Rotation(q, e);
+				Temoin(Pres(r, 30.f), "(n13) arbre 1D : vitesse 1,5 entre 0 et 60 -> rotation 30", r);
+				Temoin(relu && lu != nullptr && lu->FindBlendSpace("banc_loco") != nullptr && lu->blendSpaces[0].samples.Size() == 2u,
+					   "(n14) le controleur (arbre compris) relu d'un .nkanimctl", lu != nullptr ? (float32)lu->blendSpaces.Size() : -1.f);
 			}
 		}
 
