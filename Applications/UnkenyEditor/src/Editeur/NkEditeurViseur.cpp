@@ -32,6 +32,35 @@ namespace nkentseu {
 			m.scene.PoserEcran(NkEcranDepuisLayout(NkLayoutSimule(m.ProfilCourant()), appareil, true));
 		}
 
+		NkCadrageCamera NkEditeurDessinerApercuJeu(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+												   const nkgui::NkRect &appareil) {
+			NkScene &scene = m.scene;
+			NkVue2D &cam = scene.Camera();
+			const NkRect viseurAvant = cam.Viseur();
+			const float32 zoomAvant = cam.Zoom();
+			const NkCadrageCamera cad = NkCadrerCamera(m.appareil.regleCamera, viseur.w, viseur.h, zoomAvant, appareil);
+			// Les bandes (s'il y en a) sont noires ; l'ecran du jeu a le fond du viseur.
+			dl.AddRectFilled(appareil, NkColor(0, 0, 0));
+			dl.AddRectFilled(cad.vue, NkColor(20, 23, 31));
+			cam.PoserViseur(cad.vue);
+			cam.PoserZoom(cad.zoom);
+			// L'ecran du jeu se restreint a l'image (les bandes), comme dans le
+			// joueur ; il est rendu ensuite.
+			const NkEcranDuJeu ecranAvant = scene.Ecran();
+			scene.PoserEcran(NkEcranDansVue(ecranAvant, cad.vue));
+			// Le HUD se repose pour CETTE camera (sa position monde en depend).
+			NkVector<NkPositionAncree> ancrees;
+			NkAppliquerAncrages(scene, m.etat == NkEtatJeu::NK_EDITION ? &ancrees : nullptr);
+			dl.PushClipRect(cad.vue, true);
+			NkDessinerPartie(dl, scene, m.rendu);
+			dl.PopClipRect();
+			NkRendreAncrages(scene, ancrees);
+			scene.PoserEcran(ecranAvant);
+			cam.PoserViseur(viseurAvant);
+			cam.PoserZoom(zoomAvant);
+			return cad;
+		}
+
 		NkStatsRendu NkDessinerViseur(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
 									  const nkgui::NkRect &appareil) {
 			NkScene &scene = m.scene;
@@ -193,8 +222,15 @@ namespace nkentseu {
 			if (m.profil == 0) {
 				return stats;
 			}
-			// (2026-10-01) Le CADRE en vecteurs, la zone sure, la decoupe : selon
-			// les interrupteurs du menu Appareil (document 03, §2.4).
+			// (2026-10-01) L'APERCU DE LA CAMERA DU JEU (document 03, §2.6) : dans
+			// l'ecran de l'appareil, ce que le joueur montrerait, selon la regle
+			// du projet -- la reference est CE viseur et CE zoom, ceux que
+			// Construire cuirait maintenant.
+			if (m.appareil.apercuJeu) {
+				NkEditeurDessinerApercuJeu(dl, m, viseur, appareil);
+			}
+			// Le CADRE en vecteurs, la zone sure, la decoupe : selon les
+			// interrupteurs du menu Appareil (document 03, §2.4).
 			NkDessinerAppareil(dl, profil, appareil, m.appareil, viseur);
 			return stats;
 		}

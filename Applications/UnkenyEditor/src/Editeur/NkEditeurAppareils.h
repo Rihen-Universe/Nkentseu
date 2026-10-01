@@ -246,6 +246,9 @@ namespace nkentseu {
 				int32 persoBase = 2;
 				/// L'appareil personnalise, EN PORTRAIT.
 				NkProfilAppareil perso;
+				/// La camera du JEU selon l'ecran (§2.6) : regle du projet, cuite
+				/// avec le jeu (Construire) et montree par l'apercu.
+				unkeny::NkRegleCamera regleCamera = unkeny::NkRegleCamera::NK_TOUT_MONTRER;
 
 				NkReglagesAppareil() noexcept;
 		};

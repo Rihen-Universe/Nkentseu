@@ -310,6 +310,7 @@ namespace nkentseu {
 			s.SetString(V("empreinte"), Hex64(rapport.empreinte).View());
 			const NkString vue = NkString::Format("%.9g %.9g", static_cast<double>(demande.vueLargeur), static_cast<double>(demande.vueHauteur));
 			s.SetString(V("vue"), vue.View());
+			s.SetString(V("camera"), V(NkNomRegleCamera(demande.regleCamera)));
 			s.SetObjectArray(V("textures"), tableTextures);
 			s.SetObjectArray(V("sons"), tableSons);
 			if (entreesEcrites) {
@@ -373,6 +374,10 @@ namespace nkentseu {
 				char *fin = nullptr;
 				sortie.vueLargeur = std::strtof(t.CStr(), &fin);
 				sortie.vueHauteur = std::strtof(fin, nullptr);
+			}
+			// (2026-10-01) La regle de camera : absente ou inconnue = tout montrer.
+			if (s.GetString(V("camera"), t)) {
+				(void)NkRegleCameraDepuisNom(t.CStr(), sortie.regleCamera);
 			}
 
 			// ── 1 bis. Les entrees (facultatives) : citees mais absentes, c'est

@@ -32,7 +32,7 @@
 //         CONSEILLEE a part
 //   (a13) l'appareil PERSONNALISE s'ecrit et se relit a l'identique (texte
 //         .nkappareil) : systeme, tailles, decoupe, regles, orientation,
-//         interrupteurs ; ses marges sont rededuites
+//         interrupteurs, regle de camera du jeu ; ses marges sont rededuites
 //   (a14) retro-compatible : sans entete, rien ne change ; une cle absente
 //         garde sa valeur, une cle inconnue est ignoree
 //   (a15) avec la SCENE : Enregistrer puis Ouvrir rend l'appareil
@@ -217,6 +217,7 @@ namespace nkentseu {
 			perso.perso.rayonCoins = 30.f;
 			perso.voirCadre = false;
 			perso.cadreClair = true;
+			perso.regleCamera = unkeny::NkRegleCamera::NK_BANDES; // la camera du jeu (§2.6)
 
 			// (a13)
 			{
@@ -230,7 +231,7 @@ namespace nkentseu {
 						   a.systeme == NkSystemeAppareil::NK_ANDROID && a.largeur == 400u && a.hauteur == 900u &&
 						   Proche(a.densite, 2.5f) && MemeRect(a.rectDecoupe, perso.perso.rectDecoupe) &&
 						   Proche(a.margeDecoupe, 32.f) && Proche(a.rayonCoins, 30.f) && Proche(a.zoneSure.top, 32.f) &&
-						   a.nbBoutons == NkProfil(7).nbBoutons,
+						   a.nbBoutons == NkProfil(7).nbBoutons && lu.regleCamera == unkeny::NkRegleCamera::NK_BANDES,
 					   "(a13) appareil personnalise : ecrit, relu a l'identique", a.zoneSure.top);
 			}
 

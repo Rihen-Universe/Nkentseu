@@ -220,13 +220,16 @@ namespace nkentseu {
 			NkJoueurEntreesSurface(p.entrees, ecran.w, ecran.h);
 			if (p.jeu.Jouable()) {
 				unkeny::NkVue2D &cam = p.scene.Camera();
-				cam.PoserViseur(ecran);
-				// LE MEME MORCEAU DE MONDE que le viseur de l'editeur : le zoom relu
-				// valait pour ce viseur-la, on le ramene a cette fenetre-ci.
-				if (p.jeu.vueLargeur > 1.f && p.jeu.vueHauteur > 1.f && ecran.w > 1.f && ecran.h > 1.f) {
-					const float32 kx = ecran.w / p.jeu.vueLargeur;
-					const float32 ky = ecran.h / p.jeu.vueHauteur;
-					cam.PoserZoom(p.zoomRelu * (kx < ky ? kx : ky));
+				// LE MORCEAU DE MONDE du viseur de l'editeur, ramene a cette fenetre
+				// selon la REGLE de camera du projet (2026-10-01, document 03 §2.6) ;
+				// « tout montrer » (la valeur d'un jeu cuit avant) est l'ancien calcul.
+				const unkeny::NkCadrageCamera cad =
+					unkeny::NkCadrerCamera(p.jeu.regleCamera, p.jeu.vueLargeur, p.jeu.vueHauteur, p.zoomRelu, ecran);
+				cam.PoserViseur(cad.vue);
+				cam.PoserZoom(cad.zoom);
+				if (p.jeu.regleCamera == unkeny::NkRegleCamera::NK_BANDES) {
+					dl.AddRectFilled(ecran, NkColor(0, 0, 0));
+					dl.AddRectFilled(cad.vue, kFond);
 				}
 				// LA ZONE SURE DE NKWINDOW, transmise au jeu (document 03, §2.5) :
 				// Layout() est ce que NKCanvas a lu dans NkWindow::GetSafeAreaInsets.
@@ -235,9 +238,10 @@ namespace nkentseu {
 				if (mAMargesEssai) {
 					vu.safeArea = mMargesEssai;
 				}
-				p.scene.PoserEcran(unkeny::NkEcranDepuisLayout(vu, ecran, false));
+				// Avec des bandes, l'ecran du jeu se restreint a l'image (NkEcranDansVue).
+				p.scene.PoserEcran(unkeny::NkEcranDansVue(unkeny::NkEcranDepuisLayout(vu, ecran, false), cad.vue));
 				unkeny::NkAppliquerAncrages(p.scene);
-				dl.PushClipRect(ecran, true);
+				dl.PushClipRect(cad.vue, true);
 				unkeny::NkDessinerPartie(dl, p.scene, p.rendu);
 				dl.PopClipRect();
 				if (mVoirZoneSure) {

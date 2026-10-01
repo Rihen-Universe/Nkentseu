@@ -744,6 +744,8 @@ namespace nkentseu {
 			cuisson.nomJeu = demande.nom.Empty() ? plan.projet : demande.nom;
 			cuisson.vueLargeur = vueLargeur;
 			cuisson.vueHauteur = vueHauteur;
+			// La regle de camera du projet (.nkappareil, document 03 §2.6).
+			cuisson.regleCamera = m.appareil.regleCamera;
 			cuisson.entrees = demande.entrees;
 			unkeny::NkRapportCuisson rapport;
 			const bool cuit = unkeny::NkCuireJeu(m.scene, m.textures, cuisson, rapport);

@@ -21,11 +21,23 @@
 //        ecran, rien ne bouge ; NkRendreAncrages rend la position
 //   (z6) NkZoneSureMonde : les coins du rectangle sur, a travers la camera
 //   (z7) l'ancrage s'enregistre et se relit avec la scene (JSON)
+//   (z8) la camera du jeu selon l'ecran (§2.6) : les cinq regles sur un
+//        telephone en portrait, reference 1280x720 a 32 px/m
+//   (z10) avec des bandes, l'ecran du jeu se restreint a l'IMAGE : le HUD
+//        s'ancre dans l'image et dans la zone sure, jamais dans une bande
+//   (z9) la regle est cuite (jeu.json) et relue ; un jeu cuit SANS elle
+//        (avant le 01/10) se relit en « tout montrer », l'ancien calcul
 //
 // Auteur   : Rihen
 // Copyright: (c) 2024-2026 Rihen. Tous droits reserves.
 // =============================================================================
 #include "Unkeny/Banc/NkUnkenyBanc.h"
+#include "NKFileSystem/NkDirectory.h"
+#include "NKFileSystem/NkFile.h"
+#include "NKFileSystem/NkPath.h"
+#include "NKMemory/NKMemory.h"
+#include "Unkeny/Livraison/NkUnkenyLivraison.h"
+#include "Unkeny/Rendu/NkUnkenyTextures.h"
 #include "Unkeny/Partie/NkUnkenyZoneSure.h"
 #include "Unkeny/Scene/NkUnkenySauvegarde.h"
 
@@ -167,6 +179,95 @@ namespace nkentseu {
 				Temoin(lu && ra != nullptr && ra->ancre == a.ancre && Proche(ra->decalage.x, 10.f) && Proche(ra->decalage.y, 8.f) &&
 						   ra->zoneSure,
 					   "(z7) l'ancrage s'enregistre et se relit avec la scene", ra != nullptr ? ra->decalage.x : -1.f);
+			}
+
+			// (z8)
+			{
+				const nkgui::NkRect ecran{0.f, 0.f, 1179.f, 2556.f}; // un telephone en portrait
+				const NkCadrageCamera tout = NkCadrerCamera(NkRegleCamera::NK_TOUT_MONTRER, 1280.f, 720.f, 32.f, ecran);
+				const NkCadrageCamera haut = NkCadrerCamera(NkRegleCamera::NK_HAUTEUR_FIXE, 1280.f, 720.f, 32.f, ecran);
+				const NkCadrageCamera larg = NkCadrerCamera(NkRegleCamera::NK_LARGEUR_FIXE, 1280.f, 720.f, 32.f, ecran);
+				const NkCadrageCamera band = NkCadrerCamera(NkRegleCamera::NK_BANDES, 1280.f, 720.f, 32.f, ecran);
+				const NkCadrageCamera remp = NkCadrerCamera(NkRegleCamera::NK_REMPLIR, 1280.f, 720.f, 32.f, ecran);
+				const float32 k = 1179.f / 1280.f;
+				// Hauteur fixe : la MEME hauteur de monde (720/32 = 22,5 m) qu'a la
+				// reference ; bandes : le cadre 16:9 centre, rien au-dela.
+				const bool ok = Proche(tout.zoom, 32.f * k) && MemeRect(tout.vue, 0.f, 0.f, 1179.f, 2556.f) &&
+								Proche(2556.f / haut.zoom, 22.5f) && Proche(larg.zoom, 32.f * k) &&
+								Proche(band.zoom, 32.f * k) && MemeRect(band.vue, 0.f, (2556.f - 720.f * k) * 0.5f, 1179.f, 720.f * k) &&
+								Proche(remp.zoom, haut.zoom);
+				Temoin(ok, "(z8) regles de camera : tout, hauteur, largeur, bandes, remplir", haut.zoom);
+			}
+
+			// (z10)
+			{
+				// Le telephone a ilot en portrait (haut 177, bas 102), une image en
+				// bandes de 1179x663 au milieu : rien de l'image n'est sous une marge.
+				NkEcranDuJeu e = NkEcranDepuisLayout(LayoutIlot(), nkgui::NkRect{0.f, 0.f, 0.f, 0.f}, false);
+				const nkgui::NkRect vue{0.f, 946.5f, 1179.f, 663.f};
+				const NkEcranDuJeu dans = NkEcranDansVue(e, vue);
+				// Une image presque pleine (de 100 a 2500) : 77 en haut et 46 en bas
+				// depassent encore dedans.
+				const NkEcranDuJeu presque = NkEcranDansVue(e, nkgui::NkRect{0.f, 100.f, 1179.f, 2400.f});
+				const NkEcranDuJeu meme = NkEcranDansVue(e, e.rect);
+				Temoin(dans.marges.IsZero() && MemeRect(NkZoneSure(dans), 0.f, 946.5f, 1179.f, 663.f) &&
+						   Proche(presque.marges.top, 77.f) && Proche(presque.marges.bottom, 46.f) &&
+						   MemeRect(NkZoneSure(meme), 0.f, 177.f, 1179.f, 2277.f),
+					   "(z10) bandes : la zone sure se restreint a l'image du jeu", presque.marges.top);
+			}
+
+			// (z9)
+			{
+				const NkString dossier = (NkDirectory::GetTempDirectory() / "unkeny_banc_ecran").ToString() + "/";
+				NkDirectory::Delete(dossier.CStr(), true);
+				auto &tas = memory::NkGetDefaultAllocator();
+				NkScene *s = tas.New<NkScene>();
+				NkSceneConfig cfg;
+				cfg.physique = false;
+				s->Init(cfg);
+				s->Creer("Caisse", NkVec2f(0.f, 0.f));
+				NkTextures2D *tex = tas.New<NkTextures2D>();
+				NkDemandeCuisson d;
+				d.dossier = dossier;
+				d.nomJeu = "BancEcran";
+				d.vueLargeur = 1280.f;
+				d.vueHauteur = 720.f;
+				d.regleCamera = NkRegleCamera::NK_HAUTEUR_FIXE;
+				NkRapportCuisson rapport;
+				const bool cuit = NkCuireJeu(*s, *tex, d, rapport);
+				NkScene *t = tas.New<NkScene>();
+				NkTextures2D *tex2 = tas.New<NkTextures2D>();
+				NkJeuCharge jeu;
+				const bool relu = cuit && NkChargerJeu(dossier.CStr(), *t, *tex2, nullptr, jeu);
+				const bool regleLue = jeu.regleCamera == NkRegleCamera::NK_HAUTEUR_FIXE;
+				// Un jeu cuit AVANT le 01/10 n'a pas la cle : « tout montrer ».
+				const NkString chemin = dossier + NK_LIVRAISON_SOMMAIRE;
+				const NkString texte = NkFile::ReadAllText(chemin.CStr());
+				NkString sans;
+				usize debut = 0;
+				while (debut < texte.Length()) {
+					usize fin = texte.Find('\n', debut);
+					fin = fin == NkString::npos ? texte.Length() : fin + 1;
+					const NkString ligne(texte.SubStr(debut, fin - debut));
+					if (ligne.Find("\"camera\"") == NkString::npos) {
+						sans += ligne;
+					}
+					debut = fin;
+				}
+				NkFile::WriteAllText(chemin.CStr(), sans.CStr());
+				NkJeuCharge ancien;
+				NkScene *u = tas.New<NkScene>();
+				const bool reluAncien = NkChargerJeu(dossier.CStr(), *u, *tex2, nullptr, ancien);
+				Temoin(relu && regleLue && reluAncien && ancien.regleCamera == NkRegleCamera::NK_TOUT_MONTRER &&
+						   sans.Find("camera") == NkString::npos,
+					   "(z9) la regle est cuite et relue ; absente (ancien jeu) = tout montrer",
+					   static_cast<float32>(jeu.regleCamera));
+				tas.Delete(u);
+				tas.Delete(tex2);
+				tas.Delete(t);
+				tas.Delete(tex);
+				tas.Delete(s);
+				NkDirectory::Delete(dossier.CStr(), true);
 			}
 
 			std::printf("\n%s : %d reussis, %d echec%s\n", gE == 0 ? "BANC ECRAN REUSSI" : "BANC ECRAN EN ECHEC", gR, gE,

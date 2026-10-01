@@ -398,6 +398,17 @@ namespace nkentseu {
 								out.PushBack(Entree(kOptions[k], NK_A_OPTION_APPAREIL + k, "", etats[k]));
 							}
 						}
+						// (2026-10-01) La camera du JEU sur un autre ecran (document 03, §2.6).
+						out.PushBack(Separateur());
+						out.PushBack(Intitule("Caméra du jeu selon l'écran"));
+						{
+							static const char *kRegles[5] = {"Tout montrer", "Hauteur fixe", "Largeur fixe",
+															  "Tout montrer, avec bandes", "Remplir (rogner)"};
+							for (int32 k = 0; k < 5; ++k) {
+								out.PushBack(Entree(kRegles[k], NK_A_REGLE_CAMERA + k, "",
+													static_cast<int32>(m.appareil.regleCamera) == k));
+							}
+						}
 						break;
 					}
 					case NkMenuEditeur::NK_REGLAGES: {
@@ -1005,6 +1016,10 @@ namespace nkentseu {
 					default:
 						break;
 				}
+				return;
+			}
+			if (action >= NK_A_REGLE_CAMERA && action < NK_A_REGLE_CAMERA + static_cast<int32>(NkRegleCamera::NK_COUNT)) {
+				m.appareil.regleCamera = static_cast<NkRegleCamera>(action - NK_A_REGLE_CAMERA);
 				return;
 			}
 			if (action >= NK_A_ORIENTATION && action < NK_A_ORIENTATION + static_cast<int32>(NkOrientation::NK_COUNT)) {

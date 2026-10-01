@@ -543,6 +543,7 @@ namespace nkentseu {
 			LigneI(t, "decoupe", r.voirDecoupe ? 1 : 0);
 			LigneI(t, "cadreClair", r.cadreClair ? 1 : 0);
 			LigneI(t, "apercuJeu", r.apercuJeu ? 1 : 0);
+			Ligne(t, "camera", NkString(unkeny::NkNomRegleCamera(r.regleCamera)));
 			const NkProfilAppareil &p = r.perso;
 			LigneI(t, "perso.base", r.persoBase);
 			LigneI(t, "perso.systeme", static_cast<int32>(p.systeme));
@@ -639,6 +640,8 @@ namespace nkentseu {
 					r.cadreClair = oui;
 				} else if (c == NkString("apercuJeu")) {
 					r.apercuJeu = oui;
+				} else if (c == NkString("camera")) {
+					(void)unkeny::NkRegleCameraDepuisNom(v.CStr(), r.regleCamera);
 				} else if (c == NkString("perso.systeme")) {
 					if (e >= 0 && e < static_cast<int32>(NkSystemeAppareil::NK_COUNT)) {
 						p.systeme = static_cast<NkSystemeAppareil>(e);

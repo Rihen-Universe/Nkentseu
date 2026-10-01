@@ -133,6 +133,13 @@ namespace nkentseu {
 			ctx.SameLine();
 			nkgui::Checkbox(ctx, "découpe", m.appareil.voirDecoupe);
 			nkgui::Checkbox(ctx, "aperçu de la caméra du jeu", m.appareil.apercuJeu);
+			{
+				static const char *kRegles[5] = {"tout", "hauteur", "largeur", "bandes", "remplir"};
+				int32 regle = static_cast<int32>(m.appareil.regleCamera);
+				if (Choix(ctx, "caméra du jeu", kRegles, 5, regle)) {
+					m.appareil.regleCamera = static_cast<unkeny::NkRegleCamera>(regle);
+				}
+			}
 			nkgui::Text(ctx, NkString::Format("zone sûre (pt)  h:%.0f b:%.0f g:%.0f d:%.0f", pa.zoneSure.top,
 											  pa.zoneSure.bottom, pa.zoneSure.left, pa.zoneSure.right)
 								 .CStr());

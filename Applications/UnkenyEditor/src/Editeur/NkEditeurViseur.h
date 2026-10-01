@@ -49,6 +49,13 @@ namespace nkentseu {
 		/// dans m.scene (NkScene::PoserEcran). Le bureau : le viseur, sans marge.
 		void NkEditeurPoserEcranDuJeu(NkEditeurModele &m, const nkgui::NkRect &viseur, const nkgui::NkRect &appareil);
 
+		/// L'APERCU de la camera du jeu (document 03, §2.6) : dans l'ecran de
+		/// l'appareil, la scene telle que le joueur la montrerait selon la regle
+		/// du projet (NkCadrerCamera), reference = ce viseur et ce zoom. La camera
+		/// de l'editeur est rendue intacte. Rend le cadrage employe.
+		NkCadrageCamera NkEditeurDessinerApercuJeu(nkgui::NkGuiDrawList &dl, NkEditeurModele &m, const nkgui::NkRect &viseur,
+												   const nkgui::NkRect &appareil);
+
 		/// Le cadre de l'appareil simule, en vecteurs (NkEditeurCadreAppareil.cpp) :
 		/// bordure, coins, boutons, decoupe, zone sure, marge conseillee, selon
 		/// les interrupteurs de `r`. `ecran` vient de NkAireAppareil ; ce qui est
