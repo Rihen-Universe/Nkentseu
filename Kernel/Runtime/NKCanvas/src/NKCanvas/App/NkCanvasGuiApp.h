@@ -142,6 +142,21 @@ namespace nkentseu {
 					return mGuiReady && mGuiBackend.UploadImageRGBA(texId, rgba, w, h);
 				}
 
+				/// Televerse l'atlas d'une police SUPPLEMENTAIRE (chargee par
+				/// l'application) sous son `texId`.
+				///
+				/// ⚠️ AJOUTE LE 2026-10-01, POUR LE TERMINAL D'UNKENYEDITOR : il lui
+				/// faut une police a chasse fixe, et les trois polices de cette
+				/// coquille sont proportionnelles. Meme raison que TeleverserImage :
+				/// le backend est prive, et un second backend ferait un second jeu de
+				/// textures. Le `texId` doit etre DISTINCT des trois polices d'ici
+				/// (voir l'en-tete du fichier, piege n.1). Rend false avant
+				/// OnGuiInit ou si la police n'a pas d'atlas.
+				bool TeleverserPolice(const nkgui::NkGuiFont &f) noexcept {
+					return mGuiReady && f.pixels != nullptr && f.atlasW > 0 && f.atlasH > 0 &&
+						   mGuiBackend.UploadFontGray8(f.TexId(), f.pixels, f.atlasW, f.atlasH);
+				}
+
 				/// Le meme relais, en fonction LIBRE : `app` est l'application.
 				/// C'est la forme qu'attend unkeny::NkTextures2D::Brancher, qui ne
 				/// connait pas NKCanvas :
