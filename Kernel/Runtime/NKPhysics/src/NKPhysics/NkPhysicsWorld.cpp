@@ -212,8 +212,13 @@ namespace nkentseu {
 			if (mConfig.enable2D)
 				ContraindrePlan(b);
 			// Polygone ou triangle 2D : le monde en garde une COPIE (voir NkSommets2D).
-			const bool polygone = (shape.type == NkShapeType::NK_POLYGON2D || shape.type == NkShapeType::NK_TRIANGLE2D) &&
-								  shape.verts != nullptr && shape.vertCount >= 3u;
+			// (2026-10-01) La CHAINE 2D aussi : elle ne possedait pas plus ses sommets
+			// que le polygone, et un decor concave cree depuis un tampon de
+			// l'appelant (Unkeny, AjouterCorps) aurait pointe dans une pile morte.
+			const bool chaine = shape.type == NkShapeType::NK_CHAIN2D && shape.verts != nullptr && shape.vertCount >= 2u;
+			const bool polygone = ((shape.type == NkShapeType::NK_POLYGON2D || shape.type == NkShapeType::NK_TRIANGLE2D) &&
+								   shape.verts != nullptr && shape.vertCount >= 3u) ||
+								  chaine;
 			if (polygone) {
 				NkSommets2D s;
 				s.corps = b.id;
@@ -225,13 +230,24 @@ namespace nkentseu {
 					s.monde[k] = w;
 					s.local[k] = cq * (w - def.position);
 				}
-				if (def.type == NkBodyType::DYNAMIC)
+				// Une chaine n'a pas d'aire : sa masse reste celle de NkComputeMassProps.
+				if (def.type == NkBodyType::DYNAMIC && !chaine)
 					NkMassePolygone2D(s.local, s.nombre, def.material.density, def.flags, b.invMass, b.invInertiaDiag);
 				mSommets2D.PushBack(s);
 			}
 			collision::NkShape formeMonde = shape;
 			if (polygone)
 				formeMonde.verts = nullptr; // repointee juste apres, sur la copie
+			// (2026-10-01) L'angle d'une boite 2D est RELATIF au corps (le repos le
+			// garde, NkTransformShape y ajoute l'orientation). Un corps STATIQUE
+			// n'est jamais resynchronise (Step, etape 6) : son angle de MONDE est
+			// pose ici, une fois. Sans cette ligne, une plateforme posee inclinee
+			// restait DROITE pour les corps rigides, quand les particules (qui
+			// passent par NkTransformShape) la voyaient inclinee. Angle nul : rien
+			// ne change, au bit pres.
+			if (def.type == NkBodyType::STATIC && shape.type == NkShapeType::NK_BOX2D &&
+				(def.orientation.z != 0.f || def.orientation.x != 0.f || def.orientation.y != 0.f))
+				formeMonde.rotation = shape.rotation + 2.f * nkentseu::math::NkAtan2(def.orientation.z, def.orientation.w);
 			b.collisionId = mCollision.AddBody(formeMonde, def.layer, def.mask, def.user);
 			if (def.flags & NK_BODY_TRIGGER)
 				mCollision.SetTrigger(b.collisionId, true);
