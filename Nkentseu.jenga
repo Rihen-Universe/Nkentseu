@@ -1770,6 +1770,14 @@ with workspace("Nkentseu", location="."):
     # COMPILATION tant qu aucune implementation n existe (voir NkProfiler.h).
     with include("Applications/NkFilMoteurProbe/NkFilMoteurProbe.jenga"):
         pass
+    # LE PREMIER RESULTAT DE NOGE (2026-09-30) : une scene 3D (sol, cube pousse,
+    # balle qui tombe, camera, soleil) jouee par le VRAI chemin du moteur --
+    # NkApplication + NkEngineLayer, les ponts physique et rendu, la carte
+    # d'entree du noyau (NkInputMap) -- sauvee et rechargee par NkSceneSerializer.
+    # `--selftest` (banc sans fenetre) et `--capture=` (pixels verifies).
+    # Voir Engine/Noge/ETAT_2026-09-30.md.
+    with include("Applications/NogeDemo/NogeDemo.jenga"):
+        pass
 
 
 
